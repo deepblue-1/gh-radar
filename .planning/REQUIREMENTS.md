@@ -83,35 +83,35 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DSGN-01 | - | Pending |
-| DSGN-02 | - | Pending |
-| DSGN-03 | - | Pending |
-| DSGN-04 | - | Pending |
-| DSGN-05 | - | Pending |
-| SCAN-01 | - | Pending |
-| SCAN-02 | - | Pending |
-| SCAN-03 | - | Pending |
-| SCAN-04 | - | Pending |
-| SCAN-05 | - | Pending |
-| SCAN-06 | - | Pending |
-| SCAN-07 | - | Pending |
-| SRCH-01 | - | Pending |
-| SRCH-02 | - | Pending |
-| SRCH-03 | - | Pending |
-| NEWS-01 | - | Pending |
-| NEWS-02 | - | Pending |
-| DISC-01 | - | Pending |
-| DISC-02 | - | Pending |
-| INFR-01 | - | Pending |
-| INFR-02 | - | Pending |
-| INFR-03 | - | Pending |
-| INFR-04 | - | Pending |
+| INFR-01 | Phase 1 | Pending |
+| INFR-02 | Phase 1 | Pending |
+| INFR-03 | Phase 2 | Pending |
+| DSGN-01 | Phase 3 | Pending |
+| DSGN-02 | Phase 3 | Pending |
+| DSGN-03 | Phase 3 | Pending |
+| DSGN-04 | Phase 3 | Pending |
+| DSGN-05 | Phase 3 | Pending |
+| INFR-04 | Phase 4 | Pending |
+| SCAN-01 | Phase 5 | Pending |
+| SCAN-02 | Phase 5 | Pending |
+| SCAN-03 | Phase 5 | Pending |
+| SCAN-04 | Phase 5 | Pending |
+| SCAN-05 | Phase 5 | Pending |
+| SCAN-06 | Phase 5 | Pending |
+| SCAN-07 | Phase 5 | Pending |
+| SRCH-01 | Phase 6 | Pending |
+| SRCH-02 | Phase 6 | Pending |
+| SRCH-03 | Phase 6 | Pending |
+| NEWS-01 | Phase 7 | Pending |
+| DISC-01 | Phase 8 | Pending |
+| NEWS-02 | Phase 9 | Pending |
+| DISC-02 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23 ⚠️
+- Mapped to phases: 23
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-04-10 after initial definition*
+*Last updated: 2026-04-10 after roadmap creation — all 23 requirements mapped*

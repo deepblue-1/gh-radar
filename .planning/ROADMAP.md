@@ -1,0 +1,147 @@
+# Roadmap: gh-radar
+
+## Overview
+
+한국 주식 트레이더를 위한 실시간 종목 정보 웹앱을 처음부터 배포까지 구축한다. 데이터 수집 기반(KIS API + Supabase)을 먼저 세우고, Express 백엔드 API를 구축한 뒤, 디자인 시스템으로 프론트엔드 일관성을 확보한다. 이후 스캐너 UI → 검색/종목 상세 → 뉴스 파이프라인 → 토론방 스크래핑 → AI 요약 순서로 기능을 쌓아 최종적으로 트레이더가 급등 종목을 포착하고 시장 심리를 AI 요약으로 즉시 파악할 수 있는 제품을 완성한다.
+
+## Phases
+
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+Decimal phases appear between their surrounding integers in numeric order.
+
+- [ ] **Phase 1: Data Foundation** - KIS OpenAPI 연동 + Supabase 스키마 구축
+- [ ] **Phase 2: Backend API** - Express API 서버 구축 및 Cloud Run 배포
+- [ ] **Phase 3: Design System** - 디자인 토큰, 컴포넌트 라이브러리, 테마
+- [ ] **Phase 4: Frontend Scaffold** - Next.js 앱 구축 및 Vercel 배포
+- [ ] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
+- [ ] **Phase 6: Stock Search & Detail** - 종목 검색 자동완성 + 상세 페이지
+- [ ] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
+- [ ] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
+- [ ] **Phase 9: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
+
+## Phase Details
+
+### Phase 1: Data Foundation
+**Goal**: KIS OpenAPI에서 실시간 시세 데이터를 가져와 Supabase에 저장하는 기반 레이어가 작동한다
+**Depends on**: Nothing (first phase)
+**Requirements**: INFR-01, INFR-02
+**Success Criteria** (what must be TRUE):
+  1. KIS OpenAPI 인증 토큰을 발급받아 등락률 순위 REST 엔드포인트를 성공적으로 호출할 수 있다
+  2. Supabase에 stocks, news_articles, discussions, summaries 테이블이 생성되어 있다
+  3. Ingestion Worker가 KIS API로부터 종목 시세 데이터를 읽어 stocks 테이블에 upsert한다
+  4. 15 req/sec 이하의 속도 제한 로직이 적용되어 EGW00201 에러 없이 안정적으로 폴링한다
+**Plans**: TBD
+
+### Phase 2: Backend API
+**Goal**: 프론트엔드가 소비할 수 있는 Express REST API가 Cloud Run에 배포되어 운영된다
+**Depends on**: Phase 1
+**Requirements**: INFR-03
+**Success Criteria** (what must be TRUE):
+  1. Express 앱이 Cloud Run에 배포되어 공개 URL로 접근 가능하다
+  2. min-instances=1 설정으로 cold start 없이 API 요청에 응답한다
+  3. `/api/scanner` 엔드포인트가 Supabase에서 종목 시세 데이터를 읽어 JSON으로 반환한다
+  4. `/api/stocks/:code` 엔드포인트가 개별 종목 정보를 반환한다
+**Plans**: TBD
+
+### Phase 3: Design System
+**Goal**: 모든 프론트엔드 UI가 공통으로 사용할 디자인 토큰, 컴포넌트, 레이아웃 템플릿이 정의되어 있다
+**Depends on**: Nothing (can run in parallel with Phase 1-2)
+**Requirements**: DSGN-01, DSGN-02, DSGN-03, DSGN-04, DSGN-05
+**Success Criteria** (what must be TRUE):
+  1. CSS 변수로 컬러 팔레트, 타이포그래피, 스페이싱 토큰이 정의되어 있어 하드코딩된 색상값이 없다
+  2. 버튼 클릭 또는 시스템 설정에 따라 Light/Dark 테마가 전환되며 모든 컴포넌트에 반영된다
+  3. Button, Card, Table, Badge, Input 등 공통 컴포넌트가 shadcn/ui 기반으로 커스터마이징되어 있다
+  4. 네비게이션, 사이드바, 콘텐츠 영역을 포함한 페이지 레이아웃 템플릿이 존재한다
+  5. HTML 카탈로그 문서를 브라우저로 열면 모든 토큰, 컴포넌트, 레이아웃을 시각적으로 확인할 수 있다
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 4: Frontend Scaffold
+**Goal**: Next.js 앱이 Vercel에 배포되어 접근 가능하며, 디자인 시스템을 기반으로 기본 레이아웃이 작동한다
+**Depends on**: Phase 3
+**Requirements**: INFR-04
+**Success Criteria** (what must be TRUE):
+  1. Next.js 앱이 Vercel 배포 URL로 접근 가능하다
+  2. 디자인 시스템의 CSS 변수와 shadcn/ui 컴포넌트가 앱에 임포트되어 정상 작동한다
+  3. Phase 3에서 정의한 레이아웃 템플릿(네비게이션 포함)이 적용된 기본 페이지가 표시된다
+  4. Light/Dark 테마 전환이 앱에서 작동한다
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 5: Scanner UI
+**Goal**: 트레이더가 상한가 근접 종목을 실시간으로 확인하고 임계값을 조절할 수 있는 스캐너 화면이 완성된다
+**Depends on**: Phase 2, Phase 4
+**Requirements**: SCAN-01, SCAN-02, SCAN-03, SCAN-04, SCAN-05, SCAN-06, SCAN-07
+**Success Criteria** (what must be TRUE):
+  1. 스캐너 페이지에 코스피/코스닥 전 종목의 현재가, 등락률, 거래량이 목록으로 표시된다
+  2. 임계값 슬라이더(10~29%, 기본 25%)를 조작하면 기준값 이상의 등락률 종목만 필터링되어 표시된다
+  3. 각 종목 행에 코스피/코스닥 구분 마켓 배지가 표시된다
+  4. 화면에 마지막 데이터 갱신 시각이 표시된다
+  5. 데이터가 1분 간격으로 자동 갱신되어 최신 등락률이 반영된다
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 6: Stock Search & Detail
+**Goal**: 트레이더가 종목명 또는 코드로 종목을 검색하고 해당 종목의 상세 정보를 볼 수 있다
+**Depends on**: Phase 2, Phase 4
+**Requirements**: SRCH-01, SRCH-02, SRCH-03
+**Success Criteria** (what must be TRUE):
+  1. 검색창에 종목명 또는 종목코드를 입력하면 자동완성 드롭다운이 나타난다
+  2. 드롭다운에서 종목을 선택하면 해당 종목 상세 페이지로 이동한다
+  3. 종목 상세 페이지에 현재가, 등락률, 거래량 등 상세 정보가 표시된다
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 7: News Ingestion
+**Goal**: 특정 종목과 관련된 최신 뉴스를 Naver Search API로 수집하여 종목 상세 페이지에 표시한다
+**Depends on**: Phase 2, Phase 6
+**Requirements**: NEWS-01
+**Success Criteria** (what must be TRUE):
+  1. 종목 상세 페이지에서 해당 종목 관련 뉴스 목록이 표시된다
+  2. 뉴스 항목에 제목, 출처, 날짜가 표시되며 원문 링크가 작동한다
+  3. Naver Search API 25,000 calls/day 한도 내에서 뉴스가 수집된다
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 8: Discussion Board
+**Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
+**Depends on**: Phase 2, Phase 6
+**Requirements**: DISC-01
+**Success Criteria** (what must be TRUE):
+  1. 종목 상세 페이지에서 해당 종목의 네이버 토론방 게시글 목록이 표시된다
+  2. 데이터는 on-demand로 요청되며 5~10분 캐싱으로 불필요한 스크래핑이 방지된다
+  3. 스크래핑 결과가 discussions 테이블에 저장된다
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 9: AI Summarization
+**Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
+**Depends on**: Phase 7, Phase 8
+**Requirements**: NEWS-02, DISC-02
+**Success Criteria** (what must be TRUE):
+  1. 종목 상세 페이지의 뉴스 섹션에 Claude Haiku가 생성한 뉴스 요약이 표시된다
+  2. 종목 상세 페이지의 토론방 섹션에 요약과 함께 긍정/부정/중립 센티먼트 비율이 표시된다
+  3. 동일한 content-hash를 가진 데이터는 Claude API를 재호출하지 않고 캐시된 요약을 반환한다
+  4. Claude API 호출당 input 3,000 토큰 이하, max_tokens=250 제한이 적용된다
+**Plans**: TBD
+**UI hint**: yes
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Data Foundation | 0/TBD | Not started | - |
+| 2. Backend API | 0/TBD | Not started | - |
+| 3. Design System | 0/TBD | Not started | - |
+| 4. Frontend Scaffold | 0/TBD | Not started | - |
+| 5. Scanner UI | 0/TBD | Not started | - |
+| 6. Stock Search & Detail | 0/TBD | Not started | - |
+| 7. News Ingestion | 0/TBD | Not started | - |
+| 8. Discussion Board | 0/TBD | Not started | - |
+| 9. AI Summarization | 0/TBD | Not started | - |
