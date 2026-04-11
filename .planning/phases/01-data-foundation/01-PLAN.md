@@ -235,7 +235,8 @@ workers/ingestion/
 │   ├── services/
 │   │   └── supabase.ts         # service_role 싱글턴 (weekly-wine-bot/server/src/services/supabase.ts 패턴 복사)
 │   ├── kis/
-│   │   ├── client.ts           # Axios 인스턴스, base URL 스위칭, OAuth 헤더 주입
+│   │   ├── client.ts           # Axios 인스턴스, base URL 스위칭, OAuth 헤더 주입, readOnlyGuard 체인 적용
+│   │   ├── readOnlyGuard.ts    # ⚠️ 실계좌 안전장치: 시세 조회 path 화이트리스트 외 요청은 즉시 throw
 │   │   ├── tokenStore.ts       # kis_tokens 행 읽기/쓰기, 만료 5분 전이면 재사용
 │   │   ├── ranking.ts          # fetchRanking(market: 'KOSPI' | 'KOSDAQ'): Promise<KisRankingRow[]>
 │   │   ├── rateLimiter.ts      # 인프로세스 토큰 버킷, 15 req/sec 상한
@@ -285,11 +286,28 @@ main();
 
 **준수 결정:** D-09 (Cloud Run Job, Express와 분리), D-10 (Scheduler cron 1분 간격은 추후), D-11 (BullMQ/Redis 미사용), D-12 (bsop_date 기반 휴장일 감지, 외부 캘린더 사용 안 함), D-14 (지수 백오프 1→2→4, 최대 3회), D-15 (멱등 upsert), D-20 (service_role 싱글턴).
 
+**⚠️ 실계좌 사용 — 추가 안전장치 (코드 레벨 강제):**
+
+사용자는 KIS **실계좌**(계좌번호 `44381356-01`)로 진행을 결정했습니다. 등락률 순위를 포함한 시세 API가 실계좌에서 가장 안정적이기 때문입니다. 그러나 같은 App Key/Secret으로 주문/거래 API도 호출이 가능하므로, 본 워커가 실수든 코드 변경이든 미래의 회귀든 어떤 경로로도 거래 엔드포인트를 못 부르도록 코드 레벨에서 차단합니다.
+
+1. **읽기 전용 path 화이트리스트 (`src/kis/readOnlyGuard.ts`).** 모든 KIS HTTP 요청은 axios interceptor를 통과하며 path가 화이트리스트와 매칭되지 않으면 `KisForbiddenPathError`를 throw합니다.
+   - 허용 prefix (Phase 1):
+     - `/uapi/domestic-stock/v1/ranking/` — 등락률/거래량 순위
+     - `/uapi/domestic-stock/v1/quotations/` — 시세조회 (필요 시)
+     - `/oauth2/tokenP` — 토큰 발급
+   - 명시 차단 prefix (defense in depth):
+     - `/uapi/domestic-stock/v1/trading/` — 주식 주문
+     - `/uapi/domestic-stock/v1/order-cash` 등 모든 `order` 포함 path
+2. **계좌 정보 환경변수 분리.** `KIS_ACCOUNT_NUMBER=44381356-01`을 받아 `config.ts`에서 `CANO=44381356`, `ACNT_PRDT_CD=01`로 자동 파싱. 일부 KIS REST 헤더가 요구하는 형식에 맞춤.
+3. **로그 redact.** `pino` 로거에 redact 패스 추가: `req.headers.authorization`, `req.headers.appkey`, `req.headers.appsecret`, `*.access_token`, `*.refresh_token`, `*.cano`, `*.acnt_prdt_cd`. 로그에 시크릿이나 계좌번호가 평문으로 남지 않도록 강제.
+4. **유닛 테스트 강제.** `tests/readOnlyGuard.test.ts` 추가: 허용된 path는 통과, 거래 path는 throw, 알 수 없는 path는 throw를 검증. CI 단계에서 회귀를 잡음.
+
 **Claude's Discretion 해결:**
-- **로거:** `pino` JSON 포맷 (Cloud Logging이 severity를 자동 파싱)
+- **로거:** `pino` JSON 포맷 (Cloud Logging이 severity를 자동 파싱) + 위 redact 설정
 - **환경변수 관리:** 개발은 `.env` via `dotenv/config` (weekly-wine-bot server의 `tsx watch -r dotenv/config` 패턴 미러). Cloud Run Job은 `--set-env-vars` + `--set-secrets`로 Secret Manager에서 `KIS_APP_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` 주입
 - **베이스 이미지:** `node:20-alpine`, 멀티스테이지 (builder → prod). weekly-wine-bot/server/Dockerfile 미러
 - **테스팅:** Vitest 선택 (Jest보다 빠르고 TS/ESM 네이티브). Phase 1은 유닛 테스트만 작성. 통합 테스트는 실증 테스트 스크립트 자체가 대체
+- **Node 버전:** `.nvmrc`는 사용자 머신 기준 `22` (Node 22 LTS, Node 20과 ABI 호환). 베이스 이미지는 `node:20-alpine` 그대로 — Cloud Run Job은 컨테이너 안에서 20을 사용하면 충분하고 alpine 22 이미지가 아직 모든 native 모듈에 안정적이지 않음.
 
 ### D5 — Cloud Run Job 배포 준비 (실배포 없음)
 
@@ -306,7 +324,7 @@ main();
 
 **스크립트:** `workers/ingestion/scripts/empirical-test.ts`
 
-**실행 시점:** 비거래일 — 오늘은 **금요일 2026-04-10**이므로 이번 주말(**2026-04-11 토** 또는 **2026-04-12 일**)에 실행 가능. 거래일 실행도 비교용으로 유효하지만 D-13 충족에는 휴장일 실행이 필수.
+**실행 시점:** 비거래일 — 오늘은 **토요일 2026-04-11**로 휴장 중. 지금 또는 내일(2026-04-12 일)에 휴장일 샘플을 캡처하고, 다음 거래일(2026-04-13 월) 장 시간에 거래일 샘플을 한 번 더 캡처해 두 응답을 비교한다.
 
 **동작:**
 1. KIS 토큰 발급
@@ -334,24 +352,25 @@ main();
 6. **`workers/ingestion` 스캐폴드** — `package.json`, `tsconfig.json`, `vitest.config.ts`, `.env.example`, 빈 `src/index.ts`
 7. **Config + logger + Supabase 클라이언트** — `config.ts`, `logger.ts`, `services/supabase.ts`
 8. **KIS 실증 테스트 스크립트** — `scripts/empirical-test.ts`. **일시정지: 사용자가 주말에 실행한 뒤 `kis-empirical-notes.md`와 마스킹 샘플 커밋**
-9. **KIS 클라이언트 + 토큰 스토어** — `kis/client.ts`, `kis/tokenStore.ts` (5분 TTL 남으면 재사용, 아니면 재발급 + upsert)
-10. **Rate limiter** — `kis/rateLimiter.ts` (인프로세스 토큰 버킷, 15 req/sec)
-11. **등락률 순위 호출** — `kis/ranking.ts`, 실증 TR ID와 필드 매핑 사용
-12. **Retry + errors** — `retry.ts`, `errors.ts` (지수 백오프 1→2→4, 최대 3회)
-13. **파이프라인 map + upsert** — `pipeline/map.ts` (순수), `pipeline/upsert.ts`, `pipeline/run.ts`
-14. **홀리데이 가드** — `holidayGuard.ts`, 실증 결과 기반 `bsop_date` 체크
-15. **메인 엔트리 와이어링** — `src/index.ts`에서 전체 사이클 오케스트레이션
-16. **유닛 테스트** — `map.test.ts`, `retry.test.ts`, `rateLimiter.test.ts`, `holidayGuard.test.ts`
-17. **로컬 실행 스모크 테스트** — `pnpm -F @gh-radar/ingestion dev`, Supabase `stocks`가 채워지는지 확인 (등락률 순위 엔드포인트 응답 크기에 따라 100~200행 예상. 전 종목 커버는 필요 시 Phase 1.1)
-18. **Dockerfile + .dockerignore** — 멀티스테이지, 로컬 `docker build`, `--env-file .env`로 실행 확인
-19. **DEPLOY.md** — Cloud Run Job용 gcloud 명령 (자동 실행 없음)
-20. **README.md** — 최상위 프로젝트 개요, 아키텍처, 셋업, 워크스페이스 명령, 환경변수 체크리스트
-21. **STATE.md 업데이트** — Phase 1 Success Criteria 체크
+9. **읽기 전용 가드** — `kis/readOnlyGuard.ts` + `tests/readOnlyGuard.test.ts`. **이 단계가 KIS 클라이언트보다 먼저** — 실계좌 안전장치를 가장 먼저 박아 클라이언트가 처음 작성될 때부터 가드를 통과
+10. **KIS 클라이언트 + 토큰 스토어** — `kis/client.ts` (axios interceptor에 readOnlyGuard 체인), `kis/tokenStore.ts` (5분 TTL 남으면 재사용, 아니면 재발급 + upsert)
+11. **Rate limiter** — `kis/rateLimiter.ts` (인프로세스 토큰 버킷, 15 req/sec)
+12. **등락률 순위 호출** — `kis/ranking.ts`, 실증 TR ID와 필드 매핑 사용
+13. **Retry + errors** — `retry.ts`, `errors.ts` (지수 백오프 1→2→4, 최대 3회)
+14. **파이프라인 map + upsert** — `pipeline/map.ts` (순수), `pipeline/upsert.ts`, `pipeline/run.ts`
+15. **홀리데이 가드** — `holidayGuard.ts`, 실증 결과 기반 `bsop_date` 체크
+16. **메인 엔트리 와이어링** — `src/index.ts`에서 전체 사이클 오케스트레이션
+17. **유닛 테스트** — `map.test.ts`, `retry.test.ts`, `rateLimiter.test.ts`, `holidayGuard.test.ts` (readOnlyGuard 테스트는 9단계에서 이미 작성됨)
+18. **로컬 실행 스모크 테스트** — `pnpm -F @gh-radar/ingestion dev`, Supabase `stocks`가 채워지는지 확인 (등락률 순위 엔드포인트 응답 크기에 따라 100~200행 예상. 전 종목 커버는 필요 시 Phase 1.1)
+19. **Dockerfile + .dockerignore** — 멀티스테이지, 로컬 `docker build`, `--env-file .env`로 실행 확인
+20. **DEPLOY.md** — Cloud Run Job용 gcloud 명령 (자동 실행 없음)
+21. **README.md** — 최상위 프로젝트 개요, 아키텍처, 셋업, 워크스페이스 명령, 환경변수 체크리스트
+22. **STATE.md 업데이트** — Phase 1 Success Criteria 체크
 
 **일시정지 지점** (Claude는 멈추고 사용자 대기):
-- 8단계 이후: 실증 테스트는 실계정 + 주말 타이밍이 필요해 사용자가 실행
-- 5단계 이전: Supabase 프로젝트가 존재해야 함 (선행 조건)
-- 17단계 이전: `KIS_APP_KEY` / `KIS_APP_SECRET`이 `.env`에 있어야 함
+- 5단계 이전: Supabase 프로젝트가 존재해야 함 ✅ 이미 확보 (`ivdbzxgaapbmrxreyuht`)
+- 8단계 이후: 실증 테스트는 사용자 머신에서 실행. 휴장일 샘플은 오늘(토 2026-04-11) 또는 내일 가능, 거래일 샘플은 다음 월요일(2026-04-13) 장 시간(09:00~15:30 KST)에 캡처
+- 18단계 이전: `KIS_APP_KEY` / `KIS_APP_SECRET`이 `workers/ingestion/.env`에 있어야 함 ✅ 이미 작성됨
 
 ---
 
@@ -446,16 +465,24 @@ pnpm dev
 ```bash
 pnpm -F @gh-radar/ingestion test
 ```
-**기대:** `map.test.ts`, `retry.test.ts`, `rateLimiter.test.ts`, `holidayGuard.test.ts` 전부 녹색.
+**기대:** `map.test.ts`, `retry.test.ts`, `rateLimiter.test.ts`, `holidayGuard.test.ts`, `readOnlyGuard.test.ts` 전부 녹색.
 
-### V10 — Docker 이미지 빌드 + 실행
+### V10 — 읽기 전용 가드 회귀 테스트 (실계좌 안전장치)
+```bash
+pnpm -F @gh-radar/ingestion test -- readOnlyGuard
+```
+**기대:** 거래 path (`/uapi/domestic-stock/v1/trading/order-cash` 등)로 요청 시 `KisForbiddenPathError` throw, 시세 path는 통과. `axios.create` mock으로 검증.
+
+추가 수동 검증: 임시 코드로 `await client.post('/uapi/domestic-stock/v1/trading/order-cash', {})`를 호출 시도 → 즉시 throw가 떨어지는지 1회 확인 후 코드 제거.
+
+### V11 — Docker 이미지 빌드 + 실행
 ```bash
 docker build -t gh-radar-ingestion:local -f workers/ingestion/Dockerfile .
 docker run --rm --env-file workers/ingestion/.env gh-radar-ingestion:local
 ```
 **기대:** 이미지 ≤ 250 MB. 컨테이너가 1사이클 실행 후 exit 0. Supabase `stocks.updated_at` 갱신.
 
-### V11 — Success Criteria 4개 전부 TRUE
+### V12 — Success Criteria 4개 전부 TRUE
 각 기준을 증거와 매핑:
 
 | # | 기준 | 증거 |
@@ -469,8 +496,8 @@ docker run --rm --env-file workers/ingestion/.env gh-radar-ingestion:local
 
 ## 열린 가정 (Claude's Discretion, 가시성 위해 명시)
 
-1. **KIS 환경.** Phase 1 기본은 **모의투자 base URL** (`https://openapivts.koreainvestment.com:29443`). D-13 실증 테스트는 실계좌 데이터가 필요 없음. 만약 등락률 순위가 paper-only 제한이면 prod로 전환 (1줄 `KIS_BASE_URL` 변경).
-2. **등락률 순위 TR ID.** 리서치 파일에는 정확한 TR ID가 없음 — 실증 테스트(8단계) 후 확정. `kis/ranking.ts` 구현을 11단계로 미뤄 이 순서를 보장.
+1. **KIS 환경 — 실계좌 확정.** 사용자가 실계좌(계좌번호 `44381356-01`)로 진행을 결정. `KIS_BASE_URL=https://openapi.koreainvestment.com:9443` (실거래). 시세 API의 안정성을 위한 선택이며, 대신 실계좌 위험은 코드 레벨 안전장치(`readOnlyGuard.ts` 화이트리스트, 로그 redact, 회귀 테스트)로 차단. 모의투자 fallback이 필요해지면 `KIS_BASE_URL`을 `https://openapivts.koreainvestment.com:29443`로 1줄 변경.
+2. **등락률 순위 TR ID.** 리서치 파일에는 정확한 TR ID가 없음 — 실증 테스트(8단계) 후 확정. `kis/ranking.ts` 구현을 12단계로 미뤄 이 순서를 보장.
 3. **Vitest 도입.** weekly-wine-bot에는 테스트가 없지만, 본 계획은 파이프라인 map 함수와 휴장일 가드 로직 같은 순수 함수/엣지케이스 코드를 유닛 테스트로 저렴하게 커버하기 위해 Phase 1부터 Vitest를 도입. 새 컨벤션을 여기서 확립.
 4. **Cloud Run 실배포 없음.** Phase 1은 `docker build` + `DEPLOY.md`까지. `gcloud run jobs deploy`와 `gcloud scheduler jobs create` 실행은 Express 서버가 합류하는 Phase 2로 연기.
 5. **전 종목 vs 상위 N개.** 등락률 순위 엔드포인트는 보통 마켓당 상위 ~100개만 반환 (전체 ~2,700 종목이 아님). Phase 1은 상위 N개로 출시. 전 종목 커버리지가 Scanner에 실제로 필요한지 확인 후 필요하면 Phase 1.1로 처리.

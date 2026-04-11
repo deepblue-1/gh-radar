@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code / GSD workspace settings (machine-local)
+.claude/
+
+# Supabase local
+supabase/.temp/
+supabase/.branches/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Misc
+*.local
