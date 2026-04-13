@@ -238,14 +238,15 @@ workers/ingestion/
 │   │   ├── client.ts           # Axios 인스턴스, base URL 스위칭, OAuth 헤더 주입, readOnlyGuard 체인 적용
 │   │   ├── readOnlyGuard.ts    # ⚠️ 실계좌 안전장치: 시세 조회 path 화이트리스트 외 요청은 즉시 throw
 │   │   ├── tokenStore.ts       # kis_tokens 행 읽기/쓰기, 만료 5분 전이면 재사용
-│   │   ├── ranking.ts          # fetchRanking(market: 'KOSPI' | 'KOSDAQ'): Promise<KisRankingRow[]>
+│   │   ├── ranking.ts          # fetchRanking(market: 'KOSPI' | 'KOSDAQ'): 마켓코드 J/NX 매핑, TR ID FHPST01700000
+│   │   ├── inquirePrice.ts     # ⭐ 신규: 개별 종목 현재가 조회 (TR ID FHKST01010100) — 상한가/하한가/시가/시가총액 보충
 │   │   ├── rateLimiter.ts      # 인프로세스 토큰 버킷, 15 req/sec 상한
 │   │   └── types.ts            # @gh-radar/shared kis 타입 re-export + 내부 리퀘스트 빌더
 │   ├── pipeline/
-│   │   ├── map.ts              # KisRankingRow → Stock (순수 함수, 유닛 테스트 대상)
+│   │   ├── map.ts              # KisRankingRow + KisInquirePriceRow → Stock (순수 함수, 유닛 테스트 대상)
 │   │   ├── upsert.ts           # stocks 테이블 배치 upsert
-│   │   └── run.ts              # 전체 오케스트레이션: 토큰 → KOSPI 조회 → KOSDAQ 조회 → map → upsert
-│   ├── holidayGuard.ts         # 첫 응답 행의 bsop_date 읽기; 오늘(KST)과 다르면 exit 0
+│   │   └── run.ts              # 전체 오케스트레이션: 토큰 → 순위(KOSPI+KOSDAQ) → 개별 시세 보충 → map → upsert
+│   ├── holidayGuard.ts         # ⭐ 수정: acml_hgpr_date 기반 (bsop_date는 순위 API에 없음). 오늘(KST YYYYMMDD)과 다르면 exit 0
 │   ├── retry.ts                # 지수 백오프 1초→2초→4초, 최대 3회. EGW00201은 rate limit 카운팅용으로 그대로 throw
 │   └── errors.ts               # 커스텀 에러 (KisRateLimitError, KisAuthError, HolidayError)
 ├── scripts/
@@ -268,12 +269,21 @@ async function main() {
     const cfg = loadConfig();
     const sb = getSupabase();
     const token = await getKisToken(sb, cfg);
-    const rows = await fetchAllRanking(token, cfg);      // KOSPI + KOSDAQ
-    if (isHoliday(rows, getKstDate())) {
+
+    // 1) 등락률 순위: KOSPI(J) + KOSDAQ(NX) 각 30행
+    const rankingRows = await fetchAllRanking(token, cfg);
+
+    // 2) 휴장일 감지: acml_hgpr_date !== 오늘(KST YYYYMMDD)이면 exit 0
+    if (isHoliday(rankingRows, getKstDate())) {
       log.info('non-trading day detected, exiting');
       return;
     }
-    const stocks = rows.map(toStock);
+
+    // 3) 개별 종목 현재가 조회 → 상한가/하한가/시가/시가총액 보충
+    const enriched = await enrichWithPrice(token, cfg, rankingRows);
+
+    // 4) map + upsert
+    const stocks = enriched.map(toStock);
     const { count } = await upsertStocks(sb, stocks);
     log.info({ upserted: count }, 'cycle complete');
   } catch (err) {
@@ -284,7 +294,7 @@ async function main() {
 main();
 ```
 
-**준수 결정:** D-09 (Cloud Run Job, Express와 분리), D-10 (Scheduler cron 1분 간격은 추후), D-11 (BullMQ/Redis 미사용), D-12 (bsop_date 기반 휴장일 감지, 외부 캘린더 사용 안 함), D-14 (지수 백오프 1→2→4, 최대 3회), D-15 (멱등 upsert), D-20 (service_role 싱글턴).
+**준수 결정:** D-09 (Cloud Run Job, Express와 분리), D-10 (Scheduler cron 1분 간격은 추후), D-11 (BullMQ/Redis 미사용), D-12 (acml_hgpr_date 기반 휴장일 감지로 수정 — bsop_date는 순위 API에 없음이 실증으로 확인됨), D-14 (지수 백오프 1→2→4, 최대 3회), D-15 (멱등 upsert), D-20 (service_role 싱글턴).
 
 **⚠️ 실계좌 사용 — 추가 안전장치 (코드 레벨 강제):**
 
@@ -355,22 +365,23 @@ main();
 9. **읽기 전용 가드** — `kis/readOnlyGuard.ts` + `tests/readOnlyGuard.test.ts`. **이 단계가 KIS 클라이언트보다 먼저** — 실계좌 안전장치를 가장 먼저 박아 클라이언트가 처음 작성될 때부터 가드를 통과
 10. **KIS 클라이언트 + 토큰 스토어** — `kis/client.ts` (axios interceptor에 readOnlyGuard 체인), `kis/tokenStore.ts` (5분 TTL 남으면 재사용, 아니면 재발급 + upsert)
 11. **Rate limiter** — `kis/rateLimiter.ts` (인프로세스 토큰 버킷, 15 req/sec)
-12. **등락률 순위 호출** — `kis/ranking.ts`, 실증 TR ID와 필드 매핑 사용
-13. **Retry + errors** — `retry.ts`, `errors.ts` (지수 백오프 1→2→4, 최대 3회)
-14. **파이프라인 map + upsert** — `pipeline/map.ts` (순수), `pipeline/upsert.ts`, `pipeline/run.ts`
-15. **홀리데이 가드** — `holidayGuard.ts`, 실증 결과 기반 `bsop_date` 체크
-16. **메인 엔트리 와이어링** — `src/index.ts`에서 전체 사이클 오케스트레이션
-17. **유닛 테스트** — `map.test.ts`, `retry.test.ts`, `rateLimiter.test.ts`, `holidayGuard.test.ts` (readOnlyGuard 테스트는 9단계에서 이미 작성됨)
-18. **로컬 실행 스모크 테스트** — `pnpm -F @gh-radar/ingestion dev`, Supabase `stocks`가 채워지는지 확인 (등락률 순위 엔드포인트 응답 크기에 따라 100~200행 예상. 전 종목 커버는 필요 시 Phase 1.1)
-19. **Dockerfile + .dockerignore** — 멀티스테이지, 로컬 `docker build`, `--env-file .env`로 실행 확인
-20. **DEPLOY.md** — Cloud Run Job용 gcloud 명령 (자동 실행 없음)
-21. **README.md** — 최상위 프로젝트 개요, 아키텍처, 셋업, 워크스페이스 명령, 환경변수 체크리스트
-22. **STATE.md 업데이트** — Phase 1 Success Criteria 체크
+12. **등락률 순위 호출** — `kis/ranking.ts`: TR ID `FHPST01700000`, 마켓코드 `J`(KOSPI)/`NX`(KOSDAQ), 각 30행 반환
+13. **개별 시세 보충** — `kis/inquirePrice.ts`: TR ID `FHKST01010100`, 순위 결과의 종목코드로 개별 조회하여 상한가(`stck_mxpr`)/하한가(`stck_llam`)/시가(`stck_oprc`)/시가총액(`stck_avls`) 보충. rate limiter 통과하므로 60행 ÷ 15 req/sec ≈ 4초
+14. **Retry + errors** — `retry.ts`, `errors.ts` (지수 백오프 1→2→4, 최대 3회)
+15. **파이프라인 map + upsert** — `pipeline/map.ts` (순위 + 개별시세 병합 → Stock), `pipeline/upsert.ts`, `pipeline/run.ts`
+16. **홀리데이 가드** — `holidayGuard.ts`, `acml_hgpr_date` 기반 (bsop_date 대신). 오늘 KST YYYYMMDD와 비교, 불일치 시 exit 0
+17. **메인 엔트리 와이어링** — `src/index.ts`에서 전체 사이클 오케스트레이션 (순위→보충→map→upsert)
+18. **유닛 테스트** — `map.test.ts`, `retry.test.ts`, `rateLimiter.test.ts`, `holidayGuard.test.ts` (readOnlyGuard 테스트는 9단계에서 이미 작성됨)
+19. **로컬 실행 스모크 테스트** — `pnpm -F @gh-radar/ingestion dev`, Supabase `stocks`가 채워지는지 확인 (KOSPI 30 + KOSDAQ 30 = 최대 60행). upper_limit/lower_limit 필드가 채워져있는지 확인
+20. **Dockerfile + .dockerignore** — 멀티스테이지, 로컬 `docker build`, `--env-file .env`로 실행 확인
+21. **DEPLOY.md** — Cloud Run Job용 gcloud 명령 (자동 실행 없음)
+22. **README.md** — 최상위 프로젝트 개요, 아키텍처, 셋업, 워크스페이스 명령, 환경변수 체크리스트
+23. **STATE.md 업데이트** — Phase 1 Success Criteria 체크
 
 **일시정지 지점** (Claude는 멈추고 사용자 대기):
-- 5단계 이전: Supabase 프로젝트가 존재해야 함 ✅ 이미 확보 (`ivdbzxgaapbmrxreyuht`)
-- 8단계 이후: 실증 테스트는 사용자 머신에서 실행. 휴장일 샘플은 오늘(토 2026-04-11) 또는 내일 가능, 거래일 샘플은 다음 월요일(2026-04-13) 장 시간(09:00~15:30 KST)에 캡처
-- 18단계 이전: `KIS_APP_KEY` / `KIS_APP_SECRET`이 `workers/ingestion/.env`에 있어야 함 ✅ 이미 작성됨
+- ~~5단계 이전: Supabase 프로젝트~~ ✅ 완료
+- ~~8단계 이후: 실증 테스트~~ ✅ 거래일 실행 완료 (2026-04-13), 주말 실증은 추후 보완
+- ~~18단계 이전: .env~~ ✅ 이미 작성됨
 
 ---
 
@@ -497,10 +508,10 @@ docker run --rm --env-file workers/ingestion/.env gh-radar-ingestion:local
 ## 열린 가정 (Claude's Discretion, 가시성 위해 명시)
 
 1. **KIS 환경 — 실계좌 확정.** 사용자가 실계좌(계좌번호 `44381356-01`)로 진행을 결정. `KIS_BASE_URL=https://openapi.koreainvestment.com:9443` (실거래). 시세 API의 안정성을 위한 선택이며, 대신 실계좌 위험은 코드 레벨 안전장치(`readOnlyGuard.ts` 화이트리스트, 로그 redact, 회귀 테스트)로 차단. 모의투자 fallback이 필요해지면 `KIS_BASE_URL`을 `https://openapivts.koreainvestment.com:29443`로 1줄 변경.
-2. **등락률 순위 TR ID.** 리서치 파일에는 정확한 TR ID가 없음 — 실증 테스트(8단계) 후 확정. `kis/ranking.ts` 구현을 12단계로 미뤄 이 순서를 보장.
+2. **등락률 순위 TR ID — 확정.** `FHPST01700000` (실증 8단계에서 검증). 마켓코드: `J`(KOSPI), `NX`(KOSDAQ). 각 30행 반환. 상한가/하한가/시가/시가총액은 이 엔드포인트에 없으므로 `FHKST01010100` (개별 현재가)로 보충하는 2단계 파이프라인으로 변경.
 3. **Vitest 도입.** weekly-wine-bot에는 테스트가 없지만, 본 계획은 파이프라인 map 함수와 휴장일 가드 로직 같은 순수 함수/엣지케이스 코드를 유닛 테스트로 저렴하게 커버하기 위해 Phase 1부터 Vitest를 도입. 새 컨벤션을 여기서 확립.
 4. **Cloud Run 실배포 없음.** Phase 1은 `docker build` + `DEPLOY.md`까지. `gcloud run jobs deploy`와 `gcloud scheduler jobs create` 실행은 Express 서버가 합류하는 Phase 2로 연기.
-5. **전 종목 vs 상위 N개.** 등락률 순위 엔드포인트는 보통 마켓당 상위 ~100개만 반환 (전체 ~2,700 종목이 아님). Phase 1은 상위 N개로 출시. 전 종목 커버리지가 Scanner에 실제로 필요한지 확인 후 필요하면 Phase 1.1로 처리.
+5. **전 종목 vs 상위 N개 — 확정.** 실증 결과 마켓당 **30행** 반환 (예상 100보다 적음). KOSPI 30 + KOSDAQ 30 = 최대 60행. Phase 1은 이 60행으로 출시. Phase 5 Scanner가 더 넓은 커버리지를 필요로 하면 Phase 1.1에서 `fid_input_cnt_1` 파라미터 조정 또는 페이지네이션 추가.
 
 ---
 
