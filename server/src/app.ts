@@ -8,6 +8,9 @@ import { httpLogger } from "./middleware/pino-http.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { corsOptions } from "./services/cors-config.js";
+import { healthRouter } from "./routes/health.js";
+import { scannerRouter } from "./routes/scanner.js";
+import { stocksRouter } from "./routes/stocks.js";
 
 export type AppDeps = { supabase: SupabaseClient };
 
@@ -38,10 +41,10 @@ export function createApp(deps: AppDeps): Express {
   // 7) rate-limit on /api
   app.use("/api", apiRateLimiter());
 
-  // 8) 라우터는 Wave 3에서 등록. 자리 표시용 빈 블록 — 수정 시 이 주석 유지.
-  //    app.use("/api/scanner", scannerRouter);
-  //    app.use("/api/stocks", stocksRouter);
-  //    app.use("/api/health", healthRouter);
+  // 8) 라우터 결선 (Wave 3)
+  app.use("/api/health", healthRouter);
+  app.use("/api/scanner", scannerRouter);
+  app.use("/api/stocks", stocksRouter);
 
   // 9) 404 fallback
   app.use(notFoundHandler);

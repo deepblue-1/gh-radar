@@ -10,12 +10,9 @@ export function mockSupabase(state: State): SupabaseClient {
     let orderCol: string | null = null;
     let orderAsc = true;
     let limitN: number | null = null;
-    let eqCol: string | null = null;
-    let eqVal: unknown = null;
 
     const exec = () => {
       let rows = [...filtered];
-      if (eqCol) rows = rows.filter((r) => (r as any)[eqCol!] === eqVal);
       if (orderCol) {
         rows.sort((a, b) => {
           const av = Number((a as any)[orderCol!]) || 0;
@@ -30,8 +27,13 @@ export function mockSupabase(state: State): SupabaseClient {
     const builder: any = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockImplementation((col: string, val: unknown) => {
-        eqCol = col;
-        eqVal = val;
+        filtered = filtered.filter((r) => (r as any)[col] === val);
+        return builder;
+      }),
+      gte: vi.fn().mockImplementation((col: string, val: number) => {
+        filtered = filtered.filter(
+          (r) => Number((r as any)[col]) >= Number(val),
+        );
         return builder;
       }),
       or: vi.fn().mockImplementation((expr: string) => {
@@ -42,7 +44,7 @@ export function mockSupabase(state: State): SupabaseClient {
             return m ? { col: m[1], q: m[2].toLowerCase() } : null;
           })
           .filter(Boolean) as { col: string; q: string }[];
-        filtered = state.stocks.filter((r) =>
+        filtered = filtered.filter((r) =>
           patterns.some((p) =>
             String((r as any)[p.col]).toLowerCase().includes(p.q),
           ),
