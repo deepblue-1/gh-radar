@@ -67,7 +67,8 @@ Recent decisions affecting current work:
 - Phase 1: 등락률 순위에 상한가/하한가 없음 → inquirePrice(FHKST01010100) 2단계 파이프라인
 - Phase 1: 휴장일 감지 acml_hgpr_date 기반 (bsop_date 없음)
 - Phase 1: pnpm 8→10 업그레이드 (Node 22 호환)
-- Phase 1: .nvmrc=22, Docker는 node:20-alpine
+- Phase 1: .nvmrc=22, Docker도 node:22-alpine (2026-04-13 Node 22 통일; 초안은 Docker=20이었으나 로컬=Prod 일치 우선, 모든 deps pure JS라 alpine 22 리스크 없음)
+- Phase 2 준비: Node 22 LTS 기준으로 CONTEXT/RESEARCH 정렬, `package.json` engines `>=22`
 
 ### Pending Todos
 
