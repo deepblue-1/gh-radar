@@ -350,7 +350,7 @@ UI-SPEC §8.5.1 compound pattern 을 구현한다. `DensityProvider` 는 `[data-
 
 **Tasks**
 
-- [ ] `webapp/src/components/providers/density-provider.tsx` — `'use client'` 아님(프레젠테이션 레이어), context 사용 시에만 `'use client'` 분리
+- [ ] `webapp/src/components/providers/density-provider.tsx` — **파일 최상단 `'use client'` 선언 필수** (`createContext`/`useContext` 사용). 서버 컴포넌트(예: `/design` 카탈로그)에서 `<DensityProvider value="compact">` 로 감싸면 이 파일이 client 경계를 담당한다.
   - `type Density = 'compact' | 'default' | 'comfortable'`
   - `const DensityContext = createContext<Density>('default')`
   - `function DensityProvider({ value = 'default', children }: { value?: Density; children: ReactNode })` → `<div data-density={value}><DensityContext.Provider value={value}>{children}</DensityContext.Provider></div>`
@@ -394,12 +394,12 @@ CONTEXT.md D-04/D-19/D-20 에 따라 shadcn CLI 로 9 컴포넌트를 설치한 
   - (sheet 는 AppShell Drawer Plan 3.1 에서 필요하므로 함께 추가)
 - [ ] **Step 3 — 각 컴포넌트를 UI-SPEC 에 정렬** (`webapp/src/components/ui/*.tsx`)
   - **button.tsx** (§3.1) — 3 size (`sm`/`default`/`lg`, row-h 32/36/40) × 5 variant (`default`(primary)/`secondary`/`outline`/`ghost`/`destructive`). CVA variants 에서 `bg-[--primary]`, `text-[--primary-fg]` 등 토큰 클래스만 사용. `:focus-visible` 는 globals.css 전역 규칙에 위임.
-  - **card.tsx** (§3.2 + §8.5.4) — `border-radius: var(--r-lg)` (12px), 3층 box-shadow (`inset 0 1px 0 0 color-mix(in oklch, var(--fg) 6%, transparent)` + near `0 1px 2px oklch(0 0 0 / 0.04)` + far `0 4px 12px oklch(0 0 0 / 0.06)`). `card-plain` variant 추가 — shadow 제거, border 만 유지.
+  - **card.tsx** (§3.2 + §8.5.4) — `border-radius: var(--r-lg)` (12px). **box-shadow 는 UI-SPEC §8.5.4 원본값 그대로 이식**: Light `inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.04)`; Dark `inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.3)`. `card-plain` variant 추가 — shadow 제거, border 만 유지.
   - **table.tsx** (§3.3 + §8.5.3) — `row-h: var(--row-h, 36px)`, `cell pad: var(--cell-pad-y) var(--cell-pad-x)`, `tbody tr + tr > td { border-top: 1px solid var(--border-subtle); }` (hairline), thead `bg: var(--muted)`. `.num` className 헬퍼 — `text-align: right; font-variant-numeric: tabular-nums;` 유틸.
   - **badge.tsx** (§3.4) — 기본 variant 유지 + 금융 세만틱 추가: `up` (`bg-[--up-bg] text-[--up]`), `down` (`bg-[--down-bg] text-[--down]`), `flat` (`bg-[--muted] text-[--flat]`). CVA `variant` union 에 3종 추가.
   - **input.tsx** (§3.5) — size (`sm`/`default`), border `var(--input)`, focus globals 전역 규칙 사용, error state (`data-[invalid=true]:border-[--destructive]`), disabled opacity 0.5.
   - **skeleton.tsx** (§3.6) — shimmer `@keyframes skeleton-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }` + `background: linear-gradient(90deg, var(--muted), color-mix(in oklch, var(--muted) 60%, var(--bg)), var(--muted)); background-size: 200% 100%; animation: skeleton-shimmer 1.6s linear infinite;`. `@media (prefers-reduced-motion: reduce)` 에서 `animation: none; opacity: 0.7;`. 리스트 컨테이너에 `> :nth-child(1) { animation-delay: 0s } > :nth-child(2) { animation-delay: 0.1s } ...` stagger.
-  - **slider.tsx** (§3.7) — shadcn 기본에 Phase 5 SCAN-02 계약 주석 추가: `// Phase 5 SCAN-02: min=10, max=29, step=1, defaultValue=[25]`. `.slider-val` className 으로 값 표시 시 `font-family: var(--font-mono); font-variant-numeric: tabular-nums;` — UI-SPEC §3.7.
+  - **slider.tsx** (§3.7) — shadcn 기본에 Phase 5 SCAN-02 계약 주석 추가: `// Phase 5 SCAN-02: min=10, max=29, step=1, defaultValue=[25]`. `.slider-val` className 으로 값 표시 시 `font-family: var(--font-mono); font-variant-numeric: tabular-nums;` — UI-SPEC §3.7. **thumb `:focus-visible` 는 globals.css §8.5.5 Double-Ring 전역 규칙이 자동 적용되므로 컴포넌트 로컬 outline 규칙을 추가하지 말 것** (UI-SPEC §3.7 원 규격 `outline-offset: 2px` 는 §8.5.5 로 override 됨).
   - **separator.tsx** (§3.8) — `background: var(--border);`, orientation horizontal/vertical 그대로.
   - **tooltip.tsx** (§3.9) — `bg-[--popover] text-[--popover-fg] border-[--border]`, `box-shadow: 0 4px 12px oklch(0 0 0 / 0.08)` (UI-SPEC §3.9).
   - **sheet.tsx** — AppShell Drawer 용. scrim `bg-[oklch(0_0_0/0.55)] backdrop-blur-[4px]`, 220ms ease-out 진입, 160ms ease-in 이탈 (UI-SPEC §4.1). ESC 와 scrim 클릭으로 닫힘 (Radix 기본).
