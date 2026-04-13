@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 2 - Backend API (다음)
+**Current focus:** Phase 4 - Frontend Scaffold (다음)
 
 ## Current Position
 
-Phase: 1 of 9 (Data Foundation) ✅ 완료
-Plan: 1 of 1 in current phase ✅
-Status: Phase 1 complete
-Last activity: 2026-04-13 — Phase 1 전체 구현 + 검증 완료
+Phase: 3 of 9 (Design System) ✅ 완료
+Plans completed: 8 of 8 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub-plans × 3 waves)
+Status: Phase 3 complete
+Last activity: 2026-04-13 — Phase 3 Design System 구현 완료 (typecheck+build PASS)
 
-Progress: [█░░░░░░░░░] 11%
+Progress: [███░░░░░░░] 33%
 
 ## Phase 1 Success Criteria 검증
 
@@ -41,19 +41,43 @@ Progress: [█░░░░░░░░░] 11%
 | 3 | Ingestion Worker → stocks upsert | ✅ | 58행 upsert, 상한가/하한가 포함 |
 | 4 | 15 req/sec 제한, EGW00201 없음 | ✅ | rateLimiter 토큰 버킷, 스모크 테스트 에러 없음 |
 
+## Phase 2 Success Criteria 검증
+
+| # | 기준 | 상태 | 증거 |
+|---|---|---|---|
+| 1 | Cloud Run 공개 URL 접근 가능 | ✅ | https://gh-radar-server-1023658565518.asia-northeast3.run.app |
+| 2 | min-instances=1, cold start 없음 | ✅ | 배포 구성: min=1 max=3 cpu=1 mem=512Mi |
+| 3 | /api/scanner JSON 반환 | ✅ | smoke INV-2 PASS |
+| 4 | /api/stocks/:code 반환 | ✅ | smoke INV-3 PASS |
+| — | INV-1~INV-9 전체 | ✅ | 9/9 PASS — DEPLOY-LOG.md |
+
+## Phase 3 Success Criteria 검증
+
+| # | 기준 | 상태 | 증거 |
+|---|---|---|---|
+| 1 | CSS 변수 토큰, 하드코딩 색상 없음 | ✅ | webapp/src/app/globals.css |
+| 2 | Light/Dark 테마 전환 | ✅ | ThemeProvider + ThemeToggle (next-themes) |
+| 3 | 공통 컴포넌트 (Button/Card/Table/Badge/Input 등) | ✅ | shadcn 10종 + 금융 variant |
+| 4 | 레이아웃 템플릿 | ✅ | AppShell, CenterShell, AppHeader |
+| 5 | HTML 카탈로그 | ✅ | /design 페이지 (7섹션) + 03-UI-PREVIEW.html |
+
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 1
+- Total plans completed: 8 (1 + 5 + 1×6 sub)
 - Phase 1 duration: 2026-04-10 ~ 2026-04-13 (4일)
-- Total commits: ~10
+- Phase 2 duration: 2026-04-13 (1일)
+- Phase 3 duration: 2026-04-13 (1일)
+- Total commits: 25+
 
 **By Phase:**
 
-| Phase | Plans | Total | Status |
-|-------|-------|-------|--------|
+| Phase | Plans | Duration | Status |
+|-------|-------|----------|--------|
 | 1. Data Foundation | 1 | 4일 | ✅ 완료 |
+| 2. Backend API | 5 | 1일 | ✅ 완료 |
+| 3. Design System | 1 (6 sub / 3 wave) | 1일 | ✅ 완료 |
 
 ## Accumulated Context
 
@@ -82,6 +106,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-13T10:30:00.000Z
-Stopped at: Phase 1 complete
-Next: Phase 2 - Backend API (`/gsd-plan-phase 2`)
+Last session: 2026-04-13T18:00:00.000Z
+Stopped at: Phase 3 complete — 6 plans / 3 waves (typecheck+build PASS)
+Next: Phase 4 - Frontend Scaffold (`/gsd-plan-phase 4`)
