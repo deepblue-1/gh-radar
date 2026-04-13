@@ -43,9 +43,11 @@
 
   --row-h: 36px; --cell-pad-x: 12px; --cell-pad-y: 8px;
 
-  --font-sans: 'Pretendard Variable', Pretendard, -apple-system,
-               BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-sans-loaded, 'Pretendard Variable'), 'Pretendard Variable',
+               Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+               system-ui, sans-serif;
+  --font-mono: var(--font-mono-loaded, 'Geist Mono'), 'Geist Mono',
+               ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .dark {
