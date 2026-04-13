@@ -34,8 +34,12 @@ check "INV-1 /api/health status=ok" bash -c "curl -fsS '$URL/api/health' | jq -e
 # INV-2: /api/scanner → array, 각 원소에 upperLimitProximity:number
 check "INV-2 /api/scanner upperLimitProximity" bash -c "curl -fsS '$URL/api/scanner?limit=5' | jq -e 'type==\"array\" and length>0 and (.[0].upperLimitProximity|type==\"number\")'"
 
-# INV-3: /api/stocks/005930 → code="005930"
-check "INV-3 /api/stocks/005930" bash -c "curl -fsS '$URL/api/stocks/005930' | jq -e '.code==\"005930\"'"
+# INV-3: scanner 첫 종목 code 로 /api/stocks/:code 호출 → code 일치 (데이터 독립)
+check "INV-3 /api/stocks/:code (scanner 연동)" bash -c "
+  code=\$(curl -fsS '$URL/api/scanner?limit=1' | jq -r '.[0].code')
+  [ -n \"\$code\" ] && [ \"\$code\" != 'null' ] && \
+    curl -fsS \"$URL/api/stocks/\$code\" | jq -e \".code==\\\"\$code\\\"\"
+"
 
 # INV-4: /api/stocks/000000 → 404 + STOCK_NOT_FOUND
 check "INV-4 /api/stocks/000000 → 404" bash -c "
@@ -43,8 +47,13 @@ check "INV-4 /api/stocks/000000 → 404" bash -c "
   [ \"\$body\" = '404' ] && curl -s '$URL/api/stocks/000000' | jq -e '.error.code==\"STOCK_NOT_FOUND\"'
 "
 
-# INV-5: /api/stocks/search?q=삼성 → length<=20 and length>0
-check "INV-5 /api/stocks/search?q=삼성" bash -c "curl -fsS '$URL/api/stocks/search?q=%EC%82%BC%EC%84%B1' | jq -e 'type==\"array\" and length<=20 and length>0'"
+# INV-5: scanner 첫 종목 name 첫 글자로 search → length>=1 (데이터 독립)
+check "INV-5 /api/stocks/search (scanner 연동)" bash -c "
+  name=\$(curl -fsS '$URL/api/scanner?limit=1' | jq -r '.[0].name')
+  q=\$(printf %s \"\$name\" | cut -c1-1)
+  enc=\$(printf %s \"\$q\" | jq -sRr @uri)
+  curl -fsS \"$URL/api/stocks/search?q=\$enc\" | jq -e 'type==\"array\" and length<=20 and length>=1'
+"
 
 # INV-6: CORS preflight 허용 origin → 200/204
 check "INV-6 CORS preflight (허용)" bash -c "

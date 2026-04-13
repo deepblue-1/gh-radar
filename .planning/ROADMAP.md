@@ -12,8 +12,8 @@
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Data Foundation** - KIS OpenAPI 연동 + Supabase 스키마 구축
-- [ ] **Phase 2: Backend API** - Express API 서버 구축 및 Cloud Run 배포
+- [x] **Phase 1: Data Foundation** - KIS OpenAPI 연동 + Supabase 스키마 구축
+- [x] **Phase 2: Backend API** - Express API 서버 구축 및 Cloud Run 배포
 - [ ] **Phase 3: Design System** - 디자인 토큰, 컴포넌트 라이브러리, 테마
 - [ ] **Phase 4: Frontend Scaffold** - Next.js 앱 구축 및 Vercel 배포
 - [ ] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
