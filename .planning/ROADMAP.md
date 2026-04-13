@@ -61,7 +61,8 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Button, Card, Table, Badge, Input 등 공통 컴포넌트가 shadcn/ui 기반으로 커스터마이징되어 있다
   4. 네비게이션, 사이드바, 콘텐츠 영역을 포함한 페이지 레이아웃 템플릿이 존재한다
   5. HTML 카탈로그 문서를 브라우저로 열면 모든 토큰, 컴포넌트, 레이아웃을 시각적으로 확인할 수 있다
-**Plans**: TBD
+**Plans:** 1 plan (6 sub-plans / 3 waves)
+- [ ] 03-PLAN.md — Design System: webapp 스캐폴드 + 토큰/테마/컴포넌트/레이아웃/카탈로그
 **UI hint**: yes
 
 ### Phase 4: Frontend Scaffold
