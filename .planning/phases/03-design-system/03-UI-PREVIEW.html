@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>gh-radar — Phase 3 UI Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=IBM+Plex+Mono:wght@400;500&family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   gh-radar Design Tokens — BBAA preset
+   Q1=B 데이터 밀집 / Q2=B 토스풍 빨강·파랑 / Q3=A 순백·순검정 / Q4=A 16px base
+   ============================================================ */
+:root {
+  /* base */
+  --bg:        #FFFFFF;
+  --fg:        oklch(0.18 0 0);
+  --muted:     oklch(0.96 0 0);
+  --muted-fg:  oklch(0.50 0 0);
+  --border:    oklch(0.92 0 0);
+  --input:     oklch(0.92 0 0);
+  --ring:      oklch(0.63 0.18 250);    /* Toss Blue focus ring */
+
+  /* surfaces */
+  --card:      #FFFFFF;
+  --card-fg:   oklch(0.18 0 0);
+  --popover:   #FFFFFF;
+  --popover-fg:oklch(0.18 0 0);
+
+  /* primary = 토스 브랜드 블루 (#3182F6) — CTA, 활성탭, 링크 */
+  --primary:    oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+
+  --secondary:    oklch(0.96 0 0);
+  --secondary-fg: oklch(0.18 0 0);
+
+  --accent:    oklch(0.95 0.03 250);
+  --accent-fg: oklch(0.35 0.12 250);
+
+  --destructive:    oklch(0.66 0.20 22); /* Toss Red (#F04452) */
+  --destructive-fg: #FFFFFF;
+
+  /* domain semantic — 시세 색상 (토스증권 팔레트) */
+  --up:    oklch(0.66 0.20 22);   /* 상승 — Toss Red #F04452 (채도 완화) */
+  --down:  oklch(0.63 0.18 250);  /* 하락 — Toss Blue #3182F6 (primary와 동일 톤) */
+  --flat:  oklch(0.55 0 0);       /* 보합 — 중성 회색 */
+
+  --up-bg:   oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+
+  /* spacing — 4px scale */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+
+  /* radii */
+  --r-sm: 4px;  --r:    6px;  --r-md: 8px;  --r-lg: 12px;
+
+  /* type scale — 16px base */
+  --t-caption:  12px;
+  --t-sm:       14px;
+  --t-base:     16px;
+  --t-lg:       18px;
+  --t-h4:       18px;
+  --t-h3:       20px;
+  --t-h2:       24px;
+  --t-h1:       30px;
+
+  --lh-tight:  1.2;
+  --lh-normal: 1.5;
+
+  /* density — 데이터 밀집 */
+  --row-h:      36px;
+  --cell-pad-x: 12px;
+  --cell-pad-y: 8px;
+}
+
+.dark {
+  --bg:        #000000;
+  --fg:        oklch(0.96 0 0);
+  --muted:     oklch(0.16 0 0);
+  --muted-fg:  oklch(0.65 0 0);
+  --border:    oklch(0.22 0 0);
+  --input:     oklch(0.22 0 0);
+  --ring:      oklch(0.72 0.16 250);
+
+  --card:      #000000;
+  --card-fg:   oklch(0.96 0 0);
+  --popover:   oklch(0.10 0 0);
+  --popover-fg:oklch(0.96 0 0);
+
+  --primary:    oklch(0.72 0.16 250);   /* Toss Blue — Dark에서 명도 상향 */
+  --primary-fg: oklch(0.10 0 0);
+
+  --secondary:    oklch(0.18 0 0);
+  --secondary-fg: oklch(0.96 0 0);
+
+  --accent:    oklch(0.22 0.05 250);
+  --accent-fg: oklch(0.85 0.10 250);
+
+  --destructive:    oklch(0.72 0.19 22);
+  --destructive-fg: oklch(0.10 0 0);
+
+  --up:    oklch(0.72 0.19 22);    /* Toss Red — Dark */
+  --down:  oklch(0.72 0.16 250);   /* Toss Blue — Dark */
+  --flat:  oklch(0.65 0 0);
+
+  --up-bg:   oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--fg);
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  font-size: var(--t-base);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'tnum';
+}
+.mono { font-family: 'Inter', 'Pretendard Variable', system-ui, sans-serif; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'cv11' 1; }
+
+/* layout */
+.shell { max-width: 1240px; margin: 0 auto; padding: var(--s-6) var(--s-5) var(--s-10); }
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s-3) var(--s-5);
+  background: color-mix(in oklch, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .brand { font-weight: 700; font-size: var(--t-lg); letter-spacing: -0.01em; }
+.topbar .meta  { color: var(--muted-fg); font-size: var(--t-sm); }
+
+h1, h2, h3, h4 { margin: 0; line-height: var(--lh-tight); letter-spacing: -0.015em; }
+h1 { font-size: var(--t-h1); font-weight: 700; }
+h2 { font-size: var(--t-h2); font-weight: 700; }
+h3 { font-size: var(--t-h3); font-weight: 600; }
+h4 { font-size: var(--t-h4); font-weight: 600; }
+
+section { padding: var(--s-8) 0; border-top: 1px solid var(--border); }
+section:first-of-type { border-top: 0; padding-top: var(--s-5); }
+section .lede { color: var(--muted-fg); font-size: var(--t-sm); margin: var(--s-2) 0 var(--s-5); }
+.note { color: var(--muted-fg); font-size: var(--t-sm); margin-top: var(--s-3); }
+.hint {
+  margin-top: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  background: var(--muted);
+  border-left: 3px solid var(--ring);
+  border-radius: var(--r);
+  font-size: var(--t-sm);
+  color: var(--muted-fg);
+}
+
+/* color palette */
+.dual-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-5);
+}
+@media (max-width: 900px) { .dual-grid { grid-template-columns: 1fr; } }
+.scope-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-4);
+}
+.scope-card.light { background: #FFFFFF; color: oklch(0.18 0 0); }
+.scope-card.dark  { background: #000000; color: oklch(0.96 0 0); border-color: oklch(0.22 0 0); }
+.scope-card .scope-title { font-size: var(--t-sm); font-weight: 600; opacity: 0.7; margin-bottom: var(--s-3); }
+.swatches {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s-2);
+}
+.swatch {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r);
+  border: 1px solid currentColor;
+  border-color: color-mix(in oklch, currentColor 15%, transparent);
+  font-size: var(--t-caption);
+}
+.swatch .chip {
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  border: 1px solid color-mix(in oklch, currentColor 20%, transparent);
+  flex-shrink: 0;
+}
+.swatch .label { display: flex; flex-direction: column; }
+.swatch .label b { font-size: var(--t-sm); font-weight: 600; }
+.swatch .label span { font-family: 'JetBrains Mono', monospace; opacity: 0.7; font-size: 11px; }
+
+/* type scale */
+.type-row {
+  display: grid; grid-template-columns: 96px 1fr;
+  gap: var(--s-4);
+  padding: var(--s-3) 0;
+  border-bottom: 1px dashed var(--border);
+  align-items: baseline;
+}
+.type-row:last-child { border-bottom: 0; }
+.type-row .tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--t-caption); color: var(--muted-fg);
+}
+
+/* buttons */
+.btn-grid {
+  display: grid; gap: var(--s-3);
+  grid-template-columns: repeat(4, max-content);
+  align-items: center;
+}
+.btn-grid .row-label { color: var(--muted-fg); font-size: var(--t-sm); }
+button.btn {
+  font-family: inherit; font-size: var(--t-sm); font-weight: 500;
+  border-radius: var(--r); cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  height: 36px; padding: 0 14px;
+}
+button.btn.sm { height: 28px; padding: 0 10px; font-size: var(--t-caption); }
+button.btn.lg { height: 44px; padding: 0 18px; font-size: var(--t-base); }
+
+button.btn.primary   { background: var(--primary);  color: var(--primary-fg); }
+button.btn.primary:hover { background: color-mix(in oklch, var(--primary) 88%, black); }
+button.btn.secondary { background: var(--secondary); color: var(--secondary-fg); border-color: var(--border); }
+button.btn.secondary:hover { background: color-mix(in oklch, var(--secondary) 92%, black); }
+button.btn.outline   { background: transparent; color: var(--fg); border-color: var(--border); }
+button.btn.outline:hover { background: var(--muted); }
+button.btn.ghost     { background: transparent; color: var(--fg); }
+button.btn.ghost:hover { background: var(--muted); }
+
+/* card */
+.card {
+  background: var(--card); color: var(--card-fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-5);
+}
+.card .title { font-weight: 600; font-size: var(--t-base); margin-bottom: var(--s-2); }
+.card .desc  { color: var(--muted-fg); font-size: var(--t-sm); }
+
+/* table */
+.tbl-wrap { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+table.tbl thead th {
+  text-align: left; font-weight: 600;
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+  background: var(--muted); color: var(--muted-fg);
+  font-size: var(--t-caption); text-transform: none; letter-spacing: 0;
+  border-bottom: 1px solid var(--border);
+}
+table.tbl tbody td {
+  height: var(--row-h); padding: 0 var(--cell-pad-x);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+table.tbl tbody tr:last-child td { border-bottom: 0; }
+table.tbl tbody tr:hover td { background: color-mix(in oklch, var(--muted) 60%, transparent); }
+.num { font-variant-numeric: tabular-nums; text-align: right; font-feature-settings: 'tnum'; }
+.up   { color: var(--up); }
+.down { color: var(--down); }
+.flat { color: var(--flat); }
+
+/* badges */
+.badge {
+  display: inline-flex; align-items: center;
+  height: 20px; padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+.badge.default     { background: var(--primary); color: var(--primary-fg); }
+.badge.secondary   { background: var(--secondary); color: var(--secondary-fg); border-color: var(--border); }
+.badge.outline     { background: transparent; color: var(--fg); border-color: var(--border); }
+.badge.up   { background: var(--up-bg);   color: var(--up); }
+.badge.down { background: var(--down-bg); color: var(--down); }
+.badge.flat { background: var(--muted); color: var(--flat); }
+
+/* input */
+.input {
+  height: 36px; padding: 0 12px;
+  border: 1px solid var(--input); border-radius: var(--r);
+  background: var(--bg); color: var(--fg);
+  font-family: inherit; font-size: var(--t-sm);
+  outline: none; min-width: 220px;
+}
+.input:focus { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 25%, transparent); }
+
+/* skeleton */
+.sk {
+  background: linear-gradient(90deg, var(--muted) 0%, color-mix(in oklch, var(--muted) 50%, var(--bg)) 50%, var(--muted) 100%);
+  background-size: 200% 100%;
+  animation: sk 1.4s infinite linear;
+  border-radius: var(--r-sm);
+}
+@keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* slider */
+.slider-row { display: flex; align-items: center; gap: var(--s-4); }
+input[type="range"].slider {
+  -webkit-appearance: none; appearance: none;
+  width: 280px; height: 4px; border-radius: 999px;
+  background: var(--muted); outline: none;
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--primary); border: 2px solid var(--bg);
+  cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.slider-val { font-family: 'JetBrains Mono', monospace; font-size: var(--t-sm); min-width: 48px; }
+
+/* separator */
+.sep { height: 1px; background: var(--border); margin: var(--s-4) 0; }
+.sep.v { width: 1px; height: 24px; display: inline-block; vertical-align: middle; margin: 0 var(--s-3); }
+
+/* tooltip */
+.ttip-host { position: relative; display: inline-block; }
+.ttip {
+  position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--popover); color: var(--popover-fg);
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 6px 10px; font-size: var(--t-caption); white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+/* layout demos */
+.appshell {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  display: grid; grid-template-rows: 48px 1fr; height: 320px; overflow: hidden;
+}
+.appshell .as-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--s-4); border-bottom: 1px solid var(--border);
+  background: var(--card); font-size: var(--t-sm);
+}
+.appshell .as-body {
+  display: grid; grid-template-columns: 200px 1fr; min-height: 0;
+}
+.appshell .as-side {
+  padding: var(--s-3); border-right: 1px solid var(--border);
+  background: var(--muted); font-size: var(--t-sm);
+  display: flex; flex-direction: column; gap: var(--s-1);
+}
+.appshell .as-side .nav-item {
+  padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer;
+  color: var(--muted-fg);
+}
+.appshell .as-side .nav-item.active { background: var(--bg); color: var(--fg); font-weight: 600; }
+.appshell .as-main {
+  padding: var(--s-4); overflow: auto; font-size: var(--t-sm);
+}
+.centershell {
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  display: flex; align-items: center; justify-content: center;
+  height: 240px; padding: var(--s-5);
+}
+.centershell .panel {
+  max-width: 360px; width: 100%; text-align: center;
+}
+
+/* number example */
+.num-demo {
+  display: grid; grid-template-columns: 140px 1fr; gap: var(--s-2) var(--s-4);
+  font-size: var(--t-sm);
+}
+.num-demo .label { color: var(--muted-fg); }
+
+/* utility */
+.row { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; }
+.col { display: flex; flex-direction: column; gap: var(--s-3); }
+.gap-2 { gap: var(--s-2); } .gap-3 { gap: var(--s-3); } .gap-4 { gap: var(--s-4); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">gh-radar — Phase 3 UI Preview</div>
+  <div class="row">
+    <span class="meta mono">BBAA · 16px · Pretendard</span>
+    <span class="sep v"></span>
+    <button class="btn outline sm" id="theme-toggle">테마 전환 (Light ↔ Dark)</button>
+  </div>
+</div>
+
+<div class="shell">
+
+  <!-- 0. INTRO -->
+  <section style="padding-top:0;">
+    <h1>디자인 미리보기</h1>
+    <p class="lede">
+      이 페이지는 Phase 3 디자인 시스템 확정 전 시각 검토용입니다.
+      <b>BBAA</b> 선택을 그대로 반영했습니다 — 데이터 밀집 톤 / 토스풍 빨강·파랑 / 순백·순검정 배경 / 16px 본문.
+      상단의 <b>테마 전환</b> 버튼으로 Light/Dark 를 비교하세요.
+    </p>
+    <div class="hint">
+      이 부분 바꾸고 싶으면 알려주세요 — 색상, 행 높이, 폰트 크기, 타이포 무엇이든 한 줄로 피드백 주시면 다음 라운드에서 즉시 반영합니다.
+    </div>
+  </section>
+
+  <!-- 1. COLOR PALETTE -->
+  <section>
+    <h2>1. 컬러 팔레트</h2>
+    <p class="lede">Light / Dark 동시 비교. 시세 색상은 토스증권 풍 (상승 빨강 / 하락 파랑).</p>
+
+    <div class="dual-grid">
+      <!-- LIGHT -->
+      <div class="scope-card light">
+        <div class="scope-title">LIGHT — 순백 #FFFFFF</div>
+        <div class="swatches">
+          <div class="swatch"><div class="chip" style="background:#FFFFFF; border-color:#E5E5E5;"></div><div class="label"><b>background</b><span>#FFFFFF</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.18 0 0);"></div><div class="label"><b>foreground</b><span>oklch(.18 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.96 0 0);"></div><div class="label"><b>muted</b><span>oklch(.96 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.50 0 0);"></div><div class="label"><b>muted-fg</b><span>oklch(.50 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.92 0 0);"></div><div class="label"><b>border</b><span>oklch(.92 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.62 0.24 25);"></div><div class="label"><b>primary</b><span>oklch(.62 .24 25)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.55 0.22 27);"></div><div class="label"><b>destructive</b><span>oklch(.55 .22 27)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.62 0.24 25);"></div><div class="label"><b>up (상승)</b><span>oklch(.62 .24 25)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.58 0.20 255);"></div><div class="label"><b>down (하락)</b><span>oklch(.58 .20 255)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.50 0 0);"></div><div class="label"><b>flat (보합)</b><span>oklch(.50 0 0)</span></div></div>
+        </div>
+      </div>
+
+      <!-- DARK -->
+      <div class="scope-card dark">
+        <div class="scope-title">DARK — 순검정 #000000</div>
+        <div class="swatches">
+          <div class="swatch"><div class="chip" style="background:#000000; border-color:#333;"></div><div class="label"><b>background</b><span>#000000</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.96 0 0);"></div><div class="label"><b>foreground</b><span>oklch(.96 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.16 0 0);"></div><div class="label"><b>muted</b><span>oklch(.16 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.65 0 0);"></div><div class="label"><b>muted-fg</b><span>oklch(.65 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.22 0 0);"></div><div class="label"><b>border</b><span>oklch(.22 0 0)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.70 0.22 25);"></div><div class="label"><b>primary</b><span>oklch(.70 .22 25)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.65 0.24 27);"></div><div class="label"><b>destructive</b><span>oklch(.65 .24 27)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.70 0.22 25);"></div><div class="label"><b>up (상승)</b><span>oklch(.70 .22 25)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.68 0.18 255);"></div><div class="label"><b>down (하락)</b><span>oklch(.68 .18 255)</span></div></div>
+          <div class="swatch"><div class="chip" style="background:oklch(0.65 0 0);"></div><div class="label"><b>flat (보합)</b><span>oklch(.65 0 0)</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">
+      이 부분 바꾸고 싶으면 알려주세요 — 예: "상승 빨강을 좀 더 진하게", "Dark 배경을 #0A0A0A 로", "border 를 더 옅게".
+    </div>
+  </section>
+
+  <!-- 2. TYPE SCALE -->
+  <section>
+    <h2>2. 타입 스케일</h2>
+    <p class="lede">16px 본문 기준. 한글 + 영문 + 숫자(tnum)가 모두 잘 보이는지 확인하세요.</p>
+
+    <div class="type-row"><span class="tag">h1 / 30</span><h1>오늘 상한가에 근접한 32 종목</h1></div>
+    <div class="type-row"><span class="tag">h2 / 24</span><h2>실시간 등락률 상위</h2></div>
+    <div class="type-row"><span class="tag">h3 / 20</span><h3>삼성전자 (005930)</h3></div>
+    <div class="type-row"><span class="tag">h4 / 18</span><h4>최근 뉴스 요약</h4></div>
+    <div class="type-row"><span class="tag">body-lg / 18</span><div style="font-size:18px;">삼성전자 58,700원 <span class="up">▲ 1,850 (+3.25%)</span></div></div>
+    <div class="type-row"><span class="tag">body / 16</span><div>한국투자증권 KIS OpenAPI 를 통해 1분 간격으로 데이터를 수신합니다. WebSocket 세션당 최대 41 종목까지 구독 가능.</div></div>
+    <div class="type-row"><span class="tag">body-sm / 14</span><div style="font-size:14px;">마지막 업데이트: 2026-04-13 14:32:08 KST · 다음 갱신까지 47초</div></div>
+    <div class="type-row"><span class="tag">caption / 12</span><div style="font-size:12px; color:var(--muted-fg);">데이터 출처: 한국투자증권 · 시세는 약 15초 지연될 수 있습니다</div></div>
+
+    <div class="hint">
+      이 부분 바꾸고 싶으면 알려주세요 — 예: "h1 을 28px 로", "body 를 14px 로", "letter-spacing 줄이기".
+    </div>
+  </section>
+
+  <!-- 3. COMPONENTS -->
+  <section>
+    <h2>3. 컴포넌트 9종</h2>
+    <p class="lede">Button · Card · Table · Badge · Input · Skeleton · Slider · Separator · Tooltip</p>
+
+    <h3 style="margin-top: var(--s-5); margin-bottom: var(--s-3);">Button (4 variant × 3 size)</h3>
+    <div class="btn-grid">
+      <span class="row-label">primary</span>
+      <button class="btn primary sm">관심등록</button>
+      <button class="btn primary">관심등록</button>
+      <button class="btn primary lg">관심등록</button>
+
+      <span class="row-label">secondary</span>
+      <button class="btn secondary sm">새로고침</button>
+      <button class="btn secondary">새로고침</button>
+      <button class="btn secondary lg">새로고침</button>
+
+      <span class="row-label">outline</span>
+      <button class="btn outline sm">필터</button>
+      <button class="btn outline">필터</button>
+      <button class="btn outline lg">필터</button>
+
+      <span class="row-label">ghost</span>
+      <button class="btn ghost sm">취소</button>
+      <button class="btn ghost">취소</button>
+      <button class="btn ghost lg">취소</button>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Card</h3>
+    <div class="dual-grid">
+      <div class="card">
+        <div class="title">SK하이닉스</div>
+        <div class="desc">반도체 · KOSPI · 000660</div>
+        <div class="sep"></div>
+        <div class="row" style="justify-content: space-between;">
+          <div class="mono" style="font-size:20px; font-weight:600;">198,500</div>
+          <div class="up mono">▲ 5,800 (+3.01%)</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="title">카카오</div>
+        <div class="desc">인터넷 · KOSPI · 035720</div>
+        <div class="sep"></div>
+        <div class="row" style="justify-content: space-between;">
+          <div class="mono" style="font-size:20px; font-weight:600;">42,150</div>
+          <div class="down mono">▼ 1,200 (−2.77%)</div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Table — 종목 10행 (행 높이 36px)</h3>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="width:48px;">#</th>
+            <th>종목</th>
+            <th>코드</th>
+            <th class="num">현재가</th>
+            <th class="num">등락</th>
+            <th class="num">등락률</th>
+            <th class="num">거래량</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">1</td><td>오로라</td><td class="mono">039830</td><td class="num mono">12,850</td><td class="num mono up">+2,950</td><td class="num mono up">+29.80%</td><td class="num mono">8,452,310</td><td><span class="badge up">상한</span></td></tr>
+          <tr><td class="mono">2</td><td>에이프로젠</td><td class="mono">007460</td><td class="num mono">3,425</td><td class="num mono up">+780</td><td class="num mono up">+29.49%</td><td class="num mono">15,221,090</td><td><span class="badge up">근접</span></td></tr>
+          <tr><td class="mono">3</td><td>제이엘케이</td><td class="mono">322510</td><td class="num mono">8,920</td><td class="num mono up">+1,840</td><td class="num mono up">+25.99%</td><td class="num mono">2,108,540</td><td><span class="badge up">근접</span></td></tr>
+          <tr><td class="mono">4</td><td>한미반도체</td><td class="mono">042700</td><td class="num mono">142,300</td><td class="num mono up">+18,500</td><td class="num mono up">+14.94%</td><td class="num mono">3,920,180</td><td><span class="badge default">관심</span></td></tr>
+          <tr><td class="mono">5</td><td>삼성전자</td><td class="mono">005930</td><td class="num mono">58,700</td><td class="num mono up">+1,850</td><td class="num mono up">+3.25%</td><td class="num mono">22,415,820</td><td><span class="badge secondary">—</span></td></tr>
+          <tr><td class="mono">6</td><td>NAVER</td><td class="mono">035420</td><td class="num mono">198,000</td><td class="num mono flat">0</td><td class="num mono flat">0.00%</td><td class="num mono">1,082,440</td><td><span class="badge flat">보합</span></td></tr>
+          <tr><td class="mono">7</td><td>LG에너지솔루션</td><td class="mono">373220</td><td class="num mono">385,500</td><td class="num mono down">−4,500</td><td class="num mono down">−1.15%</td><td class="num mono">920,310</td><td><span class="badge secondary">—</span></td></tr>
+          <tr><td class="mono">8</td><td>카카오</td><td class="mono">035720</td><td class="num mono">42,150</td><td class="num mono down">−1,200</td><td class="num mono down">−2.77%</td><td class="num mono">5,418,920</td><td><span class="badge down">하락</span></td></tr>
+          <tr><td class="mono">9</td><td>POSCO홀딩스</td><td class="mono">005490</td><td class="num mono">328,000</td><td class="num mono down">−12,500</td><td class="num mono down">−3.67%</td><td class="num mono">1,840,225</td><td><span class="badge down">하락</span></td></tr>
+          <tr><td class="mono">10</td><td>두산에너빌리티</td><td class="mono">034020</td><td class="num mono">22,400</td><td class="num mono down">−2,150</td><td class="num mono down">−8.76%</td><td class="num mono">11,223,400</td><td><span class="badge down">급락</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">행 높이 36px · 폰트 14px · 좌우 패딩 12px (데이터 밀집 톤). 가격/등락률은 tnum 으로 자릿수 정렬.</div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Badge</h3>
+    <div class="row">
+      <span class="badge default">관심</span>
+      <span class="badge secondary">신규</span>
+      <span class="badge outline">필터됨</span>
+      <span class="badge up">상승</span>
+      <span class="badge down">하락</span>
+      <span class="badge flat">보합</span>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Input</h3>
+    <div class="row">
+      <input class="input" placeholder="종목명 또는 코드 검색 (예: 삼성전자, 005930)" />
+      <button class="btn primary">검색</button>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Skeleton</h3>
+    <div class="col" style="max-width: 480px;">
+      <div class="sk" style="height: 16px; width: 60%;"></div>
+      <div class="sk" style="height: 16px; width: 100%;"></div>
+      <div class="sk" style="height: 16px; width: 85%;"></div>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Slider — 상한가 임계 (10~29%, 기본 25%)</h3>
+    <div class="slider-row">
+      <span style="font-size: var(--t-sm); color: var(--muted-fg);">임계값</span>
+      <input id="threshold" type="range" class="slider" min="10" max="29" step="1" value="25" />
+      <span class="slider-val" id="threshold-val">+25%</span>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Separator</h3>
+    <div>위 영역
+      <div class="sep"></div>
+      아래 영역
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">Tooltip</h3>
+    <div class="row">
+      <div class="ttip-host">
+        <div class="ttip">시세는 약 15초 지연될 수 있습니다</div>
+        <button class="btn outline">현재가 정보</button>
+      </div>
+    </div>
+
+    <div class="hint">
+      이 부분 바꾸고 싶으면 알려주세요 — 예: "Button radius 를 4px 로", "Table 행 높이 32px 로 더 타이트하게", "Badge 모양을 사각으로".
+    </div>
+  </section>
+
+  <!-- 4. LAYOUTS -->
+  <section>
+    <h2>4. 레이아웃</h2>
+    <p class="lede">AppShell (메인 대시보드) / CenterShell (로그인·에러·빈상태)</p>
+
+    <h3 style="margin-top: var(--s-5); margin-bottom: var(--s-3);">AppShell</h3>
+    <div class="appshell">
+      <div class="as-top">
+        <div class="row gap-3">
+          <b>gh-radar</b>
+          <span class="sep v"></span>
+          <span style="color:var(--muted-fg);">실시간 스캐너</span>
+        </div>
+        <div class="row gap-3">
+          <span class="badge up">시장 OPEN</span>
+          <button class="btn ghost sm">설정</button>
+        </div>
+      </div>
+      <div class="as-body">
+        <div class="as-side">
+          <div class="nav-item active">스캐너</div>
+          <div class="nav-item">관심 종목</div>
+          <div class="nav-item">뉴스 요약</div>
+          <div class="nav-item">토론방</div>
+          <div class="nav-item">알림</div>
+        </div>
+        <div class="as-main">
+          <h4 style="margin-bottom: var(--s-2);">상한가 근접 종목</h4>
+          <div style="color:var(--muted-fg); font-size: var(--t-caption); margin-bottom: var(--s-3);">+25% 이상 · 5종</div>
+          <div class="row gap-2">
+            <span class="badge up">오로라 +29.80%</span>
+            <span class="badge up">에이프로젠 +29.49%</span>
+            <span class="badge up">제이엘케이 +25.99%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top: var(--s-6); margin-bottom: var(--s-3);">CenterShell</h3>
+    <div class="centershell">
+      <div class="panel">
+        <h3 style="margin-bottom: var(--s-2);">아직 관심 종목이 없습니다</h3>
+        <p style="color: var(--muted-fg); font-size: var(--t-sm); margin: 0 0 var(--s-4);">
+          스캐너에서 종목을 선택하면 여기에 추가됩니다.
+        </p>
+        <button class="btn primary">스캐너로 이동</button>
+      </div>
+    </div>
+
+    <div class="hint">
+      이 부분 바꾸고 싶으면 알려주세요 — 예: "사이드바 너비 240px", "헤더 56px 로", "콘텐츠 max-width 1280".
+    </div>
+  </section>
+
+  <!-- 5. NUMBER FONT COMPARISON -->
+  <section>
+    <h2>5. 숫자 폰트 비교 — 하나 골라주세요</h2>
+    <p class="lede">
+      자릿수 정렬(tabular-nums)은 유지하되 숫자 폰트 후보 6종을 비교합니다. 동일한 데이터로 나란히 렌더링.
+      한글은 모두 Pretendard Variable, 숫자만 아래 폰트로 렌더링.
+    </p>
+
+    <style>
+      .num-candidate { display:grid; grid-template-columns: 140px 1fr; gap: 8px 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; align-items: baseline; }
+      .num-candidate h3 { grid-column: 1 / -1; margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--muted-fg); letter-spacing: 0.02em; text-transform: uppercase; }
+      .num-candidate .label { color: var(--muted-fg); font-size: var(--t-sm); }
+      .num-candidate .cell { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+      .ff-jet    { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+      .ff-plex   { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+      .ff-geist  { font-family: 'Geist Mono', ui-monospace, monospace; }
+      .ff-inter  { font-family: 'Inter', system-ui, sans-serif; font-feature-settings: 'tnum' 1, 'cv11' 1; }
+      .ff-sg     { font-family: 'Space Grotesk', system-ui, sans-serif; font-feature-settings: 'tnum'; }
+      .ff-dm     { font-family: 'DM Mono', ui-monospace, monospace; }
+      .big { font-size: 24px; font-weight: 600; }
+      .unit { color: var(--muted-fg); font-size: var(--t-sm); }
+    </style>
+
+    <!-- A. JetBrains Mono (current) -->
+    <div class="num-candidate">
+      <h3>A. JetBrains Mono <span style="text-transform:none; font-weight:400; color:var(--muted-fg);">— 현재 기본. 개발자 친숙, 직선적·다소 건조</span></h3>
+      <div class="label">현재가</div>          <div class="cell ff-jet"><span class="big">58,700</span> <span class="unit">원</span></div>
+      <div class="label">등락률</div>         <div class="cell ff-jet up"><b>+3.25%</b> &nbsp; ▲ 1,850</div>
+      <div class="label">거래량</div>          <div class="cell ff-jet">22,415,820 <span class="unit">주</span></div>
+      <div class="label">시가총액</div>       <div class="cell ff-jet">350.4 <span class="unit">조원</span></div>
+    </div>
+
+    <!-- B. IBM Plex Mono -->
+    <div class="num-candidate">
+      <h3>B. IBM Plex Mono <span style="text-transform:none; font-weight:400; color:var(--muted-fg);">— 세련됨, 살짝 따뜻한 느낌. 금융·리서치 톤</span></h3>
+      <div class="label">현재가</div>          <div class="cell ff-plex"><span class="big">58,700</span> <span class="unit">원</span></div>
+      <div class="label">등락률</div>         <div class="cell ff-plex up"><b>+3.25%</b> &nbsp; ▲ 1,850</div>
+      <div class="label">거래량</div>          <div class="cell ff-plex">22,415,820 <span class="unit">주</span></div>
+      <div class="label">시가총액</div>       <div class="cell ff-plex">350.4 <span class="unit">조원</span></div>
+    </div>
+
+    <!-- C. Geist Mono -->
+    <div class="num-candidate">
+      <h3>C. Geist Mono ⭐ <span style="text-transform:none; font-weight:400; color:var(--muted-fg);">— Vercel 폰트. 현대적·깔끔, 차트/대시보드에 잘 어울림</span></h3>
+      <div class="label">현재가</div>          <div class="cell ff-geist"><span class="big">58,700</span> <span class="unit">원</span></div>
+      <div class="label">등락률</div>         <div class="cell ff-geist up"><b>+3.25%</b> &nbsp; ▲ 1,850</div>
+      <div class="label">거래량</div>          <div class="cell ff-geist">22,415,820 <span class="unit">주</span></div>
+      <div class="label">시가총액</div>       <div class="cell ff-geist">350.4 <span class="unit">조원</span></div>
+    </div>
+
+    <!-- D. Inter tabular (proportional but tnum) -->
+    <div class="num-candidate">
+      <h3>D. Inter (tabular + cv11) <span style="text-transform:none; font-weight:400; color:var(--muted-fg);">— Proportional 이지만 OpenType tnum 으로 정렬. Stripe·Linear 스타일. 가장 자연스럽고 예쁨</span></h3>
+      <div class="label">현재가</div>          <div class="cell ff-inter"><span class="big">58,700</span> <span class="unit">원</span></div>
+      <div class="label">등락률</div>         <div class="cell ff-inter up"><b>+3.25%</b> &nbsp; ▲ 1,850</div>
+      <div class="label">거래량</div>          <div class="cell ff-inter">22,415,820 <span class="unit">주</span></div>
+      <div class="label">시가총액</div>       <div class="cell ff-inter">350.4 <span class="unit">조원</span></div>
+    </div>
+
+    <!-- E. Space Grotesk tabular -->
+    <div class="num-candidate">
+      <h3>E. Space Grotesk (tnum) <span style="text-transform:none; font-weight:400; color:var(--muted-fg);">— 기하학·개성 강함. 브랜드 차별화 원하면</span></h3>
+      <div class="label">현재가</div>          <div class="cell ff-sg"><span class="big">58,700</span> <span class="unit">원</span></div>
+      <div class="label">등락률</div>         <div class="cell ff-sg up"><b>+3.25%</b> &nbsp; ▲ 1,850</div>
+      <div class="label">거래량</div>          <div class="cell ff-sg">22,415,820 <span class="unit">주</span></div>
+      <div class="label">시가총액</div>       <div class="cell ff-sg">350.4 <span class="unit">조원</span></div>
+    </div>
+
+    <!-- F. DM Mono -->
+    <div class="num-candidate">
+      <h3>F. DM Mono <span style="text-transform:none; font-weight:400; color:var(--muted-fg);">— 부드럽고 친근한 mono. 슬랩 없는 따뜻한 톤</span></h3>
+      <div class="label">현재가</div>          <div class="cell ff-dm"><span class="big">58,700</span> <span class="unit">원</span></div>
+      <div class="label">등락률</div>         <div class="cell ff-dm up"><b>+3.25%</b> &nbsp; ▲ 1,850</div>
+      <div class="label">거래량</div>          <div class="cell ff-dm">22,415,820 <span class="unit">주</span></div>
+      <div class="label">시가총액</div>       <div class="cell ff-dm">350.4 <span class="unit">조원</span></div>
+    </div>
+
+    <div class="hint">
+      <b>A/B/C/D/E/F 중 하나를 골라주세요.</b> 또는 "C인데 숫자 크기 줄여줘" 같은 세부 조정도 가능합니다.<br>
+      참고: <b>D (Inter)</b> 는 mono 가 아니지만 OpenType tabular 기능으로 자릿수 정렬되며, 가장 "예쁜" 인상을 줍니다. 추천 순위는 D → C → B.
+    </div>
+  </section>
+
+  <section>
+    <h2>피드백 가이드</h2>
+    <p class="lede">
+      위 5개 섹션을 보시고 한 줄씩 자유롭게 코멘트 주세요. 예를 들면:
+    </p>
+    <ul style="color:var(--muted-fg); font-size: var(--t-sm); line-height: 1.8;">
+      <li>"상승 빨강이 너무 형광스럽다 — 0.55 채도로 낮춰줘"</li>
+      <li>"테이블 행 높이 32px 로 더 타이트하게"</li>
+      <li>"Dark 배경을 #0A0A0A 로 바꿔줘 (완전 검정은 OLED 번짐)"</li>
+      <li>"Card border-radius 를 8 → 4 로"</li>
+      <li>"이대로 확정"</li>
+    </ul>
+    <p class="lede">
+      받은 피드백은 다음 라운드에서 즉시 반영하여 <code class="mono">03-UI-SPEC.md</code> 로 확정됩니다.
+    </p>
+  </section>
+
+</div>
+
+<script>
+  // theme toggle
+  const btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+    btn.textContent = document.documentElement.classList.contains('dark')
+      ? '테마 전환 (Dark → Light)'
+      : '테마 전환 (Light → Dark)';
+  });
+
+  // slider
+  const sl = document.getElementById('threshold');
+  const sv = document.getElementById('threshold-val');
+  sl.addEventListener('input', (e) => { sv.textContent = '+' + e.target.value + '%'; });
+</script>
+
+</body>
+</html>

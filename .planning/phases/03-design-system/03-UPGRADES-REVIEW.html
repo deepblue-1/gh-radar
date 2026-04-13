@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>gh-radar — frontend-design 업그레이드 검토</title>
+
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Commissioner:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   Toss 팔레트 + Dark 딥차콜 + 공통 토큰
+   ============================================================ */
+:root {
+  --bg: #FFFFFF;
+  --fg: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-fg: oklch(0.50 0 0);
+  --border: oklch(0.92 0 0);
+  --border-subtle: oklch(0.18 0 0 / 0.06);
+  --ring: oklch(0.63 0.18 250);
+  --card: #FFFFFF;
+  --card-fg: oklch(0.18 0 0);
+  --primary: oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+  --up: oklch(0.66 0.20 22);
+  --down: oklch(0.63 0.18 250);
+  --flat: oklch(0.55 0 0);
+  --up-bg: oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+
+  --t-base: 16px;
+  --r-sm: 4px;
+  --r: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+
+  --row-h: 36px;        /* default */
+  --cell-pad-x: 12px;
+  --cell-pad-y: 8px;
+}
+
+.dark {
+  --bg: oklch(0.08 0 0);
+  --fg: oklch(0.96 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-fg: oklch(0.65 0 0);
+  --border: oklch(0.24 0 0);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --ring: oklch(0.72 0.16 250);
+  --card: oklch(0.12 0 0);
+  --card-fg: oklch(0.96 0 0);
+  --primary: oklch(0.72 0.16 250);
+  --primary-fg: oklch(0.10 0 0);
+  --up: oklch(0.72 0.19 22);
+  --down: oklch(0.72 0.16 250);
+  --flat: oklch(0.65 0 0);
+  --up-bg: oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+}
+
+/* density variants */
+[data-density="compact"]     { --row-h: 32px; --cell-pad-y: 6px; }
+[data-density="default"]     { --row-h: 36px; --cell-pad-y: 8px; }
+[data-density="comfortable"] { --row-h: 44px; --cell-pad-y: 12px; }
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--fg);
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  font-size: var(--t-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  transition: background 200ms, color 200ms;
+}
+
+.wrap { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+
+h1 {
+  font-size: 40px; font-weight: 700; letter-spacing: -0.03em;
+  margin: 0 0 8px; line-height: 1.1;
+}
+h2 {
+  font-size: 24px; font-weight: 600; letter-spacing: -0.02em;
+  margin: 56px 0 6px; display: flex; align-items: baseline; gap: 12px;
+}
+h2 .tag {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-weight: 500; color: var(--muted-fg);
+  padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px;
+}
+h3 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--muted-fg); letter-spacing: 0.01em; }
+.lede { color: var(--muted-fg); font-size: 15px; margin: 4px 0 20px; max-width: 68ch; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px 22px;
+  margin: 14px 0;
+  box-shadow: inset 0 1px 0 var(--border-subtle);
+}
+
+.row-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) { .row-split { grid-template-columns: 1fr; } }
+
+.toolbar {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in oklch, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px; margin: -40px -24px 20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.toolbar .title { font-weight: 600; font-size: 14px; }
+.toolbar .spacer { flex: 1; }
+
+button, .btn {
+  font-family: inherit; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--card); color: var(--fg);
+  cursor: pointer;
+  transition: background 140ms, border-color 140ms, transform 80ms;
+}
+button:hover { background: var(--muted); }
+button:active { transform: scale(0.98); }
+button.primary {
+  background: var(--primary); color: var(--primary-fg); border-color: transparent;
+}
+button.primary:hover { filter: brightness(1.05); }
+
+/* 이슈 추가: double-ring focus (Toss-style) */
+button:focus-visible, [data-toggle]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 25%, transparent);
+}
+
+/* data table */
+table.data { width: 100%; border-collapse: collapse; font-size: 15px; }
+table.data thead th {
+  text-align: left; font-weight: 500; font-size: 12px;
+  color: var(--muted-fg); letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 10px var(--cell-pad-x);
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+table.data thead th.num, table.data tbody td.num { text-align: right; }
+table.data tbody td {
+  height: var(--row-h);
+  padding: var(--cell-pad-y) var(--cell-pad-x);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+table.data tbody tr { transition: background 120ms; position: relative; }
+table.data tbody tr:hover { background: var(--muted); }
+
+.up   { color: var(--up); }
+.down { color: var(--down); }
+.flat { color: var(--flat); }
+
+/* number typography utilities — candidates */
+.n-inter    { font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'cv11' 1, 'ss02' 1; letter-spacing: -0.02em; }
+.n-geist    { font-family: 'Geist Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'ss01' 1; letter-spacing: -0.01em; }
+.n-commish  { font-family: 'Commissioner', system-ui, sans-serif; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'ss01' 1; font-variation-settings: 'opsz' auto; letter-spacing: -0.015em; }
+.n-jetbrain { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+
+/* badge */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 500;
+  padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.badge.up   { background: var(--up-bg); color: var(--up); border-color: color-mix(in oklch, var(--up) 30%, transparent); }
+.badge.down { background: var(--down-bg); color: var(--down); border-color: color-mix(in oklch, var(--down) 30%, transparent); }
+.badge.market { background: var(--muted); color: var(--muted-fg); }
+
+/* ========== ① TICK ANIMATION ========== */
+.tick-flash {
+  position: relative;
+  overflow: hidden;
+}
+.tick-flash::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--up-bg);
+  opacity: 0;
+  pointer-events: none;
+}
+.tick-flash.tick-up::after { background: var(--up-bg); animation: tick-fade 500ms ease-out; }
+.tick-flash.tick-down::after { background: var(--down-bg); animation: tick-fade 500ms ease-out; }
+@keyframes tick-fade {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* tick bar (reduced-motion fallback) */
+.tick-bar.tick-up   { box-shadow: inset 4px 0 0 0 var(--up); }
+.tick-bar.tick-down { box-shadow: inset 4px 0 0 0 var(--down); }
+.tick-bar { transition: box-shadow 200ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tick-flash::after { display: none; }
+}
+
+/* ========== ⑤ SIGNATURE MOMENT ========== */
+.signature-row {
+  position: relative;
+  overflow: hidden;
+}
+.signature-row.fire::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in oklch, var(--up) 25%, transparent) 50%,
+    transparent 100%);
+  transform: translateX(-100%);
+  animation: sweep 700ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  pointer-events: none;
+}
+@keyframes sweep {
+  to { transform: translateX(100%); }
+}
+.signature-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 8px;
+  opacity: 0; transform: translateX(-6px) scale(0.8);
+  background: var(--up); color: #FFF;
+  font-size: 11px; font-weight: 600;
+  padding: 2px 7px; border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.signature-row.fire .signature-badge {
+  animation: badge-pop 500ms 250ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes badge-pop {
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+.bolt {
+  display: inline-block; opacity: 0; transform: scale(0);
+  color: var(--up); margin-right: 4px; font-size: 13px;
+}
+.signature-row.fire .bolt {
+  animation: bolt-in 400ms 200ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes bolt-in {
+  to { opacity: 1; transform: scale(1) rotate(-8deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signature-row.fire::before { display: none; }
+  .signature-row.fire .bolt, .signature-row.fire .signature-badge {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ========== ④ MIXED SCRIPT ========== */
+.mix-before {
+  font-size: 20px;
+}
+.mix-before .num {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  /* 보정 없음 — 의도적으로 한글 baseline 과 mismatch */
+}
+.mix-after {
+  font-size: 20px;
+  font-feature-settings: 'ss02' 1, 'cv11' 1;
+  font-variation-settings: 'opsz' auto;
+}
+.mix-after .num {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'cv11' 1, 'ss02' 1;
+  letter-spacing: -0.02em;
+  display: inline-block;
+  /* Inter x-height 보정 — Pretendard 한자 중심선과 align */
+  transform: translateY(0.5px);
+}
+.side-label {
+  display: inline-block;
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted-fg); margin-bottom: 6px; font-weight: 500;
+}
+
+/* ========== ③ DENSITY ========== */
+.density-ctrl {
+  display: inline-flex; gap: 0;
+  background: var(--muted); padding: 3px; border-radius: var(--r-md);
+}
+.density-ctrl button {
+  border: 0; padding: 5px 12px; font-size: 13px;
+  background: transparent;
+}
+.density-ctrl button.active {
+  background: var(--card); color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06), inset 0 1px 0 var(--border-subtle);
+}
+
+/* ========== card inner highlight demo ========== */
+.card-demo-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .card-demo-compare { grid-template-columns: 1fr; } }
+.card-plain {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 18px;
+}
+.card-crafted {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 18px;
+  box-shadow: inset 0 1px 0 var(--border-subtle),
+              0 1px 2px oklch(0 0 0 / 0.04),
+              0 8px 24px oklch(0 0 0 / 0.04);
+}
+
+/* decision buttons */
+.decision-bar {
+  position: sticky; bottom: 0; z-index: 10;
+  background: color-mix(in oklch, var(--bg) 90%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding: 16px 24px; margin: 60px -24px -80px;
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+}
+.decision-bar .label { font-size: 13px; color: var(--muted-fg); }
+.decision-bar .chip {
+  padding: 6px 12px; font-size: 13px; font-weight: 500;
+  border-radius: var(--r-md); border: 1px solid var(--border);
+  background: var(--card); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.decision-bar .chip.sel {
+  background: var(--primary); color: var(--primary-fg); border-color: transparent;
+}
+.decision-bar .chip.sel::before { content: '✓'; font-weight: 700; }
+
+.hint {
+  background: var(--muted); border-left: 3px solid var(--primary);
+  padding: 10px 14px; font-size: 13px; color: var(--muted-fg);
+  border-radius: 0 var(--r) var(--r) 0; margin: 10px 0;
+}
+code {
+  font-family: 'Geist Mono', monospace; font-size: 0.9em;
+  background: var(--muted); padding: 2px 6px; border-radius: var(--r-sm);
+}
+
+kbd {
+  font-family: 'Geist Mono', monospace; font-size: 11px;
+  padding: 2px 6px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--card);
+  box-shadow: 0 1px 0 var(--border);
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+  <div class="toolbar">
+    <span class="title">frontend-design 업그레이드 검토</span>
+    <span class="spacer"></span>
+    <button id="theme-toggle">Light ↔ Dark</button>
+  </div>
+
+  <h1>frontend-design 업그레이드 5종 시각 검토</h1>
+  <p class="lede">
+    각 제안을 실제로 렌더링했습니다. 밑에 있는 체크 칩으로 "적용 / 보류"를 골라주세요.
+    하단 요약 패널에서 최종 확정.
+  </p>
+
+  <!-- ========================================================
+       ① Tick Animation
+  ======================================================== -->
+  <h2>① Tick Animation System <span class="tag">Signature</span></h2>
+  <p class="lede">
+    가격 갱신 시 셀 배경이 flash → fade. <code>prefers-reduced-motion</code> 에서는 좌측 4px 인디케이터 바만 표시.
+    아래 "Tick 실행" 버튼을 누르거나 <kbd>Space</kbd> 로 반복해보세요.
+  </p>
+  <div class="card">
+    <table class="data" id="tick-table">
+      <thead>
+        <tr><th>종목</th><th class="num">현재가</th><th class="num">등락률</th><th class="num">거래량</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>삼성전자</td><td class="num n-inter" id="t1-price">58,700</td><td class="num n-inter up">+3.25%</td><td class="num n-inter">22,415,820</td></tr>
+        <tr><td>SK하이닉스</td><td class="num n-inter" id="t2-price">142,300</td><td class="num n-inter up">+1.87%</td><td class="num n-inter">8,902,441</td></tr>
+        <tr><td>LG에너지솔루션</td><td class="num n-inter" id="t3-price">408,500</td><td class="num n-inter down">−0.85%</td><td class="num n-inter">1,245,782</td></tr>
+        <tr><td>현대차</td><td class="num n-inter" id="t4-price">215,000</td><td class="num n-inter up">+2.14%</td><td class="num n-inter">3,512,908</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 14px; display: flex; gap: 8px; align-items: center;">
+      <button class="primary" id="tick-fire">Tick 실행</button>
+      <button id="tick-auto">자동 반복 (2초 간격)</button>
+      <span style="font-size: 12px; color: var(--muted-fg);">· 셀 전체 배경 flash (500ms) — reduced-motion 시 사라짐</span>
+    </div>
+  </div>
+  <div class="hint">
+    <b>가치:</b> 데이터 업데이트가 생명인 앱에서 "살아있다"는 감각 확보. SPEC 에 ~20줄.<br>
+    <b>리스크:</b> 1분 폴링이라 실제 빈도 낮음 — 과용 금지.
+  </div>
+
+  <!-- ========================================================
+       ② Number Font Comparison
+  ======================================================== -->
+  <h2>② 숫자 폰트 재검토 <span class="tag">Typography</span></h2>
+  <p class="lede">
+    현재 Inter 잠금. 개성 관점에서 3 후보 비교. 동일 데이터 + 동일 줄 정렬.
+  </p>
+
+  <div class="card">
+    <table class="data" style="font-size: 17px;">
+      <thead>
+        <tr><th>후보</th><th class="num">현재가</th><th class="num">등락률</th><th class="num">거래량</th><th class="num">시총</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>A. Inter</b> <span style="color: var(--muted-fg); font-size: 12px;">— 현재, 안전</span></td>
+          <td class="num n-inter">58,700</td>
+          <td class="num n-inter up">+3.25%</td>
+          <td class="num n-inter">22,415,820</td>
+          <td class="num n-inter">350.4조</td>
+        </tr>
+        <tr>
+          <td><b>B. Inter + aggressive tracking</b> <span style="color: var(--muted-fg); font-size: 12px;">— letter-spacing -0.03em + weight contrast</span></td>
+          <td class="num" style="font-family: Inter; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; font-weight: 600;">58,700</td>
+          <td class="num up" style="font-family: Inter; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; font-weight: 500;">+3.25%</td>
+          <td class="num" style="font-family: Inter; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; font-weight: 400;">22,415,820</td>
+          <td class="num" style="font-family: Inter; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; font-weight: 500;">350.4조</td>
+        </tr>
+        <tr>
+          <td><b>C. Geist Mono</b> <span style="color: var(--muted-fg); font-size: 12px;">— 현대적, 차별화, mono</span></td>
+          <td class="num n-geist">58,700</td>
+          <td class="num n-geist up">+3.25%</td>
+          <td class="num n-geist">22,415,820</td>
+          <td class="num n-geist">350.4조</td>
+        </tr>
+        <tr>
+          <td><b>D. Commissioner</b> <span style="color: var(--muted-fg); font-size: 12px;">— proportional, variable opsz, 국내 드묾</span></td>
+          <td class="num n-commish">58,700</td>
+          <td class="num n-commish up">+3.25%</td>
+          <td class="num n-commish">22,415,820</td>
+          <td class="num n-commish">350.4조</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="hint">
+    <b>추천:</b> <b>B (Inter + tracking)</b> — 폰트 추가 부담 없이 공격적 tracking 으로 개성 확보. 이미 로드된 Inter 재활용.<br>
+    <b>대안:</b> C (Geist Mono) — Vercel 폰트, 점점 인기. mono 임에 주의.
+  </div>
+
+  <!-- ========================================================
+       ③ Density Context
+  ======================================================== -->
+  <h2>③ DensityProvider (Compound Pattern) <span class="tag">Composition</span></h2>
+  <p class="lede">
+    같은 페이지에서 구역별로 밀도 전환. <code>data-density</code> 속성으로 <code>--row-h</code> · <code>--cell-pad-y</code> 재정의.
+  </p>
+
+  <div class="card">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+      <span style="font-size: 13px; color: var(--muted-fg);">밀도:</span>
+      <div class="density-ctrl" id="density-ctrl">
+        <button data-d="compact">Compact (32)</button>
+        <button data-d="default" class="active">Default (36)</button>
+        <button data-d="comfortable">Comfortable (44)</button>
+      </div>
+    </div>
+
+    <div data-density="default" id="density-target">
+      <table class="data">
+        <thead>
+          <tr><th>종목</th><th>코드</th><th class="num">현재가</th><th class="num">등락률</th><th class="num">거래량</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>삼성전자</td><td class="n-inter" style="color: var(--muted-fg); font-size: 13px;">005930</td><td class="num n-inter">58,700</td><td class="num n-inter up">+3.25%</td><td class="num n-inter">22,415,820</td></tr>
+          <tr><td>SK하이닉스</td><td class="n-inter" style="color: var(--muted-fg); font-size: 13px;">000660</td><td class="num n-inter">142,300</td><td class="num n-inter up">+1.87%</td><td class="num n-inter">8,902,441</td></tr>
+          <tr><td>LG에너지솔루션</td><td class="n-inter" style="color: var(--muted-fg); font-size: 13px;">373220</td><td class="num n-inter">408,500</td><td class="num n-inter down">−0.85%</td><td class="num n-inter">1,245,782</td></tr>
+          <tr><td>현대차</td><td class="n-inter" style="color: var(--muted-fg); font-size: 13px;">005380</td><td class="num n-inter">215,000</td><td class="num n-inter up">+2.14%</td><td class="num n-inter">3,512,908</td></tr>
+          <tr><td>카카오</td><td class="n-inter" style="color: var(--muted-fg); font-size: 13px;">035720</td><td class="num n-inter">42,150</td><td class="num n-inter flat">0.00%</td><td class="num n-inter">5,128,307</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="hint">
+    <b>가치:</b> Scanner (compact) ↔ 종목 상세 (comfortable) 같은 화면 내 밀도 분기 가능. 모바일 자동 comfortable 전환과 통합.<br>
+    <b>SPEC 추가:</b> <code>DensityProvider</code> React context + <code>data-density</code> CSS 토큰 재정의 규칙. ~15줄.
+  </div>
+
+  <!-- ========================================================
+       ④ Mixed-Script Balance
+  ======================================================== -->
+  <h2>④ 한-영-숫자 Mixed-script 균형 <span class="tag">Typography</span></h2>
+  <p class="lede">
+    Pretendard (한글) + Inter (숫자) 섞이면 x-height / baseline 미세 어긋남. 보정 전후 비교.
+  </p>
+
+  <div class="card">
+    <div class="row-split">
+      <div>
+        <span class="side-label">Before (보정 없음)</span>
+        <div class="mix-before">
+          <div>삼성전자 <span class="num">58,700</span>원 <span class="up"><span class="num">+3.25%</span></span></div>
+          <div style="margin-top: 10px;">상한가까지 <span class="num up">+13,950</span> (<span class="num up">+23.76%</span> 남음)</div>
+          <div style="margin-top: 10px;">거래량 <span class="num">22,415,820</span>주 · 시총 <span class="num">350.4</span>조원</div>
+        </div>
+      </div>
+      <div>
+        <span class="side-label">After (x-height 보정 + tracking + opsz)</span>
+        <div class="mix-after">
+          <div>삼성전자 <span class="num">58,700</span>원 <span class="up"><span class="num">+3.25%</span></span></div>
+          <div style="margin-top: 10px;">상한가까지 <span class="num up">+13,950</span> (<span class="num up">+23.76%</span> 남음)</div>
+          <div style="margin-top: 10px;">거래량 <span class="num">22,415,820</span>주 · 시총 <span class="num">350.4</span>조원</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 14px; font-size: 13px; color: var(--muted-fg);">
+      미세하지만 오른쪽이 숫자 덩어리가 한 블록으로 응집되어 보입니다. 특히 큰 폰트에서 차이 뚜렷.
+    </div>
+  </div>
+  <div class="hint">
+    <b>SPEC 추가 규칙:</b> <code>.num { transform: translateY(0.5px); letter-spacing: -0.02em; }</code> + <code>html[lang="ko"] { word-break: keep-all; }</code> + 24px+ 에서 <code>opsz</code> 활성. ~10줄.
+  </div>
+
+  <!-- ========================================================
+       ⑤ Signature Moment — Trader's Moment
+  ======================================================== -->
+  <h2>⑤ Signature Moment — 상한가 근접 순간 <span class="tag">⚡ 핵심</span></h2>
+  <p class="lede">
+    임계값을 넘어 상한가에 가까워질 때 0.7초 시그니처 모션: 좌→우 gradient sweep + ⚡ 아이콘 pop + "상한가 근접" 배지 슬라이드인.
+    이 앱의 <b>존재 이유</b>를 시각화.
+  </p>
+
+  <div class="card">
+    <table class="data">
+      <thead>
+        <tr><th>종목</th><th class="num">현재가</th><th class="num">상한가</th><th class="num">근접률</th><th>상태</th></tr>
+      </thead>
+      <tbody>
+        <tr class="signature-row" id="sig-row1">
+          <td><span class="bolt">⚡</span>에코프로비엠<span class="signature-badge">상한가 근접</span></td>
+          <td class="num n-inter up">148,300</td>
+          <td class="num n-inter" style="color: var(--muted-fg);">155,000</td>
+          <td class="num n-inter up"><b>95.7%</b></td>
+          <td><span class="badge up">+27.8%</span></td>
+        </tr>
+        <tr class="signature-row" id="sig-row2">
+          <td><span class="bolt">⚡</span>포스코퓨처엠<span class="signature-badge">상한가 근접</span></td>
+          <td class="num n-inter up">312,500</td>
+          <td class="num n-inter" style="color: var(--muted-fg);">325,000</td>
+          <td class="num n-inter up"><b>96.2%</b></td>
+          <td><span class="badge up">+26.1%</span></td>
+        </tr>
+        <tr>
+          <td>더존비즈온</td>
+          <td class="num n-inter up">45,250</td>
+          <td class="num n-inter" style="color: var(--muted-fg);">47,800</td>
+          <td class="num n-inter">94.7%</td>
+          <td><span class="badge market">+24.9%</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 14px; display: flex; gap: 8px;">
+      <button class="primary" id="sig-fire">상한가 근접 시그니처 재생</button>
+      <span style="font-size: 12px; color: var(--muted-fg); align-self: center;">
+        · 신규 종목이 임계값 초과 진입 시 자동 1회 재생 (재진입 쿨다운 30초)
+      </span>
+    </div>
+  </div>
+  <div class="hint">
+    <b>제품의 약속:</b> "당신보다 먼저 급등 종목을 포착한다" → 0.7초 모션으로 형상화. 한 번 본 사용자는 잊지 못함.<br>
+    <b>Reduced-motion:</b> sweep 제거, ⚡ 와 배지만 fade-in. 접근성 유지.
+  </div>
+
+  <!-- ========================================================
+       추가 디테일 (mini)
+  ======================================================== -->
+  <h2>추가 디테일 (mini) <span class="tag">Polish</span></h2>
+
+  <h3>Card — inner highlight (3D 감각)</h3>
+  <div class="card-demo-compare">
+    <div class="card-plain">
+      <div style="font-size: 12px; color: var(--muted-fg); margin-bottom: 4px;">PLAIN</div>
+      <div style="font-size: 18px; font-weight: 600;">삼성전자</div>
+      <div class="n-inter" style="font-size: 24px; font-weight: 600;">58,700 <span style="font-size: 14px; color: var(--muted-fg); font-weight: 400;">원</span></div>
+    </div>
+    <div class="card-crafted">
+      <div style="font-size: 12px; color: var(--muted-fg); margin-bottom: 4px;">CRAFTED (inner highlight + soft shadow)</div>
+      <div style="font-size: 18px; font-weight: 600;">삼성전자</div>
+      <div class="n-inter" style="font-size: 24px; font-weight: 600;">58,700 <span style="font-size: 14px; color: var(--muted-fg); font-weight: 400;">원</span></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 28px;">Border — 3단계 hairline</h3>
+  <div class="card" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+    <div style="border: 1px solid var(--border-subtle); padding: 12px; border-radius: var(--r);">
+      <div style="font-size: 11px; color: var(--muted-fg);">SUBTLE (0.06 alpha)</div>
+      <div style="margin-top: 4px;">행 구분선용</div>
+    </div>
+    <div style="border: 1px solid var(--border); padding: 12px; border-radius: var(--r);">
+      <div style="font-size: 11px; color: var(--muted-fg);">DEFAULT (border 토큰)</div>
+      <div style="margin-top: 4px;">카드/컨테이너</div>
+    </div>
+    <div style="border: 2px solid var(--primary); padding: 12px; border-radius: var(--r);">
+      <div style="font-size: 11px; color: var(--muted-fg);">EMPHASIS (2px primary)</div>
+      <div style="margin-top: 4px;">선택 상태</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top: 28px;">Focus ring — Toss-style double ring (버튼에 Tab 해보세요)</h3>
+  <div class="card" style="display: flex; gap: 10px; align-items: center;">
+    <button class="primary">Primary 버튼</button>
+    <button>Secondary 버튼</button>
+    <button>Ghost 버튼</button>
+    <span style="font-size: 13px; color: var(--muted-fg);">· outline 2px + halo 4px</span>
+  </div>
+
+  <!-- ========================================================
+       Decision Bar
+  ======================================================== -->
+  <h2>최종 결정</h2>
+  <p class="lede">각 업그레이드를 <b>적용</b> 할지 <b>보류</b> 할지 클릭으로 골라주세요. "결정 복사" 로 답변을 복사할 수 있습니다.</p>
+
+  <div class="card" style="padding: 20px;">
+    <div id="choices" style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="choice-row" data-id="1">
+        <span><b>①</b> Tick Animation System</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+      <div class="choice-row" data-id="2a">
+        <span><b>② A</b> Inter 유지 (현재)</span>
+        <button class="chip" data-val="apply">선택</button>
+      </div>
+      <div class="choice-row" data-id="2b">
+        <span><b>② B</b> Inter + 공격적 tracking/weight</span>
+        <button class="chip" data-val="apply">선택</button>
+      </div>
+      <div class="choice-row" data-id="2c">
+        <span><b>② C</b> Geist Mono</span>
+        <button class="chip" data-val="apply">선택</button>
+      </div>
+      <div class="choice-row" data-id="2d">
+        <span><b>② D</b> Commissioner</span>
+        <button class="chip" data-val="apply">선택</button>
+      </div>
+      <div class="choice-row" data-id="3">
+        <span><b>③</b> DensityProvider (Compact/Default/Comfortable)</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+      <div class="choice-row" data-id="4">
+        <span><b>④</b> Mixed-script 보정 (x-height + tracking + opsz)</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+      <div class="choice-row" data-id="5">
+        <span><b>⑤</b> Signature Moment (상한가 근접 모션)</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+      <div class="choice-row" data-id="mini-card">
+        <span><b>mini-A</b> Card inner highlight + soft shadow</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+      <div class="choice-row" data-id="mini-border">
+        <span><b>mini-B</b> Border 3단계 (subtle/default/emphasis)</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+      <div class="choice-row" data-id="mini-focus">
+        <span><b>mini-C</b> Focus ring double (outline + halo)</span>
+        <button class="chip" data-val="apply">적용</button>
+        <button class="chip" data-val="skip">보류</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="decision-bar">
+    <span class="label">선택 요약:</span>
+    <span id="summary" style="font-family: 'Geist Mono', monospace; font-size: 13px;">(아직 선택 없음)</span>
+    <span class="spacer" style="flex: 1;"></span>
+    <button id="copy-decision">결정 복사</button>
+  </div>
+</div>
+
+<style>
+.choice-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: var(--r);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.choice-row:last-child { border-bottom: 0; }
+.choice-row > span:first-child { flex: 1; }
+.choice-row .chip {
+  padding: 5px 12px; font-size: 13px; font-weight: 500;
+  border-radius: var(--r-md); border: 1px solid var(--border);
+  background: var(--card); cursor: pointer;
+}
+.choice-row .chip.sel {
+  background: var(--primary); color: var(--primary-fg); border-color: transparent;
+}
+.choice-row .chip.sel::before { content: '✓ '; font-weight: 700; }
+</style>
+
+<script>
+// theme toggle
+const tb = document.getElementById('theme-toggle');
+tb.addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+});
+
+// ① tick animation
+const fmt = n => n.toLocaleString('ko-KR');
+const priceEls = [
+  { el: document.getElementById('t1-price'), v: 58700 },
+  { el: document.getElementById('t2-price'), v: 142300 },
+  { el: document.getElementById('t3-price'), v: 408500 },
+  { el: document.getElementById('t4-price'), v: 215000 },
+];
+function doTick() {
+  priceEls.forEach((p, i) => {
+    setTimeout(() => {
+      const up = Math.random() > 0.4;
+      const delta = Math.round((Math.random() * 0.01 + 0.001) * p.v) * (up ? 1 : -1);
+      p.v += delta;
+      p.el.textContent = fmt(p.v);
+      const tr = p.el.closest('tr');
+      tr.classList.remove('tick-flash','tick-up','tick-down','tick-bar');
+      void tr.offsetWidth;
+      tr.classList.add('tick-flash', up ? 'tick-up' : 'tick-down');
+      setTimeout(() => tr.classList.remove('tick-flash','tick-up','tick-down'), 500);
+    }, i * 80);
+  });
+}
+document.getElementById('tick-fire').addEventListener('click', doTick);
+let tickTimer = null;
+document.getElementById('tick-auto').addEventListener('click', (e) => {
+  if (tickTimer) {
+    clearInterval(tickTimer); tickTimer = null;
+    e.target.textContent = '자동 반복 (2초 간격)';
+  } else {
+    doTick();
+    tickTimer = setInterval(doTick, 2000);
+    e.target.textContent = '자동 반복 중지';
+  }
+});
+window.addEventListener('keydown', e => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); doTick(); } });
+
+// ③ density
+document.querySelectorAll('#density-ctrl button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#density-ctrl button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('density-target').setAttribute('data-density', btn.dataset.d);
+  });
+});
+
+// ⑤ signature moment
+function fireSignature() {
+  const rows = [document.getElementById('sig-row1'), document.getElementById('sig-row2')];
+  rows.forEach((r, i) => {
+    setTimeout(() => {
+      r.classList.remove('fire');
+      void r.offsetWidth;
+      r.classList.add('fire');
+      setTimeout(() => r.classList.remove('fire'), 3000);
+    }, i * 350);
+  });
+}
+document.getElementById('sig-fire').addEventListener('click', fireSignature);
+// auto-fire once on load
+setTimeout(fireSignature, 800);
+
+// decision tracking
+const decisions = {};
+const singleGroups = { '2': ['2a','2b','2c','2d'] };
+function updateSummary() {
+  const s = Object.entries(decisions).filter(([,v]) => v === 'apply').map(([k]) => k).sort();
+  document.getElementById('summary').textContent = s.length ? s.join(', ') : '(아직 선택 없음)';
+}
+document.querySelectorAll('.choice-row').forEach(row => {
+  const id = row.dataset.id;
+  row.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      // for group 2 (single select), clear siblings
+      if (id.startsWith('2')) {
+        singleGroups['2'].forEach(sid => {
+          delete decisions[sid];
+          document.querySelectorAll(`[data-id="${sid}"] .chip`).forEach(c => c.classList.remove('sel'));
+        });
+        decisions[id] = 'apply';
+        chip.classList.add('sel');
+      } else {
+        row.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
+        chip.classList.add('sel');
+        decisions[id] = chip.dataset.val;
+      }
+      updateSummary();
+    });
+  });
+});
+
+document.getElementById('copy-decision').addEventListener('click', async () => {
+  const apply = Object.entries(decisions).filter(([,v]) => v === 'apply').map(([k]) => k).sort().join(', ');
+  const skip = Object.entries(decisions).filter(([,v]) => v === 'skip').map(([k]) => k).sort().join(', ');
+  const txt = `적용: ${apply || '(없음)'}\n보류: ${skip || '(없음)'}`;
+  try {
+    await navigator.clipboard.writeText(txt);
+    const btn = document.getElementById('copy-decision');
+    const orig = btn.textContent;
+    btn.textContent = '복사됨 ✓';
+    setTimeout(() => btn.textContent = orig, 1500);
+  } catch {
+    alert(txt);
+  }
+});
+</script>
+
+</body>
+</html>
