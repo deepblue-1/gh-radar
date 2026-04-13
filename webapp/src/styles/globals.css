@@ -1,0 +1,141 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* spacing & radius는 Tailwind v4 기본 scale 사용 — 아래 토큰은 CSS 변수로만 보조 노출 */
+}
+
+:root {
+  --bg: #FFFFFF;
+  --fg: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-fg: oklch(0.50 0 0);
+  --border: oklch(0.92 0 0);
+  --border-subtle: oklch(0.18 0 0 / 0.06);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.63 0.18 250);
+  --card: #FFFFFF;
+  --card-fg: oklch(0.18 0 0);
+  --popover: #FFFFFF;
+  --popover-fg: oklch(0.18 0 0);
+  --primary: oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+  --secondary: oklch(0.96 0 0);
+  --secondary-fg: oklch(0.18 0 0);
+  --accent: oklch(0.95 0.03 250);
+  --accent-fg: oklch(0.35 0.12 250);
+  --destructive: oklch(0.66 0.20 22);
+  --destructive-fg: #FFFFFF;
+  --up: oklch(0.66 0.20 22);
+  --down: oklch(0.63 0.18 250);
+  --flat: oklch(0.55 0 0);
+  --up-bg: oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+  --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px;
+
+  --t-caption: 12px; --t-sm: 14px; --t-base: 16px; --t-lg: 18px;
+  --t-h4: 18px; --t-h3: 20px; --t-h2: 24px; --t-h1: 30px;
+  --lh-tight: 1.2; --lh-normal: 1.5;
+
+  --row-h: 36px; --cell-pad-x: 12px; --cell-pad-y: 8px;
+
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system,
+               BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dark {
+  --bg: oklch(0.08 0 0);
+  --fg: oklch(0.96 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-fg: oklch(0.65 0 0);
+  --border: oklch(0.24 0 0);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.72 0.16 250);
+  --card: oklch(0.12 0 0);
+  --card-fg: oklch(0.96 0 0);
+  --popover: oklch(0.14 0 0);
+  --popover-fg: oklch(0.96 0 0);
+  --primary: oklch(0.72 0.16 250);
+  --primary-fg: oklch(0.10 0 0);
+  --secondary: oklch(0.18 0 0);
+  --secondary-fg: oklch(0.96 0 0);
+  --accent: oklch(0.22 0.05 250);
+  --accent-fg: oklch(0.85 0.10 250);
+  --destructive: oklch(0.72 0.19 22);
+  --destructive-fg: oklch(0.10 0 0);
+  --up: oklch(0.72 0.19 22);
+  --down: oklch(0.72 0.16 250);
+  --flat: oklch(0.65 0 0);
+  --up-bg: oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   §2.3 글로벌 베이스라인
+   ───────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--t-base);
+  line-height: var(--lh-normal);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   §8.5.2 Mixed-Script Baseline (html[lang="ko"])
+   ───────────────────────────────────────────────────────────── */
+html[lang="ko"] {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  letter-spacing: -0.01em;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   §2.2 .mono utility (숫자 전용 고정폭 + ss01 slashed zero)
+   ───────────────────────────────────────────────────────────── */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: 'tnum' 1, 'ss01' 1;
+  letter-spacing: -0.01em;
+  /* Geist Mono x-height 보정 — 한글 중심선과 align */
+  transform: translateY(0.5px);
+}
+
+/* 24px 이상 큰 숫자 — optical sizing 활성 */
+.mono.text-lg,
+.mono.text-xl,
+.mono[class*="text-h"] {
+  font-variation-settings: 'opsz' auto;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   §8.5.1 Density scopes
+   ───────────────────────────────────────────────────────────── */
+[data-density="compact"]     { --row-h: 32px; --cell-pad-y: 6px; }
+[data-density="default"]     { --row-h: 36px; --cell-pad-y: 8px; }
+[data-density="comfortable"] { --row-h: 44px; --cell-pad-y: 12px; }
+
+/* 모바일 자동 comfortable */
+@media (max-width: 767px) {
+  [data-density]:not([data-density="compact"]) {
+    --row-h: 44px; --cell-pad-y: 12px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   §8.5.5 Double-Ring Focus (전역)
+   ───────────────────────────────────────────────────────────── */
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent);
+}
