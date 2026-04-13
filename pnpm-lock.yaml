@@ -1,0 +1,13 @@
+lockfileVersion: '6.0'
+
+importers:
+
+  .: {}
+
+  packages/shared: {}
+
+  server: {}
+
+  webapp: {}
+
+  workers/ingestion: {}

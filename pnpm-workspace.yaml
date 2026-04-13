@@ -1,0 +1,5 @@
+packages:
+  - webapp
+  - server
+  - workers/*
+  - packages/*
