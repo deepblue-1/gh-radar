@@ -8,7 +8,12 @@ export async function upsertStocks(
 ): Promise<{ count: number }> {
   if (stocks.length === 0) return { count: 0 };
 
-  const rows = stocks.map((s) => ({
+  const deduped = new Map<string, Stock>();
+  for (const s of stocks) {
+    deduped.set(s.code, s);
+  }
+
+  const rows = [...deduped.values()].map((s) => ({
     code: s.code,
     name: s.name,
     market: s.market,
