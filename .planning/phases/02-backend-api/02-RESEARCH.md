@@ -878,7 +878,7 @@ ROADMAP Phase 2 Success Criteria 4개에 매핑:
 
 ---
 
-## 11. Open Questions (플래너가 결정해야 할 항목)
+## 11. Open Questions (RESOLVED 2026-04-13)
 
 ### Q1. `/api/scanner` Cache-Control 헤더 (Discretion)
 
@@ -889,6 +889,8 @@ ROADMAP Phase 2 Success Criteria 4개에 매핑:
 
 **권고:** v1은 (A) `no-store`로 단순 시작. v2에서 트래픽 봐서 (C)로 전환 검토. min=1이라 비용 절감 동기 약함.
 
+**RESOLVED:** 권고 A 채택 (no-store) — 02-03-PLAN.md Task 1 scanner.ts Cache-Control 헤더.
+
 ### Q2. `version` 필드 (health 응답) 출처
 
 **옵션:**
@@ -897,6 +899,8 @@ ROADMAP Phase 2 Success Criteria 4개에 매핑:
 - (C) 단순 `package.json` version만
 
 **권고:** (B). deploy 스크립트가 이미 `git rev-parse --short HEAD` 알고 있음. `docker build --build-arg GIT_SHA=$SHA` 추가 → Dockerfile에서 `ARG GIT_SHA` `ENV APP_VERSION=$GIT_SHA` → 런타임 `process.env.APP_VERSION` 읽기.
+
+**RESOLVED:** 권고 B 채택 (ARG GIT_SHA + ENV APP_VERSION) — 02-04-PLAN.md Task 1 Dockerfile + Task 2 deploy-server.sh `--build-arg GIT_SHA=${SHA}`.
 
 ### Q3. pino-http 로그 레벨 정책
 
@@ -919,6 +923,8 @@ pinoHttp({
 ```
 LOG_LEVEL=info(기본) 시 2xx 로그 자연스럽게 억제, 운영 시 비용 ↓.
 
+**RESOLVED:** 권고 B 채택 (customLogLevel) — 02-02-PLAN.md Task 1 pino-http 미들웨어(`server/src/middleware/pino-http.ts`).
+
 ### Q4. `@google-cloud/pino-logging-gcp-config` 도입 여부
 
 **옵션:**
@@ -936,9 +942,13 @@ export const logger = pino(createGcpLoggingPinoConfig(
 ));
 ```
 
+**RESOLVED:** 권고 B 채택 (@google-cloud/pino-logging-gcp-config) — 02-01-PLAN.md Task 2 `server/src/logger.ts` + `pnpm add @google-cloud/pino-logging-gcp-config` 의존성.
+
 ### Q5. CORS 거부 응답 코드
 
 cors 미들웨어가 throw하면 §5.6의 errorHandler가 잡아 403 반환. 일부 팀은 200+빈 헤더(브라우저가 자체 차단) 선호. **권고:** 명시적 403 — 디버깅 용이.
+
+**RESOLVED:** 권고 채택 (명시적 403 + CORS_NOT_ALLOWED) — 02-02-PLAN.md Task 2 errorHandler `Error('CORS_NOT_ALLOWED')` → 403 분기.
 
 ---
 

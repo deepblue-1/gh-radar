@@ -44,7 +44,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. min-instances=1 설정으로 cold start 없이 API 요청에 응답한다
   3. `/api/scanner` 엔드포인트가 Supabase에서 종목 시세 데이터를 읽어 JSON으로 반환한다
   4. `/api/stocks/:code` 엔드포인트가 개별 종목 정보를 반환한다
-**Plans**: TBD
+**Plans:** 5 plans
+- [ ] 02-01-PLAN.md — server 워크스페이스 스캐폴드 + 공용 유틸/타입/매퍼/테스트 인프라
+- [ ] 02-02-PLAN.md — createApp 팩토리 + 미들웨어 스택 (helmet/CORS/rate-limit/request-id/pino/error/404)
+- [ ] 02-03-PLAN.md — 4개 엔드포인트 구현 + server.ts 엔트리 + 로컬 dev smoke
+- [ ] 02-04-PLAN.md — Dockerfile + deploy-server.sh + smoke-server.sh (정적 검증)
+- [ ] 02-05-PLAN.md — Cloud Run 실배포 + INV-1~INV-11 검증 + DEPLOY-LOG
 
 ### Phase 3: Design System
 **Goal**: 모든 프론트엔드 UI가 공통으로 사용할 디자인 토큰, 컴포넌트, 레이아웃 템플릿이 정의되어 있다
