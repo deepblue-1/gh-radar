@@ -1,5 +1,24 @@
 {
   "name": "@gh-radar/ingestion",
   "version": "0.0.0",
-  "private": true
+  "private": true,
+  "scripts": {
+    "dev": "tsx -r dotenv/config src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gh-radar/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.49.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0",
+    "@types/node": "^22.0.0"
+  }
 }
