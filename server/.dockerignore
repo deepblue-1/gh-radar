@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+.env.*
+*.md
+.planning
+tests
+**/*.test.ts
+coverage
+.vscode
