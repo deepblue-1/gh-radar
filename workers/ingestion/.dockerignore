@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.*
+tests
+scripts
+vitest.config.ts
+*.test.ts
+.planning
+.git
+.claude
