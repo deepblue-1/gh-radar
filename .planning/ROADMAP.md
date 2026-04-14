@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Data Foundation** - KIS OpenAPI 연동 + Supabase 스키마 구축
 - [x] **Phase 2: Backend API** - Express API 서버 구축 및 Cloud Run 배포
 - [x] **Phase 3: Design System** - 디자인 토큰, 컴포넌트 라이브러리, 테마
-- [ ] **Phase 4: Frontend Scaffold** - Next.js 앱 구축 및 Vercel 배포
+- [x] **Phase 4: Frontend Scaffold** - Next.js 앱 구축 및 Vercel 배포
 - [ ] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
 - [ ] **Phase 6: Stock Search & Detail** - 종목 검색 자동완성 + 상세 페이지
 - [ ] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
@@ -70,10 +70,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Depends on**: Phase 3
 **Requirements**: INFR-04
 **Success Criteria** (what must be TRUE):
-  1. Next.js 앱이 Vercel 배포 URL로 접근 가능하다 — ⏳ 사용자 수동 배포 대기
+  1. Next.js 앱이 Vercel 배포 URL로 접근 가능하다 — ✅ https://gh-radar-webapp.vercel.app
   2. 디자인 시스템의 CSS 변수와 shadcn/ui 컴포넌트가 앱에 임포트되어 정상 작동한다 — ✅ build PASS
-  3. Phase 3에서 정의한 레이아웃 템플릿(네비게이션 포함)이 적용된 기본 페이지가 표시된다 — ✅ AppShell(hideSidebar) 적용
-  4. Light/Dark 테마 전환이 앱에서 작동한다 — ✅ ThemeToggle 유지 (브라우저 smoke 대기)
+  3. Phase 3에서 정의한 레이아웃 템플릿(네비게이션 포함)이 적용된 기본 페이지가 표시된다 — ✅ AppShell(hideSidebar) 적용 + smoke 통과
+  4. Light/Dark 테마 전환이 앱에서 작동한다 — ✅ ThemeToggle 브라우저 smoke 통과
 **Plans:** 1 plan
 - [x] 04-PLAN.md — Frontend Scaffold: AppShell hideSidebar + apiFetch + /scanner placeholder + 에러 경계 + Vercel 환경변수
 **UI hint**: yes
