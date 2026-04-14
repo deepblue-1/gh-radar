@@ -17,7 +17,7 @@ const DEFAULT_TIMEOUT_MS = 8_000;
 
 let warnedMissingBaseUrl = false;
 
-function resolveBaseUrl(): string {
+export function resolveBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (raw && raw.length > 0) return raw;
 
