@@ -15,13 +15,13 @@
 
 ### Scanner
 
-- [ ] **SCAN-01**: 코스피/코스닥 전 종목의 실시간 등락률 리스트 표시
-- [ ] **SCAN-02**: 상한가 근접 종목 필터링 (기준값 사용자 조절 가능, 기본 25%)
-- [ ] **SCAN-03**: 임계값 슬라이더 UI (10~29% 범위)
-- [ ] **SCAN-04**: 종목별 현재가 + 등락률 + 거래량 표시
-- [ ] **SCAN-05**: 코스피/코스닥 마켓 뱃지 표시
-- [ ] **SCAN-06**: 데이터 갱신 시각 표시
-- [ ] **SCAN-07**: 1분 간격 자동 갱신 (장 시간 내)
+- [x] **SCAN-01**: 코스피/코스닥 전 종목의 실시간 등락률 리스트 표시
+- [x] **SCAN-02**: 상한가 근접 종목 필터링 (기준값 사용자 조절 가능, 기본 25%)
+- [x] **SCAN-03**: 임계값 슬라이더 UI (10~29% 범위)
+- [x] **SCAN-04**: 종목별 현재가 + 등락률 + 거래량 표시
+- [x] **SCAN-05**: 코스피/코스닥 마켓 뱃지 표시
+- [x] **SCAN-06**: 데이터 갱신 시각 표시
+- [x] **SCAN-07**: 1분 간격 자동 갱신 (장 시간 내)
 
 ### Search
 
@@ -92,13 +92,13 @@
 | DSGN-04 | Phase 3 | Pending |
 | DSGN-05 | Phase 3 | Pending |
 | INFR-04 | Phase 4 | Done |
-| SCAN-01 | Phase 5 | Pending |
-| SCAN-02 | Phase 5 | Pending |
-| SCAN-03 | Phase 5 | Pending |
-| SCAN-04 | Phase 5 | Pending |
-| SCAN-05 | Phase 5 | Pending |
-| SCAN-06 | Phase 5 | Pending |
-| SCAN-07 | Phase 5 | Pending |
+| SCAN-01 | Phase 5 | Complete |
+| SCAN-02 | Phase 5 | Complete |
+| SCAN-03 | Phase 5 | Complete |
+| SCAN-04 | Phase 5 | Complete |
+| SCAN-05 | Phase 5 | Complete |
+| SCAN-06 | Phase 5 | Complete |
+| SCAN-07 | Phase 5 | Complete |
 | SRCH-01 | Phase 6 | Pending |
 | SRCH-02 | Phase 6 | Pending |
 | SRCH-03 | Phase 6 | Pending |
