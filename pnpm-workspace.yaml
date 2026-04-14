@@ -5,3 +5,7 @@ packages:
   - packages/*
 onlyBuiltDependencies:
   - esbuild
+  - msw
+  - protobufjs
+  - sharp
+  - unrs-resolver

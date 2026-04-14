@@ -18,7 +18,7 @@ const DEFAULT_TIMEOUT_MS = 8_000;
 let warnedMissingBaseUrl = false;
 
 function resolveBaseUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const raw = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (raw && raw.length > 0) return raw;
 
   if (!warnedMissingBaseUrl) {
@@ -73,7 +73,18 @@ export interface ApiFetchInit extends Omit<RequestInit, 'signal'> {
 export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: externalSignal, headers, ...rest } = init;
 
-  const url = new URL(path, resolveBaseUrl()).toString();
+  const base = resolveBaseUrl();
+  let url: string;
+  try {
+    url = new URL(path, base).toString();
+  } catch (cause) {
+    throw new ApiClientError({
+      code: 'INVALID_BASE_URL',
+      message: `API base URL 이 올바르지 않습니다 (값: "${base}")`,
+      status: 0,
+      cause,
+    });
+  }
 
   const controller = new AbortController();
   const onExternalAbort = () => controller.abort(externalSignal?.reason);
