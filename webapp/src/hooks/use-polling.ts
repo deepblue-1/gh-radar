@@ -34,9 +34,10 @@ export function usePolling<T>(
 ): UsePollingResult<T> {
   const [data, setData] = useState<T | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | undefined>(
-    undefined,
-  );
+  // Phase 05.2 D-17: lastUpdatedAt 은 더 이상 client clock 으로 갱신하지 않는다.
+  // UsePollingResult 타입 호환을 위해 상수로 유지 (실제 값은 scanner-client 가
+  // fetcher 결과의 X-Last-Updated-At 헤더에서 직접 추출하여 ScannerFilters 로 전달).
+  const lastUpdatedAt: number | undefined = undefined;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
 
@@ -59,7 +60,8 @@ export function usePolling<T>(
       if (controller.signal.aborted || !mountedRef.current) return;
       setData(result);
       setError(undefined);
-      setLastUpdatedAt(Date.now());
+      // Phase 05.2 D-17: lastUpdatedAt 소스는 더 이상 client clock 아님.
+      // scanner-client 가 fetcher 결과(서버 X-Last-Updated-At 헤더)에서 직접 추출.
     } catch (err) {
       if (controller.signal.aborted || !mountedRef.current) return;
       // AbortError 는 abort 처리 분기에서 걸러짐 — 그 외만 error 채움

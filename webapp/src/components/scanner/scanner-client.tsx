@@ -42,8 +42,17 @@ export function ScannerClient() {
     [state.min, state.market],
   );
 
-  const { data, error, lastUpdatedAt, refresh, isRefreshing, isInitialLoading } =
+  const { data, error, refresh, isRefreshing, isInitialLoading } =
     usePolling(fetcher, { intervalMs: POLL_INTERVAL_MS, key });
+
+  // Phase 05.2 D-17/D-18: 갱신시각 소스를 서버 X-Last-Updated-At 헤더로 교체.
+  // data: { stocks, lastUpdatedAt: string | null } | undefined
+  const stocks = data?.stocks ?? [];
+  const iso = data?.lastUpdatedAt ?? null;
+  const lastUpdatedAtMs = iso ? new Date(iso).getTime() : NaN;
+  const lastUpdatedAt = Number.isFinite(lastUpdatedAtMs)
+    ? lastUpdatedAtMs
+    : undefined;
 
   const handleChange = useCallback(
     (next: ScannerState) => {
@@ -60,8 +69,8 @@ export function ScannerClient() {
   }, [refresh]);
 
   // 본문 분기
-  const hasData = data !== undefined && data.length > 0;
-  const isEmpty = data !== undefined && data.length === 0 && !error;
+  const hasData = data !== undefined && stocks.length > 0;
+  const isEmpty = data !== undefined && stocks.length === 0 && !error;
   const showInitialError = isInitialLoading && error !== undefined;
 
   let body: React.ReactNode;
@@ -81,8 +90,8 @@ export function ScannerClient() {
   } else {
     body = (
       <>
-        <ScannerTable stocks={data ?? []} isRefreshing={isRefreshing} />
-        <ScannerCardList stocks={data ?? []} isRefreshing={isRefreshing} />
+        <ScannerTable stocks={stocks} isRefreshing={isRefreshing} />
+        <ScannerCardList stocks={stocks} isRefreshing={isRefreshing} />
       </>
     );
   }

@@ -12,7 +12,7 @@ export interface ScannerCardListProps {
 
 /**
  * 모바일 Card 리스트 (md:hidden). UI-SPEC §Wireframes §2.
- * 3줄 구조: 종목명+등락률 Badge / 코드·마켓 / 현재가+거래량.
+ * 3줄 구조: 종목명+등락률 Badge / 코드·마켓 / 현재가+거래대금.
  * 터치 타겟 44px 이상 확보 (padding 12 + 3줄 gap).
  */
 function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
@@ -57,7 +57,7 @@ function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
                   <Number value={stock.price} format="price" />
                 </span>
                 <span className="mono text-[var(--muted-fg)]">
-                  <Number value={stock.volume} format="volume" />
+                  <Number value={stock.tradeAmount} format="trade-amount" />
                 </span>
               </div>
             </Link>

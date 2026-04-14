@@ -38,7 +38,7 @@ function ScannerTableBase({ stocks, isRefreshing }: ScannerTableProps) {
         <span>마켓</span>
         <span className="text-right">현재가</span>
         <span className="text-right">등락률</span>
-        <span className="text-right">거래량</span>
+        <span className="text-right">거래대금</span>
       </div>
       <div role="rowgroup">
         {rows.map((stock) => {
@@ -79,7 +79,7 @@ function ScannerTableBase({ stocks, isRefreshing }: ScannerTableProps) {
                 {stock.changeRate.toFixed(2)}%
               </span>
               <span className="mono text-right text-[var(--fg)]">
-                <Number value={stock.volume} format="volume" />
+                <Number value={stock.tradeAmount} format="trade-amount" />
               </span>
             </Link>
           );

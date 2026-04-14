@@ -13,7 +13,7 @@ export function ScannerSkeleton() {
         <table className="w-full border-collapse">
           <thead className="bg-[var(--muted)]">
             <tr>
-              {['종목명', '코드', '마켓', '현재가', '등락률', '거래량'].map(
+              {['종목명', '코드', '마켓', '현재가', '등락률', '거래대금'].map(
                 (h) => (
                   <th
                     key={h}
