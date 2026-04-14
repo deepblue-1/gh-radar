@@ -22,6 +22,9 @@
 - [x] **SCAN-05**: 코스피/코스닥 마켓 뱃지 표시
 - [x] **SCAN-06**: 데이터 갱신 시각 표시
 - [x] **SCAN-07**: 1분 간격 자동 갱신 (장 시간 내)
+- [x] **SCAN-08**: 갱신시각 서버 DB 기준 표시 (Phase 05.2 — `stocks.updated_at` MAX → `X-Last-Updated-At` 헤더)
+
+> 각주: SCAN-04의 "거래량"은 Phase 05.2에서 "거래대금(KRW)"으로 재해석됨. UI는 `inquirePrice.acml_tr_pbmn` 정확값 표시, inquirePrice 실패 종목은 "-" 표시.
 
 ### Search
 
