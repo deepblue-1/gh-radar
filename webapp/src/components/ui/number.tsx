@@ -1,12 +1,14 @@
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import { formatTradeAmount } from '@/lib/format';
 
 export type NumberFormat =
   | 'price'
   | 'percent'
   | 'volume'
   | 'marketCap'
+  | 'trade-amount'
   | 'plain';
 
 export interface NumberProps {
@@ -98,6 +100,9 @@ function formatByType(
       }
       return `${new Intl.NumberFormat('ko-KR').format(value)} 원`;
     }
+
+    case 'trade-amount':
+      return formatTradeAmount(value);
 
     case 'plain':
     default:
