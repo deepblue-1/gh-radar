@@ -5,7 +5,7 @@ import { rowToStock, type StockRow } from "../mappers/stock.js";
 import { ApiError } from "../errors.js";
 
 export const COLS =
-  "code,name,market,price,change_amount,change_rate,volume,open,high,low,market_cap,upper_limit,lower_limit,updated_at";
+  "code,name,market,price,change_amount,change_rate,volume,trade_amount,open,high,low,market_cap,upper_limit,lower_limit,updated_at";
 
 export const scannerRouter: RouterT = Router();
 
@@ -42,6 +42,17 @@ scannerRouter.get("/", async (req, res, next) => {
     const { data, error } = await query;
     if (error) throw error;
     const rows = (data ?? []) as unknown as StockRow[];
+
+    // D-10/D-11: 응답에 포함된 stocks 의 MAX(updated_at) 을 ISO 8601 UTC 헤더로 노출.
+    // 0건 또는 모든 updated_at 이 invalid 면 헤더 생략 (빈 문자열도 금지).
+    if (rows.length > 0) {
+      const maxMs = Math.max(
+        ...rows.map((r) => new Date(r.updated_at).getTime()),
+      );
+      if (Number.isFinite(maxMs) && maxMs > 0) {
+        res.setHeader("X-Last-Updated-At", new Date(maxMs).toISOString());
+      }
+    }
     res.setHeader("Cache-Control", "no-store");
     res.json(rows.map(rowToStock));
   } catch (e) {

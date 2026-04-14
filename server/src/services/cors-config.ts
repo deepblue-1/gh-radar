@@ -26,5 +26,6 @@ export function corsOptions(): CorsOptions {
     },
     credentials: false,
     maxAge: 600,
+    exposedHeaders: ["X-Last-Updated-At", "X-Request-Id"],
   };
 }

@@ -8,6 +8,7 @@ export type StockRow = {
   change_amount: string;
   change_rate: string;
   volume: number;
+  trade_amount: number;
   open: string | null;
   high: string | null;
   low: string | null;
@@ -30,6 +31,7 @@ export function rowToStock(r: StockRow): StockWithProximity {
     changeAmount: Number(r.change_amount),
     changeRate: Number(r.change_rate),
     volume: r.volume,
+    tradeAmount: r.trade_amount,
     open: Number(r.open ?? 0),
     high: Number(r.high ?? 0),
     low: Number(r.low ?? 0),
