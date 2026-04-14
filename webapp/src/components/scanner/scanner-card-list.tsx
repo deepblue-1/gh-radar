@@ -20,7 +20,7 @@ function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
   return (
     <ul
       className={cn(
-        'md:hidden flex flex-col gap-3 list-none p-0 m-0',
+        'md:hidden flex flex-col gap-2 list-none p-0 m-0',
         isRefreshing && 'opacity-90 transition-opacity',
       )}
     >
@@ -33,8 +33,7 @@ function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
             <Link
               href={`/stocks/${stock.code}`}
               aria-label={`${stock.name} 상세 보기`}
-              className="flex flex-col gap-2 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-3 active:bg-[var(--muted)] transition-colors"
-              style={{ minHeight: 88 }}
+              className="flex flex-col gap-1.5 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 active:bg-[var(--muted)] transition-colors"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[length:var(--t-base)] font-semibold text-[var(--fg)] truncate">

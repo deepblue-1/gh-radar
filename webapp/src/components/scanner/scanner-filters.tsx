@@ -92,19 +92,33 @@ export function ScannerFilters({
     [state, onChange],
   );
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[length:var(--t-caption)] font-semibold uppercase tracking-wide text-[var(--muted-fg)]">
-        필터
-      </span>
+  const refreshButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onRefresh}
+      disabled={isRefreshing}
+      aria-label="스캐너 데이터 새로고침"
+      title="새로고침"
+      className="size-8 shrink-0 p-0"
+    >
+      <RefreshCw
+        aria-hidden="true"
+        className={cn('size-4', isRefreshing && 'animate-spin')}
+      />
+    </Button>
+  );
 
+  return (
+    <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+      <div className="flex items-center gap-2">
       {/* 등락률 chip */}
       <Popover>
         <PopoverTrigger asChild>
           <Button
             type="button"
             variant="outline"
-            className="mono h-8 px-3 text-sm font-semibold"
+            className="mono h-8 px-3 text-sm font-semibold flex-1 sm:flex-none justify-between sm:justify-center"
             aria-label={`최소 등락률 ${localMin}% 조정`}
           >
             등락률 ≥ {localMin}%
@@ -147,7 +161,7 @@ export function ScannerFilters({
           <Button
             type="button"
             variant="outline"
-            className="h-8 px-3 text-sm font-semibold"
+            className="h-8 px-3 text-sm font-semibold flex-1 sm:flex-none justify-between sm:justify-center"
             aria-label={`마켓 ${MARKET_LABELS[state.market]} 변경`}
           >
             마켓: {MARKET_LABELS[state.market]}
@@ -175,24 +189,15 @@ export function ScannerFilters({
         </PopoverContent>
       </Popover>
 
-      <div className="ml-auto flex items-center gap-3">
+      </div>
+
+      <div className="flex items-center justify-end gap-2 sm:ml-auto sm:justify-start">
         {lastUpdatedAt !== undefined && (
-          <span className="mono text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)]">
-            최근 갱신 {formatKstTime(lastUpdatedAt)}
+          <span className="mono text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+            {formatKstTime(lastUpdatedAt)}
           </span>
         )}
-        <Button
-          type="button"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          aria-label="스캐너 데이터 새로고침"
-        >
-          <RefreshCw
-            aria-hidden="true"
-            className={cn('size-4', isRefreshing && 'animate-spin')}
-          />
-          {isRefreshing ? '새로고침 중...' : '새로고침'}
-        </Button>
+        {refreshButton}
       </div>
     </div>
   );
