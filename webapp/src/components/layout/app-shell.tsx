@@ -10,6 +10,12 @@ export interface AppShellProps {
   sidebar?: ReactNode;
   /** 헤더 중앙 네비 slot. */
   nav?: ReactNode;
+  /**
+   * `true` 면 사이드바 영역과 모바일 Drawer 토글을 렌더하지 않고 헤더 전용 모드로 동작.
+   * Phase 4 v1 은 개인화(관심종목 등)가 없으므로 기본 레이아웃에서 `hideSidebar` 사용.
+   * 기본값 `false` 로 Phase 3 `/design` 카탈로그와의 호환성 유지.
+   */
+  hideSidebar?: boolean;
   children: ReactNode;
 }
 
@@ -18,19 +24,26 @@ export interface AppShellProps {
  * - Desktop(>=lg): 56px top header + 240px left sidebar + 24px padding main
  * - Mobile(<lg): sidebar → `<Sheet side="left">` Drawer (햄버거 트리거)
  * - ESC / scrim 클릭 / 내부 nav 링크 클릭 시 자동 닫힘 (Radix Dialog 기본 + 외부 훅)
+ * - `hideSidebar` 활성 시: 사이드바/Drawer 비활성 → 헤더 + 단일 main 컬럼.
  */
-export function AppShell({ sidebar, nav, children }: AppShellProps) {
+export function AppShell({
+  sidebar,
+  nav,
+  hideSidebar = false,
+  children,
+}: AppShellProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const showSidebar = !hideSidebar && Boolean(sidebar);
 
   return (
     <div className="flex min-h-dvh flex-col bg-[var(--bg)] text-[var(--fg)]">
       <AppHeader
         nav={nav}
-        onMenuClick={sidebar ? () => setSheetOpen(true) : undefined}
+        onMenuClick={showSidebar ? () => setSheetOpen(true) : undefined}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {sidebar && (
+        {showSidebar && (
           <aside className="hidden w-60 shrink-0 border-r border-[var(--border)] bg-[var(--muted)] p-3 lg:block">
             {sidebar}
           </aside>
@@ -39,7 +52,7 @@ export function AppShell({ sidebar, nav, children }: AppShellProps) {
         <main className="flex-1 overflow-auto p-6">{children}</main>
       </div>
 
-      {sidebar && (
+      {showSidebar && (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent
             side="left"
