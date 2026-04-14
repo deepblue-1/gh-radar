@@ -8,6 +8,7 @@ export type Stock = {
   changeAmount: number;
   changeRate: number;
   volume: number;
+  tradeAmount: number;
   open: number;
   high: number;
   low: number;

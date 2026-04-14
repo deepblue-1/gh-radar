@@ -12,6 +12,7 @@ const sampleRankingRow: KisRankingRow = {
   prdy_vrss_sign: "1",
   prdy_ctrt: "30.00",
   acml_vol: "655925",
+  acml_tr_pbmn: "759264850",
   stck_hgpr: "1157",
   hgpr_hour: "094554",
   acml_hgpr_date: "20260413",
@@ -55,6 +56,7 @@ describe("toStock", () => {
     expect(stock.changeAmount).toBe(267);
     expect(stock.changeRate).toBe(30.0);
     expect(stock.volume).toBe(655925);
+    expect(stock.tradeAmount).toBe(759264850);
     expect(stock.open).toBe(920);
     expect(stock.high).toBe(1157);
     expect(stock.low).toBe(903);
@@ -67,6 +69,7 @@ describe("toStock", () => {
     const stock = toStock(sampleRankingRow, "KOSDAQ");
 
     expect(stock.code).toBe("368600");
+    expect(stock.tradeAmount).toBe(759264850);
     expect(stock.open).toBe(1157); // fallback to stck_hgpr
     expect(stock.marketCap).toBe(0);
     expect(stock.upperLimit).toBe(0);
