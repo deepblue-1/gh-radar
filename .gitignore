@@ -15,6 +15,10 @@ build/
 .env.development
 .env.production
 
+# 예외: Next.js webapp 은 로컬 dev 기본값(localhost) 을 committed.
+# 개인 override 는 webapp/.env.local (.env.local 규칙으로 gitignored 유지)
+!webapp/.env.development
+
 # Logs
 *.log
 npm-debug.log*
