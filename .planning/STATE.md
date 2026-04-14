@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Phase 5.1 context gathered
-last_updated: "2026-04-14T07:35:13.556Z"
+stopped_at: Completed 05.1-01-PLAN.md (Wave 0 scaffold)
+last_updated: "2026-04-14T09:52:15.147Z"
 last_activity: 2026-04-14
 progress:
   total_phases: 10
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 2
-  percent: 22
+  total_plans: 15
+  completed_plans: 3
+  percent: 20
 ---
 
 # Project State
@@ -81,6 +81,7 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 | 2. Backend API | 5 | 1일 | ✅ 완료 |
 | 3. Design System | 1 (6 sub / 3 wave) | 1일 | ✅ 완료 |
 | Phase 04 P04 | 45분 | 7 tasks | 10 files |
+| Phase 05.1 P01 | ~20분 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 - [Phase 04]: AppShell hideSidebar prop — 기본 false 로 /design 카탈로그 회귀 없이 v1 전 페이지 헤더 전용 모드 적용
 - [Phase 04]: apiFetch 클라이언트: Phase 2 envelope 파싱 + X-Request-Id 캡처 + 8s 타임아웃, ApiClientError 단일 클래스 통합
 - [Phase 04]: /scanner ISR 30s (revalidate=30 + cache:'force-cache') 로 /api/health 폴링 과도호출 방지
+- [Phase 05.1]: Cloud Run Job invoker 바인딩은 setup-ingestion-iam.sh가 아닌 deploy-ingestion.sh §5.5에 배치 (Job 리소스 생성 후에만 가능)
+- [Phase 05.1]: Scheduler → Cloud Run Job 인증은 --oauth-service-account-email 전용 (OIDC 금지, Pitfall 2)
 
 ### Pending Todos
 
@@ -116,6 +119,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-14T07:35:13.553Z
-Stopped at: Phase 5.1 context gathered
+Last session: 2026-04-14T09:52:15.144Z
+Stopped at: Completed 05.1-01-PLAN.md (Wave 0 scaffold)
 Next: Phase 5 - Scanner UI (`/gsd-discuss-phase 5` 또는 `/gsd-plan-phase 5`)
