@@ -1,3 +1,7 @@
+> **DEPRECATED (Phase 05.1):** 이 문서는 Phase 1 초안 배포 가이드입니다.
+> 실제 배포는 `scripts/deploy-ingestion.sh` (및 선행 `scripts/setup-ingestion-iam.sh`)를 사용하세요.
+> 본 파일은 명령어 참조용으로 보존됩니다.
+
 # Cloud Run Job 배포 가이드
 
 > Phase 1에서는 Docker 이미지 빌드까지만 수행합니다.
