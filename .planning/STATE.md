@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 4 context gathered — /gsd-plan-phase 4 대기
-last_updated: "2026-04-14T00:00:00.000Z"
-last_activity: 2026-04-14 — Phase 4 Frontend Scaffold CONTEXT 캡처
+status: verifying
+stopped_at: Phase 4 complete — 7 commits (typecheck+build PASS). Vercel 수동 배포 + 브라우저 smoke 대기
+last_updated: "2026-04-14T01:03:56.653Z"
+last_activity: 2026-04-14
 progress:
   total_phases: 9
-  completed_phases: 3
+  completed_phases: 1
   total_plans: 8
-  completed_plans: 8
-  percent: 33
+  completed_plans: 1
+  percent: 13
 ---
 
 # Project State
@@ -21,16 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 4 - Frontend Scaffold (다음)
+**Current focus:** Phase 5 — Scanner UI (Phase 4 코드 완료 · Vercel 수동 배포 + 브라우저 smoke 대기)
 
 ## Current Position
 
-Phase: 3 of 9 (Design System) ✅ 완료
-Plans completed: 8 of 8 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub-plans × 3 waves)
-Status: Phase 3 complete
-Last activity: 2026-04-13 — Phase 3 Design System 구현 완료 (typecheck+build PASS)
+Phase: 04 (frontend-scaffold) — CODE COMPLETE (Vercel 수동 배포 대기)
+Plan: 1 of 1 ✅
+Plans completed: 9 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub/3 waves, Phase 4: 1)
+Status: Phase 4 코드 완료 — typecheck+build PASS. 사용자 수동 작업: Vercel 프로젝트 연결 + D-26 smoke 6항목
+Last activity: 2026-04-14 -- Phase 04 plan 실행 완료 (7 commits)
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 44% (4/9 phases)
 
 ## Phase 1 Success Criteria 검증
 
@@ -78,6 +79,7 @@ Progress: [███░░░░░░░] 33%
 | 1. Data Foundation | 1 | 4일 | ✅ 완료 |
 | 2. Backend API | 5 | 1일 | ✅ 완료 |
 | 3. Design System | 1 (6 sub / 3 wave) | 1일 | ✅ 완료 |
+| Phase 04 P04 | 45분 | 7 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -93,6 +95,9 @@ Recent decisions affecting current work:
 - Phase 1: pnpm 8→10 업그레이드 (Node 22 호환)
 - Phase 1: .nvmrc=22, Docker도 node:22-alpine (2026-04-13 Node 22 통일; 초안은 Docker=20이었으나 로컬=Prod 일치 우선, 모든 deps pure JS라 alpine 22 리스크 없음)
 - Phase 2 준비: Node 22 LTS 기준으로 CONTEXT/RESEARCH 정렬, `package.json` engines `>=22`
+- [Phase 04]: AppShell hideSidebar prop — 기본 false 로 /design 카탈로그 회귀 없이 v1 전 페이지 헤더 전용 모드 적용
+- [Phase 04]: apiFetch 클라이언트: Phase 2 envelope 파싱 + X-Request-Id 캡처 + 8s 타임아웃, ApiClientError 단일 클래스 통합
+- [Phase 04]: /scanner ISR 30s (revalidate=30 + cache:'force-cache') 로 /api/health 폴링 과도호출 방지
 
 ### Pending Todos
 
@@ -106,6 +111,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-13T18:00:00.000Z
-Stopped at: Phase 3 complete — 6 plans / 3 waves (typecheck+build PASS)
+Last session: 2026-04-14T01:03:56.650Z
+Stopped at: Phase 4 complete — 7 commits (typecheck+build PASS). Vercel 수동 배포 + 브라우저 smoke 대기
 Next: Phase 4 - Frontend Scaffold (`/gsd-plan-phase 4`)

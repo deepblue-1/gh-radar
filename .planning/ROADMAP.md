@@ -70,11 +70,12 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Depends on**: Phase 3
 **Requirements**: INFR-04
 **Success Criteria** (what must be TRUE):
-  1. Next.js 앱이 Vercel 배포 URL로 접근 가능하다
-  2. 디자인 시스템의 CSS 변수와 shadcn/ui 컴포넌트가 앱에 임포트되어 정상 작동한다
-  3. Phase 3에서 정의한 레이아웃 템플릿(네비게이션 포함)이 적용된 기본 페이지가 표시된다
-  4. Light/Dark 테마 전환이 앱에서 작동한다
-**Plans**: TBD
+  1. Next.js 앱이 Vercel 배포 URL로 접근 가능하다 — ⏳ 사용자 수동 배포 대기
+  2. 디자인 시스템의 CSS 변수와 shadcn/ui 컴포넌트가 앱에 임포트되어 정상 작동한다 — ✅ build PASS
+  3. Phase 3에서 정의한 레이아웃 템플릿(네비게이션 포함)이 적용된 기본 페이지가 표시된다 — ✅ AppShell(hideSidebar) 적용
+  4. Light/Dark 테마 전환이 앱에서 작동한다 — ✅ ThemeToggle 유지 (브라우저 smoke 대기)
+**Plans:** 1 plan
+- [x] 04-PLAN.md — Frontend Scaffold: AppShell hideSidebar + apiFetch + /scanner placeholder + 에러 경계 + Vercel 환경변수
 **UI hint**: yes
 
 ### Phase 5: Scanner UI
