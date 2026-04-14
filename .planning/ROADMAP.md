@@ -88,7 +88,8 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. 각 종목 행에 코스피/코스닥 구분 마켓 배지가 표시된다
   4. 화면에 마지막 데이터 갱신 시각이 표시된다
   5. 데이터가 1분 간격으로 자동 갱신되어 최신 등락률이 반영된다
-**Plans**: TBD
+**Plans:** 1 plan (4 waves)
+- [ ] 05-PLAN.md — Scanner UI: vitest 인프라 + 순수 유틸/훅 + chip+popover 필터 + Table/Card 듀얼 + 60s 폴링 + Suspense 페이지 교체
 **UI hint**: yes
 
 ### Phase 6: Stock Search & Detail
