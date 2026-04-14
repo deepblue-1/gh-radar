@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scanner — Variant B (Editorial Sidebar) · Designed</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  /* ─── B: Toss-style editorial w/ oversized sidebar readout ──── */
+  body { background: color-mix(in oklch, var(--bg) 98%, var(--fg)); }
+
+  header.brand-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--s-3) var(--s-5);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .brand { display: flex; align-items: baseline; gap: var(--s-3); }
+  .brand .mark {
+    width: var(--s-6); height: var(--s-6); border-radius: var(--r);
+    background: var(--primary); color: var(--primary-fg);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-weight: 600; font-size: var(--t-base);
+  }
+  .brand .name { font-size: var(--t-lg); font-weight: 600; letter-spacing: -0.02em; }
+  .brand .sep { color: var(--muted-fg); margin: 0 var(--s-2); }
+  .brand .sub { color: var(--muted-fg); font-size: var(--t-sm); }
+
+  .brand-meta {
+    display: flex; align-items: center; gap: var(--s-4);
+    font-family: var(--font-mono); font-size: var(--t-caption); color: var(--muted-fg);
+  }
+
+  .layout {
+    max-width: 1440px; margin: 0 auto;
+    display: grid; grid-template-columns: 280px 1fr; gap: var(--s-8);
+    padding: var(--s-6) var(--s-5);
+  }
+
+  /* ── Sidebar ── */
+  aside.panel {
+    position: sticky; top: calc(var(--s-6) + var(--s-8));
+    align-self: start;
+    display: flex; flex-direction: column; gap: var(--s-6);
+  }
+
+  .panel-section { display: flex; flex-direction: column; gap: var(--s-3); }
+  .panel-section .kicker {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+
+  .readout {
+    display: flex; flex-direction: column; gap: var(--s-1);
+    padding-bottom: var(--s-4);
+    border-bottom: 1px solid var(--border);
+  }
+  .readout .label {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .readout .value {
+    font-family: var(--font-mono); font-size: var(--t-h1);
+    font-weight: 600; letter-spacing: -0.03em; color: var(--fg);
+    line-height: var(--lh-tight);
+  }
+  .readout .value .unit {
+    font-size: var(--t-lg); color: var(--muted-fg); margin-left: 2px;
+  }
+  .readout .sub {
+    font-size: var(--t-sm); color: var(--muted-fg); margin-top: var(--s-1);
+  }
+
+  .slider-block { display: flex; flex-direction: column; gap: var(--s-2); }
+  .slider-block .minmax {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: var(--t-caption); color: var(--muted-fg);
+  }
+
+  aside .toggle-group { width: 100%; }
+  aside .toggle-group > button { flex: 1; padding: var(--s-2) 0; }
+
+  .meta-row {
+    display: flex; flex-direction: column; gap: var(--s-3);
+    padding-top: var(--s-4); border-top: 1px solid var(--border);
+  }
+  .meta-row .line {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: var(--t-caption);
+  }
+  .meta-row .line .k { color: var(--muted-fg); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+  .meta-row .line .v { font-family: var(--font-mono); color: var(--fg); }
+
+  .refresh-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+    width: 100%; height: var(--s-8);
+    border-radius: var(--r-md); border: none;
+    background: var(--fg); color: var(--bg);
+    font-size: var(--t-sm); font-weight: 600; cursor: pointer;
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .refresh-btn:hover { transform: translateY(-1px); background: color-mix(in oklch, var(--fg) 92%, var(--primary)); }
+  .refresh-btn .rot { display: inline-block; transition: transform 0.4s ease; }
+  .refresh-btn:active .rot { transform: rotate(360deg); }
+
+  /* ── Main ── */
+  main.main { min-width: 0; }
+
+  .eyebrow {
+    display: flex; align-items: baseline; gap: var(--s-3);
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: var(--s-2);
+  }
+  .eyebrow .dot {
+    width: var(--s-2); height: var(--s-2); border-radius: 50%; background: var(--up);
+    display: inline-block;
+  }
+  h1.title {
+    font-size: var(--t-h1); font-weight: 600; letter-spacing: -0.03em;
+    margin: 0 0 var(--s-2) 0; line-height: var(--lh-tight);
+  }
+  .subtitle { color: var(--muted-fg); font-size: var(--t-base); margin: 0 0 var(--s-6) 0; }
+
+  .status-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: var(--s-4); padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--border);
+  }
+  .count-big { font-family: var(--font-mono); font-size: var(--t-h2); font-weight: 600; color: var(--fg); letter-spacing: -0.02em; }
+
+  /* Table enhancements */
+  .tbl-wrap { border: none; border-radius: 0; background: transparent; }
+  .tbl-wrap table { border-collapse: separate; border-spacing: 0; }
+  .tbl-wrap thead th {
+    background: transparent; border-bottom: 1px solid var(--border);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding-top: var(--s-3); padding-bottom: var(--s-3);
+  }
+  .tbl-wrap tbody td { border-top: none; }
+  .tbl-wrap tbody tr + tr > td { border-top: 1px solid var(--border-subtle); }
+  .tbl-wrap tbody tr { transition: background 0.12s ease; }
+  .tbl-wrap tbody tr[data-dir="up"]:hover td   { background: color-mix(in oklch, var(--up-bg) 60%, transparent); }
+  .tbl-wrap tbody tr[data-dir="down"]:hover td { background: color-mix(in oklch, var(--down-bg) 60%, transparent); }
+  .tbl-wrap tbody tr:hover td                  { background: color-mix(in oklch, var(--muted) 50%, transparent); }
+
+  .tbl-wrap tbody td:first-child { font-weight: 600; padding-left: 0; }
+  .tbl-wrap tbody td:last-child  { padding-right: 0; }
+  .tbl-wrap thead th:first-child { padding-left: 0; }
+  .tbl-wrap thead th:last-child  { padding-right: 0; }
+
+  @media (max-width: 767px) {
+    .layout { grid-template-columns: 1fr; gap: var(--s-5); padding: var(--s-4); }
+    aside.panel { position: static; }
+    .readout .value { font-size: var(--t-h2); }
+    .tbl-wrap { display: none; }
+    #cards { display: flex; flex-direction: column; gap: var(--s-2); }
+  }
+  @media (min-width: 768px) { #cards { display: none; } }
+</style>
+</head>
+<body>
+<header class="brand-bar">
+  <div class="brand">
+    <span class="mark">g</span>
+    <span class="name">gh-radar</span>
+    <span class="sep">·</span>
+    <span class="sub">실시간 스캐너</span>
+  </div>
+  <div class="brand-meta">
+    <span>KRX · 09:00–15:30 KST</span>
+    <span>·</span>
+    <span id="updated-hdr">14:23:07</span>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="panel" aria-label="필터">
+    <div class="readout">
+      <span class="label">Minimum rate</span>
+      <span class="value"><span id="big-val">25</span><span class="unit">%</span></span>
+      <span class="sub">등락률이 이 값 이상인 종목만 노출</span>
+    </div>
+
+    <div class="panel-section">
+      <span class="kicker">임계값</span>
+      <div class="slider-block">
+        <input id="min-rate" class="slider" type="range" min="10" max="29" step="1" value="25" aria-label="최소 등락률" />
+        <div class="minmax"><span>10%</span><span>29%</span></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <span class="kicker">마켓</span>
+      <div class="toggle-group" role="group" aria-label="마켓">
+        <button data-market="ALL" aria-pressed="true">전체</button>
+        <button data-market="KOSPI" aria-pressed="false">KOSPI</button>
+        <button data-market="KOSDAQ" aria-pressed="false">KOSDAQ</button>
+      </div>
+    </div>
+
+    <div class="meta-row">
+      <div class="line">
+        <span class="k">Updated</span>
+        <span class="v"><span id="updated">14:23:07</span> KST</span>
+      </div>
+      <div class="line">
+        <span class="k">Polling</span>
+        <span class="v">60s · auto</span>
+      </div>
+      <button class="refresh-btn" aria-label="스캐너 데이터 새로고침" id="refresh" style="margin-top: var(--s-2);">
+        <span class="rot">↻</span>
+        <span>지금 새로고침</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="eyebrow"><span class="dot"></span>LIVE · KRX</div>
+    <h1 class="title">상한가 근접 종목</h1>
+    <p class="subtitle">등락률이 <span id="sub-val" style="font-weight:600; color:var(--fg);">25%</span> 이상인 전 종목을 거래량 상위로 정렬합니다.</p>
+
+    <div class="status-row">
+      <div>
+        <span class="count-big" id="count">—</span>
+        <span class="text-sm text-muted" style="margin-left:var(--s-1);">matches</span>
+      </div>
+      <span class="text-caption text-muted" style="letter-spacing:0.08em; text-transform:uppercase;">등락률 내림차순</span>
+    </div>
+
+    <div id="table"></div>
+    <div id="cards"></div>
+  </main>
+</div>
+
+<script src="../data.js"></script>
+<script src="../render.js"></script>
+<script>
+  const origRenderTable = Scanner.renderTable;
+  Scanner.renderTable = function (container, rows) {
+    origRenderTable(container, rows);
+    const trs = container.querySelectorAll('tbody tr');
+    trs.forEach((tr, i) => {
+      tr.dataset.dir = rows[i].rate > 0 ? 'up' : rows[i].rate < 0 ? 'down' : 'flat';
+    });
+  };
+
+  const tableEl = document.getElementById('table');
+  const cardsEl = document.getElementById('cards');
+  const countEl = document.getElementById('count');
+  const bigVal = document.getElementById('big-val');
+  const subVal = document.getElementById('sub-val');
+
+  Scanner.wireFilters({
+    sliderEl: document.getElementById('min-rate'),
+    valueEl: null,
+    marketEls: document.querySelectorAll('.toggle-group button'),
+    onChange: ({ min, market }) => {
+      bigVal.textContent = min.toFixed(0);
+      subVal.textContent = min.toFixed(0) + '%';
+      const filtered = Scanner.filter(window.SCANNER_DATA, min, market);
+      countEl.textContent = filtered.length;
+      Scanner.renderTable(tableEl, filtered);
+      Scanner.renderCards(cardsEl, filtered);
+    },
+  });
+</script>
+</body>
+</html>

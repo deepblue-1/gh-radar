@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scanner — Variant A (Command Strip) · Designed</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  /* ─── A: Bloomberg-style command strip ──────────────────────── */
+  body { background: var(--bg); }
+
+  .brand-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--s-3) var(--s-5);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklch, var(--card) 92%, var(--fg));
+    color: var(--fg);
+  }
+  .brand {
+    display: flex; align-items: baseline; gap: var(--s-3);
+    font-weight: 600; letter-spacing: -0.02em;
+  }
+  .brand .logo-mark {
+    font-family: var(--font-mono); font-size: var(--t-caption);
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    padding: 2px var(--s-2); border-radius: var(--r-sm);
+  }
+  .brand .pipe { color: var(--muted-fg); font-weight: 400; }
+  .brand .section { color: var(--muted-fg); font-size: var(--t-sm); }
+
+  .brand-meta {
+    display: flex; align-items: center; gap: var(--s-4);
+    font-size: var(--t-caption); color: var(--muted-fg);
+    font-family: var(--font-mono);
+  }
+  .live-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--up); margin-right: var(--s-2); vertical-align: middle;
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--up) 20%, transparent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--up) 20%, transparent); }
+    50%      { box-shadow: 0 0 0 8px color-mix(in oklch, var(--up) 0%, transparent); }
+  }
+
+  /* ── Command strip: filter bar ── */
+  .strip {
+    position: sticky; top: 0; z-index: 10;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    gap: var(--s-5); align-items: center;
+    padding: var(--s-3) var(--s-5);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 var(--border-subtle), 0 4px 16px color-mix(in oklch, var(--fg) 4%, transparent);
+  }
+  .strip-title {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .strip-title .kicker {
+    font-size: var(--t-caption); font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted-fg);
+  }
+  .strip-title .big {
+    font-family: var(--font-mono); font-size: var(--t-h2);
+    font-weight: 600; letter-spacing: -0.02em; color: var(--fg);
+  }
+  .strip-title .big .unit {
+    color: var(--muted-fg); font-size: var(--t-base); margin-left: var(--s-1);
+  }
+
+  .slider-wrap {
+    display: flex; flex-direction: column; gap: var(--s-1);
+    min-width: 280px;
+  }
+  .slider-wrap .slider-label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .slider-wrap .slider-label .hint {
+    font-family: var(--font-mono); font-weight: 400; color: var(--muted-fg);
+    text-transform: none; letter-spacing: 0;
+  }
+
+  .field-label {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: var(--s-1);
+    display: block;
+  }
+
+  .refresh-btn {
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    height: var(--s-6); padding: 0 var(--s-4);
+    border-radius: var(--r); border: 1px solid var(--primary);
+    background: var(--primary); color: var(--primary-fg);
+    font-size: var(--t-sm); font-weight: 600; cursor: pointer;
+    transition: transform 0.12s ease;
+  }
+  .refresh-btn:hover { transform: translateY(-1px); }
+  .refresh-btn .rot { display: inline-block; transition: transform 0.4s ease; }
+  .refresh-btn:active .rot { transform: rotate(180deg); }
+
+  .updated {
+    display: flex; flex-direction: column; gap: 2px; text-align: right;
+  }
+  .updated .u-label {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .updated .u-time { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--fg); }
+
+  main.page { max-width: 1400px; margin: 0 auto; padding: var(--s-5); }
+
+  /* Stats strip */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: var(--s-4); margin-bottom: var(--s-5);
+  }
+  .stat {
+    display: flex; flex-direction: column; gap: var(--s-1);
+    padding: var(--s-4);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    position: relative; overflow: hidden;
+  }
+  .stat::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent-mark, var(--muted));
+  }
+  .stat.s-total::before { background: var(--primary); }
+  .stat.s-up::before    { background: var(--up); }
+  .stat.s-down::before  { background: var(--down); }
+  .stat.s-vol::before   { background: var(--flat); }
+
+  .stat .label {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .stat .value {
+    font-family: var(--font-mono); font-size: var(--t-h2); font-weight: 600;
+    letter-spacing: -0.02em; color: var(--fg);
+  }
+  .stat.s-up .value   { color: var(--up); }
+  .stat.s-down .value { color: var(--down); }
+
+  /* Table enhancements */
+  .tbl-wrap {
+    box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px color-mix(in oklch, var(--fg) 4%, transparent);
+  }
+  .tbl-wrap thead th {
+    letter-spacing: 0.04em; text-transform: uppercase;
+    padding-top: var(--s-3); padding-bottom: var(--s-3);
+  }
+  .tbl-wrap tbody tr { transition: background 0.08s ease; }
+  .tbl-wrap tbody tr[data-dir="up"] td   { background: color-mix(in oklch, var(--up-bg) 40%, transparent); }
+  .tbl-wrap tbody tr[data-dir="down"] td { background: color-mix(in oklch, var(--down-bg) 40%, transparent); }
+  .tbl-wrap tbody tr:hover td            { background: color-mix(in oklch, var(--muted) 80%, transparent) !important; }
+
+  .tbl-wrap tbody td:first-child { font-weight: 600; }
+  .rank {
+    display: inline-block; width: var(--s-5); font-family: var(--font-mono);
+    font-size: var(--t-caption); color: var(--muted-fg); margin-right: var(--s-2);
+    font-weight: 400;
+  }
+
+  /* Rate cell emphasis */
+  .rate-cell {
+    display: inline-flex; align-items: baseline; gap: var(--s-1);
+    font-family: var(--font-mono); font-size: var(--t-base); font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .rate-cell.up   { color: var(--up); }
+  .rate-cell.down { color: var(--down); }
+  .rate-cell.flat { color: var(--flat); }
+  .rate-cell .arrow { font-size: var(--t-caption); }
+
+  .status-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--s-3); padding: 0 var(--s-1);
+  }
+  .status-row .count-big {
+    font-family: var(--font-mono); font-size: var(--t-lg); font-weight: 600;
+    color: var(--fg); margin-right: var(--s-1);
+  }
+
+  @media (max-width: 767px) {
+    .strip { grid-template-columns: 1fr 1fr; gap: var(--s-3); padding: var(--s-3); }
+    .strip-title { grid-column: 1 / -1; }
+    .slider-wrap { min-width: 0; grid-column: 1 / -1; }
+    .updated { display: none; }
+    .stats { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+    .stat .value { font-size: var(--t-lg); }
+    .tbl-wrap { display: none; }
+    #cards { display: flex; flex-direction: column; gap: var(--s-2); }
+  }
+  @media (min-width: 768px) { #cards { display: none; } }
+</style>
+</head>
+<body>
+<div class="brand-bar">
+  <div class="brand">
+    <span class="logo-mark">GR</span>
+    <span>gh-radar</span>
+    <span class="pipe">／</span>
+    <span class="section">실시간 스캐너</span>
+  </div>
+  <div class="brand-meta">
+    <span><span class="live-dot"></span>LIVE</span>
+    <span>KRX · 09:00–15:30 KST</span>
+  </div>
+</div>
+
+<section class="strip" aria-label="필터 컨트롤">
+  <div class="strip-title">
+    <span class="kicker">최소 등락률</span>
+    <span class="big"><span id="big-val">25</span><span class="unit">%</span></span>
+  </div>
+
+  <div class="slider-wrap">
+    <div class="slider-label">
+      <span>임계값</span>
+      <span class="hint">10% — 29%</span>
+    </div>
+    <input id="min-rate" class="slider" type="range" min="10" max="29" step="1" value="25" aria-label="최소 등락률" />
+  </div>
+
+  <div>
+    <span class="field-label">마켓</span>
+    <div class="toggle-group" role="group" aria-label="마켓">
+      <button data-market="ALL" aria-pressed="true">전체</button>
+      <button data-market="KOSPI" aria-pressed="false">KOSPI</button>
+      <button data-market="KOSDAQ" aria-pressed="false">KOSDAQ</button>
+    </div>
+  </div>
+
+  <div class="updated" aria-live="polite">
+    <span class="u-label">Updated</span>
+    <span class="u-time"><span id="updated">14:23:07</span> KST</span>
+  </div>
+
+  <button class="refresh-btn" aria-label="스캐너 데이터 새로고침" id="refresh">
+    <span class="rot">↻</span>
+    <span>새로고침</span>
+  </button>
+</section>
+
+<main class="page">
+  <section class="stats" aria-label="요약">
+    <div class="stat s-total">
+      <span class="label">조건 충족</span>
+      <span class="value"><span id="st-total">—</span><span style="font-size:var(--t-sm); color:var(--muted-fg); margin-left:var(--s-1);">종목</span></span>
+    </div>
+    <div class="stat s-up">
+      <span class="label">상승</span>
+      <span class="value" id="st-up">—</span>
+    </div>
+    <div class="stat s-down">
+      <span class="label">하락</span>
+      <span class="value" id="st-down">—</span>
+    </div>
+    <div class="stat s-vol">
+      <span class="label">총 거래량</span>
+      <span class="value" id="st-vol">—</span>
+    </div>
+  </section>
+
+  <div class="status-row">
+    <span>
+      <span class="count-big" id="count">—</span>
+      <span class="text-sm text-muted">개 종목 · 등락률 내림차순</span>
+    </span>
+    <span class="text-caption text-muted" style="letter-spacing:0.04em; text-transform:uppercase;">auto · 60s</span>
+  </div>
+
+  <div id="table"></div>
+  <div id="cards"></div>
+</main>
+
+<script src="../data.js"></script>
+<script src="../render.js"></script>
+<script>
+  // Override renderTable for enhanced visual (rank + tinted rows)
+  const origRenderTable = Scanner.renderTable;
+  Scanner.renderTable = function (container, rows) {
+    origRenderTable(container, rows);
+    const trs = container.querySelectorAll('tbody tr');
+    trs.forEach((tr, i) => {
+      const rate = rows[i].rate;
+      tr.dataset.dir = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
+      // prepend rank
+      const firstTd = tr.querySelector('td');
+      if (firstTd) firstTd.innerHTML = `<span class="rank">${String(i + 1).padStart(2, '0')}</span>${firstTd.innerHTML}`;
+    });
+  };
+
+  const tableEl = document.getElementById('table');
+  const cardsEl = document.getElementById('cards');
+  const countEl = document.getElementById('count');
+  const bigVal = document.getElementById('big-val');
+  const stTotal = document.getElementById('st-total');
+  const stUp = document.getElementById('st-up');
+  const stDown = document.getElementById('st-down');
+  const stVol = document.getElementById('st-vol');
+
+  function updateStats(rows) {
+    const up = rows.filter((r) => r.rate > 0).length;
+    const down = rows.filter((r) => r.rate < 0).length;
+    const vol = rows.reduce((a, r) => a + r.volume, 0);
+    stTotal.textContent = rows.length;
+    stUp.textContent = up;
+    stDown.textContent = down;
+    stVol.textContent = Scanner.fmtVol(vol);
+  }
+
+  Scanner.wireFilters({
+    sliderEl: document.getElementById('min-rate'),
+    valueEl: null,
+    marketEls: document.querySelectorAll('.toggle-group button'),
+    onChange: ({ min, market }) => {
+      bigVal.textContent = min.toFixed(0);
+      const filtered = Scanner.filter(window.SCANNER_DATA, min, market);
+      countEl.textContent = filtered.length;
+      updateStats(filtered);
+      Scanner.renderTable(tableEl, filtered);
+      Scanner.renderCards(cardsEl, filtered);
+    },
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scanner — Variant C (compact chip 필터) · Plain</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  .page { max-width: 1280px; margin: 0 auto; padding: var(--s-5); }
+  .chip-row { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-4); }
+  .chip[aria-expanded="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent-fg); }
+  .popover {
+    position: absolute; z-index: 20;
+    background: var(--popover); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: var(--s-4); min-width: 280px;
+    box-shadow: 0 8px 24px oklch(0 0 0 / 0.12);
+    display: none;
+  }
+  .popover[data-open="true"] { display: block; }
+  .popover .field { display: flex; flex-direction: column; gap: var(--s-2); }
+  .popover .slider-val { font-family: var(--font-mono); font-size: var(--t-lg); font-weight: 600; color: var(--primary); }
+  .status-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s-3); }
+  @media (max-width: 767px) {
+    .tbl-wrap { display: none; }
+    #cards { display: flex; flex-direction: column; gap: var(--s-2); }
+  }
+  @media (min-width: 768px) { #cards { display: none; } }
+</style>
+</head>
+<body>
+<header class="page-header">
+  <div style="display:flex; align-items:baseline; gap:var(--s-4);">
+    <div class="text-h2">gh-radar</div>
+    <span class="text-sm" style="color:var(--muted-fg);">스캐너</span>
+  </div>
+  <div style="display:flex; gap:var(--s-3); align-items:center;">
+    <span class="text-caption text-muted mono">갱신 <span id="updated">14:23:07</span> KST</span>
+    <button class="btn btn-sm" id="refresh" aria-label="스캐너 데이터 새로고침">↻</button>
+  </div>
+</header>
+
+<main class="page">
+  <!-- ▼ Variant C: compact chip 필터 -->
+  <section class="chip-row" aria-label="필터">
+    <span class="text-sm text-muted" style="margin-right:var(--s-1);">필터</span>
+    <button id="chip-rate" class="chip" aria-expanded="false" aria-controls="pop-rate">
+      등락률 ≥ <span id="chip-rate-val">25%</span> ▾
+    </button>
+    <button id="chip-market" class="chip" aria-expanded="false" aria-controls="pop-market">
+      마켓: <span id="chip-market-val">전체</span> ▾
+    </button>
+    <span style="flex:1"></span>
+    <span class="text-caption text-muted" id="hint" style="font-style:italic;"></span>
+  </section>
+
+  <div id="pop-rate" class="popover" role="dialog" aria-label="등락률 필터">
+    <div class="field">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <label for="min-rate">최소 등락률</label>
+        <span id="min-val" class="slider-val">25%</span>
+      </div>
+      <input id="min-rate" class="slider" type="range" min="10" max="29" step="1" value="25" />
+      <div class="text-caption text-muted" style="display:flex; justify-content:space-between;">
+        <span>10%</span><span>29%</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="pop-market" class="popover" role="dialog" aria-label="마켓 필터">
+    <div class="field">
+      <label style="margin-bottom:var(--s-1);">마켓</label>
+      <div class="toggle-group" role="group" aria-label="마켓" style="width:100%;">
+        <button data-market="ALL" aria-pressed="true" style="flex:1;">전체</button>
+        <button data-market="KOSPI" aria-pressed="false" style="flex:1;">KOSPI</button>
+        <button data-market="KOSDAQ" aria-pressed="false" style="flex:1;">KOSDAQ</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <span class="text-sm text-muted"><strong id="count" style="color:var(--fg);">—</strong>개 종목 · 등락률 내림차순</span>
+    <span class="text-caption text-muted">1분 간격 자동 갱신</span>
+  </div>
+
+  <div id="table"></div>
+  <div id="cards"></div>
+</main>
+
+<script src="../data.js"></script>
+<script src="../render.js"></script>
+<script>
+  // popover toggle
+  function bindPopover(chipId, popId) {
+    const chip = document.getElementById(chipId);
+    const pop = document.getElementById(popId);
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const opening = pop.dataset.open !== 'true';
+      document.querySelectorAll('.popover').forEach((p) => { p.dataset.open = 'false'; });
+      document.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-expanded', 'false'));
+      if (opening) {
+        pop.dataset.open = 'true';
+        chip.setAttribute('aria-expanded', 'true');
+        const rect = chip.getBoundingClientRect();
+        pop.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+        pop.style.left = (rect.left + window.scrollX) + 'px';
+      }
+    });
+  }
+  bindPopover('chip-rate', 'pop-rate');
+  bindPopover('chip-market', 'pop-market');
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.popover').forEach((p) => { p.dataset.open = 'false'; });
+    document.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-expanded', 'false'));
+  });
+  document.querySelectorAll('.popover').forEach((p) => p.addEventListener('click', (e) => e.stopPropagation()));
+
+  const tableEl = document.getElementById('table');
+  const cardsEl = document.getElementById('cards');
+  const countEl = document.getElementById('count');
+  const chipRateVal = document.getElementById('chip-rate-val');
+  const chipMarketVal = document.getElementById('chip-market-val');
+
+  Scanner.wireFilters({
+    sliderEl: document.getElementById('min-rate'),
+    valueEl: document.getElementById('min-val'),
+    marketEls: document.querySelectorAll('.toggle-group button'),
+    onChange: ({ min, market }) => {
+      const filtered = Scanner.filter(window.SCANNER_DATA, min, market);
+      countEl.textContent = filtered.length;
+      chipRateVal.textContent = min.toFixed(0) + '%';
+      chipMarketVal.textContent = market === 'ALL' ? '전체' : market;
+      Scanner.renderTable(tableEl, filtered);
+      Scanner.renderCards(cardsEl, filtered);
+    },
+  });
+</script>
+</body>
+</html>

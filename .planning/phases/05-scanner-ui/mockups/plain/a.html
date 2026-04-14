@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scanner — Variant A (상단 가로 필터바) · Plain</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  .page { max-width: 1280px; margin: 0 auto; padding: var(--s-5); }
+  .filter-bar {
+    display: grid; grid-template-columns: 1fr auto auto auto; gap: var(--s-5);
+    align-items: center; padding: var(--s-4) var(--s-5);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--r-md); margin-bottom: var(--s-5);
+  }
+  .filter-bar .slider-group { display: flex; align-items: center; gap: var(--s-3); }
+  .filter-bar label { font-size: var(--t-sm); font-weight: 600; color: var(--muted-fg); white-space: nowrap; }
+  .filter-bar .slider-val { font-family: var(--font-mono); font-size: var(--t-base); font-weight: 600; min-width: 52px; text-align: right; }
+  .status-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s-3); }
+  @media (max-width: 767px) {
+    .filter-bar { grid-template-columns: 1fr; gap: var(--s-3); }
+    .tbl-wrap { display: none; }
+    #cards { display: flex; flex-direction: column; gap: var(--s-2); }
+  }
+  @media (min-width: 768px) { #cards { display: none; } }
+</style>
+</head>
+<body>
+<header class="page-header">
+  <div class="text-h2">gh-radar</div>
+  <nav style="display:flex; gap:var(--s-4); align-items:center;">
+    <a href="#" style="color:var(--fg); text-decoration:none; font-weight:600;">스캐너</a>
+    <a href="#" style="color:var(--muted-fg); text-decoration:none;">검색</a>
+  </nav>
+</header>
+
+<main class="page">
+  <div style="margin-bottom: var(--s-5);">
+    <h1 class="text-h2" style="margin:0 0 var(--s-1) 0;">스캐너</h1>
+    <p class="text-sm text-muted" style="margin:0;">상한가 근접 종목을 실시간으로 확인합니다.</p>
+  </div>
+
+  <!-- ▼ Variant A: 상단 가로 필터바 -->
+  <section class="filter-bar" aria-label="필터">
+    <div class="slider-group">
+      <label for="min-rate">최소 등락률</label>
+      <input id="min-rate" class="slider" type="range" min="10" max="29" step="1" value="25" />
+      <span id="min-val" class="slider-val">25%</span>
+    </div>
+    <div class="toggle-group" role="group" aria-label="마켓">
+      <button data-market="ALL" aria-pressed="true">전체</button>
+      <button data-market="KOSPI" aria-pressed="false">KOSPI</button>
+      <button data-market="KOSDAQ" aria-pressed="false">KOSDAQ</button>
+    </div>
+    <span class="text-caption text-muted" style="font-family:var(--font-mono);">갱신 <span id="updated">14:23:07</span> KST</span>
+    <button class="btn btn-sm" id="refresh" aria-label="스캐너 데이터 새로고침">↻ 새로고침</button>
+  </section>
+
+  <div class="status-row">
+    <span class="text-sm text-muted"><strong id="count" style="color:var(--fg);">—</strong>개 종목</span>
+    <span class="text-caption text-muted">1분 간격 자동 갱신</span>
+  </div>
+
+  <div id="table"></div>
+  <div id="cards"></div>
+</main>
+
+<script src="../data.js"></script>
+<script src="../render.js"></script>
+<script>
+  const tableEl = document.getElementById('table');
+  const cardsEl = document.getElementById('cards');
+  const countEl = document.getElementById('count');
+  Scanner.wireFilters({
+    sliderEl: document.getElementById('min-rate'),
+    valueEl: document.getElementById('min-val'),
+    marketEls: document.querySelectorAll('.toggle-group button'),
+    onChange: ({ min, market }) => {
+      const filtered = Scanner.filter(window.SCANNER_DATA, min, market);
+      countEl.textContent = filtered.length;
+      Scanner.renderTable(tableEl, filtered);
+      Scanner.renderCards(cardsEl, filtered);
+    },
+  });
+</script>
+</body>
+</html>

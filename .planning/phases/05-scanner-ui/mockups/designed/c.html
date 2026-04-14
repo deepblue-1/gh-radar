@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scanner — Variant C (Minimal · Chip Command) · Designed</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  /* ─── C: Minimal · editorial · maximum table ─────────────────── */
+  body { background: var(--bg); }
+
+  header.brand-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--s-3) var(--s-5);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .brand { display: flex; align-items: baseline; gap: var(--s-3); }
+  .brand .name {
+    font-size: var(--t-base); font-weight: 600; letter-spacing: -0.02em;
+  }
+  .brand .name::before {
+    content: '●'; color: var(--primary); margin-right: var(--s-2); font-size: var(--t-caption);
+    vertical-align: 2px;
+  }
+  .brand .sep { color: var(--muted-fg); margin: 0 var(--s-2); font-weight: 400; }
+  .brand .sub { color: var(--muted-fg); font-size: var(--t-sm); }
+
+  .brand-meta {
+    display: flex; align-items: center; gap: var(--s-3);
+    font-family: var(--font-mono); font-size: var(--t-caption); color: var(--muted-fg);
+  }
+  .brand-meta .refresh {
+    width: var(--s-6); height: var(--s-6); border-radius: var(--r);
+    border: 1px solid var(--border); background: var(--card); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--fg); transition: all 0.12s ease;
+  }
+  .brand-meta .refresh:hover { border-color: var(--primary); color: var(--primary); }
+
+  .hero {
+    max-width: 1280px; margin: 0 auto;
+    padding: var(--s-8) var(--s-5) var(--s-5);
+    display: grid; grid-template-columns: 1fr auto; gap: var(--s-5);
+    align-items: end;
+  }
+  .hero .eyebrow {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: var(--s-2);
+  }
+  .hero h1 {
+    font-size: var(--t-h1); font-weight: 600; letter-spacing: -0.03em;
+    margin: 0; line-height: var(--lh-tight);
+  }
+  .hero h1 .accent { color: var(--primary); }
+  .hero .big-count {
+    font-family: var(--font-mono); font-size: var(--t-h1); font-weight: 600;
+    letter-spacing: -0.03em; text-align: right; color: var(--fg);
+    line-height: var(--lh-tight);
+  }
+  .hero .big-count .unit {
+    font-size: var(--t-sm); color: var(--muted-fg); margin-left: var(--s-1); font-weight: 400;
+  }
+
+  /* ── Chip row — command bar style ── */
+  .chip-bar {
+    max-width: 1280px; margin: 0 auto;
+    display: flex; align-items: center; gap: var(--s-2);
+    padding: 0 var(--s-5) var(--s-4);
+    flex-wrap: wrap;
+    position: relative;
+  }
+  .chip-bar .lbl {
+    font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; margin-right: var(--s-1);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    height: var(--s-6); padding: 0 var(--s-3); border-radius: var(--r);
+    font-size: var(--t-sm); font-weight: 600;
+    background: var(--card); color: var(--fg); border: 1px solid var(--border);
+    cursor: pointer; transition: all 0.12s ease;
+    font-family: var(--font-mono); letter-spacing: -0.01em;
+  }
+  .chip:hover { border-color: var(--fg); }
+  .chip[aria-expanded="true"] {
+    background: var(--fg); color: var(--bg); border-color: var(--fg);
+  }
+  .chip .caret { font-size: var(--t-caption); opacity: 0.6; }
+  .chip .k { font-family: var(--font-sans); font-weight: 400; color: inherit; opacity: 0.7; }
+
+  .meta-inline {
+    margin-left: auto; display: flex; align-items: center; gap: var(--s-3);
+    font-family: var(--font-mono); font-size: var(--t-caption); color: var(--muted-fg);
+  }
+  .meta-inline .live {
+    display: inline-flex; align-items: center; gap: var(--s-1);
+    color: var(--up);
+  }
+  .meta-inline .live::before {
+    content: ''; width: var(--s-2); height: var(--s-2); border-radius: 50%; background: var(--up);
+  }
+
+  .popover {
+    position: absolute; z-index: 20;
+    background: var(--popover); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: var(--s-4); min-width: 320px;
+    box-shadow: 0 1px 2px color-mix(in oklch, var(--fg) 4%, transparent),
+                0 8px 32px color-mix(in oklch, var(--fg) 10%, transparent);
+    display: none;
+  }
+  .popover[data-open="true"] { display: block; animation: popIn 0.16s ease; }
+  @keyframes popIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .popover .field { display: flex; flex-direction: column; gap: var(--s-2); }
+  .popover .field-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: var(--s-1);
+  }
+  .popover .f-label { font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .popover .f-val { font-family: var(--font-mono); font-size: var(--t-lg); font-weight: 600; color: var(--fg); }
+  .popover .minmax {
+    display: flex; justify-content: space-between;
+    font-family: var(--font-mono); font-size: var(--t-caption); color: var(--muted-fg);
+  }
+  .popover .toggle-group { width: 100%; }
+  .popover .toggle-group > button { flex: 1; padding: var(--s-2) 0; }
+
+  /* ── Main table area ── */
+  main.page {
+    max-width: 1280px; margin: 0 auto;
+    padding: 0 var(--s-5) var(--s-8);
+  }
+
+  .tbl-wrap {
+    border: none; border-radius: 0; background: transparent;
+    border-top: 1px solid var(--border);
+  }
+  .tbl-wrap table { border-collapse: separate; border-spacing: 0; }
+  .tbl-wrap thead th {
+    background: transparent; border-bottom: 1px solid var(--border);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: var(--s-3) var(--s-3);
+    font-size: var(--t-caption);
+  }
+  .tbl-wrap thead th:first-child { padding-left: 0; }
+  .tbl-wrap thead th:last-child  { padding-right: 0; }
+  .tbl-wrap tbody td { height: var(--s-10); padding: 0 var(--s-3); border-top: none; }
+  .tbl-wrap tbody td:first-child { padding-left: 0; }
+  .tbl-wrap tbody td:last-child  { padding-right: 0; }
+  .tbl-wrap tbody tr + tr > td { border-top: 1px solid var(--border-subtle); }
+  .tbl-wrap tbody tr { transition: background 0.1s ease; cursor: pointer; }
+  .tbl-wrap tbody tr:hover td { background: color-mix(in oklch, var(--muted) 60%, transparent); }
+
+  /* Sparkline-like inline indicator using pure CSS gradient */
+  .tbl-wrap tbody td:nth-child(1) { font-weight: 600; font-size: var(--t-base); }
+  .tbl-wrap tbody td:nth-child(5) { /* rate cell */
+    position: relative;
+  }
+  .tbl-wrap tbody tr[data-dir="up"] td:nth-child(5)::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 2px; height: 16px; background: var(--up); border-radius: 999px;
+  }
+  .tbl-wrap tbody tr[data-dir="down"] td:nth-child(5)::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 2px; height: 16px; background: var(--down); border-radius: 999px;
+  }
+
+  .footnote {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: var(--s-4); margin-top: var(--s-4);
+    border-top: 1px solid var(--border-subtle);
+    font-size: var(--t-caption); color: var(--muted-fg);
+    letter-spacing: 0.04em;
+  }
+
+  @media (max-width: 767px) {
+    .hero { grid-template-columns: 1fr; gap: var(--s-2); padding: var(--s-5) var(--s-4) var(--s-3); }
+    .hero .big-count { text-align: left; }
+    .chip-bar { padding: 0 var(--s-4) var(--s-3); }
+    .meta-inline { margin-left: 0; width: 100%; }
+    main.page { padding: 0 var(--s-4) var(--s-6); }
+    .tbl-wrap { display: none; }
+    #cards { display: flex; flex-direction: column; gap: var(--s-2); }
+  }
+  @media (min-width: 768px) { #cards { display: none; } }
+</style>
+</head>
+<body>
+<header class="brand-bar">
+  <div class="brand">
+    <span class="name">gh-radar</span>
+    <span class="sep">／</span>
+    <span class="sub">실시간 스캐너</span>
+  </div>
+  <div class="brand-meta">
+    <span>KRX · <span id="updated">14:23:07</span> KST</span>
+    <button class="refresh" aria-label="스캐너 데이터 새로고침" id="refresh">↻</button>
+  </div>
+</header>
+
+<section class="hero">
+  <div>
+    <div class="eyebrow">Scanner · <span class="live" style="color:var(--up);">Live</span></div>
+    <h1>상한가 근접<br>종목 <span class="accent" id="h-val">25%+</span></h1>
+  </div>
+  <div>
+    <div class="big-count"><span id="count">—</span><span class="unit">matches</span></div>
+  </div>
+</section>
+
+<section class="chip-bar" aria-label="필터">
+  <span class="lbl">Filters</span>
+  <button id="chip-rate" class="chip" aria-expanded="false" aria-controls="pop-rate">
+    <span class="k">등락률 ≥</span>
+    <span id="chip-rate-val">25%</span>
+    <span class="caret">▾</span>
+  </button>
+  <button id="chip-market" class="chip" aria-expanded="false" aria-controls="pop-market">
+    <span class="k">마켓</span>
+    <span id="chip-market-val">전체</span>
+    <span class="caret">▾</span>
+  </button>
+
+  <div class="meta-inline">
+    <span class="live">LIVE</span>
+    <span>auto · 60s</span>
+  </div>
+</section>
+
+<div id="pop-rate" class="popover" role="dialog" aria-label="등락률 필터">
+  <div class="field">
+    <div class="field-header">
+      <span class="f-label">Minimum rate</span>
+      <span class="f-val" id="min-val">25%</span>
+    </div>
+    <input id="min-rate" class="slider" type="range" min="10" max="29" step="1" value="25" aria-label="최소 등락률" />
+    <div class="minmax"><span>10%</span><span>29%</span></div>
+  </div>
+</div>
+
+<div id="pop-market" class="popover" role="dialog" aria-label="마켓 필터">
+  <div class="field">
+    <div class="field-header">
+      <span class="f-label">Market</span>
+    </div>
+    <div class="toggle-group" role="group" aria-label="마켓">
+      <button data-market="ALL" aria-pressed="true">전체</button>
+      <button data-market="KOSPI" aria-pressed="false">KOSPI</button>
+      <button data-market="KOSDAQ" aria-pressed="false">KOSDAQ</button>
+    </div>
+  </div>
+</div>
+
+<main class="page">
+  <div id="table"></div>
+  <div id="cards"></div>
+  <div class="footnote">
+    <span style="text-transform:uppercase;">Sorted by 등락률 · desc</span>
+    <span style="font-family:var(--font-mono);">KRX · last update <span id="updated-foot">14:23:07</span></span>
+  </div>
+</main>
+
+<script src="../data.js"></script>
+<script src="../render.js"></script>
+<script>
+  // Popover logic
+  function bindPopover(chipId, popId) {
+    const chip = document.getElementById(chipId);
+    const pop = document.getElementById(popId);
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const opening = pop.dataset.open !== 'true';
+      document.querySelectorAll('.popover').forEach((p) => (p.dataset.open = 'false'));
+      document.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-expanded', 'false'));
+      if (opening) {
+        pop.dataset.open = 'true';
+        chip.setAttribute('aria-expanded', 'true');
+        const rect = chip.getBoundingClientRect();
+        pop.style.top = rect.bottom + window.scrollY + 6 + 'px';
+        pop.style.left = rect.left + window.scrollX + 'px';
+      }
+    });
+  }
+  bindPopover('chip-rate', 'pop-rate');
+  bindPopover('chip-market', 'pop-market');
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.popover').forEach((p) => (p.dataset.open = 'false'));
+    document.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-expanded', 'false'));
+  });
+  document.querySelectorAll('.popover').forEach((p) => p.addEventListener('click', (e) => e.stopPropagation()));
+
+  // Enhance table rows with direction data
+  const origRenderTable = Scanner.renderTable;
+  Scanner.renderTable = function (container, rows) {
+    origRenderTable(container, rows);
+    container.querySelectorAll('tbody tr').forEach((tr, i) => {
+      tr.dataset.dir = rows[i].rate > 0 ? 'up' : rows[i].rate < 0 ? 'down' : 'flat';
+    });
+  };
+
+  const tableEl = document.getElementById('table');
+  const cardsEl = document.getElementById('cards');
+  const countEl = document.getElementById('count');
+  const hVal = document.getElementById('h-val');
+  const chipRateVal = document.getElementById('chip-rate-val');
+  const chipMarketVal = document.getElementById('chip-market-val');
+
+  Scanner.wireFilters({
+    sliderEl: document.getElementById('min-rate'),
+    valueEl: document.getElementById('min-val'),
+    marketEls: document.querySelectorAll('.toggle-group button'),
+    onChange: ({ min, market }) => {
+      const filtered = Scanner.filter(window.SCANNER_DATA, min, market);
+      countEl.textContent = filtered.length;
+      hVal.textContent = min.toFixed(0) + '%+';
+      chipRateVal.textContent = min.toFixed(0) + '%';
+      chipMarketVal.textContent = market === 'ALL' ? '전체' : market;
+      Scanner.renderTable(tableEl, filtered);
+      Scanner.renderCards(cardsEl, filtered);
+    },
+  });
+</script>
+</body>
+</html>

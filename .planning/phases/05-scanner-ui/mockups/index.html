@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 5 Scanner — Mockup Index</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  body { padding: var(--s-6); max-width: 1120px; margin: 0 auto; }
+  h1 { font-size: var(--t-h1); margin: 0 0 var(--s-2) 0; letter-spacing: -0.03em; }
+  h2 { font-size: var(--t-h2); margin: var(--s-8) 0 var(--s-4) 0; letter-spacing: -0.02em; }
+  .sub { color: var(--muted-fg); margin: 0 0 var(--s-5) 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4); }
+  .item {
+    padding: var(--s-5); border: 1px solid var(--border); border-radius: var(--r-md);
+    background: var(--card); text-decoration: none; color: inherit;
+    display: flex; flex-direction: column; gap: var(--s-2);
+    transition: all 0.12s ease;
+  }
+  .item:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .item .kicker { font-size: var(--t-caption); color: var(--muted-fg); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .item .name { font-size: var(--t-lg); font-weight: 600; letter-spacing: -0.02em; }
+  .item .desc { font-size: var(--t-sm); color: var(--muted-fg); }
+  .legend { font-size: var(--t-sm); color: var(--muted-fg); display: flex; gap: var(--s-4); flex-wrap: wrap; }
+  .legend strong { color: var(--fg); }
+</style>
+</head>
+<body>
+  <h1>Phase 5 Scanner UI — Mockup 비교</h1>
+  <p class="sub">Phase 3 디자인 시스템 토큰 안에서 <strong>레이아웃 축 3개 × 스타일링 품질 2단계</strong> = 총 6개 목업.</p>
+
+  <div class="legend">
+    <span><strong>A</strong> · 상단 가로 필터바</span>
+    <span><strong>B</strong> · 좌측 sticky 사이드 필터</span>
+    <span><strong>C</strong> · compact chip + popover</span>
+  </div>
+
+  <h2>Plain — skill 없이, 레이아웃만 배치</h2>
+  <div class="grid">
+    <a class="item" href="plain/a.html">
+      <span class="kicker">Variant A · Plain</span>
+      <span class="name">상단 가로 필터바</span>
+      <span class="desc">페이지 상단 grid row에 slider·마켓·타임스탬프·refresh 일렬 배치.</span>
+    </a>
+    <a class="item" href="plain/b.html">
+      <span class="kicker">Variant B · Plain</span>
+      <span class="name">좌측 sticky 사이드</span>
+      <span class="desc">260px 필터 패널, 오른쪽 넓은 Table. 필터 상시 가시.</span>
+    </a>
+    <a class="item" href="plain/c.html">
+      <span class="kicker">Variant C · Plain</span>
+      <span class="name">Compact chip + popover</span>
+      <span class="desc">헤더 옆 chip만 노출, 클릭 시 팝오버로 필터. 리스트 영역 최대.</span>
+    </a>
+  </div>
+
+  <h2>Designed — frontend-design 스킬 적용 (토큰 강제)</h2>
+  <div class="grid">
+    <a class="item" href="designed/a.html">
+      <span class="kicker">Variant A · Designed</span>
+      <span class="name">Command strip</span>
+      <span class="desc">Bloomberg풍 command bar. 큰 mono 값 + stats 4카드 + 방향별 row tint.</span>
+    </a>
+    <a class="item" href="designed/b.html">
+      <span class="kicker">Variant B · Designed</span>
+      <span class="name">Editorial sidebar</span>
+      <span class="desc">Toss풍 여백. 사이드 oversized readout + 넓은 세로 리듬.</span>
+    </a>
+    <a class="item" href="designed/c.html">
+      <span class="kicker">Variant C · Designed</span>
+      <span class="name">Minimal editorial</span>
+      <span class="desc">큰 hero 제목 + 거대 count + command chip. 테이블 숨쉴 공간 최대.</span>
+    </a>
+  </div>
+</body>
+</html>
