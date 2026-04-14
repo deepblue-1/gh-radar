@@ -1,13 +1,10 @@
-import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
+/**
+ * 루트(`/`) 진입 시 서버 사이드 리다이렉트로 `/scanner` 로 이동.
+ * - Phase 4 D-01: v1 핵심이 Scanner 이므로 사이트 오픈 즉시 핵심 기능 진입
+ * - Client redirect 금지 (SEO + hydration 비용) — App Router `redirect()` 사용
+ */
 export default function HomePage() {
-  return (
-    <main style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>gh-radar</h1>
-      <p>Phase 3 스캐폴드입니다. Phase 4 에서 본 페이지가 교체됩니다.</p>
-      <p>
-        디자인 시스템 카탈로그: <Link href="/design">/design</Link>
-      </p>
-    </main>
-  );
+  redirect('/scanner');
 }
