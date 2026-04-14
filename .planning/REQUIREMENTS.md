@@ -41,9 +41,9 @@
 
 ### Infrastructure
 
-- [ ] **INFR-01**: KIS OpenAPI 연동 (실시간 시세 데이터, 등락률 순위 REST 폴링)
-- [ ] **INFR-02**: Supabase 데이터베이스 스키마 구축 (stocks, news_articles, discussions, summaries)
-- [ ] **INFR-03**: Express API 서버 구축 및 Cloud Run 배포 (min-instances=1)
+- [x] **INFR-01**: KIS OpenAPI 연동 (실시간 시세 데이터, 등락률 순위 REST 폴링) — Phase 5.1 production 활성화(Cloud Run Job + Scheduler)
+- [x] **INFR-02**: Supabase 데이터베이스 스키마 구축 (stocks, news_articles, discussions, summaries) — Phase 5.1 stocks 테이블 자동 upsert 파이프라인 가동
+- [x] **INFR-03**: Express API 서버 구축 및 Cloud Run 배포 (min-instances=1)
 - [x] **INFR-04**: Next.js 프론트엔드 구축 및 Vercel 배포
 
 ## v2 Requirements

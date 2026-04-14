@@ -97,15 +97,19 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal:** Phase 1에서 완성한 workers/ingestion/ 코드를 Cloud Run Job + Cloud Scheduler로 실제 GCP에 배포하여 평일 장 시간(09:00~15:59 KST) 매 분 KIS API → Supabase stocks 자동 폴링을 활성화한다. 코드 변경 없이 운영 인프라만 구성.
 **Requirements**: INFR-01, INFR-02 (production 활성화)
 **Depends on:** Phase 5
-**Plans:** 1/6 plans executed
+**Plans:** 6/6 plans executed ✅
 
 Plans:
 - [x] 05.1-01-PLAN.md — Wave 0 스크립트/YAML/DEPLOY-LOG 템플릿 스캐폴드
-- [ ] 05.1-02-PLAN.md — Wave 1 setup-ingestion-iam.sh 실행 (API + SA 2종 + Secret 4종)
-- [ ] 05.1-03-PLAN.md — Wave 2 deploy-ingestion.sh 실행 (Build → Push → Job + Invoker + Scheduler)
-- [ ] 05.1-04-PLAN.md — Wave 3 Alert policy + 이메일 notification channel
-- [ ] 05.1-05-PLAN.md — Wave 4 smoke-ingestion.sh E2E + 이메일 알림 Manual
-- [ ] 05.1-06-PLAN.md — Wave 5 DEPLOY-LOG/STATE/ROADMAP 갱신
+- [x] 05.1-02-PLAN.md — Wave 1 setup-ingestion-iam.sh 실행 (SA 2종 + Secret 4종 + accessor 4건)
+- [x] 05.1-03-PLAN.md — Wave 2 deploy-ingestion.sh 실행 (이미지 27eecfd + Job + Invoker + Scheduler OAuth)
+- [x] 05.1-04-PLAN.md — Wave 3 Alert policy `gh-radar-ingestion-failure` ENABLED + email channel(alex@jx1.io)
+- [x] 05.1-05-PLAN.md — Wave 4 smoke 5/5 PASS (cycle complete, upserted=58)
+- [x] 05.1-06-PLAN.md — Wave 5 DEPLOY-LOG 실값 기록 + STATE/ROADMAP/REQUIREMENTS 갱신
+
+**Completed:** 2026-04-14 (KST 19:05)
+**Image:** `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/ingestion:27eecfd`
+**Alert policy:** `projects/gh-radar/alertPolicies/8385793339456322031` (email verification 대기)
 
 ### Phase 6: Stock Search & Detail
 **Goal**: 트레이더가 종목명 또는 코드로 종목을 검색하고 해당 종목의 상세 정보를 볼 수 있다

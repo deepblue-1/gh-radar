@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Phase 5.1 Wave 0 완료 — Wave 1 사용자 GCP 실행 대기 (setup-ingestion-iam.sh)
-last_updated: "2026-04-14T09:53:05.215Z"
+stopped_at: Phase 5.1 실배포 완료 — Cloud Run Job + Scheduler + Alert 운영 개시
+last_updated: "2026-04-14T10:06:31.443Z"
 last_activity: 2026-04-14
 progress:
   total_phases: 10
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 15
-  completed_plans: 3
-  percent: 20
+  completed_plans: 8
+  percent: 53
 ---
 
 # Project State
@@ -119,6 +119,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-14T09:53:05.212Z
-Stopped at: Phase 5.1 Wave 0 완료 — Wave 1 사용자 GCP 실행 대기 (setup-ingestion-iam.sh)
+Last session: 2026-04-14T10:06:31.440Z
+Stopped at: Phase 5.1 실배포 완료 — Cloud Run Job + Scheduler + Alert 운영 개시
 Next: Phase 5 - Scanner UI (`/gsd-discuss-phase 5` 또는 `/gsd-plan-phase 5`)
