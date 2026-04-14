@@ -6,17 +6,17 @@ describe("rateLimiter", () => {
     resetRateLimiter();
   });
 
-  it("15개 슬롯은 즉시 통과", async () => {
+  it("10개 슬롯은 즉시 통과", async () => {
     const start = Date.now();
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 10; i++) {
       await waitForSlot();
     }
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(50);
   });
 
-  it("16번째 슬롯은 대기 발생", async () => {
-    for (let i = 0; i < 15; i++) {
+  it("11번째 슬롯은 대기 발생", async () => {
+    for (let i = 0; i < 10; i++) {
       await waitForSlot();
     }
     const start = Date.now();

@@ -1,4 +1,6 @@
-const MAX_REQUESTS_PER_SEC = 15;
+// KIS 공식 제한은 20 req/sec 이지만 공유 bucket/server-side burst detection 로 인해
+// 실측 EGW00201 이 자주 발생. 10 req/sec 로 보수적 운영 (Phase 05.2 hotfix).
+const MAX_REQUESTS_PER_SEC = 10;
 
 let tokens = MAX_REQUESTS_PER_SEC;
 let lastRefill = Date.now();

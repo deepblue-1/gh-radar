@@ -18,6 +18,7 @@ export async function runPipeline(
   );
 
   const allStocks: Stock[] = [];
+  let priceFailCount = 0;
 
   for (const { market, rows } of rankings) {
     for (const row of rows) {
@@ -28,9 +29,10 @@ export async function runPipeline(
           `inquirePrice:${row.stck_shrn_iscd}`
         );
       } catch (err) {
+        priceFailCount += 1;
         logger.warn(
           { code: row.stck_shrn_iscd, error: (err as Error).message },
-          "inquirePrice failed, using ranking data only"
+          "inquirePrice failed — tradeAmount/open/marketCap/upperLimit/lowerLimit 0으로 저장"
         );
       }
 
@@ -38,7 +40,10 @@ export async function runPipeline(
     }
   }
 
-  logger.info({ totalStocks: allStocks.length }, "pipeline mapped all stocks");
+  logger.info(
+    { totalStocks: allStocks.length, priceFailCount },
+    "pipeline mapped all stocks"
+  );
 
   return upsertStocks(supabase, allStocks);
 }

@@ -1,6 +1,10 @@
 import type { Stock, Market, KisRankingRow } from "@gh-radar/shared";
 import type { KisInquirePriceRow } from "../kis/inquirePrice";
 
+// 거래대금은 inquirePrice.acml_tr_pbmn 만 사용 (정확한 누적 거래대금).
+// KIS 등락률 순위 응답에는 acml_tr_pbmn 이 없고, 근사값은 허용하지 않음.
+// inquirePrice 실패 시 tradeAmount=0 → UI 포맷터가 "-" 로 표시.
+// 상승률/현재가/거래량 등 ranking 기반 핵심 정보는 priceData 없이도 유지.
 export function toStock(
   row: KisRankingRow,
   market: Market,
@@ -14,7 +18,7 @@ export function toStock(
     changeAmount: Number(row.prdy_vrss),
     changeRate: Number(row.prdy_ctrt),
     volume: Number(row.acml_vol),
-    tradeAmount: Number(row.acml_tr_pbmn),
+    tradeAmount: priceData ? Number(priceData.acml_tr_pbmn) : 0,
     open: priceData ? Number(priceData.stck_oprc) : Number(row.stck_hgpr),
     high: Number(row.stck_hgpr),
     low: Number(row.stck_lwpr),

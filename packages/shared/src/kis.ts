@@ -5,7 +5,6 @@ export type KisRankingRow = {
   prdy_vrss: string;
   prdy_ctrt: string;
   acml_vol: string;
-  acml_tr_pbmn: string;
   stck_oprc: string;
   stck_hgpr: string;
   stck_lwpr: string;

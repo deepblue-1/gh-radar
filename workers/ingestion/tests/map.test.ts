@@ -12,7 +12,6 @@ const sampleRankingRow: KisRankingRow = {
   prdy_vrss_sign: "1",
   prdy_ctrt: "30.00",
   acml_vol: "655925",
-  acml_tr_pbmn: "759264850",
   stck_hgpr: "1157",
   hgpr_hour: "094554",
   acml_hgpr_date: "20260413",
@@ -43,6 +42,7 @@ const samplePriceRow: KisInquirePriceRow = {
   stck_llam: "624",
   stck_oprc: "920",
   stck_avls: "58000000",
+  acml_tr_pbmn: "759264850",
 };
 
 describe("toStock", () => {
@@ -65,11 +65,12 @@ describe("toStock", () => {
     expect(stock.lowerLimit).toBe(624);
   });
 
-  it("시세 보충 없이도 동작 (fallback)", () => {
+  it("시세 보충 없이도 동작 (inquirePrice 실패 fallback)", () => {
     const stock = toStock(sampleRankingRow, "KOSDAQ");
 
     expect(stock.code).toBe("368600");
-    expect(stock.tradeAmount).toBe(759264850);
+    // 거래대금은 inquirePrice 전용이므로 priceData 없으면 0 (UI에서 "-" 표시)
+    expect(stock.tradeAmount).toBe(0);
     expect(stock.open).toBe(1157); // fallback to stck_hgpr
     expect(stock.marketCap).toBe(0);
     expect(stock.upperLimit).toBe(0);

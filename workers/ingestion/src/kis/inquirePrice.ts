@@ -6,6 +6,7 @@ export type KisInquirePriceRow = {
   stck_llam: string;
   stck_oprc: string;
   stck_avls: string;
+  acml_tr_pbmn: string;
   [key: string]: string;
 };
 
