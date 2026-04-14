@@ -1,36 +1,31 @@
 'use client';
 
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 
-type ThemeValue = 'light' | 'dark' | 'system';
-
-const ORDER: ThemeValue[] = ['light', 'dark', 'system'];
+type ThemeValue = 'light' | 'dark';
 
 const LABELS: Record<ThemeValue, string> = {
   light: '라이트 모드 (클릭 시 다크 모드)',
-  dark: '다크 모드 (클릭 시 시스템 설정)',
-  system: '시스템 설정 (클릭 시 라이트 모드)',
+  dark: '다크 모드 (클릭 시 라이트 모드)',
 };
 
 /**
- * 3 상태 순환 ThemeToggle — Light → Dark → System → Light.
- * UI-SPEC §4.3 / D-26: 44×44px 이상 hit target, 동적 aria-label.
+ * 2 상태 토글 ThemeToggle — Light ↔ Dark. UI-SPEC §4.3 / D-26: 44×44px hit target.
  */
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  // SSR/CSR mismatch 방지 — 마운트 전에는 중립 아이콘.
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const current: ThemeValue = (mounted && (theme as ThemeValue)) || 'system';
-  const nextTheme = ORDER[(ORDER.indexOf(current) + 1) % ORDER.length];
+  const current: ThemeValue = mounted && resolvedTheme === 'light' ? 'light' : 'dark';
+  const nextTheme: ThemeValue = current === 'light' ? 'dark' : 'light';
 
-  const Icon = current === 'light' ? Sun : current === 'dark' ? Moon : Monitor;
+  const Icon = current === 'light' ? Sun : Moon;
 
   return (
     <button
