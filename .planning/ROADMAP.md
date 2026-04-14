@@ -111,6 +111,16 @@ Plans:
 **Image:** `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/ingestion:27eecfd`
 **Alert policy:** `projects/gh-radar/alertPolicies/8385793339456322031` (email verification 대기)
 
+### Phase 05.2: Scanner 데이터 품질 개선 — 거래대금 표시 전환 + 갱신시각 DB 기준 (INSERTED)
+
+**Goal:** Scanner UI가 트레이더 관점에서 더 정확한 정보를 보여주도록 2가지 개선: (1) 거래량(주식수) 대신 거래대금(KRW)으로 표시해 저가주/고가주 간 직관적 비교 가능, (2) 갱신시각을 클라이언트 `Date.now()`가 아닌 DB `stocks.updated_at` 기준으로 표시해 장 외 시간에도 데이터 신선도 올바르게 반영.
+**Requirements**: SCAN-04 (거래량 → 거래대금으로 재해석), 신규 SCAN-08 (갱신시각 서버 기준)
+**Depends on:** Phase 5.1
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.2 to break down)
+
 ### Phase 6: Stock Search & Detail
 **Goal**: 트레이더가 종목명 또는 코드로 종목을 검색하고 해당 종목의 상세 정보를 볼 수 있다
 **Depends on**: Phase 2, Phase 4
