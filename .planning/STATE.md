@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: "Phase 5 Plan 1 실행 완료 — 단위 테스트 28 PASS, 수동 E2E #2/#6 사용자 브라우저 확인 대기"
-last_updated: "2026-04-14T04:45:48.681Z"
+stopped_at: Phase 5.1 context gathered
+last_updated: "2026-04-14T07:35:13.556Z"
 last_activity: 2026-04-14
 progress:
-  total_phases: 9
+  total_phases: 10
   completed_phases: 2
   total_plans: 9
   completed_plans: 2
@@ -84,6 +84,10 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 05.1 inserted after Phase 5: Ingestion 운영 배포 — Cloud Run Job + Cloud Scheduler 자동 트리거 (URGENT, 2026-04-14 DB stale 발견)
+
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
@@ -112,6 +116,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-14T04:45:48.678Z
-Stopped at: Phase 5 Plan 1 실행 완료 — 단위 테스트 28 PASS, 수동 E2E #2/#6 사용자 브라우저 확인 대기
+Last session: 2026-04-14T07:35:13.553Z
+Stopped at: Phase 5.1 context gathered
 Next: Phase 5 - Scanner UI (`/gsd-discuss-phase 5` 또는 `/gsd-plan-phase 5`)
