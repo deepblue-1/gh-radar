@@ -21,6 +21,7 @@ export async function upsertStocks(
     change_amount: s.changeAmount,
     change_rate: s.changeRate,
     volume: s.volume,
+    trade_amount: s.tradeAmount,
     open: s.open,
     high: s.high,
     low: s.low,

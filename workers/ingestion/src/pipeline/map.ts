@@ -14,6 +14,7 @@ export function toStock(
     changeAmount: Number(row.prdy_vrss),
     changeRate: Number(row.prdy_ctrt),
     volume: Number(row.acml_vol),
+    tradeAmount: Number(row.acml_tr_pbmn),
     open: priceData ? Number(priceData.stck_oprc) : Number(row.stck_hgpr),
     high: Number(row.stck_hgpr),
     low: Number(row.stck_lwpr),
