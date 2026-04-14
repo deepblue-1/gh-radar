@@ -15,18 +15,19 @@ COPY workers/ingestion/ ./workers/ingestion/
 RUN pnpm -F @gh-radar/shared build
 RUN pnpm -F @gh-radar/ingestion build
 
+# pnpm deploy: isolated prod node_modules (hoisted, no symlinks)
+RUN pnpm --filter=@gh-radar/ingestion --prod --legacy deploy /out
+
 # === Production Image ===
 FROM node:22-alpine
 WORKDIR /app
 
 RUN addgroup -S app && adduser -S app -G app
 
-COPY --from=builder /app/workers/ingestion/dist ./dist
-COPY --from=builder /app/workers/ingestion/package.json ./
-
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /out/dist ./dist
+COPY --from=builder /out/package.json ./
+COPY --from=builder /out/node_modules ./node_modules
 COPY --from=builder /app/packages/shared/dist ./node_modules/@gh-radar/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./node_modules/@gh-radar/shared/package.json
 
 ARG GIT_SHA=dev
 ENV APP_VERSION=${GIT_SHA}
