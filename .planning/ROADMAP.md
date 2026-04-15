@@ -139,7 +139,7 @@ Plans:
 **Plans:** 6 plans (프론트엔드 전용, 5 waves)
 - [x] 06-01-PLAN.md — Wave 0 인프라: shadcn command 설치 + vitest setup + playwright + axe + e2e 픽스처
 - [x] 06-02-PLAN.md — lib/stock-api.ts + useDebouncedSearch + useCmdKShortcut (+ 17 unit tests)
-- [ ] 06-03-PLAN.md — GlobalSearch ⌘K CommandDialog + SearchTrigger + AppShell 배선
+- [x] 06-03-PLAN.md — GlobalSearch ⌘K CommandDialog + SearchTrigger + AppShell 배선
 - [ ] 06-04-PLAN.md — StockHero / StockStatsGrid (em-dash 정책) / ComingSoonCard / StockDetailClient
 - [ ] 06-05-PLAN.md — /stocks/[code] page + not-found.tsx + error.tsx (Next 15 use(params))
 - [ ] 06-06-PLAN.md — playwright E2E (search/detail/a11y) + axe 접근성

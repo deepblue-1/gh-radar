@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-02-PLAN.md (search data layer + hooks)
-last_updated: "2026-04-15T04:25:33.851Z"
+stopped_at: Completed 06-03-PLAN.md (GlobalSearch ⌘K Dialog + AppShell 마운트)
+last_updated: "2026-04-15T04:30:55.012Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 26
-  completed_plans: 15
-  percent: 58
+  completed_plans: 16
+  percent: 62
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 06 (stock-search-detail) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Plans completed: 9 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub/3 waves, Phase 4: 1)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -84,6 +84,7 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 | Phase 05.1 P01 | ~20분 | 3 tasks | 6 files |
 | Phase 06 P01 | 15m | 3 tasks | 9 files |
 | Phase 06 P02 | 8m | 3 tasks | 6 files |
+| Phase 06 P03 | 3 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,7 @@ Recent decisions affecting current work:
 - [Phase 05.1]: Cloud Run Job invoker 바인딩은 setup-ingestion-iam.sh가 아닌 deploy-ingestion.sh §5.5에 배치 (Job 리소스 생성 후에만 가능)
 - [Phase 05.1]: Scheduler → Cloud Run Job 인증은 --oauth-service-account-email 전용 (OIDC 금지, Pitfall 2)
 - [Phase 06]: useDebouncedSearch 는 AbortError 를 name 체크로 명시 스킵 — aborted flag 만으로는 race window 발생
+- [Phase 06]: Plan 03: CommandDialog 가 shouldFilter prop 미 forward → 내부 <Command shouldFilter={false}> 래핑 + CommandLoading export 부재로 div 로 치환
 
 ### Pending Todos
 
@@ -122,6 +124,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-15T04:25:33.849Z
-Stopped at: Completed 06-02-PLAN.md (search data layer + hooks)
+Last session: 2026-04-15T04:30:55.010Z
+Stopped at: Completed 06-03-PLAN.md (GlobalSearch ⌘K Dialog + AppShell 마운트)
 Next: Phase 5 - Scanner UI (`/gsd-discuss-phase 5` 또는 `/gsd-plan-phase 5`)
