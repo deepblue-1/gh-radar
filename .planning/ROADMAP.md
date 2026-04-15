@@ -136,7 +136,13 @@ Plans:
   1. 검색창에 종목명 또는 종목코드를 입력하면 자동완성 드롭다운이 나타난다
   2. 드롭다운에서 종목을 선택하면 해당 종목 상세 페이지로 이동한다
   3. 종목 상세 페이지에 현재가, 등락률, 거래량 등 상세 정보가 표시된다
-**Plans**: TBD
+**Plans:** 6 plans (프론트엔드 전용, 5 waves)
+- [ ] 06-01-PLAN.md — Wave 0 인프라: shadcn command 설치 + vitest setup + playwright + axe + e2e 픽스처
+- [ ] 06-02-PLAN.md — lib/stock-api.ts + useDebouncedSearch + useCmdKShortcut (+ 17 unit tests)
+- [ ] 06-03-PLAN.md — GlobalSearch ⌘K CommandDialog + SearchTrigger + AppShell 배선
+- [ ] 06-04-PLAN.md — StockHero / StockStatsGrid (em-dash 정책) / ComingSoonCard / StockDetailClient
+- [ ] 06-05-PLAN.md — /stocks/[code] page + not-found.tsx + error.tsx (Next 15 use(params))
+- [ ] 06-06-PLAN.md — playwright E2E (search/detail/a11y) + axe 접근성
 **UI hint**: yes
 
 ### Phase 7: News Ingestion

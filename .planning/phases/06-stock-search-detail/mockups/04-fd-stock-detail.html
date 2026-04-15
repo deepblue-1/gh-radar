@@ -1,0 +1,238 @@
+<!doctype html>
+<!-- Mockup 04 · frontend-design skill -->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>gh-radar · 삼성전자 005930</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.18 0 0);
+    --muted: oklch(0.96 0 0);
+    --muted-fg: oklch(0.48 0 0);
+    --border: oklch(0.92 0 0);
+    --hairline: oklch(0.88 0 0);
+    --card: oklch(1 0 0);
+    --primary: oklch(0.63 0.18 250);
+    --up: oklch(0.60 0.22 22);
+    --up-bg: oklch(0.96 0.04 22);
+    --down: oklch(0.58 0.18 250);
+    --down-bg: oklch(0.96 0.04 250);
+    --flat: oklch(0.55 0 0);
+  }
+  html,body{background:var(--bg);color:var(--fg);font-family:'Pretendard Variable',ui-sans-serif,sans-serif;font-feature-settings:"ss06"}
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:
+      linear-gradient(to right, color-mix(in oklch,var(--hairline) 50%, transparent) 1px, transparent 1px);
+    background-size:80px 100%;
+    mask-image:linear-gradient(to bottom, rgba(0,0,0,0.35), transparent 60%);
+    -webkit-mask-image:linear-gradient(to bottom, rgba(0,0,0,0.35), transparent 60%);
+  }
+  .mono{font-family:'Geist Mono',ui-monospace,monospace;font-feature-settings:"tnum","zero","ss03"}
+  .caption{font-size:12px;font-weight:600;line-height:1.2;letter-spacing:0.08em;color:var(--muted-fg);text-transform:uppercase}
+  .body{font-size:14px;line-height:1.5}
+  .body-semibold{font-size:14px;line-height:1.5;font-weight:600}
+  .heading{font-size:24px;font-weight:600;line-height:1.15;letter-spacing:-0.01em}
+  .display{font-size:30px;font-weight:600;line-height:1;letter-spacing:-0.02em}
+  .hairline{height:1px;background:var(--hairline)}
+  .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;border-radius:4px;background:var(--muted);border:1px solid var(--hairline);font-family:'Geist Mono',monospace;font-size:11px;font-weight:500;color:var(--muted-fg)}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:0.04em}
+  .chip-kospi{background:color-mix(in oklch,var(--primary) 10%, transparent);color:var(--primary)}
+  .up{color:var(--up)} .up-bg{background:var(--up-bg)}
+  .down{color:var(--down)}
+
+  .stat{position:relative;padding:20px 20px 20px 20px;background:var(--card);border:1px solid var(--border);border-radius:12px}
+  .stat::before{content:"";position:absolute;inset:0;border-radius:12px;pointer-events:none;box-shadow:inset 0 1px 0 0 color-mix(in oklch, white 70%, transparent)}
+  .stat-accent::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;background:linear-gradient(90deg,var(--up) 0%, transparent 100%);opacity:0.5;border-radius:2px}
+  .stat-accent-down::after{content:"";position:absolute;left:20px;right:20px;bottom:0;height:2px;background:linear-gradient(90deg,var(--down) 0%, transparent 100%);opacity:0.5;border-radius:2px}
+
+  .spinner{width:12px;height:12px;border-radius:999px;border:2px solid color-mix(in oklch,var(--primary) 25%,transparent);border-top-color:var(--primary);animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .fade-up{opacity:0;transform:translateY(6px);animation:fadeUp 0.6s cubic-bezier(0.2,0.7,0.2,1) forwards}
+  @keyframes fadeUp{to{opacity:1;transform:translateY(0)}}
+
+  .fu-1{animation-delay:0.05s} .fu-2{animation-delay:0.1s} .fu-3{animation-delay:0.15s}
+  .fu-4{animation-delay:0.2s} .fu-5{animation-delay:0.25s} .fu-6{animation-delay:0.30s}
+  .fu-7{animation-delay:0.35s} .fu-8{animation-delay:0.40s}
+
+  .tick-rail{display:flex;align-items:center;gap:32px;white-space:nowrap;animation:tick 40s linear infinite}
+  @keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+</style>
+</head>
+<body class="min-h-screen relative">
+
+<!-- Minimal ticker strip -->
+<div class="relative z-10 border-b overflow-hidden" style="border-color:var(--hairline);height:28px">
+  <div class="tick-rail h-full">
+    <span class="caption mono">KOSPI 2,712.43 <span class="up">▲ 0.41%</span></span>
+    <span class="caption mono">KOSDAQ 849.10 <span class="down">▼ 0.22%</span></span>
+    <span class="caption mono">USD/KRW 1,378.20 <span class="up">▲ 0.08%</span></span>
+    <span class="caption mono">삼성전자 72,400 <span class="up">▲ 1.69%</span></span>
+    <span class="caption mono">SK하이닉스 188,500 <span class="up">▲ 0.91%</span></span>
+    <span class="caption mono">KOSPI 2,712.43 <span class="up">▲ 0.41%</span></span>
+    <span class="caption mono">KOSDAQ 849.10 <span class="down">▼ 0.22%</span></span>
+    <span class="caption mono">USD/KRW 1,378.20 <span class="up">▲ 0.08%</span></span>
+    <span class="caption mono">삼성전자 72,400 <span class="up">▲ 1.69%</span></span>
+    <span class="caption mono">SK하이닉스 188,500 <span class="up">▲ 0.91%</span></span>
+  </div>
+</div>
+
+<!-- AppHeader -->
+<header class="relative z-10 border-b" style="border-color:var(--border);background:color-mix(in oklch,var(--bg) 80%,transparent);backdrop-filter:blur(10px)">
+  <div class="max-w-[1160px] mx-auto flex items-center gap-4 px-8" style="height:56px">
+    <a class="flex items-center gap-2">
+      <span class="block w-5 h-5 rounded-[6px]" style="background:var(--fg)"></span>
+      <span class="body-semibold tracking-tight">gh-radar</span>
+    </a>
+    <nav class="flex items-center gap-1 ml-6 body" style="color:var(--muted-fg)">
+      <a class="px-3 py-1.5 rounded-md hover:text-[color:var(--fg)]">스캐너</a>
+      <a class="px-3 py-1.5 rounded-md body-semibold" style="color:var(--fg);background:var(--muted)">종목</a>
+      <a class="px-3 py-1.5 rounded-md hover:text-[color:var(--fg)]">관심</a>
+    </nav>
+    <button class="ml-auto flex items-center gap-3 border rounded-lg px-3 body transition" style="border-color:var(--border);color:var(--muted-fg);height:36px;width:320px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span>종목명 또는 코드 검색</span>
+      <span class="ml-auto flex items-center gap-1"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+    </button>
+  </div>
+</header>
+
+<main class="relative z-10 max-w-[1160px] mx-auto px-8 py-12">
+
+  <!-- Breadcrumb + meta -->
+  <div class="flex items-center justify-between mb-8 fade-up fu-1">
+    <div class="body" style="color:var(--muted-fg)">
+      <a class="hover:underline">스캐너</a>
+      <span class="mx-2 opacity-60">›</span>
+      <span style="color:var(--fg)">종목 상세</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="caption mono">REQUEST 002 · CACHE HIT</span>
+    </div>
+  </div>
+
+  <!-- HERO -->
+  <section class="grid grid-cols-12 gap-8 mb-12">
+    <div class="col-span-7 fade-up fu-2">
+      <div class="flex items-center gap-3 mb-4">
+        <h1 class="heading">삼성전자</h1>
+        <span class="mono caption">005930</span>
+        <span class="chip chip-kospi">KOSPI</span>
+        <span class="chip" style="background:var(--muted);color:var(--muted-fg)">반도체</span>
+      </div>
+
+      <div class="flex items-baseline gap-3 mb-3">
+        <span class="display mono up">72,400</span>
+        <span class="caption mono" style="color:var(--muted-fg)">KRW</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span class="up-bg up body-semibold mono inline-flex items-center gap-1" style="padding:4px 10px;border-radius:6px">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1 9 8H1z"/></svg>
+          1,200
+        </span>
+        <span class="up body-semibold mono">+1.69%</span>
+        <span class="caption" style="color:var(--muted-fg);margin-left:8px">전일 대비</span>
+      </div>
+    </div>
+
+    <!-- Right rail: refresh + update time -->
+    <aside class="col-span-5 flex flex-col items-end justify-between fade-up fu-3">
+      <div class="flex items-center gap-2">
+        <button class="flex items-center gap-2 body-semibold rounded-lg border px-4" style="border-color:var(--border);height:36px;background:var(--card)">
+          <span class="spinner"></span>
+          새로고침
+        </button>
+        <button class="body-semibold rounded-lg border px-3" style="border-color:var(--border);height:36px;background:var(--card);color:var(--muted-fg)">⋯</button>
+      </div>
+      <div class="text-right">
+        <div class="caption mb-1">갱신</div>
+        <div class="mono body-semibold">14:32:05 <span style="color:var(--muted-fg)">KST</span></div>
+      </div>
+    </aside>
+  </section>
+
+  <div class="hairline mb-8"></div>
+
+  <!-- Stats grid with contextual accents -->
+  <section class="mb-12">
+    <div class="flex items-baseline justify-between mb-4">
+      <span class="caption">시세 상세</span>
+      <span class="caption mono" style="color:var(--muted-fg)">8 필드 · KRX</span>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="stat fade-up fu-1">
+        <div class="caption mb-3">시가</div>
+        <div class="body-semibold mono">71,200</div>
+      </div>
+      <div class="stat stat-accent fade-up fu-2">
+        <div class="caption mb-3">고가</div>
+        <div class="body-semibold mono up">72,800</div>
+      </div>
+      <div class="stat stat-accent-down fade-up fu-3">
+        <div class="caption mb-3">저가</div>
+        <div class="body-semibold mono down">70,900</div>
+      </div>
+      <div class="stat fade-up fu-4">
+        <div class="caption mb-3">거래량</div>
+        <div class="body-semibold mono">12,483,102</div>
+      </div>
+      <div class="stat fade-up fu-5">
+        <div class="caption mb-3">거래대금</div>
+        <div class="body-semibold mono">894,215,000,000</div>
+      </div>
+      <div class="stat fade-up fu-6">
+        <div class="caption mb-3">시가총액</div>
+        <div class="body-semibold mono">432.1조</div>
+      </div>
+      <div class="stat stat-accent fade-up fu-7">
+        <div class="caption mb-3">상한가</div>
+        <div class="body-semibold mono up">92,300</div>
+      </div>
+      <div class="stat stat-accent-down fade-up fu-8">
+        <div class="caption mb-3">하한가</div>
+        <div class="body-semibold mono down">49,700</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Placeholder cards -->
+  <section class="grid md:grid-cols-2 gap-4 fade-up fu-5">
+    <div class="relative overflow-hidden rounded-[12px] border p-6" style="border-color:var(--border);background:var(--muted)">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted-fg)"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6M7 16h10"/></svg>
+        <span class="body-semibold">관련 뉴스</span>
+      </div>
+      <p class="body" style="color:var(--muted-fg)">Phase 7 로드맵에서 제공됩니다.</p>
+      <span class="absolute right-4 top-4 caption mono" style="color:var(--muted-fg)">P7</span>
+    </div>
+    <div class="relative overflow-hidden rounded-[12px] border p-6" style="border-color:var(--border);background:var(--muted)">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted-fg)"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="body-semibold">종목토론방</span>
+      </div>
+      <p class="body" style="color:var(--muted-fg)">Phase 8 로드맵에서 제공됩니다.</p>
+      <span class="absolute right-4 top-4 caption mono" style="color:var(--muted-fg)">P8</span>
+    </div>
+  </section>
+
+</main>
+
+<footer class="relative z-10 border-t mt-16" style="border-color:var(--hairline)">
+  <div class="max-w-[1160px] mx-auto px-8 py-6 flex items-center justify-between caption" style="color:var(--muted-fg)">
+    <span class="mono">GH-RADAR · MOCKUP 04</span>
+    <span class="mono">Phase 6 · Stock Search & Detail</span>
+  </div>
+</footer>
+
+</body>
+</html>

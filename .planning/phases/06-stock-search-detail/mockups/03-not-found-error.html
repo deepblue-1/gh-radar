@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mockup 3 — 404 / Error States</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg:oklch(1 0 0);--fg:oklch(0.18 0 0);
+    --muted:oklch(0.96 0 0);--muted-fg:oklch(0.48 0 0);
+    --border:oklch(0.92 0 0);--card:oklch(1 0 0);
+    --primary:oklch(0.63 0.18 250);
+    --destructive:oklch(0.66 0.20 22);
+    --destructive-bg:oklch(0.97 0.03 22);
+  }
+  body{background:var(--muted);color:var(--fg);font-family:'Pretendard Variable',sans-serif}
+  .mono{font-family:'Geist Mono',ui-monospace,monospace;font-feature-settings:"tnum","zero"}
+  .caption{font-size:12px;font-weight:600;color:var(--muted-fg);letter-spacing:0.02em;text-transform:uppercase}
+  .body{font-size:14px;line-height:1.5}
+  .heading{font-size:24px;font-weight:600;line-height:1.25}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px}
+  .btn-primary{background:var(--primary);color:#fff;border-radius:8px;padding:0 16px;height:40px;font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+  .btn-outline{background:transparent;color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:0 16px;height:40px;font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--muted);font-size:12px;font-weight:600}
+  .dash{color:var(--muted-fg)}
+</style>
+</head>
+<body class="min-h-screen">
+
+<header class="bg-[color:var(--bg)] border-b" style="border-color:var(--border)">
+  <div class="max-w-[1120px] mx-auto flex items-center gap-4 px-6" style="height:56px">
+    <div class="flex items-center gap-2"><div class="w-6 h-6 rounded-md" style="background:var(--primary)"></div><span style="font-weight:600;font-size:18px">gh-radar</span></div>
+  </div>
+</header>
+
+<main class="max-w-[1120px] mx-auto px-6 py-12 grid md:grid-cols-2 gap-6">
+
+  <!-- 404 Not Found -->
+  <section class="card p-8 flex flex-col">
+    <span class="caption mb-4">404 · not-found.tsx</span>
+    <div class="flex items-center gap-2 mb-3">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted-fg)"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/></svg>
+      <h2 class="heading">종목을 찾을 수 없습니다</h2>
+    </div>
+    <p class="body mb-4" style="color:var(--muted-fg)">종목코드를 다시 확인해 주세요. (영문/숫자 1~10자, 예: 005930)</p>
+
+    <div class="flex items-center gap-2 mb-6">
+      <span class="chip mono">요청한 코드: <span style="color:var(--destructive)">INVALID</span></span>
+      <span class="chip mono">형식: <span>^[A-Za-z0-9]{1,10}$</span></span>
+    </div>
+
+    <div class="mt-auto flex items-center gap-2">
+      <a class="btn-primary" href="#">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 18-6-6 6-6"/></svg>
+        스캐너로 돌아가기
+      </a>
+      <button class="btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        다시 검색
+      </button>
+    </div>
+  </section>
+
+  <!-- API Error -->
+  <section class="card p-8 flex flex-col" style="border-color:color-mix(in oklch,var(--destructive) 30%,var(--border));background:var(--destructive-bg)">
+    <span class="caption mb-4" style="color:var(--destructive)">5XX · error.tsx</span>
+    <div class="flex items-center gap-2 mb-3">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--destructive)"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <h2 class="heading">데이터를 불러오지 못했습니다</h2>
+    </div>
+    <p class="body mb-2">Upstream KIS API timeout (request_id: <span class="mono">req_9f2a…</span>)</p>
+    <p class="body mb-6" style="color:var(--muted-fg)">잠시 후 다시 시도해 주세요.</p>
+
+    <div class="card p-4 mb-6" style="background:var(--card);border-color:var(--border)">
+      <div class="caption mb-2">최근 성공 데이터 (stale)</div>
+      <div class="flex items-center gap-3">
+        <span class="body" style="font-weight:600">SK하이닉스</span>
+        <span class="mono caption">000660</span>
+        <span class="ml-auto mono body dash">—</span>
+        <span class="mono caption">갱신 13:48:11 KST</span>
+      </div>
+    </div>
+
+    <div class="mt-auto flex items-center gap-2">
+      <button class="btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/><path d="M16 16h5v5"/></svg>
+        다시 시도
+      </button>
+      <a class="btn-outline" href="#">스캐너로</a>
+    </div>
+  </section>
+
+  <!-- Mobile preview -->
+  <section class="md:col-span-2 card p-6">
+    <span class="caption mb-4 block">Mobile viewport (&lt;768px) · Hero 축소 + Stats 2열</span>
+    <div class="max-w-[360px] mx-auto border rounded-[28px] p-4" style="border-color:var(--border);background:var(--bg)">
+      <div class="flex items-center gap-2 mb-2">
+        <span style="font-weight:600;font-size:18px">삼성전자</span>
+        <span class="mono caption" style="color:var(--muted-fg)">005930</span>
+        <span class="chip" style="background:oklch(0.96 0.02 250);color:var(--primary);padding:1px 6px;font-size:10px">KOSPI</span>
+      </div>
+      <div class="flex items-baseline gap-2 mb-2">
+        <span class="mono" style="font-size:24px;font-weight:600;color:oklch(0.60 0.22 22)">72,400</span>
+        <span class="caption" style="color:var(--muted-fg)">원</span>
+      </div>
+      <div class="mono body mb-4" style="font-weight:600;color:oklch(0.60 0.22 22)">▲ 1,200  +1.69%</div>
+      <div class="grid grid-cols-2 gap-2 mb-4">
+        <div class="card p-3"><div class="caption mb-1">시가</div><div class="body mono" style="font-weight:600">71,200</div></div>
+        <div class="card p-3"><div class="caption mb-1">고가</div><div class="body mono" style="font-weight:600;color:oklch(0.60 0.22 22)">72,800</div></div>
+        <div class="card p-3"><div class="caption mb-1">저가</div><div class="body mono" style="font-weight:600;color:oklch(0.58 0.18 250)">70,900</div></div>
+        <div class="card p-3"><div class="caption mb-1">거래량</div><div class="body mono" style="font-weight:600">12.4M</div></div>
+      </div>
+      <button class="btn-outline w-full justify-center" style="height:44px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--primary)"><path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/><path d="M16 16h5v5"/></svg>
+        새로고침
+      </button>
+      <div class="caption mt-2 text-center mono" style="color:var(--muted-fg)">갱신 14:32:05 KST</div>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mockup 1 — Stock Detail (005930)</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg: oklch(1 0 0);
+    --fg: oklch(0.18 0 0);
+    --muted: oklch(0.96 0 0);
+    --muted-fg: oklch(0.48 0 0);
+    --border: oklch(0.92 0 0);
+    --card: oklch(1 0 0);
+    --primary: oklch(0.63 0.18 250);
+    --up: oklch(0.60 0.22 22);
+    --up-bg: oklch(0.96 0.04 22);
+    --down: oklch(0.58 0.18 250);
+    --down-bg: oklch(0.96 0.04 250);
+    --flat: oklch(0.55 0 0);
+    --t-caption: 12px;
+    --t-sm: 14px;
+    --t-h2: 24px;
+    --t-h1: 30px;
+    --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:24px;--s-6:32px;--s-8:48px;
+  }
+  html,body{background:var(--bg);color:var(--fg);font-family:'Pretendard Variable',ui-sans-serif,sans-serif;}
+  .mono{font-family:'Geist Mono',ui-monospace,monospace;font-feature-settings:"tnum","zero";}
+  .caption{font-size:var(--t-caption);font-weight:600;line-height:1.2;letter-spacing:0.02em;color:var(--muted-fg);text-transform:uppercase}
+  .body{font-size:var(--t-sm);line-height:1.5}
+  .heading{font-size:var(--t-h2);font-weight:600;line-height:1.2}
+  .display{font-size:var(--t-h1);font-weight:600;line-height:1.1}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:0.02em}
+  .badge-kospi{background:oklch(0.96 0.02 250);color:var(--primary)}
+  .up{color:var(--up)} .up-bg{background:var(--up-bg)}
+  .down{color:var(--down)} .down-bg{background:var(--down-bg)}
+  .divider{height:1px;background:var(--border)}
+  .ring-focus{box-shadow:0 0 0 3px color-mix(in oklch,var(--primary) 25%,transparent)}
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- AppHeader -->
+<header class="sticky top-0 z-20 border-b" style="border-color:var(--border);background:color-mix(in oklch,var(--bg) 85%,transparent);backdrop-filter:blur(8px)">
+  <div class="max-w-[1120px] mx-auto flex items-center gap-4 px-6" style="height:56px">
+    <div class="flex items-center gap-2">
+      <div class="w-6 h-6 rounded-md" style="background:var(--primary)"></div>
+      <span class="heading" style="font-size:18px">gh-radar</span>
+    </div>
+    <nav class="flex items-center gap-1 ml-4 body" style="color:var(--muted-fg)">
+      <a class="px-3 py-1.5 rounded-md hover:bg-[var(--muted)]">스캐너</a>
+      <a class="px-3 py-1.5 rounded-md font-semibold" style="color:var(--fg);background:var(--muted)">종목</a>
+    </nav>
+    <div class="ml-auto flex items-center gap-3">
+      <button class="flex items-center gap-2 border rounded-lg px-3 body" style="border-color:var(--border);color:var(--muted-fg);height:36px;width:300px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>종목명 또는 코드 검색</span>
+        <span class="ml-auto mono caption" style="background:var(--muted);color:var(--muted-fg);padding:2px 6px;border-radius:4px">⌘K</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1120px] mx-auto px-6 py-12">
+
+  <!-- Breadcrumb -->
+  <div class="body mb-6" style="color:var(--muted-fg)">
+    <a class="hover:underline">스캐너</a>
+    <span class="mx-2">›</span>
+    <span style="color:var(--fg)">종목 상세</span>
+  </div>
+
+  <!-- HERO (primary focal point) -->
+  <section class="mb-8">
+    <div class="flex items-center gap-2 mb-3">
+      <h1 class="heading">삼성전자</h1>
+      <span class="mono caption" style="color:var(--muted-fg);letter-spacing:0.04em">005930</span>
+      <span class="badge badge-kospi">KOSPI</span>
+    </div>
+    <div class="flex items-end gap-6 flex-wrap">
+      <div class="flex items-baseline gap-2">
+        <span class="display mono up">72,400</span>
+        <span class="caption" style="color:var(--muted-fg)">원</span>
+      </div>
+      <div class="flex items-center gap-3 pb-1">
+        <span class="up-bg up body mono" style="padding:4px 10px;border-radius:6px;font-weight:600">▲ 1,200</span>
+        <span class="up body mono" style="font-weight:600">+1.69%</span>
+      </div>
+      <div class="ml-auto flex items-center gap-3 pb-1">
+        <span class="caption mono" style="color:var(--muted-fg)">갱신 14:32:05 KST</span>
+        <button class="flex items-center gap-2 body rounded-lg border px-3" style="border-color:var(--border);height:36px;font-weight:600">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--primary)"><path d="M21 12a9 9 0 0 0-15-6.7L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"/><path d="M16 16h5v5"/></svg>
+          새로고침
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider mb-8"></div>
+
+  <!-- STATS GRID -->
+  <section class="mb-8">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <!-- card template -->
+      <div class="card p-4"><div class="caption mb-2">시가</div><div class="body mono" style="font-weight:600">71,200</div></div>
+      <div class="card p-4"><div class="caption mb-2">고가</div><div class="body mono up" style="font-weight:600">72,800</div></div>
+      <div class="card p-4"><div class="caption mb-2">저가</div><div class="body mono down" style="font-weight:600">70,900</div></div>
+      <div class="card p-4"><div class="caption mb-2">거래량</div><div class="body mono" style="font-weight:600">12,483,102</div></div>
+      <div class="card p-4"><div class="caption mb-2">거래대금</div><div class="body mono" style="font-weight:600">894,215,000,000</div></div>
+      <div class="card p-4"><div class="caption mb-2">시가총액</div><div class="body mono" style="font-weight:600">432.1조</div></div>
+      <div class="card p-4"><div class="caption mb-2">상한가</div><div class="body mono up" style="font-weight:600">92,300</div></div>
+      <div class="card p-4"><div class="caption mb-2">하한가</div><div class="body mono down" style="font-weight:600">49,700</div></div>
+    </div>
+  </section>
+
+  <!-- PHASE 7/8 Placeholders -->
+  <section class="grid md:grid-cols-2 gap-4">
+    <div class="card p-6" style="background:var(--muted)">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted-fg)"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg>
+        <span class="body" style="font-weight:600">관련 뉴스</span>
+      </div>
+      <p class="body" style="color:var(--muted-fg)">Phase 7 로드맵에서 제공됩니다.</p>
+    </div>
+    <div class="card p-6" style="background:var(--muted)">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted-fg)"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="body" style="font-weight:600">종목토론방</span>
+      </div>
+      <p class="body" style="color:var(--muted-fg)">Phase 8 로드맵에서 제공됩니다.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="max-w-[1120px] mx-auto px-6 py-8 body" style="color:var(--muted-fg)">
+  <div class="flex items-center gap-2">
+    <span class="caption">Mockup 01 · Stock Detail (desktop)</span>
+  </div>
+</footer>
+
+</body>
+</html>

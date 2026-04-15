@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mockup 2 — ⌘K Global Search</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg:oklch(1 0 0);--fg:oklch(0.18 0 0);
+    --muted:oklch(0.96 0 0);--muted-fg:oklch(0.48 0 0);
+    --border:oklch(0.92 0 0);--card:oklch(1 0 0);
+    --primary:oklch(0.63 0.18 250);
+    --accent:oklch(0.96 0.03 250);
+  }
+  body{background:var(--bg);color:var(--fg);font-family:'Pretendard Variable',sans-serif}
+  .mono{font-family:'Geist Mono',ui-monospace,monospace;font-feature-settings:"tnum","zero"}
+  .caption{font-size:12px;font-weight:600;color:var(--muted-fg);letter-spacing:0.02em}
+  .body{font-size:14px;line-height:1.5}
+  .heading{font-size:24px;font-weight:600;line-height:1.2}
+  .backdrop{background:color-mix(in oklch,#000 45%,transparent);backdrop-filter:blur(4px)}
+  .dialog{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 48px -12px oklch(0 0 0 / 0.25)}
+  .row{display:flex;align-items:center;gap:12px;padding:0 16px;height:44px;border-radius:8px}
+  .row[data-selected="true"]{background:var(--accent)}
+  .row[data-selected="true"] .kbd{background:var(--card);border:1px solid var(--border)}
+  .badge{display:inline-flex;align-items:center;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;letter-spacing:0.02em}
+  .badge-kospi{background:oklch(0.96 0.02 250);color:var(--primary)}
+  .badge-kosdaq{background:oklch(0.96 0.05 160);color:oklch(0.45 0.15 160)}
+  .kbd{font-family:'Geist Mono',monospace;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--muted);color:var(--muted-fg);border:1px solid var(--border)}
+  .scanner-bg{filter:blur(2px) saturate(0.8);opacity:0.5;pointer-events:none}
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Background: scanner page (blurred) -->
+<div class="scanner-bg">
+  <header class="border-b" style="border-color:var(--border)">
+    <div class="max-w-[1120px] mx-auto flex items-center gap-4 px-6" style="height:56px">
+      <div class="flex items-center gap-2"><div class="w-6 h-6 rounded-md" style="background:var(--primary)"></div><span style="font-weight:600;font-size:18px">gh-radar</span></div>
+    </div>
+  </header>
+  <main class="max-w-[1120px] mx-auto px-6 py-8">
+    <h1 class="heading mb-4">실시간 스캐너</h1>
+    <div class="grid grid-cols-6 gap-3">
+      <div class="h-12 rounded-lg" style="background:var(--muted)"></div>
+      <div class="h-12 rounded-lg" style="background:var(--muted)"></div>
+      <div class="h-12 rounded-lg" style="background:var(--muted)"></div>
+      <div class="h-12 rounded-lg" style="background:var(--muted)"></div>
+      <div class="h-12 rounded-lg" style="background:var(--muted)"></div>
+      <div class="h-12 rounded-lg" style="background:var(--muted)"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal -->
+<div class="fixed inset-0 backdrop flex items-start justify-center pt-24 px-4">
+  <div class="dialog w-full max-w-[640px] overflow-hidden">
+    <!-- Search Input -->
+    <div class="flex items-center gap-3 px-4 border-b" style="border-color:var(--border);height:56px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted-fg)"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input class="flex-1 body outline-none bg-transparent" value="삼성" placeholder="종목명 또는 종목코드를 입력하세요" />
+      <span class="kbd">ESC</span>
+    </div>
+
+    <!-- Results -->
+    <div class="p-2 max-h-[420px] overflow-auto">
+      <div class="px-3 py-2 caption">종목 · 4개 결과</div>
+
+      <div class="row" data-selected="true">
+        <div class="flex-1 flex items-center gap-2">
+          <span class="body" style="font-weight:600">삼성전자</span>
+          <span class="mono caption">005930</span>
+          <span class="badge badge-kospi">KOSPI</span>
+        </div>
+        <span class="kbd">Enter ↵</span>
+      </div>
+
+      <div class="row">
+        <div class="flex-1 flex items-center gap-2">
+          <span class="body">삼성바이오로직스</span>
+          <span class="mono caption">207940</span>
+          <span class="badge badge-kospi">KOSPI</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="flex-1 flex items-center gap-2">
+          <span class="body">삼성SDI</span>
+          <span class="mono caption">006400</span>
+          <span class="badge badge-kospi">KOSPI</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="flex-1 flex items-center gap-2">
+          <span class="body">삼성에스디에스</span>
+          <span class="mono caption">018260</span>
+          <span class="badge badge-kospi">KOSPI</span>
+        </div>
+      </div>
+
+      <div class="px-3 py-2 caption mt-2">종목코드 일치</div>
+
+      <div class="row">
+        <div class="flex-1 flex items-center gap-2">
+          <span class="body">삼성전자우</span>
+          <span class="mono caption">005935</span>
+          <span class="badge badge-kospi">KOSPI</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="flex items-center gap-3 px-4 border-t caption" style="border-color:var(--border);height:40px;background:var(--muted)">
+      <span class="flex items-center gap-1"><span class="kbd">↑</span><span class="kbd">↓</span> 이동</span>
+      <span class="flex items-center gap-1"><span class="kbd">↵</span> 선택</span>
+      <span class="flex items-center gap-1"><span class="kbd">ESC</span> 닫기</span>
+      <span class="ml-auto">debounce 300ms · /api/stocks/search</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
