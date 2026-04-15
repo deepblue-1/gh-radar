@@ -10,6 +10,8 @@ created: 2026-04-15
 # Phase 6 — UI Design Contract
 
 > Stock Search & Detail. Frontend-only. Phase 3 디자인 토큰 + Phase 4 AppShell/AppHeader + Phase 5 ko-KR/Asia/Seoul 절대시각·수동 refresh 패턴을 그대로 상속.
+>
+> **Primary focal point: Hero 현재가(Display 30px, 모바일 24px) 블록.** 페이지 진입 시 시선이 가장 먼저 닿아야 하는 단일 요소이며, 다른 모든 요소(종목명·등락·Stats·Placeholder)는 시각적 위계상 이보다 작고 낮은 대비로 배치한다.
 
 ---
 
@@ -53,19 +55,22 @@ Exceptions: 없음.
 
 ## Typography
 
-Phase 3 타입 토큰 사용. 아래는 Phase 6 화면별 매핑.
+Phase 3 타입 토큰 사용. Phase 6 는 **4 사이즈 × 2 가중치** 스케일로 운영.
 
 | Role | Size | Weight | Line Height | 사용처 |
 |------|------|--------|-------------|--------|
 | Caption | 12px (`--t-caption`) | 600 | 1.2 (`--lh-tight`) | Stats Card 라벨, 갱신시각, 단위(원/주) |
-| Body | 14px (`--t-sm`) | 400 | 1.5 (`--lh-normal`) | 자동완성 항목 종목명, placeholder 설명 |
-| Heading-S | 18px (`--t-h4`) | 600 | 1.2 | Stats Card 값 (시가/고가/저가 등), Placeholder 카드 제목 |
-| Heading-M | 24px (`--t-h2`) | 600 | 1.2 | Hero 종목명 |
-| Display | 30px (`--t-h1`) → 모바일 24px (`--t-h2`) | 600 | 1.2 | Hero 현재가 (반응형 축소) |
+| Body | 14px (`--t-sm`) | 400 / **600** | 1.5 (`--lh-normal`) | 자동완성 항목 종목명(400), placeholder 설명(400), **Stats Card 값(600)**, Placeholder 카드 제목(600) |
+| Heading | 24px (`--t-h2`) | 600 | 1.2 | Hero 종목명, 섹션 헤더(관련 뉴스/종목토론방 Placeholder 타이틀 상위 그룹 라벨) |
+| Display | 30px (`--t-h1`) → 모바일 24px (`--t-h2`) | 600 | 1.2 | **Hero 현재가 (primary focal point, 반응형 축소)** |
+
+**Stats Card 값 매핑 변경:** 이전 Heading-S(18px) 제거. 값은 `Body 14px + weight 600` 으로 표기하여 라벨(Caption 12)과 위계 유지하면서 Hero 현재가(Display 30)와 명확히 구분한다. 숫자이므로 `.mono` 적용 시 시각 밀도 충분.
 
 **숫자 표시 규칙 (필수):** 모든 가격·등락액·등락률·거래량·거래대금·시총은 `.mono` 클래스 → Geist Mono + tabular-nums + slashed-zero. `webapp/src/components/ui/number.tsx` 재사용.
 
 **가중치:** regular(400) + semibold(600) — 2개만. Phase 3 contract와 동일.
+
+**사이즈 총개수:** 12 / 14 / 24 / 30 — **4개** (스케일 상한 준수).
 
 ---
 
