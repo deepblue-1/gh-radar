@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 
 import { AppHeader } from '@/components/layout/app-header';
+import { GlobalSearch } from '@/components/search/global-search';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 
 export interface AppShellProps {
@@ -34,11 +35,13 @@ export function AppShell({
 }: AppShellProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const showSidebar = !hideSidebar && Boolean(sidebar);
+  // Phase 6 — nav 미지정 시 GlobalSearch 자동 마운트. 명시적 `null` 은 그대로 존중.
+  const navContent = nav === undefined ? <GlobalSearch /> : nav;
 
   return (
     <div className="flex min-h-dvh flex-col bg-[var(--bg)] text-[var(--fg)]">
       <AppHeader
-        nav={nav}
+        nav={navContent}
         onMenuClick={showSidebar ? () => setSheetOpen(true) : undefined}
       />
 
