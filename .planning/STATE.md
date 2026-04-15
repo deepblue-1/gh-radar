@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 06-04-PLAN.md (Stock Detail View + Client orchestration)
-last_updated: "2026-04-15T04:36:48.745Z"
+stopped_at: Completed 06-05-PLAN.md (Dynamic route + not-found/error)
+last_updated: "2026-04-15T04:41:28.581Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 26
-  completed_plans: 17
-  percent: 65
+  completed_plans: 18
+  percent: 69
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 06 (stock-search-detail) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Plans completed: 9 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub/3 waves, Phase 4: 1)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -86,6 +86,7 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 | Phase 06 P02 | 8m | 3 tasks | 6 files |
 | Phase 06 P03 | 3 | 3 tasks | 5 files |
 | Phase 06 P04 | 12 | 2 tasks | 9 files |
+| Phase 06 P05 | 2 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,7 @@ Recent decisions affecting current work:
 - [Phase 06]: Plan 03: CommandDialog 가 shouldFilter prop 미 forward → 내부 <Command shouldFilter={false}> 래핑 + CommandLoading export 부재로 div 로 치환
 - [Phase 06]: [Phase 06 Plan 04]: Number 컴포넌트는 NumberDisplay 별칭으로 import — JS 전역 Number.isFinite shadow 방지
 - [Phase 06]: [Phase 06 Plan 04]: StockDetailClient 에러 패턴 — 404 만 notFound() 분기, 그 외는 state 유지하여 stale-but-visible + 인라인 에러 카드
+- [Phase 06]: [Phase 06 Plan 05]: /stocks/[code] 라우트는 'use client' + React.use(params) 로 Next 15 Promise params 처리 — 서버 컴포넌트 초기 fetch 대신 전체 클라이언트 경로 채택 (스캐너와 일관, refresh 훅 단순화)
 
 ### Pending Todos
 
@@ -127,6 +129,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-15T04:36:41.345Z
-Stopped at: Completed 06-04-PLAN.md (Stock Detail View + Client orchestration)
+Last session: 2026-04-15T04:41:28.578Z
+Stopped at: Completed 06-05-PLAN.md (Dynamic route + not-found/error)
 Next: Phase 5 - Scanner UI (`/gsd-discuss-phase 5` 또는 `/gsd-plan-phase 5`)
