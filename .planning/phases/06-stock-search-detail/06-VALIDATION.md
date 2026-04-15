@@ -49,9 +49,9 @@ created: 2026-04-15
 | 6-04-01 | 04 | 2 | SRCH-03 | — | `value<=0` → em-dash (server mapper 0 강제 대응) | unit | `pnpm --filter webapp test stock-stats-grid` | ❌ W0 | ⬜ pending |
 | 6-04-02 | 04 | 2 | SRCH-03 | — | null price → `—` 표기 | unit | `pnpm --filter webapp test stock-hero` | ❌ W0 | ⬜ pending |
 | 6-05-01 | 05 | 2 | SRCH-03 | — | not-found / error 라우트 렌더링 | unit | `pnpm --filter webapp test not-found error` | ❌ W0 | ⬜ pending |
-| 6-06-01 | 06 | 3 | SRCH-01/02 | — | 검색 → 자동완성 → 선택 → 상세 페이지 이동 E2E | e2e | `playwright test search.spec.ts` | ❌ W0 | ⬜ pending |
-| 6-06-02 | 06 | 3 | SRCH-03 | — | Hero/Stats/Placeholder 렌더·refresh 복구 | e2e | `playwright test stock-detail.spec.ts` | ❌ W0 | ⬜ pending |
-| 6-06-03 | 06 | 3 | SRCH-01/02/03 | — | axe 접근성(Dialog focus trap, Badge contrast) | e2e | `playwright test a11y.spec.ts` | ❌ W0 | ⬜ pending |
+| 6-06-01 | 06 | 3 | SRCH-01/02 | — | 검색 → 자동완성 → 선택 → 상세 페이지 이동 E2E | e2e | `playwright test search.spec.ts` | ✅ | ✅ green |
+| 6-06-02 | 06 | 3 | SRCH-03 | — | Hero/Stats/Placeholder 렌더·refresh 복구 | e2e | `playwright test stock-detail.spec.ts` | ✅ | ✅ green |
+| 6-06-03 | 06 | 3 | SRCH-01/02/03 | — | axe 접근성(Dialog focus trap, Badge contrast) | e2e | `playwright test a11y.spec.ts` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

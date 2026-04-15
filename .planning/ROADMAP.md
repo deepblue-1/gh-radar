@@ -142,7 +142,7 @@ Plans:
 - [x] 06-03-PLAN.md — GlobalSearch ⌘K CommandDialog + SearchTrigger + AppShell 배선
 - [x] 06-04-PLAN.md — StockHero / StockStatsGrid (em-dash 정책) / ComingSoonCard / StockDetailClient
 - [x] 06-05-PLAN.md — /stocks/[code] page + not-found.tsx + error.tsx (Next 15 use(params))
-- [ ] 06-06-PLAN.md — playwright E2E (search/detail/a11y) + axe 접근성
+- [x] 06-06-PLAN.md — playwright E2E (search/detail/a11y) + axe 접근성
 **UI hint**: yes
 
 ### Phase 7: News Ingestion
