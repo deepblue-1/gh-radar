@@ -137,7 +137,7 @@ Plans:
   2. 드롭다운에서 종목을 선택하면 해당 종목 상세 페이지로 이동한다
   3. 종목 상세 페이지에 현재가, 등락률, 거래량 등 상세 정보가 표시된다
 **Plans:** 6 plans (프론트엔드 전용, 5 waves)
-- [ ] 06-01-PLAN.md — Wave 0 인프라: shadcn command 설치 + vitest setup + playwright + axe + e2e 픽스처
+- [x] 06-01-PLAN.md — Wave 0 인프라: shadcn command 설치 + vitest setup + playwright + axe + e2e 픽스처
 - [ ] 06-02-PLAN.md — lib/stock-api.ts + useDebouncedSearch + useCmdKShortcut (+ 17 unit tests)
 - [ ] 06-03-PLAN.md — GlobalSearch ⌘K CommandDialog + SearchTrigger + AppShell 배선
 - [ ] 06-04-PLAN.md — StockHero / StockStatsGrid (em-dash 정책) / ComingSoonCard / StockDetailClient

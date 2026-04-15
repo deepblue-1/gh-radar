@@ -102,9 +102,9 @@
 | SCAN-05 | Phase 5 | Complete |
 | SCAN-06 | Phase 5 | Complete |
 | SCAN-07 | Phase 5 | Complete |
-| SRCH-01 | Phase 6 | Pending |
-| SRCH-02 | Phase 6 | Pending |
-| SRCH-03 | Phase 6 | Pending |
+| SRCH-01 | Phase 6 | In Progress |
+| SRCH-02 | Phase 6 | In Progress |
+| SRCH-03 | Phase 6 | In Progress |
 | NEWS-01 | Phase 7 | Pending |
 | DISC-01 | Phase 8 | Pending |
 | NEWS-02 | Phase 9 | Pending |
