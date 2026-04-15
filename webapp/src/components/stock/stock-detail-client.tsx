@@ -39,6 +39,10 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  // Phase 06 Plan 06 E2E 발견: async useEffect 내부에서 직접 notFound() 를 throw 하면
+  // Next 15 not-found boundary 가 잡지 못하고 스켈레톤에서 멈춘다. state 플래그로 승격한 뒤
+  // 렌더 경로에서 notFound() 를 호출하여 boundary 에 정상 전달한다.
+  const [notFoundFlag, setNotFoundFlag] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -55,7 +59,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
       if (controller.signal.aborted) return;
       if (err instanceof Error && err.name === 'AbortError') return;
       if (err instanceof ApiClientError && err.status === 404) {
-        notFound();
+        setNotFoundFlag(true);
         return;
       }
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -79,6 +83,11 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
       ? `갱신 ${KST_TIME_FMT.format(d)} KST`
       : null;
   }, [stock]);
+
+  if (notFoundFlag) {
+    // 렌더 경로에서 호출 — Next 15 not-found boundary 로 전달된다
+    notFound();
+  }
 
   if (isInitialLoading && !stock) return <StockDetailSkeleton />;
 
