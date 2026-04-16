@@ -44,12 +44,12 @@
 
 ### Authentication
 
-- [ ] **AUTH-01**: 이메일/비밀번호 로그인 (Supabase Auth 기반)
-- [ ] **AUTH-02**: 소셜 로그인 (Google, Kakao)
+- [ ] **AUTH-01**: 이메일/비밀번호 로그인 (Supabase Auth 기반) — Phase 06.2 Deferred (Google OAuth 우선, 이메일/비밀번호는 별도 phase)
+- [x] **AUTH-02**: 소셜 로그인 (Google 완료, Kakao 별도 phase) — Phase 06.2
 
 ### Personalization
 
-- [ ] **PERS-01**: 관심종목 저장 및 관리 (로그인 계정별 watchlist CRUD)
+- [x] **PERS-01**: 관심종목 저장 및 관리 (로그인 계정별 watchlist CRUD) — Phase 06.2
 
 ### Infrastructure
 
@@ -108,9 +108,9 @@
 | SRCH-01 | Phase 6 | In Progress |
 | SRCH-02 | Phase 6 | In Progress |
 | SRCH-03 | Phase 6 | In Progress |
-| AUTH-01 | Phase 6.2 | Pending |
-| AUTH-02 | Phase 6.2 | Pending |
-| PERS-01 | Phase 6.2 | Pending |
+| AUTH-01 | Phase 6.2 | Deferred |
+| AUTH-02 | Phase 6.2 | Partial (Google 완료, Kakao 별도) |
+| PERS-01 | Phase 6.2 | Complete |
 | NEWS-01 | Phase 7 | Pending |
 | DISC-01 | Phase 8 | Pending |
 | NEWS-02 | Phase 9 | Pending |
@@ -123,4 +123,4 @@
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-04-16 — AUTH-01/02, PERS-01 v2→v1 승격, Phase 6.2 매핑 추가*
+*Last updated: 2026-04-16 — Phase 06.2 완료, AUTH-02 Partial, PERS-01 Complete*
