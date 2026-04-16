@@ -6,8 +6,6 @@ export function createKrxClient(config: Config): AxiosInstance {
     baseURL: config.krxBaseUrl,
     headers: {
       AUTH_KEY: config.krxAuthKey,
-      "Content-Type": "application/json",
-      Accept: "application/json",
     },
     timeout: 30_000,
   });
