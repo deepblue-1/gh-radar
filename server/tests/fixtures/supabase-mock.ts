@@ -1,7 +1,6 @@
 import { vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { StockMaster, StockQuote } from "@gh-radar/shared";
-import type { StockRow } from "../../src/mappers/stock";
+import type { StockRow, StockMasterRow, StockQuoteRow } from "../../src/mappers/stock";
 
 type TopMoverRow = {
   code: string;
@@ -12,10 +11,9 @@ type TopMoverRow = {
 
 type State = {
   stocks?: StockRow[];
-  masters?: StockMaster[];
-  quotes?: StockQuote[];
+  masters?: StockMasterRow[];
+  quotes?: StockQuoteRow[];
   topMovers?: TopMoverRow[];
-  inquirePriceImpl?: (code: string) => Promise<any> | any;
   upserts?: { table: string; rows: any[] }[];
 };
 
@@ -107,8 +105,8 @@ export function mockSupabase(state: State): SupabaseClient {
           const existing = state.quotes ?? (state.quotes = []);
           for (const r of arr) {
             const i = existing.findIndex((x) => x.code === r.code);
-            if (i >= 0) existing[i] = r as StockQuote;
-            else existing.push(r as StockQuote);
+            if (i >= 0) existing[i] = r as StockQuoteRow;
+            else existing.push(r as StockQuoteRow);
           }
         }
         return Promise.resolve({ error: null, data: arr });

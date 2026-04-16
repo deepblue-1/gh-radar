@@ -2,26 +2,43 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
 import { mockSupabase } from "../fixtures/supabase-mock";
-import { allRows } from "../fixtures/stocks";
+import { allMasters, samsungQuote } from "../fixtures/stocks";
 import { sanitizeSearchTerm } from "../../src/schemas/search";
 
-const app = () =>
-  createApp({ supabase: mockSupabase({ stocks: allRows }) });
+const app = (state: any = { masters: allMasters, quotes: [samsungQuote] }) =>
+  createApp({ supabase: mockSupabase(state) });
 
-describe("/api/stocks/search", () => {
-  it("q=삼성 → 삼성전자 매치", async () => {
+describe("/api/stocks/search (마스터 universe + LEFT JOIN stock_quotes)", () => {
+  it("q=삼성전자 → 마스터 매치 + 시세 병합", async () => {
     const r = await request(app()).get(
-      "/api/stocks/search?q=%EC%82%BC%EC%84%B1",
+      "/api/stocks/search?q=" + encodeURIComponent("삼성전자"),
     );
     expect(r.status).toBe(200);
-    expect(Array.isArray(r.body)).toBe(true);
-    expect(r.body.some((s: any) => s.name.includes("삼성"))).toBe(true);
-    expect(r.body.length).toBeLessThanOrEqual(20);
+    const samsung = r.body.find((s: any) => s.code === "005930");
+    expect(samsung).toBeDefined();
+    expect(samsung.name).toBe("삼성전자");
+    expect(samsung.price).toBe(70000); // stock_quotes 에서 LEFT JOIN
   });
 
   it("q=005930 → code 매치", async () => {
     const r = await request(app()).get("/api/stocks/search?q=005930");
     expect(r.body.some((s: any) => s.code === "005930")).toBe(true);
+  });
+
+  it("q=신규상장 → 마스터 매치 + 시세 부재 → price=0 (em-dash)", async () => {
+    const r = await request(app()).get(
+      "/api/stocks/search?q=" + encodeURIComponent("신규상장"),
+    );
+    const m = r.body.find((s: any) => s.code === "999999");
+    expect(m).toBeDefined();
+    expect(m.price).toBe(0);
+    expect(m.upperLimitProximity).toBe(0);
+  });
+
+  it("q=존재하지않는키워드xyz → 빈 배열", async () => {
+    const r = await request(app()).get("/api/stocks/search?q=xyz");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([]);
   });
 
   it("q 누락 → 400", async () => {
@@ -34,13 +51,21 @@ describe("/api/stocks/search", () => {
     const r = await request(app()).get("/api/stocks/search?q=");
     expect(r.status).toBe(400);
   });
+
+  // WARN #7: 2자 단문 검색 — ilike '%삼성%' 가 '삼성전자' 에 매치되는지 회귀
+  it("q=삼성 (2자) → ilike 매치로 005930 포함", async () => {
+    const r = await request(app()).get(
+      "/api/stocks/search?q=" + encodeURIComponent("삼성"),
+    );
+    expect(r.status).toBe(200);
+    expect(r.body.some((s: any) => s.code === "005930")).toBe(true);
+  });
 });
 
-describe("sanitizeSearchTerm", () => {
+describe("sanitizeSearchTerm (회귀)", () => {
   it("removes ,()%", () => {
     expect(sanitizeSearchTerm("삼성,(주)%")).toBe("삼성주");
   });
-
   it("preserves Korean/English/digits", () => {
     expect(sanitizeSearchTerm("Samsung 005930 삼성")).toBe(
       "Samsung 005930 삼성",
