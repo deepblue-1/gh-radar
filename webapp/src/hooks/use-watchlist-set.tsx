@@ -47,6 +47,17 @@ export interface WatchlistSetValue {
   refresh: () => Promise<void>;
 }
 
+const NOOP = () => {};
+const NOOP_REFRESH = async () => {};
+const EMPTY_VALUE: WatchlistSetValue = {
+  set: new Set<string>(),
+  count: 0,
+  isAtLimit: false,
+  optimisticAdd: NOOP,
+  optimisticRemove: NOOP,
+  refresh: NOOP_REFRESH,
+};
+
 const WatchlistSetContext = createContext<WatchlistSetValue | null>(null);
 
 export function WatchlistSetProvider({ children }: { children: ReactNode }) {
@@ -108,16 +119,11 @@ export function WatchlistSetProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Hook — Provider 바깥 호출 시 에러. 런타임 실수 방지.
+ * Hook — Provider 바깥에서는 빈 Set + no-op 을 반환. 테스트 환경에서 Provider 없이도
+ * WatchlistToggle 이 throw 하지 않도록 함. production 은 항상 Provider 내부에 있음.
  */
 export function useWatchlistSet(): WatchlistSetValue {
-  const ctx = useContext(WatchlistSetContext);
-  if (!ctx) {
-    throw new Error(
-      "useWatchlistSet must be used within <WatchlistSetProvider>",
-    );
-  }
-  return ctx;
+  return useContext(WatchlistSetContext) ?? EMPTY_VALUE;
 }
 
 export { WatchlistSetContext, WATCHLIST_LIMIT };
