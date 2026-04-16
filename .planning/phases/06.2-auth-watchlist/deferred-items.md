@@ -47,3 +47,33 @@ Phase 06.2 Wave 4 (Plan 07) 에서 `WatchlistToggle` 을 `StockHero` / `Scanner`
 - `webapp/tests/setup.ts` — `/vitest` 진입점 대신 `/matchers` import + 로컬 `expect.extend(matchers)` 로 webapp vitest 인스턴스에 직접 주입
 
 **검증:** 19/19 test files green, 116 passed + 1 skipped, 0 failed.
+
+---
+
+## 2026-04-16 — D2 해소 (Phase 06.2 in-scope)
+
+**Status:** ✅ RESOLVED
+
+**실제 근본 원인 4중 스택** (Plan 08 SUMMARY 의 "worker reuse / storageState flake" 가설은 틀렸음):
+
+1. **Middleware 위치 오류** — `webapp/middleware.ts` 가 project root 에 있었는데 Next.js 15 는 `src/` 디렉터리 사용 시 `src/middleware.ts` 를 요구. middleware 가 **전혀 실행되지 않음** → 모든 route 가 미인증에도 200 통과. 이 때문에 "`/scanner` 가 authed 처럼 보이는" flake 가 관찰됨.
+2. **auth.spec.ts 안에 authed + unauthed describe 혼재** — describe-레벨 `test.use({ storageState })` 와 프로젝트-레벨 storageState path 가 경합. 파일 분리 (`auth-guards.spec.ts` / `auth-session.spec.ts`) 로 file-레벨 `test.use` 가 워커 컨텍스트 생성 시점에 명확히 적용되도록 함.
+3. **PostgREST 쿼리 FK 오류** — `fetchWatchlist` 가 `quote:stock_quotes` embed 를 watchlists 에 직접 요청했으나 `watchlists ↔ stock_quotes` 직접 FK 없음. `stocks` 를 경유한 nested embed (`stock:stocks!inner(..., stock_quotes(...))`) 로 수정.
+4. **Test data/locator 버그:**
+   - `seed50Watchlists` 가 005930..005979 하드코딩 — 대부분이 stocks 테이블에 없어 FK 제약 위반. `stocks` 테이블에서 실제 존재하는 50개 code 를 조회하여 사용.
+   - `toggle-roundtrip` 의 `.first()` locator 가 Scanner 폴링 재정렬 시 다른 종목을 가리킴. 초기 캡처한 종목명으로 고정된 locator 로 잠금.
+   - `rollback-on-error` 의 `getByRole("alert")` 가 Next.js `__next-route-announcer__` 와 strict mode 경합 — `getByText(...)` 로 교체.
+
+**적용된 수정:**
+
+- `webapp/middleware.ts` → `webapp/src/middleware.ts` (위치 이동)
+- `webapp/e2e/specs/auth.spec.ts` → `auth-guards.spec.ts` + `auth-session.spec.ts` (파일 분리, file-level `test.use`)
+- `webapp/src/lib/watchlist-api.ts` — nested embed 쿼리 + `stock_quotes` 매핑 경로 변경
+- `webapp/src/lib/__tests__/watchlist-api.test.ts` — mock 데이터 구조를 nested embed 결과에 맞게 갱신
+- `webapp/e2e/fixtures/watchlist-seed.ts` — `seed50Watchlists` 가 실제 stocks 테이블 조회
+- `webapp/e2e/specs/watchlist.spec.ts` — toggle-roundtrip locator 고정 + rollback alert text-based locator
+- `webapp/e2e/specs/auth-guards.spec.ts` — `public whitelist: /` 테스트 expectation 을 실제 경로 (`/` → `/scanner` → `/login?next=%2Fscanner`) 에 맞게 수정
+
+**검증:**
+- `pnpm test -- --run` : 19/19 files green, 116 passed + 1 skipped
+- `pnpm exec playwright test` : 30/30 green (setup + 29 specs)

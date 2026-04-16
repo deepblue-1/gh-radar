@@ -4,8 +4,9 @@
  * 설계:
  * - Scanner 는 Express `/api/scanner` 경유 (서버 집계 + `X-Last-Updated-At` 헤더),
  *   Watchlist 는 Supabase PostgREST 직접 (RLS `auth.uid() = user_id` 가 자동 필터).
- * - `fetchWatchlist` 는 `watchlists → stocks!inner → stock_quotes` embedded resource
- *   JOIN 으로 필요한 필드만 한 번에 가져온다. (RESEARCH §Pattern 9)
+ * - `fetchWatchlist` 는 `watchlists → stocks!inner (← stock_quotes)` 중첩 embed 로
+ *   필요한 필드만 한 번에 가져온다. watchlists ↔ stock_quotes 직접 FK 는 없고
+ *   stock_quotes.code FK → stocks.code 를 통해 nested embed 만 가능 (PostgREST 제약).
  * - `stock:stocks!inner` 로 stocks 마스터 누락 row 는 제외 — FK CASCADE 로 실제 발생
  *   여지는 없지만 race 방어 (T-06.2-25).
  * - `.order("added_at", { ascending: false })` 기본 정렬 — UI v1 고정 (position 컬럼은
@@ -55,12 +56,15 @@ interface RawQuote {
   updated_at: string;
 }
 
+interface RawStockWithQuote extends RawStock {
+  stock_quotes: RawQuote | RawQuote[] | null;
+}
+
 interface RawWatchlistRow {
   stock_code: string;
   added_at: string;
   position: number | null;
-  stock: RawStock;
-  quote: RawQuote | null;
+  stock: RawStockWithQuote;
 }
 
 /**
@@ -83,14 +87,14 @@ export async function fetchWatchlist(
         code,
         name,
         market,
-        kosdaq_segment
-      ),
-      quote:stock_quotes (
-        price,
-        change_amount,
-        change_rate,
-        trade_amount,
-        updated_at
+        kosdaq_segment,
+        stock_quotes (
+          price,
+          change_amount,
+          change_rate,
+          trade_amount,
+          updated_at
+        )
       )
       `,
     )
@@ -100,26 +104,33 @@ export async function fetchWatchlist(
   if (!data) return { data: null, error: null };
 
   const mapped: WatchlistRow[] = (data as unknown as RawWatchlistRow[]).map(
-    (row) => ({
-      stockCode: row.stock_code,
-      addedAt: row.added_at,
-      position: row.position,
-      stock: {
-        code: row.stock.code,
-        name: row.stock.name,
-        market: row.stock.market,
-        kosdaqSegment: row.stock.kosdaq_segment,
-      },
-      quote: row.quote
-        ? {
-            price: Number(row.quote.price),
-            changeAmount: Number(row.quote.change_amount),
-            changeRate: Number(row.quote.change_rate),
-            tradeAmount: Number(row.quote.trade_amount),
-            updatedAt: row.quote.updated_at,
-          }
-        : null,
-    }),
+    (row) => {
+      // PostgREST 는 stock_quotes.code PK FK 관계에서 1:1 은 object, 1:N 은 array 로 반환.
+      // 현재 stock_quotes 는 code PK 이므로 object 가 정상이지만, 배열로 오는 엣지도 방어.
+      const rawQuote = Array.isArray(row.stock.stock_quotes)
+        ? row.stock.stock_quotes[0] ?? null
+        : row.stock.stock_quotes;
+      return {
+        stockCode: row.stock_code,
+        addedAt: row.added_at,
+        position: row.position,
+        stock: {
+          code: row.stock.code,
+          name: row.stock.name,
+          market: row.stock.market,
+          kosdaqSegment: row.stock.kosdaq_segment,
+        },
+        quote: rawQuote
+          ? {
+              price: Number(rawQuote.price),
+              changeAmount: Number(rawQuote.change_amount),
+              changeRate: Number(rawQuote.change_rate),
+              tradeAmount: Number(rawQuote.trade_amount),
+              updatedAt: rawQuote.updated_at,
+            }
+          : null,
+      };
+    },
   );
 
   return { data: mapped, error: null };

@@ -55,19 +55,30 @@ export async function cleanupWatchlists(
 /**
  * watchlists 50 row 일괄 시드.
  *
- * stock_code 는 005930..005979 (50개 연번) — stocks/stock_quotes 에 이 코드가
- * 없으면 JOIN 이 실패하는 지점이 있을 수 있으므로, 삽입은 watchlists 테이블만
- * 건드린다. UI 에서는 quote 없음 → "—" 표시지만 row 카운트/limit 동작은 유효.
+ * stocks 테이블에서 존재하는 실제 종목 코드 50개를 조회하여 사용 — 연번 하드코딩은
+ * stocks FK 제약 위반 (e.g., 005931 미존재). `stocks` 테이블은 공개 읽기이므로 anon/authenticated
+ * 어느 키로도 조회 가능.
  *
- * 사전 조건: 기존 row cleanup 선행 권장 (unique constraint user_id+stock_code).
+ * 사전 조건: 기존 row cleanup 선행 (unique constraint user_id+stock_code).
  */
 export async function seed50Watchlists(
   userId: string,
   admin: SupabaseClient,
 ): Promise<void> {
-  const rows = Array.from({ length: 50 }, (_, i) => ({
+  const { data: stocks, error: stocksErr } = await admin
+    .from("stocks")
+    .select("code")
+    .limit(50);
+  if (stocksErr) throw stocksErr;
+  if (!stocks || stocks.length < 50) {
+    throw new Error(
+      `seed50Watchlists: stocks 테이블에 50개 이상 필요, 현재 ${stocks?.length ?? 0}개`,
+    );
+  }
+
+  const rows = stocks.map((s, i) => ({
     user_id: userId,
-    stock_code: String(5930 + i).padStart(6, "0"),
+    stock_code: (s as { code: string }).code,
     position: i,
   }));
   const { error } = await admin.from("watchlists").insert(rows);

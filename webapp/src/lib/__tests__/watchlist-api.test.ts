@@ -61,7 +61,8 @@ describe('fetchWatchlist', () => {
     const selectArg = (chain.select.mock.calls[0]?.[0] ?? '') as string;
     expect(selectArg).toContain('stock_code');
     expect(selectArg).toContain('stock:stocks!inner');
-    expect(selectArg).toContain('quote:stock_quotes');
+    // stock_quotes 는 stocks 내부에 nested embed (PostgREST 제약 — watchlists 직접 FK 없음)
+    expect(selectArg).toContain('stock_quotes');
     expect(chain.order).toHaveBeenCalledWith('added_at', { ascending: false });
   });
 
@@ -75,13 +76,13 @@ describe('fetchWatchlist', () => {
         name: '삼성전자',
         market: 'KOSPI',
         kosdaq_segment: null,
-      },
-      quote: {
-        price: 58700,
-        change_amount: 1700,
-        change_rate: 2.98,
-        trade_amount: 120_000_000_000,
-        updated_at: '2026-04-16T06:00:00Z',
+        stock_quotes: {
+          price: 58700,
+          change_amount: 1700,
+          change_rate: 2.98,
+          trade_amount: 120_000_000_000,
+          updated_at: '2026-04-16T06:00:00Z',
+        },
       },
     };
     chain.order = vi.fn(async () => ({ data: [row], error: null }));
@@ -110,7 +111,7 @@ describe('fetchWatchlist', () => {
     });
   });
 
-  it('quote 가 null 이면 WatchlistRow.quote = null', async () => {
+  it('stock_quotes 가 null 이면 WatchlistRow.quote = null', async () => {
     const row = {
       stock_code: '000660',
       added_at: '2026-04-16T05:00:00Z',
@@ -120,8 +121,8 @@ describe('fetchWatchlist', () => {
         name: 'SK하이닉스',
         market: 'KOSPI',
         kosdaq_segment: null,
+        stock_quotes: null,
       },
-      quote: null,
     };
     chain.order = vi.fn(async () => ({ data: [row], error: null }));
     // @ts-expect-error — partial Supabase mock

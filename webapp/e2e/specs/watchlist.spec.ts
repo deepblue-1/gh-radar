@@ -56,16 +56,25 @@ test.describe("watchlist — CRUD + 반응형", () => {
     await cleanupWatchlists(userId, admin);
 
     await page.goto("/scanner");
-    // Scanner 의 ⭐ 토글 — aria-label 은 "{종목명} 관심종목 추가"
-    const firstToggle = page
+    // Scanner 는 폴링으로 row 재정렬되므로 `.first()` 는 retry 마다 다른 종목을 가리킬 수 있음.
+    // 최초 토글의 aria-label 에서 종목명을 캡처하여 그 종목에 고정한 locator 로 재검증.
+    const anyToggle = page
       .getByRole("button", { name: /관심종목 추가/ })
       .first();
-    await expect(firstToggle).toBeVisible({ timeout: 10_000 });
-    await firstToggle.click();
-    // optimistic 반영: aria-pressed=true
-    await expect(firstToggle).toHaveAttribute("aria-pressed", "true", {
-      timeout: 5_000,
+    await expect(anyToggle).toBeVisible({ timeout: 10_000 });
+    const initialLabel = await anyToggle.getAttribute("aria-label");
+    const stockName = initialLabel?.replace(/ 관심종목 추가$/, "") ?? "";
+    expect(stockName.length).toBeGreaterThan(0);
+
+    // 고정 locator — 캡처한 종목명으로 잠금. 이후 re-ordering 에도 같은 row 에 바인딩.
+    const pinnedToggle = page.getByRole("button", {
+      name: `${stockName} 관심종목 추가`,
     });
+    await pinnedToggle.click();
+    // optimistic 반영 — 해제 aria-label 로 바뀌는 것으로 확인 (pressed=true 포함 의미)
+    await expect(
+      page.getByRole("button", { name: `${stockName} 관심종목 해제` }),
+    ).toBeVisible({ timeout: 5_000 });
 
     await page.goto("/watchlist");
     // 최소 1 row 렌더 — Table (lg+) 또는 Card (<lg). 기본 viewport 는 Desktop Chrome.
@@ -142,10 +151,10 @@ test.describe("watchlist — CRUD + 반응형", () => {
     await firstToggle.click();
 
     // inline 에러 "관심종목 변경에 실패했습니다." (role=alert, 2초 후 자동 소거)
-    await expect(page.getByRole("alert")).toContainText(
-      "관심종목 변경에 실패했습니다",
-      { timeout: 3_000 },
-    );
+    // Next.js `__next-route-announcer__` 도 role=alert 이므로 text 기반 locator 사용.
+    await expect(
+      page.getByText("관심종목 변경에 실패했습니다"),
+    ).toBeVisible({ timeout: 3_000 });
     // rollback: aria-pressed 가 다시 false
     await expect(firstToggle).toHaveAttribute("aria-pressed", "false", {
       timeout: 3_000,
