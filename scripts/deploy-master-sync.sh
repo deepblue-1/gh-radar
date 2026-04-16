@@ -27,7 +27,8 @@ if [[ "$ACTIVE_PROJECT" != "$EXPECTED_PROJECT" ]]; then
 fi
 
 # 선행 리소스 검증 — setup-master-sync-iam.sh 가 먼저 실행되어야 함
-for SA in gh-radar-scheduler-sa gh-radar-ingestion-sa; do
+# HIGH-4 fix: master-sync Job 은 전용 SA(gh-radar-master-sync-sa) 를 사용 (KIS 시크릿 접근 불필요 — 최소권한 원칙)
+for SA in gh-radar-scheduler-sa gh-radar-master-sync-sa; do
   SA_EMAIL="${SA}@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
   if ! gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
     echo "ERROR: SA '$SA' not found. Run: bash scripts/setup-master-sync-iam.sh" >&2
@@ -78,10 +79,11 @@ docker push "$IMAGE_LATEST"
 #   max-retries=1 (일시 실패 시 1회 재시도)
 # ═══════════════════════════════════════════════════════════════
 echo "▶ deploying Cloud Run Job..."
+# HIGH-4 fix: 전용 SA(gh-radar-master-sync-sa) 사용 — KIS 시크릿 접근 제거, 최소권한 원칙
 gcloud run jobs deploy "$JOB" \
   --image="$IMAGE" \
   --region="$REGION" \
-  --service-account="gh-radar-ingestion-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com" \
+  --service-account="gh-radar-master-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com" \
   --cpu=1 \
   --memory=512Mi \
   --task-timeout=300s \
