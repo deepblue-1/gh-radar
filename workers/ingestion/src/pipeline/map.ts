@@ -19,7 +19,11 @@ export function toStock(
     changeRate: Number(row.prdy_ctrt),
     volume: Number(row.acml_vol),
     tradeAmount: priceData ? Number(priceData.acml_tr_pbmn) : 0,
-    open: priceData ? Number(priceData.stck_oprc) : Number(row.stck_hgpr),
+    // HIGH-2 fix: fallback은 시가(stck_oprc)여야 함. 고가(stck_hgpr)로 잘못 쓰면 open===high로 오염됨.
+    // ranking 응답에 stck_oprc 가 비어있을 수 있어 `|| 0` 로 안전한 숫자 반환.
+    open: priceData
+      ? Number(priceData.stck_oprc)
+      : Number(row.stck_oprc) || 0,
     high: Number(row.stck_hgpr),
     low: Number(row.stck_lwpr),
     marketCap: priceData ? Number(priceData.stck_avls) : 0,

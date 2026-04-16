@@ -71,9 +71,20 @@ describe("toStock", () => {
     expect(stock.code).toBe("368600");
     // 거래대금은 inquirePrice 전용이므로 priceData 없으면 0 (UI에서 "-" 표시)
     expect(stock.tradeAmount).toBe(0);
-    expect(stock.open).toBe(1157); // fallback to stck_hgpr
+    // HIGH-2 fix: fallback 은 ranking.stck_oprc (빈 문자열이면 0).
+    // 고가(stck_hgpr)를 open 에 넣으면 open===high 오염 — 허용 안 함.
+    expect(stock.open).toBe(0);
     expect(stock.marketCap).toBe(0);
     expect(stock.upperLimit).toBe(0);
     expect(stock.lowerLimit).toBe(0);
+  });
+
+  it("시세 보충 없어도 ranking.stck_oprc 존재 시 그 값을 open 으로 사용", () => {
+    const rowWithOprc: KisRankingRow = {
+      ...sampleRankingRow,
+      stck_oprc: "950",
+    };
+    const stock = toStock(rowWithOprc, "KOSDAQ");
+    expect(stock.open).toBe(950);
   });
 });
