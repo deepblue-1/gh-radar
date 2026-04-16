@@ -24,8 +24,8 @@ async function main() {
       return;
     }
 
-    const { count } = await runPipeline(client, supabase);
-    log.info({ upserted: count }, "cycle complete");
+    const { quotesCount, moversCount } = await runPipeline(client, supabase);
+    log.info({ quotesCount, moversCount }, "cycle complete");
   } catch (err) {
     log.error({ err }, "cycle failed");
     process.exit(1);
