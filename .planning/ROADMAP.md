@@ -165,19 +165,19 @@ Plans:
 **Goal:** Google OAuth 로그인 도입 + 앱 전체 로그인 필수 전환 + 사용자별 관심종목(Watchlist) CRUD + Scanner/Watchlist 반응형 듀얼(`lg+` Table, `<lg` 인포그래픽 카드 InfoStockCard 공유) + ⭐ 토글 Ghost variant.
 **Requirements**: AUTH-01 (Deferred), AUTH-02 (Google 완료, Kakao 별도), PERS-01
 **Depends on:** Phase 6, Phase 06.1
-**Plans:** 10 plans
+**Plans:** 10/10 plans complete
 
 Plans:
-- [ ] 06.2-01-PLAN.md — Wave 1 Supabase Auth Foundation (@supabase/ssr 3-파일 클라이언트 + middleware + callback + AuthProvider + layout 배선)
-- [ ] 06.2-02-PLAN.md — Wave 1 Watchlists 스키마 + RLS 4정책 + BEFORE INSERT trigger + [BLOCKING] supabase db push + stocks/stock_quotes RLS authenticated 확장
-- [ ] 06.2-03-PLAN.md — Wave 2 /login 페이지 + middleware route guard 활성화 + open-redirect 가드 + clickjacking 헤더
-- [ ] 06.2-04-PLAN.md — Wave 2 AppShell sidebar 활성화 + AppSidebar (스캐너/관심종목 nav) + UserSection 팝오버 (이메일+로그아웃)
-- [ ] 06.2-05-PLAN.md — Wave 3 Sparkline + InfoStockCard (Scanner/Watchlist 공통) + Scanner card-list 내부 교체 + breakpoint md→lg 통일
-- [ ] 06.2-06-PLAN.md — Wave 3 /watchlist 페이지 + watchlist-api + useWatchlistQuery (1분 폴링) + WatchlistTable/Empty/Skeleton/Client (lg+ Table, <lg InfoStockCard)
-- [ ] 06.2-07-PLAN.md — Wave 4 ⭐ WatchlistToggle (Ghost variant) + useWatchlistSet 전역 멤버십 + 5개 위치 통합 (StockHero, Scanner Table/Card, Watchlist Table/Card) + 50 limit P0001 + optimistic rollback
-- [ ] 06.2-08-PLAN.md — Wave 5 Playwright auth fixture + storageState + auth.spec.ts + watchlist.spec.ts + 기존 4 spec 전환 + a11y UserSection
-- [ ] 06.2-09-PLAN.md — Wave 1 SETUP.md (Google Cloud Console + Supabase Dashboard + Vercel env 절차) + .env.local.example 갱신
-- [ ] 06.2-10-PLAN.md — Wave 5 mockup/06-2 정리 + middleware matcher 정합 + REQUIREMENTS.md AUTH/PERS status 갱신
+- [x] 06.2-01-PLAN.md — Wave 1 Supabase Auth Foundation (@supabase/ssr 3-파일 클라이언트 + middleware + callback + AuthProvider + layout 배선)
+- [x] 06.2-02-PLAN.md — Wave 1 Watchlists 스키마 + RLS 4정책 + BEFORE INSERT trigger + [BLOCKING] supabase db push + stocks/stock_quotes RLS authenticated 확장
+- [x] 06.2-03-PLAN.md — Wave 2 /login 페이지 + middleware route guard 활성화 + open-redirect 가드 + clickjacking 헤더
+- [x] 06.2-04-PLAN.md — Wave 2 AppShell sidebar 활성화 + AppSidebar (스캐너/관심종목 nav) + UserSection 팝오버 (이메일+로그아웃)
+- [x] 06.2-05-PLAN.md — Wave 3 Sparkline + InfoStockCard (Scanner/Watchlist 공통) + Scanner card-list 내부 교체 + breakpoint md→lg 통일
+- [x] 06.2-06-PLAN.md — Wave 3 /watchlist 페이지 + watchlist-api + useWatchlistQuery (1분 폴링) + WatchlistTable/Empty/Skeleton/Client (lg+ Table, <lg InfoStockCard)
+- [x] 06.2-07-PLAN.md — Wave 4 ⭐ WatchlistToggle (Ghost variant) + useWatchlistSet 전역 멤버십 + 5개 위치 통합 (StockHero, Scanner Table/Card, Watchlist Table/Card) + 50 limit P0001 + optimistic rollback
+- [x] 06.2-08-PLAN.md — Wave 5 Playwright auth fixture + storageState + auth.spec.ts + watchlist.spec.ts + 기존 4 spec 전환 + a11y UserSection
+- [x] 06.2-09-PLAN.md — Wave 1 SETUP.md (Google Cloud Console + Supabase Dashboard + Vercel env 절차) + .env.local.example 갱신
+- [x] 06.2-10-PLAN.md — Wave 5 mockup/06-2 정리 + middleware matcher 정합 + REQUIREMENTS.md AUTH/PERS status 갱신
 
 ### Phase 7: News Ingestion
 **Goal**: 특정 종목과 관련된 최신 뉴스를 Naver Search API로 수집하여 종목 상세 페이지에 표시한다
