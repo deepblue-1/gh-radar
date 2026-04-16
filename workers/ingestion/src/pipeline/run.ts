@@ -1,7 +1,6 @@
 import type { AxiosInstance } from "axios";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Stock } from "@gh-radar/shared";
-import { fetchAllRanking } from "../kis/ranking";
+import type { Stock, KisRankingRow, Market } from "@gh-radar/shared";
 import { fetchInquirePrice } from "../kis/inquirePrice";
 import { toStock } from "./map";
 import { upsertStockQuotes, upsertTopMovers } from "./upsert";
@@ -12,14 +11,10 @@ import { randomUUID } from "node:crypto";
 export async function runPipeline(
   client: AxiosInstance,
   supabase: SupabaseClient,
+  rankings: { market: Market; rows: KisRankingRow[] }[],
 ): Promise<{ quotesCount: number; moversCount: number }> {
   const cycleStart = new Date().toISOString();
   const scanId = randomUUID();
-
-  const rankings = await withRetry(
-    () => fetchAllRanking(client),
-    "fetchAllRanking",
-  );
 
   const allStocks: Stock[] = [];
   let priceFailCount = 0;
