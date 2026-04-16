@@ -71,4 +71,10 @@ describe("sanitizeSearchTerm (회귀)", () => {
       "Samsung 005930 삼성",
     );
   });
+  // MED-1 회귀: PostgREST or-expr 파서가 싱글쿼트를 문자열 구분자로 해석해
+  // 400/500 을 유발하므로 함께 제거해야 함
+  it("removes single quote (MED-1)", () => {
+    expect(sanitizeSearchTerm("O'Reilly")).toBe("OReilly");
+    expect(sanitizeSearchTerm("삼'성")).toBe("삼성");
+  });
 });
