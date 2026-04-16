@@ -24,6 +24,13 @@ const baseStock: StockWithProximity = {
   changeAmount: 1500,
   tradeAmount: 1_200_000_000_000,
   volume: 16_000_000,
+  open: 71500,
+  high: 72500,
+  low: 71200,
+  marketCap: 430_000_000_000_000,
+  upperLimit: 93500,
+  lowerLimit: 50500,
+  updatedAt: '2026-04-16T09:00:00.000Z',
   upperLimitProximity: 0.92,
 };
 
