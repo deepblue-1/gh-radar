@@ -57,13 +57,15 @@ check "INV-3 logs: no cycle failed / EGW00201" bash -c "
 "
 
 # ─────────────────────────────────────────────────────────────
-# INV-4: Supabase stocks freshness (거래일 <120s) OR 휴장일 로그
-#   service_role 사용 (RESEARCH Validation Architecture)
+# INV-4: Supabase stock_quotes freshness (거래일 <120s) OR 휴장일 로그
+#   Phase 06.1 이후 ingestion 은 stocks 마스터를 건드리지 않고
+#   stock_quotes / top_movers 에만 쓴다. 따라서 freshness 체크는
+#   stock_quotes.updated_at 을 기준으로 한다. service_role 사용.
 # ─────────────────────────────────────────────────────────────
-check "INV-4 Supabase stocks freshness or holiday" bash -c "
+check "INV-4 Supabase stock_quotes freshness or holiday" bash -c "
   : \${SUPABASE_URL:?SUPABASE_URL required}
   : \${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}
-  MAX_TS=\$(curl -fsS \"\${SUPABASE_URL}/rest/v1/stocks?select=updated_at&order=updated_at.desc&limit=1\" \
+  MAX_TS=\$(curl -fsS \"\${SUPABASE_URL}/rest/v1/stock_quotes?select=updated_at&order=updated_at.desc&limit=1\" \
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" 2>/dev/null | jq -r '.[0].updated_at')
   if [ -n \"\$MAX_TS\" ] && [ \"\$MAX_TS\" != null ]; then

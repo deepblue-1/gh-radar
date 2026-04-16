@@ -58,7 +58,7 @@ check "INV-5 /api/stocks/search (scanner 연동)" bash -c "
 # INV-6: CORS preflight 허용 origin → 200/204
 check "INV-6 CORS preflight (허용)" bash -c "
   code=\$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS \\
-    -H 'Origin: https://gh-radar.vercel.app' \\
+    -H 'Origin: https://gh-radar-webapp.vercel.app' \\
     -H 'Access-Control-Request-Method: GET' \\
     '$URL/api/scanner')
   [ \"\$code\" = '200' ] || [ \"\$code\" = '204' ]
