@@ -3,6 +3,7 @@ import '@/styles/globals.css';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { pretendard, geistMono } from '@/lib/fonts';
 
@@ -31,7 +32,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       className={`${pretendard.variable} ${geistMono.variable}`}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
