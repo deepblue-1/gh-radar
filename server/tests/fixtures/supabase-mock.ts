@@ -4,9 +4,12 @@ import type { StockRow, StockMasterRow, StockQuoteRow } from "../../src/mappers/
 
 type TopMoverRow = {
   code: string;
+  name: string;
+  market: string;
   rank: number;
   ranked_at: string;
-  scan_id?: string;
+  scan_id?: string | null;
+  updated_at: string;
 };
 
 type State = {
