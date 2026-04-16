@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/components/providers/theme-provider';
+import { WatchlistSetProvider } from '@/hooks/use-watchlist-set';
 import { pretendard, geistMono } from '@/lib/fonts';
 
 export const metadata: Metadata = {
@@ -33,7 +34,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     >
       <body>
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <WatchlistSetProvider>{children}</WatchlistSetProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
