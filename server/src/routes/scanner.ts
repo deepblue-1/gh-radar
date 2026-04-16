@@ -56,10 +56,12 @@ scannerRouter.get("/", async (req, res, next) => {
     }
 
     // 3. stocks (마스터) IN (codes) — name/market 캐노니컬 (top_movers 의 캐시보다 우선)
+    //    CRIT-2: 상장폐지 종목은 제외 — top_movers 에 잔존하더라도 스캐너 응답에서 필터
     const { data: masters, error: mErr } = await supabase
       .from("stocks")
       .select(MASTER_COLS)
-      .in("code", codes);
+      .in("code", codes)
+      .eq("is_delisted", false);
     if (mErr) throw mErr;
     const masterByCode = new Map<string, StockMasterRow>();
     for (const m of (masters ?? []) as unknown as StockMasterRow[]) {
@@ -67,13 +69,16 @@ scannerRouter.get("/", async (req, res, next) => {
     }
 
     // 4. 평탄화 + 필터
-    let merged = moverRows.map((mv) =>
-      scannerRowToStock(
-        mv,
-        masterByCode.get(mv.code) ?? null,
-        quoteByCode.get(mv.code) ?? null,
-      ),
-    );
+    //    CRIT-2: master 없는 종목 (상장폐지 또는 마스터 미동기화) 제외
+    let merged = moverRows
+      .filter((mv) => masterByCode.has(mv.code))
+      .map((mv) =>
+        scannerRowToStock(
+          mv,
+          masterByCode.get(mv.code) ?? null,
+          quoteByCode.get(mv.code) ?? null,
+        ),
+      );
 
     if (typeof minRate === "number") {
       merged = merged.filter((s) => s.changeRate >= minRate);
