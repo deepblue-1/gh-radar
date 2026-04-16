@@ -1,7 +1,6 @@
-import Link from 'next/link';
 import { memo, useMemo } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Number } from '@/components/ui/number';
+
+import { InfoStockCard } from '@/components/stock/info-stock-card';
 import { cn } from '@/lib/utils';
 import type { StockWithProximity } from '@/lib/scanner-api';
 
@@ -11,59 +10,31 @@ export interface ScannerCardListProps {
 }
 
 /**
- * 모바일 Card 리스트 (md:hidden). UI-SPEC §Wireframes §2.
- * 3줄 구조: 종목명+등락률 Badge / 코드·마켓 / 현재가+거래대금.
- * 터치 타겟 44px 이상 확보 (padding 12 + 3줄 gap).
+ * Scanner 모바일/태블릿 카드 리스트 (`<lg` 전용 — Phase 06.2 D-23.1 breakpoint 통일).
+ *
+ * Phase 06.2 Plan 05 D-23.1: Scanner/Watchlist 가 동일한 `InfoStockCard` 패밀리 공유.
+ * 이 컴포넌트는 데이터 소스 (Scanner API) 와 렌더러 (InfoStockCard) 를 잇는 얇은 래퍼다.
+ *
+ * ⭐ 토글 wire-up 은 Plan 07 에서 `showWatchlistToggle` + `watchlistToggleSlot` prop
+ * 경유로 주입된다. Plan 05 단독 렌더 시에는 토글 없이 카드만 노출한다 (InfoStockCard
+ * 기본값).
+ *
+ * 기존 `ScannerCardListProps` 인터페이스는 보존 — scanner-client 는 변경 없음.
  */
 function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
   const items = useMemo(() => stocks, [stocks]);
   return (
     <ul
       className={cn(
-        'md:hidden flex flex-col gap-2 list-none p-0 m-0',
+        'lg:hidden m-0 flex list-none flex-col gap-2 p-0',
         isRefreshing && 'opacity-90 transition-opacity',
       )}
     >
-      {items.map((stock) => {
-        const sign = stock.changeRate > 0 ? '+' : '';
-        const changeVariant =
-          stock.changeRate > 0 ? 'up' : stock.changeRate < 0 ? 'down' : 'flat';
-        return (
-          <li key={stock.code}>
-            <Link
-              href={`/stocks/${stock.code}`}
-              aria-label={`${stock.name} 상세 보기`}
-              className="flex flex-col gap-1.5 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 active:bg-[var(--muted)] transition-colors"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[length:var(--t-base)] font-semibold text-[var(--fg)] truncate">
-                  {stock.name}
-                </span>
-                <Badge variant={changeVariant}>
-                  {sign}
-                  {stock.changeRate.toFixed(2)}%
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                <span className="mono">{stock.code}</span>
-                <Badge
-                  variant={stock.market === 'KOSPI' ? 'secondary' : 'outline'}
-                >
-                  {stock.market}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between text-[length:var(--t-sm)]">
-                <span className="mono text-[var(--fg)]">
-                  <Number value={stock.price} format="price" />
-                </span>
-                <span className="mono text-[var(--muted-fg)]">
-                  <Number value={stock.tradeAmount} format="trade-amount" />
-                </span>
-              </div>
-            </Link>
-          </li>
-        );
-      })}
+      {items.map((stock) => (
+        <li key={stock.code}>
+          <InfoStockCard stock={stock} />
+        </li>
+      ))}
     </ul>
   );
 }

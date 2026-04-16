@@ -2,14 +2,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 /**
  * Scanner 초기 로딩 Skeleton (UI-SPEC §Wireframes §5).
- * - 데스크톱: thead(정적) + 10 row
- * - 모바일: 5 card
+ * - 데스크톱 (`lg+`): thead(정적) + 10 row
+ * - 모바일/태블릿 (`<lg`): 5 card
+ *
+ * Phase 06.2 Plan 05 D-23.1 — `md:` breakpoint 를 `lg:` 로 통일하여 Scanner Table/
+ * Card/Skeleton 3자 duality 경계를 맞춘다.
  */
 export function ScannerSkeleton() {
   return (
     <div aria-label="스캐너 로딩 중" aria-busy="true" role="status">
       {/* 데스크톱 Table skeleton */}
-      <div className="hidden md:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]">
+      <div className="hidden lg:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]">
         <table className="w-full border-collapse">
           <thead className="bg-[var(--muted)]">
             <tr>
@@ -52,8 +55,8 @@ export function ScannerSkeleton() {
         </table>
       </div>
 
-      {/* 모바일 Card skeleton */}
-      <div className="md:hidden flex flex-col gap-3 skeleton-list">
+      {/* 모바일/태블릿 Card skeleton (`<lg`) */}
+      <div className="lg:hidden flex flex-col gap-3 skeleton-list">
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}

@@ -13,7 +13,7 @@ export interface ScannerTableProps {
 const GRID_COLS = 'grid grid-cols-[1fr_100px_80px_120px_100px_140px] items-center gap-3 px-3';
 
 /**
- * 데스크톱 Table 렌더러 (md:block). UI-SPEC §Wireframes §1 Variant C.
+ * 데스크톱 Table 렌더러 (lg:block — Phase 06.2 D-23.1 breakpoint 통일). UI-SPEC §Wireframes §1 Variant C.
  * changeRate 는 정수 % 스케일(29.98=29.98%) — format="plain" precision=2 + 수동 `+`/`%`.
  */
 function ScannerTableBase({ stocks, isRefreshing }: ScannerTableProps) {
@@ -22,7 +22,7 @@ function ScannerTableBase({ stocks, isRefreshing }: ScannerTableProps) {
     <div
       role="table"
       className={cn(
-        'hidden md:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]',
+        'hidden lg:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]',
         isRefreshing && 'opacity-90 transition-opacity',
       )}
     >
