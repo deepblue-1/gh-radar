@@ -107,6 +107,26 @@ kis_tokens (PK: id = 'current', 단일 행)
 | summaries | ON | YES | 공개 읽기 |
 | kis_tokens | ON | NO | service_role 전용 |
 
+## watchlists (Phase 06.2)
+
+로그인 사용자의 관심종목 — 사용자당 최대 50개, Supabase Auth `auth.users` FK + `stocks` FK, RLS 로 본인 row 만 접근.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| user_id | uuid NOT NULL | FK → auth.users(id) ON DELETE CASCADE |
+| stock_code | text NOT NULL | FK → stocks(code) ON DELETE CASCADE |
+| added_at | timestamptz NOT NULL DEFAULT now() | 추가 시각 (기본 정렬 키) |
+| position | int | v1 미사용 — 드래그 리오더 deferred |
+
+**PK:** (user_id, stock_code) — 중복 방지
+**Index:** idx_watchlists_user_added_at (user_id, added_at DESC)
+
+**RLS (authenticated role):**
+- SELECT/INSERT/UPDATE/DELETE 4정책 모두 `auth.uid() = user_id`
+- 50-limit 은 BEFORE INSERT trigger `trg_enforce_watchlist_limit` 로 강제 (P0001 SQLSTATE)
+
+**관련 변경 (Phase 06.2):** stocks / stock_quotes 테이블의 기존 `anon_read_*` 정책을 `read_*` 로 rename + `TO anon, authenticated` 로 확장 (로그인 사용자 JOIN 허용).
+
 ---
-*스키마 버전: 2026-04-13*
+*스키마 버전: 2026-04-16 (Phase 06.2 watchlists 추가)*
 *마이그레이션: `supabase/migrations/` 참조*
