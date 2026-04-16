@@ -60,8 +60,15 @@ setup("authenticate E2E user", async ({ page, request }) => {
   const projectRef = new URL(url).hostname.split(".")[0];
   const cookieName = `sb-${projectRef}-auth-token`;
 
-  // supabase/ssr 0.10.x 는 URL-encoded JSON 세션 객체를 쿠키 값으로 저장
-  const cookieValue = encodeURIComponent(JSON.stringify(session));
+  // supabase/ssr 0.10.x 기본 `cookieEncoding="base64url"` — 쿠키 값은
+  // `base64-<base64url(JSON)>` 형태. reader 는 `base64-` prefix 유무로 분기 처리.
+  // 여기서는 안정적으로 공식 포맷을 사용한다.
+  const b64 = Buffer.from(JSON.stringify(session), "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  const cookieValue = `base64-${b64}`;
 
   // 3. baseURL 호스트 기준으로 쿠키 심기
   const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";

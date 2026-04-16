@@ -81,4 +81,36 @@ test.describe('Phase 6 — 접근성 (axe)', () => {
       `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
     ).toEqual([]);
   });
+
+  /**
+   * Phase 06.2 Plan 08 Task 3.3 — UserSection 팝오버 a11y (D6).
+   * VALIDATION.md D6: ESC 로 닫힘 + 바깥 클릭 닫힘 + axe 위반 0.
+   */
+  test('UserSection 팝오버 — critical/serious 위반 0 + ESC 닫힘', async ({
+    page,
+  }) => {
+    await mockStockApi(page);
+    await page.goto('/scanner');
+    // 트리거 클릭으로 팝오버 오픈
+    const trigger = page
+      .getByRole('button', { name: /E2E Tester|사용자/ })
+      .first();
+    await trigger.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    // axe 팝오버 내부만 검사 (role=dialog)
+    const results = await new AxeBuilder({ page })
+      .include('[role="dialog"]')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .analyze();
+    const blocking = blockingViolations(results);
+    expect(
+      blocking,
+      `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
+    ).toEqual([]);
+
+    // ESC 로 닫힘
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+  });
 });
