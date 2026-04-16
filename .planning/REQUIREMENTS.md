@@ -42,6 +42,15 @@
 - [ ] **DISC-01**: 네이버 종목토론방 글 목록 표시 (on-demand 스크래핑, 5~10분 캐싱)
 - [ ] **DISC-02**: AI 토론방 요약 + 긍/부정/중립 센티먼트 분석 (Claude Haiku)
 
+### Authentication
+
+- [ ] **AUTH-01**: 이메일/비밀번호 로그인 (Supabase Auth 기반)
+- [ ] **AUTH-02**: 소셜 로그인 (Google, Kakao)
+
+### Personalization
+
+- [ ] **PERS-01**: 관심종목 저장 및 관리 (로그인 계정별 watchlist CRUD)
+
 ### Infrastructure
 
 - [x] **INFR-01**: KIS OpenAPI 연동 (실시간 시세 데이터, 등락률 순위 REST 폴링) — Phase 5.1 production 활성화(Cloud Run Job + Scheduler)
@@ -51,14 +60,8 @@
 
 ## v2 Requirements
 
-### Authentication
-
-- **AUTH-01**: 이메일/비밀번호 로그인
-- **AUTH-02**: 소셜 로그인 (Google, Kakao)
-
 ### Personalization
 
-- **PERS-01**: 관심종목 저장 및 관리
 - **PERS-02**: 관심종목 기반 맞춤 뉴스 피드
 
 ### Notifications
@@ -105,16 +108,19 @@
 | SRCH-01 | Phase 6 | In Progress |
 | SRCH-02 | Phase 6 | In Progress |
 | SRCH-03 | Phase 6 | In Progress |
+| AUTH-01 | Phase 6.2 | Pending |
+| AUTH-02 | Phase 6.2 | Pending |
+| PERS-01 | Phase 6.2 | Pending |
 | NEWS-01 | Phase 7 | Pending |
 | DISC-01 | Phase 8 | Pending |
 | NEWS-02 | Phase 9 | Pending |
 | DISC-02 | Phase 9 | Pending |
 
 **Coverage:**
-- v1 requirements: 23 total
-- Mapped to phases: 23
+- v1 requirements: 26 total
+- Mapped to phases: 26
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-04-10 after roadmap creation — all 23 requirements mapped*
+*Last updated: 2026-04-16 — AUTH-01/02, PERS-01 v2→v1 승격, Phase 6.2 매핑 추가*
