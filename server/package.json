@@ -14,6 +14,7 @@
   "dependencies": {
     "@gh-radar/shared": "workspace:*",
     "@supabase/supabase-js": "^2.103.0",
+    "axios": "^1.7.0",
     "@google-cloud/pino-logging-gcp-config": "^1.3.3",
     "cors": "^2.8.6",
     "express": "^5.2.1",

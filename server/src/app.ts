@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 import cors from "cors";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AxiosInstance } from "axios";
 import { requestId } from "./middleware/request-id.js";
 import { apiRateLimiter } from "./middleware/rate-limit.js";
 import { httpLogger } from "./middleware/pino-http.js";
@@ -12,7 +13,10 @@ import { healthRouter } from "./routes/health.js";
 import { scannerRouter } from "./routes/scanner.js";
 import { stocksRouter } from "./routes/stocks.js";
 
-export type AppDeps = { supabase: SupabaseClient };
+export type AppDeps = {
+  supabase: SupabaseClient;
+  kisClient?: AxiosInstance; // 옵션 — 테스트 시 미주입 가능
+};
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
@@ -20,8 +24,9 @@ export function createApp(deps: AppDeps): Express {
   // 1) Cloud Run: 단일 proxy 신뢰 (RESEARCH Pitfall 1)
   app.set("trust proxy", 1);
 
-  // deps 주입 (라우터가 req.app.locals.supabase 로 접근)
+  // deps 주입 (라우터가 req.app.locals 로 접근)
   app.locals.supabase = deps.supabase;
+  app.locals.kisClient = deps.kisClient;
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());

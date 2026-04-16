@@ -1,24 +1,24 @@
 import type { AxiosInstance } from "axios";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Stock, Market, KisRankingRow } from "@gh-radar/shared";
+import type { Stock } from "@gh-radar/shared";
 import { fetchAllRanking } from "../kis/ranking";
 import { fetchInquirePrice } from "../kis/inquirePrice";
 import { toStock } from "./map";
-import { upsertStocks } from "./upsert";
+import { upsertStockQuotes, upsertTopMovers } from "./upsert";
 import { withRetry } from "../retry";
 import { logger } from "../logger";
+import { randomUUID } from "node:crypto";
 
 export async function runPipeline(
   client: AxiosInstance,
-  supabase: SupabaseClient
-): Promise<{ count: number }> {
-  // cycleStart 는 upsert 시각 기준점. upsert 완료 후 이보다 오래된 row = stale 종목.
-  // stocks 는 "현재 상위권 스냅샷" 테이블(Phase 1 D-08)이므로 stale 제거가 원칙.
+  supabase: SupabaseClient,
+): Promise<{ quotesCount: number; moversCount: number }> {
   const cycleStart = new Date().toISOString();
+  const scanId = randomUUID();
 
   const rankings = await withRetry(
     () => fetchAllRanking(client),
-    "fetchAllRanking"
+    "fetchAllRanking",
   );
 
   const allStocks: Stock[] = [];
@@ -30,39 +30,52 @@ export async function runPipeline(
       try {
         priceData = await withRetry(
           () => fetchInquirePrice(client, row.stck_shrn_iscd),
-          `inquirePrice:${row.stck_shrn_iscd}`
+          `inquirePrice:${row.stck_shrn_iscd}`,
         );
       } catch (err) {
         priceFailCount += 1;
         logger.warn(
           { code: row.stck_shrn_iscd, error: (err as Error).message },
-          "inquirePrice failed — tradeAmount/open/marketCap/upperLimit/lowerLimit 0으로 저장"
+          "inquirePrice failed — tradeAmount/marketCap/upperLimit/lowerLimit 0으로 저장",
         );
       }
-
       allStocks.push(toStock(row, market, priceData));
     }
   }
 
   logger.info(
-    { totalStocks: allStocks.length, priceFailCount },
-    "pipeline mapped all stocks"
+    { totalStocks: allStocks.length, priceFailCount, scanId },
+    "pipeline mapped",
   );
 
-  const { count } = await upsertStocks(supabase, allStocks);
+  // D5 — 두 테이블에 분리 쓰기. stocks (마스터) 는 절대 안 건드림.
+  const { count: quotesCount } = await upsertStockQuotes(
+    supabase,
+    allStocks,
+  );
+  const { count: moversCount } = await upsertTopMovers(
+    supabase,
+    allStocks,
+    scanId,
+    cycleStart,
+  );
 
-  // 이번 cycle 에 upsert 되지 않은(stale) row 제거 — 등락률 순위에서 밀려난 종목.
-  // cycle 자체가 실패해 upsert 가 안 일어났다면 이 DELETE 도 실행되지 않음(안전).
+  // Stale cleanup — top_movers 만 대상.
+  // 이번 cycle 에 upsert 되지 않은 (= 등락률 순위에서 밀려난) 종목 제거.
+  // ⚠ 절대 stocks (마스터) / stock_quotes (영구 캐시) 는 건드리지 말 것.
   const { error: delErr, count: delCount } = await supabase
-    .from("stocks")
+    .from("top_movers")
     .delete({ count: "exact" })
-    .lt("updated_at", cycleStart);
+    .lt("ranked_at", cycleStart);
 
   if (delErr) {
-    logger.warn({ err: delErr }, "stale cleanup 실패 — 다음 cycle 에서 재시도");
+    logger.warn(
+      { err: delErr },
+      "top_movers stale cleanup 실패 — 다음 cycle 에서 재시도",
+    );
   } else {
-    logger.info({ deleted: delCount ?? 0 }, "stale stocks cleaned");
+    logger.info({ deleted: delCount ?? 0 }, "top_movers stale cleaned");
   }
 
-  return { count };
+  return { quotesCount, moversCount };
 }

@@ -6,6 +6,9 @@ export type AppConfig = {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   corsAllowedOrigins: string;
+  kisBaseUrl: string;
+  kisAppKey: string;
+  kisAppSecret: string;
 };
 
 export function loadConfig(): AppConfig {
@@ -22,5 +25,8 @@ export function loadConfig(): AppConfig {
     supabaseUrl: get("SUPABASE_URL"),
     supabaseServiceRoleKey: get("SUPABASE_SERVICE_ROLE_KEY"),
     corsAllowedOrigins: process.env.CORS_ALLOWED_ORIGINS ?? "",
+    kisBaseUrl: process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443",
+    kisAppKey: get("KIS_APP_KEY"),
+    kisAppSecret: get("KIS_APP_SECRET"),
   };
 }
