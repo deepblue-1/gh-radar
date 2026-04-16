@@ -13,7 +13,7 @@ const okPrice = {
   stck_oprc: "70000",
   stck_hgpr: "71000",
   stck_lwpr: "69500",
-  stck_avls: "418000000000000",
+  hts_avls: "4180000", // 억원 단위 (= 418조원)
   stck_mxpr: "91000",
   stck_llam: "49000",
 };

@@ -118,7 +118,7 @@ export function inquirePriceToQuoteRow(
     open: price.stck_oprc,
     high: price.stck_hgpr,
     low: price.stck_lwpr,
-    market_cap: Number(price.stck_avls),
+    market_cap: price.hts_avls ? Number(price.hts_avls) * 100_000_000 : null,
     upper_limit: price.stck_mxpr,
     lower_limit: price.stck_llam,
     updated_at: new Date().toISOString(),

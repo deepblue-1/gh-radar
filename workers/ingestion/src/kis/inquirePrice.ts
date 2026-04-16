@@ -5,7 +5,7 @@ export type KisInquirePriceRow = {
   stck_mxpr: string;
   stck_llam: string;
   stck_oprc: string;
-  stck_avls: string;
+  hts_avls: string; // 시가총액 단위: 억원
   acml_tr_pbmn: string;
   [key: string]: string;
 };

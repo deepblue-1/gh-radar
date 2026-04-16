@@ -181,11 +181,23 @@ html[lang="ko"] {
 
 /* ─────────────────────────────────────────────────────────────
    §8.5.5 Double-Ring Focus (전역)
+   - WCAG 2.4.7 Focus Visible 을 기본값으로 보장하되 CSS 변수로 컴포넌트별 opt-out 허용.
+   - `data-focus-ring="seamless"` 를 붙이면 이미 border/dialog 로 구분된 컨텍스트
+     (예: CommandDialog 내부 input) 에서 시각적 중복을 제거할 수 있다.
    ───────────────────────────────────────────────────────────── */
 *:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 3px;
-  box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent);
+  outline: var(--focus-outline, 2px solid var(--ring));
+  outline-offset: var(--focus-outline-offset, 3px);
+  box-shadow: var(
+    --focus-shadow,
+    0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent)
+  );
+}
+
+[data-focus-ring="seamless"] {
+  --focus-outline: none;
+  --focus-outline-offset: 0;
+  --focus-shadow: none;
 }
 
 /* ─────────────────────────────────────────────────────────────

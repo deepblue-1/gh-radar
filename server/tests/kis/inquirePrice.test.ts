@@ -16,7 +16,7 @@ describe("fetchInquirePrice (server 측 복제본)", () => {
             stck_mxpr: "91000",
             stck_llam: "49000",
             stck_oprc: "70000",
-            stck_avls: "418000000",
+            hts_avls: "4180000",
             acml_tr_pbmn: "900000000000",
             stck_prpr: "70500",
             prdy_vrss: "500",

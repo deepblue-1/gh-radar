@@ -150,15 +150,15 @@ Plans:
 **Goal:** 전 종목(KRX 상장 ~2,800종목) 마스터 테이블을 확보해 검색 universe 를 완전 종목으로 확장하고, 기존 `stocks` 의 마스터/시세/랭킹 역할을 3-테이블(`stocks` 마스터 / `stock_quotes` 시세 / `top_movers` 랭킹) 로 분리한다. 검색 API 는 마스터 universe 로 전환하고, 상세 페이지는 진입 시 on-demand KIS `inquirePrice` fetch 로 전환한다. STATE.md 의 '삼성전자 검색 불가' 사유 해결.
 **Requirements**: SRCH-01, SRCH-02, SRCH-03, SCAN-01..08 (회귀), INFR-02 (확장)
 **Depends on:** Phase 6
-**Plans:** 6 plans
+**Plans:** 6/6 plans complete
 
 Plans:
-- [ ] 06.1-01-PLAN.md — Wave 0 타입·워크스페이스·테스트 스캐폴드 (`packages/shared` 타입 + `workers/master-sync` 신설 + `server/src/kis/` 복제 + RED 테스트)
-- [ ] 06.1-02-PLAN.md — Wave 1 마이그레이션 SQL (rename + split + FK re-point + RLS 승계 + pg_trgm) + [BLOCKING] supabase db push
-- [ ] 06.1-03-PLAN.md — Wave 2 master-sync 구현 (KRX OpenAPI fetch + map + upsert + retry + integration test)
-- [ ] 06.1-04-PLAN.md — Wave 2 server stocks 라우트 전환 (마스터 universe search + on-demand inquirePrice detail + cached 폴백)
-- [ ] 06.1-05-PLAN.md — Wave 2 scanner 라우트 + ingestion 파이프라인 분해 (stock_quotes + top_movers 양쪽 쓰기, stocks 절대 안 건드림)
-- [ ] 06.1-06-PLAN.md — Wave 3 production 배포 (master-sync Job + Scheduler + 마스터 백필 + ingestion/server 재배포 + E2E 회귀 '삼성전자 검색 PASS')
+- [x] 06.1-01-PLAN.md — Wave 0 타입·워크스페이스·테스트 스캐폴드 (`packages/shared` 타입 + `workers/master-sync` 신설 + `server/src/kis/` 복제 + RED 테스트)
+- [x] 06.1-02-PLAN.md — Wave 1 마이그레이션 SQL (rename + split + FK re-point + RLS 승계 + pg_trgm) + [BLOCKING] supabase db push
+- [x] 06.1-03-PLAN.md — Wave 2 master-sync 구현 (KRX OpenAPI fetch + map + upsert + retry + integration test)
+- [x] 06.1-04-PLAN.md — Wave 2 server stocks 라우트 전환 (마스터 universe search + on-demand inquirePrice detail + cached 폴백)
+- [x] 06.1-05-PLAN.md — Wave 2 scanner 라우트 + ingestion 파이프라인 분해 (stock_quotes + top_movers 양쪽 쓰기, stocks 절대 안 건드림)
+- [x] 06.1-06-PLAN.md — Wave 3 production 배포 (master-sync Job + Scheduler + 마스터 백필 + ingestion/server 재배포 + E2E 회귀 '삼성전자 검색 PASS')
 
 ### Phase 7: News Ingestion
 **Goal**: 특정 종목과 관련된 최신 뉴스를 Naver Search API로 수집하여 종목 상세 페이지에 표시한다

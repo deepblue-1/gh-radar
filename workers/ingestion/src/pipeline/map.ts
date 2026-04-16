@@ -26,7 +26,7 @@ export function toStock(
       : Number(row.stck_oprc) || 0,
     high: Number(row.stck_hgpr),
     low: Number(row.stck_lwpr),
-    marketCap: priceData ? Number(priceData.stck_avls) : 0,
+    marketCap: priceData?.hts_avls ? Number(priceData.hts_avls) * 100_000_000 : 0,
     upperLimit: priceData ? Number(priceData.stck_mxpr) : 0,
     lowerLimit: priceData ? Number(priceData.stck_llam) : 0,
     updatedAt: new Date().toISOString(),

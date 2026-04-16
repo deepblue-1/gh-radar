@@ -41,7 +41,7 @@ const samplePriceRow: KisInquirePriceRow = {
   stck_mxpr: "1504",
   stck_llam: "624",
   stck_oprc: "920",
-  stck_avls: "58000000",
+  hts_avls: "580", // 억원 단위 (= 58_000_000_000 원)
   acml_tr_pbmn: "759264850",
 };
 
@@ -60,7 +60,7 @@ describe("toStock", () => {
     expect(stock.open).toBe(920);
     expect(stock.high).toBe(1157);
     expect(stock.low).toBe(903);
-    expect(stock.marketCap).toBe(58000000);
+    expect(stock.marketCap).toBe(58_000_000_000); // 580억원 → 원 단위
     expect(stock.upperLimit).toBe(1504);
     expect(stock.lowerLimit).toBe(624);
   });
