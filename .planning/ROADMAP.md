@@ -160,6 +160,16 @@ Plans:
 - [x] 06.1-05-PLAN.md — Wave 2 scanner 라우트 + ingestion 파이프라인 분해 (stock_quotes + top_movers 양쪽 쓰기, stocks 절대 안 건드림)
 - [x] 06.1-06-PLAN.md — Wave 3 production 배포 (master-sync Job + Scheduler + 마스터 백필 + ingestion/server 재배포 + E2E 회귀 '삼성전자 검색 PASS')
 
+### Phase 06.2: Auth + Watchlist (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 6, Phase 06.1
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 06.2 to break down)
+
 ### Phase 7: News Ingestion
 **Goal**: 특정 종목과 관련된 최신 뉴스를 Naver Search API로 수집하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 2, Phase 6
