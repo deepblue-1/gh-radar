@@ -6,4 +6,6 @@ beforeEach(() => {
   process.env.CORS_ALLOWED_ORIGINS =
     "http://localhost:3000,/^https:\\/\\/gh-radar-.*\\.vercel\\.app$/";
   process.env.NODE_ENV = "test";
+  process.env.KIS_APP_KEY = "test-kis-app-key";
+  process.env.KIS_APP_SECRET = "test-kis-app-secret";
 });

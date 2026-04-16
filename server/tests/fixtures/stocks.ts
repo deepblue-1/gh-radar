@@ -1,4 +1,5 @@
 import type { StockRow } from "../../src/mappers/stock";
+import type { StockMaster, StockQuote } from "@gh-radar/shared";
 
 export const samsungRow: StockRow = {
   code: "005930",
@@ -45,3 +46,57 @@ export const kosdaqRow: StockRow = {
 };
 
 export const allRows = [samsungRow, kakaoRow, kosdaqRow];
+
+// === 마스터 universe 테스트용 row (Plan 04 가 사용) ===
+
+export const samsungMaster: StockMaster = {
+  code: "005930",
+  name: "삼성전자",
+  market: "KOSPI",
+  sector: null,
+  kosdaqSegment: null,
+  securityType: "보통주",
+  securityGroup: "주권",
+  englishName: "SamsungElectronics",
+  listingDate: "1975-06-11",
+  parValue: 100,
+  listingShares: 5846278608,
+  isDelisted: false,
+  updatedAt: "2026-04-15T00:00:00Z",
+};
+
+export const samsungQuote: StockQuote = {
+  code: "005930",
+  price: 70000,
+  changeAmount: 1000,
+  changeRate: 1.45,
+  volume: 12345678,
+  tradeAmount: 900000000000,
+  open: 69500,
+  high: 70500,
+  low: 69000,
+  marketCap: 418000000000000,
+  upperLimit: 91000,
+  lowerLimit: 49000,
+  updatedAt: "2026-04-13T10:00:00Z",
+};
+
+// 마스터에는 있지만 시세 없는 종목 (em-dash 폴백 시나리오)
+export const masterOnly: StockMaster = {
+  code: "999999",
+  name: "신규상장종목",
+  market: "KOSDAQ",
+  sector: null,
+  kosdaqSegment: "기술성장기업부",
+  securityType: "보통주",
+  securityGroup: "주권",
+  englishName: null,
+  listingDate: null,
+  parValue: null,
+  listingShares: null,
+  isDelisted: false,
+  updatedAt: "2026-04-15T00:00:00Z",
+};
+
+export const allMasters: StockMaster[] = [samsungMaster, masterOnly];
+export const allQuotes: StockQuote[] = [samsungQuote];
