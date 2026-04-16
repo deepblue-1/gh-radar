@@ -47,6 +47,20 @@ IMAGE_LATEST="${REGISTRY}/server:latest"
 echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
 
 # ═══════════════════════════════════════════════════════════════
+# Section 2.5: KIS secret accessor 바인딩 (Plan 04 — on-demand inquirePrice)
+#   server 는 default compute SA 사용 → KIS secret 에 accessor 바인딩 필요
+# ═══════════════════════════════════════════════════════════════
+PROJECT_NUMBER=$(gcloud projects describe "$EXPECTED_PROJECT" --format='value(projectNumber)')
+DEFAULT_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+for SECRET in gh-radar-kis-app-key gh-radar-kis-app-secret; do
+  gcloud secrets add-iam-policy-binding "$SECRET" \
+    --member="serviceAccount:${DEFAULT_SA}" \
+    --role=roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+done
+echo "✓ KIS secret accessor bound for server SA"
+
+# ═══════════════════════════════════════════════════════════════
 # Section 3: Build (amd64 강제, GIT_SHA 주입)
 # ═══════════════════════════════════════════════════════════════
 echo "▶ docker build..."
@@ -81,8 +95,8 @@ gcloud run deploy "$SERVICE" \
   --min-instances=1 \
   --max-instances=3 \
   --timeout=300s \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@APP_VERSION=${SHA}" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@APP_VERSION=${SHA}" \
+  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Smoke
