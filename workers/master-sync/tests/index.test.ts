@@ -30,14 +30,17 @@ const baseConfig = {
 } as any;
 
 // Helper — delist-sweep 용 supabase chain mock
+// HIGH-3 fix: delist-sweep select 에 .limit(10000) 체이닝 추가됨 — mock 도 해당 체인 지원.
 function mkSupabaseMock(existingActive: string[] = []) {
   const updateIn = vi.fn().mockResolvedValue({ error: null });
   const updateFn = vi.fn().mockReturnValue({ in: updateIn });
-  const eq = vi.fn().mockResolvedValue({ data: existingActive.map((code) => ({ code })), error: null });
+  const result = { data: existingActive.map((code) => ({ code })), error: null };
+  const limit = vi.fn().mockResolvedValue(result);
+  const eq = vi.fn().mockReturnValue({ limit });
   const select = vi.fn().mockReturnValue({ eq });
   // from('stocks') 를 호출할 때마다 적절한 chain 반환
   const from = vi.fn().mockImplementation(() => ({ select, update: updateFn }));
-  return { client: { from } as any, updateFn, updateIn, select };
+  return { client: { from } as any, updateFn, updateIn, select, limit };
 }
 
 // KRX 실측 fixture row builder (MIN_EXPECTED_MASTERS=1000 가드 통과용 대량 생성)

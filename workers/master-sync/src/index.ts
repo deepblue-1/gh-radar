@@ -64,11 +64,14 @@ export async function runMasterSync(deps?: {
   );
 
   // C3: delist-sweep — KRX 응답에 없는 활성 종목을 is_delisted=true 로 마킹
+  // HIGH-3 fix: PostgREST 기본 limit(1000) 때문에 ~2,771 종목 중 일부가 select 결과에서 누락되어
+  // 상장폐지 마킹이 부분 실패하는 버그 — 명시적 상한(10000) 지정.
   const activeCodes = new Set(masters.map((m) => m.code));
   const { data: existing, error: selErr } = await supabase
     .from("stocks")
     .select("code")
-    .eq("is_delisted", false);
+    .eq("is_delisted", false)
+    .limit(10000);
   if (selErr) {
     log.error({ err: selErr }, "delist-sweep: select existing active failed");
     throw selErr;
