@@ -9,7 +9,9 @@ function parseListingDate(yyyymmdd: string | undefined): string | null {
 function parseBigint(s: string | undefined): number | null {
   if (!s) return null;
   const n = Number(s);
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isFinite(n)) return null;
+  // DB column is bigint — truncate fractional values (e.g. PARVAL "0.25")
+  return Math.trunc(n);
 }
 
 export function krxToMasterRow(r: KrxBaseInfoRow): StockMaster {

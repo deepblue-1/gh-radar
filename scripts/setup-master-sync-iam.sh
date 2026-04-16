@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-# Section 1: 가드 — gcloud configuration 검증 (D-36, D-39)
+# Section 1: 가드 — gcloud configuration 검증 (setup-ingestion-iam.sh 미러)
 # ═══════════════════════════════════════════════════════════════
 EXPECTED_PROJECT="${GCP_PROJECT_ID:-}"
 EXPECTED_CONFIG="gh-radar"
@@ -31,83 +31,78 @@ fi
 echo "✓ gcloud guard: config=$ACTIVE_CONFIG, project=$ACTIVE_PROJECT"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 2: 변수
+# Section 2: 필수 입력 env 검증 — KRX_AUTH_KEY 만 신규
+#   KIS/SUPABASE secret 은 setup-ingestion-iam.sh 에서 이미 등록됨
 # ═══════════════════════════════════════════════════════════════
-SERVICE=gh-radar-server
-REGION=asia-northeast3
-REPO=gh-radar
-SHA=$(git rev-parse --short HEAD)
-REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
-IMAGE="${REGISTRY}/server:${SHA}"
-IMAGE_LATEST="${REGISTRY}/server:latest"
+: "${KRX_AUTH_KEY:?KRX_AUTH_KEY must be set}"
 
-: "${SUPABASE_URL:?SUPABASE_URL must be set (export or .env.deploy)}"
-: "${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS must be set}"
-
-echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
+echo "✓ required env vars present (KRX_AUTH_KEY)"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 2.5: KIS secret accessor 바인딩 (Plan 04 — on-demand inquirePrice)
-#   server 는 default compute SA 사용 → KIS secret 에 accessor 바인딩 필요
+# Section 3: API enable (idempotent — enabled 이면 no-op)
 # ═══════════════════════════════════════════════════════════════
-PROJECT_NUMBER=$(gcloud projects describe "$EXPECTED_PROJECT" --format='value(projectNumber)')
-DEFAULT_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+echo "▶ enabling required APIs..."
+gcloud services enable \
+  run.googleapis.com \
+  cloudscheduler.googleapis.com \
+  secretmanager.googleapis.com \
+  artifactregistry.googleapis.com \
+  iam.googleapis.com
 
-for SECRET in gh-radar-kis-app-key gh-radar-kis-app-secret; do
-  gcloud secrets add-iam-policy-binding "$SECRET" \
-    --member="serviceAccount:${DEFAULT_SA}" \
-    --role=roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+echo "✓ APIs enabled"
+
+# ═══════════════════════════════════════════════════════════════
+# Section 4: SA 존재 확인 (setup-ingestion-iam.sh 에서 이미 생성됨)
+# ═══════════════════════════════════════════════════════════════
+for SA in gh-radar-scheduler-sa gh-radar-ingestion-sa; do
+  SA_EMAIL="${SA}@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
+  if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
+    echo "✓ SA exists: $SA"
+  else
+    echo "ERROR: SA '$SA' not found. Run: bash scripts/setup-ingestion-iam.sh first" >&2
+    exit 1
+  fi
 done
-echo "✓ KIS secret accessor bound for server SA"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 3: Build (amd64 강제, GIT_SHA 주입)
+# Section 5: 기존 secret 존재 확인 (idempotent 가드)
 # ═══════════════════════════════════════════════════════════════
-echo "▶ docker build..."
-docker build \
-  --platform=linux/amd64 \
-  --build-arg "GIT_SHA=${SHA}" \
-  -f server/Dockerfile \
-  -t "$IMAGE" \
-  -t "$IMAGE_LATEST" \
-  .
+for SECRET in gh-radar-kis-app-key gh-radar-kis-app-secret \
+              gh-radar-kis-account-number gh-radar-supabase-service-role; do
+  if gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    echo "✓ secret exists (reused): $SECRET"
+  else
+    echo "WARN: secret '$SECRET' not found — setup-ingestion-iam.sh 가 먼저 실행되어야 합니다" >&2
+  fi
+done
 
 # ═══════════════════════════════════════════════════════════════
-# Section 4: Push
+# Section 6: KRX Secret 생성/갱신 (신규)
+#   stdin(`--data-file=-`)로만 값 주입 → 프로세스 리스트 노출 차단 (T-06.1-06-01)
 # ═══════════════════════════════════════════════════════════════
-echo "▶ docker push..."
-docker push "$IMAGE"
-docker push "$IMAGE_LATEST"
+create_or_update_secret() {
+  local name="$1" value="$2"
+  if ! gcloud secrets describe "$name" >/dev/null 2>&1; then
+    gcloud secrets create "$name" --replication-policy=automatic
+    echo "✓ secret created: $name"
+  fi
+  printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=-
+  echo "✓ secret version added: $name"
+}
+
+create_or_update_secret gh-radar-krx-auth-key "$KRX_AUTH_KEY"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 5: Deploy (D-28 프로파일 + RESEARCH Pitfall 4 delimiter)
+# Section 7: Secret accessor 바인딩 (런타임 SA → KRX secret)
+#   기존 4개 secret 은 이미 바인딩됨 — KRX 만 신규 추가
 # ═══════════════════════════════════════════════════════════════
-echo "▶ gcloud run deploy..."
-gcloud run deploy "$SERVICE" \
-  --image="$IMAGE" \
-  --region="$REGION" \
-  --platform=managed \
-  --allow-unauthenticated \
-  --port=8080 \
-  --cpu=1 \
-  --memory=512Mi \
-  --concurrency=80 \
-  --min-instances=1 \
-  --max-instances=3 \
-  --timeout=300s \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@APP_VERSION=${SHA}" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest"
+INGESTION_SA="gh-radar-ingestion-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 
-# ═══════════════════════════════════════════════════════════════
-# Section 6: Smoke
-# ═══════════════════════════════════════════════════════════════
-URL=$(gcloud run services describe "$SERVICE" --region="$REGION" --format='value(status.url)')
-echo ""
-echo "✓ Deployed: $URL"
-echo ""
-
-echo "▶ smoke tests..."
-bash "$(dirname "$0")/smoke-server.sh" "$URL"
+gcloud secrets add-iam-policy-binding gh-radar-krx-auth-key \
+  --member="serviceAccount:${INGESTION_SA}" \
+  --role=roles/secretmanager.secretAccessor >/dev/null
+echo "✓ secretAccessor bound: gh-radar-krx-auth-key → gh-radar-ingestion-sa"
 
 echo ""
-echo "✅ deploy-server.sh complete"
+echo "✅ setup-master-sync-iam.sh complete"
+echo "Next: bash scripts/deploy-master-sync.sh"

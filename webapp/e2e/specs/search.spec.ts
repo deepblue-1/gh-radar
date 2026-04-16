@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mockStockApi } from '../fixtures/mock-api';
-import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
+import { FIXTURE_SAMSUNG, FIXTURE_MASTER_UNIVERSE } from '../fixtures/stocks';
 
 /**
  * Phase 06 Plan 06 — 전역 검색 E2E (SRCH-01/02).
@@ -69,5 +69,40 @@ test.describe('Phase 6 — 전역 검색 (SRCH-01/02)', () => {
     await expect(
       page.getByText(/"xyz" 에 해당하는 종목이 없습니다/),
     ).toBeVisible({ timeout: 3000 });
+  });
+});
+
+/**
+ * Phase 06.1 Plan 06 — 마스터 universe 회귀 (SRCH-01).
+ * STATE.md:97 "삼성전자 검색 불가" 사유 해결 검증.
+ */
+test.describe('Phase 06.1 — 마스터 universe 회귀 (SRCH-01)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockStockApi(page, { searchResults: FIXTURE_MASTER_UNIVERSE });
+  });
+
+  test('"삼성전자" 입력 → 자동완성에 005930 노출 (회귀: STATE.md:97 사유)', async ({
+    page,
+  }) => {
+    await page.goto('/scanner');
+    await page.getByLabel('종목 검색 열기').first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    const input = page
+      .getByRole('dialog')
+      .getByPlaceholder('종목명 또는 종목코드를 입력하세요');
+    await input.fill('삼성전자');
+    const option = page.getByRole('option', { name: /삼성전자/ });
+    await expect(option).toBeVisible({ timeout: 3000 });
+  });
+
+  test('"005930" 코드 직접 입력 → 005930 매치', async ({ page }) => {
+    await page.goto('/scanner');
+    await page.getByLabel('종목 검색 열기').first().click();
+    const input = page
+      .getByRole('dialog')
+      .getByPlaceholder('종목명 또는 종목코드를 입력하세요');
+    await input.fill('005930');
+    const option = page.getByRole('option', { name: /005930|삼성전자/ });
+    await expect(option).toBeVisible({ timeout: 3000 });
   });
 });

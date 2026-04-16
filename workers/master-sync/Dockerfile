@@ -17,6 +17,8 @@ RUN pnpm -F @gh-radar/master-sync build
 
 # pnpm deploy: isolated prod node_modules (hoisted, no symlinks)
 RUN pnpm --filter=@gh-radar/master-sync --prod --legacy deploy /out
+# dist/ is in .gitignore, so pnpm deploy won't include it — copy explicitly
+RUN cp -r /app/workers/master-sync/dist /out/dist
 
 # === Production Image ===
 FROM node:22-alpine
