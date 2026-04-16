@@ -84,6 +84,6 @@ test.describe("auth — 로그인 벽 + 리다이렉트 (미인증)", () => {
       page.getByRole("button", { name: /Google.*로그인|Google로 로그인/ }),
     ).toBeVisible();
     // 호스트가 attacker 로 변경되지 않아야 함 — URL 의 query 부분에 attacker 가 남는 것은 정상
-    await expect(page).toHaveURL(/^http:\/\/localhost:3000\/login/);
+    await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/login/);
   });
 });

@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Phase 6 Wave 0 — E2E 설정.
- * - baseURL: http://localhost:3000 (Next dev)
+ * - baseURL: http://localhost:3100 (Next dev)
  * - webServer: `pnpm dev` 자동 기동 (CI 외 reuseExistingServer=true)
  * - testDir: e2e/specs
  *
@@ -21,7 +21,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:3100',
     trace: 'retain-on-failure',
   },
   projects: [
@@ -43,8 +43,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:3000',
+    // PORT=3100 강제 — dev.sh 와 동일 (루트 규약). playwright 자체 webServer 부팅도 맞춤.
+    command: 'PORT=3100 pnpm dev',
+    url: 'http://localhost:3100',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

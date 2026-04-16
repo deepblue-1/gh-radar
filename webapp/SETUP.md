@@ -25,7 +25,7 @@ Supabase Dashboard → Authentication → URL Configuration
 - **Site URL:** `https://gh-radar-webapp.vercel.app`
 - **Redirect URLs (모두 등록):**
   - `https://gh-radar-webapp.vercel.app/auth/callback`
-  - `http://localhost:3000/auth/callback`
+  - `http://localhost:3100/auth/callback` (⚠ dev.sh 가 강제하는 포트 — 3000 아님)
   - 필요 시 Vercel preview URL 을 **개별 등록** (⚠ wildcard `https://*-vercel.app/auth/callback` 형태는 지원되지 않음 — Pitfall 8 참조)
 
 > 대안: Preview 배포는 로그인 smoke 를 스킵하거나, `vercel.json` 에서 preview 에 고정
@@ -136,12 +136,14 @@ vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY preview
 2. `webapp/.env.local` 의 Supabase 관련 값을 채운다 (Vercel env 와 동일한 값):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. 개발 서버 기동:
+3. 개발 서버 기동 (**루트의 `./dev.sh` 가 PORT=3100 강제** — pnpm dev 직접 호출 시에도 PORT=3100 설정 필수):
    ```bash
-   pnpm --filter @gh-radar/webapp dev
+   ./dev.sh --webapp-only
+   # 또는
+   PORT=3100 pnpm --filter @gh-radar/webapp dev
    ```
 4. Smoke 테스트:
-   - `http://localhost:3000/login` 이동
+   - `http://localhost:3100/login` 이동
    - "Google로 로그인" 버튼 클릭
    - Google OAuth 동의 플로우 완료 후 `/scanner` 로 자동 리다이렉트되는지 확인
    - 사이드바 하단 유저 섹션 (아바타 + 이름) 표시 확인 → 클릭 시 팝오버에 이메일 + 로그아웃 버튼 노출

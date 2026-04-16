@@ -71,7 +71,7 @@ setup("authenticate E2E user", async ({ page, request }) => {
   const cookieValue = `base64-${b64}`;
 
   // 3. baseURL 호스트 기준으로 쿠키 심기
-  const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3100";
   const domain = new URL(baseURL).hostname;
 
   await page.context().addCookies([
