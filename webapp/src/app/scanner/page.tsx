@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
+import { AppSidebar } from '@/components/layout/app-sidebar';
 import { ScannerClient } from '@/components/scanner/scanner-client';
 import { ScannerSkeleton } from '@/components/scanner/scanner-skeleton';
 
@@ -9,12 +10,14 @@ import { ScannerSkeleton } from '@/components/scanner/scanner-skeleton';
  * 서버 컴포넌트에서 Suspense 로 ScannerClient(`'use client'`) 를 감싸고,
  * `dynamic = 'force-dynamic'` 으로 useSearchParams 가 Suspense 경계를 요구하는
  * Next 15 제약을 충족한다 (Pitfall 1).
+ *
+ * Phase 06.2: `<AppSidebar />` 주입 — 스캐너/관심종목 nav + UserSection 팝오버 (D-16).
  */
 export const dynamic = 'force-dynamic';
 
 export default function ScannerPage() {
   return (
-    <AppShell hideSidebar>
+    <AppShell sidebar={<AppSidebar />}>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 md:gap-6">
         <Suspense fallback={<ScannerSkeleton />}>
           <ScannerClient />

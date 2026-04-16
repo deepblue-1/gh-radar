@@ -13,8 +13,10 @@ export interface AppShellProps {
   nav?: ReactNode;
   /**
    * `true` 면 사이드바 영역과 모바일 Drawer 토글을 렌더하지 않고 헤더 전용 모드로 동작.
-   * Phase 4 v1 은 개인화(관심종목 등)가 없으므로 기본 레이아웃에서 `hideSidebar` 사용.
-   * 기본값 `false` 로 Phase 3 `/design` 카탈로그와의 호환성 유지.
+   * Phase 06.2: 일반 페이지는 `sidebar={<AppSidebar />}` 지정하여 사이드바 활성 (Auth 도입 + D-16).
+   * `/design` 카탈로그 및 AppShell 기반 error/not-found 는 여전히 `hideSidebar` 유지하여
+   * 스캐폴드/오류 화면의 단순성과 회귀 방지 (D-17).
+   * 기본값 `false` 유지.
    */
   hideSidebar?: boolean;
   children: ReactNode;
