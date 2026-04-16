@@ -39,5 +39,29 @@ export const FIXTURE_NULL_PRICE: Stock = {
   lowerLimit: 0,
 };
 
+export const FIXTURE_SK_HYNIX: Stock = {
+  ...FIXTURE_SAMSUNG,
+  code: '000660',
+  name: 'SK하이닉스',
+  price: 195000,
+  changeAmount: 2500,
+  changeRate: 1.3,
+};
+
+export const FIXTURE_KAKAO: Stock = {
+  ...FIXTURE_SAMSUNG,
+  code: '035720',
+  name: '카카오',
+  price: 55000,
+  changeAmount: 500,
+  changeRate: 0.91,
+};
+
+export const FIXTURE_MASTER_UNIVERSE: Stock[] = [
+  FIXTURE_SAMSUNG,
+  FIXTURE_SK_HYNIX,
+  FIXTURE_KAKAO,
+];
+
 export const INVALID_CODE = 'INVALID';
 export const MALFORMED_CODE = '!!!';
