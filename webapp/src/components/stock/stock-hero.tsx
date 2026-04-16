@@ -1,6 +1,7 @@
 import type { Stock } from '@gh-radar/shared';
 import { Badge } from '@/components/ui/badge';
 import { Number as NumberDisplay } from '@/components/ui/number';
+import { WatchlistToggle } from '@/components/watchlist/watchlist-toggle';
 
 export interface StockHeroProps {
   stock: Stock;
@@ -30,6 +31,7 @@ export function StockHero({ stock }: StockHeroProps) {
           {stock.code}
         </span>
         <Badge variant="outline">{stock.market}</Badge>
+        <WatchlistToggle stockCode={stock.code} stockName={stock.name} />
       </div>
 
       <div className="flex flex-wrap items-baseline gap-3">

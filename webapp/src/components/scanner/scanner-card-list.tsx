@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 
 import { InfoStockCard } from '@/components/stock/info-stock-card';
+import { WatchlistToggle } from '@/components/watchlist/watchlist-toggle';
 import { cn } from '@/lib/utils';
 import type { StockWithProximity } from '@/lib/scanner-api';
 
@@ -32,7 +33,11 @@ function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
     >
       {items.map((stock) => (
         <li key={stock.code}>
-          <InfoStockCard stock={stock} />
+          <InfoStockCard
+            stock={stock}
+            showWatchlistToggle
+            watchlistToggleSlot={<WatchlistToggle stockCode={stock.code} stockName={stock.name} />}
+          />
         </li>
       ))}
     </ul>

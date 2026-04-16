@@ -8,6 +8,7 @@ import type { WatchlistRow } from '@/lib/watchlist-api';
 import { WatchlistEmpty } from './watchlist-empty';
 import { WatchlistSkeleton } from './watchlist-skeleton';
 import { WatchlistTable } from './watchlist-table';
+import { WatchlistToggle } from './watchlist-toggle';
 
 /**
  * WatchlistClient — Phase 06.2 Plan 06 Task 3.4.
@@ -100,7 +101,16 @@ export function WatchlistClient() {
       ) : (
         <>
           {/* lg+ Table */}
-          <WatchlistTable rows={data} isRefreshing={isRefreshing} />
+          <WatchlistTable
+            rows={data}
+            isRefreshing={isRefreshing}
+            renderToggle={(row) => (
+              <WatchlistToggle
+                stockCode={row.stockCode}
+                stockName={row.stock.name}
+              />
+            )}
+          />
           {/* <lg InfoStockCard 리스트 */}
           <ul
             className={
@@ -110,7 +120,11 @@ export function WatchlistClient() {
           >
             {data.map((row) => (
               <li key={row.stockCode}>
-                <InfoStockCard stock={rowToStock(row)} />
+                <InfoStockCard
+                  stock={rowToStock(row)}
+                  showWatchlistToggle
+                  watchlistToggleSlot={<WatchlistToggle stockCode={row.stockCode} stockName={row.stock.name} />}
+                />
               </li>
             ))}
           </ul>

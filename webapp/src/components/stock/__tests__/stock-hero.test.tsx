@@ -1,5 +1,28 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+
+// Phase 06.2 Plan 07: StockHero 가 제목행에 <WatchlistToggle> 을 포함하므로
+// useAuth/useWatchlistSet 이 런타임 요구됨. 테스트는 비로그인 사용자(user=null) 로
+// mock 하여 Toggle 이 null 반환하도록 해 기존 Hero 어서션만 검증한다.
+vi.mock('@/lib/auth-context', () => ({
+  useAuth: () => ({
+    user: null,
+    displayName: null,
+    isLoading: false,
+    signOut: vi.fn(),
+  }),
+}));
+vi.mock('@/hooks/use-watchlist-set', () => ({
+  useWatchlistSet: () => ({
+    set: new Set(),
+    count: 0,
+    isAtLimit: false,
+    optimisticAdd: vi.fn(),
+    optimisticRemove: vi.fn(),
+    refresh: vi.fn(async () => {}),
+  }),
+}));
+
 import { StockHero } from '../stock-hero';
 import {
   FIXTURE_SAMSUNG,
