@@ -21,3 +21,17 @@ export const NotFound = () =>
   new ApiError(404, "NOT_FOUND", "Route not found");
 export const InternalError = (msg = "Internal server error") =>
   new ApiError(500, "INTERNAL_ERROR", msg);
+export const NewsRefreshCooldown = (seconds: number) =>
+  new ApiError(
+    429,
+    "NEWS_REFRESH_COOLDOWN",
+    `잠시 후 다시 시도해주세요 (${seconds}s)`,
+  );
+export const NaverBudgetExhausted = () =>
+  new ApiError(
+    503,
+    "NAVER_BUDGET_EXHAUSTED",
+    "오늘 뉴스 새로고침 한도가 모두 소진되었습니다",
+  );
+export const NaverUnavailable = () =>
+  new ApiError(503, "NAVER_UNAVAILABLE", "naver client not configured");
