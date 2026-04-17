@@ -251,5 +251,41 @@ Requirements: NEWS-01.
 
 ---
 
+## Decision Revisions (2026-04-17, 목업 리뷰 후)
+
+UI 목업(`mockups/03-dense.html`) 에 대한 사용자 피드백으로 다음 결정이 갱신됨. **아래 갱신이 원본 D6/D7/D8/D9 에 우선한다.**
+
+### R1. D6 revised — 상세 Card 에도 출처 표시
+- 원본 D6: "상세 Card 출처(source) 미표시 (v1 단순화)"
+- **갱신:** 상세 Card 와 `/news` 페이지 **양쪽 모두 출처 표시**
+- 포맷: **짧은 도메인 prefix** — host 에서 public suffix(co.kr, com 등) 제거한 첫 토큰 (예: `hankyung.com` → `hankyung`, `news.mt.co.kr` → `mt`)
+- 이유: 뉴스 신뢰도·편향 파악이 트레이더 의사결정에 중요. v1 단순화보다 정보 밀도 우선.
+
+### R2. D7 revised — `/news` 페이지 "최근 7일 전체" (하드캡 100건)
+- 원본 D7: "최근 7일 이내 **최신 20개**" 상한
+- **갱신:** 최근 7일 이내 **전체**, **서버 하드캡 100건** (`LIMIT 100`)
+- 100건 초과 시 최신 100건만 반환 — "N+" 뱃지/truncation 표시 없이 단순 절단. 페이지네이션 deferred 유지.
+- 이유: 20건 상한은 임의 기준이었고 사용자는 일주일치 전체 확인을 원함. 100건 하드캡은 UI 과부하 방지 방어선.
+
+### R3. D8 revised — API query 계약 조정
+- 원본 D8: `GET /api/stocks/:code/news?limit=5&days=7` (상세), 기본 7일/상위 20개
+- **갱신:**
+  - 상세 Card: `?days=7&limit=5` (동일)
+  - `/news` 페이지: `?days=7&limit=100` (상한 5 → 100)
+- 서버 route 는 `limit` 기본값 100, `days` 기본값 7, 최대 허용 `limit` 은 100 (클라이언트가 더 큰 값 요청해도 100으로 clamp).
+
+### R4. D9 보강 — 번호 인덱스 컬럼 미도입
+- 원본 D9: 7일 필터만 명시
+- **보강:** UI 뉴스 리스트에 `1. 2. 3.` 등 순번 prefix 표시 **안 함**. 자연 순서(정렬)로 충분.
+
+### R5. 신규 — 컨텐츠 페이지 공통 back-nav 규칙 (앱 차원)
+- 상세/news 페이지 상단 breadcrumb 줄 **폐기**
+- 타이틀(`StockHero` 종목명, `/news` h1) **왼쪽 인라인 `←` 링크** 배치
+- 이 규칙은 앱 전체 공통 — **`.planning/phases/03-design-system/03-UI-SPEC.md §4.4 Page Back Nav` 에 캡처됨**
+- Phase 8(토론방) 이후 모든 하위 경로 페이지가 이 규칙 상속
+
+---
+
 *Phase: 07-news-ingestion*
 *Context gathered: 2026-04-17*
+*Revised: 2026-04-17 (R1–R5)*

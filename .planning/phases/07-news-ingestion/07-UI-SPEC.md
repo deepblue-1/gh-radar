@@ -1,10 +1,17 @@
 ---
 phase: 07
 slug: news-ingestion
-status: draft
+status: approved
 shadcn_initialized: true
 preset: radix-nova (manual — globals.css Toss 팔레트 override)
 created: 2026-04-17
+reviewed_at: 2026-04-17
+revised_at: 2026-04-17
+revisions:
+  - source-on-detail-card (D6 철회)
+  - news-page-7d-all-hardcap-100 (D7/D8/D9 개정)
+  - no-index-column
+  - back-nav-via-03-ui-spec-§4.4
 ---
 
 # Phase 07 — UI Design Contract
@@ -106,7 +113,7 @@ Exceptions:
 | Element | Copy |
 |---------|------|
 | Card 제목 (상세 페이지) | `관련 뉴스` |
-| Card 부제(선택, 우측 메타) | `최근 7일 · 상위 5개` (`--t-caption muted-fg` inline — 실행자 재량, 생략 허용) |
+| Card 부제(선택, 우측 메타) | `최근 7일 · 최신 5개` (`--t-caption muted-fg` inline — 실행자 재량, 생략 허용) |
 | 새로고침 버튼 aria-label (idle) | `뉴스 새로고침` |
 | 새로고침 버튼 aria-label (refreshing) | `뉴스 새로고침 중` (`aria-busy="true"` 동반) |
 | 새로고침 버튼 aria-label (cooldown) | `{N}초 후 새로고침 가능` (예: `23초 후 새로고침 가능`) |
@@ -119,12 +126,13 @@ Exceptions:
 | 쿨다운 초과(429) 서버 응답 시 | **별도 에러 메시지 표시 안 함** — 버튼 disabled + 카운트다운만 표시(silent guard). 429 는 정상 흐름. |
 | Empty state heading (뉴스 0건) | `아직 수집된 뉴스가 없어요` |
 | Empty state body | `새로고침으로 최신 뉴스를 가져와보세요.` |
-| Empty state CTA | `새로고침` (primary variant, 쿨다운 중이면 disabled + 카운트다운 — 통합 UX) |
+| Empty state CTA | `뉴스 새로고침` (primary variant, 쿨다운 중이면 disabled + 카운트다운 — 통합 UX) |
 | 원문 링크 aria-label (항목) | `{title} 원문 보기 (새 창)` |
 | "더보기" 링크 (5개 하단) | `전체 뉴스 보기 →` (href=`/stocks/[code]/news`, `--t-sm` primary color) |
-| `/news` 페이지 `<h1>` | `{종목명} 관련 뉴스` (예: `삼성전자 관련 뉴스`) |
-| `/news` 페이지 subtitle | `최근 7일 · 최신순 최대 20개` (`--t-sm muted-fg`) |
-| `/news` 페이지 breadcrumb | `← 종목 상세로` (href=`/stocks/[code]`, `--t-sm`) |
+| "더보기" 보조 캡션 (우측 정렬) | `최근 7일 전체` (`--t-caption muted-fg`) |
+| `/news` 페이지 `<h1>` | `{종목명} — 최근 7일 뉴스` (예: `삼성전자 — 최근 7일 뉴스`) — 개수 상한 문구 노출 금지 |
+| `/news` 페이지 back-nav | **03-UI-SPEC §4.4 Page Back Nav 준수** — h1 왼쪽 인라인 ← 링크 (`href=/stocks/[code]`, `aria-label="종목 상세로 돌아가기"`). 별도 subtitle/breadcrumb 줄 없음. |
+| 종목 상세 페이지 back-nav | **03-UI-SPEC §4.4 준수** — `StockHero` 의 종목명 왼쪽 인라인 ← 링크 (`href=/`, `aria-label="목록으로 돌아가기"`). |
 | `/news` 페이지 빈 상태 heading | `표시할 뉴스가 없어요` |
 | `/news` 페이지 빈 상태 body | `최근 7일 내 수집된 뉴스가 없습니다. 종목 상세에서 새로고침을 실행해주세요.` |
 | 날짜 포맷 (상세 Card) | `MM/DD HH:mm` (KST, Intl.DateTimeFormat — 예: `04/17 14:32`) — 연도 생략, 밀도 우선 |
@@ -133,7 +141,7 @@ Exceptions:
 
 **Destructive actions**: **없음.** 뉴스 삭제/숨김/bookmark 등 모든 파괴적 조작은 범위 밖. 새로고침 실패는 정보성(inline) 메시지만.
 
-**출처 표시 정책 (재차 확인):** 상세 Card 는 **출처 미표시** (v1 단순화 — D6). `/news` 페이지만 host 노출(D7). 추후 사용자 피드백 시 상세 Card 에도 재도입 (Deferred).
+**출처 표시 정책 (2026-04-17 갱신):** 상세 Card 와 `/news` 페이지 **양쪽 모두 출처 표시**. 포맷은 **짧은 도메인 prefix** (예: `hankyung`, `mk`, `chosun`) — host 에서 public suffix(co.kr, com, net 등) 제거한 첫 토큰. 상세 Card 에서는 11px mono muted 작게, `/news` 페이지 표에서는 별도 컬럼(120px 폭). 모바일 `<640px` 상세 / `<720px` 전체 페이지에서는 출처 컬럼 숨김.
 
 ---
 
@@ -155,11 +163,11 @@ Exceptions:
 | Component | Path | 책임 |
 |-----------|------|------|
 | `StockNewsSection` | `webapp/src/components/stock/stock-news-section.tsx` | 상세 페이지에서 교체될 "관련 뉴스" Card. 자체 fetch/refresh state 소유 — **부모(StockDetailClient)와 독립된 독립 라이프사이클** (D1: 섹션별 독립 새로고침). mount 시 `fetchStockNews` 호출, 내부 `<NewsItem />` 5개 렌더, 하단 "더보기" 링크. Phase 8 토론방이 동일 패턴으로 복제할 수 있도록 re-usable hook/shape 로 설계(단, shared hook 추출은 planner 재량). |
-| `NewsItem` | `webapp/src/components/stock/news-item.tsx` | 제목 `<a target="_blank" rel="noopener noreferrer">` + 날짜 메타. 2가지 variant: `variant="card"` (상세 페이지: 제목+시간), `variant="full"` (`/news` 페이지: 제목+시간+host). `--t-sm` 제목 line-clamp-2, `--t-caption` 메타. |
+| `NewsItem` | `webapp/src/components/stock/news-item.tsx` | 제목 `<a target="_blank" rel="noopener noreferrer">` + 날짜 + **출처(host prefix)**. 2가지 variant: `variant="card"` (상세 페이지 — 3열 grid `1fr 88px 78px`: 제목 truncate + source + MM/DD HH:mm), `variant="full"` (`/news` 페이지 — 3열 grid `1fr 120px 140px`: 제목 truncate + source + YYYY-MM-DD HH:mm). 모바일 축소 시 source 컬럼 숨김. |
 | `NewsRefreshButton` | `webapp/src/components/stock/news-refresh-button.tsx` | 쿨다운 상태 관리 — props: `onRefresh`, `isRefreshing`, `cooldownSeconds` (0이면 enabled). 내부: `RefreshCw` + 카운트다운 tick (setInterval 1s). icon-only `size="sm" variant="outline"`. 단독 컴포넌트로 분리한 이유: Phase 8 토론방 새로고침 버튼이 동일 컴포넌트 재사용 예정 — props 일반화 (`label`, `ariaPrefix` override). |
 | `NewsEmptyState` | `webapp/src/components/stock/news-empty-state.tsx` | 뉴스 0건 empty state. `Newspaper` lucide 아이콘(size-10 muted-fg) + heading + body + primary "새로고침" CTA. `role="status"` (Watchlist empty 패턴 계승). 쿨다운 중이면 CTA disabled + 카운트다운 inline. |
 | `NewsListSkeleton` | `webapp/src/components/stock/news-list-skeleton.tsx` | 5행 (상세) / 10행 (`/news`) 분기. 각 행: 제목 라인 (`w-full h-4`) + 메타 라인 (`w-24 h-3`) + border-b. `skeleton-list` utility 로 shimmer stagger. |
-| `NewsPageClient` | `webapp/src/app/stocks/[code]/news/page.tsx` (or split to `components/stock/news-page-client.tsx`) | `/stocks/[code]/news` 엔트리. Next 15 `use(params)` 패턴 + 'use client' (`stock-detail-client` 라우팅 선례 계승 — ROADMAP decision). 상위 breadcrumb + h1 + `<NewsItem variant="full">` ×20. **새로고침 기능 없음** — 상세 페이지에서만 노출 (사용자 멘탈 모델 단순화). |
+| `NewsPageClient` | `webapp/src/app/stocks/[code]/news/page.tsx` (or split to `components/stock/news-page-client.tsx`) | `/stocks/[code]/news` 엔트리. Next 15 `use(params)` 패턴 + 'use client' (`stock-detail-client` 라우팅 선례 계승 — ROADMAP decision). `<PageHeader>` (03-UI-SPEC §4.4 Back Nav) + 테이블 헤더 + `<NewsItem variant="full">` × N (최근 7일 · 최대 100건). **새로고침 기능 없음** — 상세 페이지에서만 노출 (사용자 멘탈 모델 단순화). |
 
 **수정 컴포넌트:**
 
@@ -177,25 +185,24 @@ Exceptions:
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│  StockHero (Phase 6, 변경 없음)                              │
+│  PageHeader: ← 삼성전자  005930 · KOSPI   (03-UI-SPEC §4.4) │
 │  StockStatsGrid (Phase 6, 변경 없음)                         │
 │                                                           │
 │  ┌─ Card (p-4, bg-card, border) ──────────────────────┐   │
 │  │ ┌─ Header (flex justify-between items-center) ──┐ │   │
 │  │ │ 📰 관련 뉴스          (--t-h3 semibold)         │ │   │
-│  │ │                                    [↻] (sm)    │ │   │
+│  │ │                            [↻ 새로고침] (sm)    │ │   │
 │  │ └──────────────────────────────────────────────┘ │   │
 │  │                                                   │   │
-│  │ ┌─ NewsItem ─────────────────────────────────┐   │   │
-│  │ │ 삼성전자, 1분기 영업익 6.6조원 기록…        │   │   │
-│  │ │ (--t-sm, line-clamp-2, hover:--primary)    │   │   │
-│  │ │ 04/17 14:32  (--t-caption mono muted-fg)   │   │   │
+│  │ ┌─ NewsItem (grid: 1fr 88px 78px) ───────────┐   │   │
+│  │ │ 삼성전자, 1분기 영업익 6.6조원 기록…  hankyung  04/17 14:32 │ │
+│  │ │ (--t-sm truncate)       (11px mono muted)  (caption mono muted) │
 │  │ └────────────────────────────────────────────┘   │   │
 │  │ ──── border-t var(--border-subtle) ─────        │   │
-│  │ (4 more items, py-3 각 행, 최소 44px)             │   │
+│  │ (4 more items, min-height 44px 각 행)             │   │
 │  │                                                   │   │
 │  │ ──── border-t var(--border) ─────                │   │
-│  │ 전체 뉴스 보기 → (text-primary, --t-sm, py-2)    │   │
+│  │ 전체 뉴스 보기 →   (caption) 최근 7일 전체          │   │
 │  └───────────────────────────────────────────────────┘   │
 │                                                           │
 │  ┌─ ComingSoonCard (Phase 8 placeholder) ──────────┐     │
@@ -203,17 +210,22 @@ Exceptions:
 │  │ Phase 8 로드맵에서 제공됩니다.                     │     │
 │  └───────────────────────────────────────────────────┘     │
 └───────────────────────────────────────────────────────────┘
-  (모바일 <md 도 동일 세로 스택 — D6)
+  (모바일 <md 세로 스택 유지, source 컬럼 숨김)
 ```
 
 **레이아웃 디테일:**
+- 상위 PageHeader: **03-UI-SPEC §4.4 Page Back Nav 준수** — 타이틀 왼쪽 ← 링크로 `/` 귀환. 별도 breadcrumb 막대 없음.
 - 부모: `<div className="space-y-6">` (뉴스 Card ↔ 토론방 placeholder 24px)
 - Card: `className="p-4"` (기존 Card 기본값)
 - Header: `flex items-center justify-between gap-3 mb-4`
 - Title row: `<h2 className="flex items-center gap-2 text-[length:var(--t-h3)] font-semibold text-[var(--fg)]">` + `<Newspaper className="size-5" aria-hidden />` + "관련 뉴스"
-- List: `<ul className="divide-y divide-[var(--border-subtle)]">` 또는 `<ol>` (의미상 ordered — 최신순)
-- Item: `<li className="py-3">` → 제목 `<a>` (`--t-sm` semibold `text-[var(--fg)] hover:text-[var(--primary)]`) + 메타 `<time className=".mono text-[length:var(--t-caption)] text-[var(--muted-fg)] mt-1 block">`
-- Footer: `<div className="mt-3 border-t border-[var(--border)] pt-3 text-center">` → `<Link className="text-[length:var(--t-sm)] text-[var(--primary)] hover:underline py-2 inline-block">전체 뉴스 보기 →</Link>`
+- List: `<ul className="divide-y divide-[var(--border-subtle)]">` — **번호 인덱스 미사용** (디자인 변경, 2026-04-17). 자연 순서만으로 충분.
+- Item: `<li className="grid grid-cols-[1fr_88px_78px] items-center gap-3 py-3 min-h-11 px-2 rounded-md hover:bg-[var(--row-hover,theme(colors.muted.DEFAULT))] transition-colors">`
+  - 제목 `<a className="truncate text-[length:var(--t-sm)] font-medium text-[var(--fg)] hover:text-[var(--primary)]">`
+  - 출처 `<span className="mono text-[11px] text-[var(--muted-fg)] truncate text-right">` — **짧은 도메인 prefix** (예: `hankyung`, `mk`, `chosun` — host 에서 TLD 제거한 첫 토큰)
+  - 시간 `<time className="mono text-[length:var(--t-caption)] text-[var(--muted-fg)] text-right">04/17 14:32</time>`
+  - 모바일 `<640px`: `grid-cols-[1fr_70px]`, source 컬럼 `display:none`
+- Footer: `<div className="mt-3 border-t border-[var(--border)] pt-3 flex items-center justify-between">` → 좌측 `<Link>` "전체 뉴스 보기 →" (primary), 우측 `<span>` "최근 7일 전체" (caption muted)
 
 ### 2. 뉴스 전용 새로고침 버튼 (NewsRefreshButton)
 
@@ -235,36 +247,41 @@ Exceptions:
 
 **포커스:** `focus-visible:ring-2 focus-visible:ring-[var(--ring)]` (globals.css 전역 ring 상속 — `seamless` opt-out 하지 않음).
 
-### 3. `/stocks/[code]/news` 전체 페이지 (상위 20개)
+### 3. `/stocks/[code]/news` 전체 페이지 (최근 7일 · 하드캡 100건)
 
 ```
 ┌───────────────────────────────────────────────────────────┐
 │  AppShell (sidebar + header 기존 유지)                       │
 │  ┌─ main (p-6) ─────────────────────────────────────┐     │
-│  │ ← 종목 상세로 (--t-sm, breadcrumb)                │     │
+│  │ PageTitle (03-UI-SPEC §4.4 Back Nav):            │     │
+│  │  ← 삼성전자 — 최근 7일 뉴스       (h1, --t-h3)       │     │
 │  │                                                   │     │
-│  │ 삼성전자 관련 뉴스          (--t-h3 semibold)       │     │
-│  │ 최근 7일 · 최신순 최대 20개  (--t-sm muted-fg)       │     │
-│  │                                                   │     │
-│  │ ┌─ Card (p-4) ────────────────────────────────┐ │     │
-│  │ │ ┌ NewsItem variant="full" ─────────────┐    │ │     │
-│  │ │ │ 삼성전자, 1분기 영업익 6.6조원 기록…    │    │ │     │
-│  │ │ │ 2026-04-17 14:32  ·  news.mt.co.kr    │    │ │     │
-│  │ │ └──────────────────────────────────────┘    │ │     │
-│  │ │ ──── border-t var(--border-subtle) ────    │ │     │
-│  │ │ (19 more items, 각 py-3)                    │ │     │
+│  │ ┌─ Table (grid header + rows) ────────────────┐ │     │
+│  │ │ 제목                      출처        날짜·시각 │ │     │
+│  │ │ (muted bg header, caption)                   │ │     │
+│  │ ├────────────────────────────────────────────── ┤ │     │
+│  │ │ 삼성전자, 1분기 영업익…   hankyung   04-17 14:32 │ │     │
+│  │ │ (truncate title)          (mono 11px)  (mono cap)│ │     │
+│  │ │ ──── border-b var(--border-subtle) ────      │ │     │
+│  │ │ (N more rows — 최근 7일 내 전체, 최대 100건)    │ │     │
 │  │ └───────────────────────────────────────────────┘ │     │
 │  └───────────────────────────────────────────────────┘     │
 └───────────────────────────────────────────────────────────┘
 ```
 
 **레이아웃 디테일:**
-- `<AppShell>` 내부 (사이드바/헤더 유지 — breadcrumb 은 별도)
-- Breadcrumb: `<Link className="text-[length:var(--t-sm)] text-[var(--muted-fg)] hover:text-[var(--primary)] inline-flex items-center gap-1">` → `<ArrowLeft className="size-4" />` + "종목 상세로"
-- 제목 블록: `<header className="mb-6 space-y-1">` → h1 (`--t-h3`) + subtitle (`--t-sm muted-fg`)
-- Card: `p-4` (list wrapper)
-- Item: Item (`variant="full"`) — 제목 + `<div className="mt-1 flex items-center gap-2 text-[length:var(--t-caption)] text-[var(--muted-fg)]">` → `<time className="mono">2026-04-17 14:32</time>` + `<span aria-hidden>·</span>` + `<span className="mono">news.mt.co.kr</span>`
-- 페이지네이션 **없음** (20개 상한, deferred)
+- `<AppShell>` 내부 (사이드바/헤더 유지)
+- PageTitle: **03-UI-SPEC §4.4 Page Back Nav 준수** — 별도 breadcrumb 줄 없음. h1 왼쪽에 ← 링크 (`href="/stocks/[code]"`, `aria-label="종목 상세로 돌아가기"`).
+- 제목 문구: `{종목명} — 최근 7일 뉴스` (상한 수치 노출하지 않음).
+- Table: shadcn `<Table>` 또는 `div grid grid-cols-[1fr_120px_140px]` — row hover tint `bg-[var(--muted)]/40`.
+- Row: 제목 truncate (1줄) + 출처(11px mono muted) + 날짜 `YYYY-MM-DD HH:mm` (caption mono muted, 우측 정렬).
+- 모바일 `<720px`: `grid-cols-[1fr_100px]`, 출처 컬럼 숨김. 헤더도 동일.
+- 페이지네이션 **없음**. 표시 개수는 서버가 "최근 7일 · created_at DESC" 로 반환한 모든 행, 단 **서버에서 하드캡 100건** 적용.
+
+**결정 갱신 (2026-04-17):**
+- 기존 "최대 20건" 상한은 폐기. 사용자는 최근 7일 전체를 확인하길 원함 (D7 revised).
+- 하드캡 100건은 방어적 상한 — 단일 종목에 하루 100건+ 뉴스 폭주 시 무한 스크롤 부담 방지. 100건 초과 시 **최신 100건만 반환** (서버 `LIMIT 100`). 사용자 UI 상 "N+" 표시 없음 — 단순 절단.
+- API: `GET /api/stocks/:code/news?days=7&limit=100` (상세 Card 는 `?days=7&limit=5` 유지).
 
 **404 (종목 코드 없음):** Phase 6 `not-found.tsx` 공용 — `app/stocks/[code]/news/not-found.tsx` 작성 생략 가능 (상위 폴더 상속). 존재하지 않는 종목은 상세 페이지에서 404 처리되므로 `/news` 는 부모 경로 정상 가정.
 
@@ -408,8 +425,11 @@ Exceptions:
 3. **새 컬러 hex 하드코딩 금지** — `oklch()` 직접 서술 또는 Tailwind 기본색(`bg-blue-500`, `text-red-500` 등) 금지. 반드시 `var(--*)` 또는 shadcn util class (`bg-primary`, `text-destructive` 등) 사용. 단, `color-mix(in oklch, var(--destructive) 10%, transparent)` 같은 **기존 토큰 기반 조합**은 허용 (globals.css 이미 table hover 패턴에서 사용).
 4. **레이아웃 2열 복원 금지** — D6 에 따라 뉴스/토론방 섹션은 **항상 세로 스택**. md+ 에서도 2열로 되돌리지 않는다. 토론방이 Phase 8 에서 완성되어도 동일 규칙.
 5. **"뉴스와 토론방 통합 새로고침" 구현 금지** — D1 "섹션별 독립 새로고침" 명시. 공통 버튼/훅으로 묶지 않기. 각 섹션 자체 fetch/refresh state 소유.
-6. **상세 Card 에 출처(source) 표시 금지** — D6 "상세 Card 는 `source` 미표시". `/news` 페이지에서만 host 노출. 사용자 피드백 이후 재도입 여부 판단 — executor 판단 금지.
+6. **출처 포맷 = 짧은 도메인 prefix** — host `hankyung.com` → `hankyung`, `news.mt.co.kr` → `mt` (public suffix 제거 첫 토큰). 전체 host 노출 금지, 파비콘/로고 불가. 상세 Card·`/news` 모두 동일 포맷. **2026-04-17 갱신 — 이전 "상세 Card 출처 미표시" 결정 철회.**
 7. **외부 링크 보안 속성 필수** — 모든 뉴스 원문 `<a>` 에 `target="_blank"` + `rel="noopener noreferrer"`. `rel` 누락 시 tabnabbing 취약점 (WCAG 제외, 보안 필수).
+13. **번호 인덱스 컬럼 도입 금지** — 뉴스 리스트에 `1. 2. 3.` 등 순번 prefix 표시하지 않는다 (2026-04-17 갱신). 자연 순서만으로 시각 스캔 충분.
+14. **`/news` 리스트 상한 = 100건 하드캡** — 서버 `LIMIT 100` 적용. 100건 초과 시 "N+" 뱃지 등 표시 없이 단순 절단. 페이지네이션/무한스크롤 도입 금지 (deferred).
+15. **03-UI-SPEC §4.4 Page Back Nav 준수 필수** — 상세/`/news` 페이지의 back-link 는 별도 breadcrumb 줄이 아닌 타이틀 인라인 `←` 형태. `router.back()` 금지, 명시적 `href` 사용, `aria-label` 필수.
 8. **쿨다운을 destructive 로 표현 금지** — 429 는 정상 흐름. `--destructive` 사용하지 않고 `--muted-fg` 카운트다운만. 에러 토스트 띄우지 않음(§Copywriting 매트릭스 참조).
 9. **뉴스 항목 2줄 초과 표시 금지** — `line-clamp-2` 필수. 긴 제목은 ellipsis. CSS 로 강제 (globals.css utility 없다면 Tailwind `line-clamp-2` 사용).
 10. **뉴스 항목에 favicon / 썸네일 추가 금지** — Naver API 미제공, 스크래핑 범위 밖 (Deferred). 텍스트 only 리스트 유지.
@@ -427,8 +447,11 @@ Phase 7 완료 판정은 `07-CONTEXT.md §Verification Plan` 1-11 에 종속 —
 - [ ] 뉴스 Card 새로고침 버튼 클릭 → POST 호출 → 30초 쿨다운 진입 → 카운트다운 노출
 - [ ] 30초 이내 재클릭 → 버튼 disabled (UI 가드), 서버 `429 retry_after_seconds` 일치 확인
 - [ ] 뉴스 0건 종목 → NewsEmptyState 표시 + CTA "새로고침" 동일 쿨다운 규칙 적용
-- [ ] "전체 뉴스 보기" 클릭 → `/stocks/[code]/news` 이동 → 최대 20개 + 출처 host 노출
-- [ ] `/news` 페이지 breadcrumb "← 종목 상세로" 클릭 → 상세 복귀
+- [ ] 상세 Card 뉴스 항목에 출처(짧은 도메인 prefix) 표시 확인 — 예: `hankyung`, `mk`
+- [ ] "전체 뉴스 보기" 클릭 → `/stocks/[code]/news` 이동 → 최근 7일 내 뉴스 전체(최대 100건) + 출처 컬럼 노출
+- [ ] `/news` 페이지 h1 왼쪽 `←` 링크 클릭 → 상세 복귀 (03-UI-SPEC §4.4 Back Nav 규칙)
+- [ ] 종목 상세 페이지 종목명 왼쪽 `←` 링크 클릭 → `/` 홈 복귀
+- [ ] 번호 인덱스 컬럼이 리스트에 나타나지 않음을 확인
 - [ ] 모바일 `<md` 뷰포트: 동일 세로 스택, 터치 타겟 44px 이상
 - [ ] Dark mode: 배경/텍스트/border-subtle 모두 대비 WCAG AA 충족 (globals.css dark 토큰 자동)
 - [ ] axe E2E: 뉴스 Card 0건/5개/에러 각 상태 a11y 위반 0건

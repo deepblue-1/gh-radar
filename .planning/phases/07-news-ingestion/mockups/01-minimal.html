@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 7 Mockup — V1 Minimal</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #191f28;
+    --muted: #f7f8fa;
+    --muted-fg: #8b95a1;
+    --card: #ffffff;
+    --primary: #3182f6;
+    --primary-fg: #ffffff;
+    --destructive: #f04452;
+    --border: #e5e8eb;
+    --border-subtle: #f0f2f4;
+    --success: #0ab569;
+
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+    --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+
+    --t-caption: 12px;
+    --t-sm: 14px;
+    --t-base: 16px;
+    --t-h3: 20px;
+    --t-h2: 24px;
+    --t-h1: 30px;
+
+    --radius: 12px;
+    --radius-sm: 8px;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: var(--muted);
+    color: var(--fg);
+    font-size: var(--t-sm);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mockup-frame {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: var(--s-6) var(--s-5);
+  }
+  .mockup-header {
+    margin-bottom: var(--s-6);
+    padding-bottom: var(--s-5);
+    border-bottom: 1px solid var(--border);
+  }
+  .mockup-header h1 {
+    margin: 0 0 var(--s-2);
+    font-size: var(--t-h2);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .mockup-header .badge {
+    display: inline-block;
+    padding: 2px var(--s-2);
+    border-radius: 999px;
+    background: var(--fg);
+    color: var(--bg);
+    font-size: var(--t-caption);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .mockup-header p {
+    margin: var(--s-2) 0 0;
+    color: var(--muted-fg);
+    font-size: var(--t-sm);
+  }
+  .screen-label {
+    font-size: var(--t-caption);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    margin: var(--s-8) 0 var(--s-3);
+  }
+
+  /* stock header (simplified reference) */
+  .stock-header {
+    background: var(--card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: var(--s-5);
+    margin-bottom: var(--s-4);
+  }
+  .stock-name-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s-3);
+    margin-bottom: var(--s-2);
+  }
+  .stock-name { font-size: var(--t-h3); font-weight: 600; letter-spacing: -0.01em; }
+  .stock-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted-fg); font-size: var(--t-sm); }
+  .stock-price-row { display: flex; align-items: baseline; gap: var(--s-3); }
+  .stock-price { font-size: var(--t-h2); font-weight: 600; letter-spacing: -0.02em; }
+  .stock-change-up { color: var(--destructive); font-weight: 600; font-size: var(--t-sm); }
+  .placeholder-block {
+    height: 120px;
+    background: var(--muted);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--s-4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-fg);
+    font-size: var(--t-caption);
+  }
+
+  /* news card — V1 minimal */
+  .news-card {
+    background: var(--card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: var(--s-5);
+    margin-bottom: var(--s-4);
+  }
+  .news-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--s-4);
+  }
+  .news-card-title {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--t-h3);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .news-card-title svg { color: var(--muted-fg); }
+  .refresh-btn {
+    width: 32px; height: 32px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+    color: var(--fg);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .refresh-btn:hover { background: var(--muted); border-color: var(--muted-fg); }
+  .refresh-btn[disabled] { opacity: 0.6; cursor: not-allowed; }
+  .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .news-list { list-style: none; margin: 0; padding: 0; }
+  .news-item {
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--border-subtle);
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+  }
+  .news-item:last-child { border-bottom: 0; }
+  .news-item a {
+    color: var(--fg);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: var(--t-sm);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: color 120ms ease;
+  }
+  .news-item a:hover { color: var(--primary); }
+  .news-time {
+    font-variant-numeric: tabular-nums;
+    font-size: var(--t-caption);
+    color: var(--muted-fg);
+  }
+  .news-more {
+    display: inline-block;
+    margin-top: var(--s-3);
+    padding: var(--s-2) 0;
+    color: var(--primary);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .news-more:hover { text-decoration: underline; }
+
+  /* coming soon card (discussion) */
+  .coming-soon {
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: var(--s-8) var(--s-5);
+    text-align: center;
+    color: var(--muted-fg);
+  }
+  .coming-soon h3 { margin: 0 0 var(--s-2); color: var(--fg); font-size: var(--t-h3); }
+  .coming-soon p { margin: 0; font-size: var(--t-sm); }
+
+  /* status grid */
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--s-4);
+  }
+  @media (max-width: 720px) {
+    .status-grid { grid-template-columns: 1fr; }
+  }
+  .status-cell {
+    background: var(--card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: var(--s-5);
+  }
+  .status-cell .status-label {
+    font-size: var(--t-caption);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    margin-bottom: var(--s-3);
+  }
+
+  /* skeleton */
+  .sk {
+    display: block;
+    background: linear-gradient(90deg, var(--border-subtle) 0%, var(--muted) 50%, var(--border-subtle) 100%);
+    background-size: 200% 100%;
+    animation: sk 1.6s ease-in-out infinite;
+    border-radius: 6px;
+  }
+  @keyframes sk {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .sk-row { padding: var(--s-3) 0; border-bottom: 1px solid var(--border-subtle); }
+  .sk-row:last-child { border-bottom: 0; }
+  .sk-title { height: 14px; width: 88%; margin-bottom: 6px; }
+  .sk-meta { height: 12px; width: 64px; }
+
+  /* empty state */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--s-8) var(--s-4);
+    color: var(--muted-fg);
+    text-align: center;
+  }
+  .empty-icon {
+    width: 40px; height: 40px; color: var(--muted-fg); margin-bottom: var(--s-3);
+  }
+  .empty strong { display: block; color: var(--fg); font-size: var(--t-base); font-weight: 600; margin-bottom: var(--s-1); }
+  .empty span { font-size: var(--t-sm); margin-bottom: var(--s-4); }
+  .btn-primary {
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    padding: 10px var(--s-4);
+    background: var(--primary);
+    color: var(--primary-fg);
+    border: 0;
+    border-radius: var(--radius-sm);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-primary:hover { filter: brightness(0.95); }
+
+  /* error state */
+  .error-wrap {
+    padding: var(--s-6) var(--s-2);
+    text-align: center;
+  }
+  .error-head {
+    color: var(--destructive);
+    font-weight: 600;
+    font-size: var(--t-base);
+    margin-bottom: var(--s-2);
+  }
+  .error-msg {
+    color: var(--muted-fg);
+    font-size: var(--t-sm);
+    margin-bottom: var(--s-4);
+  }
+  .btn-outline {
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    padding: 8px var(--s-4);
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-outline:hover { background: var(--muted); }
+
+  /* cooldown state */
+  .cooldown-note {
+    margin-top: var(--s-3);
+    font-size: var(--t-caption);
+    color: var(--muted-fg);
+  }
+
+  /* /news page preview */
+  .breadcrumb {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--muted-fg);
+    font-size: var(--t-sm);
+    margin-bottom: var(--s-3);
+    text-decoration: none;
+  }
+  .breadcrumb:hover { color: var(--fg); }
+  .news-page-title {
+    font-size: var(--t-h2);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--s-5);
+  }
+  .news-full-list { list-style: none; margin: 0; padding: 0; background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius); }
+  .news-full-item {
+    padding: var(--s-4) var(--s-5);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .news-full-item:last-child { border-bottom: 0; }
+  .news-full-meta {
+    display: flex; align-items: center; gap: var(--s-2);
+    font-size: var(--t-caption);
+    color: var(--muted-fg);
+    margin-bottom: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .news-full-source {
+    display: inline-block;
+    padding: 1px var(--s-2);
+    background: var(--muted);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--muted-fg);
+    text-transform: lowercase;
+  }
+  .news-full-item a {
+    display: block;
+    color: var(--fg);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: var(--t-sm);
+    line-height: 1.4;
+  }
+  .news-full-item a:hover { color: var(--primary); }
+</style>
+</head>
+<body>
+<div class="mockup-frame">
+
+  <header class="mockup-header">
+    <span class="badge">V1 — MINIMAL</span>
+    <h1>Phase 7 · 관련 뉴스 UI 목업</h1>
+    <p>UI-SPEC 결정사항 그대로. 제목 + 절대시간(MM/DD HH:mm) + icon-only 새로고침 (32×32). 출처는 상세 Card 에서 숨김.</p>
+  </header>
+
+  <!-- ============ Screen 1: 상세 페이지 ============ -->
+  <div class="screen-label">Screen 1 · /stocks/005930 — 상세 페이지</div>
+
+  <div class="stock-header">
+    <div class="stock-name-row">
+      <span class="stock-name">삼성전자</span>
+      <span class="stock-code">005930 · KOSPI</span>
+    </div>
+    <div class="stock-price-row">
+      <span class="stock-price">75,400</span>
+      <span class="stock-change-up">+1,700 (+2.31%)</span>
+    </div>
+  </div>
+
+  <div class="placeholder-block">(가격 차트 · 체결 등 — Phase 6 영역)</div>
+
+  <!-- news card normal -->
+  <article class="news-card">
+    <header class="news-card-head">
+      <h2 class="news-card-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg>
+        관련 뉴스
+      </h2>
+      <button class="refresh-btn" aria-label="뉴스 새로고침">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
+    </header>
+
+    <ul class="news-list">
+      <li class="news-item">
+        <a href="#">삼성전자, 3나노 HBM4 양산 공식화... AI 고객사 공급 확대</a>
+        <span class="news-time">04/16 14:32</span>
+      </li>
+      <li class="news-item">
+        <a href="#">외국인, 반도체 대형주 집중 매수... 삼성전자 4일 연속 순매수</a>
+        <span class="news-time">04/16 11:05</span>
+      </li>
+      <li class="news-item">
+        <a href="#">TSMC 대비 파운드리 격차 좁히기 본격 시동</a>
+        <span class="news-time">04/15 18:20</span>
+      </li>
+      <li class="news-item">
+        <a href="#">HBM 생산능력 연내 2배 확대... 엔비디아 공급 물량 확보</a>
+        <span class="news-time">04/15 10:12</span>
+      </li>
+      <li class="news-item">
+        <a href="#">1분기 영업이익 7.2조원 잠정... 컨센서스 상회</a>
+        <span class="news-time">04/14 15:48</span>
+      </li>
+    </ul>
+    <a class="news-more" href="#">전체 뉴스 보기 →</a>
+  </article>
+
+  <!-- discussion placeholder -->
+  <div class="coming-soon">
+    <h3>종목토론방</h3>
+    <p>Phase 8 로드맵에서 제공됩니다.</p>
+  </div>
+
+  <!-- ============ Screen 2: 상태 변주 ============ -->
+  <div class="screen-label">Screen 2 · 상태 변주</div>
+
+  <div class="status-grid">
+
+    <div class="status-cell">
+      <div class="status-label">Loading (초기 로딩)</div>
+      <div>
+        <div class="news-card-head">
+          <h2 class="news-card-title" style="color: var(--fg)">관련 뉴스</h2>
+          <button class="refresh-btn spinning" aria-label="뉴스 새로고침 중">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          </button>
+        </div>
+        <div class="sk-row"><span class="sk sk-title"></span><span class="sk sk-meta"></span></div>
+        <div class="sk-row"><span class="sk sk-title" style="width:78%"></span><span class="sk sk-meta"></span></div>
+        <div class="sk-row"><span class="sk sk-title" style="width:84%"></span><span class="sk sk-meta"></span></div>
+        <div class="sk-row"><span class="sk sk-title" style="width:72%"></span><span class="sk sk-meta"></span></div>
+        <div class="sk-row"><span class="sk sk-title" style="width:90%"></span><span class="sk sk-meta"></span></div>
+      </div>
+    </div>
+
+    <div class="status-cell">
+      <div class="status-label">Empty (수집된 뉴스 없음)</div>
+      <div class="news-card-head" style="margin-bottom: 0;">
+        <h2 class="news-card-title">관련 뉴스</h2>
+        <button class="refresh-btn" aria-label="뉴스 새로고침">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+        </button>
+      </div>
+      <div class="empty">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg>
+        <strong>아직 수집된 뉴스가 없어요</strong>
+        <span>새로고침으로 최신 뉴스를 가져와보세요.</span>
+        <button class="btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          새로고침
+        </button>
+      </div>
+    </div>
+
+    <div class="status-cell">
+      <div class="status-label">Error (초기 로딩 실패)</div>
+      <div class="news-card-head" style="margin-bottom: 0;">
+        <h2 class="news-card-title">관련 뉴스</h2>
+        <button class="refresh-btn" aria-label="뉴스 새로고침">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+        </button>
+      </div>
+      <div class="error-wrap">
+        <div class="error-head">뉴스를 불러오지 못했어요</div>
+        <div class="error-msg">Network error: failed to fetch</div>
+        <button class="btn-outline">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          다시 시도
+        </button>
+      </div>
+    </div>
+
+    <div class="status-cell">
+      <div class="status-label">Cooldown (30초 쿨다운)</div>
+      <div class="news-card-head" style="margin-bottom: var(--s-4);">
+        <h2 class="news-card-title">관련 뉴스</h2>
+        <button class="refresh-btn" disabled aria-label="쿨다운 중 — 23초 후 다시 시도 가능">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+        </button>
+      </div>
+      <ul class="news-list">
+        <li class="news-item"><a href="#">삼성전자, 3나노 HBM4 양산 공식화...</a><span class="news-time">04/16 14:32</span></li>
+        <li class="news-item"><a href="#">외국인 4일 연속 순매수</a><span class="news-time">04/16 11:05</span></li>
+      </ul>
+      <div class="cooldown-note">23초 후 다시 새로고침할 수 있어요</div>
+    </div>
+
+  </div>
+
+  <!-- ============ Screen 3: /news 페이지 ============ -->
+  <div class="screen-label">Screen 3 · /stocks/005930/news — 전체 뉴스 페이지</div>
+
+  <a class="breadcrumb" href="#">← 삼성전자 상세로</a>
+  <h2 class="news-page-title">삼성전자 — 최근 뉴스 20건</h2>
+
+  <ul class="news-full-list">
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-16 14:32</span>
+        <span class="news-full-source">hankyung.com</span>
+      </div>
+      <a href="#">삼성전자, 3나노 HBM4 양산 공식화... AI 고객사 공급 확대</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-16 11:05</span>
+        <span class="news-full-source">mk.co.kr</span>
+      </div>
+      <a href="#">외국인, 반도체 대형주 집중 매수... 삼성전자 4일 연속 순매수</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-15 18:20</span>
+        <span class="news-full-source">chosun.com</span>
+      </div>
+      <a href="#">TSMC 대비 파운드리 격차 좁히기 본격 시동</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-15 10:12</span>
+        <span class="news-full-source">donga.com</span>
+      </div>
+      <a href="#">HBM 생산능력 연내 2배 확대... 엔비디아 공급 물량 확보</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-14 15:48</span>
+        <span class="news-full-source">yna.co.kr</span>
+      </div>
+      <a href="#">1분기 영업이익 7.2조원 잠정... 컨센서스 상회</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-14 09:22</span>
+        <span class="news-full-source">edaily.co.kr</span>
+      </div>
+      <a href="#">글로벌 IB, 삼성전자 목표주가 일괄 상향</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-13 17:08</span>
+        <span class="news-full-source">hankyung.com</span>
+      </div>
+      <a href="#">국민연금, 1분기 삼성전자 지분 소폭 확대</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-13 13:51</span>
+        <span class="news-full-source">mk.co.kr</span>
+      </div>
+      <a href="#">3나노 Gate-All-Around 공정 수율 안정화 신호</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-12 18:45</span>
+        <span class="news-full-source">chosun.com</span>
+      </div>
+      <a href="#">모건스탠리 "메모리 사이클 회복 초입"</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-12 14:19</span>
+        <span class="news-full-source">donga.com</span>
+      </div>
+      <a href="#">미국 상무부, 반도체 보조금 지급 일정 공개</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-11 16:32</span>
+        <span class="news-full-source">money.kr</span>
+      </div>
+      <a href="#">DRAM 현물가 8주 연속 상승</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-11 10:05</span>
+        <span class="news-full-source">yna.co.kr</span>
+      </div>
+      <a href="#">삼성전자, 인도 스마트폰 공장 증설 검토</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-10 15:22</span>
+        <span class="news-full-source">hankyung.com</span>
+      </div>
+      <a href="#">애플 공급망 다변화 수혜... 갤럭시 폴더블 판매 호조</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-10 11:08</span>
+        <span class="news-full-source">mk.co.kr</span>
+      </div>
+      <a href="#">이재용 회장, 美 실리콘밸리서 AI 파트너십 논의</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-09 18:12</span>
+        <span class="news-full-source">chosun.com</span>
+      </div>
+      <a href="#">4월 수출 잠정치, 반도체 주도로 전년비 12% 증가</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-09 13:45</span>
+        <span class="news-full-source">donga.com</span>
+      </div>
+      <a href="#">HBM3E 12단 품질인증 통과... 하반기 공급 본격화</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-08 16:20</span>
+        <span class="news-full-source">edaily.co.kr</span>
+      </div>
+      <a href="#">주주총회 앞두고 배당확대 요구 목소리</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-08 10:55</span>
+        <span class="news-full-source">yna.co.kr</span>
+      </div>
+      <a href="#">삼성電·SK하이닉스 합친 HBM 점유율 90% 돌파</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-07 14:32</span>
+        <span class="news-full-source">money.kr</span>
+      </div>
+      <a href="#">외국계 증권사 매수 리포트 쏟아져</a>
+    </li>
+    <li class="news-full-item">
+      <div class="news-full-meta">
+        <span>2026-04-07 09:48</span>
+        <span class="news-full-source">hankyung.com</span>
+      </div>
+      <a href="#">세계 최대 규모 반도체 클러스터 조성 본격화</a>
+    </li>
+  </ul>
+
+</div>
+</body>
+</html>
