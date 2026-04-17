@@ -61,6 +61,10 @@ created: 2026-04-17
 | V-18 | `/stocks/[code]/news` 전체 페이지 — 7일, 하드캡 100 | NEWS-01(1),(2) | T-02 | `news-list > li` 개수 ≤ 100 · 각 항목 제목/출처/날짜/링크 표시 · 타이틀 좌측 `←` 링크 | Playwright | `pnpm -F @gh-radar/webapp test:e2e -- news.spec.ts -g "full page"` | ❌ W0 | ⬜ pending |
 | V-19 | 수동 새로고침 쿨다운 UX — 버튼 disabled + 카운트다운 | NEWS-01(3) | T-05 | 첫 클릭 정상 · 30초 이내 재클릭 → 429 수신 → 버튼 aria-disabled + `data-remaining-seconds` ≤ 30 | Playwright | `pnpm -F @gh-radar/webapp test:e2e -- news.spec.ts -g "refresh cooldown"` | ❌ W0 | ⬜ pending |
 | V-20 | Axe 접근성 — 외부 링크 name, 새로고침 버튼 aria-label, 빈 상태 role | — | — | Axe-core scan violations = 0 (serious/critical) | Playwright + `@axe-core/playwright` | `pnpm -F @gh-radar/webapp test:e2e -- news.spec.ts -g "a11y"` | ❌ W0 | ⬜ pending |
+| V-21 | R7 Naver API param — `display=100`, `start` 페이지네이션 지원 | NEWS-01(3) | T-04 | `searchNews(client, 'q', { start: 101 })` 호출 시 axios params `{ query, display: 100, sort: 'date', start: 101 }` 전달. 기본값 display=100, start=1 | vitest unit | `pnpm -F @gh-radar/news-sync test -- searchNews.test.ts -g "param"` | ❌ W0 | ⬜ pending |
+| V-22 | R7 증분 수집 종료조건 — `MAX(published_at)` 이하 만나면 페이지 루프 종료 | NEWS-01(1),(3) | T-04 | page1 = 100 items(전부 > lastSeen), page2 = 100 items(50 > / 50 ≤ lastSeen) → 150 items 수집 + `stoppedBy='cutoff'` + pages=2 | vitest integration | `pnpm -F @gh-radar/news-sync test -- collectStockNews.test.ts -g "cutoff"` | ❌ W0 | ⬜ pending |
+| V-23 | R7 첫 수집 7일 컷오프 — `lastSeenIso=null` 시 `firstCutoffIso` 로 폴백 | NEWS-01(1) | — | `lastSeenIso: null`, `firstCutoffIso=7일 전`. page1 절반이 7일 초과 → 절반만 수집, `stoppedBy='cutoff'` | vitest integration | `pnpm -F @gh-radar/news-sync test -- collectStockNews.test.ts -g "first.*cutoff"` | ❌ W0 | ⬜ pending |
+| V-24 | R6 Scheduler 2개 분리 — `intraday`/`offhours` cron 표현 정확 | NEWS-01(3) | — | `grep -q "gh-radar-news-sync-intraday" scripts/deploy-news-sync.sh` + `grep -qE '\*/15 9-15 \* \* 1-5' scripts/deploy-news-sync.sh` + `grep -q "gh-radar-news-sync-offhours" scripts/deploy-news-sync.sh` + `grep -qE '0 \*/2 \* \* \*' scripts/deploy-news-sync.sh` 각 1 match | static grep (deploy smoke) | 위 grep 4건 + `gcloud scheduler jobs describe ... --format='value(schedule)'` 확인 | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -68,9 +72,10 @@ created: 2026-04-17
 
 ## Wave 0 Requirements
 
-- [ ] `workers/news-sync/vitest.config.ts` + `workers/news-sync/tests/helpers/` — Naver API nock/msw fixture (응답 JSON 샘플 20건)
+- [ ] `workers/news-sync/vitest.config.ts` + `workers/news-sync/tests/helpers/` — Naver API nock/msw fixture (응답 JSON 샘플: single-page 1건 + **multi-page 250건** for V-22/V-23 pagination tests)
+- [ ] `workers/news-sync/tests/searchNews.test.ts` (V-21) + `workers/news-sync/tests/collectStockNews.test.ts` (V-22/V-23) — R7 페이지네이션 스텁
 - [ ] `packages/shared/src/__tests__/news-sanitize.test.ts` — `stripHtml` / `parsePubDate` / `extractSourcePrefix` 스텁 → V-04/V-05/V-06
-- [ ] `server/src/__tests__/news.test.ts` — supertest + msw fixture → V-13/V-14/V-15
+- [ ] `server/tests/routes/news.test.ts` — supertest + msw fixture → V-13/V-14/V-15/V-16 (server/vitest.config.ts include=`tests/**/*.test.ts` 기준)
 - [ ] `webapp/e2e/news.spec.ts` — Playwright 스펙 스텁 (`list`, `full page`, `refresh cooldown`, `a11y`) → V-17/V-18/V-19/V-20
 - [ ] `webapp/e2e/fixtures/mock-api.ts` — `GET /api/stocks/:code/news` + `POST /refresh` mock 추가
 - [ ] `@axe-core/playwright` 설치 확인(미설치 시 추가) + `tests/a11y-helper.ts` 헬퍼

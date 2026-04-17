@@ -784,6 +784,40 @@ export default function StockNewsPage({ params }: { params: Promise<{ code: stri
 
 ---
 
+## Delta — CONTEXT R6/R7 (2026-04-17, plan review 후)
+
+> 이 섹션은 CONTEXT.md 개정 이후 추가. 위 §Recommended Approach 의 B(Worker) 섹션이 아래 delta 를 반영하도록 갱신됐다.
+
+### R6 (배치 주기 장중/장외 분리)
+- Cloud Scheduler 1개 → **2개**
+  - `gh-radar-news-sync-intraday` — `*/15 9-15 * * 1-5` (KST, 장중 평일)
+  - `gh-radar-news-sync-offhours` — `0 */2 * * *` (KST, 장외 전시간)
+- 두 scheduler 가 동일 `gh-radar-news-sync` Job 을 트리거. 시간대 겹침 구간에서 중복 tick 이 발생해도 `ON CONFLICT DO NOTHING` 이 흡수 — 운영 리스크 없음.
+
+### R7 (display=100 + 페이지네이션 + 증분 종료조건)
+- `naver/searchNews.ts` 시그니처 확장: `searchNews(client, query, { start?: number; display?: number })`, 기본 display=100
+- 신규 `naver/collectStockNews.ts` 가 **페이지네이션 루프**를 담당:
+  ```
+  start = 1
+  cutoff = lastSeenIso ?? firstCutoffIso(7일 전)
+  while (start <= 1000):
+    page = searchNews(client, q, { start, display: 100 })
+    await onPage()  // budget 증가 + abort 판정, false 면 break('budget')
+    if page empty: break('empty')
+    for item in page:
+      if parsePubDate(item) <= cutoff: hitCutoff=true
+      else items.push(item)
+    if hitCutoff: break('cutoff')
+    if page.length < 100: break('empty')
+    start += 100
+  if start > 1000: stoppedBy='api-limit'
+  ```
+- 신규 `pipeline/lastSeen.ts` — `loadLastSeenMap(supabase, codes)` 로 종목별 `MAX(published_at)` 배치 조회 (인덱스 `idx_news_stock_published` 사용)
+- 운영 호출량 추정: 주당 ≈ 50,440, 일 평균 ≈ **7,200 calls** (25K 한도의 **29%**) — 기존 77% → 완화. budget pre-check 는 그대로 유지.
+- Nyquist 신규 V-ID: V-21 (param), V-22 (증분 종료), V-23 (첫 수집 7일 컷오프), V-24 (scheduler 2개) — VALIDATION.md 에 추가됨.
+
+---
+
 ## Risks & Open Questions
 
 ### 1. 종목명 1글자 / 너무 일반적인 종목명의 노이즈
