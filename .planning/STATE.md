@@ -122,7 +122,10 @@ Recent decisions affecting current work:
 ### Pending Todos
 
 - 주말 KIS 실증 테스트 (휴장일 acml_hgpr_date 검증) — 다음 주말에 보완
-- Supabase/KIS 시크릿 로테이션 (채팅에 노출됨) — 사용자 판단
+- Supabase/KIS/Naver 시크릿 로테이션 (채팅에 노출됨) — 사용자 판단 (Naver: 2026-04-17 노출)
+- DI-01: `incr_api_usage(text,date,int)` RPC 에 `REVOKE ALL FROM anon, authenticated` 마이그레이션 추가 (Supabase 플랫폼 auto-grant 회귀) — Phase 8 또는 별도 infra PR
+- DI-02: `scripts/smoke-master-sync.sh` INV-4 헤더 CR 파싱 버그 (동일 패턴, 별도 PR)
+- Infra: `gh-radar-deployer` SA key 로테이션 주기 설정 (현재 영구 key) — 예: 90일 cron
 
 ### Blockers/Concerns
 
