@@ -18,7 +18,6 @@ export default function StockError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.error('[gh-radar] stock detail error:', error);
   }, [error]);
 

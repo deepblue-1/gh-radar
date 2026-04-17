@@ -38,7 +38,7 @@ let mockSet = new Set<string>();
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    from: (_table: string) => ({
+    from: () => ({
       insert: vi.fn(async (payload: { user_id: string; stock_code: string }) => {
         mockInsertCalled = payload;
         return mockInsertResult;

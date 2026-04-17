@@ -23,7 +23,6 @@ export function resolveBaseUrl(): string {
 
   if (!warnedMissingBaseUrl) {
     warnedMissingBaseUrl = true;
-    // eslint-disable-next-line no-console
     console.warn(
       `[gh-radar] NEXT_PUBLIC_API_BASE_URL 미설정 — 개발용 ${DEV_FALLBACK_BASE_URL} 로 fallback. Vercel/로컬 .env.local 에 Cloud Run URL 을 설정하세요.`,
     );

@@ -48,6 +48,9 @@ export function UserSection() {
    */
   const renderAvatar = (sizeClass: "size-8" | "size-10") =>
     showImage ? (
+      // next/image 대신 <img> — 외부 provider (Google / Kakao 등) avatar URL 은 domain 화이트리스트
+      // 관리 비용이 이득 대비 커서 눈에 띄지 않는 소형 아바타에는 <img> 채택.
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={avatarUrl}
         alt=""

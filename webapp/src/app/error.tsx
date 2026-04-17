@@ -19,7 +19,6 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     // 로컬 디버깅 보조용. Sentry 등은 v2 에서 연결.
-    // eslint-disable-next-line no-console
     console.error('[gh-radar] App error boundary:', error);
   }, [error]);
 

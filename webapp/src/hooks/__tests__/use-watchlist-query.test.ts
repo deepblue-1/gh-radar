@@ -5,7 +5,6 @@ import {
   vi,
   beforeEach,
   afterEach,
-  type Mock,
 } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 
@@ -31,7 +30,6 @@ vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({}),
 }));
 
-// eslint-disable-next-line import/first -- vi.mock hoist 이후 import
 import { useWatchlistQuery } from '../use-watchlist-query';
 
 describe('useWatchlistQuery', () => {
