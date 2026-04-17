@@ -84,7 +84,7 @@ check "INV-5 Supabase news_articles row exists (>=0, sanity)" bash -c "
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Prefer: count=exact\" \
-    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range')
+    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range' | tr -d '\r')
   TOTAL=\$(echo \"\$RANGE_HEADER\" | grep -oE '[0-9]+\$')
   echo \"news_articles total: \$TOTAL\"
   [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -ge 0 ]
