@@ -196,6 +196,23 @@ Plans:
 - [x] 07-06-PLAN.md — Wave 3 IAM + deploy 스크립트 + server 재배포 + Playwright E2E(news.spec.ts 6건) + [BLOCKING] GCP 실배포 + DEPLOY-LOG
 **UI hint**: yes
 
+### Phase 07.1: news content ingestion enhancement — description 저장 (INSERTED)
+
+**Goal**: news_articles 에 description 컬럼을 추가하고 news-sync worker 가 Naver API 의 description 스니펫을 stripHtml 후 저장하여 Phase 9 AI 요약의 입력 데이터를 확보한다
+**Depends on**: Phase 7
+**Requirements**: NEWS-01 (enhancement)
+**Success Criteria** (what must be TRUE):
+  1. news_articles.description (text nullable) 컬럼이 Supabase 프로덕션 DB 에 존재한다
+  2. news-sync worker 가 신규 수집 시 stripHtml 처리된 description 을 upsert 한다
+  3. 기존 1,103 행은 description=NULL 로 유지 (또는 nightly refill — planner 재량)
+  4. 기존 UPSERT idempotency (ON CONFLICT DO NOTHING) 유지 — description 변경이 content_hash 에 영향 없음 확인
+  5. server/webapp/worker 전 워크스페이스 test + typecheck + build green
+**Rationale**: 2026-04-17 Naver API 실측 — description 평균 126자, 유니크 주제 4-5개/20건 → 트레이더 핵심 정보 70-80% 커버. URL 원문 scraping 은 본 phase 범위 아님 (Phase 9 POC 후 재검토).
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 07.1 to break down)
+
 ### Phase 8: Discussion Board
 **Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 2, Phase 6
@@ -204,12 +221,19 @@ Plans:
   1. 종목 상세 페이지에서 해당 종목의 네이버 토론방 게시글 목록이 표시된다
   2. 데이터는 on-demand로 요청되며 5~10분 캐싱으로 불필요한 스크래핑이 방지된다
   3. 스크래핑 결과가 discussions 테이블에 저장된다
-**Plans**: TBD
+**Plans:** 7 plans (4 waves)
+- [ ] 08-00-poc-proxy-dom-PLAN.md — Wave 0 POC 프록시 서비스 선정 + DOM selector 실증 + body fetch 경로 확정 + naver-board-fixtures.ts 캡처
+- [ ] 08-01-shared-types-scaffold-PLAN.md — Wave 0 packages/shared Discussion 타입 + discussion-sanitize 3 함수 + workers/discussion-sync 스캐폴드 + 테스트 스텁
+- [ ] 08-02-discussion-sync-worker-PLAN.md — Wave 1 workers/discussion-sync 워커 (프록시 client + cheerio parser + body fetch + UPSERT DO UPDATE + retention 90일 + 예산 카운터)
+- [ ] 08-03-server-discussion-routes-PLAN.md — Wave 1 server GET/POST discussions 라우트 (Zod + 캐시 TTL 10분 + 쿨다운 30초 + 스팸 필터 D11 + integration test)
+- [ ] 08-04-webapp-discussion-section-PLAN.md — Wave 2 StockDiscussionSection + DiscussionItem + DiscussionRefreshButton + DiscussionEmptyState + DiscussionListSkeleton + stock-detail-client.tsx 교체
+- [ ] 08-05-webapp-discussion-page-PLAN.md — Wave 2 /stocks/[code]/discussions 풀페이지 Compact 3열 표 형식 (Next 15 use(params))
+- [ ] 08-06-deploy-and-e2e-PLAN.md — Wave 3 IAM + deploy 스크립트 + server 재배포 + Playwright E2E 6+ spec + smoke + DEPLOY-LOG
 **UI hint**: yes
 
 ### Phase 9: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
-**Depends on**: Phase 7, Phase 8
+**Depends on**: Phase 7, Phase 7.1, Phase 8
 **Requirements**: NEWS-02, DISC-02
 **Success Criteria** (what must be TRUE):
   1. 종목 상세 페이지의 뉴스 섹션에 Claude Haiku가 생성한 뉴스 요약이 표시된다
