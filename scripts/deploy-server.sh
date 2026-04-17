@@ -60,6 +60,17 @@ for SECRET in gh-radar-kis-app-key gh-radar-kis-app-secret; do
 done
 echo "✓ KIS secret accessor bound for server SA"
 
+# Phase 07 Plan 06 — Naver secret accessor 바인딩 (server POST /refresh 경로용)
+# 주의: 주 바인딩은 scripts/setup-news-sync-iam.sh 가 담당. 여기는 안전망 (idempotent).
+for SECRET in NAVER_CLIENT_ID NAVER_CLIENT_SECRET; do
+  if gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    gcloud secrets add-iam-policy-binding "$SECRET" \
+      --member="serviceAccount:${DEFAULT_SA}" \
+      --role=roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+  fi
+done
+echo "✓ Naver secret accessor bound for server SA (idempotent)"
+
 # ═══════════════════════════════════════════════════════════════
 # Section 3: Build (amd64 강제, GIT_SHA 주입)
 # ═══════════════════════════════════════════════════════════════
@@ -95,8 +106,8 @@ gcloud run deploy "$SERVICE" \
   --min-instances=1 \
   --max-instances=3 \
   --timeout=300s \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@APP_VERSION=${SHA}" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest"
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}" \
+  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Smoke
