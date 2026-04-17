@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Frontend Scaffold** - Next.js 앱 구축 및 Vercel 배포
 - [ ] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
 - [ ] **Phase 6: Stock Search & Detail** - 종목 검색 자동완성 + 상세 페이지
-- [ ] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
+- [x] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
 - [ ] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
 - [ ] **Phase 9: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
 
@@ -187,13 +187,13 @@ Plans:
   1. 종목 상세 페이지에서 해당 종목 관련 뉴스 목록이 표시된다
   2. 뉴스 항목에 제목, 출처, 날짜가 표시되며 원문 링크가 작동한다
   3. Naver Search API 25,000 calls/day 한도 내에서 뉴스가 수집된다
-**Plans:** 6 plans (4 waves)
-- [ ] 07-01-PLAN.md — Wave 0 Supabase 마이그레이션(api_usage + idx_news_created_at) + packages/shared news-sanitize + 테스트 스텁 인프라 + [BLOCKING] supabase db push
-- [ ] 07-02-PLAN.md — Wave 1 workers/news-sync worker (naver client + sanitize pipeline + apiUsage RPC + retention + p-limit + unit/integration tests)
-- [ ] 07-03-PLAN.md — Wave 1 server 라우트 GET/POST (Zod clamp + 30s cooldown + naverClient 주입 + CORS Retry-After + supertest)
-- [ ] 07-04-PLAN.md — Wave 2 webapp UI 컴포넌트 6종 + fetchStockNews/refreshStockNews + StockDetailClient 교체 + StockHero ← 링크 + ApiClientError.details
-- [ ] 07-05-PLAN.md — Wave 2 /stocks/[code]/news 페이지 (Next 15 use(params) + 7일/하드캡 100 + ← back-nav)
-- [ ] 07-06-PLAN.md — Wave 3 IAM + deploy 스크립트 + server 재배포 + Playwright E2E(news.spec.ts 6건) + [BLOCKING] GCP 실배포 + DEPLOY-LOG
+**Plans:** 6 plans (4 waves) — **Completed 2026-04-17**
+- [x] 07-01-PLAN.md — Wave 0 Supabase 마이그레이션(api_usage + idx_news_created_at) + packages/shared news-sanitize + 테스트 스텁 인프라 + [BLOCKING] supabase db push
+- [x] 07-02-PLAN.md — Wave 1 workers/news-sync worker (naver client + sanitize pipeline + apiUsage RPC + retention + p-limit + unit/integration tests)
+- [x] 07-03-PLAN.md — Wave 1 server 라우트 GET/POST (Zod clamp + 30s cooldown + naverClient 주입 + CORS Retry-After + supertest)
+- [x] 07-04-PLAN.md — Wave 2 webapp UI 컴포넌트 6종 + fetchStockNews/refreshStockNews + StockDetailClient 교체 + StockHero ← 링크 + ApiClientError.details
+- [x] 07-05-PLAN.md — Wave 2 /stocks/[code]/news 페이지 (Next 15 use(params) + 7일/하드캡 100 + ← back-nav)
+- [x] 07-06-PLAN.md — Wave 3 IAM + deploy 스크립트 + server 재배포 + Playwright E2E(news.spec.ts 6건) + [BLOCKING] GCP 실배포 + DEPLOY-LOG
 **UI hint**: yes
 
 ### Phase 8: Discussion Board

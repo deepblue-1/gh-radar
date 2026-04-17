@@ -34,7 +34,7 @@
 
 ### News
 
-- [ ] **NEWS-01**: 종목별 관련 뉴스 목록 표시 (Naver Search API 활용)
+- [x] **NEWS-01**: 종목별 관련 뉴스 목록 표시 (Naver Search API 활용)
 - [ ] **NEWS-02**: AI 뉴스 요약 생성 (Claude Haiku, content-hash 캐싱)
 
 ### Discussion
@@ -111,7 +111,7 @@
 | AUTH-01 | Phase 6.2 | Deferred |
 | AUTH-02 | Phase 6.2 | Partial (Google 완료, Kakao 별도) |
 | PERS-01 | Phase 6.2 | Complete |
-| NEWS-01 | Phase 7 | Pending |
+| NEWS-01 | Phase 7 | Complete |
 | DISC-01 | Phase 8 | Pending |
 | NEWS-02 | Phase 9 | Pending |
 | DISC-02 | Phase 9 | Pending |
