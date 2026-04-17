@@ -36,6 +36,11 @@ export interface ApiClientErrorOptions {
   status: number;
   requestId?: string;
   cause?: unknown;
+  /**
+   * 서버 envelope 의 부가 필드. 본 Phase 에서는 429 응답의 `retry_after_seconds` 를
+   * `{ retry_after_seconds: number }` 로 보존하는 용도로 사용.
+   */
+  details?: unknown;
 }
 
 /**
@@ -44,18 +49,21 @@ export interface ApiClientErrorOptions {
  *   (`TIMEOUT` / `NETWORK_ERROR` / `HTTP_<status>`)
  * - `status`: HTTP status. 네트워크/타임아웃인 경우 0
  * - `requestId`: 서버가 `X-Request-Id` 헤더에 실어 보낸 요청 ID (있을 때만)
+ * - `details`: envelope 의 non-standard 필드 (e.g. `retry_after_seconds`) 보존용
  */
 export class ApiClientError extends Error {
   readonly code: string;
   readonly status: number;
   readonly requestId?: string;
+  readonly details?: unknown;
 
-  constructor({ code, message, status, requestId, cause }: ApiClientErrorOptions) {
+  constructor({ code, message, status, requestId, cause, details }: ApiClientErrorOptions) {
     super(message, cause !== undefined ? { cause } : undefined);
     this.name = 'ApiClientError';
     this.code = code;
     this.status = status;
     this.requestId = requestId;
+    this.details = details;
   }
 }
 
@@ -131,14 +139,21 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   if (!response.ok) {
     let code = `HTTP_${response.status}`;
     let message = response.statusText || '요청이 실패했습니다';
+    let details: unknown = undefined;
     try {
-      const body = (await response.json()) as Partial<ApiErrorBody> | undefined;
+      const body = (await response.json()) as
+        | (Partial<ApiErrorBody> & { retry_after_seconds?: number })
+        | undefined;
       if (body?.error?.code) code = body.error.code;
       if (body?.error?.message) message = body.error.message;
+      if (typeof body?.retry_after_seconds === 'number') {
+        // 429 envelope 의 retry_after_seconds 를 details 에 보존 — UI 카운트다운에 사용.
+        details = { retry_after_seconds: body.retry_after_seconds };
+      }
     } catch {
       // envelope 파싱 실패 — 기본 코드/메시지 유지
     }
-    throw new ApiClientError({ code, message, status: response.status, requestId });
+    throw new ApiClientError({ code, message, status: response.status, requestId, details });
   }
 
   try {
