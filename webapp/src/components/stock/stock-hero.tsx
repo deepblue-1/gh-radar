@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { Stock } from '@gh-radar/shared';
 import { Badge } from '@/components/ui/badge';
 import { Number as NumberDisplay } from '@/components/ui/number';
@@ -24,6 +25,13 @@ export function StockHero({ stock }: StockHeroProps) {
   return (
     <section className="space-y-6" aria-label="종목 개요">
       <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href="/"
+          aria-label="목록으로 돌아가기"
+          className="inline-flex items-center text-[length:var(--t-h2)] text-[var(--muted-fg)] hover:text-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm py-2 pr-1"
+        >
+          ←
+        </Link>
         <h1 className="text-[length:var(--t-h2)] font-semibold tracking-[-0.01em] text-[var(--fg)]">
           {stock.name}
         </h1>
