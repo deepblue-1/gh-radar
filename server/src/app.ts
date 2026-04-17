@@ -16,6 +16,7 @@ import { stocksRouter } from "./routes/stocks.js";
 export type AppDeps = {
   supabase: SupabaseClient;
   kisClient?: AxiosInstance; // 옵션 — 테스트 시 미주입 가능
+  naverClient?: AxiosInstance; // 옵션 — ENV 미설정 시 undefined 로 시작, POST /refresh 만 503
 };
 
 export function createApp(deps: AppDeps): Express {
@@ -27,6 +28,7 @@ export function createApp(deps: AppDeps): Express {
   // deps 주입 (라우터가 req.app.locals 로 접근)
   app.locals.supabase = deps.supabase;
   app.locals.kisClient = deps.kisClient;
+  app.locals.naverClient = deps.naverClient;
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());

@@ -11,8 +11,12 @@ import {
 import { fetchInquirePrice } from "../kis/inquirePrice.js";
 import { ApiError, StockNotFound } from "../errors.js";
 import { logger } from "../logger.js";
+import { newsRouter } from "./news.js";
 
 export const stocksRouter: RouterT = Router();
+
+// 중첩 라우터: GET /api/stocks/:code/news, POST /api/stocks/:code/news/refresh
+stocksRouter.use("/:code/news", newsRouter);
 
 const MASTER_COLS =
   "code,name,market,sector,security_type,listing_date,is_delisted,updated_at";

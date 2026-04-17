@@ -1,3 +1,4 @@
+import axios from "axios";
 import { createApp } from "./app.js";
 import { supabase } from "./services/supabase.js";
 import { logger } from "./logger.js";
@@ -16,7 +17,27 @@ try {
   );
 }
 
-const app = createApp({ supabase, kisClient });
+// Naver Search API client — NAVER_CLIENT_ID/SECRET 미설정 시 undefined
+// (graceful degradation: POST /api/stocks/:code/news/refresh 만 503 NAVER_UNAVAILABLE)
+const naverClient =
+  config.naverClientId && config.naverClientSecret
+    ? axios.create({
+        baseURL: config.naverBaseUrl,
+        timeout: 15000,
+        headers: {
+          "X-Naver-Client-Id": config.naverClientId,
+          "X-Naver-Client-Secret": config.naverClientSecret,
+          Accept: "application/json",
+        },
+      })
+    : undefined;
+if (!naverClient) {
+  logger.warn(
+    "NAVER_CLIENT_ID/SECRET not set — POST /news/refresh will return 503",
+  );
+}
+
+const app = createApp({ supabase, kisClient, naverClient });
 
 app.listen(config.port, () => {
   logger.info(

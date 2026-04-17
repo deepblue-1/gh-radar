@@ -9,6 +9,10 @@ export type AppConfig = {
   kisBaseUrl: string;
   kisAppKey: string;
   kisAppSecret: string;
+  naverClientId: string | undefined;
+  naverClientSecret: string | undefined;
+  naverBaseUrl: string;
+  naverDailyBudget: number;
 };
 
 export function loadConfig(): AppConfig {
@@ -28,5 +32,10 @@ export function loadConfig(): AppConfig {
     kisBaseUrl: process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443",
     kisAppKey: get("KIS_APP_KEY"),
     kisAppSecret: get("KIS_APP_SECRET"),
+    // Naver Search API — 선택. 미설정 시 server.ts 가 naverClient=undefined 로 시작.
+    naverClientId: process.env.NAVER_CLIENT_ID,
+    naverClientSecret: process.env.NAVER_CLIENT_SECRET,
+    naverBaseUrl: process.env.NAVER_BASE_URL ?? "https://openapi.naver.com",
+    naverDailyBudget: Number(process.env.NAVER_DAILY_BUDGET ?? "24500"),
   };
 }
