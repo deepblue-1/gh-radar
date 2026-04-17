@@ -11,6 +11,7 @@ import { StockHero } from './stock-hero';
 import { StockStatsGrid } from './stock-stats-grid';
 import { ComingSoonCard } from './coming-soon-card';
 import { StockDetailSkeleton } from './stock-detail-skeleton';
+import { StockNewsSection } from './stock-news-section';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -136,11 +137,8 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
           최근 갱신 실패: {error.message}
         </p>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-        <ComingSoonCard
-          title="관련 뉴스"
-          body="Phase 7 로드맵에서 제공됩니다."
-        />
+      <div className="space-y-6">
+        <StockNewsSection stockCode={stock.code} />
         <ComingSoonCard
           title="종목토론방"
           body="Phase 8 로드맵에서 제공됩니다."

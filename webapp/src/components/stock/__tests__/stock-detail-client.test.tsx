@@ -10,8 +10,13 @@ import { FIXTURE_SAMSUNG } from '@/__tests__/fixtures/stocks';
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
 }));
+// Phase 07 Plan 04: StockDetailClient 가 내부에서 StockNewsSection 을 렌더하므로
+// 같은 모듈의 fetchStockNews / refreshStockNews 도 함께 stub 해야 한다. 본 스펙은
+// StockDetailClient 고유 동작만 검증하므로 뉴스 API 는 빈 배열을 즉시 resolve.
 vi.mock('@/lib/stock-api', () => ({
   fetchStockDetail: vi.fn(),
+  fetchStockNews: vi.fn().mockResolvedValue([]),
+  refreshStockNews: vi.fn().mockResolvedValue([]),
 }));
 
 const mockFetch = vi.mocked(fetchStockDetail);
@@ -32,7 +37,7 @@ describe('StockDetailClient', () => {
     expect(signal).toBeInstanceOf(AbortSignal);
   });
 
-  it('Test 2 — fetch resolve 후 Hero/Stats/ComingSoon 렌더', async () => {
+  it('Test 2 — fetch resolve 후 Hero/Stats/StockNewsSection/ComingSoonCard(종목토론방) 렌더', async () => {
     mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
     render(<StockDetailClient code="005930" />);
 
@@ -41,11 +46,14 @@ describe('StockDetailClient', () => {
     });
     expect(screen.getByText('005930')).toBeInTheDocument();
     expect(screen.getByText('KOSPI')).toBeInTheDocument();
-    expect(screen.getByText('관련 뉴스')).toBeInTheDocument();
+    // Phase 07 Plan 04: 관련 뉴스 placeholder → StockNewsSection 으로 교체.
+    // StockNewsSection 은 'use client' + 내부 fetchStockNews 호출 (테스트는 빈 배열 stub)
+    // → 빈 상태 (NewsEmptyState) 또는 정상 리스트 중 최소 하나의 판별 문구 렌더.
+    await waitFor(() =>
+      expect(screen.getByText('아직 수집된 뉴스가 없어요')).toBeInTheDocument(),
+    );
+    // 종목토론방 자리는 여전히 ComingSoonCard.
     expect(screen.getByText('종목토론방')).toBeInTheDocument();
-    expect(
-      screen.getByText('Phase 7 로드맵에서 제공됩니다.'),
-    ).toBeInTheDocument();
     expect(
       screen.getByText('Phase 8 로드맵에서 제공됩니다.'),
     ).toBeInTheDocument();
