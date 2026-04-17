@@ -1,7 +1,8 @@
 ---
 phase: 08
 slug: discussion-board
-status: draft
+status: approved
+reviewed_at: 2026-04-17T00:00:00+09:00
 shadcn_initialized: true
 preset: radix-nova (manual — globals.css Toss 팔레트 override)
 created: 2026-04-17
