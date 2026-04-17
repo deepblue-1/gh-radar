@@ -3,15 +3,21 @@ phase: 08
 slug: discussion-board
 status: approved
 reviewed_at: 2026-04-17T00:00:00+09:00
+revised_at: 2026-04-17T00:00:00+09:00
 shadcn_initialized: true
 preset: radix-nova (manual — globals.css Toss 팔레트 override)
 created: 2026-04-17
+layout_decisions:
+  - section: variant="card" (UI-SPEC Default 그대로) — 2026-04-17 사용자 확정
+  - page: variant="full" Compact 표 형식 확정 (3열 grid 1fr/140px/120px, 제목·preview line-clamp-1) — 2026-04-17 사용자 확정
 source_of_truth:
   - .planning/phases/08-discussion-board/08-CONTEXT.md (D1~D12)
   - .planning/phases/07-news-ingestion/07-UI-SPEC.md (복제 기준)
   - .planning/phases/03-design-system/03-UI-SPEC.md §4.4 (Page Back Nav)
   - webapp/src/styles/globals.css (§9 토큰)
   - webapp/components.json (shadcn preset/registries)
+  - /tmp/gh-radar-mockups/08-discussion-board/section-02-default.html (section 시각 참조)
+  - /tmp/gh-radar-mockups/08-discussion-board/page-01-compact.html (page 시각 참조)
 ---
 
 # Phase 08 — UI Design Contract
@@ -54,7 +60,9 @@ Declared values (multiples of 4, 기존 `--s-*` 토큰 그대로):
 | `--s-10` | 64px | empty state 컨테이너 min-height 확장 시 상한 |
 
 Exceptions:
-- **토론 항목 터치 타겟**: 제목 전체가 `<a>` 이므로 행 높이 **최소 56px** (WCAG 2.5.5 AA 44px 초과). 제목 1줄(20px) + body preview 2줄 clamp(약 36~40px) + `py-3` (12px × 2) = 약 80~92px 확보. 뉴스보다 행 높이가 큰 이유: 본문 preview 추가(D5).
+- **상세 Card 토론 항목 터치 타겟** (variant="card"): 제목 전체가 `<a>` 이므로 행 높이 **최소 56px** (WCAG 2.5.5 AA 44px 초과). 제목 2줄 clamp + body preview 2줄 clamp + 메타 행 + `py-3` (12px × 2) = 약 80~92px 확보. 뉴스보다 행 높이가 큰 이유: 본문 preview 추가(D5).
+- **`/discussions` 풀페이지 토론 항목 터치 타겟** (variant="full"): **Compact 표 형식 확정** — 3열 그리드(제목+preview 셀 / 작성자 / 시간) 행 높이 **최소 44px** (WCAG 2.5.5 AA 기준값). 제목·preview 모두 **1줄 clamp**, `py-2` (8px × 2) + line-height 합산 44~52px. 모바일 `<720px` 는 수직 스택 전환(제목 → preview → 작성자+시간)하되 행 높이 48px+ 유지. 상세 섹션과의 차별 근거: 대량 스캔(최대 50건) 용도이므로 밀도 우선 — 상세 Card 의 몰입 읽기 스타일과 구분.
+- **`/discussions` 컬럼 헤더** (Compact 전용): 목록 상단에 caption uppercase `제목` / `작성자` / `시간` 헤더 row — `py-2` 높이, `border-bottom: var(--border)` 로 본문과 분리. 모바일에서는 `display:none` 으로 숨김.
 - **섹션 전용 새로고침 버튼**: `size="sm"` (32×32 icon-only) — Card 헤더 우측 inline 배치. Phase 7 규칙 계승 — Card 헤더 영역 전용(행 밀도와 무관).
 - **"더보기" 링크**: 좌우 padding 없는 text-only link, 수직 44px 터치 타겟 (line-height + 상하 `py-2`).
 - **빈 상태 아이콘**: `size-10` (40px) — `--s-*` 스케일 외 아이콘 전용 크기(Phase 7 NewsEmptyState 패턴 계승). Tailwind `size-10` util 로 정렬.
@@ -67,8 +75,8 @@ Exceptions:
 
 | Role | Token | Size | Weight | Line Height | Usage (Phase 8 범위) |
 |------|-------|------|--------|-------------|----------------------|
-| Caption | `--t-caption` | 12px | 400 regular (기본) / 600 semibold (시각 강조) | `--lh-tight` 1.2 | 토론 항목 메타 (절대시간 `MM/DD HH:mm` KST · 작성자 닉네임 · host prefix), 더보기 링크 부수 텍스트, empty state 보조 문구 |
-| Body SM | `--t-sm` | 14px | 400 regular / 600 semibold | `--lh-normal` 1.5 | 토론 항목 **제목 (2줄 clamp)**, 토론 항목 **본문 preview (2줄 clamp, regular weight)**, 빈 상태 설명, 에러 메시지, 더보기 링크, 새로고침 버튼 sr-only label |
+| Caption | `--t-caption` | 12px | 400 regular (기본) / 600 semibold (uppercase 컬럼 헤더 · 시각 강조) | `--lh-tight` 1.2 | 토론 항목 메타 (절대시간 KST · 작성자 닉네임), 더보기 링크 부수 텍스트, empty state 보조 문구, **`/discussions` 컬럼 헤더 `제목/작성자/시간`** (uppercase + `letter-spacing:0.04em`), **`/discussions` Compact row 의 본문 preview 1줄(--muted-fg)** |
+| Body SM | `--t-sm` | 14px | 400 regular / 600 semibold | `--lh-normal` 1.5 | 토론 항목 **제목** (상세 Card: 2줄 clamp · `/discussions`: 1줄 clamp), **상세 Card 본문 preview (2줄 clamp, regular, muted-fg)**, 빈 상태 설명, 에러 메시지, 더보기 링크, 새로고침 버튼 sr-only label |
 | Body | `--t-base` | 16px | 400 regular / 600 semibold (empty state heading) | `--lh-normal` 1.5 | Empty state heading (뉴스 패턴 계승 `--t-base semibold`) |
 | Heading H3 | `--t-h3` | 20px | 600 semibold | `--lh-tight` 1.2 | "종목토론방" Card 제목, `/discussions` 페이지 `<h1>` |
 
@@ -76,9 +84,12 @@ Exceptions:
 
 **Mono utility:** 절대시간 타임스탬프(`MM/DD HH:mm`, `YYYY-MM-DD HH:mm`)는 `.mono` utility 필수 — `Geist Mono` + `tabular-nums` + `ss01 slashed-zero`. 자릿수 정렬로 스캔 용이성 확보. 작성자 닉네임은 mono 아님(한글 가독성).
 
-**한글 처리:** 토론 제목·본문 preview 모두 globals.css `html[lang="ko"] word-break: keep-all` 상속 — 단어 단위 줄바꿈. `line-clamp-2` 로 2줄 초과 시 ellipsis.
+**한글 처리:** 토론 제목·본문 preview 모두 globals.css `html[lang="ko"] word-break: keep-all` 상속 — 단어 단위 줄바꿈. 상세 Card 는 `line-clamp-2`, `/discussions` 풀페이지(Compact 확정)는 `line-clamp-1` 로 초과분 ellipsis.
 
-**본문 preview 특별 규칙:** `line-clamp-2` 는 2줄 초과분에 ellipsis 적용. `color: var(--muted-fg)` 로 제목(`--fg`)과 대비. `word-break: keep-all` + CSS `overflow-wrap: anywhere` 병기(`/discussions` 풀페이지에서 긴 URL 삽입 글 대비) — 실행자 재량, 기본 구현은 `line-clamp-2` 만.
+**본문 preview 특별 규칙:**
+- 상세 Card (variant="card"): `line-clamp-2` · 14px `--t-sm` · `color: var(--muted-fg)`.
+- `/discussions` 풀페이지 (variant="full", Compact 확정): `line-clamp-1` · 12px `--t-caption` · `color: var(--muted-fg)` · 제목 바로 아래 보조 라인.
+- 공통: `word-break: keep-all` 상속. `overflow-wrap: anywhere` 는 `/discussions` 풀페이지에서 긴 URL 삽입 글 대비 권장(실행자 재량).
 
 ---
 
@@ -175,12 +186,12 @@ Exceptions:
 | Component | Path | 책임 |
 |-----------|------|------|
 | `StockDiscussionSection` | `webapp/src/components/stock/stock-discussion-section.tsx` | 상세 페이지 "종목토론방" Card. 자체 fetch/refresh/stale state 소유 — **부모(StockDetailClient)와 독립된 라이프사이클** (CONTEXT D1: 섹션별 독립 새로고침). mount 시 `fetchStockDiscussions(code, { hours: 24, limit: 5 })` 호출, 내부 `<DiscussionItem />` 5개 렌더, 하단 "전체 토론 보기 →" 링크. **복제 기준: Phase 7 `stock-news-section.tsx`** — 구조 70~80% 동일, 차이점: 아이콘(MessageSquare), copy(토론방), scope(24h/5), 추가 stale 상태 오케스트레이션(D7). |
-| `DiscussionItem` | `webapp/src/components/stock/discussion-item.tsx` | 개별 토론 글 행. 제목 `<a target="_blank" rel="noopener noreferrer">` + **본문 preview (line-clamp-2 muted-fg)** + 메타(작성자 · 절대시간). 2가지 variant: `variant="card"` (상세 페이지 — 제목 위 + preview 2줄 + 메타 3열 grid: 작성자 · 시간 · hidden source), `variant="full"` (`/discussions` 페이지 — 제목 + preview + 메타 컬럼형). Phase 7 `NewsItem` 과 유사하지만 **본문 preview 2줄 추가**·**작성자 필드 추가**·**source 컬럼 제거(네이버 단일 출처)**. |
+| `DiscussionItem` | `webapp/src/components/stock/discussion-item.tsx` | 개별 토론 글 행. 제목 `<a target="_blank" rel="noopener noreferrer">` + 본문 preview + 메타(작성자 · 절대시간). 2가지 variant: **`variant="card"`** (상세 페이지 — 세로 flex: 제목 2줄 clamp + preview 2줄 clamp muted-fg + 메타 inline(작성자 · `MM/DD HH:mm` mono), `py-3 min-h-14`), **`variant="full"`** (`/discussions` 페이지 Compact — 3열 grid `1fr 140px 120px`: 제목 셀(제목 1줄 clamp + preview 1줄 clamp `--t-caption` muted-fg) · 작성자 셀(1줄 ellipsis) · 시간 셀(풀포맷 `YYYY-MM-DD HH:mm` mono 우측정렬), `py-2 min-h-11`. 모바일 `<720px`: `grid-template-areas: "title time" "preview author"` 로 전환). |
 | `DiscussionRefreshButton` | `webapp/src/components/stock/discussion-refresh-button.tsx` | 쿨다운 상태 관리 — props: `onRefresh`, `isRefreshing`, `cooldownSeconds`. 내부: `RefreshCw` + 카운트다운 tick. icon-only `size="sm" variant="outline"`. **복제 기준: Phase 7 `news-refresh-button.tsx`** — aria-label copy 만 "뉴스 새로고침" → "토론방 새로고침" 교체. 공통 추상화(`RefreshButton` + prop `kind`)는 Deferred(CONTEXT "섹션 컴포넌트 공통 추상화" 항목). |
 | `DiscussionEmptyState` | `webapp/src/components/stock/discussion-empty-state.tsx` | 토론 0건 empty state. `MessageSquareOff` 또는 `Inbox` 아이콘(size-10 muted-fg) + heading + body + primary "토론방 새로고침" CTA. `role="status"` (Watchlist/News empty 계승). 쿨다운 중이면 CTA disabled + 카운트다운 inline. **복제 기준: Phase 7 `news-empty-state.tsx`**. |
-| `DiscussionListSkeleton` | `webapp/src/components/stock/discussion-list-skeleton.tsx` | 5행 (상세) / 10행 (`/discussions`) 분기. 각 행: **제목 라인 (`h-4 w-full`) + body preview 라인 2개(`h-3 w-11/12` + `h-3 w-2/3`) + 메타 라인(`h-3 w-32`)** + border-b. 뉴스 스켈레톤(2줄)과 달리 **4줄 구조** — 실제 행 높이(56px+) 반영. `skeleton-list` utility 로 shimmer stagger. |
+| `DiscussionListSkeleton` | `webapp/src/components/stock/discussion-list-skeleton.tsx` | **variant 분기 2종** — `variant="card"` (상세): 5행 × (제목 `h-4 w-full` + preview `h-3 w-11/12` + preview `h-3 w-2/3` + 메타 `h-3 w-32`) + `py-3 border-b` (4줄 ≈ 80px). `variant="full"` (`/discussions` Compact): 10행 × 3열 grid 스켈레톤 (제목 셀 `h-4 w-4/5` + preview `h-3 w-3/5` / 작성자 `h-3 w-24` / 시간 `h-3 w-28 ml-auto`) + `py-2 border-b` (2줄 ≈ 44px). `skeleton-list` utility 로 shimmer stagger 자동 적용. |
 | `DiscussionStaleBadge` | (선택) `webapp/src/components/stock/discussion-stale-badge.tsx` | D7 "X분 전 데이터" Badge 분리 — props: `scrapedAt: string`, `nowMs: number`. 내부에서 delta 계산 후 `"{N}분 전 데이터"` / `"{N}시간 전 데이터"` 렌더. `variant="secondary"` muted 톤. 실행자가 `StockDiscussionSection` 내부 인라인으로 작성해도 무방(분리 여부 planner 재량). |
-| `DiscussionPageClient` | `webapp/src/app/stocks/[code]/discussions/page.tsx` (or split `components/stock/discussion-page-client.tsx`) | `/stocks/[code]/discussions` 엔트리. Next 15 `use(params)` 패턴 + `'use client'` (`stock-detail-client`·`NewsPageClient` 선례 계승). `<header>` (03-UI-SPEC §4.4 Back Nav) + 테이블 헤더 + `<DiscussionItem variant="full">` × N (최근 7일 · 최대 50건). **새로고침 기능 없음** — 상세 페이지에서만 노출(사용자 멘탈 모델 단순화, 뉴스 패턴 동일). **복제 기준: Phase 7 `news-page-client.tsx`**. |
+| `DiscussionPageClient` | `webapp/src/app/stocks/[code]/discussions/page.tsx` (or split `components/stock/discussion-page-client.tsx`) | `/stocks/[code]/discussions` 엔트리. Next 15 `use(params)` 패턴 + `'use client'` (`stock-detail-client`·`NewsPageClient` 선례 계승). 구조: `<header>` (03-UI-SPEC §4.4 Back Nav) → `<Card>` 컨테이너 → **컬럼 헤더 row (`제목` / `작성자` / `시간` caption uppercase, `border-b var(--border)`, md+ 에서만 표시 · 모바일 `display:none`)** → `<ul>` + `<DiscussionItem variant="full">` × N (최근 7일 · 최대 50건). **새로고침 기능 없음** — 상세 페이지에서만 노출(사용자 멘탈 모델 단순화, 뉴스 패턴 동일). **복제 기준: Phase 7 `news-page-client.tsx`** — 같은 3열 표 형식 패턴 재사용(단 출처 컬럼 → 작성자 컬럼 치환, 제목 셀에 preview 1줄 추가). |
 
 **수정 컴포넌트:**
 
@@ -242,11 +253,13 @@ Exceptions:
 **Phase 7 뉴스와 시각 차이점 요약:**
 | 항목 | 뉴스 (Phase 7) | 토론방 (Phase 8) |
 |------|----------------|------------------|
-| 행 구조 | 1줄 grid (제목/source/time) | 3줄 flex (제목/preview/meta) |
-| 행 최소 높이 | 44px | 56px (+preview 36~40px) |
-| 작성자 | 없음 (뉴스 source 는 출처 도메인) | @닉네임 표시 |
-| source 컬럼 | 있음 (hankyung/mk 등) | **없음** (네이버 단일 출처) |
-| 본문 preview | 없음 | line-clamp-2 muted |
+| 상세 Card 행 구조 | 1줄 grid (제목/source/time) | 3줄 flex (제목 2줄 clamp / preview 2줄 clamp / meta inline) |
+| 상세 Card 행 최소 높이 | 44px | 56px (+preview 36~40px) |
+| 풀페이지 행 구조 | 3열 grid (제목/출처/시간, 제목만 1줄) | **3열 grid (제목 셀[제목 1줄 + preview 1줄] / 작성자 / 시간)** |
+| 풀페이지 행 최소 높이 | 44px | 44px (Compact 확정 — 뉴스와 동일) |
+| 작성자 | 없음 (뉴스 source 는 출처 도메인) | @닉네임 표시 (풀페이지: 2번째 컬럼) |
+| source 컬럼 | 있음 (hankyung/mk 등) | **없음** (네이버 단일 출처, 작성자로 대체) |
+| 본문 preview | 없음 | 상세 Card: line-clamp-2 muted · 풀페이지: line-clamp-1 `--t-caption` muted |
 | 아이콘 | Newspaper | MessageSquare |
 | scope | 최근 7일 / 5개 (상세) · 100건 (풀) | 최근 24시간 / 5개 (상세) · 50건 하드캡 (풀) |
 
@@ -270,38 +283,65 @@ Exceptions:
 
 **포커스:** `focus-visible:ring-2 focus-visible:ring-[var(--ring)]` (globals.css 전역 ring 상속).
 
-### 3. `/stocks/[code]/discussions` 전체 페이지 (최근 7일 · 하드캡 50건)
+### 3. `/stocks/[code]/discussions` 전체 페이지 (최근 7일 · 하드캡 50건) — Compact 표 형식
+
+**레이아웃 결정 근거:** 2026-04-17 목업 비교 후 사용자 확정(`page-01-compact.html`). 대량 스캔(최대 50건) 용도이므로 **상세 Card 의 몰입 읽기 스타일과 차별화** — 3열 표형 고밀도 리스트 사용. 상세 섹션의 Default 2줄+2줄 구조는 재사용하지 않는다.
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│  AppShell (sidebar + header 기존 유지)                       │
-│  ┌─ main (p-6) ─────────────────────────────────────┐     │
-│  │ PageTitle (03-UI-SPEC §4.4 Back Nav):            │     │
-│  │  ← 삼성전자 — 최근 7일 토론       (h1, --t-h3)       │     │
-│  │                                                   │     │
-│  │ ┌─ List Container (Card, p-4) ────────────────┐ │     │
-│  │ │ ┌ DiscussionItem variant="full" ──────────┐ │ │     │
-│  │ │ │ 제목 line-clamp-2 fg                      │ │ │     │
-│  │ │ │ 본문 preview line-clamp-2 muted-fg         │ │ │     │
-│  │ │ │ @닉네임  ·  2026-04-17 14:32 (mono 풀포맷)  │ │ │     │
-│  │ │ └─────────────────────────────────────────┘ │ │     │
-│  │ │ ──── border-b var(--border-subtle) ────      │ │     │
-│  │ │ (N more rows — 최근 7일 내 전체, 최대 50건)    │ │     │
-│  │ └───────────────────────────────────────────────┘ │     │
-│  └───────────────────────────────────────────────────┘     │
-└───────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  AppShell (sidebar + header 기존 유지)                              │
+│  ┌─ main (max-w-[980px], p-6) ───────────────────────────────┐   │
+│  │ PageTitle (03-UI-SPEC §4.4 Back Nav):                      │   │
+│  │  ← 삼성전자 — 최근 7일 토론              (h1, --t-h3)         │   │
+│  │                                                             │   │
+│  │ ┌─ Card (p-2 py / p-4 px) ────────────────────────────┐   │   │
+│  │ │  [제목]                 [작성자]          [시간]       │   │   │
+│  │ │  (caption uppercase · border-b var(--border))         │   │   │
+│  │ │ ──────────────────────────────────────────────────── │   │   │
+│  │ │  제목 line-clamp-1 fg     @닉네임(140px)  2026-04-17  │   │   │
+│  │ │  preview line-clamp-1 muted-fg (--t-caption)   14:32  │   │   │
+│  │ │ ──── border-b var(--border-subtle) ────────────────── │   │   │
+│  │ │  (N more rows — 최근 7일 내 전체, 최대 50건, 행 44px+)  │   │   │
+│  │ └─────────────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**레이아웃 디테일:**
+**그리드 구조 (md+, `>=720px`):**
+- 각 행: `grid-template-columns: 1fr 140px 120px` (제목+preview 셀 · 작성자 셀 · 시간 셀)
+- 열 간 `gap: var(--s-3)` (12px)
+- 행: `display: grid; align-items: center; padding: var(--s-2); min-height: 44px; border-radius: var(--r-sm);`
+- 헤더 row: 동일 3열 + `font-size: var(--t-caption); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); border-bottom: 1px solid var(--border);`
+
+**제목 셀 내부 (2줄 수직 구조):**
+- 제목 `<span>`: `display: -webkit-box; -webkit-line-clamp: 1; font-size: var(--t-sm); font-weight: 600; color: var(--fg);`
+- 본문 preview `<p>`: `display: -webkit-box; -webkit-line-clamp: 1; margin: 0; font-size: var(--t-caption); color: var(--muted-fg); line-height: var(--lh-tight);`
+- 제목 ↔ preview 간 gap `2px`
+
+**작성자 셀:**
+- `font-size: var(--t-caption); color: var(--muted-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;` — 긴 닉네임은 ellipsis 로 절단.
+
+**시간 셀:**
+- `text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--t-caption); color: var(--muted-fg);`
+- 풀포맷 `YYYY-MM-DD HH:mm` KST (상세 Card 의 `MM/DD HH:mm` 과 차별)
+
+**모바일 `<720px` (반응형 분기):**
+- 컬럼 헤더 `display: none`
+- 행 그리드 재구성: `grid-template-columns: 1fr auto; grid-template-areas: "title time" "preview author";`
+- 시간은 우측 정렬, 작성자는 preview 아래 좌측, `row-gap: 2px;`
+- 모든 텍스트 동일한 line-clamp-1 유지 · 행 최소 높이 48px
+
+**기타 디테일:**
 - `<AppShell>` 내부 (사이드바/헤더 유지)
+- `<main className="mx-auto max-w-[980px] p-6">` — md+ 여유 폭 확보로 표 가독성 유지
 - PageTitle: **03-UI-SPEC §4.4 Page Back Nav 준수** — 별도 breadcrumb 줄 없음. h1 왼쪽에 ← 링크 (`href="/stocks/[code]"`, `aria-label="종목 상세로 돌아가기"`).
 - 제목 문구: `{종목명} — 최근 7일 토론` (상한 수치 노출하지 않음).
-- List: 단일 `Card` 컨테이너. 뉴스 풀페이지의 grid 헤더(제목/출처/날짜) 는 **토론방에는 없음** — 항목이 다줄 구조라 표 형식 부적합. 대신 **상단에 caption 라벨 생략, 항목만 나열**.
-- Row (variant="full"): 제목 line-clamp-2 + body preview line-clamp-2 + 메타 row(작성자 · 풀포맷 날짜). 상세 Card 와 행 구조 동일, 날짜만 `YYYY-MM-DD HH:mm` 로 확장.
-- 모바일 `<640px`: 동일 flex-col 구조 (그리드 전환 불필요 — 이미 수직 스택).
+- 리스트 컨테이너: 단일 `Card` · `padding: var(--s-2) var(--s-4)` (수직 8px / 수평 16px — 상세 Card `p-4` 보다 수직 타이트)
 - 페이지네이션 **없음**. 서버 "최근 7일 · posted_at DESC" 로 반환한 행 전체, 단 **서버 하드캡 50건** 적용(CONTEXT D6).
 
 **50건 초과 처리:** 단순 절단. "N+" 표시·페이지네이션 모두 없음(Phase 7 풀페이지 뉴스 100건 정책과 동일 철학).
+
+**뉴스 풀페이지와의 차이:** 뉴스 풀페이지도 3열 표 형식(제목/출처/시간)이었으나 토론방은 작성자 컬럼 대체 + 제목 셀에 preview 1줄 추가 · source 컬럼 제거. 컬럼 수는 동일(3열).
 
 **API:** `GET /api/stocks/:code/discussions?days=7&limit=50` (상세 Card 는 `?hours=24&limit=5` 유지 — CONTEXT D9).
 
@@ -336,10 +376,21 @@ Exceptions:
 
 ### 5. 로딩 상태 (DiscussionListSkeleton)
 
-- 상세 Card: 5행 × (**제목 라인 `h-4 w-full` + preview 라인 1 `h-3 w-11/12` + preview 라인 2 `h-3 w-2/3` + 메타 라인 `h-3 w-32`**)
-- `/discussions` 페이지: 10행 × 동일 구조
+**variant="card" (상세 Card):**
+- 5행 × (**제목 라인 `h-4 w-full` + preview 라인 1 `h-3 w-11/12` + preview 라인 2 `h-3 w-2/3` + 메타 라인 `h-3 w-32`**) — 4줄 구조 × 행 높이 ~80px
 - 각 행 `py-3 border-b border-[var(--border-subtle)] last:border-0 space-y-2`
-- `<div data-slot="skeleton" className="bg-[var(--muted)] animate-pulse rounded-sm">` × 4 per row
+
+**variant="full" (`/discussions` Compact):**
+- 10행 × 3열 grid `1fr 140px 120px` (md+) — 2줄 구조 × 행 높이 ~44px
+- 제목 셀: 제목 라인 `h-4 w-4/5` + preview 라인 `h-3 w-3/5` (vertical gap 2px)
+- 작성자 셀: `h-3 w-24`
+- 시간 셀: `h-3 w-28 ml-auto` (우측 정렬 mimic)
+- 컬럼 헤더 skeleton 불필요 — 실제 헤더 row 는 정적 caption 이라 즉시 렌더
+- 모바일 `<720px`: `grid-template-areas: "title time" "preview author"` 로 재배치 (skeleton 레이아웃도 실제 행과 동기화)
+- 각 행 `py-2 border-b border-[var(--border-subtle)] last:border-0`
+
+**공통:**
+- `<div data-slot="skeleton" className="bg-[var(--muted)] animate-pulse rounded-sm">`
 - 부모 `<ul className="skeleton-list divide-y divide-[var(--border-subtle)]">` — globals.css shimmer stagger 자동 적용
 - `prefers-reduced-motion` 시 shimmer 제거 + opacity 0.7 (globals.css §3.6 media query 자동)
 
@@ -454,7 +505,9 @@ Exceptions:
 - **날짜**: `<time dateTime="2026-04-17T14:32:00+09:00">04/17 14:32</time>` — machine-readable ISO 병기 (뉴스 패턴 동일).
 - **작성자**: 단순 `<span>` — 특별 aria 없음. `truncate max-w-[40%]` 로 긴 닉네임 절단. 네이버 익명 닉네임이라 개인정보 우려 낮음(CONTEXT "Claude's Discretion: 마스킹 여부 → 원본 권장").
 - **WCAG 2.5.5 AA 터치 타겟**:
-  - 토론 항목 행: `py-3` + 3줄(제목 · preview · 메타) = **56px 이상** 확보
+  - 상세 Card 토론 항목 행 (variant="card"): `py-3` + 3줄(제목 · preview · 메타) = **56px 이상** 확보
+  - `/discussions` 풀페이지 토론 항목 행 (variant="full", Compact): `py-2` + 2줄(제목+preview 수직 / 작성자 / 시간) = **44px 이상** 확보 (WCAG 기준값). 모바일 `<720px` 스택 전환 시 48px 이상.
+  - `/discussions` 컬럼 헤더 row: `py-2` 40px — 비-인터랙티브 caption 이므로 터치 타겟 요구 미해당
   - 새로고침 버튼: 32×32 (Card header 전용 예외, Phase 7 동일 규칙)
   - Empty state CTA: `size="default"` (36px)
   - 더보기 링크: `py-2 inline-block` (line-height + padding = 44px)
@@ -490,8 +543,9 @@ Phase 7 UI-SPEC 의 Deviation Guardrails 는 **Phase 8 에도 전부 적용**된
 4. **레이아웃 2열 복원 금지** — CONTEXT D12 에 따라 뉴스/토론방 섹션은 **항상 세로 스택**. md+ 에서도 2열로 되돌리지 않는다. `space-y-6` 컨테이너 구조 수정 금지(뉴스 섹션과 토론방 섹션의 **상대 순서는 뉴스 → 토론방**, 역전 금지).
 5. **"뉴스와 토론방 통합 새로고침" 구현 금지** — CONTEXT D1 "섹션별 독립 새로고침" 명시. 공통 버튼/훅으로 묶지 않기(공통 추상화는 Phase 8 완료 후 Deferred 리팩터 — CONTEXT Claude's Discretion §"섹션 컴포넌트 공통 추상화").
 6. **외부 링크 보안 속성 필수** — 모든 토론 원문 `<a>` 에 `target="_blank"` + `rel="noopener noreferrer"`. `rel` 누락 시 tabnabbing 취약점.
-7. **본문 preview 2줄 초과 표시 금지** — `line-clamp-2` 필수. 긴 본문은 ellipsis. CSS 로 강제(Tailwind `line-clamp-2`).
-8. **제목 2줄 초과 표시 금지** — 뉴스와 동일, `line-clamp-2` 필수.
+7. **본문 preview clamp 상한 준수** — 상세 Card (variant="card"): `line-clamp-2` 필수. `/discussions` 풀페이지 (variant="full", Compact 확정): `line-clamp-1` 필수 · 크기 `--t-caption` (12px) muted-fg. variant 간 상호 복제 금지(상세에 1줄 / 풀페이지에 2줄 사용 금지). 긴 본문은 CSS ellipsis 로 강제.
+8. **제목 clamp 상한 준수** — 상세 Card: `line-clamp-2` 필수. `/discussions` 풀페이지 Compact: `line-clamp-1` 필수. 상세와 풀페이지 값 혼용 금지.
+8a. **`/discussions` Compact 표 형식 준수** — 3열 grid `1fr 140px 120px` (md+ `>=720px`) · 컬럼 헤더 row(`제목 / 작성자 / 시간`, caption uppercase) 필수 · 모바일 `<720px` 에서는 헤더 `display:none` + `grid-template-areas: "title time" "preview author"` 로 전환. 상세 Card 의 세로 flex 구조로 되돌리지 않는다(사용자 확정 — 2026-04-17).
 9. **번호 인덱스 컬럼 도입 금지** — 토론 리스트에 `1. 2. 3.` 등 순번 prefix 표시하지 않는다 (뉴스 규칙 계승).
 10. **`/discussions` 리스트 상한 = 50건 하드캡** — 서버 `LIMIT 50` 적용. 50건 초과 시 "N+" 뱃지 등 표시 없이 단순 절단. 페이지네이션/무한스크롤 도입 금지 (CONTEXT Deferred).
 11. **03-UI-SPEC §4.4 Page Back Nav 준수 필수** — `/discussions` 페이지의 back-link 는 별도 breadcrumb 줄이 아닌 타이틀 인라인 `←` 형태. `router.back()` 금지, 명시적 `href="/stocks/[code]"` 사용, `aria-label="종목 상세로 돌아가기"` 필수.
@@ -518,14 +572,17 @@ Phase 8 완료 판정은 `08-CONTEXT.md §Verification Plan` 1-14 에 종속 —
 - [ ] 30초 이내 재클릭 → 버튼 disabled (UI 가드), 서버 `429 retry_after_seconds` 일치 확인
 - [ ] 토론 0건 종목 → DiscussionEmptyState 표시 + CTA "토론방 새로고침" 동일 쿨다운 규칙 적용
 - [ ] "전체 토론 보기" 클릭 → `/stocks/[code]/discussions` 이동 → 최근 7일 내 토론 전체(최대 50건)
+- [ ] `/discussions` 페이지 **3열 표 형식 확인** — 컬럼 헤더(`제목 / 작성자 / 시간`, uppercase caption) + 각 행 3열 grid (제목 셀은 제목 1줄 + preview 1줄 수직 스택, 작성자 셀 1줄, 시간 셀 우측정렬 mono)
 - [ ] `/discussions` 페이지 h1 왼쪽 `←` 링크 클릭 → 상세 복귀 (03-UI-SPEC §4.4 Back Nav 규칙)
 - [ ] `/discussions` 페이지에 새로고침 버튼 **없음** 확인
+- [ ] `/discussions` 페이지 행 높이 44px 이상 + 컬럼 헤더 row border-b 확인
+- [ ] `/discussions` 모바일 `<720px`: 컬럼 헤더 `display:none`, 각 행 `"title time" / "preview author"` 2행 그리드로 재배치, 행 높이 48px+ 유지
 - [ ] 번호 인덱스 컬럼이 리스트에 나타나지 않음을 확인
 - [ ] Stale 상태(>10분 데이터 + 재시도 실패) 진입 → "X분 전 데이터" Badge + 리스트 stale-but-visible 유지
 - [ ] 초기 로드 실패 + 캐시 없음 → 에러 Card `role="alert"` + 재시도 버튼 + 고정 copy "잠시 후 다시 시도해주세요." (서버 원문 비노출 확인)
 - [ ] 새로고침 실패(캐시 있음) → inline alert 3초 + 기존 리스트 유지
 - [ ] 스팸 필터: 제목 `<5자` 또는 URL 포함 게시글 UI 미노출 확인 (DB 에는 저장)
-- [ ] 모바일 `<md` 뷰포트: 세로 스택 유지, 터치 타겟 항목당 56px 이상, 새로고침 버튼 32px 예외 포커스 가시성 확보
+- [ ] 모바일 `<md` 뷰포트: 세로 스택 유지, 상세 Card 터치 타겟 56px 이상 / `/discussions` 행 48px 이상, 새로고침 버튼 32px 예외 포커스 가시성 확보
 - [ ] Dark mode: 배경/텍스트/border-subtle/stale Badge 모두 대비 WCAG AA 충족 (globals.css dark 토큰 자동)
 - [ ] axe E2E: 토론 Card 0건/5개/stale/에러 각 상태 a11y 위반 0건
 - [ ] Lighthouse: `/discussions` 페이지 Performance > 90, Accessibility > 95
