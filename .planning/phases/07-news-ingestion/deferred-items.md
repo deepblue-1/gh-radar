@@ -35,4 +35,32 @@ Discovered during execution but out of current task scope. Each item lists the s
 
 **우선순위:** Low (현재 미치는 실제 피해 없음, Plan 07-02 시작 시 해결)
 
+**상태 (Plan 07-06):** 여전히 미해결. Plan 07-02 에서 REVOKE 추가가 누락됐고, 본 Plan 7-06 는
+API/Scheduler/E2E 배포가 주목적이라 DB 마이그레이션 추가는 scope out. 실제 피해는 여전히 없음
+(api_usage 테이블 자체는 RLS 로 anon/authenticated deny + worker 만 service_role 로 호출).
+후속 Plan 또는 Phase 8 워크에서 아래 마이그레이션 추가 필요:
+```sql
+REVOKE ALL ON FUNCTION incr_api_usage(text, date, int) FROM anon, authenticated;
+```
+
+---
+
+## DI-02: `scripts/smoke-master-sync.sh` INV-4 헤더 파싱 CR 제거 누락
+
+**발견 위치:** Plan 07-06 Task 3 (news-sync smoke 작성 중 동일 패턴 비교)
+
+**현상:**
+- `scripts/smoke-master-sync.sh:71` 의 `TOTAL=$(echo "$RANGE_HEADER" | grep -oE '[0-9]+$')`
+  는 `content-range: 0-868/869\r` 의 trailing CR 때문에 `[0-9]+$` regex 매칭에 실패해
+  TOTAL 이 빈 문자열이 된다. 그 결과 INV-4 stocks count 체크가 항상 FAIL.
+- 실제 stocks 테이블에는 2800+ row 존재 (REST 쿼리로 확인) — 데이터는 정상.
+- 현재 master-sync 스모크는 이 invariant 가 silent FAIL 이지만 다른 INV 이 PASS 하므로
+  일상 운영에는 거의 드러나지 않음 (단, CI 에서 master-sync 배포 검증을 자동화할 때 걸림).
+
+**해결:**
+- `grep -i 'content-range' | tr -d '\r'` 로 파이프 확장 (본 Plan news-sync smoke 에서는 이미 적용).
+- 별도 PR 로 master-sync smoke 에도 동일 fix 적용 필요.
+
+**우선순위:** Medium (master-sync 배포 검증 정상화 필요, 실 데이터 문제는 아님)
+
 ---
