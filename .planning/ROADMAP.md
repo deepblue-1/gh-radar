@@ -208,10 +208,10 @@ Plans:
   4. 기존 UPSERT idempotency (ON CONFLICT DO NOTHING) 유지 — description 변경이 content_hash 에 영향 없음 확인
   5. server/webapp/worker 전 워크스페이스 test + typecheck + build green
 **Rationale**: 2026-04-17 Naver API 실측 — description 평균 126자, 유니크 주제 4-5개/20건 → 트레이더 핵심 정보 70-80% 커버. URL 원문 scraping 은 본 phase 범위 아님 (Phase 9 POC 후 재검토).
-**Plans:** 0 plans
+**Plans:** 1 plan (1 wave, [BLOCKING] supabase db push)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 07.1 to break down)
+- [ ] 07.1-01-PLAN.md — Wave 1 migration(ADD COLUMN) + shared NewsArticle 확장 + worker/server pipeline description 저장 + 기존 테스트 회귀 + [BLOCKING] supabase db push
 
 ### Phase 8: Discussion Board
 **Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
