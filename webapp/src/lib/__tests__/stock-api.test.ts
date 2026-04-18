@@ -14,7 +14,7 @@ vi.mock('../api', () => ({
 }));
 
 import { apiFetch } from '../api';
-import { searchStocks, fetchStockDetail } from '../stock-api';
+import { searchStocks, fetchStockDetail, fetchStockDiscussions } from '../stock-api';
 
 const mockFetch = apiFetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -52,5 +52,44 @@ describe('fetchStockDetail', () => {
     const signal = new AbortController().signal;
     await fetchStockDetail('abc/x', signal);
     expect(mockFetch.mock.calls[0]![0]).toBe('/api/stocks/abc%2Fx');
+  });
+});
+
+describe('fetchStockDiscussions (08-04+ infinite scroll cursor)', () => {
+  beforeEach(() => mockFetch.mockReset().mockResolvedValue([]));
+
+  it('hours/limit 만 전달 시 before 미포함', async () => {
+    const signal = new AbortController().signal;
+    await fetchStockDiscussions('005930', { hours: 24, limit: 5 }, signal);
+    const url = mockFetch.mock.calls[0]![0] as string;
+    expect(url).toContain('hours=24');
+    expect(url).toContain('limit=5');
+    expect(url).not.toContain('before=');
+  });
+
+  it('before 옵션 → URL 에 before=<encoded ISO> 포함', async () => {
+    const signal = new AbortController().signal;
+    const cursor = '2026-04-17T05:32:00.000Z';
+    await fetchStockDiscussions(
+      '005930',
+      { days: 7, limit: 50, before: cursor },
+      signal,
+    );
+    const url = mockFetch.mock.calls[0]![0] as string;
+    expect(url).toContain(`before=${encodeURIComponent(cursor)}`);
+    expect(url).toContain('days=7');
+    expect(url).toContain('limit=50');
+  });
+
+  it('hours 와 days 동시 명시 시 hours 우선 (기존 동작)', async () => {
+    const signal = new AbortController().signal;
+    await fetchStockDiscussions(
+      '005930',
+      { hours: 12, days: 7, limit: 5 },
+      signal,
+    );
+    const url = mockFetch.mock.calls[0]![0] as string;
+    expect(url).toContain('hours=12');
+    expect(url).not.toContain('days=');
   });
 });

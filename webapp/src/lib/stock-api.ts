@@ -77,6 +77,12 @@ export interface FetchDiscussionsOpts {
   hours?: number;
   days?: number;
   limit?: number;
+  /**
+   * 무한 스크롤 cursor — ISO 8601 timestamp.
+   * 서버는 `posted_at < before` 인 글만 반환 → 마지막 페이지의 마지막 글 postedAt 을
+   * 다음 호출에 전달하면 자연스러운 키셋 페이지네이션이 됨.
+   */
+  before?: string;
 }
 
 /**
@@ -96,6 +102,7 @@ export function fetchStockDiscussions(
   else if (opts.days != null) params.set('days', String(opts.days));
   // 둘 다 undefined → 서버 default (days=7)
   params.set('limit', String(opts.limit ?? 50));
+  if (opts.before) params.set('before', opts.before);
   return apiFetch<Discussion[]>(
     `/api/stocks/${encodeURIComponent(code)}/discussions?${params.toString()}`,
     { signal },
