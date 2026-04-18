@@ -4,7 +4,7 @@
  * - apiFetch 재사용: envelope 파싱 + X-Request-Id + 8s 타임아웃 + ApiClientError.
  * - searchStocks: GET /api/stocks/search?q=... (서버 정렬 name asc, limit 20 — 수정 금지)
  * - fetchStockDetail: GET /api/stocks/:code (404 시 ApiClientError.status === 404)
- * - fetchStockNews: GET /api/stocks/:code/news (days/limit 쿼리 포함)
+ * - fetchStockNews: GET /api/stocks/:code/news (days/limit/before 쿼리 — before cursor 옵션 지원, 무한 스크롤)
  * - refreshStockNews: POST /api/stocks/:code/news/refresh (429 시 ApiClientError.details.retry_after_seconds)
  * - fetchStockDiscussions: GET /api/stocks/:code/discussions (hours/days/limit 쿼리 — 서버 `DiscussionListQuery` 계약)
  * - refreshStockDiscussions: POST /api/stocks/:code/discussions/refresh (429 시 `retry_after_seconds`, 503 시 `PROXY_UNAVAILABLE`/`PROXY_BUDGET_EXHAUSTED`)
@@ -26,12 +26,18 @@ export interface FetchNewsOpts {
   days?: number;
   /** 최대 반환 건수. 기본 100. */
   limit?: number;
+  /**
+   * 무한 스크롤 cursor — ISO 8601 timestamp.
+   * 서버는 `published_at < before` 인 기사만 반환 → 마지막 페이지의 마지막 기사 publishedAt 을
+   * 다음 호출에 전달하면 자연스러운 키셋 페이지네이션이 됨 (Phase 8 토론방 1:1 미러).
+   */
+  before?: string;
 }
 
 /**
  * 특정 종목의 최근 뉴스 목록을 조회한다.
  * - 응답: camelCase `NewsArticle[]`
- * - 서버 계약: `/api/stocks/:code/news?days=N&limit=M`
+ * - 서버 계약: `/api/stocks/:code/news?days=N&limit=M[&before=<ISO>]`
  */
 export function fetchStockNews(
   code: string,
@@ -42,6 +48,7 @@ export function fetchStockNews(
     days: String(opts.days ?? 7),
     limit: String(opts.limit ?? 100),
   });
+  if (opts.before) params.set('before', opts.before);
   return apiFetch<NewsArticle[]>(
     `/api/stocks/${encodeURIComponent(code)}/news?${params.toString()}`,
     { signal },
