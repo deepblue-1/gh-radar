@@ -27,6 +27,7 @@ fi
 
 BLUE='\033[0;34m'
 GREEN='\033[0;32m'
+PURPLE='\033[0;35m'
 NC='\033[0m'
 
 cleanup() {
@@ -46,6 +47,16 @@ prefix_output() {
 }
 
 MODE="${1:-all}"
+
+# shared 최초 빌드 보장 — dist 가 없으면 webapp/server 의 초기 import 가 실패한다
+if [[ ! -f "$ROOT/packages/shared/dist/index.js" ]]; then
+  echo -e "${PURPLE}[shared]${NC} Initial build (dist 없음)..."
+  (cd "$ROOT" && pnpm --filter @gh-radar/shared run build)
+fi
+
+# shared watch — webapp/server 앞에 먼저 기동해서 src 수정 시 dist 즉시 재빌드
+echo -e "${PURPLE}[shared]${NC} Starting tsup --watch..."
+(cd "$ROOT" && pnpm --filter @gh-radar/shared run dev < /dev/null 2>&1) | prefix_output "$PURPLE" "shared" &
 
 if [[ "$MODE" != "--server-only" ]]; then
   echo -e "${BLUE}[webapp]${NC} Starting Next.js on :3100..."
