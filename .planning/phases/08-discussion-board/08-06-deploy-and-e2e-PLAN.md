@@ -55,6 +55,8 @@ must_haves:
       pattern: "mockDiscussionsApi"
 ---
 
+> **POC pivot:** 본 plan 은 `08-POC-PIVOT.md` 의 "Plan 08-06 델타" 섹션과 함께 읽어야 합니다. Secret 이름 `gh-radar-proxy-api-key` → `gh-radar-brightdata-api-key`, 환경변수 `PROXY_API_KEY/PROXY_BASE_URL` → `BRIGHTDATA_API_KEY/BRIGHTDATA_ZONE/BRIGHTDATA_URL`, smoke INV-7 추가 (Bright Data dashboard credit 관찰). PIVOT 문서 우선.
+
 <objective>
 Phase 8 전체를 프로덕션에 배포하고 E2E 로 검증한다:
 1) discussion-sync Cloud Run Job + Scheduler 배포 (Phase 7 news-sync 템플릿 미러, Pitfall 2 — OAuth invoker)

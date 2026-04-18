@@ -59,6 +59,8 @@ must_haves:
       pattern: "proxyClient"
 ---
 
+> **POC pivot:** 본 plan 은 `08-POC-PIVOT.md` 의 "Plan 08-03 델타" 섹션과 함께 읽어야 합니다. on-demand 스크랩 경로(POST /refresh)도 cheerio HTML 파싱 → JSON API + sanitize-html plaintext 변환으로 변경됩니다. 환경변수 `PROXY_API_KEY` → `BRIGHTDATA_API_KEY` + `BRIGHTDATA_ZONE`. PIVOT 문서 우선.
+
 <objective>
 Express 서버에 토론방 GET/POST 라우트를 추가한다. 상세 페이지 Card 와 `/discussions` 풀페이지가 공유하는 `GET /api/stocks/:code/discussions` (hours/days/limit 쿼리) + 수동 새로고침용 `POST .../discussions/refresh` 두 엔드포인트를 구현한다. Plan 08-01 의 discussion-sanitize 재사용 + Plan 08-02 의 worker 구현과 동일한 cheerio/sanitize-html 파싱을 server 도 수행 (on-demand 경로).
 

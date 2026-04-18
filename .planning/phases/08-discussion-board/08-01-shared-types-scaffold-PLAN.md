@@ -63,6 +63,8 @@ must_haves:
       pattern: "mockDiscussionsApi"
 ---
 
+> **POC pivot:** 본 plan 은 `08-POC-PIVOT.md` 의 "Plan 08-01 델타" 섹션과 함께 읽어야 합니다. Plan 08-00 POC 결과로 (JSON API 채택, cheerio/iconv-lite 제거, parseNaverBoardDate 입력 포맷 변경 등) 확정된 사항이 그곳에 있으며, 본 plan 의 원 기술 제안과 충돌 시 PIVOT 문서가 우선합니다. 또한 `naver-board-types.ts` / `naver-board-fixtures.ts` 는 Plan 08-00 에서 이미 생성됨 — 본 plan 에서 재생성 금지 (skip).
+
 <objective>
 Wave 0 — Phase 8 후속 plan 들이 의존하는 공통 인프라를 확보한다:
 (1) `packages/shared/src/discussion.ts` camelCase Discussion 타입 (per D9: `id, stockCode, postId, title, body, author, postedAt, scrapedAt, url`)

@@ -81,6 +81,8 @@ must_haves:
       pattern: "onConflict.*post_id"
 ---
 
+> **POC pivot:** 본 plan 은 `08-POC-PIVOT.md` 의 "Plan 08-02 델타" 섹션과 함께 읽어야 합니다. Plan 08-00 POC 결과로 fetcher 가 Naver HTML + cheerio + iframe body fetch 에서 → Bright Data 경유 stock.naver.com community **JSON API** 단일 호출로 전환되었습니다. 파일명 변경 (`fetchBoard.ts` → `fetchDiscussions.ts`, `parseBoardHtml.ts` → `parseDiscussionsJson.ts`, `fetchPostBody.ts` 삭제), deps 변경 (cheerio/iconv-lite 제거), 환경변수 변경 (`PROXY_API_KEY` → `BRIGHTDATA_API_KEY` + `BRIGHTDATA_ZONE`) — 모두 PIVOT 문서 우선.
+
 <objective>
 Plan 08-01 이 만든 스캐폴드 위에 Cloud Run Job 으로 실행되는 `workers/discussion-sync` 워커를 구현한다. Phase 7 news-sync 의 pipeline 구조를 90% 복제하되, fetcher 를 (Naver Search JSON API → 프록시 경유 HTML fetch + cheerio 파싱) 으로 교체하고, body fetch 경로(옵션 2 권장)와 스팸 필터 D11 을 추가한다. UPSERT 전략은 RESEARCH §UPSERT 전략에 따라 `DO UPDATE SET scraped_at = EXCLUDED.scraped_at` 채택.
 
