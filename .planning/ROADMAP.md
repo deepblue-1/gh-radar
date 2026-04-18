@@ -211,7 +211,26 @@ Plans:
 **Plans:** 1 plan (1 wave, [BLOCKING] supabase db push)
 
 Plans:
-- [ ] 07.1-01-PLAN.md — Wave 1 migration(ADD COLUMN) + shared NewsArticle 확장 + worker/server pipeline description 저장 + 기존 테스트 회귀 + [BLOCKING] supabase db push
+- [x] 07.1-01-PLAN.md — Wave 1 migration(ADD COLUMN) + shared NewsArticle 확장 + worker/server pipeline description 저장 + 기존 테스트 회귀 + [BLOCKING] supabase db push
+
+**Completed:** 2026-04-18 (migration 20260417120200 + Cloud Run Job image d9b5af3 재배포 + 신규 수집부터 description 저장 확인)
+
+### Phase 07.2: news-sync rate-limit 안정화 + news_articles 재수집 (INSERTED)
+
+**Goal**: news-sync worker 가 Naver API 429 rate-limit 에 안정적으로 대응하여 매 tick top_movers + watchlists 전 종목을 처리하고, 기존 news_articles 를 TRUNCATE 후 clean-slate 로 재수집하여 description 커버리지 100% 확보
+**Depends on**: Phase 7, Phase 7.1
+**Requirements**: NEWS-01 (stability enhancement)
+**Success Criteria** (what must be TRUE):
+  1. news-sync Cloud Run Job 실행 시 `skipped` 0~5 이내 (현재 40+) — stopAll 이 rate-limit 하나로 cycle 전체를 중단시키지 않음
+  2. NaverRateLimitError 가 NaverBudgetExhaustedError 와 **분리**된 Error class 로 정의되고 per-stock 에서 exponential backoff 1~2회 retry 후 fail-isolated 처리 (종목 1개 실패가 cycle 전체를 중단시키지 않음)
+  3. concurrency 기본값 8 → **3** (NEWS_SYNC_CONCURRENCY env override 가능) — Naver ~10 QPS 한도에 안전 마진
+  4. news_articles TRUNCATE 후 1 tick 재수집으로 top_movers+watchlists 전 종목(~55개)의 뉴스·description 채워짐 — `abort signal from Naver` 0건 + `inserted > 100`
+  5. UPSERT 정책은 `ON CONFLICT DO NOTHING` 유지 (TRUNCATE + 재수집으로 description 채워지므로 COALESCE 불필요)
+**Rationale**: 2026-04-18 진단 — 매 tick `abort signal from Naver` 5+회 + `skipped: 40+` / 55 로 74% 종목 뉴스 0건. api_usage 94건으로 daily budget(24,500) 은 충분하지만 초당 QPS 초과 → 429 → stopAll → cycle 조기 중단. description 커버리지도 3 종목 / 55 종목에 그침. 수집 시작 1일차라 기존 1,266행 폐기 손실 낮음 → clean-slate 가 UPSERT COALESCE 자연 backfill 보다 단순/빠름.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 07.2 to break down)
 
 ### Phase 8: Discussion Board
 **Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
