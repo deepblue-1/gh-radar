@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Phase 07 complete — news ingestion production live (Cloud Run Job + R6 schedulers + server Naver mount + E2E 6/6 + real Naver data)"
-last_updated: "2026-04-18T01:33:10.949Z"
-last_activity: 2026-04-18 -- Phase 07.2 planning complete
+stopped_at: "Phase 08 complete — discussion-board production live (Bright Data Web Unlocker + Naver community JSON API + Cloud Run Job + Scheduler + smoke 8/8 + DB 15,463 row · 50+ stocks)"
+last_updated: "2026-04-18T05:30:00.000Z"
+last_activity: 2026-04-18 -- Phase 08 complete + production verified
 progress:
   total_phases: 15
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 57
-  completed_plans: 39
-  percent: 68
+  completed_plans: 46
+  percent: 81
 ---
 
 # Project State
@@ -21,18 +21,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 08 — discussion-board
+**Current focus:** Phase 9 — AI Summarization (next)
 
 ## Current Position
 
-Phase: 8
-Plan: 08-00 (Wave 1 / 3 waves)
-Plans completed: 35
-Status: Ready to execute
+Phase: 9 (다음 — discuss/plan 필요)
+Plan: 미시작
+Plans completed: 46
+Status: Phase 8 complete · Phase 9 대기
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-18 -- Phase 07.2 planning complete
+Last activity: 2026-04-18 -- Phase 08 complete (discussion-board production live)
 
-Progress: [████░░░░░░] 44% (4/9 phases)
+Progress: [████████░░] 81% (8/15 phases)
 
 ## Phase 1 Success Criteria 검증
 
@@ -99,6 +99,7 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 - Phase 07.1 complete 2026-04-18: migration 20260417120200 적용 + Cloud Run Job 재배포(image d9b5af3) + smoke tick 에서 신규 45건 description 저장 확인 (기존 1,103행 NULL 유지). news-sync smoke INV-5/6 은 DI-02 헤더 CR 파싱 버그로 FAIL 표기되나 데이터 정상(확인됨)
 - Phase 07.2 inserted after Phase 7.1: news-sync rate-limit 안정화 + news_articles 재수집 (URGENT, 2026-04-18 진단 — abort signal from Naver 매 tick 5+회 발생, skipped 40+/55 로 74% 종목 뉴스 0건. 429 rate-limit 을 daily budget 과 혼동해 stopAll → cycle 조기 중단. 수정: concurrency 8→3 + NaverRateLimitError 분리 + per-stock backoff retry + TRUNCATE news_articles 후 clean-slate 재수집. UPSERT 정책 DO NOTHING 유지)
 - Phase 07.2 complete 2026-04-18: Cloud Run Job 재배포(image news-sync:141ccdc) + deploy-news-sync.sh NEWS_SYNC_CONCURRENCY=8→3 수정 + news_articles TRUNCATE(1,270→0) + 즉시 execute → inserted 6,187 / skipped 0 / abort signal 0 / top_movers 55/55 (100%) + description 99.9% (6,183/6,187) 커버리지 달성. SC 5/5 green
+- Phase 08 complete 2026-04-18: discussion-board production live. POC PIVOT 으로 RESEARCH 가정(cheerio HTML + iframe body fetch + iconv-lite) 모두 폐기 → Bright Data Web Unlocker(zone `gh_radar_naver`, country=kr) + `stock.naver.com/api/community/discussion/posts/by-item` JSON API 단일 호출로 본문 포함 50건/페이지. Cloud Run Job `gh-radar-discussion-sync` + Scheduler `gh-radar-discussion-sync-hourly` (0 * * * * KST) + Secret `gh-radar-brightdata-api-key` + 워커 first-time/stale 종목 backfill loop (max 10페이지 OR 7일) + server `before` cursor + webapp 무한 스크롤. 첫 production cycle: 58 종목 → 187 requests → upserted **15,463 row** / errors 0. smoke 8/8 PASS. server 응답 1.04s (실시간 토론방 데이터 검증). pipeline 재작성으로 월 비용 ~\$72 (당초 추정 \$144 절반).
 
 ### Decisions
 

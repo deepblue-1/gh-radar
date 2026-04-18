@@ -242,15 +242,17 @@ Plans:
   1. 종목 상세 페이지에서 해당 종목의 네이버 토론방 게시글 목록이 표시된다
   2. 데이터는 on-demand로 요청되며 5~10분 캐싱으로 불필요한 스크래핑이 방지된다
   3. 스크래핑 결과가 discussions 테이블에 저장된다
-**Plans:** 7 plans (4 waves)
-- [ ] 08-00-poc-proxy-dom-PLAN.md — Wave 0 POC 프록시 서비스 선정 + DOM selector 실증 + body fetch 경로 확정 + naver-board-fixtures.ts 캡처
-- [ ] 08-01-shared-types-scaffold-PLAN.md — Wave 0 packages/shared Discussion 타입 + discussion-sanitize 3 함수 + workers/discussion-sync 스캐폴드 + 테스트 스텁
-- [ ] 08-02-discussion-sync-worker-PLAN.md — Wave 1 workers/discussion-sync 워커 (프록시 client + cheerio parser + body fetch + UPSERT DO UPDATE + retention 90일 + 예산 카운터)
-- [ ] 08-03-server-discussion-routes-PLAN.md — Wave 1 server GET/POST discussions 라우트 (Zod + 캐시 TTL 10분 + 쿨다운 30초 + 스팸 필터 D11 + integration test)
-- [ ] 08-04-webapp-discussion-section-PLAN.md — Wave 2 StockDiscussionSection + DiscussionItem + DiscussionRefreshButton + DiscussionEmptyState + DiscussionListSkeleton + stock-detail-client.tsx 교체
-- [ ] 08-05-webapp-discussion-page-PLAN.md — Wave 2 /stocks/[code]/discussions 풀페이지 Compact 3열 표 형식 (Next 15 use(params))
-- [ ] 08-06-deploy-and-e2e-PLAN.md — Wave 3 IAM + deploy 스크립트 + server 재배포 + Playwright E2E 6+ spec + smoke + DEPLOY-LOG
+**Plans:** 7 plans (3 waves)
+- [x] 08-00-poc-proxy-dom-PLAN.md — Wave 1 POC: Bright Data Web Unlocker + stock.naver.com community **JSON API 옵션 5** 채택 (cheerio/iconv/iframe body fetch 모두 폐기) + zone `gh_radar_naver` 신설 + fixture 캡처
+- [x] 08-01-shared-types-scaffold-PLAN.md — Wave 1 packages/shared Discussion 타입 + discussion-sanitize 3 함수 (ISO+dot 양 포맷) + workers/discussion-sync 스캐폴드 + 테스트 스텁 (server 16 todo + e2e 5 skip)
+- [x] 08-02-discussion-sync-worker-PLAN.md — Wave 1 workers/discussion-sync 워커 (Bright Data → JSON API + zod 검증 + UPSERT DO UPDATE + retention 90일 + 예산 카운터 + first-time/stale 종목 backfill loop max 10 페이지)
+- [x] 08-03-server-discussion-routes-PLAN.md — Wave 1 server GET/POST discussions 라우트 (Zod + 캐시 TTL 10분 + 쿨다운 30초 + 스팸 필터 D11 + before cursor 무한 스크롤 + integration test 17건)
+- [x] 08-04-webapp-discussion-section-PLAN.md — Wave 2 상세 카드 섹션 — StockDiscussionSection + 5 컴포넌트 + Stale Badge + 30s 쿨다운 + ComingSoonCard 교체
+- [x] 08-05-webapp-discussion-page-PLAN.md — Wave 2 /stocks/[code]/discussions 풀페이지 Compact 3열 grid + Next 15 use(params) + IntersectionObserver 무한 스크롤
+- [x] 08-06-deploy-and-e2e-PLAN.md — Wave 3 IAM + deploy 스크립트 3종 + server 재배포 + Playwright E2E 8 spec + smoke 8/8 PASS + DEPLOY-LOG (Cloud Run Job + Scheduler + 15,463 row upserted, 0 errors)
 **UI hint**: yes
+
+**Completed:** 2026-04-18 (Wave 3 deploy + smoke 8/8 PASS, Cloud Run Job `gh-radar-discussion-sync` + Scheduler `gh-radar-discussion-sync-hourly` + Secret `gh-radar-brightdata-api-key`. server `/api/stocks/:code/discussions` 200 OK 실측 (1.04s), DB 15,463 row · 50+ 종목 분포. POC PIVOT 으로 cheerio/iconv-lite/body iframe fetch 모두 제거 — RESEARCH 가정 무효화)
 
 ### Phase 9: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
