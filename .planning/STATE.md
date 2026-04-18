@@ -30,7 +30,7 @@ Plan: 미시작
 Plans completed: 46
 Status: Phase 8 complete · Phase 9 대기
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-18 -- Phase 08 complete (discussion-board production live)
+Last activity: 2026-04-18 — Quick task 260418-kd8 완료: phase 7 뉴스 풀페이지 무한 스크롤
 
 Progress: [████████░░] 81% (8/15 phases)
 
@@ -136,6 +136,12 @@ Recent decisions affecting current work:
 
 - 네이버 종목토론방 현재 렌더링 방식(SSR vs CSR) → Phase 8 전에 검증 필요
 - Cloud Run min-instances=1 정확한 월 비용 → Phase 2 배포 시 확인
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260418-kd8 | phase 7 뉴스 풀페이지 무한 스크롤 (Phase 8 토론방 1:1 미러) | 2026-04-18 | fb2607c | [260418-kd8-phase-7](./quick/260418-kd8-phase-7/) |
 
 ## Session Continuity
 
