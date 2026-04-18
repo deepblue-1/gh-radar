@@ -751,7 +751,7 @@ CONTEXT D1 명시: 토론방은 24/7 커뮤니티라 단일 주기. Phase 7 의 
 | T-03 | Information Disclosure | smoke 스크립트 output | mitigate | smoke 가 Secret 값 로그 출력 금지 — PASS/FAIL 만. `gcloud secrets get-iam-policy` 는 policy JSON 만 (값 아님). |
 | T-04 | Tampering (log injection) | server 재배포 후 로그 | mitigate | Plan 08-02/08-03 이 이미 logger redact 구현 — 본 plan 은 환경변수 주입만. Cloud Run 로그에서 PROXY_API_KEY 리터럴 grep 결과 0 확증 (smoke 시 추가 체크 권장). |
 | T-05 | DoS (프록시 예산 소진) | smoke INV-6 실제 Job 실행 | mitigate | 실행 1회당 ~1,200 credit. POC §6 tier 가 일간 소모량 수용 가능한지 smoke 전 재확인. credit alert 설정 권장 (POC §1 monitoring). |
-| T-09 | Tampering (MITM) | Scheduler → Run | mitigate | HTTPS only (gcloud 기본). OAuth token 은 IAM 기반, OIDC 금지 — Pitfall 2. |
+| T-09 | Elevation of Privilege / Authorization | Cloud Run Job SA + Secret Manager | mitigate | `scripts/setup-discussion-sync-iam.sh` 가 discussion-sync-sa 에 `roles/secretmanager.secretAccessor` 만, scheduler-sa 에 `roles/run.invoker` 만 부여 (다른 role 차단 — 최소권한 원칙). smoke INV-4/INV-5 가 Secret Manager IAM policy 에 **예상 SA 만** 존재하는지 검증 — `gcloud secrets get-iam-policy gh-radar-proxy-api-key` 출력에서 discussion-sync-sa + server-sa 외 SA 없음을 확인. I3 revision: RESEARCH §"Security Domain" 의 T-01~T-07 범위를 넘어서 본 plan 이 IAM 관리 책임을 추가로 짐 — disposition=mitigate. |
 </threat_model>
 
 <verification>

@@ -5,6 +5,8 @@ type: execute
 wave: 2
 depends_on: [08-03]
 requirements: [DISC-01]
+external_phase_gate: "Phase 7 Plan 07-04 (stock-detail-client.tsx space-y-6 컨테이너) merge 완료"
+# CONTEXT.md D12 — Phase 7 Wave 2 merge 이후 진입 (I2 revision)
 files_modified:
   - webapp/src/lib/stock-api.ts
   - webapp/src/lib/format-discussion-date.ts
@@ -62,6 +64,22 @@ must_haves:
       via: "429 catch → cooldownUntil"
       pattern: "retry_after_seconds"
 ---
+
+<preflight_gate>
+## I2 revision — 실행자 Preflight Check (Phase 7 Wave 2 merge gate)
+
+본 plan 을 실행하기 전, Phase 7 Plan 07-04 가 master 에 merge 되었는지 확인. 한 줄 체크:
+
+```bash
+# 방법 A: stock-news-section.tsx 존재 확인 (Phase 7 Wave 2 산출물)
+ls webapp/src/components/stock/stock-news-section.tsx 2>/dev/null && echo "OK: Phase 7 Wave 2 merged" || echo "BLOCKED: Phase 7 Wave 2 not merged — plan 실행 중단"
+
+# 방법 B: git log 에서 07-04 커밋 확인
+git log master --oneline | grep -E "07-04" | head -1
+```
+
+둘 다 empty 면 본 plan 실행 금지 — orchestrator 에 보고 후 Phase 7 완료 대기.
+</preflight_gate>
 
 <objective>
 종목 상세 페이지의 `<ComingSoonCard title="종목토론방" ...>` placeholder 를 실제 토론방 UI 로 교체한다. UI-SPEC §Component Inventory 의 신규 컴포넌트 5~6종(`StockDiscussionSection`, `DiscussionItem`, `DiscussionRefreshButton`, `DiscussionEmptyState`, `DiscussionListSkeleton`, 선택 `DiscussionStaleBadge`)과 `fetchStockDiscussions`/`refreshStockDiscussions` API 클라이언트, KST 날짜 포맷 유틸을 구현한다.

@@ -3,7 +3,7 @@ plan: 08-03
 phase: 08
 type: execute
 wave: 1
-depends_on: [08-01]
+depends_on: [08-01, 08-02]  # I1 revision: Task2 <read_first> 가 08-02 산출 5개 파일 참조 — frontmatter 명시화
 requirements: [DISC-01]
 files_modified:
   - server/src/schemas/discussions.ts
