@@ -35,3 +35,19 @@ export const NaverBudgetExhausted = () =>
   );
 export const NaverUnavailable = () =>
   new ApiError(503, "NAVER_UNAVAILABLE", "naver client not configured");
+
+// Phase 08 — discussion 새로고침 cooldown / 프록시 예산 / 프록시 미주입 helpers.
+export const DiscussionRefreshCooldown = (seconds: number) =>
+  new ApiError(
+    429,
+    "DISCUSSION_REFRESH_COOLDOWN",
+    `잠시 후 다시 시도해주세요 (${seconds}s)`,
+  );
+export const ProxyBudgetExhausted = () =>
+  new ApiError(
+    503,
+    "PROXY_BUDGET_EXHAUSTED",
+    "오늘 토론방 새로고침 한도가 모두 소진되었습니다",
+  );
+export const ProxyUnavailable = () =>
+  new ApiError(503, "PROXY_UNAVAILABLE", "토론방 프록시 설정이 없습니다");
