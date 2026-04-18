@@ -3,15 +3,12 @@ import { loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { createSupabaseClient } from "./services/supabase.js";
 import { createNaverClient } from "./naver/client.js";
-import {
-  NaverAuthError,
-  NaverBudgetExhaustedError,
-} from "./naver/searchNews.js";
 import { collectStockNews } from "./naver/collectStockNews.js";
 import { loadTargets } from "./pipeline/targets.js";
 import { loadLastSeenMap } from "./pipeline/lastSeen.js";
 import { mapToNewsRow } from "./pipeline/map.js";
 import { upsertNews } from "./pipeline/upsert.js";
+import { classifyPerStockError } from "./pipeline/classify.js";
 import { checkBudget, incrementUsage, kstDateString } from "./apiUsage.js";
 import { runRetention } from "./retention.js";
 
@@ -25,8 +22,10 @@ import { runRetention } from "./retention.js";
  *  4. lastSeenMap 사전 로드 + firstCutoffIso (7일)
  *  5. p-limit(concurrency) 로 per-stock collectStockNews → upsertNews
  *     - onPage 콜백에서 incrementUsage + 초과 시 stopAll
- *     - 401 (NaverAuthError) → stopAll = true
- *     - 그 외 에러 → warn + 계속 (failure isolation)
+ *     - Phase 07.2: classifyPerStockError 결과로 stopAll/skip 결정
+ *       · auth (401) / budget-exhausted → stopAll
+ *       · rate-limit (429, backoff retry 후 포기) → per-stock skip
+ *       · other → per-stock skip (failure isolation)
  *  6. runRetention(90) 으로 90일 초과 행 DELETE
  *  7. summary 로그
  */
@@ -109,19 +108,19 @@ export async function runNewsSyncCycle(): Promise<void> {
           const { inserted: ins } = await upsertNews(supabase, rows);
           inserted += ins;
         } catch (err: unknown) {
-          if (
-            err instanceof NaverAuthError ||
-            err instanceof NaverBudgetExhaustedError
-          ) {
+          const cls = classifyPerStockError(err);
+          if (cls.disposition === "stopAll") {
             log.error(
-              { err: (err as Error).message, code: t.code },
+              { err: (err as Error).message, code: t.code, kind: cls.kind },
               "abort signal from Naver",
             );
             stopAll = true;
           } else {
             log.warn(
-              { err: (err as Error)?.message, code: t.code },
-              "per-stock fetch failed",
+              { err: (err as Error)?.message, code: t.code, kind: cls.kind },
+              cls.kind === "rate-limit"
+                ? "per-stock rate-limited after retries"
+                : "per-stock fetch failed",
             );
             errors++;
           }
