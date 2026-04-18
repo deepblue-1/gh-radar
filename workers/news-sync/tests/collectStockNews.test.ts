@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { collectStockNews } from "../src/naver/collectStockNews";
+import {
+  NaverBadRequestError,
+  NaverRateLimitError,
+} from "../src/naver/searchNews";
 
 /**
  * collectStockNews 는 searchNews 를 내부적으로 호출한다.
@@ -147,5 +151,89 @@ describe("collectStockNews — R7 페이지네이션 종료조건", () => {
     expect(res.stoppedBy).toBe("empty");
     expect(res.pages).toBe(1);
     expect(res.items).toHaveLength(30);
+  });
+});
+
+describe("collectStockNews — 429 backoff retry (Phase 07.2)", () => {
+  // 30일 전 → 컷오프 안 걸림
+  const baseOpts = {
+    lastSeenIso: null,
+    firstCutoffIso: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    onPage: async () => true,
+  };
+
+  function axiosErr(status: number): Error {
+    const e = new Error(`HTTP ${status}`) as Error & { response: unknown };
+    e.response = { status, data: {} };
+    return e;
+  }
+
+  function mkSeq(
+    sequence: Array<() => Promise<{ data: { items: unknown[] } }>>,
+  ) {
+    let idx = 0;
+    const get = vi.fn(async () => {
+      const step = sequence[idx++];
+      if (!step) throw new Error(`unexpected call #${idx}`);
+      return step();
+    });
+    return { get } as unknown as Parameters<typeof collectStockNews>[0];
+  }
+
+  it("429 1회 후 성공 → items 반환 (retry 1 작동)", async () => {
+    const client = mkSeq([
+      async () => {
+        throw axiosErr(429);
+      },
+      async () => ({ data: { items: [] } }),
+    ]);
+    const res = await collectStockNews(client, "q", baseOpts);
+    expect(res.stoppedBy).toBe("empty");
+    expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(2);
+  });
+
+  it("429 2회 후 성공 → items 반환 (retry 2 작동)", async () => {
+    const client = mkSeq([
+      async () => {
+        throw axiosErr(429);
+      },
+      async () => {
+        throw axiosErr(429);
+      },
+      async () => ({ data: { items: [] } }),
+    ]);
+    const res = await collectStockNews(client, "q", baseOpts);
+    expect(res.stoppedBy).toBe("empty");
+    expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(3);
+  });
+
+  it("429 3회 연속 → NaverRateLimitError propagate", async () => {
+    const client = mkSeq([
+      async () => {
+        throw axiosErr(429);
+      },
+      async () => {
+        throw axiosErr(429);
+      },
+      async () => {
+        throw axiosErr(429);
+      },
+    ]);
+    await expect(collectStockNews(client, "q", baseOpts)).rejects.toBeInstanceOf(
+      NaverRateLimitError,
+    );
+    expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(3);
+  });
+
+  it("400 (non-429) → 즉시 propagate, retry 없음", async () => {
+    const client = mkSeq([
+      async () => {
+        throw axiosErr(400);
+      },
+    ]);
+    await expect(collectStockNews(client, "q", baseOpts)).rejects.toBeInstanceOf(
+      NaverBadRequestError,
+    );
+    expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1);
   });
 });

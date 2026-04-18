@@ -3,9 +3,46 @@ import { parsePubDate } from "@gh-radar/shared";
 import {
   NAVER_MAX_DISPLAY,
   NAVER_MAX_START,
+  NaverRateLimitError,
   searchNews,
   type NaverNewsItem,
 } from "./searchNews.js";
+
+/**
+ * Phase 07.2 — page 호출을 429 backoff retry 로 감싼다.
+ * NaverRateLimitError 만 retry (sleep 250ms → 500ms, 최대 2회).
+ * 3회 시도 모두 429 → propagate (per-stock 루프에서 종목 skip).
+ * 다른 에러는 즉시 propagate.
+ *
+ * NOTE (incrementUsage): 이 함수 내부에서는 onPage 를 호출하지 않는다.
+ * budget 카운터는 페이지 루프가 성공 반환을 받은 뒤 1회만 증가 (retry 중간 증가 금지).
+ * Naver 가 429 를 돌려준 호출은 Naver 쪽 quota 카운터에도 증가하지 않는 것이 정책.
+ */
+async function fetchPageWithRateLimitBackoff(
+  client: AxiosInstance,
+  query: string,
+  start: number,
+  display: number,
+): Promise<NaverNewsItem[]> {
+  const delaysMs = [250, 500]; // 2 retries after first failure
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= delaysMs.length; attempt++) {
+    try {
+      return await searchNews(client, query, { start, display });
+    } catch (err: unknown) {
+      if (err instanceof NaverRateLimitError) {
+        lastErr = err;
+        if (attempt < delaysMs.length) {
+          await new Promise((r) => setTimeout(r, delaysMs[attempt]));
+          continue;
+        }
+        throw err; // exhausted retries — propagate
+      }
+      throw err; // non-rate-limit errors are not retried
+    }
+  }
+  throw lastErr ?? new NaverRateLimitError();
+}
 
 export interface CollectOpts {
   /** 이전 수집의 MAX(published_at) — 없으면 첫 수집 (null) */
@@ -44,10 +81,12 @@ export async function collectStockNews(
   let stoppedBy: CollectResult["stoppedBy"] = "empty";
 
   while (start <= NAVER_MAX_START) {
-    const page = await searchNews(client, query, {
+    const page = await fetchPageWithRateLimitBackoff(
+      client,
+      query,
       start,
-      display: NAVER_MAX_DISPLAY,
-    });
+      NAVER_MAX_DISPLAY,
+    );
     pages++;
 
     const shouldContinue = await opts.onPage();
