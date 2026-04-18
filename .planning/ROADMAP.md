@@ -227,10 +227,10 @@ Plans:
   4. news_articles TRUNCATE 후 1 tick 재수집으로 top_movers+watchlists 전 종목(~55개)의 뉴스·description 채워짐 — `abort signal from Naver` 0건 + `inserted > 100`
   5. UPSERT 정책은 `ON CONFLICT DO NOTHING` 유지 (TRUNCATE + 재수집으로 description 채워지므로 COALESCE 불필요)
 **Rationale**: 2026-04-18 진단 — 매 tick `abort signal from Naver` 5+회 + `skipped: 40+` / 55 로 74% 종목 뉴스 0건. api_usage 94건으로 daily budget(24,500) 은 충분하지만 초당 QPS 초과 → 429 → stopAll → cycle 조기 중단. description 커버리지도 3 종목 / 55 종목에 그침. 수집 시작 1일차라 기존 1,266행 폐기 손실 낮음 → clean-slate 가 UPSERT COALESCE 자연 backfill 보다 단순/빠름.
-**Plans:** 0 plans
+**Plans:** 1 plan (1 wave, [BLOCKING] TRUNCATE news_articles)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 07.2 to break down)
+- [ ] 07.2-01-PLAN.md — NaverRateLimitError 분리 + concurrency 3 + per-stock backoff retry + Cloud Run Job 재배포 + TRUNCATE news_articles + 재수집 검증
 
 ### Phase 8: Discussion Board
 **Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
