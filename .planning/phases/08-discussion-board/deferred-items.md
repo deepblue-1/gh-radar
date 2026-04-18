@@ -23,3 +23,18 @@
   2. **스키마 추가:** 마이그레이션으로 `discussions.url TEXT` 컬럼 추가. 단 이 경우 server mapper 는 DB url 을 그대로 사용하도록 변경해야 함 (양측 동기화 필요).
 - **우선순위:** Plan 08-06 (deploy-and-e2e) smoke 시 발견되기 전에 fix 권장. **Blocking** for production worker execution.
 - **담당:** Phase 08 Wave 3 이후 후속 patch 또는 Plan 08-06 작업자 재량.
+
+---
+
+## [08-06 inline-fix] worker zod schema — contentSwReplacedButImg null 거부 — ✅ RESOLVED 2026-04-18
+
+- **해결:** Plan 08-06 smoke 단계에서 inline fix (commit `f5b1cbf`).
+  `workers/discussion-sync/src/scraper/fetchDiscussions.ts` 의 `contentSwReplacedButImg: z.string()` →
+  `z.string().nullable()`. types.ts 동기화. parser 의 `?? ""` 처리는 이미 null 안전.
+- **발견 시점:** Plan 08-06 production Cloud Run Job 첫 수동 실행 (`gh-radar-discussion-sync-w65gz`).
+- **증상:** 58 종목 중 57개가 `naver api validation error — per-stock skip` 으로 reject.
+  005930 만 98건 upsert 성공. cycle errors=57.
+- **원인:** 일부 Naver post 에 본문 없음 (이미지/투표 only). API 가 `contentSwReplacedButImg=null`
+  반환 → zod string() 강제 reject → 페이지 전체 fail.
+- **수정 후:** 다음 cycle (`gh-radar-discussion-sync-hrkcj`) 에서 totalUpserted=15,463, errors=0 달성.
+- **회귀:** 64 tests green. Phase 7 영향 없음.
