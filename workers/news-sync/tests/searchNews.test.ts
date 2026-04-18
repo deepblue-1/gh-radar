@@ -3,6 +3,7 @@ import {
   searchNews,
   NaverAuthError,
   NaverBudgetExhaustedError,
+  NaverRateLimitError,
   NaverBadRequestError,
   NAVER_MAX_DISPLAY,
 } from "../src/naver/searchNews";
@@ -22,10 +23,18 @@ describe("searchNews — error mapping", () => {
     );
   });
 
-  it("429 → NaverBudgetExhaustedError", async () => {
+  it("429 → NaverRateLimitError throw (Phase 07.2 회귀)", async () => {
     const err = Object.assign(new Error("rate"), { response: { status: 429 } });
     const client = mkClient(() => Promise.reject(err));
     await expect(searchNews(client, "query")).rejects.toBeInstanceOf(
+      NaverRateLimitError,
+    );
+  });
+
+  it("429 → NaverBudgetExhaustedError 로는 throw 되지 않음 (Phase 07.2 명시적 회귀)", async () => {
+    const err = Object.assign(new Error("rate"), { response: { status: 429 } });
+    const client = mkClient(() => Promise.reject(err));
+    await expect(searchNews(client, "query")).rejects.not.toBeInstanceOf(
       NaverBudgetExhaustedError,
     );
   });
