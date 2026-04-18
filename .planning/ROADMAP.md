@@ -230,7 +230,9 @@ Plans:
 **Plans:** 1 plan (1 wave, [BLOCKING] TRUNCATE news_articles)
 
 Plans:
-- [ ] 07.2-01-PLAN.md — NaverRateLimitError 분리 + concurrency 3 + per-stock backoff retry + Cloud Run Job 재배포 + TRUNCATE news_articles + 재수집 검증
+- [x] 07.2-01-PLAN.md — NaverRateLimitError 분리 + concurrency 3 + per-stock backoff retry + Cloud Run Job 재배포 + TRUNCATE news_articles + 재수집 검증
+
+**Completed:** 2026-04-18 (image `news-sync:141ccdc` / inserted=6,187 / skipped=0 / abort=0 / top_movers 55/55 커버 / description 99.9%)
 
 ### Phase 8: Discussion Board
 **Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
