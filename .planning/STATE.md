@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Phase 07 complete — news ingestion production live (Cloud Run Job + R6 schedulers + server Naver mount + E2E 6/6 + real Naver data)"
-last_updated: "2026-04-18T00:26:05.963Z"
-last_activity: 2026-04-18 -- Phase 07.1 planning complete
+stopped_at: "Phase 08 execution started — discussion board (네이버 종목토론방) Wave 1 진입"
+last_updated: "2026-04-18T00:30:00.000Z"
+last_activity: 2026-04-18 -- Phase 08 execution start
 progress:
   total_phases: 14
   completed_phases: 7
   total_plans: 56
-  completed_plans: 35
-  percent: 63
+  completed_plans: 36
+  percent: 64
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 06 — stock-search-detail
+**Current focus:** Phase 08 — discussion-board
 
 ## Current Position
 
-Phase: 7
-Plan: Not started
-Plans completed: 9 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub/3 waves, Phase 4: 1)
-Status: Ready to execute
+Phase: 8
+Plan: 08-00 (Wave 1 / 3 waves)
+Plans completed: 35
+Status: Executing — Wave 1 in progress
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-18 -- Phase 07.1 planning complete
+Last activity: 2026-04-18 -- Phase 08 execution start
 
 Progress: [████░░░░░░] 44% (4/9 phases)
 
@@ -96,6 +96,7 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 - Phase 05.1 inserted after Phase 5: Ingestion 운영 배포 — Cloud Run Job + Cloud Scheduler 자동 트리거 (URGENT, 2026-04-14 DB stale 발견)
 - Phase 06.2 inserted after Phase 6: Auth + Watchlist (URGENT, 2026-04-16 Phase 7 discuss 중 뉴스 배치 타겟에 사용자별 관심종목 필요 판명 → AUTH-01/02 + PERS-01 v2→v1 승격)
 - Phase 07.1 inserted after Phase 7: news content ingestion enhancement — description 저장 (URGENT, 2026-04-17 Phase 9 discuss 중 AI 요약 입력 데이터 부재 판명 → Naver API 실측 후 description 스니펫 저장 결정. URL 원문 scraping 은 Phase 9 POC 후 재검토)
+- Phase 07.1 complete 2026-04-18: migration 20260417120200 적용 + Cloud Run Job 재배포(image d9b5af3) + smoke tick 에서 신규 45건 description 저장 확인 (기존 1,103행 NULL 유지). news-sync smoke INV-5/6 은 DI-02 헤더 CR 파싱 버그로 FAIL 표기되나 데이터 정상(확인됨)
 
 ### Decisions
 
