@@ -32,6 +32,8 @@ export interface FetchDiscussionsInput {
   excludesItemNews?: boolean;
   isItemNewsOnly?: boolean;
   isCleanbotPassedOnly?: boolean;
+  /** 다음 페이지 cursor — 이전 응답의 lastOffset 값. 미지정 시 첫 페이지. */
+  offset?: string;
 }
 
 // zod schema — 필드 중 gh-radar 가 실제 사용하는 것들만 strict 검증.
@@ -67,9 +69,19 @@ const ApiResponseSchema = z
   })
   .passthrough();
 
+interface ResolvedFetchDiscussionsInput {
+  itemCode: string;
+  pageSize: number;
+  isHolderOnly: boolean;
+  excludesItemNews: boolean;
+  isItemNewsOnly: boolean;
+  isCleanbotPassedOnly: boolean;
+  offset?: string;
+}
+
 function buildTargetUrl(
   base: string,
-  input: Required<FetchDiscussionsInput>,
+  input: ResolvedFetchDiscussionsInput,
 ): string {
   const params = new URLSearchParams({
     discussionType: "domesticStock",
@@ -80,6 +92,7 @@ function buildTargetUrl(
     isCleanbotPassedOnly: String(input.isCleanbotPassedOnly),
     pageSize: String(input.pageSize),
   });
+  if (input.offset) params.set("offset", input.offset);
   return `${base}?${params.toString()}`;
 }
 
@@ -87,13 +100,14 @@ export async function fetchDiscussions(
   input: FetchDiscussionsInput,
   deps: { proxy: AxiosInstance; cfg: DiscussionSyncConfig },
 ): Promise<NaverDiscussionApiResponse> {
-  const resolved: Required<FetchDiscussionsInput> = {
+  const resolved: ResolvedFetchDiscussionsInput = {
     itemCode: input.itemCode,
     pageSize: input.pageSize ?? deps.cfg.discussionSyncPageSize,
     isHolderOnly: input.isHolderOnly ?? false,
     excludesItemNews: input.excludesItemNews ?? false,
     isItemNewsOnly: input.isItemNewsOnly ?? false,
     isCleanbotPassedOnly: input.isCleanbotPassedOnly ?? false,
+    offset: input.offset,
   };
   const targetUrl = buildTargetUrl(deps.cfg.naverDiscussionApiBase, resolved);
   const raw = await fetchViaProxy(deps.proxy, deps.cfg, targetUrl);

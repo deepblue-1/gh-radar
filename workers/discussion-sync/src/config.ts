@@ -17,6 +17,12 @@ export interface DiscussionSyncConfig {
   discussionSyncDailyBudget: number;
   discussionSyncConcurrency: number;
   discussionSyncPageSize: number;
+  /** First-time/stale 종목 backfill 최대 페이지 (각 페이지 = pageSize posts). */
+  discussionSyncBackfillMaxPages: number;
+  /** First-time/stale 종목 backfill 최대 일수 (이 기간 도달하면 early stop). */
+  discussionSyncBackfillDays: number;
+  /** 마지막 수집 후 N시간 초과면 backfill 모드 진입 (그 미만은 incremental 1 페이지). */
+  discussionSyncIncrementalHours: number;
   appVersion: string;
   logLevel: string;
 }
@@ -39,7 +45,10 @@ export function loadConfig(): DiscussionSyncConfig {
       "https://stock.naver.com/api/community/discussion/posts/by-item",
     discussionSyncDailyBudget: Number(process.env.DISCUSSION_SYNC_DAILY_BUDGET ?? "5000"),
     discussionSyncConcurrency: Number(process.env.DISCUSSION_SYNC_CONCURRENCY ?? "8"),
-    discussionSyncPageSize: Number(process.env.DISCUSSION_SYNC_PAGE_SIZE ?? "50"),
+    discussionSyncPageSize: Number(process.env.DISCUSSION_SYNC_PAGE_SIZE ?? "100"),
+    discussionSyncBackfillMaxPages: Number(process.env.DISCUSSION_SYNC_BACKFILL_MAX_PAGES ?? "10"),
+    discussionSyncBackfillDays: Number(process.env.DISCUSSION_SYNC_BACKFILL_DAYS ?? "7"),
+    discussionSyncIncrementalHours: Number(process.env.DISCUSSION_SYNC_INCREMENTAL_HOURS ?? "24"),
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };

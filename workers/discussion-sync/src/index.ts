@@ -46,8 +46,9 @@ export async function runDiscussionSyncCycle(): Promise<void> {
   const dateKst = kstDateString();
   const budgetBefore = await checkBudget(supabase, dateKst);
 
-  // 옵션 5 (JSON API) 채택 후 per-stock 1 request 만 필요 (body fetch 없음).
-  const expectedPerStock = 1;
+  // 옵션 5 (JSON API) — incremental 종목 1 req, backfill 종목 최대 backfillMaxPages req.
+  // 보수적 상한: 모든 종목이 backfill 모드라고 가정하고 cap 검사. 실제 사용량은 훨씬 낮음.
+  const expectedPerStock = cfg.discussionSyncBackfillMaxPages;
   const expectedTotal = targets.length * expectedPerStock;
   if (budgetBefore + expectedTotal > cfg.discussionSyncDailyBudget) {
     log.warn(
@@ -88,9 +89,16 @@ export async function runDiscussionSyncCycle(): Promise<void> {
             return true;
           };
 
-          const { rows } = await collectDiscussions(proxy, cfg, t.code, onRequest);
+          const { rows, mode, requests } = await collectDiscussions(
+            proxy,
+            cfg,
+            supabase,
+            t.code,
+            onRequest,
+          );
           const { upserted } = await upsertDiscussions(supabase, rows);
           totalUpserted += upserted;
+          log.debug({ code: t.code, mode, requests, upserted }, "per-stock done");
         } catch (err: unknown) {
           if (err instanceof ProxyAuthError || err instanceof ProxyBudgetExhaustedError) {
             log.error(
