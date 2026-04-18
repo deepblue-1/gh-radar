@@ -64,6 +64,7 @@ function snakeNewsRow(i: number) {
     id: String(i),
     stock_code: "005930",
     title: "t",
+    description: `desc ${i}`,
     source: "hankyung",
     url: "https://x/" + i,
     published_at: "2026-04-17T00:00:00Z",
@@ -97,6 +98,8 @@ describe("GET /api/stocks/:code/news (V-13/V-15/mapper camelCase)", () => {
       expect(res.body[0]).toHaveProperty("stockCode");
       expect(res.body[0]).toHaveProperty("publishedAt");
       expect(res.body[0]).toHaveProperty("createdAt");
+      expect(res.body[0]).toHaveProperty("description");
+      expect(res.body[0].description).toBe("desc 0");
       expect(res.body[0]).not.toHaveProperty("stock_code");
       expect(res.body[0]).not.toHaveProperty("published_at");
     }

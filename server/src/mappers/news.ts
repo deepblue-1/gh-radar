@@ -5,6 +5,8 @@ export type NewsRow = {
   id: string;
   stock_code: string;
   title: string;
+  /** Phase 07.1 — Naver description 스니펫 (stripHtml 처리됨, Phase 9 AI 요약 입력). */
+  description: string | null;
   source: string | null;
   url: string;
   published_at: string;
@@ -23,6 +25,7 @@ export function toNewsArticle(row: NewsRow): NewsArticle {
     id: row.id,
     stockCode: row.stock_code,
     title: row.title,
+    description: row.description ?? null,
     source: row.source,
     url: row.url,
     publishedAt: row.published_at,

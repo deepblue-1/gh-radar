@@ -22,7 +22,7 @@ import { logger } from "../logger.js";
 const COOLDOWN_S = 30;
 const NAVER_DAILY_BUDGET = Number(process.env.NAVER_DAILY_BUDGET ?? "24500");
 const NEWS_SELECT =
-  "id,stock_code,title,source,url,published_at,content_hash,summary_id,created_at";
+  "id,stock_code,title,description,source,url,published_at,content_hash,summary_id,created_at";
 
 function kstDateString(now = new Date()): string {
   const t = new Date(now.getTime() + 9 * 3600_000);
@@ -60,6 +60,8 @@ function mapToNewsRow(code: string, item: NaverItem) {
   return {
     stock_code: code,
     title,
+    // Phase 07.1 — descStripped 을 row.description 에 저장 (content_hash 계산 입력과 공유).
+    description: descStripped.length > 0 ? descStripped : null,
     source: extractSourcePrefix(rawUrl),
     url: rawUrl,
     published_at: publishedIso,
