@@ -1,0 +1,124 @@
+import type { AxiosInstance } from "axios";
+import { z } from "zod";
+import type { DiscussionSyncConfig } from "../config.js";
+import { fetchViaProxy } from "../proxy/client.js";
+import { NaverApiValidationError } from "../proxy/errors.js";
+import type { NaverDiscussionApiResponse } from "./types.js";
+
+/**
+ * Phase 08 — Naver discussion JSON API fetcher (Bright Data Web Unlocker 경유).
+ *
+ * POC §4 확정:
+ *   GET https://stock.naver.com/api/community/discussion/posts/by-item
+ *     ?discussionType=domesticStock
+ *     &itemCode={code}
+ *     &isHolderOnly=false           ← required (zod validation server-side)
+ *     &excludesItemNews=false       ← required
+ *     &isItemNewsOnly=false         ← required
+ *     &isCleanbotPassedOnly=false
+ *     &pageSize=50
+ *
+ * 필수 3 파라미터 누락 시 네이버 API 가 207B 에러 응답:
+ *   `{"detailCode":"invalid_type,...","fieldErrors":{...}}`
+ * → 본 fetcher 는 항상 3 파라미터 명시.
+ *
+ * Response 는 UTF-8 JSON. Bright Data Web Unlocker 가 인코딩 + 차단 회피 + country=kr routing.
+ */
+
+export interface FetchDiscussionsInput {
+  itemCode: string;
+  pageSize?: number;
+  isHolderOnly?: boolean;
+  excludesItemNews?: boolean;
+  isItemNewsOnly?: boolean;
+  isCleanbotPassedOnly?: boolean;
+}
+
+// zod schema — 필드 중 gh-radar 가 실제 사용하는 것들만 strict 검증.
+const WriterSchema = z
+  .object({
+    profileId: z.string(),
+    profileType: z.string(),
+    nickname: z.string(),
+  })
+  .passthrough();
+
+const PostSchema = z
+  .object({
+    id: z.string(),
+    itemCode: z.string(),
+    itemName: z.string(),
+    postType: z.string(),
+    writer: WriterSchema,
+    writtenAt: z.string(),
+    title: z.string(),
+    contentSwReplacedButImg: z.string(),
+    replyDepth: z.number(),
+    commentCount: z.number(),
+    recommendCount: z.number(),
+    isCleanbotPassed: z.boolean(),
+  })
+  .passthrough();
+
+const ApiResponseSchema = z
+  .object({
+    pageSize: z.number(),
+    posts: z.array(PostSchema),
+  })
+  .passthrough();
+
+function buildTargetUrl(
+  base: string,
+  input: Required<FetchDiscussionsInput>,
+): string {
+  const params = new URLSearchParams({
+    discussionType: "domesticStock",
+    itemCode: input.itemCode,
+    isHolderOnly: String(input.isHolderOnly),
+    excludesItemNews: String(input.excludesItemNews),
+    isItemNewsOnly: String(input.isItemNewsOnly),
+    isCleanbotPassedOnly: String(input.isCleanbotPassedOnly),
+    pageSize: String(input.pageSize),
+  });
+  return `${base}?${params.toString()}`;
+}
+
+export async function fetchDiscussions(
+  input: FetchDiscussionsInput,
+  deps: { proxy: AxiosInstance; cfg: DiscussionSyncConfig },
+): Promise<NaverDiscussionApiResponse> {
+  const resolved: Required<FetchDiscussionsInput> = {
+    itemCode: input.itemCode,
+    pageSize: input.pageSize ?? deps.cfg.discussionSyncPageSize,
+    isHolderOnly: input.isHolderOnly ?? false,
+    excludesItemNews: input.excludesItemNews ?? false,
+    isItemNewsOnly: input.isItemNewsOnly ?? false,
+    isCleanbotPassedOnly: input.isCleanbotPassedOnly ?? false,
+  };
+  const targetUrl = buildTargetUrl(deps.cfg.naverDiscussionApiBase, resolved);
+  const raw = await fetchViaProxy(deps.proxy, deps.cfg, targetUrl);
+
+  // 필수 파라미터 누락 감지 (207B 에러 응답 가드)
+  if (raw.length < 400 && /fieldErrors|detailCode|invalid_type/i.test(raw)) {
+    throw new NaverApiValidationError(
+      `naver api validation error (missing required params?): ${raw.slice(0, 200)}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new NaverApiValidationError(
+      `naver api response not JSON (first 200 bytes): ${raw.slice(0, 200)}`,
+    );
+  }
+
+  const result = ApiResponseSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new NaverApiValidationError(
+      `naver api schema mismatch: ${result.error.message}`,
+    );
+  }
+  return result.data as unknown as NaverDiscussionApiResponse;
+}
