@@ -26,7 +26,7 @@ export function loadConfig(): NewsSyncConfig {
     naverClientSecret: req("NAVER_CLIENT_SECRET"),
     naverBaseUrl: process.env.NAVER_BASE_URL ?? "https://openapi.naver.com",
     naverDailyBudget: Number(process.env.NEWS_SYNC_DAILY_BUDGET ?? "24500"),
-    newsSyncConcurrency: Number(process.env.NEWS_SYNC_CONCURRENCY ?? "8"),
+    newsSyncConcurrency: Number(process.env.NEWS_SYNC_CONCURRENCY ?? "3"),
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };

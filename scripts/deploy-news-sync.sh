@@ -130,7 +130,7 @@ gcloud run jobs deploy "$JOB" \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
-  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@NEWS_SYNC_DAILY_BUDGET=24500@NEWS_SYNC_CONCURRENCY=8@LOG_LEVEL=info@APP_VERSION=${SHA}" \
+  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@NEWS_SYNC_DAILY_BUDGET=24500@NEWS_SYNC_CONCURRENCY=3@LOG_LEVEL=info@APP_VERSION=${SHA}" \
   --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,NAVER_CLIENT_ID=${NAVER_ID_SECRET}:latest,NAVER_CLIENT_SECRET=${NAVER_SECRET_SECRET}:latest" \
   --project="$EXPECTED_PROJECT"
 
