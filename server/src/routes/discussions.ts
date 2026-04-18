@@ -245,7 +245,7 @@ discussionsRouter.get("/", async (req, res, next) => {
         queryParsed.error.issues[0].message,
       );
     }
-    const { windowMs, limit } = queryParsed.data;
+    const { windowMs, limit, before } = queryParsed.data;
 
     const supabase = req.app.locals.supabase as SupabaseClient;
 
@@ -259,14 +259,17 @@ discussionsRouter.get("/", async (req, res, next) => {
     if (!master) throw StockNotFound(code);
 
     // 2) DB 조회 (since = now - windowMs, posted_at DESC, limit)
+    //    cursor: before 가 있으면 posted_at < before 로 무한 스크롤 다음 페이지
     const since = new Date(Date.now() - windowMs).toISOString();
-    const { data, error } = await supabase
+    let q = supabase
       .from("discussions")
       .select(DISCUSSION_SELECT)
       .eq("stock_code", code)
       .gte("posted_at", since)
       .order("posted_at", { ascending: false })
       .limit(limit);
+    if (before) q = q.lt("posted_at", before);
+    const { data, error } = await q;
     if (error) throw error;
 
     // 3) D11 스팸 필터 + camelCase mapper

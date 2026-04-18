@@ -12,11 +12,13 @@ export const StockCodeParam = z.object({
 export type StockCodeParamT = z.infer<typeof StockCodeParam>;
 
 /**
- * Phase 08 — Discussion list query (`hours` | `days` | `limit`).
+ * Phase 08 — Discussion list query (`hours` | `days` | `limit` | `before`).
  *
  *  - hours: 상세 Card 패턴 (기본 24시간 단위 노출). 1~720 범위 (30일 ceiling sanity).
  *  - days : 풀페이지 패턴. 1~7 범위.
  *  - limit: 서버 하드캡 50 (CONTEXT D6). 미지정/초과/음수는 50 으로 정규화 (Phase 7 news clamp 패턴).
+ *  - before: 무한 스크롤 cursor — ISO 8601 timestamp. 응답에서 `posted_at < before` 인 글만 반환.
+ *           webapp 풀페이지가 마지막 글의 postedAt 을 다음 호출에 전달.
  *
  * 우선순위: hours 가 명시되면 hours, 그 외에는 days (없으면 default 7).
  *
@@ -35,12 +37,15 @@ export const DiscussionListQuery = z
         if (v > 50) return 50;
         return v;
       }),
+    before: z
+      .string()
+      .datetime({ offset: true })
+      .optional(),
   })
   .transform((q) => {
-    if (q.hours != null) {
-      return { windowMs: q.hours * 3600_000, limit: q.limit };
-    }
-    const days = q.days ?? 7;
-    return { windowMs: days * 86400_000, limit: q.limit };
+    const base = q.hours != null
+      ? { windowMs: q.hours * 3600_000, limit: q.limit }
+      : { windowMs: (q.days ?? 7) * 86400_000, limit: q.limit };
+    return { ...base, before: q.before };
   });
 export type DiscussionListQueryT = z.infer<typeof DiscussionListQuery>;

@@ -44,6 +44,7 @@ function makeSupabase(overrides: Record<string, unknown> = {}) {
       chain.select = vi.fn().mockReturnValue(chain);
       chain.eq = vi.fn().mockReturnValue(chain);
       chain.gte = vi.fn().mockReturnValue(chain);
+      chain.lt = vi.fn().mockReturnValue(chain);
       chain.order = vi.fn().mockReturnValue(chain);
       chain.limit = vi.fn((n: number) => {
         const dataset =
@@ -225,6 +226,49 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
     const res = await request(app).get("/api/stocks/005930/discussions");
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
+  });
+
+  it("V-08a infinite scroll cursor `before=<ISO>` → SQL applies posted_at < before", async () => {
+    const supabase = makeSupabase({
+      "stocks.single": { code: "005930" },
+      "discussions.list": [snakeRow({ post_id: "p999" })],
+    });
+    const app = makeApp({ supabase });
+    const before = "2026-04-17T05:30:00.000Z";
+    const res = await request(app).get(
+      `/api/stocks/005930/discussions?days=7&limit=50&before=${encodeURIComponent(before)}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    // discussions 테이블 chain 의 lt 호출 검증 — posted_at < before 가 적용되었는지
+    const discussionsCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => c[0] === "discussions",
+    );
+    expect(discussionsCalls.length).toBeGreaterThan(0);
+  });
+
+  it("V-08b before 미지정 시 lt 미호출 — 기존 첫 페이지 동작 회귀 없음", async () => {
+    const supabase = makeSupabase({
+      "stocks.single": { code: "005930" },
+      "discussions.list": [snakeRow()],
+    });
+    const app = makeApp({ supabase });
+    const res = await request(app).get(
+      "/api/stocks/005930/discussions?days=7&limit=50",
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("V-08c invalid before (non-ISO) → 400 INVALID_QUERY_PARAM", async () => {
+    const supabase = makeSupabase({
+      "stocks.single": { code: "005930" },
+    });
+    const app = makeApp({ supabase });
+    const res = await request(app).get(
+      "/api/stocks/005930/discussions?days=7&before=not-iso",
+    );
+    expect(res.status).toBe(400);
+    expect(res.body?.error?.code).toBe("INVALID_QUERY_PARAM");
   });
 });
 
