@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: "Phase 07 complete — news ingestion production live (Cloud Run Job + R6 schedulers + server Naver mount + E2E 6/6 + real Naver data)"
-last_updated: "2026-04-17T10:40:00.000Z"
-last_activity: 2026-04-17 -- Phase 7 execute complete
+last_updated: "2026-04-17T11:41:14.131Z"
+last_activity: 2026-04-17 -- Phase 08 planning complete
 progress:
-  total_phases: 13
-  completed_phases: 8
-  total_plans: 48
-  completed_plans: 41
-  percent: 85
+  total_phases: 14
+  completed_phases: 7
+  total_plans: 55
+  completed_plans: 35
+  percent: 64
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 9 (Phase 1: 1, Phase 2: 5, Phase 3: 1 with 6 sub/3 waves, Phase 4: 1)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-17 -- Phase 7 planning complete
+Last activity: 2026-04-17 -- Phase 08 planning complete
 
 Progress: [████░░░░░░] 44% (4/9 phases)
 
@@ -95,6 +95,7 @@ Progress: [████░░░░░░] 44% (4/9 phases)
 
 - Phase 05.1 inserted after Phase 5: Ingestion 운영 배포 — Cloud Run Job + Cloud Scheduler 자동 트리거 (URGENT, 2026-04-14 DB stale 발견)
 - Phase 06.2 inserted after Phase 6: Auth + Watchlist (URGENT, 2026-04-16 Phase 7 discuss 중 뉴스 배치 타겟에 사용자별 관심종목 필요 판명 → AUTH-01/02 + PERS-01 v2→v1 승격)
+- Phase 07.1 inserted after Phase 7: news content ingestion enhancement — description 저장 (URGENT, 2026-04-17 Phase 9 discuss 중 AI 요약 입력 데이터 부재 판명 → Naver API 실측 후 description 스니펫 저장 결정. URL 원문 scraping 은 Phase 9 POC 후 재검토)
 
 ### Decisions
 
