@@ -12,11 +12,14 @@ import { fetchInquirePrice } from "../kis/inquirePrice.js";
 import { ApiError, StockNotFound } from "../errors.js";
 import { logger } from "../logger.js";
 import { newsRouter } from "./news.js";
+import { discussionsRouter } from "./discussions.js";
 
 export const stocksRouter: RouterT = Router();
 
 // 중첩 라우터: GET /api/stocks/:code/news, POST /api/stocks/:code/news/refresh
 stocksRouter.use("/:code/news", newsRouter);
+// Phase 08 — GET /api/stocks/:code/discussions, POST /api/stocks/:code/discussions/refresh
+stocksRouter.use("/:code/discussions", discussionsRouter);
 
 const MASTER_COLS =
   "code,name,market,sector,security_type,listing_date,is_delisted,updated_at";

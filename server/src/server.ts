@@ -37,7 +37,37 @@ if (!naverClient) {
   );
 }
 
-const app = createApp({ supabase, kisClient, naverClient });
+// Phase 08 — Bright Data Web Unlocker client (on-demand discussion refresh).
+// BRIGHTDATA_API_KEY 미설정 시 brightdataClient=undefined → POST /discussions/refresh 만 503.
+// T-09 (MITM): brightdataUrl 이 https 가 아니면 throw.
+let brightdataClient = undefined;
+if (config.brightdataApiKey) {
+  if (!config.brightdataUrl.startsWith("https://")) {
+    throw new Error(
+      `BRIGHTDATA_URL must be https (got: ${config.brightdataUrl})`,
+    );
+  }
+  brightdataClient = axios.create({
+    baseURL: config.brightdataUrl,
+    timeout: 30_000,
+    headers: {
+      "User-Agent": `gh-radar-server/${config.appVersion}`,
+    },
+  });
+} else {
+  logger.warn(
+    "BRIGHTDATA_API_KEY not set — POST /discussions/refresh will return 503",
+  );
+}
+
+const app = createApp({
+  supabase,
+  kisClient,
+  naverClient,
+  brightdataClient,
+  brightdataApiKey: config.brightdataApiKey,
+  brightdataZone: config.brightdataZone,
+});
 
 app.listen(config.port, () => {
   logger.info(
