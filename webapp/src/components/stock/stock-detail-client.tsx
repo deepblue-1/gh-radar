@@ -9,9 +9,9 @@ import { fetchStockDetail } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
 import { StockHero } from './stock-hero';
 import { StockStatsGrid } from './stock-stats-grid';
-import { ComingSoonCard } from './coming-soon-card';
 import { StockDetailSkeleton } from './stock-detail-skeleton';
 import { StockNewsSection } from './stock-news-section';
+import { StockDiscussionSection } from './stock-discussion-section';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -139,10 +139,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
       )}
       <div className="space-y-6">
         <StockNewsSection stockCode={stock.code} />
-        <ComingSoonCard
-          title="종목토론방"
-          body="Phase 8 로드맵에서 제공됩니다."
-        />
+        <StockDiscussionSection stockCode={stock.code} />
       </div>
     </div>
   );
