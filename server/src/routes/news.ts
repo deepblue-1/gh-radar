@@ -86,7 +86,7 @@ newsRouter.get("/", async (req, res, next) => {
         queryParsed.error.issues[0].message,
       );
     }
-    const { days, limit } = queryParsed.data;
+    const { days, limit, before } = queryParsed.data;
     const supabase = req.app.locals.supabase as SupabaseClient;
 
     const { data: master, error: mErr } = await supabase
@@ -97,14 +97,17 @@ newsRouter.get("/", async (req, res, next) => {
     if (mErr) throw mErr;
     if (!master) throw StockNotFound(code);
 
+    // since = now - days; before 가 있으면 published_at < before 추가 (무한 스크롤 cursor, Phase 8 미러)
     const since = new Date(Date.now() - days * 86400_000).toISOString();
-    const { data, error } = await supabase
+    let q = supabase
       .from("news_articles")
       .select(NEWS_SELECT)
       .eq("stock_code", code)
       .gte("published_at", since)
       .order("published_at", { ascending: false })
       .limit(limit);
+    if (before) q = q.lt("published_at", before);
+    const { data, error } = await q;
     if (error) throw error;
     const out = ((data ?? []) as NewsRow[]).map(toNewsArticle);
     res.json(out);

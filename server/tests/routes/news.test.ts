@@ -14,6 +14,7 @@ function makeSupabase(overrides: Record<string, unknown> = {}) {
       chain.select = vi.fn().mockReturnValue(chain);
       chain.eq = vi.fn().mockReturnValue(chain);
       chain.gte = vi.fn().mockReturnValue(chain);
+      chain.lt = vi.fn().mockReturnValue(chain);
       chain.order = vi.fn().mockReturnValue(chain);
       chain.limit = vi.fn((n: number) => {
         ctx._lastLimit = n;
@@ -127,6 +128,52 @@ describe("GET /api/stocks/:code/news (V-13/V-15/mapper camelCase)", () => {
     const res = await request(app).get("/api/stocks/000001/news");
     expect(res.status).toBe(404);
     expect(res.body?.error?.code).toBe("STOCK_NOT_FOUND");
+  });
+
+  it("V-news-cursor-a infinite scroll cursor `before=<ISO>` → SQL applies published_at < before", async () => {
+    const supabase = makeSupabase({
+      "stocks.single": { code: "005930" },
+      "news_articles.list": [snakeNewsRow(0)],
+    });
+    const app = createApp({
+      supabase: supabase as unknown as Parameters<typeof createApp>[0]["supabase"],
+    });
+    const before = "2026-04-17T05:30:00.000Z";
+    const res = await request(app).get(
+      `/api/stocks/005930/news?days=7&limit=100&before=${encodeURIComponent(before)}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    const newsCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => c[0] === "news_articles",
+    );
+    expect(newsCalls.length).toBeGreaterThan(0);
+  });
+
+  it("V-news-cursor-b before 미지정 시 lt 미호출 — 첫 페이지 동작 회귀 없음", async () => {
+    const supabase = makeSupabase({
+      "stocks.single": { code: "005930" },
+      "news_articles.list": [snakeNewsRow(0)],
+    });
+    const app = createApp({
+      supabase: supabase as unknown as Parameters<typeof createApp>[0]["supabase"],
+    });
+    const res = await request(app).get(
+      "/api/stocks/005930/news?days=7&limit=100",
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("V-news-cursor-c invalid before (non-ISO) → 400 INVALID_QUERY_PARAM", async () => {
+    const supabase = makeSupabase({ "stocks.single": { code: "005930" } });
+    const app = createApp({
+      supabase: supabase as unknown as Parameters<typeof createApp>[0]["supabase"],
+    });
+    const res = await request(app).get(
+      "/api/stocks/005930/news?days=7&before=not-iso",
+    );
+    expect(res.status).toBe(400);
+    expect(res.body?.error?.code).toBe("INVALID_QUERY_PARAM");
   });
 });
 
