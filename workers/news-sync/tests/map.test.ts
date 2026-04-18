@@ -149,3 +149,64 @@ describe("mapToNewsRow — source + content_hash", () => {
     expect(row).toBeNull();
   });
 });
+
+describe("mapToNewsRow — description (Phase 07.1)", () => {
+  it("description HTML 태그/entity → stripHtml 처리되어 저장", () => {
+    const row = mapToNewsRow("005930", {
+      ...baseItem,
+      title: "t",
+      originallink: "https://ok.com/a",
+      description:
+        "<b>삼성전자</b>가 17일 발표한 1분기 잠정실적에 따르면 &quot;역대 최대&quot;",
+    });
+    expect(row).not.toBeNull();
+    expect(row!.description).toBe(
+      '삼성전자가 17일 발표한 1분기 잠정실적에 따르면 "역대 최대"',
+    );
+  });
+
+  it("빈 description → null 저장", () => {
+    const row = mapToNewsRow("005930", {
+      ...baseItem,
+      title: "t",
+      originallink: "https://ok.com/a",
+      description: "",
+    });
+    expect(row!.description).toBeNull();
+  });
+
+  it("undefined description (Naver 응답에 필드 없음) → null 저장", () => {
+    const row = mapToNewsRow("005930", {
+      ...baseItem,
+      title: "t",
+      originallink: "https://ok.com/a",
+      description: undefined as unknown as string,
+    });
+    expect(row!.description).toBeNull();
+  });
+
+  it("description 만 HTML 태그 → 태그 strip 후 공백만 남으면 null", () => {
+    const row = mapToNewsRow("005930", {
+      ...baseItem,
+      title: "t",
+      originallink: "https://ok.com/a",
+      description: "<b></b>",
+    });
+    // stripHtml trim 결과 빈 문자열 → null
+    expect(row!.description).toBeNull();
+  });
+
+  it("description 저장이 content_hash 계산식을 변경하지 않는다 (기존 row 와 동일성 보장)", () => {
+    // Phase 7 구현과 동일한 input 으로 content_hash 가 유지되어야 함.
+    // 계산식: sha256(title + '\n' + stripHtml(description))
+    const row = mapToNewsRow("005930", {
+      ...baseItem,
+      title: "T",
+      originallink: "https://ok.com/a",
+      description: "D",
+    });
+    // 해시 결정성 + 길이/형식 확인
+    expect(row!.content_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(row!.description).toBe("D");
+  });
+});

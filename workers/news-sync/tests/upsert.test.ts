@@ -4,6 +4,7 @@ import { upsertNews } from "../src/pipeline/upsert";
 const mkRow = (code: string, url: string) => ({
   stock_code: code,
   title: "t",
+  description: null,
   source: null,
   url,
   published_at: "2026-04-17T00:00:00.000Z",
