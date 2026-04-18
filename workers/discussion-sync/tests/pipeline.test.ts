@@ -25,7 +25,7 @@ describe("Phase 8 pipeline integration smoke", () => {
     for (const r of rows) {
       expect(r.stock_code).toBe("005930");
       expect(r.post_id).toMatch(/^\d{6,}$/);
-      expect(r.url).toContain("stock.naver.com/domestic/stock/005930/discussion/");
+      // url 은 DB 에 저장하지 않음 — stock_code + post_id 로 결정적 재구성 (server mapper 대칭)
       expect(r.posted_at).toMatch(/\+09:00$/);
     }
   });

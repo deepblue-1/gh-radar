@@ -4,8 +4,9 @@
 
 ---
 
-## [08-02 regression] worker 의 UPSERT 가 DB 스키마에 없는 url 컬럼 포함
+## [08-02 regression] worker 의 UPSERT 가 DB 스키마에 없는 url 컬럼 포함 — ✅ RESOLVED 2026-04-18
 
+- **해결:** (Wave 2 진입 전 inline fix 커밋) `workers/discussion-sync/src/pipeline/map.ts` `DiscussionRow` 에서 `url` 필드 제거. `isAllowedUrl(item.url)` 검증(T-07 open-redirect 방어)은 유지. 59 tests green. server mapper 와 대칭 (DB 에 url 컬럼 없고 stock_code+post_id 로 재구성).
 - **발견 시점:** Plan 08-03 SUMMARY 작성 중 (08-02 회귀 검토)
 - **위치:**
   - `workers/discussion-sync/src/pipeline/map.ts` — `DiscussionRow.url: string` 필드 존재

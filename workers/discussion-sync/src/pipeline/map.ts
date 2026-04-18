@@ -19,9 +19,11 @@ export interface DiscussionRow {
   body: string | null;
   author: string | null;
   posted_at: string;
-  url: string;
   scraped_at: string;
 }
+// NOTE: `url` 컬럼은 DB 스키마에 없음 — stock_code + post_id 로 결정적 재구성 가능.
+// isAllowedUrl() 검증은 T-07 open-redirect 방어 목적이므로 validation 만 수행하고 저장하지 않음.
+// server/src/mappers/discussions.ts 의 toDiscussion 과 동일 접근 (DB 스토리지 재구성 대칭).
 
 const ALLOWED_HOSTS = new Set<string>([
   "stock.naver.com",
@@ -60,7 +62,6 @@ export function mapToDiscussionRow(
     body,
     author,
     posted_at: item.postedAt,
-    url: item.url,
     scraped_at: item.scrapedAt,
   };
 }
