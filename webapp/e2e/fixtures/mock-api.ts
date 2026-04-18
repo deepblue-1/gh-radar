@@ -5,6 +5,13 @@ import { FIXTURE_SAMSUNG } from './stocks';
 // Phase 07 — news mock API re-export (Plan 07-01 Task 3)
 export { mockNewsApi, NEWS_ITEM_SAMPLE, buildNewsList } from './news';
 
+// Phase 08 — discussion mock API re-export (Plan 08-01 Task 3)
+export {
+  mockDiscussionsApi,
+  DISCUSSION_ITEM_SAMPLE,
+  buildDiscussionList,
+} from './discussions';
+
 /**
  * playwright 테스트용 API 모킹 (Phase 06 Plan 06).
  *
