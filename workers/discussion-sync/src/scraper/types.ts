@@ -32,8 +32,8 @@ export interface NaverDiscussionPost {
   title: string;
   /** HTML body with profanity replaced. */
   contentSwReplaced?: string;
-  /** Plaintext body (HTML stripped) with profanity replaced. */
-  contentSwReplacedButImg: string;
+  /** Plaintext body (HTML stripped) with profanity replaced. null = 본문 없음 (이미지/투표만). */
+  contentSwReplacedButImg: string | null;
   topImageUrl?: string | null;
   imageCount?: number;
   isHolderVerified?: boolean;

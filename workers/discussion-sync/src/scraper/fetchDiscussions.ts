@@ -54,7 +54,8 @@ const PostSchema = z
     writer: WriterSchema,
     writtenAt: z.string(),
     title: z.string(),
-    contentSwReplacedButImg: z.string(),
+    // 일부 post 는 본문 없음 (이미지/투표만 등) — null 허용. parser 가 빈 body 로 처리.
+    contentSwReplacedButImg: z.string().nullable(),
     replyDepth: z.number(),
     commentCount: z.number(),
     recommendCount: z.number(),
