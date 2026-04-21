@@ -98,7 +98,7 @@ export async function runDiscussionSyncCycle(): Promise<void> {
           );
           const { upserted } = await upsertDiscussions(supabase, rows);
           totalUpserted += upserted;
-          log.debug({ code: t.code, mode, requests, upserted }, "per-stock done");
+          log.info({ code: t.code, mode, requests, upserted }, "per-stock done");
         } catch (err: unknown) {
           if (err instanceof ProxyAuthError || err instanceof ProxyBudgetExhaustedError) {
             log.error(
