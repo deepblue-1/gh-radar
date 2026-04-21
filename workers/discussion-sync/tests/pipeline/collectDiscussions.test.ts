@@ -27,6 +27,7 @@ const cfg: DiscussionSyncConfig = {
   discussionSyncBackfillMaxPages: 10,
   discussionSyncBackfillDays: 7,
   discussionSyncIncrementalHours: 24,
+  discussionSyncIncrementalMaxPages: 5,
   appVersion: "test",
   logLevel: "silent",
 };
@@ -130,13 +131,13 @@ describe("collectDiscussions — backfill vs incremental mode", () => {
     expect(result.filteredByCutoff).toBe(1); // 8일 전 글 1건
   });
 
-  it("recent stock (scraped 1h ago) → incremental mode, fetches 1 page only", async () => {
+  it("recent stock + cutoff 도달 → incremental mode 1 페이지 후 early stop", async () => {
     vi.mocked(fetchDiscussions).mockResolvedValueOnce(
       makeApiResponse(
         [
           makePost("r-0", 0.5), // 30분 전 → incremental 24h 안
           makePost("r-1", 23),  // 23시간 전 → incremental 24h 안
-          makePost("r-2", 30),  // 30시간 전 → incremental 24h 넘김
+          makePost("r-2", 30),  // 30시간 전 → incremental 24h 넘김 → reachedCutoff break
         ],
         "offset-1",
       ),
@@ -155,9 +156,31 @@ describe("collectDiscussions — backfill vs incremental mode", () => {
     );
 
     expect(result.mode).toBe("incremental");
-    expect(result.requests).toBe(1);
+    expect(result.requests).toBe(1); // cutoff 도달로 break
     expect(result.rows.length).toBe(2);
     expect(result.filteredByCutoff).toBe(1);
+  });
+
+  it("incremental 모드 — 1 페이지 pageSize 초과 누적 시 maxPages cap 까지 loop", async () => {
+    // 사용자 bug report: 같은 날 100 글 초과 시 스크롤 로딩분 누락.
+    // 모든 페이지 24h 안 + lastOffset 존재 → incremental max_pages cap(5) 으로만 종료.
+    const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
+    const supabase = makeSupabaseMock(oneHourAgo);
+    vi.mocked(fetchDiscussions).mockResolvedValue(
+      makeApiResponse([makePost("inc-x", 2)], "always-more"),
+    );
+    const onRequest = vi.fn().mockResolvedValue(true);
+
+    const result = await collectDiscussions(
+      vi.fn() as unknown as AxiosInstance,
+      cfg,
+      supabase,
+      "005930",
+      onRequest,
+    );
+
+    expect(result.mode).toBe("incremental");
+    expect(result.requests).toBe(5); // cfg.discussionSyncIncrementalMaxPages cap
   });
 
   it("backfill stops at backfillMaxPages cap even if more pages available", async () => {

@@ -71,7 +71,12 @@ export async function collectDiscussions(
       ? Date.now() - cfg.discussionSyncBackfillDays * 86400_000
       : Date.now() - cfg.discussionSyncIncrementalHours * 3600_000;
 
-  const maxPages = mode === "backfill" ? cfg.discussionSyncBackfillMaxPages : 1;
+  // incremental 모드도 페이지 loop 적용 — 1시간 cron 사이 pageSize(100) 초과 누적 시 누락 방지.
+  // cutoff (24h) 로 대부분 early-stop, maxPages 는 안전 상한 역할.
+  const maxPages =
+    mode === "backfill"
+      ? cfg.discussionSyncBackfillMaxPages
+      : cfg.discussionSyncIncrementalMaxPages;
 
   const fetchedAt = new Date().toISOString();
   const allParsed: ParsedDiscussion[] = [];
