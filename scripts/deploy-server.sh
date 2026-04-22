@@ -71,6 +71,26 @@ for SECRET in NAVER_CLIENT_ID NAVER_CLIENT_SECRET; do
 done
 echo "✓ Naver secret accessor bound for server SA (idempotent)"
 
+# Phase 08 Plan 06 + 08.1 Plan 04 — Bright Data + Anthropic secret accessor 바인딩
+# 주 바인딩은 scripts/setup-discussion-sync-iam.sh 가 담당. 여기는 안전망 (idempotent).
+for SECRET in gh-radar-brightdata-api-key gh-radar-anthropic-api-key; do
+  if gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    gcloud secrets add-iam-policy-binding "$SECRET" \
+      --member="serviceAccount:${DEFAULT_SA}" \
+      --role=roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
+  fi
+done
+echo "✓ Bright Data + Anthropic secret accessor bound for server SA (idempotent)"
+
+# 선행 Secret 검증 — 배포 전 필수 secret 존재 여부
+for SECRET in gh-radar-anthropic-api-key; do
+  if ! gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
+    echo "ERROR: Secret '$SECRET' not found. Run: bash scripts/setup-discussion-sync-iam.sh" >&2
+    exit 1
+  fi
+done
+echo "✓ Pre-deploy secret check"
+
 # ═══════════════════════════════════════════════════════════════
 # Section 3: Build (amd64 강제, GIT_SHA 주입)
 # ═══════════════════════════════════════════════════════════════
@@ -107,7 +127,7 @@ gcloud run deploy "$SERVICE" \
   --max-instances=3 \
   --timeout=300s \
   --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest"
+  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Smoke

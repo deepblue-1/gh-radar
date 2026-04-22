@@ -59,8 +59,8 @@ for SA in gh-radar-scheduler-sa gh-radar-discussion-sync-sa; do
   fi
 done
 
-# 선행 Secret 검증 — PIVOT: gh-radar-brightdata-api-key
-for SECRET in gh-radar-supabase-service-role gh-radar-brightdata-api-key; do
+# 선행 Secret 검증 — PIVOT: gh-radar-brightdata-api-key (+ Phase 08.1: gh-radar-anthropic-api-key)
+for SECRET in gh-radar-supabase-service-role gh-radar-brightdata-api-key gh-radar-anthropic-api-key; do
   if ! gcloud secrets describe "$SECRET" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
     echo "ERROR: Secret '$SECRET' not found. Run: bash scripts/setup-discussion-sync-iam.sh" >&2
     exit 1
@@ -140,12 +140,12 @@ gcloud run jobs deploy "$JOB" \
   --service-account="gh-radar-discussion-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com" \
   --cpu=1 \
   --memory=512Mi \
-  --task-timeout=600 \
+  --task-timeout=1800 \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
   --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@BRIGHTDATA_ZONE=${BRIGHTDATA_ZONE_VAL}@BRIGHTDATA_URL=${BRIGHTDATA_URL_VAL}@NAVER_DISCUSSION_API_BASE=${NAVER_DISCUSSION_API_BASE_VAL}@DISCUSSION_SYNC_DAILY_BUDGET=${DAILY_BUDGET}@DISCUSSION_SYNC_CONCURRENCY=${CONCURRENCY}@DISCUSSION_SYNC_PAGE_SIZE=${PAGE_SIZE}@DISCUSSION_SYNC_BACKFILL_MAX_PAGES=${BACKFILL_MAX_PAGES}@DISCUSSION_SYNC_BACKFILL_DAYS=${BACKFILL_DAYS}@DISCUSSION_SYNC_INCREMENTAL_HOURS=${INCREMENTAL_HOURS}@DISCUSSION_SYNC_INCREMENTAL_MAX_PAGES=${INCREMENTAL_MAX_PAGES}@LOG_LEVEL=info@APP_VERSION=${SHA}" \
-  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest" \
+  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest" \
   --project="$EXPECTED_PROJECT"
 
 # ═══════════════════════════════════════════════════════════════
