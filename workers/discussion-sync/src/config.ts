@@ -25,6 +25,17 @@ export interface DiscussionSyncConfig {
   discussionSyncIncrementalHours: number;
   /** Incremental 모드의 최대 페이지 cap — 1시간 cron 사이 누적된 글이 pageSize 초과할 때 안전 버퍼. */
   discussionSyncIncrementalMaxPages: number;
+  /**
+   * Phase 08.1 — Claude Haiku inline classify 모듈 (08.1-03) 전용.
+   *
+   * `anthropicApiKey`: Anthropic SDK 호출용. classify 기능 활성화 시 필수.
+   * `classifyConcurrency`: p-limit 동시 Claude 호출 수 제한 (approved plan §8 default 5).
+   * `classifyModel`: approved plan §Decisions §1 로 "claude-haiku-4-5" 고정.
+   *   env override 는 엔지니어링 안전망(테스트용, 배포 시 기본값 유지).
+   */
+  anthropicApiKey: string;
+  classifyConcurrency: number;
+  classifyModel: string;
   appVersion: string;
   logLevel: string;
 }
@@ -52,6 +63,10 @@ export function loadConfig(): DiscussionSyncConfig {
     discussionSyncBackfillDays: Number(process.env.DISCUSSION_SYNC_BACKFILL_DAYS ?? "7"),
     discussionSyncIncrementalHours: Number(process.env.DISCUSSION_SYNC_INCREMENTAL_HOURS ?? "24"),
     discussionSyncIncrementalMaxPages: Number(process.env.DISCUSSION_SYNC_INCREMENTAL_MAX_PAGES ?? "5"),
+    // Phase 08.1 — Claude Haiku inline classify (08.1-03).
+    anthropicApiKey: req("ANTHROPIC_API_KEY"),
+    classifyConcurrency: Number(process.env.DISCUSSION_SYNC_CLASSIFY_CONCURRENCY ?? "5"),
+    classifyModel: process.env.DISCUSSION_SYNC_CLASSIFY_MODEL ?? "claude-haiku-4-5",
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };

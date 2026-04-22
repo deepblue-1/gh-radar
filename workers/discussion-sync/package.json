@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
     "@gh-radar/shared": "workspace:*",
     "@supabase/supabase-js": "^2.49.0",
     "axios": "^1.7.0",
