@@ -74,4 +74,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-16 — AUTH/PERS v2→v1 승격 (Phase 6.2 삽입 예정)*
+*Last updated: 2026-04-22 — Phase 08.1 implementation 완료 (discussion relevance classify + webapp filter toggle). Production enablement 는 manual follow-up (ANTHROPIC_API_KEY + 재배포 + backfill + smoke) 대기*
