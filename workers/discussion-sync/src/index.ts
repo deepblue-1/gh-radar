@@ -13,6 +13,8 @@ import {
 import { loadTargets } from "./pipeline/targets.js";
 import { collectDiscussions } from "./pipeline/collectDiscussions.js";
 import { upsertDiscussions } from "./pipeline/upsert.js";
+import { classifyBatch } from "./classify/classifyBatch.js";
+import { persistRelevance } from "./classify/persistRelevance.js";
 import { checkBudget, incrementUsage, kstDateString } from "./apiUsage.js";
 import { runRetention } from "./retention.js";
 
@@ -24,12 +26,14 @@ import { runRetention } from "./retention.js";
  *  2. loadTargets (top_movers ∪ watchlists, stocks 마스터로 FK 검증)
  *  3. checkBudget — 예상 요청량 초과 시 cycle skip (옵션 5 채택 후 per-stock 1 req)
  *  4. p-limit(concurrency) 로 per-stock collectDiscussions → upsertDiscussions
+ *     → classifyBatch (Phase 08.1 inline Claude Haiku 분류) → persistRelevance
  *     - onRequest 콜백에서 incrementUsage + 초과 시 stopAll
  *     - ProxyAuthError / ProxyBudgetExhaustedError → stopAll = true
  *     - ProxyBlockedError / NaverRateLimitError → per-stock skip (failure isolation)
  *     - NaverApiValidationError → per-stock skip + logger warn (fetcher 버그 알림)
+ *     - classify 실패(unknown 라벨 / API 에러) → classified_at 미업데이트 → 다음 cycle 재시도
  *  5. runRetention(90) 으로 90일 초과 행 DELETE
- *  6. summary 로그
+ *  6. summary 로그 (totalClassified 포함)
  */
 export async function runDiscussionSyncCycle(): Promise<void> {
   const cfg = loadConfig();
@@ -64,6 +68,7 @@ export async function runDiscussionSyncCycle(): Promise<void> {
 
   let totalRequests = 0;
   let totalUpserted = 0;
+  let totalClassified = 0;
   let errors = 0;
   let skipped = 0;
   let stopAll = false;
@@ -96,9 +101,32 @@ export async function runDiscussionSyncCycle(): Promise<void> {
             t.code,
             onRequest,
           );
-          const { upserted } = await upsertDiscussions(supabase, rows);
+          const { upserted, unclassifiedRows } = await upsertDiscussions(
+            supabase,
+            rows,
+          );
           totalUpserted += upserted;
-          log.info({ code: t.code, mode, requests, upserted }, "per-stock done");
+
+          // Phase 08.1 — upsert 직후 미분류 행만 Claude Haiku 로 inline 분류.
+          // 이미 분류된 행은 skip (비용 통제, approved plan §2). 실패한 분류는
+          // Map 에 포함되지 않아 classified_at 미업데이트 → 다음 cycle 재시도.
+          let classifiedInBatch = 0;
+          if (unclassifiedRows.length > 0) {
+            const labels = await classifyBatch(unclassifiedRows, log);
+            classifiedInBatch = await persistRelevance(supabase, labels);
+            totalClassified += classifiedInBatch;
+          }
+          log.info(
+            {
+              code: t.code,
+              mode,
+              requests,
+              upserted,
+              unclassified: unclassifiedRows.length,
+              classified: classifiedInBatch,
+            },
+            "per-stock done",
+          );
         } catch (err: unknown) {
           if (err instanceof ProxyAuthError || err instanceof ProxyBudgetExhaustedError) {
             log.error(
@@ -138,6 +166,7 @@ export async function runDiscussionSyncCycle(): Promise<void> {
       targets: targets.length,
       totalRequests,
       totalUpserted,
+      totalClassified,
       errors,
       skipped,
       retentionDeleted,

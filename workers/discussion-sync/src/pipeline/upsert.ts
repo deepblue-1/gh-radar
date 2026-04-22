@@ -11,16 +11,35 @@ import type { DiscussionRow } from "./map.js";
  *     Supabase JS SDK 가 전체 컬럼을 UPDATE 하므로 이전에 null 이던 body 가 뒤에 채워지면 반영됨.
  *
  * T-08 mitigation: Supabase JS SDK parametric — 문자열 concat 금지.
+ *
+ * Phase 08.1 (Plan 03) 확장: select 가 id 외 title/body/relevance/classified_at 도 반환 →
+ *   cycle 이 "신규 또는 미분류(classified_at IS NULL)" row 를 추려 classify 모듈에 넘김.
+ *   기존 행이 이미 분류되어 있으면 skip (비용 통제, approved plan §2).
  */
+export interface UpsertResult {
+  upserted: number;
+  unclassifiedRows: Array<{ id: string; title: string; body: string | null }>;
+}
+
 export async function upsertDiscussions(
   supabase: SupabaseClient,
   rows: DiscussionRow[],
-): Promise<{ upserted: number }> {
-  if (rows.length === 0) return { upserted: 0 };
+): Promise<UpsertResult> {
+  if (rows.length === 0) return { upserted: 0, unclassifiedRows: [] };
   const { data, error } = await supabase
     .from("discussions")
     .upsert(rows, { onConflict: "stock_code,post_id", ignoreDuplicates: false })
-    .select("id");
+    .select("id,title,body,relevance,classified_at");
   if (error) throw error;
-  return { upserted: data?.length ?? 0 };
+  const all = (data ?? []) as Array<{
+    id: string;
+    title: string;
+    body: string | null;
+    relevance: string | null;
+    classified_at: string | null;
+  }>;
+  const unclassifiedRows = all
+    .filter((r) => r.classified_at == null)
+    .map((r) => ({ id: r.id, title: r.title, body: r.body }));
+  return { upserted: all.length, unclassifiedRows };
 }
