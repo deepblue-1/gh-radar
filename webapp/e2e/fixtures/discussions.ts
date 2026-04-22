@@ -1,7 +1,15 @@
 // Phase 08 — Playwright fixture: /api/stocks/:code/discussions* 라우트 mock.
 // 필드명 = Discussion (camelCase). server/src/mappers/discussions.ts::toDiscussion 출력과 일치.
 // Plan 08-04 (webapp discussion section) 이 이 fixture 를 소비.
+// Phase 08.1 Plan 06 — relevance 필드 추가 + filter=meaningful 쿼리 수용.
 import type { Page } from "@playwright/test";
+
+type DiscussionRelevance =
+  | "price_reason"
+  | "theme"
+  | "news_info"
+  | "noise"
+  | null;
 
 export const DISCUSSION_ITEM_SAMPLE = {
   id: "d1e2f3a4",
@@ -13,6 +21,9 @@ export const DISCUSSION_ITEM_SAMPLE = {
   postedAt: "2026-04-17T05:32:00+00:00",
   scrapedAt: "2026-04-17T05:40:00+00:00",
   url: "https://finance.naver.com/item/board_read.naver?code=005930&nid=272617128",
+  // Phase 08.1 — 분류 결과 (null = 미분류). 기본 fixture 는 의미성 있음.
+  relevance: "news_info" as DiscussionRelevance,
+  classifiedAt: "2026-04-17T05:41:00+00:00" as string | null,
 };
 
 export function buildDiscussionList(code: string, n: number) {
@@ -43,13 +54,24 @@ export async function mockDiscussionsApi(
   } = opts;
 
   // GET — 쿼리 string 있음/없음 양쪽 커버
-  await page.route(`**/api/stocks/${code}/discussions?**`, (route) =>
-    route.fulfill({
+  // Phase 08.1 Plan 06: `?filter=meaningful` 쿼리 수용.
+  //   - meaningful → `relevance` 가 'noise' 가 아닌 항목만 반환 (null / price_reason / theme / news_info 통과)
+  //   - all / 미지정 → 전체 반환 (서버 default 'all' 동일 동작)
+  await page.route(`**/api/stocks/${code}/discussions?**`, (route) => {
+    const url = new URL(route.request().url());
+    const filter = url.searchParams.get("filter") ?? "all";
+    const body =
+      filter === "meaningful"
+        ? (list as Array<Record<string, unknown>>).filter(
+            (r) => r.relevance !== "noise",
+          )
+        : list;
+    return route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(list),
-    }),
-  );
+      body: JSON.stringify(body),
+    });
+  });
   await page.route(`**/api/stocks/${code}/discussions`, (route) =>
     route.fulfill({
       status: 200,

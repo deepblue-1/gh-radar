@@ -6,6 +6,9 @@ import { FIXTURE_SAMSUNG } from './stocks';
 export { mockNewsApi, NEWS_ITEM_SAMPLE, buildNewsList } from './news';
 
 // Phase 08 — discussion mock API re-export (Plan 08-01 Task 3)
+// Phase 08.1 Plan 06 — filter 쿼리 수용: `mockDiscussionsApi` 핸들러(`./discussions`)가
+//   `url.searchParams.get('filter')` 로 `?filter=meaningful` 를 읽어 `relevance !== 'noise'`
+//   인 항목만 반환한다. 실제 로직은 `./discussions` 파일 참조 — 이 파일은 re-export 허브.
 export {
   mockDiscussionsApi,
   DISCUSSION_ITEM_SAMPLE,
