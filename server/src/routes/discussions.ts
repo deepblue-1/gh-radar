@@ -44,7 +44,7 @@ const ALLOWED_HOSTS = new Set<string>([
 ]);
 
 const DISCUSSION_SELECT =
-  "id,stock_code,post_id,title,body,author,posted_at,scraped_at";
+  "id,stock_code,post_id,title,body,author,posted_at,scraped_at,relevance,classified_at";
 
 function kstDateString(now = new Date()): string {
   const t = new Date(now.getTime() + 9 * 3600_000);
@@ -245,7 +245,7 @@ discussionsRouter.get("/", async (req, res, next) => {
         queryParsed.error.issues[0].message,
       );
     }
-    const { windowMs, limit, before } = queryParsed.data;
+    const { windowMs, limit, before, filter } = queryParsed.data;
 
     const supabase = req.app.locals.supabase as SupabaseClient;
 
@@ -260,14 +260,18 @@ discussionsRouter.get("/", async (req, res, next) => {
 
     // 2) DB 조회 (since = now - windowMs, posted_at DESC, limit)
     //    cursor: before 가 있으면 posted_at < before 로 무한 스크롤 다음 페이지
+    //    Phase 08.1 — filter=meaningful: relevance IS NULL OR relevance != 'noise'
+    //      (아직 분류 안 된 행 + 유의미 라벨만 통과, noise 제외)
     const since = new Date(Date.now() - windowMs).toISOString();
     let q = supabase
       .from("discussions")
       .select(DISCUSSION_SELECT)
       .eq("stock_code", code)
-      .gte("posted_at", since)
-      .order("posted_at", { ascending: false })
-      .limit(limit);
+      .gte("posted_at", since);
+    if (filter === 'meaningful') {
+      q = q.or('relevance.is.null,relevance.neq.noise');
+    }
+    q = q.order("posted_at", { ascending: false }).limit(limit);
     if (before) q = q.lt("posted_at", before);
     const { data, error } = await q;
     if (error) throw error;
