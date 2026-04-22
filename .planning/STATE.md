@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Phase 08.1 planned — 종목토론 의미성 AI 분류 + 웹앱 필터 토글 (7 plans, 4 waves, ready to execute). Phase 08 complete — discussion-board production live (Bright Data + Naver JSON API + DB 15,463 row)"
-last_updated: "2026-04-22T05:01:37.394Z"
-last_activity: 2026-04-22 -- Phase 08.1 planning complete (7 plans)
+stopped_at: "Phase 08.1 implementation complete — discussion relevance classify (Haiku 4.5 inline, 4-label, p-limit 5, max_tokens=10) + webapp filter toggle + GCP Secret deploy-script updates + backfill script. 7/7 plans merged. Deferred to user: (1) ANTHROPIC_API_KEY → GCP Secret 실주입 + Cloud Run Job/Service 재배포, (2) 15,463 행 backfill 실행, (3) production Vercel UI smoke 6/6, (4) Playwright 로컬 실행. 08.1-SUMMARY.md Manual Follow-up 참조."
+last_updated: "2026-04-22T07:00:00.000Z"
+last_activity: 2026-04-22 -- Phase 08.1 execution complete (7 plans, production smoke deferred)
 progress:
   total_phases: 16
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 64
-  completed_plans: 46
-  percent: 72
+  completed_plans: 53
+  percent: 83
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 08.1 (계획 완료 — 실행 대기)
-Plan: 7 plans in 4 waves (Wave 1: DB+server filter, Wave 2: classify 모듈+server refresh/GCP, Wave 3: backfill+webapp UI, Wave 4: E2E)
-Plans completed: 46 / 64 (+7 new Phase 08.1 plans)
-Status: Ready to execute — /gsd-execute-phase 08.1
+Phase: 9 (AI Summarization — discuss/plan 필요). Phase 08.1 implementation 완료, production enablement 는 사용자 수동 단계 대기.
+Plan: Phase 08.1 7/7 plans merged (Wave 1–4). 다음 work 은 Phase 9 또는 Phase 08.1 production smoke follow-up.
+Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
+Status: Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke).
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-22 -- Phase 08.1 planning complete
+Last activity: 2026-04-22 -- Phase 08.1 execution complete (7 plans, production smoke deferred)
 
-Progress: [████████░░] 72% (46/64 plans · 8/16 phases)
+Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 
 ## Phase 1 Success Criteria 검증
 
