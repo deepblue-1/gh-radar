@@ -260,7 +260,7 @@ Plans:
 **Goal:** 수집된 네이버 종목토론방 글을 Claude Haiku 4.5 inline 분류(4-category: price_reason/theme/news_info/noise) 하여 `discussions.relevance`/`classified_at` 컬럼에 저장하고, 풀페이지 `/stocks/[code]/discussions` 에 Switch 토글(기본 ON = 의미있음만) + URL sync 로 노이즈를 제거한다.
 **Requirements**: DISC-01 (enhancement), DISC-01.1
 **Depends on:** Phase 8
-**Plans:** 7/7 plans executed (Wave 4 — E2E + SUMMARY)
+**Plans:** 8/7 plans complete
 **Completed:** 2026-04-22 (Wave 1~4 완료 — 서버/워커/웹앱 코드 landed + 로컬 테스트 PASS. production backfill + 배포는 ANTHROPIC_API_KEY 사용자 제공 이후 manual follow-up)
 
 **Success Criteria** (what must be TRUE):
@@ -314,5 +314,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 07.1. News description | 1/1 | Complete | 2026-04-18 |
 | 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
 | 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
-| 08.1. Discussion Relevance Filter | 7/7 | Complete | 2026-04-22 |
+| 08.1. Discussion Relevance Filter | 8/7 | Complete   | 2026-04-22 |
 | 9. AI Summarization | 0/TBD | Not started | - |
