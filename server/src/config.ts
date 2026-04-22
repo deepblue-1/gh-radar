@@ -21,6 +21,11 @@ export type AppConfig = {
   brightdataUrl: string;
   discussionDailyBudget: number;
   discussionRefreshCooldownSeconds: number;
+  // Phase 08.1 — inline classify (POST /refresh 훅). anthropicApiKey 미설정 시
+  // classifyAndPersist 가 graceful no-op (0 반환) → refresh 자체는 계속 200.
+  anthropicApiKey: string | null;
+  classifyConcurrency: number;
+  classifyModel: string;
 };
 
 export function loadConfig(): AppConfig {
@@ -54,5 +59,10 @@ export function loadConfig(): AppConfig {
     discussionRefreshCooldownSeconds: Number(
       process.env.DISCUSSION_REFRESH_COOLDOWN_SECONDS ?? "30",
     ),
+    // Phase 08.1 — on-demand inline classify. key 없으면 서버는 정상 기동하고
+    // refresh 경로에서만 classify skip (무료 로컬 dev + 단계적 secret rollout 수용).
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? null,
+    classifyConcurrency: Number(process.env.DISCUSSION_CLASSIFY_CONCURRENCY ?? "5"),
+    classifyModel: process.env.DISCUSSION_CLASSIFY_MODEL ?? "claude-haiku-4-5",
   };
 }

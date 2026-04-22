@@ -14,6 +14,7 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
     "@gh-radar/shared": "workspace:*",
     "@google-cloud/pino-logging-gcp-config": "^1.3.3",
     "@supabase/supabase-js": "^2.103.0",
@@ -22,6 +23,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "helmet": "^8.1.0",
+    "p-limit": "^7.0.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "sanitize-html": "^2.17.3",
