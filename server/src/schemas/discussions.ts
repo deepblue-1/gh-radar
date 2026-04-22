@@ -1,10 +1,16 @@
 import { z } from "zod";
 
 /**
- * Phase 08 — server discussions route input validation.
+ * Phase 08 + 08.1 — server discussions route input validation.
  *
  * 종목 코드는 stocks 마스터 그대로 (Phase 7 news 와 동일 정책: 영숫자 1~10자).
  * 한국 종목 6자리뿐 아니라 ETF/ETN/ELW 등 다양한 영숫자 코드도 수용.
+ *
+ * Phase 08.1 — DiscussionListQuery 에 `filter: 'all' | 'meaningful'` 추가.
+ *  - `all`         : 기존 동작 (전체 반환).
+ *  - `meaningful`  : relevance IS NULL OR relevance != 'noise' — AI 분류 전/분류 완료 행 중 noise 제외.
+ *  - 미지정        : transform 이후 `'all'` 로 정규화.
+ *  - 그 외 값      : Zod enum reject → 400.
  */
 export const StockCodeParam = z.object({
   code: z.string().regex(/^[A-Za-z0-9]{1,10}$/, "invalid stock code"),
@@ -41,11 +47,16 @@ export const DiscussionListQuery = z
       .string()
       .datetime({ offset: true })
       .optional(),
+    filter: z.enum(['all', 'meaningful']).optional(),
   })
   .transform((q) => {
     const base = q.hours != null
       ? { windowMs: q.hours * 3600_000, limit: q.limit }
       : { windowMs: (q.days ?? 7) * 86400_000, limit: q.limit };
-    return { ...base, before: q.before };
+    return { ...base, before: q.before, filter: q.filter ?? 'all' };
   });
+/**
+ * NOTE: `filter` 필드는 z.infer 로 자동 파생 — 명시 변경 불필요.
+ *   transform 이후 `'all' | 'meaningful'` 로 정규화됨 (undefined 없음).
+ */
 export type DiscussionListQueryT = z.infer<typeof DiscussionListQuery>;
