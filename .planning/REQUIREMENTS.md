@@ -39,7 +39,8 @@
 
 ### Discussion
 
-- [ ] **DISC-01**: 네이버 종목토론방 글 목록 표시 (on-demand 스크래핑, 5~10분 캐싱)
+- [x] **DISC-01**: 네이버 종목토론방 글 목록 표시 (on-demand 스크래핑, 5~10분 캐싱) — Phase 8 (production live 2026-04-18)
+- [x] **DISC-01.1**: 종목토론 의미성 AI 분류 + 필터링 (price_reason/theme/news_info/noise 4-category, Claude Haiku 4.5 inline classify, 웹앱 Switch 토글 기본 ON=meaningful + URL sync) — Phase 08.1
 - [ ] **DISC-02**: AI 토론방 요약 + 긍/부정/중립 센티먼트 분석 (Claude Haiku)
 
 ### Authentication
@@ -112,15 +113,16 @@
 | AUTH-02 | Phase 6.2 | Partial (Google 완료, Kakao 별도) |
 | PERS-01 | Phase 6.2 | Complete |
 | NEWS-01 | Phase 7 | Complete |
-| DISC-01 | Phase 8 | Pending |
+| DISC-01 | Phase 8 | Complete |
+| DISC-01.1 | Phase 08.1 | Complete |
 | NEWS-02 | Phase 9 | Pending |
 | DISC-02 | Phase 9 | Pending |
 
 **Coverage:**
-- v1 requirements: 26 total
-- Mapped to phases: 26
+- v1 requirements: 27 total (DISC-01.1 added in Phase 08.1)
+- Mapped to phases: 27
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-04-16 — Phase 06.2 완료, AUTH-02 Partial, PERS-01 Complete*
+*Last updated: 2026-04-22 — Phase 08.1 완료, DISC-01 / DISC-01.1 Complete (Claude Haiku 4.5 inline classify + webapp Switch 토글)*

@@ -19,7 +19,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
 - [ ] **Phase 6: Stock Search & Detail** - 종목 검색 자동완성 + 상세 페이지
 - [x] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
-- [ ] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
+- [x] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
+- [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
 - [ ] **Phase 9: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
 
 ## Phase Details
@@ -256,10 +257,11 @@ Plans:
 
 ### Phase 08.1: 종목토론 의미성 AI 분류 + 웹앱 필터 토글 (INSERTED)
 
-**Goal:** `discussions` 를 Claude Haiku Sync API 로 4-category (`price_reason`/`theme`/`news_info`/`noise`) 실시간 분류하고(수집과 동일 cycle 에서 inline), 풀페이지 Switch 토글 + URL sync 로 의미있는 글만 선택 노출한다.
-**Requirements**: DISC-01 (enhance), DISC-01.1 (new — 의미있는 토론 필터링)
+**Goal:** 수집된 네이버 종목토론방 글을 Claude Haiku 4.5 inline 분류(4-category: price_reason/theme/news_info/noise) 하여 `discussions.relevance`/`classified_at` 컬럼에 저장하고, 풀페이지 `/stocks/[code]/discussions` 에 Switch 토글(기본 ON = 의미있음만) + URL sync 로 노이즈를 제거한다.
+**Requirements**: DISC-01 (enhancement), DISC-01.1
 **Depends on:** Phase 8
-**Plans:** 7 plans / 4 waves
+**Plans:** 7/7 plans executed (Wave 4 — E2E + SUMMARY)
+**Completed:** 2026-04-22 (Wave 1~4 완료 — 서버/워커/웹앱 코드 landed + 로컬 테스트 PASS. production backfill + 배포는 ANTHROPIC_API_KEY 사용자 제공 이후 manual follow-up)
 
 **Success Criteria** (what must be TRUE):
   1. `discussions` 테이블에 `relevance` (price_reason|theme|news_info|noise|NULL) + `classified_at` 컬럼이 존재하고 CHECK 제약이 적용된다
@@ -270,13 +272,13 @@ Plans:
   6. 기존 15k 누적 discussions 가 백필 스크립트로 4-category 분배된다
 
 Plans:
-- [ ] 08.1-01 Wave 1: DB 마이그레이션 (relevance/classified_at + CHECK + partial indexes) + shared type 확장
-- [ ] 08.1-02 Wave 1: server DiscussionListQuery.filter 지원 + mapper 확장 (병렬)
-- [ ] 08.1-03 Wave 2: workers/discussion-sync 인라인 classify 모듈 (anthropic/prompt/classifyOne/classifyBatch/persistRelevance) + cycle 훅 삽입
-- [ ] 08.1-04 Wave 2: server refresh 경로 inline 분류 + GCP Secret `gh-radar-anthropic-api-key` 배포
-- [ ] 08.1-05 Wave 3: 백필 스크립트 + 기존 15k 행 1회 분류 (~$23, ~50분)
-- [ ] 08.1-06 Wave 3: webapp Switch 토글 + URL sync (shadcn switch 추가)
-- [ ] 08.1-07 Wave 4: Production smoke + REQUIREMENTS.md DISC-01.1 추가 + SUMMARY 작성
+- [x] 08.1-01-PLAN.md — Wave 1 DB migration (relevance/classified_at 컬럼 + 2 partial index) + packages/shared Discussion 타입 확장
+- [x] 08.1-02-PLAN.md — Wave 1 server /discussions GET 의 filter=meaningful 분기 + toDiscussion 에 relevance/classifiedAt 노출
+- [x] 08.1-03-PLAN.md — Wave 2 workers/discussion-sync 의 inline classify 모듈 (Claude Haiku 4.5 + p-limit(5) + max_tokens=10 + temperature=0)
+- [x] 08.1-04-PLAN.md — Wave 2 server /refresh 에 classify-and-persist + GCP Secret gh-radar-anthropic-api-key + deploy 스크립트 2종 업데이트 + task-timeout=1800
+- [x] 08.1-05-PLAN.md — Wave 3 15k 기존 행 일회성 backfill 스크립트 (안전장치 MAX_BACKFILL_ROWS + SIGINT graceful)
+- [x] 08.1-06-PLAN.md — Wave 3 webapp /discussions 풀페이지 Switch 토글 + URL sync + 빈 상태 카피 분기 (상세 Card 미변경)
+- [x] 08.1-07-PLAN.md — Wave 4 Playwright E2E 4 시나리오 + REQUIREMENTS/ROADMAP/STATE 갱신 + SUMMARY (production smoke 는 ANTHROPIC_API_KEY 주입 이후 manual)
 **UI hint**: yes
 
 ### Phase 9: AI Summarization
@@ -298,12 +300,19 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data Foundation | 0/TBD | Not started | - |
-| 2. Backend API | 0/TBD | Not started | - |
-| 3. Design System | 0/TBD | Not started | - |
-| 4. Frontend Scaffold | 0/TBD | Not started | - |
-| 5. Scanner UI | 0/TBD | Not started | - |
-| 6. Stock Search & Detail | 0/TBD | Not started | - |
-| 7. News Ingestion | 0/TBD | Not started | - |
-| 8. Discussion Board | 0/TBD | Not started | - |
+| 1. Data Foundation | 1/1 | Complete | 2026-04-13 |
+| 2. Backend API | 5/5 | Complete | 2026-04-13 |
+| 3. Design System | 1/1 (6 sub) | Complete | 2026-04-13 |
+| 4. Frontend Scaffold | 1/1 | Complete | 2026-04-13 |
+| 5. Scanner UI | 1/1 | Complete | 2026-04-13 |
+| 05.1. Ingestion Deploy | 6/6 | Complete | 2026-04-14 |
+| 05.2. Scanner Quality | 5/5 | Complete | 2026-04-14 |
+| 6. Stock Search & Detail | 6/6 | Complete | 2026-04-16 |
+| 06.1. stock-master-universe | 6/6 | Complete | 2026-04-16 |
+| 06.2. Auth + Watchlist | 10/10 | Complete | 2026-04-16 |
+| 7. News Ingestion | 6/6 | Complete | 2026-04-17 |
+| 07.1. News description | 1/1 | Complete | 2026-04-18 |
+| 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
+| 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
+| 08.1. Discussion Relevance Filter | 7/7 | Complete | 2026-04-22 |
 | 9. AI Summarization | 0/TBD | Not started | - |
