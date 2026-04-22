@@ -254,6 +254,31 @@ Plans:
 
 **Completed:** 2026-04-18 (Wave 3 deploy + smoke 8/8 PASS, Cloud Run Job `gh-radar-discussion-sync` + Scheduler `gh-radar-discussion-sync-hourly` + Secret `gh-radar-brightdata-api-key`. server `/api/stocks/:code/discussions` 200 OK 실측 (1.04s), DB 15,463 row · 50+ 종목 분포. POC PIVOT 으로 cheerio/iconv-lite/body iframe fetch 모두 제거 — RESEARCH 가정 무효화)
 
+### Phase 08.1: 종목토론 의미성 AI 분류 + 웹앱 필터 토글 (INSERTED)
+
+**Goal:** `discussions` 를 Claude Haiku Sync API 로 4-category (`price_reason`/`theme`/`news_info`/`noise`) 실시간 분류하고(수집과 동일 cycle 에서 inline), 풀페이지 Switch 토글 + URL sync 로 의미있는 글만 선택 노출한다.
+**Requirements**: DISC-01 (enhance), DISC-01.1 (new — 의미있는 토론 필터링)
+**Depends on:** Phase 8
+**Plans:** 7 plans / 4 waves
+
+**Success Criteria** (what must be TRUE):
+  1. `discussions` 테이블에 `relevance` (price_reason|theme|news_info|noise|NULL) + `classified_at` 컬럼이 존재하고 CHECK 제약이 적용된다
+  2. `workers/discussion-sync` cycle 이 수집 직후 같은 실행에서 Claude Haiku Sync API 로 신규 행을 분류하고 `classified_at` 을 기록한다 (p-limit 5, temperature 0, max_tokens 10)
+  3. server `GET /api/stocks/:code/discussions?filter=meaningful` 이 `relevance IS NULL OR relevance != 'noise'` 로 필터링하여 응답한다
+  4. 웹앱 `/stocks/[code]/discussions` 에 Switch 토글이 존재하고 (기본 ON=의미있음만), URL `?filter=meaningful|all` 로 상태가 동기화된다
+  5. 상세 페이지 Card(top-5, 24h) 는 수정되지 않는다 (Phase 8 UI 구조 유지)
+  6. 기존 15k 누적 discussions 가 백필 스크립트로 4-category 분배된다
+
+Plans:
+- [ ] 08.1-01 Wave 1: DB 마이그레이션 (relevance/classified_at + CHECK + partial indexes) + shared type 확장
+- [ ] 08.1-02 Wave 1: server DiscussionListQuery.filter 지원 + mapper 확장 (병렬)
+- [ ] 08.1-03 Wave 2: workers/discussion-sync 인라인 classify 모듈 (anthropic/prompt/classifyOne/classifyBatch/persistRelevance) + cycle 훅 삽입
+- [ ] 08.1-04 Wave 2: server refresh 경로 inline 분류 + GCP Secret `gh-radar-anthropic-api-key` 배포
+- [ ] 08.1-05 Wave 3: 백필 스크립트 + 기존 15k 행 1회 분류 (~$23, ~50분)
+- [ ] 08.1-06 Wave 3: webapp Switch 토글 + URL sync (shadcn switch 추가)
+- [ ] 08.1-07 Wave 4: Production smoke + REQUIREMENTS.md DISC-01.1 추가 + SUMMARY 작성
+**UI hint**: yes
+
 ### Phase 9: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 7, Phase 7.1, Phase 8
