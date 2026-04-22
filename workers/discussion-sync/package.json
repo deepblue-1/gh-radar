@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "tsx -r dotenv/config src/index.ts",
     "build": "tsc",
+    "backfill": "node dist/backfill.js",
+    "backfill:dev": "tsx -r dotenv/config src/backfill.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
