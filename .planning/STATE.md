@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: "Phase 08.1 implementation complete — discussion relevance classify (Haiku 4.5 inline, 4-label, p-limit 5, max_tokens=10) + webapp filter toggle + GCP Secret deploy-script updates + backfill script. 7/7 plans merged. Deferred to user: (1) ANTHROPIC_API_KEY → GCP Secret 실주입 + Cloud Run Job/Service 재배포, (2) 15,463 행 backfill 실행, (3) production Vercel UI smoke 6/6, (4) Playwright 로컬 실행. 08.1-SUMMARY.md Manual Follow-up 참조."
-last_updated: "2026-04-22T07:00:00.000Z"
-last_activity: 2026-04-22 -- Phase 08.1 execution complete (7 plans, production smoke deferred)
+status: "Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke)."
+stopped_at: "Phase 07 complete — news ingestion production live (Cloud Run Job + R6 schedulers + server Naver mount + E2E 6/6 + real Naver data)"
+last_updated: "2026-04-22T07:08:28.901Z"
+last_activity: 2026-04-22
 progress:
   total_phases: 16
   completed_phases: 9
   total_plans: 64
-  completed_plans: 53
-  percent: 83
+  completed_plans: 50
+  percent: 78
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 9 (AI Summarization — discuss/plan 필요). Phase 08.1 implementation 완료, production enablement 는 사용자 수동 단계 대기.
-Plan: Phase 08.1 7/7 plans merged (Wave 1–4). 다음 work 은 Phase 9 또는 Phase 08.1 production smoke follow-up.
+Phase: 9
+Plan: Not started
 Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
 Status: Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke).
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-22 -- Phase 08.1 execution complete (7 plans, production smoke deferred)
+Last activity: 2026-04-22
 
 Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 
@@ -67,7 +67,7 @@ Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 
 **Velocity:**
 
-- Total plans completed: 24 (1 + 5 + 1×6 sub)
+- Total plans completed: 32 (1 + 5 + 1×6 sub)
 - Phase 1 duration: 2026-04-10 ~ 2026-04-13 (4일)
 - Phase 2 duration: 2026-04-13 (1일)
 - Phase 3 duration: 2026-04-13 (1일)

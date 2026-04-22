@@ -314,5 +314,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 07.1. News description | 1/1 | Complete | 2026-04-18 |
 | 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
 | 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
-| 08.1. Discussion Relevance Filter | 8/7 | Complete   | 2026-04-22 |
+| 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
 | 9. AI Summarization | 0/TBD | Not started | - |
