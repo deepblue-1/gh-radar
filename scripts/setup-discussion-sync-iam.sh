@@ -79,6 +79,8 @@ echo "  (env override: SERVER_SA=<email> bash scripts/setup-discussion-sync-iam.
 # Bright Data Web Unlocker API key Secret 이름 (PIVOT: gh-radar-brightdata-api-key)
 BRIGHTDATA_SECRET="gh-radar-brightdata-api-key"
 SUPABASE_SECRET="gh-radar-supabase-service-role"
+# Phase 08.1 Plan 04 — Anthropic Claude Haiku API key (server refresh + discussion-sync classify)
+ANTHROPIC_SECRET="gh-radar-anthropic-api-key"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 3: API enable (idempotent)
@@ -141,6 +143,27 @@ fi
 echo "✓ Supabase secret exists: $SUPABASE_SECRET"
 
 # ═══════════════════════════════════════════════════════════════
+# Section 5.5: Anthropic API key Secret (Phase 08.1 Plan 04)
+#   - server refresh 경로 + discussion-sync Job 모두 마운트
+#   - ANTHROPIC_API_KEY env var 로 값 주입 (printf) — 없으면 stdin 입력 대기
+# ═══════════════════════════════════════════════════════════════
+if gcloud secrets describe "$ANTHROPIC_SECRET" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
+  echo "  SKIP: secret '$ANTHROPIC_SECRET' already exists (reused)"
+else
+  echo "  CREATING: '$ANTHROPIC_SECRET' (Anthropic Claude Haiku 4.5 API key)"
+  gcloud secrets create "$ANTHROPIC_SECRET" \
+    --replication-policy=automatic \
+    --project="$EXPECTED_PROJECT"
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    printf '%s' "$ANTHROPIC_API_KEY" | gcloud secrets versions add "$ANTHROPIC_SECRET" --data-file=- --project="$EXPECTED_PROJECT"
+    echo "  ✓ initial version added from ANTHROPIC_API_KEY env var"
+  else
+    echo "  Enter value for $ANTHROPIC_SECRET (Ctrl-D to finish):"
+    gcloud secrets versions add "$ANTHROPIC_SECRET" --data-file=- --project="$EXPECTED_PROJECT"
+  fi
+fi
+
+# ═══════════════════════════════════════════════════════════════
 # Section 6: Secret Accessor 바인딩 — 총 3건
 #   discussion-sync SA → 2건 (supabase-service-role + brightdata-api-key)
 #   server SA          → 1건 (brightdata-api-key) — server POST /refresh 경로
@@ -154,7 +177,7 @@ bind_accessor() {
   echo "  ✓ bound: $secret → $member"
 }
 
-echo "▶ binding Secret Accessor role — 3 bindings total..."
+echo "▶ binding Secret Accessor role — 5 bindings total..."
 
 # (1) discussion-sync SA → supabase-service-role
 bind_accessor "$SUPABASE_SECRET" "$DISCUSSION_SYNC_SA"
@@ -165,9 +188,15 @@ bind_accessor "$BRIGHTDATA_SECRET" "$DISCUSSION_SYNC_SA"
 # (3) server SA → brightdata-api-key (POST /refresh 경로용)
 bind_accessor "$BRIGHTDATA_SECRET" "$SERVER_SA"
 
+# (4) discussion-sync SA → anthropic-api-key (cycle inline classify, Phase 08.1)
+bind_accessor "$ANTHROPIC_SECRET" "$DISCUSSION_SYNC_SA"
+
+# (5) server SA → anthropic-api-key (refresh inline classify, Phase 08.1)
+bind_accessor "$ANTHROPIC_SECRET" "$SERVER_SA"
+
 echo ""
 echo "✅ setup-discussion-sync-iam.sh complete"
 echo "   SA: $DISCUSSION_SYNC_SA"
 echo "   SERVER_SA: $SERVER_SA"
-echo "   Secrets: $BRIGHTDATA_SECRET, $SUPABASE_SECRET (reused)"
+echo "   Secrets: $BRIGHTDATA_SECRET, $SUPABASE_SECRET (reused), $ANTHROPIC_SECRET"
 echo "Next: bash scripts/deploy-discussion-sync.sh"
