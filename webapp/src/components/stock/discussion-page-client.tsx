@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { notFound } from 'next/navigation';
+import { notFound, useRouter, useSearchParams } from 'next/navigation';
 import type { Discussion, Stock } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
 import { fetchStockDetail, fetchStockDiscussions } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { DiscussionItem } from './discussion-item';
 import { DiscussionListSkeleton } from './discussion-list-skeleton';
 
@@ -15,7 +16,7 @@ import { DiscussionListSkeleton } from './discussion-list-skeleton';
  *
  * - mount 시 2개 parallel fetch:
  *   1) fetchStockDetail → stock.name (h1 표시)
- *   2) fetchStockDiscussions(code, { days: 7, limit: PAGE_SIZE }) → 최근 7일 첫 페이지
+ *   2) fetchStockDiscussions(code, { days: 7, limit: PAGE_SIZE, filter }) → 최근 7일 첫 페이지
  * - **무한 스크롤** (08-04+ 추가): IntersectionObserver 가 리스트 하단 sentinel 진입을 감지하면
  *   `before=<마지막 item postedAt>` 로 다음 페이지 fetch + 기존 list 에 append.
  *   응답이 PAGE_SIZE 미만이면 hasMore=false 로 종료.
@@ -26,6 +27,12 @@ import { DiscussionListSkeleton } from './discussion-list-skeleton';
  * - 404 → notFound() 호출
  * - 초기 로드 에러 → 고정 copy + 다시 시도 버튼
  * - pagination 에러 → 기존 list 유지 + sentinel 영역에 inline 에러 표시 (stale-but-visible)
+ *
+ * Phase 08.1 Plan 06 — 의미성 필터 Switch 토글 추가:
+ *  - URL `?filter=meaningful` (기본, 미지정 시에도 UI 는 ON) / `?filter=all` (토글 OFF).
+ *  - load / loadMore 모두 filter 전달 — 서버 `GET /discussions?filter=...` (DISC-01.1 계약).
+ *  - meaningful 결과 0건 → "의미있는 토론이 아직 없어요. 토글을 꺼서 전체 글을 볼 수 있어요." 카피.
+ *  - 상세 페이지 Card (stock-discussion-section.tsx) 는 변경하지 않음 (approved plan §Decisions §5).
  */
 export interface DiscussionPageClientProps {
   code: string;
@@ -33,7 +40,20 @@ export interface DiscussionPageClientProps {
 
 const PAGE_SIZE = 50;
 
+function deriveFilterFromUrl(
+  params: URLSearchParams,
+): 'all' | 'meaningful' {
+  // 기본 meaningful — `?filter` 미존재 / 알 수 없는 값 / 'meaningful' → meaningful
+  return params.get('filter') === 'all' ? 'all' : 'meaningful';
+}
+
 export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const initialFilter = deriveFilterFromUrl(
+    new URLSearchParams(searchParams?.toString() ?? ''),
+  );
+
   const [stock, setStock] = useState<Stock | null>(null);
   const [discussions, setDiscussions] = useState<Discussion[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,6 +62,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [paginationError, setPaginationError] = useState<Error | null>(null);
+  const [filter, setFilter] = useState<'all' | 'meaningful'>(initialFilter);
   const controllerRef = useRef<AbortController | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const inFlightCursorRef = useRef<string | undefined>(undefined);
@@ -59,7 +80,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
         fetchStockDetail(code, controller.signal),
         fetchStockDiscussions(
           code,
-          { days: 7, limit: PAGE_SIZE },
+          { days: 7, limit: PAGE_SIZE, filter },
           controller.signal,
         ),
       ]);
@@ -80,7 +101,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
-  }, [code]);
+  }, [code, filter]);
 
   const loadMore = useCallback(async () => {
     if (!discussions || discussions.length === 0) return;
@@ -95,7 +116,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
     try {
       const next = await fetchStockDiscussions(
         code,
-        { days: 7, limit: PAGE_SIZE, before: cursor },
+        { days: 7, limit: PAGE_SIZE, before: cursor, filter },
         controller.signal,
       );
       if (controller.signal.aborted) return;
@@ -114,7 +135,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
     } finally {
       if (!controller.signal.aborted) setIsFetchingMore(false);
     }
-  }, [code, discussions, hasMore, isFetchingMore]);
+  }, [code, discussions, hasMore, isFetchingMore, filter]);
 
   useEffect(() => {
     void load();
@@ -140,6 +161,23 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
     observer.observe(node);
     return () => observer.disconnect();
   }, [discussions, hasMore, loadMore]);
+
+  const onToggleFilter = useCallback(
+    (checked: boolean) => {
+      const nextFilter: 'all' | 'meaningful' = checked ? 'meaningful' : 'all';
+      setFilter(nextFilter);
+      const params = new URLSearchParams(searchParams?.toString() ?? '');
+      params.set('filter', nextFilter);
+      router.replace(`?${params.toString()}`, { scroll: false });
+      // list 초기화 — load() 가 discussions=null 로 리셋하고 첫 페이지 재fetch.
+      // (useCallback load 가 filter 를 deps 로 가지므로 useEffect 가 자동 재실행)
+      setDiscussions(null);
+      setHasMore(true);
+      setPaginationError(null);
+      inFlightCursorRef.current = undefined;
+    },
+    [searchParams, router],
+  );
 
   if (notFoundFlag) notFound();
 
@@ -182,6 +220,24 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
         </h1>
       </header>
 
+      <div
+        className="flex items-center justify-between gap-3 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-4 py-3"
+        data-testid="discussion-filter-toggle"
+      >
+        <label
+          htmlFor="discussion-meaningful-toggle"
+          className="text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+        >
+          의미있는 토론만 보기
+        </label>
+        <Switch
+          id="discussion-meaningful-toggle"
+          checked={filter === 'meaningful'}
+          onCheckedChange={onToggleFilter}
+          aria-label="의미있는 토론만 보기"
+        />
+      </div>
+
       {isLoading && !discussions ? (
         <section
           className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-4"
@@ -199,7 +255,9 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
             표시할 토론 글이 없어요
           </h2>
           <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-            최근 7일 내 수집된 토론 글이 없습니다. 종목 상세에서 새로고침을 실행해주세요.
+            {filter === 'meaningful'
+              ? '의미있는 토론이 아직 없어요. 토글을 꺼서 전체 글을 볼 수 있어요.'
+              : '최근 7일 내 수집된 토론 글이 없습니다. 종목 상세에서 새로고침을 실행해주세요.'}
           </p>
         </section>
       ) : (
