@@ -14,6 +14,7 @@ import {
   ProxyUnavailable,
 } from "../errors.js";
 import { logger } from "../logger.js";
+import { classifyAndPersist } from "../services/discussion-classify.js";
 
 /**
  * Phase 08 — Express server discussion routes.
@@ -408,13 +409,41 @@ discussionsRouter.post("/refresh", async (req, res, next) => {
       scraped_at: scrapedAt,
     }));
     if (upsertRows.length > 0) {
-      const { error: upErr } = await supabase
+      // Phase 08.1 — upsert().select('id,title,body,classified_at') 로 확장하여
+      // 분류되지 않은 행(classified_at IS NULL)을 inline classify 에 전달.
+      const { data: upserted, error: upErr } = await supabase
         .from("discussions")
         .upsert(upsertRows, {
           onConflict: "stock_code,post_id",
           ignoreDuplicates: false,
-        });
+        })
+        .select("id,title,body,classified_at");
       if (upErr) throw upErr;
+
+      // 5.5) Phase 08.1 — inline classify: 방금 upsert 된 미분류 행만 분류.
+      //       실패/미설정은 non-fatal — refresh 응답은 그대로 성공 반환.
+      const unclassified = ((upserted ?? []) as Array<{
+        id: string;
+        title: string;
+        body: string | null;
+        classified_at: string | null;
+      }>)
+        .filter((r) => r.classified_at == null)
+        .map((r) => ({ id: r.id, title: r.title, body: r.body }));
+      if (unclassified.length > 0) {
+        try {
+          const n = await classifyAndPersist(supabase, unclassified);
+          logger.info(
+            { code, classified: n, attempted: unclassified.length },
+            "discussion refresh inline classify",
+          );
+        } catch (err) {
+          logger.warn(
+            { code, err: (err as Error).message },
+            "discussion refresh classify failed — non-fatal",
+          );
+        }
+      }
     }
 
     // 6) 갱신 후 24h 상위 5건 반환 (상세 Card 기본)
