@@ -90,6 +90,13 @@ export interface FetchDiscussionsOpts {
    * 다음 호출에 전달하면 자연스러운 키셋 페이지네이션이 됨.
    */
   before?: string;
+  /**
+   * Phase 08.1 — 의미있는 토론 필터. 서버 schema `'all' | 'meaningful'`.
+   *  - `'meaningful'`: `relevance IS NULL OR relevance != 'noise'` 만 반환 (풀페이지 기본 ON)
+   *  - `'all'`: 필터 없음 (사용자가 토글 OFF)
+   *  - `undefined`: 서버가 기본 `'all'` 로 정규화 (server/src/schemas/discussions.ts)
+   */
+  filter?: 'all' | 'meaningful';
 }
 
 /**
@@ -110,6 +117,7 @@ export function fetchStockDiscussions(
   // 둘 다 undefined → 서버 default (days=7)
   params.set('limit', String(opts.limit ?? 50));
   if (opts.before) params.set('before', opts.before);
+  if (opts.filter) params.set('filter', opts.filter);
   return apiFetch<Discussion[]>(
     `/api/stocks/${encodeURIComponent(code)}/discussions?${params.toString()}`,
     { signal },
