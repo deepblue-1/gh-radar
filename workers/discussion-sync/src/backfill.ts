@@ -13,6 +13,7 @@
  *   MAX_BACKFILL_ROWS (기본 20000)
  *   BACKFILL_CHUNK_SIZE (기본 100) — chunk per classifyBatch
  *   BACKFILL_SELECT_PAGE (기본 10000) — 단일 SELECT 한도
+ *   STOCK_CODES (옵션) — CSV 로 특정 종목만 backfill (예: "005930,000660"). 미지정 시 전체.
  *
  * 종료 조건:
  *   - unclassified 잔여 0 → complete
@@ -41,6 +42,8 @@ export interface BackfillOptions {
   maxRows: number;
   chunkSize: number;
   selectPage: number;
+  /** 옵션 — 지정 시 해당 stock_code 만 backfill. 미지정 시 전체. */
+  stockCodes?: string[];
   /** DI — 테스트에서 fake classify 주입 가능. 프로덕션은 classifyBatch 를 그대로 전달. */
   classify: typeof classifyBatch;
   /** DI — 테스트에서 fake persist 주입 가능. 프로덕션은 persistRelevance 그대로 전달. */
@@ -66,7 +69,7 @@ export interface BackfillResult {
  *   4. 조건: page.length === 0 → complete / processed >= maxRows → stop / shouldStop() → graceful
  */
 export async function runBackfill(opts: BackfillOptions): Promise<BackfillResult> {
-  const { supabase, log, maxRows, chunkSize, selectPage, classify, persist, shouldStop } = opts;
+  const { supabase, log, maxRows, chunkSize, selectPage, stockCodes, classify, persist, shouldStop } = opts;
 
   let processed = 0;
   let classified = 0;
@@ -74,12 +77,16 @@ export async function runBackfill(opts: BackfillOptions): Promise<BackfillResult
   const startedAt = Date.now();
 
   while (!(shouldStop?.() ?? false) && processed < maxRows) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("discussions")
       .select("id,title,body")
       .is("classified_at", null)
       .order("posted_at", { ascending: false })
       .limit(selectPage);
+    if (stockCodes && stockCodes.length > 0) {
+      query = query.in("stock_code", stockCodes);
+    }
+    const { data, error } = await query;
 
     if (error) {
       log.error({ err: error.message }, "backfill select failed");
@@ -141,6 +148,10 @@ async function main(): Promise<void> {
   const maxRows = Number(process.env.MAX_BACKFILL_ROWS ?? DEFAULT_MAX_BACKFILL_ROWS);
   const chunkSize = Number(process.env.BACKFILL_CHUNK_SIZE ?? DEFAULT_CHUNK_SIZE);
   const selectPage = Number(process.env.BACKFILL_SELECT_PAGE ?? DEFAULT_SELECT_PAGE);
+  const stockCodesRaw = process.env.STOCK_CODES?.trim();
+  const stockCodes = stockCodesRaw
+    ? stockCodesRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
 
   let shuttingDown = false;
   const onSignal = (): void => {
@@ -152,7 +163,14 @@ async function main(): Promise<void> {
   process.on("SIGTERM", onSignal);
 
   log.info(
-    { maxRows, chunkSize, selectPage, model: cfg.classifyModel, concurrency: cfg.classifyConcurrency },
+    {
+      maxRows,
+      chunkSize,
+      selectPage,
+      stockCodesCount: stockCodes?.length ?? 0,
+      model: cfg.classifyModel,
+      concurrency: cfg.classifyConcurrency,
+    },
     "backfill start",
   );
 
@@ -162,6 +180,7 @@ async function main(): Promise<void> {
     maxRows,
     chunkSize,
     selectPage,
+    stockCodes,
     classify: classifyBatch,
     persist: persistRelevance,
     shouldStop: () => shuttingDown,
