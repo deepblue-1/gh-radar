@@ -4,7 +4,6 @@
  * ---------------------------------------------------------------------------
  * changeRate 스케일 실측 (2026-04-14, `/api/scanner?sort=rate_desc&limit=3`):
  *   - 응답 예: `changeRate: 30`, `29.98` → **정수 % 스케일** (29.98 = 29.98%)
- *   - 클라 → 서버: `minRate=${min}` (정수 그대로 전송)
  * ---------------------------------------------------------------------------
  *
  * Phase 05.2 (D-17): apiFetch<T> 대신 raw fetch 로 교체.
@@ -39,7 +38,6 @@ export async function fetchScannerStocks(
 ): Promise<ScannerFetchResult> {
   const params = new URLSearchParams({
     sort: 'rate_desc',
-    minRate: String(state.min),
     market: state.market,
     limit: String(SCANNER_LIMIT),
   });

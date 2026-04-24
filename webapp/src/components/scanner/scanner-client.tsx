@@ -33,13 +33,13 @@ export function ScannerClient() {
     () => parseScannerSearchParams(searchParams),
     [searchParams],
   );
-  const key = `${state.min}|${state.market}`;
+  const key = state.market;
 
   const fetcher = useCallback(
     (signal: AbortSignal) => fetchScannerStocks(state, signal),
     // key 가 바뀔 때만 fetcher identity 갱신
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.min, state.market],
+    [state.market],
   );
 
   const { data, error, refresh, isRefreshing, isInitialLoading } =
@@ -103,8 +103,7 @@ export function ScannerClient() {
           스캐너
         </h1>
         <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-          상한가 근접 종목을 실시간으로 추적합니다. 등락률과 마켓을 조정해 리스트를
-          좁혀보세요.
+          상한가 근접 종목(등락률 10% 이상)을 실시간으로 추적합니다. 마켓을 선택해 리스트를 확인하세요.
         </p>
       </header>
 

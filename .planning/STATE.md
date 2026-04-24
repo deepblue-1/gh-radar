@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: "Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke)."
 stopped_at: "Phase 07 complete — news ingestion production live (Cloud Run Job + R6 schedulers + server Naver mount + E2E 6/6 + real Naver data)"
-last_updated: "2026-04-22T07:08:28.901Z"
-last_activity: 2026-04-22
+last_updated: "2026-04-24T00:47:15.060Z"
+last_activity: 2026-04-24
 progress:
   total_phases: 16
   completed_phases: 9
@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
 Status: Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke).
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-04-22
+Last activity: 2026-04-24 - Completed quick task 260424-dld: 스캐너 등락률 필터 제거
 
 Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 
@@ -144,6 +144,7 @@ Recent decisions affecting current work:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260418-kd8 | phase 7 뉴스 풀페이지 무한 스크롤 (Phase 8 토론방 1:1 미러) | 2026-04-18 | fb2607c | [260418-kd8-phase-7](./quick/260418-kd8-phase-7/) |
+| 260424-dld | 스캐너 등락률 슬라이더 제거 + 서버 고정 10% 하한 | 2026-04-24 | _pending_ | [260424-dld-remove-scanner-rate-filter](./quick/260424-dld-remove-scanner-rate-filter/) |
 
 ## Session Continuity
 

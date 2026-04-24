@@ -3,7 +3,7 @@ import { fetchScannerStocks } from './scanner-api';
 import { ApiClientError } from './api';
 import type { ScannerState } from './scanner-query';
 
-const STATE: ScannerState = { min: 25, market: 'ALL' };
+const STATE: ScannerState = { market: 'ALL' };
 
 afterEach(() => {
   vi.restoreAllMocks();

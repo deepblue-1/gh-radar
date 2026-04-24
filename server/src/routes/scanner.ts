@@ -14,6 +14,11 @@ const MASTER_COLS = "code,name,market"; // scanner 는 name/market 만 필요
 const MOVER_COLS =
   "code,name,market,rank,ranked_at,scan_id,updated_at";
 
+// 스캐너는 급등 포착이 목적 — 등락률 10% 미만은 의미 없는 노이즈로 간주.
+// top_movers 는 KIS 등락률 순위 상/하 상위 N 을 그대로 담으므로,
+// 조용한 장에서 순위 끝에 붙는 저등락 종목까지 노출되는 걸 여기서 컷한다.
+export const SCANNER_MIN_CHANGE_RATE = 10;
+
 export const scannerRouter: RouterT = Router();
 
 scannerRouter.get("/", async (req, res, next) => {
@@ -27,7 +32,7 @@ scannerRouter.get("/", async (req, res, next) => {
         `${issue.path.join(".")}: ${issue.message}`,
       );
     }
-    const { market, minRate, sort, limit } = parsed.data;
+    const { market, sort, limit } = parsed.data;
     const supabase = req.app.locals.supabase as SupabaseClient;
 
     // 1. top_movers 후보 fetch (랭킹 + 표시 캐시)
@@ -68,8 +73,9 @@ scannerRouter.get("/", async (req, res, next) => {
       masterByCode.set(m.code, m);
     }
 
-    // 4. 평탄화 + 필터
+    // 4. 평탄화 + 등락률 컷
     //    CRIT-2: master 없는 종목 (상장폐지 또는 마스터 미동기화) 제외
+    //    급등 포착 목적이므로 changeRate < SCANNER_MIN_CHANGE_RATE 는 제외
     let merged = moverRows
       .filter((mv) => masterByCode.has(mv.code))
       .map((mv) =>
@@ -78,11 +84,8 @@ scannerRouter.get("/", async (req, res, next) => {
           masterByCode.get(mv.code) ?? null,
           quoteByCode.get(mv.code) ?? null,
         ),
-      );
-
-    if (typeof minRate === "number") {
-      merged = merged.filter((s) => s.changeRate >= minRate);
-    }
+      )
+      .filter((s) => s.changeRate >= SCANNER_MIN_CHANGE_RATE);
 
     // 5. 정렬
     const sortMap = {
