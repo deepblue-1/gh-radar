@@ -5,12 +5,13 @@ import { formatNewsCardDate, formatNewsFullDate } from '@/lib/format-news-date';
  * NewsItem — Phase 07 UI-SPEC §Component Inventory.
  *
  * variants:
- *  - `card` (상세 페이지 / StockNewsSection): grid [1fr_88px_78px]
- *  - `full` (`/news` 페이지): grid [1fr_120px_140px]
+ *  - `card` (상세 페이지 / StockNewsSection): sm+ [1fr_88px_78px], mobile [1fr_78px]
+ *  - `full` (`/news` 페이지): sm+ [1fr_120px_140px], mobile [1fr_140px]
  *
  * - `<a target="_blank" rel="noopener noreferrer">` 강제 (T-02 tabnabbing 방어)
  * - `{article.title}` React text escape 만 사용 — raw HTML 주입 API 금지 (T-03 XSS)
- * - 모바일에서는 source 컬럼 숨김 (`hidden sm:block`)
+ * - 모바일에서는 source 컬럼을 숨김과 동시에 그 칼럼의 grid track 도 축소하여
+ *   타임스탬프 왼쪽의 빈 여백 없이 제목이 최대 폭을 쓰도록 한다.
  */
 export interface NewsItemProps {
   article: NewsArticle;
@@ -28,7 +29,9 @@ export function NewsItem({ article, variant }: NewsItemProps) {
     <li
       data-testid="news-item"
       className={`grid items-center gap-3 py-3 min-h-11 px-2 rounded-md hover:bg-[var(--muted)]/40 transition-colors ${
-        isFull ? 'grid-cols-[1fr_120px_140px]' : 'grid-cols-[1fr_88px_78px]'
+        isFull
+          ? 'grid-cols-[1fr_140px] sm:grid-cols-[1fr_120px_140px]'
+          : 'grid-cols-[1fr_78px] sm:grid-cols-[1fr_88px_78px]'
       }`}
     >
       <a

@@ -72,10 +72,10 @@ export function InfoStockCard({
         aria-label={`${stock.name} 상세 보기`}
         className="flex min-w-0 flex-1 items-center gap-3"
       >
-        {/* 좌측 코드 prefix 배지 */}
+        {/* 좌측 코드 prefix 배지 — 모바일에서는 종목명 공간 확보를 위해 숨김 */}
         <span
           aria-hidden="true"
-          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[var(--muted)] font-mono text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]"
+          className="hidden size-9 shrink-0 sm:flex items-center justify-center rounded-md bg-[var(--muted)] font-mono text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]"
         >
           {codePrefix}
         </span>
@@ -90,8 +90,10 @@ export function InfoStockCard({
           </div>
         </div>
 
-        {/* Sparkline — 등락 방향 시각화 */}
-        <Sparkline direction={direction} />
+        {/* Sparkline — 등락 방향 시각화. 모바일에서는 종목명 공간 확보를 위해 숨김 */}
+        <div className="hidden sm:block shrink-0">
+          <Sparkline direction={direction} />
+        </div>
 
         {/* 우측 가격 블록 */}
         <div className="w-24 shrink-0 text-right">
