@@ -19,7 +19,8 @@ import { DiscussionListSkeleton } from './discussion-list-skeleton';
  *   2) fetchStockDiscussions(code, { days: 7, limit: PAGE_SIZE, filter }) → 최근 7일 첫 페이지
  * - **무한 스크롤** (08-04+ 추가): IntersectionObserver 가 리스트 하단 sentinel 진입을 감지하면
  *   `before=<마지막 item postedAt>` 로 다음 페이지 fetch + 기존 list 에 append.
- *   응답이 PAGE_SIZE 미만이면 hasMore=false 로 종료.
+ *   서버 envelope `{ items, hasMore }` 의 hasMore 시그널로 종료 판정 (서버는 limit+1 행을
+ *   가져와 raw row 수 기준으로 hasMore 결정 — D11 사후 스팸 필터로 items 가 깎여도 정확).
  * - 상단 Back-Nav: h1 왼쪽 ← 링크 (UI-SPEC §4.4, aria-label="종목 상세로 돌아가기")
  * - 제목 텍스트: `{stock.name} — 최근 7일 토론`
  * - Compact 3열 grid (md+): `1fr 140px 120px`
@@ -76,7 +77,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
     setPaginationError(null);
     inFlightCursorRef.current = undefined;
     try {
-      const [stockData, discussionsData] = await Promise.all([
+      const [stockData, page] = await Promise.all([
         fetchStockDetail(code, controller.signal),
         fetchStockDiscussions(
           code,
@@ -86,10 +87,10 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
       ]);
       if (controller.signal.aborted) return;
       setStock(stockData);
-      setDiscussions(discussionsData);
+      setDiscussions(page.items);
       setError(null);
-      // 첫 페이지가 PAGE_SIZE 미만 → 더 이상 없음
-      if (discussionsData.length < PAGE_SIZE) setHasMore(false);
+      // 서버 envelope 의 hasMore 신호 신뢰 (D11 사후 스팸 필터로 items.length < PAGE_SIZE 흔함)
+      setHasMore(page.hasMore);
     } catch (err) {
       if (controller.signal.aborted) return;
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -114,20 +115,20 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
     setPaginationError(null);
     const controller = new AbortController();
     try {
-      const next = await fetchStockDiscussions(
+      const page = await fetchStockDiscussions(
         code,
         { days: 7, limit: PAGE_SIZE, before: cursor, filter },
         controller.signal,
       );
       if (controller.signal.aborted) return;
       setDiscussions((prev) => {
-        if (!prev) return next;
+        if (!prev) return page.items;
         // postId 중복 제거 (cursor 경계에서 동일 timestamp post 가 두 페이지에 걸칠 가능성 안전망)
         const seen = new Set(prev.map((d) => d.postId));
-        const dedup = next.filter((d) => !seen.has(d.postId));
+        const dedup = page.items.filter((d) => !seen.has(d.postId));
         return [...prev, ...dedup];
       });
-      if (next.length < PAGE_SIZE) setHasMore(false);
+      setHasMore(page.hasMore);
     } catch (err) {
       if (controller.signal.aborted) return;
       if (err instanceof Error && err.name === 'AbortError') return;

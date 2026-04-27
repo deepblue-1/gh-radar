@@ -9,7 +9,7 @@
  * - fetchStockDiscussions: GET /api/stocks/:code/discussions (hours/days/limit 쿼리 — 서버 `DiscussionListQuery` 계약)
  * - refreshStockDiscussions: POST /api/stocks/:code/discussions/refresh (429 시 `retry_after_seconds`, 503 시 `PROXY_UNAVAILABLE`/`PROXY_BUDGET_EXHAUSTED`)
  */
-import type { Stock, NewsArticle, Discussion } from '@gh-radar/shared';
+import type { Stock, NewsArticle, Discussion, DiscussionListResponse } from '@gh-radar/shared';
 import { apiFetch } from './api';
 
 export function searchStocks(q: string, signal: AbortSignal): Promise<Stock[]> {
@@ -100,17 +100,20 @@ export interface FetchDiscussionsOpts {
 }
 
 /**
- * 특정 종목의 토론방 게시글 목록을 조회한다 (camelCase `Discussion[]`).
+ * 특정 종목의 토론방 게시글 목록을 조회한다 (envelope `{ items, hasMore }`).
  *
  * - 서버 계약: `/api/stocks/:code/discussions?hours=N&limit=M` 또는 `?days=N&limit=M`
  * - 쿼리 파라미터 중 `undefined` 는 전송에서 제외 (hours 만 또는 days 만 전달)
- * - 성공: DB 에서 최신 posted_at DESC 로 반환 (스크래핑 트리거 없음 — refresh 호출이 책임)
+ * - 성공: `{ items: Discussion[]; hasMore: boolean }` — DB 에서 최신 posted_at DESC 로 반환.
+ *   서버는 D11 사후 스팸 필터로 `items.length < limit` 가 흔하므로 `hasMore` 시그널을
+ *   raw row 수(필터 전) 기준으로 계산해 envelope 으로 내려준다. 클라이언트는 이 값을
+ *   신뢰해 무한스크롤 종료 여부를 판정.
  */
 export function fetchStockDiscussions(
   code: string,
   opts: FetchDiscussionsOpts,
   signal: AbortSignal,
-): Promise<Discussion[]> {
+): Promise<DiscussionListResponse> {
   const params = new URLSearchParams();
   if (opts.hours != null) params.set('hours', String(opts.hours));
   else if (opts.days != null) params.set('days', String(opts.days));
@@ -118,7 +121,7 @@ export function fetchStockDiscussions(
   params.set('limit', String(opts.limit ?? 50));
   if (opts.before) params.set('before', opts.before);
   if (opts.filter) params.set('filter', opts.filter);
-  return apiFetch<Discussion[]>(
+  return apiFetch<DiscussionListResponse>(
     `/api/stocks/${encodeURIComponent(code)}/discussions?${params.toString()}`,
     { signal },
   );

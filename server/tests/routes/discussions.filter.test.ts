@@ -130,10 +130,10 @@ describe("GET /api/stocks/:code/discussions (Phase 08.1 filter)", () => {
     );
     expect(res.status).toBe(200);
     expect(supabase.orSpy).not.toHaveBeenCalled();
-    expect(res.body).toHaveLength(1);
+    expect(res.body.items).toHaveLength(1);
     // camelCase 노출 확인
-    expect(res.body[0]).toHaveProperty("relevance", "price_reason");
-    expect(res.body[0]).toHaveProperty("classifiedAt", "2026-04-21T10:00:00+00:00");
+    expect(res.body.items[0]).toHaveProperty("relevance", "price_reason");
+    expect(res.body.items[0]).toHaveProperty("classifiedAt", "2026-04-21T10:00:00+00:00");
   });
 
   it("filter=all 명시 → or() 체인 미호출 (filter 미지정과 동일)", async () => {
@@ -174,7 +174,9 @@ describe("GET /api/stocks/:code/discussions (Phase 08.1 filter)", () => {
     );
     // 응답 payload 에 relevance='noise' 행 없음 (mock 데이터에서 이미 걸러짐)
     expect(
-      res.body.every((d: { relevance: string | null }) => d.relevance !== "noise"),
+      res.body.items.every(
+        (d: { relevance: string | null }) => d.relevance !== "noise",
+      ),
     ).toBe(true);
   });
 

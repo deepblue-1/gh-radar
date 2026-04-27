@@ -263,6 +263,9 @@ discussionsRouter.get("/", async (req, res, next) => {
     //    cursor: before 가 있으면 posted_at < before 로 무한 스크롤 다음 페이지
     //    Phase 08.1 — filter=meaningful: relevance IS NULL OR relevance != 'noise'
     //      (아직 분류 안 된 행 + 유의미 라벨만 통과, noise 제외)
+    //
+    //    페이지네이션 시그널: DB 에서 `limit + 1` 행을 가져와 raw row 수로 hasMore 결정.
+    //    D11 사후 스팸 필터로 응답이 limit 미만이 되더라도 hasMore 는 정확함.
     const since = new Date(Date.now() - windowMs).toISOString();
     let q = supabase
       .from("discussions")
@@ -272,14 +275,17 @@ discussionsRouter.get("/", async (req, res, next) => {
     if (filter === 'meaningful') {
       q = q.or('relevance.is.null,relevance.neq.noise');
     }
-    q = q.order("posted_at", { ascending: false }).limit(limit);
+    q = q.order("posted_at", { ascending: false }).limit(limit + 1);
     if (before) q = q.lt("posted_at", before);
     const { data, error } = await q;
     if (error) throw error;
 
-    // 3) D11 스팸 필터 + camelCase mapper
-    const filtered = filterSpam(((data ?? []) as DiscussionRow[]) || []);
-    res.json(filtered.map(toDiscussion));
+    // 3) hasMore 는 raw row 수 기준 — 스팸 필터 전 결정해야 신뢰 가능.
+    const rawRows = ((data ?? []) as DiscussionRow[]) || [];
+    const hasMore = rawRows.length > limit;
+    const pageRows = hasMore ? rawRows.slice(0, limit) : rawRows;
+    const filtered = filterSpam(pageRows);
+    res.json({ items: filtered.map(toDiscussion), hasMore });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return next(InvalidQueryParam("discussions", e.issues[0].message));

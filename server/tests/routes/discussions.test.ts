@@ -107,7 +107,7 @@ function makeApp(opts: {
 // ──────────────────────────────────────────────────────────────────────────
 
 describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
-  it("V-01 200 + camelCase Discussion[] (hours=24, limit=5)", async () => {
+  it("V-01 200 + envelope { items, hasMore } camelCase (hours=24, limit=5)", async () => {
     const supabase = makeSupabase({
       "stocks.single": { code: "005930" },
       "discussions.list": [snakeRow()],
@@ -117,20 +117,21 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
       "/api/stocks/005930/discussions?hours=24&limit=5",
     );
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toMatchObject({
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.hasMore).toBe(false);
+    expect(res.body.items[0]).toMatchObject({
       stockCode: "005930",
       postId: "272617128",
       postedAt: "2026-04-17T05:32:00+00:00",
       scrapedAt: "2026-04-17T05:40:00+00:00",
     });
-    expect(res.body[0].url).toContain("/discussion/272617128");
-    expect(res.body[0]).not.toHaveProperty("stock_code");
-    expect(res.body[0]).not.toHaveProperty("scraped_at");
+    expect(res.body.items[0].url).toContain("/discussion/272617128");
+    expect(res.body.items[0]).not.toHaveProperty("stock_code");
+    expect(res.body.items[0]).not.toHaveProperty("scraped_at");
   });
 
-  it("V-02 limit > 50 is clamped to 50", async () => {
+  it("V-02 limit > 50 is clamped to 50 (items length ≤ 50, hasMore=true)", async () => {
     const many = Array.from({ length: 75 }).map((_, i) =>
       snakeRow({ id: `d${i}`, post_id: String(100000 + i) }),
     );
@@ -143,7 +144,9 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
       "/api/stocks/005930/discussions?days=7&limit=500",
     );
     expect(res.status).toBe(200);
-    expect(res.body.length).toBeLessThanOrEqual(50);
+    expect(res.body.items.length).toBeLessThanOrEqual(50);
+    // dataset 75건 > clamp 50 → hasMore=true
+    expect(res.body.hasMore).toBe(true);
   });
 
   it("V-03 invalid code XYZ-abc → 400 INVALID_QUERY_PARAM", async () => {
@@ -199,11 +202,33 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
       "/api/stocks/005930/discussions?hours=24&limit=5",
     );
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0].postId).toBe("272617128");
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].postId).toBe("272617128");
+    // raw rows = 3 ≤ limit 5 → hasMore=false (사후 스팸 필터로 깎인 것과 무관)
+    expect(res.body.hasMore).toBe(false);
   });
 
-  it("V-07 empty result → 200 [] (not error)", async () => {
+  it("V-06b spam filter 가 응답 길이를 깎아도 raw rows > limit 이면 hasMore=true", async () => {
+    // limit=2, 6 rows: 처음 3개는 정상, 다음 3개는 스팸. limit+1=3 만 DB 에서 가져감 (mock slice).
+    // raw rows length = 3 > limit 2 → hasMore=true. 첫 limit=2 rows = ok 만 통과 → items=[ok1, ok2]
+    const ok1 = snakeRow({ id: "ok1", post_id: "1001" });
+    const ok2 = snakeRow({ id: "ok2", post_id: "1002" });
+    const ok3 = snakeRow({ id: "ok3", post_id: "1003" });
+    const spam = snakeRow({ id: "sp1", post_id: "9001", title: "ㅋㅋ" });
+    const supabase = makeSupabase({
+      "stocks.single": { code: "005930" },
+      "discussions.list": [ok1, ok2, ok3, spam, spam, spam],
+    });
+    const app = makeApp({ supabase });
+    const res = await request(app).get(
+      "/api/stocks/005930/discussions?hours=24&limit=2",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.hasMore).toBe(true);
+    expect(res.body.items.length).toBeLessThanOrEqual(2);
+  });
+
+  it("V-07 empty result → 200 envelope { items: [], hasMore: false }", async () => {
     const supabase = makeSupabase({
       "stocks.single": { code: "005930" },
       "discussions.list": [],
@@ -213,7 +238,7 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
       "/api/stocks/005930/discussions?hours=24",
     );
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toEqual({ items: [], hasMore: false });
   });
 
   it("V-08 default windowMs = days=7 when neither hours nor days passed", async () => {
@@ -225,7 +250,8 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
     const app = makeApp({ supabase });
     const res = await request(app).get("/api/stocks/005930/discussions");
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.hasMore).toBe(false);
   });
 
   it("V-08a infinite scroll cursor `before=<ISO>` → SQL applies posted_at < before", async () => {
@@ -239,7 +265,7 @@ describe("GET /api/stocks/:code/discussions (Phase 08 V-01..V-08)", () => {
       `/api/stocks/005930/discussions?days=7&limit=50&before=${encodeURIComponent(before)}`,
     );
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
+    expect(res.body.items).toHaveLength(1);
     // discussions 테이블 chain 의 lt 호출 검증 — posted_at < before 가 적용되었는지
     const discussionsCalls = (supabase.from as ReturnType<typeof vi.fn>).mock.calls.filter(
       (c) => c[0] === "discussions",

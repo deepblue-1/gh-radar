@@ -18,7 +18,7 @@ vi.mock('@/lib/stock-api', () => ({
   fetchStockDetail: vi.fn(),
   fetchStockNews: vi.fn().mockResolvedValue([]),
   refreshStockNews: vi.fn().mockResolvedValue([]),
-  fetchStockDiscussions: vi.fn().mockResolvedValue([]),
+  fetchStockDiscussions: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
   refreshStockDiscussions: vi.fn().mockResolvedValue([]),
 }));
 
