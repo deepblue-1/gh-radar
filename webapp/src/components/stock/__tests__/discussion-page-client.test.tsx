@@ -66,7 +66,7 @@ beforeEach(() => {
 
   // 기본: 종목 상세는 삼성전자 + 빈 리스트
   mockFetchDetail.mockResolvedValue(FIXTURE_SAMSUNG);
-  mockFetchDiscussions.mockResolvedValue([]);
+  mockFetchDiscussions.mockResolvedValue({ items: [], hasMore: false });
 });
 
 describe('DiscussionPageClient — Phase 08.1 filter toggle', () => {
@@ -117,7 +117,7 @@ describe('DiscussionPageClient — Phase 08.1 filter toggle', () => {
   });
 
   it('filter=meaningful 로 빈 결과 → 토글 안내 카피 렌더', async () => {
-    mockFetchDiscussions.mockResolvedValue([]);
+    mockFetchDiscussions.mockResolvedValue({ items: [], hasMore: false });
     render(<DiscussionPageClient code="005930" />);
 
     await waitFor(() =>
@@ -131,7 +131,7 @@ describe('DiscussionPageClient — Phase 08.1 filter toggle', () => {
 
   it('filter=all 로 빈 결과 → 기존 수집 안내 카피 렌더', async () => {
     mockSearchParams = new URLSearchParams('filter=all');
-    mockFetchDiscussions.mockResolvedValue([]);
+    mockFetchDiscussions.mockResolvedValue({ items: [], hasMore: false });
     render(<DiscussionPageClient code="005930" />);
 
     await waitFor(() =>

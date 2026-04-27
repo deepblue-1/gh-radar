@@ -81,14 +81,15 @@ export function StockDiscussionSection({
     controllerRef.current = controller;
     setIsLoading(true);
     try {
-      const data = await fetchStockDiscussions(
+      const page = await fetchStockDiscussions(
         stockCode,
         { hours: CARD_FETCH_HOURS, limit: CARD_FETCH_LIMIT },
         controller.signal,
       );
       if (controller.signal.aborted) return;
-      setDiscussions(data);
-      setStaleMinutes(computeStaleMinutes(data));
+      // 상세 Card 는 24h top 5 만 노출 — hasMore 무시.
+      setDiscussions(page.items);
+      setStaleMinutes(computeStaleMinutes(page.items));
       setError(null);
     } catch (err) {
       if (controller.signal.aborted) return;

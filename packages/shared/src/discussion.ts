@@ -41,3 +41,15 @@ export type Discussion = {
   /** Phase 08.1 — 분류가 실제로 완료된 시각. null = 미분류. */
   classifiedAt: string | null;
 };
+
+/**
+ * Phase 08.x — `GET /api/stocks/:code/discussions` 응답 envelope.
+ *
+ * 서버는 D11 스팸 사후 필터로 `items.length` 가 요청 `limit` 보다 작아질 수 있어,
+ * 클라이언트가 `items.length < limit` 으로 페이지 종료를 판정하면 무한스크롤이 조기 종료된다.
+ * `hasMore` 는 DB row 수(필터 전) 기준으로 결정되어 신뢰 가능한 페이지네이션 시그널.
+ */
+export type DiscussionListResponse = {
+  items: Discussion[];
+  hasMore: boolean;
+};
