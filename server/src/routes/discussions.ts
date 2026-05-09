@@ -259,33 +259,51 @@ discussionsRouter.get("/", async (req, res, next) => {
     if (mErr) throw mErr;
     if (!master) throw StockNotFound(code);
 
-    // 2) DB 조회 (since = now - windowMs, posted_at DESC, limit)
-    //    cursor: before 가 있으면 posted_at < before 로 무한 스크롤 다음 페이지
+    // 2) DB 조회 (since = now - windowMs, posted_at DESC) — over-fetch loop.
+    //    cursor: before 가 있으면 posted_at < before 로 무한 스크롤 다음 페이지.
     //    Phase 08.1 — filter=meaningful: relevance IS NULL OR relevance != 'noise'
     //      (아직 분류 안 된 행 + 유의미 라벨만 통과, noise 제외)
     //
-    //    페이지네이션 시그널: DB 에서 `limit + 1` 행을 가져와 raw row 수로 hasMore 결정.
-    //    D11 사후 스팸 필터로 응답이 limit 미만이 되더라도 hasMore 는 정확함.
+    //    Phase 08.2 — D11 사후 스팸 필터로 응답이 limit 미만으로 깎이는 문제 해결:
+    //    한 round 에 limit*2 raw 를 가져와 spam 필터링 후 acc 에 누적, acc.length >= limit
+    //    채워질 때까지 cursor 를 진행해 추가 fetch (max 3 round). client 무한 스크롤이
+    //    "득득득" 짧게 끊겨 trigger 되는 현상 제거.
     const since = new Date(Date.now() - windowMs).toISOString();
-    let q = supabase
-      .from("discussions")
-      .select(DISCUSSION_SELECT)
-      .eq("stock_code", code)
-      .gte("posted_at", since);
-    if (filter === 'meaningful') {
-      q = q.or('relevance.is.null,relevance.neq.noise');
-    }
-    q = q.order("posted_at", { ascending: false }).limit(limit + 1);
-    if (before) q = q.lt("posted_at", before);
-    const { data, error } = await q;
-    if (error) throw error;
+    const FETCH_SIZE = limit * 2;
+    const MAX_ROUNDS = 3;
+    const accFiltered: DiscussionRow[] = [];
+    let cursor: string | undefined = before;
+    let lastFetchHadFull = false;
 
-    // 3) hasMore 는 raw row 수 기준 — 스팸 필터 전 결정해야 신뢰 가능.
-    const rawRows = ((data ?? []) as DiscussionRow[]) || [];
-    const hasMore = rawRows.length > limit;
-    const pageRows = hasMore ? rawRows.slice(0, limit) : rawRows;
-    const filtered = filterSpam(pageRows);
-    res.json({ items: filtered.map(toDiscussion), hasMore });
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      let q = supabase
+        .from("discussions")
+        .select(DISCUSSION_SELECT)
+        .eq("stock_code", code)
+        .gte("posted_at", since);
+      if (filter === 'meaningful') {
+        q = q.or('relevance.is.null,relevance.neq.noise');
+      }
+      q = q.order("posted_at", { ascending: false }).limit(FETCH_SIZE);
+      if (cursor) q = q.lt("posted_at", cursor);
+      const { data, error } = await q;
+      if (error) throw error;
+      const rawRows = ((data ?? []) as DiscussionRow[]) || [];
+      if (rawRows.length === 0) {
+        lastFetchHadFull = false;
+        break;
+      }
+      lastFetchHadFull = rawRows.length === FETCH_SIZE;
+      accFiltered.push(...filterSpam(rawRows));
+      if (accFiltered.length >= limit) break;
+      if (!lastFetchHadFull) break; // DB 에 더 이상 row 없음
+      cursor = rawRows[rawRows.length - 1].posted_at; // 다음 round 진행
+    }
+
+    // 3) hasMore: 누적된 acc 가 limit 초과 OR 마지막 fetch 가 가득 찼으면 다음 페이지 가능.
+    const items = accFiltered.slice(0, limit);
+    const hasMore = accFiltered.length > limit || lastFetchHadFull;
+    res.json({ items: items.map(toDiscussion), hasMore });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return next(InvalidQueryParam("discussions", e.issues[0].message));

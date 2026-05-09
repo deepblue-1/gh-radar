@@ -157,7 +157,9 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
           }
         }
       },
-      { rootMargin: '200px' },
+      // Phase 08.2 — rootMargin 200px → 50px. 짧게 끊어 오는 페이지가 sentinel 권역에 곧장
+      // 다시 들어와 "득득득" 반복 trigger 되던 현상 완화. 50px 은 prefetch 효과를 살짝 유지.
+      { rootMargin: '50px' },
     );
     observer.observe(node);
     return () => observer.disconnect();
