@@ -2,8 +2,8 @@
   "private": true,
   "name": "gh-radar",
   "scripts": {
-    "typecheck": "pnpm -r run typecheck",
-    "build": "pnpm -r run build",
+    "typecheck": "pnpm --filter @gh-radar/shared build && pnpm -r run typecheck",
+    "build": "pnpm --filter @gh-radar/shared build && pnpm -r run build",
     "lint": "pnpm -r run lint"
   },
   "engines": {
