@@ -59,6 +59,10 @@
 - [x] **INFR-03**: Express API 서버 구축 및 Cloud Run 배포 (min-instances=1)
 - [x] **INFR-04**: Next.js 프론트엔드 구축 및 Vercel 배포
 
+### Data
+
+- **DATA-01**: KRX 상장 전 종목 3년치 일봉 OHLCV 수집 및 영업일 EOD 증분 갱신 (분석 기반 데이터 레이어 — Phase 9)
+
 ## v2 Requirements
 
 ### Personalization
@@ -115,14 +119,15 @@
 | NEWS-01 | Phase 7 | Complete |
 | DISC-01 | Phase 8 | Complete |
 | DISC-01.1 | Phase 08.1 | Complete |
-| NEWS-02 | Phase 9 | Pending |
-| DISC-02 | Phase 9 | Pending |
+| DATA-01 | Phase 9 | Pending |
+| NEWS-02 | Phase 10 | Pending |
+| DISC-02 | Phase 10 | Pending |
 
 **Coverage:**
-- v1 requirements: 27 total (DISC-01.1 added in Phase 08.1)
-- Mapped to phases: 27
+- v1 requirements: 28 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체)
+- Mapped to phases: 28
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-04-22 — Phase 08.1 완료, DISC-01 / DISC-01.1 Complete (Claude Haiku 4.5 inline classify + webapp Switch 토글)*
+*Last updated: 2026-05-10 — Phase 9 의미 교체 (Daily Candle Data) + 기존 9 → Phase 10 (AI Summarization), DATA-01 신규 추가*

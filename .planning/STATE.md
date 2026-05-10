@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: "Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke)."
+status: "Phase 08.1 implementation 완료. Phase 9 의미 교체 — 신규 Phase 9 (Daily Candle Data) / 기존 9 → Phase 10 (AI Summarization). Next: /gsd-plan-phase 9."
 stopped_at: "Phase 07 complete — news ingestion production live (Cloud Run Job + R6 schedulers + server Naver mount + E2E 6/6 + real Naver data)"
 last_updated: "2026-04-24T00:47:15.060Z"
 last_activity: 2026-04-24
 progress:
-  total_phases: 16
+  total_phases: 17
   completed_phases: 9
   total_plans: 64
   completed_plans: 50
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 9 — AI Summarization (next)
+**Current focus:** Phase 9 — Daily Candle Data Collection (next, /gsd-plan-phase 9)
 
 ## Current Position
 
 Phase: 9
 Plan: Not started
 Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
-Status: Phase 08.1 implementation 완료. Next: Phase 9 (AI Summarization — discuss/plan 필요) 또는 Phase 08.1 production enablement (ANTHROPIC_API_KEY + 재배포 + backfill + smoke).
+Status: Phase 08.1 implementation 완료. Phase 9 의미 교체 — 신규 Phase 9 (Daily Candle Data) / 기존 9 → Phase 10 (AI Summarization). Next: /gsd-plan-phase 9.
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-04-24 - Completed quick task 260424-dld: 스캐너 등락률 필터 제거
 
@@ -101,6 +101,7 @@ Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 - Phase 07.2 complete 2026-04-18: Cloud Run Job 재배포(image news-sync:141ccdc) + deploy-news-sync.sh NEWS_SYNC_CONCURRENCY=8→3 수정 + news_articles TRUNCATE(1,270→0) + 즉시 execute → inserted 6,187 / skipped 0 / abort signal 0 / top_movers 55/55 (100%) + description 99.9% (6,183/6,187) 커버리지 달성. SC 5/5 green
 - Phase 08.1 inserted after Phase 8: 종목토론 의미성 AI 분류 + 웹앱 필터 토글 (URGENT, 2026-04-21 수집된 discussions 중 다수가 욕설·뇌피셜·감탄사 노이즈)
 - Phase 08.1 planned 2026-04-22: 7 plans / 4 waves. 설계 변경 — Batch API → **Claude Haiku Sync API inline 통합** (discussion-sync cycle 내부에서 수집 직후 분류, 별도 worker 없음). 4-category (price_reason/theme/news_info/noise), p-limit(5), temperature=0, max_tokens=10, model=claude-haiku-4-5. discussions.relevance/classified_at 컬럼 추가 + partial indexes. server DiscussionListQuery.filter(all|meaningful) + `relevance IS NULL OR relevance != 'noise'`. webapp Switch 토글 (풀페이지만, 기본 ON=meaningful, URL sync `?filter=meaningful`). 백필 15k 행 일회성 스크립트 ~$23, 정기 ~$2/day
+- Phase 9 의미 교체 2026-05-10: 기존 Phase 9 (AI Summarization, TBD/미시작) 을 Phase 10 으로 renumber, 신규 Phase 9 = Daily Candle Data Collection (KRX 전 종목 3년치 일봉 OHLCV + 영업일 EOD 증분 갱신). 분석 기반 데이터 레이어가 AI 요약보다 선행되는 게 자연스럽다는 판단. Phase 10 의 Depends/SC/UI hint 는 변경 없음. /gsd-insert-phase 도구는 decimal 만 지원해 수동 ROADMAP/STATE/REQUIREMENTS 편집. total_phases 16→17. 신규 요구사항 DATA-01.
 - Phase 08 complete 2026-04-18: discussion-board production live. POC PIVOT 으로 RESEARCH 가정(cheerio HTML + iframe body fetch + iconv-lite) 모두 폐기 → Bright Data Web Unlocker(zone `gh_radar_naver`, country=kr) + `stock.naver.com/api/community/discussion/posts/by-item` JSON API 단일 호출로 본문 포함 50건/페이지. Cloud Run Job `gh-radar-discussion-sync` + Scheduler `gh-radar-discussion-sync-hourly` (0 * * * * KST) + Secret `gh-radar-brightdata-api-key` + 워커 first-time/stale 종목 backfill loop (max 10페이지 OR 7일) + server `before` cursor + webapp 무한 스크롤. 첫 production cycle: 58 종목 → 187 requests → upserted **15,463 row** / errors 0. smoke 8/8 PASS. server 응답 1.04s (실시간 토론방 데이터 검증). pipeline 재작성으로 월 비용 ~\$72 (당초 추정 \$144 절반).
 
 ### Decisions

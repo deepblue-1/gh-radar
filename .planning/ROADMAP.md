@@ -21,7 +21,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
 - [x] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
 - [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
-- [ ] **Phase 9: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
+- [ ] **Phase 9: Daily Candle Data** - KRX 전 종목 3년치 일봉 OHLCV 수집 + 영업일 증분 갱신
+- [ ] **Phase 10: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
 
 ## Phase Details
 
@@ -281,7 +282,19 @@ Plans:
 - [x] 08.1-07-PLAN.md — Wave 4 Playwright E2E 4 시나리오 + REQUIREMENTS/ROADMAP/STATE 갱신 + SUMMARY (production smoke 는 ANTHROPIC_API_KEY 주입 이후 manual)
 **UI hint**: yes
 
-### Phase 9: AI Summarization
+### Phase 9: Daily Candle Data Collection
+**Goal**: KRX 상장 전 종목(~2,800)의 3년치 일봉 OHLCV 데이터를 Supabase에 수집·저장하고, 매 영업일 EOD 후 신규 영업일 데이터를 증분 수집하여 향후 분석 기능(가격 패턴/변동성/추세 등)의 기반 데이터 레이어를 마련한다
+**Depends on**: Phase 06.1 (stocks 마스터 universe — 수집 대상 종목 리스트)
+**Requirements**: DATA-01 (신규)
+**Success Criteria** (what must be TRUE):
+  1. 일봉 OHLCV 테이블(예: `stock_daily_ohlcv`)이 Supabase에 존재하고 PK=(code, date), 컬럼은 open/high/low/close/volume/trade_amount 포함, 약 ~2M 행을 보유한다
+  2. 초기 백필 스크립트가 KRX OpenAPI(또는 동등 무료 데이터 소스)로부터 종목별 3년치(~720 영업일) OHLCV를 수집해 upsert한다
+  3. Cloud Run Job + Cloud Scheduler가 매 영업일 EOD 이후(예: 17:00 KST) 신규 1영업일 데이터를 **증분** 수집한다 (full re-fetch 금지, API 예산 안전)
+  4. 무료 API 한도 내 안정 동작 — rate-limit 준수, 재시도, per-stock fail-isolation
+  5. 데이터 정합성 모니터링 — 미수집 종목 수 / 결측 일자가 일정 임계 이하
+**Plans**: TBD
+
+### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 7, Phase 7.1, Phase 8
 **Requirements**: NEWS-02, DISC-02
@@ -296,7 +309,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -315,4 +328,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
 | 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
-| 9. AI Summarization | 0/TBD | Not started | - |
+| 9. Daily Candle Data | 0/TBD | Not started | - |
+| 10. AI Summarization | 0/TBD | Not started | - |
