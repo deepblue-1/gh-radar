@@ -67,3 +67,47 @@ export type StockWithQuote = StockMaster & {
   lowerLimit: number;
   quoteUpdatedAt: string | null; // null 이면 시세 없음 → webapp em-dash
 };
+
+// ============================================================
+// Phase 9 — Daily Candle Data (DATA-01)
+//
+// BdydTrdRow: KRX OpenAPI `stk_bydd_trd` / `ksq_bydd_trd` 응답의 raw row.
+//   - 필드명은 RESEARCH §1.2 기준 잠정. Plan 06 Wave 0 prerequisite task 의
+//     fixture 캡처(`workers/candle-sync/tests/fixtures/bydd-trd-{kospi,kosdaq}.json`)
+//     실측으로 잠금 — 실측 차이 발견 시 본 타입 수정.
+//   - market 필드는 호출 엔드포인트 (stk_ vs ksq_) 로 결정 후 태깅
+// ============================================================
+
+export type BdydTrdRow = {
+  BAS_DD: string;              // 기준일자 YYYYMMDD
+  ISU_CD?: string;             // 표준코드 KR로 시작 12자 (참고용)
+  ISU_SRT_CD: string;          // 단축코드 6자 — code 필수
+  ISU_NM?: string;             // 종목명 (참고용 — stocks 마스터에 이미 존재)
+  MKT_NM?: string;             // 시장구분 ("KOSPI"/"KOSDAQ")
+  SECT_TP_NM?: string;         // 소속부 / 업종 (참고용)
+  TDD_OPNPRC: string;          // 당일 시가 → open
+  TDD_HGPRC: string;           // 당일 고가 → high
+  TDD_LWPRC: string;           // 당일 저가 → low
+  TDD_CLSPRC: string;          // 당일 종가 → close
+  CMPPREVDD_PRC?: string;      // 전일대비 (절대값) → change_amount
+  FLUC_RT?: string;            // 등락률 (%) → change_rate
+  ACC_TRDVOL?: string;         // 누적거래량 → volume
+  ACC_TRDVAL?: string;         // 누적거래대금 → trade_amount
+  MKTCAP?: string;             // 시가총액 (D-05: 저장 X)
+  LIST_SHRS?: string;          // 상장주식수 (D-05: 저장 X)
+  market: "KOSPI" | "KOSDAQ";  // 호출 엔드포인트로 결정 (Plan 03 fetchBydd 가 태깅)
+};
+
+// stock_daily_ohlcv 테이블 row — Plan 03 mapper 의 출력, Plan 03 upsert 의 입력
+export type StockDailyOhlcv = {
+  code: string;                       // ISU_SRT_CD
+  date: string;                       // ISO YYYY-MM-DD (BAS_DD → 변환)
+  open: number;                       // numeric(20,2)
+  high: number;
+  low: number;
+  close: number;                      // raw close (D-04 — 수정주가 X)
+  volume: number;                     // bigint
+  tradeAmount: number;                // bigint (KRW)
+  changeAmount: number | null;        // 전일대비 (nullable — 신규 상장일 등)
+  changeRate: number | null;          // 등락률 % (nullable)
+};

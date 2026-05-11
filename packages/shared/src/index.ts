@@ -1,4 +1,4 @@
-export type { Stock, Market, SecurityType, StockMaster, StockQuote, StockWithQuote } from "./stock.js";
+export type { Stock, Market, SecurityType, StockMaster, StockQuote, StockWithQuote, BdydTrdRow, StockDailyOhlcv } from "./stock.js";
 export type { NewsArticle } from "./news.js";
 export type { Discussion, DiscussionListResponse } from "./discussion.js";
 export type { Summary, SummaryType, Sentiment } from "./summary.js";
