@@ -1,0 +1,27 @@
+displayName: gh-radar-candle-sync-recover-failure
+documentation:
+  content: |
+    Cloud Run Job `gh-radar-candle-sync-recover` 의 실행 실패를 감지.
+    DATA-01 SC #5 (정합성 모니터링) — recover mode 실패 시 즉시 알림.
+    recover 는 best-effort 이지만 전체 실패(throw) 시에는 alert — findMissingDates SQL 장애 / Supabase 인증 만료 등.
+  mimeType: text/markdown
+conditions:
+  - displayName: candle-sync-recover failed execution count > 0
+    conditionThreshold:
+      filter: |
+        resource.type = "cloud_run_job"
+        AND resource.labels.job_name = "gh-radar-candle-sync-recover"
+        AND metric.type = "run.googleapis.com/job/completed_execution_count"
+        AND metric.labels.result = "failed"
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: 0s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+combiner: OR
+enabled: true
+notificationChannels:
+  - ${NOTIFICATION_CHANNEL_ID}
+alertStrategy:
+  autoClose: 1800s
