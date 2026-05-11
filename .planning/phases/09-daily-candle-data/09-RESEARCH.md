@@ -719,51 +719,52 @@ FROM incomplete_dates;
 
 ---
 
-## 8. Open Questions for Planner
+## 8. Open Questions (RESOLVED)
 
-1. **Job 분리 vs MODE 환경변수 (§4.4 / §5.1)**
+> **상태:** 본 섹션의 모든 항목은 plan 단계 (Plan 01~06) 에서 잠금됨. 각 항목에 RESOLVED / DEFERRED 마킹 + 채택된 plan 위치 inline 명시.
+
+1. **Job 분리 vs MODE 환경변수 (§4.4 / §5.1) — RESOLVED: Job 3개 (Plan 05 채택)**
    - 권장: Job 3개 분리 (`gh-radar-candle-sync-{daily|recover|backfill}`)
-   - 결정 필요: 사용자 confirm 또는 plan 단계 잠금. plan-check 가 §5.1 표를 근거로 검증 가능.
+   - **결정:** Plan 05 `deploy-candle-sync.sh` 가 Job 3개 분리 + 동일 이미지 + 기본 MODE env 분리로 배포. 동시 실행 race (T-09-06) 자연 방지 + task-timeout/memory mode 별 최적화 + alert policy 분리.
 
-2. **FK orphan 대응 (§7 T-09-03)**
+2. **FK orphan 대응 (§7 T-09-03) — RESOLVED: 옵션 B (Plan 01 NOT VALID FK + Plan 04 bootstrapStocks)**
    - 권장: 옵션 B (candle-sync 자동 bootstrap)
-   - 검증 필요: KRX `isu_base_info` 가 폐지종목 포함하는지 별도 호출로 확인 (옵션 A 가능성 검토)
+   - **결정:** Plan 01 마이그레이션은 `FK ... NOT VALID` 로 추가 (기존 폐지종목 history orphan 미검증 통과), Plan 04 의 `bootstrapStocks` 가 fetchBydd 직후 KRX 응답의 unique code 를 stocks 에 `is_delisted=true ON CONFLICT DO NOTHING` 으로 신규 등록 — master-sync 쓰기 경쟁 회피.
 
-3. **R1 — KRX 갱신 시각 실측 (§1.4)**
+3. **R1 — KRX 갱신 시각 실측 (§1.4) — DEFERRED to Wave 0 prerequisite (Plan 06 Task 1)**
    - Wave 0 의 첫 task 로 production AUTH_KEY 로 1회 호출
-   - 결과에 따라 1차 cron `30 17 * * 1-5` 유지 또는 폐기
-   - **BLOCKER 가능성** — 잘못된 가설이면 D-09 의 "신선도 우선" 목적이 미달
+   - **결정:** Plan 06 Task 1 `[BLOCKING]` 의 prerequisite — 직전 영업일 basDd + 당일 17:30/19:00/익일 06:30 시점 실측 후 1차 cron 유지/폐기 판단. 본 RESEARCH 와 Plan 05 는 시나리오 A (17:30 + 08:10) 를 기본으로 작성 — Plan 06 실측 결과에 따라 1차 Scheduler cron 만 사후 조정 (코드 변경 X).
 
-4. **KRX 응답 필드 정확명 (§1.2)**
+4. **KRX 응답 필드 정확명 (§1.2) — DEFERRED to Wave 0 (Plan 06 Task 1)**
    - Wave 0 의 두 번째 task 로 JSON 캡처
-   - mapper 가 `TDD_CLSPRC` vs 다른 키 (`CLSPRC` 또는 `tdd_clsprc`) 정확 매칭 필요
+   - **결정:** Plan 06 Task 1 가 `workers/candle-sync/tests/fixtures/bydd-trd-{kospi,kosdaq}.json` 으로 실측 fixture 캡처. Plan 01 BdydTrdRow 타입 + Plan 03 map.ts 는 §1.2 잠정 필드명 (TDD_OPNPRC 등) 으로 선행 작성 — Plan 06 실측 후 차이 발견 시 patch.
 
-5. **결측 감지 lookback N + threshold (§3.2)**
+5. **결측 감지 lookback N + threshold (§3.2) — RESOLVED (Plan 03 missingDates + Plan 04 recover)**
    - 권장: N=10, threshold=0.9, max calls/run=20
-   - 결정 필요: plan-check 단계 또는 사용자 confirm
+   - **결정:** Plan 02 config.ts 가 `recoverLookback=10`, `recoverThreshold=0.9`, `recoverMaxCalls=20` default 잠금. Plan 03 `findMissingDates` 가 실제 알고리즘 구현. Plan 04 `runRecover` 가 config 값 그대로 전달.
 
-6. **인덱스 전략 (Claude's Discretion)**
+6. **인덱스 전략 (Claude's Discretion) — RESOLVED (Plan 01)**
    - PK `(code, date)` 외 추가 인덱스:
      - 옵션 A: `(date DESC)` 만 — 일자별 전종목 쿼리 (스캐너용)
      - 옵션 B: `(date DESC, change_rate DESC NULLS LAST)` — 분석 친화 (등락률 top-N)
      - 옵션 C: 둘 다
-   - 권장: A (단순성 우선, B 는 분석 phase 에서 추가)
+   - **결정:** 옵션 A 채택 — Plan 01 마이그레이션이 `CREATE INDEX idx_stock_daily_ohlcv_date_desc ON stock_daily_ohlcv (date DESC)` 만 추가. 분석 친화 인덱스(B/C) 는 후속 phase 에서.
 
-7. **휴장일 가드 (§3.3 / D-11)**
+7. **휴장일 가드 (§3.3 / D-11) — RESOLVED: DB 추론 + KRX 빈응답 자연 skip 양쪽 (Plan 04 businessDay + KRX 응답 0행 skip)**
    - 옵션 A (DB 기반 추론) vs 옵션 C (KRX 빈응답 자연 skip)
-   - 권장: 양쪽 모두 적용 — DB 추론으로 영업일 식별, 빈응답으로 휴장 skip
+   - **결정:** 양쪽 적용 — Plan 04 `businessDay.iterateBusinessDays` 가 평일만 yield (옵션 A 의 단순화 — 공휴일 calendar 없이 평일 추론), KRX 빈 응답 (OutBlock_1=[]) 시 Plan 04 daily/backfill/recover 모드 모두 자연 skip (옵션 C). 휴장일 가드 dependency 추가 X.
 
-8. **백필 실행 책임 (D-07)**
+8. **백필 실행 책임 (D-07) — RESOLVED: 수동 1회 execute (Plan 06 Task 3)**
    - 권장: 수동 `gcloud run jobs execute --wait` 1회. Scheduler 자동 트리거 X.
-   - 사용자 confirm: 백필 4시간 소요 예상 — 시간 슬롯 확보 필요
+   - **결정:** Plan 06 Task 3 가 `gcloud run jobs execute gh-radar-candle-sync-backfill --wait BACKFILL_FROM=2020-01-01 BACKFILL_TO=...` 1회 실행. 자동 Scheduler 트리거 X. 실행 직전 manual run-book 으로 daily/recover Scheduler pause (T-09-06).
 
-9. **task-timeout 분리 (§5.2)**
+9. **task-timeout 분리 (§5.2) — RESOLVED: daily 300s / recover 900s / backfill 10800s (Plan 05)**
    - 권장: daily 300s / recover 900s / backfill 10800s
-   - plan-check 가 §2.4 와 정합 확인
+   - **결정:** Plan 05 `deploy-candle-sync.sh` 의 `deploy_job()` 가 Job 별 `--task-timeout` 분리 — daily=300s, recover=900s, backfill=10800s.
 
-10. **chunk size (§7 T-09-07)**
+10. **chunk size (§7 T-09-07) — RESOLVED: 1000 row/chunk (Plan 03 upsert.ts)**
     - 권장: 1000 row/chunk
-    - PostgREST 실측 후 조정 가능
+    - **결정:** Plan 03 `pipeline/upsert.ts` 의 `CHUNK_SIZE = 1000` 상수. PostgREST 실측 후 조정 가능 (idempotent UPSERT 이므로 chunk size 변경 안전).
 
 ---
 
