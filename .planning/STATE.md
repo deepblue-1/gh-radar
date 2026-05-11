@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 9 Plan 04 완료 — candle-sync MODE dispatch + 3 mode 함수 (daily/backfill/recover) + businessDay + bootstrapStocks (TDD 5종 26 신규 test GREEN, 전체 52 tests PASS)
-last_updated: "2026-05-11T07:50:12.407Z"
+stopped_at: Phase 9 Plan 05 완료 — candle-sync IAM/deploy/scheduler 스크립트 5개 (3 bash + 2 alert YAML), 4 atomic commits, bash -n syntax PASS. Plan 06 이 production push + 백필 + smoke 실행 예정
+last_updated: "2026-05-11T07:56:48.912Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 17
   completed_phases: 9
   total_plans: 70
-  completed_plans: 54
-  percent: 77
+  completed_plans: 55
+  percent: 79
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09 (daily-candle-data) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -92,6 +92,7 @@ Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 | Phase 09-daily-candle-data P02 | 3min | 2 tasks | 9 files |
 | Phase 09-daily-candle-data P03 | 5min | 4 tasks | 9 files |
 | Phase 09-daily-candle-data P04 | 7min | 4 tasks | 12 files |
+| Phase 09-daily-candle-data P05 | 4min | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,7 @@ Recent decisions affecting current work:
 - [Phase 09-daily-candle-data]: Plan 02: vitest passWithNoTests:true — placeholder 워크스페이스에서 0 test exit 0 보장; krxBaseUrl default = data-dbg.krx.co.kr/svc/apis (RESEARCH §1.1 production 검증된 URL 직접 잠금, master-sync 와 의도적 차이)
 - [Phase 09-daily-candle-data]: Plan 03: 결측 감지는 RPC 가 아닌 client-side N+1 패턴 (활성 stocks count + lookback distinct date + per-date head:true count) — Supabase JS v2 가 raw GROUP BY 제한적이라 head:true count 의 명료성 우선. lookback 영업일은 DB distinct date 기반 추론 (RESEARCH §3.3 옵션 A). Vitest mock 은 thenable 흉내 없이 final method 에서 mockResolvedValue — Supabase v2 builder 충분히 지원.
 - [Phase 09-daily-candle-data]: Plan 04: config.basDd optional 추가 (BAS_DD env, daily mode 수동 재실행 override) + backfill MIN_EXPECTED 정책=throw (RESEARCH §7 warn+continue 와 의도적 차이 — 한 영업일 부분 응답이 ~4M row 오염 위험) + mock basDd 분기 패턴 (call counter race 회피, withRetry 호환)
+- [Phase 09-daily-candle-data]: Plan 05: Cloud Run Job 3개 분리 (RESEARCH §5.1 채택) — daily/recover/backfill 동일 이미지 + Job 별 default MODE env, task-timeout/memory mode 별 최적화, race 자연 방지(T-09-06), alert policy 분리. Scheduler 2종 OAuth (OIDC 금지, Phase 05.1 D-07 lesson 승계). runtime SA gh-radar-candle-sync-sa 최소권한 (KIS 시크릿 미바인딩, T-09-04.1). backfill 은 alert 제외 (수동 실행). 본 plan 은 스크립트 작성만 — Plan 06 이 실제 실행.
 
 ### Pending Todos
 
@@ -157,6 +159,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-11T07:50:12.404Z
-Stopped at: Phase 9 Plan 04 완료 — candle-sync MODE dispatch + 3 mode 함수 (daily/backfill/recover) + businessDay + bootstrapStocks (TDD 5종 26 신규 test GREEN, 전체 52 tests PASS)
+Last session: 2026-05-11T07:56:48.907Z
+Stopped at: Phase 9 Plan 05 완료 — candle-sync IAM/deploy/scheduler 스크립트 5개 (3 bash + 2 alert YAML), 4 atomic commits, bash -n syntax PASS. Plan 06 이 production push + 백필 + smoke 실행 예정
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
