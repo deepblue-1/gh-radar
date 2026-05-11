@@ -119,7 +119,7 @@
 | NEWS-01 | Phase 7 | Complete |
 | DISC-01 | Phase 8 | Complete |
 | DISC-01.1 | Phase 08.1 | Complete |
-| DATA-01 | Phase 9 | Pending |
+| DATA-01 | Phase 9 | Complete |
 | NEWS-02 | Phase 10 | Pending |
 | DISC-02 | Phase 10 | Pending |
 
