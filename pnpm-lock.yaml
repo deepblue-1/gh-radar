@@ -202,6 +202,37 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2(@noble/hashes@1.8.0))(lightningcss@1.32.0)(msw@2.13.2(@types/node@22.19.17)(typescript@5.9.3))
 
+  workers/candle-sync:
+    dependencies:
+      '@gh-radar/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@supabase/supabase-js':
+        specifier: ^2.49.0
+        version: 2.103.2
+      axios:
+        specifier: ^1.7.0
+        version: 1.15.0
+      dotenv:
+        specifier: ^16.4.0
+        version: 16.6.1
+      pino:
+        specifier: ^9.0.0
+        version: 9.14.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      tsx:
+        specifier: ^4.0.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(jsdom@29.0.2(@noble/hashes@1.8.0))(lightningcss@1.32.0)(msw@2.13.2(@types/node@22.19.17)(typescript@5.9.3))(tsx@4.21.0)
+
   workers/discussion-sync:
     dependencies:
       '@anthropic-ai/sdk':
