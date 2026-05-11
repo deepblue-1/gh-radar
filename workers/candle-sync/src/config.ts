@@ -17,6 +17,7 @@ export type Config = {
   recoverThreshold: number;    // RECOVER_THRESHOLD env, default 0.9 — 활성 비율 임계
   recoverMaxCalls: number;     // RECOVER_MAX_CALLS env, default 20 — calls 상한
   minExpectedRows: number;     // MIN_EXPECTED_ROWS env, default 1400 — MIN_EXPECTED 가드 (T-09-02)
+  basDd?: string;              // BAS_DD env (YYYYMMDD) — daily mode override (테스트/수동 재실행용, default todayKstYYYYMMDD)
 };
 
 function parseMode(raw: string | undefined): Mode {
@@ -65,5 +66,6 @@ export function loadConfig(): Config {
     recoverThreshold: parseNumberEnv(process.env.RECOVER_THRESHOLD, 0.9),
     recoverMaxCalls: parseNumberEnv(process.env.RECOVER_MAX_CALLS, 20),
     minExpectedRows: parseNumberEnv(process.env.MIN_EXPECTED_ROWS, 1400),
+    basDd: process.env.BAS_DD,
   };
 }
