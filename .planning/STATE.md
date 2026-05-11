@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 9 Plan 03 완료 — KRX client + fetchBydd + map + chunked upsert + missingDates (4종 TDD 26 test GREEN)
-last_updated: "2026-05-11T07:41:40.853Z"
+stopped_at: Phase 9 Plan 04 완료 — candle-sync MODE dispatch + 3 mode 함수 (daily/backfill/recover) + businessDay + bootstrapStocks (TDD 5종 26 신규 test GREEN, 전체 52 tests PASS)
+last_updated: "2026-05-11T07:50:12.407Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 17
   completed_phases: 9
   total_plans: 70
-  completed_plans: 53
-  percent: 76
+  completed_plans: 54
+  percent: 77
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09 (daily-candle-data) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -91,6 +91,7 @@ Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
 | Phase 09-daily-candle-data P01 | 6min | 3 tasks | 4 files |
 | Phase 09-daily-candle-data P02 | 3min | 2 tasks | 9 files |
 | Phase 09-daily-candle-data P03 | 5min | 4 tasks | 9 files |
+| Phase 09-daily-candle-data P04 | 7min | 4 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,7 @@ Recent decisions affecting current work:
 - [Phase 09-daily-candle-data]: [Phase 09 Plan 01]: stock_daily_ohlcv 마이그레이션 SQL — FK NOT VALID + 런타임 stocks bootstrap (T-09-03 옵션 B), production push 는 Plan 06 [BLOCKING] task 에서
 - [Phase 09-daily-candle-data]: Plan 02: vitest passWithNoTests:true — placeholder 워크스페이스에서 0 test exit 0 보장; krxBaseUrl default = data-dbg.krx.co.kr/svc/apis (RESEARCH §1.1 production 검증된 URL 직접 잠금, master-sync 와 의도적 차이)
 - [Phase 09-daily-candle-data]: Plan 03: 결측 감지는 RPC 가 아닌 client-side N+1 패턴 (활성 stocks count + lookback distinct date + per-date head:true count) — Supabase JS v2 가 raw GROUP BY 제한적이라 head:true count 의 명료성 우선. lookback 영업일은 DB distinct date 기반 추론 (RESEARCH §3.3 옵션 A). Vitest mock 은 thenable 흉내 없이 final method 에서 mockResolvedValue — Supabase v2 builder 충분히 지원.
+- [Phase 09-daily-candle-data]: Plan 04: config.basDd optional 추가 (BAS_DD env, daily mode 수동 재실행 override) + backfill MIN_EXPECTED 정책=throw (RESEARCH §7 warn+continue 와 의도적 차이 — 한 영업일 부분 응답이 ~4M row 오염 위험) + mock basDd 분기 패턴 (call counter race 회피, withRetry 호환)
 
 ### Pending Todos
 
@@ -155,6 +157,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-11T07:41:32.351Z
-Stopped at: Phase 9 Plan 03 완료 — KRX client + fetchBydd + map + chunked upsert + missingDates (4종 TDD 26 test GREEN)
+Last session: 2026-05-11T07:50:12.404Z
+Stopped at: Phase 9 Plan 04 완료 — candle-sync MODE dispatch + 3 mode 함수 (daily/backfill/recover) + businessDay + bootstrapStocks (TDD 5종 26 신규 test GREEN, 전체 52 tests PASS)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
