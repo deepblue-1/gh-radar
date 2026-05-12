@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 9 Plan 05 완료 — candle-sync IAM/deploy/scheduler 스크립트 5개 (3 bash + 2 alert YAML), 4 atomic commits, bash -n syntax PASS. Plan 06 이 production push + 백필 + smoke 실행 예정
-last_updated: "2026-05-11T07:56:48.912Z"
-last_activity: 2026-05-11
+stopped_at: Phase 9 Plan 06 Task 1 BLOCKED — KRX bydd_trd 401 Unauthorized. master-sync 의 isu_base_info 는 정상 작동하나 candle-sync 의 stk_bydd_trd / ksq_bydd_trd 는 KRX 포털에서 별도 서비스 신청 필요 (T-09-01.1 시나리오, 승인 ~1일). 코드/스크립트는 5/6 plan 모두 완료, KRX 승인 후 재개 가능
+last_updated: "2026-05-12T00:00:00.000Z"
+last_activity: 2026-05-12
 progress:
   total_phases: 17
   completed_phases: 9
@@ -25,14 +25,21 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 09 (daily-candle-data) — EXECUTING
+Phase: 09 (daily-candle-data) — BLOCKED on Plan 06 Task 1
 Plan: 6 of 6
-Plans completed: 53 / 64 (Phase 08.1 7 plans 추가)
-Status: Ready to execute
+Plans completed: 55 / 64
+Status: BLOCKED — KRX `stk_bydd_trd` / `ksq_bydd_trd` 서비스 사용 신청 필요 (사용자 액션, ~1일 승인)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-05-11
+Last activity: 2026-05-12
 
-Progress: [████████▌░] 83% (53/64 plans · 9/16 phases)
+Progress: [████████▌░] 86% (55/64 plans · 9/16 phases)
+
+### Blocker Detail (Phase 9 Plan 06)
+- 증상: `curl ... /sto/stk_bydd_trd -H "AUTH_KEY: $KRX_AUTH_KEY"` → HTTP 401 `Unauthorized API Call`
+- 검증: 같은 키로 `stk_isu_base_info` 는 200 정상
+- 원인: KRX OpenAPI 의 endpoint 별 사용 승인 (Plan 06 의 T-09-01.1 threat 와 일치)
+- 해결: [openapi.krx.co.kr](https://openapi.krx.co.kr) 에서 `stk_bydd_trd` + `ksq_bydd_trd` 서비스 신청, 승인 후 동일 키 그대로 사용
+- 재개: 승인 후 `/gsd-execute-phase 9` 재호출 → Plan 06 Task 1 부터 자동 진행
 
 ## Phase 1 Success Criteria 검증
 
