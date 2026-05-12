@@ -31,9 +31,9 @@ function parseOptionalNumber(raw: string | undefined): number | null {
 /**
  * KRX bydd_trd row → stock_daily_ohlcv DB row 매핑.
  *
- * RESEARCH §1.2 필드 매핑:
+ * RESEARCH §1.2 필드 매핑 (Plan 06 Wave 0 실측 잠금):
  *   BAS_DD → date (YYYYMMDD → ISO YYYY-MM-DD)
- *   ISU_SRT_CD → code
+ *   ISU_CD → code (6자 단축코드 — bydd_trd 응답 실측)
  *   TDD_OPNPRC → open
  *   TDD_HGPRC → high
  *   TDD_LWPRC → low
@@ -46,13 +46,13 @@ function parseOptionalNumber(raw: string | undefined): number | null {
  * D-05: MKTCAP / LIST_SHRS 는 저장 X.
  */
 export function krxBdydToOhlcvRow(r: BdydTrdRow): StockDailyOhlcv {
-  if (!r.ISU_SRT_CD) {
+  if (!r.ISU_CD) {
     throw new Error(
-      `KRX bydd_trd row missing ISU_SRT_CD: ${JSON.stringify(r)}`,
+      `KRX bydd_trd row missing ISU_CD: ${JSON.stringify(r)}`,
     );
   }
   return {
-    code: r.ISU_SRT_CD,
+    code: r.ISU_CD,
     date: parseBasDdToIso(r.BAS_DD),
     open: parseNumber(r.TDD_OPNPRC),
     high: parseNumber(r.TDD_HGPRC),

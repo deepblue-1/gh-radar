@@ -26,11 +26,11 @@ export async function bootstrapStocks(
     { code: string; name: string; market: "KOSPI" | "KOSDAQ" }
   >();
   for (const r of rows) {
-    if (!r.ISU_SRT_CD) continue;
-    if (codeMap.has(r.ISU_SRT_CD)) continue;
-    codeMap.set(r.ISU_SRT_CD, {
-      code: r.ISU_SRT_CD,
-      name: r.ISU_NM ?? r.ISU_SRT_CD,
+    if (!r.ISU_CD) continue;
+    if (codeMap.has(r.ISU_CD)) continue;
+    codeMap.set(r.ISU_CD, {
+      code: r.ISU_CD,
+      name: r.ISU_NM ?? r.ISU_CD,
       market: r.market,
     });
   }

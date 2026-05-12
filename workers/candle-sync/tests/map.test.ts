@@ -4,7 +4,7 @@ import type { BdydTrdRow } from "@gh-radar/shared";
 
 const baseRow: BdydTrdRow = {
   BAS_DD: "20260509",
-  ISU_SRT_CD: "005930",
+  ISU_CD: "005930",
   ISU_NM: "삼성전자",
   TDD_OPNPRC: "70000",
   TDD_HGPRC: "70500",
@@ -57,10 +57,10 @@ describe("krxBdydToOhlcvRow", () => {
     expect(out.tradeAmount).toBe(865432100000);
   });
 
-  it("ISU_SRT_CD 없으면 throw", () => {
+  it("ISU_CD 없으면 throw", () => {
     expect(() =>
-      krxBdydToOhlcvRow({ ...baseRow, ISU_SRT_CD: "" } as any),
-    ).toThrow(/ISU_SRT_CD/);
+      krxBdydToOhlcvRow({ ...baseRow, ISU_CD: "" } as any),
+    ).toThrow(/ISU_CD/);
   });
 
   it("BAS_DD 가 8자 아니면 throw", () => {

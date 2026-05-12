@@ -78,10 +78,12 @@ export type StockWithQuote = StockMaster & {
 //   - market 필드는 호출 엔드포인트 (stk_ vs ksq_) 로 결정 후 태깅
 // ============================================================
 
+// Plan 06 Wave 0 prerequisite (2026-05-12) 실측 잠금:
+//   - bydd_trd 응답에는 ISU_SRT_CD 없음. ISU_CD 가 6자 단축코드로 옴 ("005930").
+//   - isu_base_info 의 ISU_CD (12자 표준코드) 와는 의미가 다름 — 동일 키 다른 endpoint 다른 의미.
 export type BdydTrdRow = {
   BAS_DD: string;              // 기준일자 YYYYMMDD
-  ISU_CD?: string;             // 표준코드 KR로 시작 12자 (참고용)
-  ISU_SRT_CD: string;          // 단축코드 6자 — code 필수
+  ISU_CD: string;              // 단축코드 6자 → code 필수 (bydd_trd 실측 잠금)
   ISU_NM?: string;             // 종목명 (참고용 — stocks 마스터에 이미 존재)
   MKT_NM?: string;             // 시장구분 ("KOSPI"/"KOSDAQ")
   SECT_TP_NM?: string;         // 소속부 / 업종 (참고용)
@@ -100,7 +102,7 @@ export type BdydTrdRow = {
 
 // stock_daily_ohlcv 테이블 row — Plan 03 mapper 의 출력, Plan 03 upsert 의 입력
 export type StockDailyOhlcv = {
-  code: string;                       // ISU_SRT_CD
+  code: string;                       // ISU_CD (6자 단축코드)
   date: string;                       // ISO YYYY-MM-DD (BAS_DD → 변환)
   open: number;                       // numeric(20,2)
   high: number;

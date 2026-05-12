@@ -49,7 +49,7 @@ const log = pino({ level: "silent" });
 function makeRow(code: string) {
   return {
     BAS_DD: "20260509",
-    ISU_SRT_CD: code,
+    ISU_CD: code,
     ISU_NM: code,
     TDD_OPNPRC: "100",
     TDD_HGPRC: "110",

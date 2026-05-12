@@ -57,19 +57,19 @@ describe("fetchBydd", () => {
     const client = mockClient(
       {
         OutBlock_1: [
-          { BAS_DD: "20260509", ISU_SRT_CD: "005930", TDD_CLSPRC: "70000" },
+          { BAS_DD: "20260509", ISU_CD: "005930", TDD_CLSPRC: "70000" },
         ],
       },
       {
         OutBlock_1: [
-          { BAS_DD: "20260509", ISU_SRT_CD: "035720", TDD_CLSPRC: "300000" },
+          { BAS_DD: "20260509", ISU_CD: "035720", TDD_CLSPRC: "300000" },
         ],
       },
     );
     const rows = await fetchBydd(client, "20260509");
     expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.ISU_SRT_CD === "005930")?.market).toBe("KOSPI");
-    expect(rows.find((r) => r.ISU_SRT_CD === "035720")?.market).toBe("KOSDAQ");
+    expect(rows.find((r) => r.ISU_CD === "005930")?.market).toBe("KOSPI");
+    expect(rows.find((r) => r.ISU_CD === "035720")?.market).toBe("KOSDAQ");
     expect(client.get).toHaveBeenCalledWith("/sto/stk_bydd_trd", {
       params: { basDd: "20260509" },
     });
