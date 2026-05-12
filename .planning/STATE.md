@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 9 Plan 06 Task 1 BLOCKED — KRX bydd_trd 401 Unauthorized. master-sync 의 isu_base_info 는 정상 작동하나 candle-sync 의 stk_bydd_trd / ksq_bydd_trd 는 KRX 포털에서 별도 서비스 신청 필요 (T-09-01.1 시나리오, 승인 ~1일). 코드/스크립트는 5/6 plan 모두 완료, KRX 승인 후 재개 가능
-last_updated: "2026-05-12T00:00:00.000Z"
+stopped_at: Phase 9 (Daily Candle Data) Complete 2026-05-12 — 4,003,432 rows 백필 + 3 Cloud Run Jobs + 2 Schedulers + 2 Alerts live. KRX bydd_trd 서비스 승인 + change_rate hotfix migration 처리. DATA-01 SC 5/5 PASS. Next: Phase 10 AI Summarization
+last_updated: "2026-05-12T03:30:05.710Z"
 last_activity: 2026-05-12
 progress:
   total_phases: 17
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 70
-  completed_plans: 55
-  percent: 79
+  completed_plans: 56
+  percent: 80
 ---
 
 # Project State
@@ -21,25 +21,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 09 — daily-candle-data
+**Current focus:** Phase 10 — ai-summarization (Phase 9 Complete)
 
 ## Current Position
 
-Phase: 09 (daily-candle-data) — BLOCKED on Plan 06 Task 1
-Plan: 6 of 6
-Plans completed: 55 / 64
-Status: BLOCKED — KRX `stk_bydd_trd` / `ksq_bydd_trd` 서비스 사용 신청 필요 (사용자 액션, ~1일 승인)
+Phase: 10 (ai-summarization)
+Plan: Not started
+Plans completed: 61 / 70 (Phase 9 6 plans 추가)
+Status: Phase 9 Complete — Ready to discuss Phase 10
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-05-12
 
-Progress: [████████▌░] 86% (55/64 plans · 9/16 phases)
+Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 
-### Blocker Detail (Phase 9 Plan 06)
-- 증상: `curl ... /sto/stk_bydd_trd -H "AUTH_KEY: $KRX_AUTH_KEY"` → HTTP 401 `Unauthorized API Call`
-- 검증: 같은 키로 `stk_isu_base_info` 는 200 정상
-- 원인: KRX OpenAPI 의 endpoint 별 사용 승인 (Plan 06 의 T-09-01.1 threat 와 일치)
-- 해결: [openapi.krx.co.kr](https://openapi.krx.co.kr) 에서 `stk_bydd_trd` + `ksq_bydd_trd` 서비스 신청, 승인 후 동일 키 그대로 사용
-- 재개: 승인 후 `/gsd-execute-phase 9` 재호출 → Plan 06 Task 1 부터 자동 진행
+### Phase 9 Production State (2026-05-12 12:24 KST)
+- `stock_daily_ohlcv`: 4,003,432 rows (2020-01-02 ~ 2026-05-11)
+- 3 Cloud Run Jobs + 2 Schedulers (eod `30 17`, recover `10 8` Asia/Seoul) + 2 Alert policies live
+- 첫 daily Job 자동 실행: 2026-05-12 17:30 KST
+- 첫 recover Job 자동 실행: 2026-05-13 08:10 KST
+- Hotfix: change_rate numeric(8,4) → numeric(10,4) (제일바이오 052670 29948.08% overflow)
 
 ## Phase 1 Success Criteria 검증
 
@@ -74,7 +74,7 @@ Progress: [████████▌░] 86% (55/64 plans · 9/16 phases)
 
 **Velocity:**
 
-- Total plans completed: 32 (1 + 5 + 1×6 sub)
+- Total plans completed: 38 (1 + 5 + 1×6 sub)
 - Phase 1 duration: 2026-04-10 ~ 2026-04-13 (4일)
 - Phase 2 duration: 2026-04-13 (1일)
 - Phase 3 duration: 2026-04-13 (1일)

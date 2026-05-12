@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
 - [x] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
 - [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
-- [ ] **Phase 9: Daily Candle Data** - KRX 전 종목 3년치 일봉 OHLCV 수집 + 영업일 증분 갱신
+- [x] **Phase 9: Daily Candle Data** - KRX 전 종목 (2020-01-02 ~ 현재) 일봉 OHLCV 수집 + 영업일 증분 갱신 (2026-05-12 완료, 4,003,432 rows)
 - [ ] **Phase 10: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
 
 ## Phase Details
@@ -283,16 +283,23 @@ Plans:
 **UI hint**: yes
 
 ### Phase 9: Daily Candle Data Collection
-**Goal**: KRX 상장 전 종목(~2,800)의 3년치 일봉 OHLCV 데이터를 Supabase에 수집·저장하고, 매 영업일 EOD 후 신규 영업일 데이터를 증분 수집하여 향후 분석 기능(가격 패턴/변동성/추세 등)의 기반 데이터 레이어를 마련한다
+**Goal**: KRX 상장 전 종목(~2,800)의 일봉 OHLCV 데이터를 Supabase에 수집·저장하고, 매 영업일 EOD 후 신규 영업일 데이터를 증분 수집하여 향후 분석 기능(가격 패턴/변동성/추세 등)의 기반 데이터 레이어를 마련한다
 **Depends on**: Phase 06.1 (stocks 마스터 universe — 수집 대상 종목 리스트)
 **Requirements**: DATA-01 (신규)
+**Status**: ✅ Complete (2026-05-12)
 **Success Criteria** (what must be TRUE):
-  1. 일봉 OHLCV 테이블(예: `stock_daily_ohlcv`)이 Supabase에 존재하고 PK=(code, date), 컬럼은 open/high/low/close/volume/trade_amount 포함, 약 ~2M 행을 보유한다
-  2. 초기 백필 스크립트가 KRX OpenAPI(또는 동등 무료 데이터 소스)로부터 종목별 3년치(~720 영업일) OHLCV를 수집해 upsert한다
-  3. Cloud Run Job + Cloud Scheduler가 매 영업일 EOD 이후(예: 17:00 KST) 신규 1영업일 데이터를 **증분** 수집한다 (full re-fetch 금지, API 예산 안전)
-  4. 무료 API 한도 내 안정 동작 — rate-limit 준수, 재시도, per-stock fail-isolation
-  5. 데이터 정합성 모니터링 — 미수집 종목 수 / 결측 일자가 일정 임계 이하
-**Plans**: TBD
+  1. 일봉 OHLCV 테이블 `stock_daily_ohlcv` 이 Supabase에 존재하고 PK=(code, date), 컬럼은 open/high/low/close/volume/trade_amount 포함, **4,003,432 행** (백필 범위 **2020-01-02 ~ 2026-05-11**) 을 보유한다 ✅
+  2. 초기 백필 스크립트가 KRX OpenAPI bydd_trd 로부터 종목별 일봉 OHLCV 를 수집해 upsert한다 (Cloud Run Job 1회 실행 51분, 1,658 days, KOSPI+KOSDAQ Promise.all 병렬) ✅
+  3. Cloud Run Job + Cloud Scheduler가 매 영업일 EOD 이후(`30 17 * * 1-5` KST) 신규 1영업일 데이터를 **증분** 수집한다 (full re-fetch 금지, recover `10 8 * * 1-5` 익영업일 보완) ✅
+  4. 무료 API 한도 내 안정 동작 — 401 가드 + per-day try/catch fail-isolation + withRetry + chunked UPSERT (백필 중 1일 numeric overflow 발생 → hotfix migration + per-day 격리로 전체 성공 입증) ✅
+  5. 데이터 정합성 — 미수집 종목 **0.00%** (0/2,771 active), 최근 30영업일 중 결측 일자 **0** (0/19 days incomplete) ✅
+**Plans:** 6 plans
+- [x] 09-01-PLAN.md — Wave 1 마이그레이션 SQL + StockDailyOhlcv/BdydTrdRow 타입
+- [x] 09-02-PLAN.md — Wave 1 candle-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry/supabase)
+- [x] 09-03-PLAN.md — Wave 1 KRX 클라이언트 + 파이프라인 5종 + 4 unit tests
+- [x] 09-04-PLAN.md — Wave 1 MODE dispatch (backfill/daily/recover) + bootstrapStocks + businessDay
+- [x] 09-05-PLAN.md — Wave 2 IAM + deploy/smoke 스크립트 + alert YAML 2종
+- [x] 09-06-PLAN.md — Wave 3 KRX 실측 fixture + production push + 백필 + change_rate hotfix + DEPLOY-LOG
 
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
@@ -328,5 +335,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
 | 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
-| 9. Daily Candle Data | 1/6 | In Progress | - |
+| 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 10. AI Summarization | 0/TBD | Not started | - |
