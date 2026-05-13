@@ -303,13 +303,25 @@ Plans:
 
 ### Phase 09.1: intraday-current-price (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** 평일 장중 (09:00~15:30 KST) 활성 거래 종목 (~1,898) 의 현재가/등락/누적거래량을 키움 REST `ka10027` 페이지네이션으로 매분 수집하여 `stock_daily_ohlcv` 의 오늘자 row 에 partial UPSERT 한다. open/high/low/trade_amount 는 EOD candle-sync 가 17:30 에 최종 overlay. Direct VPC Egress + Cloud NAT static IP 로 키움 IP whitelist 충족.
+**Requirements**: DATA-02 (신규)
 **Depends on:** Phase 09
-**Plans:** 0 plans
+**Plans:** 6 plans (4 waves)
+**Success Criteria** (what must be TRUE):
+  1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재 (Dockerfile + config/logger/retry + services/supabase + kiwoom client + pipeline + index.ts)
+  2. Supabase 마이그레이션 `intraday_upsert_close(jsonb)` RPC 가 production 적용되어 service_role 만 호출 가능 (anon/authenticated REVOKE 명시)
+  3. Cloud Run Job `gh-radar-intraday-sync` + Cloud Scheduler `gh-radar-intraday-sync` (`* 9-15 * * 1-5` Asia/Seoul) 가 GCP 에 ENABLED 상태로 배포
+  4. VPC `gh-radar-vpc` + subnet + Cloud Router + Cloud NAT + Reserved Static IP 가 asia-northeast3 리전에 생성되어 Cloud Run Job 의 outbound traffic 이 static IP 로 routing
+  5. 키움 화이트리스트에 Static IP 등록 완료 (사용자 액션) 후 production 첫 cycle 이 ka10027 응답 ≥1,500 row 를 받아 stock_daily_ohlcv 오늘자 row 의 close/change_amount/change_rate/volume 갱신
+  6. Phase 9 candle-sync EOD `30 17` 와 충돌 없음 — intraday-sync 는 stock_daily_ohlcv 의 close/change_amount/change_rate/volume 4 컬럼만 UPDATE, open/high/low/trade_amount 미변경 (EOD overlay 보존)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 09.1 to break down)
+- [ ] 09.1-01-PLAN.md — Wave 0 마이그레이션 (intraday_upsert_close RPC) + shared 타입 (KiwoomKa10027Row + IntradayCloseUpdate)
+- [ ] 09.1-02-PLAN.md — Wave 0 workers/intraday-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry + services/supabase + placeholder index)
+- [ ] 09.1-03-PLAN.md — Wave 1 키움 OAuth client + ka10027 페이지네이션 + parseSigned/_AL strip + 토큰/응답 fixture 캡처
+- [ ] 09.1-04-PLAN.md — Wave 1 pipeline (mapper + bootstrapStocks + RPC caller) + runCycle entry + 단위/통합 테스트
+- [ ] 09.1-05-PLAN.md — Wave 2 IAM (VPC/NAT/Static IP/Secret/SA) + deploy/smoke 스크립트 + alert YAML (스크립트만 — 실행은 Plan 06)
+- [ ] 09.1-06-PLAN.md — Wave 3 [BLOCKING] production 배포 + 키움 IP 화이트리스트 (사용자 액션) + 첫 cycle 검증 + DEPLOY-LOG + REQUIREMENTS/ROADMAP/STATE 갱신
 
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다

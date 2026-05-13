@@ -62,6 +62,7 @@
 ### Data
 
 - **DATA-01**: KRX 상장 전 종목 3년치 일봉 OHLCV 수집 및 영업일 EOD 증분 갱신 (분석 기반 데이터 레이어 — Phase 9)
+- **DATA-02**: 장중 활성 거래 종목(~1,898) 의 현재가/등락/누적거래량을 1분 cadence 로 stock_daily_ohlcv 오늘자 row 에 UPSERT (키움 REST `ka10027` 페이지네이션, Direct VPC Egress + Cloud NAT static IP — Phase 09.1)
 
 ## v2 Requirements
 
@@ -120,14 +121,15 @@
 | DISC-01 | Phase 8 | Complete |
 | DISC-01.1 | Phase 08.1 | Complete |
 | DATA-01 | Phase 9 | Complete |
+| DATA-02 | Phase 09.1 | Pending |
 | NEWS-02 | Phase 10 | Pending |
 | DISC-02 | Phase 10 | Pending |
 
 **Coverage:**
-- v1 requirements: 28 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체)
-- Mapped to phases: 28
+- v1 requirements: 29 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트)
+- Mapped to phases: 29
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-05-10 — Phase 9 의미 교체 (Daily Candle Data) + 기존 9 → Phase 10 (AI Summarization), DATA-01 신규 추가*
+*Last updated: 2026-05-13 — Phase 09.1 인서트 (Intraday Current Price), DATA-02 신규 추가*
