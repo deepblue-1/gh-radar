@@ -301,6 +301,16 @@ Plans:
 - [x] 09-05-PLAN.md — Wave 2 IAM + deploy/smoke 스크립트 + alert YAML 2종
 - [x] 09-06-PLAN.md — Wave 3 KRX 실측 fixture + production push + 백필 + change_rate hotfix + DEPLOY-LOG
 
+### Phase 09.1: intraday-current-price (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 09
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 09.1 to break down)
+
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 7, Phase 7.1, Phase 8
