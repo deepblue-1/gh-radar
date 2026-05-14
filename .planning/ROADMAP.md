@@ -306,7 +306,7 @@ Plans:
 **Goal:** 평일 장중 (09:00~15:30 KST) 활성 거래 종목 (~1,898) 의 시세를 **키움 REST API 만으로** 매분 수집한다. STEP1: `ka10027` 페이지네이션으로 활성 1,898 종목의 close/change/volume + 등락률 → `stock_quotes` / `top_movers` / `stock_daily_ohlcv` 오늘자 row UPSERT. STEP2: `ka10001` 단일 종목 호출로 hot set (등락률 상위 200 ∪ watchlist unique, ~250 종목) 의 OHLC + 상한가/하한가/시가총액 → `stock_quotes` / `stock_daily_ohlcv` 오늘자 row UPSERT. trade_amount = volume × close 근사값 (트레이딩 시그널 용도). **KIS ingestion(workers/ingestion) 폐기 + server/src/kis → kiwoom 교체 + Cloud Run service 도 VPC connector 추가**. Direct VPC Egress + Cloud NAT + Static External IP 1개로 worker + server 가 동일 outbound IP 공유 (키움 IP whitelist 1개 등록). EOD candle-sync 17:30 가 stock_daily_ohlcv 오늘자 row 의 공식 OHLCV 로 최종 overlay.
 **Requirements**: DATA-02 (신규, 재정의)
 **Depends on:** Phase 09
-**Plans:** 2/11 plans executed
+**Plans:** 3/11 plans executed
 **Success Criteria** (what must be TRUE):
   1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재하며, STEP1 (ka10027 페이지네이션) + STEP2 (ka10001 hot set) 두 단계 cycle 을 매분 실행
   2. Supabase 마이그레이션: `kis_tokens` DROP + `kiwoom_tokens` CREATE (token_type, access_token, expires_at, fetched_at) + `intraday_upsert_close(jsonb)` RPC + `intraday_upsert_ohlc(jsonb)` RPC 가 production 적용. 모든 RPC + 신규 테이블 service_role 만 호출 가능 (anon/authenticated REVOKE 명시)
@@ -321,7 +321,7 @@ Plans:
 Plans:
 - [x] 09.1-01-PLAN.md — Wave 0 마이그레이션 SQL 4종 (kis_tokens DROP + kiwoom_tokens CREATE + intraday_upsert_close/ohlc RPC)
 - [x] 09.1-02-PLAN.md — Wave 0 packages/shared/src/kiwoom.ts 4 타입 + 단위 테스트
-- [ ] 09.1-03-PLAN.md — Wave 0 workers/intraday-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry/supabase)
+- [x] 09.1-03-PLAN.md — Wave 0 workers/intraday-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry/supabase)
 - [ ] 09.1-04-PLAN.md — Wave 1 STEP1 — 키움 OAuth client + Supabase token cache + ka10027 페이지네이션 + parseSignedPrice/_AL strip + map.ts
 - [ ] 09.1-05-PLAN.md — Wave 1 STEP2 — ka10001 hot set + mapOhlc + computeHotSet + 5 fixture (보통주/KOSDAQ/변동성/우선주/ETF)
 - [ ] 09.1-06-PLAN.md — Wave 1 pipeline 통합 — bootstrap + topMovers + 2 RPC caller + stock_quotes 양단계 UPSERT + runIntradayCycle + 휴장일 가드
@@ -330,6 +330,16 @@ Plans:
 - [ ] 09.1-09-PLAN.md — [BLOCKING] Wave 4 cutover #1 — Supabase migration push + setup-iam 실행 + KIWOOM secret 사용자 등록 + 키움 IP 화이트리스트 + worker 배포 + smoke
 - [ ] 09.1-10-PLAN.md — [BLOCKING] Wave 4 cutover #2 — server VPC 재배포 + 종목 상세 페이지 키움 호출 검증 + DEPLOY-LOG #2
 - [ ] 09.1-11-PLAN.md — [BLOCKING] Wave 4 cutover #3 — KIS 폐기 (RESEARCH §12 11-step) + kis_tokens DROP push + 코드 git rm + STATE/REQUIREMENTS/ROADMAP 갱신
+
+### Phase 09.2: 종목 상세페이지 상단 일봉차트 (INSERTED)
+
+**Goal:** 종목 상세페이지(`/stocks/[code]`) 상단에 해당 종목의 일봉차트를 출력해 트레이더가 가격 흐름을 즉시 시각적으로 확인할 수 있게 한다. Phase 9 에서 적재된 `stock_daily_ohlcv` (4,003,432 행) 데이터를 source 로 사용.
+**Requirements**: TBD (Phase 6 detail page 확장)
+**Depends on:** Phase 9 (일봉 데이터), Phase 6 (상세 페이지 구조)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 09.2 to break down)
 
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
