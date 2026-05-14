@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09.1-04-PLAN.md (STEP1 kiwoom client + ka10027 + parseSignedPrice mapper — 5 src + 4 test + 2 fixture, 36 tests green)
-last_updated: "2026-05-14T12:36:28.711Z"
+stopped_at: Completed 09.1-05-PLAN.md (STEP2 hot set + ka10001 mapper — 3 src + 5 fixture + 3 test, 54 tests green)
+last_updated: "2026-05-14T12:42:39.485Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 19
   completed_phases: 10
   total_plans: 81
-  completed_plans: 60
-  percent: 74
+  completed_plans: 61
+  percent: 75
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 5 of 11
+Plan: 6 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -105,6 +105,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P02 | 2m | 2 tasks | 3 files |
 | Phase 09.1 P03 | 2m17s | 3 tasks | 12 files |
 | Phase 09.1 P04 | 4m | 3 tasks | 11 files |
+| Phase 09.1 P05 | 2m34s | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,9 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 04] parseSignedPrice 1 함수가 +/- 부호 분리 + 절댓값 + direction(up/down/flat) 한번에 처리 — D-09. flu_rt/pred_pre 는 parseOptionalSignedNumber 로 부호 유지 별도. trim/comma strip/Number.isFinite 가드 포함.
 - [Phase 09.1]: [Plan 04] tokenStore 는 axios 직접 호출 (createKiwoomClient 미사용) — token endpoint 는 Bearer 미필요. upsert onConflict=token_type 으로 race idempotent (T-09.1-13 accept). parseKiwoomExpiresDt 가 'YYYYMMDDhhmmss' KST → UTC 변환.
 - [Phase 09.1]: [Plan 04] fetchKa10027 의 hard cap 5000 + cont-yn=Y AND next-key 둘 다 있어야 loop 진행 (T-09.1-14). 401 → '키움 401' / 429 → '키움 429' / return_code != 0 → return_msg 분류 throw (T-09.1-11/12).
+- [Phase 09.1]: [Plan 05] parseMac (×10^8) 가설 단위=억원을 1줄 격리 — Plan 06 production smoke 시 확정. 잘못된 단위 시 함수 1줄 + mapOhlc.test.ts expectation 1줄 변경만으로 정정 (T-09.1-15 mitigate).
+- [Phase 09.1]: [Plan 05] fetchKa10001ForHotSet 가 Promise.allSettled (Promise.all 아님) + 각 호출 직전 acquireKiwoomRateToken — 종목별 실패가 cycle 중단 안 함 (T-09.1-16) + token bucket 자연 직렬화 (T-09.1-17).
+- [Phase 09.1]: [Plan 05] computeHotSet = top N ∪ watchlist unique (Set 자료구조). watchlist 빈 → top N 만 정상 동작 (T-09.1-18 mitigate). user_id 미노출 (stock_code 만 SELECT).
 
 ### Pending Todos
 
@@ -184,6 +188,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:36:15.844Z
-Stopped at: Completed 09.1-04-PLAN.md (STEP1 kiwoom client + ka10027 + parseSignedPrice mapper — 5 src + 4 test + 2 fixture, 36 tests green)
+Last session: 2026-05-14T12:42:27.978Z
+Stopped at: Completed 09.1-05-PLAN.md (STEP2 hot set + ka10001 mapper — 3 src + 5 fixture + 3 test, 54 tests green)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
