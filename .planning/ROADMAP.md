@@ -301,27 +301,24 @@ Plans:
 - [x] 09-05-PLAN.md — Wave 2 IAM + deploy/smoke 스크립트 + alert YAML 2종
 - [x] 09-06-PLAN.md — Wave 3 KRX 실측 fixture + production push + 백필 + change_rate hotfix + DEPLOY-LOG
 
-### Phase 09.1: intraday-current-price (INSERTED)
+### Phase 09.1: intraday-current-price (RE-SCOPED 2026-05-14 — KIS → 키움 완전 대체)
 
-**Goal:** 평일 장중 (09:00~15:30 KST) 활성 거래 종목 (~1,898) 의 현재가/등락/누적거래량을 키움 REST `ka10027` 페이지네이션으로 매분 수집하여 `stock_daily_ohlcv` 의 오늘자 row 에 partial UPSERT 한다. open/high/low/trade_amount 는 EOD candle-sync 가 17:30 에 최종 overlay. Direct VPC Egress + Cloud NAT static IP 로 키움 IP whitelist 충족.
-**Requirements**: DATA-02 (신규)
+**Goal:** 평일 장중 (09:00~15:30 KST) 활성 거래 종목 (~1,898) 의 시세를 **키움 REST API 만으로** 매분 수집한다. STEP1: `ka10027` 페이지네이션으로 활성 1,898 종목의 close/change/volume + 등락률 → `stock_quotes` / `top_movers` / `stock_daily_ohlcv` 오늘자 row UPSERT. STEP2: `ka10001` 단일 종목 호출로 hot set (등락률 상위 200 ∪ watchlist unique, ~250 종목) 의 OHLC + 상한가/하한가/시가총액 → `stock_quotes` / `stock_daily_ohlcv` 오늘자 row UPSERT. trade_amount = volume × close 근사값 (트레이딩 시그널 용도). **KIS ingestion(workers/ingestion) 폐기 + server/src/kis → kiwoom 교체 + Cloud Run service 도 VPC connector 추가**. Direct VPC Egress + Cloud NAT + Static External IP 1개로 worker + server 가 동일 outbound IP 공유 (키움 IP whitelist 1개 등록). EOD candle-sync 17:30 가 stock_daily_ohlcv 오늘자 row 의 공식 OHLCV 로 최종 overlay.
+**Requirements**: DATA-02 (신규, 재정의)
 **Depends on:** Phase 09
-**Plans:** 6 plans (4 waves)
+**Plans:** TBD (planner 가 산출 — 예상 7~10 plans, 4~5 waves)
 **Success Criteria** (what must be TRUE):
-  1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재 (Dockerfile + config/logger/retry + services/supabase + kiwoom client + pipeline + index.ts)
-  2. Supabase 마이그레이션 `intraday_upsert_close(jsonb)` RPC 가 production 적용되어 service_role 만 호출 가능 (anon/authenticated REVOKE 명시)
-  3. Cloud Run Job `gh-radar-intraday-sync` + Cloud Scheduler `gh-radar-intraday-sync` (`* 9-15 * * 1-5` Asia/Seoul) 가 GCP 에 ENABLED 상태로 배포
-  4. VPC `gh-radar-vpc` + subnet + Cloud Router + Cloud NAT + Reserved Static IP 가 asia-northeast3 리전에 생성되어 Cloud Run Job 의 outbound traffic 이 static IP 로 routing
-  5. 키움 화이트리스트에 Static IP 등록 완료 (사용자 액션) 후 production 첫 cycle 이 ka10027 응답 ≥1,500 row 를 받아 stock_daily_ohlcv 오늘자 row 의 close/change_amount/change_rate/volume 갱신
-  6. Phase 9 candle-sync EOD `30 17` 와 충돌 없음 — intraday-sync 는 stock_daily_ohlcv 의 close/change_amount/change_rate/volume 4 컬럼만 UPDATE, open/high/low/trade_amount 미변경 (EOD overlay 보존)
+  1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재하며, STEP1 (ka10027 페이지네이션) + STEP2 (ka10001 hot set) 두 단계 cycle 을 매분 실행
+  2. Supabase 마이그레이션: `kis_tokens` DROP + `kiwoom_tokens` CREATE (token_type, access_token, expires_at, fetched_at) + `intraday_upsert_close(jsonb)` RPC + `intraday_upsert_ohlc(jsonb)` RPC 가 production 적용. 모든 RPC + 신규 테이블 service_role 만 호출 가능 (anon/authenticated REVOKE 명시)
+  3. Cloud Run Job `gh-radar-intraday-sync` + Cloud Scheduler (`* 9-15 * * 1-5` Asia/Seoul) 가 GCP 에 ENABLED 상태로 배포
+  4. VPC `gh-radar-vpc` + subnet + Cloud Router + Cloud NAT + Reserved Static IP 가 asia-northeast3 리전에 생성. Cloud Run Job (intraday-sync) **+ Cloud Run service (gh-radar-server)** 둘 다 동일 VPC connector 로 outbound traffic 이 동일 static IP 로 routing
+  5. server/src/kis/* 가 server/src/kiwoom/* 로 교체. `inquirePriceToQuoteRow` 가 ka10001 응답 매핑. 종목 상세 페이지 on-demand 호출이 키움 동기 호출로 실시간성 유지
+  6. 키움 화이트리스트에 Static IP 등록 완료 (사용자 액션) 후 production 첫 cycle 이 ka10027 응답 ≥1,500 row + ka10001 hot set ~250 종목 호출 성공 → `stock_quotes` 1,898 row 갱신 + `stock_daily_ohlcv` 오늘자 row 의 close/change_amount/change_rate/volume + hot set OHLC 갱신
+  7. **KIS ingestion 완전 폐기**: Cloud Run Job `gh-radar-ingestion` + Scheduler + SA `gh-radar-ingestion-sa` + Secrets `gh-radar-kis-app-key`/`gh-radar-kis-app-secret` GCP 에서 삭제. workers/ingestion + server/src/kis + packages/shared/src/kis.ts 디렉터리/파일 삭제 (git history 보존). `kis_tokens` 테이블 drop migration 적용
+  8. Phase 9 candle-sync EOD `30 17` 와 충돌 없음 — intraday-sync 는 `stock_daily_ohlcv` 의 close/change/volume (STEP1) + open/high/low (STEP2 hot set only) UPSERT, EOD 17:30 candle-sync 가 모든 OHLCV 컬럼을 공식값으로 덮어쓰기
+  9. `trade_amount = volume × close` 근사값 정책이 코드 주석에 명시 (현 `workers/ingestion/src/pipeline/map.ts:5` 의 "근사값은 허용하지 않음" 정책 반전, 새 mapper 에 사유 + 사용처 트레이딩 시그널 명시)
 
-Plans:
-- [ ] 09.1-01-PLAN.md — Wave 0 마이그레이션 (intraday_upsert_close RPC) + shared 타입 (KiwoomKa10027Row + IntradayCloseUpdate)
-- [ ] 09.1-02-PLAN.md — Wave 0 workers/intraday-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry + services/supabase + placeholder index)
-- [ ] 09.1-03-PLAN.md — Wave 1 키움 OAuth client + ka10027 페이지네이션 + parseSigned/_AL strip + 토큰/응답 fixture 캡처
-- [ ] 09.1-04-PLAN.md — Wave 1 pipeline (mapper + bootstrapStocks + RPC caller) + runCycle entry + 단위/통합 테스트
-- [ ] 09.1-05-PLAN.md — Wave 2 IAM (VPC/NAT/Static IP/Secret/SA) + deploy/smoke 스크립트 + alert YAML (스크립트만 — 실행은 Plan 06)
-- [ ] 09.1-06-PLAN.md — Wave 3 [BLOCKING] production 배포 + 키움 IP 화이트리스트 (사용자 액션) + 첫 cycle 검증 + DEPLOY-LOG + REQUIREMENTS/ROADMAP/STATE 갱신
+Plans: (planner 가 재작성, 기존 6 plans 갈아엎기)
 
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
