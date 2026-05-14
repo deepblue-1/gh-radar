@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09.1-03-PLAN.md (workers/intraday-sync 스캐폴드 11 파일 + pnpm-lock 갱신)
-last_updated: "2026-05-14T12:28:48.946Z"
+stopped_at: Completed 09.1-04-PLAN.md (STEP1 kiwoom client + ka10027 + parseSignedPrice mapper — 5 src + 4 test + 2 fixture, 36 tests green)
+last_updated: "2026-05-14T12:36:28.711Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 19
   completed_phases: 10
   total_plans: 81
-  completed_plans: 59
-  percent: 73
+  completed_plans: 60
+  percent: 74
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 4 of 11
+Plan: 5 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -104,6 +104,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P01 | 3min | 4 tasks | 4 files |
 | Phase 09.1 P02 | 2m | 2 tasks | 3 files |
 | Phase 09.1 P03 | 2m17s | 3 tasks | 12 files |
+| Phase 09.1 P04 | 4m | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,9 @@ Recent decisions affecting current work:
 - [Phase 09.1]: Plan 02: IntradayOhlcUpdate.marketCap 의 mac 단위 가설 = 억원 (R2). Plan 04 fixture 캡처가 단위 확정 — 가설 틀려도 mapper parseMac 1줄 변경으로 해결, 본 타입 변경 불필요.
 - [Phase 09.1]: Plan 03: candle-sync 1:1 mirror 로 workers/intraday-sync 스캐폴드 — MODE dispatch 의도적 제거 (단일 cycle). redact 7 paths (kiwoomAppkey/kiwoomSecretkey/headers.authorization/access_token/accessToken/token/supabaseServiceRoleKey) — T-09.1-07 mitigate.
 - [Phase 09.1]: Plan 03: tuning env defaults — MIN_EXPECTED_ROWS=1500 (휴장일 guard), HOT_SET_TOP_N=200 (D-11), KA10001_RATE_LIMIT=24 req/s (사용자 2026-05-13 실측). 모두 env override 가능.
+- [Phase 09.1]: [Plan 04] parseSignedPrice 1 함수가 +/- 부호 분리 + 절댓값 + direction(up/down/flat) 한번에 처리 — D-09. flu_rt/pred_pre 는 parseOptionalSignedNumber 로 부호 유지 별도. trim/comma strip/Number.isFinite 가드 포함.
+- [Phase 09.1]: [Plan 04] tokenStore 는 axios 직접 호출 (createKiwoomClient 미사용) — token endpoint 는 Bearer 미필요. upsert onConflict=token_type 으로 race idempotent (T-09.1-13 accept). parseKiwoomExpiresDt 가 'YYYYMMDDhhmmss' KST → UTC 변환.
+- [Phase 09.1]: [Plan 04] fetchKa10027 의 hard cap 5000 + cont-yn=Y AND next-key 둘 다 있어야 loop 진행 (T-09.1-14). 401 → '키움 401' / 429 → '키움 429' / return_code != 0 → return_msg 분류 throw (T-09.1-11/12).
 
 ### Pending Todos
 
@@ -180,6 +184,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:28:40.889Z
-Stopped at: Completed 09.1-03-PLAN.md (workers/intraday-sync 스캐폴드 11 파일 + pnpm-lock 갱신)
+Last session: 2026-05-14T12:36:15.844Z
+Stopped at: Completed 09.1-04-PLAN.md (STEP1 kiwoom client + ka10027 + parseSignedPrice mapper — 5 src + 4 test + 2 fixture, 36 tests green)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
