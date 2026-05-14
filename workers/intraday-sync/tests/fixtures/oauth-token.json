@@ -1,0 +1,7 @@
+{
+  "token": "FAKE_TOKEN_FOR_TEST_abc123",
+  "token_type": "bearer",
+  "expires_dt": "20260515093013",
+  "return_code": 0,
+  "return_msg": "정상적으로 처리되었습니다"
+}
