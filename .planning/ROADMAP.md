@@ -306,7 +306,7 @@ Plans:
 **Goal:** 평일 장중 (09:00~15:30 KST) 활성 거래 종목 (~1,898) 의 시세를 **키움 REST API 만으로** 매분 수집한다. STEP1: `ka10027` 페이지네이션으로 활성 1,898 종목의 close/change/volume + 등락률 → `stock_quotes` / `top_movers` / `stock_daily_ohlcv` 오늘자 row UPSERT. STEP2: `ka10001` 단일 종목 호출로 hot set (등락률 상위 200 ∪ watchlist unique, ~250 종목) 의 OHLC + 상한가/하한가/시가총액 → `stock_quotes` / `stock_daily_ohlcv` 오늘자 row UPSERT. trade_amount = volume × close 근사값 (트레이딩 시그널 용도). **KIS ingestion(workers/ingestion) 폐기 + server/src/kis → kiwoom 교체 + Cloud Run service 도 VPC connector 추가**. Direct VPC Egress + Cloud NAT + Static External IP 1개로 worker + server 가 동일 outbound IP 공유 (키움 IP whitelist 1개 등록). EOD candle-sync 17:30 가 stock_daily_ohlcv 오늘자 row 의 공식 OHLCV 로 최종 overlay.
 **Requirements**: DATA-02 (신규, 재정의)
 **Depends on:** Phase 09
-**Plans:** 5/11 plans executed
+**Plans:** 6/11 plans executed
 **Success Criteria** (what must be TRUE):
   1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재하며, STEP1 (ka10027 페이지네이션) + STEP2 (ka10001 hot set) 두 단계 cycle 을 매분 실행
   2. Supabase 마이그레이션: `kis_tokens` DROP + `kiwoom_tokens` CREATE (token_type, access_token, expires_at, fetched_at) + `intraday_upsert_close(jsonb)` RPC + `intraday_upsert_ohlc(jsonb)` RPC 가 production 적용. 모든 RPC + 신규 테이블 service_role 만 호출 가능 (anon/authenticated REVOKE 명시)
@@ -324,7 +324,7 @@ Plans:
 - [x] 09.1-03-PLAN.md — Wave 0 workers/intraday-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry/supabase)
 - [x] 09.1-04-PLAN.md — Wave 1 STEP1 — 키움 OAuth client + Supabase token cache + ka10027 페이지네이션 + parseSignedPrice/_AL strip + map.ts
 - [x] 09.1-05-PLAN.md — Wave 1 STEP2 — ka10001 hot set + mapOhlc + computeHotSet + 5 fixture (보통주/KOSDAQ/변동성/우선주/ETF)
-- [ ] 09.1-06-PLAN.md — Wave 1 pipeline 통합 — bootstrap + topMovers + 2 RPC caller + stock_quotes 양단계 UPSERT + runIntradayCycle + 휴장일 가드
+- [x] 09.1-06-PLAN.md — Wave 1 pipeline 통합 — bootstrap + topMovers + 2 RPC caller + stock_quotes 양단계 UPSERT + runIntradayCycle + 휴장일 가드
 - [ ] 09.1-07-PLAN.md — Wave 2 server/src/kis → server/src/kiwoom 교체 + inquirePriceToQuoteRow ka10001 매핑 + routes/stocks 전환
 - [ ] 09.1-08-PLAN.md — Wave 3 인프라 스크립트 (setup-iam VPC+NAT+Static IP, deploy worker+VPC, smoke INV, deploy-server VPC connector 옵션 추가) + alert YAML
 - [ ] 09.1-09-PLAN.md — [BLOCKING] Wave 4 cutover #1 — Supabase migration push + setup-iam 실행 + KIWOOM secret 사용자 등록 + 키움 IP 화이트리스트 + worker 배포 + smoke

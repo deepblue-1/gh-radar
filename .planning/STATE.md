@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09.1-05-PLAN.md (STEP2 hot set + ka10001 mapper — 3 src + 5 fixture + 3 test, 54 tests green)
-last_updated: "2026-05-14T12:42:39.485Z"
+stopped_at: Completed 09.1-06-PLAN.md (STEP1+STEP2 통합 cycle — 5 src 신규 + index.ts runIntradayCycle 갱신 + 6 test 25 cases, 79 tests green, Wave 1 워커 워크스페이스 production-ready)
+last_updated: "2026-05-14T12:51:38.048Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 19
   completed_phases: 10
   total_plans: 81
-  completed_plans: 61
-  percent: 75
+  completed_plans: 62
+  percent: 77
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 6 of 11
+Plan: 7 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -106,6 +106,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P03 | 2m17s | 3 tasks | 12 files |
 | Phase 09.1 P04 | 4m | 3 tasks | 11 files |
 | Phase 09.1 P05 | 2m34s | 3 tasks | 11 files |
+| Phase 09.1 P06 | 4m | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,9 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 05] parseMac (×10^8) 가설 단위=억원을 1줄 격리 — Plan 06 production smoke 시 확정. 잘못된 단위 시 함수 1줄 + mapOhlc.test.ts expectation 1줄 변경만으로 정정 (T-09.1-15 mitigate).
 - [Phase 09.1]: [Plan 05] fetchKa10001ForHotSet 가 Promise.allSettled (Promise.all 아님) + 각 호출 직전 acquireKiwoomRateToken — 종목별 실패가 cycle 중단 안 함 (T-09.1-16) + token bucket 자연 직렬화 (T-09.1-17).
 - [Phase 09.1]: [Plan 05] computeHotSet = top N ∪ watchlist unique (Set 자료구조). watchlist 빈 → top N 만 정상 동작 (T-09.1-18 mitigate). user_id 미노출 (stock_code 만 SELECT).
+- [Phase 09.1]: [Plan 06] rebuildTopMovers 가 marketMap 인자 추가 — top_movers 의 name/market NOT NULL 제약 충족 (PLAN 원안 미반영, Rule 1 Bug 자동 수정). DELETE 패턴도 .gte('rank', 0) → .neq('code', '') 변경 (rank=NULL 회피).
+- [Phase 09.1]: [Plan 06] runIntradayCycle 통합 — STEP1 (ka10027 fetch → bootstrap → mapping+dedupe → market join → RPC #1 + stock_quotes + top_movers) → STEP2 (computeHotSet → ka10001 Promise.allSettled → mapping → RPC #2 + stock_quotes) 직렬 dispatch. 휴장일/partial 가드 (0 row exit 정상, < MIN_EXPECTED throw). dedupe Map by code 로 페이지 경계 중복 자연 제거.
+- [Phase 09.1]: [Plan 06] STEP1/STEP2 stock_quotes UPSERT 의도적 컬럼 분리 — onConflict=code 가 페이로드 컬럼만 UPDATE 특성 활용. STEP1 (price/change/volume/trade_amount/name/market) 과 STEP2 (open/high/low/upper/lower/market_cap) 서로 다른 컬럼 → 자연 race-free (T-09.1-21 mitigate).
 
 ### Pending Todos
 
@@ -188,6 +192,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:42:27.978Z
-Stopped at: Completed 09.1-05-PLAN.md (STEP2 hot set + ka10001 mapper — 3 src + 5 fixture + 3 test, 54 tests green)
+Last session: 2026-05-14T12:51:38.044Z
+Stopped at: Completed 09.1-06-PLAN.md (STEP1+STEP2 통합 cycle — 5 src 신규 + index.ts runIntradayCycle 갱신 + 6 test 25 cases, 79 tests green, Wave 1 워커 워크스페이스 production-ready)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
