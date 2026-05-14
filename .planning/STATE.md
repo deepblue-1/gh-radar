@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09.1-06-PLAN.md (STEP1+STEP2 통합 cycle — 5 src 신규 + index.ts runIntradayCycle 갱신 + 6 test 25 cases, 79 tests green, Wave 1 워커 워크스페이스 production-ready)
-last_updated: "2026-05-14T12:51:38.048Z"
+stopped_at: Completed 09.1-07-PLAN.md (server KIS→키움 완전 대체 — 5 src 신규 + 5 src 갱신 + 5 test 갱신/신규, 121 tests green, Wave 2 server 워크스페이스 production-ready 단 Wave 3 의 secret 주입 + VPC 재배포 + IP whitelist 대기)
+last_updated: "2026-05-14T13:04:52.035Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 19
   completed_phases: 10
   total_plans: 81
-  completed_plans: 62
-  percent: 77
+  completed_plans: 63
+  percent: 78
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 7 of 11
+Plan: 8 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -107,6 +107,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P04 | 4m | 3 tasks | 11 files |
 | Phase 09.1 P05 | 2m34s | 3 tasks | 11 files |
 | Phase 09.1 P06 | 4m | 3 tasks | 12 files |
+| Phase 09.1 P07 | 8m | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -169,6 +170,9 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 06] rebuildTopMovers 가 marketMap 인자 추가 — top_movers 의 name/market NOT NULL 제약 충족 (PLAN 원안 미반영, Rule 1 Bug 자동 수정). DELETE 패턴도 .gte('rank', 0) → .neq('code', '') 변경 (rank=NULL 회피).
 - [Phase 09.1]: [Plan 06] runIntradayCycle 통합 — STEP1 (ka10027 fetch → bootstrap → mapping+dedupe → market join → RPC #1 + stock_quotes + top_movers) → STEP2 (computeHotSet → ka10001 Promise.allSettled → mapping → RPC #2 + stock_quotes) 직렬 dispatch. 휴장일/partial 가드 (0 row exit 정상, < MIN_EXPECTED throw). dedupe Map by code 로 페이지 경계 중복 자연 제거.
 - [Phase 09.1]: [Plan 06] STEP1/STEP2 stock_quotes UPSERT 의도적 컬럼 분리 — onConflict=code 가 페이로드 컬럼만 UPDATE 특성 활용. STEP1 (price/change/volume/trade_amount/name/market) 과 STEP2 (open/high/low/upper/lower/market_cap) 서로 다른 컬럼 → 자연 race-free (T-09.1-21 mitigate).
+- [Phase 09.1]: [Plan 07] server/src/kis/* → server/src/kiwoom/* 4 모듈 신설 (worker Plan 04 mirror). createKiwoomRuntime 의 { client, getToken } 페어 stateless 패턴 — 매 요청 getKiwoomToken 재조회. cached SELECT 를 키움 호출 이전에 수행 (Rule 1 Bug — mock upsert overwrite + production race 회피).
+- [Phase 09.1]: [Plan 07] StockQuoteRowUpsert = Omit<StockQuoteRow, 'volume'|'trade_amount'> — D-22 R3 RESOLVED. inquirePriceToQuoteRow 가 partial row 반환 → Supabase upsert 가 명시 컬럼만 SET → STEP1 ka10027 의 매분 trade_amount/volume 보존. server tests 121/121 + typecheck/build exit 0.
+- [Phase 09.1]: [Plan 07] KIS env optional 화 (kisAppKey/Secret default '') + KIWOOM_APPKEY/SECRETKEY required get(). server/src/kis/* + services/kis-runtime.ts 는 무변경 (dead code 잔존) — Wave 4 Plan 11 cleanup 안전 deletion 대기. tests/setup.ts 가 KIWOOM env 주입 (test loadConfig throw 회피).
 
 ### Pending Todos
 
@@ -192,6 +196,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:51:38.044Z
-Stopped at: Completed 09.1-06-PLAN.md (STEP1+STEP2 통합 cycle — 5 src 신규 + index.ts runIntradayCycle 갱신 + 6 test 25 cases, 79 tests green, Wave 1 워커 워크스페이스 production-ready)
+Last session: 2026-05-14T13:04:52.032Z
+Stopped at: Completed 09.1-07-PLAN.md (server KIS→키움 완전 대체 — 5 src 신규 + 5 src 갱신 + 5 test 갱신/신규, 121 tests green, Wave 2 server 워크스페이스 production-ready 단 Wave 3 의 secret 주입 + VPC 재배포 + IP whitelist 대기)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
