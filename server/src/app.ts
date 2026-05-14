@@ -13,9 +13,20 @@ import { healthRouter } from "./routes/health.js";
 import { scannerRouter } from "./routes/scanner.js";
 import { stocksRouter } from "./routes/stocks.js";
 
+/**
+ * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
+ * services/kiwoom-runtime.ts 의 KiwoomRuntime 와 동일 shape — 순환 import 회피용 inline 재선언.
+ */
+export type KiwoomRuntime = {
+  client: AxiosInstance;
+  getToken: () => Promise<string>;
+};
+
 export type AppDeps = {
   supabase: SupabaseClient;
-  kisClient?: AxiosInstance; // 옵션 — 테스트 시 미주입 가능
+  // Phase 09.1: kisClient → kiwoomRuntime 으로 교체 (D-17 — server 도 키움 동기 호출).
+  // 옵션 — 테스트 시 미주입 가능, 미주입 시 cached fallback 모드.
+  kiwoomRuntime?: KiwoomRuntime;
   naverClient?: AxiosInstance; // 옵션 — ENV 미설정 시 undefined 로 시작, POST /refresh 만 503
   // Phase 08 — Bright Data Web Unlocker client (on-demand discussion refresh).
   // 미주입 시 POST /api/stocks/:code/discussions/refresh 만 503 PROXY_UNAVAILABLE.
@@ -32,7 +43,7 @@ export function createApp(deps: AppDeps): Express {
 
   // deps 주입 (라우터가 req.app.locals 로 접근)
   app.locals.supabase = deps.supabase;
-  app.locals.kisClient = deps.kisClient;
+  app.locals.kiwoomRuntime = deps.kiwoomRuntime;
   app.locals.naverClient = deps.naverClient;
   app.locals.brightdataClient = deps.brightdataClient;
   app.locals.brightdataApiKey = deps.brightdataApiKey;

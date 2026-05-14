@@ -6,9 +6,16 @@ export type AppConfig = {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   corsAllowedOrigins: string;
+  // KIS — Wave 4 cleanup 까지 유지 (런타임 미사용, dead config).
+  // optional 화 하여 production deploy 시 KIS_APP_KEY 미주입에도 부팅 통과.
   kisBaseUrl: string;
   kisAppKey: string;
   kisAppSecret: string;
+  // Kiwoom — Phase 09.1 신규 (D-17 server 키움 통합, D-19 worker 와 동일 token row 공유)
+  kiwoomBaseUrl: string;
+  kiwoomAppkey: string;
+  kiwoomSecretkey: string;
+  kiwoomTokenType: string;
   naverClientId: string | undefined;
   naverClientSecret: string | undefined;
   naverBaseUrl: string;
@@ -34,6 +41,7 @@ export function loadConfig(): AppConfig {
     if (!v) throw new Error(`${k} must be set`);
     return v;
   };
+  const optional = (k: string): string | undefined => process.env[k];
   return {
     nodeEnv: (process.env.NODE_ENV ?? "development") as AppConfig["nodeEnv"],
     port: Number(process.env.PORT ?? 8080),
@@ -42,9 +50,16 @@ export function loadConfig(): AppConfig {
     supabaseUrl: get("SUPABASE_URL"),
     supabaseServiceRoleKey: get("SUPABASE_SERVICE_ROLE_KEY"),
     corsAllowedOrigins: process.env.CORS_ALLOWED_ORIGINS ?? "",
+    // KIS — dead config (Phase 09.1 D-17 server 키움 통합 후 런타임 미사용).
+    // Wave 4 cleanup 까지 startup throw 회피 위해 optional 화.
     kisBaseUrl: process.env.KIS_BASE_URL ?? "https://openapi.koreainvestment.com:9443",
-    kisAppKey: get("KIS_APP_KEY"),
-    kisAppSecret: get("KIS_APP_SECRET"),
+    kisAppKey: optional("KIS_APP_KEY") ?? "",
+    kisAppSecret: optional("KIS_APP_SECRET") ?? "",
+    // Kiwoom — Phase 09.1 신규 (D-17/D-19)
+    kiwoomBaseUrl: process.env.KIWOOM_BASE_URL ?? "https://api.kiwoom.com",
+    kiwoomAppkey: get("KIWOOM_APPKEY"),
+    kiwoomSecretkey: get("KIWOOM_SECRETKEY"),
+    kiwoomTokenType: process.env.KIWOOM_TOKEN_TYPE ?? "live",
     // Naver Search API — 선택. 미설정 시 server.ts 가 naverClient=undefined 로 시작.
     naverClientId: process.env.NAVER_CLIENT_ID,
     naverClientSecret: process.env.NAVER_CLIENT_SECRET,

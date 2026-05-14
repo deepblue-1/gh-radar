@@ -1,14 +1,16 @@
 import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AxiosInstance } from "axios";
 import { SearchQuery, sanitizeSearchTerm } from "../schemas/search.js";
 import {
   mergeMasterAndQuote,
   inquirePriceToQuoteRow,
   type StockMasterRow,
   type StockQuoteRow,
+  type StockQuoteRowUpsert,
 } from "../mappers/stock.js";
-import { fetchInquirePrice } from "../kis/inquirePrice.js";
+// Phase 09.1 D-17 — server 도 키움 동기 호출 (KIS → Kiwoom 교체).
+import { fetchInquirePrice } from "../kiwoom/inquirePrice.js";
+import type { KiwoomRuntime } from "../app.js";
 import { ApiError, StockNotFound } from "../errors.js";
 import { logger } from "../logger.js";
 import { newsRouter } from "./news.js";
@@ -92,7 +94,9 @@ stocksRouter.get("/:code", async (req, res, next) => {
       throw new ApiError(400, "INVALID_QUERY_PARAM", "code: invalid format");
     }
     const supabase = req.app.locals.supabase as SupabaseClient;
-    const kisClient = req.app.locals.kisClient as AxiosInstance | undefined;
+    const kiwoomRuntime = req.app.locals.kiwoomRuntime as
+      | KiwoomRuntime
+      | undefined;
 
     // 순서 불변식 (Pitfall 4): 마스터 존재 확인 먼저
     const { data: master, error: mErr } = await supabase
@@ -104,16 +108,35 @@ stocksRouter.get("/:code", async (req, res, next) => {
     if (!master) throw StockNotFound(code);
     const masterRow = master as unknown as StockMasterRow;
 
-    // On-demand inquirePrice (D9 — 무조건 1회). kisClient 미주입(테스트/폴백) 시 skip.
-    let freshQuote: StockQuoteRow | null = null;
-    if (kisClient) {
+    // cached SELECT 먼저 — STEP1 worker 의 volume/trade_amount 안정적 확보 (D-22).
+    // 키움 on-demand 호출 후 SELECT 하면 mock/edge race 에서 volume 누락 가능.
+    const { data: cached, error: cErr } = await supabase
+      .from("stock_quotes")
+      .select(QUOTE_COLS)
+      .eq("code", code)
+      .maybeSingle();
+    if (cErr) throw cErr;
+    const cachedRow = (cached as unknown as StockQuoteRow | null) ?? null;
+
+    // On-demand 키움 ka10001 호출 (Phase 09.1 D-17). 미주입(테스트/폴백) 시 skip.
+    //
+    // D-22 충돌 해소 (R3 RESOLVED) — partial upsert (volume/trade_amount 키 omit):
+    //   Supabase upsert({ onConflict: "code" }) 가 명시 키만 UPDATE → STEP1 worker 의
+    //   매분 trade_amount/volume UPSERT 결과를 server on-demand 호출이 덮어쓰지 않음.
+    let freshUpsert: StockQuoteRowUpsert | null = null;
+    if (kiwoomRuntime) {
       try {
-        const price = await fetchInquirePrice(kisClient, code);
-        freshQuote = inquirePriceToQuoteRow(code, price);
+        const token = await kiwoomRuntime.getToken();
+        const ka10001Row = await fetchInquirePrice(
+          kiwoomRuntime.client,
+          token,
+          code,
+        );
+        freshUpsert = inquirePriceToQuoteRow(code, ka10001Row);
         // upsert (실패해도 응답 우선 — try/catch 분리)
         const { error: upErr } = await supabase
           .from("stock_quotes")
-          .upsert(freshQuote, { onConflict: "code" });
+          .upsert(freshUpsert, { onConflict: "code" });
         if (upErr) {
           logger.warn(
             { code, err: upErr },
@@ -123,21 +146,33 @@ stocksRouter.get("/:code", async (req, res, next) => {
       } catch (err) {
         logger.warn(
           { code, err: (err as Error).message },
-          "inquirePrice failed — fall back to cached quote",
+          "kiwoom inquirePrice failed — fall back to cached quote",
         );
       }
     }
 
-    // 폴백: cached stock_quotes 조회 (fresh 가 있으면 skip)
-    let quote: StockQuoteRow | null = freshQuote;
-    if (!quote) {
-      const { data: cached, error: cErr } = await supabase
-        .from("stock_quotes")
-        .select(QUOTE_COLS)
-        .eq("code", code)
-        .maybeSingle();
-      if (cErr) throw cErr;
-      quote = (cached as unknown as StockQuoteRow | null) ?? null;
+    // 응답 quote 합성:
+    //   freshUpsert 있으면 → fresh 의 가격/OHLC/limits + cached 의 volume/trade_amount
+    //   freshUpsert 없으면 → cached 그대로
+    let quote: StockQuoteRow | null = null;
+    if (freshUpsert) {
+      quote = {
+        code,
+        price: freshUpsert.price,
+        change_amount: freshUpsert.change_amount,
+        change_rate: freshUpsert.change_rate,
+        volume: cachedRow?.volume ?? 0,
+        trade_amount: cachedRow?.trade_amount ?? 0,
+        open: freshUpsert.open,
+        high: freshUpsert.high,
+        low: freshUpsert.low,
+        market_cap: freshUpsert.market_cap,
+        upper_limit: freshUpsert.upper_limit,
+        lower_limit: freshUpsert.lower_limit,
+        updated_at: freshUpsert.updated_at,
+      };
+    } else {
+      quote = cachedRow;
     }
 
     res.json(mergeMasterAndQuote(masterRow, quote));

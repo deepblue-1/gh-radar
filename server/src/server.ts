@@ -1,19 +1,21 @@
 import axios from "axios";
-import { createApp } from "./app.js";
+import { createApp, type KiwoomRuntime } from "./app.js";
 import { supabase } from "./services/supabase.js";
 import { logger } from "./logger.js";
 import { loadConfig } from "./config.js";
-import { createKisRuntime } from "./services/kis-runtime.js";
+import { createKiwoomRuntime } from "./services/kiwoom-runtime.js";
 
 const config = loadConfig();
 
-let kisClient = undefined;
+// Phase 09.1 D-17 — server 도 키움 동기 호출. 부팅 시 token sanity check.
+// 실패 시 cached fallback 모드 (기존 KIS 패턴 유지).
+let kiwoomRuntime: KiwoomRuntime | undefined = undefined;
 try {
-  kisClient = await createKisRuntime(config, supabase);
+  kiwoomRuntime = await createKiwoomRuntime(config, supabase);
 } catch (err) {
   logger.error(
     { err },
-    "KIS runtime init failed — /api/stocks/:code 폴백 모드 (cached only)",
+    "Kiwoom runtime init failed — /api/stocks/:code 폴백 모드 (cached only)",
   );
 }
 
@@ -62,7 +64,7 @@ if (config.brightdataApiKey) {
 
 const app = createApp({
   supabase,
-  kisClient,
+  kiwoomRuntime,
   naverClient,
   brightdataClient,
   brightdataApiKey: config.brightdataApiKey,
