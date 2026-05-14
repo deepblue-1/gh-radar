@@ -1,0 +1,27 @@
+displayName: gh-radar-intraday-sync-failure
+documentation:
+  content: |
+    Cloud Run Job `gh-radar-intraday-sync` 의 실행 실패를 감지.
+    DATA-02 (Phase 09.1) — 5분 윈도우에 실패 1건 이상 시 즉시 알림.
+    원인 추정: 키움 401 (token/credential) / 429 (rate limit) / MIN_EXPECTED 가드 위반 / Supabase 장애.
+  mimeType: text/markdown
+conditions:
+  - displayName: intraday-sync failed execution count > 0
+    conditionThreshold:
+      filter: |
+        resource.type = "cloud_run_job"
+        AND resource.labels.job_name = "gh-radar-intraday-sync"
+        AND metric.type = "run.googleapis.com/job/completed_execution_count"
+        AND metric.labels.result = "failed"
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: 0s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+combiner: OR
+enabled: true
+notificationChannels:
+  - ${NOTIFICATION_CHANNEL_ID}
+alertStrategy:
+  autoClose: 1800s
