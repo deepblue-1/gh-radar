@@ -1,0 +1,32 @@
+{
+  "return_code": 0,
+  "return_msg": "정상적으로 처리되었습니다",
+  "pred_pre_flu_rt_upper": [
+    {
+      "stk_cd": "007460_AL",
+      "stk_nm": "에이프로젠",
+      "cur_prc": "+6760",
+      "pred_pre_sig": "2",
+      "pred_pre": "+100",
+      "flu_rt": "+1.50",
+      "sel_req": "1000",
+      "buy_req": "2000",
+      "now_trde_qty": "1234567",
+      "cntr_str": "",
+      "cnt": "1"
+    },
+    {
+      "stk_cd": "005930_AL",
+      "stk_nm": "삼성전자",
+      "cur_prc": "+70500",
+      "pred_pre_sig": "2",
+      "pred_pre": "+500",
+      "flu_rt": "+0.71",
+      "sel_req": "5000",
+      "buy_req": "8000",
+      "now_trde_qty": "10000000",
+      "cntr_str": "",
+      "cnt": "2"
+    }
+  ]
+}
