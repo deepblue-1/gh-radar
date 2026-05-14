@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09.1-01-PLAN.md (Wave 0 DB migration SQL 4종)
-last_updated: "2026-05-14T12:17:52.858Z"
+stopped_at: Completed 09.1-02-PLAN.md (packages/shared kiwoom 타입 4종 + sanity test)
+last_updated: "2026-05-14T12:23:07.358Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 18
   completed_phases: 10
   total_plans: 81
-  completed_plans: 57
-  percent: 70
+  completed_plans: 58
+  percent: 72
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -102,6 +102,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09-daily-candle-data P04 | 7min | 4 tasks | 12 files |
 | Phase 09-daily-candle-data P05 | 4min | 4 tasks | 5 files |
 | Phase 09.1 P01 | 3min | 4 tasks | 4 files |
+| Phase 09.1 P02 | 2m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,8 @@ Recent decisions affecting current work:
 - [Phase 09.1]: Plan 01: RPC #2 의 ON CONFLICT 에서 close/volume/trade_amount/change_amount/change_rate 의도적 omit — STEP1 매분 갱신 컬럼 보호 (D-34, T-2)
 - [Phase 09.1]: Plan 01: kis_tokens DROP 은 Wave 0 파일 생성, Wave 4 cutover 마지막 step 에서만 push (KIS ingestion 가용성 보장 — T-09.1-04)
 - [Phase 09.1]: Plan 01: 모든 신규 RPC + kiwoom_tokens 에 REVOKE 3줄 명시 (PUBLIC + anon,authenticated + GRANT service_role) — feedback_supabase_rpc_revoke 룰 준수
+- [Phase 09.1]: Plan 02: kiwoom raw 타입에 인덱서 (`[key:string]: string`) 의도적 미사용 — kis.ts (인덱서 사용) 와 의도적 차이. 명시 필드 + 타입 안전성 우선. 추가 필드 필요 시 본 타입 확장 (R3).
+- [Phase 09.1]: Plan 02: IntradayOhlcUpdate.marketCap 의 mac 단위 가설 = 억원 (R2). Plan 04 fixture 캡처가 단위 확정 — 가설 틀려도 mapper parseMac 1줄 변경으로 해결, 본 타입 변경 불필요.
 
 ### Pending Todos
 
@@ -173,6 +176,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T12:17:41.671Z
-Stopped at: Completed 09.1-01-PLAN.md (Wave 0 DB migration SQL 4종)
+Last session: 2026-05-14T12:23:07.355Z
+Stopped at: Completed 09.1-02-PLAN.md (packages/shared kiwoom 타입 4종 + sanity test)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
