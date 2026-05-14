@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 09.1-07-PLAN.md (server KIS→키움 완전 대체 — 5 src 신규 + 5 src 갱신 + 5 test 갱신/신규, 121 tests green, Wave 2 server 워크스페이스 production-ready 단 Wave 3 의 secret 주입 + VPC 재배포 + IP whitelist 대기)
-last_updated: "2026-05-14T13:04:52.035Z"
+stopped_at: Completed 09.1-08-PLAN.md (intraday-sync 인프라 스크립트 4종 + alert YAML — VPC stack + Static IP 1개 공유 + KIWOOM Secrets 2종 + Cloud Run Job + Scheduler + deploy-server.sh VPC connector. Wave 3-4 cutover [BLOCKING] 대기)
+last_updated: "2026-05-14T13:13:15.922Z"
 last_activity: 2026-05-14
 progress:
   total_phases: 19
   completed_phases: 10
   total_plans: 81
-  completed_plans: 63
-  percent: 78
+  completed_plans: 64
+  percent: 79
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 8 of 11
+Plan: 9 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -108,6 +108,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P05 | 2m34s | 3 tasks | 11 files |
 | Phase 09.1 P06 | 4m | 3 tasks | 12 files |
 | Phase 09.1 P07 | 8m | 3 tasks | 15 files |
+| Phase 09.1 P08 | 4m22s | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,8 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 07] server/src/kis/* → server/src/kiwoom/* 4 모듈 신설 (worker Plan 04 mirror). createKiwoomRuntime 의 { client, getToken } 페어 stateless 패턴 — 매 요청 getKiwoomToken 재조회. cached SELECT 를 키움 호출 이전에 수행 (Rule 1 Bug — mock upsert overwrite + production race 회피).
 - [Phase 09.1]: [Plan 07] StockQuoteRowUpsert = Omit<StockQuoteRow, 'volume'|'trade_amount'> — D-22 R3 RESOLVED. inquirePriceToQuoteRow 가 partial row 반환 → Supabase upsert 가 명시 컬럼만 SET → STEP1 ka10027 의 매분 trade_amount/volume 보존. server tests 121/121 + typecheck/build exit 0.
 - [Phase 09.1]: [Plan 07] KIS env optional 화 (kisAppKey/Secret default '') + KIWOOM_APPKEY/SECRETKEY required get(). server/src/kis/* + services/kis-runtime.ts 는 무변경 (dead code 잔존) — Wave 4 Plan 11 cleanup 안전 deletion 대기. tests/setup.ts 가 KIWOOM env 주입 (test loadConfig throw 회피).
+- [Phase 09.1]: [Plan 08] candle-sync setup/deploy/smoke/alert 4 파일 1:1 mirror + VPC stack 확장 — Static IP 1개를 Cloud Run Job (intraday-sync) + Cloud Run service (server) 공유 (D-29). compute.networkUser 3 바인딩 (Service Agent + intraday-sync SA + default compute SA, RESEARCH §4.7). Scheduler cron '* 9-15 * * 1-5' Asia/Seoul + task-timeout=60s. OAuth (OIDC 금지, T-09.1-34 mitigate).
+- [Phase 09.1]: [Plan 08] KIWOOM Secrets 빈 secret 신설 + KIS env/secret 의도적 유지 (Wave 4 cleanup 까지 transition) — setup 스크립트가 gcloud secrets create 만 + accessor 바인딩, value 등록은 Plan 09 [BLOCKING] 사용자 액션. deploy-server.sh 가 KIS_APP_KEY/SECRET + KIWOOM_APPKEY/SECRETKEY 동시 보유, kis-runtime.ts dead code (Plan 07). VPC stack 존재 확인 게이트로 server 재배포 시 잘못된 outbound 사고 방지 (T-09.1-36).
 
 ### Pending Todos
 
@@ -196,6 +199,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T13:04:52.032Z
-Stopped at: Completed 09.1-07-PLAN.md (server KIS→키움 완전 대체 — 5 src 신규 + 5 src 갱신 + 5 test 갱신/신규, 121 tests green, Wave 2 server 워크스페이스 production-ready 단 Wave 3 의 secret 주입 + VPC 재배포 + IP whitelist 대기)
+Last session: 2026-05-14T13:13:04.657Z
+Stopped at: Completed 09.1-08-PLAN.md (intraday-sync 인프라 스크립트 4종 + alert YAML — VPC stack + Static IP 1개 공유 + KIWOOM Secrets 2종 + Cloud Run Job + Scheduler + deploy-server.sh VPC connector. Wave 3-4 cutover [BLOCKING] 대기)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
