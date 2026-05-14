@@ -1,0 +1,15 @@
+{
+  "return_code": 0,
+  "return_msg": "정상",
+  "stk_cd": "069500",
+  "stk_nm": "KODEX 200",
+  "cur_prc": "+40000",
+  "pred_pre": "+200",
+  "flu_rt": "+0.50",
+  "open_pric": "+39900",
+  "high_pric": "+40100",
+  "low_pric": "+39850",
+  "upl_pric": "",
+  "lst_pric": "",
+  "mac": ""
+}

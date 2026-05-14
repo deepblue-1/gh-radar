@@ -1,0 +1,15 @@
+{
+  "return_code": 0,
+  "return_msg": "정상",
+  "stk_cd": "005935",
+  "stk_nm": "삼성전자우",
+  "cur_prc": "+58000",
+  "pred_pre": "+400",
+  "flu_rt": "+0.69",
+  "open_pric": "+57700",
+  "high_pric": "+58200",
+  "low_pric": "+57500",
+  "upl_pric": "75400",
+  "lst_pric": "40600",
+  "mac": "470000"
+}

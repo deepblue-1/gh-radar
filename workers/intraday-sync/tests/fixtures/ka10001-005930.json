@@ -1,0 +1,15 @@
+{
+  "return_code": 0,
+  "return_msg": "정상적으로 처리되었습니다",
+  "stk_cd": "005930",
+  "stk_nm": "삼성전자",
+  "cur_prc": "+70500",
+  "pred_pre": "+500",
+  "flu_rt": "+0.71",
+  "open_pric": "+70000",
+  "high_pric": "+71000",
+  "low_pric": "+69500",
+  "upl_pric": "91000",
+  "lst_pric": "49000",
+  "mac": "4209000"
+}

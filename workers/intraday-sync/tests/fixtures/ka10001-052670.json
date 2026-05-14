@@ -1,0 +1,15 @@
+{
+  "return_code": 0,
+  "return_msg": "정상",
+  "stk_cd": "052670",
+  "stk_nm": "제일바이오",
+  "cur_prc": "-1500",
+  "pred_pre": "-150",
+  "flu_rt": "-9.09",
+  "open_pric": "+1650",
+  "high_pric": "+1700",
+  "low_pric": "+1450",
+  "upl_pric": "2145",
+  "lst_pric": "1155",
+  "mac": "150"
+}

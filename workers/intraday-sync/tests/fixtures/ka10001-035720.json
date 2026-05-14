@@ -1,0 +1,15 @@
+{
+  "return_code": 0,
+  "return_msg": "정상",
+  "stk_cd": "035720",
+  "stk_nm": "카카오",
+  "cur_prc": "+45000",
+  "pred_pre": "+1000",
+  "flu_rt": "+2.27",
+  "open_pric": "+44500",
+  "high_pric": "+45500",
+  "low_pric": "+44000",
+  "upl_pric": "57850",
+  "lst_pric": "31150",
+  "mac": "200000"
+}
