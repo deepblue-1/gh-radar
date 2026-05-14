@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 09.1 re-scoped KIS→키움 완전 대체, CONTEXT 재작성
-last_updated: "2026-05-14T12:09:44.740Z"
-last_activity: 2026-05-14 -- Phase 09.1 planning complete
+stopped_at: Completed 09.1-01-PLAN.md (Wave 0 DB migration SQL 4종)
+last_updated: "2026-05-14T12:17:52.858Z"
+last_activity: 2026-05-14
 progress:
   total_phases: 18
   completed_phases: 10
   total_plans: 81
-  completed_plans: 56
-  percent: 69
+  completed_plans: 57
+  percent: 70
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 10 — ai-summarization (Phase 9 Complete)
+**Current focus:** Phase 09.1 — intraday-current-price
 
 ## Current Position
 
-Phase: 10 (ai-summarization)
-Plan: Not started
+Phase: 09.1 (intraday-current-price) — EXECUTING
+Plan: 2 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-05-14 -- Phase 09.1 planning complete
+Last activity: 2026-05-14
 
 Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 
@@ -101,6 +101,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09-daily-candle-data P03 | 5min | 4 tasks | 9 files |
 | Phase 09-daily-candle-data P04 | 7min | 4 tasks | 12 files |
 | Phase 09-daily-candle-data P05 | 4min | 4 tasks | 5 files |
+| Phase 09.1 P01 | 3min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,10 @@ Recent decisions affecting current work:
 - [Phase 09-daily-candle-data]: Plan 03: 결측 감지는 RPC 가 아닌 client-side N+1 패턴 (활성 stocks count + lookback distinct date + per-date head:true count) — Supabase JS v2 가 raw GROUP BY 제한적이라 head:true count 의 명료성 우선. lookback 영업일은 DB distinct date 기반 추론 (RESEARCH §3.3 옵션 A). Vitest mock 은 thenable 흉내 없이 final method 에서 mockResolvedValue — Supabase v2 builder 충분히 지원.
 - [Phase 09-daily-candle-data]: Plan 04: config.basDd optional 추가 (BAS_DD env, daily mode 수동 재실행 override) + backfill MIN_EXPECTED 정책=throw (RESEARCH §7 warn+continue 와 의도적 차이 — 한 영업일 부분 응답이 ~4M row 오염 위험) + mock basDd 분기 패턴 (call counter race 회피, withRetry 호환)
 - [Phase 09-daily-candle-data]: Plan 05: Cloud Run Job 3개 분리 (RESEARCH §5.1 채택) — daily/recover/backfill 동일 이미지 + Job 별 default MODE env, task-timeout/memory mode 별 최적화, race 자연 방지(T-09-06), alert policy 분리. Scheduler 2종 OAuth (OIDC 금지, Phase 05.1 D-07 lesson 승계). runtime SA gh-radar-candle-sync-sa 최소권한 (KIS 시크릿 미바인딩, T-09-04.1). backfill 은 alert 제외 (수동 실행). 본 plan 은 스크립트 작성만 — Plan 06 이 실제 실행.
+- [Phase 09.1]: Plan 01: RPC #1 의 ON CONFLICT 에서 open 의도적 omit (STEP2 가 정확값 덮어쓰기, EOD 17:30 overlay 가 최종 보완) — D-33 / T-09.1-03
+- [Phase 09.1]: Plan 01: RPC #2 의 ON CONFLICT 에서 close/volume/trade_amount/change_amount/change_rate 의도적 omit — STEP1 매분 갱신 컬럼 보호 (D-34, T-2)
+- [Phase 09.1]: Plan 01: kis_tokens DROP 은 Wave 0 파일 생성, Wave 4 cutover 마지막 step 에서만 push (KIS ingestion 가용성 보장 — T-09.1-04)
+- [Phase 09.1]: Plan 01: 모든 신규 RPC + kiwoom_tokens 에 REVOKE 3줄 명시 (PUBLIC + anon,authenticated + GRANT service_role) — feedback_supabase_rpc_revoke 룰 준수
 
 ### Pending Todos
 
@@ -168,6 +173,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-14T10:06:53.846Z
-Stopped at: Phase 09.1 re-scoped KIS→키움 완전 대체, CONTEXT 재작성
+Last session: 2026-05-14T12:17:41.671Z
+Stopped at: Completed 09.1-01-PLAN.md (Wave 0 DB migration SQL 4종)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
