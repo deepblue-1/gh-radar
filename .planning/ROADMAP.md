@@ -307,7 +307,7 @@ Plans:
 **Goal:** 평일 장중 (09:00~15:30 KST) 활성 거래 종목 (~1,898) 의 시세를 **키움 REST API 만으로** 매분 수집한다. STEP1: `ka10027` 페이지네이션으로 활성 1,898 종목의 close/change/volume + 등락률 → `stock_quotes` / `top_movers` / `stock_daily_ohlcv` 오늘자 row UPSERT. STEP2: `ka10001` 단일 종목 호출로 hot set (등락률 상위 200 ∪ watchlist unique, ~250 종목) 의 OHLC + 상한가/하한가/시가총액 → `stock_quotes` / `stock_daily_ohlcv` 오늘자 row UPSERT. trade_amount = volume × close 근사값 (트레이딩 시그널 용도). **KIS ingestion(workers/ingestion) 폐기 + server/src/kis → kiwoom 교체 + Cloud Run service 도 VPC connector 추가**. Direct VPC Egress + Cloud NAT + Static External IP 1개로 worker + server 가 동일 outbound IP 공유 (키움 IP whitelist 1개 등록). EOD candle-sync 17:30 가 stock_daily_ohlcv 오늘자 row 의 공식 OHLCV 로 최종 overlay.
 **Requirements**: DATA-02 (신규, 재정의)
 **Depends on:** Phase 09
-**Plans:** 11 plans complete
+**Plans:** 11/11 plans complete
 **Status:** ✅ Complete (2026-05-15)
 **Success Criteria** (what must be TRUE):
   1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재하며, STEP1 (ka10027 페이지네이션) + STEP2 (ka10001 hot set) 두 단계 cycle 을 매분 실행
@@ -378,5 +378,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
-| 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete | 2026-05-15 |
+| 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
 | 10. AI Summarization | 0/TBD | Not started | - |
