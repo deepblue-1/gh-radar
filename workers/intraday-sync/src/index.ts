@@ -147,12 +147,33 @@ export async function runIntradayCycle(): Promise<{
   log.info({ hotSetSize: hotSet.length }, "STEP2 hot set computed");
 
   // STEP 2 — ka10001 호출 (fail-isolation)
-  const { successful: ka10001Rows, failed } = await fetchKa10001ForHotSet(
-    kiwoom,
-    token.accessToken,
-    hotSet,
+  const {
+    successful: ka10001Rows,
+    failed,
+    failures,
+  } = await fetchKa10001ForHotSet(kiwoom, token.accessToken, hotSet);
+  log.info(
+    {
+      successful: ka10001Rows.length,
+      failed,
+      // 실패 sample — error 메시지별 그룹 카운트 + 첫 5건 (code+err) 로 패턴 진단.
+      failureSample: failures.slice(0, 5).map((f) => ({
+        code: f.code,
+        error: f.error.slice(0, 120),
+      })),
+      failureGroups: Object.entries(
+        failures.reduce<Record<string, number>>((acc, f) => {
+          // 에러 메시지 앞 80자만 정규화 키
+          const key = f.error.slice(0, 80);
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {}),
+      )
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5),
+    },
+    "STEP2 ka10001 fetched",
   );
-  log.info({ successful: ka10001Rows.length, failed }, "STEP2 ka10001 fetched");
 
   // STEP 2 — mapping
   const step2UpdatesRaw = ka10001Rows
