@@ -12,6 +12,7 @@ import { StockStatsGrid } from './stock-stats-grid';
 import { StockDetailSkeleton } from './stock-detail-skeleton';
 import { StockNewsSection } from './stock-news-section';
 import { StockDiscussionSection } from './stock-discussion-section';
+import { StockDailyChartSection } from './stock-daily-chart-section';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -131,6 +132,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
           새로고침
         </Button>
       </div>
+      <StockDailyChartSection code={stock.code} refreshSignal={isRefreshing} />
       <StockStatsGrid stock={stock} />
       {error && (
         <p className="text-[length:var(--t-caption)] text-[var(--destructive)]">

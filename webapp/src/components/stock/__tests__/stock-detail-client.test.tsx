@@ -30,6 +30,13 @@ vi.mock('@/lib/stock-api', () => ({
   fetchStockDiscussions: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
   refreshStockDiscussions: vi.fn().mockResolvedValue([]),
 }));
+// Phase 09.2 Plan 03 Task 1: StockDailyChartSection 은 lightweight-charts 를 사용 — jsdom 환경에서
+// PriceAxisWidget.optimalWidth 의 ensureNotNull 이 raf 콜백 중 throw 한다 (Canvas 미지원).
+// StockDetailClient 단위 테스트는 mount 사실만 확인하면 충분하므로 차트 섹션 자체를 stub.
+// 차트 컴포넌트의 단위 검증은 별도 stock-daily-chart-section.test.tsx 에서 수행.
+vi.mock('../stock-daily-chart-section', () => ({
+  StockDailyChartSection: () => null,
+}));
 
 const mockFetch = vi.mocked(fetchStockDetail);
 const mockNotFound = vi.mocked(notFound);
