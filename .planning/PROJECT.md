@@ -12,7 +12,7 @@
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] 실시간 또는 1분 간격 데이터 갱신 — Validated in Phase 09.1: 키움 ka10027 매분 cycle (`* 9-15 * * 1-5` Asia/Seoul) 로 활성 종목 ~944 row 갱신
 
 ### Active
 
@@ -20,7 +20,6 @@
 - [ ] 종목 검색 기능
 - [ ] 종목별 뉴스 수집 및 AI 요약
 - [ ] 종목별 네이버 종목토론방 수집 및 AI 요약
-- [ ] 실시간 또는 1분 간격 데이터 갱신
 - [ ] 로그인/회원 기능 (이메일/비번 + 소셜 로그인)
 - [ ] 관심종목 저장 및 관리 (로그인 계정별)
 
@@ -55,6 +54,7 @@
 | Claude API로 뉴스/토론방 요약 | 사용자 선호, 한국어 요약 품질 우수 | — Pending |
 | v1에 로그인+관심종목 포함 | Phase 7 뉴스 배치가 "사용자별 관심종목"을 타겟팅해야 트레이더 유즈케이스 완성 (2026-04-16 v2→v1 승격) | — Pending |
 | 상한가 기준값 사용자 조절 가능 | 트레이더마다 전략이 다름 | — Pending |
+| 실시간 시세 소스: KIS → 키움 OpenAPI 전환 | KIS REST 폴링 한계 (per-stock N+1, rate limit) → 키움 ka10027 페이지네이션 단일 호출로 활성 종목 매분 갱신. Direct VPC Egress + Static IP whitelist 필수. | Phase 09.1 (2026-05-15) — KIS 완전 폐기 |
 
 ## Evolution
 
@@ -74,4 +74,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-22 — Phase 08.1 implementation 완료 (discussion relevance classify + webapp filter toggle). Production enablement 는 manual follow-up (ANTHROPIC_API_KEY + 재배포 + backfill + smoke) 대기*
+*Last updated: 2026-05-15 — Phase 09.1 complete (KIS → 키움 OpenAPI 완전 대체). intraday-sync worker + server 모두 키움 ka10027/ka10001 운영, Static IP whitelist + Direct VPC Egress 인프라 완료, KIS 코드/GCP 리소스/DB 테이블 전체 cleanup.*
