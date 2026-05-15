@@ -219,23 +219,20 @@ export default function MockupLightweightPage() {
           </div>
         )}
 
-        {!rows && !error && <Skeleton className="h-[340px] w-full" />}
-
-        {rows && rows.length === 0 && (
-          <div className="grid h-[340px] place-items-center text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-            일봉 데이터가 아직 수집되지 않았습니다.
-          </div>
-        )}
-
         {/*
-          chart 컨테이너는 항상 마운트 (rows 가 null 이어도) — useEffect 가
-          containerRef 에 의존하기 때문. rows null 일 때 Skeleton 을 위에 절대 배치.
+          container 는 항상 visible — display:none 상태에서 createChart 호출 시
+          container.clientWidth=0 으로 chart 내부에서 throw (RESEARCH Pitfall 8).
+          Skeleton/Empty state 를 absolute overlay 로 위에 깔아 시각적 동일.
         */}
-        <div
-          ref={containerRef}
-          className="h-[340px] w-full"
-          style={{ display: rows && rows.length > 0 ? 'block' : 'none' }}
-        />
+        <div className="relative h-[340px] w-full">
+          {!rows && !error && <Skeleton className="absolute inset-0" />}
+          {rows && rows.length === 0 && (
+            <div className="absolute inset-0 grid place-items-center text-[length:var(--t-sm)] text-[var(--muted-fg)]">
+              일봉 데이터가 아직 수집되지 않았습니다.
+            </div>
+          )}
+          <div ref={containerRef} className="h-full w-full" />
+        </div>
 
         {rows && rows.length > 0 && (
           <p className="sr-only">
