@@ -5,26 +5,25 @@ import { logger } from "../logger";
 const CHUNK = 1000;
 
 /**
- * STEP1 stock_quotes UPSERT — 1,898 row × 8 컬럼. RESEARCH §3.3.1 + Pattern 3.
+ * STEP1 stock_quotes UPSERT — 1,898 row × 6 컬럼. RESEARCH §3.3.1 + Pattern 3.
  *
  * D-20: 활성 1,898 종목 매분 누적 UPSERT (onConflict: code).
  * D-21: stale cleanup 없음 (top_movers 와 의도적 차이) — 비활성 종목 마지막 가격 유지.
  *
- * payload 컬럼: code/name/market/price/change_amount/change_rate/volume/trade_amount/updated_at
+ * payload 컬럼: code/price/change_amount/change_rate/volume/trade_amount/updated_at
  *   - open/high/low/upper_limit/lower_limit/market_cap 의도적 omit (STEP2 가 정확값 UPSERT, §3.3.3)
+ *   - name/market 컬럼은 stock_quotes 에 존재하지 않음 — stocks 마스터 + top_movers 가 보유.
+ *     market Map 인자는 top_movers 재구성에서만 사용 (호출자 책임).
  */
 export async function upsertQuotesStep1(
   supabase: SupabaseClient,
   updates: IntradayCloseUpdate[],
-  market: Map<string, "KOSPI" | "KOSDAQ">,
 ): Promise<{ count: number }> {
   if (updates.length === 0) return { count: 0 };
 
   const now = new Date().toISOString();
   const rows = updates.map((u) => ({
     code: u.code,
-    name: u.name ?? u.code,
-    market: market.get(u.code) ?? "KOSPI",
     price: u.price,
     change_amount: u.changeAmount,
     change_rate: u.changeRate,

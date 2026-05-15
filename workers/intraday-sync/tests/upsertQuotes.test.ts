@@ -12,7 +12,7 @@ function mockUpsert(error: Error | null = null) {
 }
 
 describe("upsertQuotesStep1", () => {
-  it("payload 에 STEP1 컬럼만 포함 (open/high/low/upper_limit/market_cap 없음)", async () => {
+  it("payload 에 STEP1 컬럼만 포함 (stock_quotes 스키마: name/market/open/high/market_cap 없음)", async () => {
     const supabase = mockUpsert();
     const updates: IntradayCloseUpdate[] = [
       {
@@ -26,18 +26,14 @@ describe("upsertQuotesStep1", () => {
         tradeAmount: 705000000000,
       },
     ];
-    const marketMap = new Map<string, "KOSPI" | "KOSDAQ">([["005930", "KOSPI" as const]]);
     await upsertQuotesStep1(
       supabase as unknown as Parameters<typeof upsertQuotesStep1>[0],
       updates,
-      marketMap,
     );
     const payload = supabase._upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
     expect(payload[0]).toEqual(
       expect.objectContaining({
         code: "005930",
-        name: "삼성전자",
-        market: "KOSPI",
         price: 70500,
         change_amount: 500,
         change_rate: 0.71,
@@ -45,29 +41,12 @@ describe("upsertQuotesStep1", () => {
         trade_amount: 705000000000,
       }),
     );
+    // stock_quotes 스키마에 없는 컬럼은 페이로드에 없어야 함 (2026-05-15 first cycle 에서 'market' 누락 에러 발견)
+    expect(payload[0].name).toBeUndefined();
+    expect(payload[0].market).toBeUndefined();
     expect(payload[0].open).toBeUndefined();
     expect(payload[0].high).toBeUndefined();
     expect(payload[0].market_cap).toBeUndefined();
-  });
-
-  it("market map 미존재 → KOSPI fallback", async () => {
-    const supabase = mockUpsert();
-    const u: IntradayCloseUpdate = {
-      code: "005930",
-      date: "2026-05-14",
-      price: 1,
-      changeAmount: null,
-      changeRate: null,
-      volume: 0,
-      tradeAmount: 0,
-    };
-    await upsertQuotesStep1(
-      supabase as unknown as Parameters<typeof upsertQuotesStep1>[0],
-      [u],
-      new Map(),
-    );
-    const payload = supabase._upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(payload[0].market).toBe("KOSPI");
   });
 
   it("1500 row → 2 chunk", async () => {
@@ -84,7 +63,6 @@ describe("upsertQuotesStep1", () => {
     const out = await upsertQuotesStep1(
       supabase as unknown as Parameters<typeof upsertQuotesStep1>[0],
       updates,
-      new Map(),
     );
     expect(out.count).toBe(1500);
     expect(supabase._upsert).toHaveBeenCalledTimes(2);
@@ -95,7 +73,6 @@ describe("upsertQuotesStep1", () => {
     const out = await upsertQuotesStep1(
       supabase as unknown as Parameters<typeof upsertQuotesStep1>[0],
       [],
-      new Map(),
     );
     expect(out.count).toBe(0);
     expect(supabase._upsert).not.toHaveBeenCalled();

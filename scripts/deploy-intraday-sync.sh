@@ -72,7 +72,10 @@ docker push "$IMAGE_LATEST"
 
 # Section 5: Cloud Run Job 배포 (VPC connector)
 RUNTIME_SA="gh-radar-intraday-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
-COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@MIN_EXPECTED_ROWS=1500@HOT_SET_TOP_N=200@KA10001_RATE_LIMIT=24"
+## MIN_EXPECTED_ROWS: 키움 ka10027 stex_tp="3" (통합) 실측 = 1,170 row (2026-05-15 첫 cycle).
+## KIS 의 1,898 보다 적은 이유는 키움이 거래정지/관리 종목을 더 엄격히 제외하는 것으로 추정.
+## 1,000 으로 하향하여 휴장일 guard 는 유지하면서 정상 cycle 에서 false positive 방지.
+COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@MIN_EXPECTED_ROWS=1000@HOT_SET_TOP_N=200@KA10001_RATE_LIMIT=24"
 COMMON_SECRETS="KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
 
 echo "▶ deploying Cloud Run Job: $JOB (VPC: $VPC_NAME, Static IP: $STATIC_IP)..."

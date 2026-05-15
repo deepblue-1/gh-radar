@@ -115,7 +115,7 @@ export async function runIntradayCycle(): Promise<{
     "intradayUpsertClose",
   );
   await withRetry(
-    () => upsertQuotesStep1(supabase, step1Updates, marketMap),
+    () => upsertQuotesStep1(supabase, step1Updates),
     "upsertQuotesStep1",
   );
   const { count: topCount } = await withRetry(
