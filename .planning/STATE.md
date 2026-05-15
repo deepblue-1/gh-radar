@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed 09.1-10-PLAN.md (Wave 4 cutover #2 — Server VPC redeploy. revision gh-radar-server-00015-zr5, image fe96bec, smoke 9/9 PASS, GET /api/stocks/005930+000660 200, Cloud Logging Kiwoom runtime ready tokenLen=86. KIS env/secret 잔존, Plan 11 cleanup 대기)"
-last_updated: "2026-05-15T02:31:01.015Z"
+stopped_at: "Phase 09.1 complete — KIS → 키움 완전 대체 + workers/ingestion + server/src/kis + packages/shared/src/kis.ts git rm + kis_tokens DROP migration apply + GCP Job/Scheduler/SA/Secrets×3/Alert 삭제 + server redeploy gh-radar-server-00017-mrm (image db391ac, KIS-free). 시스템 전체 KIS 호출 0 (D-01 충족). DATA-02 ✅ Complete. Phase 09.1 Plans 11/11."
+last_updated: "2026-05-15T02:55:37Z"
 last_activity: 2026-05-15
 progress:
   total_phases: 19
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 81
-  completed_plans: 66
-  percent: 81
+  completed_plans: 67
+  percent: 83
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 11 of 11
-Plans completed: 61 / 70 (Phase 9 6 plans 추가)
-Status: Ready to execute
+Phase: 09.1 (intraday-current-price) — ✅ COMPLETE (2026-05-15)
+Plan: 11 of 11 ✅
+Plans completed: 62 / 70 (Phase 9 6 plans + 09.1 11 plans)
+Status: Phase 09.1 complete. Next: Phase 10 AI Summarization (Not started)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-05-15
 
-Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
+Progress: [█████████░] 89% (62/70 plans · 11/17 phases)
 
 ### Phase 9 Production State (2026-05-12 12:24 KST)
 
@@ -111,6 +111,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P08 | 4m22s | 4 tasks | 5 files |
 | Phase 09.1 P09 | 75min | 7 tasks | 8 files |
 | Phase 09.1 P10 | 8m | 4 tasks | 2 files |
+| Phase 09.1 P11 | 22m | 6 tasks | 47 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 - Phase 09.1 inserted after Phase 09 (URGENT, 2026-05-13): intraday-current-price — 키움 REST `ka10027` 페이지네이션으로 활성 종목 ~1,898 매분 현재가 갱신. Direct VPC Egress + Static IP 인프라 (키움 IP whitelist 필수). KIS ingestion 무변경 (공존 전략). stock_daily_ohlcv 오늘자 row UPSERT.
 - Phase 09.2 inserted after Phase 09.1 (URGENT, 2026-05-14): 종목 상세페이지(`/stocks/[code]`) 상단에 해당 종목의 일봉차트 출력. Phase 9 의 `stock_daily_ohlcv` (4,003,432 행) 을 source 로 활용해 트레이더가 가격 흐름을 즉시 시각적으로 확인. 디렉터리 slug `stock-detail-daily-chart`. plan/구현은 `/gsd-plan-phase 09.2` 에서 본격 설계.
 - Phase 08 complete 2026-04-18: discussion-board production live. POC PIVOT 으로 RESEARCH 가정(cheerio HTML + iframe body fetch + iconv-lite) 모두 폐기 → Bright Data Web Unlocker(zone `gh_radar_naver`, country=kr) + `stock.naver.com/api/community/discussion/posts/by-item` JSON API 단일 호출로 본문 포함 50건/페이지. Cloud Run Job `gh-radar-discussion-sync` + Scheduler `gh-radar-discussion-sync-hourly` (0 * * * * KST) + Secret `gh-radar-brightdata-api-key` + 워커 first-time/stale 종목 backfill loop (max 10페이지 OR 7일) + server `before` cursor + webapp 무한 스크롤. 첫 production cycle: 58 종목 → 187 requests → upserted **15,463 row** / errors 0. smoke 8/8 PASS. server 응답 1.04s (실시간 토론방 데이터 검증). pipeline 재작성으로 월 비용 ~\$72 (당초 추정 \$144 절반).
+- Phase 09.1 complete 2026-05-15: KIS ingestion 완전 폐기 + 키움 REST API (ka10027 페이지네이션 + ka10001 hot set) 단일 source 전환. workers/intraday-sync 신설 (Cloud Run Job + Scheduler `* 9-15 * * 1-5` Asia/Seoul, VPC + Static IP 34.64.195.151). server/src/kis → server/src/kiwoom 교체 + Cloud Run service VPC connector 재배포 (revision gh-radar-server-00017-mrm, image db391ac). SC #1~9 모두 충족. trade_amount 정책 정확값 → volume×close 근사값 전환 (D-23). git history 보존 (workers/ingestion + server/src/kis + packages/shared/src/kis.ts). Plan 11 RESEARCH §12 11-step cleanup 완료: Scheduler PAUSE → 정합 검증 (intraday-sync 단독 870 row 5분 갱신 정상) → Job/Scheduler/SA/Secrets×3(kis-app-key/kis-app-secret/kis-account-number)/Alert policy 삭제 → kis_tokens DROP migration apply → 47 파일 git rm/edit + commit db391ac → server redeploy (`--remove-secrets=KIS_APP_KEY,KIS_APP_SECRET --remove-env-vars=KIS_BASE_URL`) + smoke 9/9 + 종목 상세 005930/000660 200 OK + 최종 stock_quotes 952 row 5분 갱신.
 
 ### Decisions
 
@@ -186,6 +188,8 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 10] Cloud Run service Direct VPC Egress 패턴 — annotation run.googleapis.com/network-interfaces + vpc-access-egress=all-traffic 으로 Serverless VPC Access connector 없이 native VPC 연결. Cloud Run Job (intraday-sync) + service (server) 가 동일 VPC + Cloud NAT 공유, Static IP 34.64.195.151 1개로 키움 IP whitelist 운영 통합 (D-29 충족).
 - [Phase 09.1]: [Plan 10] cold-start 약 3초 (예측 1-2분 대비 우수) — min-instances=1 유지 + Cloud Run 의 빠른 instance startup. RESEARCH §4.6 T-12 의 예측보다 좋게 동작. server 이미지 빌드 (Plan 07 코드) 가 production schema 와 자연 호환 (Plan 09 의 worker 5건 deviation 패턴이 server 측 발생 안 함).
 - [Phase 09.1]: [Plan 10] Cloud Logging 검색 시 pino 의 실제 필드명은 jsonPayload.message (msg 아님) — Plan 본문 검증 쿼리의 jsonPayload.msg 패턴은 미동작. 향후 GCP 로그 검색 시 jsonPayload.message 사용. 본 plan 에서 자연 정정.
+- [Phase 09.1]: [Plan 11] KIS ingestion 완전 폐기 (RESEARCH §12 11-step). 데이터 정합 검증 (Scheduler PAUSE 후 10분 대기 + intraday-sync 단독 운영 870 row 5분 갱신 확인) → GCP 리소스 7개 삭제 (Job + Scheduler + SA + Secrets×3 + Alert) → kis_tokens DROP migration push (PGRST205) → 47 파일 git rm/edit + commit db391ac. PLAN 본문은 KIS secret 2개만 명시했으나 GCP 에 gh-radar-kis-account-number 추가 발견 — Rule 2 (Auto-add critical) 로 함께 삭제.
+- [Phase 09.1]: [Plan 11] server 재배포 시 `gcloud run deploy --update-secrets` 가 기존 KIS secret binding 을 **누적**하여 첫 deploy 가 "Permission denied on secret: gh-radar-kis-app-key" 로 실패. Rule 3 (Auto-fix blocking) — `gcloud run services update --remove-secrets=KIS_APP_KEY,KIS_APP_SECRET --remove-env-vars=KIS_BASE_URL` 로 명시 제거하여 새 revision gh-radar-server-00017-mrm (image db391ac) 활성화. lesson — Cloud Run 의 secret binding 변경 시 `--remove-secrets` 명시 필수.
 
 ### Pending Todos
 
@@ -209,6 +213,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-15T02:31:01.012Z
-Stopped at: Completed 09.1-10-PLAN.md (Wave 4 cutover #2 — Server VPC redeploy. revision gh-radar-server-00015-zr5, image fe96bec, smoke 9/9 PASS, GET /api/stocks/005930+000660 200, Cloud Logging Kiwoom runtime ready tokenLen=86. KIS env/secret 잔존, Plan 11 cleanup 대기)
-Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
+Last session: 2026-05-15T02:55:37Z
+Stopped at: Completed 09.1-11-PLAN.md (Wave 4 cutover #3 — KIS deprecation 완전화. Cloud Scheduler PAUSE → 정합 검증 → GCP Job/Scheduler/SA/Secrets×3/Alert 삭제 → kis_tokens DROP migration apply → 47 파일 git rm/edit commit db391ac → server redeploy gh-radar-server-00017-mrm image db391ac (KIS-free). 시스템 전체 KIS 호출 0 (D-01 충족). DATA-02 ✅ Complete. Phase 09.1 Plans 11/11 complete.)
+Next: Phase 10 AI Summarization (Not started) — CONTEXT/RESEARCH 작성부터 (`/gsd-context-phase 10`)

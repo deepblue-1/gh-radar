@@ -62,7 +62,7 @@
 ### Data
 
 - **DATA-01**: KRX 상장 전 종목 3년치 일봉 OHLCV 수집 및 영업일 EOD 증분 갱신 (분석 기반 데이터 레이어 — Phase 9)
-- **DATA-02**: 장중 활성 거래 종목(~1,898) 의 현재가/등락/누적거래량을 1분 cadence 로 stock_quotes + stock_daily_ohlcv 오늘자 row 에 UPSERT (키움 REST `ka10027` 페이지네이션). 추가로 hot set (등락률 상위 200 ∪ watchlist unique) 의 OHLC + 상한가/하한가/시가총액을 `ka10001` 단일 종목 호출로 매분 갱신. trade_amount 는 `volume × close` 근사값 (트레이딩 시그널 용도). Direct VPC Egress + Cloud NAT static IP 1개로 worker(intraday-sync) + Cloud Run service(server) 가 동일 outbound IP 공유. **KIS ingestion(workers/ingestion + server/src/kis) 완전 폐기** — Phase 09.1 재정의 (2026-05-14, "KIS → 키움 완전 대체")
+- **DATA-02**: 장중 활성 거래 종목(~1,898) 의 현재가/등락/누적거래량을 1분 cadence 로 stock_quotes + stock_daily_ohlcv 오늘자 row 에 UPSERT (키움 REST `ka10027` 페이지네이션). 추가로 hot set (등락률 상위 200 ∪ watchlist unique) 의 OHLC + 상한가/하한가/시가총액을 `ka10001` 단일 종목 호출로 매분 갱신. trade_amount 는 `volume × close` 근사값 (트레이딩 시그널 용도). Direct VPC Egress + Cloud NAT static IP 1개로 worker(intraday-sync) + Cloud Run service(server) 가 동일 outbound IP 공유. **KIS ingestion(workers/ingestion + server/src/kis) 완전 폐기** — Phase 09.1 재정의 (2026-05-14, "KIS → 키움 완전 대체"). **Status:** ✅ Complete (Phase 09.1 — 2026-05-15)
 
 ## v2 Requirements
 
@@ -132,4 +132,4 @@
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-05-13 — Phase 09.1 인서트 (Intraday Current Price), DATA-02 신규 추가*
+*Last updated: 2026-05-15 — Phase 09.1 complete, DATA-02 ✅ Complete (KIS → 키움 완전 대체)*

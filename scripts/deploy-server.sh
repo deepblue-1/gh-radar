@@ -47,21 +47,13 @@ IMAGE_LATEST="${REGISTRY}/server:latest"
 echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 2.5: KIS secret accessor 바인딩 (Plan 04 — on-demand inquirePrice)
-#   server 는 default compute SA 사용 → KIS secret 에 accessor 바인딩 필요
+# Section 2.5: Kiwoom secret accessor 바인딩 (Phase 09.1 D-17 — server 측 ka10001 호출)
+#   server 는 default compute SA 사용 → KIWOOM secret 에 accessor 바인딩 필요
+#   주 바인딩은 scripts/setup-intraday-sync-iam.sh §9.4 가 담당. 여기는 안전망 (idempotent).
 # ═══════════════════════════════════════════════════════════════
 PROJECT_NUMBER=$(gcloud projects describe "$EXPECTED_PROJECT" --format='value(projectNumber)')
 DEFAULT_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-for SECRET in gh-radar-kis-app-key gh-radar-kis-app-secret; do
-  gcloud secrets add-iam-policy-binding "$SECRET" \
-    --member="serviceAccount:${DEFAULT_SA}" \
-    --role=roles/secretmanager.secretAccessor >/dev/null 2>&1 || true
-done
-echo "✓ KIS secret accessor bound for server SA"
-
-# Phase 09.1 — Kiwoom secret accessor 바인딩 (D-17 server 측 ka10001 호출)
-# 주 바인딩은 scripts/setup-intraday-sync-iam.sh §9.4 가 담당. 여기는 안전망 (idempotent).
 for SECRET in gh-radar-kiwoom-appkey gh-radar-kiwoom-secretkey; do
   if gcloud secrets describe "$SECRET" >/dev/null 2>&1; then
     gcloud secrets add-iam-policy-binding "$SECRET" \
@@ -150,8 +142,8 @@ gcloud run deploy "$SERVICE" \
   --network="$VPC_NAME" \
   --subnet="$SUBNET_NAME" \
   --vpc-egress=all-traffic \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIS_BASE_URL=https://openapi.koreainvestment.com:9443@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}" \
-  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIS_APP_KEY=gh-radar-kis-app-key:latest,KIS_APP_SECRET=gh-radar-kis-app-secret:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest"
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}" \
+  --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 6: Smoke

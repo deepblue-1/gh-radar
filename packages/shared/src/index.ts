@@ -2,7 +2,6 @@ export type { Stock, Market, SecurityType, StockMaster, StockQuote, StockWithQuo
 export type { NewsArticle } from "./news.js";
 export type { Discussion, DiscussionListResponse } from "./discussion.js";
 export type { Summary, SummaryType, Sentiment } from "./summary.js";
-export type { KisRankingRow, KisTokenResponse } from "./kis.js";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom.js";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours.js";
 export type { ApiErrorBody, ApiSuccess } from "./api.js";
