@@ -194,6 +194,7 @@ Recent decisions affecting current work:
 - [Phase 09.2]: Plan 02: useEffect 3-effect 분리 (mount/theme/rows) — theme 변경 시 chart 인스턴스 재생성 회피 + Volume bar per-bar color 도 theme effect 에서 재주입 (Pitfall 6 fix)
 - [Phase 09.2]: Plan 02: error.message 의도적 미노출 (T-09.2-07 mitigate) — generic 카피 + console.error 분리. PostgREST/RLS 내부 정보 누설 표면 0
 - [Phase 09.2]: Plan 02: 단위 테스트는 lightweight-charts 전체 mock — jsdom 에서 Canvas 렌더링 불가, 시각 검증은 Manual Verification (Plan 03 checkpoint) 책임
+- [Phase 09.2]: 캔들스틱 차트 채택 — REQUIREMENTS.md Out of Scope 정책 반전 (사용자 명시 2026-05-15, 상세 페이지 자체 완결성 우선). 라이브러리 = lightweight-charts 5.2.0 (RESEARCH 비교 후 lock-in: 번들 +4 kB / 캔들+Volume 네이티브 / 트레이더 친숙도). 데이터 = webapp → Supabase PostgREST 직접 호출 (Phase 06.2 watchlist 패턴 mirror). Pitfall 9 (oklch parser 거부) → chart-colors.ts utility 모듈로 회귀 방지. Pitfall 6 (다크모드 자동 분기 미작동) → next-themes useTheme + chart.applyOptions effect 로 production 해결.
 
 ### Pending Todos
 
@@ -202,6 +203,8 @@ Recent decisions affecting current work:
 - DI-01: `incr_api_usage(text,date,int)` RPC 에 `REVOKE ALL FROM anon, authenticated` 마이그레이션 추가 (Supabase 플랫폼 auto-grant 회귀) — Phase 8 또는 별도 infra PR
 - DI-02: `scripts/smoke-master-sync.sh` INV-4 헤더 CR 파싱 버그 (동일 패턴, 별도 PR)
 - Infra: `gh-radar-deployer` SA key 로테이션 주기 설정 (현재 영구 key) — 예: 90일 cron
+- DI-03: Phase 09.2 RESEARCH Pitfall 10 follow-up — `news_articles`, `discussions`, `summaries` 테이블의 RLS 정책이 `TO anon` 만 명시하는지 audit. supabase/migrations/20260515163000 (stock_daily_ohlcv fix 패턴) mirror 로 `TO anon, authenticated USING (true)` 갱신 필요. supabase-js 가 인증 사용자 JWT 호출 → role=`authenticated` → 정책 부재 → default-deny 함정. 본 phase 09.2 와 무관 (차트는 stock_daily_ohlcv 만 사용) 하나 로그인 사용자 페이지 (Phase 7 뉴스, Phase 8 토론, Phase 10 요약) 의 빈 응답 가능성. 별도 phase 또는 인프라 PR 권장.
+- DI-04: Phase 09.2 RESEARCH Pitfall 11 follow-up — Vercel production env 등록 시 trailing newline (`\n`) 오염 검증 절차 자동화. 증상: dev 정상이나 production 만 모든 fetch 비정상. 검증: `vercel env pull` 후 `tail -c1 .env.local | xxd -p` 가 `0a` (newline) 이면 오염. 즉시 수정: `vercel env rm` + `printf "%s" "값" | vercel env add`. CI hook 자동화 검토 (별도 인프라 PR).
 
 ### Blockers/Concerns
 
