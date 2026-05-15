@@ -58,11 +58,16 @@ export async function upsertQuotesStep1(
 }
 
 /**
- * STEP2 stock_quotes UPSERT — ~250 row × 6 다른 컬럼. RESEARCH §3.3.2.
+ * STEP2 stock_quotes UPDATE (UPSERT 아님) — ~250 row × 6 다른 컬럼. RESEARCH §3.3.2.
  *
- * STEP1 과 서로 다른 컬럼 집합 → 페이로드 만 UPDATE 되어 충돌 없음 (§3.3.3).
+ * 중요 (2026-05-15 first cycle): Supabase `upsert` 는 `INSERT ... ON CONFLICT DO UPDATE`
+ *   로 변환되어 신규 row INSERT 시도 단계에서 NOT NULL 제약 (price/upper_limit/lower_limit)
+ *   을 평가 → 페이로드에 price 없으면 violation. STEP2 가 STEP1 매분 갱신 컬럼 (price/change/
+ *   volume/trade_amount) 을 덮어쓰지 않으려면 INSERT 분기 자체를 피해야 함.
+ *   해결: UPSERT → 종목별 UPDATE 직렬 호출 (~250 종목, 수십 ms). UPDATE 는 NOT NULL 제약을
+ *   매개로 평가하지 않으므로 STEP1 컬럼 유지 + STEP2 컬럼만 갱신.
  *
- * payload 컬럼: code/open/high/low/upper_limit/lower_limit/market_cap/updated_at
+ * payload 컬럼: open/high/low/upper_limit/lower_limit/market_cap/updated_at
  *   - price/change/volume/trade_amount 의도적 omit (STEP1 매분 갱신 컬럼 보호)
  */
 export async function upsertQuotesStep2(
@@ -72,23 +77,25 @@ export async function upsertQuotesStep2(
   if (updates.length === 0) return { count: 0 };
 
   const now = new Date().toISOString();
-  const rows = updates.map((u) => ({
-    code: u.code,
-    open: u.open,
-    high: u.high,
-    low: u.low,
-    upper_limit: u.upperLimit,
-    lower_limit: u.lowerLimit,
-    market_cap: u.marketCap,
-    updated_at: now,
-  }));
-
-  const { error } = await supabase
-    .from("stock_quotes")
-    .upsert(rows, { onConflict: "code" });
-  if (error) {
-    logger.error({ err: error, count: rows.length }, "upsertQuotesStep2 failed");
-    throw error;
+  let updated = 0;
+  for (const u of updates) {
+    const { error } = await supabase
+      .from("stock_quotes")
+      .update({
+        open: u.open,
+        high: u.high,
+        low: u.low,
+        upper_limit: u.upperLimit,
+        lower_limit: u.lowerLimit,
+        market_cap: u.marketCap,
+        updated_at: now,
+      })
+      .eq("code", u.code);
+    if (error) {
+      logger.error({ err: error, code: u.code }, "upsertQuotesStep2 update failed");
+      throw error;
+    }
+    updated += 1;
   }
-  return { count: rows.length };
+  return { count: updated };
 }

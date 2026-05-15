@@ -82,9 +82,24 @@ describe("upsertQuotesStep1", () => {
   });
 });
 
+/**
+ * STEP2 는 종목별 UPDATE (.update + .eq) 호출 — UPSERT 가 NOT NULL constraint 위반 회피.
+ * mock 시그니처: from().update(payload).eq(col, val) 가 promise 반환.
+ */
+function mockUpdateEq(error: Error | null = null) {
+  const eq = vi.fn().mockResolvedValue({ error });
+  const update = vi.fn().mockReturnValue({ eq });
+  const from = vi.fn().mockReturnValue({ update });
+  return { from, _update: update, _eq: eq } as unknown as {
+    from: ReturnType<typeof vi.fn>;
+    _update: ReturnType<typeof vi.fn>;
+    _eq: ReturnType<typeof vi.fn>;
+  };
+}
+
 describe("upsertQuotesStep2", () => {
   it("payload 에 STEP2 컬럼만 (price/change/volume 없음)", async () => {
-    const supabase = mockUpsert();
+    const supabase = mockUpdateEq();
     const u: IntradayOhlcUpdate = {
       code: "005930",
       date: "2026-05-14",
@@ -99,10 +114,9 @@ describe("upsertQuotesStep2", () => {
       supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
       [u],
     );
-    const payload = supabase._upsert.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(payload[0]).toEqual(
+    const payload = supabase._update.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).toEqual(
       expect.objectContaining({
-        code: "005930",
         open: 70000,
         high: 71000,
         low: 69500,
@@ -111,13 +125,16 @@ describe("upsertQuotesStep2", () => {
         market_cap: 4209000 * 1e8,
       }),
     );
-    expect(payload[0].price).toBeUndefined();
-    expect(payload[0].volume).toBeUndefined();
-    expect(payload[0].trade_amount).toBeUndefined();
+    // STEP1 매분 갱신 컬럼 보호 — STEP2 가 덮어쓰지 않음
+    expect(payload.price).toBeUndefined();
+    expect(payload.volume).toBeUndefined();
+    expect(payload.trade_amount).toBeUndefined();
+    // code 는 payload 가 아니라 .eq() 절에 사용
+    expect(supabase._eq).toHaveBeenCalledWith("code", "005930");
   });
 
-  it("250 row 단일 호출", async () => {
-    const supabase = mockUpsert();
+  it("250 row → 250회 update 직렬 호출", async () => {
+    const supabase = mockUpdateEq();
     const updates: IntradayOhlcUpdate[] = Array.from({ length: 250 }, (_, i) => ({
       code: String(i + 1).padStart(6, "0"),
       date: "2026-05-14",
@@ -128,20 +145,21 @@ describe("upsertQuotesStep2", () => {
       lowerLimit: null,
       marketCap: null,
     }));
-    await upsertQuotesStep2(
+    const out = await upsertQuotesStep2(
       supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
       updates,
     );
-    expect(supabase._upsert).toHaveBeenCalledOnce();
+    expect(out.count).toBe(250);
+    expect(supabase._update).toHaveBeenCalledTimes(250);
   });
 
   it("빈 입력 → no-op", async () => {
-    const supabase = mockUpsert();
+    const supabase = mockUpdateEq();
     const out = await upsertQuotesStep2(
       supabase as unknown as Parameters<typeof upsertQuotesStep2>[0],
       [],
     );
     expect(out.count).toBe(0);
-    expect(supabase._upsert).not.toHaveBeenCalled();
+    expect(supabase._update).not.toHaveBeenCalled();
   });
 });
