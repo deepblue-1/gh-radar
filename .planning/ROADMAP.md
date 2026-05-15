@@ -336,12 +336,14 @@ Plans:
 ### Phase 09.2: 종목 상세페이지 상단 일봉차트 (INSERTED)
 
 **Goal:** 종목 상세페이지(`/stocks/[code]`) 상단에 해당 종목의 일봉차트를 출력해 트레이더가 가격 흐름을 즉시 시각적으로 확인할 수 있게 한다. Phase 9 에서 적재된 `stock_daily_ohlcv` (4,003,432 행) 데이터를 source 로 사용.
-**Requirements**: TBD (Phase 6 detail page 확장)
+**Requirements**: DATA-03
 **Depends on:** Phase 9 (일봉 데이터), Phase 6 (상세 페이지 구조)
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 09.2 to break down)
+- [ ] 09.2-01-PLAN.md — Wave 1 기반 (REQUIREMENTS/PROJECT 갱신 + packages/shared 타입 + chart-colors utility + daily-ohlcv-api + Wave 0 unit tests)
+- [ ] 09.2-02-PLAN.md — Wave 2 차트 UI (StockDailyChart lightweight-charts + StockDailyChartSection + 다크모드 useTheme effect + Skeleton/Empty/Error)
+- [ ] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
 
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
