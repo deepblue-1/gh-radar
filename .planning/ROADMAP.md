@@ -338,12 +338,12 @@ Plans:
 **Goal:** 종목 상세페이지(`/stocks/[code]`) 상단에 해당 종목의 일봉차트를 출력해 트레이더가 가격 흐름을 즉시 시각적으로 확인할 수 있게 한다. Phase 9 에서 적재된 `stock_daily_ohlcv` (4,003,432 행) 데이터를 source 로 사용.
 **Requirements**: DATA-03
 **Depends on:** Phase 9 (일봉 데이터), Phase 6 (상세 페이지 구조)
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 09.2-01-PLAN.md — Wave 1 기반 (REQUIREMENTS/PROJECT 갱신 + packages/shared 타입 + chart-colors utility + daily-ohlcv-api + Wave 0 unit tests)
 - [x] 09.2-02-PLAN.md — Wave 2 차트 UI (StockDailyChart lightweight-charts + StockDailyChartSection + 다크모드 useTheme effect + Skeleton/Empty/Error)
-- [ ] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
+- [x] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
 
 
 ### Phase 10: AI Summarization

@@ -122,7 +122,7 @@
 | DISC-01.1 | Phase 08.1 | Complete |
 | DATA-01 | Phase 9 | Complete |
 | DATA-02 | Phase 09.1 | Complete |
-| DATA-03 | Phase 09.2 | Pending |
+| DATA-03 | Phase 09.2 | Complete |
 | NEWS-02 | Phase 10 | Pending |
 | DISC-02 | Phase 10 | Pending |
 
