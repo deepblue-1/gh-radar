@@ -137,7 +137,7 @@ export async function runIntradayCycle(): Promise<{
   log.info({ successful: ka10001Rows.length, failed }, "STEP2 ka10001 fetched");
 
   // STEP 2 — mapping
-  const step2Updates = ka10001Rows
+  const step2UpdatesRaw = ka10001Rows
     .map((r) => {
       try {
         return ka10001RowToOhlcUpdate(r, dateIso);
@@ -146,6 +146,21 @@ export async function runIntradayCycle(): Promise<{
       }
     })
     .filter((u): u is NonNullable<typeof u> => u !== null);
+
+  // STEP1 처리 종목 (stock_quotes 에 row 존재 보장) 만 STEP2 UPSERT 대상.
+  // computeHotSet 이 watchlist 종목을 추가하므로 STEP1 ka10027 응답에 없는 종목이
+  // 포함될 수 있음 → upsertQuotesStep2 가 신규 row INSERT 시 price NOT NULL violation.
+  // (2026-05-15 first cycle 검증) step1Updates 의 code set 으로 intersect 하여 안전.
+  // stock_daily_ohlcv RPC (intradayUpsertOhlc) 는 별도 테이블이라 영향 없음.
+  const step1Codes = new Set(step1Updates.map((u) => u.code));
+  const step2Updates = step2UpdatesRaw.filter((u) => step1Codes.has(u.code));
+  const droppedFromStep2 = step2UpdatesRaw.length - step2Updates.length;
+  if (droppedFromStep2 > 0) {
+    log.info(
+      { dropped: droppedFromStep2 },
+      "STEP2 dropped non-STEP1 codes (watchlist 종목 중 ka10027 미응답)",
+    );
+  }
 
   // STEP 2 — RPC #2 + stock_quotes
   await withRetry(
