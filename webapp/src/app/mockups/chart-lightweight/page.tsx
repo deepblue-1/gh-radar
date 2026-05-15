@@ -44,22 +44,23 @@ import {
 const CODE = '005930';
 const RANGES: RangeKey[] = ['1M', '3M', '6M', '1Y'];
 
-// 한국식 색상 컨벤션 (D-02). lightweight-charts 가 CSS var 직접 못 받으므로
-// 라이트/다크 raw oklch 값을 globals.css 에서 그대로 인용.
+// 한국식 색상 컨벤션 (D-02). lightweight-charts 의 color parser 가 oklch() 미지원
+// (Error: Failed to parse color: oklch(...) — RESEARCH Pitfall 9 추가 발견).
+// globals.css 의 oklch 토큰을 sRGB hex 근사값으로 변환해 직접 주입.
 const COLORS = {
   light: {
-    up: 'oklch(0.66 0.20 22)',
-    down: 'oklch(0.63 0.18 250)',
-    text: 'oklch(0.50 0 0)',
-    grid: 'oklch(0.92 0 0)',
+    up: '#ef4444', // ≈ oklch(0.66 0.20 22) — 한국식 빨강
+    down: '#3b82f6', // ≈ oklch(0.63 0.18 250) — 한국식 파랑
+    text: '#737373', // ≈ oklch(0.50 0 0)
+    grid: '#e7e7e7', // ≈ oklch(0.92 0 0)
     bg: '#FFFFFF',
   },
   dark: {
-    up: 'oklch(0.72 0.19 22)',
-    down: 'oklch(0.72 0.16 250)',
-    text: 'oklch(0.65 0 0)',
-    grid: 'oklch(0.24 0 0)',
-    bg: 'oklch(0.12 0 0)',
+    up: '#f87171', // ≈ oklch(0.72 0.19 22)
+    down: '#60a5fa', // ≈ oklch(0.72 0.16 250)
+    text: '#a3a3a3', // ≈ oklch(0.65 0 0)
+    grid: '#2e2e2e', // ≈ oklch(0.24 0 0)
+    bg: '#1c1c1c', // ≈ oklch(0.12 0 0)
   },
 } as const;
 
