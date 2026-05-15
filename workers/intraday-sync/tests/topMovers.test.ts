@@ -29,9 +29,9 @@ function makeUpdates(rates: number[]): IntradayCloseUpdate[] {
 }
 
 describe("rebuildTopMovers", () => {
-  it("상위 60 추출 + DELETE 후 INSERT", async () => {
+  it("상위 100 추출 + DELETE 후 INSERT", async () => {
     const supabase = mockTopMovers();
-    const updates = makeUpdates(Array.from({ length: 100 }, (_, i) => 30 - i * 0.1)); // 30, 29.9, ...
+    const updates = makeUpdates(Array.from({ length: 150 }, (_, i) => 30 - i * 0.1)); // 30, 29.9, ...
     const marketMap = new Map<string, "KOSPI" | "KOSDAQ">(
       updates.map((u) => [u.code, "KOSPI" as const]),
     );
@@ -40,13 +40,13 @@ describe("rebuildTopMovers", () => {
       updates,
       marketMap,
     );
-    expect(out.count).toBe(60);
+    expect(out.count).toBe(100);
     expect(supabase._delete).toHaveBeenCalled();
     expect(supabase._insert).toHaveBeenCalledOnce();
     const payload = supabase._insert.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(payload).toHaveLength(60);
+    expect(payload).toHaveLength(100);
     expect(payload[0]).toEqual(expect.objectContaining({ rank: 1, code: "000001" }));
-    expect(payload[59]).toEqual(expect.objectContaining({ rank: 60 }));
+    expect(payload[99]).toEqual(expect.objectContaining({ rank: 100 }));
     // name + market NOT NULL 제약 충족
     expect(payload[0]).toEqual(
       expect.objectContaining({

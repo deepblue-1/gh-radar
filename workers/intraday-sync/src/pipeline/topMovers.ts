@@ -26,7 +26,7 @@ import { logger } from "../logger";
  * DELETE pattern: `.neq("code", "")` — `code` 가 PK NOT NULL 이므로 항상 매칭 → 전체 삭제.
  * (PLAN 원안 `.gte("rank", 0)` 는 rank=NULL 회피 + 전체 매칭 보장 X)
  */
-const TOP_N = 60;
+const TOP_N = 100;
 
 const ETN_PREFIX_RE = /^[567]/;
 

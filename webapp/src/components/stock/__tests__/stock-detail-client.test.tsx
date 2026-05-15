@@ -9,6 +9,15 @@ import { FIXTURE_SAMSUNG } from '@/__tests__/fixtures/stocks';
 
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
+  // StockHero 가 ← 버튼용으로 useRouter 호출 — jsdom app router 미마운트 invariant 회피.
+  useRouter: () => ({
+    back: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+    forward: vi.fn(),
+  }),
 }));
 // Phase 07 Plan 04: StockDetailClient 가 내부에서 StockNewsSection 을 렌더하므로
 // 같은 모듈의 fetchStockNews / refreshStockNews 도 함께 stub 해야 한다.
