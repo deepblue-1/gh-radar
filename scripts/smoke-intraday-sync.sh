@@ -49,10 +49,11 @@ case "${1:-}" in
   --check-static-ip)
     echo "Checking Cloud Run task outbound IP matches reserved Static IP"
     check "Static IP exists" gcloud compute addresses describe gh-radar-static-ip --region="$REGION"
-    check "intraday-sync Job 이 VPC 연결" bash -c "
-      NETWORK=\$(gcloud run jobs describe $JOB --region=$REGION --format='value(spec.template.spec.template.spec.containers[0].vpcAccess.networkInterfaces[0].network)' 2>/dev/null)
-      SUBNET=\$(gcloud run jobs describe $JOB --region=$REGION --format='value(spec.template.spec.template.spec.containers[0].vpcAccess.networkInterfaces[0].subnetwork)' 2>/dev/null)
-      [ -n \"\$NETWORK\" ] && [ -n \"\$SUBNET\" ]
+    # Cloud Run Job 의 VPC 설정은 annotation 'run.googleapis.com/network-interfaces' 에 JSON 으로 저장됨.
+    # 실측 (2026-05-15): metadata 의 template.metadata.annotations 경로.
+    check "intraday-sync Job 이 VPC 연결 (annotation)" bash -c "
+      ANN=\$(gcloud run jobs describe $JOB --region=$REGION --format='value(spec.template.metadata.annotations.\"run.googleapis.com/network-interfaces\")' 2>/dev/null)
+      echo \"\$ANN\" | grep -q 'gh-radar-vpc' && echo \"\$ANN\" | grep -q 'gh-radar-subnet-an3'
     "
     echo ""
     echo "PASS: $PASS  FAIL: $FAIL"
@@ -92,8 +93,10 @@ check "INV-3 logs: no failures / 키움 401 / 키움 429" bash -c "
   [ \"\$COUNT\" -eq 0 ]
 "
 
-# INV-4: Supabase stock_quotes 의 갱신 시각 5분 이내 row count >= 1500
-check "INV-4 stock_quotes 5분 이내 갱신 row >= 1500" bash -c "
+# INV-4: Supabase stock_quotes 의 갱신 시각 5분 이내 row count >= 800
+# 2026-05-15 first cycle 실측: 키움 ka10027 stex_tp="3" (통합) 응답 900~1100 row.
+# 1500 (KIS FHPST01700000 기준) → 800 로 하향 (휴장일 0 row 와 명확히 구분 가능).
+check "INV-4 stock_quotes 5분 이내 갱신 row >= 800" bash -c "
   : \${SUPABASE_URL:?SUPABASE_URL required}
   : \${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}
   THRESHOLD=\$(date -u -v-5M '+%Y-%m-%dT%H:%M:%S.000Z' 2>/dev/null || date -u -d '5 minutes ago' '+%Y-%m-%dT%H:%M:%S.000Z')
@@ -101,23 +104,23 @@ check "INV-4 stock_quotes 5분 이내 갱신 row >= 1500" bash -c "
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Prefer: count=exact\" \
-    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range')
+    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range' | tr -d '\\r')
   TOTAL=\$(echo \"\$RANGE_HEADER\" | grep -oE '[0-9]+\$')
   echo \"recent stock_quotes count: \$TOTAL\"
-  [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -ge 1500 ]
+  [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -ge 800 ]
 "
 
-# INV-5: stock_daily_ohlcv 오늘자 row >= 1500
-check "INV-5 stock_daily_ohlcv 오늘 row >= 1500" bash -c "
+# INV-5: stock_daily_ohlcv 오늘자 row >= 800
+check "INV-5 stock_daily_ohlcv 오늘 row >= 800" bash -c "
   TODAY=\$(date '+%Y-%m-%d')
   RANGE_HEADER=\$(curl -fsS -I \"\${SUPABASE_URL}/rest/v1/stock_daily_ohlcv?date=eq.\${TODAY}&select=code\" \
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Prefer: count=exact\" \
-    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range')
+    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range' | tr -d '\\r')
   TOTAL=\$(echo \"\$RANGE_HEADER\" | grep -oE '[0-9]+\$')
   echo \"today ohlcv count: \$TOTAL\"
-  [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -ge 1500 ]
+  [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -ge 800 ]
 "
 
 # INV-6: Scheduler ENABLED
