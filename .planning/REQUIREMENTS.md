@@ -63,6 +63,7 @@
 
 - **DATA-01**: KRX 상장 전 종목 3년치 일봉 OHLCV 수집 및 영업일 EOD 증분 갱신 (분석 기반 데이터 레이어 — Phase 9)
 - **DATA-02**: 장중 활성 거래 종목(~1,898) 의 현재가/등락/누적거래량을 1분 cadence 로 stock_quotes + stock_daily_ohlcv 오늘자 row 에 UPSERT (키움 REST `ka10027` 페이지네이션). 추가로 hot set (등락률 상위 200 ∪ watchlist unique) 의 OHLC + 상한가/하한가/시가총액을 `ka10001` 단일 종목 호출로 매분 갱신. trade_amount 는 `volume × close` 근사값 (트레이딩 시그널 용도). Direct VPC Egress + Cloud NAT static IP 1개로 worker(intraday-sync) + Cloud Run service(server) 가 동일 outbound IP 공유. **KIS ingestion(workers/ingestion + server/src/kis) 완전 폐기** — Phase 09.1 재정의 (2026-05-14, "KIS → 키움 완전 대체"). **Status:** ✅ Complete (Phase 09.1 — 2026-05-15)
+- **DATA-03**: 종목 상세 페이지(`/stocks/[code]`) 상단에 해당 종목의 일봉 캔들 + Volume 차트(1M / 3M / 6M / 1Y 토글, 한국식 색상)를 표시하여 트레이더가 화면 전환 없이 가격 흐름을 즉시 파악할 수 있다 (Phase 09.2 — 2026-05-15 사용자 명시 OOS 반전).
 
 ## v2 Requirements
 
@@ -84,7 +85,6 @@
 | Feature | Reason |
 |---------|--------|
 | 주문/매매 기능 | 인허가 필요, 법적 리스크, 복잡도 |
-| 캔들스틱 차트 | TradingView/키움이 이미 지배, 차별화 없음 |
 | 포트폴리오 관리 | 인증 필요, v2 이후 |
 | AI 자동매매 추천 | 법적/윤리적 리스크, 복잡도 |
 | 모바일 앱 | 웹 우선, 반응형으로 대응 |
@@ -122,6 +122,7 @@
 | DISC-01.1 | Phase 08.1 | Complete |
 | DATA-01 | Phase 9 | Complete |
 | DATA-02 | Phase 09.1 | Complete |
+| DATA-03 | Phase 09.2 | Pending |
 | NEWS-02 | Phase 10 | Pending |
 | DISC-02 | Phase 10 | Pending |
 

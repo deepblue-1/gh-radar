@@ -345,6 +345,7 @@ Plans:
 - [ ] 09.2-02-PLAN.md — Wave 2 차트 UI (StockDailyChart lightweight-charts + StockDailyChartSection + 다크모드 useTheme effect + Skeleton/Empty/Error)
 - [ ] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
 
+
 ### Phase 10: AI Summarization
 **Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 7, Phase 7.1, Phase 8
