@@ -30,6 +30,9 @@ export async function fetchKa10027(
     updown_incls: "1",
     pric_cnd: "0",
     trde_prica_cnd: "0",
+    // stex_tp: 거래소 구분 (키움 spec 변경으로 필수 파라미터로 승격 — 2026-05-15 first cycle 에서 발견).
+    //  "1"=KRX, "2"=NXT, "3"=통합. mrkt_tp=000 (KOSPI+KOSDAQ 통합) 의도와 일치하는 "3" 채택.
+    stex_tp: "3",
   };
 
   const all: KiwoomKa10027Row[] = [];

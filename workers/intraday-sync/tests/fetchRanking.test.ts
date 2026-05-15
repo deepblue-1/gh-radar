@@ -33,6 +33,8 @@ describe("fetchKa10027", () => {
         mrkt_tp: "000",
         sort_tp: "1",
         updown_incls: "1",
+        // stex_tp: 키움 spec 변경 (2026-05-15 first cycle 에서 1511 필수 누락 발견) — "3"=통합
+        stex_tp: "3",
       }),
       expect.objectContaining({
         headers: expect.objectContaining({
