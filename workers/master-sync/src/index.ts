@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
 import { createKrxClient } from "./krx/client";
 import { fetchMasterFromKrx } from "./krx/fetchBaseInfo";
+import { fetchEtpMastersFromKrx } from "./krx/fetchEtpBaseInfo";
 import { krxToMasterRow } from "./pipeline/map";
 import { upsertMasters } from "./pipeline/upsert";
 import { withRetry } from "./retry";
@@ -35,13 +36,21 @@ export async function runMasterSync(deps?: {
   const supabase = createSupabaseClient(config);
   const krx = createKrxClient(config);
 
-  const krxRows = await withRetry(
-    () => fetchMasterFromKrx(krx, basDd),
-    "fetchMasterFromKrx",
+  // 주식 (KOSPI 주권 + KOSDAQ 주권) + ETP (ETF + ETN + ELW) 병렬 fetch.
+  // ETP 추가 배경: KRX 가 "주식" (`/sto/*`) 과 "증권상품" (`/etp/*`) 카테고리 분리 운영 →
+  //   stk/ksq 기본정보 응답에 ETF/ETN/ELW 미포함. ETP 별도 호출로 정확한 마스터 구축.
+  //   ETP 가 stocks 에 등록돼야 intraday-sync 의 bootstrapStocks placeholder 잘못 분류가
+  //   사라지고 rebuildTopMovers 의 security_group 화이트리스트가 정확히 작동한다.
+  const [krxRows, etpRows] = await Promise.all([
+    withRetry(() => fetchMasterFromKrx(krx, basDd), "fetchMasterFromKrx"),
+    withRetry(() => fetchEtpMastersFromKrx(krx, basDd), "fetchEtpMastersFromKrx"),
+  ]);
+  log.info(
+    { krxRows: krxRows.length, etpRows: etpRows.length, basDd },
+    "KRX fetched",
   );
-  log.info({ krxRows: krxRows.length, basDd }, "KRX fetched");
 
-  // WARN: 0 row 는 에러로 처리하되 "서비스 승인 미완료" 가능성을 명시 (신규 배포 직후)
+  // WARN: 주식 0 row 는 에러로 처리하되 "서비스 승인 미완료" 가능성을 명시 (신규 배포 직후)
   if (krxRows.length === 0) {
     log.warn(
       { basDd },
@@ -50,14 +59,15 @@ export async function runMasterSync(deps?: {
     return { count: 0, delistedCount: 0 };
   }
 
-  // C3: MASS_DELIST_RISK 가드 — 응답이 비정상적으로 적으면 상장폐지 마킹 건너뛰고 throw
+  // C3: MASS_DELIST_RISK 가드 — 주식 응답이 비정상적으로 적으면 ETP 와 무관하게 즉시 throw.
+  // (ETP 가 0 행이라도 그 자체는 정상 종료될 수 있음 — 임시 가동 정지 등. 주식이 핵심 가드.)
   if (krxRows.length < MIN_EXPECTED_MASTERS) {
     throw new Error(
       `KRX returned ${krxRows.length} rows (< ${MIN_EXPECTED_MASTERS}) — partial response suspected, aborting to avoid mass-delist. basDd=${basDd}`,
     );
   }
 
-  const masters = krxRows.map(krxToMasterRow);
+  const masters = [...krxRows, ...etpRows].map(krxToMasterRow);
   const { count } = await withRetry(
     () => upsertMasters(supabase, masters),
     "upsertMasters",

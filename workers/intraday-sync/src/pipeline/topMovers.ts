@@ -3,15 +3,17 @@ import type { IntradayCloseUpdate } from "@gh-radar/shared";
 import { logger } from "../logger";
 
 /**
- * top_movers 재구성 — 매 cycle 등락률 상위 60 추출 + stale cleanup (DELETE + INSERT).
+ * top_movers 재구성 — 매 cycle 등락률 상위 100 추출 + stale cleanup (DELETE + INSERT).
  *
  * ka10027 응답이 sort_tp=1 (상승률 내림차순) — 별도 정렬 불필요.
  * 음의 등락률 종목 제외 (changeRate > 0) — top "movers" 정의상 상승 종목만.
- * ETN (5/6/7xxxxx prefix) 제외 — 일반 주식만 노출. KRX master-sync 가 ETF/ETN 미수집이라
- *   bootstrapStocks 가 ETN 을 `security_group="주권"` placeholder 로 잘못 등록하는 한,
- *   security_group 화이트리스트로는 거를 수 없음. 코드 prefix 가 가장 확정적 식별자.
- *   (한국 ETN: 5xxxxx ~ 7xxxxx, 일반 주식: 0~4xxxxx. ETF 는 일반 주식과 코드 패턴 동일 →
- *   별도 master-sync 보강 필요, 추후 phase 처리.)
+ *
+ * **eligibleCodes 화이트리스트** — stocks 마스터의 security_group 이 일반 주식 계열
+ *   ('주권','외국주권','주식예탁증권','부동산투자회사','투자회사','사회간접자본투융자회사')
+ *   인 종목만 통과. ETF/ETN/ELW 는 master-sync 가 `/etp/*` endpoint 로 정확히 등록하므로
+ *   security_group='ETF'/'ETN'/'ELW' 로 식별 → 화이트리스트에서 자동 제외. (이전 ETN
+ *   prefix `/^[567]/` 휴리스틱은 master-sync ETP 통합 후 불필요 — security_group 기반이
+ *   더 견고하고 ETF 까지 커버.)
  *
  * stale cleanup 패턴 (D-21): top_movers 는 매 cycle 재구성 — 누적 X.
  * stock_quotes 는 누적 (D-20) — 다른 정책.
@@ -28,17 +30,16 @@ import { logger } from "../logger";
  */
 const TOP_N = 100;
 
-const ETN_PREFIX_RE = /^[567]/;
-
 export async function rebuildTopMovers(
   supabase: SupabaseClient,
   step1Updates: IntradayCloseUpdate[],
   marketMap: Map<string, "KOSPI" | "KOSDAQ">,
+  eligibleCodes: Set<string>,
 ): Promise<{ count: number }> {
-  // 1. 상위 60 추출 (이미 등락률 내림차순) + ETN 제외
+  // 1. 상위 100 추출 (이미 등락률 내림차순) + 화이트리스트 필터
   const top = step1Updates
     .filter((u) => u.changeRate !== null && u.changeRate > 0)
-    .filter((u) => !ETN_PREFIX_RE.test(u.code))
+    .filter((u) => eligibleCodes.has(u.code))
     .slice(0, TOP_N);
 
   if (top.length === 0) {

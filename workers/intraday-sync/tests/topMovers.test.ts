@@ -35,10 +35,12 @@ describe("rebuildTopMovers", () => {
     const marketMap = new Map<string, "KOSPI" | "KOSDAQ">(
       updates.map((u) => [u.code, "KOSPI" as const]),
     );
+    const eligibleCodes = new Set(updates.map((u) => u.code));
     const out = await rebuildTopMovers(
       supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
       updates,
       marketMap,
+      eligibleCodes,
     );
     expect(out.count).toBe(100);
     expect(supabase._delete).toHaveBeenCalled();
@@ -62,10 +64,12 @@ describe("rebuildTopMovers", () => {
     const marketMap = new Map<string, "KOSPI" | "KOSDAQ">(
       updates.map((u) => [u.code, "KOSPI" as const]),
     );
+    const eligibleCodes = new Set(updates.map((u) => u.code));
     const out = await rebuildTopMovers(
       supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
       updates,
       marketMap,
+      eligibleCodes,
     );
     expect(out.count).toBe(3);
   });
@@ -74,23 +78,24 @@ describe("rebuildTopMovers", () => {
     const supabase = mockTopMovers();
     const updates = makeUpdates([-1, -2, -3]);
     const marketMap = new Map<string, "KOSPI" | "KOSDAQ">();
+    const eligibleCodes = new Set(updates.map((u) => u.code));
     const out = await rebuildTopMovers(
       supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
       updates,
       marketMap,
+      eligibleCodes,
     );
     expect(out.count).toBe(0);
     expect(supabase._delete).toHaveBeenCalledOnce();
     expect(supabase._insert).not.toHaveBeenCalled();
   });
 
-  it("ETN (5/6/7xxxxx prefix) 제외 — 일반 주식만 통과", async () => {
+  it("eligibleCodes 화이트리스트 — 일반 주식만 통과 (ETF/ETN/ELW 자동 제외)", async () => {
     const supabase = mockTopMovers();
     const updates: IntradayCloseUpdate[] = [
       { code: "570119", date: "2026-05-15", name: "한투 인버스2X은선물 ETN", price: 1000, changeAmount: 0, changeRate: 30, volume: 0, tradeAmount: 0 },
       { code: "031330", date: "2026-05-15", name: "에스에이엠티", price: 1000, changeAmount: 0, changeRate: 28, volume: 0, tradeAmount: 0 },
-      { code: "610101", date: "2026-05-15", name: "메리츠 인버스 2X 은 선물 ETN(H)", price: 1000, changeAmount: 0, changeRate: 27, volume: 0, tradeAmount: 0 },
-      { code: "760027", date: "2026-05-15", name: "키움 인버스 2X 전력 TOP5 ETN", price: 1000, changeAmount: 0, changeRate: 26, volume: 0, tradeAmount: 0 },
+      { code: "451060", date: "2026-05-15", name: "1Q 200액티브", price: 1000, changeAmount: 0, changeRate: 27, volume: 0, tradeAmount: 0 },
       { code: "066570", date: "2026-05-15", name: "LG전자", price: 1000, changeAmount: 0, changeRate: 25, volume: 0, tradeAmount: 0 },
       { code: "005930", date: "2026-05-15", name: "삼성전자", price: 1000, changeAmount: 0, changeRate: 24, volume: 0, tradeAmount: 0 },
     ];
@@ -99,28 +104,32 @@ describe("rebuildTopMovers", () => {
       ["066570", "KOSPI"],
       ["005930", "KOSPI"],
     ]);
+    // stocks 마스터에서 security_group IN ('주권', ...) 인 코드만 set 에 포함 — 호출자(index.ts)가 책임짐
+    const eligibleCodes = new Set(["031330", "066570", "005930"]);
     const out = await rebuildTopMovers(
       supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
       updates,
       marketMap,
+      eligibleCodes,
     );
     expect(out.count).toBe(3);
     const payload = supabase._insert.mock.calls[0][0] as Array<Record<string, unknown>>;
     const codes = payload.map((r) => r.code);
     expect(codes).toEqual(["031330", "066570", "005930"]);
-    expect(codes).not.toContain("570119");
-    expect(codes).not.toContain("610101");
-    expect(codes).not.toContain("760027");
+    expect(codes).not.toContain("570119"); // ETN
+    expect(codes).not.toContain("451060"); // ETF
   });
 
   it("marketMap 미존재 종목 → KOSPI fallback", async () => {
     const supabase = mockTopMovers();
     const updates = makeUpdates([5, 4]);
     const marketMap = new Map<string, "KOSPI" | "KOSDAQ">();
+    const eligibleCodes = new Set(updates.map((u) => u.code));
     await rebuildTopMovers(
       supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
       updates,
       marketMap,
+      eligibleCodes,
     );
     const payload = supabase._insert.mock.calls[0][0] as Array<Record<string, unknown>>;
     expect(payload[0]).toEqual(expect.objectContaining({ market: "KOSPI" }));

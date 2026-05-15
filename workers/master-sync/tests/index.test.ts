@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../src/krx/fetchBaseInfo", () => ({
   fetchMasterFromKrx: vi.fn(),
 }));
+vi.mock("../src/krx/fetchEtpBaseInfo", () => ({
+  fetchEtpMastersFromKrx: vi.fn(),
+}));
 vi.mock("../src/pipeline/upsert", () => ({
   upsertMasters: vi.fn(),
 }));
@@ -15,10 +18,12 @@ vi.mock("../src/krx/client", () => ({
 
 import { runMasterSync } from "../src/index";
 import { fetchMasterFromKrx } from "../src/krx/fetchBaseInfo";
+import { fetchEtpMastersFromKrx } from "../src/krx/fetchEtpBaseInfo";
 import { upsertMasters } from "../src/pipeline/upsert";
 import { createSupabaseClient } from "../src/services/supabase";
 
 const mockFetch = fetchMasterFromKrx as any;
+const mockFetchEtp = fetchEtpMastersFromKrx as any;
 const mockUpsert = upsertMasters as any;
 const mockCreateSupabase = createSupabaseClient as any;
 
@@ -61,6 +66,8 @@ function mkKrxRows(total: number) {
 describe("runMasterSync", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    mockFetchEtp.mockReset();
+    mockFetchEtp.mockResolvedValue([]); // 기본 — ETP 0 행 (개별 테스트에서 override 가능)
     mockUpsert.mockReset();
     mockCreateSupabase.mockReset();
   });

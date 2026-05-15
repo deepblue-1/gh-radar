@@ -98,15 +98,33 @@ export async function runIntradayCycle(): Promise<{
   const step1Updates = Array.from(dedupeMap.values());
   log.info({ mapped: step1Updates.length, mapErrors }, "STEP1 mapped + deduped");
 
-  // STEP 1 — market map (stocks 마스터에서 join)
+  // STEP 1 — market + security_group join (stocks 마스터에서)
+  //   marketMap: top_movers.market 채우기 (KOSPI/KOSDAQ CHECK 제약)
+  //   eligibleCodes: rebuildTopMovers 화이트리스트 — 일반 주식 계열만 통과시켜 ETF/ETN/ELW 자동 제외
   const codes = step1Updates.map((u) => u.code);
   const { data: masterRows } = await supabase
     .from("stocks")
-    .select("code, market")
+    .select("code, market, security_group")
     .in("code", codes);
   const marketMap = new Map<string, "KOSPI" | "KOSDAQ">();
-  for (const m of (masterRows ?? []) as Array<{ code: string; market: string }>) {
+  const ELIGIBLE_SECGROUPS = new Set<string>([
+    "주권",
+    "외국주권",
+    "주식예탁증권",
+    "부동산투자회사",
+    "투자회사",
+    "사회간접자본투융자회사",
+  ]);
+  const eligibleCodes = new Set<string>();
+  for (const m of (masterRows ?? []) as Array<{
+    code: string;
+    market: string;
+    security_group: string | null;
+  }>) {
     if (m.market === "KOSPI" || m.market === "KOSDAQ") marketMap.set(m.code, m.market);
+    if (m.security_group && ELIGIBLE_SECGROUPS.has(m.security_group)) {
+      eligibleCodes.add(m.code);
+    }
   }
 
   // STEP 1 — RPC #1 + stock_quotes + top_movers
@@ -119,7 +137,7 @@ export async function runIntradayCycle(): Promise<{
     "upsertQuotesStep1",
   );
   const { count: topCount } = await withRetry(
-    () => rebuildTopMovers(supabase, step1Updates, marketMap),
+    () => rebuildTopMovers(supabase, step1Updates, marketMap, eligibleCodes),
     "rebuildTopMovers",
   );
   log.info({ step1Count, topCount }, "STEP1 DB writes complete");
