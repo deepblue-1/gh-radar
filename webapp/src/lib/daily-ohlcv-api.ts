@@ -1,7 +1,7 @@
 /**
  * Phase 09.2 — 일봉 OHLCV fetch (webapp → Supabase 직접 호출).
  *
- * RESEARCH 단계의 webapp/src/app/mockups/shared/fetch-daily.ts 를 정식 promote.
+ * RESEARCH 단계의 shared/fetch-daily.ts (삭제됨, Plan 03 정리) 를 정식 promote.
  * 추가/변경:
  *   - AbortSignal 파라미터 (D-14 — 이전 요청 취소, Phase 6 패턴 승계)
  *   - 공유 타입은 @gh-radar/shared 의 DailyOhlcvRow / DailyOhlcvRangeKey 사용 (D-15)
