@@ -39,6 +39,9 @@ describe("upsertQuotesStep1", () => {
         change_rate: 0.71,
         volume: 10000000,
         trade_amount: 705000000000,
+        // 한국 시장 일일 변동폭 ±30% 임시값 — NOT NULL 제약 만족, STEP2 가 정확값으로 덮어씀
+        upper_limit: 70500 * 1.3,
+        lower_limit: 70500 * 0.7,
       }),
     );
     // stock_quotes 스키마에 없는 컬럼은 페이로드에 없어야 함 (2026-05-15 first cycle 에서 'market' 누락 에러 발견)

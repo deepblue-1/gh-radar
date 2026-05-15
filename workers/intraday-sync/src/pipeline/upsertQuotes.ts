@@ -29,6 +29,13 @@ export async function upsertQuotesStep1(
     change_rate: u.changeRate,
     volume: u.volume,
     trade_amount: u.tradeAmount,
+    // upper_limit/lower_limit 는 stock_quotes 의 NOT NULL 제약 (Phase 1 schema 잔재).
+    // 키움 ka10027 STEP1 응답에는 미포함 — STEP2 (ka10001 hot set) 가 정확값으로 덮어씀.
+    // 한국 시장 일일 변동폭 ±30% 규칙으로 근사값 채워 신규 종목 INSERT 의 NULL 위반 방지.
+    // hot set 외 종목은 다음 cycle 부터 본 임시값 그대로 유지 (EOD candle-sync 가 보정 가능).
+    // 향후 deferred: stock_quotes.upper_limit/lower_limit DROP NOT NULL migration 으로 정리.
+    upper_limit: Math.round(u.price * 1.3 * 100) / 100,
+    lower_limit: Math.round(u.price * 0.7 * 100) / 100,
     updated_at: now,
   }));
 
