@@ -78,7 +78,12 @@ RUNTIME_SA="gh-radar-intraday-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.co
 ##   정상 변동으로 통과시킨다.
 ## KIS 의 1,898 보다 적은 이유는 키움이 거래정지/관리 종목을 더 엄격히 제외하는 것으로 추정.
 ## 800 으로 하향하여 휴장일 (0 row) 가드만 유지하고, 정상 cycle 변동 (~900~1100) false positive 방지.
-COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@MIN_EXPECTED_ROWS=600@HOT_SET_TOP_N=200@KA10001_RATE_LIMIT=24"
+##
+## KA10001_RATE_LIMIT: 키움 ka10001 실측 rate limit ≈ 5 req/s. 이전 24 는 RESEARCH §1.7 의
+##   초기 추정값이었으나 hot set 200 종목 호출 시 ~30% (50~68건) 가 429 (Request failed with
+##   status code 429) 반환 — 키움 throttle. 2026-05-15 KA10001_RATE_LIMIT=5 로 하향한 직후
+##   cycle 부터 failed=0 / successful=203 안정. 5 req/s × 200 종목 ≈ 40s 처리 (cycle 60s 내).
+COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@MIN_EXPECTED_ROWS=600@HOT_SET_TOP_N=200@KA10001_RATE_LIMIT=5"
 COMMON_SECRETS="KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
 
 echo "▶ deploying Cloud Run Job: $JOB (VPC: $VPC_NAME, Static IP: $STATIC_IP)..."

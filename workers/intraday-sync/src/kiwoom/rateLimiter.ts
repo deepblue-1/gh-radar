@@ -1,12 +1,17 @@
 /**
  * 키움 ka10001 token-bucket rate limiter.
- * RESEARCH §1.7 — 24 req/s (사용자 실측 2026-05-13).
- * worker (STEP2 hot set) + server (on-demand) 가 동일 Static IP 공유 시
- * IP-단위 통합 bucket 가설 — 양쪽 24 req/s 적용 (보수적 overprovision).
+ *
+ * 초기 RESEARCH §1.7 가정: 24 req/s. 실측 (2026-05-15 production cycle) 결과 200 종목 hot
+ * set 호출 시 ~30% (50~68건) 가 429 반환 — 키움 실제 limit 가 더 낮음. KA10001_RATE_LIMIT=5
+ * 로 하향 후 failed=0 / successful=203 안정 확인. default 도 5 로 통일 (env 미지정 시
+ * 즉시 안정 동작).
+ *
+ * worker (STEP2 hot set) + server (on-demand) 가 동일 Static IP 공유 시 IP-단위 통합 bucket
+ * 가설은 유효 — 양쪽 동일 default 적용.
  */
 
-const BUCKET_CAPACITY_DEFAULT = 24;
-const REFILL_RATE_PER_SEC_DEFAULT = 24;
+const BUCKET_CAPACITY_DEFAULT = 5;
+const REFILL_RATE_PER_SEC_DEFAULT = 5;
 
 type Bucket = {
   available: number;
