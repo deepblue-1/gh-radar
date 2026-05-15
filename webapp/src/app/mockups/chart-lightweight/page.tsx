@@ -90,61 +90,71 @@ export default function MockupLightweightPage() {
   // 2) chart 인스턴스 생성/정리 — mount/unmount 1회
   useEffect(() => {
     if (!containerRef.current) return;
-    const isDark = detectDark();
-    const palette = isDark ? COLORS.dark : COLORS.light;
+    let cleanup: (() => void) | undefined;
+    try {
+      const isDark = detectDark();
+      const palette = isDark ? COLORS.dark : COLORS.light;
 
-    const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: 340,
-      autoSize: true,
-      layout: {
-        background: { color: palette.bg },
-        textColor: palette.text,
-        fontFamily:
-          'Pretendard Variable, Pretendard, system-ui, sans-serif',
-      },
-      grid: {
-        vertLines: { color: palette.grid, style: 1 },
-        horzLines: { color: palette.grid, style: 1 },
-      },
-      rightPriceScale: { borderColor: palette.grid },
-      timeScale: { borderColor: palette.grid, timeVisible: false },
-      crosshair: { mode: 1 },
-    });
+      const chart = createChart(containerRef.current, {
+        width: containerRef.current.clientWidth,
+        height: 340,
+        autoSize: true,
+        layout: {
+          background: { color: palette.bg },
+          textColor: palette.text,
+          fontFamily:
+            'Pretendard Variable, Pretendard, system-ui, sans-serif',
+        },
+        grid: {
+          vertLines: { color: palette.grid, style: 1 },
+          horzLines: { color: palette.grid, style: 1 },
+        },
+        rightPriceScale: { borderColor: palette.grid },
+        timeScale: { borderColor: palette.grid, timeVisible: false },
+        crosshair: { mode: 1 },
+      });
 
-    // v5 breaking change — addSeries(SeriesDefinition, options) 통합 패턴.
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: palette.up,
-      downColor: palette.down,
-      borderUpColor: palette.up,
-      borderDownColor: palette.down,
-      wickUpColor: palette.up,
-      wickDownColor: palette.down,
-    });
+      // v5 breaking change — addSeries(SeriesDefinition, options) 통합 패턴.
+      const candleSeries = chart.addSeries(CandlestickSeries, {
+        upColor: palette.up,
+        downColor: palette.down,
+        borderUpColor: palette.up,
+        borderDownColor: palette.down,
+        wickUpColor: palette.up,
+        wickDownColor: palette.down,
+      });
 
-    const volumeSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'volume', // 별도 scale 로 분리
-    });
-    // Volume scale 을 차트 하단 25% 영역에 고정 (캔들과 75/25 분할)
-    chart
-      .priceScale('volume')
-      .applyOptions({ scaleMargins: { top: 0.75, bottom: 0 } });
-    chart
-      .priceScale('right')
-      .applyOptions({ scaleMargins: { top: 0.05, bottom: 0.3 } });
+      const volumeSeries = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+      });
+      chart
+        .priceScale('volume')
+        .applyOptions({ scaleMargins: { top: 0.75, bottom: 0 } });
+      chart
+        .priceScale('right')
+        .applyOptions({ scaleMargins: { top: 0.05, bottom: 0.3 } });
 
-    chartRef.current = chart;
-    candleSeriesRef.current = candleSeries;
-    volumeSeriesRef.current = volumeSeries;
+      chartRef.current = chart;
+      candleSeriesRef.current = candleSeries;
+      volumeSeriesRef.current = volumeSeries;
 
-    // ResizeObserver 가 자동 (autoSize) — 추가 cleanup 필요 X.
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-      candleSeriesRef.current = null;
-      volumeSeriesRef.current = null;
-    };
+      cleanup = () => {
+        chart.remove();
+        chartRef.current = null;
+        candleSeriesRef.current = null;
+        volumeSeriesRef.current = null;
+      };
+    } catch (e) {
+      const stack =
+        e instanceof Error
+          ? `${e.name}: ${e.message}\n${(e.stack ?? '').split('\n').slice(0, 4).join('\n')}`
+          : String(e);
+      // 진단용 — Phase 09.2 RESEARCH 단계의 lightweight-charts root error 추적
+      console.error('[mockup3] createChart failed:', e);
+      setError(stack);
+    }
+    return cleanup;
   }, []);
 
   // 3) 데이터 갱신 — series.setData() 만 호출 (chart 재생성 X)
