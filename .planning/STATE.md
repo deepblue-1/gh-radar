@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Completed 09.1-09-PLAN.md (Wave 4 cutover #1 — Worker production live. intraday-sync image ef120aa Scheduler ENABLED 매분 trigger 정상, INV 6/6 + check-scheduler + check-static-ip PASS, 5건 deviation auto-fix, KIS ingestion 잔존)"
-last_updated: "2026-05-15T02:18:02.787Z"
+stopped_at: "Completed 09.1-10-PLAN.md (Wave 4 cutover #2 — Server VPC redeploy. revision gh-radar-server-00015-zr5, image fe96bec, smoke 9/9 PASS, GET /api/stocks/005930+000660 200, Cloud Logging Kiwoom runtime ready tokenLen=86. KIS env/secret 잔존, Plan 11 cleanup 대기)"
+last_updated: "2026-05-15T02:31:01.015Z"
 last_activity: 2026-05-15
 progress:
   total_phases: 19
   completed_phases: 10
   total_plans: 81
-  completed_plans: 65
-  percent: 80
+  completed_plans: 66
+  percent: 81
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.1 (intraday-current-price) — EXECUTING
-Plan: 10 of 11
+Plan: 11 of 11
 Plans completed: 61 / 70 (Phase 9 6 plans 추가)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -110,6 +110,7 @@ Progress: [████████▊░] 87% (61/70 plans · 10/17 phases)
 | Phase 09.1 P07 | 8m | 3 tasks | 15 files |
 | Phase 09.1 P08 | 4m22s | 4 tasks | 5 files |
 | Phase 09.1 P09 | 75min | 7 tasks | 8 files |
+| Phase 09.1 P10 | 8m | 4 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -181,6 +182,10 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 09] stock_quotes payload 의 name/market 키 미포함 + upper_limit/lower_limit 한국 시장 일일변동폭 ±30% 임시값 채움. PLAN 06 의 잘못된 컬럼 가정 정정.
 - [Phase 09.1]: [Plan 09] upsertQuotesStep2 UPSERT → 종목별 UPDATE — Supabase upsert(onConflict) 가 INSERT 분기에서 모든 NOT NULL 평가하는 함정 회피. ~250 종목 직렬 호출 수십 ms (60s cycle 매우 여유).
 - [Phase 09.1]: [Plan 09] STEP2 hot set 을 STEP1 처리 종목으로 intersect — watchlist 종목 중 ka10027 미응답 종목이 STEP2 신규 INSERT 시도하는 문제 해소. dropped 카운트 로그.
+- [Phase 09.1]: [Plan 10] server Cloud Run service 재배포 (revision gh-radar-server-00015-zr5, image fe96bec) — Direct VPC Egress (gh-radar-vpc + gh-radar-subnet-an3 + vpc-egress=all-traffic) + KIWOOM secret (APPKEY+SECRETKEY:latest) 적용. 종목 상세 페이지가 키움 ka10001 동기 호출로 전환. smoke 9/9 + Cloud Logging Kiwoom runtime ready (tokenLen=86) + GET /api/stocks/005930+000660 200 검증. KIS env/secret 잔존 (Plan 11 cleanup).
+- [Phase 09.1]: [Plan 10] Cloud Run service Direct VPC Egress 패턴 — annotation run.googleapis.com/network-interfaces + vpc-access-egress=all-traffic 으로 Serverless VPC Access connector 없이 native VPC 연결. Cloud Run Job (intraday-sync) + service (server) 가 동일 VPC + Cloud NAT 공유, Static IP 34.64.195.151 1개로 키움 IP whitelist 운영 통합 (D-29 충족).
+- [Phase 09.1]: [Plan 10] cold-start 약 3초 (예측 1-2분 대비 우수) — min-instances=1 유지 + Cloud Run 의 빠른 instance startup. RESEARCH §4.6 T-12 의 예측보다 좋게 동작. server 이미지 빌드 (Plan 07 코드) 가 production schema 와 자연 호환 (Plan 09 의 worker 5건 deviation 패턴이 server 측 발생 안 함).
+- [Phase 09.1]: [Plan 10] Cloud Logging 검색 시 pino 의 실제 필드명은 jsonPayload.message (msg 아님) — Plan 본문 검증 쿼리의 jsonPayload.msg 패턴은 미동작. 향후 GCP 로그 검색 시 jsonPayload.message 사용. 본 plan 에서 자연 정정.
 
 ### Pending Todos
 
@@ -204,6 +209,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-15T02:18:02.784Z
-Stopped at: Completed 09.1-09-PLAN.md (Wave 4 cutover #1 — Worker production live. intraday-sync image ef120aa Scheduler ENABLED 매분 trigger 정상, INV 6/6 + check-scheduler + check-static-ip PASS, 5건 deviation auto-fix, KIS ingestion 잔존)
+Last session: 2026-05-15T02:31:01.012Z
+Stopped at: Completed 09.1-10-PLAN.md (Wave 4 cutover #2 — Server VPC redeploy. revision gh-radar-server-00015-zr5, image fe96bec, smoke 9/9 PASS, GET /api/stocks/005930+000660 200, Cloud Logging Kiwoom runtime ready tokenLen=86. KIS env/secret 잔존, Plan 11 cleanup 대기)
 Next: Phase 8 — Discussion Board 실행 (`/gsd-execute-phase 8`) — CONTEXT/RESEARCH/UI-SPEC 완료, PLAN 작성부터
