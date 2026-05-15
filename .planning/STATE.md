@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 09.2 CONTEXT 보강 라운드 — mockup 라이브러리 후보 3종 lock-in
-last_updated: "2026-05-15T10:46:42.538Z"
+stopped_at: Completed 09.2-02-PLAN.md (Wave 2 — Daily Chart 컴포넌트 3종 + 8 unit tests)
+last_updated: "2026-05-15T13:05:58.393Z"
 last_activity: 2026-05-15 -- Phase 09.2 planning complete
 progress:
   total_phases: 19
   completed_phases: 11
   total_plans: 84
-  completed_plans: 67
-  percent: 80
+  completed_plans: 69
+  percent: 82
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 09.2
-Plan: Not started
-Plans completed: 62 / 70 (Phase 9 6 plans + 09.1 11 plans)
-Status: Ready to execute
+Plan: 02 complete (Wave 2 — Daily Chart 컴포넌트 3종 + 8 unit tests). Wave 3 (Plan 03 — StockDetailClient mount + E2E) 대기.
+Plans completed: 64 / 70 (Phase 9 6 plans + 09.1 11 plans + 09.2 Wave 1+Wave 2)
+Status: Executing
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-05-15 -- Phase 09.2 planning complete
+Last activity: 2026-05-15 -- Phase 09.2 Plan 02 complete (Wave 2)
 
-Progress: [█████████░] 89% (62/70 plans · 11/17 phases)
+Progress: [█████████░] 91% (64/70 plans · 11/17 phases)
 
 ### Phase 9 Production State (2026-05-12 12:24 KST)
 
@@ -112,6 +112,7 @@ Progress: [█████████░] 89% (62/70 plans · 11/17 phases)
 | Phase 09.1 P09 | 75min | 7 tasks | 8 files |
 | Phase 09.1 P10 | 8m | 4 tasks | 2 files |
 | Phase 09.1 P11 | 22m | 6 tasks | 47 files |
+| Phase 09.2 P02 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,9 @@ Recent decisions affecting current work:
 - [Phase 09.1]: [Plan 10] Cloud Logging 검색 시 pino 의 실제 필드명은 jsonPayload.message (msg 아님) — Plan 본문 검증 쿼리의 jsonPayload.msg 패턴은 미동작. 향후 GCP 로그 검색 시 jsonPayload.message 사용. 본 plan 에서 자연 정정.
 - [Phase 09.1]: [Plan 11] KIS ingestion 완전 폐기 (RESEARCH §12 11-step). 데이터 정합 검증 (Scheduler PAUSE 후 10분 대기 + intraday-sync 단독 운영 870 row 5분 갱신 확인) → GCP 리소스 7개 삭제 (Job + Scheduler + SA + Secrets×3 + Alert) → kis_tokens DROP migration push (PGRST205) → 47 파일 git rm/edit + commit db391ac. PLAN 본문은 KIS secret 2개만 명시했으나 GCP 에 gh-radar-kis-account-number 추가 발견 — Rule 2 (Auto-add critical) 로 함께 삭제.
 - [Phase 09.1]: [Plan 11] server 재배포 시 `gcloud run deploy --update-secrets` 가 기존 KIS secret binding 을 **누적**하여 첫 deploy 가 "Permission denied on secret: gh-radar-kis-app-key" 로 실패. Rule 3 (Auto-fix blocking) — `gcloud run services update --remove-secrets=KIS_APP_KEY,KIS_APP_SECRET --remove-env-vars=KIS_BASE_URL` 로 명시 제거하여 새 revision gh-radar-server-00017-mrm (image db391ac) 활성화. lesson — Cloud Run 의 secret binding 변경 시 `--remove-secrets` 명시 필수.
+- [Phase 09.2]: Plan 02: useEffect 3-effect 분리 (mount/theme/rows) — theme 변경 시 chart 인스턴스 재생성 회피 + Volume bar per-bar color 도 theme effect 에서 재주입 (Pitfall 6 fix)
+- [Phase 09.2]: Plan 02: error.message 의도적 미노출 (T-09.2-07 mitigate) — generic 카피 + console.error 분리. PostgREST/RLS 내부 정보 누설 표면 0
+- [Phase 09.2]: Plan 02: 단위 테스트는 lightweight-charts 전체 mock — jsdom 에서 Canvas 렌더링 불가, 시각 검증은 Manual Verification (Plan 03 checkpoint) 책임
 
 ### Pending Todos
 
@@ -213,6 +217,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-05-15T05:52:02.396Z
-Stopped at: Phase 09.2 CONTEXT 보강 라운드 — mockup 라이브러리 후보 3종 lock-in
+Last session: 2026-05-15T13:05:50.031Z
+Stopped at: Completed 09.2-02-PLAN.md (Wave 2 — Daily Chart 컴포넌트 3종 + 8 unit tests)
 Next: Phase 10 AI Summarization (Not started) — CONTEXT/RESEARCH 작성부터 (`/gsd-context-phase 10`)
