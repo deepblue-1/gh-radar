@@ -22,8 +22,10 @@ vi.mock('lightweight-charts', () => {
     applyOptions: vi.fn(),
     remove: vi.fn(),
   };
+  const markersPlugin = { setMarkers: vi.fn(), detach: vi.fn() };
   return {
     createChart: vi.fn(() => chart),
+    createSeriesMarkers: vi.fn(() => markersPlugin),
     CandlestickSeries: 'CandlestickSeries',
     HistogramSeries: 'HistogramSeries',
   };

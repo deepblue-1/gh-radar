@@ -21,14 +21,23 @@ import {
   CandlestickSeries,
   HistogramSeries,
   createChart,
+  createSeriesMarkers,
   type CandlestickData,
   type HistogramData,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
 import type { DailyOhlcvRow } from '@gh-radar/shared';
 import { getChartPalette, type ChartPalette } from '@/lib/chart-colors';
+
+/**
+ * KRX 가격제한폭 = ±30%. changeRate 가 29.5 이상이면 상한가로 판정.
+ * (실측치가 29.97% / 29.99% 등으로 저장되는 경우 흡수 위해 0.5 마진).
+ */
+const UPPER_LIMIT_THRESHOLD = 29.5;
 
 export interface StockDailyChartProps {
   /** 시간 ASC 정렬된 rows. 빈 배열이면 차트 인스턴스만 생성하고 setData 안 함 */
@@ -80,6 +89,7 @@ export function StockDailyChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
   // 1) chart 인스턴스 mount/unmount 1회. 초기 palette 는 dark default
   //    (theme effect 가 2번째 tick 에서 정확값으로 재주입)
@@ -126,15 +136,21 @@ export function StockDailyChart({
       .priceScale('right')
       .applyOptions({ scaleMargins: { top: 0.05, bottom: 0.3 } });
 
+    // 사용자 요청 (2026-05-16): 상한가 (changeRate ≥ 29.5%) 캔들 위에 마커 표시.
+    // markers plugin 은 mount 시 빈 배열로 1회 생성, rows effect 가 setMarkers 갱신.
+    const markersPlugin = createSeriesMarkers<Time>(candleSeries, []);
+
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
+    markersPluginRef.current = markersPlugin;
 
     return () => {
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      markersPluginRef.current = null;
     };
   }, []);
 
@@ -168,6 +184,7 @@ export function StockDailyChart({
     if (rows.length === 0) {
       candle.setData([]);
       volume.setData([]);
+      markersPluginRef.current?.setMarkers([]);
       return;
     }
     const palette = getChartPalette(resolvePaletteKey(resolvedTheme));
@@ -185,6 +202,23 @@ export function StockDailyChart({
     }));
     candle.setData(candleData);
     volume.setData(volumeData);
+
+    // 사용자 요청 (2026-05-16): 상한가 캔들 마커.
+    // - 일봉(D): changeRate ≥ 29.5% → 위쪽 화살표 + "상한" 라벨
+    // - 주봉/월봉(W/M): aggregateByTimeframe 가 changeRate=null 로 설정하므로 자연히 미표시
+    const markers: SeriesMarker<Time>[] = rows
+      .filter(
+        (r) => r.changeRate !== null && r.changeRate >= UPPER_LIMIT_THRESHOLD,
+      )
+      .map((r) => ({
+        time: r.date as Time,
+        position: 'aboveBar',
+        color: palette.up,
+        shape: 'arrowUp',
+        text: '상한',
+      }));
+    markersPluginRef.current?.setMarkers(markers);
+
     // 사용자 요청 (2026-05-16): 기본 1Y 데이터에서 최근 30개만 보이도록 scroll 위치 설정.
     // 사용자는 마우스 휠/드래그로 자유롭게 과거 영역 탐색 가능 (lightweight-charts 기본 동작).
     const last = rows.length - 1;
