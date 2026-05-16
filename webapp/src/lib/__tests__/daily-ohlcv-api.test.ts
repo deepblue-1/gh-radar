@@ -113,7 +113,7 @@ describe('fetchDailyOhlcv', () => {
     expect(rows[0].changeRate).toBe(0.71);
   });
 
-  it('거래정지 row (open=0) 는 응답에서 제외 — 케스피온 079190 4월 9~30일 패턴', async () => {
+  it('거래정지 row (open=0) 는 OHLC 를 close 로 통일해 "-" 캔들로 표시 — 케스피온 079190 패턴', async () => {
     finalResolved = {
       data: [
         // 정상 row
@@ -127,19 +127,9 @@ describe('fetchDailyOhlcv', () => {
           change_amount: 5,
           change_rate: 1.54,
         },
-        // 거래정지 (KRX 응답이 OHLV=0, close=직전종가)
+        // 거래정지 — KRX 응답이 OHLV=0, close=직전종가 (330)
         {
           date: '2026-04-09',
-          open: 0,
-          high: 0,
-          low: 0,
-          close: 330,
-          volume: 0,
-          change_amount: 0,
-          change_rate: 0,
-        },
-        {
-          date: '2026-04-10',
           open: 0,
           high: 0,
           low: 0,
@@ -164,8 +154,37 @@ describe('fetchDailyOhlcv', () => {
     };
 
     const rows = await fetchDailyOhlcv('079190', '1Y');
-    expect(rows).toHaveLength(2);
-    expect(rows.map((r) => r.date)).toEqual(['2026-04-08', '2026-05-04']);
+    expect(rows).toHaveLength(3);
+
+    const halted = rows.find((r) => r.date === '2026-04-09');
+    expect(halted).toBeDefined();
+    // OHLC 모두 직전종가(330) 로 통일 → "-" 모양 캔들
+    expect(halted!.open).toBe(330);
+    expect(halted!.high).toBe(330);
+    expect(halted!.low).toBe(330);
+    expect(halted!.close).toBe(330);
+    expect(halted!.volume).toBe(0);
+    expect(halted!.changeRate).toBe(0);
+  });
+
+  it('open=0 + close=0 (의미 없는 비정상 row) 는 제외', async () => {
+    finalResolved = {
+      data: [
+        {
+          date: '2026-04-09',
+          open: 0,
+          high: 0,
+          low: 0,
+          close: 0,
+          volume: 0,
+          change_amount: null,
+          change_rate: null,
+        },
+      ],
+      error: null,
+    };
+    const rows = await fetchDailyOhlcv('079190', '1Y');
+    expect(rows).toEqual([]);
   });
 
   it('change_amount / change_rate null 유지', async () => {
