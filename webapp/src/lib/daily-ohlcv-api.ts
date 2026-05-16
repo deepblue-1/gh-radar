@@ -89,16 +89,24 @@ export async function fetchDailyOhlcv(
   if (error) throw error;
   if (!data) return [];
 
-  return (data as RawRow[]).map((r) => ({
-    date: r.date,
-    open: Number(r.open),
-    high: Number(r.high),
-    low: Number(r.low),
-    close: Number(r.close),
-    volume: Number(r.volume),
-    changeAmount: r.change_amount === null ? null : Number(r.change_amount),
-    changeRate: r.change_rate === null ? null : Number(r.change_rate),
-  }));
+  /**
+   * 2026-05-16 사용자 보고 (079190 케스피온): 거래정지 기간 (2026-04-09 ~ 04-30) 의 row 가
+   * open/high/low=0, close=마지막정상가, volume=0 으로 저장되어 차트에서 동일하게 표시.
+   * KRX 가 거래정지 종목에 OHLV=0, close=직전종가 패턴으로 응답하기 때문 (ingestion 이 그대로 적재).
+   * 차트 표시 단계에서 비정상 row 제외 — open === 0 은 정상 종목엔 절대 발생 안 함.
+   */
+  return (data as RawRow[])
+    .filter((r) => Number(r.open) > 0)
+    .map((r) => ({
+      date: r.date,
+      open: Number(r.open),
+      high: Number(r.high),
+      low: Number(r.low),
+      close: Number(r.close),
+      volume: Number(r.volume),
+      changeAmount: r.change_amount === null ? null : Number(r.change_amount),
+      changeRate: r.change_rate === null ? null : Number(r.change_rate),
+    }));
 }
 
 /** ISO YYYY-MM-DD 의 월요일 (KST 기준 주 시작) ISO 반환. */

@@ -113,6 +113,61 @@ describe('fetchDailyOhlcv', () => {
     expect(rows[0].changeRate).toBe(0.71);
   });
 
+  it('거래정지 row (open=0) 는 응답에서 제외 — 케스피온 079190 4월 9~30일 패턴', async () => {
+    finalResolved = {
+      data: [
+        // 정상 row
+        {
+          date: '2026-04-08',
+          open: 339,
+          high: 372,
+          low: 328,
+          close: 330,
+          volume: 2271554,
+          change_amount: 5,
+          change_rate: 1.54,
+        },
+        // 거래정지 (KRX 응답이 OHLV=0, close=직전종가)
+        {
+          date: '2026-04-09',
+          open: 0,
+          high: 0,
+          low: 0,
+          close: 330,
+          volume: 0,
+          change_amount: 0,
+          change_rate: 0,
+        },
+        {
+          date: '2026-04-10',
+          open: 0,
+          high: 0,
+          low: 0,
+          close: 330,
+          volume: 0,
+          change_amount: 0,
+          change_rate: 0,
+        },
+        // 거래재개
+        {
+          date: '2026-05-04',
+          open: 780,
+          high: 858,
+          low: 730,
+          close: 858,
+          volume: 1266408,
+          change_amount: 528,
+          change_rate: 30.0,
+        },
+      ],
+      error: null,
+    };
+
+    const rows = await fetchDailyOhlcv('079190', '1Y');
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.date)).toEqual(['2026-04-08', '2026-05-04']);
+  });
+
   it('change_amount / change_rate null 유지', async () => {
     finalResolved = {
       data: [

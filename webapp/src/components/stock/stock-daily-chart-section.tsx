@@ -61,7 +61,8 @@ export function StockDailyChartSection({
   code,
   refreshSignal,
 }: StockDailyChartSectionProps) {
-  const [range, setRange] = useState<DailyOhlcvRangeKey>('1Y');
+  // 2026-05-16 사용자 요청: 기본 3Y fetch 로 충분한 과거 데이터 확보, 화면엔 최근 60개만 표시 (StockDailyChart 가 처리).
+  const [range, setRange] = useState<DailyOhlcvRangeKey>('3Y');
   const [timeframe, setTimeframe] = useState<DailyOhlcvTimeframe>('D');
   const [rows, setRows] = useState<DailyOhlcvRow[] | null>(null);
   const [error, setError] = useState<Error | null>(null);

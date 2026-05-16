@@ -49,8 +49,8 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
       await expect(page.getByRole('tab', { name: range })).toBeVisible();
     }
 
-    // 1Y 이 기본 active (2026-05-16 사용자 요청)
-    await expect(page.getByRole('tab', { name: '1Y' })).toHaveAttribute(
+    // 3Y 이 기본 active (2026-05-16 사용자 요청 — 충분한 과거 데이터, 화면엔 최근 60개)
+    await expect(page.getByRole('tab', { name: '3Y' })).toHaveAttribute(
       'aria-selected',
       'true',
     );
@@ -98,7 +98,9 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
     }
   });
 
-  test('range 토글 — 2Y 클릭 시 aria-selected 전환', async ({ page }) => {
+  test('range 토글 — 1Y 클릭 시 aria-selected 전환 (기본 3Y → 1Y)', async ({
+    page,
+  }) => {
     await mockStockApi(page);
     await mockNewsApi(page, {
       code: '005930',
@@ -106,12 +108,12 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
     });
     await page.goto('/stocks/005930');
 
-    const tab2y = page.getByRole('tab', { name: '2Y' });
-    await expect(tab2y).toBeVisible();
-    await tab2y.click();
+    const tab1y = page.getByRole('tab', { name: '1Y' });
+    await expect(tab1y).toBeVisible();
+    await tab1y.click();
 
-    await expect(tab2y).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('tab', { name: '1Y' })).toHaveAttribute(
+    await expect(tab1y).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: '3Y' })).toHaveAttribute(
       'aria-selected',
       'false',
     );

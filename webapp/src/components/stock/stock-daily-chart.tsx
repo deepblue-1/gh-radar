@@ -90,6 +90,40 @@ function applyPaletteToChart(
 
 const NUM = new Intl.NumberFormat('ko-KR');
 
+/**
+ * 2026-05-16 사용자 요청: 차트 위 날짜 라벨을 "2025.4.26" 형식으로 표시.
+ * Time 입력은 lightweight-charts 의 BusinessDay({year,month,day}) 또는 ISO 'YYYY-MM-DD' 문자열.
+ * 차트 옵션 (tickMarkFormatter / localization.timeFormatter) + overlay 양쪽이 동일 포맷.
+ */
+function formatChartDate(time: Time): string {
+  let y: number;
+  let m: number;
+  let d: number;
+  if (typeof time === 'string') {
+    const [ys, ms, ds] = time.split('-');
+    y = parseInt(ys, 10);
+    m = parseInt(ms, 10);
+    d = parseInt(ds, 10);
+  } else if (typeof time === 'object' && time !== null && 'year' in time) {
+    const t = time as { year: number; month: number; day: number };
+    y = t.year;
+    m = t.month;
+    d = t.day;
+  } else {
+    // UTCTimestamp (seconds since epoch) — fallback
+    const dt = new Date((time as number) * 1000);
+    y = dt.getUTCFullYear();
+    m = dt.getUTCMonth() + 1;
+    d = dt.getUTCDate();
+  }
+  return `${y}.${m}.${d}`;
+}
+
+function formatChartDateIso(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${y}.${parseInt(m, 10)}.${parseInt(d, 10)}`;
+}
+
 export function StockDailyChart({
   rows,
   height = 340,
@@ -128,7 +162,16 @@ export function StockDailyChart({
         horzLines: { color: palette.grid, style: 1 },
       },
       rightPriceScale: { borderColor: palette.grid },
-      timeScale: { borderColor: palette.grid, timeVisible: false },
+      timeScale: {
+        borderColor: palette.grid,
+        timeVisible: false,
+        // 2026-05-16 사용자 요청: 차트 하단 날짜 tick 라벨을 "yyyy.M.d" 형식으로.
+        tickMarkFormatter: (time: Time) => formatChartDate(time),
+      },
+      localization: {
+        // crosshair vertical line 의 날짜 라벨도 동일 포맷.
+        timeFormatter: (time: Time) => formatChartDate(time),
+      },
       // 2026-05-16 사용자 요청: crosshair Normal mode (mode=0) — 마우스 위치 그대로 따라가며
       // 세로축 라벨이 마우스 y 의 가격을 표시. mode=1(Magnet) 은 캔들 종가 snap.
       crosshair: { mode: 0 },
@@ -265,10 +308,10 @@ export function StockDailyChart({
       }));
     markersPluginRef.current?.setMarkers(markers);
 
-    // 2026-05-16: 기본 1Y 데이터에서 최근 30개만 보이도록 scroll 위치 설정.
+    // 2026-05-16 사용자 요청: 3Y 데이터를 fetch 하되 화면에는 최근 60개 영업일만 표시.
     // 사용자는 마우스 휠/드래그로 자유롭게 과거 영역 탐색 가능 (lightweight-charts 기본 동작).
     const last = rows.length - 1;
-    const visibleCount = Math.min(30, rows.length);
+    const visibleCount = Math.min(60, rows.length);
     chart
       .timeScale()
       .setVisibleLogicalRange({ from: last - visibleCount + 1, to: last });
@@ -291,7 +334,8 @@ export function StockDailyChart({
       {hoveredOhlc && (
         <div
           data-testid="stock-daily-chart-ohlc-overlay"
-          className="pointer-events-none absolute right-3 top-2 flex flex-col gap-0.5 rounded-[var(--r-sm)] bg-[var(--card)]/85 px-2 py-1 text-[length:var(--t-caption)] text-[var(--card-fg)] shadow-[0_1px_2px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+          // 2026-05-16 사용자 요청: priceScale(우측) 에 가려지지 않도록 좌상단 배치.
+          className="pointer-events-none absolute left-3 top-2 flex flex-col gap-0.5 rounded-[var(--r-sm)] bg-[var(--card)]/85 px-2 py-1 text-[length:var(--t-caption)] text-[var(--card-fg)] shadow-[0_1px_2px_rgba(0,0,0,0.08)] backdrop-blur-sm"
         >
           <div className="flex items-center gap-2">
             <span
@@ -299,7 +343,9 @@ export function StockDailyChart({
               className="inline-block h-2 w-2 rounded-full"
               style={{ backgroundColor: ohlcSwatchColor }}
             />
-            <span className="font-medium tabular-nums">{hoveredOhlc.date}</span>
+            <span className="font-medium tabular-nums">
+              {formatChartDateIso(hoveredOhlc.date)}
+            </span>
           </div>
           <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 tabular-nums">
             <span className="text-[var(--muted-fg)]">시</span>
