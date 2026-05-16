@@ -79,11 +79,7 @@ export async function runRecover(deps: {
         );
       }
 
-      // 2026-05-16: KRX stale 응답 가드 — open=0 row 는 적재하지 않음.
-      // recover 도 다른 시점에 KRX 재호출하므로 daily/backfill 과 동일 가드 필요.
-      const mapped = krxRows
-        .map(krxBdydToOhlcvRow)
-        .filter((r) => r.open > 0);
+      const mapped = krxRows.map(krxBdydToOhlcvRow);
       const { count } = await withRetry(
         () => upsertOhlcv(supabase, mapped),
         `upsertOhlcv ${basDd}`,
