@@ -67,6 +67,19 @@ export async function runRecover(deps: {
         continue;
       }
 
+      // 2026-05-16: KRX stale 응답 가드 — OHLV=0 비율 50% 이상이면 per-day skip.
+      // recover 도 다른 시점에 KRX 재호출 → daily/backfill 과 동일 위험.
+      const zeroCount = krxRows.filter(
+        (r) => Number(r.TDD_OPNPRC) === 0,
+      ).length;
+      if (zeroCount / krxRows.length > 0.5) {
+        log2.warn(
+          { basDd, zeroCount, total: krxRows.length },
+          "KRX stale response (>50% OHLV=0) — skip upsert",
+        );
+        continue;
+      }
+
       // T-09-03 옵션 B
       const boot = await withRetry(
         () => bootstrapStocks(supabase, krxRows),

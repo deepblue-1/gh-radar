@@ -69,6 +69,22 @@ export async function runBackfill(deps: {
         );
       }
 
+      // 2026-05-16: KRX stale 응답 가드 — OHLV=0 비율 50% 이상이면 per-day skip.
+      // 5/15 사례: 토요일 호출 시 KRX 가 가장 최근 거래일 데이터를 전 종목 OHLV=0
+      // 으로 응답해 기존 정상 daily sync row 덮어쓸 위험. 평소 거래정지 비율은
+      // 5~8% 라 50% threshold 충분히 안전. 거래정지 row 적재는 영향 없음.
+      const zeroCount = krxRows.filter(
+        (r) => Number(r.TDD_OPNPRC) === 0,
+      ).length;
+      if (zeroCount / krxRows.length > 0.5) {
+        log2.warn(
+          { basDd, zeroCount, total: krxRows.length },
+          "KRX stale response (>50% OHLV=0) — skip upsert, keep existing",
+        );
+        daysProcessed += 1;
+        continue;
+      }
+
       // T-09-03 옵션 B: stocks bootstrap
       const boot = await withRetry(
         () => bootstrapStocks(supabase, krxRows),

@@ -50,6 +50,20 @@ export async function runDaily(deps: {
     );
   }
 
+  // 2026-05-16: KRX stale 응답 가드 — OHLV=0 비율 50% 이상이면 적재 skip.
+  // 5/15 (가장 최근 거래일) 토요일 호출 시 KRX 가 전 종목 OHLV=0 으로 응답한 사례.
+  // 평소 거래정지 비율은 5~8% 라 50% threshold 충분히 안전.
+  // 거래정지 row (정상 OHLV=0) 는 비율이 낮으므로 정상 적재 가능 — sanity check 만.
+  const zeroCount = krxRows.filter((r) => Number(r.TDD_OPNPRC) === 0).length;
+  const zeroRatio = zeroCount / krxRows.length;
+  if (zeroRatio > 0.5) {
+    log2.warn(
+      { zeroCount, total: krxRows.length, zeroRatio },
+      "KRX stale response detected (>50% OHLV=0) — skip upsert, keep existing rows",
+    );
+    return { basDd, count: 0 };
+  }
+
   // T-09-03 옵션 B: stocks bootstrap 먼저 (FK orphan 회피)
   const boot = await withRetry(
     () => bootstrapStocks(supabase, krxRows),
