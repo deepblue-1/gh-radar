@@ -105,6 +105,7 @@ export function StockDailyChart({
     });
 
     // v5 breaking change — addSeries(SeriesDefinition, options) 통합 패턴 (Pitfall 4)
+    // 사용자 요청 (2026-05-16): KRX 가격 = 정수 원 단위. 소숫점 제거 (precision: 0).
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: palette.up,
       downColor: palette.down,
@@ -112,6 +113,7 @@ export function StockDailyChart({
       borderDownColor: palette.down,
       wickUpColor: palette.up,
       wickDownColor: palette.down,
+      priceFormat: { type: 'price', precision: 0, minMove: 1 },
     });
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
@@ -183,7 +185,13 @@ export function StockDailyChart({
     }));
     candle.setData(candleData);
     volume.setData(volumeData);
-    chart.timeScale().fitContent();
+    // 사용자 요청 (2026-05-16): 기본 1Y 데이터에서 최근 30개만 보이도록 scroll 위치 설정.
+    // 사용자는 마우스 휠/드래그로 자유롭게 과거 영역 탐색 가능 (lightweight-charts 기본 동작).
+    const last = rows.length - 1;
+    const visibleCount = Math.min(30, rows.length);
+    chart
+      .timeScale()
+      .setVisibleLogicalRange({ from: last - visibleCount + 1, to: last });
   }, [rows, resolvedTheme]);
 
   return (

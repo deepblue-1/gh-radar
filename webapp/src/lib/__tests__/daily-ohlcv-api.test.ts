@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DailyOhlcvRow } from '@gh-radar/shared';
 
 // ── createClient mock — fetchDailyOhlcv 호출 체인 검증 ──
 //
@@ -41,6 +42,9 @@ vi.mock('@/lib/supabase/client', () => ({
 }));
 
 import {
+  aggregateByTimeframe,
+  aggregateToMonthly,
+  aggregateToWeekly,
   fetchDailyOhlcv,
   rangeToFromDate,
 } from '../daily-ohlcv-api';
@@ -63,16 +67,16 @@ describe('rangeToFromDate', () => {
   const today = new Date('2026-05-15T00:00:00Z');
 
   it.each([
-    ['1M', '2026-03-16'],
-    ['3M', '2026-01-15'],
-    ['6M', '2025-10-07'],
     ['1Y', '2025-04-10'],
+    ['2Y', '2024-03-06'],
+    ['3Y', '2023-01-31'],
+    ['5Y', '2020-11-22'],
   ] as const)('range %s → today − N일 = %s', (range, expected) => {
     expect(rangeToFromDate(range, today)).toBe(expected);
   });
 
   it('today 인자 미주입 시 현재 시각 기준 호출 가능 (smoke)', () => {
-    const result = rangeToFromDate('1M');
+    const result = rangeToFromDate('1Y');
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
@@ -95,7 +99,7 @@ describe('fetchDailyOhlcv', () => {
       error: null,
     };
 
-    const rows = await fetchDailyOhlcv('005930', '1M');
+    const rows = await fetchDailyOhlcv('005930', '1Y');
 
     expect(fromMock).toHaveBeenCalledWith('stock_daily_ohlcv');
     expect(selectMock).toHaveBeenCalledWith(
@@ -126,27 +130,81 @@ describe('fetchDailyOhlcv', () => {
       error: null,
     };
 
-    const rows = await fetchDailyOhlcv('900001', '1M');
+    const rows = await fetchDailyOhlcv('900001', '1Y');
     expect(rows[0].changeAmount).toBeNull();
     expect(rows[0].changeRate).toBeNull();
   });
 
   it('AbortSignal 주입 시 Supabase abortSignal() 호출 chain 진입', async () => {
     const ctrl = new AbortController();
-    await fetchDailyOhlcv('005930', '1M', ctrl.signal);
+    await fetchDailyOhlcv('005930', '1Y', ctrl.signal);
     expect(recordedAbortSignal).toBe(ctrl.signal);
   });
 
   it('Supabase error → throw', async () => {
     finalResolved = { data: null, error: new Error('PostgREST 401') };
-    await expect(fetchDailyOhlcv('005930', '1M')).rejects.toThrow(
+    await expect(fetchDailyOhlcv('005930', '1Y')).rejects.toThrow(
       'PostgREST 401',
     );
   });
 
   it('data === null 응답을 빈 배열로 정규화', async () => {
     finalResolved = { data: null, error: null };
-    const rows = await fetchDailyOhlcv('005930', '1M');
+    const rows = await fetchDailyOhlcv('005930', '1Y');
     expect(rows).toEqual([]);
+  });
+});
+
+/**
+ * Aggregate 함수 검증 — 일봉 5일을 주봉 1개로 묶고, 두 달치를 월봉 2개로 묶는다.
+ */
+describe('aggregateToWeekly / aggregateToMonthly / aggregateByTimeframe', () => {
+  /** 2026-05-11(월) ~ 2026-05-15(금) 5 영업일 */
+  const week1: DailyOhlcvRow[] = [
+    { date: '2026-05-11', open: 100, high: 110, low: 95, close: 105, volume: 100, changeAmount: null, changeRate: null },
+    { date: '2026-05-12', open: 105, high: 115, low: 100, close: 110, volume: 110, changeAmount: null, changeRate: null },
+    { date: '2026-05-13', open: 110, high: 120, low: 105, close: 115, volume: 120, changeAmount: null, changeRate: null },
+    { date: '2026-05-14', open: 115, high: 125, low: 110, close: 120, volume: 130, changeAmount: null, changeRate: null },
+    { date: '2026-05-15', open: 120, high: 130, low: 115, close: 125, volume: 140, changeAmount: null, changeRate: null },
+  ];
+
+  it('주봉 — 월요일 anchor + OHLC 합산', () => {
+    const w = aggregateToWeekly(week1);
+    expect(w).toHaveLength(1);
+    expect(w[0].date).toBe('2026-05-11');
+    expect(w[0].open).toBe(100); // 첫날 open
+    expect(w[0].close).toBe(125); // 마지막날 close
+    expect(w[0].high).toBe(130); // 주간 max
+    expect(w[0].low).toBe(95); // 주간 min
+    expect(w[0].volume).toBe(600); // 합산
+    expect(w[0].changeAmount).toBeNull();
+  });
+
+  it('월봉 — 월 anchor + OHLC 합산 (2 달치)', () => {
+    const month1: DailyOhlcvRow[] = [
+      ...week1,
+      { date: '2026-06-01', open: 130, high: 140, low: 125, close: 135, volume: 200, changeAmount: null, changeRate: null },
+      { date: '2026-06-30', open: 135, high: 150, low: 130, close: 145, volume: 210, changeAmount: null, changeRate: null },
+    ];
+    const m = aggregateToMonthly(month1);
+    expect(m).toHaveLength(2);
+    expect(m[0].date).toBe('2026-05-01');
+    expect(m[0].close).toBe(125);
+    expect(m[1].date).toBe('2026-06-01');
+    expect(m[1].open).toBe(130);
+    expect(m[1].close).toBe(145);
+    expect(m[1].high).toBe(150);
+    expect(m[1].volume).toBe(410);
+  });
+
+  it('aggregateByTimeframe — D 는 raw 반환, W/M 은 분기', () => {
+    expect(aggregateByTimeframe(week1, 'D')).toBe(week1);
+    expect(aggregateByTimeframe(week1, 'W')).toHaveLength(1);
+    expect(aggregateByTimeframe(week1, 'M')).toHaveLength(1);
+  });
+
+  it('빈 배열은 빈 배열 반환', () => {
+    expect(aggregateToWeekly([])).toEqual([]);
+    expect(aggregateToMonthly([])).toEqual([]);
   });
 });

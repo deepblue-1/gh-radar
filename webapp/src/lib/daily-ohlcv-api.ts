@@ -9,6 +9,10 @@
  *   - Pitfall 10 (RLS authenticated 누락) 은 본 phase 의 마이그레이션
  *     20260515163000_fix_stock_daily_ohlcv_rls_authenticated.sql 에서 fix 완료 —
  *     anon + authenticated 양쪽 모두 SELECT 허용
+ *
+ * 2026-05-16 사용자 요청 갱신:
+ *   - range = 1Y/2Y/3Y/5Y (기존 1M/3M/6M/1Y 폐기)
+ *   - 클라이언트 주봉/월봉 aggregate 함수 추가 (aggregateToWeekly/Monthly)
  */
 
 'use client';
@@ -17,6 +21,7 @@ import {
   DAILY_OHLCV_RANGES,
   type DailyOhlcvRangeKey,
   type DailyOhlcvRow,
+  type DailyOhlcvTimeframe,
 } from '@gh-radar/shared';
 import { createClient } from '@/lib/supabase/client';
 
@@ -33,10 +38,10 @@ interface RawRow {
 
 /** range → 시작일 (calendar day 마진 — 휴장일/주말 흡수). */
 const RANGE_TO_DAYS: Record<DailyOhlcvRangeKey, number> = {
-  '1M': 60,
-  '3M': 120,
-  '6M': 220,
   '1Y': 400,
+  '2Y': 800,
+  '3Y': 1200,
+  '5Y': 2000,
 };
 
 /**
@@ -94,6 +99,81 @@ export async function fetchDailyOhlcv(
     changeAmount: r.change_amount === null ? null : Number(r.change_amount),
     changeRate: r.change_rate === null ? null : Number(r.change_rate),
   }));
+}
+
+/** ISO YYYY-MM-DD 의 월요일 (KST 기준 주 시작) ISO 반환. */
+function isoWeekKey(dateIso: string): string {
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO YYYY-MM-DD → 'YYYY-MM-01' (월 시작 anchor). */
+function isoMonthKey(dateIso: string): string {
+  return `${dateIso.slice(0, 7)}-01`;
+}
+
+/**
+ * 일봉 rows 를 bucket(주/월) 으로 묶어 OHLCV 합산.
+ * - open = bucket 첫 거래일의 open
+ * - close = bucket 마지막 거래일의 close
+ * - high = bucket 내 max
+ * - low = bucket 내 min
+ * - volume = bucket 합
+ * - changeAmount/changeRate = null (의미 다름 — UI 에서 미사용)
+ *
+ * rows 는 ASC 정렬 가정. 반환값도 ASC.
+ */
+function bucketRows(
+  rows: DailyOhlcvRow[],
+  bucketKey: (date: string) => string,
+): DailyOhlcvRow[] {
+  if (rows.length === 0) return [];
+  const buckets = new Map<string, DailyOhlcvRow[]>();
+  for (const r of rows) {
+    const key = bucketKey(r.date);
+    const list = buckets.get(key);
+    if (list) list.push(r);
+    else buckets.set(key, [r]);
+  }
+  const keys = Array.from(buckets.keys()).sort();
+  return keys.map((key) => {
+    const group = buckets.get(key)!;
+    const first = group[0];
+    const last = group[group.length - 1];
+    return {
+      date: key,
+      open: first.open,
+      high: Math.max(...group.map((g) => g.high)),
+      low: Math.min(...group.map((g) => g.low)),
+      close: last.close,
+      volume: group.reduce((sum, g) => sum + g.volume, 0),
+      changeAmount: null,
+      changeRate: null,
+    };
+  });
+}
+
+/** 일봉 → 주봉 (월요일 anchor). */
+export function aggregateToWeekly(rows: DailyOhlcvRow[]): DailyOhlcvRow[] {
+  return bucketRows(rows, isoWeekKey);
+}
+
+/** 일봉 → 월봉 (해당 월 1일 anchor). */
+export function aggregateToMonthly(rows: DailyOhlcvRow[]): DailyOhlcvRow[] {
+  return bucketRows(rows, isoMonthKey);
+}
+
+/** timeframe 별 변환 dispatcher. */
+export function aggregateByTimeframe(
+  rows: DailyOhlcvRow[],
+  timeframe: DailyOhlcvTimeframe,
+): DailyOhlcvRow[] {
+  if (timeframe === 'W') return aggregateToWeekly(rows);
+  if (timeframe === 'M') return aggregateToMonthly(rows);
+  return rows;
 }
 
 /** 외부 컴포넌트에서 토글 iterate 용 — packages/shared 의 readonly tuple 재export. */
