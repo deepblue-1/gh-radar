@@ -81,7 +81,12 @@ export async function runBackfill(deps: {
         );
       }
 
-      const mapped = krxRows.map(krxBdydToOhlcvRow);
+      // 2026-05-16: KRX stale 응답 가드 — open=0 row 는 적재하지 않음.
+      // 5/15 사례: backfill 이 토요일에 KRX 재호출 → 다수 종목이 OHLV=0 으로 응답되어
+      // 기존 정상 daily sync row 를 덮어씀. mapping 후 filter 로 영구 차단.
+      const mapped = krxRows
+        .map(krxBdydToOhlcvRow)
+        .filter((r) => r.open > 0);
       const { count } = await withRetry(
         () => upsertOhlcv(supabase, mapped),
         `upsertOhlcv ${basDd}`,

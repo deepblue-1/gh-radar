@@ -63,7 +63,12 @@ export async function runDaily(deps: {
   }
 
   // map + upsert
-  const mapped = krxRows.map(krxBdydToOhlcvRow);
+  // 2026-05-16: KRX stale 응답 가드 — open=0 row 는 적재하지 않음.
+  // KRX bydd_trd 가 시점에 따라 일부 종목을 OHLV=0 으로 응답 (예: 토요일 호출 시 stale).
+  // upsert 가 이를 그대로 적재하면 기존 정상 row 가 덮어써짐. mapping 후 filter 로 차단.
+  const mapped = krxRows
+    .map(krxBdydToOhlcvRow)
+    .filter((r) => r.open > 0);
   const { count } = await withRetry(
     () => upsertOhlcv(supabase, mapped),
     "upsertOhlcv",
