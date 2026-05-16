@@ -217,8 +217,12 @@ export function StockDailyChartSection({
         </div>
       )}
 
-      {/* Pitfall 5: container 항상 visible — Skeleton/Empty 는 absolute overlay */}
-      <div className="relative h-[340px] w-full">
+      {/*
+        Pitfall 5: container 항상 visible — Skeleton/Empty 는 absolute overlay.
+        2026-05-16 사용자 요청: 차트 영역 좌우 여백 제거. 카드 padding(p-5 = 1.25rem)
+        만큼 음의 마진으로 화면 좌우까지 차트 확장. 헤더/요약은 padding 유지.
+      */}
+      <div className="relative -mx-5 h-[340px] bg-[var(--card)]">
         {isLoading && (
           <div className="absolute inset-0">
             <StockDailyChartSkeleton height={340} />

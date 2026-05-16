@@ -20,6 +20,8 @@ vi.mock('lightweight-charts', () => {
       setVisibleLogicalRange: vi.fn(),
     })),
     applyOptions: vi.fn(),
+    subscribeCrosshairMove: vi.fn(),
+    unsubscribeCrosshairMove: vi.fn(),
     remove: vi.fn(),
   };
   const markersPlugin = { setMarkers: vi.fn(), detach: vi.fn() };

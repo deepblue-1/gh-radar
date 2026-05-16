@@ -26,20 +26,26 @@ export interface ChartPalette {
   bg: string;
 }
 
+/**
+ * 2026-05-16 사용자 요청: 다크모드 차트 배경이 카드와 미묘하게 다른 회색이라 튐.
+ * 해결: bg 를 투명 (rgba(0,0,0,0)) 으로 두고 chart container 의 CSS background 가
+ * var(--card) 를 그대로 표시. light/dark 모두 카드 색과 완전 일치.
+ * lightweight-charts 의 color parser 는 rgba() 정상 수용 (Pitfall 9 unaffected — oklch 만 거부).
+ */
 const PALETTES: Record<'light' | 'dark', ChartPalette> = {
   light: {
     up: '#ef4444',
     down: '#3b82f6',
     text: '#737373',
     grid: '#e7e7e7',
-    bg: '#ffffff',
+    bg: 'rgba(0, 0, 0, 0)',
   },
   dark: {
     up: '#f87171',
     down: '#60a5fa',
     text: '#a3a3a3',
     grid: '#2e2e2e',
-    bg: '#1c1c1c',
+    bg: 'rgba(0, 0, 0, 0)',
   },
 } as const;
 

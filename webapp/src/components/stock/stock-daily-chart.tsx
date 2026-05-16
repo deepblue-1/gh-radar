@@ -4,7 +4,7 @@
  * Phase 09.2 — lightweight-charts 5.2.0 React wrapper.
  *
  * 책임 분리:
- *   - 본 컴포넌트: chart 인스턴스 lifecycle + theme/rows 반응만
+ *   - 본 컴포넌트: chart 인스턴스 lifecycle + theme/rows 반응 + crosshair hover OHLC overlay
  *   - 부모 (StockDailyChartSection): fetch + 토글 + Skeleton/Empty/Error 분기
  *
  * Pitfall 정리 (RESEARCH §Pitfalls):
@@ -15,7 +15,7 @@
  *   - Pitfall 9: 색상은 chart-colors.ts 의 sRGB 팔레트만 사용, CSS Color 4 함수형 직접 주입 금지
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
 import {
   CandlestickSeries,
@@ -27,6 +27,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
+  type MouseEventParams,
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
@@ -34,8 +35,8 @@ import type { DailyOhlcvRow } from '@gh-radar/shared';
 import { getChartPalette, type ChartPalette } from '@/lib/chart-colors';
 
 /**
- * KRX 가격제한폭 = ±30%. changeRate 가 29.5 이상이면 상한가로 판정.
- * (실측치가 29.97% / 29.99% 등으로 저장되는 경우 흡수 위해 0.5 마진).
+ * KRX 가격제한폭 = ±30%. 실제 상한가 changeRate 는 호가단위 floor 로 29.82~29.999%.
+ * 29.5 마진은 안전 (29.4% 로 상한 되는 케이스는 사실상 없음).
  */
 const UPPER_LIMIT_THRESHOLD = 29.5;
 
@@ -44,6 +45,14 @@ export interface StockDailyChartProps {
   rows: DailyOhlcvRow[];
   /** Skeleton/Empty 오버레이 시에도 chart container 는 항상 visible (Pitfall 5) */
   height?: number;
+}
+
+interface HoveredOhlc {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 function resolvePaletteKey(
@@ -79,6 +88,8 @@ function applyPaletteToChart(
   void volume;
 }
 
+const NUM = new Intl.NumberFormat('ko-KR');
+
 export function StockDailyChart({
   rows,
   height = 340,
@@ -90,6 +101,13 @@ export function StockDailyChart({
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+
+  /**
+   * 2026-05-16 사용자 요청: 마우스가 캔들 위에 있을 때 OHLC 를 차트 우상단에 표시.
+   * crosshair 는 Normal mode (자유 이동) — 세로축 라벨은 마우스 y 위치의 가격.
+   * 마우스가 chart 밖이거나 빈 영역이면 null → overlay 미표시.
+   */
+  const [hoveredOhlc, setHoveredOhlc] = useState<HoveredOhlc | null>(null);
 
   // 1) chart 인스턴스 mount/unmount 1회. 초기 palette 는 dark default
   //    (theme effect 가 2번째 tick 에서 정확값으로 재주입)
@@ -111,11 +129,13 @@ export function StockDailyChart({
       },
       rightPriceScale: { borderColor: palette.grid },
       timeScale: { borderColor: palette.grid, timeVisible: false },
-      crosshair: { mode: 1 },
+      // 2026-05-16 사용자 요청: crosshair Normal mode (mode=0) — 마우스 위치 그대로 따라가며
+      // 세로축 라벨이 마우스 y 의 가격을 표시. mode=1(Magnet) 은 캔들 종가 snap.
+      crosshair: { mode: 0 },
     });
 
     // v5 breaking change — addSeries(SeriesDefinition, options) 통합 패턴 (Pitfall 4)
-    // 사용자 요청 (2026-05-16): KRX 가격 = 정수 원 단위. 소숫점 제거 (precision: 0).
+    // 2026-05-16 사용자 요청: KRX 가격 = 정수 원 단위. 소숫점 제거 (precision: 0).
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: palette.up,
       downColor: palette.down,
@@ -136,9 +156,33 @@ export function StockDailyChart({
       .priceScale('right')
       .applyOptions({ scaleMargins: { top: 0.05, bottom: 0.3 } });
 
-    // 사용자 요청 (2026-05-16): 상한가 (changeRate ≥ 29.5%) 캔들 위에 마커 표시.
-    // markers plugin 은 mount 시 빈 배열로 1회 생성, rows effect 가 setMarkers 갱신.
+    // 2026-05-16 사용자 요청: 상한가 (changeRate ≥ 29.5%) 캔들 위에 "상" 마커.
     const markersPlugin = createSeriesMarkers<Time>(candleSeries, []);
+
+    // 2026-05-16 사용자 요청: crosshair hover 시 해당 캔들의 OHLC 를 우상단 overlay 로 표시.
+    // subscribeCrosshairMove 는 마우스가 차트 영역 위에 있을 때 fire. param.time === undefined
+    // 이면 마우스가 빈 영역(데이터 밖) → overlay 숨김.
+    const onCrosshairMove = (param: MouseEventParams<Time>) => {
+      if (!param.time) {
+        setHoveredOhlc(null);
+        return;
+      }
+      const data = param.seriesData.get(candleSeries) as
+        | CandlestickData<Time>
+        | undefined;
+      if (!data) {
+        setHoveredOhlc(null);
+        return;
+      }
+      setHoveredOhlc({
+        date: String(param.time),
+        open: data.open,
+        high: data.high,
+        low: data.low,
+        close: data.close,
+      });
+    };
+    chart.subscribeCrosshairMove(onCrosshairMove);
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
@@ -146,6 +190,7 @@ export function StockDailyChart({
     markersPluginRef.current = markersPlugin;
 
     return () => {
+      chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -175,7 +220,7 @@ export function StockDailyChart({
     }
   }, [resolvedTheme, rows]);
 
-  // 3) rows 변경 시 candle + volume setData
+  // 3) rows 변경 시 candle + volume setData + markers
   useEffect(() => {
     const candle = candleSeriesRef.current;
     const volume = volumeSeriesRef.current;
@@ -185,6 +230,7 @@ export function StockDailyChart({
       candle.setData([]);
       volume.setData([]);
       markersPluginRef.current?.setMarkers([]);
+      setHoveredOhlc(null);
       return;
     }
     const palette = getChartPalette(resolvePaletteKey(resolvedTheme));
@@ -203,8 +249,8 @@ export function StockDailyChart({
     candle.setData(candleData);
     volume.setData(volumeData);
 
-    // 사용자 요청 (2026-05-16): 상한가 캔들 마커.
-    // - 일봉(D): changeRate ≥ 29.5% → 위쪽 화살표 + "상한" 라벨
+    // 2026-05-16: 상한가 캔들 마커. 사용자 요청으로 "상한" → "상" 라벨 단축.
+    // - 일봉(D): changeRate ≥ 29.5% → 위쪽 화살표 + "상"
     // - 주봉/월봉(W/M): aggregateByTimeframe 가 changeRate=null 로 설정하므로 자연히 미표시
     const markers: SeriesMarker<Time>[] = rows
       .filter(
@@ -215,11 +261,11 @@ export function StockDailyChart({
         position: 'aboveBar',
         color: palette.up,
         shape: 'arrowUp',
-        text: '상한',
+        text: '상',
       }));
     markersPluginRef.current?.setMarkers(markers);
 
-    // 사용자 요청 (2026-05-16): 기본 1Y 데이터에서 최근 30개만 보이도록 scroll 위치 설정.
+    // 2026-05-16: 기본 1Y 데이터에서 최근 30개만 보이도록 scroll 위치 설정.
     // 사용자는 마우스 휠/드래그로 자유롭게 과거 영역 탐색 가능 (lightweight-charts 기본 동작).
     const last = rows.length - 1;
     const visibleCount = Math.min(30, rows.length);
@@ -228,12 +274,45 @@ export function StockDailyChart({
       .setVisibleLogicalRange({ from: last - visibleCount + 1, to: last });
   }, [rows, resolvedTheme]);
 
+  const palette = getChartPalette(resolvePaletteKey(resolvedTheme));
+  const ohlcSwatchColor =
+    hoveredOhlc && hoveredOhlc.close >= hoveredOhlc.open
+      ? palette.up
+      : palette.down;
+
   return (
-    <div
-      ref={containerRef}
-      data-testid="stock-daily-chart-canvas"
-      className="h-full w-full"
-      style={{ height: `${height}px` }}
-    />
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        data-testid="stock-daily-chart-canvas"
+        className="h-full w-full"
+        style={{ height: `${height}px` }}
+      />
+      {hoveredOhlc && (
+        <div
+          data-testid="stock-daily-chart-ohlc-overlay"
+          className="pointer-events-none absolute right-3 top-2 flex flex-col gap-0.5 rounded-[var(--r-sm)] bg-[var(--card)]/85 px-2 py-1 text-[length:var(--t-caption)] text-[var(--card-fg)] shadow-[0_1px_2px_rgba(0,0,0,0.08)] backdrop-blur-sm"
+        >
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: ohlcSwatchColor }}
+            />
+            <span className="font-medium tabular-nums">{hoveredOhlc.date}</span>
+          </div>
+          <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 tabular-nums">
+            <span className="text-[var(--muted-fg)]">시</span>
+            <span>{NUM.format(hoveredOhlc.open)}</span>
+            <span className="text-[var(--muted-fg)]">고</span>
+            <span>{NUM.format(hoveredOhlc.high)}</span>
+            <span className="text-[var(--muted-fg)]">저</span>
+            <span>{NUM.format(hoveredOhlc.low)}</span>
+            <span className="text-[var(--muted-fg)]">종</span>
+            <span>{NUM.format(hoveredOhlc.close)}</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
