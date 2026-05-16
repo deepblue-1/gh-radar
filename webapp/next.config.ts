@@ -10,6 +10,7 @@ import type { NextConfig } from 'next';
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  transpilePackages: ['@gh-radar/shared'],
   async headers() {
     return [
       {
