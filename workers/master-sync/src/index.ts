@@ -4,7 +4,6 @@ import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
 import { createKrxClient } from "./krx/client";
 import { fetchMasterFromKrx } from "./krx/fetchBaseInfo";
-import { fetchEtpMastersFromKrx } from "./krx/fetchEtpBaseInfo";
 import { krxToMasterRow } from "./pipeline/map";
 import { upsertMasters } from "./pipeline/upsert";
 import { withRetry } from "./retry";
@@ -36,19 +35,15 @@ export async function runMasterSync(deps?: {
   const supabase = createSupabaseClient(config);
   const krx = createKrxClient(config);
 
-  // 주식 (KOSPI 주권 + KOSDAQ 주권) + ETP (ETF + ETN + ELW) 병렬 fetch.
-  // ETP 추가 배경: KRX 가 "주식" (`/sto/*`) 과 "증권상품" (`/etp/*`) 카테고리 분리 운영 →
-  //   stk/ksq 기본정보 응답에 ETF/ETN/ELW 미포함. ETP 별도 호출로 정확한 마스터 구축.
-  //   ETP 가 stocks 에 등록돼야 intraday-sync 의 bootstrapStocks placeholder 잘못 분류가
-  //   사라지고 rebuildTopMovers 의 security_group 화이트리스트가 정확히 작동한다.
-  const [krxRows, etpRows] = await Promise.all([
-    withRetry(() => fetchMasterFromKrx(krx, basDd), "fetchMasterFromKrx"),
-    withRetry(() => fetchEtpMastersFromKrx(krx, basDd), "fetchEtpMastersFromKrx"),
-  ]);
-  log.info(
-    { krxRows: krxRows.length, etpRows: etpRows.length, basDd },
-    "KRX fetched",
+  // 주식 (KOSPI 주권 + KOSDAQ 주권) 만 fetch.
+  // 2026-05-16 사용자 결정: ETP (ETF/ETN/ELW) 는 차트 ingestion 대상 (KRX bydd_trd) 의 universe 가
+  // 아니라서 마스터에서 제외. recover threshold (활성 × 0.9) 결측 false alarm 방지.
+  // 향후 ETF/ETN 도 다루려면 etp_bydd_trd 별도 endpoint 적재 흐름과 함께 다시 활성화.
+  const krxRows = await withRetry(
+    () => fetchMasterFromKrx(krx, basDd),
+    "fetchMasterFromKrx",
   );
+  log.info({ krxRows: krxRows.length, basDd }, "KRX fetched");
 
   // WARN: 주식 0 row 는 에러로 처리하되 "서비스 승인 미완료" 가능성을 명시 (신규 배포 직후)
   if (krxRows.length === 0) {
@@ -67,7 +62,7 @@ export async function runMasterSync(deps?: {
     );
   }
 
-  const masters = [...krxRows, ...etpRows].map(krxToMasterRow);
+  const masters = krxRows.map(krxToMasterRow);
   const { count } = await withRetry(
     () => upsertMasters(supabase, masters),
     "upsertMasters",
