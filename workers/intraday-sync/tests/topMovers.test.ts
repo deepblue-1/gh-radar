@@ -134,4 +134,27 @@ describe("rebuildTopMovers", () => {
     const payload = supabase._insert.mock.calls[0][0] as Array<Record<string, unknown>>;
     expect(payload[0]).toEqual(expect.objectContaining({ market: "KOSPI" }));
   });
+
+  it("scan_id — cycle 별 동일 uuid 발급, NULL 방지 (kespion 회귀)", async () => {
+    // 회귀 가드: scan_id 가 NULL 이면 discussion-sync/news-sync 의 targets.ts 가
+    // movers 조회를 skip → watchlists 만 sync 되어 일반 종목 데이터 누락.
+    const supabase = mockTopMovers();
+    const updates = makeUpdates([5, 4, 3]);
+    const marketMap = new Map<string, "KOSPI" | "KOSDAQ">();
+    const eligibleCodes = new Set(updates.map((u) => u.code));
+    await rebuildTopMovers(
+      supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
+      updates,
+      marketMap,
+      eligibleCodes,
+    );
+    const payload = supabase._insert.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(payload).toHaveLength(3);
+    const scanIds = payload.map((r) => r.scan_id);
+    // 모든 row 의 scan_id 가 동일 (cycle 내 단일 발급)
+    expect(new Set(scanIds).size).toBe(1);
+    // scan_id 가 non-null uuid 형식
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(scanIds[0]).toMatch(uuidRe);
+  });
 });

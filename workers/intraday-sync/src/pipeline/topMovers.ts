@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
 import { logger } from "../logger";
@@ -17,6 +18,11 @@ import { logger } from "../logger";
  *
  * stale cleanup 패턴 (D-21): top_movers 는 매 cycle 재구성 — 누적 X.
  * stock_quotes 는 누적 (D-20) — 다른 정책.
+ *
+ * scan_id (Phase 06.1 D-21): 매 cycle randomUUID 발급 → row 전체에 동일 값 주입.
+ *   discussion-sync/news-sync targets.ts 가 `최신 scan_id 의 movers` 를 추출할 때
+ *   사용. 이 값이 NULL 이면 sync workers 가 watchlists 종목만 sync → 회귀.
+ *   (Phase 09.1 마이그레이션 시 누락되었던 컬럼을 복원.)
  *
  * top_movers schema (20260415120000_split_stocks_master_quotes_movers.sql):
  *   - code text PRIMARY KEY
@@ -47,12 +53,14 @@ export async function rebuildTopMovers(
   }
 
   const now = new Date().toISOString();
+  const scanId = randomUUID();
   const rows = top.map((u, idx) => ({
     code: u.code,
     name: u.name ?? u.code,
     market: marketMap.get(u.code) ?? ("KOSPI" as const),
     rank: idx + 1,
     ranked_at: now,
+    scan_id: scanId,
     updated_at: now,
   }));
 
