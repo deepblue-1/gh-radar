@@ -117,6 +117,10 @@ export async function classifyAndPersist(
 ): Promise<number> {
   if (rows.length === 0) return 0;
   const cfg = loadConfig();
+  if (!cfg.classifyEnabled) {
+    logger.info({ total: rows.length }, "classify disabled — skip");
+    return 0;
+  }
   if (!cfg.anthropicApiKey) {
     logger.warn({}, "anthropic key missing — classify skipped");
     return 0;

@@ -16,6 +16,10 @@ export async function classifyBatch(
   log: pino.Logger,
 ): Promise<Map<string, Label>> {
   const cfg = loadConfig();
+  if (!cfg.classifyEnabled) {
+    log.info({ total: rows.length }, "classify disabled — skip");
+    return new Map();
+  }
   const limit = pLimit(cfg.classifyConcurrency);
   const results = new Map<string, Label>();
   await Promise.allSettled(

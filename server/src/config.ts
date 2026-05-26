@@ -28,6 +28,12 @@ export type AppConfig = {
   anthropicApiKey: string | null;
   classifyConcurrency: number;
   classifyModel: string;
+  /**
+   * 분류 기능 일괄 ON/OFF — 튜닝 중 정지 등 운영용 kill-switch.
+   * `DISCUSSION_CLASSIFY_ENABLED` env, default true. "false" 일 때 classifyAndPersist
+   * 가 호출되어도 즉시 0 반환 → Claude 호출/비용 0. refresh 는 200 유지.
+   */
+  classifyEnabled: boolean;
 };
 
 export function loadConfig(): AppConfig {
@@ -69,5 +75,6 @@ export function loadConfig(): AppConfig {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? null,
     classifyConcurrency: Number(process.env.DISCUSSION_CLASSIFY_CONCURRENCY ?? "5"),
     classifyModel: process.env.DISCUSSION_CLASSIFY_MODEL ?? "claude-haiku-4-5",
+    classifyEnabled: (process.env.DISCUSSION_CLASSIFY_ENABLED ?? "true") !== "false",
   };
 }

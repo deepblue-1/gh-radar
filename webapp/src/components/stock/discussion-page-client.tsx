@@ -41,9 +41,19 @@ export interface DiscussionPageClientProps {
 
 const PAGE_SIZE = 50;
 
+/**
+ * 분류 기능 일괄 정지 플래그 — 튜닝 끝나면 false 로 (또는 상수 제거).
+ * paused 일 때:
+ *  - 토글이 disabled + 항상 OFF (filter='all')
+ *  - URL `?filter=meaningful` 도 무시 (disabled UI 와 모순 방지)
+ */
+const CLASSIFY_PAUSED = true;
+
 function deriveFilterFromUrl(
   params: URLSearchParams,
 ): 'all' | 'meaningful' {
+  // 분류 정지 중에는 URL param 무시하고 항상 all.
+  if (CLASSIFY_PAUSED) return 'all';
   // 기본 meaningful — `?filter` 미존재 / 알 수 없는 값 / 'meaningful' → meaningful
   return params.get('filter') === 'all' ? 'all' : 'meaningful';
 }
@@ -237,6 +247,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
           id="discussion-meaningful-toggle"
           checked={filter === 'meaningful'}
           onCheckedChange={onToggleFilter}
+          disabled={CLASSIFY_PAUSED}
           aria-label="의미있는 토론만 보기"
         />
       </div>

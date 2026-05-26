@@ -26,6 +26,8 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "sr";
   process.env.BRIGHTDATA_API_KEY = "bd";
   process.env.DISCUSSION_SYNC_CLASSIFY_CONCURRENCY = "5";
+  // 분류 정지 kill-switch — 셸 env 누수로 false 가 흘러들어와도 단위 테스트는 항상 enabled.
+  process.env.DISCUSSION_CLASSIFY_ENABLED = "true";
   mockCreate.mockReset();
   __resetAnthropicClientForTests();
 });
