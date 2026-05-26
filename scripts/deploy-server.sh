@@ -142,7 +142,7 @@ gcloud run deploy "$SERVICE" \
   --network="$VPC_NAME" \
   --subnet="$SUBNET_NAME" \
   --vpc-egress=all-traffic \
-  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}" \
+  --set-env-vars="^@^NODE_ENV=production@LOG_LEVEL=info@SUPABASE_URL=${SUPABASE_URL}@CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@APP_VERSION=${SHA}@DISCUSSION_CLASSIFY_ENABLED=${DISCUSSION_CLASSIFY_ENABLED:-true}" \
   --update-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,NAVER_CLIENT_ID=NAVER_CLIENT_ID:latest,NAVER_CLIENT_SECRET=NAVER_CLIENT_SECRET:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest"
 
 # ═══════════════════════════════════════════════════════════════
