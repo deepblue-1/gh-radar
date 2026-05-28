@@ -69,9 +69,9 @@ check "INV-7 CORS preflight (거부)" bash -c "
   ! curl -s -X OPTIONS -H 'Origin: https://evil.example.com' -H 'Access-Control-Request-Method: GET' -D - -o /dev/null '$URL/api/scanner' | grep -qi '^access-control-allow-origin:'
 "
 
-# INV-8: rate limit — 201 req → 마지막은 429
+# INV-8: rate limit — /api/scanner 201 req → 마지막은 429 (health 는 rate-limit skip 대상이므로 다른 라우트로 검증)
 check "INV-8 rate limit 201 req → 429" bash -c "
-  last=\$(for i in \$(seq 1 201); do curl -s -o /dev/null -w '%{http_code}\n' '$URL/api/health'; done | tail -1)
+  last=\$(for i in \$(seq 1 201); do curl -s -o /dev/null -w '%{http_code}\n' '$URL/api/scanner'; done | tail -1)
   [ \"\$last\" = '429' ]
 "
 
