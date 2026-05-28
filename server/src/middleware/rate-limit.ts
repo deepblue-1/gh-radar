@@ -8,6 +8,7 @@ export function apiRateLimiter(): RequestHandler {
     standardHeaders: "draft-7",
     legacyHeaders: false,
     keyGenerator: (req) => ipKeyGenerator(req.ip ?? "", 64),
+    skip: (req) => req.path.startsWith("/health"),
     handler: (_req, res) => {
       res.status(429).json({
         error: {

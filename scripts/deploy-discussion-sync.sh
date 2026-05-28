@@ -140,7 +140,7 @@ gcloud run jobs deploy "$JOB" \
   --service-account="gh-radar-discussion-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com" \
   --cpu=1 \
   --memory=512Mi \
-  --task-timeout=1800 \
+  --task-timeout=3600 \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
