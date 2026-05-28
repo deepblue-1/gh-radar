@@ -18,7 +18,7 @@ export type Config = {
   minExpectedRows: number;        // MIN_EXPECTED_ROWS, default 1500 (휴장일 가드 — RESEARCH §6)
   paginationHardCap: number;      // PAGINATION_HARD_CAP, default 5000
   hotSetTopN: number;             // HOT_SET_TOP_N, default 100 (D-11, 2026-05-15 200→100 — top_movers 와 일치 + rate limit 안전마진 2배)
-  ka10001RateLimitPerSec: number; // KA10001_RATE_LIMIT, default 24 (사용자 실측)
+  ka10001RateLimitPerSec: number; // KA10001_RATE_LIMIT, default 5 (2026-05-15 실측 후 하향, deploy 스크립트와 일치)
 };
 
 function parseNumberEnv(raw: string | undefined, fallback: number): number {
@@ -55,6 +55,6 @@ export function loadConfig(): Config {
     minExpectedRows: parseNumberEnv(process.env.MIN_EXPECTED_ROWS, 1500),
     paginationHardCap: parseNumberEnv(process.env.PAGINATION_HARD_CAP, 5000),
     hotSetTopN: parseNumberEnv(process.env.HOT_SET_TOP_N, 100),
-    ka10001RateLimitPerSec: parseNumberEnv(process.env.KA10001_RATE_LIMIT, 24),
+    ka10001RateLimitPerSec: parseNumberEnv(process.env.KA10001_RATE_LIMIT, 5),
   };
 }

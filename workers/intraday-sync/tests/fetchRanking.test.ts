@@ -1,6 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchKa10027 } from "../src/kiwoom/fetchRanking";
+import { resetKiwoomRateLimiter } from "../src/kiwoom/rateLimiter";
 import page1 from "./fixtures/ka10027-page1.json";
+
+// 매 테스트마다 rateLimiter 리셋 — fetchKa10027 가 페이지마다 token 소비하므로 idempotent 보장.
+beforeEach(() => {
+  resetKiwoomRateLimiter();
+});
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeClient(responses: Array<{ data: any; headers: any } | { error: any }>) {

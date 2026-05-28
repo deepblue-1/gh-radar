@@ -1,5 +1,6 @@
 import type { AxiosInstance } from "axios";
 import type { KiwoomKa10027Row } from "@gh-radar/shared";
+import { acquireKiwoomRateToken } from "./rateLimiter";
 
 /**
  * ka10027 등락률 순위 페이지네이션 loop.
@@ -48,6 +49,10 @@ export async function fetchKa10027(
       "cont-yn": contYn,
     };
     if (nextKey) headers["next-key"] = nextKey;
+
+    // 키움 IP-단위 통합 bucket 가설 — ka10027 페이지 호출도 ka10001 hot set 과 동일 limiter 공유.
+    // 2026-05-26 운영 로그에서 ka10027 페이지 연속 호출이 burst 로 429 받아 cycle exit(1) 다발.
+    await acquireKiwoomRateToken();
 
     let res;
     try {
