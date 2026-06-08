@@ -74,10 +74,10 @@ describe("computeHotSet", () => {
     await expect(computeHotSet(supabase, step1, 200)).rejects.toThrow(/supabase down/);
   });
 
-  it("회귀 가드 — changeRate 내림차순 정렬 후 top N 선정 (sort_tp=3 응답이 오름차순)", async () => {
-    // 2026-06-08 회귀 대응: ka10027 sort_tp=3 응답은 음수→양수 오름차순.
-    // hotSet 는 클라이언트 측에서 명시 정렬(내림차순) 필수. 미적용 시 약세장에서 음수 종목이
-    // top N 에 들어가 hot set 이 깨짐 → STEP2 quote/news/discussion 타겟 오류.
+  it("회귀 가드 — changeRate 내림차순 정렬 후 top N 선정 (응답 순서 무관 명시 정렬)", async () => {
+    // 키움 응답 순서에 의존하지 않도록 hotSet 는 클라이언트 측 명시 정렬(내림차순) 필수.
+    // 미적용 시 낮은/음수 종목이 top N 에 들어가 hot set 이 깨짐 → STEP2 타겟 오류.
+    // 입력은 음수→양수 오름차순으로 모사하여 정렬이 실제로 동작하는지 검증.
     const step1 = makeStep1WithRates([
       { code: "A00001", changeRate: -10 }, // 최하위
       { code: "A00002", changeRate: -2 },

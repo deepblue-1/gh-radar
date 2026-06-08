@@ -3,9 +3,8 @@
 // STEP 2 hot set 산출. RESEARCH §11 + D-11.
 //   hot set = (STEP1 top N) ∪ (watchlists.stock_code unique 전체)
 //
-// ka10027 응답은 sort_tp=3 (전체 시장, 등락률 오름차순) — 2026-06-08 회귀 대응 후.
-// 클라이언트 측에서 changeRate 내림차순 명시 정렬 후 slice(0, N).
-// null changeRate 는 정렬 비교에서 가장 낮은 값으로 취급 (실질적으로 후순위 배치).
+// ka10027 응답(sort_tp=1, 상승+보합)의 순서에 의존하지 않도록 changeRate 내림차순 명시
+// 정렬 후 slice(0, N). null changeRate 는 정렬 비교에서 가장 낮은 값으로 취급(후순위).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
@@ -16,7 +15,7 @@ export async function computeHotSet(
   topN: number,
 ): Promise<string[]> {
   // 1. STEP1 응답을 changeRate 내림차순 정렬 → top N 선정.
-  //    sort_tp=3 응답은 음수 → 양수 오름차순이므로 클라이언트 정렬 필수.
+  //    키움 응답 순서에 의존하지 않도록 명시 정렬(견고).
   const sorted = [...step1Updates].sort((a, b) => {
     const ar = a.changeRate ?? -Infinity;
     const br = b.changeRate ?? -Infinity;

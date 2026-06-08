@@ -135,9 +135,9 @@ describe("rebuildTopMovers", () => {
     expect(payload[0]).toEqual(expect.objectContaining({ market: "KOSPI" }));
   });
 
-  it("회귀 가드 — 양수 필터 + changeRate 내림차순 정렬 (sort_tp=3 오름차순 응답 대응)", async () => {
-    // 2026-06-08 회귀 대응: ka10027 sort_tp=3 응답은 음수→양수 오름차순.
-    // topMovers 는 양수 필터 + 클라이언트 정렬(내림차순) 둘 다 필수.
+  it("회귀 가드 — 양수 필터 + changeRate 내림차순 정렬 (응답 순서 무관 명시 정렬)", async () => {
+    // 키움 응답 순서에 의존하지 않도록 양수 필터 + 클라이언트 정렬(내림차순) 둘 다 필수.
+    // 입력은 음수→양수 오름차순으로 모사하여 정렬이 실제로 동작하는지 검증.
     // (양수 필터만 두고 정렬을 빠뜨리면 낮은 등락률 종목이 rank 1 차지 → top movers 의미 깨짐.)
     const supabase = mockTopMovers();
     // sort_tp=3 응답 형태 모사: 음수→양수 오름차순. 양수 부분은 작은 값부터.

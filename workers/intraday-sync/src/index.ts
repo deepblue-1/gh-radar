@@ -33,7 +33,7 @@ function todayIsoKst(): string {
  *
  * 휴장일 가드 (RESEARCH §2.5):
  *   - ka10027 0 row → warn + exit 정상 (no-op)
- *   - ka10027 < MIN_EXPECTED → throw "partial response"
+ *   (partial 가드(< MIN_EXPECTED_ROWS)는 제거 — sort_tp=1 상승 종목 수는 시장 따라 변동, 2026-06-08)
  */
 export async function runIntradayCycle(): Promise<{
   step1Count: number;
@@ -67,15 +67,12 @@ export async function runIntradayCycle(): Promise<{
   );
   log.info({ rows: ka10027Rows.length }, "STEP1 ka10027 fetched");
 
-  // 휴장일 / partial 응답 가드 (RESEARCH §2.5 + §6)
+  // 휴장일 가드 (RESEARCH §2.5): 0 row 는 휴장/키움 미응답 → no-op exit.
+  // partial 가드(< MIN_EXPECTED_ROWS)는 제거 — sort_tp=1 의 상승 종목 수는 시장 상황에 따라
+  // 자연 변동(약세장 348 ~ 강세장 1927)하므로 고정 하한 검증은 오탐(2026-06-08 회귀).
   if (ka10027Rows.length === 0) {
     log.warn("ka10027 0 rows — 휴장일 또는 키움 미응답");
     return { step1Count: 0, step2Count: 0, failed: 0 };
-  }
-  if (ka10027Rows.length < config.minExpectedRows) {
-    throw new Error(
-      `ka10027 ${ka10027Rows.length} < ${config.minExpectedRows} — partial response`,
-    );
   }
 
   // STEP 1 — bootstrap (FK orphan 회피)

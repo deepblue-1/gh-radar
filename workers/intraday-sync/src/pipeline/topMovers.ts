@@ -6,8 +6,8 @@ import { logger } from "../logger";
 /**
  * top_movers 재구성 — 매 cycle 등락률 상위 100 추출 + stale cleanup (DELETE + INSERT).
  *
- * ka10027 응답은 sort_tp=3 (전체 시장, 등락률 오름차순) — 2026-06-08 회귀 대응 후.
- * 클라이언트 측에서 changeRate 내림차순 명시 정렬 적용 필수.
+ * ka10027 응답(sort_tp=1, 상승+보합)의 순서에 의존하지 않도록 changeRate 내림차순 명시
+ * 정렬 적용 (키움 응답 순서 비의존).
  * 음의 등락률 종목 제외 (changeRate > 0) — top "movers" 정의상 상승 종목만.
  *
  * **eligibleCodes 화이트리스트** — stocks 마스터의 security_group 이 일반 주식 계열
@@ -44,7 +44,7 @@ export async function rebuildTopMovers(
   eligibleCodes: Set<string>,
 ): Promise<{ count: number }> {
   // 1. 양수 changeRate + 화이트리스트 필터 → changeRate 내림차순 정렬 → 상위 100 추출.
-  //    sort_tp=3 응답은 오름차순이므로 클라이언트 정렬 필수 (2026-06-08 회귀 대응).
+  //    키움 응답 순서에 의존하지 않도록 명시 정렬(견고).
   const top = step1Updates
     .filter((u) => u.changeRate !== null && u.changeRate > 0)
     .filter((u) => eligibleCodes.has(u.code))
