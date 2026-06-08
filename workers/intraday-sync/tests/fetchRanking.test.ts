@@ -37,7 +37,8 @@ describe("fetchKa10027", () => {
       "/api/dostk/rkinfo",
       expect.objectContaining({
         mrkt_tp: "000",
-        sort_tp: "1",
+        // sort_tp="3": 전체 시장 (음수 포함). "1" 은 상승 종목만 반환 → 약세장 partial response 회귀.
+        sort_tp: "3",
         updown_incls: "1",
         // stex_tp: 키움 spec 변경 (2026-05-15 first cycle 에서 1511 필수 누락 발견) — "3"=통합
         stex_tp: "3",
@@ -50,6 +51,20 @@ describe("fetchKa10027", () => {
         }),
       }),
     );
+  });
+
+  it("회귀 가드 — sort_tp 는 반드시 '3' (전체 시장). '1' 로 되돌리면 약세장 partial response 회귀", async () => {
+    // 2026-06-08 회귀: sort_tp=1 은 spec 상 "상승 종목 + 보합" 만 반환 → 약세장에서
+    // 응답 row 수가 시장 상승 종목 수에 비례 → MIN_EXPECTED_ROWS=600 가드 trip → cycle exit(1).
+    // sort_tp=3 으로 변경하여 전체 시장 row 안정 확보. 절대 '1' 로 되돌리지 말 것.
+    // debug session: .planning/debug/resolved/kiwoom-ka10027-partial-response.md
+    const client = makeClient([{ data: page1, headers: { "cont-yn": "N" } }]);
+    await fetchKa10027(client, "TOKEN");
+    const body = (client.post as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      sort_tp: string;
+    };
+    expect(body.sort_tp).toBe("3");
+    expect(body.sort_tp).not.toBe("1");
   });
 
   it("다중 페이지 (cont-yn=Y) → next-key 헤더로 다음 호출", async () => {

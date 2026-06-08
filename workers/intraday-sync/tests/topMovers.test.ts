@@ -135,6 +135,42 @@ describe("rebuildTopMovers", () => {
     expect(payload[0]).toEqual(expect.objectContaining({ market: "KOSPI" }));
   });
 
+  it("회귀 가드 — 양수 필터 + changeRate 내림차순 정렬 (sort_tp=3 오름차순 응답 대응)", async () => {
+    // 2026-06-08 회귀 대응: ka10027 sort_tp=3 응답은 음수→양수 오름차순.
+    // topMovers 는 양수 필터 + 클라이언트 정렬(내림차순) 둘 다 필수.
+    // (양수 필터만 두고 정렬을 빠뜨리면 낮은 등락률 종목이 rank 1 차지 → top movers 의미 깨짐.)
+    const supabase = mockTopMovers();
+    // sort_tp=3 응답 형태 모사: 음수→양수 오름차순. 양수 부분은 작은 값부터.
+    const updates: IntradayCloseUpdate[] = [
+      { code: "000001", date: "2026-05-14", name: "음수1", price: 1000, changeAmount: 0, changeRate: -5, volume: 0, tradeAmount: 0 },
+      { code: "000002", date: "2026-05-14", name: "음수2", price: 1000, changeAmount: 0, changeRate: -1, volume: 0, tradeAmount: 0 },
+      { code: "000003", date: "2026-05-14", name: "양수1", price: 1000, changeAmount: 0, changeRate: 0.5, volume: 0, tradeAmount: 0 },
+      { code: "000004", date: "2026-05-14", name: "양수2", price: 1000, changeAmount: 0, changeRate: 7, volume: 0, tradeAmount: 0 },
+      { code: "000005", date: "2026-05-14", name: "양수3", price: 1000, changeAmount: 0, changeRate: 15, volume: 0, tradeAmount: 0 },
+      { code: "000006", date: "2026-05-14", name: "양수4", price: 1000, changeAmount: 0, changeRate: 30, volume: 0, tradeAmount: 0 },
+    ];
+    const marketMap = new Map<string, "KOSPI" | "KOSDAQ">(
+      updates.map((u) => [u.code, "KOSPI" as const]),
+    );
+    const eligibleCodes = new Set(updates.map((u) => u.code));
+    const out = await rebuildTopMovers(
+      supabase as unknown as Parameters<typeof rebuildTopMovers>[0],
+      updates,
+      marketMap,
+      eligibleCodes,
+    );
+    // 양수 4개만 통과.
+    expect(out.count).toBe(4);
+    const payload = supabase._insert.mock.calls[0][0] as Array<Record<string, unknown>>;
+    // rank 1 = changeRate 30, rank 2 = 15, rank 3 = 7, rank 4 = 0.5.
+    expect(payload.map((r) => r.code)).toEqual(["000006", "000005", "000004", "000003"]);
+    expect(payload.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
+    // 음수 종목 제외 확인.
+    const codes = payload.map((r) => r.code);
+    expect(codes).not.toContain("000001");
+    expect(codes).not.toContain("000002");
+  });
+
   it("scan_id — cycle 별 동일 uuid 발급, NULL 방지 (kespion 회귀)", async () => {
     // 회귀 가드: scan_id 가 NULL 이면 discussion-sync/news-sync 의 targets.ts 가
     // movers 조회를 skip → watchlists 만 sync 되어 일반 종목 데이터 누락.

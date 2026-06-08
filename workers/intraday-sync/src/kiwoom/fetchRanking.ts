@@ -6,8 +6,17 @@ import { acquireKiwoomRateToken } from "./rateLimiter";
  * ka10027 등락률 순위 페이지네이션 loop.
  * RESEARCH §1.2 + Pattern 1.
  *
- * CONTEXT D-06: mrkt_tp=000 (KOSPI+KOSDAQ 통합), sort_tp=1 (상승률 내림차순)
+ * CONTEXT D-06: mrkt_tp=000 (KOSPI+KOSDAQ 통합)
  * CONTEXT D-07: updown_incls=1 (등락 미발생 포함)
+ *
+ * sort_tp=3 (전체 시장, 등락률 오름차순) — 2026-06-08 회귀 대응.
+ *   - 이전 sort_tp=1 은 spec 상 "상승 종목 한정 + 보합 0.00 포함" 으로 응답을 필터링함.
+ *     주석에 "상승률 내림차순" 이라 적혀 있었으나 실제로는 응답 row 수가 그날 시장의
+ *     상승 종목 수에 비례. 약세장에서 상승 종목 ~348개만 반환 → MIN_EXPECTED_ROWS=600
+ *     가드 trip → cycle 전체 exit(1).
+ *   - sort_tp=3 은 전체 시장 (음수 포함) ~3500+ row 안정적 반환 → 시장 상황 무관.
+ *   - 응답이 등락률 오름차순으로 오므로 hotSet/topMovers 에서 명시 정렬(내림차순) 적용 필요.
+ *     debug session: .planning/debug/resolved/kiwoom-ka10027-partial-response.md 참조.
  *
  * 페이지네이션: 응답 헤더 cont-yn=Y/N + next-key 로 추적.
  * Hard cap 으로 무한 loop 방지 (T-09.1-14).
@@ -24,7 +33,9 @@ export async function fetchKa10027(
 ): Promise<KiwoomKa10027Row[]> {
   const body = {
     mrkt_tp: "000",
-    sort_tp: "1",
+    // sort_tp="3": 전체 시장 + 등락률 오름차순. "1" 은 상승 종목만 반환 → 약세장 partial response 회귀.
+    // hotSet/topMovers 가 클라이언트 측에서 changeRate 내림차순 명시 정렬을 적용함.
+    sort_tp: "3",
     trde_qty_cnd: "0000",
     stk_cnd: "0",
     crd_cnd: "0",

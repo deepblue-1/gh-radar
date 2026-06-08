@@ -6,7 +6,8 @@ import { logger } from "../logger";
 /**
  * top_movers 재구성 — 매 cycle 등락률 상위 100 추출 + stale cleanup (DELETE + INSERT).
  *
- * ka10027 응답이 sort_tp=1 (상승률 내림차순) — 별도 정렬 불필요.
+ * ka10027 응답은 sort_tp=3 (전체 시장, 등락률 오름차순) — 2026-06-08 회귀 대응 후.
+ * 클라이언트 측에서 changeRate 내림차순 명시 정렬 적용 필수.
  * 음의 등락률 종목 제외 (changeRate > 0) — top "movers" 정의상 상승 종목만.
  *
  * **eligibleCodes 화이트리스트** — stocks 마스터의 security_group 이 일반 주식 계열
@@ -42,10 +43,12 @@ export async function rebuildTopMovers(
   marketMap: Map<string, "KOSPI" | "KOSDAQ">,
   eligibleCodes: Set<string>,
 ): Promise<{ count: number }> {
-  // 1. 상위 100 추출 (이미 등락률 내림차순) + 화이트리스트 필터
+  // 1. 양수 changeRate + 화이트리스트 필터 → changeRate 내림차순 정렬 → 상위 100 추출.
+  //    sort_tp=3 응답은 오름차순이므로 클라이언트 정렬 필수 (2026-06-08 회귀 대응).
   const top = step1Updates
     .filter((u) => u.changeRate !== null && u.changeRate > 0)
     .filter((u) => eligibleCodes.has(u.code))
+    .sort((a, b) => (b.changeRate ?? 0) - (a.changeRate ?? 0))
     .slice(0, TOP_N);
 
   if (top.length === 0) {
