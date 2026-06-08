@@ -109,6 +109,7 @@
 | SCAN-05 | Phase 5 | Complete |
 | SCAN-06 | Phase 5 | Complete |
 | SCAN-07 | Phase 5 | Complete |
+| SCAN-08 | Phase 05.2 | Complete |
 | SRCH-01 | Phase 6 | In Progress |
 | SRCH-02 | Phase 6 | In Progress |
 | SRCH-03 | Phase 6 | In Progress |
@@ -123,8 +124,8 @@
 | DATA-03 | Phase 09.2 | Complete |
 
 **Coverage:**
-- v1 requirements: 27 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 Phase 10 삭제)
-- Mapped to phases: 27
+- v1 requirements: 29 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 Phase 10 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정)
+- Mapped to phases: 29
 - Unmapped: 0 ✓
 
 ---
