@@ -63,6 +63,11 @@
 - **DATA-02**: 장중 활성 거래 종목(~1,898) 의 현재가/등락/누적거래량을 1분 cadence 로 stock_quotes + stock_daily_ohlcv 오늘자 row 에 UPSERT (키움 REST `ka10027` 페이지네이션). 추가로 hot set (등락률 상위 200 ∪ watchlist unique) 의 OHLC + 상한가/하한가/시가총액을 `ka10001` 단일 종목 호출로 매분 갱신. trade_amount 는 `volume × close` 근사값 (트레이딩 시그널 용도). Direct VPC Egress + Cloud NAT static IP 1개로 worker(intraday-sync) + Cloud Run service(server) 가 동일 outbound IP 공유. **KIS ingestion(workers/ingestion + server/src/kis) 완전 폐기** — Phase 09.1 재정의 (2026-05-14, "KIS → 키움 완전 대체"). **Status:** ✅ Complete (Phase 09.1 — 2026-05-15)
 - **DATA-03**: 종목 상세 페이지(`/stocks/[code]`) 상단에 해당 종목의 일봉 캔들 + Volume 차트(1M / 3M / 6M / 1Y 토글, 한국식 색상)를 표시하여 트레이더가 화면 전환 없이 가격 흐름을 즉시 파악할 수 있다 (Phase 09.2 — 2026-05-15 사용자 명시 OOS 반전).
 
+### Theme
+
+- [ ] **THEME-01**: 테마별 종목 매핑 수집 — 네이버 금융 테마(산업/이벤트) + 알파스퀘어(정치인주/시사) 2-tier 소스를 일 1회 16:00 KST 배치로 수집, 콘텐츠 SHA256 해시 변경 감지, 한국 크롤링 운영 5원칙 준수. `themes` + `theme_stocks` 테이블(effective_from/to 이력, source/confidence, stocks FK) — Phase 10
+- [ ] **THEME-02**: 테마 목록 페이지 + 테마별 종목 리스트 표시 — 웹앱 `/themes`, 테마 선택 시 소속 종목(종목명 + 현재가 + 등락률, `stock_quotes` 활용) + 출처 표기 — Phase 10
+
 ## v2 Requirements
 
 ### Personalization
@@ -122,12 +127,14 @@
 | DATA-01 | Phase 9 | Complete |
 | DATA-02 | Phase 09.1 | Complete |
 | DATA-03 | Phase 09.2 | Complete |
+| THEME-01 | Phase 10 | Pending |
+| THEME-02 | Phase 10 | Pending |
 
 **Coverage:**
-- v1 requirements: 29 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 Phase 10 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정)
-- Mapped to phases: 29
+- v1 requirements: 31 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31)
+- Mapped to phases: 31
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-05-15 — Phase 09.1 complete, DATA-02 ✅ Complete (KIS → 키움 완전 대체)*
+*Last updated: 2026-06-08 — Phase 10 (Theme Classification) added: THEME-01·THEME-02 (테마별 종목 묶기, 네이버+알파스퀘어 2-tier 수집 + /themes UI)*

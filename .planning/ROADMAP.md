@@ -23,6 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
 - [x] **Phase 9: Daily Candle Data** - KRX 전 종목 (2020-01-02 ~ 현재) 일봉 OHLCV 수집 + 영업일 증분 갱신 (2026-05-12 완료, 4,003,432 rows)
 - [x] **Phase 09.1: Intraday Current Price** - 키움 REST `ka10027` 페이지네이션 + `ka10001` hot set 매분 stock_quotes/top_movers/stock_daily_ohlcv 갱신. KIS ingestion 완전 폐기 (2026-05-15 완료)
+- [ ] **Phase 10: Theme Classification** - 테마별 종목 묶기 (네이버 금융 + 알파스퀘어 2-tier 수집 + `/themes` UI)
 
 ## Phase Details
 
@@ -344,10 +345,29 @@ Plans:
 - [x] 09.2-02-PLAN.md — Wave 2 차트 UI (StockDailyChart lightweight-charts + StockDailyChartSection + 다크모드 useTheme effect + Skeleton/Empty/Error)
 - [x] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
 
+### Phase 10: Theme Classification — 테마별 종목 묶기
+
+**Goal:** 트레이더가 "이재명주" 같은 시사 테마를 선택하면 소속 종목 리스트를 볼 수 있다. 네이버 금융 테마(산업/이벤트) + 알파스퀘어(정치인주/시사) 2-tier 소스를 일 1회 배치로 수집해 `themes`/`theme_stocks` 에 적재하고, 웹앱 `/themes` 에서 테마 목록과 테마별 종목(등락률 포함)을 표시한다. Phase 7(뉴스)·Phase 8(토론방) 의 "수집 + 표시" 단일 phase 선례를 따른다.
+**Requirements**: THEME-01, THEME-02
+**Depends on:** Phase 06.1 (stocks 마스터 — theme_stocks FK), Phase 09.1 (stock_quotes — 테마별 등락률 표시)
+**Scope (MVP A+B):** 테마 수집(A) + 테마 UI(B). 상한가 동조 분석(C/D/E)은 후속 phase 로 분리.
+**Success Criteria** (what must be TRUE):
+  1. `themes` + `theme_stocks` 테이블이 생성되고, 네이버 금융 테마(약 265개) + 알파스퀘어 정치/시사 테마가 적재된다 (`theme_stocks` 는 `effective_from`/`effective_to` 로 편입·제외 이력 보존, `source`/`confidence` 컬럼 포함, `stocks` 와 FK 연결).
+  2. `workers/theme-sync` 가 Cloud Run Job + Cloud Scheduler 로 일 1회 16:00 KST 실행되어 테마 매핑을 갱신한다 (콘텐츠 SHA256 해시 변경 감지 — 동일 콘텐츠 시 DB write 스킵).
+  3. 한국 크롤링 운영 5원칙 준수: 일 1~2회 배치 캡 / 24h 캐싱+해시 / on-demand fetch 금지 / 429·403 즉시 24h backoff / 출처 표기+부분 캐싱 (전체 DB 덤프 금지).
+  4. 네이버 EUC-KR 응답이 iconv-lite 로 UTF-8 변환되어 한글 테마명/종목명이 깨지지 않는다.
+  5. 웹앱 `/themes` 페이지가 테마 목록을 표시하고, 테마 선택 시 소속 종목 리스트(종목명 + 현재가 + 등락률, `stock_quotes` 기반)를 보여준다. 각 테마/종목에 출처가 표기된다.
+**Out of scope (this phase):** 상한가 동조/상관관계 분석, AI 테마 보강(신규 테마 발굴·오분류 보정 — 향후 선택), 테마 기반 알림.
+**Notes:** 진짜 법적 리스크는 형사가 아닌 민사 DB제작자 권리 침해(대법원 2017다224395) — "상당한 부분 복제" 의 구조적 회피가 핵심 (CLAUDE.md "Naver 종목토론방 Scraping Risk" 운영 5원칙 참조).
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 10 to break down)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -368,3 +388,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
+| 10. Theme Classification | 0/? | Not planned | — |
