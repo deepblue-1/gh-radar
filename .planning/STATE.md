@@ -30,7 +30,7 @@ Plan: 02 complete (Wave 2 — Daily Chart 컴포넌트 3종 + 8 unit tests). Wav
 Plans completed: 64 / 70 (Phase 9 6 plans + 09.1 11 plans + 09.2 Wave 1+Wave 2)
 Status: Executing
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-05-15 -- Phase 09.2 Plan 02 complete (Wave 2)
+Last activity: 2026-06-08 -- Quick task 260608-g0k 완료 (CLAUDE.md 한국 크롤링 법적 진술 정정 + 운영 5원칙 추가)
 
 Progress: [█████████░] 91% (64/70 plans · 11/17 phases)
 
@@ -218,6 +218,7 @@ Recent decisions affecting current work:
 |---|-------------|------|--------|-----------|
 | 260418-kd8 | phase 7 뉴스 풀페이지 무한 스크롤 (Phase 8 토론방 1:1 미러) | 2026-04-18 | fb2607c | [260418-kd8-phase-7](./quick/260418-kd8-phase-7/) |
 | 260424-dld | 스캐너 등락률 슬라이더 제거 + 서버 고정 10% 하한 | 2026-04-24 | a371cc2 | [260424-dld-remove-scanner-rate-filter](./quick/260424-dld-remove-scanner-rate-filter/) |
+| 260608-g0k | CLAUDE.md 한국 크롤링 법적 진술 정정 + 운영 5원칙 추가 | 2026-06-08 | e97e436 | [260608-g0k-claude-md-5](./quick/260608-g0k-claude-md-5/) |
 
 ## Session Continuity
 
