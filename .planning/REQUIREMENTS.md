@@ -35,13 +35,11 @@
 ### News
 
 - [x] **NEWS-01**: 종목별 관련 뉴스 목록 표시 (Naver Search API 활용)
-- [ ] **NEWS-02**: AI 뉴스 요약 생성 (Claude Haiku, content-hash 캐싱)
 
 ### Discussion
 
 - [x] **DISC-01**: 네이버 종목토론방 글 목록 표시 (on-demand 스크래핑, 5~10분 캐싱) — Phase 8 (production live 2026-04-18)
 - [x] **DISC-01.1**: 종목토론 의미성 AI 분류 + 필터링 (price_reason/theme/news_info/noise 4-category, Claude Haiku 4.5 inline classify, 웹앱 Switch 토글 기본 ON=meaningful + URL sync) — Phase 08.1
-- [ ] **DISC-02**: AI 토론방 요약 + 긍/부정/중립 센티먼트 분석 (Claude Haiku)
 
 ### Authentication
 
@@ -123,12 +121,10 @@
 | DATA-01 | Phase 9 | Complete |
 | DATA-02 | Phase 09.1 | Complete |
 | DATA-03 | Phase 09.2 | Complete |
-| NEWS-02 | Phase 10 | Pending |
-| DISC-02 | Phase 10 | Pending |
 
 **Coverage:**
-- v1 requirements: 29 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트)
-- Mapped to phases: 29
+- v1 requirements: 27 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 Phase 10 삭제)
+- Mapped to phases: 27
 - Unmapped: 0 ✓
 
 ---

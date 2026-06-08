@@ -23,7 +23,6 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
 - [x] **Phase 9: Daily Candle Data** - KRX 전 종목 (2020-01-02 ~ 현재) 일봉 OHLCV 수집 + 영업일 증분 갱신 (2026-05-12 완료, 4,003,432 rows)
 - [x] **Phase 09.1: Intraday Current Price** - 키움 REST `ka10027` 페이지네이션 + `ka10001` hot set 매분 stock_quotes/top_movers/stock_daily_ohlcv 갱신. KIS ingestion 완전 폐기 (2026-05-15 완료)
-- [ ] **Phase 10: AI Summarization** - Claude Haiku 뉴스/토론방 AI 요약 + 캐싱
 
 ## Phase Details
 
@@ -345,23 +344,10 @@ Plans:
 - [x] 09.2-02-PLAN.md — Wave 2 차트 UI (StockDailyChart lightweight-charts + StockDailyChartSection + 다크모드 useTheme effect + Skeleton/Empty/Error)
 - [x] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
 
-
-### Phase 10: AI Summarization
-**Goal**: 수집된 뉴스와 토론방 데이터를 Claude Haiku가 요약하고 토론방에 긍/부정/중립 센티먼트 분석을 추가하여 종목 상세 페이지에 표시한다
-**Depends on**: Phase 7, Phase 7.1, Phase 8
-**Requirements**: NEWS-02, DISC-02
-**Success Criteria** (what must be TRUE):
-  1. 종목 상세 페이지의 뉴스 섹션에 Claude Haiku가 생성한 뉴스 요약이 표시된다
-  2. 종목 상세 페이지의 토론방 섹션에 요약과 함께 긍정/부정/중립 센티먼트 비율이 표시된다
-  3. 동일한 content-hash를 가진 데이터는 Claude API를 재호출하지 않고 캐시된 요약을 반환한다
-  4. Claude API 호출당 input 3,000 토큰 이하, max_tokens=250 제한이 적용된다
-**Plans**: TBD
-**UI hint**: yes
-
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -382,4 +368,3 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
-| 10. AI Summarization | 0/TBD | Not started | - |
