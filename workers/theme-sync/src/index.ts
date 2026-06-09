@@ -22,6 +22,7 @@ import {
   incrementUsage,
   type ThemeSource,
 } from "./scrapeState";
+import { enrichWithAi } from "./ai/enrich";
 import {
   ProxyAuthError,
   ProxyBudgetExhaustedError,
@@ -44,7 +45,8 @@ import { withRetry } from "./retry";
  *   5. mergeThemes → upsertThemes(service_role) → storeHash. incrementUsage 로 api_usage 카운트(5원칙 #1 일1회 캡).
  *   6. summary 로그(테마수/종목수/skipped/backoff).
  *
- * AI 보강(discoverThemes/correctMembership)은 OUT OF SCOPE — Plan 06 이 4번과 5번 사이에 삽입.
+ * Plan 06 — AI 보강(discoverThemes/correctMembership)을 upsert 직후 6번에 추가(classifyEnabled
+ * 게이트 + try/catch isolation). source='ai' 시스템 레이어만, 유저 테마 불가침.
  */
 
 /** 차단 신호 예외인지 — true 면 해당 source 에 24h backoff 기록. */
@@ -78,6 +80,10 @@ export interface ThemeSyncSummary {
   scrapedThemes: number;
   backedOffSources: ThemeSource[];
   skippedWrite: boolean;
+  /** Plan 06 — AI 발굴 신규 테마 후보 수 (classifyEnabled=false 면 0). */
+  aiDiscovered: number;
+  /** Plan 06 — AI soft-제외 교정된 매핑 수 (classifyEnabled=false 면 0). */
+  aiCorrected: number;
 }
 
 export async function runThemeSyncCycle(
@@ -181,6 +187,8 @@ export async function runThemeSyncCycle(
       scrapedThemes: 0,
       backedOffSources,
       skippedWrite: false,
+      aiDiscovered: 0,
+      aiCorrected: 0,
     };
   }
 
@@ -200,22 +208,40 @@ export async function runThemeSyncCycle(
       scrapedThemes: allScrapes.length,
       backedOffSources,
       skippedWrite: true,
+      aiDiscovered: 0,
+      aiCorrected: 0,
     };
   }
 
-  // ── AI 보강 자리(Plan 06, OUT OF SCOPE) ──────────────────────────────
-  // Plan 06 이 여기서 discoverThemes(뉴스 기반 신규 테마) + correctMembership(오분류 교정)을
-  // merged 에 반영(source='ai')한 뒤 upsert. classify_enabled kill-switch 게이트.
-  // ─────────────────────────────────────────────────────────────────────
-
   const result = await upsertThemes(supabase, merged, now);
   await storeHash(supabase, hash, now);
+
+  // ── AI 보강(Plan 06) — enrichWithAi 가 아래 단계를 캡슐화 ────────────────
+  // upsert 직후, classifyEnabled 일 때만:
+  //   discoverThemes(뉴스 기반 신규 시스템 테마) + correctMembership(신규/변경분 오분류)
+  //   → persistAi(발굴 source='ai' 적재 + 교정 effective_to soft-제외).
+  // try/catch 격리 — AI 실패가 스크랩 cycle 전체를 죽이지 않음(이미 upsert 는 커밋됨).
+  // ─────────────────────────────────────────────────────────────────────
+  let aiDiscovered = 0;
+  let aiCorrected = 0;
+  try {
+    const ai = await enrichWithAi(supabase, cfg, log, now);
+    aiDiscovered = ai.aiDiscovered;
+    aiCorrected = ai.aiCorrected;
+  } catch (err: unknown) {
+    log.error(
+      { err: (err as Error)?.message },
+      "AI enrichment failed — cycle continues (scrape 결과는 이미 적재됨)",
+    );
+  }
 
   log.info(
     {
       scrapedThemes: allScrapes.length,
       mergedThemes: merged.length,
       ...result,
+      aiDiscovered,
+      aiCorrected,
       backedOffSources,
     },
     "theme-sync cycle complete",
@@ -226,6 +252,8 @@ export async function runThemeSyncCycle(
     scrapedThemes: allScrapes.length,
     backedOffSources,
     skippedWrite: false,
+    aiDiscovered,
+    aiCorrected,
   };
 }
 

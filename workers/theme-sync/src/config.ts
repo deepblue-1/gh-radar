@@ -34,6 +34,7 @@ export interface ThemeSyncConfig {
    *   classifyModel: "claude-haiku-4-5" 고정 (env override 는 테스트 안전망).
    *   discoverNewsLookbackDays: 발굴 입력 — 최근 N일 news_articles(published_at).
    *   discoverNewsMax: 발굴 입력 뉴스 최대 건수 (토큰/비용 상한).
+   *   discoverExistingThemesMax: 중복 발굴 방지용 기존 시스템 테마 조회 상한.
    */
   anthropicApiKey: string;
   classifyEnabled: boolean;
@@ -41,6 +42,7 @@ export interface ThemeSyncConfig {
   classifyModel: string;
   discoverNewsLookbackDays: number;
   discoverNewsMax: number;
+  discoverExistingThemesMax: number;
   appVersion: string;
   logLevel: string;
 }
@@ -92,6 +94,9 @@ export function loadConfig(): ThemeSyncConfig {
       process.env.THEME_SYNC_DISCOVER_NEWS_LOOKBACK_DAYS ?? "1",
     ),
     discoverNewsMax: Number(process.env.THEME_SYNC_DISCOVER_NEWS_MAX ?? "300"),
+    discoverExistingThemesMax: Number(
+      process.env.THEME_SYNC_DISCOVER_EXISTING_THEMES_MAX ?? "2000",
+    ),
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };

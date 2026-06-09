@@ -40,8 +40,12 @@ import {
   persistDiscoveries,
   persistCorrections,
 } from "../src/ai/persistAi";
+import { enrichWithAi } from "../src/ai/enrich";
+import { runThemeSyncCycle } from "../src/index";
 import { __resetAnthropicClientForTests } from "../src/ai/anthropic";
 import type { ThemeSyncConfig } from "../src/config";
+import type { ThemeScrape } from "../src/scrape/types";
+import type { AxiosInstance } from "axios";
 import { createMockSupabase } from "./helpers/supabase-mock";
 import { logger } from "../src/logger";
 
@@ -64,6 +68,7 @@ function aiConfig(over: Partial<ThemeSyncConfig> = {}): ThemeSyncConfig {
     classifyModel: "claude-haiku-4-5",
     discoverNewsLookbackDays: 1,
     discoverNewsMax: 300,
+    discoverExistingThemesMax: 2000,
     appVersion: "test",
     logLevel: "silent",
     ...over,
@@ -98,10 +103,8 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
       data: opts.news,
       error: null,
     });
-    sb.from("themes").eq.mockReturnThis();
-    // themes select(...).eq('is_system', true) 는 await chain 종결이 아니라
-    // .eq() 가 마지막 → mock 은 .eq() 가 데이터 resolve 하도록 마지막 eq override.
-    sb.from("themes").eq.mockResolvedValue({
+    // 기존 시스템 테마 조회는 .eq('is_system').limit() 종결 → themes.limit 으로 응답 주입.
+    sb.from("themes").limit.mockResolvedValue({
       data: opts.existing,
       error: null,
     });
@@ -360,5 +363,153 @@ describe("persistCorrections (effective_to soft-제외, DELETE 금지)", () => {
     const corrected = await persistCorrections(sb as never, [], log);
     expect(corrected).toBe(0);
     expect(sb._chains.theme_stocks).toBeUndefined();
+  });
+});
+
+// ── (5) enrichWithAi — cycle AI 보강 단계 통합 (발굴+교정+persist) ─────────────
+
+describe("enrichWithAi (cycle AI 단계 통합)", () => {
+  /** 발굴(news/themes) + 교정(theme_stocks review) + persist(stocks/themes/theme_stocks) mock. */
+  function enrichSupabase() {
+    const sb = createMockSupabase();
+    // discoverThemes: 최근 뉴스 1건.
+    sb.from("news_articles").limit.mockResolvedValue({
+      data: [{ title: "초전도체 관련주 급등", description: "LK-99" }],
+      error: null,
+    });
+    // discoverThemes: 기존 시스템 테마 목록(themes select.eq('is_system').limit()).
+    sb.from("themes").limit.mockResolvedValue({
+      data: [{ name: "반도체", norm_key: "반도체" }],
+      error: null,
+    });
+    // loadMembershipForReview: 활성 naver 매핑 1건(reason 보유, effective_to=null, 시스템 테마).
+    sb.from("theme_stocks").limit.mockResolvedValue({
+      data: [
+        {
+          theme_id: "t1",
+          stock_code: "068270",
+          reason: "테마 편입 사유",
+          effective_to: null,
+          themes: { name: "반도체", is_system: true },
+        },
+      ],
+      error: null,
+    });
+    return sb;
+  }
+
+  it("classifyEnabled=true 면 발굴+교정+persist 를 실행한다", async () => {
+    // 1st Claude 호출(발굴) → 후보, 2nd(교정) → 무관 판정.
+    hoist.mockCreate
+      .mockResolvedValueOnce(
+        textResponse(
+          '{"themes":[{"name":"초전도체","stockCodes":["005930"],"confidence":0.8}]}',
+        ),
+      )
+      .mockResolvedValueOnce(textResponse('{"unrelated":["t1::068270"]}'));
+
+    const sb = enrichSupabase();
+    // persistDiscoveries: stocks 존재 + 신규 테마 insert.
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }],
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
+    sb.from("themes").single.mockResolvedValue({
+      data: { id: "ai-1" },
+      error: null,
+    });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+    // persistCorrections: soft-제외 update().eq().eq().is().
+    sb.from("theme_stocks").is.mockResolvedValue({ data: null, error: null });
+
+    const out = await enrichWithAi(sb as never, aiConfig(), log);
+
+    // 발굴 + 교정 둘 다 Claude 호출(2회).
+    expect(hoist.mockCreate).toHaveBeenCalledTimes(2);
+    expect(out.aiDiscovered).toBe(1);
+    expect(out.aiCorrected).toBe(1);
+    // 발굴 테마 source='ai' insert.
+    const insertArg = (sb._chains.themes.insert as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(insertArg.is_system).toBe(true);
+    expect(insertArg.sources).toEqual(["ai"]);
+    // 교정 soft-제외(effective_to) — 물리 삭제 없음.
+    expect(sb._chains.theme_stocks.update).toHaveBeenCalledWith({
+      effective_to: expect.any(String),
+    });
+    expect(sb._chains.theme_stocks.delete).not.toHaveBeenCalled();
+  });
+
+  it("classifyEnabled=false 면 Claude/DB 호출 없이 0 반환 (kill-switch)", async () => {
+    const sb = createMockSupabase();
+    const out = await enrichWithAi(
+      sb as never,
+      aiConfig({ classifyEnabled: false }),
+      log,
+    );
+    expect(out).toEqual({
+      aiDiscovered: 0,
+      aiCorrected: 0,
+      aiThemesUpserted: 0,
+      aiStockLinksUpserted: 0,
+    });
+    expect(hoist.mockCreate).not.toHaveBeenCalled();
+    // 어떤 테이블도 접근하지 않음.
+    expect(sb._chains.news_articles).toBeUndefined();
+    expect(sb._chains.theme_stocks).toBeUndefined();
+  });
+});
+
+// ── (6) runThemeSyncCycle — AI 단계 통합(게이트 + isolation) ──────────────────
+
+describe("runThemeSyncCycle (AI 보강 통합)", () => {
+  const naverScrape: ThemeScrape = {
+    name: "반도체",
+    description: null,
+    aliases: [],
+    stocks: [{ code: "005930", reason: "메모리 반도체" }],
+    source: "naver",
+  };
+
+  /** pipeline.test.ts 의 cycle 하니스 축약 — api_usage 서비스별 응답 분기. */
+  function cycleSupabase() {
+    const sb = createMockSupabase();
+    const chain = sb.from("api_usage");
+    chain.limit.mockResolvedValue({ data: [], error: null }); // backoff 없음 + 해시 불일치.
+    chain.upsert.mockResolvedValue({ data: null, error: null });
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }],
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
+    sb.from("themes").single.mockResolvedValue({
+      data: { id: "theme-x" },
+      error: null,
+    });
+    sb.from("theme_stocks").is.mockResolvedValue({ data: [], error: null });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+    return sb;
+  }
+
+  it("classifyEnabled=false 면 AI 미호출 + summary 에 aiDiscovered/aiCorrected=0", async () => {
+    const sb = cycleSupabase();
+    const summary = await runThemeSyncCycle({
+      config: aiConfig({ classifyEnabled: false }),
+      supabase: sb as never,
+      proxy: { post: vi.fn() } as unknown as AxiosInstance,
+      fetchers: {
+        naver: vi.fn().mockResolvedValue([naverScrape]),
+        alpha: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    // upsert 는 정상(스크랩 적재) 됐지만 AI Claude 호출은 0(kill-switch).
+    expect(summary.themesUpserted).toBeGreaterThan(0);
+    expect(hoist.mockCreate).not.toHaveBeenCalled();
+    expect(summary.aiDiscovered).toBe(0);
+    expect(summary.aiCorrected).toBe(0);
+    // AI 가 읽는 테이블(news_articles) 미접근.
+    expect(sb._chains.news_articles).toBeUndefined();
   });
 });

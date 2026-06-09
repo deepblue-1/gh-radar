@@ -148,10 +148,12 @@ export async function discoverThemes(
   }
 
   // 2) 기존 시스템 테마명(중복 발굴 방지용 EXISTING + norm_key 충돌 필터).
+  //    .limit() 로 종결 — .eq() 는 체이닝(필터)만, 종결은 .limit()(mock/PostgREST 일관).
   const { data: existing, error: exErr } = await supabase
     .from("themes")
     .select("name, norm_key")
-    .eq("is_system", true);
+    .eq("is_system", true)
+    .limit(cfg.discoverExistingThemesMax);
   if (exErr) {
     log.error({ err: exErr.message }, "discoverThemes: themes fetch failed");
     return [];
