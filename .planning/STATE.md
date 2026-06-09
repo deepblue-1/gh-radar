@@ -253,5 +253,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-06-09T12:18:56.213Z
-Stopped at: Completed 10-07-themes-ui-PLAN.md
-Next: 10-07 themes-ui — /themes 변형C 랭킹 + /themes/[id] scanner row + 종목 칩 + 유저 테마 CRUD 모달 + nav (Wave 6). 이후 10-08 deploy(Cloud Run Job/Scheduler OAuth + [BLOCKING] GCP 배포 — THEME_SYNC_CLASSIFY_ENABLED=true + ANTHROPIC_API_KEY secret 바인딩으로 AI 발굴 활성 + Playwright E2E).
+Stopped at: 10-08 paused at Task 3 deploy checkpoint (checkpoint:human-action gate=blocking)
+Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
