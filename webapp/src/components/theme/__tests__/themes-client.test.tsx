@@ -1,7 +1,7 @@
 /// <reference types="@testing-library/jest-dom" />
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
-import type { ThemeWithStats } from '@gh-radar/shared';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import type { ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
 
 /**
  * Phase 10 Plan 07 — 테마 UI 단위 테스트.
@@ -31,7 +31,33 @@ vi.mock('@/components/theme/theme-edit-dialog', () => ({
     open ? <div data-testid="edit-dialog" /> : null,
 }));
 
+// theme-api fetchers — 상세 조회(Task 2) mock.
+const fetchSystemThemeDetailMock = vi.fn();
+const fetchMyThemeDetailMock = vi.fn();
+vi.mock('@/lib/theme-api', () => ({
+  fetchSystemThemeDetail: (...a: unknown[]) => fetchSystemThemeDetailMock(...a),
+  fetchMyThemeDetail: (...a: unknown[]) => fetchMyThemeDetailMock(...a),
+}));
+
+// supabase client (fetchMyThemeDetail 폴백 경로용) — 직접 호출 안 되게 stub.
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({}),
+}));
+
+// scanner-table 내부 WatchlistToggle 이 useWatchlistSet 요구 — 비로그인이면 null 이라
+// 안전하나, provider 부재 시 default EMPTY 반환하도록 stub.
+vi.mock('@/hooks/use-watchlist-set', () => ({
+  useWatchlistSet: () => ({
+    set: new Set<string>(),
+    isAtLimit: false,
+    optimisticAdd: vi.fn(),
+    optimisticRemove: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 import { ThemesClient } from '../themes-client';
+import { ThemeDetailClient } from '../theme-detail-client';
 
 // ---------- Fixtures ----------
 
@@ -187,5 +213,118 @@ describe('ThemesClient — 변형 C 랭킹', () => {
     render(<ThemesClient />);
     expect(screen.getByText(/로그인하면 나만의 테마를/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /테마 만들기/ })).toBeNull();
+  });
+});
+
+// ============================================================================
+// Task 2 — ThemeDetailClient (scanner row 재사용 + 유저/시스템 분기)
+// ============================================================================
+
+function member(
+  code: string,
+  name: string,
+  changeRate: number,
+): ThemeStockMember {
+  return {
+    code,
+    name,
+    market: 'KOSPI',
+    price: 50000,
+    changeRate,
+    tradeAmount: 1_000_000,
+    source: 'naver',
+  };
+}
+
+function detail(
+  partial: Partial<ThemeWithStats & { stocks: ThemeStockMember[] }>,
+): ThemeWithStats & { stocks: ThemeStockMember[] } {
+  return {
+    ...sysTheme('d1', '초전도체', 18.4),
+    stocks: [],
+    ...partial,
+  };
+}
+
+describe('ThemeDetailClient — scanner row 재사용', () => {
+  beforeEach(() => {
+    // 상세 화면은 비로그인으로 렌더(WatchlistToggle null) — 매핑/재사용만 검증.
+    useAuthMock.mockReturnValue({ user: null });
+  });
+
+  it('ThemeStockMember → StockWithProximity 매핑 후 scanner-table 에 종목 행을 렌더', async () => {
+    fetchSystemThemeDetailMock.mockResolvedValue(
+      detail({
+        name: '초전도체',
+        stocks: [member('005930', '삼성전자', 29.9), member('000660', 'SK하이닉스', 12.1)],
+      }),
+    );
+    render(<ThemeDetailClient id="d1" />);
+
+    // lg Table + <lg Card 둘 다 렌더 → 종목명 2회 노출(반응형 duality).
+    await waitFor(() =>
+      expect(screen.getAllByText('삼성전자').length).toBeGreaterThan(0),
+    );
+    // scanner-table 재사용 — 종목명/코드/등락률(매핑된 changeRate) 노출
+    expect(screen.getAllByText('SK하이닉스').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('005930').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('+29.90%').length).toBeGreaterThan(0);
+  });
+
+  it('빈 테마 → "이 테마에 표시할 종목이 없습니다"', async () => {
+    fetchSystemThemeDetailMock.mockResolvedValue(detail({ stocks: [] }));
+    render(<ThemeDetailClient id="d1" />);
+    await waitFor(() =>
+      expect(
+        screen.getByText('이 테마에 표시할 종목이 없습니다'),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('시스템 테마는 [편집] 버튼 미노출 (read-only)', async () => {
+    fetchSystemThemeDetailMock.mockResolvedValue(
+      detail({ isSystem: true, stocks: [member('005930', '삼성전자', 1.2)] }),
+    );
+    render(<ThemeDetailClient id="d1" />);
+    await waitFor(() =>
+      expect(screen.getAllByText('삼성전자').length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByRole('button', { name: '편집' })).toBeNull();
+  });
+
+  it('유저 테마는 [편집] 버튼 노출 (시스템 404 → fetchMyThemeDetail 폴백)', async () => {
+    const { ApiClientError } = await import('@/lib/api');
+    fetchSystemThemeDetailMock.mockRejectedValue(
+      new ApiClientError({ code: 'THEME_NOT_FOUND', message: '없음', status: 404 }),
+    );
+    fetchMyThemeDetailMock.mockResolvedValue(
+      detail({
+        id: 'u1',
+        name: '내 급등관심',
+        isSystem: false,
+        ownerId: 'user-1',
+        sources: ['user'],
+        stocks: [member('005930', '삼성전자', 1.2)],
+      }),
+    );
+    render(<ThemeDetailClient id="u1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText('내 급등관심')).toBeInTheDocument(),
+    );
+    expect(fetchMyThemeDetailMock).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '편집' })).toBeInTheDocument();
+  });
+
+  it('fetch 실패 시 고정 카피(내부 메시지 미노출)', async () => {
+    fetchSystemThemeDetailMock.mockRejectedValue(new Error('PGRST internal'));
+    render(<ThemeDetailClient id="d1" />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/테마를 불러오지 못했습니다/),
+      ).toBeInTheDocument(),
+    );
+    // 내부 메시지 누출 0
+    expect(screen.queryByText(/PGRST internal/)).toBeNull();
   });
 });

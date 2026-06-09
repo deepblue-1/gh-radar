@@ -20,7 +20,12 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
+import type {
+  Market,
+  ThemeStockMember,
+  ThemeStockSource,
+  ThemeWithStats,
+} from '@gh-radar/shared';
 
 import { apiFetch } from './api';
 
@@ -157,6 +162,124 @@ export async function fetchMyThemes(
   if (!data) return [];
 
   return (data as unknown as RawMyThemeRow[]).map(mapMyThemeRow);
+}
+
+/**
+ * 단일 유저 테마 상세 (메타 + 소속 active 종목 ThemeStockMember[]).
+ * 시스템 테마는 Express `fetchSystemThemeDetail` 경로 — 유저 테마는 /api/themes/:id 가
+ * is_system=true 만 노출(Plan 04 T-10-04-04)하므로 404. 그래서 유저 테마 상세는
+ * Supabase 직접(RLS owner-only). watchlist nested embed 톤으로 theme_stocks →
+ * stocks(name/market) → stock_quotes(price/change_rate/trade_amount) 1쿼리 조인.
+ *
+ * RLS read_own_themes + read_theme_stocks(부모 테마 가시성 따라감)가 owner 자동 필터 —
+ * 타인 테마 id 는 빈 결과(throw). 시세 부재 종목은 price/changeRate/tradeAmount=0 폴백.
+ */
+export async function fetchMyThemeDetail(
+  supabase: SupabaseClient,
+  themeId: string,
+): Promise<ThemeWithStats & { stocks: ThemeStockMember[] }> {
+  const { data, error } = await supabase
+    .from('themes')
+    .select(
+      `
+      id,
+      name,
+      description,
+      is_system,
+      owner_id,
+      sources,
+      top3_avg_change_rate,
+      stats_updated_at,
+      created_at,
+      updated_at,
+      theme_stocks (
+        stock_code,
+        source,
+        effective_to,
+        stocks!inner (
+          code,
+          name,
+          market,
+          stock_quotes (
+            price,
+            change_rate,
+            trade_amount
+          )
+        )
+      )
+      `,
+    )
+    .eq('id', themeId)
+    .eq('is_system', false)
+    .single();
+
+  if (error) throw toThrowable(error);
+  if (!data) throw new Error(`테마를 찾을 수 없습니다 (id: ${themeId})`);
+
+  const row = data as unknown as RawMyThemeDetailRow;
+  const members: ThemeStockMember[] = (row.theme_stocks ?? [])
+    // active 멤버십만(effective_to IS NULL) — embed 에 필터 못 거니 클라이언트 필터.
+    .filter((ts) => ts.effective_to == null)
+    .map(mapThemeStockToMember)
+    .filter((m): m is ThemeStockMember => m !== null);
+
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    isSystem: row.is_system,
+    ownerId: row.owner_id,
+    sources: (row.sources ?? []) as ThemeWithStats['sources'],
+    top3AvgChangeRate:
+      row.top3_avg_change_rate == null
+        ? null
+        : Number(row.top3_avg_change_rate),
+    statsUpdatedAt: row.stats_updated_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    stockCount: members.length,
+    stocks: members,
+  };
+}
+
+interface RawThemeStockQuote {
+  price: number | string;
+  change_rate: number | string;
+  trade_amount: number | string;
+}
+
+interface RawThemeStockJoined {
+  stock_code: string;
+  source: string;
+  effective_to: string | null;
+  stocks: {
+    code: string;
+    name: string;
+    market: Market;
+    stock_quotes: RawThemeStockQuote | RawThemeStockQuote[] | null;
+  } | null;
+}
+
+interface RawMyThemeDetailRow extends Omit<RawMyThemeRow, 'theme_stocks'> {
+  theme_stocks: RawThemeStockJoined[] | null;
+}
+
+/** theme_stocks ⋈ stocks ⋈ stock_quotes row → ThemeStockMember (시세 부재 0 폴백). */
+function mapThemeStockToMember(ts: RawThemeStockJoined): ThemeStockMember | null {
+  const stock = ts.stocks;
+  if (!stock) return null; // FK 누락(있을 수 없으나 방어)
+  const rawQuote = Array.isArray(stock.stock_quotes)
+    ? (stock.stock_quotes[0] ?? null)
+    : stock.stock_quotes;
+  return {
+    code: stock.code,
+    name: stock.name,
+    market: stock.market,
+    price: rawQuote ? Number(rawQuote.price) : 0,
+    changeRate: rawQuote ? Number(rawQuote.change_rate) : 0,
+    tradeAmount: rawQuote ? Number(rawQuote.trade_amount) : 0,
+    source: (ts.source as ThemeStockSource) ?? 'user',
+  };
 }
 
 // =============================================================================
