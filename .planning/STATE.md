@@ -40,6 +40,7 @@ Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
 - 첫 production scrape: **356 시스템 테마**(331 naver/alpha + **25 AI 발굴**) + **7,561 theme_stocks**. AI 보강 라이브(aiDiscovered=25, aiCorrected=2), backedOffSources=[] (네이버 직접 성공). themes count gate PASS(356).
 - 첫 자동 Scheduler 실행: 다음 16:00 KST. 5원칙 backoff(429/403 24h) + SHA256 해시 변경감지 가드 동작 확인(smoke).
 - 유저 테마 optimistic 갱신 + 테마 E2E 3종 green(10/10). THEME-01~04 production 검증 완료.
+- **서버 재배포(plan 누락분, push 후 발견·수정):** 배포 server 이미지가 10-04 themes 라우트 이전(75683d1)이라 `/api/themes` 404 → `deploy-server.sh` 로 HEAD 58218f4 재배포(revision gh-radar-server-00021-jdv) → `/api/themes` 200(356 테마, 상위3평균 desc: 반도체장비 +24.94%) + `/api/themes/:id` 200 + smoke 9/9. 풀스택 라이브(Supabase→server→webapp).
 
 ### Phase 9 Production State (2026-05-12 12:24 KST)
 

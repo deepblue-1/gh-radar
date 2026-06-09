@@ -85,3 +85,10 @@
 **Preventive check (finalize/회귀 의심 시):**
 - 의심 테스트 단건 실행 → 실패 시 `git stash push -- <changed files>` 후 재실행 → pop. baseline 에서도 실패면 pre-existing(내 탓 아님), baseline 통과면 내 회귀.
 - deferred 기록은 파일:라인 + 실제 assertion + 진짜 원인(추정/실측 구분) 명시.
+
+## 배포 완결성 — 새 라우트는 해당 서비스 재배포까지 (Phase 10, 2026-06-09)
+
+- 새 API 라우트(10-04 server `/api/themes`)를 추가하는 phase 의 배포 plan 이 **새 워커(theme-sync Job)만** 배포하고 **기존 server 서비스 재배포를 누락**. 결과: 코드/데이터/E2E(mock) 모두 green 이지만 배포된 server 이미지는 옛날 SHA → production `/api/themes` 404. webapp push(Vercel) 후에야 /themes 가 빈 화면.
+- **교훈:** deploy plan 은 "새 라우트/스키마를 노출하는 **모든** 서비스(server·webapp·worker)"를 배포 대상에 포함. 워커만 보지 말 것.
+- **검증:** phase 완료 전 **배포된 엔드포인트를 직접 curl**(prod URL)로 확인 — 코드 존재(verifier)·테스트 green 만으로 "production 동작"을 단정 금지. `gsd-verifier` 는 코드/데이터를 보지 배포 revision 을 안 본다.
+- gh-radar server 재배포 = `scripts/deploy-server.sh` (env: GCP_PROJECT_ID, SUPABASE_URL, CORS_ALLOWED_ORIGINS; VPC + Secret 7종 + KIWOOM). 현재 CORS = `https://gh-radar-webapp.vercel.app,/^https:\/\/gh-radar-.*\.vercel\.app$/`.
