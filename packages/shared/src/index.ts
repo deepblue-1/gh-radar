@@ -1,4 +1,6 @@
 export type { Stock, Market, SecurityType, StockMaster, StockQuote, StockWithQuote, BdydTrdRow, StockDailyOhlcv } from "./stock.js";
+export type { Theme, ThemeStock, ThemeStockMember, ThemeStockSource, ThemeWithStats } from "./theme.js";
+export { THEME_STOCK_SOURCES } from "./theme.js";
 export type { NewsArticle } from "./news.js";
 export type { Discussion, DiscussionListResponse } from "./discussion.js";
 export type { Summary, SummaryType, Sentiment } from "./summary.js";
