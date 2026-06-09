@@ -6,8 +6,10 @@ import {
   deleteSystemTheme,
   ensureSystemThemeWithMembers,
   getTestUserId,
+  mockThemesApi,
   pickRealStockCodes,
 } from '../fixtures/themes';
+import { mockStockApi } from '../fixtures/mock-api';
 
 /**
  * Phase 10 Plan 08 — 유저 테마 CRUD + fork E2E (THEME-03, UI-SPEC §S4).
@@ -40,6 +42,9 @@ test.describe('Phase 10 — 유저 테마 CRUD + fork (THEME-03)', () => {
     const userId = await getTestUserId(admin, E2E_EMAIL);
     await cleanupUserThemes(userId, admin);
 
+    // 종목 검색만 mock — Playwright webServer 는 webapp dev 만 기동(Express /api/stocks/search 부재).
+    // 테마 CRUD 자체는 실 Supabase 직접 경로(theme-api.ts) 유지 — ThemeEditDialog 실구동.
+    await mockStockApi(page);
     await page.goto('/themes');
 
     // 내 테마 생성 CTA(로그인 상태 → 노출).
@@ -106,6 +111,10 @@ test.describe('Phase 10 — 유저 테마 CRUD + fork (THEME-03)', () => {
     });
     if (msErr) throw msErr;
 
+    // Express /api/themes/:id 부재(Playwright 는 webapp dev 만 기동) → 404 mock 으로
+    // ThemeDetailClient 가 실 Supabase fetchMyThemeDetail(RLS owner-only) 로 폴백하게 한다.
+    // 유저 테마 상세 자체는 실 Supabase 경로 유지 — owner-only RLS 왕복을 그대로 검증.
+    await mockThemesApi(page, { list: [] });
     await page.goto(`/themes/${themeId}`);
     await expect(
       page.getByRole('heading', { name: 'E2E 편집대상', exact: true }),
@@ -148,6 +157,8 @@ test.describe('Phase 10 — 유저 테마 CRUD + fork (THEME-03)', () => {
     if (cErr) throw cErr;
     const themeId = (created as { id: string }).id;
 
+    // /api/themes/:id 404 mock → 실 Supabase 유저 테마 상세 폴백(위 edit-remove 와 동일 사유).
+    await mockThemesApi(page, { list: [] });
     await page.goto(`/themes/${themeId}`);
     await page.getByRole('button', { name: '편집' }).click();
     const dialog = page.getByRole('dialog');
@@ -252,6 +263,8 @@ test.describe('Phase 10 — 유저 테마 CRUD + fork (THEME-03)', () => {
       expect((origin as { is_system: boolean }).is_system).toBe(true);
 
       // 새 유저 테마 상세 진입 → 본인 소유 테마 렌더 확인(RLS owner-only 경로 UI 왕복).
+      // /api/themes/:id 404 mock → 실 Supabase fetchMyThemeDetail 폴백(위와 동일 사유).
+      await mockThemesApi(page, { list: [] });
       await page.goto(`/themes/${newThemeId}`);
       await expect(
         page.getByRole('heading', { name: sysName, exact: true }),
