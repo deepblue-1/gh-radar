@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 10-04-system-theme-server-PLAN.md
-last_updated: "2026-06-09T09:25:18.475Z"
+stopped_at: Completed 10-05-user-theme-crud-PLAN.md
+last_updated: "2026-06-09T09:38:11.706Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
   completed_phases: 12
   total_plans: 92
-  completed_plans: 74
-  percent: 80
+  completed_plans: 75
+  percent: 82
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 10 (theme-classification) — EXECUTING
-Plan: 5 of 8 (10-01 + 10-02 complete)
+Plan: 6 of 8 (10-01 + 10-02 complete)
 Plans completed: 72 / 92 (Phase 10 Wave 0: 10-01 / Wave 1: 10-02 data-model-migration)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -118,6 +118,7 @@ Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
 | Phase 10 P02 | ~75min (prod push 게이트 포함) | 3 tasks | 4 files |
 | Phase 10 P03 | 16min | 3 tasks | 18 files |
 | Phase 10-theme-classification P04 | ~7min | 2 tasks | 8 files |
+| Phase 10 P05 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -214,6 +215,9 @@ Recent decisions affecting current work:
 - [Phase 10-theme-classification]: 10-04: 테마 상위3평균을 server 실시간 계산(A2)으로 — stock_quotes.change_rate 매 요청 재계산(scanner.ts 동형), DB precompute 컬럼은 캐시 폴백용. '지금 뜨는 테마' 신선도(D-14).
 - [Phase 10-theme-classification]: 10-04: /api/themes 두 라우트 모두 stock_quotes/.in() 청크(200)+error throw — 테마 종목 합집합 가변 대규모, 37afcde 강세장 빈응답 회귀 선제 차단.
 - [Phase 10-theme-classification]: 10-04: GET /api/themes(:id) 가 is_system=true 만 조회 — 유저 테마 id 404. 유저 테마는 webapp→Supabase RLS 직접 경로(Plan 05)라 service_role 라우트 격리(T-10-04-04).
+- [Phase 10]: 유저 테마 CRUD/fetch/fork 전 경로 Supabase 직접(Express 미경유) — RLS owner-only 격리 + is_system=false 명시로 위조 차단 (10-05)
+- [Phase 10]: fork = 단일 테이블 INSERT-SELECT 스냅샷, active 멤버십(effective_to IS NULL)만 source='user' 복사 (D-05, 10-05)
+- [Phase 10]: P0001 50-limit 을 isThemeStockLimitError 헬퍼로 식별 + useThemesQuery 가 두 소스 60s 합성(비로그인 myThemes=[]) (10-05)
 
 ### Pending Todos
 
@@ -240,6 +244,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T09:24:51.685Z
-Stopped at: Completed 10-04-system-theme-server-PLAN.md
+Last session: 2026-06-09T09:37:49.623Z
+Stopped at: Completed 10-05-user-theme-crud-PLAN.md
 Next: 10-03-scrape-pipeline (Wave 2) — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff. 워커 service_role 이 시스템 테마/종목을 적재 (RLS bypass), source/confidence/effective_from-to provenance 컬럼 수용.
