@@ -6,6 +6,7 @@ import {
   formatCorrectMessage,
   buildCorrectFewShot,
 } from "./prompt";
+import { extractJsonObject } from "./parseJson";
 import type { ThemeSyncConfig } from "../config";
 
 /**
@@ -40,9 +41,12 @@ const CORRECT_MAX_TOKENS = 1024;
 
 /** SDK 텍스트 응답 → "themeId::stockCode" key 집합 (파싱 실패 시 빈 배열). */
 function parseCorrectResponse(text: string): string[] {
+  // Haiku 가 ```json 펜스/프리앰블로 감싸도 첫 '{'~마지막 '}' 만 추출(발굴 path 와 동일 POC 버그).
+  const jsonStr = extractJsonObject(text);
+  if (jsonStr === null) return [];
   let parsed: { unrelated?: unknown };
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonStr);
   } catch {
     return [];
   }

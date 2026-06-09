@@ -8,6 +8,7 @@ import {
   buildDiscoverFewShot,
 } from "./prompt";
 import { normalizeName } from "../merge/normalizeName";
+import { extractJsonObject } from "./parseJson";
 import type { ThemeSyncConfig } from "../config";
 
 /**
@@ -49,8 +50,10 @@ interface RawCandidate {
 /** SDK 텍스트 응답 → DiscoveredTheme[] (파싱 실패 시 빈 배열). */
 function parseDiscoverResponse(text: string): DiscoveredTheme[] {
   let parsed: { themes?: unknown };
+  const jsonStr = extractJsonObject(text);
+  if (jsonStr === null) return [];
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonStr);
   } catch {
     return [];
   }
@@ -76,6 +79,89 @@ function parseDiscoverResponse(text: string): DiscoveredTheme[] {
     out.push({ name, normKey, stockCodes: [...new Set(codes)], confidence });
   }
   return out;
+}
+
+/** substring 병합 시 포함되는(짧은) norm_key 최소 길이 — "ai"(2자) 류 짧은 토큰 오병합 방지. */
+const MIN_CONTAINED_KEY_LEN = 4;
+
+/**
+ * 보수적 cross-chunk near-duplicate 병합 (Plan 06 POC 발견 대응).
+ *
+ * 배경: 5개 뉴스 청크가 각각 독립적으로 같은 테마를 "조금씩 다른 이름" 으로 재발굴 →
+ *   norm_key 완전일치 dedupe 만으로는 안 잡힌다(예: "피지컬AI" vs "피지컬AI로봇" ×5,
+ *   "단일종목레버리지ETF" vs "단일종목레버리지etf과열" ×4). 실측 36 후보 중 ~55% 가
+ *   이런 cross-chunk 변형 중복이었다.
+ *
+ * 휴리스틱 — 후보 B 를 A 로 병합하는 조건은 EITHER (증거 기반, 문자열 유사도 금지):
+ *   (a) 종목코드를 2개 이상 공유 (≥2) — 같은 종목 묶음이면 사실상 같은 테마.
+ *   (b) 한 norm_key 가 다른 norm_key 를 substring 으로 완전 포함 + 포함되는(짧은) 쪽
+ *       길이 ≥ MIN_CONTAINED_KEY_LEN — "ai"(2자) 같은 짧은 토큰이 모든 후보에 매칭되는
+ *       오병합을 차단. 'AI기판부품' ⊃ 'AI기판' 류 변형명만 안전하게 병합.
+ *
+ * 보수성(normalizeName 의 "유사도 자동병합 금지" 원칙 승계):
+ *   - edit-distance / Jaccard / 부분 토큰 일치는 쓰지 않는다. 불확실하면 둘 다 KEEP.
+ *     (남은 중복은 허용, 잘못된 병합은 불가 — 시스템 레이어 read-only 라 fork-후-수정 불가.)
+ *   - 병합 시 더 일반적인(norm_key 가 짧은) 이름을 canonical 로, 동률이면 confidence 높은 쪽.
+ *     stockCodes 는 합집합, confidence 는 max.
+ *
+ * 입력은 이미 norm_key 완전일치로 1차 dedupe 된 후보 배열. O(n²) 이나 n 은 보통 수십.
+ */
+function collapseNearDuplicates(
+  candidates: DiscoveredTheme[],
+): DiscoveredTheme[] {
+  const kept: DiscoveredTheme[] = [];
+  for (const cand of candidates) {
+    const target = kept.find((k) => shouldMerge(k, cand));
+    if (!target) {
+      kept.push({ ...cand, stockCodes: [...cand.stockCodes] });
+      continue;
+    }
+    mergeInto(target, cand);
+  }
+  return kept;
+}
+
+/** 두 후보가 같은 테마인지 — 증거 기반(공유종목 ≥2 OR norm_key 포함관계). */
+function shouldMerge(a: DiscoveredTheme, b: DiscoveredTheme): boolean {
+  // (a) 종목코드 2개 이상 공유.
+  const aCodes = new Set(a.stockCodes);
+  let shared = 0;
+  for (const c of b.stockCodes) {
+    if (aCodes.has(c)) {
+      shared++;
+      if (shared >= 2) return true;
+    }
+  }
+  // (b) norm_key 포함관계 + 짧은 쪽 길이 가드.
+  const [shortKey, longKey] =
+    a.normKey.length <= b.normKey.length
+      ? [a.normKey, b.normKey]
+      : [b.normKey, a.normKey];
+  if (
+    shortKey.length >= MIN_CONTAINED_KEY_LEN &&
+    shortKey !== longKey &&
+    longKey.includes(shortKey)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * b 를 target 으로 병합 — canonical(더 일반적=norm_key 짧은, 동률이면 confidence 높은) 이름 유지,
+ * stockCodes 합집합, confidence max. target 을 in-place 갱신.
+ */
+function mergeInto(target: DiscoveredTheme, b: DiscoveredTheme): void {
+  const bIsMoreGeneral =
+    b.normKey.length < target.normKey.length ||
+    (b.normKey.length === target.normKey.length &&
+      b.confidence > target.confidence);
+  if (bIsMoreGeneral) {
+    target.name = b.name;
+    target.normKey = b.normKey;
+  }
+  target.stockCodes = [...new Set([...target.stockCodes, ...b.stockCodes])];
+  target.confidence = Math.max(target.confidence, b.confidence);
 }
 
 /** 단일 뉴스 청크 → Claude 1회 호출 → 후보 (실패 시 빈 배열). */
@@ -198,9 +284,16 @@ export async function discoverThemes(
     }
   }
 
-  const discovered = [...byKey.values()];
+  // 5) cross-chunk near-duplicate 보수적 병합 (POC: 청크별 같은 테마 변형명 재발굴 ~55%).
+  //    norm_key 완전일치(4번)로는 안 잡히는 변형명을 증거(공유종목≥2 OR 포함관계)로만 병합.
+  const exactDeduped = [...byKey.values()];
+  const discovered = collapseNearDuplicates(exactDeduped);
   log.info(
-    { newsCount: newsRows.length, discovered: discovered.length },
+    {
+      newsCount: newsRows.length,
+      rawCandidates: exactDeduped.length,
+      discovered: discovered.length,
+    },
     "discoverThemes done",
   );
   return discovered;

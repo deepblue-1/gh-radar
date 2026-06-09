@@ -179,6 +179,123 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
     expect(out).toEqual([]);
     expect(hoist.mockCreate).not.toHaveBeenCalled();
   });
+
+  // POC 라이브 버그 회귀 — Haiku 가 ```json 마크다운 펜스로 감싼 응답도 파싱돼야 한다.
+  // (mocked clean-JSON 테스트는 이 버그를 못 잡았다 → 첫 production run 발굴 0건.)
+  it("```json 펜스로 감싼 응답도 후보로 파싱한다 (POC fence 버그 회귀)", async () => {
+    hoist.mockCreate.mockResolvedValue(
+      textResponse(
+        '다음은 발굴 결과입니다:\n```json\n{"themes":[{"name":"온디바이스AI","stockCodes":["005930","000660"],"confidence":0.82}]}\n```',
+      ),
+    );
+    const sb = newsSupabase({
+      news: [{ title: "온디바이스 AI NPU 탑재 확대", description: null }],
+      existing: [{ name: "반도체", norm_key: "반도체" }],
+    });
+
+    const out = await discoverThemes(sb as never, aiConfig(), log);
+    // 펜스/프리앰블이 있어도 첫 '{'~마지막 '}' 추출로 정상 파싱.
+    expect(out).toHaveLength(1);
+    expect(out[0].name).toBe("온디바이스AI");
+    expect(out[0].stockCodes).toEqual(["005930", "000660"]);
+  });
+});
+
+// ── (1b) discoverThemes — cross-chunk near-duplicate 보수적 병합 (POC dedup 강화) ──
+
+describe("discoverThemes (near-duplicate 보수적 병합)", () => {
+  function oneChunkSupabase(
+    themesJson: string,
+    existing: Array<{ name: string; norm_key: string | null }> = [],
+  ) {
+    const sb = createMockSupabase();
+    // 단일 청크에 들어가는 뉴스 1건 → Claude 1회 호출 → themesJson 응답.
+    sb.from("news_articles").limit.mockResolvedValue({
+      data: [{ title: "테마 뉴스", description: null }],
+      error: null,
+    });
+    sb.from("themes").limit.mockResolvedValue({ data: existing, error: null });
+    hoist.mockCreate.mockResolvedValue(textResponse(themesJson));
+    return sb;
+  }
+
+  it("종목코드를 2개 이상 공유하는 두 후보는 하나로 병합한다", async () => {
+    // 이름은 norm_key 가 서로 달라 완전일치 dedupe 는 안 되지만 종목 2개 공유 → 같은 테마.
+    const sb = oneChunkSupabase(
+      '{"themes":[' +
+        '{"name":"AI 인프라","stockCodes":["005930","000660"],"confidence":0.7},' +
+        '{"name":"AI 데이터센터 투자","stockCodes":["005930","000660","035420"],"confidence":0.9}' +
+        "]}",
+    );
+    const out = await discoverThemes(sb as never, aiConfig(), log);
+
+    expect(out).toHaveLength(1);
+    // canonical = 더 일반적(norm_key 짧은) 이름 = "AI 인프라".
+    expect(out[0].name).toBe("AI 인프라");
+    // 종목코드 합집합.
+    expect([...out[0].stockCodes].sort()).toEqual([
+      "000660",
+      "005930",
+      "035420",
+    ]);
+    // confidence = max.
+    expect(out[0].confidence).toBeCloseTo(0.9);
+  });
+
+  it("한 이름이 다른 이름을 substring 으로 포함하면 병합한다 (변형명)", async () => {
+    // norm_key: "ai기판" ⊂ "ai기판부품" — 포함관계 + 짧은 쪽 길이 ≥4 → 병합.
+    const sb = oneChunkSupabase(
+      '{"themes":[' +
+        '{"name":"AI 기판","stockCodes":["009150"],"confidence":0.6},' +
+        '{"name":"AI 기판 부품","stockCodes":["072990"],"confidence":0.8}' +
+        "]}",
+    );
+    const out = await discoverThemes(sb as never, aiConfig(), log);
+
+    expect(out).toHaveLength(1);
+    // 더 일반적(짧은) "AI 기판" 이 canonical.
+    expect(out[0].name).toBe("AI 기판");
+    expect([...out[0].stockCodes].sort()).toEqual(["009150", "072990"]);
+  });
+
+  it("공유 종목 없고 포함관계도 없으면 둘 다 유지한다 (과병합 금지)", async () => {
+    // 서로 다른 업종 + 종목 0 공유 + norm_key 포함관계 없음 → 보수적으로 KEEP BOTH.
+    const sb = oneChunkSupabase(
+      '{"themes":[' +
+        '{"name":"양자기술","stockCodes":["096770"],"confidence":0.7},' +
+        '{"name":"폐수소차 희토류","stockCodes":["011090"],"confidence":0.7}' +
+        "]}",
+    );
+    const out = await discoverThemes(sb as never, aiConfig(), log);
+
+    expect(out).toHaveLength(2);
+    const names = out.map((o) => o.name).sort();
+    expect(names).toEqual(["양자기술", "폐수소차 희토류"]);
+  });
+
+  it("종목 1개만 공유하면 병합하지 않는다 (≥2 가드, 과병합 금지)", async () => {
+    // 종목 1개 공유는 우연 동반상장일 수 있어 병합 안 함(보수적). 포함관계도 없음.
+    const sb = oneChunkSupabase(
+      '{"themes":[' +
+        '{"name":"6G 네트워크","stockCodes":["005930"],"confidence":0.7},' +
+        '{"name":"파운드리 경쟁","stockCodes":["005930"],"confidence":0.7}' +
+        "]}",
+    );
+    const out = await discoverThemes(sb as never, aiConfig(), log);
+    expect(out).toHaveLength(2);
+  });
+
+  it("짧은 토큰 포함(길이<4)은 substring 병합 안 한다 (오병합 차단)", async () => {
+    // norm_key "ai"(2자) 가 "ai반도체" 에 포함되나 길이<4 → 병합 금지(ai 가 모든 후보에 매칭되는 사고 방지).
+    const sb = oneChunkSupabase(
+      '{"themes":[' +
+        '{"name":"AI","stockCodes":["035420"],"confidence":0.6},' +
+        '{"name":"AI 반도체","stockCodes":["000660"],"confidence":0.8}' +
+        "]}",
+    );
+    const out = await discoverThemes(sb as never, aiConfig(), log);
+    expect(out).toHaveLength(2);
+  });
 });
 
 // ── (2) correctMembership — 무관 판정 + 환각 방어 ─────────────────────────────
@@ -230,6 +347,15 @@ describe("correctMembership (오분류 soft-제외 대상)", () => {
     hoist.mockCreate.mockResolvedValue(textResponse("불가능"));
     const out = await correctMembership(aiConfig(), rows, log);
     expect(out).toEqual([]);
+  });
+
+  // POC 라이브 버그 회귀 — 교정 응답도 ```json 펜스로 감싸질 수 있다(발굴과 동일 경로).
+  it("```json 펜스로 감싼 응답도 제외 대상으로 파싱한다 (POC fence 버그 회귀)", async () => {
+    hoist.mockCreate.mockResolvedValue(
+      textResponse('```json\n{"unrelated":["t1::068270"]}\n```'),
+    );
+    const out = await correctMembership(aiConfig(), rows, log);
+    expect(out).toEqual([{ themeId: "t1", stockCode: "068270" }]);
   });
 });
 
