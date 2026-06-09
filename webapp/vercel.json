@@ -4,5 +4,5 @@
   "installCommand": "cd .. && pnpm install --frozen-lockfile",
   "buildCommand": "cd .. && pnpm --filter @gh-radar/webapp... build",
   "outputDirectory": ".next",
-  "ignoreCommand": "cd .. && git fetch --depth=1 origin $VERCEL_GIT_PREVIOUS_SHA 2>/dev/null; if git cat-file -e ${VERCEL_GIT_PREVIOUS_SHA}^{commit} 2>/dev/null && git cat-file -e ${VERCEL_GIT_COMMIT_SHA}^{commit} 2>/dev/null; then git diff --quiet $VERCEL_GIT_PREVIOUS_SHA $VERCEL_GIT_COMMIT_SHA -- webapp/ packages/shared/ pnpm-lock.yaml; else exit 1; fi"
+  "ignoreCommand": "cd .. && bash scripts/vercel-ignore-build.sh"
 }
