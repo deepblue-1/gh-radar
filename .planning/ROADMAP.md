@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
 - [x] **Phase 9: Daily Candle Data** - KRX 전 종목 (2020-01-02 ~ 현재) 일봉 OHLCV 수집 + 영업일 증분 갱신 (2026-05-12 완료, 4,003,432 rows)
 - [x] **Phase 09.1: Intraday Current Price** - 키움 REST `ka10027` 페이지네이션 + `ka10001` hot set 매분 stock_quotes/top_movers/stock_daily_ohlcv 갱신. KIS ingestion 완전 폐기 (2026-05-15 완료)
-- [ ] **Phase 10: Theme Classification** - 테마별 종목 묶기 (네이버 금융 + 알파스퀘어 2-tier 수집 + `/themes` UI)
+- [x] **Phase 10: Theme Classification** - 테마별 종목 묶기 (네이버 금융 + 알파스퀘어 2-tier 수집 + `/themes` UI) (completed 2026-06-09)
 
 ## Phase Details
 
@@ -361,7 +361,7 @@ Plans:
   7. Claude Haiku 4.5 가 뉴스(`news_articles`) 기반으로 신규 시스템 테마 후보를 발굴하고 종목↔테마 오분류를 교정한다 (discussion-sync classify 패턴 재사용, `source` 라벨로 시스템 레이어에 분리 적재).
 **Out of scope (this phase):** 상한가 동조/상관관계 분석, 테마 기반 알림.
 **Notes:** 진짜 법적 리스크는 형사가 아닌 민사 DB제작자 권리 침해(대법원 2017다224395) — "상당한 부분 복제" 의 구조적 회피가 핵심 (CLAUDE.md "Naver 종목토론방 Scraping Risk" 운영 5원칙 참조).
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 - [x] 10-01-test-infra-fixtures-PLAN.md — theme-sync 워크스페이스 스캐폴드 + 네이버/알파 fixture + supabase-mock (Wave 0)
@@ -371,7 +371,7 @@ Plans:
 - [x] 10-05-user-theme-crud-PLAN.md — theme-api(유저 CRUD+fork) + use-themes-query (watchlist 복제, Wave 4)
 - [x] 10-06-ai-enrichment-PLAN.md — Claude Haiku 발굴+오분류 교정 + cycle 통합 + POC 게이트 (Wave 5)
 - [x] 10-07-themes-ui-PLAN.md — /themes 변형C 랭킹 + /themes/[id] scanner row + 종목 칩 + CRUD 모달 + nav (Wave 6)
-- [ ] 10-08-deploy-e2e-PLAN.md — Cloud Run Job/Scheduler(OAuth) + [BLOCKING] GCP 배포 + Playwright E2E (Wave 7)
+- [x] 10-08-deploy-e2e-PLAN.md — Cloud Run Job/Scheduler(OAuth) + [BLOCKING] GCP 배포 + Playwright E2E (Wave 7)
 
 ## Progress
 
@@ -397,4 +397,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
-| 10. Theme Classification | 7/8 | In Progress|  |
+| 10. Theme Classification | 8/8 | Complete   | 2026-06-09 |

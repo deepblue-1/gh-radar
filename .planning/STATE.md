@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 10-07-themes-ui-PLAN.md
-last_updated: "2026-06-09T12:19:14.662Z"
+status: verifying
+stopped_at: Completed 10-08-deploy-e2e-PLAN.md (Phase 10 전 plan 완료 — production 배포 + E2E green)
+last_updated: "2026-06-09T13:47:34.476Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
-  completed_phases: 12
+  completed_phases: 13
   total_plans: 92
-  completed_plans: 77
-  percent: 84
+  completed_plans: 78
+  percent: 85
 ---
 
 # Project State
@@ -25,14 +25,21 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 10 (theme-classification) — EXECUTING
-Plan: 8 of 8 (10-01~10-06 complete)
-Plans completed: 76 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment)
-Status: Ready to execute
+Phase: 10 (theme-classification) — COMPLETE (8/8 plans)
+Plan: 8 of 8 complete (10-01~10-08)
+Plans completed: 78 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment / 10-07 themes-ui / 10-08 deploy-e2e)
+Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-06-09
 
-Progress: [████████░░] 83% (76/92 plans · 12/19 phases)
+Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
+
+### Phase 10 Production State (2026-06-09)
+
+- Cloud Run Job `gh-radar-theme-sync` + Scheduler `gh-radar-theme-sync-daily` (`0 16 * * *` Asia/Seoul, OAuth invoker, no OIDC) live. SA `gh-radar-theme-sync-sa` + 기존 Secret 3종 재사용(supabase-service-role/brightdata-api-key/anthropic-api-key). 이미지 `theme-sync:e944970`. `THEME_SYNC_CLASSIFY_ENABLED=true`.
+- 첫 production scrape: **356 시스템 테마**(331 naver/alpha + **25 AI 발굴**) + **7,561 theme_stocks**. AI 보강 라이브(aiDiscovered=25, aiCorrected=2), backedOffSources=[] (네이버 직접 성공). themes count gate PASS(356).
+- 첫 자동 Scheduler 실행: 다음 16:00 KST. 5원칙 backoff(429/403 24h) + SHA256 해시 변경감지 가드 동작 확인(smoke).
+- 유저 테마 optimistic 갱신 + 테마 E2E 3종 green(10/10). THEME-01~04 production 검증 완료.
 
 ### Phase 9 Production State (2026-05-12 12:24 KST)
 
@@ -121,6 +128,7 @@ Progress: [████████░░] 83% (76/92 plans · 12/19 phases)
 | Phase 10 P05 | 6min | 2 tasks | 4 files |
 | Phase 10 P06 | 55min | 3 tasks | 9 files |
 | Phase 10 P07 | 13min | 3 tasks | 14 files |
+| Phase 10 P08 | 13min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -226,6 +234,10 @@ Recent decisions affecting current work:
 - [Phase 10]: [10-07] 출처 도트를 globals.css 토큰만으로 매핑(naver=--flat / alphasquare=--down 블루 정확일치 / ai=--accent 뱃지+--primary 도트) — 목업 인라인 oklch(green/purple) literal 은 하드 룰(토큰만) 우선해 폐기, 세 출처 시각 구분 유지하며 색 리터럴 0
 - [Phase 10]: [10-07] theme-api.fetchMyThemeDetail 추가 — /api/themes/:id 가 유저 테마 404(Plan04 격리)라 유저 상세는 Supabase nested embed(theme_stocks→stocks→stock_quotes, watchlist 톤). 상세 fetch 는 시스템 우선 → 404 시 유저 폴백, isSystem 이 read-only/편집 분기 구동
 - [Phase 10]: [10-07] /themes/[id] 종목 리스트 = scanner-table/card-list 직접 재사용(ThemeStockMember→StockWithProximity 매핑 1함수, props 변경 0). ThemeEditDialog 단일 컴포넌트가 create/edit/fork 3모드 + 종목 add·remove + P0001 인라인 흡수, 목록 CTA + 상세 편집 양쪽 재사용
+- [Phase 10]: [10-08] theme-sync production 배포 — Cloud Run Job gh-radar-theme-sync + Scheduler gh-radar-theme-sync-daily(0 16 KST, OAuth invoker OIDC 금지) + SA + 기존 Secret 3종(brightdata/anthropic/supabase-service-role) 재사용(신규 0). THEME_SYNC_CLASSIFY_ENABLED=true. 첫 scrape 356 시스템 테마(331 naver/alpha + 25 AI 발굴) + 7,561 theme_stocks + aiDiscovered=25/aiCorrected=2, backedOffSources=[] (네이버 직접 성공). themes count gate PASS(356)
+- [Phase 10]: [10-08] 유저 테마 optimistic 갱신 — upsertMyTheme(replace-by-id else prepend)/removeMyTheme(id) + onSaved(스냅샷)/onDeleted(id) 시그니처. Supabase 풀러 read-after-write 레이스로 생성 직후 list 빈 화면 회귀를 즉시 반영 후 refresh reconcile 2단으로 해소(통계 null 폴백). create-and-add E2E 통과
+- [Phase 10]: [10-08] @gh-radar/shared 확장자 없는 re-export lesson — 10-02 의 첫 런타임 값 re-export(THEME_STOCK_SOURCES from ./theme.js)가 Turbopack dev .js→.ts resolve 갭 재유발(DEV 전용 오버레이, production build 는 항상 green). moduleResolution:bundler 에서 확장자 생략이 관용(NodeNext 소비자는 dist, 무영향)
+- [Phase 10]: [10-08] smoke INV-2 — Cloud Run Job pino 로그는 jsonPayload.msg 로 쿼리(service .message 매핑과 다름, 라이브 덤프 확인) + Cloud Logging ingestion 지연 5×15s 재시도. Phase 09.1 의 'service 는 jsonPayload.message' 와 대비되는 Job 측 관측. E2E 상세(edit/delete/fork)는 Express /api/themes/:id 부재로 404 mock(mockThemesApi {list:[]}) → 실 Supabase fetchMyThemeDetail RLS owner-only 폴백 구동
 
 ### Pending Todos
 
@@ -252,6 +264,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T12:18:56.213Z
-Stopped at: 10-08 paused at Task 3 deploy checkpoint (checkpoint:human-action gate=blocking)
+Last session: 2026-06-09T13:47:34.472Z
+Stopped at: Completed 10-08-deploy-e2e-PLAN.md (Phase 10 전 plan 완료 — production 배포 + E2E green)
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)

@@ -57,3 +57,31 @@
 **Preventive check (DB 조회가 가변 규모 입력을 받을 때):**
 - `.in()`/`IN (...)` 입력 배열이 수백+ 가능하면 청크 분할 (기본 500)
 - 조회 결과를 필터/조인에 쓰는데 `error` 를 무시하면 실패 시 빈 결과가 silent 하게 잘못된 출력 생성 → `error` 반드시 throw 또는 로깅 (`const { data } = await ...` 처럼 error 누락 금지)
+
+### Turbopack dev 는 `.js`→`.ts` re-export resolve 못함 — 첫 런타임 값 re-export 도입 시 회귀
+
+**Context:** Phase 10-08 배포 검증 중 `/themes`·`/stocks/[code]` 가 DEV 에서만 Build Error 오버레이. 원인은 10-02 가 `packages/shared/src/index.ts` 에 추가한 첫 **런타임 값** re-export (`export { THEME_STOCK_SOURCES } from "./theme.js"`). webapp tsconfig `paths` 가 `@gh-radar/shared` 를 src(`.ts`)로 라우팅하는데, Turbopack dev 는 webpack 의 `extensionAlias` 같은 `.js`→`.ts` 자동 매핑이 없어 명시 `.js` re-export 를 못 푼다. `type` re-export 는 컴파일 타임 소거라 안 터졌고, production `pnpm -F webapp build`(webpack)는 항상 green — **DEV 전용** 회귀라 build 게이트로 못 잡음.
+
+**Mistake:** `.js` 확장자 명시가 NodeNext 관용이라 무비판 적용. 같은 배럴을 Turbopack(bundler resolution)이 소비한다는 점 + "type 만 re-export 하다가 처음으로 값 re-export 추가" 가 트리거라는 점을 사전에 못 봄.
+
+**Rule:**
+- webapp(Next/Turbopack)이 소비하는 공유 배럴(`packages/shared/src/index.ts`)의 re-export 는 **확장자 없이** 쓴다 (`from "./theme"`). `moduleResolution:bundler` 관용이고, NodeNext 소비자(server/worker)는 빌드된 `dist` 를 쓰므로 무영향.
+- 공유 패키지에 **첫 런타임 값**(상수/함수) re-export 를 추가할 때는 `pnpm -F webapp dev` 로 실제 페이지를 한 번 열어 확인. production build green ≠ dev green.
+
+**Preventive check (공유 배럴 수정 시):**
+- `git diff packages/shared/src/index.ts` 에 `export {` (값) 신규 추가가 있으면 dev 스모크 필수
+- 배럴 re-export 는 확장자 생략 통일 (`grep '\.js"' packages/shared/src/index.ts` 가 비어야 함)
+
+### 인계 컨텍스트의 "PASS/FAIL 상태"는 그대로 믿지 말고 실측으로 재확인
+
+**Context:** Phase 10-08 finalize 인계 노트가 "edit/delete/fork user-themes E2E 는 이미 PASS(6/7 green)", "stock-detail-chart.spec 도 unmocked 데이터로 실패" 라고 명시. 실측하니 (a) edit-remove/delete/fork 는 **pre-change baseline 에서도 실패**(Express `/api/themes/:id` 부재로 상세 에러 카드 — 노트와 반대), (b) `stock-detail-chart.spec` 는 **4/4 green**(노트와 반대), 실제 미해결은 `stock-detail.spec.ts:15` 단일 stale assertion 뿐.
+
+**Mistake (잠재):** 노트의 "6/7 green" 을 믿고 edit-remove 실패를 내 optimistic 변경 탓으로 오귀인하거나, chart spec 을 deferred 로 잘못 기록할 뻔.
+
+**Rule:**
+- 인계받은 "X 는 통과/실패" 주장은 fix/finalize 전에 **해당 테스트만 직접 실행**해 1차 사실 확인. 특히 "내 변경이 깬 것 같다" 판단 전에 `git stash` 로 pre-change baseline 에서 같은 테스트를 돌려 **회귀 여부를 분리**한다.
+- deferred/out-of-scope 로 문서화할 항목도 실제 실패 메시지를 한 번은 캡처(추정 금지) — 후속 작업자가 정확한 원인을 받게.
+
+**Preventive check (finalize/회귀 의심 시):**
+- 의심 테스트 단건 실행 → 실패 시 `git stash push -- <changed files>` 후 재실행 → pop. baseline 에서도 실패면 pre-existing(내 탓 아님), baseline 통과면 내 회귀.
+- deferred 기록은 파일:라인 + 실제 assertion + 진짜 원인(추정/실측 구분) 명시.
