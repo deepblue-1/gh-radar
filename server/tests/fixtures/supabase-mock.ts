@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StockRow, StockMasterRow, StockQuoteRow } from "../../src/mappers/stock";
+import type { ThemeRow, ThemeStockRow } from "../../src/mappers/theme";
 
 type TopMoverRow = {
   code: string;
@@ -17,6 +18,8 @@ type State = {
   masters?: StockMasterRow[];
   quotes?: StockQuoteRow[];
   topMovers?: TopMoverRow[];
+  themes?: ThemeRow[];
+  themeStocks?: ThemeStockRow[];
   upserts?: { table: string; rows: any[] }[];
 };
 
@@ -28,6 +31,8 @@ export function mockSupabase(state: State): SupabaseClient {
     if (t === "stocks") return state.stocks ?? state.masters ?? [];
     if (t === "stock_quotes") return state.quotes ?? [];
     if (t === "top_movers") return state.topMovers ?? [];
+    if (t === "themes") return state.themes ?? [];
+    if (t === "theme_stocks") return state.themeStocks ?? [];
     return [];
   };
 
@@ -69,6 +74,17 @@ export function mockSupabase(state: State): SupabaseClient {
       in: vi.fn().mockImplementation((col: string, vals: any[]) => {
         const set = new Set(vals);
         filtered = filtered.filter((r) => set.has((r as any)[col]));
+        return builder;
+      }),
+      // .is(col, null) — theme_stocks active(effective_to IS NULL) 등
+      is: vi.fn().mockImplementation((col: string, val: unknown) => {
+        if (val === null) {
+          filtered = filtered.filter(
+            (r) => (r as any)[col] === null || (r as any)[col] === undefined,
+          );
+        } else {
+          filtered = filtered.filter((r) => (r as any)[col] === val);
+        }
         return builder;
       }),
       or: vi.fn().mockImplementation((expr: string) => {
