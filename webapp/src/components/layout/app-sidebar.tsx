@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Star } from "lucide-react";
+import { Activity, Layers, Star } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,7 @@ import { UserSection } from "./user-section";
  */
 const NAV = [
   { href: "/scanner", label: "스캐너", icon: Activity },
+  { href: "/themes", label: "테마", icon: Layers },
   { href: "/watchlist", label: "관심종목", icon: Star },
 ] as const;
 

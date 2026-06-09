@@ -13,6 +13,7 @@ import { StockDetailSkeleton } from './stock-detail-skeleton';
 import { StockNewsSection } from './stock-news-section';
 import { StockDiscussionSection } from './stock-discussion-section';
 import { StockDailyChartSection } from './stock-daily-chart-section';
+import { StockThemeChips } from '@/components/theme/theme-chips';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -139,6 +140,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
           최근 갱신 실패: {error.message}
         </p>
       )}
+      <StockThemeChips stockCode={stock.code} />
       <div className="space-y-6">
         <StockNewsSection stockCode={stock.code} />
         <StockDiscussionSection stockCode={stock.code} />

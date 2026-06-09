@@ -39,10 +39,27 @@ vi.mock('@/lib/theme-api', () => ({
   fetchMyThemeDetail: (...a: unknown[]) => fetchMyThemeDetailMock(...a),
 }));
 
-// supabase client (fetchMyThemeDetail 폴백 경로용) — 직접 호출 안 되게 stub.
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({}),
-}));
+// supabase client — fetchMyThemeDetail 폴백 경로 stub + theme-chips 역조회 mock.
+// theme_stocks.select().eq().is() 체인이 themeStocksResult 로 resolve.
+let themeStocksResult: { data: unknown; error: unknown } = {
+  data: [],
+  error: null,
+};
+vi.mock('@/lib/supabase/client', () => {
+  const makeBuilder = () => {
+    const builder: Record<string, unknown> = {};
+    const chain = () => builder;
+    builder.select = chain;
+    builder.eq = chain;
+    builder.is = () => Promise.resolve(themeStocksResult);
+    return builder;
+  };
+  return {
+    createClient: () => ({
+      from: () => makeBuilder(),
+    }),
+  };
+});
 
 // scanner-table 내부 WatchlistToggle 이 useWatchlistSet 요구 — 비로그인이면 null 이라
 // 안전하나, provider 부재 시 default EMPTY 반환하도록 stub.
@@ -58,6 +75,7 @@ vi.mock('@/hooks/use-watchlist-set', () => ({
 
 import { ThemesClient } from '../themes-client';
 import { ThemeDetailClient } from '../theme-detail-client';
+import { StockThemeChips } from '../theme-chips';
 
 // ---------- Fixtures ----------
 
@@ -326,5 +344,102 @@ describe('ThemeDetailClient — scanner row 재사용', () => {
     );
     // 내부 메시지 누출 0
     expect(screen.queryByText(/PGRST internal/)).toBeNull();
+  });
+});
+
+// ============================================================================
+// Task 3 — StockThemeChips (theme_stocks 역조회 + overflow + 빈 분류)
+// ============================================================================
+
+function themeStockRow(
+  id: string,
+  name: string,
+  isSystem: boolean,
+): { theme_id: string; themes: { id: string; name: string; is_system: boolean; owner_id: string | null } } {
+  return {
+    theme_id: id,
+    themes: { id, name, is_system: isSystem, owner_id: isSystem ? null : 'user-1' },
+  };
+}
+
+describe('StockThemeChips — 역조회 + overflow', () => {
+  beforeEach(() => {
+    themeStocksResult = { data: [], error: null };
+  });
+
+  it('시스템 + 내 테마 칩을 함께 렌더하고 클릭 시 /themes/[id] 로 이동한다', async () => {
+    themeStocksResult = {
+      data: [
+        themeStockRow('s1', '초전도체', true),
+        themeStockRow('u1', '내 급등관심', false),
+      ],
+      error: null,
+    };
+    render(<StockThemeChips stockCode="005930" />);
+
+    await waitFor(() =>
+      expect(screen.getByText('초전도체')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('내 급등관심')).toBeInTheDocument();
+    // 칩 = /themes/[id] 링크
+    expect(
+      screen.getByLabelText('초전도체 테마로 이동').getAttribute('href'),
+    ).toBe('/themes/s1');
+    expect(
+      screen.getByLabelText('내 급등관심 테마로 이동').getAttribute('href'),
+    ).toBe('/themes/u1');
+  });
+
+  it('7개 이상이면 6개 표시 + "+N" overflow 트리거를 노출한다', async () => {
+    themeStocksResult = {
+      data: Array.from({ length: 8 }).map((_, i) =>
+        themeStockRow(`t${i}`, `테마${i}`, true),
+      ),
+      error: null,
+    };
+    render(<StockThemeChips stockCode="005930" />);
+
+    await waitFor(() =>
+      expect(screen.getByText('테마0')).toBeInTheDocument(),
+    );
+    // 8 - 6 = 2 overflow
+    expect(
+      screen.getByRole('button', { name: '테마 2개 더 보기' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('+2')).toBeInTheDocument();
+  });
+
+  it('분류된 테마가 없으면 "분류된 테마 없음" 안내를 노출한다', async () => {
+    themeStocksResult = { data: [], error: null };
+    render(<StockThemeChips stockCode="005930" />);
+    await waitFor(() =>
+      expect(screen.getByText('분류된 테마 없음')).toBeInTheDocument(),
+    );
+  });
+
+  it('PostgREST 가 themes 를 array 로 반환해도 방어적으로 매핑한다', async () => {
+    themeStocksResult = {
+      data: [
+        {
+          theme_id: 's1',
+          themes: [{ id: 's1', name: '2차전지', is_system: true, owner_id: null }],
+        },
+      ],
+      error: null,
+    };
+    render(<StockThemeChips stockCode="005930" />);
+    await waitFor(() =>
+      expect(screen.getByText('2차전지')).toBeInTheDocument(),
+    );
+  });
+
+  it('역조회 에러 시 칩/안내 모두 렌더하지 않고 조용히 폴백한다', async () => {
+    themeStocksResult = { data: null, error: { message: 'rls denied' } };
+    render(<StockThemeChips stockCode="005930" />);
+    // loaded=true 후 themes=[] → "분류된 테마 없음" (에러 메시지 누출 0)
+    await waitFor(() =>
+      expect(screen.getByText('분류된 테마 없음')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/rls denied/)).toBeNull();
   });
 });
