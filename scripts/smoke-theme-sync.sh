@@ -52,13 +52,19 @@ check "INV-1 jobs execute --wait exit 0" \
 #   (skippedWrite/backoff 인 경우에도 cycle complete 로그는 안 남을 수 있으므로,
 #    첫 실행은 빈 DB → 적재 → complete 로그 기대.)
 # ─────────────────────────────────────────────────────────────
+# 필드명은 jsonPayload.msg (raw pino — Cloud Run Job 은 msg 보존, service 의 .message 매핑과 다름).
+# Job 완료 직후 Cloud Logging ingestion 지연(~30-60s)이 있어 5회 × 15s 재시도로 lag 흡수.
 check "INV-2 logs: theme-sync cycle complete" bash -c "
-  gcloud logging read '
-    resource.type=\"cloud_run_job\"
-    AND resource.labels.job_name=\"$JOB\"
-    AND jsonPayload.msg=\"theme-sync cycle complete\"
-  ' --project=\"$PROJECT\" --freshness=10m --limit=5 --format='value(jsonPayload.msg)' \
-    | grep -q 'theme-sync cycle complete'
+  for attempt in 1 2 3 4 5; do
+    gcloud logging read '
+      resource.type=\"cloud_run_job\"
+      AND resource.labels.job_name=\"$JOB\"
+      AND jsonPayload.msg=\"theme-sync cycle complete\"
+    ' --project=\"$PROJECT\" --freshness=10m --limit=5 --format='value(jsonPayload.msg)' \
+      | grep -q 'theme-sync cycle complete' && exit 0
+    sleep 15
+  done
+  exit 1
 "
 
 # ─────────────────────────────────────────────────────────────
