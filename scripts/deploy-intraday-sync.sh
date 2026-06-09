@@ -141,8 +141,14 @@ echo "✓ Scheduler ready: $SCHED (cron '* 9-15 * * 1-5' Asia/Seoul)"
 ALERT_FILE="ops/alert-intraday-sync-failure.yaml"
 if [[ -f "$ALERT_FILE" ]]; then
   : "${NOTIFICATION_CHANNEL_ID:?NOTIFICATION_CHANNEL_ID must be set for alert policy}"
+  # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
+  CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
+  case "$CHANNEL_RESOURCE" in
+    projects/*) ;;
+    *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
+  esac
   RESOLVED_YAML=$(mktemp)
-  sed "s|\${NOTIFICATION_CHANNEL_ID}|${NOTIFICATION_CHANNEL_ID}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
+  sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
 
   EXISTING_POLICY=$(gcloud alpha monitoring policies list \
     --filter="displayName=gh-radar-intraday-sync-failure" \
