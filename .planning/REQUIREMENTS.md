@@ -68,7 +68,7 @@
 - [x] **THEME-01**: 테마별 종목 매핑 수집 — 네이버 금융 테마(산업/이벤트) + 알파스퀘어(정치인주/시사) 2-tier 소스를 일 1회 16:00 KST 배치로 수집, 콘텐츠 SHA256 해시 변경 감지, 한국 크롤링 운영 5원칙 준수. `themes` + `theme_stocks` 테이블(effective_from/to 이력, source/confidence, stocks FK) — Phase 10
 - [x] **THEME-02**: 테마 목록 페이지 + 테마별 종목 리스트 표시 — 웹앱 `/themes`(내 테마 상단 + 시스템 테마, 소속 종목 상위 3종목 평균 등락률 순 정렬), `/themes/[id]` 상세(scanner row 재사용), 종목 상세 `/stocks/[code]` 테마 칩. `stock_quotes` 활용 + 출처 표기 — Phase 10
 - [x] **THEME-03**: 유저 테마 CRUD — 로그인 유저가 본인 소유 테마 생성/편집/삭제 + 종목 add/remove, 시스템 테마 스냅샷 fork. per-user owner-only RLS (watchlist 모델 복제). 시스템 테마(read-only)와 별도 레이어로 분리 — Phase 10 (10-02: 데이터 모델 + owner-only RLS 5정책 + 50-limit trigger 토대 적용 / CRUD API+UI 는 10-05·10-07 대기 → In Progress)
-- [x] **THEME-04**: AI 테마 보강 — Claude Haiku 4.5로 뉴스(`news_articles`) 기반 신규 시스템 테마 후보 발굴 + 종목↔테마 오분류 교정 (discussion-sync classify 패턴 재사용, 시스템 레이어) — Phase 10
+- [x] **THEME-04**: AI 테마 보강 — Claude Haiku 4.5로 뉴스(`news_articles`) 기반 신규 시스템 테마 후보 발굴 + 종목↔테마 오분류 교정 (discussion-sync classify 패턴 재사용, 시스템 레이어) — Phase 10 (10-06 완료: ai/ 모듈 4종 + cycle 통합 + POC 실측 검증[비용 ~$1.83/월·정확도 GOOD·source='ai' 표시 승인] + Haiku ```json 펜스 버그 수정 + 보수적 dedup 강화. production 활성은 10-08 의 THEME_SYNC_CLASSIFY_ENABLED=true)
 
 ## v2 Requirements
 
@@ -132,7 +132,7 @@
 | THEME-01 | Phase 10 | Complete |
 | THEME-02 | Phase 10 | Complete |
 | THEME-03 | Phase 10 | In Progress (10-02 데이터 모델+RLS 토대; CRUD API/UI 10-05·10-07 대기) |
-| THEME-04 | Phase 10 | Complete |
+| THEME-04 | Phase 10 | Complete (10-06: ai/ 모듈+cycle 통합+POC 검증 $1.83/월·정확도 GOOD·source='ai' 승인; prod 활성 10-08) |
 
 **Coverage:**
 - v1 requirements: 33 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33)

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 10-05-user-theme-crud-PLAN.md
-last_updated: "2026-06-09T09:38:11.706Z"
+stopped_at: Completed 10-06-ai-enrichment-PLAN.md (AI 테마 보강 — 발굴/교정/cycle 통합 + POC 실측 검증 $1.83/월·정확도 GOOD + Haiku 펜스 버그 수정 + 보수적 dedup 강화 + source='ai' 표시 승인). 62 tests green.
+last_updated: "2026-06-09T11:56:12.660Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
   completed_phases: 12
   total_plans: 92
-  completed_plans: 75
-  percent: 82
+  completed_plans: 76
+  percent: 83
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 10 (theme-classification) — EXECUTING
-Plan: 6 of 8 (10-01 + 10-02 complete)
-Plans completed: 72 / 92 (Phase 10 Wave 0: 10-01 / Wave 1: 10-02 data-model-migration)
-Status: Ready to execute
+Plan: 7 of 8 (10-01~10-06 complete)
+Plans completed: 76 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment)
+Status: Ready to execute (10-07 themes-ui 다음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-06-09
 
-Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
+Progress: [████████░░] 83% (76/92 plans · 12/19 phases)
 
 ### Phase 9 Production State (2026-05-12 12:24 KST)
 
@@ -119,6 +119,7 @@ Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
 | Phase 10 P03 | 16min | 3 tasks | 18 files |
 | Phase 10-theme-classification P04 | ~7min | 2 tasks | 8 files |
 | Phase 10 P05 | 6min | 2 tasks | 4 files |
+| Phase 10 P06 | 55min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -218,6 +219,9 @@ Recent decisions affecting current work:
 - [Phase 10]: 유저 테마 CRUD/fetch/fork 전 경로 Supabase 직접(Express 미경유) — RLS owner-only 격리 + is_system=false 명시로 위조 차단 (10-05)
 - [Phase 10]: fork = 단일 테이블 INSERT-SELECT 스냅샷, active 멤버십(effective_to IS NULL)만 source='user' 복사 (D-05, 10-05)
 - [Phase 10]: P0001 50-limit 을 isThemeStockLimitError 헬퍼로 식별 + useThemesQuery 가 두 소스 60s 합성(비로그인 myThemes=[]) (10-05)
+- [Phase 10]: 10-06: 펜스-tolerant JSON 추출을 parseJson.extractJsonObject 공유 유틸로 — Haiku 가 'JSON only' 지시에도 ```json 펜스로 감싸 discover/correct 두 파서의 JSON.parse 가 throw → 발굴 0건(POC 실측 라이브 버그). 첫 '{'~마지막 '}' 슬라이스로 두 파서 공유 수정. mocked 테스트가 못 잡은 사각지대.
+- [Phase 10]: 10-06: 보수적 cross-chunk dedup(collapseNearDuplicates) — POC 36 후보 중 ~55% 가 청크별 같은 테마 변형명 재발굴. 병합 조건 EITHER (a)종목코드 ≥2 공유 OR (b)norm_key substring 포함(짧은쪽 길이≥4 가드). edit-distance 금지, 불확실 시 KEEP BOTH(normalizeName 보수 원칙 승계). 병합 시 더 일반적(짧은) 이름 canonical+stockCodes 합집합+confidence max.
+- [Phase 10]: 10-06 POC 실측: 5 Claude 호출 ~51k in+1.9k out 토큰 = $0.06/run → ~$1.83/월(target <$1/일 통과). 정확도 GOOD(HBM/온디바이스AI/양자/파운드리 등 실 KR 테마). source='ai' 표시 승인(ai_candidate 격리 불필요, 코드 변경 0 — /api/themes is_system=true 자동 surface). prod 활성은 10-08 의 THEME_SYNC_CLASSIFY_ENABLED=true.
 
 ### Pending Todos
 
@@ -244,6 +248,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T09:55:00.000Z
-Stopped at: 10-06-ai-enrichment paused at Task 3 POC checkpoint (Task 1 ai 모듈 + Task 2 cycle 통합 완료·커밋, blocking human-verify POC 게이트 대기). 실제 Anthropic 호출/production 발굴 미실행.
-Next: 10-06 Task 3 POC 게이트 — ANTHROPIC_API_KEY + classifyEnabled=true 로컬에서 discoverThemes 1회(최근 1일 news_articles) 실행 → 발굴 정확도/토큰비용 육안 검증 → source='ai' 표시 유지 vs source='ai_candidate' 비표시 격리 결정. orchestrator 가 게이트 처리.
+Last session: 2026-06-09T11:56:12.656Z
+Stopped at: Completed 10-06-ai-enrichment-PLAN.md (AI 테마 보강 — 발굴/교정/cycle 통합 + POC 실측 검증 $1.83/월·정확도 GOOD + Haiku 펜스 버그 수정 + 보수적 dedup 강화 + source='ai' 표시 승인). 62 tests green.
+Next: 10-07 themes-ui — /themes 변형C 랭킹 + /themes/[id] scanner row + 종목 칩 + 유저 테마 CRUD 모달 + nav (Wave 6). 이후 10-08 deploy(Cloud Run Job/Scheduler OAuth + [BLOCKING] GCP 배포 — THEME_SYNC_CLASSIFY_ENABLED=true + ANTHROPIC_API_KEY secret 바인딩으로 AI 발굴 활성 + Playwright E2E).
