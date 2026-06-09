@@ -6,8 +6,33 @@ import {
   hashToInt,
 } from "../src/pipeline/contentHash";
 import { upsertThemes } from "../src/pipeline/upsertThemes";
-import type { MergedTheme } from "../src/merge/mergeThemes";
+import { mergeThemes, type MergedTheme } from "../src/merge/mergeThemes";
+import { runThemeSyncCycle } from "../src/index";
+import type { ThemeScrape } from "../src/scrape/types";
+import type { ThemeSyncConfig } from "../src/config";
+import type { AxiosInstance } from "axios";
 import { createMockSupabase } from "./helpers/supabase-mock";
+
+function cycleConfig(over: Partial<ThemeSyncConfig> = {}): ThemeSyncConfig {
+  return {
+    supabaseUrl: "https://x.supabase.co",
+    supabaseServiceRoleKey: "svc",
+    brightdataApiKey: "bd",
+    brightdataZone: "gh_radar_naver",
+    brightdataUrl: "https://api.brightdata.com/request",
+    alphaApiBase: "https://api.alphasquare.co.kr",
+    naverThemeBase: "https://finance.naver.com",
+    themeSyncMaxPages: 10,
+    alphaCategories: ["정치"],
+    anthropicApiKey: "",
+    classifyEnabled: false,
+    classifyConcurrency: 5,
+    classifyModel: "claude-haiku-4-5",
+    appVersion: "test",
+    logLevel: "silent",
+    ...over,
+  };
+}
 
 function theme(
   normKey: string,
@@ -174,5 +199,174 @@ describe("upsertThemes (FK skip + 청크 + 이력 + MIN_EXPECTED — Pitfall 5/1
     await expect(upsertThemes(sb as never, [])).rejects.toThrow(
       /partial scrape/,
     );
+  });
+});
+
+describe("runThemeSyncCycle (cycle 결선 smoke — 5원칙 가드)", () => {
+  const naverScrape: ThemeScrape = {
+    name: "반도체",
+    description: null,
+    aliases: [],
+    stocks: [{ code: "005930", reason: "메모리 반도체" }],
+    source: "naver",
+  };
+  const alphaScrape: ThemeScrape = {
+    name: "이재명",
+    description: "정치 테마",
+    aliases: [],
+    stocks: [{ code: "000660", reason: null }],
+    source: "alphasquare",
+  };
+
+  // api_usage 는 isBackedOff(service=theme_*_backoff) 와 shouldSkipWrite(service=theme_content_hash)가
+  // 둘 다 .order().limit() 종결 → 서비스 라벨에 따라 다른 응답을 줘야 한다. 가장 최근 eq("service",X)
+  // 호출을 읽어 분기(mock 은 eq 인자를 무시하므로 테스트가 직접 service 별 응답을 구성).
+  function setApiUsageResponder(
+    sb: ReturnType<typeof createMockSupabase>,
+    byService: Record<string, unknown[]>,
+  ) {
+    const chain = sb.from("api_usage");
+    chain.limit.mockImplementation(() => {
+      const eqCalls = (chain.eq as ReturnType<typeof vi.fn>).mock.calls;
+      const svcCall = [...eqCalls]
+        .reverse()
+        .find((c) => c[0] === "service");
+      const service = svcCall?.[1] as string | undefined;
+      const data = service ? (byService[service] ?? []) : [];
+      return Promise.resolve({ data, error: null });
+    });
+  }
+
+  function cycleSupabase() {
+    const sb = createMockSupabase();
+    // 기본: 백오프 없음 + 해시 불일치(빈 배열) → fetch 진행 + write 진행.
+    setApiUsageResponder(sb, {});
+    sb.from("api_usage").upsert.mockResolvedValue({ data: null, error: null });
+    // stocks 존재 확인 — 두 종목 모두 존재.
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }, { code: "000660" }],
+      error: null,
+    });
+    // themes: 신규(norm_key 없음) → insert id 반환.
+    sb.from("themes").maybeSingle.mockResolvedValue({
+      data: null,
+      error: null,
+    });
+    sb.from("themes").single.mockResolvedValue({
+      data: { id: "theme-x" },
+      error: null,
+    });
+    // theme_stocks: active 없음 + upsert 성공.
+    sb.from("theme_stocks").is.mockResolvedValue({ data: [], error: null });
+    sb.from("theme_stocks").upsert.mockResolvedValue({
+      data: null,
+      error: null,
+    });
+    return sb;
+  }
+
+  it("스크랩→병합→upsert 를 결선하고 api_usage 카운트를 증가시킨다 (5원칙 #1)", async () => {
+    const sb = cycleSupabase();
+    const proxy = { post: vi.fn() } as unknown as AxiosInstance;
+    const naver = vi.fn().mockResolvedValue([naverScrape]);
+    const alpha = vi.fn().mockResolvedValue([alphaScrape]);
+
+    const summary = await runThemeSyncCycle({
+      config: cycleConfig(),
+      supabase: sb as never,
+      proxy,
+      fetchers: { naver, alpha },
+    });
+
+    // 두 소스 fetch 됨
+    expect(naver).toHaveBeenCalled();
+    expect(alpha).toHaveBeenCalled();
+    // upsert 호출(themes insert + theme_stocks upsert)
+    expect(sb._chains.themes.insert).toHaveBeenCalled();
+    expect(sb._chains.theme_stocks.upsert).toHaveBeenCalled();
+    // 5원칙 #1 — api_usage incr RPC 호출(소스별 1회 = 2회)
+    expect(sb.rpc).toHaveBeenCalledWith(
+      "incr_api_usage",
+      expect.objectContaining({ p_amount: 1 }),
+    );
+    expect(summary.scrapedThemes).toBe(2);
+    expect(summary.skippedWrite).toBe(false);
+    expect(summary.themesUpserted).toBeGreaterThan(0);
+  });
+
+  it("콘텐츠 해시가 동일하면 DB write 를 skip 한다 (5원칙 #2)", async () => {
+    const sb = cycleSupabase();
+    // 직전 해시 = 이번 cycle 이 실제 병합으로 산출할 해시 → shouldSkipWrite true.
+    // 단 backoff 서비스는 빈 배열(백오프 없음) 유지 — service 별 분기로 isBackedOff 오작동 방지.
+    const expectedHash = computeContentHash(
+      mergeThemes([naverScrape, alphaScrape]),
+    );
+    setApiUsageResponder(sb, {
+      theme_content_hash: [{ count: hashToInt(expectedHash) }],
+    });
+
+    const summary = await runThemeSyncCycle({
+      config: cycleConfig(),
+      supabase: sb as never,
+      proxy: { post: vi.fn() } as unknown as AxiosInstance,
+      fetchers: {
+        naver: vi.fn().mockResolvedValue([naverScrape]),
+        alpha: vi.fn().mockResolvedValue([alphaScrape]),
+      },
+    });
+
+    expect(summary.skippedWrite).toBe(true);
+    // write skip — themes insert 미호출
+    expect(sb._chains.themes.insert).not.toHaveBeenCalled();
+  });
+
+  it("source 가 24h backoff 중이면 fetch 를 skip 한다 (5원칙 #4)", async () => {
+    const sb = cycleSupabase();
+    const now = new Date("2026-06-09T07:00:00Z");
+    // 양 소스 backoff 서비스에 미래 backoff_until → fetch 게이트.
+    const futureMs = now.getTime() + 5 * 3600_000;
+    setApiUsageResponder(sb, {
+      theme_naver_backoff: [{ count: futureMs }],
+      theme_alpha_backoff: [{ count: futureMs }],
+    });
+    const naver = vi.fn();
+    const alpha = vi.fn();
+
+    const summary = await runThemeSyncCycle({
+      config: cycleConfig(),
+      supabase: sb as never,
+      proxy: { post: vi.fn() } as unknown as AxiosInstance,
+      fetchers: { naver, alpha },
+      now,
+    });
+
+    // backoff 게이트로 fetch 미호출
+    expect(naver).not.toHaveBeenCalled();
+    expect(alpha).not.toHaveBeenCalled();
+    expect(summary.backedOffSources).toEqual(["naver", "alpha"]);
+    expect(summary.scrapedThemes).toBe(0);
+  });
+
+  it("fetch 차단(NaverRateLimitError) 시 markBackoff 를 기록한다 (5원칙 #4)", async () => {
+    const sb = cycleSupabase();
+    const { NaverRateLimitError } = await import("../src/proxy/errors");
+    const naver = vi.fn().mockRejectedValue(new NaverRateLimitError());
+    const alpha = vi.fn().mockResolvedValue([alphaScrape]);
+
+    const summary = await runThemeSyncCycle({
+      config: cycleConfig(),
+      supabase: sb as never,
+      proxy: { post: vi.fn() } as unknown as AxiosInstance,
+      fetchers: { naver, alpha },
+    });
+
+    // 네이버 차단 → backoff 기록(api_usage upsert with backoff service)
+    const backoffUpsert = (
+      sb._chains.api_usage.upsert as ReturnType<typeof vi.fn>
+    ).mock.calls.find((c) => c[0]?.service === "theme_naver_backoff");
+    expect(backoffUpsert).toBeDefined();
+    expect(summary.backedOffSources).toContain("naver");
+    // 알파는 정상 → 적재됨
+    expect(summary.scrapedThemes).toBe(1);
   });
 });
