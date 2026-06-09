@@ -17,6 +17,34 @@ import { upsertQuotesStep1, upsertQuotesStep2 } from "./pipeline/upsertQuotes";
 import { createSupabaseClient } from "./services/supabase";
 import { withRetry } from "./retry";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * stocks 마스터 조회 — codes 를 CHUNK 단위로 나눠 .in() URL 한계(414)를 회피.
+ * 강세장에 codes 가 수천 개로 늘면 단일 .in() 이 통째로 실패하므로 청크 필수.
+ * error 는 throw — 조용히 빈 결과로 진행하면 eligibleCodes 가 비어 top_movers 가 비워진다.
+ * (2026-06-09 회귀 대응: 강세장 codes 2838 → .in() 실패 → eligibleCodes 빈 Set → top_movers 0)
+ */
+export async function fetchStocksMasterChunked(
+  supabase: SupabaseClient,
+  codes: string[],
+): Promise<Array<{ code: string; market: string; security_group: string | null }>> {
+  const CHUNK = 500;
+  const out: Array<{ code: string; market: string; security_group: string | null }> = [];
+  for (let i = 0; i < codes.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from("stocks")
+      .select("code, market, security_group")
+      .in("code", codes.slice(i, i + CHUNK));
+    if (error) throw error;
+    if (data) {
+      out.push(
+        ...(data as Array<{ code: string; market: string; security_group: string | null }>),
+      );
+    }
+  }
+  return out;
+}
 
 function todayIsoKst(): string {
   const now = new Date();
@@ -99,10 +127,13 @@ export async function runIntradayCycle(): Promise<{
   //   marketMap: top_movers.market 채우기 (KOSPI/KOSDAQ CHECK 제약)
   //   eligibleCodes: rebuildTopMovers 화이트리스트 — 일반 주식 계열만 통과시켜 ETF/ETN/ELW 자동 제외
   const codes = step1Updates.map((u) => u.code);
-  const { data: masterRows } = await supabase
-    .from("stocks")
-    .select("code, market, security_group")
-    .in("code", codes);
+  // stocks 마스터 조회 — codes 가 강세장에 수천 개까지 늘면 단일 .in() 이 URL 한계(414)로
+  // 통째로 실패한다. fetchStocksMasterChunked 가 500 개씩 나눠 조회 + error 처리로 회피.
+  // (2026-06-09 회귀: 강세장 codes 2838 → .in() 실패 → eligibleCodes 빈 Set → top_movers 0)
+  const masterRows = await withRetry(
+    () => fetchStocksMasterChunked(supabase, codes),
+    "fetchStocksMaster",
+  );
   const marketMap = new Map<string, "KOSPI" | "KOSDAQ">();
   const ELIGIBLE_SECGROUPS = new Set<string>([
     "주권",
@@ -113,11 +144,7 @@ export async function runIntradayCycle(): Promise<{
     "사회간접자본투융자회사",
   ]);
   const eligibleCodes = new Set<string>();
-  for (const m of (masterRows ?? []) as Array<{
-    code: string;
-    market: string;
-    security_group: string | null;
-  }>) {
+  for (const m of masterRows) {
     if (m.market === "KOSPI" || m.market === "KOSDAQ") marketMap.set(m.code, m.market);
     if (m.security_group && ELIGIBLE_SECGROUPS.has(m.security_group)) {
       eligibleCodes.add(m.code);
