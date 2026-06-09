@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 10-06-ai-enrichment-PLAN.md (AI 테마 보강 — 발굴/교정/cycle 통합 + POC 실측 검증 $1.83/월·정확도 GOOD + Haiku 펜스 버그 수정 + 보수적 dedup 강화 + source='ai' 표시 승인). 62 tests green.
-last_updated: "2026-06-09T11:56:12.660Z"
+stopped_at: Completed 10-07-themes-ui-PLAN.md
+last_updated: "2026-06-09T12:19:14.662Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
   completed_phases: 12
   total_plans: 92
-  completed_plans: 76
-  percent: 83
+  completed_plans: 77
+  percent: 84
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 10 (theme-classification) — EXECUTING
-Plan: 7 of 8 (10-01~10-06 complete)
+Plan: 8 of 8 (10-01~10-06 complete)
 Plans completed: 76 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment)
-Status: Ready to execute (10-07 themes-ui 다음)
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-06-09
 
@@ -120,6 +120,7 @@ Progress: [████████░░] 83% (76/92 plans · 12/19 phases)
 | Phase 10-theme-classification P04 | ~7min | 2 tasks | 8 files |
 | Phase 10 P05 | 6min | 2 tasks | 4 files |
 | Phase 10 P06 | 55min | 3 tasks | 9 files |
+| Phase 10 P07 | 13min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,9 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-06: 펜스-tolerant JSON 추출을 parseJson.extractJsonObject 공유 유틸로 — Haiku 가 'JSON only' 지시에도 ```json 펜스로 감싸 discover/correct 두 파서의 JSON.parse 가 throw → 발굴 0건(POC 실측 라이브 버그). 첫 '{'~마지막 '}' 슬라이스로 두 파서 공유 수정. mocked 테스트가 못 잡은 사각지대.
 - [Phase 10]: 10-06: 보수적 cross-chunk dedup(collapseNearDuplicates) — POC 36 후보 중 ~55% 가 청크별 같은 테마 변형명 재발굴. 병합 조건 EITHER (a)종목코드 ≥2 공유 OR (b)norm_key substring 포함(짧은쪽 길이≥4 가드). edit-distance 금지, 불확실 시 KEEP BOTH(normalizeName 보수 원칙 승계). 병합 시 더 일반적(짧은) 이름 canonical+stockCodes 합집합+confidence max.
 - [Phase 10]: 10-06 POC 실측: 5 Claude 호출 ~51k in+1.9k out 토큰 = $0.06/run → ~$1.83/월(target <$1/일 통과). 정확도 GOOD(HBM/온디바이스AI/양자/파운드리 등 실 KR 테마). source='ai' 표시 승인(ai_candidate 격리 불필요, 코드 변경 0 — /api/themes is_system=true 자동 surface). prod 활성은 10-08 의 THEME_SYNC_CLASSIFY_ENABLED=true.
+- [Phase 10]: [10-07] 출처 도트를 globals.css 토큰만으로 매핑(naver=--flat / alphasquare=--down 블루 정확일치 / ai=--accent 뱃지+--primary 도트) — 목업 인라인 oklch(green/purple) literal 은 하드 룰(토큰만) 우선해 폐기, 세 출처 시각 구분 유지하며 색 리터럴 0
+- [Phase 10]: [10-07] theme-api.fetchMyThemeDetail 추가 — /api/themes/:id 가 유저 테마 404(Plan04 격리)라 유저 상세는 Supabase nested embed(theme_stocks→stocks→stock_quotes, watchlist 톤). 상세 fetch 는 시스템 우선 → 404 시 유저 폴백, isSystem 이 read-only/편집 분기 구동
+- [Phase 10]: [10-07] /themes/[id] 종목 리스트 = scanner-table/card-list 직접 재사용(ThemeStockMember→StockWithProximity 매핑 1함수, props 변경 0). ThemeEditDialog 단일 컴포넌트가 create/edit/fork 3모드 + 종목 add·remove + P0001 인라인 흡수, 목록 CTA + 상세 편집 양쪽 재사용
 
 ### Pending Todos
 
@@ -248,6 +252,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T11:56:12.656Z
-Stopped at: Completed 10-06-ai-enrichment-PLAN.md (AI 테마 보강 — 발굴/교정/cycle 통합 + POC 실측 검증 $1.83/월·정확도 GOOD + Haiku 펜스 버그 수정 + 보수적 dedup 강화 + source='ai' 표시 승인). 62 tests green.
+Last session: 2026-06-09T12:18:56.213Z
+Stopped at: Completed 10-07-themes-ui-PLAN.md
 Next: 10-07 themes-ui — /themes 변형C 랭킹 + /themes/[id] scanner row + 종목 칩 + 유저 테마 CRUD 모달 + nav (Wave 6). 이후 10-08 deploy(Cloud Run Job/Scheduler OAuth + [BLOCKING] GCP 배포 — THEME_SYNC_CLASSIFY_ENABLED=true + ANTHROPIC_API_KEY secret 바인딩으로 AI 발굴 활성 + Playwright E2E).
