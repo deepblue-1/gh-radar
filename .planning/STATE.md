@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 10-02-data-model-migration (themes/theme_stocks 마이그레이션 prod 적용 + 검증)
-last_updated: "2026-06-09T09:05:00.000Z"
+stopped_at: Completed 10-03-scrape-pipeline (theme-sync 2-tier 스크랩→병합→upsert + 5원칙 backoff/해시, 38 tests green)
+last_updated: "2026-06-09T09:11:59.115Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
   completed_phases: 12
   total_plans: 92
-  completed_plans: 72
-  percent: 78
+  completed_plans: 73
+  percent: 79
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 10 (theme-classification) — EXECUTING
-Plan: 3 of 8 (10-01 + 10-02 complete)
+Plan: 4 of 8 (10-01 + 10-02 complete)
 Plans completed: 72 / 92 (Phase 10 Wave 0: 10-01 / Wave 1: 10-02 data-model-migration)
-Status: Executing Phase 10
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-06-09 -- 10-02 data-model-migration 완료 (themes/theme_stocks 마이그레이션 RLS 7정책 + limit trigger 2종 → prod db push 적용 + service_role/anon REST 검증, packages/shared 테마 타입 계약)
+Last activity: 2026-06-09
 
 Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
 
@@ -116,6 +116,7 @@ Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
 | Phase 09.2 P03 | 8min | 3 tasks | 6 files |
 | Phase 10 P01 | 6min | 2 tasks | 11 files |
 | Phase 10 P02 | ~75min (prod push 게이트 포함) | 3 tasks | 4 files |
+| Phase 10 P03 | 16min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -206,6 +207,9 @@ Recent decisions affecting current work:
 - [Phase 10]: Plan 02: 공개 read 정책(read_system_themes / read_theme_stocks) TO anon, authenticated 둘 다 명시 (Pitfall 3, feedback_supabase_rls_authenticated) — anon-only 시 로그인(JWT authenticated) 사용자 default-deny 빈 응답 회귀 방지. owner_id REFERENCES auth.users(id) ON DELETE CASCADE + CHECK themes_owner_consistency 무결성. 종목수/테마수 50-limit 은 RLS subquery 금지(recursion+42501 구분불가) → BEFORE INSERT trigger P0001 (시스템=service_role 무제한)
 - [Phase 10]: Plan 02: production db push 적용 완료 + 검증 — `supabase db push --yes` 가 20260609120000_theme_tables.sql 적용(exit 0), dry-run 재실행 "Remote database is up to date", service_role REST GET themes/theme_stocks 200(테이블 존재), anon REST GET themes?is_system=eq.true 200(read_system_themes 활성). 시드 부재로 빈 배열이나 default-deny 아님 = RLS 정상
 - [Phase 10]: Plan 02: [Rule 3 - 포매팅] acceptance-criteria 리터럴 lowercase grep(`references stocks(code)` / `owner_id uuid REFERENCES auth.users`) ↔ repo uppercase-SQL 컨벤션 양립 — canonical DDL 은 uppercase REFERENCES 유지 + 동일 라인 trailing 주석에 lowercase 앵커 병기. 스키마/동작 무영향 (주석은 SQL 무시)
+- [Phase 10]: Plan 03: backoff 상태를 api_usage 재사용(service=theme_*_backoff, count=backoff-until epoch ms)으로 저장 — 신규 마이그레이션 회피. 콘텐츠 SHA256 은 hex 앞 13자리(52bit) 정수 다이제스트로 api_usage.count 저장/비교(변경 감지용)
+- [Phase 10]: Plan 03: 직접 fetch → 403/429/undefined-status 시 Bright Data 프록시 1회 폴백(자동 지수 재시도 금지, 5원칙 #4). EUC-KR 은 arraybuffer+iconv(Pitfall 2), 알파는 zod 검증 JSON. 둘 다 차단 시 markBackoff(24h) → 다음 cycle skip
+- [Phase 10]: Plan 03: 보수적 norm_key 정규화(NFKC+소문자+공백/특수문자 제거, 괄호 보존, Levenshtein 금지) — 'AI챗봇'='ai 챗봇' 병합, 'HBM(고대역폭메모리)'≠'HBM' 분리. upsertThemes 는 stocks .in() 청크(200) FK skip + theme_stocks 청크(500) + effective_to soft-제외 이력
 
 ### Pending Todos
 
@@ -232,6 +236,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T09:05:00.000Z
-Stopped at: 10-02-data-model-migration 완료 — themes/theme_stocks 마이그레이션(RLS 7정책 + limit trigger 2종) production db push 적용 + service_role/anon REST 검증, packages/shared 테마 타입 계약. SUMMARY + STATE/ROADMAP/REQUIREMENTS 갱신.
+Last session: 2026-06-09T09:11:40.740Z
+Stopped at: Completed 10-03-scrape-pipeline (theme-sync 2-tier 스크랩→병합→upsert + 5원칙 backoff/해시, 38 tests green)
 Next: 10-03-scrape-pipeline (Wave 2) — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff. 워커 service_role 이 시스템 테마/종목을 적재 (RLS bypass), source/confidence/effective_from-to provenance 컬럼 수용.
