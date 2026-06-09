@@ -244,6 +244,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T09:37:49.623Z
-Stopped at: Completed 10-05-user-theme-crud-PLAN.md
-Next: 10-03-scrape-pipeline (Wave 2) — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff. 워커 service_role 이 시스템 테마/종목을 적재 (RLS bypass), source/confidence/effective_from-to provenance 컬럼 수용.
+Last session: 2026-06-09T09:55:00.000Z
+Stopped at: 10-06-ai-enrichment paused at Task 3 POC checkpoint (Task 1 ai 모듈 + Task 2 cycle 통합 완료·커밋, blocking human-verify POC 게이트 대기). 실제 Anthropic 호출/production 발굴 미실행.
+Next: 10-06 Task 3 POC 게이트 — ANTHROPIC_API_KEY + classifyEnabled=true 로컬에서 discoverThemes 1회(최근 1일 news_articles) 실행 → 발굴 정확도/토큰비용 육안 검증 → source='ai' 표시 유지 vs source='ai_candidate' 비표시 격리 결정. orchestrator 가 게이트 처리.
