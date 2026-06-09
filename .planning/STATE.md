@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: 10-02 paused at Task 3 checkpoint (awaiting prod db push approval)
-last_updated: "2026-06-09T08:13:00.000Z"
+stopped_at: Completed 10-02-data-model-migration (themes/theme_stocks 마이그레이션 prod 적용 + 검증)
+last_updated: "2026-06-09T09:05:00.000Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
   completed_phases: 12
   total_plans: 92
-  completed_plans: 71
-  percent: 77
+  completed_plans: 72
+  percent: 78
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 10 (theme-classification) — EXECUTING
-Plan: 2 of 8 (10-01 complete)
-Plans completed: 71 / 92 (Phase 10 Wave 0: 10-01 test-infra-fixtures)
+Plan: 3 of 8 (10-01 + 10-02 complete)
+Plans completed: 72 / 92 (Phase 10 Wave 0: 10-01 / Wave 1: 10-02 data-model-migration)
 Status: Executing Phase 10
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-06-09 -- 10-01 test-infra-fixtures 완료 (theme-sync 스캐폴드 + fixture + supabase-mock)
+Last activity: 2026-06-09 -- 10-02 data-model-migration 완료 (themes/theme_stocks 마이그레이션 RLS 7정책 + limit trigger 2종 → prod db push 적용 + service_role/anon REST 검증, packages/shared 테마 타입 계약)
 
-Progress: [████████░░] 77% (71/92 plans · 12/19 phases)
+Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
 
 ### Phase 9 Production State (2026-05-12 12:24 KST)
 
@@ -115,6 +115,7 @@ Progress: [████████░░] 77% (71/92 plans · 12/19 phases)
 | Phase 09.2 P02 | 5min | 2 tasks | 4 files |
 | Phase 09.2 P03 | 8min | 3 tasks | 6 files |
 | Phase 10 P01 | 6min | 2 tasks | 11 files |
+| Phase 10 P02 | ~75min (prod push 게이트 포함) | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -201,6 +202,10 @@ Recent decisions affecting current work:
 - [Phase 10]: Plan 01: theme-sync logger.ts 는 master-sync named export `logger` 형태 채택(discussion-sync factory 아님) — retry.ts `import { logger }` 호환 + redact paths 만 theme-sync 시크릿(brightdata/anthropic/supabase service-role/token)으로 교체 (T-10-01-01 mitigate)
 - [Phase 10]: Plan 01: alpha-all-themes.json 실측 548KB(27카테고리)→정치(full 39테마,이재명 id=6)+반도체(2테마) 트리밍 — CLAUDE.md 크롤링 5원칙 #5(부분캐싱·전체덤프 금지) + POLITICS_CATEGORIES 필터 포함/제외 양방향 검증. 네이버 HTML 은 cheerio td.name>div.name_area>a 선택자 컨텍스트 보호 위해 실측 full page 미트리밍 보존
 - [Phase 10]: Plan 01: 워커 스캐폴드 패턴 = master-sync(package/tsconfig/retry/supabase) + discussion-sync(vitest passWithNoTests) 1:1 복제 후 name/redact 치환. 외부 소스 둘 다 curl 200 OK(차단 없음) → 실측 fixture 고정(RESEARCH valid_until 2026-07-09)
+- [Phase 10]: Plan 02: 시스템/유저 테마를 테이블 분리 없이 단일 themes(is_system 플래그 + owner_id NULL 분기 + norm_key partial-unique)로 모델링 (D-01) — "충돌 0"은 RLS + WITH CHECK 가 강제, theme_stocks 조인 1개 유지로 목록·종목칩 UNION 회피 + fork=INSERT-SELECT 단순화
+- [Phase 10]: Plan 02: 공개 read 정책(read_system_themes / read_theme_stocks) TO anon, authenticated 둘 다 명시 (Pitfall 3, feedback_supabase_rls_authenticated) — anon-only 시 로그인(JWT authenticated) 사용자 default-deny 빈 응답 회귀 방지. owner_id REFERENCES auth.users(id) ON DELETE CASCADE + CHECK themes_owner_consistency 무결성. 종목수/테마수 50-limit 은 RLS subquery 금지(recursion+42501 구분불가) → BEFORE INSERT trigger P0001 (시스템=service_role 무제한)
+- [Phase 10]: Plan 02: production db push 적용 완료 + 검증 — `supabase db push --yes` 가 20260609120000_theme_tables.sql 적용(exit 0), dry-run 재실행 "Remote database is up to date", service_role REST GET themes/theme_stocks 200(테이블 존재), anon REST GET themes?is_system=eq.true 200(read_system_themes 활성). 시드 부재로 빈 배열이나 default-deny 아님 = RLS 정상
+- [Phase 10]: Plan 02: [Rule 3 - 포매팅] acceptance-criteria 리터럴 lowercase grep(`references stocks(code)` / `owner_id uuid REFERENCES auth.users`) ↔ repo uppercase-SQL 컨벤션 양립 — canonical DDL 은 uppercase REFERENCES 유지 + 동일 라인 trailing 주석에 lowercase 앵커 병기. 스키마/동작 무영향 (주석은 SQL 무시)
 
 ### Pending Todos
 
@@ -227,6 +232,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T08:13:00.000Z
-Stopped at: 10-02 Task 1+2 완료 (theme.ts 타입 + theme_tables 마이그레이션), Task 3 [BLOCKING] prod db push 체크포인트 대기
-Next: 사용자가 `pnpm supabase db push` (필요 시 --include-all) 실행 → themes/theme_stocks + RLS 7정책 production 확인 → "approved" → 연속 에이전트가 10-02 SUMMARY 작성 + plan 카운터 advance
+Last session: 2026-06-09T09:05:00.000Z
+Stopped at: 10-02-data-model-migration 완료 — themes/theme_stocks 마이그레이션(RLS 7정책 + limit trigger 2종) production db push 적용 + service_role/anon REST 검증, packages/shared 테마 타입 계약. SUMMARY + STATE/ROADMAP/REQUIREMENTS 갱신.
+Next: 10-03-scrape-pipeline (Wave 2) — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff. 워커 service_role 이 시스템 테마/종목을 적재 (RLS bypass), source/confidence/effective_from-to provenance 컬럼 수용.

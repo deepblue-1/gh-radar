@@ -67,7 +67,7 @@
 
 - [x] **THEME-01**: 테마별 종목 매핑 수집 — 네이버 금융 테마(산업/이벤트) + 알파스퀘어(정치인주/시사) 2-tier 소스를 일 1회 16:00 KST 배치로 수집, 콘텐츠 SHA256 해시 변경 감지, 한국 크롤링 운영 5원칙 준수. `themes` + `theme_stocks` 테이블(effective_from/to 이력, source/confidence, stocks FK) — Phase 10
 - [ ] **THEME-02**: 테마 목록 페이지 + 테마별 종목 리스트 표시 — 웹앱 `/themes`(내 테마 상단 + 시스템 테마, 소속 종목 상위 3종목 평균 등락률 순 정렬), `/themes/[id]` 상세(scanner row 재사용), 종목 상세 `/stocks/[code]` 테마 칩. `stock_quotes` 활용 + 출처 표기 — Phase 10
-- [ ] **THEME-03**: 유저 테마 CRUD — 로그인 유저가 본인 소유 테마 생성/편집/삭제 + 종목 add/remove, 시스템 테마 스냅샷 fork. per-user owner-only RLS (watchlist 모델 복제). 시스템 테마(read-only)와 별도 레이어로 분리 — Phase 10
+- [ ] **THEME-03**: 유저 테마 CRUD — 로그인 유저가 본인 소유 테마 생성/편집/삭제 + 종목 add/remove, 시스템 테마 스냅샷 fork. per-user owner-only RLS (watchlist 모델 복제). 시스템 테마(read-only)와 별도 레이어로 분리 — Phase 10 (10-02: 데이터 모델 + owner-only RLS 5정책 + 50-limit trigger 토대 적용 / CRUD API+UI 는 10-05·10-07 대기 → In Progress)
 - [x] **THEME-04**: AI 테마 보강 — Claude Haiku 4.5로 뉴스(`news_articles`) 기반 신규 시스템 테마 후보 발굴 + 종목↔테마 오분류 교정 (discussion-sync classify 패턴 재사용, 시스템 레이어) — Phase 10
 
 ## v2 Requirements
@@ -131,7 +131,7 @@
 | DATA-03 | Phase 09.2 | Complete |
 | THEME-01 | Phase 10 | Complete |
 | THEME-02 | Phase 10 | Pending |
-| THEME-03 | Phase 10 | Pending |
+| THEME-03 | Phase 10 | In Progress (10-02 데이터 모델+RLS 토대; CRUD API/UI 10-05·10-07 대기) |
 | THEME-04 | Phase 10 | Complete |
 
 **Coverage:**
@@ -141,4 +141,4 @@
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-06-09 — Phase 10 discuss-phase: THEME-03(유저 테마 CRUD)·THEME-04(AI 보강) 추가 (스코프 확장 — 시스템/유저 테마 분리 모델 + AI 테마 발굴). 커버리지 31→33*
+*Last updated: 2026-06-09 — Phase 10 discuss-phase: THEME-03(유저 테마 CRUD)·THEME-04(AI 보강) 추가 (스코프 확장 — 시스템/유저 테마 분리 모델 + AI 테마 발굴). 커버리지 31→33. 10-02 data-model-migration 완료: THEME-03 Pending→In Progress (themes/theme_stocks + owner-only RLS + 50-limit trigger 토대 prod 적용; CRUD API/UI 는 10-05·10-07 대기). THEME-01 은 10-01 에서 Complete 표기 유지(스키마 토대; 실 수집 runtime 은 10-03·10-08 의존).*
