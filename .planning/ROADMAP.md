@@ -361,13 +361,13 @@ Plans:
   7. Claude Haiku 4.5 가 뉴스(`news_articles`) 기반으로 신규 시스템 테마 후보를 발굴하고 종목↔테마 오분류를 교정한다 (discussion-sync classify 패턴 재사용, `source` 라벨로 시스템 레이어에 분리 적재).
 **Out of scope (this phase):** 상한가 동조/상관관계 분석, 테마 기반 알림.
 **Notes:** 진짜 법적 리스크는 형사가 아닌 민사 DB제작자 권리 침해(대법원 2017다224395) — "상당한 부분 복제" 의 구조적 회피가 핵심 (CLAUDE.md "Naver 종목토론방 Scraping Risk" 운영 5원칙 참조).
-**Plans:** 3/8 plans executed
+**Plans:** 4/8 plans executed
 
 Plans:
 - [x] 10-01-test-infra-fixtures-PLAN.md — theme-sync 워크스페이스 스캐폴드 + 네이버/알파 fixture + supabase-mock (Wave 0)
 - [x] 10-02-data-model-migration-PLAN.md — themes/theme_stocks 마이그레이션(단일 테이블+RLS+limit) + shared 타입 + [BLOCKING] db push (Wave 1)
 - [x] 10-03-scrape-pipeline-PLAN.md — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff (Wave 2)
-- [ ] 10-04-system-theme-server-PLAN.md — /api/themes + /api/themes/:id + 상위3평균 청크 IN 계산 (Wave 3)
+- [x] 10-04-system-theme-server-PLAN.md — /api/themes + /api/themes/:id + 상위3평균 청크 IN 계산 (Wave 3)
 - [ ] 10-05-user-theme-crud-PLAN.md — theme-api(유저 CRUD+fork) + use-themes-query (watchlist 복제, Wave 4)
 - [ ] 10-06-ai-enrichment-PLAN.md — Claude Haiku 발굴+오분류 교정 + cycle 통합 + POC 게이트 (Wave 5)
 - [ ] 10-07-themes-ui-PLAN.md — /themes 변형C 랭킹 + /themes/[id] scanner row + 종목 칩 + CRUD 모달 + nav (Wave 6)
@@ -397,4 +397,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
-| 10. Theme Classification | 3/8 | In Progress|  |
+| 10. Theme Classification | 4/8 | In Progress|  |

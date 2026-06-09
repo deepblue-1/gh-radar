@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 10-03-scrape-pipeline (theme-sync 2-tier 스크랩→병합→upsert + 5원칙 backoff/해시, 38 tests green)
-last_updated: "2026-06-09T09:11:59.115Z"
+stopped_at: Completed 10-04-system-theme-server-PLAN.md
+last_updated: "2026-06-09T09:25:18.475Z"
 last_activity: 2026-06-09
 progress:
   total_phases: 19
   completed_phases: 12
   total_plans: 92
-  completed_plans: 73
-  percent: 79
+  completed_plans: 74
+  percent: 80
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 10 (theme-classification) — EXECUTING
-Plan: 4 of 8 (10-01 + 10-02 complete)
+Plan: 5 of 8 (10-01 + 10-02 complete)
 Plans completed: 72 / 92 (Phase 10 Wave 0: 10-01 / Wave 1: 10-02 data-model-migration)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -117,6 +117,7 @@ Progress: [████████░░] 78% (72/92 plans · 12/19 phases)
 | Phase 10 P01 | 6min | 2 tasks | 11 files |
 | Phase 10 P02 | ~75min (prod push 게이트 포함) | 3 tasks | 4 files |
 | Phase 10 P03 | 16min | 3 tasks | 18 files |
+| Phase 10-theme-classification P04 | ~7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,9 @@ Recent decisions affecting current work:
 - [Phase 10]: Plan 03: backoff 상태를 api_usage 재사용(service=theme_*_backoff, count=backoff-until epoch ms)으로 저장 — 신규 마이그레이션 회피. 콘텐츠 SHA256 은 hex 앞 13자리(52bit) 정수 다이제스트로 api_usage.count 저장/비교(변경 감지용)
 - [Phase 10]: Plan 03: 직접 fetch → 403/429/undefined-status 시 Bright Data 프록시 1회 폴백(자동 지수 재시도 금지, 5원칙 #4). EUC-KR 은 arraybuffer+iconv(Pitfall 2), 알파는 zod 검증 JSON. 둘 다 차단 시 markBackoff(24h) → 다음 cycle skip
 - [Phase 10]: Plan 03: 보수적 norm_key 정규화(NFKC+소문자+공백/특수문자 제거, 괄호 보존, Levenshtein 금지) — 'AI챗봇'='ai 챗봇' 병합, 'HBM(고대역폭메모리)'≠'HBM' 분리. upsertThemes 는 stocks .in() 청크(200) FK skip + theme_stocks 청크(500) + effective_to soft-제외 이력
+- [Phase 10-theme-classification]: 10-04: 테마 상위3평균을 server 실시간 계산(A2)으로 — stock_quotes.change_rate 매 요청 재계산(scanner.ts 동형), DB precompute 컬럼은 캐시 폴백용. '지금 뜨는 테마' 신선도(D-14).
+- [Phase 10-theme-classification]: 10-04: /api/themes 두 라우트 모두 stock_quotes/.in() 청크(200)+error throw — 테마 종목 합집합 가변 대규모, 37afcde 강세장 빈응답 회귀 선제 차단.
+- [Phase 10-theme-classification]: 10-04: GET /api/themes(:id) 가 is_system=true 만 조회 — 유저 테마 id 404. 유저 테마는 webapp→Supabase RLS 직접 경로(Plan 05)라 service_role 라우트 격리(T-10-04-04).
 
 ### Pending Todos
 
@@ -236,6 +240,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-09T09:11:40.740Z
-Stopped at: Completed 10-03-scrape-pipeline (theme-sync 2-tier 스크랩→병합→upsert + 5원칙 backoff/해시, 38 tests green)
+Last session: 2026-06-09T09:24:51.685Z
+Stopped at: Completed 10-04-system-theme-server-PLAN.md
 Next: 10-03-scrape-pipeline (Wave 2) — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff. 워커 service_role 이 시스템 테마/종목을 적재 (RLS bypass), source/confidence/effective_from-to provenance 컬럼 수용.
