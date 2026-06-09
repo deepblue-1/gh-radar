@@ -28,6 +28,8 @@ function cycleConfig(over: Partial<ThemeSyncConfig> = {}): ThemeSyncConfig {
     classifyEnabled: false,
     classifyConcurrency: 5,
     classifyModel: "claude-haiku-4-5",
+    discoverNewsLookbackDays: 1,
+    discoverNewsMax: 300,
     appVersion: "test",
     logLevel: "silent",
     ...over,

@@ -27,16 +27,20 @@ export interface ThemeSyncConfig {
   /** 알파스퀘어 수집 카테고리 화이트리스트 (부분 캐싱, 5원칙 #5 — 전체 451 덤프 금지). */
   alphaCategories: string[];
   /**
-   * Plan 06 (AI 보강) 전용 — 본 plan 에서는 미사용, config 자리만 확보.
+   * Plan 06 (AI 보강) — Claude Haiku 4.5 기반 신규 테마 발굴 + 오분류 교정.
    *   anthropicApiKey: Claude Haiku 호출 (classify 활성 시 필수).
-   *   classifyEnabled: AI 보강 kill-switch (default false — Plan 06 이 활성화).
+   *   classifyEnabled: AI 보강 kill-switch (default false — POC 게이트 통과 후 활성화).
    *   classifyConcurrency: p-limit 동시 Claude 호출 수.
    *   classifyModel: "claude-haiku-4-5" 고정 (env override 는 테스트 안전망).
+   *   discoverNewsLookbackDays: 발굴 입력 — 최근 N일 news_articles(published_at).
+   *   discoverNewsMax: 발굴 입력 뉴스 최대 건수 (토큰/비용 상한).
    */
   anthropicApiKey: string;
   classifyEnabled: boolean;
   classifyConcurrency: number;
   classifyModel: string;
+  discoverNewsLookbackDays: number;
+  discoverNewsMax: number;
   appVersion: string;
   logLevel: string;
 }
@@ -84,6 +88,10 @@ export function loadConfig(): ThemeSyncConfig {
     ),
     classifyModel:
       process.env.THEME_SYNC_CLASSIFY_MODEL ?? "claude-haiku-4-5",
+    discoverNewsLookbackDays: Number(
+      process.env.THEME_SYNC_DISCOVER_NEWS_LOOKBACK_DAYS ?? "1",
+    ),
+    discoverNewsMax: Number(process.env.THEME_SYNC_DISCOVER_NEWS_MAX ?? "300"),
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };
