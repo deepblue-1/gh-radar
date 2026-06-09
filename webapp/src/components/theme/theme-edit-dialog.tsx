@@ -48,7 +48,9 @@ import type { ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
  * 종목 검색은 Phase 6 command(useDebouncedSearch) 재사용. 50-limit(P0001)은
  * isThemeStockLimitError 로 식별해 인라인 안내. 비로그인 시 로그인 유도.
  *
- * 모든 색/간격은 globals.css 토큰만. 저장 성공 시 onSaved() 로 부모 폴링 갱신.
+ * 모든 색/간격은 globals.css 토큰만. 데이터 변경 성공 시 onSaved(theme) 로 부모에
+ * "현재 테마 스냅샷"을 넘겨 낙관적 갱신(즉시 반영) → 부모가 이어서 refresh 로 실 통계
+ * reconcile. 삭제는 onDeleted(id) 로 구분 신호(부모가 목록에서 즉시 제거/라우팅).
  */
 
 const LIMIT_MESSAGE = '테마당 종목은 최대 50개까지 추가할 수 있습니다.';
@@ -64,10 +66,16 @@ export interface ThemeEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: ThemeEditMode;
-  /** 저장/삭제/종목 변경 등 데이터 변경 후 호출 — 부모가 refresh. */
-  onSaved: () => void;
-  /** 삭제 등으로 현재 보던 테마가 사라질 때(상세 페이지) 부모가 라우팅 처리. */
-  onDeleted?: () => void;
+  /**
+   * 저장/생성/종목 변경 등 데이터 변경 후 호출 — 변경 직후의 유저 테마 스냅샷을 넘긴다.
+   * 부모는 이 스냅샷으로 목록을 낙관적 갱신(즉시 반영)한 뒤 refresh 로 실 통계 reconcile.
+   */
+  onSaved: (theme: ThemeWithStats) => void;
+  /**
+   * 삭제 시 호출 — 삭제된 테마 id 를 넘긴다. 목록 부모는 즉시 제거(낙관적),
+   * 상세 페이지 부모는 라우팅 처리(id 무시 가능).
+   */
+  onDeleted?: (id: string) => void;
 }
 
 interface StockChip {
@@ -77,6 +85,19 @@ interface StockChip {
 
 function memberToChip(m: ThemeStockMember): StockChip {
   return { code: m.code, name: m.name };
+}
+
+/** StockChip → ThemeStockMember (시세는 reconcile 전이라 0 폴백 — refresh 가 실값 채움). */
+function chipToMember(chip: StockChip): ThemeStockMember {
+  return {
+    code: chip.code,
+    name: chip.name,
+    market: 'KOSPI',
+    price: 0,
+    changeRate: 0,
+    tradeAmount: 0,
+    source: 'user',
+  };
 }
 
 export function ThemeEditDialog({
@@ -133,7 +154,24 @@ export function ThemeEditDialog({
         const newId = await forkSystemTheme(supabase, user.id, mode.systemTheme.id);
         if (cancelled) return;
         setThemeId(newId);
-        onSaved();
+        // fork 스냅샷: 복사된 멤버 = 시스템 테마의 active 멤버(mode.systemTheme.stocks).
+        // stocks state 가 아닌 mode 직접 참조 — 이 effect 는 open 시 1회만 (deps 에
+        // stocks 미포함; add/remove 로 인한 재실행 방지).
+        const forkedChips = (mode.systemTheme.stocks ?? []).map(memberToChip);
+        onSaved({
+          id: newId,
+          name: mode.systemTheme.name,
+          description: mode.systemTheme.description,
+          isSystem: false,
+          ownerId: user.id,
+          sources: ['user'],
+          top3AvgChangeRate: null,
+          statsUpdatedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          stockCount: forkedChips.length,
+          stocks: forkedChips.map(chipToMember),
+        });
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -148,6 +186,32 @@ export function ThemeEditDialog({
     };
   }, [open, mode, user, onSaved]);
 
+  /**
+   * 변경 직후의 유저 테마 스냅샷을 구성한다(낙관적 갱신용). id·chips 를 명시 인자로 받아
+   * setState 직후의 최신값을 정확히 반영(state 클로저 stale 회피). 통계(top3avg)는
+   * null — 부모 refresh 가 실값으로 reconcile.
+   */
+  const buildOptimisticTheme = useCallback(
+    (id: string, chips: StockChip[]): ThemeWithStats => {
+      const now = new Date().toISOString();
+      return {
+        id,
+        name: name.trim() || '새 테마',
+        description: null,
+        isSystem: false,
+        ownerId: user?.id ?? null,
+        sources: ['user'],
+        top3AvgChangeRate: null,
+        statsUpdatedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        stockCount: chips.length,
+        stocks: chips.map(chipToMember),
+      };
+    },
+    [name, user],
+  );
+
   const ensureThemeId = useCallback(async (): Promise<string | null> => {
     if (themeId) return themeId;
     if (!user) return null;
@@ -155,9 +219,9 @@ export function ThemeEditDialog({
     const trimmed = name.trim() || '새 테마';
     const newId = await createUserTheme(supabase, user.id, trimmed);
     setThemeId(newId);
-    onSaved();
+    onSaved(buildOptimisticTheme(newId, stocks));
     return newId;
-  }, [themeId, user, name, onSaved]);
+  }, [themeId, user, name, stocks, onSaved, buildOptimisticTheme]);
 
   const handleAddStock = useCallback(
     async (chip: StockChip) => {
@@ -173,16 +237,17 @@ export function ThemeEditDialog({
         if (!id) return;
         const supabase = createClient();
         await addThemeStock(supabase, id, chip.code);
-        setStocks((prev) => [...prev, chip]);
+        const nextStocks = [...stocks, chip];
+        setStocks(nextStocks);
         setQuery('');
-        onSaved();
+        onSaved(buildOptimisticTheme(id, nextStocks));
       } catch (err) {
         setError(isThemeStockLimitError(err) ? LIMIT_MESSAGE : GENERIC_ERROR);
       } finally {
         setBusy(false);
       }
     },
-    [user, stocks, ensureThemeId, onSaved],
+    [user, stocks, ensureThemeId, onSaved, buildOptimisticTheme],
   );
 
   const handleRemoveStock = useCallback(
@@ -197,15 +262,16 @@ export function ThemeEditDialog({
       try {
         const supabase = createClient();
         await removeThemeStock(supabase, themeId, code);
-        setStocks((prev) => prev.filter((s) => s.code !== code));
-        onSaved();
+        const nextStocks = stocks.filter((s) => s.code !== code);
+        setStocks(nextStocks);
+        onSaved(buildOptimisticTheme(themeId, nextStocks));
       } catch {
         setError(GENERIC_ERROR);
       } finally {
         setBusy(false);
       }
     },
-    [themeId, user, onSaved],
+    [themeId, user, stocks, onSaved, buildOptimisticTheme],
   );
 
   const handleSave = useCallback(async () => {
@@ -216,17 +282,27 @@ export function ThemeEditDialog({
       const supabase = createClient();
       if (themeId) {
         await updateUserTheme(supabase, themeId, { name: name.trim() || '새 테마' });
+        onSaved(buildOptimisticTheme(themeId, stocks));
       } else {
+        // ensureThemeId 가 생성 직후 onSaved(스냅샷) 를 이미 발행 — 중복 호출 안 함.
         await ensureThemeId();
       }
-      onSaved();
       onOpenChange(false);
     } catch (err) {
       setError(isThemeStockLimitError(err) ? THEME_LIMIT_MESSAGE : GENERIC_ERROR);
     } finally {
       setBusy(false);
     }
-  }, [user, themeId, name, ensureThemeId, onSaved, onOpenChange]);
+  }, [
+    user,
+    themeId,
+    name,
+    stocks,
+    ensureThemeId,
+    onSaved,
+    onOpenChange,
+    buildOptimisticTheme,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!themeId || !user) return;
@@ -235,15 +311,15 @@ export function ThemeEditDialog({
     try {
       const supabase = createClient();
       await deleteUserTheme(supabase, themeId);
-      onSaved();
       onOpenChange(false);
-      onDeleted?.();
+      // 삭제는 onSaved(upsert) 대신 onDeleted(id) 로 — 부모가 목록에서 즉시 제거/라우팅.
+      onDeleted?.(themeId);
     } catch {
       setError(GENERIC_ERROR);
     } finally {
       setBusy(false);
     }
-  }, [themeId, user, onSaved, onOpenChange, onDeleted]);
+  }, [themeId, user, onOpenChange, onDeleted]);
 
   const titleText =
     mode.kind === 'edit'

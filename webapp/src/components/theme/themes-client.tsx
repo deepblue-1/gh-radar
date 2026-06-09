@@ -67,8 +67,16 @@ function MyThemeChip({ theme }: { theme: ThemeWithStats }) {
 }
 
 export function ThemesClient() {
-  const { systemThemes, myThemes, isLoading, isRefreshing, error, refresh } =
-    useThemesQuery();
+  const {
+    systemThemes,
+    myThemes,
+    isLoading,
+    isRefreshing,
+    error,
+    refresh,
+    upsertMyTheme,
+    removeMyTheme,
+  } = useThemesQuery();
   const { user } = useAuth();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -227,7 +235,16 @@ export function ThemesClient() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         mode={dialogMode}
-        onSaved={() => void refresh()}
+        // 낙관적 갱신 FIRST(즉시 칩 반영 — Supabase 풀러 read-after-write 레이스 회피),
+        // 이어서 refresh 로 실 통계(top3avg 등) reconcile.
+        onSaved={(theme) => {
+          upsertMyTheme(theme);
+          void refresh();
+        }}
+        onDeleted={(deletedId) => {
+          removeMyTheme(deletedId);
+          void refresh();
+        }}
       />
     </section>
   );

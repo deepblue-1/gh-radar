@@ -183,4 +183,47 @@ describe('useThemesQuery', () => {
     });
     expect(fetchSystemThemesMock).toHaveBeenCalledTimes(1);
   });
+
+  // ── 낙관적 갱신 (10-07 optimistic) ──────────────────────────────
+  // 생성/편집/삭제 직후 myThemes 를 즉시 반영 → refetch(풀러 read-after-write) 레이스 회피.
+
+  it('upsertMyTheme: 신규 id 는 myThemes 맨 앞에 prepend', async () => {
+    const { result } = renderHook(() => useThemesQuery());
+    await waitFor(() => expect(result.current.myThemes).toHaveLength(1));
+
+    act(() => {
+      result.current.upsertMyTheme(myTheme('mine-2') as never);
+    });
+    expect(result.current.myThemes).toHaveLength(2);
+    // 맨 앞 = 방금 upsert 한 항목(최신순).
+    expect(result.current.myThemes[0]!.id).toBe('mine-2');
+    expect(result.current.myThemes[1]!.id).toBe('mine-1');
+  });
+
+  it('upsertMyTheme: 동일 id 는 교체(중복 추가 안 함) + 맨 앞으로 이동', async () => {
+    fetchMyThemesMock.mockResolvedValue([myTheme('mine-1'), myTheme('mine-2')]);
+    const { result } = renderHook(() => useThemesQuery());
+    await waitFor(() => expect(result.current.myThemes).toHaveLength(2));
+
+    const renamed = { ...(myTheme('mine-2') as Record<string, unknown>), name: '편집됨' };
+    act(() => {
+      result.current.upsertMyTheme(renamed as never);
+    });
+    // 길이 그대로(2) — 교체. mine-2 가 맨 앞으로 + 새 name 반영.
+    expect(result.current.myThemes).toHaveLength(2);
+    expect(result.current.myThemes[0]!.id).toBe('mine-2');
+    expect(result.current.myThemes[0]!.name).toBe('편집됨');
+  });
+
+  it('removeMyTheme: 해당 id 를 myThemes 에서 즉시 제거', async () => {
+    fetchMyThemesMock.mockResolvedValue([myTheme('mine-1'), myTheme('mine-2')]);
+    const { result } = renderHook(() => useThemesQuery());
+    await waitFor(() => expect(result.current.myThemes).toHaveLength(2));
+
+    act(() => {
+      result.current.removeMyTheme('mine-1');
+    });
+    expect(result.current.myThemes).toHaveLength(1);
+    expect(result.current.myThemes[0]!.id).toBe('mine-2');
+  });
 });

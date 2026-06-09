@@ -1,6 +1,6 @@
 /// <reference types="@testing-library/jest-dom" />
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
 
 /**
@@ -25,10 +25,52 @@ vi.mock('@/lib/auth-context', () => ({
   useAuth: () => useAuthMock(),
 }));
 
+// next/navigation — ThemeDetailClient 가 삭제 후 router.push('/themes') (10-07 optimistic).
+const routerPushMock = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPushMock }),
+}));
+
 // theme-edit-dialog 의 무거운 의존(command/supabase) 차단 — 렌더만 stub.
+// onSaved/onDeleted 콜백을 버튼으로 노출해 ThemesClient 의 낙관적 배선(upsert/remove + refresh)을 검증.
 vi.mock('@/components/theme/theme-edit-dialog', () => ({
-  ThemeEditDialog: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="edit-dialog" /> : null,
+  ThemeEditDialog: ({
+    open,
+    onSaved,
+    onDeleted,
+  }: {
+    open: boolean;
+    onSaved: (theme: ThemeWithStats) => void;
+    onDeleted?: (id: string) => void;
+  }) =>
+    open ? (
+      <div data-testid="edit-dialog">
+        <button
+          type="button"
+          onClick={() =>
+            onSaved({
+              id: 'new-theme',
+              name: '새로 만든 테마',
+              description: null,
+              isSystem: false,
+              ownerId: 'user-1',
+              sources: ['user'],
+              top3AvgChangeRate: null,
+              statsUpdatedAt: null,
+              createdAt: '2026-06-09T00:00:00Z',
+              updatedAt: '2026-06-09T00:00:00Z',
+              stockCount: 1,
+              stocks: [],
+            })
+          }
+        >
+          mock-save
+        </button>
+        <button type="button" onClick={() => onDeleted?.('del-theme')}>
+          mock-delete
+        </button>
+      </div>
+    ) : null,
 }));
 
 // theme-api fetchers — 상세 조회(Task 2) mock.
@@ -129,6 +171,8 @@ function baseQuery() {
     isRefreshing: false,
     error: null as Error | null,
     refresh: vi.fn(),
+    upsertMyTheme: vi.fn(),
+    removeMyTheme: vi.fn(),
   };
 }
 
@@ -231,6 +275,49 @@ describe('ThemesClient — 변형 C 랭킹', () => {
     render(<ThemesClient />);
     expect(screen.getByText(/로그인하면 나만의 테마를/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /테마 만들기/ })).toBeNull();
+  });
+
+  // ── 낙관적 갱신 배선 (10-07 optimistic) ──────────────────────────
+  // 다이얼로그 onSaved → upsertMyTheme(즉시 반영) + refresh(reconcile),
+  // onDeleted → removeMyTheme(즉시 제거) + refresh.
+
+  it('onSaved: upsertMyTheme 를 먼저 호출하고 이어서 refresh 로 reconcile', () => {
+    const upsertMyTheme = vi.fn();
+    const refresh = vi.fn();
+    setQuery({
+      systemThemes: [sysTheme('s1', '초전도체', 18.4)],
+      upsertMyTheme,
+      refresh,
+    });
+    render(<ThemesClient />);
+
+    // 생성 CTA → 다이얼로그 오픈 → mock-save 클릭(onSaved 발화).
+    fireEvent.click(screen.getAllByRole('button', { name: /테마 만들기/ })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'mock-save' }));
+
+    expect(upsertMyTheme).toHaveBeenCalledTimes(1);
+    expect(upsertMyTheme).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'new-theme', isSystem: false }),
+    );
+    // 낙관적 갱신 후 reconcile refresh 도 호출.
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it('onDeleted: removeMyTheme(id) 를 호출하고 refresh 로 reconcile', () => {
+    const removeMyTheme = vi.fn();
+    const refresh = vi.fn();
+    setQuery({
+      systemThemes: [sysTheme('s1', '초전도체', 18.4)],
+      removeMyTheme,
+      refresh,
+    });
+    render(<ThemesClient />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /테마 만들기/ })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'mock-delete' }));
+
+    expect(removeMyTheme).toHaveBeenCalledWith('del-theme');
+    expect(refresh).toHaveBeenCalled();
   });
 });
 

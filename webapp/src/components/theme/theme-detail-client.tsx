@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Pencil, RefreshCw } from 'lucide-react';
 
@@ -73,6 +74,7 @@ function changeColor(v: number | null): string {
 }
 
 export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
+  const router = useRouter();
   const [theme, setTheme] = useState<ThemeDetail | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -258,7 +260,10 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
           open={editOpen}
           onOpenChange={setEditOpen}
           mode={{ kind: 'edit', theme }}
+          // 상세 페이지는 단일 테마를 보고 있으므로 변경 후 전체 재조회로 reconcile.
           onSaved={() => void load()}
+          // 삭제되면 목록으로 라우팅(이 테마는 더 이상 존재하지 않음).
+          onDeleted={() => router.push('/themes')}
         />
       )}
     </section>

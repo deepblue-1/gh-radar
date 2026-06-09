@@ -45,6 +45,16 @@ export interface UseThemesQueryResult {
   error: Error | null;
   /** 수동 refetch — 사용자 "새로고침" 트리거용. */
   refresh: () => Promise<void>;
+  /**
+   * 내 테마를 즉시(낙관적) 추가/갱신 — 생성·편집·종목 변경 직후 호출.
+   * 동일 id 가 있으면 교체(최신순 유지 위해 맨 앞으로), 없으면 맨 앞에 prepend.
+   * 실 통계(top3AvgChangeRate 등)는 뒤따르는 refresh() 가 reconcile.
+   * Supabase 풀러 read-after-write 지연으로 refresh() 가 갓 생성한 row 를 놓치는
+   * 레이스를 회피한다(비로그인 시 정책상 호출 안 함 — myThemes 는 항상 빈 배열).
+   */
+  upsertMyTheme: (theme: ThemeWithStats) => void;
+  /** 내 테마를 즉시(낙관적) 제거 — 삭제 직후 호출. 이후 refresh() 가 reconcile. */
+  removeMyTheme: (id: string) => void;
 }
 
 export function useThemesQuery(): UseThemesQueryResult {
@@ -94,6 +104,19 @@ export function useThemesQuery(): UseThemesQueryResult {
     }
   }, []);
 
+  const upsertMyTheme = useCallback((theme: ThemeWithStats) => {
+    if (!mountedRef.current) return;
+    setMyThemes((prev) => {
+      const rest = prev.filter((t) => t.id !== theme.id);
+      return [theme, ...rest];
+    });
+  }, []);
+
+  const removeMyTheme = useCallback((id: string) => {
+    if (!mountedRef.current) return;
+    setMyThemes((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     void load();
@@ -121,5 +144,7 @@ export function useThemesQuery(): UseThemesQueryResult {
     isRefreshing,
     error,
     refresh: load,
+    upsertMyTheme,
+    removeMyTheme,
   };
 }
