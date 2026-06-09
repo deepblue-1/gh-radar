@@ -77,10 +77,12 @@ export function createMockSupabase(
       lte: vi.fn().mockReturnThis(),
       lt: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
-      // 쓰기 종결 — 기본 성공 resolve
-      insert: vi.fn((row: unknown) => {
+      // 쓰기 — insert 는 row 기록 후 chain 반환(.select().single() 체이닝 지원).
+      //   bare `await .insert(row)` 는 본 mock 사용처에 없음(직접 await 시 chain 반환).
+      //   .select().single() 종결값은 테스트가 .single.mockResolvedValue 로 주입.
+      insert: vi.fn(function (this: MockSupabaseChain, row: unknown) {
         (store[table] ??= []).push(row);
-        return Promise.resolve({ data: null, error: null });
+        return this;
       }),
       upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
       // 읽기 종결 — store 기반 기본값 (테스트가 mockResolvedValueOnce 로 override)
