@@ -376,6 +376,34 @@ describe('ThemeDetailClient — scanner row 재사용', () => {
     expect(screen.getAllByText('+29.90%').length).toBeGreaterThan(0);
   });
 
+  it('종목 리스트를 등락률 내림차순으로 정렬해 렌더 (입력 순서 무관)', async () => {
+    // 입력은 등락률 오름차순 — 정렬하지 않으면 카카오가 맨 위로 렌더된다.
+    fetchSystemThemeDetailMock.mockResolvedValue(
+      detail({
+        stocks: [
+          member('035720', '카카오', -3.2),
+          member('000660', 'SK하이닉스', 5.0),
+          member('005930', '삼성전자', 29.9),
+        ],
+      }),
+    );
+    render(<ThemeDetailClient id="d1" />);
+    await waitFor(() =>
+      expect(screen.getAllByText('삼성전자').length).toBeGreaterThan(0),
+    );
+    // 첫 occurrence(ScannerTable 이 ScannerCardList 보다 먼저 렌더)의 문서 순서로 검증:
+    // 등락률 desc → 삼성전자(29.9) → SK하이닉스(5.0) → 카카오(-3.2)
+    const sam = screen.getAllByText('삼성전자')[0];
+    const sk = screen.getAllByText('SK하이닉스')[0];
+    const kakao = screen.getAllByText('카카오')[0];
+    expect(
+      sam.compareDocumentPosition(sk) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      sk.compareDocumentPosition(kakao) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('빈 테마 → "이 테마에 표시할 종목이 없습니다"', async () => {
     fetchSystemThemeDetailMock.mockResolvedValue(detail({ stocks: [] }));
     render(<ThemeDetailClient id="d1" />);

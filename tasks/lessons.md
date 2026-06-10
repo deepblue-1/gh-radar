@@ -91,4 +91,18 @@
 - 새 API 라우트(10-04 server `/api/themes`)를 추가하는 phase 의 배포 plan 이 **새 워커(theme-sync Job)만** 배포하고 **기존 server 서비스 재배포를 누락**. 결과: 코드/데이터/E2E(mock) 모두 green 이지만 배포된 server 이미지는 옛날 SHA → production `/api/themes` 404. webapp push(Vercel) 후에야 /themes 가 빈 화면.
 - **교훈:** deploy plan 은 "새 라우트/스키마를 노출하는 **모든** 서비스(server·webapp·worker)"를 배포 대상에 포함. 워커만 보지 말 것.
 - **검증:** phase 완료 전 **배포된 엔드포인트를 직접 curl**(prod URL)로 확인 — 코드 존재(verifier)·테스트 green 만으로 "production 동작"을 단정 금지. `gsd-verifier` 는 코드/데이터를 보지 배포 revision 을 안 본다.
-- gh-radar server 재배포 = `scripts/deploy-server.sh` (env: GCP_PROJECT_ID, SUPABASE_URL, CORS_ALLOWED_ORIGINS; VPC + Secret 7종 + KIWOOM). 현재 CORS = `https://gh-radar-webapp.vercel.app,/^https:\/\/gh-radar-.*\.vercel\.app$/`.
+- gh-radar server 재배포 = `scripts/deploy-server.sh` (env: GCP_PROJECT_ID, SUPABASE_URL, CORS_ALLOWED_ORIGINS; VPC + Secret 7종 + KIWOOM). 현재 CORS = `https://gh-radar-webapp.vercel.app,/^https:\/\/gh-radar-.*\.vercel\.app$/`. `.env.deploy` 없으면 현재 서비스 env 를 `gcloud run services describe ... --format=json` 으로 추출해 재사용(이미지 SHA만 갱신).
+
+## 프론트↔서버 응답 계약 드리프트 — 양쪽 테스트가 각자 다른 계약을 박제 (Phase 10, 2026-06-10)
+
+**Context:** 테마 상세 클릭 시 전역 `error.tsx`("문제가 발생했어요"). 서버 `GET /api/themes/:id` 가 bare `ThemeStockMember[]` **배열** 을 반환했는데, webapp `fetchSystemThemeDetail` 은 `ThemeWithStats & { stocks }` **객체** 를 기대(`apiFetch<T>` 로 단언). 응답이 배열이라 `theme.sources` 가 undefined → `ThemeSourceBadges` 의 `sources.filter()` 가 렌더 중 throw → 전역 경계. (상세 페이지는 메타를 prop 으로 안 받고 URL 직접 진입 가능 → 서버가 메타까지 반환해야 함.)
+
+**Mistake (systemic):** 서버 테스트는 `expect(Array.isArray(r.body)).toBe(true)` (배열)를, webapp 컴포넌트 테스트는 `fetchSystemThemeDetail` 을 `detail({...})` **객체** 로 mock — **양쪽 다 green 인데 실제 wiring 은 깨짐**. 각 테스트가 자기편 계약만 박제하고, 둘을 묶는 검증이 없어 드리프트가 prod 까지 샘. webapp 의 mock 은 "서버가 실제로 그렇게 응답한다" 는 증거가 아니다.
+
+**Rule:**
+- 프론트 fetch 래퍼가 응답 타입(`apiFetch<T>`)을 선언하면, 서버 라우트의 `res.json(...)` 인자를 **같은 shared 타입 `T` 로 타이핑** 하거나(이상적으로 packages/shared 의 응답 타입 공유), 최소한 양측이 합의하는 **계약 테스트 1개** 를 둔다. 한 쪽 mock/assertion 을 계약 증명으로 믿지 말 것.
+- `res.json(array)` vs 래퍼의 객체 기대처럼 **shape(배열↔객체) 불일치** 를 특히 경계 — TS 는 패키지 경계를 넘는 런타임 응답을 검사하지 못한다.
+
+**Preventive check:**
+- `error.tsx`("문제가 발생했어요")는 fetch 실패가 아니라 **렌더 중 throw** 신호 (fetch 실패는 보통 컴포넌트 자체 try/catch → 에러 카드). 데이터 **모양 불일치**(undefined 필드의 `.map`/`.filter`)를 먼저 의심.
+- 새/변경 API 는 배포 후 prod `curl` 로 **응답 형태**(배열 vs 객체 + 필수 필드 존재)를 직접 확인. 프론트가 `apiFetch<T>` 로 단언하는 모든 엔드포인트는 서버 `res.json` 인자 타입이 `T` 와 일치하는지 점검.

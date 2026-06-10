@@ -120,8 +120,14 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
     };
   }, [load]);
 
+  // 등락률 내림차순 정렬(급등 종목이 위로) — 서버는 DB 순서로 반환하므로 표시 정렬은
+  // 클라이언트에서. 시세 부재 종목(changeRate=0)은 자연히 하단. 시스템 테마 랭킹이
+  // top3avg desc 인 것과 동일 방향.
   const stocks = useMemo(
-    () => (theme?.stocks ?? []).map(memberToStock),
+    () =>
+      (theme?.stocks ?? [])
+        .map(memberToStock)
+        .sort((a, b) => b.changeRate - a.changeRate),
     [theme],
   );
 
