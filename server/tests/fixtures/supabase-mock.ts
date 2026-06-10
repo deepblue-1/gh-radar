@@ -36,11 +36,18 @@ export function mockSupabase(state: State): SupabaseClient {
     return [];
   };
 
+  // PostgREST 단일 응답 행 한계(Supabase db-max-rows) 시뮬레이션 — 실서버는 .range()
+  // 없이 1000 행을 넘기면 통째로 잘라낸다. 이를 재현해야 .range() 페이지네이션 회귀를
+  // 테스트로 잡을 수 있다(미시뮬레이션이 themes 0종목 버그를 prod 까지 새게 한 원인).
+  const DB_MAX_ROWS = 1000;
+
   const makeBuilder = (table: string) => {
     let filtered: any[] = [...datasetFor(table)];
     let orderCol: string | null = null;
     let orderAsc = true;
     let limitN: number | null = null;
+    let rangeFrom: number | null = null;
+    let rangeTo: number | null = null;
 
     const exec = () => {
       let rows = [...filtered];
@@ -56,6 +63,11 @@ export function mockSupabase(state: State): SupabaseClient {
         });
       }
       if (limitN != null) rows = rows.slice(0, limitN);
+      // .range(from,to) 윈도우 적용 후, db-max-rows 캡(미적용 쿼리도 1000 에서 잘림).
+      const start = rangeFrom ?? 0;
+      const end = rangeTo != null ? rangeTo + 1 : rows.length;
+      rows = rows.slice(start, end);
+      if (rows.length > DB_MAX_ROWS) rows = rows.slice(0, DB_MAX_ROWS);
       return rows;
     };
 
@@ -111,6 +123,11 @@ export function mockSupabase(state: State): SupabaseClient {
         }),
       limit: vi.fn().mockImplementation((n: number) => {
         limitN = n;
+        return builder;
+      }),
+      range: vi.fn().mockImplementation((from: number, to: number) => {
+        rangeFrom = from;
+        rangeTo = to;
         return builder;
       }),
       maybeSingle: vi.fn().mockImplementation(async () => {

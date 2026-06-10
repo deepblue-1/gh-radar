@@ -29,6 +29,16 @@ const MASTER_COLS = "code,name,market";
 const QUOTE_CHUNK = 200;
 
 /**
+ * PostgREST 단일 응답 행 한계(Supabase db-max-rows, 기본 1000)에 대응하는 페이지 크기.
+ *
+ * `.in("theme_id", chunk)` 의 theme_id 청크(URL 길이 대비)와 **별개로**, 한 청크가
+ * 매칭하는 theme_stocks 행 수가 1000 을 넘으면 응답이 통째로 잘려 그 너머 테마가
+ * 조용히 사라진다(stockCount=0). `.range()` 로 끝까지 페이지네이션해 전수 수집한다.
+ * (advance-by-actual + break-on-empty 라 db-max-rows 가 1000 이 아니어도 정확.)
+ */
+const ROW_PAGE = 1000;
+
+/**
  * stock_quotes 를 code 청크(QUOTE_CHUNK)로 나눠 IN fetch → Map<code, quote>.
  *
  * error 는 throw — 조용히 빈 결과로 진행하면 등락률이 전부 0/누락되어
@@ -87,13 +97,25 @@ async function fetchActiveThemeStocksChunked(
   const out: ThemeStockRow[] = [];
   for (let i = 0; i < themeIds.length; i += QUOTE_CHUNK) {
     const chunk = themeIds.slice(i, i + QUOTE_CHUNK);
-    const { data, error } = await supabase
-      .from("theme_stocks")
-      .select(THEME_STOCK_COLS)
-      .in("theme_id", chunk)
-      .is("effective_to", null);
-    if (error) throw error;
-    out.push(...((data ?? []) as unknown as ThemeStockRow[]));
+    // 결과 행 페이지네이션(ROW_PAGE) — 한 theme_id 청크의 active 행이 1000 을 넘으면
+    // PostgREST 가 통째로 잘라 그 너머 테마가 stockCount=0 으로 사라진다(목록 합계가
+    // 정확히 2000=2×1000 으로 관측됨). 안정 정렬(PK) + .range() 로 끝까지 수집.
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from("theme_stocks")
+        .select(THEME_STOCK_COLS)
+        .in("theme_id", chunk)
+        .is("effective_to", null)
+        .order("theme_id", { ascending: true })
+        .order("stock_code", { ascending: true })
+        .range(from, from + ROW_PAGE - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as ThemeStockRow[];
+      if (rows.length === 0) break;
+      out.push(...rows);
+      from += rows.length;
+    }
   }
   return out;
 }

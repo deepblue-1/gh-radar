@@ -178,6 +178,28 @@ describe("GET /api/themes (시스템 테마 목록 + 상위3평균 desc 정렬)"
     );
     expect(quoteCalls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("active theme_stocks 가 1000 행 초과여도 전 테마 stockCount 정확 (결과-행 페이지네이션, db-max-rows 회귀)", async () => {
+    // 한 theme_id 청크의 active 행이 db-max-rows(1000)를 넘으면 .range() 페이지네이션
+    // 없이는 통째로 잘려 뒤쪽 테마가 stockCount=0 으로 사라진다(목록 합계 2000 회귀).
+    const mkTs = (themeId: string, prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        ts(themeId, `${prefix}${String(i).padStart(5, "0")}`),
+      );
+    const state = {
+      // A:1500 + B:800 = 2300 active 행 > 1000. 정렬상 B 가 뒤쪽 → 페이지네이션 없으면 0.
+      themes: [theme(SYS_A, "큰테마A", true), theme(SYS_B, "큰테마B", true)],
+      themeStocks: [...mkTs(SYS_A, "A", 1500), ...mkTs(SYS_B, "B", 800)],
+      masters: [],
+      quotes: [],
+    };
+    const r = await request(app(state)).get("/api/themes");
+    expect(r.status).toBe(200);
+    const a = r.body.find((t: any) => t.id === SYS_A);
+    const b = r.body.find((t: any) => t.id === SYS_B);
+    expect(a.stockCount).toBe(1500);
+    expect(b.stockCount).toBe(800); // 1000 행 너머 — 페이지네이션 없으면 깨짐
+  });
 });
 
 describe("GET /api/themes/:id (테마 상세 — 메타 + 통계 + 소속 종목)", () => {
