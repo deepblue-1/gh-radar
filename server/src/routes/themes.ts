@@ -174,11 +174,13 @@ themesRouter.get("/", async (req, res, next) => {
 
 /**
  * GET /api/themes/:id
- * 시스템 테마 단건의 소속 active 종목 리스트(ThemeStockMember[]).
+ * 시스템 테마 단건 — 메타 + 실시간 통계 + 소속 active 종목.
+ * 반환 형태: `ThemeWithStats & { stocks: ThemeStockMember[] }` (webapp fetchSystemThemeDetail 계약).
  *
  *   - :id uuid 검증 (T-10-04-01) → 400
  *   - 시스템 테마(is_system=true) 단건 없으면 404 (유저 테마는 webapp→Supabase 경로, T-10-04-04)
- *   - theme_stocks active → stocks 마스터 + stock_quotes 청크 조인 → ThemeStockMember[]
+ *   - theme_stocks active → stocks 마스터 + stock_quotes 청크 조인 → stocks[]
+ *   - 테마 메타(name/sources/...) + 상위3평균/종목수 실시간 계산 → 상세 헤더가 필요로 하는 객체
  */
 themesRouter.get("/:id", async (req, res, next) => {
   try {
@@ -194,15 +196,17 @@ themesRouter.get("/:id", async (req, res, next) => {
     const { id } = parsed.data;
     const supabase = req.app.locals.supabase as SupabaseClient;
 
-    // 1. 시스템 테마 존재 확인 (유저 테마는 404 — 시스템 전용 라우트)
+    // 1. 시스템 테마 단건 — 전체 컬럼(상세 헤더 메타 + 상위3평균 계산 소스).
+    //    유저 테마는 404 (시스템 전용 라우트 — 유저 테마는 webapp→Supabase 경로).
     const { data: theme, error: tErr } = await supabase
       .from("themes")
-      .select("id")
+      .select(THEME_COLS)
       .eq("id", id)
       .eq("is_system", true)
       .maybeSingle();
     if (tErr) throw tErr;
     if (!theme) throw new ApiError(404, "THEME_NOT_FOUND", `Theme ${id} not found`);
+    const themeRow = theme as unknown as ThemeRow;
 
     // 2. active 멤버 (effective_to IS NULL)
     const { data: members, error: mErr } = await supabase
@@ -213,13 +217,8 @@ themesRouter.get("/:id", async (req, res, next) => {
     if (mErr) throw mErr;
     const memberRows = (members ?? []) as unknown as ThemeStockRow[];
 
-    if (memberRows.length === 0) {
-      res.setHeader("Cache-Control", "no-store");
-      res.json([]);
-      return;
-    }
-
-    // 3. 마스터(name/market) + 시세 청크 조인 (37afcde 회귀 방지)
+    // 3. 마스터(name/market) + 시세 청크 조인 (37afcde 회귀 방지).
+    //    멤버 0개면 codes=[] → 청크 루프 미실행(빈 Map) → stocks=[] 로 자연 처리.
     const codes = memberRows.map((m) => m.stock_code);
     const masterByCode = await fetchMastersChunked(supabase, codes);
     const quoteByCode = await fetchQuotesChunked(supabase, codes);
@@ -232,8 +231,14 @@ themesRouter.get("/:id", async (req, res, next) => {
       ),
     );
 
+    // 4. 테마 메타 + 실시간 상위3평균/종목수 → ThemeWithStats & { stocks }.
+    //    webapp ThemeDetailClient 계약(theme-api.ts fetchSystemThemeDetail)과 정확히 일치.
+    //    이전엔 bare ThemeStockMember[] 만 반환 → 상세 헤더의 theme.sources 가 undefined →
+    //    ThemeSourceBadges 의 sources.filter() 가 throw → 전역 error.tsx("문제가 발생했어요").
+    const withStats = themeRowToThemeWithStats(themeRow, codes, quoteByCode);
+
     res.setHeader("Cache-Control", "no-store");
-    res.json(stocks);
+    res.json({ ...withStats, stocks });
   } catch (e) {
     next(e);
   }

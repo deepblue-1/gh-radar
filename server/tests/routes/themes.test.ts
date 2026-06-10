@@ -180,14 +180,24 @@ describe("GET /api/themes (시스템 테마 목록 + 상위3평균 desc 정렬)"
   });
 });
 
-describe("GET /api/themes/:id (테마 상세 — 소속 종목 리스트)", () => {
-  it("200 + 소속 active 종목 ThemeStockMember[] (현재가/등락률/거래대금)", async () => {
+describe("GET /api/themes/:id (테마 상세 — 메타 + 통계 + 소속 종목)", () => {
+  it("200 + ThemeWithStats & { stocks } 객체 (배열 아님 — webapp 상세 헤더 계약)", async () => {
     const r = await request(app()).get(`/api/themes/${SYS_A}`);
     expect(r.status).toBe(200);
-    expect(Array.isArray(r.body)).toBe(true);
-    // active 3개 (A4 제외)
-    expect(r.body.length).toBe(3);
-    const a1 = r.body.find((s: any) => s.code === "A1");
+    // 상세는 bare 배열이 아니라 객체 — theme.sources/name/통계가 있어야 헤더가 렌더된다.
+    // (bare 배열 반환 시 webapp ThemeSourceBadges 의 sources.filter() 가 throw → error.tsx.)
+    expect(Array.isArray(r.body)).toBe(false);
+    expect(r.body).toMatchObject({
+      id: SYS_A,
+      name: "HBM",
+      isSystem: true,
+      sources: ["naver"],
+      stockCount: 3, // active 3개 (A4 제외)
+    });
+    expect(r.body.top3AvgChangeRate).toBeCloseTo(20); // (30+20+10)/3
+    expect(Array.isArray(r.body.stocks)).toBe(true);
+    expect(r.body.stocks.length).toBe(3);
+    const a1 = r.body.stocks.find((s: any) => s.code === "A1");
     expect(a1).toMatchObject({
       code: "A1",
       name: "에이원",
@@ -198,14 +208,32 @@ describe("GET /api/themes/:id (테마 상세 — 소속 종목 리스트)", () =
       source: "naver",
     });
     // 제외 멤버 A4 는 안 나와야 함
-    expect(r.body.some((s: any) => s.code === "A4")).toBe(false);
+    expect(r.body.stocks.some((s: any) => s.code === "A4")).toBe(false);
+  });
+
+  it("멤버 0개 시스템 테마 → 200 + 객체(stocks:[], stockCount 0, top3 null)", async () => {
+    const EMPTY = "e5555555-5555-4555-8555-555555555555";
+    const r = await request(
+      app({
+        themes: [theme(EMPTY, "빈테마", true)],
+        themeStocks: [],
+        masters: [],
+        quotes: [],
+      }),
+    ).get(`/api/themes/${EMPTY}`);
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body)).toBe(false);
+    expect(r.body.name).toBe("빈테마");
+    expect(r.body.stocks).toEqual([]);
+    expect(r.body.stockCount).toBe(0);
+    expect(r.body.top3AvgChangeRate).toBeNull();
   });
 
   it("시세 부재 종목도 멤버로 포함 (price/changeRate 0)", async () => {
     const state = baseState();
     state.quotes = state.quotes.filter((q) => q.code !== "A2"); // A2 시세 제거
     const r = await request(app(state)).get(`/api/themes/${SYS_A}`);
-    const a2 = r.body.find((s: any) => s.code === "A2");
+    const a2 = r.body.stocks.find((s: any) => s.code === "A2");
     expect(a2).toBeDefined();
     expect(a2.price).toBe(0);
     expect(a2.changeRate).toBe(0);
@@ -245,7 +273,8 @@ describe("GET /api/themes/:id (테마 상세 — 소속 종목 리스트)", () =
       `/api/themes/${SYS_A}`,
     );
     expect(r.status).toBe(200);
-    expect(r.body.length).toBe(201);
+    expect(r.body.stocks.length).toBe(201);
+    expect(r.body.stockCount).toBe(201);
     const quoteCalls = fromSpy.mock.calls.filter(
       (c) => c[0] === "stock_quotes",
     );

@@ -9,11 +9,13 @@ import { ThemeSourceBadges } from './theme-source-badge';
 /**
  * ThemeRankRow — UI-SPEC §S1 변형 C 랭킹 ritem.
  *
- * grid `34px 1.1fr 1fr auto`:
+ * grid `34px 1.1fr 1fr auto` (sm+):
  *   - 순위(.mono, top3=빨강 --up)
  *   - 테마명 + 출처 도트 + 종목수
  *   - 강도 막대: width=|avg|/maxAvg (최소 4%), 색 avg>=0 빨강(--up) / <0 파랑(--down)
  *   - 평균값(.mono, t-lg/800, 등락 색)
+ * 모바일(<sm): 강도 막대 열을 숨겨 `34px 1fr auto` 3열 — 좁은 화면에서 막대가 테마명을
+ *   밀어 잘리던 문제 해소(평균값만으로 강도 전달). 막대는 sm 이상에서만 표시.
  * 행 전체가 `/themes/[id]` Link (전역 double-ring focus 로 키보드 포커스 가능).
  *
  * 모든 색은 globals.css 토큰만 사용 — 신규 토큰/하드코딩 금지.
@@ -51,7 +53,7 @@ function ThemeRankRowBase({ theme, rank, maxAvg }: ThemeRankRowProps) {
       href={`/themes/${theme.id}`}
       aria-label={`${theme.name} 테마 상세 보기`}
       className={cn(
-        'grid grid-cols-[34px_1.1fr_1fr_auto] items-center gap-[var(--s-4)]',
+        'grid grid-cols-[34px_1fr_auto] items-center gap-[var(--s-4)] sm:grid-cols-[34px_1.1fr_1fr_auto]',
         'rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)]',
         'transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]',
       )}
@@ -79,8 +81,8 @@ function ThemeRankRowBase({ theme, rank, maxAvg }: ThemeRankRowProps) {
         </span>
       </span>
 
-      {/* 강도 막대 */}
-      <span className="flex items-center">
+      {/* 강도 막대 — 모바일(<sm)에서는 숨김(테마명 잘림 방지), sm 이상에서만 표시 */}
+      <span className="hidden items-center sm:flex">
         <span className="relative h-2 w-full overflow-hidden rounded-full bg-[var(--muted)]">
           <span
             aria-hidden="true"
