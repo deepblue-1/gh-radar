@@ -63,7 +63,9 @@ CREATE INDEX idx_themes_system_sort
 -- ---------------------------------------------------------
 -- Step 2. theme_stocks — M:N + provenance (D-02 / D-03)
 --   stock_code → stocks(code) ON DELETE CASCADE (존재 종목만; 상장폐지 시 자동 정리)
---   PK (theme_id, stock_code): 현재 편입 1행. 제외 이력은 effective_to 로 표현.
+--   PK (theme_id, stock_code): pair 당 1행(현재 상태). effective_to 는 "최신 상태 + 마지막
+--   제외 마커"일 뿐 append-only 이력이 아니다 — 재편입 시 같은 행을 UPDATE(effective_to=NULL)
+--   하므로 include→exclude→re-include 의 다주기 이력은 보존되지 않는다(설계상 상태 추적용).
 -- ---------------------------------------------------------
 CREATE TABLE theme_stocks (
   theme_id     uuid NOT NULL REFERENCES themes(id)  ON DELETE CASCADE,
