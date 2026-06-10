@@ -120,6 +120,36 @@ async function fetchActiveThemeStocksChunked(
   return out;
 }
 
+/**
+ * 단일 테마의 active(effective_to IS NULL) theme_stocks 행을 ROW_PAGE 페이지네이션으로 전수 수집.
+ *
+ * 상세 라우트(GET /api/themes/:id)용. 목록 라우트의 청크 페이지네이션과 동일 버그 클래스
+ * (활성 멤버 >1000 테마면 PostgREST db-max-rows 1000 으로 침묵 절단 → stockCount 오류 +
+ * top3 불완전)를 detail 경로에서도 방어한다.
+ */
+async function fetchActiveThemeStocksForOne(
+  supabase: SupabaseClient,
+  themeId: string,
+): Promise<ThemeStockRow[]> {
+  const out: ThemeStockRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("theme_stocks")
+      .select(THEME_STOCK_COLS)
+      .eq("theme_id", themeId)
+      .is("effective_to", null)
+      .order("stock_code", { ascending: true })
+      .range(from, from + ROW_PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as ThemeStockRow[];
+    if (rows.length === 0) break;
+    out.push(...rows);
+    from += rows.length;
+  }
+  return out;
+}
+
 export const themesRouter: RouterT = Router();
 
 /**
@@ -230,14 +260,10 @@ themesRouter.get("/:id", async (req, res, next) => {
     if (!theme) throw new ApiError(404, "THEME_NOT_FOUND", `Theme ${id} not found`);
     const themeRow = theme as unknown as ThemeRow;
 
-    // 2. active 멤버 (effective_to IS NULL)
-    const { data: members, error: mErr } = await supabase
-      .from("theme_stocks")
-      .select(THEME_STOCK_COLS)
-      .eq("theme_id", id)
-      .is("effective_to", null);
-    if (mErr) throw mErr;
-    const memberRows = (members ?? []) as unknown as ThemeStockRow[];
+    // 2. active 멤버 (effective_to IS NULL) — ROW_PAGE 페이지네이션으로 전수 수집.
+    //    멤버 >1000 테마(반도체/2차전지 union)에서 db-max-rows 1000 침묵 절단 방지
+    //    (목록 라우트와 동일 버그 클래스, detail 에도 동일 하드닝).
+    const memberRows = await fetchActiveThemeStocksForOne(supabase, id);
 
     // 3. 마스터(name/market) + 시세 청크 조인 (37afcde 회귀 방지).
     //    멤버 0개면 codes=[] → 청크 루프 미실행(빈 Map) → stocks=[] 로 자연 처리.
