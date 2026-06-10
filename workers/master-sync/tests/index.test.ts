@@ -63,6 +63,18 @@ function mkKrxRows(total: number) {
   }));
 }
 
+// ETP(ETF/ETN/ELW) fixture — fetchEtpMastersFromKrx 반환 형태 (KrxBaseInfoRow)
+function mkEtpRows(total: number) {
+  return Array.from({ length: total }, (_, i) => ({
+    ISU_SRT_CD: String(580000 + i).padStart(6, "0"),
+    ISU_ABBRV: `ETN${i}`,
+    ISU_NM: `종목${i} ETN`,
+    SECUGRP_NM: "ETN",
+    KIND_STKCERT_TP_NM: "ETN",
+    market: "KOSPI" as const,
+  }));
+}
+
 describe("runMasterSync", () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -101,6 +113,50 @@ describe("runMasterSync", () => {
       expect.objectContaining({ is_delisted: true }),
     );
     expect(supaMock.updateIn).toHaveBeenCalledWith("code", ["999998", "999999"]);
+  });
+
+  it("ETP 병합 — 주식+ETP upsert, security_group='ETN' 정확 매핑, activeCodes 포함(ETP 오삭제 0)", async () => {
+    const rows = mkKrxRows(1200);
+    const etp = mkEtpRows(3); // 580000~580002
+    mockFetch.mockResolvedValue(rows);
+    mockFetchEtp.mockResolvedValue(etp);
+    mockUpsert.mockResolvedValue({ count: rows.length + etp.length });
+    // 기존 활성: 주식 1200 + ETP 3 모두 존재 → ETP 가 activeCodes 에 포함되어 delist 0 이어야
+    const existing = [
+      ...rows.map((r) => r.ISU_SRT_CD!),
+      ...etp.map((r) => r.ISU_SRT_CD),
+    ];
+    const supaMock = mkSupabaseMock(existing);
+    mockCreateSupabase.mockReturnValue(supaMock.client);
+
+    const res = await runMasterSync({ config: baseConfig });
+
+    // upsert 인자(masters)에 ETP 코드 포함 + 정확 분류
+    const upsertArg = mockUpsert.mock.calls[0][1] as Array<{
+      code: string;
+      securityGroup: string;
+    }>;
+    const etn = upsertArg.find((m) => m.code === "580000");
+    expect(etn).toBeDefined();
+    expect(etn!.securityGroup).toBe("ETN");
+    // ETP 가 활성 universe 에 포함 → delist-sweep churn 없음
+    expect(res.delistedCount).toBe(0);
+    expect(supaMock.updateIn).not.toHaveBeenCalled();
+  });
+
+  it("ETP fetch 실패 → fault-tolerant (throw 안 함, 주식-only upsert 계속)", async () => {
+    const rows = mkKrxRows(1200);
+    mockFetch.mockResolvedValue(rows);
+    mockFetchEtp.mockRejectedValue(new Error("KRX 401 — ETP 미승인"));
+    mockUpsert.mockResolvedValue({ count: rows.length });
+    const supaMock = mkSupabaseMock(rows.map((r) => r.ISU_SRT_CD!));
+    mockCreateSupabase.mockReturnValue(supaMock.client);
+
+    const res = await runMasterSync({ config: baseConfig });
+    expect(res.count).toBe(1200);
+    // upsert 는 주식만 (ETP 0 행)
+    const upsertArg = mockUpsert.mock.calls[0][1] as unknown[];
+    expect(upsertArg.length).toBe(1200);
   });
 
   it("MASS_DELIST_RISK 가드 — KRX 응답 row < 1000 시 throw (delist-sweep 실행 안 됨)", async () => {

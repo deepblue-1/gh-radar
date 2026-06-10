@@ -4,6 +4,8 @@ import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
 import { createKrxClient } from "./krx/client";
 import { fetchMasterFromKrx } from "./krx/fetchBaseInfo";
+import type { KrxBaseInfoRow } from "./krx/fetchBaseInfo";
+import { fetchEtpMastersFromKrx } from "./krx/fetchEtpBaseInfo";
 import { krxToMasterRow } from "./pipeline/map";
 import { upsertMasters } from "./pipeline/upsert";
 import { withRetry } from "./retry";
@@ -35,10 +37,7 @@ export async function runMasterSync(deps?: {
   const supabase = createSupabaseClient(config);
   const krx = createKrxClient(config);
 
-  // 주식 (KOSPI 주권 + KOSDAQ 주권) 만 fetch.
-  // 2026-05-16 사용자 결정: ETP (ETF/ETN/ELW) 는 차트 ingestion 대상 (KRX bydd_trd) 의 universe 가
-  // 아니라서 마스터에서 제외. recover threshold (활성 × 0.9) 결측 false alarm 방지.
-  // 향후 ETF/ETN 도 다루려면 etp_bydd_trd 별도 endpoint 적재 흐름과 함께 다시 활성화.
+  // 주식 (KOSPI 주권 + KOSDAQ 주권) fetch — 핵심 universe + delist 가드 기준.
   const krxRows = await withRetry(
     () => fetchMasterFromKrx(krx, basDd),
     "fetchMasterFromKrx",
@@ -62,7 +61,28 @@ export async function runMasterSync(deps?: {
     );
   }
 
-  const masters = krxRows.map(krxToMasterRow);
+  // ETP (ETF/ETN/ELW) 마스터 — security_group 정확 분류용.
+  //   intraday-sync 의 화이트리스트(ELIGIBLE_SECGROUPS)가 'ETF'/'ETN'/'ELW' 를 스캐너에서
+  //   제외하려면 stocks 마스터에 정확 분류가 있어야 함. 미등록 시 bootstrapStocks 가
+  //   placeholder 'security_group=주권' 으로 잘못 등록 → ETN 이 top_movers 에 노출되는 버그.
+  //   (2026-05-16 비활성화 복원: 당시 우려였던 candle-sync recover 분모 오탐은
+  //    missingDates 의 활성 count 에서 ETP 를 security_group 으로 제외하여 해소.)
+  //   fault-tolerant: ETP fetch 실패해도 핵심 주식 sync 는 계속 (best-effort, 다음 cycle 재시도).
+  let etpRows: KrxBaseInfoRow[] = [];
+  try {
+    etpRows = await withRetry(
+      () => fetchEtpMastersFromKrx(krx, basDd),
+      "fetchEtpMastersFromKrx",
+    );
+    log.info({ etpRows: etpRows.length, basDd }, "KRX ETP fetched");
+  } catch (err) {
+    log.warn(
+      { err, basDd },
+      "ETP fetch 실패 — 주식-only 로 계속 (ETF/ETN 분류 이번 cycle 건너뜀)",
+    );
+  }
+
+  const masters = [...krxRows, ...etpRows].map(krxToMasterRow);
   const { count } = await withRetry(
     () => upsertMasters(supabase, masters),
     "upsertMasters",

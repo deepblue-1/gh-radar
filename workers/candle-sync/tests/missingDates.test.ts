@@ -19,12 +19,13 @@ function mockSupabase(opts: {
 }) {
   const fromMock = vi.fn((table: string) => {
     if (table === "stocks") {
-      // Query A: select(_, {count: exact, head: true}).eq('is_delisted', false) → resolves
-      const eqMock = vi
+      // Query A: select(_, {count}).eq('is_delisted', false).not('security_group','in',...) → resolves
+      const notMock = vi
         .fn()
         .mockResolvedValue({ count: opts.activeCount, data: null, error: null });
+      const eqMock = vi.fn().mockReturnValue({ not: notMock });
       const selectMock = vi.fn().mockReturnValue({ eq: eqMock });
-      return { select: selectMock };
+      return { select: selectMock, _notMock: notMock };
     }
 
     if (table === "stock_daily_ohlcv") {
@@ -144,6 +145,34 @@ describe("findMissingDates", () => {
       maxCalls: 20,
     });
     expect(out).toEqual([]);
+  });
+
+  it("활성 count 분모에서 ETP(ETF/ETN/ELW)를 security_group 으로 제외", async () => {
+    // recover 결측 오탐 방지의 핵심 — stock_daily_ohlcv(주식 universe)와 분모 일치 보장.
+    const notMock = vi
+      .fn()
+      .mockResolvedValue({ count: 2800, data: null, error: null });
+    const eqMock = vi.fn().mockReturnValue({ not: notMock });
+    const fromMock = vi.fn((table: string) => {
+      if (table === "stocks") return { select: vi.fn().mockReturnValue({ eq: eqMock }) };
+      // recentDates 빈 배열 → Query B 에서 조기 종료
+      const orderMock = vi
+        .fn()
+        .mockResolvedValue({ count: null, data: [], error: null });
+      const gteMock = vi.fn().mockReturnValue({ order: orderMock });
+      return { select: vi.fn().mockReturnValue({ gte: gteMock }) };
+    });
+    await findMissingDates({ from: fromMock } as unknown as SupabaseClient, {
+      lookback: 10,
+      threshold: 0.9,
+      maxCalls: 20,
+    });
+    expect(eqMock).toHaveBeenCalledWith("is_delisted", false);
+    expect(notMock).toHaveBeenCalledWith(
+      "security_group",
+      "in",
+      '("ETF","ETN","ELW")',
+    );
   });
 
   it("activeCount = 0 (DB 비어있음) → 빈 배열 + skip 경고", async () => {

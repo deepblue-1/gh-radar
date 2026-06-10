@@ -24,10 +24,14 @@ export async function findMissingDates(
   opts: { lookback: number; threshold: number; maxCalls: number },
 ): Promise<string[]> {
   // Step 1: 활성 stocks 수
+  //   ETP(ETF/ETN/ELW)는 master-sync 가 stocks 에 등록하지만 stock_daily_ohlcv
+  //   (KRX 주식 bydd_trd) universe 가 아니다. 분모에 포함하면 daily count 와 비교가
+  //   항상 미달 → 매 일자 결측 오탐 + KRX 재호출 폭증. security_group 으로 ETP 제외.
   const { count: activeCountRaw, error: activeErr } = await supabase
     .from("stocks")
     .select("code", { count: "exact", head: true })
-    .eq("is_delisted", false);
+    .eq("is_delisted", false)
+    .not("security_group", "in", '("ETF","ETN","ELW")');
   if (activeErr) {
     logger.error({ err: activeErr }, "findMissingDates: active count failed");
     throw activeErr;
