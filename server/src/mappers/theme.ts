@@ -91,7 +91,11 @@ export function themeRowToThemeWithStats(
   const rates: number[] = [];
   for (const code of memberCodes) {
     const q = quoteByCode.get(code);
-    if (q) rates.push(Number(q.change_rate));
+    if (!q) continue;
+    // NaN("N/A" 등 시세 없는 종목) 가드 — 단일 NaN 이 정렬 비교자/평균을 오염시켜
+    // top3AvgChangeRate=null → 테마가 desc 정렬 최하단으로 침묵 강등(WR-S-01).
+    const n = Number(q.change_rate);
+    if (Number.isFinite(n)) rates.push(n);
   }
   return {
     ...base,

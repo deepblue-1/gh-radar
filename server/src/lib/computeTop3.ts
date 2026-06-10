@@ -21,8 +21,11 @@
  *   - 음수 등락률도 그대로 정렬·평균 (전부 음수면 평균도 음수)
  */
 export function computeTop3Avg(rates: number[]): number | null {
-  if (rates.length === 0) return null;
-  const top = [...rates].sort((a, b) => b - a).slice(0, 3);
+  // NaN/Infinity 방어 — 단일 비유한값이 비교자(b-a)와 평균을 오염시켜 결과를 NaN 으로
+  // 만든다(WR-S-01). 호출자가 거르더라도 순수 함수 차원에서 이중 가드.
+  const finite = rates.filter((r) => Number.isFinite(r));
+  if (finite.length === 0) return null;
+  const top = finite.sort((a, b) => b - a).slice(0, 3);
   const sum = top.reduce((acc, r) => acc + r, 0);
   return sum / top.length;
 }
