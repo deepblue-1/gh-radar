@@ -1,10 +1,11 @@
 ---
 phase: 11
 slug: co-movement-candidates-top-k
-status: draft
+status: approved
 shadcn_initialized: true
 preset: radix-nova
 created: 2026-06-10
+reviewed_at: 2026-06-10
 ---
 
 # Phase 11 — UI Design Contract

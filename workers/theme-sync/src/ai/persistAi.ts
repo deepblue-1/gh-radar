@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type pino from "pino";
 import type { DiscoveredTheme } from "./discoverThemes";
 import type { CorrectionTarget } from "./correctMembership";
+import { isThemeEligible } from "../pipeline/upsertThemes";
 
 /**
  * Phase 10 Plan 06 — AI 발굴/교정 결과를 시스템 레이어에 적재 (RESEARCH §Pattern 6, T-10-06-01/02).
@@ -36,7 +37,11 @@ export interface PersistAiResult {
   corrected: number;
 }
 
-/** stocks 마스터에 존재하는 code 만 통과 — 청크 분할 .in() 조회. */
+/**
+ * 테마 편입 적격 code 만 통과 — 청크 분할 .in() 조회.
+ * stocks 마스터에 존재하면서 일반 주식(스팩·ETP 아님, isThemeEligible)인 code 집합.
+ * 스크랩 경로(upsertThemes)와 동일 필터로 AI 발굴 테마에도 스팩·ETP 유입을 막는다.
+ */
 async function filterExistingStocks(
   supabase: SupabaseClient,
   codes: string[],
@@ -48,13 +53,20 @@ async function filterExistingStocks(
     const chunk = unique.slice(i, i + STOCK_IN_CHUNK);
     const { data, error } = await supabase
       .from("stocks")
-      .select("code")
+      .select("code, name, security_group, kosdaq_segment")
       .in("code", chunk);
     if (error) {
       log.error({ err: error.message }, "persistAi: filterExistingStocks failed");
       throw error;
     }
-    for (const r of (data ?? []) as Array<{ code: string }>) exists.add(r.code);
+    for (const r of (data ?? []) as Array<{
+      code: string;
+      name: string | null;
+      security_group: string | null;
+      kosdaq_segment: string | null;
+    }>) {
+      if (isThemeEligible(r)) exists.add(r.code);
+    }
   }
   return exists;
 }

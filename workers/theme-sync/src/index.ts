@@ -77,6 +77,7 @@ export interface ThemeSyncSummary {
   stockLinksUpserted: number;
   stockLinksRetired: number;
   skippedMissingStocks: number;
+  skippedIneligibleStocks: number;
   scrapedThemes: number;
   backedOffSources: ThemeSource[];
   skippedWrite: boolean;
@@ -187,6 +188,7 @@ export async function runThemeSyncCycle(
       stockLinksUpserted: 0,
       stockLinksRetired: 0,
       skippedMissingStocks: 0,
+      skippedIneligibleStocks: 0,
       scrapedThemes: 0,
       backedOffSources,
       skippedWrite: false,
@@ -207,6 +209,7 @@ export async function runThemeSyncCycle(
     stockLinksUpserted: 0,
     stockLinksRetired: 0,
     skippedMissingStocks: 0,
+    skippedIneligibleStocks: 0,
   };
   if (skipWrite) {
     log.info(

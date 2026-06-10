@@ -5,7 +5,7 @@ import {
   storeHash,
   hashToInt,
 } from "../src/pipeline/contentHash";
-import { upsertThemes } from "../src/pipeline/upsertThemes";
+import { upsertThemes, isThemeEligible } from "../src/pipeline/upsertThemes";
 import { mergeThemes, type MergedTheme } from "../src/merge/mergeThemes";
 import { runThemeSyncCycle } from "../src/index";
 import type { ThemeScrape } from "../src/scrape/types";
@@ -105,7 +105,89 @@ describe("contentHash (SHA256 변경 감지 — D-09, 5원칙 #2)", () => {
   });
 });
 
+describe("isThemeEligible (스팩·ETP 제외 — 일반 주식만 테마 편입)", () => {
+  const base = { name: "삼성전자", security_group: "주권", kosdaq_segment: null };
+
+  it("일반 주권은 적격(true)", () => {
+    expect(isThemeEligible(base)).toBe(true);
+  });
+
+  it("부동산투자회사(REIT)·외국주권 등 비-ETP 증권그룹은 적격(true)", () => {
+    expect(
+      isThemeEligible({ ...base, security_group: "부동산투자회사" }),
+    ).toBe(true);
+  });
+
+  it("ETF/ETN/ELW 증권그룹은 제외(false)", () => {
+    for (const g of ["ETF", "ETN", "ELW"]) {
+      expect(isThemeEligible({ ...base, security_group: g })).toBe(false);
+    }
+  });
+
+  it("kosdaq_segment 가 'SPAC(소속부없음)' 이면 제외(false)", () => {
+    expect(
+      isThemeEligible({
+        name: "엔에이치스팩31호",
+        security_group: "주권", // 스팩은 법적으로 보통주 — 증권그룹으론 못 거름
+        kosdaq_segment: "SPAC(소속부없음)",
+      }),
+    ).toBe(false);
+  });
+
+  it("종목명에 '스팩' 이 있으면 segment 가 SPAC 이 아니어도 제외(관리종목 전환 스팩 보강)", () => {
+    expect(
+      isThemeEligible({
+        name: "교보18호스팩",
+        security_group: "주권",
+        kosdaq_segment: "관리종목(소속부없음)", // 관리종목 전환 → SPAC 라벨 소실
+      }),
+    ).toBe(false);
+  });
+
+  it("name 이 '스팩' 을 포함하지 않으면 적격(false-positive 방지)", () => {
+    expect(
+      isThemeEligible({ ...base, name: "스팩토리얼" }),
+    ).toBe(false); // '스팩' 부분 문자열 — 의도적으로 보수적 제외
+  });
+});
+
 describe("upsertThemes (FK skip + 청크 + 이력 + MIN_EXPECTED — Pitfall 5/10)", () => {
+  it("스팩·ETP 종목은 테마 편입에서 제외한다 (일반 주식만)", async () => {
+    const sb = createMockSupabase();
+    // 마스터 조회: 005930(일반), 369370(ETF), 480370(스팩 by segment), 480380(스팩 by name)
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        { code: "005930", name: "삼성전자", security_group: "주권", kosdaq_segment: null },
+        { code: "369370", name: "TIGER 2차전지", security_group: "ETF", kosdaq_segment: null },
+        { code: "480370", name: "엔에이치스팩31호", security_group: "주권", kosdaq_segment: "SPAC(소속부없음)" },
+        { code: "480380", name: "교보18호스팩", security_group: "주권", kosdaq_segment: "관리종목(소속부없음)" },
+      ],
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
+    sb.from("themes").single.mockResolvedValue({
+      data: { id: "theme-1" },
+      error: null,
+    });
+    sb.from("theme_stocks").is.mockResolvedValue({ data: [], error: null });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+
+    const res = await upsertThemes(sb as never, [
+      theme("신규상장", "신규상장", ["005930", "369370", "480370", "480380"]),
+    ]);
+
+    // 스팩 2 + ETF 1 = 3건 제외, 마스터엔 다 존재하므로 missing 은 0.
+    expect(res.skippedIneligibleStocks).toBe(3);
+    expect(res.skippedMissingStocks).toBe(0);
+    // theme_stocks upsert 는 일반 주식(005930)만.
+    const upsertArg = (
+      sb._chains.theme_stocks.upsert as ReturnType<typeof vi.fn>
+    ).mock.calls[0][0];
+    expect(upsertArg).toHaveLength(1);
+    expect(upsertArg[0].stock_code).toBe("005930");
+  });
+
+
   it("stocks 마스터에 없는 종목 code 는 per-stock skip 한다 (FK, Pitfall 5)", async () => {
     const sb = createMockSupabase();
     // stocks 존재 확인: 005930 만 존재, 999999 미존재

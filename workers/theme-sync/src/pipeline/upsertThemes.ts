@@ -20,35 +20,77 @@ const UPSERT_CHUNK = 500;
 // 응답 비정상 가드 — 네이버(~265)+알파 정치(~39) 가 정상. 둘 다 차단/파서붕괴 시 매우 적음.
 const MIN_EXPECTED_THEMES = 1;
 
+// 지수·파생 상품(ETP) 증권그룹 — 일반 주식이 아니므로 테마에서 제외. KRX SECUGRP_NM 기준.
+const ETP_SECURITY_GROUPS = new Set(["ETF", "ETN", "ELW"]);
+
+/** stocks 마스터의 분류 컬럼 — 테마 편입 적격성 판정에 필요한 최소 필드. */
+interface StockClassRow {
+  code: string;
+  name: string | null;
+  security_group: string | null;
+  kosdaq_segment: string | null;
+}
+
+/**
+ * 일반 주식만 테마에 편입 — 스팩·ETP 제외(요구사항: "일반 주식이 아닌 종목은 테마에서 빼기").
+ *
+ * 제외 대상:
+ *   1. ETP(ETF/ETN/ELW) — security_group(KRX SECUGRP_NM)으로 판별. 스팩과 달리
+ *      증권그룹이 명확히 다르다.
+ *   2. 스팩(기업인수목적회사) — 법적으로는 보통주(security_group='주권')라 증권그룹으로는
+ *      못 거른다. KRX 소속부(kosdaq_segment, SECT_TP_NM)가 'SPAC(소속부없음)' 형태이므로
+ *      'SPAC' 접두 + 종목명 '스팩' 패턴으로 이중 판별. 관리종목·투자주의로 전환된 스팩은
+ *      kosdaq_segment 가 'SPAC' 이 아니게 바뀌므로 종목명 패턴이 그 누락을 보강한다.
+ */
+export function isThemeEligible(row: {
+  name: string | null;
+  security_group: string | null;
+  kosdaq_segment: string | null;
+}): boolean {
+  if (row.security_group && ETP_SECURITY_GROUPS.has(row.security_group)) {
+    return false;
+  }
+  if (row.kosdaq_segment?.startsWith("SPAC")) return false;
+  if (row.name?.includes("스팩")) return false;
+  return true;
+}
+
 export interface UpsertResult {
   themesUpserted: number;
   stockLinksUpserted: number;
   stockLinksRetired: number;
   skippedMissingStocks: number;
+  skippedIneligibleStocks: number;
 }
 
-/** stocks 마스터에 존재하는 code 만 통과 — 청크 분할 .in() 조회. */
-async function filterExistingStocks(
+/**
+ * stocks 마스터 조회 — 청크 분할 .in().
+ * - existing: 마스터에 존재하는 code (FK 검사용).
+ * - eligible: 존재 + 일반 주식(스팩·ETP 아님) code (테마 편입 대상).
+ */
+async function loadStockEligibility(
   supabase: SupabaseClient,
   codes: string[],
-): Promise<Set<string>> {
+): Promise<{ existing: Set<string>; eligible: Set<string> }> {
   const unique = [...new Set(codes)];
-  const exists = new Set<string>();
+  const existing = new Set<string>();
+  const eligible = new Set<string>();
   for (let i = 0; i < unique.length; i += STOCK_IN_CHUNK) {
     const chunk = unique.slice(i, i + STOCK_IN_CHUNK);
     const { data, error } = await supabase
       .from("stocks")
-      .select("code")
+      .select("code, name, security_group, kosdaq_segment")
       .in("code", chunk);
     if (error) {
-      logger.error({ err: error.message }, "filterExistingStocks failed");
+      logger.error({ err: error.message }, "loadStockEligibility failed");
       throw error;
     }
-    for (const r of (data ?? []) as Array<{ code: string }>) {
-      exists.add(r.code);
+    for (const r of (data ?? []) as StockClassRow[]) {
+      existing.add(r.code);
+      if (isThemeEligible(r)) eligible.add(r.code);
     }
   }
-  return exists;
+  return { existing, eligible };
 }
 
 /** norm_key 로 기존 시스템 테마 조회 (id + hidden; 없으면 null). */
@@ -108,16 +150,26 @@ export async function upsertThemes(
 
   const nowIso = now.toISOString();
 
-  // 1) 전체 종목 code 의 stocks 존재 확인(청크) → 유효 code 집합.
+  // 1) 전체 종목 code 의 stocks 존재·적격성 확인(청크) → 편입 대상 code 집합.
   const allCodes = themes.flatMap((t) => t.stocks.map((s) => s.code));
-  const existing = await filterExistingStocks(supabase, allCodes);
+  const { existing, eligible } = await loadStockEligibility(supabase, allCodes);
   const skippedMissingStocks = new Set(
     allCodes.filter((c) => !existing.has(c)),
+  ).size;
+  // 마스터엔 있으나 일반 주식이 아님(스팩·ETP) → 테마 편입 제외.
+  const skippedIneligibleStocks = new Set(
+    allCodes.filter((c) => existing.has(c) && !eligible.has(c)),
   ).size;
   if (skippedMissingStocks > 0) {
     logger.warn(
       { skipped: skippedMissingStocks },
       "theme_stocks: stocks 마스터 미존재 code per-stock skip (FK, Pitfall 5)",
+    );
+  }
+  if (skippedIneligibleStocks > 0) {
+    logger.info(
+      { skipped: skippedIneligibleStocks },
+      "theme_stocks: 스팩·ETP 등 일반 주식 아닌 code 편입 제외",
     );
   }
 
@@ -196,10 +248,11 @@ export async function upsertThemes(
     // Edit B — 운영자가 제외(manual_override='excluded')한 종목은 재스크랩돼도 재편입 금지.
     const excludedCodes = await loadExcludedOverrideCodes(supabase, themeId);
 
-    // 3) 유효 종목만(마스터 존재 + excluded 아님) theme_stocks 행 버퍼에 누적.
-    //    upsert payload 에 manual_override 미포함 → conflict 시 기존 override 보존(included 핀 유지).
+    // 3) 유효 종목만(일반 주식 + excluded 아님) theme_stocks 행 버퍼에 누적.
+    //    eligible = 마스터 존재 AND 스팩·ETP 아님. upsert payload 에 manual_override
+    //    미포함 → conflict 시 기존 override 보존(included 핀 유지).
     const validStocks = t.stocks.filter(
-      (s) => existing.has(s.code) && !excludedCodes.has(s.code),
+      (s) => eligible.has(s.code) && !excludedCodes.has(s.code),
     );
     for (const s of validStocks) {
       linkRows.push({
@@ -244,6 +297,7 @@ export async function upsertThemes(
       stockLinksUpserted,
       stockLinksRetired,
       skippedMissingStocks,
+      skippedIneligibleStocks,
     },
     "upsertThemes complete",
   );
@@ -253,6 +307,7 @@ export async function upsertThemes(
     stockLinksUpserted,
     stockLinksRetired,
     skippedMissingStocks,
+    skippedIneligibleStocks,
   };
 }
 
