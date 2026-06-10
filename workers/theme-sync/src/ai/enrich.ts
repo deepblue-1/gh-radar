@@ -3,7 +3,7 @@ import type pino from "pino";
 import type { ThemeSyncConfig } from "../config";
 import { discoverThemes } from "./discoverThemes";
 import { correctMembership, type MembershipRow } from "./correctMembership";
-import { persistAi } from "./persistAi";
+import { persistAi, pruneSparseAiThemes } from "./persistAi";
 
 /**
  * Phase 10 Plan 06 — theme-sync cycle 의 AI 보강 단계 (RESEARCH §Pattern 6, 일1회 cycle 동반).
@@ -27,6 +27,8 @@ export interface AiEnrichResult {
   aiCorrected: number;
   aiThemesUpserted: number;
   aiStockLinksUpserted: number;
+  /** ai 단독 <2종목 테마 prune 삭제 수. */
+  aiPruned: number;
 }
 
 /**
@@ -89,6 +91,7 @@ export async function enrichWithAi(
       aiCorrected: 0,
       aiThemesUpserted: 0,
       aiStockLinksUpserted: 0,
+      aiPruned: 0,
     };
   }
 
@@ -102,6 +105,9 @@ export async function enrichWithAi(
   // 4) 적재 — 발굴(source='ai') + 교정(effective_to soft-제외).
   const persisted = await persistAi(supabase, discovered, corrections, log, now);
 
+  // 5) prune — ai 단독 <2종목 테마 정리(생성 ≥2 가드와 동일 불변식, 기존 sparse 청소).
+  const aiPruned = await pruneSparseAiThemes(supabase, log);
+
   log.info(
     {
       aiDiscovered: discovered.length,
@@ -109,6 +115,7 @@ export async function enrichWithAi(
       aiThemesUpserted: persisted.aiThemesUpserted,
       aiStockLinksUpserted: persisted.aiStockLinksUpserted,
       skippedMissingStocks: persisted.skippedMissingStocks,
+      aiPruned,
     },
     "AI enrichment done",
   );
@@ -118,5 +125,6 @@ export async function enrichWithAi(
     aiCorrected: persisted.corrected,
     aiThemesUpserted: persisted.aiThemesUpserted,
     aiStockLinksUpserted: persisted.aiStockLinksUpserted,
+    aiPruned,
   };
 }

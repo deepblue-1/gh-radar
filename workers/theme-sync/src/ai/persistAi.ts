@@ -17,6 +17,14 @@ import type { CorrectionTarget } from "./correctMembership";
 
 const STOCK_IN_CHUNK = 200; // .in() URL 길이 한계 (커밋 37afcde 회귀 교훈).
 
+/**
+ * AI 단독 테마가 존재/생성되기 위한 최소 active 종목 수.
+ * AI 발굴은 회사명을 stocks 마스터로 해석하는데, 상장 매칭이 안 되는 추상 개념
+ * (예: 'AI 데이터센터 지역 유치')은 0~1종목으로 노이즈가 된다. '테마=종목 묶음' 불변식 —
+ * 생성 시 가드(persistDiscoveries) + 기존/이탈분 정리(pruneSparseAiThemes) 양쪽 적용.
+ */
+const MIN_AI_THEME_STOCKS = 2;
+
 export interface PersistAiResult {
   /** 적재(신규 INSERT + 기존 병합 UPDATE)된 AI 테마 수. */
   aiThemesUpserted: number;
@@ -103,6 +111,7 @@ export async function persistDiscoveries(
   ).size;
 
   let aiThemesUpserted = 0;
+  let skippedSparse = 0;
   const linkRows: Array<{
     theme_id: string;
     stock_code: string;
@@ -113,10 +122,16 @@ export async function persistDiscoveries(
   }> = [];
 
   for (const d of discovered) {
+    const validCodes = d.stockCodes.filter((c) => existing.has(c)); // 해석된 코드는 사실상 전부.
     const found = await findAiThemeId(supabase, d.normKey, log);
     let themeId: string;
     if (!found) {
-      // 신규 AI 테마 — is_system=true, owner_id=null, sources=['ai'].
+      // 신규 AI 테마 — 해석된 유효 종목 2개 미만이면 생성 skip(추상 개념 노이즈 차단, 사용자 결정).
+      if (validCodes.length < MIN_AI_THEME_STOCKS) {
+        skippedSparse++;
+        continue;
+      }
+      // is_system=true, owner_id=null, sources=['ai'].
       const { data, error } = await supabase
         .from("themes")
         .insert({
@@ -139,7 +154,8 @@ export async function persistDiscoveries(
       }
       themeId = (data as { id: string }).id;
     } else {
-      // 기존 시스템 테마 — sources 에 'ai' 병합(이미 있으면 멱등).
+      // 기존 시스템 테마 — sources 에 'ai' 병합(이미 있으면 멱등). 이미 naver/alpha 종목
+      // 보유하므로 ≥2 가드 미적용(병합만, 신규 생성 아님).
       themeId = found.id;
       if (!found.sources.includes("ai")) {
         const { error } = await supabase
@@ -158,8 +174,7 @@ export async function persistDiscoveries(
     }
     aiThemesUpserted++;
 
-    for (const code of d.stockCodes) {
-      if (!existing.has(code)) continue; // FK skip.
+    for (const code of validCodes) {
       linkRows.push({
         theme_id: themeId,
         stock_code: code,
@@ -169,6 +184,12 @@ export async function persistDiscoveries(
         effective_to: null,
       });
     }
+  }
+  if (skippedSparse > 0) {
+    log.info(
+      { skippedSparse, min: MIN_AI_THEME_STOCKS },
+      "persistAi: 해석 후 <2종목 신규 AI 테마 생성 skip",
+    );
   }
 
   let aiStockLinksUpserted = 0;
@@ -217,6 +238,79 @@ export async function persistCorrections(
     corrected++;
   }
   return corrected;
+}
+
+/** 읽기 종결 상한 — 시스템 테마(~수백)·AI 테마 종목(~수십)은 db-max-rows(1000) 미만이라 단일 조회로 충분. */
+const PRUNE_READ_LIMIT = 2000;
+
+/**
+ * ai 단독(sources=['ai']) 시스템 테마 중 active 종목 < MIN_AI_THEME_STOCKS 인 것을 삭제.
+ * theme_stocks 는 FK CASCADE. 생성 ≥2 가드와 동일 불변식 — 기존 sparse(0~1종목) AI 테마 정리 +
+ * 이후 종목 이탈로 빈약해진 것 청소. **불가침**: sources 에 naver/alphasquare/user 가 섞인
+ * 테마는 절대 미접근(원 소스 데이터 보존, T-10-06-02 정신). enrichWithAi 말미에 1회 호출.
+ *
+ * @returns 삭제된 테마 수
+ */
+export async function pruneSparseAiThemes(
+  supabase: SupabaseClient,
+  log: pino.Logger,
+): Promise<number> {
+  // 1) 시스템 테마 + sources → JS 에서 ai 단독만 선별(배열 동등은 PostgREST 가 까다로워 JS 필터).
+  const { data: themes, error: tErr } = await supabase
+    .from("themes")
+    .select("id, sources")
+    .eq("is_system", true)
+    .limit(PRUNE_READ_LIMIT);
+  if (tErr) {
+    log.error({ err: tErr.message }, "pruneSparseAiThemes: themes 조회 실패");
+    return 0;
+  }
+  const aiOnlyIds = ((themes ?? []) as Array<{ id: string; sources: string[] | null }>)
+    .filter(
+      (t) =>
+        Array.isArray(t.sources) &&
+        t.sources.length === 1 &&
+        t.sources[0] === "ai",
+    )
+    .map((t) => t.id);
+  if (aiOnlyIds.length === 0) return 0;
+
+  // 2) 해당 테마들의 active(effective_to IS NULL) 종목 수 (AI 테마는 소수라 단일 .in()).
+  const { data: links, error: lErr } = await supabase
+    .from("theme_stocks")
+    .select("theme_id, effective_to")
+    .in("theme_id", aiOnlyIds)
+    .limit(PRUNE_READ_LIMIT);
+  if (lErr) {
+    log.error({ err: lErr.message }, "pruneSparseAiThemes: theme_stocks 조회 실패");
+    return 0;
+  }
+  const activeCount = new Map<string, number>();
+  for (const r of (links ?? []) as Array<{ theme_id: string; effective_to: string | null }>) {
+    if (r.effective_to !== null) continue; // active 만.
+    activeCount.set(r.theme_id, (activeCount.get(r.theme_id) ?? 0) + 1);
+  }
+
+  // 3) active < MIN 인 ai 단독 테마 삭제 (theme_stocks FK CASCADE).
+  const sparseIds = aiOnlyIds.filter(
+    (id) => (activeCount.get(id) ?? 0) < MIN_AI_THEME_STOCKS,
+  );
+  if (sparseIds.length === 0) return 0;
+
+  const { error: dErr } = await supabase
+    .from("themes")
+    .delete()
+    .in("id", sparseIds)
+    .eq("is_system", true); // ← 안전 재확인(ai 단독은 1)에서 이미 선별).
+  if (dErr) {
+    log.error({ err: dErr.message }, "pruneSparseAiThemes: 삭제 실패");
+    return 0;
+  }
+  log.info(
+    { pruned: sparseIds.length, min: MIN_AI_THEME_STOCKS },
+    "pruneSparseAiThemes: ai 단독 <2종목 테마 삭제",
+  );
+  return sparseIds.length;
 }
 
 /**

@@ -29,6 +29,7 @@ export interface MockSupabaseChain {
   lt: ReturnType<typeof vi.fn>;
   order: ReturnType<typeof vi.fn>;
   limit: ReturnType<typeof vi.fn>;
+  range: ReturnType<typeof vi.fn>;
   maybeSingle: ReturnType<typeof vi.fn>;
   single: ReturnType<typeof vi.fn>;
 }
@@ -87,6 +88,10 @@ export function createMockSupabase(
       upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
       // 읽기 종결 — store 기반 기본값 (테스트가 mockResolvedValueOnce 로 override)
       limit: vi.fn().mockResolvedValue({ data: rows, error: null }),
+      // .range(from,to) — 결과-행 페이지네이션 종결. store 를 [from,to] 슬라이스(이름→코드 해석).
+      range: vi.fn((from: number, to: number) =>
+        Promise.resolve({ data: rows.slice(from, to + 1), error: null }),
+      ),
       maybeSingle: vi
         .fn()
         .mockResolvedValue({ data: rows[0] ?? null, error: null }),

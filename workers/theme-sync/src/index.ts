@@ -192,35 +192,34 @@ export async function runThemeSyncCycle(
     };
   }
 
-  // 5원칙 #2 — 콘텐츠 SHA256 변경 감지. 직전 cycle 과 동일하면 DB write 전부 skip.
   const merged = mergeThemes(allScrapes);
   const hash = computeContentHash(merged);
-  if (await shouldSkipWrite(supabase, hash)) {
+
+  // 5원칙 #2 — 콘텐츠 SHA256 변경 감지. 동일하면 **스크랩 upsert 만** skip한다(전체 skip 아님).
+  // AI 발굴은 뉴스(매일 변화) 기반이라 스크랩 콘텐츠 해시와 분리 — 아래에서 항상 실행한다.
+  // (AI 는 news_articles 읽기 + Claude 호출일 뿐 네이버/알파를 크롤링하지 않으므로 5원칙 무관.)
+  const skipWrite = await shouldSkipWrite(supabase, hash);
+  let result = {
+    themesUpserted: 0,
+    stockLinksUpserted: 0,
+    stockLinksRetired: 0,
+    skippedMissingStocks: 0,
+  };
+  if (skipWrite) {
     log.info(
       { hashPrefix: hash.slice(0, 12), mergedThemes: merged.length },
-      "content unchanged (SHA256 match) — skipping DB write (5원칙 #2)",
+      "content unchanged (SHA256 match) — skipping scrape upsert (AI 발굴은 계속, 5원칙 #2)",
     );
-    return {
-      themesUpserted: 0,
-      stockLinksUpserted: 0,
-      stockLinksRetired: 0,
-      skippedMissingStocks: 0,
-      scrapedThemes: allScrapes.length,
-      backedOffSources,
-      skippedWrite: true,
-      aiDiscovered: 0,
-      aiCorrected: 0,
-    };
+  } else {
+    result = await upsertThemes(supabase, merged, now);
+    await storeHash(supabase, hash, now);
   }
 
-  const result = await upsertThemes(supabase, merged, now);
-  await storeHash(supabase, hash, now);
-
-  // ── AI 보강(Plan 06) — enrichWithAi 가 아래 단계를 캡슐화 ────────────────
-  // upsert 직후, classifyEnabled 일 때만:
-  //   discoverThemes(뉴스 기반 신규 시스템 테마) + correctMembership(신규/변경분 오분류)
-  //   → persistAi(발굴 source='ai' 적재 + 교정 effective_to soft-제외).
-  // try/catch 격리 — AI 실패가 스크랩 cycle 전체를 죽이지 않음(이미 upsert 는 커밋됨).
+  // ── AI 보강(Plan 06) — 콘텐츠 해시와 분리, 매 cycle 항상 실행 ──────────────
+  // classifyEnabled 일 때만(enrichWithAi 진입부 게이트):
+  //   discoverThemes(뉴스 기반 신규 테마 + 회사명→code 해석) + correctMembership(오분류)
+  //   → persistAi(발굴 source='ai' 적재, ≥2 가드) → pruneSparseAiThemes(ai 단독 <2종목 정리).
+  // try/catch 격리 — AI 실패가 cycle 전체를 죽이지 않음(스크랩 결과는 이미 처리됨).
   // ─────────────────────────────────────────────────────────────────────
   let aiDiscovered = 0;
   let aiCorrected = 0;
@@ -231,7 +230,7 @@ export async function runThemeSyncCycle(
   } catch (err: unknown) {
     log.error(
       { err: (err as Error)?.message },
-      "AI enrichment failed — cycle continues (scrape 결과는 이미 적재됨)",
+      "AI enrichment failed — cycle continues (scrape 결과는 이미 처리됨)",
     );
   }
 
@@ -242,6 +241,7 @@ export async function runThemeSyncCycle(
       ...result,
       aiDiscovered,
       aiCorrected,
+      skippedWrite: skipWrite,
       backedOffSources,
     },
     "theme-sync cycle complete",
@@ -251,7 +251,7 @@ export async function runThemeSyncCycle(
     ...result,
     scrapedThemes: allScrapes.length,
     backedOffSources,
-    skippedWrite: false,
+    skippedWrite: skipWrite,
     aiDiscovered,
     aiCorrected,
   };

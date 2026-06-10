@@ -22,15 +22,23 @@ import type { ThemeSyncConfig } from "../config";
  *  - 발굴은 시스템 레이어(source='ai')로만 — 유저 테마 불가침은 persistAi 가 강제.
  */
 
-/** 발굴된 신규 테마 후보 — persistAi 입력. */
+/** 발굴된 신규 테마 후보 — persistAi 입력. stockCodes 는 회사명→마스터 해석 결과. */
 export interface DiscoveredTheme {
   /** 정규화 전 테마명. */
   name: string;
   /** 병합 키 (normalizeName(name)). */
   normKey: string;
-  /** 관련 종목 code (6자리, AI 추정 — stocks 마스터 존재 여부는 persistAi 가 검증). */
+  /** 관련 종목 code — AI 가 낸 회사명(stockNames)을 stocks 마스터로 해석한 결과(미해석 드롭). */
   stockCodes: string[];
   /** 0~1 신뢰도. */
+  confidence: number;
+}
+
+/** 파싱 직후 원시 후보 — AI 는 회사명(stockNames)만 낸다. resolveNamesToCodes 가 code 로 변환. */
+interface RawDiscoveredTheme {
+  name: string;
+  normKey: string;
+  stockNames: string[];
   confidence: number;
 }
 
@@ -38,17 +46,19 @@ export interface DiscoveredTheme {
 const NEWS_CHUNK = 60;
 /** 발굴 응답 max_tokens (JSON 후보 목록). */
 const DISCOVER_MAX_TOKENS = 1024;
-/** 6자리 단축코드 정규식 (stocks.code 호환). */
-const CODE_RE = /^[A-Za-z0-9]{6}$/;
+/** 회사명 최대 길이 (잡음 가드). */
+const MAX_NAME_LEN = 40;
+/** 이름→코드 해석용 stocks 마스터 페이지 크기 — 결과-행 db-max-rows(1000) 페이지네이션. */
+const STOCK_MASTER_PAGE = 1000;
 
 interface RawCandidate {
   name?: unknown;
-  stockCodes?: unknown;
+  stockNames?: unknown;
   confidence?: unknown;
 }
 
-/** SDK 텍스트 응답 → DiscoveredTheme[] (파싱 실패 시 빈 배열). */
-function parseDiscoverResponse(text: string): DiscoveredTheme[] {
+/** SDK 텍스트 응답 → RawDiscoveredTheme[] (회사명; 파싱 실패 시 빈 배열). */
+function parseDiscoverResponse(text: string): RawDiscoveredTheme[] {
   let parsed: { themes?: unknown };
   const jsonStr = extractJsonObject(text);
   if (jsonStr === null) return [];
@@ -60,23 +70,99 @@ function parseDiscoverResponse(text: string): DiscoveredTheme[] {
   const themes = (parsed as { themes?: unknown }).themes;
   if (!Array.isArray(themes)) return [];
 
-  const out: DiscoveredTheme[] = [];
+  const out: RawDiscoveredTheme[] = [];
   for (const t of themes as RawCandidate[]) {
     const name = typeof t?.name === "string" ? t.name.trim() : "";
     if (!name) continue;
     const normKey = normalizeName(name);
     if (!normKey) continue;
-    const codes = Array.isArray(t?.stockCodes)
-      ? (t.stockCodes as unknown[])
+    const names = Array.isArray(t?.stockNames)
+      ? (t.stockNames as unknown[])
           .filter((c): c is string => typeof c === "string")
           .map((c) => c.trim())
-          .filter((c) => CODE_RE.test(c))
+          .filter((c) => c.length > 0 && c.length <= MAX_NAME_LEN)
       : [];
     const confidence =
       typeof t?.confidence === "number" && Number.isFinite(t.confidence)
         ? Math.min(1, Math.max(0, t.confidence))
         : 0.5;
-    out.push({ name, normKey, stockCodes: [...new Set(codes)], confidence });
+    out.push({ name, normKey, stockNames: [...new Set(names)], confidence });
+  }
+  return out;
+}
+
+/**
+ * stocks 마스터(code,name)를 결과-행 페이지네이션으로 전수 로드 → Map<normalizeName(name), code>.
+ *
+ * 마스터는 ~2800종목으로 PostgREST db-max-rows(1000)를 넘어, .in()/단일 쿼리는 통째로 잘린다
+ * (themes 0종목 버그와 동일 축, tasks/lessons.md). `.range()` 로 advance-by-actual + break-on-empty.
+ * 동일 정규화명 충돌 시 첫 code 유지(보수적). 조회 실패 시 부분/빈 map(미해석 → ≥2 가드가 드롭).
+ */
+async function buildStockNameToCodeMap(
+  supabase: SupabaseClient,
+  log: pino.Logger,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("stocks")
+      .select("code, name")
+      .eq("is_delisted", false)
+      .order("code", { ascending: true })
+      .range(from, from + STOCK_MASTER_PAGE - 1);
+    if (error) {
+      log.error({ err: error.message }, "buildStockNameToCodeMap failed (partial map)");
+      break;
+    }
+    const rows = (data ?? []) as Array<{ code: string; name: string }>;
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      const k = normalizeName(r.name);
+      if (k && !map.has(k)) map.set(k, r.code);
+    }
+    if (rows.length < STOCK_MASTER_PAGE) break;
+    from += rows.length;
+  }
+  return map;
+}
+
+/**
+ * 원시 후보(회사명) → DiscoveredTheme(해석된 code). AI 가 코드를 못 내므로 회사명을 받아
+ * stocks 마스터로 해석한다(LLM 의 code 추정 약점 회피 — 미해석 0개 회귀의 근본 수정).
+ * 후보가 없거나 회사명이 전혀 없으면 마스터 조회 skip.
+ */
+async function resolveNamesToCodes(
+  supabase: SupabaseClient,
+  raws: RawDiscoveredTheme[],
+  log: pino.Logger,
+): Promise<DiscoveredTheme[]> {
+  if (raws.length === 0) return [];
+  const anyName = raws.some((r) => r.stockNames.length > 0);
+  const nameMap = anyName
+    ? await buildStockNameToCodeMap(supabase, log)
+    : new Map<string, string>();
+
+  let unresolved = 0;
+  const out = raws.map((r) => {
+    const codes: string[] = [];
+    for (const nm of r.stockNames) {
+      const code = nameMap.get(normalizeName(nm));
+      if (code) {
+        if (!codes.includes(code)) codes.push(code);
+      } else {
+        unresolved++;
+      }
+    }
+    return {
+      name: r.name,
+      normKey: r.normKey,
+      stockCodes: codes,
+      confidence: r.confidence,
+    };
+  });
+  if (unresolved > 0) {
+    log.info({ unresolved }, "discoverThemes: 회사명→code 미해석(마스터 부재)");
   }
   return out;
 }
@@ -164,12 +250,12 @@ function mergeInto(target: DiscoveredTheme, b: DiscoveredTheme): void {
   target.confidence = Math.max(target.confidence, b.confidence);
 }
 
-/** 단일 뉴스 청크 → Claude 1회 호출 → 후보 (실패 시 빈 배열). */
+/** 단일 뉴스 청크 → Claude 1회 호출 → 원시 후보(회사명) (실패 시 빈 배열). */
 async function discoverChunk(
   cfg: ThemeSyncConfig,
   existingThemeNames: string[],
   chunk: Array<{ title: string; description: string | null }>,
-): Promise<DiscoveredTheme[]> {
+): Promise<RawDiscoveredTheme[]> {
   try {
     const client = getAnthropicClient();
     const res = await client.messages.create({
@@ -265,22 +351,25 @@ export async function discoverThemes(
     chunks.map((c) => limit(() => discoverChunk(cfg, existingNames, c))),
   );
 
-  // 4) 청크 결과 병합 + 기존 norm_key 충돌 제외 + 후보 내 norm_key dedupe.
-  const byKey = new Map<string, DiscoveredTheme>();
+  // 3.5) 회사명 → code 해석 (stocks 마스터). AI 는 코드를 못 내므로 이름으로 받아 해석.
+  //      해석을 먼저 해야 4)의 byKey/5)의 collapseNearDuplicates 공유코드 휴리스틱이 동작.
+  const rawCands: RawDiscoveredTheme[] = [];
   for (const s of settled) {
-    if (s.status !== "fulfilled") continue;
-    for (const cand of s.value) {
-      if (existingNormKeys.has(cand.normKey)) continue; // 중복 발굴 방지.
-      const prev = byKey.get(cand.normKey);
-      if (!prev) {
-        byKey.set(cand.normKey, cand);
-      } else {
-        // 동일 후보 — 종목코드 합집합 + 높은 confidence 유지.
-        prev.stockCodes = [
-          ...new Set([...prev.stockCodes, ...cand.stockCodes]),
-        ];
-        prev.confidence = Math.max(prev.confidence, cand.confidence);
-      }
+    if (s.status === "fulfilled") rawCands.push(...s.value);
+  }
+  const resolved = await resolveNamesToCodes(supabase, rawCands, log);
+
+  // 4) 병합 + 기존 norm_key 충돌 제외 + 후보 내 norm_key dedupe.
+  const byKey = new Map<string, DiscoveredTheme>();
+  for (const cand of resolved) {
+    if (existingNormKeys.has(cand.normKey)) continue; // 중복 발굴 방지.
+    const prev = byKey.get(cand.normKey);
+    if (!prev) {
+      byKey.set(cand.normKey, cand);
+    } else {
+      // 동일 후보 — 종목코드 합집합 + 높은 confidence 유지.
+      prev.stockCodes = [...new Set([...prev.stockCodes, ...cand.stockCodes])];
+      prev.confidence = Math.max(prev.confidence, cand.confidence);
     }
   }
 

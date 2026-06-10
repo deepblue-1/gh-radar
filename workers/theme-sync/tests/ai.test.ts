@@ -39,6 +39,7 @@ import {
 import {
   persistDiscoveries,
   persistCorrections,
+  pruneSparseAiThemes,
 } from "../src/ai/persistAi";
 import { enrichWithAi } from "../src/ai/enrich";
 import { runThemeSyncCycle } from "../src/index";
@@ -80,6 +81,20 @@ function textResponse(text: string) {
   return { content: [{ type: "text", text }] };
 }
 
+/**
+ * 테스트용 stocks 마스터 (code↔회사명). discoverThemes 의 resolveNamesToCodes 가 AI 가 낸
+ * 회사명(stockNames)을 이 마스터로 code 해석한다. 응답 JSON 은 회사명을, 단언은 해석된 code 를 쓴다.
+ */
+const STOCK_MASTER = [
+  { code: "005930", name: "삼성전자", is_delisted: false },
+  { code: "000660", name: "SK하이닉스", is_delisted: false },
+  { code: "035420", name: "NAVER", is_delisted: false },
+  { code: "009150", name: "삼성전기", is_delisted: false },
+  { code: "072990", name: "에이치엘비", is_delisted: false },
+  { code: "096770", name: "SK이노베이션", is_delisted: false },
+  { code: "011090", name: "에넥스", is_delisted: false },
+];
+
 beforeEach(() => {
   // getAnthropicClient() 는 loadConfig() 를 호출 → req() 가 필수 env 를 요구하므로
   // SDK mock 호출 경로(discoverChunk/correctChunk 의 try)가 throw 하지 않도록 env 채움.
@@ -98,7 +113,8 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
     news: Array<{ title: string; description: string | null }>;
     existing: Array<{ name: string; norm_key: string | null }>;
   }) {
-    const sb = createMockSupabase();
+    // stocks 마스터 seed → resolveNamesToCodes 의 .range() 가 회사명→code 해석에 사용.
+    const sb = createMockSupabase({ stocks: STOCK_MASTER });
     sb.from("news_articles").limit.mockResolvedValue({
       data: opts.news,
       error: null,
@@ -114,7 +130,7 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
   it("Claude JSON 응답을 신규 테마 후보로 파싱한다", async () => {
     hoist.mockCreate.mockResolvedValue(
       textResponse(
-        '{"themes":[{"name":"초전도체","stockCodes":["005930","000660"],"confidence":0.85}]}',
+        '{"themes":[{"name":"초전도체","stockNames":["삼성전자","SK하이닉스"],"confidence":0.85}]}',
       ),
     );
     const sb = newsSupabase({
@@ -127,6 +143,7 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
     expect(out).toHaveLength(1);
     expect(out[0].name).toBe("초전도체");
     expect(out[0].normKey).toBe("초전도체");
+    // 회사명(삼성전자/SK하이닉스) → 마스터 해석 → code.
     expect(out[0].stockCodes).toEqual(["005930", "000660"]);
     expect(out[0].confidence).toBeCloseTo(0.85);
   });
@@ -134,7 +151,7 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
   it("기존 시스템 테마와 norm_key 충돌하는 후보는 제외한다(중복 발굴 방지)", async () => {
     hoist.mockCreate.mockResolvedValue(
       textResponse(
-        '{"themes":[{"name":"반도체","stockCodes":["005930"],"confidence":0.9},{"name":"우주항공","stockCodes":[],"confidence":0.7}]}',
+        '{"themes":[{"name":"반도체","stockNames":["삼성전자"],"confidence":0.9},{"name":"우주항공","stockNames":[],"confidence":0.7}]}',
       ),
     );
     const sb = newsSupabase({
@@ -185,7 +202,7 @@ describe("discoverThemes (발굴 JSON 파싱 + 중복 제외)", () => {
   it("```json 펜스로 감싼 응답도 후보로 파싱한다 (POC fence 버그 회귀)", async () => {
     hoist.mockCreate.mockResolvedValue(
       textResponse(
-        '다음은 발굴 결과입니다:\n```json\n{"themes":[{"name":"온디바이스AI","stockCodes":["005930","000660"],"confidence":0.82}]}\n```',
+        '다음은 발굴 결과입니다:\n```json\n{"themes":[{"name":"온디바이스AI","stockNames":["삼성전자","SK하이닉스"],"confidence":0.82}]}\n```',
       ),
     );
     const sb = newsSupabase({
@@ -208,7 +225,7 @@ describe("discoverThemes (near-duplicate 보수적 병합)", () => {
     themesJson: string,
     existing: Array<{ name: string; norm_key: string | null }> = [],
   ) {
-    const sb = createMockSupabase();
+    const sb = createMockSupabase({ stocks: STOCK_MASTER });
     // 단일 청크에 들어가는 뉴스 1건 → Claude 1회 호출 → themesJson 응답.
     sb.from("news_articles").limit.mockResolvedValue({
       data: [{ title: "테마 뉴스", description: null }],
@@ -223,8 +240,8 @@ describe("discoverThemes (near-duplicate 보수적 병합)", () => {
     // 이름은 norm_key 가 서로 달라 완전일치 dedupe 는 안 되지만 종목 2개 공유 → 같은 테마.
     const sb = oneChunkSupabase(
       '{"themes":[' +
-        '{"name":"AI 인프라","stockCodes":["005930","000660"],"confidence":0.7},' +
-        '{"name":"AI 데이터센터 투자","stockCodes":["005930","000660","035420"],"confidence":0.9}' +
+        '{"name":"AI 인프라","stockNames":["삼성전자","SK하이닉스"],"confidence":0.7},' +
+        '{"name":"AI 데이터센터 투자","stockNames":["삼성전자","SK하이닉스","NAVER"],"confidence":0.9}' +
         "]}",
     );
     const out = await discoverThemes(sb as never, aiConfig(), log);
@@ -246,8 +263,8 @@ describe("discoverThemes (near-duplicate 보수적 병합)", () => {
     // norm_key: "ai기판" ⊂ "ai기판부품" — 포함관계 + 짧은 쪽 길이 ≥4 → 병합.
     const sb = oneChunkSupabase(
       '{"themes":[' +
-        '{"name":"AI 기판","stockCodes":["009150"],"confidence":0.6},' +
-        '{"name":"AI 기판 부품","stockCodes":["072990"],"confidence":0.8}' +
+        '{"name":"AI 기판","stockNames":["삼성전기"],"confidence":0.6},' +
+        '{"name":"AI 기판 부품","stockNames":["에이치엘비"],"confidence":0.8}' +
         "]}",
     );
     const out = await discoverThemes(sb as never, aiConfig(), log);
@@ -262,8 +279,8 @@ describe("discoverThemes (near-duplicate 보수적 병합)", () => {
     // 서로 다른 업종 + 종목 0 공유 + norm_key 포함관계 없음 → 보수적으로 KEEP BOTH.
     const sb = oneChunkSupabase(
       '{"themes":[' +
-        '{"name":"양자기술","stockCodes":["096770"],"confidence":0.7},' +
-        '{"name":"폐수소차 희토류","stockCodes":["011090"],"confidence":0.7}' +
+        '{"name":"양자기술","stockNames":["SK이노베이션"],"confidence":0.7},' +
+        '{"name":"폐수소차 희토류","stockNames":["에넥스"],"confidence":0.7}' +
         "]}",
     );
     const out = await discoverThemes(sb as never, aiConfig(), log);
@@ -277,8 +294,8 @@ describe("discoverThemes (near-duplicate 보수적 병합)", () => {
     // 종목 1개 공유는 우연 동반상장일 수 있어 병합 안 함(보수적). 포함관계도 없음.
     const sb = oneChunkSupabase(
       '{"themes":[' +
-        '{"name":"6G 네트워크","stockCodes":["005930"],"confidence":0.7},' +
-        '{"name":"파운드리 경쟁","stockCodes":["005930"],"confidence":0.7}' +
+        '{"name":"6G 네트워크","stockNames":["삼성전자"],"confidence":0.7},' +
+        '{"name":"파운드리 경쟁","stockNames":["삼성전자"],"confidence":0.7}' +
         "]}",
     );
     const out = await discoverThemes(sb as never, aiConfig(), log);
@@ -289,8 +306,8 @@ describe("discoverThemes (near-duplicate 보수적 병합)", () => {
     // norm_key "ai"(2자) 가 "ai반도체" 에 포함되나 길이<4 → 병합 금지(ai 가 모든 후보에 매칭되는 사고 방지).
     const sb = oneChunkSupabase(
       '{"themes":[' +
-        '{"name":"AI","stockCodes":["035420"],"confidence":0.6},' +
-        '{"name":"AI 반도체","stockCodes":["000660"],"confidence":0.8}' +
+        '{"name":"AI","stockNames":["NAVER"],"confidence":0.6},' +
+        '{"name":"AI 반도체","stockNames":["SK하이닉스"],"confidence":0.8}' +
         "]}",
     );
     const out = await discoverThemes(sb as never, aiConfig(), log);
@@ -362,19 +379,20 @@ describe("correctMembership (오분류 soft-제외 대상)", () => {
 // ── (3) persistDiscoveries — source='ai' + is_system=true + FK skip ───────────
 
 describe("persistDiscoveries (source='ai' 시스템 적재 + FK)", () => {
+  // 해석된 code 2개(005930,000660) + 마스터 미존재 1개(999999) → ≥2 가드 통과, FK skip 1.
   const discovered: DiscoveredTheme[] = [
     {
       name: "초전도체",
       normKey: "초전도체",
-      stockCodes: ["005930", "999999"],
+      stockCodes: ["005930", "000660", "999999"],
       confidence: 0.8,
     },
   ];
 
-  it("신규 AI 테마를 source=['ai'] + is_system=true 로 INSERT 한다", async () => {
+  it("신규 AI 테마를 source=['ai'] + is_system=true 로 INSERT 한다 (≥2 유효 + FK skip)", async () => {
     const sb = createMockSupabase();
     sb.from("stocks").in.mockResolvedValue({
-      data: [{ code: "005930" }], // 999999 미존재
+      data: [{ code: "005930" }, { code: "000660" }], // 999999 미존재
       error: null,
     });
     sb.from("themes").maybeSingle.mockResolvedValue({
@@ -399,17 +417,46 @@ describe("persistDiscoveries (source='ai' 시스템 적재 + FK)", () => {
     expect(insertArg.owner_id).toBeNull();
     expect(insertArg.sources).toEqual(["ai"]);
 
-    // theme_stocks upsert: 유효 종목(005930)만, source='ai', 999999 skip.
+    // theme_stocks upsert: 유효 종목 2개(005930,000660)만, source='ai', 999999 skip.
     const upsertArg = (
       sb._chains.theme_stocks.upsert as ReturnType<typeof vi.fn>
     ).mock.calls[0][0];
-    expect(upsertArg).toHaveLength(1);
-    expect(upsertArg[0].stock_code).toBe("005930");
+    expect(upsertArg).toHaveLength(2);
+    expect(upsertArg.map((r: { stock_code: string }) => r.stock_code)).toEqual([
+      "005930",
+      "000660",
+    ]);
     expect(upsertArg[0].source).toBe("ai");
     expect(upsertArg[0].confidence).toBeCloseTo(0.8);
     expect(res.skippedMissingStocks).toBe(1);
     expect(res.aiThemesUpserted).toBe(1);
-    expect(res.aiStockLinksUpserted).toBe(1);
+    expect(res.aiStockLinksUpserted).toBe(2);
+  });
+
+  it("해석된 유효 종목 2개 미만인 신규 AI 테마는 생성하지 않는다 (≥2 가드)", async () => {
+    const sb = createMockSupabase();
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }], // 1개만 유효
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
+
+    const res = await persistDiscoveries(
+      sb as never,
+      [
+        {
+          name: "AI 데이터센터 지역 유치",
+          normKey: "ai데이터센터지역유치",
+          stockCodes: ["005930", "999999"], // 유효 1개 → 미달.
+          confidence: 0.6,
+        },
+      ],
+      log,
+    );
+
+    expect(sb._chains.themes.insert).not.toHaveBeenCalled();
+    expect(res.aiThemesUpserted).toBe(0);
+    expect(res.aiStockLinksUpserted).toBe(0);
   });
 
   it("기존 시스템 테마(norm_key 충돌)는 sources 에 'ai' 병합한다", async () => {
@@ -456,6 +503,51 @@ describe("persistDiscoveries (source='ai' 시스템 적재 + FK)", () => {
   });
 });
 
+// ── (3b) pruneSparseAiThemes — ai 단독 <2종목 정리 (원 소스 보존) ──────────────
+
+describe("pruneSparseAiThemes (ai 단독 <2종목 삭제)", () => {
+  it("ai 단독 <2종목만 삭제하고 naver/alpha 섞인 테마는 보존한다", async () => {
+    const sb = createMockSupabase();
+    // 1) 시스템 테마: ai 단독 2개(sparse 1종목 / full 3종목) + naver+ai 혼합 1개.
+    sb.from("themes").limit.mockResolvedValue({
+      data: [
+        { id: "ai-sparse", sources: ["ai"] },
+        { id: "ai-full", sources: ["ai"] },
+        { id: "mixed", sources: ["naver", "ai"] },
+      ],
+      error: null,
+    });
+    // 2) active 종목: ai-sparse 1개, ai-full 3개.
+    sb.from("theme_stocks").limit.mockResolvedValue({
+      data: [
+        { theme_id: "ai-sparse", effective_to: null },
+        { theme_id: "ai-full", effective_to: null },
+        { theme_id: "ai-full", effective_to: null },
+        { theme_id: "ai-full", effective_to: null },
+      ],
+      error: null,
+    });
+
+    const pruned = await pruneSparseAiThemes(sb as never, log);
+
+    expect(pruned).toBe(1);
+    // 삭제 대상은 ai-sparse 뿐(<2). ai-full(≥2)·mixed(ai 단독 아님)는 보존.
+    expect(sb._chains.themes.delete).toHaveBeenCalled();
+    expect(sb._chains.themes.in).toHaveBeenCalledWith("id", ["ai-sparse"]);
+  });
+
+  it("삭제 대상(ai 단독 <2)이 없으면 delete 미호출", async () => {
+    const sb = createMockSupabase();
+    sb.from("themes").limit.mockResolvedValue({
+      data: [{ id: "naver-1", sources: ["naver"] }], // ai 단독 아님.
+      error: null,
+    });
+    const pruned = await pruneSparseAiThemes(sb as never, log);
+    expect(pruned).toBe(0);
+    expect(sb._chains.themes.delete).not.toHaveBeenCalled();
+  });
+});
+
 // ── (4) persistCorrections — effective_to soft-제외만 (원본 보존) ─────────────
 
 describe("persistCorrections (effective_to soft-제외, DELETE 금지)", () => {
@@ -497,7 +589,8 @@ describe("persistCorrections (effective_to soft-제외, DELETE 금지)", () => {
 describe("enrichWithAi (cycle AI 단계 통합)", () => {
   /** 발굴(news/themes) + 교정(theme_stocks review) + persist(stocks/themes/theme_stocks) mock. */
   function enrichSupabase() {
-    const sb = createMockSupabase();
+    // stocks 마스터 seed → discoverThemes resolveNamesToCodes(.range) 가 회사명→code 해석.
+    const sb = createMockSupabase({ stocks: STOCK_MASTER });
     // discoverThemes: 최근 뉴스 1건.
     sb.from("news_articles").limit.mockResolvedValue({
       data: [{ title: "초전도체 관련주 급등", description: "LK-99" }],
@@ -529,15 +622,15 @@ describe("enrichWithAi (cycle AI 단계 통합)", () => {
     hoist.mockCreate
       .mockResolvedValueOnce(
         textResponse(
-          '{"themes":[{"name":"초전도체","stockCodes":["005930"],"confidence":0.8}]}',
+          '{"themes":[{"name":"초전도체","stockNames":["삼성전자","SK하이닉스"],"confidence":0.8}]}',
         ),
       )
       .mockResolvedValueOnce(textResponse('{"unrelated":["t1::068270"]}'));
 
     const sb = enrichSupabase();
-    // persistDiscoveries: stocks 존재 + 신규 테마 insert.
+    // persistDiscoveries: 해석된 code 2개 존재(≥2 가드 통과) + 신규 테마 insert.
     sb.from("stocks").in.mockResolvedValue({
-      data: [{ code: "005930" }],
+      data: [{ code: "005930" }, { code: "000660" }],
       error: null,
     });
     sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
@@ -579,11 +672,13 @@ describe("enrichWithAi (cycle AI 단계 통합)", () => {
       aiCorrected: 0,
       aiThemesUpserted: 0,
       aiStockLinksUpserted: 0,
+      aiPruned: 0,
     });
     expect(hoist.mockCreate).not.toHaveBeenCalled();
-    // 어떤 테이블도 접근하지 않음.
+    // 어떤 테이블도 접근하지 않음(prune 도 미실행).
     expect(sb._chains.news_articles).toBeUndefined();
     expect(sb._chains.theme_stocks).toBeUndefined();
+    expect(sb._chains.themes).toBeUndefined();
   });
 });
 

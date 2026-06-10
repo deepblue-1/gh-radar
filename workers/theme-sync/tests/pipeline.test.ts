@@ -323,6 +323,33 @@ describe("runThemeSyncCycle (cycle 결선 smoke — 5원칙 가드)", () => {
     expect(sb._chains.themes.insert).not.toHaveBeenCalled();
   });
 
+  it("콘텐츠 해시가 동일해도 AI 발굴 단계는 실행한다 (decouple — 뉴스는 매일 변화)", async () => {
+    const sb = cycleSupabase();
+    // shouldSkipWrite=true(해시 동일) → upsert 는 skip 되어야 한다.
+    const expectedHash = computeContentHash(
+      mergeThemes([naverScrape, alphaScrape]),
+    );
+    setApiUsageResponder(sb, {
+      theme_content_hash: [{ count: hashToInt(expectedHash) }],
+    });
+
+    const summary = await runThemeSyncCycle({
+      // classifyEnabled=true 면 enrichWithAi(발굴) 가 해시 게이트와 무관하게 실행돼야 한다.
+      config: cycleConfig({ classifyEnabled: true, anthropicApiKey: "k" }),
+      supabase: sb as never,
+      proxy: { post: vi.fn() } as unknown as AxiosInstance,
+      fetchers: {
+        naver: vi.fn().mockResolvedValue([naverScrape]),
+        alpha: vi.fn().mockResolvedValue([alphaScrape]),
+      },
+    });
+
+    // upsert 는 skip(해시 동일) 이지만 발굴(discoverThemes)은 실행 — news_articles 접근이 그 증거.
+    expect(summary.skippedWrite).toBe(true);
+    expect(sb._chains.themes.insert).not.toHaveBeenCalled();
+    expect(sb._chains.news_articles.limit).toHaveBeenCalled();
+  });
+
   it("source 가 24h backoff 중이면 fetch 를 skip 한다 (5원칙 #4)", async () => {
     const sb = cycleSupabase();
     const now = new Date("2026-06-09T07:00:00Z");

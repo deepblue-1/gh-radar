@@ -106,3 +106,17 @@
 **Preventive check:**
 - `error.tsx`("문제가 발생했어요")는 fetch 실패가 아니라 **렌더 중 throw** 신호 (fetch 실패는 보통 컴포넌트 자체 try/catch → 에러 카드). 데이터 **모양 불일치**(undefined 필드의 `.map`/`.filter`)를 먼저 의심.
 - 새/변경 API 는 배포 후 prod `curl` 로 **응답 형태**(배열 vs 객체 + 필수 필드 존재)를 직접 확인. 프론트가 `apiFetch<T>` 로 단언하는 모든 엔드포인트는 서버 `res.json` 인자 타입이 `T` 와 일치하는지 점검.
+
+## `.in()` 입력 청크 ≠ 결과-행 보호 — db-max-rows(1000) 페이지네이션 별도 필요 (Phase 10, 2026-06-10)
+
+**Context:** `/api/themes` 목록의 테마 66%(235/356)가 stockCount=0 으로 표시. 데이터는 정상(워커가 7544 active 링크 적재, "2차전지" 실제 144종목, 상세 라우트는 정상). 원인은 목록 라우트 `fetchActiveThemeStocksChunked` 가 theme_id 를 200 씩 `.in()` 청크하지만, **한 청크가 매칭하는 theme_stocks 결과 행이 PostgREST db-max-rows(기본 1000)에서 통째로 잘려** 1000행 너머 테마가 사라진 것. **스모킹건: 목록 stockCount 합계가 정확히 2000(=2 청크 × 1000).** 상세(`/:id`)는 단일 테마(≤144행)라 한계 미도달 → "0종목인데 누르면 종목이 나오는" 비대칭.
+
+**Mistake:** 커밋 37afcde 가 `.in()` 을 청크한 건 **URL 길이(414)** 대비였는데, 그게 **결과-행 한계(db-max-rows)** 까지 막아준다고 착각. 둘은 다른 축이다 — 입력 code/id 를 N 개로 나눠도, 한 청크가 반환하는 **행 수**가 1000 을 넘으면 응답이 잘린다. 게다가 테스트 mock(`supabase-mock`)이 db-max-rows 를 미시뮬레이션(모든 행 반환)이라 회귀가 또 prod 까지 샘([[프론트↔서버 계약 드리프트]] 와 동일한 "mock 이 실서버 제약을 안 닮음" 메타-실수).
+
+**Rule:**
+- `supabase.from(t).in(...)` / `.eq(...)` 가 **여러 부모에 걸쳐 수백~수천 행을 반환**할 수 있으면, 입력 청크와 **별개로** 결과 행을 `.range(from, from+PAGE-1)` 로 끝까지 페이지네이션한다(안정 정렬 PK + advance-by-actual-rows + break-on-empty → db-max-rows 값과 무관하게 정확). 단건/소수 부모(`.eq(id)`) 조회는 행 수가 작아 불필요.
+- 한계 가늠법: **응답 행 합계가 딱 떨어지는 1000 배수**면 db-max-rows 절단을 의심.
+
+**Preventive check:**
+- DB mock 은 실서버 제약(여기선 db-max-rows 1000)을 **시뮬레이션**해야 회귀를 잡는다. `supabase-mock` 에 `.range()` + 1000행 캡 추가 완료 → active>1000 회귀 테스트가 페이지네이션 누락 시 fail.
+- 가변 규모 `.in()`/`.eq()` 조회를 추가/수정할 때: (1) 입력 URL 청크 했는가(414), (2) 결과 행 페이지네이션 했는가(db-max-rows) — **둘 다** 점검.
