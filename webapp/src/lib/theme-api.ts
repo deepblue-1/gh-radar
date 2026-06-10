@@ -99,41 +99,30 @@ interface RawMyThemeRow {
   theme_stocks: { count: number }[] | { count: number } | null;
 }
 
-/** PostgREST `theme_stocks(count)` 응답에서 stockCount 추출 (1:1 object / 1:N array 방어). */
-function extractStockCount(
-  raw: RawMyThemeRow['theme_stocks'],
-): number {
-  if (raw == null) return 0;
-  const entry = Array.isArray(raw) ? raw[0] : raw;
-  return entry?.count ?? 0;
-}
-
-function mapMyThemeRow(row: RawMyThemeRow): ThemeWithStats {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    isSystem: row.is_system,
-    ownerId: row.owner_id,
-    sources: (row.sources ?? []) as ThemeWithStats['sources'],
-    top3AvgChangeRate:
-      row.top3_avg_change_rate == null ? null : Number(row.top3_avg_change_rate),
-    statsUpdatedAt: row.stats_updated_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    stockCount: extractStockCount(row.theme_stocks),
-  };
+/**
+ * active 멤버의 등락률 상위 3 평균 — 시스템 테마 랭킹과 동일 지표(상세 헤더/랭킹 행 표시).
+ * 종목 없으면 null. 시세 부재 종목(changeRate=0 폴백)은 finite 라 포함(상세 표시와 일관).
+ */
+function computeTop3Avg(members: ThemeStockMember[]): number | null {
+  const rates = members
+    .map((m) => m.changeRate)
+    .filter((r) => Number.isFinite(r))
+    .sort((a, b) => b - a)
+    .slice(0, 3);
+  if (rates.length === 0) return null;
+  return rates.reduce((sum, r) => sum + r, 0) / rates.length;
 }
 
 /**
- * 로그인 사용자의 유저 테마 목록 (최신순). RLS read_own_themes 가 owner 자동 필터 —
- * 클라이언트에서 user_id 전달 불필요(T-10-05-01). is_system=false 명시로 시스템 테마 제외
- * (단일 테이블이라 RLS 만으로 시스템이 섞이진 않지만, 의도 명시 + 인덱스 활용).
+ * 로그인 사용자의 유저 테마 목록 — 시스템 랭킹과 동일하게 상위3평균 desc 정렬.
  *
- * 활성 종목 수는 `theme_stocks!inner(count)` 가 아닌 `theme_stocks(count)` 로 임베드 —
- * 종목 0개 테마도 stockCount=0 으로 포함(left join). effective_to 필터는 임베드 count 에
- * 적용 불가(PostgREST 제약)라, 유저 테마는 본인이 직접 add/remove 하므로 effective_to 가
- * 항상 NULL(제외 이력 없음 — D-05 단순화) → 전체 count 가 곧 active count.
+ * RLS read_own_themes 가 owner 자동 필터(T-10-05-01) — user_id 전달 불필요. is_system=false
+ * 명시로 시스템 테마 제외. fetchMyThemeDetail 과 동일한 nested embed(theme_stocks → stocks →
+ * stock_quotes)로 멤버 시세를 끌어와 클라이언트에서 top3평균 계산 → ThemeRankRow 가 시스템
+ * 테마와 동일한 행으로 렌더(Express 가 시스템 테마를 서버에서 계산하는 것을 클라에서 미러).
+ * 내 테마는 ≤50개 × ≤50종목이라 단일 쿼리 + 클라 계산 부담이 작다.
+ *
+ * active 멤버(effective_to IS NULL) 만 집계 — embed 에 필터 못 거니 클라이언트 필터.
  */
 export async function fetchMyThemes(
   supabase: SupabaseClient,
@@ -152,16 +141,59 @@ export async function fetchMyThemes(
       stats_updated_at,
       created_at,
       updated_at,
-      theme_stocks (count)
+      theme_stocks (
+        stock_code,
+        source,
+        effective_to,
+        stocks!inner (
+          code,
+          name,
+          market,
+          stock_quotes (
+            price,
+            change_rate,
+            trade_amount
+          )
+        )
+      )
       `,
     )
-    .eq('is_system', false)
-    .order('updated_at', { ascending: false });
+    .eq('is_system', false);
 
   if (error) throw toThrowable(error);
   if (!data) return [];
 
-  return (data as unknown as RawMyThemeRow[]).map(mapMyThemeRow);
+  const themes = (data as unknown as RawMyThemeDetailRow[]).map((row) => {
+    const members: ThemeStockMember[] = (row.theme_stocks ?? [])
+      .filter((ts) => ts.effective_to == null)
+      .map(mapThemeStockToMember)
+      .filter((m): m is ThemeStockMember => m !== null);
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      isSystem: row.is_system,
+      ownerId: row.owner_id,
+      sources: (row.sources ?? []) as ThemeWithStats['sources'],
+      top3AvgChangeRate: computeTop3Avg(members),
+      statsUpdatedAt: row.stats_updated_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      stockCount: members.length,
+    } satisfies ThemeWithStats;
+  });
+
+  // 상위3평균 desc (null 맨 뒤) — 시스템 랭킹과 동일 방향. 동률/미계산은 최신순 보조 정렬.
+  themes.sort((a, b) => {
+    const av = a.top3AvgChangeRate;
+    const bv = b.top3AvgChangeRate;
+    if (av == null && bv == null) return b.updatedAt.localeCompare(a.updatedAt);
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return bv - av;
+  });
+
+  return themes;
 }
 
 /**
@@ -443,4 +475,90 @@ export async function forkSystemTheme(
   }
 
   return newThemeId;
+}
+
+// =============================================================================
+// 시스템 테마 admin 편집 — Supabase 직접 (RLS is_theme_admin 게이트, 마이그레이션 20260610130000)
+// =============================================================================
+//
+// 시스템 테마는 전역 공유 데이터라 운영자(admin 허용목록)만 편집. Express 에는 auth 가 없어
+// 경유 불가 — 유저 테마 쓰기와 동일하게 Supabase 직접 + RLS 가 게이트한다. 매일 worker 재동기화는
+// theme_stocks.manual_override(included/excluded)/themes.hidden 을 코드로 존중(worker Edit A/B/C).
+
+/** 현재 로그인 사용자가 테마 운영자(admin 허용목록)인지. SECURITY DEFINER RPC is_theme_admin(). */
+export async function currentUserIsThemeAdmin(
+  supabase: SupabaseClient,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_theme_admin');
+  if (error) throw toThrowable(error);
+  return data === true;
+}
+
+/**
+ * 시스템 테마에 종목 추가(운영자). manual_override='included' 핀 → worker 가 retire 안 함.
+ * 이전에 excluded 였던 종목 재추가도 upsert 로 active+included 복원(PK 충돌 처리).
+ */
+export async function addSystemThemeStock(
+  supabase: SupabaseClient,
+  themeId: string,
+  stockCode: string,
+): Promise<void> {
+  const { error } = await supabase.from('theme_stocks').upsert(
+    {
+      theme_id: themeId,
+      stock_code: stockCode,
+      source: 'user',
+      manual_override: 'included',
+      effective_from: new Date().toISOString(),
+      effective_to: null,
+    },
+    { onConflict: 'theme_id,stock_code' },
+  );
+  if (error) throw toThrowable(error);
+}
+
+/**
+ * 시스템 테마에서 종목 제외(운영자). manual_override='excluded' + effective_to=now →
+ * worker 가 네이버 재스크랩으로도 되살리지 않음. row 는 보존(오버라이드 마커 유지).
+ */
+export async function excludeSystemThemeStock(
+  supabase: SupabaseClient,
+  themeId: string,
+  stockCode: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('theme_stocks')
+    .update({
+      manual_override: 'excluded',
+      effective_to: new Date().toISOString(),
+    })
+    .eq('theme_id', themeId)
+    .eq('stock_code', stockCode);
+  if (error) throw toThrowable(error);
+}
+
+/** 시스템 테마 이름 수정(운영자). RLS admin_update_system_themes (is_system/owner 위조 차단). */
+export async function updateSystemTheme(
+  supabase: SupabaseClient,
+  themeId: string,
+  patch: { name?: string; description?: string | null },
+): Promise<void> {
+  const { error } = await supabase.from('themes').update(patch).eq('id', themeId);
+  if (error) throw toThrowable(error);
+}
+
+/**
+ * 시스템 테마 삭제(운영자) = soft-delete(hidden=true). hard DELETE 가 아닌 이유:
+ * norm_key tombstone 을 유지해 worker 의 norm_key 재생성(INSERT)을 막는다(요구사항 3).
+ * 공개 read(Express + RLS)는 hidden 을 제외.
+ */
+export async function hideSystemTheme(
+  supabase: SupabaseClient,
+  themeId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('themes')
+    .update({ hidden: true })
+    .eq('id', themeId);
+  if (error) throw toThrowable(error);
 }

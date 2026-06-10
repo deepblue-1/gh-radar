@@ -64,6 +64,7 @@ export function AppShell({
             className="w-[min(280px,85vw)] bg-[var(--muted)] p-3"
           >
             <div
+              className="h-full"
               onClick={(e) => {
                 // 내부 nav 링크/버튼 클릭 시 Drawer 자동 닫힘.
                 let node: HTMLElement | null = e.target as HTMLElement;

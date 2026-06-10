@@ -99,6 +99,22 @@ export function createMockSupabase(
         .fn()
         .mockResolvedValue({ data: rows[0] ?? null, error: null }),
     };
+    // thenable(awaitable builder) — Supabase v2 는 종결 메소드 없이 `await select().eq().eq()`
+    // 도 지원한다. loadExcludedOverrideCodes 처럼 `.eq` 로 종결하는 쿼리를 위해 최소 thenable 을
+    // 제공. 기본은 {data: rows, error:null}, 테스트가 chain.__awaitResult 로 주입 가능.
+    // 명시 종결 메소드(single/maybeSingle/upsert/.is·.in mockResolvedValue 등)는 자신의
+    // Promise 를 반환하므로 then 보다 우선한다(await 가 그 Promise 를 받음).
+    (chain as unknown as { __awaitResult: unknown }).__awaitResult = {
+      data: rows,
+      error: null,
+    };
+    (chain as unknown as { then: unknown }).then = (
+      onF: (v: unknown) => unknown,
+      onR?: (e: unknown) => unknown,
+    ) =>
+      Promise.resolve(
+        (chain as unknown as { __awaitResult: unknown }).__awaitResult,
+      ).then(onF, onR);
     return chain;
   };
 

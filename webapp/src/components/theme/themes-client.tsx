@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { useThemesQuery } from '@/hooks/use-themes-query';
 import { cn } from '@/lib/utils';
-import type { ThemeWithStats } from '@gh-radar/shared';
 
 import { ThemeEditDialog, type ThemeEditMode } from './theme-edit-dialog';
 import { ThemeRankRow } from './theme-rank-row';
@@ -30,41 +29,6 @@ const ERROR_MSG = '테마를 불러오지 못했습니다. 새로고침해주세
 const SOURCE_FOOTER =
   '출처: 네이버 금융 테마 · 알파스퀘어 · AI 보강(Claude) · 일 1회 16:00 KST 갱신';
 const SORT_LABEL = '상위 3종목 평균 등락률';
-
-function fmtPct(v: number | null): string {
-  if (v == null) return '—';
-  return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
-}
-
-function changeColor(v: number | null): string {
-  if (v == null || v === 0) return 'text-[var(--flat)]';
-  return v > 0 ? 'text-[var(--up)]' : 'text-[var(--down)]';
-}
-
-/** 내 테마 칩 (가로 스크롤, border primary tint). 클릭 → /themes/[id]. */
-function MyThemeChip({ theme }: { theme: ThemeWithStats }) {
-  return (
-    <Link
-      href={`/themes/${theme.id}`}
-      className="flex min-w-[180px] flex-none flex-col gap-1 rounded-[var(--r)] border border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[var(--primary)]"
-    >
-      <span className="truncate text-[length:var(--t-sm)] font-bold text-[var(--fg)]">
-        {theme.name}
-      </span>
-      <span
-        className={cn(
-          'mono text-[length:var(--t-h4)] font-extrabold',
-          changeColor(theme.top3AvgChangeRate),
-        )}
-      >
-        {fmtPct(theme.top3AvgChangeRate)}
-      </span>
-      <span className="mono text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-        {theme.stockCount}종목
-      </span>
-    </Link>
-  );
-}
 
 export function ThemesClient() {
   const {
@@ -92,6 +56,19 @@ export function ThemesClient() {
         0,
       ),
     [systemThemes],
+  );
+
+  // 내 테마 랭킹 행의 막대 길이 기준 — 내 테마 집합 내 최대 |상위3평균|.
+  const myMaxAvg = useMemo(
+    () =>
+      myThemes.reduce(
+        (m, t) =>
+          t.top3AvgChangeRate != null
+            ? Math.max(m, Math.abs(t.top3AvgChangeRate))
+            : m,
+        0,
+      ),
+    [myThemes],
   );
 
   const openCreate = () => {
@@ -150,18 +127,14 @@ export function ThemesClient() {
         ) : myThemes.length === 0 ? (
           <ThemesEmpty onCreate={openCreate} />
         ) : (
-          <div className="flex gap-[var(--s-2)] overflow-x-auto pb-1.5">
-            {myThemes.map((t) => (
-              <MyThemeChip key={t.id} theme={t} />
+          // 내 테마도 시스템 테마와 동일한 랭킹 행(ThemeRankRow)으로 — 상위3평균 desc 정렬.
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {myThemes.map((t, i) => (
+              <li key={t.id}>
+                <ThemeRankRow theme={t} rank={i + 1} maxAvg={myMaxAvg} />
+              </li>
             ))}
-            <button
-              type="button"
-              onClick={openCreate}
-              className="flex min-w-[160px] flex-none items-center justify-center rounded-[var(--r)] border border-dashed border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] text-[length:var(--t-sm)] text-[var(--muted-fg)] hover:text-[var(--fg)]"
-            >
-              ＋ 새 테마
-            </button>
-          </div>
+          </ul>
         )}
       </div>
 

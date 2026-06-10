@@ -168,10 +168,12 @@ themesRouter.get("/", async (req, res, next) => {
     const supabase = req.app.locals.supabase as SupabaseClient;
 
     // 1. 시스템 테마 (RLS: read_system_themes / service_role bypass)
+    //    hidden=false 만 — service_role 은 RLS 우회라 코드로 tombstone(운영자 삭제) 필터 필수.
     const { data: themes, error: tErr } = await supabase
       .from("themes")
       .select(THEME_COLS)
-      .eq("is_system", true);
+      .eq("is_system", true)
+      .eq("hidden", false);
     if (tErr) throw tErr;
     const themeRows = (themes ?? []) as unknown as ThemeRow[];
 
@@ -255,6 +257,7 @@ themesRouter.get("/:id", async (req, res, next) => {
       .select(THEME_COLS)
       .eq("id", id)
       .eq("is_system", true)
+      .eq("hidden", false) // tombstone(운영자 삭제) 은 404 (service_role RLS 우회 → 코드 필터)
       .maybeSingle();
     if (tErr) throw tErr;
     if (!theme) throw new ApiError(404, "THEME_NOT_FOUND", `Theme ${id} not found`);

@@ -29,6 +29,12 @@ export type ThemeRow = {
   stats_updated_at: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * soft-delete 플래그 (마이그레이션 20260610130000). 라우트는 .eq("hidden", false) 로
+   * tombstone(운영자 삭제 시스템 테마)을 제외 — service_role 은 RLS 우회라 코드 필터 필수.
+   * THEME_COLS 에는 미포함(필터 전용)이라 응답 매핑에는 쓰이지 않음 → optional.
+   */
+  hidden?: boolean;
 };
 
 /** theme_stocks 테이블 row (snake_case). */

@@ -205,6 +205,99 @@ describe("upsertThemes (FK skip + 청크 + 이력 + MIN_EXPECTED — Pitfall 5/1
   });
 });
 
+describe("upsertThemes 수동 오버라이드 — 운영자 편집 vs 재동기화 (Edit A/B/C, 요구사항 3)", () => {
+  it("Edit A — hidden(운영자 삭제) 시스템 테마는 sync 를 완전히 스킵한다 (update/upsert/retire 없음)", async () => {
+    const sb = createMockSupabase();
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }],
+      error: null,
+    });
+    // norm_key 조회 → 기존 테마가 hidden=true (tombstone)
+    sb.from("themes").maybeSingle.mockResolvedValue({
+      data: { id: "theme-hidden", hidden: true },
+      error: null,
+    });
+
+    const res = await upsertThemes(sb as never, [
+      theme("반도체", "반도체", ["005930"]),
+    ]);
+
+    // hidden 테마는 continue — 카운트 0, 어떤 쓰기도 없음(재생성/멤버 복원 차단).
+    expect(res.themesUpserted).toBe(0);
+    expect(sb._chains.themes.insert).not.toHaveBeenCalled();
+    expect(sb._chains.themes.update).not.toHaveBeenCalled();
+    // theme_stocks 테이블은 from() 조차 호출되지 않음(멤버 upsert/retire 전면 스킵).
+    expect(sb._chains.theme_stocks).toBeUndefined();
+  });
+
+  it("Edit B — 운영자가 제외(manual_override='excluded')한 종목은 재스크랩돼도 재편입하지 않는다", async () => {
+    const sb = createMockSupabase();
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }, { code: "000660" }],
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({
+      data: { id: "theme-1", hidden: false },
+      error: null,
+    });
+    // loadExcludedOverrideCodes(`.eq().eq()` 종결) → 000660 이 excluded. thenable 로 주입.
+    sb.from("theme_stocks").__awaitResult = {
+      data: [{ stock_code: "000660" }],
+      error: null,
+    };
+    // retire select(active 없음) — .is 종결.
+    sb.from("theme_stocks").is.mockResolvedValue({ data: [], error: null });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+
+    // 스크랩은 두 종목 다 포함하지만 000660 은 excluded.
+    await upsertThemes(sb as never, [
+      theme("반도체", "반도체", ["005930", "000660"]),
+    ]);
+
+    const upsertArg = (
+      sb._chains.theme_stocks.upsert as ReturnType<typeof vi.fn>
+    ).mock.calls[0][0];
+    // 005930 만 편입, 000660(excluded) 은 재편입 제외.
+    expect(upsertArg).toHaveLength(1);
+    expect(upsertArg[0].stock_code).toBe("005930");
+  });
+
+  it("Edit C — 운영자가 추가(manual_override='included')한 종목은 스크랩에 없어도 retire 하지 않는다", async () => {
+    const sb = createMockSupabase();
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }],
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({
+      data: { id: "theme-1", hidden: false },
+      error: null,
+    });
+    // loadExcludedOverrideCodes → 없음.
+    sb.from("theme_stocks").__awaitResult = { data: [], error: null };
+    // active 종목: 000660(운영자 included, 스크랩 없음) + 999111(auto, 스크랩 없음 → retire 대상)
+    sb.from("theme_stocks").is.mockResolvedValue({
+      data: [
+        { stock_code: "000660", manual_override: "included" },
+        { stock_code: "999111", manual_override: null },
+      ],
+      error: null,
+    });
+    sb.from("theme_stocks").in.mockResolvedValue({ data: null, error: null });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+
+    const res = await upsertThemes(sb as never, [
+      theme("반도체", "반도체", ["005930"]), // 000660/999111 둘 다 스크랩에 없음
+    ]);
+
+    // included(000660)는 보존, auto(999111)만 retire → 1건.
+    expect(res.stockLinksRetired).toBe(1);
+    const retireInArg = (
+      sb._chains.theme_stocks.in as ReturnType<typeof vi.fn>
+    ).mock.calls.find((c) => c[0] === "stock_code");
+    expect(retireInArg?.[1]).toEqual(["999111"]);
+  });
+});
+
 describe("runThemeSyncCycle (cycle 결선 smoke — 5원칙 가드)", () => {
   const naverScrape: ThemeScrape = {
     name: "반도체",

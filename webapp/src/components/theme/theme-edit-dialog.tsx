@@ -27,12 +27,16 @@ import { useAuth } from '@/lib/auth-context';
 import { useDebouncedSearch } from '@/hooks/use-debounced-search';
 import { createClient } from '@/lib/supabase/client';
 import {
+  addSystemThemeStock,
   addThemeStock,
   createUserTheme,
   deleteUserTheme,
+  excludeSystemThemeStock,
   forkSystemTheme,
+  hideSystemTheme,
   isThemeStockLimitError,
   removeThemeStock,
+  updateSystemTheme,
   updateUserTheme,
 } from '@/lib/theme-api';
 import type { Market, ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
@@ -111,6 +115,10 @@ export function ThemeEditDialog({
   onDeleted,
 }: ThemeEditDialogProps) {
   const { user } = useAuth();
+
+  // 시스템 테마 편집 모드 — add/remove/save/delete 핸들러가 시스템 전용 lib(manual_override/
+  // hidden, RLS admin 게이트)로 분기. user 테마 경로(기존)와 구분. fork/create 는 항상 false.
+  const isSystemEdit = mode.kind === 'edit' && mode.theme.isSystem;
 
   // 편집 중인 유저 테마 id — create 는 첫 저장 후 채워짐, edit/fork 는 즉시.
   const [themeId, setThemeId] = useState<string | null>(null);
@@ -251,7 +259,11 @@ export function ThemeEditDialog({
         const id = await ensureThemeId();
         if (!id) return;
         const supabase = createClient();
-        await addThemeStock(supabase, id, chip.code);
+        if (isSystemEdit) {
+          await addSystemThemeStock(supabase, id, chip.code);
+        } else {
+          await addThemeStock(supabase, id, chip.code);
+        }
         const nextStocks = [...stocks, chip];
         setStocks(nextStocks);
         setQuery('');
@@ -262,7 +274,7 @@ export function ThemeEditDialog({
         setBusy(false);
       }
     },
-    [user, stocks, ensureThemeId, onSaved, buildOptimisticTheme],
+    [user, stocks, ensureThemeId, onSaved, buildOptimisticTheme, isSystemEdit],
   );
 
   const handleRemoveStock = useCallback(
@@ -276,7 +288,11 @@ export function ThemeEditDialog({
       setError(null);
       try {
         const supabase = createClient();
-        await removeThemeStock(supabase, themeId, code);
+        if (isSystemEdit) {
+          await excludeSystemThemeStock(supabase, themeId, code);
+        } else {
+          await removeThemeStock(supabase, themeId, code);
+        }
         const nextStocks = stocks.filter((s) => s.code !== code);
         setStocks(nextStocks);
         onSaved(buildOptimisticTheme(themeId, nextStocks));
@@ -286,7 +302,7 @@ export function ThemeEditDialog({
         setBusy(false);
       }
     },
-    [themeId, user, stocks, onSaved, buildOptimisticTheme],
+    [themeId, user, stocks, onSaved, buildOptimisticTheme, isSystemEdit],
   );
 
   const handleSave = useCallback(async () => {
@@ -296,7 +312,12 @@ export function ThemeEditDialog({
     try {
       const supabase = createClient();
       if (themeId) {
-        await updateUserTheme(supabase, themeId, { name: name.trim() || '새 테마' });
+        const patch = { name: name.trim() || '새 테마' };
+        if (isSystemEdit) {
+          await updateSystemTheme(supabase, themeId, patch);
+        } else {
+          await updateUserTheme(supabase, themeId, patch);
+        }
         onSaved(buildOptimisticTheme(themeId, stocks));
       } else {
         // ensureThemeId 가 생성 직후 onSaved(스냅샷) 를 이미 발행 — 중복 호출 안 함.
@@ -317,6 +338,7 @@ export function ThemeEditDialog({
     onSaved,
     onOpenChange,
     buildOptimisticTheme,
+    isSystemEdit,
   ]);
 
   const handleDelete = useCallback(async () => {
@@ -325,7 +347,12 @@ export function ThemeEditDialog({
     setError(null);
     try {
       const supabase = createClient();
-      await deleteUserTheme(supabase, themeId);
+      if (isSystemEdit) {
+        // 시스템 테마 "삭제" = soft-delete(hidden). norm_key tombstone 유지로 worker 재생성 차단.
+        await hideSystemTheme(supabase, themeId);
+      } else {
+        await deleteUserTheme(supabase, themeId);
+      }
       onOpenChange(false);
       // 삭제는 onSaved(upsert) 대신 onDeleted(id) 로 — 부모가 목록에서 즉시 제거/라우팅.
       onDeleted?.(themeId);
@@ -334,11 +361,13 @@ export function ThemeEditDialog({
     } finally {
       setBusy(false);
     }
-  }, [themeId, user, onOpenChange, onDeleted]);
+  }, [themeId, user, onOpenChange, onDeleted, isSystemEdit]);
 
   const titleText =
     mode.kind === 'edit'
-      ? '테마 편집'
+      ? isSystemEdit
+        ? '시스템 테마 편집'
+        : '테마 편집'
       : mode.kind === 'fork'
         ? '시스템 테마 복사'
         : '새 테마 만들기';
@@ -489,7 +518,9 @@ export function ThemeEditDialog({
             {confirmDelete ? (
               <div className="flex flex-col gap-2 rounded-[var(--r)] border border-[color-mix(in_oklch,var(--destructive)_40%,var(--border))] bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] p-3">
                 <p className="text-[length:var(--t-sm)] text-[var(--destructive)]">
-                  테마 삭제: &apos;{name}&apos; 테마를 삭제할까요? 되돌릴 수 없습니다.
+                  {isSystemEdit
+                    ? `'${name}' 시스템 테마를 목록에서 숨길까요? worker 재동기화로 되살아나지 않습니다.`
+                    : `테마 삭제: '${name}' 테마를 삭제할까요? 되돌릴 수 없습니다.`}
                 </p>
                 <div className="flex justify-end gap-2">
                   <Button

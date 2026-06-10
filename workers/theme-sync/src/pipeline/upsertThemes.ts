@@ -51,22 +51,47 @@ async function filterExistingStocks(
   return exists;
 }
 
-/** norm_key 로 기존 시스템 테마 id 조회 (없으면 null). */
-async function findSystemThemeId(
+/** norm_key 로 기존 시스템 테마 조회 (id + hidden; 없으면 null). */
+async function findSystemTheme(
   supabase: SupabaseClient,
   normKey: string,
-): Promise<string | null> {
+): Promise<{ id: string; hidden: boolean } | null> {
   const { data, error } = await supabase
     .from("themes")
-    .select("id")
+    .select("id, hidden")
     .eq("norm_key", normKey)
     .eq("is_system", true)
     .maybeSingle();
   if (error) {
-    logger.error({ err: error.message, normKey }, "findSystemThemeId failed");
+    logger.error({ err: error.message, normKey }, "findSystemTheme failed");
     throw error;
   }
-  return (data as { id?: string } | null)?.id ?? null;
+  return (data as { id: string; hidden: boolean } | null) ?? null;
+}
+
+/**
+ * 테마의 manual_override='excluded' 종목 코드 집합 (Edit B — 재편입 차단용).
+ * 운영자가 제외한 종목은 네이버가 다시 스크랩해도 effective_to=null 로 되살리면 안 된다.
+ */
+async function loadExcludedOverrideCodes(
+  supabase: SupabaseClient,
+  themeId: string,
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("theme_stocks")
+    .select("stock_code")
+    .eq("theme_id", themeId)
+    .eq("manual_override", "excluded");
+  if (error) {
+    logger.error(
+      { err: error.message, themeId },
+      "loadExcludedOverrideCodes failed",
+    );
+    throw error;
+  }
+  return new Set(
+    (data ?? []).map((r) => (r as { stock_code: string }).stock_code),
+  );
 }
 
 export async function upsertThemes(
@@ -112,7 +137,20 @@ export async function upsertThemes(
 
   for (const t of themes) {
     // 2) themes UPSERT — norm_key 로 기존 조회 후 INSERT or sources append UPDATE.
-    let themeId = await findSystemThemeId(supabase, t.normKey);
+    const existingTheme = await findSystemTheme(supabase, t.normKey);
+
+    // Edit A — hidden tombstone: 운영자가 삭제(hide)한 시스템 테마. update/buffer/retire/
+    // insert 전부 건너뛴다. norm_key 슬롯을 그대로 둬 다음 사이클도 계속 찾게 하여
+    // 재생성(INSERT)을 막는다(요구사항 3).
+    if (existingTheme?.hidden) {
+      logger.info(
+        { normKey: t.normKey },
+        "hidden 시스템 테마 — sync 스킵(tombstone)",
+      );
+      continue;
+    }
+
+    let themeId = existingTheme?.id ?? null;
     if (!themeId) {
       const { data, error } = await supabase
         .from("themes")
@@ -155,8 +193,14 @@ export async function upsertThemes(
     }
     themesUpserted++;
 
-    // 3) 유효 종목만 theme_stocks 행 버퍼에 누적.
-    const validStocks = t.stocks.filter((s) => existing.has(s.code));
+    // Edit B — 운영자가 제외(manual_override='excluded')한 종목은 재스크랩돼도 재편입 금지.
+    const excludedCodes = await loadExcludedOverrideCodes(supabase, themeId);
+
+    // 3) 유효 종목만(마스터 존재 + excluded 아님) theme_stocks 행 버퍼에 누적.
+    //    upsert payload 에 manual_override 미포함 → conflict 시 기존 override 보존(included 핀 유지).
+    const validStocks = t.stocks.filter(
+      (s) => existing.has(s.code) && !excludedCodes.has(s.code),
+    );
     for (const s of validStocks) {
       linkRows.push({
         theme_id: themeId,
@@ -224,7 +268,7 @@ async function retireRemovedStocks(
 ): Promise<number> {
   const { data, error } = await supabase
     .from("theme_stocks")
-    .select("stock_code")
+    .select("stock_code, manual_override")
     .eq("theme_id", themeId)
     .is("effective_to", null);
   if (error) {
@@ -234,8 +278,13 @@ async function retireRemovedStocks(
     );
     throw error;
   }
-  const active = (data ?? []) as Array<{ stock_code: string }>;
+  const active = (data ?? []) as Array<{
+    stock_code: string;
+    manual_override: string | null;
+  }>;
+  // Edit C — 운영자 핀(manual_override='included')은 스크랩에 없어도 retire 제외(요구사항 3).
   const toRetire = active
+    .filter((r) => r.manual_override !== "included")
     .map((r) => r.stock_code)
     .filter((code) => !validCodes.has(code));
   if (toRetire.length === 0) return 0;

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Pencil, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Copy, Pencil, RefreshCw } from 'lucide-react';
 
 import { ScannerCardList } from '@/components/scanner/scanner-card-list';
 import { ScannerEmpty } from '@/components/scanner/scanner-empty';
@@ -12,6 +12,8 @@ import { ScannerSkeleton } from '@/components/scanner/scanner-skeleton';
 import { ScannerTable } from '@/components/scanner/scanner-table';
 import { Button } from '@/components/ui/button';
 import { ApiClientError } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import { useIsThemeAdmin } from '@/hooks/use-is-theme-admin';
 import { createClient } from '@/lib/supabase/client';
 import {
   fetchMyThemeDetail,
@@ -21,7 +23,7 @@ import { cn } from '@/lib/utils';
 import type { StockWithProximity } from '@/lib/scanner-api';
 import type { ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
 
-import { ThemeEditDialog } from './theme-edit-dialog';
+import { ThemeEditDialog, type ThemeEditMode } from './theme-edit-dialog';
 import { ThemeSourceBadges } from './theme-source-badge';
 
 /**
@@ -75,11 +77,14 @@ function changeColor(v: number | null): string {
 
 export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = useIsThemeAdmin();
   const [theme, setTheme] = useState<ThemeDetail | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<ThemeEditMode | null>(null);
   const mountedRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -176,13 +181,20 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
 
   return (
     <section aria-label={`${theme.name} 테마`} className="flex flex-col gap-4">
-      {backLink}
-
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-2">
-          <h1 className="text-[length:var(--t-h2)] font-bold tracking-[-0.01em] text-[var(--fg)]">
-            {theme.name}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/themes"
+              aria-label="테마 목록으로 돌아가기"
+              className="inline-flex items-center text-[length:var(--t-h2)] text-[var(--muted-fg)] hover:text-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm py-2 pr-1"
+            >
+              ←
+            </Link>
+            <h1 className="text-[length:var(--t-h2)] font-bold tracking-[-0.01em] text-[var(--fg)]">
+              {theme.name}
+            </h1>
+          </div>
           <div className="flex flex-wrap items-center gap-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
             <ThemeSourceBadges sources={theme.sources} />
             <span className="mono">{theme.stockCount}종목</span>
@@ -201,16 +213,51 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isUserTheme && (
+          {isUserTheme ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setEditOpen(true)}
+              onClick={() => {
+                setDialogMode({ kind: 'edit', theme });
+                setDialogOpen(true);
+              }}
             >
               <Pencil className="size-4" aria-hidden="true" />
               편집
             </Button>
+          ) : (
+            <>
+              {/* 시스템 테마: 로그인 사용자는 내 테마로 복사(fork), 운영자는 편집(시스템 분기) */}
+              {user && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDialogMode({ kind: 'fork', systemTheme: theme });
+                    setDialogOpen(true);
+                  }}
+                >
+                  <Copy className="size-4" aria-hidden="true" />
+                  내 테마로 복사
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDialogMode({ kind: 'edit', theme });
+                    setDialogOpen(true);
+                  }}
+                >
+                  <Pencil className="size-4" aria-hidden="true" />
+                  편집
+                </Button>
+              )}
+            </>
           )}
           <Button
             type="button"
@@ -238,7 +285,7 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
           <p className="text-[length:var(--t-base)] font-semibold text-[var(--fg)]">
             이 테마에 표시할 종목이 없습니다
           </p>
-          {isUserTheme && (
+          {(isUserTheme || isAdmin) && (
             <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
               [편집]에서 종목을 추가해 보세요.
             </p>
@@ -261,14 +308,17 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
         </p>
       )}
 
-      {isUserTheme && (
+      {dialogMode && (
         <ThemeEditDialog
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          mode={{ kind: 'edit', theme }}
-          // 상세 페이지는 단일 테마를 보고 있으므로 변경 후 전체 재조회로 reconcile.
-          onSaved={() => void load()}
-          // 삭제되면 목록으로 라우팅(이 테마는 더 이상 존재하지 않음).
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          mode={dialogMode}
+          // fork → 새 내 테마로 이동, edit(유저/시스템) → 현재 테마 재조회로 reconcile.
+          onSaved={(saved) => {
+            if (dialogMode.kind === 'fork') router.push(`/themes/${saved.id}`);
+            else void load();
+          }}
+          // 유저 삭제 / 시스템 hide 모두 이 테마가 더 이상 존재하지 않음 → 목록으로.
           onDeleted={() => router.push('/themes')}
         />
       )}

@@ -102,23 +102,17 @@ describe('fetchSystemThemes', () => {
 // fetchMyThemes — Supabase 직접 (RLS owner-only 자동 필터)
 // =============================================================================
 describe('fetchMyThemes', () => {
-  it('themes 에서 is_system=false 로 조회 (RLS 가 owner 자동 필터) + theme_stocks count embed', async () => {
-    const chain = makeMockChain({
-      order: vi.fn(async () => ({ data: [], error: null })),
-    });
-    const supabase = makeSupabase([chain]);
-    // @ts-expect-error — partial Supabase mock
-    await fetchMyThemes(supabase);
-    expect(supabase.from).toHaveBeenCalledWith('themes');
-    const selectArg = (chain.select.mock.calls[0]?.[0] ?? '') as string;
-    // 활성 종목 수 embed (theme_stocks count) — 목록 카드 종목수 뱃지
-    expect(selectArg).toContain('theme_stocks');
-    // RLS 가 owner 자동 필터하지만, 시스템 테마는 명시적으로 제외 (단일 테이블)
-    expect(chain.eq).toHaveBeenCalledWith('is_system', false);
-  });
-
-  it('snake_case row 를 ThemeWithStats(camelCase) 로 매핑 + count → stockCount', async () => {
-    const row = {
+  // 새 구현: 시스템 랭킹과 동일하게 nested embed(theme_stocks→stocks→stock_quotes)로
+  // 멤버 시세를 끌어와 클라이언트에서 상위3평균 계산 + desc 정렬. 종단은 await .eq('is_system',false).
+  function myThemeRow(
+    overrides: Record<string, unknown> = {},
+    members: Array<{
+      stock_code: string;
+      effective_to: string | null;
+      change_rate: number;
+    }> = [],
+  ) {
+    return {
       id: 'u1',
       name: '내 관심 테마',
       description: null,
@@ -129,10 +123,50 @@ describe('fetchMyThemes', () => {
       stats_updated_at: null,
       created_at: '2026-06-09T00:00:00Z',
       updated_at: '2026-06-09T00:00:00Z',
-      theme_stocks: [{ count: 3 }],
+      theme_stocks: members.map((m) => ({
+        stock_code: m.stock_code,
+        source: 'user',
+        effective_to: m.effective_to,
+        stocks: {
+          code: m.stock_code,
+          name: `종목${m.stock_code}`,
+          market: 'KOSPI',
+          stock_quotes: {
+            price: 1000,
+            change_rate: m.change_rate,
+            trade_amount: 100,
+          },
+        },
+      })),
+      ...overrides,
     };
+  }
+
+  it('themes 에서 is_system=false 로 조회 (RLS owner 자동 필터) + stock_quotes embed', async () => {
     const chain = makeMockChain({
-      order: vi.fn(async () => ({ data: [row], error: null })),
+      eq: vi.fn(async () => ({ data: [], error: null })),
+    });
+    const supabase = makeSupabase([chain]);
+    // @ts-expect-error — partial Supabase mock
+    await fetchMyThemes(supabase);
+    expect(supabase.from).toHaveBeenCalledWith('themes');
+    const selectArg = (chain.select.mock.calls[0]?.[0] ?? '') as string;
+    // 멤버 시세 embed — 상위3평균 클라 계산용
+    expect(selectArg).toContain('theme_stocks');
+    expect(selectArg).toContain('stock_quotes');
+    // RLS 가 owner 자동 필터하지만, 시스템 테마는 명시적으로 제외 (단일 테이블)
+    expect(chain.eq).toHaveBeenCalledWith('is_system', false);
+  });
+
+  it('snake_case row → ThemeWithStats(camelCase) 매핑 + active 멤버 상위3평균 계산', async () => {
+    const row = myThemeRow({}, [
+      { stock_code: '0001', effective_to: null, change_rate: 5 },
+      { stock_code: '0002', effective_to: null, change_rate: 3 },
+      { stock_code: '0003', effective_to: null, change_rate: 1 },
+      { stock_code: '0004', effective_to: null, change_rate: -2 },
+    ]);
+    const chain = makeMockChain({
+      eq: vi.fn(async () => ({ data: [row], error: null })),
     });
     const supabase = makeSupabase([chain]);
     // @ts-expect-error — partial Supabase mock
@@ -141,43 +175,67 @@ describe('fetchMyThemes', () => {
     expect(themes[0]).toMatchObject({
       id: 'u1',
       name: '내 관심 테마',
-      description: null,
       isSystem: false,
       ownerId: 'user-123',
       sources: ['user'],
-      top3AvgChangeRate: null,
-      statsUpdatedAt: null,
-      stockCount: 3,
+      stockCount: 4,
     });
+    // 상위3(5,3,1) 평균 = 3
+    expect(themes[0]!.top3AvgChangeRate).toBeCloseTo(3, 5);
   });
 
-  it('theme_stocks count 가 없으면 stockCount=0', async () => {
-    const row = {
-      id: 'u2',
-      name: '빈 테마',
-      description: null,
-      is_system: false,
-      owner_id: 'user-123',
-      sources: ['user'],
-      top3_avg_change_rate: null,
-      stats_updated_at: null,
-      created_at: '2026-06-09T00:00:00Z',
-      updated_at: '2026-06-09T00:00:00Z',
-      theme_stocks: [],
-    };
+  it('제외 멤버(effective_to set)는 집계에서 제외 → stockCount=active 수', async () => {
+    const row = myThemeRow({}, [
+      { stock_code: '0001', effective_to: null, change_rate: 4 },
+      {
+        stock_code: '0002',
+        effective_to: '2026-06-09T00:00:00Z',
+        change_rate: 9,
+      },
+    ]);
     const chain = makeMockChain({
-      order: vi.fn(async () => ({ data: [row], error: null })),
+      eq: vi.fn(async () => ({ data: [row], error: null })),
+    });
+    const supabase = makeSupabase([chain]);
+    // @ts-expect-error — partial Supabase mock
+    const themes = await fetchMyThemes(supabase);
+    expect(themes[0]!.stockCount).toBe(1);
+    expect(themes[0]!.top3AvgChangeRate).toBeCloseTo(4, 5);
+  });
+
+  it('종목 없으면 stockCount=0 + top3평균 null', async () => {
+    const row = myThemeRow({ id: 'u2', name: '빈 테마' }, []);
+    const chain = makeMockChain({
+      eq: vi.fn(async () => ({ data: [row], error: null })),
     });
     const supabase = makeSupabase([chain]);
     // @ts-expect-error — partial Supabase mock
     const themes = await fetchMyThemes(supabase);
     expect(themes[0]!.stockCount).toBe(0);
+    expect(themes[0]!.top3AvgChangeRate).toBeNull();
+  });
+
+  it('상위3평균 desc 정렬 (null 맨 뒤)', async () => {
+    const high = myThemeRow({ id: 'hi', updated_at: '2026-06-01T00:00:00Z' }, [
+      { stock_code: 'a', effective_to: null, change_rate: 10 },
+    ]);
+    const low = myThemeRow({ id: 'lo', updated_at: '2026-06-02T00:00:00Z' }, [
+      { stock_code: 'b', effective_to: null, change_rate: 2 },
+    ]);
+    const none = myThemeRow({ id: 'no', updated_at: '2026-06-03T00:00:00Z' }, []);
+    const chain = makeMockChain({
+      eq: vi.fn(async () => ({ data: [low, none, high], error: null })),
+    });
+    const supabase = makeSupabase([chain]);
+    // @ts-expect-error — partial Supabase mock
+    const themes = await fetchMyThemes(supabase);
+    expect(themes.map((t) => t.id)).toEqual(['hi', 'lo', 'no']);
   });
 
   it('error 발생 시 throw', async () => {
     const err = new Error('rls denied');
     const chain = makeMockChain({
-      order: vi.fn(async () => ({ data: null, error: err })),
+      eq: vi.fn(async () => ({ data: null, error: err })),
     });
     const supabase = makeSupabase([chain]);
     // @ts-expect-error — partial Supabase mock

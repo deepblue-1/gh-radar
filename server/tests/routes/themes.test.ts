@@ -11,7 +11,12 @@ const SYS_A = "a1111111-1111-4111-8111-111111111111"; // top3 평균 높음 → 
 const SYS_B = "b2222222-2222-4222-8222-222222222222"; // top3 평균 낮음 → 나중
 const USER_T = "c3333333-3333-4333-8333-333333333333"; // 유저 테마 — 응답 제외
 
-function theme(id: string, name: string, isSystem: boolean): ThemeRow {
+function theme(
+  id: string,
+  name: string,
+  isSystem: boolean,
+  hidden = false,
+): ThemeRow {
   return {
     id,
     name,
@@ -23,6 +28,7 @@ function theme(id: string, name: string, isSystem: boolean): ThemeRow {
     stats_updated_at: null,
     created_at: "2026-06-09T00:00:00Z",
     updated_at: "2026-06-09T00:00:00Z",
+    hidden,
   };
 }
 
@@ -132,6 +138,17 @@ describe("GET /api/themes (시스템 테마 목록 + 상위3평균 desc 정렬)"
     const r = await request(app()).get("/api/themes");
     expect(r.body.some((t: any) => t.id === USER_T)).toBe(false);
     expect(r.body.every((t: any) => t.isSystem === true)).toBe(true);
+  });
+
+  it("hidden(운영자 삭제) 시스템 테마는 목록에서 제외된다 (tombstone, 마이그레이션 20260610130000)", async () => {
+    const state = baseState();
+    state.themes = [
+      theme(SYS_A, "HBM", true),
+      theme(SYS_B, "2차전지", true, true), // hidden
+    ];
+    const r = await request(app(state)).get("/api/themes");
+    expect(r.body.some((t: any) => t.id === SYS_B)).toBe(false);
+    expect(r.body.some((t: any) => t.id === SYS_A)).toBe(true);
   });
 
   it("effective_to 설정된(제외) 멤버는 상위3평균/종목수에서 빠진다", async () => {
@@ -276,6 +293,13 @@ describe("GET /api/themes/:id (테마 상세 — 메타 + 통계 + 소속 종목
 
   it("유저 테마 id 로 조회 → 404 (시스템 전용 라우트)", async () => {
     const r = await request(app()).get(`/api/themes/${USER_T}`);
+    expect(r.status).toBe(404);
+  });
+
+  it("hidden(운영자 삭제) 시스템 테마 상세 → 404 (tombstone)", async () => {
+    const state = baseState();
+    state.themes = [theme(SYS_A, "HBM", true, true)]; // hidden
+    const r = await request(app(state)).get(`/api/themes/${SYS_A}`);
     expect(r.status).toBe(404);
   });
 
