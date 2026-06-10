@@ -33,9 +33,8 @@ export function ThemesEmpty({ onCreate }: ThemesEmptyProps) {
       <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
         관심 있는 종목을 묶어 나만의 테마를 만들어 보세요.
       </p>
-      <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-        아래 시스템 테마에서 복사(fork)해서 시작할 수도 있어요.
-      </p>
+      {/* WR-F-03: fork 진입이 아직 미배선이라 "복사(fork)해서 시작" 안내를 제거해
+          카피-기능 불일치를 해소. fork 배선 시 안내를 복원한다. */}
       <Button type="button" onClick={onCreate}>
         ＋ 테마 만들기
       </Button>
