@@ -135,3 +135,19 @@
 **Preventive check (사용자 대면 정량 주장 직전):**
 - 문장에 `N%` / "대부분" / "다수" / "거의 없음" 이 있으면: 이 숫자 직접 쟀나? 못 쟀고 DB 접근 가능하면 probe 먼저.
 - gh-radar read-only probe: `dotenv` → `createClient(SUPABASE_URL, SERVICE_ROLE_KEY)` → `.select('*',{count:'exact',head:true})`(집계) / `.range()` 페이지네이션(분포). 집계 숫자만 출력, 시크릿 미출력.
+
+## 커밋 승인은 "보여준 범위 = 스테이징 범위" — scoped `git status` 후 `git add -A` 금지 (Phase 11 디스커션, 2026-06-10)
+
+**Context:** discuss-phase 산출물 커밋 시 변경 목록을 `git status --short -- .planning tasks` 로 **pathspec 좁혀** 확인 → 그 5개만 대상으로 한 commit 메시지를 사용자에게 제시 → 승인("응") → 그런데 실제론 `git add -A` 로 스테이징해서, 사용자 working tree에 있던 **무관한 WIP**(theme-admin overrides: server/webapp/workers 코드 + 새 migration + hook 등 11파일)까지 `docs(11)` 메시지로 함께 커밋. push 전에 발견·정정(soft reset → 명시 경로만 재스테이징 → 재커밋 → push).
+
+**Mistake:** (1) 커밋 미리보기 `git status` 를 `-- .planning tasks` 로 좁혀 tree의 다른 변경을 **사용자에게 안 보여줌**. (2) 보여준 범위는 좁은데 스테이징은 `git add -A`(전체) — **보여준 범위 ≠ 스테이징 범위**. 결과적으로 승인받은 것과 다른 커밋 + 검증 안 된 남의 WIP를 잘못된 메시지로 묶음.
+
+**Rule:**
+- 커밋 승인을 받을 땐 **pathspec 없는 전체** `git status --short` 로 working tree 전부를 보여준다. 일부만 커밋할 거면 "나머지 X는 제외/보존" 을 명시.
+- 스테이징은 **보여준 그 경로만 명시적으로** `git add <paths>`. scoped 미리보기 뒤 `git add -A`/`git add .` 금지 — 보여준 범위와 스테이징 범위가 어긋난다.
+- 사용자 tree에 **무관한 WIP가 있을 수 있다고 항상 가정.** 내가 안 만들었거나 빌드/테스트 검증 못 한 변경을 내 docs/feature 커밋에 묶지 않는다. (`한번에 커밋` 규칙이 있어도 — 그 규칙은 "tree 전체를 보여주고 정확히 기술" 을 전제로 한다.)
+
+**Preventive check (커밋 직전):**
+- `git status --short` (pathspec 없이) 출력 == 내가 제시한 파일 목록인가?
+- `git diff --cached --name-only` 로 스테이징된 게 제시 목록과 동일한지 commit 전 확인.
+- 무관 WIP 발견 시: push 전이면 `reset --mixed HEAD~1` → 명시 경로만 재스테이징.
