@@ -16,10 +16,12 @@ const HASH_SERVICE = "theme_content_hash";
 
 /** 병합 결과의 결정적 SHA256 해시 — 순서 무관(테마/종목 정렬 후 직렬화). */
 export function computeContentHash(themes: MergedTheme[]): string {
+  // 표시명(name)은 해시 입력에서 제외(WR-W-02): mergeThemes 의 name 선택이 스크랩 순서에
+  // 의존(동률 시 길이 비교)해 동일 멤버십에도 해시가 흔들려 불필요 write 를 유발(5원칙 #2 약화).
+  // 변경 감지의 본질은 멤버십(normKey + sources + codes)이지 표시명 변동이 아니다.
   const canonical = themes
     .map((t) => ({
       k: t.normKey,
-      n: t.name,
       s: [...t.sources].sort(),
       c: t.stocks.map((st) => st.code).sort(),
     }))
