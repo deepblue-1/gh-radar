@@ -24,6 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Daily Candle Data** - KRX 전 종목 (2020-01-02 ~ 현재) 일봉 OHLCV 수집 + 영업일 증분 갱신 (2026-05-12 완료, 4,003,432 rows)
 - [x] **Phase 09.1: Intraday Current Price** - 키움 REST `ka10027` 페이지네이션 + `ka10001` hot set 매분 stock_quotes/top_movers/stock_daily_ohlcv 갱신. KIS ingestion 완전 폐기 (2026-05-15 완료)
 - [x] **Phase 10: Theme Classification** - 테마별 종목 묶기 (네이버 금융 + 알파스퀘어 2-tier 수집 + `/themes` UI) (completed 2026-06-09)
+- [ ] **Phase 11: Co-movement Candidates** - 상한가 동조 종목 탐지 (급등 시 따라 오를 후보를 일봉 통계적 동조로 점수화)
 
 ## Phase Details
 
@@ -373,10 +374,45 @@ Plans:
 - [x] 10-07-themes-ui-PLAN.md — /themes 변형C 랭킹 + /themes/[id] scanner row + 종목 칩 + CRUD 모달 + nav (Wave 6)
 - [x] 10-08-deploy-e2e-PLAN.md — Cloud Run Job/Scheduler(OAuth) + [BLOCKING] GCP 배포 + Playwright E2E (Wave 7)
 
+### Phase 11: Co-movement Candidates — 상한가 동조 종목 탐지
+
+**Goal:** 종목 X가 급등/상한가일 때, 과거 일봉(`stock_daily_ohlcv`)의 통계적 동조를 기반으로 "X를 따라 오를 후보 종목 Y들"을 점수화해 종목 상세 페이지에 TOP-K로 표시한다. 테마(Phase 10)와는 다른 축의 신호 — 같은 테마 안에서도 "테마 발화 시 실제로 같이 움직이는" 종목을 가려낸다. Phase 10 직전 아이디어 회의에서 테마 분류와 함께 제안됐으나 후속 phase로 분리됐던 동조 분석을 구현한다.
+**Requirements**: COMV-01 (신규 — REQUIREMENTS 등록은 plan 단계)
+**Depends on:** Phase 9 (stock_daily_ohlcv 일봉 4M행), Phase 10 (themes/theme_stocks — 후보 풀링·게이팅), Phase 09.1 (stock_quotes — 실시간 등락률 표시), Phase 6 (종목 상세 페이지 구조)
+
+**Scope (확정 — 아이디어 디스커션 + 실측 2026-06-10):**
+- **통계 단위 = 하이브리드.** (주) 테마-풀링 참여도 + (보조) 페어 X→Y 직접동조 refinement. 근거: 실측상 종목당 급등(≥15%) 이벤트 **중앙값 2회** → 페어 단독 통계는 ~75% 종목에서 불가, 테마 풀링이 필수. 테마 커버리지 89%(활성 2,778 중 2,476)로 광범위 적용 가능.
+- **시차 = 당일(D0) 동반 + 익일(D+1) 후행 둘 다** 계산·표시. "따라잡기"는 본질적으로 시차 신호.
+- **점수** = conf_d0(테마 발화 시 Y 동반율, 주지표) + lift(Y 기저 급등률 대비 — 변동성 큰 종목 디노이즈) + avg_ret(발화일 Y 평균 수익률, 강도) + conf_d1(익일 후행율). lookback 24개월. 테마 최소 발화일 8 게이팅.
+- **테마 없는 종목(~11%, `stocks.sector` 컬럼도 전부 NULL)** → 정직한 "동조 데이터 부족" 빈 상태. 동조 그래프 클러스터링은 v2.
+- **메가캡(테마 최대 34개) 후보 과다·노이즈** → 테마 타이트니스 가중 또는 후보 캡.
+
+**데이터/성능 설계:**
+- 이벤트 부분집합이 **~2.5만 행**(전체 4M 아님) → 동조 계산을 **전부 Postgres SQL 함수로 사전계산**(노드로 행 끌어오기 금지 — OOM·네트워크 회피).
+- `stock_daily_ohlcv (date, code) WHERE change_rate >= 10` **부분 인덱스** 신설. 아티팩트(change_rate > 31 — 신규상장 등, 실측 67건) 이벤트 제외.
+- 사전계산 테이블 `theme_comovement`(테마×멤버 참여도, ~7.5K행). 읽기 RPC는 앵커 X의 활성 테마(중앙값 3, p90 6) 멤버 union을 집계해 TOP-K 반환 (테마 멤버십 변경에 자동 반영).
+- 갱신: candle-sync EOD(17:30 KST) 이후 야간 1회 배치(SQL이라 비용 거의 0). 자체 DB 집계·외부 호출 없음 → 한국 크롤링 5원칙과 무관.
+
+**Success Criteria** (what must be TRUE):
+  1. `theme_comovement` 사전계산 테이블 + `stock_daily_ohlcv` 부분 인덱스가 production에 존재한다. change_rate>31 아티팩트는 이벤트에서 제외된다.
+  2. SQL 함수가 테마별 "발화일"(멤버 ≥2 종목이 동일일 ≥15% 급등)을 도출하고, 각 멤버의 conf_d0/lift/avg_ret/conf_d1을 24개월 lookback으로 계산해 `theme_comovement`에 적재한다 (발화일 ≥8 테마만).
+  3. 얇은 `co-movement-sync` 워커(candle-sync 패턴) + Cloud Run Job + Scheduler가 EOD candle-sync 이후 야간 1회 실행되어 `theme_comovement`를 갱신한다.
+  4. server `GET /api/stocks/:code/co-movement?k=K`가 앵커의 활성 테마 멤버를 union·집계해 TOP-K 후보를 conf_d0 내림차순으로 반환한다 (각 후보에 conf_d0/conf_d1/표본수/공유 테마/실시간 등락률 포함 — stock_quotes 조인).
+  5. 종목 상세(`/stocks/[code]`) ThemeChips 다음에 "동조 후보" 섹션이 렌더된다 — 후보별 동반율·표본수·후행 배지·공유 테마 칩·강도바(theme-rank-row 재사용)·실시간 등락률. 테마 없음/표본 부족 시 "동조 데이터 부족" 빈 상태.
+
+**실측 앵커 (2026-06-10, read-only probe):** stock_daily_ohlcv 4,067,902행(2020-01-02~2026-06-10) · 급등(≥15%,12m) 5,738 / 상한가(≥29.5%) 2,122 / 아티팩트(>31%) 67 · 종목당 이벤트 중앙값 2, ≥5: 415종목, ≥10: 74종목 · ≥10% 동반 평균 50.6종목/일 · 테마 커버리지 89%(급등종목 89%, 고이벤트 92%), 테마/종목 중앙값 3·p90 6.
+
+**Out of scope (v2 deferral):** 페어 X→Y 정식 모델(v1은 이벤트 풍부 ≥5 앵커 한정 refinement만) · Granger/정식 lead-lag · 인트라데이 시차 · 테마 없는 종목 동조 그래프 클러스터링 · 동조 기반 알림.
+**Origin:** Phase 10 직전 "아이디어 회의"(세션 2286945e)에서 테마 분류와 함께 제안 → 테마만 Phase 10 채택, 동조는 후속 분리 후 누락 → 본 phase로 재개 (`tasks/co-movement-idea-prompt.md`).
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 11 to break down)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -398,3 +434,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
 | 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
+| 11. Co-movement Candidates | 0/0 | Not planned | — |

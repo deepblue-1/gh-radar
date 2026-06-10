@@ -120,3 +120,18 @@
 **Preventive check:**
 - DB mock 은 실서버 제약(여기선 db-max-rows 1000)을 **시뮬레이션**해야 회귀를 잡는다. `supabase-mock` 에 `.range()` + 1000행 캡 추가 완료 → active>1000 회귀 테스트가 페이지네이션 누락 시 fail.
 - 가변 규모 `.in()`/`.eq()` 조회를 추가/수정할 때: (1) 입력 URL 청크 했는가(414), (2) 결과 행 페이지네이션 했는가(db-max-rows) — **둘 다** 점검.
+
+## 정량 주장은 단언 전에 실측 — subagent 의 "대부분/majority" 를 수치로 인용 금지 (Co-movement 디스커션, 2026-06-10)
+
+**Context:** 상한가 동조 종목 phase 아이디어 디스커션에서, 테마없는 종목 비율을 Explore subagent 의 정성 표현("majority of ~2,800 stocks are theme-less")을 그대로 받아 사용자에게 "**테마없는 종목 ~40%**, 섹터도 NULL이라 fallback 없음" 으로 단언. 사용자가 "섹터가 없는 대신 테마가 있어. 체크해봐" 로 교정. read-only 실측 결과 **활성 2,778 중 2,476(89%) 테마 보유 — 미분류 11%**, 급등 앵커도 89%·고이벤트 92% 테마 보유. "40%"는 ~4배 과대였고, 그에 기반한 "테마없는 종목 보완책" 우려 자체가 거의 무의미했음.
+
+**Mistake:** 같은 세션에서 급등 **이벤트 희소성은 실측**(probe script)했으면서 **테마 커버리지는 subagent 추정으로** 빠진 비대칭. subagent(Explore)는 "코드/문서를 훑은 인상"을 줄 뿐 집계(COUNT/DISTINCT)를 하지 않는다 — "majority/most/대부분"은 측정값이 아니라 어림짐작인데 이를 `%` 수치로 승격해 인용.
+
+**Rule:**
+- 설계 결정을 좌우하는 **정량 주장(커버리지 %, 분포, 빈도, 비율)**은 DB/실데이터 접근이 가능하면 **사용자에게 말하기 전에 직접 measure**. 이 프로젝트는 `workers/master-sync/.env`(SUPABASE_URL+SERVICE_ROLE_KEY)로 read-only 집계 가능 — `NODE_PATH=workers/master-sync/node_modules node probe.cjs` 패턴.
+- subagent 의 "대부분/majority/most/~ 추정" 류 표현을 **수치(%) 로 변환해 단언 금지.** 출처를 (a) 직접 쿼리 (b) subagent 인상 (c) 내 추측 으로 구분하고, (b)(c)이면서 접근 가능하면 (a)로 승격.
+- 한 축(이벤트)만 재고 다른 축(테마 커버리지)을 추정으로 남기는 **비대칭 검증** 경계 — 같은 결정에 쓰이는 정량 입력은 같은 엄밀도로.
+
+**Preventive check (사용자 대면 정량 주장 직전):**
+- 문장에 `N%` / "대부분" / "다수" / "거의 없음" 이 있으면: 이 숫자 직접 쟀나? 못 쟀고 DB 접근 가능하면 probe 먼저.
+- gh-radar read-only probe: `dotenv` → `createClient(SUPABASE_URL, SERVICE_ROLE_KEY)` → `.select('*',{count:'exact',head:true})`(집계) / `.range()` 페이지네이션(분포). 집계 숫자만 출력, 시크릿 미출력.
