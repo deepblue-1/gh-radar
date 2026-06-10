@@ -138,9 +138,12 @@ export async function runThemeSyncCycle(
       fetchWithFallback({ cfg, proxy }, url, src.encoding);
 
     try {
+      // 차단 신호(403/429 등)는 즉시 rethrow → markBackoff 로 직행(지수 재시도 금지, 5원칙 #4).
+      // transient(500/네트워크)만 지수 재시도.
       const scrapes = await withRetry(
         () => src.run(fetchFn),
         `fetch-${src.key}`,
+        { attempts: 3, shouldRetry: (e) => !isBlockSignal(e) },
       );
       // 5원칙 #1 — 일일 호출 카운트(api_usage). 일 1회 배치 캡 검증용.
       await incrementUsage(supabase, src.key, 1, now);
