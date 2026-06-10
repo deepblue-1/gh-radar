@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 
 import {
@@ -35,7 +35,7 @@ import {
   removeThemeStock,
   updateUserTheme,
 } from '@/lib/theme-api';
-import type { ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
+import type { Market, ThemeStockMember, ThemeWithStats } from '@gh-radar/shared';
 
 /**
  * ThemeEditDialog — UI-SPEC §S4 유저 테마 CRUD 모달 (shadcn Dialog).
@@ -81,10 +81,12 @@ export interface ThemeEditDialogProps {
 interface StockChip {
   code: string;
   name: string;
+  /** 검색 결과/멤버의 정확한 마켓 — 낙관적 렌더에서 KOSDAQ 오표기 방지(WR-F-02). */
+  market: Market;
 }
 
 function memberToChip(m: ThemeStockMember): StockChip {
-  return { code: m.code, name: m.name };
+  return { code: m.code, name: m.name, market: m.market };
 }
 
 /** StockChip → ThemeStockMember (시세는 reconcile 전이라 0 폴백 — refresh 가 실값 채움). */
@@ -92,7 +94,8 @@ function chipToMember(chip: StockChip): ThemeStockMember {
   return {
     code: chip.code,
     name: chip.name,
-    market: 'KOSPI',
+    // 검색 결과의 정확한 market 유지 — 하드코딩 'KOSPI' 제거(WR-F-02).
+    market: chip.market,
     price: 0,
     changeRate: 0,
     tradeAmount: 0,
@@ -118,7 +121,16 @@ export function ThemeEditDialog({
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // fork 스냅샷 1회 실행 가드(WR-F-01) — onSaved 인라인 화살표가 부모 리렌더(폴링 setState)로
+  // 매번 신원이 바뀌어도 fork effect 가 재실행되어 유저 테마/theme_stocks 가 중복 복사되는 것을 막는다.
+  const forkStartedRef = useRef(false);
+
   const { results, loading: searching } = useDebouncedSearch(query, 300);
+
+  // 모달이 닫히면 fork 가드 해제 — 다음 오픈 시 1회 fork 허용.
+  useEffect(() => {
+    if (!open) forkStartedRef.current = false;
+  }, [open]);
 
   // 모달 오픈/모드 변경 시 초기화.
   useEffect(() => {
@@ -145,6 +157,9 @@ export function ThemeEditDialog({
   // fork: 오픈 즉시 스냅샷 생성 → 새 유저 테마 id 확보(이후 add/remove 가 즉시 반영).
   useEffect(() => {
     if (!open || mode.kind !== 'fork' || !user) return;
+    // 1회 실행 가드(WR-F-01) — onSaved 신원 변경으로 effect 가 재실행돼도 중복 fork 차단.
+    if (forkStartedRef.current) return;
+    forkStartedRef.current = true;
     let cancelled = false;
     void (async () => {
       setBusy(true);
@@ -399,7 +414,11 @@ export function ThemeEditDialog({
                               key={s.code}
                               value={s.code}
                               onSelect={() =>
-                                void handleAddStock({ code: s.code, name: s.name })
+                                void handleAddStock({
+                                  code: s.code,
+                                  name: s.name,
+                                  market: s.market,
+                                })
                               }
                               className="flex items-center gap-3 px-3 py-2"
                             >
