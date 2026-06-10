@@ -84,7 +84,15 @@ export async function fetchAlphaThemes(
     }
 
     const codes = stocksParsed
-      .filter((s) => s.country_code === "KR" && s.is_alive !== false)
+      // is_alive 가 명시 false 또는 null(상폐/거래정지)이면 제외 — null 을 '생존'으로
+      // 통과시키던 비대칭 버그 수정(WR-W-03). 필드 부재(undefined)는 알파가 정상 종목에서
+      // 생략할 수 있어 생존으로 간주(country_code 엄격 일치와 균형).
+      .filter(
+        (s) =>
+          s.country_code === "KR" &&
+          s.is_alive !== false &&
+          s.is_alive !== null,
+      )
       .map((s) => s.code)
       .filter((code) => CODE_RE.test(code));
 
