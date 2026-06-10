@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 11 — 동조 후보 섹션 목업</title>
+<style>
+/* ───────── globals.css 토큰 인라인 (Light :root / Dark .dark) — 원본값 고정 ───────── */
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --card:#FFFFFF;
+  --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px; --t-h3:20px; --t-h2:24px;
+  --lh-tight:1.2; --lh-normal:1.5;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.dark{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --card:oklch(0.12 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg);
+  font-size:var(--t-base); line-height:var(--lh-normal); font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased; letter-spacing:-0.01em; word-break:keep-all;
+}
+.mono{font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em;}
+
+/* ───────── 페이지 셸 ───────── */
+.shell{max-width:760px; margin:0 auto; padding:24px 16px 96px;}
+.topbar{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:24px; flex-wrap:wrap;}
+.topbar h1{font-size:var(--t-h2); font-weight:800; margin:0;}
+.topbar .sub{font-size:var(--t-caption); color:var(--muted-fg); margin-top:2px;}
+.toggle{
+  display:inline-flex; align-items:center; gap:6px; cursor:pointer; user-select:none;
+  border:1px solid var(--border); background:var(--card); color:var(--fg);
+  border-radius:999px; padding:6px 14px; font-size:var(--t-sm); font-weight:600;
+}
+.legend{display:flex; gap:14px; flex-wrap:wrap; font-size:var(--t-caption); color:var(--muted-fg); margin-bottom:28px;}
+.legend b{font-weight:700;}
+.legend .up{color:var(--up);} .legend .down{color:var(--down);}
+.swatch{display:inline-block; width:10px; height:10px; border-radius:3px; vertical-align:middle; margin-right:4px;}
+
+/* 변형 라벨 */
+.variant-label{
+  display:flex; align-items:baseline; gap:10px; margin:40px 0 4px; padding-top:24px;
+  border-top:1px dashed var(--border);
+}
+.variant-label .tag{
+  font-family:var(--font-mono); font-size:var(--t-caption); font-weight:700; letter-spacing:0;
+  color:var(--primary-fg); background:var(--primary); border-radius:var(--r-sm); padding:2px 8px;
+}
+.variant-label h2{font-size:var(--t-lg); font-weight:800; margin:0;}
+.variant-note{font-size:var(--t-caption); color:var(--muted-fg); margin:2px 0 16px; line-height:1.5;}
+
+/* 컨텍스트 힌트(테마 칩 — 동조 후보 바로 위에 위치) */
+.ctx{opacity:0.85; padding:14px 0 4px; margin-bottom:8px;}
+.sec-head{
+  display:flex; align-items:center; gap:6px; font-size:var(--t-caption); font-weight:600;
+  text-transform:uppercase; letter-spacing:0.04em; color:var(--muted-fg); margin:0 0 10px;
+}
+.sec-head svg{width:14px; height:14px;}
+.chips{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+.chip{
+  display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
+  border-radius:999px; padding:2px 10px; font-size:var(--t-caption); color:var(--fg); background:transparent;
+}
+.chip .dot{width:6px; height:6px; border-radius:999px; background:var(--flat);}
+/* 근거 칩 — 공유 테마(outline) vs 직접동반(accent fill) */
+.ev{display:inline-flex; flex-wrap:wrap; gap:6px; align-items:center;}
+.ev-theme{
+  display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border);
+  border-radius:999px; padding:1px 9px; font-size:var(--t-caption); color:var(--fg);
+}
+.ev-theme .dot{width:5px; height:5px; border-radius:999px; background:var(--flat);}
+.ev-surge{
+  display:inline-flex; align-items:center; gap:4px; border:1px solid transparent;
+  background:var(--accent); color:var(--accent-fg);
+  border-radius:999px; padding:1px 9px; font-size:var(--t-caption); font-weight:600;
+}
+.ev-surge svg{width:11px; height:11px;}
+.badge-trail{
+  display:inline-flex; align-items:center; gap:4px; border:1px solid color-mix(in oklch,var(--down) 35%,var(--border));
+  color:var(--down); background:var(--down-bg); border-radius:999px; padding:0 8px; font-size:11px; font-weight:700;
+}
+.badge-trail svg{width:10px; height:10px;}
+
+/* 강도 막대 */
+.bar-track{position:relative; height:8px; width:100%; overflow:hidden; border-radius:999px; background:var(--muted);}
+.bar-fill{position:absolute; inset-block:0; left:0; border-radius:999px;}
+.bar-up{background:var(--up);} .bar-primary{background:var(--primary);}
+
+/* 숫자 톤 */
+.up{color:var(--up);} .down{color:var(--down);} .flat{color:var(--flat);}
+.code{font-size:var(--t-caption); color:var(--muted-fg);}
+.muted{color:var(--muted-fg);}
+
+/* 행 공통 카드 */
+.row-card{
+  border:1px solid var(--border); background:var(--card); border-radius:var(--r);
+  transition:border-color .15s;
+}
+.row-card:hover{border-color:color-mix(in oklch,var(--primary) 30%,var(--border));}
+.list{display:flex; flex-direction:column; gap:8px;}
+
+/* ───────── 변형 A — 랭킹 행 (theme-rank-row 직계, 단일행) ───────── */
+.v-a .row-card{
+  display:grid; grid-template-columns:28px 1fr 1.1fr auto auto; align-items:center;
+  gap:14px; padding:10px 14px;
+}
+.v-a .rank{font-family:var(--font-mono); font-weight:800; font-size:var(--t-h3); text-align:center; color:var(--muted-fg);}
+.v-a .rank.top3{color:var(--up);}
+.v-a .meta{min-width:0; display:flex; flex-direction:column; gap:4px;}
+.v-a .meta .nm{display:flex; align-items:center; gap:8px; min-width:0;}
+.v-a .meta .nm b{font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.v-a .conf{font-family:var(--font-mono); font-weight:800; font-size:var(--t-lg); text-align:right; min-width:58px;}
+.v-a .conf small{display:block; font-family:var(--font-sans); font-weight:600; font-size:10px; color:var(--muted-fg); letter-spacing:0.04em;}
+.v-a .live{font-family:var(--font-mono); font-weight:700; font-size:var(--t-base); text-align:right; min-width:72px;}
+@media(max-width:640px){ .v-a .row-card{grid-template-columns:24px 1fr auto auto; gap:10px;} .v-a .barcol{display:none;} }
+
+/* ───────── 변형 B — 정보 카드 행 (2줄 + 하단 강도바) ───────── */
+.v-b .row-card{display:flex; flex-direction:column; gap:8px; padding:12px 16px;}
+.v-b .r1{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+.v-b .r1 .nm{display:flex; align-items:baseline; gap:8px; min-width:0;}
+.v-b .r1 .nm b{font-weight:700; font-size:var(--t-base);}
+.v-b .r1 .live{font-family:var(--font-mono); font-weight:800; font-size:var(--t-lg);}
+.v-b .r2{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+.v-b .r2 .conf{font-family:var(--font-mono); font-size:var(--t-sm); color:var(--fg); font-weight:700; white-space:nowrap;}
+.v-b .r2 .conf .lbl{font-family:var(--font-sans); color:var(--muted-fg); font-weight:500; margin-right:3px;}
+.v-b .r2 .smp{font-size:var(--t-caption); color:var(--muted-fg); margin-left:8px;}
+.v-b .barrow{display:flex; align-items:center; gap:8px;}
+.v-b .barrow .lbl{font-size:10px; color:var(--muted-fg); letter-spacing:0.04em; min-width:24px;}
+
+/* ───────── 변형 C — 지표 듀얼 (compact, 메트릭 우선 + 하단 얇은 라인) ───────── */
+.v-c .row-card{position:relative; display:grid; grid-template-columns:1fr auto; align-items:center; gap:12px; padding:10px 14px 12px; overflow:hidden;}
+.v-c .left{min-width:0; display:flex; flex-direction:column; gap:5px;}
+.v-c .left .nm{display:flex; align-items:baseline; gap:8px;}
+.v-c .left .nm b{font-weight:700;}
+.v-c .metric{display:flex; align-items:flex-end; gap:14px;}
+.v-c .metric .conf{font-family:var(--font-mono); font-weight:800; font-size:var(--t-h3); line-height:1; text-align:right;}
+.v-c .metric .conf small{display:block; font-family:var(--font-sans); font-size:10px; font-weight:600; color:var(--muted-fg); letter-spacing:0.04em; margin-bottom:3px;}
+.v-c .metric .live{font-family:var(--font-mono); font-weight:700; font-size:var(--t-sm); text-align:right; min-width:62px;}
+.v-c .metric .live small{display:block; font-family:var(--font-sans); font-size:10px; font-weight:600; color:var(--muted-fg); letter-spacing:0.04em; margin-bottom:3px;}
+.v-c .underbar{position:absolute; left:0; bottom:0; height:3px; border-radius:0 999px 999px 0; background:var(--up);}
+
+/* 더보기 */
+.more{
+  display:block; width:100%; margin-top:10px; padding:9px; cursor:pointer;
+  border:1px solid var(--border); background:var(--card); color:var(--muted-fg);
+  border-radius:var(--r); font-size:var(--t-sm); font-weight:600; font-family:var(--font-sans);
+}
+.more:hover{color:var(--fg); border-color:color-mix(in oklch,var(--primary) 30%,var(--border));}
+
+/* 빈 상태 */
+.empty{
+  border:1px dashed var(--border); border-radius:var(--r-md); padding:28px 20px; text-align:center;
+}
+.empty .em-h{font-size:var(--t-base); font-weight:700; color:var(--fg); margin:0 0 4px;}
+.empty .em-b{font-size:var(--t-sm); color:var(--muted-fg); margin:0;}
+.empty svg{width:22px; height:22px; color:var(--muted-fg); margin-bottom:8px;}
+
+.foot{margin-top:40px; padding-top:16px; border-top:1px solid var(--border); font-size:var(--t-caption); color:var(--muted-fg); line-height:1.7;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div>
+      <h1>동조 후보 섹션 — 디자인 변형</h1>
+      <div class="sub mono">Phase 11 · /stocks/[code] · 앵커: 한국석유 (004090) · 목업 데이터</div>
+    </div>
+    <button class="toggle" id="themeToggle">🌙 다크</button>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--up)"></span><b class="up">상승 = 빨강</b> (--up)</span>
+    <span><span class="swatch" style="background:var(--down)"></span><b class="down">하락 = 파랑</b> (--down)</span>
+    <span><b>동반율(conf_d0)</b> = 확률값 → 중립색(--fg). 등락 색 금지.</span>
+    <span><span class="ev-surge" style="padding:0 7px">직접동반</span> = 테마 무관 co-surge 근거(실측 41%)</span>
+  </div>
+
+  <!-- 컨텍스트: 동조 후보는 "이 종목의 테마" 칩 바로 아래에 마운트 -->
+  <div class="ctx">
+    <div class="sec-head">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="M9 3h6v4H9z"/></svg>
+      이 종목의 테마
+    </div>
+    <div class="chips">
+      <span class="chip"><span class="dot"></span>정유·석유</span>
+      <span class="chip"><span class="dot"></span>유가 상승 수혜</span>
+      <span class="chip" style="border-color:color-mix(in oklch,var(--primary) 45%,var(--border))"><span class="dot" style="background:var(--primary)"></span>내 관심 바스켓</span>
+    </div>
+  </div>
+
+  <!-- ════════ 변형 A ════════ -->
+  <div class="variant-label"><span class="tag">A</span><h2>랭킹 행 — theme-rank-row 직계</h2></div>
+  <p class="variant-note">바로 위 테마 섹션과 <b>형제처럼</b> 보이는 단일행 그리드(순위·종목·강도바·동반율·실시간). 가장 조밀·스캔 용이. 강도바 = <b class="up">--up(빨강)</b> "상승 동반 강도". 모바일에선 강도바 열 숨김.</p>
+  <div class="list v-a" id="va"></div>
+  <button class="more">동조 후보 12개 더 보기 ▾</button>
+
+  <!-- ════════ 변형 B ════════ -->
+  <div class="variant-label"><span class="tag">B</span><h2>정보 카드 행 — 2줄 + 하단 강도바</h2></div>
+  <p class="variant-note">근거를 <b>전용 줄</b>에 풀어 칩이 안 눌림. 1줄: 종목·실시간 / 2줄: 동반율·표본·근거칩·후행 배지 / 하단: 강도바. 강도바 = <b style="color:var(--primary)">--primary(브랜드 블루)</b> — "강도 ≠ 등락" 명확히. 정보량 최다.</p>
+  <div class="list v-b" id="vb"></div>
+  <button class="more">동조 후보 12개 더 보기 ▾</button>
+
+  <!-- ════════ 변형 C ════════ -->
+  <div class="variant-label"><span class="tag">C</span><h2>지표 듀얼 — compact, 메트릭 우선</h2></div>
+  <p class="variant-note">우측 <b>듀얼 메트릭</b>(동반율 大 + 실시간 小)에 시선 집중. 강도는 행 하단 <b>얇은 라인(3px)</b>으로 baseline 표시. 테이블 리듬에 가깝게 가장 빽빽. 근거·후행은 종목명 아래.</p>
+  <div class="list v-c" id="vc"></div>
+  <button class="more">동조 후보 12개 더 보기 ▾</button>
+
+  <!-- ════════ 빈 상태 ════════ -->
+  <div class="variant-label"><span class="tag">∅</span><h2>빈 상태 — 두 경로 모두 빌 때만(D-06)</h2></div>
+  <p class="variant-note">테마 없음 <b>AND</b> co-surge 이웃도 없음일 때. 약한 후보는 숨기지 않고 신뢰도 배지로 노출하므로(D-05) 이 상태는 드묾.</p>
+  <div class="empty">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+    <p class="em-h">동조 데이터 부족</p>
+    <p class="em-b">아직 이 종목과 함께 움직인 패턴을 찾지 못했습니다. 분류된 테마와 동반 급등 이력이 쌓이면 후보가 표시됩니다.</p>
+  </div>
+
+  <div class="foot">
+    <b>공통 규칙(전 변형 동일):</b><br>
+    · 동반율(conf_d0)은 <b>확률</b> → 항상 중립색(--fg), 절대 빨강/파랑 금지. 실시간 등락률만 상승=빨강/하락=파랑.<br>
+    · 근거 = 공유 테마 칩(outline) <b>및/또는</b> "직접동반 N회"(accent fill) — 둘 다 해당이면 둘 다 표시(D-03).<br>
+    · 후행형 배지 = D+1 후행 우세 후보(D-08). 정렬은 결합 점수, 그룹 분리 안 함.<br>
+    · 강도바/라인 = 결합 점수(conf_d0+lift+avg_ret+conf_d1). lift는 내부 디노이즈(미표시).<br>
+    · TOP-K 기본 8 + 더보기. 종목명/실시간 등락률은 stock_quotes 조인 실측.
+  </div>
+</div>
+
+<script>
+const candidates = [
+  { name:'흥구석유',     code:'024060', conf:81, sample:'근거 14일', live:13.2, strength:0.94, trail:false, themes:['정유·석유'], surge:9 },
+  { name:'중앙에너비스', code:'000440', conf:67, sample:'근거 19일', live:6.4,  strength:0.78, trail:false, themes:['정유·석유'], surge:null },
+  { name:'극동유화',     code:'014530', conf:58, sample:'근거 22일', live:-1.1, strength:0.71, trail:true,  themes:['정유·석유'], surge:null },
+  { name:'대성에너지',   code:'117580', conf:52, sample:'직접 6회',  live:3.8,  strength:0.64, trail:false, themes:[],          surge:6 },
+  { name:'SH에너지화학', code:'002360', conf:49, sample:'근거 17일', live:0.0,  strength:0.57, trail:false, themes:['정유·석유'], surge:5 },
+  { name:'제이씨케미칼', code:'137950', conf:46, sample:'직접 5회',  live:2.1,  strength:0.52, trail:true,  themes:[],          surge:5 },
+  { name:'한농화성',     code:'011500', conf:41, sample:'근거 12일', live:-2.3, strength:0.45, trail:false, themes:['정유·석유'], surge:null },
+  { name:'미창석유',     code:'003650', conf:38, sample:'근거 15일', live:1.0,  strength:0.40, trail:false, themes:['정유·석유'], surge:null },
+];
+
+const fmtLive = v => (v>0?'+':'') + v.toFixed(1) + '%';
+const liveCls = v => v>0 ? 'up' : (v<0 ? 'down' : 'flat');
+const barPct = s => Math.max(4, Math.min(100, s*100));
+const SURGE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>';
+const TRAIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+
+function evidence(c){
+  let h = '<span class="ev">';
+  for(const t of c.themes) h += `<span class="ev-theme"><span class="dot"></span>${t}</span>`;
+  if(c.surge) h += `<span class="ev-surge">${SURGE_SVG}직접동반 ${c.surge}회</span>`;
+  h += '</span>';
+  return h;
+}
+const trailBadge = c => c.trail ? `<span class="badge-trail">${TRAIL_SVG}후행형</span>` : '';
+
+/* 변형 A */
+document.getElementById('va').innerHTML = candidates.map((c,i)=>`
+  <div class="row-card">
+    <span class="rank mono ${i<3?'top3':''}">${i+1}</span>
+    <span class="meta">
+      <span class="nm"><b>${c.name}</b><span class="code mono">${c.code}</span>${trailBadge(c)}</span>
+      ${evidence(c)}
+    </span>
+    <span class="barcol"><span class="bar-track"><span class="bar-fill bar-up" style="width:${barPct(c.strength)}%"></span></span></span>
+    <span class="conf"><small>동반</small>${c.conf}%</span>
+    <span class="live ${liveCls(c.live)}">${fmtLive(c.live)}</span>
+  </div>`).join('');
+
+/* 변형 B */
+document.getElementById('vb').innerHTML = candidates.map(c=>`
+  <div class="row-card">
+    <div class="r1">
+      <span class="nm"><b>${c.name}</b><span class="code mono">${c.code}</span></span>
+      <span class="live mono ${liveCls(c.live)}">${fmtLive(c.live)}</span>
+    </div>
+    <div class="r2">
+      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">${evidence(c)}${trailBadge(c)}</span>
+      <span style="white-space:nowrap"><span class="conf mono"><span class="lbl">동반</span>${c.conf}%</span><span class="smp mono">${c.sample}</span></span>
+    </div>
+    <div class="barrow">
+      <span class="lbl">강도</span>
+      <span class="bar-track"><span class="bar-fill bar-primary" style="width:${barPct(c.strength)}%"></span></span>
+    </div>
+  </div>`).join('');
+
+/* 변형 C */
+document.getElementById('vc').innerHTML = candidates.map(c=>`
+  <div class="row-card">
+    <div class="left">
+      <span class="nm"><b>${c.name}</b><span class="code mono">${c.code}</span></span>
+      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${evidence(c)}${trailBadge(c)}</span>
+    </div>
+    <div class="metric">
+      <span class="conf mono"><small>동반율</small>${c.conf}%</span>
+      <span class="live mono ${liveCls(c.live)}"><small>실시간</small>${fmtLive(c.live)}</span>
+    </div>
+    <span class="underbar" style="width:${barPct(c.strength)}%"></span>
+  </div>`).join('');
+
+/* 다크/라이트 토글 */
+const tg = document.getElementById('themeToggle');
+tg.addEventListener('click', ()=>{
+  const dark = document.documentElement.classList.toggle('dark');
+  tg.textContent = dark ? '☀︎ 라이트' : '🌙 다크';
+});
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Trash2, X } from 'lucide-react';
 
 import {
@@ -32,7 +32,6 @@ import {
   createUserTheme,
   deleteUserTheme,
   excludeSystemThemeStock,
-  forkSystemTheme,
   hideSystemTheme,
   isThemeStockLimitError,
   removeThemeStock,
@@ -44,10 +43,11 @@ import type { Market, ThemeStockMember, ThemeWithStats } from '@gh-radar/shared'
 /**
  * ThemeEditDialog — UI-SPEC §S4 유저 테마 CRUD 모달 (shadcn Dialog).
  *
- * 진입 모드:
- *   - create: 새 테마 (이름 + 종목 add). 저장 시 createUserTheme → 종목 add.
- *   - edit:   기존 유저 테마 (이름 수정 + 종목 add/remove 즉시 반영) + [삭제].
- *   - fork:   시스템 테마 복사 — forkSystemTheme 로 스냅샷 후 새 유저 테마 edit 모드로 전환.
+ * 진입 모드 (themeId 없음=지연 생성 / 있음=즉시 반영):
+ *   - create: 새 테마. 이름·종목을 로컬로 구성 후 [생성] 클릭 시 createUserTheme → 종목 일괄 add.
+ *   - fork:   시스템 테마 복사. 오픈 시 시스템 테마 이름·active 종목을 로컬 복제(DB 쓰기 없음) →
+ *             [생성] 클릭 시 create 와 동일하게 유저 테마 생성 + 종목 일괄 add. (열자마자 생성 X)
+ *   - edit:   기존 유저/시스템 테마. 이름 수정 + 종목 add/remove 즉시 반영 + [삭제]. system 은 admin RLS.
  *
  * 종목 검색은 Phase 6 command(useDebouncedSearch) 재사용. 50-limit(P0001)은
  * isThemeStockLimitError 로 식별해 인라인 안내. 비로그인 시 로그인 유도.
@@ -129,16 +129,7 @@ export function ThemeEditDialog({
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // fork 스냅샷 1회 실행 가드(WR-F-01) — onSaved 인라인 화살표가 부모 리렌더(폴링 setState)로
-  // 매번 신원이 바뀌어도 fork effect 가 재실행되어 유저 테마/theme_stocks 가 중복 복사되는 것을 막는다.
-  const forkStartedRef = useRef(false);
-
   const { results, loading: searching } = useDebouncedSearch(query, 300);
-
-  // 모달이 닫히면 fork 가드 해제 — 다음 오픈 시 1회 fork 허용.
-  useEffect(() => {
-    if (!open) forkStartedRef.current = false;
-  }, [open]);
 
   // 모달 오픈/모드 변경 시 초기화.
   useEffect(() => {
@@ -151,7 +142,8 @@ export function ThemeEditDialog({
       setName(mode.theme.name);
       setStocks((mode.theme.stocks ?? []).map(memberToChip));
     } else if (mode.kind === 'fork') {
-      // fork 는 오픈 시 비동기로 스냅샷 생성(아래 effect) — 임시로 시스템 테마 이름 표시.
+      // fork = 시스템 테마 내용을 로컬로 복제(이름 + active 종목). 이 시점엔 DB 쓰기 없음 —
+      // 사용자가 편집 후 '생성' 버튼을 눌렀을 때만 handleSave 가 유저 테마 생성 + 종목 일괄 추가.
       setThemeId(null);
       setName(mode.systemTheme.name);
       setStocks((mode.systemTheme.stocks ?? []).map(memberToChip));
@@ -161,53 +153,6 @@ export function ThemeEditDialog({
       setStocks([]);
     }
   }, [open, mode]);
-
-  // fork: 오픈 즉시 스냅샷 생성 → 새 유저 테마 id 확보(이후 add/remove 가 즉시 반영).
-  useEffect(() => {
-    if (!open || mode.kind !== 'fork' || !user) return;
-    // 1회 실행 가드(WR-F-01) — onSaved 신원 변경으로 effect 가 재실행돼도 중복 fork 차단.
-    if (forkStartedRef.current) return;
-    forkStartedRef.current = true;
-    let cancelled = false;
-    void (async () => {
-      setBusy(true);
-      setError(null);
-      try {
-        const supabase = createClient();
-        const newId = await forkSystemTheme(supabase, user.id, mode.systemTheme.id);
-        if (cancelled) return;
-        setThemeId(newId);
-        // fork 스냅샷: 복사된 멤버 = 시스템 테마의 active 멤버(mode.systemTheme.stocks).
-        // stocks state 가 아닌 mode 직접 참조 — 이 effect 는 open 시 1회만 (deps 에
-        // stocks 미포함; add/remove 로 인한 재실행 방지).
-        const forkedChips = (mode.systemTheme.stocks ?? []).map(memberToChip);
-        onSaved({
-          id: newId,
-          name: mode.systemTheme.name,
-          description: mode.systemTheme.description,
-          isSystem: false,
-          ownerId: user.id,
-          sources: ['user'],
-          top3AvgChangeRate: null,
-          statsUpdatedAt: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          stockCount: forkedChips.length,
-          stocks: forkedChips.map(chipToMember),
-        });
-      } catch (err) {
-        if (cancelled) return;
-        setError(
-          isThemeStockLimitError(err) ? THEME_LIMIT_MESSAGE : GENERIC_ERROR,
-        );
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, mode, user, onSaved]);
 
   /**
    * 변경 직후의 유저 테마 스냅샷을 구성한다(낙관적 갱신용). id·chips 를 명시 인자로 받아
@@ -235,17 +180,6 @@ export function ThemeEditDialog({
     [name, user],
   );
 
-  const ensureThemeId = useCallback(async (): Promise<string | null> => {
-    if (themeId) return themeId;
-    if (!user) return null;
-    const supabase = createClient();
-    const trimmed = name.trim() || '새 테마';
-    const newId = await createUserTheme(supabase, user.id, trimmed);
-    setThemeId(newId);
-    onSaved(buildOptimisticTheme(newId, stocks));
-    return newId;
-  }, [themeId, user, name, stocks, onSaved, buildOptimisticTheme]);
-
   const handleAddStock = useCallback(
     async (chip: StockChip) => {
       if (!user) return;
@@ -253,34 +187,43 @@ export function ThemeEditDialog({
         setQuery('');
         return;
       }
+      // 아직 생성 전(create/fork): DB 쓰기 없이 로컬에서만 구성 — '생성' 시 일괄 반영.
+      if (!themeId) {
+        if (stocks.length >= 50) {
+          setError(LIMIT_MESSAGE);
+          return;
+        }
+        setStocks((prev) => [...prev, chip]);
+        setQuery('');
+        return;
+      }
+      // 기존 테마(편집): 즉시 반영.
       setBusy(true);
       setError(null);
       try {
-        const id = await ensureThemeId();
-        if (!id) return;
         const supabase = createClient();
         if (isSystemEdit) {
-          await addSystemThemeStock(supabase, id, chip.code);
+          await addSystemThemeStock(supabase, themeId, chip.code);
         } else {
-          await addThemeStock(supabase, id, chip.code);
+          await addThemeStock(supabase, themeId, chip.code);
         }
         const nextStocks = [...stocks, chip];
         setStocks(nextStocks);
         setQuery('');
-        onSaved(buildOptimisticTheme(id, nextStocks));
+        onSaved(buildOptimisticTheme(themeId, nextStocks));
       } catch (err) {
         setError(isThemeStockLimitError(err) ? LIMIT_MESSAGE : GENERIC_ERROR);
       } finally {
         setBusy(false);
       }
     },
-    [user, stocks, ensureThemeId, onSaved, buildOptimisticTheme, isSystemEdit],
+    [user, stocks, themeId, onSaved, buildOptimisticTheme, isSystemEdit],
   );
 
   const handleRemoveStock = useCallback(
     async (code: string) => {
       if (!themeId || !user) {
-        // 아직 생성 전(create)인 경우 로컬에서만 제거.
+        // 아직 생성 전(create/fork)인 경우 로컬에서만 제거 — '생성' 시 반영.
         setStocks((prev) => prev.filter((s) => s.code !== code));
         return;
       }
@@ -312,6 +255,7 @@ export function ThemeEditDialog({
     try {
       const supabase = createClient();
       if (themeId) {
+        // 기존 테마(편집): 이름만 갱신 — 종목은 add/remove 시 이미 즉시 반영됨.
         const patch = { name: name.trim() || '새 테마' };
         if (isSystemEdit) {
           await updateSystemTheme(supabase, themeId, patch);
@@ -320,12 +264,28 @@ export function ThemeEditDialog({
         }
         onSaved(buildOptimisticTheme(themeId, stocks));
       } else {
-        // ensureThemeId 가 생성 직후 onSaved(스냅샷) 를 이미 발행 — 중복 호출 안 함.
-        await ensureThemeId();
+        // create/fork(지연 생성): '생성' 누른 이 시점에 유저 테마 생성 + 로컬 종목 일괄 추가.
+        const newId = await createUserTheme(
+          supabase,
+          user.id,
+          name.trim() || '새 테마',
+        );
+        // 재시도 시 중복 테마 생성 방지 — 생성 성공 후 즉시 id 고정.
+        setThemeId(newId);
+        for (const chip of stocks) {
+          await addThemeStock(supabase, newId, chip.code);
+        }
+        onSaved(buildOptimisticTheme(newId, stocks));
       }
       onOpenChange(false);
     } catch (err) {
-      setError(isThemeStockLimitError(err) ? THEME_LIMIT_MESSAGE : GENERIC_ERROR);
+      if (isThemeStockLimitError(err)) {
+        // 동일 P0001 — 테마수 초과 vs 종목수 초과를 message 로 구분(Plan 07 계약).
+        const msg = (err as { message?: string }).message ?? '';
+        setError(msg.includes('stock') ? LIMIT_MESSAGE : THEME_LIMIT_MESSAGE);
+      } else {
+        setError(GENERIC_ERROR);
+      }
     } finally {
       setBusy(false);
     }
@@ -334,7 +294,6 @@ export function ThemeEditDialog({
     themeId,
     name,
     stocks,
-    ensureThemeId,
     onSaved,
     onOpenChange,
     buildOptimisticTheme,
@@ -383,7 +342,9 @@ export function ThemeEditDialog({
         <DialogHeader>
           <DialogTitle>{titleText}</DialogTitle>
           <DialogDescription>
-            테마 이름과 종목을 구성하세요. 변경은 즉시 저장됩니다.
+            {themeId
+              ? '테마 이름과 종목을 구성하세요. 변경은 즉시 저장됩니다.'
+              : '테마 이름과 종목을 구성한 뒤 [생성]을 누르면 추가됩니다.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -579,7 +540,7 @@ export function ThemeEditDialog({
                 disabled={busy}
                 aria-busy={busy || undefined}
               >
-                저장
+                {themeId ? '저장' : '생성'}
               </Button>
             </div>
           </DialogFooter>
