@@ -75,6 +75,8 @@ confD0: Number.isFinite(a.bestConfD0Raw) ? a.bestConfD0Raw : 0,
 ```
 (의도적으로 eff 노출이 맞다면 shared 타입 doc 과 UI 라벨("동반율" → "결합 동반점수" 등)을 일치시킬 것.)
 
+**Status: FIXED** (b7762e3)
+
 ### WR-02: 앵커의 모든 테마가 hidden 이면 tombstone 테마 멤버가 무근거 후보로 누수
 
 **File:** `server/src/routes/comovement.ts:80-130` + `server/src/lib/computeComovement.ts:156-159`
@@ -116,6 +118,8 @@ useEffect(() => {
 }, [stockCode]);
 ```
 (또는 page.tsx 에서 `<StockDetailClient key={code} ... />` 로 remount 강제 — 동일 클래스 stale 이 있는 StockDetailClient 자체 state 도 함께 해결됨.)
+
+**Status: FIXED** (f2f76e3)
 
 ## Info
 
