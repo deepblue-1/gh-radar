@@ -149,6 +149,28 @@ describe('StockComovementSection', () => {
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
+  it('Test 8: 종목 변경(remount 없이 props 갱신) 시 state 리셋 — 에러 sticky·stale 후보 방지 (WR-04)', async () => {
+    // 1번 종목: fetch 실패 → 섹션 숨김(hasError sticky 후보).
+    fetchStockComovementMock.mockRejectedValueOnce(
+      new Error('PostgREST internal: relation does not exist'),
+    );
+    const { rerender } = render(<StockComovementSection stockCode="004090" />);
+    await waitFor(() => expect(fetchStockComovementMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByLabelText('동조 후보')).not.toBeInTheDocument(),
+    );
+
+    // 2번 종목으로 이동(remount 없이 stockCode prop 만 갱신) → 성공 응답.
+    fetchStockComovementMock.mockResolvedValueOnce({
+      candidates: [makeCandidate({ name: '대성에너지' })],
+    });
+    rerender(<StockComovementSection stockCode="017900" />);
+
+    // hasError 가 리셋되어 섹션이 다시 보이고 새 후보가 렌더되어야 한다.
+    await waitFor(() => expect(screen.getByText('대성에너지')).toBeInTheDocument());
+    expect(screen.getByLabelText('동조 후보')).toBeInTheDocument();
+  });
+
   it('Test 7: co-surge 전용(sharedThemes=[], coSurgeCount=9, confD0=0) → 동반율 "—", "0%" 미표시', async () => {
     fetchStockComovementMock.mockResolvedValue({
       candidates: [

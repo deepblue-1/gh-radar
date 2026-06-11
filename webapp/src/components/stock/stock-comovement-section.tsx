@@ -148,6 +148,13 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
+    // 종목 간 내비게이션(같은 동적 라우트 → remount 없이 props 갱신)에서 state sticky 방지 (WR-04):
+    //   - hasError 리셋 없으면 한 번 실패 후 모든 종목에서 섹션 영구 숨김.
+    //   - candidates/expanded 리셋 없으면 새 fetch 완료 전 이전 종목 후보 stale 노출.
+    setLoaded(false);
+    setHasError(false);
+    setExpanded(false);
+    setCandidates([]);
     const controller = new AbortController();
     void (async () => {
       try {
