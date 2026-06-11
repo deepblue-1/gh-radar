@@ -48,9 +48,8 @@ type Acc = {
   code: string;
   themeCombined: number; // 테마 경로 결합점수 (없으면 0)
   cosurgeCombined: number; // co-surge 경로 결합점수 (없으면 0)
-  confD0: number; // 표시 메트릭 (테마 경로 conf_d0_eff, co-surge 전용은 0)
   bestConfD1: number; // 후행 판정용 (테마 경로 max conf_d1)
-  bestConfD0Raw: number; // 후행 판정용 (테마 경로 max conf_d0, anchor_rel 미적용)
+  bestConfD0Raw: number; // 표시 메트릭(raw 동반율) + 후행 판정용 (테마 경로 max conf_d0, anchor_rel 미적용)
   igniteDays: number; // 표본 배지용 (테마 경로 max ignite_days)
   sharedThemes: { id: string; name: string }[];
   coSurgeCount: number | null;
@@ -140,7 +139,6 @@ export function computeComovement(
         code,
         themeCombined: 0,
         cosurgeCombined: 0,
-        confD0: 0,
         bestConfD1: 0,
         bestConfD0Raw: 0,
         igniteDays: 0,
@@ -172,9 +170,8 @@ export function computeComovement(
       0.1 * confD1;
 
     const a = ensure(r.stock_code);
-    // conf_d0_eff 는 테마들 중 max — 가장 강한(타이트+앵커동참) 테마가 대표.
+    // conf_d0_eff(가중값)는 strength 랭킹에만 반영 — 표시 메트릭(confD0)은 raw 동반율(bestConfD0Raw) 사용 (WR-01).
     if (combined > a.themeCombined) a.themeCombined = Number.isFinite(combined) ? combined : 0;
-    if (confD0Eff > a.confD0) a.confD0 = Number.isFinite(confD0Eff) ? confD0Eff : 0;
     if (confD1 > a.bestConfD1) a.bestConfD1 = confD1;
     if (confD0 > a.bestConfD0Raw) a.bestConfD0Raw = confD0;
     if (Number.isFinite(r.ignite_days) && r.ignite_days > a.igniteDays) a.igniteDays = r.ignite_days;
@@ -223,7 +220,8 @@ export function computeComovement(
       name: meta?.name ?? a.code,
       market: (meta?.market ?? "KOSPI") as Market,
       liveChangeRate: live,
-      confD0: Number.isFinite(a.confD0) ? a.confD0 : 0,
+      // 표시 메트릭 = raw 동반율 (가중값 conf_d0_eff 가 아닌 — WR-01). co-surge 전용은 0 → UI sharedThemes=[] 로 "—".
+      confD0: Number.isFinite(a.bestConfD0Raw) ? a.bestConfD0Raw : 0,
       strength,
       isTrailing,
       sharedThemes: a.sharedThemes,
