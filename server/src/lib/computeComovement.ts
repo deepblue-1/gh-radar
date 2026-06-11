@@ -4,7 +4,8 @@
  * 두 사전계산 경로를 병합·dedup·랭킹한다:
  *   1. 테마-풀링(theme_comovement) — 앵커의 활성 테마 멤버. conf_d0(동반율) + 타이트니스
  *      가중(1/sqrt(member_count)) + 앵커 참여도 가중(anchor_rel, R3).
- *   2. 글로벌 co-surge(cosurge_edges) — 앵커와 ≥10% 바를 함께 낸 이웃. co_count.
+ *   2. 글로벌 co-surge(cosurge_edges) — 앵커와 ≥10% 바를 함께 낸 이웃. v2: pairScore =
+ *      (ws_sum/w_sum) × min(1, w_sum/W0) — 앵커 발화일 강도비율의 최근성 가중평균 × 표본보정.
  *
  * 종목코드(code) key 로 dedup — 한 종목이 양쪽 경로에 모두 있으면 evidence 합집합
  * (sharedThemes + coSurgeCount), strength = max(theme_combined, cosurge_combined) (D-03/D-10).
@@ -33,8 +34,14 @@ import { toNum, type ThemeComovementRow, type CosurgeEdgeRow } from "../mappers/
 export const LIFT_CAP = 10;
 /** avg_ret 정규화 분모(%). 30%/일 을 만점으로. */
 export const AVG_RET_DIV = 30;
-/** co-surge 전용(테마 없음) co_count 정규화 상한. co_count ∈ [3, CO_SURGE_CAP] → conf 대체. */
-export const CO_SURGE_CAP = 15;
+/**
+ * co-surge 페어점수 v2 표본보정 분모(가중 발화일 합 W0).
+ * pairScore = (ws_sum/w_sum) × min(1, w_sum/W0). w_sum 은 Σ power(0.5, 경과일/365):
+ * 오늘 발화 1회면 w≈1.0, 1년 전 1회면 w≈0.5. W0=1.5 → 최근 1회짜리 우연(w≈1)이
+ * min(1, 1/1.5)=0.67 로 감쇠해, 꾸준한 다수 동반(w_sum≥1.5, 보정 1.0)을 못 이긴다.
+ * (기존 CO_SURGE_CAP=15 횟수 정규화는 폐기 — 강도·최근성 미반영이라 사용자 의도와 불일치.)
+ */
+export const CO_SURGE_W0 = 1.5;
 /**
  * 앵커 참여도 가중 floor (R3). anchor_rel = sqrt(FLOOR + (1-FLOOR)·anchor_conf_d0).
  * 0.2 floor 로 앵커 미동참 테마도 ~0.45 배 기여(recall 붕괴 방지). 범위 ≈ [0.45, 1].
@@ -183,21 +190,32 @@ export function computeComovement(
   }
 
   // 3. co-surge 경로 — 앵커 반대편 code. 테마 없는 종목도 후보로.
+  //    v2: 앵커가 발화한 날 other 가 얼마나 따라갔나(강도비율)를 최근성 가중평균.
+  //    pairScore = (ws_sum/w_sum) × min(1, w_sum/W0). 만점 1.0 (테마 경로와 동일).
+  //    앵커가 code_a 면 a-방향 sums, code_b 면 b-방향 sums 사용 (앵커 발화일이 분자 기준일).
   for (const e of cosurgeRows) {
     const other = anchor ? (e.code_a === anchor ? e.code_b : e.code_a) : e.code_b;
     if (anchor && other === anchor) continue; // 자기 엣지(이론상 없음) 방어
     const coCount = Number.isFinite(e.co_count) ? e.co_count : 0;
     const lift = toNum(e.lift);
     const avgRet = toNum(e.avg_pair_ret);
-    const coSurgeConf = Math.min(1, coCount / CO_SURGE_CAP);
+
+    // 앵커 발화 방향 선택. anchor 미상(co-surge 전용 추론 폴백)이면 code_a 를 앵커로 가정.
+    const anchorIsA = anchor ? e.code_a === anchor : true;
+    const wSum = anchorIsA ? toNum(e.w_sum_a) : toNum(e.w_sum_b);
+    const wsSum = anchorIsA ? toNum(e.ws_sum_a) : toNum(e.ws_sum_b);
+    // pairScore = 강도비율(최근성 가중평균) × 표본보정. w_sum 0(≥15% 발화 0)이면 0.
+    const pairScore =
+      wSum > 0 ? (wsSum / wSum) * Math.min(1, wSum / CO_SURGE_W0) : 0;
+
     const combined =
-      0.5 * coSurgeConf +
+      0.6 * pairScore +
       0.2 * Math.min(1, lift / LIFT_CAP) +
       0.2 * Math.min(1, avgRet / AVG_RET_DIV);
 
     const a = ensure(other);
     if (combined > a.cosurgeCombined) a.cosurgeCombined = Number.isFinite(combined) ? combined : 0;
-    // coSurgeCount 는 최대 co_count (한 종목이 여러 엣지면 안전하게 max).
+    // coSurgeCount 는 표시용(칩 "직접동반 N회") — 최대 co_count (한 종목 다중 엣지면 max).
     if (a.coSurgeCount === null || coCount > a.coSurgeCount) a.coSurgeCount = coCount;
   }
 

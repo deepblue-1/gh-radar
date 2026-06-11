@@ -19,13 +19,25 @@ export type ThemeComovementRow = {
   avg_ret: string | number | null;
 };
 
-/** cosurge_edges 테이블 row (snake_case, 무향 정규화 code_a < code_b). */
+/**
+ * cosurge_edges 테이블 row (snake_case, 무향 정규화 code_a < code_b).
+ *
+ * v2 (20260611150000): 방향별 강도-최근성 누적 4컬럼 추가 — co_count 횟수 정규화를
+ * 폐기하고 pairScore = ws_sum/w_sum × min(1, w_sum/W0) 로 환산(computeComovement).
+ *   - w_sum_a / ws_sum_a: code_a 발화일 기준 Σw_t / Σw_t·s_t (앵커가 code_a 면 사용)
+ *   - w_sum_b / ws_sum_b: code_b 발화일 기준 (앵커가 code_b 면 사용)
+ * 모두 numeric → PostgREST text. NULL 가능(≥15% 발화일 0 인 게이트 통과 페어).
+ */
 export type CosurgeEdgeRow = {
   code_a: string;
   code_b: string;
   co_count: number;
   lift: string | number | null;
   avg_pair_ret: string | number | null;
+  w_sum_a: string | number | null;
+  ws_sum_a: string | number | null;
+  w_sum_b: string | number | null;
+  ws_sum_b: string | number | null;
 };
 
 /**
