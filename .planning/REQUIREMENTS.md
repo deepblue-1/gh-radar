@@ -70,6 +70,10 @@
 - [x] **THEME-03**: 유저 테마 CRUD — 로그인 유저가 본인 소유 테마 생성/편집/삭제 + 종목 add/remove, 시스템 테마 스냅샷 fork. per-user owner-only RLS (watchlist 모델 복제). 시스템 테마(read-only)와 별도 레이어로 분리 — Phase 10 **Complete** (10-02 데이터 모델 + owner-only RLS 5정책 + 50-limit trigger / 10-05 theme-api(CRUD+fork)+useThemesQuery / 10-07 /themes·/themes/[id]·종목 칩·ThemeEditDialog / 10-08 optimistic 갱신 + E2E green(create-and-add/edit-remove/delete/fork 10/10))
 - [x] **THEME-04**: AI 테마 보강 — Claude Haiku 4.5로 뉴스(`news_articles`) 기반 신규 시스템 테마 후보 발굴 + 종목↔테마 오분류 교정 (discussion-sync classify 패턴 재사용, 시스템 레이어) — Phase 10 **Complete** (10-06: ai/ 모듈 4종 + cycle 통합 + POC 검증[~$1.83/월·정확도 GOOD·source='ai' 승인] + Haiku 펜스 버그 수정 + dedup 강화 / 10-08 production 활성 THEME_SYNC_CLASSIFY_ENABLED=true — 첫 scrape aiDiscovered=25/aiCorrected=2 라이브 검증)
 
+### Co-movement
+
+- **COMV-01**: 종목 X 급등 시 일봉 통계적 동조(테마-풀링 + co-surge 두 경로 사전계산·병합)로 "따라 오를 후보 Y" 를 점수화해 종목 상세 페이지에 TOP-K 로 표시 — `theme_comovement`/`cosurge_edges` 사전계산 테이블 + `rebuild_comovement()` plpgsql RPC + 야간 1회 `co-movement-sync` 워커 + server `/api/stocks/:code/co-movement` + 종목상세 "동조 후보" 섹션 (Phase 11)
+
 ## v2 Requirements
 
 ### Personalization
@@ -133,10 +137,11 @@
 | THEME-02 | Phase 10 | Complete |
 | THEME-03 | Phase 10 | Complete (10-02 모델+RLS / 10-05 CRUD API / 10-07 UI / 10-08 optimistic + E2E green 10/10) |
 | THEME-04 | Phase 10 | Complete (10-06 ai/ 모듈+POC 검증; 10-08 prod 활성 CLASSIFY_ENABLED=true — aiDiscovered=25/aiCorrected=2 라이브) |
+| COMV-01 | Phase 11 | Pending |
 
 **Coverage:**
-- v1 requirements: 33 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33)
-- Mapped to phases: 33
+- v1 requirements: 34 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34)
+- Mapped to phases: 34
 - Unmapped: 0 ✓
 
 ---
