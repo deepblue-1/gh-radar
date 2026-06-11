@@ -13,12 +13,16 @@
  *
  * 시그니처는 Plan 01 의 RED 테스트(server/src/lib/computeComovement.test.ts)가 정의한
  * 계약이 SOURCE OF TRUTH:
- *   computeComovement(themeRows, cosurgeRows, anchorThemes, quoteByCode, k)
+ *   computeComovement(themeRows, cosurgeRows, anchorThemes, quoteByCode, k, anchorCode?)
  *   - themeRows:    앵커 활성 테마들의 전 멤버 통계 (앵커 자신의 행 포함 — anchor_rel 추출용)
  *   - cosurgeRows:  앵커가 한쪽 끝인 co-surge 엣지 (무향 정규화 code_a < code_b)
  *   - anchorThemes: 앵커 활성 테마 메타 {id,name}[] (공유 테마 칩 라벨)
  *   - quoteByCode:  code → { name, market, changeRate } (실시간 + 표시 메타)
  *   - k:            TOP-K 클램프
+ *   - anchorCode?:  앵커 종목코드 (라우트가 아는 진실값 — 명시 전달 권장).
+ *                   미전달 시 row 에서 휴리스틱 추론(deriveAnchor) 폴백 (단위 테스트 호환).
+ *                   프로덕션 라우트는 항상 명시 전달 — 다중 테마 교집합 추론 실패로 앵커가
+ *                   자기 후보에 섞이는 회귀(004090 self-rank) 방지.
  */
 
 import type { CoMovementCandidate, Market } from "@gh-radar/shared";
@@ -105,8 +109,12 @@ export function computeComovement(
   anchorThemes: { id: string; name: string }[],
   quoteByCode: Map<string, QuoteMeta>,
   k: number,
+  anchorCode?: string,
 ): CoMovementCandidate[] {
-  const anchor = deriveAnchor(themeRows, anchorThemes, cosurgeRows);
+  // 라우트가 앵커 코드를 알면(프로덕션 경로) 그것이 진실값 — 휴리스틱 추론보다 우선.
+  // 미전달 시(단위 테스트)만 row 에서 추론. 다중 테마 교집합 추론은 앵커 자기 멤버십
+  // 행이 모든 anchorThemes 를 덮지 않으면 실패 → 앵커가 자기 후보에 포함되는 버그.
+  const anchor = anchorCode ?? deriveAnchor(themeRows, anchorThemes, cosurgeRows);
   const themeNameById = new Map(anchorThemes.map((t) => [t.id, t.name]));
 
   // 1. 앵커 자신의 테마별 conf_d0 → anchor_rel 추출 (themeRows 에 앵커 행 포함).

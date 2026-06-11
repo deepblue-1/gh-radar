@@ -158,13 +158,15 @@ comovementRouter.get("/", async (req, res, next) => {
       });
     }
 
-    // 6. 결합점수 랭킹 → TOP-K.
+    // 6. 결합점수 랭킹 → TOP-K. 앵커 코드(:code)를 명시 전달 — 다중 테마에서
+    //    휴리스틱 추론이 앵커를 못 찾아 자기 후보에 섞이는 회귀 방지.
     const candidates = computeComovement(
       themeMemberRows,
       cosurgeRows,
       anchorThemes,
       quoteByCode,
       k,
+      code,
     );
 
     res.setHeader("Cache-Control", "no-store");
