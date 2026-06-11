@@ -104,5 +104,35 @@ rebuilt_at            = 2026-06-11T08:41:10Z
 > Scheduler 첫 자동 실행은 다음 cron(화~토 02:00 KST). smoke 는 수동 `execute --wait` 로 즉시 검증.
 
 ---
+
+## Plan 05 — Vercel production 배포 (동조 후보 종목상세 섹션)
+
+webapp 프론트(`gh-radar-webapp`)를 Vercel production 에 재배포. `StockComovementSection` 이 종목상세(`/stocks/[code]`) ThemeChips 다음에 마운트되어 Plan 03 라우트(`/api/stocks/:code/co-movement`)를 `apiFetch<CoMovementResponse>` 로 소비하는 UI-SPEC 채택안(변형 C + 기본3/더보기 + 빈상태 + quiet fallback)이 라이브 반영됨. 사용자 EXPLICIT 승인(orchestrator AskUserQuestion 2026-06-11 — "배포 진행").
+
+| 항목 | 값 |
+|------|-----|
+| 프로젝트 | `gh-radar-webapp` (Vercel, rootDirectory `webapp`, framework nextjs) |
+| 배포 경로 | **수동 3단계** `vercel pull --yes --environment=production` → `vercel build --prod` → `vercel deploy --prebuilt --prod` (MEMORY reference_vercel_frontend_deploy — ignoreCommand 가 push 배포 skip 함정 회피) |
+| 인증 | `vercel whoami` = `alex-9271` (기존 세션, 재로그인 0) |
+| **배포 id** | **`dpl_3zTGmDNBCRNeKFQ9FWspaFRrw2Ty`** |
+| 배포 URL | `https://gh-radar-webapp-12eggp2fu-alexs-projects-eabbefc0.vercel.app` |
+| readyState | **`READY`** (target `production`, build duration 16s) |
+| prod alias | `https://gh-radar-webapp.vercel.app` → 본 배포(`12eggp2fu`) 매핑 확인 (`vercel inspect` alias resolve) |
+| build 결과 | `Build completed successfully` — `/stocks/[code]` 68.8 kB / First Load 285 kB (동조 후보 섹션 포함), static 10/10 |
+| 활성 확인 | `vercel ls --prod` 최상위 = `12eggp2fu` `● Ready` (35s, 직전 배포 대비 신규) |
+
+### 활성 검증 (HTTP)
+
+- `GET https://gh-radar-webapp.vercel.app/` → **307** (login gate, 정상)
+- `GET https://gh-radar-webapp.vercel.app/stocks/004090` → **307** → `Location: /login?next=%2Fstocks%2F004090` (middleware 인증 게이트 — 비로그인 시 종목상세 HTML 직접 미노출)
+- 404/5xx 0 — 라우팅·배포 활성 입증. 새 배포가 prod alias 에 반영됨(alias inspect = `12eggp2fu`).
+
+> 비고: 종목상세 HTML 은 로그인 게이트(middleware 307) 뒤에 있어 동조 후보 섹션 마커를 curl 로 직접 확인 불가. CLAUDE.md / 체크포인트 전제대로 **시각 검증은 사용자 수동(로그인 후 `/stocks/004090`)** 으로 갈음 — 11-05-SUMMARY.md "사용자 수동 검증 대기" 체크리스트 참조. 배포 활성은 Vercel CLI readyState `READY` + alias resolve + HTTP 307(게이트 정상) 로 입증.
+
+### build 비고
+
+- 빌드 중 경고 1건: `theme-detail-client.tsx:9 'ScannerEmpty' is defined but never used` — **본 plan 무관 pre-existing 경고**(SCOPE BOUNDARY, 미수정). 동조 후보 섹션 신규 파일에는 lint/type 경고 0.
+
+---
 *Phase: 11-co-movement-candidates-top-k*
 *Logged: 2026-06-11*
