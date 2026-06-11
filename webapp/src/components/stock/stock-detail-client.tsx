@@ -14,6 +14,7 @@ import { StockNewsSection } from './stock-news-section';
 import { StockDiscussionSection } from './stock-discussion-section';
 import { StockDailyChartSection } from './stock-daily-chart-section';
 import { StockThemeChips } from '@/components/theme/theme-chips';
+import { StockComovementSection } from './stock-comovement-section';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -141,6 +142,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
         </p>
       )}
       <StockThemeChips stockCode={stock.code} />
+      <StockComovementSection stockCode={stock.code} />
       <div className="space-y-6">
         <StockNewsSection stockCode={stock.code} />
         <StockDiscussionSection stockCode={stock.code} />
