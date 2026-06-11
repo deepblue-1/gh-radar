@@ -137,3 +137,51 @@ GROUP BY a.code, b.code HAVING count(*) >= 3;
 | conf_d0 범위 | [0, 1] ✅ |
 | lift sanity | 양수, fixture >>1, NaN/null 없음 ✅ |
 | 추가 인덱스 필요 여부 | 미확정 — EXPLAIN deferred(SQL Editor). 25s 실측상 현 인덱스로 병목 징후 없음 |
+
+---
+
+# v2 — cosurge 페어 점수 재설계 (사용자 설계 피드백, 2026-06-11)
+
+> 마이그레이션 `20260611150000_cosurge_pair_score_v2.sql` production push + `rebuild_comovement(24)` REST RPC 재실행 후 실측.
+
+## v2.1 설계 변경 요지
+
+co-surge 점수를 "동반 **횟수**(co_count/15 정규화)" 에서 "**강도비율 × 최근성 가중 × 표본보정**" 으로 교체.
+
+- 사용자 의도: "X 가 급등 간 날 Y 가 얼마나 같이 갔느냐. 30% 갈 때 27% 따라갔으면 0.9. 최근일수록 더 크게." 직접동반 만점은 테마와 동일 1.0.
+- `rebuild_comovement()` 가 cosurge_edges 에 방향별 `w_sum_a/ws_sum_a/w_sum_b/ws_sum_b` 채움. **페어 후보 게이트(≥10% 동반 ≥3일·적격성·광역일 제외)는 불변** — "어떤 페어가 존재하는가" 는 그대로, "그 페어의 점수" 만 신규.
+- server: `pairScore = (ws_sum/w_sum) × min(1, w_sum/W0)`, **W0 = 1.5** (`CO_SURGE_W0`). `cosurgeCombined = 0.6·pairScore + 0.2·min(1,lift/10) + 0.2·min(1,avgRet/30)` → 만점 1.0.
+
+## v2.2 rebuild 실행시간 → task-timeout 재확인
+
+| 항목 | v1 | **v2** |
+|------|-----|--------|
+| rebuild_comovement(24) wall-clock (REST time_total) | ~25s | **53.9s** |
+| theme_comovement_rows | 5537 | **5537** (불변) |
+| cosurge_edge_rows | 9704 | **9704** (불변 — 게이트 동일) |
+| HTTP | 200 | **200** (timeout 없음, 600s 천장 대비 충분) |
+
+- 실행시간이 ~25s → **53.9s** 로 약 2배 증가. 원인: 방향별 발화일 집계 2개(dir_a/dir_b) 의 `ignite_bars × stock_daily_ohlcv` LEFT JOIN 추가. 여전히 **180s task-timeout 내** (53.9s × 3.3 마진) 이며 150s 임계 미만.
+- **task-timeout 상향 불필요** — 53.9s < 150s. 단 daily_bars 누적이 더 진행되면 (현재 마진 3.3×) 재측정 권고. DB role 천장 600s 는 여유.
+- 행수는 게이트 불변이라 v1 과 동일(5537/9704) — full-rebuild 멱등성·게이트 보존 확인.
+
+## v2.3 흥구석유 fixture sanity (W0/반감기 캘리브레이션)
+
+`GET /api/stocks/004090/co-movement?k=8` (prod, revision `gh-radar-server-00028-xnw`):
+
+| rank | code | 종목 | v2 strength | v1 strength | pairScore | 비고 |
+|------|------|------|----:|----:|----:|------|
+| **1** | 024060 | **흥구석유** | **0.9401** | 0.6558 | 0.974 | ✅ 상위 유지 (요구: 상위 3위 내) |
+| 2 | 000440 | 중앙에너비스 | 0.8980 | 0.5925 | 0.898 | 강한 동반 |
+| 3 | 117580 | 대성에너지 | 0.7761 | — | 0.692 | |
+
+- **흥구석유 rank #1 (강도비율 0.974, 9회 동반)** — v2 에서도 최상위. 캘리브레이션 재점검 불필요.
+- v1 대비 strong follower 의 strength 가 0.66 → 0.94 로 상승 — 만점 1.0 척도에서 "한국석유 급등 시 ~97% 비율로 따라간 종목" 의미가 점수에 직접 반영됨. 사용자 의도 일치.
+- 표본보정: 004090 의 모든 a-side 엣지 `w_sum_a = 4.146` (자기 ≥15% 발화일 가중합) → `min(1, 4.146/1.5) = 1.0` 만점. 즉 한국석유는 발화 표본이 충분해 보정 감쇠 없음. pairScore = ws_sum/w_sum (순수 강도비율 가중평균).
+- 응답 계약 불변: object `{candidates:[...]}`, 10필드, strength desc, 앵커 제외, co-surge 전용 `sharedThemes:[] confD0:0`(UI "—").
+
+## v2.4 W0 근거
+
+- `w_sum` = Σ power(0.5, 경과일/365): 오늘 발화 1회 ≈ 1.0, 1년 전 1회 ≈ 0.5.
+- **W0 = 1.5** → 최근 1회짜리 우연(w≈1)이 `min(1, 1/1.5) = 0.67` 로 감쇠, 꾸준한 다수 동반(w_sum ≥ 1.5, 보정 1.0)을 못 이기게 함. 테스트 K(시나리오)로 회귀 고정.
+- 실데이터(004090 w_sum 4.146)는 대부분 W0 초과라 보정 만점 — W0 은 표본 빈약 페어의 우연 과대평가만 억제. 흥구석유 상위 유지로 현 W0 적정 확인.

@@ -194,5 +194,52 @@ webapp 프론트(`gh-radar-webapp`)를 Vercel production 에 재배포. `StockCo
 - WR-04(섹션 state 리셋) 는 로그인 후 종목 간 이동 시각 검증이 필요 — 게이트 뒤라 curl 직접 확인 불가, 사용자 수동 검증으로 갈음. 배포 활성은 readyState Ready + alias resolve + HTTP 307 로 입증.
 
 ---
+
+## v2 재배포 — cosurge 페어 점수 v2 (강도비율×최근성×표본보정)
+
+사용자 설계 피드백(횟수 정규화 폐기 → 강도비율×최근성)을 production 에 반영. 마이그레이션 push → `rebuild_comovement(24)` 재적재 → server 재배포 → prod curl. 사용자 EXPLICIT 승인(orchestrator AskUserQuestion 2026-06-11 — "지금 바로 구현": db push --yes / rebuild RPC / deploy-server.sh 재승인 없이 진행).
+
+### DB 적용
+
+| 항목 | 값 |
+|------|-----|
+| 마이그레이션 | `20260611150000_cosurge_pair_score_v2.sql` (`supabase db push --yes` 적용 — migration list 반영) |
+| 변경 | cosurge_edges +4컬럼(w_sum_a/ws_sum_a/w_sum_b/ws_sum_b), rebuild_comovement() CREATE OR REPLACE |
+| rebuild RPC | `POST /rest/v1/rpc/rebuild_comovement {p_lookback_months:24}` → HTTP **200**, **time_total 53.9s** (180s task-timeout 내, 600s DB 천장 하위) |
+| 적재 결과 | theme_comovement **5537** / cosurge_edges **9704** (게이트 불변 — v1 과 동일 행수, 멱등 full-rebuild) |
+| 워커 영향 | co-movement-sync 는 RPC 1줄 호출 — **코드 무변경**. 실행시간 53.9s < 150s 라 **task-timeout 180s 유지(상향 불필요)** |
+
+### server 재배포 (Cloud Run)
+
+| 항목 | 값 |
+|------|-----|
+| 서비스 | `gh-radar-server` (region `asia-northeast3`) |
+| 재배포 전 revision | `gh-radar-server-00027-9rl` (SHA `c8a98ec`) |
+| **재배포 후 활성 revision** | **`gh-radar-server-00028-xnw`** (SHA `f6cc108`, 100% traffic) |
+| image digest | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/server@sha256:62af91da7ef17da9ba456199a02c6c5c1d9db702e2131564ca81a241eac897ef` |
+| env 주입 | 현 서비스 env 재사용(이미지 SHA 만 갱신). `DISCUSSION_CLASSIFY_ENABLED=false` 유지(회귀 함정) |
+| 빌드 | `bash scripts/deploy-server.sh` — `docker build --platform=linux/amd64` |
+| smoke (INV-1~9) | **9/9 PASS** (rate-limit INV-8 포함) |
+| prod URL | `https://gh-radar-server-fnbhvevuva-du.a.run.app` |
+
+### prod curl 검증 — `GET /api/stocks/004090/co-movement?k=8`
+
+- HTTP **200**, 응답 **객체** `{candidates:[...]}` (배열 아님), candidates 길이 **8**, **strength desc** 통과, 앵커 004090 제외.
+- 10필드 전부 존재(`code/name/market/liveChangeRate/confD0/strength/isTrailing/sharedThemes/coSurgeCount/sampleConfidence`) — **응답 계약 불변**.
+- **흥구석유(024060) candidates[0]** — v2 strength **0.9401** (v1 0.6558 → 상승). 강도비율 0.974(한국석유 급등 시 ~97% 비율 동반).
+
+top 3 (v2):
+```json
+[
+  {"code":"024060","name":"흥구석유","strength":0.9401,"coSurgeCount":9,"sharedThemes":[],"confD0":0},
+  {"code":"000440","name":"중앙에너비스","strength":0.8980,"coSurgeCount":7,"sharedThemes":[],"confD0":0},
+  {"code":"117580","name":"대성에너지","strength":0.7761,"coSurgeCount":5,"sharedThemes":[],"confD0":0}
+]
+```
+
+- co-surge 전용 후보 `sharedThemes:[] confD0:0`(UI "—") 계약 불변. coSurgeCount 표시값 유지.
+- 비고: 재배포 직후 smoke 의 rate-limit 테스트(201 req)로 첫 curl 일시 429 — per-IP 윈도우 클리어 후 재검증(200) 완료. 무한 재시도 아님(30s 대기 후 1회 성공).
+
+---
 *Phase: 11-co-movement-candidates-top-k*
-*Logged: 2026-06-11 (Gap Fix 재배포 append)*
+*Logged: 2026-06-11 (v2 cosurge 점수 재배포 append)*
