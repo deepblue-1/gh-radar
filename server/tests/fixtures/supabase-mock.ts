@@ -20,6 +20,9 @@ type State = {
   topMovers?: TopMoverRow[];
   themes?: ThemeRow[];
   themeStocks?: ThemeStockRow[];
+  // Phase 11 — 동조 후보 사전계산 데이터셋 (theme_comovement / cosurge_edges)
+  themeComovement?: any[];
+  cosurgeEdges?: any[];
   upserts?: { table: string; rows: any[] }[];
 };
 
@@ -33,6 +36,8 @@ export function mockSupabase(state: State): SupabaseClient {
     if (t === "top_movers") return state.topMovers ?? [];
     if (t === "themes") return state.themes ?? [];
     if (t === "theme_stocks") return state.themeStocks ?? [];
+    if (t === "theme_comovement") return state.themeComovement ?? [];
+    if (t === "cosurge_edges") return state.cosurgeEdges ?? [];
     return [];
   };
 

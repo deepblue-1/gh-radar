@@ -1,5 +1,6 @@
 export type { Stock, Market, SecurityType, StockMaster, StockQuote, StockWithQuote, BdydTrdRow, StockDailyOhlcv } from "./stock";
 export type { Theme, ThemeStock, ThemeStockMember, ThemeStockSource, ThemeWithStats } from "./theme";
+export type { CoMovementCandidate, CoMovementResponse } from "./comovement";
 export { THEME_STOCK_SOURCES } from "./theme";
 export type { NewsArticle } from "./news";
 export type { Discussion, DiscussionListResponse } from "./discussion";
