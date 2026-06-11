@@ -134,5 +134,65 @@ webapp 프론트(`gh-radar-webapp`)를 Vercel production 에 재배포. `StockCo
 - 빌드 중 경고 1건: `theme-detail-client.tsx:9 'ScannerEmpty' is defined but never used` — **본 plan 무관 pre-existing 경고**(SCOPE BOUNDARY, 미수정). 동조 후보 섹션 신규 파일에는 lint/type 경고 0.
 
 ---
+
+## Gap Fix 재배포 — WR-01 (동반율 raw 표기) + WR-04 (섹션 state 리셋)
+
+11-REVIEW.md / 사용자 시각 검증에서 발견된 2건(11-HUMAN-UAT GAP-1)의 수정 커밋(`b7762e3` WR-01, `f2f76e3` WR-04)을 production 에 재배포. 사용자 EXPLICIT 승인(orchestrator AskUserQuestion 2026-06-11 — server + webapp 둘 다 재배포 승인).
+
+- **WR-01:** UI "동반율 N%" 가 `conf_d0_eff`(타이트니스·앵커참여도 가중)를 노출해 실제 동반율을 ~12배 과소 표기 → 표시 필드 `confD0` 를 raw 동반율(`bestConfD0Raw`)로 교체. 가중값은 strength 랭킹 계산에만 유지. co-surge 전용 후보는 `confD0=0` → UI "—" 계약 불변.
+- **WR-04:** 동적 라우트 내 종목 이동(remount 없는 props 갱신) 시 `useEffect` 시작에서 state 전체 리셋(loaded/hasError/expanded/candidates) → 에러 1회 후 섹션 영구 숨김(hasError sticky) + 이전 종목 후보 stale 노출 동시 해결.
+
+### server 재배포 (Cloud Run)
+
+| 항목 | 값 |
+|------|-----|
+| 서비스 | `gh-radar-server` (region `asia-northeast3`) |
+| 재배포 전 revision | `gh-radar-server-00026-hqb` (SHA `1dc1091`) |
+| **재배포 후 활성 revision** | **`gh-radar-server-00027-9rl`** (SHA `c8a98ec`, 100% traffic) |
+| image digest | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/server@sha256:8fd16aa0ee530f3f57bdd035f8aed6dc5fbcde45793ad400ec54cb4aee757bee` |
+| env 주입 | 현 서비스 env 추출 재사용(이미지 SHA 만 갱신). `DISCUSSION_CLASSIFY_ENABLED=false` 유지(회귀 함정 — MEMORY project_claude_haiku_cost_classify) |
+| 빌드 | `bash scripts/deploy-server.sh` — `docker build --platform=linux/amd64` |
+| smoke (INV-1~9) | **9/9 PASS** (rate-limit INV-8 포함) |
+| prod URL | `https://gh-radar-server-fnbhvevuva-du.a.run.app` |
+
+### prod curl 검증 — WR-01 raw 동반율 (재배포 전/후 비교)
+
+`GET /api/stocks/004090/co-movement?k=8` → **HTTP 200**, 응답 객체 `{candidates:[...]}`, candidates 길이 8, **strength desc 정렬** 통과, 앵커 004090 제외 확인.
+
+- **k=8 상위(co-surge 전용)** — `sharedThemes:[]`, `confD0:0` 유지(UI "—" 계약 불변). strength 값·순서 재배포 전과 **동일**(흥구석유 0.6558 → 중앙에너비스 0.5925 → …). 즉 표시 메트릭 변경이 랭킹에 영향 없음 입증.
+- **테마 근거 후보(k=50 중 28건)** — `confD0` 가 가중값(과소표기)에서 **raw 동반율로 상승**. 동일 코드 비교:
+
+| 코드 | 종목 | 재배포 전 confD0 (가중) | 재배포 후 confD0 (raw) | 배율 | strength(불변) |
+|------|------|----:|----:|----:|----:|
+| 014990 | 인디에프 | 0.0332 | **0.4000** | ×12.0 | 0.3202 |
+| 007110 | 일신석재 | 0.0277 | **0.3333** | ×12.0 | 0.3413 |
+| 033340 | 좋은사람들 | 0.0249 | **0.3000** | ×12.0 | 0.3191 |
+| 025980 | 아난티 | 0.0192 | **0.2308** | ×12.0 | 0.2857 |
+| 009270 | 신원 | 0.0064 | **0.0769** | ×12.0 | 0.3243 |
+
+- 모든 후보 `confD0 ∈ [0,1]` 확인. strength desc 랭킹 k=8/k=50 모두 유지. co-surge 전용 후보 `confD0` 처리(UI "—" 계약) 불변.
+- 비고: 재검증 첫 curl 이 직전 smoke 의 rate-limit 테스트(201 req)로 일시 429 — per-IP 윈도우 클리어 후 재검증(이후 200) 완료. 무한 재시도 아님(윈도우 대기 후 1회 성공).
+
+### webapp 재배포 (Vercel production)
+
+| 항목 | 값 |
+|------|-----|
+| 프로젝트 | `gh-radar-webapp` (rootDirectory `webapp`, nextjs) |
+| 배포 경로 | **수동 3단계** `vercel pull --yes --environment=production` → `vercel build --prod` → `vercel deploy --prebuilt --prod` (ignoreCommand 함정 회피) |
+| 인증 | `vercel whoami` = `alex-9271` (기존 세션) |
+| **배포 id** | **`dpl_VgLsWKG9pZJJWJ65a9rMvGvoSaGN`** |
+| 배포 URL | `https://gh-radar-webapp-4718byjsz-alexs-projects-eabbefc0.vercel.app` |
+| readyState | **`● Ready`** (target production, build 12s) |
+| prod alias | `https://gh-radar-webapp.vercel.app` → 본 배포(`4718byjsz` / `dpl_VgLsW…`) 매핑 확인 (`vercel inspect` alias resolve) |
+| build 결과 | `Build completed successfully` |
+| 활성 확인 | `vercel ls --prod` 최상위 = `4718byjsz` `● Ready` (43s, 직전 `12eggp2fu` 대비 신규) |
+
+### 활성 검증 (HTTP)
+
+- `GET https://gh-radar-webapp.vercel.app/` → **307** (login gate, 정상)
+- `GET https://gh-radar-webapp.vercel.app/stocks/004090` → **307** → `Location: /login?next=%2Fstocks%2F004090` (middleware 인증 게이트)
+- WR-04(섹션 state 리셋) 는 로그인 후 종목 간 이동 시각 검증이 필요 — 게이트 뒤라 curl 직접 확인 불가, 사용자 수동 검증으로 갈음. 배포 활성은 readyState Ready + alias resolve + HTTP 307 로 입증.
+
+---
 *Phase: 11-co-movement-candidates-top-k*
-*Logged: 2026-06-11*
+*Logged: 2026-06-11 (Gap Fix 재배포 append)*
