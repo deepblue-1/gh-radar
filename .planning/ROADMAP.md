@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: Daily Candle Data** - KRX 전 종목 (2020-01-02 ~ 현재) 일봉 OHLCV 수집 + 영업일 증분 갱신 (2026-05-12 완료, 4,003,432 rows)
 - [x] **Phase 09.1: Intraday Current Price** - 키움 REST `ka10027` 페이지네이션 + `ka10001` hot set 매분 stock_quotes/top_movers/stock_daily_ohlcv 갱신. KIS ingestion 완전 폐기 (2026-05-15 완료)
 - [x] **Phase 10: Theme Classification** - 테마별 종목 묶기 (네이버 금융 + 알파스퀘어 2-tier 수집 + `/themes` UI) (completed 2026-06-09)
-- [ ] **Phase 11: Co-movement Candidates** - 상한가 동조 종목 탐지 (급등 시 따라 오를 후보를 일봉 통계적 동조로 점수화)
+- [x] **Phase 11: Co-movement Candidates** - 상한가 동조 종목 탐지 (급등 시 따라 오를 후보를 일봉 통계적 동조로 점수화) (completed 2026-06-11)
 
 ## Phase Details
 
@@ -404,14 +404,14 @@ Plans:
 
 **Out of scope (v2 deferral):** 페어 X→Y 정식 모델(v1은 이벤트 풍부 ≥5 앵커 한정 refinement만) · Granger/정식 lead-lag · 인트라데이 시차 · 테마 없는 종목 동조 그래프 클러스터링 · 동조 기반 알림.
 **Origin:** Phase 10 직전 "아이디어 회의"(세션 2286945e)에서 테마 분류와 함께 제안 → 테마만 Phase 10 채택, 동조는 후속 분리 후 누락 → 본 phase로 재개 (`tasks/co-movement-idea-prompt.md`).
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [x] 11-01-PLAN.md — Wave 0 스캐폴드: COMV-01 등록 + 사전계산 마이그레이션(theme_comovement/cosurge_edges + 부분인덱스 + rebuild_comovement RPC) + 공유 타입 + RED 테스트 + co-movement-sync 워크스페이스
 - [x] 11-02-PLAN.md — Wave 1 [BLOCKING] supabase db push + rebuild 실행 + fixture co_count 대조 + EXPLAIN → task-timeout 확정
 - [x] 11-03-PLAN.md — Wave 2 읽기 경로: computeComovement 순수함수 + GET /api/stocks/:code/co-movement 라우트(themes.ts 청크 IN) + server 재배포 + prod curl
 - [x] 11-04-PLAN.md — Wave 2 워커: co-movement-sync(rebuild RPC 1줄) + IAM/deploy/smoke + Cloud Run Job + Scheduler(야간 1회)
-- [ ] 11-05-PLAN.md — Wave 3 UI: StockComovementSection(theme-rank-row 강도바 + 근거칩 + 초기3/더보기 + 빈상태) + 종목상세 마운트 + Vercel
+- [x] 11-05-PLAN.md — Wave 3 UI: StockComovementSection(theme-rank-row 강도바 + 근거칩 + 초기3/더보기 + 빈상태) + 종목상세 마운트 + Vercel
 
 ## Progress
 
@@ -438,4 +438,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
 | 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
-| 11. Co-movement Candidates | 4/5 | In Progress|  |
+| 11. Co-movement Candidates | 5/5 | Complete   | 2026-06-11 |
