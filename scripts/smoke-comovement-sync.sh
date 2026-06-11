@@ -89,7 +89,7 @@ check "INV-4 theme_comovement row count > 0" bash -c "
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Prefer: count=exact\" -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range')
-  TOTAL=\$(echo \"\$RANGE_HEADER\" | grep -oE '[0-9]+\$')
+  TOTAL=\$(echo \"\$RANGE_HEADER\" | tr -d '\r' | grep -oE '[0-9]+\$')
   echo \"theme_comovement count: \$TOTAL\"
   [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -gt 0 ]
 "
@@ -99,7 +99,7 @@ check "INV-4 cosurge_edges row count > 0" bash -c "
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Prefer: count=exact\" -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range')
-  TOTAL=\$(echo \"\$RANGE_HEADER\" | grep -oE '[0-9]+\$')
+  TOTAL=\$(echo \"\$RANGE_HEADER\" | tr -d '\r' | grep -oE '[0-9]+\$')
   echo \"cosurge_edges count: \$TOTAL\"
   [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -gt 0 ]
 "

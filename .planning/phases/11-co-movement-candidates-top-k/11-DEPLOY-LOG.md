@@ -56,5 +56,53 @@ top 3 (compact):
 - 1차 검증 시 smoke 의 rate-limit 테스트(201 req)가 per-IP 윈도우를 소진해 일시 429 — 윈도우 클리어 후 재검증(첫 시도 200) 완료.
 
 ---
+
+## Plan 04 — co-movement-sync Job + Scheduler 배포
+
+얇은 `co-movement-sync` 워커(단일 cycle — `rebuild_comovement(24)` RPC 1줄)를 Cloud Run Job + Cloud Scheduler 로 배포. EOD candle-sync 이후 야간 1회 멱등 full-rebuild(TRUNCATE+INSERT)로 사전계산 테이블(theme_comovement / cosurge_edges) 갱신. 사용자 EXPLICIT 승인(AskUserQuestion 2026-06-11 — "승인 — 배포 진행", cron 기본값 `0 2 * * 2-6` 그대로 승인).
+
+| 항목 | 값 |
+|------|-----|
+| Cloud Run Job | `gh-radar-comovement-sync` (region `asia-northeast3`) |
+| image | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/co-movement-sync:d0c7f9c` |
+| image digest | `sha256:7110f22b1fa463e1d70a50898818f013b09f48c08086d56d0f6d03e4b7c86d50` |
+| task-timeout | **180s** (11-CALIBRATION.md 확정 — 실측 ~25s ×7 마진, DB role 천장 600s 하위) |
+| memory / cpu | 512Mi / 1, `--max-retries=0` (멱등 full-rebuild — 재시도 불필요) |
+| Scheduler | `gh-radar-comovement-sync-nightly`, cron **`0 2 * * 2-6`** (Asia/Seoul — 화~토 새벽 2시, 전 영업일 EOD 확정 후) |
+| Scheduler 인증 | `--oauth-service-account-email=gh-radar-scheduler-sa` (**OAuth**, OIDC 금지 — T-11-14) |
+| invoker 바인딩 | `gh-radar-scheduler-sa → run.invoker` (Job 리소스 단위, 프로젝트 단위 아님) |
+| runtime SA | `gh-radar-comovement-sync-sa` — secret `gh-radar-supabase-service-role:latest` 1개만 (KRX 미바인딩, T-11-16 최소권한) |
+| env | `SUPABASE_URL`(기존 candle-sync Job 재사용) / `LOG_LEVEL=info` / `APP_VERSION=d0c7f9c` / `LOOKBACK_MONTHS=24` (KRX_BASE_URL·MODE 없음) |
+
+### smoke INV-1~5 — 6/6 PASS
+
+| INV | 검증 | 결과 |
+|-----|------|------|
+| INV-1 | `gcloud run jobs execute gh-radar-comovement-sync --wait` exit 0 | PASS |
+| INV-2 | Cloud Logging `jsonPayload.msg="co-movement-sync complete"` ≥1건 (최근 5분) | PASS |
+| INV-3 | Cloud Logging `"co-movement-sync failed"` 0건 | PASS |
+| INV-4 | theme_comovement 행수 > 0 AND cosurge_edges 행수 > 0 (service_role REST count) | PASS |
+| INV-5 | Scheduler ENABLED + cron `0 2 * * 2-6` | PASS |
+
+### Job 실행 result (jsonPayload, rebuild_comovement complete)
+
+```
+theme_comovement_rows = 5537
+cosurge_edge_rows     = 9704
+lookback_since        = 2024-06-11   (LOOKBACK_MONTHS=24)
+rebuilt_at            = 2026-06-11T08:41:10Z
+```
+
+- REST count 재확인: `theme_comovement` content-range `0-999/5537`, `cosurge_edges` content-range `0-999/9704` — Plan 02 production 적재값(5538/9704)과 동일 자릿수(멱등 full-rebuild 일치, theme 1행 차이는 누적 OHLCV 변동 정상범위).
+- T-11-16 acceptance: `gh-radar-comovement-sync-sa` → `gh-radar-supabase-service-role` accessor 1건, `gh-radar-krx-auth-key` 바인딩 **0건**(KRX 미사용 입증).
+
+### 배포 중 deviation
+
+1. **[Rule 3 - Blocking] 신규 SA Secret Manager IAM 전파 지연** — `setup-comovement-sync-iam.sh` 가 SA 생성 직후 secret accessor 바인딩 시 `Service account ... does not exist`(400, eventual-consistency). SA describe 로 가시성 확인 후 idempotent 스크립트 1회 재실행으로 바인딩 완료(무한 재시도 아님). 스크립트 무변경.
+2. **[Rule 1 - Bug] smoke INV-4 count 추출이 CR 미제거로 빈 문자열** — `content-range: 0-999/5537\r` 의 trailing CR 때문에 `grep -oE '[0-9]+$'` 가 `$`(CR 뒤) 미스매치 → TOTAL 빈값 → FAIL(실제 데이터는 정상 적재). `tr -d '\r'` 추가로 수정(양 INV-4). 재실행 6/6 PASS.
+
+> Scheduler 첫 자동 실행은 다음 cron(화~토 02:00 KST). smoke 는 수동 `execute --wait` 로 즉시 검증.
+
+---
 *Phase: 11-co-movement-candidates-top-k*
 *Logged: 2026-06-11*
