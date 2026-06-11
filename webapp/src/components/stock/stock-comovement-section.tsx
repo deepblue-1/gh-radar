@@ -1,0 +1,219 @@
+'use client';
+
+/**
+ * StockComovementSection — UI-SPEC §Component Structure (Phase 11 COMV-01, 채택안 변형 C).
+ *
+ * 종목 상세(/stocks/[code]) StockThemeChips 바로 다음에 마운트되는 신규 클라이언트 컴포넌트.
+ * apiFetch<CoMovementResponse> (comovement-api) 로 동조 후보를 mount fetch 하고,
+ * theme-rank-row(강도바)·theme-chips(근거칩) 패턴을 재사용해 후보 행을 렌더한다.
+ *
+ * 행 카드 = 강도바(.underbar 3px) + 근거칩(공유 테마 / 직접동반) + 동반율(중립색) +
+ *           실시간 등락률(방향색) + 후행형 배지. 초기 3행 + 더보기(useState expanded).
+ *
+ * ★ LOCKED 색 규칙 (UI-SPEC):
+ *   - 동반율(confD0) 등 확률/비율 = 중립 --fg (빨강/파랑 금지).
+ *   - 실시간 등락률만 방향색 (--up/--down/--flat).
+ *   - 강도 라인 = --up. 후행형 배지 = --down 톤. 공유 테마 칩 도트 = --flat.
+ *   - 모든 색은 globals.css oklch 토큰만 (차트 아님 → 직접 사용). 신규 토큰/하드코딩 0.
+ *
+ * 빈 상태(후보 0) → "동조 데이터 부족" 박스. 에러 → 섹션 조용히 숨김(null, error.message
+ * 미노출 — theme-chips/daily-chart quiet fallback 선례, T-11-18).
+ *
+ * co-surge 전용 후보(sharedThemes=[]) 의 동반율 = "—" (confD0=0 의 "0%" 오표시 방지 —
+ * 테마무관 동조가 가장 약한 신호로 오해되는 것을 차단, UI-SPEC §우측 메트릭 규칙).
+ */
+
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { Waypoints, ArrowUpRight, History, CircleOff } from 'lucide-react';
+
+import { cn } from '@/lib/utils';
+import { fetchStockComovement } from '@/lib/comovement-api';
+import type { CoMovementCandidate } from '@gh-radar/shared';
+
+const INITIAL_VISIBLE = 3;
+
+export interface StockComovementSectionProps {
+  stockCode: string;
+}
+
+/** 실시간 등락률 포맷 (theme-rank-row fmtPct 선례, null → em-dash). */
+function fmtLive(v: number | null): string {
+  if (v == null) return '—';
+  return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+}
+
+/** 실시간 등락률 방향색 (한국 관례: 상승 빨강 / 하락 파랑 / 보합 중립). */
+function liveColor(v: number | null): string {
+  if (v == null || v === 0) return 'text-[var(--flat)]';
+  return v > 0 ? 'text-[var(--up)]' : 'text-[var(--down)]';
+}
+
+/** 강도바 width % (theme-rank-row barPct 동형, min 4% / max 100%). */
+function barPct(strength: number): number {
+  return Math.max(4, Math.min(100, strength * 100));
+}
+
+/** 단일 후보 행 — 전체가 /stocks/[code] Link (전역 double-ring focus). */
+function CandidateRow({ c }: { c: CoMovementCandidate }) {
+  // co-surge 전용 후보(공유 테마 없음)는 confD0=0 의 "0%" 대신 "—" (UI-SPEC 규칙).
+  const isCoSurgeOnly = c.sharedThemes.length === 0;
+  const confLabel = isCoSurgeOnly ? '—' : `${Math.round(c.confD0 * 100)}%`;
+
+  return (
+    <Link
+      href={`/stocks/${c.code}`}
+      aria-label={`${c.name} 종목 상세 보기`}
+      className={cn(
+        'relative grid grid-cols-[1fr_auto] items-center gap-[var(--s-3)] overflow-hidden',
+        'rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)]',
+        'transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]',
+      )}
+    >
+      {/* 좌측: 종목명/코드 + 근거칩 + 후행형 배지 */}
+      <span className="flex min-w-0 flex-col gap-[5px]">
+        <span className="flex items-baseline gap-2">
+          <b className="truncate text-[length:var(--t-base)] font-bold text-[var(--fg)]">
+            {c.name}
+          </b>
+          <span className="mono shrink-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+            {c.code}
+          </span>
+        </span>
+        <span className="flex flex-wrap items-center gap-2">
+          {/* 근거 칩 — 테마 먼저 → 직접동반 (D-03) */}
+          {c.sharedThemes.map((t) => (
+            <span
+              key={t.id}
+              className="inline-flex items-center gap-[5px] rounded-full border border-[var(--border)] px-[9px] py-px text-[length:var(--t-caption)] text-[var(--fg)]"
+            >
+              <span
+                aria-hidden="true"
+                className="inline-block size-[5px] rounded-full bg-[var(--flat)]"
+              />
+              {t.name}
+            </span>
+          ))}
+          {c.coSurgeCount != null && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-[9px] py-px text-[length:var(--t-caption)] font-semibold text-[var(--accent-fg)]">
+              <ArrowUpRight aria-hidden="true" className="size-[11px]" />
+              직접동반 {c.coSurgeCount}회
+            </span>
+          )}
+          {c.isTrailing && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklch,var(--down)_35%,var(--border))] bg-[var(--down-bg)] px-2 text-[11px] font-bold text-[var(--down)]">
+              <History aria-hidden="true" className="size-[10px]" />
+              후행형
+            </span>
+          )}
+        </span>
+      </span>
+
+      {/* 우측 메트릭: 동반율(중립) + 실시간(방향색) */}
+      <span className="flex items-end gap-[var(--s-3)]">
+        <span className="mono text-right text-[length:var(--t-h3)] font-extrabold leading-none text-[var(--fg)]">
+          <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
+            동반율
+          </small>
+          {confLabel}
+        </span>
+        <span
+          className={cn(
+            'mono min-w-[62px] text-right text-[length:var(--t-sm)] font-bold leading-none',
+            liveColor(c.liveChangeRate),
+          )}
+        >
+          <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
+            실시간
+          </small>
+          {fmtLive(c.liveChangeRate)}
+        </span>
+      </span>
+
+      {/* 강도 라인 (.underbar) — 결합 점수, --up */}
+      <span
+        aria-hidden="true"
+        className="absolute bottom-0 left-0 h-[3px] rounded-[0_999px_999px_0] bg-[var(--up)]"
+        style={{ width: `${barPct(c.strength)}%` }}
+      />
+    </Link>
+  );
+}
+
+export function StockComovementSection({ stockCode }: StockComovementSectionProps) {
+  const [candidates, setCandidates] = useState<CoMovementCandidate[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // 에러 시 섹션 조용히 숨김 — error.message 절대 미노출(quiet fallback, T-11-18).
+  const [hasError, setHasError] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetchStockComovement(stockCode, 8, controller.signal);
+        if (controller.signal.aborted) return;
+        setCandidates(res.candidates);
+        setLoaded(true);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof Error && err.name === 'AbortError') return;
+        // 디버그는 console, 사용자 노출은 0 (섹션 숨김).
+        console.error('[StockComovementSection] fetch failed', err);
+        setHasError(true);
+        setLoaded(true);
+      }
+    })();
+    return () => controller.abort();
+  }, [stockCode]);
+
+  // 로딩 전에는 레이아웃 점프 방지를 위해 아무것도 렌더하지 않음 (theme-chips 선례).
+  if (!loaded) return null;
+  // 에러 → 섹션 조용히 숨김 (quiet fallback).
+  if (hasError) return null;
+
+  return (
+    <section aria-label="동조 후보" className="flex flex-col gap-[var(--s-3)]">
+      <h2 className="flex items-center gap-1.5 text-[length:var(--t-caption)] font-semibold uppercase tracking-wide text-[var(--muted-fg)]">
+        <Waypoints className="size-3.5" aria-hidden="true" />
+        동조 후보
+        <span className="ml-auto font-medium normal-case tracking-normal">
+          급등 시 동반 ↑ · 동반율 순
+        </span>
+      </h2>
+
+      {candidates.length === 0 ? (
+        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+          <CircleOff
+            aria-hidden="true"
+            className="mx-auto mb-2 size-[22px] text-[var(--muted-fg)]"
+          />
+          <p className="text-[length:var(--t-base)] font-bold">동조 데이터 부족</p>
+          <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
+            아직 이 종목과 함께 움직인 패턴을 찾지 못했습니다. 테마·동반 급등 이력이 쌓이면
+            표시됩니다.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-[var(--s-2)]">
+            {(expanded ? candidates : candidates.slice(0, INITIAL_VISIBLE)).map((c) => (
+              <CandidateRow key={c.code} c={c} />
+            ))}
+          </div>
+          {candidates.length > INITIAL_VISIBLE && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-[var(--s-2)] w-full rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+            >
+              {expanded
+                ? '접기'
+                : `동조 후보 ${candidates.length - INITIAL_VISIBLE}개 더 보기`}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
