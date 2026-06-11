@@ -8,83 +8,18 @@ import {
   type ThemeRow,
   type ThemeStockRow,
 } from "../mappers/theme.js";
-import type { StockMasterRow, StockQuoteRow } from "../mappers/stock.js";
 import { ApiError } from "../errors.js";
+import {
+  QUOTE_CHUNK,
+  ROW_PAGE,
+  fetchQuotesChunked,
+  fetchMastersChunked,
+} from "../lib/quoteJoin.js";
 
 const THEME_COLS =
   "id,name,description,is_system,owner_id,sources,top3_avg_change_rate,stats_updated_at,created_at,updated_at";
 const THEME_STOCK_COLS =
   "theme_id,stock_code,source,confidence,reason,effective_from,effective_to";
-const QUOTE_COLS =
-  "code,price,change_amount,change_rate,volume,trade_amount,open,high,low,market_cap,upper_limit,lower_limit,updated_at";
-const MASTER_COLS = "code,name,market";
-
-/**
- * stock_quotes IN 청크 크기.
- *
- * codes 가 수백~수천 개로 늘면 단일 .in() 이 PostgREST URL 한계(414)로 통째 실패해
- * 빈 응답 회귀를 일으킨다 (2026-06-09 intraday-sync 강세장 회귀, commit 37afcde + tasks/lessons.md).
- * 테마는 종목 합집합이 수천 개일 수 있으므로 반드시 청크 분할 + error throw.
- */
-const QUOTE_CHUNK = 200;
-
-/**
- * PostgREST 단일 응답 행 한계(Supabase db-max-rows, 기본 1000)에 대응하는 페이지 크기.
- *
- * `.in("theme_id", chunk)` 의 theme_id 청크(URL 길이 대비)와 **별개로**, 한 청크가
- * 매칭하는 theme_stocks 행 수가 1000 을 넘으면 응답이 통째로 잘려 그 너머 테마가
- * 조용히 사라진다(stockCount=0). `.range()` 로 끝까지 페이지네이션해 전수 수집한다.
- * (advance-by-actual + break-on-empty 라 db-max-rows 가 1000 이 아니어도 정확.)
- */
-const ROW_PAGE = 1000;
-
-/**
- * stock_quotes 를 code 청크(QUOTE_CHUNK)로 나눠 IN fetch → Map<code, quote>.
- *
- * error 는 throw — 조용히 빈 결과로 진행하면 등락률이 전부 0/누락되어
- * 정렬/표시가 silent 하게 깨진다 (37afcde 교훈: error 무시 금지).
- */
-async function fetchQuotesChunked(
-  supabase: SupabaseClient,
-  codes: string[],
-): Promise<Map<string, StockQuoteRow>> {
-  const byCode = new Map<string, StockQuoteRow>();
-  for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
-    const chunk = codes.slice(i, i + QUOTE_CHUNK);
-    const { data, error } = await supabase
-      .from("stock_quotes")
-      .select(QUOTE_COLS)
-      .in("code", chunk);
-    if (error) throw error;
-    for (const q of (data ?? []) as unknown as StockQuoteRow[]) {
-      byCode.set(q.code, q);
-    }
-  }
-  return byCode;
-}
-
-/**
- * stocks 마스터(name/market)를 code 청크로 나눠 IN fetch → Map<code, master>.
- * 상세 응답(ThemeStockMember)의 종목명/마켓 캐노니컬 소스. (목록은 마스터 불필요.)
- */
-async function fetchMastersChunked(
-  supabase: SupabaseClient,
-  codes: string[],
-): Promise<Map<string, StockMasterRow>> {
-  const byCode = new Map<string, StockMasterRow>();
-  for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
-    const chunk = codes.slice(i, i + QUOTE_CHUNK);
-    const { data, error } = await supabase
-      .from("stocks")
-      .select(MASTER_COLS)
-      .in("code", chunk);
-    if (error) throw error;
-    for (const m of (data ?? []) as unknown as StockMasterRow[]) {
-      byCode.set(m.code, m);
-    }
-  }
-  return byCode;
-}
 
 /**
  * theme_stocks active(effective_to IS NULL) 행을 theme_id 청크로 IN fetch.

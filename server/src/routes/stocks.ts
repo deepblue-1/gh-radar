@@ -15,6 +15,7 @@ import { ApiError, StockNotFound } from "../errors.js";
 import { logger } from "../logger.js";
 import { newsRouter } from "./news.js";
 import { discussionsRouter } from "./discussions.js";
+import { comovementRouter } from "./comovement.js";
 
 export const stocksRouter: RouterT = Router();
 
@@ -22,6 +23,8 @@ export const stocksRouter: RouterT = Router();
 stocksRouter.use("/:code/news", newsRouter);
 // Phase 08 — GET /api/stocks/:code/discussions, POST /api/stocks/:code/discussions/refresh
 stocksRouter.use("/:code/discussions", discussionsRouter);
+// Phase 11 — GET /api/stocks/:code/co-movement (동조 후보 TOP-K). /:code 핸들러보다 먼저 등록.
+stocksRouter.use("/:code/co-movement", comovementRouter);
 
 const MASTER_COLS =
   "code,name,market,sector,security_type,listing_date,is_delisted,updated_at";
