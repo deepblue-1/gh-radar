@@ -241,5 +241,20 @@ top 3 (v2):
 - 비고: 재배포 직후 smoke 의 rate-limit 테스트(201 req)로 첫 curl 일시 429 — per-IP 윈도우 클리어 후 재검증(200) 완료. 무한 재시도 아님(30s 대기 후 1회 성공).
 
 ---
+
+## Webapp 재배포 — 동조 후보 표시 정렬 변경 (사용자 UAT 피드백)
+
+**커밋:** `1178899` feat(11): 동조 후보 표시 정렬을 강도→실시간 등락률 순으로 (선정은 strength TOP-K 유지)
+
+**변경:** 사용자 요청 — 동조 후보 목록 표시 순서를 강도바(strength) 기준에서 **실시간 등락률 desc** 로 변경. 선정(TOP-K)은 server strength 그대로 유지(똑똑한 후보 풀 보존), 표시 순서만 client 정렬. 시세 없음(null)은 맨 뒤. 헤더 캡션 "동반율 순 → 실시간 등락률 순". 회귀 테스트 Test 9 추가.
+
+**검증:** webapp 컴포넌트 테스트 9개 + typecheck green. Vercel 수동 3단계 배포(pull→build --prod→deploy --prebuilt --prod).
+- deploy id `gh-radar-webapp-29rx3mmct`, readyState **Ready**, prod alias `gh-radar-webapp.vercel.app` 매핑 확인.
+- HTTP 게이트 정상(`/` 307, `/stocks/004090` 307 → /login). 5xx 0.
+- 시각 재확인(로그인 후 등락률 순 표시): 사용자 수동.
+
+**참고:** 측정 방식 질문(전체기간 등락률 유사도)은 사용자 결정 "현재 방식 유지" — v2(급등일 조건부 강도비율) 그대로. 별도 SQL 재설계 안 함.
+
+---
 *Phase: 11-co-movement-candidates-top-k*
-*Logged: 2026-06-11 (v2 cosurge 점수 재배포 append)*
+*Logged: 2026-06-11 (v2 cosurge 점수 재배포 append) · 2026-06-24 (표시 정렬 변경 append)*
