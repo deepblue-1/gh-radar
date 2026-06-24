@@ -438,4 +438,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
 | 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
-| 11. Co-movement Candidates | 5/5 | Complete   | 2026-06-11 |
+| 11. Co-movement Candidates | 5/5 | Complete    | 2026-06-24 |

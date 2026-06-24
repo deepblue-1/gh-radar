@@ -1,8 +1,9 @@
 ---
 phase: 11-co-movement-candidates-top-k
 verified: 2026-06-11T09:50:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
+human_verification_result: passed — 사용자 승인 2026-06-24 (GAP-1 동반율 표기·GAP-2 점수 v2·GAP-3 등락률 정렬 반영 후). 상세 11-HUMAN-UAT.md
 overrides_applied: 0
 human_verification:
   - test: "종목상세 페이지 동조 후보 섹션 시각 확인"
