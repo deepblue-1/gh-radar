@@ -24,7 +24,7 @@
  */
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Waypoints, ArrowUpRight, History, CircleOff } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -174,6 +174,18 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
     return () => controller.abort();
   }, [stockCode]);
 
+  // 표시 정렬 — 선정(TOP-K)은 서버 strength 기준(가장 강한 동조 후보 풀 유지),
+  // 표시 순서만 "지금 실시간 등락률 desc"(사용자 요청). 시세 없음(null)은 맨 뒤로.
+  const sorted = useMemo(
+    () =>
+      [...candidates].sort((a, b) => {
+        const av = a.liveChangeRate ?? Number.NEGATIVE_INFINITY;
+        const bv = b.liveChangeRate ?? Number.NEGATIVE_INFINITY;
+        return bv - av;
+      }),
+    [candidates],
+  );
+
   // 로딩 전에는 레이아웃 점프 방지를 위해 아무것도 렌더하지 않음 (theme-chips 선례).
   if (!loaded) return null;
   // 에러 → 섹션 조용히 숨김 (quiet fallback).
@@ -185,7 +197,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
         <Waypoints className="size-3.5" aria-hidden="true" />
         동조 후보
         <span className="ml-auto font-medium normal-case tracking-normal">
-          급등 시 동반 ↑ · 동반율 순
+          급등 시 동반 ↑ · 실시간 등락률 순
         </span>
       </h2>
 
@@ -204,7 +216,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
       ) : (
         <>
           <div className="flex flex-col gap-[var(--s-2)]">
-            {(expanded ? candidates : candidates.slice(0, INITIAL_VISIBLE)).map((c) => (
+            {(expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)).map((c) => (
               <CandidateRow key={c.code} c={c} />
             ))}
           </div>

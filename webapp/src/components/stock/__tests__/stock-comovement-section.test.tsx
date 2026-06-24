@@ -171,6 +171,27 @@ describe('StockComovementSection', () => {
     expect(screen.getByLabelText('동조 후보')).toBeInTheDocument();
   });
 
+  it('Test 9: 표시 정렬 = 실시간 등락률 desc (strength 아님), null 시세는 맨 뒤', async () => {
+    // strength 와 무관하게 liveChangeRate 큰 순으로 표시되어야 한다.
+    fetchStockComovementMock.mockResolvedValue({
+      candidates: [
+        makeCandidate({ code: '000001', name: '낮은등락', liveChangeRate: 1.0, strength: 0.95 }),
+        makeCandidate({ code: '000002', name: '시세없음', liveChangeRate: null, strength: 0.9 }),
+        makeCandidate({ code: '000003', name: '높은등락', liveChangeRate: 12.5, strength: 0.4 }),
+      ],
+    });
+
+    render(<StockComovementSection stockCode="004090" />);
+
+    await waitFor(() => expect(screen.getByText('높은등락')).toBeInTheDocument());
+
+    // DOM 순서로 검증: 높은등락(12.5) → 낮은등락(1.0) → 시세없음(null)
+    const names = screen
+      .getAllByText(/높은등락|낮은등락|시세없음/)
+      .map((el) => el.textContent);
+    expect(names).toEqual(['높은등락', '낮은등락', '시세없음']);
+  });
+
   it('Test 7: co-surge 전용(sharedThemes=[], coSurgeCount=9, confD0=0) → 동반율 "—", "0%" 미표시', async () => {
     fetchStockComovementMock.mockResolvedValue({
       candidates: [
