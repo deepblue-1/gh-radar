@@ -75,4 +75,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-15 — Phase 09.1 complete (KIS → 키움 OpenAPI 완전 대체). intraday-sync worker + server 모두 키움 ka10027/ka10001 운영, Static IP whitelist + Direct VPC Egress 인프라 완료, KIS 코드/GCP 리소스/DB 테이블 전체 cleanup.*
+*Last updated: 2026-06-24 — Phase 11 complete (Co-movement Candidates). 종목 급등 시 동조 후보 TOP-K를 일봉 통계로 점수화해 종목 상세에 표시. 사전계산 theme_comovement/cosurge_edges + rebuild_comovement() RPC + co-movement-sync Cloud Run Job(야간), 읽기 라우트 GET /api/stocks/:code/co-movement, UI 동조 후보 섹션. 직접동반 점수 v2 = 급등일 강도비율×최근성(1년 반감기)×표본보정, 표시 정렬 실시간 등락률 순. (이전: Phase 09.1 KIS→키움 전환, Phase 10 theme-classification.)*
