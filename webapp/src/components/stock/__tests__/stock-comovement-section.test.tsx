@@ -7,9 +7,9 @@ import type { CoMovementCandidate } from '@gh-radar/shared';
  * Phase 11 Plan 05 — StockComovementSection 컴포넌트 단위 테스트 (COMV-01).
  *
  * fetchStockComovement 를 mock 하고 mount fetch 결과 렌더를 검증한다.
- * - Test 1: 후보 5개 → 초기 3행 + "동조 후보 2개 더 보기" → 클릭 시 전체 + "접기".
+ * - Test 1: 후보 5개 → 초기 3행 + "동반상승 후보 2개 더 보기" → 클릭 시 전체 + "접기".
  * - Test 2: 후보 ≤3 → 더보기 버튼 없음.
- * - Test 3: 빈 응답 → "동조 데이터 부족" 빈 상태.
+ * - Test 3: 빈 응답 → "동반상승 데이터 부족" 빈 상태.
  * - Test 4: fetch reject → 섹션 미렌더 (null, error.message 노출 0).
  * - Test 5: coSurgeCount → "직접동반 N회", isTrailing → "후행형", sharedThemes → 테마명.
  * - Test 6: 동반율 = Math.round(confD0*100)%, liveChangeRate null → "—".
@@ -63,7 +63,7 @@ describe('StockComovementSection', () => {
     expect(screen.queryByText('D')).not.toBeInTheDocument();
     expect(screen.queryByText('E')).not.toBeInTheDocument();
 
-    const moreBtn = screen.getByRole('button', { name: '동조 후보 2개 더 보기' });
+    const moreBtn = screen.getByRole('button', { name: '동반상승 후보 2개 더 보기' });
     await userEvent.click(moreBtn);
 
     expect(screen.getByText('D')).toBeInTheDocument();
@@ -83,12 +83,12 @@ describe('StockComovementSection', () => {
     expect(screen.queryByRole('button', { name: /더 보기|접기/ })).not.toBeInTheDocument();
   });
 
-  it('Test 3: 빈 응답 → "동조 데이터 부족" 빈 상태', async () => {
+  it('Test 3: 빈 응답 → "동반상승 데이터 부족" 빈 상태', async () => {
     fetchStockComovementMock.mockResolvedValue({ candidates: [] });
 
     render(<StockComovementSection stockCode="005935" />);
 
-    await waitFor(() => expect(screen.getByText('동조 데이터 부족')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('동반상승 데이터 부족')).toBeInTheDocument());
     expect(
       screen.getByText(/함께 움직인 패턴을 찾지 못했습니다/),
     ).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('StockComovementSection', () => {
     );
     // 섹션 자체가 렌더되지 않음 (quiet fallback)
     await waitFor(() =>
-      expect(screen.queryByLabelText('동조 후보')).not.toBeInTheDocument(),
+      expect(screen.queryByLabelText('동반상승 후보')).not.toBeInTheDocument(),
     );
     // error.message 절대 미노출
     expect(container.textContent).not.toContain('PostgREST');
@@ -157,7 +157,7 @@ describe('StockComovementSection', () => {
     const { rerender } = render(<StockComovementSection stockCode="004090" />);
     await waitFor(() => expect(fetchStockComovementMock).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(screen.queryByLabelText('동조 후보')).not.toBeInTheDocument(),
+      expect(screen.queryByLabelText('동반상승 후보')).not.toBeInTheDocument(),
     );
 
     // 2번 종목으로 이동(remount 없이 stockCode prop 만 갱신) → 성공 응답.
@@ -168,7 +168,7 @@ describe('StockComovementSection', () => {
 
     // hasError 가 리셋되어 섹션이 다시 보이고 새 후보가 렌더되어야 한다.
     await waitFor(() => expect(screen.getByText('대성에너지')).toBeInTheDocument());
-    expect(screen.getByLabelText('동조 후보')).toBeInTheDocument();
+    expect(screen.getByLabelText('동반상승 후보')).toBeInTheDocument();
   });
 
   it('Test 9: 표시 정렬 = 실시간 등락률 desc (strength 아님), null 시세는 맨 뒤', async () => {
@@ -213,5 +213,44 @@ describe('StockComovementSection', () => {
     // 동반율 영역은 "—" — "0%" 절대 미표시
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(container.textContent).not.toContain('0%');
+  });
+
+  it('Test 10: "근거 보기" 아코디언 → 클릭 시 점수 분해(연결 경로·표본·선후행) 노출', async () => {
+    fetchStockComovementMock.mockResolvedValue({
+      candidates: [
+        makeCandidate({
+          name: '흥구석유',
+          sharedThemes: [{ id: 't1', name: '정유' }],
+          coSurgeCount: 7,
+          confD0: 0.8,
+          sampleConfidence: 'high',
+          isTrailing: false,
+        }),
+      ],
+    });
+
+    render(<StockComovementSection stockCode="004090" />);
+
+    await waitFor(() => expect(screen.getByText('흥구석유')).toBeInTheDocument());
+
+    // 접힘 상태 — 상세 미노출
+    expect(screen.queryByText('연결 경로')).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: '근거 보기' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(toggle);
+
+    // 펼침 — 점수 분해 노출
+    expect(screen.getByText('연결 경로')).toBeInTheDocument();
+    expect(screen.getByText('테마 + 직접동반')).toBeInTheDocument();
+    expect(screen.getByText('직접 동반급등')).toBeInTheDocument();
+    expect(screen.getByText('표본 신뢰도')).toBeInTheDocument();
+    expect(screen.getByText('충분')).toBeInTheDocument();
+    expect(screen.getByText('동행형')).toBeInTheDocument();
+    // 토글 라벨/상태 전환
+    expect(screen.getByRole('button', { name: '근거 접기' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 });

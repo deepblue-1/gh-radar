@@ -4,28 +4,29 @@
  * StockComovementSection — UI-SPEC §Component Structure (Phase 11 COMV-01, 채택안 변형 C).
  *
  * 종목 상세(/stocks/[code]) StockThemeChips 바로 다음에 마운트되는 신규 클라이언트 컴포넌트.
- * apiFetch<CoMovementResponse> (comovement-api) 로 동조 후보를 mount fetch 하고,
- * theme-rank-row(강도바)·theme-chips(근거칩) 패턴을 재사용해 후보 행을 렌더한다.
+ * apiFetch<CoMovementResponse> (comovement-api) 로 동반상승 후보를 mount fetch 하고,
+ * theme-chips(근거칩) 패턴을 재사용해 후보 행을 렌더한다 (강도바 제거 — 점수 근거 명시로 대체).
  *
- * 행 카드 = 강도바(.underbar 3px) + 근거칩(공유 테마 / 직접동반) + 동반율(중립색) +
- *           실시간 등락률(방향색) + 후행형 배지. 초기 3행 + 더보기(useState expanded).
+ * 행 카드 = 근거칩(공유 테마 / 직접동반) + 동반율(중립색) + 실시간 등락률(방향색) + 후행형 배지
+ *           + "근거 보기" 아코디언(점수 분해: 연결 경로·동반급등 횟수·발화일 동반율·표본·선후행).
+ *           초기 3행 + 더보기(useState expanded). 행별 근거 펼침은 CandidateRow 로컬 state.
  *
  * ★ LOCKED 색 규칙 (UI-SPEC):
  *   - 동반율(confD0) 등 확률/비율 = 중립 --fg (빨강/파랑 금지).
  *   - 실시간 등락률만 방향색 (--up/--down/--flat).
- *   - 강도 라인 = --up. 후행형 배지 = --down 톤. 공유 테마 칩 도트 = --flat.
+ *   - 후행형 배지 = --down 톤. 공유 테마 칩 도트 = --flat. 근거 미니바(동반율) = --primary.
  *   - 모든 색은 globals.css oklch 토큰만 (차트 아님 → 직접 사용). 신규 토큰/하드코딩 0.
  *
- * 빈 상태(후보 0) → "동조 데이터 부족" 박스. 에러 → 섹션 조용히 숨김(null, error.message
+ * 빈 상태(후보 0) → "동반상승 데이터 부족" 박스. 에러 → 섹션 조용히 숨김(null, error.message
  * 미노출 — theme-chips/daily-chart quiet fallback 선례, T-11-18).
  *
  * co-surge 전용 후보(sharedThemes=[]) 의 동반율 = "—" (confD0=0 의 "0%" 오표시 방지 —
- * 테마무관 동조가 가장 약한 신호로 오해되는 것을 차단, UI-SPEC §우측 메트릭 규칙).
+ * 테마무관 동반상승이 가장 약한 신호로 오해되는 것을 차단, UI-SPEC §우측 메트릭 규칙).
  */
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Waypoints, ArrowUpRight, History, CircleOff } from 'lucide-react';
+import { Waypoints, ArrowUpRight, History, CircleOff, ChevronDown } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { fetchStockComovement } from '@/lib/comovement-api';
@@ -49,94 +50,194 @@ function liveColor(v: number | null): string {
   return v > 0 ? 'text-[var(--up)]' : 'text-[var(--down)]';
 }
 
-/** 강도바 width % (theme-rank-row barPct 동형, min 4% / max 100%). */
-function barPct(strength: number): number {
-  return Math.max(4, Math.min(100, strength * 100));
+/** 근거 미니바 width % (동반율 시각화, min 4% / max 100%). */
+function barPct(ratio: number): number {
+  return Math.max(4, Math.min(100, ratio * 100));
 }
 
-/** 단일 후보 행 — 전체가 /stocks/[code] Link (전역 double-ring focus). */
+/** 근거 상세 1줄 — <dl> 내부 (dt/dd 그룹, HTML5 div 래퍼 허용). */
+function DetailItem({
+  label,
+  value,
+  mono,
+  bar,
+  tone,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  /** 0~1 비율 → 미니바 (동반율 전용). */
+  bar?: number;
+  tone?: 'down';
+}) {
+  return (
+    <div className="flex flex-col gap-[3px]">
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--muted-fg)]">
+        {label}
+      </dt>
+      <dd className="flex flex-col gap-[3px]">
+        <span
+          className={cn(
+            'text-[length:var(--t-sm)] font-semibold leading-none',
+            mono && 'mono',
+            tone === 'down' ? 'text-[var(--down)]' : 'text-[var(--fg)]',
+          )}
+        >
+          {value}
+        </span>
+        {bar != null && (
+          <span
+            aria-hidden="true"
+            className="block h-[5px] overflow-hidden rounded-full bg-[var(--muted)]"
+          >
+            <span
+              className="block h-full rounded-full bg-[var(--primary)]"
+              style={{ width: `${barPct(bar)}%` }}
+            />
+          </span>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * 단일 후보 행 — 메인 영역은 /stocks/[code] Link(전역 double-ring focus),
+ * 하단 "근거 보기" 아코디언으로 점수 분해 노출. 토글 버튼은 Link 바깥 형제
+ * (중첩 인터랙티브 <button> in <a> 금지). 펼침은 행 로컬 state.
+ */
 function CandidateRow({ c }: { c: CoMovementCandidate }) {
+  const [open, setOpen] = useState(false);
+
   // co-surge 전용 후보(공유 테마 없음)는 confD0=0 의 "0%" 대신 "—" (UI-SPEC 규칙).
   const isCoSurgeOnly = c.sharedThemes.length === 0;
   const confLabel = isCoSurgeOnly ? '—' : `${Math.round(c.confD0 * 100)}%`;
+  const hasCoSurge = c.coSurgeCount != null && c.coSurgeCount > 0;
+
+  // 연결 경로 — 테마 / 직접동반 / 둘 다 (근거 상세 첫 행, "왜 후보인가"의 근원).
+  const pathLabel =
+    !isCoSurgeOnly && hasCoSurge
+      ? '테마 + 직접동반'
+      : !isCoSurgeOnly
+        ? '테마'
+        : '직접동반 (테마무관)';
 
   return (
-    <Link
-      href={`/stocks/${c.code}`}
-      aria-label={`${c.name} 종목 상세 보기`}
+    <div
       className={cn(
-        'relative grid grid-cols-[1fr_auto] items-center gap-[var(--s-3)] overflow-hidden',
-        'rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)]',
+        'overflow-hidden rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)]',
         'transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]',
       )}
     >
-      {/* 좌측: 종목명/코드 + 근거칩 + 후행형 배지 */}
-      <span className="flex min-w-0 flex-col gap-[5px]">
-        <span className="flex items-baseline gap-2">
-          <b className="truncate text-[length:var(--t-base)] font-bold text-[var(--fg)]">
-            {c.name}
-          </b>
-          <span className="mono shrink-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-            {c.code}
+      <Link
+        href={`/stocks/${c.code}`}
+        aria-label={`${c.name} 종목 상세 보기`}
+        className="grid grid-cols-[1fr_auto] items-center gap-[var(--s-3)] px-[var(--s-4)] pb-[var(--s-2)] pt-[var(--s-3)]"
+      >
+        {/* 좌측: 종목명/코드 + 근거칩 + 후행형 배지 */}
+        <span className="flex min-w-0 flex-col gap-[5px]">
+          <span className="flex items-baseline gap-2">
+            <b className="truncate text-[length:var(--t-base)] font-bold text-[var(--fg)]">
+              {c.name}
+            </b>
+            <span className="mono shrink-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+              {c.code}
+            </span>
+          </span>
+          <span className="flex flex-wrap items-center gap-2">
+            {/* 근거 칩 — 테마 먼저 → 직접동반 (D-03) */}
+            {c.sharedThemes.map((t) => (
+              <span
+                key={t.id}
+                className="inline-flex items-center gap-[5px] rounded-full border border-[var(--border)] px-[9px] py-px text-[length:var(--t-caption)] text-[var(--fg)]"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block size-[5px] rounded-full bg-[var(--flat)]"
+                />
+                {t.name}
+              </span>
+            ))}
+            {c.coSurgeCount != null && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-[9px] py-px text-[length:var(--t-caption)] font-semibold text-[var(--accent-fg)]">
+                <ArrowUpRight aria-hidden="true" className="size-[11px]" />
+                직접동반 {c.coSurgeCount}회
+              </span>
+            )}
+            {c.isTrailing && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklch,var(--down)_35%,var(--border))] bg-[var(--down-bg)] px-2 text-[11px] font-bold text-[var(--down)]">
+                <History aria-hidden="true" className="size-[10px]" />
+                후행형
+              </span>
+            )}
           </span>
         </span>
-        <span className="flex flex-wrap items-center gap-2">
-          {/* 근거 칩 — 테마 먼저 → 직접동반 (D-03) */}
-          {c.sharedThemes.map((t) => (
-            <span
-              key={t.id}
-              className="inline-flex items-center gap-[5px] rounded-full border border-[var(--border)] px-[9px] py-px text-[length:var(--t-caption)] text-[var(--fg)]"
-            >
-              <span
-                aria-hidden="true"
-                className="inline-block size-[5px] rounded-full bg-[var(--flat)]"
-              />
-              {t.name}
-            </span>
-          ))}
-          {c.coSurgeCount != null && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-[9px] py-px text-[length:var(--t-caption)] font-semibold text-[var(--accent-fg)]">
-              <ArrowUpRight aria-hidden="true" className="size-[11px]" />
-              직접동반 {c.coSurgeCount}회
-            </span>
-          )}
-          {c.isTrailing && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_oklch,var(--down)_35%,var(--border))] bg-[var(--down-bg)] px-2 text-[11px] font-bold text-[var(--down)]">
-              <History aria-hidden="true" className="size-[10px]" />
-              후행형
-            </span>
-          )}
-        </span>
-      </span>
 
-      {/* 우측 메트릭: 동반율(중립) + 실시간(방향색) */}
-      <span className="flex items-end gap-[var(--s-3)]">
-        <span className="mono text-right text-[length:var(--t-h3)] font-extrabold leading-none text-[var(--fg)]">
-          <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
-            동반율
-          </small>
-          {confLabel}
+        {/* 우측 메트릭: 동반율(중립) + 실시간(방향색) */}
+        <span className="flex items-end gap-[var(--s-3)]">
+          <span className="mono text-right text-[length:var(--t-h3)] font-extrabold leading-none text-[var(--fg)]">
+            <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
+              동반율
+            </small>
+            {confLabel}
+          </span>
+          <span
+            className={cn(
+              'mono min-w-[62px] text-right text-[length:var(--t-sm)] font-bold leading-none',
+              liveColor(c.liveChangeRate),
+            )}
+          >
+            <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
+              실시간
+            </small>
+            {fmtLive(c.liveChangeRate)}
+          </span>
         </span>
-        <span
-          className={cn(
-            'mono min-w-[62px] text-right text-[length:var(--t-sm)] font-bold leading-none',
-            liveColor(c.liveChangeRate),
-          )}
+      </Link>
+
+      {/* 근거 아코디언 — Link 바깥(중첩 인터랙티브 방지), 점수 분해 노출 */}
+      <div className="px-[var(--s-4)] pb-[var(--s-3)]">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="inline-flex items-center gap-1 text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)] transition-colors hover:text-[var(--fg)]"
         >
-          <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
-            실시간
-          </small>
-          {fmtLive(c.liveChangeRate)}
-        </span>
-      </span>
+          <ChevronDown
+            aria-hidden="true"
+            className={cn('size-3 transition-transform', open && 'rotate-180')}
+          />
+          {open ? '근거 접기' : '근거 보기'}
+        </button>
 
-      {/* 강도 라인 (.underbar) — 결합 점수, --up */}
-      <span
-        aria-hidden="true"
-        className="absolute bottom-0 left-0 h-[3px] rounded-[0_999px_999px_0] bg-[var(--up)]"
-        style={{ width: `${barPct(c.strength)}%` }}
-      />
-    </Link>
+        {open && (
+          <dl className="mt-[var(--s-3)] grid grid-cols-2 gap-x-[var(--s-4)] gap-y-[var(--s-3)] border-t border-[var(--border-subtle)] pt-[var(--s-3)]">
+            <DetailItem label="연결 경로" value={pathLabel} />
+            {hasCoSurge && (
+              <DetailItem label="직접 동반급등" value={`${c.coSurgeCount}회`} mono />
+            )}
+            {!isCoSurgeOnly && (
+              <DetailItem label="테마 발화일 동반율" value={confLabel} mono bar={c.confD0} />
+            )}
+            <DetailItem
+              label="표본 신뢰도"
+              value={c.sampleConfidence === 'high' ? '충분' : '적음'}
+            />
+            <DetailItem
+              label="선·후행"
+              value={c.isTrailing ? '후행형 (다음날 ↑)' : '동행형'}
+              tone={c.isTrailing ? 'down' : undefined}
+            />
+            {c.sharedThemes.length > 0 && (
+              <DetailItem
+                label="공유 테마"
+                value={c.sharedThemes.map((t) => t.name).join(' · ')}
+              />
+            )}
+          </dl>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -174,7 +275,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
     return () => controller.abort();
   }, [stockCode]);
 
-  // 표시 정렬 — 선정(TOP-K)은 서버 strength 기준(가장 강한 동조 후보 풀 유지),
+  // 표시 정렬 — 선정(TOP-K)은 서버 strength 기준(가장 강한 동반상승 후보 풀 유지),
   // 표시 순서만 "지금 실시간 등락률 desc"(사용자 요청). 시세 없음(null)은 맨 뒤로.
   const sorted = useMemo(
     () =>
@@ -192,10 +293,10 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
   if (hasError) return null;
 
   return (
-    <section aria-label="동조 후보" className="flex flex-col gap-[var(--s-3)]">
+    <section aria-label="동반상승 후보" className="flex flex-col gap-[var(--s-3)]">
       <h2 className="flex items-center gap-1.5 text-[length:var(--t-caption)] font-semibold uppercase tracking-wide text-[var(--muted-fg)]">
         <Waypoints className="size-3.5" aria-hidden="true" />
-        동조 후보
+        동반상승 후보
         <span className="ml-auto font-medium normal-case tracking-normal">
           급등 시 동반 ↑ · 실시간 등락률 순
         </span>
@@ -207,7 +308,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
             aria-hidden="true"
             className="mx-auto mb-2 size-[22px] text-[var(--muted-fg)]"
           />
-          <p className="text-[length:var(--t-base)] font-bold">동조 데이터 부족</p>
+          <p className="text-[length:var(--t-base)] font-bold">동반상승 데이터 부족</p>
           <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
             아직 이 종목과 함께 움직인 패턴을 찾지 못했습니다. 테마·동반 급등 이력이 쌓이면
             표시됩니다.
@@ -228,7 +329,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
             >
               {expanded
                 ? '접기'
-                : `동조 후보 ${candidates.length - INITIAL_VISIBLE}개 더 보기`}
+                : `동반상승 후보 ${candidates.length - INITIAL_VISIBLE}개 더 보기`}
             </button>
           )}
         </>
