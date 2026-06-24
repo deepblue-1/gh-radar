@@ -16,8 +16,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Backend API** - Express API 서버 구축 및 Cloud Run 배포
 - [x] **Phase 3: Design System** - 디자인 토큰, 컴포넌트 라이브러리, 테마
 - [x] **Phase 4: Frontend Scaffold** - Next.js 앱 구축 및 Vercel 배포
-- [ ] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
-- [ ] **Phase 6: Stock Search & Detail** - 종목 검색 자동완성 + 상세 페이지
+- [x] **Phase 5: Scanner UI** - 상한가 근접 종목 스캐너 화면
+- [x] **Phase 6: Stock Search & Detail** - 종목 검색 자동완성 + 상세 페이지
 - [x] **Phase 7: News Ingestion** - Naver Search API 뉴스 수집 및 표시
 - [x] **Phase 8: Discussion Board** - 네이버 종목토론방 스크래핑 및 표시
 - [x] **Phase 08.1: Discussion Relevance Filter** - Claude Haiku 4.5 4-category 의미성 분류 + 웹앱 Switch 토글
