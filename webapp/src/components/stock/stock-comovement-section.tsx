@@ -119,6 +119,8 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
   const isCoSurgeOnly = c.sharedThemes.length === 0;
   const confLabel = isCoSurgeOnly ? '—' : `${Math.round(c.confD0 * 100)}%`;
   const hasCoSurge = c.coSurgeCount != null && c.coSurgeCount > 0;
+  // 구버전 서버 응답(recentCoSurge 미포함) 방어 — 배포 스큐 윈도우에서 .length 크래시 방지.
+  const recentCoSurge = c.recentCoSurge ?? [];
 
   // 연결 경로 — 테마 / 직접동반 / 둘 다 (근거 상세 첫 행, "왜 후보인가"의 근원).
   const pathLabel =
@@ -240,13 +242,13 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
                 value={c.sharedThemes.map((t) => t.name).join(' · ')}
               />
             )}
-            {c.recentCoSurge.length > 0 && (
+            {recentCoSurge.length > 0 && (
               <div className="col-span-2 flex flex-col gap-[5px]">
                 <dt className="text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--muted-fg)]">
                   최근 직접 동반
                 </dt>
                 <dd className="flex flex-wrap gap-[6px]">
-                  {c.recentCoSurge.slice(0, 3).map((h) => (
+                  {recentCoSurge.slice(0, 3).map((h) => (
                     <span
                       key={h.date}
                       title={`${fmtMD(h.date)} · 본종목 +${Math.round(h.anchorRate)}% · ${c.name} +${Math.round(h.candidateRate)}%`}
