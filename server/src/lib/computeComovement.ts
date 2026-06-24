@@ -60,6 +60,7 @@ type Acc = {
   igniteDays: number; // 표본 배지용 (테마 경로 max ignite_days)
   sharedThemes: { id: string; name: string }[];
   coSurgeCount: number | null;
+  recentCoSurge: { date: string; anchorRate: number; candidateRate: number }[]; // 최근 직접 동반 히스토리 (co-surge 엣지)
 };
 
 /**
@@ -151,6 +152,7 @@ export function computeComovement(
         igniteDays: 0,
         sharedThemes: [],
         coSurgeCount: null,
+        recentCoSurge: [],
       };
       acc.set(code, a);
     }
@@ -217,6 +219,20 @@ export function computeComovement(
     if (combined > a.cosurgeCombined) a.cosurgeCombined = Number.isFinite(combined) ? combined : 0;
     // coSurgeCount 는 표시용(칩 "직접동반 N회") — 최대 co_count (한 종목 다중 엣지면 max).
     if (a.coSurgeCount === null || coCount > a.coSurgeCount) a.coSurgeCount = coCount;
+    // 최근 직접 동반 히스토리 — 앵커 방향에 맞춰 ra/rb → anchorRate/candidateRate 변환.
+    //   anchorIsA: 앵커=code_a → 후보=code_b (candidateRate=rb). else 대칭.
+    // (무향 페어 1개당 엣지 1행이라 other 는 유일 — 마지막 할당이 곧 그 페어의 히스토리.)
+    if (Array.isArray(e.recent_pairs) && e.recent_pairs.length > 0) {
+      a.recentCoSurge = e.recent_pairs.map((p) => {
+        const aRate = toNum(p.ra);
+        const bRate = toNum(p.rb);
+        return {
+          date: String(p.d),
+          anchorRate: anchorIsA ? aRate : bRate,
+          candidateRate: anchorIsA ? bRate : aRate,
+        };
+      });
+    }
   }
 
   // 4. dedup 결과 → CoMovementCandidate. strength = max(theme, cosurge).
@@ -245,6 +261,7 @@ export function computeComovement(
       sharedThemes: a.sharedThemes,
       coSurgeCount: a.coSurgeCount,
       sampleConfidence,
+      recentCoSurge: a.recentCoSurge,
     });
   }
 

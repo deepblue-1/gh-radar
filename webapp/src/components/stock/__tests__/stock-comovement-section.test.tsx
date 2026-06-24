@@ -38,6 +38,7 @@ function makeCandidate(over: Partial<CoMovementCandidate> = {}): CoMovementCandi
     sharedThemes: [{ id: 't1', name: '정유·석유' }],
     coSurgeCount: null,
     sampleConfidence: 'high',
+    recentCoSurge: [],
     ...over,
   };
 }
@@ -80,7 +81,8 @@ describe('StockComovementSection', () => {
     render(<StockComovementSection stockCode="004090" />);
 
     await waitFor(() => expect(screen.getByText('C')).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /더 보기|접기/ })).not.toBeInTheDocument();
+    // 섹션 더보기/접기 버튼만 검사 (행별 "근거 보기/접기" 토글은 제외 — anchored regex).
+    expect(screen.queryByRole('button', { name: /더 보기$|^접기$/ })).not.toBeInTheDocument();
   });
 
   it('Test 3: 빈 응답 → "동반상승 데이터 부족" 빈 상태', async () => {
@@ -128,7 +130,8 @@ describe('StockComovementSection', () => {
     render(<StockComovementSection stockCode="004090" />);
 
     await waitFor(() => expect(screen.getByText('대성에너지')).toBeInTheDocument());
-    expect(screen.getByText('정유·석유')).toBeInTheDocument();
+    // 기본 펼침이라 '정유·석유'는 칩 + 근거상세(공유 테마) 양쪽에 노출 → getAllByText.
+    expect(screen.getAllByText('정유·석유').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('직접동반 6회')).toBeInTheDocument();
     expect(screen.getByText('후행형')).toBeInTheDocument();
   });
@@ -143,8 +146,8 @@ describe('StockComovementSection', () => {
     render(<StockComovementSection stockCode="004090" />);
 
     await waitFor(() => expect(screen.getByText('흥구석유')).toBeInTheDocument());
-    // 0.674 → 67%
-    expect(screen.getByText('67%')).toBeInTheDocument();
+    // 0.674 → 67% (우측 메트릭 + 근거상세 동반율 양쪽 — 기본 펼침)
+    expect(screen.getAllByText('67%').length).toBeGreaterThanOrEqual(1);
     // liveChangeRate null → em-dash
     expect(screen.getByText('—')).toBeInTheDocument();
   });
@@ -215,7 +218,7 @@ describe('StockComovementSection', () => {
     expect(container.textContent).not.toContain('0%');
   });
 
-  it('Test 10: "근거 보기" 아코디언 → 클릭 시 점수 분해(연결 경로·표본·선후행) 노출', async () => {
+  it('Test 10: 근거 아코디언 기본 펼침 → 점수 분해·최근 동반 노출, 토글로 접힘', async () => {
     fetchStockComovementMock.mockResolvedValue({
       candidates: [
         makeCandidate({
@@ -225,6 +228,10 @@ describe('StockComovementSection', () => {
           confD0: 0.8,
           sampleConfidence: 'high',
           isTrailing: false,
+          recentCoSurge: [
+            { date: '2026-06-18', anchorRate: 30, candidateRate: 25 },
+            { date: '2026-05-30', anchorRate: 18, candidateRate: 12 },
+          ],
         }),
       ],
     });
@@ -233,24 +240,26 @@ describe('StockComovementSection', () => {
 
     await waitFor(() => expect(screen.getByText('흥구석유')).toBeInTheDocument());
 
-    // 접힘 상태 — 상세 미노출
-    expect(screen.queryByText('연결 경로')).not.toBeInTheDocument();
-
-    const toggle = screen.getByRole('button', { name: '근거 보기' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.click(toggle);
-
-    // 펼침 — 점수 분해 노출
+    // 기본 펼침 — 점수 분해 즉시 노출
     expect(screen.getByText('연결 경로')).toBeInTheDocument();
     expect(screen.getByText('테마 + 직접동반')).toBeInTheDocument();
     expect(screen.getByText('직접 동반급등')).toBeInTheDocument();
     expect(screen.getByText('표본 신뢰도')).toBeInTheDocument();
     expect(screen.getByText('충분')).toBeInTheDocument();
     expect(screen.getByText('동행형')).toBeInTheDocument();
-    // 토글 라벨/상태 전환
-    expect(screen.getByRole('button', { name: '근거 접기' })).toHaveAttribute(
+    // 최근 직접 동반 히스토리 — 날짜 MM/DD + 후보 등락률
+    expect(screen.getByText('최근 직접 동반')).toBeInTheDocument();
+    expect(screen.getByText('06/18')).toBeInTheDocument();
+    expect(screen.getByText('+25%')).toBeInTheDocument();
+
+    // 토글로 접힘 — 상세 사라지고 라벨/상태 전환
+    const toggle = screen.getByRole('button', { name: '근거 접기' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(toggle);
+    expect(screen.queryByText('연결 경로')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '근거 보기' })).toHaveAttribute(
       'aria-expanded',
-      'true',
+      'false',
     );
   });
 });

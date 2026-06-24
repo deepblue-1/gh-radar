@@ -38,6 +38,11 @@ export type CosurgeEdgeRow = {
   ws_sum_a: string | number | null;
   w_sum_b: string | number | null;
   ws_sum_b: string | number | null;
+  /**
+   * 최근 동반급등 5건 (jsonb, 날짜 desc). d=날짜, ra=code_a%, rb=code_b%.
+   * PostgREST 가 jsonb 를 파싱해 배열로 반환. 미재계산 행은 null.
+   */
+  recent_pairs: { d: string; ra: string | number; rb: string | number }[] | null;
 };
 
 /**

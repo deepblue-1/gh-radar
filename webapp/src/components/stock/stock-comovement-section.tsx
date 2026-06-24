@@ -55,6 +55,11 @@ function barPct(ratio: number): number {
   return Math.max(4, Math.min(100, ratio * 100));
 }
 
+/** ISO 날짜("2026-06-18") → "06/18" (최근 직접 동반 히스토리 칩). */
+function fmtMD(iso: string): string {
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}`;
+}
+
 /** 근거 상세 1줄 — <dl> 내부 (dt/dd 그룹, HTML5 div 래퍼 허용). */
 function DetailItem({
   label,
@@ -107,7 +112,8 @@ function DetailItem({
  * (중첩 인터랙티브 <button> in <a> 금지). 펼침은 행 로컬 state.
  */
 function CandidateRow({ c }: { c: CoMovementCandidate }) {
-  const [open, setOpen] = useState(false);
+  // 기본 펼침 — 점수 근거를 항상 노출(사용자 요청). 토글로 접기 가능.
+  const [open, setOpen] = useState(true);
 
   // co-surge 전용 후보(공유 테마 없음)는 confD0=0 의 "0%" 대신 "—" (UI-SPEC 규칙).
   const isCoSurgeOnly = c.sharedThemes.length === 0;
@@ -233,6 +239,27 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
                 label="공유 테마"
                 value={c.sharedThemes.map((t) => t.name).join(' · ')}
               />
+            )}
+            {c.recentCoSurge.length > 0 && (
+              <div className="col-span-2 flex flex-col gap-[5px]">
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--muted-fg)]">
+                  최근 직접 동반
+                </dt>
+                <dd className="flex flex-wrap gap-[6px]">
+                  {c.recentCoSurge.slice(0, 3).map((h) => (
+                    <span
+                      key={h.date}
+                      title={`${fmtMD(h.date)} · 본종목 +${Math.round(h.anchorRate)}% · ${c.name} +${Math.round(h.candidateRate)}%`}
+                      className="inline-flex items-center gap-[5px] rounded-full bg-[var(--up-bg)] px-[9px] py-px text-[length:var(--t-caption)]"
+                    >
+                      <span className="mono text-[var(--muted-fg)]">{fmtMD(h.date)}</span>
+                      <span className="mono font-semibold text-[var(--up)]">
+                        +{Math.round(h.candidateRate)}%
+                      </span>
+                    </span>
+                  ))}
+                </dd>
+              </div>
             )}
           </dl>
         )}

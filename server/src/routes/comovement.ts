@@ -28,7 +28,7 @@ import type {
 const THEME_COMOVEMENT_COLS =
   "theme_id,stock_code,ignite_days,member_count,conf_d0,conf_d1,lift,avg_ret";
 const COSURGE_COLS =
-  "code_a,code_b,co_count,lift,avg_pair_ret,w_sum_a,ws_sum_a,w_sum_b,ws_sum_b";
+  "code_a,code_b,co_count,lift,avg_pair_ret,w_sum_a,ws_sum_a,w_sum_b,ws_sum_b,recent_pairs";
 
 /**
  * 앵커의 theme_id 들이 매칭하는 theme_comovement 멤버 전 행을 .range() 페이지네이션 수집.

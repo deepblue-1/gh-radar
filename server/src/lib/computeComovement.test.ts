@@ -42,6 +42,8 @@ type CosurgeEdgeRow = {
   ws_sum_a: number | null;
   w_sum_b: number | null;
   ws_sum_b: number | null;
+  // 20260624140000: 최근 동반급등 히스토리 (날짜 desc, 최대 5건). d=날짜, ra=code_a%, rb=code_b%.
+  recent_pairs: { d: string; ra: number; rb: number }[] | null;
 };
 
 function themeRow(p: Partial<ThemeComovementRow> & { theme_id: string; stock_code: string }): ThemeComovementRow {
@@ -65,6 +67,7 @@ function edge(
   lift = 2,
   avg = 18,
   dir?: { w_a?: number; ws_a?: number; w_b?: number; ws_b?: number },
+  recent_pairs: { d: string; ra: number; rb: number }[] | null = null,
 ): CosurgeEdgeRow {
   const [a, b] = code_a < code_b ? [code_a, code_b] : [code_b, code_a];
   // 기본: 양방향 강함 — w_sum=3(표본보정 만점), ws_sum=2.7(비율 0.9).
@@ -78,6 +81,7 @@ function edge(
     ws_sum_a: dir?.ws_a ?? 2.7,
     w_sum_b: dir?.w_b ?? 3,
     ws_sum_b: dir?.ws_b ?? 2.7,
+    recent_pairs,
   };
 }
 function quote(name: string, market: "KOSPI" | "KOSDAQ", changeRate: number | null) {
@@ -273,5 +277,33 @@ describe("computeComovement — 결합 점수/타이트니스/dedup/후행/표�
     const fluke = out.find((c: CoMovementCandidate) => c.code === "024060")!;
     const steady = out.find((c: CoMovementCandidate) => c.code === "017900")!;
     expect(steady.strength).toBeGreaterThan(fluke.strength);
+  });
+
+  // Test L — recentCoSurge 방향 매핑: 앵커가 code_a/code_b 어느 쪽이든
+  //   ra/rb → anchorRate/candidateRate 가 올바르게 정렬돼야 한다 (무향 정규화 보정).
+  it("L: recentCoSurge 가 앵커 방향에 맞춰 anchorRate/candidateRate 로 변환", () => {
+    // 앵커=code_a (ANCHOR '004090' < '024060'): candidateRate=rb, anchorRate=ra.
+    const aSide: CosurgeEdgeRow[] = [
+      edge(ANCHOR, "024060", 5, 2, 18, undefined, [
+        { d: "2026-06-18", ra: 30, rb: 25 },
+        { d: "2026-05-30", ra: 18, rb: 12 },
+      ]),
+    ];
+    const outA = computeComovement([], aSide, [], quotes(), 8, ANCHOR);
+    const candA = outA.find((c: CoMovementCandidate) => c.code === "024060")!;
+    expect(candA.recentCoSurge).toEqual([
+      { date: "2026-06-18", anchorRate: 30, candidateRate: 25 },
+      { date: "2026-05-30", anchorRate: 18, candidateRate: 12 },
+    ]);
+
+    // 앵커=code_b ('000020' < ANCHOR '004090' → 후보가 code_a): candidateRate=ra, anchorRate=rb.
+    const bSide: CosurgeEdgeRow[] = [
+      edge("000020", ANCHOR, 5, 2, 18, undefined, [{ d: "2026-06-10", ra: 22, rb: 31 }]),
+    ];
+    const outB = computeComovement([], bSide, [], quotes(), 8, ANCHOR);
+    const candB = outB.find((c: CoMovementCandidate) => c.code === "000020")!;
+    expect(candB.recentCoSurge).toEqual([
+      { date: "2026-06-10", anchorRate: 31, candidateRate: 22 },
+    ]);
   });
 });

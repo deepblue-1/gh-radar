@@ -30,6 +30,12 @@ export interface CoMovementCandidate {
   coSurgeCount: number | null;
   /** 표본수 배지 (ignite_days >= 8 → high) */
   sampleConfidence: "high" | "low";
+  /**
+   * 최근 직접 동반급등 히스토리 (날짜 desc, 최대 5건). co-surge 경로 evidence —
+   * 두 종목이 같은 날 ≥10% 동반급등한 날 + 앵커/후보 각각의 등락률(%).
+   * 테마 전용 후보(co-surge 엣지 없음)는 빈 배열.
+   */
+  recentCoSurge: { date: string; anchorRate: number; candidateRate: number }[];
 }
 
 /** GET /api/stocks/:code/co-movement 응답 — **객체**(배열 아님, 계약 드리프트 회피). */
