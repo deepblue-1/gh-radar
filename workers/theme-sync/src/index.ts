@@ -85,6 +85,8 @@ export interface ThemeSyncSummary {
   aiDiscovered: number;
   /** Plan 06 — AI soft-제외 교정된 매핑 수 (classifyEnabled=false 면 0). */
   aiCorrected: number;
+  /** Plan 11 — 큐레이션 테마로 흡수·삭제된 ai 단독 중복 테마 수 (classifyEnabled=false 면 0). */
+  aiConsolidated: number;
 }
 
 export async function runThemeSyncCycle(
@@ -194,6 +196,7 @@ export async function runThemeSyncCycle(
       skippedWrite: false,
       aiDiscovered: 0,
       aiCorrected: 0,
+      aiConsolidated: 0,
     };
   }
 
@@ -229,10 +232,12 @@ export async function runThemeSyncCycle(
   // ─────────────────────────────────────────────────────────────────────
   let aiDiscovered = 0;
   let aiCorrected = 0;
+  let aiConsolidated = 0;
   try {
     const ai = await enrichWithAi(supabase, cfg, log, now);
     aiDiscovered = ai.aiDiscovered;
     aiCorrected = ai.aiCorrected;
+    aiConsolidated = ai.aiConsolidated;
   } catch (err: unknown) {
     log.error(
       { err: (err as Error)?.message },
@@ -247,6 +252,7 @@ export async function runThemeSyncCycle(
       ...result,
       aiDiscovered,
       aiCorrected,
+      aiConsolidated,
       skippedWrite: skipWrite,
       backedOffSources,
     },
@@ -260,6 +266,7 @@ export async function runThemeSyncCycle(
     skippedWrite: skipWrite,
     aiDiscovered,
     aiCorrected,
+    aiConsolidated,
   };
 }
 

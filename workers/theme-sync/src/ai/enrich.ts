@@ -3,7 +3,7 @@ import type pino from "pino";
 import type { ThemeSyncConfig } from "../config";
 import { discoverThemes } from "./discoverThemes";
 import { correctMembership, type MembershipRow } from "./correctMembership";
-import { persistAi, pruneSparseAiThemes } from "./persistAi";
+import { persistAi, pruneSparseAiThemes, consolidateAiThemes } from "./persistAi";
 
 /**
  * Phase 10 Plan 06 — theme-sync cycle 의 AI 보강 단계 (RESEARCH §Pattern 6, 일1회 cycle 동반).
@@ -29,6 +29,8 @@ export interface AiEnrichResult {
   aiStockLinksUpserted: number;
   /** ai 단독 <2종목 테마 prune 삭제 수. */
   aiPruned: number;
+  /** 큐레이션 테마와 종목 ≥2 겹쳐 흡수·삭제된 ai 단독 중복 테마 수. */
+  aiConsolidated: number;
 }
 
 /**
@@ -92,6 +94,7 @@ export async function enrichWithAi(
       aiThemesUpserted: 0,
       aiStockLinksUpserted: 0,
       aiPruned: 0,
+      aiConsolidated: 0,
     };
   }
 
@@ -105,7 +108,10 @@ export async function enrichWithAi(
   // 4) 적재 — 발굴(source='ai') + 교정(effective_to soft-제외).
   const persisted = await persistAi(supabase, discovered, corrections, log, now);
 
-  // 5) prune — ai 단독 <2종목 테마 정리(생성 ≥2 가드와 동일 불변식, 기존 sparse 청소).
+  // 5) consolidate — 기존 ai 단독 중복 테마를 큐레이션 테마로 흡수·삭제(이미 쌓인 중복 정리).
+  const aiConsolidated = await consolidateAiThemes(supabase, log, now);
+
+  // 6) prune — ai 단독 <2종목 테마 정리(생성 ≥2 가드와 동일 불변식, 기존 sparse 청소).
   const aiPruned = await pruneSparseAiThemes(supabase, log);
 
   log.info(
@@ -115,6 +121,7 @@ export async function enrichWithAi(
       aiThemesUpserted: persisted.aiThemesUpserted,
       aiStockLinksUpserted: persisted.aiStockLinksUpserted,
       skippedMissingStocks: persisted.skippedMissingStocks,
+      aiConsolidated,
       aiPruned,
     },
     "AI enrichment done",
@@ -126,5 +133,6 @@ export async function enrichWithAi(
     aiThemesUpserted: persisted.aiThemesUpserted,
     aiStockLinksUpserted: persisted.aiStockLinksUpserted,
     aiPruned,
+    aiConsolidated,
   };
 }

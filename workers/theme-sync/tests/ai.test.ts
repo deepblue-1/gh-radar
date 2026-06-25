@@ -40,6 +40,7 @@ import {
   persistDiscoveries,
   persistCorrections,
   pruneSparseAiThemes,
+  consolidateAiThemes,
 } from "../src/ai/persistAi";
 import { enrichWithAi } from "../src/ai/enrich";
 import { runThemeSyncCycle } from "../src/index";
@@ -501,6 +502,100 @@ describe("persistDiscoveries (source='ai' 시스템 적재 + FK)", () => {
     expect(res.aiThemesUpserted).toBe(0);
     expect(sb._chains.themes).toBeUndefined();
   });
+
+  it("norm_key 불일치라도 active 종목 ≥2 공유하는 시스템 테마에 흡수한다 (2순위, 변형명 중복 방지)", async () => {
+    const sb = createMockSupabase();
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }, { code: "000660" }],
+      error: null,
+    });
+    // norm_key 완전일치 없음.
+    sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
+    // 기존 시스템 테마 'naver-1'(sources=['naver'])이 005930·000660 둘 다 active 보유.
+    sb.from("theme_stocks").limit.mockResolvedValue({
+      data: [
+        {
+          theme_id: "naver-1",
+          stock_code: "005930",
+          effective_to: null,
+          themes: { is_system: true, sources: ["naver"] },
+        },
+        {
+          theme_id: "naver-1",
+          stock_code: "000660",
+          effective_to: null,
+          themes: { is_system: true, sources: ["naver"] },
+        },
+      ],
+      error: null,
+    });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+
+    const res = await persistDiscoveries(
+      sb as never,
+      [
+        {
+          name: "AI 인프라", // norm_key 'ai인프라' — '반도체' 와 완전일치 아님.
+          normKey: "ai인프라",
+          stockCodes: ["005930", "000660"],
+          confidence: 0.7,
+        },
+      ],
+      log,
+    );
+
+    // 신규 INSERT 안 함 — 기존 'naver-1' 에 흡수(sources 에 'ai' 병합).
+    expect(sb._chains.themes.insert).not.toHaveBeenCalled();
+    const updateArg = (sb._chains.themes.update as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(updateArg.sources).toEqual(["naver", "ai"]);
+    expect(res.aiThemesUpserted).toBe(1);
+  });
+
+  it("공유 종목이 1개뿐이면 흡수하지 않고 신규 AI 테마를 생성한다 (≥2 임계, 과흡수 금지)", async () => {
+    const sb = createMockSupabase();
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930" }, { code: "000660" }],
+      error: null,
+    });
+    sb.from("themes").maybeSingle.mockResolvedValue({ data: null, error: null });
+    // 기존 테마는 005930 1개만 공유 → 임계 미만.
+    sb.from("theme_stocks").limit.mockResolvedValue({
+      data: [
+        {
+          theme_id: "naver-1",
+          stock_code: "005930",
+          effective_to: null,
+          themes: { is_system: true, sources: ["naver"] },
+        },
+      ],
+      error: null,
+    });
+    sb.from("themes").single.mockResolvedValue({
+      data: { id: "ai-new" },
+      error: null,
+    });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+
+    await persistDiscoveries(
+      sb as never,
+      [
+        {
+          name: "신규테마",
+          normKey: "신규테마",
+          stockCodes: ["005930", "000660"],
+          confidence: 0.7,
+        },
+      ],
+      log,
+    );
+
+    // 1개 공유는 흡수 안 함 → 신규 INSERT(sources=['ai']).
+    const insertArg = (sb._chains.themes.insert as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(insertArg.sources).toEqual(["ai"]);
+    expect(sb._chains.themes.update).not.toHaveBeenCalled();
+  });
 });
 
 // ── (3b) pruneSparseAiThemes — ai 단독 <2종목 정리 (원 소스 보존) ──────────────
@@ -544,6 +639,75 @@ describe("pruneSparseAiThemes (ai 단독 <2종목 삭제)", () => {
     });
     const pruned = await pruneSparseAiThemes(sb as never, log);
     expect(pruned).toBe(0);
+    expect(sb._chains.themes.delete).not.toHaveBeenCalled();
+  });
+});
+
+// ── (3c) consolidateAiThemes — 기존 ai 단독 중복을 큐레이션 테마로 흡수·삭제 ──────
+
+describe("consolidateAiThemes (ai 단독 중복 흡수)", () => {
+  it("큐레이션 테마와 ≥2종목 겹치는 ai 단독 테마를 흡수·삭제하고, 안 겹치는 ai 테마는 보존한다", async () => {
+    const sb = createMockSupabase();
+    // 1) 시스템 테마: ai 단독 2개(ai-dup 겹침 / ai-novel 안겹침) + 큐레이션 naver-1.
+    sb.from("themes").limit.mockResolvedValue({
+      data: [
+        { id: "ai-dup", sources: ["ai"] },
+        { id: "naver-1", sources: ["naver"] },
+        { id: "ai-novel", sources: ["ai"] },
+      ],
+      error: null,
+    });
+    // 2) ai 단독 active 종목 → 3) 큐레이션 active 종목 (theme_stocks.limit 순차 응답).
+    sb.from("theme_stocks").limit
+      // step2: ai-dup={005930,000660,009150}, ai-novel={035420}.
+      .mockResolvedValueOnce({
+        data: [
+          { theme_id: "ai-dup", stock_code: "005930", confidence: 0.8, effective_to: null },
+          { theme_id: "ai-dup", stock_code: "000660", confidence: 0.8, effective_to: null },
+          { theme_id: "ai-dup", stock_code: "009150", confidence: 0.8, effective_to: null },
+          { theme_id: "ai-novel", stock_code: "035420", confidence: 0.7, effective_to: null },
+        ],
+        error: null,
+      })
+      // step3: naver-1 이 005930·000660 active 보유(009150·035420 은 미보유).
+      .mockResolvedValueOnce({
+        data: [
+          { theme_id: "naver-1", stock_code: "005930", effective_to: null },
+          { theme_id: "naver-1", stock_code: "000660", effective_to: null },
+        ],
+        error: null,
+      });
+    sb.from("theme_stocks").upsert.mockResolvedValue({ data: null, error: null });
+
+    const folded = await consolidateAiThemes(sb as never, log);
+
+    // ai-dup 은 naver-1 과 005930·000660 2개 공유 → 흡수·삭제. ai-novel 은 보존.
+    expect(folded).toBe(1);
+    expect(sb._chains.themes.in).toHaveBeenCalledWith("id", ["ai-dup"]);
+    expect(sb._chains.themes.delete).toHaveBeenCalled();
+    // 누락 종목(009150)만 naver-1 에 'ai' 로 흡수(005930·000660 은 이미 active → 제외).
+    const upsertArg = (sb._chains.theme_stocks.upsert as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(upsertArg).toHaveLength(1);
+    expect(upsertArg[0]).toMatchObject({
+      theme_id: "naver-1",
+      stock_code: "009150",
+      source: "ai",
+    });
+    // naver-1 sources 에 'ai' 병합.
+    const updateArg = (sb._chains.themes.update as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0];
+    expect(updateArg.sources).toEqual(["naver", "ai"]);
+  });
+
+  it("ai 단독 테마가 없거나 큐레이션 테마가 없으면 아무것도 하지 않는다", async () => {
+    const sb = createMockSupabase();
+    sb.from("themes").limit.mockResolvedValue({
+      data: [{ id: "naver-1", sources: ["naver"] }], // ai 단독 없음.
+      error: null,
+    });
+    const folded = await consolidateAiThemes(sb as never, log);
+    expect(folded).toBe(0);
     expect(sb._chains.themes.delete).not.toHaveBeenCalled();
   });
 });
@@ -673,6 +837,7 @@ describe("enrichWithAi (cycle AI 단계 통합)", () => {
       aiThemesUpserted: 0,
       aiStockLinksUpserted: 0,
       aiPruned: 0,
+      aiConsolidated: 0,
     });
     expect(hoist.mockCreate).not.toHaveBeenCalled();
     // 어떤 테이블도 접근하지 않음(prune 도 미실행).
