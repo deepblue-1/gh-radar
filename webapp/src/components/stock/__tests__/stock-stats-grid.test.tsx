@@ -44,8 +44,19 @@ describe('StockStatsGrid', () => {
     expect(screen.getByText('-')).toBeInTheDocument();
   });
 
-  it('Test 7 — grid container 가 grid-cols-2 md:grid-cols-3 클래스 보유', () => {
+  it('Test 7 — 유효 스케일이면 스펙트럼 바 + 상·하한가 노출 (B3)', () => {
     render(<StockStatsGrid stock={FIXTURE_SAMSUNG} />);
+    // B3: grid 가 아니라 스펙트럼 바로 렌더
+    expect(screen.getByTestId('price-spectrum')).toBeInTheDocument();
+    expect(screen.getByText('상한가')).toBeInTheDocument();
+    expect(screen.getByText('하한가')).toBeInTheDocument();
+    // 상·하한가 값 (74,750 / 40,250) 이 노출
+    expect(screen.getByText('74,750')).toBeInTheDocument();
+    expect(screen.getByText('40,250')).toBeInTheDocument();
+  });
+
+  it('Test 7b — 스케일 무효(상·하한가=0)면 폴백 grid 로 분기', () => {
+    render(<StockStatsGrid stock={FIXTURE_NULL_PRICE} />);
     const grid = screen.getByTestId('stock-stats-grid');
     expect(grid.className).toContain('grid-cols-2');
     expect(grid.className).toContain('md:grid-cols-3');
