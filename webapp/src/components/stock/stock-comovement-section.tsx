@@ -7,7 +7,7 @@
  * apiFetch<CoMovementResponse> (comovement-api) 로 동반상승 후보를 mount fetch 하고,
  * theme-chips(근거칩) 패턴을 재사용해 후보 행을 렌더한다 (강도바 제거 — 점수 근거 명시로 대체).
  *
- * 행 카드 = 근거칩(공유 테마 / 직접동반) + 동반율(중립색) + 실시간 등락률(방향색) + 후행형 배지
+ * 행 카드 = 근거칩(공유 테마 / 동반급등) + 동반율(중립색) + 실시간 등락률(방향색) + 후행형 배지
  *           + "근거 보기" 아코디언(점수 분해: 연결 경로·동반급등 횟수·발화일 동반율·표본·선후행).
  *           초기 3행 + 더보기(useState expanded). 행별 근거 펼침은 CandidateRow 로컬 state.
  *
@@ -55,7 +55,7 @@ function barPct(ratio: number): number {
   return Math.max(4, Math.min(100, ratio * 100));
 }
 
-/** ISO 날짜("2026-06-18") → "06/18" (최근 직접 동반 히스토리 칩). */
+/** ISO 날짜("2026-06-18") → "06/18" (최근 동반급등 히스토리 칩). */
 function fmtMD(iso: string): string {
   return `${iso.slice(5, 7)}/${iso.slice(8, 10)}`;
 }
@@ -122,13 +122,13 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
   // 구버전 서버 응답(recentCoSurge 미포함) 방어 — 배포 스큐 윈도우에서 .length 크래시 방지.
   const recentCoSurge = c.recentCoSurge ?? [];
 
-  // 연결 경로 — 테마 / 직접동반 / 둘 다 (근거 상세 첫 행, "왜 후보인가"의 근원).
+  // 연결 경로 — 테마 / 동반급등 / 둘 다 (근거 상세 첫 행, "왜 후보인가"의 근원).
   const pathLabel =
     !isCoSurgeOnly && hasCoSurge
-      ? '테마 + 직접동반'
+      ? '테마 + 동반급등'
       : !isCoSurgeOnly
         ? '테마'
-        : '직접동반 (테마무관)';
+        : '동반급등 (테마무관)';
 
   return (
     <div
@@ -153,7 +153,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
             </span>
           </span>
           <span className="flex flex-wrap items-center gap-2">
-            {/* 근거 칩 — 테마 먼저 → 직접동반 (D-03) */}
+            {/* 근거 칩 — 테마 먼저 → 동반급등 (D-03) */}
             {c.sharedThemes.map((t) => (
               <span
                 key={t.id}
@@ -169,7 +169,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
             {c.coSurgeCount != null && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent)] px-[9px] py-px text-[length:var(--t-caption)] font-semibold text-[var(--accent-fg)]">
                 <ArrowUpRight aria-hidden="true" className="size-[11px]" />
-                직접동반 {c.coSurgeCount}회
+                동반급등 {c.coSurgeCount}회
               </span>
             )}
             {c.isTrailing && (
@@ -222,7 +222,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
           <dl className="mt-[var(--s-3)] grid grid-cols-2 gap-x-[var(--s-4)] gap-y-[var(--s-3)] border-t border-[var(--border-subtle)] pt-[var(--s-3)]">
             <DetailItem label="연결 경로" value={pathLabel} />
             {hasCoSurge && (
-              <DetailItem label="직접 동반급등" value={`${c.coSurgeCount}회`} mono />
+              <DetailItem label="동반급등" value={`${c.coSurgeCount}회`} mono />
             )}
             {!isCoSurgeOnly && (
               <DetailItem label="테마 발화일 동반율" value={confLabel} mono bar={c.confD0} />
@@ -245,7 +245,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
             {recentCoSurge.length > 0 && (
               <div className="col-span-2 flex flex-col gap-[5px]">
                 <dt className="text-[10px] font-semibold uppercase tracking-[0.04em] text-[var(--muted-fg)]">
-                  최근 직접 동반
+                  최근 동반급등
                 </dt>
                 <dd className="flex flex-wrap gap-[6px]">
                   {recentCoSurge.slice(0, 3).map((h) => (

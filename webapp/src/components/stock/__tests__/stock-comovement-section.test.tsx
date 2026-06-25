@@ -11,7 +11,7 @@ import type { CoMovementCandidate } from '@gh-radar/shared';
  * - Test 2: 후보 ≤3 → 더보기 버튼 없음.
  * - Test 3: 빈 응답 → "동반상승 데이터 부족" 빈 상태.
  * - Test 4: fetch reject → 섹션 미렌더 (null, error.message 노출 0).
- * - Test 5: coSurgeCount → "직접동반 N회", isTrailing → "후행형", sharedThemes → 테마명.
+ * - Test 5: coSurgeCount → "동반급등 N회", isTrailing → "후행형", sharedThemes → 테마명.
  * - Test 6: 동반율 = Math.round(confD0*100)%, liveChangeRate null → "—".
  * - Test 7: co-surge 전용(sharedThemes=[], coSurgeCount=9, confD0=0) → 동반율 "—", "0%" 미표시.
  *
@@ -115,7 +115,7 @@ describe('StockComovementSection', () => {
     expect(container.textContent).not.toContain('relation does not exist');
   });
 
-  it('Test 5: coSurgeCount → 직접동반 칩, isTrailing → 후행형, sharedThemes → 테마명', async () => {
+  it('Test 5: coSurgeCount → 동반급등 칩, isTrailing → 후행형, sharedThemes → 테마명', async () => {
     fetchStockComovementMock.mockResolvedValue({
       candidates: [
         makeCandidate({
@@ -132,7 +132,7 @@ describe('StockComovementSection', () => {
     await waitFor(() => expect(screen.getByText('대성에너지')).toBeInTheDocument());
     // 기본 펼침이라 '정유·석유'는 칩 + 근거상세(공유 테마) 양쪽에 노출 → getAllByText.
     expect(screen.getAllByText('정유·석유').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('직접동반 6회')).toBeInTheDocument();
+    expect(screen.getByText('동반급등 6회')).toBeInTheDocument();
     expect(screen.getByText('후행형')).toBeInTheDocument();
   });
 
@@ -211,8 +211,8 @@ describe('StockComovementSection', () => {
     const { container } = render(<StockComovementSection stockCode="004090" />);
 
     await waitFor(() => expect(screen.getByText('대성에너지')).toBeInTheDocument());
-    // 직접동반 칩은 존재
-    expect(screen.getByText('직접동반 9회')).toBeInTheDocument();
+    // 동반급등 칩은 존재
+    expect(screen.getByText('동반급등 9회')).toBeInTheDocument();
     // 동반율 영역은 "—" — "0%" 절대 미표시
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(container.textContent).not.toContain('0%');
@@ -242,13 +242,13 @@ describe('StockComovementSection', () => {
 
     // 기본 펼침 — 점수 분해 즉시 노출
     expect(screen.getByText('연결 경로')).toBeInTheDocument();
-    expect(screen.getByText('테마 + 직접동반')).toBeInTheDocument();
-    expect(screen.getByText('직접 동반급등')).toBeInTheDocument();
+    expect(screen.getByText('테마 + 동반급등')).toBeInTheDocument();
+    expect(screen.getByText('동반급등')).toBeInTheDocument();
     expect(screen.getByText('표본 신뢰도')).toBeInTheDocument();
     expect(screen.getByText('충분')).toBeInTheDocument();
     expect(screen.getByText('동행형')).toBeInTheDocument();
-    // 최근 직접 동반 히스토리 — 날짜 MM/DD + 후보 등락률
-    expect(screen.getByText('최근 직접 동반')).toBeInTheDocument();
+    // 최근 동반급등 히스토리 — 날짜 MM/DD + 후보 등락률
+    expect(screen.getByText('최근 동반급등')).toBeInTheDocument();
     expect(screen.getByText('06/18')).toBeInTheDocument();
     expect(screen.getByText('+25%')).toBeInTheDocument();
 
