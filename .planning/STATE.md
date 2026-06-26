@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 11 UI-SPEC approved
-last_updated: "2026-06-24T04:14:30.428Z"
+stopped_at: Phase 12 context gathered
+last_updated: "2026-06-26T06:11:23.112Z"
 last_activity: 2026-06-24
 progress:
-  total_phases: 20
+  total_phases: 21
   completed_phases: 14
   total_plans: 97
   completed_plans: 83
@@ -267,6 +267,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-10T06:27:47.285Z
-Stopped at: Phase 11 UI-SPEC approved
+Last session: 2026-06-26T06:11:23.099Z
+Stopped at: Phase 12 context gathered
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
