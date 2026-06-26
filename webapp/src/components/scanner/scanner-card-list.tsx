@@ -8,6 +8,8 @@ import type { StockWithProximity } from '@/lib/scanner-api';
 export interface ScannerCardListProps {
   stocks: StockWithProximity[];
   isRefreshing?: boolean;
+  /** AI 선정 종목 code 집합(theme_stocks.source==='ai'). 전달 시 해당 카드에 "AI" 칩 표시. */
+  aiCodes?: ReadonlySet<string>;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface ScannerCardListProps {
  *
  * 기존 `ScannerCardListProps` 인터페이스는 보존 — scanner-client 는 변경 없음.
  */
-function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
+function ScannerCardListBase({ stocks, isRefreshing, aiCodes }: ScannerCardListProps) {
   const items = useMemo(() => stocks, [stocks]);
   return (
     <ul
@@ -35,6 +37,7 @@ function ScannerCardListBase({ stocks, isRefreshing }: ScannerCardListProps) {
         <li key={stock.code}>
           <InfoStockCard
             stock={stock}
+            aiSelected={aiCodes?.has(stock.code)}
             showWatchlistToggle
             watchlistToggleSlot={<WatchlistToggle stockCode={stock.code} stockName={stock.name} />}
           />

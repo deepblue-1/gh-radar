@@ -118,4 +118,14 @@ describe('InfoStockCard', () => {
     );
     expect(screen.getByTestId('toggle-node').textContent).toBe('★');
   });
+
+  it('shows the "AI" pick badge only when aiSelected is true', () => {
+    const { queryByLabelText } = render(<InfoStockCard stock={baseStock} />);
+    expect(queryByLabelText('AI 선정 종목')).toBeNull();
+
+    const { getByLabelText } = render(
+      <InfoStockCard stock={baseStock} aiSelected />,
+    );
+    expect(getByLabelText('AI 선정 종목')).not.toBeNull();
+  });
 });

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
 
 import { Number as NumberDisplay } from '@/components/ui/number';
+import { AiPickBadge } from '@/components/ui/ai-pick-badge';
 import { cn } from '@/lib/utils';
 import type { StockWithProximity } from '@/lib/scanner-api';
 
@@ -36,6 +37,8 @@ export interface InfoStockCardProps {
   showWatchlistToggle?: boolean;
   /** Plan 07 에서 `<WatchlistToggle />` 노드를 전달한다. */
   watchlistToggleSlot?: ReactNode;
+  /** AI 선정 종목(theme_stocks.source==='ai')이면 종목명 앞에 "AI" 칩 표시. */
+  aiSelected?: boolean;
 }
 
 function directionOf(changeRate: number): SparklineDirection {
@@ -48,6 +51,7 @@ export function InfoStockCard({
   stock,
   showWatchlistToggle = false,
   watchlistToggleSlot,
+  aiSelected = false,
 }: InfoStockCardProps) {
   const direction = directionOf(stock.changeRate);
   const colorClass =
@@ -82,8 +86,11 @@ export function InfoStockCard({
 
         {/* 중앙 종목명 + 2줄째 market · code */}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-            {stock.name}
+          <div className="flex min-w-0 items-center gap-1.5">
+            {aiSelected && <AiPickBadge />}
+            <span className="truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+              {stock.name}
+            </span>
           </div>
           <div className="mono truncate text-[length:var(--t-caption)] uppercase text-[var(--muted-fg)]">
             {stock.market} · {stock.code}

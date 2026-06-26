@@ -439,3 +439,13 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
 | 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
 | 11. Co-movement Candidates | 5/5 | Complete    | 2026-06-24 |
+
+### Phase 12: 상한가 다음날 이력 통계 (종목상세) — 종목 자체 과거 상한가 이벤트의 다음날 시/고/저/종 수익률 백테스트. A안(상한가 종가 매수 가정), 종목 자체 이력만, 이벤트 리스트+카운트 표시, 점상한가 태그, 거래대금/회전율 컬럼, 최근 N회 보조 스탯, 테마 모멘텀 보조 카드. master-sync 배치 사전계산 → 종목상세 읽기 전용.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 11
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 12 to break down)

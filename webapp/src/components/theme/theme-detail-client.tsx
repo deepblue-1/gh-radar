@@ -136,6 +136,18 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
     [theme],
   );
 
+  // AI 선정 종목(source==='ai') code 집합 — 네이버/알파 큐레이션엔 없던, AI 가 추가로 고른
+  // 종목만 "AI" 칩 표시(공유 종목은 naver/alpha source 유지 → 표식 없음).
+  const aiCodes = useMemo(
+    () =>
+      new Set(
+        (theme?.stocks ?? [])
+          .filter((m) => m.source === 'ai')
+          .map((m) => m.code),
+      ),
+    [theme],
+  );
+
   const backLink = (
     <Link
       href="/themes"
@@ -293,8 +305,8 @@ export function ThemeDetailClient({ id }: ThemeDetailClientProps) {
         </div>
       ) : (
         <>
-          <ScannerTable stocks={stocks} isRefreshing={isRefreshing} />
-          <ScannerCardList stocks={stocks} isRefreshing={isRefreshing} />
+          <ScannerTable stocks={stocks} isRefreshing={isRefreshing} aiCodes={aiCodes} />
+          <ScannerCardList stocks={stocks} isRefreshing={isRefreshing} aiCodes={aiCodes} />
         </>
       )}
 

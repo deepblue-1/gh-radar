@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { memo, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { AiPickBadge } from '@/components/ui/ai-pick-badge';
 import { Number } from '@/components/ui/number';
 import { cn } from '@/lib/utils';
 import type { StockWithProximity } from '@/lib/scanner-api';
@@ -9,6 +10,11 @@ import { WatchlistToggle } from '@/components/watchlist/watchlist-toggle';
 export interface ScannerTableProps {
   stocks: StockWithProximity[];
   isRefreshing?: boolean;
+  /**
+   * AI 선정 종목 code 집합(theme_stocks.source==='ai'). 전달 시 해당 행 종목명 앞에
+   * "AI" 칩 표시. 일반 스캐너에서는 미전달 → 표식 없음(공유 컴포넌트, 무변화).
+   */
+  aiCodes?: ReadonlySet<string>;
 }
 
 /**
@@ -24,7 +30,7 @@ export interface ScannerTableProps {
 const GRID_COLS =
   'grid grid-cols-[1fr_100px_80px_120px_100px_140px_44px] items-center gap-3 px-3';
 
-function ScannerTableBase({ stocks, isRefreshing }: ScannerTableProps) {
+function ScannerTableBase({ stocks, isRefreshing, aiCodes }: ScannerTableProps) {
   const rows = useMemo(() => stocks, [stocks]);
   return (
     <div
@@ -71,13 +77,16 @@ function ScannerTableBase({ stocks, isRefreshing }: ScannerTableProps) {
                 'py-3 border-t border-[var(--border)] hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] transition-colors',
               )}
             >
-              <Link
-                href={href}
-                aria-label={rowAriaLabel}
-                className="text-[length:var(--t-base)] font-semibold text-[var(--fg)] truncate hover:underline"
-              >
-                {stock.name}
-              </Link>
+              <span className="flex min-w-0 items-center gap-1.5">
+                {aiCodes?.has(stock.code) && <AiPickBadge />}
+                <Link
+                  href={href}
+                  aria-label={rowAriaLabel}
+                  className="text-[length:var(--t-base)] font-semibold text-[var(--fg)] truncate hover:underline"
+                >
+                  {stock.name}
+                </Link>
+              </span>
               <Link
                 href={href}
                 tabIndex={-1}
