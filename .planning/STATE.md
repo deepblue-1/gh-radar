@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 12 context gathered
-last_updated: "2026-06-28T09:56:33.686Z"
-last_activity: 2026-06-28 -- Phase 12 planning complete
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-06-28T11:13:31.031Z"
+last_activity: 2026-06-28
 progress:
   total_phases: 21
   completed_phases: 14
   total_plans: 102
-  completed_plans: 83
-  percent: 81
+  completed_plans: 84
+  percent: 82
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 10 — theme-classification
+**Current focus:** Phase 12 — a-n-master-sync
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
+Phase: 12 (a-n-master-sync) — EXECUTING
+Plan: 2 of 5
 Plans completed: 78 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment / 10-07 themes-ui / 10-08 deploy-e2e)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-06-28 -- Phase 12 planning complete
+Last activity: 2026-06-28
 
 Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
 
@@ -130,6 +130,7 @@ Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
 | Phase 10 P06 | 55min | 3 tasks | 9 files |
 | Phase 10 P07 | 13min | 3 tasks | 14 files |
 | Phase 10 P08 | 13min | 3 tasks | 16 files |
+| Phase 12 P01 | 8min | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -241,6 +242,7 @@ Recent decisions affecting current work:
 - [Phase 10]: [10-08] 유저 테마 optimistic 갱신 — upsertMyTheme(replace-by-id else prepend)/removeMyTheme(id) + onSaved(스냅샷)/onDeleted(id) 시그니처. Supabase 풀러 read-after-write 레이스로 생성 직후 list 빈 화면 회귀를 즉시 반영 후 refresh reconcile 2단으로 해소(통계 null 폴백). create-and-add E2E 통과
 - [Phase 10]: [10-08] @gh-radar/shared 확장자 없는 re-export lesson — 10-02 의 첫 런타임 값 re-export(THEME_STOCK_SOURCES from ./theme.js)가 Turbopack dev .js→.ts resolve 갭 재유발(DEV 전용 오버레이, production build 는 항상 green). moduleResolution:bundler 에서 확장자 생략이 관용(NodeNext 소비자는 dist, 무영향)
 - [Phase 10]: [10-08] smoke INV-2 — Cloud Run Job pino 로그는 jsonPayload.msg 로 쿼리(service .message 매핑과 다름, 라이브 덤프 확인) + Cloud Logging ingestion 지연 5×15s 재시도. Phase 09.1 의 'service 는 jsonPayload.message' 와 대비되는 Job 측 관측. E2E 상세(edit/delete/fork)는 Express /api/themes/:id 부재로 404 mock(mockThemesApi {list:[]}) → 실 Supabase fetchMyThemeDetail RLS owner-only 폴백 구동
+- [Phase 12]: [12-01] limitUpPrice tick 판정은 target(prev_close×1.3) 가격대 기준 — prev_close 기준 시 500k 등 경계 오류(Pitfall 1). 응답 계약은 객체 {hero,events,themes}(배열 아님, comovement 드리프트 회피). TS 미러가 plpgsql limit_up_price() Wave 2 회귀 대조 기준. limit-up-sync 워커 = Phase 11 동조 워커 1:1 복제 + rebuild_limit_up 교체.
 
 ### Pending Todos
 
@@ -267,6 +269,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-26T06:11:23.099Z
-Stopped at: Phase 12 context gathered
+Last session: 2026-06-28T11:13:31.028Z
+Stopped at: Completed 12-01-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)

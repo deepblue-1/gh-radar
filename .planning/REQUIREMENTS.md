@@ -142,7 +142,7 @@
 | THEME-03 | Phase 10 | Complete (10-02 모델+RLS / 10-05 CRUD API / 10-07 UI / 10-08 optimistic + E2E green 10/10) |
 | THEME-04 | Phase 10 | Complete (10-06 ai/ 모듈+POC 검증; 10-08 prod 활성 CLASSIFY_ENABLED=true — aiDiscovered=25/aiCorrected=2 라이브) |
 | COMV-01 | Phase 11 | Pending |
-| LIMIT-01 | Phase 12 | Pending |
+| LIMIT-01 | Phase 12 | Complete |
 
 **Coverage:**
 - v1 requirements: 35 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35)

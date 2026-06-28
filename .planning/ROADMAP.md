@@ -445,10 +445,10 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 **Goal:** 종목 자체의 과거 마감상한가(종가==상한가 가격) 이벤트에 대해 "상한가 종가 매수 → 다음날 시초가 매도" 가정의 다음날 시/고/저/종 수익률을 일봉으로 백테스트해, 종목 상세 페이지에 읽기전용 카드(히어로 익절률%+분포 히스토그램+이벤트 리스트+소속 테마별 익절 경향)로 표시한다. 순수 KRX EOD 집계(외부호출 없음), 신규 워커가 야간 1회 사전계산.
 **Requirements**: LIMIT-01
 **Depends on:** Phase 11
-**Plans:** 5 plans (4 waves)
+**Plans:** 1/5 plans executed
 
 Plans:
-- [ ] 12-01-PLAN.md — Wave 1 스캐폴드: shared LimitUpResponse 타입 + limitUpPrice() TS 미러 + 황금 케이스 테스트 + limit-up-sync 워커(co-movement-sync 복제)
+- [x] 12-01-PLAN.md — Wave 1 스캐폴드: shared LimitUpResponse 타입 + limitUpPrice() TS 미러 + 황금 케이스 테스트 + limit-up-sync 워커(co-movement-sync 복제)
 - [ ] 12-02-PLAN.md — Wave 2 마이그레이션: limit_up_* 3 테이블 + limit_up_price() + rebuild_limit_up() RPC + [BLOCKING] db push + 황금 케이스 검증
 - [ ] 12-03-PLAN.md — Wave 3 server: GET /api/stocks/:code/limit-up 읽기 라우트(객체 계약, 시세 조인 제거) + [BLOCKING] server 재배포 + prod curl
 - [ ] 12-04-PLAN.md — Wave 4 워커 배포 (server 재배포 후 순차): setup/deploy/smoke 스크립트(co-movement-sync 복제) + [BLOCKING] Cloud Run Job + Scheduler(야간 1회)
