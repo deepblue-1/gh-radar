@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>상한가 다음날 이력 — 목업 v2 (①②③)</title>
+<style>
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+  --primary:oklch(0.63 0.18 250); --primary-fg:#fff;
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --r:6px; --r-md:8px; --r-lg:12px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg);
+  font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased;
+  word-break:keep-all; letter-spacing:-0.01em; line-height:1.5;
+}
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em; }
+.up { color:var(--up); } .down { color:var(--down); } .flat { color:var(--flat); }
+.num { text-align:right; font-variant-numeric:tabular-nums; }
+
+/* topbar */
+.topbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:16px;
+  padding:12px 20px; background:color-mix(in oklch,var(--bg) 88%,transparent); backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--border); }
+.topbar h1 { font-size:15px; font-weight:700; margin:0; }
+.topbar .sp { flex:1; }
+.btn { font-family:inherit; font-size:13px; padding:6px 12px; border-radius:var(--r);
+  border:1px solid var(--border); background:var(--card); color:var(--fg); cursor:pointer; }
+.btn:hover { background:var(--muted); }
+.wrap { max-width:760px; margin:0 auto; padding:28px 20px 90px; }
+.variant-label { font-size:12px; font-weight:700; letter-spacing:0.04em; color:var(--primary);
+  text-transform:uppercase; margin:46px 0 14px; display:flex; align-items:center; gap:8px; }
+.variant-label::after { content:''; flex:1; height:1px; background:var(--border); }
+.variant-label .desc { color:var(--muted-fg); font-weight:500; text-transform:none; letter-spacing:0; }
+
+/* card shell */
+.card { background:var(--card); color:var(--card-fg); border:1px solid var(--border);
+  border-radius:var(--r-lg); padding:18px; box-shadow:inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0/0.04), 0 8px 24px oklch(0 0 0/0.04); }
+.dark .card { box-shadow:inset 0 1px 0 oklch(1 0 0/0.04), 0 1px 2px oklch(0 0 0/0.4), 0 8px 24px oklch(0 0 0/0.3); }
+.card + .card { margin-top:14px; }
+.card-title { font-size:14px; font-weight:700; margin:0 0 2px; display:flex; align-items:center; gap:8px; }
+.card-sub { font-size:12px; color:var(--muted-fg); margin:0 0 14px; }
+.info { width:14px;height:14px;border-radius:50%;border:1px solid var(--muted-fg);color:var(--muted-fg);
+  font-size:9px;display:inline-flex;align-items:center;justify-content:center;cursor:help; }
+.nbadge { font-size:11px; font-weight:600; color:var(--muted-fg); background:var(--muted);
+  padding:2px 8px; border-radius:999px; }
+.sp1 { flex:1; }
+
+/* table shared */
+table { width:100%; border-collapse:collapse; }
+thead th { background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; text-align:left;
+  padding:8px 10px; white-space:nowrap; }
+thead th.num { text-align:right; }
+tbody td { padding:0 10px; height:38px; font-size:13px; vertical-align:middle; }
+tbody tr + tr td { border-top:1px solid var(--border-subtle); }
+tbody tr:hover td { background:color-mix(in oklch,var(--muted) 60%,transparent); }
+.tbl-wrap { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+.faded { opacity:0.5; }
+.tag { font-size:10px; font-weight:700; padding:2px 6px; border-radius:var(--r); white-space:nowrap; }
+.tag-jeom { background:var(--up-bg); color:var(--up); }
+.tag-norm { background:var(--muted); color:var(--muted-fg); }
+.disc { font-size:11px; color:var(--muted-fg); margin-top:12px; display:flex; gap:6px; align-items:flex-start; }
+.disc .warn { color:var(--up); font-weight:700; }
+.legend { font-size:11px; color:var(--muted-fg); display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; }
+.legend b { font-weight:700; }
+
+/* ============ ① 신뢰도 게이지 ============ */
+.gauge-wrap { display:flex; align-items:center; gap:24px; }
+.gauge { position:relative; width:170px; height:104px; flex-shrink:0; }
+.gauge svg { width:170px; height:104px; display:block; }
+.gauge .track { fill:none; stroke:var(--muted); stroke-width:14; stroke-linecap:round; }
+.gauge .fill { fill:none; stroke:var(--up); stroke-width:14; stroke-linecap:round;
+  stroke-dasharray:220; stroke-dashoffset:64; }
+.gauge .lbl { position:absolute; left:0; right:0; bottom:2px; text-align:center; }
+.gauge .lbl .pct { font-size:34px; font-weight:800; line-height:1; color:var(--up); }
+.gauge .lbl .cap { font-size:11px; color:var(--muted-fg); margin-top:3px; }
+.g-side { flex:1; }
+.g-side .head { font-size:13px; font-weight:600; margin-bottom:10px; }
+.g-side .head b { color:var(--fg); }
+.pill-row { display:flex; gap:8px; flex-wrap:wrap; }
+.pill { background:var(--muted); border-radius:var(--r-md); padding:8px 11px; flex:1; min-width:96px; }
+.pill .k { font-size:10px; color:var(--muted-fg); margin-bottom:3px; }
+.pill .v { font-size:16px; font-weight:700; line-height:1; }
+.histo { display:flex; align-items:flex-end; gap:5px; height:50px; margin:18px 0 6px; }
+.histo .bar { flex:1; background:var(--muted); border-radius:3px 3px 0 0; position:relative; min-height:3px; }
+.histo .bar.pos { background:var(--up); } .histo .bar.neg { background:var(--down); }
+.histo .bar .c { position:absolute; top:-15px; left:0; right:0; text-align:center; font-size:10px; color:var(--muted-fg); }
+.histo-x { display:flex; gap:5px; }
+.histo-x span { flex:1; text-align:center; font-size:9px; color:var(--muted-fg); }
+.chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:6px 10px;
+  border:1px solid var(--border); border-radius:999px; }
+.chip b { font-weight:700; }
+.chip .dot { width:6px;height:6px;border-radius:50%; }
+.chip-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+
+/* ============ ② 데이터 대시보드 ============ */
+.kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border);
+  border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+.kpi { background:var(--card); padding:13px 14px; }
+.kpi .k { font-size:11px; color:var(--muted-fg); margin-bottom:5px; }
+.kpi .v { font-size:23px; font-weight:800; line-height:1; }
+.kpi .v small { font-size:12px; font-weight:600; color:var(--muted-fg); }
+.spark { display:flex; align-items:flex-end; gap:3px; height:30px; margin-top:8px; }
+.spark .b { flex:1; border-radius:2px 2px 0 0; min-height:2px; background:var(--muted); }
+.spark .b.pos { background:var(--up); } .spark .b.neg { background:var(--down); }
+.pool-bar { display:flex; align-items:center; gap:12px; padding:9px 2px; }
+.pool-bar + .pool-bar { border-top:1px solid var(--border-subtle); }
+.pool-bar .nm { font-size:13px; font-weight:600; width:108px; flex-shrink:0; display:flex; align-items:center; gap:7px; }
+.pool-bar .dot { width:7px;height:7px;border-radius:50%; }
+.pool-bar .track { flex:1; height:8px; border-radius:4px; background:var(--muted); overflow:hidden; }
+.pool-bar .track > i { display:block; height:100%; background:var(--up); border-radius:4px; }
+.pool-bar .pv { font-size:14px; font-weight:700; width:42px; text-align:right; }
+.pool-bar .pm { font-size:11px; color:var(--muted-fg); width:118px; text-align:right; flex-shrink:0; }
+
+/* ============ ③ 이벤트 타임라인 ============ */
+.summary-strip { display:flex; align-items:center; gap:14px; padding:13px 16px; border-radius:var(--r-md);
+  background:var(--up-bg); border:1px solid color-mix(in oklch,var(--up) 30%,transparent); margin-bottom:16px; }
+.summary-strip .big { font-size:30px; font-weight:800; color:var(--up); line-height:1; }
+.summary-strip .txt { font-size:12px; color:var(--muted-fg); }
+.summary-strip .txt b { color:var(--fg); font-weight:700; }
+.tl { position:relative; padding-left:26px; }
+.tl::before { content:''; position:absolute; left:7px; top:6px; bottom:6px; width:2px; background:var(--border); }
+.tl-node { position:relative; padding:0 0 18px; }
+.tl-node::before { content:''; position:absolute; left:-22px; top:5px; width:11px; height:11px; border-radius:50%;
+  background:var(--card); border:2px solid var(--flat); }
+.tl-node.win::before { border-color:var(--up); background:var(--up); }
+.tl-node.loss::before { border-color:var(--down); background:var(--down); }
+.tl-head { display:flex; align-items:center; gap:9px; margin-bottom:7px; }
+.tl-head .date { font-size:13px; font-weight:700; }
+.tl-head .open { font-size:15px; font-weight:800; margin-left:auto; }
+.tl-bars { display:flex; gap:14px; font-size:11px; color:var(--muted-fg); }
+.tl-bars .seg { display:flex; flex-direction:column; gap:3px; flex:1; }
+.tl-bars .seg .lab { display:flex; justify-content:space-between; }
+.tl-bars .seg .lab b { font-weight:700; }
+.tl-bars .bar { height:4px; border-radius:2px; background:var(--muted); overflow:hidden; position:relative; }
+.tl-bars .bar > i { position:absolute; top:0; bottom:0; left:50%; }
+.tl-bars .bar > i.pos { background:var(--up); } .tl-bars .bar > i.neg { background:var(--down); }
+.tl-meta { font-size:11px; color:var(--muted-fg); margin-top:6px; display:flex; gap:14px; }
+.theme-scroll { display:flex; gap:10px; overflow-x:auto; padding:4px 0 8px; margin-top:6px; }
+.theme-pill { flex:0 0 auto; min-width:128px; border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; }
+.theme-pill .nm { font-size:12px; font-weight:600; display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+.theme-pill .dot { width:7px;height:7px;border-radius:50%; }
+.theme-pill .rt { font-size:20px; font-weight:800; line-height:1; }
+.theme-pill .mt { font-size:11px; color:var(--muted-fg); margin-top:4px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>상한가 다음날 이력 — 디자인 방향 ①②③</h1>
+  <div class="sp"></div>
+  <span class="nbadge">제주반도체 080220</span>
+  <button class="btn" id="toggle">🌙 다크</button>
+</div>
+
+<div class="wrap">
+  <p style="font-size:13px;color:var(--muted-fg);margin:0 0 4px;">
+    같은 검증 데이터(24개월 마감상한가 7회 · 5회 익절 · 소속 테마 3개)를 3가지 정보 위계로.
+    수익=<span class="up" style="font-weight:700">빨강</span> / 손실=<span class="down" style="font-weight:700">파랑</span> (국내 관행).
+    우상단 토글로 다크/라이트.
+  </p>
+
+  <!-- ============ ① 신뢰도 게이지 ============ -->
+  <div class="variant-label">① 신뢰도 게이지 <span class="desc">— 익절 확률을 반원 게이지로, 한눈에 결론</span></div>
+  <div class="card">
+    <p class="card-sub" style="margin-bottom:14px;">상한가 종가 매수 → 다음날 시초가 매도 시 · 출처 KRX</p>
+    <div class="gauge-wrap">
+      <div class="gauge">
+        <svg viewBox="0 0 170 104">
+          <path class="track" d="M 13 97 A 72 72 0 0 1 157 97" />
+          <path class="fill"  d="M 13 97 A 72 72 0 0 1 157 97" />
+        </svg>
+        <div class="lbl"><div class="pct">71%</div><div class="cap">시초가 익절 확률</div></div>
+      </div>
+      <div class="g-side">
+        <div class="head">과거 <b>7회</b> 중 <b class="up">5회</b> 익절</div>
+        <div class="pill-row">
+          <div class="pill"><div class="k">평균 시초가</div><div class="v up">+2.8%</div></div>
+          <div class="pill"><div class="k">최악 저가</div><div class="v down">−7.1%</div></div>
+          <div class="pill"><div class="k">최근 3회</div><div class="v">2승 1패</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="histo">
+      <div class="bar neg" style="height:8%"><span class="c">0</span></div>
+      <div class="bar neg" style="height:50%"><span class="c">2</span></div>
+      <div class="bar pos" style="height:50%"><span class="c">2</span></div>
+      <div class="bar pos" style="height:80%"><span class="c">3</span></div>
+      <div class="bar pos" style="height:8%"><span class="c">0</span></div>
+    </div>
+    <div class="histo-x"><span>−10~−5%</span><span>−5~0%</span><span>0~+5%</span><span>+5~+10%</span><span>+10%+</span></div>
+    <p style="font-size:11px;color:var(--muted-fg);margin:8px 0 16px;text-align:center;">다음날 시초가 수익률 분포</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>상한가일</th><th>구분</th><th class="num">시가</th><th class="num">종가</th><th class="num">거래대금</th><th class="num">회전율</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">26.05.21</td><td><span class="tag tag-jeom">점상</span></td><td class="num mono up">+6.2%</td><td class="num mono up">+9.0%</td><td class="num mono">1,240억</td><td class="num mono">18%</td></tr>
+          <tr><td class="mono">26.03.12</td><td><span class="tag tag-norm">일반</span></td><td class="num mono up">+4.2%</td><td class="num mono up">+6.0%</td><td class="num mono">980억</td><td class="num mono">12%</td></tr>
+          <tr><td class="mono">25.11.08</td><td><span class="tag tag-norm">일반</span></td><td class="num mono down">−2.0%</td><td class="num mono down">−3.1%</td><td class="num mono">2,100억</td><td class="num mono">31%</td></tr>
+          <tr class="faded"><td class="mono">25.07.30</td><td><span class="tag tag-jeom">점상</span></td><td class="num mono up">+8.0%</td><td class="num mono up">+11.4%</td><td class="num mono">760억</td><td class="num mono">9%</td></tr>
+          <tr class="faded"><td class="mono">…</td><td colspan="5" style="color:var(--muted-fg);font-size:12px;">+ 3회 더보기</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="chip-row" style="margin-top:14px;">
+      <span class="chip"><span class="dot" style="background:var(--accent-fg)"></span>HBM <b class="up">62%</b><span style="color:var(--muted-fg)">N=85</span></span>
+      <span class="chip"><span class="dot" style="background:var(--down)"></span>반도체장비 <b class="up">58%</b><span style="color:var(--muted-fg)">N=120</span></span>
+      <span class="chip"><span class="dot" style="background:var(--flat)"></span>시스템반도체 <b>51%</b><span style="color:var(--muted-fg)">N=64</span></span>
+    </div>
+    <div class="disc"><span class="warn">⚠</span><span>표본 7회로 적음. 과거 통계이며 미래 수익을 보장하지 않습니다. 출처 KRX.</span></div>
+  </div>
+
+  <!-- ============ ② 데이터 대시보드 ============ -->
+  <div class="variant-label">② 데이터 대시보드 <span class="desc">— KPI + 전체 OHLC 표 + 테마 풀링 바, 정보 최대</span></div>
+  <div class="card">
+    <p class="card-title">상한가 다음날 이력 <span class="info" title="상한가 당일 종가(=상한가)에 매수 가정한 다음 영업일 수익률">i</span><span class="sp1"></span><span class="nbadge">최근 24개월 · 7회</span></p>
+    <p class="card-sub">상한가 종가에 매수 → 다음 영업일 수익률 · 출처 KRX</p>
+    <div class="kpi-grid" style="margin-bottom:14px;">
+      <div class="kpi"><div class="k">시초가 익절</div><div class="v up">71% <small>5/7</small></div></div>
+      <div class="kpi"><div class="k">평균 시초가</div><div class="v up">+2.8%</div></div>
+      <div class="kpi"><div class="k">최악 저가</div><div class="v down">−7.1%</div></div>
+      <div class="kpi">
+        <div class="k">분포</div>
+        <div class="spark">
+          <div class="b neg" style="height:25%"></div><div class="b neg" style="height:60%"></div>
+          <div class="b pos" style="height:60%"></div><div class="b pos" style="height:100%"></div><div class="b pos" style="height:25%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>상한가일</th><th>구분</th><th class="num">시가</th><th class="num">고가</th><th class="num">저가</th><th class="num">종가</th><th class="num">거래대금</th><th class="num">회전율</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">26.05.21</td><td><span class="tag tag-jeom">점상</span></td><td class="num mono up">+6.2%</td><td class="num mono up">+14.0%</td><td class="num mono down">−1.1%</td><td class="num mono up">+9.0%</td><td class="num mono">1,240억</td><td class="num mono">18%</td></tr>
+          <tr><td class="mono">26.03.12</td><td><span class="tag tag-norm">일반</span></td><td class="num mono up">+4.2%</td><td class="num mono up">+9.1%</td><td class="num mono down">−1.1%</td><td class="num mono up">+6.0%</td><td class="num mono">980억</td><td class="num mono">12%</td></tr>
+          <tr><td class="mono">25.11.08</td><td><span class="tag tag-norm">일반</span></td><td class="num mono down">−2.0%</td><td class="num mono up">+1.5%</td><td class="num mono down">−5.2%</td><td class="num mono down">−3.1%</td><td class="num mono">2,100억</td><td class="num mono">31%</td></tr>
+          <tr><td class="mono">25.07.30</td><td><span class="tag tag-jeom">점상</span></td><td class="num mono up">+8.0%</td><td class="num mono up">+13.0%</td><td class="num mono up">+2.0%</td><td class="num mono up">+11.4%</td><td class="num mono">760억</td><td class="num mono">9%</td></tr>
+          <tr class="faded"><td class="mono">25.04.15</td><td><span class="tag tag-norm">일반</span></td><td class="num mono up">+1.1%</td><td class="num mono up">+5.0%</td><td class="num mono down">−3.4%</td><td class="num mono down">−0.8%</td><td class="num mono">1,500억</td><td class="num mono">22%</td></tr>
+          <tr class="faded"><td class="mono">24.09.03</td><td><span class="tag tag-norm">일반</span></td><td class="num mono down">−3.5%</td><td class="num mono flat">0.0%</td><td class="num mono down">−7.1%</td><td class="num mono down">−5.5%</td><td class="num mono">1,890억</td><td class="num mono">28%</td></tr>
+          <tr class="faded"><td class="mono">24.06.27</td><td><span class="tag tag-jeom">점상</span></td><td class="num mono up">+5.4%</td><td class="num mono up">+10.0%</td><td class="num mono up">+1.0%</td><td class="num mono up">+7.7%</td><td class="num mono">690억</td><td class="num mono">8%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <span><b class="up">점상</b> = 하루종일 상한가 굳음(강한 매수세)</span>
+      <span>회전율 = 거래량 / 상장주식수</span>
+    </div>
+  </div>
+  <div class="card">
+    <p class="card-title">소속 테마의 다음날 익절 경향 <span class="info" title="테마 멤버 전체 풀링, 24개월">i</span><span class="sp1"></span><span class="nbadge">테마 풀링</span></p>
+    <p class="card-sub">이 종목이 속한 테마의 멤버 전체가 상한가 갔을 때 다음날 시초가 익절률</p>
+    <div class="pool-bar"><div class="nm"><span class="dot" style="background:var(--accent-fg)"></span>HBM</div><div class="track"><i style="width:62%"></i></div><div class="pv up">62%</div><div class="pm">N=85 · 평균 +3.1%</div></div>
+    <div class="pool-bar"><div class="nm"><span class="dot" style="background:var(--down)"></span>반도체장비</div><div class="track"><i style="width:58%"></i></div><div class="pv up">58%</div><div class="pm">N=120 · 평균 +2.4%</div></div>
+    <div class="pool-bar"><div class="nm"><span class="dot" style="background:var(--flat)"></span>시스템반도체</div><div class="track"><i style="width:51%;background:var(--flat)"></i></div><div class="pv">51%</div><div class="pm">N=64 · 평균 +1.2%</div></div>
+    <div class="disc"><span class="warn">⚠</span><span>과거 통계이며 미래 수익을 보장하지 않습니다. 출처 KRX.</span></div>
+  </div>
+
+  <!-- ============ ③ 이벤트 타임라인 ============ -->
+  <div class="variant-label">③ 이벤트 타임라인 <span class="desc">— 상한가 사건을 시간 흐름으로, 모바일 친화</span></div>
+  <div class="card">
+    <div class="summary-strip">
+      <div class="big">71%</div>
+      <div class="txt">상한가 종가 매수 → 다음날 시초가 매도 시<br><b>7회 중 5회 익절</b> · 평균 <b class="up">+2.8%</b> · 최근 3회 <b>2승 1패</b></div>
+    </div>
+    <div class="tl">
+      <div class="tl-node win">
+        <div class="tl-head"><span class="date mono">26.05.21</span><span class="tag tag-jeom">점상</span><span class="open up">+6.2%</span></div>
+        <div class="tl-bars">
+          <div class="seg"><div class="lab"><span>고</span><b class="up">+14.0%</b></div><div class="bar"><i class="pos" style="width:40%"></i></div></div>
+          <div class="seg"><div class="lab"><span>저</span><b class="down">−1.1%</b></div><div class="bar"><i class="neg" style="width:8%;left:auto;right:50%"></i></div></div>
+          <div class="seg"><div class="lab"><span>종</span><b class="up">+9.0%</b></div><div class="bar"><i class="pos" style="width:28%"></i></div></div>
+        </div>
+        <div class="tl-meta"><span>거래대금 <b>1,240억</b></span><span>회전율 <b>18%</b></span></div>
+      </div>
+      <div class="tl-node win">
+        <div class="tl-head"><span class="date mono">26.03.12</span><span class="tag tag-norm">일반</span><span class="open up">+4.2%</span></div>
+        <div class="tl-bars">
+          <div class="seg"><div class="lab"><span>고</span><b class="up">+9.1%</b></div><div class="bar"><i class="pos" style="width:26%"></i></div></div>
+          <div class="seg"><div class="lab"><span>저</span><b class="down">−1.1%</b></div><div class="bar"><i class="neg" style="width:8%;left:auto;right:50%"></i></div></div>
+          <div class="seg"><div class="lab"><span>종</span><b class="up">+6.0%</b></div><div class="bar"><i class="pos" style="width:18%"></i></div></div>
+        </div>
+        <div class="tl-meta"><span>거래대금 <b>980억</b></span><span>회전율 <b>12%</b></span></div>
+      </div>
+      <div class="tl-node loss">
+        <div class="tl-head"><span class="date mono">25.11.08</span><span class="tag tag-norm">일반</span><span class="open down">−2.0%</span></div>
+        <div class="tl-bars">
+          <div class="seg"><div class="lab"><span>고</span><b class="up">+1.5%</b></div><div class="bar"><i class="pos" style="width:6%"></i></div></div>
+          <div class="seg"><div class="lab"><span>저</span><b class="down">−5.2%</b></div><div class="bar"><i class="neg" style="width:22%;left:auto;right:50%"></i></div></div>
+          <div class="seg"><div class="lab"><span>종</span><b class="down">−3.1%</b></div><div class="bar"><i class="neg" style="width:13%;left:auto;right:50%"></i></div></div>
+        </div>
+        <div class="tl-meta"><span>거래대금 <b>2,100억</b></span><span>회전율 <b>31%</b></span></div>
+      </div>
+      <div class="tl-node win faded">
+        <div class="tl-head"><span class="date mono">25.07.30</span><span class="tag tag-jeom">점상</span><span class="open up">+8.0%</span></div>
+        <div class="tl-meta" style="margin-top:2px;"><span>고 <b class="up">+13.0%</b></span><span>저 <b class="up">+2.0%</b></span><span>종 <b class="up">+11.4%</b></span><span>760억 · 9%</span></div>
+      </div>
+      <div class="tl-node win faded" style="padding-bottom:4px;">
+        <div class="tl-head"><span class="date mono" style="color:var(--muted-fg)">…</span><span style="font-size:12px;color:var(--muted-fg)">+ 3회 더보기</span></div>
+      </div>
+    </div>
+    <div class="theme-scroll">
+      <div class="theme-pill"><div class="nm"><span class="dot" style="background:var(--accent-fg)"></span>HBM</div><div class="rt up">62%</div><div class="mt">N=85 · +3.1%</div></div>
+      <div class="theme-pill"><div class="nm"><span class="dot" style="background:var(--down)"></span>반도체장비</div><div class="rt up">58%</div><div class="mt">N=120 · +2.4%</div></div>
+      <div class="theme-pill"><div class="nm"><span class="dot" style="background:var(--flat)"></span>시스템반도체</div><div class="rt">51%</div><div class="mt">N=64 · +1.2%</div></div>
+    </div>
+    <div class="disc"><span class="warn">⚠</span><span>표본 7회로 적음. 과거 통계이며 미래 수익을 보장하지 않습니다. 출처 KRX.</span></div>
+  </div>
+</div>
+
+<script>
+const t = document.getElementById('toggle');
+t.addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+  t.textContent = document.documentElement.classList.contains('dark') ? '☀️ 라이트' : '🌙 다크';
+});
+</script>
+</body>
+</html>
