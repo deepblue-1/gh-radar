@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-06-28T11:13:31.031Z"
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-06-28T12:00:05.859Z"
 last_activity: 2026-06-28
 progress:
   total_phases: 21
   completed_phases: 14
   total_plans: 102
-  completed_plans: 84
-  percent: 82
+  completed_plans: 85
+  percent: 83
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 12 (a-n-master-sync) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Plans completed: 78 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment / 10-07 themes-ui / 10-08 deploy-e2e)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -131,6 +131,7 @@ Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
 | Phase 10 P07 | 13min | 3 tasks | 14 files |
 | Phase 10 P08 | 13min | 3 tasks | 16 files |
 | Phase 12 P01 | 8min | 2 tasks | 15 files |
+| Phase 12 P02 | 12min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -243,6 +244,7 @@ Recent decisions affecting current work:
 - [Phase 10]: [10-08] @gh-radar/shared 확장자 없는 re-export lesson — 10-02 의 첫 런타임 값 re-export(THEME_STOCK_SOURCES from ./theme.js)가 Turbopack dev .js→.ts resolve 갭 재유발(DEV 전용 오버레이, production build 는 항상 green). moduleResolution:bundler 에서 확장자 생략이 관용(NodeNext 소비자는 dist, 무영향)
 - [Phase 10]: [10-08] smoke INV-2 — Cloud Run Job pino 로그는 jsonPayload.msg 로 쿼리(service .message 매핑과 다름, 라이브 덤프 확인) + Cloud Logging ingestion 지연 5×15s 재시도. Phase 09.1 의 'service 는 jsonPayload.message' 와 대비되는 Job 측 관측. E2E 상세(edit/delete/fork)는 Express /api/themes/:id 부재로 404 mock(mockThemesApi {list:[]}) → 실 Supabase fetchMyThemeDetail RLS owner-only 폴백 구동
 - [Phase 12]: [12-01] limitUpPrice tick 판정은 target(prev_close×1.3) 가격대 기준 — prev_close 기준 시 500k 등 경계 오류(Pitfall 1). 응답 계약은 객체 {hero,events,themes}(배열 아님, comovement 드리프트 회피). TS 미러가 plpgsql limit_up_price() Wave 2 회귀 대조 기준. limit-up-sync 워커 = Phase 11 동조 워커 1:1 복제 + rebuild_limit_up 교체.
+- [Phase 12]: [12-02] 마감상한가 판별 = close=limit_up_price(prev_close) 정수 정확 비교(비율 임계 아님, D-01). limit_up_price() IMMUTABLE 순수산술 REVOKE 불요, rebuild_limit_up() 만 REVOKE 3줄+search_path 격리. STEP C 테마풀링=active 시스템테마(is_system AND NOT hidden AND effective_to IS NULL) 멤버 이벤트풀 GROUP BY. 프로덕션 rebuild event_rows=3459/stock 1271/theme 322, 황금케이스(000390 4회 win 0.75·000440 4회 jeom1 win 0.50) 재현, anon RPC 401(REVOKE).
 
 ### Pending Todos
 
@@ -269,6 +271,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-28T11:13:31.028Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-06-28T11:59:49.159Z
+Stopped at: Completed 12-02-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
