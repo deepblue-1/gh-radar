@@ -23,6 +23,10 @@ type State = {
   // Phase 11 — 동조 후보 사전계산 데이터셋 (theme_comovement / cosurge_edges)
   themeComovement?: any[];
   cosurgeEdges?: any[];
+  // Phase 12 — 상한가 다음날 이력 사전계산 데이터셋 (limit_up_*)
+  limitUpEvents?: any[];
+  limitUpStockStats?: any[];
+  limitUpThemeStats?: any[];
   upserts?: { table: string; rows: any[] }[];
 };
 
@@ -38,6 +42,9 @@ export function mockSupabase(state: State): SupabaseClient {
     if (t === "theme_stocks") return state.themeStocks ?? [];
     if (t === "theme_comovement") return state.themeComovement ?? [];
     if (t === "cosurge_edges") return state.cosurgeEdges ?? [];
+    if (t === "limit_up_events") return state.limitUpEvents ?? [];
+    if (t === "limit_up_stock_stats") return state.limitUpStockStats ?? [];
+    if (t === "limit_up_theme_stats") return state.limitUpThemeStats ?? [];
     return [];
   };
 

@@ -16,6 +16,7 @@ import { logger } from "../logger.js";
 import { newsRouter } from "./news.js";
 import { discussionsRouter } from "./discussions.js";
 import { comovementRouter } from "./comovement.js";
+import { limitUpRouter } from "./limitUp.js";
 
 export const stocksRouter: RouterT = Router();
 
@@ -25,6 +26,8 @@ stocksRouter.use("/:code/news", newsRouter);
 stocksRouter.use("/:code/discussions", discussionsRouter);
 // Phase 11 — GET /api/stocks/:code/co-movement (동조 후보 TOP-K). /:code 핸들러보다 먼저 등록.
 stocksRouter.use("/:code/co-movement", comovementRouter);
+// Phase 12 — GET /api/stocks/:code/limit-up (상한가 다음날 이력). /:code 핸들러보다 먼저 등록 (Pitfall 5).
+stocksRouter.use("/:code/limit-up", limitUpRouter);
 
 const MASTER_COLS =
   "code,name,market,sector,security_type,listing_date,is_delisted,updated_at";
