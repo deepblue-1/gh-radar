@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 stopped_at: Completed 12-05-PLAN.md (Phase 12 LIMIT-01 end-to-end prod live)
-last_updated: "2026-06-29T01:32:23.850Z"
+last_updated: "2026-06-29T01:42:13.430Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 21
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 12 (a-n-master-sync) — COMPLETE (5/5 plans, ready for verification)
-Plan: 5 of 5 (완료)
+Phase: 12
+Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
@@ -83,7 +83,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
 **Velocity:**
 
-- Total plans completed: 62 (1 + 5 + 1×6 sub)
+- Total plans completed: 72 (1 + 5 + 1×6 sub)
 - Phase 1 duration: 2026-04-10 ~ 2026-04-13 (4일)
 - Phase 2 duration: 2026-04-13 (1일)
 - Phase 3 duration: 2026-04-13 (1일)
