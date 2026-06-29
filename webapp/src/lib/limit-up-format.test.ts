@@ -4,6 +4,7 @@ import {
   sparkBucketTone,
   fmtRet,
   fmtTurnover,
+  BUCKET_LABELS,
 } from './limit-up-format';
 
 describe('shouldShowWinRate (D-09 N≥3 게이팅 경계)', () => {
@@ -39,4 +40,11 @@ describe('fmtTurnover (회전율, NULL → em-dash, D-07)', () => {
   it('null → "—"', () => expect(fmtTurnover(null)).toBe('—'));
   it('0.18 → "18%"', () => expect(fmtTurnover(0.18)).toBe('18%'));
   it('0 → "0%"', () => expect(fmtTurnover(0)).toBe('0%'));
+});
+
+describe('BUCKET_LABELS (분포 5버킷 x축 라벨)', () => {
+  it('5개 라벨 + index 2 = "0~+5" (첫 양수 구간, sparkBucketTone 경계 일치)', () => {
+    expect(BUCKET_LABELS).toHaveLength(5);
+    expect(BUCKET_LABELS[2]).toBe('0~+5');
+  });
 });

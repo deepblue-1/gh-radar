@@ -23,6 +23,19 @@ export function shouldShowWinRate(
 }
 
 /**
+ * 분포 5버킷 x축 라벨 (시초가 수익률 구간) — 컴포넌트와 공유하는 단일 진리원.
+ * 버킷 경계: [−10~−5, −5~0, 0~+5, +5~+10, +10%+] 에 대응.
+ * index 2('0~+5')가 첫 양수 구간 — sparkBucketTone 경계(>=2)와 의미 일치.
+ */
+export const BUCKET_LABELS: readonly string[] = [
+  '−5%↓',
+  '−5~0',
+  '0~+5',
+  '+5~+10',
+  '+10%↑',
+];
+
+/**
  * 분포 5버킷 index → spark 막대 색 톤 (BLOCKER 3 off-by-one 정확 매핑).
  * 버킷 경계: [−10~−5, −5~0, 0~+5, +5~+10, +10%+]
  *   - index 0,1 = 음수 구간 → 'down'(파랑)
