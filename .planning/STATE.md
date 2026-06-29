@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 12-04-PLAN.md
-last_updated: "2026-06-28T12:22:19.407Z"
-last_activity: 2026-06-28
+status: verifying
+stopped_at: Completed 12-05-PLAN.md (Phase 12 LIMIT-01 end-to-end prod live)
+last_updated: "2026-06-29T01:32:23.850Z"
+last_activity: 2026-06-29
 progress:
   total_phases: 21
-  completed_phases: 14
+  completed_phases: 15
   total_plans: 102
-  completed_plans: 87
-  percent: 85
+  completed_plans: 88
+  percent: 86
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 12 (a-n-master-sync) — EXECUTING
-Plan: 5 of 5
-Plans completed: 78 / 92 (Phase 10: 10-01 infra / 10-02 migration / 10-03 scrape / 10-04 system-server / 10-05 user-crud / 10-06 ai-enrichment / 10-07 themes-ui / 10-08 deploy-e2e)
-Status: Ready to execute
+Phase: 12 (a-n-master-sync) — COMPLETE (5/5 plans, ready for verification)
+Plan: 5 of 5 (완료)
+Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
+Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-06-28
+Last activity: 2026-06-29
 
-Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
+Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
 ### Phase 10 Production State (2026-06-09)
 
@@ -134,6 +134,7 @@ Progress: [█████████░] 85% (78/92 plans · 13/19 phases)
 | Phase 12 P02 | 12min | 3 tasks | 2 files |
 | Phase 12 P03 | 11min | 3 tasks | 6 files |
 | Phase 12 P04 | 10min | 2 tasks | 3 files |
+| Phase 12 P05 | ~20min | 5 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -249,6 +250,7 @@ Recent decisions affecting current work:
 - [Phase 12]: [12-02] 마감상한가 판별 = close=limit_up_price(prev_close) 정수 정확 비교(비율 임계 아님, D-01). limit_up_price() IMMUTABLE 순수산술 REVOKE 불요, rebuild_limit_up() 만 REVOKE 3줄+search_path 격리. STEP C 테마풀링=active 시스템테마(is_system AND NOT hidden AND effective_to IS NULL) 멤버 이벤트풀 GROUP BY. 프로덕션 rebuild event_rows=3459/stock 1271/theme 322, 황금케이스(000390 4회 win 0.75·000440 4회 jeom1 win 0.50) 재현, anon RPC 401(REVOKE).
 - [Phase 12]: [12-03] server 읽기 라우트 GET /api/stocks/:code/limit-up = limit_up_* SELECT → { hero, events, themes } 객체 계약(배열 아님). 정적 이력 — 시세 조인/재계산 0 (D-22 read-only). turnover/win_rate NULL 보존(toNumOrNull), 테마 sample_n DESC 정렬(D-17), 이벤트 0회 zeroStats 빈 상태. /:code 핸들러 앞 등록(shadowing 회피). prod 재배포 revision gh-radar-server-00030-wb6 + curl 검증(000440 events=4 객체·005930 빈·!!! 400·count 3459 불변). smoke INV-8 무관 FAIL.
 - [Phase 12]: [12-04] limit-up-sync 워커 배포 — Phase 11 동조 워커 setup/deploy/smoke 1:1 복제(식별자만 교체). Cloud Run Job gh-radar-limit-up-sync(180s) + Scheduler nightly(cron 0 2 * * 2-6 KST, OAuth invoker OIDC 금지, 리소스 단위 run.invoker). 외부 API 키 0(supabase-service-role accessor 1개만, T-12-04-02). 배포된 Job rebuild_limit_up 실행 event_rows=3459/stock 1271/theme 322. smoke INV-1/3/4/5 PASS, INV-2 는 Cloud Logging 전파지연 flake(직접 재조회 통과).
+- [Phase 12]: [12-05] webapp 상한가 다음날 이력 섹션 ②안 데이터 대시보드 — KPI 3그리드(시초가 익절 N≥3 게이팅/평균/최악) + 전폭 분포 밴드(변형 A) + OHLC 8컬럼 표(점상 태그·faded·더보기) + 테마 가로 풀링 바(N desc) + 면책. 표시 순수함수(shouldShowWinRate/sparkBucketTone/fmtRet/fmtTurnover/BUCKET_LABELS) limit-up-format.ts 분리 + 단위 테스트 박제(sparkBucketTone(2)='up' off-by-one BLOCKER 3 가드). comovement 미러 quiet fallback(return null, error.message 미노출, T-12-05-01). 국내 색상 oklch 토큰만(D-13, 하드코딩 0). prod 시각 검증 중 분포 spark 가독성 이슈 → 변형 A(라벨 세로 막대 밴드) 재디자인 후 재배포(gh-radar-webapp-faraucl94...). Phase 12 LIMIT-01 end-to-end prod live.
 
 ### Pending Todos
 
@@ -275,6 +277,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-06-28T12:22:05.655Z
-Stopped at: Completed 12-04-PLAN.md
+Last session: 2026-06-29T01:32:23.846Z
+Stopped at: Completed 12-05-PLAN.md (Phase 12 LIMIT-01 end-to-end prod live)
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
