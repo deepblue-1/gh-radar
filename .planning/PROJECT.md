@@ -13,6 +13,7 @@
 ### Validated
 
 - [x] 실시간 또는 1분 간격 데이터 갱신 — Validated in Phase 09.1: 키움 ka10027 매분 cycle (`* 9-15 * * 1-5` Asia/Seoul) 로 활성 종목 ~944 row 갱신
+- [x] 상한가 다음날 이력 통계 (LIMIT-01) — Validated in Phase 12: 종목 자체 마감상한가 이벤트의 다음날 시/고/저/종 수익률을 KRX EOD 일봉으로 백테스트(`rebuild_limit_up` 야간 사전계산, event_rows=3459), 종목상세에 읽기전용 데이터 대시보드(히어로 익절률 + 분포 밴드 + 이벤트 표 + 테마 풀링)로 표시. limit-up-sync 워커 Cloud Run Job + nightly Scheduler 활성.
 
 ### Active
 
@@ -75,4 +76,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-24 — Phase 11 complete (Co-movement Candidates). 종목 급등 시 동조 후보 TOP-K를 일봉 통계로 점수화해 종목 상세에 표시. 사전계산 theme_comovement/cosurge_edges + rebuild_comovement() RPC + co-movement-sync Cloud Run Job(야간), 읽기 라우트 GET /api/stocks/:code/co-movement, UI 동조 후보 섹션. 직접동반 점수 v2 = 급등일 강도비율×최근성(1년 반감기)×표본보정, 표시 정렬 실시간 등락률 순. (이전: Phase 09.1 KIS→키움 전환, Phase 10 theme-classification.)*
+*Last updated: 2026-06-29 — Phase 12 complete (상한가 다음날 이력 통계, LIMIT-01). 종목 자체 마감상한가 이벤트의 다음날 시/고/저/종 수익률을 KRX EOD 일봉으로 백테스트, 종목상세에 읽기전용 데이터 대시보드(히어로 익절률 + 분포 밴드[변형 A 라벨 막대] + 이벤트 표 + 테마 풀링)로 표시. 사전계산 limit_up_events/stock_stats/theme_stats 3테이블 + limit_up_price()/rebuild_limit_up() RPC + limit-up-sync Cloud Run Job(야간 cron 0 2 * * 2-6 KST), 읽기 라우트 GET /api/stocks/:code/limit-up. (이전: Phase 11 Co-movement Candidates, Phase 10 theme-classification, Phase 09.1 KIS→키움 전환.)*
