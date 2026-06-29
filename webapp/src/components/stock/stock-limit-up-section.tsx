@@ -28,6 +28,7 @@ import {
   sparkBucketTone,
   fmtRet,
   fmtTurnover,
+  BUCKET_LABELS,
 } from '@/lib/limit-up-format';
 import type {
   LimitUpEvent,
@@ -53,37 +54,97 @@ function fmtDate(iso: string): string {
   return `${iso.slice(2, 4)}.${iso.slice(5, 7)}.${iso.slice(8, 10)}`;
 }
 
-/** 분포 spark — histogram 5버킷 카운트를 막대 높이 + 톤 색으로. */
-function DistributionSpark({ histogram }: { histogram: number[] }) {
+/**
+ * 분포 밴드 (변형 A 채택) — KPI 그리드에서 빼낸 전폭 라벨 막대 차트.
+ * 각 컬럼 = 건수(상단) + 막대(톤 색) + x축 라벨(하단). 손익 합 + 평균 푸터.
+ * 텍스트(건수/라벨)로 내용 파악 가능 — aria-hidden 제거(읽히게).
+ */
+function DistributionBand({ hero }: { hero: LimitUpStockStats }) {
+  const histogram = hero.histogram;
   const max = Math.max(1, ...histogram);
+  const lossCount = (histogram[0] ?? 0) + (histogram[1] ?? 0);
+  const winCount = (histogram[2] ?? 0) + (histogram[3] ?? 0) + (histogram[4] ?? 0);
   return (
-    <div className="mt-2 flex h-[30px] items-end gap-[3px]" aria-hidden="true">
-      {histogram.map((count, i) => {
-        const tone = sparkBucketTone(i);
-        return (
+    <div className="rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] p-[14px_16px]">
+      {/* 헤더 */}
+      <div className="mb-[10px] flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-bold">다음날 시초가 수익률 분포</span>
+        <span className="text-[12px] text-[var(--muted-fg)]">
+          총 {hero.resolvedEvents}건
+        </span>
+      </div>
+
+      {/* 막대 5개 (건수 + 막대) */}
+      <div className="grid grid-cols-5 items-end gap-[var(--s-2)]" style={{ height: 96 }}>
+        {histogram.map((count, i) => {
+          const tone = sparkBucketTone(i);
+          return (
+            <div key={i} className="flex h-full flex-col items-center justify-end gap-[5px]">
+              <span
+                className={cn(
+                  'mono text-[13px] leading-none tabular-nums',
+                  count === 0
+                    ? 'font-semibold text-[var(--flat)]'
+                    : 'font-extrabold text-[var(--fg)]',
+                )}
+              >
+                {count}
+              </span>
+              <span
+                className={cn(
+                  'w-full max-w-[34px] rounded-t-[3px]',
+                  count === 0
+                    ? 'bg-[var(--muted)]'
+                    : tone === 'up'
+                      ? 'bg-[var(--up)]'
+                      : 'bg-[var(--down)]',
+                )}
+                style={{ height: `${Math.max(3, (count / max) * 100)}%`, minHeight: 3 }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* x축 라벨 */}
+      <div className="mt-0 grid grid-cols-5 gap-[var(--s-2)] border-t border-[var(--border-subtle)] pt-[7px]">
+        {BUCKET_LABELS.map((label, i) => (
           <span
-            key={i}
+            key={label}
             className={cn(
-              'min-h-[2px] flex-1 rounded-t-[2px]',
-              count === 0
-                ? 'bg-[var(--muted)]'
-                : tone === 'up'
-                  ? 'bg-[var(--up)]'
-                  : 'bg-[var(--down)]',
+              'mono text-center text-[10.5px] tabular-nums',
+              i === 2 ? 'text-[var(--up)]' : 'text-[var(--muted-fg)]',
             )}
-            style={{ height: `${Math.max(8, (count / max) * 100)}%` }}
-          />
-        );
-      })}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {/* 푸터 — 손실/수익 합 + 평균 */}
+      <div className="mt-[11px] flex flex-wrap gap-[14px] text-[11px] text-[var(--muted-fg)]">
+        <span>
+          손실 <b className="font-bold text-[var(--down)]">{lossCount}건</b>
+        </span>
+        <span>
+          수익 <b className="font-bold text-[var(--up)]">{winCount}건</b>
+        </span>
+        <span>
+          평균 시초가{' '}
+          <b className={cn('font-bold', retColor(hero.avgOpenRet))}>
+            {fmtRet(hero.avgOpenRet)}
+          </b>
+        </span>
+      </div>
     </div>
   );
 }
 
-/** 상단 KPI 4그리드 — 시초가 익절 / 평균 시초가 / 최악 저가 / 분포 spark (목업 ② kpi-grid). */
+/** 상단 KPI 3그리드 — 시초가 익절 / 평균 시초가 / 최악 저가 (분포는 전폭 밴드로 승격). */
 function KpiGrid({ hero }: { hero: LimitUpStockStats }) {
   const showWinRate = shouldShowWinRate(hero);
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--border)] sm:grid-cols-3">
       {/* ① 시초가 익절 — N≥3 이면 큰 %, 미만이면 카운트만 (D-09 게이팅) */}
       <div className="bg-[var(--card)] p-[13px_14px]">
         <div className="mb-[5px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
@@ -136,14 +197,6 @@ function KpiGrid({ hero }: { hero: LimitUpStockStats }) {
         >
           {fmtRet(hero.worstLowRet)}
         </div>
-      </div>
-
-      {/* ④ 분포 spark */}
-      <div className="bg-[var(--card)] p-[13px_14px]">
-        <div className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-          분포
-        </div>
-        <DistributionSpark histogram={hero.histogram} />
       </div>
     </div>
   );
@@ -329,8 +382,11 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
         </span>
       </div>
 
-      {/* KPI 4그리드 + 분포 spark */}
+      {/* KPI 3그리드 */}
       <KpiGrid hero={hero} />
+
+      {/* 전폭 분포 밴드 (변형 A — 라벨 세로 막대) */}
+      <DistributionBand hero={hero} />
 
       {/* 최근 3회 보조 스탯 (D-10) */}
       <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
