@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-07-01T23:17:48.379Z"
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-07-01T23:25:42.846Z"
 last_activity: 2026-07-01
 progress:
   total_phases: 22
   completed_phases: 15
   total_plans: 108
-  completed_plans: 92
-  percent: 85
+  completed_plans: 93
+  percent: 86
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 13 (home-surge-themes) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -139,6 +139,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 | Phase 13 P13-02 | 9min | 3 tasks | 12 files |
 | Phase 13 P13-03 | ~3min | 2 tasks | 6 files |
 | Phase 13 P13-04 | ~25min | 3 tasks | 11 files |
+| Phase 13 P13-05 | ~4min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -263,6 +264,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-04: useHomeQuery 폴링 없음 — 홈은 시점별(:30) 이력 조망 화면이라 사용자 date/slot 전환이 fetch 트리거. AbortController 로 파라미터 빠른 전환 레이스 차단(useThemesQuery 변형)
 - [Phase 13]: 13-04: 시점 슬롯 HH:MM 라벨/마감(15:30) 판별 = Intl.DateTimeFormat timeZone=Asia/Seoul (capturedAt UTC ISO → KST). home-client isEmpty = snapshot null OR (themes[] AND singles[] 둘 다 비어있음)
 - [Phase 13]: 13-04: /home-preview 프리뷰 + middleware PUBLIC_EXACT 항목은 임시 검증 스캐폴드 — home-client 가 라이브 /api/home 호출이라 네트워크 무관 목데이터 프리뷰로 시각 체크포인트 승인. Plan 05 가 / 루트 마운트 시 둘 다 제거
+- [Phase 13]: 13-05: 홈을 앱 루트(/)로 승격 — page.tsx redirect('/scanner') → AppShell+Suspense(HomeSkeleton)+HomeClient(force-dynamic), 사이드바 NAV 홈 1번째. 임시 /home-preview 라우트+middleware 화이트리스트 제거. home.spec E2E 5/5(렌더/날짜·시점 네비/빈 상태/scanner 회귀 T-13-12)
 
 ### Pending Todos
 
@@ -289,6 +291,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-07-01T23:17:48.375Z
-Stopped at: Completed 13-04-PLAN.md
+Last session: 2026-07-01T23:25:34.018Z
+Stopped at: Completed 13-05-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)

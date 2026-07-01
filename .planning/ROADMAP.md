@@ -459,12 +459,12 @@ Plans:
 **Goal:** 앱 루트(/)에 새 "홈" 화면 신설. 오늘 +20% 이상 급등한 종목들을 기존 큐레이션 테마와 무관하게 AI(bottom-up)로 클러스터링하여, 오늘의 상승을 이끈 테마·상승 이유·소속 종목을 뉴스 근거와 함께 제시한다. 새 home-sync 워커가 장중 매시 :30에 top_movers·news_articles를 읽어 Claude Haiku 1회로 분석하고 home_theme_snapshots(일별 이력)에 저장, 웹앱은 read-only로 표시.
 **Requirements**: HOME-01 (신규 — plan Wave 0 등록)
 **Depends on:** Phase 12
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 - [x] 13-01-PLAN.md — Wave 0 스캐폴드: HOME-01 등록 + home_theme_snapshots 마이그레이션(JSONB blob + RLS TO anon,authenticated) + shared home.ts 타입 + home-sync 워크스페이스(theme-sync 재사용 클론) + [BLOCKING] db push
 - [x] 13-02-PLAN.md — Wave 1 home-sync 파이프라인(TDD): loadSurges(≥20% + 뉴스 청크) + contentHash + clusterSurges(Claude 1회 bottom-up + 뉴스 인덱스 해석 D-04 + 정렬 D-05 + 판정 D-06) + hash-skip 복제 append(D-01)
 - [x] 13-03-PLAN.md — Wave 2 server GET /api/home 객체 계약 { snapshot, index }(시세 재조인 없음, verbatim payload) + Zod + mapper + app.ts 등록 + supertest
 - [x] 13-04-PLAN.md — Wave 3 홈 UI(UI-SPEC): home-api + useHomeQuery + 테마/개별 급등 카드 + 날짜/시점 네비 + 빈/스켈레톤/에러 + 시각 검증 checkpoint
-- [ ] 13-05-PLAN.md — Wave 4 루트 승격: page.tsx redirect→홈 교체 + 사이드바 NAV 재정렬(홈 1st) + home E2E + /scanner 회귀
+- [x] 13-05-PLAN.md — Wave 4 루트 승격: page.tsx redirect→홈 교체 + 사이드바 NAV 재정렬(홈 1st) + home E2E + /scanner 회귀
 - [ ] 13-06-PLAN.md — Wave 5 배포: setup/deploy/smoke 스크립트(theme-sync 클론, OAuth invoker, VPC 없음, Secret 재사용) + [BLOCKING] GCP 배포 + Claude POC 게이트 + server/webapp 재배포 + E2E
