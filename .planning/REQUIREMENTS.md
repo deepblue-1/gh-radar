@@ -78,6 +78,10 @@
 
 - **LIMIT-01**: 종목 자체의 과거 **마감상한가**(종가 == 상한가 가격; 상한가 가격 = 전일 종가 × 1.30 을 KRX 호가단위로 산출한 결정값) 이벤트에 대해 "상한가 종가 매수 → 다음날 시초가 매도" 가정의 다음날 시/고/저/종 수익률을 일봉(`stock_daily_ohlcv`)으로 백테스트해 종목 상세 페이지에 읽기전용으로 표시 — 24개월 lookback · 점상한가(시=고=저=종=상한가) 태그 + 거래대금·회전율 컬럼 · 히어로 시초가 익절률%(N≥3 게이팅, 미만은 카운트만) + 다음날 시초가 수익률 분포 히스토그램 + 이벤트 리스트(최신순, 오래된 건 흐리게) + 소속 시스템테마별 다음날 익절 경향 카드(N 내림차순). 순수 KRX EOD 집계(외부호출 없음 → 크롤링 5원칙 무관). `limit_up` 사전계산 테이블 + plpgsql RPC + 야간 1회 신규 워커(`co-movement-sync` 복제) + server 읽기 라우트 + 종목상세 섹션 (Phase 12)
 
+### Home
+
+- **HOME-01**: 앱 루트(/) 홈 화면에 오늘 +20% 급등 종목을 bottom-up AI(Claude Haiku) 클러스터링한 "오늘의 주도 테마 · 상승 이유 · 소속 종목 · 대표 뉴스(1-2건, verbatim)"를 시점별(:30) 스냅샷으로 표시. home-sync 워커가 장중 매시 :30 배치 사전계산(top_movers⋈stock_quotes≥20% + news_articles), hash-skip 복제 append, 웹앱 read-only. 날짜/장중 시점 네비 — Phase 13
+
 ## v2 Requirements
 
 ### Personalization
@@ -143,12 +147,13 @@
 | THEME-04 | Phase 10 | Complete (10-06 ai/ 모듈+POC 검증; 10-08 prod 활성 CLASSIFY_ENABLED=true — aiDiscovered=25/aiCorrected=2 라이브) |
 | COMV-01 | Phase 11 | Pending |
 | LIMIT-01 | Phase 12 | Complete |
+| HOME-01 | Phase 13 | Pending |
 
 **Coverage:**
-- v1 requirements: 35 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35)
-- Mapped to phases: 35
+- v1 requirements: 36 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36)
+- Mapped to phases: 36
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-06-09 — Phase 10 (Theme Classification) **전 plan 완료(8/8)**. 10-08 production 배포(Cloud Run Job gh-radar-theme-sync + Scheduler 0 16 KST OAuth invoker + THEME_SYNC_CLASSIFY_ENABLED=true)로 THEME-01~04 production 검증: 첫 scrape 356 시스템 테마(331 naver/alpha + 25 AI 발굴) + 7,561 theme_stocks, aiDiscovered=25/aiCorrected=2 라이브, 유저 CRUD+fork E2E green(10/10). THEME-03 In Progress→Complete, THEME-04 evidence 갱신(prod 활성). 커버리지 33/33 유지.*
+*Last updated: 2026-07-01 — Phase 13 (home-surge-themes) 13-01 실행: HOME-01 등록(앱 루트 홈 급등 테마 AI 분석, home-sync 워커 + home_theme_snapshots 스냅샷 + 웹앱 read-only). 커버리지 35→36. Traceability HOME-01 | Phase 13 | Pending.*
