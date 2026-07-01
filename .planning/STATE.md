@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 13 UI-SPEC approved
-last_updated: "2026-07-01T10:12:40.660Z"
-last_activity: 2026-07-01 -- Phase 13 planning complete
+stopped_at: Completed 13-01-PLAN.md
+last_updated: "2026-07-01T13:23:22.815Z"
+last_activity: 2026-07-01
 progress:
   total_phases: 22
   completed_phases: 15
   total_plans: 108
-  completed_plans: 88
-  percent: 81
+  completed_plans: 89
+  percent: 82
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 12 — a-n-master-sync
+**Current focus:** Phase 13 — home-surge-themes
 
 ## Current Position
 
-Phase: 12
-Plan: Not started
+Phase: 13 (home-surge-themes) — EXECUTING
+Plan: 2 of 6
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-07-01 -- Phase 13 planning complete
+Last activity: 2026-07-01
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -135,6 +135,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 | Phase 12 P03 | 11min | 3 tasks | 6 files |
 | Phase 12 P04 | 10min | 2 tasks | 3 files |
 | Phase 12 P05 | ~20min | 5 tasks | 6 files |
+| Phase 13 P01 | 5min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -252,6 +253,8 @@ Recent decisions affecting current work:
 - [Phase 12]: [12-03] server 읽기 라우트 GET /api/stocks/:code/limit-up = limit_up_* SELECT → { hero, events, themes } 객체 계약(배열 아님). 정적 이력 — 시세 조인/재계산 0 (D-22 read-only). turnover/win_rate NULL 보존(toNumOrNull), 테마 sample_n DESC 정렬(D-17), 이벤트 0회 zeroStats 빈 상태. /:code 핸들러 앞 등록(shadowing 회피). prod 재배포 revision gh-radar-server-00030-wb6 + curl 검증(000440 events=4 객체·005930 빈·!!! 400·count 3459 불변). smoke INV-8 무관 FAIL.
 - [Phase 12]: [12-04] limit-up-sync 워커 배포 — Phase 11 동조 워커 setup/deploy/smoke 1:1 복제(식별자만 교체). Cloud Run Job gh-radar-limit-up-sync(180s) + Scheduler nightly(cron 0 2 * * 2-6 KST, OAuth invoker OIDC 금지, 리소스 단위 run.invoker). 외부 API 키 0(supabase-service-role accessor 1개만, T-12-04-02). 배포된 Job rebuild_limit_up 실행 event_rows=3459/stock 1271/theme 322. smoke INV-1/3/4/5 PASS, INV-2 는 Cloud Logging 전파지연 flake(직접 재조회 통과).
 - [Phase 12]: [12-05] webapp 상한가 다음날 이력 섹션 ②안 데이터 대시보드 — KPI 3그리드(시초가 익절 N≥3 게이팅/평균/최악) + 전폭 분포 밴드(변형 A) + OHLC 8컬럼 표(점상 태그·faded·더보기) + 테마 가로 풀링 바(N desc) + 면책. 표시 순수함수(shouldShowWinRate/sparkBucketTone/fmtRet/fmtTurnover/BUCKET_LABELS) limit-up-format.ts 분리 + 단위 테스트 박제(sparkBucketTone(2)='up' off-by-one BLOCKER 3 가드). comovement 미러 quiet fallback(return null, error.message 미노출, T-12-05-01). 국내 색상 oklch 토큰만(D-13, 하드코딩 0). prod 시각 검증 중 분포 spark 가독성 이슈 → 변형 A(라벨 세로 막대 밴드) 재디자인 후 재배포(gh-radar-webapp-faraucl94...). Phase 12 LIMIT-01 end-to-end prod live.
+- [Phase 13]: [13-01] home_theme_snapshots = JSONB-blob-per-row 스냅샷 (PK trade_date,captured_at + payload jsonb Claude 출력 1:1 + content_hash/is_carried hash-skip 복제 append). RPC 없는 plain table → REVOKE 불요, RLS SELECT TO anon,authenticated + service_role write. 프로덕션 push 완료(anon GET 200).
+- [Phase 13]: [13-01] workers/home-sync = theme-sync reduced 클론 — config 은 anthropic+supabase+급등튜닝(surge/news)만, 스크랩/프록시 전면 제거. anthropic.ts/parseJson.ts verbatim. Dockerfile VPC 없음(§Pattern 5 Supabase+Anthropic만 호출). [Rule 1 버그] config JSDoc 의 */scrape* 시퀀스가 블록주석 조기종료 유발 → 리워딩.
 
 ### Pending Todos
 
@@ -278,6 +281,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-07-01T07:58:04.163Z
-Stopped at: Phase 13 UI-SPEC approved
+Last session: 2026-07-01T13:23:06.469Z
+Stopped at: Completed 13-01-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
