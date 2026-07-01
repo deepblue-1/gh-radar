@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-07-01T13:23:22.815Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-07-01T13:37:49.588Z"
 last_activity: 2026-07-01
 progress:
   total_phases: 22
   completed_phases: 15
   total_plans: 108
-  completed_plans: 89
-  percent: 82
+  completed_plans: 90
+  percent: 83
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 13 (home-surge-themes) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -136,6 +136,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 | Phase 12 P04 | 10min | 2 tasks | 3 files |
 | Phase 12 P05 | ~20min | 5 tasks | 6 files |
 | Phase 13 P01 | 5min | 3 tasks | 15 files |
+| Phase 13 P13-02 | 9min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -255,6 +256,7 @@ Recent decisions affecting current work:
 - [Phase 12]: [12-05] webapp 상한가 다음날 이력 섹션 ②안 데이터 대시보드 — KPI 3그리드(시초가 익절 N≥3 게이팅/평균/최악) + 전폭 분포 밴드(변형 A) + OHLC 8컬럼 표(점상 태그·faded·더보기) + 테마 가로 풀링 바(N desc) + 면책. 표시 순수함수(shouldShowWinRate/sparkBucketTone/fmtRet/fmtTurnover/BUCKET_LABELS) limit-up-format.ts 분리 + 단위 테스트 박제(sparkBucketTone(2)='up' off-by-one BLOCKER 3 가드). comovement 미러 quiet fallback(return null, error.message 미노출, T-12-05-01). 국내 색상 oklch 토큰만(D-13, 하드코딩 0). prod 시각 검증 중 분포 spark 가독성 이슈 → 변형 A(라벨 세로 막대 밴드) 재디자인 후 재배포(gh-radar-webapp-faraucl94...). Phase 12 LIMIT-01 end-to-end prod live.
 - [Phase 13]: [13-01] home_theme_snapshots = JSONB-blob-per-row 스냅샷 (PK trade_date,captured_at + payload jsonb Claude 출력 1:1 + content_hash/is_carried hash-skip 복제 append). RPC 없는 plain table → REVOKE 불요, RLS SELECT TO anon,authenticated + service_role write. 프로덕션 push 완료(anon GET 200).
 - [Phase 13]: [13-01] workers/home-sync = theme-sync reduced 클론 — config 은 anthropic+supabase+급등튜닝(surge/news)만, 스크랩/프록시 전면 제거. anthropic.ts/parseJson.ts verbatim. Dockerfile VPC 없음(§Pattern 5 Supabase+Anthropic만 호출). [Rule 1 버그] config JSDoc 의 */scrape* 시퀀스가 블록주석 조기종료 유발 → 리워딩.
+- [Phase 13]: [13-02] home-sync 파이프라인 — loadSurges(급등+종목별 top-K 뉴스 truncation 회피) + clusterSurges(Claude 1x bottom-up, newsRefs 인덱스 verbatim 해석 D-04 + breadth 정렬 D-05 + <2 강등 D-06) + runHomeSyncCycle(hash-skip clone-append is_carried, Pattern 4). TDD 20/20 green + build 0. clusterSurges 반환 ClusterResult(threshold/marketStatus 는 index 확정). tsconfig exclude src 테스트(코로케이트 테스트가 build 로 vitest 끌어오는 문제 차단, Rule 3).
 
 ### Pending Todos
 
@@ -281,6 +283,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-07-01T13:23:06.469Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-07-01T13:37:36.337Z
+Stopped at: Completed 13-02-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
