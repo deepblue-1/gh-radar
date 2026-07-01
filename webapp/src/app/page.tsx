@@ -1,10 +1,29 @@
-import { redirect } from 'next/navigation';
+import { Suspense } from 'react';
+import { AppShell } from '@/components/layout/app-shell';
+import { AppSidebar } from '@/components/layout/app-sidebar';
+import { HomeClient } from '@/components/home/home-client';
+import { HomeSkeleton } from '@/components/home/home-skeleton';
 
 /**
- * 루트(`/`) 진입 시 서버 사이드 리다이렉트로 `/scanner` 로 이동.
- * - Phase 4 D-01: v1 핵심이 Scanner 이므로 사이트 오픈 즉시 핵심 기능 진입
- * - Client redirect 금지 (SEO + hydration 비용) — App Router `redirect()` 사용
+ * `/` — Phase 13 홈("오늘의 급등 테마", HOME-01).
+ *
+ * Phase 13 D-07: 홈을 앱 루트(`/`)로 승격 — 기존 `/scanner` 서버사이드 이동을 대체한다.
+ * (스캐너는 사이드바 2번째 메뉴로 유지되며, 직접 접근/북마크는 회귀 없이 동작한다.)
+ *
+ * 서버 컴포넌트에서 Suspense 로 HomeClient(`'use client'`) 를 감싸고,
+ * `dynamic = 'force-dynamic'` 으로 useSearchParams 등 클라이언트 훅이 Suspense 경계를
+ * 요구하는 Next 15 제약을 충족한다 (scanner/page.tsx 선례 mirror).
  */
+export const dynamic = 'force-dynamic';
+
 export default function HomePage() {
-  redirect('/scanner');
+  return (
+    <AppShell sidebar={<AppSidebar />}>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 md:gap-6">
+        <Suspense fallback={<HomeSkeleton />}>
+          <HomeClient />
+        </Suspense>
+      </div>
+    </AppShell>
+  );
 }

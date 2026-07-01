@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Layers, Star } from "lucide-react";
+import { Activity, Home, Layers, Star } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -13,7 +13,8 @@ import { UserSection } from "./user-section";
  *
  * 구조:
  * - `flex h-full flex-col justify-between` → top=nav items, bottom=UserSection
- * - 2 nav 링크: `/scanner` (스캐너), `/watchlist` (관심종목)
+ * - 4 nav 링크: `/` (홈), `/scanner` (스캐너), `/themes` (테마), `/watchlist` (관심종목)
+ *   홈이 1번째(루트 `/` 활성) — Phase 13 D-07 홈 루트 승격.
  * - 하단 UserSection (Popover 트리거 + 콘텐츠)
  *
  * a11y:
@@ -25,6 +26,7 @@ import { UserSection } from "./user-section";
  * - `data-nav-item` 속성 — AppShell 의 Sheet drawer 가 클릭 감지 후 자동 닫음 (app-shell.tsx 참조)
  */
 const NAV = [
+  { href: "/", label: "홈", icon: Home },
   { href: "/scanner", label: "스캐너", icon: Activity },
   { href: "/themes", label: "테마", icon: Layers },
   { href: "/watchlist", label: "관심종목", icon: Star },
