@@ -1,0 +1,166 @@
+import "dotenv/config";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { HomeSnapshotPayload } from "@gh-radar/shared";
+import { loadConfig, type HomeSyncConfig } from "./config";
+import { logger } from "./logger";
+import { createSupabaseClient } from "./services/supabase";
+import { loadSurges, type Surge } from "./pipeline/loadSurges";
+import { computeContentHash } from "./pipeline/contentHash";
+import { clusterSurges, type ClusterResult } from "./ai/clusterSurges";
+import { upsertSnapshot } from "./pipeline/upsertSnapshot";
+
+/**
+ * Phase 13 Plan 02 Task 3 — home-sync cycle entry point (RESEARCH §Pattern 2 + §Pattern 4).
+ *
+ * Flow:
+ *   1. loadSurges (오늘 +threshold% 급등 + 종목별 top-K 뉴스).
+ *   2. computeContentHash (급등코드 + 뉴스 id).
+ *   3. 오늘 최신 스냅샷 조회 (captured_at desc limit 1).
+ *   4. 분기 (Pattern 4 hash-skip clone-append):
+ *        - prev.content_hash === hash → 직전 payload 복제 append (is_carried=true, Claude 호출 0).
+ *        - else → clusterSurges (Claude 1x) → payload append (is_carried=false).
+ *   5. upsertSnapshot (onConflict PK ignoreDuplicates — slot 재실행 idempotent).
+ *
+ * captured_at 은 KST :30 slot (장중 매시). marketStatus: slot >= 15:30 KST → closed.
+ * 급등 없는 날(surges 0)도 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
+ */
+
+export interface HomeSyncDeps {
+  config?: HomeSyncConfig;
+  supabase?: SupabaseClient;
+  /** 테스트 주입: clusterSurges 대체 (없으면 실 Claude 호출). */
+  cluster?: (surges: Surge[], cfg: HomeSyncConfig) => Promise<ClusterResult>;
+  now?: Date;
+}
+
+export interface HomeSyncSummary {
+  tradeDate: string;
+  capturedAt: string;
+  themeCount: number;
+  stockCount: number;
+  claudeCalled: boolean;
+  isCarried: boolean;
+}
+
+const KST_OFFSET_MS = 9 * 3600_000;
+
+/** now → KST :30 slot { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus }. */
+function computeSlot(now: Date): {
+  tradeDate: string;
+  capturedAt: string;
+  marketStatus: "open" | "closed";
+} {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  const y = kst.getUTCFullYear();
+  const m = String(kst.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(kst.getUTCDate()).padStart(2, "0");
+  const tradeDate = `${y}-${m}-${d}`;
+  const hour = kst.getUTCHours();
+  // slot = 해당 시각의 :30 (KST). capturedAt 은 UTC 로 환산.
+  const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, 30, 0);
+  const capturedAt = new Date(slotKstMs - KST_OFFSET_MS).toISOString();
+  // 마감직후 15:30 KST 이상 → closed.
+  const marketStatus: "open" | "closed" = hour >= 15 ? "closed" : "open";
+  return { tradeDate, capturedAt, marketStatus };
+}
+
+function countStocks(payload: HomeSnapshotPayload): number {
+  const themeStocks = payload.themes.reduce((n, t) => n + t.stocks.length, 0);
+  return themeStocks + payload.singles.length;
+}
+
+export async function runHomeSyncCycle(
+  deps: HomeSyncDeps = {},
+): Promise<HomeSyncSummary> {
+  const cfg = deps.config ?? loadConfig();
+  const now = deps.now ?? new Date();
+  const cluster = deps.cluster ?? clusterSurges;
+  const log = logger.child({ app: "home-sync", version: cfg.appVersion });
+  const supabase =
+    deps.supabase ??
+    createSupabaseClient(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
+
+  const { tradeDate, capturedAt, marketStatus } = computeSlot(now);
+  log.info({ tradeDate, capturedAt, marketStatus }, "home-sync cycle start");
+
+  // 1) 급등 로드 + 2) content hash.
+  const surges = await loadSurges(supabase, cfg);
+  const hash = computeContentHash(surges);
+
+  // 3) 오늘 최신 스냅샷.
+  const { data: prevData, error: prevErr } = await supabase
+    .from("home_theme_snapshots")
+    .select("content_hash,theme_count,stock_count,payload")
+    .eq("trade_date", tradeDate)
+    .order("captured_at", { ascending: false })
+    .limit(1);
+  if (prevErr) throw prevErr;
+
+  const prevRows = (prevData ?? []) as Array<{
+    content_hash?: string | null;
+    payload?: HomeSnapshotPayload | null;
+  }>;
+  const prevRow = prevRows.length > 0 ? prevRows[0] : null;
+
+  let payload: HomeSnapshotPayload;
+  let isCarried: boolean;
+  let claudeCalled: boolean;
+
+  if (prevRow && prevRow.content_hash === hash && prevRow.payload) {
+    // 4a) hash-match — 직전 payload 복제 append (Claude 호출 skip, Pattern 4).
+    payload = prevRow.payload;
+    isCarried = true;
+    claudeCalled = false;
+    log.info(
+      { hashPrefix: hash.slice(0, 12) },
+      "content unchanged — clone-append 직전 payload (Claude 호출 skip)",
+    );
+  } else {
+    // 4b) hash-miss — clusterSurges (Claude 1x). threshold/marketStatus 는 caller 가 확정.
+    const clustered = await cluster(surges, cfg);
+    payload = {
+      threshold: cfg.surgeThreshold,
+      marketStatus,
+      themes: clustered.themes,
+      singles: clustered.singles,
+    };
+    isCarried = false;
+    claudeCalled = surges.length > 0; // 빈 급등이면 clusterSurges 가 short-circuit(호출 0).
+  }
+
+  const themeCount = payload.themes.length;
+  const stockCount = countStocks(payload);
+
+  // 5) append (idempotent slot).
+  await upsertSnapshot(supabase, {
+    trade_date: tradeDate,
+    captured_at: capturedAt,
+    theme_count: themeCount,
+    stock_count: stockCount,
+    content_hash: hash,
+    is_carried: isCarried,
+    payload,
+  });
+
+  log.info(
+    { tradeDate, capturedAt, themeCount, stockCount, claudeCalled, isCarried },
+    "home-sync cycle complete",
+  );
+
+  return { tradeDate, capturedAt, themeCount, stockCount, claudeCalled, isCarried };
+}
+
+async function main(): Promise<void> {
+  try {
+    await runHomeSyncCycle();
+    process.exit(0);
+  } catch (err) {
+    logger.error({ err }, "home-sync failed");
+    process.exit(1);
+  }
+}
+
+// CLI 진입점 (vitest import 시에는 실행 안 함).
+if (process.argv[1] && process.argv[1].endsWith("index.js")) {
+  main();
+}

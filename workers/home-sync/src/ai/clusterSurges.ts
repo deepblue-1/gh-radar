@@ -4,6 +4,12 @@ import type {
   HomeSurgeSingle,
   HomeSurgeTheme,
 } from "@gh-radar/shared";
+
+/**
+ * clusterSurges 결과 — themes/singles 만 계산한다. threshold/marketStatus 는 caller(index.ts)가
+ * 슬롯 컨텍스트로 확정해 채운다 (RESEARCH §Pattern 3).
+ */
+export type ClusterResult = Pick<HomeSnapshotPayload, "themes" | "singles">;
 import { getAnthropicClient } from "./anthropic";
 import { extractJsonObject } from "./parseJson";
 import {
@@ -155,7 +161,7 @@ function normSingle(s: unknown): RawSingle | null {
 export async function clusterSurges(
   surges: Surge[],
   cfg: HomeSyncConfig,
-): Promise<HomeSnapshotPayload> {
+): Promise<ClusterResult> {
   // short-circuit — 급등 없으면 Claude 호출 0.
   if (surges.length === 0) return { themes: [], singles: [] };
 
