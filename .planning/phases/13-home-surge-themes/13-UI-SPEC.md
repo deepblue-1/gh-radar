@@ -52,26 +52,34 @@ created: 2026-07-01
 Radius: `--r-sm` 4 / `--r` 6 (nav item, iconbtn, pill) / `--r-md` 8 / `--r-lg` 12 (카드).
 
 Exceptions:
-- 시점 pill / today pill / count-badge / chip = `border-radius: 999px` (fully rounded, 기존 pill 관례 — globals 토큰 아님이나 프로젝트 slider/badge 선례와 일치).
-- iconbtn(‹ ›) 터치 타깃 = 30×30px (목업 확정). 모바일에서 `[data-density]` comfortable 44px row-h 규칙은 표/행에만 적용, 네비 버튼은 30px 유지.
+- 시점 pill / today pill / count-badge / chip = `border-radius: 999px` (fully rounded, 기존 pill 관례 — globals slider/badge 선례와 일치).
+- iconbtn(‹ ›) 터치 타깃 = **32×32px** (8×4 = multiple of 4, 목업 확정). 모바일 `[data-density]` comfortable 44px row-h 규칙은 표/행에만 적용, 네비 버튼은 32px 유지. — 모든 spacing 값이 4의 배수(non-multiple-of-4 예외 없음).
 
 ---
 
 ## Typography
 
-기존 `--t-*` 토큰 (declared sizes) + `--lh-*` (line-height). 본문/제목 Pretendard, 숫자 `.mono`.
+기존 `--t-*` 토큰. 본 phase 신규 홈 컴포넌트의 declared type contract = **정확히 4개 크기 + 정확히 2개 weight**.
+
+**Declared sizes (EXACTLY 4): {12, 14, 18, 24}px**
 
 | Role | Token | Size | Weight | Line Height | Usage |
 |------|-------|------|--------|-------------|-------|
 | Page title | `--t-h2` | 24px | 800 (extrabold), `letter-spacing:-0.02em` | `--lh-tight` 1.2 | "오늘의 급등 테마" (`.title-row h1`) |
-| Section / card 제목 | `--t-h4` | 18px | 800 | 1.2 | "주도 테마"·"개별 급등" 섹션 헤더, 테마명(`.tc-name`), 빈 상태 heading |
-| Metric (평균 등락) | `--t-h3` | 20px | 800, `.mono` `--up` | 1.2 | 테마 카드 평균 등락률 (`.tc-metric .avg`) |
-| Body / label | `--t-sm` | 14px | 400 regular (600 for nav-active/pill/종목명) | `--lh-normal` 1.5 | 상승이유(`.tc-reason` muted), 종목명, 뉴스 제목, 시점 pill, subtle |
-| Caption | `--t-caption` | 12px | 400 (700 for 근거 뉴스 label) | 1.5 | 종목코드, 뉴스 출처, count-badge, "+N개 종목 더", "평균 등락" cap |
-| 개별 급등 등락% | `--t-lg` | 18px | 800, `.mono` `--up` | 1.2 | solo-card 등락률 (`.solo-chg`) |
-| 소속 종목 등락% | `--t-sm` | 14px | 800, `.mono` `--up` | 1.5 | mini-row change% (`.schg`) |
+| Heading / metric / focal | `--t-h4` (`--t-lg` 동일 18px) | 18px | 800 | 1.2 | 섹션 헤더("주도 테마"·"개별 급등"), 테마명(`.tc-name`), **테마 카드 평균 등락(`.tc-metric .avg`, `.mono` `--up`)**, **개별 급등 change%(`.solo-chg`, `.mono` `--up`, 코드상 `--t-lg`=18px 동일 tier)**, 빈 상태 heading |
+| Body / label / value | `--t-sm` | 14px | 400 regular (강조는 800) | `--lh-normal` 1.5 | 상승이유(`.tc-reason` muted 400), 뉴스 제목(400), 종목명(`.sname` 800), 소속 종목 change%(`.schg` mono 800 `--up`), **날짜 라벨(`.date-label` mono 800)**, **개별 급등 종목명(`.solo-name` 800)**, 시점 pill 라벨, today pill |
+| Caption | `--t-caption` | 12px | 400 (근거 뉴스 label 은 800) | 1.5 | 종목코드(`.scode`), 뉴스 출처(`.n-src`), count-badge, "+N개 종목 더", "평균 등락" cap, 근거 뉴스 label |
 
-**Weight rule (2 weights):** regular **400** (본문/뉴스/이유/캡션) + **800** extrabold (제목/metric/등락%/count). 중간 **600 semibold** 는 강조 종목명·nav-active·pill 라벨에만 (기존 theme-rank-row/app-sidebar 선례 승계).
+**REMOVED tiers (checker BLOCK 1 fix — final set = {12,14,18,24}):**
+- **20px (`--t-h3`) 제거** — 테마 카드 평균 등락 metric 을 18px(`--t-h4`)로 이동. 여전히 focal point 유지: `--up` 색 + 800 weight + `.mono` + 우정렬로 강조(크기 확대 아님).
+- **16px (`--t-base`) 제거** — 날짜 라벨 + 개별 급등 종목명을 14px(`--t-sm`)로 이동.
+
+**Weight rule (EXACTLY 2 — checker BLOCK 2 fix):**
+- **400 regular** — 본문/상승이유/뉴스 제목/출처/캡션.
+- **800 extrabold** — 모든 제목·metric·등락%·강조 종목명·선택된 시점 pill·라벨(근거 뉴스/today pill/날짜).
+- 강조는 전부 800 로 통일 — 홈 자체 컴포넌트에서 **600 semibold tier 완전 제거**.
+
+**Inherited weight (OUT OF SCOPE — 3rd declared weight 아님):** 재사용되는 기존 `AppSidebar` 컴포넌트의 active nav item weight = `font-semibold` (600). 본 phase 는 `AppSidebar` 의 **NAV 배열만** 편집(홈 추가 + 스캐너 2번째 재정렬)하고 컴포넌트 스타일 코드는 손대지 않는다. 이 600 은 **기존 컴포넌트에서 상속된 값**이며 본 phase 신규 홈 컴포넌트의 type contract(400/800 2-weight)와 무관 — 세 번째 선언 weight 로 계산하지 않음.
 
 **Numeric rule (LOCKED):** 등락%·평균등락·날짜(YYYY-MM-DD)·종목코드·시점(HH:MM)·count-badge = 반드시 `.mono` (`font-variant-numeric: tabular-nums slashed-zero`). 한글 텍스트는 Pretendard.
 
@@ -116,7 +124,7 @@ Exceptions:
 | Page title | **오늘의 급등 테마** |
 | Section label 1 | **주도 테마** (+ mono count-badge = 테마 수) |
 | Section label 2 | **개별 급등** (+ mono count-badge = 개별 급등 종목 수) |
-| News block label | **근거 뉴스** (`--t-caption`, weight 700, `letter-spacing:0.02em`) |
+| News block label | **근거 뉴스** (`--t-caption`, weight 800, `letter-spacing:0.02em`) |
 | 소속 종목 overflow | **+N개 종목 더** (top 4 초과분, `--t-caption` muted) |
 | 마감 시점 라벨 | **HH:MM · 마감** (예: `15:30 · 마감`) — 정규장 마감 슬롯. 그 외 슬롯은 `HH:MM` (예: `09:30`) |
 | Today reset pill | **오늘** |
@@ -124,10 +132,10 @@ Exceptions:
 | Empty state body | **장중 매시 30분에 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.** |
 | Empty CTA (secondary) | **스캐너로 이동** (→ `/scanner`) |
 | Primary CTA | **없음** — 홈은 read-only 조망 화면. 유일한 액션성 요소는 빈 상태의 secondary CTA "스캐너로 이동" + 뉴스 external-link(↗) affordance |
-| Error state (fetch 실패) | 기존 에러 패턴 재사용 (scanner-error 계열). 카피 계약: heading **불러오지 못했습니다** / body **잠시 후 다시 시도해 주세요.** + 재시도 버튼 **다시 시도**. `error.message` 원문 미노출(PostgREST/내부정보 누설 방지 — Phase 09.2/12 선례), `console.error` 분리 |
+| Error state (fetch 실패) | **기존 scanner-error 패턴 카피 동형** (Phase 09.2/12 선례 — stale-but-visible 후 인라인 에러 카드). heading **불러오지 못했습니다** / body **잠시 후 다시 시도해 주세요.** / 재시도 버튼 라벨 **다시 불러오기** (동사+명사, bare-verb 아님). `error.message` 원문 미노출(PostgREST/내부정보 누설 방지), `console.error` 분리 |
 | Destructive confirmation | **없음 — 본 phase 파괴적 액션 0** (read-only, 폼 없음, on-demand fetch 없음) |
 
-**뉴스 근거 표기 (5원칙 준수):** 각 뉴스 아이템 = 제목(`--t-sm`) + 출처명(`--t-caption` muted) + external-link glyph **↗**. `news_articles` 의 `title`/`url` 을 **verbatim 저장/표시**(Claude 환각 금지 — 인덱스 선택만). 출처명 항상 병기.
+**뉴스 근거 표기 (5원칙 준수):** 각 뉴스 아이템 = 제목(`--t-sm` 400) + 출처명(`--t-caption` muted) + external-link glyph **↗**. `news_articles` 의 `title`/`url` 을 **verbatim 저장/표시**(Claude 환각 금지 — 인덱스 선택만). 출처명 항상 병기.
 
 ---
 
@@ -138,25 +146,29 @@ Exceptions:
 | Component | Contract | Reuse basis |
 |-----------|----------|-------------|
 | 홈 헤더 (`home-top`) | 세로 stack: 타이틀행(`오늘의 급등 테마` h2 + 날짜 네비) → 시점 pill 행. gap `--s-3` | 신규 |
-| 날짜 네비 (`datenav`) | prev/next arrow icon-button(‹ ›, 30×30 `--r`) + mono 날짜 라벨(YYYY-MM-DD) + "오늘" reset pill. **오늘 최신 슬롯에서 next-arrow disabled**(`opacity:0.4`). 과거 데이터 없으면 prev disabled | 신규 (iconbtn 스타일 = 기존 slider nav 계열) |
-| 시점 네비 (`slots`) | **SEGMENTED PILL row** (변형 A 채택 — NOT 드롭다운/슬라이더). 가로 나열, 모바일 가로 스크롤(`overflow-x:auto`). 선택 슬롯 = `.slot.on`(`--primary` fill). 현재/마감 슬롯 = 우상단 `--up` 도트(`.slot.live`). 각 슬롯 라벨 = `HH:MM`(마감은 `HH:MM · 마감`) | 신규 |
-| 섹션 헤더 (`section-label`) | "주도 테마"/"개별 급등" (`--t-h4` bold) + mono count-badge (muted pill) | 신규 |
-| 테마 카드 (`theme-card`) | `.card-shadow` + border + `--r-lg`, padding `--s-4`, 세로 gap `--s-3`. 헤더(테마명 h4 + 상승이유 muted `--t-sm` / 우측 평균등락 `--t-h3` mono `--up` + "평균 등락" cap) → 소속 종목 mini-row 리스트 → 근거 뉴스 블록 | 신규 (theme-rank-row 톤 계승) |
-| 소속 종목 mini-row (`stocklist`/`srow`) | **MINI-ROW list** (변형 A 채택 — NOT chips). grid `1fr auto`: [종목명(600) + 코드(mono caption muted)] \| [change%(mono 800 `--up`, 우정렬)]. 행 사이 `--border-subtle` hairline. **change% desc 정렬** (카드 내). top 4 표시 + "+N개 종목 더" overflow line | 신규 |
-| 근거 뉴스 블록 (`news`) | 상단 `--border-subtle` 구분선 + padding-top `--s-3`. "근거 뉴스" label(테마 카드만; 개별 급등은 label 생략) + 뉴스 아이템 1~2건. 각 아이템 = anchor(외부 링크, `target=_blank rel=noopener`): `--flat` dot + [제목 `--t-sm` / 출처 `--t-caption` muted + ↗]. **hover → 제목 `--primary`** | 신규 |
-| 개별 급등 카드 (`solo-card`) | `.card-shadow` + border + `--r-lg`, padding `--s-3 --s-4`. 헤더(종목명 `--t-base` 600 + 코드 mono \| change% `--t-lg` mono 800 `--up`) → 근거 뉴스 1건(label 없이) | 신규 |
-| 빈 상태 (`empty`) | **dashed-border 카드** (border = `color-mix(in oklch, var(--primary) 30%, var(--border))`) + 원형 `--accent` 아이콘(lucide, 예: `Sparkles`/`Search` `--accent-fg`) + heading(`--t-h4` 800) + body(muted `--t-sm`, `max-width:44ch`) + secondary CTA "스캐너로 이동". `role="status"` | themes-empty 패턴 계승 |
-| 사이드바 NAV | 순서 재정렬: **홈(1st, active accent) · 스캐너(2nd) · 테마(3rd) · 관심종목(4th)**. 홈 진입점 신규 추가(`href="/"`, lucide icon 예 `Home`), 스캐너 2번째로. `pathname === "/"` → active | app-sidebar.tsx NAV 배열 편집 |
+| 날짜 네비 (`datenav`) | prev/next arrow icon-button(‹ ›, **32×32** `--r`) + mono 날짜 라벨(YYYY-MM-DD, `--t-sm` 800) + "오늘" reset pill. **오늘 최신 슬롯에서 next-arrow disabled**(`opacity:0.4`). 과거 데이터 없으면 prev disabled. **aria-label 필수(a11y 참조)** | 신규 (iconbtn 스타일 = 기존 slider nav 계열) |
+| 시점 네비 (`slots`) | **SEGMENTED PILL row** (변형 A 채택 — NOT 드롭다운/슬라이더). 가로 나열, 모바일 가로 스크롤(`overflow-x:auto`). 선택 슬롯 = `.slot.on`(`--primary` fill, weight 800). 현재/마감 슬롯 = 우상단 `--up` 도트(`.slot.live`). 각 슬롯 라벨 = `HH:MM`(마감은 `HH:MM · 마감`) | 신규 |
+| 섹션 헤더 (`section-label`) | "주도 테마"/"개별 급등" (`--t-h4` 800) + mono count-badge (muted pill) | 신규 |
+| 테마 카드 (`theme-card`) | `.card-shadow` + border + `--r-lg`, padding `--s-4`, 세로 gap `--s-3`. 헤더(테마명 `--t-h4` 800 + 상승이유 muted `--t-sm` 400 / 우측 평균등락 `--t-h4` mono 800 `--up` + "평균 등락" cap) → 소속 종목 mini-row 리스트 → 근거 뉴스 블록 | 신규 (theme-rank-row 톤 계승) |
+| 소속 종목 mini-row (`stocklist`/`srow`) | **MINI-ROW list** (변형 A 채택 — NOT chips). grid `1fr auto`: [종목명(`--t-sm` 800) + 코드(mono caption muted)] \| [change%(mono 800 `--up`, 우정렬)]. 행 사이 `--border-subtle` hairline. **change% desc 정렬** (카드 내). top 4 표시 + "+N개 종목 더" overflow line | 신규 |
+| 근거 뉴스 블록 (`news`) | 상단 `--border-subtle` 구분선 + padding-top `--s-3`. "근거 뉴스" label(테마 카드만, 800; 개별 급등은 label 생략) + 뉴스 아이템 1~2건. 각 아이템 = anchor(외부 링크, `target=_blank rel=noopener`): `--flat` dot + [제목 `--t-sm` 400 / 출처 `--t-caption` muted + ↗]. **hover → 제목 `--primary`** | 신규 |
+| 개별 급등 카드 (`solo-card`) | `.card-shadow` + border + `--r-lg`, padding `--s-3 --s-4`. 헤더(종목명 `--t-sm` 800 + 코드 mono 400 \| change% `--t-lg`(18px) mono 800 `--up`) → 근거 뉴스 1건(label 없이) | 신규 |
+| 빈 상태 (`empty`) | **dashed-border 카드** (border = `color-mix(in oklch, var(--primary) 30%, var(--border))`) + 원형 `--accent` 아이콘(lucide, 예: `Sparkles`/`Search` `--accent-fg`) + heading(`--t-h4` 800) + body(muted `--t-sm` 400, `max-width:44ch`) + secondary CTA "스캐너로 이동". `role="status"` | themes-empty 패턴 계승 |
+| 사이드바 NAV | 순서 재정렬: **홈(1st, active accent) · 스캐너(2nd) · 테마(3rd) · 관심종목(4th)**. 홈 진입점 신규 추가(`href="/"`, lucide icon 예 `Home`), 스캐너 2번째로. `pathname === "/"` → active. **active weight 600 은 기존 컴포넌트 상속(Typography 참조 — 신규 weight 아님)** | app-sidebar.tsx NAV 배열 편집 |
 
 **States to spec (read-only 화면):**
 - **loading** — skeleton (scanner/themes skeleton family 재사용, `.skeleton-list` stagger + `prefers-reduced-motion` 정지). 헤더 골격 + 카드 2~3개 골격.
 - **populated** — 위 인벤토리대로.
 - **empty** — 급등 없는 날(`snapshot=null` 또는 `payload.themes=[] && singles=[]`) → 빈 상태 카드.
-- **error** — fetch 실패 → 기존 에러 카드 패턴(scanner-error 계열), stale-but-visible 유지 후 인라인 에러 + "다시 시도".
+- **error** — fetch 실패 → 기존 scanner-error 카드 패턴 동형, stale-but-visible 유지 후 인라인 에러 + "다시 불러오기".
 
-**is_carried / marketStatus 표시:** `is_carried=true`(직전 슬롯 복제) 뱃지 표시 여부, `marketStatus: open|closed` 문구 분기(예 "장 마감 — 오늘의 최종 급등")는 **executor 재량 (선택)** — 계약상 필수 아님. 표시할 경우 muted `--t-caption`, 신규 색 금지.
+**is_carried / marketStatus 표시:** `is_carried=true`(직전 슬롯 복제) 뱃지 표시 여부, `marketStatus: open|closed` 문구 분기(예 "장 마감 — 오늘의 최종 급등")는 **executor 재량 (선택)** — 계약상 필수 아님. 표시할 경우 muted `--t-caption`, 신규 색/weight 금지(400 또는 800 중).
 
-**a11y:** `<nav aria-label="주 메뉴">` active = `aria-current="page"`. 아이콘 `aria-hidden`. 뉴스 external anchor = 접근 가능한 라벨. 전역 double-ring focus(globals `*:focus-visible`) 유지 — 시점 pill·날짜 버튼·뉴스 링크 키보드 포커스 가능.
+**a11y:**
+- `<nav aria-label="주 메뉴">`, active = `aria-current="page"`, 아이콘 `aria-hidden`.
+- **날짜 네비 icon-only 버튼 accessible-name (필수):** prev 버튼 `aria-label="이전 날짜"`, next 버튼 `aria-label="다음 날짜"` (‹ › glyph 은 시각 전용, 스크린리더용 이름 별도 부여).
+- 뉴스 external anchor = 접근 가능한 라벨 + `target=_blank rel=noopener`.
+- 전역 double-ring focus(globals `*:focus-visible`) 유지 — 시점 pill·날짜 버튼·뉴스 링크 키보드 포커스 가능.
 
 ---
 
