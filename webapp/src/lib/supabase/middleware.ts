@@ -10,8 +10,11 @@ const PUBLIC_PREFIXES = ["/login", "/auth"];
 /**
  * 공개 exact 매치 — 정확히 일치해야 공개인 경로
  * (루트 "/" 는 공개)
+ *
+ * `/home-preview` = Phase 13 Plan 04 시각 검증 전용 임시 프리뷰(공개, 로그인 불요) —
+ * Plan 05 가 홈을 `/` 루트에 마운트하며 이 라우트와 함께 제거된다.
  */
-const PUBLIC_EXACT = ["/"];
+const PUBLIC_EXACT = ["/", "/home-preview"];
 
 /**
  * updateSession — @supabase/ssr 공식 패턴 기반 세션 쿠키 동기화 + 라우트 가드.
