@@ -156,4 +156,4 @@
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-07-01 — Phase 13 (home-surge-themes) 13-01 실행: HOME-01 등록(앱 루트 홈 급등 테마 AI 분석, home-sync 워커 + home_theme_snapshots 스냅샷 + 웹앱 read-only). 커버리지 35→36. Traceability HOME-01 | Phase 13 | Pending.*
+*Last updated: 2026-07-02 — Phase 13 (home-surge-themes) 13-06 완료: HOME-01 end-to-end 프로덕션 라이브. home-sync Cloud Run Job(gh-radar-home-sync @ f6b1905) + Scheduler(gh-radar-home-sync-cron, 30 9-15 KST 7슬롯, OAuth) 배포 + Claude POC PASS(themeCount=4 실제 대응, 환각 0, ~$3.1/월 이내) + server /api/home 200 + 프로덕션 홈 `/` 렌더 + smoke 6/6 + home E2E 5/5. Traceability HOME-01 | Phase 13 | Complete.*
