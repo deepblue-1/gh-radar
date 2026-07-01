@@ -41,11 +41,11 @@ created: 2026-07-01
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 13-01-xx | 01 | 0 | HOME-01 | — | Claude JSON → payload 파싱 정확 | unit | `pnpm --filter @gh-radar/home-sync test` | ❌ W0 | ⬜ pending |
-| 13-01-xx | 01 | 0 | HOME-01 | — | 정렬 D-05 (종목수 desc, 동수 평균등락 desc) | unit | `pnpm --filter @gh-radar/home-sync test` | ❌ W0 | ⬜ pending |
-| 13-01-xx | 01 | 0 | HOME-01 | — | 개별/테마 판정 D-06 (2+ vs 1) | unit | `pnpm --filter @gh-radar/home-sync test` | ❌ W0 | ⬜ pending |
-| 13-01-xx | 01 | 0 | HOME-01 | T-13-01 (환각 URL) | 뉴스 인덱스→title/url 해석 (환각 방지) | unit | `pnpm --filter @gh-radar/home-sync test` | ❌ W0 | ⬜ pending |
-| 13-01-xx | 01 | 1 | HOME-01 | — | hash-skip 복제 append (is_carried) | unit | `pnpm --filter @gh-radar/home-sync test` | ❌ W0 | ⬜ pending |
+| 13-02-t2 | 02 | 1 | HOME-01 | — | Claude JSON → payload 파싱 정확 | unit | `pnpm --filter @gh-radar/home-sync test` | ✅ 02(TDD) clusterSurges.test.ts | ⬜ pending |
+| 13-02-t2 | 02 | 1 | HOME-01 | — | 정렬 D-05 (종목수 desc, 동수 평균등락 desc) | unit | `pnpm --filter @gh-radar/home-sync test` | ✅ 02(TDD) clusterSurges.test.ts | ⬜ pending |
+| 13-02-t2 | 02 | 1 | HOME-01 | — | 개별/테마 판정 D-06 (2+ vs 1) | unit | `pnpm --filter @gh-radar/home-sync test` | ✅ 02(TDD) clusterSurges.test.ts | ⬜ pending |
+| 13-02-t2 | 02 | 1 | HOME-01 | T-13-01 (환각 URL) | 뉴스 인덱스→title/url 해석 (환각 방지) | unit | `pnpm --filter @gh-radar/home-sync test` | ✅ 02(TDD) clusterSurges.test.ts | ⬜ pending |
+| 13-02-t1/t3 | 02 | 1 | HOME-01 | — | hash-skip 복제 append (is_carried) | unit | `pnpm --filter @gh-radar/home-sync test` | ✅ 02(TDD) contentHash.test.ts + index.test.ts | ⬜ pending |
 | 13-01-xx | xx | 1 | HOME-01 | T-13-02 (default-deny) | 스냅샷 INSERT + RLS anon/authenticated read | integration | `pnpm --filter server test` | ❌ W0 | ⬜ pending |
 | 13-01-xx | xx | 2 | HOME-01 | T-13-03 (시세 오염) | `/api/home` 객체 계약 `{ snapshot, index }` | integration | `pnpm --filter server test` | ❌ W0 | ⬜ pending |
 | 13-01-xx | xx | 3 | HOME-01 | — | `/` 홈 표시 + 날짜/시점 네비 + 빈 상태 | E2E | `pnpm --filter webapp e2e` | ❌ W0 | ⬜ pending |
@@ -58,11 +58,14 @@ created: 2026-07-01
 
 ## Wave 0 Requirements
 
-- [ ] `workers/home-sync/vitest.config.ts` (theme-sync 복제) + `src/**/*.test.ts` — HOME-01 unit (파싱/정렬/판정/hash)
-- [ ] `server/src/routes/home.route.test.ts` — `/api/home` 객체계약 + RLS (supertest)
-- [ ] `webapp/tests/e2e/home.spec.ts` — 홈 표시/네비/빈상태
-- [ ] Claude POC 스크립트 — 1슬롯 실 클러스터링 (정확도/비용 게이트, [BLOCKING] task)
+- [ ] `workers/home-sync/vitest.config.ts` (theme-sync 복제) — **유일한 진짜 Wave 0 스캐폴드** (Plan 01)
+- [x] `workers/home-sync/src/**/*.test.ts` (loadSurges/contentHash/clusterSurges/index.test.ts) — **Plan 02 Wave 1 TDD 에서 작성** (RED→GREEN), Wave 0 아님
+- [x] `server/src/routes/home.route.test.ts` — **Plan 03 Wave 2 에서 작성** (`/api/home` 객체계약 + RLS supertest), Wave 0 아님
+- [x] `webapp/e2e/specs/home.spec.ts` — **Plan 05 Wave 4 에서 작성** (홈 표시/네비/빈상태 + /scanner 회귀), Wave 0 아님
+- [ ] Claude POC 스크립트 — 1슬롯 실 클러스터링 (정확도/비용 게이트, [BLOCKING] task, Plan 06)
 - [ ] Framework install: 없음 (theme-sync vitest 복제)
+
+> 정정: 이 phase 의 테스트 파일은 대부분 각 Plan 내부에서 TDD(먼저 RED)로 작성됨. Wave 0 에 강제로 미리 만들어야 하는 것은 `vitest.config.ts` 스캐폴드뿐. 위 표의 `File Exists` 열이 이를 반영함.
 
 ---
 

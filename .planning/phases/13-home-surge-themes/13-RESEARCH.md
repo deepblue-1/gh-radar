@@ -483,20 +483,23 @@ const codes = hi.map(r => r.code);
 
 **Claude 클러스터링 정확도(테마명/개별판정)** 는 `[ASSUMED]` — theme-sync POC 가 "GOOD(HBM/온디바이스AI 등 실 KR 테마)" 였으나 bottom-up 급등 클러스터링은 다른 태스크. planner 가 POC 게이트 필수(§Validation).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **뉴스 없는 급등 종목(9/51=18%) 처리**
    - What we know: probe 상 227100/139050/35320K 등 뉴스 0건. `[VERIFIED: probe]`
    - What's unclear: 뉴스 근거 없는 급등을 개별 급등에 "이유 미상" 으로 넣을지, 제외할지.
    - Recommendation: singles 에 `reason=null` 로 포함(급등 사실은 유효). Claude 가 근거 없으면 reason 비움. UI 가 "상승 이유 뉴스 미발견" 표시.
+   - **RESOLVED:** reason=null 로 두고 카드에 근거 없이 표시(뉴스 있는 종목만 verbatim 근거). Plan 02 interfaces 반영 완료.
 
 2. **12:30 슬롯 (점심시간)**
    - What we know: `30 9-15` 은 12:30 포함. 한국장은 12시 휴장 없음(연속). `[ASSUMED]`
    - Recommendation: 그대로 포함 — 연속장이라 12:30 도 유효 데이터.
+   - **RESOLVED:** 포함 (cron `30 9-15 * * 1-5` 이 12:30 커버). Plan 02 interfaces 반영 완료.
 
 3. **content_hash 에 뉴스 포함 시 민감도**
    - What we know: 뉴스가 1건만 추가돼도 hash 변동 → Claude 재호출.
    - Recommendation: hash 를 급등 code 집합 + 뉴스 **개수/최신 id** 정도로(전체 title 아님) — 과민 재호출 억제. planner 튜닝.
+   - **RESOLVED:** 급등종목 코드 집합 + 뉴스 개수/최신 news id 를 해시 입력에 포함(전체 title 제외). Plan 02 interfaces(contentHash) 반영 완료.
 
 ## Environment Availability
 
@@ -545,7 +548,7 @@ const codes = hi.map(r => r.code);
 ### Wave 0 Gaps
 - [ ] `workers/home-sync/vitest.config.ts` + `src/**/*.test.ts` — HOME-01 unit (파싱/정렬/판정/hash)
 - [ ] `server/src/routes/home.route.test.ts` — `/api/home` 객체계약 + RLS
-- [ ] `webapp/tests/e2e/home.spec.ts` — 홈 표시/네비/빈상태
+- [ ] `webapp/e2e/specs/home.spec.ts` — 홈 표시/네비/빈상태
 - [ ] Claude POC 스크립트 — 1슬롯 실 클러스터링 (정확도/비용 게이트, planner [BLOCKING] task)
 - [ ] Framework install: 없음 (theme-sync vitest 복제)
 
