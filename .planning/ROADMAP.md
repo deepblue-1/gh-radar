@@ -453,3 +453,13 @@ Plans:
 - [x] 12-03-PLAN.md — Wave 3 server: GET /api/stocks/:code/limit-up 읽기 라우트(객체 계약, 시세 조인 제거) + [BLOCKING] server 재배포 + prod curl
 - [x] 12-04-PLAN.md — Wave 4 워커 배포 (server 재배포 후 순차): setup/deploy/smoke 스크립트(co-movement-sync 복제) + [BLOCKING] Cloud Run Job + Scheduler(야간 1회)
 - [x] 12-05-PLAN.md — Wave 4 webapp: ②안 데이터 대시보드 섹션(KPI 4그리드+OHLC 표+테마 풀링 바) + 종목상세 마운트 + [BLOCKING] Vercel
+
+### Phase 13: 홈 화면 — 오늘의 급등 테마 AI 분석
+
+**Goal:** 앱 루트(/)에 새 "홈" 화면 신설. 오늘 +20% 이상 급등한 종목들을 기존 큐레이션 테마와 무관하게 AI(bottom-up)로 클러스터링하여, 오늘의 상승을 이끈 테마·상승 이유·소속 종목을 뉴스 근거와 함께 제시한다. 새 home-sync 워커가 장중 매시 :30에 top_movers·news_articles를 읽어 Claude Haiku 1회로 분석하고 home_theme_snapshots(일별 이력)에 저장, 웹앱은 read-only로 표시.
+**Requirements**: TBD (plan 단계에서 확정)
+**Depends on:** Phase 12
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 13 to break down)

@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 13 — 홈: 오늘의 급등 테마 목업</title>
+<style>
+  /* ── globals.css 토큰 인라인 (원본값 고정) ───────────────────── */
+  :root {
+    --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+    --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+    --ring:oklch(0.63 0.18 250); --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+    --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF; --secondary:oklch(0.96 0 0);
+    --secondary-fg:oklch(0.18 0 0); --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+    --destructive:oklch(0.66 0.20 22); --destructive-fg:#FFFFFF;
+    --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+    --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+    --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-8:48px; --s-10:64px;
+    --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+    --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px;
+    --t-h4:18px; --t-h3:20px; --t-h2:24px; --t-h1:30px; --lh-tight:1.2; --lh-normal:1.5;
+    --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+    --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  .dark {
+    --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+    --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+    --ring:oklch(0.72 0.16 250); --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+    --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0); --secondary:oklch(0.18 0 0);
+    --secondary-fg:oklch(0.96 0 0); --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+    --destructive:oklch(0.72 0.19 22); --destructive-fg:oklch(0.10 0 0);
+    --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+    --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:oklch(0.94 0 0); font-family:var(--font-sans);
+         color:var(--fg); line-height:var(--lh-normal); -webkit-font-smoothing:antialiased;
+         word-break:keep-all; letter-spacing:-0.01em; }
+  .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero;
+          font-feature-settings:'tnum' 1,'ss01' 1; letter-spacing:-0.01em; }
+  .card-shadow { box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.04); }
+  .dark .card-shadow { box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.3); }
+
+  /* 페이지 데코 (목업 전용, 앱 아님) */
+  .page-head { max-width:1400px; margin:0 auto; padding:32px 24px 8px; }
+  .page-head h1 { font-size:22px; margin:0 0 4px; }
+  .page-head p { margin:0; color:#555; font-size:14px; }
+  .lane { max-width:1400px; margin:0 auto; padding:12px 24px 40px; }
+  .lane > h2 { font-size:13px; letter-spacing:0.04em; text-transform:uppercase; color:#666;
+               margin:28px 0 4px; font-weight:700; }
+  .lane > .hint { margin:0 0 14px; color:#777; font-size:13px; max-width:70ch; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:1100px){ .pair{ grid-template-columns:1fr; } }
+  .frame { border-radius:14px; overflow:hidden; border:1px solid #ddd; }
+  .frame .tag { font-size:11px; font-weight:700; letter-spacing:0.05em; padding:5px 10px;
+                background:#efefef; color:#555; }
+  .dark-wrap .tag { background:#1b1b1b; color:#bbb; }
+
+  /* ── 앱 스크린 셸 ────────────────────────────────────────────── */
+  .screen { background:var(--bg); color:var(--fg); display:grid; grid-template-columns:200px 1fr;
+            min-height:560px; }
+  @media (max-width:620px){ .screen{ grid-template-columns:1fr; } .sidebar{ display:none; } }
+  .sidebar { border-right:1px solid var(--border); padding:16px 12px; display:flex; flex-direction:column;
+             justify-content:space-between; background:var(--bg); }
+  .brand { font-weight:800; font-size:16px; padding:6px 8px 14px; }
+  .brand span { color:var(--primary); }
+  .nav { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
+  .nav a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r);
+           font-size:var(--t-sm); text-decoration:none; color:var(--muted-fg); }
+  .nav a.active { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+  .nav a .ic { width:16px; height:16px; display:inline-block; opacity:0.9; }
+  .user { display:flex; align-items:center; gap:8px; padding:8px; border-radius:var(--r);
+          font-size:var(--t-sm); color:var(--muted-fg); }
+  .avatar { width:26px; height:26px; border-radius:50%; background:var(--muted); display:inline-block; }
+
+  .main { padding:20px 22px 32px; overflow:auto; }
+  .content { max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:var(--s-4); }
+
+  /* 홈 헤더: 타이틀 + 날짜 네비 + 시점 네비 */
+  .home-top { display:flex; flex-direction:column; gap:var(--s-3); }
+  .title-row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .title-row h1 { font-size:var(--t-h2); font-weight:800; margin:0; letter-spacing:-0.02em; }
+  .subtle { color:var(--muted-fg); font-size:var(--t-sm); }
+  .datenav { display:flex; align-items:center; gap:6px; }
+  .iconbtn { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px;
+             border:1px solid var(--border); background:var(--card); color:var(--fg); border-radius:var(--r);
+             cursor:pointer; font-size:14px; }
+  .iconbtn:disabled { opacity:0.4; }
+  .today-pill { border:1px solid var(--border); background:var(--card); color:var(--fg); border-radius:var(--r);
+                padding:5px 12px; font-size:var(--t-sm); font-weight:800; }
+  .date-label { font-weight:800; font-size:var(--t-sm); }
+
+  /* 시점 네비 — 세그먼트 pill (권장) */
+  .slots { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
+  .slot { flex:0 0 auto; border:1px solid var(--border); background:var(--card); color:var(--muted-fg);
+          border-radius:999px; padding:5px 12px; font-size:var(--t-sm); cursor:pointer; }
+  .slot.on { background:var(--primary); color:var(--primary-fg); border-color:var(--primary); font-weight:800; }
+  .slot.live { position:relative; }
+  .slot.live::after { content:''; position:absolute; top:6px; right:7px; width:6px; height:6px;
+                      border-radius:50%; background:var(--up); }
+
+  /* 시점 네비 옵션 B — 드롭다운 */
+  .slot-select { display:inline-flex; align-items:center; gap:8px; }
+  .selectbox { border:1px solid var(--border); background:var(--card); color:var(--fg); border-radius:var(--r);
+               padding:6px 12px; font-size:var(--t-sm); font-weight:600; }
+  /* 시점 네비 옵션 C — 슬라이더 */
+  .slider-wrap { display:flex; align-items:center; gap:12px; }
+  .track { position:relative; height:6px; border-radius:999px; background:var(--muted); flex:1; }
+  .track .fill { position:absolute; inset-block:0; left:0; width:72%; border-radius:999px; background:var(--primary); }
+  .track .knob { position:absolute; top:50%; left:72%; transform:translate(-50%,-50%); width:16px; height:16px;
+                 border-radius:50%; background:var(--primary); border:2px solid var(--card); }
+  .slider-val { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--t-sm);
+                min-width:52px; text-align:right; font-weight:700; }
+
+  .section-label { display:flex; align-items:center; gap:8px; margin-top:var(--s-2); }
+  .section-label h2 { font-size:var(--t-h4); font-weight:800; margin:0; }
+  .count-badge { font-family:var(--font-mono); font-size:var(--t-caption); color:var(--muted-fg);
+                 background:var(--muted); border-radius:999px; padding:2px 8px; }
+
+  /* 테마 카드 */
+  .theme-card { border:1px solid var(--border); background:var(--card); border-radius:var(--r-lg);
+                padding:var(--s-4); display:flex; flex-direction:column; gap:var(--s-3); }
+  .tc-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .tc-title { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .tc-name { font-size:var(--t-h4); font-weight:800; letter-spacing:-0.01em; }
+  .tc-reason { color:var(--muted-fg); font-size:var(--t-sm); }
+  .tc-metric { text-align:right; flex:0 0 auto; }
+  .tc-metric .avg { font-family:var(--font-mono); font-size:var(--t-h4); font-weight:800; color:var(--up); }
+  .tc-metric .cap { font-size:var(--t-caption); color:var(--muted-fg); }
+
+  /* 소속 종목 — mini rows (권장) */
+  .stocklist { display:flex; flex-direction:column; }
+  .srow { display:grid; grid-template-columns:1fr auto; align-items:center; gap:12px; padding:7px 2px; }
+  .srow + .srow { border-top:1px solid var(--border-subtle); }
+  .sname { font-weight:800; font-size:var(--t-sm); }
+  .scode { font-family:var(--font-mono); font-size:var(--t-caption); color:var(--muted-fg); margin-left:6px; }
+  .schg { font-family:var(--font-mono); font-weight:800; font-size:var(--t-sm); color:var(--up); text-align:right; }
+  .more { font-size:var(--t-caption); color:var(--muted-fg); padding:6px 2px 0; }
+
+  /* 소속 종목 — chips (대안) */
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
+          border-radius:999px; padding:4px 10px; font-size:var(--t-sm); background:var(--card); }
+  .chip .c-chg { font-family:var(--font-mono); font-weight:800; color:var(--up); font-size:var(--t-caption); }
+  .chip.more-chip { color:var(--muted-fg); background:var(--muted); border-color:transparent; }
+
+  /* 뉴스 근거 */
+  .news { display:flex; flex-direction:column; gap:6px; border-top:1px solid var(--border-subtle); padding-top:var(--s-3); }
+  .news-lbl { font-size:var(--t-caption); color:var(--muted-fg); font-weight:800; letter-spacing:0.02em; }
+  .news-item { display:flex; align-items:flex-start; gap:8px; text-decoration:none; color:var(--fg); }
+  .news-item:hover .n-title { color:var(--primary); }
+  .n-dot { margin-top:8px; width:5px; height:5px; border-radius:50%; background:var(--muted-fg); flex:0 0 auto; }
+  .n-body { display:flex; flex-direction:column; min-width:0; }
+  .n-title { font-size:var(--t-sm); font-weight:400; }
+  .n-src { font-size:var(--t-caption); color:var(--muted-fg); }
+  .n-src .ext { opacity:0.6; }
+
+  /* 개별 급등 */
+  .solo-card { border:1px solid var(--border); background:var(--card); border-radius:var(--r-lg);
+               padding:var(--s-3) var(--s-4); display:flex; flex-direction:column; gap:8px; }
+  .solo-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .solo-name { font-weight:800; font-size:var(--t-sm); }
+  .solo-name .scode { font-weight:400; }
+  .solo-chg { font-family:var(--font-mono); font-weight:800; font-size:var(--t-lg); color:var(--up); }
+
+  /* 빈 상태 */
+  .empty { display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center;
+           border:1px dashed color-mix(in oklch, var(--primary) 30%, var(--border)); border-radius:var(--r-lg);
+           background:var(--card); padding:40px 24px; }
+  .empty .ico { width:40px; height:40px; border-radius:50%; background:var(--accent); color:var(--accent-fg);
+                display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .empty h3 { margin:0; font-size:var(--t-h4); font-weight:800; }
+  .empty p { margin:0; color:var(--muted-fg); font-size:var(--t-sm); max-width:44ch; }
+
+  .swatch-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+  @media (max-width:900px){ .swatch-grid{ grid-template-columns:1fr; } }
+  .swatch { background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .swatch h4 { margin:0 0 4px; font-size:14px; }
+  .swatch .rec { display:inline-block; font-size:11px; font-weight:700; color:var(--primary-fg);
+                 background:var(--primary); border-radius:999px; padding:1px 8px; margin-left:6px; }
+  .swatch .desc { color:var(--muted-fg); font-size:12px; margin:0 0 14px; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Phase 13 — 홈: 오늘의 급등 테마 AI 분석 · 시각 목업</h1>
+  <p>실제 globals.css 토큰 인라인 · 상승=빨강(--up) / 하락=파랑(--down) · 좌 라이트 · 우 다크. 아래에서 채택안을 확정합니다.</p>
+</div>
+
+<!-- ══════════ LANE 1: 권장 홈 전체 화면 (Light + Dark) ══════════ -->
+<div class="lane">
+  <h2>① 권장안 — 홈 전체 화면</h2>
+  <p class="hint">시점 네비 = 세그먼트 pill · 소속 종목 = mini-row(이름·등락%) top 4 + "+N개" · 테마당 대표 뉴스 1–2건 · 개별 급등 별도 섹션.</p>
+  <div class="pair">
+
+    <!-- LIGHT -->
+    <div class="frame">
+      <div class="tag">LIGHT</div>
+      <div class="screen">
+        <aside class="sidebar">
+          <div>
+            <div class="brand">gh<span>·</span>radar</div>
+            <ul class="nav">
+              <li><a class="active" href="#">◎ 홈</a></li>
+              <li><a href="#">◈ 스캐너</a></li>
+              <li><a href="#">▤ 테마</a></li>
+              <li><a href="#">★ 관심종목</a></li>
+            </ul>
+          </div>
+          <div class="user"><span class="avatar"></span> 트레이더</div>
+        </aside>
+        <main class="main">
+          <div class="content">
+            <div class="home-top">
+              <div class="title-row">
+                <h1>오늘의 급등 테마</h1>
+                <div class="datenav">
+                  <button class="iconbtn" aria-label="이전 날짜">‹</button>
+                  <span class="date-label mono">2026-07-01</span>
+                  <button class="iconbtn" disabled aria-label="다음 날짜">›</button>
+                  <button class="today-pill">오늘</button>
+                </div>
+              </div>
+              <div class="slots">
+                <span class="slot">09:30</span>
+                <span class="slot">10:30</span>
+                <span class="slot">11:30</span>
+                <span class="slot">12:30</span>
+                <span class="slot">13:30</span>
+                <span class="slot">14:30</span>
+                <span class="slot on live">15:30 · 마감</span>
+              </div>
+            </div>
+
+            <div class="section-label">
+              <h2>주도 테마</h2><span class="count-badge">2</span>
+            </div>
+
+            <!-- 테마 카드 1 -->
+            <article class="theme-card card-shadow">
+              <div class="tc-head">
+                <div class="tc-title">
+                  <span class="tc-name">2차전지 소재</span>
+                  <span class="tc-reason">美 IRA 보조금 확대 기대에 양극재·전구체 밸류체인 동반 강세.</span>
+                </div>
+                <div class="tc-metric"><div class="avg mono">+22.1%</div><div class="cap">평균 등락</div></div>
+              </div>
+              <div class="stocklist">
+                <div class="srow"><span><b class="sname">에코프로비엠</b><span class="scode">247540</span></span><span class="schg">+24.1%</span></div>
+                <div class="srow"><span><b class="sname">엘앤에프</b><span class="scode">066970</span></span><span class="schg">+21.3%</span></div>
+                <div class="srow"><span><b class="sname">포스코퓨처엠</b><span class="scode">003670</span></span><span class="schg">+20.8%</span></div>
+                <div class="more">+2개 종목 더</div>
+              </div>
+              <div class="news">
+                <span class="news-lbl">근거 뉴스</span>
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">美 IRA 세부지침 발표…국내 양극재 수혜 전망</span><span class="n-src">연합인포맥스 <span class="ext">↗</span></span></span></a>
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">에코프로비엠, 유럽 완성차와 장기 공급계약</span><span class="n-src">한국경제 <span class="ext">↗</span></span></span></a>
+              </div>
+            </article>
+
+            <!-- 테마 카드 2 -->
+            <article class="theme-card card-shadow">
+              <div class="tc-head">
+                <div class="tc-title">
+                  <span class="tc-name">초전도체</span>
+                  <span class="tc-reason">국내 연구진 상온초전도 재현 논문 프리프린트 공개에 관련주 재부각.</span>
+                </div>
+                <div class="tc-metric"><div class="avg mono">+27.6%</div><div class="cap">평균 등락</div></div>
+              </div>
+              <div class="stocklist">
+                <div class="srow"><span><b class="sname">신성델타테크</b><span class="scode">065350</span></span><span class="schg">+29.9%</span></div>
+                <div class="srow"><span><b class="sname">서남</b><span class="scode">294630</span></span><span class="schg">+25.4%</span></div>
+              </div>
+              <div class="news">
+                <span class="news-lbl">근거 뉴스</span>
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">"상온초전도 재현" 프리프린트 공개…학계 검증 착수</span><span class="n-src">네이버뉴스 <span class="ext">↗</span></span></span></a>
+              </div>
+            </article>
+
+            <div class="section-label">
+              <h2>개별 급등</h2><span class="count-badge">1</span>
+            </div>
+            <article class="solo-card card-shadow">
+              <div class="solo-head">
+                <span class="solo-name">한미반도체 <span class="scode mono">042700</span></span>
+                <span class="solo-chg mono">+22.4%</span>
+              </div>
+              <div class="news">
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">HBM 장비 신규 수주 공시…목표가 일제히 상향</span><span class="n-src">매일경제 <span class="ext">↗</span></span></span></a>
+              </div>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- DARK -->
+    <div class="frame dark-wrap">
+      <div class="tag">DARK</div>
+      <div class="screen dark">
+        <aside class="sidebar">
+          <div>
+            <div class="brand">gh<span>·</span>radar</div>
+            <ul class="nav">
+              <li><a class="active" href="#">◎ 홈</a></li>
+              <li><a href="#">◈ 스캐너</a></li>
+              <li><a href="#">▤ 테마</a></li>
+              <li><a href="#">★ 관심종목</a></li>
+            </ul>
+          </div>
+          <div class="user"><span class="avatar"></span> 트레이더</div>
+        </aside>
+        <main class="main">
+          <div class="content">
+            <div class="home-top">
+              <div class="title-row">
+                <h1>오늘의 급등 테마</h1>
+                <div class="datenav">
+                  <button class="iconbtn" aria-label="이전 날짜">‹</button>
+                  <span class="date-label mono">2026-07-01</span>
+                  <button class="iconbtn" disabled aria-label="다음 날짜">›</button>
+                  <button class="today-pill">오늘</button>
+                </div>
+              </div>
+              <div class="slots">
+                <span class="slot">09:30</span>
+                <span class="slot">10:30</span>
+                <span class="slot">11:30</span>
+                <span class="slot">12:30</span>
+                <span class="slot">13:30</span>
+                <span class="slot">14:30</span>
+                <span class="slot on live">15:30 · 마감</span>
+              </div>
+            </div>
+
+            <div class="section-label">
+              <h2>주도 테마</h2><span class="count-badge">2</span>
+            </div>
+
+            <article class="theme-card card-shadow">
+              <div class="tc-head">
+                <div class="tc-title">
+                  <span class="tc-name">2차전지 소재</span>
+                  <span class="tc-reason">美 IRA 보조금 확대 기대에 양극재·전구체 밸류체인 동반 강세.</span>
+                </div>
+                <div class="tc-metric"><div class="avg mono">+22.1%</div><div class="cap">평균 등락</div></div>
+              </div>
+              <div class="stocklist">
+                <div class="srow"><span><b class="sname">에코프로비엠</b><span class="scode">247540</span></span><span class="schg">+24.1%</span></div>
+                <div class="srow"><span><b class="sname">엘앤에프</b><span class="scode">066970</span></span><span class="schg">+21.3%</span></div>
+                <div class="srow"><span><b class="sname">포스코퓨처엠</b><span class="scode">003670</span></span><span class="schg">+20.8%</span></div>
+                <div class="more">+2개 종목 더</div>
+              </div>
+              <div class="news">
+                <span class="news-lbl">근거 뉴스</span>
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">美 IRA 세부지침 발표…국내 양극재 수혜 전망</span><span class="n-src">연합인포맥스 <span class="ext">↗</span></span></span></a>
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">에코프로비엠, 유럽 완성차와 장기 공급계약</span><span class="n-src">한국경제 <span class="ext">↗</span></span></span></a>
+              </div>
+            </article>
+
+            <article class="theme-card card-shadow">
+              <div class="tc-head">
+                <div class="tc-title">
+                  <span class="tc-name">초전도체</span>
+                  <span class="tc-reason">국내 연구진 상온초전도 재현 논문 프리프린트 공개에 관련주 재부각.</span>
+                </div>
+                <div class="tc-metric"><div class="avg mono">+27.6%</div><div class="cap">평균 등락</div></div>
+              </div>
+              <div class="stocklist">
+                <div class="srow"><span><b class="sname">신성델타테크</b><span class="scode">065350</span></span><span class="schg">+29.9%</span></div>
+                <div class="srow"><span><b class="sname">서남</b><span class="scode">294630</span></span><span class="schg">+25.4%</span></div>
+              </div>
+              <div class="news">
+                <span class="news-lbl">근거 뉴스</span>
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">"상온초전도 재현" 프리프린트 공개…학계 검증 착수</span><span class="n-src">네이버뉴스 <span class="ext">↗</span></span></span></a>
+              </div>
+            </article>
+
+            <div class="section-label">
+              <h2>개별 급등</h2><span class="count-badge">1</span>
+            </div>
+            <article class="solo-card card-shadow">
+              <div class="solo-head">
+                <span class="solo-name">한미반도체 <span class="scode mono">042700</span></span>
+                <span class="solo-chg mono">+22.4%</span>
+              </div>
+              <div class="news">
+                <a class="news-item" href="#"><span class="n-dot"></span><span class="n-body"><span class="n-title">HBM 장비 신규 수주 공시…목표가 일제히 상향</span><span class="n-src">매일경제 <span class="ext">↗</span></span></span></a>
+              </div>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════ LANE 2: 시점 네비 3안 ══════════ -->
+<div class="lane">
+  <h2>② 장중 시점 네비 — 형태 비교</h2>
+  <p class="hint">저장은 :30 시점별 row(D-01). v1 이 날짜 + 장중 시점 둘 다 탐색(D-02). 어떤 시점 전환 UI 가 좋을지.</p>
+  <div class="swatch-grid">
+    <div class="swatch">
+      <h4>A. 세그먼트 pill <span class="rec">권장</span></h4>
+      <p class="desc">7개 슬롯이 한눈에. 현재/마감 강조 도트. 모바일 가로 스크롤.</p>
+      <div class="slots">
+        <span class="slot">09:30</span><span class="slot">10:30</span><span class="slot">11:30</span>
+        <span class="slot">12:30</span><span class="slot">13:30</span><span class="slot">14:30</span>
+        <span class="slot on live">15:30</span>
+      </div>
+    </div>
+    <div class="swatch">
+      <h4>B. 드롭다운</h4>
+      <p class="desc">공간 절약. 슬롯이 많아지는 날 확장성 우수. 전체 조망은 약함.</p>
+      <div class="slot-select">
+        <button class="iconbtn">‹</button>
+        <span class="selectbox mono">15:30 · 마감 ▾</span>
+        <button class="iconbtn" disabled>›</button>
+      </div>
+    </div>
+    <div class="swatch">
+      <h4>C. 슬라이더</h4>
+      <p class="desc">시계열 느낌. 정확한 슬롯 선택은 pill 보다 불편.</p>
+      <div class="slider-wrap">
+        <span class="track"><span class="fill"></span><span class="knob"></span></span>
+        <span class="slider-val">15:30</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ LANE 3: 소속 종목 표현 2안 ══════════ -->
+<div class="lane">
+  <h2>③ 테마 소속 종목 — 표현 비교</h2>
+  <p class="hint">테마당 급등 종목 표시. top N + "+N개". mini-row(정렬·정밀) vs chip(밀도·가벼움).</p>
+  <div class="swatch-grid" style="grid-template-columns:1fr 1fr;">
+    <div class="swatch">
+      <h4>A. Mini-row <span class="rec">권장</span></h4>
+      <p class="desc">이름·종목코드·등락%를 정렬된 행으로. theme-rank-row 계열과 일관.</p>
+      <div class="stocklist">
+        <div class="srow"><span><b class="sname">에코프로비엠</b><span class="scode">247540</span></span><span class="schg">+24.1%</span></div>
+        <div class="srow"><span><b class="sname">엘앤에프</b><span class="scode">066970</span></span><span class="schg">+21.3%</span></div>
+        <div class="srow"><span><b class="sname">포스코퓨처엠</b><span class="scode">003670</span></span><span class="schg">+20.8%</span></div>
+        <div class="more">+2개 종목 더</div>
+      </div>
+    </div>
+    <div class="swatch">
+      <h4>B. Chip</h4>
+      <p class="desc">가로로 촘촘. 종목 많을 때 공간 효율. 등락% 대비는 약함.</p>
+      <div class="chips">
+        <span class="chip">에코프로비엠 <span class="c-chg">+24.1%</span></span>
+        <span class="chip">엘앤에프 <span class="c-chg">+21.3%</span></span>
+        <span class="chip">포스코퓨처엠 <span class="c-chg">+20.8%</span></span>
+        <span class="chip more-chip">+2개</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ LANE 4: 빈 상태 ══════════ -->
+<div class="lane">
+  <h2>④ 빈 상태 — +20% 급등 종목이 없는 날</h2>
+  <p class="hint">임계값 +20% 고정(D-06). 급등 없는 날의 첫 화면.</p>
+  <div class="pair">
+    <div class="frame"><div class="tag">LIGHT</div>
+      <div class="screen" style="grid-template-columns:1fr; min-height:auto;"><main class="main"><div class="content">
+        <div class="empty">
+          <span class="ico">◔</span>
+          <h3>오늘은 +20% 급등 종목이 없습니다</h3>
+          <p>장중 매시 30분에 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.</p>
+          <button class="today-pill">스캐너로 이동</button>
+        </div>
+      </div></main></div>
+    </div>
+    <div class="frame dark-wrap"><div class="tag">DARK</div>
+      <div class="screen dark" style="grid-template-columns:1fr; min-height:auto;"><main class="main"><div class="content">
+        <div class="empty">
+          <span class="ico">◔</span>
+          <h3>오늘은 +20% 급등 종목이 없습니다</h3>
+          <p>장중 매시 30분에 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.</p>
+          <button class="today-pill">스캐너로 이동</button>
+        </div>
+      </div></main></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

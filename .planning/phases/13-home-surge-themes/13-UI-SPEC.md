@@ -1,7 +1,7 @@
 ---
 phase: 13
 slug: home-surge-themes
-status: draft
+status: approved
 shadcn_initialized: true
 preset: existing (webapp/components.json — Toss-style token system in webapp/src/styles/globals.css)
 created: 2026-07-01
