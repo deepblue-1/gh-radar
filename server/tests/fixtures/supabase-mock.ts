@@ -27,6 +27,8 @@ type State = {
   limitUpEvents?: any[];
   limitUpStockStats?: any[];
   limitUpThemeStats?: any[];
+  // Phase 13 — 홈 급등 테마 스냅샷 데이터셋 (home_theme_snapshots)
+  homeSnapshots?: any[];
   upserts?: { table: string; rows: any[] }[];
 };
 
@@ -45,6 +47,7 @@ export function mockSupabase(state: State): SupabaseClient {
     if (t === "limit_up_events") return state.limitUpEvents ?? [];
     if (t === "limit_up_stock_stats") return state.limitUpStockStats ?? [];
     if (t === "limit_up_theme_stats") return state.limitUpThemeStats ?? [];
+    if (t === "home_theme_snapshots") return state.homeSnapshots ?? [];
     return [];
   };
 

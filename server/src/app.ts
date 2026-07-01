@@ -13,6 +13,7 @@ import { healthRouter } from "./routes/health.js";
 import { scannerRouter } from "./routes/scanner.js";
 import { stocksRouter } from "./routes/stocks.js";
 import { themesRouter } from "./routes/themes.js";
+import { homeRouter } from "./routes/home.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -73,6 +74,7 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/scanner", scannerRouter);
   app.use("/api/stocks", stocksRouter);
   app.use("/api/themes", themesRouter);
+  app.use("/api/home", homeRouter);
 
   // 9) 404 fallback
   app.use(notFoundHandler);
