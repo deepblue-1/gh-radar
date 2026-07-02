@@ -421,9 +421,37 @@ describe("clusterSurges", () => {
     const payload = await clusterSurges(surges, cfg());
 
     const theme = payload.themes[0];
-    // 3개 참조 중 URL 중복 1건 제거 → 2건.
+    // 3개 참조 중 URL 중복 1건 제거 → 2건 (멤버 뉴스 보강분도 동일 URL 이라 추가 없음).
     expect(theme.news).toHaveLength(2);
     expect(theme.news.map((n) => n.url)).toEqual(["https://n/round", "https://n/hbm"]);
+  });
+
+  it("테마 뉴스 보강 — Claude refs 뒤에 멤버 종목 뉴스를 dedup 병합 (Claude 선정 우선 순서)", async () => {
+    // 멤버 2종목이 각자 뉴스 2건씩 보유. Claude 는 1건(ref 0)만 선정.
+    const surges = [
+      surge("005930", 25, ["a0", "a1"]), // https://n/a0, https://n/a1
+      surge("000660", 24, ["b0", "b1"]), // https://n/b0, https://n/b1
+    ];
+    const resp = {
+      themes: [
+        { name: "반도체", reason: "메모리 강세", stockCodes: ["005930", "000660"], newsRefs: [0] },
+      ],
+      singles: [],
+    };
+    hoist.mockCreate.mockResolvedValue(
+      textResponse(JSON.stringify(resp)),
+    );
+
+    const payload = await clusterSurges(surges, cfg());
+    const news = payload.themes[0].news;
+
+    // Claude 선정(a0) 이 맨 앞, 이어서 멤버 뉴스 보강(a1, b0, b1) — a0 은 중복이라 1회만.
+    expect(news.map((n) => n.url)).toEqual([
+      "https://n/a0",
+      "https://n/a1",
+      "https://n/b0",
+      "https://n/b1",
+    ]);
   });
 
   it("Claude 예외 → fail-safe 빈 payload", async () => {
