@@ -134,10 +134,11 @@ describe("GET /api/chat/conversations", () => {
       .get("/api/chat/conversations")
       .set("Authorization", "Bearer tok");
     expect(r.status).toBe(200);
-    expect(Array.isArray(r.body.data)).toBe(true);
+    // bare array 반환(코드베이스 규약 + webapp apiFetch<ConversationRow[]> 계약).
+    expect(Array.isArray(r.body)).toBe(true);
     // user_id 필터로 본인 대화만
-    expect(r.body.data.every((c: any) => c.userId === "user-1")).toBe(true);
-    expect(r.body.data).toHaveLength(1);
+    expect(r.body.every((c: any) => c.userId === "user-1")).toBe(true);
+    expect(r.body).toHaveLength(1);
   });
 });
 

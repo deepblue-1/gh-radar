@@ -124,7 +124,10 @@ chatRouter.get("/conversations", requireAuth(), async (req, res, next) => {
       req.userId!,
       parsed.data.stockCode,
     );
-    res.json({ data });
+    // 코드베이스 규약: list 엔드포인트는 bare array 반환(scanner/themes/news 동일).
+    // webapp apiFetch<ConversationRow[]> 는 envelope 를 unwrap 하지 않으므로 { data } 로
+    // 감싸면 listConversations 가 배열이 아닌 객체를 받아 종목별 히스토리가 조용히 사라진다.
+    res.json(data);
   } catch (e) {
     next(e);
   }
