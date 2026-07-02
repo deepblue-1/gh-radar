@@ -441,7 +441,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 11. Co-movement Candidates | 5/5 | Complete    | 2026-06-24 |
 | 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
-| 14. AI 애널리스트 챗봇 | 0/11 | Planned | — |
+| 14. AI 애널리스트 챗봇 | 1/11 | In Progress|  |
 
 ### Phase 12: 상한가 다음날 이력 통계 (종목상세) — 종목 자체 과거 상한가 이벤트의 다음날 시/고/저/종 수익률 백테스트. A안(상한가 종가 매수 가정), 종목 자체 이력만, 이벤트 리스트+카운트 표시, 점상한가 태그, 거래대금/회전율 컬럼, 최근 N회 보조 스탯, 테마 모멘텀 보조 카드. master-sync 배치 사전계산 → 종목상세 읽기 전용.
 
@@ -477,10 +477,10 @@ Plans:
 **Goal:** 팀장 에이전트(Sonnet)가 전문가 에이전트 5명(Haiku: ①시세/수급 ②테마 ③뉴스/심리 ④상한가 패턴 ⑤실시간 웹서치)을 질문 성격에 따라 선택적 병렬 호출해 의견을 취합·답변하는 상한가 따라잡기 전략 특화 AI 애널리스트 챗봇. 기존 Supabase 데이터(stock_quotes/OHLCV/themes/co-movement/news/discussions/limit_up_*/home_theme_snapshots)를 전문가 tool로 활용하고 Anthropic web_search로 장중 속보/공시 실시간 파악. 대화 히스토리는 로그인 사용자별+종목별로 Supabase 저장(conversations/messages, RLS). 백엔드는 기존 Express 서버에 SSE 스트리밍 POST /api/chat 추가(../weekly-wine-bot server의 세션/tool-use 루프/sanitize/rate-limit 패턴 이식). 프론트는 전역 FAB 버튼+챗 시트(../weekly-wine-cafe24 패턴): 종목상세 페이지에서는 해당 종목 컨텍스트 대화+해당 종목 히스토리, 사이드바 "AI 애널리스트" 메뉴(/chat)는 종목 무관 일반 주식 대화.
 **Requirements**: CHAT-01
 **Depends on:** Phase 13
-**Plans:** 11 plans (6 waves)
+**Plans:** 1/11 plans executed
 
 Plans:
-- [ ] 14-01-PLAN.md — Wave 1 conversations/messages 마이그레이션(watchlists RLS mirror, TO authenticated 8정책) + [BLOCKING] db push
+- [x] 14-01-PLAN.md — Wave 1 conversations/messages 마이그레이션(watchlists RLS mirror, TO authenticated 8정책) + [BLOCKING] db push
 - [ ] 14-02-PLAN.md — Wave 1 공유 계약(ChatSSEEventMap/SpecialistId/라벨) + config 챗 키(모델/kill-switch/윈도잉) + Anthropic SDK mock 픽스처
 - [ ] 14-03-PLAN.md — Wave 2 require-auth JWT 미들웨어(D-02) + chat zod 스키마 + chat-history 서비스(서비스롤 WHERE user_id 소유권)
 - [ ] 14-04-PLAN.md — Wave 2 chat-prompts(팀장+5전문가, 매매금지/환각금지/면책) + 데이터 전문가 4(결정적조회+Haiku 1콜) + 웹서치 전문가(web_search+citations)

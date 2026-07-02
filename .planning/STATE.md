@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 UI-SPEC approved
-last_updated: "2026-07-02T10:48:02.792Z"
-last_activity: 2026-07-02 -- Phase 14 planning complete
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-07-02T10:59:29.014Z"
+last_activity: 2026-07-02
 progress:
   total_phases: 23
   completed_phases: 16
   total_plans: 119
-  completed_plans: 94
-  percent: 79
+  completed_plans: 95
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 13 — home-surge-themes
+**Current focus:** Phase 14 — ai-analyst-chatbot
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
+Phase: 14 (ai-analyst-chatbot) — EXECUTING
+Plan: 2 of 11
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-07-02 -- Phase 14 planning complete
+Last activity: 2026-07-02
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -141,6 +141,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 | Phase 13 P13-04 | ~25min | 3 tasks | 11 files |
 | Phase 13 P13-05 | ~4min | 2 tasks | 6 files |
 | Phase 13 P13-06 | ~17min | 3 tasks | 6 files |
+| Phase 14 P01 | 4min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -269,6 +270,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-04: /home-preview 프리뷰 + middleware PUBLIC_EXACT 항목은 임시 검증 스캐폴드 — home-client 가 라이브 /api/home 호출이라 네트워크 무관 목데이터 프리뷰로 시각 체크포인트 승인. Plan 05 가 / 루트 마운트 시 둘 다 제거
 - [Phase 13]: 13-05: 홈을 앱 루트(/)로 승격 — page.tsx redirect('/scanner') → AppShell+Suspense(HomeSkeleton)+HomeClient(force-dynamic), 사이드바 NAV 홈 1번째. 임시 /home-preview 라우트+middleware 화이트리스트 제거. home.spec E2E 5/5(렌더/날짜·시점 네비/빈 상태/scanner 회귀 T-13-12)
 - [Phase 13]: [13-06] home-sync 프로덕션 배포: Cloud Run Job(512Mi/120s, VPC 없음) + Scheduler gh-radar-home-sync-cron(30 9-15 KST 7슬롯, OAuth) + Secret 재사용 신규 0. Claude POC PASS(themeCount=4 실제 대응, 환각 0, ~$3.1/월 이내). 후속(비차단): 테마 내 뉴스 URL dedup(news_total 44 vs unique 4 저장 중복, 표시 무영향).
+- [Phase 14]: 14-01: conversations.stock_code ON DELETE SET NULL (종목 상폐 시 대화 보존) + messages RLS 는 user_id 없이 conversations EXISTS 서브쿼리 4정책 + RPC 없어 REVOKE 불요(home_theme_snapshots 선례). 비공개라 TO authenticated 만(anon 미부여=default-deny). production push + pg_policies 8행 검증.
 
 ### Pending Todos
 
@@ -295,6 +297,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-07-02T09:58:27.221Z
-Stopped at: Phase 14 UI-SPEC approved
+Last session: 2026-07-02T10:59:29.010Z
+Stopped at: Completed 14-01-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
