@@ -32,6 +32,25 @@ function makeTheme(): HomeSurgeTheme {
   };
 }
 
+/** 근거 뉴스 5건(중복 URL 1건 포함) 테마 — 카드 max=3 / 시트 전체 목록 시나리오. */
+function makeNewsyTheme(): HomeSurgeTheme {
+  return {
+    name: '초전도체',
+    reason: '상온 초전도 실증 기대',
+    stocks: [
+      { code: '000001', name: '알파', changeRate: 29.9 },
+      { code: '000002', name: '베타', changeRate: 25.1 },
+    ],
+    news: [
+      { title: '뉴스1', url: 'https://n/1', source: '연합뉴스' },
+      { title: '뉴스2', url: 'https://n/2', source: '한국경제' },
+      { title: '뉴스3', url: 'https://n/3', source: '매일경제' },
+      { title: '뉴스1-중복', url: 'https://n/1', source: '연합뉴스' }, // dup URL
+      { title: '뉴스4', url: 'https://n/4', source: '서울경제' },
+    ],
+  };
+}
+
 describe('ThemeCard — 소속 종목 전체 보기', () => {
   it('top 4 종목만 노출하고 나머지는 "+N개 종목 더" 로 숨긴다 (A 초기 상태)', () => {
     render(<ThemeCard theme={makeTheme()} />);
@@ -87,6 +106,39 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
       'href',
       '/stocks/100000',
     );
+  });
+
+  it('카드 본문 근거 뉴스는 dedup 후 최대 3건까지 노출한다', () => {
+    render(<ThemeCard theme={makeNewsyTheme()} />);
+
+    // 카드 본문(시트 밖)에서 뉴스1~3 노출, 4번째(뉴스4)는 max=3 로 미노출.
+    expect(screen.getByText('뉴스1')).toBeInTheDocument();
+    expect(screen.getByText('뉴스2')).toBeInTheDocument();
+    expect(screen.getByText('뉴스3')).toBeInTheDocument();
+    expect(screen.queryByText('뉴스4')).not.toBeInTheDocument();
+    // 중복 URL 방어 dedup → "뉴스1-중복" 은 나타나지 않는다.
+    expect(screen.queryByText('뉴스1-중복')).not.toBeInTheDocument();
+  });
+
+  it('B: 시트에는 근거 뉴스 전체 목록(2건 초과·dedup 후 4건)을 노출한다', () => {
+    render(<ThemeCard theme={makeNewsyTheme()} />);
+
+    const trigger = screen.getByRole('button', { name: /초전도체/ });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog');
+
+    // dedup(중복 URL 1건 제거) 후 4건 unique → 시트에 모두 노출(2건 초과).
+    expect(within(dialog).getByText('뉴스1')).toBeInTheDocument();
+    expect(within(dialog).getByText('뉴스2')).toBeInTheDocument();
+    expect(within(dialog).getByText('뉴스3')).toBeInTheDocument();
+    expect(within(dialog).getByText('뉴스4')).toBeInTheDocument();
+    // 중복 URL 은 시트에서도 dedup.
+    expect(within(dialog).queryByText('뉴스1-중복')).not.toBeInTheDocument();
+    // 외부 anchor 는 target=_blank rel=noopener (T-13-11).
+    const anchor = within(dialog).getByText('뉴스4').closest('a')!;
+    expect(anchor).toHaveAttribute('href', 'https://n/4');
+    expect(anchor).toHaveAttribute('target', '_blank');
+    expect(anchor).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('overflow 없는 테마(≤4종목)는 토글 버튼을 렌더하지 않는다', () => {

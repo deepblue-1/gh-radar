@@ -152,8 +152,8 @@ export function ThemeCard({ theme }: ThemeCardProps) {
           )}
         </div>
 
-        {/* 근거 뉴스 */}
-        <NewsBlock news={theme.news} showLabel />
+        {/* 근거 뉴스 — 카드 본문은 조금 더(3건). 전체는 시트에서. */}
+        <NewsBlock news={theme.news} showLabel max={3} />
       </article>
 
       {/* B: 전체 소속 종목 바텀시트 */}
@@ -174,7 +174,12 @@ export function ThemeCard({ theme }: ThemeCardProps) {
                 <StockRow key={stock.code} stock={stock} />
               ))}
             </div>
-            <NewsBlock news={theme.news} showLabel />
+            {/* 시트 = 전체 목록. 근거 뉴스를 상한 없이 스크롤 리스트로. */}
+            <NewsBlock
+              news={theme.news}
+              showLabel
+              max={Number.MAX_SAFE_INTEGER}
+            />
           </div>
         </SheetContent>
       </Sheet>

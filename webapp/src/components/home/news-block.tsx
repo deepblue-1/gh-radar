@@ -12,18 +12,36 @@ import type { HomeNewsRef } from '@gh-radar/shared';
  * T-13-11 (reverse tabnabbing): 모든 anchor 에 target="_blank" rel="noopener noreferrer".
  */
 export interface NewsBlockProps {
-  /** 대표 뉴스 (verbatim). 최대 2건 표시. */
+  /** 대표 뉴스 (verbatim). URL 기준 dedup 후 max 건 표시. */
   news: HomeNewsRef[];
   /** "근거 뉴스" label 표시 여부 (테마 카드=true, 개별 급등=false). */
   showLabel: boolean;
+  /**
+   * 최대 노출 건수 (dedup 후). 기본 2.
+   * 테마 카드 본문 = 3, 시트 전체 목록 = Number.MAX_SAFE_INTEGER.
+   */
+  max?: number;
 }
 
-const MAX_NEWS = 2;
+const DEFAULT_MAX_NEWS = 2;
 
-export function NewsBlock({ news, showLabel }: NewsBlockProps) {
+/** URL 기준 dedup — 첫 등장 유지, 순서 안정 (과거 스냅샷 방어). */
+function dedupeByUrl(news: HomeNewsRef[]): HomeNewsRef[] {
+  const seen = new Set<string>();
+  const out: HomeNewsRef[] = [];
+  for (const item of news) {
+    if (seen.has(item.url)) continue;
+    seen.add(item.url);
+    out.push(item);
+  }
+  return out;
+}
+
+export function NewsBlock({ news, showLabel, max = DEFAULT_MAX_NEWS }: NewsBlockProps) {
   if (!news || news.length === 0) return null;
 
-  const items = news.slice(0, MAX_NEWS);
+  const items = dedupeByUrl(news).slice(0, max);
+  if (items.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-[6px] border-t border-[var(--border-subtle)] pt-[var(--s-3)]">
