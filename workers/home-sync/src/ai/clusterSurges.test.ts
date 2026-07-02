@@ -29,6 +29,7 @@ import {
   resolveNewsRefs,
   sortThemes,
   demoteInvalidThemes,
+  reassignOrphans,
 } from "./clusterSurges";
 import { __resetAnthropicClientForTests } from "./anthropic";
 import type { Surge } from "../pipeline/loadSurges";
@@ -137,6 +138,133 @@ describe("sortThemes (D-05 breadth sort)", () => {
   });
 });
 
+describe("reassignOrphans (고아 종목 테마 병합, 금호건설 fix)", () => {
+  // surgeByCode: code → { name, changeRate }.
+  const surgeByCode = new Map([
+    ["014790", { name: "금호건설", changeRate: 29.9 }],
+    ["053080", { name: "비나텍", changeRate: 25.0 }],
+    ["005930", { name: "삼성전자", changeRate: 22.0 }],
+    ["000660", { name: "SK하이닉스", changeRate: 21.0 }],
+    ["347700", { name: "라파스", changeRate: 20.5 }],
+  ]);
+
+  it("테마 news 제목에 종목명 포함 → single 이 그 테마로 병합, singles 에서 제거", () => {
+    const themes = [
+      {
+        name: "호남반도체",
+        reason: "호남권 반도체 클러스터 조성 기대감",
+        stockCodes: ["005930", "000660"],
+        news: [
+          { title: "호남권 상한가 랠리…삼성전자·금호건설 동반 강세", url: "u0", source: "s" },
+        ],
+      },
+    ];
+    const singles = [
+      { stockCode: "014790", reason: "호남 개발 수주 기대", news: [] },
+    ];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    // 금호건설이 호남반도체 테마 stockCodes 에 추가.
+    expect(r.themes[0].stockCodes).toContain("014790");
+    // singles 에서 사라짐.
+    expect(r.singles.find((s) => s.stockCode === "014790")).toBeUndefined();
+  });
+
+  it("오병합 방지: 종목명이 어느 테마 news/reason 에도 없는 순수 single → 그대로 유지", () => {
+    const themes = [
+      {
+        name: "호남반도체",
+        reason: "호남권 반도체 클러스터",
+        stockCodes: ["005930", "000660"],
+        news: [{ title: "삼성전자·SK하이닉스 반도체 강세", url: "u0", source: "s" }],
+      },
+    ];
+    const singles = [{ stockCode: "347700", reason: "마이크로니들 계약", news: [] }];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    expect(r.themes[0].stockCodes).not.toContain("347700");
+    expect(r.singles.find((s) => s.stockCode === "347700")).toBeDefined();
+  });
+
+  it("다중 후보 tie-break: 두 테마 news 에 이름 등장 → reason 토큰 겹침 큰 쪽", () => {
+    const themes = [
+      {
+        name: "반도체소재",
+        reason: "반도체 소재 국산화 수혜",
+        stockCodes: ["005930", "000660"],
+        news: [{ title: "반도체 랠리 속 비나텍 편승", url: "u0", source: "s" }],
+      },
+      {
+        name: "슈퍼커패시터",
+        reason: "비나텍 슈퍼커패시터 전기차 공급 확대 기대",
+        stockCodes: ["005930", "347700"],
+        news: [{ title: "슈퍼커패시터 대장주 비나텍 부각", url: "u1", source: "s" }],
+      },
+    ];
+    // single reason 토큰이 슈퍼커패시터 테마와 겹침(슈퍼커패시터, 전기차).
+    const singles = [
+      { stockCode: "053080", reason: "슈퍼커패시터 전기차 공급 확대", news: [] },
+    ];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    const superTheme = r.themes.find((t) => t.name === "슈퍼커패시터")!;
+    const sojaeTheme = r.themes.find((t) => t.name === "반도체소재")!;
+    expect(superTheme.stockCodes).toContain("053080");
+    expect(sojaeTheme.stockCodes).not.toContain("053080");
+    expect(r.singles.find((s) => s.stockCode === "053080")).toBeUndefined();
+  });
+
+  it("겹침 0 동률 다중 후보 → 애매하므로 single 유지 (오병합 방지)", () => {
+    const themes = [
+      {
+        name: "테마A",
+        reason: "관련 기대감 급등",
+        stockCodes: ["005930", "000660"],
+        news: [{ title: "금호건설 급등", url: "u0", source: "s" }],
+      },
+      {
+        name: "테마B",
+        reason: "상한가 종목 오늘",
+        stockCodes: ["347700", "005930"],
+        news: [{ title: "금호건설 상한가", url: "u1", source: "s" }],
+      },
+    ];
+    // single reason 이 범용어뿐 → 두 테마 모두 토큰 겹침 0 → 애매 → single 유지.
+    const singles = [{ stockCode: "014790", reason: "오늘 급등 기대감", news: [] }];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    expect(r.themes[0].stockCodes).not.toContain("014790");
+    expect(r.themes[1].stockCodes).not.toContain("014790");
+    expect(r.singles.find((s) => s.stockCode === "014790")).toBeDefined();
+  });
+
+  it("유일 후보 + 종목명 등장 → 겹침 0 이어도 병합 (정밀 신호)", () => {
+    const themes = [
+      {
+        name: "호남개발",
+        reason: "호남권 산업단지 조성",
+        stockCodes: ["005930", "000660"],
+        news: [{ title: "금호건설 상한가", url: "u0", source: "s" }],
+      },
+    ];
+    const singles = [{ stockCode: "014790", reason: "오늘 급등", news: [] }];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    expect(r.themes[0].stockCodes).toContain("014790");
+    expect(r.singles.find((s) => s.stockCode === "014790")).toBeUndefined();
+  });
+
+  it("reason 텍스트에 종목명 포함 (news 없어도) → 병합", () => {
+    const themes = [
+      {
+        name: "2차전지",
+        reason: "비나텍 등 2차전지 소재주 동반 강세",
+        stockCodes: ["005930", "000660"],
+        news: [],
+      },
+    ];
+    const singles = [{ stockCode: "053080", reason: "2차전지 소재 강세", news: [] }];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    expect(r.themes[0].stockCodes).toContain("053080");
+    expect(r.singles.find((s) => s.stockCode === "053080")).toBeUndefined();
+  });
+});
+
 // ── clusterSurges 통합 ────────────────────────────────────────────────────────
 
 describe("clusterSurges", () => {
@@ -194,6 +322,34 @@ describe("clusterSurges", () => {
     // AI 테마는 unknown drop 후 1 valid → single 강등. 347700 개별 급등도 single.
     const singleCodes = payload.singles.map((s) => s.code).sort();
     expect(singleCodes).toEqual(["035420", "347700"]);
+  });
+
+  it("고아 종목 병합 통합: 테마 news 제목에 등장한 강등 single → 그 테마로 재귀속", async () => {
+    // 금호건설(014790)이 Claude 로부터 1종목 테마로 나와 강등되지만,
+    // 호남반도체 테마 news 제목에 "금호건설" 이 등장 → reassignOrphans 로 병합.
+    const surges = [
+      { code: "005930", name: "삼성전자", changeRate: 25, news: [{ id: "n0", stock_code: "005930", title: "호남권 상한가…금호건설 동반 강세", url: "https://n/n0", source: "출처", published_at: "2026-07-01T00:00:00Z" }] },
+      { code: "000660", name: "SK하이닉스", changeRate: 24, news: [{ id: "n1", stock_code: "000660", title: "SK하이닉스 반도체 강세", url: "https://n/n1", source: "출처", published_at: "2026-07-01T00:00:00Z" }] },
+      { code: "014790", name: "금호건설", changeRate: 29.9, news: [{ id: "n2", stock_code: "014790", title: "금호건설 상한가 직행", url: "https://n/n2", source: "출처", published_at: "2026-07-01T00:00:00Z" }] },
+    ];
+    const resp = {
+      themes: [
+        { name: "호남반도체", reason: "호남권 반도체 클러스터", stockCodes: ["005930", "000660"], newsRefs: [0, 1] },
+        { name: "건설", reason: "금호건설 단독", stockCodes: ["014790"], newsRefs: [2] }, // 1 valid → 강등
+      ],
+      singles: [],
+    };
+    hoist.mockCreate.mockResolvedValue(
+      textResponse("```json\n" + JSON.stringify(resp) + "\n```"),
+    );
+
+    const payload = await clusterSurges(surges, cfg());
+
+    // 호남반도체 테마에 금호건설 병합.
+    const theme = payload.themes.find((t) => t.name === "호남반도체")!;
+    expect(theme.stocks.map((s) => s.code)).toContain("014790");
+    // singles 에 금호건설 없음.
+    expect(payload.singles.find((s) => s.code === "014790")).toBeUndefined();
   });
 
   it("Claude 예외 → fail-safe 빈 payload", async () => {
