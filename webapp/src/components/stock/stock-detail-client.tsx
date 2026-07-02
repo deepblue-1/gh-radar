@@ -7,6 +7,7 @@ import type { Stock } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
 import { fetchStockDetail } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
+import { useChat } from '@/components/chat/chat-provider';
 import { StockHero } from './stock-hero';
 import { StockStatsGrid } from './stock-stats-grid';
 import { StockDetailSkeleton } from './stock-detail-skeleton';
@@ -40,6 +41,7 @@ export interface StockDetailClientProps {
  * - AbortController 로 이전 요청 취소 + unmount cleanup
  */
 export function StockDetailClient({ code }: StockDetailClientProps) {
+  const { setStockContext } = useChat();
   const [stock, setStock] = useState<Stock | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -80,6 +82,15 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+
+  // D-03 — 종목명 발행 채널. FAB 라벨("{종목명} 분석")과 챗 시트 자동 이어가기가
+  // 이 값을 소비한다. usePathname 은 code 만 주므로 이미 fetch 한 stock.name 을 재사용해
+  // provider 로 발행하고, 상세 페이지 이탈(언마운트) 시 null 로 해제해 일반 대화로 되돌린다.
+  useEffect(() => {
+    if (!stock) return;
+    setStockContext({ code: stock.code, name: stock.name });
+    return () => setStockContext(null);
+  }, [stock, setStockContext]);
 
   const updatedAtLabel = useMemo(() => {
     if (!stock) return null;
