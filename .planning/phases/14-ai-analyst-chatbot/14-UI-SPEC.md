@@ -68,7 +68,7 @@ Exceptions:
 | Micro (disclaimer, code) | 11px | 500 | 1.4 | 면책 문구, 종목코드 |
 | 숫자 (가격/등락률) | `.mono` (Geist Mono, tabular-nums) | 600 | — | 미니 종목카드 가격, 표 숫자 셀 |
 
-**Weights:** 표준 계약은 **regular 400 + semibold 600** 2단. (기존 디자인 시스템의 버튼 `font-medium 500`은 상속 유지 — 신규 UI에서 추가 도입 금지.)
+**Weights:** 표준 계약은 **regular 400 + semibold 600** 2단. (locked exception: 기존 디자인 시스템의 버튼 `font-medium 500` 및 Micro 롤(11px)의 500은 Phase 3 lock 상속으로 렌더 화면에는 3단(400/500/600)이 나타남 — 의도된 예외이며 신규 UI에서 500 추가 도입 금지.)
 
 한글 혼용 처리: `html[lang="ko"]` 전역 규칙 상속 — `word-break:keep-all` + `letter-spacing:-0.01em`. 숫자는 `.mono` (tabular-nums slashed-zero).
 
@@ -97,7 +97,7 @@ Exceptions:
 
 | # | 컴포넌트 | 기반 | 핵심 계약 |
 |---|----------|------|-----------|
-| C1 | **전역 FAB** | `<button>` + lucide `MessageSquare` | 우하단 fixed(right/bottom 24px), 56px, `--primary`, `9999px`. 종목상세에선 `{name} 分析` 컨텍스트 라벨(D-03). 비로그인 클릭 → 로그인 유도 상태(D-01). z-index는 Sheet scrim 아래. |
+| C1 | **전역 FAB** | `<button>` + lucide `MessageSquare` | 우하단 fixed(right/bottom 24px), 56px, `--primary`, `9999px`. 종목상세에선 `{name} 분석` 컨텍스트 라벨(D-03). 비로그인 클릭 → 로그인 유도 상태(D-01). z-index는 Sheet scrim 아래. |
 | C2 | **챗 시트** | `ui/sheet.tsx` (side=right desktop / bottom mobile) | 폭 440px(desktop) / `85dvh`(mobile). 헤더(아바타+제목+서브+새 대화+닫기) / thread(스크롤) / composer. 현재 대화만 — 목록 없음(D-13). |
 | C3 | **user 메시지** | div | 우측 정렬, `--accent` 배경 버블, 14px, radius `12 12 4 12`. |
 | C4 | **assistant 메시지** | div + react-markdown | 좌측 full-width, 아바타+"팀장 애널리스트" 라벨. 표/리스트/헤딩/강조/코드(D-09). |
@@ -109,6 +109,8 @@ Exceptions:
 | C10 | **`/chat` 페이지** | 2-col grid | 좌 280px 대화목록(종목 필터 select + 새 대화) / 우 thread. active 대화 `--accent`. 종목 배지 pill. 모바일 1-col(D-13). |
 | C11 | **상태 박스** | `ui/card.tsx` | 빈 상태 / 로그인 필요 / 에러 — 아이콘+제목+본문+행동 버튼. Copywriting 계약 참조. |
 
+**시각 앵커(focal point):** 대화 중 = 최신 assistant 메시지 + 스트리밍 중 진행 스텝퍼(C5)가 1차 시선 지점. 유휴/빈 상태 = 상태 박스(C11)의 예시 프롬프트 칩. FAB은 페이지 레벨의 유일한 `--primary` 고정 앵커.
+
 **애니메이션:** Sheet 진입 220ms ease-out / 이탈 160ms ease-in (기존 sheet.tsx). 진행표시 도트 blink 1.2s. `prefers-reduced-motion` 존중(전역 규칙). 텍스트 스트리밍은 append(레이아웃 shift 최소 — Phase 13 슬라이더 오실레이션 교훈).
 
 ---
@@ -117,7 +119,7 @@ Exceptions:
 
 | Element | Copy |
 |---------|------|
-| Primary CTA (FAB) | `AI 애널리스트` (종목상세: `AI 애널리스트 · {종목명} 分析`) |
+| Primary CTA (FAB) | `AI 애널리스트` (종목상세: `AI 애널리스트 · {종목명} 분석`) |
 | Primary CTA (전송) | 아이콘 버튼 — aria-label `전송` / 스트리밍 중 aria-label `중단` |
 | 새 대화 버튼 | `＋ 새 대화` |
 | Composer placeholder | `상한가 종목·주도 테마·익절 판단을 물어보세요…` |
@@ -129,7 +131,7 @@ Exceptions:
 | Error state | 제목 `답변을 불러오지 못했어요` · 본문 `일시적인 오류로 응답이 중단됐어요. 잠시 후 다시 시도해 주세요.` (버튼: `다시 시도`) |
 | Partial-failure 고지 | 답변 본문 말미 `일부 전문가 의견을 가져오지 못해 가용한 정보로 답변했어요.` (Claude's Discretion — 에이전트 실패 시) |
 | Disclaimer (상시) | `AI 답변은 참고용이며 투자자문이 아닙니다` (composer 하단 + 답변 말미 축약형 `※ 본 답변은 투자 참고용이며 투자자문이 아닙니다.`) |
-| Destructive — 대화 삭제 | 트리거: 대화목록 🗑 아이콘 → 확인 다이얼로그 `이 대화를 삭제할까요?` / `삭제한 대화는 되돌릴 수 없어요.` / 버튼 `삭제`(destructive) · `취소`(outline) |
+| Destructive — 대화 삭제 | 트리거: 대화목록 🗑 아이콘(`aria-label="대화 삭제"`) → 확인 다이얼로그 `이 대화를 삭제할까요?` / `삭제한 대화는 되돌릴 수 없어요.` / 버튼 `삭제`(destructive) · `취소`(outline) |
 
 **톤:** 존댓말 해요체, 트레이더 대상 간결체. 모든 사용자 대면 카피 한글(memory `feedback_korean_communication`).
 
