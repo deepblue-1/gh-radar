@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runHomeSyncCycle } from "./index";
+import { runHomeSyncCycle, computeSlot } from "./index";
 import type { HomeSyncConfig } from "./config";
 import type { HomeSnapshotPayload } from "@gh-radar/shared";
 import { createMockSupabase } from "../tests/helpers/supabase-mock";
@@ -78,6 +78,60 @@ const NOW = new Date("2026-07-01T01:30:00Z"); // 10:30 KST
 
 beforeEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("computeSlot (10분 슬롯 flooring)", () => {
+  // KST = UTC + 9h. now(UTC) → KST slot 검증.
+  it("10:37 KST → capturedAt 10:30 슬롯 (10분 floor), open", () => {
+    // 10:37 KST = 01:37 UTC.
+    const r = computeSlot(new Date("2026-07-01T01:37:00Z"));
+    expect(r.tradeDate).toBe("2026-07-01");
+    // 10:30 KST = 01:30 UTC.
+    expect(r.capturedAt).toBe("2026-07-01T01:30:00.000Z");
+    expect(r.marketStatus).toBe("open");
+  });
+
+  it("10:42 KST → capturedAt 10:40 슬롯", () => {
+    // 10:42 KST = 01:42 UTC → floor 10:40 = 01:40 UTC.
+    const r = computeSlot(new Date("2026-07-01T01:42:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T01:40:00.000Z");
+    expect(r.marketStatus).toBe("open");
+  });
+
+  it("10:30 KST → 10:30 유지 (경계, 회귀 없음)", () => {
+    // 10:30 KST = 01:30 UTC → floor 유지.
+    const r = computeSlot(new Date("2026-07-01T01:30:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T01:30:00.000Z");
+    expect(r.marketStatus).toBe("open");
+  });
+
+  it("15:00 KST → open (마감 전)", () => {
+    // 15:00 KST = 06:00 UTC.
+    const r = computeSlot(new Date("2026-07-01T06:00:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T06:00:00.000Z");
+    expect(r.marketStatus).toBe("open");
+  });
+
+  it("15:30 KST → closed (정규장 마감)", () => {
+    // 15:30 KST = 06:30 UTC.
+    const r = computeSlot(new Date("2026-07-01T06:30:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T06:30:00.000Z");
+    expect(r.marketStatus).toBe("closed");
+  });
+
+  it("15:40 KST → closed (마감 후)", () => {
+    // 15:40 KST = 06:40 UTC → floor 15:40 = 06:40 UTC.
+    const r = computeSlot(new Date("2026-07-01T06:40:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T06:40:00.000Z");
+    expect(r.marketStatus).toBe("closed");
+  });
+
+  it("16:05 KST → closed (16시대는 slotMinute 무관 closed)", () => {
+    // 16:05 KST = 07:05 UTC → floor 16:00 = 07:00 UTC.
+    const r = computeSlot(new Date("2026-07-01T07:05:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T07:00:00.000Z");
+    expect(r.marketStatus).toBe("closed");
+  });
 });
 
 describe("runHomeSyncCycle (hash-skip clone-append)", () => {
