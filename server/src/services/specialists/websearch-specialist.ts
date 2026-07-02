@@ -96,6 +96,9 @@ export async function consultWebSearchSpecialist(input: {
     const res = await client.messages.create({
       model: cfg.chatWebSearchModel,
       max_tokens: 1024,
+      // Sonnet 5: 단발 검색 요약 콜 — adaptive thinking 명시 비활성(생략 시 기본 ON →
+      // max_tokens 1024 대부분을 thinking 이 소모해 답변이 잘릴 수 있음).
+      thinking: { type: "disabled" },
       system: WEBSEARCH_SPECIALIST_PROMPT,
       messages: [{ role: "user", content: input.question }],
       tools: [WEB_SEARCH_TOOL as unknown as Anthropic.Messages.ToolUnion],

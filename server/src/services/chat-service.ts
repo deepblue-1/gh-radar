@@ -356,7 +356,11 @@ export async function handleChatStream(
           const stream = client.messages.stream(
             {
               model: cfg.chatLeadModel,
-              max_tokens: 4096,
+              // Sonnet 5: thinking 생략 = adaptive ON(품질 목적, 의도) — thinking 이
+              // max_tokens 안에서 소모되고 신형 토크나이저가 ~30% 더 쓰므로 8192 로 상향.
+              // 스트림 소비부는 text_delta 만 취해 thinking delta 는 SSE 로 새지 않고,
+              // tool 루프는 finalMessage.content 전체를 되돌려 thinking 블록이 보존된다.
+              max_tokens: 8192,
               system: [
                 {
                   type: "text" as const,
@@ -465,7 +469,8 @@ export async function handleChatStream(
           const stream = client.messages.stream(
             {
               model: cfg.chatLeadModel,
-              max_tokens: 4096,
+              // Sonnet 5 adaptive thinking + 신형 토크나이저 — 팀장 루프와 동일하게 8192.
+              max_tokens: 8192,
               system: [
                 {
                   type: "text" as const,

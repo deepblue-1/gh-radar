@@ -36,9 +36,9 @@ export type AppConfig = {
   classifyEnabled: boolean;
   // Phase 14 — AI 애널리스트 챗봇 (D-11/D-12, RESEARCH A1/A2). anthropicApiKey 재사용.
   chatEnabled: boolean;          // CHAT_DISABLED kill-switch (ww-bot 패턴)
-  chatLeadModel: string;         // 팀장 Sonnet
-  chatSpecialistModel: string;   // 전문가 Haiku
-  chatWebSearchModel: string;    // 웹서치 — Haiku 미지원 시 Sonnet 폴백 (별도 키)
+  chatLeadModel: string;         // 팀장 — Sonnet 5 (사용자 결정 2026-07-02)
+  chatSpecialistModel: string;   // 전문가 — Sonnet 5 (사용자 결정 2026-07-02)
+  chatWebSearchModel: string;    // 웹서치 — Sonnet 5 (별도 키, env override 가능)
   chatMaxToolRounds: number;     // 팀장 tool-use 루프 상한
   chatMaxHistoryMessages: number;// pruneHistory 슬라이딩 윈도우
 };
@@ -85,11 +85,11 @@ export function loadConfig(): AppConfig {
     classifyEnabled: (process.env.DISCUSSION_CLASSIFY_ENABLED ?? "true") !== "false",
     // Phase 14 — AI 애널리스트 챗봇. anthropicApiKey(위) 재사용 — 신규 키 없음.
     chatEnabled: (process.env.CHAT_DISABLED ?? "false") !== "true",
-    chatLeadModel: process.env.CHAT_LEAD_MODEL ?? "claude-sonnet-4-6",
-    chatSpecialistModel: process.env.CHAT_SPECIALIST_MODEL ?? "claude-haiku-4-5",
-    // chatWebSearchModel 기본 Haiku — P11 POC 에서 web_search 미지원 확인 시
-    // CHAT_WEBSEARCH_MODEL=claude-sonnet-4-6 env 폴백 (RESEARCH A2). 별도 키로 분리한 이유.
-    chatWebSearchModel: process.env.CHAT_WEBSEARCH_MODEL ?? "claude-haiku-4-5",
+    // 챗 모델 전면 Sonnet 5 — 사용자 결정(2026-07-02, 14-11 checkpoint: 팀장+전문가 모두).
+    // 필요 시 CHAT_*_MODEL env 로 개별 override 가능(deploy default 회귀 함정 주의).
+    chatLeadModel: process.env.CHAT_LEAD_MODEL ?? "claude-sonnet-5",
+    chatSpecialistModel: process.env.CHAT_SPECIALIST_MODEL ?? "claude-sonnet-5",
+    chatWebSearchModel: process.env.CHAT_WEBSEARCH_MODEL ?? "claude-sonnet-5",
     chatMaxToolRounds: Number(process.env.CHAT_MAX_TOOL_ROUNDS ?? "5"),
     chatMaxHistoryMessages: Number(process.env.CHAT_MAX_HISTORY_MESSAGES ?? "30"),
   };

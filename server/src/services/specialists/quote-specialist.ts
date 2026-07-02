@@ -82,7 +82,9 @@ export async function consultQuoteSpecialist(
     const res = await client.messages.create({
       model: cfg.chatSpecialistModel,
       max_tokens: 700,
-      temperature: 0,
+      // Sonnet 5: temperature 등 비기본 sampling 파라미터는 400 거부 — 결정성은 프롬프트가 담당.
+      // 단발 요약 콜이므로 adaptive thinking 명시 비활성(생략 시 기본 ON → max_tokens 소모).
+      thinking: { type: "disabled" },
       system: QUOTE_SPECIALIST_PROMPT,
       messages: [
         { role: "user", content: `질문:${input.question}\n데이터:${JSON.stringify(data)}` },

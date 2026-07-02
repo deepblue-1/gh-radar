@@ -36,7 +36,7 @@ function makeMessageSkeleton(
   return {
     id: "msg_test",
     content,
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     role: "assistant",
     stop_reason: stopReason,
     stop_sequence: null,

@@ -84,7 +84,8 @@ export async function consultNewsSpecialist(
     const res = await client.messages.create({
       model: cfg.chatSpecialistModel,
       max_tokens: 700,
-      temperature: 0,
+      // Sonnet 5: temperature 400 거부 → 제거. 단발 요약 콜 — thinking 명시 비활성.
+      thinking: { type: "disabled" },
       system: NEWS_SPECIALIST_PROMPT,
       messages: [
         { role: "user", content: `질문:${input.question}\n데이터:${JSON.stringify(data)}` },
