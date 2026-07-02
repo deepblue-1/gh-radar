@@ -94,11 +94,19 @@ export function HomeHeader({
 
   // 슬라이더 debounce — 드래그 중 라벨/썸은 즉시(pendingIdx), fetch(onSelectSlot)는
   // 500ms 안정화 후 1회 (틱마다 재조회 방지 + in-flight 레이스 축소).
+  //
+  // 오실레이션 방지: 드래그(pointer down) 중에는 pendingIdx 를 절대 클리어하지 않는다.
+  // 과거엔 mid-drag 에 타이머가 발화하며 pendingIdx=null → controlled value 가 확정값으로
+  // 되돌아가 썸이 커서 위치와 확정 위치를 좌우로 반복 점프했다(특히 fetch 응답의 무거운
+  // 리렌더와 겹칠 때). 드래그 중 커밋은 fetch 만 하고(pending 유지), 릴리즈 시 즉시 커밋.
   const [pendingIdx, setPendingIdx] = useState<number | null>(null);
+  const pendingRef = useRef<number | null>(null);
+  const draggingRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     // 날짜 전환 시 pending 은 이전 날짜의 슬롯 인덱스라 무효 — 리셋 + 타이머 해제.
     setPendingIdx(null);
+    pendingRef.current = null;
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, [currentDate]);
   useEffect(
@@ -178,11 +186,28 @@ export function HomeHeader({
           const label = close ? `${hhmm} · 마감` : hhmm;
           const handleSlide = (idx: number) => {
             setPendingIdx(idx);
+            pendingRef.current = idx;
             if (debounceRef.current) clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => {
               onSelectSlot(slots[idx].capturedAt);
-              setPendingIdx(null);
+              // 드래그 중이면 pending 유지 (클리어 시 controlled value 가 확정값으로
+              // 되돌아가 썸이 좌우로 점프). 릴리즈 시 endDrag 가 정리한다.
+              if (!draggingRef.current) {
+                setPendingIdx(null);
+                pendingRef.current = null;
+              }
             }, 500);
+          };
+          const endDrag = () => {
+            draggingRef.current = false;
+            const p = pendingRef.current;
+            if (p !== null) {
+              // 릴리즈 즉시 커밋 — setSelected 와 같은 배치라 썸 이동 없음.
+              if (debounceRef.current) clearTimeout(debounceRef.current);
+              onSelectSlot(slots[Math.min(p, slots.length - 1)].capturedAt);
+              setPendingIdx(null);
+              pendingRef.current = null;
+            }
           };
           return (
             <div className="flex items-center gap-3">
@@ -199,6 +224,11 @@ export function HomeHeader({
                 aria-valuetext={label}
                 disabled={slots.length === 1}
                 onChange={(e) => handleSlide(Number(e.target.value))}
+                onPointerDown={() => {
+                  draggingRef.current = true;
+                }}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
                 className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--border)] accent-[var(--primary)] disabled:cursor-default"
               />
               <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
