@@ -439,6 +439,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
 | 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
 | 11. Co-movement Candidates | 5/5 | Complete    | 2026-06-24 |
+| 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
+| 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
+| 14. AI 애널리스트 챗봇 | 0/11 | Planned | — |
 
 ### Phase 12: 상한가 다음날 이력 통계 (종목상세) — 종목 자체 과거 상한가 이벤트의 다음날 시/고/저/종 수익률 백테스트. A안(상한가 종가 매수 가정), 종목 자체 이력만, 이벤트 리스트+카운트 표시, 점상한가 태그, 거래대금/회전율 컬럼, 최근 N회 보조 스탯, 테마 모멘텀 보조 카드. master-sync 배치 사전계산 → 종목상세 읽기 전용.
 
@@ -468,3 +471,23 @@ Plans:
 - [x] 13-04-PLAN.md — Wave 3 홈 UI(UI-SPEC): home-api + useHomeQuery + 테마/개별 급등 카드 + 날짜/시점 네비 + 빈/스켈레톤/에러 + 시각 검증 checkpoint
 - [x] 13-05-PLAN.md — Wave 4 루트 승격: page.tsx redirect→홈 교체 + 사이드바 NAV 재정렬(홈 1st) + home E2E + /scanner 회귀
 - [x] 13-06-PLAN.md — Wave 5 배포: setup/deploy/smoke 스크립트(theme-sync 클론, OAuth invoker, VPC 없음, Secret 재사용 신규 0) + GCP 배포(Job gh-radar-home-sync @ f6b1905 + Scheduler gh-radar-home-sync-cron 30 9-15 KST) + Claude POC PASS(themeCount=4 실제 대응, 환각 0, ~$3.1/월 이내) + server/webapp 재배포 + smoke 6/6 + home E2E 5/5
+
+### Phase 14: AI 애널리스트 챗봇 (멀티에이전트)
+
+**Goal:** 팀장 에이전트(Sonnet)가 전문가 에이전트 5명(Haiku: ①시세/수급 ②테마 ③뉴스/심리 ④상한가 패턴 ⑤실시간 웹서치)을 질문 성격에 따라 선택적 병렬 호출해 의견을 취합·답변하는 상한가 따라잡기 전략 특화 AI 애널리스트 챗봇. 기존 Supabase 데이터(stock_quotes/OHLCV/themes/co-movement/news/discussions/limit_up_*/home_theme_snapshots)를 전문가 tool로 활용하고 Anthropic web_search로 장중 속보/공시 실시간 파악. 대화 히스토리는 로그인 사용자별+종목별로 Supabase 저장(conversations/messages, RLS). 백엔드는 기존 Express 서버에 SSE 스트리밍 POST /api/chat 추가(../weekly-wine-bot server의 세션/tool-use 루프/sanitize/rate-limit 패턴 이식). 프론트는 전역 FAB 버튼+챗 시트(../weekly-wine-cafe24 패턴): 종목상세 페이지에서는 해당 종목 컨텍스트 대화+해당 종목 히스토리, 사이드바 "AI 애널리스트" 메뉴(/chat)는 종목 무관 일반 주식 대화.
+**Requirements**: CHAT-01
+**Depends on:** Phase 13
+**Plans:** 11 plans (6 waves)
+
+Plans:
+- [ ] 14-01-PLAN.md — Wave 1 conversations/messages 마이그레이션(watchlists RLS mirror, TO authenticated 8정책) + [BLOCKING] db push
+- [ ] 14-02-PLAN.md — Wave 1 공유 계약(ChatSSEEventMap/SpecialistId/라벨) + config 챗 키(모델/kill-switch/윈도잉) + Anthropic SDK mock 픽스처
+- [ ] 14-03-PLAN.md — Wave 2 require-auth JWT 미들웨어(D-02) + chat zod 스키마 + chat-history 서비스(서비스롤 WHERE user_id 소유권)
+- [ ] 14-04-PLAN.md — Wave 2 chat-prompts(팀장+5전문가, 매매금지/환각금지/면책) + 데이터 전문가 4(결정적조회+Haiku 1콜) + 웹서치 전문가(web_search+citations)
+- [ ] 14-05-PLAN.md — Wave 3 chat-orchestrator: SPECIALIST_TOOLS 5종 + runSpecialist dispatch + extractStockRefs(D-07)
+- [ ] 14-06-PLAN.md — Wave 4 chat-service 이식(ww-bot: sanitize/prune/retry/캐싱/interrupt + 팀장 tool 루프 병렬) + routes/chat.ts(SSE POST + GET/DELETE) + app.ts 결선
+- [ ] 14-07-PLAN.md — Wave 2 프론트 기반: react-markdown 설치 + chat-sse(raw fetch+parseSSEStream+Bearer) + chat-api + chat-provider
+- [ ] 14-08-PLAN.md — Wave 3 FAB(로그인 게이트 D-01 + 종목 컨텍스트 D-03) + 챗 시트(SSE 스트리밍 + 정지/abort D-06) + composer + 상태박스 + layout/nav 마운트
+- [ ] 14-09-PLAN.md — Wave 4 메시지 렌더: assistant 마크다운(D-09) + 진행 스텝퍼(D-04 Variant B) + 미니 종목카드(D-07 국내색상) + 출처인용(D-08) + 미니차트(D-10 재사용)
+- [ ] 14-10-PLAN.md — Wave 5 /chat 2-col 페이지(대화목록/종목필터/이어가기 D-13) + 삭제 확인 다이얼로그(destructive)
+- [ ] 14-11-PLAN.md — Wave 6 chat E2E + REQUIREMENTS CHAT-01/Traceability + [BLOCKING] 서버/webapp 배포 + web_search 모델 POC + production smoke
