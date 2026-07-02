@@ -20,7 +20,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatRole, MessageRow, ChatSSEEventMap } from "@gh-radar/shared";
+import type {
+  ChatRole,
+  MessageRow,
+  MessageBlock,
+  ChatSSEEventMap,
+  SpecialistId,
+} from "@gh-radar/shared";
 
 import { useAuth } from "@/lib/auth-context";
 import { listConversations, getConversation } from "@/lib/chat-api";
@@ -36,12 +42,15 @@ import {
 import { useChat } from "./chat-provider";
 import { Composer } from "./composer";
 import { EmptyState, LoginRequiredState, ChatErrorState } from "./chat-states";
+import { ChatThread } from "./chat-thread";
+import { AgentProgress, type AgentStepStatus } from "./agent-progress";
 
-/** thread 렌더용 최소 메시지 형태. */
+/** thread 렌더용 메시지 형태(확정 메시지는 blocks 부가물 포함). */
 interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  blocks?: MessageBlock[] | null;
 }
 
 let idCounter = 0;
@@ -52,7 +61,12 @@ function makeId(prefix: string): string {
 }
 
 function toChatMessage(row: MessageRow): ChatMessage {
-  return { id: row.id, role: row.role, content: row.content };
+  return {
+    id: row.id,
+    role: row.role,
+    content: row.content,
+    blocks: row.blocks,
+  };
 }
 
 export function ChatSheet() {
@@ -64,6 +78,10 @@ export function ChatSheet() {
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [hasError, setHasError] = useState(false);
+  // 진행 스텝퍼 상태 — agent_start→active / agent_end→done (SSE 매핑, D-04).
+  const [agentStatus, setAgentStatus] = useState<
+    Partial<Record<SpecialistId, AgentStepStatus>>
+  >({});
 
   const abortRef = useRef<AbortController | null>(null);
   // D-03 중복 로드 방지 — 같은 (open,code) 조합 1회만.
@@ -116,6 +134,7 @@ export function ChatSheet() {
     setStreamingText("");
     setIsStreaming(false);
     setHasError(false);
+    setAgentStatus({});
   }, []);
 
   // ── 전송 + SSE 스트리밍 (D-06) ─────────────────────────────────────
@@ -133,8 +152,11 @@ export function ChatSheet() {
       ]);
       setStreamingText("");
       setIsStreaming(true);
+      setAgentStatus({});
 
       let assembled = "";
+      // 스트리밍 중 수신한 부가물 — 완성 시점(response_complete)에 확정 메시지로 부착.
+      const collectedBlocks: MessageBlock[] = [];
       try {
         await streamChat(
           {
@@ -151,6 +173,31 @@ export function ChatSheet() {
                   (data as ChatSSEEventMap["session"]).conversationId,
                 );
                 break;
+              case "agent_start": {
+                const a = (data as ChatSSEEventMap["agent_start"]).agent;
+                setAgentStatus((prev) => ({ ...prev, [a]: "active" }));
+                break;
+              }
+              case "agent_end": {
+                const a = (data as ChatSSEEventMap["agent_end"]).agent;
+                setAgentStatus((prev) => ({ ...prev, [a]: "done" }));
+                break;
+              }
+              case "stock_card": {
+                const c = data as ChatSSEEventMap["stock_card"];
+                collectedBlocks.push({ type: "stock_card", ...c });
+                break;
+              }
+              case "citation": {
+                const c = data as ChatSSEEventMap["citation"];
+                collectedBlocks.push({ type: "citation", ...c });
+                break;
+              }
+              case "chart": {
+                const c = data as ChatSSEEventMap["chart"];
+                collectedBlocks.push({ type: "chart", code: c.code });
+                break;
+              }
               case "text":
                 assembled += (data as ChatSSEEventMap["text"]).text;
                 setStreamingText(assembled);
@@ -161,24 +208,25 @@ export function ChatSheet() {
                 break;
               case "response_complete": {
                 const finalText = assembled;
-                if (finalText) {
+                if (finalText || collectedBlocks.length > 0) {
                   setMessages((prev) => [
                     ...prev,
                     {
                       id: makeId("assistant"),
                       role: "assistant",
                       content: finalText,
+                      blocks: collectedBlocks.length > 0 ? collectedBlocks : null,
                     },
                   ]);
                 }
                 assembled = "";
                 setStreamingText("");
+                setAgentStatus({});
                 break;
               }
               case "error":
                 setHasError(true);
                 break;
-              // agent_start/agent_end/stock_card/citation/chart/done → P09 렌더 훅 위임(현 plan 최소 placeholder)
               default:
                 break;
             }
@@ -255,36 +303,16 @@ export function ChatSheet() {
               ) : showEmpty ? (
                 <EmptyState onPromptSelect={(t) => void send(t)} />
               ) : (
-                <div className="flex flex-col gap-[var(--s-4)]">
-                  {messages.map((m) =>
-                    m.role === "user" ? (
-                      <div key={m.id} className="flex justify-end">
-                        <div className="max-w-[80%] whitespace-pre-wrap rounded-[12px_12px_4px_12px] bg-[var(--accent)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] text-[var(--accent-fg)]">
-                          {m.content}
-                        </div>
-                      </div>
-                    ) : (
-                      <div key={m.id} className="flex flex-col gap-[var(--s-1)]">
-                        <span className="text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
-                          팀장 애널리스트
-                        </span>
-                        <div className="whitespace-pre-wrap text-[length:var(--t-sm)] leading-relaxed text-[var(--fg)]">
-                          {m.content}
-                        </div>
-                      </div>
-                    ),
-                  )}
-                  {streamingText && (
-                    <div className="flex flex-col gap-[var(--s-1)]">
-                      <span className="text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
-                        팀장 애널리스트
-                      </span>
-                      <div className="whitespace-pre-wrap text-[length:var(--t-sm)] leading-relaxed text-[var(--fg)]">
-                        {streamingText}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <ChatThread
+                  messages={messages}
+                  streamingText={streamingText}
+                  isStreaming={isStreaming}
+                  progressSlot={
+                    Object.keys(agentStatus).length > 0 ? (
+                      <AgentProgress status={agentStatus} />
+                    ) : undefined
+                  }
+                />
               )}
             </div>
 

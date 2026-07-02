@@ -25,6 +25,7 @@ import type { MessageBlock } from "@gh-radar/shared";
 
 import { MiniStockCard } from "./mini-stock-card";
 import { Citation } from "./citation";
+import { MiniChart } from "./mini-chart";
 
 export interface MessageAssistantProps {
   content: string;
@@ -105,6 +106,7 @@ export function MessageAssistant({
   streaming = false,
 }: MessageAssistantProps) {
   const cards = blocks?.filter((b) => b.type === "stock_card") ?? [];
+  const charts = blocks?.filter((b) => b.type === "chart") ?? [];
   const citations = blocks?.filter((b) => b.type === "citation") ?? [];
 
   return (
@@ -141,6 +143,12 @@ export function MessageAssistant({
                 price={b.price}
                 changeRate={b.changeRate}
               />
+            ) : null,
+          )}
+
+          {charts.map((b, i) =>
+            b.type === "chart" ? (
+              <MiniChart key={`chart-${i}`} code={b.code} />
             ) : null,
           )}
 
