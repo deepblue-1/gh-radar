@@ -16,7 +16,9 @@ export const HomeQuery = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  capturedAt: z.string().datetime().optional(),
+  // offset: true — DB/index 가 반환하는 "+00:00" 오프셋 표기 허용 (기본은 "Z" 만 허용해
+  // 클라가 index.capturedAt 을 그대로 되돌려보내면 400 → 슬롯 네비가 조용히 죽는다).
+  capturedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 export type HomeQueryT = z.infer<typeof HomeQuery>;

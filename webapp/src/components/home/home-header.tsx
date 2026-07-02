@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import type {
@@ -91,6 +92,22 @@ export function HomeHeader({
     .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
   const liveCapturedAt = slots[slots.length - 1]?.capturedAt ?? '';
 
+  // 슬라이더 debounce — 드래그 중 라벨/썸은 즉시(pendingIdx), fetch(onSelectSlot)는
+  // 250ms 안정화 후 1회 (틱마다 재조회 방지 + in-flight 레이스 축소).
+  const [pendingIdx, setPendingIdx] = useState<number | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // 날짜 전환 시 pending 은 이전 날짜의 슬롯 인덱스라 무효 — 리셋 + 타이머 해제.
+    setPendingIdx(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, [currentDate]);
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
+  );
+
   const goPrev = () => {
     if (hasPrev) onSelectDate(dates[dateIdx - 1]);
   };
@@ -149,11 +166,24 @@ export function HomeHeader({
             (s) => s.capturedAt === currentCapturedAt,
           );
           const currentIdx = foundIdx >= 0 ? foundIdx : slots.length - 1;
-          const current = slots[currentIdx];
+          // 표시 인덱스 = 드래그 중이면 pending(즉시), 아니면 확정 선택.
+          const displayIdx = Math.min(
+            pendingIdx ?? currentIdx,
+            slots.length - 1,
+          );
+          const current = slots[displayIdx];
           const live = current.capturedAt === liveCapturedAt;
           const close = isCloseSlot(current.capturedAt);
           const hhmm = toKstHhmm(current.capturedAt);
           const label = close ? `${hhmm} · 마감` : hhmm;
+          const handleSlide = (idx: number) => {
+            setPendingIdx(idx);
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => {
+              onSelectSlot(slots[idx].capturedAt);
+              setPendingIdx(null);
+            }, 250);
+          };
           return (
             <div className="flex items-center gap-3">
               <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
@@ -164,13 +194,11 @@ export function HomeHeader({
                 min={0}
                 max={slots.length - 1}
                 step={1}
-                value={currentIdx}
+                value={displayIdx}
                 aria-label="시점 선택"
                 aria-valuetext={label}
                 disabled={slots.length === 1}
-                onChange={(e) =>
-                  onSelectSlot(slots[Number(e.target.value)].capturedAt)
-                }
+                onChange={(e) => handleSlide(Number(e.target.value))}
                 className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--border)] accent-[var(--primary)] disabled:cursor-default"
               />
               <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">

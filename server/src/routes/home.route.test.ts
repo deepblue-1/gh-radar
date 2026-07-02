@@ -112,4 +112,12 @@ describe("GET /api/home (홈 급등 테마 스냅샷)", () => {
     expect(r.body.snapshot.capturedAt).toBe("2026-07-01T00:30:00Z");
     expect(r.body.snapshot.payload.themes[0].stocks[0].changeRate).toBe(21.1);
   });
+
+  // 6 — "+00:00" 오프셋 표기 허용 (DB/index 가 이 형식을 반환 — 클라가 그대로 되돌려보냄)
+  it('6: capturedAt "+00:00" 오프셋 형식도 200 (400 회귀 방지)', async () => {
+    const r = await request(app()).get(
+      "/api/home?capturedAt=" + encodeURIComponent("2026-07-01T00:30:00+00:00"),
+    );
+    expect(r.status).toBe(200);
+  });
 });
