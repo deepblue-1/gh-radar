@@ -351,6 +351,36 @@ describe("웹서치 전문가 (web_search 서버 tool + citations)", () => {
     expect(arg.tools[0].user_location?.country).toBe("KR");
   });
 
+  it("Test 1b: 여러 text 블록 응답 — 전체 join 으로 실제 검색 요약 보존 (WR-04)", async () => {
+    createMock.mockResolvedValue({
+      content: [
+        { type: "text", text: "검색해볼게요." },
+        { type: "server_tool_use", id: "srv1", name: "web_search", input: {} },
+        { type: "web_search_tool_result", tool_use_id: "srv1", content: [] },
+        {
+          type: "text",
+          text: "실제 검색 요약입니다.",
+          citations: [
+            {
+              type: "web_search_result_location",
+              url: "https://news.example/2",
+              title: "요약 출처",
+              cited_text: "",
+              encrypted_index: "",
+            },
+          ],
+        },
+      ],
+    } as unknown as Anthropic.Message);
+
+    const out = await consultWebSearchSpecialist({ question: "오늘 이슈?" });
+
+    // 첫 블록(서두)만이 아니라 마지막 블록의 실제 요약까지 포함된다.
+    expect(out.text).toContain("검색해볼게요.");
+    expect(out.text).toContain("실제 검색 요약입니다.");
+    expect(out.citations).toEqual([{ title: "요약 출처", url: "https://news.example/2" }]);
+  });
+
   it("Test 2: web_search_tool_result_error → graceful (빈 citations + 안내 텍스트)", async () => {
     createMock.mockResolvedValue(webSearchErrorResponse());
 

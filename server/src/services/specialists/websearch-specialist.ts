@@ -3,7 +3,6 @@ import { loadConfig } from "../../config.js";
 import { logger } from "../../logger.js";
 import { WEBSEARCH_SPECIALIST_PROMPT } from "../chat-prompts.js";
 import { getChatAnthropicClient } from "./anthropic-client.js";
-import { specialistText } from "./helpers.js";
 
 /**
  * Phase 14 — ⑤실시간 웹서치 전문가 (CHAT-01, RESEARCH Pattern 2 — 예외: Anthropic web_search 서버 tool).
@@ -107,8 +106,16 @@ export async function consultWebSearchSpecialist(input: {
       logger.warn({}, "web_search returned tool_result_error — graceful fallback");
       return { text: WEBSEARCH_UNAVAILABLE, citations: [] };
     }
+    // web_search 응답은 [서두 text, server_tool_use, web_search_tool_result, 요약 text(인용 포함)]
+    // 처럼 여러 text 블록이 섞인다 — 첫 블록만 취하면 실제 검색 요약이 유실된다 (WR-04).
+    // chat-service.messageText 와 동일하게 전체 text 블록을 join 한다.
+    const text = res.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n")
+      .trim();
     return {
-      text: specialistText(res) || WEBSEARCH_UNAVAILABLE,
+      text: text || WEBSEARCH_UNAVAILABLE,
       citations: extractCitations(res),
     };
   } catch (err) {
