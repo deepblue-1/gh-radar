@@ -127,7 +127,20 @@ export async function consultNewsSpecialist(
         { role: "user", content: `질문:${input.question}\n데이터:${JSON.stringify(data)}` },
       ],
     });
-    return specialistText(res) || SPECIALIST_UNAVAILABLE;
+    const text = specialistText(res);
+    if (!text) {
+      // 무로그 fail-safe 금지 (프로젝트 lesson) — max_tokens 절단 등 원인 추적용 (WR-08).
+      logger.warn(
+        { code: input.code, stopReason: res.stop_reason, usage: res.usage },
+        "news specialist empty text — fallback",
+      );
+      return SPECIALIST_UNAVAILABLE;
+    }
+    logger.info(
+      { code: input.code, model: cfg.chatSpecialistModel, usage: res.usage },
+      "[chat] news specialist usage",
+    );
+    return text;
   } catch (err) {
     logger.warn({ code: input.code, err: (err as Error).message }, "news specialist haiku failed");
     return SPECIALIST_UNAVAILABLE;

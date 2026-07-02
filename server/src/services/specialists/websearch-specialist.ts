@@ -114,10 +114,19 @@ export async function consultWebSearchSpecialist(input: {
       .map((b) => b.text)
       .join("\n")
       .trim();
-    return {
-      text: text || WEBSEARCH_UNAVAILABLE,
-      citations: extractCitations(res),
-    };
+    if (!text) {
+      // 무로그 fail-safe 금지 (프로젝트 lesson) — max_tokens 절단 등 원인 추적용 (WR-08).
+      logger.warn(
+        { stopReason: res.stop_reason, usage: res.usage },
+        "websearch specialist empty text — fallback",
+      );
+      return { text: WEBSEARCH_UNAVAILABLE, citations: extractCitations(res) };
+    }
+    logger.info(
+      { model: cfg.chatWebSearchModel, usage: res.usage },
+      "[chat] websearch specialist usage",
+    );
+    return { text, citations: extractCitations(res) };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, "websearch specialist failed");
     return { text: WEBSEARCH_UNAVAILABLE, citations: [] };
