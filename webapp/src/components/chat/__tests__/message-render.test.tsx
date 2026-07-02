@@ -10,8 +10,9 @@ import { Citation } from '../citation';
 
 /**
  * Phase 14 Plan 09 — 챗 메시지 렌더 유닛테스트.
- * Task 1: MessageAssistant(마크다운 표/헤딩/리스트/강조 + 축약 면책) · MessageUser · ChatThread.
+ * Task 1: MessageAssistant(마크다운 표/헤딩/리스트/강조) · MessageUser · ChatThread.
  * remark-gfm 표 렌더 검증이 핵심(D-09).
+ * 면책 문구는 사용자 결정(2026-07-02, 14-11 checkpoint)으로 제거 — 관련 assert 삭제.
  */
 describe('MessageAssistant (Task 1)', () => {
   it('Test 1 — 마크다운 표가 <table> 로 렌더 (remark-gfm)', () => {
@@ -23,14 +24,12 @@ describe('MessageAssistant (Task 1)', () => {
     expect(screen.getByText('삼성전자')).toBeInTheDocument();
   });
 
-  it('Test 2 — 헤딩/리스트/강조 렌더 + 답변 말미 축약 면책', () => {
+  it('Test 2 — 헤딩/리스트/강조 렌더', () => {
     const md = '### 오늘 주도 테마\n\n- 반도체 장비\n- 이차전지\n\n**핵심**은 수급입니다.';
     const { container } = render(<MessageAssistant content={md} />);
     expect(container.querySelector('h3')).toBeInTheDocument();
     expect(container.querySelectorAll('li').length).toBe(2);
     expect(container.querySelector('strong')).toBeInTheDocument();
-    // 축약 면책 문구(UI-SPEC Disclaimer 축약형)
-    expect(screen.getByText(/투자자문이 아닙니다/)).toBeInTheDocument();
   });
 });
 

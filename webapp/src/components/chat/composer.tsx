@@ -7,7 +7,7 @@
  * - 유휴: 전송 버튼(--primary, paper-plane, aria-label "전송").
  * - 스트리밍 중: 정지 버튼(square, outline, aria-label "중단") → onStop 으로 abort 위임(D-06).
  * - Enter 전송 / Shift+Enter 줄바꿈.
- * - 하단 면책 문구 상시 노출(UI-SPEC Disclaimer).
+ * - 면책 문구는 사용자 결정(2026-07-02, 14-11 checkpoint)으로 제거 — 입력 힌트만 노출.
  */
 
 import { useState } from "react";
@@ -81,7 +81,7 @@ export function Composer({ onSend, isStreaming, onStop }: ComposerProps) {
         )}
       </div>
       <p className="text-[length:11px] text-[var(--muted-fg)]">
-        AI 답변은 참고용이며 투자자문이 아닙니다 · Enter 전송 · Shift+Enter 줄바꿈
+        Enter 전송 · Shift+Enter 줄바꿈
       </p>
     </div>
   );

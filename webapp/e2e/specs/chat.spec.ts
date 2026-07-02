@@ -16,7 +16,7 @@ import {
  *
  * VALIDATION (4 시나리오):
  *   1. 비로그인 FAB 클릭 → "로그인이 필요해요" 게이트(D-01), 스트리밍 미발생.
- *   2. 로그인 후 FAB → 시트 open → 질문 전송 → SSE text 스트리밍(assistant 답변) + 면책 문구.
+ *   2. 로그인 후 FAB → 시트 open → 질문 전송 → SSE text 스트리밍(assistant 답변).
  *   3. 종목상세(/stocks/000660) FAB 라벨에 종목명 컨텍스트("SK하이닉스 분석") 표시(D-03).
  *   4. /chat 페이지 대화목록 렌더 + 삭제 다이얼로그 open/취소(T-14-11).
  *
@@ -59,7 +59,7 @@ test.describe('Phase 14 — 챗 비로그인 게이트 (D-01)', () => {
 
 // ── Test 2~4: 로그인 상태(config chromium storageState 자동 주입) ──
 test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
-  test('로그인 후 FAB → 시트 open → 질문 전송 → SSE 스트리밍 + 면책', async ({
+  test('로그인 후 FAB → 시트 open → 질문 전송 → SSE 스트리밍', async ({
     page,
   }) => {
     await mockHomeApi(page, { response: HOME_POPULATED });
@@ -72,12 +72,9 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await expect(fab).toBeVisible({ timeout: 10_000 });
     await fab.click();
 
-    // 시트 열림 — composer 입력창 + 상시 면책 문구.
+    // 시트 열림 — composer 입력창.
     const input = page.getByLabel('메시지 입력');
     await expect(input).toBeVisible();
-    await expect(
-      page.getByText(/AI 답변은 참고용이며 투자자문이 아닙니다/),
-    ).toBeVisible();
 
     // 질문 전송(Enter) → SSE 스트리밍.
     await input.fill('오늘 주도 테마 알려줘');
@@ -87,11 +84,6 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await expect(page.getByText(CHAT_ASSISTANT_TEXT)).toBeVisible({
       timeout: 10_000,
     });
-
-    // 최종 답변 면책(축약) — MessageAssistant 말미.
-    await expect(
-      page.getByText(/본 답변은 투자 참고용이며 투자자문이 아닙니다/).first(),
-    ).toBeVisible();
 
     // 미니 종목카드(stock_card 블록) → /stocks/000660 링크로 렌더.
     await expect(page.locator('a[href="/stocks/000660"]').first()).toBeVisible();

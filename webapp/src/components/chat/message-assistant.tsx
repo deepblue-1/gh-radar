@@ -15,8 +15,10 @@
  * SSE 로 수신한 부가물(stock_card/citation/chart)은 본문 아래에 렌더 — 각 하위 컴포넌트
  * (MiniStockCard/Citation/MiniChart)에 위임. citation 은 "근거 뉴스" 그룹으로 묶는다.
  *
- * 스트리밍 중(streaming=true)에는 면책/blocks 를 숨기고 부분 마크다운만 append 렌더한다
+ * 스트리밍 중(streaming=true)에는 blocks 를 숨기고 부분 마크다운만 append 렌더한다
  * (완성 시점에 확정 — Phase 13 레이아웃 shift 최소화 교훈).
+ *
+ * 면책 문구는 사용자 결정(2026-07-02, 14-11 checkpoint)으로 전면 제거.
  */
 
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -31,12 +33,9 @@ export interface MessageAssistantProps {
   content: string;
   /** SSE 부가물(카드/차트/인용). null/미전달이면 본문만 렌더. */
   blocks?: MessageBlock[] | null;
-  /** 스트리밍 중 여부 — true 면 면책/blocks 숨김(완성 시 확정). */
+  /** 스트리밍 중 여부 — true 면 blocks 숨김(완성 시 확정). */
   streaming?: boolean;
 }
-
-/** 축약 면책 문구(UI-SPEC Disclaimer 축약형). 답변 말미 상시 노출. */
-const DISCLAIMER = "※ 본 답변은 투자 참고용이며 투자자문이 아닙니다.";
 
 /** react-markdown 요소 → globals.css 토큰 스타일 매핑(채택 목업 기준). */
 const MARKDOWN_COMPONENTS: Components = {
@@ -170,10 +169,6 @@ export function MessageAssistant({
               )}
             </div>
           )}
-
-          <p className="mt-[var(--s-2)] text-[length:12px] text-[var(--muted-fg)]">
-            {DISCLAIMER}
-          </p>
         </>
       )}
     </div>
