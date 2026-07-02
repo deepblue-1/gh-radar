@@ -15,9 +15,9 @@ import type {
  *     날짜 네비 = prev/next icon-btn(32×32, aria-label "이전 날짜"/"다음 날짜")
  *                + mono 날짜 라벨(YYYY-MM-DD 14/800) + "오늘" reset pill.
  *                next 는 최신 날짜에서 disabled, prev 는 더 과거 날짜 없으면 disabled.
- *   시점 pill 행 = 선택 날짜의 슬롯들(segmented, .slot.on 선택=--primary fill 800,
- *                 현재/마감 슬롯 --up dot). 라벨 HH:MM, 마감(15:30) 슬롯 "HH:MM · 마감".
- *                overflow-x auto.
+ *   시점 슬라이더 행 = 선택 날짜의 슬롯들을 range 슬라이더로 탐색(10분 슬롯 하루 최대
+ *                 ~40개라 pill 나열 대신 슬라이더). 좌우 min/max HH:MM 라벨 + 선택 라벨
+ *                 pill(--primary fill 800, 최신 슬롯 --up dot). 마감(15:30) "HH:MM · 마감".
  *
  * 모든 날짜/시간 = `.mono`. 색상 globals 토큰만.
  */
@@ -142,39 +142,52 @@ export function HomeHeader({
         </div>
       </div>
 
-      {/* 시점 pill 행 */}
-      {slots.length > 0 && (
-        <div className="flex gap-[6px] overflow-x-auto pb-[2px]">
-          {slots.map((slot) => {
-            const on = slot.capturedAt === currentCapturedAt;
-            const live = slot.capturedAt === liveCapturedAt;
-            const close = isCloseSlot(slot.capturedAt);
-            const hhmm = toKstHhmm(slot.capturedAt);
-            return (
-              <button
-                type="button"
-                key={slot.capturedAt}
-                onClick={() => onSelectSlot(slot.capturedAt)}
-                aria-current={on ? 'true' : undefined}
-                className={[
-                  'relative mono flex-none rounded-full border px-3 py-[5px] text-[length:var(--t-sm)]',
-                  on
-                    ? 'border-[var(--primary)] bg-[var(--primary)] font-extrabold text-[var(--primary-fg)]'
-                    : 'border-[var(--border)] bg-[var(--card)] text-[var(--muted-fg)]',
-                ].join(' ')}
-              >
-                {close ? `${hhmm} · 마감` : hhmm}
+      {/* 시점 슬라이더 행 — 10분 슬롯(하루 최대 ~40개)이라 pill 나열 대신 range 슬라이더 */}
+      {slots.length > 0 &&
+        (() => {
+          const foundIdx = slots.findIndex(
+            (s) => s.capturedAt === currentCapturedAt,
+          );
+          const currentIdx = foundIdx >= 0 ? foundIdx : slots.length - 1;
+          const current = slots[currentIdx];
+          const live = current.capturedAt === liveCapturedAt;
+          const close = isCloseSlot(current.capturedAt);
+          const hhmm = toKstHhmm(current.capturedAt);
+          const label = close ? `${hhmm} · 마감` : hhmm;
+          return (
+            <div className="flex items-center gap-3">
+              <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                {toKstHhmm(slots[0].capturedAt)}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={slots.length - 1}
+                step={1}
+                value={currentIdx}
+                aria-label="시점 선택"
+                aria-valuetext={label}
+                disabled={slots.length === 1}
+                onChange={(e) =>
+                  onSelectSlot(slots[Number(e.target.value)].capturedAt)
+                }
+                className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--border)] accent-[var(--primary)] disabled:cursor-default"
+              />
+              <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                {toKstHhmm(slots[slots.length - 1].capturedAt)}
+              </span>
+              <span className="relative mono flex-none rounded-full border border-[var(--primary)] bg-[var(--primary)] py-[5px] pl-3 pr-[18px] text-[length:var(--t-sm)] font-extrabold text-[var(--primary-fg)]">
+                {label}
                 {live && (
                   <span
                     aria-hidden="true"
                     className="absolute right-[7px] top-[6px] size-[6px] rounded-full bg-[var(--up)]"
                   />
                 )}
-              </button>
-            );
-          })}
-        </div>
-      )}
+              </span>
+            </div>
+          );
+        })()}
     </div>
   );
 }

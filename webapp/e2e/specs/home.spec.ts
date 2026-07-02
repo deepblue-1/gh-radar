@@ -50,7 +50,7 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     await expect(homeNav).toHaveAttribute('aria-current', 'page');
   });
 
-  test('/ — 날짜/시점 네비(이전 날짜·다음 날짜·오늘 + 시점 pill) 렌더', async ({
+  test('/ — 날짜/시점 네비(이전 날짜·다음 날짜·오늘 + 시점 슬라이더) 렌더', async ({
     page,
   }) => {
     await mockHomeApi(page, { response: HOME_POPULATED });
@@ -67,9 +67,16 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       page.getByRole('button', { name: '오늘', exact: true }),
     ).toBeVisible();
 
-    // 시점 pill 행 — populated 는 슬롯 2개(14:30 / 15:30 · 마감) 렌더. data-dependent
-    // 하지 않도록 마감 슬롯 카피로 존재만 확인(mock 이 15:30 슬롯 보장).
+    // 시점 슬라이더 — populated 는 슬롯 2개(14:30 / 15:30 · 마감). 기본 선택 = 최신(마감).
+    const slider = page.getByRole('slider', { name: '시점 선택' });
+    await expect(slider).toBeVisible();
     await expect(page.getByText(/15:30 · 마감/)).toBeVisible();
+
+    // 슬라이더를 0(이른 슬롯)으로 → 선택이 14:30 으로 바뀜 (aria-valuetext 로 검증 —
+    // "14:30" 텍스트는 min 라벨과 선택 pill 두 곳에 떠 strict-mode 충돌).
+    await slider.fill('0');
+    await expect(slider).toHaveAttribute('aria-valuetext', '14:30');
+    await expect(page.getByText(/15:30 · 마감/)).toHaveCount(0);
   });
 
   test('/ — 급등 없는 날 empty-state("+15% 급등 종목이 없습니다" + 스캐너로 이동 CTA)', async ({
