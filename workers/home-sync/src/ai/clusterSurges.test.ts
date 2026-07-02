@@ -30,6 +30,7 @@ import {
   sortThemes,
   demoteInvalidThemes,
   reassignOrphans,
+  dedupeNewsByUrl,
 } from "./clusterSurges";
 import { __resetAnthropicClientForTests } from "./anthropic";
 import type { Surge } from "../pipeline/loadSurges";
@@ -94,6 +95,38 @@ describe("resolveNewsRefs (D-04 anti-hallucination)", () => {
   });
   it("빈 refs → []", () => {
     expect(resolveNewsRefs(indexed, [])).toEqual([]);
+  });
+});
+
+describe("dedupeNewsByUrl (IN-01 URL dedup)", () => {
+  it("같은 URL 이 여러 번 등장하면 첫 등장만 유지 (순서 안정)", () => {
+    const refs = [
+      { title: "T0", url: "https://n/0", source: "s0" },
+      { title: "T1", url: "https://n/1", source: "s1" },
+      { title: "T0-dup", url: "https://n/0", source: "s0" }, // dup of index 0
+      { title: "T2", url: "https://n/2", source: "s2" },
+    ];
+    const out = dedupeNewsByUrl(refs);
+    expect(out.map((r) => r.url)).toEqual([
+      "https://n/0",
+      "https://n/1",
+      "https://n/2",
+    ]);
+    // 첫 등장 유지 → dup 의 title 이 아니라 원본 title.
+    expect(out[0].title).toBe("T0");
+  });
+
+  it("최대 20건으로 cap", () => {
+    const refs = Array.from({ length: 30 }, (_, i) => ({
+      title: `T${i}`,
+      url: `https://n/${i}`,
+      source: "s",
+    }));
+    expect(dedupeNewsByUrl(refs)).toHaveLength(20);
+  });
+
+  it("빈 배열 → []", () => {
+    expect(dedupeNewsByUrl([])).toEqual([]);
   });
 });
 
@@ -350,6 +383,47 @@ describe("clusterSurges", () => {
     expect(theme.stocks.map((s) => s.code)).toContain("014790");
     // singles 에 금호건설 없음.
     expect(payload.singles.find((s) => s.code === "014790")).toBeUndefined();
+  });
+
+  it("테마 news 가 여러 newsRefs 로 같은 URL 을 중복 참조 → dedup 후 unique (IN-01)", async () => {
+    // 두 종목이 같은 라운드업 기사(같은 URL)를 각각 뉴스로 가진 상황.
+    const surges = [
+      {
+        code: "005930",
+        name: "삼성전자",
+        changeRate: 25,
+        news: [
+          { id: "n0", stock_code: "005930", title: "반도체 라운드업", url: "https://n/round", source: "출처", published_at: "2026-07-01T00:00:00Z" },
+        ],
+      },
+      {
+        code: "000660",
+        name: "SK하이닉스",
+        changeRate: 24,
+        news: [
+          // 동일 URL 재등장 (다른 종목의 newsRefs 로 합쳐질 때 중복).
+          { id: "n1", stock_code: "000660", title: "반도체 라운드업", url: "https://n/round", source: "출처", published_at: "2026-07-01T00:00:00Z" },
+          { id: "n2", stock_code: "000660", title: "HBM 수요 급증", url: "https://n/hbm", source: "출처", published_at: "2026-07-01T00:00:00Z" },
+        ],
+      },
+    ];
+    // Claude 가 세 newsRef(0,1,2) 를 모두 참조 → 0,1 은 같은 URL.
+    const resp = {
+      themes: [
+        { name: "반도체", reason: "메모리 강세", stockCodes: ["005930", "000660"], newsRefs: [0, 1, 2] },
+      ],
+      singles: [],
+    };
+    hoist.mockCreate.mockResolvedValue(
+      textResponse("```json\n" + JSON.stringify(resp) + "\n```"),
+    );
+
+    const payload = await clusterSurges(surges, cfg());
+
+    const theme = payload.themes[0];
+    // 3개 참조 중 URL 중복 1건 제거 → 2건.
+    expect(theme.news).toHaveLength(2);
+    expect(theme.news.map((n) => n.url)).toEqual(["https://n/round", "https://n/hbm"]);
   });
 
   it("Claude 예외 → fail-safe 빈 payload", async () => {

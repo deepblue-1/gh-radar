@@ -48,6 +48,28 @@ interface RawSingle {
   newsRefs: number[];
 }
 
+/** dedup 후 최대 저장 뉴스 수 (rule 5 최소저장 — 상한이 필요할 때 cap). */
+const MAX_NEWS_PER_GROUP = 20;
+
+/**
+ * URL 기준 뉴스 dedup (IN-01) — 첫 등장 유지, 순서 안정, 최대 MAX_NEWS_PER_GROUP cap.
+ *
+ * 멤버 종목별 newsRefs 를 합칠 때 같은 라운드업 기사(동일 URL)가 여러 번 들어와
+ * 저장 blob 이 부풀고(예: 39건 중 unique 13건) 프론트가 중복 노출한다. URL 을
+ * canonical key 로 첫 등장만 남긴다 (5원칙 #5 출처표기 = URL verbatim 유지).
+ */
+export function dedupeNewsByUrl(refs: HomeNewsRef[]): HomeNewsRef[] {
+  const seen = new Set<string>();
+  const out: HomeNewsRef[] = [];
+  for (const ref of refs) {
+    if (seen.has(ref.url)) continue;
+    seen.add(ref.url);
+    out.push(ref);
+    if (out.length >= MAX_NEWS_PER_GROUP) break;
+  }
+  return out;
+}
+
 /** newsRefs 인덱스 → verbatim 뉴스 (범위 밖 인덱스 drop, D-04 anti-hallucination). */
 export function resolveNewsRefs(
   indexedNews: Array<{ title: string; url: string; source: string }>,
@@ -359,7 +381,8 @@ export async function clusterSurges(
       const s = surgeByCode.get(c)!;
       return { code: s.code, name: s.name, changeRate: s.changeRate };
     }),
-    news: t.news,
+    // IN-01 — 멤버 종목별 news 합류로 생긴 중복 URL 제거 (저장 blob 축소).
+    news: dedupeNewsByUrl(t.news),
   }));
 
   // singles = reassign 후 남은 후보 (병합되지 않은 순수 single), 급등 집합 내 code 만, changeRate desc.
@@ -376,7 +399,7 @@ export async function clusterSurges(
       name: surge.name,
       changeRate: surge.changeRate,
       reason: s.reason,
-      news: resolveNewsRefs(indexedNews, s.newsRefs),
+      news: dedupeNewsByUrl(resolveNewsRefs(indexedNews, s.newsRefs)),
     });
   }
   singles.sort((a, b) => b.changeRate - a.changeRate);
