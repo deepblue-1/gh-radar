@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 14-07-PLAN.md
-last_updated: "2026-07-02T11:37:26.997Z"
+stopped_at: Completed 14-05-PLAN.md
+last_updated: "2026-07-02T11:44:33.802Z"
 last_activity: 2026-07-02
 progress:
   total_phases: 23
   completed_phases: 16
   total_plans: 119
-  completed_plans: 99
-  percent: 83
+  completed_plans: 100
+  percent: 84
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 14 (ai-analyst-chatbot) — EXECUTING
-Plan: 6 of 11
+Plan: 7 of 11
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -146,6 +146,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 | Phase 14 P03 | 5min | 3 tasks | 6 files |
 | Phase 14 P04 | 8 min | 3 tasks | 9 files |
 | Phase 14 P07 | 5 min | 3 tasks | 5 files |
+| Phase 14 P05 | 3min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -278,6 +279,7 @@ Recent decisions affecting current work:
 - [Phase 14]: Plan 02: 챗봇 웹서치 모델을 chatWebSearchModel 별도 config 키로 분리 — Haiku web_search 미지원 시(RESEARCH A2) CHAT_WEBSEARCH_MODEL=claude-sonnet-4-6 env 1줄 폴백, 코드 무변경. 팀장 Sonnet/전문가 Haiku default, anthropicApiKey 재사용. ChatSSEEventMap 이 SSE 프로토콜 단일 진실 소스.
 - [Phase 14]: requireAuth 는 supabase.auth.getUser(jwt) 재사용 — jose/jsonwebtoken 신규 의존성 0. 서명·만료·revoke supabase-js 내장.
 - [Phase 14]: chat-history 소유권 불일치도 404 CONVERSATION_NOT_FOUND 흡수(403 대신) — 존재 여부 누설 회피(T-14-01 IDOR). DB error 는 500 DB_ERROR 래핑으로 PostgREST 내부 미노출.
+- [Phase 14]: [Plan 05] SPECIALIST_TOOLS name 은 SPECIALIST_TOOL_NAMES 상수 참조(리터럴 중복 금지) + code 는 required 제외(question 만) — 팀장이 종목 없는 질문에서 스키마 위반 없이 자연 미호출, 실제 방어는 runSpecialist code guard(D-08 quote/limitup 무데이터 조회 차단)
 
 ### Pending Todos
 
@@ -304,6 +306,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-07-02T11:37:26.993Z
-Stopped at: Completed 14-07-PLAN.md
+Last session: 2026-07-02T11:44:23.854Z
+Stopped at: Completed 14-05-PLAN.md
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
