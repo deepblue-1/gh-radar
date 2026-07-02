@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type Anthropic from "@anthropic-ai/sdk";
 import { makeCreateResponse } from "../../__tests__/anthropic-mock";
 
 /**
@@ -28,6 +29,7 @@ import { consultQuoteSpecialist } from "../quote-specialist";
 import { consultThemeSpecialist } from "../theme-specialist";
 import { consultNewsSpecialist } from "../news-specialist";
 import { consultLimitupSpecialist } from "../limitup-specialist";
+import { consultWebSearchSpecialist } from "../websearch-specialist";
 
 type Row = Record<string, unknown>;
 interface Call {
@@ -230,5 +232,85 @@ describe("데이터 전문가 4종 (결정적 조회 + Haiku 1콜)", () => {
     expect(text).toContain("실시간 분석을 사용할 수 없습니다");
     // key 없으면 Haiku 를 호출하지 않는다 (비용 0, graceful).
     expect(createMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * web_search text 블록 + citations(web_search_result_location) 응답 골격.
+ * specialistText/extractCitations 가 읽는 res.content 만 최소 구성 (mock).
+ */
+function webSearchResponse(
+  text: string,
+  citations: Array<{ title: string; url: string }>,
+): Anthropic.Message {
+  return {
+    content: [
+      {
+        type: "text",
+        text,
+        citations: citations.map((c) => ({
+          type: "web_search_result_location",
+          url: c.url,
+          title: c.title,
+          cited_text: "",
+          encrypted_index: "",
+        })),
+      },
+    ],
+  } as unknown as Anthropic.Message;
+}
+
+/** web_search_tool_result_error 를 담은 응답 (Haiku 미지원 등 — Pitfall 1). */
+function webSearchErrorResponse(): Anthropic.Message {
+  return {
+    content: [
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_x",
+        content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" },
+      },
+    ],
+  } as unknown as Anthropic.Message;
+}
+
+describe("웹서치 전문가 (web_search 서버 tool + citations)", () => {
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    createMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Test 1: consultWebSearchSpecialist — web_search tool 호출, { text, citations } 반환", async () => {
+    createMock.mockResolvedValue(
+      webSearchResponse("오늘 장중 속보 요약입니다.", [
+        { title: "속보 제목", url: "https://news.example/1" },
+      ]),
+    );
+
+    const out = await consultWebSearchSpecialist({ question: "오늘 무슨 이슈 있어?" });
+
+    expect(out.text).toBe("오늘 장중 속보 요약입니다.");
+    expect(out.citations).toEqual([{ title: "속보 제목", url: "https://news.example/1" }]);
+    expect(createMock).toHaveBeenCalledTimes(1);
+
+    // create 인자에 web_search 서버 tool + max_uses:3 + KR location 포함.
+    const arg = createMock.mock.calls[0][0] as {
+      tools: Array<{ type: string; max_uses?: number; user_location?: { country?: string } }>;
+    };
+    expect(arg.tools[0].type).toBe("web_search_20250305");
+    expect(arg.tools[0].max_uses).toBe(3);
+    expect(arg.tools[0].user_location?.country).toBe("KR");
+  });
+
+  it("Test 2: web_search_tool_result_error → graceful (빈 citations + 안내 텍스트)", async () => {
+    createMock.mockResolvedValue(webSearchErrorResponse());
+
+    const out = await consultWebSearchSpecialist({ question: "오늘 속보?" });
+
+    expect(out.citations).toEqual([]);
+    expect(out.text).toContain("실시간 검색을 사용할 수 없습니다");
   });
 });
