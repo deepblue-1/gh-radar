@@ -392,6 +392,9 @@ export async function handleChatStream(
           break;
         } catch (err) {
           if (isRetryableError(err) && attempt < MAX_RETRIES) {
+            // 부분 text delta 가 이미 나갔으면 클라이언트 누적을 리셋해
+            // 재시도 스트림과의 중복 표시/저장을 방지한다 (WR-02).
+            if (textBuffer) sendSSE(res, "text_clear", {});
             await sleep(1000 * (attempt + 1));
             continue;
           }
@@ -500,6 +503,8 @@ export async function handleChatStream(
           break;
         } catch (err) {
           if (isRetryableError(err) && attempt < MAX_RETRIES) {
+            // recovery 콜도 부분 delta 가 나갔으면 클라이언트 누적 리셋 (WR-02).
+            if (finalText) sendSSE(res, "text_clear", {});
             await sleep(1000 * (attempt + 1));
             continue;
           }
