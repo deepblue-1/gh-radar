@@ -44,6 +44,13 @@ interface ChatSession {
   busy: boolean;
   busyAbortSignal?: AbortSignal;
   interruptController?: AbortController;
+  /**
+   * 이 요청의 히스토리 저장(appendMessage)까지 끝나면 resolve (실패 포함 — 항상 resolve).
+   * 시트 닫힘(clientAbort) 후 백그라운드로 계속되는 생성과 재접속 새 요청이 같은 대화에
+   * 동시에 append 해 created_at 인터리브/sanitize 손실이 나지 않도록, 새 요청은 히스토리
+   * 복원 전에 이 promise 를 await 한다 (WR-07).
+   */
+  pendingPersist?: Promise<void>;
 }
 
 /** 세션 키(conversationId ?? userId)별 in-flight 요청 추적. 새 요청이 이전 요청을 abort. */
@@ -291,8 +298,19 @@ export async function handleChatStream(
   if (existing?.busy && !existing.busyAbortSignal?.aborted) {
     existing.interruptController?.abort();
   }
+  // 이전 요청(interrupt 됐든 백그라운드 계속이든)의 저장 완료 promise — 복원 전 대기 (WR-07).
+  const previousPersist = existing?.pendingPersist;
   const interruptController = new AbortController();
-  const session: ChatSession = { busy: true, busyAbortSignal: abortSignal, interruptController };
+  let resolvePersist!: () => void;
+  const pendingPersist = new Promise<void>((resolve) => {
+    resolvePersist = resolve;
+  });
+  const session: ChatSession = {
+    busy: true,
+    busyAbortSignal: abortSignal,
+    interruptController,
+    pendingPersist,
+  };
   sessions.set(sessionKey, session);
 
   // 오직 interrupt(새 요청)만 Claude 스트림을 취소한다. clientAbort(시트 닫힘)는
@@ -305,6 +323,11 @@ export async function handleChatStream(
   abortSignal.addEventListener("abort", releaseBusy, { once: true });
 
   try {
+    // 이전 요청의 user/assistant 저장이 끝난 뒤에 복원 시작 — 두 생성 스트림이 같은
+    // 대화에 동시 append 해 순서가 꼬이거나 히스토리가 누락되는 것을 방지 (WR-07).
+    // pendingPersist 는 resolve 전용(reject 없음)이라 안전하게 await 가능.
+    await previousPersist;
+
     // --- 대화 복원/생성 (Pitfall 3: 텍스트 스냅샷만 복원) ---
     let convId = conversationId;
     const restored: Anthropic.MessageParam[] = [];
@@ -557,6 +580,8 @@ export async function handleChatStream(
 
     sendSSE(res, "response_complete", {});
   } finally {
+    // 저장 시도까지 종료 — 이 대화를 기다리는 후속 요청 해제 (WR-07, 실패 경로 포함).
+    resolvePersist();
     abortSignal.removeEventListener("abort", releaseBusy);
     // 새 요청이 이미 세션을 점유했으면 해제하지 않음 (finally 경쟁 조건 방지)
     if (session.busyAbortSignal === abortSignal) {

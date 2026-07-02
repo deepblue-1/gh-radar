@@ -335,6 +335,69 @@ describe("handleChatStream (interrupt D-06)", () => {
 });
 
 // ============================================================
+// 6b) 동시 생성 직렬화 (WR-07)
+// ============================================================
+describe("handleChatStream (동시 생성 직렬화 WR-07)", () => {
+  it("Test 6b: 새 요청은 이전 요청의 히스토리 저장 완료 후에 복원을 시작한다", async () => {
+    const order: string[] = [];
+    let releaseAppend!: () => void;
+    const appendGate = new Promise<void>((r) => {
+      releaseAppend = r;
+    });
+    appendMessageMock.mockImplementation(
+      async (_sb: unknown, _id: unknown, msg: { role: string }) => {
+        order.push(`append:${msg.role}`);
+        await appendGate;
+      },
+    );
+    loadConversationMock.mockImplementation(async () => {
+      order.push("load");
+      return { conversation: {}, messages: [] };
+    });
+    streamMock.mockImplementation(() =>
+      makeStreamMock({ textDeltas: ["답"], finalMessage: makeEndTurnFinalMessage("답") }),
+    );
+
+    const { res: res1 } = makeResSpy();
+    const { res: res2 } = makeResSpy();
+    const sb = makeSupabase({});
+    const ac1 = new AbortController();
+    const ac2 = new AbortController();
+
+    const p1 = handleChatStream(res1, sb, ac1.signal, {
+      userId: "u1",
+      conversationId: "c1",
+      message: "first",
+    });
+    await flush();
+    // req1 이 user append(gate)에서 대기 중. 시트 닫힘(clientAbort) — 생성은 계속(D-06).
+    ac1.abort();
+
+    const p2 = handleChatStream(res2, sb, ac2.signal, {
+      userId: "u1",
+      conversationId: "c1",
+      message: "second",
+    });
+    await flush();
+    // req2 의 복원(load)은 req1 저장 완료 전에 시작되지 않는다 — load 는 req1 것 1개뿐.
+    expect(order.filter((o) => o === "load")).toHaveLength(1);
+
+    releaseAppend();
+    await Promise.all([p1, p2]);
+
+    // req1 의 user/assistant 저장이 모두 끝난 뒤에야 req2 의 load 가 실행된다.
+    expect(order).toEqual([
+      "load",
+      "append:user",
+      "append:assistant",
+      "load",
+      "append:user",
+      "append:assistant",
+    ]);
+  });
+});
+
+// ============================================================
 // 7) stock_card (D-07)
 // ============================================================
 describe("handleChatStream (stock_card D-07)", () => {
