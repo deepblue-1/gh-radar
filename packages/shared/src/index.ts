@@ -7,6 +7,16 @@ export type { HomeThemeSnapshot, HomeSurgeTheme, HomeSurgeSingle, HomeSurgeStock
 export { THEME_STOCK_SOURCES } from "./theme";
 export type { NewsArticle } from "./news";
 export type { Discussion, DiscussionListResponse } from "./discussion";
+export type {
+  SpecialistId,
+  ChatRole,
+  MessageBlock,
+  ConversationRow,
+  MessageRow,
+  ChatSSEEventMap,
+  ChatSSEEventType,
+} from "./chat";
+export { SPECIALIST_TOOL_NAMES, SPECIALIST_LABELS } from "./chat";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";
