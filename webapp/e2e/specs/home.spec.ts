@@ -139,15 +139,11 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
-    // 전체 소속 종목(overflow 포함, 접힘 없이) 노출 — 종목 행 링크로 확인.
-    // (뉴스 제목에도 "SK하이닉스" 부분문자열이 있어 종목명은 링크 role 로 특정.)
-    await expect(
-      dialog.getByRole('link', { name: /SK하이닉스/ }),
-    ).toBeVisible();
-    await expect(dialog.getByRole('link', { name: /가온칩스/ })).toBeVisible();
-    await expect(
-      dialog.getByRole('link', { name: /오픈엣지테크놀로지/ }),
-    ).toBeVisible();
+    // 전체 소속 종목(overflow 포함, 접힘 없이) 노출 — 종목 행은 /stocks/{code} href 로 특정.
+    // (뉴스 제목 anchor 에도 "SK하이닉스" 가 있어 name 매칭은 strict-mode 충돌 → href 로 구분.)
+    await expect(dialog.locator('a[href="/stocks/000660"]')).toBeVisible(); // SK하이닉스
+    await expect(dialog.locator('a[href="/stocks/399720"]')).toBeVisible(); // 가온칩스(overflow)
+    await expect(dialog.locator('a[href="/stocks/394280"]')).toBeVisible(); // 오픈엣지테크놀로지(overflow)
 
     // 근거 뉴스 목록(dedup 후 3건 unique — 2건 초과). 중복 URL 기사는 미노출.
     await expect(

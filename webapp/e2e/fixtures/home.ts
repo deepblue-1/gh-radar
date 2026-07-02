@@ -45,7 +45,7 @@ const POPULATED_SNAPSHOT: HomeThemeSnapshot = {
           { code: '042700', name: '한미반도체', changeRate: 28.4 },
           { code: '039030', name: '이오테크닉스', changeRate: 23.2 },
           { code: '394280', name: '오픈엣지테크놀로지', changeRate: 20.7 },
-          { code: '399720', name: '가온칩스', changeRate: 26.9 },
+          { code: '399720', name: '가온칩스', changeRate: 20.3 },
         ],
         // 근거 뉴스 4건 — 중 1건은 중복 URL(1번과 동일) → dedup 후 unique 3건.
         news: [
