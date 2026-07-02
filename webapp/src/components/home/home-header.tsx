@@ -93,7 +93,7 @@ export function HomeHeader({
   const liveCapturedAt = slots[slots.length - 1]?.capturedAt ?? '';
 
   // 슬라이더 debounce — 드래그 중 라벨/썸은 즉시(pendingIdx), fetch(onSelectSlot)는
-  // 250ms 안정화 후 1회 (틱마다 재조회 방지 + in-flight 레이스 축소).
+  // 500ms 안정화 후 1회 (틱마다 재조회 방지 + in-flight 레이스 축소).
   const [pendingIdx, setPendingIdx] = useState<number | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -182,7 +182,7 @@ export function HomeHeader({
             debounceRef.current = setTimeout(() => {
               onSelectSlot(slots[idx].capturedAt);
               setPendingIdx(null);
-            }, 250);
+            }, 500);
           };
           return (
             <div className="flex items-center gap-3">

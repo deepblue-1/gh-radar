@@ -95,6 +95,8 @@ export function ThemeCard({ theme }: ThemeCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const avgLabel = formatChange(avg);
+  // 카드 "전체 보기" 노출 판단용 — NewsBlock 내부 dedup 과 동일하게 URL unique 수.
+  const newsCount = new Set(theme.news.map((n) => n.url)).size;
   const sheetDesc = theme.reason
     ? `${theme.reason} · ${theme.stocks.length}종목 · 평균 ${avgLabel}`
     : `${theme.stocks.length}종목 · 평균 ${avgLabel}`;
@@ -152,8 +154,18 @@ export function ThemeCard({ theme }: ThemeCardProps) {
           )}
         </div>
 
-        {/* 근거 뉴스 — 카드 본문은 조금 더(3건). 전체는 시트에서. */}
-        <NewsBlock news={theme.news} showLabel max={3} />
+        {/* 근거 뉴스 — 카드 본문은 4건. 전체는 시트에서 (아래 "전체 보기" 버튼). */}
+        <NewsBlock news={theme.news} showLabel max={4} />
+        {newsCount > 4 && (
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            aria-haspopup="dialog"
+            className="-mt-[6px] self-start rounded-[var(--r-sm)] px-[2px] text-left text-[length:var(--t-caption)] text-[var(--muted-fg)] transition-colors hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          >
+            뉴스 {newsCount}건 전체 보기
+          </button>
+        )}
       </article>
 
       {/* B: 전체 소속 종목 바텀시트 */}

@@ -32,7 +32,7 @@ function makeTheme(): HomeSurgeTheme {
   };
 }
 
-/** 근거 뉴스 5건(중복 URL 1건 포함) 테마 — 카드 max=3 / 시트 전체 목록 시나리오. */
+/** 근거 뉴스 6건(중복 URL 1건 포함, unique 5) 테마 — 카드 max=4 / 시트 전체 목록 시나리오. */
 function makeNewsyTheme(): HomeSurgeTheme {
   return {
     name: '초전도체',
@@ -47,6 +47,7 @@ function makeNewsyTheme(): HomeSurgeTheme {
       { title: '뉴스3', url: 'https://n/3', source: '매일경제' },
       { title: '뉴스1-중복', url: 'https://n/1', source: '연합뉴스' }, // dup URL
       { title: '뉴스4', url: 'https://n/4', source: '서울경제' },
+      { title: '뉴스5', url: 'https://n/5', source: '이데일리' },
     ],
   };
 }
@@ -108,26 +109,32 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
     );
   });
 
-  it('카드 본문 근거 뉴스는 dedup 후 최대 3건까지 노출한다', () => {
+  it('카드 본문 근거 뉴스는 dedup 후 최대 4건 + "전체 보기" 버튼을 노출한다', () => {
     render(<ThemeCard theme={makeNewsyTheme()} />);
 
-    // 카드 본문(시트 밖)에서 뉴스1~3 노출, 4번째(뉴스4)는 max=3 로 미노출.
+    // 카드 본문(시트 밖)에서 뉴스1~4 노출, 5번째(뉴스5)는 max=4 로 미노출.
     expect(screen.getByText('뉴스1')).toBeInTheDocument();
-    expect(screen.getByText('뉴스2')).toBeInTheDocument();
-    expect(screen.getByText('뉴스3')).toBeInTheDocument();
-    expect(screen.queryByText('뉴스4')).not.toBeInTheDocument();
+    expect(screen.getByText('뉴스4')).toBeInTheDocument();
+    expect(screen.queryByText('뉴스5')).not.toBeInTheDocument();
     // 중복 URL 방어 dedup → "뉴스1-중복" 은 나타나지 않는다.
     expect(screen.queryByText('뉴스1-중복')).not.toBeInTheDocument();
+
+    // unique 5 > 4 → "뉴스 5건 전체 보기" 버튼(시트 오픈 트리거) 노출.
+    const more = screen.getByRole('button', { name: '뉴스 5건 전체 보기' });
+    expect(more).toHaveAttribute('aria-haspopup', 'dialog');
+    fireEvent.click(more);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('뉴스5')).toBeInTheDocument();
   });
 
-  it('B: 시트에는 근거 뉴스 전체 목록(2건 초과·dedup 후 4건)을 노출한다', () => {
+  it('B: 시트에는 근거 뉴스 전체 목록(2건 초과·dedup 후 5건)을 노출한다', () => {
     render(<ThemeCard theme={makeNewsyTheme()} />);
 
     const trigger = screen.getByRole('button', { name: /초전도체/ });
     fireEvent.click(trigger);
     const dialog = screen.getByRole('dialog');
 
-    // dedup(중복 URL 1건 제거) 후 4건 unique → 시트에 모두 노출(2건 초과).
+    // dedup(중복 URL 1건 제거) 후 5건 unique → 시트에 모두 노출(2건 초과).
     expect(within(dialog).getByText('뉴스1')).toBeInTheDocument();
     expect(within(dialog).getByText('뉴스2')).toBeInTheDocument();
     expect(within(dialog).getByText('뉴스3')).toBeInTheDocument();
