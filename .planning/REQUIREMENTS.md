@@ -82,6 +82,10 @@
 
 - **HOME-01**: 앱 루트(/) 홈 화면에 오늘 +20% 급등 종목을 bottom-up AI(Claude Haiku) 클러스터링한 "오늘의 주도 테마 · 상승 이유 · 소속 종목 · 대표 뉴스(1-2건, verbatim)"를 시점별(:30) 스냅샷으로 표시. home-sync 워커가 장중 매시 :30 배치 사전계산(top_movers⋈stock_quotes≥20% + news_articles), hash-skip 복제 append, 웹앱 read-only. 날짜/장중 시점 네비 — Phase 13
 
+### Chat
+
+- [x] **CHAT-01**: 팀장(Sonnet)+전문가 5(Haiku: 시세·수급/테마/뉴스·심리/상한가 패턴/실시간 웹서치) 멀티에이전트 AI 애널리스트 챗봇 — 로그인 사용자별·종목별 히스토리(conversations/messages, RLS), SSE 스트리밍 POST /api/chat + JWT 검증, 미니 종목카드/출처 인용/미니 일봉차트/진행 스텝퍼, react-markdown 답변, 전역 FAB + /chat 페이지 — Phase 14
+
 ## v2 Requirements
 
 ### Personalization
@@ -148,12 +152,13 @@
 | COMV-01 | Phase 11 | Pending |
 | LIMIT-01 | Phase 12 | Complete |
 | HOME-01 | Phase 13 | Complete |
+| CHAT-01 | Phase 14 | Complete |
 
 **Coverage:**
-- v1 requirements: 36 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36)
-- Mapped to phases: 36
+- v1 requirements: 37 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36; CHAT-01 added 2026-07-02 with Phase 14(AI 애널리스트 챗봇) → 36→37)
+- Mapped to phases: 37
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-07-02 — Phase 13 (home-surge-themes) 13-06 완료: HOME-01 end-to-end 프로덕션 라이브. home-sync Cloud Run Job(gh-radar-home-sync @ f6b1905) + Scheduler(gh-radar-home-sync-cron, 30 9-15 KST 7슬롯, OAuth) 배포 + Claude POC PASS(themeCount=4 실제 대응, 환각 0, ~$3.1/월 이내) + server /api/home 200 + 프로덕션 홈 `/` 렌더 + smoke 6/6 + home E2E 5/5. Traceability HOME-01 | Phase 13 | Complete.*
+*Last updated: 2026-07-02 — Phase 14 (ai-analyst-chatbot) 14-11 Task 1: CHAT-01 v1 정의 + Traceability(| CHAT-01 | Phase 14 | Complete |) 추가 + Coverage 36→37. Playwright chat E2E 4시나리오(비로그인 게이트/로그인 스트리밍/종목상세 FAB 라벨/대화목록·삭제) green 5/5. 배포·web_search POC·production smoke 는 14-11 Task 2 checkpoint.*
