@@ -23,6 +23,9 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { MessageBlock } from "@gh-radar/shared";
 
+import { MiniStockCard } from "./mini-stock-card";
+import { Citation } from "./citation";
+
 export interface MessageAssistantProps {
   content: string;
   /** SSE 부가물(카드/차트/인용). null/미전달이면 본문만 렌더. */
@@ -98,11 +101,11 @@ const MARKDOWN_COMPONENTS: Components = {
 
 export function MessageAssistant({
   content,
-  blocks: _blocks,
+  blocks,
   streaming = false,
 }: MessageAssistantProps) {
-  // blocks(stock_card/citation/chart) 렌더는 Task 2·3 에서 배선(현 Task 는 본문+면책).
-  void _blocks;
+  const cards = blocks?.filter((b) => b.type === "stock_card") ?? [];
+  const citations = blocks?.filter((b) => b.type === "citation") ?? [];
 
   return (
     <div className="flex flex-col gap-[var(--s-1)]">
@@ -128,9 +131,42 @@ export function MessageAssistant({
       </div>
 
       {!streaming && (
-        <p className="mt-[var(--s-2)] text-[length:12px] text-[var(--muted-fg)]">
-          {DISCLAIMER}
-        </p>
+        <>
+          {cards.map((b, i) =>
+            b.type === "stock_card" ? (
+              <MiniStockCard
+                key={`card-${i}`}
+                code={b.code}
+                name={b.name}
+                price={b.price}
+                changeRate={b.changeRate}
+              />
+            ) : null,
+          )}
+
+          {citations.length > 0 && (
+            <div className="mt-[var(--s-2)]">
+              <div className="mb-[var(--s-1)] text-[length:11px] font-semibold text-[var(--muted-fg)]">
+                근거 뉴스
+              </div>
+              {citations.map((b, i) =>
+                b.type === "citation" ? (
+                  <Citation
+                    key={`cite-${i}`}
+                    title={b.title}
+                    source={b.source}
+                    url={b.url}
+                    kind={b.kind}
+                  />
+                ) : null,
+              )}
+            </div>
+          )}
+
+          <p className="mt-[var(--s-2)] text-[length:12px] text-[var(--muted-fg)]">
+            {DISCLAIMER}
+          </p>
+        </>
       )}
     </div>
   );
