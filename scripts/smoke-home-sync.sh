@@ -10,7 +10,7 @@ set -uo pipefail
 # INV-3: 최근 로그 "home-sync failed" OR "401" 0건 (Scheduler OAuth/시크릿 정상)
 # INV-4: Supabase home_theme_snapshots count (오늘 trade_date) >= 1
 #          ← 핵심 성공 기준. 급등 없는 날에도 스냅샷 row 자체는 적재됨(payload themes/singles 빈 배열).
-# INV-5: Scheduler ENABLED + schedule == "30 9-15 * * 1-5"
+# INV-5: Scheduler ENABLED + schedule == "*/10 9-15 * * 1-5"
 # INV-6: Scheduler OAuth invoker (Pitfall — OIDC 금지)
 #
 # DI-02 주의: curl -I 의 Content-Range 헤더 끝에 CR(\r) 이 붙어
@@ -100,12 +100,12 @@ check "INV-4 Supabase home_theme_snapshots (today) >= 1" bash -c "
 "
 
 # ─────────────────────────────────────────────────────────────
-# INV-5: Scheduler ENABLED + schedule == "30 9-15 * * 1-5"
+# INV-5: Scheduler ENABLED + schedule == "*/10 9-15 * * 1-5"
 # ─────────────────────────────────────────────────────────────
 check "INV-5 scheduler ENABLED + correct schedule" bash -c "
   STATE=\$(gcloud scheduler jobs describe $SCHEDULER_NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(state)' 2>/dev/null)
   SCHEDULE=\$(gcloud scheduler jobs describe $SCHEDULER_NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '30 9-15 * * 1-5' ]
+  [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '*/10 9-15 * * 1-5' ]
 "
 
 # ─────────────────────────────────────────────────────────────

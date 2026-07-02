@@ -10,8 +10,8 @@ set -euo pipefail
 # 리소스:
 #   - Cloud Run Job: gh-radar-home-sync (asia-northeast3, 512Mi, 120s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/home-sync:<sha>
-#   - Scheduler: gh-radar-home-sync-cron "30 9-15 * * 1-5" (KST, 장중 매시 :30 — 7슬롯)
-#       9:30·10:30·11:30·12:30·13:30·14:30·15:30(마감 슬롯 포함, §Pattern 5)
+#   - Scheduler: gh-radar-home-sync-cron "*/10 9-15 * * 1-5" (KST, 장중 10분 간격)
+#       09:00~15:50 매 10분(15:30 마감 슬롯 포함). hash-skip 로 변경 없는 슬롯은 Claude 0회.
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용
 #   (OIDC 금지, Phase 05.1 Pitfall 2 — Cloud Run Job 호출은 OAuth bearer token 만 허용)
@@ -157,15 +157,16 @@ gcloud run jobs add-iam-policy-binding "$JOB" \
 echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 7: Cloud Scheduler — 장중 매시 :30 KST (7슬롯, 15:30 마감 포함)
-#   - --schedule="30 9-15 * * 1-5" (분=30, 시=9~15, 월~금)
+# Section 7: Cloud Scheduler — 장중 10분 간격 KST (09:00~15:50, 15:30 마감 포함)
+#   - --schedule="*/10 9-15 * * 1-5" (분=매 10분, 시=9~15, 월~금)
+#   - hash-skip clone-append 로 변경 없는 슬롯은 Claude 호출 0 (비용 방어)
 #   - --oauth-service-account-email 사용 (OIDC 금지, Phase 05.1 Pitfall 2)
 #   - time-zone Asia/Seoul
 # ═══════════════════════════════════════════════════════════════
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 SCHEDULER_NAME="gh-radar-home-sync-cron"
-SCHEDULE="30 9-15 * * 1-5"
+SCHEDULE="*/10 9-15 * * 1-5"
 
 if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
   echo "▶ scheduler update: $SCHEDULER_NAME (schedule: $SCHEDULE)"
@@ -194,7 +195,7 @@ fi
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
-echo "  Scheduler: $SCHEDULER_NAME (KST 장중 매시 :30, 7슬롯, OAuth invoker)"
+echo "  Scheduler: $SCHEDULER_NAME (KST 장중 10분 간격, OAuth invoker)"
 echo "  Secrets reused (신규 0): supabase-service-role, anthropic-api-key"
 echo "  No VPC / no brightdata (home-sync 는 Supabase + Anthropic 만)"
 echo ""
