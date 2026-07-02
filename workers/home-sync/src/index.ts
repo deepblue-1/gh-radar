@@ -48,6 +48,8 @@ export interface HomeSyncSummary {
   stockCount: number;
   claudeCalled: boolean;
   isCarried: boolean;
+  /** 정규장 마감(15:30 KST) 초과 슬롯이라 cycle 을 건너뜀 (upsert 없음). */
+  skipped?: boolean;
 }
 
 const KST_OFFSET_MS = 9 * 3600_000;
@@ -63,6 +65,8 @@ export function computeSlot(now: Date): {
   tradeDate: string;
   capturedAt: string;
   marketStatus: "open" | "closed";
+  /** 슬롯이 마감(15:30 KST) **초과** — 15:40/15:50 등. cycle skip 대상 (15:30 은 종가 슬롯이라 실행). */
+  afterClose: boolean;
 } {
   const kst = new Date(now.getTime() + KST_OFFSET_MS);
   const y = kst.getUTCFullYear();
@@ -74,10 +78,11 @@ export function computeSlot(now: Date): {
   const slotMinute = Math.floor(kst.getUTCMinutes() / 10) * 10;
   const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, slotMinute, 0);
   const capturedAt = new Date(slotKstMs - KST_OFFSET_MS).toISOString();
-  // 정규장 마감 15:30 KST 이상 → closed.
+  // 정규장 마감 15:30 KST 이상 → closed. 15:30 초과(15:40+)는 skip 대상.
   const marketStatus: "open" | "closed" =
     hour > 15 || (hour === 15 && slotMinute >= 30) ? "closed" : "open";
-  return { tradeDate, capturedAt, marketStatus };
+  const afterClose = hour > 15 || (hour === 15 && slotMinute > 30);
+  return { tradeDate, capturedAt, marketStatus, afterClose };
 }
 
 function countStocks(payload: HomeSnapshotPayload): number {
@@ -96,8 +101,22 @@ export async function runHomeSyncCycle(
     deps.supabase ??
     createSupabaseClient(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
 
-  const { tradeDate, capturedAt, marketStatus } = computeSlot(now);
+  const { tradeDate, capturedAt, marketStatus, afterClose } = computeSlot(now);
   log.info({ tradeDate, capturedAt, marketStatus }, "home-sync cycle start");
+
+  // 정규장 마감(15:30 KST) 초과 슬롯(15:40/15:50)은 skip — 종가는 15:30 슬롯이 최종.
+  if (afterClose) {
+    log.info({ capturedAt }, "마감(15:30) 초과 슬롯 — cycle skip (upsert 없음)");
+    return {
+      tradeDate,
+      capturedAt,
+      themeCount: 0,
+      stockCount: 0,
+      claudeCalled: false,
+      isCarried: false,
+      skipped: true,
+    };
+  }
 
   // 1) 급등 로드 + 2) content hash.
   const surges = await loadSurges(supabase, cfg, deps.loadSurgesOptions);

@@ -208,6 +208,42 @@ describe("runHomeSyncCycle (hash-skip clone-append)", () => {
   });
 });
 
+describe("runHomeSyncCycle (마감 초과 슬롯 skip)", () => {
+  it("15:40 KST → skipped=true, DB/cluster 호출 없음 (upsert 없음)", async () => {
+    const sb = createMockSupabase();
+    const cluster = vi.fn();
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: new Date("2026-07-01T06:40:00Z"), // 15:40 KST
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(summary.skipped).toBe(true);
+    expect(cluster).not.toHaveBeenCalled();
+    expect(sb._chains.home_theme_snapshots?.upsert).toBeUndefined(); // 테이블 접근 자체 없음
+  });
+
+  it("15:30 KST(마감 종가 슬롯) → skip 아님, 정상 실행", async () => {
+    const sb = seedSurgeSupabase();
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: new Date("2026-07-01T06:30:00Z"), // 15:30 KST
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(summary.skipped).toBeUndefined();
+    expect(sb._chains.home_theme_snapshots.upsert).toHaveBeenCalled();
+  });
+});
+
 describe("runHomeSyncCycle (transient-empty 가드)", () => {
   /** stock_quotes gte → [] (급등 0) 로 seed. */
   function seedEmptySupabase() {
