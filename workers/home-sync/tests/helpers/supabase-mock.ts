@@ -25,6 +25,7 @@ export interface MockSupabaseChain {
   in: ReturnType<typeof vi.fn>;
   is: ReturnType<typeof vi.fn>;
   gte: ReturnType<typeof vi.fn>;
+  gt: ReturnType<typeof vi.fn>;
   lte: ReturnType<typeof vi.fn>;
   lt: ReturnType<typeof vi.fn>;
   order: ReturnType<typeof vi.fn>;
@@ -75,6 +76,7 @@ export function createMockSupabase(
       in: vi.fn().mockReturnThis(),
       is: vi.fn().mockReturnThis(),
       gte: vi.fn().mockReturnThis(),
+      gt: vi.fn().mockReturnThis(),
       lte: vi.fn().mockReturnThis(),
       lt: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),

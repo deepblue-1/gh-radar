@@ -22,7 +22,9 @@ import { upsertSnapshot } from "./pipeline/upsertSnapshot";
  *   5. upsertSnapshot (onConflict PK ignoreDuplicates — slot 재실행 idempotent).
  *
  * captured_at 은 KST 10분 슬롯 (장중). marketStatus: slot >= 15:30 KST → closed.
- * 급등 없는 날(surges 0)도 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
+ * surges 0 처리: 오늘 이미 non-empty 스냅샷이 있으면 마지막 non-empty payload 를 clone-append
+ * (transient-empty 가드 — stock_quotes 상류 갱신 갭 시 spurious empty 방지). 오늘 아직 non-empty
+ * 가 없으면(진짜 급등 없는 날) 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
  */
 
 export interface HomeSyncDeps {
@@ -114,7 +116,35 @@ export async function runHomeSyncCycle(
   let isCarried: boolean;
   let claudeCalled: boolean;
 
-  if (prevRow && prevRow.content_hash === hash && prevRow.payload) {
+  if (surges.length === 0) {
+    // 4a') transient-empty 가드 — loadSurges 가 0 을 반환했지만 stock_quotes 상류 갱신 갭으로
+    // 일시 공백일 수 있다. 오늘 이미 non-empty 스냅샷이 있으면 빈 스냅샷을 새로 쓰지 않고
+    // 마지막 non-empty payload 를 clone-append (spurious empty 방지). 진짜 급등 없는 날
+    // (오늘 아직 non-empty 없음) 은 기존대로 빈 스냅샷을 append (홈 빈 상태 표시용).
+    const { data: lastGoodRows } = await supabase
+      .from("home_theme_snapshots")
+      .select("payload")
+      .eq("trade_date", tradeDate)
+      .gt("stock_count", 0)
+      .order("captured_at", { ascending: false })
+      .limit(1);
+    const lastGood = (
+      (lastGoodRows ?? [])[0] as { payload?: HomeSnapshotPayload } | undefined
+    )?.payload;
+    if (lastGood) {
+      payload = lastGood;
+      isCarried = true;
+      claudeCalled = false;
+      log.info(
+        {},
+        "surges 0 — 마지막 non-empty payload clone-append (transient-empty 가드, stock_quotes 일시 공백)",
+      );
+    } else {
+      payload = { threshold: cfg.surgeThreshold, marketStatus, themes: [], singles: [] };
+      isCarried = false;
+      claudeCalled = false;
+    }
+  } else if (prevRow && prevRow.content_hash === hash && prevRow.payload) {
     // 4a) hash-match — 직전 payload 복제 append (Claude 호출 skip, Pattern 4).
     payload = prevRow.payload;
     isCarried = true;
@@ -133,7 +163,7 @@ export async function runHomeSyncCycle(
       singles: clustered.singles,
     };
     isCarried = false;
-    claudeCalled = surges.length > 0; // 빈 급등이면 clusterSurges 가 short-circuit(호출 0).
+    claudeCalled = true; // 이 분기는 surges.length > 0 보장 (빈 급등은 위 가드에서 처리).
   }
 
   const themeCount = payload.themes.length;

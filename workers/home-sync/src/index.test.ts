@@ -206,3 +206,62 @@ describe("runHomeSyncCycle (hash-skip clone-append)", () => {
     expect(upsertArg.payload).toEqual(prevPayload); // 직전 payload 복제
   });
 });
+
+describe("runHomeSyncCycle (transient-empty 가드)", () => {
+  /** stock_quotes gte → [] (급등 0) 로 seed. */
+  function seedEmptySupabase() {
+    const sb = createMockSupabase();
+    sb.from("stock_quotes").gte.mockResolvedValue({ data: [], error: null });
+    return sb;
+  }
+
+  it("surges 0 + 오늘 non-empty 존재: cluster NOT called, 마지막 non-empty payload clone-append (is_carried=true)", async () => {
+    const sb = seedEmptySupabase();
+    // prevRow(latest) + lastGood(gt stock_count 0) 모두 .limit 종결 → GOOD payload 주입.
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({
+      data: [{ payload: CLUSTER_PAYLOAD, content_hash: "x", stock_count: 3 }],
+      error: null,
+    });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+    });
+
+    expect(cluster).not.toHaveBeenCalled();
+    expect(summary.isCarried).toBe(true);
+    expect(summary.claudeCalled).toBe(false);
+    expect(summary.stockCount).toBe(3); // 복제된 non-empty payload (테마 2 + single 1)
+
+    const upsertArg = sb._chains.home_theme_snapshots.upsert.mock.calls[0][0];
+    expect(upsertArg.is_carried).toBe(true);
+    expect(upsertArg.payload).toEqual(CLUSTER_PAYLOAD);
+  });
+
+  it("surges 0 + 오늘 non-empty 없음(진짜 급등 없는 날): 빈 payload append (is_carried=false, stocks 0)", async () => {
+    const sb = seedEmptySupabase();
+    // prevRow + lastGood 모두 [] → carry 대상 없음.
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+    });
+
+    expect(cluster).not.toHaveBeenCalled();
+    expect(summary.isCarried).toBe(false);
+    expect(summary.claudeCalled).toBe(false);
+    expect(summary.themeCount).toBe(0);
+    expect(summary.stockCount).toBe(0);
+
+    const upsertArg = sb._chains.home_theme_snapshots.upsert.mock.calls[0][0];
+    expect(upsertArg.payload.themes).toEqual([]);
+    expect(upsertArg.payload.singles).toEqual([]);
+  });
+});
