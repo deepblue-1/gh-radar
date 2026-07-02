@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 14-10-PLAN.md
-last_updated: "2026-07-02T12:37:59.758Z"
+status: verifying
+stopped_at: Completed 14-11-PLAN.md (phase 14 all plans done)
+last_updated: "2026-07-02T13:28:24.693Z"
 last_activity: 2026-07-02
 progress:
   total_phases: 23
-  completed_phases: 16
+  completed_phases: 17
   total_plans: 119
-  completed_plans: 104
-  percent: 87
+  completed_plans: 105
+  percent: 88
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 14 (ai-analyst-chatbot) — EXECUTING
 Plan: 11 of 11
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-07-02
 
@@ -151,6 +151,7 @@ Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 | Phase 14 P06 | 9min | 3 tasks | 6 files |
 | Phase 14 P09 | 9 min | 3 tasks | 9 files |
 | Phase 14 P10 | 8 min | 2 tasks | 4 files |
+| Phase 14 P11 | ~50min | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -290,6 +291,9 @@ Recent decisions affecting current work:
 - [Phase 14]: [Plan 06] 세션 Map 은 interrupt/busy 가드 전용(키=conversationId??userId), 히스토리는 DB loadConversation 복원 — messages 는 텍스트 스냅샷만 저장(tool 원본 미저장, Pitfall 3) 후 sanitizeMessages 필수
 - [Phase 14]: [Plan 09] MiniChart 는 StockDailyChart 통째 재사용 대신 동일 lightweight-charts+chart-colors 스택으로 120px mini 축약(볼륨/마커/hover 제거) — oklch 회피 sRGB 팔레트 주입, D-10 충족
 - [Phase 14]: [Plan 09] 챗 blocks(stock_card/citation/chart)는 스트리밍 중 로컬 배열 수집 → response_complete 에 확정 메시지 부착. 진행 중엔 AgentProgress 스텝퍼+부분텍스트만(D-05 + shift 최소화)
+- [Phase 14]: 챗 대화목록 GET 은 bare array 반환 — { data } envelope 가 webapp apiFetch(unwrap 없음) 계약과 불일치해 종목별 히스토리 유실. production smoke 로 발견, Rule 1 수정(05e96b4)
+- [Phase 14]: 챗 면책 문구 전면 제거 — 사용자 checkpoint 결정. 서버 프롬프트+webapp UI+테스트 전부 삭제, 매매지시 금지·환각 금지 안전 가드는 유지(8fd25cc)
+- [Phase 14]: 챗 모델 전면 claude-sonnet-5 — 사용자 결정(팀장+전문가+웹서치 3키). 전문가 temperature 제거+thinking disabled, 팀장 adaptive thinking 유지+max_tokens 8192. web_search_20250305 유지, [chat] usage 에 model=claude-sonnet-5 관측(2918a4b)
 
 ### Pending Todos
 
@@ -316,6 +320,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-07-02T12:37:59.754Z
-Stopped at: Completed 14-10-PLAN.md
+Last session: 2026-07-02T13:28:07.750Z
+Stopped at: Completed 14-11-PLAN.md (phase 14 all plans done)
 Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
