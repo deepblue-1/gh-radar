@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Home, Layers, Star } from "lucide-react";
+import { Activity, Home, Layers, MessageSquare, Star } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,9 @@ const NAV = [
   { href: "/scanner", label: "스캐너", icon: Activity },
   { href: "/themes", label: "테마", icon: Layers },
   { href: "/watchlist", label: "관심종목", icon: Star },
+  // 라벨 통일: FAB primary CTA / UI-SPEC Copywriting 과 동일한 "AI 애널리스트"
+  // (ROADMAP 초안 "AI챗봇" 서술 폐기). /chat 페이지는 P10 에서 채운다.
+  { href: "/chat", label: "AI 애널리스트", icon: MessageSquare },
 ] as const;
 
 export function AppSidebar() {

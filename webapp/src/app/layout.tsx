@@ -6,6 +6,9 @@ import type { ReactNode } from 'react';
 import { AuthProvider } from '@/lib/auth-context';
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { WatchlistSetProvider } from '@/hooks/use-watchlist-set';
+import { ChatProvider } from '@/components/chat/chat-provider';
+import { ChatFab } from '@/components/chat/chat-fab';
+import { ChatSheet } from '@/components/chat/chat-sheet';
 import { pretendard, geistMono } from '@/lib/fonts';
 
 export const metadata: Metadata = {
@@ -35,7 +38,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <ThemeProvider>
           <AuthProvider>
-            <WatchlistSetProvider>{children}</WatchlistSetProvider>
+            {/* ChatProvider 는 AuthProvider 안쪽 — FAB/시트가 useChat + useAuth 둘 다 소비.
+                FAB/Sheet 를 children 뒤에 전역 마운트해 모든 페이지 우하단에서 접근한다. */}
+            <ChatProvider>
+              <WatchlistSetProvider>{children}</WatchlistSetProvider>
+              <ChatFab />
+              <ChatSheet />
+            </ChatProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
