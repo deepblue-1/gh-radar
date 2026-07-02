@@ -69,10 +69,12 @@ check "INV-7 CORS preflight (거부)" bash -c "
   ! curl -s -X OPTIONS -H 'Origin: https://evil.example.com' -H 'Access-Control-Request-Method: GET' -D - -o /dev/null '$URL/api/scanner' | grep -qi '^access-control-allow-origin:'
 "
 
-# INV-8: rate limit — /api/scanner 201 req → 마지막은 429 (health 는 rate-limit skip 대상이므로 다른 라우트로 검증)
-check "INV-8 rate limit 201 req → 429" bash -c "
-  last=\$(for i in \$(seq 1 201); do curl -s -o /dev/null -w '%{http_code}\n' '$URL/api/scanner'; done | tail -1)
-  [ \"\$last\" = '429' ]
+# INV-8: rate limit — /api/scanner 240 req 병렬(20 동시) → 429 최소 1건.
+#   순차 curl 은 왕복 지연으로 분당 한도(200/min)에 도달 못해 환경 의존 flaky 였음
+#   (요청당 ~0.4s → 분당 ~135req). 병렬로 윈도우 내 한도 초과를 보장.
+check "INV-8 rate limit 240 req(병렬) → 429 발생" bash -c "
+  codes=\$(seq 1 240 | xargs -P 20 -I{} curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 '$URL/api/scanner')
+  echo \"\$codes\" | grep -q '^429\$'
 "
 
 # INV-9: X-Request-Id 헤더 항상 존재
