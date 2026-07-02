@@ -153,6 +153,26 @@ describe("데이터 전문가 4종 (결정적 조회 + Haiku 1콜)", () => {
     ).toBe(true);
   });
 
+  it("Test 2b: consultThemeSpecialist — code 미지정 시 주도 테마 폴백 조회 + Haiku 1콜 (WR-01)", async () => {
+    const sb = makeSupabase({
+      themes: [{ id: "t1", name: "반도체", description: "반도체 테마", top3_avg_change_rate: "12.3" }],
+    });
+
+    const text = await consultThemeSpecialist(sb, { question: "오늘 주도 테마는?" });
+
+    // 안내 문구가 아니라 실제 opinion 이 반환된다 (코드 없는 질의 유효, WR-01).
+    expect(text).toBe(OPINION);
+    expect(createMock).toHaveBeenCalledTimes(1);
+    // themes 를 top3_avg_change_rate desc 로 조회한다.
+    expect(
+      sb._calls.some(
+        (c) => c.table === "themes" && c.method === "order" && c.args[0] === "top3_avg_change_rate",
+      ),
+    ).toBe(true);
+    // 종목 멤버십(theme_stocks) 조회는 하지 않는다.
+    expect(sb._calls.some((c) => c.table === "theme_stocks")).toBe(false);
+  });
+
   it("Test 3: consultNewsSpecialist — discussions 조회에 relevance != 'noise' 필터 포함", async () => {
     const sb = makeSupabase({
       news_articles: [
@@ -177,6 +197,32 @@ describe("데이터 전문가 4종 (결정적 조회 + Haiku 1콜)", () => {
           (c.args[0] as string).includes("noise"),
       ),
     ).toBe(true);
+  });
+
+  it("Test 3b: consultNewsSpecialist — code 미지정 시 최근 전체 뉴스 폴백 조회 (WR-01)", async () => {
+    const sb = makeSupabase({
+      news_articles: [
+        {
+          stock_code: "005930",
+          title: "반도체 업황 개선",
+          source: "junggi",
+          url: "https://ex.com/b",
+          published_at: "2026-07-01T00:00:00Z",
+        },
+      ],
+    });
+
+    const text = await consultNewsSpecialist(sb, { question: "요즘 시장 뉴스 어때?" });
+
+    expect(text).toBe(OPINION);
+    expect(createMock).toHaveBeenCalledTimes(1);
+    // 전체 뉴스 조회 (stock_code eq 필터 없음) + discussions 미조회.
+    expect(
+      sb._calls.some(
+        (c) => c.table === "news_articles" && c.method === "eq" && c.args[0] === "stock_code",
+      ),
+    ).toBe(false);
+    expect(sb._calls.some((c) => c.table === "discussions")).toBe(false);
   });
 
   it("Test 4: consultLimitupSpecialist — limit_up_stock_stats + events 조회 후 opinion", async () => {

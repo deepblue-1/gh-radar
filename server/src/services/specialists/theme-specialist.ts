@@ -12,6 +12,10 @@ import type { SpecialistInput } from "./quote-specialist.js";
  * 결정적 조회: 종목의 active 소속 테마(theme_stocks, effective_to IS NULL) → 테마 메타
  * (themes: name/description/top3_avg_change_rate) + 테마 동조(theme_comovement) → Haiku 1콜.
  * 내부 tool-use 루프 없음. max_tokens=700.
+ *
+ * code 미지정("오늘 주도 테마는?" 류) 시에는 오늘 주도 테마 컨텍스트로 폴백 —
+ * themes 를 top3_avg_change_rate desc 상위 10건 조회해 주입한다 (WR-01 정합화:
+ * orchestrator 의 "theme 는 code 없이도 유효" 계약을 실제로 이행).
  */
 
 const THEME_META_COLS = "id,name,description,top3_avg_change_rate";
@@ -68,16 +72,47 @@ async function fetchThemeContext(
   }
 }
 
-/** 테마 전문가 상담. Haiku 1콜로 opinion 텍스트 반환. */
+/** code 미지정 폴백 — 오늘 주도 테마(top3_avg_change_rate desc 상위 10) 컨텍스트 (WR-01). */
+async function fetchLeadingThemes(
+  supabase: SupabaseClient,
+): Promise<Record<string, unknown>> {
+  try {
+    const { data } = await supabase
+      .from("themes")
+      .select("name,description,top3_avg_change_rate")
+      .eq("hidden", false)
+      .order("top3_avg_change_rate", { ascending: false, nullsFirst: false })
+      .limit(10);
+    const leadingThemes = ((data ?? []) as Array<{
+      name: string;
+      description: string | null;
+      top3_avg_change_rate: string | number | null;
+    }>).map((t) => ({
+      name: t.name,
+      description: t.description,
+      top3AvgChangeRate:
+        t.top3_avg_change_rate === null || t.top3_avg_change_rate === undefined
+          ? null
+          : Number(t.top3_avg_change_rate),
+    }));
+    return { leadingThemes };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "theme specialist leading themes fetch failed");
+    return {};
+  }
+}
+
+/** 테마 전문가 상담. Haiku 1콜로 opinion 텍스트 반환. code 없으면 주도 테마 폴백(WR-01). */
 export async function consultThemeSpecialist(
   supabase: SupabaseClient,
   input: SpecialistInput,
 ): Promise<string> {
   const cfg = loadConfig();
   if (!cfg.anthropicApiKey) return SPECIALIST_UNAVAILABLE;
-  if (!input.code) return SPECIALIST_UNAVAILABLE;
 
-  const data = await fetchThemeContext(supabase, input.code);
+  const data = input.code
+    ? await fetchThemeContext(supabase, input.code)
+    : await fetchLeadingThemes(supabase);
   try {
     const client = getChatAnthropicClient(cfg.anthropicApiKey);
     const res = await client.messages.create({

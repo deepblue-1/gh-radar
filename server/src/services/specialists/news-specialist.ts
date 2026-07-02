@@ -12,6 +12,9 @@ import type { SpecialistInput } from "./quote-specialist.js";
  * 결정적 조회: news_articles(title/source/url/published_at verbatim, D-08) +
  * discussions(relevance != 'noise' — 의미 있는 글만, discussions 라우트 filter=meaningful 미러) → Haiku 1콜.
  * 뉴스 제목/URL 은 verbatim 주입 — 프롬프트가 환각 없이 입력 중 선택만 하게 함(D-08). 내부 루프 없음.
+ *
+ * code 미지정(시장 전반 뉴스 질의) 시에는 최근 전체 뉴스 상위 N 건으로 폴백한다 (WR-01
+ * 정합화: orchestrator 의 "news 는 code 없이도 유효" 계약을 실제로 이행).
  */
 
 const NEWS_COLS = "title,source,url,published_at";
@@ -69,16 +72,49 @@ async function fetchNewsContext(
   }
 }
 
-/** 뉴스·심리 전문가 상담. Haiku 1콜로 opinion 텍스트 반환. */
+/** code 미지정 폴백 — 최근 7일 전체 뉴스 상위 20건 (종목코드 포함, WR-01). */
+async function fetchRecentNews(
+  supabase: SupabaseClient,
+): Promise<Record<string, unknown>> {
+  try {
+    const newsSince = new Date(Date.now() - NEWS_WINDOW_MS).toISOString();
+    const { data: newsRows } = await supabase
+      .from("news_articles")
+      .select(`stock_code,${NEWS_COLS}`)
+      .gte("published_at", newsSince)
+      .order("published_at", { ascending: false })
+      .limit(20);
+    const news = ((newsRows ?? []) as Array<{
+      stock_code: string;
+      title: string;
+      source: string | null;
+      url: string;
+      published_at: string;
+    }>).map((r) => ({
+      stockCode: r.stock_code,
+      title: r.title,
+      source: r.source,
+      url: r.url,
+      publishedAt: r.published_at,
+    }));
+    return { news };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, "news specialist recent news fetch failed");
+    return {};
+  }
+}
+
+/** 뉴스·심리 전문가 상담. Haiku 1콜로 opinion 텍스트 반환. code 없으면 최근 전체 뉴스 폴백(WR-01). */
 export async function consultNewsSpecialist(
   supabase: SupabaseClient,
   input: SpecialistInput,
 ): Promise<string> {
   const cfg = loadConfig();
   if (!cfg.anthropicApiKey) return SPECIALIST_UNAVAILABLE;
-  if (!input.code) return SPECIALIST_UNAVAILABLE;
 
-  const data = await fetchNewsContext(supabase, input.code);
+  const data = input.code
+    ? await fetchNewsContext(supabase, input.code)
+    : await fetchRecentNews(supabase);
   try {
     const client = getChatAnthropicClient(cfg.anthropicApiKey);
     const res = await client.messages.create({
