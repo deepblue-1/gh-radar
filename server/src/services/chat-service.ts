@@ -342,6 +342,9 @@ export async function handleChatStream(
     const assistantBlocks: MessageBlock[] = [];
     const sentCodes = new Set<string>();
     let finalText = "";
+    // 멀티라운드에서 SSE 로 나간 표시 텍스트 누적 — tool_use 전 중간 서술까지 포함해
+    // 화면에 표시된 텍스트와 DB 저장 content 를 일치시킨다 (WR-03).
+    let accumulatedText = "";
     let turnTokensIn = 0;
     let turnTokensOut = 0;
     let toolRounds = 0;
@@ -394,13 +397,21 @@ export async function handleChatStream(
           if (isRetryableError(err) && attempt < MAX_RETRIES) {
             // 부분 text delta 가 이미 나갔으면 클라이언트 누적을 리셋해
             // 재시도 스트림과의 중복 표시/저장을 방지한다 (WR-02).
-            if (textBuffer) sendSSE(res, "text_clear", {});
+            if (textBuffer) {
+              sendSSE(res, "text_clear", {});
+              // 이전 라운드까지의 확정 텍스트는 다시 밀어
+              // 클라이언트 누적 == accumulatedText 규칙 유지 (WR-03).
+              if (accumulatedText) sendSSE(res, "text", { text: accumulatedText });
+            }
             await sleep(1000 * (attempt + 1));
             continue;
           }
           throw err;
         }
       }
+
+      // 이 라운드에서 화면으로 나간 텍스트 누적 (tool_use 전 중간 서술 포함, WR-03).
+      accumulatedText += textBuffer;
 
       if (finalMessage.usage) {
         turnTokensIn += finalMessage.usage.input_tokens;
@@ -456,8 +467,9 @@ export async function handleChatStream(
 
         workingMessages.push({ role: "user", content: toolResults });
       } else {
-        // 스트림 delta 가 비었으면 finalMessage text 블록에서 폴백 (불필요한 recovery 콜 회피)
-        finalText = textBuffer || messageText(finalMessage);
+        // 전 라운드 누적 텍스트를 저장 대상으로 사용 — 화면 표시분과 일치 (WR-03).
+        // 스트림 delta 가 전부 비었으면 finalMessage text 블록에서 폴백 (불필요한 recovery 콜 회피).
+        finalText = accumulatedText || messageText(finalMessage);
         break;
       }
     }
@@ -467,6 +479,7 @@ export async function handleChatStream(
       const recoverySystem =
         LEAD_PROMPT +
         "\n\n[중요] 더 이상 전문가를 호출할 수 없습니다. 지금까지의 분석 결과를 바탕으로 종합 답변을 작성하세요.";
+      let recoveryText = "";
       for (let attempt = 0; ; attempt++) {
         try {
           const stream = client.messages.stream(
@@ -485,13 +498,13 @@ export async function handleChatStream(
             },
             { signal: effectiveSignal },
           );
-          finalText = "";
+          recoveryText = "";
           for await (const event of stream) {
             if (
               event.type === "content_block_delta" &&
               event.delta.type === "text_delta"
             ) {
-              finalText += event.delta.text;
+              recoveryText += event.delta.text;
               sendSSE(res, "text", { text: event.delta.text });
             }
           }
@@ -504,13 +517,19 @@ export async function handleChatStream(
         } catch (err) {
           if (isRetryableError(err) && attempt < MAX_RETRIES) {
             // recovery 콜도 부분 delta 가 나갔으면 클라이언트 누적 리셋 (WR-02).
-            if (finalText) sendSSE(res, "text_clear", {});
+            if (recoveryText) {
+              sendSSE(res, "text_clear", {});
+              // 라운드 누적분(중간 서술)은 다시 밀어 표시 유지 (WR-03).
+              if (accumulatedText) sendSSE(res, "text", { text: accumulatedText });
+            }
             await sleep(1000 * (attempt + 1));
             continue;
           }
           throw err;
         }
       }
+      // 라운드 누적분 + recovery 답변 = 사용자가 화면에서 본 전체 텍스트 (WR-03).
+      finalText = accumulatedText + recoveryText;
     }
 
     // 종목 미니 카드 (D-07) — 답변 텍스트의 종목 참조 조회 후 emit
