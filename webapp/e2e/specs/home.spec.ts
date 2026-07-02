@@ -89,6 +89,104 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     await expect(cta).toHaveAttribute('href', '/scanner');
   });
 
+  test('A(인라인 확장) — "+N개 종목 더" 클릭 시 숨겨진 종목 노출(aria-expanded), "접기" 토글', async ({
+    page,
+  }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.goto('/');
+
+    await expect(
+      page.getByRole('heading', { name: '오늘의 급등 테마', level: 1 }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // 6종목 → top4 노출, overflow 2 → "+2개 종목 더" 토글(초기 접힘).
+    const toggle = page.getByRole('button', { name: '+2개 종목 더' });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    // 접힌 상태: overflow 종목(가온칩스)은 카드 본문에 없음.
+    await expect(page.getByRole('link', { name: /가온칩스/ })).toHaveCount(0);
+
+    // 클릭 → 펼침(aria-expanded=true) + overflow 종목 노출.
+    await toggle.click();
+    const expanded = page.getByRole('button', { name: '접기' });
+    await expect(expanded).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('link', { name: /가온칩스/ })).toBeVisible();
+
+    // 재클릭 → 접힘.
+    await expanded.click();
+    await expect(
+      page.getByRole('button', { name: '+2개 종목 더' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('link', { name: /가온칩스/ })).toHaveCount(0);
+  });
+
+  test('B(바텀시트) — 테마명 트리거 클릭 시 dialog 오픈 + 전체 소속 종목 + 근거 뉴스 목록(2건 초과)', async ({
+    page,
+  }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.goto('/');
+
+    await expect(
+      page.getByRole('heading', { name: '오늘의 급등 테마', level: 1 }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // 테마명 트리거 = aria-haspopup="dialog" 버튼.
+    const trigger = page.getByRole('button', { name: /AI 반도체/ });
+    await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+    await trigger.click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // 전체 소속 종목(overflow 포함, 접힘 없이) 노출 — 종목 행 링크로 확인.
+    // (뉴스 제목에도 "SK하이닉스" 부분문자열이 있어 종목명은 링크 role 로 특정.)
+    await expect(
+      dialog.getByRole('link', { name: /SK하이닉스/ }),
+    ).toBeVisible();
+    await expect(dialog.getByRole('link', { name: /가온칩스/ })).toBeVisible();
+    await expect(
+      dialog.getByRole('link', { name: /오픈엣지테크놀로지/ }),
+    ).toBeVisible();
+
+    // 근거 뉴스 목록(dedup 후 3건 unique — 2건 초과). 중복 URL 기사는 미노출.
+    await expect(
+      dialog.getByText('HBM 공급 부족 심화… 관련주 강세', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText('SK하이닉스, HBM4 양산 계획 앞당겨'),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText('반도체 장비주 일제히 급등… 수주 기대감'),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText('HBM 공급 부족 심화… 관련주 강세 (중복)'),
+    ).toHaveCount(0);
+  });
+
+  test('C(종목 → 상세) — 종목 행이 /stocks/{code} 링크이고 클릭 시 이동한다', async ({
+    page,
+  }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.goto('/');
+
+    await expect(
+      page.getByRole('heading', { name: '오늘의 급등 테마', level: 1 }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // 종목 상세 링크 존재(a[href^="/stocks/"]).
+    const stockLink = page.locator('a[href^="/stocks/"]').first();
+    await expect(stockLink).toBeVisible();
+
+    // SK하이닉스(000660) 행 → /stocks/000660.
+    const hynixLink = page.getByRole('link', { name: /SK하이닉스/ }).first();
+    await expect(hynixLink).toHaveAttribute('href', '/stocks/000660');
+
+    // 클릭 시 상세로 이동.
+    await hynixLink.click();
+    await expect(page).toHaveURL(/\/stocks\/000660$/);
+  });
+
   test('REGRESSION(T-13-12) — /scanner 직접 접근 시 스캐너 UI 정상 렌더', async ({
     page,
   }) => {

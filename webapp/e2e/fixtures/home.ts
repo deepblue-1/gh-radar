@@ -13,7 +13,8 @@ import type {
  * 검증하기 위한 mock (themes.spec 의 mockThemesApi 패턴 동형).
  *
  * 두 모드:
- *  - populated: 주도 테마 1 + 개별 급등 1 + 슬롯 2개(:30 시점) 인덱스.
+ *  - populated: 주도 테마 1(6종목·근거뉴스 4건[중복 URL 1 → dedup 후 3]) + 개별 급등 1
+ *    + 슬롯 2개(:30 시점) 인덱스. 6종목 → top4 + "+2개 종목 더" 인라인 토글(A) 노출.
  *  - empty: snapshot=null + index=[] → HomeEmpty("오늘은 +20% 급등 종목이 없습니다").
  *
  * 라우트는 `**` host-agnostic 매칭(NEXT_PUBLIC_API_BASE_URL 무관).
@@ -27,7 +28,7 @@ const POPULATED_SNAPSHOT: HomeThemeSnapshot = {
   tradeDate: TRADE_DATE,
   capturedAt: SLOT_1530,
   themeCount: 1,
-  stockCount: 3,
+  stockCount: 7,
   isCarried: false,
   payload: {
     threshold: 20,
@@ -36,13 +37,36 @@ const POPULATED_SNAPSHOT: HomeThemeSnapshot = {
       {
         name: 'AI 반도체',
         reason: 'HBM 수요 급증 기대감으로 관련주 동반 급등',
+        // 6종목 → top4(SK하이닉스·삼성전자·한미반도체·이오테크닉스) + overflow 2(오픈엣지·가온칩스)
+        // → 카드에 "+2개 종목 더" 인라인 토글(A) 노출.
         stocks: [
           { code: '000660', name: 'SK하이닉스', changeRate: 24.1 },
           { code: '005930', name: '삼성전자', changeRate: 21.5 },
+          { code: '042700', name: '한미반도체', changeRate: 28.4 },
+          { code: '039030', name: '이오테크닉스', changeRate: 23.2 },
+          { code: '394280', name: '오픈엣지테크놀로지', changeRate: 20.7 },
+          { code: '399720', name: '가온칩스', changeRate: 26.9 },
         ],
+        // 근거 뉴스 4건 — 중 1건은 중복 URL(1번과 동일) → dedup 후 unique 3건.
         news: [
           {
             title: 'HBM 공급 부족 심화… 관련주 강세',
+            url: 'https://n.news.naver.com/mnews/article/001/0000000001',
+            source: '연합뉴스',
+          },
+          {
+            title: 'SK하이닉스, HBM4 양산 계획 앞당겨',
+            url: 'https://n.news.naver.com/mnews/article/015/0000000010',
+            source: '한국경제',
+          },
+          {
+            title: '반도체 장비주 일제히 급등… 수주 기대감',
+            url: 'https://n.news.naver.com/mnews/article/009/0000000020',
+            source: '매일경제',
+          },
+          {
+            // 중복 URL(1번 기사와 동일) — dedup 검증용. 표시되면 안 됨.
+            title: 'HBM 공급 부족 심화… 관련주 강세 (중복)',
             url: 'https://n.news.naver.com/mnews/article/001/0000000001',
             source: '연합뉴스',
           },
@@ -72,14 +96,14 @@ const POPULATED_INDEX: HomeSnapshotIndexEntry[] = [
     tradeDate: TRADE_DATE,
     capturedAt: SLOT_1530,
     themeCount: 1,
-    stockCount: 3,
+    stockCount: 7,
     isCarried: false,
   },
   {
     tradeDate: TRADE_DATE,
     capturedAt: SLOT_1430,
     themeCount: 1,
-    stockCount: 3,
+    stockCount: 7,
     isCarried: false,
   },
 ];
