@@ -12,6 +12,7 @@ import type {
 export type ClusterResult = Pick<HomeSnapshotPayload, "themes" | "singles">;
 import { getAnthropicClient } from "./anthropic";
 import { extractJsonObject } from "./parseJson";
+import { logger } from "../logger";
 import {
   CLUSTER_SYSTEM_PROMPT,
   buildClusterFewShot,
@@ -33,7 +34,10 @@ import type { HomeSyncConfig } from "../config";
  * fail-safe: 빈 surges → Claude 호출 0. Claude 예외/파싱 실패 → 빈 payload (cycle 은 계속).
  */
 
-const CLUSTER_MAX_TOKENS = 2048;
+// 8192 — threshold 15%(급등 ~70종목+)에서 출력 JSON(테마 + 종목별 한국어 reason)이 2048 을
+// 초과해 응답이 잘리고(stop_reason=max_tokens) 파싱 실패 → 빈 payload 로 저장되는 사고가
+// 있었다(2026-07-02). max_tokens 는 상한일 뿐 정상 응답 비용은 동일.
+const CLUSTER_MAX_TOKENS = 8192;
 
 /** Claude 응답 원시 테마 (인덱스만). */
 interface RawTheme {
@@ -341,9 +345,31 @@ export async function clusterSurges(
     });
     const first = res.content.find((c) => c.type === "text");
     const text = first && first.type === "text" ? first.text.trim() : "";
+    // 조용한 실패 금지 — 잘림(max_tokens)/파싱 실패는 빈 스냅샷 사고로 직결되므로 반드시 로깅.
+    if (res.stop_reason !== "end_turn") {
+      logger.warn(
+        {
+          stopReason: res.stop_reason,
+          outputTokens: res.usage?.output_tokens,
+          maxTokens: CLUSTER_MAX_TOKENS,
+          surgeCount: surges.length,
+        },
+        "clusterSurges — 응답이 정상 종료되지 않음 (잘림 가능, 파싱 실패 시 빈 payload)",
+      );
+    }
     raw = parseClusterResponse(text);
-  } catch {
+    if (raw.themes.length === 0 && raw.singles.length === 0 && surges.length > 0) {
+      logger.warn(
+        { surgeCount: surges.length, textLen: text.length, stopReason: res.stop_reason },
+        "clusterSurges — 파싱 결과 빈 themes/singles (JSON 잘림/형식 오류 의심)",
+      );
+    }
+  } catch (err) {
     // fail-safe — Claude 예외/네트워크 실패는 빈 payload (cycle 은 계속 append, T-13-08 accept).
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), surgeCount: surges.length },
+      "clusterSurges — Claude 호출 실패 (빈 payload 로 계속)",
+    );
     return { themes: [], singles: [] };
   }
 
