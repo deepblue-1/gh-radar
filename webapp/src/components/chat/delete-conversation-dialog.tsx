@@ -44,25 +44,43 @@ export function DeleteConversationDialog({
   onDeleted,
 }: DeleteConversationDialogProps) {
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState(false);
 
   const handleDelete = async () => {
     if (!conversation || deleting) return;
     setDeleting(true);
+    setError(false);
     try {
       await deleteConversation(conversation.id);
       onDeleted(conversation.id);
+    } catch {
+      // 서버 404/500/네트워크 실패 — unhandled rejection 방지 + 피드백 표시 (WR-05).
+      setError(true);
     } finally {
       setDeleting(false);
     }
   };
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) setError(false); // 닫힘 시 에러 리셋 — 재오픈 시 깨끗한 상태.
+    onOpenChange(open);
+  };
+
   return (
-    <Dialog open={conversation !== null} onOpenChange={onOpenChange}>
+    <Dialog open={conversation !== null} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>이 대화를 삭제할까요?</DialogTitle>
           <DialogDescription>삭제한 대화는 되돌릴 수 없어요.</DialogDescription>
         </DialogHeader>
+        {error && (
+          <p
+            role="alert"
+            className="text-[length:var(--t-sm)] text-[var(--destructive)]"
+          >
+            삭제에 실패했어요. 다시 시도해 주세요.
+          </p>
+        )}
         <DialogFooter>
           <Button
             type="button"

@@ -135,4 +135,28 @@ describe('DeleteConversationDialog', () => {
     );
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('c1'));
   });
+
+  it('Test 5 — 삭제 실패 → 에러 피드백 표시 + onDeleted 미호출 (WR-05)', async () => {
+    deleteConversation.mockRejectedValue(new Error('network'));
+    const onDeleted = vi.fn();
+
+    const user = userEvent.setup();
+    render(
+      <DeleteConversationDialog
+        conversation={makeConversation('c1', { title: '대화' })}
+        onOpenChange={vi.fn()}
+        onDeleted={onDeleted}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '삭제' }));
+
+    // 실패 피드백이 표시되고, 목록 갱신 콜백은 호출되지 않는다.
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('삭제에 실패했어요'),
+    );
+    expect(onDeleted).not.toHaveBeenCalled();
+    // 버튼은 재시도 가능 상태로 복귀.
+    expect(screen.getByRole('button', { name: '삭제' })).toBeEnabled();
+  });
 });
