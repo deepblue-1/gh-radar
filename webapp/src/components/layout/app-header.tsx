@@ -16,7 +16,7 @@ export interface AppHeaderProps {
 /**
  * AppHeader — UI-SPEC §4.1 / §4.2 공통 헤더.
  * - 56px sticky top-0, `bg-[--bg]/80 backdrop-blur-md border-b border-[--border]`
- * - 좌측: 로고(`gh-radar`, `/scanner` 로 이동) + 햄버거 버튼(<lg 만 표시, 44×44)
+ * - 좌측: 로고(`gh-radar`, `/` 로 이동) + 햄버거 버튼(<lg 만 표시, 44×44)
  * - 중앙: `nav` slot — Phase 6 이후 AppShell 이 `<GlobalSearch />` 를 주입
  * - 우측: `<ThemeToggle />` 고정
  */
@@ -37,7 +37,7 @@ export function AppHeader({ nav, onMenuClick }: AppHeaderProps) {
           </button>
         )}
         <Link
-          href="/scanner"
+          href="/"
           aria-label="gh-radar 홈"
           className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         >
