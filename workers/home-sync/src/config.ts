@@ -42,9 +42,9 @@ export function loadConfig(): HomeSyncConfig {
     // 실제 클러스터링 호출 시 anthropic.ts 가 throw (getAnthropicClient).
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     classifyModel: process.env.HOME_SYNC_MODEL ?? "claude-haiku-4-5",
-    surgeThreshold: Number(process.env.HOME_SYNC_SURGE_THRESHOLD ?? "20"),
+    surgeThreshold: Number(process.env.HOME_SYNC_SURGE_THRESHOLD ?? "15"),
     newsPerStock: Number(process.env.HOME_SYNC_NEWS_PER_STOCK ?? "5"),
-    surgeMax: Number(process.env.HOME_SYNC_SURGE_MAX ?? "80"),
+    surgeMax: Number(process.env.HOME_SYNC_SURGE_MAX ?? "120"),
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };

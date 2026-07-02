@@ -18,8 +18,8 @@ set -euo pipefail
 #   THREAT T-13-13 mitigate: OAuth only + scheduler SA run.invoker 를 Job 리소스로 scope.
 #
 # ENV (home-sync config.ts default 와 정합):
-#   SUPABASE_URL, HOME_SYNC_SURGE_THRESHOLD(=20), HOME_SYNC_NEWS_PER_STOCK(=5),
-#   HOME_SYNC_SURGE_MAX(=80), LOG_LEVEL, APP_VERSION
+#   SUPABASE_URL, HOME_SYNC_SURGE_THRESHOLD(=15), HOME_SYNC_NEWS_PER_STOCK(=5),
+#   HOME_SYNC_SURGE_MAX(=120), LOG_LEVEL, APP_VERSION
 #   ※ brightdata/alpha/scrape/VPC ENV 없음 — home-sync 는 외부 크롤링 0.
 # Secrets (전부 기존 재사용, 신규 0 — MEMORY: 기존 creds 재요청 금지):
 #   SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest
@@ -86,9 +86,9 @@ IMAGE_LATEST="${REGISTRY}/home-sync:latest"
 : "${SUPABASE_URL:?SUPABASE_URL must be set (export or source .env.deploy)}"
 
 # 동작 파라미터 — home-sync config.ts default 와 정합. env override 허용.
-HOME_SYNC_SURGE_THRESHOLD_VAL="${HOME_SYNC_SURGE_THRESHOLD:-20}"
+HOME_SYNC_SURGE_THRESHOLD_VAL="${HOME_SYNC_SURGE_THRESHOLD:-15}"
 HOME_SYNC_NEWS_PER_STOCK_VAL="${HOME_SYNC_NEWS_PER_STOCK:-5}"
-HOME_SYNC_SURGE_MAX_VAL="${HOME_SYNC_SURGE_MAX:-80}"
+HOME_SYNC_SURGE_MAX_VAL="${HOME_SYNC_SURGE_MAX:-120}"
 
 echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE, surgeThreshold=$HOME_SYNC_SURGE_THRESHOLD_VAL"
 

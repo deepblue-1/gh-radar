@@ -15,7 +15,7 @@ import type {
  * 두 모드:
  *  - populated: 주도 테마 1(6종목·근거뉴스 4건[중복 URL 1 → dedup 후 3]) + 개별 급등 1
  *    + 슬롯 2개(:30 시점) 인덱스. 6종목 → top4 + "+2개 종목 더" 인라인 토글(A) 노출.
- *  - empty: snapshot=null + index=[] → HomeEmpty("오늘은 +20% 급등 종목이 없습니다").
+ *  - empty: snapshot=null + index=[] → HomeEmpty("오늘은 +15% 급등 종목이 없습니다").
  *
  * 라우트는 `**` host-agnostic 매칭(NEXT_PUBLIC_API_BASE_URL 무관).
  */
@@ -31,7 +31,7 @@ const POPULATED_SNAPSHOT: HomeThemeSnapshot = {
   stockCount: 7,
   isCarried: false,
   payload: {
-    threshold: 20,
+    threshold: 15,
     marketStatus: 'closed',
     themes: [
       {

@@ -19,10 +19,10 @@ export function HomeEmpty() {
         <Sparkles aria-hidden="true" className="size-5" strokeWidth={1.5} />
       </span>
       <h3 className="text-[length:var(--t-h4)] font-extrabold text-[var(--fg)]">
-        오늘은 +20% 급등 종목이 없습니다
+        오늘은 +15% 급등 종목이 없습니다
       </h3>
       <p className="max-w-[44ch] text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-        장중 매시 30분에 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.
+        장중 10분마다 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.
       </p>
       <Link
         href="/scanner"
