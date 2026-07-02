@@ -109,4 +109,38 @@ describe("loadSurges", () => {
     // 모든 종목이 정확히 newsPerStock cap.
     for (const s of surges) expect(s.news.length).toBeLessThanOrEqual(5);
   });
+
+  it("retry-on-empty: 첫 read 가 빈 결과면 재시도 후 non-empty 반환", async () => {
+    const sb = createMockSupabase();
+    // 1회차 [] (상류 갱신 갭 시뮬), 2회차 데이터.
+    sb.from("stock_quotes")
+      .gte.mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({
+        data: [{ code: "000660", change_rate: 30 }],
+        error: null,
+      });
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "000660", name: "SK하이닉스", market: "KOSPI" }],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg(), { retryDelayMs: 0 });
+
+    expect(surges.map((s) => s.code)).toEqual(["000660"]);
+    expect(sb.from("stock_quotes").gte).toHaveBeenCalledTimes(2); // 1 + 재시도 1
+  });
+
+  it("retry-on-empty: 모두 빈 결과면 재시도 소진 후 [] (진짜 급등 없는 날)", async () => {
+    const sb = createMockSupabase();
+    sb.from("stock_quotes").gte.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg(), {
+      emptyRetries: 2,
+      retryDelayMs: 0,
+    });
+
+    expect(surges).toEqual([]);
+    expect(sb.from("stock_quotes").gte).toHaveBeenCalledTimes(3); // 1 + 재시도 2
+  });
 });

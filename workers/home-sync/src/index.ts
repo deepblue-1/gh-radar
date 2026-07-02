@@ -4,7 +4,11 @@ import type { HomeSnapshotPayload } from "@gh-radar/shared";
 import { loadConfig, type HomeSyncConfig } from "./config";
 import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
-import { loadSurges, type Surge } from "./pipeline/loadSurges";
+import {
+  loadSurges,
+  type Surge,
+  type LoadSurgesOptions,
+} from "./pipeline/loadSurges";
 import { computeContentHash } from "./pipeline/contentHash";
 import { clusterSurges, type ClusterResult } from "./ai/clusterSurges";
 import { upsertSnapshot } from "./pipeline/upsertSnapshot";
@@ -33,6 +37,8 @@ export interface HomeSyncDeps {
   /** 테스트 주입: clusterSurges 대체 (없으면 실 Claude 호출). */
   cluster?: (surges: Surge[], cfg: HomeSyncConfig) => Promise<ClusterResult>;
   now?: Date;
+  /** 테스트 주입: loadSurges retry 옵션 (delay 0 등). 미지정 시 프로덕션 기본(2회/1.5s). */
+  loadSurgesOptions?: LoadSurgesOptions;
 }
 
 export interface HomeSyncSummary {
@@ -94,7 +100,7 @@ export async function runHomeSyncCycle(
   log.info({ tradeDate, capturedAt, marketStatus }, "home-sync cycle start");
 
   // 1) 급등 로드 + 2) content hash.
-  const surges = await loadSurges(supabase, cfg);
+  const surges = await loadSurges(supabase, cfg, deps.loadSurgesOptions);
   const hash = computeContentHash(surges);
 
   // 3) 오늘 최신 스냅샷.

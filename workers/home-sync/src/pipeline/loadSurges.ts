@@ -37,18 +37,39 @@ const QUOTE_CHUNK = 200;
 
 const NEWS_COLS = "id,stock_code,title,url,source,published_at";
 
+/** loadSurges 재시도 옵션 (기본: 빈 결과 시 2회 재시도, 1.5s 간격). 테스트가 delay 0 주입. */
+export interface LoadSurgesOptions {
+  emptyRetries?: number;
+  retryDelayMs?: number;
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function loadSurges(
   supabase: SupabaseClient,
   cfg: HomeSyncConfig,
+  opts: LoadSurgesOptions = {},
 ): Promise<Surge[]> {
-  // 1) 급등 종목 (change_rate >= threshold) — desc 정렬 + surgeMax cap.
-  const { data: quoteRows, error: qErr } = await supabase
-    .from("stock_quotes")
-    .select("code,change_rate")
-    .gte("change_rate", cfg.surgeThreshold);
-  if (qErr) throw qErr;
+  const emptyRetries = opts.emptyRetries ?? 2;
+  const retryDelayMs = opts.retryDelayMs ?? 1500;
 
-  const surges = ((quoteRows ?? []) as Array<{ code: string; change_rate: number }>)
+  // 1) 급등 종목 (change_rate >= threshold) — desc 정렬 + surgeMax cap.
+  //    빈 결과(0행)는 상류 stock_quotes 갱신 갭 / 일시 read blip 일 수 있으므로 (에러 아닌
+  //    빈 성공 응답일 때만) 짧게 재시도한다. 진짜 급등 없는 날은 재시도해도 0 → 빠르게 [] 반환.
+  let quoteRows: Array<{ code: string; change_rate: number }> = [];
+  for (let attempt = 0; attempt <= emptyRetries; attempt++) {
+    const { data, error: qErr } = await supabase
+      .from("stock_quotes")
+      .select("code,change_rate")
+      .gte("change_rate", cfg.surgeThreshold);
+    if (qErr) throw qErr;
+    quoteRows = (data ?? []) as Array<{ code: string; change_rate: number }>;
+    if (quoteRows.length > 0 || attempt === emptyRetries) break;
+    await sleep(retryDelayMs);
+  }
+
+  const surges = quoteRows
     .map((r) => ({ code: r.code, changeRate: Number(r.change_rate) }))
     .sort((a, b) => b.changeRate - a.changeRate)
     .slice(0, cfg.surgeMax);

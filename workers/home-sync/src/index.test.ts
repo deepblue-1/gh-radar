@@ -146,6 +146,7 @@ describe("runHomeSyncCycle (hash-skip clone-append)", () => {
       supabase: sb as never,
       cluster,
       now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
     });
 
     expect(cluster).toHaveBeenCalledTimes(1);
@@ -229,6 +230,7 @@ describe("runHomeSyncCycle (transient-empty 가드)", () => {
       supabase: sb as never,
       cluster,
       now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
     });
 
     expect(cluster).not.toHaveBeenCalled();
@@ -252,6 +254,7 @@ describe("runHomeSyncCycle (transient-empty 가드)", () => {
       supabase: sb as never,
       cluster,
       now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
     });
 
     expect(cluster).not.toHaveBeenCalled();
