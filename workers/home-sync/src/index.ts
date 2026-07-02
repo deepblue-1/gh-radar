@@ -21,7 +21,7 @@ import { upsertSnapshot } from "./pipeline/upsertSnapshot";
  *        - else → clusterSurges (Claude 1x) → payload append (is_carried=false).
  *   5. upsertSnapshot (onConflict PK ignoreDuplicates — slot 재실행 idempotent).
  *
- * captured_at 은 KST :30 slot (장중 매시). marketStatus: slot >= 15:30 KST → closed.
+ * captured_at 은 KST 10분 슬롯 (장중). marketStatus: slot >= 15:30 KST → closed.
  * 급등 없는 날(surges 0)도 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
  */
 
@@ -44,8 +44,14 @@ export interface HomeSyncSummary {
 
 const KST_OFFSET_MS = 9 * 3600_000;
 
-/** now → KST :30 slot { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus }. */
-function computeSlot(now: Date): {
+/**
+ * now → KST 10분 슬롯 { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus }.
+ *
+ * 슬롯 분은 10분 경계로 floor (00/10/20/30/40/50) — 10분 cron(매 10분) 실행이 같은 HH:30
+ * PK 로 뭉쳐 ignoreDuplicates 로 무시되던 문제 해소. 각 10분 슬롯이 고유 PK 를 갖는다.
+ * marketStatus: 정규장 마감 15:30 KST 기준 — hour>15 또는 (hour===15 && slotMinute>=30) → closed.
+ */
+export function computeSlot(now: Date): {
   tradeDate: string;
   capturedAt: string;
   marketStatus: "open" | "closed";
@@ -56,11 +62,13 @@ function computeSlot(now: Date): {
   const d = String(kst.getUTCDate()).padStart(2, "0");
   const tradeDate = `${y}-${m}-${d}`;
   const hour = kst.getUTCHours();
-  // slot = 해당 시각의 :30 (KST). capturedAt 은 UTC 로 환산.
-  const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, 30, 0);
+  // slotMinute = 해당 분을 10분 경계로 floor. capturedAt 은 그 슬롯 시각(KST)→UTC.
+  const slotMinute = Math.floor(kst.getUTCMinutes() / 10) * 10;
+  const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, slotMinute, 0);
   const capturedAt = new Date(slotKstMs - KST_OFFSET_MS).toISOString();
-  // 마감직후 15:30 KST 이상 → closed.
-  const marketStatus: "open" | "closed" = hour >= 15 ? "closed" : "open";
+  // 정규장 마감 15:30 KST 이상 → closed.
+  const marketStatus: "open" | "closed" =
+    hour > 15 || (hour === 15 && slotMinute >= 30) ? "closed" : "open";
   return { tradeDate, capturedAt, marketStatus };
 }
 
