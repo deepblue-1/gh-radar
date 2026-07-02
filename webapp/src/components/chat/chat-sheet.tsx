@@ -239,7 +239,9 @@ export function ChatSheet() {
           setHasError(true);
         }
       } finally {
-        setIsStreaming(false);
+        // 이전 send 의 늦은 finally(abort rejection 마이크로태스크)가 새 스트림의
+        // isStreaming=true 를 덮지 않도록 controller 정체성 가드 (WR-06).
+        if (abortRef.current === controller) setIsStreaming(false);
       }
     },
     [conversationId, stockContext],
