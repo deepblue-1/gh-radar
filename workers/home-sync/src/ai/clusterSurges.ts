@@ -85,11 +85,144 @@ export function demoteInvalidThemes(
   return { themes, demoted };
 }
 
+/**
+ * 고아 종목 테마 병합 (금호건설 fix) — 강등/직접 single 중, 어떤 테마의 news 제목 또는
+ * reason 텍스트에 그 종목명이 verbatim 부분문자열로 등장하면 그 테마로 재귀속한다.
+ *
+ * 근거 신호: 상한가 라운드업 기사가 같이 오른 종목명을 나열하므로, "테마 news/reason 에
+ * 종목명이 등장" = 같은 급등 클러스터 소속의 정밀 신호. Claude 가 서사 차이로 1종목
+ * 버킷에 떨궈 강등된 종목을 인접 테마로 되살린다.
+ *
+ * 병합 규칙:
+ *   - 후보 테마 = news 제목 또는 reason 에 종목명(정확 부분문자열) 포함하는 테마.
+ *   - 후보 다수: single.reason 과 각 테마(reason+name) 사이 의미 토큰 겹침 수 max 인 테마 선택.
+ *     겹침 0 동률(다수)이면 애매 → 병합하지 않고 single 유지 (오병합 방지).
+ *   - 후보 유일: 종목명이 그 테마에 등장하면 겹침 0 이어도 병합 (정밀 신호).
+ *   - 후보 없음: single 유지.
+ *
+ * 병합 시 종목 code 를 테마 stockCodes 에 append (정렬은 이후 로직/프론트가 처리).
+ */
+
+/** 의미 토큰에서 제외할 범용어 (stoplist). */
+const TOKEN_STOPLIST = new Set([
+  "기대감",
+  "기대",
+  "관련",
+  "수혜",
+  "급등",
+  "상한가",
+  "종목",
+  "오늘",
+  "강세",
+  "부각",
+  "편승",
+  "동반",
+]);
+
+/** 텍스트 → 2자 이상 한글/영숫자 어절 토큰 (stoplist 제외). */
+function semanticTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  const words = text.split(/[^0-9A-Za-z가-힣]+/);
+  for (const w of words) {
+    if (w.length < 2) continue;
+    if (TOKEN_STOPLIST.has(w)) continue;
+    out.add(w);
+  }
+  return out;
+}
+
+/** a/b 토큰 집합의 겹침 수. */
+function tokenOverlap(a: Set<string>, b: Set<string>): number {
+  let n = 0;
+  for (const t of a) if (b.has(t)) n++;
+  return n;
+}
+
+/** reassignOrphans 가 다루는 테마 형태 (news/reason resolved). */
+export interface ResolvedTheme {
+  name: string;
+  reason: string | null;
+  stockCodes: string[];
+  news: HomeNewsRef[];
+}
+
+export function reassignOrphans(
+  themes: ResolvedTheme[],
+  singles: RawSingle[],
+  surgeByCode: Map<string, { name: string; changeRate: number }>,
+): { themes: ResolvedTheme[]; singles: RawSingle[] } {
+  // 테마를 복제(stockCodes append 대비) — 순수함수 계약 유지.
+  const outThemes: ResolvedTheme[] = themes.map((t) => ({
+    ...t,
+    stockCodes: [...t.stockCodes],
+  }));
+  const remainingSingles: RawSingle[] = [];
+
+  for (const single of singles) {
+    const surge = surgeByCode.get(single.stockCode);
+    // 급등 집합 밖 (방어) → 그대로 (이후 로직이 drop).
+    if (!surge) {
+      remainingSingles.push(single);
+      continue;
+    }
+    const name = surge.name;
+
+    // 1) 종목명이 news 제목 또는 reason 에 등장하는 후보 테마 수집.
+    const candidates = outThemes.filter((t) => {
+      const inReason = t.reason ? t.reason.includes(name) : false;
+      const inNews = t.news.some((n) => n.title.includes(name));
+      return inReason || inNews;
+    });
+
+    if (candidates.length === 0) {
+      remainingSingles.push(single);
+      continue;
+    }
+
+    if (candidates.length === 1) {
+      // 유일 후보 — 정밀 신호, 겹침 0 이어도 병합.
+      if (!candidates[0].stockCodes.includes(single.stockCode)) {
+        candidates[0].stockCodes.push(single.stockCode);
+      }
+      continue;
+    }
+
+    // 2) 다중 후보 — reason 토큰 겹침 max 테마 선택.
+    const singleTokens = semanticTokens(single.reason ?? "");
+    let best: ResolvedTheme | null = null;
+    let bestScore = -1;
+    let tie = false;
+    for (const t of candidates) {
+      const themeTokens = semanticTokens(`${t.reason ?? ""} ${t.name}`);
+      const score = tokenOverlap(singleTokens, themeTokens);
+      if (score > bestScore) {
+        bestScore = score;
+        best = t;
+        tie = false;
+      } else if (score === bestScore) {
+        tie = true;
+      }
+    }
+
+    // 겹침 0 동률(다수) → 애매 → single 유지 (오병합 방지).
+    if (best === null || (bestScore === 0 && tie)) {
+      remainingSingles.push(single);
+      continue;
+    }
+
+    if (!best.stockCodes.includes(single.stockCode)) {
+      best.stockCodes.push(single.stockCode);
+    }
+  }
+
+  return { themes: outThemes, singles: remainingSingles };
+}
+
 /** stockCodes.length desc → tie 시 member avg changeRate desc (D-05). in-place 아님. */
-export function sortThemes(
-  themes: RawTheme[],
+export function sortThemes<T extends { stockCodes: string[] }>(
+  themes: T[],
   rateByCode: Map<string, number>,
-): RawTheme[] {
+): T[] {
   const avg = (codes: string[]): number => {
     if (codes.length === 0) return 0;
     let sum = 0;
@@ -195,25 +328,42 @@ export async function clusterSurges(
   // D-06 — 급등 집합 밖 code drop + <2 valid 테마 → single 강등.
   const { themes: validRaw, demoted } = demoteInvalidThemes(raw.themes, surgeCodes);
 
-  // D-05 — breadth 정렬.
-  const sortedRaw = sortThemes(validRaw, rateByCode);
+  // newsRefs → verbatim 뉴스 해석 (reassignOrphans 가 news 제목으로 종목명 매칭하므로 먼저 resolve).
+  const resolvedThemes: ResolvedTheme[] = validRaw.map((t) => ({
+    name: t.name,
+    reason: t.reason,
+    stockCodes: t.stockCodes,
+    news: resolveNewsRefs(indexedNews, t.newsRefs),
+  }));
 
-  // RawTheme → HomeSurgeTheme (stocks 해석 + newsRefs verbatim).
-  const themes: HomeSurgeTheme[] = sortedRaw.map((t) => ({
+  // 고아 종목 병합 — 강등 + Claude 직접 single 을 테마 news/reason 종목명 등장 신호로 재귀속.
+  //   순서: demote → reassignOrphans → sortThemes → build (병합으로 breadth 가 바뀌므로 sort 이전).
+  const orphanCandidates: RawSingle[] = [
+    ...raw.singles.filter((s) => surgeCodes.has(s.stockCode)),
+    ...demoted,
+  ];
+  const { themes: mergedThemes, singles: leftoverSingles } = reassignOrphans(
+    resolvedThemes,
+    orphanCandidates,
+    surgeByCode,
+  );
+
+  // D-05 — breadth 정렬 (병합 후 stockCodes 기준).
+  const sortedThemes = sortThemes(mergedThemes, rateByCode);
+
+  // ResolvedTheme → HomeSurgeTheme (stocks 해석).
+  const themes: HomeSurgeTheme[] = sortedThemes.map((t) => ({
     name: t.name,
     reason: t.reason,
     stocks: t.stockCodes.map((c) => {
       const s = surgeByCode.get(c)!;
       return { code: s.code, name: s.name, changeRate: s.changeRate };
     }),
-    news: resolveNewsRefs(indexedNews, t.newsRefs),
+    news: t.news,
   }));
 
-  // singles = Claude singles + 강등 테마, 급등 집합 내 code 만, changeRate desc.
-  const singleRaws: RawSingle[] = [
-    ...raw.singles.filter((s) => surgeCodes.has(s.stockCode)),
-    ...demoted,
-  ];
+  // singles = reassign 후 남은 후보 (병합되지 않은 순수 single), 급등 집합 내 code 만, changeRate desc.
+  const singleRaws: RawSingle[] = leftoverSingles;
   // dedupe by code (강등과 Claude single 중복 방어) — 첫 등장 우선.
   const seen = new Set<string>();
   const singles: HomeSurgeSingle[] = [];
