@@ -234,7 +234,9 @@ export function HomeHeader({
               <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                 {toKstHhmm(slots[slots.length - 1].capturedAt)}
               </span>
-              <span className="relative mono flex-none rounded-full border border-[var(--primary)] bg-[var(--primary)] py-[5px] pl-3 pr-[18px] text-[length:var(--t-sm)] font-extrabold text-[var(--primary-fg)]">
+              {/* 고정 폭 — 라벨이 "15:30 · 마감" 으로 길어질 때 트랙(flex-1)이 리사이즈되며
+                  커서 밑에서 값이 재매핑 → 좌우 반복 점프하는 레이아웃 피드백 루프 방지. */}
+              <span className="relative mono flex-none w-[116px] rounded-full border border-[var(--primary)] bg-[var(--primary)] py-[5px] text-center text-[length:var(--t-sm)] font-extrabold text-[var(--primary-fg)]">
                 {label}
                 {live && (
                   <span
