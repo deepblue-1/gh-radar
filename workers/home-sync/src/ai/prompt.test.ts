@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { CLUSTER_SYSTEM_PROMPT, buildClusterFewShot } from "./prompt";
+import {
+  CLUSTER_SYSTEM_PROMPT,
+  buildClusterFewShot,
+  formatClusterMessage,
+} from "./prompt";
+import type { Surge } from "../pipeline/loadSurges";
 
 /**
  * Phase 13 후속 — 프롬프트 consolidation 개선 검증.
@@ -53,5 +58,70 @@ describe("buildClusterFewShot 지역 통합 예시", () => {
       return p.themes.some((t) => t.stockCodes.length >= 2);
     });
     expect(regional).toBeDefined();
+  });
+});
+
+describe("formatClusterMessage description 스니펫", () => {
+  const surge = (news: Surge["news"]): Surge => ({
+    code: "026910",
+    name: "광진실업",
+    changeRate: 29,
+    news,
+  });
+
+  it("뉴스 라인에 description 스니펫(HTML strip)이 제목 뒤 덧붙음", () => {
+    const { message } = formatClusterMessage([
+      surge([
+        {
+          id: "m1",
+          stock_code: "026910",
+          title: "광진실업 지분 인수",
+          url: "https://n/m1",
+          source: "s",
+          published_at: "2026-07-01T18:00:00Z",
+          description: "<b>씨씨홀딩스</b> 지분 인수 및 유상증자 결정",
+        },
+      ]),
+    ]);
+    expect(message).toContain("씨씨홀딩스 지분 인수 및 유상증자 결정");
+    expect(message).not.toContain("<b>"); // stripHtml 적용.
+    expect(message).toContain("[0] 026910 광진실업 지분 인수 —");
+  });
+
+  it("description 이 null 이면 스니펫 없이 제목만 (구분자 없음)", () => {
+    const { message } = formatClusterMessage([
+      surge([
+        {
+          id: "r1",
+          stock_code: "026910",
+          title: "오늘의 급등주 총정리",
+          url: "https://n/r1",
+          source: "s",
+          published_at: "2026-07-02T09:00:00Z",
+          description: null,
+        },
+      ]),
+    ]);
+    expect(message).toContain("[0] 026910 오늘의 급등주 총정리");
+    expect(message).not.toContain("—");
+  });
+
+  it("긴 description 은 truncate + 말줄임표", () => {
+    const long = "가".repeat(300);
+    const { message } = formatClusterMessage([
+      surge([
+        {
+          id: "m1",
+          stock_code: "026910",
+          title: "테스트",
+          url: "https://n/m1",
+          source: "s",
+          published_at: "2026-07-01T18:00:00Z",
+          description: long,
+        },
+      ]),
+    ]);
+    expect(message).toContain("…");
+    expect(message).not.toContain("가".repeat(200)); // 120자 컷.
   });
 });

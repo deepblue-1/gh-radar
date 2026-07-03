@@ -1,4 +1,8 @@
+import { stripHtml } from "@gh-radar/shared";
 import type { Surge } from "../pipeline/loadSurges";
+
+/** 뉴스 라인에 붙일 description 스니펫 최대 길이 (토큰 상한). */
+const DESC_SNIPPET_MAX = 120;
 
 /**
  * Phase 13 Plan 02 Task 2 — Claude Haiku bottom-up 클러스터링 프롬프트 (RESEARCH §Pattern 3).
@@ -90,7 +94,18 @@ export function formatClusterMessage(surges: Surge[]): {
         url: n.url,
         source: n.source ?? "",
       });
-      newsLines.push(`[${idx}] ${s.code} ${n.title}`);
+      // description 스니펫(HTML strip + truncate)을 제목 뒤에 덧붙여 Claude 에 재료 컨텍스트 제공.
+      // 시황 라운드업과 개별 재료(공시 등)를 구분할 신호. indexedNews(verbatim)에는 미포함.
+      const clean = n.description ? stripHtml(n.description) : "";
+      const snippet =
+        clean.length > DESC_SNIPPET_MAX
+          ? `${clean.slice(0, DESC_SNIPPET_MAX)}…`
+          : clean;
+      newsLines.push(
+        snippet
+          ? `[${idx}] ${s.code} ${n.title} — ${snippet}`
+          : `[${idx}] ${s.code} ${n.title}`,
+      );
     }
   }
 

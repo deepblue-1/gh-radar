@@ -89,6 +89,7 @@ describe("loadSurges", () => {
         url: `https://n/${code}/${i}`,
         source: "s",
         published_at: `2026-07-01T00:${String(i % 60).padStart(2, "0")}:00Z`,
+        description: null,
       }));
 
     // news_articles.order 는 각 청크 응답 — 각 종목 500건씩 순서대로 반환.
@@ -108,6 +109,88 @@ describe("loadSurges", () => {
     expect(last?.news).toHaveLength(5);
     // 모든 종목이 정확히 newsPerStock cap.
     for (const s of surges) expect(s.news.length).toBeLessThanOrEqual(5);
+  });
+
+  it("2단 정렬: 종목명이 title/description 에 있는 재료 기사를 최신 라운드업보다 우선 배치", async () => {
+    const sb = createMockSupabase();
+    sb.from("stock_quotes").gte.mockResolvedValue({
+      data: [{ code: "026910", change_rate: 29 }],
+      error: null,
+    });
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "026910", name: "광진실업", market: "KOSPI" }],
+      error: null,
+    });
+    // 최신순으로 내려온 응답: 라운드업(종목명 없음)이 앞, 재료 기사(종목명 포함)가 뒤.
+    const rows = [
+      {
+        id: "r1",
+        stock_code: "026910",
+        title: "오늘의 급등주 총정리",
+        url: "https://n/r1",
+        source: "s",
+        published_at: "2026-07-02T09:00:00Z",
+        description: "코스닥 상승 종목 모음",
+      },
+      {
+        id: "r2",
+        stock_code: "026910",
+        title: "장마감 시황 브리핑",
+        url: "https://n/r2",
+        source: "s",
+        published_at: "2026-07-02T08:00:00Z",
+        description: "코스피 강세 마감",
+      },
+      {
+        id: "m1",
+        stock_code: "026910",
+        title: "광진실업 씨씨홀딩스 지분 인수",
+        url: "https://n/m1",
+        source: "s",
+        published_at: "2026-07-01T18:00:00Z",
+        description: "지분 인수 및 유상증자 결정",
+      },
+      {
+        id: "m2",
+        stock_code: "026910",
+        title: "코스닥 특징주 정리",
+        url: "https://n/m2",
+        source: "s",
+        published_at: "2026-07-01T17:00:00Z",
+        description: "광진실업 유상증자 결정 공시",
+      },
+    ];
+    sb.from("news_articles").order.mockResolvedValue({ data: rows, error: null });
+
+    const surges = await loadSurges(sb as never, cfg({ newsPerStock: 4 }));
+    const news = surges[0]?.news ?? [];
+    // 재료 기사(name-match) 2건이 앞, 각 그룹 내부 published_at desc.
+    expect(news.map((n) => n.id)).toEqual(["m1", "m2", "r1", "r2"]);
+  });
+
+  it("48h 창 필터: news_articles 쿼리에 published_at >= now-48h cutoff 적용", async () => {
+    const sb = createMockSupabase();
+    sb.from("stock_quotes").gte.mockResolvedValue({
+      data: [{ code: "005930", change_rate: 25 }],
+      error: null,
+    });
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930", name: "삼성전자", market: "KOSPI" }],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const lower = Date.now() - 48 * 60 * 60 * 1000 - 5000;
+    await loadSurges(sb as never, cfg());
+    const upper = Date.now() - 48 * 60 * 60 * 1000 + 5000;
+
+    const gte = sb.from("news_articles").gte;
+    expect(gte).toHaveBeenCalled();
+    const [col, val] = gte.mock.calls[0] as [string, string];
+    expect(col).toBe("published_at");
+    const cutoff = Date.parse(val);
+    expect(cutoff).toBeGreaterThanOrEqual(lower);
+    expect(cutoff).toBeLessThanOrEqual(upper);
   });
 
   it("retry-on-empty: 첫 read 가 빈 결과면 재시도 후 non-empty 반환", async () => {
