@@ -14,6 +14,7 @@
 
 - [x] 실시간 또는 1분 간격 데이터 갱신 — Validated in Phase 09.1: 키움 ka10027 매분 cycle (`* 9-15 * * 1-5` Asia/Seoul) 로 활성 종목 ~944 row 갱신
 - [x] 상한가 다음날 이력 통계 (LIMIT-01) — Validated in Phase 12: 종목 자체 마감상한가 이벤트의 다음날 시/고/저/종 수익률을 KRX EOD 일봉으로 백테스트(`rebuild_limit_up` 야간 사전계산, event_rows=3459), 종목상세에 읽기전용 데이터 대시보드(히어로 익절률 + 분포 밴드 + 이벤트 표 + 테마 풀링)로 표시. limit-up-sync 워커 Cloud Run Job + nightly Scheduler 활성.
+- [x] AI 애널리스트 챗봇 (CHAT-01) — Validated in Phase 14: 팀장(claude-sonnet-5, adaptive thinking)+전문가 5(claude-sonnet-5: 시세/테마/뉴스/상한가/웹서치) 멀티에이전트 오케스트레이션, SSE POST /api/chat(JWT 검증), 로그인 사용자별·종목별 히스토리(conversations/messages RLS 8정책), 전역 FAB+챗 시트+/chat 페이지, 마크다운/스텝퍼/미니카드/인용/미니차트 렌더. production 라이브(첫 토큰 ~0.5s, web_search POC PASS). 면책 문구는 사용자 지시로 미표기.
 
 ### Active
 
@@ -76,4 +77,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-02 — Phase 13 complete (홈 화면 — 오늘의 급등 테마 AI 분석, HOME-01). 앱 루트(/)에 새 "홈" 신설: 오늘 +20% 급등 종목을 큐레이션 테마와 무관하게 Claude Haiku 1회로 bottom-up 클러스터링하여 주도 테마·상승 이유·소속 종목·근거 뉴스(1-2건 verbatim)를 시점별(:30) 스냅샷으로 read-only 표시. 신규 home-sync Cloud Run Job(장중 cron 30 9-15 * * 1-5 KST, OAuth invoker) + home_theme_snapshots 일별 이력 테이블(hash-skip clone-append) + 읽기 라우트 GET /api/home. 프로덕션 배포 + Claude POC PASS(4테마 실측, 환각 0, ~$3.1/월). 비차단 후속: 테마 내 newsRefs URL dedup, loadSurges .limit 보강(WR-01/02). (이전: Phase 12 상한가 다음날 이력 통계 LIMIT-01, Phase 11 Co-movement, Phase 10 theme-classification.)*
+*Last updated: 2026-07-03 — Phase 14 complete (AI 애널리스트 챗봇, CHAT-01). 팀장+전문가 5 멀티에이전트 SSE 챗봇 production 라이브 — 상세는 Validated 항목 참조. 코드리뷰 Warning 8건 수정 반영, human UAT 4항목은 14-HUMAN-UAT.md 추적. (이전: Phase 13 complete (홈 화면 — 오늘의 급등 테마 AI 분석, HOME-01). 앱 루트(/)에 새 "홈" 신설: 오늘 +20% 급등 종목을 큐레이션 테마와 무관하게 Claude Haiku 1회로 bottom-up 클러스터링하여 주도 테마·상승 이유·소속 종목·근거 뉴스(1-2건 verbatim)를 시점별(:30) 스냅샷으로 read-only 표시. 신규 home-sync Cloud Run Job(장중 cron 30 9-15 * * 1-5 KST, OAuth invoker) + home_theme_snapshots 일별 이력 테이블(hash-skip clone-append) + 읽기 라우트 GET /api/home. 프로덕션 배포 + Claude POC PASS(4테마 실측, 환각 0, ~$3.1/월). 비차단 후속: 테마 내 newsRefs URL dedup, loadSurges .limit 보강(WR-01/02). (이전: Phase 12 상한가 다음날 이력 통계 LIMIT-01, Phase 11 Co-movement, Phase 10 theme-classification.)*
