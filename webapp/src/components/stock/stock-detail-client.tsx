@@ -154,8 +154,8 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
         </p>
       )}
       <StockThemeChips stockCode={stock.code} />
-      <StockComovementSection stockCode={stock.code} />
       <StockLimitUpSection stockCode={stock.code} />
+      <StockComovementSection stockCode={stock.code} />
       <div className="space-y-6">
         <StockNewsSection stockCode={stock.code} />
         <StockDiscussionSection stockCode={stock.code} />

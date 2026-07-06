@@ -112,8 +112,8 @@ function DetailItem({
  * (중첩 인터랙티브 <button> in <a> 금지). 펼침은 행 로컬 state.
  */
 function CandidateRow({ c }: { c: CoMovementCandidate }) {
-  // 기본 펼침 — 점수 근거를 항상 노출(사용자 요청). 토글로 접기 가능.
-  const [open, setOpen] = useState(true);
+  // 기본 접힘 — 카드 스캔성 우선(사용자 요청). "근거 보기" 토글로 펼침.
+  const [open, setOpen] = useState(false);
 
   // co-surge 전용 후보(공유 테마 없음)는 confD0=0 의 "0%" 대신 "—" (UI-SPEC 규칙).
   const isCoSurgeOnly = c.sharedThemes.length === 0;
