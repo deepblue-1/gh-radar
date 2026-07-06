@@ -87,17 +87,29 @@ export async function runIntradayCycle(): Promise<{
   // 0. Token
   const token = await withRetry(() => getKiwoomToken(supabase, config), "getKiwoomToken");
 
-  // STEP 1 — ka10027 페이지네이션
+  // STEP 1 — ka10027 페이지네이션 (sort_tp 1+3 병합)
+  //   상한가 근접 상승 종목만이 아니라 하락 전환 종목도 매분 일봉(stock_daily_ohlcv) 갱신 대상.
+  //   sort_tp=1(상승+보합) + sort_tp=3(하락+보합) 을 각각 페이지네이션 호출 후 concat.
+  //   concat 후 dedupeMap(Map by code, "마지막 row 승")이 보합 중복(1/3 양쪽 등장)을 자연 제거 —
+  //   동일값이라 무해. (2026-07-06 하락 종목 일봉 동결 버그 수정)
   const kiwoom = createKiwoomClient(config.kiwoomBaseUrl);
-  const ka10027Rows = await withRetry(
-    () => fetchKa10027(kiwoom, token.accessToken, config.paginationHardCap),
-    "fetchKa10027",
+  const upRows = await withRetry(
+    () => fetchKa10027(kiwoom, token.accessToken, "1", config.paginationHardCap),
+    "fetchKa10027(sort_tp=1)",
   );
-  log.info({ rows: ka10027Rows.length }, "STEP1 ka10027 fetched");
+  const downRows = await withRetry(
+    () => fetchKa10027(kiwoom, token.accessToken, "3", config.paginationHardCap),
+    "fetchKa10027(sort_tp=3)",
+  );
+  const ka10027Rows = [...upRows, ...downRows];
+  log.info(
+    { upRows: upRows.length, downRows: downRows.length, rows: ka10027Rows.length },
+    "STEP1 ka10027 fetched (sort_tp 1+3 merged)",
+  );
 
-  // 휴장일 가드 (RESEARCH §2.5): 0 row 는 휴장/키움 미응답 → no-op exit.
-  // partial 가드(< MIN_EXPECTED_ROWS)는 제거 — sort_tp=1 의 상승 종목 수는 시장 상황에 따라
-  // 자연 변동(약세장 348 ~ 강세장 1927)하므로 고정 하한 검증은 오탐(2026-06-08 회귀).
+  // 휴장일 가드 (RESEARCH §2.5): 병합 0 row 는 휴장/키움 미응답 → no-op exit.
+  // partial 가드(< MIN_EXPECTED_ROWS)는 제거 — 상승/하락 종목 수는 시장 상황에 따라
+  // 자연 변동하므로 고정 하한 검증은 오탐(2026-06-08 회귀).
   if (ka10027Rows.length === 0) {
     log.warn("ka10027 0 rows — 휴장일 또는 키움 미응답");
     return { step1Count: 0, step2Count: 0, failed: 0 };
@@ -210,37 +222,30 @@ export async function runIntradayCycle(): Promise<{
     })
     .filter((u): u is NonNullable<typeof u> => u !== null);
 
-  // STEP1 처리 종목 (stock_quotes 에 row 존재 보장) 만 STEP2 UPSERT 대상.
-  // computeHotSet 이 watchlist 종목을 추가하므로 STEP1 ka10027 응답에 없는 종목이
-  // 포함될 수 있음 → upsertQuotesStep2 가 신규 row INSERT 시 price NOT NULL violation.
-  // (2026-05-15 first cycle 검증) step1Updates 의 code set 으로 intersect 하여 안전.
-  // stock_daily_ohlcv RPC (intradayUpsertOhlc) 는 별도 테이블이라 영향 없음.
-  const step1Codes = new Set(step1Updates.map((u) => u.code));
-  const step2Updates = step2UpdatesRaw.filter((u) => step1Codes.has(u.code));
-  const droppedFromStep2 = step2UpdatesRaw.length - step2Updates.length;
-  if (droppedFromStep2 > 0) {
-    log.info(
-      { dropped: droppedFromStep2 },
-      "STEP2 dropped non-STEP1 codes (watchlist 종목 중 ka10027 미응답)",
-    );
-  }
+  // STEP2 는 step2UpdatesRaw 를 필터 없이 그대로 UPSERT.
+  //   과거엔 step1Codes intersect 필터로 watchlist 종목(ka10027 미응답)을 걸러냈으나,
+  //   그 원 사유(upsertQuotesStep2 신규 INSERT 시 NOT NULL violation)는 이미 소멸:
+  //     - upsertQuotesStep2 (upsertQuotes.ts): UPSERT→UPDATE 전환 → 없는 row 에 no-op.
+  //     - intradayUpsertOhlc (intraday_upsert_ohlc RPC): INSERT 폴백 분기 보유 → 없는 종목도 안전.
+  //   필터를 두면 watchlist 종목의 정확 OHLC 가 stock_daily_ohlcv 에 반영되지 않는 회귀가 발생.
+  //   (2026-07-06 watchlist 일봉 미반영 버그 수정)
 
   // STEP 2 — RPC #2 + stock_quotes
   await withRetry(
-    () => intradayUpsertOhlc(supabase, step2Updates),
+    () => intradayUpsertOhlc(supabase, step2UpdatesRaw),
     "intradayUpsertOhlc",
   );
   await withRetry(
-    () => upsertQuotesStep2(supabase, step2Updates),
+    () => upsertQuotesStep2(supabase, step2UpdatesRaw),
     "upsertQuotesStep2",
   );
 
   log.info(
-    { step1Count, step2Count: step2Updates.length, failed },
+    { step1Count, step2Count: step2UpdatesRaw.length, failed },
     "intraday cycle complete",
   );
 
-  return { step1Count, step2Count: step2Updates.length, failed };
+  return { step1Count, step2Count: step2UpdatesRaw.length, failed };
 }
 
 async function main(): Promise<void> {
