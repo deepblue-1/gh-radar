@@ -37,7 +37,7 @@ describe("fetchKa10027", () => {
       "/api/dostk/rkinfo",
       expect.objectContaining({
         mrkt_tp: "000",
-        // sort_tp="1": 상승+보합 종목. "3" 은 하락만 반환 → 양수 0개로 스캐너 빈 화면 회귀(2026-06-08).
+        // sort_tp 기본값 "1" (상승+보합). caller 가 지정 가능 (index.ts 가 1+3 병합 호출).
         sort_tp: "1",
         updown_incls: "1",
         // stex_tp: 키움 spec 변경 (2026-05-15 first cycle 에서 1511 필수 누락 발견) — "3"=통합
@@ -53,18 +53,25 @@ describe("fetchKa10027", () => {
     );
   });
 
-  it("회귀 가드 — sort_tp 는 반드시 '1' (상승+보합). '3' 은 하락만 반환 → 스캐너 빈 화면 회귀", async () => {
-    // sort_tp 의미(probe 실측): 1=상승+보합(+30→0), 3=하락+보합(-18.77→0, 양수 0개).
-    // 1차 fix(f4fab10)가 sort_tp=1→3 으로 바꿨으나 sort_tp=3 은 하락 종목이라 topMovers
-    // changeRate>0 필터에서 전부 탈락 → top_movers 가 비어 스캐너 빈 화면. '1' 이 정답.
-    // debug session: .planning/debug/resolved/kiwoom-ka10027-partial-response.md
+  it("sortTp 미지정 시 기본값 body.sort_tp === '1' (하위호환)", async () => {
+    // sort_tp 의미(probe 실측): 1=상승+보합(+30→0), 3=하락+보합(-18.77→0).
+    // caller 가 지정 안 하면 기존 호출과 동일하게 "1" 로 동작해야 한다(하위호환).
     const client = makeClient([{ data: page1, headers: { "cont-yn": "N" } }]);
     await fetchKa10027(client, "TOKEN");
     const body = (client.post as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       sort_tp: string;
     };
     expect(body.sort_tp).toBe("1");
-    expect(body.sort_tp).not.toBe("3");
+  });
+
+  it("sortTp='3' 전달 시 body.sort_tp === '3' (하락+보합 조회)", async () => {
+    // index.ts STEP1 이 하락 전환 종목 일봉 갱신을 위해 sort_tp=3 을 병합 호출한다.
+    const client = makeClient([{ data: page1, headers: { "cont-yn": "N" } }]);
+    await fetchKa10027(client, "TOKEN", "3");
+    const body = (client.post as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      sort_tp: string;
+    };
+    expect(body.sort_tp).toBe("3");
   });
 
   it("다중 페이지 (cont-yn=Y) → next-key 헤더로 다음 호출", async () => {
@@ -111,6 +118,6 @@ describe("fetchKa10027", () => {
     const client = makeClient([
       { data: page1, headers: { "cont-yn": "Y", "next-key": "PAGE2" } },
     ]);
-    await expect(fetchKa10027(client, "TOKEN", 2)).rejects.toThrow(/hard cap 2 exceeded/);
+    await expect(fetchKa10027(client, "TOKEN", "1", 2)).rejects.toThrow(/hard cap 2 exceeded/);
   });
 });

@@ -9,13 +9,13 @@ import { acquireKiwoomRateToken } from "./rateLimiter";
  * CONTEXT D-06: mrkt_tp=000 (KOSPI+KOSDAQ 통합)
  * CONTEXT D-07: updown_incls=1 (등락 미발생 포함)
  *
- * sort_tp=1 (상승+보합 종목, 등락률 내림차순) — 2026-06-08 재수정.
+ * sort_tp 은 caller 가 지정한다 (기본값 "1") — 2026-07-06 재수정.
  *   - sort_tp 의미(probe): 1=상승+보합(+30→0), 3=하락+보합(-18.77→0), 4=하락만.
- *   - 1차 fix(f4fab10)가 sort_tp=1→3 으로 바꿨으나 sort_tp=3 은 하락 종목 → 양수 0개.
- *     topMovers changeRate>0 필터에서 전부 탈락 → top_movers 가 비어 스캐너 빈 화면 회귀.
- *     (양수 0개 = "no positive movers" 로그.)
- *   - 스캐너는 급등 포착이 목적이라 sort_tp=1 이 정답. 상승 종목 수는 시장 따라 변동(348~1927).
- *     고정 하한 MIN_EXPECTED_ROWS 가드는 제거(index.ts)해 수용. 휴장일은 length===0 별도 구분.
+ *   - index.ts STEP1 이 sort_tp=1(상승+보합) + sort_tp=3(하락+보합) 을 각각 호출 후 병합한다.
+ *     이전에는 sort_tp=1 하드코딩이라 하락 전환 종목이 응답에서 사라져 일봉(stock_daily_ohlcv)
+ *     갱신이 장 초 값에 동결됐다(009150/000660 등). 1+3 병합으로 상승·하락 전 종목 커버.
+ *   - topMovers 는 changeRate>0 필터라 sort_tp=3 하락 종목은 스캐너에 유입되지 않는다(자연 무해).
+ *     상승/하락 종목 수는 시장 따라 변동. 휴장일은 병합 length===0 으로 별도 구분(index.ts).
  *     debug session: .planning/debug/resolved/kiwoom-ka10027-partial-response.md 참조.
  *
  * 페이지네이션: 응답 헤더 cont-yn=Y/N + next-key 로 추적.
@@ -29,13 +29,14 @@ import { acquireKiwoomRateToken } from "./rateLimiter";
 export async function fetchKa10027(
   client: AxiosInstance,
   token: string,
+  sortTp = "1",
   hardCap = 5000,
 ): Promise<KiwoomKa10027Row[]> {
   const body = {
     mrkt_tp: "000",
-    // sort_tp="1": 상승+보합 종목. "3" 은 하락만 반환 → 양수 0개로 topMovers 가 비어 스캐너 빈 화면.
-    // hotSet/topMovers 의 명시 정렬은 키움 응답 순서에 의존하지 않기 위해 유지.
-    sort_tp: "1",
+    // sort_tp: caller 지정 (1=상승+보합, 3=하락+보합). index.ts 가 1+3 병합 호출.
+    // 명시 정렬(hotSet/topMovers)은 키움 응답 순서에 의존하지 않기 위해 별도 유지.
+    sort_tp: sortTp,
     trde_qty_cnd: "0000",
     stk_cnd: "0",
     crd_cnd: "0",
