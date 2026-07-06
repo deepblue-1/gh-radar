@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-07-06 - Completed quick task 260706-cdc: NXT 프리마켓 대응 장중 파이프라인 8시 시작
+Last activity: 2026-07-06 - Completed quick task 260706-dvl: 종목상세 섹션 순서 교체 + 동반상승 근거 기본 접힘
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -318,6 +318,7 @@ Recent decisions affecting current work:
 | 260424-dld | 스캐너 등락률 슬라이더 제거 + 서버 고정 10% 하한 | 2026-04-24 | a371cc2 | [260424-dld-remove-scanner-rate-filter](./quick/260424-dld-remove-scanner-rate-filter/) |
 | 260608-g0k | CLAUDE.md 한국 크롤링 법적 진술 정정 + 운영 5원칙 추가 | 2026-06-08 | e97e436 | [260608-g0k-claude-md-5](./quick/260608-g0k-claude-md-5/) |
 | 260706-cdc | NXT 프리마켓 대응: 장중 파이프라인 8시 시작 (cron 8-15 + 홈 프리마켓 라벨) | 2026-07-06 | 95fae6c | [260706-cdc-nxt-8-intraday-home-news-cron-8-15-smoke](./quick/260706-cdc-nxt-8-intraday-home-news-cron-8-15-smoke/) |
+| 260706-dvl | 종목상세 상한가 이력↔동반상승 후보 순서 교체 + 근거 기본 접힘 | 2026-07-06 | c9102ee | [260706-dvl-detail-section-order](./quick/260706-dvl-detail-section-order/) |
 
 ## Session Continuity
 
