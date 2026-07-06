@@ -265,7 +265,7 @@ describe('ThemesClient — 변형 C 랭킹', () => {
     setQuery({ systemThemes: [sysTheme('s1', '초전도체', 18.4)] });
     render(<ThemesClient />);
     expect(
-      screen.getByText(/출처: 네이버 금융 테마 · 알파스퀘어 · AI 보강\(Claude\)/),
+      screen.getByText(/출처: 네이버 금융 테마 · 알파스퀘어 · 일 1회 16:00 KST 갱신/),
     ).toBeInTheDocument();
   });
 

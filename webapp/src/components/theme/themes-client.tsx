@@ -27,7 +27,7 @@ import { ThemesSkeleton } from './themes-skeleton';
 
 const ERROR_MSG = '테마를 불러오지 못했습니다. 새로고침해주세요.';
 const SOURCE_FOOTER =
-  '출처: 네이버 금융 테마 · 알파스퀘어 · AI 보강(Claude) · 일 1회 16:00 KST 갱신';
+  '출처: 네이버 금융 테마 · 알파스퀘어 · 일 1회 16:00 KST 갱신';
 const SORT_LABEL = '상위 3종목 평균 등락률';
 
 export function ThemesClient() {

@@ -16,10 +16,9 @@ import type { Market } from "./stock.js";
  * theme_stocks.source 컬럼의 허용 값.
  *   - naver:       네이버 금융 테마 스크랩 (산업/이벤트)
  *   - alphasquare: 알파스퀘어 JSON API (정치인주/시사)
- *   - ai:          Claude Haiku 보강 (뉴스 기반 발굴 / 오분류 교정, 시스템 레이어)
  *   - user:        유저 테마에 직접 추가한 종목
  */
-export type ThemeStockSource = "naver" | "alphasquare" | "ai" | "user";
+export type ThemeStockSource = "naver" | "alphasquare" | "user";
 
 /**
  * ThemeStockSource 의 런타임 sentinel — DB `theme_stocks.source` 와 1:1 대응.
@@ -28,7 +27,6 @@ export type ThemeStockSource = "naver" | "alphasquare" | "ai" | "user";
 export const THEME_STOCK_SOURCES: readonly ThemeStockSource[] = [
   "naver",
   "alphasquare",
-  "ai",
   "user",
 ] as const;
 
@@ -47,7 +45,7 @@ export interface Theme {
   isSystem: boolean;
   /** 시스템=null, 유저=auth.uid() */
   ownerId: string | null;
-  /** 다중 출처 태그: {naver, alphasquare, ai} (유저 테마는 보통 ['user']) */
+  /** 다중 출처 태그: {naver, alphasquare} (유저 테마는 보통 ['user']) */
   sources: ThemeStockSource[];
   /** 정렬 지표 precompute — 소속 종목 등락률 상위 3 평균 (미계산 시 null) */
   top3AvgChangeRate: number | null;
@@ -68,9 +66,9 @@ export interface ThemeStock {
   /** stocks.code (6자 단축코드) FK */
   stockCode: string;
   source: ThemeStockSource;
-  /** 0~1 신뢰도 (AI/스크랩) — 미상 시 null */
+  /** 0~1 신뢰도 (스크랩) — 미상 시 null */
   confidence: number | null;
-  /** 네이버 '편입 사유' info_txt 등 (AI 오분류 교정 입력) — 없으면 null */
+  /** 네이버 '편입 사유' info_txt 등 — 없으면 null */
   reason: string | null;
   /** 편입 시각 (ISO) */
   effectiveFrom: string;
