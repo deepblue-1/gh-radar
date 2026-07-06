@@ -7,9 +7,8 @@ import "dotenv/config";
  * 직접 fetch → 403/429 차단 시 Bright Data Web Unlocker 폴백(discussion-sync 선례) →
  * 보수적 이름 정규화 병합 → themes/theme_stocks service_role UPSERT.
  *
- * 시크릿(brightdataApiKey/anthropicApiKey/supabaseServiceRoleKey)은 logger redact
- * (T-10-03-02) 로 구조화 로그에서 차단. AI 보강(anthropic*)은 Plan 06 이 사용 —
- * 본 plan 에서는 config 에 자리만 둔다.
+ * 시크릿(brightdataApiKey/supabaseServiceRoleKey)은 logger redact
+ * (T-10-03-02) 로 구조화 로그에서 차단.
  */
 export interface ThemeSyncConfig {
   supabaseUrl: string;
@@ -26,23 +25,6 @@ export interface ThemeSyncConfig {
   themeSyncMaxPages: number;
   /** 알파스퀘어 수집 카테고리 화이트리스트 (부분 캐싱, 5원칙 #5 — 전체 451 덤프 금지). */
   alphaCategories: string[];
-  /**
-   * Plan 06 (AI 보강) — Claude Haiku 4.5 기반 신규 테마 발굴 + 오분류 교정.
-   *   anthropicApiKey: Claude Haiku 호출 (classify 활성 시 필수).
-   *   classifyEnabled: AI 보강 kill-switch (default false — POC 게이트 통과 후 활성화).
-   *   classifyConcurrency: p-limit 동시 Claude 호출 수.
-   *   classifyModel: "claude-haiku-4-5" 고정 (env override 는 테스트 안전망).
-   *   discoverNewsLookbackDays: 발굴 입력 — 최근 N일 news_articles(published_at).
-   *   discoverNewsMax: 발굴 입력 뉴스 최대 건수 (토큰/비용 상한).
-   *   discoverExistingThemesMax: 중복 발굴 방지용 기존 시스템 테마 조회 상한.
-   */
-  anthropicApiKey: string;
-  classifyEnabled: boolean;
-  classifyConcurrency: number;
-  classifyModel: string;
-  discoverNewsLookbackDays: number;
-  discoverNewsMax: number;
-  discoverExistingThemesMax: number;
   appVersion: string;
   logLevel: string;
 }
@@ -80,23 +62,6 @@ export function loadConfig(): ThemeSyncConfig {
       "정치",
       "트렌드",
     ]),
-    // Plan 06 (AI 보강) — 본 plan 미사용. ANTHROPIC_API_KEY 부재 시에도 cycle 동작하도록
-    // req() 가 아닌 옵셔널 get() 으로 읽고 default ''. classify_enabled default false.
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
-    classifyEnabled:
-      (process.env.THEME_SYNC_CLASSIFY_ENABLED ?? "false") === "true",
-    classifyConcurrency: Number(
-      process.env.THEME_SYNC_CLASSIFY_CONCURRENCY ?? "5",
-    ),
-    classifyModel:
-      process.env.THEME_SYNC_CLASSIFY_MODEL ?? "claude-haiku-4-5",
-    discoverNewsLookbackDays: Number(
-      process.env.THEME_SYNC_DISCOVER_NEWS_LOOKBACK_DAYS ?? "1",
-    ),
-    discoverNewsMax: Number(process.env.THEME_SYNC_DISCOVER_NEWS_MAX ?? "300"),
-    discoverExistingThemesMax: Number(
-      process.env.THEME_SYNC_DISCOVER_EXISTING_THEMES_MAX ?? "2000",
-    ),
     appVersion: process.env.APP_VERSION ?? "dev",
     logLevel: process.env.LOG_LEVEL ?? "info",
   };

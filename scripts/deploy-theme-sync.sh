@@ -17,15 +17,11 @@ set -euo pipefail
 #
 # ENV (RESEARCH §Code Examples 골격):
 #   SUPABASE_URL, ALPHA_API_BASE, NAVER_THEME_BASE, BRIGHTDATA_ZONE, BRIGHTDATA_URL,
-#   THEME_SYNC_MAX_PAGES, THEME_SYNC_ALPHA_CATEGORIES, THEME_SYNC_CLASSIFY_ENABLED(=true),
+#   THEME_SYNC_MAX_PAGES, THEME_SYNC_ALPHA_CATEGORIES,
 #   LOG_LEVEL, APP_VERSION
 # Secrets (전부 기존 재사용 — MEMORY: 기존 creds 재요청 금지):
 #   SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest
 #   BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest
-#   ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest
-#
-# THEME_SYNC_CLASSIFY_ENABLED=true — Plan 06 POC 게이트(source='ai' 표시) 승인됨.
-#   production AI 발굴/교정 활성화. kill-switch 가 필요하면 false 로 재배포.
 # ═══════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════
@@ -61,8 +57,8 @@ for SA in gh-radar-scheduler-sa gh-radar-theme-sync-sa; do
   fi
 done
 
-# 선행 Secret 검증 — 기존 시크릿 3종(재사용)
-for SECRET in gh-radar-supabase-service-role gh-radar-brightdata-api-key gh-radar-anthropic-api-key; do
+# 선행 Secret 검증 — 기존 시크릿 2종(재사용)
+for SECRET in gh-radar-supabase-service-role gh-radar-brightdata-api-key; do
   if ! gcloud secrets describe "$SECRET" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
     echo "ERROR: Secret '$SECRET' not found. Run: bash scripts/setup-theme-sync-iam.sh" >&2
     exit 1
@@ -91,10 +87,8 @@ BRIGHTDATA_ZONE_VAL="${BRIGHTDATA_ZONE:-gh_radar_naver}"
 BRIGHTDATA_URL_VAL="${BRIGHTDATA_URL:-https://api.brightdata.com/request}"
 THEME_SYNC_MAX_PAGES_VAL="${THEME_SYNC_MAX_PAGES:-10}"
 THEME_SYNC_ALPHA_CATEGORIES_VAL="${THEME_SYNC_ALPHA_CATEGORIES:-정치,트렌드}"
-# Plan 06 POC 게이트 승인 → production AI 발굴/교정 활성화(default true). env override 로 kill-switch.
-THEME_SYNC_CLASSIFY_ENABLED_VAL="${THEME_SYNC_CLASSIFY_ENABLED:-true}"
 
-echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE, classify=$THEME_SYNC_CLASSIFY_ENABLED_VAL"
+echo "✓ variables: SHA=$SHA, IMAGE=$IMAGE"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 3: Artifact Registry repo (idempotent)
@@ -143,8 +137,8 @@ gcloud run jobs deploy "$JOB" \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
-  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@ALPHA_API_BASE=${ALPHA_API_BASE_VAL}@NAVER_THEME_BASE=${NAVER_THEME_BASE_VAL}@BRIGHTDATA_ZONE=${BRIGHTDATA_ZONE_VAL}@BRIGHTDATA_URL=${BRIGHTDATA_URL_VAL}@THEME_SYNC_MAX_PAGES=${THEME_SYNC_MAX_PAGES_VAL}@THEME_SYNC_ALPHA_CATEGORIES=${THEME_SYNC_ALPHA_CATEGORIES_VAL}@THEME_SYNC_CLASSIFY_ENABLED=${THEME_SYNC_CLASSIFY_ENABLED_VAL}@LOG_LEVEL=info@APP_VERSION=${SHA}" \
-  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest,ANTHROPIC_API_KEY=gh-radar-anthropic-api-key:latest" \
+  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@ALPHA_API_BASE=${ALPHA_API_BASE_VAL}@NAVER_THEME_BASE=${NAVER_THEME_BASE_VAL}@BRIGHTDATA_ZONE=${BRIGHTDATA_ZONE_VAL}@BRIGHTDATA_URL=${BRIGHTDATA_URL_VAL}@THEME_SYNC_MAX_PAGES=${THEME_SYNC_MAX_PAGES_VAL}@THEME_SYNC_ALPHA_CATEGORIES=${THEME_SYNC_ALPHA_CATEGORIES_VAL}@LOG_LEVEL=info@APP_VERSION=${SHA}" \
+  --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,BRIGHTDATA_API_KEY=gh-radar-brightdata-api-key:latest" \
   --project="$EXPECTED_PROJECT"
 
 # ═══════════════════════════════════════════════════════════════
@@ -197,7 +191,6 @@ fi
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
 echo "  Scheduler: $SCHEDULER_NAME (KST 매일 16:00, OAuth invoker)"
-echo "  classify_enabled: $THEME_SYNC_CLASSIFY_ENABLED_VAL"
 echo ""
 echo "Next:"
 echo "  bash scripts/smoke-theme-sync.sh    # 배포 검증 (Job 1회 실행 → themes count > 0)"
