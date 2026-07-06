@@ -130,7 +130,7 @@ describe('StockComovementSection', () => {
     render(<StockComovementSection stockCode="004090" />);
 
     await waitFor(() => expect(screen.getByText('대성에너지')).toBeInTheDocument());
-    // 기본 펼침이라 '정유·석유'는 칩 + 근거상세(공유 테마) 양쪽에 노출 → getAllByText.
+    // 기본 접힘이라 근거상세 미노출 — '정유·석유'는 칩만 노출(우측 메트릭 영역).
     expect(screen.getAllByText('정유·석유').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('동반급등 6회')).toBeInTheDocument();
     expect(screen.getByText('후행형')).toBeInTheDocument();
@@ -146,7 +146,7 @@ describe('StockComovementSection', () => {
     render(<StockComovementSection stockCode="004090" />);
 
     await waitFor(() => expect(screen.getByText('흥구석유')).toBeInTheDocument());
-    // 0.674 → 67% (우측 메트릭 + 근거상세 동반율 양쪽 — 기본 펼침)
+    // 0.674 → 67% (기본 접힘이라 근거상세 미노출 — 우측 메트릭만 노출)
     expect(screen.getAllByText('67%').length).toBeGreaterThanOrEqual(1);
     // liveChangeRate null → em-dash
     expect(screen.getByText('—')).toBeInTheDocument();
@@ -218,7 +218,7 @@ describe('StockComovementSection', () => {
     expect(container.textContent).not.toContain('0%');
   });
 
-  it('Test 10: 근거 아코디언 기본 펼침 → 점수 분해·최근 동반 노출, 토글로 접힘', async () => {
+  it('Test 10: 근거 아코디언 기본 접힘 → 토글로 펼침(점수 분해·최근 동반 노출)', async () => {
     fetchStockComovementMock.mockResolvedValue({
       candidates: [
         makeCandidate({
@@ -240,7 +240,17 @@ describe('StockComovementSection', () => {
 
     await waitFor(() => expect(screen.getByText('흥구석유')).toBeInTheDocument());
 
-    // 기본 펼침 — 점수 분해 즉시 노출
+    // 기본 접힘 — 점수 분해·최근 동반급등 미노출
+    expect(screen.queryByText('연결 경로')).not.toBeInTheDocument();
+    expect(screen.queryByText('표본 신뢰도')).not.toBeInTheDocument();
+    expect(screen.queryByText('최근 동반급등')).not.toBeInTheDocument();
+
+    // 초기 토글 버튼 = '근거 보기', aria-expanded='false'
+    const toggle = screen.getByRole('button', { name: '근거 보기' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    // 토글로 펼침 — 점수 분해 즉시 노출
+    await userEvent.click(toggle);
     expect(screen.getByText('연결 경로')).toBeInTheDocument();
     expect(screen.getByText('테마 + 동반급등')).toBeInTheDocument();
     expect(screen.getByText('동반급등')).toBeInTheDocument();
@@ -251,15 +261,10 @@ describe('StockComovementSection', () => {
     expect(screen.getByText('최근 동반급등')).toBeInTheDocument();
     expect(screen.getByText('06/18')).toBeInTheDocument();
     expect(screen.getByText('+25%')).toBeInTheDocument();
-
-    // 토글로 접힘 — 상세 사라지고 라벨/상태 전환
-    const toggle = screen.getByRole('button', { name: '근거 접기' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await userEvent.click(toggle);
-    expect(screen.queryByText('연결 경로')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '근거 보기' })).toHaveAttribute(
+    // 펼친 뒤 버튼 = '근거 접기', aria-expanded='true'
+    expect(screen.getByRole('button', { name: '근거 접기' })).toHaveAttribute(
       'aria-expanded',
-      'false',
+      'true',
     );
   });
 });
