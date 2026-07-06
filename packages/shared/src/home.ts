@@ -66,8 +66,8 @@ export interface HomeSurgeSingle {
 export interface HomeSnapshotPayload {
   /** 급등 임계값 % (기본 20 고정) */
   threshold: number;
-  /** 시점 시장 상태 (장중 open / 마감직후 closed) */
-  marketStatus: "open" | "closed";
+  /** 시점 시장 상태 (장전 프리마켓(NXT, 08시대) premarket / 장중 open / 마감직후 closed) */
+  marketStatus: "premarket" | "open" | "closed";
   /** 오늘의 주도 테마 (2종목 이상 클러스터) */
   themes: HomeSurgeTheme[];
   /** 개별 급등 종목 (단독 급등, 테마 미소속) */

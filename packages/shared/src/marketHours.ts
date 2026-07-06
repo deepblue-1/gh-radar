@@ -14,6 +14,6 @@ export function isKoreanMarketOpen(now: Date = new Date()): boolean {
   const minutes = kst.getMinutes();
   const timeInMinutes = hours * 60 + minutes;
 
-  // 장 시간: 09:00 ~ 15:30 KST
-  return timeInMinutes >= 540 && timeInMinutes <= 930;
+  // 장 시간(NXT 프리마켓 포함): 08:00 ~ 15:30 KST
+  return timeInMinutes >= 480 && timeInMinutes <= 930;
 }

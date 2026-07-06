@@ -60,6 +60,12 @@ function isCloseSlot(iso: string): boolean {
   return toKstHhmm(iso) === '15:30';
 }
 
+/** 장전 프리마켓 슬롯(08시대, NXT) 판별. */
+function isPremarketSlot(iso: string): boolean {
+  const hh = toKstHhmm(iso).slice(0, 2);
+  return hh === '08';
+}
+
 /** 거래일 오름차순 유니크 목록 (오래된 → 최신). */
 function uniqueDatesAsc(index: HomeSnapshotIndexEntry[]): string[] {
   const set = new Set(index.map((e) => e.tradeDate));
@@ -182,8 +188,13 @@ export function HomeHeader({
           const current = slots[displayIdx];
           const live = current.capturedAt === liveCapturedAt;
           const close = isCloseSlot(current.capturedAt);
+          const premarket = isPremarketSlot(current.capturedAt);
           const hhmm = toKstHhmm(current.capturedAt);
-          const label = close ? `${hhmm} · 마감` : hhmm;
+          const label = close
+            ? `${hhmm} · 마감`
+            : premarket
+              ? `${hhmm} · 프리마켓`
+              : hhmm;
           const handleSlide = (idx: number) => {
             setPendingIdx(idx);
             pendingRef.current = idx;

@@ -25,7 +25,7 @@ import { upsertSnapshot } from "./pipeline/upsertSnapshot";
  *        - else → clusterSurges (Claude 1x) → payload append (is_carried=false).
  *   5. upsertSnapshot (onConflict PK ignoreDuplicates — slot 재실행 idempotent).
  *
- * captured_at 은 KST 10분 슬롯 (장중). marketStatus: slot >= 15:30 KST → closed.
+ * captured_at 은 KST 10분 슬롯 (장중). marketStatus: 8시대 = premarket(NXT 프리마켓), slot >= 15:30 KST → closed.
  * surges 0 처리: 오늘 이미 non-empty 스냅샷이 있으면 마지막 non-empty payload 를 clone-append
  * (transient-empty 가드 — stock_quotes 상류 갱신 갭 시 spurious empty 방지). 오늘 아직 non-empty
  * 가 없으면(진짜 급등 없는 날) 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
@@ -59,12 +59,13 @@ const KST_OFFSET_MS = 9 * 3600_000;
  *
  * 슬롯 분은 10분 경계로 floor (00/10/20/30/40/50) — 10분 cron(매 10분) 실행이 같은 HH:30
  * PK 로 뭉쳐 ignoreDuplicates 로 무시되던 문제 해소. 각 10분 슬롯이 고유 PK 를 갖는다.
- * marketStatus: 정규장 마감 15:30 KST 기준 — hour>15 또는 (hour===15 && slotMinute>=30) → closed.
+ * marketStatus: 8시대(hour<9) = premarket(NXT 프리마켓). 정규장 마감 15:30 KST 기준 —
+ * hour>15 또는 (hour===15 && slotMinute>=30) → closed. 그 외 open.
  */
 export function computeSlot(now: Date): {
   tradeDate: string;
   capturedAt: string;
-  marketStatus: "open" | "closed";
+  marketStatus: "premarket" | "open" | "closed";
   /** 슬롯이 마감(15:30 KST) **초과** — 15:40/15:50 등. cycle skip 대상 (15:30 은 종가 슬롯이라 실행). */
   afterClose: boolean;
 } {
@@ -78,9 +79,13 @@ export function computeSlot(now: Date): {
   const slotMinute = Math.floor(kst.getUTCMinutes() / 10) * 10;
   const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, slotMinute, 0);
   const capturedAt = new Date(slotKstMs - KST_OFFSET_MS).toISOString();
-  // 정규장 마감 15:30 KST 이상 → closed. 15:30 초과(15:40+)는 skip 대상.
-  const marketStatus: "open" | "closed" =
-    hour > 15 || (hour === 15 && slotMinute >= 30) ? "closed" : "open";
+  // 8시대(hour<9) → premarket(NXT 프리마켓). 정규장 마감 15:30 KST 이상 → closed. 15:30 초과(15:40+)는 skip 대상.
+  const marketStatus: "premarket" | "open" | "closed" =
+    hour < 9
+      ? "premarket"
+      : hour > 15 || (hour === 15 && slotMinute >= 30)
+        ? "closed"
+        : "open";
   const afterClose = hour > 15 || (hour === 15 && slotMinute > 30);
   return { tradeDate, capturedAt, marketStatus, afterClose };
 }
