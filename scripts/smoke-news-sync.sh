@@ -38,11 +38,11 @@ check "INV-2 jobs describe" \
   gcloud run jobs describe "$JOB" --region="$REGION"
 
 # ─────────────────────────────────────────────────────────────
-# INV-3a: Scheduler intraday schedule === '*/15 9-15 * * 1-5'
+# INV-3a: Scheduler intraday schedule === '*/15 8-15 * * 1-5'
 # ─────────────────────────────────────────────────────────────
 check "INV-3a scheduler intraday schedule" bash -c "
   SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-intraday --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$SCHEDULE\" = '*/15 9-15 * * 1-5' ]
+  [ \"\$SCHEDULE\" = '*/15 8-15 * * 1-5' ]
 "
 
 # ─────────────────────────────────────────────────────────────

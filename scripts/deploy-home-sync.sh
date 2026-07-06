@@ -10,7 +10,7 @@ set -euo pipefail
 # 리소스:
 #   - Cloud Run Job: gh-radar-home-sync (asia-northeast3, 512Mi, 120s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/home-sync:<sha>
-#   - Scheduler: gh-radar-home-sync-cron "*/10 9-15 * * 1-5" (KST, 장중 10분 간격)
+#   - Scheduler: gh-radar-home-sync-cron "*/10 8-15 * * 1-5" (KST, 장중 10분 간격)
 #       09:00~15:50 매 10분(15:30 마감 슬롯 포함). hash-skip 로 변경 없는 슬롯은 Claude 0회.
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용
@@ -158,7 +158,7 @@ echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 7: Cloud Scheduler — 장중 10분 간격 KST (09:00~15:50, 15:30 마감 포함)
-#   - --schedule="*/10 9-15 * * 1-5" (분=매 10분, 시=9~15, 월~금)
+#   - --schedule="*/10 8-15 * * 1-5" (분=매 10분, 시=9~15, 월~금)
 #   - hash-skip clone-append 로 변경 없는 슬롯은 Claude 호출 0 (비용 방어)
 #   - --oauth-service-account-email 사용 (OIDC 금지, Phase 05.1 Pitfall 2)
 #   - time-zone Asia/Seoul
@@ -166,7 +166,7 @@ echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 SCHEDULER_NAME="gh-radar-home-sync-cron"
-SCHEDULE="*/10 9-15 * * 1-5"
+SCHEDULE="*/10 8-15 * * 1-5"
 
 if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
   echo "▶ scheduler update: $SCHEDULER_NAME (schedule: $SCHEDULE)"

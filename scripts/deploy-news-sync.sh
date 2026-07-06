@@ -9,7 +9,7 @@ set -euo pipefail
 # 리소스:
 #   - Cloud Run Job: gh-radar-news-sync (asia-northeast3, 512Mi, 600s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/news-sync:<sha>
-#   - Scheduler 1: gh-radar-news-sync-intraday "*/15 9-15 * * 1-5" (장중 평일 KST)
+#   - Scheduler 1: gh-radar-news-sync-intraday "*/15 8-15 * * 1-5" (장중 평일 KST)
 #   - Scheduler 2: gh-radar-news-sync-offhours "0 */2 * * *"      (장외, 2h 주기 KST)
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용 (OIDC 금지, Pitfall 2).
@@ -153,7 +153,7 @@ JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 
 declare -a NEWS_SCHEDULERS=(
-  "gh-radar-news-sync-intraday|*/15 9-15 * * 1-5"
+  "gh-radar-news-sync-intraday|*/15 8-15 * * 1-5"
   "gh-radar-news-sync-offhours|0 */2 * * *"
 )
 

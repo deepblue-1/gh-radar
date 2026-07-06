@@ -35,11 +35,11 @@ check() {
 
 case "${1:-}" in
   --check-scheduler)
-    check "Scheduler ENABLED + cron '* 9-15 * * 1-5' Asia/Seoul" bash -c "
+    check "Scheduler ENABLED + cron '* 8-15 * * 1-5' Asia/Seoul" bash -c "
       STATE=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(state)' 2>/dev/null)
       SCHEDULE=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(schedule)' 2>/dev/null)
       TZ=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(timeZone)' 2>/dev/null)
-      [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '* 9-15 * * 1-5' ] && [ \"\$TZ\" = 'Asia/Seoul' ]
+      [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '* 8-15 * * 1-5' ] && [ \"\$TZ\" = 'Asia/Seoul' ]
     "
     echo ""
     echo "PASS: $PASS  FAIL: $FAIL"

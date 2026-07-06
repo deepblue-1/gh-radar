@@ -6,7 +6,7 @@ set -euo pipefail
 # Phase 09.1 (DATA-02) — Cloud Run Job + Scheduler + Alert 배포
 #
 # RESEARCH §4.5 — --network --subnet --vpc-egress=all-traffic 으로 Static IP 경유
-# RESEARCH §9.4 — cron * 9-15 * * 1-5 Asia/Seoul, task-timeout 60s
+# RESEARCH §9.4 — cron * 8-15 * * 1-5 Asia/Seoul, task-timeout 60s
 # Phase 05.1 D-07 lesson — --oauth-service-account-email (OIDC 금지)
 # ═══════════════════════════════════════════════════════════════
 
@@ -120,7 +120,7 @@ if gcloud scheduler jobs describe "$SCHED" --location="$REGION" >/dev/null 2>&1;
   echo "▶ scheduler update: $SCHED..."
   gcloud scheduler jobs update http "$SCHED" \
     --location="$REGION" \
-    --schedule="* 9-15 * * 1-5" \
+    --schedule="* 8-15 * * 1-5" \
     --time-zone="Asia/Seoul" \
     --uri="$URI" \
     --http-method=POST \
@@ -129,13 +129,13 @@ else
   echo "▶ scheduler create: $SCHED..."
   gcloud scheduler jobs create http "$SCHED" \
     --location="$REGION" \
-    --schedule="* 9-15 * * 1-5" \
+    --schedule="* 8-15 * * 1-5" \
     --time-zone="Asia/Seoul" \
     --uri="$URI" \
     --http-method=POST \
     --oauth-service-account-email="$SCHED_SA"
 fi
-echo "✓ Scheduler ready: $SCHED (cron '* 9-15 * * 1-5' Asia/Seoul)"
+echo "✓ Scheduler ready: $SCHED (cron '* 8-15 * * 1-5' Asia/Seoul)"
 
 # Section 7: Alert policy (idempotent — update-or-create)
 ALERT_FILE="ops/alert-intraday-sync-failure.yaml"
@@ -169,7 +169,7 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "✅ Deployed @ $IMAGE"
 echo "   Job:       $JOB"
-echo "   Scheduler: $SCHED (cron '* 9-15 * * 1-5' Asia/Seoul)"
+echo "   Scheduler: $SCHED (cron '* 8-15 * * 1-5' Asia/Seoul)"
 echo "   VPC:       $VPC_NAME / Static IP $STATIC_IP"
 echo ""
 echo "Next: bash scripts/smoke-intraday-sync.sh"
