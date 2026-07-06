@@ -132,6 +132,26 @@ describe("computeSlot (10분 슬롯 flooring)", () => {
     expect(r.capturedAt).toBe("2026-07-01T07:00:00.000Z");
     expect(r.marketStatus).toBe("closed");
   });
+
+  it("08:37 KST → premarket, 08:30 슬롯 (NXT 프리마켓)", () => {
+    // 08:37 KST = 2026-06-30 23:37 UTC → floor 08:30 = 2026-06-30 23:30 UTC.
+    const r = computeSlot(new Date("2026-06-30T23:37:00Z"));
+    expect(r.capturedAt).toBe("2026-06-30T23:30:00.000Z");
+    expect(r.marketStatus).toBe("premarket");
+    expect(r.afterClose).toBe(false);
+  });
+
+  it("08:00 KST → premarket (프리마켓 시작)", () => {
+    // 08:00 KST = 2026-06-30 23:00 UTC.
+    const r = computeSlot(new Date("2026-06-30T23:00:00Z"));
+    expect(r.marketStatus).toBe("premarket");
+  });
+
+  it("09:00 KST → open (프리마켓 경계 회귀 없음)", () => {
+    // 09:00 KST = 2026-07-01 00:00 UTC.
+    const r = computeSlot(new Date("2026-07-01T00:00:00Z"));
+    expect(r.marketStatus).toBe("open");
+  });
 });
 
 describe("runHomeSyncCycle (hash-skip clone-append)", () => {
