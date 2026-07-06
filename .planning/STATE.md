@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-07-06 - Completed quick task 260706-ktd: intraday-sync 하락 종목 일봉 동결 수정
+Last activity: 2026-07-07 - Completed quick task 260707-bqj: home-sync 급등 선정 updated_at 신선도 필터
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -321,6 +321,7 @@ Recent decisions affecting current work:
 | 260706-dvl | 종목상세 상한가 이력↔동반상승 후보 순서 교체 + 근거 기본 접힘 | 2026-07-06 | c9102ee | [260706-dvl-detail-section-order](./quick/260706-dvl-detail-section-order/) |
 | 260706-erk | 테마 메뉴 AI 테마 선정 기능 완전 제거 (워커 AI 파이프라인 + 배포 env + DB 정리 + 프론트 뱃지) | 2026-07-06 | 6533fa2 | [260706-erk-ai-ai-env-db](./quick/260706-erk-ai-ai-env-db/) |
 | 260706-ktd | intraday-sync 하락 종목 일봉 동결 수정 (ka10027 sort_tp 1+3 병합 + STEP2 필터 제거) | 2026-07-06 | a40ad53 | [260706-ktd-intraday-sync-ka10027-sort-tp-1-3-step2](./quick/260706-ktd-intraday-sync-ka10027-sort-tp-1-3-step2/) |
+| 260707-bqj | home-sync 급등 선정 updated_at 신선도 필터 (프리마켓 stale 시세 오염 + 거래정지 잔존 수정) | 2026-07-07 | f2ff298 | [260707-bqj-home-sync-loadsurges-stale-updated-at-ks](./quick/260707-bqj-home-sync-loadsurges-stale-updated-at-ks/) |
 
 ## Session Continuity
 
