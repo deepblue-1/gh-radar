@@ -51,14 +51,21 @@ const CLUSTER_PAYLOAD: HomeSnapshotPayload = {
 /** 급등 2종목 + 뉴스 — loadSurges 가 이 값을 반환하도록 mock supabase seed. */
 function seedSurgeSupabase() {
   const sb = createMockSupabase();
-  sb.from("stock_quotes").gte.mockResolvedValue({
-    data: [
-      { code: "005930", change_rate: 25 },
-      { code: "000660", change_rate: 30 },
-      { code: "347700", change_rate: 22 },
-    ],
-    error: null,
-  });
+  // loadSurges 급등 쿼리는 이중 gte(change_rate + updated_at 신선도 필터). change_rate gte 는
+  // chain 유지, updated_at gte 가 종결 resolve (quick 260707-bqj).
+  const q = sb.from("stock_quotes");
+  q.gte.mockImplementation((col: string) =>
+    col === "updated_at"
+      ? Promise.resolve({
+          data: [
+            { code: "005930", change_rate: 25 },
+            { code: "000660", change_rate: 30 },
+            { code: "347700", change_rate: 22 },
+          ],
+          error: null,
+        })
+      : q,
+  );
   sb.from("stocks").in.mockResolvedValue({
     data: [
       { code: "005930", name: "삼성전자", market: "KOSPI" },
@@ -268,7 +275,11 @@ describe("runHomeSyncCycle (transient-empty 가드)", () => {
   /** stock_quotes gte → [] (급등 0) 로 seed. */
   function seedEmptySupabase() {
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({ data: [], error: null });
+    // 이중 gte(change_rate + updated_at) 대응 — updated_at gte 가 종결 resolve([]).
+    const q = sb.from("stock_quotes");
+    q.gte.mockImplementation((col: string) =>
+      col === "updated_at" ? Promise.resolve({ data: [], error: null }) : q,
+    );
     return sb;
   }
 

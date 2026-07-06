@@ -41,6 +41,27 @@ export interface Surge {
 /** stock_quotes / stocks / news_articles 청크 IN 크기 (PostgREST URL 414 방지). */
 const QUOTE_CHUNK = 200;
 
+/** KST(UTC+9) 오프셋 (index.ts computeSlot 와 동일값). */
+const KST_OFFSET_MS = 9 * 3600_000;
+
+/**
+ * now 기준 오늘 KST 자정(00:00 KST)을 UTC ISO 로 변환.
+ * 예: 2026-07-07T08:26:00+09:00 → "2026-07-06T15:00:00.000Z" (오늘 KST 자정 = UTC 전일 15:00).
+ * index.ts computeSlot 의 KST→UTC 변환 패턴과 동일 구조 (검증된 방식 재사용).
+ */
+export function kstMidnightIso(now: Date): string {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  const midnightKstMs = Date.UTC(
+    kst.getUTCFullYear(),
+    kst.getUTCMonth(),
+    kst.getUTCDate(),
+    0,
+    0,
+    0,
+  );
+  return new Date(midnightKstMs - KST_OFFSET_MS).toISOString();
+}
+
 const NEWS_COLS = "id,stock_code,title,url,source,published_at,description";
 
 /** 뉴스 후보 창 — 최근 48h (전일 저녁 공시가 당일 재료이므로 "당일만"은 금물). */
@@ -57,6 +78,8 @@ const NEWS_CANDIDATES_PER_STOCK = 50;
 export interface LoadSurgesOptions {
   emptyRetries?: number;
   retryDelayMs?: number;
+  /** 신선도 컷오프 기준 시각 (테스트 주입용). 미지정 시 new Date(). */
+  now?: Date;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -76,8 +99,11 @@ export async function loadSurges(
 ): Promise<Surge[]> {
   const emptyRetries = opts.emptyRetries ?? 2;
   const retryDelayMs = opts.retryDelayMs ?? 1500;
+  // stale cleanup 없는 stock_quotes(D-21)에서 어제 급등/거래정지 잔존 행 제외 — 오늘 KST 자정 이후 갱신만.
+  // 사이클 내 고정값이므로 retry 루프 밖에서 1회 계산.
+  const freshnessCutoff = kstMidnightIso(opts.now ?? new Date());
 
-  // 1) 급등 종목 (change_rate >= threshold) — desc 정렬 + surgeMax cap.
+  // 1) 급등 종목 (change_rate >= threshold, updated_at >= 오늘 KST 자정) — desc 정렬 + surgeMax cap.
   //    빈 결과(0행)는 상류 stock_quotes 갱신 갭 / 일시 read blip 일 수 있으므로 (에러 아닌
   //    빈 성공 응답일 때만) 짧게 재시도한다. 진짜 급등 없는 날은 재시도해도 0 → 빠르게 [] 반환.
   let quoteRows: Array<{ code: string; change_rate: number }> = [];
@@ -85,7 +111,8 @@ export async function loadSurges(
     const { data, error: qErr } = await supabase
       .from("stock_quotes")
       .select("code,change_rate")
-      .gte("change_rate", cfg.surgeThreshold);
+      .gte("change_rate", cfg.surgeThreshold)
+      .gte("updated_at", freshnessCutoff);
     if (qErr) throw qErr;
     quoteRows = (data ?? []) as Array<{ code: string; change_rate: number }>;
     if (quoteRows.length > 0 || attempt === emptyRetries) break;

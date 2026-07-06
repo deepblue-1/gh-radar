@@ -1,16 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { loadSurges } from "./loadSurges";
+import { loadSurges, kstMidnightIso } from "./loadSurges";
 import type { HomeSyncConfig } from "../config";
-import { createMockSupabase } from "../../tests/helpers/supabase-mock";
+import {
+  createMockSupabase,
+  type MockSupabase,
+  type MockSupabaseChain,
+} from "../../tests/helpers/supabase-mock";
 
 /**
- * Phase 13 Plan 02 Task 1 — loadSurges (급등 종목 + 종목명 + 종목별 top-K 뉴스 로드).
+ * Phase 13 Plan 02 Task 1 + quick 260707-bqj — loadSurges (급등 종목 + 종목명 + 종목별 top-K 뉴스).
  *
  * 검증:
- *   - stock_quotes.change_rate >= surgeThreshold 만 로드, change_rate desc 정렬, surgeMax cap.
+ *   - stock_quotes.change_rate >= surgeThreshold **AND updated_at >= 오늘 KST 자정** 만 로드,
+ *     change_rate desc 정렬, surgeMax cap.
  *   - stocks 마스터에서 종목명 해석.
  *   - Pitfall 1 (D-07): 종목별 top-K 뉴스를 청크 fetch 로 로드 → 단일 .in() 1000-row
  *     truncation 회피. 여러 종목이 각각 500건 뉴스여도 마지막 종목이 newsPerStock 건 유지.
+ *   - 신선도 필터 (quick 260707-bqj): stale cleanup 없는 stock_quotes 에서 어제 급등/거래정지
+ *     잔존 행 제외 — updated_at gte 컷오프가 주입한 now 의 KST 당일 자정.
+ *
+ * mock 주의: supabase-mock 의 `gte` 는 단일 vi.fn 이라 stock_quotes 쿼리의 두 gte 호출
+ * (change_rate + updated_at) 을 같은 함수가 처리한다. `gte.mockResolvedValue` 는 첫 gte 까지
+ * Promise 로 만들어 두 번째 `.gte("updated_at")` 체이닝을 깨뜨리므로, column 기준
+ * mockImplementation(setQuotes) 으로 change_rate gte 는 chain, updated_at gte 는 resolve.
  */
 
 function cfg(over: Partial<HomeSyncConfig> = {}): HomeSyncConfig {
@@ -28,16 +40,72 @@ function cfg(over: Partial<HomeSyncConfig> = {}): HomeSyncConfig {
   };
 }
 
+/**
+ * stock_quotes gte mock 셋업 — change_rate gte 는 chain(this) 반환, updated_at gte 는
+ * responses 를 순차 resolve (retry 시퀀싱 재현). 이중 gte 체이닝 대응 핵심 헬퍼.
+ */
+function setQuotes(
+  chain: MockSupabaseChain,
+  responses: Array<{ data: unknown; error: unknown }>,
+): void {
+  let i = 0;
+  chain.gte.mockImplementation((col: string) =>
+    col === "updated_at"
+      ? Promise.resolve(responses[Math.min(i++, responses.length - 1)])
+      : chain,
+  );
+}
+
+/** stock_quotes gte 호출 중 updated_at gte 만 골라 컷오프 값 반환 (없으면 undefined). */
+function updatedAtCutoff(sb: MockSupabase): string | undefined {
+  const calls = sb.from("stock_quotes").gte.mock.calls as Array<
+    [string, string]
+  >;
+  return calls.find((c) => c[0] === "updated_at")?.[1];
+}
+
+/** stock_quotes updated_at gte 호출 횟수 (= 급등 쿼리 시도 횟수). */
+function updatedAtGteCount(sb: MockSupabase): number {
+  const calls = sb.from("stock_quotes").gte.mock.calls as Array<
+    [string, string]
+  >;
+  return calls.filter((c) => c[0] === "updated_at").length;
+}
+
+describe("kstMidnightIso", () => {
+  it("08:26 KST → 오늘 KST 자정 = UTC 전일 15:00", () => {
+    expect(kstMidnightIso(new Date("2026-07-07T08:26:00+09:00"))).toBe(
+      "2026-07-06T15:00:00.000Z",
+    );
+  });
+
+  it("자정 직전(전일 23:59 KST) → 그 날 KST 자정", () => {
+    // 2026-07-06 23:59 KST → KST 당일 2026-07-06 자정 = 2026-07-05T15:00Z.
+    expect(kstMidnightIso(new Date("2026-07-06T23:59:00+09:00"))).toBe(
+      "2026-07-05T15:00:00.000Z",
+    );
+  });
+
+  it("자정 직후(당일 00:01 KST) → 그 날 KST 자정", () => {
+    // 2026-07-07 00:01 KST → KST 당일 2026-07-07 자정 = 2026-07-06T15:00Z.
+    expect(kstMidnightIso(new Date("2026-07-07T00:01:00+09:00"))).toBe(
+      "2026-07-06T15:00:00.000Z",
+    );
+  });
+});
+
 describe("loadSurges", () => {
   it("change_rate >= threshold 만, desc 정렬 + 종목명 해석", async () => {
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({
-      data: [
-        { code: "005930", change_rate: 25 },
-        { code: "000660", change_rate: 30 },
-      ],
-      error: null,
-    });
+    setQuotes(sb.from("stock_quotes"), [
+      {
+        data: [
+          { code: "005930", change_rate: 25 },
+          { code: "000660", change_rate: 30 },
+        ],
+        error: null,
+      },
+    ]);
     sb.from("stocks").in.mockResolvedValue({
       data: [
         { code: "005930", name: "삼성전자", market: "KOSPI" },
@@ -53,13 +121,55 @@ describe("loadSurges", () => {
     expect(surges.find((s) => s.code === "005930")?.name).toBe("삼성전자");
   });
 
+  it("급등 쿼리에 updated_at 신선도 gte 컷오프 적용 (주입 now 의 KST 당일 자정)", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "005930", change_rate: 25 }], error: null },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930", name: "삼성전자", market: "KOSPI" }],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    await loadSurges(sb as never, cfg(), {
+      retryDelayMs: 0,
+      now: new Date("2026-07-07T08:26:00+09:00"),
+    });
+
+    // updated_at gte 가 호출되고, 값이 오늘 KST 자정(UTC 전일 15:00).
+    expect(updatedAtCutoff(sb)).toBe("2026-07-06T15:00:00.000Z");
+  });
+
+  it("신선도 컷오프는 자정 경계(직전/직후)에서 각자의 KST 당일 자정으로 계산", async () => {
+    // 직전: 2026-07-06 23:59 KST → 2026-07-05T15:00Z.
+    const sbBefore = createMockSupabase();
+    setQuotes(sbBefore.from("stock_quotes"), [{ data: [], error: null }]);
+    await loadSurges(sbBefore as never, cfg(), {
+      retryDelayMs: 0,
+      emptyRetries: 0,
+      now: new Date("2026-07-06T23:59:00+09:00"),
+    });
+    expect(updatedAtCutoff(sbBefore)).toBe("2026-07-05T15:00:00.000Z");
+
+    // 직후: 2026-07-07 00:01 KST → 2026-07-06T15:00Z.
+    const sbAfter = createMockSupabase();
+    setQuotes(sbAfter.from("stock_quotes"), [{ data: [], error: null }]);
+    await loadSurges(sbAfter as never, cfg(), {
+      retryDelayMs: 0,
+      emptyRetries: 0,
+      now: new Date("2026-07-07T00:01:00+09:00"),
+    });
+    expect(updatedAtCutoff(sbAfter)).toBe("2026-07-06T15:00:00.000Z");
+  });
+
   it("surgeMax 로 cap", async () => {
     const many = Array.from({ length: 100 }, (_, i) => ({
       code: String(100000 + i),
       change_rate: 20 + i * 0.1,
     }));
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({ data: many, error: null });
+    setQuotes(sb.from("stock_quotes"), [{ data: many, error: null }]);
     sb.from("stocks").in.mockResolvedValue({ data: [], error: null });
     sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
 
@@ -70,10 +180,12 @@ describe("loadSurges", () => {
   it("Pitfall 1: 종목별 500건 뉴스여도 마지막 종목이 newsPerStock 건 유지 (1000-row truncation 회피)", async () => {
     const codes = ["005930", "000660", "035420"];
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({
-      data: codes.map((c) => ({ code: c, change_rate: 25 })),
-      error: null,
-    });
+    setQuotes(sb.from("stock_quotes"), [
+      {
+        data: codes.map((c) => ({ code: c, change_rate: 25 })),
+        error: null,
+      },
+    ]);
     sb.from("stocks").in.mockResolvedValue({
       data: codes.map((c) => ({ code: c, name: `종목-${c}`, market: "KOSPI" })),
       error: null,
@@ -113,10 +225,9 @@ describe("loadSurges", () => {
 
   it("2단 정렬: 종목명이 title/description 에 있는 재료 기사를 최신 라운드업보다 우선 배치", async () => {
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({
-      data: [{ code: "026910", change_rate: 29 }],
-      error: null,
-    });
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "026910", change_rate: 29 }], error: null },
+    ]);
     sb.from("stocks").in.mockResolvedValue({
       data: [{ code: "026910", name: "광진실업", market: "KOSPI" }],
       error: null,
@@ -170,10 +281,9 @@ describe("loadSurges", () => {
 
   it("48h 창 필터: news_articles 쿼리에 published_at >= now-48h cutoff 적용", async () => {
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({
-      data: [{ code: "005930", change_rate: 25 }],
-      error: null,
-    });
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "005930", change_rate: 25 }], error: null },
+    ]);
     sb.from("stocks").in.mockResolvedValue({
       data: [{ code: "005930", name: "삼성전자", market: "KOSPI" }],
       error: null,
@@ -196,12 +306,10 @@ describe("loadSurges", () => {
   it("retry-on-empty: 첫 read 가 빈 결과면 재시도 후 non-empty 반환", async () => {
     const sb = createMockSupabase();
     // 1회차 [] (상류 갱신 갭 시뮬), 2회차 데이터.
-    sb.from("stock_quotes")
-      .gte.mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({
-        data: [{ code: "000660", change_rate: 30 }],
-        error: null,
-      });
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [], error: null },
+      { data: [{ code: "000660", change_rate: 30 }], error: null },
+    ]);
     sb.from("stocks").in.mockResolvedValue({
       data: [{ code: "000660", name: "SK하이닉스", market: "KOSPI" }],
       error: null,
@@ -211,12 +319,12 @@ describe("loadSurges", () => {
     const surges = await loadSurges(sb as never, cfg(), { retryDelayMs: 0 });
 
     expect(surges.map((s) => s.code)).toEqual(["000660"]);
-    expect(sb.from("stock_quotes").gte).toHaveBeenCalledTimes(2); // 1 + 재시도 1
+    expect(updatedAtGteCount(sb)).toBe(2); // 1 + 재시도 1
   });
 
   it("retry-on-empty: 모두 빈 결과면 재시도 소진 후 [] (진짜 급등 없는 날)", async () => {
     const sb = createMockSupabase();
-    sb.from("stock_quotes").gte.mockResolvedValue({ data: [], error: null });
+    setQuotes(sb.from("stock_quotes"), [{ data: [], error: null }]);
 
     const surges = await loadSurges(sb as never, cfg(), {
       emptyRetries: 2,
@@ -224,6 +332,6 @@ describe("loadSurges", () => {
     });
 
     expect(surges).toEqual([]);
-    expect(sb.from("stock_quotes").gte).toHaveBeenCalledTimes(3); // 1 + 재시도 2
+    expect(updatedAtGteCount(sb)).toBe(3); // 1 + 재시도 2
   });
 });

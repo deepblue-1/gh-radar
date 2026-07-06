@@ -123,8 +123,11 @@ export async function runHomeSyncCycle(
     };
   }
 
-  // 1) 급등 로드 + 2) content hash.
-  const surges = await loadSurges(supabase, cfg, deps.loadSurgesOptions);
+  // 1) 급등 로드 + 2) content hash. computeSlot 과 동일한 now 를 신선도 컷오프에 전달.
+  const surges = await loadSurges(supabase, cfg, {
+    ...deps.loadSurgesOptions,
+    now,
+  });
   const hash = computeContentHash(surges);
 
   // 3) 오늘 최신 스냅샷.
