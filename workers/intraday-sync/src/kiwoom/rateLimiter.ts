@@ -7,11 +7,14 @@
  * 즉시 안정 동작).
  *
  * worker (STEP2 hot set) + server (on-demand) 가 동일 Static IP 공유 시 IP-단위 통합 bucket
- * 가설은 유효 — 양쪽 동일 default 적용.
+ * 가설은 유효 — 단, server (on-demand ~100건/일, 저볼륨) 는 5 유지, worker 만 4 로 비대칭 하향.
+ *
+ * 2026-07-03경 키움 실효 유량 한도 축소 관측 — 5 req/s 로도 429 급증 (일 1~6건 → 127~150건,
+ * 7/6 sort_tp 1+3 병합으로 ka10027 노출 2배 겹침) → 4 로 재하향 (2026-07-07).
  */
 
-const BUCKET_CAPACITY_DEFAULT = 5;
-const REFILL_RATE_PER_SEC_DEFAULT = 5;
+const BUCKET_CAPACITY_DEFAULT = 4;
+const REFILL_RATE_PER_SEC_DEFAULT = 4;
 
 type Bucket = {
   available: number;

@@ -12,7 +12,7 @@ import { acquireKiwoomRateToken } from "./rateLimiter";
 /**
  * ka10001 hot set 순차 호출.
  *
- * - 각 호출 직전 `acquireKiwoomRateToken()` 호출 → token bucket 강제 (24 req/s default)
+ * - 각 호출 직전 `acquireKiwoomRateToken()` 호출 → token bucket 강제 (4 req/s default)
  * - Promise.allSettled 로 부분 실패 격리 — 한 종목 실패가 cycle 전체 중단 안 함
  * - return_code != 0 응답 → 해당 종목 실패로 분류 + return_msg 포함 error message
  *

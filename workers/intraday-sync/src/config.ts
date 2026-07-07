@@ -17,7 +17,7 @@ export type Config = {
   // tuning (RESEARCH §9.2)
   paginationHardCap: number;      // PAGINATION_HARD_CAP, default 5000
   hotSetTopN: number;             // HOT_SET_TOP_N, default 100 (D-11, 2026-05-15 200→100 — top_movers 와 일치 + rate limit 안전마진 2배)
-  ka10001RateLimitPerSec: number; // KA10001_RATE_LIMIT, default 5 (2026-05-15 실측 후 하향, deploy 스크립트와 일치)
+  ka10001RateLimitPerSec: number; // KA10001_RATE_LIMIT, default 4 (2026-05-15 실측 5 → 2026-07-03 키움 실효 한도 축소 관측으로 4 재하향, deploy 스크립트와 일치)
 };
 
 function parseNumberEnv(raw: string | undefined, fallback: number): number {
@@ -53,6 +53,6 @@ export function loadConfig(): Config {
     kiwoomTokenType: process.env.KIWOOM_TOKEN_TYPE ?? "live",
     paginationHardCap: parseNumberEnv(process.env.PAGINATION_HARD_CAP, 5000),
     hotSetTopN: parseNumberEnv(process.env.HOT_SET_TOP_N, 100),
-    ka10001RateLimitPerSec: parseNumberEnv(process.env.KA10001_RATE_LIMIT, 5),
+    ka10001RateLimitPerSec: parseNumberEnv(process.env.KA10001_RATE_LIMIT, 4),
   };
 }

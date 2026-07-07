@@ -79,13 +79,14 @@ RUNTIME_SA="gh-radar-intraday-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.co
 ##   초기 추정값이었으나 hot set 200 종목 호출 시 ~30% (50~68건) 가 429 (Request failed with
 ##   status code 429) 반환 — 키움 throttle. 2026-05-15 KA10001_RATE_LIMIT=5 로 하향한 직후
 ##   cycle 부터 failed=0 / successful=203 안정.
+##   2026-07-03경 키움 실효 한도 재축소 (429 일 127~150건 급증, 7/7 Job 3회 실패) → 4 로 재하향 (2026-07-07).
 ##
 ## HOT_SET_TOP_N: 200 → 100 (2026-05-15) — top_movers 노출 종목 수 (100) 와 일치. 100 종목
 ##   × 5 req/s ≈ 20s 처리 (cycle 60s 의 33%), rate limit 안전마진 2배 확보. watchlist 종목은
 ##   N 과 별개로 항상 hot set 에 포함 (사용자 관심종목 OHLC 보장). 101+ 등락률 종목은 STEP1
 ##   close 만 갱신 — 사용자가 검색해서 진입하면 server on-demand `inquirePrice` 가 정확값
 ##   fetch 하므로 사용자 체감 영향 미미.
-COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@HOT_SET_TOP_N=100@KA10001_RATE_LIMIT=5"
+COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@HOT_SET_TOP_N=100@KA10001_RATE_LIMIT=4"
 COMMON_SECRETS="KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
 
 echo "▶ deploying Cloud Run Job: $JOB (VPC: $VPC_NAME, Static IP: $STATIC_IP)..."
