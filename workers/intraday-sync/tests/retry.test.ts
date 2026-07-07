@@ -48,6 +48,51 @@ describe("withRetry", () => {
     setTimeoutSpy.mockRestore();
   });
 
+  it("키움 429 는 최대 5회 시도 (1s/2s/4s/8s backoff)", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("키움 429 — rate limit"))
+      .mockRejectedValueOnce(new Error("키움 429 — rate limit"))
+      .mockRejectedValueOnce(new Error("키움 429 — rate limit"))
+      .mockRejectedValueOnce(new Error("키움 429 — rate limit"))
+      .mockResolvedValueOnce("ok");
+
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const p = withRetry(fn, "ka10027");
+    await vi.runAllTimersAsync();
+    expect(await p).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(5);
+
+    const waitMs = setTimeoutSpy.mock.calls.map((c) => c[1]);
+    expect(waitMs).toContain(1000);
+    expect(waitMs).toContain(2000);
+    expect(waitMs).toContain(4000);
+    expect(waitMs).toContain(8000);
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("429 5회 모두 실패 시 마지막 에러 throw (6회 시도 없음)", async () => {
+    const fn = vi.fn().mockRejectedValue(new Error("키움 429 — rate limit"));
+    const p = withRetry(fn, "ka10027").catch((e) => (e as Error).message);
+    await vi.runAllTimersAsync();
+    expect(await p).toBe("키움 429 — rate limit");
+    expect(fn).toHaveBeenCalledTimes(5);
+  });
+
+  it("일반 에러 후 429 발생 시에도 5회까지 승격", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockRejectedValueOnce(new Error("키움 429 — rate limit"))
+      .mockRejectedValueOnce(new Error("키움 429 — rate limit"))
+      .mockResolvedValueOnce("ok");
+    const p = withRetry(fn, "ka10027");
+    await vi.runAllTimersAsync();
+    expect(await p).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(5);
+  });
+
   it("3회 모두 실패 시 마지막 에러 throw", async () => {
     const fn = vi
       .fn()
