@@ -24,7 +24,7 @@ import {
  *
  * 정적 이력 — payload 는 저장 시점 값 verbatim 서빙(실시간 시세 재조인/재계산 없음,
  * T-13-03 / Pitfall 3: 과거 슬롯이 오늘 시세로 오염되면 안 됨). snapshot=null 은 빈 상태
- * (급등 없는 날/미생성). index 는 payload 제외 경량 네비게이션(최신 ~200 슬롯).
+ * (급등 없는 날/미생성). index 는 payload 제외 경량 네비게이션(최신 ~400 슬롯 (5분 슬롯 ~4일)).
  * 에러는 next(e) 로 위임(generic — error.message 미노출, T-13-09 Info Disclosure).
  */
 
@@ -58,12 +58,12 @@ homeRouter.get("/", async (req, res, next) => {
       .maybeSingle();
     if (snapErr) throw snapErr;
 
-    // 2. 네비게이션 인덱스 (payload 제외 — 경량, 최신 ~200 슬롯).
+    // 2. 네비게이션 인덱스 (payload 제외 — 경량, 최신 ~400 슬롯 (5분 슬롯 ~4일)).
     const { data: idx, error: idxErr } = await supabase
       .from("home_theme_snapshots")
       .select(INDEX_COLS)
       .order("captured_at", { ascending: false })
-      .limit(200);
+      .limit(400);
     if (idxErr) throw idxErr;
 
     res.setHeader("Cache-Control", "no-store");
