@@ -25,7 +25,7 @@ import { upsertSnapshot } from "./pipeline/upsertSnapshot";
  *        - else → clusterSurges (Claude 1x) → payload append (is_carried=false).
  *   5. upsertSnapshot (onConflict PK ignoreDuplicates — slot 재실행 idempotent).
  *
- * captured_at 은 KST 10분 슬롯 (장중). marketStatus: 8시대 = premarket(NXT 프리마켓), slot >= 15:30 KST → closed.
+ * captured_at 은 KST 5분 슬롯 (장중). marketStatus: 8시대 = premarket(NXT 프리마켓), slot >= 15:30 KST → closed.
  * surges 0 처리: 오늘 이미 non-empty 스냅샷이 있으면 마지막 non-empty payload 를 clone-append
  * (transient-empty 가드 — stock_quotes 상류 갱신 갭 시 spurious empty 방지). 오늘 아직 non-empty
  * 가 없으면(진짜 급등 없는 날) 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
@@ -55,10 +55,10 @@ export interface HomeSyncSummary {
 const KST_OFFSET_MS = 9 * 3600_000;
 
 /**
- * now → KST 10분 슬롯 { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus }.
+ * now → KST 5분 슬롯 { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus }.
  *
- * 슬롯 분은 10분 경계로 floor (00/10/20/30/40/50) — 10분 cron(매 10분) 실행이 같은 HH:30
- * PK 로 뭉쳐 ignoreDuplicates 로 무시되던 문제 해소. 각 10분 슬롯이 고유 PK 를 갖는다.
+ * 슬롯 분은 5분 경계로 floor (00/05/10/…/55) — 5분 cron(매 5분) 실행이 같은 HH:MM
+ * PK 로 뭉쳐 ignoreDuplicates 로 무시되던 문제 해소. 각 5분 슬롯이 고유 PK 를 갖는다.
  * marketStatus: 8시대(hour<9) = premarket(NXT 프리마켓). 정규장 마감 15:30 KST 기준 —
  * hour>15 또는 (hour===15 && slotMinute>=30) → closed. 그 외 open.
  */
@@ -75,8 +75,8 @@ export function computeSlot(now: Date): {
   const d = String(kst.getUTCDate()).padStart(2, "0");
   const tradeDate = `${y}-${m}-${d}`;
   const hour = kst.getUTCHours();
-  // slotMinute = 해당 분을 10분 경계로 floor. capturedAt 은 그 슬롯 시각(KST)→UTC.
-  const slotMinute = Math.floor(kst.getUTCMinutes() / 10) * 10;
+  // slotMinute = 해당 분을 5분 경계로 floor. capturedAt 은 그 슬롯 시각(KST)→UTC.
+  const slotMinute = Math.floor(kst.getUTCMinutes() / 5) * 5;
   const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, slotMinute, 0);
   const capturedAt = new Date(slotKstMs - KST_OFFSET_MS).toISOString();
   // 8시대(hour<9) → premarket(NXT 프리마켓). 정규장 마감 15:30 KST 이상 → closed. 15:30 초과(15:40+)는 skip 대상.
@@ -93,6 +93,35 @@ export function computeSlot(now: Date): {
 function countStocks(payload: HomeSnapshotPayload): number {
   const themeStocks = payload.themes.reduce((n, t) => n + t.stocks.length, 0);
   return themeStocks + payload.singles.length;
+}
+
+/**
+ * carry(hash-match) 시 직전 payload 의 종목 등락률을 이번 사이클 최신 시세로 갱신.
+ *
+ * 급등 집합·뉴스 hash 가 동일해 Claude 재호출은 skip 하지만, 등락률은 시세와 함께 계속
+ * 움직이므로 옛 값으로 고정되면 UI 가 stale 해진다. rateByCode(surges 최신값)에 존재하는
+ * code 만 changeRate 를 덮어쓰고, 이탈 종목(map 부재)은 기존 값 유지. name/reason/news 와
+ * 배열 순서·개수는 불변(프론트 theme-card.tsx 가 표시 시 changeRate desc 재정렬 — 워커
+ * 재정렬 불필요). 순수 반환(원본 payload 미변경 — structuredClone 없이 명시적 map 복제).
+ */
+export function applyLatestRates(
+  payload: HomeSnapshotPayload,
+  rateByCode: Map<string, number>,
+): HomeSnapshotPayload {
+  return {
+    ...payload,
+    themes: payload.themes.map((t) => ({
+      ...t,
+      stocks: t.stocks.map((s) => ({
+        ...s,
+        changeRate: rateByCode.get(s.code) ?? s.changeRate,
+      })),
+    })),
+    singles: payload.singles.map((s) => ({
+      ...s,
+      changeRate: rateByCode.get(s.code) ?? s.changeRate,
+    })),
+  };
 }
 
 export async function runHomeSyncCycle(
@@ -179,12 +208,14 @@ export async function runHomeSyncCycle(
     }
   } else if (prevRow && prevRow.content_hash === hash && prevRow.payload) {
     // 4a) hash-match — 직전 payload 복제 append (Claude 호출 skip, Pattern 4).
-    payload = prevRow.payload;
+    //     단, 종목 등락률은 이번 사이클 최신 시세로 갱신(carry stale 방지, applyLatestRates).
+    const rateByCode = new Map(surges.map((s) => [s.code, s.changeRate]));
+    payload = applyLatestRates(prevRow.payload, rateByCode);
     isCarried = true;
     claudeCalled = false;
     log.info(
       { hashPrefix: hash.slice(0, 12) },
-      "content unchanged — clone-append 직전 payload (Claude 호출 skip)",
+      "content unchanged — clone-append 직전 payload + 등락률 최신화 (Claude 호출 skip)",
     );
   } else {
     // 4b) hash-miss — clusterSurges (Claude 1x). threshold/marketStatus 는 caller 가 확정.
