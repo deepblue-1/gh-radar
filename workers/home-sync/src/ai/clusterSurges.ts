@@ -326,6 +326,7 @@ function normSingle(s: unknown): RawSingle | null {
 export async function clusterSurges(
   surges: Surge[],
   cfg: HomeSyncConfig,
+  themeHints: Map<string, string[]> = new Map(),
 ): Promise<ClusterResult> {
   // short-circuit — 급등 없으면 Claude 호출 0.
   if (surges.length === 0) return { themes: [], singles: [] };
@@ -334,7 +335,9 @@ export async function clusterSurges(
   const surgeCodes = new Set(surges.map((s) => s.code));
   const rateByCode = new Map(surges.map((s) => [s.code, s.changeRate]));
 
-  const { message, indexedNews } = formatClusterMessage(surges);
+  // themeHints (quick-260720-in0) — 급등 2+ 공유 네이버 테마를 "참고 테마 분류" 섹션으로
+  // 프롬프트에 전달. 뉴스 공백 시 동반 급등 묶기 힌트로만 사용(anti-hallucination 유지).
+  const { message, indexedNews } = formatClusterMessage(surges, themeHints);
 
   let raw: { themes: RawTheme[]; singles: RawSingle[] };
   try {

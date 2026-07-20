@@ -28,6 +28,8 @@ export const CLUSTER_SYSTEM_PROMPT = `너는 한국 주식 시장의 "오늘의 
 - stockCodes 는 **입력에 주어진 종목코드만** 쓴다. 목록에 없는 코드를 지어내지 않는다.
 - 급등 종목은 가능하면 가장 잘 맞는 테마 **하나**에 귀속시켜라. 같은 지역·업종·재료(예: 특정 지역 개발 → 건설·소재·전력·반도체가 동반 상한가)로 함께 오른 종목은 서사 표현이 조금 달라도 **하나의 테마로 통합**하라.
 - 종목 하나만 들어가는 1종목 테마를 만들지 마라. 더 큰 관련 테마가 있으면 거기에 넣고, 없으면 singles 로.
+- 뉴스 근거가 부족해도, 참고 테마 분류에서 같은 테마에 속한 급등 종목 2개 이상은 그 테마로 묶을 수 있다. 이 경우 테마명은 참고 분류의 이름을 사용하고, reason 에는 뉴스 근거가 없으면 '동일 테마 소속 동반 급등'임을 밝히며 사실을 지어내지 않는다. newsRefs 는 실제 있는 인덱스만.
+- 참고 분류가 뉴스 서사와 충돌하면 뉴스를 우선한다.
 - 애매하면 억지로 테마로 묶지 말고 singles 로 둔다.
 
 출력은 반드시 JSON 만. 다른 텍스트 금지:
@@ -62,6 +64,21 @@ const CLUSTER_FEW_SHOT: Array<{ user: string; assistant: string }> = [
     assistant: `{"themes":[{"name":"호남개발","reason":"호남권 산업단지·반도체 클러스터 개발 재료로 건설주와 반도체 소재주가 함께 상한가.","stockCodes":["000720","014790","053080"],"newsRefs":[0,1,2]}],"singles":[]}`,
   },
   {
+    // 뉴스 공백 + 참고 테마 예시 — 곡물사료 케이스 재현. 종목을 잇는 뉴스가 없어도
+    // 참고 테마 분류에서 같은 '사료' 테마 소속 2종목을 그 테마로 묶는다. reason 은
+    // 뉴스 근거가 없으므로 '동일 테마 소속 동반 급등'만 밝히고 사실을 지어내지 않는다.
+    user: `급등 종목:
+- 002140 고려산업 (+29.9%)
+- 002680 한탑 (+18.2%)
+
+뉴스:
+(없음)
+
+참고 테마 분류 (네이버, 2개 이상 급등 종목이 공유하는 것만):
+- 사료: 002140 고려산업, 002680 한탑`,
+    assistant: `{"themes":[{"name":"사료","reason":"동일 테마 소속 동반 급등.","stockCodes":["002140","002680"],"newsRefs":[]}],"singles":[]}`,
+  },
+  {
     user: `급등 종목:
 (없음)
 
@@ -72,11 +89,19 @@ const CLUSTER_FEW_SHOT: Array<{ user: string; assistant: string }> = [
 ];
 
 /**
- * 클러스터 user 메시지 — 급등 종목 헤더 + 전역 인덱스(N) 번호 매긴 뉴스 라인.
+ * 클러스터 user 메시지 — 급등 종목 헤더 + 전역 인덱스(N) 번호 매긴 뉴스 라인
+ * (+ themeHints 있으면 "참고 테마 분류" 섹션).
  * 반환값은 { message, indexedNews } — indexedNews 는 워커가 newsRefs 해석에 재사용
  * (Claude 가 본 것과 동일 인덱스 순서).
+ *
+ * themeHints (quick-260720-in0): Map<themeName, string[]> — 급등 종목 2+ 가 공유하는
+ * 네이버 테마(loadThemeHints 산출). 빈 Map(기본값)이면 섹션 미출력 → 기존 message 그대로
+ * (하위호환). indexedNews 계약은 힌트 유무와 무관하게 불변.
  */
-export function formatClusterMessage(surges: Surge[]): {
+export function formatClusterMessage(
+  surges: Surge[],
+  themeHints: Map<string, string[]> = new Map(),
+): {
   message: string;
   indexedNews: Array<{ title: string; url: string; source: string }>;
 } {
@@ -109,10 +134,28 @@ export function formatClusterMessage(surges: Surge[]): {
     }
   }
 
-  const message =
+  let message =
     `급등 종목:\n${stockLines || "(없음)"}\n\n뉴스:\n${
       newsLines.length > 0 ? newsLines.join("\n") : "(없음)"
     }`;
+
+  // 참고 테마 분류 섹션 (themeHints 비면 append 안 함 → 기존 message 그대로, 하위호환).
+  if (themeHints.size > 0) {
+    const nameByCode = new Map(surges.map((s) => [s.code, s.name]));
+    const hintLines = [...themeHints.entries()].map(([name, codes]) => {
+      const members = codes
+        .map((c) => {
+          const stockName = nameByCode.get(c);
+          return stockName ? `${c} ${stockName}` : c;
+        })
+        .join(", ");
+      return `- ${name}: ${members}`;
+    });
+    message += `\n\n참고 테마 분류 (네이버, 2개 이상 급등 종목이 공유하는 것만):\n${hintLines.join(
+      "\n",
+    )}`;
+  }
+
   return { message, indexedNews };
 }
 

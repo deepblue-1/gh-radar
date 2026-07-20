@@ -383,3 +383,60 @@ describe("runHomeSyncCycle (transient-empty 가드)", () => {
     expect(upsertArg.payload.singles).toEqual([]);
   });
 });
+
+describe("runHomeSyncCycle (테마 힌트 배선, quick-260720-in0)", () => {
+  it("surges>0 hash-miss: loadThemeHints 호출(theme_stocks 조회) + cluster 에 themeHints 전달", async () => {
+    const sb = seedSurgeSupabase();
+    // theme_stocks: 급등 3종목 중 2종목이 '사료'(tFeed) 공유.
+    sb.from("theme_stocks").is.mockResolvedValue({
+      data: [
+        { theme_id: "tFeed", stock_code: "005930" },
+        { theme_id: "tFeed", stock_code: "000660" },
+      ],
+      error: null,
+    });
+    sb.from("themes").in.mockResolvedValue({
+      data: [{ id: "tFeed", name: "사료", hidden: false }],
+      error: null,
+    });
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    // theme_stocks 활성 멤버십 조회됨 (loadThemeHints 실행).
+    expect(sb.from("theme_stocks").is).toHaveBeenCalled();
+    // cluster 3번째 인자 = themeHints Map ('사료' → 정렬된 2종목).
+    const themeHintsArg = cluster.mock.calls[0][2] as Map<string, string[]>;
+    expect(themeHintsArg).toBeInstanceOf(Map);
+    expect(themeHintsArg.get("사료")).toEqual(["000660", "005930"]);
+  });
+
+  it("surges=0 (transient-empty): loadThemeHints 미호출(theme_stocks 미접근)", async () => {
+    const sb = createMockSupabase();
+    const q = sb.from("stock_quotes");
+    q.gte.mockImplementation((col: string) =>
+      col === "updated_at" ? Promise.resolve({ data: [], error: null }) : q,
+    );
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster).not.toHaveBeenCalled();
+    // 급등 0 → 4b 진입 안 함 → theme_stocks 테이블 접근 자체 없음.
+    expect(sb._chains.theme_stocks).toBeUndefined();
+  });
+});

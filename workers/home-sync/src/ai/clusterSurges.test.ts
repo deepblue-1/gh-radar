@@ -459,4 +459,36 @@ describe("clusterSurges", () => {
     const payload = await clusterSurges([surge("005930", 25, ["n0"])], cfg());
     expect(payload).toEqual({ themes: [], singles: [] });
   });
+
+  it("themeHints 가 user 메시지의 '참고 테마 분류' 섹션으로 전달됨 (quick-260720-in0)", async () => {
+    hoist.mockCreate.mockResolvedValue(
+      textResponse('{"themes":[],"singles":[]}'),
+    );
+    const surges = [surge("002140", 29.9), surge("002680", 18.2)];
+    const hints = new Map<string, string[]>([["사료", ["002140", "002680"]]]);
+
+    await clusterSurges(surges, cfg(), hints);
+
+    expect(hoist.mockCreate).toHaveBeenCalledTimes(1);
+    const arg = hoist.mockCreate.mock.calls[0][0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const userMsg = arg.messages[arg.messages.length - 1].content;
+    expect(userMsg).toContain(
+      "참고 테마 분류 (네이버, 2개 이상 급등 종목이 공유하는 것만):",
+    );
+    expect(userMsg).toContain("- 사료: 002140 종목-002140, 002680 종목-002680");
+  });
+
+  it("themeHints 기본값(미전달) → 참고 섹션 없이 기존 동작 (하위호환)", async () => {
+    hoist.mockCreate.mockResolvedValue(
+      textResponse('{"themes":[],"singles":[]}'),
+    );
+    await clusterSurges([surge("005930", 25, ["n0"])], cfg());
+    const arg = hoist.mockCreate.mock.calls[0][0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const userMsg = arg.messages[arg.messages.length - 1].content;
+    expect(userMsg).not.toContain("참고 테마 분류");
+  });
 });

@@ -125,3 +125,90 @@ describe("formatClusterMessage description 스니펫", () => {
     expect(message).not.toContain("가".repeat(200)); // 120자 컷.
   });
 });
+
+describe("formatClusterMessage 참고 테마 분류 섹션 (quick-260720-in0)", () => {
+  // 곡물사료 케이스 — 뉴스 없는 3종목이 '사료' 테마 공유.
+  const surges: Surge[] = [
+    { code: "002140", name: "고려산업", changeRate: 29.9, news: [] },
+    { code: "002680", name: "한탑", changeRate: 18.2, news: [] },
+    { code: "218150", name: "미래생명자원", changeRate: 21.4, news: [] },
+  ];
+
+  it("themeHints 전달 시 '참고 테마 분류' 섹션을 메시지 끝에 추가 (종목명 해석)", () => {
+    const hints = new Map<string, string[]>([
+      ["사료", ["002140", "002680", "218150"]],
+    ]);
+    const { message } = formatClusterMessage(surges, hints);
+    expect(message).toContain(
+      "참고 테마 분류 (네이버, 2개 이상 급등 종목이 공유하는 것만):",
+    );
+    expect(message).toContain(
+      "- 사료: 002140 고려산업, 002680 한탑, 218150 미래생명자원",
+    );
+  });
+
+  it("surges 에 없는 코드는 코드만 노출 (종목명 미해석 방어)", () => {
+    const hints = new Map<string, string[]>([["사료", ["002140", "999999"]]]);
+    const { message } = formatClusterMessage(surges, hints);
+    expect(message).toContain("- 사료: 002140 고려산업, 999999");
+  });
+
+  it("빈 themeHints(기본값) → 섹션 미출력 (하위호환, 기존 message 동일)", () => {
+    const withEmpty = formatClusterMessage(surges, new Map());
+    const withDefault = formatClusterMessage(surges);
+    expect(withEmpty.message).not.toContain("참고 테마 분류");
+    expect(withEmpty.message).toBe(withDefault.message);
+  });
+
+  it("themeHints 유무와 무관하게 indexedNews 계약 불변", () => {
+    const withNews: Surge[] = [
+      {
+        code: "002140",
+        name: "고려산업",
+        changeRate: 29.9,
+        news: [
+          {
+            id: "n0",
+            stock_code: "002140",
+            title: "사료 특징주",
+            url: "https://n/n0",
+            source: "s",
+            published_at: "2026-07-01T00:00:00Z",
+            description: null,
+          },
+        ],
+      },
+    ];
+    const hints = new Map<string, string[]>([["사료", ["002140", "002680"]]]);
+    const withHint = formatClusterMessage(withNews, hints);
+    const noHint = formatClusterMessage(withNews);
+    expect(withHint.indexedNews).toEqual(noHint.indexedNews);
+    expect(withHint.indexedNews).toHaveLength(1);
+  });
+});
+
+describe("CLUSTER_SYSTEM_PROMPT 참고 테마 규칙 + few-shot (quick-260720-in0)", () => {
+  it("뉴스 부족해도 참고 테마 2+ 묶기 허용 + 뉴스 우선 규칙 포함", () => {
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("참고 테마 분류");
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("동일 테마 소속 동반 급등");
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("뉴스를 우선한다");
+  });
+
+  it("사료 few-shot 추가 — 뉴스 없는 2종목을 참고 테마로 묶는 예시", () => {
+    const shots = buildClusterFewShot();
+    const userText = shots
+      .filter((m) => m.role === "user")
+      .map((m) => m.content)
+      .join("\n");
+    expect(userText).toContain("사료");
+    // 사료 예시 assistant 출력: 뉴스 없이 사료 테마 2종목 + newsRefs 빈 배열.
+    const feed = shots
+      .filter((m) => m.role === "assistant")
+      .map((a) => JSON.parse(a.content) as { themes: Array<{ name: string; stockCodes: string[]; newsRefs: number[] }> })
+      .find((p) => p.themes.some((t) => t.name === "사료"));
+    expect(feed).toBeDefined();
+    const feedTheme = feed!.themes.find((t) => t.name === "사료")!;
+    expect(feedTheme.stockCodes.length).toBeGreaterThanOrEqual(2);
+    expect(feedTheme.newsRefs).toEqual([]);
+  });
+});

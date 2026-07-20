@@ -9,6 +9,7 @@ import {
   type Surge,
   type LoadSurgesOptions,
 } from "./pipeline/loadSurges";
+import { loadThemeHints } from "./pipeline/loadThemeHints";
 import { computeContentHash } from "./pipeline/contentHash";
 import { clusterSurges, type ClusterResult } from "./ai/clusterSurges";
 import { upsertSnapshot } from "./pipeline/upsertSnapshot";
@@ -35,7 +36,11 @@ export interface HomeSyncDeps {
   config?: HomeSyncConfig;
   supabase?: SupabaseClient;
   /** 테스트 주입: clusterSurges 대체 (없으면 실 Claude 호출). */
-  cluster?: (surges: Surge[], cfg: HomeSyncConfig) => Promise<ClusterResult>;
+  cluster?: (
+    surges: Surge[],
+    cfg: HomeSyncConfig,
+    themeHints: Map<string, string[]>,
+  ) => Promise<ClusterResult>;
   now?: Date;
   /** 테스트 주입: loadSurges retry 옵션 (delay 0 등). 미지정 시 프로덕션 기본(2회/1.5s). */
   loadSurgesOptions?: LoadSurgesOptions;
@@ -219,7 +224,13 @@ export async function runHomeSyncCycle(
     );
   } else {
     // 4b) hash-miss — clusterSurges (Claude 1x). threshold/marketStatus 는 caller 가 확정.
-    const clustered = await cluster(surges, cfg);
+    //     급등 2+ 공유 네이버 테마 힌트 로드 (quick-260720-in0) — Claude 호출 직전에만 조회해
+    //     carry/skip 분기에서는 불필요한 Supabase 쿼리를 하지 않는다. surges.length > 0 보장.
+    const themeHints = await loadThemeHints(
+      supabase,
+      surges.map((s) => s.code),
+    );
+    const clustered = await cluster(surges, cfg, themeHints);
     payload = {
       threshold: cfg.surgeThreshold,
       marketStatus,
