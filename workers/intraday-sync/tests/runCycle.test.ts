@@ -10,11 +10,32 @@ function stubEnv() {
   process.env.HOT_SET_TOP_N = "5";
 }
 
-// fetchStocksMasterChunked(index.ts 내부)가 .from().select().in() 를 호출 —
-// 빈 마스터로 응답해 marketMap/eligibleCodes 를 비운다(본 테스트 관심사 아님).
-function supabaseStub() {
+// 체이닝 + thenable 빌더:
+//   - fetchStocksMasterChunked: .from("stocks").select().in()  → await
+//   - fetchPrevDayRows:         .from("stock_daily_ohlcv").select().in().lt().gte().order() → await
+// 두 경로 모두 지원하려면 .in() 반환이 thenable 이면서 .lt/.gte/.order 체이닝도 돼야 한다.
+function makeBuilder(result: { data: unknown[]; error: null }) {
+  const builder: Record<string, unknown> = {
+    select: () => builder,
+    in: () => builder,
+    lt: () => builder,
+    gte: () => builder,
+    order: () => builder,
+    then: (resolve: (v: typeof result) => unknown) => resolve(result),
+  };
+  return builder;
+}
+
+// fetchStocksMasterChunked 는 빈 마스터로 응답(marketMap/eligibleCodes 비움 — 본 테스트 관심사 아님).
+// stock_daily_ohlcv 는 prevDayRows 로 응답(stale 가드 입력). 기본 [] → stale=false.
+function supabaseStub(prevDayRows: unknown[] = []) {
   return {
-    from: () => ({ select: () => ({ in: () => Promise.resolve({ data: [], error: null }) }) }),
+    from: (table: string) =>
+      makeBuilder(
+        table === "stock_daily_ohlcv"
+          ? { data: prevDayRows, error: null }
+          : { data: [], error: null },
+      ),
     rpc: () => Promise.resolve({ error: null }),
   };
 }
@@ -187,5 +208,73 @@ describe("runIntradayCycle — 가드 동작", () => {
       (u) => u.code,
     );
     expect(ohlcCodes).toContain("111111");
+  });
+
+  it("stale snapshot(직전 거래일 재방출) → step1/step2 count 0, DB write 미호출 no-op", async () => {
+    // 키움 ka10027 이 직전 거래일과 동일한 30 종목을 그대로 반환 + prev-day 조회도 동일값 →
+    // detectStaleSnapshot stale=true → cycle skip.
+    const N = 30;
+    const rows = Array.from({ length: N }, (_, i) => ({
+      stk_cd: String(100000 + i),
+      stk_nm: `종목${i}`,
+      cur_prc: "+1000",
+      pred_pre: "+50",
+      flu_rt: "+5.00",
+      now_trde_qty: "10000",
+    }));
+    // prev-day 저장 데이터: 동일 code/close/change_rate (price 1000, changeRate 5)
+    const prevDayRows = Array.from({ length: N }, (_, i) => ({
+      code: String(100000 + i),
+      close: 1000,
+      change_rate: 5,
+    }));
+
+    const intradayUpsertClose = vi.fn().mockResolvedValue({ count: 0 });
+    const bootstrapMissingStocks = vi.fn().mockResolvedValue(undefined);
+    const intradayUpsertOhlc = vi.fn().mockResolvedValue(undefined);
+
+    vi.doMock("../src/kiwoom/tokenStore", () => ({
+      getKiwoomToken: vi
+        .fn()
+        .mockResolvedValue({ accessToken: "TOK", expiresAt: new Date() }),
+    }));
+    vi.doMock("../src/kiwoom/fetchRanking", () => ({
+      // sort_tp=1 이 30 종목, sort_tp=3 은 [] → 병합 30
+      fetchKa10027: vi
+        .fn()
+        .mockResolvedValueOnce(rows)
+        .mockResolvedValueOnce([]),
+    }));
+    vi.doMock("../src/services/supabase", () => ({
+      createSupabaseClient: vi.fn().mockReturnValue(supabaseStub(prevDayRows)),
+    }));
+    vi.doMock("../src/pipeline/bootstrapStocks", () => ({ bootstrapMissingStocks }));
+    vi.doMock("../src/pipeline/upsertClose", () => ({ intradayUpsertClose }));
+    vi.doMock("../src/pipeline/upsertQuotes", () => ({
+      upsertQuotesStep1: vi.fn().mockResolvedValue(undefined),
+      upsertQuotesStep2: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("../src/pipeline/topMovers", () => ({
+      rebuildTopMovers: vi.fn().mockResolvedValue({ count: 0 }),
+    }));
+    vi.doMock("../src/pipeline/hotSet", () => ({
+      computeHotSet: vi.fn().mockResolvedValue([]),
+    }));
+    vi.doMock("../src/kiwoom/fetchHotSet", () => ({
+      fetchKa10001ForHotSet: vi
+        .fn()
+        .mockResolvedValue({ successful: [], failed: 0, failures: [] }),
+    }));
+    vi.doMock("../src/pipeline/upsertOhlc", () => ({ intradayUpsertOhlc }));
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    // stale 판정 → no-op exit
+    expect(out).toEqual({ step1Count: 0, step2Count: 0, failed: 0 });
+    // DB write + bootstrap 미호출 (stale 가드가 그 앞에서 return)
+    expect(intradayUpsertClose).not.toHaveBeenCalled();
+    expect(bootstrapMissingStocks).not.toHaveBeenCalled();
+    expect(intradayUpsertOhlc).not.toHaveBeenCalled();
   });
 });

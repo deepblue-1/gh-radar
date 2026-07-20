@@ -14,6 +14,7 @@ import { bootstrapMissingStocks } from "./pipeline/bootstrapStocks";
 import { intradayUpsertClose } from "./pipeline/upsertClose";
 import { intradayUpsertOhlc } from "./pipeline/upsertOhlc";
 import { upsertQuotesStep1, upsertQuotesStep2 } from "./pipeline/upsertQuotes";
+import { detectStaleSnapshot, fetchPrevDayRows } from "./pipeline/staleGuard";
 import { createSupabaseClient } from "./services/supabase";
 import { withRetry } from "./retry";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
@@ -59,8 +60,12 @@ function todayIsoKst(): string {
  *   1. STEP1 — ka10027 페이지네이션 → bootstrap → mapping+dedupe → market join → RPC #1 + stock_quotes + top_movers
  *   2. STEP2 — hot set 산출 → ka10001 Promise.allSettled → mapping → RPC #2 + stock_quotes
  *
- * 휴장일 가드 (RESEARCH §2.5):
- *   - ka10027 0 row → warn + exit 정상 (no-op)
+ * 휴장일/프리마켓 2단 가드:
+ *   (1) ka10027 0 row → warn + exit 정상 (no-op)
+ *   (2) stale snapshot 감지 → 키움이 직전 거래일 데이터를 그대로 반환한 경우
+ *       (휴장일/프리마켓), 저장된 직전 거래일 close/change_rate 와 내용 비교해
+ *       일치율이 높으면 skip. 오늘 날짜 가짜 상한가 행 INSERT 방지.
+ *       (2026-07-20 quick-260720-kbf: 044380 7/17 가짜 '상' 마커 근본 원인)
  *   (partial 가드(< MIN_EXPECTED_ROWS)는 제거 — sort_tp=1 상승 종목 수는 시장 따라 변동, 2026-06-08)
  */
 export async function runIntradayCycle(): Promise<{
@@ -115,13 +120,9 @@ export async function runIntradayCycle(): Promise<{
     return { step1Count: 0, step2Count: 0, failed: 0 };
   }
 
-  // STEP 1 — bootstrap (FK orphan 회피)
-  await withRetry(
-    () => bootstrapMissingStocks(supabase, ka10027Rows),
-    "bootstrapMissingStocks",
-  );
-
   // STEP 1 — mapping + dedupe (페이지 경계 중복 제거, RESEARCH §3.3.4)
+  //   stale 가드가 저장된 직전 거래일 데이터와 내용 비교를 하려면 매핑 결과가 먼저 필요하므로
+  //   bootstrap 보다 앞으로 이동. (가짜 데이터로 stocks 를 부트스트랩하지 않도록 순서 보장)
   const dedupeMap = new Map<string, IntradayCloseUpdate>();
   let mapErrors = 0;
   for (const row of ka10027Rows) {
@@ -134,6 +135,35 @@ export async function runIntradayCycle(): Promise<{
   }
   const step1Updates = Array.from(dedupeMap.values());
   log.info({ mapped: step1Updates.length, mapErrors }, "STEP1 mapped + deduped");
+
+  // 휴장일/프리마켓 stale 가드 (2단 가드 #2):
+  //   키움 ka10027 은 휴장일/프리마켓에 직전 거래일 snapshot 을 그대로 반환한다.
+  //   0행 가드로는 못 잡으므로, 저장된 직전 거래일 close/change_rate 와 내용 비교해
+  //   표본 충분(comparable>=30) + 일치율 높으면(>=0.8) 직전일 재방출로 판정 → cycle skip.
+  //   (오늘 날짜로 가짜 상한가 행이 stock_daily_ohlcv 에 INSERT 되는 것을 방지)
+  const sample = step1Updates.map((u) => u.code).slice(0, 100);
+  const prevRows = await withRetry(
+    () => fetchPrevDayRows(supabase, sample, dateIso),
+    "fetchPrevDayRows",
+  );
+  const staleResult = detectStaleSnapshot(step1Updates, prevRows);
+  if (staleResult.stale) {
+    log.warn(
+      {
+        comparable: staleResult.comparable,
+        matched: staleResult.matched,
+        ratio: staleResult.ratio,
+      },
+      "stale snapshot 감지 — 휴장일/프리마켓 직전 거래일 재방출, cycle skip",
+    );
+    return { step1Count: 0, step2Count: 0, failed: 0 };
+  }
+
+  // STEP 1 — bootstrap (FK orphan 회피). stale 가드 통과 후에만 실행.
+  await withRetry(
+    () => bootstrapMissingStocks(supabase, ka10027Rows),
+    "bootstrapMissingStocks",
+  );
 
   // STEP 1 — market + security_group join (stocks 마스터에서)
   //   marketMap: top_movers.market 채우기 (KOSPI/KOSDAQ CHECK 제약)
