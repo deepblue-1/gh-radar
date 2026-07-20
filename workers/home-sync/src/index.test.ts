@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runHomeSyncCycle, computeSlot } from "./index";
+import { runHomeSyncCycle, computeSlot, countStocks } from "./index";
 import type { HomeSyncConfig } from "./config";
 import type { HomeSnapshotPayload } from "@gh-radar/shared";
 import { createMockSupabase } from "../tests/helpers/supabase-mock";
@@ -175,6 +175,112 @@ describe("computeSlot (5분 슬롯 flooring)", () => {
     // 09:00 KST = 2026-07-01 00:00 UTC.
     const r = computeSlot(new Date("2026-07-01T00:00:00Z"));
     expect(r.marketStatus).toBe("open");
+  });
+});
+
+describe("countStocks unique 집계 (quick-260720-kyh)", () => {
+  it("같은 code 가 테마+테마/테마+single 에 있어도 1회만 집계 (unique)", () => {
+    const payload: HomeSnapshotPayload = {
+      threshold: 20,
+      marketStatus: "open",
+      themes: [
+        {
+          name: "A",
+          reason: null,
+          stocks: [
+            { code: "005930", name: "삼성전자", changeRate: 25 },
+            { code: "000660", name: "SK하이닉스", changeRate: 24 },
+          ],
+          news: [],
+        },
+        {
+          name: "B",
+          reason: null,
+          stocks: [
+            { code: "005930", name: "삼성전자", changeRate: 25 }, // 테마간 중복
+            { code: "035420", name: "NAVER", changeRate: 22 },
+          ],
+          news: [],
+        },
+      ],
+      // 테마+single 중복.
+      singles: [{ code: "000660", name: "SK하이닉스", changeRate: 24, reason: null, news: [] }],
+    };
+    // unique codes: 005930, 000660, 035420 → 3.
+    expect(countStocks(payload)).toBe(3);
+  });
+
+  it("중복 없으면 테마 stocks + singles 합", () => {
+    const payload: HomeSnapshotPayload = {
+      threshold: 20,
+      marketStatus: "open",
+      themes: [
+        {
+          name: "A",
+          reason: null,
+          stocks: [
+            { code: "005930", name: "삼성전자", changeRate: 25 },
+            { code: "000660", name: "SK하이닉스", changeRate: 24 },
+          ],
+          news: [],
+        },
+      ],
+      singles: [{ code: "347700", name: "라파스", changeRate: 22, reason: null, news: [] }],
+    };
+    expect(countStocks(payload)).toBe(3);
+  });
+});
+
+describe("runHomeSyncCycle (4b prevThemes 배선, quick-260720-kyh)", () => {
+  it("hash-miss: prevRow.payload.themes 가 cluster 4번째 인자로 전달", async () => {
+    const sb = seedSurgeSupabase();
+    const prevPayload: HomeSnapshotPayload = {
+      threshold: 20,
+      marketStatus: "open",
+      themes: [
+        {
+          name: "직전테마",
+          reason: null,
+          stocks: [{ code: "005930", name: "삼성전자", changeRate: 20 }],
+          news: [],
+        },
+      ],
+      singles: [],
+    };
+    // content_hash 를 이번 hash 와 다르게(STALE) → hash-miss(4b) 진입.
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({
+      data: [{ content_hash: "STALE", theme_count: 1, stock_count: 1, payload: prevPayload }],
+      error: null,
+    });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster).toHaveBeenCalledTimes(1);
+    // 4번째 인자 = prevRow.payload.themes.
+    expect(cluster.mock.calls[0][3]).toEqual(prevPayload.themes);
+  });
+
+  it("직전 스냅샷 없음(첫 slot) → cluster 4번째 인자 [] (빈 배열)", async () => {
+    const sb = seedSurgeSupabase();
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster.mock.calls[0][3]).toEqual([]);
   });
 });
 

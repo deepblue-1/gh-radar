@@ -333,10 +333,121 @@ function normSingle(s: unknown): RawSingle | null {
   return { stockCode: code, reason: toReason(o?.reason), newsRefs: toIntArray(o?.newsRefs) };
 }
 
+/**
+ * 중복 소속 invariant (quick-260720-kyh) — 순수 후처리. clusterSurges 최종 themes/singles 에 적용.
+ *
+ * (a) 테마간 중복: 2+ 테마에 있는 code 는 근거 뉴스(비라운드업 뉴스 제목에 종목명 verbatim)가
+ *     있는 테마만 판정 —
+ *       · evidenceThemes ≥ 2 → 그 evidence 테마들에만 유지(복수 허용, 사용자 결정), 나머지 제거.
+ *       · evidenceThemes ≤ 1 → 1개로 축소. 우선순위: evidence > stocks.length 큰 > 먼저 나온 테마.
+ * (b) invariant 후 stocks.length < 2 로 줄어든 테마 제거 + 그 멤버 중 살아있는 테마에 없는 code 는
+ *     single 로 강등(surgeByCode 로 재구성, reason=null, news=[]).
+ * (c) 살아있는 테마 멤버 집합에 있는 code 는 singles 에서 제거(테마+single 동시 방지).
+ *
+ * 순수 반환 — 입력 배열/원소 원본 미변경(명시 복제).
+ */
+export function enforceMembershipInvariant(
+  themes: HomeSurgeTheme[],
+  singles: HomeSurgeSingle[],
+  surgeNames: string[],
+  surgeByCode: ReadonlyMap<string, { name: string; changeRate: number }>,
+): { themes: HomeSurgeTheme[]; singles: HomeSurgeSingle[] } {
+  // themes 복제 (stocks 배열도 복제 — 순수 계약. news/reason 은 불변 참조 유지).
+  const work: HomeSurgeTheme[] = themes.map((t) => ({
+    ...t,
+    stocks: [...t.stocks],
+  }));
+
+  const hasEvidence = (theme: HomeSurgeTheme, stockName: string): boolean =>
+    stockName.length > 0 &&
+    theme.news.some(
+      (n) => !isRoundupNews(n, surgeNames) && n.title.includes(stockName),
+    );
+
+  // (a) 테마간 중복 해소.
+  const codeToThemeIdx = new Map<string, number[]>();
+  work.forEach((t, i) => {
+    for (const s of t.stocks) {
+      const arr = codeToThemeIdx.get(s.code) ?? [];
+      arr.push(i);
+      codeToThemeIdx.set(s.code, arr);
+    }
+  });
+
+  for (const [code, idxs] of codeToThemeIdx) {
+    if (idxs.length < 2) continue;
+    const stockName = surgeByCode.get(code)?.name ?? "";
+    const evidenceIdxs = idxs.filter((i) => hasEvidence(work[i], stockName));
+    let keep: Set<number>;
+    if (evidenceIdxs.length >= 2) {
+      keep = new Set(evidenceIdxs); // 복수 허용.
+    } else {
+      // 1개로 축소 — evidence > stocks.length > earlier.
+      const winner = [...idxs].sort((a, b) => {
+        const ea = hasEvidence(work[a], stockName) ? 1 : 0;
+        const eb = hasEvidence(work[b], stockName) ? 1 : 0;
+        if (ea !== eb) return eb - ea;
+        if (work[b].stocks.length !== work[a].stocks.length) {
+          return work[b].stocks.length - work[a].stocks.length;
+        }
+        return a - b;
+      })[0];
+      keep = new Set([winner]);
+    }
+    for (const i of idxs) {
+      if (keep.has(i)) continue;
+      work[i].stocks = work[i].stocks.filter((s) => s.code !== code);
+    }
+  }
+
+  // (b) sub-2 테마 제거 + 고아 멤버 single 강등.
+  const survivingThemes = work.filter((t) => t.stocks.length >= 2);
+  const survivingCodes = new Set<string>();
+  for (const t of survivingThemes) for (const s of t.stocks) survivingCodes.add(s.code);
+
+  const demoted: HomeSurgeSingle[] = [];
+  const demotedSeen = new Set<string>();
+  for (const t of work) {
+    if (t.stocks.length >= 2) continue; // 살아있는 테마.
+    for (const s of t.stocks) {
+      if (survivingCodes.has(s.code)) continue; // 다른 테마에 살아있음.
+      if (demotedSeen.has(s.code)) continue;
+      const surge = surgeByCode.get(s.code);
+      if (!surge) continue; // 급등 집합 밖 (방어).
+      demotedSeen.add(s.code);
+      demoted.push({
+        code: s.code,
+        name: surge.name,
+        changeRate: surge.changeRate,
+        reason: null,
+        news: [],
+      });
+    }
+  }
+
+  // (c) 테마+single 동시 제거 + 강등 single 병합(기존 single dedup, 기존 우선).
+  const outSingles: HomeSurgeSingle[] = [];
+  const singleSeen = new Set<string>();
+  for (const s of singles) {
+    if (survivingCodes.has(s.code)) continue; // 테마 소속 → single 제거.
+    if (singleSeen.has(s.code)) continue;
+    singleSeen.add(s.code);
+    outSingles.push(s);
+  }
+  for (const d of demoted) {
+    if (singleSeen.has(d.code)) continue;
+    singleSeen.add(d.code);
+    outSingles.push(d);
+  }
+
+  return { themes: survivingThemes, singles: outSingles };
+}
+
 export async function clusterSurges(
   surges: Surge[],
   cfg: HomeSyncConfig,
   themeHints: Map<string, string[]> = new Map(),
+  prevThemes: HomeSurgeTheme[] = [],
 ): Promise<ClusterResult> {
   // short-circuit — 급등 없으면 Claude 호출 0.
   if (surges.length === 0) return { themes: [], singles: [] };
@@ -347,7 +458,12 @@ export async function clusterSurges(
 
   // themeHints (quick-260720-in0) — 급등 2+ 공유 네이버 테마를 "참고 테마 분류" 섹션으로
   // 프롬프트에 전달. 뉴스 공백 시 동반 급등 묶기 힌트로만 사용(anti-hallucination 유지).
-  const { message, indexedNews } = formatClusterMessage(surges, themeHints);
+  // prevThemes (quick-260720-kyh) — 직전 슬롯 테마 구성을 "직전 테마 구성" 섹션으로 전달(sticky prior).
+  const { message, indexedNews } = formatClusterMessage(
+    surges,
+    themeHints,
+    prevThemes,
+  );
 
   let raw: { themes: RawTheme[]; singles: RawSingle[] };
   try {
@@ -461,5 +577,14 @@ export async function clusterSurges(
   }
   singles.sort((a, b) => b.changeRate - a.changeRate);
 
-  return { themes, singles };
+  // 중복 소속 invariant (quick-260720-kyh) — 테마간 중복 정리 + 테마+single 동시 제거 +
+  // sub-2 테마 강등. 순수 후처리. 강등 single 이 추가될 수 있으므로 재정렬.
+  const inv = enforceMembershipInvariant(
+    themes,
+    singles,
+    surges.map((s) => s.name),
+    surgeByCode,
+  );
+  inv.singles.sort((a, b) => b.changeRate - a.changeRate);
+  return inv;
 }

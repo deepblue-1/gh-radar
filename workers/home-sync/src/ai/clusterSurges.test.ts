@@ -31,10 +31,12 @@ import {
   demoteInvalidThemes,
   reassignOrphans,
   dedupeNewsByUrl,
+  enforceMembershipInvariant,
 } from "./clusterSurges";
 import { __resetAnthropicClientForTests } from "./anthropic";
 import type { Surge } from "../pipeline/loadSurges";
 import type { HomeSyncConfig } from "../config";
+import type { HomeSurgeSingle, HomeSurgeTheme } from "@gh-radar/shared";
 
 function cfg(over: Partial<HomeSyncConfig> = {}): HomeSyncConfig {
   return {
@@ -348,6 +350,119 @@ describe("reassignOrphans (고아 종목 테마 병합, 금호건설 fix)", () =
   });
 });
 
+describe("enforceMembershipInvariant (중복 소속 invariant, quick-260720-kyh)", () => {
+  const theme = (
+    name: string,
+    stocks: Array<[string, string]>, // [code, name]
+    newsTitles: string[] = [],
+  ): HomeSurgeTheme => ({
+    name,
+    reason: null,
+    stocks: stocks.map(([code, nm]) => ({ code, name: nm, changeRate: 20 })),
+    news: newsTitles.map((t, i) => ({ title: t, url: `u${name}${i}`, source: "s" })),
+  });
+  const single = (code: string, nm: string): HomeSurgeSingle => ({
+    code,
+    name: nm,
+    changeRate: 20,
+    reason: "개별",
+    news: [],
+  });
+
+  it("12:05 실사례: 218150 이 2테마+single 동시 → 근거 테마만 유지, single 제거, sub-2 강등", () => {
+    const surgeByCode = new Map([
+      ["002140", { name: "고려산업", changeRate: 29.9 }],
+      ["218150", { name: "미래생명자원", changeRate: 21.4 }],
+      ["003580", { name: "애국종목", changeRate: 18.0 }],
+    ]);
+    const surgeNames = ["고려산업", "미래생명자원", "애국종목"];
+    const themes = [
+      // 곡물공급망불안 — 218150 근거 뉴스(제목에 미래생명자원) 有.
+      theme(
+        "곡물공급망불안",
+        [["002140", "고려산업"], ["218150", "미래생명자원"]],
+        ["미래생명자원 곡물 수급 우려 부각"],
+      ),
+      // 애국테마주 — 218150 근거 뉴스 無.
+      theme(
+        "애국테마주",
+        [["218150", "미래생명자원"], ["003580", "애국종목"]],
+        ["애국 소비 테마 강세"],
+      ),
+    ];
+    const singles = [single("218150", "미래생명자원")];
+
+    const r = enforceMembershipInvariant(themes, singles, surgeNames, surgeByCode);
+
+    // 곡물공급망불안 유지 + 218150 포함.
+    const feed = r.themes.find((t) => t.name === "곡물공급망불안");
+    expect(feed).toBeDefined();
+    expect(feed!.stocks.map((s) => s.code).sort()).toEqual(["002140", "218150"]);
+    // 애국테마주 는 218150 제거로 stocks 1개 → sub-2 제거.
+    expect(r.themes.find((t) => t.name === "애국테마주")).toBeUndefined();
+    // single 218150 제거(테마 소속).
+    expect(r.singles.find((s) => s.code === "218150")).toBeUndefined();
+    // 003580 은 살아있는 테마에 없음 → single 강등 (reason=null, news=[]).
+    const demoted = r.singles.find((s) => s.code === "003580");
+    expect(demoted).toBeDefined();
+    expect(demoted!.reason).toBeNull();
+    expect(demoted!.news).toEqual([]);
+    expect(demoted!.name).toBe("애국종목");
+  });
+
+  it("evidence 2+ 테마 → 복수 소속 유지", () => {
+    const surgeByCode = new Map([
+      ["005930", { name: "삼성전자", changeRate: 25 }],
+      ["000660", { name: "SK하이닉스", changeRate: 24 }],
+      ["035420", { name: "NAVER", changeRate: 22 }],
+    ]);
+    const surgeNames = ["삼성전자", "SK하이닉스", "NAVER"];
+    const themes = [
+      theme(
+        "반도체",
+        [["005930", "삼성전자"], ["000660", "SK하이닉스"]],
+        ["삼성전자 반도체 업황 호재"],
+      ),
+      theme(
+        "AI",
+        [["005930", "삼성전자"], ["035420", "NAVER"]],
+        ["삼성전자 AI 반도체 진출"],
+      ),
+    ];
+    const r = enforceMembershipInvariant(themes, [], surgeNames, surgeByCode);
+    // 005930 이 두 테마 모두 근거 뉴스 → 둘 다 유지.
+    expect(r.themes.find((t) => t.name === "반도체")!.stocks.map((s) => s.code)).toContain("005930");
+    expect(r.themes.find((t) => t.name === "AI")!.stocks.map((s) => s.code)).toContain("005930");
+  });
+
+  it("테마+single 동시(중복 없어도) → single 제거", () => {
+    const surgeByCode = new Map([
+      ["005930", { name: "삼성전자", changeRate: 25 }],
+      ["000660", { name: "SK하이닉스", changeRate: 24 }],
+    ]);
+    const themes = [theme("반도체", [["005930", "삼성전자"], ["000660", "SK하이닉스"]])];
+    const singles = [single("005930", "삼성전자")];
+    const r = enforceMembershipInvariant(themes, singles, ["삼성전자", "SK하이닉스"], surgeByCode);
+    expect(r.singles.find((s) => s.code === "005930")).toBeUndefined();
+    expect(r.themes[0].stocks.map((s) => s.code)).toContain("005930");
+  });
+
+  it("순수 함수 — 입력 배열/원소 원본 미변경", () => {
+    const surgeByCode = new Map([
+      ["005930", { name: "삼성전자", changeRate: 25 }],
+      ["000660", { name: "SK하이닉스", changeRate: 24 }],
+      ["035420", { name: "NAVER", changeRate: 22 }],
+    ]);
+    const themes = [
+      theme("반도체", [["005930", "삼성전자"], ["000660", "SK하이닉스"]], ["삼성전자 반도체"]),
+      theme("AI", [["005930", "삼성전자"], ["035420", "NAVER"]]),
+    ];
+    const before = JSON.stringify(themes);
+    enforceMembershipInvariant(themes, [], ["삼성전자", "SK하이닉스", "NAVER"], surgeByCode);
+    expect(JSON.stringify(themes)).toBe(before);
+  });
+});
+
 // ── clusterSurges 통합 ────────────────────────────────────────────────────────
 
 describe("clusterSurges", () => {
@@ -540,5 +655,56 @@ describe("clusterSurges", () => {
     };
     const userMsg = arg.messages[arg.messages.length - 1].content;
     expect(userMsg).not.toContain("참고 테마 분류");
+  });
+
+  it("prevThemes 를 formatClusterMessage(user 메시지)로 전달 (quick-260720-kyh)", async () => {
+    hoist.mockCreate.mockResolvedValue(
+      textResponse('{"themes":[],"singles":[]}'),
+    );
+    const surges = [surge("002140", 29.9), surge("218150", 21.4)];
+    const prevThemes: HomeSurgeTheme[] = [
+      {
+        name: "사료",
+        reason: null,
+        stocks: [
+          { code: "002140", name: "종목-002140", changeRate: 29.9 },
+          { code: "218150", name: "종목-218150", changeRate: 21.4 },
+        ],
+        news: [],
+      },
+    ];
+
+    await clusterSurges(surges, cfg(), new Map(), prevThemes);
+
+    expect(hoist.mockCreate).toHaveBeenCalledTimes(1);
+    const arg = hoist.mockCreate.mock.calls[0][0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const userMsg = arg.messages[arg.messages.length - 1].content;
+    expect(userMsg).toContain("직전 테마 구성 (5분 전):");
+    expect(userMsg).toContain("- 사료: 002140 종목-002140, 218150 종목-218150");
+  });
+
+  it("중복 소속 invariant 통합: 한 종목이 테마+single 동시 등장하면 single 에서 제거", async () => {
+    // Claude 가 005930 을 반도체 테마 + single 동시로 반환 → invariant 가 single 제거.
+    const surges = [
+      surge("005930", 25, ["n0"]),
+      surge("000660", 24, ["n1"]),
+    ];
+    const resp = {
+      themes: [
+        { name: "반도체", reason: "메모리 강세", stockCodes: ["005930", "000660"], newsRefs: [0, 1] },
+      ],
+      singles: [{ stockCode: "005930", reason: "개별 급등", newsRefs: [0] }],
+    };
+    hoist.mockCreate.mockResolvedValue(
+      textResponse(JSON.stringify(resp)),
+    );
+
+    const payload = await clusterSurges(surges, cfg());
+
+    // 테마에 005930 유지, single 에서 제거.
+    expect(payload.themes[0].stocks.map((s) => s.code)).toContain("005930");
+    expect(payload.singles.find((s) => s.code === "005930")).toBeUndefined();
   });
 });

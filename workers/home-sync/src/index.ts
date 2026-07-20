@@ -1,6 +1,6 @@
 import "dotenv/config";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HomeSnapshotPayload } from "@gh-radar/shared";
+import type { HomeSnapshotPayload, HomeSurgeTheme } from "@gh-radar/shared";
 import { loadConfig, type HomeSyncConfig } from "./config";
 import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
@@ -40,6 +40,7 @@ export interface HomeSyncDeps {
     surges: Surge[],
     cfg: HomeSyncConfig,
     themeHints: Map<string, string[]>,
+    prevThemes: HomeSurgeTheme[],
   ) => Promise<ClusterResult>;
   now?: Date;
   /** 테스트 주입: loadSurges retry 옵션 (delay 0 등). 미지정 시 프로덕션 기본(2회/1.5s). */
@@ -95,9 +96,17 @@ export function computeSlot(now: Date): {
   return { tradeDate, capturedAt, marketStatus, afterClose };
 }
 
-function countStocks(payload: HomeSnapshotPayload): number {
-  const themeStocks = payload.themes.reduce((n, t) => n + t.stocks.length, 0);
-  return themeStocks + payload.singles.length;
+/**
+ * stock_count = unique 종목코드 수 (quick-260720-kyh). 한 종목이 테마+테마 또는 테마+single 에
+ * 중복 소속돼도 1회만 집계 — server/webapp 은 이 저장값을 verbatim 표시(재계산 없음, grep 확인).
+ * enforceMembershipInvariant 로 테마+single 동시는 제거되지만, evidence 2+ 복수 소속은 남을 수
+ * 있어 Set 집계로 과대 카운트를 방지한다.
+ */
+export function countStocks(payload: HomeSnapshotPayload): number {
+  const codes = new Set<string>();
+  for (const t of payload.themes) for (const s of t.stocks) codes.add(s.code);
+  for (const s of payload.singles) codes.add(s.code);
+  return codes.size;
 }
 
 /**
@@ -230,7 +239,10 @@ export async function runHomeSyncCycle(
       supabase,
       surges.map((s) => s.code),
     );
-    const clustered = await cluster(surges, cfg, themeHints);
+    // sticky prior (quick-260720-kyh) — 직전 슬롯 테마 구성을 cluster 로 전달해 슬롯 간 명멸을
+    // 줄인다. prevRow(오늘 최신 스냅샷)의 payload.themes 재사용(추가 쿼리 없음). 없으면 [].
+    const prevThemes = prevRow?.payload?.themes ?? [];
+    const clustered = await cluster(surges, cfg, themeHints, prevThemes);
     payload = {
       threshold: cfg.surgeThreshold,
       marketStatus,
