@@ -5,6 +5,7 @@ import {
   formatClusterMessage,
 } from "./prompt";
 import type { Surge } from "../pipeline/loadSurges";
+import type { HomeSurgeTheme } from "@gh-radar/shared";
 
 /**
  * Phase 13 후속 — 프롬프트 consolidation 개선 검증.
@@ -271,6 +272,120 @@ describe("라운드업 규칙 + [라운드업] 라벨 (quick-260720-jh7)", () =>
       url: "https://n/r0",
       source: "src0",
     });
+  });
+});
+
+describe("formatClusterMessage 직전 테마 구성 섹션 (quick-260720-kyh sticky prior)", () => {
+  const surges: Surge[] = [
+    { code: "002140", name: "고려산업", changeRate: 29.9, news: [] },
+    { code: "218150", name: "미래생명자원", changeRate: 21.4, news: [] },
+  ];
+  const prevThemes: HomeSurgeTheme[] = [
+    {
+      name: "사료",
+      reason: "동일 테마 소속 동반 급등",
+      stocks: [
+        { code: "002140", name: "고려산업", changeRate: 20 },
+        { code: "218150", name: "미래생명자원", changeRate: 15 },
+      ],
+      news: [],
+    },
+  ];
+
+  it("prevThemes 전달 시 '직전 테마 구성 (5분 전):' 섹션 + 멤버 라인 (현재 이름)", () => {
+    const { message } = formatClusterMessage(surges, new Map(), prevThemes);
+    expect(message).toContain("직전 테마 구성 (5분 전):");
+    expect(message).toContain("- 사료: 002140 고려산업, 218150 미래생명자원");
+  });
+
+  it("prevThemes=[] → 섹션 미출력 (하위호환, 기본값과 동일)", () => {
+    const { message } = formatClusterMessage(surges, new Map(), []);
+    expect(message).not.toContain("직전 테마 구성");
+    expect(message).toBe(formatClusterMessage(surges).message);
+  });
+
+  it("prevThemes 멤버가 현재 급등집합 밖이면 제외 + 남은 멤버 0 테마는 라인 skip", () => {
+    const prev: HomeSurgeTheme[] = [
+      {
+        name: "이탈테마",
+        reason: null,
+        stocks: [{ code: "999999", name: "없는종목", changeRate: 5 }],
+        news: [],
+      },
+      {
+        name: "사료",
+        reason: null,
+        stocks: [
+          { code: "002140", name: "고려산업", changeRate: 20 },
+          { code: "999998", name: "이탈", changeRate: 5 },
+        ],
+        news: [],
+      },
+    ];
+    const { message } = formatClusterMessage(surges, new Map(), prev);
+    // 전 멤버가 급등집합 밖 → 라인 skip.
+    expect(message).not.toContain("이탈테마");
+    // 사료는 살아있는 멤버(고려산업)만 렌더.
+    expect(message).toContain("- 사료: 002140 고려산업");
+    expect(message).not.toContain("999998");
+  });
+
+  it("멤버 이름은 prev name 무시하고 현재 surges name 사용", () => {
+    const prev: HomeSurgeTheme[] = [
+      {
+        name: "사료",
+        reason: null,
+        stocks: [
+          { code: "002140", name: "옛이름", changeRate: 20 },
+          { code: "218150", name: "옛이름2", changeRate: 15 },
+        ],
+        news: [],
+      },
+    ];
+    const { message } = formatClusterMessage(surges, new Map(), prev);
+    expect(message).toContain("002140 고려산업");
+    expect(message).not.toContain("옛이름");
+  });
+
+  it("indexedNews 계약은 prevThemes 유무와 무관하게 불변", () => {
+    const withNews: Surge[] = [
+      {
+        code: "002140",
+        name: "고려산업",
+        changeRate: 29.9,
+        news: [
+          {
+            id: "n0",
+            stock_code: "002140",
+            title: "사료 특징주",
+            url: "https://n/0",
+            source: "s",
+            published_at: "2026-07-01T00:00:00Z",
+            description: null,
+          },
+        ],
+      },
+    ];
+    const withPrev = formatClusterMessage(withNews, new Map(), prevThemes);
+    const noPrev = formatClusterMessage(withNews);
+    expect(withPrev.indexedNews).toEqual(noPrev.indexedNews);
+    expect(withPrev.indexedNews).toHaveLength(1);
+  });
+});
+
+describe("CLUSTER_SYSTEM_PROMPT sticky/should/복수소속 규칙 (quick-260720-kyh)", () => {
+  it("sticky prior 규칙 — 직전 구성을 기본값으로 유지", () => {
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("직전 테마 구성");
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("기본값으로 유지");
+  });
+
+  it("힌트 규칙 can→should — '그 테마로 묶어라' 강제 + 명확한 다른 재료 조건", () => {
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("그 테마로 묶어라");
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("명확한 다른 재료");
+  });
+
+  it("중복 소속 원칙 — 복수 테마 소속은 근거 있을 때만", () => {
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("복수 테마 소속");
   });
 });
 

@@ -1,4 +1,5 @@
 import { stripHtml } from "@gh-radar/shared";
+import type { HomeSurgeTheme } from "@gh-radar/shared";
 import type { Surge } from "../pipeline/loadSurges";
 import { isRoundupNews } from "./roundup";
 
@@ -29,8 +30,10 @@ export const CLUSTER_SYSTEM_PROMPT = `너는 한국 주식 시장의 "오늘의 
 - stockCodes 는 **입력에 주어진 종목코드만** 쓴다. 목록에 없는 코드를 지어내지 않는다.
 - 급등 종목은 가능하면 가장 잘 맞는 테마 **하나**에 귀속시켜라. 같은 지역·업종·재료(예: 특정 지역 개발 → 건설·소재·전력·반도체가 동반 상한가)로 함께 오른 종목은 서사 표현이 조금 달라도 **하나의 테마로 통합**하라.
 - 종목 하나만 들어가는 1종목 테마를 만들지 마라. 더 큰 관련 테마가 있으면 거기에 넣고, 없으면 singles 로.
-- 뉴스 근거가 부족해도, 참고 테마 분류에서 같은 테마에 속한 급등 종목 2개 이상은 그 테마로 묶을 수 있다. 이 경우 테마명은 참고 분류의 이름을 사용하고, reason 에는 뉴스 근거가 없으면 '동일 테마 소속 동반 급등'임을 밝히며 사실을 지어내지 않는다. newsRefs 는 실제 있는 인덱스만.
-- 참고 분류가 뉴스 서사와 충돌하면 뉴스를 우선한다.
+- 직전 테마 구성(5분 전)이 주어지면 그것을 **기본값으로 유지**하라. 새 뉴스나 급등 집합 변화가 명확히 다른 분류를 요구할 때만 변경한다. 같은 묶음의 테마명은 직전 이름을 그대로 재사용하고 새 이름을 붙이지 마라(슬롯 간 명멸 방지).
+- 같은 참고 테마 분류에 속한 급등 종목 2개 이상은, 각 종목의 뉴스가 서로 다른 재료를 **명확히 제시하지 않는 한**, 그 테마로 묶어라. 이 경우 테마명은 참고 분류의 이름을 사용하고, reason 에는 뉴스 근거가 없으면 '동일 테마 소속 동반 급등'임을 밝히며 사실을 지어내지 않는다. newsRefs 는 실제 있는 인덱스만.
+- 참고 분류가 뉴스 서사와 충돌하면 뉴스를 우선한다. 단 뉴스가 **명확한 다른 재료**를 제시할 때만 힌트를 이긴다 — 무정보 기사·[라운드업]은 다른 재료로 보지 않는다.
+- 한 종목은 원칙적으로 가장 잘 맞는 테마 **하나**에만 넣어라. 서로 다른 재료가 각각 뉴스로 확인될 때만 복수 테마 소속을 허용한다.
 - 여러 종목을 한꺼번에 나열하는 시황/거래상위/마감 라운드업 기사(뉴스 라인에 \`[라운드업]\` 으로 표기됨)는 종목을 한 테마로 묶는 근거로 삼지 마라. 라운드업은 단순히 그날 오른 종목을 함께 열거할 뿐 같은 재료를 뜻하지 않는다. 종목 특정 재료 기사(특징주·공시)와 참고 테마 분류를 우선한다.
 - 애매하면 억지로 테마로 묶지 말고 singles 로 둔다.
 
@@ -99,10 +102,16 @@ const CLUSTER_FEW_SHOT: Array<{ user: string; assistant: string }> = [
  * themeHints (quick-260720-in0): Map<themeName, string[]> — 급등 종목 2+ 가 공유하는
  * 네이버 테마(loadThemeHints 산출). 빈 Map(기본값)이면 섹션 미출력 → 기존 message 그대로
  * (하위호환). indexedNews 계약은 힌트 유무와 무관하게 불변.
+ *
+ * prevThemes (quick-260720-kyh sticky prior): 직전 슬롯(5분 전) 스냅샷의 테마 구성. 비어있으면
+ * "직전 테마 구성" 섹션 미출력(하위호환). 멤버는 현재 급등집합(surges code)에 존재하는 종목만
+ * 렌더(이탈 종목 제외), 이름은 현재 surges name 사용, 남은 멤버 0인 테마 라인은 skip. 뉴스/reason
+ * 은 미포함(토큰 절약). Claude 가 직전 분류를 기본값으로 유지해 슬롯 간 명멸을 줄이도록 신호.
  */
 export function formatClusterMessage(
   surges: Surge[],
   themeHints: Map<string, string[]> = new Map(),
+  prevThemes: HomeSurgeTheme[] = [],
 ): {
   message: string;
   indexedNews: Array<{ title: string; url: string; source: string }>;
@@ -163,6 +172,23 @@ export function formatClusterMessage(
     message += `\n\n참고 테마 분류 (네이버, 2개 이상 급등 종목이 공유하는 것만):\n${hintLines.join(
       "\n",
     )}`;
+  }
+
+  // 직전 테마 구성 섹션 (quick-260720-kyh sticky prior). prevThemes 비면 append 안 함(하위호환).
+  // 멤버는 현재 급등집합에 존재하는 종목만, 이름은 현재 surges name. 남은 멤버 0 테마 라인 skip.
+  if (prevThemes.length > 0) {
+    const nameByCode = new Map(surges.map((s) => [s.code, s.name]));
+    const prevLines: string[] = [];
+    for (const t of prevThemes) {
+      const members = t.stocks
+        .filter((s) => nameByCode.has(s.code))
+        .map((s) => `${s.code} ${nameByCode.get(s.code)}`);
+      if (members.length === 0) continue; // 전 멤버 이탈 → 라인 skip.
+      prevLines.push(`- ${t.name}: ${members.join(", ")}`);
+    }
+    if (prevLines.length > 0) {
+      message += `\n\n직전 테마 구성 (5분 전):\n${prevLines.join("\n")}`;
+    }
   }
 
   return { message, indexedNews };
