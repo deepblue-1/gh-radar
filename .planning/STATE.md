@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-07-13 - Completed quick task 260713-fir: home-sync 급등테마 갱신 주기 10분→5분 완화
+Last activity: 2026-07-20 - Completed quick task 260720-in0: home-sync 네이버 테마 멤버십 힌트 클러스터링
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -324,6 +324,7 @@ Recent decisions affecting current work:
 | 260707-bqj | home-sync 급등 선정 updated_at 신선도 필터 (프리마켓 stale 시세 오염 + 거래정지 잔존 수정) | 2026-07-07 | f2ff298 | [260707-bqj-home-sync-loadsurges-stale-updated-at-ks](./quick/260707-bqj-home-sync-loadsurges-stale-updated-at-ks/) |
 | 260707-ihr | intraday-sync 키움 429 rate limit 대응 (retry 429 5회 승격 + 4 req/s 하향, 키움 실효 한도 7/3 축소 방어) | 2026-07-07 | 49632e9 | [260707-ihr-intraday-sync-429-rate-limit-retry](./quick/260707-ihr-intraday-sync-429-rate-limit-retry/) |
 | 260713-fir | home-sync 급등테마 갱신 주기 10분→5분 완화 (5분 슬롯 + carry 등락률 최신화 + index 400) | 2026-07-13 | 9578653 | [260713-fir-home-sync-10-5-5-carry-index-limit-400](./quick/260713-fir-home-sync-10-5-5-carry-index-limit-400/) |
+| 260720-in0 | home-sync 클러스터링에 네이버 테마 멤버십 힌트 추가 (곡물사료 singles 미묶임 해결) | 2026-07-20 | 420d1ae | [260720-in0-home-sync-singles](./quick/260720-in0-home-sync-singles/) |
 
 ## Session Continuity
 
