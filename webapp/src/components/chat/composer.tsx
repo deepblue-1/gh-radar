@@ -6,8 +6,8 @@
  * textarea(auto-grow 40→120px) + 전송/정지 토글 버튼.
  * - 유휴: 전송 버튼(--primary, paper-plane, aria-label "전송").
  * - 스트리밍 중: 정지 버튼(square, outline, aria-label "중단") → onStop 으로 abort 위임(D-06).
- * - Enter 전송 / Shift+Enter 줄바꿈.
- * - 면책 문구는 사용자 결정(2026-07-02, 14-11 checkpoint)으로 제거 — 입력 힌트만 노출.
+ * - Enter 전송 / Shift+Enter 줄바꿈(동작 유지, 표시 힌트/placeholder 는 제거 — 사용자 요청).
+ * - 면책 문구는 사용자 결정(2026-07-02, 14-11 checkpoint)으로 제거.
  */
 
 import { useState } from "react";
@@ -54,7 +54,6 @@ export function Composer({ onSend, isStreaming, onStop }: ComposerProps) {
           disabled={isStreaming}
           rows={1}
           aria-label="메시지 입력"
-          placeholder="상한가 종목·주도 테마·익절 판단을 물어보세요…"
           className="max-h-[120px] min-h-[40px] flex-1 resize-none"
         />
         {isStreaming ? (
@@ -80,9 +79,6 @@ export function Composer({ onSend, isStreaming, onStop }: ComposerProps) {
           </Button>
         )}
       </div>
-      <p className="text-[length:11px] text-[var(--muted-fg)]">
-        Enter 전송 · Shift+Enter 줄바꿈
-      </p>
     </div>
   );
 }
