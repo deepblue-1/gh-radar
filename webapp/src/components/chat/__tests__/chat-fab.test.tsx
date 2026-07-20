@@ -31,7 +31,7 @@ describe('ChatFab', () => {
     mockUseAuth.mockReturnValue({ user: null });
     render(<ChatFab />);
 
-    await user.click(screen.getByRole('button', { name: 'AI 애널리스트' }));
+    await user.click(screen.getByRole('button', { name: 'AI' }));
 
     // 로그인 유도 상태 박스(C11) 노출 — 체험 모드 없음
     await waitFor(() =>
@@ -45,7 +45,7 @@ describe('ChatFab', () => {
     const user = userEvent.setup();
     render(<ChatFab />);
 
-    await user.click(screen.getByRole('button', { name: 'AI 애널리스트' }));
+    await user.click(screen.getByRole('button', { name: 'AI' }));
 
     expect(openChat).toHaveBeenCalledTimes(1);
     // 로그인 필요 상태는 뜨지 않는다
@@ -59,7 +59,7 @@ describe('ChatFab', () => {
     render(<ChatFab />);
 
     const fab = screen.getByRole('button', {
-      name: 'AI 애널리스트 · 삼성전자 분석',
+      name: 'AI · 삼성전자 분석',
     });
     expect(fab).toBeInTheDocument();
 
@@ -67,10 +67,10 @@ describe('ChatFab', () => {
     expect(openChat).toHaveBeenCalledWith(stockContext);
   });
 
-  it('Test 4 — 종목 컨텍스트 없음: 기본 라벨 AI 애널리스트', () => {
+  it('Test 4 — 종목 컨텍스트 없음: 기본 라벨 AI', () => {
     render(<ChatFab />);
     expect(
-      screen.getByRole('button', { name: 'AI 애널리스트' }),
+      screen.getByRole('button', { name: 'AI' }),
     ).toBeInTheDocument();
     // 종목 라벨 접미사는 없다
     expect(

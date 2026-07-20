@@ -15,6 +15,8 @@ import { NewsBlock } from './news-block';
  *   NewsBlock 내부에 외부 뉴스 <a> 가 있어 카드 전체를 <Link> 로 감싸면 중첩 <a> (invalid).
  *   → 투명 오버레이 Link(absolute inset-0)로 카드 표면을 덮고, 뉴스 블록만 z-index 상향해
  *     오버레이 위로 올려 독립 클릭 유지. 링크 접근성명은 aria-label 로 제공(theme-card C 선례).
+ *   article 에 `isolate` 로 내부 z-index(오버레이 z-10 · 뉴스 z-20)를 카드 스택 컨텍스트에
+ *     가둬 sticky 헤더(z-10) 위로 새는 것을 방지(모바일 스크롤 시 뉴스가 탑바를 가리는 버그 해소).
  *
  * 색상 규칙 (LOCKED): change% = `.mono` + `var(--up)` (RED) + weight 800.
  */
@@ -30,7 +32,7 @@ function formatChange(rate: number): string {
 
 export function SoloCard({ single }: SoloCardProps) {
   return (
-    <article className="group card-shadow relative flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
+    <article className="group card-shadow relative isolate flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
       {/* stretched-link: 카드 표면 전체를 덮는 투명 종목상세 링크. 뉴스 블록만 z-상향해 위로. */}
       <Link
         href={`/stocks/${single.code}`}

@@ -40,8 +40,8 @@ test.describe('Phase 14 — 챗 비로그인 게이트 (D-01)', () => {
     await mockHomeApi(page, { response: HOME_EMPTY });
     await page.goto('/');
 
-    // 전역 FAB(aria-label "AI 애널리스트") 노출 확인.
-    const fab = page.getByRole('button', { name: 'AI 애널리스트', exact: true });
+    // 전역 FAB(aria-label "AI") 노출 확인.
+    const fab = page.getByRole('button', { name: 'AI', exact: true });
     await expect(fab).toBeVisible({ timeout: 10_000 });
 
     await fab.click();
@@ -68,7 +68,7 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await page.waitForLoadState('networkidle');
 
     // FAB 클릭 → 시트 open(로그인 상태이므로 openChat).
-    const fab = page.getByRole('button', { name: 'AI 애널리스트', exact: true });
+    const fab = page.getByRole('button', { name: 'AI', exact: true });
     await expect(fab).toBeVisible({ timeout: 10_000 });
     await fab.click();
 
@@ -96,9 +96,9 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
     await page.goto('/stocks/000660');
 
     // 종목 상세 로드 → setStockContext 발행 → FAB 라벨이 종목명 컨텍스트를 반영.
-    // aria-label 은 `AI 애널리스트 · SK하이닉스 분석`.
+    // aria-label 은 `AI · SK하이닉스 분석`.
     const fab = page.getByRole('button', {
-      name: /AI 애널리스트 · SK하이닉스 분석/,
+      name: /AI · SK하이닉스 분석/,
     });
     await expect(fab).toBeVisible({ timeout: 10_000 });
 

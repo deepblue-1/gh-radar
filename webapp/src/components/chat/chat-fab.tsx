@@ -12,7 +12,7 @@
  * usePathname 은 `/stocks/{code}` 에서 code 만 준다. 종목명(name)은 종목상세 페이지가
  * `stock.name` 로드 후 `useChat().setStockContext({code,name})` 로 발행하는 provider
  * 채널에서 읽는다(이미 fetch 한 stock 데이터 재사용, 추가 조회 없음). stockContext 가
- * 있으면 `AI 애널리스트 · {종목명} 분석`, 없으면 `AI 애널리스트`.
+ * 있으면 `AI · {종목명} 분석`, 없으면 `AI`.
  */
 
 import { useState } from "react";
@@ -29,7 +29,7 @@ import {
 import { useChat } from "./chat-provider";
 import { LoginRequiredState } from "./chat-states";
 
-const BASE_LABEL = "AI 애널리스트";
+const BASE_LABEL = "AI";
 
 export function ChatFab() {
   const { user } = useAuth();

@@ -32,6 +32,15 @@ describe('SoloCard — 종목상세 링크', () => {
     expect(link).toHaveAttribute('href', '/stocks/005930');
   });
 
+  it('article 에 isolate 로 내부 z-index 를 격리한다 (헤더 z-10 위로 누수 방지)', () => {
+    render(<SoloCard single={makeSingle()} />);
+
+    const article = screen
+      .getByRole('link', { name: '삼성전자 종목 상세 보기' })
+      .closest('article');
+    expect(article?.className).toContain('isolate');
+  });
+
   it('내부 뉴스 anchor 는 외부 링크로 독립 유지된다 (중첩 <a> 아님)', () => {
     render(<SoloCard single={makeSingle()} />);
 

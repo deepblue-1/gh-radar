@@ -102,10 +102,12 @@ describe('ChatSheet', () => {
     await waitFor(() =>
       expect(listConversations).toHaveBeenCalledWith('005930'),
     );
-    // 대화가 없으면 getConversation 미호출 + 빈 상태
+    // 대화가 없으면 getConversation 미호출 + 빈 상태(종목 컨텍스트 제목)
     expect(getConversation).not.toHaveBeenCalled();
     await waitFor(() =>
-      expect(screen.getByText('무엇이든 물어보세요')).toBeInTheDocument(),
+      expect(
+        screen.getByText('삼성전자에 대해 무엇이든 물어보세요'),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -130,11 +132,13 @@ describe('ChatSheet', () => {
 
     await user.click(screen.getByRole('button', { name: '새 대화' }));
 
-    // 메시지 초기화 → 이전 답변 사라지고 빈 상태
+    // 메시지 초기화 → 이전 답변 사라지고 빈 상태(종목 컨텍스트 제목)
     await waitFor(() =>
       expect(screen.queryByText('이전 답변입니다')).not.toBeInTheDocument(),
     );
-    expect(screen.getByText('무엇이든 물어보세요')).toBeInTheDocument();
+    expect(
+      screen.getByText('삼성전자에 대해 무엇이든 물어보세요'),
+    ).toBeInTheDocument();
   });
 
   it('Test 4 — 일반(비종목) 컨텍스트 open → 자동 로드 안 함, 빈 상태', async () => {

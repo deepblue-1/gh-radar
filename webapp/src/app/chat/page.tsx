@@ -267,7 +267,7 @@ export default function ChatPage() {
             {hasError ? (
               <ChatErrorState />
             ) : showEmpty ? (
-              <EmptyState onPromptSelect={(t) => void send(t)} />
+              <EmptyState />
             ) : (
               <ChatThread
                 messages={messages}

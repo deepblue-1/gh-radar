@@ -8,7 +8,8 @@
  *
  * - LoginRequiredState: FAB 비로그인 클릭 게이트(D-01). Google OAuth 는 /login 과 동일하게
  *   `signInWithOAuth` 를 클릭 시점에만 호출(렌더 시 supabase client 생성 안 함 → 테스트 안전).
- * - EmptyState: 새 대화/일반 진입 시. 예시 프롬프트 칩 클릭 → onPromptSelect 로 전송 위임.
+ * - EmptyState: 새 대화/일반 진입 시. 제목만 노출(부제/추천 칩 제거 — 사용자 요청). 종목
+ *   컨텍스트로 열면 제목을 종목 기준("{종목명}에 대해 무엇이든 물어보세요")으로 표시.
  * - ChatErrorState: 스트리밍 실패(D-06 이후). onRetry 로 재시도 위임.
  */
 
@@ -26,7 +27,7 @@ function StateBox({
 }: {
   icon: React.ReactNode;
   title: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   destructive?: boolean;
 }) {
   return (
@@ -44,49 +45,24 @@ function StateBox({
       <h3 className="text-[length:var(--t-base)] font-semibold text-[var(--fg)]">
         {title}
       </h3>
-      <div className="text-[length:var(--t-sm)] leading-relaxed text-[var(--muted-fg)]">
-        {children}
-      </div>
+      {children && (
+        <div className="text-[length:var(--t-sm)] leading-relaxed text-[var(--muted-fg)]">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
 
-/** 예시 프롬프트 칩 목록 (UI-SPEC Empty state body). */
-const EXAMPLE_PROMPTS = ["오늘 주도 테마는?", "상한가 종목 정리"] as const;
-
 /**
- * 빈 상태 — 새 대화/유휴. 예시 프롬프트 칩 제공.
- * @param onPromptSelect 칩 클릭 시 해당 텍스트로 전송(시트가 배선).
+ * 빈 상태 — 새 대화/유휴. 제목만 노출(부제/추천 칩 제거 — 사용자 요청).
+ * @param stockName 종목 컨텍스트로 열렸을 때의 종목명. 있으면 제목을 종목 기준으로 표시.
  */
-export function EmptyState({
-  onPromptSelect,
-}: {
-  onPromptSelect?: (text: string) => void;
-}) {
-  return (
-    <StateBox
-      icon={<MessageSquare className="size-6" />}
-      title="무엇이든 물어보세요"
-    >
-      <p>
-        오늘 주도 테마, 상한가 종목 분석, 내일 익절 판단까지 상한가 따라잡기
-        전략을 도와드릴게요.
-      </p>
-      <div className="mt-[var(--s-3)] flex flex-wrap justify-center gap-[var(--s-2)]">
-        {EXAMPLE_PROMPTS.map((prompt) => (
-          <Button
-            key={prompt}
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onPromptSelect?.(prompt)}
-          >
-            {prompt}
-          </Button>
-        ))}
-      </div>
-    </StateBox>
-  );
+export function EmptyState({ stockName }: { stockName?: string }) {
+  const title = stockName
+    ? `${stockName}에 대해 무엇이든 물어보세요`
+    : "무엇이든 물어보세요";
+  return <StateBox icon={<MessageSquare className="size-6" />} title={title} />;
 }
 
 /**

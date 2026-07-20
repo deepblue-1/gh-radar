@@ -303,7 +303,7 @@ export function ChatSheet() {
               {hasError ? (
                 <ChatErrorState />
               ) : showEmpty ? (
-                <EmptyState onPromptSelect={(t) => void send(t)} />
+                <EmptyState stockName={stockContext?.name} />
               ) : (
                 <ChatThread
                   messages={messages}
