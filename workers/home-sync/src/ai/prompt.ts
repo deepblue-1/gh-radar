@@ -1,5 +1,6 @@
 import { stripHtml } from "@gh-radar/shared";
 import type { Surge } from "../pipeline/loadSurges";
+import { isRoundupNews } from "./roundup";
 
 /** 뉴스 라인에 붙일 description 스니펫 최대 길이 (토큰 상한). */
 const DESC_SNIPPET_MAX = 120;
@@ -30,6 +31,7 @@ export const CLUSTER_SYSTEM_PROMPT = `너는 한국 주식 시장의 "오늘의 
 - 종목 하나만 들어가는 1종목 테마를 만들지 마라. 더 큰 관련 테마가 있으면 거기에 넣고, 없으면 singles 로.
 - 뉴스 근거가 부족해도, 참고 테마 분류에서 같은 테마에 속한 급등 종목 2개 이상은 그 테마로 묶을 수 있다. 이 경우 테마명은 참고 분류의 이름을 사용하고, reason 에는 뉴스 근거가 없으면 '동일 테마 소속 동반 급등'임을 밝히며 사실을 지어내지 않는다. newsRefs 는 실제 있는 인덱스만.
 - 참고 분류가 뉴스 서사와 충돌하면 뉴스를 우선한다.
+- 여러 종목을 한꺼번에 나열하는 시황/거래상위/마감 라운드업 기사(뉴스 라인에 \`[라운드업]\` 으로 표기됨)는 종목을 한 테마로 묶는 근거로 삼지 마라. 라운드업은 단순히 그날 오른 종목을 함께 열거할 뿐 같은 재료를 뜻하지 않는다. 종목 특정 재료 기사(특징주·공시)와 참고 테마 분류를 우선한다.
 - 애매하면 억지로 테마로 묶지 말고 singles 로 둔다.
 
 출력은 반드시 JSON 만. 다른 텍스트 금지:
@@ -109,6 +111,11 @@ export function formatClusterMessage(
     .map((s) => `- ${s.code} ${s.name} (+${s.changeRate.toFixed(1)}%)`)
     .join("\n");
 
+  // 급등 종목명 집합 — 라운드업 판정용 (quick-260720-jh7). 뉴스 제목+스니펫에 급등
+  // 종목명이 distinct 3+ 등장하면 시황 라운드업으로 보고 [라운드업] 라벨을 붙여 Claude 가
+  // 테마 병합 근거에서 배제하도록 신호를 준다.
+  const surgeNames = surges.map((s) => s.name);
+
   const indexedNews: Array<{ title: string; url: string; source: string }> = [];
   const newsLines: string[] = [];
   for (const s of surges) {
@@ -126,10 +133,12 @@ export function formatClusterMessage(
         clean.length > DESC_SNIPPET_MAX
           ? `${clean.slice(0, DESC_SNIPPET_MAX)}…`
           : clean;
+      // 라운드업 판정은 title+description 기반 (isRoundupNews). 라벨은 라인에만, indexedNews 미포함.
+      const label = isRoundupNews(n, surgeNames) ? "[라운드업] " : "";
       newsLines.push(
         snippet
-          ? `[${idx}] ${s.code} ${n.title} — ${snippet}`
-          : `[${idx}] ${s.code} ${n.title}`,
+          ? `[${idx}] ${label}${s.code} ${n.title} — ${snippet}`
+          : `[${idx}] ${label}${s.code} ${n.title}`,
       );
     }
   }

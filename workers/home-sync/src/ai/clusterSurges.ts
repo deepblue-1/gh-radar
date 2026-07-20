@@ -20,6 +20,7 @@ import {
 } from "./prompt";
 import type { Surge } from "../pipeline/loadSurges";
 import type { HomeSyncConfig } from "../config";
+import { isRoundupNews } from "./roundup";
 
 /**
  * Phase 13 Plan 02 Task 2 — Claude Haiku 1회 bottom-up 클러스터 + resolve/sort/classify.
@@ -190,6 +191,10 @@ export function reassignOrphans(
   }));
   const remainingSingles: RawSingle[] = [];
 
+  // 급등 종목명 집합 — 라운드업 판정용 (quick-260720-jh7). surgeByCode 에 이미 모든 급등
+  // 종목명이 있으므로 시그니처 변경 없이 1회 계산.
+  const surgeNames = [...surgeByCode.values()].map((v) => v.name);
+
   for (const single of singles) {
     const surge = surgeByCode.get(single.stockCode);
     // 급등 집합 밖 (방어) → 그대로 (이후 로직이 drop).
@@ -200,9 +205,14 @@ export function reassignOrphans(
     const name = surge.name;
 
     // 1) 종목명이 news 제목 또는 reason 에 등장하는 후보 테마 수집.
+    //    라운드업 기사(급등 종목명 3+ 나열)는 news 제목 매칭 신호에서 제외한다
+    //    (quick-260720-jh7) — 라운드업이 같이 오른 종목명을 나열하는 것을 정밀 병합
+    //    신호로 오해해 무관 종목(고려산업류)을 흡수하는 오염을 방지. reason 매칭은 유지.
     const candidates = outThemes.filter((t) => {
       const inReason = t.reason ? t.reason.includes(name) : false;
-      const inNews = t.news.some((n) => n.title.includes(name));
+      const inNews = t.news.some(
+        (n) => !isRoundupNews(n, surgeNames) && n.title.includes(name),
+      );
       return inReason || inNews;
     });
 

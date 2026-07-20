@@ -282,6 +282,56 @@ describe("reassignOrphans (고아 종목 테마 병합, 금호건설 fix)", () =
     expect(r.singles.find((s) => s.stockCode === "014790")).toBeUndefined();
   });
 
+  it("라운드업 오흡수 방지 (quick-260720-jh7): 테마 news 제목이 라운드업(급등 종목명 3+ 나열)이면 종목명 매칭 신호로 쓰지 않아 병합 안 함", () => {
+    // surgeByCode 에 라운드업 제목의 종목명 3+ 가 존재해야 라운드업으로 판정됨.
+    const roundupSurgeByCode = new Map([
+      ["002140", { name: "고려산업", changeRate: 29.9 }],
+      ["007770", { name: "형지", changeRate: 21.0 }],
+      ["003280", { name: "흥아해운", changeRate: 20.5 }],
+      ["347700", { name: "SK이터닉스", changeRate: 20.1 }],
+      ["005930", { name: "삼성전자", changeRate: 22.0 }],
+    ]);
+    const themes = [
+      {
+        name: "반도체",
+        reason: "메모리 업황 개선 기대",
+        stockCodes: ["005930"],
+        news: [
+          {
+            title:
+              "[서울데이터랩] 코스피 거래상위 고려산업·형지·흥아해운·SK이터닉스…",
+            url: "u0",
+            source: "s",
+          },
+        ],
+      },
+    ];
+    // single 고려산업 — 라운드업 제목에 이름이 있지만 병합돼선 안 됨.
+    const singles = [{ stockCode: "002140", reason: "사료 테마 부각", news: [] }];
+    const r = reassignOrphans(themes, singles, roundupSurgeByCode);
+    expect(r.themes[0].stockCodes).not.toContain("002140");
+    expect(r.singles.find((s) => s.stockCode === "002140")).toBeDefined();
+  });
+
+  it("회귀: 비라운드업 news(급등 종목명 2개 이하) 제목에 종목명 등장 → 여전히 병합 (금호건설)", () => {
+    // 기존 병합 케이스가 라운드업 가드 도입 후에도 유지되는지 회귀 확인.
+    // news 제목에 삼성전자+금호건설 = 2 distinct(< 3) → 라운드업 아님 → 병합 유지.
+    const themes = [
+      {
+        name: "호남반도체",
+        reason: "호남권 반도체 클러스터 조성 기대감",
+        stockCodes: ["005930", "000660"],
+        news: [
+          { title: "호남권 상한가 랠리…삼성전자·금호건설 동반 강세", url: "u0", source: "s" },
+        ],
+      },
+    ];
+    const singles = [{ stockCode: "014790", reason: "호남 개발 수주 기대", news: [] }];
+    const r = reassignOrphans(themes, singles, surgeByCode);
+    expect(r.themes[0].stockCodes).toContain("014790");
+    expect(r.singles.find((s) => s.stockCode === "014790")).toBeUndefined();
+  });
+
   it("reason 텍스트에 종목명 포함 (news 없어도) → 병합", () => {
     const themes = [
       {

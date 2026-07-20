@@ -187,6 +187,93 @@ describe("formatClusterMessage 참고 테마 분류 섹션 (quick-260720-in0)", 
   });
 });
 
+describe("라운드업 규칙 + [라운드업] 라벨 (quick-260720-jh7)", () => {
+  it("CLUSTER_SYSTEM_PROMPT 에 라운드업 규칙 문자열 존재", () => {
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("라운드업");
+    // 테마 묶음 근거로 삼지 말라는 취지.
+    expect(CLUSTER_SYSTEM_PROMPT).toContain("근거로 삼지");
+  });
+
+  it("formatClusterMessage: 라운드업 뉴스(급등 종목명 3+ 나열) 라인에 [라운드업] prefix", () => {
+    const surges: Surge[] = [
+      {
+        code: "002140",
+        name: "고려산업",
+        changeRate: 29.9,
+        news: [
+          {
+            id: "r0",
+            stock_code: "002140",
+            title:
+              "[서울데이터랩] 코스피 거래상위 고려산업·형지·흥아해운·SK이터닉스…",
+            url: "https://n/r0",
+            source: "s",
+            published_at: "2026-07-20T06:00:00Z",
+            description: null,
+          },
+        ],
+      },
+      {
+        code: "007770",
+        name: "형지",
+        changeRate: 21.0,
+        news: [
+          {
+            id: "s0",
+            stock_code: "007770",
+            title: "형지 신규 브랜드 계약 체결",
+            url: "https://n/s0",
+            source: "s",
+            published_at: "2026-07-20T05:00:00Z",
+            description: null,
+          },
+        ],
+      },
+      { code: "003280", name: "흥아해운", changeRate: 20.5, news: [] },
+      { code: "347700", name: "SK이터닉스", changeRate: 20.1, news: [] },
+    ];
+    const { message } = formatClusterMessage(surges);
+    // 라운드업 라인.
+    expect(message).toContain(
+      "[0] [라운드업] 002140 [서울데이터랩] 코스피 거래상위",
+    );
+    // 일반 특징주 라인엔 라벨 미부여.
+    expect(message).toContain("[1] 007770 형지 신규 브랜드 계약 체결");
+    expect(message).not.toContain("[1] [라운드업]");
+  });
+
+  it("formatClusterMessage: [라운드업] 라벨 유무와 무관하게 indexedNews 계약(순서/개수) 불변", () => {
+    const surges: Surge[] = [
+      {
+        code: "002140",
+        name: "고려산업",
+        changeRate: 29.9,
+        news: [
+          {
+            id: "r0",
+            stock_code: "002140",
+            title: "고려산업·형지·흥아해운 거래상위 라운드업",
+            url: "https://n/r0",
+            source: "src0",
+            published_at: "2026-07-20T06:00:00Z",
+            description: null,
+          },
+        ],
+      },
+      { code: "007770", name: "형지", changeRate: 21.0, news: [] },
+      { code: "003280", name: "흥아해운", changeRate: 20.5, news: [] },
+    ];
+    const { indexedNews } = formatClusterMessage(surges);
+    // 라벨은 message 라인에만 붙고 indexedNews(verbatim)에는 미포함.
+    expect(indexedNews).toHaveLength(1);
+    expect(indexedNews[0]).toEqual({
+      title: "고려산업·형지·흥아해운 거래상위 라운드업",
+      url: "https://n/r0",
+      source: "src0",
+    });
+  });
+});
+
 describe("CLUSTER_SYSTEM_PROMPT 참고 테마 규칙 + few-shot (quick-260720-in0)", () => {
   it("뉴스 부족해도 참고 테마 2+ 묶기 허용 + 뉴스 우선 규칙 포함", () => {
     expect(CLUSTER_SYSTEM_PROMPT).toContain("참고 테마 분류");
