@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-07-20 - Completed quick task 260720-kbf: 휴장일 가짜 '상' 표시 수정 (intraday-sync stale 가드)
+Last activity: 2026-07-20 - Completed quick task 260720-kyh: home-sync 클러스터링 안정화 3종
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -328,6 +328,7 @@ Recent decisions affecting current work:
 | 260720-iqh | 모바일 홈 z-index 수정 + AI 애널리스트 UI 정리 (FAB "AI", placeholder/힌트/부제/추천칩 제거, 종목 컨텍스트 안내) | 2026-07-20 | 93782cb | [260720-iqh-z-index-ai-ui](./quick/260720-iqh-z-index-ai-ui/) |
 | 260720-jh7 | home-sync 라운드업(시황) 기사 가짜 테마 신호 가드 (판정 헬퍼 + 프롬프트 규칙/라벨 + reassignOrphans 제외) | 2026-07-20 | 14fa9e9 | [260720-jh7-home-sync-reassignorphans](./quick/260720-jh7-home-sync-reassignorphans/) |
 | 260720-kbf | 휴장일 가짜 '상' 표시 수정 (intraday-sync stale 감지 2단 가드 + 오염 3개 날짜 8,199행 삭제 + limit-up/comovement 재빌드 + 재배포) | 2026-07-20 | 5aa08d5 | [260720-kbf-intraday-sync-stale](./quick/260720-kbf-intraday-sync-stale/) |
+| 260720-kyh | home-sync 클러스터링 안정화 3종 (sticky prior + 힌트 규칙 강화 + 중복 소속 invariant) | 2026-07-20 | ae6797c | [260720-kyh-home-sync-3-sticky-prior](./quick/260720-kyh-home-sync-3-sticky-prior/) |
 
 ## Session Continuity
 
