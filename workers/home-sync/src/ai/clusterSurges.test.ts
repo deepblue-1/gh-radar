@@ -28,6 +28,7 @@ import {
   clusterSurges,
   resolveNewsRefs,
   sortThemes,
+  sortHomeSurgeThemes,
   demoteInvalidThemes,
   reassignOrphans,
   dedupeNewsByUrl,
@@ -170,6 +171,57 @@ describe("sortThemes (D-05 breadth sort)", () => {
     );
     // 3개 테마가 앞 (T3high avg 높으니 먼저), 그 뒤 2개 테마.
     expect(sorted.map((t) => t.name)).toEqual(["T3high", "T3low", "T2"]);
+  });
+});
+
+describe("sortHomeSurgeThemes (invariant 후 재정렬, quick-260803-mhk)", () => {
+  /** 이름 + 멤버 changeRate 목록으로 HomeSurgeTheme 픽스처 생성. */
+  const t = (name: string, rates: number[]): HomeSurgeTheme => ({
+    name,
+    reason: null,
+    stocks: rates.map((changeRate, i) => ({
+      code: `${name}-${i}`,
+      name: `종목-${name}-${i}`,
+      changeRate,
+    })),
+    news: [],
+  });
+
+  it("멤버 수 desc 우선 — 3종목 테마가 평균이 더 높은 2종목 테마보다 앞", () => {
+    const sorted = sortHomeSurgeThemes([
+      t("둘", [30, 29]), // 2종목, 평균 29.5
+      t("셋", [21, 20, 20]), // 3종목, 평균 ~20.3
+    ]);
+    expect(sorted.map((x) => x.name)).toEqual(["셋", "둘"]);
+  });
+
+  it("멤버 수 동률 → 멤버 평균 changeRate 높은 테마가 앞", () => {
+    const sorted = sortHomeSurgeThemes([
+      t("저평균", [21, 20]),
+      t("고평균", [30, 29]),
+    ]);
+    expect(sorted.map((x) => x.name)).toEqual(["고평균", "저평균"]);
+  });
+
+  it("순수 함수 — 입력 배열/원소 원본 미변경", () => {
+    const input = [t("가", [20, 20]), t("나", [25, 25, 25])];
+    const before = JSON.stringify(input);
+    const sorted = sortHomeSurgeThemes(input);
+    // 정렬 결과는 재배치되지만 입력 배열 순서는 그대로.
+    expect(sorted.map((x) => x.name)).toEqual(["나", "가"]);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+
+  it("멤버 수·평균 모두 동률 → 입력 순서 유지 (안정 정렬)", () => {
+    const sorted = sortHomeSurgeThemes([
+      t("먼저", [25, 20]),
+      t("나중", [20, 25]),
+    ]);
+    expect(sorted.map((x) => x.name)).toEqual(["먼저", "나중"]);
+  });
+
+  it("빈 배열 → []", () => {
+    expect(sortHomeSurgeThemes([])).toEqual([]);
   });
 });
 
