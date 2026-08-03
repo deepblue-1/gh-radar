@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadSurges, kstMidnightIso } from "./loadSurges";
+import { loadSurges, kstMidnightIso, isExcludedProduct } from "./loadSurges";
 import type { HomeSyncConfig } from "../config";
 import {
   createMockSupabase,
@@ -333,5 +333,271 @@ describe("loadSurges", () => {
 
     expect(surges).toEqual([]);
     expect(updatedAtGteCount(sb)).toBe(3); // 1 + 재시도 2
+  });
+});
+
+/**
+ * quick 260803-it6 — ETN/ETF/레버리지·인버스 제외.
+ *
+ * 이중 필터: security_group('ETF'/'ETN') + 종목명 패턴 fallback.
+ * 이름 패턴이 필수인 이유: 실사례 570127 "한투 인버스2X코스피200선물 ETN" 이
+ * security_group='주권' 으로 오적재돼 group 필터만으로는 새어 나온다.
+ * '스팩' 은 이번 범위 밖 — 계속 통과해야 한다(회귀 가드).
+ */
+describe("isExcludedProduct", () => {
+  it("일반 주권 종목은 통과", () => {
+    expect(isExcludedProduct("삼성전자", "주권")).toBe(false);
+  });
+
+  it("security_group 이 ETF 면 제외", () => {
+    expect(isExcludedProduct("KODEX 200", "ETF")).toBe(true);
+  });
+
+  it("security_group 소문자 etn 도 제외 (normalize)", () => {
+    expect(isExcludedProduct("아무거나", "etn")).toBe(true);
+  });
+
+  it("오분류 ETN(group='주권')도 종목명 패턴으로 제외", () => {
+    expect(isExcludedProduct("한투 인버스2X코스피200선물 ETN", "주권")).toBe(
+      true,
+    );
+  });
+
+  it("종목명 레버리지 포함 시 제외", () => {
+    expect(isExcludedProduct("KODEX 레버리지", "주권")).toBe(true);
+  });
+
+  it("스팩은 이번 범위 밖 — 통과", () => {
+    expect(isExcludedProduct("삼성스팩8호", "주권")).toBe(false);
+  });
+
+  it("이름/그룹 둘 다 없으면 통과 (마스터 미해석 코드)", () => {
+    expect(isExcludedProduct(undefined, undefined)).toBe(false);
+    expect(isExcludedProduct(null, null)).toBe(false);
+  });
+});
+
+describe("loadSurges — ETN/ETF 제외", () => {
+  it("security_group='ETF' 종목이 결과에서 빠진다", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      {
+        data: [
+          { code: "069500", change_rate: 30 },
+          { code: "005930", change_rate: 25 },
+        ],
+        error: null,
+      },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        {
+          code: "069500",
+          name: "KODEX 200",
+          market: "KOSPI",
+          security_group: "ETF",
+        },
+        {
+          code: "005930",
+          name: "삼성전자",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+      ],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg());
+
+    expect(surges.map((s) => s.code)).toEqual(["005930"]);
+  });
+
+  it("오분류 ETN(570127, group='주권')도 종목명 fallback 으로 빠진다", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      {
+        data: [
+          { code: "570127", change_rate: 30 },
+          { code: "005930", change_rate: 25 },
+        ],
+        error: null,
+      },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        {
+          code: "570127",
+          name: "한투 인버스2X코스피200선물 ETN",
+          market: "KOSPI",
+          security_group: "주권", // 실사례 오적재 — group 필터로는 못 거른다.
+        },
+        {
+          code: "005930",
+          name: "삼성전자",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+      ],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg());
+
+    expect(surges.map((s) => s.code)).toEqual(["005930"]);
+  });
+
+  it("종목명 인버스/레버리지 포함 + group='주권' → 빠진다", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      {
+        data: [
+          { code: "111111", change_rate: 30 },
+          { code: "222222", change_rate: 28 },
+          { code: "005930", change_rate: 25 },
+        ],
+        error: null,
+      },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        {
+          code: "111111",
+          name: "삼성 인버스 코스닥150 선물",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+        {
+          code: "222222",
+          name: "TIGER 레버리지",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+        {
+          code: "005930",
+          name: "삼성전자",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+      ],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg());
+
+    expect(surges.map((s) => s.code)).toEqual(["005930"]);
+  });
+
+  it("**필터가 slice 보다 먼저** — 상위 2건이 ETP 여도 surgeMax 슬롯을 후순위 일반 종목이 채운다", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      {
+        data: [
+          { code: "069500", change_rate: 30 }, // 1위 ETF
+          { code: "570127", change_rate: 29 }, // 2위 오분류 ETN
+          { code: "005930", change_rate: 28 }, // 3위 일반
+          { code: "000660", change_rate: 27 }, // 4위 일반
+        ],
+        error: null,
+      },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        {
+          code: "069500",
+          name: "KODEX 200",
+          market: "KOSPI",
+          security_group: "ETF",
+        },
+        {
+          code: "570127",
+          name: "한투 인버스2X코스피200선물 ETN",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+        {
+          code: "005930",
+          name: "삼성전자",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+        {
+          code: "000660",
+          name: "SK하이닉스",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+      ],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg({ surgeMax: 2 }));
+
+    // slice 가 먼저였다면 결과가 0건이 된다. 필터 우선이라 3·4위가 슬롯을 채운다.
+    expect(surges.map((s) => s.code)).toEqual(["005930", "000660"]);
+  });
+
+  it("마스터 미해석 코드는 기존대로 이름=코드로 통과", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "999999", change_rate: 25 }], error: null },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({ data: [], error: null });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg());
+
+    expect(surges.map((s) => s.code)).toEqual(["999999"]);
+    expect(surges[0]?.name).toBe("999999");
+  });
+
+  it("stocks select 인자에 security_group 이 포함된다", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "005930", change_rate: 25 }], error: null },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        {
+          code: "005930",
+          name: "삼성전자",
+          market: "KOSPI",
+          security_group: "주권",
+        },
+      ],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    await loadSurges(sb as never, cfg());
+
+    const selectArg = sb.from("stocks").select.mock.calls[0][0] as string;
+    expect(selectArg).toContain("security_group");
+  });
+
+  it("스팩 회귀: 종목명 '스팩' 은 계속 통과 (범위 밖 결정 보존)", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "123456", change_rate: 25 }], error: null },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [
+        {
+          code: "123456",
+          name: "삼성스팩8호",
+          market: "KOSDAQ",
+          security_group: "주권",
+        },
+      ],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    const surges = await loadSurges(sb as never, cfg());
+
+    expect(surges.map((s) => s.code)).toEqual(["123456"]);
   });
 });

@@ -5,8 +5,11 @@ import type { HomeSyncConfig } from "../config";
  * Phase 13 Plan 02 Task 1 — 오늘의 급등 종목 + 종목명 + 종목별 top-K 뉴스 로드.
  *
  * 흐름 (server/src/lib/quoteJoin.ts 청크 패턴 계승):
- *   1. stock_quotes.change_rate >= surgeThreshold 필터 → change_rate desc → surgeMax cap.
- *   2. stocks 마스터에서 code→name/market 해석 (청크 IN, QUOTE_CHUNK).
+ *   1. stock_quotes.change_rate >= surgeThreshold 통과분 **전체** 로드 (정렬/cap 은 아직 안 함).
+ *   2. stocks 마스터에서 code→name/market/security_group 해석 (청크 IN, QUOTE_CHUNK) 후
+ *      ETN/ETF/레버리지·인버스 제외(isExcludedProduct) → change_rate desc → surgeMax cap.
+ *      **필터가 slice 보다 먼저여야** 제외된 자리를 후순위 일반 종목이 채운다 (slice 를 먼저 하면
+ *      제외분만큼 급등 슬롯이 빈 채로 남는다 — quick 260803-it6).
  *   3. news_articles 를 code 청크로 나눠 최근 48h 창(published_at >= now-48h)만 로드 후
  *      **앱 측에서 종목별 2단 정렬 top-K** (newsPerStock) 유지 — 단일 .in() 은 PostgREST
  *      db-max-rows(1000) 에서 통째 truncation 되어 정렬상 뒤쪽 종목의 뉴스가 조용히 사라진다
@@ -74,6 +77,34 @@ const NEWS_WINDOW_MS = 48 * 60 * 60 * 1000;
  */
 const NEWS_CANDIDATES_PER_STOCK = 50;
 
+/** ETP 증권그룹 — KRX SECUGRP_NM. 실측 stocks 마스터에 ELW 0건이라 ETF/ETN 만 (승인 설계). */
+const EXCLUDED_SECURITY_GROUPS = new Set(["ETF", "ETN"]);
+
+/**
+ * 종목명 fallback 패턴 — security_group 오분류 대비(570127 "한투 인버스2X코스피200선물 ETN"
+ * 이 '주권'/'보통주' 로 적재된 실사례). KODEX/TIGER 등 브랜드명은 일반 기업명 오탐 위험 대비
+ * 실익이 낮아 미포함(그 상품들은 group 필터가 커버). '스팩' 은 이번 범위 아님 — 넣지 말 것.
+ */
+const EXCLUDED_NAME_PATTERN = /ETN|ETF|인버스|레버리지/i;
+
+/**
+ * 홈 급등 집합에서 제외할 파생·지수연동 상품인가 (ETN/ETF/레버리지·인버스).
+ * 지수 하락에 연동된 상품이 "오늘의 급등 테마"로 잡히면 트레이더에게 의미가 없다.
+ * 이름·그룹 둘 다 없으면 false — 마스터 미해석 코드는 기존대로 통과시킨다.
+ */
+export function isExcludedProduct(
+  name: string | null | undefined,
+  securityGroup: string | null | undefined,
+): boolean {
+  if (
+    securityGroup &&
+    EXCLUDED_SECURITY_GROUPS.has(securityGroup.trim().toUpperCase())
+  ) {
+    return true;
+  }
+  return name ? EXCLUDED_NAME_PATTERN.test(name) : false;
+}
+
 /** loadSurges 재시도 옵션 (기본: 빈 결과 시 2회 재시도, 1.5s 간격). 테스트가 delay 0 주입. */
 export interface LoadSurgesOptions {
   emptyRetries?: number;
@@ -103,7 +134,8 @@ export async function loadSurges(
   // 사이클 내 고정값이므로 retry 루프 밖에서 1회 계산.
   const freshnessCutoff = kstMidnightIso(opts.now ?? new Date());
 
-  // 1) 급등 종목 (change_rate >= threshold, updated_at >= 오늘 KST 자정) — desc 정렬 + surgeMax cap.
+  // 1) 급등 종목 (change_rate >= threshold, updated_at >= 오늘 KST 자정) — 통과분 전체.
+  //    정렬/cap 은 2b(제외 필터 뒤)에서 한다.
   //    빈 결과(0행)는 상류 stock_quotes 갱신 갭 / 일시 read blip 일 수 있으므로 (에러 아닌
   //    빈 성공 응답일 때만) 짧게 재시도한다. 진짜 급등 없는 날은 재시도해도 0 → 빠르게 [] 반환.
   let quoteRows: Array<{ code: string; change_rate: number }> = [];
@@ -119,28 +151,49 @@ export async function loadSurges(
     await sleep(retryDelayMs);
   }
 
-  const surges = quoteRows
-    .map((r) => ({ code: r.code, changeRate: Number(r.change_rate) }))
+  // threshold 통과분 전체 — 정렬/slice 는 제외 필터 이후로 미룬다.
+  const passing = quoteRows.map((r) => ({
+    code: r.code,
+    changeRate: Number(r.change_rate),
+  }));
+
+  if (passing.length === 0) return [];
+
+  // 2) 종목명 + 증권그룹 해석 (stocks 마스터, code 청크 IN).
+  //    threshold 통과분만 조회하므로 청크 IN 비용은 미미하다.
+  const nameByCode = new Map<string, string>();
+  const groupByCode = new Map<string, string | null>();
+  const passingCodes = passing.map((s) => s.code);
+  for (let i = 0; i < passingCodes.length; i += QUOTE_CHUNK) {
+    const chunk = passingCodes.slice(i, i + QUOTE_CHUNK);
+    const { data, error } = await supabase
+      .from("stocks")
+      .select("code,name,market,security_group")
+      .in("code", chunk);
+    if (error) throw error;
+    for (const m of (data ?? []) as Array<{
+      code: string;
+      name: string;
+      security_group?: string | null;
+    }>) {
+      nameByCode.set(m.code, m.name);
+      groupByCode.set(m.code, m.security_group ?? null);
+    }
+  }
+
+  // 2b) ETN/ETF/레버리지·인버스 제외 → 등락률 desc → surgeMax cap.
+  //     필터가 slice 보다 먼저라 제외된 자리를 후순위 일반 종목이 채운다.
+  const surges = passing
+    .filter(
+      (s) =>
+        !isExcludedProduct(nameByCode.get(s.code), groupByCode.get(s.code)),
+    )
     .sort((a, b) => b.changeRate - a.changeRate)
     .slice(0, cfg.surgeMax);
 
   if (surges.length === 0) return [];
 
   const codes = surges.map((s) => s.code);
-
-  // 2) 종목명 해석 (stocks 마스터, code 청크 IN).
-  const nameByCode = new Map<string, string>();
-  for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
-    const chunk = codes.slice(i, i + QUOTE_CHUNK);
-    const { data, error } = await supabase
-      .from("stocks")
-      .select("code,name,market")
-      .in("code", chunk);
-    if (error) throw error;
-    for (const m of (data ?? []) as Array<{ code: string; name: string }>) {
-      nameByCode.set(m.code, m.name);
-    }
-  }
 
   // 3) 종목별 뉴스 후보 로드 (최근 48h 창) — code 청크로 fetch → 종목당 후보 cap 유지.
   //    (단일 .in() 1000-row truncation 회피, D-07 / Pitfall 1.)
