@@ -21,9 +21,11 @@
 - RED 재현 확인: 통합 테스트가 수정 전 코드에서 `expected ['가','나'] to deeply equal ['나','가']`로 정확히 실패 — 버그·수정 모두 실증.
 - 소비 측 무변경 확인: 홈 급등 경로는 `home-api.ts` → `home-client.tsx` payload 순서 그대로 렌더. `theme-api.ts:187`의 sort는 Phase 10 큐레이션 `/themes` 페이지용으로 별개 경로.
 
-## 미실행 — 사용자 확인 필요 (Task 3: checkpoint:human-verify)
+## Task 3: 배포 완료 (2026-08-03, 사용자 승인 후 실행)
 
-- `deploy-home-sync.sh` 배포 (env: `GCP_PROJECT_ID` + `SUPABASE_URL` 필수) + `smoke-home-sync.sh` + 홈 카드 순서 육안 확인.
+- `deploy-home-sync.sh` 성공 — Cloud Run Job `gh-radar-home-sync` @ image `home-sync:fe0924f`, Scheduler/Secrets 기존 재사용.
+- `smoke-home-sync.sh` 5/6 PASS. 유일 실패 INV-2("cycle complete" 로그)는 장 마감 후(17:4x KST) 실행이라 워커가 "마감(15:30) 초과 슬롯 — cycle skip"으로 의도적 스킵한 것 — 회귀 아님. INV-4(오늘 스냅샷 ≥1) 포함 나머지 전부 PASS. (INV-4는 `SUPABASE_SERVICE_ROLE_KEY` env 필요 — master-sync/.env source.)
+- 잔여: 다음 거래일 장중 슬롯에서 홈 카드 순서(멤버 수 → 평균 등락률) 육안 확인.
 
 ## 참고
 
