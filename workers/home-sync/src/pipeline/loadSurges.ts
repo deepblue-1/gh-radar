@@ -77,15 +77,15 @@ const NEWS_WINDOW_MS = 48 * 60 * 60 * 1000;
  */
 const NEWS_CANDIDATES_PER_STOCK = 50;
 
-/** ETP 증권그룹 — KRX SECUGRP_NM. 실측 stocks 마스터에 ELW 0건이라 ETF/ETN 만 (승인 설계). */
-const EXCLUDED_SECURITY_GROUPS = new Set(["ETF", "ETN"]);
+/** ETP 증권그룹 — KRX SECUGRP_NM. 기존 SQL 선례(NOT IN ('ETF','ETN','ELW'))와 정합. */
+const EXCLUDED_SECURITY_GROUPS = new Set(["ETF", "ETN", "ELW"]);
 
 /**
  * 종목명 fallback 패턴 — security_group 오분류 대비(570127 "한투 인버스2X코스피200선물 ETN"
  * 이 '주권'/'보통주' 로 적재된 실사례). KODEX/TIGER 등 브랜드명은 일반 기업명 오탐 위험 대비
  * 실익이 낮아 미포함(그 상품들은 group 필터가 커버). '스팩' 은 이번 범위 아님 — 넣지 말 것.
  */
-const EXCLUDED_NAME_PATTERN = /ETN|ETF|인버스|레버리지/i;
+const EXCLUDED_NAME_PATTERN = /ETN|ETF|ELW|인버스|레버리지/i;
 
 /**
  * 홈 급등 집합에서 제외할 파생·지수연동 상품인가 (ETN/ETF/레버리지·인버스).

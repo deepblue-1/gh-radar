@@ -367,6 +367,11 @@ describe("isExcludedProduct", () => {
     expect(isExcludedProduct("KODEX 레버리지", "주권")).toBe(true);
   });
 
+  it("security_group ELW 제외 + 종목명 ELW 패턴 제외 (SQL 선례 정합)", () => {
+    expect(isExcludedProduct("아무거나", "ELW")).toBe(true);
+    expect(isExcludedProduct("한국투자 콜 ELW 1234", "주권")).toBe(true);
+  });
+
   it("스팩은 이번 범위 밖 — 통과", () => {
     expect(isExcludedProduct("삼성스팩8호", "주권")).toBe(false);
   });
