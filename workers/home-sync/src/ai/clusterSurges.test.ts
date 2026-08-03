@@ -759,4 +759,58 @@ describe("clusterSurges", () => {
     expect(payload.themes[0].stocks.map((s) => s.code)).toContain("005930");
     expect(payload.singles.find((s) => s.code === "005930")).toBeUndefined();
   });
+
+  it("중복 제거로 멤버가 줄어든 테마는 최종 순서에서 내려간다 (quick-260803-mhk)", async () => {
+    // evidence 매칭에 종목명 verbatim 이 필요해 로컬 빌더로 이름/뉴스 제목을 직접 지정.
+    const s = (
+      code: string,
+      name: string,
+      changeRate: number,
+      titles: string[] = [],
+    ): Surge => ({
+      code,
+      name,
+      changeRate,
+      news: titles.map((t, i) => ({
+        id: `${code}-${i}`,
+        stock_code: code,
+        title: t,
+        url: `https://n/${code}/${i}`,
+        source: "출처",
+        published_at: "2026-08-03T00:00:00Z",
+      })),
+    });
+    const surges = [
+      s("001", "알파", 30),
+      s("002", "베타", 29),
+      s("003", "감마", 28), // 두 테마가 공유하는 종목.
+      // 테마 "나" 전용 멤버의 뉴스 — 제목에 "감마" verbatim → "나" 만 003 의 근거 테마가 된다.
+      s("004", "델타", 21, ["감마 대규모 공급계약 체결"]),
+      s("005", "엡실론", 20),
+    ];
+    const resp = {
+      themes: [
+        { name: "가", reason: null, stockCodes: ["001", "002", "003"], newsRefs: [] }, // 평균 29
+        { name: "나", reason: null, stockCodes: ["003", "004", "005"], newsRefs: [] }, // 평균 23
+      ],
+      singles: [],
+    };
+    hoist.mockCreate.mockResolvedValue(textResponse(JSON.stringify(resp)));
+
+    const res = await clusterSurges(surges, cfg());
+
+    // 초기 sortThemes 는 둘 다 3종목 동률 → 평균 높은 "가" 가 앞([가, 나]).
+    // invariant 가 003 을 근거 없는 "가" 에서 제거 → "가" 2종목 / "나" 3종목 →
+    // 최종 재정렬로 "나" 가 앞이어야 한다 (수정 전에는 ["가","나"] 로 실패).
+    expect(res.themes.map((t) => t.name)).toEqual(["나", "가"]);
+
+    const na = res.themes.find((t) => t.name === "나")!;
+    const ga = res.themes.find((t) => t.name === "가")!;
+    expect(na.stocks).toHaveLength(3);
+    expect(ga.stocks).toHaveLength(2);
+    // dedup 유지 회귀 가드 — 공유 종목 003 은 "가" 에서 제거된 상태.
+    expect(ga.stocks.map((x) => x.code)).not.toContain("003");
+    // 강등 없음.
+    expect(res.singles).toEqual([]);
+  });
 });
