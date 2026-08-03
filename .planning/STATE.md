@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-08-03 - Completed quick task 260803-it6: home-sync 급등 ETN/ETF/레버리지·인버스 제외
+Last activity: 2026-08-03 - Fast task: home-sync ELW 제외 추가
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -330,6 +330,7 @@ Recent decisions affecting current work:
 | 260720-kbf | 휴장일 가짜 '상' 표시 수정 (intraday-sync stale 감지 2단 가드 + 오염 3개 날짜 8,199행 삭제 + limit-up/comovement 재빌드 + 재배포) | 2026-07-20 | 5aa08d5 | [260720-kbf-intraday-sync-stale](./quick/260720-kbf-intraday-sync-stale/) |
 | 260720-kyh | home-sync 클러스터링 안정화 3종 (sticky prior + 힌트 규칙 강화 + 중복 소속 invariant) | 2026-07-20 | ae6797c | [260720-kyh-home-sync-3-sticky-prior](./quick/260720-kyh-home-sync-3-sticky-prior/) |
 | 260803-it6 | home-sync 급등 스캔 ETN/ETF/레버리지·인버스 상품 제외 (security_group + 이름 패턴 이중 필터) | 2026-08-03 | 5c2aadd | [260803-it6-home-sync-etn-etf-security-group](./quick/260803-it6-home-sync-etn-etf-security-group/) |
+| 260803-fast | home-sync 급등 제외 필터에 ELW 추가 (SQL 선례 정합) | 2026-08-03 | ac95765 | — |
 
 ## Session Continuity
 
