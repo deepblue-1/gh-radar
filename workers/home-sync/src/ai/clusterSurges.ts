@@ -260,23 +260,52 @@ export function reassignOrphans(
   return { themes: outThemes, singles: remainingSingles };
 }
 
+/** 멤버 등락률 배열 평균 (빈 배열 0). */
+function avgRate(rates: number[]): number {
+  if (rates.length === 0) return 0;
+  let sum = 0;
+  for (const r of rates) sum += r;
+  return sum / rates.length;
+}
+
+/**
+ * 테마 랭킹 비교 (D-05) — 멤버 수 desc → 동률 시 멤버 평균 changeRate desc.
+ * sortThemes(클러스터 단계, stockCodes)와 sortHomeSurgeThemes(invariant 후, stocks)가
+ * 같은 기준을 쓰도록 단일 비교 함수로 공유한다. 기준이 두 군데로 갈라지면 정렬 근거와
+ * 화면 표시 값이 어긋나는 사고(quick-260803-mhk)가 재발한다.
+ */
+function compareThemeRank(a: number[], b: number[]): number {
+  if (b.length !== a.length) return b.length - a.length;
+  return avgRate(b) - avgRate(a);
+}
+
 /** stockCodes.length desc → tie 시 member avg changeRate desc (D-05). in-place 아님. */
 export function sortThemes<T extends { stockCodes: string[] }>(
   themes: T[],
   rateByCode: Map<string, number>,
 ): T[] {
-  const avg = (codes: string[]): number => {
-    if (codes.length === 0) return 0;
-    let sum = 0;
-    for (const c of codes) sum += rateByCode.get(c) ?? 0;
-    return sum / codes.length;
-  };
-  return [...themes].sort((a, b) => {
-    if (b.stockCodes.length !== a.stockCodes.length) {
-      return b.stockCodes.length - a.stockCodes.length;
-    }
-    return avg(b.stockCodes) - avg(a.stockCodes);
-  });
+  const rates = (codes: string[]): number[] => codes.map((c) => rateByCode.get(c) ?? 0);
+  return [...themes].sort((a, b) =>
+    compareThemeRank(rates(a.stockCodes), rates(b.stockCodes)),
+  );
+}
+
+/**
+ * invariant 후 최종 재정렬 (quick-260803-mhk) — D-05 와 동일 기준을 **dedup 후 실제 멤버**에
+ * 적용한다. enforceMembershipInvariant 가 중복 종목을 제거하면 sortThemes 가 확정한 순서
+ * (dedup 이전 stockCodes 기준)가 무효화되어, 2종목으로 줄어든 테마가 3종목 테마 위에
+ * 남는 사고가 있었다(정렬 근거 ≠ 카드에 표시되는 "N종목 · 평균 X%").
+ *
+ * HomeSurgeTheme.stocks[].changeRate 는 surgeByCode 에서 온 값이라 rateByCode 재조회 불필요.
+ * 순수 — 입력 배열/원소 미변경. 안정 정렬이라 완전 동률은 invariant 출력 순서를 유지.
+ */
+export function sortHomeSurgeThemes(themes: HomeSurgeTheme[]): HomeSurgeTheme[] {
+  return [...themes].sort((a, b) =>
+    compareThemeRank(
+      a.stocks.map((s) => s.changeRate),
+      b.stocks.map((s) => s.changeRate),
+    ),
+  );
 }
 
 /** SDK 텍스트 → RawTheme/RawSingle (fence guard + 파싱 실패 시 빈 결과). */
