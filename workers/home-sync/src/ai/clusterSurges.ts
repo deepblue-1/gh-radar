@@ -31,6 +31,8 @@ import { isRoundupNews } from "./roundup";
  *   3. resolveNewsRefs: newsRefs 인덱스 → verbatim indexedNews (범위 밖 drop, D-04).
  *   4. demoteInvalidThemes: 급등 집합 밖 stockCode drop, <2 valid 테마 → single 강등 (D-06).
  *   5. sortThemes: stockCodes.length desc → tie 시 avg changeRate desc (D-05). singles 는 rate desc.
+ *   6. enforceMembershipInvariant 후 sortHomeSurgeThemes 로 최종 멤버(dedup 후) 기준 재정렬
+ *      (quick-260803-mhk) — 중복 제거로 멤버가 줄어든 테마가 위에 남지 않도록.
  *
  * fail-safe: 빈 surges → Claude 호출 0. Claude 예외/파싱 실패 → 빈 payload (cycle 은 계속).
  */
@@ -607,13 +609,16 @@ export async function clusterSurges(
   singles.sort((a, b) => b.changeRate - a.changeRate);
 
   // 중복 소속 invariant (quick-260720-kyh) — 테마간 중복 정리 + 테마+single 동시 제거 +
-  // sub-2 테마 강등. 순수 후처리. 강등 single 이 추가될 수 있으므로 재정렬.
+  // sub-2 테마 강등. 순수 후처리.
   const inv = enforceMembershipInvariant(
     themes,
     singles,
     surges.map((s) => s.name),
     surgeByCode,
   );
-  inv.singles.sort((a, b) => b.changeRate - a.changeRate);
-  return inv;
+  // invariant 가 멤버를 제거하므로 위쪽 sortThemes(dedup 이전 stockCodes 기준) 결과는 무효 —
+  // 최종 멤버 기준으로 D-05 정렬을 다시 적용한다 (quick-260803-mhk). 강등 single 이 추가될 수
+  // 있으므로 singles 도 재정렬.
+  const finalSingles = [...inv.singles].sort((a, b) => b.changeRate - a.changeRate);
+  return { themes: sortHomeSurgeThemes(inv.themes), singles: finalSingles };
 }
