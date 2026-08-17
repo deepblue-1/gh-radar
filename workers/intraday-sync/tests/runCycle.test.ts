@@ -8,6 +8,9 @@ function stubEnv() {
   process.env.KIWOOM_APPKEY = "appkey";
   process.env.KIWOOM_SECRETKEY = "secret";
   process.env.HOT_SET_TOP_N = "5";
+  // 기본 off — 1차 dt 가드(ka10081 probe)를 쓰지 않는 케이스가 실 axios 로 키움을 때리지 않도록.
+  // dt 가드 전용 describe 가 "true" 로 덮어쓰고 fetchDailyChart 를 mock 한다.
+  process.env.DT_GUARD_ENABLED = "false";
 }
 
 // 체이닝 + thenable 빌더:
@@ -322,5 +325,139 @@ describe("runIntradayCycle — KRX 휴장일 0차 가드 (quick-260817-f1a)", ()
     expect(out).toEqual({ step1Count: 0, step2Count: 0, failed: 0 });
     expect(fetchKa10027).not.toHaveBeenCalled();
     expect(intradayUpsertClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("runIntradayCycle — ka10081 dt 1차 가드 (quick-260817-f1a)", () => {
+  const UP_ROW = {
+    stk_cd: "005930",
+    stk_nm: "삼성전자",
+    cur_prc: "+70500",
+    pred_pre: "+500",
+    flu_rt: "+0.71",
+    now_trde_qty: "10000000",
+  };
+
+  /** dt 가드 이후 흐름이 끝까지 돌도록 나머지 파이프라인을 전부 stub. */
+  function mockPipeline(fetchKa10027: ReturnType<typeof vi.fn>) {
+    vi.doMock("../src/kiwoom/tokenStore", () => ({
+      getKiwoomToken: vi
+        .fn()
+        .mockResolvedValue({ accessToken: "TOK", expiresAt: new Date() }),
+    }));
+    vi.doMock("../src/kiwoom/fetchRanking", () => ({ fetchKa10027 }));
+    vi.doMock("../src/services/supabase", () => ({
+      createSupabaseClient: vi.fn().mockReturnValue(supabaseStub()),
+    }));
+    vi.doMock("../src/pipeline/bootstrapStocks", () => ({
+      bootstrapMissingStocks: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("../src/pipeline/upsertClose", () => ({
+      intradayUpsertClose: vi.fn().mockResolvedValue({ count: 1 }),
+    }));
+    vi.doMock("../src/pipeline/upsertQuotes", () => ({
+      upsertQuotesStep1: vi.fn().mockResolvedValue(undefined),
+      upsertQuotesStep2: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("../src/pipeline/topMovers", () => ({
+      rebuildTopMovers: vi.fn().mockResolvedValue({ count: 0 }),
+    }));
+    vi.doMock("../src/pipeline/hotSet", () => ({
+      computeHotSet: vi.fn().mockResolvedValue([]),
+    }));
+    vi.doMock("../src/kiwoom/fetchHotSet", () => ({
+      fetchKa10001ForHotSet: vi
+        .fn()
+        .mockResolvedValue({ successful: [], failed: 0, failures: [] }),
+    }));
+    vi.doMock("../src/pipeline/upsertOhlc", () => ({
+      intradayUpsertOhlc: vi.fn().mockResolvedValue(undefined),
+    }));
+  }
+
+  beforeEach(() => {
+    stubEnv();
+    process.env.DT_GUARD_ENABLED = "true";
+    process.env.DT_GUARD_PROBE_CODES = "005930,069500";
+    vi.resetModules();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // 2026-08-18(화) 09:30 KST = 2026-08-18T00:30:00Z — 정상 거래일 정규장.
+    vi.setSystemTime(new Date("2026-08-18T00:30:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.DT_GUARD_PROBE_CODES;
+  });
+
+  it("정규장(09:30) + 모든 probe 가 직전 거래일 dt → cycle skip, fetchKa10027 미호출", async () => {
+    const fetchKa10027 = vi.fn().mockResolvedValue([UP_ROW]);
+    const fetchKa10081LatestDt = vi.fn().mockResolvedValue("20260814");
+    vi.doMock("../src/kiwoom/fetchDailyChart", () => ({ fetchKa10081LatestDt }));
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    expect(out).toEqual({ step1Count: 0, step2Count: 0, failed: 0 });
+    expect(fetchKa10081LatestDt).toHaveBeenCalledTimes(2); // probe 2 종목
+    expect(fetchKa10027).not.toHaveBeenCalled();
+  });
+
+  it("프리마켓(08:30) + probe 가 직전 거래일 dt → skip 하지 않음 (정상 거래일 오늘 봉 미생성이 정상)", async () => {
+    // NXT 프리마켓 사이클은 정상 거래일에도 오늘 일봉이 아직 없다 → dt 가드로 skip 하면
+    // 정상 거래일 프리마켓 시세 갱신이 통째로 멈추는 역방향 오탐이 된다. 관측 로그만 남긴다.
+    vi.setSystemTime(new Date("2026-08-17T23:30:00Z")); // 2026-08-18 08:30 KST
+    const fetchKa10027 = vi.fn().mockResolvedValue([UP_ROW]);
+    const fetchKa10081LatestDt = vi.fn().mockResolvedValue("20260814");
+    vi.doMock("../src/kiwoom/fetchDailyChart", () => ({ fetchKa10081LatestDt }));
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    expect(fetchKa10081LatestDt).toHaveBeenCalled(); // 관측은 수행
+    expect(fetchKa10027).toHaveBeenCalled(); // 그러나 skip 되지 않음
+  });
+
+  it("probe 중 하나라도 오늘 dt → 정상 진행 (보수적 판정)", async () => {
+    const fetchKa10027 = vi.fn().mockResolvedValue([UP_ROW]);
+    const fetchKa10081LatestDt = vi
+      .fn()
+      .mockResolvedValueOnce("20260814") // 거래정지 등으로 오늘 봉 없음
+      .mockResolvedValueOnce("20260818"); // 오늘 봉 존재 → 거래일 확정
+    vi.doMock("../src/kiwoom/fetchDailyChart", () => ({ fetchKa10081LatestDt }));
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    expect(fetchKa10027).toHaveBeenCalled();
+  });
+
+  it("probe 전부 throw → fail-open (warn 후 정상 진행)", async () => {
+    const fetchKa10027 = vi.fn().mockResolvedValue([UP_ROW]);
+    const fetchKa10081LatestDt = vi.fn().mockRejectedValue(new Error("키움 429 — rate limit"));
+    vi.doMock("../src/kiwoom/fetchDailyChart", () => ({ fetchKa10081LatestDt }));
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    expect(fetchKa10081LatestDt).toHaveBeenCalledTimes(2);
+    expect(fetchKa10027).toHaveBeenCalled(); // probe 장애가 데이터 수집을 죽이지 않는다
+  });
+
+  it("DT_GUARD_ENABLED=false → probe 미호출, 정상 진행 (킬 스위치)", async () => {
+    process.env.DT_GUARD_ENABLED = "false";
+    const fetchKa10027 = vi.fn().mockResolvedValue([UP_ROW]);
+    const fetchKa10081LatestDt = vi.fn().mockResolvedValue("20260814");
+    vi.doMock("../src/kiwoom/fetchDailyChart", () => ({ fetchKa10081LatestDt }));
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    expect(fetchKa10081LatestDt).not.toHaveBeenCalled();
+    expect(fetchKa10027).toHaveBeenCalled();
   });
 });
