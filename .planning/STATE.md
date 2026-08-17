@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-08-03 - Completed quick task 260803-mhk: home-sync 급등테마 dedup 후 재정렬
+Last activity: 2026-08-17 - Completed quick task 260817-f1a: 휴장일 가짜 데이터 근본 수정 + 오염 정리
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -332,6 +332,7 @@ Recent decisions affecting current work:
 | 260803-it6 | home-sync 급등 스캔 ETN/ETF/레버리지·인버스 상품 제외 (security_group + 이름 패턴 이중 필터) | 2026-08-03 | 5c2aadd | [260803-it6-home-sync-etn-etf-security-group](./quick/260803-it6-home-sync-etn-etf-security-group/) |
 | 260803-fast | home-sync 급등 제외 필터에 ELW 추가 (SQL 선례 정합) | 2026-08-03 | ac95765 | — |
 | 260803-mhk | home-sync 급등테마 dedup(invariant) 후 최종 멤버 기준 재정렬 (compareThemeRank 단일화 + sortHomeSurgeThemes) | 2026-08-03 | 4b1d4a1 | [260803-mhk-home-sync-clustersurges-dedup](./quick/260803-mhk-home-sync-clustersurges-dedup/) |
+| 260817-f1a | 휴장일 가짜 데이터 근본 수정 (KRX 캘린더 0차 + ka10081 dt 1차 가드, 워커 3종) + 8/17 오염 정리 | 2026-08-17 | 1098d66 | [260817-f1a-2026-08-17](./quick/260817-f1a-2026-08-17/) |
 
 ## Session Continuity
 
