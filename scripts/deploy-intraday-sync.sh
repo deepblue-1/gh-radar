@@ -86,7 +86,15 @@ RUNTIME_SA="gh-radar-intraday-sync-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.co
 ##   N 과 별개로 항상 hot set 에 포함 (사용자 관심종목 OHLC 보장). 101+ 등락률 종목은 STEP1
 ##   close 만 갱신 — 사용자가 검색해서 진입하면 server on-demand `inquirePrice` 가 정확값
 ##   fetch 하므로 사용자 체감 영향 미미.
-COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@HOT_SET_TOP_N=100@KA10001_RATE_LIMIT=4"
+##
+## DT_GUARD_ENABLED (quick-260817-f1a): 1차 ka10081 dt 가드 킬 스위치. default true.
+##   --set-env-vars 는 env 를 전량 치환하므로 여기에 없으면 재배포마다 초기화된다 → 명시 주입.
+##   가정 A2("정규장에는 오늘 dt 봉이 실시간 생성된다")가 반증되면 정상 거래일이 전량 skip 되는
+##   역방향 오탐이 발생한다. 그 경우 코드 롤백 없이 아래로 즉시 원복:
+##     DT_GUARD_ENABLED=false ./scripts/deploy-intraday-sync.sh
+##   (0차 KRX 휴장일 캘린더 가드는 이와 무관하게 계속 동작한다.)
+## DT_GUARD_PROBE_CODES: 미주입 시 코드 default ["005930","069500"] 사용.
+COMMON_ENV="^@^SUPABASE_URL=${SUPABASE_URL}@KIWOOM_BASE_URL=https://api.kiwoom.com@KIWOOM_TOKEN_TYPE=live@LOG_LEVEL=info@APP_VERSION=${SHA}@HOT_SET_TOP_N=100@KA10001_RATE_LIMIT=4@DT_GUARD_ENABLED=${DT_GUARD_ENABLED:-true}"
 COMMON_SECRETS="KIWOOM_APPKEY=gh-radar-kiwoom-appkey:latest,KIWOOM_SECRETKEY=gh-radar-kiwoom-secretkey:latest,SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest"
 
 echo "▶ deploying Cloud Run Job: $JOB (VPC: $VPC_NAME, Static IP: $STATIC_IP)..."

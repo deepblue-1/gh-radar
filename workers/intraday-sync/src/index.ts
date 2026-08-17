@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { getKiwoomToken } from "./kiwoom/tokenStore";
 import { createKiwoomClient } from "./kiwoom/client";
 import { fetchKa10027 } from "./kiwoom/fetchRanking";
+import { fetchKa10081LatestDt } from "./kiwoom/fetchDailyChart";
 import { fetchKa10001ForHotSet } from "./kiwoom/fetchHotSet";
 import { configureKiwoomRateLimiter } from "./kiwoom/rateLimiter";
 import { ka10027RowToCloseUpdate } from "./pipeline/map";
@@ -52,10 +53,13 @@ export async function fetchStocksMasterChunked(
   return out;
 }
 
-function todayIsoKst(): string {
-  const now = new Date();
+function todayIsoKst(now: Date = new Date()): string {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, "0")}-${String(kst.getUTCDate()).padStart(2, "0")}`;
+}
+
+function kstHour(now: Date): number {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000).getUTCHours();
 }
 
 /**
@@ -65,10 +69,13 @@ function todayIsoKst(): string {
  *   1. STEP1 — ka10027 페이지네이션 → bootstrap → mapping+dedupe → market join → RPC #1 + stock_quotes + top_movers
  *   2. STEP2 — hot set 산출 → ka10001 Promise.allSettled → mapping → RPC #2 + stock_quotes
  *
- * 휴장일/프리마켓 다단 가드 (quick-260817-f1a 에서 0차 추가):
- *   (0) KRX 휴장일 캘린더 → 알려진 휴장일이면 키움 호출 전에 즉시 skip (비용 0, 결정적)
- *   (1) ka10027 0 row → warn + exit 정상 (no-op)
- *   (2) stale snapshot 감지 → 키움이 직전 거래일 데이터를 그대로 반환한 경우
+ * 휴장일/프리마켓 4단 가드 (quick-260817-f1a 에서 0차·1차 추가):
+ *   (0) KRX 휴장일 캘린더 → 알려진 휴장일이면 즉시 skip (비용 0, 결정적)
+ *   (1) ka10081 최신 dt !== 오늘 → 직전 거래일 재방출 판정, skip (결정적).
+ *       임시공휴일·임시휴장처럼 캘린더에 없는 날까지 커버한다. 09:00 이전(NXT 프리마켓)
+ *       사이클은 정상 거래일에도 오늘 봉이 없으므로 판정 보류(관측 로그만).
+ *   (2) ka10027 0 row → warn + exit 정상 (no-op)
+ *   (3) stale snapshot 감지 → 키움이 직전 거래일 데이터를 그대로 반환한 경우
  *       (휴장일/프리마켓), 저장된 직전 거래일 close/change_rate 와 내용 비교해
  *       일치율이 높으면 skip. 오늘 날짜 가짜 상한가 행 INSERT 방지.
  *       (2026-07-20 quick-260720-kbf: 044380 7/17 가짜 '상' 마커 근본 원인)
@@ -81,7 +88,8 @@ export async function runIntradayCycle(): Promise<{
 }> {
   const config = loadConfig();
   const supabase = createSupabaseClient(config);
-  const dateIso = todayIsoKst();
+  const now = new Date();
+  const dateIso = todayIsoKst(now);
   const log = logger.child({ dateIso });
 
   // rate limiter 설정 (config 의 KA10001_RATE_LIMIT 적용)
@@ -104,20 +112,80 @@ export async function runIntradayCycle(): Promise<{
       "KRX 휴장일 캘린더 seed 만료 — 0차 가드 무력. krxCalendar.ts 에 이듬해 휴장일 추가 필요",
     );
   }
+  // 0. Token — 0차 게이트보다 앞. 휴장일에도 ka10081 probe 결과를 로그에 남겨
+  //    "휴장일엔 오늘 dt 봉이 생기지 않는다"(가정 A1)를 프로덕션에서 실측하기 위함.
+  //    휴장일 비용은 토큰 1 + REST 2회/분 수준(24 req/s 버킷 대비 무시 가능).
+  const token = await withRetry(() => getKiwoomToken(supabase, config), "getKiwoomToken");
+  const kiwoom = createKiwoomClient(config.kiwoomBaseUrl);
+
+  // 1차 ka10081 dt 가드 — probe (판정은 0차 게이트 뒤에서).
+  const todayBasDd = dateIso.replace(/-/g, "");
+  const hourKst = kstHour(now);
+  type DtProbe = { code: string; latestDt: string | null; error?: string };
+  const probes: DtProbe[] = [];
+  if (config.dtGuardEnabled) {
+    for (const code of config.dtGuardProbeCodes) {
+      // withRetry 미적용 — 재시도는 skip 판정을 지연시킬 뿐이고, 실패는 어차피 fail-open.
+      // 개별 실패가 cycle 을 죽이면 안 된다 (T-f1a-03).
+      try {
+        const latestDt = await fetchKa10081LatestDt(
+          kiwoom,
+          token.accessToken,
+          code,
+          todayBasDd,
+        );
+        probes.push({ code, latestDt });
+      } catch (err) {
+        probes.push({
+          code,
+          latestDt: null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    log.info(
+      { probes, todayBasDd, hourKst, isHoliday: isKrxHoliday(dateIso) },
+      "ka10081 dt probe",
+    );
+  }
+
   if (isKrxHoliday(dateIso)) {
     log.warn({ dateIso }, "KRX 휴장일 — cycle skip (0차 캘린더 가드, DB 쓰기 없음)");
     return { step1Count: 0, step2Count: 0, failed: 0 };
   }
 
-  // 0. Token
-  const token = await withRetry(() => getKiwoomToken(supabase, config), "getKiwoomToken");
+  if (config.dtGuardEnabled) {
+    const okProbes = probes.filter((p) => p.error === undefined && p.latestDt !== null);
+    if (okProbes.length === 0) {
+      log.warn(
+        { probes },
+        "ka10081 probe 전부 실패 — dt 가드 fail-open, 0차/2차/3차 가드로 진행",
+      );
+    } else if (okProbes.every((p) => p.latestDt !== todayBasDd)) {
+      // 보수적 판정: 하나라도 오늘 dt 가 있으면 거래일로 간주해 통과.
+      // 역방향 오탐(정상 거래일 전량 skip)이 정방향 미탐보다 훨씬 치명적이다.
+      if (hourKst < 9) {
+        // 08시대(NXT 프리마켓)는 정상 거래일에도 오늘 일봉이 아직 생성되지 않는다.
+        // 여기서 skip 하면 정상 거래일 프리마켓 시세 갱신이 통째로 멈추므로 관측만 한다.
+        log.info(
+          { probes, todayBasDd, hourKst },
+          "프리마켓(09:00 이전) 사이클 — 오늘 dt 봉 미생성은 정상, dt 가드 판정 보류(관측만)",
+        );
+      } else {
+        log.warn(
+          { probes, todayBasDd, hourKst },
+          "ka10081 최신 dt !== 오늘 — 직전 거래일 재방출 판정, cycle skip (1차 dt 가드)",
+        );
+        return { step1Count: 0, step2Count: 0, failed: 0 };
+      }
+    }
+  }
 
   // STEP 1 — ka10027 페이지네이션 (sort_tp 1+3 병합)
   //   상한가 근접 상승 종목만이 아니라 하락 전환 종목도 매분 일봉(stock_daily_ohlcv) 갱신 대상.
   //   sort_tp=1(상승+보합) + sort_tp=3(하락+보합) 을 각각 페이지네이션 호출 후 concat.
   //   concat 후 dedupeMap(Map by code, "마지막 row 승")이 보합 중복(1/3 양쪽 등장)을 자연 제거 —
   //   동일값이라 무해. (2026-07-06 하락 종목 일봉 동결 버그 수정)
-  const kiwoom = createKiwoomClient(config.kiwoomBaseUrl);
   const upRows = await withRetry(
     () => fetchKa10027(kiwoom, token.accessToken, "1", config.paginationHardCap),
     "fetchKa10027(sort_tp=1)",
