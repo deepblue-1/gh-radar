@@ -1,6 +1,11 @@
 import "dotenv/config";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HomeSnapshotPayload, HomeSurgeTheme } from "@gh-radar/shared";
+import {
+  isKrxHoliday,
+  isKrxCalendarStale,
+  KRX_HOLIDAYS_SEEDED_THROUGH,
+} from "@gh-radar/shared";
 import { loadConfig, type HomeSyncConfig } from "./config";
 import { logger } from "./logger";
 import { createSupabaseClient } from "./services/supabase";
@@ -54,7 +59,7 @@ export interface HomeSyncSummary {
   stockCount: number;
   claudeCalled: boolean;
   isCarried: boolean;
-  /** 정규장 마감(15:30 KST) 초과 슬롯이라 cycle 을 건너뜀 (upsert 없음). */
+  /** cycle 을 건너뜀 (upsert 없음) — KRX 휴장일(0차 가드) 또는 마감(15:30 KST) 초과 슬롯. */
   skipped?: boolean;
 }
 
@@ -151,6 +156,28 @@ export async function runHomeSyncCycle(
 
   const { tradeDate, capturedAt, marketStatus, afterClose } = computeSlot(now);
   log.info({ tradeDate, capturedAt, marketStatus }, "home-sync cycle start");
+
+  // 0차 KRX 휴장일 가드 (quick-260817-f1a) — afterClose 게이트보다 앞.
+  //   휴장일에 키움이 직전 거래일 스냅샷을 재방출하면 loadSurges 가 가짜 급등을 읽어
+  //   home_theme_snapshots 에 가짜 테마를 남긴다(2026-08-17 사고, 34 슬롯 오염).
+  if (isKrxCalendarStale(tradeDate)) {
+    log.warn(
+      { tradeDate, seededThrough: KRX_HOLIDAYS_SEEDED_THROUGH },
+      "KRX 휴장일 캘린더 seed 만료 — 0차 가드 무력. krxCalendar.ts 에 이듬해 휴장일 추가 필요",
+    );
+  }
+  if (isKrxHoliday(tradeDate)) {
+    log.warn({ tradeDate }, "KRX 휴장일 — cycle skip (0차 캘린더 가드, upsert 없음)");
+    return {
+      tradeDate,
+      capturedAt,
+      themeCount: 0,
+      stockCount: 0,
+      claudeCalled: false,
+      isCarried: false,
+      skipped: true,
+    };
+  }
 
   // 정규장 마감(15:30 KST) 초과 슬롯(15:40/15:50)은 skip — 종가는 15:30 슬롯이 최종.
   if (afterClose) {

@@ -20,6 +20,13 @@ export { SPECIALIST_TOOL_NAMES, SPECIALIST_LABELS } from "./chat";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";
+export {
+  KRX_HOLIDAYS,
+  KRX_HOLIDAYS_SEEDED_THROUGH,
+  isKrxHoliday,
+  isKrxCalendarStale,
+  kstDateIso,
+} from "./krxCalendar";
 export type { ApiErrorBody, ApiSuccess } from "./api";
 export { stripHtml, parsePubDate, extractSourcePrefix } from "./news-sanitize";
 export {

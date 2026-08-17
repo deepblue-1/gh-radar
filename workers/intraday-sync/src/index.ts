@@ -18,6 +18,11 @@ import { detectStaleSnapshot, fetchPrevDayRows } from "./pipeline/staleGuard";
 import { createSupabaseClient } from "./services/supabase";
 import { withRetry } from "./retry";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
+import {
+  isKrxHoliday,
+  isKrxCalendarStale,
+  KRX_HOLIDAYS_SEEDED_THROUGH,
+} from "@gh-radar/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -60,7 +65,8 @@ function todayIsoKst(): string {
  *   1. STEP1 — ka10027 페이지네이션 → bootstrap → mapping+dedupe → market join → RPC #1 + stock_quotes + top_movers
  *   2. STEP2 — hot set 산출 → ka10001 Promise.allSettled → mapping → RPC #2 + stock_quotes
  *
- * 휴장일/프리마켓 2단 가드:
+ * 휴장일/프리마켓 다단 가드 (quick-260817-f1a 에서 0차 추가):
+ *   (0) KRX 휴장일 캘린더 → 알려진 휴장일이면 키움 호출 전에 즉시 skip (비용 0, 결정적)
  *   (1) ka10027 0 row → warn + exit 정상 (no-op)
  *   (2) stale snapshot 감지 → 키움이 직전 거래일 데이터를 그대로 반환한 경우
  *       (휴장일/프리마켓), 저장된 직전 거래일 close/change_rate 와 내용 비교해
@@ -88,6 +94,20 @@ export async function runIntradayCycle(): Promise<{
     { ka10001Rate: config.ka10001RateLimitPerSec, hotSetTopN: config.hotSetTopN },
     "intraday cycle start",
   );
+
+  // 0차 KRX 휴장일 가드 (quick-260817-f1a) — 비용 0 의 결정적 신호.
+  //   키움은 휴장일에 빈 응답이 아니라 직전 거래일 + 시간외 보정 스냅샷을 재방출하므로
+  //   값 비교 휴리스틱(staleGuard)만으로는 구조적으로 막을 수 없다(2026-08-17 사고).
+  if (isKrxCalendarStale(dateIso)) {
+    log.warn(
+      { dateIso, seededThrough: KRX_HOLIDAYS_SEEDED_THROUGH },
+      "KRX 휴장일 캘린더 seed 만료 — 0차 가드 무력. krxCalendar.ts 에 이듬해 휴장일 추가 필요",
+    );
+  }
+  if (isKrxHoliday(dateIso)) {
+    log.warn({ dateIso }, "KRX 휴장일 — cycle skip (0차 캘린더 가드, DB 쓰기 없음)");
+    return { step1Count: 0, step2Count: 0, failed: 0 };
+  }
 
   // 0. Token
   const token = await withRetry(() => getKiwoomToken(supabase, config), "getKiwoomToken");

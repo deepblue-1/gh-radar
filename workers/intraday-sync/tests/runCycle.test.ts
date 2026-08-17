@@ -44,6 +44,14 @@ describe("runIntradayCycle — 가드 동작", () => {
   beforeEach(() => {
     stubEnv();
     vi.resetModules();
+    // 0차 캘린더 가드(quick-260817-f1a) 도입 후 cycle 결과가 "오늘 날짜"에 의존한다.
+    // 실제 실행일이 휴장일이면 아래 케이스들이 전부 skip 돼 무의미해지므로 정상 거래일로 고정.
+    // Date 만 fake (setTimeout 은 실제 유지 — withRetry 백오프 간섭 방지).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-18T01:00:00Z")); // 10:00 KST 화요일, 정상 거래일
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("ka10027 0 row → step1Count=0, step2Count=0, failed=0 (warn + exit 정상)", async () => {
@@ -283,7 +291,7 @@ describe("runIntradayCycle — KRX 휴장일 0차 가드 (quick-260817-f1a)", ()
   beforeEach(() => {
     stubEnv();
     vi.resetModules();
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
   });
   afterEach(() => {
     vi.useRealTimers();
