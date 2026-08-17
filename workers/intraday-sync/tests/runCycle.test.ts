@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // index 모듈은 dotenv/config + loadConfig() 가 import 시점 실행될 수 있어
 // 환경변수 stub 후 동적 import.
@@ -276,5 +276,43 @@ describe("runIntradayCycle — 가드 동작", () => {
     expect(intradayUpsertClose).not.toHaveBeenCalled();
     expect(bootstrapMissingStocks).not.toHaveBeenCalled();
     expect(intradayUpsertOhlc).not.toHaveBeenCalled();
+  });
+});
+
+describe("runIntradayCycle — KRX 휴장일 0차 가드 (quick-260817-f1a)", () => {
+  beforeEach(() => {
+    stubEnv();
+    vi.resetModules();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("2026-08-17(휴장일) → step1/step2 0, fetchKa10027 미호출 (DB 쓰기 없음)", async () => {
+    vi.setSystemTime(new Date("2026-08-17T01:00:00Z")); // 10:00 KST, 광복절 대체공휴일
+    const fetchKa10027 = vi.fn().mockResolvedValue([]);
+    const intradayUpsertClose = vi.fn().mockResolvedValue({ count: 0 });
+
+    vi.doMock("../src/kiwoom/tokenStore", () => ({
+      getKiwoomToken: vi
+        .fn()
+        .mockResolvedValue({ accessToken: "TOK", expiresAt: new Date() }),
+    }));
+    vi.doMock("../src/kiwoom/fetchRanking", () => ({ fetchKa10027 }));
+    vi.doMock("../src/kiwoom/fetchDailyChart", () => ({
+      fetchKa10081LatestDt: vi.fn().mockResolvedValue("20260814"),
+    }));
+    vi.doMock("../src/services/supabase", () => ({
+      createSupabaseClient: vi.fn().mockReturnValue(supabaseStub()),
+    }));
+    vi.doMock("../src/pipeline/upsertClose", () => ({ intradayUpsertClose }));
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    expect(out).toEqual({ step1Count: 0, step2Count: 0, failed: 0 });
+    expect(fetchKa10027).not.toHaveBeenCalled();
+    expect(intradayUpsertClose).not.toHaveBeenCalled();
   });
 });

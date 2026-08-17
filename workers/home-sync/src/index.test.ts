@@ -425,6 +425,43 @@ describe("runHomeSyncCycle (마감 초과 슬롯 skip)", () => {
   });
 });
 
+describe("runHomeSyncCycle (KRX 휴장일 0차 가드, quick-260817-f1a)", () => {
+  it("2026-08-17(휴장일) → skipped=true, cluster/upsert 호출 없음", async () => {
+    const sb = createMockSupabase();
+    const cluster = vi.fn();
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: new Date("2026-08-17T01:30:00Z"), // 10:30 KST, 광복절 대체공휴일
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(summary.skipped).toBe(true);
+    expect(summary.tradeDate).toBe("2026-08-17");
+    expect(cluster).not.toHaveBeenCalled();
+    expect(sb._chains.home_theme_snapshots?.upsert).toBeUndefined(); // 테이블 접근 자체 없음
+  });
+
+  it("2026-08-18(정상 거래일) → skip 아님, 정상 실행", async () => {
+    const sb = seedSurgeSupabase();
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: new Date("2026-08-18T01:30:00Z"), // 10:30 KST
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(summary.skipped).toBeUndefined();
+    expect(sb._chains.home_theme_snapshots.upsert).toHaveBeenCalled();
+  });
+});
+
 describe("runHomeSyncCycle (transient-empty 가드)", () => {
   /** stock_quotes gte → [] (급등 0) 로 seed. */
   function seedEmptySupabase() {
