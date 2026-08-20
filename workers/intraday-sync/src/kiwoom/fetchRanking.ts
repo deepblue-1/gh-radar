@@ -31,6 +31,7 @@ export async function fetchKa10027(
   token: string,
   sortTp = "1",
   hardCap = 5000,
+  stexTp = "3",
 ): Promise<KiwoomKa10027Row[]> {
   const body = {
     mrkt_tp: "000",
@@ -44,8 +45,11 @@ export async function fetchKa10027(
     pric_cnd: "0",
     trde_prica_cnd: "0",
     // stex_tp: 거래소 구분 (키움 spec 변경으로 필수 파라미터로 승격 — 2026-05-15 first cycle 에서 발견).
-    //  "1"=KRX, "2"=NXT, "3"=통합. mrkt_tp=000 (KOSPI+KOSDAQ 통합) 의도와 일치하는 "3" 채택.
-    stex_tp: "3",
+    //  "1"=KRX, "2"=NXT, "3"=통합. 기본값 "3" 은 mrkt_tp=000 (KOSPI+KOSDAQ 통합) 의도와 일치하며
+    //  장중 STEP1 호출부는 무변경.
+    //  caller 가 "1"(KRX 전용) 을 넘기면 NXT 프리/애프터마켓 체결가가 배제된 KRX 값만 돌아온다 —
+    //  이것이 EOD 공식 종가 확보 경로다 (pipeline/eodClose.ts, D-fh2-02).
+    stex_tp: stexTp,
   };
 
   const all: KiwoomKa10027Row[] = [];

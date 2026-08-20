@@ -16,6 +16,8 @@ import { intradayUpsertClose } from "./pipeline/upsertClose";
 import { intradayUpsertOhlc } from "./pipeline/upsertOhlc";
 import { upsertQuotesStep1, upsertQuotesStep2 } from "./pipeline/upsertQuotes";
 import { detectStaleSnapshot, fetchPrevDayRows } from "./pipeline/staleGuard";
+import { runEodClosePass } from "./pipeline/eodClose";
+import { isDailyWriteWindow, isEodClosePass } from "./marketWindow";
 import { createSupabaseClient } from "./services/supabase";
 import { withRetry } from "./retry";
 import type { IntradayCloseUpdate } from "@gh-radar/shared";
@@ -92,6 +94,13 @@ export async function runIntradayCycle(): Promise<{
   const dateIso = todayIsoKst(now);
   const log = logger.child({ dateIso });
 
+  // 일봉 쓰기 창 / EOD 종가 패스 판정 (quick-260820-fh2).
+  //   dailyWrite=false 인 사이클(08:00~08:59, 15:31~15:59)은 stock_daily_ohlcv 를 건드리지 않는다.
+  //   NXT 프리/애프터마켓 체결가가 일봉 종가를 오염시키던 경로를 근본 차단 (D-fh2-01).
+  //   eodPass=true 인 사이클(15:35~15:55)은 KRX 전용 종가로 당일 일봉을 확정한다 (D-fh2-02).
+  const dailyWrite = isDailyWriteWindow(now);
+  const eodPass = isEodClosePass(now);
+
   // rate limiter 설정 (config 의 KA10001_RATE_LIMIT 적용)
   configureKiwoomRateLimiter({
     capacity: config.ka10001RateLimitPerSec,
@@ -99,7 +108,12 @@ export async function runIntradayCycle(): Promise<{
   });
 
   log.info(
-    { ka10001Rate: config.ka10001RateLimitPerSec, hotSetTopN: config.hotSetTopN },
+    {
+      ka10001Rate: config.ka10001RateLimitPerSec,
+      hotSetTopN: config.hotSetTopN,
+      dailyWrite,
+      eodPass,
+    },
     "intraday cycle start",
   );
 
@@ -281,11 +295,21 @@ export async function runIntradayCycle(): Promise<{
     }
   }
 
-  // STEP 1 — RPC #1 + stock_quotes + top_movers
-  const { count: step1Count } = await withRetry(
-    () => intradayUpsertClose(supabase, step1Updates),
-    "intradayUpsertClose",
-  );
+  // STEP 1 — RPC #1 (일봉) + stock_quotes + top_movers
+  //   일봉 쓰기만 dailyWrite 게이트 대상. upsertQuotesStep1/rebuildTopMovers 는 표시 계층이라
+  //   정규장 밖에도 계속 갱신해야 NXT 프리/애프터마켓 현재가가 화면에 살아있다 (D-fh2-01).
+  let step1Count = 0;
+  if (dailyWrite) {
+    ({ count: step1Count } = await withRetry(
+      () => intradayUpsertClose(supabase, step1Updates),
+      "intradayUpsertClose",
+    ));
+  } else {
+    log.info(
+      { candidates: step1Updates.length },
+      "정규장(09:00~15:30) 밖 — 일봉 쓰기 skip, quotes 만 갱신",
+    );
+  }
   await withRetry(
     () => upsertQuotesStep1(supabase, step1Updates),
     "upsertQuotesStep1",
@@ -348,15 +372,41 @@ export async function runIntradayCycle(): Promise<{
   //   필터를 두면 watchlist 종목의 정확 OHLC 가 stock_daily_ohlcv 에 반영되지 않는 회귀가 발생.
   //   (2026-07-06 watchlist 일봉 미반영 버그 수정)
 
-  // STEP 2 — RPC #2 + stock_quotes
-  await withRetry(
-    () => intradayUpsertOhlc(supabase, step2UpdatesRaw),
-    "intradayUpsertOhlc",
-  );
+  // STEP 2 — RPC #2 (일봉 OHLC) + stock_quotes
+  //   STEP1 과 동일하게 일봉 쓰기만 게이트. upsertQuotesStep2 는 표시 계층이라 항상 갱신.
+  if (dailyWrite) {
+    await withRetry(
+      () => intradayUpsertOhlc(supabase, step2UpdatesRaw),
+      "intradayUpsertOhlc",
+    );
+  } else {
+    log.info(
+      { candidates: step2UpdatesRaw.length },
+      "정규장 밖 — STEP2 일봉 OHLC 쓰기 skip, quotes 만 갱신",
+    );
+  }
   await withRetry(
     () => upsertQuotesStep2(supabase, step2UpdatesRaw),
     "upsertQuotesStep2",
   );
+
+  // EOD 공식 종가 패스 (15:35~15:55, D-fh2-02).
+  //   실패해도 cycle 을 죽이지 않는다 — 5분 뒤 다음 슬롯이 재시도하며 upsert 는 idempotent.
+  if (eodPass) {
+    try {
+      const { count: eodCount } = await runEodClosePass({
+        supabase,
+        kiwoom,
+        accessToken: token.accessToken,
+        dateIso,
+        hardCap: config.paginationHardCap,
+        log,
+      });
+      log.info({ eodCount }, "EOD 종가 패스 완료");
+    } catch (err) {
+      log.error({ err }, "EOD 종가 패스 실패 — 다음 5분 슬롯이 재시도 (cycle 계속)");
+    }
+  }
 
   log.info(
     { step1Count, step2Count: step2UpdatesRaw.length, failed },
