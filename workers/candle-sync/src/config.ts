@@ -16,6 +16,14 @@ export type Config = {
   recoverLookback: number;     // RECOVER_LOOKBACK env, default 10 — recover mode lookback 영업일 수
   recoverThreshold: number;    // RECOVER_THRESHOLD env, default 0.9 — 활성 비율 임계
   recoverMaxCalls: number;     // RECOVER_MAX_CALLS env, default 20 — calls 상한
+  /**
+   * RECOVER_FORCE_RECENT_DAYS env, default 2.
+   * 결측 판정과 무관하게 무조건 재적재할 최근 영업일 수.
+   * intraday-sync 가 매일 전 종목 row 를 만들어 결측 판정(row count < 활성×0.9)이 영영
+   * 발동하지 않는 구조적 결함 보완 (D-fh2-03, 2026-08-20).
+   * 0 이면 강제 재적재 비활성 (킬 스위치).
+   */
+  recoverForceRecentDays: number;
   minExpectedRows: number;     // MIN_EXPECTED_ROWS env, default 1400 — MIN_EXPECTED 가드 (T-09-02)
   basDd?: string;              // BAS_DD env (YYYYMMDD) — daily mode override (테스트/수동 재실행용, default todayKstYYYYMMDD)
 };
@@ -65,6 +73,10 @@ export function loadConfig(): Config {
     recoverLookback: parseNumberEnv(process.env.RECOVER_LOOKBACK, 10),
     recoverThreshold: parseNumberEnv(process.env.RECOVER_THRESHOLD, 0.9),
     recoverMaxCalls: parseNumberEnv(process.env.RECOVER_MAX_CALLS, 20),
+    recoverForceRecentDays: parseNumberEnv(
+      process.env.RECOVER_FORCE_RECENT_DAYS,
+      2,
+    ),
     minExpectedRows: parseNumberEnv(process.env.MIN_EXPECTED_ROWS, 1400),
     basDd: process.env.BAS_DD,
   };
