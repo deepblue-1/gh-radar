@@ -74,6 +74,26 @@ describe("fetchKa10027", () => {
     expect(body.sort_tp).toBe("3");
   });
 
+  it("stexTp 미지정 시 기본값 body.stex_tp === '3' (통합, 기존 동작 보존)", async () => {
+    const client = makeClient([{ data: page1, headers: { "cont-yn": "N" } }]);
+    await fetchKa10027(client, "TOKEN");
+    const body = (client.post as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      stex_tp: string;
+    };
+    expect(body.stex_tp).toBe("3");
+  });
+
+  it("stexTp='1' 전달 시 body.stex_tp === '1' (KRX 전용 — EOD 공식 종가 경로)", async () => {
+    // D-fh2-02: 15:35~15:55 EOD 패스가 NXT 애프터마켓 가격을 배제하고
+    // KRX 정규장 공식 종가만 확보하기 위해 stex_tp="1" 로 호출한다.
+    const client = makeClient([{ data: page1, headers: { "cont-yn": "N" } }]);
+    await fetchKa10027(client, "TOKEN", "1", 5000, "1");
+    const body = (client.post as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      stex_tp: string;
+    };
+    expect(body.stex_tp).toBe("1");
+  });
+
   it("다중 페이지 (cont-yn=Y) → next-key 헤더로 다음 호출", async () => {
     const client = makeClient([
       { data: page1, headers: { "cont-yn": "Y", "next-key": "PAGE2_KEY" } },

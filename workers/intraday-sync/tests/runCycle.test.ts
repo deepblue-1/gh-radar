@@ -290,6 +290,168 @@ describe("runIntradayCycle — 가드 동작", () => {
   });
 });
 
+describe("runIntradayCycle — 일봉 쓰기 창 + EOD 종가 패스 (quick-260820-fh2)", () => {
+  const UP_ROW = {
+    stk_cd: "005930",
+    stk_nm: "삼성전자",
+    cur_prc: "+70500",
+    pred_pre: "+500",
+    flu_rt: "+0.71",
+    now_trde_qty: "10000000",
+  };
+
+  type Spies = {
+    intradayUpsertClose: ReturnType<typeof vi.fn>;
+    intradayUpsertOhlc: ReturnType<typeof vi.fn>;
+    upsertQuotesStep1: ReturnType<typeof vi.fn>;
+    upsertQuotesStep2: ReturnType<typeof vi.fn>;
+    rebuildTopMovers: ReturnType<typeof vi.fn>;
+    runEodClosePass: ReturnType<typeof vi.fn>;
+  };
+
+  /** 전 파이프라인 stub + 관찰용 spy 반환. STEP2 는 111111 종목 1건을 항상 만들어낸다. */
+  function mockPipeline(): Spies {
+    const spies: Spies = {
+      intradayUpsertClose: vi.fn().mockResolvedValue({ count: 1 }),
+      intradayUpsertOhlc: vi.fn().mockResolvedValue(undefined),
+      upsertQuotesStep1: vi.fn().mockResolvedValue(undefined),
+      upsertQuotesStep2: vi.fn().mockResolvedValue(undefined),
+      rebuildTopMovers: vi.fn().mockResolvedValue({ count: 0 }),
+      runEodClosePass: vi.fn().mockResolvedValue({ count: 7 }),
+    };
+
+    vi.doMock("../src/kiwoom/tokenStore", () => ({
+      getKiwoomToken: vi
+        .fn()
+        .mockResolvedValue({ accessToken: "TOK", expiresAt: new Date() }),
+    }));
+    vi.doMock("../src/kiwoom/fetchRanking", () => ({
+      fetchKa10027: vi.fn().mockResolvedValue([UP_ROW]),
+    }));
+    vi.doMock("../src/services/supabase", () => ({
+      createSupabaseClient: vi.fn().mockReturnValue(supabaseStub()),
+    }));
+    vi.doMock("../src/pipeline/bootstrapStocks", () => ({
+      bootstrapMissingStocks: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("../src/pipeline/upsertClose", () => ({
+      intradayUpsertClose: spies.intradayUpsertClose,
+    }));
+    vi.doMock("../src/pipeline/upsertQuotes", () => ({
+      upsertQuotesStep1: spies.upsertQuotesStep1,
+      upsertQuotesStep2: spies.upsertQuotesStep2,
+    }));
+    vi.doMock("../src/pipeline/topMovers", () => ({
+      rebuildTopMovers: spies.rebuildTopMovers,
+    }));
+    vi.doMock("../src/pipeline/hotSet", () => ({
+      computeHotSet: vi.fn().mockResolvedValue(["111111"]),
+    }));
+    vi.doMock("../src/kiwoom/fetchHotSet", () => ({
+      fetchKa10001ForHotSet: vi.fn().mockResolvedValue({
+        successful: [{ stk_cd: "111111" }],
+        failed: 0,
+        failures: [],
+      }),
+    }));
+    vi.doMock("../src/pipeline/mapOhlc", () => ({
+      ka10001RowToOhlcUpdate: vi.fn().mockReturnValue({
+        code: "111111",
+        date: "2026-08-18",
+        open: 1000,
+        high: 1100,
+        low: 900,
+        upperLimit: null,
+        lowerLimit: null,
+        marketCap: null,
+      }),
+    }));
+    vi.doMock("../src/pipeline/upsertOhlc", () => ({
+      intradayUpsertOhlc: spies.intradayUpsertOhlc,
+    }));
+    vi.doMock("../src/pipeline/eodClose", () => ({
+      runEodClosePass: spies.runEodClosePass,
+    }));
+
+    return spies;
+  }
+
+  beforeEach(() => {
+    stubEnv();
+    vi.resetModules();
+    vi.useFakeTimers({ toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("10:00 정규장 → 일봉 쓰기(close/ohlc) 정상 수행, EOD 패스 미호출", async () => {
+    vi.setSystemTime(new Date("2026-08-18T01:00:00Z")); // 10:00 KST
+    const s = mockPipeline();
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    expect(s.intradayUpsertClose).toHaveBeenCalled();
+    expect(s.intradayUpsertOhlc).toHaveBeenCalled();
+    expect(s.runEodClosePass).not.toHaveBeenCalled();
+    expect(out).toEqual({ step1Count: 1, step2Count: 1, failed: 0 });
+  });
+
+  it("08:30 프리마켓 → 일봉 쓰기 skip, stock_quotes 는 계속 갱신 (NXT 현재가 유지)", async () => {
+    vi.setSystemTime(new Date("2026-08-17T23:30:00Z")); // 2026-08-18 08:30 KST
+    const s = mockPipeline();
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    expect(s.intradayUpsertClose).not.toHaveBeenCalled();
+    expect(s.intradayUpsertOhlc).not.toHaveBeenCalled();
+    expect(s.upsertQuotesStep1).toHaveBeenCalled();
+    expect(s.upsertQuotesStep2).toHaveBeenCalled();
+    expect(s.runEodClosePass).not.toHaveBeenCalled();
+    // 반환 shape 3키 유지, 일봉 skip 이므로 step1Count=0
+    expect(out).toEqual({ step1Count: 0, step2Count: 1, failed: 0 });
+  });
+
+  it("15:45 → 일봉 직접 쓰기 skip + quotes 갱신 + runEodClosePass 호출", async () => {
+    vi.setSystemTime(new Date("2026-08-18T06:45:00Z")); // 15:45 KST
+    const s = mockPipeline();
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    expect(s.intradayUpsertClose).not.toHaveBeenCalled();
+    expect(s.intradayUpsertOhlc).not.toHaveBeenCalled();
+    expect(s.upsertQuotesStep1).toHaveBeenCalled();
+    expect(s.upsertQuotesStep2).toHaveBeenCalled();
+    expect(s.runEodClosePass).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ step1Count: 0, step2Count: 1, failed: 0 });
+  });
+
+  it("15:31 (EOD 슬롯 아님) → runEodClosePass 미호출, 일봉 쓰기도 skip", async () => {
+    vi.setSystemTime(new Date("2026-08-18T06:31:00Z")); // 15:31 KST
+    const s = mockPipeline();
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    expect(s.runEodClosePass).not.toHaveBeenCalled();
+    expect(s.intradayUpsertClose).not.toHaveBeenCalled();
+  });
+
+  it("EOD 패스 실패가 cycle 전체를 죽이지 않는다 (error 로그 후 정상 반환)", async () => {
+    vi.setSystemTime(new Date("2026-08-18T06:45:00Z")); // 15:45 KST
+    const s = mockPipeline();
+    s.runEodClosePass.mockRejectedValue(new Error("키움 429 — rate limit"));
+
+    const { runIntradayCycle } = await import("../src/index");
+    const out = await runIntradayCycle();
+
+    expect(out).toEqual({ step1Count: 0, step2Count: 1, failed: 0 });
+  });
+});
+
 describe("runIntradayCycle — KRX 휴장일 0차 가드 (quick-260817-f1a)", () => {
   beforeEach(() => {
     stubEnv();
