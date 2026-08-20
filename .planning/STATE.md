@@ -30,7 +30,7 @@ Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
 Status: Phase complete — ready for verification
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-08-20 - Quick task 260820-fh2 코드 완료: 일봉 NXT 오염 근본 수정 (배포+백필 Task 3 pending)
+Last activity: 2026-08-20 - Completed quick task 260820-fh2: 일봉 NXT 오염 근본 수정 + 배포·백필·검증 완료 (잔여: 15:35 EOD 패스 첫 실행 사후 확인)
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -333,7 +333,7 @@ Recent decisions affecting current work:
 | 260803-fast | home-sync 급등 제외 필터에 ELW 추가 (SQL 선례 정합) | 2026-08-03 | ac95765 | — |
 | 260803-mhk | home-sync 급등테마 dedup(invariant) 후 최종 멤버 기준 재정렬 (compareThemeRank 단일화 + sortHomeSurgeThemes) | 2026-08-03 | 4b1d4a1 | [260803-mhk-home-sync-clustersurges-dedup](./quick/260803-mhk-home-sync-clustersurges-dedup/) |
 | 260817-f1a | 휴장일 가짜 데이터 근본 수정 (KRX 캘린더 0차 + ka10081 dt 1차 가드, 워커 3종) + 8/17 오염 정리 | 2026-08-17 | 1098d66 | [260817-f1a-2026-08-17](./quick/260817-f1a-2026-08-17/) |
-| 260820-fh2 | 일봉 NXT 오염 근본 수정 (일봉 쓰기 09:00~15:30 제한 + EOD KRX 종가 패스 + recover 최근 2영업일 강제 재적재) — 배포·백필은 pending | 2026-08-20 | fcc1c08 | [260820-fh2-intraday-sync-nxt-15-30-krx-eod-recover](./quick/260820-fh2-intraday-sync-nxt-15-30-krx-eod-recover/) |
+| 260820-fh2 | 일봉 NXT 오염 근본 수정 (일봉 쓰기 09:00~15:30 제한 + EOD KRX 종가 패스 + recover 최근 2영업일 강제 재적재) + 배포·백필(2026-05-21~08-19, 65일/실패0) 완료 | 2026-08-20 | fcc1c08 | [260820-fh2-intraday-sync-nxt-15-30-krx-eod-recover](./quick/260820-fh2-intraday-sync-nxt-15-30-krx-eod-recover/) |
 
 ## Session Continuity
 
