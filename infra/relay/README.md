@@ -42,14 +42,52 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 
 ## 현재 배포 상태
 
-> 15-07 Task 1 이 실측 값으로 채운다. (외부 고정 IP · `free -m` · 인증서 발급 결과 등)
+> 15-07 Task 1 실측 (2026-09-05T13:45Z). `setup-relay-iam.sh` 최초 실제 실행 결과다.
+> 인증서 행은 Task 3(D-06 DNS 게이트) 통과 후에 채운다.
 
 | 항목 | 값 | 확인 시각 |
 |------|-----|-----------|
-| 외부 고정 IP | _(미기록 — 15-07 에서 채움)_ | — |
-| VM 상태 | _(미기록)_ | — |
-| 인증서 발급 (issuer / notAfter) | _(미기록)_ | — |
-| `free -m` 여유 | _(미기록)_ | — |
+| 외부 고정 IP (`gh-radar-relay-ip`) | `34.22.79.103` — status `IN_USE` | 2026-09-05T13:45Z |
+| 내부 고정 IP (`gh-radar-relay-internal`) | `10.10.0.5` | 2026-09-05T13:45Z |
+| VM 상태 | `radar-gw` **RUNNING** · `canIpForward=False` | 2026-09-05T13:45Z |
+| 존 / 머신 타입 | `asia-northeast3-a` / `e2-micro` | 2026-09-05T13:45Z |
+| 이미지 | `debian-12-bookworm-v20260902` | 2026-09-05T13:45Z |
+| 부팅 디스크 | 20GB · `pd-balanced` | 2026-09-05T13:45Z |
+| Shielded VM | secure-boot · vTPM · integrity-monitoring 모두 on | 2026-09-05T13:45Z |
+| 방화벽 (`gh-radar-vpc`) | 정확히 3규칙 — 443 공인 / 22 IAP대역 / 8091 서브넷 | 2026-09-05T13:45Z |
+| `free -m` 여유 | total 969 · used 417 · **available 552** · swap 1024M(사용 11M) | 2026-09-05T13:45Z |
+| 툴체인 | docker 20.10.24 · openconnect **v9.01-3** · caddy **v2.11.4** | 2026-09-05T13:45Z |
+| `caddy` | `enabled` + `active` — D-06 DNS 게이트 통과 후 기동 | 2026-09-05T14:16Z |
+| `openconnect@kb` | `disabled` + `inactive` — D-03 선검증 대기 | 2026-09-05T14:16Z |
+| startup-script | `google-startup-scripts` 정상 종료 · 오류 0건 · 자산 6종 배치 완료 | 2026-09-05T14:15Z |
+| DNS `dma.jx1.io` | `34.22.79.103` 단일 A 레코드 (로컬·8.8.8.8·1.1.1.1 3개 리졸버 일치) | 2026-09-05T14:10Z |
+| 인증서 issuer | `C=US, O=Let's Encrypt, CN=YE1` · 챌린지 `tls-alpn-01` | 2026-09-05T14:16Z |
+| 인증서 subject | `CN=dma.jx1.io` | 2026-09-05T14:16Z |
+| 인증서 notBefore / **notAfter** | `2026-09-05 13:17:21 GMT` / **`2026-12-04 13:17:20 GMT`** | 2026-09-05T14:16Z |
+| 외부 TLS 검증 | `curl` 체인 검증 통과 (`ssl_verify_result=0`) · `/healthz` 는 502 (relay 컨테이너 미배포 — 정상) | 2026-09-05T14:16Z |
+| 포트 80 방화벽 규칙 | **0건** — 임시 개방 없이 TLS-ALPN-01 로 1회에 발급 성공 | 2026-09-05T14:16Z |
+
+### Secret 3종 상태
+
+값은 어디에도 기록하지 않는다. 버전 **개수**만 상태 지표로 남긴다.
+
+| Secret | ENABLED 버전 | 주입 주체 |
+|--------|-------------|-----------|
+| `gh-radar-dma-cred-key` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
+| `gh-radar-relay-order-secret` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
+| `gh-radar-kb-vpn-password` | **0 (비어 있음)** | **사용자가 직접 주입** — D-03 선검증의 전제 |
+
+> ⚠️ `gcloud secrets list --filter='name~gh-radar-(a|b|c)'` 형태는 쓰지 말 것.
+> gcloud 필터 문법이 선행 `(` 를 그룹 토큰으로 해석해 조용히 0건을 반환한다.
+> 검증에는 `--filter='name~A OR name~B OR name~C'` 를 쓴다.
+
+### D-03 선검증을 막고 있는 미충족 전제
+
+1. **`/etc/kbvpn.env` 부재** — `KBVPN_SERVER` · `KBVPN_AUTHGROUP` · `KBVPN_SERVERCERT` · `KBVPN_USER` 4키가 필요하다. `startup.sh` 는 경고만 남기고 부팅을 계속하므로 VM 은 정상이지만 VPN 은 시작할 수 없다.
+2. **`gh-radar-kb-vpn-password` 값 부재** — `ExecStartPre` 의 Secret 페치가 실패한다.
+
+두 전제가 모두 채워지기 전에는 `systemctl start openconnect@kb` 를 시도하지 않는다
+(무의미한 실패가 `StartLimitBurst=5/1h` 예산과 KB 계정 시도 횟수를 함께 소모한다).
 
 ---
 
@@ -177,6 +215,30 @@ echo | openssl s_client -connect dma.jx1.io:443 -servername dma.jx1.io 2>/dev/nu
 
 발급이 실패하면 **반복 시도하지 않는다.** 원인(전파 미완료 / 443 방화벽 / TLS-ALPN)을 먼저 확인하고,
 필요하면 staging CA 로 검증한 뒤 프로덕션으로 전환한다.
+
+### 기동 전에 반드시 설정을 먼저 검증한다
+
+`caddy validate` 는 ACME 요청을 보내지 않으므로 rate limit 을 소모하지 않는다.
+**설정 오류로 인한 기동 실패를 ACME 시도 전에 걸러낸다.**
+
+```bash
+sudo -u caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+> ⚠️ **`sudo caddy validate` (root) 로 실행하지 말 것.**
+> validate 는 파일 로거 모듈을 실제로 provisioning 하기 때문에
+> `/var/log/caddy/dma.log` 를 `root:root 0600` 으로 만들어 버린다.
+> 그 상태로 caddy(`User=caddy`)가 기동하면 `permission denied` 로
+> **설정 로드 자체가 실패**한다. 반드시 `sudo -u caddy` 로 실행한다.
+> (startup.sh 가 매 부팅 `chown -R caddy:caddy /var/log/caddy` 로 자가 치유하지만,
+> 재부팅 없이 복구하려면 직접 `sudo chown caddy:caddy /var/log/caddy/dma.log`.)
+
+### 챌린지는 TLS-ALPN-01 로 고정돼 있다
+
+포트 80 은 D-09 에 따라 영구 차단이라 HTTP-01 은 **절대 성공할 수 없다.**
+Caddyfile 의 `issuer acme { disable_http_challenge }` 가 이를 명시적으로 꺼서
+갱신 때마다 실패 검증이 누적되는 것을 막는다 (T-15-13).
+이 설정을 지우면 갱신마다 무의미한 실패가 쌓인다.
 
 설정을 리로드하면 진행 중인 WebSocket 이 강제 종료되므로 **장중 변경은 하지 않는다.**
 

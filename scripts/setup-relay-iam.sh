@@ -57,6 +57,29 @@ if [[ "$DRY_RUN" == "1" ]]; then
   echo "════ DRY-RUN 모드 — 어떤 리소스도 생성/변경하지 않는다 ════"
 fi
 
+# IAM 정책 바인딩 전용 재시도 래퍼.
+#   (a) SA 생성 직후 바인딩은 "Service account ... does not exist" 로 실패할 수 있다.
+#       IAM 은 최종 일관성이라 SA 가 정책 백엔드에 전파되기까지 수십 초가 걸린다.
+#   (b) projects add-iam-policy-binding 은 정책 read-modify-write 라
+#       동시 변경 시 409 ABORTED 로 실패할 수 있다.
+# 둘 다 시간이 지나면 해소되는 일시적 실패이므로 상한을 두고 재시도한다.
+run_retry() {
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] %s\n' "$*"
+    return 0
+  fi
+  local attempt=1 max=6 delay=10
+  until "$@"; do
+    if (( attempt >= max )); then
+      echo "ERROR: IAM 바인딩이 ${max}회 재시도 후에도 실패했다: $*" >&2
+      return 1
+    fi
+    echo "  · IAM 전파 대기 (${attempt}/${max}) — ${delay}s 후 재시도" >&2
+    sleep "$delay"
+    attempt=$(( attempt + 1 ))
+  done
+}
+
 # ───────────────────────────────────────────────────────────────
 # Section 1: gcloud guard (setup-intraday-sync-iam.sh mirror)
 # ───────────────────────────────────────────────────────────────
@@ -136,7 +159,7 @@ else
 fi
 
 for ROLE in roles/artifactregistry.reader roles/logging.logWriter roles/monitoring.metricWriter; do
-  run gcloud projects add-iam-policy-binding "$EXPECTED_PROJECT" \
+  run_retry gcloud projects add-iam-policy-binding "$EXPECTED_PROJECT" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="$ROLE" \
     --condition=None >/dev/null
@@ -155,7 +178,7 @@ for SECRET_NAME in gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-kb
     run gcloud secrets create "$SECRET_NAME" --replication-policy=automatic
   fi
 
-  run gcloud secrets add-iam-policy-binding "$SECRET_NAME" \
+  run_retry gcloud secrets add-iam-policy-binding "$SECRET_NAME" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role=roles/secretmanager.secretAccessor >/dev/null
   echo "✓ secretAccessor bound: $SECRET_NAME → $SA_NAME"
@@ -164,7 +187,7 @@ done
 # 관리자 등록 스크립트(dma-credentials) 실행 주체에도 AES 키 접근권을 준다.
 # RESEARCH Open Question 3 — 실행 주체가 VM SA 가 아니라 배포자 SA 이기 때문.
 if [[ -n "${DEPLOYER_SA_EMAIL:-}" ]]; then
-  run gcloud secrets add-iam-policy-binding gh-radar-dma-cred-key \
+  run_retry gcloud secrets add-iam-policy-binding gh-radar-dma-cred-key \
     --member="serviceAccount:${DEPLOYER_SA_EMAIL}" \
     --role=roles/secretmanager.secretAccessor >/dev/null
   echo "✓ secretAccessor bound: gh-radar-dma-cred-key → ${DEPLOYER_SA_EMAIL}"
