@@ -1,0 +1,344 @@
+/**
+ * Phase 15 Plan 02 — RELAY-01. Envelope 조립/파싱 + 필드 가드 단위 테스트 (SC-3).
+ *
+ * 이 파일이 증명해야 하는 것은 하나다 — **깨진 프레임은 어떤 경로로도 UI 계약
+ * 타입으로 나오지 않는다**. JS 런타임에 Verifier 가 없어 잘린 버퍼가 예외 없이
+ * 깨진 값을 반환하므로(D-31), 예외 부재를 "정상"으로 오독하지 않도록 반환값이
+ * `null` 인지, 드롭 카운터가 올랐는지, 경고가 남았는지를 함께 본다 (S-5).
+ *
+ * 하지 않는 것: 소켓/세션은 다루지 않는다. 전부 순수 함수 왕복이다.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as flatbuffers from "flatbuffers";
+
+import { logger } from "../../logger.js";
+import { Envelope } from "../../generated/stock-dma/envelope.js";
+import { LoginReq } from "../../generated/stock-dma/login-req.js";
+import { LivePing } from "../../generated/stock-dma/live-ping.js";
+import { SubscribeQuoteReq } from "../../generated/stock-dma/subscribe-quote-req.js";
+import { GetTradeTapeReq } from "../../generated/stock-dma/get-trade-tape-req.js";
+import { MSG } from "../msg-type.js";
+import {
+  buildLoginReq,
+  buildLivePing,
+  buildGetQuoteReq,
+  buildSubscribeQuoteReq,
+  buildGetTradeTapeReq,
+  tryParseEnvelope,
+  parseQuoteState,
+  parseTradeTape,
+  parseServerMessage,
+  parseLoginResp,
+  takeCount,
+  toNum,
+  isValidIsin,
+  isValidExchange,
+  droppedEnvelopeCount,
+  resetDroppedEnvelopeCount,
+  MAX_ORDER_BOOK_DEPTH,
+  MAX_TAPE_ENTRY_COUNT,
+} from "../envelope.js";
+import {
+  SAMPLE_ISIN,
+  buildBareEnvelope,
+  buildQuoteStateFrame,
+  buildTradeTapeFrame,
+  buildServerMessageFrame,
+  buildLoginRespFrame,
+} from "../../../tests/helpers/frames.js";
+
+let warn: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  resetDroppedEnvelopeCount();
+  warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+/** 요청 빌더 산출물을 다시 Envelope 으로 읽는다 (수신 화이트리스트를 우회한 왕복 검사용). */
+function readBack(bytes: Uint8Array): Envelope {
+  return Envelope.getRootAsEnvelope(new flatbuffers.ByteBuffer(bytes));
+}
+
+describe("조립 (build*)", () => {
+  it("① buildLivePing 왕복 — msg_type 4 + ping_time 이 현재 epoch 초", () => {
+    const before = Math.floor(Date.now() / 1000);
+    const env = readBack(buildLivePing());
+
+    expect(env.msgType()).toBe(MSG.LivePing);
+    const ping = env.livePing(new LivePing());
+    expect(ping).not.toBeNull();
+    expect(ping!.pingTime()).toBeGreaterThanOrEqual(before);
+    expect(ping!.pingTime()).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 1);
+  });
+
+  it("② buildLoginReq 왕복 — user_id / broker 가 보존된다", () => {
+    const env = readBack(buildLoginReq("alex-radar", "pw-not-logged", "KB"));
+
+    expect(env.msgType()).toBe(MSG.LoginReq);
+    const req = env.loginReq(new LoginReq());
+    expect(req!.userId()).toBe("alex-radar");
+    expect(req!.broker()).toBe("KB");
+    // 다른 슬롯은 비어 있다 — Envelope 은 union 이 아니라 optional 슬롯 나열 table 이다.
+    expect(env.orderResp()).toBeNull();
+  });
+
+  it("②-b buildGetQuoteReq / buildSubscribeQuoteReq / buildGetTradeTapeReq 왕복", () => {
+    const quoteEnv = readBack(buildGetQuoteReq(SAMPLE_ISIN, "NXT"));
+    expect(quoteEnv.msgType()).toBe(MSG.GetQuoteReq);
+    expect(quoteEnv.getQuoteReq()!.exchange()).toBe("NXT");
+
+    const subEnv = readBack(buildSubscribeQuoteReq(SAMPLE_ISIN, "KRX", false));
+    expect(subEnv.msgType()).toBe(MSG.SubscribeQuoteReq);
+    const sub = subEnv.subscribeQuoteReq(new SubscribeQuoteReq());
+    expect(sub!.isin()).toBe(SAMPLE_ISIN);
+    expect(sub!.subscribe()).toBe(false);
+
+    const tapeEnv = readBack(buildGetTradeTapeReq(SAMPLE_ISIN, "KRX", 50));
+    expect(tapeEnv.msgType()).toBe(MSG.GetTradeTapeReq);
+    expect(tapeEnv.getTradeTapeReq(new GetTradeTapeReq())!.count()).toBe(50);
+  });
+});
+
+describe("tryParseEnvelope — total 파서", () => {
+  it("③ 정상 프레임을 끝에서 10바이트 잘라도 예외 없이 수렴한다", () => {
+    const full = Buffer.from(buildQuoteStateFrame());
+    const truncated = full.subarray(0, full.length - 10);
+
+    let quote: unknown = "not-run";
+    expect(() => {
+      const parsed = tryParseEnvelope(truncated);
+      quote = parsed === null ? null : parseQuoteState(parsed.env, true);
+    }).not.toThrow();
+
+    // 예외가 없다는 것이 "정상"을 뜻하지 않는다 — 계약 타입으로는 절대 나오면 안 된다.
+    expect(quote).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("④ junk 12바이트는 null 이다", () => {
+    const junk = Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77]);
+
+    expect(tryParseEnvelope(junk)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("④-b 8바이트 미만 페이로드는 파싱을 시도하지 않는다", () => {
+    expect(tryParseEnvelope(Buffer.alloc(4))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("min-envelope-size");
+  });
+
+  it("⑤ 화이트리스트 밖 msg_type(99)은 드롭 + 카운터 증가", () => {
+    const payload = Buffer.from(buildBareEnvelope(99));
+
+    expect(tryParseEnvelope(payload)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("unknown-msg-type");
+    expect(fields.msgTypeHint).toBe(99);
+  });
+
+  it("⑤-b 요청 계열(LivePing=4)이 수신 경로로 들어오면 드롭한다", () => {
+    expect(tryParseEnvelope(Buffer.from(buildLivePing()))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("⑤-c 알려진 msg_type 이지만 슬롯이 비면 드롭한다", () => {
+    const parsed = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.GetQuoteResp)));
+    expect(parsed).not.toBeNull();
+
+    expect(parseQuoteState(parsed!.env, true)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("slot-null");
+  });
+});
+
+describe("필드 가드", () => {
+  it("⑥ takeCount(15, 10, …) 은 10 으로 절단하고 경고를 남긴다", () => {
+    expect(takeCount(15, MAX_ORDER_BOOK_DEPTH, "매도호가")).toBe(10);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("⑦ takeCount(-1, 10, …) 은 0 이고 경고를 남긴다", () => {
+    expect(takeCount(-1, MAX_ORDER_BOOK_DEPTH, "매도호가")).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("⑦-b 상한 이내 길이는 그대로 두고 조용하다", () => {
+    expect(takeCount(7, MAX_ORDER_BOOK_DEPTH, "매수호가")).toBe(7);
+    expect(takeCount(MAX_TAPE_ENTRY_COUNT, MAX_TAPE_ENTRY_COUNT, "체결 테이프")).toBe(200);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("⑧ toNum 은 안전 정수 범위를 넘으면 경고 후 클램프한다", () => {
+    expect(toNum(9007199254740993n, "cum_value")).toBe(Number.MAX_SAFE_INTEGER);
+    expect(toNum(-9007199254740993n, "cum_value")).toBe(-Number.MAX_SAFE_INTEGER);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("⑧-b 안전 범위 안의 값은 그대로 number 로 변환한다", () => {
+    expect(toNum(70950n, "last_price")).toBe(70950);
+    expect(toNum(0n, "change")).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("isValidIsin / isValidExchange 형식 가드", () => {
+    expect(isValidIsin(SAMPLE_ISIN)).toBe(true);
+    expect(isValidIsin("KR700593000")).toBe(false); // 11자
+    expect(isValidIsin("KR70059300031")).toBe(false); // 13자
+    expect(isValidIsin("kr7005930003")).toBe(false); // 소문자
+    expect(isValidExchange("KRX")).toBe(true);
+    expect(isValidExchange("NXT")).toBe(true);
+    expect(isValidExchange("KOSPI")).toBe(false);
+  });
+});
+
+describe("parseQuoteState", () => {
+  function parseQuote(bytes: Uint8Array, snapshot = true) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    return parsed === null ? null : parseQuoteState(parsed.env, snapshot);
+  }
+
+  it("정상 호가는 shared 계약 타입으로 나온다 (원문 보존 필드 포함)", () => {
+    const quote = parseQuote(buildQuoteStateFrame());
+
+    expect(quote).not.toBeNull();
+    expect(quote!.t).toBe("q");
+    expect(quote!.i).toBe(SAMPLE_ISIN);
+    expect(quote!.x).toBe("KRX");
+    expect(quote!.snap).toBe(true);
+    expect(quote!.p).toBe(70950);
+    expect(quote!.ap).toHaveLength(10);
+    expect(quote!.bq).toHaveLength(10);
+    // change_sign 원문 1자와 exchange_time 원문은 해석 없이 그대로 흘린다 (D-34).
+    expect(quote!.cs).toBe("2");
+    expect(quote!.et).toBe("093015123456");
+    // bigint 가 계약으로 새지 않는다 — JSON.stringify 가 던지면 안 된다.
+    expect(() => JSON.stringify(quote)).not.toThrow();
+    expect(typeof quote!.va).toBe("number");
+  });
+
+  it("⑨ ISIN 11자/13자는 드롭한다", () => {
+    expect(parseQuote(buildQuoteStateFrame({ isin: "KR700593000" }))).toBeNull();
+    expect(parseQuote(buildQuoteStateFrame({ isin: "KR70059300031" }))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(2);
+  });
+
+  it("거래소 화이트리스트 밖이면 드롭한다", () => {
+    expect(parseQuote(buildQuoteStateFrame({ exchange: "KOSPI" }))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("change_sign 이 1자가 아니면 드롭한다", () => {
+    expect(parseQuote(buildQuoteStateFrame({ changeSign: "" }))).toBeNull();
+    expect(parseQuote(buildQuoteStateFrame({ changeSign: "12" }))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(2);
+  });
+
+  it("호가 벡터가 15단으로 와도 10단으로 절단한다 (프레임은 살린다)", () => {
+    const fifteen = Array.from({ length: 15 }, (_, i) => 71000n + BigInt(i) * 100n);
+    const quote = parseQuote(buildQuoteStateFrame({ askPrices: fifteen }));
+
+    expect(quote).not.toBeNull();
+    expect(quote!.ap).toHaveLength(MAX_ORDER_BOOK_DEPTH);
+    expect(quote!.aq).toHaveLength(10);
+    expect(warn).toHaveBeenCalled();
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("짧게 온 벡터는 채우지 않고 온 만큼만 싣는다", () => {
+    const quote = parseQuote(buildQuoteStateFrame({ bidPrices: [70900n, 70800n, 70700n] }));
+
+    expect(quote!.bp).toEqual([70900, 70800, 70700]);
+  });
+
+  it("누적거래대금이 안전 범위를 넘으면 클램프 + 경고 (D-34)", () => {
+    const quote = parseQuote(buildQuoteStateFrame({ cumValue: 9007199254740993n }));
+
+    expect(quote!.va).toBe(Number.MAX_SAFE_INTEGER);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("59 증분은 snap=false 로 나온다 (슬롯 공유, D-33)", () => {
+    const quote = parseQuote(buildQuoteStateFrame({ snapshot: false }), false);
+    expect(quote!.snap).toBe(false);
+  });
+});
+
+describe("parseTradeTape", () => {
+  function parseTape(bytes: Uint8Array, snapshot = true) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    return parsed === null ? null : parseTradeTape(parsed.env, snapshot);
+  }
+
+  it("정상 테이프는 계약 타입 배열로 나온다", () => {
+    const tape = parseTape(buildTradeTapeFrame({ entries: [{}, {}, {}] }));
+
+    expect(tape).not.toBeNull();
+    expect(tape!.t).toBe("tape");
+    expect(tape!.i).toBe(SAMPLE_ISIN);
+    expect(tape!.e).toHaveLength(3);
+    expect(typeof tape!.e[0]!.p).toBe("number");
+    expect(() => JSON.stringify(tape)).not.toThrow();
+  });
+
+  it("200건 상한을 넘으면 앞 200건만 싣는다", () => {
+    const rows = Array.from({ length: 250 }, () => ({}));
+    const tape = parseTape(buildTradeTapeFrame({ entries: rows }));
+
+    expect(tape!.e).toHaveLength(MAX_TAPE_ENTRY_COUNT);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("원소의 change_sign 이 깨지면 프레임 전체를 버린다", () => {
+    const tape = parseTape(buildTradeTapeFrame({ entries: [{}, { changeSign: "" }] }));
+
+    expect(tape).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("71 증분은 snap=false 로 나온다", () => {
+    const tape = parseTape(buildTradeTapeFrame({ snapshot: false }), false);
+    expect(tape!.snap).toBe(false);
+  });
+});
+
+describe("parseServerMessage / parseLoginResp", () => {
+  it("ServerMessage 는 해석 없이 그대로 흘린다 (빈 ISIN = 브로드캐스트)", () => {
+    const parsed = tryParseEnvelope(Buffer.from(buildServerMessageFrame({ level: "WARN" })));
+    const msg = parseServerMessage(parsed!.env);
+
+    expect(msg).toEqual({
+      t: "msg",
+      lv: "WARN",
+      m: "세션에 참여했습니다",
+      i: "",
+      a: "",
+      src: "System",
+      kind: "SessionJoin",
+    });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("LoginResp 는 success/message 만 읽는다 (계좌 벡터 비참조, D-25)", () => {
+    const ok = tryParseEnvelope(Buffer.from(buildLoginRespFrame({ success: true })));
+    expect(parseLoginResp(ok!.env)).toEqual({ success: true, message: "" });
+
+    const rejected = tryParseEnvelope(
+      Buffer.from(buildLoginRespFrame({ success: false, message: "로그인 거부" })),
+    );
+    expect(parseLoginResp(rejected!.env)).toEqual({ success: false, message: "로그인 거부" });
+  });
+
+  it("슬롯이 비면 드롭한다", () => {
+    const bare = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.LoginResp)));
+    expect(parseLoginResp(bare!.env)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+});

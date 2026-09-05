@@ -1,0 +1,20 @@
+{
+  // Phase 15 Plan 02 — RELAY-01. 테스트/헬퍼 전용 타입체크 설정.
+  //
+  // 운영 tsconfig 는 `tests/` 와 `src/**/*.test.ts` 를 제외한다(빌드 산출물에서 빼기
+  // 위해서다). 그 결과 `tests/helpers/*` 는 어떤 tsc 도 보지 않는 사각지대가 되는데,
+  // 이 헬퍼들은 Phase 15 의 남은 plan 전부가 의존하는 도구다. vitest 는 타입을 보지
+  // 않으므로 여기서 별도로 본다 — 실제로 도입 즉시 2건(enum 인자·도달 불가 비교)을
+  // 잡았다.
+  //
+  // 실행: `pnpm --filter @gh-radar/relay run typecheck:tests`
+  // 루트 `pnpm -r run typecheck` 는 `typecheck` 만 돌므로 이 설정과 무관하다.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
