@@ -41,6 +41,7 @@ export type {
   CreateOrderRequest,
   CreateOrderResponse,
   DmaOrderStatus,
+  DmaOrderRow,
 } from "./relay";
 export { RELAY_STATE_LABELS, RELAY_WS_CLOSE, ORDER_CONDITION_NORMAL } from "./relay";
 export type { Summary, SummaryType, Sentiment } from "./summary";

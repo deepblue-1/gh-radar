@@ -4,6 +4,7 @@ import { supabase } from "./services/supabase.js";
 import { logger } from "./logger.js";
 import { loadConfig } from "./config.js";
 import { createKiwoomRuntime } from "./services/kiwoom-runtime.js";
+import { createRelayClient } from "./services/relay-client.js";
 
 const config = loadConfig();
 
@@ -62,6 +63,24 @@ if (config.brightdataApiKey) {
   );
 }
 
+// Phase 15 — relay 내부 HTTP 클라이언트 (D-08/D-22). 두 env 가 모두 있을 때만 만든다.
+// 미설정 시 relayClient=undefined → POST /api/orders 만 503 RELAY_UNAVAILABLE.
+// T-15-06: RELAY_INTERNAL_URL 이 서브넷(10.10.0.0/26) 밖이면 createRelayClient 가 throw
+// 한다 — 공유 비밀이 인터넷의 임의 호스트로 나가느니 부팅에 실패하는 편이 낫다.
+let relayClient = undefined;
+if (config.relayInternalUrl && config.relayOrderSecret) {
+  relayClient = createRelayClient({
+    baseUrl: config.relayInternalUrl,
+    secret: config.relayOrderSecret,
+    timeoutMs: config.orderTimeoutMs,
+    nodeEnv: config.nodeEnv,
+  });
+} else {
+  logger.warn(
+    "RELAY_INTERNAL_URL/RELAY_ORDER_SECRET not set — POST /api/orders will return 503",
+  );
+}
+
 const app = createApp({
   supabase,
   kiwoomRuntime,
@@ -69,6 +88,7 @@ const app = createApp({
   brightdataClient,
   brightdataApiKey: config.brightdataApiKey,
   brightdataZone: config.brightdataZone,
+  relayClient,
 });
 
 app.listen(config.port, () => {

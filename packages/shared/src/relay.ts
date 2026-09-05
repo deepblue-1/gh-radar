@@ -377,3 +377,43 @@ export type CreateOrderResponse = {
   message: string;
   status: DmaOrderStatus;
 };
+
+/**
+ * `GET /api/orders` 응답 1건 (server → webapp) — `dma_orders` 한 행의 camelCase 뷰.
+ *
+ * 한 행이 주문 하나의 **수명주기 전체**를 담는다 (D-24): server 가 요청을 insert 하고,
+ * 접수/거부 응답으로 1차 갱신하고, 이후 체결·취소확인 통보를 relay 가 같은 행에 쓴다.
+ * 그래서 새로고침 후에도 오늘 주문 목록을 이 조회 하나로 복원할 수 있다.
+ *
+ * `userId` 는 담지 않는다 — 항상 요청자 본인의 행만 나가므로 실을 이유가 없다.
+ *
+ * ⚠️ `status:"timeout"` 은 **"실패"가 아니라 "결과를 모름"** 이다. UI 는 "결과 확인 중 —
+ * 미체결 목록을 확인하세요"를 표시하고 재주문을 유도하지 않는다 (Pitfall 9).
+ */
+export type DmaOrderRow = {
+  id: string;
+  accountNo: string;
+  /** 12자 KRX 표준코드. 게이트웨이 주문 키 (D-28). */
+  isin: string;
+  /** 6자 단축코드. 상장폐지로 마스터에서 빠지면 null (기록은 남는다). */
+  stockCode: string | null;
+  exchange: RelayExchange;
+  market: OrderMarket;
+  side: OrderSide;
+  orderType: OrderType;
+  /** 취소 주문의 원주문번호. 신규는 null. */
+  orgOrderNo: string | null;
+  qty: number;
+  price: number;
+  /** 접수 후 부여. 접수 전 거부·타임아웃이면 null. */
+  orderNo: string | null;
+  status: DmaOrderStatus;
+  /** 0=성공, 그 외 거부코드. 통보 전이면 null. */
+  resultCode: number | null;
+  /** 게이트웨이 통보 원문 1자 (A/E/C/R). 해석하지 않는다. */
+  noticeType: string | null;
+  message: string | null;
+  filledQty: number;
+  createdAt: string;
+  updatedAt: string;
+};
