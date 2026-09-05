@@ -225,6 +225,11 @@ log "Artifact Registry 로그인"
 docker pull "$TARGET_IMAGE" >/dev/null
 log "pull 완료: $TARGET_IMAGE"
 
+# `docker login` 은 액세스 토큰을 /root/.docker/config.json 에 **평문으로** 남긴다
+# (docker 가 경고로 알려 준다). 이미지를 이미 받았으니 자격증명을 붙들고 있을 이유가 없다 —
+# 재시작 정책은 로컬 이미지를 쓰므로 로그아웃해도 컨테이너 복구에 지장이 없다.
+docker logout "$(echo "$TARGET_IMAGE" | cut -d/ -f1)" >/dev/null 2>&1 || true
+
 # ── 비밀 3종 → tmpfs env-file (T-15-29) ────────────────────────
 # /dev/shm 는 tmpfs 라 디스크에 닿지 않는다. 0600 + trap 삭제로 실행 직후 사라진다.
 umask 077

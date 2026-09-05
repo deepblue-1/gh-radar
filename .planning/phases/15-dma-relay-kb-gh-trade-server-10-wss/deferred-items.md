@@ -106,3 +106,26 @@
 - **권고:** `rls_auto_enable()` 의 production 정의를
   `pg_get_functiondef` 로 덤프해 보정(backfill) 마이그레이션으로 커밋하는 quick task.
   적용 완료 표시만 필요하므로 `CREATE OR REPLACE` 로 두면 production 에도 무해하다.
+
+## [15-08] `gh-radar-relay-down` 알림이 단일 리전 순간 실패에도 울릴 수 있다 (임계값 튜닝)
+
+- **발견 경로:** 15-08 Task 2 — `ops/alert-relay-down.yaml` 작성 중 임계값 의미를 따져 보다가.
+- **증상(예상):** plan 이 지정한 조건은 `ALIGN_FRACTION_TRUE` + `COMPARISON_LT` +
+  `thresholdValue: 1` + `duration: 300s` 다. 즉 **성공률이 100% 미만이면 조건 성립**이다.
+  uptime check 는 여러 리전에서 동시에 두드리므로, 한 리전에서 한 번만 실패해도
+  5분 창의 fraction 이 1 아래로 떨어져 알림이 뜰 수 있다.
+- **15-08 에서 한 조치:** plan 이 명시한 값을 그대로 따랐다(임계값은 plan 의 명시 스펙이라
+  임의 변경 대상이 아니다). 대신 `crossSeriesReducer: REDUCE_MEAN` + `groupByFields:
+  [resource.label.host]` 를 더해 리전별로 **중복 인시던트가 열리는 것**은 막았다.
+  `alertStrategy.autoClose: 1800s` 라 오탐이 떠도 30분 뒤 자동으로 닫힌다.
+- **권고:** 운영 며칠 뒤 실제 오탐 빈도를 보고 `thresholdValue` 를 0.5~0.7 로 낮추는
+  quick task. **장중 실사용이 시작되기 전에** 판단할 것 — 오탐으로 알림을 무시하는 습관이
+  생기면 진짜 장애를 놓친다. 반대로 너무 둔감하면 relay 다운이 곧 주문 불가다.
+
+## [15-08] `smoke-relay.sh --check-isin` 미구현 (15-10 소관 · 의도된 공백)
+
+- **현재:** 안내 문구를 출력하고 `exit 0` 한다. 실패로 세지 않는다.
+- **이유:** `stocks.isin` 백필이 15-10 산출물이라 지금 검증할 데이터 자체가 없다.
+  실패로 두면 배포 검증(INV-1~8)이 아직 존재하지 않는 데이터에 발목잡힌다.
+- **권고:** 15-10 이 백필을 끝내면 이 분기를 채운다.
+  예정 검증: 주식(ETP 제외) 행의 `isin` null 카운트 == 0, `length(isin) = 12`.

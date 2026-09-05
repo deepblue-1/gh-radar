@@ -144,11 +144,22 @@ port_closed() {
 #   ① 잘못된 토큰 → close 4401
 #   ② 5초 무전송  → close 4401 (authTimer)
 ws_auth_probe() {
-  local dir js
+  local dir js ws_module rc=0
+
+  # `ws` 의 절대 경로를 먼저 구한다. CommonJS 의 `require("ws")` 는 **cwd 가 아니라
+  # 스크립트 파일이 있는 디렉터리**부터 node_modules 를 거슬러 올라간다 — 프로브를
+  # /tmp 에 두고 `pnpm --filter ... exec node <파일>` 로 돌리면 pnpm 이 cwd 를
+  # relay/ 로 바꿔도 MODULE_NOT_FOUND 로 죽는다. 경로를 인자로 넘겨 그 함정을 없앤다.
+  ws_module="$(cd "$REPO_ROOT" && pnpm --filter @gh-radar/relay exec node -p "require.resolve('ws')" 2>/dev/null | tail -1)"
+  if [[ -z "$ws_module" ]] || [[ ! -f "$ws_module" ]]; then
+    echo "ws 모듈 해석 실패 — 'pnpm install' 이 선행돼야 합니다." >&2
+    return 1
+  fi
+
   dir="$(mktemp -d)"
   js="${dir}/ws-auth-probe.cjs"
   cat > "$js" <<'WS_PROBE_EOF'
-const WebSocket = require("ws");
+const WebSocket = require(process.argv[3]);
 
 const url = process.argv[2];
 const EXPECTED_CLOSE = 4401;
@@ -188,8 +199,7 @@ function closeCode(sendBad) {
 });
 WS_PROBE_EOF
 
-  local rc=0
-  ( cd "$REPO_ROOT" && pnpm --filter @gh-radar/relay exec node "$js" "wss://${HOST}/ws" ) || rc=$?
+  node "$js" "wss://${HOST}/ws" "$ws_module" || rc=$?
   rm -rf "$dir"
   return "$rc"
 }
