@@ -104,8 +104,17 @@ export interface FanoutSessions {
 }
 
 export type WsFanoutDeps = {
-  /** HTTP 서버와 포트를 공유한다(`noServer` + `handleUpgrade`). */
-  server: HttpServer;
+  /**
+   * HTTP 서버와 포트를 공유한다(`noServer` + `handleUpgrade`).
+   *
+   * **선택이다.** 주면 생성자가 `upgrade` 리스너를 스스로 붙인다(테스트 편의 — 15-04
+   * 하네스가 쓰는 경로). 주지 않으면 호출자가 `handleUpgrade()` 를 직접 결선해야 한다.
+   *
+   * `index.ts`(15-05)는 **주지 않는 쪽**을 쓴다: 8090 서버는 업그레이드만 받는 게 아니라
+   * Caddy 가 넘기는 평문 HTTP 요청에도 응답해야 하므로 `request` 핸들러를 함께 소유한다.
+   * 한 포트의 라우팅 결정을 두 모듈이 나눠 갖지 않도록 부팅 결선이 전부 쥔다.
+   */
+  server?: HttpServer;
   /** 토큰 검증 + `dma_credentials` 조회를 겸하는 서비스롤 클라이언트. */
   supabase: SupabaseClient;
   sessions: FanoutSessions;
@@ -165,7 +174,8 @@ function keyOf(isin: string, ex: RelayExchange): string {
  */
 export class WsFanout {
   readonly #wss: WebSocketServer;
-  readonly #server: HttpServer;
+  /** 생성자가 `upgrade` 리스너를 붙인 서버. 결선을 호출자가 쥐면 `undefined` 다. */
+  readonly #server: HttpServer | undefined;
   readonly #supabase: SupabaseClient;
   readonly #sessions: FanoutSessions;
   readonly #hub: SubscriptionHub;
@@ -198,17 +208,8 @@ export class WsFanout {
       perMessageDeflate: PERMESSAGE_DEFLATE,
     });
 
-    this.#onUpgrade = (req, socket, head): void => {
-      // 경로가 다르면 업그레이드하지 않는다. `URL` 로 파싱해 쿼리스트링이 붙어도 안전하게.
-      const pathname = new URL(req.url ?? "/", "http://relay.invalid").pathname;
-      if (pathname !== this.#path) {
-        logger.warn({ pathname }, "[WS] 알 수 없는 경로 업그레이드 — 거부");
-        socket.destroy();
-        return;
-      }
-      this.#wss.handleUpgrade(req, socket, head, (ws) => this.#onConnection(ws));
-    };
-    this.#server.on("upgrade", this.#onUpgrade);
+    this.#onUpgrade = (req, socket, head): void => this.handleUpgrade(req, socket, head);
+    this.#server?.on("upgrade", this.#onUpgrade);
 
     // Hub 는 **userId 를 지정해서만** 내보낸다. 여기서 그 사용자의 소켓 집합으로 좁힌다.
     this.#hub.on("fanout", (e) => this.#deliver(e.userId, e.msg));
@@ -221,19 +222,63 @@ export class WsFanout {
     return { connectionCount: this.#conns.size, authedUserCount: this.#users.size };
   }
 
-  /** 종료 — 하트비트·소켓·서버를 전부 정리한다. */
-  async close(): Promise<void> {
-    clearInterval(this.#heartbeat);
-    this.#server.removeListener("upgrade", this.#onUpgrade);
-    for (const conn of [...this.#conns]) {
-      this.#clearAuthTimer(conn);
-      conn.ws.terminate();
+  /**
+   * HTTP 업그레이드 1건을 wss 로 승격한다.
+   *
+   * `deps.server` 를 준 경우 생성자가 이 메서드를 `upgrade` 리스너로 붙인다. 주지 않은
+   * 경우(=`index.ts`) 호출자가 직접 결선한다 — 어느 쪽이든 경로 판정은 여기 한 곳이다.
+   */
+  handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    // 경로가 다르면 업그레이드하지 않는다. `URL` 로 파싱해 쿼리스트링이 붙어도 안전하게.
+    const pathname = new URL(req.url ?? "/", "http://relay.invalid").pathname;
+    if (pathname !== this.#path) {
+      logger.warn({ pathname }, "[WS] 알 수 없는 경로 업그레이드 — 거부");
+      socket.destroy();
+      return;
     }
+    this.#wss.handleUpgrade(req, socket, head, (ws) => this.#onConnection(ws));
+  }
+
+  /**
+   * 종료 — 하트비트·소켓·서버를 전부 정리한다.
+   *
+   * `code` 를 주면 **정상 close 프레임**을 먼저 보낸다(프로세스 graceful shutdown 은
+   * `1001 going away`). 프레임 없이 `terminate()` 하면 브라우저에는 비정상 단절로 보여
+   * `use-relay-socket`(15-12)이 즉시 재접속을 시도하는데, 그때 컨테이너는 아직 내려가는
+   * 중이라 재접속이 실패하고 백오프만 벌어진다. 코드를 주지 않으면 즉시 terminate 다.
+   *
+   * close 프레임이 실제로 나가려면 이벤트 루프 한 바퀴가 필요하므로 `graceMs` 만큼만
+   * 기다린 뒤 남은 소켓은 강제 종료한다 — 종료가 소켓 사정에 매달리지 않게 한다.
+   */
+  async closeAll(code?: number, reason = "server shutting down", graceMs = 250): Promise<void> {
+    clearInterval(this.#heartbeat);
+    this.#server?.removeListener("upgrade", this.#onUpgrade);
+
+    const conns = [...this.#conns];
+    for (const conn of conns) {
+      this.#clearAuthTimer(conn);
+      if (code !== undefined && conn.ws.readyState === WebSocket.OPEN) {
+        conn.ws.close(code, reason);
+      } else {
+        conn.ws.terminate();
+      }
+    }
+
+    if (code !== undefined && conns.length > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, graceMs));
+      for (const conn of conns) conn.ws.terminate();
+    }
+
     this.#conns.clear();
     this.#users.clear();
     await new Promise<void>((resolve) => {
       this.#wss.close(() => resolve());
     });
+  }
+
+  /** `closeAll()` 별칭(즉시 terminate). 15-04 테스트 하네스가 쓰는 이름이다. */
+  async close(): Promise<void> {
+    await this.closeAll();
   }
 
   // ----------------------------------------------------------
