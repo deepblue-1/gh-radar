@@ -551,7 +551,7 @@ Plans:
   8. `relay/Dockerfile` + `scripts/setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책 + VM 프로비저닝 문서(openconnect systemd 유닛·Caddy·Secret Manager: 비밀번호 값은 문서·로그·커밋 어디에도 없음)가 존재하고 실서버(10.41.1.120)·실계좌 접속은 사용자 지시 전엔 하지 않는다.
 
 **Out of scope:** 거래원(MemberStats) 팬아웃, 정정(M)·IOC/FOK·시장가, 서버측 주문 한도, 웹앱 자격증명 입력 UI, 공용 시세 세션, Cloud Run WebSocket, gh-trade 전략 메시지 조작, `GetSymbolMasterReq(27)`.
-**Plans:** 7/20 plans executed
+**Plans:** 8/20 plans executed
 
 Plans:
 **Wave 1**
@@ -562,7 +562,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 15-03-PLAN.md — DmaClient(30초 LivePing·백오프 상한 10·generation) + Session 상태기계 + SessionManager(5분 유예) (SC-3)
-- [ ] 15-04-PLAN.md — SubscriptionHub(참조계수·스냅샷 캐시) + verify-token/AES 자격증명 + WsFanout(첫 메시지 인증·4401·백프레셔) (SC-4)
+- [x] 15-04-PLAN.md — SubscriptionHub(참조계수·스냅샷 캐시) + verify-token/AES 자격증명 + WsFanout(첫 메시지 인증·4401·백프레셔) (SC-4)
 - [ ] 15-05-PLAN.md — relay 부팅 결선·graceful shutdown + 내부 HTTP `/healthz`(공유 비밀 상수시간 검증) + Dockerfile + 관리자 등록 스크립트 (SC-8)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -621,4 +621,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
-| 15. DMA 중계 서버(relay) | 7/20 | In Progress|  |
+| 15. DMA 중계 서버(relay) | 8/20 | In Progress|  |
