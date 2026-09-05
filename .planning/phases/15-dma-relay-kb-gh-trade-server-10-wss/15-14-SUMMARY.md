@@ -3,7 +3,7 @@ phase: 15-dma-relay-kb-gh-trade-server-10-wss
 plan: 14
 subsystem: webapp-orderbook-verification
 tags: [testing, e2e, playwright, relay, wss, fixtures, env]
-status: checkpoint-pending
+status: complete
 
 # Dependency graph
 requires:
@@ -26,7 +26,7 @@ provides:
   - "webapp/README.md — NEXT_PUBLIC_* 환경변수 표 + paste 개행 검증 절차"
 affects:
   - "15-19/검증 wave — 호가창 회귀는 이제 `playwright test orderbook` 하나로 잡힌다"
-  - "Vercel 프로덕션 — NEXT_PUBLIC_RELAY_WS_URL 등록이 **미완(사람 게이트)**"
+  - "Vercel 프로덕션 — NEXT_PUBLIC_RELAY_WS_URL=wss://dma.jx1.io/ws 가 Production+Preview 에 등록·배포 완료. 이후 프론트 배포는 이 값을 인라인한다"
 
 # Tech tracking
 tech-stack:
@@ -64,18 +64,18 @@ patterns-established:
   - "통합 E2E 의 스텁 경계는 '이 plan 이 증명하려는 경로 밖' 에만 둔다 — relay·게이트웨이 왕복은 진짜, 그 바깥(Supabase 서명 검증)만 가짜"
   - "테스트가 실계좌 표면에 닿을 수 있으면 기본값이 아니라 **명시 + grep 검사** 두 겹으로 막는다"
 
-requirements-completed: []
+requirements-completed: [RELAY-01]
 
 # Metrics
-duration: 50min
+duration: 55min
 completed: 2026-09-06
-tasks: 2.5
-commits: 3
+tasks: 3
+commits: 5
 ---
 
 # Phase 15 Plan 14: 호가창 컴포넌트 테스트 + wss 왕복 E2E Summary
 
-**호가창을 두 층에서 자동 검증으로 잠갔다 — 훅만 스텁한 섹션 계약 13건, 그리고 진짜 브라우저가 진짜 relay 프로세스를 거쳐 스텁 게이트웨이까지 왕복하는 E2E 7건. `NEXT_PUBLIC_RELAY_WS_URL` 의 Vercel 등록·배포·프로덕션 확인은 사람 게이트로 남아 있다(Task 3 체크포인트).**
+**호가창을 두 층에서 자동 검증으로 잠갔다 — 훅만 스텁한 섹션 계약 13건, 그리고 진짜 브라우저가 진짜 relay 프로세스를 거쳐 스텁 게이트웨이까지 왕복하는 E2E 7건. `NEXT_PUBLIC_RELAY_WS_URL=wss://dma.jx1.io/ws` 는 Production+Preview 에 등록·배포됐고, 개행 오염 없음이 프로덕션 번들 바이트 대조까지 3중으로 확인됐다.**
 
 ## 진행 상태
 
@@ -83,7 +83,7 @@ commits: 3
 |------|------|------|
 | 1 | 호가창 컴포넌트 테스트 | ✅ 완료 (`e2596a8`) |
 | 2 | E2E 픽스처 + `orderbook.spec.ts` | ✅ 완료 (`70765be`) |
-| 3 | Vercel `NEXT_PUBLIC_RELAY_WS_URL` 등록 + 프로덕션 확인 | ⏸ **체크포인트 — 사람 확인 대기**<br>문서 부분만 선행 완료 (`f985a26`) |
+| 3 | Vercel `NEXT_PUBLIC_RELAY_WS_URL` 등록 + 프로덕션 확인 | ✅ 완료 — 문서 `f985a26`, env 등록·배포·검증은 오케스트레이터 실행(아래 §Task 3) |
 
 ## 무엇을 만들었나
 
@@ -122,7 +122,7 @@ commits: 3
 | SC-7 컴포넌트 테스트가 10단 렌더·거래소 토글·상태 배지·게이트·빈 상태를 증명 | 13건 — ①20행+`.mono` ②단계-최대 정규화(누적 반례 포함) ③클릭이 구분을 안 바꿈 ④roving tabindex ⑤토글이 훅까지 전달 ⑥NXT 빈 상태 ⑦unauthorized 게이트 ⑧isin null 게이트 ⑨호가 없음 ⑩체결 없음 ⑪stale 유지 ⑫`▲ 매수`/`▼ 매도` ⑬배지 4종 verbatim |
 | SC-7 / D-40 Playwright E2E 가 **로컬 relay + 스텁 게이트웨이** 위에서 wss 왕복을 증명 | 7케이스 green. 인증 → 상태 프레임 → `sub` → `GetQuoteReq` → 스냅샷 → 팬아웃 → 사다리 렌더가 한 줄로 이어진다 |
 | SC-7 비로그인·권한 없음 사용자가 게이트를 보고 기존 탭은 그대로 | 케이스 5(매핑 없음 → 게이트 + `?tab=chart` 정상) · 케이스 7(비로그인 → `/login` 리다이렉트 + wss 미시도) |
-| SC-7 / D-41 Vercel 프로덕션 env 설정 + 개행 없음 검증 | ⏸ **미완 — 체크포인트**. 검증 절차와 값은 `webapp/README.md` 에 박제 |
+| SC-7 / D-41 Vercel 프로덕션 env 설정 + 개행 없음 검증 | ✅ Production+Preview 2행 등록. 마지막 바이트 `73`(=`s`), 19바이트, 프로덕션 chunk 에 `\n` 오염 0건 — **로컬 빌드 산출물과 바이트 동일**(`cmp`). 절차는 `webapp/README.md` |
 
 ## acceptance_criteria 실측
 
@@ -162,6 +162,62 @@ commits: 3
 
 15-14 의 변경 파일은 라우팅·미들웨어·토론 픽스처를 건드리지 않는다.
 
+## Task 3 — Vercel 프로덕션 env (오케스트레이터 실행)
+
+이 plan 은 `autonomous: false` 였고 Task 3 는 사람 게이트였다. 실행자는 **문서만** 선행하고
+(`f985a26`) 멈췄으며, Vercel 로그인·등록·배포·프로덕션 확인은 **오케스트레이터가 수행**했다.
+아래는 그 실측 결과다.
+
+| 항목 | 값 |
+| --- | --- |
+| 계정 / 프로젝트 | `alex-9271` / `alexs-projects-eabbefc0/gh-radar-webapp` |
+| 변수 | `NEXT_PUBLIC_RELAY_WS_URL` = `wss://dma.jx1.io/ws` |
+| 대상 환경 | **Production + Preview** (`vercel env ls` 에 2행) |
+| 배포 | `vercel pull --environment=production` → `vercel build --prod` → `vercel deploy --prebuilt --prod` |
+| 배포 ID | `dpl_JBH7qdf4Spzwo9eSBQpcN8sbgmxF` · `readyState: READY` · `https://gh-radar-webapp.vercel.app` 로 alias |
+
+### 개행 오염 검증 (3중) — T-15-42
+
+| 단계 | 결과 |
+| --- | --- |
+| `vercel env pull` 후 값 | `wss://dma.jx1.io/ws` |
+| 마지막 바이트 | **`73`** (= `s`) — `0a` **아님** |
+| 바이트 수 | **19** |
+| 로컬 빌드 산출물 | `.vercel/output/.../page-3d8cd6ca10ae53b6.js` 에 인라인 **1건**, `wss://…/ws\n` 패턴 **0건** |
+| 프로덕션 chunk 직접 fetch | HTTP 200 · 인라인 1건 · 개행 오염 0건 · **로컬 빌드와 바이트 동일(`cmp` 일치)** |
+
+마지막 행이 이 검증의 핵심이다. env 값만 보면 "대시보드에 잘 들어갔다" 까지밖에 모른다.
+**프로덕션이 실제로 내려주는 번들 바이트가 로컬 빌드와 같다**는 것이 곧 "빌드 시점 인라인이
+의도한 문자열로 일어났다" 는 증명이다.
+
+### 프로덕션 회귀 확인
+
+| 경로 | 결과 |
+| --- | --- |
+| `/` | 200 |
+| `/scanner` | 307 → `/login?next=%2Fscanner` → 최종 **200** |
+| `/stocks/005930?tab=chart` | 307 → `/login?…` → 최종 **200** |
+| `/stocks/005930?tab=orderbook` | 307 → `/login?…` → 최종 **200** |
+
+307 은 비로그인 요청에 대한 인증 가드의 정상 동작이다(회귀 아님). 이 spec 의 E2E 케이스 7 이
+로컬에서 단언하는 것과 같은 동작을 프로덕션에서도 확인한 셈이다.
+
+### ★ 확인하지 못한 것 (정직한 구분)
+
+플랜 Task 3 의 4·5번은 **로그인 세션이 필요해 확인하지 못했다.** 비로그인 요청은 종목상세에
+도달하기 전에 `/login` 으로 리다이렉트되기 때문이다.
+
+| 항목 | 상태 |
+| --- | --- |
+| 프로덕션에서 상태 바가 실제로 렌더되는지 · JS 콘솔 에러 0건인지 | ❌ **브라우저 실측 미확인** |
+| devtools Network 의 wss 요청 URL 이 `wss://dma.jx1.io/ws` 이고 쿼리스트링에 토큰이 없는지 | ⚠️ **코드로 보장 / 브라우저 실측 미확인** |
+
+토큰이 쿼리스트링에 실리지 않는 성질은 15-12 의 acceptance(`grep 'token=' → 0건`)와
+`useRelaySocket` 의 **첫 메시지 본문 인증** 설계(D-11 / T-15-04)로 코드 레벨에서는 보장된다.
+그러나 "코드가 그렇게 되어 있다" 와 "프로덕션 브라우저에서 그렇게 나갔다" 는 다른 진술이다 —
+후자는 로그인 세션으로 종목상세에 진입해야 확인할 수 있으므로 **미확인으로 남긴다.**
+번들이 깨지지 않았다는 것(3중 검증)과 기존 페이지 회귀가 없다는 것까지가 지금 증명된 범위다.
+
 ## 위협 대응 (threat register)
 
 | Threat | 대응 | 증명 |
@@ -170,7 +226,7 @@ commits: 3
 | T-15-04 토큰 노출 | E2E 케이스 1 이 업그레이드 URL 을 `page.on('websocket')` 으로 캡처해 쿼리스트링 부재를 단언 | `expect(url).not.toContain('?')` |
 | T-15-21 권한 게이트 | 케이스 5(매핑 없음)·7(비로그인) 이 **실제 브라우저**에서 두 경로를 확인. 7 은 wss 소켓이 0개임까지 단언 | 두 케이스 green |
 | T-15-46 테스트 자원 누수 | `stop()` 이 SIGTERM → 3초 데드맨 SIGKILL + 게이트웨이·Supabase 스텁 정리. 고정 포트 선점 시 **원인을 말하고** 실패 | 전체 실행 정상 종료, `lsof -ti :8090` 없음 |
-| T-15-42 Vercel env 오설정 | 검증 명령(`vercel env pull` → 마지막 바이트)과 실패 모드를 README 에 박제 | ⏸ 실제 등록은 체크포인트 |
+| T-15-42 Vercel env 오설정 | 등록 후 3중 검증 — `vercel env pull` 마지막 바이트 `73`, 로컬 빌드 chunk 인라인 1건·`\n` 0건, 프로덕션 chunk 직접 fetch 후 로컬과 `cmp` 일치 | 아래 §Task 3 |
 
 ## Deviations from Plan
 
@@ -215,7 +271,22 @@ commits: 3
   셋업 절차는 `SETUP.md` 가 이미 담당하므로 README 는 **환경변수 표 + 배포/테스트 메모**만 두고
   나머지는 `SETUP.md` 로 링크했다. 실제 개발자가 복사하는 `.env.local.example` 에도 행을 추가했다.
 
-**Total deviations:** 4 auto-fixed (Rule 1×3, Rule 3×2 중 중복 제외) + 해석 5건. 새 npm 의존성 **0**.
+### Task 3 에서 드러난 정정 · 환경 문제
+
+**5. [정정] 체크포인트 메시지의 "18자" 는 오기 — 실측 19바이트**
+- 실행자가 체크포인트에서 `wss://dma.jx1.io/ws` 를 "18자" 로 적었으나 실측은 **19바이트**다.
+  검증 절차의 정본은 **`vercel env pull` 후 마지막 바이트가 `0a` 가 아닌지**이고 길이는 보조
+  단서일 뿐이지만, 보조 단서가 틀리면 그것대로 사람을 헷갈리게 한다. 눈으로 센 값을 실측인 양
+  적지 않는다 — 이 SUMMARY 의 §Task 3 표에는 실측 19를 기록했다.
+
+**6. [환경] 구버전 Vercel CLI 에서 Preview env 등록이 막힌다**
+- 설치돼 있던 CLI 50.37.0 은 `vercel env add … preview --value --yes` 를 모르고
+  `git_branch_required` 로 실패한다. `npx vercel@latest` 로 우회해 등록했고, 이후 전역 CLI 를
+  **59.11.7** 로 갱신했다(로그인 유지 확인). 다음 사람이 같은 데서 멈추지 않도록
+  `webapp/README.md` 에 한 줄 남겼다.
+
+**Total deviations:** 4 auto-fixed (Rule 1×3, Rule 3×2 중 중복 제외) + 해석 5건 + 정정/환경 2건.
+새 npm 의존성 **0**.
 
 ## Known Stubs
 
@@ -242,12 +313,11 @@ Playwright 프로세스 수명 안에서만 산다. 오히려 `playwright.config
 
 ## Next Phase Readiness
 
-- **Task 3(체크포인트) 이후 할 일:** Vercel Production/Preview 에
-  `NEXT_PUBLIC_RELAY_WS_URL=wss://dma.jx1.io/ws` 등록 → `vercel env pull` 로 마지막 바이트가
-  `0a` 가 **아님** 확인 → 저장소 루트에서 `vercel pull && vercel build && vercel deploy --prebuilt`
-  (자동 배포는 `scripts/vercel-ignore-build.sh` 가 skip 할 수 있다) → 프로덕션
-  `/stocks/005930?tab=orderbook` 에서 상태 바 렌더 + 콘솔 에러 0 + devtools Network 의 wss URL 에
-  쿼리스트링 없음 확인. relay 가 mock 을 향하고 있으므로 `재접속 중`/`회선 단절` 은 정상이다.
+- **남은 브라우저 실측 1건.** 프로덕션 상태 바 렌더 · 콘솔 에러 0 · wss 요청 URL 의 쿼리스트링
+  부재는 **로그인 세션이 있어야** 확인할 수 있어 미확인으로 남았다(위 §Task 3). `dma_credentials`
+  매핑이 있는 계정으로 프로덕션 `/stocks/005930?tab=orderbook` 에 들어가 devtools Network 를
+  한 번 보면 끝난다. relay 가 아직 mock 을 향하므로 `재접속 중`/`회선 단절` 배지는 정상이며,
+  이 확인의 대상은 **번들이 살아 있고 소켓이 올바른 주소로 나가는가** 다.
 - **호가창 회귀 진입점:** `pnpm --filter webapp exec playwright test orderbook`. 이 spec 은
   relay wss 포트 **8090** 을 점유하므로 `./dev.sh --with-relay` 가 떠 있으면 먼저 내려야 한다
   (픽스처가 원인을 말하고 실패한다).
@@ -256,11 +326,13 @@ Playwright 프로세스 수명 안에서만 산다. 오히려 `playwright.config
 
 ---
 *Phase: 15-dma-relay-kb-gh-trade-server-10-wss*
-*Completed (Task 1~2): 2026-09-06 — Task 3 은 체크포인트 대기*
+*Completed: 2026-09-06 (Task 1~2 실행자 / Task 3 오케스트레이터)*
 
 ## Self-Check: PASSED
 
 - 생성 파일 5종 전부 디스크에 존재 (산출물 4 + SUMMARY)
-- 커밋 3건 전부 `git log` 에 존재 — `e2596a8` · `70765be` · `f985a26`
-- 위 검증 표의 명령(test / typecheck / playwright / grep / lsof)은 전부 실제 실행 결과다
-- **Task 3 은 실행하지 않았다** — Vercel env 등록·배포·프로덕션 확인은 사람 게이트다
+- 커밋 전부 이력에 존재 — `e2596a8` · `70765be` · `f985a26` · `7284407` · (본 갱신)
+- Task 1~2 검증 표의 명령(test / typecheck / playwright / grep / lsof)은 실행자가 직접 돌린 결과다
+- **§Task 3 의 수치는 오케스트레이터 실행 결과를 전달받아 기록한 것**이다. 실행자는 Vercel·배포·
+  프로덕션에 접근하지 않았다(scope boundary). 출처를 섞지 않으려고 절을 분리했다
+- **미확인 2건**(프로덕션 상태 바 렌더 · wss 요청 URL 브라우저 실측)을 완료로 적지 않았다
