@@ -4,10 +4,10 @@ set -uo pipefail
 
 # ═══════════════════════════════════════════════════════════════
 # smoke-relay.sh
-# Phase 15 (RELAY-03) — relay 배포 후 인프라 불변식 INV-1~8 검증
+# Phase 15 (RELAY-02 / RELAY-03) — relay 배포 후 인프라 불변식 INV-1~10 검증
 #
 # Usage:
-#   bash scripts/smoke-relay.sh                  # INV-1~8 전체
+#   bash scripts/smoke-relay.sh                  # INV-1~10 전체
 #   bash scripts/smoke-relay.sh --check-tls      # 인증서만 (익일 재확인용)
 #   bash scripts/smoke-relay.sh --check-exposure # INV-7 만 (내부 포트 공인 차단)
 #   bash scripts/smoke-relay.sh --check-isin     # stocks.isin 백필 커버리지 (ISIN-1~3)
@@ -290,6 +290,95 @@ isin_column_present() {
 }
 
 # ───────────────────────────────────────────────────────────────
+# 주문 경로 프로브 (INV-9 / INV-10 — Phase 15 Plan 19)
+# ───────────────────────────────────────────────────────────────
+
+# Cloud Run 서비스 URL. 명시 env 가 우선, 없으면 배포된 서비스에서 읽는다.
+server_url() {
+  if [[ -n "${SERVER_URL:-}" ]]; then printf '%s' "$SERVER_URL"; return 0; fi
+  gcloud run services describe gh-radar-server --region="$REGION" \
+    --format='value(status.url)' 2>/dev/null
+}
+
+# anon key 해석: 환경변수 → webapp/.env.local (E2E/dev 용으로 이미 있는 값).
+# 서비스롤과 달리 anon 은 **공개 키**다 — 없으면 검사를 건너뛸 뿐 실패로 세지 않는다.
+load_anon_key() {
+  if [[ -n "${SUPABASE_ANON_KEY:-}" ]]; then return 0; fi
+  if [[ -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}" ]]; then
+    SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY"; return 0
+  fi
+  SUPABASE_ANON_KEY="$(env_from_file NEXT_PUBLIC_SUPABASE_ANON_KEY "${REPO_ROOT}/webapp/.env.local" || true)"
+  [[ -n "${SUPABASE_ANON_KEY:-}" ]]
+}
+
+# INV-9 — **Cloud Run → Direct VPC Egress → VM 8091 도달성**.
+#
+# VM 내부 포트는 정의상 바깥에서 두드릴 수 없으므로(INV-7 이 그것을 지킨다), 도달성은
+# **server 를 통해 간접으로** 잰다. 인증 토큰으로 주문을 한 건 던지고 응답을 읽는다.
+#
+# ⚠️ **상태코드만 보면 안 된다.** `POST /api/orders` 는 relay 를 부르기 **전에** 두 관문을
+#    지난다 — `requireAuth`(401) 과 `dma_credentials` allowlist(403 `DMA_NOT_ALLOWED`).
+#    그런데 relay 가 계좌를 거절할 때도 403 이다(`ACCOUNT_NOT_ALLOWED`). 403 을 뭉뚱그려
+#    PASS 로 세면 **relay 에 닿지도 못한 요청이 도달성 증거로 둔갑한다.** 그래서 상태코드가
+#    아니라 **에러 코드**로 판정한다:
+#
+#   error.code                판정        의미
+#   ─────────────────────────────────────────────────────────────────────
+#   RELAY_UNAVAILABLE (503)   unreachable env 미주입 / 방화벽 / 경로 문제
+#   UNAUTHENTICATED   (401)   inconclusive 토큰이 죽었다 — relay 와 무관
+#   DMA_NOT_ALLOWED   (403)   inconclusive **allowlist 에서 끊겼다. relay 미도달**
+#   SESSION_NOT_READY (409)   reachable    relay 가 "세션 없음" 이라 답했다 ← 기대값
+#   ACCOUNT_NOT_ALLOWED(403)  reachable    relay 가 세션 계좌 목록으로 거절했다
+#   (200 / 202)               reachable    relay 가 처리했다
+#
+# 세션(호가창)을 열지 않은 상태의 기대값은 409 다. 주문은 **나가지 않는다** — relay 가
+# 세션 부재로 조립 전에 끊기 때문이다. 그래서 이 검사는 실계좌에 안전하다.
+#
+# 표준출력에 판정 한 단어를 찍는다: reachable / inconclusive / unreachable.
+order_path_probe() {
+  local url token body code errcode
+  url="$(server_url)"; token="${SMOKE_AUTH_TOKEN:-}"
+  if [[ -z "$url" ]] || [[ -z "$token" ]]; then printf 'inconclusive'; return 0; fi
+  body="$(curl -s -w $'\n%{http_code}' --max-time 20 -X POST \
+    -H "Authorization: Bearer ${token}" \
+    -H 'content-type: application/json' \
+    -d '{"code":"005930","accountNo":"0","exchange":"KRX","side":"B","orderType":"N","qty":1,"price":1}' \
+    "${url}/api/orders")"
+  code="$(printf '%s' "$body" | tail -1)"
+  errcode="$(printf '%s' "$body" | sed '$d' | sed -n 's/.*"code"[[:space:]]*:[[:space:]]*"\([A-Z_]*\)".*/\1/p' | head -1)"
+  echo "  (POST /api/orders → HTTP ${code} / ${errcode:-<본문 코드 없음>})" >&2
+  case "${errcode:-}" in
+    SESSION_NOT_READY|ACCOUNT_NOT_ALLOWED) printf 'reachable'; return 0 ;;
+    RELAY_UNAVAILABLE)                     printf 'unreachable'; return 0 ;;
+    DMA_NOT_ALLOWED|UNAUTHENTICATED|RATE_LIMITED) printf 'inconclusive'; return 0 ;;
+  esac
+  case "$code" in
+    200|202) printf 'reachable' ;;
+    503|502) printf 'unreachable' ;;
+    *)       printf 'inconclusive' ;;
+  esac
+}
+
+# INV-10 — `dma_orders` 접근 경계 (T-15-01).
+#   ① service_role 은 읽힌다 (테이블이 실재하고 감사 기록이 가능하다)
+#   ② anon 은 **거부돼야 한다**. 마이그레이션이 `REVOKE ... FROM anon, authenticated` 를
+#      명시했으므로 PostgREST 가 권한 오류를 낸다 — RLS 정책 0개인 테이블이 빈 배열 200 을
+#      돌려주는 흔한 함정과 구별되는 지점이다. 200 이 오면 회귀다.
+dma_orders_service_role_ok() {
+  supa_count "dma_orders?select=id" >/dev/null
+}
+
+dma_orders_anon_denied() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "${SUPABASE_URL}/rest/v1/dma_orders?select=id&limit=1" \
+    -H "apikey: ${SUPABASE_ANON_KEY}" \
+    -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")"
+  echo "  (anon → HTTP ${code})"
+  [[ "$code" != "200" ]]
+}
+
+# ───────────────────────────────────────────────────────────────
 # 서브커맨드
 # ───────────────────────────────────────────────────────────────
 case "${1:-}" in
@@ -364,9 +453,9 @@ case "${1:-}" in
 esac
 
 # ───────────────────────────────────────────────────────────────
-# INV-1~8
+# INV-1~10
 # ───────────────────────────────────────────────────────────────
-echo "Smoke testing relay — INV-1~8"
+echo "Smoke testing relay — INV-1~10"
 echo ""
 
 # INV-1: VM RUNNING
@@ -435,6 +524,47 @@ check "INV-8 알림 정책 ${ALERT_POLICY} + 채널 + uptime check" bash -c '
   UPTIME=$(gcloud monitoring uptime list-configs --filter="displayName=$2" --format="value(name)" 2>/dev/null | head -1)
   [ -n "$UPTIME" ]
 ' _ "$ALERT_POLICY" "$UPTIME_CHECK"
+
+# ───────────────────────────────────────────────────────────────
+# INV-9 / INV-10 — 주문 경로 (Phase 15 Plan 19, RELAY-02)
+# ───────────────────────────────────────────────────────────────
+
+# INV-9: Cloud Run → VM 내부 포트 도달성.
+#   판정은 3갈래다. "확인 안 함"(SKIP)을 PASS 로 세면 주문 경로가 죽어도 스모크가
+#   초록불로 남고, 반대로 FAIL 로 세면 토큰 없는 일상 실행이 상시 빨간불이 된다.
+if [[ -z "${SMOKE_AUTH_TOKEN:-}" ]]; then
+  skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" "SMOKE_AUTH_TOKEN 미설정 — 로그인 토큰 필요"
+elif [[ -z "$(server_url)" ]]; then
+  skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" "server URL 조회 실패"
+else
+  ORDER_PATH_VERDICT="$(order_path_probe)"
+  case "$ORDER_PATH_VERDICT" in
+    reachable)
+      check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" true
+      ;;
+    unreachable)
+      check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성 (RELAY_UNAVAILABLE)" false
+      ;;
+    *)
+      # allowlist(`dma_credentials` 행 0건)에서 끊기면 요청이 relay 까지 가지 않는다.
+      # 도달성에 대해 **아무것도 알 수 없다** — 초록불로 위장하지 않는다.
+      skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" \
+        "relay 이전 관문에서 종료(allowlist/토큰) — 도달성 판정 불가"
+      ;;
+  esac
+fi
+
+# INV-10: dma_orders 접근 경계. service_role 로는 읽히고 anon 으로는 막혀야 한다.
+if load_supabase_env >/dev/null 2>&1; then
+  check "INV-10a dma_orders service_role 조회" dma_orders_service_role_ok
+  if load_anon_key; then
+    check "INV-10b dma_orders anon 차단 (200 이면 RLS 회귀)" dma_orders_anon_denied
+  else
+    skip "INV-10b dma_orders anon 차단" "anon key 미해석 — webapp/.env.local 부재"
+  fi
+else
+  skip "INV-10 dma_orders 접근 경계" "SUPABASE_URL / SERVICE_ROLE_KEY 미해석"
+fi
 
 echo ""
 echo "참고 — 컨테이너 상태 (검증 항목 아님):"

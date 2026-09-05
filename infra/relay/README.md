@@ -95,12 +95,55 @@ GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://<ref>.supabase.co \
 NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh
 
 bash scripts/deploy-relay.sh --rollback <이전 SHA>   # 빌드 없이 태그만 되돌린다
-bash scripts/smoke-relay.sh                           # INV-1~8
+bash scripts/smoke-relay.sh                           # INV-1~10
 bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재확인용)
 ```
 
 > `DMA_HOST` 를 넘기지 않으면 **로컬 mock** 이 기본값이다 (D-27 / T-15-25).
 > 실서버 주소를 넘기면 스크립트가 경고를 출력한다 — 사용자 지시가 있었는지 먼저 확인할 것.
+
+### 주문 경로 결선 (15-19 재배포)
+
+> 15-19 Task 2 실측 (2026-09-06). relay·server 를 최신 코드로 재배포하고 주문 경로를
+> 결선했다. 이 배포의 `DMA_HOST` 도 **로컬 mock(`127.0.0.1`)** 이다 — 실서버 접속은 D-27 상 15-20 소관.
+
+| 항목 | 값 | 확인 시각 |
+|------|-----|-----------|
+| relay 이미지 | `…/relay:4ba6f83` (+ `:latest`) — 이전 `e6f39e5` 에서 교체 | 2026-09-06 |
+| relay `/healthz` | **200** · `{"status":"ok","vpn":true,"dma":true,"version":"4ba6f83","sessionCount":0}` | 2026-09-06 |
+| relay 컨테이너 | `Up` · `restart=always` · `48.4MiB / 384MiB` · `free -m` available 482 | 2026-09-06 |
+| server 이미지 | `…/server:2bf2c0a` | 2026-09-06 |
+| server 리비전 | **`gh-radar-server-00038-kc6`** — 트래픽 100% | 2026-09-06 |
+| server `/api/health` | **200** · `version:"2bf2c0a"` | 2026-09-06 |
+| **env 항목 수** | **17 → 20** (감소 0). 신규 3종 = `RELAY_INTERNAL_URL` · `ORDER_TIMEOUT_MS` · `RELAY_ORDER_SECRET` | 2026-09-06 |
+| 기존 env 잔존 | `SUPABASE_URL` · `ANTHROPIC_API_KEY` · `DISCUSSION_CLASSIFY_ENABLED(false)` 모두 유지 — 전량 치환 소실 0건 (T-15-55) | 2026-09-06 |
+| `RELAY_INTERNAL_URL` | `http://10.10.0.5:8091` (VM 내부 고정 IP) | 2026-09-06 |
+| `RELAY_ORDER_SECRET` | Secret Manager `gh-radar-relay-order-secret:latest` 참조 바인딩 (값 미기록) | 2026-09-06 |
+| relay 클라이언트 부팅 | 기동 로그에 `RELAY_… not set` 경고 **0건** → `createRelayClient` 성공 = 사설 대역 가드(10.10.0.0/26) 통과 | 2026-09-06 |
+| `POST /api/orders` 미인증 | **401 UNAUTHENTICATED** (라우트 결선 + 인증 관문 확인) | 2026-09-06 |
+| `GET /api/orders` 미인증 | **401 UNAUTHENTICATED** | 2026-09-06 |
+| `smoke-server.sh` | **PASS 14 / FAIL 0 / SKIP 0** | 2026-09-06 |
+| `smoke-relay.sh` | **PASS 11 / FAIL 0 / SKIP 2** — INV-4(VPN 수동 유닛) · INV-9(아래) | 2026-09-06 |
+| 내부 포트 공인 노출 | `8091` · `9100` 둘 다 **여전히 차단** — 이번 배포로 열리지 않았다 (INV-7 재확인) | 2026-09-06 |
+| 방화벽 | 여전히 정확히 3규칙 (443 / 22 / 8091). **포트 80 규칙 0건** | 2026-09-06 |
+| `dma_orders` 접근 경계 | service_role 조회 성공 · **anon 차단** (INV-10, RLS 회귀 없음) | 2026-09-06 |
+
+#### ⚠️ 미측정: Cloud Run → VM 8091 도달성 (INV-9 = SKIP)
+
+`POST /api/orders` 는 relay 를 부르기 **전에** allowlist 를 지난다 —
+`dma_credentials` 행이 있어야 통과한다(D-12). 현재 이 테이블은 **0행**이라,
+인증 토큰이 있어도 요청이 `403 DMA_NOT_ALLOWED` 로 끊겨 **relay 까지 가지 않는다.**
+따라서 `409 SESSION_NOT_READY`(= 도달성의 증거)는 아직 관측되지 않았다.
+
+- 이것은 **실패가 아니라 미측정**이다. `503 RELAY_UNAVAILABLE` 은 한 번도 나오지 않았고,
+  설정 측 근거(부팅 시 relay 클라이언트 구성 성공 · env 결선 · 방화벽 8091 서브넷 허용)는 모두 확인됐다.
+- 측정하려면 **`dma_credentials` 행 1개 + 그 사용자의 로그인 토큰**이 필요하다.
+  자격증명 등록은 실계정 비밀번호를 다루므로 15-19 범위 밖이며 **15-20 소관**이다.
+- 등록 후 재측정:
+  ```bash
+  SMOKE_AUTH_TOKEN=<로그인 access_token> bash scripts/smoke-relay.sh   # INV-9
+  ```
+  기대값은 **409 `SESSION_NOT_READY`** 다. `503 RELAY_UNAVAILABLE` 이면 env 미주입 또는 방화벽 문제다.
 
 ### Secret 3종 상태
 

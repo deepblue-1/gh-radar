@@ -345,9 +345,13 @@ EXISTING_UPTIME=$(gcloud monitoring uptime list-configs \
   --filter="displayName=${UPTIME_CHECK}" --format='value(name)' 2>/dev/null | head -1)
 
 if [[ -n "$EXISTING_UPTIME" ]]; then
+  # ⚠️ update 는 create 와 **플래그 이름이 다르다**: 반복 필드라서 `--status-classes` 가
+  #    아니라 `--set-status-classes`(전량 치환) 다. 15-08 은 create 경로만 탔기 때문에
+  #    이 갈래가 처음 도는 15-19 재배포에서 드러났다 — `set -e` 라 여기서 죽으면
+  #    컨테이너는 이미 새 이미지로 떠 있는데 알림 정책만 갱신되지 않은 채 끝난다.
   echo "▶ uptime check update: $UPTIME_CHECK ..."
   gcloud monitoring uptime update "$EXISTING_UPTIME" \
-    --period=1 --timeout=10 --validate-ssl=true --status-classes=2xx >/dev/null
+    --period=1 --timeout=10 --validate-ssl=true --set-status-classes=2xx >/dev/null
 else
   echo "▶ uptime check create: $UPTIME_CHECK ..."
   gcloud monitoring uptime create "$UPTIME_CHECK" \
