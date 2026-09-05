@@ -551,7 +551,7 @@ Plans:
   8. `relay/Dockerfile` + `scripts/setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책 + VM 프로비저닝 문서(openconnect systemd 유닛·Caddy·Secret Manager: 비밀번호 값은 문서·로그·커밋 어디에도 없음)가 존재하고 실서버(10.41.1.120)·실계좌 접속은 사용자 지시 전엔 하지 않는다.
 
 **Out of scope:** 거래원(MemberStats) 팬아웃, 정정(M)·IOC/FOK·시장가, 서버측 주문 한도, 웹앱 자격증명 입력 UI, 공용 시세 세션, Cloud Run WebSocket, gh-trade 전략 메시지 조작, `GetSymbolMasterReq(27)`.
-**Plans:** 9/20 plans executed
+**Plans:** 10/20 plans executed
 
 Plans:
 **Wave 1**
@@ -582,7 +582,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 15-15-PLAN.md — [BLOCKING] gh-trade 17 완료 + `sync-relay-schema.sh` 재동기화 → 계좌 선언 루프·목록 대조 (SC-5)
+- [x] 15-15-PLAN.md — [BLOCKING] gh-trade 17 완료 + `sync-relay-schema.sh` 재동기화 → 계좌 선언 루프·목록 대조 (SC-5)
 - [ ] 15-16-PLAN.md — 계좌 상태 팬아웃(66/67) + `DirectOrderReq` 조립 + 내부 주문 API(5초 OrderResp) + `dma_orders` 비동기 큐 (SC-5, SC-6)
 - [ ] 15-17-PLAN.md — server `POST/GET /api/orders`(requireAuth·allowlist·형식검사·ISIN 조회·감사) + relay-client (SC-6)
 - [ ] 15-18-PLAN.md — 주문 패널·확인 다이얼로그·계좌 패널(미체결 취소/잔고) + 오조작 방지 5규율 (SC-6, SC-7)
@@ -621,4 +621,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
-| 15. DMA 중계 서버(relay) | 9/20 | In Progress|  |
+| 15. DMA 중계 서버(relay) | 10/20 | In Progress|  |
