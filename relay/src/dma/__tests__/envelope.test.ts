@@ -32,6 +32,17 @@ import {
   parseLoginRespAccounts,
   parseUpdateAccountNoResp,
   buildUpdateAccountNoReq,
+  buildGetAccountStateReq,
+  buildDirectOrderReq,
+  parseAccountState,
+  parseOrderResp,
+  fromWireExchange,
+  fromWireSide,
+  toWireSide,
+  toWireMarket,
+  toWireOrderType,
+  OrderBuildError,
+  ORDER_CONDITION,
   takeCount,
   toNum,
   isValidIsin,
@@ -41,6 +52,10 @@ import {
   droppedEnvelopeCount,
   resetDroppedEnvelopeCount,
   skippedAccountEntryCount,
+  skippedAccountStateItemCount,
+  MAX_HOLDING_COUNT,
+  MAX_UNFILLED_COUNT,
+  MAX_REMOVED_ORDER_COUNT,
   MAX_ORDER_BOOK_DEPTH,
   MAX_TAPE_ENTRY_COUNT,
   MAX_ACCOUNT_LIST_COUNT,
@@ -54,6 +69,9 @@ import {
   buildServerMessageFrame,
   buildLoginRespFrame,
   buildUpdateAccountNoRespFrame,
+  buildAccountStateFrame,
+  buildOrderRespFrame,
+  SAMPLE_ACCOUNT_NO,
 } from "../../../tests/helpers/frames.js";
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -461,5 +479,214 @@ describe("계좌 조립·파싱 (D-11 / T-15-07 / T-15-15)", () => {
 
     expect(parseUpdateAccountNoResp(bare!.env)).toEqual([]);
     expect(droppedEnvelopeCount()).toBe(1);
+  });
+});
+
+describe("주문 조립·파싱 (D-21 / Pitfall 7·8)", () => {
+  const ORDER = {
+    isin: SAMPLE_ISIN,
+    accountNo: SAMPLE_ACCOUNT_NO,
+    exchange: "KRX",
+    market: "K",
+    side: "B",
+    orderType: "N",
+    qty: 10,
+    price: 70_000,
+  } as const;
+
+  it("buildDirectOrderReq 왕복 — msg_type 2 + order_condition 이 항상 \"0\"", () => {
+    const env = readBack(buildDirectOrderReq(ORDER));
+
+    expect(env.msgType()).toBe(MSG.DirectOrderReq);
+    const req = env.directOrderReq();
+    // `stock_code` 는 단축코드가 아니라 ISIN 12자다 (fbs 주석 / D-28).
+    expect(req?.stockCode()).toBe(SAMPLE_ISIN);
+    expect(req?.accountNo()).toBe(SAMPLE_ACCOUNT_NO);
+    expect(req?.side()).toBe("B");
+    expect(req?.market()).toBe("K");
+    expect(req?.exchange()).toBe("KRX");
+    expect(req?.orderType()).toBe("N");
+    expect(req?.price()).toBe(70_000);
+    expect(req?.quantity()).toBe(10);
+    expect(req?.orderCondition()).toBe("0");
+    // 신규 통보의 원주문번호는 빈 문자열이 계약이다 (슬롯을 비우지 않는다).
+    expect(req?.orgOrderNo()).toBe("");
+  });
+
+  it("ORDER_CONDITION 은 \"0\" 고정이다 (D-21 — 시장가·IOC·FOK 범위 밖)", () => {
+    expect(ORDER_CONDITION).toBe("0");
+  });
+
+  it("수량 0 은 조립 단계에서 throw 한다 — 전량취소가 아니라 즉시 거부다 (Pitfall 7)", () => {
+    expect(() => buildDirectOrderReq({ ...ORDER, qty: 0 })).toThrow(OrderBuildError);
+    expect(() => buildDirectOrderReq({ ...ORDER, qty: -1 })).toThrow(/1 이상/);
+    expect(() => buildDirectOrderReq({ ...ORDER, qty: 1.5 })).toThrow(OrderBuildError);
+
+    try {
+      buildDirectOrderReq({ ...ORDER, qty: 0 });
+    } catch (err) {
+      expect((err as OrderBuildError).code).toBe("BAD_QTY");
+    }
+  });
+
+  it("취소인데 원주문번호가 없으면 throw 한다", () => {
+    expect(() => buildDirectOrderReq({ ...ORDER, orderType: "C" })).toThrow(
+      /원주문번호/,
+    );
+    const env = readBack(
+      buildDirectOrderReq({ ...ORDER, orderType: "C", orgOrderNo: "0000012345", qty: 4 }),
+    );
+    expect(env.directOrderReq()?.orderType()).toBe("C");
+    expect(env.directOrderReq()?.orgOrderNo()).toBe("0000012345");
+    expect(env.directOrderReq()?.quantity()).toBe(4);
+  });
+
+  it("형식 위반(ISIN·가격·int 범위)은 전부 OrderBuildError 다", () => {
+    expect(() => buildDirectOrderReq({ ...ORDER, isin: "005930" })).toThrow(/ISIN/);
+    expect(() => buildDirectOrderReq({ ...ORDER, price: 0 })).toThrow(/주문가격/);
+    // int 표현 범위 — 한도 정책이 아니라 wrap 방지다 (D-20 은 한도를 두지 않는다).
+    expect(() => buildDirectOrderReq({ ...ORDER, qty: 2_147_483_648 })).toThrow(/int/);
+  });
+
+  it("금액·수량에 상한 정책이 없다 — 100만주도 그대로 조립된다 (D-20)", () => {
+    const env = readBack(buildDirectOrderReq({ ...ORDER, qty: 1_000_000, price: 1_000_000 }));
+    expect(env.directOrderReq()?.quantity()).toBe(1_000_000);
+    expect(env.directOrderReq()?.price()).toBe(1_000_000);
+  });
+
+  it("단일 문자 변환 3종이 잘못된 값을 거부한다 (엉뚱한 시장으로 나가지 않게)", () => {
+    expect(toWireSide("B")).toBe("B");
+    expect(toWireMarket("Q")).toBe("Q");
+    expect(toWireOrderType("C")).toBe("C");
+    expect(() => toWireSide("BUY" as never)).toThrow(OrderBuildError);
+    expect(() => toWireMarket("KOSDAQ" as never)).toThrow(OrderBuildError);
+    // 정정("M")은 v1 범위 밖이라 런타임에서도 막는다 (D-21).
+    expect(() => toWireOrderType("M" as never)).toThrow(OrderBuildError);
+  });
+
+  it("parseOrderResp — 접수 통보는 side 를 신뢰한다", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildOrderRespFrame({ noticeType: "A", side: "S", orderNo: "0000099999" })),
+    );
+    const resp = parseOrderResp(parsed!.env);
+
+    expect(resp).toMatchObject({
+      orderNo: "0000099999",
+      noticeType: "A",
+      resultCode: 0,
+      side: "S",
+      sideTrusted: true,
+      exchange: "KRX",
+    });
+  });
+
+  it("parseOrderResp — 취소·정정 통보의 side 는 신뢰하지 않는다 (Pitfall 8)", () => {
+    for (const noticeType of ["C", "M"]) {
+      const parsed = tryParseEnvelope(Buffer.from(buildOrderRespFrame({ noticeType })));
+      expect(parseOrderResp(parsed!.env)?.sideTrusted).toBe(false);
+    }
+    // 체결·거부는 매매구분이 살아 있다.
+    for (const noticeType of ["E", "R", ""]) {
+      const parsed = tryParseEnvelope(Buffer.from(buildOrderRespFrame({ noticeType })));
+      expect(parseOrderResp(parsed!.env)?.sideTrusted).toBe(true);
+    }
+  });
+
+  it("parseOrderResp — ISIN 이 깨져도 프레임을 버리지 않는다 (거부 통보 유실 방지)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildOrderRespFrame({ isin: "005930", noticeType: "R", resultCode: -7, message: "잔고부족" }),
+      ),
+    );
+    const resp = parseOrderResp(parsed!.env);
+
+    expect(resp).toMatchObject({ noticeType: "R", resultCode: -7, message: "잔고부족" });
+    expect(droppedEnvelopeCount()).toBe(0);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("parseOrderResp — 슬롯이 비면 null + 드롭 카운터", () => {
+    const bare = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.OrderResp)));
+
+    expect(parseOrderResp(bare!.env)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+});
+
+describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {
+  it("buildGetAccountStateReq 는 기본값이 빈 문자열이다 (전 계좌 스냅샷)", () => {
+    const env = readBack(buildGetAccountStateReq());
+    expect(env.msgType()).toBe(MSG.GetAccountStateReq);
+    expect(env.getAccountStateReq()?.accountNo()).toBe("");
+
+    expect(readBack(buildGetAccountStateReq("1234567801")).getAccountStateReq()?.accountNo()).toBe(
+      "1234567801",
+    );
+  });
+
+  it("상한 상수 3종이 C# 값과 같다 (500 / 1000 / 1000)", () => {
+    expect(MAX_HOLDING_COUNT).toBe(500);
+    expect(MAX_UNFILLED_COUNT).toBe(1000);
+    expect(MAX_REMOVED_ORDER_COUNT).toBe(1000);
+  });
+
+  it("미체결 행의 매매구분이 깨지면 그 행만 건너뛴다 — 지어내지 않는다", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildAccountStateFrame({
+          snapshot: true,
+          unfilled: [
+            { orderNo: "ORD1", side: "B" },
+            { orderNo: "ORD2", side: "" },
+            { orderNo: "ORD3", side: "X" },
+            { orderNo: "", side: "S" },
+          ],
+        }),
+      ),
+    );
+    const state = parseAccountState(parsed!.env, true);
+
+    expect(state?.unf.map((u) => u.orderNo)).toEqual(["ORD1"]);
+    expect(skippedAccountStateItemCount()).toBe(3);
+    // 프레임 자체는 살아 있다 — 행 하나가 깨졌다고 잔고까지 잃지 않는다.
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("계좌번호가 없으면 프레임을 버린다 (키 없는 잔고는 쓸 수 없다)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildAccountStateFrame({ accountNo: "", snapshot: true })),
+    );
+
+    expect(parseAccountState(parsed!.env, true)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("본문 is_snapshot 이 msg_type 과 어긋나면 msg_type 을 따르고 경고한다 (D-33)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildAccountStateFrame({ snapshot: false, bodyIsSnapshot: true })),
+    );
+
+    expect(parseAccountState(parsed!.env, false)?.snap).toBe(false);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("account_state 슬롯이 비면 null + 드롭 카운터", () => {
+    const bare = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.GetAccountStateResp)));
+
+    expect(parseAccountState(bare!.env, true)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+
+  it("수신 방향 정규화 — 거래소는 NXT 만 NXT, 매매구분은 첫 글자", () => {
+    expect(fromWireExchange("NXT")).toBe("NXT");
+    // 구 서버는 이 필드를 비운다 — 드롭 사유가 아니라 KRX 열화다 (Phase 16 D-12).
+    expect(fromWireExchange("")).toBe("KRX");
+    expect(fromWireExchange("KRX")).toBe("KRX");
+    expect(fromWireExchange("nxt")).toBe("KRX");
+
+    expect(fromWireSide("B")).toBe("B");
+    expect(fromWireSide("Sell")).toBe("S");
+    expect(fromWireSide("")).toBeNull();
+    expect(fromWireSide("X")).toBeNull();
   });
 });

@@ -392,6 +392,11 @@ export class WsFanout {
     // 인증 ACK 겸 배지 초기값. **브라우저는 이 프레임을 받은 뒤에야 구독을 보낸다**
     // (15-12 `use-relay-socket` 계약) — 빠뜨리면 화면이 영원히 비어 있다.
     this.#send(conn, session.stateFrame());
+
+    // 잔고·미체결 캐시가 있으면 즉시 내린다 (D-23/D-37). 계좌 데이터는 종목 구독과
+    // 무관하므로 `sub` 을 기다리지 않는다 — 기다리면 아무 종목도 열지 않은 탭이
+    // 영원히 빈 잔고를 본다. 캐시가 없으면(첫 세션) 곧 오는 66 스냅샷이 채운다.
+    for (const acct of this.#hub.getAccountStates(userId)) this.#send(conn, acct);
   }
 
   #onAuthedMessage(conn: Conn, userId: string, msg: RelayInbound): void {

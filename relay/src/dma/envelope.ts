@@ -20,30 +20,44 @@
  *   S-5   드롭·절단 경로에 카운터와 사유를 남긴다. 조용한 `return` 금지.
  *
  * 하지 않는 것:
- *   - 주문 빌더(MsgType 2/25)는 만들지 않는다. 15-17 이후 plan 소관이다. 계좌는
- *     **선언(3)/응답(55)/`LoginResp.accounts` 까지만** 다룬다 — 잔고·미체결(66/67)은
- *     여기 없다.
  *   - 계좌 **조회 왕복**을 만들지 않는다 (17 D-11). 허용 목록의 정본은
  *     `LoginResp.accounts` 이고, 선언 응답이 매번 현재 목록 전체를 돌려주므로
  *     별도 조회 모드를 쓸 이유가 없다. `AccountDeclareMode` 가 그것을 타입으로 막는다.
  *   - 짧게 온 호가 벡터를 10단으로 **채우지 않는다**. 게이트웨이가 보낸 것이 진실이고,
  *     상한 초과만 잘라낸다(C# 클라이언트와 동형).
  *   - 프레이밍은 다루지 않는다. `codec.ts` 가 완결된 페이로드만 넘겨준다.
+ *   - 주문 **정책**을 판단하지 않는다 (D-20). 금액·수량 한도는 어디에도 없고, 여기서
+ *     막는 것은 게이트웨이가 반드시 거부하는 형식 위반뿐이다(수량 0·ISIN 길이 등).
+ *   - 계좌 상태(66/67)를 **병합하지 않는다**. 스냅샷/델타 합성은 Hub 의 일이고 여기는
+ *     프레임 1건을 계약 타입으로 좁힐 뿐이다.
+ *   - 정정(`order_type` "M")·시장가·IOC/FOK 를 만들지 않는다 (D-21). 스키마에는 있지만
+ *     v1 범위 밖이라 리터럴 유니온으로 봉쇄한다 — `AccountDeclareMode` 와 같은 규율이다.
  */
 import * as flatbuffers from "flatbuffers";
+import { ORDER_CONDITION_NORMAL } from "@gh-radar/shared";
 import type {
+  OrderMarket,
+  OrderSide,
+  OrderType,
   RelayAccount,
+  RelayAccountState,
   RelayExchange,
+  RelayHolding,
   RelayQuote,
   RelayServerMsg,
   RelayTape,
   RelayTapeEntry,
+  RelayUnfilled,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import { AccountEntry } from "../generated/stock-dma/account-entry.js";
+import { DirectOrderReq } from "../generated/stock-dma/direct-order-req.js";
 import { Envelope } from "../generated/stock-dma/envelope.js";
+import { GetAccountStateReq } from "../generated/stock-dma/get-account-state-req.js";
 import { GetQuoteReq } from "../generated/stock-dma/get-quote-req.js";
+import { HoldingState } from "../generated/stock-dma/holding-state.js";
+import { UnfilledState } from "../generated/stock-dma/unfilled-state.js";
 import { GetTradeTapeReq } from "../generated/stock-dma/get-trade-tape-req.js";
 import { LivePing } from "../generated/stock-dma/live-ping.js";
 import { LoginReq } from "../generated/stock-dma/login-req.js";
@@ -70,11 +84,11 @@ export const MAX_ACCOUNT_LIST_COUNT = 256;
  * 두 곳을 고치는 실수가 나지 않는다.
  */
 export const MAX_ACCOUNT_NO_LEN = 12;
-/** 잔고 종목 상한. D-25 게이트 뒤 plan 이 쓴다. */
+/** 잔고 종목 상한 (C# `MAX_HOLDING_COUNT`). `AccountState.holdings` 에 적용한다. */
 export const MAX_HOLDING_COUNT = 500;
-/** 미체결 주문 상한. D-25 게이트 뒤 plan 이 쓴다. */
+/** 미체결 주문 상한 (C# `MAX_UNFILLED_COUNT`). `AccountState.unfilled` 에 적용한다. */
 export const MAX_UNFILLED_COUNT = 1000;
-/** 델타 삭제 표식 상한. D-25 게이트 뒤 plan 이 쓴다. */
+/** 델타 삭제 표식 상한 (C# `MAX_REMOVED_ORDER_COUNT`). `removed_order_nos` 에 적용한다. */
 export const MAX_REMOVED_ORDER_COUNT = 1000;
 /** 체결 테이프 1프레임 원소 상한. */
 export const MAX_TAPE_ENTRY_COUNT = 200;
@@ -103,6 +117,7 @@ export function droppedEnvelopeCount(): number {
 export function resetDroppedEnvelopeCount(): void {
   droppedEnvelopes = 0;
   skippedAccountEntries = 0;
+  skippedAccountStateItems = 0;
 }
 
 /**
@@ -605,5 +620,413 @@ export function parseLoginResp(env: Envelope): ParsedLoginResp | null {
     success: lr.success(),
     message: lr.message() ?? "",
     accounts: readAccountEntries(lr),
+  };
+}
+
+// ============================================================
+// 주문 (2 요청 / 51 통보)
+// ============================================================
+
+/**
+ * 주문 조립 거부. **게이트웨이로 나가기 전에** 던진다.
+ *
+ * 여기서 막는 것은 "정책"이 아니라 게이트웨이가 반드시 거부하거나 **엉뚱하게 해석**할
+ * 입력이다(D-20 — 금액·수량 한도는 어디에도 없다). 라우트가 `code` 를 그대로 400 응답에
+ * 실어 server 가 사용자에게 이유를 말할 수 있게 한다 (S-1).
+ */
+export class OrderBuildError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OrderBuildError";
+  }
+}
+
+/**
+ * `int` 필드의 표현 한계 (2^31-1).
+ *
+ * **주문 한도가 아니다.** `DirectOrderReq.price`/`quantity` 는 fbs 상 `int` 라서 이 값을
+ * 넘기면 조용히 감싸(wrap) 전혀 다른 수량으로 주문이 나간다 — 한도 정책(D-20 에서 두지
+ * 않기로 한 것)이 아니라 **와이어 표현 가능 범위**의 문제다. 그래서 여기서만 막는다.
+ */
+const MAX_INT32 = 2_147_483_647;
+
+/**
+ * 주문조건 — **"0"(보통) 고정** (D-21). 시장가·IOC("1")·FOK("2")는 v1 범위 밖이다.
+ *
+ * 값을 두 곳에 적지 않으려고 `@gh-radar/shared` 상수를 그대로 좁혀 받는다. 타입을 `"0"`
+ * 으로 명시해 두면 shared 쪽이 바뀌는 순간 여기서 타입 에러가 난다.
+ */
+export const ORDER_CONDITION: "0" = ORDER_CONDITION_NORMAL;
+
+/**
+ * 매매구분 → 와이어 1자. **단일 문자 필드 변환은 전부 이 계열 함수 3종에서만** 한다 (D-21).
+ *
+ * 서버는 이 필드들의 **첫 글자만** 읽는다. 그래서 호출부마다 문자열을 지어내면
+ * "Kospi" 를 넘긴 순간 `market="K"` 로 읽히는 식의 우연한 성공이 섞이고, 어느 날
+ * "KOSDAQ" 이 `K` 로 읽혀 **엉뚱한 시장으로 주문이 나간다** (Pitfall 7).
+ */
+export function toWireSide(side: OrderSide): "B" | "S" {
+  if (side !== "B" && side !== "S") {
+    throw new OrderBuildError("BAD_SIDE", `알 수 없는 매매구분: ${String(side)}`);
+  }
+  return side;
+}
+
+/** 시장구분 → 와이어 1자 ("K"=KOSPI, "Q"=KOSDAQ). `toWireSide` 주석 참조. */
+export function toWireMarket(market: OrderMarket): "K" | "Q" {
+  if (market !== "K" && market !== "Q") {
+    throw new OrderBuildError("BAD_MARKET", `알 수 없는 시장구분: ${String(market)}`);
+  }
+  return market;
+}
+
+/**
+ * 주문유형 → 와이어 1자 ("N"=신규, "C"=취소). 정정("M")은 **여기서 막는다** (D-21).
+ *
+ * 스키마는 "M" 을 알지만 relay 는 만들지 않는다. 타입(`OrderType`)이 1차 방어이고
+ * 이 런타임 검사가 2차다 — 입력이 HTTP JSON 이라 타입만으로는 부족하다.
+ */
+export function toWireOrderType(orderType: OrderType): "N" | "C" {
+  if (orderType !== "N" && orderType !== "C") {
+    throw new OrderBuildError("BAD_ORDER_TYPE", `알 수 없는 주문유형: ${String(orderType)}`);
+  }
+  return orderType;
+}
+
+/** `buildDirectOrderReq` 입력. 전부 이미 계약 타입으로 좁혀진 값이다. */
+export type DirectOrderInput = {
+  /** 12자 ISIN. 단축코드를 산술 유도하지 않는다 (D-28) — server 가 `stocks.isin` 에서 채운다. */
+  isin: string;
+  accountNo: string;
+  exchange: RelayExchange;
+  market: OrderMarket;
+  side: OrderSide;
+  orderType: OrderType;
+  /** `orderType:"C"` 일 때 필수. 신규는 생략하거나 빈 문자열. */
+  orgOrderNo?: string;
+  /** 주문수량. 취소는 미체결 잔량이며 **0 은 즉시 거부**다 (Pitfall 7). */
+  qty: number;
+  price: number;
+};
+
+/**
+ * 직접 주문 (MsgType 2). 신규("N")·취소("C") 둘뿐이다 (D-21).
+ *
+ * **수량 0 은 전량취소가 아니라 즉시 거부**다 (fbs `DirectOrderReq.quantity` 주석 / D-44).
+ * 게이트웨이까지 보내서 거부를 받아 오는 대신 여기서 던진다 — 왕복 5초를 태우고 사용자에게
+ * "거부"라고 말하는 것보다, 보내기 전에 이유를 정확히 말하는 편이 낫다.
+ */
+export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
+  if (!isValidIsin(req.isin)) {
+    throw new OrderBuildError("BAD_ISIN", `ISIN 형식 위반 (12자 필요, ${req.isin.length}자)`);
+  }
+  if (!isValidAccountNo(req.accountNo)) {
+    throw new OrderBuildError("BAD_ACCOUNT_NO", "계좌번호 형식 위반");
+  }
+  if (!isValidExchange(req.exchange)) {
+    throw new OrderBuildError("BAD_EXCHANGE", `알 수 없는 거래소: ${String(req.exchange)}`);
+  }
+
+  const side = toWireSide(req.side);
+  const market = toWireMarket(req.market);
+  const orderType = toWireOrderType(req.orderType);
+
+  if (!Number.isInteger(req.qty) || req.qty <= 0) {
+    // 취소수량 0 을 전량취소로 오해하는 것이 이 phase 에서 가장 흔한 오주문 경로다.
+    throw new OrderBuildError("BAD_QTY", "주문수량은 1 이상의 정수여야 합니다 (0 은 즉시 거부)");
+  }
+  if (!Number.isInteger(req.price) || req.price <= 0) {
+    throw new OrderBuildError("BAD_PRICE", "주문가격은 1 이상의 정수여야 합니다");
+  }
+  if (req.qty > MAX_INT32 || req.price > MAX_INT32) {
+    // 한도가 아니라 int 표현 범위다 — 넘기면 조용히 감싸서 전혀 다른 주문이 나간다.
+    throw new OrderBuildError("INT32_OVERFLOW", "주문가격·수량이 int 표현 범위를 넘었습니다");
+  }
+
+  const orgOrderNo = req.orgOrderNo ?? "";
+  if (orderType === "C" && orgOrderNo === "") {
+    throw new OrderBuildError("ORG_ORDER_NO_REQUIRED", "취소 주문에는 원주문번호가 필요합니다");
+  }
+
+  const b = new flatbuffers.Builder(256);
+  const order = DirectOrderReq.createDirectOrderReq(
+    b,
+    // 게이트웨이의 `stock_code` 는 **ISIN 12자**다 (fbs 주석) — 단축코드가 아니다.
+    b.createString(req.isin),
+    b.createString(req.accountNo),
+    b.createString(side),
+    req.price,
+    req.qty,
+    b.createString(ORDER_CONDITION),
+    b.createString(market),
+    b.createString(req.exchange),
+    b.createString(orderType),
+    // 신규는 빈 문자열이 계약이다. 생략하면 슬롯이 비어 구 서버가 다르게 읽을 수 있다.
+    b.createString(orgOrderNo),
+  );
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.DirectOrderReq);
+  Envelope.addDirectOrderReq(b, order);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** 주문 통보 (51) 파싱 결과. 값은 전부 **게이트웨이 원문**이고 해석하지 않는다. */
+export type ParsedOrderResp = {
+  orderNo: string;
+  /**
+   * 통보 종류 원문 1자 — "A"=접수 "E"=체결 "C"=취소확인 "M"=정정확인 "R"=거부.
+   * **구 서버는 비워 보낸다**(fbs 주석). 빈 값을 오류로 다루지 않고 `resultCode` 로 판정한다.
+   */
+  noticeType: string;
+  resultCode: number;
+  message: string;
+  /** ISIN. 상관(어느 주문의 통보인가) 판정의 키다. */
+  isin: string;
+  /** 매매구분 원문. `sideTrusted` 가 false 면 **읽지 말 것**. */
+  side: string;
+  /**
+   * `side` 를 믿어도 되는가 (Pitfall 8).
+   *
+   * 취소·정정 통보에는 매매구분이 없다 — 요청 자체에 담기지 않아 브로커가 채울 값이 없고
+   * MockBroker 는 "B" 를 남긴다. 그대로 그리면 **매도 취소가 "매수"로 표시**된다.
+   * false 면 UI 는 매수/매도 대신 "취소"/"정정" 을 표기한다.
+   */
+  sideTrusted: boolean;
+  /** 주문가격. 체결 통보(`noticeType:"E"`)에서는 체결가다 (서버 `useExecuted` 분기). */
+  price: number;
+  /** 주문수량. 체결 통보에서는 체결수량이다. */
+  quantity: number;
+  /** 원주문번호. 신규 통보는 "". */
+  orgOrderNo: string;
+  /** 거래소. 구 서버 미지정은 KRX 로 열화한다 (Phase 16 D-11). */
+  exchange: RelayExchange;
+  /** 발주 주체 "Manual"/"LimitChaser"/"VITrigger". 구 서버는 "". */
+  origin: string;
+};
+
+/**
+ * 주문 통보 (51). **접수·체결·취소확인·거부가 전부 이 하나로 온다.**
+ *
+ * `TradeExecution(53)` 은 서버에 생성 경로가 없다 — 체결도 `notice_type:"E"` 로 51 에
+ * 실려 온다 (gh-trade `Server.cpp` L307 주석 / fbs L221-228 명시). 그래서 여기가
+ * 주문 통보의 유일한 파서다.
+ *
+ * ISIN 형식이 어긋나도 **프레임을 버리지 않는다.** 거부 통보는 가장 중요한 정보인데
+ * 그것을 드롭하면 HTTP 요청이 5초를 기다렸다가 "결과 모름"으로 끝난다 — 사용자에게
+ * 훨씬 나쁜 결과다. 형식 이상은 경고로 남기고 값은 그대로 올린다.
+ */
+export function parseOrderResp(env: Envelope): ParsedOrderResp | null {
+  const r = env.orderResp();
+  if (r === null) return dropField("slot-null", MSG.OrderResp, { slot: "order_resp" });
+
+  const isin = r.stockCode() ?? "";
+  if (!isValidIsin(isin)) {
+    logger.warn(
+      { msgType: MSG.OrderResp, len: isin.length },
+      "[DMA] 주문 통보의 ISIN 형식 이상 — 프레임은 살린다 (거부 통보 유실 방지)",
+    );
+  }
+
+  const noticeType = r.noticeType() ?? "";
+  return {
+    orderNo: r.orderNo() ?? "",
+    noticeType,
+    resultCode: r.resultCode(),
+    message: r.message() ?? "",
+    isin,
+    side: r.side() ?? "",
+    // 취소("C")·정정("M") 통보의 매매구분은 브로커가 채울 값이 없다 (Pitfall 8).
+    sideTrusted: noticeType !== "C" && noticeType !== "M",
+    price: r.price(),
+    quantity: r.quantity(),
+    orgOrderNo: r.orgOrderNo() ?? "",
+    exchange: fromWireExchange(r.exchange() ?? ""),
+    origin: r.origin() ?? "",
+  };
+}
+
+// ============================================================
+// 계좌 상태 (25 요청 / 66 스냅샷 · 67 델타 — `account_state` 슬롯 공유)
+// ============================================================
+
+/**
+ * 형식 위반으로 건너뛴 **계좌 상태 항목**(잔고·미체결 행) 누적 수 (S-5).
+ *
+ * `skippedAccountEntryCount`(계좌 목록 항목)와 **따로** 센다. 둘을 섞으면
+ * "계좌번호 형식 문제"와 "잔고 행 파손"을 구분할 수 없어, 실계통에서 어느 쪽을
+ * 파야 하는지 알 수 없게 된다.
+ */
+let skippedAccountStateItems = 0;
+
+/** 형식 위반으로 건너뛴 잔고·미체결 행 누적 수. */
+export function skippedAccountStateItemCount(): number {
+  return skippedAccountStateItems;
+}
+
+/** 잔고·미체결 행 1건 스킵. 계좌번호는 담지 않는다(행에 없다) — 사유와 위치만 남긴다. */
+function skipAccountStateItem(reason: string, kind: string, index: number, detail: string): void {
+  skippedAccountStateItems += 1;
+  logger.warn(
+    { reason, kind, index, detail, skippedAccountStateItemCount: skippedAccountStateItems },
+    "[DMA] 계좌 상태 항목 스킵 (형식 가드)",
+  );
+}
+
+/**
+ * 수신 거래소 정규화 — C# `WireCodes.FromWireExchange` 동형.
+ *
+ * **"NXT" 만 NXT 로 읽고 나머지는 전부 KRX** 다. 구 서버는 이 필드를 채우지 않으므로
+ * 빈 문자열이 정상 입력이고, 그것을 드롭 사유로 삼으면 미체결 목록이 통째로 사라진다
+ * (Phase 16 D-12). 여기서만 관대하고, **송신** 방향은 화이트리스트로 좁힌다.
+ */
+export function fromWireExchange(raw: string): RelayExchange {
+  return raw === "NXT" ? "NXT" : "KRX";
+}
+
+/**
+ * 수신 매매구분 정규화. 서버는 단일 문자 필드의 **첫 글자만** 의미로 쓰므로 첫 글자로
+ * 판정하고, "B"/"S" 가 아니면 `null` 이다 — 호출자가 그 행을 건너뛴다.
+ *
+ * 임의 기본값("B")으로 메우지 않는 것이 중요하다. 미체결 행의 매매구분은 그대로
+ * 취소 주문의 `side` 가 되므로, 모르는 값을 매수로 지어내면 **반대 방향 주문**이 나간다.
+ */
+export function fromWireSide(raw: string): OrderSide | null {
+  const c = raw.charAt(0);
+  return c === "B" || c === "S" ? c : null;
+}
+
+/**
+ * 계좌 상태 조회 요청 (MsgType 25). 응답은 66(스냅샷)이고 이후 67(델타)이 편승한다.
+ *
+ * `accountNo` 를 **빈 문자열로 보내면 전 계좌 스냅샷**이 온다 — 계좌당 1프레임이다
+ * (D-23). 계좌를 하나씩 도는 왕복을 만들지 않는 이유가 이것이고, 그래서 기본값이 `""` 다.
+ */
+export function buildGetAccountStateReq(accountNo: string = ""): Uint8Array {
+  const b = new flatbuffers.Builder(128);
+  const req = GetAccountStateReq.createGetAccountStateReq(b, b.createString(accountNo));
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.GetAccountStateReq);
+  Envelope.addGetAccountStateReq(b, req);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 계좌 상태 (66 스냅샷 / 67 델타 — `account_state` 슬롯 공유).
+ *
+ * @param isSnapshot 66 이면 true, 67 이면 false. 본문 `is_snapshot` 도 같은 값을 담지만
+ *                   **msg_type 이 정본**이다 (D-33 — 58/59·69/71 과 같은 규약). 본문 값이
+ *                   어긋나면 경고만 남기고 msg_type 을 따른다. msg_type 은 수신
+ *                   화이트리스트를 통과한 값이라 더 신뢰할 수 있다.
+ *
+ * 잔고·미체결 값은 전부 **서버 계산본**이다. 여기서 재계산하지 않는다 (C# `Client.cs`
+ * `HandleAccountState` 주석). 행 하나가 깨지면 그 행만 건너뛰고 프레임은 살린다 —
+ * 프레임째 버리면 정상 잔고까지 사라져 "잔고가 없다"라는 더 나쁜 오진이 된다.
+ */
+export function parseAccountState(env: Envelope, isSnapshot: boolean): RelayAccountState | null {
+  const msgType = isSnapshot ? MSG.GetAccountStateResp : MSG.AccountStateDelta;
+  const st = env.accountState();
+  if (st === null) return dropField("slot-null", msgType, { slot: "account_state" });
+
+  const accountNo = st.accountNo() ?? "";
+  if (!isValidAccountNo(accountNo)) {
+    // 계좌번호가 키다. 키가 없으면 어느 계좌의 잔고인지 알 수 없어 쓸 수가 없다.
+    return dropField("bad-account-no", msgType, { len: accountNo.length });
+  }
+
+  if (st.isSnapshot() !== isSnapshot) {
+    logger.warn(
+      { msgType, bodyIsSnapshot: st.isSnapshot(), accountNo: maskAccountNo(accountNo) },
+      "[DMA] 계좌 상태 스냅샷 플래그 불일치 — msg_type 을 따른다 (D-33)",
+    );
+  }
+
+  const hold: RelayHolding[] = [];
+  const holdN = takeCount(st.holdingsLength(), MAX_HOLDING_COUNT, "잔고 목록");
+  const holdScratch = new HoldingState();
+  for (let i = 0; i < holdN; i += 1) {
+    const h = st.holdings(i, holdScratch);
+    if (h === null) {
+      skipAccountStateItem("entry-null", "holding", i, "");
+      continue;
+    }
+    const isin = h.isin() ?? "";
+    if (!isValidIsin(isin)) {
+      skipAccountStateItem("bad-isin", "holding", i, `len=${isin.length}`);
+      continue;
+    }
+    hold.push({
+      isin,
+      qty: h.stockQty(),
+      sellableQty: h.sellableQty(),
+      // 평단가는 double 이다. 내림하지 않는다 — 화면 표기 반올림은 UI 몫이다.
+      avgPrice: h.avgPrice(),
+    });
+  }
+
+  const unf: RelayUnfilled[] = [];
+  const unfN = takeCount(st.unfilledLength(), MAX_UNFILLED_COUNT, "미체결 목록");
+  const unfScratch = new UnfilledState();
+  for (let i = 0; i < unfN; i += 1) {
+    const u = st.unfilled(i, unfScratch);
+    if (u === null) {
+      skipAccountStateItem("entry-null", "unfilled", i, "");
+      continue;
+    }
+    const orderNo = u.orderNo() ?? "";
+    if (orderNo === "") {
+      // 주문번호가 없으면 취소의 `org_order_no` 를 채울 수 없어 행이 무의미하다.
+      skipAccountStateItem("empty-order-no", "unfilled", i, "");
+      continue;
+    }
+    const isin = u.isin() ?? "";
+    if (!isValidIsin(isin)) {
+      skipAccountStateItem("bad-isin", "unfilled", i, `len=${isin.length}`);
+      continue;
+    }
+    const rawSide = u.side() ?? "";
+    const side = fromWireSide(rawSide);
+    if (side === null) {
+      // 매매구분을 지어내지 않는다 — 취소 주문이 반대 방향으로 나갈 수 있다.
+      skipAccountStateItem("bad-side", "unfilled", i, `raw=${rawSide}`);
+      continue;
+    }
+    unf.push({
+      orderNo,
+      orgOrderNo: u.orgOrderNo() ?? "",
+      isin,
+      side,
+      price: u.price(),
+      orderQty: u.orderQty(),
+      filledQty: u.filledQty(),
+      // 취소 수량의 원천이다 (D-21 — 0 은 즉시 거부이므로 UI 가 버튼을 막는다).
+      unfilledQty: u.unfilledQty(),
+      exchange: fromWireExchange(u.exchange() ?? ""),
+    });
+  }
+
+  const rm: string[] = [];
+  const rmN = takeCount(st.removedOrderNosLength(), MAX_REMOVED_ORDER_COUNT, "삭제 표식");
+  for (let i = 0; i < rmN; i += 1) {
+    const removedOrderNo: string = st.removedOrderNos(i) ?? "";
+    if (removedOrderNo === "") {
+      skipAccountStateItem("empty-order-no", "removed", i, "");
+      continue;
+    }
+    rm.push(removedOrderNo);
+  }
+
+  return {
+    t: "acct",
+    a: accountNo,
+    snap: isSnapshot,
+    hold,
+    unf,
+    rm,
+    st: st.serverTime() ?? "",
   };
 }

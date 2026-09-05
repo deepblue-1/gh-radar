@@ -13,8 +13,12 @@
 import * as flatbuffers from "flatbuffers";
 
 import { AccountEntry } from "../../src/generated/stock-dma/account-entry.js";
+import { AccountState } from "../../src/generated/stock-dma/account-state.js";
 import { Envelope } from "../../src/generated/stock-dma/envelope.js";
+import { HoldingState } from "../../src/generated/stock-dma/holding-state.js";
+import { UnfilledState } from "../../src/generated/stock-dma/unfilled-state.js";
 import { LoginResp } from "../../src/generated/stock-dma/login-resp.js";
+import { OrderResp } from "../../src/generated/stock-dma/order-resp.js";
 import { UpdateAccountNoResp } from "../../src/generated/stock-dma/update-account-no-resp.js";
 import { QuoteState } from "../../src/generated/stock-dma/quote-state.js";
 import { ServerMessage } from "../../src/generated/stock-dma/server-message.js";
@@ -239,6 +243,158 @@ export function buildLoginRespFrame(input: FakeLoginRespInput = {}): Uint8Array 
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.LoginResp);
   Envelope.addLoginResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+export type FakeOrderRespInput = {
+  isin?: string;
+  side?: string;
+  orderNo?: string;
+  resultCode?: number;
+  price?: number;
+  quantity?: number;
+  message?: string;
+  /** "A"=접수 "E"=체결 "C"=취소확인 "M"=정정확인 "R"=거부. 구 서버를 흉내 내려면 `""`. */
+  noticeType?: string;
+  orgOrderNo?: string;
+  origin?: string;
+  exchange?: string;
+};
+
+/**
+ * 주문 통보 프레임 (51).
+ *
+ * 접수·체결·취소확인·거부가 **전부 이 하나**로 온다. `TradeExecution(53)` 은 서버에
+ * 생성 경로가 없어 테스트에서도 만들지 않는다 (fbs L221-228 / `Server.cpp` L307).
+ *
+ * `createOrderResp` 위치 인자에 deprecated `slot_id` 는 들어가지 않는다 — flatc 가
+ * 접근자를 만들지 않으므로 인자 목록에서도 빠진다.
+ */
+export function buildOrderRespFrame(input: FakeOrderRespInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(512);
+  const resp = OrderResp.createOrderResp(
+    b,
+    b.createString(input.isin ?? SAMPLE_ISIN),
+    b.createString(input.side ?? "B"),
+    b.createString(input.orderNo ?? "0000012345"),
+    input.resultCode ?? 0,
+    input.price ?? 70_000,
+    input.quantity ?? 10,
+    b.createString(input.message ?? "정상처리"),
+    b.createString(input.noticeType ?? "A"),
+    b.createString(input.orgOrderNo ?? ""),
+    b.createString(input.origin ?? "Manual"),
+    b.createString(input.exchange ?? "KRX"),
+  );
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.OrderResp);
+  Envelope.addOrderResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** 잔고 1건 (`HoldingState` 원소). */
+export type FakeHolding = {
+  isin?: string;
+  stockQty?: number;
+  sellableQty?: number;
+  avgPrice?: number;
+};
+
+/** 미체결 1건 (`UnfilledState` 원소). */
+export type FakeUnfilled = {
+  orderNo?: string;
+  orgOrderNo?: string;
+  isin?: string;
+  side?: string;
+  price?: number;
+  orderQty?: number;
+  filledQty?: number;
+  unfilledQty?: number;
+  exchange?: string;
+};
+
+export type FakeAccountStateInput = {
+  accountNo?: string;
+  snapshot?: boolean;
+  holdings?: FakeHolding[];
+  unfilled?: FakeUnfilled[];
+  removedOrderNos?: string[];
+  serverTime?: string;
+  /**
+   * 본문 `is_snapshot` 을 msg_type 과 **어긋나게** 만들 때만 쓴다. 기본값은 `snapshot`
+   * 과 같다 — 정상 게이트웨이는 둘을 일치시킨다 (D-33 대조 테스트용 탈출구).
+   */
+  bodyIsSnapshot?: boolean;
+};
+
+/** 테스트 전반이 쓰는 기본 계좌번호. `SAMPLE_ACCOUNTS[0]` 과 같은 값이다. */
+export const SAMPLE_ACCOUNT_NO = "1234567801";
+
+/**
+ * 계좌 상태 프레임 (66 스냅샷 / 67 델타 — `account_state` 슬롯 공유).
+ *
+ * `snapshot` 이 msg_type 을 가른다. 벡터 상한 클램프를 시험할 수 있게 길이 제한을 두지
+ * 않는다 — 600건짜리 잔고를 만들어 파서가 500 으로 자르는지 볼 수 있어야 한다.
+ */
+export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8Array {
+  const snapshot = input.snapshot ?? true;
+  const holdings = input.holdings ?? [];
+  const unfilled = input.unfilled ?? [];
+  const removed = input.removedOrderNos ?? [];
+  const b = new flatbuffers.Builder(2048);
+
+  // 문자열·중첩 테이블은 부모 테이블을 열기 **전에** 전부 만든다 (FlatBuffers 중첩 제약).
+  const accountNo = b.createString(input.accountNo ?? SAMPLE_ACCOUNT_NO);
+  const serverTime = b.createString(input.serverTime ?? "20260906093015");
+
+  const holdingOffsets = holdings.map((h) =>
+    HoldingState.createHoldingState(
+      b,
+      b.createString(h.isin ?? SAMPLE_ISIN),
+      h.stockQty ?? 10,
+      h.sellableQty ?? 10,
+      h.avgPrice ?? 70_000,
+    ),
+  );
+  const holdingsVec = AccountState.createHoldingsVector(b, holdingOffsets);
+
+  const unfilledOffsets = unfilled.map((u, i) =>
+    UnfilledState.createUnfilledState(
+      b,
+      b.createString(u.orderNo ?? `ORD${String(i).padStart(7, "0")}`),
+      b.createString(u.orgOrderNo ?? ""),
+      b.createString(u.isin ?? SAMPLE_ISIN),
+      b.createString(u.side ?? "B"),
+      u.price ?? 70_000,
+      u.orderQty ?? 10,
+      u.filledQty ?? 0,
+      u.unfilledQty ?? 10,
+      b.createString(u.exchange ?? "KRX"),
+    ),
+  );
+  const unfilledVec = AccountState.createUnfilledVector(b, unfilledOffsets);
+
+  const removedVec = AccountState.createRemovedOrderNosVector(
+    b,
+    removed.map((no) => b.createString(no)),
+  );
+
+  const state = AccountState.createAccountState(
+    b,
+    accountNo,
+    holdingsVec,
+    unfilledVec,
+    removedVec,
+    input.bodyIsSnapshot ?? snapshot,
+    serverTime,
+  );
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, snapshot ? MSG.GetAccountStateResp : MSG.AccountStateDelta);
+  Envelope.addAccountState(b, state);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

@@ -15,6 +15,10 @@
  *         체결 테이프만 200ms 배치로 묶는다. 배치 타이머는 키마다가 아니라
  *         **사용자(세션) 단위 1개**다 — 종목 10개를 보면 타이머 10개가 도는 구조를 만들지 않는다.
  *   D-36  `ServerMessage(54)` 는 해석하지 않고 그대로 흘린다.
+ *   D-23  계좌 상태(잔고·미체결)는 **종목 구독과 무관**하다. 세션 `ready` 마다
+ *         `GetAccountStateReq(25)`{account_no:""} 를 1회 보내 전 계좌 스냅샷(66)을 받고,
+ *         이후 델타(67)를 반영한다. 참조계수 경로에 얹지 않는 이유가 이것이다 —
+ *         아무 종목도 구독하지 않은 사용자도 자기 잔고는 봐야 한다.
  *   D-37  브라우저 재접속·다중 탭에서 **스냅샷 캐시가 즉시 응답**한다. 그래서 캐시는
  *         참조계수가 0 이 되어도 버리지 않는다 — 재접속 왕복 동안 살아 있어야 의미가 있다.
  *   Pitfall 4  재구독 트리거는 세션의 `ready` 이벤트 **하나뿐**이다. 재구독 경로를 두 벌
@@ -35,7 +39,9 @@
 import { EventEmitter } from "node:events";
 
 import type {
+  RelayAccountState,
   RelayExchange,
+  RelayOrderMsg,
   RelayOutbound,
   RelayQuote,
   RelayTape,
@@ -47,12 +53,17 @@ import type { TransportFrameEvent } from "../dma/dma-client.js";
 import type { SessionReadyEvent } from "../dma/session.js";
 import {
   MAX_TAPE_ENTRY_COUNT,
+  buildGetAccountStateReq,
   buildGetQuoteReq,
   buildGetTradeTapeReq,
   buildSubscribeQuoteReq,
+  maskAccountNo,
+  parseAccountState,
+  parseOrderResp,
   parseQuoteState,
   parseServerMessage,
   parseTradeTape,
+  type ParsedOrderResp,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 
@@ -100,16 +111,29 @@ export interface HubSession {
 /** 팬아웃 1건. **대상은 언제나 특정 userId 하나**다 (T-15-02). */
 export type HubFanoutEvent = { userId: string; msg: RelayOutbound };
 
+/**
+ * 주문 통보 1건 (`OrderResp(51)`), **파싱된 원문 그대로**.
+ *
+ * 브라우저로 나가는 `{t:"order"}` 팬아웃과 **별도**로 낸다. 팬아웃은 계약 타입(`RelayOrderMsg`)
+ * 이라 상관에 필요한 값(`sideTrusted` 등)이 빠져 있고, 주문 라우트는 HTTP 응답을 만들기 위해
+ * 원문이 필요하기 때문이다. 팬아웃이 먼저이고 이 이벤트가 나중이다 — 화면이 DB 보다 앞선다.
+ */
+export type HubOrderEvent = { userId: string; notice: ParsedOrderResp };
+
 /** `/healthz` 용 요약. 식별자(userId·ISIN)를 담지 않는다. */
 export type HubStats = {
   sessionCount: number;
   subscriptionCount: number;
   cachedQuoteCount: number;
+  /** 캐시된 계좌 상태 **개수**. 계좌번호는 담지 않는다. */
+  cachedAccountCount: number;
 };
 
 export interface SubscriptionHub {
   on(event: "fanout", listener: (e: HubFanoutEvent) => void): this;
+  on(event: "order", listener: (e: HubOrderEvent) => void): this;
   emit(event: "fanout", e: HubFanoutEvent): boolean;
+  emit(event: "order", e: HubOrderEvent): boolean;
 }
 
 /** 플러시 대기 중인 체결 배치 1건. */
@@ -150,6 +174,14 @@ export class SubscriptionHub extends EventEmitter {
   readonly #pending = new Map<string, Map<string, PendingTape>>();
   /** userId → 배치 타이머 1개 (키 단위로 만들지 않는다 — D-35). */
   readonly #flushTimers = new Map<string, NodeJS.Timeout>();
+  /**
+   * `${userId}|${accountNo}` → **누적 반영된 전량 스냅샷** (D-23/D-37).
+   *
+   * 델타(67)를 받아도 여기에는 항상 `snap:true` 인 전량 뷰를 둔다 — 새 탭이 붙었을 때
+   * 그대로 1프레임으로 내려보낼 수 있어야 하기 때문이다. 와이어로 나가는 델타는
+   * 가공하지 않고 원본 그대로 흘린다(브라우저가 같은 병합을 한다).
+   */
+  readonly #accountStates = new Map<string, RelayAccountState>();
 
   // ----------------------------------------------------------
   // 세션 결선
@@ -290,9 +322,45 @@ export class SubscriptionHub extends EventEmitter {
     logger.info({ userId, count }, "[HUB] Ready — 보유 구독 전량 재구독");
   }
 
+  /**
+   * 전 계좌 상태 스냅샷을 1회 요청한다 (D-23). `account_no` 를 **빈 문자열**로 보내면
+   * 계좌당 1프레임으로 66 이 돌아온다 — 계좌를 하나씩 도는 왕복을 만들지 않는다.
+   *
+   * 트리거는 `ready` **하나뿐**이다(재구독과 같은 자리 — Pitfall 4). 브라우저가 탭을
+   * 열 때마다 다시 요청하지 않는 이유는 캐시가 즉시 응답하기 때문이고, 그 편이
+   * 게이트웨이 왕복을 사용자 수에 비례시키지 않는다.
+   */
+  requestAccountState(userId: string): void {
+    const session = this.#sessions.get(userId);
+    if (session === undefined || !session.isReady) {
+      logger.warn(
+        { userId, hasSession: session !== undefined },
+        "[HUB] 계좌 상태 요청 생략 — 세션이 준비되지 않았다",
+      );
+      return;
+    }
+    session.send(buildGetAccountStateReq(""));
+    logger.info({ userId }, "[HUB] Ready — 전 계좌 상태 스냅샷 요청");
+  }
+
   // ----------------------------------------------------------
   // 캐시 조회 (D-37)
   // ----------------------------------------------------------
+
+  /**
+   * 그 사용자의 계좌 상태 전량(누적 반영된 스냅샷) 복사본.
+   *
+   * 새 wss 연결이 붙었을 때 게이트웨이 왕복 없이 즉시 잔고·미체결을 그리는 데 쓴다.
+   * 반환 프레임은 전부 `snap:true` 다 — 받는 쪽이 전량 교체로 처리해야 한다.
+   */
+  getAccountStates(userId: string): RelayAccountState[] {
+    const prefix = userPrefix(userId);
+    const out: RelayAccountState[] = [];
+    for (const [key, state] of this.#accountStates) {
+      if (key.startsWith(prefix)) out.push(state);
+    }
+    return out;
+  }
 
   /** 마지막 호가 스냅샷. 있으면 브라우저에 즉시 내려 깜빡임을 없앤다. */
   getSnapshot(userId: string, isin: string, exchange: RelayExchange): RelayQuote | undefined {
@@ -316,6 +384,7 @@ export class SubscriptionHub extends EventEmitter {
       sessionCount: this.#sessions.size,
       subscriptionCount: this.#refs.size,
       cachedQuoteCount: this.#quotes.size,
+      cachedAccountCount: this.#accountStates.size,
     };
   }
 
@@ -328,6 +397,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#refs.clear();
     this.#quotes.clear();
     this.#tapes.clear();
+    this.#accountStates.clear();
   }
 
   // ----------------------------------------------------------
@@ -352,6 +422,27 @@ export class SubscriptionHub extends EventEmitter {
         if (tape !== null) this.#onTape(userId, tape);
         return;
       }
+      case MSG.OrderResp: {
+        const notice = parseOrderResp(e.env);
+        if (notice !== null) this.#onOrderNotice(userId, notice);
+        return;
+      }
+      case MSG.OrderConfirm:
+      case MSG.TradeExecution: {
+        // **서버에 이 두 테이블을 만드는 경로가 없다.** 체결도 51 의 `notice_type:"E"` 로
+        // 온다 (fbs L221-228 / `Server.cpp` L307). 온다면 그 자체가 이상 신호이므로
+        // 기록만 남기고 흘리지 않는다 — 가격·수량이 없는 프레임을 `{t:"order"}` 로
+        // 지어내면 화면에 "0주 @0" 이 뜨고, 그것을 보고 "안 나갔다"로 읽으면
+        // 이미 접수된 주문을 다시 낸다.
+        logger.warn({ userId, msgType: e.msgType }, "[HUB] 생성 경로 없는 주문 프레임 — 무시");
+        return;
+      }
+      case MSG.GetAccountStateResp:
+      case MSG.AccountStateDelta: {
+        const state = parseAccountState(e.env, e.msgType === MSG.GetAccountStateResp);
+        if (state !== null) this.#onAccountState(userId, state);
+        return;
+      }
       case MSG.ServerMessage: {
         // 해석하지 않고 그대로 흘린다 (D-36). 배치하지 않는다 — 드물고 즉시성이 중요하다.
         const msg = parseServerMessage(e.env);
@@ -359,7 +450,7 @@ export class SubscriptionHub extends EventEmitter {
         return;
       }
       default:
-        // 로그인 응답(50)은 세션이 처리하고, 계좌·주문(51/55/66/67)은 D-25 게이트 뒤 plan 소관이다.
+        // 로그인 응답(50)·계좌 선언 응답(55)은 세션이 처리한다.
         return;
     }
   }
@@ -368,6 +459,93 @@ export class SubscriptionHub extends EventEmitter {
   #onQuote(userId: string, quote: RelayQuote): void {
     this.#quotes.set(subKey(userId, quote.i, quote.x), quote);
     this.#fanout(userId, quote);
+  }
+
+  /**
+   * 주문 통보 (51) — 접수·체결·취소확인·거부가 전부 이 하나로 온다.
+   *
+   * **그 주문자에게만** 간다 (T-15-02). 전역 브로드캐스트 경로가 없다는 것이 타인 체결
+   * 유출의 구조적 방어이고, 여기서 `#fanout` 말고 다른 전송 수단을 쓰지 않는 것이 그 규율이다.
+   *
+   * 와이어 계약(`RelayOrderMsg`)에 `side` 를 싣지 않는 것은 의도다 — 취소·정정 통보의
+   * 매매구분은 믿을 수 없으므로(Pitfall 8) 애초에 내려보내지 않고, UI 는 `nt` 로
+   * "취소"/"정정" 을 고른다. `sideTrusted` 는 relay 내부 소비자를 위한 값이라
+   * `"order"` 이벤트에만 실린다.
+   */
+  #onOrderNotice(userId: string, notice: ParsedOrderResp): void {
+    const msg: RelayOrderMsg = {
+      t: "order",
+      no: notice.orderNo,
+      nt: notice.noticeType,
+      rc: notice.resultCode,
+      msg: notice.message,
+      org: notice.orgOrderNo,
+      p: notice.price,
+      q: notice.quantity,
+      x: notice.exchange,
+    };
+    // 화면이 먼저다. DB 기록(비동기 큐)은 이 이벤트를 받는 쪽이 건다.
+    this.#fanout(userId, msg);
+    this.emit("order", { userId, notice });
+  }
+
+  /**
+   * 계좌 상태 (66 스냅샷 / 67 델타). **배치하지 않는다** — 잔고·미체결은 초당 수십 건이
+   * 오는 값이 아니고, 체결 직후의 잔량 변화는 즉시 보여야 취소 판단이 가능하다.
+   *
+   * 와이어로는 **받은 그대로**(스냅샷은 snap:true, 델타는 snap:false) 흘리고, 캐시에만
+   * 병합된 전량 뷰를 둔다. 이 비대칭이 의도된 설계다 — 브라우저가 이미 같은 병합 규약
+   * (`snap:false` = 키 upsert + `rm` 제거)을 구현하므로, 델타를 여기서 전량으로 부풀려
+   * 보내면 프레임이 커지기만 하고 얻는 것이 없다.
+   */
+  #onAccountState(userId: string, state: RelayAccountState): void {
+    const key = `${userId}|${state.a}`;
+    this.#accountStates.set(key, this.#mergeAccountState(key, state));
+    logger.info(
+      {
+        userId,
+        accountNo: maskAccountNo(state.a),
+        snap: state.snap,
+        holdings: state.hold.length,
+        unfilled: state.unf.length,
+        removed: state.rm.length,
+      },
+      "[HUB] 계좌 상태 수신",
+    );
+    this.#fanout(userId, state);
+  }
+
+  /**
+   * 캐시 병합 — **기계적**이다. 스냅샷은 전량 교체, 델타는 키 upsert + `rm` 제거.
+   *
+   * 수량 0 이 된 잔고 행을 지우지 않는 이유: 브라우저가 적용하는 규약과 한 글자도 달라지면
+   * 안 되기 때문이다. 캐시가 "더 똑똑하게" 정리하면 새 탭과 기존 탭이 다른 화면을 본다.
+   * 무엇을 지울지는 서버가 `removed_order_nos` 로 말해 준다.
+   */
+  #mergeAccountState(key: string, next: RelayAccountState): RelayAccountState {
+    if (next.snap) {
+      return { ...next, snap: true, hold: [...next.hold], unf: [...next.unf], rm: [] };
+    }
+
+    const prev = this.#accountStates.get(key);
+    const holdings = new Map((prev?.hold ?? []).map((h) => [h.isin, h]));
+    for (const h of next.hold) holdings.set(h.isin, h);
+
+    const unfilled = new Map((prev?.unf ?? []).map((u) => [u.orderNo, u]));
+    for (const u of next.unf) unfilled.set(u.orderNo, u);
+    // 삭제 표식은 upsert **뒤에** 적용한다. 같은 프레임이 한 주문을 갱신하면서 동시에
+    // 지우라고 말하는 경우, 최종 상태는 "없음"이어야 한다.
+    for (const orderNo of next.rm) unfilled.delete(orderNo);
+
+    return {
+      t: "acct",
+      a: next.a,
+      snap: true,
+      hold: [...holdings.values()],
+      unf: [...unfilled.values()],
+      rm: [],
+      st: next.st,
+    };
   }
 
   /** 체결은 링버퍼에 쌓고 200ms 배치로 내보낸다 (D-35). */
@@ -450,7 +628,10 @@ export class SubscriptionHub extends EventEmitter {
 
   #onReady(userId: string, session: HubSession): void {
     if (this.#sessions.get(userId) !== session) return;
+    // 재구독과 계좌 스냅샷 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
+    // 경로를 두 벌 만들면 "재접속 후 잔고만 안 나온다"가 생긴다.
     this.resubscribeAll(userId);
+    this.requestAccountState(userId);
   }
 
   /** **대상은 언제나 userId 하나**다. 전역 브로드캐스트 경로를 만들지 않는다 (T-15-02). */
@@ -465,6 +646,9 @@ export class SubscriptionHub extends EventEmitter {
     }
     for (const key of [...this.#tapes.keys()]) {
       if (key.startsWith(prefix)) this.#tapes.delete(key);
+    }
+    for (const key of [...this.#accountStates.keys()]) {
+      if (key.startsWith(prefix)) this.#accountStates.delete(key);
     }
     const timer = this.#flushTimers.get(userId);
     if (timer !== undefined) {
