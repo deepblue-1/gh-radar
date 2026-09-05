@@ -15,6 +15,7 @@ import { stocksRouter } from "./routes/stocks.js";
 import { themesRouter } from "./routes/themes.js";
 import { homeRouter } from "./routes/home.js";
 import { chatRouter } from "./routes/chat.js";
+import { ordersRouter } from "./routes/orders.js";
 import type { RelayClient } from "./services/relay-client.js";
 
 /**
@@ -38,7 +39,7 @@ export type AppDeps = {
   brightdataApiKey?: string;
   brightdataZone?: string;
   // Phase 15 — relay 내부 HTTP 클라이언트 (D-08).
-  // 미주입 시 POST /api/orders 만 503 RELAY_UNAVAILABLE (다른 라우트는 무관).
+  // 미주입 시 주문 POST 만 503 RELAY_UNAVAILABLE (다른 라우트는 무관).
   relayClient?: RelayClient;
 };
 
@@ -82,6 +83,8 @@ export function createApp(deps: AppDeps): Express {
   app.use("/api/themes", themesRouter);
   app.use("/api/home", homeRouter);
   app.use("/api/chat", chatRouter);
+  // Phase 15 — DMA 주문 REST (D-08). 브라우저 → relay 의 유일한 쓰기 경로.
+  app.use("/api/orders", ordersRouter);
 
   // 9) 404 fallback
   app.use(notFoundHandler);
