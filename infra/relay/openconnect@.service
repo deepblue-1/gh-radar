@@ -1,0 +1,49 @@
+# ═══════════════════════════════════════════════════════════════
+# KB AnyConnect VPN (openconnect) — Phase 15 RELAY-03
+# 설치 위치: /etc/systemd/system/openconnect@.service (0644)
+# 기동:      systemctl start openconnect@kb     (%i = 프로파일 라벨)
+#
+# ── 규율 ────────────────────────────────────────────────────────
+# 1) 무한 재시도 금지 (D-16 · T-15-10)
+#    StartLimitIntervalSec / StartLimitBurst 로 "1시간에 5회" 상한을 건다.
+#    상한을 넘으면 유닛이 failed 로 정지한다 — 이는 버그가 아니라 의도된 동작이다.
+#    반복 인증 실패가 KB 계정 잠금으로 이어지는 것을 막는 것이 목적이다.
+#
+# 2) 자격증명은 유닛 파일에 절대 넣지 않는다 (T-15-26)
+#    ExecStart 인자에 값을 쓰면 `systemctl show` 와 `ps` 에 그대로 노출된다.
+#    ExecStartPre 가 Secret Manager 에서 읽어 /run(tmpfs) 0600 으로만 흘리고,
+#    ExecStopPost 가 종료 시 반드시 지운다.
+#
+# 3) split-tunnel 은 선택이 아니라 전제 (Pitfall 10 · T-15-11)
+#    ExecStart 가 부르는 kbvpn-connect 는 openconnect 에
+#    --script=/usr/local/sbin/kbvpn-vpnc-wrapper 를 물린다. 그 래퍼가
+#    CISCO_SPLIT_INC 로 10.41.0.0/16 만 터널링해 기본 경로를 지킨다.
+#    래퍼가 없으면 kbvpn-connect 가 연결 전에 중단한다.
+#
+# 4) 자동 기동을 걸지 않는다
+#    [Install] 절은 두되, startup-script 는 이 유닛을 부팅 자동 기동 대상으로
+#    등록하지 않는다. 최초 연결은 D-03 선검증 체크포인트에서 사람이
+#    직렬 콘솔을 열어 둔 채 수동으로 start 하며 관찰해야 한다.
+#    (라우팅 탈취가 일어나면 IAP SSH 까지 막힐 수 있다)
+# ═══════════════════════════════════════════════════════════════
+
+[Unit]
+Description=KB AnyConnect VPN via openconnect (%i)
+Documentation=man:openconnect(8)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/sbin/kbvpn-fetch-secret
+ExecStart=/usr/local/sbin/kbvpn-connect
+ExecStopPost=/bin/rm -f /run/kbvpn.cred
+Restart=on-failure
+RestartSec=30
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
