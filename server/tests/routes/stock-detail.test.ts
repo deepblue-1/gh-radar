@@ -135,6 +135,27 @@ describe("/api/stocks/:code (마스터 universe + on-demand 키움 inquirePrice)
     expect(r.body.price).toBe(70000); // cached
   });
 
+  // Phase 15 Plan 10 (D-28 / SC-6): 응답에 isin 이 실려야 웹앱 호가창이 구독·주문 키를 얻는다.
+  it("응답에 isin 포함 — 마스터의 12자 표준코드가 그대로 실린다", async () => {
+    const state: any = { masters: allMasters, quotes: [{ ...samsungQuote }] };
+    const r = await request(
+      createApp({ supabase: mockSupabase(state) }),
+    ).get("/api/stocks/005930");
+    expect(r.status).toBe(200);
+    expect(r.body.isin).toBe("KR7005930003");
+    expect(r.body.isin).toHaveLength(12);
+    expect(r.body.isin).not.toBe(r.body.code); // 단축코드가 아니다 (산술 유도 금지)
+  });
+
+  it("isin 미백필 종목 → 응답 isin=null (키가 없다는 사실이 그대로 드러난다)", async () => {
+    const state: any = { masters: allMasters, quotes: [] };
+    const r = await request(
+      createApp({ supabase: mockSupabase(state) }),
+    ).get("/api/stocks/999999");
+    expect(r.status).toBe(200);
+    expect(r.body.isin).toBeNull();
+  });
+
   it("잘못된 형식 → 400", async () => {
     const r = await request(
       createApp({ supabase: mockSupabase({ masters: allMasters }) }),
