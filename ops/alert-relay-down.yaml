@@ -1,0 +1,51 @@
+displayName: gh-radar-relay-down
+documentation:
+  content: |
+    DMA relay(`https://dma.jx1.io/healthz`) 가 응답하지 않는다.
+    RELAY-03 (Phase 15) — uptime check `gh-radar-relay-healthz` 가 5분 윈도우에서 한 번이라도 실패하면 알림.
+
+    **relay 가 죽으면 호가창·주문 경로가 통째로 멈춘다.** 장중이면 즉시 대응한다.
+
+    원인 추정 (위에서부터 확인):
+    1. **VPN 터널 단절** — `openconnect@kb` 는 자동 기동을 등록하지 않은 수동 유닛이다.
+       `systemctl is-active openconnect@kb` / `journalctl -u openconnect@kb -n 50`.
+       1시간 5회 재시도 상한(StartLimitBurst)에 걸려 `failed` 로 멈춰 있을 수 있다.
+    2. **KB 게이트웨이 다운 / 세션 인증 만료** — 터널은 살아 있는데 `10.41.x.x:9100` 이 거부.
+       relay `/healthz` 가 `degraded`(503) 로 내려온다. 서버측 세션 인증 만료 주기를 확인한다.
+    3. **컨테이너 OOM** — e2-micro 는 1GB 다. `--memory` 상한 덕에 컨테이너만 죽고 재시작되지만
+       재시작 루프면 압박이다. `dmesg | grep -i oom` / `docker stats --no-stream`.
+       합계가 700MB 를 상시 넘으면 e2-small 로 머신타입 변경 (D-07 허용).
+    4. **Caddy 인증서 만료** — uptime check 가 `validate-ssl` 이라 인증서 문제도 여기서 잡힌다.
+       `journalctl -u caddy -n 50`. 챌린지는 TLS-ALPN-01 고정이며 포트 80 은 영구 차단이다.
+    5. **VM 재부팅** — `radar-gw` 상태 확인. 컨테이너는 재시작 정책으로 돌아오지만 VPN 은
+       수동 유닛이라 **자동으로 올라오지 않는다**.
+    6. **DMA 로그인 거부** — 자격증명·계좌 권한 문제. relay 로그의 `session_rejected`.
+
+    검증: `bash scripts/smoke-relay.sh` (INV-1~8) → 실패 항목이 위 6종 중 어디인지 지목한다.
+
+    설계 메모: relay `/healthz` 는 **degraded 를 HTTP 503 으로 내린다** (RESEARCH A7).
+    200 으로 내리면서 본문에만 degraded 를 적으면 uptime check 는 본문을 보지 않으므로
+    컨테이너가 살아 있는 채 게이트웨이만 죽은 상태가 영원히 감지되지 않는다.
+  mimeType: text/markdown
+conditions:
+  - displayName: relay uptime check failing
+    conditionThreshold:
+      filter: |
+        metric.type = "monitoring.googleapis.com/uptime_check/check_passed"
+        AND resource.type = "uptime_url"
+        AND resource.label.host = "dma.jx1.io"
+      comparison: COMPARISON_LT
+      thresholdValue: 1
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_FRACTION_TRUE
+          crossSeriesReducer: REDUCE_MEAN
+          groupByFields:
+            - resource.label.host
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  autoClose: 1800s

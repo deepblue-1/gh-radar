@@ -67,6 +67,41 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 외부 TLS 검증 | `curl` 체인 검증 통과 (`ssl_verify_result=0`) · `/healthz` 는 502 (relay 컨테이너 미배포 — 정상) | 2026-09-05T14:16Z |
 | 포트 80 방화벽 규칙 | **0건** — 임시 개방 없이 TLS-ALPN-01 로 1회에 발급 성공 | 2026-09-05T14:16Z |
 
+### relay 컨테이너 (15-08 배포)
+
+> 15-08 Task 3 실측 (2026-09-06). `deploy-relay.sh` 최초 실제 실행 결과다.
+> 이 배포의 `DMA_HOST` 는 **로컬 mock(`127.0.0.1`)** 이다 — 실서버 접속은 D-27 상 15-20 소관.
+
+| 항목 | 값 | 확인 시각 |
+|------|-----|-----------|
+| 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:e6f39e5` (+ `:latest`) | 2026-09-06 |
+| 컨테이너 | `gh-radar-relay` — **Up** · `restart=always` · `network=host` | 2026-09-06 |
+| 메모리 상한 | `--memory=384m` / `--memory-swap=768m` (`Memory=402653184`, `MemorySwap=805306368`) | 2026-09-06 |
+| 로그 | `json-file` · `max-size=10m` · `max-file=3` (Ops Agent 미설치 — Pitfall 11) | 2026-09-06 |
+| 주입 env | `NODE_ENV=production` · `APP_VERSION=e6f39e5` · `WS_PORT=8090` · `ORDER_API_PORT=8091` · **`DMA_HOST=127.0.0.1`** · `DMA_PORT=9100` · `DMA_BROKER=KB` | 2026-09-06 |
+| 비밀 주입 경로 | VM 안에서 메타데이터 토큰 → Secret Manager REST → **tmpfs env-file(0600)** → `--env-file` → 즉시 삭제 (T-15-29) | 2026-09-06 |
+| 공개 `/healthz` | **200** · `{"status":"ok","vpn":true,"dma":true,"version":"e6f39e5","sessionCount":0}` · `ssl_verify_result=0` · 계좌·사용자 식별자 **미포함** | 2026-09-06 |
+| `free -m` (컨테이너 기동 후) | total 969 · used **491** · available 478 — 700MB 기준 **여유. e2-small 전환 불필요** | 2026-09-06 |
+| `docker stats` | `48.85MiB / 384MiB` · cpu 0.03% (세션 0개 기준) | 2026-09-06 |
+| uptime check | `gh-radar-relay-healthz` — https / 443 `/healthz` · period 1분 · `validate-ssl` · 2xx | 2026-09-06 |
+| 알림 정책 | `gh-radar-relay-down` (`projects/gh-radar/alertPolicies/7995724305267722560`) · enabled · 채널 결선됨 | 2026-09-06 |
+| `smoke-relay.sh` | **PASS 9 / FAIL 0 / SKIP 1** — INV-4 는 `openconnect@kb=inactive` 로 SKIP | 2026-09-06 |
+| 내부 포트 공인 노출 | `8091` · `9100` 둘 다 **차단 확인** (INV-7, `nc` 실패해야 PASS) | 2026-09-06 |
+
+**배포 / 롤백:**
+
+```bash
+GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://<ref>.supabase.co \
+NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh
+
+bash scripts/deploy-relay.sh --rollback <이전 SHA>   # 빌드 없이 태그만 되돌린다
+bash scripts/smoke-relay.sh                           # INV-1~8
+bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재확인용)
+```
+
+> `DMA_HOST` 를 넘기지 않으면 **로컬 mock** 이 기본값이다 (D-27 / T-15-25).
+> 실서버 주소를 넘기면 스크립트가 경고를 출력한다 — 사용자 지시가 있었는지 먼저 확인할 것.
+
 ### Secret 3종 상태
 
 값은 어디에도 기록하지 않는다. 버전 **개수**만 상태 지표로 남긴다.
@@ -75,7 +110,22 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 |--------|-------------|-----------|
 | `gh-radar-dma-cred-key` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
 | `gh-radar-relay-order-secret` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
-| `gh-radar-kb-vpn-password` | **0 (비어 있음)** | **사용자가 직접 주입** — D-03 선검증의 전제 |
+| `gh-radar-kb-vpn-password` | 1 | **사용자가 직접 주입** (15-07 완료) — D-03 선검증의 전제 |
+
+relay 컨테이너는 위 3종 중 `dma-cred-key` · `relay-order-secret` 2종에 더해
+**`gh-radar-supabase-service-role`** 도 읽는다(wss 토큰 검증 + `dma_credentials` 조회).
+15-06/15-07 의 Secret 단위 바인딩 목록에 이 4번째가 빠져 있어 15-08 이 추가했다 —
+`setup-relay-iam.sh` 는 이 Secret 을 **생성하지 않고 바인딩만** 한다(워커들이 공유하는 기존 자산).
+
+> ⚠️ **컨테이너 env 를 넓은 패턴으로 grep 하지 말 것.**
+> `docker inspect ... .Config.Env | grep -E 'DMA_'` 같은 조회는 `DMA_CRED_KEY` 값까지
+> 화면·로그에 그대로 띄운다. 확인이 필요하면 **키 이름만** 뽑을 것:
+>
+> ```bash
+> sudo docker inspect gh-radar-relay --format '{{range .Config.Env}}{{println .}}{{end}}' | cut -d= -f1
+> ```
+>
+> 값 확인이 꼭 필요하면 대상 키 하나만 지정하고, 출력은 파일로 받아 즉시 지운다.
 
 > ⚠️ `gcloud secrets list --filter='name~gh-radar-(a|b|c)'` 형태는 쓰지 말 것.
 > gcloud 필터 문법이 선행 `(` 를 그룹 토큰으로 해석해 조용히 0건을 반환한다.

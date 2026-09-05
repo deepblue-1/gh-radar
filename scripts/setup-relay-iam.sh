@@ -184,6 +184,19 @@ for SECRET_NAME in gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-kb
   echo "✓ secretAccessor bound: $SECRET_NAME → $SA_NAME"
 done
 
+# relay 컨테이너는 `SUPABASE_SERVICE_ROLE_KEY` 도 필요하다 (wss 토큰 검증 + dma_credentials 조회).
+# 이 Secret 은 이 phase 가 만든 것이 아니라 **워커들이 공유하는 기존 자산**이라 위 루프에
+# 넣지 않는다 — 루프는 "없으면 만든다" 이고, 공유 Secret 을 빈 껍데기로 새로 만들 수 있는
+# 경로를 두면 안 된다. 존재를 전제로 바인딩만 추가한다.
+if gcloud secrets describe gh-radar-supabase-service-role >/dev/null 2>&1; then
+  run_retry gcloud secrets add-iam-policy-binding gh-radar-supabase-service-role \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role=roles/secretmanager.secretAccessor >/dev/null
+  echo "✓ secretAccessor bound: gh-radar-supabase-service-role → $SA_NAME"
+else
+  echo "WARN: gh-radar-supabase-service-role 이 없습니다 — relay 컨테이너는 이 값 없이 기동하지 못합니다." >&2
+fi
+
 # 관리자 등록 스크립트(dma-credentials) 실행 주체에도 AES 키 접근권을 준다.
 # RESEARCH Open Question 3 — 실행 주체가 VM SA 가 아니라 배포자 SA 이기 때문.
 if [[ -n "${DEPLOYER_SA_EMAIL:-}" ]]; then
