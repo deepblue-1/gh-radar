@@ -61,8 +61,11 @@ const MAX_TAPE = 200;
 const MAX_MESSAGES = 20;
 /** 주문 통보 누적 상한. */
 const MAX_ORDERS = 50;
-/** 재접속 시도 상한 (D-16). 소진 시 `manual_required`. */
-const MAX_RECONNECT_ATTEMPTS = 10;
+/**
+ * 재접속 시도 상한 (D-16). 소진 시 `manual_required`.
+ * 상태 바가 `재접속 중 k/10` 을 그릴 때도 이 값을 쓴다 — 상한을 두 곳에 복제하면 어긋난다.
+ */
+export const RELAY_MAX_RECONNECT_ATTEMPTS = 10;
 /** 지수 백오프 시작 지연. */
 const BACKOFF_BASE_MS = 1_000;
 /** 지수 백오프 상한. */
@@ -75,8 +78,11 @@ const NORMAL_CLOSE_CODE = 1000;
  */
 const WS_READY_OPEN = 1;
 
-/** 백오프 지연 계산. attempt 는 1-based. */
-function backoffDelayMs(attempt: number): number {
+/**
+ * 백오프 지연 계산. attempt 는 1-based.
+ * 상태 바의 `(다음 n초)` 안내도 이 함수를 통과시킨다(단일 정본).
+ */
+export function relayBackoffDelayMs(attempt: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** (attempt - 1), BACKOFF_MAX_MS);
 }
 
@@ -91,6 +97,24 @@ function quoteCacheKey(isin: string, exchange: RelayExchange): string {
 
 /** 아직 연결을 시작하지 않은 상태(`idle`)를 더한 훅 표면 상태. */
 export type RelayStatus = RelaySessionState | "idle";
+
+/**
+ * ServerMessage + **수신 시각**.
+ *
+ * `RelayServerMsg`(54) 에는 시각 필드가 없는데 UI-SPEC C3 는 알림을 `시각·레벨·본문`
+ * 으로 렌더하라고 못박았다. 서버가 주지 않는 값이므로 **브라우저 수신 시각**을
+ * 여기서 한 번만 찍는다 — 렌더 때마다 만들면 값이 계속 흔들린다.
+ * `RelayServerMsg` 의 상위집합이라 계약 소비자 쪽 타입은 그대로 성립한다.
+ */
+export type RelayServerMessageEntry = RelayServerMsg & {
+  /** `HH:MM:SS` (로컬 시각). */
+  receivedAt: string;
+};
+
+/** 알림 수신 시각 스탬프. 24시간제 `HH:MM:SS`. */
+function clockStamp(now: Date): string {
+  return now.toLocaleTimeString("ko-KR", { hour12: false });
+}
 
 export interface UseRelaySocketOptions {
   /** 12자 ISIN. 비어 있으면 연결하지 않는다. */
@@ -120,8 +144,8 @@ export interface RelaySocketState {
   account: RelayAccountState | null;
   /** 주문 통보 누적(최신 우선). */
   orders: RelayOrderMsg[];
-  /** ServerMessage 누적(최신 우선, 상한 20). */
-  messages: RelayServerMsg[];
+  /** ServerMessage 누적(최신 우선, 상한 20). 각 항목에 수신 시각이 붙어 있다. */
+  messages: RelayServerMessageEntry[];
   /** 재접속 중이라 표시값이 마지막 수신값임을 뜻한다(UI 는 `opacity:.55` 감쇠). */
   isStale: boolean;
   /**
@@ -146,7 +170,7 @@ interface RelayData {
   tape: RelayTapeEntry[];
   account: RelayAccountState | null;
   orders: RelayOrderMsg[];
-  messages: RelayServerMsg[];
+  messages: RelayServerMessageEntry[];
   isStale: boolean;
 }
 
@@ -166,8 +190,8 @@ const INITIAL_DATA: RelayData = {
 type RelayAction =
   /** 브라우저가 스스로 만든 상태(연결 시도·백오프·게이트). 서버 프레임이 아니다. */
   | { type: "local-status"; status: RelayStatus; message?: string; attempt?: number }
-  /** 서버 프레임 1건. */
-  | { type: "frame"; frame: RelayOutbound }
+  /** 서버 프레임 1건. `at` 은 알림 스탬프용 수신 시각(`HH:MM:SS`). */
+  | { type: "frame"; frame: RelayOutbound; at: string }
   /** 소켓 단절/복구에 따른 신선도 표식. */
   | { type: "stale"; value: boolean }
   /**
@@ -203,14 +227,14 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
       };
 
     case "frame":
-      return applyFrame(state, action.frame);
+      return applyFrame(state, action.frame, action.at);
 
     default:
       return state;
   }
 }
 
-function applyFrame(state: RelayData, frame: RelayOutbound): RelayData {
+function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayData {
   switch (frame.t) {
     case "state":
       return {
@@ -245,7 +269,10 @@ function applyFrame(state: RelayData, frame: RelayOutbound): RelayData {
       return { ...state, orders: [frame, ...state.orders].slice(0, MAX_ORDERS) };
 
     case "msg":
-      return { ...state, messages: [frame, ...state.messages].slice(0, MAX_MESSAGES) };
+      return {
+        ...state,
+        messages: [{ ...frame, receivedAt: at }, ...state.messages].slice(0, MAX_MESSAGES),
+      };
 
     default:
       // 알 수 없는 `t` 는 무시한다 — 서버가 앞서 나가도 브라우저가 터지지 않는다(T-15-41).
@@ -397,7 +424,7 @@ export function useRelaySocket({
           if (wanted.isin !== frame.i || wanted.ex !== frame.x) return;
         }
 
-        dispatch({ type: "frame", frame });
+        dispatch({ type: "frame", frame, at: clockStamp(new Date()) });
       };
 
       ws.onerror = () => {
@@ -426,11 +453,11 @@ export function useRelaySocket({
         dispatch({ type: "stale", value: true });
 
         attempt += 1;
-        if (attempt > MAX_RECONNECT_ATTEMPTS) {
+        if (attempt > RELAY_MAX_RECONNECT_ATTEMPTS) {
           dispatch({
             type: "local-status",
             status: "manual_required",
-            attempt: MAX_RECONNECT_ATTEMPTS,
+            attempt: RELAY_MAX_RECONNECT_ATTEMPTS,
           });
           return;
         }
@@ -438,7 +465,7 @@ export function useRelaySocket({
         retryTimer = setTimeout(() => {
           retryTimer = null;
           void open();
-        }, backoffDelayMs(attempt));
+        }, relayBackoffDelayMs(attempt));
       };
     };
 
