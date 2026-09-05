@@ -85,3 +85,24 @@
   적용되게 했다. `server/` 는 손대지 않았다(범위 밖 · 배포 스크립트 회귀 위험).
 - **권고:** `server/.dockerignore` → `server/Dockerfile.dockerignore` 로 이름을 바꾸거나
   루트 `.dockerignore` 를 두는 quick task. workers/ 의 `.dockerignore` 도 같은 점검 필요.
+
+## [15-09] `public.rls_auto_enable()` 이 마이그레이션 이력에 정의되지 않았다 (선재 · 범위 밖)
+
+- **발견 경로:** 15-09 Task 1 로컬 검증 — `supabase/postgres:17.4.1.075` 컨테이너에
+  `supabase/migrations/*.sql` 를 파일명 순으로 전부 재생(replay)하던 중.
+- **증상:** `20260702160000_security_perf_advisor_fixes.sql:23` 의
+  `REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC;` 가
+  `ERROR: function public.rls_auto_enable() does not exist` 로 실패한다.
+  `grep -rn "rls_auto_enable" supabase/migrations/` 결과가 그 파일의 주석·REVOKE 3줄뿐 —
+  **CREATE 가 어느 마이그레이션에도 없다.** 대시보드에서 수기 생성된 것으로 보인다.
+- **영향:** production 에는 함수가 이미 있어 `db push` 는 정상이다. 그러나
+  **빈 DB 에서 마이그레이션 이력을 처음부터 재생할 수 없다** — 로컬 `supabase start`,
+  `db reset`, 재해복구, 신규 스테이징 구축이 모두 이 지점에서 멈춘다.
+  (같은 재생에서 `auth.jwt()` 도 필요했으나 그쪽은 GoTrue 가 제공하는 플랫폼 함수라 정상이다.)
+- **15-09 무관 근거:** 15-09 는 `supabase/migrations/20260905*` 3건만 추가한다.
+  실패 지점은 2026-07-02 자 기존 파일이고, 15-09 의 변경을 전부 빼도 동일하게 재현된다.
+- **15-09 에서 한 조치:** 검증 컨테이너에만 no-op 스텁을 만들어 재생을 이어갔다.
+  저장소 파일은 건드리지 않았다.
+- **권고:** `rls_auto_enable()` 의 production 정의를
+  `pg_get_functiondef` 로 덤프해 보정(backfill) 마이그레이션으로 커밋하는 quick task.
+  적용 완료 표시만 필요하므로 `CREATE OR REPLACE` 로 두면 production 에도 무해하다.
