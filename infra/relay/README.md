@@ -57,9 +57,15 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 방화벽 (`gh-radar-vpc`) | 정확히 3규칙 — 443 공인 / 22 IAP대역 / 8091 서브넷 | 2026-09-05T13:45Z |
 | `free -m` 여유 | total 969 · used 417 · **available 552** · swap 1024M(사용 11M) | 2026-09-05T13:45Z |
 | 툴체인 | docker 20.10.24 · openconnect **v9.01-3** · caddy **v2.11.4** | 2026-09-05T13:45Z |
-| `caddy` / `openconnect@kb` | 둘 다 `disabled` + `inactive` (게이트 통과 전 기동 금지 준수) | 2026-09-05T13:45Z |
-| startup-script | `google-startup-scripts` 정상 종료 · 오류 0건 · 자산 6종 배치 완료 | 2026-09-05T13:45Z |
-| 인증서 발급 (issuer / notAfter) | _(미발급 — Task 3 DNS 게이트 대기)_ | — |
+| `caddy` | `enabled` + `active` — D-06 DNS 게이트 통과 후 기동 | 2026-09-05T14:16Z |
+| `openconnect@kb` | `disabled` + `inactive` — D-03 선검증 대기 | 2026-09-05T14:16Z |
+| startup-script | `google-startup-scripts` 정상 종료 · 오류 0건 · 자산 6종 배치 완료 | 2026-09-05T14:15Z |
+| DNS `dma.jx1.io` | `34.22.79.103` 단일 A 레코드 (로컬·8.8.8.8·1.1.1.1 3개 리졸버 일치) | 2026-09-05T14:10Z |
+| 인증서 issuer | `C=US, O=Let's Encrypt, CN=YE1` · 챌린지 `tls-alpn-01` | 2026-09-05T14:16Z |
+| 인증서 subject | `CN=dma.jx1.io` | 2026-09-05T14:16Z |
+| 인증서 notBefore / **notAfter** | `2026-09-05 13:17:21 GMT` / **`2026-12-04 13:17:20 GMT`** | 2026-09-05T14:16Z |
+| 외부 TLS 검증 | `curl` 체인 검증 통과 (`ssl_verify_result=0`) · `/healthz` 는 502 (relay 컨테이너 미배포 — 정상) | 2026-09-05T14:16Z |
+| 포트 80 방화벽 규칙 | **0건** — 임시 개방 없이 TLS-ALPN-01 로 1회에 발급 성공 | 2026-09-05T14:16Z |
 
 ### Secret 3종 상태
 
@@ -209,6 +215,30 @@ echo | openssl s_client -connect dma.jx1.io:443 -servername dma.jx1.io 2>/dev/nu
 
 발급이 실패하면 **반복 시도하지 않는다.** 원인(전파 미완료 / 443 방화벽 / TLS-ALPN)을 먼저 확인하고,
 필요하면 staging CA 로 검증한 뒤 프로덕션으로 전환한다.
+
+### 기동 전에 반드시 설정을 먼저 검증한다
+
+`caddy validate` 는 ACME 요청을 보내지 않으므로 rate limit 을 소모하지 않는다.
+**설정 오류로 인한 기동 실패를 ACME 시도 전에 걸러낸다.**
+
+```bash
+sudo -u caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+> ⚠️ **`sudo caddy validate` (root) 로 실행하지 말 것.**
+> validate 는 파일 로거 모듈을 실제로 provisioning 하기 때문에
+> `/var/log/caddy/dma.log` 를 `root:root 0600` 으로 만들어 버린다.
+> 그 상태로 caddy(`User=caddy`)가 기동하면 `permission denied` 로
+> **설정 로드 자체가 실패**한다. 반드시 `sudo -u caddy` 로 실행한다.
+> (startup.sh 가 매 부팅 `chown -R caddy:caddy /var/log/caddy` 로 자가 치유하지만,
+> 재부팅 없이 복구하려면 직접 `sudo chown caddy:caddy /var/log/caddy/dma.log`.)
+
+### 챌린지는 TLS-ALPN-01 로 고정돼 있다
+
+포트 80 은 D-09 에 따라 영구 차단이라 HTTP-01 은 **절대 성공할 수 없다.**
+Caddyfile 의 `issuer acme { disable_http_challenge }` 가 이를 명시적으로 꺼서
+갱신 때마다 실패 검증이 누적되는 것을 막는다 (T-15-13).
+이 설정을 지우면 갱신마다 무의미한 실패가 쌓인다.
 
 설정을 리로드하면 진행 중인 WebSocket 이 강제 종료되므로 **장중 변경은 하지 않는다.**
 

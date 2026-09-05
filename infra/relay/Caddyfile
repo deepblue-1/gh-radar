@@ -21,15 +21,24 @@
 #    Caddy 는 기본적으로 Authorization·Cookie 헤더를 로그에서 가린다 — 그 기본값을 유지한다.
 #    커스텀 로그 포맷으로 헤더를 통째로 찍는 설정을 추가하지 말 것.
 #
-# ⑤ CADDY_EMAIL 은 systemd 드롭인(/etc/systemd/system/caddy.service.d/10-env.conf)에서
-#    주입된다. 비어 있으면 Caddy 는 만료 알림 이메일 없이 발급을 진행한다(동작에는 지장 없음).
+# ⑤ ACME 계정 이메일은 **선택 항목**이라 이 파일에 전역 옵션 블록을 두지 않는다.
+#    예전에는 전역 블록에서 환경변수 placeholder 로 email 을 받았으나, 변수가 비면 인자 0개짜리
+#    `email` 로 전개돼 **설정 파싱이 통째로 실패**했다(Caddy 가 아예 기동하지 않는다).
+#    이메일을 넣고 싶으면 인스턴스 메타데이터 `caddy-email` 을 주면 startup.sh 가
+#    이 파일 앞에 전역 블록을 붙여 준다. 없으면 만료 알림 없이 정상 발급된다.
 # ═══════════════════════════════════════════════════════════════
 
-{
-	email {$CADDY_EMAIL}
-}
-
 dma.jx1.io {
+	# 포트 80 은 D-09 에 따라 **영구 차단**이므로 HTTP-01 챌린지는 절대 성공할 수 없다.
+	# 명시적으로 꺼 두지 않으면 Caddy 가 갱신 때마다 HTTP-01 을 먼저 시도해
+	# 실패 검증을 누적시킨다(Let's Encrypt 는 hostname 당 시간당 실패 5회 제한 — T-15-13).
+	# 443 만으로 발급되는 TLS-ALPN-01 로 고정한다.
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
 	encode zstd gzip
 
 	# 공개 헬스 — relay 내부 포트의 헬스만 노출한다.

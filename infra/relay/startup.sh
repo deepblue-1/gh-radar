@@ -125,15 +125,33 @@ log "✓ caddy installed (정지 상태 유지 — 기동은 15-07 체크포인�
 install_asset caddyfile /etc/caddy/Caddyfile 0644
 install -d -m 0755 -o caddy -g caddy /var/log/caddy 2>/dev/null \
   || install -d -m 0755 /var/log/caddy
+# 로그 파일 소유권 자가 치유. `sudo caddy validate` 는 파일 로거를 실제로 provisioning 해
+# dma.log 를 root:root 0600 으로 만들어 버린다. 그 상태로 caddy(user=caddy)가 기동하면
+# "permission denied" 로 설정 로드 자체가 실패한다 (15-07 Task 3 실측).
+chown -R caddy:caddy /var/log/caddy 2>/dev/null || true
 
-# CADDY_EMAIL 주입 — 공식 패키지 유닛은 EnvironmentFile 을 읽지 않으므로 드롭인을 쓴다.
+# ACME 계정 이메일 주입 (선택).
+#   Caddyfile 에 `email {$CADDY_EMAIL}` 을 두고 환경변수로 넣는 방식은 쓰지 않는다 —
+#   변수가 비면 인자 0개짜리 `email` 로 전개돼 설정 파싱이 실패하고 Caddy 가
+#   아예 기동하지 않는다(15-07 Task 3 실측). 값이 있을 때만 전역 블록을 덧붙인다.
+#   install_asset 이 매 부팅 원본을 새로 깔기 때문에 이 덧붙임은 멱등하다.
 if CADDY_EMAIL_VALUE="$(md_attr caddy-email)" && [[ -n "$CADDY_EMAIL_VALUE" ]]; then
-  install -d -m 0755 /etc/systemd/system/caddy.service.d
-  printf '[Service]\nEnvironment=CADDY_EMAIL=%s\n' "$CADDY_EMAIL_VALUE" \
-    >/etc/systemd/system/caddy.service.d/10-env.conf
-  log "✓ CADDY_EMAIL 드롭인 배치"
+  TMP_CADDYFILE=$(mktemp)
+  printf '{\n\temail %s\n}\n\n' "$CADDY_EMAIL_VALUE" >"$TMP_CADDYFILE"
+  cat /etc/caddy/Caddyfile >>"$TMP_CADDYFILE"
+  install -m 0644 "$TMP_CADDYFILE" /etc/caddy/Caddyfile
+  rm -f "$TMP_CADDYFILE"
+  log "✓ ACME 이메일 전역 블록 주입"
 else
-  log "· caddy-email 메타데이터 없음 — 만료 알림 이메일 없이 발급된다"
+  log "· caddy-email 메타데이터 없음 — 만료 알림 이메일 없이 발급된다 (전역 블록 미주입)"
+fi
+
+# 과거 방식의 잔재 드롭인이 있으면 제거한다 (더 이상 참조되지 않는다).
+if [[ -f /etc/systemd/system/caddy.service.d/10-env.conf ]]; then
+  rm -f /etc/systemd/system/caddy.service.d/10-env.conf
+  rmdir /etc/systemd/system/caddy.service.d 2>/dev/null || true
+  systemctl daemon-reload
+  log "· 구 CADDY_EMAIL 드롭인 제거"
 fi
 
 # ───────────────────────────────────────────────────────────────
