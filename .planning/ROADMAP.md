@@ -495,7 +495,7 @@ Plans:
 ### Phase 15: DMA 중계 서버(relay) — KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이
 
 **Goal:** gh-radar 에 `relay/` 워크스페이스(Node 22 + TS)를 신설해 GCE VM(`radar-gw`, e2-micro, asia-northeast3) 위에서 KB AnyConnect VPN(openconnect, host systemd) 너머의 gh-trade-server(C++ DMA 게이트웨이 10.41.1.120:9100, `[uint32 LE 길이][FlatBuffer Envelope]`)에 **gh-radar 사용자별 DMA 세션**으로 붙는다. 호가 10단 + 체결 테이프(KRX/NXT)와 계좌 상태(잔고·미체결)를 브라우저에 **`wss://dma.jx1.io`(Caddy TLS) 로 직접 팬아웃**하고, 주문(신규 매수/매도 + 취소, 지정가 보통)은 **브라우저 → Cloud Run server REST(requireAuth) → Direct VPC Egress → VM relay 내부 HTTP → `DirectOrderReq`** 로 릴레이한다. 웹앱 `/stocks/[code]` 를 상단 4탭(차트·호가주문·종목정보·뉴스토론)으로 재구성하고 호가주문 탭(호가·체결·주문 패널·잔고/미체결·연결 상태)을 신설한다(기존 섹션은 탭 안 재배치, 내용 무변경). 사용자 ↔ DMA 자격증명 매핑은 Supabase `dma_credentials`(AES-GCM, 서비스롤 전용)이며 allowlist = 매핑 행 존재. Cloud Run 에서는 WebSocket 을 열지 않는다. 인계 문서 `tasks/relay-handoff.md` 를 전면 재검토한 결정은 `15-CONTEXT.md` 가 정본(핸드오프와 충돌 시 CONTEXT 우선).
-**Requirements**: TBD (plan 단계에서 RELAY-01 시세·계좌 팬아웃 / RELAY-02 주문 릴레이 / RELAY-03 VM·VPN 인프라 신규 등록)
+**Requirements**: RELAY-01, RELAY-02, RELAY-03 (신규 — 2026-09-05 plan 단계 REQUIREMENTS 등록 완료)
 **Depends on:** Phase 14; **외부 의존** gh-trade Phase 17(users.toml 로그인 인증 + `LoginResp.accounts`) — 병행 진행, 계좌·주문 wave 는 17 완료 후 `sync-relay-schema.sh` 재동기화가 선행 조건; 사용자 DNS(`dma.jx1.io` A 레코드); kbs124 VPN 선검증 통과
 **Success Criteria** (what must be TRUE):
   1. `relay/` 워크스페이스가 pnpm 워크스페이스에 등록되고 gh-trade `sync-relay-schema.sh` 산출물(`relay/src/generated/` 40개 + SYNC MARKER fbs 사본)이 커밋돼 있으며 `sync-relay-schema.sh --check` 가 무변경으로 통과한다. 생성물은 손으로 고치지 않는다.
