@@ -21,9 +21,9 @@ import {
  */
 
 describe("ThemeStockSource", () => {
-  it("naver/alphasquare/ai/user 4 멤버를 런타임 tuple 로 노출", () => {
-    expect(THEME_STOCK_SOURCES).toEqual(["naver", "alphasquare", "ai", "user"]);
-    expect(THEME_STOCK_SOURCES).toHaveLength(4);
+  it("naver/alphasquare/user 3 멤버를 런타임 tuple 로 노출", () => {
+    expect(THEME_STOCK_SOURCES).toEqual(["naver", "alphasquare", "user"]);
+    expect(THEME_STOCK_SOURCES).toHaveLength(3);
   });
 
   it("tuple 멤버는 ThemeStockSource union 에 할당 가능", () => {
