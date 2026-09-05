@@ -192,3 +192,25 @@ supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 �
   ```
   (이 환경의 권한 계층이 시크릿 쓰기를 차단하므로 사용자가 직접 실행해야 한다.)
 - **재발 방지:** `infra/relay/README.md` 에 "env 조회는 키 이름만 뽑을 것" 경고가 박혔다.
+
+## [15-13 → 15-14] E2E 픽스처에 `isin` 부재 — 호가창 E2E 는 게이트 경로만 탄다
+
+- **무엇:** `webapp/e2e/fixtures/stocks.ts` 의 `FIXTURE_SAMSUNG` 등은 아직 `Stock` 타입이라
+  `isin` 필드가 없다. 15-13 이 단위 픽스처(`webapp/src/__tests__/fixtures/stocks.ts`)만
+  `StockDetailResponse` 로 좁히고 `isin: 'KR7005930003'` 을 채웠다.
+- **영향:** E2E 에서 `/api/stocks/:code` 목이 `isin` 을 주지 않으므로 호가창 섹션이
+  구독을 시작하지 않는다. 섹션 자체는 항상 렌더되므로(UI-SPEC C1) `stock-detail-tabs.spec.ts`
+  5번 케이스는 `stock-orderbook-section` 존재만 단언하도록 갱신해 둬 회귀는 없다.
+- **왜 여기서 안 고쳤나:** E2E + Vercel env 는 15-14 소관(범위 경계). e2e 픽스처는
+  `Stock` 타입 리터럴이 여러 개라 타입을 좁히면 전 리터럴에 필드 2개를 더해야 한다.
+- **15-14 가 할 일:** e2e 픽스처를 `StockDetailResponse` 로 좁히고 `isin` / `upperLimitProximity`
+  를 채운 뒤, 호가창 연결 상태·게이트 E2E 를 추가한다.
+
+## [15-13 관측] 상태 바와 권한 게이트가 같은 제목 문구를 쓴다
+
+- `relay-status-bar.tsx` 의 `unauthorized` 본문과 C13 게이트 카드 제목이 둘 다
+  `실시간 호가·주문 권한이 없어요` 다. UI-SPEC §Copywriting 표는 `unauthorized` 상태 문구를
+  "본문을 C13 게이트로 교체" 라고만 적어 두었고, 15-12 가 상태 바에도 같은 문구를 넣었다.
+- 화면상 중복이 눈에 띄는 정도는 아니지만, 테스트에서 `getByText` 가 2건을 잡는다
+  (15-13 은 게이트 카드 안으로 스코프해 우회했다).
+- 문구 정본을 한쪽으로 모으려면 UI-SPEC 갱신이 필요하므로 여기 기록만 남긴다.

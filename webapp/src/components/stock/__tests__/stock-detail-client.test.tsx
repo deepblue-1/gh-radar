@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApiClientError } from '@/lib/api';
 import { fetchStockDetail } from '@/lib/stock-api';
@@ -42,6 +42,15 @@ vi.mock('@/lib/stock-api', () => ({
 // 차트 컴포넌트의 단위 검증은 별도 stock-daily-chart-section.test.tsx 에서 수행.
 vi.mock('../stock-daily-chart-section', () => ({
   StockDailyChartSection: () => null,
+}));
+// Phase 15 Plan 13: `호가주문` 탭이 StockOrderbookSection → useRelaySocket 을 마운트한다.
+// jsdom 에는 Supabase 환경변수가 없어 실제 createClient 가 throw 하므로, 세션 없는
+// 클라이언트로 대체해 **로그인 게이트(unauthorized)** 경로를 결정론적으로 태운다.
+// (wss 훅 자체의 검증은 lib/__tests__/relay-socket.test.ts 소관.)
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    auth: { getSession: async () => ({ data: { session: null } }) },
+  }),
 }));
 
 const mockFetch = vi.mocked(fetchStockDetail);
@@ -124,16 +133,35 @@ describe('StockDetailClient', () => {
     );
   });
 
-  it('Test 2d — `?tab=orderbook` 진입 시 호가주문 placeholder 패널 렌더 (UI-SPEC C1)', async () => {
+  it('Test 2d — `?tab=orderbook` 진입 시 호가창 섹션이 마운트된다 (UI-SPEC C1)', async () => {
     mockSearchParams = new URLSearchParams('tab=orderbook');
     mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
     render(<StockDetailClient code="005930" />);
 
     await waitFor(() =>
-      expect(
-        screen.getByTestId('stock-orderbook-placeholder'),
-      ).toBeInTheDocument(),
+      expect(screen.getByTestId('stock-orderbook-section')).toBeInTheDocument(),
     );
+    // 실시간 현재가와 스냅샷 히어로가 다를 수 있음을 설명하는 출처 라벨(D1).
+    expect(screen.getByText(/실시간\(DMA\)/)).toBeInTheDocument();
+  });
+
+  it('Test 2e — 권한 없는 사용자에게도 섹션이 사라지지 않고 게이트 카드가 뜬다 (UI-SPEC C13)', async () => {
+    mockSearchParams = new URLSearchParams('tab=orderbook');
+    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
+    render(<StockDetailClient code="005930" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('orderbook-access-gate')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('stock-orderbook-section')).toBeInTheDocument();
+    // 제목·보조 문구는 게이트 카드 안에서 찾는다 — 상태 바도 같은 제목 문구를 쓴다.
+    const gate = within(screen.getByTestId('orderbook-access-gate'));
+    expect(gate.getByText('실시간 호가·주문 권한이 없어요')).toBeInTheDocument();
+    expect(
+      gate.getByText('이 종목의 차트·뉴스·종목토론방은 그대로 이용할 수 있어요.'),
+    ).toBeInTheDocument();
+    // 셀프서비스 경로가 없으므로 게이트에 행동 버튼을 두지 않는다.
+    expect(gate.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('Test 3 — 초기 로딩 중에는 Skeleton 노출, Hero 없음', () => {

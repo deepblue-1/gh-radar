@@ -9,7 +9,13 @@
  * - fetchStockDiscussions: GET /api/stocks/:code/discussions (hours/days/limit 쿼리 — 서버 `DiscussionListQuery` 계약)
  * - refreshStockDiscussions: POST /api/stocks/:code/discussions/refresh (429 시 `retry_after_seconds`, 503 시 `PROXY_UNAVAILABLE`/`PROXY_BUDGET_EXHAUSTED`)
  */
-import type { Stock, NewsArticle, Discussion, DiscussionListResponse } from '@gh-radar/shared';
+import type {
+  Stock,
+  StockDetailResponse,
+  NewsArticle,
+  Discussion,
+  DiscussionListResponse,
+} from '@gh-radar/shared';
 import { apiFetch } from './api';
 
 export function searchStocks(q: string, signal: AbortSignal): Promise<Stock[]> {
@@ -17,8 +23,18 @@ export function searchStocks(q: string, signal: AbortSignal): Promise<Stock[]> {
   return apiFetch<Stock[]>(`/api/stocks/search?${params.toString()}`, { signal });
 }
 
-export function fetchStockDetail(code: string, signal: AbortSignal): Promise<Stock> {
-  return apiFetch<Stock>(`/api/stocks/${encodeURIComponent(code)}`, { signal });
+/**
+ * Phase 15 (D-28): 응답 타입이 `StockDetailResponse` 다 — `Stock` 에 `isin`(12자 KRX
+ * 표준코드)과 `upperLimitProximity` 가 더해진 상위집합. 호가창이 DMA 구독 키를 얻는
+ * 유일한 경로이며, `isin` 이 null 이면 그 종목은 게이트웨이 구독·주문 대상이 아니다.
+ */
+export function fetchStockDetail(
+  code: string,
+  signal: AbortSignal,
+): Promise<StockDetailResponse> {
+  return apiFetch<StockDetailResponse>(`/api/stocks/${encodeURIComponent(code)}`, {
+    signal,
+  });
 }
 
 export interface FetchNewsOpts {

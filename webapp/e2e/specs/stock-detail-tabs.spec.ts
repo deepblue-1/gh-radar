@@ -161,10 +161,9 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
     await expect(page).toHaveURL(/\?tab=orderbook$/);
 
     await expect(page.getByTestId('stock-tab-panel-orderbook')).toBeVisible();
-    // 15-13 이 이 자리를 StockOrderbookSection 으로 교체한다.
-    await expect(
-      page.getByTestId('stock-orderbook-placeholder'),
-    ).toBeVisible();
+    // 15-13 이 placeholder 를 StockOrderbookSection 으로 교체했다. 연결 상태와 무관하게
+    // 섹션 자체는 **항상 렌더**된다(UI-SPEC C1 — 숨기지 않는다).
+    await expect(page.getByTestId('stock-orderbook-section')).toBeVisible();
   });
 
   test('6. 딥링크 `?tab=info` 진입 시 종목정보 탭이 활성 상태다 (T3)', async ({
