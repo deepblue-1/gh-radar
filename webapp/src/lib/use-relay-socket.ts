@@ -352,6 +352,25 @@ export function useRelaySocket({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
 
+    /**
+     * `open()` 이 던지는 모든 예외를 상태로 바꾼다.
+     *
+     * Phase 15 Plan 13 발견: Supabase 환경변수 오설정 등으로 `createClient()` 가 던지면
+     * `void open()` 이 **unhandled rejection** 이 되고, 화면은 `시세 서버 연결 중…` 에서
+     * 영원히 멈춘 채 사용자에게 아무 이유도 알리지 않는다. 연결 실패는 조용히 삼키는
+     * 대신 `failed` 로 표면화한다(상태 바가 문구를 그린다).
+     */
+    const openSafely = () => {
+      void open().catch((err: unknown) => {
+        if (disposed) return;
+        dispatch({
+          type: "local-status",
+          status: "failed",
+          message: err instanceof Error ? err.message : "시세 서버에 연결하지 못했어요.",
+        });
+      });
+    };
+
     const open = async () => {
       if (disposed) return;
 
@@ -464,12 +483,12 @@ export function useRelaySocket({
         dispatch({ type: "local-status", status: "reconnecting", attempt });
         retryTimer = setTimeout(() => {
           retryTimer = null;
-          void open();
+          openSafely();
         }, relayBackoffDelayMs(attempt));
       };
     };
 
-    void open();
+    openSafely();
 
     return () => {
       disposed = true;

@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { notFound } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
-import type { Stock } from '@gh-radar/shared';
+import type { StockDetailResponse } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
 import { fetchStockDetail } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import { StockDailyChartSection } from './stock-daily-chart-section';
 import { StockThemeChips } from '@/components/theme/theme-chips';
 import { StockComovementSection } from './stock-comovement-section';
 import { StockLimitUpSection } from './stock-limit-up-section';
+import { StockOrderbookSection } from './stock-orderbook-section';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -36,24 +37,6 @@ const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
 
 export interface StockDetailClientProps {
   code: string;
-}
-
-/**
- * StockOrderbookPlaceholder — Phase 15 Plan 11 자리표시자.
- *
- * 15-13 이 이 자리를 `StockOrderbookSection`(실시간 호가 10단 · 체결 테이프 · 주문 패널)
- * 으로 교체한다. UI-SPEC C1 에 따라 `호가주문` 탭은 **항상 렌더**되며, 데이터가 없다고
- * 섹션 자체를 숨기지 않는다 — 탭이 비어 보이는 것보다 준비 중 안내가 정직하다.
- */
-function StockOrderbookPlaceholder() {
-  return (
-    <div
-      data-testid="stock-orderbook-placeholder"
-      className="card-shadow rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-6)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
-    >
-      실시간 호가는 준비 중이에요
-    </div>
-  );
 }
 
 /**
@@ -72,7 +55,9 @@ function StockOrderbookPlaceholder() {
  */
 export function StockDetailClient({ code }: StockDetailClientProps) {
   const { setStockContext } = useChat();
-  const [stock, setStock] = useState<Stock | undefined>(undefined);
+  // Phase 15 Plan 13 — 호가창이 `isin`(DMA 구독 키)을 필요로 하므로 응답 계약을
+  // `StockDetailResponse`(= Stock + upperLimitProximity + isin)로 좁혀 받는다.
+  const [stock, setStock] = useState<StockDetailResponse | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -203,7 +188,22 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
               refreshSignal={isRefreshing}
             />
           }
-          orderbook={<StockOrderbookPlaceholder />}
+          orderbook={
+            /*
+              Phase 15 Plan 13 — 15-11 이 남긴 placeholder 를 실제 호가창으로 교체.
+              `isin` 이 null 인 종목(ETP 등 게이트웨이 비대상)에서도 섹션을 숨기지 않고
+              권한 없음 게이트를 그린다(UI-SPEC C1). 기준가는 스냅샷의 `현재가 - 전일대비`
+              이며, 실시간 `quote.base` 가 도착하면 섹션 안에서 그쪽이 우선한다.
+            */
+            <StockOrderbookSection
+              code={stock.code}
+              name={stock.name}
+              isin={stock.isin}
+              basePrice={stock.price - stock.changeAmount}
+              upperLimit={stock.upperLimit}
+              lowerLimit={stock.lowerLimit}
+            />
+          }
           info={
             <div className="space-y-8">
               <StockStatsGrid stock={stock} />
