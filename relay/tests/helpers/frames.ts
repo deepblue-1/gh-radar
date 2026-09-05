@@ -18,6 +18,7 @@ import { Envelope } from "../../src/generated/stock-dma/envelope.js";
 import { HoldingState } from "../../src/generated/stock-dma/holding-state.js";
 import { UnfilledState } from "../../src/generated/stock-dma/unfilled-state.js";
 import { LoginResp } from "../../src/generated/stock-dma/login-resp.js";
+import { OrderResp } from "../../src/generated/stock-dma/order-resp.js";
 import { UpdateAccountNoResp } from "../../src/generated/stock-dma/update-account-no-resp.js";
 import { QuoteState } from "../../src/generated/stock-dma/quote-state.js";
 import { ServerMessage } from "../../src/generated/stock-dma/server-message.js";
@@ -242,6 +243,54 @@ export function buildLoginRespFrame(input: FakeLoginRespInput = {}): Uint8Array 
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.LoginResp);
   Envelope.addLoginResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+export type FakeOrderRespInput = {
+  isin?: string;
+  side?: string;
+  orderNo?: string;
+  resultCode?: number;
+  price?: number;
+  quantity?: number;
+  message?: string;
+  /** "A"=접수 "E"=체결 "C"=취소확인 "M"=정정확인 "R"=거부. 구 서버를 흉내 내려면 `""`. */
+  noticeType?: string;
+  orgOrderNo?: string;
+  origin?: string;
+  exchange?: string;
+};
+
+/**
+ * 주문 통보 프레임 (51).
+ *
+ * 접수·체결·취소확인·거부가 **전부 이 하나**로 온다. `TradeExecution(53)` 은 서버에
+ * 생성 경로가 없어 테스트에서도 만들지 않는다 (fbs L221-228 / `Server.cpp` L307).
+ *
+ * `createOrderResp` 위치 인자에 deprecated `slot_id` 는 들어가지 않는다 — flatc 가
+ * 접근자를 만들지 않으므로 인자 목록에서도 빠진다.
+ */
+export function buildOrderRespFrame(input: FakeOrderRespInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(512);
+  const resp = OrderResp.createOrderResp(
+    b,
+    b.createString(input.isin ?? SAMPLE_ISIN),
+    b.createString(input.side ?? "B"),
+    b.createString(input.orderNo ?? "0000012345"),
+    input.resultCode ?? 0,
+    input.price ?? 70_000,
+    input.quantity ?? 10,
+    b.createString(input.message ?? "정상처리"),
+    b.createString(input.noticeType ?? "A"),
+    b.createString(input.orgOrderNo ?? ""),
+    b.createString(input.origin ?? "Manual"),
+    b.createString(input.exchange ?? "KRX"),
+  );
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.OrderResp);
+  Envelope.addOrderResp(b, resp);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

@@ -30,10 +30,15 @@
  *     막는 것은 게이트웨이가 반드시 거부하는 형식 위반뿐이다(수량 0·ISIN 길이 등).
  *   - 계좌 상태(66/67)를 **병합하지 않는다**. 스냅샷/델타 합성은 Hub 의 일이고 여기는
  *     프레임 1건을 계약 타입으로 좁힐 뿐이다.
+ *   - 정정(`order_type` "M")·시장가·IOC/FOK 를 만들지 않는다 (D-21). 스키마에는 있지만
+ *     v1 범위 밖이라 리터럴 유니온으로 봉쇄한다 — `AccountDeclareMode` 와 같은 규율이다.
  */
 import * as flatbuffers from "flatbuffers";
+import { ORDER_CONDITION_NORMAL } from "@gh-radar/shared";
 import type {
+  OrderMarket,
   OrderSide,
+  OrderType,
   RelayAccount,
   RelayAccountState,
   RelayExchange,
@@ -47,6 +52,7 @@ import type {
 
 import { logger } from "../logger.js";
 import { AccountEntry } from "../generated/stock-dma/account-entry.js";
+import { DirectOrderReq } from "../generated/stock-dma/direct-order-req.js";
 import { Envelope } from "../generated/stock-dma/envelope.js";
 import { GetAccountStateReq } from "../generated/stock-dma/get-account-state-req.js";
 import { GetQuoteReq } from "../generated/stock-dma/get-quote-req.js";
@@ -614,6 +620,232 @@ export function parseLoginResp(env: Envelope): ParsedLoginResp | null {
     success: lr.success(),
     message: lr.message() ?? "",
     accounts: readAccountEntries(lr),
+  };
+}
+
+// ============================================================
+// 주문 (2 요청 / 51 통보)
+// ============================================================
+
+/**
+ * 주문 조립 거부. **게이트웨이로 나가기 전에** 던진다.
+ *
+ * 여기서 막는 것은 "정책"이 아니라 게이트웨이가 반드시 거부하거나 **엉뚱하게 해석**할
+ * 입력이다(D-20 — 금액·수량 한도는 어디에도 없다). 라우트가 `code` 를 그대로 400 응답에
+ * 실어 server 가 사용자에게 이유를 말할 수 있게 한다 (S-1).
+ */
+export class OrderBuildError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OrderBuildError";
+  }
+}
+
+/**
+ * `int` 필드의 표현 한계 (2^31-1).
+ *
+ * **주문 한도가 아니다.** `DirectOrderReq.price`/`quantity` 는 fbs 상 `int` 라서 이 값을
+ * 넘기면 조용히 감싸(wrap) 전혀 다른 수량으로 주문이 나간다 — 한도 정책(D-20 에서 두지
+ * 않기로 한 것)이 아니라 **와이어 표현 가능 범위**의 문제다. 그래서 여기서만 막는다.
+ */
+const MAX_INT32 = 2_147_483_647;
+
+/**
+ * 주문조건 — **"0"(보통) 고정** (D-21). 시장가·IOC("1")·FOK("2")는 v1 범위 밖이다.
+ *
+ * 값을 두 곳에 적지 않으려고 `@gh-radar/shared` 상수를 그대로 좁혀 받는다. 타입을 `"0"`
+ * 으로 명시해 두면 shared 쪽이 바뀌는 순간 여기서 타입 에러가 난다.
+ */
+export const ORDER_CONDITION: "0" = ORDER_CONDITION_NORMAL;
+
+/**
+ * 매매구분 → 와이어 1자. **단일 문자 필드 변환은 전부 이 계열 함수 3종에서만** 한다 (D-21).
+ *
+ * 서버는 이 필드들의 **첫 글자만** 읽는다. 그래서 호출부마다 문자열을 지어내면
+ * "Kospi" 를 넘긴 순간 `market="K"` 로 읽히는 식의 우연한 성공이 섞이고, 어느 날
+ * "KOSDAQ" 이 `K` 로 읽혀 **엉뚱한 시장으로 주문이 나간다** (Pitfall 7).
+ */
+export function toWireSide(side: OrderSide): "B" | "S" {
+  if (side !== "B" && side !== "S") {
+    throw new OrderBuildError("BAD_SIDE", `알 수 없는 매매구분: ${String(side)}`);
+  }
+  return side;
+}
+
+/** 시장구분 → 와이어 1자 ("K"=KOSPI, "Q"=KOSDAQ). `toWireSide` 주석 참조. */
+export function toWireMarket(market: OrderMarket): "K" | "Q" {
+  if (market !== "K" && market !== "Q") {
+    throw new OrderBuildError("BAD_MARKET", `알 수 없는 시장구분: ${String(market)}`);
+  }
+  return market;
+}
+
+/**
+ * 주문유형 → 와이어 1자 ("N"=신규, "C"=취소). 정정("M")은 **여기서 막는다** (D-21).
+ *
+ * 스키마는 "M" 을 알지만 relay 는 만들지 않는다. 타입(`OrderType`)이 1차 방어이고
+ * 이 런타임 검사가 2차다 — 입력이 HTTP JSON 이라 타입만으로는 부족하다.
+ */
+export function toWireOrderType(orderType: OrderType): "N" | "C" {
+  if (orderType !== "N" && orderType !== "C") {
+    throw new OrderBuildError("BAD_ORDER_TYPE", `알 수 없는 주문유형: ${String(orderType)}`);
+  }
+  return orderType;
+}
+
+/** `buildDirectOrderReq` 입력. 전부 이미 계약 타입으로 좁혀진 값이다. */
+export type DirectOrderInput = {
+  /** 12자 ISIN. 단축코드를 산술 유도하지 않는다 (D-28) — server 가 `stocks.isin` 에서 채운다. */
+  isin: string;
+  accountNo: string;
+  exchange: RelayExchange;
+  market: OrderMarket;
+  side: OrderSide;
+  orderType: OrderType;
+  /** `orderType:"C"` 일 때 필수. 신규는 생략하거나 빈 문자열. */
+  orgOrderNo?: string;
+  /** 주문수량. 취소는 미체결 잔량이며 **0 은 즉시 거부**다 (Pitfall 7). */
+  qty: number;
+  price: number;
+};
+
+/**
+ * 직접 주문 (MsgType 2). 신규("N")·취소("C") 둘뿐이다 (D-21).
+ *
+ * **수량 0 은 전량취소가 아니라 즉시 거부**다 (fbs `DirectOrderReq.quantity` 주석 / D-44).
+ * 게이트웨이까지 보내서 거부를 받아 오는 대신 여기서 던진다 — 왕복 5초를 태우고 사용자에게
+ * "거부"라고 말하는 것보다, 보내기 전에 이유를 정확히 말하는 편이 낫다.
+ */
+export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
+  if (!isValidIsin(req.isin)) {
+    throw new OrderBuildError("BAD_ISIN", `ISIN 형식 위반 (12자 필요, ${req.isin.length}자)`);
+  }
+  if (!isValidAccountNo(req.accountNo)) {
+    throw new OrderBuildError("BAD_ACCOUNT_NO", "계좌번호 형식 위반");
+  }
+  if (!isValidExchange(req.exchange)) {
+    throw new OrderBuildError("BAD_EXCHANGE", `알 수 없는 거래소: ${String(req.exchange)}`);
+  }
+
+  const side = toWireSide(req.side);
+  const market = toWireMarket(req.market);
+  const orderType = toWireOrderType(req.orderType);
+
+  if (!Number.isInteger(req.qty) || req.qty <= 0) {
+    // 취소수량 0 을 전량취소로 오해하는 것이 이 phase 에서 가장 흔한 오주문 경로다.
+    throw new OrderBuildError("BAD_QTY", "주문수량은 1 이상의 정수여야 합니다 (0 은 즉시 거부)");
+  }
+  if (!Number.isInteger(req.price) || req.price <= 0) {
+    throw new OrderBuildError("BAD_PRICE", "주문가격은 1 이상의 정수여야 합니다");
+  }
+  if (req.qty > MAX_INT32 || req.price > MAX_INT32) {
+    // 한도가 아니라 int 표현 범위다 — 넘기면 조용히 감싸서 전혀 다른 주문이 나간다.
+    throw new OrderBuildError("INT32_OVERFLOW", "주문가격·수량이 int 표현 범위를 넘었습니다");
+  }
+
+  const orgOrderNo = req.orgOrderNo ?? "";
+  if (orderType === "C" && orgOrderNo === "") {
+    throw new OrderBuildError("ORG_ORDER_NO_REQUIRED", "취소 주문에는 원주문번호가 필요합니다");
+  }
+
+  const b = new flatbuffers.Builder(256);
+  const order = DirectOrderReq.createDirectOrderReq(
+    b,
+    // 게이트웨이의 `stock_code` 는 **ISIN 12자**다 (fbs 주석) — 단축코드가 아니다.
+    b.createString(req.isin),
+    b.createString(req.accountNo),
+    b.createString(side),
+    req.price,
+    req.qty,
+    b.createString(ORDER_CONDITION),
+    b.createString(market),
+    b.createString(req.exchange),
+    b.createString(orderType),
+    // 신규는 빈 문자열이 계약이다. 생략하면 슬롯이 비어 구 서버가 다르게 읽을 수 있다.
+    b.createString(orgOrderNo),
+  );
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.DirectOrderReq);
+  Envelope.addDirectOrderReq(b, order);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** 주문 통보 (51) 파싱 결과. 값은 전부 **게이트웨이 원문**이고 해석하지 않는다. */
+export type ParsedOrderResp = {
+  orderNo: string;
+  /**
+   * 통보 종류 원문 1자 — "A"=접수 "E"=체결 "C"=취소확인 "M"=정정확인 "R"=거부.
+   * **구 서버는 비워 보낸다**(fbs 주석). 빈 값을 오류로 다루지 않고 `resultCode` 로 판정한다.
+   */
+  noticeType: string;
+  resultCode: number;
+  message: string;
+  /** ISIN. 상관(어느 주문의 통보인가) 판정의 키다. */
+  isin: string;
+  /** 매매구분 원문. `sideTrusted` 가 false 면 **읽지 말 것**. */
+  side: string;
+  /**
+   * `side` 를 믿어도 되는가 (Pitfall 8).
+   *
+   * 취소·정정 통보에는 매매구분이 없다 — 요청 자체에 담기지 않아 브로커가 채울 값이 없고
+   * MockBroker 는 "B" 를 남긴다. 그대로 그리면 **매도 취소가 "매수"로 표시**된다.
+   * false 면 UI 는 매수/매도 대신 "취소"/"정정" 을 표기한다.
+   */
+  sideTrusted: boolean;
+  /** 주문가격. 체결 통보(`noticeType:"E"`)에서는 체결가다 (서버 `useExecuted` 분기). */
+  price: number;
+  /** 주문수량. 체결 통보에서는 체결수량이다. */
+  quantity: number;
+  /** 원주문번호. 신규 통보는 "". */
+  orgOrderNo: string;
+  /** 거래소. 구 서버 미지정은 KRX 로 열화한다 (Phase 16 D-11). */
+  exchange: RelayExchange;
+  /** 발주 주체 "Manual"/"LimitChaser"/"VITrigger". 구 서버는 "". */
+  origin: string;
+};
+
+/**
+ * 주문 통보 (51). **접수·체결·취소확인·거부가 전부 이 하나로 온다.**
+ *
+ * `TradeExecution(53)` 은 서버에 생성 경로가 없다 — 체결도 `notice_type:"E"` 로 51 에
+ * 실려 온다 (gh-trade `Server.cpp` L307 주석 / fbs L221-228 명시). 그래서 여기가
+ * 주문 통보의 유일한 파서다.
+ *
+ * ISIN 형식이 어긋나도 **프레임을 버리지 않는다.** 거부 통보는 가장 중요한 정보인데
+ * 그것을 드롭하면 HTTP 요청이 5초를 기다렸다가 "결과 모름"으로 끝난다 — 사용자에게
+ * 훨씬 나쁜 결과다. 형식 이상은 경고로 남기고 값은 그대로 올린다.
+ */
+export function parseOrderResp(env: Envelope): ParsedOrderResp | null {
+  const r = env.orderResp();
+  if (r === null) return dropField("slot-null", MSG.OrderResp, { slot: "order_resp" });
+
+  const isin = r.stockCode() ?? "";
+  if (!isValidIsin(isin)) {
+    logger.warn(
+      { msgType: MSG.OrderResp, len: isin.length },
+      "[DMA] 주문 통보의 ISIN 형식 이상 — 프레임은 살린다 (거부 통보 유실 방지)",
+    );
+  }
+
+  const noticeType = r.noticeType() ?? "";
+  return {
+    orderNo: r.orderNo() ?? "",
+    noticeType,
+    resultCode: r.resultCode(),
+    message: r.message() ?? "",
+    isin,
+    side: r.side() ?? "",
+    // 취소("C")·정정("M") 통보의 매매구분은 브로커가 채울 값이 없다 (Pitfall 8).
+    sideTrusted: noticeType !== "C" && noticeType !== "M",
+    price: r.price(),
+    quantity: r.quantity(),
+    orgOrderNo: r.orgOrderNo() ?? "",
+    exchange: fromWireExchange(r.exchange() ?? ""),
+    origin: r.origin() ?? "",
   };
 }
 
