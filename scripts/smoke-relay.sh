@@ -10,7 +10,7 @@ set -uo pipefail
 #   bash scripts/smoke-relay.sh                  # INV-1~8 전체
 #   bash scripts/smoke-relay.sh --check-tls      # 인증서만 (익일 재확인용)
 #   bash scripts/smoke-relay.sh --check-exposure # INV-7 만 (내부 포트 공인 차단)
-#   bash scripts/smoke-relay.sh --check-isin     # stocks.isin 백필 검증 (15-10 이 채운다)
+#   bash scripts/smoke-relay.sh --check-isin     # stocks.isin 백필 커버리지 (ISIN-1~3)
 #
 # 특이사항 2가지:
 #   ① **INV-7 은 "실패해야 PASS"** 다. `nc` 가 성공하면 내부 포트가 공인망에 뚫린 것이므로
@@ -212,6 +212,84 @@ vpn_state() {
 }
 
 # ───────────────────────────────────────────────────────────────
+# Supabase 프로브 (--check-isin 전용)
+#
+# 조회는 **Supabase REST** 로 한다 — `smoke-master-sync.sh` INV-4 가 쓰는 방식이고,
+# psql 접속정보(SUPABASE_DB_URL)는 이 저장소 어디에도 없기 때문이다.
+# ───────────────────────────────────────────────────────────────
+
+# .env 파일에서 KEY=value 한 줄의 값만 뽑는다 (CR·감싸는 큰따옴표 제거).
+env_from_file() {
+  local key="$1" file="$2" v
+  [[ -f "$file" ]] || return 1
+  v="$(grep -E "^${key}=" "$file" | head -1 | cut -d= -f2- | tr -d '\r')"
+  v="${v%\"}"; v="${v#\"}"
+  [[ -n "$v" ]] || return 1
+  printf '%s' "$v"
+}
+
+# 자격증명 해석 순서: 환경변수 → workers/master-sync/.env (마스터 동기화의 정본).
+# 이미 저장소에 있는 값을 쓴다 — 실행자에게 다시 묻지 않는다.
+load_supabase_env() {
+  local envf="${REPO_ROOT}/workers/master-sync/.env"
+  if [[ -z "${SUPABASE_URL:-}" ]]; then
+    SUPABASE_URL="$(env_from_file SUPABASE_URL "$envf" || true)"
+  fi
+  if [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+    SUPABASE_SERVICE_ROLE_KEY="$(env_from_file SUPABASE_SERVICE_ROLE_KEY "$envf" || true)"
+  fi
+  if [[ -z "${SUPABASE_URL:-}" ]] || [[ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+    echo "ERROR: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 를 찾지 못했습니다." >&2
+    echo "  해결 ①: export SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=..." >&2
+    echo "  해결 ②: ${envf} 에 두 값을 둡니다 (master-sync 워커가 쓰는 파일)." >&2
+    return 1
+  fi
+}
+
+# PostgREST GET. 추가 인자는 그대로 curl 로 넘긴다 — 필터는 --data-urlencode 로 붙인다.
+supa_get() {
+  local path="$1"; shift
+  curl -fsS -G "${SUPABASE_URL}/rest/v1/${path}" \
+    -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+    -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+    "$@"
+}
+
+# exact count 만 뽑는다. Content-Range 는 행이 있으면 "0-0/2749", 없으면 "*/0" 이라
+# 슬래시 뒤만 취하면 두 형태 모두 총 개수가 된다. 본문은 버린다(Range: 0-0).
+supa_count() {
+  local path="$1"; shift
+  local hdr
+  hdr="$(curl -fsS -G -o /dev/null -D - "${SUPABASE_URL}/rest/v1/${path}" \
+    -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+    -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+    -H "Prefer: count=exact" -H "Range: 0-0" "$@" 2>/dev/null \
+    | grep -i '^content-range:' | tr -d '\r')" || return 1
+  [[ -n "$hdr" ]] || return 1
+  printf '%s' "${hdr##*/}"
+}
+
+# 게이트웨이 대상 = **활성 주권**. ETF/ETN/ELW 는 제외한다 —
+# KRX 가 ETP 매매정보에 표준코드를 주지 않아 isin 이 구조적으로 NULL 이고(Pitfall 13),
+# 애초에 DMA 구독·주문 대상도 아니다. 여기에 ETP 를 넣으면 게이트가 영구히 빨간불이 된다.
+ACTIVE_STOCK_FILTERS=(
+  --data-urlencode "security_group=eq.주권"
+  --data-urlencode "is_delisted=eq.false"
+)
+
+# ISIN-1: 컬럼이 실재하고 REST 로 **선택된다**. 없으면 PostgREST 가 400 → curl -f 가 실패.
+#
+# CHECK 제약(stocks_isin_len) 의 존재 자체는 여기서 프로브하지 않는다:
+#   확인하려면 제약을 위반하는 쓰기를 production 에 날려야 하는데, 제약이 없다면
+#   그 쓰기가 곧 우리가 막으려던 오염이 된다. 15-09 가 일회용 컨테이너에서 6자 코드
+#   거부를 이미 실증했고, 데이터 수준의 상시 감시는 아래 ISIN-3 이 맡는다.
+isin_column_present() {
+  local body
+  body="$(supa_get "stocks?select=code,isin&limit=1")" || return 1
+  echo "$body" | grep -q '"isin"'
+}
+
+# ───────────────────────────────────────────────────────────────
 # 서브커맨드
 # ───────────────────────────────────────────────────────────────
 case "${1:-}" in
@@ -239,11 +317,42 @@ case "${1:-}" in
     ;;
 
   --check-isin)
-    # 15-10 (stocks.isin 백필) 이 이 분기를 채운다. 지금 실패로 세면 배포 검증이
-    # 아직 존재하지 않는 데이터에 매달린다 — 안내만 하고 통과시킨다.
-    echo "· --check-isin 미구현 — stocks.isin 백필(15-10) 완료 후 채웁니다."
-    echo "  예정 검증: 주식(ETP 제외) 행의 isin null 카운트 == 0, isin 길이 12"
-    exit 0
+    echo "Checking stocks.isin 백필 커버리지 — ISIN-1~3 (D-28 / RESEARCH A9)"
+    load_supabase_env || exit 1
+    echo ""
+
+    check "ISIN-1 stocks.isin 컬럼 존재 + REST 노출" isin_column_present
+
+    # ISIN-2: 활성 주권의 isin NULL 카운트가 0. NULL 인 종목은 구독도 주문도 불가하므로
+    #         이 커버리지가 곧 DMA 기능 범위다 (T-15-35).
+    ACTIVE_TOTAL="$(supa_count "stocks?select=code" "${ACTIVE_STOCK_FILTERS[@]}")"
+    ACTIVE_NULL="$(supa_count "stocks?select=code" "${ACTIVE_STOCK_FILTERS[@]}" \
+      --data-urlencode "isin=is.null")"
+    echo "  활성 주식(주권·미상장폐지) ${ACTIVE_TOTAL:-?} 종목 / isin NULL ${ACTIVE_NULL:-?} 종목"
+    check "ISIN-2 활성 주식 isin NULL 0건" test "${ACTIVE_NULL:-x}" -eq 0
+    if [[ "${ACTIVE_NULL:-0}" != "0" ]]; then
+      # CSV 로 받는다 — 행마다 줄바꿈이 붙어 sed/awk 로 JSON 을 쪼갤 필요가 없다.
+      echo "  NULL 잔존 상위 5종목 (code,name):"
+      supa_get "stocks?select=code,name&order=code" "${ACTIVE_STOCK_FILTERS[@]}" \
+        --data-urlencode "isin=is.null" --data-urlencode "limit=5" \
+        -H "Accept: text/csv" | sed 's/^/    /'
+      echo "" # PostgREST CSV 는 마지막 줄에 개행이 없다 — 다음 검사 줄이 붙지 않게 끊는다
+    fi
+
+    # ISIN-3a: 길이 12 무결성. DB CHECK 가 있으므로 이론상 0 이지만, 제약이 사라지는
+    #          회귀를 데이터 쪽에서 감지한다. `_` 12개 LIKE 는 "정확히 12자" 를 뜻하고
+    #          NULL 은 NOT LIKE 결과가 NULL 이라 자동으로 빠진다.
+    LEN_BAD="$(supa_count "stocks?select=code" \
+      --data-urlencode "isin=not.like.____________")"
+    check "ISIN-3a isin 길이 12 무결성 (이탈 ${LEN_BAD:-?} 행)" test "${LEN_BAD:-x}" -eq 0
+
+    # ISIN-3b: ISO 6166 형태. map.ts 의 정규식 가드와 같은 형태를 DB 쪽에서 재확인한다.
+    #          6자 단축코드 혼입은 3a 에서, 12자지만 형태가 깨진 값은 여기서 걸린다.
+    FORM_BAD="$(supa_count "stocks?select=code" \
+      --data-urlencode 'isin=not.match.^[A-Z]{2}[A-Z0-9]{10}$')"
+    check "ISIN-3b isin 형태 무결성 (이탈 ${FORM_BAD:-?} 행)" test "${FORM_BAD:-x}" -eq 0
+
+    summary
     ;;
 
   "") ;;
