@@ -41,8 +41,9 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
     const canvas = page.getByTestId('stock-daily-chart-canvas');
     await expect(canvas).toBeVisible({ timeout: 10_000 });
 
-    // aria-label
-    await expect(page.getByLabel('일봉 차트')).toBeVisible();
+    // aria-label — `exact` 없이는 스켈레톤의 `일봉 차트 로딩 중` 까지 잡혀 strict mode
+    // violation 이 난다(선재 결함, Phase 15 Plan 11 에서 발견). 의도는 차트 카드 단독 단언.
+    await expect(page.getByLabel('일봉 차트', { exact: true })).toBeVisible();
 
     // range 토글 4종 (2026-05-16: 1Y/2Y/3Y/5Y)
     for (const range of ['1Y', '2Y', '3Y', '5Y']) {
@@ -66,7 +67,7 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
     );
   });
 
-  test('차트 영역이 Hero ↓ / StatsGrid ↑ 사이에 위치 (D-09)', async ({
+  test('차트 영역이 Hero ↓ 에 위치하고 StatsGrid 는 종목정보 탭으로 이동 (D-09 → Phase 15 D-02a)', async ({
     page,
   }) => {
     await mockStockApi(page);
@@ -78,24 +79,27 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
 
     const hero = page.getByTestId('stock-hero-price');
     const chart = page.getByTestId('stock-daily-chart-section');
-    const statsLabel = page.getByText('시가', { exact: true }).first();
 
     await expect(hero).toBeVisible();
     await expect(chart).toBeVisible();
-    await expect(statsLabel).toBeVisible();
 
-    // boundingBox y 좌표로 수직 순서 검증 — Hero < Chart < Stats
+    // Phase 15 Plan 11 (D-02a/T1): 히어로는 탭 밖 공통 영역, 차트는 기본 `차트` 탭 패널.
+    // "히어로 아래에 차트" 라는 D-09 의 의도는 그대로이나 StatsGrid 는 더 이상 같은
+    // 화면에 없다 — `종목정보` 탭으로 재배치됐다(T7 재배치, 내용 무변경).
     const heroBox = await hero.boundingBox();
     const chartBox = await chart.boundingBox();
-    const statsBox = await statsLabel.boundingBox();
-
     expect(heroBox).toBeTruthy();
     expect(chartBox).toBeTruthy();
-    expect(statsBox).toBeTruthy();
-    if (heroBox && chartBox && statsBox) {
+    if (heroBox && chartBox) {
       expect(heroBox.y).toBeLessThan(chartBox.y);
-      expect(chartBox.y).toBeLessThan(statsBox.y);
     }
+
+    // 차트 탭에는 통계 그리드가 없다.
+    await expect(page.getByTestId('stock-stats-grid')).toHaveCount(0);
+
+    // 종목정보 탭으로 전환하면 통계 그리드가 나타난다.
+    await page.getByRole('tab', { name: '종목정보', exact: true }).click();
+    await expect(page.getByTestId('stock-stats-grid').first()).toBeVisible();
   });
 
   test('range 토글 — 1Y 클릭 시 aria-selected 전환 (기본 3Y → 1Y)', async ({

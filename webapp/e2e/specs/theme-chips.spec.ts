@@ -55,7 +55,7 @@ test.describe('Phase 10 — 종목 테마 칩 (THEME-02 §S3)', () => {
       detailById: { [CHIP_SYSTEM.id]: CHIP_THEME_MEMBERS },
     });
 
-    await page.goto('/stocks/005930');
+    await page.goto('/stocks/005930?tab=info');
 
     // "이 종목의 테마" 섹션 + 칩 2개(시스템 + 내 테마).
     await expect(
@@ -85,7 +85,7 @@ test.describe('Phase 10 — 종목 테마 칩 (THEME-02 §S3)', () => {
     await mockNewsApi(page, { code: '005930', list: buildNewsList('005930', 3) });
     await mockThemeChips(page, []); // 빈 역조회
 
-    await page.goto('/stocks/005930');
+    await page.goto('/stocks/005930?tab=info');
 
     await expect(
       page.getByRole('heading', { name: '이 종목의 테마' }),
