@@ -64,7 +64,7 @@ test.describe('Discussion — detail Card (Phase 8)', () => {
       list: buildDiscussionList(STOCK_CODE, 5),
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     const section = page.getByTestId('stock-discussion-section');
     await expect(section).toBeVisible();
 
@@ -89,7 +89,7 @@ test.describe('Discussion — detail Card (Phase 8)', () => {
     const list = buildDiscussionList(STOCK_CODE, 3);
     await mockDiscussionsApi(page, { code: STOCK_CODE, list });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     const section = page.getByTestId('stock-discussion-section');
     const first = section.getByTestId('discussion-item').first();
     await expect(first).toContainText(list[0].title);
@@ -151,7 +151,7 @@ test.describe('Discussion — refresh cooldown (detail)', () => {
       refreshRetryAfter: 25,
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     const btn = page.getByTestId('discussion-refresh-button');
     await expect(btn).toBeEnabled();
     await btn.click();
@@ -237,7 +237,7 @@ test.describe('Discussion — a11y (axe-core scan)', () => {
       list: buildDiscussionList(STOCK_CODE, 5),
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     const section = page.getByTestId('stock-discussion-section');
     await expect(section).toBeVisible();
 

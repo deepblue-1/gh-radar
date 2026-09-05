@@ -56,7 +56,7 @@ test.describe('News — detail list (V-17, external link security)', () => {
       list: buildNewsList(STOCK_CODE, 5),
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     await expect(page.getByTestId('stock-news-section')).toBeVisible();
 
     const items = page.getByTestId('stock-news-section').getByTestId('news-item');
@@ -77,7 +77,7 @@ test.describe('News — detail list (V-17, external link security)', () => {
       list: buildNewsList(STOCK_CODE, 3),
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     await expect(page.getByTestId('stock-news-section')).toBeVisible();
 
     const firstLink = page
@@ -146,7 +146,7 @@ test.describe('News — refresh cooldown (V-19)', () => {
       refreshRetryAfter: 25,
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     const btn = page.getByTestId('news-refresh-button');
     await expect(btn).toBeEnabled();
     await btn.click();
@@ -171,7 +171,7 @@ test.describe('News — a11y (V-20)', () => {
       list: buildNewsList(STOCK_CODE, 5),
     });
 
-    await page.goto(`/stocks/${STOCK_CODE}`);
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
     await expect(page.getByTestId('stock-news-section')).toBeVisible();
 
     const results = await new AxeBuilder({ page })

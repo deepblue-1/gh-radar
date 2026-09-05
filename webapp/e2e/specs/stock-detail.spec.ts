@@ -22,13 +22,17 @@ test.describe('Phase 6 — 종목 상세 (SRCH-03)', () => {
     });
     await page.goto('/stocks/005930');
 
-    // Hero
+    // Hero — Phase 15 Plan 11(T1) 이후에도 탭 밖 공통 영역이라 진입 즉시 보인다.
     await expect(
       page.getByRole('heading', { name: '삼성전자' }),
     ).toBeVisible();
     await expect(page.getByTestId('stock-hero-price')).toContainText('58,700');
 
-    // Stats grid 라벨 8개
+    // 갱신시각 포맷 — 공통 영역
+    await expect(page.getByText(/갱신 \d{2}:\d{2}:\d{2} KST/)).toBeVisible();
+
+    // Phase 15 Plan 11(T7): Stats grid 는 `종목정보` 탭으로 재배치됐다(내용 무변경).
+    await page.getByRole('tab', { name: '종목정보', exact: true }).click();
     for (const label of [
       '시가',
       '고가',
@@ -44,22 +48,19 @@ test.describe('Phase 6 — 종목 상세 (SRCH-03)', () => {
       ).toBeVisible();
     }
 
+    // Phase 15 Plan 11(T7): 뉴스·토론 섹션은 `뉴스토론` 탭으로 재배치됐다.
+    await page.getByRole('tab', { name: '뉴스토론', exact: true }).click();
+
     // Phase 07: 관련 뉴스 섹션 (StockNewsSection) 실제 렌더
     await expect(page.getByTestId('stock-news-section')).toBeVisible();
     await expect(
       page.getByRole('heading', { name: '관련 뉴스' }),
     ).toBeVisible();
 
-    // Phase 8: 종목토론방 placeholder 는 잔존
+    // Phase 08: 종목토론방 섹션이 같은 탭에 존재 (데이터 상태 무관하게 mount 검증)
     await expect(
-      page.getByRole('heading', { name: '종목토론방' }),
+      page.locator('[data-testid^="stock-discussion-section"]'),
     ).toBeVisible();
-    await expect(
-      page.getByText('Phase 8 로드맵에서 제공됩니다.'),
-    ).toBeVisible();
-
-    // 갱신시각 포맷
-    await expect(page.getByText(/갱신 \d{2}:\d{2}:\d{2} KST/)).toBeVisible();
   });
 
   test('새로고침 버튼 클릭 → 재요청', async ({ page }) => {

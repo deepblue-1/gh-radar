@@ -7,6 +7,11 @@ import { notFound } from 'next/navigation';
 import { StockDetailClient } from '../stock-detail-client';
 import { FIXTURE_SAMSUNG } from '@/__tests__/fixtures/stocks';
 
+// Phase 15 Plan 11: StockDetailTabs 가 `?tab=` 을 단일 진실로 읽으므로 useSearchParams 도
+// stub 한다. 테스트가 이 변수를 바꿔서 활성 탭을 지정한다 (vi.mock 팩토리는 호이스팅되지만
+// 화살표 함수 본문은 호출 시점에 평가되므로 `mock` 접두사 변수 참조가 허용된다).
+let mockSearchParams = new URLSearchParams();
+
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
   // StockHero 가 ← 버튼용으로 useRouter 호출 — jsdom app router 미마운트 invariant 회피.
@@ -18,6 +23,7 @@ vi.mock('next/navigation', () => ({
     prefetch: vi.fn(),
     forward: vi.fn(),
   }),
+  useSearchParams: () => mockSearchParams,
 }));
 // Phase 07 Plan 04: StockDetailClient 가 내부에서 StockNewsSection 을 렌더하므로
 // 같은 모듈의 fetchStockNews / refreshStockNews 도 함께 stub 해야 한다.
@@ -43,6 +49,8 @@ const mockNotFound = vi.mocked(notFound);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // 기본 진입 = 탭 미지정 → 기본 탭 `chart`
+  mockSearchParams = new URLSearchParams();
 });
 
 describe('StockDetailClient', () => {
@@ -56,15 +64,22 @@ describe('StockDetailClient', () => {
     expect(signal).toBeInstanceOf(AbortSignal);
   });
 
-  it('Test 2 — fetch resolve 후 Hero/Stats/StockNewsSection/StockDiscussionSection 렌더', async () => {
+  it('Test 2 — fetch resolve 후 Hero(공통) + 뉴스토론 탭의 News/Discussion 섹션 렌더', async () => {
     mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
-    render(<StockDetailClient code="005930" />);
+    const { rerender } = render(<StockDetailClient code="005930" />);
 
+    // 히어로는 탭 밖 공통 영역 — 어느 탭에서도 보인다 (Phase 15 Plan 11, T1).
     await waitFor(() => {
       expect(screen.getByText('삼성전자')).toBeInTheDocument();
     });
     expect(screen.getByText('005930')).toBeInTheDocument();
     expect(screen.getByText('KOSPI')).toBeInTheDocument();
+
+    // Phase 15 Plan 11: 뉴스·토론 섹션은 `뉴스토론` 탭 패널로 재배치됐다(T7 — 내용 무변경).
+    // 탭 상태의 단일 진실이 `?tab=` 이므로 searchParams 를 바꾼 뒤 rerender 한다.
+    mockSearchParams = new URLSearchParams('tab=news');
+    rerender(<StockDetailClient code="005930" />);
+
     // Phase 07 Plan 04: 관련 뉴스 placeholder → StockNewsSection 으로 교체.
     // StockNewsSection 은 'use client' + 내부 fetchStockNews 호출 (테스트는 빈 배열 stub)
     // → 빈 상태 (NewsEmptyState) 또는 정상 리스트 중 최소 하나의 판별 문구 렌더.
@@ -75,6 +90,49 @@ describe('StockDetailClient', () => {
     // 빈 배열 stub → DiscussionEmptyState 로 도달.
     await waitFor(() =>
       expect(screen.getByText('아직 토론 글이 없어요')).toBeInTheDocument(),
+    );
+  });
+
+  it('Test 2b — 4탭이 tablist 로 렌더되고 기본 활성 탭은 `차트` (T2/T3)', async () => {
+    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
+    render(<StockDetailClient code="005930" />);
+
+    await waitFor(() =>
+      expect(screen.getByText('삼성전자')).toBeInTheDocument(),
+    );
+
+    for (const label of ['차트', '호가주문', '종목정보', '뉴스토론']) {
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('tab', { name: '차트' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('Test 2c — 알 수 없는 `?tab=` 값은 기본 탭 `차트` 로 폴백 (T-15-37)', async () => {
+    mockSearchParams = new URLSearchParams('tab=zzz');
+    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
+    render(<StockDetailClient code="005930" />);
+
+    await waitFor(() =>
+      expect(screen.getByText('삼성전자')).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('tab', { name: '차트' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('Test 2d — `?tab=orderbook` 진입 시 호가주문 placeholder 패널 렌더 (UI-SPEC C1)', async () => {
+    mockSearchParams = new URLSearchParams('tab=orderbook');
+    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
+    render(<StockDetailClient code="005930" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('stock-orderbook-placeholder'),
+      ).toBeInTheDocument(),
     );
   });
 

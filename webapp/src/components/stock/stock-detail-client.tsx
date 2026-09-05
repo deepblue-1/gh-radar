@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { notFound } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
 import type { Stock } from '@gh-radar/shared';
@@ -11,6 +18,7 @@ import { useChat } from '@/components/chat/chat-provider';
 import { StockHero } from './stock-hero';
 import { StockStatsGrid } from './stock-stats-grid';
 import { StockDetailSkeleton } from './stock-detail-skeleton';
+import { StockDetailTabs } from './stock-detail-tabs';
 import { StockNewsSection } from './stock-news-section';
 import { StockDiscussionSection } from './stock-discussion-section';
 import { StockDailyChartSection } from './stock-daily-chart-section';
@@ -31,6 +39,24 @@ export interface StockDetailClientProps {
 }
 
 /**
+ * StockOrderbookPlaceholder — Phase 15 Plan 11 자리표시자.
+ *
+ * 15-13 이 이 자리를 `StockOrderbookSection`(실시간 호가 10단 · 체결 테이프 · 주문 패널)
+ * 으로 교체한다. UI-SPEC C1 에 따라 `호가주문` 탭은 **항상 렌더**되며, 데이터가 없다고
+ * 섹션 자체를 숨기지 않는다 — 탭이 비어 보이는 것보다 준비 중 안내가 정직하다.
+ */
+function StockOrderbookPlaceholder() {
+  return (
+    <div
+      data-testid="stock-orderbook-placeholder"
+      className="card-shadow rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-6)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+    >
+      실시간 호가는 준비 중이에요
+    </div>
+  );
+}
+
+/**
  * StockDetailClient — Phase 6 상세 페이지 fetch + refresh 오케스트레이션.
  * - mount 시 fetchStockDetail 호출
  * - 수동 refresh 버튼 (자동 폴링 없음 — D5)
@@ -39,6 +65,10 @@ export interface StockDetailClientProps {
  * - 기타 에러 → 인라인 에러 카드 + 재시도 (error state 유지,
  *   기존 stock 이 있다면 stale-but-visible)
  * - AbortController 로 이전 요청 취소 + unmount cleanup
+ *
+ * Phase 15 Plan 11 (D-02a · UI-SPEC T1/T7) — 4탭 재구성.
+ * 기존 7개 섹션은 **내용을 전혀 바꾸지 않고** `StockDetailTabs` 패널로 재배치만 했다.
+ * 히어로와 갱신시각·새로고침 행은 탭 밖 공통 영역에 남는다(T1).
  */
 export function StockDetailClient({ code }: StockDetailClientProps) {
   const { setStockContext } = useChat();
@@ -46,9 +76,9 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  // Phase 06 Plan 06 E2E 발견: async useEffect 내부에서 직접 notFound() 를 throw 하면
-  // Next 15 not-found boundary 가 잡지 못하고 스켈레톤에서 멈춘다. state 플래그로 승격한 뒤
-  // 렌더 경로에서 notFound() 를 호출하여 boundary 에 정상 전달한다.
+  // 재배치 중 보존 (Phase 06 Plan 06 E2E 발견): async useEffect 내부에서 직접 notFound() 를
+  // throw 하면 Next 15 not-found boundary 가 잡지 못하고 스켈레톤에서 멈춘다. state 플래그로
+  // 승격한 뒤 렌더 경로에서 notFound() 를 호출하여 boundary 에 정상 전달한다.
   const [notFoundFlag, setNotFoundFlag] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -83,9 +113,10 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
     return () => controllerRef.current?.abort();
   }, [load]);
 
-  // D-03 — 종목명 발행 채널. FAB 라벨("{종목명} 분석")과 챗 시트 자동 이어가기가
-  // 이 값을 소비한다. usePathname 은 code 만 주므로 이미 fetch 한 stock.name 을 재사용해
-  // provider 로 발행하고, 상세 페이지 이탈(언마운트) 시 null 로 해제해 일반 대화로 되돌린다.
+  // 재배치 중 보존 — D-03 종목명 발행 채널. FAB 라벨("{종목명} 분석")과 챗 시트 자동
+  // 이어가기가 이 값을 소비한다. usePathname 은 code 만 주므로 이미 fetch 한 stock.name 을
+  // 재사용해 provider 로 발행하고, 상세 페이지 이탈(언마운트) 시 null 로 해제해 일반 대화로
+  // 되돌린다. 탭 전환은 이 컴포넌트를 언마운트하지 않으므로 컨텍스트가 유지된다.
   useEffect(() => {
     if (!stock) return;
     setStockContext({ code: stock.code, name: stock.name });
@@ -105,6 +136,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
     notFound();
   }
 
+  // 재배치 중 보존 — 초기 로딩 스켈레톤 경로 ①
   if (isInitialLoading && !stock) return <StockDetailSkeleton />;
 
   if (!stock && error) {
@@ -121,10 +153,12 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
     );
   }
 
+  // 재배치 중 보존 — 초기 로딩 스켈레톤 경로 ②
   if (!stock) return <StockDetailSkeleton />;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* T1 — 히어로와 갱신시각·새로고침 행은 탭 밖 공통 영역. 어느 탭에서도 보인다. */}
       <StockHero stock={stock} />
       <div className="flex items-center justify-between gap-3">
         {updatedAtLabel && (
@@ -146,20 +180,46 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
           새로고침
         </Button>
       </div>
-      <StockDailyChartSection code={stock.code} refreshSignal={isRefreshing} />
-      <StockStatsGrid stock={stock} />
+      {/*
+        갱신 실패 안내는 새로고침 버튼과 같은 공통 영역에 둔다. 재배치 전에는 종목정보
+        섹션들 사이에 있었지만, 이제 그 자리는 `종목정보` 탭 안이라 다른 탭에서 새로고침에
+        실패하면 사용자가 실패 사실을 볼 수 없게 된다.
+      */}
       {error && (
         <p className="text-[length:var(--t-caption)] text-[var(--destructive)]">
           최근 갱신 실패: {error.message}
         </p>
       )}
-      <StockThemeChips stockCode={stock.code} />
-      <StockLimitUpSection stockCode={stock.code} />
-      <StockComovementSection stockCode={stock.code} />
-      <div className="space-y-6">
-        <StockNewsSection stockCode={stock.code} />
-        <StockDiscussionSection stockCode={stock.code} />
-      </div>
+      {/*
+        StockDetailTabs 가 `useSearchParams` 를 쓰므로 Next 15 는 Suspense 경계를 요구한다
+        (없으면 프리렌더 단계에서 빌드가 실패한다). fallback 은 초기 로딩과 같은 스켈레톤.
+      */}
+      <Suspense fallback={<StockDetailSkeleton />}>
+        <StockDetailTabs
+          code={stock.code}
+          chart={
+            <StockDailyChartSection
+              code={stock.code}
+              refreshSignal={isRefreshing}
+            />
+          }
+          orderbook={<StockOrderbookPlaceholder />}
+          info={
+            <div className="space-y-8">
+              <StockStatsGrid stock={stock} />
+              <StockThemeChips stockCode={stock.code} />
+              <StockLimitUpSection stockCode={stock.code} />
+              <StockComovementSection stockCode={stock.code} />
+            </div>
+          }
+          news={
+            <div className="space-y-6">
+              <StockNewsSection stockCode={stock.code} />
+              <StockDiscussionSection stockCode={stock.code} />
+            </div>
+          }
+        />
+      </Suspense>
     </div>
   );
 }
