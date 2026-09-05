@@ -1,0 +1,16 @@
+# relay 이미지 빌드에서 제외할 것 (server/.dockerignore 와 동일 규약).
+#
+# 주의: 이 파일은 **빌드 컨텍스트가 relay/ 일 때** 적용된다. 실제 배포는 저장소 루트를
+# 컨텍스트로 쓰므로(`-f relay/Dockerfile .`) BuildKit 은 `relay/Dockerfile.dockerignore`
+# 를 읽는다 — 두 파일의 내용을 함께 고쳐야 한다.
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+.env.*
+*.md
+coverage
+tests
+**/*.test.ts
+.vscode

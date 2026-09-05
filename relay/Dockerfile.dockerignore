@@ -1,0 +1,22 @@
+# 저장소 루트를 컨텍스트로 쓰는 빌드(`docker build -f relay/Dockerfile .`)에 실제로
+# 적용되는 제외 목록이다. BuildKit 은 `-f` 로 지정한 Dockerfile 옆의
+# `<Dockerfile>.dockerignore` 를 먼저 찾고, 없으면 컨텍스트 루트의 `.dockerignore` 를 본다.
+# `relay/.dockerignore` 는 컨텍스트가 relay/ 인 경우에만 쓰이므로 이 파일이 별도로 필요하다.
+#
+# 제외하는 이유는 속도만이 아니다 — 컨텍스트에 들어온 `.env` 는 builder 레이어까지
+# 따라간다(`COPY relay/ ./relay/`). 최종 이미지에는 남지 않지만 빌드 캐시에는 남는다.
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+.planning
+*.md
+coverage
+**/tests
+**/*.test.ts
+.vscode
+.claude
