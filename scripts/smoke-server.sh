@@ -83,13 +83,8 @@ check "INV-7 CORS preflight (거부)" bash -c "
   ! curl -s -X OPTIONS -H 'Origin: https://evil.example.com' -H 'Access-Control-Request-Method: GET' -D - -o /dev/null '$URL/api/scanner' | grep -qi '^access-control-allow-origin:'
 "
 
-# INV-8: rate limit — /api/scanner 240 req 병렬(20 동시) → 429 최소 1건.
-#   순차 curl 은 왕복 지연으로 분당 한도(200/min)에 도달 못해 환경 의존 flaky 였음
-#   (요청당 ~0.4s → 분당 ~135req). 병렬로 윈도우 내 한도 초과를 보장.
-check "INV-8 rate limit 240 req(병렬) → 429 발생" bash -c "
-  codes=\$(seq 1 240 | xargs -P 20 -I{} curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 '$URL/api/scanner')
-  echo \"\$codes\" | grep -q '^429\$'
-"
+# ⚠️ INV-8(rate limit)은 이 파일의 **맨 끝**에 있다. 번호 순서가 아니라 실행 순서가
+#    중요해서다 — 아래 "INV-8 을 마지막에 두는 이유" 주석 참조.
 
 # INV-9: X-Request-Id 헤더 항상 존재
 check "INV-9 X-Request-Id 헤더" bash -c "curl -fsS -D - '$URL/api/health' -o /dev/null | grep -qi '^x-request-id:'"
@@ -139,6 +134,25 @@ else
     " _ "$ENV_NAMES"
   fi
 fi
+
+# ───────────────────────────────────────────────────────────────
+# INV-8: rate limit — /api/scanner 240 req 병렬(20 동시) → 429 최소 1건.
+#   순차 curl 은 왕복 지연으로 분당 한도(200/min)에 도달 못해 환경 의존 flaky 였음
+#   (요청당 ~0.4s → 분당 ~135req). 병렬로 윈도우 내 한도 초과를 보장.
+#
+# ⚠️ **이 검사는 파괴적이라 반드시 마지막에 둔다.**
+#   한도 소진이 곧 이 검사의 성공 조건이고, 한도는 `/api` **전체**에 걸린다. 뒤에 오는
+#   검사는 자기 라우트가 멀쩡해도 429 를 받는다 — 15-19 에서 INV-10/11(주문 라우트
+#   401)이 429 로 FAIL 하며 실제로 드러났다. 게다가 리미터는 인스턴스 메모리에 있고
+#   Cloud Run 은 인스턴스가 최대 3개라, 240건이 몇 대에 흩어지느냐에 따라 뒤 검사가
+#   **어느 날은 통과하고 어느 날은 실패하는** 비결정 실패가 된다.
+#   번호(INV-8)는 그대로 두고 위치만 끝으로 옮겼다 — 번호를 바꾸면 기존 기록·문서의
+#   INV 참조가 전부 어긋난다.
+# ───────────────────────────────────────────────────────────────
+check "INV-8 rate limit 240 req(병렬) → 429 발생" bash -c "
+  codes=\$(seq 1 240 | xargs -P 20 -I{} curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 '$URL/api/scanner')
+  echo \"\$codes\" | grep -q '^429\$'
+"
 
 echo ""
 echo "═══════════════════════════════════════"
