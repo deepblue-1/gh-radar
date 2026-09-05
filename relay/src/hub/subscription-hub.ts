@@ -41,6 +41,7 @@ import { EventEmitter } from "node:events";
 import type {
   RelayAccountState,
   RelayExchange,
+  RelayOrderMsg,
   RelayOutbound,
   RelayQuote,
   RelayTape,
@@ -58,9 +59,11 @@ import {
   buildSubscribeQuoteReq,
   maskAccountNo,
   parseAccountState,
+  parseOrderResp,
   parseQuoteState,
   parseServerMessage,
   parseTradeTape,
+  type ParsedOrderResp,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 
@@ -108,6 +111,15 @@ export interface HubSession {
 /** 팬아웃 1건. **대상은 언제나 특정 userId 하나**다 (T-15-02). */
 export type HubFanoutEvent = { userId: string; msg: RelayOutbound };
 
+/**
+ * 주문 통보 1건 (`OrderResp(51)`), **파싱된 원문 그대로**.
+ *
+ * 브라우저로 나가는 `{t:"order"}` 팬아웃과 **별도**로 낸다. 팬아웃은 계약 타입(`RelayOrderMsg`)
+ * 이라 상관에 필요한 값(`sideTrusted` 등)이 빠져 있고, 주문 라우트는 HTTP 응답을 만들기 위해
+ * 원문이 필요하기 때문이다. 팬아웃이 먼저이고 이 이벤트가 나중이다 — 화면이 DB 보다 앞선다.
+ */
+export type HubOrderEvent = { userId: string; notice: ParsedOrderResp };
+
 /** `/healthz` 용 요약. 식별자(userId·ISIN)를 담지 않는다. */
 export type HubStats = {
   sessionCount: number;
@@ -119,7 +131,9 @@ export type HubStats = {
 
 export interface SubscriptionHub {
   on(event: "fanout", listener: (e: HubFanoutEvent) => void): this;
+  on(event: "order", listener: (e: HubOrderEvent) => void): this;
   emit(event: "fanout", e: HubFanoutEvent): boolean;
+  emit(event: "order", e: HubOrderEvent): boolean;
 }
 
 /** 플러시 대기 중인 체결 배치 1건. */
@@ -408,6 +422,21 @@ export class SubscriptionHub extends EventEmitter {
         if (tape !== null) this.#onTape(userId, tape);
         return;
       }
+      case MSG.OrderResp: {
+        const notice = parseOrderResp(e.env);
+        if (notice !== null) this.#onOrderNotice(userId, notice);
+        return;
+      }
+      case MSG.OrderConfirm:
+      case MSG.TradeExecution: {
+        // **서버에 이 두 테이블을 만드는 경로가 없다.** 체결도 51 의 `notice_type:"E"` 로
+        // 온다 (fbs L221-228 / `Server.cpp` L307). 온다면 그 자체가 이상 신호이므로
+        // 기록만 남기고 흘리지 않는다 — 가격·수량이 없는 프레임을 `{t:"order"}` 로
+        // 지어내면 화면에 "0주 @0" 이 뜨고, 그것을 보고 "안 나갔다"로 읽으면
+        // 이미 접수된 주문을 다시 낸다.
+        logger.warn({ userId, msgType: e.msgType }, "[HUB] 생성 경로 없는 주문 프레임 — 무시");
+        return;
+      }
       case MSG.GetAccountStateResp:
       case MSG.AccountStateDelta: {
         const state = parseAccountState(e.env, e.msgType === MSG.GetAccountStateResp);
@@ -421,8 +450,7 @@ export class SubscriptionHub extends EventEmitter {
         return;
       }
       default:
-        // 로그인 응답(50)·계좌 선언 응답(55)은 세션이 처리하고, 주문 통보(51/52)는
-        // `#onFrame` 이 아니라 15-16 이 더한 주문 경로가 읽는다.
+        // 로그인 응답(50)·계좌 선언 응답(55)은 세션이 처리한다.
         return;
     }
   }
@@ -431,6 +459,34 @@ export class SubscriptionHub extends EventEmitter {
   #onQuote(userId: string, quote: RelayQuote): void {
     this.#quotes.set(subKey(userId, quote.i, quote.x), quote);
     this.#fanout(userId, quote);
+  }
+
+  /**
+   * 주문 통보 (51) — 접수·체결·취소확인·거부가 전부 이 하나로 온다.
+   *
+   * **그 주문자에게만** 간다 (T-15-02). 전역 브로드캐스트 경로가 없다는 것이 타인 체결
+   * 유출의 구조적 방어이고, 여기서 `#fanout` 말고 다른 전송 수단을 쓰지 않는 것이 그 규율이다.
+   *
+   * 와이어 계약(`RelayOrderMsg`)에 `side` 를 싣지 않는 것은 의도다 — 취소·정정 통보의
+   * 매매구분은 믿을 수 없으므로(Pitfall 8) 애초에 내려보내지 않고, UI 는 `nt` 로
+   * "취소"/"정정" 을 고른다. `sideTrusted` 는 relay 내부 소비자를 위한 값이라
+   * `"order"` 이벤트에만 실린다.
+   */
+  #onOrderNotice(userId: string, notice: ParsedOrderResp): void {
+    const msg: RelayOrderMsg = {
+      t: "order",
+      no: notice.orderNo,
+      nt: notice.noticeType,
+      rc: notice.resultCode,
+      msg: notice.message,
+      org: notice.orgOrderNo,
+      p: notice.price,
+      q: notice.quantity,
+      x: notice.exchange,
+    };
+    // 화면이 먼저다. DB 기록(비동기 큐)은 이 이벤트를 받는 쪽이 건다.
+    this.#fanout(userId, msg);
+    this.emit("order", { userId, notice });
   }
 
   /**
