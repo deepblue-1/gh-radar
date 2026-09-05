@@ -491,3 +491,23 @@ Plans:
 - [x] 14-09-PLAN.md — Wave 4 메시지 렌더: assistant 마크다운(D-09) + 진행 스텝퍼(D-04 Variant B) + 미니 종목카드(D-07 국내색상) + 출처인용(D-08) + 미니차트(D-10 재사용)
 - [x] 14-10-PLAN.md — Wave 5 /chat 2-col 페이지(대화목록/종목필터/이어가기 D-13) + 삭제 확인 다이얼로그(destructive)
 - [x] 14-11-PLAN.md — Wave 6 chat E2E + REQUIREMENTS CHAT-01/Traceability + [BLOCKING] 서버/webapp 배포 + web_search 모델 POC + production smoke
+
+### Phase 15: DMA 중계 서버(relay) — KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이
+
+**Goal:** gh-radar 에 `relay/` 워크스페이스(Node 22 + TS)를 신설해 GCE VM(`radar-gw`, e2-micro, asia-northeast3) 위에서 KB AnyConnect VPN(openconnect, host systemd) 너머의 gh-trade-server(C++ DMA 게이트웨이 10.41.1.120:9100, `[uint32 LE 길이][FlatBuffer Envelope]`)에 **gh-radar 사용자별 DMA 세션**으로 붙는다. 호가 10단 + 체결 테이프(KRX/NXT)와 계좌 상태(잔고·미체결)를 브라우저에 **`wss://dma.jx1.io`(Caddy TLS) 로 직접 팬아웃**하고, 주문(신규 매수/매도 + 취소, 지정가 보통)은 **브라우저 → Cloud Run server REST(requireAuth) → Direct VPC Egress → VM relay 내부 HTTP → `DirectOrderReq`** 로 릴레이한다. 웹앱 `/stocks/[code]` 에 호가창 섹션(호가·체결·주문 패널·잔고/미체결·연결 상태)을 신설한다. 사용자 ↔ DMA 자격증명 매핑은 Supabase `dma_credentials`(AES-GCM, 서비스롤 전용)이며 allowlist = 매핑 행 존재. Cloud Run 에서는 WebSocket 을 열지 않는다. 인계 문서 `tasks/relay-handoff.md` 를 전면 재검토한 결정은 `15-CONTEXT.md` 가 정본(핸드오프와 충돌 시 CONTEXT 우선).
+**Requirements**: TBD (plan 단계에서 RELAY-01 시세·계좌 팬아웃 / RELAY-02 주문 릴레이 / RELAY-03 VM·VPN 인프라 신규 등록)
+**Depends on:** Phase 14; **외부 의존** gh-trade Phase 17(users.toml 로그인 인증 + `LoginResp.accounts`) — 병행 진행, 계좌·주문 wave 는 17 완료 후 `sync-relay-schema.sh` 재동기화가 선행 조건; 사용자 DNS(`dma.jx1.io` A 레코드); kbs124 VPN 선검증 통과
+**Success Criteria** (what must be TRUE):
+  1. `relay/` 워크스페이스가 pnpm 워크스페이스에 등록되고 gh-trade `sync-relay-schema.sh` 산출물(`relay/src/generated/` 40개 + SYNC MARKER fbs 사본)이 커밋돼 있으며 `sync-relay-schema.sh --check` 가 무변경으로 통과한다. 생성물은 손으로 고치지 않는다.
+  2. GCE VM `radar-gw` 가 신규 고정 IP·방화벽(443 공개, 22 IAP 한정, relay 내부포트 서브넷 한정)으로 프로비저닝되고, kbs124 계정으로 VM 에서 openconnect VPN 연결·출발지 IP 제한·동시 세션 여부가 **검증·기록**돼 있다(실패 시 자동 재시도 없이 중단, 수동 ≤3회).
+  3. relay 가 프레이밍 코덱(4MB 상한·불량 프레임 드롭·연결 유지)·30초 LivePing·백오프 재접속(재로그인·계좌 재선언·재구독, 서버 거부 시 루프 중단)을 갖춘 사용자별 DMA 세션(Idle→Connecting→LoggingIn→DeclaringAccounts→Ready)을 열고, vitest 가짜 서버 소켓 테스트로 프레임 결합/분할·드롭·핑·재접속을 증명한다.
+  4. 브라우저가 `wss://dma.jx1.io` 에 첫 메시지 `{t:"auth", token}` 으로 인증(`supabase.auth.getUser`, 5초 내 미인증 close)하면 `dma_credentials` 매핑이 있는 사용자만 세션이 열리고, 종목 구독 시 `GetQuoteReq(28)` 스냅샷 → `SubscribeQuoteReq(29)` 로 호가 10단·체결 테이프(200ms 배치)·`ServerMessage`·세션 상태 프레임을 받으며(업스트림 100ms 그대로, permessage-deflate), 마지막 wss 종료 5분 뒤 DMA 세션이 닫힌다.
+  5. 세션 Ready 후 `LoginResp.accounts` 전부가 `UpdateAccountNoReq` 로 선언되고 `GetAccountStateReq(25)` 스냅샷 + `AccountStateDelta(67)` 델타가 wss 로 내려와 잔고·미체결 목록이 표시된다(gh-trade Phase 17 재동기화 후).
+  6. `POST /api/orders`(requireAuth + allowlist + 형식 검사, 금액 한도 없음)가 relay 내부 HTTP(공유 비밀 헤더)로 `DirectOrderReq`(N/C, 조건 "0", KRX/NXT, `stocks.isin` 매핑)를 보내고 첫 `OrderResp`(접수/거부, ≤5초)를 응답하며, 체결·취소확인은 주문자 wss 로 푸시되고 `dma_orders` 에 기록된다. 활성 세션이 없으면 409. mock 브로커의 가격 0 거부 경로가 확인된다.
+  7. 웹앱 `/stocks/[code]` 호가창 섹션이 HTML 목업 시각 확인 → UI-SPEC 을 거쳐 구현되고(호가 클릭→가격 입력, 계좌 선택, 매수/매도/취소, 거래소 토글, 연결 상태 배지, 권한 없음 상태), Playwright E2E 로 wss 왕복이 증명되며 Vercel 에 `NEXT_PUBLIC_RELAY_WS_URL` 이 설정된다.
+  8. `relay/Dockerfile` + `scripts/setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책 + VM 프로비저닝 문서(openconnect systemd 유닛·Caddy·Secret Manager: 비밀번호 값은 문서·로그·커밋 어디에도 없음)가 존재하고 실서버(10.41.1.120)·실계좌 접속은 사용자 지시 전엔 하지 않는다.
+**Out of scope:** 거래원(MemberStats) 팬아웃, 정정(M)·IOC/FOK·시장가, 서버측 주문 한도, 웹앱 자격증명 입력 UI, 공용 시세 세션, Cloud Run WebSocket, gh-trade 전략 메시지 조작, `GetSymbolMasterReq(27)`.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 15 to break down)
