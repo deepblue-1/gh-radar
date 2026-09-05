@@ -16,6 +16,7 @@ import { DmaClient, MAX_RECONNECT_ATTEMPTS, backoffDelayMs } from "../src/dma/dm
 import { DmaSession, LOGIN_RESP_TIMEOUT_MS } from "../src/dma/session.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import { SAMPLE_ACCOUNTS } from "./helpers/frames.js";
 
 /** 절대 로그·상태 프레임·직렬화에 나타나면 안 되는 값. */
 const SECRET = "p@ssw0rd-절대노출금지";
@@ -212,7 +213,7 @@ describe("DmaSession", () => {
     expect(Object.keys(s)).not.toContain("password");
   });
 
-  it("⑦ 계좌 목록은 항상 배열이고 현행 스키마에서는 0건이다 (D-25 축약 경로)", async () => {
+  it("⑦ 계좌 목록은 항상 배열이고 ready 에서는 대조된 목록이 실린다 (D-25 게이트 통과)", async () => {
     gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
     const { session: s, states } = makeSession();
 
@@ -220,12 +221,15 @@ describe("DmaSession", () => {
     await waitFor(() => s.state === "ready", "ready 진입");
 
     expect(Array.isArray(s.allowedAccounts)).toBe(true);
-    expect(s.allowedAccounts).toHaveLength(0);
+    // 축약 경로(항상 0건)는 사라졌다 — 서버가 준 목록이 대조를 통과해 그대로 실린다.
+    expect(s.allowedAccounts).toEqual(SAMPLE_ACCOUNTS);
     // 모든 상태 프레임이 accounts 를 배열로 싣는다 — 브라우저가 undefined 분기를 만들지 않게.
     for (const frame of states) {
       expect(Array.isArray(frame.accounts)).toBe(true);
     }
-    // 계좌가 비어 있어도 ready 다 (gh-trade 17 D-19).
+    // 게터는 복사본을 준다 — 밖에서 밀어 넣어도 세션 내부가 오염되지 않는다 (T-15-01).
+    s.allowedAccounts.push({ accountNo: "9999999999", name: "침입" });
+    expect(s.allowedAccounts).toEqual(SAMPLE_ACCOUNTS);
     expect(s.isReady).toBe(true);
   });
 

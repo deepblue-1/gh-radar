@@ -26,6 +26,8 @@ import {
   buildLoginRespFrame,
   buildQuoteStateFrame,
   buildTradeTapeFrame,
+  buildUpdateAccountNoRespFrame,
+  type FakeAccount,
   type FakeLoginRespInput,
   type FakeQuoteInput,
   type FakeTapeInput,
@@ -40,9 +42,19 @@ export type FrameHandler = (msgType: number, payload: Buffer, sock: net.Socket) 
 export type FakeGatewayOptions = {
   /** `LoginReq(1)` 수신 시 `LoginResp(50)` 자동 응답 여부. 기본 true. */
   autoLogin?: boolean;
-  /** 자동 응답의 내용. 기본 `{ success: true }`. */
+  /** 자동 응답의 내용. 기본 `{ success: true }` (계좌는 `SAMPLE_ACCOUNTS`). */
   loginResp?: FakeLoginRespInput;
+  /**
+   * `UpdateAccountNoReq(3)` 수신 시 `UpdateAccountNoResp(55)` 자동 응답 여부. 기본 true.
+   *
+   * 기본 응답은 **그 연결에서 선언된 계좌의 누적 목록 전체**다 — 실서버 계약과 같다.
+   * 끄면 "선언은 받았지만 응답이 없는 게이트웨이"(5초 대조 타임아웃)를 재현한다.
+   */
+  autoAccount?: boolean;
 };
+
+/** `UpdateAccountNoReq(3)` 1건의 관찰 기록. */
+export type DeclaredAccount = { mode: string; accountNo: string };
 
 /** 쓰레기 프레임 종류. */
 export type GarbageKind =
@@ -62,6 +74,17 @@ export type FakeGateway = {
   onFrame(handler: FrameHandler): void;
   /** 로그인 자동 응답을 켜고 내용을 지정한다. */
   respondLogin(resp?: FakeLoginRespInput): void;
+  /** 로그인 자동 응답을 켜고 허용 계좌 목록만 바꾼다 (`success: true`). */
+  respondLoginWithAccounts(accounts: FakeAccount[], message?: string): void;
+  /**
+   * 계좌 선언 응답을 **고정 목록**으로 바꾼다. 누적 목록 대신 항상 이 값을 돌려준다 —
+   * 대조 실패(누락)·여분 계좌 경로를 재현할 때 쓴다.
+   */
+  respondUpdateAccountNo(accountList: string[]): void;
+  /** 계좌 선언 응답을 끈다 — 선언은 받되 답하지 않는다 (5초 대조 타임아웃 재현). */
+  silenceAccountResp(): void;
+  /** 지금까지 수신한 `UpdateAccountNoReq(3)` 전량 (송신 순서 그대로). */
+  declaredAccounts(): DeclaredAccount[];
   /**
    * 로그인 자동 응답을 끈다 — 이후 `LoginReq` 는 받기만 하고 답하지 않는다.
    * "붙었지만 응답이 없는 게이트웨이"(운용 중 5초 타임아웃)를 재현할 때 쓴다.
@@ -87,16 +110,32 @@ export type FakeGateway = {
   close(): Promise<void>;
 };
 
-/** 페이로드에서 `msg_type` 만 읽는다. 요청 대역도 읽어야 하므로 화이트리스트를 쓰지 않는다. */
-function readMsgType(payload: Buffer): number {
+/**
+ * 페이로드에서 `msg_type` 만 읽는다. 요청 대역도 읽어야 하므로 화이트리스트를 쓰지 않는다.
+ *
+ * `tryParseEnvelope` 를 쓰지 않는 이유는 그 함수가 **수신(응답) 대역** 화이트리스트라
+ * 요청 계열(1·3·4·28·29·32)을 전부 드롭하기 때문이다.
+ */
+function rootEnvelope(payload: Buffer): Envelope | null {
   try {
     const bb = new flatbuffers.ByteBuffer(
       new Uint8Array(payload.buffer, payload.byteOffset, payload.length),
     );
-    return Envelope.getRootAsEnvelope(bb).msgType();
+    return Envelope.getRootAsEnvelope(bb);
   } catch {
-    return -1;
+    return null;
   }
+}
+
+function readMsgType(payload: Buffer): number {
+  return rootEnvelope(payload)?.msgType() ?? -1;
+}
+
+/** 요청 프레임에서 계좌 선언 내용을 꺼낸다 (게이트웨이 흉내 — 요청 대역 직접 파싱). */
+function readDeclaredAccount(payload: Buffer): DeclaredAccount | null {
+  const req = rootEnvelope(payload)?.updateAccountNoReq();
+  if (req === null || req === undefined) return null;
+  return { mode: req.mode() ?? "", accountNo: req.accountNo() ?? "" };
 }
 
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
@@ -105,6 +144,10 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   const pendingConnections: Array<(sock: net.Socket) => void> = [];
   let autoLogin = opts.autoLogin ?? true;
   let loginResp: FakeLoginRespInput = opts.loginResp ?? { success: true };
+  let autoAccount = opts.autoAccount ?? true;
+  /** null 이면 "선언 누적 목록을 돌려준다", 배열이면 그 값을 고정으로 돌려준다. */
+  let fixedAccountList: string[] | null = null;
+  const declared: DeclaredAccount[] = [];
   let pings = 0;
 
   const server = net.createServer((sock) => {
@@ -117,6 +160,9 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
       if (i >= 0) sockets.splice(i, 1);
     });
 
+    // 이 연결에서 누적된 등록 계좌 목록. 서버는 선언 1건마다 **전체**를 돌려준다.
+    const registered: string[] = [];
+
     const reader = new FrameReader();
     sock.on("data", (chunk: Buffer) => {
       const { frames } = reader.push(chunk);
@@ -125,6 +171,16 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         if (msgType === MSG.LivePing) pings += 1;
         if (msgType === MSG.LoginReq && autoLogin) {
           sock.write(frame(buildLoginRespFrame(loginResp)));
+        }
+        if (msgType === MSG.UpdateAccountNoReq) {
+          const req = readDeclaredAccount(payload);
+          if (req !== null) {
+            declared.push(req);
+            if (!registered.includes(req.accountNo)) registered.push(req.accountNo);
+          }
+          if (autoAccount) {
+            sock.write(frame(buildUpdateAccountNoRespFrame(fixedAccountList ?? [...registered])));
+          }
         }
         for (const h of handlers) h(msgType, payload, sock);
       }
@@ -156,6 +212,24 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
     respondLogin(resp) {
       autoLogin = true;
       loginResp = resp ?? { success: true };
+    },
+
+    respondLoginWithAccounts(accounts, message) {
+      autoLogin = true;
+      loginResp = { success: true, accounts, ...(message === undefined ? {} : { message }) };
+    },
+
+    respondUpdateAccountNo(accountList) {
+      autoAccount = true;
+      fixedAccountList = [...accountList];
+    },
+
+    silenceAccountResp() {
+      autoAccount = false;
+    },
+
+    declaredAccounts() {
+      return [...declared];
     },
 
     silenceLogin() {

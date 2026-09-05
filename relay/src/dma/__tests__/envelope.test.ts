@@ -29,14 +29,22 @@ import {
   parseTradeTape,
   parseServerMessage,
   parseLoginResp,
+  parseLoginRespAccounts,
+  parseUpdateAccountNoResp,
+  buildUpdateAccountNoReq,
   takeCount,
   toNum,
   isValidIsin,
   isValidExchange,
+  isValidAccountNo,
+  maskAccountNo,
   droppedEnvelopeCount,
   resetDroppedEnvelopeCount,
+  skippedAccountEntryCount,
   MAX_ORDER_BOOK_DEPTH,
   MAX_TAPE_ENTRY_COUNT,
+  MAX_ACCOUNT_LIST_COUNT,
+  MAX_ACCOUNT_NO_LEN,
 } from "../envelope.js";
 import {
   SAMPLE_ISIN,
@@ -45,6 +53,7 @@ import {
   buildTradeTapeFrame,
   buildServerMessageFrame,
   buildLoginRespFrame,
+  buildUpdateAccountNoRespFrame,
 } from "../../../tests/helpers/frames.js";
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -326,19 +335,131 @@ describe("parseServerMessage / parseLoginResp", () => {
     expect(droppedEnvelopeCount()).toBe(0);
   });
 
-  it("LoginResp 는 success/message 만 읽는다 (계좌 벡터 비참조, D-25)", () => {
-    const ok = tryParseEnvelope(Buffer.from(buildLoginRespFrame({ success: true })));
-    expect(parseLoginResp(ok!.env)).toEqual({ success: true, message: "" });
-
-    const rejected = tryParseEnvelope(
-      Buffer.from(buildLoginRespFrame({ success: false, message: "로그인 거부" })),
+  it("LoginResp 는 success/message 와 허용 계좌 목록을 함께 읽는다 (D-25 게이트 통과)", () => {
+    const ok = tryParseEnvelope(
+      Buffer.from(
+        buildLoginRespFrame({
+          success: true,
+          accounts: [
+            { accountNo: "1234567801", name: "위탁종합" },
+            { accountNo: "1234567802", name: "연금" },
+          ],
+        }),
+      ),
     );
-    expect(parseLoginResp(rejected!.env)).toEqual({ success: false, message: "로그인 거부" });
+    expect(parseLoginResp(ok!.env)).toEqual({
+      success: true,
+      message: "",
+      accounts: [
+        { accountNo: "1234567801", name: "위탁종합" },
+        { accountNo: "1234567802", name: "연금" },
+      ],
+    });
+
+    // 실패 응답과 mock 무인증 로그인은 빈 벡터다 (17 D-19).
+    const rejected = tryParseEnvelope(
+      Buffer.from(buildLoginRespFrame({ success: false, message: "로그인 거부", accounts: [] })),
+    );
+    expect(parseLoginResp(rejected!.env)).toEqual({
+      success: false,
+      message: "로그인 거부",
+      accounts: [],
+    });
   });
 
   it("슬롯이 비면 드롭한다", () => {
     const bare = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.LoginResp)));
     expect(parseLoginResp(bare!.env)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+  });
+});
+
+describe("계좌 조립·파싱 (D-11 / T-15-07 / T-15-15)", () => {
+  it("buildUpdateAccountNoReq 는 MsgType 3 · 추가 모드로 조립한다", () => {
+    // 요청 대역은 수신 화이트리스트 밖이라 `readBack` 으로 루트를 직접 연다.
+    const env = readBack(buildUpdateAccountNoReq("1", "1234567801"));
+
+    expect(env.msgType()).toBe(MSG.UpdateAccountNoReq);
+    expect(env.updateAccountNoReq()?.mode()).toBe("1");
+    expect(env.updateAccountNoReq()?.accountNo()).toBe("1234567801");
+  });
+
+  it("상한 상수는 소비측 방어값으로 고정한다 (C# Client.cs 동형)", () => {
+    expect(MAX_ACCOUNT_LIST_COUNT).toBe(256);
+    expect(MAX_ACCOUNT_NO_LEN).toBe(12);
+  });
+
+  it("계좌번호 형식 가드는 1~12자만 통과시킨다", () => {
+    expect(isValidAccountNo("1")).toBe(true);
+    expect(isValidAccountNo("123456789012")).toBe(true);
+    expect(isValidAccountNo("")).toBe(false);
+    expect(isValidAccountNo("1234567890123")).toBe(false);
+  });
+
+  it("마스킹은 뒤 4자리를 가리고 원문을 남기지 않는다 (T-15-15)", () => {
+    expect(maskAccountNo("1234567801")).toBe("123456****");
+    expect(maskAccountNo("1234")).toBe("****");
+    expect(maskAccountNo("")).toBe("");
+    expect(maskAccountNo("1234567801")).not.toContain("7801");
+  });
+
+  it("형식 위반 계좌 항목만 건너뛰고 나머지는 살린다 (S-5 카운터)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildLoginRespFrame({
+          accounts: [
+            { accountNo: "1234567801", name: "정상" },
+            { accountNo: "", name: "빈 계좌번호" },
+            { accountNo: "1234567890123", name: "13자" },
+            { accountNo: "1234567802", name: "정상2" },
+          ],
+        }),
+      ),
+    );
+
+    expect(parseLoginRespAccounts(parsed!.env)).toEqual([
+      { accountNo: "1234567801", name: "정상" },
+      { accountNo: "1234567802", name: "정상2" },
+    ]);
+    // 프레임을 통째로 버리지 않는다 — 항목 스킵은 별도 카운터다.
+    expect(droppedEnvelopeCount()).toBe(0);
+    expect(skippedAccountEntryCount()).toBe(2);
+    // 스킵 경고에도 계좌번호 원문은 남지 않는다.
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("1234567890123");
+  });
+
+  it("계좌 목록 상한을 넘으면 앞의 256건으로 절단한다 (T-15-07)", () => {
+    const many = Array.from({ length: MAX_ACCOUNT_LIST_COUNT + 10 }, (_, i) => ({
+      accountNo: `12345678${String(i).padStart(2, "0")}`.slice(0, MAX_ACCOUNT_NO_LEN),
+      name: `계좌${i}`,
+    }));
+    const parsed = tryParseEnvelope(Buffer.from(buildLoginRespFrame({ accounts: many })));
+
+    expect(parseLoginRespAccounts(parsed!.env)).toHaveLength(MAX_ACCOUNT_LIST_COUNT);
+  });
+
+  it("UpdateAccountNoResp 는 등록 목록 전체를 문자열 배열로 낸다", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildUpdateAccountNoRespFrame(["1234567801", "1234567802"])),
+    );
+
+    expect(parsed?.msgType).toBe(MSG.UpdateAccountNoResp);
+    expect(parseUpdateAccountNoResp(parsed!.env)).toEqual(["1234567801", "1234567802"]);
+  });
+
+  it("UpdateAccountNoResp 도 형식 위반 항목을 건너뛴다", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildUpdateAccountNoRespFrame(["1234567801", "1234567890123", ""])),
+    );
+
+    expect(parseUpdateAccountNoResp(parsed!.env)).toEqual(["1234567801"]);
+    expect(skippedAccountEntryCount()).toBe(2);
+  });
+
+  it("UpdateAccountNoResp 슬롯이 비면 빈 배열 + 드롭 카운터", () => {
+    const bare = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.UpdateAccountNoResp)));
+
+    expect(parseUpdateAccountNoResp(bare!.env)).toEqual([]);
     expect(droppedEnvelopeCount()).toBe(1);
   });
 });

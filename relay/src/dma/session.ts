@@ -8,7 +8,9 @@
  * 결정 근거:
  *   D-13  세션은 gh-radar 사용자 1명당 1개다. 시세·체결·계좌·주문이 전부 이 세션을 탄다.
  *   D-14  부트 시퀀스는 `LoginReq(1)` → `LoginResp(50)` → 계좌 선언 → Ready 다.
- *         **현행 스키마에서는 선언할 계좌가 0건**이라 계좌 단계가 축약된다 (D-25 게이트).
+ *         계좌 단계는 `LoginResp.accounts` **전량**을 `UpdateAccountNoReq(3)` 추가 모드로
+ *         연속 선언하고 `UpdateAccountNoResp(55)` 목록과 대조하는 것이다. 조회 왕복은
+ *         없다 (17 D-11). 계좌 0건은 정상 부트가 아니라 세션 실패다 (17 D-12).
  *   D-16  서버가 로그인을 **명시 거부**하면 재접속 루프를 멈춘다(`failNoRetry`). 재시도해도
  *         결과가 같고, 백오프마다 같은 거부를 되풀이하면 KB 계정이 잠긴다 (T-15-10).
  *         재접속 상한 소진은 `manual_required` 로 승격한다.
@@ -27,7 +29,9 @@
  *
  * 하지 않는 것:
  *   - 구독 집합을 소유하지 않는다. 그것은 SubscriptionHub(15-04)의 정본이다.
- *   - 계좌 선언·주문을 하지 않는다. D-25 게이트 뒤 plan 소관이다.
+ *   - 주문을 하지 않는다. 15-17 이후 plan 소관이다. 여기서 확정한 계좌 목록이
+ *     그 plan 의 `account_no ∈ 세션 계좌 목록` 대조 원천이 된다 (T-15-01).
+ *   - 와이어 형식을 해석하지 않는다. 계좌 벡터 상한·형식 가드는 `envelope.ts` 소관이다.
  *   - 소켓을 직접 만지지 않는다. 재접속 정책은 `DmaClient` 가 소유한다.
  */
 import { EventEmitter } from "node:events";
@@ -37,7 +41,13 @@ import type { RelayAccount, RelaySessionState, RelayStateMsg } from "@gh-radar/s
 
 import { logger } from "../logger.js";
 import type { DmaClient, TransportFrameEvent } from "./dma-client.js";
-import { buildLoginReq, parseLoginResp } from "./envelope.js";
+import {
+  buildLoginReq,
+  buildUpdateAccountNoReq,
+  maskAccountNo,
+  parseLoginResp,
+  parseUpdateAccountNoResp,
+} from "./envelope.js";
 import { MSG } from "./msg-type.js";
 
 // ============================================================
@@ -50,14 +60,18 @@ export const LOGIN_RESP_TIMEOUT_MS = 5000;
 /**
  * 계좌 선언 응답(`UpdateAccountNoResp(55)`) 대조 대기 상한(ms).
  *
- * D-25 게이트 전(현행 스키마)에는 선언할 계좌가 0건이라 **대기할 응답 자체가 없다**.
- * 값을 미리 박아 두는 이유는 게이트 뒤 plan 이 수치를 다시 고르지 않게 하기 위해서다
- * (`envelope.ts` 의 계좌 상한 상수 4종과 같은 규율).
+ * 선언은 건별로 기다리지 않고 전량을 연속 송신한 뒤 **한 번만** 이 타이머를 건다.
+ * 건별 대기로 만들면 계좌 N개에 최악 5N초가 걸려 부트가 사실상 멎는다 (C# A2).
  */
 export const ACCOUNT_RESP_TIMEOUT_MS = 5000;
 
-/** 서버 계좌번호 길이 가드. D-25 게이트 뒤 계좌 선언 루프가 쓴다 (Pitfall 5). */
-export const MAX_ACCOUNT_NO_LEN = 12;
+/**
+ * 계좌 0건 실패 문구. **이 문구가 그대로 브라우저 상태 프레임에 실린다** (17 D-12).
+ *
+ * relay 가 고칠 수 있는 문제가 아니라 gh-trade `users.toml` 에 계좌가 등록되지 않은
+ * 상태이므로, 사용자가 무엇을 해야 하는지 알 수 있게 원인을 그대로 말한다.
+ */
+export const NO_ACCOUNTS_MESSAGE = "서버에 등록된 계좌가 없습니다";
 
 // 재접속 상한·백오프는 `dma-client.ts` 가 단일 정본이다 — 여기 복제하지 않는다 (IN-01).
 
@@ -119,9 +133,19 @@ export class DmaSession extends EventEmitter {
    */
   #bootPhase = true;
   #hasBeenReady = false;
-  /** 서버가 허용한 계좌 목록. 현행 스키마에서는 항상 빈 배열이다 (D-25). */
+  /**
+   * 서버가 허용하고 **선언까지 대조된** 계좌 목록. `ready` 에서는 비지 않는다.
+   * 15-17 의 주문 계좌 검증이 이 목록을 원천으로 삼는다 (T-15-01).
+   */
   #accounts: RelayAccount[] = [];
+  /** 이번 부트에서 선언한 계좌번호 전체. 서버 목록의 "여분" 판정 기준이다 (17 D-13). */
+  #declaredAccounts: ReadonlySet<string> = new Set<string>();
+  /** 아직 서버 목록에서 확인되지 않은 계좌번호. 비면 대조 성공이다. */
+  #pendingAccounts = new Set<string>();
+  /** 로그인 응답 원문. 대조를 통과한 뒤 `ready` 상태 문구로 쓴다. */
+  #loginMessage = "";
   #loginTimer: NodeJS.Timeout | null = null;
+  #accountTimer: NodeJS.Timeout | null = null;
 
   constructor(creds: DmaSessionCreds, client: DmaClient) {
     super();
@@ -157,7 +181,7 @@ export class DmaSession extends EventEmitter {
   }
 
   /**
-   * 서버가 허용한 계좌 목록의 복사본. 이름이 `accounts` 가 아닌 이유는 생성 코드의
+   * 대조를 통과한 계좌 목록의 복사본. 이름이 `accounts` 가 아닌 이유는 생성 코드의
    * 계좌 접근자와 이름이 겹쳐 D-25 게이트 검사(grep)를 흐리기 때문이다.
    */
   get allowedAccounts(): RelayAccount[] {
@@ -249,7 +273,7 @@ export class DmaSession extends EventEmitter {
 
   /** 세션 종료. 유예 만료·프로세스 종료 시 SessionManager 가 부른다. */
   close(): void {
-    this.#clearLoginTimer();
+    this.#clearTimers();
     this.#client.destroy();
     logger.info({ userId: this.#userId, lastState: this.#state }, "[DMA] 세션 종료");
   }
@@ -284,8 +308,19 @@ export class DmaSession extends EventEmitter {
     // 시세·체결·주문 프레임은 해석하지 않고 그대로 흘린다 — 소비자(15-04 Hub)가 읽는다.
     this.emit("frame", e);
 
-    if (e.msgType !== MSG.LoginResp) return;
+    // 구세대 프레임은 부트 판정에 쓰지 않는다. (흘려보내는 것은 위에서 이미 했다 —
+    // Hub 가 자기 세대 검사를 따로 하므로 여기서 가로채지 않는다.)
     if (e.generation !== this.#client.generation) return;
+    if (e.msgType === MSG.LoginResp) {
+      this.#onLoginResp(e);
+      return;
+    }
+    if (e.msgType === MSG.UpdateAccountNoResp) {
+      this.#onAccountListResp(e);
+    }
+  }
+
+  #onLoginResp(e: TransportFrameEvent): void {
     if (this.#state !== "logging_in") {
       logger.warn(
         { userId: this.#userId, state: this.#state },
@@ -306,34 +341,115 @@ export class DmaSession extends EventEmitter {
       this.#failNoRetry(`로그인 거부: ${resp.message}`);
       return;
     }
-    this.#onLoginAccepted(e.generation, resp.message);
+    this.#onLoginAccepted(e.generation, resp.message, resp.accounts);
   }
 
-  #onLoginAccepted(gen: number, message: string): void {
-    // ③ 계좌 선언 단계.
-    if (!this.#trySetState(gen, "declaring", "계좌 확인 중")) return;
+  /**
+   * ③ 계좌 선언 단계 (C# `Session.cs` L690-812 ②).
+   *
+   * 선언 대상은 **`LoginResp.accounts` 전량**이다. 클라이언트가 목록을 따로 들고 있지
+   * 않으므로 C# 의 "선언 목록 ⊆ 허용 목록" 사전 검사는 여기서 항등이라 생략한다 —
+   * 대신 서버 응답 목록과의 사후 대조가 그 자리를 대신한다.
+   */
+  #onLoginAccepted(gen: number, message: string, accounts: RelayAccount[]): void {
+    // ③-a 계좌 0건은 **정상 부트가 아니다** (17 D-12). users.toml 에 계좌가 없다는 뜻이라
+    //     재접속해도 결과가 같고, 백오프마다 같은 로그인을 되풀이할 이유가 없다 (T-15-10).
+    //     로그인 자체는 성공했으므로 전송 실패가 아니라 세션 거부로 확정한다.
+    if (accounts.length === 0) {
+      this.#failNoRetry(NO_ACCOUNTS_MESSAGE);
+      return;
+    }
 
-    // D-25 게이트: 현행 스키마의 `LoginResp` 에서 relay 는 success/message 만 읽는다
-    // (`envelope.ts` 의 `parseLoginResp`). 선언할 계좌가 0건이면 **대조를 기다릴 응답도
-    // 없으므로** ACCOUNT_RESP_TIMEOUT_MS 타이머를 걸지 않고 곧장 Ready 로 간다.
-    // 계좌가 비어 있는 `ready` 는 정상 상태다 — UI 는 주문 패널만 비활성화한다
-    // (shared `RelayAccount` 주석 / gh-trade 17 D-19).
-    //
-    // TODO(D-25): gh-trade 17 재동기화(`sync-relay-schema.sh` 재실행) 후 이 자리에 들어온다.
-    //   ① LoginResp 의 허용 계좌 벡터 → RelayAccount[] 변환 (MAX_ACCOUNT_NO_LEN 가드)
-    //   ② 계좌마다 UpdateAccountNoReq(3) mode "1" 을 건별 대기 없이 연속 송신
-    //   ③ UpdateAccountNoResp(55) 의 목록을 ACCOUNT_RESP_TIMEOUT_MS(5초) 안에 대조
-    //   ④ 미대조 계좌가 남으면 fail("계좌 선언 미확인 (5초)"), 허용 밖 계좌면 failNoRetry
-    //   ⑤ 계좌 0건이면 세션 실패로 확정 (17 D-12)
-    this.#accounts = [];
+    this.#loginMessage = message;
+    this.#accounts = accounts;
+    const declared = accounts.map((a) => a.accountNo);
+    this.#declaredAccounts = new Set(declared);
+    this.#pendingAccounts = new Set(declared);
 
-    // ④ 운용 준비 완료. **"성공"의 기준은 TCP 접속이 아니라 여기다.**
+    if (!this.#trySetState(gen, "declaring", `계좌 ${accounts.length}건 선언 중`)) return;
+
+    // ③-b **건별 대기 없이 연속 송신**한다 (C# A2). 응답은 매번 현재 등록 목록 전체를
+    //     담아 오므로 하나씩 기다릴 이유가 없고, 기다리면 계좌 N개에 최악 5N초가 걸린다.
+    for (const accountNo of declared) {
+      if (!this.#client.send(buildUpdateAccountNoReq("1", accountNo))) {
+        this.#fail(
+          `계좌 선언 송신 실패: ${accountNo}`,
+          `계좌 선언 송신 실패: ${maskAccountNo(accountNo)}`,
+        );
+        return;
+      }
+    }
+
+    // ③-c 대조 상한. 타이머는 **전량 송신 후 한 번만** 건다.
+    this.#clearAccountTimer();
+    this.#accountTimer = setTimeout(() => {
+      this.#accountTimer = null;
+      if (gen !== this.#client.generation) return; // 구세대 타이머 — 보고하지 않는다
+      this.#failAccountMismatch();
+    }, ACCOUNT_RESP_TIMEOUT_MS);
+  }
+
+  /**
+   * `UpdateAccountNoResp(55)` 수신 — 서버의 **현재 등록 목록 전체**다.
+   *
+   * 선언 1건마다 한 번씩 오고 매번 그 시점의 전체 목록을 담으므로, "마지막 응답"이 아니라
+   * 받은 목록의 **누적**으로 대조한다. 마지막 응답만 보면 서버가 응답을 재정렬하거나
+   * 한 건을 흘렸을 때 정상 부트가 조용히 실패한다.
+   */
+  #onAccountListResp(e: TransportFrameEvent): void {
+    if (this.#state !== "declaring") {
+      logger.warn(
+        { userId: this.#userId, state: this.#state },
+        "[DMA] 예상 밖 시점의 UpdateAccountNoResp — 무시",
+      );
+      return;
+    }
+
+    const serverList = parseUpdateAccountNoResp(e.env);
+
+    // 우리가 선언하지 않았는데 서버 목록에 있는 계좌 — **warn 만 하고 진행한다** (17 D-13).
+    // 게이트웨이는 user_id+broker 로 세션을 합류시키므로(D-17) 같은 user_id 를 쓰는 다른
+    // 클라이언트가 남긴 계좌일 수 있다. 우리 세션의 주문 대상은 어디까지나 선언 목록이다.
+    const extra = serverList.filter((a) => !this.#declaredAccounts.has(a));
+    if (extra.length > 0) {
+      logger.warn(
+        { userId: this.#userId, extra: extra.map(maskAccountNo) },
+        "[DMA] 선언하지 않은 계좌가 서버 목록에 있다 — 무시하고 진행",
+      );
+    }
+
+    for (const accountNo of serverList) this.#pendingAccounts.delete(accountNo);
+    if (this.#pendingAccounts.size > 0) return; // 아직 남았다 — 다음 응답을 기다린다
+
+    this.#clearAccountTimer();
+    this.#onAccountsMatched(e.generation);
+  }
+
+  /** ④ 운용 준비 완료. **"성공"의 기준은 TCP 접속이 아니라 여기다.** */
+  #onAccountsMatched(gen: number): void {
     this.#client.resetReconnectAttempts();
-    if (!this.#trySetState(gen, "ready", message === "" ? undefined : message)) return;
+    const msg = this.#loginMessage === "" ? `계좌 ${this.#accounts.length}건 선언 완료` : this.#loginMessage;
+    if (!this.#trySetState(gen, "ready", msg)) return;
     this.#hasBeenReady = true;
     this.#bootPhase = false;
-    // 재구독의 유일한 트리거 (Pitfall 4).
+    // 재구독의 유일한 트리거 (Pitfall 4). 재접속 경로도 같은 자리를 지난다 —
+    // 재로그인 → 계좌 재선언 → 재구독이 한 벌이다.
     this.emit("ready", { generation: gen, accounts: this.allowedAccounts });
+  }
+
+  /**
+   * 5초 안에 선언 전량이 서버 목록에서 확인되지 않았다.
+   *
+   * 누락 계좌번호를 **화면에는 전체로, 로그에는 마스킹본으로** 싣는다 (UI-SPEC D2).
+   * 어느 계좌가 걸렸는지 모르면 users.toml 을 고칠 수가 없다.
+   */
+  #failAccountMismatch(): void {
+    const missing = [...this.#pendingAccounts];
+    const seconds = ACCOUNT_RESP_TIMEOUT_MS / 1000;
+    this.#fail(
+      `계좌 선언 미확인 (${seconds}초): ${missing.join(", ")}`,
+      `계좌 선언 미확인 (${seconds}초): ${missing.map(maskAccountNo).join(", ")}`,
+    );
   }
 
   // ----------------------------------------------------------
@@ -342,7 +458,8 @@ export class DmaSession extends EventEmitter {
 
   #onTransportDown(reason: string): void {
     // 응답 대기 타이머를 먼저 끈다 — 끄지 않으면 5초 뒤에 구세대 실패가 늦게 보고된다.
-    this.#clearLoginTimer();
+    // 로그인 대기와 계좌 대조 대기 **둘 다** 끈다.
+    this.#clearTimers();
     logger.info(
       { userId: this.#userId, state: this.#state, reason, hasBeenReady: this.#hasBeenReady },
       "[DMA] 세션 전송 단절",
@@ -358,7 +475,7 @@ export class DmaSession extends EventEmitter {
 
   #onExhausted(attempts: number): void {
     if (TERMINAL_STATES.has(this.#state)) return;
-    this.#clearLoginTimer();
+    this.#clearTimers();
     logger.error({ userId: this.#userId, attempts }, "[DMA] 재접속 상한 소진 — 수동 재접속 필요");
     this.#setState("manual_required", "재접속 시도를 모두 소진했습니다", attempts);
   }
@@ -370,24 +487,29 @@ export class DmaSession extends EventEmitter {
   /**
    * 실패 처리. **부트 구간이면 `failed` 로 확정**하고, 운용 중이면 전송만 끊어
    * 자동 재접속(백오프 유지)에 넘긴다 (C# `Fail`).
+   *
+   * @param reason    **화면(상태 프레임)** 에 실을 사유. 계좌번호는 전체로 쓴다.
+   * @param logReason **로그**에 남길 사유. 계좌번호는 마스킹본으로 쓴다 (UI-SPEC D2 /
+   *                  T-15-15). 생략하면 `reason` 과 같다 — 계좌번호가 없는 사유는
+   *                  두 벌로 만들 이유가 없다.
    */
-  #fail(reason: string): void {
+  #fail(reason: string, logReason: string = reason): void {
     if (TERMINAL_STATES.has(this.#state)) return;
-    this.#clearLoginTimer();
+    this.#clearTimers();
 
     if (this.#bootPhase) {
-      logger.error({ userId: this.#userId, reason }, "[DMA] 운용 준비 실패");
+      logger.error({ userId: this.#userId, reason: logReason }, "[DMA] 운용 준비 실패");
       // 발화보다 먼저 끊는다 — 실패를 알리는 동안 재접속이 진행되면 표시와 동작이 어긋난다.
       this.#client.destroy();
-      this.#setState("failed", reason);
+      this.#setState("failed", reason, undefined, logReason);
       return;
     }
 
     // 운용 중 실패는 상태를 옮기지 않는다. 전송을 다시 세우면 같은 부트 워커가 재로그인을
     // 되풀이하고, 이어지는 down→reconnecting 이벤트가 상태를 옮긴다.
     // **백오프 카운터를 리셋하지 않는다** — 리셋하면 상한 10회가 무력화된다.
-    logger.warn({ userId: this.#userId, reason }, "[DMA] 세션 재수립 실패 — 재접속에 넘김");
-    this.#client.dropTransport(reason);
+    logger.warn({ userId: this.#userId, reason: logReason }, "[DMA] 세션 재수립 실패 — 재접속에 넘김");
+    this.#client.dropTransport(logReason);
   }
 
   /**
@@ -398,7 +520,7 @@ export class DmaSession extends EventEmitter {
    */
   #failNoRetry(reason: string): void {
     if (TERMINAL_STATES.has(this.#state)) return;
-    this.#clearLoginTimer();
+    this.#clearTimers();
     logger.error({ userId: this.#userId, reason }, "[DMA] 운용 중단 (재시도 없음)");
     // 루프를 먼저 끊고 연결을 정리한다. 순서가 바뀌면 destroy 가 부른 down 이 재접속을 예약한다.
     this.#client.stopReconnect(reason);
@@ -418,13 +540,27 @@ export class DmaSession extends EventEmitter {
     return true;
   }
 
-  #setState(next: DmaSessionState, msg?: string, attempt?: number): void {
+  /**
+   * @param msg    상태 프레임(화면)에 실을 문구. 계좌번호는 전체다 (UI-SPEC D2).
+   * @param logMsg 로그에 남길 문구. 계좌번호는 마스킹본이다 (T-15-15). 기본값이 `msg` 인
+   *               것은 계좌번호가 없는 문구가 대부분이기 때문이고, **계좌번호를 담은
+   *               문구는 반드시 이 인자를 함께 넘겨야 한다**.
+   */
+  #setState(
+    next: DmaSessionState,
+    msg?: string,
+    attempt?: number,
+    logMsg: string | undefined = msg,
+  ): void {
     const prev = this.#state;
     if (prev === next && next !== "reconnecting") return; // reconnecting 은 회차가 바뀐다
     this.#state = next;
 
-    // 로그 인자에 password·dmaUserId 를 넣지 않는다 (D-19).
-    logger.info({ userId: this.#userId, prev, next, msg, attempt }, "[DMA] 세션 상태 전이");
+    // 로그 인자에 password·dmaUserId 를 넣지 않는다 (D-19). 계좌번호도 원문을 넣지 않는다.
+    logger.info(
+      { userId: this.#userId, prev, next, msg: logMsg, attempt },
+      "[DMA] 세션 상태 전이",
+    );
 
     // `idle` 은 내부 초기값이라 밖으로 내보내지 않는다.
     if (next === "idle") return;
@@ -435,5 +571,20 @@ export class DmaSession extends EventEmitter {
     if (this.#loginTimer === null) return;
     clearTimeout(this.#loginTimer);
     this.#loginTimer = null;
+  }
+
+  #clearAccountTimer(): void {
+    if (this.#accountTimer === null) return;
+    clearTimeout(this.#accountTimer);
+    this.#accountTimer = null;
+  }
+
+  /**
+   * 부트 대기 타이머 전량 정리. 단절·실패·종료 경로가 전부 이것을 쓴다 — 한쪽만 끄면
+   * 남은 타이머가 5초 뒤에 **구세대 실패**를 늦게 보고한다.
+   */
+  #clearTimers(): void {
+    this.#clearLoginTimer();
+    this.#clearAccountTimer();
   }
 }

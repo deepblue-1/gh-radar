@@ -20,14 +20,19 @@
  *   S-5   드롭·절단 경로에 카운터와 사유를 남긴다. 조용한 `return` 금지.
  *
  * 하지 않는 것:
- *   - 계좌·주문 빌더(MsgType 2/3/25)는 만들지 않는다. D-25 게이트 뒤 plan 소관이다.
- *     `LoginResp` 도 `success`/`message` 만 읽는다 — 계좌 벡터는 건드리지 않는다.
+ *   - 주문 빌더(MsgType 2/25)는 만들지 않는다. 15-17 이후 plan 소관이다. 계좌는
+ *     **선언(3)/응답(55)/`LoginResp.accounts` 까지만** 다룬다 — 잔고·미체결(66/67)은
+ *     여기 없다.
+ *   - 계좌 **조회 왕복**을 만들지 않는다 (17 D-11). 허용 목록의 정본은
+ *     `LoginResp.accounts` 이고, 선언 응답이 매번 현재 목록 전체를 돌려주므로
+ *     별도 조회 모드를 쓸 이유가 없다. `AccountDeclareMode` 가 그것을 타입으로 막는다.
  *   - 짧게 온 호가 벡터를 10단으로 **채우지 않는다**. 게이트웨이가 보낸 것이 진실이고,
  *     상한 초과만 잘라낸다(C# 클라이언트와 동형).
  *   - 프레이밍은 다루지 않는다. `codec.ts` 가 완결된 페이로드만 넘겨준다.
  */
 import * as flatbuffers from "flatbuffers";
 import type {
+  RelayAccount,
   RelayExchange,
   RelayQuote,
   RelayServerMsg,
@@ -36,13 +41,16 @@ import type {
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
+import { AccountEntry } from "../generated/stock-dma/account-entry.js";
 import { Envelope } from "../generated/stock-dma/envelope.js";
 import { GetQuoteReq } from "../generated/stock-dma/get-quote-req.js";
 import { GetTradeTapeReq } from "../generated/stock-dma/get-trade-tape-req.js";
 import { LivePing } from "../generated/stock-dma/live-ping.js";
 import { LoginReq } from "../generated/stock-dma/login-req.js";
+import type { LoginResp } from "../generated/stock-dma/login-resp.js";
 import { SubscribeQuoteReq } from "../generated/stock-dma/subscribe-quote-req.js";
 import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
+import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
 import { MSG, INBOUND_MSG_TYPES } from "./msg-type.js";
 
@@ -52,8 +60,16 @@ import { MSG, INBOUND_MSG_TYPES } from "./msg-type.js";
 
 /** 호가 단계 수. 매도/매수 × 가격/잔량 4벡터에 각각 적용한다. */
 export const MAX_ORDER_BOOK_DEPTH = 10;
-/** 계좌 목록 상한 (소비측 방어). D-25 게이트 뒤 plan 이 쓴다. */
+/** 계좌 목록 상한 (소비측 방어). `LoginResp.accounts` 와 선언 응답 목록에 함께 쓴다. */
 export const MAX_ACCOUNT_LIST_COUNT = 256;
+/**
+ * 서버 계좌번호 길이 상한 (C# `Session.cs` `MAX_ACCOUNT_NO_LEN` 동형).
+ *
+ * 15-03 은 이 값을 `session.ts` 에 두었다. 계좌번호 **형식 판정**은 와이어 경계의 일이라
+ * 여기로 옮긴다 — 상한 상수 5종과 가드 함수가 한 파일에 모여야 다음 필드가 추가될 때
+ * 두 곳을 고치는 실수가 나지 않는다.
+ */
+export const MAX_ACCOUNT_NO_LEN = 12;
 /** 잔고 종목 상한. D-25 게이트 뒤 plan 이 쓴다. */
 export const MAX_HOLDING_COUNT = 500;
 /** 미체결 주문 상한. D-25 게이트 뒤 plan 이 쓴다. */
@@ -80,9 +96,44 @@ export function droppedEnvelopeCount(): number {
   return droppedEnvelopes;
 }
 
-/** 카운터 초기화 — 테스트 격리 전용. 운영 경로에서 호출하지 않는다. */
+/**
+ * 카운터 초기화 — 테스트 격리 전용. 운영 경로에서 호출하지 않는다.
+ * 계좌 항목 스킵 카운터도 같은 격리 단위라 함께 되돌린다.
+ */
 export function resetDroppedEnvelopeCount(): void {
   droppedEnvelopes = 0;
+  skippedAccountEntries = 0;
+}
+
+/**
+ * 형식 위반으로 건너뛴 계좌 항목 누적 수 (S-5).
+ *
+ * 프레임 드롭과 구분해서 센다 — 계좌 항목 하나가 깨졌다고 프레임 전체를 버리면
+ * 나머지 정상 계좌까지 사라져 "계좌가 없다"로 오진하기 때문이다.
+ */
+let skippedAccountEntries = 0;
+
+/** 형식 위반으로 건너뛴 계좌 항목 누적 수. */
+export function skippedAccountEntryCount(): number {
+  return skippedAccountEntries;
+}
+
+/**
+ * 계좌 항목 1건 스킵. **계좌번호 원문을 로그에 넣지 않는다** (T-15-15) —
+ * 마스킹본과 길이만 남긴다.
+ */
+function skipAccount(reason: string, index: number, accountNo: string): void {
+  skippedAccountEntries += 1;
+  logger.warn(
+    {
+      reason,
+      index,
+      len: accountNo.length,
+      accountNo: maskAccountNo(accountNo),
+      skippedAccountEntryCount: skippedAccountEntries,
+    },
+    "[DMA] 계좌 항목 스킵 (형식 가드)",
+  );
 }
 
 function drop(reason: string, msgTypeHint: number | null, payload: Buffer): null {
@@ -157,6 +208,28 @@ export function isValidChangeSign(s: string): boolean {
   return s.length === 1;
 }
 
+/**
+ * 계좌번호 형식 가드 — 1~`MAX_ACCOUNT_NO_LEN` 자 (fbs: "users.toml 표기 그대로, 최대 12자").
+ *
+ * 자릿수 이상의 패턴을 강제하지 않는다. 계좌번호 표기는 브로커·지점 규칙에 따라
+ * 하이픈 유무가 갈리고, 여기서 좁게 잡으면 정상 계좌가 조용히 사라진다 — 그 결과는
+ * "주문할 계좌가 없다"라는 더 나쁜 오진이다.
+ */
+export function isValidAccountNo(s: string): boolean {
+  return s.length >= 1 && s.length <= MAX_ACCOUNT_NO_LEN;
+}
+
+/**
+ * **로그 전용** 계좌번호 마스킹 — 뒤 4자리를 가린다 (UI-SPEC D2 / T-15-15).
+ *
+ * 화면(상태 프레임)에는 전체를 내린다. 트레이더가 계좌를 고르려면 전체가 보여야 하고,
+ * 로그는 유출 시 피해가 크므로 반대다. 이 비대칭이 의도된 설계다.
+ */
+export function maskAccountNo(accountNo: string): string {
+  if (accountNo.length <= 4) return "*".repeat(accountNo.length);
+  return `${accountNo.slice(0, -4)}****`;
+}
+
 /** bigint 벡터를 상한 클램프하며 number 배열로 읽는다. */
 function readNumVector(
   length: number,
@@ -192,6 +265,39 @@ export function buildLoginReq(userId: string, password: string, broker: string):
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.LoginReq);
   Envelope.addLoginReq(b, req);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 계좌 선언 모드. **추가(1) 하나뿐이다** (17 D-11).
+ *
+ * 스키마에는 삭제·조회 모드도 있지만 relay 는 쓰지 않는다. 허용 목록의 정본은
+ * `LoginResp.accounts` 이고 선언 응답이 매번 현재 목록 전체를 돌려주므로, 조회 왕복은
+ * 부트 시간만 늘리고 얻는 정보가 없다. 삭제는 세션이 끝나면 서버가 정리한다.
+ * 리터럴 유니온으로 좁혀 두면 다른 모드를 쓰려는 순간 타입 에러가 난다.
+ */
+export type AccountDeclareMode = "1";
+
+/**
+ * 계좌번호 선언 (MsgType 3). 응답은 55 이며 **현재 등록 목록 전체**를 돌려준다.
+ *
+ * 반환형이 `Buffer` 가 아니라 `Uint8Array` 인 것은 형제 빌더 5종·`DmaClient.send` 와
+ * 같은 계약을 쓰기 위해서다 (`b.asUint8Array()` 의 원래 형).
+ */
+export function buildUpdateAccountNoReq(
+  mode: AccountDeclareMode,
+  accountNo: string,
+): Uint8Array {
+  const b = new flatbuffers.Builder(128);
+  const req = UpdateAccountNoReq.createUpdateAccountNoReq(
+    b,
+    b.createString(mode),
+    b.createString(accountNo),
+  );
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.UpdateAccountNoReq);
+  Envelope.addUpdateAccountNoReq(b, req);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }
@@ -414,17 +520,90 @@ export function parseServerMessage(env: Envelope): RelayServerMsg | null {
 export type ParsedLoginResp = {
   success: boolean;
   message: string;
+  /**
+   * 서버가 허용한 계좌 목록 (D-25 게이트 통과 — **실제 목록이 온다**).
+   * 실패 응답과 mock 무인증 로그인은 빈 배열이다 (17 D-19).
+   */
+  accounts: RelayAccount[];
 };
+
+/** `LoginResp.accounts` 벡터 → `RelayAccount[]`. 슬롯을 이미 손에 쥔 쪽이 부른다. */
+function readAccountEntries(lr: LoginResp): RelayAccount[] {
+  const n = takeCount(lr.accountsLength(), MAX_ACCOUNT_LIST_COUNT, "계좌 목록");
+  const out: RelayAccount[] = [];
+  const scratch = new AccountEntry();
+  for (let i = 0; i < n; i += 1) {
+    const e = lr.accounts(i, scratch);
+    if (e === null) {
+      skipAccount("entry-null", i, "");
+      continue;
+    }
+    const accountNo = e.accountNo() ?? "";
+    if (!isValidAccountNo(accountNo)) {
+      // 항목만 건너뛴다 — 프레임 전체를 버리면 정상 계좌까지 사라진다.
+      skipAccount("bad-account-no", i, accountNo);
+      continue;
+    }
+    out.push({ accountNo, name: e.name() ?? "" });
+  }
+  return out;
+}
+
+/**
+ * 로그인 응답의 허용 계좌 목록만 꺼낸다 (50).
+ *
+ * 슬롯이 비면 빈 배열이다 — 호출자(세션)는 "계좌 0건"과 "프레임 파손"을 같게 다룬다.
+ * 둘 다 선언할 것이 없고, 재시도해도 결과가 같기 때문이다 (17 D-12).
+ */
+export function parseLoginRespAccounts(env: Envelope): RelayAccount[] {
+  const lr = env.loginResp();
+  if (lr === null) {
+    dropField("slot-null", MSG.LoginResp, { slot: "login_resp" });
+    return [];
+  }
+  return readAccountEntries(lr);
+}
+
+/**
+ * 계좌 선언 응답 (55) — 서버에 **현재 등록된 계좌번호 목록 전체**다.
+ *
+ * 선언 1건마다 이 응답이 한 번씩 오고, 매번 그 시점의 전체 목록을 담는다. 그래서
+ * 세션은 "마지막 응답"이 아니라 "받은 목록의 누적"으로 대조한다.
+ *
+ * 슬롯이 비면 빈 배열이다 — `[]` 는 "아직 아무것도 등록되지 않았다"라는 정상 응답과
+ * 형태가 같고, 어느 쪽이든 세션의 처리(계속 기다린다)가 동일하다.
+ */
+export function parseUpdateAccountNoResp(env: Envelope): string[] {
+  const r = env.updateAccountNoResp();
+  if (r === null) {
+    dropField("slot-null", MSG.UpdateAccountNoResp, { slot: "update_account_no_resp" });
+    return [];
+  }
+  const n = takeCount(r.accountListLength(), MAX_ACCOUNT_LIST_COUNT, "계좌 목록");
+  const out: string[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const accountNo: string = r.accountList(i) ?? "";
+    if (!isValidAccountNo(accountNo)) {
+      skipAccount("bad-account-no", i, accountNo);
+      continue;
+    }
+    out.push(accountNo);
+  }
+  return out;
+}
 
 /**
  * 로그인 응답 (50).
  *
- * 현행 스키마의 `success` / `message` 만 읽는다. 허용 계좌 벡터는 D-25 게이트 뒤
- * plan 소관이라 이 시점에는 접근하지 않는다 — 초반 wave 는 계좌 목록을 **빈 배열**로
- * 취급하는 경로만 갖는다.
+ * `success`/`message` 에 더해 허용 계좌 목록까지 한 번에 읽는다 — 호출자가 슬롯을
+ * 두 번 여는 대신 부트 시퀀스가 필요로 하는 것을 한 자리에서 받게 한다.
  */
 export function parseLoginResp(env: Envelope): ParsedLoginResp | null {
   const lr = env.loginResp();
   if (lr === null) return dropField("slot-null", MSG.LoginResp, { slot: "login_resp" });
-  return { success: lr.success(), message: lr.message() ?? "" };
+  return {
+    success: lr.success(),
+    message: lr.message() ?? "",
+    accounts: readAccountEntries(lr),
+  };
 }
