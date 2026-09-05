@@ -58,10 +58,17 @@ describe("apiRateLimiter (contract validated with small limit)", () => {
     a.use("/api", apiRateLimiter());
     a.get("/api/health", (_req, res) => res.json({ ok: true }));
     a.get("/api/ping", (_req, res) => res.json({ ok: true }));
-    const agent = request(a);
-    for (let i = 0; i < 250; i++) {
-      const r = await agent.get("/api/health");
-      expect(r.status).toBe(200);
+    // 리스닝 서버를 한 번만 띄우고 재사용한다. `request(app)` 은 호출마다
+    // 임시 서버를 새로 bind/close 하는데, 250회를 그렇게 돌리면 워크스페이스
+    // 병렬 테스트로 CPU 가 포화됐을 때 타임아웃/ECONNRESET 로 간헐 실패한다.
+    const server = a.listen(0);
+    try {
+      for (let i = 0; i < 250; i++) {
+        const r = await request(server).get("/api/health");
+        expect(r.status).toBe(200);
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-  });
+  }, 30_000);
 });

@@ -57,8 +57,19 @@
   `pnpm --filter @gh-radar/server test` 단독 실행은 29 files / 219 tests 전부 통과한다.
   `--workspace-concurrency=2` 로 낮추면 전체 실행도 exit 0.
 - **원인 추정:** 타이머 기반 5초 예산 테스트가 CPU 포화 상태에서 굶는 전형적 flake.
-- **처리:** Phase 15 post-merge 게이트는 `--workspace-concurrency=2` 로 실행한다.
-  근본 수정(테스트 자체에 fake timer 또는 testTimeout 상향)은 Phase 15 범위 밖으로 보류.
+- **처리(2026-09-06 근본 수정 완료 — 보류 해제).** wave 5 게이트에서 두 번째로
+  터졌고, 이번엔 `themes.test.ts` 에서도 `read ECONNRESET` 이 나 특정 테스트가 아니라
+  **server 스위트 전반의 선재 flake** 임이 드러나 근본 원인을 고쳤다.
+  - 진짜 원인: Node 19+ 가 `http.globalAgent.keepAlive` 를 기본 true 로 켠다.
+    supertest 의 `request(app)` 은 요청마다 임시 서버를 새로 bind/close 하는데,
+    풀에 남은 keep-alive 소켓이 이미 닫힌 서버를 가리키면 다음 요청이 ECONNRESET 로 죽는다.
+  - 수정 1 (`server/tests/setup.ts`): 공유 setup 에서 http/https globalAgent 의
+    keepAlive 를 끈다. 14개 테스트 파일을 건드리지 않고 한 곳에서 해결.
+  - 수정 2 (`server/tests/middleware/rate-limit.test.ts`): probe spam 가드가 임시 서버를
+    250번 bind/close 하던 것을 리스닝 서버 1개 재사용으로 바꾸고 timeout 30s 를 줬다.
+    단언 의도(health 는 rate-limit 카운트 제외)는 그대로다.
+  - 검증: server 단독 6회 연속 통과(0 실패), 기본 병렬도 전체 실행 2회 연속 exit 0.
+    수정 전에는 단독 3회 중 1회, 전체 병렬 5회 중 2회 실패했다.
 
 ## [15-05] `server/.dockerignore` 가 실제로 적용되지 않는다 (선재 · 범위 밖)
 
