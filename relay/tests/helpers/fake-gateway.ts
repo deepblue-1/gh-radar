@@ -62,6 +62,11 @@ export type FakeGateway = {
   onFrame(handler: FrameHandler): void;
   /** 로그인 자동 응답을 켜고 내용을 지정한다. */
   respondLogin(resp?: FakeLoginRespInput): void;
+  /**
+   * 로그인 자동 응답을 끈다 — 이후 `LoginReq` 는 받기만 하고 답하지 않는다.
+   * "붙었지만 응답이 없는 게이트웨이"(운용 중 5초 타임아웃)를 재현할 때 쓴다.
+   */
+  silenceLogin(): void;
   /** 호가 프레임 주입 (58/59 — `snapshot` 이 가른다). */
   pushQuote(sock: net.Socket, input?: FakeQuoteInput): void;
   /** 체결 테이프 프레임 주입 (69/71). */
@@ -151,6 +156,10 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
     respondLogin(resp) {
       autoLogin = true;
       loginResp = resp ?? { success: true };
+    },
+
+    silenceLogin() {
+      autoLogin = false;
     },
 
     pushQuote(sock, input) {

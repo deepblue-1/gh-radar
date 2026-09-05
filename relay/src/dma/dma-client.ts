@@ -227,6 +227,19 @@ export class DmaClient extends EventEmitter {
     logger.warn({ reason }, "[DMA] 자동 재접속 중단 (재시도해도 결과가 같은 실패)");
   }
 
+  /**
+   * 현재 전송만 끊는다. **백오프 카운터를 리셋하지 않으므로** 이어지는 자동 재접속이
+   * 상한 10회 안에서 계속 센다.
+   *
+   * 운용 중(Ready 이후) 부트 재수립이 실패했을 때 상위가 부른다 — 로그인 응답이 5초
+   * 안에 오지 않는 연결을 붙들고 있으면 화면이 "로그인 중"에서 멎는다. `manualReconnect()`
+   * 를 쓰면 카운터가 0 으로 돌아가 상한이 무력화되므로 그 자리에 쓸 수 없다.
+   */
+  dropTransport(reason: string): void {
+    logger.warn({ reason }, "[DMA] 전송 강제 종료 — 재접속에 넘김");
+    this.#dropTransport(reason);
+  }
+
   /** Ready 진입 시 상위가 부른다. "성공"의 기준은 TCP 접속이 아니라 운용 준비다. */
   resetReconnectAttempts(): void {
     if (this.#reconnectAttempts === 0) return;
