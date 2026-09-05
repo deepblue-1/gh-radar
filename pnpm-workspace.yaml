@@ -1,8 +1,18 @@
 packages:
   - webapp
   - server
+  - relay
   - workers/*
   - packages/*
+# pnpm 11 은 `onlyBuiltDependencies` 대신 `allowBuilds` 를 읽는다. 미기재 시 설치가
+# ERR_PNPM_IGNORED_BUILDS 로 exit 1 이 되므로 기존 승인 목록을 그대로 옮겨 적는다.
+# 두 키를 함께 두는 이유: 구버전 pnpm(10.x) 사용 환경 호환 유지.
+allowBuilds:
+  esbuild: true
+  msw: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
 onlyBuiltDependencies:
   - esbuild
   - msw

@@ -1,0 +1,875 @@
+// ============================================================
+// SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
+// server-repo-commit: 884f2ca
+// synced-date:        2026-09-05
+// flatc-version:      25.12.19
+// source:             server/src/protocol/StockDMA.fbs
+// ============================================================
+namespace StockDMA;
+
+enum MsgType : byte {
+    None = 0,
+
+    // Client -> Server
+    //   1~9:   기본 요청 (로그인, 주문, 계좌, 핑)
+    //   10~19: KRX 전략 설정 요청
+    //   20~29: KRX 전략·계좌 상태 조회 요청
+    //   30~39: NXT 전략 설정/조회 요청
+    LoginReq = 1,
+    DirectOrderReq = 2,
+    UpdateAccountNoReq = 3,
+    LivePing = 4,
+    SetLimitChaserReq = 10,
+    SetVITriggerReq = 11,
+    // 12/13: (예약) 구 SetAfterHourReq/SetAfterHourAuctionReq — 재사용 금지 (Phase 6 삭제)
+    DisableStrategiesReq = 14,     // 세션 전략 일괄/단건 비활성화 (C→S, Phase 12 D-12)
+    GetLimitChaserReq = 20,
+    GetVITriggerReq = 21,
+    // 22/23: (예약) 구 GetAfterHourReq/GetAfterHourAuctionReq — 재사용 금지 (Phase 6 삭제)
+    GetLimitChaserListReq = 24,    // 세션 상따 전략 전수 열거 (C→S, Phase 12 D-02) — 요청 테이블 없음
+    GetAccountStateReq = 25,       // 계좌 상태 스냅샷 조회 (C→S, Phase 13 D-05)
+    ReconcileAccountStateReq = 26, // 원장 대사 업로드 (C→S, Phase 13 D-13)
+
+    // === 이하 Phase 15 추가 (시세·마스터 요청 — 빈 대역 27~29 에 배치) ===
+    // enum 값은 명시 상수이고 flatc 는 오름차순 선언을 요구하므로 번호 순서대로 적는다.
+    // 기존 번호는 하나도 바뀌지 않는다 (wire 불변).
+    GetSymbolMasterReq = 27,       // 종목마스터 전량 다운로드 요청 (C→S, Phase 15 D-13) — 요청 테이블 없음
+                                   // (GetLimitChaserListReq(24) 선례 — 인자가 없는 요청은 테이블을 만들지 않는다)
+    GetQuoteReq = 28,              // 시세 스냅샷 조회 (C→S, Phase 15 D-07)
+    SubscribeQuoteReq = 29,        // 종목 시세 구독/해제 (C→S, subscribe=false 가 해제 — Phase 15 D-05)
+
+    // NXT 전략 — 별도 번호를 배선하지 않는다 (값만 남긴다)
+    SetLimitChaserNXTReq = 30,     // (예약 봉인) 10/20/60 의 exchange 로 통합 — 재사용 금지 (Phase 16 NXT-06)
+    GetLimitChaserNXTReq = 31,     // (예약 봉인) 10/20/60 의 exchange 로 통합 — 재사용 금지 (Phase 16 NXT-06)
+
+    // 32~33 은 NXT 전략이 쓰지 않는 빈 번호였다 — Phase 15 시세가 32 를 쓴다 (CONTEXT 재량 범위)
+    GetTradeTapeReq = 32,          // 체결 테이프 스냅샷 조회 (C→S, Phase 15 D-02)
+
+    // === 이하 quick-260903-m2c 추가 (VI 자동취소 서버 이관 — 빈 대역 33~ 에 오름차순 배치) ===
+    ConfirmVIOrderReq = 33,        // VI 자동주문 확인 체크 등록/해제 (C→S, D-03/D-09) — 119초 미확인 취소 면제
+    GetVIOrderListReq = 34,        // VI 추적 목록 스냅샷 조회 (C→S, D-06/D-18) — 요청 테이블 없음 (24/27 선례)
+
+    // === 이하 quick-260904-fi6 추가 (거래원 — 회원사별 매도5·매수5 매매 통계, KRX/NXT B9 원천) ===
+    GetMemberStatsReq = 35,        // 거래원 스냅샷 조회 (C→S) — 요청 테이블은 get_quote_req 슬롯 재사용
+                                   // (20~23 이 GetStrategyReq 를 공유하는 선례 — 인자가 isin+exchange 로 같다)
+
+    // Server -> Client
+    //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
+    //   60~69: KRX 전략·계좌 상태 응답
+    //   70~79: NXT 전략 응답
+    LoginResp = 50,
+    OrderResp = 51,
+    OrderConfirm = 52,
+    TradeExecution = 53,
+    ServerMessage = 54,
+    UpdateAccountNoResp = 55,
+    VIOrderNotice = 56,      // VI 자동주문 발주 통지 (S→C, 발주 성공 1건/주문 — Phase 11.1 D-14)
+
+    // === 이하 Phase 15 추가 (시세·마스터 응답·푸시 — 빈 대역 57~59 에 배치) ===
+    SymbolMasterResp = 57,         // 종목마스터 분할 응답 (S→C, is_last=true 가 마지막 프레임 — Phase 15 D-13)
+    GetQuoteResp = 58,             // 시세 스냅샷 응답 (S→C, is_snapshot=true — Phase 15 D-07)
+    QuoteUpdate = 59,              // 시세 증분 푸시 (S→C, is_snapshot=false, 100ms 코얼레싱 — Phase 15 D-06/D-08)
+                                   // 58/59 는 Envelope 의 quote_state 슬롯 **하나를** 공유한다 (66/67 선례)
+
+    SetLimitChaserResp = 60,
+    SetVITriggerResp = 61,
+    // 62/63: (예약) 구 SetAfterHourResp/SetAfterHourAuctionResp — 재사용 금지 (Phase 6 삭제)
+    GetLimitChaserListResp = 64,   // 상따 전략 전수 열거 응답 (S→C, Phase 12 D-02)
+    DisableStrategiesResp = 65,    // 전략 비활성화 집계 (S→C, Phase 12 D-12)
+    GetAccountStateResp = 66,      // 계좌 상태 스냅샷 응답 (S→C, is_snapshot=true, 계좌당 1프레임 — Phase 13 D-05)
+    AccountStateDelta = 67,        // 계좌 상태 증분 푸시 (S→C, is_snapshot=false — Phase 13 D-02/D-06)
+    ReconcileAccountStateResp = 68,// 원장 대사 집계 (S→C, 요청 연결에만 — Phase 13 D-13)
+
+    // Phase 15 — 체결 테이프 스냅샷 (69 는 60번대 마지막 빈 번호)
+    TradeTapeResp = 69,            // 체결 테이프 스냅샷 응답 (S→C, is_snapshot=true — Phase 15 D-02)
+
+    // NXT 전략 응답 — 별도 번호를 배선하지 않는다 (값만 남긴다)
+    SetLimitChaserNXTResp = 70,    // (예약 봉인) 10/20/60 의 exchange 로 통합 — 재사용 금지 (Phase 16 NXT-06)
+
+    // Phase 15 — 체결 테이프 증분 푸시 (69 와 trade_tape 슬롯을 공유한다)
+    TradeTapePush = 71,            // 체결 테이프 증분 푸시 (S→C, is_snapshot=false — Phase 15 D-02)
+
+    // quick-260903-m2c — VI 추적 목록 (72/73 은 Envelope 의 vi_order_list 슬롯 **하나를** 공유한다, 66/67 선례)
+    GetVIOrderListResp = 72,       // VI 추적 목록 스냅샷 응답 (S→C, is_snapshot=true, 요청 연결에만)
+    VIOrderListPush = 73,          // VI 추적 항목 변경 푸시 (S→C, is_snapshot=false, 같은 user 전 연결 Notice)
+
+    // quick-260904-fi6 — 거래원 (74/75 는 Envelope 의 member_stats 슬롯 **하나를** 공유한다, 69/71 선례)
+    MemberStatsResp = 74,          // 거래원 스냅샷 응답 (S→C, is_snapshot=true, 요청 연결에만 Notice — 보유 없으면 빈 벡터)
+    MemberStatsPush = 75           // 거래원 증분 푸시 (S→C, is_snapshot=false, 시세 구독(m_subs) 편승 Broadcast)
+}
+
+// ============================================================================
+// Client -> Server 기본 요청
+// ============================================================================
+
+// 로그인 요청
+table LoginReq {
+    user_id: string;      // 사용자 ID
+    password: string;     // 비밀번호. **Phase 17 부터 서버가 config/users.toml 과 대조한다
+                          // (D-02) — 브로커 종류와 무관**. 그 전까지는 서버가 읽지 않았다
+
+    // === 이하 Phase 9 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    broker: string;       // 브로커 구분 "KB" / "KYOBO" (대소문자 무시). **미지정·미지원 값·
+                          // 서버 [broker].name 불일치는 로그인 거부** (D-11/D-12/D-13,
+                          // mock 서버는 전부 허용). 인증이 아니다 — 전략 공간 선택 키다
+}
+
+// 수동 주문 요청
+table DirectOrderReq {
+    stock_code: string;       // ISIN 코드 (12자리)
+    account_no: string;       // 계좌번호 (최대 12자리)
+    side: string;             // 매수/매도 ("B"=매수, "S"=매도)
+    price: int;               // 주문가격 (원)
+    quantity: int;            // 주문수량 (주). 취소 시에는 취소수량 = 원주문 미체결 잔량 —
+                              // 0 은 전량취소가 아니라 즉시 거부다 (D-44)
+    order_condition: string;  // 주문조건 ("0"=보통, "1"=IOC, "2"=FOK)
+    market: string;           // 시장구분 ("K"=KOSPI, "Q"=KOSDAQ)
+    exchange: string;         // 거래소 ("KRX" or "NXT")
+                              // ★ Phase 16 — **서버가 읽는다**. 빈 값(구 클라)은 "KRX" 로 정규화.
+                              //   정정·취소도 원주문 거래소를 싣되, 서버 브로커는 원주문 메타
+                              //   (OrderMetaTable)에 보관한 거래소를 **우선**한다 — 클라가 잘못
+                              //   실어도 원주문과 다른 거래소로 정정·취소가 나가지 않는다.
+                              //   "NXT" ∧ NXT 미거래 종목이면 즉시 실패 OrderResp(notice_type="R") (D-04)
+
+    // === 이하 quick-260824 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    order_type: string;       // 주문유형 ("N"=신규, "M"=정정, "C"=취소). **미지정이면 신규** —
+                              // 구 C# 클라이언트가 보내는 메시지에는 이 필드가 없으므로
+                              // 기존 신규주문 경로가 바이트 하나 바뀌지 않는다
+    org_order_no: string;     // 원주문번호 (10자리, order_type="M"/"C" 일 때 필수)
+}
+
+// 계좌번호 관리 요청
+table UpdateAccountNoReq {
+    mode: string;         // "0"=삭제, "1"=추가, "2"=조회
+    account_no: string;   // 계좌번호
+}
+
+// 핑 (연결 유지)
+table LivePing {
+    ping_time: uint;      // 클라이언트 타임스탬프 (초)
+}
+
+// ============================================================================
+// Server -> Client 기본 응답
+// ============================================================================
+
+// 허용 계좌 1건 (LoginResp.accounts 원소, Phase 17 D-19).
+// 지점번호/거래자ID 는 서버 내부(KB 주문 전문 TCHODR1000) 전용이라 와이어에 싣지 않는다.
+table AccountEntry {
+    account_no: string;   // 계좌번호 — users.toml 표기 그대로 (앞 0 없이, 최대 12자)
+    name: string;         // 계좌명 — 클라 계좌 선택창 표시용
+}
+
+// 로그인 응답
+table LoginResp {
+    success: bool;        // 성공 여부
+    message: string;      // 결과 메시지 — 거부는 단일 문구
+                          // "아이디 또는 비밀번호가 올바르지 않습니다" (D-04)
+
+    // === 이하 Phase 17 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    accounts: [AccountEntry];   // 이 사용자의 허용 계좌, priority 오름차순 (D-08).
+                                // 실패 응답과 mock 무인증 로그인은 **빈 벡터**다 (D-19)
+}
+
+// 주문 결과 응답
+table OrderResp {
+    // ★ Phase 11 슬롯(client_key) 제거 — 필드를 **지우지 않고** (deprecated) 로 봉인한다.
+    //   FlatBuffers 는 테이블 필드 id 를 **선언 순서로** 부여하므로 가운데 필드를 지우면
+    //   뒤 필드의 슬롯이 전부 한 칸씩 밀린다. 그러면 아직 갱신되지 않은 클라이언트가 보낸
+    //   메시지를 서버가 엉뚱한 필드로 읽는다 — 실계좌에서 그대로 오주문이다.
+    //   deprecated 필드는 접근자가 생성되지 않으므로 코드에서는 이미 사라진 것과 같다.
+    slot_id: int (deprecated);   // (봉인) 구 전략 슬롯 ID — 슬롯 개념 폐기, origin 으로 대체 (D-02/D-03)
+    stock_code: string;   // ISIN 코드
+    side: string;         // 매수/매도. **취소·정정 통보에서는 표시용으로 신뢰할 수 없다** —
+                          // 취소·정정 요청 자체에 매매구분이 없어 브로커가 원주문을 찾지 않는 한
+                          // 채울 값이 없다(MockBroker 는 "B" 로 남긴다). 클라는 notice_type
+                          // 이 "C"/"M" 이면 매수/매도 대신 "취소"/"정정" 을 표기한다
+    order_no: string;     // 주문번호
+    result_code: int;     // 결과코드 (0=성공, 그 외=거부코드)
+    price: int;           // 주문가격
+    quantity: int;        // 주문수량
+    message: string;      // 결과 메시지 (거부 사유 등)
+
+    // === 이하 Phase 10 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    notice_type: string;  // 통보 종류 "A"=접수 "E"=체결 "C"=취소확인 "M"=정정확인 "R"=거부
+                          // (IBroker.h ExecutionReport.noticeType 그대로). Gateway 즉시 실패
+                          // 회신은 "R". **미지정(구 서버)이면 클라는 result_code/quantity
+                          // 로만 판정한다** — 필드 부재를 오류로 다루지 않는다 (D-04)
+    org_order_no: string; // 원주문번호 — 정정확인/취소확인, 그리고 정정·취소 요청의 즉시
+                          // 실패에서 채운다. 신규주문 통보는 "" (빈 문자열)
+
+    // === 이하 Phase 11 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    origin: string;       // 발주 주체 "Manual" / "LimitChaser" / "VITrigger".
+                          // **미지정(구 서버)이면 클라는 태그를 생략한다** — 필드 부재를
+                          // 오류로 다루지 않는다 (D-03)
+
+    // === 이하 Phase 16 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    exchange: string;     // 거래소 "KRX" / "NXT". **미지정(구 서버)이면 클라는 KRX 로 열화하고
+                          // 태그를 생략한다** — 필드 부재를 오류로 다루지 않는다.
+                          // D-11 의 종목명 뒤 [NXT] 태그는 이 필드 하나로 성립한다. 체결 통보도
+                          // 이 테이블로 온다 (notice_type="E") — TradeExecution(53) 이 아니다
+}
+
+// 주문 접수 확인
+table OrderConfirm {
+    order_no: string;     // 주문번호
+    sender: string;       // 주문 발신자
+}
+
+// 계좌번호 조회 응답
+table UpdateAccountNoResp {
+    account_list: [string];  // 등록된 계좌번호 목록
+}
+
+// 체결 통보
+table TradeExecution {
+    // ★ Phase 11 슬롯(client_key) 제거 — 필드를 **지우지 않고** (deprecated) 로 봉인한다.
+    //   FlatBuffers 는 테이블 필드 id 를 **선언 순서로** 부여하므로 가운데 필드를 지우면
+    //   뒤 필드의 슬롯이 전부 한 칸씩 밀린다. 그러면 아직 갱신되지 않은 클라이언트가 보낸
+    //   메시지를 서버가 엉뚱한 필드로 읽는다 — 실계좌에서 그대로 오주문이다.
+    //   deprecated 필드는 접근자가 생성되지 않으므로 코드에서는 이미 사라진 것과 같다.
+    slot_id: int (deprecated);   // (봉인) 구 전략 슬롯 ID — 슬롯 개념 폐기 (D-02)
+    stock_code: string;    // ISIN 코드
+    side: string;          // 매수/매도
+    order_no: string;      // 주문번호
+    executed_price: int;   // 체결가격 (원)
+    executed_qty: int;     // 체결수량 (주)
+
+    // === 이하 Phase 16 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    exchange: string;      // 거래소 "KRX" / "NXT" — **스키마 정합용 append 다.**
+                           // 서버에 이 테이블을 만드는 경로가 없다 (체결 통보는 OrderResp 의
+                           // notice_type="E" 로 온다). 런타임 소비자가 없으므로 클라 파싱을
+                           // 추가하지 않는다 — 51 과 슬롯 규약을 맞추기 위해서만 둔다
+}
+
+// 서버 메시지 (알림, 경고 등)
+table ServerMessage {
+    level: string;        // "INFO", "WARN", "ERROR"
+    message: string;      // 메시지 내용
+
+    // === 이하 Phase 10 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    isin: string;         // 관련 종목 ISIN. **비면 브로드캐스트**(시세·브로커 경보 등
+                          // 특정 종목에 매이지 않은 통지) — 클라는 빈 값을 종목 미지정으로
+                          // 취급해 전 폼에 띄운다 (클라 D-10)
+    account_no: string;   // 관련 계좌번호 (요청을 보낸 그 연결에만 되돌린다 — 타 연결로 새지 않음)
+    // ★ Phase 11 슬롯(client_key) 제거 — 필드를 **지우지 않고** (deprecated) 로 봉인한다.
+    //   FlatBuffers 는 테이블 필드 id 를 **선언 순서로** 부여하므로 가운데 필드를 지우면
+    //   뒤 필드의 슬롯이 전부 한 칸씩 밀린다. 그러면 아직 갱신되지 않은 클라이언트가 보낸
+    //   메시지를 서버가 엉뚱한 필드로 읽는다 — 실계좌에서 그대로 오주문이다.
+    //   deprecated 필드는 접근자가 생성되지 않으므로 코드에서는 이미 사라진 것과 같다.
+    slot_id: int (deprecated);   // (봉인) 구 전략 슬롯 = client_key — 슬롯 개념 폐기 (D-02)
+    source: string;       // 발신 맥락 "SetLimitChaser" / "SetVITrigger" / "Account" / "System"
+                          // ("DirectOrder" 는 예약값 — 수동주문 실패는 전부 OrderResp rc<0
+                          //  로 회신하므로 현재 발신자가 없다)
+
+    // === 이하 Phase 11 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    kind: string;         // 사건 종류 "SessionJoin" / "Restore" / "Purge". 그 외에는 빈 값.
+                          // 클라가 **문구를 해석하지 않고** 통지 성격을 판별하는 근거다 (D-11)
+}
+
+// ============================================================================
+// 전략 설정 (Client -> Server, Server -> Client 공용)
+// ============================================================================
+
+// LimitChaser (상따) 전략 설정
+// - 주식 가격이 상한가/하한가에 근접할 때 자동 매수/매도
+// - Hot path: Stock에 바인딩되어 B6/A3 수신 시 즉시 평가
+table SetLimitChaser {
+    // === 기본 정보 ===
+    isin: string;             // ISIN 코드 (12자리, 예: "KR7005930003")
+    account_no: string;       // 계좌번호 (최대 12자리)
+    market: string;           // 시장구분 ("K"=KOSPI, "Q"=KOSDAQ)
+    // ★ Phase 11 슬롯(client_key) 제거 — 필드를 **지우지 않고** (deprecated) 로 봉인한다.
+    //   FlatBuffers 는 테이블 필드 id 를 **선언 순서로** 부여하므로 가운데 필드를 지우면
+    //   뒤 필드의 슬롯이 전부 한 칸씩 밀린다. 그러면 아직 갱신되지 않은 클라이언트가 보낸
+    //   메시지를 서버가 엉뚱한 필드로 읽는다 — 실계좌에서 그대로 오주문이다.
+    //   deprecated 필드는 접근자가 생성되지 않으므로 코드에서는 이미 사라진 것과 같다.
+    client_key: ubyte (deprecated);   // (봉인) 구 클라이언트 키 — 슬롯 개념 폐기.
+                              // 전략 키는 ISIN:accountNo:exchange 다 (D-01/D-02)
+    crud: string;             // 동작 ("C"=생성/수정, "D"=삭제)
+
+    // === 매수 조건 ===
+    // 호가(B6) 기반 매수 조건:
+    //   buyWatchSide='0' (매도호가 비교):
+    //     - ask1Price == buyWatchPrice && ask1Qty <= buyWatchQty → 주문
+    //     - bid1Price == buyWatchPrice → 주문 (매수호가가 감시가에 도달)
+    //     - ask1Price > buyWatchPrice → 주문 (가격 상승)
+    //   buyWatchSide='1' (매수호가 비교):
+    //     - bid1Price == buyWatchPrice && bid1Qty >= buyWatchQty → 주문
+    //     - bid1Price > buyWatchPrice → 주문 (가격 상승)
+    buy_order_price: uint;       // 매수 주문가격 (원, 보통 상한가)
+    buy_order_qty: uint;         // 매수 주문수량 (주)
+    buy_watch_price: uint;       // 매수 감시가격 (원, 보통 상한가)
+    buy_watch_qty: uint;         // 매수 감시수량 (주, 최우선 호가 잔량과 비교)
+    buy_min_trade_qty: uint;     // 최소 체결수량 (주, 이 값 이상 체결 시 주문)
+    buy_watch_side: string;      // 호가비교 위치 ("0"=매도호가, "1"=매수호가)
+    buy_trade_qty_enabled: bool; // 체결수량 조건 활성화
+    buy_enabled: bool;           // 매수 감시 활성화
+
+    // === 매도 조건 ===
+    // 호가(B6) 기반 매도 조건:
+    //   - bid1Price == sellWatchPrice && bid1Qty <= sellWatchQty → 주문
+    //   - bid1Price < sellWatchPrice → 주문 (가격 하락)
+    sell_order_price: uint;       // 매도 주문가격 (원)
+    sell_order_qty: uint;         // **서버 계산값** (Set 시점 잔고×비율 스냅샷, 발주 시점 재계산)
+                                  // — 클라 입력이 아니다. 요청값은 서버가 읽지 않는다 (D-16)
+    sell_watch_price: uint;       // 매도 감시가격 (원)
+    sell_watch_qty: uint;         // 매도 감시수량 (주)
+    sell_min_trade_qty: uint;     // 최소 체결수량 (주, 이 값 이상 체결 시 주문)
+    sell_min_cum_volume: uint (deprecated);     // (봉인) 구 최소 누적거래량 — 조건 폐기 (D-13)
+    sell_enabled: bool;           // 매도 감시 활성화
+    sell_trade_qty_enabled: bool; // 체결수량 조건 활성화
+    sell_cum_volume_enabled: bool (deprecated); // (봉인) 구 누적거래량 조건 — 조건 폐기 (D-13)
+
+    // === 한방체결 조건 (Case 2: 호가변경횟수 기반) ===
+    // - 호가 전량 소진(A3의 ask1Price=0, bid1Price=0)되는 대량 체결 감지
+    // - 체결가 == sweepWatchPrice이고, 호가변경 횟수가 sweepMinTickCount 이상이면 주문
+    sweep_watch_price: uint;      // 한방체결 감시가격 (원, 보통 상한가 1틱 아래)
+    sweep_enabled: bool;          // 한방체결 조건 활성화 (Case 2/3 공통)
+    sweep_min_tick_count: ubyte;  // Case 2: 최소 호가변경 횟수
+    sweep_recalc_enabled: bool;   // 체결 후 호가잔량 차감 재평가
+
+    // === 한방체결 조건 (Case 3: 연속 한방체결 횟수 + 상승률 기반) ===
+    // - 연속 한방체결 횟수가 sweepMinCount 이상이고, 상승률이 sweepMinRate 이상이면 주문
+    sweep_min_count: ubyte;       // Case 3: 최소 연속 한방체결 횟수 (0=비활성)
+    sweep_min_rate: uint;         // Case 3: 최소 상승률 (BasisPoints, 예: 2950=29.5%)
+
+    exchange: string;             // 거래소 — **서버가 읽는다**. "KRX" / "NXT" 화이트리스트.
+                                  // "NXT" 는 종목마스터 nxtTradable 인 종목만 등록된다 (D-04) —
+                                  // 아니면 ERROR ServerMessage 로 거부한다 (조용한 미동작 금지).
+                                  // 빈 값(구 클라)은 "KRX" 로 정규화 (D-26)
+
+    // === 이하 Phase 6 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    // A3Buy4 조건 (2026.04.16 gotrader v2.26.1/2.28 — 상한가 안착 시점 포착)
+    // - A3(체결) 패킷 자체의 매수1호가가 상한가와 같으면 매수 주문
+    // - 한방체결 체크(`sweep_enabled`) 종속 — 원전 `cond.BidSumTradeCheck`
+    //
+    // ★ Phase 11 의 전용 게이트(D-09)를 철회하면서도 필드를 **지우지 않고**
+    //   (deprecated) 로 봉인한다. FlatBuffers 는 테이블 필드 id 를 **선언 순서로**
+    //   부여하므로 가운데 필드를 지우면 뒤 필드의 슬롯이 전부 한 칸씩 밀린다.
+    //   그러면 아직 갱신되지 않은 클라이언트가 보낸 메시지를 서버가 엉뚱한 필드로
+    //   읽는다 — 실계좌에서 그대로 오주문이다.
+    //   철회 사유: go-trader v2.37 (6a3f3c0) 원전에 게이트 플래그 없음 — D-09/D-17 철회 2026-08-30
+    a3_buy4_enabled: bool (deprecated);  // (봉인) 구 A3Buy4 전용 게이트 — sweep_enabled 종속으로 환원
+
+    // SmartSell (gotrader v2.32.1 — 원매수수량 잔량까지 동시 청산)
+    // - 매도 발동 1회에 [sell_order_qty + (origin_ord_qty - sell_order_qty)] 2건을
+    //   같은 sell_order_price 로 발주한다. 추가분이 0 이하면 기본 1건만 나간다
+    // - gotrader 원문 필드명은 오타(OrginOrdQty) — 여기서는 origin_ord_qty 로 바로잡았다
+    smart_sell: bool (deprecated);      // (봉인) 구 스마트매도 — 기능 폐기 (D-13)
+    origin_ord_qty: uint (deprecated);  // (봉인) 구 원주문수량 — 기능 폐기 (D-13)
+
+    // === 이하 Phase 11 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    // 가격 돌파/이탈 게이트 (D-17) — **철회 2026-08-30**. 가격 항은 이제 설정과 무관하게
+    // 항상 평가된다.
+    //
+    // ★ 필드를 **지우지 않고** (deprecated) 로 봉인한다. FlatBuffers 는 테이블 필드 id 를
+    //   **선언 순서로** 부여하므로 가운데 필드를 지우면 뒤 필드(sell_order_ratio 이하)의
+    //   슬롯이 전부 밀린다. 그러면 아직 갱신되지 않은 클라이언트가 보낸 메시지를 서버가
+    //   엉뚱한 필드로 읽는다 — 실계좌에서 그대로 오주문이다.
+    //   철회 사유: go-trader v2.37 (6a3f3c0) 원전에 게이트 플래그 없음 — D-09/D-17 철회 2026-08-30
+    buy_price_break_enabled: bool = true (deprecated);   // (봉인) 구 매수 가격돌파 게이트 (B6Buy2/4/5)
+    sell_price_break_enabled: bool = true (deprecated);  // (봉인) 구 매도 가격이탈 게이트 (B6Sell2)
+
+    // 매도 수량 (D-16/D-18)
+    sell_order_ratio: ubyte;      // 매도비율 % (1~100). 서버가 발주 시 sellableQty×ratio/100
+                                  // 으로 매도수량을 계산한다 — 수량을 클라가 정하지 않는다
+    sell_qty_track_enabled: bool; // 잔량추적(래칫) 활성화. 판정식은 docs/strategy/limit-chaser.md §6-3
+    sell_qty_track_ratio: ubyte;  // 잔량추적(래칫) 비율 % (1~90)
+    sell_qty_track_baseline: uint; // **S→C 전용** 현재 기준선 (주). 요청값은 서버가 읽지 않는다
+
+    // === 이하 Phase 12 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    // 매수 주문금액 (만원) — 클라이언트의 **의도값**이다 (debug: limitchaser-buy-value-drift).
+    // 서버는 이 값을 조건 평가에도 발주에도 쓰지 않는다. 보관했다가 에코·조회 응답에 그대로
+    // 되돌려 줄 뿐이다 — 발주 정본은 어디까지나 buy_order_qty(주)다.
+    //
+    // 왜 필요한가: 금액 칸은 클라 전용 입력이라 서버 왕복으로 복원될 경로가 없었다. 창을 다시
+    // 열면 폼은 Designer 기본값(20,000만원)을 보여 주는데 서버 진실은 2주(66.8만원)일 수
+    // 있었고, 그 상태에서 다른 칸 하나만 고치면 자동 재제출이 기본값으로 수량을 재계산해
+    // 무장 수량이 조용히 약 300배가 됐다.
+    //
+    // 왜 역산(수량×가격÷10000)이 아닌가: 나눗셈의 나머지가 버려져 왕복이 깨진다 —
+    // 가격 1,000·수량 5 는 역산하면 1만원이 되고, 그 1만원으로 재제출하면 10주가 된다 (11 D-15).
+    //
+    // 0 = "서버가 모른다"(구 클라가 보냈거나 아직 한 번도 실린 적 없음). 클라는 0 이면
+    // 금액 칸을 건드리지 않는다.
+    buy_order_amount: uint;
+
+    // === 이하 quick-260902-nl8 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    // 매도 진입 확인 래치 — **S→C 전용** 표시값이다 (요청값은 서버가 읽지 않는다).
+    // - false = 잠복: 비교가격에 매수 지지벽이 쌓인 것을 아직 한 번도 관측하지 못했다.
+    //           매도 판정(잔량 항·이탈 항·A3 항)을 아예 하지 않는다.
+    // - true  = 관측 완료: 그 시점부터 매도 판정이 돈다.
+    // 판정식·리셋 규칙(재제출/비활성화가 푼다)은 docs/strategy/limit-chaser.md §6-3.
+    //
+    // ★ 값은 `sell_enabled` 와 달리 무장(armed)과 접지 않은 **원값**이다
+    //   (LimitChaser::IsSellEntryLatched()). 접으면 "매도 OFF 인데 래치는 살아 있음" 이라는
+    //   서버 진실이 사라진다 — 무장과 래치는 직교하는 두 상태이고, 무엇을 보여줄지는 클라가 정한다.
+    sell_entry_latched: bool;
+
+    // === 이하 quick-260904-rb7 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+    //
+    // 매수 미체결 자동취소 — 내 상따 매수 주문이 미체결(잔량>0)인 동안 "상한가가 무너질 조짐"
+    // 이 보이면 서버가 그 주문의 **미체결 잔량만** 취소한다 (판정식 docs/strategy/limit-chaser.md §6-5).
+    // - 취소 판정의 비교가격은 buy_order_price 이고 별도 가격 필드는 없다 — 내 주문이 그 가격에
+    //   살아 있는 한 매수1호가가 아래로 갈 수 없다(내 주문 자체가 매수1호가를 받친다).
+    // - 체결 임계·추적 비율은 매도 옵션(sell_min_trade_qty / sell_qty_track_ratio)을 재사용한다.
+    // - 셋 중 하나라도 true 면 취소 감시 활성 — 별도 ON 플래그 없음(체크박스 = 활성).
+    //   에코의 세 플래그는 매수·매도 enabled 처럼 무장(armed)과 접힌 값이다 — 취소가 한 번 나가면 OFF.
+    // - 구 클라(4필드 미전송)는 전부 false/0 으로 읽혀 동작이 종전과 같다.
+    cancel_qty_enabled: bool;        // ☐취소:잔량 — B6 잔량항 게이트 (매수주문가==매수1호가 ∧ 매수1잔량 <= 취소잔량)
+    cancel_watch_qty: uint;          // 취소 감시 잔량(주). 잔량추적 ON 이면 기준선의 바닥(초기값)
+    cancel_trade_enabled: bool;      // ☐체결 — A3 매도체결 항, 임계는 sell_min_trade_qty 재사용
+    cancel_qty_track_enabled: bool;  // ☐잔량추적 — 비율은 sell_qty_track_ratio 재사용, 기준선 초기값 = cancel_watch_qty
+}
+
+// VITrigger (VI 발동) 전략 설정
+// - R8(VI발동) 이벤트 수신 시 상승률 체크 후 자동 매수
+// - 전 종목 대상, Stock 바인딩 없음
+table SetVITrigger {
+    account_no: string;       // 계좌번호 (최대 12자리)
+    order_amount_krw: ulong;  // 주문금액 (원, 주문가격으로 나눠 수량 계산)
+    check_rate: int;          // 상승률 조건 (정수 %, 예: 25=25% 이상일 때 주문)
+    price_type: string;       // 주문가격 유형 ("U"=상한가, "L"=하한가)
+    run: bool;                // 전략 활성화
+}
+
+// VI 자동주문 발주 통지 (Server -> Client 푸시, Phase 11.1 D-14)
+// - Server::OnVI 가 발주에 **성공**한 주문마다 그 세션의 모든 연결에 보낸다 (발주 세션에만 —
+//   타 사용자로 새지 않는다). 실패·접수 불명(ORDER_SEND_UNCERTAIN)에는 보내지 않는다.
+// - 값은 전부 발주 시점 서버가 아는 것(종목마스터·R8)이며, 주문번호는 아직 없다 —
+//   뒤따르는 OrderResp(origin="VITrigger", notice_type="A") 가 주문번호를 준다.
+// - 클라는 이 통지로 주문내역 그리드 행(발동가·전일대비·주문가격·주문수량)을 만들고
+//   자동취소 110초 데드라인의 발동 시각으로 삼는다 (CP-2)
+table VIOrderNotice {
+    isin: string;          // 발동 종목 ISIN (12자)
+    account_no: string;    // 발주 계좌
+    trigger_price: uint;   // VI 발동가 (R8)
+    base_price: uint;      // 마스터 기준가 — 클라가 전일대비 % 를 소수 2자리로 계산한다
+    change_rate: int;      // 서버 판정에 쓴 상승률 (정수 %, CalcIncreaseRate 내림)
+    order_price: uint;     // 주문가 (= 상한가, price_type "U")
+    order_qty: uint;       // 주문수량 (상한수량 클램프 후)
+    market: string;        // "K"/"Q" — R8 정보구분. 클라 취소 DirectOrderReq 의 market 원천
+    order_seq: ubyte;      // 발동당 주문 순번 — CP-1(cp1-g) 로 항상 1, 장래 확장 슬롯
+    vi_end_time: string;   // R8 timeEndingVI 9자 "HHMMSSuuu" — 참고용 (110초 규칙은 클라 상수)
+}
+
+// 상따 전략 전수 열거 응답 (Server -> Client, Phase 12 D-02)
+// - 원소는 Set 에코(SetLimitChaserResp)와 **같은 바이트**다. 서버는 에코·열거·11.2 푸시를
+//   전부 `Gateway::AddLimitChaserTable` 하나로 만든다 — 두 벌이면 새 설정 필드가 한쪽에만
+//   붙어서 "조회하면 보이는데 목록에는 없는 값" 이 생긴다 (Phase 6 선례).
+// - 전략이 0건이거나 StrategyManager 가 아직 없어도 **길이 0 벡터를 실은 응답**을 보낸다
+//   (무응답 금지 — 11 D-09 동형). 클라는 items 길이만 보면 된다.
+table LimitChaserList {
+    items: [SetLimitChaser];
+}
+
+// 전략 비활성화 요청 (Client -> Server, Phase 12 D-12)
+// - key == "" 이면 그 세션의 상따 **전부** + VI 를 내린다 (킬 스위치).
+// - key 가 비어 있지 않으면 `ISIN:계좌:거래소` 그 한 건만 내린다.
+// - 어느 쪽이든 **등록은 유지**하고 발주 게이트만 내린다 — 삭제(crud='D')가 아니다.
+table DisableStrategiesReq {
+    key: string;
+}
+
+// 전략 비활성화 집계 응답 (Server -> Client, Phase 12 D-12)
+// - 서버는 키별 SetLimitChaserResp / SetVITriggerResp 에코를 같은 user 의 모든 연결에
+//   보낸 **뒤** 이 집계를 요청 연결에만 보낸다 — 클라가 이 응답을 받은 시점에는 이미
+//   모든 행이 OFF 로 갱신돼 있다 (같은 연결 큐라 순서가 보장된다).
+table DisableStrategiesResp {
+    disabled_count: uint;   // 내린 상따 전략 수
+    vi_disabled: bool;      // VI 를 내렸으면 true
+}
+
+// 시간외/시간외단일가 전략 설정 테이블 2종은 Phase 6 에서 삭제됐다 (전략 사용 종료).
+// MsgType 12/13/22/23/62/63 과 Envelope 슬롯은 재사용 금지로 예약돼 있다.
+
+// 전략 조회 요청
+table GetStrategyReq {
+    key: string;              // 전략 키 (ISIN:accountNo:exchange) — 슬롯 제거 (D-01)
+}
+
+// ============================================================================
+// Phase 13: 계좌 상태 공유 (D-01~D-14)
+//
+// 서버 AccountManager 가 계산·영속화하는 잔고·미체결을 클라이언트가 실시간으로 본다.
+// 스냅샷 조회(25/66) + 증분 델타 푸시(67) + 원장 기준 대사(26/68).
+// 클라는 재계산하지 않는다 — 화면 = 서버 진실 (D-01).
+// ============================================================================
+
+// 잔고 1종목 (AccountManager::StockHolding 사상)
+table HoldingState {
+    isin: string;          // 12자 ISIN
+    stock_qty: uint;       // 보유수량
+    sellable_qty: uint;    // 매도가능수량
+    avg_price: double;     // 평단가 — 서버가 double 로 들고 있다 (uint 내림 금지)
+}
+
+// 미체결 1건 (AccountManager::PlacedOrder 사상)
+table UnfilledState {
+    order_no: string;      // 주문번호 (미체결 맵 키)
+    org_order_no: string;  // 원주문번호 (정정·취소 승계)
+    isin: string;          // 12자 ISIN
+    side: string;          // "B"/"S"
+    price: uint;           // 주문가
+    order_qty: uint;       // 주문수량
+    filled_qty: uint;      // 체결수량
+    unfilled_qty: uint;    // 미체결수량
+
+    // === 이하 Phase 16 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    exchange: string;      // 거래소 "KRX" / "NXT" — 미체결 그리드의 거래소 열 (D-12).
+                           // **미지정(구 서버·구 상태파일)은 "KRX" 로 정규화한다.**
+                           // 잔고(HoldingState)에는 넣지 않는다 — 잔고는 종목 단위이고
+                           // NXT 로 산 주식을 KRX 에서 팔 수 있다 (D-09)
+}
+
+// 스냅샷·델타·대사 교정 팬아웃 공용 본문 (MsgType 66/67 이 같은 슬롯을 공유한다).
+// 빌더 함수 1개를 공유한다 — 두 벌이면 새 필드가 한쪽에만 붙는다 (Phase 12 D-02 단일 빌더 관례).
+//
+// ★ is_snapshot=true  → holdings/unfilled 는 그 계좌의 **전량**. 클라는 전량 교체한다.
+//   is_snapshot=false → **변경분만** 싣는다. 클라는 키(ISIN/주문번호)로 행을 upsert 하고,
+//                       removed_order_nos 에 실린 주문번호 행을 제거한다 (D-02/D-10).
+//   removed_order_nos 는 델타 전용 삭제 표식이다 (전량체결·취소·정정승계·장전 만료).
+table AccountState {
+    account_no: string;              // 계좌번호
+    holdings: [HoldingState];        // 스냅샷=전량 / 델타=변경분만
+    unfilled: [UnfilledState];       // 스냅샷=전량 / 델타=변경·신규분만
+    removed_order_nos: [string];     // 델타 전용 삭제 표식 (스냅샷에서는 비운다)
+    is_snapshot: bool;               // true=전량 교체, false=키 upsert + removed 행 제거
+    server_time: string;             // 갱신시각 표시용
+}
+
+// 계좌 상태 스냅샷 조회 요청 (Client -> Server, D-05)
+table GetAccountStateReq {
+    account_no: string;    // 빈 값 = 세션 선언 계좌 전부 (계좌당 1 Resp 프레임)
+}
+
+// 원장 대사 업로드 (Client -> Server, D-13)
+// - 클라가 OCX TR 로 읽은 **원장 스냅샷**이다. 서버는 자기 상태와 비교해 원장 값으로 교정한다.
+table ReconcileAccountStateReq {
+    account_no: string;
+    holdings: [HoldingState];        // 원장(TA1001) 잔고 스냅샷 — avg_price 는 원장 매입평균가
+    unfilled: [UnfilledState];       // 원장(TA1006 SecCode=3) 미체결 스냅샷
+    retry: bool;                     // 클라 재시도분 표시 (서버 로그·재시도 종결 판정용)
+}
+
+// 원장 대사 결과 집계 (Server -> Client, D-13) — 요청 연결에만 보낸다.
+table ReconcileAccountStateResp {
+    account_no: string;
+    result: string;                  // "OK"(일치) / "CORRECTED"(교정) / "RETRY"(보류—재조회 요청) / "SKIPPED"(가드 거부)
+    holding_diffs: uint;             // 교정된 잔고 종목 수
+    unfilled_diffs: uint;            // 교정된 미체결 건수 (추가+제거+수량변경)
+    message: string;                 // 경고 로그 원문 (클라는 해석하지 않고 표기 — 10 D-03 관례)
+}
+
+// ============================================================================
+// Phase 15: 시세·종목정보 서버 원천화 (D-02~D-07 / D-12 / D-13)
+//
+// 클라이언트가 OCX 로 받던 시세·호가·체결 테이프·종목마스터를 DMA 서버가 KRX·NXT
+// 양 거래소 기준으로 직접 공급한다. 조회(Get) 왕복과 구독(Subscribe) 푸시를 분리하고(D-07),
+// 스냅샷/증분은 66/67 선례대로 **같은 본문 테이블 + is_snapshot** 으로 구분한다.
+//
+// ★ 아래 테이블과 Envelope 슬롯은 전부 **말미 append** 다. 기존 필드·deprecated 슬롯
+//   (MsgType 12/13/22/23/62/63, Envelope 의 구 시간외 예약 슬롯 2종) 은 한 글자도 건드리지
+//   않는다 — 가운데 삽입은 미갱신 클라이언트의 주문 필드를 밀어 실계좌 오주문이 된다.
+//
+// ★ 거래소(exchange)는 "KRX" / "NXT" 문자열이다. **서버가 화이트리스트로 검증**하고
+//   그 외 값은 거부한다 (검증 구현은 15-10 Gateway 핸들러 — 이 파일은 스키마만이다).
+// ============================================================================
+
+// 시세 스냅샷 조회 요청 (Client -> Server, D-07)
+// - 창 열림 순서는 Get(스냅샷) → Subscribe(증분) 다.
+table GetQuoteReq {
+    isin: string;             // 12자 ISIN
+    exchange: string;         // "KRX" / "NXT"
+}
+
+// 종목 시세 구독/해제 요청 (Client -> Server, D-05)
+// - 구독 집합은 세션 계좌 선언(`Session::m_accountList` 잎 락+스냅샷 규약)의 복사판으로
+//   세션별로 관리한다. 구독 키는 종목+거래소다 (D-11).
+// - **해제는 별도 MsgType 이 아니라 subscribe=false** 다. Un~ 메시지를 하나 더 두면
+//   구독/해제 두 경로에 같은 키 정규화가 두 벌 생긴다 (Phase 12 D-02 단일 빌더 관례 동형).
+// - 전략 미등록 종목도 구독할 수 있어야 한다 — 자동완성으로 임의 종목을 조회한다 (D-05).
+table SubscribeQuoteReq {
+    isin: string;
+    exchange: string;
+    subscribe: bool;          // true=구독, false=해제
+}
+
+// 체결 테이프 스냅샷 조회 요청 (Client -> Server, D-02)
+table GetTradeTapeReq {
+    isin: string;
+    exchange: string;
+    count: int;               // 요청 건수. 0 이하·링버퍼 보유분 초과는 서버가 보유분으로 클램프한다
+}
+
+// 시세 본문 — MsgType 58/59 가 Envelope 의 `quote_state` 슬롯 **하나를** 공유한다 (66/67 선례).
+// 빌더 함수도 한 벌만 둔다 — 두 벌이면 새 필드가 한쪽에만 붙어서 "조회하면 보이는데 푸시에는
+// 없는 값" 이 생긴다 (Phase 12 D-02 단일 빌더 관례).
+//
+// ★ is_snapshot=true  → GetQuoteResp(58). 창 열림 시 전량 초기화 (Notice — 요청 응답).
+//   is_snapshot=false → QuoteUpdate(59). 100ms 코얼레싱 푸시 (Broadcast — 드롭 허용, D-06/D-08).
+//
+// 가격·수량은 전부 long 이다. 누적거래대금이 32비트를 넘고, 클라 표시 코드가 부호 있는
+// 정수를 쓰기 때문이다.
+table QuoteState {
+    isin: string;             // 12자 ISIN
+    exchange: string;         // "KRX" / "NXT"
+    last_price: long;         // 현재가 (A3 tradePrice)
+    open_price: long;         // 시가
+    high_price: long;         // 고가
+    low_price: long;          // 저가
+    change: long;             // 전일대비 (부호 판정의 정본은 change_sign 이다)
+    change_sign: string;      // 전일대비구분 — A3 priceChangeType **원문 1자 그대로** (D-04).
+                              // 서버가 해석해서 바꾸지 않는다 (10 D-03 관례)
+    change_rate: double;      // 등락률 (%)
+    cum_volume: long;         // 누적거래량 (주)
+    cum_value: long;          // 누적거래대금 (원)
+    ask_prices: [long];       // 매도호가 1~10단계
+    ask_qtys: [long];         // 매도호가 잔량 1~10단계
+    bid_prices: [long];       // 매수호가 1~10단계
+    bid_qtys: [long];         // 매수호가 잔량 1~10단계
+    total_ask_qty: long;      // 총 매도잔량
+    total_bid_qty: long;      // 총 매수잔량
+    upper_limit: long;        // 상한가
+    lower_limit: long;        // 하한가
+    base_price: long;         // 기준가 (전일 종가)
+    vi_up_price: long;        // VI 발동예상가 (상승)
+    vi_down_price: long;      // VI 발동예상가 (하락)
+    list_shares: long;        // 상장주식수 (A0) — 호가창 "발행" 행이 거래대금을 표시하던
+                              // 결함의 수정분이다 (D-03)
+    est_price: long;          // 예상체결가 — **자리만** 잡는다. 값 공급은 후속 (D-03 / Deferred)
+    est_qty: long;            // 예상체결수량 — 동상 (자리만)
+    exchange_time: string;    // 거래소 체결·처리시각 "HHMMSSuuuuuu" 12자 — 신선도 판정의 원천 (D-04)
+    server_time: string;      // 서버 송신시각 (표시용)
+    is_snapshot: bool;        // true=58 스냅샷(전량 교체), false=59 증분 푸시
+}
+
+// 체결 테이프 1건 (D-02)
+table TradeTapeEntry {
+    trade_time: string;       // 체결시각 (거래소 원문)
+    price: long;              // 체결가
+    change_sign: string;      // 전일대비구분 원문 1자
+    change: long;             // 전일대비
+    qty: long;                // 체결수량 (주)
+    cum_volume: long;         // 누적거래량 (주)
+}
+
+// 체결 테이프 본문 — MsgType 69/71 이 Envelope 의 `trade_tape` 슬롯 하나를 공유한다 (58/59 동형).
+// 서버는 종목별 최근 N건을 메모리 링버퍼로 보관하고, 조회에 스냅샷을, 이후 실시간으로 증분을
+// 보낸다. 서버 기동 이후분만 있는 것은 허용이다 (D-02).
+table TradeTape {
+    isin: string;
+    exchange: string;
+    entries: [TradeTapeEntry];  // 스냅샷=보유 전량(오래된 것 → 최신 순), 증분=신규분만
+    is_snapshot: bool;          // true=69 스냅샷(전량 교체), false=71 증분(뒤에 이어붙임)
+}
+
+// 종목마스터 1종목 (D-12 / D-13)
+table SymbolMasterItem {
+    code: string;             // 단축코드 (6자)
+    name: string;             // 종목명 — **서버가 EUC-KR→UTF-8 로 변환한 값**이다 (D-13)
+    isin: string;             // 12자 ISIN
+    market_type: string;      // 시장구분 — 클라 기존 어휘("0"/"1")를 그대로 쓴다.
+                              // 원천만 교체하고 소비처는 건드리지 않는다 (RESEARCH A5)
+    sec_group_id: string;     // 증권그룹ID 2자 (A0 원문) — ETF/ETN 구분 결함의 수정분 (D-03)
+    nxt_tradable: bool;       // NXT 거래가능 여부. 서버가 NXT A0 수신으로 판정한다 (D-12).
+                              // false 면 클라는 호가창의 NXT 선택을 비활성화한다
+}
+
+// 종목마스터 분할 응답 본문 (Server -> Client, MsgType 57 — D-13)
+// - 접속 시 전량 다운로드다. 한 프레임에 다 담으면 수 MB 라 묶음으로 쪼갠다
+//   (계좌 스냅샷 66 의 "계좌당 1프레임" 선례 동형).
+// - 클라는 items 를 누적하고 is_last=true 를 받으면 완료로 본다. total_items 는 진행
+//   표시·수신 검증용이다.
+table SymbolMaster {
+    items: [SymbolMasterItem];
+    seq: int;                 // 프레임 순번 (0부터)
+    total_items: int;         // 전체 종목 수 (전 프레임 동일값)
+    is_last: bool;            // 마지막 프레임 표식
+}
+
+// ============================================================================
+// VI 자동주문 추적·확인 (quick-260903-m2c — 자동취소 서버 이관, D-03/D-06/D-17/D-18)
+// ============================================================================
+
+// VI 주문 확인 등록/해제 (33). 같은 메시지로 켜고 끈다 (D-09).
+// 서버는 요청 세션(user@BROKER)이 낸 VI 주문의 order_no 만 받는다 — 타 user 주문번호는
+// 미존재 취급이다 (T-m2c-01). 119초 취소가 나간 뒤(confirm_locked)의 확인은 무시하고
+// 현재 항목을 에코만 한다 (D-05).
+table ConfirmVIOrderReq {
+    order_no: string;     // 접수 통보로 확정된 주문번호 (10자리)
+    confirmed: bool;      // true=확인(119초 미확인 취소 면제), false=해제
+}
+
+// VI 추적 항목 1건 (72/73 원소). 서버 VIOrderWatch 의 VIOrderItem 을 그대로 싣는다.
+table VIOrderItem {
+    isin: string;             // 발동 종목 ISIN (12자)
+    market: string;           // "K"=KOSPI / "Q"=KOSDAQ (R8 정보구분)
+    account_no: string;       // 발주 계좌
+    order_no: string;         // 주문번호. **"" = 접수 전**(Pending) — 확인 불가
+    order_qty: uint;          // 주문수량
+    order_price: uint;        // 주문가 (= 발주 시 마스터 상한가 — 110초 판정의 비교 대상)
+    trigger_price: uint;      // VI 발동가 (R8)
+    base_price: uint;         // 마스터 기준가 (전일대비 표시용)
+    vi_end_time: string;      // R8 VI 해제예정시각 "HHMMSSuuu" (9자) — 클라 마감알림 기준 (D-08/D-11)
+    deadline110_ms: long;     // 110초 규칙 데드라인 (epoch ms, MarketClock 기준) — 클라는 로그용
+    deadline119_ms: long;     // 119초 규칙 데드라인 (epoch ms)
+    confirmed: bool;          // 사람이 확인 체크를 켰는가 (서버 영속, D-06)
+    confirm_locked: bool;     // 확인 변경 불가 (= 119초 규칙 적용됨 ‖ Cancelling ‖ 종료) — 클라가 재계산하지 않는다
+    state: string;            // "Pending" | "Accepted" | "Cancelling" | "Cancelled" | "Filled" | "Rejected"
+    filled_qty: uint;         // 누적 체결수량 (부분체결은 별 상태가 아니라 이 값 > 0)
+}
+
+// VI 추적 목록 (72 스냅샷 / 73 푸시 공용 본문).
+// is_snapshot=true 는 **전량 교체**(서버에 없는 행은 클라가 지운다), false 는 항목별 upsert.
+table VIOrderList {
+    is_snapshot: bool;
+    items: [VIOrderItem];     // 0건이어도 길이 0 벡터를 싣는다 (무응답 금지)
+}
+
+// ============================================================================
+// 거래원 — 회원사별 매매 통계 (quick-260904-fi6)
+//
+// 원천은 KRX 접속표준서 v1.341 IFMSSTD0006(B901S/B901Q) = NXT 설계서 v1.11 IFMDOS302
+// (B951S/B951Q), 414B ASCII. 단계 1~5 의 매도·매수 회원번호(5자)·체결수량·거래대금이
+// 매 프레임 **전량** 실린다 (증분이 아니다). 원문에 외국계 합계·증감·비율은 **없다** —
+// 클라가 표시용 파생값(5행 합·외국계 부분합)을 만든다.
+// ============================================================================
+
+// 거래원 1단계 (한쪽 방향). member_no 는 KRX 회원번호 5자 그대로 (MemberCodes 키).
+table MemberStat {
+    member_no: string;        // 회원번호 5자 ("00003" 등) — 클라 MemberCodes.GetMemberName 키
+    qty: long;                // 체결수량 (원문 12자)
+    value: long;              // 거래대금 정수부 (원문 18자 + '.' + 소수 3자 — 소수부는 버린다)
+}
+
+// 거래원 5단계 (74 스냅샷 / 75 푸시 공용 본문).
+// sell/buy 는 **단계 1~5 순**이다. 0건이어도 벡터를 생성한다 (클라가 null 검사 없이 순회).
+table MemberStats {
+    isin: string;             // 12자
+    exchange: string;         // "KRX" / "NXT" (QuoteState.exchange 와 같은 어휘 — ExchangeToStr)
+    sell: [MemberStat];       // 매도 상위 5 회원
+    buy: [MemberStat];        // 매수 상위 5 회원
+    server_time: string;      // 서버 송신시각 "HH:MM:SS" (QuoteState.server_time 과 같은 표시용)
+    is_snapshot: bool;        // true=74 스냅샷(전량 교체) / false=75 푸시 (역시 전량 — B9 특성)
+}
+
+// ============================================================================
+// Envelope (메시지 래퍼)
+// ============================================================================
+
+table Envelope {
+    msg_type: MsgType;
+    login_req: LoginReq;
+    login_resp: LoginResp;
+    order_resp: OrderResp;
+    trade_execution: TradeExecution;
+    server_message: ServerMessage;
+    set_limit_chaser: SetLimitChaser;
+    set_vi_trigger: SetVITrigger;
+    // (예약) 구 set_after_hour / set_after_hour_auction 슬롯 — 재사용 금지 (Phase 6 삭제)
+    //
+    // ★ 지우지 않고 deprecated 로 남긴다. FlatBuffers 는 테이블 필드 id 를 **선언 순서로**
+    //   부여하므로 가운데 필드를 지우면 뒤 필드(direct_order_req 이하)의 슬롯이 전부 한 칸씩
+    //   밀린다. 그러면 아직 갱신되지 않은 클라이언트가 보낸 주문·계좌 메시지를 서버가
+    //   엉뚱한 필드로 읽는다 — 실계좌에서 그대로 오주문이다.
+    //   deprecated 필드는 접근자가 생성되지 않으므로 코드에서는 이미 사라진 것과 같다.
+    //   타입은 슬롯 유지를 위한 자리표시일 뿐이다 (구 테이블은 삭제됨).
+    reserved_after_hour: GetStrategyReq (deprecated);
+    reserved_after_hour_auction: GetStrategyReq (deprecated);
+    direct_order_req: DirectOrderReq;
+    order_confirm: OrderConfirm;
+    update_account_no_req: UpdateAccountNoReq;
+    update_account_no_resp: UpdateAccountNoResp;
+    live_ping: LivePing;
+    get_strategy_req: GetStrategyReq;
+    vi_order_notice: VIOrderNotice;   // Phase 11.1 말미 append — 가운데 삽입 금지
+
+    // Phase 12 말미 append — 가운데 삽입 금지 (D-02/D-12)
+    limit_chaser_list: LimitChaserList;              // 상따 열거 응답 본문 (슬롯 38)
+    disable_strategies_req: DisableStrategiesReq;    // 일괄/단건 비활성화 요청 (슬롯 40)
+    disable_strategies_resp: DisableStrategiesResp;  // 비활성화 집계 응답 (슬롯 42)
+
+    // Phase 13 말미 append — 가운데 삽입 금지 (D-02/D-05/D-13)
+    get_account_state_req: GetAccountStateReq;              // 계좌 상태 스냅샷 조회 요청 (25)
+    account_state: AccountState;                            // 66/67 공용 본문 — 스냅샷·델타가 같은 슬롯을
+                                                            // 쓴다 (에코/열거가 set_limit_chaser 를 공유하는 선례 동형)
+    reconcile_account_state_req: ReconcileAccountStateReq;  // 원장 대사 업로드 (26)
+    reconcile_account_state_resp: ReconcileAccountStateResp;// 원장 대사 집계 응답 (68)
+
+    // === 이하 Phase 15 추가 (테이블 **말미 append** — 가운데 삽입 금지, D-02~D-07/D-12/D-13) ===
+    // GetSymbolMasterReq(27) 은 인자가 없어 요청 슬롯을 두지 않는다 (GetLimitChaserListReq(24) 선례).
+    get_quote_req: GetQuoteReq;                  // 시세 스냅샷 조회 요청 (28)
+    subscribe_quote_req: SubscribeQuoteReq;      // 종목 시세 구독/해제 요청 (29)
+    get_trade_tape_req: GetTradeTapeReq;         // 체결 테이프 스냅샷 조회 요청 (32)
+    quote_state: QuoteState;                     // 58/59 공용 본문 — 스냅샷·푸시가 같은 슬롯을 쓴다
+                                                 // (account_state 가 66/67 을 공유하는 선례 동형)
+    trade_tape: TradeTape;                       // 69/71 공용 본문 — 스냅샷·증분이 같은 슬롯을 쓴다
+    symbol_master: SymbolMaster;                 // 종목마스터 분할 응답 본문 (57)
+
+    // === 이하 quick-260903-m2c 추가 (테이블 **말미 append** — 가운데 삽입 금지, D-17) ===
+    // GetVIOrderListReq(34) 는 인자가 없어 요청 슬롯을 두지 않는다 (24/27 선례).
+    confirm_vi_order_req: ConfirmVIOrderReq;     // VI 주문 확인 등록/해제 요청 (33)
+    vi_order_list: VIOrderList;                  // 72/73 공용 본문 — 스냅샷·푸시가 같은 슬롯을 쓴다
+                                                 // (account_state 가 66/67 을 공유하는 선례 동형)
+
+    // === 이하 quick-260904-fi6 추가 (테이블 **말미 append** — 가운데 삽입 금지) ===
+    // GetMemberStatsReq(35) 는 get_quote_req 슬롯을 재사용하므로 요청 슬롯을 두지 않는다.
+    member_stats: MemberStats;                   // 74/75 공용 본문 — 스냅샷·푸시가 같은 슬롯을 쓴다
+                                                 // (trade_tape 가 69/71 을 공유하는 선례 동형)
+}
+
+root_type Envelope;
+
+// ============================================================================
+// === Phase 16 (NXT 주문 라우팅) 변경 요약: OrderResp·UnfilledState·TradeExecution
+//     exchange 말미 append + MsgType 30/31/70 재사용 금지 봉인 ===
+//
+// 새 테이블·새 Envelope 슬롯·새 MsgType 은 하나도 없다. 거래소 축은 기존 10/20/60/51/66/67
+// 메시지의 exchange 필드로만 흐른다 (NXT-06).
+// ============================================================================
