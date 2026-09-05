@@ -314,29 +314,48 @@ load_anon_key() {
 # INV-9 — **Cloud Run → Direct VPC Egress → VM 8091 도달성**.
 #
 # VM 내부 포트는 정의상 바깥에서 두드릴 수 없으므로(INV-7 이 그것을 지킨다), 도달성은
-# **server 를 통해 간접으로** 잰다. 인증 토큰으로 주문을 한 건 던지고 **503 이 아닌지**만 본다:
+# **server 를 통해 간접으로** 잰다. 인증 토큰으로 주문을 한 건 던지고 응답을 읽는다.
 #
-#   503 RELAY_UNAVAILABLE  = relay env 미주입 이거나 방화벽/경로 문제  → FAIL
-#   409 SESSION_NOT_READY  = 도달했고 relay 가 "세션 없음" 이라 답했다 → PASS
-#   403 / 400 / 200        = 역시 도달했다는 뜻                        → PASS
+# ⚠️ **상태코드만 보면 안 된다.** `POST /api/orders` 는 relay 를 부르기 **전에** 두 관문을
+#    지난다 — `requireAuth`(401) 과 `dma_credentials` allowlist(403 `DMA_NOT_ALLOWED`).
+#    그런데 relay 가 계좌를 거절할 때도 403 이다(`ACCOUNT_NOT_ALLOWED`). 403 을 뭉뚱그려
+#    PASS 로 세면 **relay 에 닿지도 못한 요청이 도달성 증거로 둔갑한다.** 그래서 상태코드가
+#    아니라 **에러 코드**로 판정한다:
+#
+#   error.code                판정        의미
+#   ─────────────────────────────────────────────────────────────────────
+#   RELAY_UNAVAILABLE (503)   unreachable env 미주입 / 방화벽 / 경로 문제
+#   UNAUTHENTICATED   (401)   inconclusive 토큰이 죽었다 — relay 와 무관
+#   DMA_NOT_ALLOWED   (403)   inconclusive **allowlist 에서 끊겼다. relay 미도달**
+#   SESSION_NOT_READY (409)   reachable    relay 가 "세션 없음" 이라 답했다 ← 기대값
+#   ACCOUNT_NOT_ALLOWED(403)  reachable    relay 가 세션 계좌 목록으로 거절했다
+#   (200 / 202)               reachable    relay 가 처리했다
 #
 # 세션(호가창)을 열지 않은 상태의 기대값은 409 다. 주문은 **나가지 않는다** — relay 가
 # 세션 부재로 조립 전에 끊기 때문이다. 그래서 이 검사는 실계좌에 안전하다.
-order_path_reachable() {
-  local url token code
+#
+# 표준출력에 판정 한 단어를 찍는다: reachable / inconclusive / unreachable.
+order_path_probe() {
+  local url token body code errcode
   url="$(server_url)"; token="${SMOKE_AUTH_TOKEN:-}"
-  [[ -n "$url" ]] || return 1
-  [[ -n "$token" ]] || return 1
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
+  if [[ -z "$url" ]] || [[ -z "$token" ]]; then printf 'inconclusive'; return 0; fi
+  body="$(curl -s -w $'\n%{http_code}' --max-time 20 -X POST \
     -H "Authorization: Bearer ${token}" \
     -H 'content-type: application/json' \
     -d '{"code":"005930","accountNo":"0","exchange":"KRX","side":"B","orderType":"N","qty":1,"price":1}' \
     "${url}/api/orders")"
-  echo "  (POST /api/orders → HTTP ${code})"
-  # 401 은 토큰이 죽은 것이지 relay 도달성의 답이 아니다 — 판정 불가로 실패 처리한다.
+  code="$(printf '%s' "$body" | tail -1)"
+  errcode="$(printf '%s' "$body" | sed '$d' | sed -n 's/.*"code"[[:space:]]*:[[:space:]]*"\([A-Z_]*\)".*/\1/p' | head -1)"
+  echo "  (POST /api/orders → HTTP ${code} / ${errcode:-<본문 코드 없음>})" >&2
+  case "${errcode:-}" in
+    SESSION_NOT_READY|ACCOUNT_NOT_ALLOWED) printf 'reachable'; return 0 ;;
+    RELAY_UNAVAILABLE)                     printf 'unreachable'; return 0 ;;
+    DMA_NOT_ALLOWED|UNAUTHENTICATED|RATE_LIMITED) printf 'inconclusive'; return 0 ;;
+  esac
   case "$code" in
-    503|502|401|000) return 1 ;;
-    *) return 0 ;;
+    200|202) printf 'reachable' ;;
+    503|502) printf 'unreachable' ;;
+    *)       printf 'inconclusive' ;;
   esac
 }
 
@@ -510,14 +529,29 @@ check "INV-8 알림 정책 ${ALERT_POLICY} + 채널 + uptime check" bash -c '
 # INV-9 / INV-10 — 주문 경로 (Phase 15 Plan 19, RELAY-02)
 # ───────────────────────────────────────────────────────────────
 
-# INV-9: Cloud Run → VM 내부 포트 도달성. 토큰이 없으면 판정할 수 없으므로 SKIP 이다 —
-#        "확인 안 함" 을 PASS 로 세면 주문이 죽어도 스모크가 초록불로 남는다.
+# INV-9: Cloud Run → VM 내부 포트 도달성.
+#   판정은 3갈래다. "확인 안 함"(SKIP)을 PASS 로 세면 주문 경로가 죽어도 스모크가
+#   초록불로 남고, 반대로 FAIL 로 세면 토큰 없는 일상 실행이 상시 빨간불이 된다.
 if [[ -z "${SMOKE_AUTH_TOKEN:-}" ]]; then
   skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" "SMOKE_AUTH_TOKEN 미설정 — 로그인 토큰 필요"
 elif [[ -z "$(server_url)" ]]; then
   skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" "server URL 조회 실패"
 else
-  check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성 (503 아니면 PASS)" order_path_reachable
+  ORDER_PATH_VERDICT="$(order_path_probe)"
+  case "$ORDER_PATH_VERDICT" in
+    reachable)
+      check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" true
+      ;;
+    unreachable)
+      check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성 (RELAY_UNAVAILABLE)" false
+      ;;
+    *)
+      # allowlist(`dma_credentials` 행 0건)에서 끊기면 요청이 relay 까지 가지 않는다.
+      # 도달성에 대해 **아무것도 알 수 없다** — 초록불로 위장하지 않는다.
+      skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" \
+        "relay 이전 관문에서 종료(allowlist/토큰) — 도달성 판정 불가"
+      ;;
+  esac
 fi
 
 # INV-10: dma_orders 접근 경계. service_role 로는 읽히고 anon 으로는 막혀야 한다.
