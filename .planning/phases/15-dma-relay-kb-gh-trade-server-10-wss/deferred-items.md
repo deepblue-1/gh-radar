@@ -47,3 +47,15 @@
 - **처리:** 범위 밖이지만 15-11 Task 3 의 acceptance(`stock-detail-chart` green)가
   이 테스트를 직접 요구하므로 `{ exact: true }` 로 로케이터 정밀화만 적용했다.
   단언 의도(차트 카드 aria-label 존재)는 그대로다.
+
+## [오케스트레이터] 전체 테스트 병렬 실행 시 rate-limit 테스트 flake
+
+- **증상:** `pnpm -r run test` (기본 워크스페이스 병렬도) 로 14개 워크스페이스를 동시에
+  돌리면 `server/tests/middleware/rate-limit.test.ts` 의
+  "/api/health 는 rate-limit 카운트 제외" 케이스가 5000ms 타임아웃으로 실패한다.
+- **선재/무관 근거:** Phase 15 는 `server/` 를 아직 건드리지 않았고,
+  `pnpm --filter @gh-radar/server test` 단독 실행은 29 files / 219 tests 전부 통과한다.
+  `--workspace-concurrency=2` 로 낮추면 전체 실행도 exit 0.
+- **원인 추정:** 타이머 기반 5초 예산 테스트가 CPU 포화 상태에서 굶는 전형적 flake.
+- **처리:** Phase 15 post-merge 게이트는 `--workspace-concurrency=2` 로 실행한다.
+  근본 수정(테스트 자체에 fake timer 또는 testTimeout 상향)은 Phase 15 범위 밖으로 보류.
