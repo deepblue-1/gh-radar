@@ -38,7 +38,13 @@ export type RelayConfig = {
   wsPort: number;
   /** server 전용 내부 주문 REST 포트. 미설정 시 8091 — VPC 내부에서만 열린다. */
   orderApiPort: number;
-  /** DMA 게이트웨이 호스트. 미설정 시 10.41.1.120 (KB 사내망, VPN 경유). */
+  /**
+   * DMA 게이트웨이 호스트. **미설정 시 127.0.0.1(로컬 mock)** 이다 (D-27 / T-15-25).
+   *
+   * 실서버(KB 사내망, VPN 경유)를 기본값으로 두면 로컬에서 env 를 깜빡한 실행이 곧바로
+   * 실계좌 게이트웨이에 접속한다. 실서버 주소는 **배포 env 로만** 주입한다 —
+   * 안전한 쪽이 기본값이어야 한다.
+   */
   dmaHost: string;
   /** DMA 게이트웨이 TCP 포트. 미설정 시 9100. */
   dmaPort: number;
@@ -71,7 +77,8 @@ export function loadConfig(): RelayConfig {
 
     wsPort: Number(optional("WS_PORT") ?? "8090"),
     orderApiPort: Number(optional("ORDER_API_PORT") ?? "8091"),
-    dmaHost: optional("DMA_HOST") ?? "10.41.1.120",
+    // 기본값은 로컬 mock 이다. 실서버 주소는 배포 env 가 반드시 명시해야 한다 (D-27).
+    dmaHost: optional("DMA_HOST") ?? "127.0.0.1",
     dmaPort: Number(optional("DMA_PORT") ?? "9100"),
     dmaBroker: optional("DMA_BROKER") ?? "KB",
     sessionGraceMs: Number(optional("SESSION_GRACE_MS") ?? "300000"),

@@ -6,6 +6,10 @@
   "engines": {
     "node": ">=22"
   },
+  "//files": "Dockerfile 의 `pnpm --prod --legacy deploy /out` 가 담을 내용. 명시하지 않으면 pnpm 이 relay/.gitignore 를 .npmignore 로 대신 읽어 `dist/` 를 통째로 빼 버리고, 그 결과 `COPY --from=builder /out/dist` 가 not found 로 실패한다(server/ 는 .gitignore 가 없어 우연히 통과한다).",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx watch -r dotenv/config src/index.ts",
     "start": "node dist/index.js",
