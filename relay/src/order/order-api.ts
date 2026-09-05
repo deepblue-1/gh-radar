@@ -65,7 +65,7 @@ const ORDERS_PATH = "/internal/orders";
  * 이 시간을 넘긴 것은 **실패가 아니라 "결과를 모름"** 이다 (Pitfall 9). 주문은 이미
  * 나갔을 수 있으므로 여기서 "실패"라고 말하면 사용자가 재주문해 중복 체결이 난다.
  */
-export const ORDER_RESP_TIMEOUT_MS = 5_000;
+export const ORDER_RESP_TIMEOUT_MS = 5000;
 
 /** 주문 라우트가 세션에 요구하는 최소 표면. `DmaSession` 이 그대로 만족한다. */
 export interface OrderApiSession {
