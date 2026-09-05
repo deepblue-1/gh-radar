@@ -226,6 +226,27 @@ export class DmaSession extends EventEmitter {
     return true;
   }
 
+  /**
+   * 게이트웨이 요청 프레임 1건 송신 (구독 · 주문 등 상위 계층이 만든 페이로드).
+   *
+   * **Ready 가 아니면 보내지 않는다.** 로그인 전에 구독 요청을 밀어 넣으면 그 요청은
+   * 조용히 사라지고 "구독했는데 시세가 없다"로 오진하게 된다. Ready 전에 쌓인 구독은
+   * `ready` 이벤트에서 SubscriptionHub 가 **전량 재구독**으로 복원하므로
+   * (Pitfall 4 — 재구독 경로는 하나뿐이다) 여기서 큐잉하지 않는다.
+   *
+   * 전송 계층 실패(연결 없음·송신 예외)는 `DmaClient.send` 가 사유와 함께 로그를 남긴다.
+   */
+  send(payload: Uint8Array): boolean {
+    if (!this.isReady) {
+      logger.warn(
+        { userId: this.#userId, state: this.#state, bytes: payload.length },
+        "[DMA] Ready 이전 송신 요청 — 보내지 않는다 (ready 에서 재구독된다)",
+      );
+      return false;
+    }
+    return this.#client.send(payload);
+  }
+
   /** 세션 종료. 유예 만료·프로세스 종료 시 SessionManager 가 부른다. */
   close(): void {
     this.#clearLoginTimer();
