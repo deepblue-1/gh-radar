@@ -26,6 +26,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 09.1: Intraday Current Price** - 키움 REST `ka10027` 페이지네이션 + `ka10001` hot set 매분 stock_quotes/top_movers/stock_daily_ohlcv 갱신. KIS ingestion 완전 폐기 (2026-05-15 완료)
 - [x] **Phase 10: Theme Classification** - 테마별 종목 묶기 (네이버 금융 + 알파스퀘어 2-tier 수집 + `/themes` UI) (completed 2026-06-09)
 - [x] **Phase 11: Co-movement Candidates** - 상한가 동조 종목 탐지 (급등 시 따라 오를 후보를 일봉 통계적 동조로 점수화) (completed 2026-06-11)
+- [x] **Phase 12: 상한가 다음날 이력 통계** - 종목 자체 과거 상한가 이벤트의 다음날 시/고/저/종 수익률 백테스트 카드 (종목상세, master-sync 야간 사전계산) (completed 2026-06-26)
+- [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
+- [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
+- [ ] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (in progress, 4/20 plans)
 
 ## Phase Details
 
@@ -478,36 +482,6 @@ Plans:
 - [x] 11-04-PLAN.md — Wave 2 워커: co-movement-sync(rebuild RPC 1줄) + IAM/deploy/smoke + Cloud Run Job + Scheduler(야간 1회)
 - [x] 11-05-PLAN.md — Wave 3 UI: StockComovementSection(theme-rank-row 강도바 + 근거칩 + 초기3/더보기 + 빈상태) + 종목상세 마운트 + Vercel
 
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Data Foundation | 1/1 | Complete | 2026-04-13 |
-| 2. Backend API | 5/5 | Complete | 2026-04-13 |
-| 3. Design System | 1/1 (6 sub) | Complete | 2026-04-13 |
-| 4. Frontend Scaffold | 1/1 | Complete | 2026-04-13 |
-| 5. Scanner UI | 1/1 | Complete | 2026-04-13 |
-| 05.1. Ingestion Deploy | 6/6 | Complete | 2026-04-14 |
-| 05.2. Scanner Quality | 5/5 | Complete | 2026-04-14 |
-| 6. Stock Search & Detail | 6/6 | Complete | 2026-04-16 |
-| 06.1. stock-master-universe | 6/6 | Complete | 2026-04-16 |
-| 06.2. Auth + Watchlist | 10/10 | Complete | 2026-04-16 |
-| 7. News Ingestion | 6/6 | Complete | 2026-04-17 |
-| 07.1. News description | 1/1 | Complete | 2026-04-18 |
-| 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
-| 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
-| 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
-| 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
-| 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
-| 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
-| 11. Co-movement Candidates | 5/5 | Complete    | 2026-06-24 |
-| 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
-| 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
-| 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
-
 ### Phase 12: 상한가 다음날 이력 통계 (종목상세) — 종목 자체 과거 상한가 이벤트의 다음날 시/고/저/종 수익률 백테스트. A안(상한가 종가 매수 가정), 종목 자체 이력만, 이벤트 리스트+카운트 표시, 점상한가 태그, 거래대금/회전율 컬럼, 최근 N회 보조 스탯, 테마 모멘텀 보조 카드. master-sync 배치 사전계산 → 종목상세 읽기 전용.
 
 **Goal:** 종목 자체의 과거 마감상한가(종가==상한가 가격) 이벤트에 대해 "상한가 종가 매수 → 다음날 시초가 매도" 가정의 다음날 시/고/저/종 수익률을 일봉으로 백테스트해, 종목 상세 페이지에 읽기전용 카드(히어로 익절률%+분포 히스토그램+이벤트 리스트+소속 테마별 익절 경향)로 표시한다. 순수 KRX EOD 집계(외부호출 없음), 신규 워커가 야간 1회 사전계산.
@@ -577,13 +551,13 @@ Plans:
   8. `relay/Dockerfile` + `scripts/setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책 + VM 프로비저닝 문서(openconnect systemd 유닛·Caddy·Secret Manager: 비밀번호 값은 문서·로그·커밋 어디에도 없음)가 존재하고 실서버(10.41.1.120)·실계좌 접속은 사용자 지시 전엔 하지 않는다.
 
 **Out of scope:** 거래원(MemberStats) 팬아웃, 정정(M)·IOC/FOK·시장가, 서버측 주문 한도, 웹앱 자격증명 입력 UI, 공용 시세 세션, Cloud Run WebSocket, gh-trade 전략 메시지 조작, `GetSymbolMasterReq(27)`.
-**Plans:** 2/20 plans executed
+**Plans:** 4/20 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 15-01-PLAN.md — relay 워크스페이스 스캐폴드 + `sync-relay-schema.sh` 생성물 커밋 + `@gh-radar/shared` wss/주문 계약 (SC-1)
-- [ ] 15-02-PLAN.md — 프레이밍 코덱(1MB 상한·desync) + Envelope 안전 파싱/조립(TakeCount 가드) + 가짜 게이트웨이 테스트 헬퍼 (SC-3)
+- [x] 15-02-PLAN.md — 프레이밍 코덱(1MB 상한·desync) + Envelope 안전 파싱/조립(TakeCount 가드) + 가짜 게이트웨이 테스트 헬퍼 (SC-3)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -593,7 +567,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 15-06-PLAN.md — `setup-relay-iam.sh` + openconnect systemd·split-tunnel 래퍼 + startup.sh/Caddyfile/운영 README **작성만** (SC-2, SC-8)
+- [x] 15-06-PLAN.md — `setup-relay-iam.sh` + openconnect systemd·split-tunnel 래퍼 + startup.sh/Caddyfile/운영 README **작성만** (SC-2, SC-8)
 - [ ] 15-07-PLAN.md — [BLOCKING] GCP 인프라 실행 + **kbs124 VPN 선검증(D-03)** + **DNS A 레코드·Caddy 인증서(D-06)** (SC-2)
 - [ ] 15-08-PLAN.md — `deploy-relay.sh`/`smoke-relay.sh`(INV-1~8)/`ops/alert-relay-down.yaml` + relay 배포·INV 검증 (SC-8)
 
@@ -617,3 +591,34 @@ Plans:
 **Wave 6** *(blocked on Wave 5 completion)*
 
 - [ ] 15-20-PLAN.md — [BLOCKING] 실서버·실계좌 검증 여부 **사용자 결정**(D-27) + SC-1~8 집계 + STATE 갱신 (SC-8)
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Data Foundation | 1/1 | Complete | 2026-04-13 |
+| 2. Backend API | 5/5 | Complete | 2026-04-13 |
+| 3. Design System | 1/1 (6 sub) | Complete | 2026-04-13 |
+| 4. Frontend Scaffold | 1/1 | Complete | 2026-04-13 |
+| 5. Scanner UI | 1/1 | Complete | 2026-04-13 |
+| 05.1. Ingestion Deploy | 6/6 | Complete | 2026-04-14 |
+| 05.2. Scanner Quality | 5/5 | Complete | 2026-04-14 |
+| 6. Stock Search & Detail | 6/6 | Complete | 2026-04-16 |
+| 06.1. stock-master-universe | 6/6 | Complete | 2026-04-16 |
+| 06.2. Auth + Watchlist | 10/10 | Complete | 2026-04-16 |
+| 7. News Ingestion | 6/6 | Complete | 2026-04-17 |
+| 07.1. News description | 1/1 | Complete | 2026-04-18 |
+| 07.2. News rate-limit | 1/1 | Complete | 2026-04-18 |
+| 8. Discussion Board | 7/7 | Complete | 2026-04-18 |
+| 08.1. Discussion Relevance Filter | 8/7 | Complete    | 2026-04-22 |
+| 9. Daily Candle Data | 6/6 | Complete | 2026-05-12 |
+| 09.1. Intraday Current Price (KIS→키움 완전 대체) | 11/11 | Complete    | 2026-05-15 |
+| 10. Theme Classification | 8/8 | Complete    | 2026-06-09 |
+| 11. Co-movement Candidates | 5/5 | Complete    | 2026-06-24 |
+| 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
+| 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
+| 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
+| 15. DMA 중계 서버(relay) | 4/20 | In Progress | — |
