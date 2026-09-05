@@ -51,8 +51,10 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Number as UiNumber } from '@/components/ui/number';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { AccountPanel } from '@/components/orderbook/account-panel';
 import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
 import { OrderbookSkeleton } from '@/components/orderbook/orderbook-skeleton';
+import { OrderPanel, deriveTickSize } from '@/components/orderbook/order-panel';
 import { RelayStatusBar } from '@/components/orderbook/relay-status-bar';
 import { TradeTape, formatTapeTime } from '@/components/orderbook/trade-tape';
 import { useRelaySocket } from '@/lib/use-relay-socket';
@@ -112,6 +114,12 @@ export function StockOrderbookSection({
   const [exchange, setExchange] = useState<RelayExchange>('KRX');
   const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
   const [switching, setSwitching] = useState(false);
+  /*
+    계좌 선택은 **섹션이 소유**하고 주문 패널·계좌 패널이 같은 값을 본다.
+    두 패널이 각자 상태를 들면 "주문한 계좌"와 "미체결을 보고 있는 계좌"가 어긋난다 —
+    그 어긋남이 곧 엉뚱한 계좌의 주문을 취소하는 사고다.
+  */
+  const [selectedAccountNo, setSelectedAccountNo] = useState('');
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
@@ -121,6 +129,7 @@ export function StockOrderbookSection({
     accounts,
     quote,
     tape,
+    account,
     messages,
     isStale,
     reconnect,
@@ -148,6 +157,17 @@ export function StockOrderbookSection({
       switchTimerRef.current = null;
     }
   }, [code, isin]);
+
+  /*
+    계좌 목록 동기화. 재접속·계좌 재선언으로 목록이 바뀌면 **선택값이 목록에 없을 때만**
+    첫 계좌로 되돌린다. 무조건 리셋하면 사용자가 고른 계좌가 재접속마다 튕겨 나간다.
+  */
+  useEffect(() => {
+    if (accounts.length === 0) return;
+    setSelectedAccountNo((prev) =>
+      accounts.some((a) => a.accountNo === prev) ? prev : accounts[0].accountNo,
+    );
+  }, [accounts]);
 
   // 새 거래소 스냅샷이 도착하면 전환 중 표식을 즉시 내린다(캐시 복원 포함).
   useEffect(() => {
@@ -192,6 +212,21 @@ export function StockOrderbookSection({
     () => (quote?.et ? formatTapeTime(quote.et) : undefined),
     [quote?.et],
   );
+
+  /*
+    호가 단위 — 실호가의 인접 단계 간격이 1순위이고 표는 폴백이다(`deriveTickSize` 주석).
+    스텝퍼 증감폭과 blur 스냅의 기준이므로 값이 틀리면 게이트웨이가 주문을 거부한다.
+  */
+  const tick = useMemo(
+    () => deriveTickSize(quote?.ap, quote?.bp, quote?.p && quote.p > 0 ? quote.p : effectiveBase),
+    [quote?.ap, quote?.bp, quote?.p, effectiveBase],
+  );
+
+  /** 이 종목의 매도가능수량 — 매도 비율 버튼의 기준. 잔고에 없으면 0. */
+  const sellableQty = useMemo(() => {
+    if (subscriptionIsin === null || !account) return 0;
+    return account.hold.find((h) => h.isin === subscriptionIsin)?.sellableQty ?? 0;
+  }, [account, subscriptionIsin]);
 
   const isGated = subscriptionIsin === null || status === 'unauthorized';
   const isLoading = !isGated && !quote && CONNECTING_STATES.has(status);
@@ -356,33 +391,36 @@ export function StockOrderbookSection({
           {/*
             우측 "내 계좌 축" 컬럼 (L1=B). 좁은 폭에서는 `display: contents` 로 그리드
             자식이 흩어져 M1 순서(주문 → 체결 → 잔고 → 미체결)를 만든다.
-            내용물(주문 패널 · 잔고 · 미체결)은 D-25 게이트 뒤 15-18 이 채운다.
+            주문 패널(order-2)과 계좌 패널(order-4, 내부에서 잔고 → 미체결 순)이 자식이다.
           */}
           <div
             data-testid="orderbook-account-column"
             className="contents min-[900px]:flex min-[900px]:flex-col min-[900px]:gap-px"
           >
-            <PendingPanel
-              testId="orderbook-order-panel-slot"
+            <OrderPanel
               className="order-2 min-[900px]:order-none"
-              title="주문 패널은 준비 중이에요"
-              body={
-                selectedPrice == null
-                  ? '호가의 가격을 클릭하면 주문 가격으로 이어져요.'
-                  : `선택한 가격 ${KRW.format(selectedPrice)}원 — 주문 패널이 연결되면 여기에 채워져요.`
-              }
+              code={code}
+              name={name}
+              accounts={accounts}
+              selectedAccountNo={selectedAccountNo}
+              onAccountChange={setSelectedAccountNo}
+              exchange={exchange}
+              selectedPrice={selectedPrice}
+              tick={tick}
+              sellableQty={sellableQty}
+              status={status}
             />
-            <PendingPanel
-              testId="orderbook-holdings-slot"
+            <AccountPanel
               className="order-4 min-[900px]:order-none"
-              title="잔고는 준비 중이에요"
-              body="계좌가 연결되면 보유 종목과 평가손익이 표시돼요."
-            />
-            <PendingPanel
-              testId="orderbook-unfilled-slot"
-              className="order-5 min-[900px]:order-none"
-              title="미체결은 준비 중이에요"
-              body="주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요."
+              accounts={accounts}
+              selectedAccountNo={selectedAccountNo}
+              onAccountChange={setSelectedAccountNo}
+              account={account}
+              code={code}
+              name={name}
+              isin={subscriptionIsin}
+              currentPrice={quote?.p}
+              status={status}
             />
           </div>
         </div>
@@ -435,32 +473,6 @@ function OrderbookLoadError({ onRetry }: { onRetry: () => void }) {
       <Button variant="outline" size="sm" onClick={onRetry}>
         다시 연결
       </Button>
-    </div>
-  );
-}
-
-/** 15-18 이 교체할 자리표시자. 중립색 · 행동 버튼 없음. */
-function PendingPanel({
-  testId,
-  title,
-  body,
-  className,
-}: {
-  testId: string;
-  title: string;
-  body: string;
-  className?: string;
-}) {
-  return (
-    <div
-      data-testid={testId}
-      className={cn(
-        'flex flex-col gap-1 bg-[var(--card)] px-[var(--s-3)] py-[var(--s-4)]',
-        className,
-      )}
-    >
-      <p className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">{title}</p>
-      <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">{body}</p>
     </div>
   );
 }
