@@ -56,9 +56,6 @@ export const LOGIN_RESP_TIMEOUT_MS = 5000;
  */
 export const ACCOUNT_RESP_TIMEOUT_MS = 5000;
 
-/** 서버 계좌번호 길이 가드. D-25 게이트 뒤 계좌 선언 루프가 쓴다 (Pitfall 5). */
-export const MAX_ACCOUNT_NO_LEN = 12;
-
 // 재접속 상한·백오프는 `dma-client.ts` 가 단일 정본이다 — 여기 복제하지 않는다 (IN-01).
 
 /**

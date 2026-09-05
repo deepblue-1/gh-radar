@@ -112,9 +112,17 @@ export type RelayInbound = RelayAuthMsg | RelaySubMsg | RelayUnsubMsg;
  * 로그인 응답으로 받은 허용 계좌 1건 (`AccountEntry{account_no,name}`).
  * 주문 패널 계좌 선택의 원천이다 (D-14).
  *
- * ⚠️ mock 무인증 로그인과 실패 응답에서는 **빈 벡터**로 온다 (gh-trade 17 D-19).
- *    따라서 `accounts` 가 비어 있는 `ready` 상태가 정상적으로 존재한다 — UI 는
- *    빈 배열을 오류로 다루지 않고 주문 패널만 비활성화한다.
+ * gh-trade 17 재동기화(D-25 게이트 통과)로 **실제 계좌 목록이 온다**. relay 는 이
+ * 목록을 전부 `UpdateAccountNoReq` 로 선언하고 서버 목록과 대조한 뒤에만 `ready` 로
+ * 간다 — 따라서 `ready` 상태의 `accounts` 는 **항상 1건 이상**이다.
+ *
+ * ⚠️ 계좌 0건은 정상 상태가 아니라 세션 실패다 (17 D-12). relay 가
+ *    `session_rejected` + `서버에 등록된 계좌가 없습니다` 로 확정하므로 UI 는
+ *    "ready 인데 계좌가 없는" 경우를 다룰 필요가 없다.
+ * ⚠️ 다만 `ready` 이전 상태(`connecting`/`logging_in`/`declaring`)와 실패 상태에서는
+ *    빈 배열이 정상이다 — UI 는 빈 배열을 오류로 렌더하지 않는다.
+ *
+ * 계좌번호는 **화면에 전체 표시**한다. 마스킹은 relay 로그에서만 한다 (UI-SPEC D2).
  */
 export type RelayAccount = {
   accountNo: string;
@@ -129,7 +137,10 @@ export type RelayStateMsg = {
   msg?: string;
   /** `reconnecting` 의 시도 회차 (1-based). */
   attempt?: number;
-  /** `ready`/`declaring` 이후의 허용 계좌 목록. 위 주의 참조. */
+  /**
+   * 허용 계좌 목록. `ready` 에서는 **비지 않는다**(비면 세션이 실패한다).
+   * 주문 패널 계좌 선택의 원천이다. 위 `RelayAccount` 주의 참조.
+   */
   accounts?: RelayAccount[];
 };
 

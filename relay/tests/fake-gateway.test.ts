@@ -26,7 +26,7 @@ import {
 } from "../src/dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
-import { SAMPLE_ISIN, buildQuoteStateFrame } from "./helpers/frames.js";
+import { SAMPLE_ACCOUNTS, SAMPLE_ISIN, buildQuoteStateFrame } from "./helpers/frames.js";
 
 /** 게이트웨이에 붙는 최소 클라이언트 — 프레임 단위로 수신을 관측한다. */
 type TestClient = {
@@ -100,7 +100,12 @@ describe("fake-gateway 헬퍼", () => {
 
     const parsed = tryParseEnvelope(payload);
     expect(parsed?.msgType).toBe(MSG.LoginResp);
-    expect(parseLoginResp(parsed!.env)).toEqual({ success: true, message: "" });
+    // 기본 응답은 허용 계좌 1건을 싣는다 — 계좌 0건은 세션 실패 경로라 기본값이 될 수 없다.
+    expect(parseLoginResp(parsed!.env)).toEqual({
+      success: true,
+      message: "",
+      accounts: SAMPLE_ACCOUNTS,
+    });
   });
 
   it("respondLogin 으로 거부 응답을 지정할 수 있다", async () => {
@@ -111,9 +116,11 @@ describe("fake-gateway 헬퍼", () => {
     client.sock.write(frame(buildLoginReq("nobody", "pw", "KB")));
     const parsed = tryParseEnvelope(await client.nextFrame());
 
+    // 거부 응답에는 계좌를 싣지 않는다 (17 D-19).
     expect(parseLoginResp(parsed!.env)).toEqual({
       success: false,
       message: "허용되지 않은 사용자",
+      accounts: [],
     });
   });
 

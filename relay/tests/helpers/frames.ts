@@ -12,8 +12,10 @@
  */
 import * as flatbuffers from "flatbuffers";
 
+import { AccountEntry } from "../../src/generated/stock-dma/account-entry.js";
 import { Envelope } from "../../src/generated/stock-dma/envelope.js";
 import { LoginResp } from "../../src/generated/stock-dma/login-resp.js";
+import { UpdateAccountNoResp } from "../../src/generated/stock-dma/update-account-no-resp.js";
 import { QuoteState } from "../../src/generated/stock-dma/quote-state.js";
 import { ServerMessage } from "../../src/generated/stock-dma/server-message.js";
 import { TradeTape } from "../../src/generated/stock-dma/trade-tape.js";
@@ -188,28 +190,76 @@ export function buildServerMessageFrame(input: FakeServerMessageInput = {}): Uin
   return b.asUint8Array();
 }
 
+/** 허용 계좌 1건 (`LoginResp.accounts` 원소). */
+export type FakeAccount = { accountNo: string; name?: string };
+
+/**
+ * 테스트 전반의 기본 허용 계좌 1건.
+ *
+ * 기본값을 **비우지 않는** 이유: D-25 게이트 통과 후 계좌 0건은 정상 부트가 아니라
+ * 세션 실패다 (17 D-12). 기본 게이트웨이가 0건을 주면 "정상 부트"를 다루는 모든
+ * 테스트가 실패 경로로 새어 무엇을 검증하는지 알 수 없게 된다.
+ */
+export const SAMPLE_ACCOUNTS: FakeAccount[] = [{ accountNo: "1234567801", name: "위탁종합" }];
+
 export type FakeLoginRespInput = {
   success?: boolean;
   message?: string;
+  /**
+   * 허용 계좌 목록. 생략하면 성공 응답은 `SAMPLE_ACCOUNTS`, **실패 응답은 빈 벡터**다
+   * (17 D-19 — 거부된 로그인에는 계좌를 싣지 않는다). `[]` 를 명시하면 성공 응답도
+   * 계좌 0건으로 만들 수 있다.
+   */
+  accounts?: FakeAccount[];
 };
 
 /**
  * 로그인 응답 프레임 (50).
  *
- * 허용 계좌 벡터는 채우지 않는다 — 현행 게이트웨이(mock 무인증)가 빈 벡터를 돌려주는
- * 상태를 그대로 재현한다 (D-25).
+ * `accounts` 벡터를 채운다 — gh-trade 17 재동기화(D-25) 이후의 정본 스키마다.
+ * `accounts: []` 로 mock 무인증 게이트웨이(빈 벡터)를 그대로 재현할 수 있다.
  */
 export function buildLoginRespFrame(input: FakeLoginRespInput = {}): Uint8Array {
   const b = new flatbuffers.Builder(256);
+  const success = input.success ?? true;
+  const rows = input.accounts ?? (success ? SAMPLE_ACCOUNTS : []);
   const message = b.createString(input.message ?? "");
+  // 문자열은 테이블 조립 **전에** 전부 만들어 둔다 (FlatBuffers 중첩 제약).
+  const entries = rows.map((a) =>
+    AccountEntry.createAccountEntry(b, b.createString(a.accountNo), b.createString(a.name ?? "")),
+  );
+  const accounts = LoginResp.createAccountsVector(b, entries);
+
   LoginResp.startLoginResp(b);
-  LoginResp.addSuccess(b, input.success ?? true);
+  LoginResp.addSuccess(b, success);
   LoginResp.addMessage(b, message);
+  LoginResp.addAccounts(b, accounts);
   const resp = LoginResp.endLoginResp(b);
 
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.LoginResp);
   Envelope.addLoginResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 계좌 선언 응답 프레임 (55).
+ *
+ * 서버는 선언 1건마다 **그 시점의 등록 목록 전체**를 돌려준다 — 목록을 통째로 받는
+ * 이 형태가 계약이다 (C# `Session.cs` 대조 로직의 전제).
+ */
+export function buildUpdateAccountNoRespFrame(accountList: string[]): Uint8Array {
+  const b = new flatbuffers.Builder(256);
+  const list = UpdateAccountNoResp.createAccountListVector(
+    b,
+    accountList.map((a) => b.createString(a)),
+  );
+  const resp = UpdateAccountNoResp.createUpdateAccountNoResp(b, list);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.UpdateAccountNoResp);
+  Envelope.addUpdateAccountNoResp(b, resp);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }
