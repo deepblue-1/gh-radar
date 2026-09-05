@@ -42,14 +42,46 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 
 ## 현재 배포 상태
 
-> 15-07 Task 1 이 실측 값으로 채운다. (외부 고정 IP · `free -m` · 인증서 발급 결과 등)
+> 15-07 Task 1 실측 (2026-09-05T13:45Z). `setup-relay-iam.sh` 최초 실제 실행 결과다.
+> 인증서 행은 Task 3(D-06 DNS 게이트) 통과 후에 채운다.
 
 | 항목 | 값 | 확인 시각 |
 |------|-----|-----------|
-| 외부 고정 IP | _(미기록 — 15-07 에서 채움)_ | — |
-| VM 상태 | _(미기록)_ | — |
-| 인증서 발급 (issuer / notAfter) | _(미기록)_ | — |
-| `free -m` 여유 | _(미기록)_ | — |
+| 외부 고정 IP (`gh-radar-relay-ip`) | `34.22.79.103` — status `IN_USE` | 2026-09-05T13:45Z |
+| 내부 고정 IP (`gh-radar-relay-internal`) | `10.10.0.5` | 2026-09-05T13:45Z |
+| VM 상태 | `radar-gw` **RUNNING** · `canIpForward=False` | 2026-09-05T13:45Z |
+| 존 / 머신 타입 | `asia-northeast3-a` / `e2-micro` | 2026-09-05T13:45Z |
+| 이미지 | `debian-12-bookworm-v20260902` | 2026-09-05T13:45Z |
+| 부팅 디스크 | 20GB · `pd-balanced` | 2026-09-05T13:45Z |
+| Shielded VM | secure-boot · vTPM · integrity-monitoring 모두 on | 2026-09-05T13:45Z |
+| 방화벽 (`gh-radar-vpc`) | 정확히 3규칙 — 443 공인 / 22 IAP대역 / 8091 서브넷 | 2026-09-05T13:45Z |
+| `free -m` 여유 | total 969 · used 417 · **available 552** · swap 1024M(사용 11M) | 2026-09-05T13:45Z |
+| 툴체인 | docker 20.10.24 · openconnect **v9.01-3** · caddy **v2.11.4** | 2026-09-05T13:45Z |
+| `caddy` / `openconnect@kb` | 둘 다 `disabled` + `inactive` (게이트 통과 전 기동 금지 준수) | 2026-09-05T13:45Z |
+| startup-script | `google-startup-scripts` 정상 종료 · 오류 0건 · 자산 6종 배치 완료 | 2026-09-05T13:45Z |
+| 인증서 발급 (issuer / notAfter) | _(미발급 — Task 3 DNS 게이트 대기)_ | — |
+
+### Secret 3종 상태
+
+값은 어디에도 기록하지 않는다. 버전 **개수**만 상태 지표로 남긴다.
+
+| Secret | ENABLED 버전 | 주입 주체 |
+|--------|-------------|-----------|
+| `gh-radar-dma-cred-key` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
+| `gh-radar-relay-order-secret` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
+| `gh-radar-kb-vpn-password` | **0 (비어 있음)** | **사용자가 직접 주입** — D-03 선검증의 전제 |
+
+> ⚠️ `gcloud secrets list --filter='name~gh-radar-(a|b|c)'` 형태는 쓰지 말 것.
+> gcloud 필터 문법이 선행 `(` 를 그룹 토큰으로 해석해 조용히 0건을 반환한다.
+> 검증에는 `--filter='name~A OR name~B OR name~C'` 를 쓴다.
+
+### D-03 선검증을 막고 있는 미충족 전제
+
+1. **`/etc/kbvpn.env` 부재** — `KBVPN_SERVER` · `KBVPN_AUTHGROUP` · `KBVPN_SERVERCERT` · `KBVPN_USER` 4키가 필요하다. `startup.sh` 는 경고만 남기고 부팅을 계속하므로 VM 은 정상이지만 VPN 은 시작할 수 없다.
+2. **`gh-radar-kb-vpn-password` 값 부재** — `ExecStartPre` 의 Secret 페치가 실패한다.
+
+두 전제가 모두 채워지기 전에는 `systemctl start openconnect@kb` 를 시도하지 않는다
+(무의미한 실패가 `StartLimitBurst=5/1h` 예산과 KB 계정 시도 횟수를 함께 소모한다).
 
 ---
 
