@@ -551,7 +551,7 @@ Plans:
   8. `relay/Dockerfile` + `scripts/setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책 + VM 프로비저닝 문서(openconnect systemd 유닛·Caddy·Secret Manager: 비밀번호 값은 문서·로그·커밋 어디에도 없음)가 존재하고 실서버(10.41.1.120)·실계좌 접속은 사용자 지시 전엔 하지 않는다.
 
 **Out of scope:** 거래원(MemberStats) 팬아웃, 정정(M)·IOC/FOK·시장가, 서버측 주문 한도, 웹앱 자격증명 입력 UI, 공용 시세 세션, Cloud Run WebSocket, gh-trade 전략 메시지 조작, `GetSymbolMasterReq(27)`.
-**Plans:** 12/20 plans executed
+**Plans:** 13/20 plans executed
 
 Plans:
 **Wave 1**
@@ -574,7 +574,7 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 15-09-PLAN.md — 마이그레이션 3건(`stocks.isin`·`dma_credentials`·`dma_orders`) + [BLOCKING] `supabase db push` (SC-4, SC-6)
-- [ ] 15-10-PLAN.md — ISIN 매핑 파이프라인(shared·master-sync·server 노출) + 백필 + `smoke-relay.sh --check-isin` (SC-6)
+- [x] 15-10-PLAN.md — ISIN 매핑 파이프라인(shared·master-sync·server 노출) + 백필 + `smoke-relay.sh --check-isin` (SC-6)
 - [x] 15-11-PLAN.md — 종목상세 4탭 재구성(shadcn `tabs`·`?tab=` 딥링크·sticky) + 기존 섹션 회귀 E2E (SC-7)
 - [x] 15-12-PLAN.md — `use-relay-socket` 훅(인증·재접속·스냅샷 캐시·unsub) + 연결 상태 바 + 스켈레톤 (SC-7)
 - [ ] 15-13-PLAN.md — 호가 10단 사다리 + 체결 테이프 + 섹션 셸·권한 없음 게이트 (SC-7)
@@ -621,4 +621,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
-| 15. DMA 중계 서버(relay) | 12/20 | In Progress|  |
+| 15. DMA 중계 서버(relay) | 13/20 | In Progress|  |

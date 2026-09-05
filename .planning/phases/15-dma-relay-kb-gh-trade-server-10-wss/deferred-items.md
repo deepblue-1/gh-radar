@@ -172,3 +172,23 @@
 무관하다. `keepAlive=false` 는 적용돼 있으므로 남은 원인은 다른 데 있다 —
 supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 손봐야 할 수 있다.
 빈도가 낮아 여기 기록만 남긴다.
+
+## [사용자 결정] DMA_CRED_KEY 회전 — 하지 않음 (수용된 리스크)
+
+- **경위:** 15-08 실행 중 컨테이너 env 를 `grep -E 'DMA_|...'` 로 조회하면서 패턴이
+  `DMA_HOST` 뿐 아니라 `DMA_CRED_KEY` 까지 매칭해 키 값이 실행 로그에 출력됐다.
+  커밋·문서·SUMMARY 어디에도 값은 기록되지 않았고, 노출은 이 1종뿐이다
+  (같은 패턴이 service-role key 와 order secret 에는 매칭되지 않았다).
+- **결정 (2026-09-06, 사용자):** "회전안해도돼 그냥 진행해" — 회전하지 않고 진행한다.
+- **근거:** `dma_credentials` 가 0행이라 이 키로 암호화된 데이터가 존재하지 않는다.
+  노출 값은 로컬 실행 로그에만 있고 원격으로 나간 적이 없다.
+- **남는 리스크:** 자격증명이 실제로 등록되기 시작하면 이 키가 그 데이터를 보호하게 된다.
+  그 시점 이후에는 회전 비용이 재암호화를 수반하므로, 등록 전에 회전할지 재검토할 가치가 있다.
+- **회전이 필요해지면:**
+  ```bash
+  openssl rand -base64 32 | tr -d '\n' | gcloud secrets versions add gh-radar-dma-cred-key --data-file=-
+  gcloud secrets versions disable 1 --secret=gh-radar-dma-cred-key
+  bash scripts/deploy-relay.sh && bash scripts/smoke-relay.sh
+  ```
+  (이 환경의 권한 계층이 시크릿 쓰기를 차단하므로 사용자가 직접 실행해야 한다.)
+- **재발 방지:** `infra/relay/README.md` 에 "env 조회는 키 이름만 뽑을 것" 경고가 박혔다.
