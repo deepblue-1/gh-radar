@@ -97,7 +97,18 @@ INT_IP_NAME=gh-radar-relay-internal
 INT_IP_ADDR=10.10.0.5
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STARTUP_SCRIPT="${REPO_ROOT}/infra/relay/startup.sh"
+RELAY_ASSET_DIR="${REPO_ROOT}/infra/relay"
+STARTUP_SCRIPT="${RELAY_ASSET_DIR}/startup.sh"
+
+# VM 자산은 저장소가 단일 정본이고 인스턴스 메타데이터로 실어 보낸다.
+# startup.sh 가 메타데이터 서버에서 읽어 /usr/local/sbin 등에 배치한다
+# (저장소와 VM 에 사본을 이중 관리하지 않기 위함).
+VM_METADATA_FILES="startup-script=${STARTUP_SCRIPT}"
+VM_METADATA_FILES="${VM_METADATA_FILES},kbvpn-fetch-secret=${RELAY_ASSET_DIR}/kbvpn-fetch-secret.sh"
+VM_METADATA_FILES="${VM_METADATA_FILES},kbvpn-connect=${RELAY_ASSET_DIR}/kbvpn-connect.sh"
+VM_METADATA_FILES="${VM_METADATA_FILES},kbvpn-vpnc-wrapper=${RELAY_ASSET_DIR}/kbvpn-vpnc-wrapper.sh"
+VM_METADATA_FILES="${VM_METADATA_FILES},openconnect-service=${RELAY_ASSET_DIR}/openconnect@.service"
+VM_METADATA_FILES="${VM_METADATA_FILES},caddyfile=${RELAY_ASSET_DIR}/Caddyfile"
 
 # ───────────────────────────────────────────────────────────────
 # Section 2: API enable (멱등)
@@ -262,12 +273,15 @@ if [[ -n "$MISSING_RULES" ]]; then
 fi
 echo "✓ firewall guard passed (VM 생성 전 3규칙 확인)"
 
-# 6.2 startup-script 존재 확인
-if [[ ! -f "$STARTUP_SCRIPT" ]]; then
-  echo "ERROR: startup-script not found: $STARTUP_SCRIPT" >&2
-  exit 1
-fi
-echo "✓ startup-script found: infra/relay/startup.sh"
+# 6.2 VM 자산 존재 확인 (메타데이터로 실어 보낼 파일 전부)
+for ASSET in startup.sh kbvpn-fetch-secret.sh kbvpn-connect.sh kbvpn-vpnc-wrapper.sh \
+             "openconnect@.service" Caddyfile; do
+  if [[ ! -f "${RELAY_ASSET_DIR}/${ASSET}" ]]; then
+    echo "ERROR: VM 자산이 없다: infra/relay/${ASSET}" >&2
+    exit 1
+  fi
+done
+echo "✓ VM 자산 6종 확인 (startup-script 포함)"
 
 # 6.3 VM 생성 (멱등)
 # IP forwarding 옵션은 의도적으로 붙이지 않는다: tun 인터페이스로의 로컬 라우팅에는
@@ -275,6 +289,13 @@ echo "✓ startup-script found: infra/relay/startup.sh"
 #   VPN 라우팅 문제가 실측되면 그때 추가한다.
 if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" >/dev/null 2>&1; then
   echo "✓ VM exists: $VM_NAME (기존 인스턴스 유지 — 재생성하지 않는다)"
+  # 자산이 바뀌었을 수 있으므로 메타데이터만 갱신한다. 반영은 재부팅 또는
+  # VM 에서 `sudo google_metadata_script_runner startup` 실행 시점.
+  echo "▶ VM 메타데이터 갱신 (저장소 자산 → 인스턴스)..."
+  run gcloud compute instances add-metadata "$VM_NAME" \
+    --zone="$ZONE" \
+    --metadata-from-file="$VM_METADATA_FILES"
+  echo "✓ VM 메타데이터 갱신 완료 (반영: 재부팅 또는 google_metadata_script_runner startup)"
 else
   echo "▶ creating VM: $VM_NAME (e2-micro / Debian 12 / $ZONE)..."
   run gcloud compute instances create "$VM_NAME" \
@@ -290,7 +311,7 @@ else
     --tags="$NETWORK_TAG" \
     --service-account="$SA_EMAIL" \
     --scopes=cloud-platform \
-    --metadata-from-file="startup-script=${STARTUP_SCRIPT}" \
+    --metadata-from-file="$VM_METADATA_FILES" \
     --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring \
     --description="gh-radar DMA relay gateway (Phase 15 RELAY-03)"
 fi

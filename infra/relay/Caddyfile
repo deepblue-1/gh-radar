@@ -1,0 +1,51 @@
+# ═══════════════════════════════════════════════════════════════
+# gh-radar DMA relay — Caddy 리버스 프록시 (Phase 15 RELAY-03 · D-05)
+# 배치 위치: /etc/caddy/Caddyfile
+#
+# ── 운영 주의 ────────────────────────────────────────────────────
+# ① WebSocket 설정이 따로 필요 없다.
+#    Caddy v2 는 Upgrade 헤더를 감지해 리버스 프록시로 자동 통과시킨다.
+#    v1 시절의 `websocket` 지시어나 별도 헤더 전달 설정을 넣지 말 것.
+#
+# ② 포트 80 을 열지 않아도 인증서가 발급된다.
+#    HTTP-01(80) 과 TLS-ALPN-01(443) 중 하나면 충분하고, 443 만 열려 있으면
+#    TLS-ALPN-01 로 발급된다. D-09 의 "공인 인바운드는 443 만" 과 정합.
+#    최초 발급이 계속 실패할 때만 80 을 임시 개방했다가 발급 후 방화벽 규칙을 지운다.
+#
+# ③ **장중에 이 파일을 바꾸지 말 것.**
+#    설정 리로드 시 진행 중인 WebSocket 연결이 강제 종료된다.
+#    불가피하면 reverse_proxy 에 `stream_close_delay` 를 주고 장 종료 후에 반영한다.
+#
+# ④ 접근 로그에 토큰이 남지 않는다.
+#    인증 토큰은 wss 첫 메시지 본문으로만 오가고 URL·쿼리스트링에 없다(D-11).
+#    Caddy 는 기본적으로 Authorization·Cookie 헤더를 로그에서 가린다 — 그 기본값을 유지한다.
+#    커스텀 로그 포맷으로 헤더를 통째로 찍는 설정을 추가하지 말 것.
+#
+# ⑤ CADDY_EMAIL 은 systemd 드롭인(/etc/systemd/system/caddy.service.d/10-env.conf)에서
+#    주입된다. 비어 있으면 Caddy 는 만료 알림 이메일 없이 발급을 진행한다(동작에는 지장 없음).
+# ═══════════════════════════════════════════════════════════════
+
+{
+	email {$CADDY_EMAIL}
+}
+
+dma.jx1.io {
+	encode zstd gzip
+
+	# 공개 헬스 — relay 내부 포트의 헬스만 노출한다.
+	# 세션 수·VPN 상태 요약이며 PII·계좌번호는 포함하지 않는다.
+	# Cloud Monitoring uptime check 대상.
+	handle /healthz {
+		reverse_proxy 127.0.0.1:8091
+	}
+
+	# 기본 라우트 — relay wss 팬아웃.
+	handle {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	log {
+		output file /var/log/caddy/dma.log
+		format json
+	}
+}
