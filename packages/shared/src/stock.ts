@@ -23,6 +23,9 @@ export type SecurityType = "보통주" | "우선주" | "ETF" | "ETN" | "REIT" | 
 export type StockMaster = {
   code: string;
   name: string;
+  isin: string | null;             // KRX `ISU_CD` 표준코드 12자 (예: KR7005930003) — DMA 게이트웨이의 구독·주문 키(D-28).
+                                   // 단축코드(code) 에서 산술 유도 금지 — 우선주·신주인수권에서 규칙이 어긋난다.
+                                   // ETP(ETF/ETN/ELW) 는 KRX 가 표준코드를 주지 않아 NULL 이고, 게이트웨이 대상도 아니다.
   market: Market;
   sector: string | null;           // KRX 응답에 업종 정보 없음 — 현재 NULL, 후속에 KIS bstp_kor_isnm 또는 별도 source 로 보강
   kosdaqSegment: string | null;    // KOSDAQ 소속부(중견기업부/우량기업부/벤처기업부/기술성장기업부/SPAC/관리종목 등). KOSPI 는 NULL.
@@ -66,6 +69,14 @@ export type StockWithQuote = StockMaster & {
   upperLimit: number;
   lowerLimit: number;
   quoteUpdatedAt: string | null; // null 이면 시세 없음 → webapp em-dash
+};
+
+// GET /api/stocks/:code · GET /api/stocks/search 응답 형태 (마스터 + 시세 병합 + 상한가 근접도).
+// Phase 15 (D-28): `isin` 을 함께 내려 웹앱 호가창이 DMA 구독·주문 키를 얻는다.
+// NULL 이면 그 종목은 게이트웨이 구독·주문이 불가하다 (RESEARCH A9).
+export type StockDetailResponse = Stock & {
+  upperLimitProximity: number;
+  isin: string | null;
 };
 
 // ============================================================

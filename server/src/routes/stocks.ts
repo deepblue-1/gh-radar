@@ -29,8 +29,9 @@ stocksRouter.use("/:code/co-movement", comovementRouter);
 // Phase 12 — GET /api/stocks/:code/limit-up (상한가 다음날 이력). /:code 핸들러보다 먼저 등록 (Pitfall 5).
 stocksRouter.use("/:code/limit-up", limitUpRouter);
 
+// isin: Phase 15 (D-28) — 웹앱 호가창이 DMA 구독·주문 키로 쓴다. 공개 표준코드라 노출 무해(T-15-36).
 const MASTER_COLS =
-  "code,name,market,sector,security_type,listing_date,is_delisted,updated_at";
+  "code,name,isin,market,sector,security_type,listing_date,is_delisted,updated_at";
 const QUOTE_COLS =
   "code,price,change_amount,change_rate,volume,trade_amount,open,high,low,market_cap,upper_limit,lower_limit,updated_at";
 

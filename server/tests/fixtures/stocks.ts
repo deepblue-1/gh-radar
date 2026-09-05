@@ -54,6 +54,7 @@ export const allRows = [samsungRow, kakaoRow, kosdaqRow];
 export const samsungMaster: StockMasterRow = {
   code: "005930",
   name: "삼성전자",
+  isin: "KR7005930003",   // KRX 표준코드 12자 (D-28) — DMA 구독·주문 키
   market: "KOSPI",
   sector: null,
   security_type: "보통주",
@@ -63,9 +64,11 @@ export const samsungMaster: StockMasterRow = {
 };
 
 // 마스터에는 있지만 시세 없는 종목 (em-dash 폴백 시나리오)
+// isin 미백필 종목 — 그 종목은 DMA 구독·주문이 불가하다 (RESEARCH A9)
 export const masterOnly: StockMasterRow = {
   code: "999999",
   name: "신규상장종목",
+  isin: null,
   market: "KOSDAQ",
   sector: null,
   security_type: "보통주",

@@ -1,4 +1,9 @@
-import type { Stock, Market, KiwoomKa10001Row } from "@gh-radar/shared";
+import type {
+  Stock,
+  Market,
+  KiwoomKa10001Row,
+  StockDetailResponse,
+} from "@gh-radar/shared";
 
 // === 공통 parser (worker 와 별도 모듈 인스턴스 — cross-workspace import 회피) ===
 
@@ -77,6 +82,9 @@ export function rowToStock(r: StockRow): StockWithProximity {
 export type StockMasterRow = {
   code: string;
   name: string;
+  // Phase 15 (D-28): KRX 표준코드 12자. DMA 게이트웨이 구독·주문 키.
+  // 미백필 종목 / ETP 는 NULL — 그 종목은 게이트웨이 구독·주문이 불가하다 (RESEARCH A9).
+  isin: string | null;
   market: string;
   sector: string | null;
   security_type: string;
@@ -101,7 +109,7 @@ export type StockQuoteRow = {
   updated_at: string;
 };
 
-export type StockWithProximityResponse = Stock & { upperLimitProximity: number };
+export type StockWithProximityResponse = StockDetailResponse;
 
 export function mergeMasterAndQuote(
   master: StockMasterRow,
@@ -112,6 +120,7 @@ export function mergeMasterAndQuote(
   return {
     code: master.code,
     name: master.name,
+    isin: master.isin ?? null,   // D-28 — 웹앱 호가창의 구독·주문 키
     market: master.market as Market,
     price,
     changeAmount: quote ? Number(quote.change_amount) : 0,
