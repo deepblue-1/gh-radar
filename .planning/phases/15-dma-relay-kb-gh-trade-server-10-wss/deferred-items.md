@@ -129,3 +129,46 @@
   실패로 두면 배포 검증(INV-1~8)이 아직 존재하지 않는 데이터에 발목잡힌다.
 - **권고:** 15-10 이 백필을 끝내면 이 분기를 채운다.
   예정 검증: 주식(ETP 제외) 행의 `isin` null 카운트 == 0, `length(isin) = 12`.
+
+## [15-10] master-sync 가 2026-06-10 이후 매일 0행을 받고 조용히 끝난다 (선재 · 범위 밖)
+
+- **발견 경로:** 15-10 Task 3 백필 준비 — Cloud Run Job 을 그냥 1회 실행하면 되는지
+  확인하려고 최근 실행 로그를 읽던 중.
+- **증상:** `gh-radar-master-sync` 는 매 영업일 08:10 KST 에 정상 종료(exit 0)하지만
+  로그는 매번 `KRX fetched krxRows=0` → `KRX returned 0 rows … (stocks 마스터 미변경)`
+  이다. 09-01/09-02/09-03 실행 3건 모두 동일. `stocks.updated_at` 의 대부분이
+  **2026-06-10** 에 멈춰 있는 것이 그 결과다.
+- **원인:** `workers/master-sync/src/index.ts` 의 `todayBasDdKst()` 가 **오늘(KST) 날짜**를
+  `basDd` 로 보낸다. KRX 기본정보는 그 시점에 아직 발행되지 않는다. 실측(2026-09-06 KST):
+
+  | basDd | 응답 |
+  | --- | --- |
+  | 20260906 (일) | 0 행 |
+  | 20260904 (금) | 0 행 |
+  | 20260903 (목) | 943 행 (KOSPI) |
+
+  즉 현재 가용 최신 기준일은 **T-2 영업일** 수준이고, "오늘" 은 항상 0 행이다.
+  2026-06-10 까지는 통했으므로 그 무렵 KRX 발행 시점이 바뀐 것으로 보인다.
+- **영향(연쇄):** upsert 도 delist-sweep 도 실행되지 않는다 →
+  ① 6월 이후 상장폐지·비상장 전환된 종목이 `is_delisted=false` 로 남아 있고,
+  ② intraday-sync `bootstrapStocks` 가 placeholder 로 넣은 ETN 행이
+  `security_group='주권'` 인 채 교정되지 않는다.
+  이 둘이 곧 15-10 의 `--check-isin` ISIN-2 잔존 42종목의 원인이다.
+- **15-10 무관 근거:** 15-10 의 변경(map/upsert/routes/shared/smoke)은 `basDd` 선택
+  로직을 건드리지 않는다. 로그상 최초 0행은 15-10 착수 3개월 전이다.
+- **15-10 에서 한 조치:** 백필만 `BAS_DD=20260903` 을 명시해 1회 수행했다.
+  `index.ts` 는 손대지 않았다 — 스케줄 의미를 바꾸는 변경이고, 배포로 검증할 수
+  없는 환경이라(권한 계층이 재배포를 차단) 검증 없는 수정이 된다.
+- **권고:** `todayBasDdKst()` 를 "오늘부터 거슬러 올라가며 비어 있지 않은 응답이 나올
+  때까지 최대 N일 탐색" 으로 바꾸는 quick task. 0행을 warn 이 아니라 **연속 N회 시
+  에러**로 승격해 다시는 3개월간 조용히 죽어 있지 않게 할 것.
+
+### 부기 (15-10, 2026-09-06): server ECONNRESET flake 잔존
+
+위 "근본 수정 완료" 이후에도 **완전히 사라지지는 않았다.** 15-10 검증 중 server 단독
+실행 4회에서 1회 `tests/routes/discussions.test.ts > V-05` 가 `read ECONNRESET` 으로
+실패했다(나머지 3회는 29 files / 221 tests 전부 통과). 15-10 이 건드린
+`tests/routes/stock-detail.test.ts` 는 4회 모두 통과했고, 실패 파일은 15-10 의 변경과
+무관하다. `keepAlive=false` 는 적용돼 있으므로 남은 원인은 다른 데 있다 —
+supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 손봐야 할 수 있다.
+빈도가 낮아 여기 기록만 남긴다.
