@@ -7,6 +7,7 @@
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -29,26 +30,33 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Data Foundation
+
 **Goal**: KIS OpenAPI에서 실시간 시세 데이터를 가져와 Supabase에 저장하는 기반 레이어가 작동한다
 **Depends on**: Nothing (first phase)
 **Requirements**: INFR-01, INFR-02
 **Success Criteria** (what must be TRUE):
+
   1. KIS OpenAPI 인증 토큰을 발급받아 등락률 순위 REST 엔드포인트를 성공적으로 호출할 수 있다
   2. Supabase에 stocks, news_articles, discussions, summaries 테이블이 생성되어 있다
   3. Ingestion Worker가 KIS API로부터 종목 시세 데이터를 읽어 stocks 테이블에 upsert한다
   4. 15 req/sec 이하의 속도 제한 로직이 적용되어 EGW00201 에러 없이 안정적으로 폴링한다
+
 **Plans**: TBD
 
 ### Phase 2: Backend API
+
 **Goal**: 프론트엔드가 소비할 수 있는 Express REST API가 Cloud Run에 배포되어 운영된다
 **Depends on**: Phase 1
 **Requirements**: INFR-03
 **Success Criteria** (what must be TRUE):
+
   1. Express 앱이 Cloud Run에 배포되어 공개 URL로 접근 가능하다
   2. min-instances=1 설정으로 cold start 없이 API 요청에 응답한다
   3. `/api/scanner` 엔드포인트가 Supabase에서 종목 시세 데이터를 읽어 JSON으로 반환한다
   4. `/api/stocks/:code` 엔드포인트가 개별 종목 정보를 반환한다
+
 **Plans:** 5 plans
+
 - [x] 02-01-PLAN.md — server 워크스페이스 스캐폴드 + 공용 유틸/타입/매퍼/테스트 인프라
 - [x] 02-02-PLAN.md — createApp 팩토리 + 미들웨어 스택 (helmet/CORS/rate-limit/request-id/pino/error/404)
 - [x] 02-03-PLAN.md — 4개 엔드포인트 구현 + server.ts 엔트리 + 로컬 dev smoke
@@ -56,44 +64,59 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] 02-05-PLAN.md — Cloud Run 실배포 + INV-1~INV-11 검증 + DEPLOY-LOG
 
 ### Phase 3: Design System
+
 **Goal**: 모든 프론트엔드 UI가 공통으로 사용할 디자인 토큰, 컴포넌트, 레이아웃 템플릿이 정의되어 있다
 **Depends on**: Nothing (can run in parallel with Phase 1-2)
 **Requirements**: DSGN-01, DSGN-02, DSGN-03, DSGN-04, DSGN-05
 **Success Criteria** (what must be TRUE):
+
   1. CSS 변수로 컬러 팔레트, 타이포그래피, 스페이싱 토큰이 정의되어 있어 하드코딩된 색상값이 없다
   2. 버튼 클릭 또는 시스템 설정에 따라 Light/Dark 테마가 전환되며 모든 컴포넌트에 반영된다
   3. Button, Card, Table, Badge, Input 등 공통 컴포넌트가 shadcn/ui 기반으로 커스터마이징되어 있다
   4. 네비게이션, 사이드바, 콘텐츠 영역을 포함한 페이지 레이아웃 템플릿이 존재한다
   5. HTML 카탈로그 문서를 브라우저로 열면 모든 토큰, 컴포넌트, 레이아웃을 시각적으로 확인할 수 있다
+
 **Plans:** 1 plan (6 sub-plans / 3 waves)
+
 - [x] 03-PLAN.md — Design System: webapp 스캐폴드 + 토큰/테마/컴포넌트/레이아웃/카탈로그
+
 **UI hint**: yes
 
 ### Phase 4: Frontend Scaffold
+
 **Goal**: Next.js 앱이 Vercel에 배포되어 접근 가능하며, 디자인 시스템을 기반으로 기본 레이아웃이 작동한다
 **Depends on**: Phase 3
 **Requirements**: INFR-04
 **Success Criteria** (what must be TRUE):
+
   1. Next.js 앱이 Vercel 배포 URL로 접근 가능하다 — ✅ https://gh-radar-webapp.vercel.app
   2. 디자인 시스템의 CSS 변수와 shadcn/ui 컴포넌트가 앱에 임포트되어 정상 작동한다 — ✅ build PASS
   3. Phase 3에서 정의한 레이아웃 템플릿(네비게이션 포함)이 적용된 기본 페이지가 표시된다 — ✅ AppShell(hideSidebar) 적용 + smoke 통과
   4. Light/Dark 테마 전환이 앱에서 작동한다 — ✅ ThemeToggle 브라우저 smoke 통과
+
 **Plans:** 1 plan
+
 - [x] 04-PLAN.md — Frontend Scaffold: AppShell hideSidebar + apiFetch + /scanner placeholder + 에러 경계 + Vercel 환경변수
+
 **UI hint**: yes
 
 ### Phase 5: Scanner UI
+
 **Goal**: 트레이더가 상한가 근접 종목을 실시간으로 확인하고 임계값을 조절할 수 있는 스캐너 화면이 완성된다
 **Depends on**: Phase 2, Phase 4
 **Requirements**: SCAN-01, SCAN-02, SCAN-03, SCAN-04, SCAN-05, SCAN-06, SCAN-07
 **Success Criteria** (what must be TRUE):
+
   1. 스캐너 페이지에 코스피/코스닥 전 종목의 현재가, 등락률, 거래량이 목록으로 표시된다
   2. 임계값 슬라이더(10~29%, 기본 25%)를 조작하면 기준값 이상의 등락률 종목만 필터링되어 표시된다
   3. 각 종목 행에 코스피/코스닥 구분 마켓 배지가 표시된다
   4. 화면에 마지막 데이터 갱신 시각이 표시된다
   5. 데이터가 1분 간격으로 자동 갱신되어 최신 등락률이 반영된다
+
 **Plans:** 1 plan (4 waves)
+
 - [x] 05-PLAN.md — Scanner UI: vitest 인프라 + 순수 유틸/훅 + chip+popover 필터 + Table/Card 듀얼 + 60s 폴링 + Suspense 페이지 교체
+
 **UI hint**: yes
 
 ### Phase 05.1: Ingestion 운영 배포 — Cloud Run Job + Cloud Scheduler로 KIS 데이터 자동 수집 활성화 (INSERTED)
@@ -104,6 +127,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 6/6 plans executed ✅
 
 Plans:
+
 - [x] 05.1-01-PLAN.md — Wave 0 스크립트/YAML/DEPLOY-LOG 템플릿 스캐폴드
 - [x] 05.1-02-PLAN.md — Wave 1 setup-ingestion-iam.sh 실행 (SA 2종 + Secret 4종 + accessor 4건)
 - [x] 05.1-03-PLAN.md — Wave 2 deploy-ingestion.sh 실행 (이미지 27eecfd + Job + Invoker + Scheduler OAuth)
@@ -123,6 +147,7 @@ Plans:
 **Plans:** 5/5 plans executed ✅
 
 Plans:
+
 - [x] 05.2-01-PLAN.md — DB migration (trade_amount 컬럼 추가)
 - [x] 05.2-02-PLAN.md — 공용 타입 + ingestion map/upsert + vitest
 - [x] 05.2-03-PLAN.md — server API (COLS + X-Last-Updated-At + CORS exposedHeaders)
@@ -133,20 +158,25 @@ Plans:
 **Hotfix commit `3f9691d`:** 거래대금 정확값은 `inquirePrice.acml_tr_pbmn` 전용 (Research 오류 정정), inquirePrice 실패 시 trade_amount=0 → UI "-" 표시. rate limit 15→10 req/sec 보수적 운영.
 
 ### Phase 6: Stock Search & Detail
+
 **Goal**: 트레이더가 종목명 또는 코드로 종목을 검색하고 해당 종목의 상세 정보를 볼 수 있다
 **Depends on**: Phase 2, Phase 4
 **Requirements**: SRCH-01, SRCH-02, SRCH-03
 **Success Criteria** (what must be TRUE):
+
   1. 검색창에 종목명 또는 종목코드를 입력하면 자동완성 드롭다운이 나타난다
   2. 드롭다운에서 종목을 선택하면 해당 종목 상세 페이지로 이동한다
   3. 종목 상세 페이지에 현재가, 등락률, 거래량 등 상세 정보가 표시된다
+
 **Plans:** 6 plans (프론트엔드 전용, 5 waves)
+
 - [x] 06-01-PLAN.md — Wave 0 인프라: shadcn command 설치 + vitest setup + playwright + axe + e2e 픽스처
 - [x] 06-02-PLAN.md — lib/stock-api.ts + useDebouncedSearch + useCmdKShortcut (+ 17 unit tests)
 - [x] 06-03-PLAN.md — GlobalSearch ⌘K CommandDialog + SearchTrigger + AppShell 배선
 - [x] 06-04-PLAN.md — StockHero / StockStatsGrid (em-dash 정책) / ComingSoonCard / StockDetailClient
 - [x] 06-05-PLAN.md — /stocks/[code] page + not-found.tsx + error.tsx (Next 15 use(params))
 - [x] 06-06-PLAN.md — playwright E2E (search/detail/a11y) + axe 접근성
+
 **UI hint**: yes
 
 ### Phase 06.1: stock-master-universe (INSERTED)
@@ -157,6 +187,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 06.1-01-PLAN.md — Wave 0 타입·워크스페이스·테스트 스캐폴드 (`packages/shared` 타입 + `workers/master-sync` 신설 + `server/src/kis/` 복제 + RED 테스트)
 - [x] 06.1-02-PLAN.md — Wave 1 마이그레이션 SQL (rename + split + FK re-point + RLS 승계 + pg_trgm) + [BLOCKING] supabase db push
 - [x] 06.1-03-PLAN.md — Wave 2 master-sync 구현 (KRX OpenAPI fetch + map + upsert + retry + integration test)
@@ -172,6 +203,7 @@ Plans:
 **Plans:** 10/10 plans complete
 
 Plans:
+
 - [x] 06.2-01-PLAN.md — Wave 1 Supabase Auth Foundation (@supabase/ssr 3-파일 클라이언트 + middleware + callback + AuthProvider + layout 배선)
 - [x] 06.2-02-PLAN.md — Wave 1 Watchlists 스키마 + RLS 4정책 + BEFORE INSERT trigger + [BLOCKING] supabase db push + stocks/stock_quotes RLS authenticated 확장
 - [x] 06.2-03-PLAN.md — Wave 2 /login 페이지 + middleware route guard 활성화 + open-redirect 가드 + clickjacking 헤더
@@ -184,20 +216,25 @@ Plans:
 - [x] 06.2-10-PLAN.md — Wave 5 mockup/06-2 정리 + middleware matcher 정합 + REQUIREMENTS.md AUTH/PERS status 갱신
 
 ### Phase 7: News Ingestion
+
 **Goal**: 특정 종목과 관련된 최신 뉴스를 Naver Search API로 수집하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 2, Phase 6
 **Requirements**: NEWS-01
 **Success Criteria** (what must be TRUE):
+
   1. 종목 상세 페이지에서 해당 종목 관련 뉴스 목록이 표시된다
   2. 뉴스 항목에 제목, 출처, 날짜가 표시되며 원문 링크가 작동한다
   3. Naver Search API 25,000 calls/day 한도 내에서 뉴스가 수집된다
+
 **Plans:** 6 plans (4 waves) — **Completed 2026-04-17**
+
 - [x] 07-01-PLAN.md — Wave 0 Supabase 마이그레이션(api_usage + idx_news_created_at) + packages/shared news-sanitize + 테스트 스텁 인프라 + [BLOCKING] supabase db push
 - [x] 07-02-PLAN.md — Wave 1 workers/news-sync worker (naver client + sanitize pipeline + apiUsage RPC + retention + p-limit + unit/integration tests)
 - [x] 07-03-PLAN.md — Wave 1 server 라우트 GET/POST (Zod clamp + 30s cooldown + naverClient 주입 + CORS Retry-After + supertest)
 - [x] 07-04-PLAN.md — Wave 2 webapp UI 컴포넌트 6종 + fetchStockNews/refreshStockNews + StockDetailClient 교체 + StockHero ← 링크 + ApiClientError.details
 - [x] 07-05-PLAN.md — Wave 2 /stocks/[code]/news 페이지 (Next 15 use(params) + 7일/하드캡 100 + ← back-nav)
 - [x] 07-06-PLAN.md — Wave 3 IAM + deploy 스크립트 + server 재배포 + Playwright E2E(news.spec.ts 6건) + [BLOCKING] GCP 실배포 + DEPLOY-LOG
+
 **UI hint**: yes
 
 ### Phase 07.1: news content ingestion enhancement — description 저장 (INSERTED)
@@ -206,15 +243,18 @@ Plans:
 **Depends on**: Phase 7
 **Requirements**: NEWS-01 (enhancement)
 **Success Criteria** (what must be TRUE):
+
   1. news_articles.description (text nullable) 컬럼이 Supabase 프로덕션 DB 에 존재한다
   2. news-sync worker 가 신규 수집 시 stripHtml 처리된 description 을 upsert 한다
   3. 기존 1,103 행은 description=NULL 로 유지 (또는 nightly refill — planner 재량)
   4. 기존 UPSERT idempotency (ON CONFLICT DO NOTHING) 유지 — description 변경이 content_hash 에 영향 없음 확인
   5. server/webapp/worker 전 워크스페이스 test + typecheck + build green
+
 **Rationale**: 2026-04-17 Naver API 실측 — description 평균 126자, 유니크 주제 4-5개/20건 → 트레이더 핵심 정보 70-80% 커버. URL 원문 scraping 은 본 phase 범위 아님 (Phase 9 POC 후 재검토).
 **Plans:** 1 plan (1 wave, [BLOCKING] supabase db push)
 
 Plans:
+
 - [x] 07.1-01-PLAN.md — Wave 1 migration(ADD COLUMN) + shared NewsArticle 확장 + worker/server pipeline description 저장 + 기존 테스트 회귀 + [BLOCKING] supabase db push
 
 **Completed:** 2026-04-18 (migration 20260417120200 + Cloud Run Job image d9b5af3 재배포 + 신규 수집부터 description 저장 확인)
@@ -225,28 +265,35 @@ Plans:
 **Depends on**: Phase 7, Phase 7.1
 **Requirements**: NEWS-01 (stability enhancement)
 **Success Criteria** (what must be TRUE):
+
   1. news-sync Cloud Run Job 실행 시 `skipped` 0~5 이내 (현재 40+) — stopAll 이 rate-limit 하나로 cycle 전체를 중단시키지 않음
   2. NaverRateLimitError 가 NaverBudgetExhaustedError 와 **분리**된 Error class 로 정의되고 per-stock 에서 exponential backoff 1~2회 retry 후 fail-isolated 처리 (종목 1개 실패가 cycle 전체를 중단시키지 않음)
   3. concurrency 기본값 8 → **3** (NEWS_SYNC_CONCURRENCY env override 가능) — Naver ~10 QPS 한도에 안전 마진
   4. news_articles TRUNCATE 후 1 tick 재수집으로 top_movers+watchlists 전 종목(~55개)의 뉴스·description 채워짐 — `abort signal from Naver` 0건 + `inserted > 100`
   5. UPSERT 정책은 `ON CONFLICT DO NOTHING` 유지 (TRUNCATE + 재수집으로 description 채워지므로 COALESCE 불필요)
+
 **Rationale**: 2026-04-18 진단 — 매 tick `abort signal from Naver` 5+회 + `skipped: 40+` / 55 로 74% 종목 뉴스 0건. api_usage 94건으로 daily budget(24,500) 은 충분하지만 초당 QPS 초과 → 429 → stopAll → cycle 조기 중단. description 커버리지도 3 종목 / 55 종목에 그침. 수집 시작 1일차라 기존 1,266행 폐기 손실 낮음 → clean-slate 가 UPSERT COALESCE 자연 backfill 보다 단순/빠름.
 **Plans:** 1 plan (1 wave, [BLOCKING] TRUNCATE news_articles)
 
 Plans:
+
 - [x] 07.2-01-PLAN.md — NaverRateLimitError 분리 + concurrency 3 + per-stock backoff retry + Cloud Run Job 재배포 + TRUNCATE news_articles + 재수집 검증
 
 **Completed:** 2026-04-18 (image `news-sync:141ccdc` / inserted=6,187 / skipped=0 / abort=0 / top_movers 55/55 커버 / description 99.9%)
 
 ### Phase 8: Discussion Board
+
 **Goal**: 네이버 종목토론방의 최신 게시글을 on-demand로 스크래핑하여 종목 상세 페이지에 표시한다
 **Depends on**: Phase 2, Phase 6
 **Requirements**: DISC-01
 **Success Criteria** (what must be TRUE):
+
   1. 종목 상세 페이지에서 해당 종목의 네이버 토론방 게시글 목록이 표시된다
   2. 데이터는 on-demand로 요청되며 5~10분 캐싱으로 불필요한 스크래핑이 방지된다
   3. 스크래핑 결과가 discussions 테이블에 저장된다
+
 **Plans:** 7 plans (3 waves)
+
 - [x] 08-00-poc-proxy-dom-PLAN.md — Wave 1 POC: Bright Data Web Unlocker + stock.naver.com community **JSON API 옵션 5** 채택 (cheerio/iconv/iframe body fetch 모두 폐기) + zone `gh_radar_naver` 신설 + fixture 캡처
 - [x] 08-01-shared-types-scaffold-PLAN.md — Wave 1 packages/shared Discussion 타입 + discussion-sanitize 3 함수 (ISO+dot 양 포맷) + workers/discussion-sync 스캐폴드 + 테스트 스텁 (server 16 todo + e2e 5 skip)
 - [x] 08-02-discussion-sync-worker-PLAN.md — Wave 1 workers/discussion-sync 워커 (Bright Data → JSON API + zod 검증 + UPSERT DO UPDATE + retention 90일 + 예산 카운터 + first-time/stale 종목 backfill loop max 10 페이지)
@@ -254,6 +301,7 @@ Plans:
 - [x] 08-04-webapp-discussion-section-PLAN.md — Wave 2 상세 카드 섹션 — StockDiscussionSection + 5 컴포넌트 + Stale Badge + 30s 쿨다운 + ComingSoonCard 교체
 - [x] 08-05-webapp-discussion-page-PLAN.md — Wave 2 /stocks/[code]/discussions 풀페이지 Compact 3열 grid + Next 15 use(params) + IntersectionObserver 무한 스크롤
 - [x] 08-06-deploy-and-e2e-PLAN.md — Wave 3 IAM + deploy 스크립트 3종 + server 재배포 + Playwright E2E 8 spec + smoke 8/8 PASS + DEPLOY-LOG (Cloud Run Job + Scheduler + 15,463 row upserted, 0 errors)
+
 **UI hint**: yes
 
 **Completed:** 2026-04-18 (Wave 3 deploy + smoke 8/8 PASS, Cloud Run Job `gh-radar-discussion-sync` + Scheduler `gh-radar-discussion-sync-hourly` + Secret `gh-radar-brightdata-api-key`. server `/api/stocks/:code/discussions` 200 OK 실측 (1.04s), DB 15,463 row · 50+ 종목 분포. POC PIVOT 으로 cheerio/iconv-lite/body iframe fetch 모두 제거 — RESEARCH 가정 무효화)
@@ -267,6 +315,7 @@ Plans:
 **Completed:** 2026-04-22 (Wave 1~4 완료 — 서버/워커/웹앱 코드 landed + 로컬 테스트 PASS. production backfill + 배포는 ANTHROPIC_API_KEY 사용자 제공 이후 manual follow-up)
 
 **Success Criteria** (what must be TRUE):
+
   1. `discussions` 테이블에 `relevance` (price_reason|theme|news_info|noise|NULL) + `classified_at` 컬럼이 존재하고 CHECK 제약이 적용된다
   2. `workers/discussion-sync` cycle 이 수집 직후 같은 실행에서 Claude Haiku Sync API 로 신규 행을 분류하고 `classified_at` 을 기록한다 (p-limit 5, temperature 0, max_tokens 10)
   3. server `GET /api/stocks/:code/discussions?filter=meaningful` 이 `relevance IS NULL OR relevance != 'noise'` 로 필터링하여 응답한다
@@ -275,6 +324,7 @@ Plans:
   6. 기존 15k 누적 discussions 가 백필 스크립트로 4-category 분배된다
 
 Plans:
+
 - [x] 08.1-01-PLAN.md — Wave 1 DB migration (relevance/classified_at 컬럼 + 2 partial index) + packages/shared Discussion 타입 확장
 - [x] 08.1-02-PLAN.md — Wave 1 server /discussions GET 의 filter=meaningful 분기 + toDiscussion 에 relevance/classifiedAt 노출
 - [x] 08.1-03-PLAN.md — Wave 2 workers/discussion-sync 의 inline classify 모듈 (Claude Haiku 4.5 + p-limit(5) + max_tokens=10 + temperature=0)
@@ -282,20 +332,25 @@ Plans:
 - [x] 08.1-05-PLAN.md — Wave 3 15k 기존 행 일회성 backfill 스크립트 (안전장치 MAX_BACKFILL_ROWS + SIGINT graceful)
 - [x] 08.1-06-PLAN.md — Wave 3 webapp /discussions 풀페이지 Switch 토글 + URL sync + 빈 상태 카피 분기 (상세 Card 미변경)
 - [x] 08.1-07-PLAN.md — Wave 4 Playwright E2E 4 시나리오 + REQUIREMENTS/ROADMAP/STATE 갱신 + SUMMARY (production smoke 는 ANTHROPIC_API_KEY 주입 이후 manual)
+
 **UI hint**: yes
 
 ### Phase 9: Daily Candle Data Collection
+
 **Goal**: KRX 상장 전 종목(~2,800)의 일봉 OHLCV 데이터를 Supabase에 수집·저장하고, 매 영업일 EOD 후 신규 영업일 데이터를 증분 수집하여 향후 분석 기능(가격 패턴/변동성/추세 등)의 기반 데이터 레이어를 마련한다
 **Depends on**: Phase 06.1 (stocks 마스터 universe — 수집 대상 종목 리스트)
 **Requirements**: DATA-01 (신규)
 **Status**: ✅ Complete (2026-05-12)
 **Success Criteria** (what must be TRUE):
+
   1. 일봉 OHLCV 테이블 `stock_daily_ohlcv` 이 Supabase에 존재하고 PK=(code, date), 컬럼은 open/high/low/close/volume/trade_amount 포함, **4,003,432 행** (백필 범위 **2020-01-02 ~ 2026-05-11**) 을 보유한다 ✅
   2. 초기 백필 스크립트가 KRX OpenAPI bydd_trd 로부터 종목별 일봉 OHLCV 를 수집해 upsert한다 (Cloud Run Job 1회 실행 51분, 1,658 days, KOSPI+KOSDAQ Promise.all 병렬) ✅
   3. Cloud Run Job + Cloud Scheduler가 매 영업일 EOD 이후(`30 17 * * 1-5` KST) 신규 1영업일 데이터를 **증분** 수집한다 (full re-fetch 금지, recover `10 8 * * 1-5` 익영업일 보완) ✅
   4. 무료 API 한도 내 안정 동작 — 401 가드 + per-day try/catch fail-isolation + withRetry + chunked UPSERT (백필 중 1일 numeric overflow 발생 → hotfix migration + per-day 격리로 전체 성공 입증) ✅
   5. 데이터 정합성 — 미수집 종목 **0.00%** (0/2,771 active), 최근 30영업일 중 결측 일자 **0** (0/19 days incomplete) ✅
+
 **Plans:** 6 plans
+
 - [x] 09-01-PLAN.md — Wave 1 마이그레이션 SQL + StockDailyOhlcv/BdydTrdRow 타입
 - [x] 09-02-PLAN.md — Wave 1 candle-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry/supabase)
 - [x] 09-03-PLAN.md — Wave 1 KRX 클라이언트 + 파이프라인 5종 + 4 unit tests
@@ -311,6 +366,7 @@ Plans:
 **Plans:** 11/11 plans complete
 **Status:** ✅ Complete (2026-05-15)
 **Success Criteria** (what must be TRUE):
+
   1. `workers/intraday-sync` 워크스페이스가 candle-sync 1:1 mirror 구조로 존재하며, STEP1 (ka10027 페이지네이션) + STEP2 (ka10001 hot set) 두 단계 cycle 을 매분 실행
   2. Supabase 마이그레이션: `kis_tokens` DROP + `kiwoom_tokens` CREATE (token_type, access_token, expires_at, fetched_at) + `intraday_upsert_close(jsonb)` RPC + `intraday_upsert_ohlc(jsonb)` RPC 가 production 적용. 모든 RPC + 신규 테이블 service_role 만 호출 가능 (anon/authenticated REVOKE 명시)
   3. Cloud Run Job `gh-radar-intraday-sync` + Cloud Scheduler (`* 9-15 * * 1-5` Asia/Seoul) 가 GCP 에 ENABLED 상태로 배포
@@ -322,6 +378,7 @@ Plans:
   9. `trade_amount = volume × close` 근사값 정책이 코드 주석에 명시 (현 `workers/ingestion/src/pipeline/map.ts:5` 의 "근사값은 허용하지 않음" 정책 반전, 새 mapper 에 사유 + 사용처 트레이딩 시그널 명시)
 
 Plans:
+
 - [x] 09.1-01-PLAN.md — Wave 0 마이그레이션 SQL 4종 (kis_tokens DROP + kiwoom_tokens CREATE + intraday_upsert_close/ohlc RPC)
 - [x] 09.1-02-PLAN.md — Wave 0 packages/shared/src/kiwoom.ts 4 타입 + 단위 테스트
 - [x] 09.1-03-PLAN.md — Wave 0 workers/intraday-sync 워크스페이스 스캐폴드 (Dockerfile + config/logger/retry/supabase)
@@ -342,6 +399,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 09.2-01-PLAN.md — Wave 1 기반 (REQUIREMENTS/PROJECT 갱신 + packages/shared 타입 + chart-colors utility + daily-ohlcv-api + Wave 0 unit tests)
 - [x] 09.2-02-PLAN.md — Wave 2 차트 UI (StockDailyChart lightweight-charts + StockDailyChartSection + 다크모드 useTheme effect + Skeleton/Empty/Error)
 - [x] 09.2-03-PLAN.md — Wave 3 통합 + 정리 (StockDetailClient 마운트 + mockups 디렉터리 삭제 + E2E spec + 사용자 시각 검증 + STATE 함정 기록)
@@ -353,6 +411,7 @@ Plans:
 **Depends on:** Phase 06.1 (stocks 마스터 — theme_stocks FK), Phase 09.1 (stock_quotes — 테마별 등락률 표시)
 **Scope (확장 — discuss-phase 2026-06-09):** 테마 수집(A) + 테마 UI(B) + 유저 테마 CRUD(THEME-03) + AI 테마 보강(THEME-04). 상한가 동조/상관관계 분석은 후속 phase 로 분리.
 **Success Criteria** (what must be TRUE):
+
   1. `themes` + `theme_stocks` 테이블이 생성되고, 네이버 금융 테마(약 265개) + 알파스퀘어 정치/시사 테마가 적재된다 (`theme_stocks` 는 `effective_from`/`effective_to` 로 편입·제외 이력 보존, `source`/`confidence` 컬럼 포함, `stocks` 와 FK 연결).
   2. `workers/theme-sync` 가 Cloud Run Job + Cloud Scheduler 로 일 1회 16:00 KST 실행되어 테마 매핑을 갱신한다 (콘텐츠 SHA256 해시 변경 감지 — 동일 콘텐츠 시 DB write 스킵).
   3. 한국 크롤링 운영 5원칙 준수: 일 1~2회 배치 캡 / 24h 캐싱+해시 / on-demand fetch 금지 / 429·403 즉시 24h backoff / 출처 표기+부분 캐싱 (전체 DB 덤프 금지).
@@ -360,11 +419,13 @@ Plans:
   5. 웹앱 `/themes` 페이지가 테마 목록을 표시하고, 테마 선택 시 소속 종목 리스트(종목명 + 현재가 + 등락률, `stock_quotes` 기반)를 보여준다. 각 테마/종목에 출처가 표기된다.
   6. 로그인 유저가 본인 소유 테마를 생성/편집/삭제하고 종목을 add/remove 할 수 있으며, 시스템 테마를 스냅샷 fork 로 복사해 시작할 수 있다 (per-user owner-only RLS — watchlist 선례, 시스템 테마와 분리되어 스크래퍼가 유저 테마를 건드리지 않음).
   7. Claude Haiku 4.5 가 뉴스(`news_articles`) 기반으로 신규 시스템 테마 후보를 발굴하고 종목↔테마 오분류를 교정한다 (discussion-sync classify 패턴 재사용, `source` 라벨로 시스템 레이어에 분리 적재).
+
 **Out of scope (this phase):** 상한가 동조/상관관계 분석, 테마 기반 알림.
 **Notes:** 진짜 법적 리스크는 형사가 아닌 민사 DB제작자 권리 침해(대법원 2017다224395) — "상당한 부분 복제" 의 구조적 회피가 핵심 (CLAUDE.md "Naver 종목토론방 Scraping Risk" 운영 5원칙 참조).
 **Plans:** 8/8 plans complete
 
 Plans:
+
 - [x] 10-01-test-infra-fixtures-PLAN.md — theme-sync 워크스페이스 스캐폴드 + 네이버/알파 fixture + supabase-mock (Wave 0)
 - [x] 10-02-data-model-migration-PLAN.md — themes/theme_stocks 마이그레이션(단일 테이블+RLS+limit) + shared 타입 + [BLOCKING] db push (Wave 1)
 - [x] 10-03-scrape-pipeline-PLAN.md — 네이버 cheerio + 알파 JSON + 직접→프록시 폴백 + 병합 + upsert + 5원칙 backoff (Wave 2)
@@ -381,6 +442,7 @@ Plans:
 **Depends on:** Phase 9 (stock_daily_ohlcv 일봉 4M행), Phase 10 (themes/theme_stocks — 후보 풀링·게이팅), Phase 09.1 (stock_quotes — 실시간 등락률 표시), Phase 6 (종목 상세 페이지 구조)
 
 **Scope (확정 — 아이디어 디스커션 + 실측 2026-06-10):**
+
 - **통계 단위 = 하이브리드.** (주) 테마-풀링 참여도 + (보조) 페어 X→Y 직접동조 refinement. 근거: 실측상 종목당 급등(≥15%) 이벤트 **중앙값 2회** → 페어 단독 통계는 ~75% 종목에서 불가, 테마 풀링이 필수. 테마 커버리지 89%(활성 2,778 중 2,476)로 광범위 적용 가능.
 - **시차 = 당일(D0) 동반 + 익일(D+1) 후행 둘 다** 계산·표시. "따라잡기"는 본질적으로 시차 신호.
 - **점수** = conf_d0(테마 발화 시 Y 동반율, 주지표) + lift(Y 기저 급등률 대비 — 변동성 큰 종목 디노이즈) + avg_ret(발화일 Y 평균 수익률, 강도) + conf_d1(익일 후행율). lookback 24개월. 테마 최소 발화일 8 게이팅.
@@ -388,12 +450,14 @@ Plans:
 - **메가캡(테마 최대 34개) 후보 과다·노이즈** → 테마 타이트니스 가중 또는 후보 캡.
 
 **데이터/성능 설계:**
+
 - 이벤트 부분집합이 **~2.5만 행**(전체 4M 아님) → 동조 계산을 **전부 Postgres SQL 함수로 사전계산**(노드로 행 끌어오기 금지 — OOM·네트워크 회피).
 - `stock_daily_ohlcv (date, code) WHERE change_rate >= 10` **부분 인덱스** 신설. 아티팩트(change_rate > 31 — 신규상장 등, 실측 67건) 이벤트 제외.
 - 사전계산 테이블 `theme_comovement`(테마×멤버 참여도, ~7.5K행). 읽기 RPC는 앵커 X의 활성 테마(중앙값 3, p90 6) 멤버 union을 집계해 TOP-K 반환 (테마 멤버십 변경에 자동 반영).
 - 갱신: candle-sync EOD(17:30 KST) 이후 야간 1회 배치(SQL이라 비용 거의 0). 자체 DB 집계·외부 호출 없음 → 한국 크롤링 5원칙과 무관.
 
 **Success Criteria** (what must be TRUE):
+
   1. `theme_comovement` 사전계산 테이블 + `stock_daily_ohlcv` 부분 인덱스가 production에 존재한다. change_rate>31 아티팩트는 이벤트에서 제외된다.
   2. SQL 함수가 테마별 "발화일"(멤버 ≥2 종목이 동일일 ≥15% 급등)을 도출하고, 각 멤버의 conf_d0/lift/avg_ret/conf_d1을 24개월 lookback으로 계산해 `theme_comovement`에 적재한다 (발화일 ≥8 테마만).
   3. 얇은 `co-movement-sync` 워커(candle-sync 패턴) + Cloud Run Job + Scheduler가 EOD candle-sync 이후 야간 1회 실행되어 `theme_comovement`를 갱신한다.
@@ -407,6 +471,7 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 11-01-PLAN.md — Wave 0 스캐폴드: COMV-01 등록 + 사전계산 마이그레이션(theme_comovement/cosurge_edges + 부분인덱스 + rebuild_comovement RPC) + 공유 타입 + RED 테스트 + co-movement-sync 워크스페이스
 - [x] 11-02-PLAN.md — Wave 1 [BLOCKING] supabase db push + rebuild 실행 + fixture co_count 대조 + EXPLAIN → task-timeout 확정
 - [x] 11-03-PLAN.md — Wave 2 읽기 경로: computeComovement 순수함수 + GET /api/stocks/:code/co-movement 라우트(themes.ts 청크 IN) + server 재배포 + prod curl
@@ -451,6 +516,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 12-01-PLAN.md — Wave 1 스캐폴드: shared LimitUpResponse 타입 + limitUpPrice() TS 미러 + 황금 케이스 테스트 + limit-up-sync 워커(co-movement-sync 복제)
 - [x] 12-02-PLAN.md — Wave 2 마이그레이션: limit_up_* 3 테이블 + limit_up_price() + rebuild_limit_up() RPC + [BLOCKING] db push + 황금 케이스 검증
 - [x] 12-03-PLAN.md — Wave 3 server: GET /api/stocks/:code/limit-up 읽기 라우트(객체 계약, 시세 조인 제거) + [BLOCKING] server 재배포 + prod curl
@@ -465,6 +531,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 13-01-PLAN.md — Wave 0 스캐폴드: HOME-01 등록 + home_theme_snapshots 마이그레이션(JSONB blob + RLS TO anon,authenticated) + shared home.ts 타입 + home-sync 워크스페이스(theme-sync 재사용 클론) + [BLOCKING] db push
 - [x] 13-02-PLAN.md — Wave 1 home-sync 파이프라인(TDD): loadSurges(≥20% + 뉴스 청크) + contentHash + clusterSurges(Claude 1회 bottom-up + 뉴스 인덱스 해석 D-04 + 정렬 D-05 + 판정 D-06) + hash-skip 복제 append(D-01)
 - [x] 13-03-PLAN.md — Wave 2 server GET /api/home 객체 계약 { snapshot, index }(시세 재조인 없음, verbatim payload) + Zod + mapper + app.ts 등록 + supertest
@@ -480,6 +547,7 @@ Plans:
 **Plans:** 11/11 plans complete
 
 Plans:
+
 - [x] 14-01-PLAN.md — Wave 1 conversations/messages 마이그레이션(watchlists RLS mirror, TO authenticated 8정책) + [BLOCKING] db push
 - [x] 14-02-PLAN.md — Wave 1 공유 계약(ChatSSEEventMap/SpecialistId/라벨) + config 챗 키(모델/kill-switch/윈도잉) + Anthropic SDK mock 픽스처
 - [x] 14-03-PLAN.md — Wave 2 require-auth JWT 미들웨어(D-02) + chat zod 스키마 + chat-history 서비스(서비스롤 WHERE user_id 소유권)
@@ -498,16 +566,54 @@ Plans:
 **Requirements**: RELAY-01, RELAY-02, RELAY-03 (신규 — 2026-09-05 plan 단계 REQUIREMENTS 등록 완료)
 **Depends on:** Phase 14; **외부 의존** gh-trade Phase 17(users.toml 로그인 인증 + `LoginResp.accounts`) — 병행 진행, 계좌·주문 wave 는 17 완료 후 `sync-relay-schema.sh` 재동기화가 선행 조건; 사용자 DNS(`dma.jx1.io` A 레코드); kbs124 VPN 선검증 통과
 **Success Criteria** (what must be TRUE):
+
   1. `relay/` 워크스페이스가 pnpm 워크스페이스에 등록되고 gh-trade `sync-relay-schema.sh` 산출물(`relay/src/generated/` 40개 + SYNC MARKER fbs 사본)이 커밋돼 있으며 `sync-relay-schema.sh --check` 가 무변경으로 통과한다. 생성물은 손으로 고치지 않는다.
   2. GCE VM `radar-gw` 가 신규 고정 IP·방화벽(443 공개, 22 IAP 한정, relay 내부포트 서브넷 한정)으로 프로비저닝되고, kbs124 계정으로 VM 에서 openconnect VPN 연결·출발지 IP 제한·동시 세션 여부가 **검증·기록**돼 있다(실패 시 자동 재시도 없이 중단, 수동 ≤3회).
-  3. relay 가 프레이밍 코덱(4MB 상한·불량 프레임 드롭·연결 유지)·30초 LivePing·백오프 재접속(재로그인·계좌 재선언·재구독, 서버 거부 시 루프 중단)을 갖춘 사용자별 DMA 세션(Idle→Connecting→LoggingIn→DeclaringAccounts→Ready)을 열고, vitest 가짜 서버 소켓 테스트로 프레임 결합/분할·드롭·핑·재접속을 증명한다.
+  3. relay 가 프레이밍 코덱(**1MB 상한** — 서버 `kMaxRecvBufSize`·C# `MAX_FRAME_SIZE` 실측, 4MB 는 서버 *송신 큐* 상한이라 15-RESEARCH Key Finding 2 로 정정 · 상한 초과는 드롭이 아니라 연결 재수립 · 불량 프레임만 드롭하고 연결 유지)·30초 LivePing·백오프 재접속(재로그인·계좌 재선언·재구독, 서버 거부 시 루프 중단)을 갖춘 사용자별 DMA 세션(Idle→Connecting→LoggingIn→DeclaringAccounts→Ready)을 열고, vitest 가짜 서버 소켓 테스트로 프레임 결합/분할·드롭·핑·재접속을 증명한다.
   4. 브라우저가 `wss://dma.jx1.io` 에 첫 메시지 `{t:"auth", token}` 으로 인증(`supabase.auth.getUser`, 5초 내 미인증 close)하면 `dma_credentials` 매핑이 있는 사용자만 세션이 열리고, 종목 구독 시 `GetQuoteReq(28)` 스냅샷 → `SubscribeQuoteReq(29)` 로 호가 10단·체결 테이프(200ms 배치)·`ServerMessage`·세션 상태 프레임을 받으며(업스트림 100ms 그대로, permessage-deflate), 마지막 wss 종료 5분 뒤 DMA 세션이 닫힌다.
   5. 세션 Ready 후 `LoginResp.accounts` 전부가 `UpdateAccountNoReq` 로 선언되고 `GetAccountStateReq(25)` 스냅샷 + `AccountStateDelta(67)` 델타가 wss 로 내려와 잔고·미체결 목록이 표시된다(gh-trade Phase 17 재동기화 후).
   6. `POST /api/orders`(requireAuth + allowlist + 형식 검사, 금액 한도 없음)가 relay 내부 HTTP(공유 비밀 헤더)로 `DirectOrderReq`(N/C, 조건 "0", KRX/NXT, `stocks.isin` 매핑)를 보내고 첫 `OrderResp`(접수/거부, ≤5초)를 응답하며, 체결·취소확인은 주문자 wss 로 푸시되고 `dma_orders` 에 기록된다. 활성 세션이 없으면 409. mock 브로커의 가격 0 거부 경로가 확인된다.
   7. 웹앱 `/stocks/[code]` 가 상단 4탭(차트·호가주문·종목정보·뉴스토론, `?tab=` 딥링크, shadcn `tabs`)으로 재구성되고 호가주문 탭이 HTML 목업 시각 확인 → UI-SPEC 을 거쳐 구현되며(모바일 세로 순서: 연결상태→호가 5단→주문→체결→잔고→미체결, 기존 탭 회귀 E2E 포함)(호가 클릭→가격 입력, 계좌 선택, 매수/매도/취소, 거래소 토글, 연결 상태 배지, 권한 없음 상태), Playwright E2E 로 wss 왕복이 증명되며 Vercel 에 `NEXT_PUBLIC_RELAY_WS_URL` 이 설정된다.
   8. `relay/Dockerfile` + `scripts/setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책 + VM 프로비저닝 문서(openconnect systemd 유닛·Caddy·Secret Manager: 비밀번호 값은 문서·로그·커밋 어디에도 없음)가 존재하고 실서버(10.41.1.120)·실계좌 접속은 사용자 지시 전엔 하지 않는다.
+
 **Out of scope:** 거래원(MemberStats) 팬아웃, 정정(M)·IOC/FOK·시장가, 서버측 주문 한도, 웹앱 자격증명 입력 UI, 공용 시세 세션, Cloud Run WebSocket, gh-trade 전략 메시지 조작, `GetSymbolMasterReq(27)`.
-**Plans:** 0 plans
+**Plans:** 20 plans (6 waves)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 15 to break down)
+**Wave 1**
+
+- [ ] 15-01-PLAN.md — relay 워크스페이스 스캐폴드 + `sync-relay-schema.sh` 생성물 커밋 + `@gh-radar/shared` wss/주문 계약 (SC-1)
+- [ ] 15-02-PLAN.md — 프레이밍 코덱(1MB 상한·desync) + Envelope 안전 파싱/조립(TakeCount 가드) + 가짜 게이트웨이 테스트 헬퍼 (SC-3)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 15-03-PLAN.md — DmaClient(30초 LivePing·백오프 상한 10·generation) + Session 상태기계 + SessionManager(5분 유예) (SC-3)
+- [ ] 15-04-PLAN.md — SubscriptionHub(참조계수·스냅샷 캐시) + verify-token/AES 자격증명 + WsFanout(첫 메시지 인증·4401·백프레셔) (SC-4)
+- [ ] 15-05-PLAN.md — relay 부팅 결선·graceful shutdown + 내부 HTTP `/healthz`(공유 비밀 상수시간 검증) + Dockerfile + 관리자 등록 스크립트 (SC-8)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 15-06-PLAN.md — `setup-relay-iam.sh` + openconnect systemd·split-tunnel 래퍼 + startup.sh/Caddyfile/운영 README **작성만** (SC-2, SC-8)
+- [ ] 15-07-PLAN.md — [BLOCKING] GCP 인프라 실행 + **kbs124 VPN 선검증(D-03)** + **DNS A 레코드·Caddy 인증서(D-06)** (SC-2)
+- [ ] 15-08-PLAN.md — `deploy-relay.sh`/`smoke-relay.sh`(INV-1~8)/`ops/alert-relay-down.yaml` + relay 배포·INV 검증 (SC-8)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 15-09-PLAN.md — 마이그레이션 3건(`stocks.isin`·`dma_credentials`·`dma_orders`) + [BLOCKING] `supabase db push` (SC-4, SC-6)
+- [ ] 15-10-PLAN.md — ISIN 매핑 파이프라인(shared·master-sync·server 노출) + 백필 + `smoke-relay.sh --check-isin` (SC-6)
+- [ ] 15-11-PLAN.md — 종목상세 4탭 재구성(shadcn `tabs`·`?tab=` 딥링크·sticky) + 기존 섹션 회귀 E2E (SC-7)
+- [ ] 15-12-PLAN.md — `use-relay-socket` 훅(인증·재접속·스냅샷 캐시·unsub) + 연결 상태 바 + 스켈레톤 (SC-7)
+- [ ] 15-13-PLAN.md — 호가 10단 사다리 + 체결 테이프 + 섹션 셸·권한 없음 게이트 (SC-7)
+- [ ] 15-14-PLAN.md — 호가창 component test + 로컬 relay·스텁 게이트웨이 wss E2E + Vercel `NEXT_PUBLIC_RELAY_WS_URL` (SC-7)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 15-15-PLAN.md — [BLOCKING] gh-trade 17 완료 + `sync-relay-schema.sh` 재동기화 → 계좌 선언 루프·목록 대조 (SC-5)
+- [ ] 15-16-PLAN.md — 계좌 상태 팬아웃(66/67) + `DirectOrderReq` 조립 + 내부 주문 API(5초 OrderResp) + `dma_orders` 비동기 큐 (SC-5, SC-6)
+- [ ] 15-17-PLAN.md — server `POST/GET /api/orders`(requireAuth·allowlist·형식검사·ISIN 조회·감사) + relay-client (SC-6)
+- [ ] 15-18-PLAN.md — 주문 패널·확인 다이얼로그·계좌 패널(미체결 취소/잔고) + 오조작 방지 5규율 (SC-6, SC-7)
+- [ ] 15-19-PLAN.md — `deploy-server.sh` relay env + 재배포·결선 검증 + **mock 브로커 가격 0 거부 실측** (SC-6, SC-8)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 15-20-PLAN.md — [BLOCKING] 실서버·실계좌 검증 여부 **사용자 결정**(D-27) + SC-1~8 집계 + STATE 갱신 (SC-8)

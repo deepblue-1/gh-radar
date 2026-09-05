@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 15 context gathered
-last_updated: "2026-09-05T06:21:34.707Z"
-last_activity: "2026-08-20 - Completed quick task 260820-fh2: 일봉 NXT 오염 근본 수정 + 배포·백필·검증 완료 (잔여: 15:35 EOD 패스 첫 실행 사후 확인)"
+status: executing
+stopped_at: Phase 15 planned (20 plans / 6 waves)
+last_updated: "2026-09-05T10:56:09.131Z"
+last_activity: 2026-09-05 -- Phase 15 planning complete
 progress:
   total_phases: 24
   completed_phases: 17
-  total_plans: 119
+  total_plans: 139
   completed_plans: 105
   percent: 71
 ---
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 14
 Plan: Not started
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-08-20 - Completed quick task 260820-fh2: 일봉 NXT 오염 근본 수정 + 배포·백필·검증 완료 (잔여: 15:35 EOD 패스 첫 실행 사후 확인)
+Last activity: 2026-09-05 -- Phase 15 planning complete
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
@@ -338,6 +338,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-05T06:21:34.690Z
-Stopped at: Phase 15 context gathered
-Next: 10-08 deploy-e2e — Task 1(Dockerfile + setup/deploy/smoke 스크립트, master-sync 복제 OAuth invoker) + Task 2(E2E 3종: themes/user-themes/theme-chips) 작성·정적검증 완료(666cfe1, b5e33d6). Task 3 [BLOCKING]: GCP 인증(Deployer SA) 후 setup-theme-sync-iam.sh → deploy-theme-sync.sh(THEME_SYNC_CLASSIFY_ENABLED=true) → smoke-theme-sync.sh(themes count > 0) → Playwright E2E. 사용자 승인 후 오케스트레이터가 실행. (DI-02 smoke 헤더 CR 버그는 smoke-theme-sync.sh 에서 tr -d '\r' 로 선제 회피.)
+Last session: 2026-09-05T09:33:37.312Z
+Stopped at: Phase 15 planned (20 plans / 6 waves)
+Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 kbs124 VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.

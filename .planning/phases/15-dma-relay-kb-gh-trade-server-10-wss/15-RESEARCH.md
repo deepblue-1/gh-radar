@@ -1234,29 +1234,34 @@ function fakeGateway(onFrame: (mt: number, payload: Buffer) => Buffer[] | void):
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED — plan 단계 2026-09-05, 15-01~15-20 PLAN.md 기준)
 
 1. **`LoginResp.accounts` 부재 — 초반 wave 의 계좌 취급**
+   - **RESOLVED:** 15-15 Task 1 이 `[BLOCKING] gh-trade 17 완료 + sync-relay-schema.sh 재실행 + 생성물 재커밋` 게이트(D-25). 15-03 은 `accounts: []` 가정으로 Ready 진입까지만 구현하고 `accounts()` 접근자 참조를 grep 으로 금지.
    - 알고 있는 것: 현행 fbs 에 필드 없음(실측). gh-trade 17 D-19 가 append 예정. mock 무인증 로그인은 빈 벡터.
    - 불명확한 것: 17 완료 시점. 재동기화 후 생성물 diff 규모(LoginResp 1필드 + AccountEntry 1테이블 → 생성 .ts 39→40 예상, `sync-relay-schema.sh` 가 고아 삭제·개수 보고).
    - 권고: plan 에 `[BLOCKING] gh-trade 17 완료 + sync-relay-schema.sh 재실행 + 생성물 재커밋` 태스크를 계좌 wave 첫 항목으로 명시. 그 전 wave 는 `accounts: []` 가정으로 Ready 진입.
 
 2. **선검증 실패 시 phase 진로**
+   - **RESOLVED:** 15-07 Task 2 체크포인트 — 실패 시 KB 문의 전환, 코드 wave(15-09~15-14)는 mock 으로 계속 진행 가능하도록 인프라 축(15-06~15-08)과 코드 축의 depends_on 을 분리.
    - 알고 있는 것: 실패 시 자동 재시도 금지, KB 문의 전환(D-03).
    - 불명확한 것: 문의 소요 기간. 그동안 코드 wave 를 계속할지.
    - 권고: 선검증을 **인프라 wave 의 첫 태스크**로 두되 **코드 wave 와 병렬 진행 가능**하도록 의존을 끊는다(mock 서버로 전부 검증 가능, D-40).
 
 3. **관리자 자격증명 등록 스크립트의 키 접근 경로**
+   - **RESOLVED:** 15-06 `setup-relay-iam.sh` 가 `gh-radar-dma-cred-key` 에 `DEPLOYER_SA_EMAIL` accessor 를 Secret 단위로 바인딩; 15-05 Task 3 `scripts/dma-credentials.ts` 는 `DMA_CRED_KEY` env → `gcloud secrets versions access` 순으로 읽고 실패 시 안내문 출력.
    - 알고 있는 것: 로컬에서 Secret Manager 의 키를 읽어 암호화 후 upsert(D-18).
    - 불명확한 것: 로컬 실행 주체가 `gh-radar-deployer` SA 인지 사용자 계정인지. deployer SA 에 `secretmanager.secretAccessor` 가 있는지 미확인(리서치는 IAM 정책 조회를 하지 않았다).
    - 권고: `setup-relay-iam.sh` 에서 deployer SA 에도 해당 secret 접근 권한을 부여하거나, 스크립트가 `gcloud secrets versions access` 실패 시 명확한 안내를 출력.
 
 4. **`/healthz` 노출 범위**
+   - **RESOLVED:** 15-05 Task 2 — 공개 `/healthz` 는 `{status, vpn, dma}` 수준만(계좌번호·사용자 수 미포함), 상세는 내부 포트 전용. 비밀 헤더 없이 통과하는 유일한 경로.
    - 알고 있는 것: 내부 포트 `/healthz`(Discretion). uptime check 는 공인 443 이 필요.
    - 불명확한 것: 공개 `/healthz` 에 세션 수·VPN 상태를 넣으면 정보 노출인가.
    - 권고: 공개는 `{status:"ok"|"degraded", vpn:bool, dma:bool}` 수준(계좌번호·사용자 수 미포함), 상세는 내부 포트 전용.
 
 5. **토큰 1시간 만료 처리**
+   - **RESOLVED:** v1 미채택 — 연결 시 1회 검증 유지(15-12 첫 메시지 `{t:"auth"}`), 서버측 주기 재인증은 CONTEXT `<deferred>` 「토큰 만료 시 wss 주기 재인증」으로 이월. 주문 REST 는 매 요청 `requireAuth`(15-17).
    - 알고 있는 것: Discretion. 주문 REST 는 매 요청 requireAuth 를 거친다.
    - 불명확한 것: 장중 6시간 연속 접속 시 wss 를 그대로 둘지.
    - 권고: v1 은 연결 시 1회 검증 유지 + 브라우저가 토큰 갱신 시 `{t:"auth"}` 재전송을 허용(멱등). 서버측 강제 재인증은 deferred.
