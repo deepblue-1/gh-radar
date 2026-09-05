@@ -214,3 +214,21 @@ supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 �
 - 화면상 중복이 눈에 띄는 정도는 아니지만, 테스트에서 `getByText` 가 2건을 잡는다
   (15-13 은 게이트 카드 안으로 스코프해 우회했다).
 - 문구 정본을 한쪽으로 모으려면 UI-SPEC 갱신이 필요하므로 여기 기록만 남긴다.
+
+## [15-14] `auth-guards.spec.ts` 의 `/` 루트 단언이 Phase 13 이후 낡았다 (선재 · 범위 밖)
+
+- **발견 경로:** 15-14 Task 2 전체 Playwright 회귀 실행.
+- **실패:** `webapp/e2e/specs/auth-guards.spec.ts:40`
+  — `public whitelist: 루트 / 는 middleware 차단 없이 통과 (/ → /scanner → /login?next=/scanner)`
+  가 `toHaveURL(/\/login\?next=%2Fscanner/)` 를 기대하지만 실제 URL 은 `http://localhost:3100/` 다.
+- **원인:** Phase 13 D-07 이 홈을 앱 루트로 승격하면서 `webapp/src/app/page.tsx` 의
+  `/scanner` 서버사이드 이동을 **없앴다**(파일 주석에 명시). `/` 는 PUBLIC_EXACT 라
+  미인증도 통과하고 그대로 홈이 렌더된다 — 즉 제품 동작이 바뀌었고 테스트만 남았다.
+- **15-14 무관 근거:** 15-14 의 변경 파일은 `playwright.config.ts` ·
+  `e2e/fixtures/{relay,stocks}.ts` · `e2e/specs/orderbook.spec.ts` ·
+  `relay/tests/helpers/fake-gateway.ts` · 호가창 컴포넌트 테스트뿐이다. 라우팅·미들웨어·
+  홈 페이지를 건드리지 않았고, `auth-guards` 단독 실행에서도 같은 지점만 실패한다
+  (나머지 8건은 통과).
+- **영향:** `playwright test` 전체가 exit 1. 다른 8개 auth 가드 케이스는 정상.
+- **처리:** 단언을 "미인증도 `/` 가 200 으로 렌더된다" 로 바꾸는 quick task.
+  홈이 공개인지 여부는 제품 결정이라 phase 15 범위 밖이다.

@@ -138,6 +138,35 @@ function readDeclaredAccount(payload: Buffer): DeclaredAccount | null {
   return { mode: req.mode() ?? "", accountNo: req.accountNo() ?? "" };
 }
 
+/** 시세 요청(28 호가 스냅샷 / 32 체결 스냅샷)의 구독 키. */
+export type QuoteRequestKey = { isin: string; exchange: string };
+
+/**
+ * 시세 요청 프레임에서 구독 키를 꺼낸다 (15-14 E2E 픽스처가 쓴다).
+ *
+ * **여기에 두는 이유**: `flatbuffers` 와 생성 코드는 relay 패키지의 의존성이다. pnpm 은
+ * 패키지별 `node_modules` 를 격리하므로 webapp 쪽 파일이 `flatbuffers` 를 직접 import
+ * 하면 해석에 실패한다. 파싱을 이 파일 안에 두면 호출자는 프레임 해석을 몰라도 되고,
+ * 스텁 게이트웨이도 한 벌로 유지된다(두 벌이면 스키마 변경 때 한쪽만 고쳐진다).
+ *
+ * @returns 28/32 요청이면 `{isin, exchange}`, 그 외 msg_type 이면 `null`
+ */
+export function readQuoteRequestKey(msgType: number, payload: Buffer): QuoteRequestKey | null {
+  const env = rootEnvelope(payload);
+  if (env === null) return null;
+  if (msgType === MSG.GetQuoteReq) {
+    const req = env.getQuoteReq();
+    if (req === null || req === undefined) return null;
+    return { isin: req.isin() ?? "", exchange: req.exchange() ?? "" };
+  }
+  if (msgType === MSG.GetTradeTapeReq) {
+    const req = env.getTradeTapeReq();
+    if (req === null || req === undefined) return null;
+    return { isin: req.isin() ?? "", exchange: req.exchange() ?? "" };
+  }
+  return null;
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];
