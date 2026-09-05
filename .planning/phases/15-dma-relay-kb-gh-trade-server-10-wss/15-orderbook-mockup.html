@@ -1,0 +1,1343 @@
+<!doctype html>
+<html lang="ko" class="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 15 — 호가창 섹션 목업 (호가 10단 · 체결 테이프 · 주문 패널 · 잔고/미체결)</title>
+<style>
+/* ───────────────────────────────────────────────────────────────
+   gh-radar globals.css 토큰 인라인 (webapp/src/styles/globals.css §9)
+   — Phase 3 lock. 이 목업은 새 토큰을 정의하지 않는다.
+   — oklch 를 그대로 쓴다 (DOM/CSS 렌더러. canvas 아님 → hex 변환 불요)
+   ─────────────────────────────────────────────────────────────── */
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0);
+  --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --input:oklch(0.92 0 0); --ring:oklch(0.63 0.18 250);
+  --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+  --popover:#FFFFFF; --popover-fg:oklch(0.18 0 0);
+  --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --secondary:oklch(0.96 0 0); --secondary-fg:oklch(0.18 0 0);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --destructive:oklch(0.66 0.20 22); --destructive-fg:#FFFFFF;
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-8:48px; --s-10:64px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px;
+  --t-h4:18px; --t-h3:20px; --t-h2:24px; --t-h1:30px;
+  --lh-tight:1.2; --lh-normal:1.5;
+  --row-h:36px; --cell-pad-x:12px; --cell-pad-y:8px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0);
+  --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06);
+  --input:oklch(0.24 0 0); --ring:oklch(0.72 0.16 250);
+  --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+  --popover:oklch(0.14 0 0); --popover-fg:oklch(0.96 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --secondary:oklch(0.18 0 0); --secondary-fg:oklch(0.96 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --destructive:oklch(0.72 0.19 22); --destructive-fg:oklch(0.10 0 0);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+
+/* density scope — globals.css §8.5.1 그대로. compact 를 명시하면 모바일
+   자동 comfortable 규칙( :not([data-density="compact"]) )을 opt-out 한다. */
+[data-density="compact"]     { --row-h:32px; --cell-pad-y:6px; }
+[data-density="default"]     { --row-h:36px; --cell-pad-y:8px; }
+[data-density="comfortable"] { --row-h:44px; --cell-pad-y:12px; }
+
+* { box-sizing:border-box; }
+body {
+  margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg);
+  font-size:var(--t-base); line-height:var(--lh-normal); font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+html[lang="ko"] { word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em; }
+.num  { text-align:right; font-variant-numeric:tabular-nums; }
+.sr {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+.card-shadow { box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 /.04), 0 8px 24px oklch(0 0 0 /.04); }
+.dark .card-shadow { box-shadow: inset 0 1px 0 oklch(1 0 0 /.04), 0 1px 2px oklch(0 0 0 /.4), 0 8px 24px oklch(0 0 0 /.3); }
+*:focus-visible {
+  outline:2px solid var(--ring); outline-offset:3px;
+  box-shadow:0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent);
+}
+.hidden { display:none !important; }
+
+/* ── 목업 툴바 ─────────────────────────────────────────────── */
+.toolbar {
+  position:sticky; top:0; z-index:200; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  padding:10px 20px; background:color-mix(in oklch,var(--bg) 90%,transparent);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--border);
+}
+.toolbar h1 { font-size:var(--t-sm); font-weight:600; margin:0; margin-right:auto; }
+.grp { display:flex; align-items:center; gap:6px; padding:3px 8px; border:1px solid var(--border); border-radius:var(--r); }
+.grp > .lb { font-size:11px; font-weight:600; color:var(--muted-fg); }
+.tbtn {
+  height:26px; padding:0 9px; border-radius:var(--r-sm); border:1px solid var(--border);
+  background:var(--secondary); color:var(--secondary-fg); font-size:11px; font-weight:600;
+  cursor:pointer; font-family:inherit;
+}
+.tbtn[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.tbtn .rec { font-weight:700; }
+select.tsel {
+  height:26px; padding:0 6px; border-radius:var(--r-sm); border:1px solid var(--border);
+  background:var(--secondary); color:var(--fg); font-size:11px; font-weight:600; font-family:inherit;
+}
+.stage { padding:24px 20px 120px; max-width:1360px; margin:0 auto; }
+.note {
+  border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r-md);
+  background:var(--muted); padding:12px 14px; font-size:var(--t-sm); margin:0 0 24px;
+}
+.note b { font-weight:600; }
+.note ul { margin:6px 0 0; padding-left:18px; }
+.note li { margin:2px 0; }
+h2.sec { font-size:var(--t-h3); font-weight:600; margin:36px 0 4px; }
+h2.sec:first-of-type { margin-top:0; }
+p.sub { color:var(--muted-fg); font-size:var(--t-sm); margin:0 0 14px; }
+
+/* ── 호가창 섹션 루트 ───────────────────────────────────────── */
+.ob-root {
+  border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card);
+  overflow:hidden;
+}
+.ob-head {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 16px; border-bottom:1px solid var(--border);
+}
+.ob-head .nm { font-size:var(--t-base); font-weight:600; }
+.ob-head .cd { font-size:var(--t-caption); color:var(--muted-fg); }
+.mkt-badge {
+  font-size:11px; font-weight:600; padding:1px 6px; border-radius:var(--r-sm);
+  border:1px solid var(--border); color:var(--muted-fg);
+}
+.ob-head .live-px { font-size:var(--t-h3); font-weight:600; }
+.ob-head .live-chg { font-size:var(--t-sm); font-weight:600; }
+.ob-head .src {
+  font-size:11px; color:var(--muted-fg); padding:1px 6px; border-radius:var(--r-sm);
+  background:var(--muted);
+}
+.ob-head .spacer { margin-left:auto; }
+
+/* 상태 바 (L6 채택안 = 섹션 상단 전폭 바 + 알림 누적) */
+.statusbar { border-bottom:1px solid var(--border); background:var(--muted); }
+.statusbar .row1 { display:flex; align-items:center; gap:10px; padding:8px 16px; flex-wrap:wrap; }
+.statusbar .msg { font-size:var(--t-sm); }
+.statusbar .msg .sub { color:var(--muted-fg); font-size:var(--t-caption); display:block; }
+.badge {
+  display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px;
+  border-radius:9999px; font-size:var(--t-caption); font-weight:600; white-space:nowrap;
+  border:1px solid transparent;
+}
+.badge .dot { width:7px; height:7px; border-radius:9999px; background:currentColor; flex:none; }
+/* 연결 상태 배지는 --up/--down 을 쓰지 않는다 (사다리 의미색과 충돌) */
+.badge.b-progress { background:transparent; border-color:var(--border); color:var(--muted-fg); }
+.badge.b-progress .dot { animation:blink 1.2s ease-in-out infinite; }
+.badge.b-ready    { background:var(--muted); border-color:var(--border); color:var(--fg); }
+.badge.b-warn     { background:transparent; border-color:var(--destructive); color:var(--destructive); }
+.badge.b-fail     { background:color-mix(in oklch,var(--destructive) 12%,transparent); color:var(--destructive); }
+.badge.b-none     { background:var(--muted); color:var(--muted-fg); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+.alerts { border-top:1px solid var(--border-subtle); padding:6px 16px 10px; display:flex; flex-direction:column; gap:4px; }
+.alert-row { display:flex; align-items:baseline; gap:8px; font-size:var(--t-caption); }
+.alert-row .tm { color:var(--muted-fg); font-family:var(--font-mono); flex:none; }
+.alert-row .lv { font-weight:600; flex:none; padding:0 5px; border-radius:var(--r-sm); background:var(--card); border:1px solid var(--border); }
+.alert-row .lv.err { color:var(--destructive); border-color:var(--destructive); }
+.alert-row .tx { color:var(--fg); }
+.alerts-more { align-self:flex-start; background:none; border:none; padding:2px 0; font-size:11px;
+  color:var(--muted-fg); cursor:pointer; text-decoration:underline; font-family:inherit; }
+
+/* ── 레이아웃 그리드 (L1) ───────────────────────────────────── */
+.ob-body {
+  display:grid; gap:1px; background:var(--border); padding:0;
+}
+.ob-body > * { background:var(--card); min-width:0; }
+/* L1 · A = 3컬럼, 잔고/미체결 전폭 하단 */
+.ob-body[data-layout="A"] {
+  grid-template-columns:minmax(300px,1.1fr) 168px minmax(300px,340px);
+  grid-template-areas:
+    "book tape order"
+    "acct acct acct";
+}
+/* L1 · B = 좌(호가+체결) / 우(주문 위 · 계좌 아래) — 권고안 */
+.ob-body[data-layout="B"] {
+  /* 정본: 15-tabs-mockup.html 호가주문 탭과 동일한 컬럼·gap */
+  grid-template-columns:380px 220px minmax(360px,1fr);
+  grid-template-areas:
+    "book tape order"
+    "book tape acct";
+}
+.pane-book  { grid-area:book; }
+.pane-tape  { grid-area:tape; }
+.pane-order { grid-area:order; }
+.pane-acct  { grid-area:acct; }
+
+.pane-hd {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  border-bottom:1px solid var(--border-subtle);
+  font-size:var(--t-caption); font-weight:600; color:var(--muted-fg);
+}
+.pane-hd .spacer { margin-left:auto; }
+
+/* 거래소 토글 */
+.ex-toggle { display:inline-flex; border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; }
+.ex-toggle button {
+  height:24px; padding:0 10px; border:none; background:transparent; color:var(--muted-fg);
+  font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;
+}
+.ex-toggle button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); }
+
+/* ── 호가 사다리 (L2) ───────────────────────────────────────── */
+.ladder { width:100%; border-collapse:collapse; table-layout:fixed; }
+.ladder thead th {
+  font-size:11px; font-weight:600; color:var(--muted-fg); text-align:center;
+  padding:6px var(--cell-pad-x); background:var(--muted); border-bottom:1px solid var(--border);
+}
+.ladder th, .ladder td { height:var(--row-h); padding:0 8px; vertical-align:middle; font-size:var(--t-caption); }
+.ladder tbody tr + tr > * { border-top:1px solid var(--border-subtle); }
+.ladder .px {
+  text-align:center; font-family:var(--font-mono); font-size:var(--t-sm); font-weight:600;
+  font-variant-numeric:tabular-nums slashed-zero; position:relative; cursor:pointer;
+}
+.ladder .px:hover { background:color-mix(in oklch,var(--muted) 70%,transparent); }
+.ladder .q { position:relative; overflow:hidden; }
+.ladder .q .v { position:relative; z-index:1; display:block; font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums slashed-zero; }
+.ladder .q.qa .v { text-align:left; padding-left:2px; }
+.ladder .q.qb .v { text-align:right; padding-right:2px; }
+.ladder .q .bar { position:absolute; top:4px; bottom:4px; z-index:0; border-radius:2px; }
+.ladder .q.qa .bar { right:0; background:color-mix(in oklch,var(--down) 16%,transparent); }
+.ladder .q.qb .bar { left:0;  background:color-mix(in oklch,var(--up) 16%,transparent); }
+tr.ask  > * { background:color-mix(in oklch,var(--down-bg) 65%,transparent); }
+tr.bid  > * { background:color-mix(in oklch,var(--up-bg) 65%,transparent); }
+tr.now .px { box-shadow:inset 3px 0 0 var(--fg); }
+.px .step { font-size:11px; font-weight:600; color:var(--muted-fg); position:absolute; left:4px; top:50%;
+  transform:translateY(-50%); letter-spacing:0; }
+.nowchip { font-size:11px; font-weight:600; color:var(--muted-fg); margin-left:4px; vertical-align:1px; }
+.up { color:var(--up); } .down { color:var(--down); } .flat { color:var(--flat); }
+tr.spread > td {
+  text-align:center; font-size:11px; color:var(--muted-fg); background:var(--card);
+  border-top:1px solid var(--border) !important; border-bottom:1px solid var(--border);
+  height:26px;
+}
+.ladder tfoot td, .ladder tfoot th {
+  background:var(--muted); font-size:11px; font-weight:600; border-top:1px solid var(--border);
+  height:28px;
+}
+.ladder tfoot .q { text-align:center; font-family:var(--font-mono); }
+.ladder tfoot .px { font-size:11px; color:var(--muted-fg); font-weight:600; }
+.flash { animation:cellflash 140ms ease-out 1; }
+@keyframes cellflash { from { background:color-mix(in oklch,var(--fg) 14%,transparent); } to { background:transparent; } }
+
+/* L2 · B = 매도/매수 상하 분리 */
+.ladder-b { width:100%; border-collapse:collapse; table-layout:fixed; }
+.ladder-b thead th { font-size:11px; font-weight:600; color:var(--muted-fg); padding:6px 8px;
+  background:var(--muted); border-bottom:1px solid var(--border); text-align:right; }
+.ladder-b thead th:first-child { text-align:left; }
+.ladder-b .grp-hd td {
+  font-size:11px; font-weight:600; padding:5px 8px; background:var(--card);
+  border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+}
+.ladder-b td { height:var(--row-h); padding:0 8px; font-size:var(--t-caption); vertical-align:middle; }
+.ladder-b tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+.ladder-b .px { font-family:var(--font-mono); font-size:var(--t-sm); font-weight:600; cursor:pointer; }
+.ladder-b .qv { text-align:right; font-family:var(--font-mono); }
+.ladder-b .bc { position:relative; }
+.ladder-b .bc .bar { position:absolute; left:0; top:8px; bottom:8px; border-radius:2px; }
+.ladder-b tr.ask .bc .bar { background:color-mix(in oklch,var(--down) 22%,transparent); }
+.ladder-b tr.bid .bc .bar { background:color-mix(in oklch,var(--up) 22%,transparent); }
+
+.ladder-more { display:none; }
+
+/* ── 체결 테이프 ────────────────────────────────────────────── */
+.tape-wrap { position:relative; }
+.tape-scroll { max-height:658px; overflow-y:auto; scrollbar-width:thin; }
+.tape { width:100%; border-collapse:collapse; table-layout:fixed; }
+.tape thead th { position:sticky; top:0; z-index:2; font-size:11px; font-weight:600; color:var(--muted-fg);
+  background:var(--muted); padding:6px 8px; border-bottom:1px solid var(--border); text-align:right; }
+.tape thead th:first-child { text-align:left; }
+.tape td { height:var(--row-h); padding:0 8px; font-size:11px; vertical-align:middle;
+  font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; }
+.tape tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+.tape .tm { color:var(--muted-fg); }
+.tape .pz, .tape .qz { text-align:right; }
+.tape .sd { text-align:right; font-weight:600; font-family:var(--font-sans); font-size:11px; }
+.tape .sd.buy  { color:var(--up); }
+.tape .sd.sell { color:var(--down); }
+.tape-pin {
+  position:absolute; top:34px; left:50%; transform:translateX(-50%); z-index:5;
+  height:24px; padding:0 10px; border-radius:9999px; border:1px solid var(--border);
+  background:var(--popover); color:var(--fg); font-size:11px; font-weight:600; cursor:pointer;
+  box-shadow:0 2px 8px oklch(0 0 0 /.12); font-family:inherit;
+}
+
+/* ── 주문 패널 ──────────────────────────────────────────────── */
+.order { padding:12px; display:flex; flex-direction:column; gap:10px; }
+.side-tabs { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.side-tabs button {
+  height:36px; border-radius:var(--r); border:1px solid var(--border); background:var(--card);
+  color:var(--muted-fg); font-size:var(--t-sm); font-weight:600; cursor:pointer; font-family:inherit;
+}
+.side-tabs button[aria-selected="true"][data-side="B"] { background:var(--up-bg); color:var(--up); border-color:var(--up); }
+.side-tabs button[aria-selected="true"][data-side="S"] { background:var(--down-bg); color:var(--down); border-color:var(--down); }
+.frm-row { display:flex; align-items:center; gap:8px; }
+.frm-row > label { width:60px; flex:none; font-size:var(--t-caption); color:var(--muted-fg); font-weight:600; }
+.ipt {
+  flex:1; height:36px; border-radius:var(--r); border:1px solid var(--input); background:var(--bg);
+  color:var(--fg); padding:0 10px; font-size:var(--t-sm); font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums slashed-zero; text-align:right; min-width:0;
+}
+.ipt.flash-in { animation:inflash 260ms ease-out 1; }
+@keyframes inflash { from { border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 26%,transparent); } to {} }
+select.ipt { text-align:left; font-family:var(--font-sans); }
+.stepper { display:inline-flex; }
+.stepper button {
+  width:30px; height:36px; border:1px solid var(--input); background:var(--secondary); color:var(--fg);
+  font-size:var(--t-sm); font-weight:600; cursor:pointer; font-family:inherit;
+}
+.stepper button:first-child { border-radius:var(--r) 0 0 var(--r); border-right:none; }
+.stepper button:last-child  { border-radius:0 var(--r) var(--r) 0; border-left:none; }
+.pcts { display:flex; gap:4px; }
+.pcts button {
+  flex:1; height:26px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--card);
+  color:var(--muted-fg); font-size:11px; font-weight:600; cursor:pointer; font-family:inherit;
+}
+.pcts button:hover { background:var(--muted); color:var(--fg); }
+.fixed-chip {
+  display:inline-flex; align-items:center; height:26px; padding:0 8px; border-radius:var(--r-sm);
+  background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600;
+}
+.amt { display:flex; justify-content:space-between; align-items:baseline;
+  padding:8px 10px; border-radius:var(--r); background:var(--muted); }
+.amt .k { font-size:var(--t-caption); color:var(--muted-fg); font-weight:600; }
+.amt .v { font-size:var(--t-base); font-weight:600; font-family:var(--font-mono); }
+.submit {
+  height:44px; border-radius:var(--r); border:none; font-size:var(--t-base); font-weight:600;
+  cursor:pointer; color:var(--primary-fg); font-family:inherit;
+}
+.submit[data-side="B"] { background:var(--up); }
+.submit[data-side="S"] { background:var(--down); }
+.submit:disabled { background:var(--muted); color:var(--muted-fg); cursor:not-allowed; }
+.order .hint { font-size:11px; color:var(--muted-fg); text-align:center; }
+.result {
+  border-radius:var(--r); padding:8px 10px; font-size:var(--t-caption); border:1px solid var(--border);
+  background:var(--muted);
+}
+.result.rej { border-color:var(--destructive); background:transparent; color:var(--destructive); }
+.result .t { font-weight:600; display:block; margin-bottom:2px; }
+.result .d { color:var(--muted-fg); }
+.result.rej .d { color:var(--destructive); opacity:.9; }
+
+/* ── 잔고 / 미체결 ──────────────────────────────────────────── */
+.acct { display:flex; flex-direction:column; }
+.acct-tabs { display:flex; gap:4px; padding:8px 12px 0; }
+.acct-tabs button {
+  height:28px; padding:0 10px; border-radius:var(--r-sm) var(--r-sm) 0 0; border:1px solid transparent;
+  background:transparent; color:var(--muted-fg); font-size:var(--t-caption); font-weight:600;
+  cursor:pointer; font-family:inherit;
+}
+.acct-tabs button[aria-selected="true"] { background:var(--muted); color:var(--fg); }
+.tbl { width:100%; border-collapse:collapse; }
+.tbl thead th {
+  background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; text-align:left;
+  padding:6px var(--cell-pad-x); border-bottom:1px solid var(--border); white-space:nowrap;
+}
+.tbl thead th.num, .tbl td.num { text-align:right; }
+.tbl tbody td { height:var(--row-h); padding:0 var(--cell-pad-x); font-size:var(--t-caption); white-space:nowrap; }
+.tbl tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+.tbl tbody tr:hover td { background:color-mix(in oklch,var(--muted) 60%,transparent); }
+.tbl .mono { font-family:var(--font-mono); }
+.side-tag { font-weight:600; font-size:11px; }
+.side-tag.buy  { color:var(--up); }
+.side-tag.sell { color:var(--down); }
+.btn-cancel {
+  height:26px; padding:0 10px; border-radius:var(--r-sm); border:1px solid var(--destructive);
+  background:transparent; color:var(--destructive); font-size:11px; font-weight:600; cursor:pointer;
+  font-family:inherit; display:inline-flex; align-items:center; gap:4px;
+}
+.btn-cancel:hover { background:color-mix(in oklch,var(--destructive) 10%,transparent); }
+.acct-sel-row { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-subtle); }
+.acct-sel-row select { flex:1; height:32px; border-radius:var(--r); border:1px solid var(--input);
+  background:var(--bg); color:var(--fg); font-size:var(--t-caption); font-family:inherit; padding:0 8px; }
+.sumline { display:flex; justify-content:space-between; padding:8px 12px; font-size:var(--t-caption);
+  border-top:1px solid var(--border); background:var(--muted); }
+.sumline .v { font-weight:600; font-family:var(--font-mono); }
+
+/* ── 빈 상태 / 권한 없음 / 스켈레톤 ─────────────────────────── */
+.empty { padding:28px 16px; text-align:center; }
+.empty h4 { margin:0 0 4px; font-size:var(--t-sm); font-weight:600; }
+.empty p  { margin:0; font-size:var(--t-caption); color:var(--muted-fg); }
+.gate { padding:32px 24px; text-align:center; display:flex; flex-direction:column; align-items:center; gap:8px; }
+.gate .ic { width:40px; height:40px; border-radius:9999px; background:var(--muted); color:var(--muted-fg);
+  display:inline-flex; align-items:center; justify-content:center; }
+.gate h3 { margin:4px 0 0; font-size:var(--t-base); font-weight:600; }
+.gate p { margin:0; font-size:var(--t-sm); color:var(--muted-fg); max-width:420px; }
+.gate .meta { font-size:11px; color:var(--muted-fg); margin-top:6px; }
+.sk { background:linear-gradient(90deg,var(--muted) 25%,color-mix(in oklch,var(--muted) 55%,var(--card)) 50%,var(--muted) 75%);
+  background-size:200% 100%; animation:shimmer 1.4s linear infinite; border-radius:var(--r-sm); }
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+.sk-row { height:24px; margin:6px 12px; }
+
+/* 재접속 중 = stale 유지 + 감쇠 */
+.ob-body.stale .pane-book, .ob-body.stale .pane-tape { opacity:.55; }
+
+/* ── 다이얼로그 ─────────────────────────────────────────────── */
+.scrim { position:fixed; inset:0; background:oklch(0 0 0 /.5); z-index:300;
+  display:flex; align-items:center; justify-content:center; padding:20px; }
+.dlg { width:100%; max-width:400px; background:var(--popover); color:var(--popover-fg);
+  border:1px solid var(--border); border-radius:var(--r-lg); padding:20px; }
+.dlg h3 { margin:0 0 6px; font-size:var(--t-base); font-weight:600; }
+.dlg p.d { margin:0 0 14px; font-size:var(--t-caption); color:var(--muted-fg); }
+.dlg dl { margin:0 0 14px; display:grid; grid-template-columns:auto 1fr; gap:6px 12px;
+  padding:12px; border-radius:var(--r); background:var(--muted); font-size:var(--t-caption); }
+.dlg dt { color:var(--muted-fg); font-weight:600; }
+.dlg dd { margin:0; text-align:right; font-family:var(--font-mono); font-weight:600; }
+.dlg dd.sans { font-family:var(--font-sans); }
+.warnbox { border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r);
+  padding:8px 10px; font-size:11px; margin-bottom:14px; }
+.dlg .btns { display:flex; gap:8px; }
+.dlg .btns button { flex:1; height:40px; border-radius:var(--r); font-size:var(--t-sm);
+  font-weight:600; cursor:pointer; font-family:inherit; }
+.btn-out { border:1px solid var(--border); background:transparent; color:var(--fg); }
+.btn-buy  { border:none; background:var(--up);   color:var(--primary-fg); }
+.btn-sell { border:none; background:var(--down); color:var(--primary-fg); }
+.btn-destr{ border:1px solid var(--destructive); background:transparent; color:var(--destructive); }
+
+/* ── 상태 갤러리 ────────────────────────────────────────────── */
+.gal { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
+.gal .cell { border:1px solid var(--border); border-radius:var(--r-md); padding:12px; background:var(--card); }
+.gal .cell .cap { font-size:11px; color:var(--muted-fg); margin-bottom:8px; font-weight:600; }
+.gal .cell .st-msg { font-size:var(--t-caption); margin:8px 0 10px; }
+.gal .cell .st-msg .sub { display:block; color:var(--muted-fg); font-size:11px; }
+.gal .cell .submit { width:100%; height:36px; font-size:var(--t-sm); }
+
+/* ── 좁은 폭 (실제 미디어쿼리 + .narrow 강제 클래스) ─────────── */
+.narrow-frame { width:390px; max-width:100%; border:1px solid var(--border); border-radius:var(--r-lg);
+  overflow:hidden; }
+.ob-body.narrow,
+.ob-body.narrow[data-layout="A"],
+.ob-body.narrow[data-layout="B"] {
+  grid-template-columns:1fr;
+  grid-template-areas:"book" "order" "tape" "acct";
+}
+.ob-body.narrow .tape-scroll { max-height:264px; }
+.ob-body.narrow .ladder-more { display:block; }
+.ob-body.narrow .lv-far { display:none; }
+@media (max-width:900px) {
+  .ob-body[data-layout="A"], .ob-body[data-layout="B"] {
+    grid-template-columns:1fr;
+    grid-template-areas:"book" "order" "tape" "acct";
+  }
+  .ob-body .tape-scroll { max-height:264px; }
+  .ob-body .ladder-more { display:block; }
+  .ob-body .lv-far { display:none; }
+}
+.ladder-more {
+  width:100%; height:30px; border:none; border-top:1px solid var(--border-subtle);
+  background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600;
+  cursor:pointer; font-family:inherit;
+}
+.ob-body.show-all .lv-far { display:table-row !important; }
+
+@media (max-width:900px) { #obSkel > div { grid-template-columns:1fr !important; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash, .sk, .badge .dot { animation:none !important; }
+  .ipt.flash-in { animation:none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Phase 15 — 호가창 섹션 목업</h1>
+
+  <button class="tbtn" id="themeBtn" aria-pressed="false">🌙 다크</button>
+
+  <span class="grp"><span class="lb">L1 레이아웃</span>
+    <button class="tbtn" data-l1="A" aria-pressed="false">A 3컬럼</button>
+    <button class="tbtn" data-l1="B" aria-pressed="true"><span class="rec">B 2컬럼 ★권고</span></button>
+  </span>
+
+  <span class="grp"><span class="lb">L2 호가표기</span>
+    <button class="tbtn" data-l2="A" aria-pressed="true"><span class="rec">A 중앙가격 ★권고</span></button>
+    <button class="tbtn" data-l2="B" aria-pressed="false">B 상하분리</button>
+  </span>
+
+  <span class="grp"><span class="lb">L3 잔량바</span>
+    <button class="tbtn" data-l3="A" aria-pressed="true"><span class="rec">A 단계최대 ★권고</span></button>
+    <button class="tbtn" data-l3="B" aria-pressed="false">B 누적</button>
+    <button class="tbtn" data-l3="C" aria-pressed="false">C 없음</button>
+  </span>
+
+  <span class="grp"><span class="lb">상태</span>
+    <select class="tsel" id="stateSel">
+      <option value="ready" selected>준비(Ready)</option>
+      <option value="logging_in">DMA 로그인 중</option>
+      <option value="declaring">계좌 확인 중</option>
+      <option value="reconnecting">재접속 중</option>
+      <option value="failed">회선 단절(VPN)</option>
+      <option value="session_rejected">세션 거부</option>
+      <option value="unauthorized">권한 없음</option>
+      <option value="loading">로딩 스켈레톤</option>
+    </select>
+  </span>
+
+  <span class="grp"><span class="lb">실시간 시뮬</span>
+    <button class="tbtn" id="simBtn" aria-pressed="true">ON</button>
+  </span>
+</div>
+
+<div class="stage">
+
+  <div class="note">
+    <b>목업 사용법</b> — 상단 토글 3개(L1/L2/L3)가 실제로 화면을 바꾼다. ★ 표시가 연구자 권고안이다.
+    <ul>
+      <li><b>L1 · 전체 레이아웃</b> — A: [호가][체결][주문] 3컬럼 + 잔고/미체결 전폭 하단 / <b>B(권고)</b>: 좌 = 호가+체결, 우 = 주문 위·계좌 아래. B는 "시장 관찰(좌)"과 "내 계좌(우)" 2축으로 시선 이동을 줄이고, 주문 → 미체결 취소 동선이 같은 컬럼 안에서 끝난다.</li>
+      <li><b>L2 · 호가 10단 표기</b> — <b>A(권고)</b>: 국내 HTS 관례. 가격 1열이 매도10→매수10 으로 연속이라 스프레드·물량 벽을 한눈에 읽고, 클릭 타깃(가격 열)이 하나라 오클릭이 적다 / B: 매도·매수 블록 상하 분리(가격|잔량|바). 가격 축이 두 번 끊긴다.</li>
+      <li><b>L3 · 잔량 바</b> — <b>A(권고)</b>: 단계 최대값 정규화 → 물량 "벽" 위치가 즉시 보인다 / B: 누적 비율 → 아래로 갈수록 항상 길어져 벽이 묻힌다 / C: 바 없음(밀도 최대, 100ms 갱신에서 숫자만으로 벽 찾기는 인지 비용이 큼).</li>
+      <li><b>상태 셀렉터</b>로 준비/로그인 중/계좌 확인 중/재접속/회선 단절/세션 거부/권한 없음/스켈레톤을 모두 확인. 각 상태에서 주문 버튼의 문구·비활성이 바뀐다.</li>
+      <li><b>좁은 폭</b>은 브라우저 폭을 900px 아래로 줄이면 실제로 반응하고, 아래 §5 에 390px 고정 렌더도 있다.</li>
+      <li>인터랙션: 호가 <b>가격 클릭 → 주문 가격 입력 반영</b>(탭은 자동 전환하지 않는다) · 거래소 KRX/NXT 토글 · 매수/매도 탭 · 미체결 취소 버튼 · 체결 테이프 스크롤 내리면 자동 스크롤 정지.</li>
+    </ul>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       §1 호가창 섹션 (라이브)
+       ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">1 · 종목상세 <code>/stocks/[code]</code> 호가창 섹션</h2>
+  <p class="sub">
+    마운트 위치 권고: <code>StockDailyChartSection</code> 바로 아래 · <code>StockStatsGrid</code> 위
+    (차트로 흐름을 본 직후 주문으로 이어지는 동선).
+  </p>
+
+  <section class="ob-root card-shadow" id="obRoot" aria-label="실시간 호가 및 주문">
+    <!-- 섹션 헤더 -->
+    <div class="ob-head">
+      <span class="nm">한미반도체</span>
+      <span class="cd mono">042700</span>
+      <span class="mkt-badge">KOSPI</span>
+      <span class="live-px mono up" id="hdPx">98,400</span>
+      <span class="live-chg mono up">+10,200 · +11.56%</span>
+      <span class="src">실시간(DMA) · 체결 <span class="mono" id="hdTm">13:42:11</span></span>
+      <span class="spacer"></span>
+      <span class="mono" style="font-size:11px;color:var(--muted-fg)">
+        기준 88,200 · 상한 <span class="up">114,600</span> · 하한 <span class="down">61,700</span> ·
+        VI <span class="up">↑108,200</span> <span class="down">↓88,600</span>
+      </span>
+    </div>
+
+    <!-- 상태 바 (L6 채택안) -->
+    <div class="statusbar" aria-live="polite">
+      <div class="row1">
+        <span class="badge b-ready" id="stBadge"><span class="dot"></span><span id="stBadgeTx">실시간 · 계좌 2개</span></span>
+        <span class="msg" id="stMsg">호가·체결·잔고가 실시간으로 갱신되고 있어요.<span class="sub" id="stSub">마지막 체결 13:42:11 · KRX</span></span>
+      </div>
+      <div class="alerts" id="alerts">
+        <div class="alert-row"><span class="tm">13:41:02</span><span class="lv">경고</span><span class="tx">NXT 시세 수신이 3초간 지연됐습니다 · 한미반도체</span></div>
+        <div class="alert-row"><span class="tm">13:39:55</span><span class="lv">안내</span><span class="tx">계좌 상태 스냅샷을 다시 받았습니다 (재접속 복구)</span></div>
+        <div class="alert-row"><span class="tm">13:20:07</span><span class="lv err">오류</span><span class="tx">브로커 연결이 일시 중단됐습니다 · 자동 재접속</span></div>
+        <button class="alerts-more">알림 전체 보기 (12건)</button>
+      </div>
+    </div>
+
+    <!-- 본문 A: 정상 -->
+    <div class="ob-body" id="obBody" data-layout="B" data-density="compact">
+
+      <!-- 호가 사다리 -->
+      <div class="pane-book">
+        <div class="pane-hd">
+          <span>호가 10단</span>
+          <span class="spacer"></span>
+          <span class="ex-toggle" role="group" aria-label="거래소 선택">
+            <button data-ex="KRX" aria-pressed="true">KRX</button>
+            <button data-ex="NXT" aria-pressed="false">NXT</button>
+          </span>
+        </div>
+
+        <!-- L2 · A — 중앙 가격 1열 -->
+        <div id="ladA">
+          <table class="ladder" aria-label="호가 10단 (매도 10단계 · 매수 10단계)">
+            <thead>
+              <tr><th scope="col">매도잔량</th><th scope="col">호가</th><th scope="col">매수잔량</th></tr>
+            </thead>
+            <tbody id="ladABody"></tbody>
+            <tfoot>
+              <tr>
+                <td class="q num" id="totA">68,276</td>
+                <td class="px">총잔량</td>
+                <td class="q num" id="totB">51,347</td>
+              </tr>
+            </tfoot>
+          </table>
+          <button class="ladder-more" id="moreBtn" aria-expanded="false">10단 전체 보기</button>
+        </div>
+
+        <!-- L2 · B — 매도/매수 상하 분리 -->
+        <div id="ladB" class="hidden">
+          <table class="ladder-b" aria-label="호가 10단 (매도 블록 · 매수 블록)">
+            <thead>
+              <tr><th scope="col">호가</th><th scope="col">잔량</th><th scope="col" style="width:38%">비중</th></tr>
+            </thead>
+            <tbody id="ladBBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 체결 테이프 -->
+      <div class="pane-tape">
+        <div class="pane-hd"><span>체결</span><span class="spacer"></span><span style="font-weight:400">200ms 배치</span></div>
+        <div class="tape-wrap">
+          <button class="tape-pin hidden" id="tapePin">새 체결 3건 · 맨 위로</button>
+          <div class="tape-scroll" id="tapeScroll">
+            <table class="tape" aria-label="체결 테이프">
+              <thead><tr><th scope="col">시각</th><th scope="col">체결가</th><th scope="col">수량</th><th scope="col">구분</th></tr></thead>
+              <tbody id="tapeBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 주문 패널 -->
+      <div class="pane-order">
+        <div class="pane-hd"><span>주문</span><span class="spacer"></span><span class="fixed-chip">지정가 · 보통</span></div>
+        <div class="order">
+          <div class="side-tabs" role="tablist" aria-label="매매 구분">
+            <button role="tab" data-side="B" aria-selected="true">매수</button>
+            <button role="tab" data-side="S" aria-selected="false">매도</button>
+          </div>
+
+          <div class="frm-row">
+            <label for="acctSel">계좌</label>
+            <select class="ipt" id="acctSel">
+              <option>12345678-01 · 위탁종합</option>
+              <option>12345678-02 · CMA</option>
+            </select>
+          </div>
+
+          <div class="frm-row">
+            <label for="exSel">거래소</label>
+            <span class="ex-toggle" role="group" aria-label="주문 거래소" style="flex:1">
+              <button data-oex="KRX" aria-pressed="true" style="flex:1;height:32px">KRX</button>
+              <button data-oex="NXT" aria-pressed="false" style="flex:1;height:32px">NXT</button>
+            </span>
+          </div>
+
+          <div class="frm-row">
+            <label for="pxIn">가격</label>
+            <span class="stepper"><button type="button" id="pxDn" aria-label="호가 한 단계 내리기">−</button></span>
+            <input class="ipt" id="pxIn" inputmode="numeric" value="98,400" aria-describedby="tickHint" />
+            <span class="stepper"><button type="button" id="pxUp" aria-label="호가 한 단계 올리기">＋</button></span>
+          </div>
+          <div class="hint" id="tickHint">호가 단위 100원 · 사다리의 가격을 클릭하면 여기에 채워져요</div>
+
+          <div class="frm-row">
+            <label for="qtyIn">수량</label>
+            <input class="ipt" id="qtyIn" inputmode="numeric" value="100" />
+            <span class="fixed-chip">주</span>
+          </div>
+          <div class="pcts hidden" id="pcts" aria-label="보유 수량 비율">
+            <button data-pct="10">10%</button><button data-pct="25">25%</button>
+            <button data-pct="50">50%</button><button data-pct="100">100%</button>
+          </div>
+
+          <div class="amt"><span class="k">주문금액</span><span class="v" id="amt">9,840,000원</span></div>
+
+          <button class="submit" id="submitBtn" data-side="B">매수 주문</button>
+
+          <div class="result" id="resultBox">
+            <span class="t">주문이 접수됐어요 · 주문번호 0000135842</span>
+            <span class="d">체결되면 미체결·잔고가 자동으로 갱신돼요.</span>
+          </div>
+          <div class="hint">신규 매수/매도와 취소만 지원해요 · 정정은 취소 후 다시 주문해 주세요</div>
+        </div>
+      </div>
+
+      <!-- 잔고 / 미체결 -->
+      <div class="pane-acct acct">
+        <div class="acct-sel-row">
+          <label for="acctSel2" style="font-size:var(--t-caption);color:var(--muted-fg);font-weight:600">계좌</label>
+          <select id="acctSel2">
+            <option>12345678-01 · 위탁종합</option>
+            <option>12345678-02 · CMA</option>
+          </select>
+        </div>
+        <div class="acct-tabs" role="tablist" aria-label="계좌 정보">
+          <button role="tab" data-tab="unf" aria-selected="true">미체결 3</button>
+          <button role="tab" data-tab="hold" aria-selected="false">잔고 3</button>
+        </div>
+
+        <div id="tabUnf">
+          <table class="tbl" aria-label="미체결 주문">
+            <thead><tr>
+              <th scope="col">구분</th><th scope="col">종목</th><th scope="col">거래소</th>
+              <th scope="col" class="num">주문가</th><th scope="col" class="num">주문</th>
+              <th scope="col" class="num">미체결</th><th scope="col"></th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="side-tag buy">▲ 매수</span></td>
+                <td>한미반도체</td><td class="mono">KRX</td>
+                <td class="num mono">98,000</td><td class="num mono">50</td><td class="num mono">30</td>
+                <td class="num"><button class="btn-cancel" data-cancel="0000135742">✕ 취소</button></td>
+              </tr>
+              <tr>
+                <td><span class="side-tag sell">▼ 매도</span></td>
+                <td>한미반도체</td><td class="mono">NXT</td>
+                <td class="num mono">99,200</td><td class="num mono">20</td><td class="num mono">20</td>
+                <td class="num"><button class="btn-cancel" data-cancel="0000135801">✕ 취소</button></td>
+              </tr>
+              <tr>
+                <td><span class="side-tag buy">▲ 매수</span></td>
+                <td>이수페타시스</td><td class="mono">KRX</td>
+                <td class="num mono">42,300</td><td class="num mono">100</td><td class="num mono">100</td>
+                <td class="num"><button class="btn-cancel" data-cancel="0000135655">✕ 취소</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="tabHold" class="hidden">
+          <table class="tbl" aria-label="잔고">
+            <thead><tr>
+              <th scope="col">종목</th><th scope="col" class="num">보유</th><th scope="col" class="num">매도가능</th>
+              <th scope="col" class="num">평단가</th><th scope="col" class="num">평가손익</th><th scope="col" class="num">수익률</th>
+            </tr></thead>
+            <tbody>
+              <tr><td>한미반도체 <span style="color:var(--muted-fg)" class="mono">042700</span></td>
+                <td class="num mono">120</td><td class="num mono">90</td><td class="num mono">91,250</td>
+                <td class="num mono up">+858,000</td><td class="num mono up">+7.84%</td></tr>
+              <tr><td>이수페타시스 <span style="color:var(--muted-fg)" class="mono">007660</span></td>
+                <td class="num mono">200</td><td class="num mono">200</td><td class="num mono">44,100</td>
+                <td class="num mono down">-360,000</td><td class="num mono down">-4.08%</td></tr>
+              <tr><td>삼성전자 <span style="color:var(--muted-fg)" class="mono">005930</span></td>
+                <td class="num mono">50</td><td class="num mono">50</td><td class="num mono">71,400</td>
+                <td class="num mono up">+125,000</td><td class="num mono up">+3.50%</td></tr>
+            </tbody>
+          </table>
+          <div class="sumline"><span>평가손익 합계</span><span class="v up">+623,000원</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 본문 B: 권한 없음 -->
+    <div class="gate hidden" id="obGate">
+      <span class="ic" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </span>
+      <h3>실시간 호가·주문 권한이 없어요</h3>
+      <p>실시간 호가와 주문은 증권사 계정이 연결된 사용자만 이용할 수 있어요. 연결이 필요하면 관리자에게 문의해 주세요.</p>
+      <p class="meta">이 종목의 차트·뉴스·종목토론방은 그대로 이용할 수 있어요.</p>
+    </div>
+
+    <!-- 본문 C: 로딩 스켈레톤 -->
+    <div class="hidden" id="obSkel" aria-busy="true" aria-label="호가 불러오는 중">
+      <div style="display:grid;grid-template-columns:minmax(300px,1fr) 168px minmax(320px,360px);gap:1px;background:var(--border)">
+        <div style="background:var(--card);padding:8px 0">
+          <div class="sk sk-row" style="width:40%"></div>
+          <div class="sk sk-row"></div><div class="sk sk-row"></div><div class="sk sk-row"></div>
+          <div class="sk sk-row"></div><div class="sk sk-row"></div><div class="sk sk-row"></div>
+          <div class="sk sk-row"></div><div class="sk sk-row"></div><div class="sk sk-row"></div>
+        </div>
+        <div style="background:var(--card);padding:8px 0">
+          <div class="sk sk-row" style="width:50%"></div>
+          <div class="sk sk-row"></div><div class="sk sk-row"></div><div class="sk sk-row"></div>
+          <div class="sk sk-row"></div><div class="sk sk-row"></div>
+        </div>
+        <div style="background:var(--card);padding:8px 0">
+          <div class="sk sk-row" style="width:60%"></div>
+          <div class="sk sk-row" style="height:36px"></div>
+          <div class="sk sk-row" style="height:36px"></div>
+          <div class="sk sk-row" style="height:44px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       §2 상태 갤러리
+       ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">2 · 연결 상태 6종 + 게이트 2종 — 배지 · 문구 · 주문 버튼</h2>
+  <p class="sub">
+    라벨 정본은 gh-trade <code>EventArgs.cs</code> <code>SessionState</code> 개념 이식.
+    <b>연결 상태에는 <code>--up</code>/<code>--down</code> 을 쓰지 않는다</b> — 사다리의 상승/하락·매수/매도 의미색과 충돌하기 때문.
+  </p>
+  <div class="gal" id="gal"></div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       §3 다이얼로그
+       ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">3 · 확인 다이얼로그 (오조작 방지)</h2>
+  <p class="sub">
+    확인은 웹앱 몫(D-20 — relay 는 판단하지 않는다). 기본 포커스는 <b>취소</b> 버튼에 둔다 —
+    Enter 연타로 주문이 나가지 않게. 주문 취소 버튼은 <code>--destructive</code> 가
+    <code>--up</code> 과 동일 oklch 라서 <b>채움 대신 테두리</b>로 매수 버튼과 구분한다.
+  </p>
+  <div class="gal">
+    <div class="cell" style="max-width:400px">
+      <div class="cap">주문 확인 (매수)</div>
+      <div class="dlg" style="border:none;padding:0;background:transparent">
+        <h3>매수 주문을 넣을까요?</h3>
+        <p class="d">접수되면 취소하기 전까지 되돌릴 수 없어요.</p>
+        <dl>
+          <dt>종목</dt><dd class="sans">한미반도체 (042700)</dd>
+          <dt>계좌</dt><dd>12345678-01</dd>
+          <dt>거래소</dt><dd class="sans">KRX</dd>
+          <dt>주문유형</dt><dd class="sans">지정가 · 보통</dd>
+          <dt>가격</dt><dd>98,400원</dd>
+          <dt>수량</dt><dd>100주</dd>
+          <dt>주문금액</dt><dd>9,840,000원</dd>
+        </dl>
+        <div class="warnbox">가격·수량을 다시 확인해 주세요. 서버에는 금액·수량 한도가 없어요.</div>
+        <div class="btns"><button class="btn-out">취소</button><button class="btn-buy">매수 주문</button></div>
+      </div>
+    </div>
+
+    <div class="cell" style="max-width:400px">
+      <div class="cap">주문 확인 (매도)</div>
+      <div class="dlg" style="border:none;padding:0;background:transparent">
+        <h3>매도 주문을 넣을까요?</h3>
+        <p class="d">접수되면 취소하기 전까지 되돌릴 수 없어요.</p>
+        <dl>
+          <dt>종목</dt><dd class="sans">한미반도체 (042700)</dd>
+          <dt>계좌</dt><dd>12345678-01</dd>
+          <dt>거래소</dt><dd class="sans">NXT</dd>
+          <dt>가격</dt><dd>99,200원</dd>
+          <dt>수량</dt><dd>90주 <span style="font-weight:400;color:var(--muted-fg)">(매도가능 90)</span></dd>
+          <dt>주문금액</dt><dd>8,928,000원</dd>
+        </dl>
+        <div class="warnbox">가격·수량을 다시 확인해 주세요. 서버에는 금액·수량 한도가 없어요.</div>
+        <div class="btns"><button class="btn-out">취소</button><button class="btn-sell">매도 주문</button></div>
+      </div>
+    </div>
+
+    <div class="cell" style="max-width:400px">
+      <div class="cap">미체결 취소 확인</div>
+      <div class="dlg" style="border:none;padding:0;background:transparent">
+        <h3>미체결 주문을 취소할까요?</h3>
+        <p class="d">취소 수량은 미체결 잔량 전부예요.</p>
+        <dl>
+          <dt>주문번호</dt><dd>0000135742</dd>
+          <dt>구분</dt><dd class="sans">매수 · 한미반도체</dd>
+          <dt>주문가</dt><dd>98,000원</dd>
+          <dt>미체결</dt><dd>30주</dd>
+        </dl>
+        <div class="btns"><button class="btn-out">닫기</button><button class="btn-destr">✕ 주문 취소</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       §4 주문 결과 · 빈 상태
+       ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">4 · 주문 결과 배너 · 빈 상태</h2>
+  <p class="sub">토스트 라이브러리가 저장소에 없다(<code>ui/</code> 에 sonner 없음). 새 의존성 대신 <b>주문 패널 하단 인라인 배너 + 알림 누적</b>으로 처리한다.</p>
+  <div class="gal">
+    <div class="cell">
+      <div class="cap">접수 (role="status")</div>
+      <div class="result"><span class="t">주문이 접수됐어요 · 주문번호 0000135842</span><span class="d">체결되면 미체결·잔고가 자동으로 갱신돼요.</span></div>
+    </div>
+    <div class="cell">
+      <div class="cap">거부 (role="alert")</div>
+      <div class="result rej"><span class="t">주문이 거부됐어요 · 호가 단위가 맞지 않습니다</span><span class="d">가격을 호가 단위(100원)에 맞춰 다시 시도해 주세요. (코드 -204)</span></div>
+    </div>
+    <div class="cell">
+      <div class="cap">5초 응답 지연 — <b>실패로 단정 금지</b></div>
+      <div class="result"><span class="t">접수 응답이 늦어지고 있어요</span><span class="d">주문이 이미 나갔을 수 있어요. 미체결 목록에서 접수 여부를 확인한 뒤 다시 주문해 주세요.</span></div>
+    </div>
+    <div class="cell">
+      <div class="cap">세션 없음 (409 SESSION_NOT_READY)</div>
+      <div class="result rej"><span class="t">호가창을 먼저 열어 주세요</span><span class="d">주문은 호가창이 연결된 상태에서만 보낼 수 있어요. 페이지를 새로고침하면 다시 연결돼요.</span></div>
+    </div>
+    <div class="cell">
+      <div class="cap">미체결 없음</div>
+      <div class="empty"><h4>미체결 주문이 없어요</h4><p>주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요.</p></div>
+    </div>
+    <div class="cell">
+      <div class="cap">잔고 없음</div>
+      <div class="empty"><h4>보유 종목이 없어요</h4><p>체결된 주문이 있으면 잔고에 반영돼요.</p></div>
+    </div>
+    <div class="cell">
+      <div class="cap">체결 없음</div>
+      <div class="empty"><h4>아직 체결이 없어요</h4><p>장 시작(09:00) 이후 체결이 발생하면 위에서부터 쌓여요.</p></div>
+    </div>
+    <div class="cell">
+      <div class="cap">호가 없음 (장 시작 전)</div>
+      <div class="empty"><h4>호가 정보가 없어요</h4><p>장 시작(09:00) 이후 실시간 호가가 표시돼요.</p></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       §5 좁은 폭 (390)
+       ══════════════════════════════════════════════════════════ -->
+  <h2 class="sec">5 · 좁은 폭 390px — 밀도 대응</h2>
+  <p class="sub">
+    세로 스택(호가 → 주문 → 체결 → 계좌). 호가는 <b>기본 5단</b>만 렌더하고 "10단 전체 보기"로 확장한다
+    (10단 × 32px = 640px 은 모바일 1.5스크린). 행 높이는 <code>data-density="compact"</code> 를
+    명시해 globals.css 의 모바일 자동 comfortable(44px) 규칙을 opt-out 한다.
+    브라우저 폭을 900px 아래로 줄이면 §1 도 동일하게 반응한다.
+  </p>
+  <div class="narrow-frame card-shadow">
+    <div class="ob-head" style="padding:10px 12px">
+      <span class="nm" style="font-size:var(--t-sm)">한미반도체</span>
+      <span class="cd mono">042700</span>
+      <span class="live-px mono up" style="font-size:var(--t-base)">98,400</span>
+      <span class="live-chg mono up" style="font-size:var(--t-caption)">+11.56%</span>
+    </div>
+    <div class="statusbar">
+      <div class="row1" style="padding:6px 12px">
+        <span class="badge b-ready"><span class="dot"></span>실시간 · 계좌 2개</span>
+        <span class="msg" style="font-size:11px">체결 13:42:11 · KRX</span>
+      </div>
+    </div>
+    <div class="ob-body narrow" id="obBodyNarrow" data-layout="B" data-density="compact"></div>
+  </div>
+
+</div>
+
+<!-- 다이얼로그 (동적) -->
+<div class="scrim hidden" id="scrim">
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" id="dlgBox"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   데이터 (실제 한국 주식 형태의 가짜 데이터)
+   ═══════════════════════════════════════════════════════════════ */
+const BASE = 88200;          // 기준가(전일 종가)
+const TICK = 100;            // 호가 단위 (5만~20만원 구간)
+let   LAST = 98400;          // 현재가
+
+// 매도10 → 매도1 (가격 내림차순)
+let ASKS = [[99300,12840],[99200,8412],[99100,5306],[99000,21955],[98900,4120],
+            [98800,3877],[98700,2914],[98600,6033],[98500,1842],[98400,977]];
+// 매수1 → 매수10 (가격 내림차순)
+let BIDS = [[98300,1455],[98200,3201],[98100,7688],[98000,15402],[97900,2140],
+            [97800,1922],[97700,3506],[97600,2088],[97500,9714],[97400,4231]];
+
+let TAPE = [
+  ['13:42:11',98400,132,'B'],['13:42:10',98300,45,'S'],['13:42:10',98400,8,'B'],
+  ['13:42:09',98300,210,'S'],['13:42:08',98400,1204,'B'],['13:42:07',98300,77,'S'],
+  ['13:42:06',98400,350,'B'],['13:42:05',98400,62,'B'],['13:42:04',98300,500,'S'],
+  ['13:42:03',98200,1830,'S'],['13:42:02',98300,95,'B'],['13:42:01',98300,24,'B'],
+  ['13:42:00',98200,640,'S'],['13:41:59',98300,118,'B'],['13:41:58',98300,3002,'B'],
+  ['13:41:57',98200,210,'S'],['13:41:56',98100,88,'S'],['13:41:55',98200,47,'B']
+];
+
+const STATES = {
+  ready: {
+    badge:'실시간 · 계좌 2개', tone:'b-ready',
+    msg:'호가·체결·잔고가 실시간으로 갱신되고 있어요.', sub:'마지막 체결 13:42:11 · KRX',
+    btn:null, disabled:false, stale:false, body:'live'
+  },
+  logging_in: {
+    badge:'DMA 로그인 중…', tone:'b-progress',
+    msg:'증권사에 로그인하는 중이에요…', sub:'보통 2~3초 걸려요.',
+    btn:'연결 중…', disabled:true, stale:true, body:'live'
+  },
+  declaring: {
+    badge:'계좌 확인 중…', tone:'b-progress',
+    msg:'계좌 정보를 확인하는 중이에요…', sub:'계좌 목록을 받으면 주문할 수 있어요.',
+    btn:'연결 중…', disabled:true, stale:true, body:'live'
+  },
+  reconnecting: {
+    badge:'재접속 중 3/10', tone:'b-warn',
+    msg:'연결이 끊겨 다시 연결하는 중이에요 · 3/10회 (다음 8초)',
+    sub:'표시된 호가는 마지막으로 받은 값이에요.',
+    btn:'재접속 중…', disabled:true, stale:true, body:'live'
+  },
+  failed: {
+    badge:'회선 단절', tone:'b-fail',
+    msg:'증권사 회선(VPN)이 끊겼어요',
+    sub:'복구되면 자동으로 다시 연결돼요. 계속되면 관리자에게 문의해 주세요.',
+    btn:'연결 실패', disabled:true, stale:true, body:'live'
+  },
+  session_rejected: {
+    badge:'로그인 거부', tone:'b-fail',
+    msg:'증권사 로그인이 거부돼 재접속을 중단했어요',
+    sub:'계정 상태를 확인한 뒤 페이지를 새로고침해 주세요.',
+    btn:'로그인 거부됨', disabled:true, stale:true, body:'live'
+  },
+  unauthorized: {
+    badge:'권한 없음', tone:'b-none',
+    msg:'실시간 호가·주문 권한이 없어요', sub:'관리자에게 계정 연결을 문의해 주세요.',
+    btn:null, disabled:true, stale:false, body:'gate'
+  },
+  loading: {
+    badge:'불러오는 중…', tone:'b-progress',
+    msg:'호가를 불러오는 중이에요…', sub:'',
+    btn:null, disabled:true, stale:false, body:'skel'
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   유틸
+   ═══════════════════════════════════════════════════════════════ */
+const $  = (s,r)=> (r||document).querySelector(s);
+const $$ = (s,r)=> Array.from((r||document).querySelectorAll(s));
+const fmt = n => n.toLocaleString('ko-KR');
+const cls = p => p > BASE ? 'up' : (p < BASE ? 'down' : 'flat');
+
+let L1='B', L2='A', L3='A', ST='ready', SIM=true, SIDE='B', flashKeys=new Set();
+
+/* ═══════════════════════════════════════════════════════════════
+   호가 사다리 렌더
+   ═══════════════════════════════════════════════════════════════ */
+function barPct(kind, side, idx){
+  if (L3==='C') return 0;
+  const arr = side==='a' ? ASKS : BIDS;
+  if (L3==='A'){
+    const mx = Math.max.apply(null, arr.map(r=>r[1]));
+    return Math.max(3, Math.round(arr[idx][1] / mx * 100));
+  }
+  // L3 B = 누적(최우선호가부터)
+  const tot = arr.reduce((s,r)=>s+r[1],0);
+  let cum = 0;
+  if (side==='a'){ for (let i=arr.length-1;i>=idx;i--) cum += arr[i][1]; }
+  else           { for (let i=0;i<=idx;i++)            cum += arr[i][1]; }
+  return Math.max(3, Math.round(cum / tot * 100));
+}
+
+function ladderA(){
+  const tb = $('#ladABody'); if (!tb) return;
+  let h = '';
+  ASKS.forEach((r,i)=>{
+    const step = 10 - i, far = step > 5;
+    const k = 'a'+i, fl = flashKeys.has(k) ? ' flash' : '';
+    h += '<tr class="ask'+(r[0]===LAST?' now':'')+(far?' lv-far':'')+'">'
+      +  '<td class="q qa'+fl+'"><span class="bar" style="width:'+barPct(0,'a',i)+'%"></span><span class="v">'+fmt(r[1])+'</span></td>'
+      +  '<th scope="row" class="px '+cls(r[0])+'" data-px="'+r[0]+'"><span class="step">매'+step+'</span>'
+      +  '<span class="sr">매도 '+step+'호가</span>'+fmt(r[0])
+      +  (r[0]===LAST?'<span class="nowchip">체결</span>':'')+'</th>'
+      +  '<td class="q qb"></td></tr>';
+  });
+  const spread = BIDS[0][0] ? (ASKS[9][0]-BIDS[0][0]) : 0;
+  h += '<tr class="spread"><td colspan="3">스프레드 '+fmt(spread)+'원 · '
+    +  ((spread/BIDS[0][0])*100).toFixed(2)+'% &nbsp;|&nbsp; 매도1 '+fmt(ASKS[9][0])+' · 매수1 '+fmt(BIDS[0][0])+'</td></tr>';
+  BIDS.forEach((r,i)=>{
+    const step = i + 1, far = step > 5;
+    const k = 'b'+i, fl = flashKeys.has(k) ? ' flash' : '';
+    h += '<tr class="bid'+(far?' lv-far':'')+'">'
+      +  '<td class="q qa"></td>'
+      +  '<th scope="row" class="px '+cls(r[0])+'" data-px="'+r[0]+'"><span class="step">수'+step+'</span>'
+      +  '<span class="sr">매수 '+step+'호가</span>'+fmt(r[0])+'</th>'
+      +  '<td class="q qb'+fl+'"><span class="bar" style="width:'+barPct(0,'b',i)+'%"></span><span class="v">'+fmt(r[1])+'</span></td></tr>';
+  });
+  tb.innerHTML = h;
+  $('#totA').textContent = fmt(ASKS.reduce((s,r)=>s+r[1],0));
+  $('#totB').textContent = fmt(BIDS.reduce((s,r)=>s+r[1],0));
+}
+
+function ladderB(){
+  const tb = $('#ladBBody'); if (!tb) return;
+  let h = '<tr class="grp-hd"><td colspan="3" style="color:var(--down)">▼ 매도호가 10단 · 총 '+fmt(ASKS.reduce((s,r)=>s+r[1],0))+'</td></tr>';
+  ASKS.forEach((r,i)=>{
+    const step = 10 - i, far = step > 5;
+    h += '<tr class="ask'+(far?' lv-far':'')+'">'
+      +  '<td class="px '+cls(r[0])+'" data-px="'+r[0]+'"><span class="sr">매도 '+step+'호가</span>'+fmt(r[0])+'</td>'
+      +  '<td class="qv">'+fmt(r[1])+'</td>'
+      +  '<td class="bc"><span class="bar" style="width:'+barPct(0,'a',i)+'%"></span></td></tr>';
+  });
+  h += '<tr class="grp-hd"><td colspan="3" style="color:var(--up)">▲ 매수호가 10단 · 총 '+fmt(BIDS.reduce((s,r)=>s+r[1],0))+'</td></tr>';
+  BIDS.forEach((r,i)=>{
+    const step = i + 1, far = step > 5;
+    h += '<tr class="bid'+(far?' lv-far':'')+'">'
+      +  '<td class="px '+cls(r[0])+'" data-px="'+r[0]+'"><span class="sr">매수 '+step+'호가</span>'+fmt(r[0])+'</td>'
+      +  '<td class="qv">'+fmt(r[1])+'</td>'
+      +  '<td class="bc"><span class="bar" style="width:'+barPct(0,'b',i)+'%"></span></td></tr>';
+  });
+  tb.innerHTML = h;
+}
+
+function renderLadder(){
+  ladderA(); ladderB();
+  $('#ladA').classList.toggle('hidden', L2!=='A');
+  $('#ladB').classList.toggle('hidden', L2!=='B');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   체결 테이프
+   ═══════════════════════════════════════════════════════════════ */
+function renderTape(flashN){
+  const tb = $('#tapeBody'); if (!tb) return;
+  tb.innerHTML = TAPE.map((r,i)=>{
+    const fl = (flashN && i < flashN) ? ' class="flash"' : '';
+    return '<tr'+fl+'><td class="tm">'+r[0]+'</td>'
+      + '<td class="pz '+cls(r[1])+'">'+fmt(r[1])+'</td>'
+      + '<td class="qz">'+fmt(r[2])+'</td>'
+      + '<td class="sd '+(r[3]==='B'?'buy':'sell')+'">'+(r[3]==='B'?'▲ 매수':'▼ 매도')+'</td></tr>';
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   상태 적용
+   ═══════════════════════════════════════════════════════════════ */
+function applyState(){
+  const s = STATES[ST];
+  const b = $('#stBadge');
+  b.className = 'badge ' + s.tone;
+  $('#stBadgeTx').textContent = s.badge;
+  $('#stMsg').firstChild.nodeValue = s.msg;
+  $('#stSub').textContent = s.sub;
+
+  $('#obBody').classList.toggle('hidden', s.body!=='live');
+  $('#obGate').classList.toggle('hidden', s.body!=='gate');
+  $('#obSkel').classList.toggle('hidden', s.body!=='skel');
+  $('#obBody').classList.toggle('stale', !!s.stale);
+  $('#alerts').classList.toggle('hidden', s.body==='skel');
+
+  const btn = $('#submitBtn');
+  btn.disabled = s.disabled;
+  btn.textContent = s.btn || (SIDE==='B' ? '매수 주문' : '매도 주문');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   상태 갤러리
+   ═══════════════════════════════════════════════════════════════ */
+function renderGallery(){
+  const order = ['logging_in','declaring','ready','reconnecting','failed','session_rejected','unauthorized','loading'];
+  const caps = {
+    logging_in:'SessionState · LoggingIn', declaring:'SessionState · DeclaringAccounts',
+    ready:'SessionState · Ready', reconnecting:'SessionState · Reconnecting',
+    failed:'SessionState · Failed (회선 단절)', session_rejected:'게이트 · 서버 로그인 거부(재시도 중단)',
+    unauthorized:'게이트 · dma_credentials 매핑 없음', loading:'초기 로딩'
+  };
+  $('#gal').innerHTML = order.map(k=>{
+    const s = STATES[k];
+    return '<div class="cell"><div class="cap">'+caps[k]+'</div>'
+      + '<span class="badge '+s.tone+'"><span class="dot"></span>'+s.badge+'</span>'
+      + '<div class="st-msg">'+s.msg+'<span class="sub">'+(s.sub||'&nbsp;')+'</span></div>'
+      + '<button class="submit" data-side="B"'+(s.disabled?' disabled':'')+'>'
+      + (s.btn || '매수 주문') + '</button></div>';
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   주문 패널
+   ═══════════════════════════════════════════════════════════════ */
+function parseNum(v){ return parseInt(String(v).replace(/[^0-9]/g,''),10) || 0; }
+function recalcAmt(){
+  const p = parseNum($('#pxIn').value), q = parseNum($('#qtyIn').value);
+  $('#amt').textContent = fmt(p*q)+'원';
+}
+function setSide(side){
+  SIDE = side;
+  $$('.side-tabs button').forEach(b=> b.setAttribute('aria-selected', String(b.dataset.side===side)));
+  const btn = $('#submitBtn');
+  btn.dataset.side = side;
+  if (!STATES[ST].disabled) btn.textContent = side==='B' ? '매수 주문' : '매도 주문';
+  // 비율 버튼은 매도(보유수량 기준)에서만 — 매수 가능금액은 AccountState 에 없다
+  $('#pcts').classList.toggle('hidden', side!=='S');
+}
+function setPrice(p){
+  const i = $('#pxIn');
+  i.value = fmt(p);
+  i.classList.remove('flash-in'); void i.offsetWidth; i.classList.add('flash-in');
+  recalcAmt();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   다이얼로그
+   ═══════════════════════════════════════════════════════════════ */
+function openDlg(html){
+  $('#dlgBox').innerHTML = html;
+  $('#scrim').classList.remove('hidden');
+  const c = $('#dlgBox .btn-out'); if (c) c.focus();   // 기본 포커스 = 취소
+}
+function closeDlg(){ $('#scrim').classList.add('hidden'); }
+
+function orderDlg(){
+  const p = parseNum($('#pxIn').value), q = parseNum($('#qtyIn').value);
+  const buy = SIDE==='B';
+  openDlg(
+    '<h3 id="dlgTitle">'+(buy?'매수':'매도')+' 주문을 넣을까요?</h3>'
+    + '<p class="d">접수되면 취소하기 전까지 되돌릴 수 없어요.</p>'
+    + '<dl><dt>종목</dt><dd class="sans">한미반도체 (042700)</dd>'
+    + '<dt>계좌</dt><dd>'+$('#acctSel').value.split(' ·')[0]+'</dd>'
+    + '<dt>거래소</dt><dd class="sans">'+($('[data-oex][aria-pressed="true"]').dataset.oex)+'</dd>'
+    + '<dt>주문유형</dt><dd class="sans">지정가 · 보통</dd>'
+    + '<dt>가격</dt><dd>'+fmt(p)+'원</dd><dt>수량</dt><dd>'+fmt(q)+'주</dd>'
+    + '<dt>주문금액</dt><dd>'+fmt(p*q)+'원</dd></dl>'
+    + '<div class="warnbox">가격·수량을 다시 확인해 주세요. 서버에는 금액·수량 한도가 없어요.</div>'
+    + '<div class="btns"><button class="btn-out" onclick="__close()">취소</button>'
+    + '<button class="'+(buy?'btn-buy':'btn-sell')+'" onclick="__close()">'+(buy?'매수':'매도')+' 주문</button></div>'
+  );
+}
+function cancelDlg(no){
+  openDlg(
+    '<h3 id="dlgTitle">미체결 주문을 취소할까요?</h3>'
+    + '<p class="d">취소 수량은 미체결 잔량 전부예요.</p>'
+    + '<dl><dt>주문번호</dt><dd>'+no+'</dd><dt>구분</dt><dd class="sans">매수 · 한미반도체</dd>'
+    + '<dt>주문가</dt><dd>98,000원</dd><dt>미체결</dt><dd>30주</dd></dl>'
+    + '<div class="btns"><button class="btn-out" onclick="__close()">닫기</button>'
+    + '<button class="btn-destr" onclick="__close()">✕ 주문 취소</button></div>'
+  );
+}
+window.__close = closeDlg;
+
+/* ═══════════════════════════════════════════════════════════════
+   실시간 시뮬 (100ms 코얼레싱 · 200ms 배치 가정)
+   ═══════════════════════════════════════════════════════════════ */
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let pending = 0;
+
+function simTick(){
+  if (!SIM || ST==='unauthorized' || ST==='loading') return;
+  flashKeys.clear();
+  const n = 1 + Math.floor(Math.random()*3);
+  for (let i=0;i<n;i++){
+    const isAsk = Math.random() < .5;
+    const arr = isAsk ? ASKS : BIDS;
+    const idx = Math.floor(Math.random()*arr.length);
+    const d = Math.round(arr[idx][1] * (Math.random()*0.24 - 0.12));
+    arr[idx][1] = Math.max(50, arr[idx][1] + d);
+    flashKeys.add((isAsk?'a':'b')+idx);
+  }
+  renderLadder();
+  if (!reduced) setTimeout(()=>{ flashKeys.clear(); renderLadder(); }, 160);
+}
+
+function tapeTick(){
+  if (!SIM || ST==='unauthorized' || ST==='loading') return;
+  const n = 1 + Math.floor(Math.random()*3);
+  const t = new Date();
+  const hh = String(13).padStart(2,'0'), mm = String(42+Math.floor(t.getSeconds()/60)).padStart(2,'0');
+  for (let i=0;i<n;i++){
+    const buy = Math.random() < .55;
+    const p = buy ? ASKS[9][0] : BIDS[0][0];
+    const q = 1 + Math.floor(Math.random()*900);
+    TAPE.unshift([hh+':'+mm+':'+String(t.getSeconds()).padStart(2,'0'), p, q, buy?'B':'S']);
+  }
+  if (TAPE.length > 40) TAPE.length = 40;
+  const sc = $('#tapeScroll');
+  const atTop = sc.scrollTop <= 4;
+  renderTape(reduced ? 0 : n);
+  if (atTop) { sc.scrollTop = 0; pending = 0; $('#tapePin').classList.add('hidden'); }
+  else {
+    pending += n;
+    const pin = $('#tapePin');
+    pin.textContent = '새 체결 '+pending+'건 · 맨 위로';
+    pin.classList.remove('hidden');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   좁은 폭 클론
+   ═══════════════════════════════════════════════════════════════ */
+function buildNarrow(){
+  const src = $('#obBody');
+  const dst = $('#obBodyNarrow');
+  dst.innerHTML = src.innerHTML;
+  // 클론 안의 중복 id 제거
+  $$('[id]', dst).forEach(el=> el.removeAttribute('id'));
+  $$('.tape-pin', dst).forEach(el=> el.classList.add('hidden'));
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   결선
+   ═══════════════════════════════════════════════════════════════ */
+const root = document.documentElement;
+$('#themeBtn').onclick = e => {
+  const d = root.classList.toggle('dark');
+  e.currentTarget.textContent = d ? '☀️ 라이트' : '🌙 다크';
+  e.currentTarget.setAttribute('aria-pressed', String(d));
+};
+
+$$('[data-l1]').forEach(b => b.onclick = () => {
+  L1 = b.dataset.l1;
+  $$('[data-l1]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.l1===L1)));
+  $('#obBody').dataset.layout = L1;
+});
+$$('[data-l2]').forEach(b => b.onclick = () => {
+  L2 = b.dataset.l2;
+  $$('[data-l2]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.l2===L2)));
+  renderLadder(); buildNarrow();
+});
+$$('[data-l3]').forEach(b => b.onclick = () => {
+  L3 = b.dataset.l3;
+  $$('[data-l3]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.l3===L3)));
+  renderLadder(); buildNarrow();
+});
+$('#stateSel').onchange = e => { ST = e.target.value; applyState(); };
+$('#simBtn').onclick = e => {
+  SIM = !SIM;
+  e.currentTarget.textContent = SIM ? 'ON' : 'OFF';
+  e.currentTarget.setAttribute('aria-pressed', String(SIM));
+};
+
+// 호가 가격 클릭 → 주문 가격 입력 (탭은 자동 전환하지 않는다)
+document.addEventListener('click', e => {
+  const px = e.target.closest('[data-px]');
+  if (px) { setPrice(parseInt(px.dataset.px,10)); return; }
+  const ex = e.target.closest('[data-ex]');
+  if (ex) { $$('[data-ex]').forEach(x=> x.setAttribute('aria-pressed', String(x===ex))); return; }
+  const oex = e.target.closest('[data-oex]');
+  if (oex) { $$('[data-oex]').forEach(x=> x.setAttribute('aria-pressed', String(x===oex))); return; }
+  const tab = e.target.closest('.side-tabs button');
+  if (tab) { setSide(tab.dataset.side); return; }
+  const at = e.target.closest('.acct-tabs button');
+  if (at) {
+    $$('.acct-tabs button').forEach(x=> x.setAttribute('aria-selected', String(x===at)));
+    $('#tabUnf').classList.toggle('hidden', at.dataset.tab!=='unf');
+    $('#tabHold').classList.toggle('hidden', at.dataset.tab!=='hold');
+    return;
+  }
+  const cx = e.target.closest('[data-cancel]');
+  if (cx) { cancelDlg(cx.dataset.cancel); return; }
+  const lm = e.target.closest('.ladder-more');
+  if (lm) {
+    const body = lm.closest('.ob-body');
+    const on = body.classList.toggle('show-all');
+    lm.textContent = on ? '5단만 보기' : '10단 전체 보기';
+    lm.setAttribute('aria-expanded', String(on));
+    return;
+  }
+  const pc = e.target.closest('[data-pct]');
+  if (pc) { $('#qtyIn').value = fmt(Math.floor(90 * parseInt(pc.dataset.pct,10) / 100)); recalcAmt(); return; }
+  if (e.target === $('#scrim')) closeDlg();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDlg(); });
+
+$('#pxUp').onclick = () => setPrice(parseNum($('#pxIn').value) + TICK);
+$('#pxDn').onclick = () => setPrice(Math.max(TICK, parseNum($('#pxIn').value) - TICK));
+$('#pxIn').oninput = recalcAmt;
+$('#qtyIn').oninput = recalcAmt;
+$('#pxIn').onblur = e => { // 호가 단위 스냅
+  const p = Math.max(TICK, Math.round(parseNum(e.target.value)/TICK)*TICK);
+  e.target.value = fmt(p); recalcAmt();
+};
+$('#submitBtn').onclick = orderDlg;
+$('#tapePin').onclick = () => {
+  $('#tapeScroll').scrollTop = 0; pending = 0; $('#tapePin').classList.add('hidden');
+};
+$('#tapeScroll').addEventListener('scroll', () => {
+  if ($('#tapeScroll').scrollTop <= 4) { pending = 0; $('#tapePin').classList.add('hidden'); }
+});
+
+// 초기 렌더
+renderLadder();
+renderTape(0);
+renderGallery();
+setSide('B');
+recalcAmt();
+applyState();
+buildNarrow();
+
+setInterval(simTick, 850);
+setInterval(tapeTick, 1700);
+</script>
+</body>
+</html>

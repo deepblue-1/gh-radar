@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="ko" class="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 15 — 종목상세 상단 탭 목업 (모바일 기준)</title>
+<style>
+/* gh-radar globals.css 토큰 인라인 — Phase 3 lock, 신규 토큰 없음 */
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0);
+  --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --input:oklch(0.92 0 0); --ring:oklch(0.63 0.18 250);
+  --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+  --popover:#FFFFFF; --popover-fg:oklch(0.18 0 0);
+  --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --secondary:oklch(0.96 0 0); --secondary-fg:oklch(0.18 0 0);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --destructive:oklch(0.66 0.20 22); --destructive-fg:#FFFFFF;
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px;
+  --t-h4:18px; --t-h3:20px; --t-h2:24px; --t-h1:30px;
+  --lh-tight:1.2; --lh-normal:1.5;
+  --row-h:36px; --cell-pad-x:12px; --cell-pad-y:8px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0);
+  --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06);
+  --input:oklch(0.24 0 0); --ring:oklch(0.72 0.16 250);
+  --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+  --popover:oklch(0.14 0 0); --popover-fg:oklch(0.96 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --secondary:oklch(0.18 0 0); --secondary-fg:oklch(0.96 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --destructive:oklch(0.72 0.19 22); --destructive-fg:oklch(0.10 0 0);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+[data-density="compact"] { --row-h:32px; --cell-pad-y:6px; }
+
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg);
+  font-size:var(--t-base); line-height:var(--lh-normal); font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased; }
+html[lang="ko"] { word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em; }
+.num { text-align:right; font-variant-numeric:tabular-nums; }
+.sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+.hidden{display:none !important}
+*:focus-visible { outline:2px solid var(--ring); outline-offset:3px; }
+
+/* 툴바 */
+.toolbar { position:sticky; top:0; z-index:300; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  padding:10px 20px; background:color-mix(in oklch,var(--bg) 92%,transparent);
+  backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+.toolbar h1 { font-size:var(--t-sm); font-weight:600; margin:0; margin-right:auto; }
+.grp { display:flex; align-items:center; gap:6px; padding:3px 8px; border:1px solid var(--border); border-radius:var(--r); }
+.grp > .lb { font-size:11px; font-weight:600; color:var(--muted-fg); }
+.tbtn { height:26px; padding:0 9px; border-radius:var(--r-sm); border:1px solid var(--border);
+  background:var(--secondary); color:var(--secondary-fg); font-size:11px; font-weight:600;
+  cursor:pointer; font-family:inherit; }
+.tbtn[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+
+.stage { padding:20px; }
+.info { border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r-md);
+  background:var(--muted); padding:12px 14px; margin:0 0 20px; max-width:1000px; font-size:var(--t-sm); }
+.info div + div { margin-top:6px; }
+.info b { font-weight:600; }
+
+/* 프레임 */
+.frames { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+.frame-wrap .cap { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin-bottom:8px; }
+.frame { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; background:var(--bg); }
+.urlbar { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--muted);
+  border-bottom:1px solid var(--border); font-size:11px; color:var(--muted-fg); }
+.urlbar .dots { display:flex; gap:4px; }
+.urlbar .dots i { width:8px; height:8px; border-radius:9999px; background:var(--border); display:block; }
+.urlbar .url { flex:1; background:var(--card); border:1px solid var(--border); border-radius:9999px;
+  padding:3px 10px; font-family:var(--font-mono); color:var(--fg); overflow:hidden; white-space:nowrap; }
+.scroll { overflow-y:auto; overflow-x:hidden; position:relative; }
+.frame.mobile .scroll { width:390px; height:760px; }
+.frame.desktop .scroll { width:1280px; height:760px; }
+
+/* 히어로 */
+.hero { padding:16px; }
+.frame.desktop .hero { max-width:896px; margin:0 auto; padding:24px; }
+.hero .nm-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.hero h1 { font-size:var(--t-h2); font-weight:600; margin:0; letter-spacing:-0.01em; }
+.hero .code { font-size:var(--t-sm); color:var(--muted-fg); }
+.hero .badge-o { font-size:11px; font-weight:600; padding:1px 6px; border-radius:var(--r-sm);
+  border:1px solid var(--border); color:var(--muted-fg); }
+.hero .px-row { display:flex; align-items:baseline; gap:10px; margin-top:12px; flex-wrap:wrap; }
+.hero .px { font-size:var(--t-h1); font-weight:600; }
+.hero .chg { font-size:var(--t-sm); font-weight:600; }
+.hero .ts { font-size:11px; color:var(--muted-fg); margin-left:auto; }
+
+/* 탭바 (sticky) */
+.tabbar-wrap { position:sticky; top:0; z-index:20; background:var(--bg); border-bottom:1px solid var(--border); }
+.tabbar { display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; }
+.tabbar::-webkit-scrollbar { display:none; }
+.frame.desktop .tabbar { max-width:896px; margin:0 auto; padding:0 24px; }
+.frame.mobile .tabbar { padding:0 8px; }
+.tabbar button { height:46px; padding:0 14px; border:none; background:transparent; color:var(--muted-fg);
+  font-size:var(--t-sm); font-weight:600; cursor:pointer; font-family:inherit; white-space:nowrap;
+  border-bottom:2px solid transparent; }
+.tabbar button[aria-selected="true"] { color:var(--fg); border-bottom-color:var(--fg); }
+
+/* 패널 */
+.panel { padding:16px; display:flex; flex-direction:column; gap:24px; }
+.frame.desktop .panel { max-width:896px; margin:0 auto; padding:24px; gap:32px; }
+.frame.desktop .panel.wide { max-width:none; margin:0; padding:24px; }
+.panel.wide { gap:0; }
+
+/* 섹션 플레이스홀더 */
+.card { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); }
+.sec-h { font-size:var(--t-h4); font-weight:600; margin:0 0 12px; }
+.chart-tool { display:flex; align-items:center; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+.chart-tool .chip { height:26px; padding:0 12px; border-radius:var(--r-sm); background:var(--muted);
+  color:var(--muted-fg); font-size:var(--t-caption); display:inline-flex; align-items:center; }
+.chart-tool .chip.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.candles { display:flex; align-items:flex-end; gap:2px; padding:8px 0; }
+.frame.mobile .candles { height:240px; }
+.frame.desktop .candles { height:340px; }
+.candles i { flex:1; border-radius:1px; display:block; }
+.gauge { height:14px; border-radius:7px; background:linear-gradient(90deg,var(--down-bg),var(--muted),var(--up-bg)); position:relative; margin:20px 0; }
+.gauge b { position:absolute; top:50%; left:64%; width:18px; height:18px; border-radius:9999px;
+  border:3px solid var(--fg); background:var(--card); transform:translate(-50%,-50%); }
+.g3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; border-top:1px solid var(--border-subtle); padding-top:14px; margin-top:20px; }
+.g3 .k { font-size:11px; color:var(--muted-fg); font-weight:600; }
+.g3 .v { font-size:var(--t-sm); font-weight:600; }
+.statcards { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:16px; }
+.frame.desktop .statcards { grid-template-columns:repeat(3,1fr); gap:20px; }
+.statcards .card { padding:14px; }
+.statcards .k { font-size:11px; color:var(--muted-fg); font-weight:600; }
+.statcards .v { font-size:var(--t-lg); font-weight:600; margin-top:4px; }
+.chips { display:flex; flex-wrap:wrap; gap:8px; }
+.chip-t { height:30px; padding:0 12px; border-radius:9999px; border:1px solid var(--border);
+  background:var(--card); font-size:var(--t-caption); display:inline-flex; align-items:center; gap:6px; }
+.chip-t i { width:6px; height:6px; border-radius:9999px; background:var(--flat); display:block; }
+.histo { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; height:96px; align-items:end; }
+.histo i { border-radius:2px 2px 0 0; display:block; background:color-mix(in oklch,var(--up) 55%,transparent); }
+.histo-lbl { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; border-top:1px solid var(--border-subtle);
+  padding-top:7px; font-size:11px; color:var(--muted-fg); text-align:center; }
+.evrow { height:38px; display:flex; align-items:center; gap:10px; border-top:1px solid var(--border-subtle); font-size:var(--t-caption); }
+.evrow:first-child { border-top:none; }
+.evrow .d { color:var(--muted-fg); font-family:var(--font-mono); }
+.evrow .sp { margin-left:auto; font-family:var(--font-mono); font-weight:600; }
+.cm-row { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid var(--border);
+  border-radius:var(--r-md); font-size:var(--t-caption); }
+.cm-row + .cm-row { margin-top:8px; }
+.cm-row .sp { margin-left:auto; font-family:var(--font-mono); font-weight:600; }
+.news-it { padding:14px 0; border-top:1px solid var(--border-subtle); }
+.news-it:first-child { border-top:none; padding-top:0; }
+.news-it .t { font-size:var(--t-sm); font-weight:500; }
+.news-it .m { font-size:11px; color:var(--muted-fg); margin-top:4px; }
+.btn-o { height:36px; padding:0 14px; border-radius:var(--r); border:1px solid var(--border);
+  background:transparent; color:var(--fg); font-size:var(--t-sm); font-weight:500; font-family:inherit; cursor:pointer; }
+
+/* ── 호가창 (채택안 L1=B / L2=A / L3=A) ── */
+.ob-root { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); overflow:hidden; }
+.ob-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; border-bottom:1px solid var(--border); }
+.ob-head .src { font-size:11px; color:var(--muted-fg); padding:1px 6px; border-radius:var(--r-sm); background:var(--muted); }
+.ob-head .spacer { margin-left:auto; }
+.statusbar { border-bottom:1px solid var(--border); background:var(--muted); }
+.statusbar .row1 { display:flex; align-items:center; gap:10px; padding:8px 14px; flex-wrap:wrap; }
+.statusbar .msg { font-size:var(--t-sm); }
+.statusbar .msg .sub { color:var(--muted-fg); font-size:var(--t-caption); display:block; }
+.badge { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px; border-radius:9999px;
+  font-size:var(--t-caption); font-weight:600; white-space:nowrap; border:1px solid var(--border);
+  background:var(--muted); color:var(--fg); }
+.badge .dot { width:7px; height:7px; border-radius:9999px; background:currentColor; flex:none; }
+.alerts { border-top:1px solid var(--border-subtle); padding:6px 14px 10px; display:flex; flex-direction:column; gap:4px; }
+.alert-row { display:flex; align-items:baseline; gap:8px; font-size:var(--t-caption); }
+.alert-row .tm { color:var(--muted-fg); font-family:var(--font-mono); flex:none; }
+.alert-row .lv { font-weight:600; flex:none; padding:0 5px; border-radius:var(--r-sm); background:var(--card); border:1px solid var(--border); }
+
+.ob-body { display:grid; gap:1px; background:var(--border); }
+.ob-body > * { background:var(--card); min-width:0; }
+.ob-body.two-axis { grid-template-areas:"book tape order" "book tape acct"; }
+.pane-book{grid-area:book} .pane-tape{grid-area:tape} .pane-order{grid-area:order} .pane-acct{grid-area:acct}
+.pane-hd { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-subtle);
+  font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); }
+.pane-hd .spacer { margin-left:auto; }
+.ex-toggle { display:inline-flex; border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; }
+.ex-toggle button { height:24px; padding:0 10px; border:none; background:transparent; color:var(--muted-fg);
+  font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
+.ex-toggle button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); }
+
+.ladder { width:100%; border-collapse:collapse; table-layout:fixed; }
+.ladder thead th { font-size:11px; font-weight:600; color:var(--muted-fg); text-align:center;
+  padding:6px 8px; background:var(--muted); border-bottom:1px solid var(--border); }
+.ladder th, .ladder td { height:var(--row-h); padding:0 8px; vertical-align:middle; font-size:var(--t-caption); }
+.ladder tbody tr + tr > * { border-top:1px solid var(--border-subtle); }
+.ladder .px { text-align:center; font-family:var(--font-mono); font-size:var(--t-sm); font-weight:600;
+  font-variant-numeric:tabular-nums slashed-zero; position:relative; cursor:pointer; }
+.ladder .q { position:relative; overflow:hidden; }
+.ladder .q .v { position:relative; z-index:1; display:block; font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; }
+.ladder .q.qa .v { text-align:left; } .ladder .q.qb .v { text-align:right; }
+.ladder .q .bar { position:absolute; top:4px; bottom:4px; z-index:0; border-radius:2px; }
+.ladder .q.qa .bar { right:0; background:color-mix(in oklch,var(--down) 16%,transparent); }
+.ladder .q.qb .bar { left:0; background:color-mix(in oklch,var(--up) 16%,transparent); }
+tr.ask > * { background:color-mix(in oklch,var(--down-bg) 65%,transparent); }
+tr.bid > * { background:color-mix(in oklch,var(--up-bg) 65%,transparent); }
+tr.now .px { box-shadow:inset 3px 0 0 var(--fg); }
+.px .step { font-size:11px; font-weight:600; color:var(--muted-fg); position:absolute; left:4px; top:50%; transform:translateY(-50%); }
+.nowchip { font-size:11px; font-weight:600; color:var(--muted-fg); margin-left:4px; vertical-align:1px; }
+tr.spread > td { text-align:center; font-size:11px; color:var(--muted-fg); background:var(--card);
+  border-top:1px solid var(--border) !important; border-bottom:1px solid var(--border); height:26px; }
+.ladder tfoot td { background:var(--muted); font-size:11px; font-weight:600; border-top:1px solid var(--border); height:28px; }
+.ladder tfoot .q { text-align:center; font-family:var(--font-mono); }
+.ladder tfoot .px { font-size:11px; color:var(--muted-fg); font-weight:600; }
+.ladder-more { width:100%; height:34px; border:none; border-top:1px solid var(--border-subtle);
+  background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
+
+.tape-scroll { overflow-y:auto; }
+.frame.desktop .tape-scroll { max-height:658px; }
+.tape { width:100%; border-collapse:collapse; table-layout:fixed; }
+.tape thead th { font-size:11px; font-weight:600; color:var(--muted-fg); background:var(--muted);
+  padding:6px 8px; border-bottom:1px solid var(--border); text-align:right; }
+.tape thead th:first-child { text-align:left; }
+.tape td { height:var(--row-h); padding:0 8px; font-size:11px; font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums slashed-zero; }
+.tape tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+.tape .tm { color:var(--muted-fg); }
+.tape .pz,.tape .qz { text-align:right; }
+.tape .sd { text-align:right; font-weight:600; font-family:var(--font-sans); font-size:11px; }
+.tape .sd.buy{color:var(--up)} .tape .sd.sell{color:var(--down)}
+
+.order { padding:12px; display:flex; flex-direction:column; gap:10px; }
+.side-tabs { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.side-tabs button { height:38px; border-radius:var(--r); border:1px solid var(--border); background:var(--card);
+  color:var(--muted-fg); font-size:var(--t-sm); font-weight:600; cursor:pointer; font-family:inherit; }
+.side-tabs button[aria-selected="true"][data-side="B"] { background:var(--up-bg); color:var(--up); border-color:var(--up); }
+.side-tabs button[aria-selected="true"][data-side="S"] { background:var(--down-bg); color:var(--down); border-color:var(--down); }
+.frm-row { display:flex; align-items:center; gap:8px; }
+.frm-row > label { width:56px; flex:none; font-size:var(--t-caption); color:var(--muted-fg); font-weight:600; }
+.ipt { flex:1; height:38px; border-radius:var(--r); border:1px solid var(--input); background:var(--bg);
+  color:var(--fg); padding:0 10px; font-size:var(--t-sm); font-family:var(--font-mono); text-align:right; min-width:0; }
+select.ipt { text-align:left; font-family:var(--font-sans); }
+.fixed-chip { display:inline-flex; align-items:center; height:26px; padding:0 8px; border-radius:var(--r-sm);
+  background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; }
+.amt { display:flex; justify-content:space-between; align-items:baseline; padding:8px 10px; border-radius:var(--r); background:var(--muted); }
+.amt .k { font-size:var(--t-caption); color:var(--muted-fg); font-weight:600; }
+.amt .v { font-size:var(--t-base); font-weight:600; font-family:var(--font-mono); }
+.submit { height:44px; border-radius:var(--r); border:none; font-size:var(--t-base); font-weight:600;
+  cursor:pointer; color:var(--primary-fg); font-family:inherit; background:var(--up); }
+.order .hint { font-size:11px; color:var(--muted-fg); text-align:center; }
+
+.acct-sel-row { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-subtle); }
+.acct-sel-row select { flex:1; height:34px; border-radius:var(--r); border:1px solid var(--input);
+  background:var(--bg); color:var(--fg); font-size:var(--t-caption); font-family:inherit; padding:0 8px; }
+.acct-tabs { display:flex; gap:4px; padding:8px 12px 0; }
+.acct-tabs button { height:28px; padding:0 10px; border-radius:var(--r-sm) var(--r-sm) 0 0; border:1px solid transparent;
+  background:transparent; color:var(--muted-fg); font-size:var(--t-caption); font-weight:600; cursor:pointer; font-family:inherit; }
+.acct-tabs button[aria-selected="true"] { background:var(--muted); color:var(--fg); }
+.tbl { width:100%; border-collapse:collapse; }
+.tbl thead th { background:var(--muted); color:var(--muted-fg); font-size:11px; font-weight:600; text-align:left;
+  padding:6px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.tbl thead th.num, .tbl td.num { text-align:right; }
+.tbl tbody td { height:36px; padding:0 12px; font-size:var(--t-caption); white-space:nowrap; }
+.tbl tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+.side-tag { font-weight:600; font-size:11px; }
+.side-tag.buy{color:var(--up)} .side-tag.sell{color:var(--down)}
+.btn-cancel { height:26px; padding:0 10px; border-radius:var(--r-sm); border:1px solid var(--destructive);
+  background:transparent; color:var(--destructive); font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; }
+
+/* 모바일 호가주문 스택 */
+.mstack { display:flex; flex-direction:column; }
+.mstack > section { border-bottom:1px solid var(--border); }
+.mstack > section:last-child { border-bottom:none; }
+.mstack .sec-lbl { display:flex; align-items:center; gap:8px; padding:10px 14px;
+  font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); }
+.mstack .sec-lbl .spacer { margin-left:auto; }
+.mstack .tbl-scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Phase 15 — 종목상세 상단 탭 (모바일 기준)</h1>
+  <button class="tbtn" id="themeBtn" aria-pressed="false">🌙 다크</button>
+</div>
+
+<div class="stage">
+  <div class="info">
+    <div><b>채택안</b> — 4탭 <code>차트 · 호가주문 · 종목정보 · 뉴스토론</code> · 모바일 호가주문 세로 순서 확정 (2026-09-05)</div>
+  </div>
+
+  <div class="frames">
+    <div class="frame-wrap">
+      <div class="cap">모바일 390px (기준)</div>
+      <div class="frame mobile" id="fMobile">
+        <div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div>
+        <div class="scroll" data-body></div>
+      </div>
+    </div>
+    <div class="frame-wrap">
+      <div class="cap">데스크톱 1280px</div>
+      <div class="frame desktop" id="fDesktop">
+        <div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div>
+        <div class="scroll" data-body></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── 데이터 (삼성전자 005930) ─────────────────────────────── */
+const BASE = 73600, LAST = 73900, TICK = 100;
+const ASKS = [[74800,182400],[74700,96300],[74600,74100],[74500,210500],[74400,63800],
+              [74300,58200],[74200,41900],[74100,88600],[74000,32400],[73900,19700]];
+const BIDS = [[73800,24100],[73700,51300],[73600,96800],[73500,245000],[73400,38200],
+              [73300,29700],[73200,55400],[73100,33100],[73000,142000],[72900,61500]];
+const TAPE = [
+  ['13:42:11',73900,132,'B'],['13:42:10',73800,45,'S'],['13:42:10',73900,808,'B'],
+  ['13:42:09',73800,210,'S'],['13:42:08',73900,1204,'B'],['13:42:07',73800,77,'S'],
+  ['13:42:06',73900,350,'B'],['13:42:05',73900,62,'B'],['13:42:04',73800,500,'S'],
+  ['13:42:03',73700,1830,'S'],['13:42:02',73800,95,'B'],['13:42:01',73800,240,'B'],
+  ['13:42:00',73700,640,'S'],['13:41:59',73800,118,'B'],['13:41:58',73800,3002,'B'],
+  ['13:41:57',73700,210,'S'],['13:41:56',73600,88,'S'],['13:41:55',73700,470,'B']
+];
+const fmt = n => n.toLocaleString('ko-KR');
+const cls = p => p > BASE ? 'up' : (p < BASE ? 'down' : 'flat');
+const $  = (s,r) => (r||document).querySelector(s);
+const $$ = (s,r) => Array.from((r||document).querySelectorAll(s));
+
+/* ── 호가창 조각 ──────────────────────────────────────────── */
+function ladder(compactFive){
+  const mA = Math.max.apply(null, ASKS.map(r=>r[1]));
+  const mB = Math.max.apply(null, BIDS.map(r=>r[1]));
+  let h = '';
+  ASKS.forEach((r,i)=>{
+    const step = 10-i, far = compactFive && step > 5;
+    h += '<tr class="ask'+(r[0]===LAST?' now':'')+(far?' lv-far hidden':'')+'">'
+      + '<td class="q qa"><span class="bar" style="width:'+Math.max(3,Math.round(r[1]/mA*100))+'%"></span><span class="v">'+fmt(r[1])+'</span></td>'
+      + '<th scope="row" class="px '+cls(r[0])+'"><span class="step">매'+step+'</span>'
+      + '<span class="sr">매도 '+step+'호가</span>'+fmt(r[0])+(r[0]===LAST?'<span class="nowchip">체결</span>':'')+'</th>'
+      + '<td class="q qb"></td></tr>';
+  });
+  const sp = ASKS[9][0]-BIDS[0][0];
+  h += '<tr class="spread"><td colspan="3">스프레드 '+fmt(sp)+'원 · '+((sp/BIDS[0][0])*100).toFixed(2)
+     + '% &nbsp;|&nbsp; 매도1 '+fmt(ASKS[9][0])+' · 매수1 '+fmt(BIDS[0][0])+'</td></tr>';
+  BIDS.forEach((r,i)=>{
+    const step = i+1, far = compactFive && step > 5;
+    h += '<tr class="bid'+(far?' lv-far hidden':'')+'"><td class="q qa"></td>'
+      + '<th scope="row" class="px '+cls(r[0])+'"><span class="step">수'+step+'</span>'
+      + '<span class="sr">매수 '+step+'호가</span>'+fmt(r[0])+'</th>'
+      + '<td class="q qb"><span class="bar" style="width:'+Math.max(3,Math.round(r[1]/mB*100))+'%"></span><span class="v">'+fmt(r[1])+'</span></td></tr>';
+  });
+  return '<table class="ladder" aria-label="호가 10단"><thead><tr>'
+    + '<th scope="col">매도잔량</th><th scope="col">호가</th><th scope="col">매수잔량</th></tr></thead>'
+    + '<tbody>'+h+'</tbody><tfoot><tr><td class="q num">'+fmt(ASKS.reduce((s,r)=>s+r[1],0))
+    + '</td><td class="px">총잔량</td><td class="q num">'+fmt(BIDS.reduce((s,r)=>s+r[1],0))+'</td></tr></tfoot></table>'
+    + (compactFive ? '<button class="ladder-more" aria-expanded="false">10단 전체 보기</button>' : '');
+}
+function tape(){
+  return '<div class="tape-scroll"><table class="tape" aria-label="체결 테이프"><thead><tr>'
+    + '<th scope="col">시각</th><th scope="col">체결가</th><th scope="col">수량</th><th scope="col">구분</th></tr></thead><tbody>'
+    + TAPE.map(r=>'<tr><td class="tm">'+r[0]+'</td><td class="pz '+cls(r[1])+'">'+fmt(r[1])
+      + '</td><td class="qz">'+fmt(r[2])+'</td><td class="sd '+(r[3]==='B'?'buy':'sell')+'">'
+      + (r[3]==='B'?'▲ 매수':'▼ 매도')+'</td></tr>').join('')
+    + '</tbody></table></div>';
+}
+function orderForm(){
+  return '<div class="order">'
+    + '<div class="side-tabs" role="tablist" aria-label="매매 구분">'
+    + '<button role="tab" data-side="B" aria-selected="true">매수</button>'
+    + '<button role="tab" data-side="S" aria-selected="false">매도</button></div>'
+    + '<div class="frm-row"><label>계좌</label><select class="ipt"><option>12345678-01 · 위탁종합</option><option>12345678-02 · CMA</option></select></div>'
+    + '<div class="frm-row"><label>거래소</label><span class="ex-toggle" style="flex:1">'
+    + '<button aria-pressed="true" style="flex:1;height:34px">KRX</button>'
+    + '<button aria-pressed="false" style="flex:1;height:34px">NXT</button></span></div>'
+    + '<div class="frm-row"><label>가격</label><input class="ipt" value="73,900" inputmode="numeric" /><span class="fixed-chip">원</span></div>'
+    + '<div class="frm-row"><label>수량</label><input class="ipt" value="100" inputmode="numeric" /><span class="fixed-chip">주</span></div>'
+    + '<div class="amt"><span class="k">주문금액</span><span class="v">7,390,000원</span></div>'
+    + '<button class="submit">매수 주문</button>'
+    + '<div class="hint">지정가 · 보통만 지원해요 · 정정은 취소 후 다시 주문해 주세요</div></div>';
+}
+function unfilledTable(){
+  return '<table class="tbl" aria-label="미체결 주문"><thead><tr>'
+    + '<th scope="col">구분</th><th scope="col">종목</th><th scope="col">거래소</th>'
+    + '<th scope="col" class="num">주문가</th><th scope="col" class="num">주문</th>'
+    + '<th scope="col" class="num">미체결</th><th scope="col"></th></tr></thead><tbody>'
+    + '<tr><td><span class="side-tag buy">▲ 매수</span></td><td>삼성전자</td><td class="mono">KRX</td>'
+    + '<td class="num mono">73,500</td><td class="num mono">100</td><td class="num mono">60</td>'
+    + '<td class="num"><button class="btn-cancel">✕ 취소</button></td></tr>'
+    + '<tr><td><span class="side-tag sell">▼ 매도</span></td><td>삼성전자</td><td class="mono">NXT</td>'
+    + '<td class="num mono">74,500</td><td class="num mono">50</td><td class="num mono">50</td>'
+    + '<td class="num"><button class="btn-cancel">✕ 취소</button></td></tr>'
+    + '<tr><td><span class="side-tag buy">▲ 매수</span></td><td>한미반도체</td><td class="mono">KRX</td>'
+    + '<td class="num mono">98,000</td><td class="num mono">30</td><td class="num mono">30</td>'
+    + '<td class="num"><button class="btn-cancel">✕ 취소</button></td></tr>'
+    + '</tbody></table>';
+}
+function holdingTable(){
+  return '<table class="tbl" aria-label="잔고"><thead><tr>'
+    + '<th scope="col">종목</th><th scope="col" class="num">보유</th><th scope="col" class="num">매도가능</th>'
+    + '<th scope="col" class="num">평단가</th><th scope="col" class="num">평가손익</th><th scope="col" class="num">수익률</th>'
+    + '</tr></thead><tbody>'
+    + '<tr><td>삼성전자</td><td class="num mono">300</td><td class="num mono">240</td><td class="num mono">71,400</td>'
+    + '<td class="num mono up">+750,000</td><td class="num mono up">+3.50%</td></tr>'
+    + '<tr><td>한미반도체</td><td class="num mono">120</td><td class="num mono">120</td><td class="num mono">99,250</td>'
+    + '<td class="num mono down">-102,000</td><td class="num mono down">-0.86%</td></tr>'
+    + '<tr><td>이수페타시스</td><td class="num mono">200</td><td class="num mono">200</td><td class="num mono">44,100</td>'
+    + '<td class="num mono up">+360,000</td><td class="num mono up">+4.08%</td></tr>'
+    + '</tbody></table>';
+}
+function statusBar(){
+  return '<div class="statusbar" aria-live="polite"><div class="row1">'
+    + '<span class="badge"><span class="dot"></span>실시간 · 계좌 2개</span>'
+    + '<span class="msg">호가·체결·잔고가 실시간으로 갱신되고 있어요.'
+    + '<span class="sub">마지막 체결 13:42:11 · KRX</span></span></div>'
+    + '<div class="alerts">'
+    + '<div class="alert-row"><span class="tm">13:41:02</span><span class="lv">경고</span><span>NXT 시세 수신이 3초간 지연됐습니다</span></div>'
+    + '<div class="alert-row"><span class="tm">13:39:55</span><span class="lv">안내</span><span>계좌 상태 스냅샷을 다시 받았습니다</span></div>'
+    + '</div></div>';
+}
+
+/* 데스크톱 호가주문 = L1=B 2축 */
+function orderbookDesktop(){
+  return '<section class="ob-root" aria-label="실시간 호가 및 주문">'
+    + '<div class="ob-head"><span class="badge"><span class="dot"></span>실시간 · 계좌 2개</span>'
+    + '<span class="src">실시간(DMA) · 체결 <span class="mono">13:42:11</span></span>'
+    + '<span class="spacer"></span>'
+    + '<span class="mono" style="font-size:11px;color:var(--muted-fg)">기준 73,600 · 상한 <span class="up">95,600</span> · 하한 <span class="down">51,600</span></span></div>'
+    + statusBar()
+    + '<div class="ob-body two-axis" data-density="compact" style="grid-template-columns:380px 220px minmax(360px,1fr)">'
+    + '<div class="pane-book"><div class="pane-hd"><span>호가 10단</span><span class="spacer"></span>'
+    + '<span class="ex-toggle"><button aria-pressed="true">KRX</button><button aria-pressed="false">NXT</button></span></div>'
+    + ladder(false) + '</div>'
+    + '<div class="pane-tape"><div class="pane-hd"><span>체결</span></div>' + tape() + '</div>'
+    + '<div class="pane-order"><div class="pane-hd"><span>주문</span><span class="spacer"></span>'
+    + '<span class="fixed-chip">지정가 · 보통</span></div>' + orderForm() + '</div>'
+    + '<div class="pane-acct"><div class="acct-sel-row"><label style="font-size:var(--t-caption);color:var(--muted-fg);font-weight:600">계좌</label>'
+    + '<select><option>12345678-01 · 위탁종합</option></select></div>'
+    + '<div class="acct-tabs" role="tablist"><button role="tab" aria-selected="true">미체결 3</button>'
+    + '<button role="tab" aria-selected="false">잔고 3</button></div>' + unfilledTable() + '</div>'
+    + '</div></section>';
+}
+
+/* 모바일 호가주문 = 세로 스택 (연결상태 → 사다리 → 주문 → 체결 → 잔고 → 미체결) */
+function orderbookMobile(){
+  return '<section class="ob-root mstack" aria-label="실시간 호가 및 주문">'
+    + '<section>' + statusBar() + '</section>'
+    + '<section><div class="sec-lbl"><span>호가 10단</span><span class="spacer"></span>'
+    + '<span class="ex-toggle"><button aria-pressed="true">KRX</button><button aria-pressed="false">NXT</button></span></div>'
+    + '<div data-density="compact">' + ladder(true) + '</div></section>'
+    + '<section><div class="sec-lbl"><span>주문</span><span class="spacer"></span>'
+    + '<span class="fixed-chip">지정가 · 보통</span></div>' + orderForm() + '</section>'
+    + '<section><div class="sec-lbl"><span>체결</span></div>'
+    + '<div data-density="compact">' + tape() + '</div></section>'
+    + '<section><div class="sec-lbl"><span>잔고 3</span></div>'
+    + '<div class="tbl-scroll">' + holdingTable() + '</div></section>'
+    + '<section><div class="sec-lbl"><span>미체결 3</span></div>'
+    + '<div class="tbl-scroll">' + unfilledTable() + '</div></section>'
+    + '</section>';
+}
+
+/* ── 종목상세 섹션 플레이스홀더 ───────────────────────────── */
+function candles(){
+  const seq=[38,44,40,52,48,60,55,68,64,74,70,82,78,88,84,92,86,96,90,100,94,88,93,99];
+  return '<div class="candles">'+seq.map((v,i)=>
+    '<i style="height:'+v+'%;background:var('+((i===0||seq[i]>=seq[i-1])?'--up':'--down')+')"></i>').join('')+'</div>';
+}
+const SEC = {
+  chart: () => '<section class="card" style="padding:16px"><div class="chart-tool">'
+    + '<span style="font-size:var(--t-h4);font-weight:600;margin-right:auto">일봉 차트</span>'
+    + '<span class="chip">1M</span><span class="chip on">3M</span><span class="chip">6M</span><span class="chip">1Y</span>'
+    + '</div>' + candles() + '</section>',
+  stats: () => '<section><h2 class="sec-h">통계</h2><div class="card" style="padding:16px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted-fg);font-weight:600">'
+    + '<span>52주 최저 49,900</span><span>52주 최고 88,800</span></div><div class="gauge"><b></b></div>'
+    + '<div class="g3"><div><div class="k">시가</div><div class="v mono">73,400</div></div>'
+    + '<div><div class="k">고가</div><div class="v mono up">74,800</div></div>'
+    + '<div><div class="k">저가</div><div class="v mono down">73,100</div></div></div></div>'
+    + '<div class="statcards">'
+    + [['거래량','12,482,930'],['거래대금','9,203억'],['시가총액','441조'],['외국인비율','53.1%'],['PER','14.2'],['PBR','1.4']]
+        .map(r=>'<div class="card"><div class="k">'+r[0]+'</div><div class="v mono">'+r[1]+'</div></div>').join('')
+    + '</div></section>',
+  themes: () => '<section><h2 class="sec-h">테마</h2><div class="chips">'
+    + ['반도체','HBM','AI반도체','파운드리','대형주','배당'].map(t=>'<span class="chip-t"><i></i>'+t+'</span>').join('')
+    + '</div></section>',
+  limitup: () => '<section><h2 class="sec-h">상한가 이력 · 다음날 시초가 익절</h2><div class="card" style="padding:16px">'
+    + '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">'
+    + '<span style="font-size:var(--t-h1);font-weight:600" class="mono up">67%</span>'
+    + '<span style="font-size:var(--t-caption);color:var(--muted-fg)">시초가 익절률 · 최근 24개월 6회</span></div>'
+    + '<div class="histo">'+[1,4,8,3,1].map(v=>'<i style="height:'+(v/8*100)+'%"></i>').join('')+'</div>'
+    + '<div class="histo-lbl"><span>-5%↓</span><span>-5~0</span><span>0~5</span><span>5~10</span><span>10%↑</span></div>'
+    + '<div style="margin-top:16px">'
+    + [['2026-07-14','+2.4%'],['2026-05-02','+5.1%'],['2026-03-19','-1.2%'],['2026-01-08','+3.8%']]
+        .map(r=>'<div class="evrow"><span class="d">'+r[0]+'</span><span>점상한가</span>'
+          + '<span class="sp '+(r[1][0]==='+'?'up':'down')+'">'+r[1]+'</span></div>').join('')
+    + '</div></div></section>',
+  comove: () => '<section><h2 class="sec-h">동반상승 종목</h2>'
+    + [['SK하이닉스','000660','+4.2%','공유 테마 4'],['한미반도체','042700','+2.8%','동반급등 7회'],['이수페타시스','007660','+1.9%','공유 테마 2']]
+        .map(r=>'<div class="cm-row"><span style="font-weight:600">'+r[0]+'</span>'
+          + '<span class="mono" style="color:var(--muted-fg)">'+r[1]+'</span>'
+          + '<span style="color:var(--muted-fg)">'+r[3]+'</span><span class="sp up">'+r[2]+'</span></div>').join('')
+    + '</section>',
+  news: () => '<section><h2 class="sec-h">뉴스</h2><div class="card" style="padding:16px">'
+    + [['삼성전자, HBM4 퀄 테스트 통과…엔비디아 공급 임박','이데일리 · 1시간 전'],
+       ['외국인 5거래일 연속 순매수…반도체 대형주 집중','한국경제 · 2시간 전'],
+       ['3분기 영업이익 컨센서스 상회 전망','매일경제 · 3시간 전'],
+       ['파운드리 수주 확대…테일러 공장 가동률 상승','서울경제 · 5시간 전'],
+       ['배당 확대 기대감에 기관 매수세 유입','인포스탁 · 6시간 전']]
+        .map(r=>'<div class="news-it"><div class="t">'+r[0]+'</div><div class="m">'+r[1]+'</div></div>').join('')
+    + '<div style="margin-top:14px;text-align:center"><button class="btn-o">뉴스 전체 보기 →</button></div></div></section>',
+  disc: () => '<section><h2 class="sec-h">종목토론방</h2><div class="card" style="padding:16px">'
+    + [['오늘 거래대금 실화냐','긍정 · 14:02'],['8만 전자 간다','긍정 · 13:58'],
+       ['단타는 여기서 익절','중립 · 13:51'],['외인 물량 확인했나요','중립 · 13:40'],
+       ['고점 조심하세요','부정 · 13:22']]
+        .map(r=>'<div class="news-it"><div class="t">'+r[0]+'</div><div class="m">'+r[1]+'</div></div>').join('')
+    + '<div style="margin-top:14px;text-align:center"><button class="btn-o">토론 전체 보기 →</button></div></div></section>'
+};
+
+/* ── 탭 정의 ──────────────────────────────────────────────── */
+/* 확정 (2026-09-05) — 4탭 고정. 변형 없음. */
+const TABS = [
+  { slug:'chart',     label:'차트',     secs:['chart'] },
+  { slug:'orderbook', label:'호가주문', orderbook:true },
+  { slug:'info',      label:'종목정보', secs:['stats','themes','limitup','comove'] },
+  { slug:'news',      label:'뉴스토론', secs:['news','disc'] }
+];
+
+let TAB = 'chart';
+
+function tabsOf(){ return TABS; }
+
+function heroHTML(){
+  return '<section class="hero" aria-label="종목 개요">'
+    + '<div class="nm-row"><span style="font-size:var(--t-h2);color:var(--muted-fg)">←</span>'
+    + '<h1>삼성전자</h1><span class="code mono">005930</span>'
+    + '<span class="badge-o">KOSPI</span><span class="badge-o">☆ 관심</span></div>'
+    + '<div class="px-row"><span class="px mono up">73,900</span>'
+    + '<span class="chg mono up">+300</span><span class="chg mono up">+0.41%</span>'
+    + '<span class="ts mono">갱신 13:42:08 KST</span></div></section>';
+}
+
+function render(frame, isMobile){
+  const tabs = tabsOf();
+  if (!tabs.some(t => t.slug === TAB)) TAB = tabs[0].slug;
+  const cur = tabs.find(t => t.slug === TAB);
+
+  $('[data-url]', frame).textContent = 'gh-radar.vercel.app/stocks/005930?tab=' + TAB;
+
+  const tabbar = '<div class="tabbar-wrap"><div class="tabbar" role="tablist" aria-label="종목 정보 탭">'
+    + tabs.map(t => '<button role="tab" data-tab="'+t.slug+'" aria-selected="'+(t.slug===TAB)+'">'+t.label+'</button>').join('')
+    + '</div></div>';
+
+  let panel;
+  if (cur.orderbook) {
+    panel = '<div class="panel wide">' + (isMobile ? orderbookMobile() : orderbookDesktop()) + '</div>';
+  } else {
+    panel = '<div class="panel">' + cur.secs.map(k => SEC[k]()).join('') + '</div>';
+  }
+
+  $('[data-body]', frame).innerHTML = heroHTML() + tabbar + panel;
+}
+
+function renderAll(){
+  render($('#fMobile'), true);
+  render($('#fDesktop'), false);
+}
+
+/* ── 결선 ─────────────────────────────────────────────────── */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-tab]');
+  if (t) { TAB = t.dataset.tab; renderAll(); return; }        // 두 프레임 연동
+  const m = e.target.closest('.ladder-more');
+  if (m) {
+    const tbl = m.previousElementSibling;
+    const on = m.getAttribute('aria-expanded') !== 'true';
+    $$('.lv-far', tbl).forEach(r => r.classList.toggle('hidden', !on));
+    m.setAttribute('aria-expanded', String(on));
+    m.textContent = on ? '5단만 보기' : '10단 전체 보기';
+    return;
+  }
+  const s = e.target.closest('.side-tabs button');
+  if (s) {
+    const wrap = s.closest('.side-tabs');
+    $$('button', wrap).forEach(b => b.setAttribute('aria-selected', String(b === s)));
+    const btn = $('.submit', s.closest('.order'));
+    const buy = s.dataset.side === 'B';
+    btn.textContent = buy ? '매수 주문' : '매도 주문';
+    btn.style.background = buy ? 'var(--up)' : 'var(--down)';
+    return;
+  }
+  const ex = e.target.closest('.ex-toggle button');
+  if (ex) { $$('button', ex.parentElement).forEach(b => b.setAttribute('aria-pressed', String(b === ex))); return; }
+  const at = e.target.closest('.acct-tabs button');
+  if (at) { $$('button', at.parentElement).forEach(b => b.setAttribute('aria-selected', String(b === at))); return; }
+});
+
+$('#themeBtn').onclick = e => {
+  const d = document.documentElement.classList.toggle('dark');
+  e.currentTarget.textContent = d ? '☀️ 라이트' : '🌙 다크';
+  e.currentTarget.setAttribute('aria-pressed', String(d));
+};
+
+renderAll();
+</script>
+</body>
+</html>
