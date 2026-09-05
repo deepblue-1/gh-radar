@@ -15,6 +15,7 @@ import { stocksRouter } from "./routes/stocks.js";
 import { themesRouter } from "./routes/themes.js";
 import { homeRouter } from "./routes/home.js";
 import { chatRouter } from "./routes/chat.js";
+import type { RelayClient } from "./services/relay-client.js";
 
 /**
  * server 측 키움 runtime 페어 (Phase 09.1 D-17/D-18).
@@ -36,6 +37,9 @@ export type AppDeps = {
   brightdataClient?: AxiosInstance;
   brightdataApiKey?: string;
   brightdataZone?: string;
+  // Phase 15 — relay 내부 HTTP 클라이언트 (D-08).
+  // 미주입 시 POST /api/orders 만 503 RELAY_UNAVAILABLE (다른 라우트는 무관).
+  relayClient?: RelayClient;
 };
 
 export function createApp(deps: AppDeps): Express {
@@ -51,6 +55,7 @@ export function createApp(deps: AppDeps): Express {
   app.locals.brightdataClient = deps.brightdataClient;
   app.locals.brightdataApiKey = deps.brightdataApiKey;
   app.locals.brightdataZone = deps.brightdataZone;
+  app.locals.relayClient = deps.relayClient;
 
   // 2) request-id (pino 바인딩 위해 가장 먼저)
   app.use(requestId());
