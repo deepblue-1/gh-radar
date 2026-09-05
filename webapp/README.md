@@ -40,6 +40,14 @@ grep '^NEXT_PUBLIC_RELAY_WS_URL' .env.vercel.check | tr -d '\n' | tail -c1 | xxd
 rm .env.vercel.check
 ```
 
+값만 확인하고 끝내지 말 것. **빌드 산출물까지 대조해야** 인라인이 의도한 문자열로 일어났음이
+증명된다 — 배포 후 프로덕션이 내려주는 chunk 를 받아 로컬 `.vercel/output` 산출물과 `cmp` 로
+비교하면 `\n` 오염과 값 불일치를 한 번에 잡는다(Phase 15 Plan 14 에서 이 방식으로 확인했다).
+
+> **CLI 버전 주의.** Vercel CLI **50.x 에서는 Preview 환경 등록이 막힌다** —
+> `vercel env add … preview --value --yes` 를 인식하지 못하고 `git_branch_required` 로 실패한다.
+> `npx vercel@latest` 로 우회하거나 CLI 를 59.x 이상으로 올린 뒤 등록한다.
+
 코드 쪽 이중 방어로 `src/lib/relay-url.ts` 의 `resolveRelayWsUrl()` 이 `.trim()` 을 걸고
 스킴이 `ws:`/`wss:` 가 아니면 즉시 throw 한다. 그래도 **등록 시점 검증을 건너뛰지 않는다** —
 `.trim()` 은 값 안쪽에 섞인 개행까지 지워 주지는 않는다.
