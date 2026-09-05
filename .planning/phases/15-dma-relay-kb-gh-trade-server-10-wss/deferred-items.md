@@ -59,3 +59,18 @@
 - **원인 추정:** 타이머 기반 5초 예산 테스트가 CPU 포화 상태에서 굶는 전형적 flake.
 - **처리:** Phase 15 post-merge 게이트는 `--workspace-concurrency=2` 로 실행한다.
   근본 수정(테스트 자체에 fake timer 또는 testTimeout 상향)은 Phase 15 범위 밖으로 보류.
+
+## [15-05] `server/.dockerignore` 가 실제로 적용되지 않는다 (선재 · 범위 밖)
+
+- **증상:** `scripts/deploy-server.sh` 는 저장소 루트를 컨텍스트로 `-f server/Dockerfile .`
+  로 빌드한다. BuildKit 은 이 경우 `server/Dockerfile.dockerignore` 를 찾고, 없으면
+  컨텍스트 루트의 `.dockerignore` 를 본다 — 루트에는 없다. 그래서 `server/.dockerignore`
+  는 **어느 쪽에도 해당하지 않아 무시된다.**
+- **영향:** `node_modules`·`.git`·`.planning`·저장소 안의 모든 `.env` 가 빌드 컨텍스트로
+  전송된다. 멀티스테이지라 최종 이미지에는 남지 않지만 builder 레이어/빌드 캐시에는 남고,
+  컨텍스트 전송이 불필요하게 느리다.
+- **선재 근거:** 15-05 가 만든 파일이 아니다. `server/` 는 이 phase 에서 건드리지 않는다.
+- **15-05 에서 한 조치:** relay 쪽만 `relay/Dockerfile.dockerignore` 를 만들어 실제로
+  적용되게 했다. `server/` 는 손대지 않았다(범위 밖 · 배포 스크립트 회귀 위험).
+- **권고:** `server/.dockerignore` → `server/Dockerfile.dockerignore` 로 이름을 바꾸거나
+  루트 `.dockerignore` 를 두는 quick task. workers/ 의 `.dockerignore` 도 같은 점검 필요.
