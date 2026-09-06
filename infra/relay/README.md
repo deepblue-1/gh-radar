@@ -174,13 +174,62 @@ relay 컨테이너는 위 3종 중 `dma-cred-key` · `relay-order-secret` 2종�
 > gcloud 필터 문법이 선행 `(` 를 그룹 토큰으로 해석해 조용히 0건을 반환한다.
 > 검증에는 `--filter='name~A OR name~B OR name~C'` 를 쓴다.
 
-### D-03 선검증을 막고 있는 미충족 전제
+### D-03 선검증 전제 — **해소 완료 (2026-09-05, 15-07)**
 
-1. **`/etc/kbvpn.env` 부재** — `KBVPN_SERVER` · `KBVPN_AUTHGROUP` · `KBVPN_SERVERCERT` · `KBVPN_USER` 4키가 필요하다. `startup.sh` 는 경고만 남기고 부팅을 계속하므로 VM 은 정상이지만 VPN 은 시작할 수 없다.
-2. **`gh-radar-kb-vpn-password` 값 부재** — `ExecStartPre` 의 Secret 페치가 실패한다.
+> 아래 두 전제는 15-07 Task 2 착수 전에 채워졌고, 선검증은 **시도 1회 / 상한 3** 으로 통과했다.
+> 결과는 `.planning/phases/15-…/15-VPN-PREFLIGHT.md` 에 있다. 이 절은 이력으로 남긴다.
 
-두 전제가 모두 채워지기 전에는 `systemctl start openconnect@kb` 를 시도하지 않는다
-(무의미한 실패가 `StartLimitBurst=5/1h` 예산과 KB 계정 시도 횟수를 함께 소모한다).
+1. ~~`/etc/kbvpn.env` 부재~~ → **배치 완료.** `KBVPN_SERVER` · `KBVPN_AUTHGROUP` · `KBVPN_SERVERCERT` · `KBVPN_USER` 4키가 VM 에 0600 으로 존재한다(값은 저장소에 없다).
+2. ~~`gh-radar-kb-vpn-password` 값 부재~~ → **주입 완료.** 사용자가 직접 넣었고 ENABLED 버전 1개.
+
+전제가 다시 깨지지 않는 한 `systemctl start openconnect@kb` 는 실행 가능하다. 다만
+**무의미한 재시도는 금지**한다 — 실패가 `StartLimitBurst=5/1h` 예산과 KB 계정 시도 횟수를
+함께 소모한다.
+
+---
+
+## Phase 15 종결 상태 (15-20, 2026-09-06)
+
+> phase 를 닫는 시점의 운영 상태다. 성공 기준 SC-1~SC-8 의 집계와 미증명 항목은
+> `.planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-LIVE-VERIFICATION.md` 가 정본이다.
+
+| 항목 | 값 | 확인 방법 |
+|------|-----|-----------|
+| relay 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:4ba6f83` | `/healthz` 의 `version` |
+| **`DMA_HOST` 현재 값** | **`127.0.0.1` (로컬 mock)** — 실서버 주소 아님 | `docker inspect` 에서 `DMA_HOST` 키 하나만 추출 |
+| 컨테이너 env 안의 `10.41.1.120` | **0건** | `docker inspect … \| grep -c '10\.41\.1\.120'` |
+| relay `/healthz` | `200` · `{"status":"ok","vpn":true,"dma":true,"version":"4ba6f83","sessionCount":0}` · `ssl_verify_result=0` | `curl https://dma.jx1.io/healthz` |
+| server 리비전 | `gh-radar-server-00038-kc6` (트래픽 100%) | `gcloud run services describe gh-radar-server` |
+| **VPN 기동 정책** | **수동 전용.** `openconnect@kb` = `disabled` + `inactive`. 자동 기동 미등록 — 장중 외 내려가 있는 것이 정상이며 `smoke-relay.sh` 는 이를 FAIL 이 아니라 **SKIP(INV-4)** 으로 센다 | `systemctl is-active` / `is-enabled` |
+| 기본 경로 | `default via 10.10.0.1 dev ens4` · `tun0` 없음 · `kbvpn-*` 타이머 0건 | `ip route show default` |
+| 알림 정책 | **`gh-radar-relay-down`** — `projects/gh-radar/alertPolicies/7995724305267722560` · `enabled=True` · uptime check `gh-radar-relay-healthz` 결선 | `gcloud alpha monitoring policies list` |
+| 방화벽 | 정확히 **3규칙** (`443 ← 0.0.0.0/0` · `22 ← 35.235.240.0/20` · `8091 ← 10.10.0.0/26`). **포트 80 규칙 0건** | `gcloud compute firewall-rules list` |
+| 고정 IP | `gh-radar-relay-ip 34.22.79.103` · `gh-radar-relay-internal 10.10.0.5` — 둘 다 `IN_USE` | `gcloud compute addresses list` |
+| `smoke-relay.sh` | **11 PASS / 0 FAIL / 2 SKIP** (INV-4 VPN 수동 유닛 · INV-9 로그인 토큰 필요) | — |
+| `smoke-server.sh` | **14 PASS / 0 FAIL / 0 SKIP** | — |
+| `smoke-relay.sh --check-isin` | 3 PASS / **1 FAIL** — 활성 주식 2,749 중 isin NULL **42종목**(커버리지 98.5%). 근본 원인은 `master-sync` 의 `basDd` 선재 결함 | — |
+
+### 인증서 **익일 재확인** (`--check-tls`)
+
+발급 2026-09-05 → 재확인 **2026-09-06**. 15-VALIDATION 의 "배포 직후 1회 + 다음 날 1회" 규약 이행.
+
+```
+subject = CN=dma.jx1.io
+issuer  = C=US, O=Let's Encrypt, CN=YE1
+notBefore = Sep  5 13:17:21 2026 GMT
+notAfter  = Dec  4 13:17:20 2026 GMT     ← 갱신 여유 89일
+```
+
+```bash
+bash scripts/smoke-relay.sh --check-tls   # 인증서만 재확인
+```
+
+### ⚠️ 실서버 접속은 여전히 금지 상태다 (D-27)
+
+15-20 Task 1 에서 **A안(`skip-live`)** 이 확정됐다 — 사용자의 명시 지시가 없었기 때문이다.
+`DMA_HOST` 를 실서버로 바꾸는 것은 **사용자 지시가 있을 때만** 가능하며, 그 절차와 선행 조건
+4가지는 `15-LIVE-VERIFICATION.md` §7 에 있다. `deploy-relay.sh` 는 실서버 주소를 넘기면
+경고를 출력한다 — 그 경고가 보이면 사용자 지시가 있었는지 먼저 확인할 것.
 
 ---
 
