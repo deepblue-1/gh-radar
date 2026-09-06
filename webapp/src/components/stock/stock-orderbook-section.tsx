@@ -36,12 +36,17 @@
  *   **다른 값을 보일 수 있다.** 크기 위계와 `실시간(DMA)` 출처 라벨 상시 노출로 설명한다.
  *   **히어로는 수정하지 않는다**(Phase 6 표면 비침범).
  *
- * ⑥ 레이아웃
- *   ≥900px  `grid-template-columns: 380px 220px minmax(360px,1fr)` / `gap: 1px`
- *           (좌 사다리 10단 · 체결 테이프 · 우측 내 계좌 축)
- *   <900px  M1 세로 순서 — 연결상태 → 호가 5단(+10단 전체 보기) → 주문 → 체결 → 잔고 → 미체결
- *   우측 컬럼은 `display: contents` 로 좁은 폭에서 그리드 자식이 되어 체결 테이프가
- *   주문과 잔고 **사이**로 들어간다. 브레이크포인트는 전부 CSS 이고 JS 는 뷰포트를 재지 않는다.
+ * ⑥ 레이아웃 — **체결 → 호가 → 주문** 순 (열 순서 = 세로 순서 = 읽는 순서)
+ *   ≥900px  `grid-template-columns: 248px 380px minmax(332px,1fr)` / `gap: 1px`
+ *           (좌 체결 테이프 · 중앙 사다리 10단 · 우측 내 계좌 축)
+ *           체결 테이프 240px 은 `09:30:17` + `127,400` 이 **줄바꿈 없이** 들어가는 최소폭이다
+ *           (`trade-tape.tsx` colgroup). 늘린 20px 은 계좌 축 min 에서 뺐다 —
+ *           세 열 합이 960px 그대로여서 900~960px 구간의 가로 넘침이 더 나빠지지 않는다.
+ *   <900px  세로 순서 — 연결상태 → 체결 → 호가 5단(+10단 전체 보기) → 주문 → 잔고 → 미체결
+ *   우측 컬럼은 `display: contents` 로 좁은 폭에서 그리드 자식이 되어 주문·잔고가 같은
+ *   순서열에 합류한다. 브레이크포인트는 전부 CSS 이고 JS 는 뷰포트를 재지 않는다.
+ *   데스크톱은 `order-*` 를 `min-[900px]:order-none` 으로 풀고 **소스 순서**를 그대로 쓴다 —
+ *   그래서 위 두 순서가 어긋날 수 없다(한쪽만 고치는 사고가 구조적으로 안 난다).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -54,7 +59,11 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AccountPanel } from '@/components/orderbook/account-panel';
 import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
 import { OrderbookSkeleton } from '@/components/orderbook/orderbook-skeleton';
-import { OrderPanel, deriveTickSize } from '@/components/orderbook/order-panel';
+import {
+  OrderPanel,
+  deriveTickSize,
+  type PriceSelection,
+} from '@/components/orderbook/order-panel';
 import { RelayStatusBar } from '@/components/orderbook/relay-status-bar';
 import { TradeTape, formatTapeTime } from '@/components/orderbook/trade-tape';
 import { useRelaySocket } from '@/lib/use-relay-socket';
@@ -112,7 +121,7 @@ export function StockOrderbookSection({
   const subscriptionIsin = isin != null && isin.length > 0 ? isin : null;
 
   const [exchange, setExchange] = useState<RelayExchange>('KRX');
-  const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
+  const [selectedPrice, setSelectedPrice] = useState<PriceSelection | null>(null);
   const [switching, setSwitching] = useState(false);
   /*
     계좌 선택은 **섹션이 소유**하고 주문 패널·계좌 패널이 같은 값을 본다.
@@ -121,6 +130,8 @@ export function StockOrderbookSection({
   */
   const [selectedAccountNo, setSelectedAccountNo] = useState('');
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 가격 클릭 일련번호 — 같은 호가를 다시 눌러도 주문 패널이 다시 반영하게 한다. */
+  const priceSeqRef = useRef(0);
 
   const {
     status,
@@ -204,7 +215,9 @@ export function StockOrderbookSection({
   const handlePriceClick = useCallback((price: number) => {
     // T-15-14 — 가격만 채운다. 매수/매도 구분은 **절대 자동 전환하지 않는다**.
     // 제출도 하지 않는다. 반영 피드백(입력칸 테두리 플래시)은 15-18 주문 패널 소관.
-    setSelectedPrice(price);
+    // `seq` 를 올려 보내는 이유는 `PriceSelection` 주석 참고 — 같은 호가 재클릭도 반영이다.
+    priceSeqRef.current += 1;
+    setSelectedPrice({ price, seq: priceSeqRef.current });
   }, []);
 
   const effectiveBase = quote?.base && quote.base > 0 ? quote.base : basePrice;
@@ -346,9 +359,20 @@ export function StockOrderbookSection({
       ) : isBroken ? (
         <OrderbookLoadError onRetry={reconnect} />
       ) : (
-        <div className="grid gap-px bg-[var(--border-subtle)] min-[900px]:grid-cols-[380px_220px_minmax(360px,1fr)]">
-          {/* ① 호가 사다리 — 좁은 폭에서 기본 5단 + `10단 전체 보기` */}
+        <div className="grid gap-px bg-[var(--border-subtle)] min-[900px]:grid-cols-[248px_380px_minmax(332px,1fr)]">
+          {/* ① 체결 테이프 — 데스크톱 첫 컬럼, 좁은 폭에서도 맨 위(M1 ①) */}
           <div className="order-1 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
+            <TradeTape
+              entries={tape}
+              isStale={isStale}
+              basePrice={effectiveBase}
+              bestAsk={quote?.ap[0]}
+              bestBid={quote?.bp[0]}
+            />
+          </div>
+
+          {/* ② 호가 사다리 — 좁은 폭에서 기본 5단 + `10단 전체 보기` */}
+          <div className="order-2 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
             {switching && (
               <p
                 aria-live="polite"
@@ -377,28 +401,17 @@ export function StockOrderbookSection({
             )}
           </div>
 
-          {/* ③ 체결 테이프 — 데스크톱 2번째 컬럼, 모바일은 주문 패널 아래(M1 ④) */}
-          <div className="order-3 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
-            <TradeTape
-              entries={tape}
-              isStale={isStale}
-              basePrice={effectiveBase}
-              bestAsk={quote?.ap[0]}
-              bestBid={quote?.bp[0]}
-            />
-          </div>
-
           {/*
             우측 "내 계좌 축" 컬럼 (L1=B). 좁은 폭에서는 `display: contents` 로 그리드
-            자식이 흩어져 M1 순서(주문 → 체결 → 잔고 → 미체결)를 만든다.
-            주문 패널(order-2)과 계좌 패널(order-4, 내부에서 잔고 → 미체결 순)이 자식이다.
+            자식이 흩어져 M1 순서(체결 → 호가 → 주문 → 잔고 → 미체결)를 만든다.
+            주문 패널(order-3)과 계좌 패널(order-4, 내부에서 잔고 → 미체결 순)이 자식이다.
           */}
           <div
             data-testid="orderbook-account-column"
             className="contents min-[900px]:flex min-[900px]:flex-col min-[900px]:gap-px"
           >
             <OrderPanel
-              className="order-2 min-[900px]:order-none"
+              className="order-3 min-[900px]:order-none"
               code={code}
               name={name}
               accounts={accounts}

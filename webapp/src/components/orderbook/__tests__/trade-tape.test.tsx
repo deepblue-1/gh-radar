@@ -126,6 +126,22 @@ describe('TradeTape', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
+  it('⑨ 열 폭을 명시 배분하고 셀은 줄바꿈하지 않는다 (`98,100` 이 두 줄로 쪼개지던 회귀)', () => {
+    const { container } = render(
+      <TradeTape entries={tape([98_100, 97_900])} isStale={false} basePrice={BASE} />,
+    );
+
+    // `table-fixed` 기본 4등분이면 열당 39px 밖에 안 돼 체결가가 줄바꿈했다.
+    const cols = container.querySelectorAll('table > colgroup > col');
+    expect(cols).toHaveLength(4);
+    expect(cols[0].className).toContain('w-[64px]'); // 시각 `09:30:17`
+    expect(cols[1].className).toContain('w-[64px]'); // 체결가 `127,400`
+
+    // 폭이 모자라도 줄바꿈 대신 잘리게 둔다 — 두 줄로 무너지는 편이 더 나쁘다.
+    const row = container.querySelector('tbody tr') as HTMLElement;
+    expect(row.className).toContain('[&>td]:whitespace-nowrap');
+  });
+
   it('⑧ 구분이 추정임을 화면에 밝힌다 (게이트웨이가 매수/매도 플래그를 주지 않는다)', () => {
     render(<TradeTape entries={tape([98_200])} isStale={false} basePrice={BASE} />);
     expect(

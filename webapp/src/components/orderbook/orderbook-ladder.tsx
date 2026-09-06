@@ -3,8 +3,8 @@
 /**
  * OrderbookLadder — 호가 10단 사다리 (UI-SPEC C4, 확정 L2=A · L3=A).
  *
- * 무엇을 어디에: 호가주문 탭 섹션 그리드의 **좌측 첫 컬럼**(≥900px 380px). 좁은 폭에서는
- * 연결 상태 바 바로 아래 첫 블록이다(M1 순서 ②).
+ * 무엇을 어디에: 호가주문 탭 섹션 그리드의 **중앙(두 번째) 컬럼**(≥900px 380px). 좁은
+ * 폭에서는 체결 테이프 바로 아래 두 번째 블록이다(세로 순서 ② — 체결 → 호가 → 주문).
  *
  * 왜 `ui/table.tsx` 가 아니라 전용 `<table>` 인가: 중앙 가격 1열 + 좌우 잔량 + 잔량 바
  * 레이어 + roving tabindex 를 표 primitive 로 표현할 수 없다(UI-SPEC §신규 컴포넌트).
@@ -14,6 +14,9 @@
  *     급등 종목에서는 20단이 전부 `--up` 이 된다. 이것은 버그가 아니라 정상이며,
  *     **그래서 매도/매수 구분을 색에 의존하면 안 된다** — 구분은 열 위치(좌 매도잔량 /
  *     우 매수잔량) + 열 헤더 + 가격 셀의 `sr-only` 단계 라벨이 담당한다(WCAG 1.4.1).
+ *     `매1`~`매10` / `수1`~`수10` 인라인 배지는 **의도적으로 없다** — 행 위치가 곧 단계라
+ *     시각 사용자에게 중복 정보이고, 가격 축 좌측을 좁혀 가독성만 깎았다.
+ *     스크린리더용 `sr-only` 단계 라벨은 그대로 남는다(제거 대상이 아니다).
  *   - 매도 행 배경 `--down-bg` 65% 틴트 / 매수 행 배경 `--up-bg` 65% 틴트 (국내 HTS 관례).
  *   - 잔량 바 = 매도 `--down` 16% / 매수 `--up` 16%. **숫자는 `--fg` 유지**(바만 틴트).
  *   - accent 토큰(값이 `--down` 과 동일한 파랑)은 **사다리 내부에 절대 쓰지 않는다** —
@@ -26,6 +29,10 @@
  *     폭 애니메이션은 항상 뒤처진다.
  *   - `prefers-reduced-motion: reduce` → `motion-safe:` 로 플래시 배경 자체를 걸어
  *     감속 선호 사용자에게는 값만 교체된다(`motion-reduce:` 로 전환도 제거).
+ *
+ * ★ 클릭 타깃 = **행 전체**: 가격 셀만 누르게 두면 표 폭의 1/3 만 반응해서
+ *   잔량 숫자를 누른 사용자에게는 "클릭이 안 되는 호가창" 이 된다. 핸들러는 `<tr>` 에 있고
+ *   가격 0 인 빈 단계만 무시한다. 키보드 경로(roving tabindex + Enter) 는 그대로다.
  *
  * ★ 빈·stale 상태: `quote === null` 이면 빈 상태 문구, 재접속 중(`isStale`)이면
  *   **마지막 값을 유지하고 `opacity:.55` 로 감쇠**한다. 비우지 않는다(문맥 상실 방지).
@@ -271,11 +278,19 @@ export function OrderbookLadder({
         id={`ladder-row-${row.key}`}
         data-side={row.side}
         data-active={index === activeIndex ? 'true' : undefined}
+        onClick={() => {
+          if (row.price <= 0) return;
+          setActiveIndex(index);
+          onPriceClick(row.price);
+        }}
         className={cn(
+          'cursor-pointer',
           '[&>*]:h-[var(--row-h)] [&>*]:align-middle [&>*]:text-[length:var(--t-caption)]',
           isAsk
             ? '[&>*]:bg-[color-mix(in_oklch,var(--down-bg)_65%,transparent)]'
             : '[&>*]:bg-[color-mix(in_oklch,var(--up-bg)_65%,transparent)]',
+          // 행 전체 hover — `&:hover > *` 가 `& > *` 보다 우선하므로 방향 틴트를 덮는다.
+          'hover:[&>*]:bg-[color-mix(in_oklch,var(--muted)_70%,transparent)]',
           collapsed && row.far && 'max-[899px]:hidden',
           index === activeIndex &&
             'outline outline-2 -outline-offset-2 outline-[var(--ring)]',
@@ -304,27 +319,14 @@ export function OrderbookLadder({
         {/* 가격 — 중앙 정렬(좌우 잔량 열과 축을 맞추는 유일한 예외). */}
         <th
           scope="row"
-          onClick={() => {
-            if (row.price <= 0) return;
-            setActiveIndex(index);
-            onPriceClick(row.price);
-          }}
           className={cn(
-            'mono relative cursor-pointer px-[var(--s-2)] text-center text-[length:var(--t-sm)] font-semibold',
-            'hover:bg-[color-mix(in_oklch,var(--muted)_70%,transparent)]',
+            'mono px-[var(--s-2)] text-center text-[length:var(--t-sm)] font-semibold',
             FLASH_FADE,
             priceTone(row.price, basePrice),
             isNow && 'shadow-[inset_3px_0_0_var(--fg)]',
             priceFlash && FLASH_BG,
           )}
         >
-          <span
-            aria-hidden="true"
-            className="absolute left-1 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-[var(--muted-fg)]"
-          >
-            {isAsk ? '매' : '수'}
-            {row.step}
-          </span>
           {/* 색 비의존(WCAG 1.4.1) — 스크린리더는 단계 라벨로 매도/매수를 안다. */}
           <span className="sr-only">
             {isAsk ? '매도' : '매수'} {row.step}호가{' '}

@@ -31,6 +31,11 @@ const ACCOUNTS: RelayAccount[] = [
   { accountNo: '12345678-02', name: 'CMA' },
 ];
 
+/** 사다리 클릭 1회. `seq` 가 곧 "몇 번째 클릭인가" 다 — 같은 가격이어도 새 이벤트다. */
+function pick(price: number, seq = 1) {
+  return { price, seq };
+}
+
 function accepted(over: Partial<CreateOrderResponse> = {}): CreateOrderResponse {
   return {
     orderNo: '0000135842',
@@ -49,7 +54,7 @@ function baseProps(over: Partial<OrderPanelProps> = {}): OrderPanelProps {
     selectedAccountNo: '12345678-01',
     onAccountChange: vi.fn(),
     exchange: 'KRX',
-    selectedPrice: 98_400,
+    selectedPrice: pick(98_400),
     tick: 100,
     sellableQty: 90,
     status: 'ready',
@@ -90,11 +95,11 @@ describe('OrderPanel — 매매 구분 · 단일 제출 버튼', () => {
   });
 
   it('③ 사다리 가격이 바뀌어도 매매 구분은 자동 전환되지 않는다 (T-15-52)', () => {
-    const { rerender, props } = renderPanel({ selectedPrice: 98_400 });
+    const { rerender, props } = renderPanel({ selectedPrice: pick(98_400) });
     expect(screen.getByLabelText('가격')).toHaveValue('98,400');
 
     // 매도호가를 클릭한 상황 — 가격만 바뀐다.
-    rerender(<OrderPanel {...props} selectedPrice={99_200} />);
+    rerender(<OrderPanel {...props} selectedPrice={pick(99_200, 2)} />);
 
     expect(screen.getByLabelText('가격')).toHaveValue('99,200');
     expect(screen.getByRole('tab', { name: '매수' })).toHaveAttribute('aria-selected', 'true');
@@ -103,9 +108,26 @@ describe('OrderPanel — 매매 구분 · 단일 제출 버튼', () => {
 });
 
 describe('OrderPanel — 가격 · 수량', () => {
+  it('③-b 같은 호가를 다시 클릭하면 손으로 고친 가격을 덮어쓴다 (seq 증가)', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderPanel({ selectedPrice: pick(98_400), tick: 100 });
+
+    // 사용자가 입력칸을 직접 고친 상태.
+    const price = screen.getByLabelText('가격');
+    await user.clear(price);
+    await user.type(price, '97000');
+    expect(price).toHaveValue('97,000');
+
+    // 아까와 **같은 호가**를 다시 클릭 — 값은 같고 seq 만 오른다.
+    rerender(<OrderPanel {...props} selectedPrice={pick(98_400, 2)} />);
+
+    expect(screen.getByLabelText('가격')).toHaveValue('98,400');
+  });
+
+
   it('④ 스텝퍼 ＋ 는 호가 단위만큼 올린다', async () => {
     const user = userEvent.setup();
-    renderPanel({ selectedPrice: 98_400, tick: 100 });
+    renderPanel({ selectedPrice: pick(98_400), tick: 100 });
 
     await user.click(screen.getByRole('button', { name: '호가 한 단계 올리기' }));
 

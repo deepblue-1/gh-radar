@@ -234,6 +234,28 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(bids[9]).toBe('100%');
   });
 
+  it('②-b 본문 배치 순서는 체결 → 호가 → 주문 → 계좌 다 (데스크톱 열 순서 = 모바일 세로 순서)', () => {
+    renderSection();
+
+    // 데스크톱은 `min-[900px]:order-none` 으로 소스 순서를 그대로 쓰므로 DOM 순서가 곧 정본이다.
+    const grid = ladder().closest('.grid') as HTMLElement;
+    const blocks = Array.from(grid.children) as HTMLElement[];
+
+    expect(blocks[0].querySelector('[data-slot="trade-tape"]')).not.toBeNull();
+    expect(blocks[1].querySelector('[data-slot="orderbook-ladder"]')).not.toBeNull();
+
+    // 세 번째는 `display: contents` 인 계좌 축 — 그 안에서 주문이 잔고보다 앞이다.
+    const column = blocks[2];
+    expect(column).toHaveAttribute('data-testid', 'orderbook-account-column');
+    const inner = Array.from(column.children) as HTMLElement[];
+    expect(inner[0]).toHaveAttribute('data-testid', 'order-panel');
+
+    // 모바일 세로 순서(order-*)도 같은 순서여야 한다 — 한쪽만 고치는 사고 차단.
+    expect(blocks[0].className).toContain('order-1');
+    expect(blocks[1].className).toContain('order-2');
+    expect(inner[0].className).toContain('order-3');
+  });
+
   it('③ 가격 셀 클릭 → 주문 가격에 그 값이 채워지고 **매매 구분은 바뀌지 않는다** (T-15-14)', async () => {
     const user = userEvent.setup();
     renderSection();

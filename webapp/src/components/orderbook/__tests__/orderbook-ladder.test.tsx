@@ -204,6 +204,46 @@ describe('OrderbookLadder', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('⑨ 잔량 셀을 눌러도 그 행의 가격이 전달된다 (클릭 타깃 = 행 전체)', async () => {
+    const user = userEvent.setup();
+    const onPriceClick = vi.fn();
+    const { container } = render(
+      <OrderbookLadder
+        quote={makeQuote()}
+        depth={10}
+        isStale={false}
+        basePrice={BASE}
+        onPriceClick={onPriceClick}
+      />,
+    );
+
+    // 매도 1호가 행(98,100)의 **매도잔량 셀** — 가격 셀이 아니다.
+    const row = container.querySelector('#ladder-row-a0') as HTMLElement;
+    await user.click(row.querySelector('td') as HTMLElement);
+
+    expect(onPriceClick).toHaveBeenCalledTimes(1);
+    expect(onPriceClick).toHaveBeenCalledWith(98_100);
+  });
+
+  it('⑩ 가격 셀에 `매1`~`매10` / `수1`~`수10` 인라인 배지를 그리지 않는다', () => {
+    const { container } = render(
+      <OrderbookLadder
+        quote={makeQuote()}
+        depth={10}
+        isStale={false}
+        basePrice={BASE}
+        onPriceClick={vi.fn()}
+      />,
+    );
+
+    // 시각 배지는 제거 — 다만 스크린리더용 `매도 1호가` sr-only 라벨은 남아 있어야 한다.
+    const badges = Array.from(container.querySelectorAll('tbody th[scope="row"] span'))
+      .map((el) => el.textContent?.trim() ?? '')
+      .filter((t) => /^[매수](10|[1-9])$/.test(t));
+    expect(badges).toHaveLength(0);
+    expect(screen.getByText(/매도 1호가/)).toBeInTheDocument();
+  });
+
   it('⑧ 사다리 내부에 accent 토큰(--primary)을 쓰지 않는다 (--primary == --down 오독 차단)', () => {
     const { container } = render(
       <OrderbookLadder

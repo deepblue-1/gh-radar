@@ -75,6 +75,19 @@ const PRICE_FLASH_MS = 260;
 const SELL_RATIOS = [10, 25, 50, 100] as const;
 
 /**
+ * 사다리 가격 클릭 **1회**를 나타내는 이벤트.
+ *
+ * 왜 `number` 가 아닌가: 값으로 두면 "같은 호가를 다시 클릭" 이 무반응이 된다.
+ * 가격을 손으로 고쳐 놓고 원래 호가를 다시 누르는 것은 호가창에서 가장 흔한 조작인데,
+ * 값이 안 바뀌니 반영 이펙트가 깨어나지 않아 **입력에 손댄 값이 그대로 남는다**.
+ * `seq` 가 클릭마다 증가하므로 가격이 같아도 매번 다시 채워진다.
+ */
+export interface PriceSelection {
+  price: number;
+  seq: number;
+}
+
+/**
  * KRX 호가 단위 표(2023-01-25 개정) — **폴백 전용**이다.
  *
  * 실호가(`quote.ap`/`bp`)의 인접 단계 간격이 거래소가 실제로 쓰는 단위이므로 그쪽이
@@ -176,8 +189,8 @@ export interface OrderPanelProps {
   onAccountChange: (accountNo: string) => void;
   /** 주문 거래소 — 섹션의 KRX/NXT 토글 값을 그대로 따른다(패널에 별도 토글 없음). */
   exchange: RelayExchange;
-  /** 사다리에서 클릭한 가격. 변경되면 입력에 반영되고 테두리가 1회 플래시한다. */
-  selectedPrice: number | null;
+  /** 사다리에서 클릭한 가격 선택 이벤트. 도착할 때마다 입력에 반영되고 테두리가 1회 플래시한다. */
+  selectedPrice: PriceSelection | null;
   /** 호가 단위. 스텝퍼 증감폭이자 blur 스냅 기준. */
   tick: number;
   /** 이 종목의 매도가능수량 — 매도 비율 버튼의 기준값. */
@@ -233,10 +246,15 @@ export function OrderPanel({
     setConfirm(null);
   }, [code]);
 
-  // 사다리 가격 클릭 반영 + 테두리 1회 플래시(260ms). 매매 구분은 **바꾸지 않는다**(T-15-52).
+  /*
+    사다리 가격 클릭 반영 + 테두리 1회 플래시(260ms). 매매 구분은 **바꾸지 않는다**(T-15-52).
+    의존성은 `price` 가 아니라 `seq` 까지 함께다 — 같은 호가 재클릭도 반영해야 한다.
+  */
+  const selectedPriceValue = selectedPrice?.price ?? null;
+  const selectedPriceSeq = selectedPrice?.seq ?? null;
   useEffect(() => {
-    if (selectedPrice == null) return;
-    setPriceText(KRW.format(selectedPrice));
+    if (selectedPriceValue == null) return;
+    setPriceText(KRW.format(selectedPriceValue));
     setSnapHint(null);
     setFlash(true);
     if (flashTimerRef.current !== null) clearTimeout(flashTimerRef.current);
@@ -244,7 +262,7 @@ export function OrderPanel({
       flashTimerRef.current = null;
       setFlash(false);
     }, PRICE_FLASH_MS);
-  }, [selectedPrice]);
+  }, [selectedPriceValue, selectedPriceSeq]);
 
   useEffect(
     () => () => {
@@ -494,7 +512,7 @@ export function OrderPanel({
         </FormRow>
         <p id="order-price-hint" className="text-[11px] text-[var(--muted-fg)]">
           {snapHint ??
-            `호가 단위 ${KRW.format(tick)}원 · 사다리의 가격을 클릭하면 여기에 채워져요`}
+            `호가 단위 ${KRW.format(tick)}원 · 호가창의 행을 클릭하면 여기에 채워져요`}
         </p>
 
         <FormRow htmlFor="order-qty" label="수량">

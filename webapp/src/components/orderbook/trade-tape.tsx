@@ -3,8 +3,8 @@
 /**
  * TradeTape — 체결 테이프 (UI-SPEC C6 + C7).
  *
- * 무엇을 어디에: 호가주문 탭 그리드의 **두 번째 컬럼**(≥900px 220px). 좁은 폭에서는
- * 주문 패널 아래(M1 순서 ④)로 내려간다.
+ * 무엇을 어디에: 호가주문 탭 그리드의 **첫 번째 컬럼**(≥900px 220px). 좁은 폭에서도
+ * 연결 상태 바 바로 아래 첫 블록이다(세로 순서 ① — 체결 → 호가 → 주문).
  *
  * 왜 전용 `<table>` + 스크롤 컨테이너인가: 200ms 배치 prepend 와 "사용자가 스크롤을
  * 내리면 자동 스크롤 정지" 규칙이 표 primitive 에 없다(UI-SPEC §신규 컴포넌트).
@@ -270,30 +270,32 @@ export function TradeTape({
         )}
 
         <table className="w-full table-fixed border-collapse" aria-label="체결 테이프">
+          {/*
+            ★ 열 폭을 **명시 배분**한다. `table-fixed` 기본은 4등분(220px 컬럼에서 열당 55px,
+            좌우 패딩 빼면 39px)이라 `98,100` 이 `98,1` / `00` 으로 쪼개졌다. 체결가가 두 줄로
+            갈리면 테이프의 존재 이유인 "가격이 어디로 튀는가"를 훑을 수가 없다.
+            내용 폭 기준: 시각 `09:30:17`(mono 8자) > 체결가 `127,400`(mono 7자) >
+            구분 `▲ 매수` > 수량. 셀은 전부 `whitespace-nowrap` 이라 폭이 모자라도
+            **줄바꿈 대신 잘린다** — 두 줄로 무너지는 것보다 낫다.
+          */}
+          <colgroup>
+            <col className="w-[64px]" />
+            <col className="w-[64px]" />
+            <col className="w-[52px]" />
+            <col />
+          </colgroup>
           <thead className="sticky top-0 z-[1]">
-            <tr>
-              <th
-                scope="col"
-                className="border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-left text-[11px] font-semibold text-[var(--muted-fg)]"
-              >
+            <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-[var(--border)] [&>th]:bg-[var(--muted)] [&>th]:px-1.5 [&>th]:py-1.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-[var(--muted-fg)]">
+              <th scope="col" className="text-left">
                 시각
               </th>
-              <th
-                scope="col"
-                className="num border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-[11px] font-semibold text-[var(--muted-fg)]"
-              >
+              <th scope="col" className="num">
                 체결가
               </th>
-              <th
-                scope="col"
-                className="num border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-[11px] font-semibold text-[var(--muted-fg)]"
-              >
+              <th scope="col" className="num">
                 수량
               </th>
-              <th
-                scope="col"
-                className="border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-right text-[11px] font-semibold text-[var(--muted-fg)]"
-              >
+              <th scope="col" className="text-right">
                 구분
               </th>
             </tr>
@@ -309,12 +311,12 @@ export function TradeTape({
                   key={index}
                   data-side={isBuy ? 'B' : 'S'}
                   className={cn(
-                    '[&>td]:h-[var(--row-h)] [&>td]:px-[var(--s-2)] [&>td]:align-middle [&>td]:text-[length:var(--t-caption)]',
+                    '[&>td]:h-[var(--row-h)] [&>td]:whitespace-nowrap [&>td]:px-1.5 [&>td]:align-middle [&>td]:text-[length:var(--t-caption)]',
                     FLASH_FADE,
                     flashed && FLASH_BG,
                   )}
                 >
-                  <td className="mono text-left text-[var(--muted-fg)]">
+                  <td className="mono text-left text-[11px] text-[var(--muted-fg)]">
                     {formatTapeTime(entry.t)}
                   </td>
                   <td className={cn('mono num font-semibold', priceTone(entry.p, basePrice))}>
