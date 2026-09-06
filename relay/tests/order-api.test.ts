@@ -14,6 +14,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import http from "node:http";
+import os from "node:os";
 import type { AddressInfo } from "node:net";
 import * as flatbuffers from "flatbuffers";
 
@@ -112,6 +113,23 @@ type StartOptions = {
   /** 주문 라우트를 쓰는 테스트가 등록할 세션들. */
   sessions?: FakeSession[];
   orderTimeoutMs?: number;
+  /** 게이트웨이 주소 — 회선 판정 기준. */
+  dmaHost?: string;
+  /** 인터페이스 목록. 생략하면 VPN 이 서 있는 상태(UP_INTERFACES). */
+  interfaces?: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+};
+
+/** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
+const UP_INTERFACES: NodeJS.Dict<os.NetworkInterfaceInfo[]> = {
+  lo: [{ address: "127.0.0.1", family: "IPv4", internal: true } as os.NetworkInterfaceInfo],
+  ens4: [{ address: "10.10.0.5", family: "IPv4", internal: false } as os.NetworkInterfaceInfo],
+  tun0: [{ address: "10.41.1.124", family: "IPv4", internal: false } as os.NetworkInterfaceInfo],
+};
+
+/** VPN 이 내려간 상태 — `tun0` 과 그 주소가 통째로 사라진다. */
+const DOWN_INTERFACES: NodeJS.Dict<os.NetworkInterfaceInfo[]> = {
+  lo: UP_INTERFACES.lo,
+  ens4: UP_INTERFACES.ens4,
 };
 
 async function start(opts: StartOptions = {}): Promise<Harness> {
@@ -133,6 +151,9 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
 
   const app = createOrderApi({
     relayOrderSecret: SECRET,
+    // 회선 판정 기준. 기본은 "VPN 이 서 있다" — 아래 주입으로 없는 상태도 시험한다.
+    dmaHost: opts.dmaHost ?? "10.41.1.120",
+    networkInterfaces: () => opts.interfaces ?? UP_INTERFACES,
     appVersion: "test-sha",
     nodeEnv: opts.nodeEnv ?? "test",
     sessions: apiSessions,
@@ -274,6 +295,34 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
     expect(body).toMatchObject({ status: "ok", vpn: true, dma: true, sessionCount: 0 });
   });
 
+  it("⑦-b 접속자 0명이어도 VPN 이 내려가면 degraded + 503 (2026-09-06 회귀 가드)", async () => {
+    // 옛 구현은 `sessionCount === 0` 이면 무조건 ok 였다. 그래서 아무도 안 쓰는 시간에
+    // VPN 이 죽어도 uptime check 가 200 만 보고 넘어갔고, 실장애가 사용자 신고로 발견됐다.
+    const noVpn = await start({ interfaces: DOWN_INTERFACES });
+    try {
+      const res = await fetch(noVpn.url("/healthz"));
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(res.status).toBe(503);
+      // 회선과 세션은 **분리된 신호**다 — 세션이 없으니 dma 는 문제없고, vpn 만 false 다.
+      expect(body).toMatchObject({ status: "degraded", vpn: false, dma: true, sessionCount: 0 });
+    } finally {
+      await noVpn.close();
+    }
+  });
+
+  it("⑦-c 로컬 mock(DMA_HOST=127.0.0.1) 은 VPN 없이도 ok 다", async () => {
+    // mock 배포에는 터널이 없다. loopback 이 곧 게이트웨이 경로이므로 degraded 가 아니다.
+    const mock = await start({ dmaHost: "127.0.0.1", interfaces: DOWN_INTERFACES });
+    try {
+      const res = await fetch(mock.url("/healthz"));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ vpn: true });
+    } finally {
+      await mock.close();
+    }
+  });
+
   it("⑧ 세션이 있는데 Ready 가 0개면 degraded + HTTP 503 (Assumption A7)", async () => {
     const degraded = await start({ stats: { sessionCount: 2, readyCount: 0 } });
     try {
@@ -282,7 +331,9 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
 
       // 본문만 degraded 로 두면 uptime check 가 못 잡는다 — 상태 코드로도 내려야 한다.
       expect(res.status).toBe(503);
-      expect(body).toMatchObject({ status: "degraded", vpn: false, dma: false, sessionCount: 2 });
+      // 회선은 멀쩡한데 세션만 못 서는 경우다(게이트웨이 거부 등). 두 신호를 분리했으므로
+      // `vpn` 은 true 로 남아야 한다 — 여기를 false 로 적으면 VPN 을 애먼 범인으로 만든다.
+      expect(body).toMatchObject({ status: "degraded", vpn: true, dma: false, sessionCount: 2 });
     } finally {
       await degraded.close();
     }

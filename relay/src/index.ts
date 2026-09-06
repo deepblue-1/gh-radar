@@ -116,6 +116,8 @@ orderStore.start();
 
 const orderApi = createOrderApi({
   relayOrderSecret: config.relayOrderSecret,
+  // `/healthz` 의 회선 판정 기준 — 이 주소와 같은 사내망 대역의 인터페이스가 있는지만 본다.
+  dmaHost: config.dmaHost,
   appVersion: config.appVersion,
   nodeEnv: config.nodeEnv,
   sessions: sessionManager,

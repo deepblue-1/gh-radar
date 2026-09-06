@@ -32,12 +32,14 @@
  *            재매핑할 수 있어야 한다. 프로덕션에서 `err.message` 는 노출하지 않는다.
  */
 import { timingSafeEqual } from "node:crypto";
+import os from "node:os";
 import express, { type Express, type ErrorRequestHandler, type RequestHandler } from "express";
 import { z } from "zod";
 
 import type { CreateOrderResponse, DmaOrderStatus, RelayAccount } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
+import { isGatewayLinkUp } from "../dma/link-health.js";
 import type { SessionStats } from "../dma/session-manager.js";
 import type { HubOrderEvent } from "../hub/subscription-hub.js";
 import type { OrderUpdate } from "../store/orders.js";
@@ -112,6 +114,10 @@ export type OrderApiDeps = {
   orderStore?: OrderQueue;
   /** 첫 통보 대기 상한(ms). 테스트가 줄여 쓴다. */
   orderTimeoutMs?: number;
+  /** 게이트웨이 주소. `/healthz` 의 회선 판정 기준이다(패킷을 보내지 않는다). */
+  dmaHost: string;
+  /** 인터페이스 목록 주입구 — 테스트가 VPN 유무를 흉내낸다. */
+  networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 };
 
 /**
@@ -295,23 +301,33 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * 쪽 문제로 본다. 세션이 0개면 게이트웨이에 아무것도 요구하지 않은 상태라 `ok` 다
    * (아무도 접속하지 않은 장 시작 전이 정상 상태여야 한다 — 테스트 ⑦).
    *
-   * `vpn` 은 게이트웨이 TCP 도달성의 **근사**다. v1 은 실제 세션의 Ready 여부에서 파생하며
-   * 능동 프로브(주기적 TCP connect)를 두지 않는다 — 아무도 접속하지 않은 시간에도 KB
-   * 게이트웨이로 주기 트래픽을 만들게 되고, 그것은 D-27(실서버 접속은 사용자 지시가 있을
-   * 때만)과 정면으로 어긋난다. 그래서 v1 의 `vpn` 과 `dma` 는 같은 신호에서 나온다.
+   * `vpn` 은 **회선 실측**이다 (2026-09-06 변경). 예전에는 `dma` 와 같은 신호(세션 Ready)
+   * 에서 파생했는데, 그러면 **접속자가 0명일 때 VPN 이 완전히 죽어도 `ok`** 였다. uptime
+   * check 는 본문이 아니라 상태코드만 보므로 알림이 영원히 울리지 않는다 — 그날 11:41 KST
+   * VPN 정지를 아무 신호 없이 통과시킨 것이 이 결함이다.
+   *
+   * 능동 프로브(주기적 TCP connect)는 여전히 두지 않는다. 아무도 안 쓰는 시간에 KB 사내망
+   * 트래픽을 만들면 D-27 과 어긋난다. 대신 `isGatewayLinkUp` 이 **로컬 인터페이스만** 읽어
+   * (순수 syscall, 송신 0) 터널 유무를 본다. 그래서 접속자 0명이어도 즉시 감지된다.
    *
    * uptime check 규약(RESEARCH Assumption A7): **degraded 는 HTTP 503 으로 내려야 한다.**
    * 200 으로 내리면서 본문에만 "degraded" 를 적으면 Cloud Monitoring 의 기본 uptime check
    * 는 본문을 보지 않으므로 컨테이너 내부 장애가 영원히 감지되지 않는다.
    */
+  const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
+
   app.get(HEALTH_PATH, (_req, res) => {
     const stats = deps.sessions.stats();
-    const healthy = stats.sessionCount === 0 || stats.readyCount > 0;
+    // 두 신호를 **분리**한다. 회선은 접속자 수와 무관한 사실이고, 세션은 접속자가 있을
+    // 때만 의미가 있다. 하나로 합치면 접속자 0명이 회선 장애를 가려 버린다.
+    const linkUp = isGatewayLinkUp(deps.dmaHost, readInterfaces());
+    const sessionsOk = stats.sessionCount === 0 || stats.readyCount > 0;
+    const healthy = linkUp && sessionsOk;
 
     const payload: HealthPayload = {
       status: healthy ? "ok" : "degraded",
-      vpn: healthy,
-      dma: healthy,
+      vpn: linkUp,
+      dma: sessionsOk,
       version: deps.appVersion,
       sessionCount: stats.sessionCount,
     };
