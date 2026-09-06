@@ -50,6 +50,24 @@ gh-radar 에 **DMA 중계 서버 `relay/` 워크스페이스**(Node 22 + TypeScr
 - **D-14:** 세션 부팅: `LoginReq(1)` {user_id, password, broker:"KB"} → `LoginResp(50)` success + **`accounts`(gh-trade 17 D-19 append, `AccountEntry{account_no,name}`)** → 목록의 **모든 계좌**를 `UpdateAccountNoReq(3)` mode "1" 로 선언 → `UpdateAccountNoResp(55)` 목록 대조 → Ready. `mode "2"` 조회 왕복은 하지 않는다(gh-trade 17 D-11). 계좌 0건이면 세션 실패("서버에 등록된 계좌가 없습니다"). 계좌 목록은 상태 프레임으로 브라우저에 내려 주문 패널 계좌 선택의 원천으로 쓴다.
 - **D-15:** 라이프사이클: **wss 첫 인증 연결 시 로그인**, 그 사용자의 **모든 wss 가 끊긴 뒤 5분 유예** 후 TCP 종료(구독 전부 해제). 주문 REST 는 활성 Ready 세션이 없으면 **409 `SESSION_NOT_READY`**("호가창을 먼저 열어 주세요") — 즉시 로그인은 하지 않는다.
 - **D-16:** 재접속: 운영 중 단절은 백오프 재접속 + 재로그인(메모리 보관 비밀번호) + 계좌 재선언 + 구독 전부 재구독(gh-trade 17 D-16 동형). **서버가 재로그인을 거부하면 재접속 루프를 멈추고** 브라우저에 실패 상태를 내린다(17 D-17 동형). 재접속 상한·백오프 수치는 재량이나 **무한 재시도 금지**.
+> **[2026-09-06 D-17 철회 — 사용자 결정]** 이 결정은 **뒤집혔다.** gh-radar 용 DMA `user_id` 는
+> WinForms 와 **같은 값(`ezmesya`)** 을 쓴다.
+>
+> - **철회 사유:** D-17 의 근거는 "같은 값이면 전략 상태·계좌 범위가 섞인다" 였는데,
+>   사용자의 실제 요구사항이 **그 섞임 자체**다 — 클라이언트(`ezmesya`)와 gh-radar 웹
+>   (`alex@jx1.io` → dma `ezmesya`)이 **한 세션에서 전략·체결·미체결을 공유**하는 것이 목적이다.
+>   D-17 은 기술적 제약이 아니라 "합류는 사고"라는 전제 위의 설계 선택이었고, 그 전제가 무효다.
+> - **게이트웨이가 이 구조를 이미 지원한다는 근거 (gh-trade 소스 실측):**
+>   `server/src/trade/Session.h:257` 의 `std::vector<uint64_t> m_conns` — 세션이 연결을 벡터로
+>   보유한다. `AttachConn` 은 중복만 거르고 기존 연결을 축출하지 않으며, `SnapshotConns()` 로
+>   **세션의 모든 연결에 통보를 팬아웃**한다(`server/src/net/Gateway.cpp:1018`).
+>   계좌도 `conn.session->SnapshotAccounts()` (`Gateway.cpp:2447`) 로 세션 단위다.
+> - **따라서 users.toml 에 gh-radar 전용 엔트리를 추가하지 않는다.** 추가하면 오히려 세션이
+>   분리되어 요구사항이 깨진다.
+> - **첫 실접속에서 확인할 것:** relay 의 `DeclaringAccounts`(15-15)가 이미 계좌를 선언해 둔
+>   공유 세션에 재선언할 때 no-op 인지, 세션 계좌 집합을 갈아치우는지. 양쪽이 같은 users.toml
+>   엔트리에서 같은 계좌 집합을 받으므로 실무상 동일 집합이지만, 실측으로 확인한다.
+
 - **D-17:** gh-radar 매핑용 DMA `user_id` 는 **WinForms 클라이언트가 쓰는 값과 다른 값**으로 users.toml 에 등록한다(핸드오프 §3 원칙 유지 — 게이트웨이는 user_id+broker 로 세션을 합류시키므로 같은 값이면 전략 상태·계좌 범위가 섞인다). 예: WinForms `alex`, gh-radar `alex-radar`. users.toml 편집은 gh-trade 측 운영 절차이며 값은 이 저장소에 적지 않는다.
 
 ### 자격증명
