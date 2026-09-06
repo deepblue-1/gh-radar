@@ -39,6 +39,7 @@ import type {
   RelayQuote,
   RelayTape,
   RelayTapeEntry,
+  RelayUnfilled,
 } from '@gh-radar/shared';
 import { useRelaySocket } from '../use-relay-socket';
 
@@ -588,6 +589,134 @@ describe('useRelaySocket — 프레임 견고성', () => {
     // 소비자가 델타를 다시 해석하지 않도록 스냅샷 형태로 정규화한다
     expect(hook.result.current.account?.snap).toBe(true);
     expect(hook.result.current.account?.rm).toEqual([]);
+  });
+
+  // ----------------------------------------------------------
+  // 0 수량 = 삭제 신호 (gh-trade quick-260906-e8b).
+  // relay 캐시(`subscription-hub.ts` 의 `#mergeAccountState`)와 **같은 규칙**이어야 한다 —
+  // 갈리면 새 탭(캐시 재생)과 기존 탭(델타 누적)이 다른 잔고를 본다.
+  // ----------------------------------------------------------
+
+  it('⑮-a 구버전 스냅샷에 섞여 온 0 잔고·0 미체결은 저장하지 않는다', async () => {
+    const hook = render({ isin: ISIN_A, exchange: 'KRX' });
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push(
+        acctFrame({
+          snap: true,
+          hold: [
+            { isin: ISIN_A, qty: 30, sellableQty: 30, avgPrice: 68_500 },
+            { isin: ISIN_B, qty: 0, sellableQty: 0, avgPrice: 0 },
+          ],
+          unf: [
+            {
+              orderNo: 'A1',
+              orgOrderNo: '',
+              isin: ISIN_A,
+              side: 'B',
+              price: 69_900,
+              orderQty: 10,
+              filledQty: 10,
+              unfilledQty: 0,
+              exchange: 'KRX',
+            },
+          ],
+        }),
+      );
+    });
+
+    expect(hook.result.current.account?.hold.map((h) => h.isin)).toEqual([ISIN_A]);
+    expect(hook.result.current.account?.unf).toEqual([]);
+  });
+
+  it('⑮-b 델타의 수량 0 톰스톤 잔고 행이 기존 보유 종목을 지운다', async () => {
+    const hook = render({ isin: ISIN_A, exchange: 'KRX' });
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push(
+        acctFrame({
+          snap: true,
+          hold: [
+            { isin: ISIN_A, qty: 30, sellableQty: 30, avgPrice: 68_500 },
+            { isin: ISIN_B, qty: 12, sellableQty: 12, avgPrice: 51_000 },
+          ],
+        }),
+      );
+    });
+    expect(hook.result.current.account?.hold).toHaveLength(2);
+
+    // 전량 매도 → 서버가 맵에서 지우고 0/0/0 행으로 알린다. 잔고에는 `rm` 이 없다.
+    await act(async () => {
+      ws.push(
+        acctFrame({
+          snap: false,
+          hold: [{ isin: ISIN_A, qty: 0, sellableQty: 0, avgPrice: 0 }],
+          unf: [],
+          rm: [],
+        }),
+      );
+    });
+
+    expect(hook.result.current.account?.hold.map((h) => h.isin)).toEqual([ISIN_B]);
+  });
+
+  it('⑮-c 델타의 unfilledQty 0 행은 rm 없이도 미체결에서 사라진다', async () => {
+    const hook = render({ isin: ISIN_A, exchange: 'KRX' });
+    const ws = await connected(hook);
+
+    const unf = (orderNo: string, unfilledQty: number, filledQty: number): RelayUnfilled => ({
+      orderNo,
+      orgOrderNo: '',
+      isin: ISIN_A,
+      side: 'B',
+      price: 69_900,
+      orderQty: 10,
+      filledQty,
+      unfilledQty,
+      exchange: 'KRX',
+    });
+
+    await act(async () => {
+      ws.push(acctFrame({ snap: true, unf: [unf('A1', 10, 0), unf('A2', 5, 5)] }));
+    });
+    expect(hook.result.current.account?.unf).toHaveLength(2);
+
+    await act(async () => {
+      ws.push(acctFrame({ snap: false, hold: [], unf: [unf('A1', 0, 10), unf('A2', 3, 7)], rm: [] }));
+    });
+
+    expect(hook.result.current.account?.unf.map((u) => u.orderNo)).toEqual(['A2']);
+    expect(hook.result.current.account?.unf[0]?.unfilledQty).toBe(3);
+  });
+
+  it("⑮-d 같은 델타가 한 주문을 갱신하면서 rm 으로도 지우면 최종은 '없음'이다", async () => {
+    const hook = render({ isin: ISIN_A, exchange: 'KRX' });
+    const ws = await connected(hook);
+
+    const unf = (unfilledQty: number): RelayUnfilled => ({
+      orderNo: 'A1',
+      orgOrderNo: '',
+      isin: ISIN_A,
+      side: 'B',
+      price: 69_900,
+      orderQty: 10,
+      filledQty: 10 - unfilledQty,
+      unfilledQty,
+      exchange: 'KRX',
+    });
+
+    await act(async () => {
+      ws.push(acctFrame({ snap: true, unf: [unf(10)] }));
+    });
+
+    // upsert 와 삭제가 한 프레임에 실린 경우 — 삭제가 이긴다(순서: upsert → rm).
+    await act(async () => {
+      ws.push(acctFrame({ snap: false, hold: [], unf: [unf(4)], rm: ['A1'] }));
+    });
+
+    expect(hook.result.current.account?.unf).toEqual([]);
   });
 
   it('⑯ msg 프레임은 최신 우선으로 누적된다 (상태 바 최근 3건의 원천)', async () => {

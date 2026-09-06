@@ -252,4 +252,109 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
     expect(states[0]?.hold[0]?.qty).toBe(12);
     expect(hub.stats().cachedAccountCount).toBe(1);
   });
+
+  // ----------------------------------------------------------
+  // 0 수량 = 삭제 신호 (gh-trade quick-260906-e8b)
+  //
+  // 서버 `AccountManager` 가 보유수량 0·매도가능수량 0 원소를 맵에서 지운다. 잔고에는
+  // `removed_order_nos` 에 해당하는 삭제 표식이 없으므로 **0 수량 톰스톤 행**이 유일한
+  // 통보 수단이다. 정본 규칙은 gh-trade `client/Services/DMA/AccountStateStore.cs`.
+  // ----------------------------------------------------------
+
+  it("⑨ 구버전 스냅샷에 섞여 온 0 잔고·0 미체결은 캐시에 남지 않는다", () => {
+    // quick-260906-e8b 배포 이전 게이트웨이는 스냅샷(66)에 0 행을 그대로 싣는다.
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: true,
+        holdings: [
+          { isin: SAMPLE_ISIN, stockQty: 30, sellableQty: 30 },
+          { isin: OTHER_ISIN, stockQty: 0, sellableQty: 0, avgPrice: 0 },
+        ],
+        unfilled: [
+          { orderNo: "ORD0000001", unfilledQty: 7 },
+          { orderNo: "ORD0000002", unfilledQty: 0 },
+        ],
+      }),
+    );
+
+    const [cached] = hub.getAccountStates("user-1");
+    expect(cached?.hold.map((h) => h.isin)).toEqual([SAMPLE_ISIN]);
+    expect(cached?.unf.map((u) => u.orderNo)).toEqual(["ORD0000001"]);
+
+    // 와이어는 가공하지 않는다 — 받은 그대로 흘려야 브라우저가 같은 판단을 한다.
+    expect(acctFrames(fanout)[0]?.hold).toHaveLength(2);
+  });
+
+  it("⑩ 델타의 수량 0 톰스톤 잔고 행이 기존 보유 종목을 지운다", () => {
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: true,
+        holdings: [
+          { isin: SAMPLE_ISIN, stockQty: 30, sellableQty: 30 },
+          { isin: OTHER_ISIN, stockQty: 12, sellableQty: 12 },
+        ],
+      }),
+    );
+    // 전량 매도 → 서버가 맵에서 지우고 0/0/0 행으로 알린다.
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: false,
+        holdings: [{ isin: SAMPLE_ISIN, stockQty: 0, sellableQty: 0, avgPrice: 0 }],
+      }),
+    );
+
+    const [cached] = hub.getAccountStates("user-1");
+    expect(cached?.hold.map((h) => h.isin)).toEqual([OTHER_ISIN]);
+
+    // 삭제 신호는 브라우저도 적용해야 하므로 델타 원본이 그대로 나간다.
+    const delta = acctFrames(fanout)[1];
+    expect(delta?.snap).toBe(false);
+    expect(delta?.hold).toEqual([{ isin: SAMPLE_ISIN, qty: 0, sellableQty: 0, avgPrice: 0 }]);
+  });
+
+  it("⑪ 델타의 unfilled_qty 0 행은 rm 없이도 미체결에서 사라진다", () => {
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: true,
+        unfilled: [
+          { orderNo: "ORD0000001", unfilledQty: 10 },
+          { orderNo: "ORD0000002", unfilledQty: 5 },
+        ],
+      }),
+    );
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: false,
+        unfilled: [
+          { orderNo: "ORD0000001", unfilledQty: 0, orderQty: 10, filledQty: 10 },
+          { orderNo: "ORD0000002", unfilledQty: 3, orderQty: 5, filledQty: 2 },
+        ],
+      }),
+    );
+
+    const [cached] = hub.getAccountStates("user-1");
+    expect(cached?.unf.map((u) => u.orderNo)).toEqual(["ORD0000002"]);
+    expect(cached?.unf[0]?.unfilledQty).toBe(3);
+  });
+
+  it("⑫ 같은 델타가 한 주문을 갱신하면서 rm 으로도 지우면 최종은 '없음'이다", () => {
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: true,
+        unfilled: [{ orderNo: "ORD0000001", unfilledQty: 10 }],
+      }),
+    );
+    // upsert 와 삭제가 한 프레임에 실린 경우 — 삭제가 이긴다(순서: upsert → rm).
+    session.pushFrame(
+      buildAccountStateFrame({
+        snapshot: false,
+        unfilled: [{ orderNo: "ORD0000001", unfilledQty: 4 }],
+        removedOrderNos: ["ORD0000001"],
+      }),
+    );
+
+    const [cached] = hub.getAccountStates("user-1");
+    expect(cached?.unf).toEqual([]);
+  });
+
 });

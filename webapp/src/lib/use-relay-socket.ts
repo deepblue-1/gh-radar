@@ -140,7 +140,7 @@ export interface RelaySocketState {
   quote: RelayQuote | null;
   /** 체결 테이프. **최신이 index 0**, 상한 200. */
   tape: RelayTapeEntry[];
-  /** 잔고·미체결 병합 결과. 델타는 upsert + `rm` 제거 후 스냅샷 형태로 정규화된다. */
+  /** 잔고·미체결 병합 결과. 델타는 upsert + 0행/`rm` 제거 후 스냅샷 형태로 정규화된다. */
   account: RelayAccountState | null;
   /** 주문 통보 누적(최신 우선). */
   orders: RelayOrderMsg[];
@@ -281,22 +281,45 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
 }
 
 /**
- * 계좌 상태 병합. `snap` 이면 전량 교체, 아니면 키 upsert + `rm` 제거 후
+ * 계좌 상태 병합. `snap` 이면 전량 교체, 아니면 키 upsert + 0행/`rm` 제거 후
  * **스냅샷 형태로 정규화**한다(소비자가 델타를 다시 해석하지 않게).
+ *
+ * **서버가 0/0 원소를 지우므로 델타의 0 행이 곧 삭제 신호다** (gh-trade quick-260906-e8b).
+ * 전량 매도된 잔고는 `{qty:0, sellableQty:0, avgPrice:0}` 톰스톤 행으로 온다 — 잔고에는
+ * `rm` 같은 삭제 표식이 없다(그 배열은 미체결 전용). 미체결은 `rm` 이 정규 경로지만
+ * `unfilledQty === 0` 행도 삭제로 읽는다. 스냅샷에서 0 행을 거르는 것은 구버전
+ * 게이트웨이 호환이다(배포 이전 바이너리는 스냅샷에 0 잔고를 섞어 보낸다).
+ *
+ * relay 캐시(`subscription-hub.ts` 의 `#mergeAccountState`)와 **한 글자도 다르면 안 된다** —
+ * 갈리면 새 탭(캐시 재생)과 기존 탭(델타 누적)이 다른 잔고를 본다.
  */
 function mergeAccount(
   prev: RelayAccountState | null,
   next: RelayAccountState,
 ): RelayAccountState {
   if (next.snap || prev == null || prev.a !== next.a) {
-    return { ...next, snap: true, rm: [] };
+    return {
+      ...next,
+      snap: true,
+      hold: next.hold.filter((h) => h.qty !== 0),
+      unf: next.unf.filter((u) => u.unfilledQty !== 0),
+      rm: [],
+    };
   }
 
   const holdings = new Map<string, RelayHolding>(prev.hold.map((h) => [h.isin, h]));
-  for (const h of next.hold) holdings.set(h.isin, h);
+  for (const h of next.hold) {
+    if (h.qty === 0) holdings.delete(h.isin);
+    else holdings.set(h.isin, h);
+  }
 
   const unfilled = new Map<string, RelayUnfilled>(prev.unf.map((u) => [u.orderNo, u]));
-  for (const u of next.unf) unfilled.set(u.orderNo, u);
+  for (const u of next.unf) {
+    if (u.unfilledQty === 0) unfilled.delete(u.orderNo);
+    else unfilled.set(u.orderNo, u);
+  }
+  // 삭제 표식은 upsert **뒤에** 적용한다 — 같은 델타가 한 주문을 갱신하면서 동시에
+  // 지우라고 말하면 최종 상태는 "없음"이어야 한다.
   for (const orderNo of next.rm) unfilled.delete(orderNo);
 
   return {

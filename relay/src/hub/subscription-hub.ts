@@ -495,8 +495,9 @@ export class SubscriptionHub extends EventEmitter {
    *
    * 와이어로는 **받은 그대로**(스냅샷은 snap:true, 델타는 snap:false) 흘리고, 캐시에만
    * 병합된 전량 뷰를 둔다. 이 비대칭이 의도된 설계다 — 브라우저가 이미 같은 병합 규약
-   * (`snap:false` = 키 upsert + `rm` 제거)을 구현하므로, 델타를 여기서 전량으로 부풀려
-   * 보내면 프레임이 커지기만 하고 얻는 것이 없다.
+   * (`snap:false` = 키 upsert + 0행/`rm` 제거)을 구현하므로, 델타를 여기서 전량으로 부풀려
+   * 보내면 프레임이 커지기만 하고 얻는 것이 없다. 삭제(0 행)를 여기서 걸러 버리지 않는
+   * 것도 같은 이유다 — 그 신호가 사라지면 브라우저가 사라진 종목을 계속 그린다.
    */
   #onAccountState(userId: string, state: RelayAccountState): void {
     const key = `${userId}|${state.a}`;
@@ -516,23 +517,43 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 캐시 병합 — **기계적**이다. 스냅샷은 전량 교체, 델타는 키 upsert + `rm` 제거.
+   * 캐시 병합 — **기계적**이다. 스냅샷은 전량 교체, 델타는 키 upsert + 0행/`rm` 제거.
    *
-   * 수량 0 이 된 잔고 행을 지우지 않는 이유: 브라우저가 적용하는 규약과 한 글자도 달라지면
-   * 안 되기 때문이다. 캐시가 "더 똑똑하게" 정리하면 새 탭과 기존 탭이 다른 화면을 본다.
-   * 무엇을 지울지는 서버가 `removed_order_nos` 로 말해 준다.
+   * **서버가 0/0 원소를 지우므로 델타의 0 행이 곧 삭제 신호다** (gh-trade quick-260906-e8b).
+   * `AccountManager` 는 보유수량 0·매도가능수량 0 인 잔고를 맵에서 제거하고, 그 사실을
+   * `HoldingState{stock_qty:0, sellable_qty:0, avg_price:0}` **톰스톤 행**으로 알린다 —
+   * 잔고에는 `removed_order_nos` 같은 삭제 표식이 없다(그 벡터는 미체결 전용이다).
+   * 미체결도 같은 규칙을 함께 쓴다: `rm` 이 정규 경로지만 `unfilled_qty == 0` 행도 삭제로 읽는다.
+   *
+   * 스냅샷에서 0 행을 **거르는** 것은 구버전 게이트웨이 호환이다 — quick-260906-e8b 배포
+   * 이전 바이너리는 스냅샷(66)에 0 잔고를 섞어 보낸다.
+   *
+   * 브라우저(`use-relay-socket.ts` 의 `mergeAccount`)가 **한 글자도 다르지 않은** 규칙을
+   * 적용한다. 한쪽만 고치면 새 탭과 기존 탭이 다른 화면을 본다.
    */
   #mergeAccountState(key: string, next: RelayAccountState): RelayAccountState {
     if (next.snap) {
-      return { ...next, snap: true, hold: [...next.hold], unf: [...next.unf], rm: [] };
+      return {
+        ...next,
+        snap: true,
+        hold: next.hold.filter((h) => h.qty !== 0),
+        unf: next.unf.filter((u) => u.unfilledQty !== 0),
+        rm: [],
+      };
     }
 
     const prev = this.#accountStates.get(key);
     const holdings = new Map((prev?.hold ?? []).map((h) => [h.isin, h]));
-    for (const h of next.hold) holdings.set(h.isin, h);
+    for (const h of next.hold) {
+      if (h.qty === 0) holdings.delete(h.isin);
+      else holdings.set(h.isin, h);
+    }
 
     const unfilled = new Map((prev?.unf ?? []).map((u) => [u.orderNo, u]));
-    for (const u of next.unf) unfilled.set(u.orderNo, u);
+    for (const u of next.unf) {
+      if (u.unfilledQty === 0) unfilled.delete(u.orderNo);
+      else unfilled.set(u.orderNo, u);
+    }
     // 삭제 표식은 upsert **뒤에** 적용한다. 같은 프레임이 한 주문을 갱신하면서 동시에
     // 지우라고 말하는 경우, 최종 상태는 "없음"이어야 한다.
     for (const orderNo of next.rm) unfilled.delete(orderNo);

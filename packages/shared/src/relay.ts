@@ -252,11 +252,18 @@ export type RelayAccountState = {
   t: "acct";
   /** 계좌번호. */
   a: string;
-  /** true=전량 교체, false=키 upsert + `rm` 행 제거. */
+  /**
+   * true=전량 교체, false=키 upsert + 0행/`rm` 제거.
+   *
+   * 서버가 0/0 원소를 맵에서 지우므로 **수량 0 행이 곧 삭제 신호**다
+   * (gh-trade quick-260906-e8b): 델타의 `hold[].qty === 0` 은 그 종목 삭제,
+   * `unf[].unfilledQty === 0` 은 그 주문 삭제다. 잔고에는 `rm` 에 해당하는
+   * 삭제 표식이 없으므로 톰스톤 행이 유일한 통보 수단이다.
+   */
   snap: boolean;
   hold: RelayHolding[];
   unf: RelayUnfilled[];
-  /** 델타 전용 삭제 표식(주문번호). 스냅샷에서는 빈 배열. */
+  /** 델타 전용 삭제 표식 — **미체결 주문번호 전용**이다(잔고는 톰스톤 행). 스냅샷에서는 빈 배열. */
   rm: string[];
   /** 갱신시각 (표시용). */
   st: string;
