@@ -368,8 +368,13 @@ fi
 echo "✓ uptime check ready: $UPTIME_CHECK → https://${HEALTH_HOST}/healthz"
 
 ALERT_FILE="ops/alert-relay-down.yaml"
-if [[ -f "$ALERT_FILE" ]]; then
-  : "${NOTIFICATION_CHANNEL_ID:?NOTIFICATION_CHANNEL_ID must be set for alert policy}"
+# NOTIFICATION_CHANNEL_ID 는 **선택**이다. 없다고 배포를 실패시키면 안 된다 —
+# `set -e` 로 여기서 죽으면 아래 최종 요약(무엇이 어디에 붙었는지)이 아예 출력되지 않아,
+# 잘못된 DMA_HOST 로 뜬 것을 배포자가 못 본다 (2026-09-06 실장애).
+if [[ -f "$ALERT_FILE" && -z "${NOTIFICATION_CHANNEL_ID:-}" ]]; then
+  echo "⚠ NOTIFICATION_CHANNEL_ID 미설정 — 알림 정책 단계 건너뜀 (배포 자체는 완료됨)" >&2
+  echo "  기존 정책이 있으면 그대로 유효합니다. 새로 걸려면 채널 ID 를 넣고 재실행하세요." >&2
+elif [[ -f "$ALERT_FILE" ]]; then
   # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
   CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
   case "$CHANNEL_RESOURCE" in
@@ -399,7 +404,19 @@ echo "════════════════════════�
 echo "✅ Deployed @ $TARGET_IMAGE"
 echo "   VM:        $VM ($ZONE)"
 echo "   Container: $CONTAINER (재시작 정책 always · 384MB 상한)"
-echo "   DMA_HOST:  $DMA_HOST : $DMA_PORT"
+# 셸 변수가 아니라 **돌고 있는 컨테이너**에서 되읽는다. "내가 넘긴 값" 이 아니라
+# "실제로 붙는 주소" 를 봐야 한다 — 인자를 빠뜨려 기본값(127.0.0.1 mock)으로 뜬 것을
+# 성공 로그만 보고 놓치는 사고를 막는다 (2026-09-06 실장애).
+LIVE_DMA_HOST=$(gcloud compute ssh "$VM" --zone="$ZONE" --tunnel-through-iap --command \
+  "sudo docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^DMA_HOST=//p'" \
+  2>/dev/null | tr -d '\r' | tail -1)
+LIVE_DMA_HOST="${LIVE_DMA_HOST:-(확인 실패)}"
+if [[ "$LIVE_DMA_HOST" == "127.0.0.1" ]]; then
+  echo "   DMA_HOST:  $LIVE_DMA_HOST : $DMA_PORT   ⚠️  로컬 MOCK 입니다 (실서버 아님)"
+  echo "              실서버로 붙이려면: DMA_HOST=10.41.1.120 bash scripts/deploy-relay.sh"
+else
+  echo "   DMA_HOST:  $LIVE_DMA_HOST : $DMA_PORT   ← 실제 컨테이너 값"
+fi
 echo "   Public:    https://${HEALTH_HOST}/healthz"
 echo ""
 echo "Next: bash scripts/smoke-relay.sh"

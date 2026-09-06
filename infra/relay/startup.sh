@@ -120,8 +120,18 @@ fi
 
 # 설치 직후 패키지가 자동 기동시킨 caddy 를 즉시 내리고 자동 기동을 해제한다.
 # DNS A 레코드 확인 전 기동 = Let's Encrypt rate limit 소진 (T-15-13).
-systemctl disable --now caddy >/dev/null 2>&1 || true
-log "✓ caddy installed (정지 상태 유지 — 기동은 15-07 체크포인트)"
+#
+# ⚠️ **이미 서비스 중인 caddy 는 절대 건드리지 않는다.** 이 스크립트는 최초 부팅용이지만
+#    메타데이터 갱신 후 `google_metadata_script_runner startup` 으로 **재실행**되기도 한다.
+#    조건 없이 `disable --now` 를 걸면 그때 살아 있던 관문이 꺼지고 dma.jx1.io 가 통째로
+#    죽는다 — 2026-09-06 실장애가 정확히 이것이다(10:10 KST 부터 전면 down).
+#    "아직 한 번도 안 켜진 최초 설치" 일 때만 정지 상태를 강제한다.
+if systemctl is-active --quiet caddy || systemctl is-enabled --quiet caddy 2>/dev/null; then
+  log "· caddy 이미 기동/등록됨 — 건드리지 않는다 (재실행 안전)"
+else
+  systemctl disable --now caddy >/dev/null 2>&1 || true
+  log "✓ caddy installed (정지 상태 유지 — 기동은 15-07 체크포인트)"
+fi
 
 # Caddyfile 배치 + 로그 디렉터리
 install_asset caddyfile /etc/caddy/Caddyfile 0644
@@ -195,25 +205,32 @@ systemctl enable openconnect@kb >/dev/null 2>&1 \
 install_watchdog() {
   cat >/usr/local/sbin/kbvpn-watchdog <<'WATCHDOG_EOF'
 #!/usr/bin/env bash
-# openconnect@kb 가 StartLimitBurst 소진으로 failed 정지한 경우에만 1회 회수한다.
-# 정상 동작 중(active)이거나 사람이 의도적으로 stop 한 경우(inactive)는 건드리지 않는다.
+# openconnect@kb 가 **어떤 이유로든** 돌고 있지 않으면 1회 회수한다.
+#
+# 예전에는 `failed` 만 회수했는데, 그래서는 부족하다: 데드맨 타이머나 사람이
+# `systemctl stop` 으로 **깨끗이** 내린 경우 상태가 `inactive` 라 회수 대상에서 빠지고
+# VPN 이 영영 안 올라온다 (2026-09-06 실장애). 판정 기준을 "active 가 아니면 켠다" 로
+# 넓힌다 — 상시 유지가 요구사항이기 때문이다.
+#
+# 계정 잠금 보호는 그대로다: ① 이 스크립트가 **시간당 1회**로 자체 제한하고,
+# ② 유닛의 StartLimitBurst=5/1h 가 그 위에 또 있다. 둘 다 유지한다.
 set -uo pipefail
 UNIT=openconnect@kb
 STAMP=/run/kbvpn-watchdog.last
 
-[[ "$(systemctl is-failed "$UNIT" 2>/dev/null)" == "failed" ]] || exit 0
+[[ "$(systemctl is-active "$UNIT" 2>/dev/null)" == "active" ]] && exit 0
 
 NOW=$(date +%s)
 LAST=0
 [[ -r "$STAMP" ]] && LAST=$(cat "$STAMP" 2>/dev/null || echo 0)
 # StartLimitIntervalSec 과 같은 주기(1h)로 회수를 제한한다.
 if (( NOW - LAST < 3600 )); then
-  logger -t kbvpn-watchdog "failed 상태이나 직전 회수로부터 1시간 미만 — 대기"
+  logger -t kbvpn-watchdog "정지 상태이나 직전 회수로부터 1시간 미만 — 대기"
   exit 0
 fi
 
 echo "$NOW" >"$STAMP"
-logger -t kbvpn-watchdog "openconnect@kb failed — 실패 카운터 리셋 후 1회 재기동"
+logger -t kbvpn-watchdog "openconnect@kb 정지 감지 — 실패 카운터 리셋 후 1회 재기동"
 systemctl reset-failed "$UNIT" || true
 systemctl start "$UNIT" || logger -t kbvpn-watchdog "재기동 실패 — 사람 개입 필요"
 WATCHDOG_EOF

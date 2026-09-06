@@ -12,10 +12,19 @@
  *         장 마감 구간의 유일한 생명선이다. 수신 콜백에는 비동기 대기를 두지 않는다 —
  *         relay 가 수신을 늦추면 서버의 연결당 송신 큐(1024프레임/4MB)가 차고 서버가
  *         연결을 끊는다 (RESEARCH Pitfall 5).
- *   D-16  재접속은 **지수 백오프 + 시도 상한 10회**. 무한 재시도 금지 — 상한을 소진하면
- *         `exhausted` 를 올리고 멈춘다(상위가 `manual_required` 로 승격). 서버가 로그인을
- *         명시 거부한 경우에는 상위가 `stopReconnect()` 로 루프 자체를 끊는다. 백오프마다
- *         같은 거부를 되풀이하면 KB 계정 잠금 위험이 있다 (T-15-10).
+ *   D-16  재접속은 **지수 백오프 + 무한 재시도**다 (2026-09-06 사용자 결정으로 상한 철회).
+ *         1→2→4→8→16→30초로 늘린 뒤 **30초 간격으로 계속** 시도한다.
+ *
+ *         원래 D-16 은 "상한 10회 후 정지"였고 근거는 KB 계정 잠금(T-15-10)이었다.
+ *         그 근거는 **여기에 해당하지 않는다**: 계정 잠금을 막는 것은 이 상한이 아니라
+ *         `session.ts` 의 `#failNoRetry` 다 — 서버가 로그인을 **명시 거부**하면
+ *         `stopReconnect()` 로 루프 자체를 끊고 `session_rejected` 로 확정하므로, 거부된
+ *         자격증명이 백오프마다 재시도되는 일은 애초에 없다. 이 상한이 실제로 막고 있던
+ *         것은 **TCP 가 안 닿는 상황**(VPN 단절)뿐이고, 그때 5분 만에 포기하면 VPN 이
+ *         돌아와도 relay 가 죽은 채로 남는다 — 2026-09-06 실장애가 그것이다.
+ *
+ *         대신 **오래 실패하면 로그를 승격**한다(`RECONNECT_ESCALATE_ATTEMPTS`). 멈추는
+ *         대신 시끄러워지는 쪽을 택한 것이다.
  *   D-31  길이 헤더 손상(`desync`)은 프레임 드롭이 아니라 **연결 재수립**이다. 다음 경계를
  *         신뢰할 수 없는 스트림을 계속 읽으면 쓰레기가 조용히 흘러든다 (T-15-07).
  *   D-38  기준 구현은 C# 클라이언트. 상수 값은 임의로 고르지 않고 그대로 가져온다.
@@ -47,8 +56,13 @@ import { buildLivePing, tryParseEnvelope, type ParsedEnvelope } from "./envelope
 // 상수 정본 (C# Client.cs L45-60). 다른 모듈이 복제하지 않는다 (IN-01).
 // ============================================================
 
-/** 재접속 시도 상한. 소진하면 `exhausted` 를 올리고 멈춘다 (D-16 — 무한 재시도 금지). */
-export const MAX_RECONNECT_ATTEMPTS = 10;
+/**
+ * 로그 승격 임계(회). **상한이 아니다** — 이 횟수를 넘겨도 재접속은 계속한다.
+ *
+ * 여기를 넘으면 `warn` 이 아니라 `error` 로 남긴다. 무한 재시도의 대가는 "조용히 계속
+ * 실패하는 상태"인데, 그것을 막는 것이 이 승격이다(알림 정책이 error 를 잡는다).
+ */
+export const RECONNECT_ESCALATE_ATTEMPTS = 10;
 
 /** 지수 백오프 상한(ms). 1→2→4→8→16→30→30… 초. */
 export const RECONNECT_MAX_DELAY_MS = 30_000;
@@ -73,10 +87,11 @@ export const SEND_TIMEOUT_MS = 2_000;
 export const RECV_CHUNK_SIZE = 8192;
 
 /**
- * 재접속 지연(ms). attempt 1..10 → 1,2,4,8,16,30,30,30,30,30 초 (C# `GetBackoffDelayMs`).
+ * 재접속 지연(ms). attempt 1,2,3… → 1,2,4,8,16,30,30,30… 초 (C# `GetBackoffDelayMs`).
  *
  * 앞쪽을 촘촘히 두는 이유는 VPN 순간 끊김이 대부분 1~2초 안에 복구되기 때문이고,
- * 뒤쪽에 상한을 두는 이유는 게이트웨이가 정말 죽었을 때 두드리지 않기 위해서다.
+ * 30초 상한을 두는 이유는 게이트웨이가 정말 죽었을 때 두드리지 않기 위해서다.
+ * **시도 횟수 자체에는 상한이 없다** — 30초 간격으로 무한히 계속한다.
  */
 export function backoffDelayMs(attempt: number): number {
   const n = attempt < 1 ? 1 : attempt;
@@ -100,9 +115,6 @@ export type TransportFrameEvent = ParsedEnvelope & { generation: number };
 /** 재접속 예약. 상위가 `reconnecting` 상태 프레임의 시도 회차로 쓴다. */
 export type TransportReconnectingEvent = { attempt: number; delayMs: number; reason: string };
 
-/** 재접속 상한 소진. 상위가 `manual_required` 로 승격한다 (D-16). */
-export type TransportExhaustedEvent = { attempts: number; reason: string };
-
 export type DmaClientOptions = {
   host: string;
   port: number;
@@ -116,12 +128,10 @@ export interface DmaClient {
   on(event: "down", listener: (e: TransportDownEvent) => void): this;
   on(event: "frame", listener: (e: TransportFrameEvent) => void): this;
   on(event: "reconnecting", listener: (e: TransportReconnectingEvent) => void): this;
-  on(event: "exhausted", listener: (e: TransportExhaustedEvent) => void): this;
   emit(event: "up", e: TransportUpEvent): boolean;
   emit(event: "down", e: TransportDownEvent): boolean;
   emit(event: "frame", e: TransportFrameEvent): boolean;
   emit(event: "reconnecting", e: TransportReconnectingEvent): boolean;
-  emit(event: "exhausted", e: TransportExhaustedEvent): boolean;
 }
 
 /**
@@ -203,7 +213,7 @@ export class DmaClient extends EventEmitter {
   }
 
   /**
-   * 수동 재접속. 상한 소진(`manual_required`) 이후의 유일한 복구 수단이다.
+   * 수동 재접속. 백오프 대기를 건너뛰고 즉시 다시 연다.
    * 백오프를 기다리지 않고 즉시 새 소켓을 연다.
    */
   manualReconnect(): void {
@@ -401,7 +411,7 @@ export class DmaClient extends EventEmitter {
     const gen = this.#generation;
     logger.warn({ reason, generation: gen }, "[DMA] 전송 Down");
     this.emit("down", { reason, generation: gen });
-    this.#scheduleReconnectOrExhaust(reason);
+    this.#scheduleReconnect(reason);
   }
 
   /** 리스너를 떼고 소켓을 닫는다 — close 핸들러가 down 을 보고하지 않게 한다. */
@@ -434,27 +444,19 @@ export class DmaClient extends EventEmitter {
   // 내부 — 재접속
   // ----------------------------------------------------------
 
-  #scheduleReconnectOrExhaust(reason: string): void {
+  #scheduleReconnect(reason: string): void {
     if (!this.#autoReconnect) {
+      // 로그인 명시 거부 등 "재시도해도 결과가 같은 실패" 뒤에만 여기로 온다 (session #failNoRetry).
       logger.info({ reason }, "[DMA] 자동 재접속 꺼짐 — 재예약하지 않음");
-      return;
-    }
-
-    if (this.#reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      const attempts = this.#reconnectAttempts;
-      // 상한 소진. 여기서 멈추지 않으면 KB 계정 잠금·게이트웨이 로그 도배로 이어진다 (T-15-10).
-      this.#autoReconnect = false;
-      logger.error(
-        { attempts, max: MAX_RECONNECT_ATTEMPTS, reason },
-        "[DMA] 재접속 상한 소진 — 수동 재접속 필요",
-      );
-      this.emit("exhausted", { attempts, reason });
       return;
     }
 
     const attempt = this.#reconnectAttempts + 1;
     const delayMs = backoffDelayMs(attempt);
-    logger.warn({ attempt, max: MAX_RECONNECT_ATTEMPTS, delayMs, reason }, "[DMA] 재접속 예약");
+    // 오래 실패하면 조용해지지 않고 시끄러워진다 — 멈추지 않는 대신 알림이 잡을 수 있게 한다.
+    const escalated = attempt > RECONNECT_ESCALATE_ATTEMPTS;
+    const log = escalated ? logger.error.bind(logger) : logger.warn.bind(logger);
+    log({ attempt, delayMs, reason, escalated }, "[DMA] 재접속 예약");
     this.emit("reconnecting", { attempt, delayMs, reason });
 
     this.#clearReconnectTimer();
@@ -462,7 +464,7 @@ export class DmaClient extends EventEmitter {
       this.#reconnectTimer = null;
       if (!this.#autoReconnect) return; // 대기 중에 중단 지시가 왔다
       this.#reconnectAttempts = attempt;
-      logger.info({ attempt, max: MAX_RECONNECT_ATTEMPTS }, "[DMA] 재접속 시도");
+      logger.info({ attempt }, "[DMA] 재접속 시도");
       this.#openSocket();
     }, delayMs);
   }

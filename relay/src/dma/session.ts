@@ -13,7 +13,9 @@
  *         없다 (17 D-11). 계좌 0건은 정상 부트가 아니라 세션 실패다 (17 D-12).
  *   D-16  서버가 로그인을 **명시 거부**하면 재접속 루프를 멈춘다(`failNoRetry`). 재시도해도
  *         결과가 같고, 백오프마다 같은 거부를 되풀이하면 KB 계정이 잠긴다 (T-15-10).
- *         재접속 상한 소진은 `manual_required` 로 승격한다.
+ *         전송 재접속에는 상한이 없다 (2026-09-06 D-16 완화) — 30초 간격으로 계속 시도한다.
+ *         `manual_required` 는 relay 가 더 이상 만들지 않는다. 브라우저가 자기 wss 루프의
+ *         상한을 소진했을 때만 쓰는 상태로 남는다.
  *   D-19  평문 비밀번호는 **이 객체의 private 필드에만** 산다. 로그·상태 프레임·에러
  *         메시지·직렬화 어디에도 싣지 않는다 (T-15-19). `toJSON`/`toString`/`inspect` 를
  *         전부 덮어 실수로 객체째 덤프해도 새지 않게 한다.
@@ -160,7 +162,6 @@ export class DmaSession extends EventEmitter {
     client.on("down", (e) => this.#onTransportDown(e.reason));
     client.on("frame", (e) => this.#onFrame(e));
     client.on("reconnecting", (e) => this.#onReconnecting(e.attempt, e.reason));
-    client.on("exhausted", (e) => this.#onExhausted(e.attempts));
   }
 
   // ----------------------------------------------------------
@@ -464,20 +465,13 @@ export class DmaSession extends EventEmitter {
       { userId: this.#userId, state: this.#state, reason, hasBeenReady: this.#hasBeenReady },
       "[DMA] 세션 전송 단절",
     );
-    // 상태 전이는 하지 않는다. 이어지는 reconnecting/exhausted 이벤트가 상태를 옮긴다
+    // 상태 전이는 하지 않는다. 이어지는 reconnecting 이벤트가 상태를 옮긴다
     // (자동 재접속이 꺼진 경우에는 이미 종료 상태이므로 옮길 것이 없다).
   }
 
   #onReconnecting(attempt: number, reason: string): void {
     if (TERMINAL_STATES.has(this.#state)) return;
     this.#setState("reconnecting", reason, attempt);
-  }
-
-  #onExhausted(attempts: number): void {
-    if (TERMINAL_STATES.has(this.#state)) return;
-    this.#clearTimers();
-    logger.error({ userId: this.#userId, attempts }, "[DMA] 재접속 상한 소진 — 수동 재접속 필요");
-    this.#setState("manual_required", "재접속 시도를 모두 소진했습니다", attempts);
   }
 
   // ----------------------------------------------------------
@@ -507,7 +501,7 @@ export class DmaSession extends EventEmitter {
 
     // 운용 중 실패는 상태를 옮기지 않는다. 전송을 다시 세우면 같은 부트 워커가 재로그인을
     // 되풀이하고, 이어지는 down→reconnecting 이벤트가 상태를 옮긴다.
-    // **백오프 카운터를 리셋하지 않는다** — 리셋하면 상한 10회가 무력화된다.
+    // **백오프 카운터를 리셋하지 않는다** — 리셋하면 지연이 1초로 되돌아가 두드리게 된다.
     logger.warn({ userId: this.#userId, reason: logReason }, "[DMA] 세션 재수립 실패 — 재접속에 넘김");
     this.#client.dropTransport(logReason);
   }

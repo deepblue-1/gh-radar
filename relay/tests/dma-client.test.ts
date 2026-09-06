@@ -19,7 +19,7 @@ import net from "node:net";
 
 import {
   DmaClient,
-  MAX_RECONNECT_ATTEMPTS,
+  RECONNECT_ESCALATE_ATTEMPTS,
   PING_INTERVAL_MS,
   backoffDelayMs,
   type TransportDownEvent,
@@ -133,7 +133,7 @@ describe("DmaClient", () => {
     expect(ups[1]?.generation).toBeGreaterThan(ups[0]?.generation ?? 0);
   });
 
-  it("④ 재접속 10회를 소진하면 exhausted 를 올리고 더 이상 시도하지 않는다", async () => {
+  it("④ 재접속에 상한이 없다 — 30초 간격으로 계속 시도한다 (D-16 완화)", async () => {
     // 아무도 듣지 않는 포트를 만든다 — 게이트웨이를 띄운 뒤 닫아 포트만 회수한다.
     const dead = await startFakeGateway({ autoLogin: false });
     const deadPort = dead.port;
@@ -141,29 +141,24 @@ describe("DmaClient", () => {
 
     const c = makeClient(deadPort);
     const attempts: number[] = [];
-    // 배열로 모은다 — `let x = null` 에 콜백이 대입하는 형태는 TS 가 `never` 로 좁혀
-    // 뒤의 프로퍼티 접근을 막는다(실측 TS2339).
-    const exhausted: Array<{ attempts: number }> = [];
     c.on("reconnecting", (e) => attempts.push(e.attempt));
-    c.on("exhausted", (e) => exhausted.push(e));
 
     c.connect();
 
-    for (let i = 1; i <= MAX_RECONNECT_ATTEMPTS; i += 1) {
+    // 옛 상한(10회)을 **넘겨서** 돌린다 — 여기서 멈추면 VPN 이 돌아와도 relay 가 죽어 있다.
+    const ROUNDS = RECONNECT_ESCALATE_ATTEMPTS + 5;
+    for (let i = 1; i <= ROUNDS; i += 1) {
       await waitFor(() => attempts.length === i, `재접속 예약 ${i}회차`);
       vi.advanceTimersByTime(backoffDelayMs(i));
     }
-    await waitFor(() => exhausted.length === 1, "재접속 상한 소진");
+    await waitFor(() => attempts.length === ROUNDS + 1, "상한 없이 다음 회차 예약");
 
-    expect(attempts).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(exhausted[0]?.attempts).toBe(MAX_RECONNECT_ATTEMPTS);
-    expect(c.autoReconnect).toBe(false);
-    expect(c.reconnectAttempts).toBe(MAX_RECONNECT_ATTEMPTS);
-
-    // 상한 소진 이후에는 아무리 시간이 흘러도 새 시도가 없다.
-    vi.advanceTimersByTime(10 * 60_000);
-    await flushIo();
-    expect(attempts).toHaveLength(MAX_RECONNECT_ATTEMPTS);
+    // 지연은 1→2→4→8→16→30 으로 오르고 그 뒤로는 30초 고정이다.
+    expect(backoffDelayMs(6)).toBe(30_000);
+    expect(backoffDelayMs(ROUNDS)).toBe(30_000);
+    // 자동 재접속이 꺼지지 않는다 — 옛 구현은 상한 소진에서 이걸 false 로 내렸다.
+    expect(c.autoReconnect).toBe(true);
+    expect(c.reconnectAttempts).toBe(ROUNDS);
   });
 
   it("⑤ 쓰레기 프레임은 그 프레임만 버리고 연결을 유지한다", async () => {

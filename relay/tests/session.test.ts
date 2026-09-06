@@ -12,7 +12,7 @@ import net from "node:net";
 
 import type { RelayStateMsg } from "@gh-radar/shared";
 
-import { DmaClient, MAX_RECONNECT_ATTEMPTS, backoffDelayMs } from "../src/dma/dma-client.js";
+import { DmaClient, RECONNECT_ESCALATE_ATTEMPTS, backoffDelayMs } from "../src/dma/dma-client.js";
 import { DmaSession, LOGIN_RESP_TIMEOUT_MS } from "../src/dma/session.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
@@ -164,7 +164,7 @@ describe("DmaSession", () => {
     ]);
   });
 
-  it("⑤ 재접속 상한을 소진하면 manual_required 로 승격한다", async () => {
+  it("⑤ 전송이 계속 실패해도 포기하지 않고 reconnecting 을 유지한다 (D-16 완화)", async () => {
     // 아무도 듣지 않는 포트 — 연결 자체가 서지 않는다.
     const dead = await startFakeGateway({ autoLogin: false });
     const deadPort = dead.port;
@@ -176,16 +176,16 @@ describe("DmaSession", () => {
     client.on("reconnecting", (e) => attempts.push(e.attempt));
 
     s.start();
-    for (let i = 1; i <= MAX_RECONNECT_ATTEMPTS; i += 1) {
+    const ROUNDS = RECONNECT_ESCALATE_ATTEMPTS + 5;
+    for (let i = 1; i <= ROUNDS; i += 1) {
       await waitFor(() => attempts.length === i, `재접속 예약 ${i}회차`);
       vi.advanceTimersByTime(backoffDelayMs(i));
     }
-    await waitFor(() => s.state === "manual_required", "manual_required 승격");
+    await waitFor(() => attempts.length === ROUNDS + 1, "상한 없이 다음 회차 예약");
 
-    expect(attempts).toHaveLength(MAX_RECONNECT_ATTEMPTS);
-    // 이 상태에서만 수동 재접속이 열린다.
-    expect(s.manualReconnect()).toBe(true);
-    expect(s.state).toBe("connecting");
+    // 옛 구현은 여기서 manual_required 로 확정하고 멈췄다. 이제는 계속 재시도한다 —
+    // VPN 이 5분 뒤에 돌아와도 relay 가 스스로 복구되어야 하기 때문이다.
+    expect(s.state).toBe("reconnecting");
   });
 
   it("⑥ 비밀번호는 상태 프레임·직렬화·inspect 어디에도 나오지 않는다", async () => {
