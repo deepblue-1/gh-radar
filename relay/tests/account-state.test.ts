@@ -337,6 +337,55 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
     expect(cached?.unf[0]?.unfilledQty).toBe(3);
   });
 
+  // ----------------------------------------------------------
+  // 종목명 보강 (게이트웨이는 잔고·미체결에 이름을 싣지 않는다)
+  // ----------------------------------------------------------
+
+  it("⑬ 잔고·미체결에 종목명·단축코드가 채워지고, 모르는 ISIN 은 필드가 없다", () => {
+    // Hub 를 심볼맵과 함께 새로 만든다 — 기본 hub 는 주입이 없어 보강하지 않는다.
+    const named = new SubscriptionHub({
+      symbols: {
+        lookup: (isin) =>
+          isin === SAMPLE_ISIN ? { code: "005930", name: "삼성전자" } : undefined,
+      },
+    });
+    const events: HubFanoutEvent[] = [];
+    named.on("fanout", (e) => events.push(e));
+    const s = new FakeSession("user-9");
+    named.attach(s);
+
+    s.pushFrame(
+      buildAccountStateFrame({
+        snapshot: true,
+        holdings: [
+          { isin: SAMPLE_ISIN, stockQty: 30 },
+          { isin: OTHER_ISIN, stockQty: 5 },
+        ],
+        unfilled: [{ orderNo: "ORD0000001", isin: SAMPLE_ISIN, unfilledQty: 7 }],
+      }),
+    );
+
+    const [frame] = acctFrames(events);
+    expect(frame?.hold[0]).toMatchObject({ isin: SAMPLE_ISIN, name: "삼성전자", code: "005930" });
+    // 모르는 ISIN 은 이름 자리에 ISIN 을 넣지 않는다 — UI 가 두 상태를 구분해야 한다.
+    expect(frame?.hold[1]?.name).toBeUndefined();
+    expect(frame?.hold[1]?.code).toBeUndefined();
+    // 미체결도 같은 보강을 받는다(단축코드가 있어야 취소가 나간다).
+    expect(frame?.unf[0]).toMatchObject({ name: "삼성전자", code: "005930" });
+
+    // 캐시에도 같은 값이 들어간다 — 새 탭(캐시 재생)에서 이름이 사라지면 안 된다.
+    expect(named.getAccountStates("user-9")[0]?.hold[0]?.name).toBe("삼성전자");
+    named.closeAll();
+  });
+
+  it("⑭ 심볼맵을 주입하지 않으면 원본 그대로 흘린다 (선택적 의존)", () => {
+    session.pushFrame(
+      buildAccountStateFrame({ snapshot: true, holdings: [{ isin: SAMPLE_ISIN, stockQty: 1 }] }),
+    );
+    const [frame] = acctFrames(fanout);
+    expect(frame?.hold[0]?.name).toBeUndefined();
+  });
+
   it("⑫ 같은 델타가 한 주문을 갱신하면서 rm 으로도 지우면 최종은 '없음'이다", () => {
     session.pushFrame(
       buildAccountStateFrame({

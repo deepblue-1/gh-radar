@@ -40,6 +40,7 @@ import http from "node:http";
 import { loadConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
+import { SymbolMap } from "./store/symbols.js";
 import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
@@ -68,7 +69,18 @@ const sessionManager = new SessionManager({
   graceMs: config.sessionGraceMs,
 });
 
-const hub = new SubscriptionHub();
+/**
+ * ISIN → 종목명·단축코드. 게이트웨이는 잔고·미체결에 이름을 싣지 않으므로
+ * relay 가 `stocks` 로 푼다. 부팅 1회 + 매일 08:30 KST 재적재뿐이며(원천인
+ * `master-sync` 가 하루 1회 갱신한다), 조회 때마다 DB 를 때리지 않는다.
+ *
+ * `await` 하지 않는다 — 이름은 표시용이라 이것 때문에 listen 이 늦으면 안 된다.
+ * 적재 전에 도착한 프레임은 이름 없이 나가고, UI 가 ISIN 으로 폴백한다.
+ */
+const symbols = new SymbolMap(supabase);
+void symbols.start();
+
+const hub = new SubscriptionHub({ symbols });
 
 /**
  * 브라우저 wss 포트(8090)의 HTTP 서버.
@@ -167,6 +179,7 @@ async function shutdown(signal: string): Promise<void> {
     await sessionManager.closeAll();
     // 4) 배치 타이머 정리
     hub.closeAll();
+    symbols.close();
     // 5) 주문 기록 잔여분 반영 후 tick 정지 (순서 중요 — close 를 먼저 하면 큐가 남는다)
     await orderStore.flushNow();
     orderStore.close();

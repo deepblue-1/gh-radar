@@ -229,6 +229,14 @@ export type RelayHolding = {
   sellableQty: number;
   /** 평단가. */
   avgPrice: number;
+  /**
+   * 종목명 — **게이트웨이가 주는 값이 아니다.** relay 가 `stocks.isin` 역매핑으로
+   * 채운다(`store/symbols.ts`). 마스터에 없는 ISIN(신규 상장 직후 등)에서는 없다.
+   * UI 는 `name ?? isin` 으로 폴백한다.
+   */
+  name?: string;
+  /** 6자 단축코드. 같은 역매핑 산물이다. */
+  code?: string;
 };
 
 /** 미체결 주문 1건 (`UnfilledState`). 취소 대상의 원천이다. */
@@ -245,6 +253,14 @@ export type RelayUnfilled = {
   unfilledQty: number;
   /** 거래소. 구 서버의 미지정은 relay 가 "KRX" 로 정규화한다. */
   exchange: RelayExchange;
+  /** 종목명 — relay 가 `stocks.isin` 역매핑으로 채운다. 없으면 UI 가 ISIN 을 보여준다. */
+  name?: string;
+  /**
+   * 6자 단축코드 — **취소 요청 키**다. `POST /api/orders` 가 ISIN 이 아니라 이 값을 받으므로
+   * (D-28), 이 필드가 있어야 지금 보고 있지 않은 종목의 미체결도 취소할 수 있다.
+   * 없으면 그 행의 취소 버튼을 열지 않는다(엉뚱한 종목이 취소되는 것보다 낫다).
+   */
+  code?: string;
 };
 
 /** 계좌 상태 (`AccountState`) — 잔고·미체결 전량/델타. */

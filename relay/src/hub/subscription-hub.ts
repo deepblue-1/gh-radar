@@ -66,6 +66,7 @@ import {
   type ParsedOrderResp,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
+import type { SymbolLookup } from "../store/symbols.js";
 
 // ============================================================
 // 상수 정본
@@ -182,6 +183,16 @@ export class SubscriptionHub extends EventEmitter {
    * 가공하지 않고 원본 그대로 흘린다(브라우저가 같은 병합을 한다).
    */
   readonly #accountStates = new Map<string, RelayAccountState>();
+  /**
+   * ISIN → 종목명·단축코드. 게이트웨이가 이름을 주지 않으므로 여기서 채운다.
+   * 없으면(주입 안 함/미스) 필드를 비워 두고 UI 가 ISIN 원문으로 폴백한다.
+   */
+  readonly #symbols: SymbolLookup | undefined;
+
+  constructor(opts?: { symbols?: SymbolLookup }) {
+    super();
+    this.#symbols = opts?.symbols;
+  }
 
   // ----------------------------------------------------------
   // 세션 결선
@@ -499,7 +510,11 @@ export class SubscriptionHub extends EventEmitter {
    * 보내면 프레임이 커지기만 하고 얻는 것이 없다. 삭제(0 행)를 여기서 걸러 버리지 않는
    * 것도 같은 이유다 — 그 신호가 사라지면 브라우저가 사라진 종목을 계속 그린다.
    */
-  #onAccountState(userId: string, state: RelayAccountState): void {
+  #onAccountState(userId: string, rawState: RelayAccountState): void {
+    // 이름 보강은 **캐시와 와이어 이전**에 한 번만 한다. 캐시만 채우면 라이브 프레임에
+    // 이름이 없고, 와이어만 채우면 재접속 캐시 재생에 이름이 없다 — 둘이 갈리면
+    // "새로고침하면 이름이 사라진다" 가 된다.
+    const state = this.#enrichNames(rawState);
     const key = `${userId}|${state.a}`;
     this.#accountStates.set(key, this.#mergeAccountState(key, state));
     logger.info(
@@ -514,6 +529,40 @@ export class SubscriptionHub extends EventEmitter {
       "[HUB] 계좌 상태 수신",
     );
     this.#fanout(userId, state);
+  }
+
+  /**
+   * 잔고·미체결 행에 종목명·단축코드를 채운다 (게이트웨이는 주지 않는다).
+   *
+   * 맵에 없는 ISIN 은 **필드를 비워 둔다** — 빈 문자열이나 ISIN 을 이름 자리에 넣지
+   * 않는다. UI 가 "이름이 없다"와 "이름이 ISIN 이다"를 구분할 수 있어야, 취소 버튼을
+   * 열지 말지(단축코드가 있어야 취소가 나간다)를 스스로 판단한다.
+   *
+   * 델타(`snap:false`)에도 똑같이 건다. 델타로만 등장하는 종목이 있기 때문이다.
+   * 0 수량 톰스톤 행에도 굳이 이름을 붙이는데, 그 행은 삭제 신호로만 쓰이고 사라지므로
+   * 해가 없고 분기를 하나 줄인다.
+   */
+  #enrichNames(state: RelayAccountState): RelayAccountState {
+    const symbols = this.#symbols;
+    if (symbols === undefined) return state;
+
+    let hit = 0;
+    const decorate = <T extends { isin: string }>(row: T): T => {
+      const info = symbols.lookup(row.isin);
+      if (info === undefined) return row;
+      hit += 1;
+      return { ...row, name: info.name, code: info.code };
+    };
+
+    const hold = state.hold.map(decorate);
+    const unf = state.unf.map(decorate);
+    const total = state.hold.length + state.unf.length;
+    if (hit < total) {
+      // 미스는 정상일 수 있다(신규 상장 직후 등). 다만 전량 미스는 맵이 비었다는 뜻이라
+      // 원인을 찾을 수 있게 남긴다 — ISIN 은 식별자가 아니므로 건수만 센다.
+      logger.info({ resolved: hit, total }, "[SYM] 일부 ISIN 을 종목명으로 풀지 못했다");
+    }
+    return { ...state, hold, unf };
   }
 
   /**

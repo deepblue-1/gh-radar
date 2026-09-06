@@ -260,4 +260,130 @@ describe('AccountPanel — 잔고 표 · 빈 상태 · 계좌', () => {
     renderPanel({ status: 'reconnecting' });
     expect(screen.getByRole('button', { name: '주문번호 0000135742 취소' })).toBeDisabled();
   });
+  // ----------------------------------------------------------
+  // relay 가 채운 종목명·단축코드 (2026-09-06)
+  //
+  // 게이트웨이는 잔고·미체결에 이름을 싣지 않는다. relay 가 `stocks.isin` 으로 풀어
+  // `name`/`code` 를 실어 주면서, "현재 종목만 취소 가능" 제약이 풀렸다.
+  // ----------------------------------------------------------
+
+  it('⑬ relay 가 채운 종목명을 잔고·미체결에 표시한다 (ISIN 원문 대신)', () => {
+    renderPanel({
+      account: accountState({
+        hold: [
+          { isin: ISIN, qty: 120, sellableQty: 90, avgPrice: 91_250 },
+          {
+            isin: OTHER_ISIN,
+            qty: 200,
+            sellableQty: 200,
+            avgPrice: 44_100,
+            name: '이수페타시스',
+            code: '007660',
+          },
+        ],
+        unf: [
+          {
+            orderNo: '0000135742',
+            orgOrderNo: '',
+            isin: OTHER_ISIN,
+            side: 'B',
+            price: 44_000,
+            orderQty: 50,
+            filledQty: 0,
+            unfilledQty: 50,
+            exchange: 'KRX',
+            name: '이수페타시스',
+            code: '007660',
+          },
+        ],
+      }),
+    });
+
+    // 미체결·잔고 양쪽에 뜨므로 getAllBy 로 받는다.
+    expect(screen.getAllByText('이수페타시스').length).toBeGreaterThan(0);
+    expect(screen.queryByText(OTHER_ISIN)).toBeNull();
+  });
+
+  it('⑭ 다른 종목의 미체결도 그 행의 단축코드로 취소된다 (현재 종목 코드가 아니다)', async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      account: accountState({
+        unf: [
+          {
+            orderNo: '0000199999',
+            orgOrderNo: '',
+            isin: OTHER_ISIN,
+            side: 'S',
+            price: 44_000,
+            orderQty: 10,
+            filledQty: 0,
+            unfilledQty: 10,
+            exchange: 'NXT',
+            name: '이수페타시스',
+            code: '007660',
+          },
+        ],
+      }),
+    });
+
+    await user.click(screen.getByRole('button', { name: '주문번호 0000199999 취소' }));
+    // 확인 다이얼로그에도 **그 행의** 종목명이 떠야 한다(표에도 같은 이름이 있으므로
+    // 다이얼로그 안으로 범위를 좁혀서 본다).
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/이수페타시스/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: '✕ 주문 취소' }));
+
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1));
+    // 화면에 열린 종목(042700)이 아니라 그 행의 코드로 나간다.
+    expect(createOrderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ code: '007660', orgOrderNo: '0000199999', qty: 10 }),
+    );
+  });
+
+  it('⑮ 단축코드를 못 푼 다른 종목 행은 버튼을 닫고 그때만 안내를 띄운다', () => {
+    const { unmount } = renderPanel({
+      account: accountState({
+        unf: [
+          {
+            orderNo: '0000188888',
+            orgOrderNo: '',
+            isin: OTHER_ISIN,
+            side: 'B',
+            price: 44_000,
+            orderQty: 10,
+            filledQty: 0,
+            unfilledQty: 10,
+            exchange: 'KRX',
+            // name/code 없음 — 마스터에 아직 없는 ISIN
+          },
+        ],
+      }),
+    });
+
+    expect(screen.queryByRole('button', { name: '주문번호 0000188888 취소' })).toBeNull();
+    expect(screen.getByText(/그 종목 페이지에서 취소할 수 있어요/)).toBeInTheDocument();
+    unmount();
+
+    // 전 행이 풀렸으면 안내를 띄우지 않는다 — 사실이 아닌 제약을 광고하지 않는다.
+    renderPanel({
+      account: accountState({
+        unf: [
+          {
+            orderNo: '0000177777',
+            orgOrderNo: '',
+            isin: OTHER_ISIN,
+            side: 'B',
+            price: 44_000,
+            orderQty: 10,
+            filledQty: 0,
+            unfilledQty: 10,
+            exchange: 'KRX',
+            name: '이수페타시스',
+            code: '007660',
+          },
+        ],
+      }),
+    });
+    expect(screen.queryByText(/그 종목 페이지에서 취소할 수 있어요/)).toBeNull();
+  });
 });

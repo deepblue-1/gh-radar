@@ -18,12 +18,15 @@
  *   취소 수량은 언제나 **미체결 잔량 전부**이고, 잔량 0 의 취소는 게이트웨이가 즉시 거부한다
  *   (D-21). 누를 수 있지만 반드시 실패하는 버튼은 오조작을 부르는 UI 다.
  *
- * ④ ★ 다른 종목의 미체결은 이 화면에서 취소할 수 없다 (계약상 한계, 숨기지 않고 밝힌다)
+ * ④ ★ 취소 가능 판정의 근거는 **그 행의 단축코드**다 (2026-09-06 완화)
  *   `AccountState.unf` 는 **계좌 전체**의 미체결이라 다른 종목 주문도 들어온다. 그런데
- *   `POST /api/orders` 는 6자 **단축코드**를 받고(server 가 ISIN 을 채운다, D-28) 브라우저에는
- *   ISIN→단축코드 역매핑이 없다. 그래서 현재 종목이 아닌 행에는 취소 버튼을 렌더하지 않고
- *   그 이유를 표 아래 마이크로 라벨로 밝힌다. 눌리는데 엉뚱한 종목이 취소되는 것보다,
- *   못 누르는 이유를 아는 편이 낫다.
+ *   `POST /api/orders` 는 6자 **단축코드**를 받는다(server 가 ISIN 을 채운다, D-28).
+ *   예전에는 브라우저에 ISIN→단축코드 역매핑이 없어 "현재 종목만 취소 가능" 이었지만,
+ *   이제 relay 가 `stocks.isin` 으로 풀어 `unf[].code`·`unf[].name` 을 실어 준다
+ *   (`relay/src/store/symbols.ts`). 그래서 **`row.code` 가 있으면 어느 종목이든 취소된다.**
+ *   요청에도 반드시 `row.code` 를 쓴다 — 화면에 열린 종목 코드를 쓰면 엉뚱한 종목이
+ *   취소된다. 코드를 못 푼 행(마스터에 없는 신규 상장 등)만 버튼을 닫고, 마이크로 라벨도
+ *   **그런 행이 남아 있을 때만** 띄운다(항상 띄우면 사실이 아닌 제약을 광고하게 된다).
  *
  * ⑤ ★ 평가금액·평가손익·수익률은 현재가를 아는 행에서만 계산한다
  *   `HoldingState` 에는 현재가가 없다. 실시간가는 지금 구독 중인 **한 종목**만 안다.
@@ -121,6 +124,20 @@ export function AccountPanel({
   const unfilled = useMemo(() => account?.unf ?? [], [account]);
   const holdings = useMemo(() => account?.hold ?? [], [account]);
   const sessionReady = status === 'ready';
+  /**
+   * 취소 버튼을 열 수 없는 미체결이 남아 있는가.
+   *
+   * relay 가 `stocks` 역매핑으로 `code` 를 채우면(대부분) 다른 종목도 여기서 취소된다.
+   * 마스터에 없는 ISIN(신규 상장 직후 등)만 예외로 남으므로, 안내 문구도 그때만 띄운다 —
+   * 항상 띄우면 이제는 사실이 아닌 제약을 계속 광고하게 된다.
+   */
+  const hasUnresolvedRow = useMemo(
+    () =>
+      unfilled.some(
+        (r) => r.unfilledQty > 0 && r.code == null && !(isin != null && r.isin === isin),
+      ),
+    [unfilled, isin],
+  );
 
   const handleCancelConfirmed = useCallback(async () => {
     if (!cancelTarget) return;
@@ -129,7 +146,10 @@ export function AccountPanel({
     setCancelResult(null);
     try {
       const res = await createOrder({
-        code,
+        // 그 **행의** 단축코드를 쓴다. 화면에 열려 있는 종목(`code`)을 쓰면 다른 종목의
+        // 미체결을 취소할 때 엉뚱한 종목으로 취소가 나간다. relay 가 `row.code` 를
+        // 채우지 못한 행은 애초에 취소 버튼을 열지 않으므로 여기 폴백은 도달하지 않는다.
+        code: row.code ?? code,
         accountNo: selectedAccountNo,
         exchange: row.exchange,
         side: row.side,
@@ -167,18 +187,20 @@ export function AccountPanel({
   }, [cancelTarget, code, selectedAccountNo, onCancelSubmitted]);
 
   const openCancel = useCallback(
-    (row: RelayUnfilled) => {
+    (row: RelayUnfilled, displayName: string) => {
       setCancelTarget({
         mode: 'cancel',
         orderNo: row.orderNo,
         side: row.side,
-        stockName: name,
+        // 확인 다이얼로그에는 **그 행의** 종목명이 떠야 한다. 현재 종목명을 고정으로
+        // 쓰면 다른 종목을 취소하면서 이 종목 이름을 읽고 확인을 누르게 된다.
+        stockName: displayName,
         price: row.price,
         unfilledQty: row.unfilledQty,
         row,
       });
     },
-    [name],
+    [],
   );
 
   return (
@@ -280,8 +302,14 @@ export function AccountPanel({
                 <TableBody>
                   {unfilled.map((row) => {
                     const sameStock = isin != null && row.isin === isin;
+                    // 표시명 우선순위: relay 가 푼 이름 → 현재 종목이면 그 이름 → ISIN 원문.
+                    const displayName = row.name ?? (sameStock ? name : null);
+                    // 취소 키는 **단축코드**다(D-28). relay 가 `row.code` 를 채웠거나
+                    // 지금 보고 있는 종목이면 그 코드를 안다 — 그때만 버튼을 연다.
                     const cancellable =
-                      row.unfilledQty > 0 && sameStock && !lockedOrderNos.has(row.orderNo);
+                      row.unfilledQty > 0 &&
+                      (row.code != null || sameStock) &&
+                      !lockedOrderNos.has(row.orderNo);
                     return (
                       <TableRow key={row.orderNo}>
                         <TableCell className="mono text-[length:var(--t-caption)]">
@@ -291,7 +319,7 @@ export function AccountPanel({
                           <SideTag side={row.side} />
                         </TableCell>
                         <TableCell className="text-[length:var(--t-caption)]">
-                          {sameStock ? name : <span className="mono">{row.isin}</span>}
+                          {displayName ?? <span className="mono">{row.isin}</span>}
                         </TableCell>
                         <TableCell className="num mono text-[length:var(--t-caption)]">
                           {KRW.format(row.price)}
@@ -314,7 +342,7 @@ export function AccountPanel({
                               size="sm"
                               disabled={!sessionReady}
                               aria-label={`주문번호 ${row.orderNo} 취소`}
-                              onClick={() => openCancel(row)}
+                              onClick={() => openCancel(row, displayName ?? row.isin)}
                               className="h-[26px] border-[var(--destructive)] px-2 text-[11px] text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] max-[899px]:h-8"
                             >
                               ✕ 취소
@@ -328,9 +356,11 @@ export function AccountPanel({
                   })}
                 </TableBody>
               </Table>
-              <p className="text-[11px] text-[var(--muted-fg)]">
-                다른 종목의 미체결은 그 종목 페이지에서 취소할 수 있어요
-              </p>
+              {hasUnresolvedRow && (
+                <p className="text-[11px] text-[var(--muted-fg)]">
+                  종목을 확인하지 못한 미체결은 그 종목 페이지에서 취소할 수 있어요
+                </p>
+              )}
             </>
           )}
           {cancelResult && <CancelBanner result={cancelResult} />}
@@ -372,7 +402,7 @@ export function AccountPanel({
                   <HoldingRow
                     key={row.isin}
                     row={row}
-                    name={isin != null && row.isin === isin ? name : null}
+                    name={row.name ?? (isin != null && row.isin === isin ? name : null)}
                     currentPrice={isin != null && row.isin === isin ? currentPrice : undefined}
                   />
                 ))}
