@@ -6,8 +6,10 @@
 # 재실행은 정상 동작이며, 아무것도 바꾸지 않는 것이 정상 결과다.
 #
 # ── 이 스크립트가 하지 않는 것 (의도적) ─────────────────────────
-#   · openconnect 를 켜지 않는다. 부팅 자동 기동도 등록하지 않는다.
-#     최초 연결은 D-03 선검증 체크포인트에서 사람이 직렬 콘솔을 열어 둔 채 수동 start 한다.
+#   · openconnect 를 **켜지는** 않는다. 다만 D-03 선검증을 마친 뒤로는
+#     **부팅 자동 기동을 등록한다** (2026-09-06). 상시 접속이 아니면 사용자가 호가주문
+#     탭을 열었을 때 relay 가 게이트웨이에 닿지 못한다 — 재부팅 후 조용히 죽는 구조였다.
+#     최초 연결만 사람이 직렬 콘솔을 열어 둔 채 관찰하면 되고, 그 뒤로는 상시 유지가 맞다.
 #   · Caddy 를 켜지 않는다. dma.jx1.io A 레코드가 dig 로 확인되기 전에 켜면
 #     Let's Encrypt rate limit 을 소진한다 (T-15-13). 기동은 15-07 체크포인트 소관.
 #   · relay 컨테이너를 띄우지 않는다. 이미지 배포는 15-08 의 deploy-relay.sh 소관.
@@ -177,8 +179,74 @@ if [[ ! -f /etc/kbvpn.env ]]; then
 fi
 
 systemctl daemon-reload
-# 의도적으로 자동 기동을 등록하지 않고 start 도 하지 않는다 (D-03).
-log "✓ VPN 자산 배치 완료 (유닛 정지 상태 · 자동 기동 미등록)"
+
+# ── VPN 상시 유지 (2026-09-06) ──────────────────────────────────
+# enable 만 한다 — start 는 하지 않는다. 최초 연결은 여전히 사람이 관찰하며 켜고,
+# 그 뒤 재부팅부터는 자동으로 올라온다.
+#
+# StartLimitBurst=5/1h 는 **그대로 둔다** (T-15-10 — KB 계정 잠금 방지).
+# 무한 재시도로 바꾸면 인증 실패가 반복될 때 계정이 잠긴다. 그 상한을 소진하면
+# 유닛이 failed 로 정지하는데, 그 상태를 회수하는 것이 아래 워치독이다.
+systemctl enable openconnect@kb >/dev/null 2>&1 \
+  || log "WARN: openconnect@kb 자동 기동 등록 실패 — 수동 확인 필요"
+
+# 워치독: 10분마다 점검해, 유닛이 failed 이고 마지막 회수로부터 1시간이 지났으면
+# 실패 카운터를 리셋하고 1회만 재기동한다. 시간당 재시도 총량은 여전히 유한하다.
+install_watchdog() {
+  cat >/usr/local/sbin/kbvpn-watchdog <<'WATCHDOG_EOF'
+#!/usr/bin/env bash
+# openconnect@kb 가 StartLimitBurst 소진으로 failed 정지한 경우에만 1회 회수한다.
+# 정상 동작 중(active)이거나 사람이 의도적으로 stop 한 경우(inactive)는 건드리지 않는다.
+set -uo pipefail
+UNIT=openconnect@kb
+STAMP=/run/kbvpn-watchdog.last
+
+[[ "$(systemctl is-failed "$UNIT" 2>/dev/null)" == "failed" ]] || exit 0
+
+NOW=$(date +%s)
+LAST=0
+[[ -r "$STAMP" ]] && LAST=$(cat "$STAMP" 2>/dev/null || echo 0)
+# StartLimitIntervalSec 과 같은 주기(1h)로 회수를 제한한다.
+if (( NOW - LAST < 3600 )); then
+  logger -t kbvpn-watchdog "failed 상태이나 직전 회수로부터 1시간 미만 — 대기"
+  exit 0
+fi
+
+echo "$NOW" >"$STAMP"
+logger -t kbvpn-watchdog "openconnect@kb failed — 실패 카운터 리셋 후 1회 재기동"
+systemctl reset-failed "$UNIT" || true
+systemctl start "$UNIT" || logger -t kbvpn-watchdog "재기동 실패 — 사람 개입 필요"
+WATCHDOG_EOF
+  chmod 0700 /usr/local/sbin/kbvpn-watchdog
+
+  cat >/etc/systemd/system/kbvpn-watchdog.service <<'WDSVC_EOF'
+[Unit]
+Description=KB VPN 워치독 — failed 정지 회수 (시간당 1회 상한)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kbvpn-watchdog
+WDSVC_EOF
+
+  cat >/etc/systemd/system/kbvpn-watchdog.timer <<'WDTMR_EOF'
+[Unit]
+Description=KB VPN 워치독 10분 주기
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target
+WDTMR_EOF
+}
+install_watchdog
+
+systemctl daemon-reload
+systemctl enable --now kbvpn-watchdog.timer >/dev/null 2>&1 \
+  || log "WARN: kbvpn-watchdog.timer 등록 실패"
+
+log "✓ VPN 자산 배치 완료 (자동 기동 등록 · 워치독 10분 · 재시도 상한 5회/1h 유지)"
 
 # ───────────────────────────────────────────────────────────────
 # 6. Artifact Registry 인증 헬퍼
