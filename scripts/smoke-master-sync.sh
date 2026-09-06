@@ -62,11 +62,14 @@ check "INV-3 logs: no master-sync failed / 401" bash -c "
 check "INV-4 Supabase stocks count >= 2500" bash -c "
   : \${SUPABASE_URL:?SUPABASE_URL required}
   : \${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}
+  # HTTP 헤더는 CRLF 로 끝난다. \`tr -d '\\r'\` 를 빼면 값이 '…/4414\\r' 이 되어
+  # '[0-9]+\$' 의 행끝 앵커가 CR 앞에서 어긋난다 → TOTAL 이 빈 문자열이 되고
+  # 데이터가 멀쩡해도 이 검사가 **항상** 실패한다 (실측 2026-09-06: stocks 4,414건인데 FAIL).
   RANGE_HEADER=\$(curl -fsS -I \"\${SUPABASE_URL}/rest/v1/stocks?select=code\" \
     -H \"apikey: \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Authorization: Bearer \$SUPABASE_SERVICE_ROLE_KEY\" \
     -H \"Prefer: count=exact\" \
-    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range')
+    -H \"Range: 0-0\" 2>/dev/null | grep -i 'content-range' | tr -d '\\r')
   # Content-Range: 0-0/2771  →  마지막 숫자가 총 개수
   TOTAL=\$(echo \"\$RANGE_HEADER\" | grep -oE '[0-9]+$')
   echo \"stocks count: \$TOTAL\"
