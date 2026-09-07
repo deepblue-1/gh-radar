@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ko" class="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 16 — VI 변동성완화 종합주문 화면 목업 (모바일 390 기준 + 데스크톱 1280)</title>
+<style>
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0);
+  --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --input:oklch(0.92 0 0); --ring:oklch(0.63 0.18 250);
+  --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+  --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --secondary:oklch(0.96 0 0); --secondary-fg:oklch(0.18 0 0);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --destructive:oklch(0.66 0.20 22); --destructive-fg:#FFFFFF;
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --warn:oklch(0.72 0.17 65); --warn-bg:oklch(0.97 0.04 75);
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px; --t-h3:20px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0);
+  --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06);
+  --input:oklch(0.24 0 0); --ring:oklch(0.72 0.16 250);
+  --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --secondary:oklch(0.18 0 0); --secondary-fg:oklch(0.96 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --destructive:oklch(0.72 0.19 22); --destructive-fg:oklch(0.10 0 0);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+  --warn:oklch(0.78 0.16 70); --warn-bg:oklch(0.24 0.05 70);
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg); font-size:var(--t-base); line-height:1.5; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+html[lang="ko"] { word-break:keep-all; letter-spacing:-0.01em; }
+.mono { font-family:var(--font-mono); }
+button, input { font-family:inherit; }
+*:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+.toolbar { position:sticky; top:0; z-index:300; display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 20px; background:color-mix(in oklch,var(--bg) 92%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+.toolbar h1 { font-size:var(--t-sm); font-weight:600; margin:0; margin-right:auto; }
+.tbtn { height:26px; padding:0 9px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--secondary); color:var(--secondary-fg); font-size:11px; font-weight:600; cursor:pointer; }
+.tbtn[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.stage { padding:20px; }
+.info { border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r-md); background:var(--muted); padding:12px 14px; margin:0 0 20px; max-width:1100px; font-size:var(--t-sm); }
+.info div + div { margin-top:6px; }
+.frames { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+.frame-wrap .cap { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin-bottom:8px; }
+.frame { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; background:var(--bg); }
+.urlbar { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--muted); border-bottom:1px solid var(--border); font-size:11px; color:var(--muted-fg); }
+.urlbar .dots { display:flex; gap:4px; } .urlbar .dots i { width:8px; height:8px; border-radius:9999px; background:var(--border); display:block; }
+.urlbar .url { flex:1; background:var(--card); border:1px solid var(--border); border-radius:9999px; padding:3px 10px; font-family:var(--font-mono); color:var(--fg); white-space:nowrap; overflow:hidden; }
+.scroll { overflow-y:auto; overflow-x:hidden; position:relative; }
+.frame.mobile { width:390px; } .frame.desktop { width:1280px; } .urlbar .url { min-width:0; text-overflow:ellipsis; }
+.frame.mobile .ttl { flex-direction:column; gap:2px; align-items:flex-start; }
+.frame.mobile .kb { display:none; }
+.frame.mobile .scroll { width:390px; height:780px; }
+.frame.desktop .scroll { width:1280px; height:780px; }
+
+.hdr { height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:10; }
+.hdr .logo { font-weight:700; font-size:var(--t-lg); }
+.hdr .burger { color:var(--fg); width:44px; height:44px; display:grid; place-items:center; border:0; background:none; margin-left:-12px; font-size:20px; }
+.hdr .search { flex:1; height:36px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--muted); display:flex; align-items:center; padding:0 12px; color:var(--muted-fg); font-size:var(--t-sm); gap:8px; max-width:420px; }
+.layout { display:flex; }
+.side { width:240px; flex:none; border-right:1px solid var(--border); padding:12px; min-height:724px; }
+.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.side a, .side .grp-hd { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); font-size:var(--t-sm); color:var(--muted-fg); text-decoration:none; }
+.side .grp-hd .chev { margin-left:auto; font-size:11px; }
+.side a.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.side ul ul { margin-left:22px; border-left:1px solid var(--border); padding-left:6px; margin-top:2px; }
+.side ul ul a { padding:6px 10px; }
+.side ul ul ul a { padding:5px 10px; font-size:13px; }
+.side .ico { width:16px; text-align:center; font-size:13px; opacity:.85; }
+.side .badge { margin-left:auto; display:inline-flex; gap:3px; }
+.pill { font-size:10px; font-weight:700; padding:1px 5px; border-radius:9999px; line-height:1.4; white-space:nowrap; }
+.pill.on { background:var(--up-bg); color:var(--up); }
+.pill.wait { background:var(--warn-bg); color:var(--warn); }
+.pill.off { background:var(--muted); color:var(--muted-fg); }
+.pill.nxt { background:var(--down-bg); color:var(--down); }
+.pill.krx { background:var(--muted); color:var(--muted-fg); }
+.pill.pend { background:var(--muted); color:var(--muted-fg); }
+.pill.acc { background:var(--down-bg); color:var(--down); }
+.pill.fill { background:var(--up-bg); color:var(--up); }
+.pill.canc { background:var(--muted); color:var(--muted-fg); text-decoration:line-through; }
+.pill.rej { background:var(--up-bg); color:var(--destructive); }
+
+.main { flex:1; min-width:0; }
+.frame.mobile .main { padding:12px 12px 32px; }
+.frame.desktop .main { padding:20px 24px 40px; }
+.ttl { display:flex; align-items:baseline; gap:10px; margin:0 0 12px; }
+.ttl h2 { font-size:var(--t-h3); margin:0; font-weight:700; }
+.ttl .sub { font-size:var(--t-caption); color:var(--muted-fg); }
+.card { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); padding:12px; box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 /.04); min-width:0; }
+.card + .card { margin-top:10px; }
+.card h3 { margin:0 0 8px; font-size:var(--t-sm); font-weight:600; display:flex; align-items:center; gap:8px; }
+.card h3 .r { margin-left:auto; font-weight:500; color:var(--muted-fg); font-size:var(--t-caption); display:flex; gap:6px; align-items:center; }
+.row { display:flex; gap:8px; align-items:center; min-width:0; }
+.row + .row { margin-top:8px; }
+.inp { height:40px; border:1px solid var(--input); border-radius:var(--r-md); background:var(--bg); padding:0 10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); min-width:0; }
+.inp.num { justify-content:flex-end; font-family:var(--font-mono); }
+.inp .unit { color:var(--muted-fg); font-size:var(--t-caption); font-family:var(--font-sans); flex:none; }
+.inp .val { flex:1; text-align:right; }
+.inp .ph { color:var(--muted-fg); }
+.sel { height:40px; border:1px solid var(--input); border-radius:var(--r-md); background:var(--bg); padding:0 10px; display:flex; align-items:center; gap:6px; font-size:var(--t-sm); flex:1; min-width:0; }
+.sel .chev { margin-left:auto; color:var(--muted-fg); font-size:11px; }
+.f { display:grid; grid-template-columns:72px 1fr; align-items:center; gap:8px; }
+.f + .f { margin-top:8px; }
+.f label { font-size:var(--t-caption); color:var(--muted-fg); white-space:nowrap; }
+.f .with { display:flex; align-items:center; gap:8px; min-width:0; }
+.f .with .inp { width:96px; flex:none; }
+.f .with .tail { font-size:var(--t-caption); color:var(--muted-fg); }
+.sw { width:40px; height:24px; border-radius:9999px; background:var(--border); position:relative; flex:none; cursor:pointer; border:0; }
+.sw::after { content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:9999px; background:#fff; transition:left .15s; box-shadow:0 1px 2px oklch(0 0 0/.3); }
+.sw[aria-checked="true"] { background:var(--primary); }
+.sw[aria-checked="true"]::after { left:19px; }
+.opt { display:flex; align-items:center; gap:8px; font-size:var(--t-caption); }
+.opt .sw { transform:scale(.85); }
+
+/* 시작/중지 대형 토글 */
+.runbar { display:flex; align-items:center; gap:12px; margin-top:12px; padding:12px; border-radius:var(--r-md); border:1.5px solid var(--border); background:var(--muted); }
+.runbar.on { border-color:var(--up); background:var(--up-bg); }
+.runbar .lamp { width:12px; height:12px; border-radius:9999px; background:var(--flat); flex:none; }
+.runbar.on .lamp { background:var(--up); box-shadow:0 0 0 4px color-mix(in oklch,var(--up) 25%,transparent); animation:pulse 1.4s infinite; }
+@keyframes pulse { 50% { box-shadow:0 0 0 7px color-mix(in oklch,var(--up) 10%,transparent);} }
+.runbar .txt { flex:1; min-width:0; }
+.runbar .txt b { display:block; font-size:var(--t-sm); }
+.runbar.on .txt b { color:var(--up); }
+.runbar .txt small { color:var(--muted-fg); font-size:11px; }
+.runbtn { height:40px; padding:0 16px; border-radius:var(--r-md); border:0; font-weight:700; font-size:var(--t-sm); cursor:pointer; flex:none; }
+.runbtn.start { background:var(--up); color:#fff; }
+.runbtn.stop { background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.state { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-radius:var(--r-md); background:var(--muted); font-size:var(--t-caption); color:var(--muted-fg); margin:10px 0; }
+.dot { width:8px; height:8px; border-radius:9999px; display:inline-block; background:var(--flat); }
+.dot.ok { background:oklch(0.72 0.19 150); }
+.state .k { display:inline-flex; align-items:center; gap:5px; } .state .k b { color:var(--fg); font-weight:600; }
+.state .ts { margin-left:auto; font-family:var(--font-mono); }
+
+/* VI 주문내역 — 모바일은 카드 행, 데스크톱은 표 */
+.vi-list { display:flex; flex-direction:column; gap:8px; }
+.vi-row { border:1px solid var(--border); border-radius:var(--r-md); padding:10px; display:grid; grid-template-columns:auto 1fr auto; gap:6px 10px; align-items:center; }
+.vi-row .chk { width:22px; height:22px; border:1.5px solid var(--border); border-radius:5px; display:grid; place-items:center; font-size:13px; }
+.vi-row .chk.on { background:var(--primary); border-color:var(--primary); color:var(--primary-fg); }
+.vi-row .chk.lock { opacity:.35; }
+.vi-row .nm { font-weight:600; font-size:var(--t-sm); }
+.vi-row .nm small { color:var(--muted-fg); font-weight:400; font-family:var(--font-mono); margin-left:6px; }
+.vi-row .meta { grid-column:2 / span 2; font-size:var(--t-caption); color:var(--muted-fg); display:flex; gap:10px; flex-wrap:wrap; font-family:var(--font-mono); }
+.vi-row .meta b { color:var(--fg); font-weight:500; }
+.vi-row .dl { grid-column:2 / span 2; display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted-fg); }
+.vi-row .bar { flex:1; height:4px; border-radius:2px; background:var(--border); overflow:hidden; }
+.vi-row .bar i { display:block; height:100%; background:var(--warn); width:var(--w); }
+.vi-row .bar.hot i { background:var(--destructive); }
+table.t { width:100%; border-collapse:collapse; font-size:var(--t-caption); }
+table.t th { text-align:right; color:var(--muted-fg); font-weight:500; padding:4px 6px; border-bottom:1px solid var(--border); white-space:nowrap; }
+table.t td { text-align:right; padding:6px; border-bottom:1px solid var(--border-subtle); font-family:var(--font-mono); white-space:nowrap; }
+table.t th:first-child, table.t td:first-child, table.t th.l, table.t td.l { text-align:left; font-family:var(--font-sans); }
+table.t .cancel-b { font-family:var(--font-sans); font-size:11px; border:1px solid var(--border); border-radius:4px; padding:1px 6px; background:var(--secondary); }
+.seg { display:inline-flex; border:1px solid var(--border); border-radius:var(--r); overflow:hidden; height:28px; }
+.seg button { border:0; background:var(--bg); color:var(--muted-fg); padding:0 10px; font-size:12px; font-weight:600; cursor:pointer; }
+.seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); }
+.btn { height:28px; padding:0 10px; border:1px solid var(--border); border-radius:var(--r); background:var(--secondary); font-size:12px; font-weight:600; cursor:pointer; }
+.btn.danger { color:var(--destructive); }
+.frame.mobile .col-no { display:none; }
+.frame.mobile table.t th, .frame.mobile table.t td { padding-left:4px; padding-right:4px; }
+.empty { padding:20px; text-align:center; color:var(--muted-fg); font-size:var(--t-sm); border:1px dashed var(--border); border-radius:var(--r-md); }
+.tip { font-size:11px; color:var(--muted-fg); margin-top:8px; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Phase 16 — 트레이딩 › VI 변동성완화 종합주문 (모바일 390 기준)</h1>
+  <span style="font-size:11px;color:var(--muted-fg)">상태 시나리오:</span>
+  <button class="tbtn" data-sc="off" aria-pressed="true">중지 상태</button>
+  <button class="tbtn" data-sc="run" aria-pressed="false">가동 중 · VI 주문 5건</button>
+  <button class="tbtn" id="themeBtn" aria-pressed="false">🌙 다크</button>
+</div>
+
+<div class="stage">
+  <div class="info">
+    <div><b>gh-trade [0402] 변동성완화 종합주문 → 웹.</b> 설정은 세션당 1건(종목 축 없음, KRX 전용). 입력 5개 그대로: <b>계좌 · 금액(만) · 상승률(%) · 시작/중지 · VI 마감알림(브라우저 로컬)</b>. 주문가 유형은 상한가 고정이라 UI 없음.</div>
+    <div>WinForms 의 "상승률 체크박스 = 시작" 을 웹에서는 <b>확인 다이얼로그 붙은 시작/중지 버튼</b>으로 바꿨다(오조작 방지, 호가창 주문 패널과 같은 규율). 금액·상승률 변경은 0.3초 뒤 자동 반영.</div>
+    <div><b>VI 주문내역</b>: 확인 체크(=119초 미확인 취소 면제) · 110초/119초 데드라인 진행바 · 상태 6종(+부분체결). 모바일은 카드 행, 데스크톱은 표. 아래에 미체결(전체/KRX/NXT 필터 + 전체취소) · 잔고.</div>
+  </div>
+  <div class="frames">
+    <div class="frame-wrap"><div class="cap">모바일 390px (기준)</div>
+      <div class="frame mobile" id="fMobile"><div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div><div class="scroll" data-body></div></div></div>
+    <div class="frame-wrap"><div class="cap">데스크톱 1280px</div>
+      <div class="frame desktop" id="fDesktop"><div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div><div class="scroll" data-body></div></div></div>
+  </div>
+</div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+let SC = 'off';
+const fmt = n => n.toLocaleString('ko-KR');
+const ACCT = '37728502101';
+
+/* VI 주문 픽스처 — state: Pending/Accepted/PartiallyFilled/Filled/Cancelled/Rejected */
+const VI = [
+  { t:'13:44:02', nm:'이수페타시스', code:'007660', trig:41250, rate:23.1, price:48750, qty:205, state:'Accepted', conf:false, lock:false, left110:64, left119:73 },
+  { t:'13:41:30', nm:'한미반도체',   code:'042700', trig:98400, rate:22.4, price:115700, qty:86, state:'Accepted', conf:true,  lock:false, left110:0,  left119:0 },
+  { t:'13:38:12', nm:'두산에너빌리티', code:'034020', trig:31150, rate:25.0, price:35900, qty:278, state:'PartiallyFilled', filled:120, conf:true, lock:true, left110:0, left119:0 },
+  { t:'13:20:45', nm:'에코프로',     code:'086520', trig:126000, rate:26.0, price:130000, qty:76, state:'Filled', filled:76, conf:true, lock:true, left110:0, left119:0 },
+  { t:'13:05:03', nm:'삼성전자',     code:'005930', trig:92300, rate:22.0, price:95600, qty:104, state:'Cancelled', conf:false, lock:true, left110:0, left119:0 },
+];
+const ST = { Pending:['접수 전','pend'], Accepted:['접수','acc'], PartiallyFilled:['부분체결','fill'], Filled:['체결','fill'], Cancelled:['취소','canc'], Rejected:['거부','rej'], Cancelling:['취소 중','pend'] };
+
+function sidebar(){
+  return `<aside class="side"><ul>
+    <li><a><span class="ico">⌂</span>홈</a></li>
+    <li><div class="grp-hd"><span class="ico">🔎</span>종목검색<span class="chev">▾</span></div>
+      <ul><li><a><span class="ico">↗</span>상승률 상위</a></li><li><a><span class="ico">▤</span>테마</a></li><li><a><span class="ico">★</span>관심종목</a></li></ul></li>
+    <li><div class="grp-hd"><span class="ico">⚡</span>트레이딩<span class="chev">▾</span></div>
+      <ul>
+        <li><a><span class="ico">🎯</span>상따</a>
+          <ul><li><a>에코프로 <span class="badge"><span class="pill krx">KRX</span><span class="pill on">매수ON</span></span></a></li>
+              <li><a>삼성전자 <span class="badge"><span class="pill nxt">NXT</span><span class="pill on">매수ON</span></span></a></li></ul></li>
+        <li><a class="on"><span class="ico">Ⓥ</span>VI <span class="badge">${SC==='run'?'<span class="pill on">가동</span>':''}</span></a></li>
+      </ul></li>
+    <li><a><span class="ico">👤</span>My page</a></li>
+    <li><a><span class="ico">✦</span>AI 애널리스트</a></li>
+  </ul></aside>`;
+}
+function header(isMobile){
+  return `<div class="hdr">${isMobile?'<button class="burger" aria-label="메뉴">☰</button>':''}<span class="logo">gh-radar</span><div class="search">🔍 <span>종목명 또는 종목코드</span></div></div>`;
+}
+const sw = on => `<button class="sw" role="switch" aria-checked="${on}"></button>`;
+
+function settings(){
+  const run = SC==='run';
+  return `<div class="card">
+    <h3>설정 <span class="r">세션당 1건 · KRX · 주문가 = 상한가</span></h3>
+    <div class="f"><label>계좌</label><div class="row"><div class="sel" style="white-space:nowrap"><b class="mono">${ACCT}</b> <span class="kb" style="color:var(--muted-fg);font-size:12px">KB 위탁</span><span class="chev">▾</span></div><div class="inp" style="width:96px"><span class="ph">비번</span><span class="mono">••••</span></div></div></div>
+    <div class="f"><label>금액</label><div class="with"><div class="inp num"><span class="val">1,000</span><span class="unit">만원</span></div><span class="tail">주문수량 = 금액 ÷ 상한가</span></div></div>
+    <div class="f"><label>상승률</label><div class="with"><div class="inp num"><span class="val">22</span><span class="unit">%</span></div><span class="tail">이상 VI 발동 시 자동 매수 · 110초/119초 미확인 자동취소</span></div></div>
+    <div class="f"><label>마감알림</label><div class="opt">${sw(true)}<span>VI 마감 시 브라우저 알림 (이 기기만)</span></div></div>
+    <div class="runbar ${run?'on':''}">
+      <span class="lamp"></span>
+      <div class="txt"><b>${run?'자동매매 가동 중':'중지됨'}</b><small>${run?'서버 반영 13:44:02 · 다른 단말에서도 같은 상태':'시작을 누르면 확인 후 서버에 등록됩니다'}</small></div>
+      <button class="runbtn ${run?'stop':'start'}">${run?'중지':'시작'}</button>
+    </div>
+  </div>`;
+}
+
+function stateBar(){
+  return `<div class="state"><span class="k"><span class="dot ok"></span>DMA <b>Ready</b></span><span class="k">VI <b>${SC==='run'?'가동':'중지'}</b></span><span class="k">오늘 VI 주문 <b>${SC==='run'?'5':'0'}건</b></span><span class="ts">${SC==='run'?'13:44:02':'—'}</span></div>`;
+}
+
+function viRowsMobile(){
+  if (SC!=='run') return `<div class="empty">오늘 발동된 VI 주문이 없습니다</div>`;
+  return `<div class="vi-list">${VI.map(o=>{
+    const [lbl,cls] = ST[o.state];
+    const live = o.state==='Accepted' && o.left110>0;
+    return `<div class="vi-row">
+      <span class="chk ${o.conf?'on':''} ${o.lock?'lock':''}" title="확인 — 119초 미확인 취소 면제">${o.conf?'✓':''}</span>
+      <span class="nm">${o.nm}<small>${o.code}</small></span>
+      <span class="pill ${cls}">${lbl}${o.state==='PartiallyFilled'?` ${o.filled}/${o.qty}`:''}</span>
+      <div class="meta"><span>${o.t}</span><span>발동 <b>${fmt(o.trig)}</b></span><span style="color:var(--up)">+${o.rate}%</span><span>주문 <b>${fmt(o.price)}</b> × <b>${o.qty}</b>주</span></div>
+      ${live?`<div class="dl"><span>110초 취소까지 <b class="mono">${o.left110}s</b></span><div class="bar ${o.left110<20?'hot':''}"><i style="--w:${Math.round(o.left110/110*100)}%"></i></div><span>${o.conf?'확인됨':'미확인 → 119s 취소'}</span></div>`:''}
+    </div>`;}).join('')}</div>`;
+}
+function viTableDesktop(){
+  if (SC!=='run') return `<div class="empty">오늘 발동된 VI 주문이 없습니다</div>`;
+  return `<table class="t"><tr><th class="l">확인</th><th class="l">시간</th><th class="l">종목명</th><th>발동가</th><th>상승률</th><th>주문가</th><th>수량</th><th class="l">상태</th><th class="l">110s</th></tr>
+  ${VI.map(o=>{ const [lbl,cls]=ST[o.state]; const live=o.state==='Accepted'&&o.left110>0;
+    return `<tr><td class="l"><span class="chk ${o.conf?'on':''} ${o.lock?'lock':''}" style="display:inline-grid;width:20px;height:20px;border:1.5px solid var(--border);border-radius:5px;place-items:center;${o.conf?'background:var(--primary);border-color:var(--primary);color:var(--primary-fg)':''};${o.lock?'opacity:.35':''}">${o.conf?'✓':''}</span></td>
+    <td class="l mono">${o.t}</td><td class="l"><b>${o.nm}</b> <small style="color:var(--muted-fg)">${o.code}</small></td><td>${fmt(o.trig)}</td><td style="color:var(--up)">+${o.rate}%</td><td>${fmt(o.price)}</td><td>${o.qty}${o.filled?` <small style="color:var(--muted-fg)">(${o.filled})</small>`:''}</td>
+    <td class="l"><span class="pill ${cls}">${lbl}</span></td><td class="l">${live?`<span class="mono" style="color:${o.left110<20?'var(--destructive)':'var(--warn)'}">${o.left110}s</span>`:'—'}</td></tr>`;}).join('')}</table>`;
+}
+function viCard(isMobile){
+  return `<div class="card"><h3>VI 주문내역 <span class="r">확인 체크 = 119초 미확인 취소 면제</span></h3>${isMobile?viRowsMobile():viTableDesktop()}
+    <div class="tip">110초 미도달 취소는 서버 규칙이라 면제되지 않음 · 접수 전(주문번호 없음)은 확인 불가</div></div>`;
+}
+function unfilled(){
+  return `<div class="card"><h3>미체결 <span class="r"><span class="seg"><button aria-pressed="true">전체</button><button aria-pressed="false">KRX</button><button aria-pressed="false">NXT</button></span><button class="btn danger">전체취소</button></span></h3>
+  ${SC==='run'?`<table class="t"><tr><th>종목</th><th>매매</th><th>단가</th><th>미체결</th><th>주문량</th><th class="col-no">주문No</th><th></th></tr>
+    <tr><td>이수페타시스 <small style="color:var(--muted-fg)">VI</small></td><td style="color:var(--up)">매수</td><td>48,750</td><td>205</td><td>205</td><td class="col-no">0031245</td><td><button class="cancel-b">취소</button></td></tr>
+    <tr><td>한미반도체 <small style="color:var(--muted-fg)">VI</small></td><td style="color:var(--up)">매수</td><td>115,700</td><td>86</td><td>86</td><td class="col-no">0031102</td><td><button class="cancel-b">취소</button></td></tr>
+    <tr><td>두산에너빌리티 <small style="color:var(--muted-fg)">VI</small></td><td style="color:var(--up)">매수</td><td>35,900</td><td>158</td><td>278</td><td class="col-no">0030987</td><td><button class="cancel-b">취소</button></td></tr></table>`
+    :`<div class="empty">미체결 주문이 없습니다</div>`}</div>`;
+}
+function holdings(){
+  return `<div class="card"><h3>잔고 <span class="r">DMA 서버 기준</span></h3>
+  <table class="t"><tr><th>종목</th><th>매도가능</th><th>보유</th><th>평단가</th><th>현재가</th><th>평가금액</th></tr>
+    <tr><td>에코프로</td><td>76</td><td>76</td><td>130,000</td><td>128,500</td><td>9,766,000</td></tr>
+    ${SC==='run'?`<tr><td>두산에너빌리티</td><td>120</td><td>120</td><td>35,900</td><td>35,900</td><td>4,308,000</td></tr>`:''}
+  </table></div>`;
+}
+
+function render(frame, isMobile){
+  $('[data-url]', frame).textContent = 'gh-radar.vercel.app/trading/vi';
+  const body = `<div class="ttl"><h2>VI 변동성완화 종합주문</h2><span class="sub">VI 발동 종목을 상승률 조건으로 자동 매수</span></div>
+    ${stateBar()}
+    ${isMobile
+      ? settings() + '<div style="height:10px"></div>' + viCard(true) + '<div style="height:10px"></div>' + unfilled() + '<div style="height:10px"></div>' + holdings()
+      : `<div style="display:grid;grid-template-columns:420px 1fr;gap:16px;align-items:start"><div style="min-width:0">${settings()}<div style="height:10px"></div>${holdings()}</div><div style="min-width:0">${viCard(false)}<div style="height:10px"></div>${unfilled()}</div></div>`}`;
+  $('[data-body]', frame).innerHTML = header(isMobile) + `<div class="layout">${isMobile?'':sidebar()}<div class="main">${body}</div></div>`;
+}
+function renderAll(){ render($('#fMobile'), true); render($('#fDesktop'), false); }
+document.addEventListener('click', e => {
+  const sc = e.target.closest('[data-sc]');
+  if (sc) { SC = sc.dataset.sc; $$('[data-sc]').forEach(b=>b.setAttribute('aria-pressed', String(b===sc))); renderAll(); return; }
+  if (e.target.closest('#themeBtn')) { const on = document.documentElement.classList.toggle('dark'); $('#themeBtn').setAttribute('aria-pressed', String(on)); $('#themeBtn').textContent = on?'☀️ 라이트':'🌙 다크'; return; }
+  const s = e.target.closest('.sw'); if (s) { s.setAttribute('aria-checked', String(s.getAttribute('aria-checked')!=='true')); return; }
+  const rb = e.target.closest('.runbtn'); if (rb) { if (SC==='off' ? confirm('VI 전략 시작\n계좌 37728502101 · 금액 1,000만원 · 상승률 22% 이상\n\n시작할까요?') : true) { SC = SC==='off'?'run':'off'; $$('[data-sc]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.sc===SC))); renderAll(); } return; }
+  const seg = e.target.closest('.seg button'); if (seg) { $$('button', seg.parentElement).forEach(b=>b.setAttribute('aria-pressed', String(b===seg))); return; }
+  const ck = e.target.closest('.chk'); if (ck && !ck.classList.contains('lock')) { ck.classList.toggle('on'); ck.textContent = ck.classList.contains('on')?'✓':''; return; }
+});
+renderAll();
+</script>
+</body>
+</html>
