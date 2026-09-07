@@ -11,10 +11,13 @@
  *
  * ★ LOCKED 색 규칙 (UI-SPEC §Color 열거표):
  *   - 체결가 = 기준가(전일종가) 대비 `--up` / `--down` / `--flat`.
- *   - 매수/매도 구분은 `▲ 매수` / `▼ 매도` **부호 + 라벨 병기 필수**. 색만으로 구분하지
- *     않는다(WCAG 1.4.1, T-15-44). 급등 종목에서는 체결가가 전부 `--up` 이 되므로
- *     체결가 색으로는 매수/매도를 절대 알 수 없다.
- *   - 수량·시각은 `--fg` / `--muted-fg` 중립.
+ *   - 매수/매도 구분 = **수량 열의 색**(매수 `--up` / 매도 `--down`). 별도 `구분` 열은
+ *     사용자 요청으로 제거했다(2026-09-07) — 좁은 폭에서 열 하나가 통째로 폭을 먹었다.
+ *     ★ 그래서 각 수량 셀에 `sr-only` 로 `매수` / `매도` 를 붙인다. 색만 남기면 WCAG
+ *     1.4.1 위반이고, **체결가 색으로는 대체할 수 없다** — 급등 종목에서는 체결가가
+ *     20단 전부 `--up` 이라 방향을 못 가린다. 이 sr-only 는 장식이 아니라 유일한
+ *     비색 구분 수단이므로 지우지 말 것.
+ *   - 시각은 `--muted-fg` 중립.
  *
  * ★ 구분(매수/매도)의 출처: 게이트웨이 `TradeTapeEntry` 에는 매수/매도 플래그가 없다
  *   (packages/shared `RelayTapeEntry` = t/p/cs/c/q/cv). 그래서 국내 HTS 관례대로
@@ -274,15 +277,17 @@ export function TradeTape({
             ★ 열 폭을 **명시 배분**한다. `table-fixed` 기본은 4등분(220px 컬럼에서 열당 55px,
             좌우 패딩 빼면 39px)이라 `98,100` 이 `98,1` / `00` 으로 쪼개졌다. 체결가가 두 줄로
             갈리면 테이프의 존재 이유인 "가격이 어디로 튀는가"를 훑을 수가 없다.
-            내용 폭 기준: 시각 `09:30:17`(mono 8자) > 체결가 `127,400`(mono 7자) >
-            구분 `▲ 매수` > 수량. 셀은 전부 `whitespace-nowrap` 이라 폭이 모자라도
+            비율(px 아님)인 이유: 데스크톱 열은 200px 인데 모바일은 화면 전폭(≈324px)이라,
+            px 로 고정하면 모바일에서 남는 폭이 전부 마지막 열로 몰려 체결가와 수량 사이가
+            휑하게 벌어진다. 비율은 좁은 쪽(데스크톱 200px)에 맞춰 잡았다 —
+            36% ≈ 66px 이 `09:30:17`(mono 8자) 이 들어가는 최소폭이다.
+            셀은 전부 `whitespace-nowrap` 이라 폭이 모자라도
             **줄바꿈 대신 잘린다** — 두 줄로 무너지는 것보다 낫다.
           */}
           <colgroup>
-            <col className="w-[64px]" />
-            <col className="w-[64px]" />
-            <col className="w-[52px]" />
-            <col />
+            <col className="w-[36%]" />
+            <col className="w-[34%]" />
+            <col className="w-[30%]" />
           </colgroup>
           <thead className="sticky top-0 z-[1]">
             <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-[var(--border)] [&>th]:bg-[var(--muted)] [&>th]:px-1.5 [&>th]:py-1.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-[var(--muted-fg)]">
@@ -294,9 +299,6 @@ export function TradeTape({
               </th>
               <th scope="col" className="num">
                 수량
-              </th>
-              <th scope="col" className="text-right">
-                구분
               </th>
             </tr>
           </thead>
@@ -322,14 +324,15 @@ export function TradeTape({
                   <td className={cn('mono num font-semibold', priceTone(entry.p, basePrice))}>
                     {fmt(entry.p)}
                   </td>
-                  <td className="mono num text-[var(--fg)]">{fmt(entry.q)}</td>
+                  {/* 수량 색이 곧 매수/매도다. sr-only 라벨이 색 비의존 경로(WCAG 1.4.1). */}
                   <td
                     className={cn(
-                      'text-right font-semibold',
+                      'mono num font-semibold',
                       isBuy ? 'text-[var(--up)]' : 'text-[var(--down)]',
                     )}
                   >
-                    {isBuy ? '▲ 매수' : '▼ 매도'}
+                    <span className="sr-only">{isBuy ? '매수' : '매도'} </span>
+                    {fmt(entry.q)}
                   </td>
                 </tr>
               );
@@ -343,7 +346,7 @@ export function TradeTape({
         없으므로 확정 사실로 그리면 안 된다 — 근거를 함께 노출해 오독을 막는다.
       */}
       <p className="border-t border-[var(--border-subtle)] px-[var(--s-2)] pt-1 text-[11px] text-[var(--muted-fg)]">
-        구분은 최우선호가·직전 체결가 기준 추정이에요
+        수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요
       </p>
     </div>
   );

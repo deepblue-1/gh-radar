@@ -55,8 +55,8 @@ describe('deriveTapeSides', () => {
 });
 
 describe('TradeTape', () => {
-  it('③ 최신이 맨 위이고 매수/매도를 부호+라벨로 병기한다 (WCAG 1.4.1)', () => {
-    render(
+  it('③ 최신이 맨 위이고 매수/매도를 **수량 색 + sr-only 라벨**로 병기한다 (WCAG 1.4.1)', () => {
+    const { container } = render(
       <TradeTape
         entries={tape([98_200, 97_900])}
         isStale={false}
@@ -68,9 +68,21 @@ describe('TradeTape', () => {
 
     const rows = screen.getAllByRole('row').slice(1); // 헤더 제외
     expect(rows[0]).toHaveTextContent('98,200');
-    expect(screen.getByText('▲ 매수')).toBeInTheDocument();
-    expect(screen.getByText('▼ 매도')).toBeInTheDocument();
     expect(screen.getByText('09:30:10')).toBeInTheDocument();
+
+    // `구분` 열은 없어졌다 — 열은 시각·체결가·수량 3개뿐.
+    expect(container.querySelectorAll('thead th')).toHaveLength(3);
+    expect(screen.queryByText('▲ 매수')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: '구분' })).toBeNull();
+
+    // 색이 유일한 구분이 되지 않도록 수량 셀에 sr-only 라벨이 남아야 한다.
+    const qty = Array.from(container.querySelectorAll('tbody tr')).map(
+      (r) => r.children[2] as HTMLElement,
+    );
+    expect(qty[0].className).toContain('text-[var(--up)]');
+    expect(qty[1].className).toContain('text-[var(--down)]');
+    expect(qty[0].querySelector('.sr-only')?.textContent?.trim()).toBe('매수');
+    expect(qty[1].querySelector('.sr-only')?.textContent?.trim()).toBe('매도');
   });
 
   it('④ 체결이 없으면 빈 상태 문구를 그린다 (UI-SPEC verbatim)', () => {
@@ -131,11 +143,13 @@ describe('TradeTape', () => {
       <TradeTape entries={tape([98_100, 97_900])} isStale={false} basePrice={BASE} />,
     );
 
-    // `table-fixed` 기본 4등분이면 열당 39px 밖에 안 돼 체결가가 줄바꿈했다.
+    // `table-fixed` 균등 분할이면 열당 폭이 모자라 체결가가 줄바꿈했다.
     const cols = container.querySelectorAll('table > colgroup > col');
-    expect(cols).toHaveLength(4);
-    expect(cols[0].className).toContain('w-[64px]'); // 시각 `09:30:17`
-    expect(cols[1].className).toContain('w-[64px]'); // 체결가 `127,400`
+    expect(cols).toHaveLength(3);
+    // px 이 아니라 **비율** 이어야 한다 — px 이면 모바일에서 남는 폭이 마지막 열로 몰린다.
+    expect(cols[0].className).toContain('w-[36%]'); // 시각 `09:30:17`
+    expect(cols[1].className).toContain('w-[34%]'); // 체결가 `127,400`
+    expect(cols[2].className).toContain('w-[30%]'); // 수량
 
     // 폭이 모자라도 줄바꿈 대신 잘리게 둔다 — 두 줄로 무너지는 편이 더 나쁘다.
     const row = container.querySelector('tbody tr') as HTMLElement;
@@ -145,7 +159,7 @@ describe('TradeTape', () => {
   it('⑧ 구분이 추정임을 화면에 밝힌다 (게이트웨이가 매수/매도 플래그를 주지 않는다)', () => {
     render(<TradeTape entries={tape([98_200])} isStale={false} basePrice={BASE} />);
     expect(
-      screen.getByText('구분은 최우선호가·직전 체결가 기준 추정이에요'),
+      screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
     ).toBeInTheDocument();
   });
 });

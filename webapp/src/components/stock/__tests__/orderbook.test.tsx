@@ -25,7 +25,8 @@ import type { RelayAccount, RelayQuote, RelayTapeEntry } from '@gh-radar/shared'
  *
  * ④ 색에 기대지 않는다
  *   급등 종목에서는 사다리 20단·체결가가 전부 `--up` 이 된다. 그래서 매도/매수 구분은
- *   **열 위치와 텍스트**(`▲ 매수` / `▼ 매도`, `sr-only` 단계 라벨)로만 단언한다(WCAG 1.4.1).
+ *   **열 위치와 비색 텍스트**(`sr-only` 단계 라벨 · 체결 수량의 `sr-only` 매수/매도)로만
+ *   단언한다(WCAG 1.4.1). 색 클래스 단언은 그 비색 경로와 **함께**일 때만 쓴다.
  */
 
 // ---------------------------------------------------------------------------
@@ -234,13 +235,12 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(bids[9]).toBe('100%');
   });
 
-  it('②-b 본문 배치 순서는 체결 → 호가 → 주문 → 계좌 다 (데스크톱 열 순서 = 모바일 세로 순서)', () => {
+  it('②-b 데스크톱 열은 체결 → 호가 → 계좌축, 모바일은 호가 → 주문 → 체결 → 잔고 다', () => {
     renderSection();
 
-    // 데스크톱은 `min-[900px]:order-none` 으로 소스 순서를 그대로 쓰므로 DOM 순서가 곧 정본이다.
+    // 데스크톱은 `min-[900px]:order-none` 으로 소스 순서를 쓰므로 DOM 순서가 열 순서다.
     const grid = ladder().closest('.grid') as HTMLElement;
     const blocks = Array.from(grid.children) as HTMLElement[];
-
     expect(blocks[0].querySelector('[data-slot="trade-tape"]')).not.toBeNull();
     expect(blocks[1].querySelector('[data-slot="orderbook-ladder"]')).not.toBeNull();
 
@@ -250,10 +250,16 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     const inner = Array.from(column.children) as HTMLElement[];
     expect(inner[0]).toHaveAttribute('data-testid', 'order-panel');
 
-    // 모바일 세로 순서(order-*)도 같은 순서여야 한다 — 한쪽만 고치는 사고 차단.
-    expect(blocks[0].className).toContain('order-1');
-    expect(blocks[1].className).toContain('order-2');
-    expect(inner[0].className).toContain('order-3');
+    // 모바일 세로 순서는 **일부러 다르다** — 손이 닿는 순서(호가 → 주문)를 위로 올린다.
+    expect(blocks[1].className).toContain('order-1'); // 호가
+    expect(inner[0].className).toContain('order-2'); // 주문
+    expect(blocks[0].className).toContain('order-3'); // 체결
+    expect(inner[1].className).toContain('order-4'); // 잔고·미체결
+
+    // ★ 잘림 방지 — 그리드 자식은 전부 min-w-0 이어야 한다(`display:contents` 자식 포함).
+    for (const el of [blocks[0], blocks[1], inner[0], inner[1]]) {
+      expect(el.className).toContain('min-w-0');
+    }
   });
 
   it('③ 가격 셀 클릭 → 주문 가격에 그 값이 채워지고 **매매 구분은 바뀌지 않는다** (T-15-14)', async () => {
@@ -387,22 +393,26 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(tape.querySelectorAll('tbody tr').length).toBe(3);
   });
 
-  it('⑫ 체결 행은 `▲ 매수` / `▼ 매도` 를 **텍스트로** 병기한다 (색 비의존 · WCAG 1.4.1)', () => {
+  it('⑫ 체결 행의 매수/매도는 수량 색 + sr-only 라벨로 간다 (색 단독 금지 · WCAG 1.4.1)', () => {
     renderSection();
 
     const tape = document.querySelector('[data-slot="trade-tape"]') as HTMLElement;
-    const labels = Array.from(tape.querySelectorAll('tbody tr')).map(
-      (row) => row.children[3].textContent?.trim() ?? '',
+    const qty = Array.from(tape.querySelectorAll('tbody tr')).map(
+      (row) => row.children[2] as HTMLElement,
     );
-    expect(labels).toHaveLength(3);
-    for (const label of labels) expect(['▲ 매수', '▼ 매도']).toContain(label);
+    expect(qty).toHaveLength(3);
     // 최우선호가(매도1 98,100 / 매수1 97,900) 기준 — 98,100 체결은 매수, 97,900 체결은 매도.
-    expect(labels[0]).toBe('▲ 매수');
-    expect(labels[1]).toBe('▼ 매도');
+    expect(qty[0].className).toContain('text-[var(--up)]');
+    expect(qty[1].className).toContain('text-[var(--down)]');
+    // 색만 남기면 WCAG 1.4.1 위반 — 비색 경로가 반드시 함께 있어야 한다.
+    const labels = qty.map((c) => c.querySelector('.sr-only')?.textContent?.trim() ?? '');
+    for (const label of labels) expect(['매수', '매도']).toContain(label);
+    expect(labels[0]).toBe('매수');
+    expect(labels[1]).toBe('매도');
 
     // 추정임을 화면에 밝힌다 — 서버가 주지 않는 값을 확정 사실로 그리지 않는다.
     expect(
-      within(tape).getByText('구분은 최우선호가·직전 체결가 기준 추정이에요'),
+      within(tape).getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
     ).toBeInTheDocument();
   });
 

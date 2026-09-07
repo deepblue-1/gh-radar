@@ -34,6 +34,12 @@
  *   잔량 숫자를 누른 사용자에게는 "클릭이 안 되는 호가창" 이 된다. 핸들러는 `<tr>` 에 있고
  *   가격 0 인 빈 단계만 무시한다. 키보드 경로(roving tabindex + Enter) 는 그대로다.
  *
+ * ★ `체결` 배지도, 스프레드 구분선 행도 없다 (2026-09-07 요청).
+ *   현재가 행은 **가격 셀 좌측의 inset 바 하나로만** 표시한다 — 셀이 `text-center` 라
+ *   오른쪽에 `체결` 글자를 붙이면 그 행만 가격이 좌측으로 밀려 **틱마다 좌우로 흔들렸다**.
+ *   현재가 표시를 다시 넣는다면 반드시 **레이아웃 폭을 차지하지 않는 방식**(배경·테두리·
+ *   absolute)이어야 한다. 스프레드/최우선호가는 사다리 상·하단에서 바로 읽힌다.
+ *
  * ★ 빈·stale 상태: `quote === null` 이면 빈 상태 문구, 재접속 중(`isStale`)이면
  *   **마지막 값을 유지하고 `opacity:.55` 로 감쇠**한다. 비우지 않는다(문맥 상실 방지).
  *
@@ -259,10 +265,6 @@ export function OrderbookLadder({
   }
 
   const collapsed = depth === NARROW_STEPS && !expanded;
-  const bestAsk = quote.ap[0] ?? 0;
-  const bestBid = quote.bp[0] ?? 0;
-  const spread = bestAsk > 0 && bestBid > 0 ? bestAsk - bestBid : 0;
-  const spreadPct = bestBid > 0 ? (spread / bestBid) * 100 : 0;
 
   const body: ReactNode[] = [];
   rows.forEach((row, index) => {
@@ -285,7 +287,7 @@ export function OrderbookLadder({
         }}
         className={cn(
           'cursor-pointer',
-          '[&>*]:h-[var(--row-h)] [&>*]:align-middle [&>*]:text-[length:var(--t-caption)]',
+          '[&>*]:h-[var(--row-h)] [&>*]:overflow-hidden [&>*]:whitespace-nowrap [&>*]:align-middle [&>*]:text-[length:var(--t-caption)]',
           isAsk
             ? '[&>*]:bg-[color-mix(in_oklch,var(--down-bg)_65%,transparent)]'
             : '[&>*]:bg-[color-mix(in_oklch,var(--up-bg)_65%,transparent)]',
@@ -332,11 +334,6 @@ export function OrderbookLadder({
             {isAsk ? '매도' : '매수'} {row.step}호가{' '}
           </span>
           {row.price > 0 ? fmt(row.price) : '—'}
-          {isNow && (
-            <span className="ml-1 align-[1px] text-[11px] font-semibold text-[var(--muted-fg)]">
-              체결
-            </span>
-          )}
         </th>
 
         {/* 매수잔량 — 바는 좌측(가격 축)에서 자라고 숫자는 우측에 붙는다. */}
@@ -360,21 +357,6 @@ export function OrderbookLadder({
         </td>
       </tr>,
     );
-
-    // 매도 1호가 바로 다음에 스프레드 구분선 — 현재가 행과 함께 1차 시각 앵커를 이룬다.
-    if (row.key === 'a0') {
-      body.push(
-        <tr key="spread" data-slot="orderbook-spread">
-          <td
-            colSpan={3}
-            className="h-[26px] border-y border-[var(--border)] bg-[var(--card)] text-center text-[11px] text-[var(--muted-fg)]"
-          >
-            스프레드 {fmt(spread)}원 · {spreadPct.toFixed(2)}% | 매도1 {fmt(bestAsk)} · 매수1{' '}
-            {fmt(bestBid)}
-          </td>
-        </tr>,
-      );
-    }
   });
 
   return (
@@ -393,6 +375,17 @@ export function OrderbookLadder({
         }
         className="w-full table-fixed border-collapse"
       >
+        {/*
+          열 폭을 **비율로 고정**한다. 지정하지 않으면 3등분이라 14px 가격(`272,000`)이
+          12px 잔량(`205,383`)과 같은 폭을 받아 좁은 폭에서 먼저 넘친다. 가격 축이 조금
+          더 넓어야 사다리가 읽힌다. 셀은 전부 `whitespace-nowrap` — 폭이 모자라면
+          줄바꿈으로 행 높이를 무너뜨리는 대신 셀 안에서 잘린다.
+        */}
+        <colgroup>
+          <col className="w-[33%]" />
+          <col className="w-[34%]" />
+          <col className="w-[33%]" />
+        </colgroup>
         <thead>
           <tr>
             <th

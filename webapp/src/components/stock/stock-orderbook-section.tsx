@@ -36,17 +36,25 @@
  *   **다른 값을 보일 수 있다.** 크기 위계와 `실시간(DMA)` 출처 라벨 상시 노출로 설명한다.
  *   **히어로는 수정하지 않는다**(Phase 6 표면 비침범).
  *
- * ⑥ 레이아웃 — **체결 → 호가 → 주문** 순 (열 순서 = 세로 순서 = 읽는 순서)
- *   ≥900px  `grid-template-columns: 248px 380px minmax(332px,1fr)` / `gap: 1px`
- *           (좌 체결 테이프 · 중앙 사다리 10단 · 우측 내 계좌 축)
- *           체결 테이프 240px 은 `09:30:17` + `127,400` 이 **줄바꿈 없이** 들어가는 최소폭이다
- *           (`trade-tape.tsx` colgroup). 늘린 20px 은 계좌 축 min 에서 뺐다 —
- *           세 열 합이 960px 그대로여서 900~960px 구간의 가로 넘침이 더 나빠지지 않는다.
- *   <900px  세로 순서 — 연결상태 → 체결 → 호가 5단(+10단 전체 보기) → 주문 → 잔고 → 미체결
- *   우측 컬럼은 `display: contents` 로 좁은 폭에서 그리드 자식이 되어 주문·잔고가 같은
- *   순서열에 합류한다. 브레이크포인트는 전부 CSS 이고 JS 는 뷰포트를 재지 않는다.
- *   데스크톱은 `order-*` 를 `min-[900px]:order-none` 으로 풀고 **소스 순서**를 그대로 쓴다 —
- *   그래서 위 두 순서가 어긋날 수 없다(한쪽만 고치는 사고가 구조적으로 안 난다).
+ * ⑥ 레이아웃 — 데스크톱과 모바일이 **일부러 다른 순서**다 (2026-09-07 확정)
+ *   ≥900px  `grid-template-columns: 200px 380px minmax(380px,1fr)` / `gap: 1px`
+ *           좌 체결 테이프 · 중앙 사다리 10단 · 우측 내 계좌 축.
+ *           체결 200px 은 `구분` 열을 없애고(수량 색이 대신한다) 남은 3열 최소폭이다.
+ *           세 열 합은 960px 로 유지 — 900~960px 구간 가로 넘침을 더 키우지 않는다.
+ *   <900px  호가 → 주문 → 체결 → 잔고 → 미체결.
+ *           손이 닿는 순서(호가를 눌러 주문)를 위로 올리고, 참고용인 체결을 뒤로 뺀다.
+ *           데스크톱은 좌→우로 훑으니 체결이 먼저여도 시선 비용이 없지만, 모바일은
+ *           세로 스크롤이라 체결이 위에 있으면 주문까지 매번 지나가야 한다.
+ *   ★ 그래서 `order-*`(모바일)와 소스 순서(데스크톱)가 **의도적으로 어긋나 있다**.
+ *     둘 중 하나만 고치면 반대쪽이 조용히 깨지므로, 섹션 테스트가 두 순서를 함께 잠근다.
+ *
+ * ⑦ ★ `min-w-0` 를 그리드 자식 전부에 건다 — 없으면 호가창이 **잘린다**
+ *   그리드 아이템 기본값은 `min-width: auto` 라 콘텐츠 최소폭 아래로 줄지 않는다.
+ *   폭이 모자라면 아이템이 그리드 밖으로 삐져나가고, 섹션의 `overflow-hidden` 이 그걸
+ *   그대로 **잘라낸다**(스크롤바도 안 생겨 사용자는 잘린 줄만 안다). 실제로 잔량·계좌명이
+ *   길어지면 사다리 우측 `매수잔량` 열이 화면 밖으로 밀려나 사라졌다.
+ *   `display: contents` 인 계좌 축의 자식(주문·계좌 패널)도 좁은 폭에서는 직접 그리드
+ *   아이템이 되므로 **그 둘에도 걸어야 한다** — 래퍼에만 걸면 모바일에서 무효다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -359,9 +367,9 @@ export function StockOrderbookSection({
       ) : isBroken ? (
         <OrderbookLoadError onRetry={reconnect} />
       ) : (
-        <div className="grid gap-px bg-[var(--border-subtle)] min-[900px]:grid-cols-[248px_380px_minmax(332px,1fr)]">
-          {/* ① 체결 테이프 — 데스크톱 첫 컬럼, 좁은 폭에서도 맨 위(M1 ①) */}
-          <div className="order-1 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
+        <div className="grid gap-px bg-[var(--border-subtle)] min-[900px]:grid-cols-[200px_380px_minmax(380px,1fr)]">
+          {/* 체결 테이프 — 데스크톱 첫 컬럼, 모바일은 주문 아래 3번째 */}
+          <div className="order-3 min-w-0 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
             <TradeTape
               entries={tape}
               isStale={isStale}
@@ -371,8 +379,8 @@ export function StockOrderbookSection({
             />
           </div>
 
-          {/* ② 호가 사다리 — 좁은 폭에서 기본 5단 + `10단 전체 보기` */}
-          <div className="order-2 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
+          {/* 호가 사다리 — 데스크톱 가운데 컬럼, 모바일은 맨 위 */}
+          <div className="order-1 min-w-0 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
             {switching && (
               <p
                 aria-live="polite"
@@ -403,15 +411,15 @@ export function StockOrderbookSection({
 
           {/*
             우측 "내 계좌 축" 컬럼 (L1=B). 좁은 폭에서는 `display: contents` 로 그리드
-            자식이 흩어져 M1 순서(체결 → 호가 → 주문 → 잔고 → 미체결)를 만든다.
-            주문 패널(order-3)과 계좌 패널(order-4, 내부에서 잔고 → 미체결 순)이 자식이다.
+            자식이 흩어져 모바일 순서(호가 → 주문 → 체결 → 잔고 → 미체결)를 만든다.
+            주문 패널(order-2)과 계좌 패널(order-4, 내부에서 잔고 → 미체결 순)이 자식이다.
           */}
           <div
             data-testid="orderbook-account-column"
             className="contents min-[900px]:flex min-[900px]:flex-col min-[900px]:gap-px"
           >
             <OrderPanel
-              className="order-3 min-[900px]:order-none"
+              className="order-2 min-w-0 min-[900px]:order-none"
               code={code}
               name={name}
               accounts={accounts}
@@ -424,7 +432,7 @@ export function StockOrderbookSection({
               status={status}
             />
             <AccountPanel
-              className="order-4 min-[900px]:order-none"
+              className="order-4 min-w-0 min-[900px]:order-none"
               accounts={accounts}
               selectedAccountNo={selectedAccountNo}
               onAccountChange={setSelectedAccountNo}

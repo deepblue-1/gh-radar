@@ -116,8 +116,10 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     // 와이어는 시간 오름차순이고 화면은 최신이 위다 — 뒤집기가 실제로 일어났는지 본다.
     await expect(tapeRows(page).first()).toContainText('09:30:17');
     await expect(tapeRows(page).last()).toContainText('09:30:15');
-    // 색 비의존 — 구분은 텍스트로도 읽힌다 (T-15-44).
-    await expect(tapeRows(page).first()).toContainText(/▲ 매수|▼ 매도/);
+    // 색 비의존 — `구분` 열은 없앴지만(수량 색이 대신한다) 수량 셀의 sr-only 로 읽힌다.
+    await expect(tapeRows(page).first().locator('td').nth(2).locator('.sr-only')).toHaveText(
+      /매수|매도/,
+    );
   });
 
   test('3. 거래소 KRX→NXT 전환 → unsub/sub 왕복 후 NXT 호가가 렌더된다', async ({ page }) => {
