@@ -165,6 +165,18 @@ export interface RelayConnectionState {
   tapes: ReadonlyMap<string, RelayTapeEntry[]>;
   /** 잔고·미체결 병합 결과. 델타는 upsert + 0행/`rm` 제거 후 스냅샷 형태로 정규화된다. */
   account: RelayAccountState | null;
+  /**
+   * **계좌번호 → 병합된 계좌 상태** (16-15).
+   *
+   * relay 는 인증 직후 캐시된 계좌 상태를 **계좌마다 한 프레임씩** 내려보낸다
+   * (`fanout.ts` — `hub.getAccountStates(userId)` 전량). `account` 는 그중 **마지막
+   * 한 건**이라 계좌가 2개 이상이면 나머지가 사라진다 — My page 는 계좌별 미체결·잔고를
+   * 세로로 반복하므로(D-21) 계좌마다 자기 상태가 필요하다.
+   *
+   * ⚠️ 병합은 **계좌별로** 한다. 이전 구현은 `prev.a !== next.a` 를 전량 교체로 처리해서
+   *    계좌 B 의 델타가 계좌 A 의 스냅샷을 통째로 밀어냈다.
+   */
+  accountStates: ReadonlyMap<string, RelayAccountState>;
   /** 주문 통보 누적(최신 우선). */
   orders: RelayOrderMsg[];
   /** ServerMessage 누적(최신 우선, 상한 20). 각 항목에 수신 시각이 붙어 있다. */
@@ -252,6 +264,7 @@ interface RelayData {
   quotes: Map<string, RelayQuote>;
   tapes: Map<string, RelayTapeEntry[]>;
   account: RelayAccountState | null;
+  accountStates: Map<string, RelayAccountState>;
   orders: RelayOrderMsg[];
   messages: RelayServerMessageEntry[];
   isStale: boolean;
@@ -270,6 +283,7 @@ const INITIAL_DATA: RelayData = {
   quotes: new Map(),
   tapes: new Map(),
   account: null,
+  accountStates: new Map(),
   orders: [],
   messages: [],
   isStale: false,
@@ -351,8 +365,19 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       return { ...state, tapes };
     }
 
-    case "acct":
-      return { ...state, account: mergeAccount(state.account, frame) };
+    case "acct": {
+      /*
+        ★ 병합 기준은 **그 계좌의 이전 상태**다. `state.account`(마지막 수신분)를 기준으로
+          삼으면 계좌 B 의 델타가 계좌 A 의 상태와 `prev.a !== next.a` 로 만나 전량 교체로
+          처리되고, 그 순간 A 의 잔고·미체결이 통째로 사라진다.
+        `account` 는 「마지막으로 받은 계좌」라는 기존 의미를 그대로 유지한다 — 호가주문 탭이
+        그 값을 쓰고 있고, 계좌 축 소비자는 `accountStates` 를 쓴다.
+      */
+      const merged = mergeAccount(state.accountStates.get(frame.a) ?? null, frame);
+      const accountStates = new Map(state.accountStates);
+      accountStates.set(frame.a, merged);
+      return { ...state, account: merged, accountStates };
+    }
 
     case "order":
       return { ...state, orders: [frame, ...state.orders].slice(0, MAX_ORDERS) };
@@ -874,6 +899,7 @@ export function useRelayConnection({
       quotes: data.quotes,
       tapes: data.tapes,
       account: data.account,
+      accountStates: data.accountStates,
       orders: data.orders,
       messages: data.messages,
       isStale: data.isStale,
