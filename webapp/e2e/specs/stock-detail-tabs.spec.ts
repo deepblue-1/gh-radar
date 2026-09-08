@@ -141,13 +141,10 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
 
     // Phase 7 뉴스 / Phase 8 종목토론방
     await expect(page.getByTestId('stock-news-section')).toBeVisible();
-    // 토론 섹션은 데이터 상태(정상/로딩/에러)에 따라 testid 접미사가 갈린다. 이 케이스가
-    // 증명할 것은 "섹션이 뉴스토론 탭에 mount 되는가"(T7 재배치 회귀)이므로 상태와 무관하게
-    // 잡는다 — e2e 픽스처 `mockDiscussionsApi` 가 `{items,hasMore}` 계약 이전의 배열을
-    // 반환하는 선재 결함이 있어 정상 상태를 강제할 수 없다(deferred-items.md 참조).
-    await expect(
-      page.locator('[data-testid^="stock-discussion-section"]'),
-    ).toBeVisible();
+    // quick 260908-qnf(이관 6)가 `mockDiscussionsApi` 를 `{items,hasMore}` 계약으로
+    // 고쳐 정상 상태를 강제할 수 있게 됐다 — 접두사 매칭(로딩/에러 접미사 허용)을
+    // 정확한 testid 로 좁힌다.
+    await expect(page.getByTestId('stock-discussion-section')).toBeVisible();
   });
 
   test('5. `호가주문` 탭 → ?tab=orderbook + 호가주문 패널이 항상 렌더된다 (UI-SPEC C1)', async ({

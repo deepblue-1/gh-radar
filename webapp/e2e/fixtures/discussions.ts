@@ -42,6 +42,8 @@ export async function mockDiscussionsApi(
   opts: {
     code: string;
     list?: unknown[];
+    /** GET 응답 envelope 의 `hasMore`. 기본 false (더 불러올 페이지 없음). */
+    hasMore?: boolean;
     refreshResult?: "ok" | "cooldown" | "error" | "stale";
     refreshRetryAfter?: number;
   },
@@ -49,6 +51,7 @@ export async function mockDiscussionsApi(
   const {
     code,
     list = [],
+    hasMore = false,
     refreshResult = "ok",
     refreshRetryAfter = 25,
   } = opts;
@@ -57,10 +60,15 @@ export async function mockDiscussionsApi(
   // Phase 08.1 Plan 06: `?filter=meaningful` 쿼리 수용.
   //   - meaningful → `relevance` 가 'noise' 가 아닌 항목만 반환 (null / price_reason / theme / news_info 통과)
   //   - all / 미지정 → 전체 반환 (서버 default 'all' 동일 동작)
+  // Phase 15 이관 6 (quick 260908-qnf): GET 은 배열이 아니라
+  // `DiscussionListResponse = { items, hasMore }` envelope 다
+  // (`packages/shared/src/discussion.ts` · `stock-api.ts::fetchStockDiscussions`).
+  // 스텁이 배열을 그대로 돌려주던 동안 웹앱은 `items` 를 찾지 못해 항상 빈 목록을 그렸다.
+  // `filter=meaningful` 필터링은 **items 배열에만** 적용한다.
   await page.route(`**/api/stocks/${code}/discussions?**`, (route) => {
     const url = new URL(route.request().url());
     const filter = url.searchParams.get("filter") ?? "all";
-    const body =
+    const items =
       filter === "meaningful"
         ? (list as Array<Record<string, unknown>>).filter(
             (r) => r.relevance !== "noise",
@@ -69,18 +77,19 @@ export async function mockDiscussionsApi(
     return route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ items, hasMore }),
     });
   });
   await page.route(`**/api/stocks/${code}/discussions`, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(list),
+      body: JSON.stringify({ items: list, hasMore }),
     }),
   );
 
-  // POST refresh
+  // POST refresh — 이쪽 계약은 `Discussion[]` **배열**이 맞다
+  // (`stock-api.ts::refreshStockDiscussions`). envelope 로 바꾸지 말 것.
   await page.route(
     `**/api/stocks/${code}/discussions/refresh`,
     (route) => {

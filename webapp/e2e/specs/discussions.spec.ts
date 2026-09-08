@@ -184,7 +184,11 @@ test.describe('Discussion — infinite scroll (before cursor)', () => {
     }));
 
     let beforeCalls = 0;
-    // 첫 페이지: before 없음
+    // GET 응답은 `DiscussionListResponse = { items, hasMore }` envelope 다
+    // (quick 260908-qnf · 이관 6). 페이징은 픽스처가 아니라 이 인라인 route 두 개가
+    // 직접 정의한다 — `buildDiscussionList` 항목들은 postedAt 이 전부 같아서
+    // `before` 커서를 픽스처 레벨에서 흉내내면 가짜 복잡도만 는다.
+    // 첫 페이지: before 없음 → 다음 페이지가 있다
     await page.route(
       (url) =>
         url.pathname.endsWith(`/api/stocks/${STOCK_CODE}/discussions`) &&
@@ -193,10 +197,10 @@ test.describe('Discussion — infinite scroll (before cursor)', () => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(firstPage),
+          body: JSON.stringify({ items: firstPage, hasMore: true }),
         }),
     );
-    // 두 번째 페이지: before 있음
+    // 두 번째 페이지: before 있음 → 여기서 끝
     await page.route(
       (url) =>
         url.pathname.endsWith(`/api/stocks/${STOCK_CODE}/discussions`) &&
@@ -206,7 +210,7 @@ test.describe('Discussion — infinite scroll (before cursor)', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(secondPage),
+          body: JSON.stringify({ items: secondPage, hasMore: false }),
         });
       },
     );
