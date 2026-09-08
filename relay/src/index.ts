@@ -45,7 +45,7 @@ import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { createOrderApi } from "./order/order-api.js";
-import { OrderStore, supabaseOrderSink } from "./store/orders.js";
+import { OrderStore, supabaseOrderSinks } from "./store/orders.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -95,25 +95,37 @@ const wsServer = http.createServer((_req, res) => {
   res.end(JSON.stringify({ error: { code: "NOT_FOUND", message: "Route not found" } }));
 });
 
+/**
+ * `dma_orders` 쓰기 창구 (D-24 / D-32 / D-03).
+ *
+ * **DMA 수신 콜백은 `enqueueUpdate` 만 부른다** — Supabase 왕복을 그 자리에서 기다리면
+ * 게이트웨이 송신 큐가 차서 서버가 연결을 끊는다. tick 이 실제 쓰기를 맡는다.
+ * 반대로 요청 시점 insert 는 `await` 다 — 반환 id 가 상관 1순위 키라 큐에 넣을 수 없다 (A10).
+ *
+ * wss 주문 핸들러가 이 객체를 쓰므로 `WsFanout` **앞에서** 만든다.
+ */
+const orderStore = new OrderStore(supabaseOrderSinks(supabase));
+orderStore.start();
+
 const fanout = new WsFanout({
   // `server` 를 넘기지 않는다 — 이 포트의 라우팅(업그레이드 vs 평문)은 부팅 결선이 쥔다.
   supabase,
   sessions: sessionManager,
   hub,
   credKey: config.dmaCredKey,
+  // 주문 2종(`order.new`/`order.cancel`)을 wss 로 받기 위한 결선이다 (D-02).
+  // 둘 다 있어야 주문 분기가 열린다.
+  orderStore,
+  symbols,
 });
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
 
 /**
- * `dma_orders` 갱신 큐 (D-24 / D-32).
- *
- * **DMA 수신 콜백은 이 객체의 `enqueueUpdate` 만 부른다** — Supabase 왕복을 그 자리에서
- * 기다리면 게이트웨이 송신 큐가 차서 서버가 연결을 끊는다. tick 이 실제 쓰기를 맡는다.
+ * REST 주문 라우트 (D-22). **16-16 에서 제거한다** — 웹앱이 wss(D-02)로 넘어갈 때까지만
+ * 살려 둔다. 그때까지 두 경로가 공존하지만 같은 행을 다투지는 않는다: REST 는 server 가
+ * insert 한 `orderRowId` 를 실어 보내고, wss 는 relay 가 만든 행의 id 를 쓴다.
  */
-const orderStore = new OrderStore(supabaseOrderSink(supabase));
-orderStore.start();
-
 const orderApi = createOrderApi({
   relayOrderSecret: config.relayOrderSecret,
   // `/healthz` 의 회선 판정 기준 — 이 주소와 같은 사내망 대역의 인터페이스가 있는지만 본다.
