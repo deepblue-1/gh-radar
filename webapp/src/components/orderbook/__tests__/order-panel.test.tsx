@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { CreateOrderResponse, RelayAccount } from '@gh-radar/shared';
+import type { RelayAccount, RelayOrderResultMsg } from '@gh-radar/shared';
 
 /**
- * Phase 15 Plan 18 — 주문 패널 계약 검증 (RELAY-02, T-15-14 · T-15-48 · T-15-52).
+ * Phase 15 Plan 18 / Phase 16 Plan 10 — 주문 패널 계약 검증
+ * (RELAY-02 · TRADE-03, T-15-14 · T-15-48 · T-15-52 · D-02).
  *
  * 이 파일이 잠그는 것은 "보기"가 아니라 **오주문으로 이어지는 규칙**이다.
  *   ① 색·위치·문구 3중 일치 + 단일 제출 버튼 (②)
@@ -12,19 +13,26 @@ import type { CreateOrderResponse, RelayAccount } from '@gh-radar/shared';
  *   ③ 확인 다이얼로그 필수 + 기본 포커스 취소 (⑧⑨⑩)
  *   ④ 제출 후 재활성 금지 · 중복 제출 가드 (⑪)
  *   ⑤ **결과 모름 ≠ 실패** — 재주문 경로를 열지 않는다 (⑭)
+ *   ⑥ 주문 키는 **ISIN** 이다 (⑪ · D-02/D-28) — 단축코드를 보내면 relay 가 못 푼다
  *
- * `createOrder` 만 스텁하고 `isUnknownOutcome` 은 **실제 구현을 그대로 쓴다** —
- * 이 플랜에서 가장 값비싼 판정이라 스텁 위에서 검증하면 의미가 없다.
+ * ★ 스텁 경계는 `useRelayContext` 하나다. 주문은 wss 단일 경로이고(D-02) 패널이 바깥과
+ *   맺는 계약은 `sendOrder(req) => Promise<RelayOrderResultMsg>` 뿐이다.
+ *   그 Promise 는 **어떤 경로에서도 reject 하지 않는다** — 그래서 이 파일에 rejection
+ *   시나리오가 없다. 있으면 존재하지 않는 경로를 검증하는 것이 된다.
  */
 
-const createOrderMock = vi.fn();
-vi.mock('@/lib/orders-api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/orders-api')>();
-  return { ...actual, createOrder: (...args: unknown[]) => createOrderMock(...args) };
+const sendOrderMock = vi.fn();
+vi.mock('@/lib/relay-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
+  return {
+    ...actual,
+    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, sendOrder: sendOrderMock }),
+  };
 });
 
-import { ApiClientError } from '@/lib/api';
 import { OrderPanel, type OrderPanelProps } from '../order-panel';
+
+const ISIN = 'KR7042700005';
 
 const ACCOUNTS: RelayAccount[] = [
   { accountNo: '12345678-01', name: '위탁종합' },
@@ -36,8 +44,10 @@ function pick(price: number, seq = 1) {
   return { price, seq };
 }
 
-function accepted(over: Partial<CreateOrderResponse> = {}): CreateOrderResponse {
+function accepted(over: Partial<RelayOrderResultMsg> = {}): RelayOrderResultMsg {
   return {
+    t: 'order.result',
+    rid: 'rid-1',
     orderNo: '0000135842',
     resultCode: 0,
     message: '정상처리',
@@ -49,6 +59,7 @@ function accepted(over: Partial<CreateOrderResponse> = {}): CreateOrderResponse 
 function baseProps(over: Partial<OrderPanelProps> = {}): OrderPanelProps {
   return {
     code: '042700',
+    isin: ISIN,
     name: '한미반도체',
     accounts: ACCOUNTS,
     selectedAccountNo: '12345678-01',
@@ -74,7 +85,8 @@ async function fillQty(user: ReturnType<typeof userEvent.setup>, qty: string) {
 }
 
 beforeEach(() => {
-  createOrderMock.mockReset();
+  sendOrderMock.mockReset();
+  sendOrderMock.mockResolvedValue(accepted());
 });
 
 describe('OrderPanel — 매매 구분 · 단일 제출 버튼', () => {
@@ -183,7 +195,7 @@ describe('OrderPanel — 확인 다이얼로그 (되돌릴 수 없는 액션)', 
     await user.click(screen.getByRole('button', { name: '매수 주문' }));
 
     expect(await screen.findByText('매수 주문을 넣을까요?')).toBeInTheDocument();
-    expect(createOrderMock).not.toHaveBeenCalled();
+    expect(sendOrderMock).not.toHaveBeenCalled();
   });
 
   it('⑨ 다이얼로그 기본 포커스는 실행 버튼이 아니라 취소 버튼이다', async () => {
@@ -210,10 +222,10 @@ describe('OrderPanel — 확인 다이얼로그 (되돌릴 수 없는 액션)', 
 
   it('⑪ 확인은 한 번만 나간다 — 연타해도 호출 1회, 그 사이 버튼은 `주문 전송 중…`', async () => {
     const user = userEvent.setup();
-    let resolve: ((v: CreateOrderResponse) => void) | undefined;
-    createOrderMock.mockImplementation(
+    let resolve: ((v: RelayOrderResultMsg) => void) | undefined;
+    sendOrderMock.mockImplementation(
       () =>
-        new Promise<CreateOrderResponse>((r) => {
+        new Promise<RelayOrderResultMsg>((r) => {
           resolve = r;
         }),
     );
@@ -226,16 +238,19 @@ describe('OrderPanel — 확인 다이얼로그 (되돌릴 수 없는 액션)', 
     await user.click(confirmButton);
     await user.click(confirmButton); // 연타
 
-    expect(createOrderMock).toHaveBeenCalledTimes(1);
-    expect(createOrderMock).toHaveBeenCalledWith({
-      code: '042700',
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith({
+      kind: 'new',
+      // ★ 6자 단축코드가 아니라 12자 ISIN 이다 (D-02/D-28). 단축코드를 보내면 relay 가
+      //   종목을 못 풀어 「이 종목은 지금 주문할 수 없습니다」로 거부된다.
+      isin: ISIN,
       accountNo: '12345678-01',
       exchange: 'KRX',
       side: 'B',
-      orderType: 'N',
       qty: 100,
       price: 98_400,
     });
+    expect(sendOrderMock.mock.calls[0][0]).not.toHaveProperty('code');
 
     const submit = await screen.findByRole('button', { name: '주문 전송 중…' });
     expect(submit).toBeDisabled();
@@ -248,7 +263,7 @@ describe('OrderPanel — 확인 다이얼로그 (되돌릴 수 없는 액션)', 
 describe('OrderPanel — 결과 3분기 (접수 / 결과 모름 / 거부)', () => {
   it('⑫ 접수 응답은 중립 배너(role="status")에 주문번호를 싣는다', async () => {
     const user = userEvent.setup();
-    createOrderMock.mockResolvedValue(accepted());
+    sendOrderMock.mockResolvedValue(accepted());
     renderPanel();
     await fillQty(user, '100');
     await user.click(screen.getByRole('button', { name: '매수 주문' }));
@@ -258,9 +273,9 @@ describe('OrderPanel — 결과 3분기 (접수 / 결과 모름 / 거부)', () =
     expect(banner).toHaveTextContent('주문이 접수됐어요 · 주문번호 0000135842');
   });
 
-  it('⑬ 거부 응답은 경보 배너(role="alert")로 사유와 코드를 밝힌다', async () => {
+  it('⑬ 거부 응답은 경보 배너(role="alert")로 사유와 코드를 밝히고 재시도를 막지 않는다', async () => {
     const user = userEvent.setup();
-    createOrderMock.mockResolvedValue(
+    sendOrderMock.mockResolvedValue(
       accepted({ status: 'rejected', resultCode: -204, message: '호가 단위가 맞지 않습니다', orderNo: '' }),
     );
     renderPanel();
@@ -271,15 +286,19 @@ describe('OrderPanel — 결과 3분기 (접수 / 결과 모름 / 거부)', () =
     const banner = await screen.findByRole('alert');
     expect(banner).toHaveTextContent('주문이 거부됐어요 · 호가 단위가 맞지 않습니다');
     expect(banner).toHaveTextContent('코드 -204');
+    // 거부는 「나가지 않았음이 확실」하다 — 결과 모름과 달리 제출을 다시 연다.
+    expect(banner).toHaveTextContent('주문은 나가지 않았어요');
+    expect(screen.getByRole('button', { name: '매수 주문' })).toBeEnabled();
   });
 
-  it('⑭ ORDER_TIMEOUT 은 실패가 아니다 — "실패" 문구 없이 안내하고 재주문을 막는다 (T-15-48)', async () => {
+  it('⑭ `status:"timeout"` 은 실패가 아니다 — "실패" 문구 없이 안내하고 재주문을 막는다 (T-15-48 / S-8)', async () => {
     const user = userEvent.setup();
-    createOrderMock.mockRejectedValue(
-      new ApiClientError({
-        code: 'ORDER_TIMEOUT',
-        message: '주문 결과를 확인하지 못했습니다',
-        status: 502,
+    sendOrderMock.mockResolvedValue(
+      accepted({
+        status: 'timeout',
+        orderNo: '',
+        resultCode: -1,
+        message: '주문 결과를 확인하지 못했습니다. 미체결 목록을 확인해 주세요.',
       }),
     );
     renderPanel();
@@ -300,13 +319,20 @@ describe('OrderPanel — 결과 3분기 (접수 / 결과 모름 / 거부)', () =
     expect(screen.getByRole('button', { name: '매수 주문' })).toBeDisabled();
   });
 
-  it('⑮ SESSION_NOT_READY(409) 는 호가창을 먼저 열라고 안내한다', async () => {
+  it('⑮ 거부 사유는 relay/게이트웨이 문구를 **그대로** 보여 준다 (다음 행동이 그 문구에 있다)', async () => {
+    /*
+      wss 이관 전에는 server 가 준 에러 코드 7종으로 안내를 갈랐다. 이제 사유는 프레임의
+      `message` 한 줄이고 relay 가 다음 행동까지 담아 보낸다 — 화면이 그 문구를 고쳐 쓰면
+      실제 원인과 안내가 어긋난다. 그래서 제목은 사유 원문이고, 보조 줄은 모든 거부에
+      대해 참인 사실(「나가지 않았다」) 하나만 말한다.
+    */
     const user = userEvent.setup();
-    createOrderMock.mockRejectedValue(
-      new ApiClientError({
-        code: 'SESSION_NOT_READY',
-        message: '세션이 준비되지 않았습니다',
-        status: 409,
+    sendOrderMock.mockResolvedValue(
+      accepted({
+        status: 'rejected',
+        orderNo: '',
+        resultCode: -1,
+        message: '실시간 세션이 없습니다. 호가창을 먼저 열어 주세요.',
       }),
     );
     renderPanel();
@@ -315,10 +341,10 @@ describe('OrderPanel — 결과 3분기 (접수 / 결과 모름 / 거부)', () =
     await user.click(await screen.findByRole('button', { name: '매수 주문' }));
 
     const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('호가창을 먼저 열어 주세요');
     expect(banner).toHaveTextContent(
-      '주문은 호가창이 연결된 상태에서만 보낼 수 있어요. 페이지를 새로고침하면 다시 연결돼요.',
+      '주문이 거부됐어요 · 실시간 세션이 없습니다. 호가창을 먼저 열어 주세요.',
     );
+    expect(banner).toHaveTextContent('주문은 나가지 않았어요');
   });
 });
 
