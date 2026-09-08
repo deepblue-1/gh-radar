@@ -9,7 +9,7 @@ import { test, expect } from "@playwright/test";
  *
  * 검증:
  * - 로그인 상태로 /login 접근 → /scanner 리다이렉트 (D-12)
- * - AppSidebar nav (스캐너 / 관심종목)
+ * - AppSidebar nav (상승률 상위 / 관심종목)
  * - UserSection 팝오버 + 로그아웃 버튼
  */
 
@@ -21,9 +21,9 @@ test.describe("auth — 로그인된 사용자", () => {
     await expect(page).toHaveURL(/\/scanner/);
   });
 
-  test("AppSidebar 주 메뉴: 스캐너 + 관심종목 링크 노출", async ({ page }) => {
+  test("AppSidebar 주 메뉴: 상승률 상위 + 관심종목 링크 노출", async ({ page }) => {
     await page.goto("/scanner");
-    await expect(page.getByRole("link", { name: /스캐너/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /상승률 상위/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /관심종목/ })).toBeVisible();
   });
 
