@@ -38,26 +38,139 @@
  *   골라 돌려준다 — 승격 전 `wantedKeyRef` 지연 프레임 필터가 여기로 옮겨온 것이다.
  *   이 필터가 없으면 **종목 A 의 호가가 종목 B 화면에 떠서 그 가격으로 주문하는 사고**가
  *   난다(T-15-40).
+ *
+ * ⑦ ★ 주문은 여기서 **와이어 모양으로 번역된다** (16-10, D-02)
+ *   패널은 `{kind:"new"|"cancel", ...}` 라는 사람 말로 주문을 낸다. `rid` 생성과
+ *   `{t:"order.new"}`/`{t:"order.cancel"}` 조립은 **이 파일 한 곳**이다 — 패널마다
+ *   프레임을 조립하면 필드 하나가 어긋난 순간 그 화면에서만 주문이 조용히 거부된다.
+ *   `market` 은 싣지 않는다: relay 가 ISIN 으로 푼다(D-28 — 단축코드·시장 산술 유도 금지).
  */
 
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  type ReactNode,
+} from "react";
 
 import { useAuth } from "@/lib/auth-context";
 import {
+  localOrderResult,
   relayQuoteKey,
   useRelayConnection,
   type RelayConnectionState,
   type RelaySocketState,
 } from "@/lib/use-relay-socket";
 import type {
+  OrderSide,
   RelayExchange,
+  RelayOrderCancelMsg,
+  RelayOrderNewMsg,
   RelayOrderResultMsg,
   RelayQuote,
   RelayTapeEntry,
 } from "@gh-radar/shared";
 
-/** 컨텍스트 값 = 연결 표면 그대로. 별도 축을 만들지 않는다(두 벌이 갈리지 않게). */
-export type RelayContextValue = RelayConnectionState;
+/**
+ * 주문 1건 — **패널이 쓰는 모양**이다(와이어 모양이 아니다).
+ *
+ * `rid` 가 없는 것이 핵심이다. 상관 키를 호출부가 만들면 두 패널이 같은 값을 만들거나
+ * 재사용할 여지가 생기고, relay 는 같은 `rid` 를 중복 요청으로 **거부한다**(T-16-10).
+ * 생성처를 하나로 묶어 그 사고를 구조적으로 없앤다.
+ */
+export interface RelayOrderRequest {
+  /** `"new"` = 신규(지정가·보통), `"cancel"` = 미체결 취소. */
+  kind: "new" | "cancel";
+  /** 12자 ISIN — 게이트웨이 주문 키(D-28). 6자 단축코드가 아니다. */
+  isin: string;
+  exchange: RelayExchange;
+  /** 주문 계좌. 최종 대조는 relay 가 `session.allowedAccounts` 로 한다(T-16-01). */
+  accountNo: string;
+  /** 취소는 **미체결 잔량 전부**다(D-21 — 0 은 즉시 거부). */
+  qty: number;
+  price: number;
+  /** `kind:"new"` 필수. */
+  side?: OrderSide;
+  /** `kind:"cancel"` 필수 — 원주문번호. */
+  orgOrderNo?: string;
+}
+
+/**
+ * 컨텍스트 값 = 연결 표면 + **주문 번역기**.
+ *
+ * `sendOrder` 만 연결 훅의 것과 모양이 다르다(와이어 프레임 → 요청 객체). 나머지는
+ * 그대로 통과시킨다 — 별도 축을 만들면 두 벌이 갈린다.
+ */
+export type RelayContextValue = Omit<RelayConnectionState, "sendOrder"> & {
+  /**
+   * 주문 송신 + `rid` 상관 응답 대기 (D-02).
+   *
+   * **어떤 경로에서도 reject 하지 않는다.** 형식 오류·미연결·미응답이 전부
+   * `RelayOrderResultMsg` 로 돌아온다. 호출부에 `catch` 분기를 만들면 그 분기가
+   * 「실패」 문구를 쓰게 되고, 결과를 모르는 주문에 「실패」를 쓰는 순간 사용자가
+   * 재주문해 중복 체결이 난다(S-8 / Pitfall 9).
+   *  - `status:"rejected"` : 보내지 **않았음**이 확실하다 → 다시 시도해도 안전
+   *  - `status:"timeout"`  : **결과를 모른다** → 미체결 목록 확인, 재주문 금지
+   */
+  sendOrder: (req: RelayOrderRequest) => Promise<RelayOrderResultMsg>;
+};
+
+/** `crypto.randomUUID` 폴백의 단조 카운터. 같은 ms 안의 두 주문을 가른다. */
+let ridFallbackSeq = 0;
+
+/**
+ * 요청 상관 키. **유일해야 한다** — relay 는 같은 `rid` 를 중복 요청으로 거부하므로
+ * (T-16-10) 겹치면 정상 주문이 「같은 주문이 이미 처리 중」으로 조용히 막힌다.
+ *
+ * `crypto.randomUUID` 는 **보안 컨텍스트**(https/localhost)에서만 정의된다. 사내망 http
+ * 접속처럼 없는 환경이 실제로 존재하므로, 없으면 던지는 대신 시각 + 단조 카운터 + 난수로
+ * 만든다. 던지면 주문 버튼이 통째로 죽는다.
+ */
+function newRid(): string {
+  const uuid = globalThis.crypto?.randomUUID;
+  if (typeof uuid === "function") return globalThis.crypto.randomUUID();
+  ridFallbackSeq += 1;
+  return `rid-${Date.now().toString(36)}-${ridFallbackSeq}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * 요청 → 와이어 프레임. 형식이 어긋나면 **보내지 않고** 사유를 돌려준다.
+ *
+ * 왜 여기서 막는가: 필드가 빠진 주문을 그대로 흘리면 relay 가 거부하는데, 그 거부는
+ * 「게이트웨이가 거부했다」와 화면에서 구분되지 않는다. 나가지 않은 것이 확실한 실패는
+ * 여기서 확실하게 만든다.
+ */
+function buildOrderFrame(
+  req: RelayOrderRequest,
+  rid: string,
+): { ok: true; frame: RelayOrderNewMsg | RelayOrderCancelMsg } | { ok: false; reason: string } {
+  if (req.isin.length === 0) return { ok: false, reason: "주문 종목을 확인하지 못했어요." };
+  if (req.accountNo.length === 0) return { ok: false, reason: "주문 계좌를 선택해 주세요." };
+  // 취소 수량 0 은 게이트웨이가 즉시 거부한다(D-21). 왕복시키지 않는다.
+  if (!(req.qty > 0)) return { ok: false, reason: "주문 수량을 확인해 주세요." };
+  if (!(req.price > 0)) return { ok: false, reason: "주문 가격을 확인해 주세요." };
+
+  const common = {
+    rid,
+    isin: req.isin,
+    exchange: req.exchange,
+    qty: req.qty,
+    price: req.price,
+    accountNo: req.accountNo,
+  };
+
+  if (req.kind === "cancel") {
+    if (req.orgOrderNo == null || req.orgOrderNo.length === 0) {
+      return { ok: false, reason: "취소할 원주문번호를 확인하지 못했어요." };
+    }
+    return { ok: true, frame: { t: "order.cancel", ...common, orgOrderNo: req.orgOrderNo } };
+  }
+
+  if (req.side == null) return { ok: false, reason: "매수·매도 구분을 확인하지 못했어요." };
+  return { ok: true, frame: { t: "order.new", ...common, side: req.side } };
+}
 
 const NOOP = () => {};
 const EMPTY_QUOTES: ReadonlyMap<string, RelayQuote> = new Map();
@@ -91,15 +204,10 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   reconnect: NOOP,
   subscribe: NOOP,
   unsubscribe: NOOP,
-  sendOrder: async (msg): Promise<RelayOrderResultMsg> => ({
-    t: "order.result",
-    rid: msg.rid,
-    orderNo: "",
-    resultCode: -1,
-    // 보내지 **않았음**이 확실하다. 조용히 성공으로 위장하지 않는다(PC-7 무로그 fail-safe 금지).
-    message: "시세 서버에 연결돼 있지 않아 주문을 보내지 못했어요.",
-    status: "rejected",
-  }),
+  // 보내지 **않았음**이 확실하다. 조용히 성공으로 위장하지 않는다(PC-7 무로그 fail-safe 금지).
+  // `rid` 가 빈 문자열인 것도 사실 그대로다 — 요청을 만든 적이 없다.
+  sendOrder: async (): Promise<RelayOrderResultMsg> =>
+    localOrderResult("", "rejected", "시세 서버에 연결돼 있지 않아 주문을 보내지 못했어요."),
 };
 
 const RelayContext = createContext<RelayContextValue | null>(null);
@@ -112,7 +220,34 @@ const RelayContext = createContext<RelayContextValue | null>(null);
  */
 export function RelayProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const value = useRelayConnection({ enabled: user != null });
+  const connection = useRelayConnection({ enabled: user != null });
+  const { sendOrder: sendOrderFrame } = connection;
+
+  /*
+    요청 → 프레임 번역기. 대기 맵·타임아웃·단절 정산은 **연결 훅이 소유한다** —
+    소켓과 같은 곳에 있어야 「연결이 끊기면 대기 중인 주문을 전부 결과 모름으로 닫는다」가
+    한 경로로 처리된다. 여기서 두 번째 대기 맵을 만들면 그 정산이 한쪽에만 걸린다.
+  */
+  const sendOrder = useCallback(
+    (req: RelayOrderRequest): Promise<RelayOrderResultMsg> => {
+      const rid = newRid();
+      const built = buildOrderFrame(req, rid);
+      if (!built.ok) {
+        // 조용히 무시하지 않는다(PC-7). 계좌번호는 싣지 않는다(T-16-09).
+        console.error(
+          `[relay] 주문 요청 형식 오류 — ${built.reason} (kind=${req.kind}, isin=${req.isin})`,
+        );
+        return Promise.resolve(localOrderResult(rid, "rejected", built.reason));
+      }
+      return sendOrderFrame(built.frame);
+    },
+    [sendOrderFrame],
+  );
+
+  const value = useMemo<RelayContextValue>(
+    () => ({ ...connection, sendOrder }),
+    [connection, sendOrder],
+  );
 
   return <RelayContext value={value}>{children}</RelayContext>;
 }
