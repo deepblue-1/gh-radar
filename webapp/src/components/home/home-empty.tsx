@@ -7,7 +7,7 @@ import { Sparkles } from 'lucide-react';
  * 급등 없는 날(snapshot null 또는 themes+singles 모두 비어있음)의 첫 화면.
  * dashed-border 카드(border = color-mix(--primary 30%, --border)) + 원형 --accent 아이콘
  * (lucide Sparkles) + heading(--t-h4 800) + body(muted 14/400, max-w 44ch) +
- * secondary CTA "스캐너로 이동" → /scanner. role="status".
+ * secondary CTA "상승률 상위로 이동" → /scanner. role="status".
  */
 export function HomeEmpty() {
   return (
@@ -28,7 +28,7 @@ export function HomeEmpty() {
         href="/scanner"
         className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-[5px] text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] no-underline hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]"
       >
-        스캐너로 이동
+        상승률 상위로 이동
       </Link>
     </div>
   );

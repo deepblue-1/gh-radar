@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
  */
 export function ScannerSkeleton() {
   return (
-    <div aria-label="스캐너 로딩 중" aria-busy="true" role="status">
+    <div aria-label="상승률 상위 로딩 중" aria-busy="true" role="status">
       {/* 데스크톱 Table skeleton */}
       <div className="hidden lg:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]">
         <table className="w-full border-collapse">

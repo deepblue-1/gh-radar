@@ -19,7 +19,7 @@ export default function StockNotFound() {
             종목코드를 다시 확인해 주세요. (영문/숫자 1~10자, 예: 005930)
           </p>
           <Button asChild>
-            <Link href="/scanner">스캐너로 돌아가기</Link>
+            <Link href="/scanner">상승률 상위로 돌아가기</Link>
           </Button>
         </section>
       </main>

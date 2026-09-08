@@ -23,7 +23,7 @@ export interface AppShellProps {
 }
 
 /**
- * AppShell — UI-SPEC §4.1 (스캐너/대시보드 레이아웃).
+ * AppShell — UI-SPEC §4.1 (상승률 상위/대시보드 레이아웃).
  * - Desktop(>=lg): 56px top header + 240px left sidebar + 24px padding main
  * - Mobile(<lg): sidebar → `<Sheet side="left">` Drawer (햄버거 트리거)
  * - ESC / scrim 클릭 / 내부 nav 링크 클릭 시 자동 닫힘 (Radix Dialog 기본 + 외부 훅)

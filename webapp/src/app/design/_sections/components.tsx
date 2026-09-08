@@ -282,7 +282,7 @@ export function ComponentsSection() {
                 </SheetHeader>
                 <div className="p-[var(--s-4)] text-[length:var(--t-sm)]">
                   <ul className="space-y-2">
-                    <li>· 스캐너</li>
+                    <li>· 상승률 상위</li>
                     <li>· 관심 종목</li>
                     <li>· 설정</li>
                   </ul>

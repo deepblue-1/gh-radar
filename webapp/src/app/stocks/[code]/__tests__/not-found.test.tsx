@@ -15,7 +15,7 @@ describe('StockNotFound (/stocks/[code]/not-found.tsx)', () => {
       screen.getByRole('heading', { name: '종목을 찾을 수 없습니다' }),
     ).toBeInTheDocument();
     expect(screen.getByText(/영문\/숫자 1~10자, 예: 005930/)).toBeInTheDocument();
-    const cta = screen.getByRole('link', { name: '스캐너로 돌아가기' });
+    const cta = screen.getByRole('link', { name: '상승률 상위로 돌아가기' });
     expect(cta).toHaveAttribute('href', '/scanner');
   });
 });

@@ -11,7 +11,7 @@ import { ScannerSkeleton } from '@/components/scanner/scanner-skeleton';
  * `dynamic = 'force-dynamic'` 으로 useSearchParams 가 Suspense 경계를 요구하는
  * Next 15 제약을 충족한다 (Pitfall 1).
  *
- * Phase 06.2: `<AppSidebar />` 주입 — 스캐너/관심종목 nav + UserSection 팝오버 (D-16).
+ * Phase 06.2: `<AppSidebar />` 주입 — 상승률 상위/관심종목 nav + UserSection 팝오버 (D-16).
  */
 export const dynamic = 'force-dynamic';
 

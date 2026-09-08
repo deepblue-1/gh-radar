@@ -21,7 +21,7 @@ export default function NotFound() {
           요청하신 주소가 이동되었거나 존재하지 않습니다.
         </p>
         <Button asChild className="mt-2">
-          <Link href="/scanner">스캐너로 돌아가기</Link>
+          <Link href="/scanner">상승률 상위로 돌아가기</Link>
         </Button>
       </div>
     </CenterShell>

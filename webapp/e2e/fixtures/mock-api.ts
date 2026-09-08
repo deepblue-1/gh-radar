@@ -20,7 +20,7 @@ export {
  *
  * - `/api/stocks/search?q=...` → 고정 검색 결과 JSON
  * - `/api/stocks/:code` → 단일 종목 또는 404 (detailStatusByCode 로 강제 가능)
- * - `/api/scanner` → 빈 배열 (스캐너 페이지 진입 시 백엔드 부재로 인한 폴링 실패 차단)
+ * - `/api/scanner` → 빈 배열 (상승률 상위 페이지 진입 시 백엔드 부재로 인한 폴링 실패 차단)
  *
  * baseURL 는 webapp `NEXT_PUBLIC_API_BASE_URL` 설정(미설정 시 `http://localhost:8080`)에
  * 의존하므로 모든 route 는 `**` 로 host 와 무관하게 매칭한다.
@@ -99,7 +99,7 @@ export async function mockStockApi(
     },
   );
 
-  // /api/scanner — 스캐너 페이지 진입 시 API 부재로 인한 실패 차단
+  // /api/scanner — 상승률 상위 페이지 진입 시 API 부재로 인한 실패 차단
   await page.route('**/api/scanner*', async (route: Route) => {
     await route.fulfill({
       status: 200,

@@ -9,9 +9,9 @@ import { mockStockApi } from '../fixtures/mock-api';
  * VALIDATION:
  *   - `/` 가 홈("오늘의 급등 테마")을 렌더(더 이상 /scanner 로 302 리다이렉트하지 않음).
  *   - 날짜 네비(이전/다음/오늘) + 시점 pill 행 렌더.
- *   - 급등 없는 날 empty-state("오늘은 +15% 급등 종목이 없습니다" + "스캐너로 이동").
+ *   - 급등 없는 날 empty-state("오늘은 +15% 급등 종목이 없습니다" + "상승률 상위로 이동").
  *   - 사이드바 홈 nav item 이 `/` 에서 active(aria-current="page").
- *   - REGRESSION(T-13-12): /scanner 직접 접근 시 스캐너 UI 정상 렌더.
+ *   - REGRESSION(T-13-12): /scanner 직접 접근 시 상승률 상위 UI 정상 렌더.
  *
  * 데이터(급등)는 날마다 변동하므로 `/api/home` 을 결정론 mock 으로 고정(themes.spec 동형).
  * populated/empty 두 응답을 명시 주입해 라이브 데이터 부재로 하드 실패하지 않도록 한다.
@@ -79,7 +79,7 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     await expect(page.getByText(/15:30 · 마감/)).toHaveCount(0);
   });
 
-  test('/ — 급등 없는 날 empty-state("+15% 급등 종목이 없습니다" + 스캐너로 이동 CTA)', async ({
+  test('/ — 급등 없는 날 empty-state("+15% 급등 종목이 없습니다" + 상승률 상위로 이동 CTA)', async ({
     page,
   }) => {
     // empty 응답 명시 주입 — snapshot=null → HomeEmpty.
@@ -90,8 +90,8 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       page.getByText('오늘은 +15% 급등 종목이 없습니다'),
     ).toBeVisible({ timeout: 10_000 });
 
-    // "스캐너로 이동" CTA → /scanner Link.
-    const cta = page.getByRole('link', { name: '스캐너로 이동' });
+    // "상승률 상위로 이동" CTA → /scanner Link.
+    const cta = page.getByRole('link', { name: '상승률 상위로 이동' });
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute('href', '/scanner');
   });
@@ -190,15 +190,15 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     await expect(page).toHaveURL(/\/stocks\/000660$/);
   });
 
-  test('REGRESSION(T-13-12) — /scanner 직접 접근 시 스캐너 UI 정상 렌더', async ({
+  test('REGRESSION(T-13-12) — /scanner 직접 접근 시 상승률 상위 UI 정상 렌더', async ({
     page,
   }) => {
-    // 스캐너 페이지 진입 시 백엔드 부재로 인한 폴링 실패 차단(빈 배열 mock).
+    // 상승률 상위 페이지 진입 시 백엔드 부재로 인한 폴링 실패 차단(빈 배열 mock).
     await mockStockApi(page);
     await page.goto('/scanner');
 
     // / 가 더 이상 /scanner 로 302 리다이렉트하지 않음 → /scanner 는 직접 접근으로만 도달.
-    // 스캐너 UI(⌘K 검색 트리거 = AppShell nav)가 렌더되면 회귀 없음으로 판정.
+    // 상승률 상위 UI(⌘K 검색 트리거 = AppShell nav)가 렌더되면 회귀 없음으로 판정.
     await expect(page).toHaveURL(/\/scanner$/);
     await expect(
       page.getByLabel('종목 검색 열기').first(),

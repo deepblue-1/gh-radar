@@ -20,7 +20,7 @@ function AppShellMock() {
         {/* Sidebar */}
         <aside className="w-40 shrink-0 space-y-1 border-r border-[var(--border)] bg-[var(--muted)] p-2">
           <div className="rounded-[var(--r-sm)] bg-[var(--bg)] px-2 py-1 text-[length:var(--t-caption)] font-semibold">
-            · 스캐너
+            · 상승률 상위
           </div>
           <div className="px-2 py-1 text-[length:var(--t-caption)] text-[var(--muted-fg)]">· 관심 종목</div>
           <div className="px-2 py-1 text-[length:var(--t-caption)] text-[var(--muted-fg)]">· 설정</div>
@@ -63,7 +63,7 @@ export function LayoutsSection() {
           5. Layouts
         </h2>
         <p className="mt-1 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-          AppShell (스캐너/대시보드) + CenterShell (종목 상세). 인라인 mini-preview.
+          AppShell (상승률 상위/대시보드) + CenterShell (종목 상세). 인라인 mini-preview.
         </p>
       </div>
 
