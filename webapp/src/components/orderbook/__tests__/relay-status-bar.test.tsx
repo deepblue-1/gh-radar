@@ -157,6 +157,15 @@ describe('RelayStatusBar', () => {
     expect(screen.getByText('비밀번호 오류 3회')).toBeInTheDocument();
     expect(screen.queryByText('계정 상태를 확인한 뒤 페이지를 새로고침해 주세요.')).toBeNull();
   });
+
+  it('⑪ unauthorized 본문은 연결 상태를 말하고 게이트 제목 문구를 반복하지 않는다 (이관 10)', () => {
+    render(<RelayStatusBar status="unauthorized" messages={[]} />);
+
+    // 상태 바는 "지금 연결이 어떤 상태인가" 만 말한다.
+    expect(screen.getByText('실시간 연결을 시작하지 않았어요')).toBeInTheDocument();
+    // 권한 없음의 이유를 설명하는 제목은 게이트 카드(stock-orderbook-section) 전용이다.
+    expect(screen.queryByText('실시간 호가·주문 권한이 없어요')).toBeNull();
+  });
 });
 
 describe('OrderbookSkeleton', () => {

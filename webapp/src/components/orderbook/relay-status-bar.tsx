@@ -120,7 +120,11 @@ const STATUS_COPY: Record<RelayStatus, StatusCopy> = {
   unauthorized: {
     tone: 'none',
     label: RELAY_STATE_LABELS.unauthorized,
-    body: '실시간 호가·주문 권한이 없어요',
+    // 상태 바의 일은 "연결이 지금 어떤 상태인가" 를 말하는 것이다. 권한 없음의 **이유**를
+    // 설명하는 것은 게이트 카드 제목(`stock-orderbook-section.tsx` — UI-SPEC §게이트·에러·
+    // 빈 상태 표의 정본)의 몫이고, 같은 문구를 두 곳에 두면 어느 쪽이 정본인지 흐려진다
+    // (quick 260908-qnf · 이관 10). 다른 상태 body 와 같은 "연결 상태" 어투로 맞춘다.
+    body: '실시간 연결을 시작하지 않았어요',
     sub: '관리자에게 계정 연결을 문의해 주세요.',
   },
 };
