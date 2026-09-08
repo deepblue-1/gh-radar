@@ -114,10 +114,17 @@ verified: 2026-09-09
 
 ## Manual-Only Verifications
 
-> **실서버·실계좌 검증 미실시 (D-27 · `dma_credentials` 0행 · Phase 15 15-20 A안 승계).**
+> **실서버·실계좌 검증 미실시 (D-27 · Phase 15 15-20 A안 승계 · 2026-09-09 사용자 지시로 재확인).**
 > 이 phase 는 **mock 검증으로 종결**한다. 아래 항목은 사용자의 **명시 지시가 있을 때만**
 > 실행하며, 그때까지 「검증되지 않았다」가 이 표의 정확한 상태다 — 「통과했다」로 바꿔
 > 적지 않는다. 게이트웨이 주소·실계좌 리터럴은 spec·픽스처·주석 어디에도 없다.
+>
+> ⚠️ **사실 정정 (2026-09-09 16-17 Task 2 실측): `dma_credentials` 는 0행이 아니라 2행이다.**
+> 16-17-PLAN 과 이 문서의 이전 판이 「0행」을 근거로 삼았지만 실제로는
+> `2026-09-06T00:38Z`·`2026-09-08T08:26Z` 에 생성된 행이 각각 있다(Supabase service_role
+> 조회). 결론(실서버 미검증)은 그대로지만 **근거가 다르다** — 「자격증명이 없어서 못 한다」가
+> 아니라 「자격증명이 있어도 D-27 상 사용자 명시 지시 없이는 하지 않는다」다. 이 차이는
+> 아래 §Deployment Verification 의 relay `/healthz` degraded 관측을 설명하는 핵심이기도 하다.
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
@@ -138,8 +145,99 @@ verified: 2026-09-09
 - [x] Feedback latency < 60s (단위) / < 480s (E2E — 2.4분 실측)
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** 자동 검증 전량 green (2026-09-09, 16-17 Task 1).
-**배포는 별건이다** — 16-17 Task 2(relay → server → webapp 재배포 + smoke)는 `autonomous: false`
-체크포인트로 **사용자 승인 대기 중**이며, 이 문서의 green 은 「로컬에서 코드가 옳다」까지만
-말한다. 프로덕션 리비전 상태(특히 server 의 `RELAY_INTERNAL_URL`·`ORDER_TIMEOUT_MS`·
-`RELAY_ORDER_SECRET` 바인딩 제거)는 아직 확인되지 않았다.
+**Approval:** 자동 검증 전량 green (2026-09-09, 16-17 Task 1) + 배포 3종 실행 완료
+(2026-09-09, 16-17 Task 2 — 사용자 「배포 승인」). 아래 §Deployment Verification 이 정본이다.
+
+---
+
+## Deployment Verification (2026-09-09, 16-17 Task 2)
+
+사용자 응답: **「배포 승인 — Claude가 배포 3종 실행」**, 실서버·실계좌 검증은 **미실시**.
+순서는 의존 방향대로 **relay → server → webapp**.
+
+### 배포 산출물
+
+| 대상 | 산출물 | 확인 |
+|------|--------|------|
+| relay | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:4b6d792` · VM `radar-gw` 컨테이너 `gh-radar-relay` | 기동 직후 VM 로컬 `/healthz` 200 `{"status":"ok","vpn":true,"dma":true,"version":"4b6d792","sessionCount":0}` · 메모리 54MiB/384MiB |
+| server | 이미지 `server:99fdf15` -> 리비전 `gh-radar-server-00041-nsc` -> **제거 적용 후 `gh-radar-server-00042-p78`** (100% 트래픽) | `GET /api/health` -> `{"status":"ok","version":"99fdf15"}` |
+| webapp | Vercel `dpl_5Zw2zNAv5HQ9EHJsaC31fJ3WZtRw` (`gh-radar-webapp-mwxn21lpz-...`) · alias `https://gh-radar-webapp.vercel.app` 결선 | 수동 `vercel pull` -> `build` -> `deploy --prebuilt` (ignoreCommand 우회) |
+
+### smoke 결과 (실측)
+
+| 스모크 | 결과 |
+|--------|------|
+| `scripts/smoke-relay.sh` | **PASS 11 · FAIL 1 · SKIP 1** — FAIL 은 `INV-5a 공개 /healthz`(아래 §열린 항목 1) · SKIP 은 `INV-9`(`SMOKE_AUTH_TOKEN` 미설정) |
+| `scripts/smoke-server.sh` (제거 적용 **전**) | PASS 14 · FAIL 1 — `INV-12c RELAY_ORDER_SECRET 바인딩 잔존` (예상된 경로: `--update-secrets` 는 병합이라 배포만으로는 안 사라진다) |
+| `scripts/smoke-server.sh` (제거 적용 **후**) | 전량 통과 — **PASS 15 · FAIL 0 · SKIP 0** |
+
+### T-16-08 — server 리비전의 relay 결선 제거 (실측 확인)
+
+```
+gcloud run services update gh-radar-server --region=asia-northeast3 \
+  --remove-env-vars=RELAY_INTERNAL_URL,ORDER_TIMEOUT_MS \
+  --remove-secrets=RELAY_ORDER_SECRET      -> gh-radar-server-00042-p78
+```
+
+`gcloud run services describe` 로 되읽은 `00042-p78` 의 env 이름 **17종**에 다음이 **0건**:
+
+| 키 | 배포 전(`00040-gqw`) | 배포 후(`00042-p78`) |
+|----|---------------------|---------------------|
+| `RELAY_INTERNAL_URL` | 있음 (`http://10.10.0.5:8091`) | **없음** |
+| `ORDER_TIMEOUT_MS` | 있음 (`5000`) | **없음** |
+| `RELAY_ORDER_SECRET` | 있음 (secret 바인딩) | **없음** |
+
+**Secret Manager 의 `gh-radar-relay-order-secret` 은 살아 있다** — `state=ENABLED` 버전 1개
+확인. relay 가 `/healthz` 공유 비밀 관문에 계속 쓰므로 삭제하면 relay 부팅이 깨진다.
+
+### 프로덕션 라우트 (신규 3표면)
+
+| 경로 | 미인증 응답 | 판정 |
+|------|-------------|------|
+| `/me` | `307 -> /login?next=%2Fme` (따라가면 200) | 계약대로 |
+| `/trading/vi` | `307 -> /login?next=%2Ftrading%2Fvi` (따라가면 200) | 계약대로 |
+| `/trading/limit-chaser/new` | `307 -> /login?next=%2Ftrading%2Flimit-chaser%2Fnew` (따라가면 200) | 계약대로 |
+| `/` | 200, `nav[aria-label="주 메뉴"]` + `data-nav-item` 렌더 | 사이드바 트리 반영 |
+
+> 16-17-PLAN 의 acceptance 는 「프로덕션 3라우트가 200」이라고 적었지만 **미인증 200 은
+> 오히려 실패**다 — 16-11 T3 의 auth-guard 계약이 비로그인에 트레이딩·My page 를 렌더하지
+> 않기를 요구한다(T-16-04). 실측값 307 -> login -> 200 이 그 계약을 만족하는 정답이며, 표현을
+> 「200」에서 「인증 게이트를 통과해 도달 가능」으로 정정해 기록한다. 로그인 상태의 화면
+> 확인은 위 §Manual-Only 로 남는다.
+
+### 열린 항목 1 — relay 공개 `/healthz` 가 503(degraded)이다
+
+`INV-5a` 가 FAIL 인 유일한 항목이고, **이번 배포가 만든 회귀가 아니다.**
+
+```
+GET https://dma.jx1.io/healthz -> 503
+{"status":"degraded","vpn":true,"dma":false,"version":"4b6d792","sessionCount":1}
+```
+
+원인 사슬(전부 실측):
+
+1. `dma_credentials` 가 **2행**이다(위 사실 정정) -> 로그인 사용자가 붙으면 relay 가 그
+   사용자의 DMA 세션을 만든다. 컨테이너 로그에 `userId b1e20b81...` 세션이 있다.
+2. `DMA_HOST` 는 D-27 상 **로컬 mock `127.0.0.1:9100`** 인데 VM 에 그 mock 이 떠 있지 않다
+   -> `connect ECONNREFUSED` 무한 재접속(백오프 30초 상한, `escalated:false`).
+3. `/healthz` 판정은 `sessionsOk = sessionCount === 0 || readyCount > 0` 다(15-05 결정).
+   세션 1 · Ready 0 -> `degraded` -> **503** -> uptime check 적색 -> `gh-radar-relay-down` 발화.
+
+**회귀가 아닌 근거 2가지:**
+
+- 판정 로직이 Phase 16 에서 **한 줄도 바뀌지 않았다** (`git diff 4734986..HEAD --
+  relay/src/order/order-api.ts` 의 `healthy`/`sessionsOk` 관련 증감 0).
+- 같은 상태가 **이전에도 있었다**. uptime check 3일 이력에서 100% 미만 구간은
+  `2026-09-06 01:30~04:30Z`(=10:30~13:30 KST 장중, `dma_credentials` 첫 행 생성 직후)와
+  이번 배포 시점뿐이다. 즉 「접속자가 있고 게이트웨이가 없으면 503」은 재발형 상시 조건이다.
+
+**다만 이번 webapp 배포가 트리거 표면을 넓힌다.** Phase 16 이 `RelayProvider` 를 루트
+레이아웃으로 올려 `enabled: user != null` 로 연결한다(신규 `webapp/src/lib/relay-provider.tsx`).
+이전에는 호가주문 탭에서만 세션이 열렸지만 이제 **로그인만 하면 어느 페이지에서든** 열린다.
+게이트웨이가 없는 동안에는 그만큼 503 구간이 길어진다.
+
+**손대지 않은 이유:** 해법 후보가 전부 결정 사항이다 — (1) VM 에 mock 게이트웨이 상주,
+(2) 실서버(10.41.1.120) 결선(**D-27 상 금지, 이번 사용자 지시로도 명시 배제**),
+(3) degraded 판정에서 「한 번도 Ready 였던 적 없는 세션」 제외(15-05 계약 변경),
+(4) 알림 정책 조정. 실행자가 단독으로 고를 문제가 아니라 사용자 결정이 필요하다
+(deviation Rule 4). `deferred-items.md` §16-17 에 같은 내용을 남겼다.

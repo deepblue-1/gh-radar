@@ -65,3 +65,16 @@ Map 하단 표에 있다. 요약: **접근성 위반 1건(진짜 결함) + 스�
 | `use-relay-socket.ts` 의 `clockStamp()` | 16-13 이 기록한 `toLocaleTimeString("ko-KR", {hour12:false})` → Chromium 에서 `0시 57분 16초`. **여전히 그대로다.** 16-17 은 a11y 만 확장했고 Phase 15 표면인 `use-relay-socket`·`relay-status-bar` 를 손대지 않았다. 단위 테스트로는 영원히 안 잡히는 종류(jsdom 은 `00:57:16`)이므로, 고치는 quick 은 **브라우저 단언(E2E)** 을 함께 넣어야 한다. |
 | `webapp/e2e/**` 외 검사 사각지대 | 16-17 이 `tsconfig.e2e.json` 으로 e2e 를 typecheck 에 편입했다. relay `tests/` 는 여전히 루트 `typecheck` 밖이며 `pnpm --filter @gh-radar/relay run typecheck:tests` 를 따로 돌려야 한다 — 통합할지는 relay 소관 quick 에서 결정. |
 | 미체결 표 6열 전환 (UI-SPEC B7) | 16-14 가 넘긴 그대로. 3표면 공용 표라 E2E 3개를 함께 고쳐야 한다. |
+
+## 16-17 Task 2 — 배포 후 (2026-09-09)
+
+배포 3종(relay -> server -> webapp)을 실행하며 드러난 것들. 전부 **이 plan 의 변경이 원인이
+아니고**, 고치려면 사용자 결정이 필요하다.
+
+| 대상 | 내용 |
+|------|------|
+| **relay 공개 `/healthz` 503 (degraded)** | `dma_credentials` 2행 + 로그인 세션 1건 + `DMA_HOST` 가 뜨지 않은 로컬 mock(`127.0.0.1:9100`) -> `readyCount 0` -> `degraded` -> 503 -> uptime check 적색 -> `gh-radar-relay-down` 발화. 판정 로직은 15-05 결정 그대로이고 Phase 16 이 손대지 않았다(차분 0). uptime 3일 이력상 `2026-09-06 10:30~13:30 KST` 에도 같은 구간이 있었던 **재발형 상시 조건**이다. **다만 Phase 16 이 `RelayProvider` 를 루트 레이아웃으로 올려(`enabled: user != null`) 트리거 표면이 「호가주문 탭」에서 「로그인한 모든 페이지」로 넓어졌다** — 게이트웨이가 없는 동안 503 구간이 길어진다. 해법 후보 4개(VM 에 mock 상주 / 실서버 결선(D-27 금지) / degraded 판정에서 「한 번도 Ready 인 적 없는 세션」 제외 / 알림 정책 조정)가 전부 결정 사항이라 실행자가 단독으로 고르지 않았다. 상세는 `16-VALIDATION.md` §Deployment Verification 열린 항목 1. |
+| **`dma_credentials` 0행 전제가 틀렸다** | 16-17-PLAN·16-VALIDATION 이전 판·`smoke-relay.sh` INV-9 의 SKIP 사유가 모두 「`dma_credentials` 0행」을 근거로 삼는다. 실측은 **2행**(2026-09-06·2026-09-08 생성). 결론(실서버 미검증)은 안 바뀌지만 근거 문장이 틀렸으므로 인용할 때 주의. VALIDATION 은 정정했고 **`smoke-relay.sh` 의 INV-9 주석은 손대지 않았다**(이 plan 의 `files_modified` 밖이고, 그 SKIP 판정 자체는 「토큰 없음」이 실제 사유라 동작은 옳다). |
+| **`GET /api/orders?date=<오늘>` 의 200 확인 미실시** | 미인증은 `401 UNAUTHENTICATED` 로 라우트 생존과 관문을 확인했다(smoke INV-11). 200 경로는 로그인 토큰(`SMOKE_AUTH_TOKEN`)이 있어야 하는데 실행자에게 없고 자격증명을 새로 만들지 않았다. 브라우저 로그인 상태의 확인은 §Manual-Only 소관. |
+| **`smoke-relay.sh` INV-9 는 여전히 SKIP** | `SMOKE_AUTH_TOKEN` 미설정. 다만 이 검사는 `POST /api/orders` 로 도달성을 재는데 **그 라우트가 16-16 에서 사라졌다** — 지금 이 프로브는 무조건 404 를 받아 `inconclusive` 로 떨어진다. 즉 토큰을 넣어도 의미가 없다. 도달성 판정의 새 근거(예: relay wss 주문 왕복)로 갈아끼우는 것은 relay 스코프 quick 소관. |
+| `surface-placeholder.tsx` 죽은 코드 | 그대로 남아 있다(위 16-17 절과 동일 사유 — 계획 밖 파일). |
