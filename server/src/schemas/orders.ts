@@ -19,7 +19,13 @@ import { SHORT_CODE_RE } from "@gh-radar/shared";
  */
 
 /**
- * `POST /api/orders` 바디.
+ * 주문 접수 바디 스키마.
+ *
+ * ⚠️ **더 이상 어떤 라우트에도 결선돼 있지 않다** (Phase 16 Plan 16 / D-02). `POST
+ * /api/orders` 는 제거됐고 접수 형식 검사의 정본은 relay 의 `RelayOrderNewSchema`
+ * (16-03)다. 이 스키마가 남은 이유는 `__tests__/stockCode.test.ts` 의 KRX 영문 포함
+ * 단축코드 회귀(quick-260908-fis)가 여기에 걸려 있어서다 — **이 값을 새 경로의 근거로
+ * 쓰지 말 것.** 두 벌이 되는 순간 한쪽만 고쳐진다.
  *
  * `orderType:"C"`(취소)는 원주문번호가 필수다 — `superRefine` 이 그 조합을 강제한다.
  * 취소 수량은 미체결 잔량 전부이며 0 은 스키마가 먼저 막는다 (D-21 / Pitfall 7).

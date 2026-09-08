@@ -1,47 +1,38 @@
 /**
- * Phase 15 Plan 18 — DMA 주문 REST 클라이언트 (RELAY-02, D-08).
+ * Phase 16 Plan 16 — DMA 주문 **조회** REST 클라이언트 + 결과 판정 유틸 (D-02 / D-03).
  *
  * ① 무엇을 하는가
- *   `POST /api/orders`(신규·취소)와 `GET /api/orders`(오늘 주문 목록)를 감싼다.
- *   주문은 **REST 전용**이다 — wss 소켓은 구독 제어만 하고 주문을 싣지 않는다(D-08).
+ *   `GET /api/orders`(오늘 주문 목록)를 감싸고, 주문 결과 3분류의 경계를 판정한다.
  *
- * ② 왜 `chat-api.ts` 의 `authFetch` 를 복제하는가
- *   서버 주문 라우트는 `requireAuth()` 뒤에 있고(15-17), 세션 토큰 부착 방식은 챗과 동일하다.
- *   공용 헬퍼로 추출하지 않는 이유는 두 모듈의 타임아웃 정책이 다르기 때문이다(아래 ③).
+ * ② ★ **주문 접수는 여기에 없다** (D-02)
+ *   신규·취소는 relay wss 하나로 나간다 — `useRelayContext().sendOrder({kind})`
+ *   (16-09 대기 맵 · 16-10 프레임 번역). `createOrder(POST /api/orders)` 와 그 전용
+ *   타임아웃 상수는 이 plan 에서 제거했다. 접수 경로가 둘이면 같은 `dma_orders` 행을
+ *   REST 와 wss 가 서로 다른 셀렉터로 다투게 되고 화면의 주문 상태가 갈린다 (T-16-11).
  *
- * ③ ★ 타임아웃 경계 (이 파일에서 가장 중요한 숫자)
- *   server 는 relay 왕복을 **5초**(`ORDER_TIMEOUT_MS`) 기다리고, relay 클라이언트는 거기에
- *   여유 0.5초를 더해 **5.5초**까지 기다린다(15-17). 즉 서버가 답을 주기까지 최대 5.5초 +
- *   자체 처리 시간이 걸린다. `lib/api.ts` 의 기본 타임아웃은 **8초**라 경계가 아슬아슬하다 —
- *   브라우저가 8초에 먼저 끊으면 서버는 정상 응답을 만들고 있는데 화면만 "결과 모름"이 된다.
- *   그래서 주문 호출만 **9초**를 명시한다(5.5초 + 서버 처리·네트워크 여유 3.5초).
- *   ⚠️ 서버의 5초를 늘리면 이 값도 함께 늘려야 한다. 두 숫자는 한 쌍이다.
+ *   상관 대기 상한도 wss 로 옮겨졌다 — `use-relay-socket.ts` 의
+ *   `ORDER_RESULT_BACKSTOP_MS`(10초 백스톱)이 정본이고, relay 는 그 앞에서 5초에
+ *   `status:"timeout"` 을 반드시 돌려준다(16-08). 여기에 두 번째 숫자를 두지 않는다.
+ *
+ * ③ 왜 `chat-api.ts` 의 `authFetch` 를 복제하는가
+ *   조회 라우트는 `requireAuth()` 뒤에 있고(16-16), 세션 토큰 부착 방식은 챗과 동일하다.
  *
  * ④ ★ 실패와 "결과 모름"을 절대 합치지 않는다 (15-RESEARCH Pitfall 9)
  *   주문 결과는 세 가지다 — **접수(안다) / 결과 모름 / 거부(안 나갔다)**.
  *   `isUnknownOutcome()` 이 그 경계를 판정하는 **단 하나의 지점**이며, UI 는 이 값이 true 면
  *   "실패"라는 단어를 쓰지 않고 재주문 버튼도 열지 않는다. 결과를 모르는 주문을 실패로
  *   렌더하면 사용자가 같은 주문을 한 번 더 내고, 그것이 이 Phase 전체에서 가장 비싼 사고다.
+ *   접수 경로가 wss 로 옮겨져도 이 규율과 코드 목록은 **그대로 남는다** — 판정 대상이
+ *   `ApiClientError` 든 `order.result` 프레임이든 경계의 정의는 같기 때문이다.
  */
 
-import type {
-  CreateOrderRequest,
-  CreateOrderResponse,
-  DmaOrderRow,
-} from "@gh-radar/shared";
+import type { DmaOrderRow } from "@gh-radar/shared";
 
 import { apiFetch, ApiClientError, type ApiFetchInit } from "./api";
 import { createClient } from "./supabase/client";
 
 /**
- * 주문 REST 호출의 클라이언트 타임아웃(ms).
- * server 5초 대기 + relay 클라이언트 0.5초 여유 = 5.5초보다 **길어야 한다**(15-17 인계 ③).
- * `lib/api.ts` 기본값(8,000ms)을 덮어쓴다.
- */
-export const ORDER_REQUEST_TIMEOUT_MS = 9_000;
-
-/**
- * server 가 주문 경로에서 돌려주는 에러 코드 7종 (15-17 인계 ①).
+ * 주문 경로가 돌려주는 에러 코드 8종 (15-17 인계 ①).
  * UI 는 이 코드로만 분기하고 HTTP status 로 분기하지 않는다 —
  * `RELAY_UNAVAILABLE` 처럼 코드 하나에 상태가 둘(502·503)인 경우가 있다.
  */
@@ -61,9 +52,9 @@ export type OrderErrorCode = (typeof ORDER_ERROR_CODES)[number];
 /**
  * **결과를 모르는** 실패 코드. 이 코드들은 "주문이 이미 나갔을 수 있다"를 뜻한다.
  *
- * - `ORDER_TIMEOUT` — server 가 relay 응답을 못 받았다. 게이트웨이까지 갔을 수 있다(15-17).
- * - `TIMEOUT` — 브라우저가 9초 안에 응답을 못 받았다. 요청은 이미 나갔다.
- * - `NETWORK_ERROR` — fetch 자체가 깨졌다. **연결 전에 깨졌는지 후에 깨졌는지 구별할 수
+ * - `ORDER_TIMEOUT` — relay 가 첫 통보를 5초 안에 못 받았다. 게이트웨이까지 갔을 수 있다.
+ * - `TIMEOUT` — 브라우저가 백스톱 안에 응답을 못 받았다. 요청은 이미 나갔다.
+ * - `NETWORK_ERROR` — 전송 자체가 깨졌다. **연결 전에 깨졌는지 후에 깨졌는지 구별할 수
  *   없다.** 구별할 수 없으면 안전한 쪽(모름)으로 떨어뜨린다 — 15-17 이 세운
  *   "애매하면 실패가 아니라 결과 모름" 규율을 브라우저에서도 그대로 적용한다.
  */
@@ -101,23 +92,8 @@ async function authFetch<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
 }
 
 /**
- * 주문을 낸다. `orderType:"N"` 은 신규, `"C"` 는 취소(원주문번호 + 미체결 잔량 전부).
- *
- * ⚠️ 종목 키(12자 ISIN)는 **보내지 않는다**. 브라우저가 주문 대상을 정하면 화면에 보이는
- *    종목과 실제로 나가는 주문이 어긋날 수 있으므로, server 가 6자 단축코드로 `stocks` 를
- *    조회해 채운다(D-28 · T-15-50). 이 함수의 시그니처가 그 계약이다.
- */
-export function createOrder(req: CreateOrderRequest): Promise<CreateOrderResponse> {
-  return authFetch<CreateOrderResponse>("/api/orders", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(req),
-    timeoutMs: ORDER_REQUEST_TIMEOUT_MS,
-  });
-}
-
-/**
  * 오늘(또는 지정일) 주문 목록. 응답은 **bare array** 이고 원소는 `DmaOrderRow` 다(15-17).
+ * 새로고침 후 미체결·체결 목록을 복원하는 경로다 (D-03/D-24).
  * @param date `YYYY-MM-DD` (KST 기준). 생략하면 서버가 오늘로 해석한다.
  */
 export function listOrders(date?: string): Promise<DmaOrderRow[]> {
@@ -148,4 +124,4 @@ export function isUnknownOutcome(err: unknown): boolean {
   return UNKNOWN_OUTCOME_CODES.has(orderErrorCode(err));
 }
 
-export type { CreateOrderRequest, CreateOrderResponse, DmaOrderRow };
+export type { DmaOrderRow };
