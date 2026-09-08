@@ -16,8 +16,11 @@
  *   5. 매핑 있음 → `sessions.acquire` → 현재 상태 프레임을 **즉시 1회** 전송.
  *      브라우저는 이 프레임을 인증 ACK 로 삼아 구독을 시작한다(15-12 `use-relay-socket`
  *      계약). 이 프레임을 빠뜨리면 브라우저는 영원히 구독하지 않는다
- *   6. sub → 참조계수 +1, 스냅샷 캐시가 있으면 그 소켓에 즉시 전송 (D-37)
- *   7. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
+ *   6. 인증 직후 **계좌 스냅샷 + 전략 스냅샷 3프레임**을 그 연결로 내린다 (D-12/D-23/D-37).
+ *      브라우저는 이것을 요청하지 않는다 — 구독을 기다리면 아무 종목도 열지 않은 탭이
+ *      영원히 빈 잔고·빈 전략 목록을 본다
+ *   7. sub → 참조계수 +1, 스냅샷 캐시가 있으면 그 소켓에 즉시 전송 (D-37)
+ *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
  *
  * 결정 근거:
  *   T-15-02  팬아웃 대상은 `Map<userId, …>` 로만 고른다. **전역 브로드캐스트 함수를
@@ -32,9 +35,20 @@
  *   D-35     perMessageDeflate 는 기본값 `true` 를 쓰지 않는다. `ws` README 가 Linux 에서의
  *            메모리 단편화를 명시적으로 경고하고, 이 프로세스는 e2-micro(1GB) 위에서 돈다.
  *   D-36     세션 상태와 `ServerMessage(54)` 는 상태 프레임/`{t:"msg"}` 로 그대로 흘린다.
+ *   D-01     전략 4종(`lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`)을 **이 소켓으로**
+ *            받아 그 사용자의 DMA 세션으로 보낸다. 「누가 무엇을 보낼 수 있는가」의 게이트가
+ *            여기다 — 통과한 바이트는 실계좌 전략 등록이 된다.
+ *   T-16-01  전략의 `accountNo` 는 **`session.allowedAccounts` 하나만** 근거로 대조한다.
+ *            상태 프레임의 계좌 사본이나 인바운드 바디를 믿으면 IDOR 이 그대로 열린다.
+ *   T-16-06  전략·주문 인바운드는 server 의 `apiRateLimiter` 를 **우회하는 새 경로**다.
+ *            연결당 초당 상한(토큰 버킷)을 relay 가 직접 갖는다.
  *
  * 하지 않는 것:
- *   - 주문을 받지 않는다 (D-08). 주문은 Cloud Run server 의 REST 전용이다.
+ *   - 전략 요청의 결과를 기다리지 않는다. 반영은 60/61/64/65 에코로 오고 Hub 가
+ *     `#deliver(userId)` 로 그 사용자의 전 연결에 팬아웃한다 (D-11/D-12). 요청/응답
+ *     상관(`rid`)은 주문만 한다.
+ *   - 주문은 아직 받지 않는다. `order.new`/`order.cancel` 핸들러는 16-08 이 같은 자리에
+ *     붙인다 (D-02).
  *   - 구독 상태를 소유하지 않는다. 참조계수·캐시의 정본은 `SubscriptionHub` 다.
  *   - 자격증명을 캐시하지 않는다. 매 인증마다 조회한다 — 등록 해제가 즉시 반영돼야 한다.
  */
@@ -44,7 +58,13 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RELAY_WS_CLOSE } from "@gh-radar/shared";
-import type { RelayExchange, RelayInbound, RelayOutbound, RelayStateMsg } from "@gh-radar/shared";
+import type {
+  RelayExchange,
+  RelayInbound,
+  RelayOutbound,
+  RelayServerMsg,
+  RelayStateMsg,
+} from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import { verifyToken } from "../auth/verify-token.js";
@@ -52,6 +72,14 @@ import { getDmaCredentials } from "../store/credentials.js";
 import type { SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials } from "../dma/session-manager.js";
+import {
+  OrderBuildError,
+  buildConfirmVIOrderReq,
+  buildDisableStrategiesReq,
+  buildSetLimitChaserReq,
+  buildSetVITriggerReq,
+  maskAccountNo,
+} from "../dma/envelope.js";
 import { encode, parseInbound } from "./protocol.js";
 
 // ============================================================
@@ -75,6 +103,27 @@ export const BACKPRESSURE_STRIKES = 3;
 
 /** 업그레이드를 받아들이는 경로. 브라우저(`relay-url.ts`)가 쓰는 값과 같아야 한다. */
 export const DEFAULT_WS_PATH = "/ws";
+
+/**
+ * 인증된 연결 1개가 보낼 수 있는 **초당 인바운드 프레임 수** (T-16-06).
+ *
+ * 재량 상한이다. 사람의 조작(구독 전환·전략 저장·주문)이 초당 10건을 넘을 이유가 없고,
+ * 넘는다면 그것은 폭주하는 클라이언트다. 전략·주문은 server 의 `apiRateLimiter` 를 타지
+ * 않으므로 여기가 유일한 상한이다 — 상수로 내보내 테스트가 값을 참조한다.
+ */
+export const INBOUND_RATE_LIMIT_PER_SEC = 10;
+
+/** 토큰 버킷 용량 = 초당 상한. 순간 버스트도 같은 값으로 묶는다. */
+export const INBOUND_RATE_BURST = INBOUND_RATE_LIMIT_PER_SEC;
+
+/**
+ * relay 가 만든 거부 통지의 `src` 값.
+ *
+ * 게이트웨이의 `ServerMessage(54)` 와 **같은 슬롯**(`{t:"msg"}`)을 쓰되 발신자를 가른다 —
+ * 브라우저의 VI 주인 판정이 `src === "Account" ∧ i === ""` 이라(Pitfall 9), 게이트웨이 값을
+ * 흉내 내면 relay 의 거부가 VI 통지로 오독된다.
+ */
+export const RELAY_MSG_SOURCE = "Relay";
 
 /**
  * `ws` README 권고 기반 압축 튜닝 (D-35).
@@ -101,6 +150,13 @@ const PERMESSAGE_DEFLATE = {
 export interface FanoutSessions {
   acquire(userId: string, creds: DmaCredentials): DmaSession;
   release(userId: string): void;
+  /**
+   * 전략(그리고 16-08 의 주문) 인바운드가 쓰는 세션 조회 — `SessionManager.get` 그대로다.
+   *
+   * `acquire` 와 갈라 두는 이유: **여기서 대신 로그인하지 않는다** (D-15). 세션이 없다는 것은
+   * 「호가창을 아직 열지 않았다」이고, 그 상태의 전략 요청은 만들어 주는 것이 아니라 거부다.
+   */
+  get(userId: string): DmaSession | undefined;
 }
 
 export type WsFanoutDeps = {
@@ -154,7 +210,24 @@ type Conn = {
   keys: Map<string, { isin: string; ex: RelayExchange }>;
   /** 백프레셔 연속 초과 횟수. 정상 전송이 성공하면 0 으로 되돌린다. */
   overflows: number;
+  /** 인바운드 토큰 버킷 잔량. 경과 시간에 비례해 차므로 소수를 허용한다 (T-16-06). */
+  rateTokens: number;
+  /** 버킷을 마지막으로 보충한 시각(epoch ms). */
+  rateRefilledAtMs: number;
+  /** 이 초과 구간에서 경고를 이미 남겼는가 — 연속 경고 폭주를 1회로 묶는다. */
+  rateWarned: boolean;
 };
+
+/**
+ * relay 발 거부 통지 1건. 게이트웨이 통지와 같은 `{t:"msg"}` 슬롯이고 `src` 만 다르다.
+ *
+ * **조용한 거부를 만들지 않기 위한 프레임**이다 (PC-7). 전략은 서버가 거부를 응답 코드로
+ * 주지 않으므로(Pitfall 8), relay 단계에서 막았다는 사실을 말해 주지 않으면 사용자에게는
+ * 「눌렀는데 아무 일도 일어나지 않음」으로만 보인다.
+ */
+function rejectFrame(reason: string, accountNo = "", isin = ""): RelayServerMsg {
+  return { t: "msg", lv: "ERROR", m: reason, i: isin, a: accountNo, src: RELAY_MSG_SOURCE, kind: "" };
+}
 
 /** 사용자 1명의 팬아웃 대상 집합. */
 type UserEntry = {
@@ -296,6 +369,9 @@ export class WsFanout {
       authTimer: null,
       keys: new Map(),
       overflows: 0,
+      rateTokens: INBOUND_RATE_BURST,
+      rateRefilledAtMs: Date.now(),
+      rateWarned: false,
     };
     this.#conns.add(conn);
 
@@ -397,9 +473,28 @@ export class WsFanout {
     // 무관하므로 `sub` 을 기다리지 않는다 — 기다리면 아무 종목도 열지 않은 탭이
     // 영원히 빈 잔고를 본다. 캐시가 없으면(첫 세션) 곧 오는 66 스냅샷이 채운다.
     for (const acct of this.#hub.getAccountStates(userId)) this.#send(conn, acct);
+
+    // 전략 스냅샷도 **같은 이유로 구독을 기다리지 않는다** (D-12). 상따·VI 는 계좌 단위라
+    // 종목과 무관하고, 브라우저는 이것을 따로 요청하지도 않는다 — 기다리면 아무 종목도
+    // 열지 않은 탭이 영원히 스켈레톤을 본다. 캐시는 16-06 이 Ready 프리페치(24/21/34)로
+    // 채워 두었고, 여기서는 **방금 인증한 그 연결에만** 내린다(계좌 스냅샷과 동일).
+    //
+    // ⚠️ `lc.snap`·`vi.list` 는 **비어 있어도 1프레임 보낸다** — 빈 배열은 「전략 없음」의
+    //    확정 정보다. 안 보내면 브라우저는 「아직 안 왔다」와 구분하지 못해 계속 스켈레톤이다.
+    // ⚠️ VI 설정만 다르다. `getViTrigger` 는 3상태를 돌려주고 `undefined`(61 을 아직 못 받았다)
+    //    면 **보내지 않는다** — 지어낸 「미등록」을 내리면 브라우저가 사용자가 입력 중인
+    //    금액을 지운다 (16-06 결정 2). `null`(조회 결과 미등록)은 확정이므로 보낸다.
+    this.#send(conn, { t: "lc.snap", items: this.#hub.getLimitChasers(userId) });
+    const viTrigger = this.#hub.getViTrigger(userId);
+    if (viTrigger !== undefined) this.#send(conn, { t: "vi", cfg: viTrigger });
+    this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
   }
 
   #onAuthedMessage(conn: Conn, userId: string, msg: RelayInbound): void {
+    // ④ 인바운드 상한을 **가장 먼저** 본다 (T-16-06). sub/unsub 도 같은 버킷을 쓴다 —
+    //    경로마다 버킷이 갈리면 합계 상한이 없는 것과 같다.
+    if (!this.#allowInbound(conn, userId, msg.t)) return;
+
     if (msg.t === "auth") {
       // 재인증으로 사용자를 바꾸는 경로를 열지 않는다 (T-15-03). 무시하되 기록은 남긴다.
       logger.warn({ userId }, "[WS] 이미 인증된 연결의 재인증 시도 — 무시");
@@ -413,20 +508,82 @@ export class WsFanout {
       return;
     }
 
-    // ⚠️ 분기 순서 주의 (16-RESEARCH Pitfall 14). `keyOf(msg.isin, msg.ex)` 를 좁히기 전에
-    // 부르면 안 된다 — `isin`/`ex` 는 **시세 구독 2종에만** 있는 필드고, D-01/D-02 로 들어온
-    // 전략·주문 메시지에는 없다. 좁히기를 먼저 하지 않으면 새 메시지를 추가하는 순간 깨진다.
+    // ------------------------------------------------------------------
+    // 전략 4종 (D-01). **`keyOf` 앞**이다 — `isin`/`ex` 가 없는 메시지들이므로 시세 구독
+    // 좁히기보다 먼저 갈라야 한다 (16-RESEARCH Pitfall 14).
+    //
+    // 네 분기 모두 `order-api.ts` 의 ①②③ 순서를 그대로 이식한다:
+    //   ① Ready 세션 확인 → ② 계좌 화이트리스트 대조 → ③ 조립·송신.
+    // 어느 단계에서 멈추든 **로그 + 거부 프레임**을 남긴다. `vi.confirm`/`strategies.disable`
+    // 은 계좌 필드가 없으므로 ② 를 건너뛴다.
+    // ------------------------------------------------------------------
+    if (msg.t === "lc.set") {
+      const { cfg } = msg;
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      if (!this.#accountAllowed(conn, session, userId, msg.t, cfg.accountNo)) return;
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildSetLimitChaserReq(cfg),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
+    if (msg.t === "vi.set") {
+      const { accountNo, orderAmountKrw, checkRate, run } = msg;
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
+      // `priceType` 은 싣지 않는다 — 상한가("U") 고정이라 조립기가 채운다 (하한가 경로 봉쇄).
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildSetVITriggerReq({ accountNo, orderAmountKrw, checkRate, run }),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
+    if (msg.t === "vi.confirm") {
+      // 계좌 필드가 없다 — 확인 체크는 **이미 그 세션이 낸 주문**에 대한 토글이고, 대조의
+      // 정본은 서버의 주문번호 소유권이다. 여기서 계좌를 지어내 대조하면 근거가 두 벌이 된다.
+      const { orderNo, confirmed } = msg;
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildConfirmVIOrderReq({ orderNo, confirmed }),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
+    if (msg.t === "strategies.disable") {
+      // `key` 생략·`""` 는 그 세션의 상따 전부 + VI 다. 대상은 언제나 **그 세션** 안이므로
+      // 계좌 대조 대상이 없다. 64B 상한은 조립기가 던진다 (T-16-06).
+      const key = msg.key ?? "";
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildDisableStrategiesReq(key),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
     if (msg.t !== "sub" && msg.t !== "unsub") {
-      // 전략·주문 인바운드는 **계약만** 확정된 상태다(16-03). 실제 핸들러는 16-07/16-08 에서
-      // 이 자리에 붙는다. 그때까지 **조용히 버리지 않는다** — 처리기 부재를 기록으로 남긴다
+      // 남은 것은 주문 2종(`order.new`/`order.cancel`)이다. 핸들러는 16-08 이 이 자리에
+      // 붙인다. 그때까지 **조용히 버리지 않는다** — 처리기 부재를 기록으로 남긴다
       // (PC-7 무로그 fail-safe 금지). 프로토콜 위반이 아니므로 연결은 끊지 않는다.
       logger.warn({ userId, t: msg.t }, "[WS] 아직 처리기가 없는 인바운드 — 무시");
       return;
     }
 
-    const key = keyOf(msg.isin, msg.ex);
-
     if (msg.t === "sub") {
+      // `keyOf` 는 **분기 안에서** 계산한다. 가드 직후 무조건 부르면 `isin`/`ex` 가 없는
+      // 전략·주문 메시지가 `undefined|undefined` 키를 만든다 (16-RESEARCH Pitfall 14).
+      const key = keyOf(msg.isin, msg.ex);
       if (conn.keys.has(key)) {
         // 같은 소켓의 중복 구독을 참조계수에 반영하면 close 때 하나가 남아 샌다.
         logger.info({ userId, isin: msg.isin, ex: msg.ex }, "[WS] 이 소켓의 중복 구독 — 무시");
@@ -445,12 +602,126 @@ export class WsFanout {
       return;
     }
 
+    const key = keyOf(msg.isin, msg.ex);
     if (!conn.keys.has(key)) {
       logger.warn({ userId, isin: msg.isin, ex: msg.ex }, "[WS] 잡지 않은 키 해제 요청 — 무시");
       return;
     }
     conn.keys.delete(key);
     this.#hub.unsubscribe(userId, msg.isin, msg.ex);
+  }
+
+  // ----------------------------------------------------------
+  // 전략 인바운드 (D-01) — order-api.ts ①②③ 이식
+  // ----------------------------------------------------------
+
+  /**
+   * ① 활성 Ready 세션 확인. **여기서 대신 로그인하지 않는다** (D-15).
+   *
+   * 세션이 없거나 준비되지 않았는데 조용히 무시하면, 서버가 거부를 응답 코드로 주지 않는
+   * 전략에서는(Pitfall 8) 사용자에게 「눌렀는데 아무 일도 일어나지 않음」으로만 보인다.
+   * 그래서 반드시 로그 + 프레임 양쪽으로 드러낸다 (PC-7).
+   */
+  #strategySession(conn: Conn, userId: string, t: RelayInbound["t"]): DmaSession | null {
+    const session = this.#sessions.get(userId);
+    if (session === undefined) {
+      logger.warn({ userId, t }, "[WS] 세션 없음 — 전략 요청 거부");
+      this.#send(conn, {
+        t: "state",
+        s: "failed",
+        msg: "실시간 세션이 없습니다. 호가창을 먼저 열어 주세요.",
+      });
+      return null;
+    }
+    if (!session.isReady) {
+      // **현재 상태**를 그대로 되돌린다 — 배지와 거부 사유가 한 프레임으로 맞는다.
+      logger.warn({ userId, t, state: session.state }, "[WS] 세션 미준비 — 전략 요청 거부");
+      this.#send(conn, session.stateFrame("세션이 준비되지 않아 전략 요청을 보내지 못했습니다"));
+      return null;
+    }
+    return session;
+  }
+
+  /**
+   * ② **계좌 화이트리스트 대조** — relay 쪽 최후 방어선이다 (T-16-01 / D-20).
+   *
+   * 원천은 `session.allowedAccounts`(게이트웨이 응답과 대조된 목록)**뿐**이다. 상태 프레임의
+   * 계좌 사본이나 인바운드 바디를 근거로 삼으면 IDOR 이 그대로 열린다. 게이트웨이의
+   * `CheckSessionAccount` 가 2중 차단이지만 그것은 **조용하므로**, relay 가 먼저 막고 사유를
+   * 돌려준다 — 막힌 줄 모르는 사용자가 같은 요청을 반복하는 것이 더 나쁘다.
+   */
+  #accountAllowed(
+    conn: Conn,
+    session: DmaSession,
+    userId: string,
+    t: RelayInbound["t"],
+    accountNo: string,
+  ): boolean {
+    if (session.allowedAccounts.some((a) => a.accountNo === accountNo)) return true;
+    // 로그는 마스킹, 화면은 전체 표시가 규율이다 (S-5 / T-16-09). 인바운드 원문은 싣지 않는다.
+    logger.error(
+      { userId, t, accountNo: maskAccountNo(accountNo) },
+      "[WS] 세션 계좌 목록 밖의 전략 요청 — 거부",
+    );
+    this.#send(conn, rejectFrame("이 세션에서 사용할 수 없는 계좌입니다.", accountNo));
+    return false;
+  }
+
+  /**
+   * ③-a 조립. `OrderBuildError` 를 포함한 **모든 예외**를 로그 + 거부 프레임으로 드러낸다.
+   * 삼키면 형식 위반이 「보냈는데 반응 없음」으로 둔갑한다 (PC-7).
+   */
+  #buildStrategyPayload(
+    conn: Conn,
+    userId: string,
+    t: RelayInbound["t"],
+    build: () => Uint8Array,
+  ): Uint8Array | null {
+    try {
+      return build();
+    } catch (err) {
+      const code = err instanceof OrderBuildError ? err.code : "BUILD_FAILED";
+      const reason =
+        err instanceof OrderBuildError ? err.message : "전략 요청을 만들지 못했습니다.";
+      logger.error({ err, userId, t, code }, "[WS] 전략 요청 조립 거부 — 게이트웨이로 나가지 않았다");
+      this.#send(conn, rejectFrame(reason));
+      return null;
+    }
+  }
+
+  /** ③-b 송신 실패. 전송 계층 사유는 `DmaSession.send` 가 이미 남겼고 여기는 사용자 통지다. */
+  #onStrategySendFailed(conn: Conn, userId: string, t: RelayInbound["t"]): void {
+    logger.error({ userId, t }, "[WS] 전략 요청 송신 실패 — 게이트웨이로 나가지 않았다");
+    this.#send(conn, rejectFrame("전략 요청을 전송하지 못했습니다. 연결 상태를 확인해 주세요."));
+  }
+
+  /**
+   * ④ 인바운드 토큰 버킷 — 연결당 초당 `INBOUND_RATE_LIMIT_PER_SEC` 건 (T-16-06).
+   *
+   * 초과분은 **드롭**이다(연결을 끊지 않는다) — 폭주는 프로토콜 위반이 아니라 과속이고,
+   * 끊으면 브라우저가 재접속으로 되돌아와 같은 부하를 다시 만든다. 경고는 초과 구간당 1회로
+   * 묶는다: 초당 수백 건이 오는 상황에서 건마다 로그하면 로그가 곧 두 번째 DoS 다.
+   */
+  #allowInbound(conn: Conn, userId: string, t: RelayInbound["t"]): boolean {
+    const now = Date.now();
+    const refilled = ((now - conn.rateRefilledAtMs) * INBOUND_RATE_LIMIT_PER_SEC) / 1000;
+    conn.rateRefilledAtMs = now;
+    conn.rateTokens = Math.min(INBOUND_RATE_BURST, conn.rateTokens + refilled);
+
+    if (conn.rateTokens < 1) {
+      if (!conn.rateWarned) {
+        conn.rateWarned = true;
+        logger.warn(
+          { userId, t, limitPerSec: INBOUND_RATE_LIMIT_PER_SEC },
+          "[WS] 인바운드 상한 초과 — 프레임을 버린다 (연속 경고는 1회로 묶는다)",
+        );
+      }
+      return false;
+    }
+
+    conn.rateTokens -= 1;
+    conn.rateWarned = false;
+    return true;
   }
 
   /** close 핸들러 = `finally`. 타이머·참조계수·세션 참조를 **전부** 되돌린다. */
