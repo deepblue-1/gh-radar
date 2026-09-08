@@ -92,20 +92,26 @@ check "INV-9 X-Request-Id 헤더" bash -c "curl -fsS -D - '$URL/api/health' -o /
 # ───────────────────────────────────────────────────────────────
 # Phase 15 Plan 19 — DMA 주문 라우트 (RELAY-02, D-08)
 #
-# ⚠️ **여기서 기대하는 정답은 401 이다.** 200 이 아니다.
-#    이 두 검사는 "주문이 된다" 가 아니라 "라우트가 결선됐고 그 앞에 `requireAuth()` 가
-#    서 있다" 를 본다. 미인증 200 이면 누구나 주문을 낼 수 있다는 뜻이고, 404 면
-#    라우터가 아예 안 붙은 것이다 — 둘 다 FAIL 이어야 한다 (T-15-03).
+# ⚠️ **두 검사의 정답이 서로 다르다.** Phase 16 Plan 16 (D-02) 이후 주문 **접수**는
+#    relay wss 전용이고 `POST /api/orders` 는 **존재하지 않는다**. 반면 **조회**
+#    (`GET /api/orders`) 는 그대로 살아 있고 `requireAuth()` 뒤에 있다.
+#
+#      POST → 404 여야 한다. **401 이면 회귀다** — `requireAuth` 가 붙은 라우트가
+#             아직 살아 있다는 뜻이고, 그 순간 접수 경로가 둘이 되어 같은
+#             `dma_orders` 행을 REST 와 wss 가 다툰다 (T-16-11).
+#      GET  → 401 이어야 한다. 200 이면 남의 주문 목록이 공개된 것이고,
+#             404 면 라우터가 아예 안 붙은 것이다 (T-15-03 / D-24).
+#
 #    실주문 왕복은 스모크가 할 일이 아니다(실계좌 사고). 로컬 mock 검증이 맡는다.
 # ───────────────────────────────────────────────────────────────
 
-# INV-10: POST /api/orders 미인증 → 401 (라우트 존재 + 인증 관문)
-check "INV-10 POST /api/orders 미인증 → 401" bash -c "
+# INV-10: POST /api/orders → 404 (라우트 **부재** — 16-16 D-02, 접수는 relay wss 전용)
+check "INV-10 POST /api/orders → 404 (라우트 부재)" bash -c "
   code=\$(curl -s -o /dev/null -w '%{http_code}' -X POST \\
     -H 'content-type: application/json' \\
     -d '{\"code\":\"005930\",\"accountNo\":\"0\",\"exchange\":\"KRX\",\"side\":\"B\",\"orderType\":\"N\",\"qty\":1,\"price\":1}' \\
     '$URL/api/orders')
-  [ \"\$code\" = '401' ]
+  [ \"\$code\" = '404' ]
 "
 
 # INV-11: GET /api/orders 미인증 → 401 (목록 복원 경로도 같은 관문 뒤에 있다, D-24)
@@ -114,20 +120,40 @@ check "INV-11 GET /api/orders 미인증 → 401" bash -c "
   [ \"\$code\" = '401' ]
 "
 
-# INV-12: Cloud Run 리비전에 relay 결선 env 가 실재하는가 (T-15-55).
-#   `--set-env-vars` 전량 치환으로 RELAY_INTERNAL_URL 이 사라지면 서버는 정상 기동하고
-#   **주문만** 503 이 된다 — 헬스체크로는 절대 안 잡히는 고장이다. 이름만 읽는다(값 X).
+# INV-12: Cloud Run 리비전에서 relay 결선 env 가 **사라졌는가** (T-16-08).
+#
+#   ⚠️ Phase 16 Plan 16 (D-02) 이전에는 이 검사가 정확히 **반대**였다 — `RELAY_INTERNAL_URL`
+#      과 `RELAY_ORDER_SECRET` 의 *존재*를 요구했다. server 가 relay 를 내부 HTTP 로 부르던
+#      시절의 계약이고, 그때는 env 소실이 "서버는 멀쩡한데 주문만 503" 이라는 헬스체크로
+#      못 잡는 고장이었다.
+#
+#   지금은 server 가 relay 를 부르지 않는다(`relay-client.ts` 삭제 · `POST /api/orders` 제거).
+#   남아 있는 바인딩은 기능이 아니라 **불필요한 비밀 노출면**이다 — Cloud Run 컨테이너가
+#   쓰지도 않는 relay 공유 비밀을 환경변수로 들고 있게 된다.
+#
+#   **스크립트에서 뺀 것만으로는 사라지지 않는다.** `--update-secrets` 는 병합이라
+#   재배포해도 기존 바인딩이 남는다. 제거는 명시적으로 한 번 해야 한다:
+#
+#     gcloud run services update gh-radar-server --region=asia-northeast3 \
+#       --remove-env-vars=RELAY_INTERNAL_URL,ORDER_TIMEOUT_MS \
+#       --remove-secrets=RELAY_ORDER_SECRET
+#
+#   ⚠️ Secret Manager 의 `gh-radar-relay-order-secret` **자체는 지우지 않는다** —
+#      relay 가 `/healthz` 공유 비밀 관문에 계속 쓴다. 지우면 relay 부팅이 깨진다.
+#
+#   이름만 읽는다(값 X).
 if ! command -v gcloud >/dev/null 2>&1; then
-  skip "INV-12 relay env 결선" "gcloud 미설치 — 로컬 실행"
+  skip "INV-12 relay env 잔존 없음" "gcloud 미설치 — 로컬 실행"
 else
   ENV_NAMES=$(gcloud run services describe "$SERVICE" --region="$REGION" \
     --format='value(spec.template.spec.containers[0].env[].name)' 2>/dev/null | tr ';' '\n' | sed '/^$/d')
   if [[ -z "$ENV_NAMES" ]]; then
-    skip "INV-12 relay env 결선" "서비스 조회 실패 — 배포 환경 밖"
+    skip "INV-12 relay env 잔존 없음" "서비스 조회 실패 — 배포 환경 밖"
   else
-    check "INV-12a RELAY_INTERNAL_URL env 존재" bash -c "printf '%s\n' \"\$1\" | grep -qx RELAY_INTERNAL_URL" _ "$ENV_NAMES"
-    check "INV-12b RELAY_ORDER_SECRET secret 바인딩" bash -c "printf '%s\n' \"\$1\" | grep -qx RELAY_ORDER_SECRET" _ "$ENV_NAMES"
-    check "INV-12c 기존 env 잔존 (SUPABASE_URL·ANTHROPIC_API_KEY·DISCUSSION_CLASSIFY_ENABLED)" bash -c "
+    check "INV-12a RELAY_INTERNAL_URL 잔존 없음" bash -c "! printf '%s\n' \"\$1\" | grep -qx RELAY_INTERNAL_URL" _ "$ENV_NAMES"
+    check "INV-12b ORDER_TIMEOUT_MS 잔존 없음" bash -c "! printf '%s\n' \"\$1\" | grep -qx ORDER_TIMEOUT_MS" _ "$ENV_NAMES"
+    check "INV-12c RELAY_ORDER_SECRET 바인딩 잔존 없음" bash -c "! printf '%s\n' \"\$1\" | grep -qx RELAY_ORDER_SECRET" _ "$ENV_NAMES"
+    check "INV-12d 기존 env 잔존 (SUPABASE_URL·ANTHROPIC_API_KEY·DISCUSSION_CLASSIFY_ENABLED)" bash -c "
       printf '%s\n' \"\$1\" | grep -qx SUPABASE_URL &&
       printf '%s\n' \"\$1\" | grep -qx ANTHROPIC_API_KEY &&
       printf '%s\n' \"\$1\" | grep -qx DISCUSSION_CLASSIFY_ENABLED
