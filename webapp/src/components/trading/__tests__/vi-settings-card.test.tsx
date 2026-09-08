@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayViTrigger } from '@gh-radar/shared';
 
 /**
@@ -144,8 +144,17 @@ describe('② 시작/중지 확인 다이얼로그 (S-7)', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: '취소' })).toHaveFocus(),
     );
-    // ★ 실행 버튼 옆에 또 다른 클릭 타깃(X 닫기)을 두지 않는다.
-    expect(dialog.querySelector('[data-slot="dialog-close"]')).toBeNull();
+    /*
+      ★ 실행 버튼 옆에 또 다른 클릭 타깃(X 닫기)을 두지 않는다.
+        `data-slot="dialog-close"` 로 조회하면 **아무것도 잡지 못한다** — Radix `asChild` 가
+        자식 `Button` 의 `data-slot="button"` 으로 덮어써서 그 선택자는 항상 null 이다
+        (변이 실측). 접근 이름으로 본다.
+    */
+    expect(within(dialog).queryByRole('button', { name: /close/i })).toBeNull();
+    expect(within(dialog).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      '취소',
+      '시작',
+    ]);
   });
 
   it('③ 시작 요약에 계좌·금액·상승률·주문가가 전부 있다', async () => {
@@ -204,7 +213,12 @@ describe('② 시작/중지 확인 다이얼로그 (S-7)', () => {
       '이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.',
     );
     await waitFor(() => expect(screen.getByRole('button', { name: '닫기' })).toHaveFocus());
-    expect(dialog.querySelector('[data-slot="dialog-close"]')).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: /close/i })).toBeNull();
+    // 실행 버튼보다 **앞**에 닫기가 온다 — 순서가 뒤집히면 Radix 기본 포커스가 실행 버튼이다.
+    expect(within(dialog).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      '닫기',
+      '중지',
+    ]);
   });
 
   it('중지 확정 → run:false 로 나간다', async () => {

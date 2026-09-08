@@ -447,8 +447,12 @@ function upsertLimitChaser(
  * **접수 전(Pending)은 `orderNo` 가 `""`** 라 주문번호로 키를 만들 수 없다. 그대로 `""` 를
  * 키로 쓰면 서로 다른 종목의 접수 전 항목이 한 줄로 겹쳐 사라진다. 같은 종목·계좌의 한 VI
  * 발동은 1건이므로 `@ISIN:계좌:발동가` 가 유일하다. `@` 는 주문번호와 섞이지 않게 하는 표식이다.
+ *
+ * ★ **내보낸다** (16-14). VI 주문내역이 React key·낙관 반영 키로 같은 규칙을 써야 한다 —
+ *   화면이 `orderNo` 를 그냥 키로 쓰면 접수 전 행끼리 `""` 로 겹쳐 **서로 다른 종목이 한 줄로
+ *   합쳐진다.** 규칙을 화면에 다시 적으면 이 병합기와 갈리는 순간 같은 목록이 두 모양이 된다.
  */
-function viOrderKey(item: RelayViOrderItem): string {
+export function viOrderKey(item: RelayViOrderItem): string {
   return item.orderNo !== "" ? item.orderNo : viPendingKey(item);
 }
 

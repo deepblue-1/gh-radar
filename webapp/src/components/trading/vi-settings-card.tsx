@@ -218,14 +218,25 @@ export function ViSettingsCard({
   /* ── 전송 (④) ─────────────────────────────────────────────────────── */
 
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * ★ 잠금은 **ref 로도** 든다. `submitting` state 는 다음 렌더에서야 보이므로, 같은 tick 에
+   *   두 번 들어온 확정(다이얼로그 실행 버튼 더블클릭)을 state 가드로는 못 막는다 —
+   *   그 두 번째가 곧 두 번째 무인 발주 등록이다.
+   */
+  const submittingRef = useRef(false);
   const ackTimer = useRef<number | null>(null);
+
+  const unlock = useCallback(() => {
+    submittingRef.current = false;
+    setSubmitting(false);
+    if (ackTimer.current !== null) window.clearTimeout(ackTimer.current);
+  }, []);
 
   // 에코가 도착하면 잠금을 푼다. 타이머보다 이쪽이 정상 경로다.
   useEffect(() => {
     if (server === undefined) return;
-    setSubmitting(false);
-    if (ackTimer.current !== null) window.clearTimeout(ackTimer.current);
-  }, [server]);
+    unlock();
+  }, [server, unlock]);
 
   useEffect(
     () => () => {
@@ -236,7 +247,7 @@ export function ViSettingsCard({
 
   const submit = useCallback(
     (nextRun: boolean) => {
-      if (submitting) return; // 연타 가드 — 두 번째 등록을 만들지 않는다.
+      if (submittingRef.current) return; // 연타 가드 — 두 번째 등록을 만들지 않는다.
       const msg: RelayViSetMsg = {
         t: 'vi.set',
         accountNo: form.accountNo,
@@ -245,14 +256,15 @@ export function ViSettingsCard({
         checkRate: form.checkRate,
         run: nextRun,
       };
+      submittingRef.current = true;
       send(msg);
       onSent?.(msg);
       setSubmitting(true);
       if (ackTimer.current !== null) window.clearTimeout(ackTimer.current);
       // 표시 잠금을 푸는 것뿐이다 — 재전송 경로는 이 파일에 없다.
-      ackTimer.current = window.setTimeout(() => setSubmitting(false), VI_ACK_TIMEOUT_MS);
+      ackTimer.current = window.setTimeout(unlock, VI_ACK_TIMEOUT_MS);
     },
-    [form, onSent, send, submitting],
+    [form, onSent, send, unlock],
   );
 
   /** 「수정」 — `run` 은 **현재값 그대로**다(②). */
