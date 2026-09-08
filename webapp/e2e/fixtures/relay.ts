@@ -59,14 +59,16 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import {
   readQuoteRequestKey,
   startFakeGateway,
   type FakeGateway,
 } from '../../../relay/tests/helpers/fake-gateway.js';
+import { buildAccountStateFrame } from '../../../relay/tests/helpers/frames.js';
 import type {
+  FakeAccountStateInput,
   FakeLimitChaserInput,
   FakeOrderRespInput,
   FakeViOrderItemInput,
@@ -99,6 +101,40 @@ export const E2E_ISIN = 'KR7005930003';
 
 /** 기준가(전일 종가). 사다리 방향색·주문 패널 폴백의 기준이다. */
 export const E2E_BASE_PRICE = 98_000;
+
+/**
+ * 스텁 게이트웨이 `LoginResp` 가 돌려주는 계좌번호 (`SAMPLE_ACCOUNTS[0]`).
+ * 계좌 상태 프레임의 계좌와 **같아야** 브라우저 계좌 패널이 그 상태를 그린다.
+ */
+export const E2E_ACCOUNT_NO = '1234567801';
+
+/**
+ * 이름이 **긴** 두 번째 종목의 ISIN. 모바일 카드 행의 리플로우 스트레스 케이스다 —
+ * 짧은 이름만으로 검증하면 「종목명만 신축」 규율을 지워도 아무것도 넘치지 않아
+ * 잘림 단언이 공허해진다(실측으로 확인한 함정).
+ */
+export const E2E_LONG_NAME_ISIN = 'KR7000660001';
+
+/** `stocks` 스텁 — relay `SymbolMap` 이 ISIN → 단축코드·시장을 여기서 푼다(D-28). */
+const E2E_STOCK_ROWS = [
+  {
+    code: '005930',
+    name: '삼성전자',
+    isin: E2E_ISIN,
+    // `toOrderMarket` 이 "KOSPI"/"KOSDAQ" 원문만 받는다 — 1자 코드를 지어내면 주문이 거부된다.
+    market: 'KOSPI',
+    is_delisted: false,
+  },
+  {
+    code: '000660',
+    // 한국 종목명은 실제로 이만큼 길어진다(우선주·스팩·리츠 접미사). 390px 카드 행에서
+    // 이 이름이 숫자를 밀어내지 않는지가 C7 규율의 진짜 시험이다.
+    name: '한국제7호기업인수목적우선주식회사',
+    isin: E2E_LONG_NAME_ISIN,
+    market: 'KOSDAQ',
+    is_delisted: false,
+  },
+];
 
 /** 거래소별 호가 오프셋 — NXT 를 KRX 와 **다른 숫자**로 만들어 전환을 눈으로 증명한다. */
 const EXCHANGE_PRICE_OFFSET: Record<string, number> = { KRX: 0, NXT: 1_000 };
@@ -158,6 +194,17 @@ export interface LocalRelay {
   pushViOrderList(items: FakeViOrderItemInput[], snap: boolean): Promise<void>;
   /** 주문 통보(51)를 지금 밀어 넣는다 — 상따·VI 발주 결과 상관 검증용. */
   pushOrderResp(input?: FakeOrderRespInput): Promise<void>;
+  /**
+   * 계좌 상태(66 스냅샷 / 67 델타)를 지금 밀어 넣는다 — 미체결·잔고 표면 검증용.
+   * 계좌번호 기본값은 `E2E_ACCOUNT_NO` 다(로그인 응답의 계좌와 같아야 화면에 뜬다).
+   */
+  pushAccountState(input?: FakeAccountStateInput): Promise<void>;
+  /**
+   * `dma_orders` 스텁에 들어온 insert 바디 누적 (D-03).
+   * 「주문이 나갔는데 기록이 없다」를 spec 이 확인할 수 있게 남긴다 — 스텁이 감사 기록을
+   * 블랙홀로 삼키면 그 결손이 E2E 에서 보이지 않는다.
+   */
+  orderInserts(): Record<string, unknown>[];
 
   /**
    * 테스트 간 상태 오염 제거 — 요청 로그·응답 거래소·자격증명·**전략 시드 3종**을
@@ -238,14 +285,25 @@ type CredRow = { dma_user_id: string; dma_password_enc: string };
 interface SupabaseStub {
   url: string;
   rows: Map<string, CredRow>;
+  /** `POST /rest/v1/dma_orders` 로 들어온 바디 누적 (감사 기록 결손 확인용). */
+  orderInserts: Record<string, unknown>[];
   close(): Promise<void>;
 }
 
 /**
- * 최소 Supabase 스텁 — relay 가 실제로 부르는 **두 경로만** 흉내 낸다.
+ * 최소 Supabase 스텁 — relay 가 실제로 부르는 경로만 흉내 낸다.
  *
- *   GET /auth/v1/user                → 토큰이 비어 있지 않으면 고정 사용자
- *   GET /rest/v1/dma_credentials?…   → 시드된 행 배열(0 또는 1건)
+ *   GET   /auth/v1/user               → 토큰이 비어 있지 않으면 고정 사용자
+ *   GET   /rest/v1/dma_credentials?…  → 시드된 행 배열(0 또는 1건)
+ *   GET   /rest/v1/stocks?…           → `SymbolMap` 이 ISIN→단축코드·시장을 푸는 1행 (D-28)
+ *   POST  /rest/v1/dma_orders         → 주문 요청 행 insert, 새 `id` 반환 (D-03)
+ *   PATCH /rest/v1/dma_orders?…       → 수명주기 갱신 (0행이어도 정상)
+ *   GET   /rest/v1/dma_orders?…       → `order_no` 조회 (없으면 빈 배열)
+ *
+ * ★ `stocks` / `dma_orders` 가 없으면 **모든 주문이 거부된다** — relay 는 ISIN 을 못 풀면
+ *   「이 종목은 지금 주문할 수 없습니다」, insert 가 실패하면 「주문 기록에 실패했습니다」로
+ *   막는다(둘 다 게이트웨이로 나가기 **전에** 끝난다). 그 두 방어선이 살아 있는 채로
+ *   주문 왕복을 보려면 이 두 라우트가 반드시 있어야 한다.
  *
  * `maybeSingle()` 은 postgrest-js 2.103 기준 **배열로 받아 클라이언트에서 개수를 센다**
  * (Accept 헤더를 바꾸지 않는다). 그래서 여기서는 늘 JSON 배열을 돌려준다.
@@ -256,6 +314,7 @@ interface SupabaseStub {
  */
 async function startSupabaseStub(): Promise<SupabaseStub> {
   const rows = new Map<string, CredRow>();
+  const orderInserts: Record<string, unknown>[] = [];
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -263,6 +322,20 @@ async function startSupabaseStub(): Promise<SupabaseStub> {
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(body));
     };
+    /*
+      postgrest-js 는 `.single()` 에서 `Accept: application/vnd.pgrst.object+json` 을 보내고
+      그때는 **객체**를 기대한다. 배열로 답하면 파싱이 깨져 relay 가 insert 실패로 읽고
+      주문을 보내지 않는다 — 헤더를 보고 모양을 맞춘다(추측하지 않는다).
+    */
+    const wantsObject = (req.headers.accept ?? '').includes('vnd.pgrst.object');
+    const readBody = (): Promise<string> =>
+      new Promise((resolve) => {
+        let raw = '';
+        req.on('data', (chunk: Buffer) => {
+          raw += chunk.toString();
+        });
+        req.on('end', () => resolve(raw));
+      });
 
     if (url.pathname === '/auth/v1/user') {
       const auth = req.headers.authorization ?? '';
@@ -292,6 +365,34 @@ async function startSupabaseStub(): Promise<SupabaseStub> {
       return;
     }
 
+    if (url.pathname === '/rest/v1/stocks') {
+      // `SymbolMap.refresh()` 의 페이징 루프는 PAGE_SIZE 미만 응답에서 멈춘다.
+      json(200, E2E_STOCK_ROWS);
+      return;
+    }
+
+    if (url.pathname === '/rest/v1/dma_orders') {
+      if (req.method === 'POST') {
+        void readBody().then((raw) => {
+          try {
+            const parsed: unknown = JSON.parse(raw);
+            if (parsed !== null && typeof parsed === 'object') {
+              orderInserts.push(parsed as Record<string, unknown>);
+            }
+          } catch {
+            // 바디를 못 읽어도 insert 자체는 성공시킨다 — 여기서 막으면 원인이
+            // 「스텁이 바디를 못 읽었다」가 아니라 「주문 기록 실패」로 보인다.
+          }
+          const row = { id: randomUUID() };
+          json(201, wantsObject ? row : [row]);
+        });
+        return;
+      }
+      // PATCH(수명주기 갱신) · GET(order_no 조회) — 둘 다 0행이 정상이다.
+      json(200, []);
+      return;
+    }
+
     // 그 외 경로는 조용히 404 — relay 가 부르면 그 자체가 계약 변경 신호다.
     json(404, { message: `stub: no route ${url.pathname}` });
   });
@@ -308,6 +409,7 @@ async function startSupabaseStub(): Promise<SupabaseStub> {
   return {
     url: `http://127.0.0.1:${address.port}`,
     rows,
+    orderInserts,
     async close() {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
@@ -520,8 +622,18 @@ export async function withLocalRelay(): Promise<LocalRelay> {
     async pushOrderResp(input) {
       gateway.pushOrderResp(await gatewaySocket(), input);
     },
+    async pushAccountState(input) {
+      gateway.sendFrame(
+        await gatewaySocket(),
+        buildAccountStateFrame({ accountNo: E2E_ACCOUNT_NO, ...input }),
+      );
+    },
+    orderInserts() {
+      return [...supabase.orderInserts];
+    },
     reset() {
       requests.length = 0;
+      supabase.orderInserts.length = 0;
       responding = new Set(['KRX', 'NXT']);
       supabase.rows.clear();
       seedDmaCredential();
