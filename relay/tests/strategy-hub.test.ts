@@ -353,7 +353,7 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
 
   it("⑫ 56 통보와 72/73 행에 종목명을 채운다 (게이트웨이가 주지 않는 값)", () => {
     const named = new SubscriptionHub({
-      symbols: new FakeSymbols({ [SAMPLE_ISIN]: { code: "005930", name: "삼성전자" } }),
+      symbols: new FakeSymbols({ [SAMPLE_ISIN]: { code: "005930", name: "삼성전자", market: "K" } }),
     });
     const events: HubFanoutEvent[] = [];
     named.on("fanout", (e) => events.push(e));
