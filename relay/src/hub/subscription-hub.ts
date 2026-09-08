@@ -21,6 +21,13 @@
  *         아무 종목도 구독하지 않은 사용자도 자기 잔고는 봐야 한다.
  *   D-37  브라우저 재접속·다중 탭에서 **스냅샷 캐시가 즉시 응답**한다. 그래서 캐시는
  *         참조계수가 0 이 되어도 버리지 않는다 — 재접속 왕복 동안 살아 있어야 의미가 있다.
+ *   D-12  전략(상따 전수 · VI 설정 · VI 주문 추적)도 **세션 단위 캐시**를 여기 둔다.
+ *         사용자당 DMA 세션이 1개이므로 「그 사용자의 전략이 지금 무엇인가」를 아는 객체도
+ *         하나여야 한다. 캐시가 있어야 새 탭이 붙자마자 **종목 구독 없이** 전략을 본다 —
+ *         계좌 캐시(D-23/D-37)와 같은 이유이고 같은 4점 세트(맵 · 프리페치 · case · 폐기)다.
+ *   D-13  전략 재조회는 **재접속(`ready`) 시에만** 일어난다. 주기 타이머·수동 새로고침
+ *         진입점을 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice(유실 없음)라
+ *         재조회로 메울 것이 없고, 폴링은 게이트웨이 왕복을 사용자 수에 비례시킨다.
  *   Pitfall 4  재구독 트리거는 세션의 `ready` 이벤트 **하나뿐**이다. 재구독 경로를 두 벌
  *              만들면 "재접속 후 새로고침해야 시세가 나온다" 증상이 생긴다.
  *   T-15-02  팬아웃은 `{userId, msg}` 로만 나간다. 전역(사용자 무관) 브로드캐스트
@@ -41,11 +48,14 @@ import { EventEmitter } from "node:events";
 import type {
   RelayAccountState,
   RelayExchange,
+  RelayLimitChaser,
   RelayOrderMsg,
   RelayOutbound,
   RelayQuote,
   RelayTape,
   RelayTapeEntry,
+  RelayViOrderItem,
+  RelayViTrigger,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -54,8 +64,11 @@ import type { SessionReadyEvent } from "../dma/session.js";
 import {
   MAX_TAPE_ENTRY_COUNT,
   buildGetAccountStateReq,
+  buildGetLimitChaserListReq,
   buildGetQuoteReq,
   buildGetTradeTapeReq,
+  buildGetVIOrderListReq,
+  buildGetVITriggerReq,
   buildSubscribeQuoteReq,
   maskAccountNo,
   parseAccountState,
@@ -128,6 +141,12 @@ export type HubStats = {
   cachedQuoteCount: number;
   /** 캐시된 계좌 상태 **개수**. 계좌번호는 담지 않는다. */
   cachedAccountCount: number;
+  /** 캐시된 상따 전략 **개수**. ISIN·계좌번호는 담지 않는다 (D-12). */
+  cachedLimitChaserCount: number;
+  /** VI 전략을 **조회한 적이 있는** 사용자 수. 미등록(`null`)도 1로 센다. */
+  cachedViTriggerCount: number;
+  /** 캐시된 VI 주문 추적 **개수**. */
+  cachedViOrderCount: number;
 };
 
 export interface SubscriptionHub {
@@ -157,6 +176,38 @@ function userPrefix(userId: string): string {
 }
 
 /**
+ * 상따 캐시 키. **`item.key` 를 그대로 쓴다** — 재조립하지 않는다.
+ *
+ * 전략 키(`ISIN:계좌:거래소`)의 조립 지점은 `envelope.ts` 의 `strategyKey()` 하나뿐이다.
+ * 여기서 다시 만들면 12자 절단·거래소 정규화 중 한쪽만 반영돼 키가 갈리고, 갈린 키는
+ * 「에코가 영원히 매칭되지 않는다」라는 조용한 실패가 된다.
+ */
+function lcKey(userId: string, item: RelayLimitChaser): string {
+  return `${userId}|${item.key}`;
+}
+
+/**
+ * VI 주문 캐시 키. 정본은 `orderNo` 지만 **접수 전에는 그 값이 `""`** 라 키가 되지 못한다
+ * (파서가 `""` 를 보존하는 이유 — 빈 주문번호로는 확인 체크를 열 수 없다).
+ *
+ * 그 한 경우에만 `@ISIN:계좌:발동가` 복합키로 대신한다. 같은 종목·계좌의 한 VI 발동은
+ * 1건이므로 이 조합이 유일하고, 접수 전 항목이 73 푸시마다 새 행으로 쌓이지 않는다.
+ * `@` 접두어는 주문번호와 섞이지 않게 하는 표식이다.
+ */
+function viOrderKey(userId: string, item: RelayViOrderItem): string {
+  if (item.orderNo !== "") return `${userId}|${item.orderNo}`;
+  return viPendingKey(userId, item);
+}
+
+/**
+ * 접수 전 항목의 자리표시 키. 주문번호가 붙는 순간 이 키를 **지우고** 주문번호 키로 옮긴다 —
+ * 지우지 않으면 같은 주문이 「접수 전」과 「접수됨」 두 줄로 남는다.
+ */
+function viPendingKey(userId: string, item: RelayViOrderItem): string {
+  return `${userId}|@${item.isin}:${item.accountNo}:${item.triggerPrice}`;
+}
+
+/**
  * 구독 참조계수 + 스냅샷 캐시의 단일 정본.
  *
  * 사용법: 세션을 얻은 직후 `attach(session)` → 브라우저 `sub`/`unsub` 마다
@@ -183,6 +234,31 @@ export class SubscriptionHub extends EventEmitter {
    * 가공하지 않고 원본 그대로 흘린다(브라우저가 같은 병합을 한다).
    */
   readonly #accountStates = new Map<string, RelayAccountState>();
+  /**
+   * `${userId}|${item.key}` → 상따 전략 1건 (D-12).
+   *
+   * **정본은 게이트웨이**이고 여기는 그 뷰다 — 60 에코와 64 목록이 같은 바이트라
+   * 두 경로가 같은 맵을 채운다. `crud === "D"` 는 삭제이므로 여기서 지운다(Pitfall 7:
+   * 「삭제됨」은 스위치가 아니라 이 값으로 판정한다).
+   *
+   * 이 캐시가 여기 있어야 새 탭이 붙자마자 **종목 구독 없이** 목록을 그린다.
+   */
+  readonly #limitChasers = new Map<string, RelayLimitChaser>();
+  /**
+   * `userId` → VI 전략 (계좌당 1건이 아니라 **세션당 1건**이다 — 서버가 그렇게 준다).
+   *
+   * **`null` 을 명시로 저장한다.** 「조회했더니 미등록」(`null`)과 「아직 조회한 적 없음」
+   * (키 부재 = `getViTrigger` 가 `undefined`)은 다른 상태다. 둘을 뭉개면 인증 직후
+   * 팬아웃이 「미등록」을 지어내 보내고, 브라우저가 사용자가 입력한 금액을 지운다.
+   */
+  readonly #viTriggers = new Map<string, RelayViTrigger | null>();
+  /**
+   * `${userId}|${orderNo}` (접수 전은 `viPendingKey`) → VI 주문 추적 1건.
+   *
+   * 72 는 전량 교체, 73 은 항목 upsert 다 — 계좌 상태의 `snap` 규약과 동형이다.
+   * `confirm_locked` 되돌림 같은 단건 변경도 73 한 경로로 온다.
+   */
+  readonly #viOrders = new Map<string, RelayViOrderItem>();
   /**
    * ISIN → 종목명·단축코드. 게이트웨이가 이름을 주지 않으므로 여기서 채운다.
    * 없으면(주입 안 함/미스) 필드를 비워 두고 UI 가 ISIN 원문으로 폴백한다.
@@ -354,6 +430,32 @@ export class SubscriptionHub extends EventEmitter {
     logger.info({ userId }, "[HUB] Ready — 전 계좌 상태 스냅샷 요청");
   }
 
+  /**
+   * 전략 스냅샷 3종을 1회 요청한다 (D-12) — 24(상따 목록) · 21(VI 설정) · 34(VI 주문 목록).
+   *
+   * 셋 다 요청 본문이 없는 빈 Envelope 다. 순서는 계약이 아니지만 목록 → 설정 → 추적 순으로
+   * 두면 로그가 화면 구성 순서와 같이 읽힌다.
+   *
+   * **트리거는 `ready` 하나뿐이다** (`requestAccountState` 와 같은 자리 — Pitfall 4).
+   * D-13 에 따라 주기 재조회 타이머도, 브라우저가 부를 수 있는 수동 재조회 진입점도
+   * 만들지 않는다 — 사용자 조작에 대한 60/61 에코는 Notice 라 유실되지 않으므로 메울 것이
+   * 없고, 폴링은 게이트웨이 왕복을 탭 수에 비례시킨다.
+   */
+  requestStrategySnapshot(userId: string): void {
+    const session = this.#sessions.get(userId);
+    if (session === undefined || !session.isReady) {
+      logger.warn(
+        { userId, hasSession: session !== undefined },
+        "[HUB] 전략 스냅샷 요청 생략 — 세션이 준비되지 않았다",
+      );
+      return;
+    }
+    session.send(buildGetLimitChaserListReq());
+    session.send(buildGetVITriggerReq());
+    session.send(buildGetVIOrderListReq());
+    logger.info({ userId }, "[HUB] Ready — 전략 스냅샷 3종 요청");
+  }
+
   // ----------------------------------------------------------
   // 캐시 조회 (D-37)
   // ----------------------------------------------------------
@@ -369,6 +471,42 @@ export class SubscriptionHub extends EventEmitter {
     const out: RelayAccountState[] = [];
     for (const [key, state] of this.#accountStates) {
       if (key.startsWith(prefix)) out.push(state);
+    }
+    return out;
+  }
+
+  /**
+   * 그 사용자의 상따 전략 전량 복사본 (D-12).
+   *
+   * 새 wss 연결이 붙었을 때 `{t:"lc.snap"}` 1프레임으로 목록을 복원하는 데 쓴다 —
+   * 게이트웨이 왕복도, 종목 구독도 필요 없다.
+   */
+  getLimitChasers(userId: string): RelayLimitChaser[] {
+    const prefix = userPrefix(userId);
+    const out: RelayLimitChaser[] = [];
+    for (const [key, item] of this.#limitChasers) {
+      if (key.startsWith(prefix)) out.push(item);
+    }
+    return out;
+  }
+
+  /**
+   * 그 사용자의 VI 전략.
+   *
+   * **반환값 3종을 구분해야 한다**: `RelayViTrigger` = 등록됨, `null` = 조회 결과 미등록,
+   * `undefined` = **아직 모른다**(61 을 한 번도 못 받았다). `undefined` 일 때는 프레임을
+   * 내리지 않는다 — 지어낸 「미등록」을 보내면 브라우저가 사용자가 입력 중인 금액을 지운다.
+   */
+  getViTrigger(userId: string): RelayViTrigger | null | undefined {
+    return this.#viTriggers.get(userId);
+  }
+
+  /** 그 사용자의 VI 주문 추적 전량 복사본. `{t:"vi.list", snap:true}` 재생에 쓴다. */
+  getViOrders(userId: string): RelayViOrderItem[] {
+    const prefix = userPrefix(userId);
+    const out: RelayViOrderItem[] = [];
+    for (const [key, item] of this.#viOrders) {
+      if (key.startsWith(prefix)) out.push(item);
     }
     return out;
   }
@@ -396,6 +534,9 @@ export class SubscriptionHub extends EventEmitter {
       subscriptionCount: this.#refs.size,
       cachedQuoteCount: this.#quotes.size,
       cachedAccountCount: this.#accountStates.size,
+      cachedLimitChaserCount: this.#limitChasers.size,
+      cachedViTriggerCount: this.#viTriggers.size,
+      cachedViOrderCount: this.#viOrders.size,
     };
   }
 
@@ -409,6 +550,9 @@ export class SubscriptionHub extends EventEmitter {
     this.#quotes.clear();
     this.#tapes.clear();
     this.#accountStates.clear();
+    this.#limitChasers.clear();
+    this.#viTriggers.clear();
+    this.#viOrders.clear();
   }
 
   // ----------------------------------------------------------
@@ -698,10 +842,13 @@ export class SubscriptionHub extends EventEmitter {
 
   #onReady(userId: string, session: HubSession): void {
     if (this.#sessions.get(userId) !== session) return;
-    // 재구독과 계좌 스냅샷 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
-    // 경로를 두 벌 만들면 "재접속 후 잔고만 안 나온다"가 생긴다.
+    // 재구독·계좌 재요청·전략 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
+    // 경로를 두 벌 만들면 "재접속 후 잔고만 안 나온다"·"재접속 후 전략만 안 나온다"가 생긴다.
+    // D-13: 이 세 줄 말고 재조회를 거는 곳은 없다 — 주기 타이머도, 브라우저가 부를 수 있는
+    // 수동 새로고침 진입점도 만들지 않는다.
     this.resubscribeAll(userId);
     this.requestAccountState(userId);
+    this.requestStrategySnapshot(userId);
   }
 
   /** **대상은 언제나 userId 하나**다. 전역 브로드캐스트 경로를 만들지 않는다 (T-15-02). */
@@ -719,6 +866,17 @@ export class SubscriptionHub extends EventEmitter {
     }
     for (const key of [...this.#accountStates.keys()]) {
       if (key.startsWith(prefix)) this.#accountStates.delete(key);
+    }
+    // 전략 3맵도 **반드시** 여기서 버린다 (D-12). 빠뜨리면 재로그인·세션 교체 후에도 옛
+    // 전략이 캐시에 남아, 인증 직후 스냅샷 팬아웃이 이미 사라진 전략을 화면에 그린다.
+    for (const key of [...this.#limitChasers.keys()]) {
+      if (key.startsWith(prefix)) this.#limitChasers.delete(key);
+    }
+    // VI 설정은 키가 userId 자체다 — 지우면 `getViTrigger` 가 다시 `undefined`(모름)가 되고,
+    // 새 세션의 61 이 도착할 때까지 아무 프레임도 내리지 않는다.
+    this.#viTriggers.delete(userId);
+    for (const key of [...this.#viOrders.keys()]) {
+      if (key.startsWith(prefix)) this.#viOrders.delete(key);
     }
     const timer = this.#flushTimers.get(userId);
     if (timer !== undefined) {
