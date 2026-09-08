@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ko" class="" data-variant="neutral">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 16 — VI 변동성완화 종합주문 채택안 (D-24 반영 · 모바일 390 + 데스크톱 1280 · 라이트/다크)</title>
+<style>
+/* gh-radar globals.css 토큰 인라인 — 신규 토큰 0개 (실측 2026-09-08) */
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0);
+  --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --input:oklch(0.92 0 0); --ring:oklch(0.63 0.18 250);
+  --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+  --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --secondary:oklch(0.96 0 0); --secondary-fg:oklch(0.18 0 0);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --destructive:oklch(0.66 0.20 22); --destructive-fg:#FFFFFF;
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px; --t-h3:20px; --t-h2:24px;
+  --lh-tight:1.2; --lh-normal:1.5;
+  --row-h:36px; --cell-pad-x:12px; --cell-pad-y:8px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* 데드라인 1단계(여유) 색 — 채택안(neutral)에서는 중립 */
+  --dl-c:var(--muted-fg);
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0);
+  --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06);
+  --input:oklch(0.24 0 0); --ring:oklch(0.72 0.16 250);
+  --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --secondary:oklch(0.18 0 0); --secondary-fg:oklch(0.96 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --destructive:oklch(0.72 0.19 22); --destructive-fg:oklch(0.10 0 0);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+html[data-variant="warn"] { --warn:oklch(0.72 0.17 65); --dl-c:var(--warn); }
+html[data-variant="warn"].dark { --warn:oklch(0.78 0.16 70); }
+
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg); font-size:var(--t-base); line-height:var(--lh-normal); font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+html[lang="ko"] { word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em; }
+button, input, select { font-family:inherit; }
+*:focus-visible { outline:2px solid var(--ring); outline-offset:3px; box-shadow:0 0 0 4px color-mix(in oklch,var(--ring) 30%,transparent); }
+
+/* 툴바 */
+.toolbar { position:sticky; top:0; z-index:300; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 20px; background:color-mix(in oklch,var(--bg) 92%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+.toolbar h1 { font-size:var(--t-sm); font-weight:600; margin:0; margin-right:auto; }
+.toolbar .lb { font-size:11px; color:var(--muted-fg); }
+.tbtn { height:26px; padding:0 9px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--secondary); color:var(--secondary-fg); font-size:11px; font-weight:600; cursor:pointer; }
+.tbtn[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.stage { padding:20px; }
+.info { border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r-md); background:var(--muted); padding:12px 14px; margin:0 0 20px; max-width:1160px; font-size:var(--t-sm); }
+.info div + div { margin-top:6px; }
+.info code { font-family:var(--font-mono); font-size:12px; }
+.frames { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+.frame-wrap .cap { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin-bottom:8px; }
+.frame { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; background:var(--bg); }
+.urlbar { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--muted); border-bottom:1px solid var(--border); font-size:11px; color:var(--muted-fg); }
+.urlbar .dots { display:flex; gap:4px; } .urlbar .dots i { width:8px; height:8px; border-radius:9999px; background:var(--border); display:block; }
+.urlbar .url { flex:1; min-width:0; background:var(--card); border:1px solid var(--border); border-radius:9999px; padding:3px 10px; font-family:var(--font-mono); color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.scroll { overflow-y:auto; overflow-x:hidden; position:relative; }
+.frame.mobile { width:390px; } .frame.desktop { width:1280px; }
+.frame.mobile .scroll { width:390px; height:820px; }
+.frame.desktop .scroll { width:1280px; height:820px; }
+
+/* 앱 셸 */
+.hdr { height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:10; }
+.hdr .logo { font-weight:700; font-size:var(--t-lg); }
+.hdr .burger { color:var(--fg); width:44px; height:44px; display:grid; place-items:center; border:0; background:none; margin-left:-12px; font-size:20px; cursor:pointer; }
+.hdr .search { flex:1; height:36px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--muted); display:flex; align-items:center; padding:0 12px; color:var(--muted-fg); font-size:var(--t-sm); gap:8px; max-width:420px; }
+.hdr .kbd { margin-left:auto; font-family:var(--font-mono); font-size:11px; border:1px solid var(--border); border-radius:4px; padding:0 5px; }
+.layout { display:flex; min-height:764px; }
+.side { width:240px; flex:none; border-right:1px solid var(--border); background:var(--muted); padding:12px; display:flex; flex-direction:column; }
+.side nav { flex:1; }
+.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.side a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); font-size:var(--t-sm); color:var(--muted-fg); text-decoration:none; cursor:pointer; }
+.side a:hover { background:color-mix(in oklch,var(--bg) 60%,transparent); color:var(--fg); }
+.side a.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.side .grp-hd { display:flex; align-items:center; gap:8px; padding:10px 12px 4px; font-size:11px; font-weight:600; color:var(--muted-fg); }
+.side ul ul { margin-left:14px; border-left:1px solid var(--border); padding-left:6px; margin-top:2px; }
+.side ul ul a { padding:6px 10px; }
+.side ul ul ul { margin-left:12px; }
+.side ul ul ul a { padding:5px 10px; font-size:13px; }
+.side .ico { width:16px; text-align:center; font-size:13px; opacity:.85; flex:none; }
+.side .nm { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.side .badge { margin-left:auto; display:inline-flex; gap:3px; flex:none; }
+.side .user { margin-top:12px; border-top:1px solid var(--border); padding-top:10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); color:var(--muted-fg); }
+.side .user .av { width:26px; height:26px; border-radius:9999px; background:var(--secondary); display:grid; place-items:center; font-size:12px; color:var(--fg); flex:none; }
+
+/* 배지 */
+.pill { font-size:11px; font-weight:600; padding:1px 5px; border-radius:9999px; line-height:1.5; white-space:nowrap; display:inline-flex; align-items:center; gap:3px; }
+.pill::before { content:''; width:5px; height:5px; border-radius:9999px; flex:none; }
+.pill.buyon    { background:var(--up-bg);  color:var(--up); }        .pill.buyon::before    { background:var(--up); }
+.pill.sellwait { background:var(--muted);  color:var(--muted-fg); }  .pill.sellwait::before { background:transparent; border:1.5px solid var(--muted-fg); width:7px; height:7px; }
+.pill.virun    { background:var(--up-bg);  color:var(--up); }        .pill.virun::before    { background:var(--up); }
+.pill.vistop   { background:var(--muted);  color:var(--muted-fg); }  .pill.vistop::before   { background:transparent; border:1.5px solid var(--muted-fg); width:7px; height:7px; }
+.pill.ex { background:transparent; border:1px solid var(--border); color:var(--muted-fg); font-weight:600; } .pill.ex::before { display:none; }
+.pill.ex.nxt { background:var(--muted); border-color:transparent; }
+/* VI 주문 상태 6종(+부분체결) — 색 없이 텍스트로도 읽힘 */
+.pill.st { font-weight:600; }
+.pill.pend { background:var(--muted); color:var(--muted-fg); }        .pill.pend::before { background:transparent; border:1.5px solid var(--muted-fg); width:7px; height:7px; }
+.pill.acc  { background:var(--muted); color:var(--fg); }              .pill.acc::before  { background:var(--fg); }
+.pill.fill { background:var(--up-bg); color:var(--up); }              .pill.fill::before { background:var(--up); }
+.pill.canc { background:var(--muted); color:var(--muted-fg); }        .pill.canc::before { background:var(--muted-fg); }
+.pill.rej  { background:transparent; border:1px solid var(--destructive); color:var(--destructive); } .pill.rej::before { background:var(--destructive); }
+
+/* 본문 */
+.main { flex:1; min-width:0; }
+.frame.mobile .main { padding:12px 12px 96px; }
+.frame.desktop .main { padding:24px 24px 96px; }
+.ttl { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:0 0 12px; }
+.ttl h2 { font-size:var(--t-h3); margin:0; font-weight:600; line-height:var(--lh-tight); }
+.ttl .sub { font-size:var(--t-caption); color:var(--muted-fg); }
+.state { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-radius:var(--r-md); background:var(--muted); font-size:var(--t-caption); color:var(--muted-fg); margin:0 0 8px; }
+.state .k { display:inline-flex; align-items:center; gap:5px; }
+.state .k b { color:var(--fg); font-weight:600; }
+.state .ts { margin-left:auto; font-family:var(--font-mono); }
+.dot { width:8px; height:8px; border-radius:9999px; display:inline-block; background:var(--flat); flex:none; }
+.dot.ok { background:oklch(0.72 0.19 150); }
+.dot.run { background:var(--up); box-shadow:0 0 0 3px color-mix(in oklch,var(--up) 25%,transparent); }
+.dot.stop { background:transparent; border:1.5px solid var(--muted-fg); }
+
+.card { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); padding:12px; box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 /.04), 0 8px 24px oklch(0 0 0 /.04); }
+.dark .card { box-shadow: inset 0 1px 0 oklch(1 0 0 /.04), 0 1px 2px oklch(0 0 0 /.4), 0 8px 24px oklch(0 0 0 /.3); }
+.card + .card { margin-top:8px; }
+.card > h3 { margin:0 0 10px; font-size:var(--t-sm); font-weight:600; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.card > h3 .r { margin-left:auto; font-weight:400; color:var(--muted-fg); font-size:var(--t-caption); display:inline-flex; align-items:center; gap:6px; }
+.row { display:flex; gap:8px; align-items:center; min-width:0; }
+.f { display:grid; grid-template-columns:72px 1fr; align-items:center; gap:8px; min-width:0; }
+.f + .f { margin-top:10px; }
+.f > label { font-size:var(--t-caption); color:var(--muted-fg); white-space:nowrap; }
+.f.dirty > label { color:var(--primary); font-weight:600; }
+.f.dirty > label::before { content:'● '; font-size:9px; vertical-align:2px; }
+.f.dirty .inp { border-color:var(--primary); box-shadow:0 0 0 2px color-mix(in oklch,var(--primary) 18%,transparent); }
+.inp { height:40px; border:1px solid var(--input); border-radius:var(--r-md); background:var(--bg); padding:0 10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); min-width:0; }
+.inp.num { justify-content:flex-end; font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; width:140px; flex:none; }
+.inp .ph { color:var(--muted-fg); }
+.inp .unit { color:var(--muted-fg); font-size:var(--t-caption); font-family:var(--font-sans); flex:none; }
+.inp .val { flex:1; text-align:right; }
+.sel { height:40px; border:1px solid var(--input); border-radius:var(--r-md); background:var(--bg); padding:0 10px; display:flex; align-items:center; gap:6px; font-size:var(--t-sm); flex:1; min-width:0; }
+.sel .chev { margin-left:auto; color:var(--muted-fg); font-size:11px; }
+.tail { font-size:11px; color:var(--muted-fg); min-width:0; }
+.opt { display:flex; align-items:center; gap:8px; font-size:var(--t-caption); color:var(--fg); }
+.sw { width:44px; height:26px; border-radius:9999px; background:var(--border); position:relative; flex:none; cursor:pointer; border:0; }
+.sw::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:9999px; background:#fff; transition:left .15s; box-shadow:0 1px 2px oklch(0 0 0/.3); }
+.sw[aria-checked="true"] { background:var(--primary); }
+.sw[aria-checked="true"]::after { left:21px; }
+
+/* 시작/중지 바 */
+.runbar { display:flex; align-items:center; gap:12px; margin-top:12px; padding:12px; border:1.5px solid var(--border); border-radius:var(--r-md); background:var(--bg); }
+.runbar.on { border-color:var(--up); background:var(--up-bg); }
+.runbar .lamp { width:12px; height:12px; border-radius:9999px; background:transparent; border:1.5px solid var(--muted-fg); flex:none; }
+.runbar.on .lamp { background:var(--up); border-color:var(--up); box-shadow:0 0 0 4px color-mix(in oklch,var(--up) 22%,transparent); }
+.runbar .txt { flex:1; min-width:0; }
+.runbar .txt b { display:block; font-size:var(--t-sm); font-weight:600; }
+.runbar .txt small { font-size:11px; color:var(--muted-fg); }
+.runbtn { height:40px; padding:0 18px; border-radius:var(--r-md); font-size:var(--t-sm); font-weight:600; cursor:pointer; flex:none; border:1px solid var(--up); background:var(--up); color:#fff; }
+.runbtn.stop { background:transparent; color:var(--destructive); border-color:var(--destructive); }
+
+/* VI 주문내역 */
+.vi-list { display:flex; flex-direction:column; gap:8px; }
+.vi-row { border:1px solid var(--border); border-radius:var(--r-md); padding:10px; display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:center; }
+.vi-row .nm { font-size:var(--t-sm); font-weight:600; min-width:0; }
+.vi-row .nm small { display:block; font-family:var(--font-mono); font-size:11px; color:var(--muted-fg); font-weight:400; }
+.vi-row .meta { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px; font-size:11px; color:var(--muted-fg); }
+.vi-row .meta b { color:var(--fg); font-family:var(--font-mono); }
+.vi-row .dl { grid-column:1 / -1; display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted-fg); }
+.vi-row .dl .bar { flex:1; height:6px; border-radius:9999px; background:var(--muted); overflow:hidden; min-width:60px; }
+.vi-row .dl .bar i { display:block; height:100%; background:var(--dl-c); width:var(--w); }
+.vi-row .dl.hot .bar i { background:var(--destructive); }
+.vi-row .dl.hot b { color:var(--destructive); }
+.chk { width:22px; height:22px; border:1.5px solid var(--border); border-radius:5px; display:grid; place-items:center; font-size:13px; cursor:pointer; flex:none; }
+.chk.on { background:var(--primary); border-color:var(--primary); color:var(--primary-fg); }
+.chk.lock { opacity:.35; cursor:not-allowed; }
+.tbl-wrap { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+table.t { width:100%; border-collapse:collapse; font-size:var(--t-caption); }
+table.t thead th { background:var(--muted); color:var(--muted-fg); font-weight:600; text-align:right; padding:var(--cell-pad-y) var(--cell-pad-x); border-bottom:1px solid var(--border); white-space:nowrap; }
+table.t tbody td { height:var(--row-h); padding:0 var(--cell-pad-x); text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; white-space:nowrap; }
+table.t tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+table.t th.l, table.t td.l { text-align:left; font-family:var(--font-sans); }
+table.t .u { color:var(--up); } table.t .d { color:var(--down); }
+.cancel-b { font-family:var(--font-sans); font-size:11px; font-weight:600; border:1px solid var(--destructive); color:var(--destructive); border-radius:var(--r-sm); padding:2px 8px; background:transparent; cursor:pointer; height:26px; }
+.frame.mobile [data-density="default"] { --row-h:44px; --cell-pad-y:12px; }
+.frame.mobile .cancel-b { height:32px; padding:0 10px; }
+.frame.mobile .tbl-wrap { overflow-x:auto; }
+.seg { display:inline-flex; border:1px solid var(--border); border-radius:var(--r); overflow:hidden; height:28px; }
+.seg button { border:0; background:var(--bg); color:var(--muted-fg); padding:0 10px; font-size:12px; font-weight:600; cursor:pointer; }
+.seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); }
+.btn { height:40px; padding:0 16px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg); color:var(--fg); font-size:var(--t-sm); font-weight:600; cursor:pointer; flex:none; }
+.btn.sm { height:28px; padding:0 10px; font-size:12px; }
+.btn.pri { background:var(--primary); border-color:var(--primary); color:var(--primary-fg); }
+.btn.dest { border-color:var(--destructive); color:var(--destructive); background:transparent; }
+.tip { font-size:11px; color:var(--muted-fg); margin-top:8px; }
+.empty { padding:20px; text-align:center; border:1px dashed var(--border); border-radius:var(--r-md); }
+.empty b { display:block; font-size:var(--t-sm); font-weight:600; color:var(--fg); margin-bottom:4px; }
+.empty span { font-size:var(--t-caption); color:var(--muted-fg); }
+.gate { border:1px solid var(--border); background:var(--muted); border-radius:var(--r-lg); padding:32px 24px; text-align:center; }
+.gate .ic { font-size:24px; margin-bottom:8px; }
+.gate b { display:block; font-size:var(--t-base); font-weight:600; margin-bottom:6px; }
+.gate p { margin:0 0 4px; font-size:var(--t-sm); color:var(--muted-fg); }
+.gate small { font-size:var(--t-caption); color:var(--muted-fg); }
+
+/* 더티 액션 바 */
+.dirtybar { position:absolute; left:0; right:0; bottom:0; z-index:40; display:flex; align-items:center; gap:8px; padding:8px 16px;
+  background:color-mix(in oklch,var(--card) 96%,transparent); backdrop-filter:blur(8px); border-top:1px solid var(--primary); }
+.dirtybar .txt { flex:1; min-width:0; }
+.dirtybar .txt b { display:block; font-size:var(--t-sm); font-weight:600; }
+.dirtybar .txt small { font-size:11px; color:var(--muted-fg); }
+.frame.mobile .dirtybar { flex-wrap:wrap; }
+.frame.mobile .dirtybar .txt { flex-basis:100%; }
+.frame.mobile .dirtybar .btn { flex:1; }
+
+/* 확인 다이얼로그 */
+.scrim { position:absolute; inset:0; background:oklch(0 0 0 /.45); display:grid; place-items:center; z-index:60; padding:16px; }
+.dlg { width:100%; max-width:420px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-lg); padding:20px; box-shadow:0 24px 60px oklch(0 0 0 /.35); }
+.dlg h4 { margin:0 0 6px; font-size:var(--t-base); font-weight:600; }
+.dlg p { margin:0 0 12px; font-size:var(--t-sm); color:var(--muted-fg); }
+.dlg .sum { border:1px solid var(--border); border-radius:var(--r-md); padding:10px 12px; font-size:var(--t-caption); margin-bottom:12px; }
+.dlg .sum div { display:flex; justify-content:space-between; gap:12px; }
+.dlg .sum div + div { margin-top:5px; }
+.dlg .sum b { font-family:var(--font-mono); font-weight:600; }
+.dlg .warnbox { border:1px solid var(--destructive); border-radius:var(--r-md); padding:8px 10px; font-size:var(--t-caption); color:var(--destructive); margin-bottom:12px; }
+.dlg .acts { display:flex; gap:8px; justify-content:flex-end; }
+.dlg .acts .go { background:var(--up); border-color:var(--up); color:#fff; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Phase 16 — 트레이딩 › VI 변동성완화 종합주문 <b style="font-weight:400;color:var(--muted-fg)">(채택안 · D-24 반영)</b></h1>
+  <span class="lb">시나리오:</span>
+  <button class="tbtn" data-sc="off" aria-pressed="true">중지</button>
+  <button class="tbtn" data-sc="run" aria-pressed="false">가동 중 · 주문 5건</button>
+  <button class="tbtn" data-sc="dirty" aria-pressed="false">값 변경 → 수정 버튼</button>
+  <button class="tbtn" data-sc="start" aria-pressed="false">시작 확인</button>
+  <button class="tbtn" data-sc="stop" aria-pressed="false">중지 확인</button>
+  <button class="tbtn" data-sc="nomap" aria-pressed="false">DMA 매핑 없음</button>
+  <span class="lb">| 데드라인 1단계:</span>
+  <button class="tbtn" data-va="neutral" aria-pressed="true">중립(채택)</button>
+  <button class="tbtn" data-va="warn" aria-pressed="false">주황(--warn 추가 시)</button>
+  <button class="tbtn" id="themeBtn" aria-pressed="false">🌙 다크</button>
+</div>
+
+<div class="stage">
+  <div class="info">
+    <div><b>gh-trade [0402] 변동성완화 종합주문 → 웹.</b> 설정은 <b>세션당 1건</b>(종목 축 없음, KRX 전용, 주문가 = 상한가 고정이라 주문유형 UI 없음). 입력 4개: 계좌 · 금액(만원) · 상승률(%) · VI 마감알림(브라우저 로컬, 이 기기만).</div>
+    <div><b>D-24(a) 수정 — 「0.3초 자동 반영」 폐기.</b> 계좌·금액·상승률을 바꾸면 더티 표시 + 하단 <b>「수정」 액션 바</b>가 나타나고, 「수정」이 <code>SetVITrigger</code>(<code>run</code> 은 현재값 유지)를 보낸다(D-07). <b>시작/중지는 확인 다이얼로그</b> — 호가주문 탭의 주문 확인과 같은 규율. 중지 상태에서 「시작」은 현재 폼 값으로 <code>run=true</code> 전송.</div>
+    <div><b>D-24(b) 수정 — 신규 토큰 0개.</b> 110초/119초 데드라인은 <b>2단계</b>로만 표현한다: 여유(≥20초) = 중립 <code>--muted-fg</code>, 임박(&lt;20초) = <code>--destructive</code>. 초안의 주황(<code>--warn</code>)은 globals.css 에 없으므로 쓰지 않는다(툴바에서 비교 가능).</div>
+    <div><b>VI 주문내역</b>: 확인 체크(= 119초 미확인 자동취소 <b>면제</b>, <code>ConfirmVIOrderReq 33</code> 즉시 전송 · 수정 버튼 대상 아님, D-10) · 상태 6종(접수 전/접수/부분체결/체결/취소/거부). 모바일은 카드 행, 데스크톱은 표.</div>
+    <div><b>모바일 세로 순서</b>: 상태줄 → 설정 → 시작/중지 → VI 주문내역 → 미체결 → 잔고. 데스크톱은 좌 420px(설정·잔고) / 우(주문내역·미체결) 2열.</div>
+  </div>
+
+  <div class="frames">
+    <div class="frame-wrap">
+      <div class="cap">모바일 390px (기준)</div>
+      <div class="frame mobile" id="fMobile">
+        <div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div>
+        <div class="scroll" data-body></div>
+      </div>
+    </div>
+    <div class="frame-wrap">
+      <div class="cap">데스크톱 1280px (사이드바 트리 포함)</div>
+      <div class="frame desktop" id="fDesktop">
+        <div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div>
+        <div class="scroll" data-body></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+let SC = 'off';
+const fmt = n => n.toLocaleString('ko-KR');
+const ACCT = '37728502101';
+const RUNNING = sc => sc==='run' || sc==='dirty' || sc==='stop';
+
+const VI = [
+  { t:'13:44:02', nm:'이수페타시스', code:'007660', trig:41250, rate:23.1, price:48750, qty:205, state:'Accepted', conf:false, lock:false, left110:64 },
+  { t:'13:41:30', nm:'한미반도체',   code:'042700', trig:98400, rate:22.4, price:115700, qty:86,  state:'Accepted', conf:true,  lock:false, left110:14 },
+  { t:'13:38:12', nm:'두산에너빌리티', code:'034020', trig:31150, rate:25.0, price:35900, qty:278, state:'PartiallyFilled', filled:120, conf:true, lock:true, left110:0 },
+  { t:'13:20:45', nm:'에코프로',     code:'086520', trig:126000, rate:26.0, price:130000, qty:76, state:'Filled', filled:76, conf:true, lock:true, left110:0 },
+  { t:'13:05:03', nm:'삼성전자',     code:'005930', trig:92300, rate:22.0, price:95600, qty:104, state:'Cancelled', conf:false, lock:true, left110:0 },
+];
+const ST = { Pending:['접수 전','pend'], Accepted:['접수','acc'], PartiallyFilled:['부분체결','fill'], Filled:['체결','fill'], Cancelled:['취소','canc'], Rejected:['거부','rej'] };
+
+function sidebar(){
+  const mapped = SC !== 'nomap';
+  const trading = mapped ? `
+    <li class="grp-hd"><span class="ico">⚡</span>트레이딩</li>
+    <li><ul>
+      <li><a><span class="ico">🎯</span><span class="nm">상따</span></a>
+        <ul>
+          <li><a><span class="nm">에코프로</span><span class="badge"><span class="pill ex">KRX</span><span class="pill buyon">매수ON</span></span></a></li>
+          <li><a><span class="nm">삼성전자</span><span class="badge"><span class="pill ex nxt">NXT</span><span class="pill sellwait">매도대기</span></span></a></li>
+        </ul></li>
+      <li><a class="on"><span class="ico">Ⓥ</span><span class="nm">VI</span>${RUNNING(SC)?'<span class="badge"><span class="pill virun">가동</span></span>':''}</a></li>
+    </ul></li>
+    <li><a><span class="ico">👤</span><span class="nm">My page</span></a></li>` : '';
+  return `<aside class="side"><nav aria-label="주 메뉴"><ul>
+    <li><a><span class="ico">⌂</span><span class="nm">홈</span></a></li>
+    <li class="grp-hd"><span class="ico">🔎</span>종목검색</li>
+    <li><ul>
+      <li><a><span class="ico">↗</span><span class="nm">상승률 상위</span></a></li>
+      <li><a><span class="ico">▤</span><span class="nm">테마</span></a></li>
+      <li><a><span class="ico">★</span><span class="nm">관심종목</span></a></li>
+    </ul></li>
+    ${trading}
+    <li><a><span class="ico">✦</span><span class="nm">AI 애널리스트</span></a></li>
+  </ul></nav><div class="user"><span class="av">e</span><span>ezmesya@gmail.com</span></div></aside>`;
+}
+function header(isMobile){
+  return `<div class="hdr">${isMobile?'<button class="burger" aria-label="메뉴 열기">☰</button>':''}<span class="logo">gh-radar</span>
+    <div class="search">🔍 <span>종목명 또는 종목코드</span><span class="kbd">⌘K</span></div></div>`;
+}
+const sw = (on,lbl) => `<button class="sw" role="switch" aria-checked="${on}" aria-label="${lbl}"></button>`;
+
+function settings(){
+  const run = RUNNING(SC);
+  const d = SC==='dirty';
+  return `<div class="card">
+    <h3>설정 <span class="r">세션당 1건 · KRX · 주문가 = 상한가</span></h3>
+    <div class="f"><label>계좌</label><div class="row"><label class="sel"><b class="mono">${ACCT}</b> <span style="color:var(--muted-fg);font-size:12px">KB 위탁종합</span><span class="chev">▾</span></label><div class="inp" style="width:104px"><span class="ph">비번</span><span class="mono">••••</span></div></div></div>
+    <div class="f${d?' dirty':''}"><label>금액</label><div class="row"><div class="inp num"><span class="val">${d?'1,500':'1,000'}</span><span class="unit">만원</span></div><span class="tail">주문수량 = 금액 ÷ 상한가</span></div></div>
+    <div class="f${d?' dirty':''}"><label>상승률</label><div class="row"><div class="inp num"><span class="val">${d?'25.0':'22.0'}</span><span class="unit">%</span></div><span class="tail">이상 VI 발동 시 자동 매수</span></div></div>
+    <div class="f"><label>마감알림</label><div class="opt">${sw(true,'VI 마감 알림')}<span>VI 마감 시 브라우저 알림 (이 기기만)</span></div></div>
+    <div class="runbar ${run?'on':''}">
+      <span class="lamp"></span>
+      <div class="txt"><b>${run?'자동매매 가동 중':'중지됨'}</b><small>${run?'서버 반영 13:44:02 · 다른 단말에서도 같은 상태예요':'「시작」을 누르면 확인 후 서버에 등록돼요'}</small></div>
+      <button class="runbtn ${run?'stop':''}" data-run="${run?'stop':'start'}">${run?'중지':'시작'}</button>
+    </div>
+  </div>`;
+}
+
+function stateBar(){
+  const run = RUNNING(SC);
+  return `<div class="state" aria-live="polite">
+    <span class="k"><span class="dot ok"></span>DMA <b>Ready</b></span>
+    <span class="k"><span class="dot ${run?'run':'stop'}"></span>VI <b>${run?'가동':'중지'}</b></span>
+    <span class="k">오늘 VI 주문 <b>${run?VI.length:0}건</b></span>
+    <span class="ts">${run?'13:44:02':'—'}</span></div>`;
+}
+
+function viRowsMobile(){
+  if (!RUNNING(SC)) return `<div class="empty"><b>오늘 발동된 VI 주문이 없어요</b><span>가동 중이면 조건에 맞는 VI 발동 종목이 여기에 쌓여요.</span></div>`;
+  return `<div class="vi-list">${VI.map(o=>{
+    const [lbl,cls] = ST[o.state];
+    const live = o.state==='Accepted' && o.left110>0;
+    const hot = live && o.left110 < 20;
+    return `<div class="vi-row">
+      <span class="chk ${o.conf?'on':''} ${o.lock?'lock':''}" role="checkbox" aria-checked="${o.conf}" aria-label="${o.nm} 주문 확인 — 119초 미확인 취소 면제">${o.conf?'✓':''}</span>
+      <span class="nm">${o.nm}<small>${o.code} · ${o.t}</small></span>
+      <span class="pill st ${cls}">${lbl}${o.state==='PartiallyFilled'?` ${o.filled}/${o.qty}`:''}</span>
+      <div class="meta"><span>발동가 <b>${fmt(o.trig)}</b></span><span class="u" style="color:var(--up)">+${o.rate}%</span><span>주문 <b>${fmt(o.price)}</b> × <b>${o.qty}</b>주</span></div>
+      ${live?`<div class="dl ${hot?'hot':''}"><span>110초 취소까지 <b class="mono">${o.left110}초</b></span><div class="bar"><i style="--w:${Math.round(o.left110/110*100)}%"></i></div><span>${o.conf?'확인됨':'미확인 → 119초 취소'}</span></div>`:''}
+    </div>`;}).join('')}</div>`;
+}
+function viTableDesktop(){
+  if (!RUNNING(SC)) return `<div class="empty"><b>오늘 발동된 VI 주문이 없어요</b><span>가동 중이면 조건에 맞는 VI 발동 종목이 여기에 쌓여요.</span></div>`;
+  return `<div class="tbl-wrap" data-density="default"><table class="t">
+  <thead><tr><th class="l">확인</th><th class="l">시각</th><th class="l">종목</th><th>발동가</th><th>상승률</th><th>주문가</th><th>수량</th><th class="l">상태</th><th class="l">110초</th></tr></thead>
+  <tbody>${VI.map(o=>{ const [lbl,cls]=ST[o.state]; const live=o.state==='Accepted'&&o.left110>0; const hot=live&&o.left110<20;
+    return `<tr>
+      <td class="l"><span class="chk ${o.conf?'on':''} ${o.lock?'lock':''}" role="checkbox" aria-checked="${o.conf}" aria-label="${o.nm} 주문 확인">${o.conf?'✓':''}</span></td>
+      <td class="l mono">${o.t}</td>
+      <td class="l"><b>${o.nm}</b> <small style="color:var(--muted-fg);font-family:var(--font-mono)">${o.code}</small></td>
+      <td>${fmt(o.trig)}</td><td class="u">+${o.rate}%</td><td>${fmt(o.price)}</td>
+      <td>${o.qty}${o.filled?` <small style="color:var(--muted-fg)">(${o.filled})</small>`:''}</td>
+      <td class="l"><span class="pill st ${cls}">${lbl}</span></td>
+      <td class="l">${live?`<span class="mono" style="color:${hot?'var(--destructive)':'var(--dl-c)'};font-weight:600">${o.left110}초</span>`:'—'}</td></tr>`;}).join('')}</tbody>
+  </table></div>`;
+}
+function viCard(isMobile){
+  return `<div class="card"><h3>VI 주문내역 <span class="r">확인 체크 = 119초 미확인 취소 면제</span></h3>
+    ${isMobile?viRowsMobile():viTableDesktop()}
+    <div class="tip">110초 미도달 취소는 서버 규칙이라 면제되지 않아요 · 접수 전(주문번호 없음)은 확인할 수 없어요</div></div>`;
+}
+function unfilled(){
+  const run = RUNNING(SC);
+  return `<div class="card"><h3>미체결 <span class="r"><span class="seg" role="group" aria-label="거래소 필터"><button aria-pressed="true">전체</button><button aria-pressed="false">KRX</button><button aria-pressed="false">NXT</button></span><button class="btn sm dest">전체 취소</button></span></h3>
+  ${run?`<div class="tbl-wrap" data-density="default"><table class="t">
+    <thead><tr><th class="l">종목</th><th class="l">구분</th><th>주문가</th><th>미체결</th><th>주문량</th><th class="l">주문번호</th><th></th></tr></thead>
+    <tbody>
+      <tr><td class="l">이수페타시스 <small style="color:var(--muted-fg)">VI</small></td><td class="l u">▲ 매수</td><td>48,750</td><td>205</td><td>205</td><td class="l">0031245</td><td><button class="cancel-b" aria-label="주문번호 0031245 취소">✕ 취소</button></td></tr>
+      <tr><td class="l">한미반도체 <small style="color:var(--muted-fg)">VI</small></td><td class="l u">▲ 매수</td><td>115,700</td><td>86</td><td>86</td><td class="l">0031102</td><td><button class="cancel-b" aria-label="주문번호 0031102 취소">✕ 취소</button></td></tr>
+      <tr><td class="l">두산에너빌리티 <small style="color:var(--muted-fg)">VI</small></td><td class="l u">▲ 매수</td><td>35,900</td><td>158</td><td>278</td><td class="l">0030987</td><td><button class="cancel-b" aria-label="주문번호 0030987 취소">✕ 취소</button></td></tr>
+    </tbody></table></div>`
+    :`<div class="empty"><b>미체결 주문이 없어요</b><span>주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요.</span></div>`}</div>`;
+}
+function holdings(){
+  const run = RUNNING(SC);
+  return `<div class="card"><h3>잔고 <span class="r">계좌 <span class="mono">${ACCT}</span></span></h3>
+  <div class="tbl-wrap" data-density="default"><table class="t">
+    <thead><tr><th class="l">종목</th><th>매도가능</th><th>보유</th><th>평단가</th><th>현재가</th><th>평가손익</th></tr></thead>
+    <tbody>
+      <tr><td class="l">에코프로</td><td>76</td><td>76</td><td>130,000</td><td>128,500</td><td class="d">-114,000<br><small>-1.15%</small></td></tr>
+      ${run?`<tr><td class="l">두산에너빌리티</td><td>120</td><td>120</td><td>35,900</td><td>36,850</td><td class="u">+114,000<br><small>+2.65%</small></td></tr>`:''}
+    </tbody></table></div></div>`;
+}
+
+function dirtyBar(){
+  return `<div class="dirtybar" role="status">
+    <div class="txt"><b>변경한 값 2개가 아직 서버에 반영되지 않았어요</b>
+      <small>「수정」을 눌러야 반영돼요 · 가동 상태(<code>run</code>)는 그대로 유지돼요</small></div>
+    <button class="btn">되돌리기</button>
+    <button class="btn pri">수정</button></div>`;
+}
+
+function dialog(kind){
+  if (kind === 'start') return `<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dt">
+    <h4 id="dt">VI 자동매수를 시작할까요?</h4>
+    <p>조건에 맞는 VI 발동 종목을 자동으로 매수해요.</p>
+    <div class="sum">
+      <div><span>계좌</span><b>37728502101</b></div>
+      <div><span>1건당 금액</span><b>1,000만원</b></div>
+      <div><span>상승률 조건</span><b>22.0% 이상</b></div>
+      <div><span>주문가</span><b>상한가 · KRX</b></div>
+    </div>
+    <div class="warnbox">시작하면 사람 확인 없이 주문이 나가요. 금액·상승률을 다시 확인해 주세요.</div>
+    <div class="acts"><button class="btn" autofocus>취소</button><button class="btn go">시작</button></div>
+  </div></div>`;
+  return `<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dt">
+    <h4 id="dt">VI 자동매수를 중지할까요?</h4>
+    <p>새 VI 발동에 더 이상 주문하지 않아요.</p>
+    <div class="sum">
+      <div><span>오늘 VI 주문</span><b>5건</b></div>
+      <div><span>미체결</span><b>3건 (유지)</b></div>
+    </div>
+    <div class="warnbox">이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.</div>
+    <div class="acts"><button class="btn" autofocus>닫기</button><button class="btn dest">중지</button></div>
+  </div></div>`;
+}
+
+function gate(){
+  return `<div class="gate"><div class="ic">🔒</div>
+    <b>DMA 계정이 연결되지 않았어요</b>
+    <p>VI 자동매수는 증권사 계정이 연결된 사용자만 이용할 수 있어요. 연결이 필요하면 관리자에게 문의해 주세요.</p>
+    <small>차트·뉴스·종목토론방은 그대로 이용할 수 있어요.</small></div>`;
+}
+
+function render(frame, isMobile){
+  $('[data-url]', frame).textContent = 'gh-radar.vercel.app/trading/vi';
+  let body;
+  if (SC === 'nomap') {
+    body = `<div class="ttl"><h2>VI 변동성완화 종합주문</h2></div>${gate()}`;
+  } else {
+    body = `<div class="ttl"><h2>VI 변동성완화 종합주문</h2><span class="sub">VI 발동 종목을 상승률 조건으로 자동 매수</span></div>
+      ${stateBar()}
+      ${isMobile
+        ? settings() + '<div style="height:8px"></div>' + viCard(true) + '<div style="height:8px"></div>' + unfilled() + '<div style="height:8px"></div>' + holdings()
+        : `<div style="display:grid;grid-template-columns:420px minmax(0,1fr);gap:16px;align-items:start"><div style="min-width:0">${settings()}</div><div style="min-width:0">${holdings()}</div></div><div style="height:8px"></div>${viCard(false)}<div style="height:8px"></div>${unfilled()}`}`;
+  }
+  $('[data-body]', frame).innerHTML =
+    header(isMobile) + `<div class="layout">${isMobile?'':sidebar()}<div class="main">${body}</div></div>`
+    + (SC==='dirty' ? dirtyBar() : '')
+    + (SC==='start' ? dialog('start') : '')
+    + (SC==='stop' ? dialog('stop') : '');
+}
+function renderAll(){ render($('#fMobile'), true); render($('#fDesktop'), false); }
+function setSc(v){ SC = v; $$('[data-sc]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.sc===v))); renderAll(); }
+
+document.addEventListener('click', e => {
+  const sc = e.target.closest('[data-sc]'); if (sc) { setSc(sc.dataset.sc); return; }
+  const va = e.target.closest('[data-va]');
+  if (va) { document.documentElement.setAttribute('data-variant', va.dataset.va); $$('[data-va]').forEach(b=>b.setAttribute('aria-pressed', String(b===va))); return; }
+  if (e.target.closest('#themeBtn')) {
+    const on = document.documentElement.classList.toggle('dark');
+    $('#themeBtn').setAttribute('aria-pressed', String(on));
+    $('#themeBtn').textContent = on ? '☀️ 라이트' : '🌙 다크';
+    return;
+  }
+  const rb = e.target.closest('[data-run]'); if (rb) { setSc(rb.dataset.run); return; }
+  if (e.target.closest('.scrim') && !e.target.closest('.dlg')) { setSc(SC==='start'?'off':'run'); return; }
+  const s = e.target.closest('.sw'); if (s) { s.setAttribute('aria-checked', String(s.getAttribute('aria-checked')!=='true')); return; }
+  const seg = e.target.closest('.seg button'); if (seg) { $$('button', seg.parentElement).forEach(b=>b.setAttribute('aria-pressed', String(b===seg))); return; }
+  const ck = e.target.closest('.chk');
+  if (ck && !ck.classList.contains('lock')) { const on=!ck.classList.contains('on'); ck.classList.toggle('on',on); ck.setAttribute('aria-checked',String(on)); ck.textContent = on?'✓':''; return; }
+});
+renderAll();
+</script>
+</body>
+</html>

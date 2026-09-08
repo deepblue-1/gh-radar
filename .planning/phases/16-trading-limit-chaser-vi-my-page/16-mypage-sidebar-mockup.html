@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="ko" class="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 16 — My page(/me) + 사이드바 트리·숨김·배지 목업 (모바일 390 기준 + 데스크톱 1280)</title>
+<style>
+/* gh-radar globals.css 토큰 인라인 — 신규 토큰 0개 (실측 2026-09-08, webapp/src/styles/globals.css) */
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0);
+  --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --input:oklch(0.92 0 0); --ring:oklch(0.63 0.18 250);
+  --card:#FFFFFF; --card-fg:oklch(0.18 0 0);
+  --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --secondary:oklch(0.96 0 0); --secondary-fg:oklch(0.18 0 0);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --destructive:oklch(0.66 0.20 22); --destructive-fg:#FFFFFF;
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px; --t-lg:18px; --t-h3:20px; --t-h2:24px;
+  --lh-tight:1.2; --lh-normal:1.5;
+  --row-h:36px; --cell-pad-x:12px; --cell-pad-y:8px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0);
+  --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06);
+  --input:oklch(0.24 0 0); --ring:oklch(0.72 0.16 250);
+  --card:oklch(0.12 0 0); --card-fg:oklch(0.96 0 0);
+  --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --secondary:oklch(0.18 0 0); --secondary-fg:oklch(0.96 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --destructive:oklch(0.72 0.19 22); --destructive-fg:oklch(0.10 0 0);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg); font-size:var(--t-base); line-height:var(--lh-normal); font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+html[lang="ko"] { word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em; }
+.num { text-align:right; font-variant-numeric:tabular-nums; }
+button, input, select { font-family:inherit; }
+*:focus-visible { outline:2px solid var(--ring); outline-offset:3px; box-shadow:0 0 0 4px color-mix(in oklch,var(--ring) 30%,transparent); }
+
+/* ── 목업 툴바 ───────────────────────────────────────── */
+.toolbar { position:sticky; top:0; z-index:300; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 20px; background:color-mix(in oklch,var(--bg) 92%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+.toolbar h1 { font-size:var(--t-sm); font-weight:600; margin:0; margin-right:auto; }
+.toolbar .lb { font-size:11px; color:var(--muted-fg); }
+.tbtn { height:26px; padding:0 9px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--secondary); color:var(--secondary-fg); font-size:11px; font-weight:600; cursor:pointer; }
+.tbtn[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.stage { padding:20px; }
+.info { border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r-md); background:var(--muted); padding:12px 14px; margin:0 0 20px; max-width:1160px; font-size:var(--t-sm); }
+.info div + div { margin-top:6px; }
+.info code { font-family:var(--font-mono); font-size:12px; }
+.secttl { font-size:var(--t-sm); font-weight:600; margin:28px 0 10px; }
+.frames { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+.frame-wrap .cap { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin-bottom:8px; }
+.frame { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; background:var(--bg); }
+.urlbar { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--muted); border-bottom:1px solid var(--border); font-size:11px; color:var(--muted-fg); }
+.urlbar .dots { display:flex; gap:4px; } .urlbar .dots i { width:8px; height:8px; border-radius:9999px; background:var(--border); display:block; }
+.urlbar .url { flex:1; min-width:0; background:var(--card); border:1px solid var(--border); border-radius:9999px; padding:3px 10px; font-family:var(--font-mono); color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.scroll { overflow-y:auto; overflow-x:hidden; position:relative; }
+.frame.mobile { width:390px; } .frame.desktop { width:1280px; }
+.frame.mobile .scroll { width:390px; height:800px; }
+.frame.desktop .scroll { width:1280px; height:800px; }
+
+/* ── 앱 셸 ───────────────────────────────────────────── */
+.hdr { height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:10; }
+.hdr .logo { font-weight:700; font-size:var(--t-lg); }
+.hdr .burger { color:var(--fg); width:44px; height:44px; display:grid; place-items:center; border:0; background:none; margin-left:-12px; font-size:20px; cursor:pointer; }
+.hdr .search { flex:1; height:36px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--muted); display:flex; align-items:center; padding:0 12px; color:var(--muted-fg); font-size:var(--t-sm); gap:8px; max-width:420px; }
+.hdr .kbd { margin-left:auto; font-family:var(--font-mono); font-size:11px; border:1px solid var(--border); border-radius:4px; padding:0 5px; }
+.layout { display:flex; min-height:744px; }
+.side { width:240px; flex:none; border-right:1px solid var(--border); background:var(--muted); padding:12px; display:flex; flex-direction:column; }
+.side nav { flex:1; }
+.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.side a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); font-size:var(--t-sm); color:var(--muted-fg); text-decoration:none; cursor:pointer; }
+.side a:hover { background:color-mix(in oklch,var(--bg) 60%,transparent); color:var(--fg); }
+.side a.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
+.side .grp-hd { display:flex; align-items:center; gap:8px; padding:10px 12px 4px; font-size:11px; font-weight:600; letter-spacing:0.02em; color:var(--muted-fg); text-transform:none; }
+.side ul ul { margin-left:14px; border-left:1px solid var(--border); padding-left:6px; margin-top:2px; }
+.side ul ul a { padding:6px 10px; }
+.side ul ul ul { margin-left:12px; }
+.side ul ul ul a { padding:5px 10px; font-size:13px; }
+.side .ico { width:16px; text-align:center; font-size:13px; opacity:.85; flex:none; }
+.side .nm { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.side .badge { margin-left:auto; display:inline-flex; gap:3px; flex:none; }
+.side .user { margin-top:12px; border-top:1px solid var(--border); padding-top:10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); color:var(--muted-fg); }
+.side .user .av { width:26px; height:26px; border-radius:9999px; background:var(--secondary); display:grid; place-items:center; font-size:12px; color:var(--fg); flex:none; }
+
+/* ── 배지(전략 상태 6종 + 거래소 태그) — 신규 토큰 0 ── */
+.pill { font-size:11px; font-weight:600; padding:1px 5px; border-radius:9999px; line-height:1.5; white-space:nowrap; display:inline-flex; align-items:center; gap:3px; }
+.pill::before { content:''; width:5px; height:5px; border-radius:9999px; flex:none; }
+.pill.buyon   { background:var(--up-bg);   color:var(--up); }        .pill.buyon::before   { background:var(--up); }
+.pill.fired   { background:var(--muted);   color:var(--muted-fg); }  .pill.fired::before   { background:var(--muted-fg); box-shadow:none; }
+.pill.sellwait{ background:var(--muted);   color:var(--muted-fg); }  .pill.sellwait::before{ background:transparent; border:1.5px solid var(--muted-fg); width:7px; height:7px; }
+.pill.sellwatch{background:var(--down-bg); color:var(--down); }      .pill.sellwatch::before{ background:var(--down); }
+.pill.virun   { background:var(--up-bg);   color:var(--up); }        .pill.virun::before   { background:var(--up); }
+.pill.vistop  { background:var(--muted);   color:var(--muted-fg); }  .pill.vistop::before  { background:transparent; border:1.5px solid var(--muted-fg); width:7px; height:7px; }
+.pill.ex      { background:transparent; border:1px solid var(--border); color:var(--muted-fg); font-weight:600; } .pill.ex::before { display:none; }
+.pill.ex.nxt  { background:var(--muted); border-color:transparent; }
+
+/* ── 본문 ────────────────────────────────────────────── */
+.main { flex:1; min-width:0; }
+.frame.mobile .main { padding:12px 12px 40px; }
+.frame.desktop .main { padding:24px 24px 48px; }
+.ttl { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:0 0 12px; }
+.ttl h2 { font-size:var(--t-h3); margin:0; font-weight:600; line-height:var(--lh-tight); }
+.ttl .sub { font-size:var(--t-caption); color:var(--muted-fg); }
+.state { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-radius:var(--r-md); background:var(--muted); font-size:var(--t-caption); color:var(--muted-fg); margin:0 0 8px; }
+.state .k { display:inline-flex; align-items:center; gap:5px; }
+.state .k b { color:var(--fg); font-weight:600; }
+.state .ts { margin-left:auto; font-family:var(--font-mono); }
+.dot { width:8px; height:8px; border-radius:9999px; display:inline-block; background:var(--flat); flex:none; }
+.dot.ok { background:oklch(0.72 0.19 150); }
+
+.card { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); padding:12px; box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 /.04), 0 8px 24px oklch(0 0 0 /.04); }
+.dark .card { box-shadow: inset 0 1px 0 oklch(1 0 0 /.04), 0 1px 2px oklch(0 0 0 /.4), 0 8px 24px oklch(0 0 0 /.3); }
+.card + .card { margin-top:8px; }
+.card > h3 { margin:0 0 10px; font-size:var(--t-sm); font-weight:600; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.card > h3 .r { margin-left:auto; font-weight:400; color:var(--muted-fg); font-size:var(--t-caption); font-family:var(--font-mono); }
+.sub-h { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin:0 0 6px; }
+
+/* 전략 현황 리스트 */
+.slist { display:flex; flex-direction:column; gap:0; }
+.srow { display:flex; align-items:center; gap:8px; padding:10px 8px; border-radius:var(--r); text-decoration:none; color:inherit; cursor:pointer; min-height:44px; }
+.srow + .srow { border-top:1px solid var(--border-subtle); }
+.srow:hover { background:color-mix(in oklch,var(--muted) 60%,transparent); }
+.srow .nm { font-size:var(--t-sm); font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.srow .cd { font-family:var(--font-mono); font-size:11px; color:var(--muted-fg); flex:none; }
+.srow .acc { font-family:var(--font-mono); font-size:11px; color:var(--muted-fg); flex:none; }
+.srow .bs { margin-left:auto; display:inline-flex; gap:4px; flex:none; }
+.srow .chev { color:var(--muted-fg); font-size:12px; flex:none; }
+.frame.mobile .srow { flex-wrap:wrap; row-gap:4px; }
+.frame.mobile .srow .acc { width:100%; order:9; }
+.vi-row { display:flex; align-items:center; gap:8px; padding:10px 8px; border-top:1px solid var(--border); border-radius:var(--r); cursor:pointer; min-height:44px; }
+.vi-row:hover { background:color-mix(in oklch,var(--muted) 60%,transparent); }
+.vi-row .nm { font-size:var(--t-sm); font-weight:600; }
+.vi-row .meta { font-size:11px; color:var(--muted-fg); font-family:var(--font-mono); }
+.danger { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.danger .txt { font-size:11px; color:var(--muted-fg); flex:1; min-width:160px; }
+.btn { height:36px; padding:0 14px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg); color:var(--fg); font-size:var(--t-sm); font-weight:600; cursor:pointer; }
+.btn.dest { border-color:var(--destructive); color:var(--destructive); background:transparent; }
+.btn.pri { background:var(--primary); border-color:var(--primary); color:var(--primary-fg); }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+
+/* 표 */
+.tbl-wrap { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+table.t { width:100%; border-collapse:collapse; font-size:var(--t-caption); }
+table.t thead th { background:var(--muted); color:var(--muted-fg); font-size:var(--t-caption); font-weight:600; text-align:right; padding:var(--cell-pad-y) var(--cell-pad-x); border-bottom:1px solid var(--border); white-space:nowrap; }
+table.t tbody td { height:var(--row-h); padding:0 var(--cell-pad-x); vertical-align:middle; text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; white-space:nowrap; }
+table.t tbody tr + tr > td { border-top:1px solid var(--border-subtle); }
+table.t thead th:first-child, table.t tbody td:first-child { text-align:left; font-family:var(--font-sans); }
+table.t .u { color:var(--up); } table.t .d { color:var(--down); }
+.cancel-b { font-family:var(--font-sans); font-size:11px; font-weight:600; border:1px solid var(--destructive); color:var(--destructive); border-radius:var(--r-sm); padding:2px 8px; background:transparent; cursor:pointer; height:26px; }
+.frame.mobile [data-density] { --row-h:44px; --cell-pad-y:12px; }
+.frame.mobile .cancel-b { height:32px; padding:0 10px; }
+.frame.mobile .tbl-wrap { overflow-x:auto; }
+.acct-grid { display:grid; gap:12px; }
+.frame.desktop .acct-grid { grid-template-columns:1fr 1fr; align-items:start; }
+
+/* 빈 상태 · 게이트 */
+.empty { padding:24px 16px; text-align:center; border:1px dashed var(--border); border-radius:var(--r-md); }
+.empty b { display:block; font-size:var(--t-sm); font-weight:600; color:var(--fg); margin-bottom:4px; }
+.empty span { font-size:var(--t-caption); color:var(--muted-fg); }
+.gate { border:1px solid var(--border); background:var(--muted); border-radius:var(--r-lg); padding:32px 24px; text-align:center; }
+.gate .ic { font-size:24px; margin-bottom:8px; }
+.gate b { display:block; font-size:var(--t-base); font-weight:600; margin-bottom:6px; }
+.gate p { margin:0 0 4px; font-size:var(--t-sm); color:var(--muted-fg); }
+.gate small { font-size:var(--t-caption); color:var(--muted-fg); }
+.gate .btn { margin-top:14px; }
+
+/* 확인 다이얼로그 */
+.scrim { position:absolute; inset:0; background:oklch(0 0 0 /.45); display:grid; place-items:center; z-index:60; padding:16px; }
+.dlg { width:100%; max-width:420px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-lg); padding:20px; box-shadow:0 24px 60px oklch(0 0 0 /.35); }
+.dlg h4 { margin:0 0 6px; font-size:var(--t-base); font-weight:600; }
+.dlg p { margin:0 0 12px; font-size:var(--t-sm); color:var(--muted-fg); }
+.dlg .sum { border:1px solid var(--border); border-radius:var(--r-md); padding:10px 12px; font-size:var(--t-caption); margin-bottom:12px; }
+.dlg .sum div { display:flex; justify-content:space-between; gap:12px; }
+.dlg .sum div + div { margin-top:5px; }
+.dlg .sum b { font-family:var(--font-mono); font-weight:600; }
+.dlg .warnbox { border:1px solid var(--destructive); border-radius:var(--r-md); padding:8px 10px; font-size:var(--t-caption); color:var(--destructive); margin-bottom:12px; }
+.dlg .acts { display:flex; gap:8px; justify-content:flex-end; }
+
+/* 사이드바 비교 3종 */
+.sbcmp { display:flex; gap:20px; flex-wrap:wrap; }
+.sbcmp .col { width:260px; }
+.sbcmp .col .cap { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin-bottom:8px; }
+.sbcmp .box { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; }
+.sbcmp .side { width:260px; min-height:460px; border-right:0; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Phase 16 — My page(<code>/me</code>) + 사이드바 트리·숨김·배지</h1>
+  <span class="lb">시나리오:</span>
+  <button class="tbtn" data-sc="full" aria-pressed="true">전략 3 · 계좌 2</button>
+  <button class="tbtn" data-sc="empty" aria-pressed="false">전략 0 · 잔고 0</button>
+  <button class="tbtn" data-sc="confirm" aria-pressed="false">전체 비활성화 확인</button>
+  <button class="tbtn" data-sc="nomap" aria-pressed="false">DMA 매핑 없음</button>
+  <button class="tbtn" data-sc="guest" aria-pressed="false">비로그인</button>
+  <button class="tbtn" id="themeBtn" aria-pressed="false">🌙 다크</button>
+</div>
+
+<div class="stage">
+  <div class="info">
+    <div><b>D-24(c) 추가 목업.</b> <code>/me</code> 세로 순서 = <b>전략 현황 → (계좌별) 미체결 → 잔고</b>(D-20). 계좌가 2개 이상이면 <b>계좌 섹션을 세로로 반복</b>하고 계좌번호는 전체 표시(D-21 · Phase 15 D2). 미체결·잔고 표는 <code>orderbook/account-panel.tsx</code> 재사용.</div>
+    <div><b>사이드바</b>: 홈 / 종목검색(상승률 상위·테마·관심종목) / 트레이딩(상따 + 등록 전략 목록 · VI) / My page / AI 애널리스트. 그룹 헤더는 <b>클릭 불가 소제목, 항상 펼침</b>(D-16). <b>DMA 매핑 없음·비로그인이면 트레이딩·My page 항목을 숨긴다</b>(D-19) — 아래 「사이드바 상태 3종」 참조.</div>
+    <div><b>신규 토큰 0개.</b> D-24(b) 준수. 목업 초안의 <code>--warn</code>(주황)은 globals.css 에 <b>존재하지 않아</b>(실측) 사용하지 않는다. 「대기 / 중지 / 발주됨」은 <b>중립</b>(<code>--muted</code>/<code>--muted-fg</code>) + <b>도트 형태</b>(채움·속빔)로 구분하고, 방향 의미가 있는 상태만 <code>--up</code>(매수)·<code>--down</code>(매도)을 쓴다. 색 없이도 텍스트·형태로 읽힌다(WCAG 1.4.1).</div>
+    <div><b>전체 비활성화</b>(<code>DisableStrategiesReq 14</code>, key="")는 전략 현황 카드 하단에 두고 <b>확인 다이얼로그</b> 필수(D-09). 기본 포커스는 「닫기」.</div>
+  </div>
+
+  <div class="frames">
+    <div class="frame-wrap">
+      <div class="cap">모바일 390px (기준)</div>
+      <div class="frame mobile" id="fMobile">
+        <div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div>
+        <div class="scroll" data-body></div>
+      </div>
+    </div>
+    <div class="frame-wrap">
+      <div class="cap">데스크톱 1280px (사이드바 240 + 본문)</div>
+      <div class="frame desktop" id="fDesktop">
+        <div class="urlbar"><span class="dots"><i></i><i></i><i></i></span><span class="url" data-url></span></div>
+        <div class="scroll" data-body></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="secttl">사이드바 상태 3종 (D-17 전략 목록 · D-19 숨김)</div>
+  <div class="sbcmp" id="sbcmp"></div>
+</div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+let SC = 'full';
+const fmt = n => n.toLocaleString('ko-KR');
+
+/* ── 픽스처 ─────────────────────────────────────────── */
+const STRATS = [
+  { nm:'에코프로',     cd:'086520', ex:'KRX', acc:'37728502101', badges:[['buyon','매수ON'],['sellwait','매도대기']] },
+  { nm:'삼성전자',     cd:'005930', ex:'NXT', acc:'37728502101', badges:[['fired','발주됨'],['sellwatch','매도감시']] },
+  { nm:'이수페타시스', cd:'007660', ex:'KRX', acc:'37728502102', badges:[['sellwait','매도대기']] },
+];
+const ACCTS = [
+  { no:'37728502101', kind:'KB 위탁종합',
+    open:[ ['에코프로','매수',130000,76,76,'0031245'], ['이수페타시스','매수',48750,205,205,'0031102'] ],
+    hold:[ ['에코프로',76,76,130000,128500,9766000,-114000,-1.15], ['두산에너빌리티',120,120,35900,36850,4422000,114000,2.65] ] },
+  { no:'37728502102', kind:'KB 위탁종합',
+    open:[],
+    hold:[ ['한미반도체',86,86,115700,118200,10165200,215000,2.16] ] },
+];
+
+/* ── 사이드바 ───────────────────────────────────────── */
+function sidebar(mode, active){
+  const mapped = mode === 'mapped';
+  const stratLis = STRATS.map(s => `<li><a><span class="nm">${s.nm}</span><span class="badge"><span class="pill ex ${s.ex==='NXT'?'nxt':''}">${s.ex}</span>${s.badges.map(([c,l])=>`<span class="pill ${c}">${l}</span>`).join('')}</span></a></li>`).join('');
+  const trading = mapped ? `
+    <li class="grp-hd"><span class="ico">⚡</span>트레이딩</li>
+    <li><ul>
+      <li><a><span class="ico">🎯</span><span class="nm">상따</span></a>
+        <ul>${SC==='empty'?'<li><a style="color:var(--muted-fg);font-size:12px">등록된 전략 없음</a></li>':stratLis}</ul>
+      </li>
+      <li><a><span class="ico">Ⓥ</span><span class="nm">VI</span>${SC==='empty'?'<span class="badge"><span class="pill vistop">중지</span></span>':'<span class="badge"><span class="pill virun">가동</span></span>'}</a></li>
+    </ul></li>` : '';
+  const mypage = mapped ? `<li><a class="${active==='me'?'on':''}"><span class="ico">👤</span><span class="nm">My page</span></a></li>` : '';
+  const user = mode === 'guest'
+    ? `<div class="user"><span class="av">?</span><span>로그인</span></div>`
+    : `<div class="user"><span class="av">e</span><span>ezmesya@gmail.com</span></div>`;
+  return `<aside class="side"><nav aria-label="주 메뉴"><ul>
+    <li><a><span class="ico">⌂</span><span class="nm">홈</span></a></li>
+    <li class="grp-hd"><span class="ico">🔎</span>종목검색</li>
+    <li><ul>
+      <li><a><span class="ico">↗</span><span class="nm">상승률 상위</span></a></li>
+      <li><a><span class="ico">▤</span><span class="nm">테마</span></a></li>
+      <li><a><span class="ico">★</span><span class="nm">관심종목</span></a></li>
+    </ul></li>
+    ${trading}
+    ${mypage}
+    <li><a><span class="ico">✦</span><span class="nm">AI 애널리스트</span></a></li>
+  </ul></nav>${user}</aside>`;
+}
+
+function header(isMobile){
+  return `<div class="hdr">${isMobile?'<button class="burger" aria-label="메뉴 열기">☰</button>':''}<span class="logo">gh-radar</span>
+    <div class="search">🔍 <span>종목명 또는 종목코드</span><span class="kbd">⌘K</span></div></div>`;
+}
+
+/* ── /me 본문 ───────────────────────────────────────── */
+function stateBar(){
+  const n = SC==='empty' ? 0 : STRATS.length;
+  return `<div class="state">
+    <span class="k"><span class="dot ok"></span>DMA <b>Ready</b></span>
+    <span class="k">상따 <b>${n}건</b></span>
+    <span class="k">VI <b>${SC==='empty'?'중지':'가동'}</b></span>
+    <span class="k">계좌 <b>${ACCTS.length}개</b></span>
+    <span class="ts">반영 13:44:02</span></div>`;
+}
+
+function strategyCard(){
+  const empty = SC === 'empty';
+  const list = empty
+    ? `<div class="empty"><b>등록된 상따 전략이 없어요</b><span>트레이딩 › 상따에서 종목을 고르면 여기에 표시돼요.</span></div>`
+    : `<div class="slist">${STRATS.map(s=>`<a class="srow">
+        <span class="nm">${s.nm}</span><span class="cd">${s.cd}</span>
+        <span class="pill ex ${s.ex==='NXT'?'nxt':''}">${s.ex}</span>
+        <span class="acc">${s.no||s.acc}</span>
+        <span class="bs">${s.badges.map(([c,l])=>`<span class="pill ${c}">${l}</span>`).join('')}</span>
+        <span class="chev">›</span></a>`).join('')}</div>`;
+  const vi = `<div class="vi-row">
+      <span class="nm">VI 자동매수</span>
+      <span class="pill ${empty?'vistop':'virun'}">${empty?'중지':'가동'}</span>
+      <span class="meta">${empty?'—':'1,000만원 · 22.0% 이상'}</span>
+      <span class="chev" style="margin-left:auto">›</span></div>`;
+  return `<div class="card">
+    <h3>전략 현황 <span class="r">상따 ${empty?0:STRATS.length} · VI ${empty?'중지':'가동'}</span></h3>
+    ${list}
+    ${vi}
+    <div class="danger">
+      <span class="txt">모든 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.</span>
+      <button class="btn dest" id="disableAll" ${empty?'disabled':''}>전체 비활성화</button>
+    </div>
+  </div>`;
+}
+
+function openTable(rows){
+  if (!rows.length) return `<div class="empty"><b>미체결 주문이 없어요</b><span>주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요.</span></div>`;
+  return `<div class="tbl-wrap" data-density="default"><table class="t">
+    <thead><tr><th>종목</th><th>구분</th><th>주문가</th><th>미체결</th><th>주문량</th><th></th></tr></thead>
+    <tbody>${rows.map(([nm,side,px,rem,qty,no])=>`<tr>
+      <td>${nm}<br><small style="color:var(--muted-fg);font-family:var(--font-mono)">${no}</small></td>
+      <td class="u">▲ ${side}</td><td>${fmt(px)}</td><td>${fmt(rem)}</td><td>${fmt(qty)}</td>
+      <td><button class="cancel-b" aria-label="주문번호 ${no} 취소">✕ 취소</button></td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function holdTable(rows){
+  if (!rows.length) return `<div class="empty"><b>보유 종목이 없어요</b><span>체결된 주문이 있으면 잔고에 반영돼요.</span></div>`;
+  return `<div class="tbl-wrap" data-density="default"><table class="t">
+    <thead><tr><th>종목</th><th>매도가능</th><th>보유</th><th>평단가</th><th>현재가</th><th>평가손익</th></tr></thead>
+    <tbody>${rows.map(([nm,se,hd,avg,cur,val,pl,rt])=>`<tr>
+      <td>${nm}<br><small style="color:var(--muted-fg);font-family:var(--font-mono)">평가 ${fmt(val)}</small></td>
+      <td>${fmt(se)}</td><td>${fmt(hd)}</td><td>${fmt(avg)}</td><td>${fmt(cur)}</td>
+      <td class="${pl>=0?'u':'d'}">${pl>=0?'+':''}${fmt(pl)}<br><small>${pl>=0?'+':''}${rt.toFixed(2)}%</small></td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function acctCard(a){
+  const empty = SC === 'empty';
+  return `<div class="card">
+    <h3>계좌 <span class="mono">${a.no}</span> <span class="r">${a.kind}</span></h3>
+    <div class="acct-grid">
+      <div><div class="sub-h">미체결 ${empty?0:a.open.length}건</div>${openTable(empty?[]:a.open)}</div>
+      <div><div class="sub-h">잔고 ${empty?0:a.hold.length}종목</div>${holdTable(empty?[]:a.hold)}</div>
+    </div>
+  </div>`;
+}
+
+function gateCard(){
+  if (SC === 'guest') return `<div class="gate">
+    <div class="ic">🔒</div><b>로그인이 필요해요</b>
+    <p>My page 는 로그인한 뒤 이용할 수 있어요.</p>
+    <small>홈·상승률 상위·테마는 로그인 없이도 볼 수 있어요.</small>
+    <div><button class="btn pri">로그인</button></div></div>`;
+  return `<div class="gate">
+    <div class="ic">🔒</div><b>DMA 계정이 연결되지 않았어요</b>
+    <p>전략·잔고·미체결은 증권사 계정이 연결된 사용자만 이용할 수 있어요. 연결이 필요하면 관리자에게 문의해 주세요.</p>
+    <small>차트·뉴스·종목토론방은 그대로 이용할 수 있어요.</small></div>`;
+}
+
+function confirmDialog(){
+  return `<div class="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgt">
+    <h4 id="dlgt">전략을 전부 비활성화할까요?</h4>
+    <p>상따 3건과 VI 자동매수가 한 번에 꺼져요.</p>
+    <div class="sum">
+      <div><span>상따 전략</span><b>3건 → 전부 OFF</b></div>
+      <div><span>VI 자동매수</span><b>가동 → 중지</b></div>
+      <div><span>계좌</span><b>37728502101 · 37728502102</b></div>
+    </div>
+    <div class="warnbox">이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.</div>
+    <div class="acts"><button class="btn" autofocus>닫기</button><button class="btn dest">전체 비활성화</button></div>
+  </div></div>`;
+}
+
+function render(frame, isMobile){
+  const mapped = SC !== 'nomap' && SC !== 'guest';
+  $('[data-url]', frame).textContent = 'gh-radar.vercel.app/me';
+  const body = mapped
+    ? `<div class="ttl"><h2>My page</h2><span class="sub">전략 현황 · 미체결 · 잔고</span></div>
+       ${stateBar()}${strategyCard()}${ACCTS.map(acctCard).join('')}`
+    : `<div class="ttl"><h2>My page</h2></div>${gateCard()}`;
+  $('[data-body]', frame).innerHTML =
+    header(isMobile)
+    + `<div class="layout">${isMobile?'':sidebar(mapped?'mapped':(SC==='guest'?'guest':'nomap'),'me')}<div class="main">${body}</div></div>`
+    + (SC==='confirm' ? confirmDialog() : '');
+}
+function renderAll(){
+  render($('#fMobile'), true);
+  render($('#fDesktop'), false);
+  $('#sbcmp').innerHTML = [
+    ['DMA 매핑 있음 — 전체 트리 + 전략 목록·배지', 'mapped'],
+    ['DMA 매핑 없음 — 트레이딩·My page 숨김', 'nomap'],
+    ['비로그인 — 트레이딩·My page 숨김 + 로그인', 'guest'],
+  ].map(([cap,mode]) => `<div class="col"><div class="cap">${cap}</div><div class="box">${sidebar(mode,'')}</div></div>`).join('');
+}
+
+document.addEventListener('click', e => {
+  const sc = e.target.closest('[data-sc]');
+  if (sc) { SC = sc.dataset.sc; $$('[data-sc]').forEach(b=>b.setAttribute('aria-pressed', String(b===sc))); renderAll(); return; }
+  if (e.target.closest('#themeBtn')) {
+    const on = document.documentElement.classList.toggle('dark');
+    $('#themeBtn').setAttribute('aria-pressed', String(on));
+    $('#themeBtn').textContent = on ? '☀️ 라이트' : '🌙 다크';
+    return;
+  }
+  if (e.target.closest('#disableAll')) { SC='confirm'; $$('[data-sc]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.sc==='confirm'))); renderAll(); return; }
+  if (e.target.closest('.scrim') && !e.target.closest('.dlg')) { SC='full'; $$('[data-sc]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.sc==='full'))); renderAll(); return; }
+});
+renderAll();
+</script>
+</body>
+</html>
