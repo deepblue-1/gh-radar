@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 17/17 plans complete
+**Plans:** 26/26 plans (17 실행 완료 + 갭 클로징 9)
 
 Plans:
 **Wave 1**
@@ -660,6 +660,27 @@ Plans:
 
 - [x] 16-17-PLAN.md — a11y 3표면 + 전체 E2E + 배포(relay→server→Vercel) + smoke + STATE/ROADMAP
 
+**Wave 15** *(갭 클로징 — 16-VERIFICATION 갭 4건 + 16-REVIEW Critical 1·Warning 9)*
+
+- [ ] 16-18-PLAN.md — [gap 1 BLOCKER + WR-01] dma_orders 사용자·당일 경계 + in-flight 가드 + 부분 UNIQUE 인덱스 [BLOCKING db push]
+- [ ] 16-19-PLAN.md — [gap 3] send() 무로그 드롭 제거(boolean 계약) + 킬 스위치 세션 가드·실패 표시
+- [ ] 16-20-PLAN.md — [WR-04 + WR-05] 죽은 orders-api 모듈 삭제 + errors.ts 주석 정정 + GET /api/orders 에 origin 노출
+- [ ] 16-21-PLAN.md — [gap 4 해법 ③] /healthz degraded 판정에서 never-Ready 세션 제외 + smoke INV-9 를 wss 주문 왕복으로 교체
+
+**Wave 16** *(blocked on Wave 15 completion)*
+
+- [ ] 16-22-PLAN.md — [gap 2 + WR-02] 통보 상관 다축 매칭(좁히기 실패 시 미정산) + 사용자 스코프 중복 가드
+- [ ] 16-23-PLAN.md — [CR-01 + WR-08] 계좌축 소비자 정리(account 필드 제거·accountStates) + ISIN 역매핑 공용 훅
+- [ ] 16-24-PLAN.md — [WR-07 + WR-09] VI 주문금액 상한 3층 + flushNow 진행 중 대기·재큐잉 소진
+
+**Wave 17** *(blocked on Wave 16 completion)*
+
+- [ ] 16-25-PLAN.md — [WR-03 + WR-06] lc.set 시장구분 소유권 relay 이전(D-28) + 발주가·수량 0 무장 차단
+
+**Wave 18** *(blocked on Wave 17 completion)*
+
+- [ ] 16-26-PLAN.md — 전체 스위트 green + 배포 3종 + 세션 있는 상태 /healthz 200 실측 + 문서 갱신
+
 ## Progress
 
 **Execution Order:**
@@ -690,4 +711,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 17/17 | Complete   | 2026-09-08 |
+| 16. 트레이딩 메뉴(상따·VI) | 17/26 | Gap Closure |  |
