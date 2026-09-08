@@ -180,6 +180,16 @@ html[lang="ko"] {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   `[hidden]` 작성자 우선순위 복원 (Phase 16 Plan 12 · RESEARCH Pitfall 13)
+   - UA 스타일시트의 `[hidden]{display:none}` 은 **작성자 규칙에 진다.** 탭 pane 처럼
+     `display:grid`/`flex` 를 직접 얹은 요소에 `hidden` 을 붙이면 그대로 보인다 —
+     상따 모바일 「매수/매도」 탭에서 두 폼이 전부 아래로 흐르던 목업 R2① 회귀가 그것이다.
+   - Tailwind 의 `hidden` 유틸(클래스)과 별개다. 여기서 잠그는 것은 **HTML `hidden` 속성**이고,
+     접근성 트리에서도 제외되는 그 의미론을 쓰기 위해 속성 쪽을 남긴다.
+   ───────────────────────────────────────────────────────────── */
+[hidden] { display: none !important; }
+
+/* ─────────────────────────────────────────────────────────────
    §8.5.5 Double-Ring Focus (전역)
    - WCAG 2.4.7 Focus Visible 을 기본값으로 보장하되 CSS 변수로 컴포넌트별 opt-out 허용.
    - `data-focus-ring="seamless"` 를 붙이면 이미 border/dialog 로 구분된 컨텍스트
