@@ -40,10 +40,32 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 
 ---
 
+## 현재 운영 상태 (2026-09-08 실측)
+
+> **이 절이 현재값 정본이다.** 아래의 날짜 붙은 절들(`현재 배포 상태` · `Phase 15 종결 상태` 등)은
+> 그 시점의 스냅샷이며 증거로 보존한다 — 값이 다르면 이 절이 이긴다.
+
+| 항목 | 값 | 확인 방법 |
+|------|-----|-----------|
+| relay 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:a2c5238` | `docker inspect … .Config.Image` |
+| `/healthz` | `200` · `{"status":"ok","vpn":true,"dma":true,"version":"a2c5238","sessionCount":1}` | `curl -s https://dma.jx1.io/healthz` |
+| **`DMA_HOST` 실측 분류** | **실 게이트웨이 (`10.41.1.120`)** — mock 아님. **주문이 실계좌로 나간다** | `docker inspect … \| sed -n 's/^DMA_HOST=//p'` (키 하나만 추출) |
+| `openconnect@kb` | `active` + **`enabled`** — 상시 유지가 정책이다 | `systemctl is-active` / `is-enabled` |
+| `kbvpn-*` 타이머 | **2개** — `kbvpn-watchdog.timer`(10분 주기 회수) · `kbvpn-renew.timer`(일 06:00 KST 예약 재접속) | `systemctl list-timers 'kbvpn-*' --all` |
+| 세션 인증 만료 예정 | `2026-09-20 04:03:55 UTC` (= 마지막 접속 `2026-09-06 04:03:55 UTC` + 14일) | `journalctl -u openconnect@kb \| grep -i 'Session authentication will expire'` 마지막 줄 |
+| 기본 경로 | `default via 10.10.0.1 dev ens4` — 터널이 기본 경로를 탈취하지 않았다 | `ip route show default` |
+| `caddy` | `active` | `systemctl is-active caddy` |
+
+> 이 표의 값은 2026-09-08 19:0x KST 에 읽기 명령만으로 수집했다(quick-260908-py9).
+> 라이브 전환 경위는 §실서버 라이브 상태, VPN 정책은 §VPN 조작 을 보라.
+
+---
+
 ## 현재 배포 상태
 
 > 15-07 Task 1 실측 (2026-09-05T13:45Z). `setup-relay-iam.sh` 최초 실제 실행 결과다.
 > 인증서 행은 Task 3(D-06 DNS 게이트) 통과 후에 채운다.
+> **이 절은 프로비저닝 시점 스냅샷이다.** 현재값은 위 §현재 운영 상태 가 정본.
 
 | 항목 | 값 | 확인 시각 |
 |------|-----|-----------|
@@ -71,6 +93,8 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 
 > 15-08 Task 3 실측 (2026-09-06). `deploy-relay.sh` 최초 실제 실행 결과다.
 > 이 배포의 `DMA_HOST` 는 **로컬 mock(`127.0.0.1`)** 이다 — 실서버 접속은 D-27 상 15-20 소관.
+>
+> ⚠️ **superseded:** 이 문장은 2026-09-06 시점 기록이다. 현재 `DMA_HOST` 는 **실 게이트웨이**다 — §현재 운영 상태.
 
 | 항목 | 값 | 확인 시각 |
 |------|-----|-----------|
@@ -99,13 +123,18 @@ bash scripts/smoke-relay.sh                           # INV-1~10
 bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재확인용)
 ```
 
-> `DMA_HOST` 를 넘기지 않으면 **로컬 mock** 이 기본값이다 (D-27 / T-15-25).
-> 실서버 주소를 넘기면 스크립트가 경고를 출력한다 — 사용자 지시가 있었는지 먼저 확인할 것.
+> 🚨 **재배포 함정 — `DMA_HOST` 를 반드시 넘겨라.**
+> `deploy-relay.sh` 는 `DMA_HOST` 미지정 시 `127.0.0.1`(로컬 mock)을 기본값으로 쓴다(스크립트 95행).
+> **현재 라이브는 실 게이트웨이로 떠 있으므로, 넘기지 않고 재배포하면 조용히 mock 으로 되돌아가
+> 라이브가 죽는다.** 배포 끝에 스크립트가 출력하는 `LIVE_DMA_HOST` 값을 매번 눈으로 확인할 것.
+> 반대로 실서버 주소를 넘기면 스크립트가 경고를 출력한다 — 그 경고는 이제 정상 경로의 일부다.
 
 ### 주문 경로 결선 (15-19 재배포)
 
 > 15-19 Task 2 실측 (2026-09-06). relay·server 를 최신 코드로 재배포하고 주문 경로를
 > 결선했다. 이 배포의 `DMA_HOST` 도 **로컬 mock(`127.0.0.1`)** 이다 — 실서버 접속은 D-27 상 15-20 소관.
+>
+> ⚠️ **superseded:** 이 문장도 2026-09-06 시점 기록이다. 현재는 실 게이트웨이 라이브 — §현재 운영 상태.
 
 | 항목 | 값 | 확인 시각 |
 |------|-----|-----------|
@@ -192,6 +221,11 @@ relay 컨테이너는 위 3종 중 `dma-cred-key` · `relay-order-secret` 2종�
 
 > phase 를 닫는 시점의 운영 상태다. 성공 기준 SC-1~SC-8 의 집계와 미증명 항목은
 > `.planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-LIVE-VERIFICATION.md` 가 정본이다.
+>
+> ⚠️ **이 절은 2026-09-06 종결 시점의 스냅샷이다.** 이후 변경(VPN 상시 유지 전환 · 실서버 라이브 전환)은
+> 반영돼 있지 않다 — 아래 표의 `VPN 기동 정책 = 수동 전용` · `kbvpn-* 타이머 0건` · `DMA_HOST = 127.0.0.1`
+> 세 행은 **모두 현재 사실이 아니다.** 현재값은 §현재 운영 상태 가 정본이다.
+> 날짜 붙은 행 자체는 그 시점의 증거이므로 지우지 않는다.
 
 | 항목 | 값 | 확인 방법 |
 |------|-----|-----------|
@@ -224,12 +258,21 @@ notAfter  = Dec  4 13:17:20 2026 GMT     ← 갱신 여유 89일
 bash scripts/smoke-relay.sh --check-tls   # 인증서만 재확인
 ```
 
-### ⚠️ 실서버 접속은 여전히 금지 상태다 (D-27)
+### 🔴 실서버 라이브 상태 (D-27 해제됨)
 
-15-20 Task 1 에서 **A안(`skip-live`)** 이 확정됐다 — 사용자의 명시 지시가 없었기 때문이다.
-`DMA_HOST` 를 실서버로 바꾸는 것은 **사용자 지시가 있을 때만** 가능하며, 그 절차와 선행 조건
-4가지는 `15-LIVE-VERIFICATION.md` §7 에 있다. `deploy-relay.sh` 는 실서버 주소를 넘기면
-경고를 출력한다 — 그 경고가 보이면 사용자 지시가 있었는지 먼저 확인할 것.
+**relay 는 현재 실 DMA 게이트웨이(`10.41.1.120:9100`)에 붙어 라이브로 돌고 있다.**
+
+- 15-20 종결 시점에는 A안(`skip-live`)이라 mock 이었다. 그 뒤 커밋 `f13eb7d` 로 **D-17
+  (gh-radar 전용 DMA `user_id`)이 철회**돼 웹이 WinForms 와 **동일 세션에 합류**했고,
+  `DMA_HOST` 가 실 게이트웨이로 전환됐다. 게이트웨이가 세션(user_id+broker) 단위로 모든
+  연결에 응답을 팬아웃하므로 웹과 WinForms 가 같은 전략·계좌 상태를 본다.
+- 근거(2026-09-08 18:34 KST 실측): `curl https://dma.jx1.io/healthz`
+  → `{"status":"ok","vpn":true,"dma":true,"version":"a2c5238","sessionCount":1}`
+
+> 🚨 **실계좌 경고.** 주문 경로가 이제 **실계좌**에 닿는다. 장중 조작·스모크·디버깅에서
+> `POST /api/orders` · relay `OrderApi` · DMA 로그인 호출을 **하지 않는다.**
+> 읽기(`/healthz` · `systemctl` · `journalctl` · `docker inspect`)만으로 확인한다.
+> 주문을 실제로 넣어야 하는 검증은 사용자의 명시 지시가 있을 때만, 그 자리에서 수행한다.
 
 ---
 
@@ -281,32 +324,108 @@ KBVPN_USER=<접속 계정 ID>
 
 ## VPN 조작
 
-부팅 자동 기동은 **의도적으로 등록하지 않았다.** 항상 수동으로 시작한다.
+**상시 유지가 정책이다.** `openconnect@kb` 는 `enabled`(부팅 자동 기동)이며, 워치독이
+10분마다 점검해 `active` 가 아니면 1회 회수한다. 상시 접속이 아니면 사용자가 호가주문
+탭을 열었을 때 relay 가 게이트웨이에 닿지 못한다.
+
+정책 전환 근거: `1ef7cc7`(부팅 자동기동 + failed 회수 워치독) → `f9ca062`(재접속 상한 철회,
+상시 유지 · 재부팅 후 조용히 죽던 구조 수정). **최초 연결만** 사람이 직렬 콘솔을 열고
+관찰했고(15-07 D-03 선검증), 그 뒤로는 전부 자동이다.
 
 ```bash
-sudo systemctl start openconnect@kb      # 시작
-sudo systemctl stop  openconnect@kb      # 중지
 systemctl is-active  openconnect@kb      # 상태
+systemctl is-enabled openconnect@kb      # 부팅 자동 기동 여부 (enabled 가 정상)
+sudo systemctl restart openconnect@kb    # 즉시 재접속 (세션 창을 지금 갱신)
+sudo systemctl start openconnect@kb      # 시작
+sudo systemctl stop  openconnect@kb      # 중지 — 워치독이 10분 안에 다시 켠다
 journalctl -u openconnect@kb -n 50       # 최근 로그
 journalctl -u openconnect@kb -f          # 실시간 관찰
+
+journalctl -t kbvpn-watchdog -t kbvpn-renew --since '-7d'   # 자동 회수·주간 갱신 이력
+systemctl list-timers 'kbvpn-*' --all                       # 타이머 2개가 정상
 
 ip -br addr show tun0                    # 터널 IP
 ip route                                 # 기본 경로가 ens4 인지 확인
 ```
 
-### 재시도 상한
+> `stop` 은 영구 정지가 아니다. 워치독이 "active 가 아니면 켠다" 로 판정하므로 10분 안에
+> 다시 올라온다. 정말로 내려 둬야 하면 워치독 타이머까지 멈춰야 한다
+> (`sudo systemctl stop kbvpn-watchdog.timer`) — 그리고 **반드시 다시 켤 것.**
 
-유닛은 `StartLimitIntervalSec=3600` + `StartLimitBurst=5` 로 **1시간 5회** 상한을 갖는다.
-상한 초과 시 유닛이 `failed` 로 멈추는 것은 **의도된 동작**이다 —
-반복 인증 실패가 KB 계정 잠금으로 이어지는 것을 막는다.
-상한에 걸린 뒤 다시 켜려면:
+### 재시도 상한 — 이중 상한이며 회수는 자동이 기본이다
+
+유닛의 `StartLimitIntervalSec=3600` + `StartLimitBurst=5` (**1시간 5회** 상한)는
+**여전히 유효하고 그대로 유지한다.** 반복 인증 실패가 KB 계정 잠금으로 이어지는 것을 막는
+안전장치다. 상한 초과 시 유닛이 `failed` 로 멈추는 것은 의도된 동작이다.
+
+바뀐 것은 **그 상태를 사람이 아니라 워치독이 회수한다**는 점이다:
+
+- `kbvpn-watchdog` 가 10분마다 돌며 `active` 가 아니면 `reset-failed` + `start` 를 **1회** 한다.
+- 다만 **직전 회수로부터 1시간이 지나야** 다시 회수한다(스크립트 자체 상한).
+- 따라서 상한은 이중이다 — **스크립트 시간당 1회** + **유닛 5회/1h**. 둘 다 계정 잠금
+  보호 목적이므로 **어느 쪽도 완화하지 않는다.**
+
+사람이 직접 리셋하는 것은 **원인을 확인한 뒤 즉시 복구가 필요할 때만** 한다
+(워치독을 최대 10분 기다리는 대신):
 
 ```bash
 sudo systemctl reset-failed openconnect@kb
+sudo systemctl start openconnect@kb
 ```
 
 > 상한에 걸렸다는 것은 무언가 잘못됐다는 뜻이다. 원인을 확인하기 전에 리셋하고
 > 다시 시도하지 말 것. 시도 횟수는 계속 누적해서 세야 한다.
+
+### 주간 예약 재접속 (`kbvpn-renew`)
+
+| 항목 | 값 |
+|------|-----|
+| 왜 | 세션 인증이 **접속 시각 + 14일 롤링**으로 만료된다. 갱신하지 않으면 그 창이 언젠가 **장중에** 온다 |
+| 언제 | 매주 일요일 06:00 KST — 유닛 값 `OnCalendar=Sun 06:00 Asia/Seoul` (systemd 252 가 캘린더 타임존을 직접 지원한다. VM 시계는 UTC 라 `list-timers` 에는 토요일 21:00 UTC 로 보인다) |
+| 무엇을 | `systemctl restart openconnect@kb` **1회** + `logger -t kbvpn-renew` 로 시작·성공/실패 기록 |
+| 실패 시 | **자체 재시도·백오프 없음.** 워치독(10분 주기)이 회수한다. 여기서 또 돌리면 `StartLimitBurst=5/1h` 예산과 KB 계정 시도 횟수를 이중으로 태운다 |
+| 밀린 발화 따라잡기(`Persistent=true`) | **의도적으로 쓰지 않는다.** VM 이 며칠 꺼져 있다 장중에 부팅하면 놓친 발화가 그 자리에서 몰려 실행돼 **장중 재접속**이 걸린다. 한 주를 건너뛰어도 14일 창 안이라 손해가 없다 |
+| 정본 | `infra/relay/startup.sh` 의 `install_renew_timer()` — VM 유닛은 이 함수가 매 부팅 재작성한다 |
+
+```bash
+systemctl list-timers 'kbvpn-*' --all    # watchdog + renew 2개가 정상
+systemctl cat kbvpn-renew.timer          # OnCalendar 확인
+journalctl -t kbvpn-renew --since '-30d' # 발화 이력
+```
+
+### 세션 인증 14일 롤링 — 만료 시 복구 경로
+
+**만료는 계정 만료가 아니다.** KB 게이트웨이가 **접속 시각 + 14일**로 세션 인증 창을 준다.
+재접속하면 그 시점부터 다시 14일이다. 확인은 마지막 줄만 보면 된다:
+
+```bash
+sudo journalctl -u openconnect@kb | grep -i 'Session authentication will expire' | tail -1
+```
+
+실측 2건 (로그 시각은 UTC):
+
+```
+Sep 05 14:28 접속 → Session authentication will expire at ... Sep 19 14:28
+Sep 06 04:03 접속 → Session authentication will expire at ... Sep 20 04:03
+```
+
+**만료가 오면 이렇게 복구된다 (사람 개입 없이):**
+
+1. 세션 인증 만료 → 게이트웨이가 세션 종료
+2. `openconnect` 프로세스 종료 → 유닛이 `inactive` 또는 `failed`
+3. **`kbvpn-watchdog` 가 10분 주기로 감지**
+4. `systemctl reset-failed` + `systemctl start` **1회**
+5. 새 14일 창 시작
+
+**최악 지연 = 10분.** 단 직전 회수로부터 1시간이 지나지 않았다면 최대 **1시간** 대기한다
+(워치독 자체 상한). **그 사이 호가·주문 경로가 끊긴다.**
+→ 그래서 위의 **주간 예약 재접속**으로 만료가 장중에 오지 않게 창을 미리 민다.
+
+즉시 수동 갱신이 필요하면:
+
+```bash
+sudo systemctl restart openconnect@kb    # KB 계정 인증 시도 예산을 1회 소모한다
+```
 
 ### 3분 라우팅 안전장치
 
@@ -317,6 +436,10 @@ sudo systemctl reset-failed openconnect@kb
 
 ## D-03 VPN 선검증 체크리스트 (7항목)
 
+> ⚠️ **이 절은 2026-09-05 에 통과한 1회성 게이트의 이력이다** — 지금 실행할 절차가 아니다.
+> 검증 결과는 `15-VPN-PREFLIGHT.md`, 현재 VPN 정책은 §VPN 조작 이 정본이다.
+> 마지막 줄의 "검증이 끝나면 반드시 내린다"도 그 시점 규율이며, **지금은 상시 유지가 정책**이다.
+>
 > **[BLOCKING] 체크포인트.** 15-07 Task 2 에서 사용자와 함께 수행한다.
 > **시도는 수동 최대 3회. 실패해도 자동 재시도하지 않는다** — 반복 실패는 KB 계정 잠금이다.
 > 시작 전에 직렬 콘솔을 별도 터미널에 열어 두고, 연결 전 `ip route` / `curl -s ifconfig.me` 를 먼저 기록한다.
@@ -334,11 +457,18 @@ sudo systemctl reset-failed openconnect@kb
 검증이 끝나면 반드시 내린다: `sudo systemctl stop openconnect@kb`
 결과는 `.planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-VPN-PREFLIGHT.md` 에 기록한다.
 
-### D-27 경고
+### D-27 경고 — 현재 상태로 갱신
 
-실서버 게이트웨이(`10.41.1.120:9100`) 에 대한 **로그인·주문은 사용자의 명시적 지시가 있기 전까지 금지**한다.
-선검증에서 허용되는 것은 `nc -zv` 도달성 확인까지다.
-그 전 모든 기능 검증은 mock 브로커로 수행한다.
+> 원문(2026-09-05, 선검증 시점): *실서버 게이트웨이(`10.41.1.120:9100`) 에 대한 로그인·주문은
+> 사용자의 명시적 지시가 있기 전까지 금지한다. 선검증에서 허용되는 것은 `nc -zv` 도달성 확인까지다.*
+
+**현재는 그 지시가 있었고 relay 가 실 게이트웨이에 붙어 라이브다**(§실서버 라이브 상태).
+따라서 남는 금지는 하나로 좁혀진다:
+
+🚨 **주문을 실제로 발생시키지 않는다.** 운영·디버깅·스모크 어느 경로에서도
+`POST /api/orders` · relay `OrderApi` 호출을 하지 않는다. 주문 왕복 검증이 필요하면
+사용자의 명시 지시를 받고 그 자리에서만 수행한다(절차는 `15-LIVE-VERIFICATION.md` §7 의
+C안 안전 규율 — 1주 · 체결 불가 지정가 · 접수 즉시 취소).
 
 ---
 
@@ -439,3 +569,12 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 | `Caddyfile` | `/etc/caddy/Caddyfile` | 0644 |
 | _(생성됨)_ | `/usr/local/sbin/kbvpn-route-guard` | 0700 |
 | _(생성됨)_ | `/usr/local/sbin/relay-docker-login` | 0700 |
+| _(생성됨)_ | `/usr/local/sbin/kbvpn-watchdog` | 0700 |
+| _(생성됨)_ | `/etc/systemd/system/kbvpn-watchdog.service` | 0644 |
+| _(생성됨)_ | `/etc/systemd/system/kbvpn-watchdog.timer` | 0644 |
+| _(생성됨)_ | `/usr/local/sbin/kbvpn-renew` | 0700 |
+| _(생성됨)_ | `/etc/systemd/system/kbvpn-renew.service` | 0644 |
+| _(생성됨)_ | `/etc/systemd/system/kbvpn-renew.timer` | 0644 |
+
+> `_(생성됨)_` 6종은 `startup.sh` 가 **매 부팅마다 재작성**한다(멱등).
+> VM 에서 직접 고치지 말 것 — 다음 부팅에 덮어쓰인다. 저장소가 단일 정본이다.
