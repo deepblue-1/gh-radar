@@ -12,7 +12,7 @@ export interface ScannerTableProps {
   isRefreshing?: boolean;
   /**
    * AI 선정 종목 code 집합(theme_stocks.source==='ai'). 전달 시 해당 행 종목명 앞에
-   * "AI" 칩 표시. 일반 스캐너에서는 미전달 → 표식 없음(공유 컴포넌트, 무변화).
+   * "AI" 칩 표시. 일반 상승률 상위 목록에서는 미전달 → 표식 없음(공유 컴포넌트, 무변화).
    */
   aiCodes?: ReadonlySet<string>;
 }

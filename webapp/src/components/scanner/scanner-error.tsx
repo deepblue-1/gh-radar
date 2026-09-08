@@ -49,7 +49,7 @@ export function ScannerError({ error, onRetry, retrying }: ScannerErrorProps) {
           type="button"
           onClick={onRetry}
           disabled={retrying}
-          aria-label="스캐너 데이터 다시 시도"
+          aria-label="상승률 상위 데이터 다시 시도"
         >
           <RefreshCw
             aria-hidden="true"

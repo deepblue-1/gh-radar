@@ -100,7 +100,7 @@ export function ScannerClient() {
     <>
       <header className="flex flex-col gap-1">
         <h1 className="text-[length:var(--t-2xl)] font-bold tracking-[-0.01em] text-[var(--fg)]">
-          스캐너
+          상승률 상위
         </h1>
         <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
           상한가 근접 종목(등락률 10% 이상)을 실시간으로 추적합니다. 마켓을 선택해 리스트를 확인하세요.

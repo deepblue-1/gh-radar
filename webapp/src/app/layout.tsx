@@ -14,7 +14,7 @@ import { pretendard, geistMono } from '@/lib/fonts';
 
 export const metadata: Metadata = {
   title: 'gh-radar',
-  description: '한국 주식 실시간 상한가 근접 스캐너',
+  description: '한국 주식 실시간 상한가 근접 종목 탐색',
 };
 
 /**

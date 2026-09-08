@@ -9,7 +9,7 @@ import { mockStockApi } from '../fixtures/mock-api';
  * VALIDATION:
  *   - `/` 가 홈("오늘의 급등 테마")을 렌더(더 이상 /scanner 로 302 리다이렉트하지 않음).
  *   - 날짜 네비(이전/다음/오늘) + 시점 pill 행 렌더.
- *   - 급등 없는 날 empty-state("오늘은 +15% 급등 종목이 없습니다" + "스캐너로 이동").
+ *   - 급등 없는 날 empty-state("오늘은 +15% 급등 종목이 없습니다" + "상승률 상위로 이동").
  *   - 사이드바 홈 nav item 이 `/` 에서 active(aria-current="page").
  *   - REGRESSION(T-13-12): /scanner 직접 접근 시 스캐너 UI 정상 렌더.
  *
@@ -79,7 +79,7 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     await expect(page.getByText(/15:30 · 마감/)).toHaveCount(0);
   });
 
-  test('/ — 급등 없는 날 empty-state("+15% 급등 종목이 없습니다" + 스캐너로 이동 CTA)', async ({
+  test('/ — 급등 없는 날 empty-state("+15% 급등 종목이 없습니다" + 상승률 상위로 이동 CTA)', async ({
     page,
   }) => {
     // empty 응답 명시 주입 — snapshot=null → HomeEmpty.
@@ -90,8 +90,8 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       page.getByText('오늘은 +15% 급등 종목이 없습니다'),
     ).toBeVisible({ timeout: 10_000 });
 
-    // "스캐너로 이동" CTA → /scanner Link.
-    const cta = page.getByRole('link', { name: '스캐너로 이동' });
+    // "상승률 상위로 이동" CTA → /scanner Link.
+    const cta = page.getByRole('link', { name: '상승률 상위로 이동' });
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute('href', '/scanner');
   });

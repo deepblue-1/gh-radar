@@ -14,7 +14,7 @@ import { mockWatchlistInsertFail } from "../fixtures/supabase-mock";
  * VALIDATION.md D5 (50 limit) + D7 (responsive breakpoint) + PERS-01 E2E 커버리지.
  *
  * 시나리오:
- *  - empty-state: cleanup → /watchlist 에 "아직 관심종목이 없습니다" 카피 + "스캐너로 가기" CTA
+ *  - empty-state: cleanup → /watchlist 에 "아직 관심종목이 없습니다" 카피 + "상승률 상위로 가기" CTA
  *  - toggle-roundtrip: Scanner 에서 ⭐ 클릭 → /watchlist 에 반영
  *  - responsive-breakpoint (D7): lg+ Table 노출 / <lg Table 숨김
  *  - 50-limit (D5): 50 row seed → Scanner 에서 unset ⭐ 가 disabled + title
@@ -42,7 +42,7 @@ test.describe("watchlist — CRUD + 반응형", () => {
     await expect(
       page.getByRole("heading", { name: "아직 관심종목이 없습니다" }),
     ).toBeVisible();
-    const cta = page.getByRole("link", { name: /스캐너로 가기/ });
+    const cta = page.getByRole("link", { name: /상승률 상위로 가기/ });
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute("href", "/scanner");
   });

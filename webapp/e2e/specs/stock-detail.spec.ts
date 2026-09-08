@@ -102,7 +102,7 @@ test.describe('Phase 6 — 종목 상세 (SRCH-03)', () => {
       page.getByText(/영문\/숫자 1~10자, 예: 005930/),
     ).toBeVisible();
     await expect(
-      page.getByRole('link', { name: '스캐너로 돌아가기' }),
+      page.getByRole('link', { name: '상승률 상위로 돌아가기' }),
     ).toHaveAttribute('href', '/scanner');
   });
 });

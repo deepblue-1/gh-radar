@@ -5,7 +5,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 /**
  * 컴포넌트 밀도(density) 토큰.
  *
- * - `compact`     — row-h 32px, 고밀도 데이터 테이블(상한가 스캐너 등)
+ * - `compact`     — row-h 32px, 고밀도 데이터 테이블(상한가 상승률 상위 등)
  * - `default`     — row-h 40px, 일반 UI
  * - `comfortable` — row-h 48px, 여백 넉넉한 카드/모달
  *

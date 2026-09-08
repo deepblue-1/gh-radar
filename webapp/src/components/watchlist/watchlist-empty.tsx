@@ -24,10 +24,10 @@ export function WatchlistEmpty() {
         아직 관심종목이 없습니다
       </h2>
       <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-        스캐너에서 ⭐ 를 눌러 관심종목을 추가해보세요.
+        상승률 상위에서 ⭐ 를 눌러 관심종목을 추가해보세요.
       </p>
       <Button asChild>
-        <Link href="/scanner">스캐너로 가기</Link>
+        <Link href="/scanner">상승률 상위로 가기</Link>
       </Button>
     </div>
   );
