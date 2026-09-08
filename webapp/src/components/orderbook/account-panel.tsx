@@ -108,6 +108,12 @@ export interface AccountPanelProps {
   accounts?: RelayAccount[];
   /** 이 패널이 보여 주는 계좌번호. 계좌 전용 모드에서는 헤더에 **전체 표시**된다(D2). */
   selectedAccountNo: string;
+  /**
+   * 상품명(계좌 종류). **계좌 전용 모드 헤더 우측**에 붙는다 (UI-SPEC C5 — My page 계좌
+   * 카드 머리 = `계좌 {전체번호}`(mono) + 우측 `{상품명}`). 종목 축이 있을 때는 셀렉터
+   * 옵션이 이미 `{번호} · {이름}` 을 보여주므로 쓰이지 않는다.
+   */
+  accountName?: string;
   /** 계좌 셀렉터의 변경 창구. 계좌 전용 모드에서는 넘기지 않는다. */
   onAccountChange?: (accountNo: string) => void;
   /** 훅의 병합된 계좌 상태. null 이면 아직 스냅샷 전이다. */
@@ -153,6 +159,7 @@ interface HoldingView {
 export function AccountPanel({
   accounts,
   selectedAccountNo,
+  accountName,
   onAccountChange,
   account,
   code,
@@ -324,12 +331,23 @@ export function AccountPanel({
             )}
           </select>
         ) : (
-          <span
-            data-testid="account-panel-account-no"
-            className="mono min-w-0 flex-1 truncate text-[length:var(--t-caption)] font-semibold text-[var(--fg)]"
-          >
-            {selectedAccountNo}
-          </span>
+          <>
+            <span
+              data-testid="account-panel-account-no"
+              className="mono min-w-0 flex-1 truncate text-[length:var(--t-caption)] font-semibold text-[var(--fg)]"
+            >
+              {selectedAccountNo}
+            </span>
+            {/* 상품명은 **있을 때만** 그린다 — 없는 이름을 「-」로 채우지 않는다(C5). */}
+            {accountName !== undefined && accountName !== '' && (
+              <span
+                data-testid="account-panel-account-name"
+                className="shrink-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+              >
+                {accountName}
+              </span>
+            )}
+          </>
         )}
       </div>
 
