@@ -48,3 +48,20 @@ diff(`/me` 표면 · 전략 현황 카드 · 계좌 상태 맵)와 닿는 파일
 | `surface-placeholder.tsx` 죽은 코드 | 16-14 가 마지막 사용처(`vi-client`)를 걷어내 **사용처가 0건**이 됐다(`grep -rn SurfacePlaceholder webapp/src` = 정의 파일 1건뿐). 16-11 이 만든 파일이라 이 plan 의 스코프 밖이고, 지워도 기능 변화가 없지만 남겨 두면 「아직 준비 중인 화면이 있다」는 잘못된 신호를 준다. 16-17 또는 quick 에서 삭제. |
 | 확인 체크 잠금의 영구화 가능성 | `vi-order-list` 의 전송 잠금은 73 정정(또는 `confirmLocked`)에서 풀린다. 서버가 그 주문에 대해 **영원히 아무것도 보내지 않으면** 그 행의 체크가 잠긴 채 남는다. D-10 이 「타임아웃 UI 를 만들지 않는다」로 못박아 의도한 동작이지만(무응답이 정상 경로), 실계좌 검증(16-17 Manual-Only)에서 이 상태가 실제로 관측되는지 확인할 가치가 있다. |
 | 마감알림 실환경 미검증 | `Notification` 권한·발화는 헤드리스 Chromium 에서 재현이 어려워 **단위 테스트(생성자 호출 여부)까지만** 검증했다. 실제 알림이 뜨는지는 수동 확인 대상이다. |
+
+## 16-17 (2026-09-09)
+
+**선행 실패 3건은 해소됐다.** 16-11 이 기록하고 16-15 가 재현한 `a11y`·`news`·`search`
+3건을 진단해 전부 고쳤다 — 자세한 원인·조치는 `16-VALIDATION.md` §Per-Task Verification
+Map 하단 표에 있다. 요약: **접근성 위반 1건(진짜 결함) + 스펙의 경주 2건**이었고, 「뉴스
+목록 상한 계약」도 「⌘K 단축키」도 처음부터 멀쩡했다. 여기에 불안정으로만 적혀 있던
+`news` 「refresh cooldown」도 같은 종류의 경주여서 함께 제거했다.
+
+여전히 남기는 것:
+
+| 대상 | 내용 |
+|------|------|
+| `surface-placeholder.tsx` 죽은 코드 | 16-14 가 「16-17 또는 quick 에서 삭제」로 넘겼지만 **16-17 도 지우지 않았다.** 사용처는 여전히 0건이고(참조 4건은 전부 `toHaveCount(0)` 류의 「없어야 한다」 단언이라 파일이 사라져도 무해하다), 지우면 기능 변화 0 이다. 지우지 않은 이유는 위험이 아니라 **권한**이다 — 16-17-PLAN 의 `files_modified` 에 없고, 이 plan 은 `autonomous: false` 로 체크포인트에서 멈추므로 계획 밖 파일 삭제를 실행자가 단독으로 결정하지 않는다. 다음 quick 에서 한 줄로 끝난다. |
+| `use-relay-socket.ts` 의 `clockStamp()` | 16-13 이 기록한 `toLocaleTimeString("ko-KR", {hour12:false})` → Chromium 에서 `0시 57분 16초`. **여전히 그대로다.** 16-17 은 a11y 만 확장했고 Phase 15 표면인 `use-relay-socket`·`relay-status-bar` 를 손대지 않았다. 단위 테스트로는 영원히 안 잡히는 종류(jsdom 은 `00:57:16`)이므로, 고치는 quick 은 **브라우저 단언(E2E)** 을 함께 넣어야 한다. |
+| `webapp/e2e/**` 외 검사 사각지대 | 16-17 이 `tsconfig.e2e.json` 으로 e2e 를 typecheck 에 편입했다. relay `tests/` 는 여전히 루트 `typecheck` 밖이며 `pnpm --filter @gh-radar/relay run typecheck:tests` 를 따로 돌려야 한다 — 통합할지는 relay 소관 quick 에서 결정. |
+| 미체결 표 6열 전환 (UI-SPEC B7) | 16-14 가 넘긴 그대로. 3표면 공용 표라 E2E 3개를 함께 고쳐야 한다. |

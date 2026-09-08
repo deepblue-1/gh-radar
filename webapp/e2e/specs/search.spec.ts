@@ -20,20 +20,38 @@ test.describe('Phase 6 — 전역 검색 (SRCH-01/02)', () => {
     // (playwright keyboard.press 는 focused element 가 없으면 document 로 전파되지 않는
     // 경우가 있어, 직접 KeyboardEvent 를 dispatch 하여 useCmdKShortcut 을 트리거)
     const isMac = process.platform === 'darwin';
-    await page.evaluate(
-      (mac) => {
-        const event = new KeyboardEvent('keydown', {
-          key: 'k',
-          metaKey: mac,
-          ctrlKey: !mac,
-          bubbles: true,
-          cancelable: true,
-        });
-        document.dispatchEvent(event);
-      },
-      isMac,
-    );
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const pressModK = () =>
+      page.evaluate(
+        (mac) => {
+          const event = new KeyboardEvent('keydown', {
+            key: 'k',
+            metaKey: mac,
+            ctrlKey: !mac,
+            bubbles: true,
+            cancelable: true,
+          });
+          document.dispatchEvent(event);
+        },
+        isMac,
+      );
+
+    /*
+      ★ 하이드레이션 경주다 — 한 번만 쏘면 안 된다 (16-17 진단).
+
+      `useCmdKShortcut` 의 `document.addEventListener` 는 **effect** 안에서 선다. 서버가
+      보낸 HTML 은 이미 화면에 있으므로 `goto` 직후의 dispatch 는 「리스너가 아직 없는
+      document」에 떨어져 **조용히 사라진다** — 재시도가 없으니 그대로 실패다(선행 실패의
+      진짜 원인. 16-11 은 「단축키 경로 회귀」로 적었지만 단축키는 멀쩡하고 단위 테스트도
+      통과한다). 사용자에게는 존재하지 않는 문제다 — 사람이 페이지를 열자마자 1ms 안에
+      ⌘K 를 누르지는 않는다.
+
+      `toPass` 로 「리스너가 설 때까지 다시 쏜다」. 열린 뒤에는 안쪽 단언이 즉시 통과하므로
+      토글이 되감기지 않는다(안쪽 여유 3초 = 렌더 1프레임보다 훨씬 크다).
+    */
+    await expect(async () => {
+      await pressModK();
+      await expect(page.getByRole('dialog')).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 20_000 });
 
     const input = page
       .getByRole('dialog')

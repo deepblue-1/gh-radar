@@ -1,0 +1,22 @@
+{
+  // Phase 16 Plan 17 — E2E 스펙 전용 타입검사 (16-17 실행 중 발견한 사각지대).
+  //
+  // ★ `tsconfig.json` 의 `include` 는 `src/**/*` 뿐이라 **`e2e/` 는 어떤 tsc 도 보지 않았다.**
+  //   `pnpm typecheck` 가 green 이어도 spec 의 타입 오류는 Playwright 가 런타임에
+  //   터뜨릴 때까지 드러나지 않는다 — E2E 전량이 5~8분이라 그 피드백은 가장 비싸다.
+  //   relay 의 `tsconfig.tests.json` + `typecheck:tests` 와 같은 규율이다.
+  //
+  // 별도 파일인 이유: spec 은 Next 빌드 대상이 아니고(`jsx: preserve` 불필요),
+  // relay 테스트 헬퍼를 상대경로로 가져오므로 `rootDir` 제약이 서로 다르다.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

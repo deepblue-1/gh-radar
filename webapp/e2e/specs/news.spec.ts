@@ -124,13 +124,27 @@ test.describe('News — full page (V-18)', () => {
     });
 
     await page.goto(`/stocks/${STOCK_CODE}/news`);
-    await expect(
-      page.getByRole('heading', { level: 1, name: /최근 7일 뉴스/ }),
-    ).toBeVisible();
+
+    /*
+      ★ h1 은 **동기화 지점이 아니다** (16-17 진단).
+
+      `headingName = stock?.name ?? code` 라서 제목은 첫 클라이언트 렌더부터
+      「005930 — 최근 7일 뉴스」로 존재한다 — 목록이 아직 스켈레톤이어도 이 정규식에
+      걸린다. 그 뒤 `count()` 는 **재시도하지 않는 즉시 조회**라 100건 페이로드가
+      50건보다 조금만 늦어도 0 을 읽는다(선행 실패의 진짜 원인 — 16-11/16-15 가
+      「뉴스 목록 상한 계약 회귀」로 기록했지만 계약이 아니라 이 경주였다).
+
+      그래서 목록 컨테이너를 기다린 뒤, 재시도하는 단언으로 「1건 이상」을 확인하고
+      나서 상한을 잰다.
+    */
+    await expect(page.getByTestId('news-list')).toBeVisible();
+    await expect(page.getByTestId('news-item').first()).toBeVisible();
+    await expect
+      .poll(() => page.getByTestId('news-item').count(), { timeout: 15_000 })
+      .toBeGreaterThan(0);
 
     const count = await page.getByTestId('news-item').count();
     expect(count).toBeLessThanOrEqual(100);
-    expect(count).toBeGreaterThan(0);
   });
 });
 
@@ -151,8 +165,17 @@ test.describe('News — refresh cooldown (V-19)', () => {
     await expect(btn).toBeEnabled();
     await btn.click();
 
-    // 서버 429 수신 후 버튼이 disabled + data-remaining-seconds 속성 존재
+    /*
+      ★ `disabled` 는 **두 상태를 겹쳐 쓴다** — `isRefreshing || isCooldown`
+        (`news-refresh-button.tsx:27`). 그래서 클릭 직후 429 가 도착하기 **전에도**
+        버튼은 이미 disabled 다. 거기서 곧바로 속성을 읽으면 `null` 이 나온다
+        (deferred-items 가 「실행에 따라 갈린다」로 기록한 불안정의 정체 — 16-17 확인).
+
+        기다려야 하는 것은 disabled 가 아니라 **쿨다운 진입**이고, 그 유일한 증거가
+        이 속성이다. 재시도하는 단언으로 그것을 기다린 뒤에 값을 읽는다.
+    */
     await expect(btn).toBeDisabled();
+    await expect(btn).toHaveAttribute('data-remaining-seconds', /^\d+$/, { timeout: 15_000 });
     const remaining = await btn.getAttribute('data-remaining-seconds');
     expect(remaining).not.toBeNull();
     const seconds = Number(remaining);

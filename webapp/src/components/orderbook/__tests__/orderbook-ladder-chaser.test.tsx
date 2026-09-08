@@ -202,7 +202,27 @@ describe('OrderbookLadder — 상따 변형', () => {
 
     // 표 자체가 tab stop 이 아니다(표준 변형은 `tabindex="0"` 이다).
     expect(desktopTable()).not.toHaveAttribute('tabindex');
-    expect(container.querySelectorAll('[tabindex]')).toHaveLength(0);
+
+    /*
+      ★ 「tabindex 가 하나도 없다」가 **아니다**(16-17 정정).
+
+      금지 대상은 **가격 행·셀의 roving tabindex** 다. 반면 좁은 폭 트리의 스크롤
+      박스(`ladder-scroll`)는 400px 안에 20행을 담고 그 안에 포커스 가능한 자식이
+      하나도 없으므로, 박스 자신이 tab stop 이 **아니면** 키보드만 쓰는 사용자가
+      매수 10단에 닿을 방법이 사라진다 — WCAG 2.1.1 위반이고 axe
+      `scrollable-region-focusable`(serious)이 실제로 잡았다(16-17 a11y 확장).
+
+      그래서 계약은 「0개」가 아니라 「**스크롤 박스 정확히 1개**」다. 행에 하나라도
+      붙으면 아래 두 단언 중 뒤엣것이 깨진다.
+    */
+    const tabbables = Array.from(container.querySelectorAll('[tabindex]'));
+    expect(tabbables).toHaveLength(1);
+    expect(tabbables[0]).toHaveAttribute('data-slot', 'ladder-scroll');
+    expect(tabbables[0]).toHaveAttribute('tabindex', '0');
+    expect(
+      container.querySelectorAll('[data-slot="ladder-row-mobile"][tabindex]'),
+    ).toHaveLength(0);
+
     // 클릭해도 아무 일도 일어나지 않는다.
     screen.getAllByText('101,000')[0].click();
     expect(onPriceClick).not.toHaveBeenCalled();
