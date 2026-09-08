@@ -11,10 +11,12 @@
 import net from "node:net";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import * as flatbuffers from "flatbuffers";
 
 import { logger } from "../src/logger.js";
 import { frame, FrameReader } from "../src/dma/codec.js";
 import { MSG } from "../src/dma/msg-type.js";
+import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
   buildLoginReq,
   buildLivePing,
@@ -26,7 +28,26 @@ import {
 } from "../src/dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
-import { SAMPLE_ACCOUNTS, SAMPLE_ISIN, buildQuoteStateFrame } from "./helpers/frames.js";
+import {
+  SAMPLE_ACCOUNTS,
+  SAMPLE_ISIN,
+  STRATEGY_MSG,
+  buildBareEnvelope,
+  buildQuoteStateFrame,
+} from "./helpers/frames.js";
+
+/**
+ * Envelope 을 **화이트리스트 없이** 읽는다.
+ *
+ * `tryParseEnvelope` 를 쓰지 않는 이유: 그 함수의 `INBOUND_MSG_TYPES` 에는 전략 응답
+ * (60·61·64·72·73)이 아직 없어 전부 드롭된다(16-04 소관). 여기서 검증하려는 것은
+ * relay 의 수신 정책이 아니라 **스텁이 올바른 프레임을 내보냈는가**이므로 직접 읽는다.
+ */
+function rootEnvelope(payload: Buffer): Envelope {
+  return Envelope.getRootAsEnvelope(
+    new flatbuffers.ByteBuffer(new Uint8Array(payload.buffer, payload.byteOffset, payload.length)),
+  );
+}
 
 /** 게이트웨이에 붙는 최소 클라이언트 — 프레임 단위로 수신을 관측한다. */
 type TestClient = {
@@ -228,6 +249,149 @@ describe("fake-gateway 헬퍼", () => {
     expect(gw.sockets).toHaveLength(0);
     await expect(connectClient(gw.port)).rejects.toThrow();
     c.close();
+  });
+});
+
+/**
+ * Phase 16 Plan 02 — 전략(상따/VI) 주입 표면.
+ *
+ * 잠그는 규칙 두 가지:
+ *   ① **조회 3종(24·21·34)은 늘 답한다** — 등록 0건이어도 빈 응답을 보낸다(무응답 금지).
+ *      침묵하면 relay 가 멎고, 그 증상은 "전략이 안 보인다"로 나타나 원인이 가려진다.
+ *   ② **명령 4종(10·11·14·33)은 답하지 않고 기록만 한다** — 에코 타이밍을 테스트가 쥐어야
+ *      "보냈다"와 "서버가 받아들였다"를 구분할 수 있다(거부 경로 재현).
+ */
+describe("fake-gateway 전략 표면", () => {
+  it("24 요청에 64(상따 목록) 로 답한다 — 시드한 목록 그대로", async () => {
+    gateway = await startFakeGateway();
+    gateway.respondLimitChaserList([{ isin: SAMPLE_ISIN }, { isin: "KR7000660001" }]);
+    client = await connectClient(gateway.port);
+
+    client.sock.write(frame(buildBareEnvelope(STRATEGY_MSG.GetLimitChaserListReq)));
+    const env = rootEnvelope(await client.nextFrame());
+
+    expect(env.msgType()).toBe(STRATEGY_MSG.GetLimitChaserListResp);
+    expect(env.limitChaserList()?.itemsLength()).toBe(2);
+    expect(env.limitChaserList()?.items(1)?.isin()).toBe("KR7000660001");
+  });
+
+  it("24 요청은 시드가 없어도 길이 0 벡터로 답한다 (무응답 금지)", async () => {
+    gateway = await startFakeGateway();
+    client = await connectClient(gateway.port);
+
+    client.sock.write(frame(buildBareEnvelope(STRATEGY_MSG.GetLimitChaserListReq)));
+    const env = rootEnvelope(await client.nextFrame());
+
+    expect(env.msgType()).toBe(STRATEGY_MSG.GetLimitChaserListResp);
+    // 슬롯 자체는 존재하고 길이만 0 이다 — "아직 안 왔다"와 "없다"가 구분돼야 한다.
+    expect(env.limitChaserList()).not.toBeNull();
+    expect(env.limitChaserList()?.itemsLength()).toBe(0);
+  });
+
+  it("21 요청에 respondViTrigger(null) 이면 빈 61 이 나간다 (미등록)", async () => {
+    gateway = await startFakeGateway();
+    gateway.respondViTrigger(null);
+    client = await connectClient(gateway.port);
+
+    client.sock.write(frame(buildBareEnvelope(STRATEGY_MSG.GetVITriggerReq)));
+    const env = rootEnvelope(await client.nextFrame());
+
+    expect(env.msgType()).toBe(STRATEGY_MSG.SetVITriggerResp);
+    // 테이블이 **없는** 것이 미등록의 표현이다. 값 0 인 테이블과 다르다.
+    expect(env.setViTrigger()).toBeNull();
+  });
+
+  it("21 요청에 등록본을 시드하면 그 값이 61 로 나간다", async () => {
+    gateway = await startFakeGateway();
+    gateway.respondViTrigger({ run: true, orderAmountKrw: 3_000_000n, checkRate: 30 });
+    client = await connectClient(gateway.port);
+
+    client.sock.write(frame(buildBareEnvelope(STRATEGY_MSG.GetVITriggerReq)));
+    const env = rootEnvelope(await client.nextFrame());
+
+    expect(env.setViTrigger()?.run()).toBe(true);
+    expect(env.setViTrigger()?.orderAmountKrw()).toBe(3_000_000n);
+    expect(env.setViTrigger()?.checkRate()).toBe(30);
+  });
+
+  it("34 요청에 72(VI 주문 스냅샷) 로 답한다", async () => {
+    gateway = await startFakeGateway();
+    gateway.respondViOrderList([{ orderNo: "0000012345", state: "Accepted" }]);
+    client = await connectClient(gateway.port);
+
+    client.sock.write(frame(buildBareEnvelope(STRATEGY_MSG.GetVIOrderListReq)));
+    const env = rootEnvelope(await client.nextFrame());
+
+    expect(env.msgType()).toBe(STRATEGY_MSG.GetVIOrderListResp);
+    expect(env.viOrderList()?.isSnapshot()).toBe(true);
+    expect(env.viOrderList()?.itemsLength()).toBe(1);
+    expect(env.viOrderList()?.items(0)?.state()).toBe("Accepted");
+  });
+
+  it("10 을 보내면 strategyRequests 에 msgType·페이로드가 기록된다", async () => {
+    gateway = await startFakeGateway();
+    client = await connectClient(gateway.port);
+
+    const sent = buildBareEnvelope(STRATEGY_MSG.SetLimitChaserReq);
+    client.sock.write(frame(sent));
+    await vi.waitFor(() => expect(gateway!.strategyRequests()).toHaveLength(1));
+
+    const [req] = gateway.strategyRequests();
+    expect(req!.msgType).toBe(STRATEGY_MSG.SetLimitChaserReq);
+    // 페이로드는 원본 바이트 사본이라 테스트가 직접 파싱할 수 있다.
+    expect(Buffer.from(sent).equals(req!.payload)).toBe(true);
+    expect(rootEnvelope(req!.payload).msgType()).toBe(STRATEGY_MSG.SetLimitChaserReq);
+  });
+
+  it("명령 4종만 기록하고 조회는 기록하지 않는다", async () => {
+    gateway = await startFakeGateway();
+    client = await connectClient(gateway.port);
+
+    for (const t of [
+      STRATEGY_MSG.SetLimitChaserReq,
+      STRATEGY_MSG.SetVITriggerReq,
+      STRATEGY_MSG.DisableStrategiesReq,
+      STRATEGY_MSG.ConfirmVIOrderReq,
+      STRATEGY_MSG.GetLimitChaserListReq,
+      STRATEGY_MSG.GetVITriggerReq,
+      STRATEGY_MSG.GetVIOrderListReq,
+    ]) {
+      client.sock.write(frame(buildBareEnvelope(t)));
+    }
+
+    await vi.waitFor(() =>
+      expect(gateway!.strategyRequests().map((r) => r.msgType)).toEqual([
+        STRATEGY_MSG.SetLimitChaserReq,
+        STRATEGY_MSG.SetVITriggerReq,
+        STRATEGY_MSG.DisableStrategiesReq,
+        STRATEGY_MSG.ConfirmVIOrderReq,
+      ]),
+    );
+  });
+
+  it("pushLimitChaserEcho / pushViOrderList / pushOrderResp 가 60 / 73 / 51 을 주입한다", async () => {
+    gateway = await startFakeGateway();
+    client = await connectClient(gateway.port);
+    const sock = await gateway.waitForConnection();
+
+    gateway.pushLimitChaserEcho(sock, { buyEnabled: true, cancelQtyTrackBaseline: 42 });
+    gateway.pushViOrderList(sock, [{ orderNo: "0000099999" }], false);
+    gateway.pushOrderResp(sock, { orderNo: "0000012345", noticeType: "A" });
+
+    const echo = rootEnvelope(await client.nextFrame());
+    expect(echo.msgType()).toBe(STRATEGY_MSG.SetLimitChaserResp);
+    expect(echo.setLimitChaser()?.buyEnabled()).toBe(true);
+    // 16-01 재동기화로 생긴 45번째 슬롯이 실제로 왕복하는지 여기서 못박는다.
+    expect(echo.setLimitChaser()?.cancelQtyTrackBaseline()).toBe(42);
+
+    const push = rootEnvelope(await client.nextFrame());
+    expect(push.msgType()).toBe(STRATEGY_MSG.VIOrderListPush);
+    expect(push.viOrderList()?.isSnapshot()).toBe(false);
+    expect(push.viOrderList()?.items(0)?.orderNo()).toBe("0000099999");
+
+    const order = rootEnvelope(await client.nextFrame());
+    expect(order.msgType()).toBe(MSG.OrderResp);
+    expect(order.orderResp()?.orderNo()).toBe("0000012345");
   });
 });
 

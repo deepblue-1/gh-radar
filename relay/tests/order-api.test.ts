@@ -152,7 +152,10 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
   const app = createOrderApi({
     relayOrderSecret: SECRET,
     // 회선 판정 기준. 기본은 "VPN 이 서 있다" — 아래 주입으로 없는 상태도 시험한다.
-    dmaHost: opts.dmaHost ?? "10.41.1.120",
+    // ★ D-27 — **실 게이트웨이 주소를 적지 않는다.** `isGatewayLinkUp` 은 /16 만 보므로
+    //   `tun0`(10.41.1.124) 과 같은 대역이기만 하면 판정이 동일하다. 실주소를 테스트에
+    //   박아 두면 저장소를 읽는 것만으로 사내망 호스트가 드러난다(T-16-09 grep 게이트).
+    dmaHost: opts.dmaHost ?? "10.41.0.10",
     networkInterfaces: () => opts.interfaces ?? UP_INTERFACES,
     appVersion: "test-sha",
     nodeEnv: opts.nodeEnv ?? "test",
