@@ -77,8 +77,15 @@ exchange(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+orderTime():string|null
+orderTime(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+orderTime(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startUnfilledState(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(10);
 }
 
 static addOrderNo(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset) {
@@ -117,12 +124,16 @@ static addExchange(builder:flatbuffers.Builder, exchangeOffset:flatbuffers.Offse
   builder.addFieldOffset(8, exchangeOffset, 0);
 }
 
+static addOrderTime(builder:flatbuffers.Builder, orderTimeOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(9, orderTimeOffset, 0);
+}
+
 static endUnfilledState(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, orderQty:number, filledQty:number, unfilledQty:number, exchangeOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, orderQty:number, filledQty:number, unfilledQty:number, exchangeOffset:flatbuffers.Offset, orderTimeOffset:flatbuffers.Offset):flatbuffers.Offset {
   UnfilledState.startUnfilledState(builder);
   UnfilledState.addOrderNo(builder, orderNoOffset);
   UnfilledState.addOrgOrderNo(builder, orgOrderNoOffset);
@@ -133,6 +144,7 @@ static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffer
   UnfilledState.addFilledQty(builder, filledQty);
   UnfilledState.addUnfilledQty(builder, unfilledQty);
   UnfilledState.addExchange(builder, exchangeOffset);
+  UnfilledState.addOrderTime(builder, orderTimeOffset);
   return UnfilledState.endUnfilledState(builder);
 }
 }
