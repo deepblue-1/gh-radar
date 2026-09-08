@@ -156,8 +156,14 @@ test.describe('Discussion — refresh cooldown (detail)', () => {
     await expect(btn).toBeEnabled();
     await btn.click();
 
-    // 서버 429 수신 후 버튼이 disabled + data-remaining-seconds 속성 존재
+    // 서버 429 수신 후 버튼이 disabled + data-remaining-seconds 속성 존재.
+    //
+    // `toBeDisabled()` 만으로는 부족하다 — 버튼은 **요청 진행 중(isRefreshing)** 에도
+    // disabled 라서, 429 가 도착해 쿨다운 상태가 되기 전에 통과할 수 있다. 그 틈에
+    // 재시도 없는 `getAttribute` 가 null 을 읽으면 간헐 실패한다(quick 260908-qnf 관측).
+    // 자동 재시도되는 `toHaveAttribute` 로 쿨다운 진입까지 기다린 뒤 값을 읽는다.
     await expect(btn).toBeDisabled();
+    await expect(btn).toHaveAttribute('data-remaining-seconds', /^\d+$/);
     const remaining = await btn.getAttribute('data-remaining-seconds');
     expect(remaining).not.toBeNull();
     const seconds = Number(remaining);
