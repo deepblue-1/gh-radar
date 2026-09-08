@@ -31,6 +31,7 @@ export const FIXTURE_SAMSUNG: StockDetailResponse = {
   updatedAt: '2026-04-15T05:30:00.000Z',
   upperLimitProximity: 0.785,
   // 삼성전자 KRX 표준코드. relay 구독·주문 키다(D-28).
+  // 형식: `KR7` + 6자리 종목코드 + 체크디짓 1자 = 12자.
   isin: 'KR7005930003',
 };
 
@@ -57,6 +58,10 @@ export const FIXTURE_SK_HYNIX: StockDetailResponse = {
   price: 195000,
   changeAmount: 2500,
   changeRate: 1.3,
+  // 스프레드로 삼성 isin 을 물려받으면 세 종목이 같은 표준코드를 갖게 된다 —
+  // 실제 계약은 종목당 유일하다(`20260905120000_stocks_isin.sql` 의 idx_stocks_isin
+  // UNIQUE 부분인덱스 + length(isin)=12 CHECK). quick 260908-qnf · 이관 11.
+  isin: 'KR7000660001',
 };
 
 export const FIXTURE_KAKAO: StockDetailResponse = {
@@ -66,6 +71,7 @@ export const FIXTURE_KAKAO: StockDetailResponse = {
   price: 55000,
   changeAmount: 500,
   changeRate: 0.91,
+  isin: 'KR7035720002',
 };
 
 export const FIXTURE_MASTER_UNIVERSE: StockDetailResponse[] = [
