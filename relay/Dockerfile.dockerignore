@@ -8,6 +8,8 @@
 node_modules
 **/node_modules
 **/dist
+**/.next
+.vercel
 .git
 .env
 .env.*
@@ -20,3 +22,5 @@ coverage
 **/*.test.ts
 .vscode
 .claude
+**/test-results
+**/playwright-report

@@ -1,0 +1,30 @@
+# 저장소 루트를 컨텍스트로 쓰는 빌드(`docker build -f server/Dockerfile .`)에 실제로
+# 적용되는 제외 목록이다. BuildKit 은 `-f` 로 지정한 Dockerfile 옆의
+# `<Dockerfile>.dockerignore` 를 먼저 찾고, 없으면 컨텍스트 루트의 `.dockerignore` 를 본다.
+# `server/.dockerignore` 라는 이름은 컨텍스트가 server/ 인 경우에만 쓰이므로 루트
+# 컨텍스트 빌드에서는 아무 효과가 없었다 (2026-09-08 quick 260908-qnf · 이관 9).
+#
+# 제외하는 이유는 속도만이 아니다 — 컨텍스트에 들어온 `.env` 는 builder 레이어와 빌드
+# 캐시에 남는다. 최종 이미지에는 남지 않지만 캐시에는 남는다.
+#
+# 워크스페이스 디렉터리 자체(`webapp/`)를 통째로 제외하지는 말 것 —
+# `pnpm install --frozen-lockfile` 이 워크스페이스 importer 불일치로 깨진다.
+node_modules
+**/node_modules
+**/dist
+**/.next
+.vercel
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+.planning
+*.md
+coverage
+**/tests
+**/*.test.ts
+**/test-results
+**/playwright-report
+.vscode
+.claude
