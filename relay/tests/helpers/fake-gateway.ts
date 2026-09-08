@@ -12,8 +12,16 @@
  *   - 요청 프레임은 `tryParseEnvelope` 로 읽지 않는다. 그 함수는 **수신(응답) 대역**
  *     화이트리스트라 요청 계열(1·4·28·29·32)을 전부 드롭하기 때문이다.
  *
- * 하지 않는 것: 게이트웨이의 업무 로직을 흉내 내지 않는다. 구독 상태·계좌 원장은
- *              없고, 테스트가 지시한 프레임만 그대로 내보낸다.
+ * 하지 않는 것: 게이트웨이의 업무 로직을 흉내 내지 않는다. 구독 상태·계좌 원장·전략
+ *              원장은 없고, 테스트가 지시한 프레임만 그대로 내보낸다.
+ *
+ * Phase 16 추가 — 전략(상따/VI) 표면. 위 규율의 **유일한 예외**가 조회 3종
+ * (`GetLimitChaserListReq(24)` · `GetVITriggerReq(21)` · `GetVIOrderListReq(34)`) 의
+ * 자동 응답이다. 이것은 업무 로직이 아니라 **「무응답 금지」 규약의 재현**이다 — 실서버는
+ * 등록된 전략이 0건이어도 반드시 답하고(길이 0 벡터 / 빈 테이블), 스텁이 침묵하면
+ * relay 가 답을 기다리며 멎어 테스트가 엉뚱한 곳을 가리킨다. 응답 **내용**은 여전히
+ * 테스트가 `respondXxx` 로 심은 값 그대로이고, 요청 페이로드는 보지 않는다.
+ * 명령 4종(10·11·14·33)은 자동 응답 없이 `strategyRequests()` 에 기록만 한다.
  */
 import net from "node:net";
 import * as flatbuffers from "flatbuffers";
@@ -22,19 +30,47 @@ import { Envelope } from "../../src/generated/stock-dma/envelope.js";
 import { frame, FrameReader } from "../../src/dma/codec.js";
 import { MSG } from "../../src/dma/msg-type.js";
 import {
+  STRATEGY_MSG,
   buildBareEnvelope,
+  buildLimitChaserListRespFrame,
   buildLoginRespFrame,
+  buildOrderRespFrame,
   buildQuoteStateFrame,
+  buildSetLimitChaserRespFrame,
+  buildSetVITriggerRespFrame,
   buildTradeTapeFrame,
   buildUpdateAccountNoRespFrame,
+  buildViOrderListFrame,
   type FakeAccount,
+  type FakeLimitChaserInput,
   type FakeLoginRespInput,
+  type FakeOrderRespInput,
   type FakeQuoteInput,
   type FakeTapeInput,
+  type FakeViOrderItemInput,
+  type FakeViTriggerInput,
 } from "./frames.js";
 
 /** 스키마에 없는 `msg_type`. 수신 화이트리스트 드롭 경로를 태우는 데 쓴다. */
 const UNKNOWN_MSG_TYPE = 99;
+
+/**
+ * 전략 **명령** 계열 — 게이트웨이가 자동 응답하지 **않고** 기록만 하는 요청.
+ *
+ * 조회 3종(21·24·34)과 갈라 두는 이유: 조회는 실서버가 반드시 답하므로(무응답 금지)
+ * 스텁도 자동 응답해야 relay 가 멎지 않는다. 반면 명령 4종의 결과는 **에코**(60/61) 나
+ * 푸시(73) 로 오고 그 타이밍은 테스트가 정해야 한다. 둘을 섞어 자동 응답하면
+ * "요청을 보냈다"와 "서버가 받아들였다"가 구분되지 않아 거부 경로를 시험할 수 없다.
+ */
+const STRATEGY_COMMAND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
+  STRATEGY_MSG.SetLimitChaserReq,
+  STRATEGY_MSG.SetVITriggerReq,
+  STRATEGY_MSG.DisableStrategiesReq,
+  STRATEGY_MSG.ConfirmVIOrderReq,
+]);
+
+/** 수신한 전략 명령 1건. `payload` 는 Envelope 페이로드 **사본**이다. */
+export type StrategyRequest = { msgType: number; payload: Buffer };
 
 /** 수신 프레임 관찰자. `payload` 는 Envelope 페이로드(길이 헤더 제거본)다. */
 export type FrameHandler = (msgType: number, payload: Buffer, sock: net.Socket) => void;
@@ -94,6 +130,37 @@ export type FakeGateway = {
   pushQuote(sock: net.Socket, input?: FakeQuoteInput): void;
   /** 체결 테이프 프레임 주입 (69/71). */
   pushTape(sock: net.Socket, input?: FakeTapeInput): void;
+
+  // --- 전략 (Phase 16) ---
+
+  /**
+   * `GetLimitChaserListReq(24)` 자동 응답(64)의 **목록 내용**을 지정한다.
+   * 마지막 지정값을 유지한다. 지정 전 기본값은 **0건**(등록된 전략 없음)이다.
+   */
+  respondLimitChaserList(items: FakeLimitChaserInput[]): void;
+  /**
+   * `GetVITriggerReq(21)` 자동 응답(61)의 **내용**을 지정한다.
+   * `null` 이면 테이블 없는 빈 61 = **미등록**. 지정 전 기본값도 미등록이다.
+   */
+  respondViTrigger(cfg: FakeViTriggerInput | null): void;
+  /**
+   * `GetVIOrderListReq(34)` 자동 응답(72 스냅샷)의 **목록 내용**을 지정한다.
+   * 지정 전 기본값은 0건이다.
+   */
+  respondViOrderList(items: FakeViOrderItemInput[]): void;
+  /** 상따 Set 에코 주입 (60). 등록 성공·부분 거부(눕혀진 값) 를 테스트가 직접 만든다. */
+  pushLimitChaserEcho(sock: net.Socket, cfg?: FakeLimitChaserInput): void;
+  /** VI 주문 목록 주입 (`snap`=true → 72 전량 교체 / false → 73 항목 upsert). */
+  pushViOrderList(sock: net.Socket, items: FakeViOrderItemInput[], snap: boolean): void;
+  /** 주문 통보 주입 (51). 상따·VI 발주의 접수/체결/거부가 전부 이 하나로 온다. */
+  pushOrderResp(sock: net.Socket, input?: FakeOrderRespInput): void;
+  /**
+   * 지금까지 수신한 전략 **명령** 프레임(10·11·14·33) 전량 (송신 순서 그대로).
+   *
+   * 페이로드를 그대로 넘기므로 테스트가 필요한 필드만 직접 파싱한다 — 게이트웨이가
+   * 요청을 해석해 주면 그 해석이 곧 프로덕션 파서의 정답지가 되어 검증이 순환한다.
+   */
+  strategyRequests(): StrategyRequest[];
   /** 임의 바이트 주입 — 청크 경계를 테스트가 지정한다. 길이 프레이밍을 하지 않는다. */
   sendRaw(sock: net.Socket, bytes: Uint8Array): void;
   /** 정상 프레이밍으로 페이로드 1건 전송. */
@@ -179,6 +246,18 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   const declared: DeclaredAccount[] = [];
   let pings = 0;
 
+  /*
+    전략 조회 3종의 자동 응답 내용.
+
+    기본값을 "응답하지 않음" 이 아니라 **빈 응답**으로 두는 것은 의도다. 실서버는 등록된
+    전략이 없어도 반드시 답한다(무응답 금지 — 24 는 길이 0 벡터, 21 은 빈 테이블).
+    스텁이 침묵하면 시드를 깜빡한 테스트가 "relay 가 멎었다"로 나타나 원인이 가려진다.
+  */
+  let limitChasers: FakeLimitChaserInput[] = [];
+  let viTrigger: FakeViTriggerInput | null = null;
+  let viOrders: FakeViOrderItemInput[] = [];
+  const strategyReqs: StrategyRequest[] = [];
+
   const server = net.createServer((sock) => {
     sock.on("error", () => {
       // 강제 종료 테스트에서 ECONNRESET 이 정상적으로 발생한다 — 프로세스를 죽이지 않는다.
@@ -210,6 +289,22 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
           if (autoAccount) {
             sock.write(frame(buildUpdateAccountNoRespFrame(fixedAccountList ?? [...registered])));
           }
+        }
+        // 전략 조회 3종은 늘 답한다 (무응답 금지 규약). 업무 로직은 흉내 내지 않는다 —
+        // 요청 내용을 보지 않고 테스트가 미리 심어 둔 목록을 그대로 돌려줄 뿐이다.
+        if (msgType === STRATEGY_MSG.GetLimitChaserListReq) {
+          sock.write(frame(buildLimitChaserListRespFrame(limitChasers)));
+        }
+        if (msgType === STRATEGY_MSG.GetVITriggerReq) {
+          sock.write(frame(buildSetVITriggerRespFrame(viTrigger)));
+        }
+        if (msgType === STRATEGY_MSG.GetVIOrderListReq) {
+          sock.write(frame(buildViOrderListFrame(viOrders, true)));
+        }
+        // 명령 4종은 **받아 기록만** 한다. payload 는 FrameReader 내부 버퍼의 뷰라
+        // 사본을 뜬다 — 뷰를 그대로 쥐면 큰 누적 버퍼가 통째로 살아남는다.
+        if (STRATEGY_COMMAND_MSG_TYPES.has(msgType)) {
+          strategyReqs.push({ msgType, payload: Buffer.from(payload) });
         }
         for (const h of handlers) h(msgType, payload, sock);
       }
@@ -271,6 +366,34 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
 
     pushTape(sock, input) {
       sock.write(frame(buildTradeTapeFrame(input)));
+    },
+
+    respondLimitChaserList(items) {
+      limitChasers = [...items];
+    },
+
+    respondViTrigger(cfg) {
+      viTrigger = cfg;
+    },
+
+    respondViOrderList(items) {
+      viOrders = [...items];
+    },
+
+    pushLimitChaserEcho(sock, cfg) {
+      sock.write(frame(buildSetLimitChaserRespFrame(cfg)));
+    },
+
+    pushViOrderList(sock, items, snap) {
+      sock.write(frame(buildViOrderListFrame(items, snap)));
+    },
+
+    pushOrderResp(sock, input) {
+      sock.write(frame(buildOrderRespFrame(input)));
+    },
+
+    strategyRequests() {
+      return [...strategyReqs];
     },
 
     sendRaw(sock, bytes) {
