@@ -71,7 +71,13 @@
   - 검증: server 단독 6회 연속 통과(0 실패), 기본 병렬도 전체 실행 2회 연속 exit 0.
     수정 전에는 단독 3회 중 1회, 전체 병렬 5회 중 2회 실패했다.
 
-## [15-05] `server/.dockerignore` 가 실제로 적용되지 않는다 (선재 · 범위 밖)
+## [15-05] `server/.dockerignore` 가 실제로 적용되지 않는다 (선재 · 범위 밖) — **해소 (quick-260908-qnf, 2026-09-08)**
+
+> **종결:** `git mv server/.dockerignore server/Dockerfile.dockerignore` + 동일 조치를
+> `workers/intraday-sync/` 에 적용, 목록에 `**/.next`(546MB) · `.vercel` · `**/.env*` · `**/test-results` ·
+> `**/playwright-report` 추가(`bccd89d`). relay 양쪽에도 `**/.next`·`.vercel` 반영.
+> 실증: `docker build -f server/Dockerfile .` 성공(컨텍스트 전송 43.74kB) + **builder 스테이지 직접 조회**로
+> `server/tests` 부재 · `*.test.ts` 0건 · `.env` 0건 확인. dockerignore 가 아예 없는 워커 9종은 별건(원래 없던 것).
 
 - **증상:** `scripts/deploy-server.sh` 는 저장소 루트를 컨텍스트로 `-f server/Dockerfile .`
   로 빌드한다. BuildKit 은 이 경우 `server/Dockerfile.dockerignore` 를 찾고, 없으면
@@ -86,7 +92,14 @@
 - **권고:** `server/.dockerignore` → `server/Dockerfile.dockerignore` 로 이름을 바꾸거나
   루트 `.dockerignore` 를 두는 quick task. workers/ 의 `.dockerignore` 도 같은 점검 필요.
 
-## [15-09] `public.rls_auto_enable()` 이 마이그레이션 이력에 정의되지 않았다 (선재 · 범위 밖)
+## [15-09] `public.rls_auto_enable()` 이 마이그레이션 이력에 정의되지 않았다 (선재 · 범위 밖) — **해소 (quick-260908-qnf, 2026-09-08)**
+
+> **종결:** `supabase db dump --linked` 실측 덤프를 글자 그대로 `20260702160000_security_perf_advisor_fixes.sql`
+> 안 **REVOKE 앞**에 `CREATE OR REPLACE` 로 in-place 삽입(`a5187ce`). 더 이른 타임스탬프의 새 파일을 끼우지
+> 않은 이유는 이후 모든 `db push` 에 `--include-all` 함정을 남기기 때문이고, 이 파일이 이미 원격 적용됨을
+> `supabase migration list` 로 확인해 production 영향이 0 임을 못박았다. `CREATE EVENT TRIGGER` 는 넣지
+> 않았다(클러스터 레벨 객체 — 실제 Supabase 대상에서 권한 오류).
+> 실증: 일회용 컨테이너에서 **35개 파일 전량 오류 0** 재생 + `has_function_privilege` anon/authenticated/PUBLIC 전부 `false`.
 
 - **발견 경로:** 15-09 Task 1 로컬 검증 — `supabase/postgres:17.4.1.075` 컨테이너에
   `supabase/migrations/*.sql` 를 파일명 순으로 전부 재생(replay)하던 중.
@@ -215,7 +228,12 @@ supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 �
   (이 환경의 권한 계층이 시크릿 쓰기를 차단하므로 사용자가 직접 실행해야 한다.)
 - **재발 방지:** `infra/relay/README.md` 에 "env 조회는 키 이름만 뽑을 것" 경고가 박혔다.
 
-## [15-13 → 15-14] E2E 픽스처에 `isin` 부재 — 호가창 E2E 는 게이트 경로만 탄다
+## [15-13 → 15-14] E2E 픽스처에 `isin` 부재 — 호가창 E2E 는 게이트 경로만 탄다 — **해소 (15-14 + quick-260908-qnf)**
+
+> **종결:** 15-14 가 타입을 `StockDetailResponse` 로 좁히고 `FIXTURE_SAMSUNG.isin` / `FIXTURE_NULL_PRICE.isin`
+> 을 채웠다. 남아 있던 어긋남은 `FIXTURE_SK_HYNIX` / `FIXTURE_KAKAO` 가 스프레드로 삼성 ISIN 을 상속해
+> **세 종목이 같은 표준코드**를 갖던 것 하나였고, 실제 표준코드(`KR7000660001` / `KR7035720002`)로 교정했다(`6ce5137`).
+> 계약 근거: `20260905120000_stocks_isin.sql` 의 `idx_stocks_isin` UNIQUE 부분인덱스 + `length(isin)=12` CHECK.
 
 - **무엇:** `webapp/e2e/fixtures/stocks.ts` 의 `FIXTURE_SAMSUNG` 등은 아직 `Stock` 타입이라
   `isin` 필드가 없다. 15-13 이 단위 픽스처(`webapp/src/__tests__/fixtures/stocks.ts`)만
@@ -228,7 +246,13 @@ supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 �
 - **15-14 가 할 일:** e2e 픽스처를 `StockDetailResponse` 로 좁히고 `isin` / `upperLimitProximity`
   를 채운 뒤, 호가창 연결 상태·게이트 E2E 를 추가한다.
 
-## [15-13 관측] 상태 바와 권한 게이트가 같은 제목 문구를 쓴다
+## [15-13 관측] 상태 바와 권한 게이트가 같은 제목 문구를 쓴다 — **해소 (quick-260908-qnf, 2026-09-08)**
+
+> **종결:** 게이트 카드 제목(`실시간 호가·주문 권한이 없어요`)이 UI-SPEC §게이트·에러·빈 상태 표의 정본이므로
+> **그대로 두고 상태 바를 바꿨다** — `실시간 연결을 시작하지 않았어요` / `관리자에게 계정 연결을 문의해 주세요.`
+> (배지 라벨 `권한 없음` 유지). 재발 원인이던 UI-SPEC 의 모호한 한 줄 `본문을 C13 게이트로 교체` 를
+> 상태 바 문구 정본 + 소유처 명시로 대체하고, `relay-status-bar.test.tsx` 에 회귀 단언 1건을 더했다(`18999b0`).
+> `server/src/errors.ts:64` 의 같은 문자열은 API 에러 표면이라 대상이 아니다.
 
 - `relay-status-bar.tsx` 의 `unauthorized` 본문과 C13 게이트 카드 제목이 둘 다
   `실시간 호가·주문 권한이 없어요` 다. UI-SPEC §Copywriting 표는 `unauthorized` 상태 문구를
@@ -237,7 +261,11 @@ supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 �
   (15-13 은 게이트 카드 안으로 스코프해 우회했다).
 - 문구 정본을 한쪽으로 모으려면 UI-SPEC 갱신이 필요하므로 여기 기록만 남긴다.
 
-## [15-14] `auth-guards.spec.ts` 의 `/` 루트 단언이 Phase 13 이후 낡았다 (선재 · 범위 밖)
+## [15-14] `auth-guards.spec.ts` 의 `/` 루트 단언이 Phase 13 이후 낡았다 (선재 · 범위 밖) — **해소 (quick-260908-qnf, 2026-09-08)**
+
+> **종결:** 테스트를 지우지 않고 "지금 보장해야 할 것" 으로 다시 썼다 — 미인증 `/` 가 HTTP **200** 으로
+> 유지되고 `/login` 으로 리다이렉트되지 **않는다**(`663bf35`). 홈 내용은 단언하지 않는다(이 파일은 auth 가드
+> 전용이고 `/api/home` 을 목하지 않는다 — 내용은 `home.spec.ts` 소관).
 
 - **발견 경로:** 15-14 Task 2 전체 Playwright 회귀 실행.
 - **실패:** `webapp/e2e/specs/auth-guards.spec.ts:40`
@@ -254,3 +282,36 @@ supertest 가 파일마다 임시 서버를 bind/close 하는 구조 자체를 �
 - **영향:** `playwright test` 전체가 exit 1. 다른 8개 auth 가드 케이스는 정상.
 - **처리:** 단언을 "미인증도 `/` 가 200 으로 렌더된다" 로 바꾸는 quick task.
   홈이 공개인지 여부는 제품 결정이라 phase 15 범위 밖이다.
+
+## [quick-260908-qnf] 선재 E2E 11건 종결 — 원인은 문서 진단과 달리 둘이었다 (2026-09-08)
+
+- **baseline(고치기 전):** `discussions` 6 + `discussion-filter` 4 + `auth-guards` 1 = **11 failed / 10 passed**.
+- **원인 1 (7건):** `mockDiscussionsApi` 의 GET 스텁이 배열을 반환 — 실제 계약은
+  `DiscussionListResponse = { items, hasMore }` 다. 스텁 2개와 무한스크롤 인라인 route 2개를
+  envelope 로 교정(`4458b90`). POST `/refresh` 는 `Discussion[]` 배열이 맞아 **그대로 뒀다**.
+- **원인 2 (3건, 미진단이었다):** `discussion-filter` 3건은 envelope 과 무관했다. quick 260706-erk 가
+  Haiku 의미성 분류를 제거하며 `discussion-page-client.tsx` 의 `CLASSIFY_PAUSED` 를 `true` 로 고정한 뒤
+  토글은 항상 disabled/OFF · 필터는 `all` 고정인데, 그때 **단위 테스트만 갱신되고 E2E 스펙은
+  Phase 08.1 시절 단언을 그대로 들고 있었다.** 단위 테스트와 같은 계약으로 재작성(`3e5d572`).
+- **원인 3 (1건):** `auth-guards` — Phase 13 D-07 (`663bf35`).
+- **결과:** 목표 4개 스펙(`discussions`/`discussion-filter`/`auth-guards`/`stock-detail-tabs`) **29건 green**,
+  `orderbook.spec.ts` 포함 37건 exit 0.
+- **부수 교정:** ① `stock-detail-tabs.spec.ts` 4번 케이스가 픽스처 결함 때문에 접두사 매칭으로 약화돼
+  있던 것을 정확한 testid 로 복원, ② `discussions.spec.ts:145` 쿨다운 단언의 재시도 없는 `getAttribute`
+  를 `toHaveAttribute` 로 결정화(`82ce673` — 버튼은 `isRefreshing` 중에도 disabled 라 429 도착 전에
+  `toBeDisabled()` 가 통과하는 창이 있었다).
+
+### 남은 선재 E2E 3건 (이 quick 범위 밖 — 새 이관)
+
+`pnpm --filter webapp exec playwright test` **전체** 는 아직 exit 0 이 아니다. 남은 3건은 이 quick 이
+건드리지 않은 파일이고, 인과관계를 실험으로 배제했다 — 이 quick 이 수정한 webapp 파일 3개를
+quick 이전 커밋(`399ade3`) 버전으로 되돌려 실행해도 **동일하게 3건 실패**한다(되돌린 파일은 즉시 복원).
+
+| 스펙 | 증상 | 관측된 원인 | 권고 |
+|------|------|-------------|------|
+| `a11y.spec.ts:37` | `aria-prohibited-attr`(serious) — `<div data-slot="skeleton" aria-label="일봉 차트 로딩 중">` | 일봉 차트 API 가 목되지 않아 스캔 시점까지 스켈레톤이 남는다(로컬 :8080 미기동 · `NEXT_PUBLIC_API_BASE_URL` 주석 처리) | 스켈레톤에 `role="status"` 를 함께 주거나 차트 API 를 목에 추가 |
+| `news.spec.ts:117` | `getByTestId('news-item').count()` 가 0 | 재시도 없는 one-shot `count()` | `toHaveCount` 로 교체 |
+| `search.spec.ts:17` (⌘K) | `getByRole('dialog')` 미발견 | `page.goto` 직후 keydown 을 `page.evaluate` 로 **한 번만** dispatch — hydration 전이면 이벤트 유실, 재시도 없음 | 리스너 부착 대기 후 dispatch 하거나 `expect(...).toPass()` 로 감싼다 |
+
+셋 다 30분 이내 quick 감이다. 전체 스위트 5회 실행 중 1회(2026-09-08 19:47)는 `79 passed / 0 failed`
+로 exit 0 이었으나, 이후 저부하(load1 2.8~3.9)에서도 위 3건이 결정적으로 재현된다.

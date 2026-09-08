@@ -340,9 +340,10 @@ Recent decisions affecting current work:
 | 260908-fis | intraday-sync 종목코드 정규식을 영숫자 단축코드까지 허용 + STEP1 매핑실패 로깅 — 채비(0011T0) 등 KRX 영문 포함 단축코드 80종목이 스캐너·급등·홈에서 누락되던 회귀 수정 | 2026-09-08 | e18ea49·c3d679d | [260908-fis-intraday-sync-step1](./quick/260908-fis-intraday-sync-step1/) |
 | 260908-oh6 | 종목검색에서 ETF·ETN·ELW·상장폐지 종목 제외 — 마스터 ETP 확대(ELW 2,735·영문 ETF 303) 이후 이들이 name-asc 앞자리를 점거해 삼성전자·현대차·카카오가 limit 20 밖으로 밀려나던 회귀 수정 | 2026-09-08 | ec6cceb | [260908-oh6-get-api-stocks-search-etp-etf-etn-elw-is](./quick/260908-oh6-get-api-stocks-search-etp-etf-etn-elw-is/) |
 | 260908-py9 | Phase 15 이관 3건 종결 — 저장소 KB VPN 계정 ID 마스킹(15파일 38건, SC-8 충족) + VPN 주간 예약 재접속 타이머(일 06:00 KST, 저장소+VM 실적용, 무중단 실측) + relay README 정본화(상시 유지·실서버 라이브·14일 만료 복구 runbook) | 2026-09-08 | 2f8a507·ec60980·a1bbf8a | [260908-py9-phase-15-id-vpn-relay-readme](./quick/260908-py9-phase-15-id-vpn-relay-readme/) |
+| 260908-qnf | Phase 15 이관 6건 종결 — rls_auto_enable() 정의를 마이그레이션 이력에 보정(빈 DB 35파일 전량 재생 0오류·anon/authenticated 실행권한 f 실증) + server·intraday-sync dockerignore 를 BuildKit 이 읽는 이름으로 교정(builder 레이어 .env 0건) + 선재 E2E 11건 청산(29건 green, 원인 2종 — envelope 계약 7건·CLASSIFY_PAUSED 3건·auth-guards 1건) + stocks 픽스처 ISIN 유일성 + 상태 바/게이트 문구 분리·UI-SPEC 소유처 명시. server flake 는 3/3 통과로 무수정. production DB·배포 무변경 | 2026-09-08 | a5187ce·bccd89d·4458b90·3e5d572·663bf35·6ce5137·18999b0·82ce673 | [260908-qnf-phase-15-rls-auto-enable-e2e-11-dockerig](./quick/260908-qnf-phase-15-rls-auto-enable-e2e-11-dockerig/) |
 
 ## Session Continuity
 
-Last session: 2026-09-08T06:52:37.574Z
+Last session: 2026-09-08T11:22:00.000Z
 Stopped at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
