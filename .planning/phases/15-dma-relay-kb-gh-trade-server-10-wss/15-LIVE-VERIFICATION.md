@@ -165,7 +165,7 @@ B/C안을 고르더라도 서버측 allowlist(`isDmaAllowed`)가 `403 DMA_NOT_AL
 | 9 | `server/.dockerignore` 가 실제로 적용되지 않음 | 선재 · phase 15 범위 밖 | BuildKit 이 `server/Dockerfile.dockerignore` 또는 컨텍스트 루트 `.dockerignore` 를 찾는데 둘 다 없다. 멀티스테이지라 최종 이미지는 무해하나 builder 레이어·빌드 캐시에 `.env` 가 남는다. relay 쪽은 15-05 가 `Dockerfile.dockerignore` 로 해결 |
 | 10 | 상태 바와 권한 게이트가 **같은 제목 문구** 사용 | UI 사소 | `실시간 호가·주문 권한이 없어요` 가 두 곳. 문구 정본을 모으려면 UI-SPEC 갱신 필요 |
 | 11 | E2E 픽스처 `webapp/e2e/fixtures/stocks.ts` 에 `isin` 부재 | 알려진 경계 | 15-14 가 relay 픽스처로 호가 경로를 따로 덮었다. 탭 회귀 단언은 존재 여부만 본다 |
-| 12 | KB VPN 세션 인증 **14일 만료** (선검증 시점 기준 2026-09-19) | 운영 정책 미설계 | 상시 운용 시 재인증 주기 설계 필요 |
+| 12 | KB VPN 세션 인증 **14일 만료** (접속 시각 + 14일 롤링) | **해소 (quick-260908-py9, 2026-09-08)** | `kbvpn-renew.timer` = 매주 일요일 06:00 KST `OnCalendar=Sun 06:00 Asia/Seoul` 1회 발화 → `systemctl restart openconnect@kb` 로 창을 미리 민다. 저장소 정본 `infra/relay/startup.sh install_renew_timer()` + VM 실적용. 밀린 발화 따라잡기 옵션 미사용(장중 몰림 차단), 자체 재시도 없음(워치독 소관). runbook = `infra/relay/README.md` |
 | 13 | 터널 IP 는 **계정 고정이 아니라 풀 할당** | 설계 가정 정정 완료 | 선검증에서 Mac `.126` / VM `.124` 동시 관측으로 반증됐다. 터널 IP 를 하드코딩·allow-list 하지 말 것. 게이트웨이 `10.41.1.120` 은 서버측 고정값이라 상수 취급 가능 |
 | 14 | `.planning/` 문서에 KB VPN **계정 ID** 잔존 | §4-E | **해소 (quick-260908-py9, 2026-09-08)** — 실측 15개 파일 38건을 `KB_VPN_ACCOUNT` 로 마스킹, 저장소 전체 게이트 0건. 히스토리 재작성은 미수행(§4-E) |
 | 15 | `REQUIREMENTS.md` 의 RELAY-01/02/03 이 여전히 `Pending` | 판단 필요 | **이 plan 은 바꾸지 않았다.** SC-4~SC-8 이 ⚠ 인 상태에서 `Complete` 로 올리는 것은 증거와 어긋난다. 실서버 검증 또는 최소한 자격증명 등록 후 재판정할 것 |

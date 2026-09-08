@@ -259,11 +259,68 @@ WDTMR_EOF
 }
 install_watchdog
 
+# 주간 예약 재접속: KB 게이트웨이의 세션 인증은 **접속 시각 + 14일 롤링**이다.
+#   실측 2건 — 09-05 14:28 접속 → 09-19 14:28 만료 / 09-06 04:03 접속 → 09-20 04:03 만료.
+#   (계정 만료가 아니다. 재접속하면 창이 그 시점부터 다시 14일로 밀린다.)
+# 상시 유지가 정책이므로 갱신하지 않으면 그 만료 창이 언젠가 **장중에** 온다.
+# 그래서 장이 없는 매주 일요일 06:00 KST 에 한 번 재접속해 창을 미리 밀어 둔다.
+#
+#   · 밀린 발화 따라잡기 옵션(systemd Timer 의 catch-up 키)은 **의도적으로 넣지 않는다.**
+#     VM 이 며칠 꺼져 있다 장중에 부팅하면 놓친 발화가 그 자리에서 몰려 실행돼
+#     장중 재접속이 걸린다. 한 주를 건너뛰어도 14일 창 안이라 손해가 없다.
+#     (키 이름과 상세 근거는 infra/relay/README.md §주간 예약 재접속)
+#   · 자체 재시도·백오프·reset-failed 를 넣지 않는다. 실패 회수는 위 워치독
+#     (10분 주기 · 시간당 1회) 소관이다. 여기서 또 돌리면 유닛의 StartLimitBurst=5/1h
+#     예산과 KB 계정 인증 시도 횟수를 이중으로 태운다.
+install_renew_timer() {
+  cat >/usr/local/sbin/kbvpn-renew <<'RENEW_EOF'
+#!/usr/bin/env bash
+# openconnect@kb 를 1회 재시작해 세션 인증 14일 창을 갱신한다.
+# 실패해도 여기서 재시도하지 않는다 — kbvpn-watchdog(10분 주기)가 회수한다.
+set -uo pipefail
+UNIT=openconnect@kb
+logger -t kbvpn-renew "주간 예약 재접속 시작 — ${UNIT} restart 1회"
+if systemctl restart "$UNIT"; then
+  logger -t kbvpn-renew "재접속 성공 — 세션 인증 14일 창 갱신됨"
+else
+  logger -t kbvpn-renew "재접속 실패 — 재시도하지 않는다. 워치독 회수 대기"
+fi
+RENEW_EOF
+  chmod 0700 /usr/local/sbin/kbvpn-renew
+
+  cat >/etc/systemd/system/kbvpn-renew.service <<'RNSVC_EOF'
+[Unit]
+Description=KB VPN 주간 예약 재접속 — 세션 인증 14일 롤링 갱신
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kbvpn-renew
+RNSVC_EOF
+
+  cat >/etc/systemd/system/kbvpn-renew.timer <<'RNTMR_EOF'
+[Unit]
+Description=KB VPN 주간 예약 재접속 (일요일 06:00 KST)
+
+[Timer]
+# VM 시계는 UTC 다. systemd 252 는 캘린더 표현에 타임존을 직접 지원한다
+# (systemd-analyze calendar 'Sun 06:00 Asia/Seoul' → Next elapse 정상 산출).
+OnCalendar=Sun 06:00 Asia/Seoul
+# 밀린 발화 따라잡기 옵션은 의도적으로 넣지 않는다 — 놓친 발화가 부팅 직후
+# 몰려 실행되면 장중에 재접속이 걸린다. 근거: infra/relay/README.md §주간 예약 재접속
+
+[Install]
+WantedBy=timers.target
+RNTMR_EOF
+}
+install_renew_timer
+
 systemctl daemon-reload
 systemctl enable --now kbvpn-watchdog.timer >/dev/null 2>&1 \
   || log "WARN: kbvpn-watchdog.timer 등록 실패"
+systemctl enable --now kbvpn-renew.timer >/dev/null 2>&1 \
+  || log "WARN: kbvpn-renew.timer 등록 실패"
 
-log "✓ VPN 자산 배치 완료 (자동 기동 등록 · 워치독 10분 · 재시도 상한 5회/1h 유지)"
+log "✓ VPN 자산 배치 완료 (자동 기동 등록 · 워치독 10분 · 주간 갱신 일 06:00 KST · 재시도 상한 5회/1h 유지)"
 
 # ───────────────────────────────────────────────────────────────
 # 6. Artifact Registry 인증 헬퍼
