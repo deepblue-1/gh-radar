@@ -813,8 +813,23 @@ function ChaserLadder({
 
       {/* ── 좁은 폭(<1280) — 32px 2줄 행 · 400px 독립 스크롤 · 현재가 중앙 초기 스크롤 ── */}
       <div className="min-[1280px]:hidden">
+        {/*
+          ★ `tabIndex={0}` 은 장식이 아니라 **WCAG 2.1.1(키보드) 필수**다 (16-17 a11y 확장이
+            실측으로 잡았다 — axe `scrollable-region-focusable`, impact serious).
+
+            이 박스는 400px 안에서 20행을 스크롤한다. 안에 포커스 가능한 자식이 하나도
+            없으므로(가격 클릭이 없어졌다 — 그게 이 변형의 설계다) 박스 자신이 포커스를
+            받지 못하면 **키보드만 쓰는 사용자는 매수 10단을 영원히 볼 수 없다.** 마우스
+            휠·터치로만 닿는 정보가 생긴다.
+
+            UI-SPEC §키보드 접근성의 「호가 사다리는 포커스 대상이 아니다」와 모순되지
+            않는다 — 그 규칙이 금지한 것은 **호가 셀(행)의 roving tabindex** 이고, 여기서
+            포커스를 받는 것은 셀이 아니라 스크롤 영역 하나다. 이름은 자식 `<ul>` 의
+            `aria-label` 이 곧바로 읽어 주므로 중복 라벨을 달지 않는다.
+        */}
         <div
           ref={scrollRef}
+          tabIndex={0}
           data-slot="ladder-scroll"
           className="relative h-[400px] overflow-x-hidden overflow-y-auto"
         >
