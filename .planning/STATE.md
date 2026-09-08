@@ -34,6 +34,15 @@ Last activity: 2026-09-08 -- Phase 16 execution started
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
+### Phase 15 Production State (2026-09-08)
+
+- **plan 20/20 실행 완료.** 종결 plan `15-20` 은 2026-09-06 에 **A안(`skip-live`)** 으로 마감했다 — 실서버·실계좌에 접속하지 않고 "미접속"을 실측으로 남긴 종결이었다(`15-LIVE-VERIFICATION.md` §1~§7, SUMMARY `ace2f7d`).
+- **그 뒤 라이브 전환이 실제로 일어났다.** `f13eb7d` 로 **D-17(gh-radar 전용 DMA `user_id`)이 철회**돼 웹이 WinForms 와 동일 DMA 세션에 합류했고, relay 의 `DMA_HOST` 가 로컬 mock 에서 **실 게이트웨이(`10.41.1.120:9100`)** 로 전환됐다. **주문 경로가 실계좌에 닿는다** — 스모크·디버깅에서 `POST /api/orders`·relay `OrderApi`·DMA 로그인 호출을 하지 않는다(정본 경고: `infra/relay/README.md` §실서버 라이브 상태).
+- **VPN 상시 유지가 정책이다**(`1ef7cc7` 부팅 자동기동+워치독 · `f9ca062` 재접속 상한 철회). `openconnect@kb` = `active`+`enabled`, `kbvpn-*` 타이머 2개(`kbvpn-watchdog` 10분 회수 · `kbvpn-renew` 일 06:00 KST 주간 재접속), 세션 인증 만료 예정 2026-09-20. `/healthz` 실측(2026-09-08 20:37 KST) = `{"status":"ok","vpn":true,"dma":true,"version":"a2c5238","sessionCount":1}` — `sessionCount:1` ∧ `dma:true` 는 `readyCount>0` 을 강제하므로 DMA 세션 하나가 **Ready**(로그인 성공 + 계좌 선언 완료)다.
+- **실주문 왕복 실측:** `dma_credentials` **2행**(15-20 시점 0행) · `dma_orders` **5행** — `rejected` 3(실브로커 rc 606·515) / `accepted` 2(rc 0, 체결 통보). insert→통보 patch Δ **median 77 ms**(D-22 의 5초 상한 대비 약 1/60). ISIN 42종목 결손은 `8816557`(master-sync basDd 역탐색) 으로 해소 — `--check-isin` 4 PASS, 활성 **2,717종목 / isin NULL 0**.
+- **SC 재집계:** ✅ **6**(SC-1·2·3·5·7·8) · ⚠ **2**(SC-4·SC-6) — 2026-09-06 의 ✅3 / ⚠5 에서 갱신. 남은 ⚠ 는 (a) 마지막 wss 종료 **5분 뒤** 세션 종료 실관측, (b) 취소(`C`) 왕복·`cancelled` 전이와 `GET /api/orders` 목록 복원 응답 미관측 둘뿐이다. **재판정 정본은 `15-LIVE-VERIFICATION.md` §8** 이며 §1~§7 은 2026-09-06 기록으로 보존한다.
+- **요구사항 재판정:** RELAY-01 **Complete** · RELAY-03 **Complete** · RELAY-02 는 위 (b) 때문에 **Pending 유지**(REQUIREMENTS Traceability 에 `잔여:` 명시). 남은 2건은 실계좌 주문을 수반하므로 **사용자의 명시 지시가 있을 때만** 검증한다.
+
 ### Phase 10 Production State (2026-06-09)
 
 - Cloud Run Job `gh-radar-theme-sync` + Scheduler `gh-radar-theme-sync-daily` (`0 16 * * *` Asia/Seoul, OAuth invoker, no OIDC) live. SA `gh-radar-theme-sync-sa` + 기존 Secret 3종 재사용(supabase-service-role/brightdata-api-key/anthropic-api-key). 이미지 `theme-sync:e944970`. `THEME_SYNC_CLASSIFY_ENABLED=true`.
@@ -341,6 +350,7 @@ Recent decisions affecting current work:
 | 260908-oh6 | 종목검색에서 ETF·ETN·ELW·상장폐지 종목 제외 — 마스터 ETP 확대(ELW 2,735·영문 ETF 303) 이후 이들이 name-asc 앞자리를 점거해 삼성전자·현대차·카카오가 limit 20 밖으로 밀려나던 회귀 수정 | 2026-09-08 | ec6cceb | [260908-oh6-get-api-stocks-search-etp-etf-etn-elw-is](./quick/260908-oh6-get-api-stocks-search-etp-etf-etn-elw-is/) |
 | 260908-py9 | Phase 15 이관 3건 종결 — 저장소 KB VPN 계정 ID 마스킹(15파일 38건, SC-8 충족) + VPN 주간 예약 재접속 타이머(일 06:00 KST, 저장소+VM 실적용, 무중단 실측) + relay README 정본화(상시 유지·실서버 라이브·14일 만료 복구 runbook) | 2026-09-08 | 2f8a507·ec60980·a1bbf8a | [260908-py9-phase-15-id-vpn-relay-readme](./quick/260908-py9-phase-15-id-vpn-relay-readme/) |
 | 260908-qnf | Phase 15 이관 6건 종결 — rls_auto_enable() 정의를 마이그레이션 이력에 보정(빈 DB 35파일 전량 재생 0오류·anon/authenticated 실행권한 f 실증) + server·intraday-sync dockerignore 를 BuildKit 이 읽는 이름으로 교정(builder 레이어 .env 0건) + 선재 E2E 11건 청산(29건 green, 원인 2종 — envelope 계약 7건·CLASSIFY_PAUSED 3건·auth-guards 1건) + stocks 픽스처 ISIN 유일성 + 상태 바/게이트 문구 분리·UI-SPEC 소유처 명시. server flake 는 3/3 통과로 무수정. production DB·배포 무변경 | 2026-09-08 | a5187ce·bccd89d·4458b90·3e5d572·663bf35·6ce5137·18999b0·82ce673 | [260908-qnf-phase-15-rls-auto-enable-e2e-11-dockerig](./quick/260908-qnf-phase-15-rls-auto-enable-e2e-11-dockerig/) |
+| 260908-scu | Phase 15 장부 재집계 — 라이브 전환(D-17 철회·실 게이트웨이·실주문 5건 왕복)을 반영해 SC-4~8 재판정(✅3/⚠5 → ✅6/⚠2) + §4-A~E 미증명 17항·이관 15건 재분류를 `15-LIVE-VERIFICATION.md` §8 로 append(§1~§7 무변경) + REQUIREMENTS RELAY-01/03 Complete·RELAY-02 Pending(잔여 2건) 대칭 갱신 + ROADMAP Phase 15 20/20 종결. 읽기 전용 실측만 — 코드·배포·새 주문·Supabase 쓰기 0건 | 2026-09-08 | 0575091·2709455 | [260908-scu-phase-15-sc-4-8-relay-01-03-roadmap-stat](./quick/260908-scu-phase-15-sc-4-8-relay-01-03-roadmap-stat/) |
 
 ## Session Continuity
 
