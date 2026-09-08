@@ -39,7 +39,7 @@ function serverEcho(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
   return {
     isin: ISIN,
     accountNo: ACCOUNT,
-    market: 'KOSPI',
+    market: 'K',
     crud: 'C',
     exchange: 'KRX',
     key: `${ISIN}:${ACCOUNT}:KRX`,
@@ -69,6 +69,13 @@ describe('buyOrderQtyFromAmount — 매수수량 산출 (유일 지점)', () => 
 
   it('매수가격이 음수여도 0 주', () => {
     expect(buyOrderQtyFromAmount(10, -1)).toBe(0);
+  });
+
+  it('나머지는 언제나 **버린다** — 반올림하지 않는다', () => {
+    // 10만원 ÷ 15,000 = 6.67주. 반올림하면 7주가 되고, 그 1주는 예수금 없이 나가는 주문이다.
+    expect(buyOrderQtyFromAmount(10, 15_000)).toBe(6);
+    // 10만원 ÷ 10,001 = 9.999주 → 9주. 올림도 아니다.
+    expect(buyOrderQtyFromAmount(10, 10_001)).toBe(9);
   });
 
   it('큰 금액에서 uint 래핑이 없다 — 100억원 ÷ 1원 = 100억주', () => {
