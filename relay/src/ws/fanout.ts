@@ -413,6 +413,17 @@ export class WsFanout {
       return;
     }
 
+    // ⚠️ 분기 순서 주의 (16-RESEARCH Pitfall 14). `keyOf(msg.isin, msg.ex)` 를 좁히기 전에
+    // 부르면 안 된다 — `isin`/`ex` 는 **시세 구독 2종에만** 있는 필드고, D-01/D-02 로 들어온
+    // 전략·주문 메시지에는 없다. 좁히기를 먼저 하지 않으면 새 메시지를 추가하는 순간 깨진다.
+    if (msg.t !== "sub" && msg.t !== "unsub") {
+      // 전략·주문 인바운드는 **계약만** 확정된 상태다(16-03). 실제 핸들러는 16-07/16-08 에서
+      // 이 자리에 붙는다. 그때까지 **조용히 버리지 않는다** — 처리기 부재를 기록으로 남긴다
+      // (PC-7 무로그 fail-safe 금지). 프로토콜 위반이 아니므로 연결은 끊지 않는다.
+      logger.warn({ userId, t: msg.t }, "[WS] 아직 처리기가 없는 인바운드 — 무시");
+      return;
+    }
+
     const key = keyOf(msg.isin, msg.ex);
 
     if (msg.t === "sub") {
