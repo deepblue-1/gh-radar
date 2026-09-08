@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 884f2ca
-// synced-date:        2026-09-05
+// server-repo-commit: 291a953
+// synced-date:        2026-09-08
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -462,6 +462,12 @@ table SetLimitChaser {
     cancel_watch_qty: uint;          // 취소 감시 잔량(주). 잔량추적 ON 이면 기준선의 바닥(초기값)
     cancel_trade_enabled: bool;      // ☐체결 — A3 매도체결 항, 임계는 sell_min_trade_qty 재사용
     cancel_qty_track_enabled: bool;  // ☐잔량추적 — 비율은 sell_qty_track_ratio 재사용, 기준선 초기값 = cancel_watch_qty
+
+    // === 이하 quick-260907-eu4 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    cancel_qty_track_baseline: uint; // **S→C 전용** 현재 취소 기준선 (주). 요청값은 서버가 읽지 않는다
 }
 
 // VITrigger (VI 발동) 전략 설정
@@ -565,6 +571,23 @@ table UnfilledState {
                            // **미지정(구 서버·구 상태파일)은 "KRX" 로 정규화한다.**
                            // 잔고(HoldingState)에는 넣지 않는다 — 잔고는 종목 단위이고
                            // NXT 로 산 주식을 KRX 에서 팔 수 있다 (D-09)
+
+    // === 이하 quick-260907-g7b 추가 (테이블 **말미 append** — 기존 필드 순서 불변) ===
+
+    order_time: string;    // 주문시각 "HHMMSS" — 미체결 그리드 '시간' 열의 유일한 원천.
+                           //
+                           // ★ **서버가 접수 통보를 반영한 벽시계이지 거래소 접수시각이
+                           //   아니다.** 거래소 시각(krx::TTRODP113.ordAcceptTime)을 실으려면
+                           //   broker::ExecutionReport 에 필드가 필요한데, 그 구조체는
+                           //   order.bin 고정 레코드 호환으로 148바이트에 묶여 있어
+                           //   (IBroker.h static_assert) 자리가 없다. 차이는 FEP→서버
+                           //   지연(ms)이라 HH:MM:SS 표시에서는 초 경계에서만 갈린다.
+                           //
+                           // ★ **값이 없으면 빈 문자열이다. "000000" 으로 채우지 않는다.**
+                           //   비는 자리는 정확히 둘이고 둘 다 서버가 접수를 못 본 주문이다:
+                           //   ① order_time 키가 없는 구포맷 account_state.toml 복원분
+                           //   ② 원장 대사로 주입된 주문 (OCX TA1006 에 시각이 없다)
+                           //   클라는 공란을 공란으로 둔다 — 지어내면 화면에 거짓이 남는다.
 }
 
 // 스냅샷·델타·대사 교정 팬아웃 공용 본문 (MsgType 66/67 이 같은 슬롯을 공유한다).
