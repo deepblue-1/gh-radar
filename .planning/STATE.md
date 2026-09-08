@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 16 UI-SPEC approved
-last_updated: "2026-09-08T02:47:19.988Z"
+stopped_at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
+last_updated: "2026-09-08T06:52:37.585Z"
 last_activity: "2026-09-08 -- Completed quick task 260908-fis: intraday-sync 영숫자 단축코드 허용 + STEP1 매핑실패 표본 로깅"
 progress:
   total_phases: 25
@@ -341,6 +341,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-08T02:47:19.706Z
-Stopped at: Phase 16 UI-SPEC approved
+Last session: 2026-09-08T06:52:37.574Z
+Stopped at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 kbs124 VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.

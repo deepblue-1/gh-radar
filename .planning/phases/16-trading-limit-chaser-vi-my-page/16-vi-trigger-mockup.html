@@ -81,18 +81,28 @@ button, input, select { font-family:inherit; }
 .layout { display:flex; min-height:764px; }
 .side { width:240px; flex:none; border-right:1px solid var(--border); background:var(--muted); padding:12px; display:flex; flex-direction:column; }
 .side nav { flex:1; }
-.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
 .side a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); font-size:var(--t-sm); color:var(--muted-fg); text-decoration:none; cursor:pointer; }
 .side a:hover { background:color-mix(in oklch,var(--bg) 60%,transparent); color:var(--fg); }
 .side a.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
-.side .grp-hd { display:flex; align-items:center; gap:8px; padding:10px 12px 4px; font-size:11px; font-weight:600; color:var(--muted-fg); }
-.side ul ul { margin-left:14px; border-left:1px solid var(--border); padding-left:6px; margin-top:2px; }
-.side ul ul a { padding:6px 10px; }
+.side .grp-hd { display:flex; align-items:center; gap:8px; padding:8px 12px 4px; font-size:11px; font-weight:600; color:var(--muted-fg); }
+.side ul ul { margin-left:12px; border-left:1px solid var(--border); padding-left:8px; margin-top:4px; }
+.side ul ul a { padding:8px 12px; }
 .side ul ul ul { margin-left:12px; }
-.side ul ul ul a { padding:5px 10px; font-size:13px; }
+.side ul ul ul a { padding:8px; font-size:var(--t-caption); }
 .side .ico { width:16px; text-align:center; font-size:13px; opacity:.85; flex:none; }
 .side .nm { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .side .badge { margin-left:auto; display:inline-flex; gap:3px; flex:none; }
+/* 사이드바 전략 항목 — 종목명 + 매수/매도 on·off 만 (거래소 태그·상태 배지 제거) */
+.side a.strat { padding:8px; }
+.side a.strat .nm { font-size:var(--t-sm); font-weight:600; color:var(--fg); flex:1; }
+.side a.strat.on .nm { color:var(--accent-fg); }
+/* 매수/매도 = 글자 없이 동그라미 2개만. ON=채움(매수 --up / 매도 --down), OFF=속빔(1.5px 테두리).
+   좌=매수 · 우=매도 고정 순서 + title/aria-label 로 색 없이도 읽힌다(WCAG 1.4.1). */
+.side .io { margin-left:auto; display:inline-flex; align-items:center; gap:6px; flex:none; }
+.side .io i { display:block; width:10px; height:10px; border-radius:9999px; border:1.5px solid var(--muted-fg); background:transparent; flex:none; }
+.side .io i.buy.on  { background:var(--up);   border-color:var(--up); }
+.side .io i.sell.on { background:var(--down); border-color:var(--down); }
 .side .user { margin-top:12px; border-top:1px solid var(--border); padding-top:10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); color:var(--muted-fg); }
 .side .user .av { width:26px; height:26px; border-radius:9999px; background:var(--secondary); display:grid; place-items:center; font-size:12px; color:var(--fg); flex:none; }
 
@@ -192,6 +202,21 @@ table.t .u { color:var(--up); } table.t .d { color:var(--down); }
 .frame.mobile [data-density="default"] { --row-h:44px; --cell-pad-y:12px; }
 .frame.mobile .cancel-b { height:32px; padding:0 10px; }
 .frame.mobile .tbl-wrap { overflow-x:auto; }
+/* 모바일 미체결·잔고 — 표(최소폭 450~460px > 가용 338px)를 2줄 카드 행으로 리플로우.
+   종목명만 flex 로 줄어들고(ellipsis) 나머지는 flex:none 이라 가로로 넘치지 않는다. */
+.rlist { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+.rrow { padding:8px 12px; min-width:0; }
+.rrow + .rrow { border-top:1px solid var(--border-subtle); }
+.rrow .l1, .rrow .l2 { display:flex; align-items:center; gap:8px; min-width:0; }
+.rrow .l2 { margin-top:4px; }
+.rrow .nm { flex:1 1 auto; min-width:0; font-size:var(--t-sm); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rrow .g { flex:none; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+.rrow .g.r { margin-left:auto; }
+.rrow .k { font-size:11px; color:var(--muted-fg); }
+.rrow .v { font-family:var(--font-mono); font-size:var(--t-caption); font-weight:600; font-variant-numeric:tabular-nums slashed-zero; }
+.rrow .v.u { color:var(--up); } .rrow .v.d { color:var(--down); }
+.rrow .tag { flex:none; font-size:11px; font-weight:600; padding:1px 5px; border-radius:var(--r-sm); background:var(--up-bg); color:var(--up); }
+.rrow .cancel-b { margin-left:auto; flex:none; }
 .seg { display:inline-flex; border:1px solid var(--border); border-radius:var(--r); overflow:hidden; height:28px; }
 .seg button { border:0; background:var(--bg); color:var(--muted-fg); padding:0 10px; font-size:12px; font-weight:600; cursor:pointer; }
 .seg button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); }
@@ -256,7 +281,7 @@ table.t .u { color:var(--up); } table.t .d { color:var(--down); }
     <div><b>D-24(a) 수정 — 「0.3초 자동 반영」 폐기.</b> 계좌·금액·상승률을 바꾸면 더티 표시 + 하단 <b>「수정」 액션 바</b>가 나타나고, 「수정」이 <code>SetVITrigger</code>(<code>run</code> 은 현재값 유지)를 보낸다(D-07). <b>시작/중지는 확인 다이얼로그</b> — 호가주문 탭의 주문 확인과 같은 규율. 중지 상태에서 「시작」은 현재 폼 값으로 <code>run=true</code> 전송.</div>
     <div><b>D-24(b) 수정 — 신규 토큰 0개.</b> 110초/119초 데드라인은 <b>2단계</b>로만 표현한다: 여유(≥20초) = 중립 <code>--muted-fg</code>, 임박(&lt;20초) = <code>--destructive</code>. 초안의 주황(<code>--warn</code>)은 globals.css 에 없으므로 쓰지 않는다(툴바에서 비교 가능).</div>
     <div><b>VI 주문내역</b>: 확인 체크(= 119초 미확인 자동취소 <b>면제</b>, <code>ConfirmVIOrderReq 33</code> 즉시 전송 · 수정 버튼 대상 아님, D-10) · 상태 6종(접수 전/접수/부분체결/체결/취소/거부). 모바일은 카드 행, 데스크톱은 표.</div>
-    <div><b>모바일 세로 순서</b>: 상태줄 → 설정 → 시작/중지 → VI 주문내역 → 미체결 → 잔고. 데스크톱은 좌 420px(설정·잔고) / 우(주문내역·미체결) 2열.</div>
+    <div><b>모바일 세로 순서</b>: 상태줄 → 설정 → 시작/중지 → VI 주문내역 → 미체결 → 잔고 (미체결·잔고는 표 대신 <b>2줄 카드 행</b>). <b>데스크톱</b>은 좌 420px(설정·시작/중지) / 우 <b>미체결 → 잔고</b> 2열이고, <b>VI 주문내역(9열)은 그 아래 전폭</b>이다.</div>
   </div>
 
   <div class="frames">
@@ -301,8 +326,8 @@ function sidebar(){
     <li><ul>
       <li><a><span class="ico">🎯</span><span class="nm">상따</span></a>
         <ul>
-          <li><a><span class="nm">에코프로</span><span class="badge"><span class="pill ex">KRX</span><span class="pill buyon">매수ON</span></span></a></li>
-          <li><a><span class="nm">삼성전자</span><span class="badge"><span class="pill ex nxt">NXT</span><span class="pill sellwait">매도대기</span></span></a></li>
+          <li><a class="strat"><span class="nm">에코프로</span><span class="io" role="img" aria-label="매수 켜짐 · 매도 꺼짐" title="매수 켜짐 · 매도 꺼짐"><i class="buy on"></i><i class="sell"></i></span></a></li>
+          <li><a class="strat"><span class="nm">삼성전자</span><span class="io" role="img" aria-label="매수 꺼짐 · 매도 켜짐" title="매수 꺼짐 · 매도 켜짐"><i class="buy"></i><i class="sell on"></i></span></a></li>
         </ul></li>
       <li><a class="on"><span class="ico">Ⓥ</span><span class="nm">VI</span>${RUNNING(SC)?'<span class="badge"><span class="pill virun">가동</span></span>':''}</a></li>
     </ul></li>
@@ -330,7 +355,7 @@ function settings(){
   const d = SC==='dirty';
   return `<div class="card">
     <h3>설정 <span class="r">세션당 1건 · KRX · 주문가 = 상한가</span></h3>
-    <div class="f"><label>계좌</label><div class="row"><label class="sel"><b class="mono">${ACCT}</b> <span style="color:var(--muted-fg);font-size:12px">KB 위탁종합</span><span class="chev">▾</span></label><div class="inp" style="width:104px"><span class="ph">비번</span><span class="mono">••••</span></div></div></div>
+    <div class="f"><label>계좌</label><label class="sel"><b class="mono">${ACCT}</b> <span style="color:var(--muted-fg);font-size:12px">KB 위탁종합</span><span class="chev">▾</span></label></div>
     <div class="f${d?' dirty':''}"><label>금액</label><div class="row"><div class="inp num"><span class="val">${d?'1,500':'1,000'}</span><span class="unit">만원</span></div><span class="tail">주문수량 = 금액 ÷ 상한가</span></div></div>
     <div class="f${d?' dirty':''}"><label>상승률</label><div class="row"><div class="inp num"><span class="val">${d?'25.0':'22.0'}</span><span class="unit">%</span></div><span class="tail">이상 VI 발동 시 자동 매수</span></div></div>
     <div class="f"><label>마감알림</label><div class="opt">${sw(true,'VI 마감 알림')}<span>VI 마감 시 브라우저 알림 (이 기기만)</span></div></div>
@@ -385,27 +410,49 @@ function viCard(isMobile){
     ${isMobile?viRowsMobile():viTableDesktop()}
     <div class="tip">110초 미도달 취소는 서버 규칙이라 면제되지 않아요 · 접수 전(주문번호 없음)은 확인할 수 없어요</div></div>`;
 }
-function unfilled(){
+/* 미체결 3건 — [종목, 주문가, 미체결, 주문량, 주문번호] */
+const OPEN = [['이수페타시스',48750,205,205,'0031245'],['한미반도체',115700,86,86,'0031102'],['두산에너빌리티',35900,158,278,'0030987']];
+function unfilled(m){
   const run = RUNNING(SC);
+  /* 주문번호는 열 대신 종목 아래 보조줄 — 오른쪽 컬럼(556px)에서 표가 잘리지 않게 6열로 줄인다 */
+  const table = `<div class="tbl-wrap" data-density="default"><table class="t">
+    <thead><tr><th class="l">종목</th><th class="l">구분</th><th>주문가</th><th>미체결</th><th>주문량</th><th></th></tr></thead>
+    <tbody>${OPEN.map(([nm,px,rem,qty,no])=>`<tr>
+      <td class="l">${nm} <small style="color:var(--muted-fg)">VI</small><br><small style="color:var(--muted-fg);font-family:var(--font-mono)">${no}</small></td>
+      <td class="l u">▲ 매수</td><td>${fmt(px)}</td><td>${fmt(rem)}</td><td>${fmt(qty)}</td>
+      <td><button class="cancel-b" aria-label="주문번호 ${no} 취소">✕ 취소</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+  const rows = `<div class="rlist">${OPEN.map(([nm,px,rem,qty,no])=>`<div class="rrow">
+    <div class="l1"><span class="nm">${nm}</span><span class="tag">▲ 매수</span>
+      <span class="g r"><span class="k">VI · ${no}</span></span></div>
+    <div class="l2"><span class="g"><span class="k">주문가</span><b class="v">${fmt(px)}</b></span>
+      <span class="g"><span class="k">미체결</span><b class="v">${fmt(rem)}/${fmt(qty)}</b></span>
+      <button class="cancel-b" aria-label="주문번호 ${no} 취소">✕ 취소</button></div>
+  </div>`).join('')}</div>`;
   return `<div class="card"><h3>미체결 <span class="r"><span class="seg" role="group" aria-label="거래소 필터"><button aria-pressed="true">전체</button><button aria-pressed="false">KRX</button><button aria-pressed="false">NXT</button></span><button class="btn sm dest">전체 취소</button></span></h3>
-  ${run?`<div class="tbl-wrap" data-density="default"><table class="t">
-    <thead><tr><th class="l">종목</th><th class="l">구분</th><th>주문가</th><th>미체결</th><th>주문량</th><th class="l">주문번호</th><th></th></tr></thead>
-    <tbody>
-      <tr><td class="l">이수페타시스 <small style="color:var(--muted-fg)">VI</small></td><td class="l u">▲ 매수</td><td>48,750</td><td>205</td><td>205</td><td class="l">0031245</td><td><button class="cancel-b" aria-label="주문번호 0031245 취소">✕ 취소</button></td></tr>
-      <tr><td class="l">한미반도체 <small style="color:var(--muted-fg)">VI</small></td><td class="l u">▲ 매수</td><td>115,700</td><td>86</td><td>86</td><td class="l">0031102</td><td><button class="cancel-b" aria-label="주문번호 0031102 취소">✕ 취소</button></td></tr>
-      <tr><td class="l">두산에너빌리티 <small style="color:var(--muted-fg)">VI</small></td><td class="l u">▲ 매수</td><td>35,900</td><td>158</td><td>278</td><td class="l">0030987</td><td><button class="cancel-b" aria-label="주문번호 0030987 취소">✕ 취소</button></td></tr>
-    </tbody></table></div>`
+  ${run?(m?rows:table)
     :`<div class="empty"><b>미체결 주문이 없어요</b><span>주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요.</span></div>`}</div>`;
 }
-function holdings(){
-  const run = RUNNING(SC);
-  return `<div class="card"><h3>잔고 <span class="r">계좌 <span class="mono">${ACCT}</span></span></h3>
-  <div class="tbl-wrap" data-density="default"><table class="t">
+/* 잔고 — [종목, 매도가능, 보유, 평단가, 현재가, 평가손익, 손익률] */
+const HOLD = [['에코프로',76,76,130000,128500,-114000,-1.15],['두산에너빌리티',120,120,35900,36850,114000,2.65]];
+function holdings(m){
+  const rows = RUNNING(SC) ? HOLD : HOLD.slice(0,1);
+  const sgn = v => (v>=0?'+':'') + fmt(v);
+  const table = `<div class="tbl-wrap" data-density="default"><table class="t">
     <thead><tr><th class="l">종목</th><th>매도가능</th><th>보유</th><th>평단가</th><th>현재가</th><th>평가손익</th></tr></thead>
-    <tbody>
-      <tr><td class="l">에코프로</td><td>76</td><td>76</td><td>130,000</td><td>128,500</td><td class="d">-114,000<br><small>-1.15%</small></td></tr>
-      ${run?`<tr><td class="l">두산에너빌리티</td><td>120</td><td>120</td><td>35,900</td><td>36,850</td><td class="u">+114,000<br><small>+2.65%</small></td></tr>`:''}
-    </tbody></table></div></div>`;
+    <tbody>${rows.map(([nm,se,hd,avg,cur,pl,rt])=>`<tr>
+      <td class="l">${nm}</td><td>${fmt(se)}</td><td>${fmt(hd)}</td><td>${fmt(avg)}</td><td>${fmt(cur)}</td>
+      <td class="${pl>=0?'u':'d'}">${sgn(pl)}<br><small>${pl>=0?'+':''}${rt.toFixed(2)}%</small></td></tr>`).join('')}
+    </tbody></table></div>`;
+  const list = `<div class="rlist">${rows.map(([nm,se,hd,avg,cur,pl,rt])=>`<div class="rrow">
+    <div class="l1"><span class="nm">${nm}</span>
+      <span class="g"><span class="k">보유</span><b class="v">${fmt(hd)}</b></span>
+      <span class="g r"><span class="k">매도</span><b class="v">${fmt(se)}</b></span></div>
+    <div class="l2"><span class="g"><span class="k">평단</span><b class="v">${fmt(avg)}</b><span class="k">→</span><b class="v">${fmt(cur)}</b></span>
+      <span class="g r"><b class="v ${pl>=0?'u':'d'}">${sgn(pl)}</b><b class="v ${pl>=0?'u':'d'}">${pl>=0?'+':''}${rt.toFixed(2)}%</b></span></div>
+  </div>`).join('')}</div>`;
+  return `<div class="card"><h3>잔고 <span class="r">계좌 <span class="mono">${ACCT}</span></span></h3>
+  ${m?list:table}</div>`;
 }
 
 function dirtyBar(){
@@ -457,8 +504,8 @@ function render(frame, isMobile){
     body = `<div class="ttl"><h2>VI 변동성완화 종합주문</h2><span class="sub">VI 발동 종목을 상승률 조건으로 자동 매수</span></div>
       ${stateBar()}
       ${isMobile
-        ? settings() + '<div style="height:8px"></div>' + viCard(true) + '<div style="height:8px"></div>' + unfilled() + '<div style="height:8px"></div>' + holdings()
-        : `<div style="display:grid;grid-template-columns:420px minmax(0,1fr);gap:16px;align-items:start"><div style="min-width:0">${settings()}</div><div style="min-width:0">${holdings()}</div></div><div style="height:8px"></div>${viCard(false)}<div style="height:8px"></div>${unfilled()}`}`;
+        ? settings() + '<div style="height:8px"></div>' + viCard(true) + '<div style="height:8px"></div>' + unfilled(true) + '<div style="height:8px"></div>' + holdings(true)
+        : `<div style="display:grid;grid-template-columns:420px minmax(0,1fr);gap:16px;align-items:start"><div style="min-width:0">${settings()}</div><div style="min-width:0">${unfilled(false)}${holdings(false)}</div></div><div style="height:8px"></div>${viCard(false)}`}`;
   }
   $('[data-body]', frame).innerHTML =
     header(isMobile) + `<div class="layout">${isMobile?'':sidebar()}<div class="main">${body}</div></div>`

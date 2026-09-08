@@ -78,18 +78,28 @@ button, input, select { font-family:inherit; }
 .layout { display:flex; min-height:744px; }
 .side { width:240px; flex:none; border-right:1px solid var(--border); background:var(--muted); padding:12px; display:flex; flex-direction:column; }
 .side nav { flex:1; }
-.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
 .side a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); font-size:var(--t-sm); color:var(--muted-fg); text-decoration:none; cursor:pointer; }
 .side a:hover { background:color-mix(in oklch,var(--bg) 60%,transparent); color:var(--fg); }
 .side a.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
-.side .grp-hd { display:flex; align-items:center; gap:8px; padding:10px 12px 4px; font-size:11px; font-weight:600; letter-spacing:0.02em; color:var(--muted-fg); text-transform:none; }
-.side ul ul { margin-left:14px; border-left:1px solid var(--border); padding-left:6px; margin-top:2px; }
-.side ul ul a { padding:6px 10px; }
+.side .grp-hd { display:flex; align-items:center; gap:8px; padding:8px 12px 4px; font-size:11px; font-weight:600; letter-spacing:0.02em; color:var(--muted-fg); text-transform:none; }
+.side ul ul { margin-left:12px; border-left:1px solid var(--border); padding-left:8px; margin-top:4px; }
+.side ul ul a { padding:8px 12px; }
 .side ul ul ul { margin-left:12px; }
-.side ul ul ul a { padding:5px 10px; font-size:13px; }
+.side ul ul ul a { padding:8px; font-size:var(--t-caption); }
 .side .ico { width:16px; text-align:center; font-size:13px; opacity:.85; flex:none; }
 .side .nm { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .side .badge { margin-left:auto; display:inline-flex; gap:3px; flex:none; }
+/* 사이드바 전략 항목 — 종목명 + 매수/매도 on·off 만 (거래소 태그·상태 배지 제거) */
+.side a.strat { padding:8px; }
+.side a.strat .nm { font-size:var(--t-sm); font-weight:600; color:var(--fg); flex:1; }
+.side a.strat.on .nm { color:var(--accent-fg); }
+/* 매수/매도 = 글자 없이 동그라미 2개만. ON=채움(매수 --up / 매도 --down), OFF=속빔(1.5px 테두리).
+   좌=매수 · 우=매도 고정 순서 + title/aria-label 로 색 없이도 읽힌다(WCAG 1.4.1). */
+.side .io { margin-left:auto; display:inline-flex; align-items:center; gap:6px; flex:none; }
+.side .io i { display:block; width:10px; height:10px; border-radius:9999px; border:1.5px solid var(--muted-fg); background:transparent; flex:none; }
+.side .io i.buy.on  { background:var(--up);   border-color:var(--up); }
+.side .io i.sell.on { background:var(--down); border-color:var(--down); }
 .side .user { margin-top:12px; border-top:1px solid var(--border); padding-top:10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); color:var(--muted-fg); }
 .side .user .av { width:26px; height:26px; border-radius:9999px; background:var(--secondary); display:grid; place-items:center; font-size:12px; color:var(--fg); flex:none; }
 
@@ -162,7 +172,25 @@ table.t .u { color:var(--up); } table.t .d { color:var(--down); }
 .frame.mobile .cancel-b { height:32px; padding:0 10px; }
 .frame.mobile .tbl-wrap { overflow-x:auto; }
 .acct-grid { display:grid; gap:12px; }
+/* 그리드 자식 기본값 min-width:auto — 표를 품으면 콘텐츠 최소폭 아래로 안 줄어 잘린다(lessons.md) */
+.acct-grid > * { min-width:0; }
 .frame.desktop .acct-grid { grid-template-columns:1fr 1fr; align-items:start; }
+
+/* 모바일 미체결·잔고 — 표(최소폭 393·461px) 대신 2줄 카드 행.
+   종목명만 flex 로 줄어들고(ellipsis) 나머지는 flex:none 이라 어떤 데이터에서도 가로로 넘치지 않는다. */
+.rlist { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+.rrow { padding:8px 12px; min-width:0; }
+.rrow + .rrow { border-top:1px solid var(--border-subtle); }
+.rrow .l1, .rrow .l2 { display:flex; align-items:center; gap:8px; min-width:0; }
+.rrow .l2 { margin-top:4px; }
+.rrow .nm { flex:1 1 auto; min-width:0; font-size:var(--t-sm); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rrow .g { flex:none; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+.rrow .g.r { margin-left:auto; }
+.rrow .k { font-size:11px; color:var(--muted-fg); }
+.rrow .v { font-family:var(--font-mono); font-size:var(--t-caption); font-weight:600; font-variant-numeric:tabular-nums slashed-zero; }
+.rrow .v.u { color:var(--up); } .rrow .v.d { color:var(--down); }
+.rrow .tag { flex:none; font-size:11px; font-weight:600; padding:1px 5px; border-radius:var(--r-sm); background:var(--up-bg); color:var(--up); }
+.rrow .cancel-b { margin-left:auto; flex:none; }
 
 /* 빈 상태 · 게이트 */
 .empty { padding:24px 16px; text-align:center; border:1px dashed var(--border); border-radius:var(--r-md); }
@@ -213,6 +241,7 @@ table.t .u { color:var(--up); } table.t .d { color:var(--down); }
     <div><b>D-24(c) 추가 목업.</b> <code>/me</code> 세로 순서 = <b>전략 현황 → (계좌별) 미체결 → 잔고</b>(D-20). 계좌가 2개 이상이면 <b>계좌 섹션을 세로로 반복</b>하고 계좌번호는 전체 표시(D-21 · Phase 15 D2). 미체결·잔고 표는 <code>orderbook/account-panel.tsx</code> 재사용.</div>
     <div><b>사이드바</b>: 홈 / 종목검색(상승률 상위·테마·관심종목) / 트레이딩(상따 + 등록 전략 목록 · VI) / My page / AI 애널리스트. 그룹 헤더는 <b>클릭 불가 소제목, 항상 펼침</b>(D-16). <b>DMA 매핑 없음·비로그인이면 트레이딩·My page 항목을 숨긴다</b>(D-19) — 아래 「사이드바 상태 3종」 참조.</div>
     <div><b>신규 토큰 0개.</b> D-24(b) 준수. 목업 초안의 <code>--warn</code>(주황)은 globals.css 에 <b>존재하지 않아</b>(실측) 사용하지 않는다. 「대기 / 중지 / 발주됨」은 <b>중립</b>(<code>--muted</code>/<code>--muted-fg</code>) + <b>도트 형태</b>(채움·속빔)로 구분하고, 방향 의미가 있는 상태만 <code>--up</code>(매수)·<code>--down</code>(매도)을 쓴다. 색 없이도 텍스트·형태로 읽힌다(WCAG 1.4.1).</div>
+    <div><b>R2 반영 —</b> ① 모바일 미체결·잔고는 <b>2줄 카드 행</b>. 이전에는 <code>.acct-grid</code> 자식 <code>div</code> 에 <code>min-width:0</code> 이 없어 표의 콘텐츠 최소폭(미체결 439px · 잔고 444px)만큼 자식이 부풀었고, 프레임의 <code>overflow-x:hidden</code> 아래에서 <b>스크롤이 아니라 잘림</b>으로 나타났다(lessons.md). ② 사이드바 전략 항목은 <b>글자 없이 동그라미 2개</b>(좌 매수 <code>--up</code> · 우 매도 <code>--down</code>, ON=채움/OFF=속빔)만 남겼다.</div>
     <div><b>전체 비활성화</b>(<code>DisableStrategiesReq 14</code>, key="")는 전략 현황 카드 하단에 두고 <b>확인 다이얼로그</b> 필수(D-09). 기본 포커스는 「닫기」.</div>
   </div>
 
@@ -245,10 +274,12 @@ const fmt = n => n.toLocaleString('ko-KR');
 
 /* ── 픽스처 ─────────────────────────────────────────── */
 const STRATS = [
-  { nm:'에코프로',     cd:'086520', ex:'KRX', acc:'37728502101', badges:[['buyon','매수ON'],['sellwait','매도대기']] },
-  { nm:'삼성전자',     cd:'005930', ex:'NXT', acc:'37728502101', badges:[['fired','발주됨'],['sellwatch','매도감시']] },
-  { nm:'이수페타시스', cd:'007660', ex:'KRX', acc:'37728502102', badges:[['sellwait','매도대기']] },
+  { nm:'에코프로',     cd:'086520', ex:'KRX', acc:'37728502101', buy:true,  sell:true,  badges:[['buyon','매수ON'],['sellwait','매도대기']] },
+  { nm:'삼성전자',     cd:'005930', ex:'NXT', acc:'37728502101', buy:false, sell:true,  badges:[['fired','발주됨'],['sellwatch','매도감시']] },
+  { nm:'이수페타시스', cd:'007660', ex:'KRX', acc:'37728502102', buy:false, sell:true,  badges:[['sellwait','매도대기']] },
 ];
+const ioLbl = (buy,sell) => `매수 ${buy?'켜짐':'꺼짐'} · 매도 ${sell?'켜짐':'꺼짐'}`;
+const io = (buy,sell) => `<span class="io" role="img" aria-label="${ioLbl(buy,sell)}" title="${ioLbl(buy,sell)}"><i class="buy ${buy?'on':''}"></i><i class="sell ${sell?'on':''}"></i></span>`;
 const ACCTS = [
   { no:'37728502101', kind:'KB 위탁종합',
     open:[ ['에코프로','매수',130000,76,76,'0031245'], ['이수페타시스','매수',48750,205,205,'0031102'] ],
@@ -261,7 +292,7 @@ const ACCTS = [
 /* ── 사이드바 ───────────────────────────────────────── */
 function sidebar(mode, active){
   const mapped = mode === 'mapped';
-  const stratLis = STRATS.map(s => `<li><a><span class="nm">${s.nm}</span><span class="badge"><span class="pill ex ${s.ex==='NXT'?'nxt':''}">${s.ex}</span>${s.badges.map(([c,l])=>`<span class="pill ${c}">${l}</span>`).join('')}</span></a></li>`).join('');
+  const stratLis = STRATS.map(s => `<li><a class="strat"><span class="nm">${s.nm}</span>${io(s.buy,s.sell)}</a></li>`).join('');
   const trading = mapped ? `
     <li class="grp-hd"><span class="ico">⚡</span>트레이딩</li>
     <li><ul>
@@ -330,8 +361,15 @@ function strategyCard(){
   </div>`;
 }
 
-function openTable(rows){
+function openTable(rows, m){
   if (!rows.length) return `<div class="empty"><b>미체결 주문이 없어요</b><span>주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요.</span></div>`;
+  if (m) return `<div class="rlist">${rows.map(([nm,side,px,rem,qty,no])=>`<div class="rrow">
+    <div class="l1"><span class="nm">${nm}</span><span class="tag">▲ ${side}</span>
+      <span class="g r"><span class="k">주문</span><b class="v">${no}</b></span></div>
+    <div class="l2"><span class="g"><span class="k">주문가</span><b class="v">${fmt(px)}</b></span>
+      <span class="g"><span class="k">미체결</span><b class="v">${fmt(rem)}/${fmt(qty)}</b></span>
+      <button class="cancel-b" aria-label="주문번호 ${no} 취소">✕ 취소</button></div>
+  </div>`).join('')}</div>`;
   return `<div class="tbl-wrap" data-density="default"><table class="t">
     <thead><tr><th>종목</th><th>구분</th><th>주문가</th><th>미체결</th><th>주문량</th><th></th></tr></thead>
     <tbody>${rows.map(([nm,side,px,rem,qty,no])=>`<tr>
@@ -340,8 +378,16 @@ function openTable(rows){
       <td><button class="cancel-b" aria-label="주문번호 ${no} 취소">✕ 취소</button></td></tr>`).join('')}</tbody>
   </table></div>`;
 }
-function holdTable(rows){
+function holdTable(rows, m){
   if (!rows.length) return `<div class="empty"><b>보유 종목이 없어요</b><span>체결된 주문이 있으면 잔고에 반영돼요.</span></div>`;
+  if (m) return `<div class="rlist">${rows.map(([nm,se,hd,avg,cur,val,pl,rt])=>`<div class="rrow">
+    <div class="l1"><span class="nm">${nm}</span>
+      <span class="g"><span class="k">보유</span><b class="v">${fmt(hd)}</b></span>
+      <span class="g"><span class="k">매도</span><b class="v">${fmt(se)}</b></span>
+      <span class="g r"><span class="k">평가</span><b class="v">${fmt(val)}</b></span></div>
+    <div class="l2"><span class="g"><span class="k">평단</span><b class="v">${fmt(avg)}</b><span class="k">→</span><b class="v">${fmt(cur)}</b></span>
+      <span class="g r"><b class="v ${pl>=0?'u':'d'}">${pl>=0?'+':''}${fmt(pl)}</b><b class="v ${pl>=0?'u':'d'}">${pl>=0?'+':''}${rt.toFixed(2)}%</b></span></div>
+  </div>`).join('')}</div>`;
   return `<div class="tbl-wrap" data-density="default"><table class="t">
     <thead><tr><th>종목</th><th>매도가능</th><th>보유</th><th>평단가</th><th>현재가</th><th>평가손익</th></tr></thead>
     <tbody>${rows.map(([nm,se,hd,avg,cur,val,pl,rt])=>`<tr>
@@ -350,13 +396,13 @@ function holdTable(rows){
       <td class="${pl>=0?'u':'d'}">${pl>=0?'+':''}${fmt(pl)}<br><small>${pl>=0?'+':''}${rt.toFixed(2)}%</small></td></tr>`).join('')}</tbody>
   </table></div>`;
 }
-function acctCard(a){
+function acctCard(a, m){
   const empty = SC === 'empty';
   return `<div class="card">
     <h3>계좌 <span class="mono">${a.no}</span> <span class="r">${a.kind}</span></h3>
     <div class="acct-grid">
-      <div><div class="sub-h">미체결 ${empty?0:a.open.length}건</div>${openTable(empty?[]:a.open)}</div>
-      <div><div class="sub-h">잔고 ${empty?0:a.hold.length}종목</div>${holdTable(empty?[]:a.hold)}</div>
+      <div><div class="sub-h">미체결 ${empty?0:a.open.length}건</div>${openTable(empty?[]:a.open, m)}</div>
+      <div><div class="sub-h">잔고 ${empty?0:a.hold.length}종목</div>${holdTable(empty?[]:a.hold, m)}</div>
     </div>
   </div>`;
 }
@@ -392,7 +438,7 @@ function render(frame, isMobile){
   $('[data-url]', frame).textContent = 'gh-radar.vercel.app/me';
   const body = mapped
     ? `<div class="ttl"><h2>My page</h2><span class="sub">전략 현황 · 미체결 · 잔고</span></div>
-       ${stateBar()}${strategyCard()}${ACCTS.map(acctCard).join('')}`
+       ${stateBar()}${strategyCard()}${ACCTS.map(a=>acctCard(a,isMobile)).join('')}`
     : `<div class="ttl"><h2>My page</h2></div>${gateCard()}`;
   $('[data-body]', frame).innerHTML =
     header(isMobile)
@@ -403,7 +449,7 @@ function renderAll(){
   render($('#fMobile'), true);
   render($('#fDesktop'), false);
   $('#sbcmp').innerHTML = [
-    ['DMA 매핑 있음 — 전체 트리 + 전략 목록·배지', 'mapped'],
+    ['DMA 매핑 있음 — 전체 트리 + 전략 목록(매수/매도 on·off)', 'mapped'],
     ['DMA 매핑 없음 — 트레이딩·My page 숨김', 'nomap'],
     ['비로그인 — 트레이딩·My page 숨김 + 로그인', 'guest'],
   ].map(([cap,mode]) => `<div class="col"><div class="cap">${cap}</div><div class="box">${sidebar(mode,'')}</div></div>`).join('');

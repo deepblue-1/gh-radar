@@ -46,6 +46,9 @@ html[data-variant="warn"] { --warn:oklch(0.72 0.17 65); --warn-bg:oklch(0.97 0.0
 html[data-variant="warn"].dark { --warn:oklch(0.78 0.16 70); --warn-bg:oklch(0.24 0.05 70); }
 
 * { box-sizing:border-box; }
+/* UA 스타일시트의 [hidden]{display:none} 은 작성자 규칙(display:grid 등)에 진다 —
+   매수/매도 탭이 hidden 속성으로 동작하므로 작성자 우선순위로 다시 명시한다. */
+[hidden] { display:none !important; }
 body { margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg); font-size:var(--t-base); line-height:var(--lh-normal); font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
 html[lang="ko"] { word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; }
 .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; letter-spacing:-0.01em; }
@@ -82,18 +85,28 @@ button, input, select { font-family:inherit; }
 .layout { display:flex; min-height:764px; }
 .side { width:240px; flex:none; border-right:1px solid var(--border); background:var(--muted); padding:12px; display:flex; flex-direction:column; }
 .side nav { flex:1; }
-.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.side ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
 .side a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r); font-size:var(--t-sm); color:var(--muted-fg); text-decoration:none; cursor:pointer; }
 .side a:hover { background:color-mix(in oklch,var(--bg) 60%,transparent); color:var(--fg); }
 .side a.on { background:var(--accent); color:var(--accent-fg); font-weight:600; }
-.side .grp-hd { display:flex; align-items:center; gap:8px; padding:10px 12px 4px; font-size:11px; font-weight:600; color:var(--muted-fg); }
-.side ul ul { margin-left:14px; border-left:1px solid var(--border); padding-left:6px; margin-top:2px; }
-.side ul ul a { padding:6px 10px; }
+.side .grp-hd { display:flex; align-items:center; gap:8px; padding:8px 12px 4px; font-size:11px; font-weight:600; color:var(--muted-fg); }
+.side ul ul { margin-left:12px; border-left:1px solid var(--border); padding-left:8px; margin-top:4px; }
+.side ul ul a { padding:8px 12px; }
 .side ul ul ul { margin-left:12px; }
-.side ul ul ul a { padding:5px 10px; font-size:13px; }
+.side ul ul ul a { padding:8px; font-size:var(--t-caption); }
 .side .ico { width:16px; text-align:center; font-size:13px; opacity:.85; flex:none; }
 .side .nm { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .side .badge { margin-left:auto; display:inline-flex; gap:3px; flex:none; }
+/* 사이드바 전략 항목 — 종목명 + 매수/매도 on·off 만 (거래소 태그·상태 배지 제거) */
+.side a.strat { padding:8px; }
+.side a.strat .nm { font-size:var(--t-sm); font-weight:600; color:var(--fg); flex:1; }
+.side a.strat.on .nm { color:var(--accent-fg); }
+/* 매수/매도 = 글자 없이 동그라미 2개만. ON=채움(매수 --up / 매도 --down), OFF=속빔(1.5px 테두리).
+   좌=매수 · 우=매도 고정 순서 + title/aria-label 로 색 없이도 읽힌다(WCAG 1.4.1). */
+.side .io { margin-left:auto; display:inline-flex; align-items:center; gap:6px; flex:none; }
+.side .io i { display:block; width:10px; height:10px; border-radius:9999px; border:1.5px solid var(--muted-fg); background:transparent; flex:none; }
+.side .io i.buy.on  { background:var(--up);   border-color:var(--up); }
+.side .io i.sell.on { background:var(--down); border-color:var(--down); }
 .side .user { margin-top:12px; border-top:1px solid var(--border); padding-top:10px; display:flex; align-items:center; gap:8px; font-size:var(--t-sm); color:var(--muted-fg); }
 .side .user .av { width:26px; height:26px; border-radius:9999px; background:var(--secondary); display:grid; place-items:center; font-size:12px; color:var(--fg); flex:none; }
 
@@ -156,58 +169,88 @@ button, input, select { font-family:inherit; }
 .state .k b { color:var(--fg); font-weight:600; }
 .state .ts { margin-left:auto; font-family:var(--font-mono); }
 
-/* 전략 6박스 */
-.sgrid { display:grid; gap:8px; }
-.frame.desktop .sgrid { grid-template-columns:1fr 1fr; }
-.sbox { --c:var(--border); --ct:var(--fg); border:1.5px solid var(--c); border-radius:var(--r-lg); background:var(--card); padding:12px; min-width:0; }
-.sbox.buy { --c:var(--up); --ct:var(--up); }
-.sbox.sell { --c:var(--down); --ct:var(--down); }
-.sbox.cancel { --c:var(--cancel-c); --ct:var(--cancel-t); }
-.sbox .hd { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
-.sbox .hd .t { font-weight:600; font-size:var(--t-sm); color:var(--ct); }
-.sbox .hd .led { width:10px; height:10px; border-radius:9999px; background:var(--flat); opacity:.35; flex:none; }
-.sbox .hd .led.on { opacity:1; background:var(--up); box-shadow:0 0 0 3px color-mix(in oklch,var(--up) 25%,transparent); }
-.sbox .hd .led.wait { opacity:1; background:transparent; border:1.5px solid var(--muted-fg); }
-.sbox .hd .led.watch { opacity:1; background:var(--down); box-shadow:0 0 0 3px color-mix(in oklch,var(--down) 25%,transparent); }
-.sbox .hd .st { font-size:11px; color:var(--muted-fg); }
-.sbox .hd .sw { margin-left:auto; }
-.f { display:grid; grid-template-columns:80px 1fr; align-items:center; gap:8px; min-width:0; }
-.f + .f { margin-top:8px; }
-.f > label { font-size:var(--t-caption); color:var(--muted-fg); white-space:nowrap; }
-.f .inp { height:36px; }
-.f .with { display:flex; gap:6px; align-items:center; min-width:0; }
-.f .with .inp { flex:1; }
+/* 주문 설정 폼 — 박스 6개 대신 「컬럼당 카드 1개 + 그룹 3개」.
+   행은 「라벨 | 입력」 한 줄, 라벨 컬럼 폭(--lw)이 공유돼 값이 세로로 정렬된다.
+   그룹 왼쪽 3px 액센트: 매수 --up · 매도 --down · 자동취소(가드) 중립. */
+.fcard { --lw:72px; padding:0; overflow:hidden; }
+.grp { position:relative; padding:8px 12px 8px 16px; min-width:0; }
+.grp::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--gc); }
+.grp + .grp { border-top:1px solid var(--border); }
+.grp.buy { --gc:var(--up); } .grp.sell { --gc:var(--down); } .grp.neu { --gc:var(--cancel-c); }
+.ghd { display:flex; align-items:center; gap:8px; min-height:24px; min-width:0; }
+/* 제목+상태는 한 블록 — 상태 문구가 길면 스위치가 밀리는 대신 텍스트가 둘째 줄로 흐른다 */
+.ghd .gtx { flex:1; min-width:0; line-height:1.5; }
+.ghd .gt { font-size:11px; font-weight:600; letter-spacing:0.06em; color:var(--muted-fg); }
+.ghd .gst { font-size:11px; color:var(--muted-fg); }
+.ghd .led { width:8px; height:8px; border-radius:9999px; background:var(--flat); opacity:.35; flex:none; }
+.ghd .led.on { opacity:1; background:var(--up); box-shadow:0 0 0 3px color-mix(in oklch,var(--up) 25%,transparent); }
+.ghd .led.wait { opacity:1; background:transparent; border:1.5px solid var(--muted-fg); }
+.ghd .led.watch { opacity:1; background:var(--down); box-shadow:0 0 0 3px color-mix(in oklch,var(--down) 25%,transparent); }
+.ghd .sw { margin-left:auto; }
+.fr { display:grid; grid-template-columns:var(--lw) minmax(0,1fr); align-items:center; gap:8px; min-height:32px; min-width:0; margin-top:4px; }
+.fr > label { font-size:var(--t-caption); color:var(--muted-fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fr .inp { height:32px; }
+.fr .seg.sm { height:32px; }
 /* 더티(미반영) 필드 표시 — D-06 */
-.f.dirty > label { color:var(--primary); font-weight:600; }
-.f.dirty > label::before { content:'● '; font-size:9px; vertical-align:2px; }
-.f.dirty .inp { border-color:var(--primary); box-shadow:0 0 0 2px color-mix(in oklch,var(--primary) 18%,transparent); }
-.btn-c { height:36px; padding:0 10px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--secondary); font-size:12px; font-weight:600; cursor:pointer; flex:none; }
-.chkf { display:flex; align-items:center; gap:8px; min-width:0; }
-.chkf .chk { width:18px; height:18px; border:1.5px solid var(--border); border-radius:4px; flex:none; display:grid; place-items:center; font-size:12px; cursor:pointer; }
-.chkf .chk.on { background:var(--primary); border-color:var(--primary); color:var(--primary-fg); }
-.chkf label { font-size:var(--t-caption); color:var(--fg); white-space:nowrap; }
-.chkf .inp { flex:1; height:36px; }
-.chkf.off .inp { opacity:.45; }
-.derived { margin-top:8px; font-size:var(--t-caption); color:var(--muted-fg); display:flex; justify-content:space-between; gap:8px; }
-.derived b { color:var(--fg); font-family:var(--font-mono); }
-.hint { font-size:11px; color:var(--muted-fg); margin-top:6px; }
+.fr.dirty > label { color:var(--primary); font-weight:600; }
+.fr.dirty > label::before { content:'● '; font-size:9px; vertical-align:2px; }
+.fr.dirty .inp { border-color:var(--primary); box-shadow:0 0 0 2px color-mix(in oklch,var(--primary) 18%,transparent); }
+/* 체크박스 행 — 한 줄. 입력은 오른쪽 정렬(위 「라벨 | 입력」 행들과 오른쪽 끝이 맞는다) */
+.ck { display:flex; flex-wrap:wrap; row-gap:4px; align-items:center; gap:8px; min-height:32px; margin-top:4px; min-width:0; }
+.ck .chk { width:18px; height:18px; border:1.5px solid var(--border); border-radius:4px; flex:none; display:grid; place-items:center; font-size:12px; cursor:pointer; }
+.ck .chk.on { background:var(--primary); border-color:var(--primary); color:var(--primary-fg); }
+.ck > label { font-size:var(--t-caption); color:var(--fg); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ck .inp { flex:none; width:104px; height:32px; margin-left:auto; }
+.ck.off .inp { opacity:.45; }
+.drv { display:flex; justify-content:space-between; gap:8px; font-size:11px; color:var(--muted-fg); margin-top:4px; }
+.drv b { color:var(--fg); font-family:var(--font-mono); font-weight:600; flex:none; }
+.ghint { margin:4px 0 0; font-size:11px; color:var(--muted-fg); }
 .sw { width:44px; height:26px; border-radius:9999px; background:var(--border); position:relative; flex:none; cursor:pointer; border:0; }
 .sw::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:9999px; background:#fff; transition:left .15s; box-shadow:0 1px 2px oklch(0 0 0/.3); }
 .sw[aria-checked="true"] { background:var(--primary); }
 .sw[aria-checked="true"]::after { left:21px; }
-.sbox.buy .sw[aria-checked="true"] { background:var(--up); }
-.sbox.sell .sw[aria-checked="true"] { background:var(--down); }
+.grp.buy  .sw[aria-checked="true"] { background:var(--up); }
+.grp.sell .sw[aria-checked="true"] { background:var(--down); }
 
 /* 하단 보조 */
-.ladder { width:100%; border-collapse:collapse; font-size:var(--t-caption); font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; }
-.ladder td { padding:4px 6px; height:32px; }
-.ladder td:first-child, .ladder td:last-child { width:34%; }
-.ladder .p { text-align:center; font-weight:600; }
+/* 호가 사다리 — 가격 옆 텍스트 라벨 없음. 고정폭 슬롯에 「상」 아이콘 / 최근 체결 도트만 */
+.ladder { width:100%; border-collapse:collapse; font-size:var(--t-caption); font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; table-layout:fixed; }
+.ladder td { padding:2px 6px; height:24px; }
+.ladder .p { padding:0 4px; }
+.ladder .p .in { display:flex; align-items:center; gap:4px; }
+.ladder .pv { flex:1; text-align:right; font-weight:600; color:var(--up); }
+.ladder .pct { flex:none; font-style:normal; font-size:10px; color:var(--muted-fg); min-width:40px; text-align:right; }
 .ladder .a { text-align:right; color:var(--fg); background:linear-gradient(to left, color-mix(in oklch,var(--down) 16%,transparent) var(--w), transparent 0); }
 .ladder .b { text-align:left; color:var(--fg); background:linear-gradient(to right, color-mix(in oklch,var(--up) 16%,transparent) var(--w), transparent 0); }
-.ladder tr.ask td.p { color:var(--up); } .ladder tr.bid td.p { color:var(--up); }
-.ladder .cur .p { outline:1px solid var(--fg); border-radius:4px; }
-.ladder .mark { font-family:var(--font-sans); font-size:11px; color:var(--muted-fg); margin-left:4px; }
+.ladder .cur .p .in { outline:1px solid var(--fg); border-radius:4px; }
+.ladder tr.fillhd td { height:20px; padding:0 6px; font-family:var(--font-sans); font-size:11px; font-weight:600; color:var(--muted-fg); border-top:1px solid var(--border); }
+/* 최근 체결 10건 — 매수호가 왼쪽 빈칸 (데스크톱) */
+.ladder td.fl { padding-left:4px; padding-right:4px; font-size:11px; letter-spacing:-0.03em; overflow:hidden; }
+.ladder td.fl .in { display:flex; align-items:center; gap:4px; }
+.ladder td.fl .ft { color:var(--muted-fg); flex:none; font-size:10px; }
+.ladder td.fl .fp { flex:1; text-align:right; font-weight:600; }
+.ladder td.fl .fq { flex:none; text-align:right; font-weight:600; min-width:36px; }
+/* 체결 수량 = 방향 색: 매수 체결(매도호가 체결) --up · 매도 체결(매수호가 체결) --down.
+   가격은 중립(--fg) 으로 두어 색은 「수량」 한 곳에서만 방향을 말한다. */
+.ladder td.fl .fp { color:var(--fg); }
+.ladder td.fl .fq.u { color:var(--up); } .ladder td.fl .fq.d { color:var(--down); }
+/* 고정폭 마커 슬롯 — 모든 행에 존재(빈 행 포함)해서 가격이 좌우로 밀리지 않는다 */
+.slot { width:16px; height:16px; flex:none; display:flex; align-items:center; justify-content:center; }
+.sang { width:16px; height:16px; border-radius:3px; background:var(--up); color:var(--destructive-fg); font-family:var(--font-sans); font-size:11px; font-weight:600; line-height:16px; text-align:center; display:block; }
+.fdot { width:6px; height:6px; border-radius:9999px; background:var(--fg); flex:none; display:block; }
+.lgd { margin-top:8px; font-size:11px; color:var(--muted-fg); display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.lgd .sep { opacity:.5; }
+/* 모바일 호가 — 토스식 2줄(가격 + 등락률) + 우측 잔량 막대 */
+.lscroll { position:relative; height:400px; overflow-y:auto; overflow-x:hidden; }
+.lrow { position:relative; display:flex; align-items:center; gap:4px; height:32px; padding:0 4px; font-family:var(--font-mono); font-variant-numeric:tabular-nums slashed-zero; }
+.lrow::before { content:''; position:absolute; top:2px; bottom:2px; right:0; width:var(--w); border-radius:3px; }
+.lrow.ask::before { background:color-mix(in oklch,var(--down) 16%,transparent); }
+.lrow.bid::before { background:color-mix(in oklch,var(--up) 16%,transparent); }
+.lrow.cur { outline:1px solid var(--fg); border-radius:4px; }
+.lrow .pxc { display:flex; flex-direction:column; line-height:1.2; position:relative; z-index:1; min-width:0; }
+.lrow .pv { font-size:12px; font-weight:600; color:var(--up); }
+.lrow .pct { font-style:normal; font-size:10px; color:var(--muted-fg); }
+.lrow .q { margin-left:auto; font-size:11px; text-align:right; position:relative; z-index:1; }
 .tbl-wrap { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
 table.t { width:100%; border-collapse:collapse; font-size:var(--t-caption); }
 table.t thead th { background:var(--muted); color:var(--muted-fg); font-weight:600; text-align:right; padding:var(--cell-pad-y) var(--cell-pad-x); border-bottom:1px solid var(--border); white-space:nowrap; }
@@ -245,6 +288,43 @@ table.t .u { color:var(--up); }
 .frame.mobile .dirtybar { flex-wrap:wrap; }
 .frame.mobile .dirtybar .txt { flex-basis:100%; }
 .frame.mobile .dirtybar .btn { flex:1; }
+
+/* 모바일 전용 — 왼쪽 호가창 / 오른쪽 주문세팅(매수·매도 탭) 2열.
+   우측 컬럼 실폭 = (366 - 8) x 58% ≈ 204px → 그룹 내부 가용폭 ≈ 175px.
+   라벨 60 + gap 8 + 입력 107 로 끊어지므로 입력은 12px, 좌우 패딩 8px 로 줄인다. */
+.frame.mobile .lc2 { display:grid; grid-template-columns:42% minmax(0,1fr); gap:8px; align-items:start; }
+.frame.mobile .lc2 > * { min-width:0; }
+.frame.mobile .lc2 .lcard { padding:8px; }
+.frame.mobile .lc2 .lcard > h3 { margin-bottom:4px; }
+.frame.mobile .rscroll { height:444px; overflow-y:auto; overflow-x:hidden; }  /* 왼쪽 호가 카드(488px)와 아래끝을 맞춘다 */
+.frame.mobile .lc2 .fcard { --lw:60px; }
+.frame.mobile .lc2 .inp { font-size:12px; padding:0 8px; }
+.frame.mobile .lc2 .seg.sm button { padding:0 4px; font-size:11px; }
+.frame.mobile .lc2 .grp { padding:8px 8px 8px 12px; }
+.frame.mobile .lc2 .ck .inp { width:88px; }
+.frame.mobile .lc2 .drv { flex-wrap:wrap; }
+.frame.mobile .ghint { display:none; }
+
+/* 모바일 미체결·잔고 — 표 대신 2줄 카드 행 (종목명만 줄어들고 나머지는 flex:none) */
+.rlist { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; }
+.rrow { padding:8px 12px; min-width:0; }
+.rrow + .rrow { border-top:1px solid var(--border-subtle); }
+.rrow .l1, .rrow .l2 { display:flex; align-items:center; gap:8px; min-width:0; }
+.rrow .l2 { margin-top:4px; }
+.rrow .nm { flex:1 1 auto; min-width:0; font-size:var(--t-sm); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rrow .g { flex:none; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+.rrow .g.r { margin-left:auto; }
+.rrow .k { font-size:11px; color:var(--muted-fg); }
+.rrow .v { font-family:var(--font-mono); font-size:var(--t-caption); font-weight:600; font-variant-numeric:tabular-nums slashed-zero; }
+.rrow .tag { flex:none; font-size:11px; font-weight:600; padding:1px 5px; border-radius:var(--r-sm); background:var(--up-bg); color:var(--up); }
+.rrow .cancel-b { margin-left:auto; flex:none; }
+.ptabs { display:flex; border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; height:36px; margin-bottom:8px; }
+.ptabs button { flex:1; border:0; background:var(--bg); color:var(--muted-fg); font-size:var(--t-sm); font-weight:600; cursor:pointer; }
+.ptabs button.buy[aria-selected="true"]  { background:var(--up-bg); color:var(--up); }
+.ptabs button.sell[aria-selected="true"] { background:var(--down-bg); color:var(--down); }
+/* 데스크톱 — 호가창(왼쪽) + 매수 옵션(가운데) + 매도·취소 옵션(오른쪽) 3열 */
+.frame.desktop .lc3 { display:grid; grid-template-columns:460px minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:start; }
+.frame.desktop .lc3 > * { min-width:0; }
 </style>
 </head>
 <body>
@@ -268,7 +348,9 @@ table.t .u { color:var(--up); }
     <div><b>gh-trade 상따전략창 → 웹.</b> 필드 29개 전부 유지. 등록 버튼 없음 — <b>매수주문/매도주문 스위치 ON = 등록</b>(확인 다이얼로그 없이 즉시 반영, D-05), 마지막 켜진 스위치까지 OFF = <b>삭제</b>(D-08).</div>
     <div><b>D-24(a) 수정 — 「0.3초 자동 반영」 폐기.</b> 옵션 값을 바꾸면 그 필드가 <b>더티(파란 라벨 ●)</b>로 표시되고 화면 하단에 <b>「수정」 액션 바</b>가 나타난다. 「수정」을 눌러야 <code>SetLimitChaser crud="C"</code> 전체 29필드가 현재 표시값으로 전송된다(D-06). <b>스위치는 즉시 전송</b>이며 그 시점의 폼 값이 함께 나가므로, 액션 바가 「스위치를 켜면 변경한 값까지 함께 반영돼요」로 경고한다.</div>
     <div><b>D-24(b) 수정 — 신규 토큰 0개.</b> 초안의 <code>--warn</code>(주황)은 globals.css 에 <b>존재하지 않는다</b>(실측 2026-09-08). 채택안은 자동취소 박스를 <b>중립 테두리</b>로 두어 매수(<code>--up</code> 빨강) / 매도(<code>--down</code> 파랑) 2색 축을 흐리지 않는다. 위 툴바의 「주황」 버튼으로 <code>--warn</code> 2종을 추가했을 때의 모습을 비교할 수 있다.</div>
-    <div><b>모바일 세로 순서</b>: 종목·거래소·계좌 → 상태줄 → 매수주문 → 매수가격 → 한방체결 → 매도주문 → 매도가격 → 자동취소 → 호가 5단 → 잔고/미체결 → 전략 로그. 데스크톱은 전략 6박스 2열 + 우측 380px 보조 컬럼.</div>
+    <div><b>모바일</b>(토스증권식 2열): 종목·거래소·계좌 → 상태줄 → <b>[왼쪽 호가 10단 | 오른쪽 주문세팅(매수/매도 탭)]</b> → 잔고/미체결 → 전략 로그. 두 컬럼은 각각 독립 스크롤하고, 호가는 <b>현재가 행이 보이도록</b> 초기 스크롤된다. <b>데스크톱</b>: <b>[호가 10단 380px | 매수주문·매수가격·한방체결 | 매도주문·매도가격·매수 미체결 자동취소]</b> 3열 → 잔고/미체결 → 전략 로그.</div>
+    <div><b>호가는 가격 옆 텍스트 라벨을 쓰지 않는다.</b> 모든 행에 <b>고정폭 16px 마커 슬롯</b>을 두어 상한가는 <b>「상」 아이콘</b>, 최근 체결가는 <b>도트</b>만 표시한다 — 마커가 붙고 떨어져도 가격 위치는 좌우로 밀리지 않는다. 가격은 <b>누를 수 없다</b>(비교가격 자동 채움 없음). 데스크톱은 매수호가 왼쪽 빈칸에 <b>최근 체결 10건</b>(시각·체결가·체결량)을 매수 10단과 나란히 보여준다.</div>
+    <div><b>R2 반영 —</b> ① 모바일 <b>매수/매도 탭은 자기 설정만</b> 보여준다(이전엔 <code>.scol{display:grid}</code> 가 UA 의 <code>[hidden]{display:none}</code> 를 이겨 6박스가 전부 아래로 흘렀다). ② 박스 3개로 쪼개지 않고 <b>컬럼당 카드 1개 + 그룹 3개</b>, 행은 「라벨 | 입력」 한 줄이며 라벨 컬럼 폭을 공유해 값이 세로로 정렬된다. ③ 최근 체결의 <b>수량</b>이 방향색(매수 <code>--up</code>·매도 <code>--down</code>)을 갖고 체결가는 중립이다. ④ 모바일 미체결은 표 대신 <b>2줄 카드 행</b>.</div>
     <div><b>수량은 입력하지 않음</b>: 매수 수량 = 주문금액(만원) ÷ 매수가격 산출값 표시, 매도 수량 = 매도가능 × 비율 「예상」만 표시(서버 계산값이 정본).</div>
   </div>
 
@@ -296,13 +378,19 @@ const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 let SC = 'new';
 const fmt = n => n.toLocaleString('ko-KR');
 
-const STOCK = { name:'에코프로', code:'086520', isin:'KR7086520004', cur:128500, base:100000, up:130000, low:70000, rate:28.5 };
+const STOCK = { name:'에코프로', code:'086520', isin:'KR7086520004', cur:129000, base:100000, up:130000, low:70000, rate:29.0 };
 const ACCT = '37728502101';
-const ASKS = [[130000,412300,'상한가'],[129500,88100],[129000,41900],[128900,12400],[128700,8600]];
-const BIDS = [[128500,52300],[128400,18800],[128300,9700],[128200,4400],[128100,3100]];
+/* 호가 10단 · 호가단위 100 — 최상단 130,000 = 상한가 */
+const ASKS = [[130000,412300],[129900,88100],[129800,41900],[129700,12400],[129600,8600],[129500,6300],[129400,5100],[129300,4700],[129200,3900],[129100,3200]];
+const BIDS = [[129000,52300],[128900,18800],[128800,9700],[128700,4400],[128600,3100],[128500,2800],[128400,2200],[128300,1900],[128200,1500],[128100,1200]];
+/* 최근 체결 10건 (최신순) — u = 매도호가 체결(공격 매수), d = 매수호가 체결(공격 매도) */
+const FILLS = [['13:44:02',129000,120,'d'],['13:44:01',129100,340,'u'],['13:43:59',129000,800,'d'],['13:43:58',129100,55,'u'],['13:43:56',129000,430,'d'],
+               ['13:43:55',129100,1050,'u'],['13:43:53',129000,60,'d'],['13:43:51',129100,210,'u'],['13:43:50',129000,275,'d'],['13:43:48',129100,95,'u']];
+const ASK_MAX = 412300, BID_MAX = 52300;
+const pct = p => ((p-STOCK.base)/STOCK.base*100).toFixed(1);
 
 const SCEN = {
-  new:   { title:'새 상따 전략', sub:'종목을 고르면 아래 값이 상한가 기준으로 채워져요', buyOn:false, buyLed:'', sellOn:false, sellLed:'', buyWatch:0, buyPrice:0, amt:1000, sellWatch:0, sellPrice:0, ts:'—', key:'new', log:[] },
+  new:   { title:'상따', sub:'종목을 고르면 아래 값이 상한가 기준으로 채워져요', buyOn:false, buyLed:'', sellOn:false, sellLed:'', buyWatch:0, buyPrice:0, amt:1000, sellWatch:0, sellPrice:0, ts:'—', key:'new', log:[] },
   armed: { title:'에코프로 · KRX', sub:'KR7086520004:37728502101:KRX', buyOn:true, buyLed:'on', sellOn:true, sellLed:'wait', buyWatch:130000, buyPrice:130000, amt:1000, sellWatch:130000, sellPrice:130000, ts:'13:42:11', key:'KR7086520004:37728502101:KRX',
            log:[['13:42:11','서버 반영 완료 — 매수 ON(무장), 매도 대기'],['13:41:55','매수 주문금액 1,000만 → 76주 @130,000']] },
   dirty: { title:'에코프로 · KRX', sub:'KR7086520004:37728502101:KRX', buyOn:true, buyLed:'on', sellOn:true, sellLed:'wait', buyWatch:130000, buyPrice:130000, amt:1500, sellWatch:130000, sellPrice:130000, ts:'13:42:11', key:'KR7086520004:37728502101:KRX',
@@ -310,22 +398,22 @@ const SCEN = {
            log:[['13:42:11','서버 반영 완료 — 매수 ON(무장), 매도 대기']] },
   fired: { title:'에코프로 · KRX', sub:'KR7086520004:37728502101:KRX', buyOn:false, buyLed:'', sellOn:true, sellLed:'watch', buyWatch:130000, buyPrice:130000, amt:1000, sellWatch:130000, sellPrice:130000, ts:'13:44:02', key:'KR7086520004:37728502101:KRX', baseline:412300,
            log:[['13:44:02','<span class="e">매수 발주</span> 76주 @130,000 (매도잔량 412,300 ≤ 감시 10,000 충족) — 매수 무장 해제'],['13:44:02','매도 진입 래치 ON — 잔량추적 기준선 412,300'],['13:42:11','서버 반영 완료 — 매수 ON(무장), 매도 대기']] },
-  nomap: { title:'상따 전략', sub:'', key:'new', log:[] },
+  nomap: { title:'상따', sub:'', key:'new', log:[] },
 };
 const SIDE_STRATS = [
-  { nm:'에코프로', ex:'KRX', badges:[['buyon','매수ON'],['sellwait','매도대기']] },
-  { nm:'삼성전자', ex:'NXT', badges:[['buyon','매수ON']] },
-  { nm:'이수페타시스', ex:'KRX', badges:[['sellwait','매도대기']] },
+  { nm:'에코프로', buy:true, sell:true },
+  { nm:'삼성전자', buy:true, sell:false },
+  { nm:'이수페타시스', buy:false, sell:true },
 ];
+const ioLbl = (buy,sell) => `매수 ${buy?'켜짐':'꺼짐'} · 매도 ${sell?'켜짐':'꺼짐'}`;
+const io = (buy,sell) => `<span class="io" role="img" aria-label="${ioLbl(buy,sell)}" title="${ioLbl(buy,sell)}"><i class="buy ${buy?'on':''}"></i><i class="sell ${sell?'on':''}"></i></span>`;
 
 function sidebar(){
   const mapped = SC !== 'nomap';
-  const cur = SC==='fired'
-    ? [['fired','발주됨'],['sellwatch','매도감시']]
-    : [['buyon','매수ON'],['sellwait','매도대기']];
   const strats = SIDE_STRATS.map((s,i)=>{
-    const b = i===0 ? cur : s.badges;
-    return `<li><a class="${i===0 && SC!=='new' ? 'on':''}"><span class="nm">${s.nm}</span><span class="badge"><span class="pill ex ${s.ex==='NXT'?'nxt':''}">${s.ex}</span>${b.map(([c,l])=>`<span class="pill ${c}">${l}</span>`).join('')}</span></a></li>`;
+    const buy  = (i===0 && SC==='fired') ? false : s.buy;   /* 발주 후 매수 무장 해제 */
+    const sell = s.sell;
+    return `<li><a class="strat ${i===0 && SC!=='new' ? 'on':''}"><span class="nm">${s.nm}</span>${io(buy,sell)}</a></li>`;
   }).join('');
   const trading = mapped ? `
     <li class="grp-hd"><span class="ico">⚡</span>트레이딩</li>
@@ -360,7 +448,6 @@ function topCard(s){
     </div>
     <div class="row">
       <label class="sel">계좌 <b class="mono">${ACCT}</b> <span style="color:var(--muted-fg);font-size:12px">KB 위탁종합</span><span class="chev">▾</span></label>
-      <div class="inp" style="width:118px"><span class="ph">계좌비번</span><span class="mono">••••</span></div>
     </div>
     ${isNew?'':`<div class="pricechips"><span class="u">상한가 <b>${fmt(STOCK.up)}</b></span><span>기준가 <b>${fmt(STOCK.base)}</b></span><span class="d">하한가 <b>${fmt(STOCK.low)}</b></span><span>호가단위 <b>100</b></span></div>`}
   </div>`;
@@ -381,75 +468,129 @@ function stateBar(s){
 }
 
 const inp = (v, unit, ph) => `<div class="inp num">${v===0||v===''?`<span class="ph val">${ph||'0'}</span>`:`<span class="val">${typeof v==='number'?fmt(v):v}</span>`}${unit?`<span class="unit">${unit}</span>`:''}</div>`;
-const chk = (on, label, field) => `<div class="chkf ${on?'':'off'}"><span class="chk ${on?'on':''}" role="checkbox" aria-checked="${on}">${on?'✓':''}</span>${label?`<label>${label}</label>`:''}${field||''}</div>`;
+const ck = (on, label, field) => `<div class="ck ${on?'':'off'}"><span class="chk ${on?'on':''}" role="checkbox" aria-checked="${on}">${on?'✓':''}</span>${label?`<label>${label}</label>`:''}${field||''}</div>`;
 const sw  = (on, lbl) => `<button class="sw" role="switch" aria-checked="${on}" aria-label="${lbl}"></button>`;
 const D = (s, k) => (s.dirty||[]).includes(k) ? ' dirty' : '';
 
-function strategyPanel(s){
+function buyForm(s){
   const qty = s.buyPrice ? Math.floor(s.amt*10000/s.buyPrice) : 0;
-  return `<div class="sgrid">
-    <div class="sbox buy">
-      <div class="hd"><span class="led ${s.buyLed}"></span><span class="t">매수주문</span><span class="st">${SC==='new'?'':SC==='fired'?'발주 완료 · 무장 해제':'무장'}</span>${sw(s.buyOn,'매수주문 켜기')}</div>
-      <div class="f"><label>비교가격</label>${inp(s.buyWatch,'원')}</div>
-      <div class="f"><label>감시 대상</label><div class="seg sm" role="group" aria-label="감시 대상"><button aria-pressed="true">매도잔량</button><button aria-pressed="false">매수잔량</button></div></div>
-      <div class="f${D(s,'buyQty')}"><label>잔량</label><div class="with">${inp(SC==='dirty'?8000:10000,'주')}<button class="btn-c" title="현재 호가잔량 채우기">채움</button></div></div>
-      <div class="f"><label>체결</label>${chk(false,'최소 체결', inp(30000,'주'))}</div>
-      <div class="hint">비교가격의 감시잔량이 위 값 이하로 줄면 매수 발주</div>
+  const st = SC==='new' ? '' : SC==='fired' ? '발주 완료 · 무장 해제' : '무장';
+  return `<div class="card fcard">
+    <section class="grp buy" title="비교가격의 감시잔량이 설정값 이하로 줄면 매수 발주">
+      <div class="ghd"><span class="led ${s.buyLed}"></span><span class="gtx"><span class="gt">매수주문</span> <span class="gst">${st}</span></span>${sw(s.buyOn,'매수주문 켜기')}</div>
+      <div class="fr"><label>비교가격</label>${inp(s.buyWatch,'원')}</div>
+      <div class="fr"><label>감시 대상</label><div class="seg sm" role="group" aria-label="감시 대상"><button aria-pressed="true">매도잔량</button><button aria-pressed="false">매수잔량</button></div></div>
+      <div class="fr${D(s,'buyQty')}"><label>잔량</label>${inp(SC==='dirty'?8000:10000,'주')}</div>
+      ${ck(false,'체결', inp(30000,'주'))}
+    </section>
+    <section class="grp buy">
+      <div class="ghd"><span class="gtx"><span class="gt">매수가격</span></span></div>
+      <div class="fr"><label>매수가격</label>${inp(s.buyPrice,'원')}</div>
+      <div class="fr${D(s,'amt')}"><label>주문금액</label>${inp(s.amt,'만원')}</div>
+      <div class="drv"><span>산출 주문수량</span><b>${qty?fmt(qty)+'주':'—'}</b></div>
+      <div class="drv"><span>실제 주문금액</span><b>${qty?fmt(qty*s.buyPrice)+'원':'—'}</b></div>
+    </section>
+    <section class="grp buy" title="N건 연속 한 호가에서 체결이 쏟아지면 매수 재평가">
+      <div class="ghd"><span class="gtx"><span class="gt">한방체결</span></span>${sw(false,'한방체결 켜기')}</div>
+      <div class="fr"><label>호가변경</label>${inp(3,'건')}</div>
+      <div class="fr"><label>한방가격</label>${inp(0,'원')}</div>
+      <p class="ghint">N건 연속 한 호가에서 체결이 쏟아지면 매수 재평가</p>
+    </section>
+  </div>`;
+}
+
+function sellForm(s){
+  const st = SC==='new' ? '' : SC==='fired' ? '감시 중' : '대기 (지지벽 미관측)';
+  return `<div class="card fcard">
+    <section class="grp sell">
+      <div class="ghd"><span class="led ${s.sellLed}"></span><span class="gtx"><span class="gt">매도주문</span> <span class="gst">${st}</span></span>${sw(s.sellOn,'매도주문 켜기')}</div>
+      <div class="fr"><label>비교가격</label>${inp(s.sellWatch,'원')}</div>
+      <div class="fr"><label>호가잔량</label>${inp(SC==='new'?0:100000,'주')}</div>
+      ${ck(SC!=='new','잔량추적', inp(40,'%'))}
+      ${ck(false,'체결', inp(30000,'주'))}
+      ${SC==='fired'?`<div class="drv"><span>잔량추적 기준선</span><b>${fmt(s.baseline)}주</b></div>`:''}
+    </section>
+    <section class="grp sell">
+      <div class="ghd"><span class="gtx"><span class="gt">매도가격</span></span></div>
+      <div class="fr"><label>매도가격</label>${inp(s.sellPrice,'원')}</div>
+      <div class="fr${D(s,'sellRatio')}"><label>매도비율</label>${inp(SC==='dirty'?50:100,'%')}</div>
+      <div class="drv"><span>예상 매도수량 (매도가능 ${SC==='fired'?'76':'0'}주 × ${SC==='dirty'?50:100}%)</span><b>${SC==='fired'?'76주':'—'}</b></div>
+    </section>
+    <section class="grp neu" title="비교가격은 매수가격을 그대로 사용 · 잔량추적은 취소잔량과 함께만 동작">
+      <div class="ghd"><span class="gtx"><span class="gt">매수 미체결 자동취소</span> <span class="gst">가드</span></span></div>
+      ${ck(false,'취소잔량', inp(0,'주'))}
+      ${ck(false,'매도 「체결」 값 재사용','')}
+      ${ck(false,'매도 「비율」 값 재사용','')}
+      <p class="ghint">비교가격은 매수가격을 그대로 사용 · 잔량추적은 취소잔량과 함께만 동작</p>
+    </section>
+  </div>`;
+}
+
+/* 모바일 우측 패널 — 매수/매도 탭 */
+function panelTabs(s){
+  return `<div class="rpanel">
+    <div class="ptabs" role="tablist" aria-label="주문 설정">
+      <button class="buy"  role="tab" aria-selected="true"  data-pane="buy">매수</button>
+      <button class="sell" role="tab" aria-selected="false" data-pane="sell">매도</button>
     </div>
-    <div class="sbox buy">
-      <div class="hd"><span class="t">매수가격</span></div>
-      <div class="f"><label>매수가격</label>${inp(s.buyPrice,'원')}</div>
-      <div class="f${D(s,'amt')}"><label>주문금액</label>${inp(s.amt,'만원')}</div>
-      <div class="derived"><span>산출 주문수량</span><b>${qty?fmt(qty)+'주':'—'}</b></div>
-      <div class="derived"><span>실제 주문금액</span><b>${qty?fmt(qty*s.buyPrice)+'원':'—'}</b></div>
-    </div>
-    <div class="sbox buy">
-      <div class="hd"><span class="t">한방체결</span>${sw(false,'한방체결 켜기')}</div>
-      <div class="f"><label>호가변경</label>${inp(3,'건')}</div>
-      <div class="f"><label>한방가격</label>${inp(0,'원')}</div>
-      <div class="hint">N건 연속 한 호가에서 체결이 쏟아지면 매수 재평가</div>
-    </div>
-    <div class="sbox sell">
-      <div class="hd"><span class="led ${s.sellLed}"></span><span class="t">매도주문</span><span class="st">${SC==='new'?'':SC==='fired'?'감시 중':'대기 (지지벽 미관측)'}</span>${sw(s.sellOn,'매도주문 켜기')}</div>
-      <div class="f"><label>비교가격</label>${inp(s.sellWatch,'원')}</div>
-      <div class="f"><label>호가잔량</label>${inp(SC==='new'?0:100000,'주')}</div>
-      <div class="f"><label>잔량추적</label>${chk(SC!=='new','비율', inp(40,'%'))}</div>
-      <div class="f"><label>체결</label>${chk(false,'최소 체결', inp(30000,'주'))}</div>
-      ${SC==='fired'?`<div class="derived"><span>잔량추적 기준선</span><b>${fmt(s.baseline)}주</b></div>`:''}
-    </div>
-    <div class="sbox sell">
-      <div class="hd"><span class="t">매도가격</span></div>
-      <div class="f"><label>매도가격</label>${inp(s.sellPrice,'원')}</div>
-      <div class="f${D(s,'sellRatio')}"><label>매도비율</label>${inp(SC==='dirty'?50:100,'%')}</div>
-      <div class="derived"><span>예상 매도수량 (매도가능 ${SC==='fired'?'76':'0'}주 × ${SC==='dirty'?50:100}%)</span><b>${SC==='fired'?'76주':'—'}</b></div>
-    </div>
-    <div class="sbox cancel">
-      <div class="hd"><span class="t">매수 미체결 자동취소</span><span class="st">가드</span></div>
-      <div class="f"><label>취소잔량</label>${chk(false,'', inp(0,'주'))}</div>
-      <div class="f"><label>체결</label>${chk(false,'매도 「최소 체결」 값 재사용','')}</div>
-      <div class="f"><label>잔량추적</label>${chk(false,'매도 「비율」 값 재사용','')}</div>
-      <div class="hint">비교가격은 매수가격을 그대로 사용 · 잔량추적은 취소잔량과 함께만 동작</div>
+    <div class="rscroll">
+      <div data-pane="buy">${buyForm(s)}</div>
+      <div data-pane="sell" hidden>${sellForm(s)}</div>
     </div>
   </div>`;
 }
 
-function ladder(){
-  const max = 412300;
-  const rows = ASKS.map(([p,q,m])=>`<tr class="ask"><td class="a" style="--w:${Math.round(q/max*100)}%">${fmt(q)}</td><td class="p">${fmt(p)}${m?`<span class="mark">${m}</span>`:''}</td><td></td></tr>`).join('')
-    + BIDS.map(([p,q],i)=>`<tr class="bid ${i===0?'cur':''}"><td></td><td class="p">${fmt(p)}${i===0?'<span class="mark">체결</span>':''}</td><td class="b" style="--w:${Math.round(q/max*100)}%">${fmt(q)}</td></tr>`).join('');
-  return `<div class="card"><h3>호가 5단 <span class="r">KRX · 실시간(DMA) · 체결 13:44:02</span></h3>
-    <table class="ladder" aria-label="호가 5단 (매도 5단계 · 매수 5단계)"><tbody>${rows}</tbody></table>
-    <div class="hint">가격을 누르면 「비교가격」에 채워져요</div></div>`;
+/* 가격 왼쪽 고정폭 슬롯 — 상한가는 「상」 아이콘, 최근 체결가는 도트. 다른 행은 빈 슬롯 */
+function slot(p){
+  if (p === STOCK.up)  return `<span class="slot"><span class="sang" aria-label="상한가">상</span></span>`;
+  if (p === FILLS[0][1]) return `<span class="slot"><span class="fdot" aria-label="최근 체결가"></span></span>`;
+  return `<span class="slot"></span>`;
+}
+const legend = (fills) => `<div class="lgd"><span class="fdot"></span>최근 체결가<span class="sep">·</span><span class="sang">상</span>상한가${fills?`<span class="sep">·</span>체결 수량 <b style="color:var(--up)">매수</b>/<b style="color:var(--down)">매도</b>`:''}</div>`;
+
+/* 데스크톱 — 매도 10단 / 매수 10단, 매수호가 왼쪽 빈칸에 최근 체결 10건 */
+function ladderDesktop(){
+  const px = p => `<td class="p"><div class="in">${slot(p)}<span class="pv">${fmt(p)}</span><i class="pct">${pct(p)}</i></div></td>`;
+  const asks = ASKS.map(([p,q])=>`<tr class="ask"><td class="a" style="--w:${Math.round(q/ASK_MAX*100)}%">${fmt(q)}</td>${px(p)}<td></td></tr>`).join('');
+  const bids = BIDS.map(([p,q],i)=>{
+    const f = FILLS[i];
+    return `<tr class="bid ${i===0?'cur':''}">
+      <td class="fl"><div class="in"><span class="ft">${f[0]}</span><span class="fp">${fmt(f[1])}</span><span class="fq ${f[3]==='u'?'u':'d'}" title="${f[3]==='u'?'매수 체결':'매도 체결'}">${fmt(f[2])}</span></div></td>
+      ${px(p)}<td class="b" style="--w:${Math.round(q/BID_MAX*100)}%">${fmt(q)}</td></tr>`;
+  }).join('');
+  return `<div class="card"><h3>호가 10단 <span class="r">KRX · 실시간(DMA)</span></h3>
+    <table class="ladder" aria-label="호가 10단 (매도 10단계 · 매수 10단계) 및 최근 체결 10건">
+      <colgroup><col style="width:34%"><col style="width:32%"><col style="width:34%"></colgroup>
+      <tbody>${asks}<tr class="fillhd"><td>체결</td><td></td><td></td></tr>${bids}</tbody></table>
+    ${legend(true)}</div>`;
 }
 
-function acct(){
+/* 모바일 — 토스식 2줄(가격 + 등락률) + 우측 잔량 막대, 세로 스크롤 */
+function ladderMobile(){
+  const row = (p,q,max,cls,cur) => `<div class="lrow ${cls} ${cur?'cur':''}" style="--w:${Math.round(q/max*100)}%">
+      ${slot(p)}<span class="pxc"><b class="pv">${fmt(p)}</b><i class="pct">${pct(p)}</i></span><span class="q">${fmt(q)}</span></div>`;
+  const rows = ASKS.map(([p,q])=>row(p,q,ASK_MAX,'ask',false)).join('')
+             + BIDS.map(([p,q],i)=>row(p,q,BID_MAX,'bid',i===0)).join('');
+  return `<div class="card lcard"><h3>호가 10단 <span class="r">KRX</span></h3>
+    <div class="lscroll" data-lscroll aria-label="호가 10단 (매도 10단계 · 매수 10단계)">${rows}</div>
+    ${legend()}</div>`;
+}
+
+function acct(m){
   const has = SC==='fired';
+  const mobileRow = `<div class="rlist"><div class="rrow">
+    <div class="l1"><span class="nm">에코프로</span><span class="tag">▲ 매수</span>
+      <span class="g r"><span class="k">13:44:02 · 상따</span></span></div>
+    <div class="l2"><span class="g"><span class="k">주문가</span><b class="v">130,000</b></span>
+      <span class="g"><span class="k">미체결</span><b class="v">76/76</b></span>
+      <button class="cancel-b" aria-label="주문번호 0031245 취소">✕ 취소</button></div>
+  </div></div>`;
   return `<div class="card">
     <div class="tabs" role="tablist" aria-label="계좌"><button role="tab" aria-selected="true">미체결 ${has?1:0}</button><button role="tab" aria-selected="false">잔고 ${has?1:0}</button></div>
-    ${has?`<div class="tbl-wrap" data-density="default"><table class="t">
+    ${has?(m?mobileRow:`<div class="tbl-wrap" data-density="default"><table class="t">
       <thead><tr><th>종목</th><th>구분</th><th>주문가</th><th>미체결</th><th></th></tr></thead>
       <tbody><tr><td>에코프로<br><small style="color:var(--muted-fg);font-family:var(--font-mono)">13:44:02 · 상따</small></td><td class="u">▲ 매수</td><td>130,000</td><td>76</td><td><button class="cancel-b" aria-label="주문번호 0031245 취소">✕ 취소</button></td></tr></tbody>
-    </table></div>`
+    </table></div>`)
     :`<div class="empty"><b>미체결 주문이 없어요</b><span>전략이 발주되면 여기에 표시되고, 여기서 바로 취소할 수 있어요.</span></div>`}
   </div>`;
 }
@@ -484,14 +625,22 @@ function render(frame, isMobile){
     body = `<div class="ttl"><h2>${s.title}</h2><span class="sub">${s.sub}</span></div>
       ${topCard(s)}${stateBar(s)}
       ${isMobile
-        ? strategyPanel(s) + '<div style="height:8px"></div>' + ladder() + '<div style="height:8px"></div>' + acct() + '<div style="height:8px"></div>' + logCard(s)
-        : `<div style="display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start"><div style="min-width:0">${strategyPanel(s)}</div><div style="min-width:0">${ladder()}<div style="height:8px"></div>${logCard(s)}</div></div><div style="height:8px"></div>${acct()}`}`;
+        ? `<div class="lc2"><div class="lcol">${ladderMobile()}</div>${panelTabs(s)}</div>`
+          + '<div style="height:8px"></div>' + acct(true) + '<div style="height:8px"></div>' + logCard(s)
+        : `<div class="lc3"><div>${ladderDesktop()}</div><div>${buyForm(s)}</div><div>${sellForm(s)}</div></div>`
+          + `<div style="height:8px"></div>${acct(false)}<div style="height:8px"></div>${logCard(s)}`}`;
   }
   $('[data-body]', frame).innerHTML =
     header(isMobile) + `<div class="layout">${isMobile?'':sidebar()}<div class="main">${body}</div></div>`
     + (SC==='dirty' ? dirtyBar() : '');
 }
-function renderAll(){ render($('#fMobile'), true); render($('#fDesktop'), false); }
+function renderAll(){
+  render($('#fMobile'), true); render($('#fDesktop'), false);
+  $$('[data-lscroll]').forEach(el => {
+    const c = $('.lrow.cur', el);
+    if (c) el.scrollTop = Math.max(0, c.offsetTop - el.clientHeight/2 + c.offsetHeight/2);
+  });
+}
 
 document.addEventListener('click', e => {
   const sc = e.target.closest('[data-sc]');
@@ -504,11 +653,18 @@ document.addEventListener('click', e => {
     $('#themeBtn').textContent = on ? '☀️ 라이트' : '🌙 다크';
     return;
   }
+  const pt = e.target.closest('.ptabs button');
+  if (pt) {
+    const wrap = pt.closest('.rpanel');
+    $$('.ptabs button', wrap).forEach(b=>b.setAttribute('aria-selected', String(b===pt)));
+    $$('.rscroll > [data-pane]', wrap).forEach(p=>{ p.hidden = p.dataset.pane !== pt.dataset.pane; });
+    return;
+  }
   const s = e.target.closest('.sw'); if (s) { s.setAttribute('aria-checked', String(s.getAttribute('aria-checked')!=='true')); return; }
   const seg = e.target.closest('.seg button'); if (seg) { $$('button', seg.parentElement).forEach(b=>b.setAttribute('aria-pressed', String(b===seg))); return; }
   const tab = e.target.closest('.tabs button'); if (tab) { $$('button', tab.parentElement).forEach(b=>b.setAttribute('aria-selected', String(b===tab))); return; }
-  const ck = e.target.closest('.chkf .chk');
-  if (ck) { const on = !ck.classList.contains('on'); ck.classList.toggle('on', on); ck.setAttribute('aria-checked', String(on)); ck.textContent = on?'✓':''; ck.parentElement.classList.toggle('off', !on); return; }
+  const ckEl = e.target.closest('.ck .chk');
+  if (ckEl) { const on = !ckEl.classList.contains('on'); ckEl.classList.toggle('on', on); ckEl.setAttribute('aria-checked', String(on)); ckEl.textContent = on?'✓':''; ckEl.parentElement.classList.toggle('off', !on); return; }
 });
 renderAll();
 </script>
