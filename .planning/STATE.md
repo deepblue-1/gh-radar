@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
-last_updated: "2026-09-08T09:03:35.307Z"
-last_activity: 2026-09-08 -- Phase 16 planning complete
+last_updated: "2026-09-08T09:21:38.862Z"
+last_activity: 2026-09-08 -- Phase 16 execution started
 progress:
   total_phases: 25
   completed_phases: 18
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 15 — dma-relay-kb-gh-trade-server-10-wss
+**Current focus:** Phase 16 — trading-limit-chaser-vi-my-page
 
 ## Current Position
 
-Phase: 15 (dma-relay-kb-gh-trade-server-10-wss) — EXECUTING
-Plan: 1 of 20
+Phase: 16 (trading-limit-chaser-vi-my-page) — EXECUTING
+Plan: 1 of 17
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
-Status: Ready to execute
+Status: Executing Phase 16
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-08 -- Phase 16 planning complete
+Last activity: 2026-09-08 -- Phase 16 execution started
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
