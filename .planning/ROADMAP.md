@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [ ] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (in progress, 4/20 plans)
-- [ ] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (not planned)
+- [ ] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (planned — 17 plans / 14 waves)
 
 ## Phase Details
 
@@ -593,16 +593,72 @@ Plans:
 
 - [ ] 15-20-PLAN.md — [BLOCKING] 실서버·실계좌 검증 여부 **사용자 결정**(D-27) + SC-1~8 집계 + STATE 갱신 (SC-8)
 
-
 ### Phase 16: Trading 메뉴: 상따(limit-chaser)·VI 전략 설정 + 종목검색 재편 + My page
 
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
-**Requirements**: TBD
+**Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 0 plans (discuss → ui-phase → plan 순서)
+**Plans:** 17 plans (14 waves · 순차 실행 — `parallelization: false`)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 16 to break down)
+**Wave 1**
+
+- [ ] 16-01-PLAN.md — REQUIREMENTS 등록 · relay 생성코드 재동기화 · shadcn checkbox · dma_orders.origin 마이그레이션 [BLOCKING db push]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 16-02-PLAN.md — 테스트 하네스: FakeGateway 전략 프레임 주입 · LocalRelay 노출 · Playwright 8090 직렬화
+- [ ] 16-03-PLAN.md — shared 전략·주문 wss 계약 + relay protocol zod 인바운드 6종
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 16-04-PLAN.md — msg-type 화이트리스트 확장(+14) + envelope 전략 요청 빌더 7종
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 16-05-PLAN.md — envelope 전략 응답 파서 6종(60/61/64/65/72/73/56) + 왕복 테스트
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 16-06-PLAN.md — SubscriptionHub 전략 캐시 3맵 + Ready 프리페치(24/21/34) + 프레임 case 7종
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 16-07-PLAN.md — fanout 전략 인바운드 4종(계좌 화이트리스트) + auth 직후 전략 스냅샷 팬아웃
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 16-08-PLAN.md — 주문 wss 이관(5초 상관) + SymbolMap market + dma_orders insert/origin(자동주문 분기)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 16-09-PLAN.md — RelayProvider 전역 승격 + useRelaySubscription(구독 ref-count) + orderbook 회귀
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 16-10-PLAN.md — 주문·취소 wss 전환 + account-panel `.rlist` 모바일 리플로우 · 계좌 전용 모드
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 16-11-PLAN.md — 사이드바 2단 트리 + 3단 전략 목록 + DmaGate/StrategyBadge + 라우트 셸 5개
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 16-12-PLAN.md — 상따 폼(스위치 즉시·값은 수정 버튼·둘 다 OFF=삭제) + dirty-action-bar + 순수 함수
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 16-13-PLAN.md — 상따 페이지 조립(호가 10단+최근체결·전략 로그·에코 배너) + E2E
+- [ ] 16-14-PLAN.md — VI 페이지(설정·시작/중지 확인·주문내역·데드라인·마감알림) + E2E
+- [ ] 16-15-PLAN.md — My page(전략 현황·전체 비활성화·계좌별 미체결/잔고 반복) + E2E
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 16-16-PLAN.md — server POST /api/orders 제거 · relay-client 삭제 · config/deploy env 정리
+
+**Wave 14** *(blocked on Wave 13 completion)*
+
+- [ ] 16-17-PLAN.md — a11y 3표면 + 전체 E2E + 배포(relay→server→Vercel) + smoke + STATE/ROADMAP
 
 ## Progress
 

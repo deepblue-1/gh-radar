@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
-last_updated: "2026-09-08T06:52:37.585Z"
-last_activity: "2026-09-08 -- Completed quick task 260908-fis: intraday-sync 영숫자 단축코드 허용 + STEP1 매핑실패 표본 로깅"
+last_updated: "2026-09-08T09:03:35.307Z"
+last_activity: 2026-09-08 -- Phase 16 planning complete
 progress:
   total_phases: 25
   completed_phases: 18
-  total_plans: 139
+  total_plans: 156
   completed_plans: 125
   percent: 72
 ---
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 15 (dma-relay-kb-gh-trade-server-10-wss) — EXECUTING
 Plan: 1 of 20
 Plans completed: 88 / 102 (Phase 12: 12-01 스캐폴드 / 12-02 마이그레이션 / 12-03 server 라우트 / 12-04 워커 배포 / 12-05 webapp 표시)
-Status: Executing Phase 15
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-08 -- Completed quick task 260908-oh6: 종목검색 ETF·ETN·ELW·상장폐지 제외 필터
+Last activity: 2026-09-08 -- Phase 16 planning complete
 
 Progress: [█████████░] 86% (88/102 plans · 15/21 phases)
 
