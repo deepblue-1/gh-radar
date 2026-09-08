@@ -227,16 +227,32 @@ export async function runIntradayCycle(): Promise<{
   //   bootstrap 보다 앞으로 이동. (가짜 데이터로 stocks 를 부트스트랩하지 않도록 순서 보장)
   const dedupeMap = new Map<string, IntradayCloseUpdate>();
   let mapErrors = 0;
+  // 매핑 실패 표본. 2026-09-08 채비(0011T0) 누락 진단 당시 이 catch 가 무로그라
+  // 프로덕션 mapErrors 347 중 영문코드로 설명되는 80건 외 나머지 ~267건의 원인을
+  // 로그만으로는 특정할 수 없었다 — 무로그 fail-safe 금지.
+  // row 마다 찍으면 사이클당 300여 줄이 되므로 앞 N건만 담아 사이클당 1줄로 유지한다.
+  const MAP_ERROR_SAMPLE_LIMIT = 5;
+  const mapErrorSamples: Array<{ stkCd: string; reason: string }> = [];
   for (const row of ka10027Rows) {
     try {
       const u = ka10027RowToCloseUpdate(row, dateIso);
       dedupeMap.set(u.code, u); // 마지막 row 가 승
-    } catch {
+    } catch (err) {
       mapErrors += 1;
+      if (mapErrorSamples.length < MAP_ERROR_SAMPLE_LIMIT) {
+        // strip 전 원본 stk_cd 를 기록 — 실패 원인이 접미사/형식 자체일 수 있다.
+        mapErrorSamples.push({
+          stkCd: row.stk_cd,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
   const step1Updates = Array.from(dedupeMap.values());
-  log.info({ mapped: step1Updates.length, mapErrors }, "STEP1 mapped + deduped");
+  log.info(
+    { mapped: step1Updates.length, mapErrors, mapErrorSamples },
+    "STEP1 mapped + deduped",
+  );
 
   // 휴장일/프리마켓 stale 가드 (2단 가드 #2):
   //   키움 ka10027 은 휴장일/프리마켓에 직전 거래일 snapshot 을 그대로 반환한다.

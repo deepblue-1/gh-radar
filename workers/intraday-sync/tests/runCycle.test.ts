@@ -623,3 +623,161 @@ describe("runIntradayCycle — ka10081 dt 1차 가드 (quick-260817-f1a)", () =>
     expect(fetchKa10027).toHaveBeenCalled();
   });
 });
+
+/**
+ * quick-260908-fis — STEP1 매핑 실패 표본 로깅.
+ *
+ * `catch { mapErrors += 1; }` 무로그 fail-safe 때문에 채비(0011T0) 등 영문 단축코드
+ * 종목이 4개월 넘게 조용히 탈락했다. 실패 사유가 사이클당 1줄·최대 5건 표본으로
+ * 로그에 남는지 고정한다(로그 폭탄 방지 상한 포함).
+ */
+describe("runIntradayCycle — STEP1 매핑 실패 표본 로깅 (quick-260908-fis)", () => {
+  const VALID_ROW = {
+    stk_cd: "005930",
+    stk_nm: "삼성전자",
+    cur_prc: "+70500",
+    pred_pre: "+500",
+    flu_rt: "+0.71",
+    now_trde_qty: "10000000",
+  };
+
+  /** 매핑에서 반드시 throw 하는 row (소문자·5자 등 잘못된 단축코드). */
+  function badRow(stkCd: string) {
+    return { ...VALID_ROW, stk_cd: stkCd, stk_nm: "불량" };
+  }
+
+  function mockLogger() {
+    const info = vi.fn();
+    const warn = vi.fn();
+    const error = vi.fn();
+    const child = vi.fn().mockReturnValue({ info, warn, error });
+    vi.doMock("../src/logger", () => ({
+      // 모듈 최상위 logger.info / logger.error 도 채워야 완료 경로가 깨지지 않는다.
+      logger: { child, info, warn, error },
+    }));
+    return { info, warn, error, child };
+  }
+
+  function mockPipeline(fetchKa10027: ReturnType<typeof vi.fn>) {
+    vi.doMock("../src/kiwoom/tokenStore", () => ({
+      getKiwoomToken: vi
+        .fn()
+        .mockResolvedValue({ accessToken: "TOK", expiresAt: new Date() }),
+    }));
+    vi.doMock("../src/kiwoom/fetchRanking", () => ({ fetchKa10027 }));
+    vi.doMock("../src/services/supabase", () => ({
+      // stock_daily_ohlcv 를 빈 배열로 둬 stale 가드에 걸리지 않게 한다.
+      createSupabaseClient: vi.fn().mockReturnValue(supabaseStub()),
+    }));
+    vi.doMock("../src/pipeline/bootstrapStocks", () => ({
+      bootstrapMissingStocks: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("../src/pipeline/upsertClose", () => ({
+      intradayUpsertClose: vi.fn().mockResolvedValue({ count: 1 }),
+    }));
+    vi.doMock("../src/pipeline/upsertQuotes", () => ({
+      upsertQuotesStep1: vi.fn().mockResolvedValue(undefined),
+      upsertQuotesStep2: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock("../src/pipeline/topMovers", () => ({
+      rebuildTopMovers: vi.fn().mockResolvedValue({ count: 0 }),
+    }));
+    vi.doMock("../src/pipeline/hotSet", () => ({
+      computeHotSet: vi.fn().mockResolvedValue([]),
+    }));
+    vi.doMock("../src/kiwoom/fetchHotSet", () => ({
+      fetchKa10001ForHotSet: vi
+        .fn()
+        .mockResolvedValue({ successful: [], failed: 0, failures: [] }),
+    }));
+    vi.doMock("../src/pipeline/upsertOhlc", () => ({
+      intradayUpsertOhlc: vi.fn().mockResolvedValue(undefined),
+    }));
+  }
+
+  /** "STEP1 mapped + deduped" 로 호출된 info payload 를 전부 수집. */
+  function step1LogCalls(info: ReturnType<typeof vi.fn>) {
+    return info.mock.calls.filter((c) => c[1] === "STEP1 mapped + deduped");
+  }
+
+  beforeEach(() => {
+    stubEnv();
+    vi.resetModules();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-18T01:00:00Z")); // 10:00 KST 화요일, 정상 거래일
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("실패 6건 → 사이클당 로그 1줄, mapErrors=6 + 표본 정확히 5건(원본 stk_cd + 사유)", async () => {
+    const { info } = mockLogger();
+    const fetchKa10027 = vi
+      .fn()
+      .mockResolvedValueOnce([
+        VALID_ROW,
+        badRow("0011t0"), // 소문자
+        badRow("12345"), // 5자
+        badRow("0011T0X"), // 7자
+      ])
+      .mockResolvedValueOnce([badRow("abc"), badRow("!!!!!!"), badRow("1234567")]);
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    const calls = step1LogCalls(info);
+    expect(calls).toHaveLength(1); // row 단위 로그 금지 — 사이클당 1줄
+    const payload = calls[0][0] as {
+      mapped: number;
+      mapErrors: number;
+      mapErrorSamples: Array<{ stkCd: string; reason: string }>;
+    };
+    expect(payload.mapped).toBe(1);
+    expect(payload.mapErrors).toBe(6); // 카운트는 전체 건수 유지
+    expect(payload.mapErrorSamples).toHaveLength(5); // 표본은 상한 5
+    expect(payload.mapErrorSamples[0].stkCd).toBe("0011t0"); // strip 전 원본
+    expect(payload.mapErrorSamples[0].reason).toMatch(/Invalid stk_cd/);
+  });
+
+  it("실패 0건 → 표본 빈 배열 (정상 사이클 로그 미오염)", async () => {
+    const { info } = mockLogger();
+    const fetchKa10027 = vi
+      .fn()
+      .mockResolvedValueOnce([VALID_ROW])
+      .mockResolvedValueOnce([]);
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    const calls = step1LogCalls(info);
+    expect(calls).toHaveLength(1);
+    const payload = calls[0][0] as {
+      mapErrors: number;
+      mapErrorSamples: unknown[];
+    };
+    expect(payload.mapErrors).toBe(0);
+    expect(payload.mapErrorSamples).toEqual([]);
+  });
+
+  it("영문 포함 단축코드(0011T0)는 실패로 잡히지 않는다 — Task 1 회귀 가드", async () => {
+    const { info } = mockLogger();
+    const chaebi = { ...VALID_ROW, stk_cd: "0011T0_AL", stk_nm: "채비", cur_prc: "+4695" };
+    const fetchKa10027 = vi
+      .fn()
+      .mockResolvedValueOnce([VALID_ROW, chaebi])
+      .mockResolvedValueOnce([]);
+    mockPipeline(fetchKa10027);
+
+    const { runIntradayCycle } = await import("../src/index");
+    await runIntradayCycle();
+
+    const payload = step1LogCalls(info)[0][0] as {
+      mapped: number;
+      mapErrors: number;
+    };
+    expect(payload.mapped).toBe(2);
+    expect(payload.mapErrors).toBe(0);
+  });
+});
