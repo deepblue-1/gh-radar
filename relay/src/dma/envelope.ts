@@ -45,12 +45,16 @@ import type {
   RelayHolding,
   RelayLcCrud,
   RelayLcWatchSide,
+  RelayLimitChaser,
   RelayLimitChaserInput,
   RelayQuote,
   RelayServerMsg,
   RelayTape,
   RelayTapeEntry,
   RelayUnfilled,
+  RelayViNoticeMsg,
+  RelayViOrderItem,
+  RelayViOrderState,
   RelayViTrigger,
 } from "@gh-radar/shared";
 
@@ -72,6 +76,7 @@ import { LoginReq } from "../generated/stock-dma/login-req.js";
 import type { LoginResp } from "../generated/stock-dma/login-resp.js";
 import { SubscribeQuoteReq } from "../generated/stock-dma/subscribe-quote-req.js";
 import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
+import { VIOrderItem } from "../generated/stock-dma/viorder-item.js";
 import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
 import { MSG, INBOUND_MSG_TYPES } from "./msg-type.js";
@@ -120,12 +125,13 @@ export function droppedEnvelopeCount(): number {
 
 /**
  * 카운터 초기화 — 테스트 격리 전용. 운영 경로에서 호출하지 않는다.
- * 계좌 항목 스킵 카운터도 같은 격리 단위라 함께 되돌린다.
+ * 계좌·전략 항목 스킵 카운터도 같은 격리 단위라 함께 되돌린다.
  */
 export function resetDroppedEnvelopeCount(): void {
   droppedEnvelopes = 0;
   skippedAccountEntries = 0;
   skippedAccountStateItems = 0;
+  skippedStrategyItems = 0;
 }
 
 /**
@@ -1171,9 +1177,45 @@ export type ParsedOrderResp = {
   orgOrderNo: string;
   /** 거래소. 구 서버 미지정은 KRX 로 열화한다 (Phase 16 D-11). */
   exchange: RelayExchange;
-  /** 발주 주체 "Manual"/"LimitChaser"/"VITrigger". 구 서버는 "". */
+  /** 발주 주체 원문 "Manual"/"LimitChaser"/"VITrigger". 구 서버는 "". */
   origin: string;
+  /**
+   * `origin` 을 `dma_orders.origin` 값으로 좁힌 것. 빈 값·미지의 값은 `"manual"` 이다.
+   *
+   * 원문과 정규화본을 **둘 다** 싣는다 — 감사 로그에는 서버가 실제로 보낸 문자열이 필요하고,
+   * DB 에는 CHECK 제약을 통과하는 3종만 넣을 수 있다.
+   */
+  originKind: OrderOriginKind;
 };
+
+/** `dma_orders.origin` 값 3종 (RESEARCH A12). 와이어 원문을 좁힌 결과다. */
+export type OrderOriginKind = "manual" | "limit_chaser" | "vi";
+
+/**
+ * 발주 주체 원문 → `dma_orders.origin` (RESEARCH A4 / T-16-05).
+ *
+ * **빈 값과 미지의 값은 전부 `"manual"`** 이다 — 모르는 출처를 지어내지 않는다. 구 서버는
+ * 이 필드를 아예 채우지 않으므로 빈 문자열이 정상 입력이고, 그것을 오류로 다루면 통보 기록이
+ * 통째로 사라진다. 자동주문을 수동으로 오분류해도 손실은 **표시·감사 영역에 그치고
+ * 주문이 잘못 나가지는 않는다**(반대로 지어낸 값은 DB CHECK 제약에 걸려 행 자체를 잃는다).
+ */
+export function toOrderOrigin(raw: string): OrderOriginKind {
+  switch (raw) {
+    case "LimitChaser":
+      return "limit_chaser";
+    case "VITrigger":
+      return "vi";
+    case "Manual":
+      return "manual";
+    default:
+      if (raw !== "") {
+        // 빈 값은 구 서버의 정상 입력이라 로그하지 않는다. 비어 있지 않은 미지의 값은
+        // 서버가 출처를 새로 추가했다는 신호이므로 반드시 남긴다 (S-2 무로그 fail-safe 금지).
+        logger.warn({ raw }, "[DMA] 알 수 없는 발주 주체 — manual 로 기록");
+      }
+      return "manual";
+  }
+}
 
 /**
  * 주문 통보 (51). **접수·체결·취소확인·거부가 전부 이 하나로 온다.**
@@ -1199,6 +1241,7 @@ export function parseOrderResp(env: Envelope): ParsedOrderResp | null {
   }
 
   const noticeType = r.noticeType() ?? "";
+  const origin = r.origin() ?? "";
   return {
     orderNo: r.orderNo() ?? "",
     noticeType,
@@ -1212,7 +1255,8 @@ export function parseOrderResp(env: Envelope): ParsedOrderResp | null {
     quantity: r.quantity(),
     orgOrderNo: r.orgOrderNo() ?? "",
     exchange: fromWireExchange(r.exchange() ?? ""),
-    origin: r.origin() ?? "",
+    origin,
+    originKind: toOrderOrigin(origin),
   };
 }
 
@@ -1264,6 +1308,42 @@ export function fromWireExchange(raw: string): RelayExchange {
 export function fromWireSide(raw: string): OrderSide | null {
   const c = raw.charAt(0);
   return c === "B" || c === "S" ? c : null;
+}
+
+/**
+ * 수신 시장구분 정규화 — 서버는 **첫 글자만** 보고 `'Q'` 면 KOSDAQ, 그 외는 전부 KOSPI 다.
+ *
+ * 송신(`toWireMarket`)이 열거 밖 값을 던지는 것과 **비대칭인 것이 의도**다. 구 서버가
+ * 채우지 않은 빈 문자열이 정상 입력이라 수신은 서버 규약을 그대로 흉내 내 관대하고,
+ * 송신은 화이트리스트로 좁힌다.
+ *
+ * 이 판정을 웹앱으로 내보내지 않는다 (Phase 15 D-21 승계). `"K"`/`"Q"` 리터럴이 흩어지면
+ * 언젠가 `"KOSDAQ"` 이 `'K'` 로 읽혀 **취소 주문이 엉뚱한 시장으로 나간다** (Pitfall 4).
+ */
+export function fromWireMarket(raw: string): OrderMarket {
+  return raw.charAt(0) === "Q" ? "Q" : "K";
+}
+
+/**
+ * 수신 등록구분 정규화 — 첫 글자가 `'D'` 면 삭제, 그 외는 전부 upsert(`'C'`)다.
+ *
+ * **`"D"` 는 반드시 계약에 실어 보낸다** (Pitfall 7 / D-08). 서버는
+ * `!buy_enabled && !sell_enabled && !AnyCancelEnabled` 일 때만 `'D'` 로 정규화하므로,
+ * **취소 게이트가 하나라도 켜져 있으면 매수·매도를 둘 다 꺼도 전략이 남는다**(살아 있는
+ * 미체결을 지키는 등록이기 때문). 「삭제됨」을 두 스위치만 보고 판정하면 서버 진실과 갈린다.
+ */
+export function fromWireCrud(raw: string): RelayLcCrud {
+  return raw.charAt(0) === "D" ? "D" : "C";
+}
+
+/**
+ * 수신 매수 감시 기준호가 정규화 — 첫 글자 `'1'` 만 매수호가이고 그 외는 전부 매도호가다.
+ *
+ * 빈 문자열이 매도호가("0")로 접히는 것은 서버 기본값과 같다. 지어낸 기본값이 아니라
+ * **서버 규약의 복제**이므로 감시 기준이 뒤집히지 않는다.
+ */
+export function fromWireWatchSide(raw: string): RelayLcWatchSide {
+  return raw.charAt(0) === "1" ? "1" : "0";
 }
 
 /**
@@ -1396,4 +1476,414 @@ export function parseAccountState(env: Envelope, isSnapshot: boolean): RelayAcco
     rm,
     st: st.serverTime() ?? "",
   };
+}
+
+// ============================================================
+// 전략 파싱 (게이트웨이 → relay) — 16-05 / TRADE-03 / D-01
+// ============================================================
+//
+// 16-04 가 수신 화이트리스트를 19종으로 넓히며 통과시킨 응답 7종(56·60·61·64·65·72·73)의
+// **내용**을 여기서 채운다. 화이트리스트만 넓히고 파서가 없으면 프레임은 Hub 의 `default:`
+// 로 조용히 사라지고, 그 결과가 「서버가 거부했는데 화면은 반영됨」이다 (Pitfall 8).
+//
+// `parseAccountState` 의 규율 4개를 그대로 승계한다:
+//   ① 슬롯 null → `dropField` 후 `null` 반환 (**throw 하지 않는다**)
+//   ② 행 하나가 깨지면 그 행만 건너뛰고 프레임은 살린다 — 프레임째 버리면 정상 행까지 사라진다
+//   ③ 벡터는 `takeCount` 로 상한 클램프 (T-16-06)
+//   ④ bigint 는 `toNum` 한 곳만 통과한다 (D-34) — 계약에 64비트가 새면 팬아웃 루프가 죽는다
+//
+// 상위(Hub)는 실패를 **재로그하지 않는다** (S-2). 사유·카운터는 여기서만 남긴다.
+
+/**
+ * 상따 전략 목록 상한 (64). 종목당 1건이라 실사용은 두 자리다 — 파손 프레임 방어용 폭이다.
+ */
+export const MAX_LIMIT_CHASER_COUNT = 200;
+
+/**
+ * VI 주문 추적 목록 상한 (72/73). 하루치 발동을 담아도 남는 폭으로 둔다 — 상따와 달리
+ * 종목당 1건 제약이 없어 발동 횟수만큼 쌓인다.
+ */
+export const MAX_VI_ORDER_COUNT = 500;
+
+/**
+ * 형식 위반으로 건너뛴 **전략 항목**(상따 목록·VI 주문 행) 누적 수 (S-5).
+ *
+ * 계좌 계열 카운터 2종과 **따로** 센다. 섞으면 "잔고 행 파손"과 "VI 주문 행 파손"을 구분할
+ * 수 없어, 실계통에서 「가끔 목록이 비는」 현상의 출처를 영영 못 찾는다 (T-16-07).
+ */
+let skippedStrategyItems = 0;
+
+/** 형식 위반으로 건너뛴 전략 항목 누적 수. */
+export function skippedStrategyItemCount(): number {
+  return skippedStrategyItems;
+}
+
+/** 전략 항목 1건 스킵. 계좌번호 원문은 담지 않는다 (T-15-15) — 사유·위치·길이만 남긴다. */
+function skipStrategyItem(reason: string, kind: string, index: number, detail: string): void {
+  skippedStrategyItems += 1;
+  logger.warn(
+    { reason, kind, index, detail, skippedStrategyItemCount: skippedStrategyItems },
+    "[DMA] 전략 항목 스킵 (형식 가드)",
+  );
+}
+
+/**
+ * 전략 키 `${isin}:${accountNo}:${exchange}` — 서버 `LimitChaser::MakeKey` / C#
+ * `WireCodes.StrategyKey()` 와 동형이다.
+ *
+ * **조립 지점은 이 함수 하나뿐이다.** 브라우저는 계약의 `key` 를 그대로 신뢰하고 다시 만들지
+ * 않는다 — 두 곳에서 만들면 12자 절단·거래소 정규화 중 한쪽만 반영돼 키가 갈리고, 갈린 키는
+ * 「에코가 영원히 매칭되지 않는다」라는 조용한 실패로 나타난다.
+ */
+export function strategyKey(isin: string, accountNo: string, exchange: RelayExchange): string {
+  return `${isin}:${accountNo}:${exchange}`;
+}
+
+/** 항목 단위 읽기 결과. 실패 사유를 호출자에게 넘겨 드롭/스킵을 다르게 처리하게 한다. */
+type ReadResult<T> = { ok: true; value: T } | { ok: false; reason: string; detail: string };
+
+/**
+ * `SetLimitChaser` 테이블 1건 → 계약 타입.
+ *
+ * 60 단건 에코와 64 목록 원소는 **같은 바이트**라 파서도 하나여야 한다 — 두 벌이면 한쪽만
+ * 고쳐져 목록과 에코가 갈린다.
+ *
+ * **활성 37필드를 전부 읽는다.** S→C 전용 4(`sellOrderQty` · `sellQtyTrackBaseline` ·
+ * `sellEntryLatched` · `cancelQtyTrackBaseline`)는 보내지 않지만 읽어서 표시한다 —
+ * 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제다 (Pitfall 6).
+ *
+ * 실패 사유만 돌려주고 로그는 남기지 않는다. 단건은 프레임 드롭, 목록은 항목 스킵으로
+ * 카운터가 갈라져야 하기 때문이다.
+ */
+function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
+  const isin = t.isin() ?? "";
+  if (!isValidIsin(isin)) {
+    // ISIN 은 전략 키의 첫 마디다. 깨지면 어느 종목의 전략인지 알 수 없어 행이 무의미하다.
+    return { ok: false, reason: "bad-isin", detail: `len=${isin.length}` };
+  }
+  const accountNo = t.accountNo() ?? "";
+  if (!isValidAccountNo(accountNo)) {
+    return { ok: false, reason: "bad-account-no", detail: `len=${accountNo.length}` };
+  }
+  // 빈 값은 "KRX" 다 — 서버가 그렇게 정규화한 **뒤에** 키를 만든다. 여기서 다르게 읽으면
+  // 클라가 기억하는 키와 서버 키가 갈린다.
+  const exchange = fromWireExchange(t.exchange() ?? "");
+
+  return {
+    ok: true,
+    value: {
+      isin,
+      accountNo,
+      market: fromWireMarket(t.market() ?? ""),
+      // 삭제 신호다. 두 스위치가 아니라 이 값이 「삭제됨」의 정본이다 (Pitfall 7).
+      crud: fromWireCrud(t.crud() ?? ""),
+      buyOrderPrice: t.buyOrderPrice(),
+      buyOrderQty: t.buyOrderQty(),
+      buyWatchPrice: t.buyWatchPrice(),
+      buyWatchQty: t.buyWatchQty(),
+      buyMinTradeQty: t.buyMinTradeQty(),
+      buyWatchSide: fromWireWatchSide(t.buyWatchSide() ?? ""),
+      buyTradeQtyEnabled: t.buyTradeQtyEnabled(),
+      // 에코의 게이트는 설정값이 아니라 **무장 상태**다(`cfg.buyEnabled && buyArmed`).
+      // 여기서 해석하지 않고 그대로 올린다 — 문구 구분은 UI 몫이다 (Pitfall 10).
+      buyEnabled: t.buyEnabled(),
+      sellOrderPrice: t.sellOrderPrice(),
+      // S→C 전용 — 서버가 Set 시점에 `매도가능수량 × sellOrderRatio / 100` 을 스냅샷한 값.
+      sellOrderQty: t.sellOrderQty(),
+      sellWatchPrice: t.sellWatchPrice(),
+      sellWatchQty: t.sellWatchQty(),
+      sellMinTradeQty: t.sellMinTradeQty(),
+      sellEnabled: t.sellEnabled(),
+      sellTradeQtyEnabled: t.sellTradeQtyEnabled(),
+      sweepWatchPrice: t.sweepWatchPrice(),
+      sweepEnabled: t.sweepEnabled(),
+      sweepMinTickCount: t.sweepMinTickCount(),
+      // 고정 3은 **서버가 되돌려준 값을 그대로 읽는다**. 송신만 못박고(16-04) 수신을 덮으면
+      // 서버가 다른 값을 들고 있어도 화면이 영원히 모른다.
+      sweepRecalcEnabled: t.sweepRecalcEnabled(),
+      sweepMinCount: t.sweepMinCount(),
+      // BasisPoints 다(2950 = 29.5%). `RelayViTrigger.checkRate` 의 정수 % 와 단위가 다르다.
+      sweepMinRate: t.sweepMinRate(),
+      exchange,
+      sellOrderRatio: t.sellOrderRatio(),
+      sellQtyTrackEnabled: t.sellQtyTrackEnabled(),
+      sellQtyTrackRatio: t.sellQtyTrackRatio(),
+      // S→C 전용 — 서버가 유지하는 래칫 기준선.
+      sellQtyTrackBaseline: t.sellQtyTrackBaseline(),
+      // 단위 **만원**. `0` 은 "서버가 모른다"는 뜻이라 UI 가 금액 칸을 건드리지 않는다
+      // (수량 × 가격 역산도 금지 — 나머지 손실로 왕복이 깨진다, Pitfall 11).
+      buyOrderAmount: t.buyOrderAmount(),
+      // S→C 전용 — 매도 진입 확인 래치 원값.
+      sellEntryLatched: t.sellEntryLatched(),
+      cancelQtyEnabled: t.cancelQtyEnabled(),
+      cancelWatchQty: t.cancelWatchQty(),
+      cancelTradeEnabled: t.cancelTradeEnabled(),
+      cancelQtyTrackEnabled: t.cancelQtyTrackEnabled(),
+      // S→C 전용 — 16-01 재동기화로 접근자가 생긴 필드다.
+      cancelQtyTrackBaseline: t.cancelQtyTrackBaseline(),
+      key: strategyKey(isin, accountNo, exchange),
+    },
+  };
+}
+
+/**
+ * 상따 설정 에코 (60 — `set_limit_chaser` 슬롯).
+ *
+ * **반영의 유일한 증거**다. 서버는 거부를 응답 코드로 주지 않으므로 에코가 오지 않으면
+ * 거부(계좌·거래소)이고, 눕혀진 값으로 오면 부분 거부다 (Pitfall 8).
+ *
+ * `crud: "D"` 도 이 프레임으로 온다 — **삭제 판정은 스위치가 아니라 이 값**이다 (Pitfall 7).
+ */
+export function parseLimitChaserEcho(env: Envelope): RelayLimitChaser | null {
+  const t = env.setLimitChaser();
+  if (t === null) {
+    return dropField("slot-null", MSG.SetLimitChaserResp, { slot: "set_limit_chaser" });
+  }
+  const r = readLimitChaser(t);
+  if (!r.ok) {
+    return dropField(r.reason, MSG.SetLimitChaserResp, {
+      slot: "set_limit_chaser",
+      detail: r.detail,
+    });
+  }
+  return r.value;
+}
+
+/**
+ * 상따 전략 전량 스냅샷 (64 — `limit_chaser_list` 슬롯).
+ *
+ * **0건은 빈 배열이지 `null` 이 아니다.** 서버는 등록이 없어도 길이 0 벡터로 정상 응답하므로
+ * (무응답 금지), `null` 로 뭉개면 웹이 "아직 안 왔다"와 "없다"를 구분할 수 없다.
+ *
+ * 항목 하나가 깨지면 그 항목만 건너뛴다 — 프레임째 버리면 정상 전략까지 목록에서 사라지고,
+ * 그것이 「전략이 없다」라는 더 나쁜 오진이 된다.
+ */
+export function parseLimitChaserList(env: Envelope): RelayLimitChaser[] | null {
+  const list = env.limitChaserList();
+  if (list === null) {
+    return dropField("slot-null", MSG.GetLimitChaserListResp, { slot: "limit_chaser_list" });
+  }
+  const n = takeCount(list.itemsLength(), MAX_LIMIT_CHASER_COUNT, "limitChaserList");
+  const out: RelayLimitChaser[] = [];
+  const scratch = new SetLimitChaser();
+  for (let i = 0; i < n; i += 1) {
+    const t = list.items(i, scratch);
+    if (t === null) {
+      skipStrategyItem("entry-null", "limitChaser", i, "");
+      continue;
+    }
+    const r = readLimitChaser(t);
+    if (!r.ok) {
+      skipStrategyItem(r.reason, "limitChaser", i, r.detail);
+      continue;
+    }
+    out.push(r.value);
+  }
+  return out;
+}
+
+/**
+ * `parseViTrigger` 결과 — **「미등록」과 「파싱 실패」를 절대 같은 값으로 뭉개지 않는다.**
+ *
+ * 함수가 `null` 을 돌려주면 파싱 실패(드롭 카운터가 오른다)이고, `{ ok: true, cfg: null }`
+ * 이면 미등록이다. 둘을 하나로 합치면 서버가 「전략 없음」을 정상 응답한 것과 프레임이 깨진
+ * 것이 구분되지 않아, UI 가 사용자 입력을 지워야 할지 그대로 둬야 할지 알 수 없다.
+ */
+export type ParsedViTrigger = {
+  ok: true;
+  /** `null` 은 **미등록**이다. 이때 UI 는 입력값을 그대로 두고 `run` 만 내린다. */
+  cfg: RelayViTrigger | null;
+};
+
+/**
+ * VI 전략 에코 (61 — `set_vi_trigger` 슬롯).
+ *
+ * **빈 61 은 파손이 아니라 「미등록」**이다. 서버는 `GetVITriggerReq(21)` 에 전략이 없어도
+ * 반드시 61 을 돌려주고(무응답 금지), 그 「없음」의 표현이 빈 슬롯이다. 여기서 드롭 카운터를
+ * 올리지 않는 이유가 그것이다 — 빈 61 을 "값 0" 으로 오독하면 사용자가 입력한 금액이 지워진다.
+ */
+export function parseViTrigger(env: Envelope): ParsedViTrigger | null {
+  const t = env.setViTrigger();
+  if (t === null) return { ok: true, cfg: null };
+
+  const accountNo = t.accountNo() ?? "";
+  if (!isValidAccountNo(accountNo)) {
+    // 계좌번호가 키다. 없으면 어느 계좌의 VI 전략인지 알 수 없어 쓸 수가 없다.
+    return dropField("bad-account-no", MSG.SetVITriggerResp, {
+      slot: "set_vi_trigger",
+      len: accountNo.length,
+    });
+  }
+
+  const rawPriceType = t.priceType() ?? "";
+  if (rawPriceType.charAt(0) === "L") {
+    // 하한가 전략은 relay 가 만들지 않는다 (D-01) — 다른 클라이언트(WinForms)가 등록한 것이라
+    // 계약에 표현할 방법이 없다. 프레임을 버리면 `run`·금액까지 잃으므로 상한가로 좁히고
+    // 경고만 남긴다. 조용히 덮지 않는 것이 이 로그의 전부다 (PC-7).
+    logger.warn(
+      { msgType: MSG.SetVITriggerResp, rawPriceType },
+      "[DMA] VI 가격유형이 하한가 — 계약 표현 밖이라 상한가로 좁힘",
+    );
+  }
+
+  return {
+    ok: true,
+    cfg: {
+      accountNo,
+      // ulong → number 승격의 유일 지점 (D-34). 여기서 새면 팬아웃 루프가 TypeError 로 죽는다.
+      orderAmountKrw: toNum(t.orderAmountKrw(), "orderAmountKrw"),
+      // 정수 %(25 = 25%). 상따의 `sweepMinRate`(BasisPoints)와 단위가 다르다 (Pitfall 5).
+      checkRate: t.checkRate(),
+      priceType: VI_PRICE_TYPE,
+      run: t.run(),
+    },
+  };
+}
+
+/** VI 주문 상태 화이트리스트 6종. 밖의 값은 **그 항목만** 버린다. */
+const VI_ORDER_STATES: ReadonlySet<string> = new Set<string>([
+  "Pending",
+  "Accepted",
+  "Cancelling",
+  "Cancelled",
+  "Filled",
+  "Rejected",
+]);
+
+/** 상태 문자열 화이트리스트 가드. 부분체결은 상태가 아니라 `Accepted ∧ filledQty>0` 파생이다. */
+function isViOrderState(s: string): s is RelayViOrderState {
+  return VI_ORDER_STATES.has(s);
+}
+
+/**
+ * VI 주문 추적 목록 (72 스냅샷 / 73 증분 — `vi_order_list` 슬롯 공유).
+ *
+ * @param isSnapshot 72 면 true, 73 이면 false. 본문 `is_snapshot` 도 같은 값을 담지만
+ *                   **msg_type 이 정본**이다 (D-33 — 58/59 · 66/67 · 69/71 과 같은 규약).
+ *
+ * 0건도 정상이다(확인 철회로 목록이 비는 경로). 항목 하나가 깨지면 그 항목만 버리고 나머지는
+ * 살린다 — 돈이 걸린 목록에서 한 행 때문에 전체가 사라지는 것이 가장 나쁜 결과다 (T-16-06).
+ */
+export function parseViOrderList(
+  env: Envelope,
+  isSnapshot: boolean,
+): { snap: boolean; items: RelayViOrderItem[] } | null {
+  const msgType = isSnapshot ? MSG.GetVIOrderListResp : MSG.VIOrderListPush;
+  const list = env.viOrderList();
+  if (list === null) return dropField("slot-null", msgType, { slot: "vi_order_list" });
+
+  if (list.isSnapshot() !== isSnapshot) {
+    logger.warn(
+      { msgType, bodyIsSnapshot: list.isSnapshot() },
+      "[DMA] VI 주문 목록 스냅샷 플래그 불일치 — msg_type 을 따른다 (D-33)",
+    );
+  }
+
+  const n = takeCount(list.itemsLength(), MAX_VI_ORDER_COUNT, "VI 주문 목록");
+  const items: RelayViOrderItem[] = [];
+  const scratch = new VIOrderItem();
+  for (let i = 0; i < n; i += 1) {
+    const it = list.items(i, scratch);
+    if (it === null) {
+      skipStrategyItem("entry-null", "viOrder", i, "");
+      continue;
+    }
+    const isin = it.isin() ?? "";
+    if (!isValidIsin(isin)) {
+      skipStrategyItem("bad-isin", "viOrder", i, `len=${isin.length}`);
+      continue;
+    }
+    const accountNo = it.accountNo() ?? "";
+    if (!isValidAccountNo(accountNo)) {
+      // 취소 주문의 계좌 원천이다. 지어내면 **다른 계좌로 취소가 나간다**.
+      skipStrategyItem("bad-account-no", "viOrder", i, `len=${accountNo.length}`);
+      continue;
+    }
+    const state = it.state() ?? "";
+    if (!isViOrderState(state)) {
+      // 상태를 지어내지 않는다 — "Pending" 으로 메우면 열려선 안 될 행에 확인 체크가 열린다.
+      skipStrategyItem("unknown-state", "viOrder", i, `state=${state}`);
+      continue;
+    }
+
+    items.push({
+      isin,
+      market: fromWireMarket(it.market() ?? ""),
+      accountNo,
+      // `""` 를 **그대로 보존한다** — 접수 전(Pending)이라 확인 체크를 열 수 없다는 신호이고,
+      // 빈 주문번호의 `vi.confirm` 은 서버가 응답 없이 드롭한다.
+      orderNo: it.orderNo() ?? "",
+      orderQty: it.orderQty(),
+      orderPrice: it.orderPrice(),
+      triggerPrice: it.triggerPrice(),
+      basePrice: it.basePrice(),
+      viEndTime: it.viEndTime() ?? "",
+      // long → number (D-34). epoch ms 라 2^53 을 한참 밑돌지만 경계는 `toNum` 한 곳뿐이다.
+      deadline110Ms: toNum(it.deadline110Ms(), "deadline110Ms"),
+      deadline119Ms: toNum(it.deadline119Ms(), "deadline119Ms"),
+      confirmed: it.confirmed(),
+      // **서버 계산값이다. 클라가 다시 계산하지 않는다.**
+      confirmLocked: it.confirmLocked(),
+      state,
+      filledQty: it.filledQty(),
+    });
+  }
+
+  return { snap: isSnapshot, items };
+}
+
+/**
+ * VI 발동 통보 (56 — `vi_order_notice` 슬롯). 발주 세션의 전 연결로 온다.
+ *
+ * 해석하지 않고 그대로 흘린다 — 전일대비 %는 `basePrice` 로 브라우저가 계산한다.
+ * `name` 은 여기서 채우지 않는다(게이트웨이가 주는 값이 아니다). Hub 가 SymbolMap 으로 붙인다.
+ */
+export function parseViOrderNotice(env: Envelope): RelayViNoticeMsg | null {
+  const n = env.viOrderNotice();
+  if (n === null) return dropField("slot-null", MSG.VIOrderNotice, { slot: "vi_order_notice" });
+
+  const isin = n.isin() ?? "";
+  if (!isValidIsin(isin)) {
+    // 프레임을 **버리지 않는다** (`parseOrderResp` 와 같은 규율). 이 통보는 "주문이 이미
+    // 나갔다"는 알림이라, 형식 이상으로 통째로 삼키면 사용자가 발주 사실 자체를 모른다.
+    logger.warn(
+      { msgType: MSG.VIOrderNotice, len: isin.length },
+      "[DMA] VI 통보의 ISIN 형식 이상 — 프레임은 살린다 (발주 사실 유실 방지)",
+    );
+  }
+
+  return {
+    t: "vi.notice",
+    isin,
+    accountNo: n.accountNo() ?? "",
+    triggerPrice: n.triggerPrice(),
+    basePrice: n.basePrice(),
+    // 서버 판정에 쓴 상승률 — **정수 %**(내림)다.
+    changeRate: n.changeRate(),
+    orderPrice: n.orderPrice(),
+    orderQty: n.orderQty(),
+    // 취소 주문의 `market` 원천이다 — 리터럴을 웹앱에 흩뿌리지 않는다 (Pitfall 4).
+    market: fromWireMarket(n.market() ?? ""),
+    orderSeq: n.orderSeq(),
+    viEndTime: n.viEndTime() ?? "",
+  };
+}
+
+/**
+ * 전략 일괄 비활성화 집계 (65 — `disable_strategies_resp` 슬롯).
+ *
+ * **완료 신호로만 쓴다.** 서버가 키별 60/61 에코를 세션 전 연결에 먼저 보낸 뒤 이 집계를
+ * 요청 연결에만 보내므로, 이 프레임이 도착한 시점에는 이미 모든 행이 에코로 갱신돼 있다.
+ * 여기 담긴 숫자로 화면 상태를 만들면 에코와 두 벌이 갈린다.
+ *
+ * 등록된 전략이 없어도 `count: 0` 으로 정상 응답한다(무응답 금지) — `0` 은 실패가 아니다.
+ */
+export function parseDisableStrategiesResp(
+  env: Envelope,
+): { count: number; viDisabled: boolean } | null {
+  const r = env.disableStrategiesResp();
+  if (r === null) {
+    return dropField("slot-null", MSG.DisableStrategiesResp, { slot: "disable_strategies_resp" });
+  }
+  return { count: r.disabledCount(), viDisabled: r.viDisabled() };
 }
