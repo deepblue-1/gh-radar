@@ -46,10 +46,14 @@
  */
 import type {
   DmaOrderStatus,
+  OrderMarket,
+  OrderSide,
   RelayAccount,
+  RelayLimitChaser,
   RelayOrderCancelMsg,
   RelayOrderNewMsg,
   RelayOrderResultMsg,
+  RelayViTrigger,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -82,9 +86,21 @@ export interface OrderHandlerSessions {
   get(userId: string): OrderHandlerSession | undefined;
 }
 
-/** 주문 통보(51)의 출처. `SubscriptionHub` 가 그대로 만족한다. */
+/**
+ * 주문 통보(51)의 출처 + 전략 캐시. `SubscriptionHub` 가 그대로 만족한다.
+ *
+ * 전략 조회 2종이 여기 있는 이유는 하나다: **`OrderResp(51)` 에는 계좌번호가 없다**
+ * (fbs `table OrderResp` 에 `account_no` 필드 자체가 없다). 그런데 `dma_orders.account_no`
+ * 는 NOT NULL 이므로, 자동주문 행을 만들려면 계좌를 어딘가에서 알아야 한다. 그 「어딘가」로
+ * 지어낸 값이 아니라 **게이트웨이가 에코한 전략 등록값**(60/61)을 쓴다 — 상따는 그 ISIN 의
+ * 전략이, VI 는 세션의 VI 설정이 계좌의 정본이다.
+ */
 export interface OrderNoticeSource {
   on(event: "order", listener: (e: HubOrderEvent) => void): unknown;
+  /** 상따 전략 캐시. 자동주문 통보의 계좌·시장 출처다. */
+  getLimitChasers(userId: string): RelayLimitChaser[];
+  /** VI 전략 캐시. `undefined` = 아직 조회 못 함, `null` = 미등록 (16-06 3상태). */
+  getViTrigger(userId: string): RelayViTrigger | null | undefined;
 }
 
 /** `dma_orders` 쓰기 창구 중 이 모듈이 쓰는 부분만 (D-03). */
@@ -227,19 +243,13 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    // 대기열에 없다 = 접수 이후의 통보이거나 **자동주문**(상따·VI)이다. 16-08 Task 3 이
-    // 이 자리에 insert 분기를 붙인다.
-    void recordUnmatched(notice);
+    // 대기열에 없다 = 접수 이후의 통보이거나 **자동주문**(상따·VI)이다.
+    void recordUnmatched(userId, notice);
   });
 
-  /**
-   * 대기열과 매칭되지 않은 통보를 기록한다.
-   *
-   * Task 2 시점의 동작은 원본(`order-api.ts`)과 같다 — `order_no` 로 좁혀 갱신만 한다.
-   * Task 3 이 「행이 없으면 insert」 분기를 여기에 더한다 (Pitfall 18 / T-16-07).
-   */
-  async function recordUnmatched(notice: ParsedOrderResp): Promise<void> {
-    deps.orderStore.enqueueUpdate({
+  /** 통보에서 뽑은 수명주기 갱신값. insert 든 update 든 같은 값을 쓴다. */
+  function patchOf(notice: ParsedOrderResp): OrderUpdate {
+    return {
       orderNo: notice.orderNo,
       status: statusOf(notice, null),
       resultCode: notice.resultCode,
@@ -247,8 +257,169 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       message: notice.message,
       filledQty: filledQtyOf(notice),
       origin: notice.originKind,
-    });
-    await Promise.resolve();
+    };
+  }
+
+  /**
+   * 대기열과 매칭되지 않은 통보를 기록한다.
+   *
+   * **여기가 Pitfall 18 의 자리다.** PostgREST 의 update 는 대상이 0행이어도 에러가 아니다.
+   * 그래서 조회 없이 `order_no` 로 갱신만 하면 상따·VI 자동주문 통보가 **조용히 사라진다** —
+   * 사용자는 자기 계좌에서 나간 주문의 기록을 어디서도 볼 수 없게 된다 (T-16-07 Repudiation).
+   *
+   * 수동 주문은 이 분기를 타지 않는다: 행은 요청 시점에 이미 만들어졌고(D-03 ③-2 / REST 는
+   * server 가), 여기 오는 것은 접수 이후의 체결·취소확인이다. 구 게이트웨이가 `origin` 을
+   * 비워 보내면 `toOrderOrigin` 이 `"manual"` 로 좁히므로 자동주문도 이 길로 온다 — 그것은
+   * 와이어에 정보가 없는 것이라 relay 가 메울 수 없다(envelope.ts 가 같은 이유를 적어 둔다).
+   */
+  async function recordUnmatched(userId: string, notice: ParsedOrderResp): Promise<void> {
+    const patch = patchOf(notice);
+
+    if (notice.originKind === "manual") {
+      // 접수 이후의 통보다. `order_no` 로 행을 좁혀 갱신한다 (A10 셀렉터 2순위).
+      deps.orderStore.enqueueUpdate(patch);
+      return;
+    }
+
+    let existingId: string | null;
+    try {
+      existingId = await deps.orderStore.findIdByOrderNo(notice.orderNo);
+    } catch (err) {
+      // 조회가 실패했다고 통보를 버리지 않는다. 행이 있을 수도 있으니 갱신은 시도한다 —
+      // 없으면 0행이라 무해하고, 있으면 기록이 남는다. 조용히 넘기지는 않는다 (S-5).
+      logger.error(
+        { err, origin: notice.originKind, orderNo: notice.orderNo },
+        "[WS-order] 자동주문 통보 — 기존 행 조회 실패, 갱신만 시도",
+      );
+      deps.orderStore.enqueueUpdate(patch);
+      return;
+    }
+
+    if (existingId !== null) {
+      // 이 자동주문의 첫 통보에서 이미 행을 만들었다. 이후 통보는 그 행의 갱신이다.
+      deps.orderStore.enqueueUpdate({ ...patch, orderRowId: existingId });
+      return;
+    }
+
+    const row = autoInsertRow(userId, notice);
+    if (row === null) return; // 사유는 `autoInsertRow` 가 남겼다.
+
+    try {
+      const orderRowId = await deps.orderStore.insertRequest(row);
+      // 수명주기 필드(결과코드·통보종류·메시지·체결수량)는 큐로 넘긴다 — insert 는 「요청」
+      // 모양이고 그 뒤의 상태는 update 경로가 소유한다는 경계를 유지한다.
+      deps.orderStore.enqueueUpdate({ ...patch, orderRowId });
+      logger.info(
+        {
+          origin: notice.originKind,
+          orderNo: notice.orderNo,
+          noticeType: notice.noticeType,
+          accountNo: maskAccountNo(row.accountNo),
+        },
+        "[WS-order] 자동주문 통보 — 대기 행이 없어 새 행으로 기록",
+      );
+    } catch (err) {
+      logger.error(
+        { err, origin: notice.originKind, orderNo: notice.orderNo },
+        "[WS-order] 자동주문 행 생성 실패 — 감사 기록 결손 (stdout 이 두 번째 사본이다)",
+      );
+    }
+  }
+
+  /**
+   * 자동주문 통보 → insert 행. 만들 수 없으면 `null` 이고 사유를 남긴다.
+   *
+   * `dma_orders` 의 NOT NULL·CHECK 를 통과하지 못하는 값은 **지어내지 않는다.** 통과 못 할
+   * 값으로 insert 하면 그 행 전체를 잃는데, 그건 「기록이 없다」와 결과가 같으면서 원인만
+   * 더 어려워진다. 그래서 못 만들면 error 로그로 남긴다 — relay stdout 이 D-24 의 두 번째
+   * 감사 사본이므로 기록이 0 이 되지는 않는다.
+   */
+  function autoInsertRow(userId: string, notice: ParsedOrderResp): OrderInsertRow | null {
+    const ctx = { userId, origin: notice.originKind, orderNo: notice.orderNo, isin: notice.isin };
+
+    // `qty`/`price` 는 CHECK > 0 이다. 접수·체결 통보는 항상 양수를 싣지만, 파손 프레임을
+    // 그대로 밀어 넣어 행을 잃는 것보다 여기서 멈추고 사유를 남기는 편이 낫다.
+    if (!Number.isInteger(notice.quantity) || notice.quantity <= 0) {
+      logger.error({ ...ctx }, "[WS-order] 자동주문 통보의 수량이 0 이하 — 행을 만들 수 없다");
+      return null;
+    }
+    if (!Number.isInteger(notice.price) || notice.price <= 0) {
+      logger.error({ ...ctx }, "[WS-order] 자동주문 통보의 가격이 0 이하 — 행을 만들 수 없다");
+      return null;
+    }
+
+    const strategy = strategyOf(userId, notice);
+    const info = deps.symbols.lookup(notice.isin);
+    // 시장은 종목마스터가 1순위다(원천이 `stocks`). 마스터가 아직 안 실렸으면 게이트웨이가
+    // 에코한 전략 등록값을 쓴다 — 둘 다 없으면 CHECK 를 통과할 수 없으므로 멈춘다.
+    const market: OrderMarket | null = info?.market ?? strategy?.market ?? null;
+    if (market === null) {
+      logger.error({ ...ctx }, "[WS-order] 자동주문 통보의 시장 구분 미상 — 행을 만들 수 없다");
+      return null;
+    }
+
+    const accountNo = strategy?.accountNo ?? soleAccountOf(userId) ?? "";
+    if (accountNo === "") {
+      // **감사 우선**: 계좌를 몰라도 행은 남긴다. 빈 문자열은 「모른다」의 표현이고, 아무
+      // 계좌나 골라 적는 것(= 남의 계좌로 귀속되는 기록)보다 압도적으로 낫다.
+      logger.warn({ ...ctx }, "[WS-order] 자동주문 계좌 미상 — 계좌 없이 기록 (감사 우선)");
+    }
+
+    return {
+      userId,
+      accountNo,
+      isin: notice.isin,
+      code: info?.code ?? null,
+      exchange: notice.exchange,
+      market,
+      // 취소·정정 통보의 매매구분은 브로커가 채울 값이 없다 (Pitfall 8). CHECK 가 B/S 둘만
+      // 받으므로 취소 행은 "S" 로 적되, **방향의 정본은 `org_order_no` 가 가리키는 원주문
+      // 행**이다 — 취소 행의 side 를 표시에 쓰지 말 것 (수동 취소 경로와 같은 규율).
+      side: sideOf(notice),
+      orderType: notice.noticeType === "C" ? "C" : "N",
+      orgOrderNo: notice.orgOrderNo === "" ? undefined : notice.orgOrderNo,
+      qty: notice.quantity,
+      price: notice.price,
+      origin: notice.originKind,
+      // `status` 는 `'requested'` 로 시작하지 않아도 CHECK 를 통과한다(7종 전부 허용).
+      // 이 행은 이미 접수·체결 이후이므로 통보에서 파생한 상태로 시작하는 것이 진실이다.
+      status: statusOf(notice, null) ?? "accepted",
+      orderNo: notice.orderNo,
+    };
+  }
+
+  /** 통보의 매매구분. 믿을 수 없으면(취소·정정) 위 주석의 규율대로 "S" 다. */
+  function sideOf(notice: ParsedOrderResp): OrderSide {
+    if (!notice.sideTrusted) return "S";
+    return notice.side.startsWith("S") ? "S" : "B";
+  }
+
+  /**
+   * 자동주문의 계좌·시장 출처 — **게이트웨이가 에코한 전략 등록값**이다.
+   *
+   * 상따는 그 ISIN 의 전략이, VI 는 세션의 VI 설정이 정본이다. 51 통보에는 계좌번호가 없어서
+   * (fbs 에 필드 자체가 없다) 여기 말고는 근거가 없다.
+   */
+  function strategyOf(
+    userId: string,
+    notice: ParsedOrderResp,
+  ): { accountNo: string; market: OrderMarket | null } | null {
+    if (notice.originKind === "limit_chaser") {
+      const hit = deps.hub.getLimitChasers(userId).find((lc) => lc.isin === notice.isin);
+      return hit === undefined ? null : { accountNo: hit.accountNo, market: hit.market };
+    }
+    const vi = deps.hub.getViTrigger(userId);
+    // `undefined`(아직 조회 못 함)와 `null`(미등록) 둘 다 「계좌를 모른다」로 수렴한다.
+    return vi === null || vi === undefined ? null : { accountNo: vi.accountNo, market: null };
+  }
+
+  /**
+   * 세션에 계좌가 **정확히 하나**면 그것이다. 둘 이상이면 `null` — 고르는 순간 지어내는 것이고,
+   * 잘못 고른 계좌로 남은 기록은 없는 기록보다 나쁘다.
+   */
+  function soleAccountOf(userId: string): string | null {
+    const accounts = deps.sessions.get(userId)?.allowedAccounts ?? [];
+    return accounts.length === 1 ? (accounts[0]?.accountNo ?? null) : null;
   }
 
   // ----------------------------------------------------------
