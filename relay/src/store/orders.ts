@@ -33,6 +33,10 @@
  *     하나라는 사실은 그대로다.)
  *   - 셀렉터 없는 update 를 만들지 않는다. `WHERE` 가 빠진 update 는 **테이블 전체**를
  *     덮어쓴다 — 그래서 셀렉터 부재는 드롭이고, 그 드롭은 error 로그다.
+ *   - **`order_no` 한 축만으로 좁히지 않는다** (Phase 16 Plan 18 — gap 1 / T-16-14).
+ *     브로커 주문번호는 일별 재사용 시퀀스라 그 한 축은 「이 행」이 아니라 「이 번호를 쓴
+ *     모든 사용자의 모든 날짜」를 가리킨다. `order_no` 셀렉터는 사용자(`user_id`)·당일
+ *     (`created_at` 반열린 구간)까지 **세 축**으로 좁힌다. `userId` 가 없으면 드롭이다.
  *   - 재시도를 지수 백오프로 늘리지 않는다. 큐가 밀리면 메모리가 늘 뿐이고, 감사 기록
  *     한 줄보다 프로세스 생존이 중요하다.
  */
@@ -71,6 +75,27 @@ export const ORDER_MAX_RETRIES = 1;
  */
 export const ORDER_QUEUE_LIMIT = 10_000;
 
+/**
+ * 「오늘」(KST) 의 UTC ISO 반열린 구간 `[from, to)` (Phase 16 Plan 18 — gap 1).
+ *
+ * 브로커 주문번호(`order_no`)는 **일별 재사용 시퀀스**다. 그래서 `order_no` 만으로 행을
+ * 찾으면 운영 2일차부터 **어제 행이 매치**되어 오늘 자동주문의 insert 가 일어나지 않는다
+ * (= 16-08 이 막겠다고 선언한 바로 그 감사 기록 결손, Pitfall 18). 조회·갱신 양쪽에
+ * 당일 범위를 걸어 그 오매치를 구조적으로 없앤다.
+ *
+ * 규칙은 `server/src/services/dma-orders.ts` 의 `kstDayRangeUtc` 와 **같은 반열린 구간**이다.
+ * server 를 import 하지 않는다 — relay 는 server 를 의존하지 않는다(배포 단위가 다르다).
+ */
+export function kstDayRangeUtc(now: Date = new Date()): { from: string; to: string } {
+  // UTC 에 9시간을 더한 뒤 날짜만 떼면 그것이 KST 달력 날짜다.
+  const day = new Date(now.getTime() + 9 * 3600_000).toISOString().slice(0, 10);
+  const start = new Date(`${day}T00:00:00+09:00`);
+  return {
+    from: start.toISOString(),
+    to: new Date(start.getTime() + 24 * 3600_000).toISOString(),
+  };
+}
+
 // ============================================================
 // 계약
 // ============================================================
@@ -97,10 +122,24 @@ export type OrderUpdate = {
    * REST 경로가 만든 행은 DB 기본값 `'manual'` 이라 자동주문이 수동으로 남을 수 있다.
    */
   origin?: OrderOriginKind;
+  /**
+   * 소유자 (Phase 16 Plan 18 — gap 1 / T-16-14). **`order_no` 셀렉터에서만 쓰인다.**
+   *
+   * 없으면 그 갱신은 **드롭**이다 — `order_no` 단독 update 는 일별 재사용 시퀀스를
+   * 셀렉터로 쓰는 것이라 **전역 쓰기**(다른 사용자·다른 날짜 행까지)가 된다.
+   */
+  userId?: string;
 };
 
-/** 좁혀진 update 대상. `column` 은 `id` 또는 `order_no` 뿐이다. */
-export type OrderSelector = { column: "id" | "order_no"; value: string };
+/**
+ * 좁혀진 update 대상.
+ *
+ * `id` 는 그 자체로 유일하지만 `order_no` 는 아니다 — 그래서 판별 유니온이고, `order_no`
+ * 셀렉터는 `userId` 를 **타입 수준에서** 요구한다 (gap 1 / T-16-14).
+ */
+export type OrderSelector =
+  | { column: "id"; value: string }
+  | { column: "order_no"; value: string; userId: string };
 
 /** `dma_orders` 컬럼 이름으로 좁혀진 갱신 값. */
 export type OrderRowPatch = Record<string, unknown>;
@@ -149,8 +188,13 @@ export type OrderInsertRow = {
  */
 export type OrderInsertSink = (row: OrderInsertRow) => Promise<string>;
 
-/** `order_no` → `dma_orders.id`. 없으면 `null`. insert/update 분기의 근거다 (Pitfall 18). */
-export type OrderLookupSink = (orderNo: string) => Promise<string | null>;
+/**
+ * `(userId, order_no)` → `dma_orders.id`. 없으면 `null`. insert/update 분기의 근거다 (Pitfall 18).
+ *
+ * `userId` 가 인자인 이유는 gap 1 이다 — `order_no` 는 일별 재사용 시퀀스라 **사용자·날짜를
+ * 같이 걸지 않으면 남의 행·어제 행이 매치된다.**
+ */
+export type OrderLookupSink = (userId: string, orderNo: string) => Promise<string | null>;
 
 /** 세 경로를 한 벌로 묶은 것. 부팅 결선은 `supabaseOrderSinks(supabase)` 를 쓴다. */
 export type OrderSinks = {
@@ -175,12 +219,28 @@ export type OrderStoreStats = {
 /**
  * `dma_orders` 서비스롤 쓰기 sink.
  *
- * `WHERE` 를 셀렉터 한 개로 **반드시** 좁힌다. `update()` 뒤에 `.eq()` 가 빠지면 PostgREST
- * 는 테이블 전체를 갱신하므로, 셀렉터 판정은 호출 전(`#selector`)에 이미 끝나 있어야 한다.
+ * `WHERE` 는 셀렉터로 **반드시** 좁힌다. `update()` 뒤에 `.eq()` 가 빠지면 PostgREST 는
+ * 테이블 전체를 갱신하므로, 셀렉터 판정은 호출 전(`selectorOf`)에 이미 끝나 있어야 한다.
+ *
+ * `id` 셀렉터는 한 축으로 충분하다(PK). **`order_no` 셀렉터는 사용자·당일까지 세 축으로
+ * 좁힌다 — 한 축만으로는 전역 쓰기다** (gap 1 / T-16-14). 브로커 주문번호는 일별 재사용
+ * 시퀀스라 `order_no` 단독 `.eq()` 는 다른 사용자·어제 행까지 덮는다.
  */
 export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
   return async (sel, patch) => {
-    const { error } = await supabase.from("dma_orders").update(patch).eq(sel.column, sel.value);
+    const table = supabase.from("dma_orders");
+    const { error } =
+      sel.column === "id"
+        ? await table.update(patch).eq("id", sel.value)
+        : await (() => {
+            const { from, to } = kstDayRangeUtc();
+            return table
+              .update(patch)
+              .eq("order_no", sel.value)
+              .eq("user_id", sel.userId)
+              .gte("created_at", from)
+              .lt("created_at", to);
+          })();
     if (error) {
       // upsert.ts 규약 — 에러를 로그로 남기고 throw. 삼키면 재시도 판단을 할 수 없다.
       logger.error({ error, column: sel.column }, "[orders] dma_orders update 실패");
@@ -228,26 +288,37 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
 }
 
 /**
- * `order_no` 로 기존 행을 찾는다 (Pitfall 18).
+ * `(user_id, order_no, 오늘)` 로 기존 행을 찾는다 (Pitfall 18 / gap 1).
  *
  * PostgREST 의 update 는 **0행이어도 에러가 아니다.** 그래서 「행이 있는가」를 먼저 묻지 않으면
  * 자동주문 통보가 조용히 사라진다 — 이 조회가 그 침묵을 없애는 유일한 근거다.
  *
- * `maybeSingle` 이라 같은 주문번호가 2행이면 에러다. 그때는 `null` 로 열화하지 않고 throw 해
- * 호출자가 판단하게 둔다(중복 행은 감사 기록의 결함이고, 조용히 하나를 고르면 그것이 숨는다).
+ * 세 축으로 좁히는 이유(gap 1): 브로커 주문번호는 **일별 재사용 시퀀스**이고 `dma_orders.order_no`
+ * 에는 UNIQUE 가 없다. `order_no` 단독 조회는 ① 다른 사용자의 행 ② 어제의 내 행을 매치시키는데,
+ * ②는 오늘 자동주문의 insert 를 막아 감사 기록을 비우고 ①은 테넌트 경계를 넘는다.
+ *
+ * **단건 단언(single-row assertion)을 쓰지 않는다.** 같은 사용자·같은 날의 중복은 이제 DB 부분 UNIQUE 인덱스가
+ * 막는다. 그럼에도 2행이 있으면 던져서 호출자의 catch 를 「셀렉터 없는 갱신」으로 열화시키는
+ * 것보다 **가장 최근 1행**을 고르는 편이 안전하다 — 그 열화가 곧 전역 쓰기였다.
  */
 export function supabaseOrderLookupSink(supabase: SupabaseClient): OrderLookupSink {
-  return async (orderNo) => {
+  return async (userId, orderNo) => {
+    const { from, to } = kstDayRangeUtc();
     const { data, error } = await supabase
       .from("dma_orders")
       .select("id")
+      .eq("user_id", userId)
       .eq("order_no", orderNo)
-      .maybeSingle();
+      .gte("created_at", from)
+      .lt("created_at", to)
+      .order("created_at", { ascending: false })
+      .limit(1);
     if (error) {
       logger.error({ error }, "[orders] dma_orders order_no 조회 실패");
       throw error;
     }
-    return data === null || data === undefined ? null : (data as { id: string }).id;
+    const rows = (data ?? []) as { id: string }[];
+    return rows[0]?.id ?? null;
   };
 }
 
@@ -327,17 +398,20 @@ export class OrderStore {
   }
 
   /**
-   * `order_no` 로 기존 행의 id 를 찾는다. 없으면 `null` — 호출자는 그때 `insertRequest` 한다.
+   * `(userId, order_no)` 로 기존 행의 id 를 찾는다. 없으면 `null` — 호출자는 그때
+   * `insertRequest` 한다. 조회 범위는 **그 사용자의 오늘**이다 (gap 1).
    *
    * lookup sink 가 없으면 `null` 이 아니라 **throw** 다: `null` 로 열화하면 「행이 없다」와
    * 「조회할 수단이 없다」가 같은 값이 되어 중복 insert 를 유발한다.
    */
-  async findIdByOrderNo(orderNo: string): Promise<string | null> {
+  async findIdByOrderNo(userId: string, orderNo: string): Promise<string | null> {
     if (this.#findId === null) {
       throw new Error("[orders] lookup sink 미결선 — OrderStore 를 OrderSinks 로 만들어야 한다");
     }
     if (orderNo === "") return null;
-    return this.#findId(orderNo);
+    // 소유자 없는 조회는 전 사용자 스캔이다 — 「행이 없다」로 열화하지 않고 막는다.
+    if (userId === "") return null;
+    return this.#findId(userId, orderNo);
   }
 
   /** tick 시작. 멱등이다 — 두 번 불러도 타이머는 1개다. */
@@ -361,8 +435,8 @@ export class OrderStore {
       // 셀렉터가 없으면 테이블 전체 update 가 된다. 버리는 편이 압도적으로 안전하다.
       this.#dropped += 1;
       logger.error(
-        { status: update.status, dropped: this.#dropped },
-        "[orders] 셀렉터(orderRowId·orderNo) 없는 갱신 — 드롭 (전체 update 방지)",
+        { status: update.status, hasOrderNo: update.orderNo !== undefined, dropped: this.#dropped },
+        "[orders] 셀렉터(orderRowId·orderNo) 없는 갱신 — 드롭 (전체 update 방지). userId 없는 order_no 갱신 포함",
       );
       return;
     }
@@ -448,13 +522,20 @@ export class OrderStore {
 // 순수 변환 (테스트 가능 단위)
 // ============================================================
 
-/** 셀렉터 판정. `id` 가 있으면 그것이 우선이다 (A10 — `order_no` 단독은 모호할 수 있다). */
+/**
+ * 셀렉터 판정. `id` 가 있으면 그것이 우선이다 (A10 — `order_no` 단독은 모호할 수 있다).
+ *
+ * `order_no` 밖에 없는데 **`userId` 도 없으면 `null`(= 드롭)** 이다 (gap 1 / T-16-14).
+ * 「모호할 수 있다」가 아니라 **틀렸다** — 일별 재사용 시퀀스를 유일 셀렉터로 쓰는 것은
+ * 다른 사용자·다른 날짜 행에 대한 쓰기다. 드롭이 압도적으로 안전하고, 그 드롭은 error 로그다.
+ */
 export function selectorOf(update: OrderUpdate): OrderSelector | null {
   if (update.orderRowId !== undefined && update.orderRowId !== "") {
     return { column: "id", value: update.orderRowId };
   }
   if (update.orderNo !== undefined && update.orderNo !== "") {
-    return { column: "order_no", value: update.orderNo };
+    if (update.userId === undefined || update.userId === "") return null;
+    return { column: "order_no", value: update.orderNo, userId: update.userId };
   }
   return null;
 }

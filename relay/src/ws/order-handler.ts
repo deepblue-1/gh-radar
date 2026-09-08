@@ -109,8 +109,13 @@ export interface OrderRecorder {
   insertRequest(row: OrderInsertRow): Promise<string>;
   /** **동기 O(1)** 여야 한다 (D-32). */
   enqueueUpdate(update: OrderUpdate): void;
-  /** `order_no` 로 기존 행을 찾는다. 없으면 `null` → 자동주문 insert 분기 (Pitfall 18). */
-  findIdByOrderNo(orderNo: string): Promise<string | null>;
+  /**
+   * `(userId, order_no)` 로 기존 행을 찾는다. 없으면 `null` → 자동주문 insert 분기 (Pitfall 18).
+   *
+   * `userId` 가 인자인 이유는 gap 1 이다 — 브로커 주문번호는 **일별 재사용 시퀀스**라
+   * `order_no` 단독 조회는 남의 행·어제 행을 매치시킨다 (T-16-14 / T-16-15).
+   */
+  findIdByOrderNo(userId: string, orderNo: string): Promise<string | null>;
 }
 
 export type OrderHandlerDeps<C> = {
@@ -277,21 +282,24 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
 
     if (notice.originKind === "manual") {
       // 접수 이후의 통보다. `order_no` 로 행을 좁혀 갱신한다 (A10 셀렉터 2순위).
-      deps.orderStore.enqueueUpdate(patch);
+      // **`userId` 를 반드시 싣는다** (gap 1): 없으면 `selectorOf` 가 `null` 을 돌려 이
+      // 갱신이 통째로 드롭되고, 접수 이후 수동 통보가 전부 사라진다.
+      deps.orderStore.enqueueUpdate({ ...patch, userId });
       return;
     }
 
     let existingId: string | null;
     try {
-      existingId = await deps.orderStore.findIdByOrderNo(notice.orderNo);
+      existingId = await deps.orderStore.findIdByOrderNo(userId, notice.orderNo);
     } catch (err) {
       // 조회가 실패했다고 통보를 버리지 않는다. 행이 있을 수도 있으니 갱신은 시도한다 —
-      // 없으면 0행이라 무해하고, 있으면 기록이 남는다. 조용히 넘기지는 않는다 (S-5).
+      // 셀렉터가 사용자·당일로 좁혀져 있으므로 없으면 0행이고 있으면 **내 행**이다.
+      // 조용히 넘기지는 않는다 (S-5).
       logger.error(
         { err, origin: notice.originKind, orderNo: notice.orderNo },
         "[WS-order] 자동주문 통보 — 기존 행 조회 실패, 갱신만 시도",
       );
-      deps.orderStore.enqueueUpdate(patch);
+      deps.orderStore.enqueueUpdate({ ...patch, userId });
       return;
     }
 

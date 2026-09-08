@@ -103,7 +103,7 @@ function fakeSupabase(): SupabaseClient {
 function mkOrderStore(opts: { existingId?: string | null; insertFails?: boolean } = {}) {
   const inserts: OrderInsertRow[] = [];
   const updates: OrderUpdate[] = [];
-  const lookups: string[] = [];
+  const lookups: { userId: string; orderNo: string }[] = [];
   let nextId = 1;
   return {
     inserts,
@@ -119,8 +119,8 @@ function mkOrderStore(opts: { existingId?: string | null; insertFails?: boolean 
       enqueueUpdate: (u: OrderUpdate): void => {
         updates.push(u);
       },
-      findIdByOrderNo: async (orderNo: string): Promise<string | null> => {
-        lookups.push(orderNo);
+      findIdByOrderNo: async (userId: string, orderNo: string): Promise<string | null> => {
+        lookups.push({ userId, orderNo });
         await Promise.resolve();
         return opts.existingId ?? null;
       },
@@ -552,7 +552,9 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // ★ PostgREST 의 update 는 0행이어도 에러가 아니다 — 조회 없이 갱신만 하면 이 기록이
     //   조용히 사라지고, 사용자는 자기 계좌에서 나간 주문을 어디서도 볼 수 없다.
-    expect(orders.lookups).toEqual(["0000099999"]);
+    // 조회는 **소유자와 함께** 나간다 — `order_no` 는 일별 재사용 시퀀스라 단독으로는
+    // 남의 행·어제 행을 매치시킨다 (gap 1 / T-16-14).
+    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000099999" }]);
     expect(orders.inserts[0]).toMatchObject({
       userId: USER_A,
       origin: "limit_chaser",

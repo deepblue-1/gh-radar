@@ -10,14 +10,24 @@
  * Phase 16 Plan 08 추가 (D-03) — **insert 도 이 모듈이 한다.** 큐 규율과 정반대인
  * 「`await` 로 즉시 쓰고 id 를 돌려준다」가 의도임을 ⑪~⑭ 가 고정한다. 반환 `id` 가 상관
  * 1순위 키라 큐에 넣으면 호출자가 게이트웨이로 보내기 전에 쥘 수 없다 (A10).
+ *
+ * Phase 16 Plan 18 추가 (gap 1) — 위 「Supabase 를 흉내 내는 대신 sink 를 주입한다」가
+ * **정확히 gap 1 을 놓친 사각지대**다. 쓰기 sink 를 스텁으로 바꾸면 「어떤 `WHERE` 로
+ * 나가는가」는 아무도 보지 않는다. 그래서 마지막 describe 블록 한 벌만 예외로, 가짜
+ * `SupabaseClient` 를 진짜 sink 팩토리에 주입해 **적용된 필터 자체**를 단언한다. 위 규율의
+ * 폐기가 아니라 예외 추가다 — 기존 케이스는 그대로 둔다.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   ORDER_QUEUE_LIMIT,
   OrderStore,
+  kstDayRangeUtc,
   rowPatchOf,
   selectorOf,
+  supabaseOrderLookupSink,
+  supabaseOrderSink,
   type OrderInsertRow,
   type OrderSelector,
   type OrderRowPatch,
@@ -50,11 +60,11 @@ function recordingSinks(opts: { insertFails?: boolean; existingId?: string | nul
   sinks: OrderSinks;
   written: Written[];
   inserted: OrderInsertRow[];
-  looked: string[];
+  looked: { userId: string; orderNo: string }[];
 } {
   const written: Written[] = [];
   const inserted: OrderInsertRow[] = [];
-  const looked: string[] = [];
+  const looked: { userId: string; orderNo: string }[] = [];
   return {
     written,
     inserted,
@@ -70,8 +80,8 @@ function recordingSinks(opts: { insertFails?: boolean; existingId?: string | nul
         inserted.push(row);
         return `id-${inserted.length}`;
       },
-      findIdByOrderNo: async (orderNo) => {
-        looked.push(orderNo);
+      findIdByOrderNo: async (userId, orderNo) => {
+        looked.push({ userId, orderNo });
         await Promise.resolve();
         return opts.existingId ?? null;
       },
@@ -130,13 +140,18 @@ describe("OrderStore — 비동기 갱신 큐", () => {
     store.start();
     store.start(); // 멱등 — 타이머가 두 벌 돌면 같은 항목을 두 번 쓴다
 
-    store.enqueueUpdate({ orderNo: "0000012345", status: "filled", filledQty: 3 });
+    // `userId` 가 있어야 `order_no` 셀렉터가 선다 (gap 1) — 없으면 드롭이다(⑧ 참조).
+    store.enqueueUpdate({ orderNo: "0000012345", userId: "user-a", status: "filled", filledQty: 3 });
     expect(written).toHaveLength(0);
 
     await vi.advanceTimersByTimeAsync(200);
 
     expect(written).toHaveLength(1);
-    expect(written[0]?.sel).toEqual({ column: "order_no", value: "0000012345" });
+    expect(written[0]?.sel).toEqual({
+      column: "order_no",
+      value: "0000012345",
+      userId: "user-a",
+    });
     store.close();
   });
 
@@ -212,13 +227,18 @@ describe("OrderStore — 비동기 갱신 큐", () => {
       column: "id",
       value: "row-1",
     });
-    expect(selectorOf({ orderNo: "0000012345" })).toEqual({
+    expect(selectorOf({ orderNo: "0000012345", userId: "user-a" })).toEqual({
       column: "order_no",
       value: "0000012345",
+      userId: "user-a",
     });
     // 빈 문자열은 셀렉터가 아니다 — 접수 전 거부는 order_no 가 "" 로 온다.
     expect(selectorOf({ orderRowId: "", orderNo: "" })).toBeNull();
     expect(selectorOf({})).toBeNull();
+    // ★ gap 1 — `order_no` 는 일별 재사용 시퀀스다. `userId` 없는 셀렉터는 「이 행」이 아니라
+    //   「이 번호를 쓴 모든 사용자의 모든 날짜」를 가리킨다. 그래서 드롭이다.
+    expect(selectorOf({ orderNo: "0000012345", status: "filled" })).toBeNull();
+    expect(selectorOf({ orderNo: "0000012345", userId: "" })).toBeNull();
   });
 
   it("⑨ rowPatchOf — 빈 값은 컬럼을 만들지 않고 filled_qty 는 음수를 0 으로 친다", () => {
@@ -290,14 +310,18 @@ describe("OrderStore — 비동기 갱신 큐", () => {
     const { sinks, looked } = recordingSinks({ existingId: "row-9" });
     const store = new OrderStore(sinks);
 
-    expect(await store.findIdByOrderNo("0000012345")).toBe("row-9");
+    expect(await store.findIdByOrderNo("user-a", "0000012345")).toBe("row-9");
     // 접수 전 거부는 order_no 가 "" 다 — 그것으로 조회하면 전 테이블이 후보가 된다.
-    expect(await store.findIdByOrderNo("")).toBeNull();
-    expect(looked).toEqual(["0000012345"]);
+    expect(await store.findIdByOrderNo("user-a", "")).toBeNull();
+    // 소유자 없는 조회도 마찬가지로 전 사용자 스캔이다 (gap 1).
+    expect(await store.findIdByOrderNo("", "0000012345")).toBeNull();
+    expect(looked).toEqual([{ userId: "user-a", orderNo: "0000012345" }]);
 
     // 미결선을 `null`(=행 없음)로 열화하면 중복 insert 가 난다.
     const updateOnly = new OrderStore(recordingSink().sink);
-    await expect(updateOnly.findIdByOrderNo("0000012345")).rejects.toThrow("lookup sink 미결선");
+    await expect(updateOnly.findIdByOrderNo("user-a", "0000012345")).rejects.toThrow(
+      "lookup sink 미결선",
+    );
     await expect(updateOnly.insertRequest(insertRow())).rejects.toThrow("insert sink 미결선");
   });
 
@@ -305,5 +329,185 @@ describe("OrderStore — 비동기 갱신 큐", () => {
     expect(rowPatchOf({ orderNo: "0000012345", origin: "vi" }).origin).toBe("vi");
     // 안 실으면 컬럼을 만들지 않는다 — 기존 값을 덮지 않기 위해서다.
     expect(rowPatchOf({ orderRowId: "r", status: "filled" })).not.toHaveProperty("origin");
+  });
+});
+
+// ============================================================
+// Supabase 쿼리 경계 (gap 1)
+// ============================================================
+
+/** 가짜가 기록하는 필터 1건. `order`/`limit` 도 같은 배열에 남겨 순서를 볼 수 있게 한다. */
+type FakeFilter = { op: "eq" | "gte" | "lt" | "order" | "limit"; column: string; value: unknown };
+
+/** 가짜가 본 쿼리 1건. `matched` 는 필터를 **실제로 적용한** 결과다. */
+type FakeQuery = {
+  verb: "select" | "update";
+  filters: FakeFilter[];
+  patch?: OrderRowPatch;
+  matched: FakeRow[];
+};
+
+type FakeRow = { id: string; user_id: string; order_no: string; created_at: string };
+
+/**
+ * `dma_orders` 3행을 든 가짜 `SupabaseClient`.
+ *
+ * 스텁이 아니라 **필터를 실제로 적용한다** — 「`.eq("user_id", …)` 를 불렀다」만 보면 그
+ * 필터가 아무 행도 거르지 않아도 초록이 된다. 그래서 `matched` 로 「영향 받은 행」을 계산해
+ * 남의 행·어제 행이 그 안에 없음을 단언한다.
+ */
+function fakeDmaOrders(rows: FakeRow[]): { supabase: SupabaseClient; queries: FakeQuery[] } {
+  const queries: FakeQuery[] = [];
+
+  function applyFilters(filters: FakeFilter[]): FakeRow[] {
+    let out = [...rows];
+    for (const f of filters) {
+      if (f.op === "eq") out = out.filter((r) => (r as unknown as Record<string, unknown>)[f.column] === f.value);
+      else if (f.op === "gte") out = out.filter((r) => r.created_at >= String(f.value));
+      else if (f.op === "lt") out = out.filter((r) => r.created_at < String(f.value));
+      else if (f.op === "order") {
+        const desc = (f.value as { ascending?: boolean } | undefined)?.ascending === false;
+        out = [...out].sort((a, b) =>
+          desc ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at),
+        );
+      } else if (f.op === "limit") out = out.slice(0, Number(f.value));
+    }
+    return out;
+  }
+
+  function builder(query: FakeQuery): Record<string, unknown> {
+    const self: Record<string, unknown> = {};
+    const push = (op: FakeFilter["op"]) => (column: string, value: unknown) => {
+      query.filters.push({ op, column, value });
+      return self;
+    };
+    self.eq = push("eq");
+    self.gte = push("gte");
+    self.lt = push("lt");
+    self.order = push("order");
+    self.limit = (n: number) => {
+      query.filters.push({ op: "limit", column: "", value: n });
+      return self;
+    };
+    // Supabase 빌더는 thenable 이다 — `await` 시점에 필터를 적용해 결과를 만든다.
+    self.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
+      query.matched = applyFilters(query.filters);
+      const result =
+        query.verb === "select"
+          ? { data: query.matched.map((r) => ({ id: r.id })), error: null }
+          : { data: null, error: null };
+      return Promise.resolve(result).then(resolve, reject);
+    };
+    return self;
+  }
+
+  const supabase = {
+    from: (table: string) => {
+      if (table !== "dma_orders") throw new Error(`예상 밖 테이블: ${table}`);
+      return {
+        select: (_cols: string) => {
+          const q: FakeQuery = { verb: "select", filters: [], matched: [] };
+          queries.push(q);
+          return builder(q);
+        },
+        update: (patch: OrderRowPatch) => {
+          const q: FakeQuery = { verb: "update", filters: [], patch, matched: [] };
+          queries.push(q);
+          return builder(q);
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+
+  return { supabase, queries };
+}
+
+const ORDER_NO = "0000012345";
+const USER_A = "11111111-2222-4333-8444-55555555555a";
+const USER_B = "11111111-2222-4333-8444-55555555555b";
+
+/** 오늘(KST) 안 / 어제 시각을 지금 기준으로 만든다 — 자정 경계에서도 흔들리지 않는다. */
+function fixtureRows(): FakeRow[] {
+  const { from } = kstDayRangeUtc();
+  const todayIso = new Date(new Date(from).getTime() + 3600_000).toISOString();
+  const yesterdayIso = new Date(new Date(from).getTime() - 3600_000).toISOString();
+  return [
+    { id: "row-b-today", user_id: USER_B, order_no: ORDER_NO, created_at: todayIso },
+    { id: "row-a-yesterday", user_id: USER_A, order_no: ORDER_NO, created_at: yesterdayIso },
+    { id: "row-a-today", user_id: USER_A, order_no: ORDER_NO, created_at: todayIso },
+  ];
+}
+
+describe("Supabase 쿼리 경계 (gap 1)", () => {
+  it("⓵ 조회는 내 오늘 행만 찾는다 — 남의 오늘 행도, 내 어제 행도 아니다", async () => {
+    const { supabase, queries } = fakeDmaOrders(fixtureRows());
+
+    const id = await supabaseOrderLookupSink(supabase)(USER_A, ORDER_NO);
+
+    // 어제 행(row-a-yesterday)이 매치되면 오늘 자동주문의 insert 가 일어나지 않는다 —
+    // 그것이 16-08 이 막겠다고 선언한 감사 기록 결손(Pitfall 18)이다.
+    expect(id).toBe("row-a-today");
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.matched.map((r) => r.id)).toEqual(["row-a-today"]);
+  });
+
+  it("⓶ 조회 필터에 user_id eq 와 created_at 의 gte·lt 가 모두 있다", async () => {
+    const { supabase, queries } = fakeDmaOrders(fixtureRows());
+
+    await supabaseOrderLookupSink(supabase)(USER_A, ORDER_NO);
+
+    const filters = queries[0]?.filters ?? [];
+    expect(filters).toContainEqual(expect.objectContaining({ op: "eq", column: "user_id", value: USER_A }));
+    expect(filters).toContainEqual(expect.objectContaining({ op: "eq", column: "order_no", value: ORDER_NO }));
+    expect(filters).toContainEqual(expect.objectContaining({ op: "gte", column: "created_at" }));
+    expect(filters).toContainEqual(expect.objectContaining({ op: "lt", column: "created_at" }));
+  });
+
+  it("⓷ order_no update 는 남의 행·어제 행에 닿지 않는다 (T-16-14 테넌트 경계)", async () => {
+    const { supabase, queries } = fakeDmaOrders(fixtureRows());
+
+    await supabaseOrderSink(supabase)(
+      { column: "order_no", value: ORDER_NO, userId: USER_A },
+      { status: "filled", updated_at: new Date().toISOString() },
+    );
+
+    const q = queries[0];
+    expect(q?.verb).toBe("update");
+    expect(q?.filters).toContainEqual(expect.objectContaining({ op: "eq", column: "user_id", value: USER_A }));
+    expect(q?.filters).toContainEqual(expect.objectContaining({ op: "gte", column: "created_at" }));
+    expect(q?.filters).toContainEqual(expect.objectContaining({ op: "lt", column: "created_at" }));
+    // ★ 영향 받은 행 = 내 오늘 행 하나뿐이다. 셀렉터 한 축이던 시절엔 3행 전부였다.
+    expect(q?.matched.map((r) => r.id)).toEqual(["row-a-today"]);
+  });
+
+  it("⓸ id 셀렉터는 한 축으로 충분하다 — PK 라 사용자·날짜를 덧붙이지 않는다", async () => {
+    const { supabase, queries } = fakeDmaOrders(fixtureRows());
+
+    await supabaseOrderSink(supabase)({ column: "id", value: "row-a-today" }, { status: "filled" });
+
+    expect(queries[0]?.filters).toEqual([
+      { op: "eq", column: "id", value: "row-a-today" },
+    ]);
+  });
+
+  it("⓹ userId 없는 order_no 갱신은 셀렉터가 서지 않는다 — 쿼리 자체가 나가지 않는다", async () => {
+    expect(selectorOf({ orderNo: ORDER_NO, status: "filled" })).toBeNull();
+
+    const { supabase, queries } = fakeDmaOrders(fixtureRows());
+    const store = new OrderStore(supabaseOrderSink(supabase));
+    store.enqueueUpdate({ orderNo: ORDER_NO, status: "filled" });
+    await store.flushNow();
+
+    // 큐에 실리지 않았으므로 Supabase 로 나간 쿼리가 0건이다 (S-5 — 드롭은 카운터로 드러난다).
+    expect(queries).toHaveLength(0);
+    expect(store.stats().dropped).toBe(1);
+  });
+
+  it("⓺ kstDayRangeUtc 는 서버 정본과 같은 반열린 24시간 구간이다", () => {
+    const { from, to } = kstDayRangeUtc(new Date("2026-09-09T23:30:00Z"));
+
+    // 2026-09-09 23:30 UTC = 2026-09-10 08:30 KST → 그 날의 00:00 KST 부터다.
+    expect(from).toBe(new Date("2026-09-10T00:00:00+09:00").toISOString());
+    expect(new Date(to).getTime() - new Date(from).getTime()).toBe(24 * 3600_000);
   });
 });
