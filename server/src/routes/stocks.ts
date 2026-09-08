@@ -57,11 +57,25 @@ stocksRouter.get("/search", async (req, res, next) => {
     }
     const supabase = req.app.locals.supabase as SupabaseClient;
 
-    // 1. 마스터 universe 에서 매치 (name ilike + code ilike)
+    // 1. 마스터 universe 에서 매치 (name ilike + code ilike) → ETP·상폐 제외 → 정렬 → limit
+    //
+    // ETP 블랙리스트 (quick-260908-oh6): master-sync 의 ETP 코드 필터 확대 이후 마스터에
+    // ELW 2,735 · 영문코드 ETF 303 이 유입돼 name-asc 앞자리를 점거, 실제 주권이 limit 20
+    // 밖으로 밀려났다(삼성전자·현대차·카카오 응답 탈락). 기존 SQL 선례 4곳
+    // (comovement_tables · cosurge_pair_score_v2 · cosurge_recent_pairs · surge_upper_cap)
+    // 이 모두 같은 블랙리스트를 쓰므로 대칭을 맞춘다.
+    // 화이트리스트로 바꾸지 않는다 — 부동산투자회사·외국주권·주식예탁증권 등은 실제 상장
+    // 주식이고, master-sync 가 아직 신원을 못 채운 '미확인' sentinel 도 검색돼야 한다.
+    // 종목명 패턴(/ETN|ETF|인버스|레버리지/) fallback 도 쓰지 않는다 — 실측상 이름 패턴에
+    // 걸리면서 group 이 ETP 가 아닌 활성 행은 0건이라 정상 주식 오배제 위험만 남는다.
+    // security_group 은 필터에만 쓰고 MASTER_COLS 에는 넣지 않는다 (PostgREST 는 select
+    // 하지 않은 컬럼으로도 필터할 수 있고, 응답 스키마 계약을 바꾸지 않기 위함).
     const { data: masters, error: mErr } = await supabase
       .from("stocks")
       .select(MASTER_COLS)
       .or(`name.ilike.%${q}%,code.ilike.%${q}%`)
+      .not("security_group", "in", '("ETF","ETN","ELW")')
+      .eq("is_delisted", false)
       .order("name", { ascending: true })
       .limit(20);
     if (mErr) throw mErr;

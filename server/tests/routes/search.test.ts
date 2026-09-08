@@ -2,7 +2,17 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
 import { mockSupabase } from "../fixtures/supabase-mock";
-import { allMasters, samsungQuote } from "../fixtures/stocks";
+import {
+  allMasters,
+  samsungQuote,
+  samsungMaster,
+  hynixMaster,
+  hynixEtfMasters,
+  delistedSamsungMaster,
+  reitMaster,
+  unknownGroupMaster,
+  makeElwCrowd,
+} from "../fixtures/stocks";
 import { sanitizeSearchTerm } from "../../src/schemas/search";
 
 const app = (state: any = { masters: allMasters, quotes: [samsungQuote] }) =>
@@ -59,6 +69,67 @@ describe("/api/stocks/search (마스터 universe + LEFT JOIN stock_quotes)", () 
     );
     expect(r.status).toBe(200);
     expect(r.body.some((s: any) => s.code === "005930")).toBe(true);
+  });
+});
+
+// 운영 DB 회귀 (2026-09-08): master-sync 가 ETP 코드 필터를 ^[0-9A-Z]{6}$ 로 넓히면서
+// stocks 마스터가 3,999 → 7,453 행이 됐다 (ELW 2,735 · 영문코드 ETF 303 신규 유입).
+// 스캐너(화이트리스트)·home-sync(제외집합)와 달리 /search 만 마스터를 무필터로 읽어
+// ETF/ELW/상폐가 name-asc 앞자리를 점거 → 실제 주권이 limit 20 밖으로 밀려났다
+// (삼성전자 3위→84위, 현대차 3위→106위, 카카오 1위→24위 = 응답 탈락).
+describe("ETP/상폐 제외 회귀 (quick-260908-oh6)", () => {
+  const codesOf = (body: any[]) => body.map((s: any) => s.code as string);
+
+  it("q=삼성전자 → ELW 25건이 앞자리를 채워도 주권 005930 이 응답에 남는다 (crowd-out 해소)", async () => {
+    const elw = makeElwCrowd(25);
+    const elwCodes = new Set(elw.map((e) => e.code));
+    const r = await request(
+      app({ masters: [samsungMaster, ...elw], quotes: [samsungQuote] }),
+    ).get("/api/stocks/search?q=" + encodeURIComponent("삼성전자"));
+    expect(r.status).toBe(200);
+    const codes = codesOf(r.body);
+    expect(codes.filter((c) => elwCodes.has(c))).toEqual([]);
+    expect(codes).toContain("005930");
+  });
+
+  it("q=하이닉스 → ETF 는 제외되고 주권 000660 이 응답에 있다", async () => {
+    const etfCodes = new Set(hynixEtfMasters.map((e) => e.code));
+    const r = await request(
+      app({ masters: [hynixMaster, ...hynixEtfMasters], quotes: [] }),
+    ).get("/api/stocks/search?q=" + encodeURIComponent("하이닉스"));
+    expect(r.status).toBe(200);
+    const codes = codesOf(r.body);
+    expect(codes.filter((c) => etfCodes.has(c))).toEqual([]);
+    expect(codes).toContain("000660");
+  });
+
+  it("q=삼성 → 상장폐지 종목(is_delisted=true)은 응답에 없다", async () => {
+    const r = await request(
+      app({
+        masters: [samsungMaster, delistedSamsungMaster],
+        quotes: [samsungQuote],
+      }),
+    ).get("/api/stocks/search?q=" + encodeURIComponent("삼성"));
+    expect(r.status).toBe(200);
+    const codes = codesOf(r.body);
+    expect(codes).not.toContain(delistedSamsungMaster.code);
+    expect(codes).toContain("005930");
+  });
+
+  // 과잉필터 가드 — 블랙리스트를 화이트리스트로 바꾸거나 종목명 패턴 fallback 을 넣으면
+  // 여기서 깨진다. 수정 전에도 통과하는 게 정상이며 역할은 이후 회귀 감시다.
+  it("q=삼성 → 부동산투자회사·'미확인' sentinel 은 계속 검색된다 (과잉필터 가드)", async () => {
+    const r = await request(
+      app({
+        masters: [samsungMaster, reitMaster, unknownGroupMaster],
+        quotes: [samsungQuote],
+      }),
+    ).get("/api/stocks/search?q=" + encodeURIComponent("삼성"));
+    expect(r.status).toBe(200);
+    const codes = codesOf(r.body);
+    expect(codes).toContain(reitMaster.code);
+    expect(codes).toContain(unknownGroupMaster.code);
+    expect(codes).toContain("005930");
   });
 });
 

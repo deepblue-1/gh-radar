@@ -132,9 +132,8 @@ export function mockSupabase(state: State): SupabaseClient {
       // PostgREST `.not(col, "in", '("A","B")')` — /search 의 ETP 블랙리스트 제외에 쓰인다.
       // 미지원 연산자를 조용히 no-op 통과시키면 목이 라우트 회귀를 못 잡으므로 명시 throw 한다
       // (CLAUDE.md "무로그 fail-safe 금지" 교훈).
-      not: vi
-        .fn()
-        .mockImplementation((col: string, operator: string, value: unknown) => {
+      not: vi.fn().mockImplementation(
+        (col: string, operator: string, value: unknown) => {
           if (operator !== "in") {
             throw new Error(
               `supabase-mock: .not() 미지원 연산자 '${operator}' — 목에 구현을 추가하라`,
@@ -162,7 +161,8 @@ export function mockSupabase(state: State): SupabaseClient {
             return !excluded.has(String(v));
           });
           return builder;
-        }),
+        },
+      ),
       order: vi
         .fn()
         .mockImplementation((col: string, opts?: { ascending?: boolean }) => {
