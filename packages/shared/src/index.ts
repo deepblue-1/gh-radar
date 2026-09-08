@@ -43,6 +43,27 @@ export type {
   CreateOrderResponse,
   DmaOrderStatus,
   DmaOrderRow,
+  // --- 16-03 전략·주문 wss 계약. 상태 3종 + 인바운드 6종 + 아웃바운드 7종 ---
+  RelayLcCrud,
+  RelayLcWatchSide,
+  RelayLimitChaser,
+  RelayLimitChaserInput,
+  RelayViTrigger,
+  RelayViOrderState,
+  RelayViOrderItem,
+  RelayLcSetMsg,
+  RelayViSetMsg,
+  RelayViConfirmMsg,
+  RelayStrategiesDisableMsg,
+  RelayOrderNewMsg,
+  RelayOrderCancelMsg,
+  RelayLimitChaserMsg,
+  RelayLimitChaserSnapMsg,
+  RelayViTriggerMsg,
+  RelayViListMsg,
+  RelayViNoticeMsg,
+  RelayStrategiesDisabledMsg,
+  RelayOrderResultMsg,
 } from "./relay";
 export { RELAY_STATE_LABELS, RELAY_WS_CLOSE, ORDER_CONDITION_NORMAL } from "./relay";
 export type { Summary, SummaryType, Sentiment } from "./summary";
