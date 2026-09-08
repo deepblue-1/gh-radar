@@ -65,9 +65,30 @@ describe("ka10001RowToOhlcUpdate", () => {
     expect(r.open).toBe(39900);
   });
 
-  it("stk_cd 6자 아니면 throw", () => {
+  // 2026-09-08 회귀: 영문 포함 단축코드(KRX 숫자 소진분)가 STEP2 에서도 통과해야 한다.
+  it("0011T0 (채비, 영문 포함 단축코드) 정상 매핑", () => {
+    const r = ka10001RowToOhlcUpdate(
+      { ...samsung, stk_cd: "0011T0" } as any,
+      "2026-09-08",
+    );
+    expect(r.code).toBe("0011T0");
+    expect(r.open).toBe(70000);
+  });
+
+  it("stk_cd 가 6자 단축코드(숫자+대문자) 아니면 throw", () => {
+    // 7자
     expect(() => ka10001RowToOhlcUpdate(
       { ...samsung, stk_cd: "INVALID" } as any,
+      "2026-05-14",
+    )).toThrow(/Invalid ka10001 stk_cd/);
+    // 소문자 포함
+    expect(() => ka10001RowToOhlcUpdate(
+      { ...samsung, stk_cd: "0011t0" } as any,
+      "2026-05-14",
+    )).toThrow(/Invalid ka10001 stk_cd/);
+    // 5자
+    expect(() => ka10001RowToOhlcUpdate(
+      { ...samsung, stk_cd: "12345" } as any,
       "2026-05-14",
     )).toThrow(/Invalid ka10001 stk_cd/);
   });

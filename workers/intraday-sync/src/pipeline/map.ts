@@ -4,6 +4,7 @@
 // RESEARCH §2.2 기준. CONTEXT D-09 (부호 prefix), D-10 (_AL strip), D-23 (tradeAmount 근사값).
 
 import type { KiwoomKa10027Row, IntradayCloseUpdate } from "@gh-radar/shared";
+import { SHORT_CODE_RE } from "@gh-radar/shared";
 
 /**
  * 키움 signed string price 를 절댓값 + 방향으로 분리.
@@ -67,14 +68,15 @@ export function stripAlSuffix(stkCd: string): string {
  *   기존 workers/ingestion/src/pipeline/map.ts:5 의 "근사값은 허용하지 않음" 정책 반전 —
  *   ka10027/ka10001 응답에 KIS acml_tr_pbmn 동등 필드 부재로 근사값 채택.
  *
- * stk_cd 가 6자 숫자가 아니면 throw — caller pipeline 이 정상 응답 보장 가정.
+ * stk_cd 가 6자 단축코드(숫자+대문자)가 아니면 throw — caller pipeline 이 정상 응답 보장 가정.
+ *   (KRX 2025~ 영문 포함 단축코드 대응: SHORT_CODE_RE 단일 정의를 @gh-radar/shared 에서 가져온다.)
  */
 export function ka10027RowToCloseUpdate(
   row: KiwoomKa10027Row,
   dateIso: string,
 ): IntradayCloseUpdate {
   const code = stripAlSuffix(row.stk_cd);
-  if (!/^\d{6}$/.test(code)) {
+  if (!SHORT_CODE_RE.test(code)) {
     throw new Error(`Invalid stk_cd after strip: "${row.stk_cd}" → "${code}"`);
   }
 

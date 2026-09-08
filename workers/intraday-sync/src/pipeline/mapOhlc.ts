@@ -4,13 +4,16 @@
 // RESEARCH §1.5 + §2.3. D-15 (mac 단위 가설), D-23 트레이딩 시그널 정책.
 
 import type { KiwoomKa10001Row, IntradayOhlcUpdate } from "@gh-radar/shared";
+import { SHORT_CODE_RE } from "@gh-radar/shared";
 import { parseSignedPrice, parseOptionalSignedNumber } from "./map";
 
 export function ka10001RowToOhlcUpdate(
   row: KiwoomKa10001Row,
   dateIso: string,
 ): IntradayOhlcUpdate {
-  if (!/^\d{6}$/.test(row.stk_cd)) {
+  // 6자 단축코드(숫자+대문자). KRX 2025~ 영문 포함 코드(예: 0011T0) 를 여기서 떨구면
+  // STEP2 OHLC 가 통째로 비므로 shared 단일 정의를 쓴다.
+  if (!SHORT_CODE_RE.test(row.stk_cd)) {
     throw new Error(`Invalid ka10001 stk_cd: "${row.stk_cd}"`);
   }
 

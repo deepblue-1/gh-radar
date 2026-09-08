@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { KiwoomKa10027Row } from "@gh-radar/shared";
+import { SHORT_CODE_RE } from "@gh-radar/shared";
 import { logger } from "../logger";
 import { stripAlSuffix } from "./map";
 
@@ -21,7 +22,8 @@ export async function bootstrapMissingStocks(
   const codeMap = new Map<string, { code: string; name: string }>();
   for (const r of rows) {
     const code = stripAlSuffix(r.stk_cd);
-    if (!/^\d{6}$/.test(code)) continue;
+    // 6자 단축코드(숫자+대문자) — 영문 포함 신규 상장 종목도 bootstrap 대상이다.
+    if (!SHORT_CODE_RE.test(code)) continue;
     if (codeMap.has(code)) continue;
     codeMap.set(code, { code, name: r.stk_nm ?? code });
   }
