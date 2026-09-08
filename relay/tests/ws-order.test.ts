@@ -100,17 +100,26 @@ function fakeSupabase(): SupabaseClient {
  * 여기만 가짜인 이유: 이 테스트가 보려는 것은 SQL 이 아니라 **어떤 값이 어떤 경로로 기록에
  * 닿는가**다. insert 인지 update 인지, 그리고 그 인자가 무엇인지가 전부다.
  */
-function mkOrderStore(opts: { existingId?: string | null; insertFails?: boolean } = {}) {
+function mkOrderStore(
+  opts: { existingId?: string | null; insertFails?: boolean; insertGate?: Promise<void> } = {},
+) {
   const inserts: OrderInsertRow[] = [];
   const updates: OrderUpdate[] = [];
   const lookups: { userId: string; orderNo: string }[] = [];
+  /** insert **진입** 횟수. `insertGate` 로 왕복을 붙잡은 동안 경주를 관측하는 창이다 (WR-01). */
+  const started = { insert: 0 };
   let nextId = 1;
   return {
     inserts,
     updates,
     lookups,
+    started,
     store: {
       insertRequest: async (row: OrderInsertRow): Promise<string> => {
+        started.insert += 1;
+        // 게이트가 있으면 그것이 풀릴 때까지 왕복이 끝나지 않는다 — 실제 Supabase 지연을
+        // 타이머 없이(가짜 타이머 환경이다) 결정론적으로 재현한다.
+        if (opts.insertGate !== undefined) await opts.insertGate;
         await Promise.resolve();
         if (opts.insertFails === true) throw new Error("supabase insert down");
         inserts.push(row);
@@ -693,5 +702,84 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // ★ ISIN 이 같아도 사용자가 다르면 상관되지 않는다. 여기가 무너지면 남의 주문 결과를 받는다.
     expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
+  });
+
+  // ----------------------------------------------------------
+  // 자동주문 경주 · 소유자 경계 — WR-01 / gap 1
+  // ----------------------------------------------------------
+
+  /** 하네스를 새 `orders` 스텁으로 다시 세운다 (⑬ 과 같은 절차). */
+  async function restartHarness(): Promise<void> {
+    await fanout.close();
+    await sessions.closeAll();
+    hub.closeAll();
+    await new Promise<void>((r) => server.close(() => r()));
+    await startHarness();
+  }
+
+  it("⑱ 같은 자동주문의 접수·체결 통보가 insert 왕복 중에 겹쳐도 insert 는 1회다 (WR-01)", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    orders = mkOrderStore({ insertGate: gate });
+    await restartHarness();
+    await authed("token-a");
+
+    const sock = gatewaySocket();
+    // ① 접수(A) 통보 — 조회는 「행 없음」이고 insert 왕복이 시작된다.
+    gateway.pushOrderResp(sock, {
+      noticeType: "A",
+      orderNo: "0000099999",
+      origin: "LimitChaser",
+      quantity: 7,
+      price: 12_345,
+    });
+    await waitFor(() => orders.started.insert === 1, "첫 insert 진입");
+
+    // ② 그 왕복이 **끝나기 전에** 체결(E) 통보가 도착한다. 가드가 없으면 여기서 두 번째
+    //    조회가 다시 「행 없음」을 보고 두 번째 insert 를 시작한다 — 같은 주문이 감사
+    //    기록에 두 벌 남는다.
+    gateway.pushOrderResp(sock, {
+      noticeType: "E",
+      orderNo: "0000099999",
+      origin: "LimitChaser",
+      quantity: 7,
+      price: 12_345,
+    });
+    await flushIo(20);
+    expect(orders.started.insert).toBe(1);
+
+    release?.();
+    await waitFor(() => orders.updates.length >= 2, "두 통보 모두 기록");
+
+    // ★ 행은 1건, 조회도 1회다 — 두 번째 통보는 진행 중인 Promise 를 재사용했다.
+    expect(orders.inserts).toHaveLength(1);
+    expect(orders.lookups).toHaveLength(1);
+    // 그러면서 두 통보의 수명주기 값은 **둘 다** 같은 행에 붙는다.
+    expect(orders.updates.filter((u) => u.orderRowId === "row-1")).toHaveLength(2);
+    expect(orders.updates).toContainEqual(expect.objectContaining({ noticeType: "A" }));
+    expect(orders.updates).toContainEqual(expect.objectContaining({ noticeType: "E" }));
+  });
+
+  it("⑲ 자동주문 조회는 그 연결의 userId 를 첫 인자로 싣는다 (gap 1 / T-16-14)", async () => {
+    // B 만 붙인다 — 조회 인자가 하드코딩이 아니라 **그 연결의 소유자**임을 보이기 위해서다.
+    await authed("token-b");
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "A",
+      orderNo: "0000088888",
+      origin: "LimitChaser",
+      quantity: 3,
+      price: 5_000,
+    });
+    await waitFor(() => orders.lookups.length === 1, "자동주문 조회");
+
+    expect(orders.lookups[0]?.userId).toBe(USER_B);
+    expect(orders.lookups[0]?.orderNo).toBe("0000088888");
+    // insert 행의 소유자도 같은 사용자다 — 조회와 기록이 다른 사용자를 가리키면 그것이 곧
+    // 테넌트 경계 붕괴다.
+    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
+    expect(orders.inserts[0]?.userId).toBe(USER_B);
   });
 });

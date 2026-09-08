@@ -191,6 +191,19 @@ function claimKeys(msg: RelayOrderNewMsg | RelayOrderCancelMsg): [string, string
  */
 const RELAY_RESULT_CODE = -1;
 
+/**
+ * `ensureRow` 의 결과 (WR-01).
+ *
+ * `string | null` 로 두지 않는 이유: 「행을 못 만들었다」와 「조회 자체가 실패했다」는 후속
+ * 처리가 다르다. 전자는 드롭(사유는 이미 로그), 후자는 **`order_no` 셀렉터로 열화 갱신**이다
+ * (S-5 — 조회가 죽었다고 통보를 버리지 않는다). 두 경우를 같은 `null` 로 뭉개면 그 열화
+ * 경로가 사라진다.
+ */
+type EnsureResult =
+  | { kind: "row"; id: string }
+  | { kind: "lookup-failed" }
+  | { kind: "unavailable" };
+
 // ============================================================
 // 팩토리
 // ============================================================
@@ -201,6 +214,14 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   const conns = new Map<C, ConnState>();
   /** userId → 그 사용자의 연결들. 통보 상관이 훑을 범위를 그 사용자로 좁힌다 (T-15-02). */
   const byUser = new Map<string, Set<C>>();
+  /**
+   * `${userId}|${orderNo}` → 진행 중인 「조회 → 없으면 insert」 왕복 (WR-01 / T-16-16).
+   *
+   * 같은 자동주문의 접수(A)·체결(E) 통보는 **수십 ms 간격**으로 겹쳐 온다. 각자 조회를
+   * 시작하면 둘 다 「행 없음」을 보고 둘 다 insert 해 같은 주문이 감사 기록에 두 벌 남는다.
+   * 그래서 첫 통보가 만든 Promise 를 두 번째가 **재사용**한다 — 왕복은 1회, 행도 1건이다.
+   */
+  const inflight = new Map<string, Promise<EnsureResult>>();
 
   function stateOf(conn: C, userId: string): ConnState {
     const existing = conns.get(conn);
@@ -288,49 +309,84 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    let existingId: string | null;
-    try {
-      existingId = await deps.orderStore.findIdByOrderNo(userId, notice.orderNo);
-    } catch (err) {
+    const result = await ensureRow(userId, notice);
+
+    if (result.kind === "row") {
+      // 수명주기 필드(결과코드·통보종류·메시지·체결수량)는 큐로 넘긴다 — insert 는 「요청」
+      // 모양이고 그 뒤의 상태는 update 경로가 소유한다는 경계를 유지한다.
+      deps.orderStore.enqueueUpdate({ ...patch, orderRowId: result.id });
+      return;
+    }
+
+    if (result.kind === "lookup-failed") {
       // 조회가 실패했다고 통보를 버리지 않는다. 행이 있을 수도 있으니 갱신은 시도한다 —
       // 셀렉터가 사용자·당일로 좁혀져 있으므로 없으면 0행이고 있으면 **내 행**이다.
       // 조용히 넘기지는 않는다 (S-5).
-      logger.error(
-        { err, origin: notice.originKind, orderNo: notice.orderNo },
-        "[WS-order] 자동주문 통보 — 기존 행 조회 실패, 갱신만 시도",
-      );
       deps.orderStore.enqueueUpdate({ ...patch, userId });
-      return;
     }
+    // `unavailable` 은 드롭이다 — 사유는 `ensureRow`/`autoInsertRow` 가 이미 남겼다.
+  }
 
-    if (existingId !== null) {
+  /**
+   * 「조회 → 없으면 insert」를 **주문번호 단위로 한 번만** 수행한다 (WR-01 / T-16-16).
+   *
+   * 이 함수의 존재 이유는 경주다. 같은 자동주문의 접수·체결 통보가 insert 왕복(수십~수백 ms)
+   * 중에 겹치면, 가드가 없을 때 두 통보가 각각 「행 없음」을 보고 각각 insert 한다 — 같은
+   * 주문이 감사 기록에 두 벌 남고, 그 뒤의 갱신은 둘 중 하나에만 붙는다.
+   *
+   * 키는 `${userId}|${orderNo}` 다. 사용자를 키에 넣는 이유는 gap 1 과 같다 — 브로커
+   * 주문번호는 일별 재사용 시퀀스라 그 자체로는 사용자를 가르지 않는다.
+   */
+  async function ensureRow(userId: string, notice: ParsedOrderResp): Promise<EnsureResult> {
+    const key = `${userId}|${notice.orderNo}`;
+    const running = inflight.get(key);
+    if (running !== undefined) return running;
+
+    const task = (async (): Promise<EnsureResult> => {
+      let existingId: string | null;
+      try {
+        existingId = await deps.orderStore.findIdByOrderNo(userId, notice.orderNo);
+      } catch (err) {
+        logger.error(
+          { err, origin: notice.originKind, orderNo: notice.orderNo },
+          "[WS-order] 자동주문 통보 — 기존 행 조회 실패, 갱신만 시도",
+        );
+        return { kind: "lookup-failed" };
+      }
+
       // 이 자동주문의 첫 통보에서 이미 행을 만들었다. 이후 통보는 그 행의 갱신이다.
-      deps.orderStore.enqueueUpdate({ ...patch, orderRowId: existingId });
-      return;
-    }
+      if (existingId !== null) return { kind: "row", id: existingId };
 
-    const row = autoInsertRow(userId, notice);
-    if (row === null) return; // 사유는 `autoInsertRow` 가 남겼다.
+      const row = autoInsertRow(userId, notice);
+      if (row === null) return { kind: "unavailable" }; // 사유는 `autoInsertRow` 가 남겼다.
 
+      try {
+        const orderRowId = await deps.orderStore.insertRequest(row);
+        logger.info(
+          {
+            origin: notice.originKind,
+            orderNo: notice.orderNo,
+            noticeType: notice.noticeType,
+            accountNo: maskAccountNo(row.accountNo),
+          },
+          "[WS-order] 자동주문 통보 — 대기 행이 없어 새 행으로 기록",
+        );
+        return { kind: "row", id: orderRowId };
+      } catch (err) {
+        logger.error(
+          { err, origin: notice.originKind, orderNo: notice.orderNo },
+          "[WS-order] 자동주문 행 생성 실패 — 감사 기록 결손 (stdout 이 두 번째 사본이다)",
+        );
+        return { kind: "unavailable" };
+      }
+    })();
+
+    inflight.set(key, task);
     try {
-      const orderRowId = await deps.orderStore.insertRequest(row);
-      // 수명주기 필드(결과코드·통보종류·메시지·체결수량)는 큐로 넘긴다 — insert 는 「요청」
-      // 모양이고 그 뒤의 상태는 update 경로가 소유한다는 경계를 유지한다.
-      deps.orderStore.enqueueUpdate({ ...patch, orderRowId });
-      logger.info(
-        {
-          origin: notice.originKind,
-          orderNo: notice.orderNo,
-          noticeType: notice.noticeType,
-          accountNo: maskAccountNo(row.accountNo),
-        },
-        "[WS-order] 자동주문 통보 — 대기 행이 없어 새 행으로 기록",
-      );
-    } catch (err) {
-      logger.error(
-        { err, origin: notice.originKind, orderNo: notice.orderNo },
-        "[WS-order] 자동주문 행 생성 실패 — 감사 기록 결손 (stdout 이 두 번째 사본이다)",
-      );
+      return await task;
+    } finally {
+      // 왕복이 끝나면 키를 놓는다. 이후 통보는 새로 조회해 **이미 만들어진 행**을 찾는다.
+      inflight.delete(key);
     }
   }
 
@@ -648,6 +704,13 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   // 정리
   // ----------------------------------------------------------
 
+  /**
+   * 연결 1개 정리.
+   *
+   * **`inflight` 은 건드리지 않는다** (WR-01): 진행 중인 Supabase 왕복을 끊으면 그게 곧
+   * 기록 결손이다. 그 Promise 는 연결이 아니라 주문번호에 매여 있고, `finally` 가 스스로
+   * 키를 놓는다.
+   */
   function closeConn(conn: C): void {
     const state = conns.get(conn);
     if (state === undefined) return;
