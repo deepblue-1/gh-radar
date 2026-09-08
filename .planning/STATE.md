@@ -337,7 +337,7 @@ Recent decisions affecting current work:
 | 260817-f1a | 휴장일 가짜 데이터 근본 수정 (KRX 캘린더 0차 + ka10081 dt 1차 가드, 워커 3종) + 8/17 오염 정리 | 2026-08-17 | 1098d66 | [260817-f1a-2026-08-17](./quick/260817-f1a-2026-08-17/) |
 | 260820-fh2 | 일봉 NXT 오염 근본 수정 (일봉 쓰기 09:00~15:30 제한 + EOD KRX 종가 패스 + recover 최근 2영업일 강제 재적재) + 배포·백필(2026-05-21~08-19, 65일/실패0) 완료 | 2026-08-20 | fcc1c08 | [260820-fh2-intraday-sync-nxt-15-30-krx-eod-recover](./quick/260820-fh2-intraday-sync-nxt-15-30-krx-eod-recover/) |
 | 260905-u9b | ROADMAP.md 정합성 복구 — 상단 Phases 체크리스트·Execution Order·Progress 표에 Phase 12~15 반영, Phase 12~15 상세 섹션을 Phase Details 안으로 이동, 15-02·15-06 [x] + 4/20 집계 반영 | 2026-09-05 | e9e2822 | [260905-u9b-roadmap-md-phases-execution-order-progre](./quick/260905-u9b-roadmap-md-phases-execution-order-progre/) |
-| 260908-fis | intraday-sync 종목코드 정규식을 영숫자 단축코드까지 허용 + STEP1 매핑실패 로깅 — 채비(0011T0) 등 KRX 영문 포함 단축코드 80종목이 스캐너·급등·홈에서 누락되던 회귀 수정 | 2026-09-08 | e18ea49 | [260908-fis-intraday-sync-step1](./quick/260908-fis-intraday-sync-step1/) |
+| 260908-fis | intraday-sync 종목코드 정규식을 영숫자 단축코드까지 허용 + STEP1 매핑실패 로깅 — 채비(0011T0) 등 KRX 영문 포함 단축코드 80종목이 스캐너·급등·홈에서 누락되던 회귀 수정 | 2026-09-08 | e18ea49·c3d679d | [260908-fis-intraday-sync-step1](./quick/260908-fis-intraday-sync-step1/) |
 
 ## Session Continuity
 

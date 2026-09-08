@@ -142,3 +142,56 @@ packages/shared/src/stockCode.ts:8://   ... 기존 `/^\d{6}$/` 가정 때문에
 
 - 파일 존재: `packages/shared/src/stockCode.ts` FOUND, `server/src/schemas/__tests__/stockCode.test.ts` FOUND
 - 커밋 존재: `dae6914` FOUND, `bc6dfd2` FOUND, `e18ea49` FOUND
+
+---
+
+## 후속: 배포 중 발견한 회귀와 수정 (2026-09-08 11:30~11:50 KST, 장중)
+
+### 배포
+| 대상 | 이미지 | 결과 |
+|---|---|---|
+| intraday-sync (Cloud Run Job) | `intraday-sync:23bb58d` → `:c3d679d` | 배포 성공 |
+| server (Cloud Run service) | `server:23bb58d` | smoke 14/14 PASS |
+| master-sync (Cloud Run Job) | `master-sync:c3d679d` | smoke 6/6 PASS |
+
+### 1차 배포 직후 실측
+- `STEP1 mapped + deduped`: mapped 3,502 → **3,870**, mapErrors **364 → 0**.
+  → mapErrors 잔여분(진단 시 미상이던 ~267건)은 전부 코드 형식 실패였음이 확인됐다.
+- 채비(`0011T0`) `top_movers` **rank 15** 진입, `stock_quotes` 실시간 갱신 재개.
+
+### 회귀 (본 수정이 유발)
+정규식을 풀자 영문코드 ETP **297종**이 함께 유입됐고, master-sync 의 ETP 필터가 아직
+숫자 전용이라 이들이 마스터에 없었다 → `bootstrapMissingStocks` 가 `security_group='주권'`
+으로 등록 → `rebuildTopMovers` 화이트리스트 통과 → **ETF 9종이 급등 목록에 노출**
+(SK하이닉스 단일종목 레버리지 7종: `0193T0`/`0194R0`/`0194T0`/`0195S0`/`0197W0`/`0198D0`/`0192L0`,
+원자력 3종: `0091P0`/`0098F0`/`0092B0`).
+
+원인: PLAN 이 `fetchEtpBaseInfo.ts:47` 을 "의도된 동작"으로 스코프에서 제외했는데,
+그 근거였던 주석("키움은 6자리 숫자만 반환")의 전제 자체가 **이번에 고친 매퍼가 만든 착시**였다.
+
+### 수정 — 커밋 `c3d679d`
+1. `workers/master-sync/src/krx/fetchEtpBaseInfo.ts`: `CODE_RE(^\d{6}$)` → `SHORT_CODE_RE`.
+   영문코드 ETF/ETN/ELW 가 마스터에 정확한 `security_group` 으로 등록된다.
+2. `workers/intraday-sync/src/pipeline/bootstrapStocks.ts`: 미확인 종목을 `'주권'` 이 아닌
+   `UNCLASSIFIED_SECURITY_GROUP='미확인'` sentinel 로 등록. 화이트리스트·ETP 어느 쪽에도
+   속하지 않아 master-sync 가 덮을 때까지 자동 배제된다.
+3. 회귀 테스트 2건 추가 (`master-sync/tests/etp-code-filter.test.ts`, `bootstrapStocks.test.ts`).
+   검증: master-sync 43 passed / intraday-sync 154 passed / workspace typecheck exit 0.
+
+### 데이터 복구 (master-sync 수동 재실행)
+- `stocks` 총 3,999 → **7,453** 행. 영문코드 ETP **3,038행이 ETF/ETN/ELW 로 정확히 등록**.
+- `top_movers` 에서 ETF 9종 전부 제거. 남은 영문코드는 실제 주식만
+  (액스비스·채비·인벤테라·아로마티카·그린광학·세미티에스·엔비알모션).
+- 정상 상태 확인: mapErrors 0, `bootstrapMissingStocks` inserted 0, `'미확인'` sentinel 0행.
+
+### 잔존 항목 (후속)
+1. **`0238P0` TIGER 미국S&P500미국채혼합50** 1건이 `security_group='주권'` 으로 남아 있다.
+   수정 배포 직전 bootstrap 이 넣었고, KRX ETP 매매정보(해당 기준일)에 아직 없어 재실행으로도
+   정정되지 않았다. 채권혼합 ETF 라 등락률 상위 100 진입 가능성은 사실상 없고,
+   다음 master-sync(내일 08:10)에서 자동 정정된다. Supabase 직접 PATCH 는 권한 정책에 막혀
+   수동 정정하지 않았다.
+2. **블랙리스트/화이트리스트 비대칭**: `comovement`/`cosurge`/`surge_upper_cap` SQL 은
+   `security_group NOT IN ('ETF','ETN','ELW')` 블랙리스트라 `'미확인'` sentinel 을 통과시킨다.
+   sentinel 이 상시 0행이면 무해하나, 신규 상장 창에서는 노출될 수 있다.
+3. `server/src/services/chat-orchestrator.ts:166` 의 `/\((\d{6})\)/g` 는 여전히 숫자 전용
+   (LLM 출력 본문 파싱, 오탐 위험 때문에 의도적 보류).
