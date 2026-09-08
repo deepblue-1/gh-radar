@@ -32,6 +32,28 @@
  * ⑤ 정리 (T-15-46)
  *   `stop()` 이 relay 프로세스(SIGTERM → 3초 뒤 SIGKILL) · 게이트웨이 · Supabase 스텁을
  *   전부 내린다. 하나라도 남으면 Playwright 가 종료하지 못하고 매달린다.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⑥ ★ relay 를 쓰는 spec 의 규약 — **여기 한 곳이 정본이다** (Phase 16)
+ *
+ *   현재 대상: `orderbook` · `trading-limit-chaser` · `trading-vi` · `me` · `sidebar-tree`.
+ *   새 spec 을 추가할 때 아래 4줄을 그대로 지킨다. 하나라도 빠지면 증상이 그 spec 이
+ *   아니라 **다른 spec 에서** 터져 원인 추적이 몇 배로 비싸진다.
+ *
+ *     test.describe.configure({ mode: 'serial' });          // 파일 내부 직렬
+ *     test.beforeAll(async () => { relay = await withLocalRelay(); });   // 1회만
+ *     test.afterAll(async () => { await relay.stop(); });    // 반드시 (T-15-46)
+ *     test.beforeEach(() => { relay.reset(); });             // 시드 누수 차단
+ *
+ *   `mode: 'serial'` 은 **파일 내부만** 직렬화한다. 파일 **간** 충돌(8090 EADDRINUSE)은
+ *   `playwright.config.ts` 의 단일 워커 고정이 막는다 — 두 장치가 같이 있어야 성립한다.
+ *
+ *   `withLocalRelay()` 를 `beforeEach` 에 두면 매 테스트 relay 프로세스를 새로 띄워
+ *   spec 하나가 수십 초씩 늘어나고, 종료가 밀리면 다음 파일이 8090 을 못 잡는다.
+ *
+ *   ★ 실서버 IP·실계좌 리터럴을 spec·픽스처·주석 어디에도 적지 않는다 (D-27).
+ *   게이트웨이는 늘 `127.0.0.1` 의 스텁이고, 계좌는 `relay/tests/helpers/frames.ts` 의
+ *   `SAMPLE_ACCOUNT_NO` 를 쓴다.
  */
 import { spawn } from 'node:child_process';
 import http from 'node:http';
@@ -44,6 +66,12 @@ import {
   startFakeGateway,
   type FakeGateway,
 } from '../../../relay/tests/helpers/fake-gateway.js';
+import type {
+  FakeLimitChaserInput,
+  FakeOrderRespInput,
+  FakeViOrderItemInput,
+  FakeViTriggerInput,
+} from '../../../relay/tests/helpers/frames.js';
 import { encryptDmaPassword } from '../../../relay/src/store/credentials.js';
 import { MSG } from '../../../relay/src/dma/msg-type.js';
 
@@ -78,6 +106,15 @@ const EXCHANGE_PRICE_OFFSET: Record<string, number> = { KRX: 0, NXT: 1_000 };
 /** relay 부팅 대기 상한(ms). tsx 첫 실행 + 포트 2개 listen 여유. */
 const RELAY_BOOT_TIMEOUT_MS = 30_000;
 
+/**
+ * 전략 프레임 주입 시 게이트웨이 소켓 대기 상한(ms).
+ *
+ * relay 는 브라우저 인증이 끝난 뒤 DMA 세션을 연다. 브라우저 왕복 + 로그인 응답까지
+ * 여유를 두되, 영원히 매달리지 않게 상한을 둔다 — 여기서 멈추면 Playwright 타임아웃이
+ * 대신 터지고 원인이 "테스트가 느림"으로 잘못 읽힌다.
+ */
+const RELAY_GATEWAY_WAIT_MS = 10_000;
+
 /** 저장소 루트 (`webapp/e2e/fixtures` 에서 세 단계 위). */
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
@@ -101,7 +138,31 @@ export interface LocalRelay {
   requestLog(): number[];
   /** 자동 호가 응답을 켤 거래소 목록. 빈 배열이면 어떤 거래소에도 응답하지 않는다. */
   setRespondingExchanges(exchanges: readonly string[]): void;
-  /** 테스트 간 상태 오염 제거 — 요청 로그·응답 거래소·자격증명을 기본값으로 되돌린다. */
+
+  // --- 전략 (Phase 16) ---
+  //
+  // 스텁 게이트웨이의 주입 API 를 spec 에 **소켓 없이** 노출한다. 현재 연결된 게이트웨이
+  // 소켓은 픽스처가 알고 있으므로(호가 주입 경로와 동일) spec 이 `net.Socket` 을 다루지
+  // 않는다 — 다루게 하면 spec 마다 연결 대기 코드를 복붙하게 되고, 그 복붙이 어긋나는
+  // 순간 "가끔 실패하는 E2E" 가 된다.
+
+  /** 상따 목록 조회(24) 응답 내용을 심는다. 다음 `reset()` 까지 유지된다. */
+  seedLimitChasers(items: FakeLimitChaserInput[]): void;
+  /** VI 트리거 조회(21) 응답 내용을 심는다. `null` 이면 미등록(빈 61). */
+  seedViTrigger(cfg: FakeViTriggerInput | null): void;
+  /** VI 주문 목록 조회(34) 응답 내용을 심는다. */
+  seedViOrders(items: FakeViOrderItemInput[]): void;
+  /** 상따 Set 에코(60)를 지금 밀어 넣는다. 게이트웨이 연결이 설 때까지 기다린다. */
+  pushLimitChaserEcho(cfg?: FakeLimitChaserInput): Promise<void>;
+  /** VI 주문 목록을 지금 밀어 넣는다 (`snap`=true → 72 전량 교체 / false → 73 upsert). */
+  pushViOrderList(items: FakeViOrderItemInput[], snap: boolean): Promise<void>;
+  /** 주문 통보(51)를 지금 밀어 넣는다 — 상따·VI 발주 결과 상관 검증용. */
+  pushOrderResp(input?: FakeOrderRespInput): Promise<void>;
+
+  /**
+   * 테스트 간 상태 오염 제거 — 요청 로그·응답 거래소·자격증명·**전략 시드 3종**을
+   * 기본값으로 되돌린다. 전략 시드가 새면 다음 spec 이 남의 전략을 보고 통과한다.
+   */
   reset(): void;
   /** relay 프로세스 stdout/stderr 누적 (실패 진단용). */
   logs(): string;
@@ -409,6 +470,25 @@ export async function withLocalRelay(): Promise<LocalRelay> {
   // 기본은 **허용**이다. 권한 없음 경로는 테스트가 `clearDmaCredentials()` 로 만든다.
   seedDmaCredential();
 
+  /**
+   * 지금 살아 있는 게이트웨이 소켓. 없으면 **설 때까지 기다린다**.
+   *
+   * relay 는 브라우저가 붙고 인증이 끝난 **뒤에야** DMA 세션을 연다. spec 이
+   * `page.goto` 직후 주입하면 그 사이 소켓이 아직 없을 수 있는데, 여기서 그냥 던지면
+   * "가끔 실패하는 E2E" 가 된다. 대기 상한을 넘기면 원인을 말하고 실패한다.
+   */
+  const gatewaySocket = async (): Promise<Parameters<FakeGateway['pushQuote']>[0]> => {
+    try {
+      return await gateway.waitForConnection(RELAY_GATEWAY_WAIT_MS);
+    } catch {
+      throw new Error(
+        `DMA 게이트웨이 연결이 ${RELAY_GATEWAY_WAIT_MS}ms 안에 서지 않았습니다. ` +
+          'relay 가 세션을 열기 전에 주입했을 수 있습니다 — 페이지를 열고 wss 인증·구독이 ' +
+          `끝난 뒤에 호출하세요.\n--- relay 로그 ---\n${output}`,
+      );
+    }
+  };
+
   return {
     wsUrl: RELAY_WS_URL,
     gateway,
@@ -422,11 +502,33 @@ export async function withLocalRelay(): Promise<LocalRelay> {
     setRespondingExchanges(exchanges) {
       responding = new Set(exchanges);
     },
+    seedLimitChasers(items) {
+      gateway.respondLimitChaserList(items);
+    },
+    seedViTrigger(cfg) {
+      gateway.respondViTrigger(cfg);
+    },
+    seedViOrders(items) {
+      gateway.respondViOrderList(items);
+    },
+    async pushLimitChaserEcho(cfg) {
+      gateway.pushLimitChaserEcho(await gatewaySocket(), cfg);
+    },
+    async pushViOrderList(items, snap) {
+      gateway.pushViOrderList(await gatewaySocket(), items, snap);
+    },
+    async pushOrderResp(input) {
+      gateway.pushOrderResp(await gatewaySocket(), input);
+    },
     reset() {
       requests.length = 0;
       responding = new Set(['KRX', 'NXT']);
       supabase.rows.clear();
       seedDmaCredential();
+      // 전략 시드 3종도 되돌린다 — 남으면 다음 spec 이 남의 전략을 본다.
+      gateway.respondLimitChaserList([]);
+      gateway.respondViTrigger(null);
+      gateway.respondViOrderList([]);
     },
     logs() {
       return output;

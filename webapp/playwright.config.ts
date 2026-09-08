@@ -80,10 +80,30 @@ const RELAY_WS_URL = process.env.NEXT_PUBLIC_RELAY_WS_URL ?? 'ws://localhost:809
 
 export default defineConfig({
   testDir: './e2e/specs',
-  fullyParallel: true,
+  /*
+    ★ 단일 워커 고정 — relay wss 8090 이 **고정 포트**이기 때문이다 (Phase 16 / D-41).
+
+    왜 병렬이 불가능한가:
+      `NEXT_PUBLIC_RELAY_WS_URL` 은 빌드 시점에 번들로 인라인되므로 spec 이 런타임에
+      임의 포트를 주입할 수 없다. 그래서 relay 를 쓰는 spec 은 전부 `withLocalRelay()` 로
+      **같은 8090** 에 자기 relay 를 띄운다. 둘이 동시에 뜨면 즉시 EADDRINUSE 다.
+
+    왜 `mode: 'serial'` 로는 부족한가:
+      `test.describe.configure({ mode: 'serial' })` 은 **파일 내부만** 직렬화한다.
+      파일 **간** 병렬은 워커 수가 정한다. relay 를 쓰는 spec 이 orderbook ·
+      trading-limit-chaser · trading-vi · me · sidebar-tree 5개로 늘어난 지금,
+      워커가 2개 이상이면 서로 다른 두 파일이 동시에 8090 을 잡는 것이 **확정적**이다.
+
+    `fullyParallel` 도 false 로 내린다. 워커가 하나면 어차피 동시 실행이 없어 값 자체는
+    무해하지만, true 로 남겨 두면 "이 저장소는 병렬 E2E 다"라는 잘못된 신호를 준다.
+
+    대가: E2E 전량 소요가 늘어난다(T-16-06 accept). 런타임 포트 주입이라는 대안은 위의
+    빌드 인라인 제약 때문에 성립하지 않는다.
+  */
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:3100',
