@@ -54,6 +54,7 @@ import type {
   RelayQuote,
   RelayTape,
   RelayTapeEntry,
+  RelayViNoticeMsg,
   RelayViOrderItem,
   RelayViTrigger,
 } from "@gh-radar/shared";
@@ -72,10 +73,16 @@ import {
   buildSubscribeQuoteReq,
   maskAccountNo,
   parseAccountState,
+  parseDisableStrategiesResp,
+  parseLimitChaserEcho,
+  parseLimitChaserList,
   parseOrderResp,
   parseQuoteState,
   parseServerMessage,
   parseTradeTape,
+  parseViOrderList,
+  parseViOrderNotice,
+  parseViTrigger,
   type ParsedOrderResp,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
@@ -600,12 +607,64 @@ export class SubscriptionHub extends EventEmitter {
       }
       case MSG.ServerMessage: {
         // 해석하지 않고 그대로 흘린다 (D-36). 배치하지 않는다 — 드물고 즉시성이 중요하다.
+        //
+        // 전략(상따/VI) 거부도 이 프레임으로 온다. 그 주인 판정 —
+        // `src === "Account" ∧ i === ""` 만 VI 몫(Pitfall 9) — 은 **브라우저의 한 함수**가
+        // 한다. relay 는 `lv`/`src`/`i` 를 온전히 전달하기만 하면 되고, 계약
+        // (`RelayServerMsg`)에 셋 다 이미 실려 있다. 여기서 미리 갈라 놓으면 판정이 두 벌이 된다.
         const msg = parseServerMessage(e.env);
         if (msg !== null) this.#fanout(userId, msg);
         return;
       }
+      case MSG.SetLimitChaserResp: {
+        const item = parseLimitChaserEcho(e.env);
+        if (item !== null) this.#onLimitChaserEcho(userId, item);
+        return;
+      }
+      case MSG.GetLimitChaserListResp: {
+        // `[]` 는 정상이다(등록 0건) — `null` 만 파싱 실패다.
+        const items = parseLimitChaserList(e.env);
+        if (items !== null) this.#onLimitChaserList(userId, items);
+        return;
+      }
+      case MSG.SetVITriggerResp: {
+        // `null` 은 파싱 실패, `{ok:true, cfg:null}` 은 **미등록**이다 — 뭉개지 않는다.
+        const parsed = parseViTrigger(e.env);
+        if (parsed !== null) this.#onViTrigger(userId, parsed.cfg);
+        return;
+      }
+      case MSG.GetVIOrderListResp:
+      case MSG.VIOrderListPush: {
+        // 72/73 은 슬롯 하나를 공유하고 스냅샷 구분은 msg_type 이 정본이다 (D-33).
+        const list = parseViOrderList(e.env, e.msgType === MSG.GetVIOrderListResp);
+        if (list !== null) this.#onViOrderList(userId, list.snap, list.items);
+        return;
+      }
+      case MSG.DisableStrategiesResp: {
+        // **완료 신호일 뿐이다 — 여기서 캐시를 고치지 않는다.** 서버가 키별 60/61 에코를
+        // 먼저 보낸 뒤 이 집계를 보내므로 도착 시점에는 이미 캐시가 갱신돼 있다. 이 숫자로
+        // 상태를 만들면 에코와 두 벌이 갈리고, 65 가 유실되면 화면이 되살아난다.
+        const resp = parseDisableStrategiesResp(e.env);
+        if (resp !== null) {
+          this.#fanout(userId, {
+            t: "strategies.disabled",
+            count: resp.count,
+            viDisabled: resp.viDisabled,
+          });
+        }
+        return;
+      }
+      case MSG.VIOrderNotice: {
+        // 「주문이 이미 나갔다」는 알림이다. 캐시에 넣지 않는다 — 추적 목록의 정본은 72/73 이고,
+        // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다.
+        const notice = parseViOrderNotice(e.env);
+        if (notice !== null) this.#fanout(userId, this.#enrichViNotice(notice));
+        return;
+      }
       default:
         // 로그인 응답(50)·계좌 선언 응답(55)은 세션이 처리한다.
+        // 16-04 가 화이트리스트를 19종으로 넓힌 뒤에도 **여기로 조용히 떨어지는 프레임은 0**이다
+        // (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
         return;
     }
   }
@@ -673,6 +732,103 @@ export class SubscriptionHub extends EventEmitter {
       "[HUB] 계좌 상태 수신",
     );
     this.#fanout(userId, state);
+  }
+
+  /**
+   * 상따 설정 에코 (60) — 반영의 **유일한 증거**다.
+   *
+   * `crud === "D"` 는 삭제이고 캐시에서 지운다 (Pitfall 7: 매수·매도 스위치 두 개만 보고
+   * 판정하면 서버 진실과 갈린다 — 취소 게이트가 켜져 있으면 둘 다 꺼도 전략이 남는다).
+   *
+   * **삭제도 프레임으로 내린다.** 캐시에서만 지우고 침묵하면 이미 열려 있는 탭의 목록에
+   * 사라진 전략이 그대로 남고, 사용자가 그것을 보고 「아직 살아 있다」로 읽는다.
+   */
+  #onLimitChaserEcho(userId: string, item: RelayLimitChaser): void {
+    const key = lcKey(userId, item);
+    if (item.crud === "D") this.#limitChasers.delete(key);
+    else this.#limitChasers.set(key, item);
+    logger.info(
+      { userId, crud: item.crud, cached: this.#limitChasers.size },
+      "[HUB] 상따 에코 수신",
+    );
+    this.#fanout(userId, { t: "lc", item });
+  }
+
+  /**
+   * 상따 전량 스냅샷 (64) — **전량 교체**다.
+   *
+   * 그 사용자의 엔트리를 전부 지우고 새로 넣는다. 병합(upsert)으로 처리하면 게이트웨이에서
+   * 사라진 전략이 캐시에 영원히 남는다 — 다른 클라이언트(WinForms)가 지운 전략이 그것이다.
+   */
+  #onLimitChaserList(userId: string, items: RelayLimitChaser[]): void {
+    const prefix = userPrefix(userId);
+    for (const key of [...this.#limitChasers.keys()]) {
+      if (key.startsWith(prefix)) this.#limitChasers.delete(key);
+    }
+    for (const item of items) this.#limitChasers.set(lcKey(userId, item), item);
+    logger.info({ userId, count: items.length }, "[HUB] 상따 목록 스냅샷 수신 — 전량 교체");
+    this.#fanout(userId, { t: "lc.snap", items });
+  }
+
+  /**
+   * VI 전략 에코 (61). `cfg === null` 은 **미등록**이며 그 사실도 캐시에 명시로 남긴다 —
+   * 「조회했더니 없다」와 「아직 조회한 적 없다」를 구분하기 위해서다.
+   *
+   * ⚠️ 15:40 서버 자동 비활성화의 `run=false` 는 Broadcast 라 유실될 수 있다 (Pitfall 19).
+   *    D-13 이 주기 재조회를 금지하므로 여기서 메우지 않는다 — 브라우저가 장 마감 표시로
+   *    오해를 막는다.
+   */
+  #onViTrigger(userId: string, cfg: RelayViTrigger | null): void {
+    this.#viTriggers.set(userId, cfg);
+    logger.info({ userId, registered: cfg !== null, run: cfg?.run ?? false }, "[HUB] VI 전략 수신");
+    this.#fanout(userId, { t: "vi", cfg });
+  }
+
+  /**
+   * VI 주문 추적 (72 스냅샷 / 73 증분).
+   *
+   * 스냅샷은 전량 교체, 증분은 **항목별 upsert** 다 — 계좌 상태의 `snap` 규약과 동형이고,
+   * `confirm_locked` 되돌림 같은 단건 변경도 73 한 경로로 온다. 73 을 교체로 처리하면
+   * 단건 푸시가 나머지 행을 통째로 지운다.
+   *
+   * 와이어로는 **받은 그대로**(snap 값 유지) 흘리고 캐시에만 병합된 뷰를 둔다.
+   */
+  #onViOrderList(userId: string, snap: boolean, rawItems: RelayViOrderItem[]): void {
+    const items = rawItems.map((item) => this.#enrichViOrder(item));
+    if (snap) {
+      const prefix = userPrefix(userId);
+      for (const key of [...this.#viOrders.keys()]) {
+        if (key.startsWith(prefix)) this.#viOrders.delete(key);
+      }
+    }
+    for (const item of items) {
+      const key = viOrderKey(userId, item);
+      // 접수되며 주문번호가 붙었으면 자리표시 행을 걷어낸다 — 안 그러면 같은 주문이 두 줄이다.
+      const pending = viPendingKey(userId, item);
+      if (key !== pending) this.#viOrders.delete(pending);
+      this.#viOrders.set(key, item);
+    }
+    logger.info(
+      { userId, snap, received: items.length, cached: this.#viOrders.size },
+      "[HUB] VI 주문 목록 수신",
+    );
+    this.#fanout(userId, { t: "vi.list", snap, items });
+  }
+
+  /**
+   * VI 주문 행에 종목명을 채운다. `#enrichNames`(계좌 계열)와 같은 규율이다 —
+   * 맵에 없으면 **필드를 비워 둔다**. ISIN 을 이름 자리에 넣으면 UI 가 "이름이 없다"와
+   * "이름이 ISIN 이다"를 구분하지 못한다.
+   */
+  #enrichViOrder(item: RelayViOrderItem): RelayViOrderItem {
+    const info = this.#symbols?.lookup(item.isin);
+    return info === undefined ? item : { ...item, name: info.name };
+  }
+
+  /** VI 발동 통보(56)의 종목명 보강. 파서는 이 값을 모른다(게이트웨이가 주지 않는다). */
+  #enrichViNotice(notice: RelayViNoticeMsg): RelayViNoticeMsg {
+    const info = this.#symbols?.lookup(notice.isin);
+    return info === undefined ? notice : { ...notice, name: info.name };
   }
 
   /**
