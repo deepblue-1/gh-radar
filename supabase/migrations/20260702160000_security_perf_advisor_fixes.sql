@@ -14,6 +14,53 @@
 -- 테이블의 의도된 default-deny(service_role 만 접근) — 정책을 추가하지 않는 것이 맞다.
 
 -- ─────────────────────────────────────────────────────────────
+-- 0) rls_auto_enable() 정의 보정 (2026-09-08 quick 260908-qnf · 이관 5)
+-- ─────────────────────────────────────────────────────────────
+-- 이 함수는 Supabase 대시보드에서 직접 만들어져 마이그레이션 이력에 CREATE 가 없었다.
+-- 그 결과 아래 REVOKE 3줄이 "존재하지 않는 함수" 를 참조해, 빈 DB 에서 이력을 처음부터
+-- 재생하면 여기서 멈춘다(재해복구·신규 스테이징이 막힌 상태였다).
+--
+-- 배치를 이 파일 안 REVOKE 앞으로 정한 이유:
+--   ① REVOKE 보다 앞에 와야 빈 DB 재생이 성립한다.
+--   ② 이 파일은 이미 원격에 적용돼 있다(`supabase migration list` 로 확인). `db push` 는
+--      버전(파일명)만 비교하므로 본문을 다시 실행하지 않는다 → production 영향 0.
+--   ③ `20260702155900_*.sql` 같은 더 이른 타임스탬프의 새 파일을 끼우면, 이후 모든
+--      `db push` 가 "원격 마지막 마이그레이션보다 앞선 로컬 파일" 로 막혀 `--include-all`
+--      을 요구하는 함정을 남긴다.
+--
+-- 본문은 2026-09-08 `supabase db dump --linked --schema public` 실측 덤프를 글자 그대로
+-- 옮긴 것이다(`CREATE OR REPLACE` 라 임의 작성은 다음 push 때 production 함수를 덮어쓴다).
+-- 짝이 되는 EVENT TRIGGER 객체는 클러스터 레벨이라 여기에 넣지 않는다 — 마이그레이션에서
+-- `CREATE EVENT TRIGGER` 를 시도하면 실제 Supabase 대상에서 권한 오류로 실패한다.
+CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'pg_catalog'
+    AS $$
+DECLARE
+  cmd record;
+BEGIN
+  FOR cmd IN
+    SELECT *
+    FROM pg_event_trigger_ddl_commands()
+    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+      AND object_type IN ('table','partitioned table')
+  LOOP
+     IF cmd.schema_name IS NOT NULL AND cmd.schema_name IN ('public') AND cmd.schema_name NOT IN ('pg_catalog','information_schema') AND cmd.schema_name NOT LIKE 'pg_toast%' AND cmd.schema_name NOT LIKE 'pg_temp%' THEN
+      BEGIN
+        EXECUTE format('alter table if exists %s enable row level security', cmd.object_identity);
+        RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
+      EXCEPTION
+        WHEN OTHERS THEN
+          RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
+      END;
+     ELSE
+        RAISE LOG 'rls_auto_enable: skip % (either system schema or not in enforced list: %.)', cmd.object_identity, cmd.schema_name;
+     END IF;
+  END LOOP;
+END;
+$$;
+
+-- ─────────────────────────────────────────────────────────────
 -- 1) SECURITY DEFINER RPC REVOKE
 -- ─────────────────────────────────────────────────────────────
 REVOKE EXECUTE ON FUNCTION public.incr_api_usage(text, date, integer) FROM PUBLIC;
