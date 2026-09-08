@@ -35,6 +35,8 @@
  *   D-35     perMessageDeflate 는 기본값 `true` 를 쓰지 않는다. `ws` README 가 Linux 에서의
  *            메모리 단편화를 명시적으로 경고하고, 이 프로세스는 e2-micro(1GB) 위에서 돈다.
  *   D-36     세션 상태와 `ServerMessage(54)` 는 상태 프레임/`{t:"msg"}` 로 그대로 흘린다.
+ *   D-02     주문(`order.new`/`order.cancel`)도 **이 소켓으로** 받는다. 세션을 쥔 프로세스가
+ *            상관도 쥔다 — 요청/응답 상관(`rid`)은 주문만 하고, 그 구현은 `order-handler.ts` 다.
  *   D-01     전략 4종(`lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`)을 **이 소켓으로**
  *            받아 그 사용자의 DMA 세션으로 보낸다. 「누가 무엇을 보낼 수 있는가」의 게이트가
  *            여기다 — 통과한 바이트는 실계좌 전략 등록이 된다.
@@ -47,8 +49,9 @@
  *   - 전략 요청의 결과를 기다리지 않는다. 반영은 60/61/64/65 에코로 오고 Hub 가
  *     `#deliver(userId)` 로 그 사용자의 전 연결에 팬아웃한다 (D-11/D-12). 요청/응답
  *     상관(`rid`)은 주문만 한다.
- *   - 주문은 아직 받지 않는다. `order.new`/`order.cancel` 핸들러는 16-08 이 같은 자리에
- *     붙인다 (D-02).
+ *   - 주문 상관을 **여기서** 하지 않는다. `order.new`/`order.cancel` 은 같은 자리에서 갈라
+ *     `ws/order-handler.ts` 로 위임한다 (D-02) — 5초 상관·`dma_orders` 기록은 그쪽 몫이고
+ *     이 파일은 전송(`#send`)만 빌려 준다.
  *   - 구독 상태를 소유하지 않는다. 참조계수·캐시의 정본은 `SubscriptionHub` 다.
  *   - 자격증명을 캐시하지 않는다. 매 인증마다 조회한다 — 등록 해제가 즉시 반영돼야 한다.
  */
@@ -81,6 +84,12 @@ import {
   maskAccountNo,
 } from "../dma/envelope.js";
 import { encode, parseInbound } from "./protocol.js";
+import {
+  createOrderHandler,
+  type OrderHandler,
+  type OrderRecorder,
+} from "./order-handler.js";
+import type { SymbolLookup } from "../store/symbols.js";
 
 // ============================================================
 // 상수 정본
@@ -185,6 +194,15 @@ export type WsFanoutDeps = {
   heartbeatMs?: number;
   /** 백프레셔 임계(byte). 기본 `BACKPRESSURE_LIMIT_BYTES`. */
   backpressureLimitBytes?: number;
+  /**
+   * `dma_orders` 쓰기 창구 (D-03). `symbols` 와 **둘 다** 있어야 주문 분기가 열린다 —
+   * 하나만 있으면 「ISIN 은 푸는데 기록은 못 하는」 반쪽 경로가 조용히 생긴다.
+   */
+  orderStore?: OrderRecorder;
+  /** ISIN → 단축코드·시장 (D-28). 브라우저가 보내지 않는 두 값을 여기서 푼다. */
+  symbols?: SymbolLookup;
+  /** 첫 주문 통보 대기 상한(ms). 테스트가 줄여 쓴다. */
+  orderTimeoutMs?: number;
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -264,6 +282,8 @@ export class WsFanout {
 
   readonly #heartbeat: NodeJS.Timeout;
   readonly #onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
+  /** 주문 상관 핸들러 (D-02). 결선이 반쪽이면 `null` 이고 주문 분기가 사유를 돌려준다. */
+  readonly #orders: OrderHandler<Conn> | null;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -286,6 +306,23 @@ export class WsFanout {
 
     // Hub 는 **userId 를 지정해서만** 내보낸다. 여기서 그 사용자의 소켓 집합으로 좁힌다.
     this.#hub.on("fanout", (e) => this.#deliver(e.userId, e.msg));
+
+    // 주문 상관 (D-02). `send` 로 `#send` 를 넘기는 것이 핵심이다 — 핸들러가 소켓을 직접
+    // 잡으면 전송 경로가 두 벌이 되고, 한쪽이 대상 선택을 틀리는 순간 타인의 체결이 샌다.
+    this.#orders =
+      deps.orderStore !== undefined && deps.symbols !== undefined
+        ? createOrderHandler<Conn>({
+            sessions: deps.sessions,
+            hub: deps.hub,
+            orderStore: deps.orderStore,
+            symbols: deps.symbols,
+            send: (conn, msg) => this.#send(conn, msg),
+            timeoutMs: deps.orderTimeoutMs,
+          })
+        : null;
+    if (this.#orders === null) {
+      logger.warn({}, "[WS] 주문 기록 큐·종목맵 미주입 — 주문 인바운드를 받지 않는다");
+    }
 
     this.#heartbeat = setInterval(() => this.#sweep(), deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS);
   }
@@ -344,6 +381,8 @@ export class WsFanout {
 
     this.#conns.clear();
     this.#users.clear();
+    // 남은 주문 대기 타이머를 전부 끈다 — 하나라도 남으면 프로세스가 안 내려간다.
+    this.#orders?.close();
     await new Promise<void>((resolve) => {
       this.#wss.close(() => resolve());
     });
@@ -572,11 +611,31 @@ export class WsFanout {
       return;
     }
 
-    if (msg.t !== "sub" && msg.t !== "unsub") {
-      // 남은 것은 주문 2종(`order.new`/`order.cancel`)이다. 핸들러는 16-08 이 이 자리에
-      // 붙인다. 그때까지 **조용히 버리지 않는다** — 처리기 부재를 기록으로 남긴다
-      // (PC-7 무로그 fail-safe 금지). 프로토콜 위반이 아니므로 연결은 끊지 않는다.
-      logger.warn({ userId, t: msg.t }, "[WS] 아직 처리기가 없는 인바운드 — 무시");
+    // ------------------------------------------------------------------
+    // 주문 2종 (D-02). 전략과 **같은 자리**다 — `isin` 은 있지만 `ex`/`isin` 조합으로
+    // 시세 키를 만드는 메시지가 아니므로 `keyOf` 좁히기보다 먼저 갈라야 한다 (Pitfall 14).
+    //
+    // ①②③ 순서는 핸들러 안에 그대로 있다. 여기서 다시 검사하지 않는 이유는 대조가 두 벌이
+    // 되면 갈리기 때문이다 — 계좌 화이트리스트의 근거는 `session.allowedAccounts` 하나다.
+    // ------------------------------------------------------------------
+    if (msg.t === "order.new" || msg.t === "order.cancel") {
+      if (this.#orders === null) {
+        // 결선이 반쪽인 채로 조용히 버리지 않는다 (PC-7 무로그 fail-safe 금지). 프로토콜
+        // 위반이 아니므로 연결은 끊지 않고, 사용자에게는 `rid` 를 단 거부로 답한다 —
+        // 침묵하면 브라우저의 제출 버튼이 영원히 잠긴다.
+        logger.error({ userId, t: msg.t }, "[WS] 주문 핸들러 미결선 — 주문을 받지 않는다");
+        this.#send(conn, {
+          t: "order.result",
+          rid: msg.rid,
+          orderNo: "",
+          resultCode: -1,
+          message: "지금은 주문을 받을 수 없습니다. 잠시 후 다시 시도해 주세요.",
+          status: "rejected",
+        });
+        return;
+      }
+      // 거부·타임아웃까지 전부 프레임으로 드러나므로 여기서 예외를 기다리지 않는다.
+      void this.#orders.handle(conn, userId, msg);
       return;
     }
 
@@ -728,6 +787,9 @@ export class WsFanout {
   #onClose(conn: Conn, code: number): void {
     this.#clearAuthTimer(conn);
     this.#conns.delete(conn);
+    // 그 연결의 주문 대기열·타이머를 걷는다 (타이머 누수 0). 인증 전 종료도 안전하다 —
+    // 대기열이 없으면 no-op 이다.
+    this.#orders?.closeConn(conn);
 
     const userId = conn.userId;
     if (userId === null) {

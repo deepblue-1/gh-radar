@@ -26,6 +26,7 @@
  *   - 이름을 쓰지(write) 않는다. `stocks` 의 소유자는 `master-sync` 다.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { OrderMarket } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 
@@ -45,12 +46,23 @@ const REFRESH_MINUTE_KST = 30;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** 역매핑 1건. 와이어에 실을 값이라 표시에 필요한 최소 필드만 담는다. */
+/**
+ * 역매핑 1건. 와이어에 실을 값이라 표시·주문 조립에 필요한 최소 필드만 담는다.
+ *
+ * Phase 16 D-02 로 `market` 이 추가됐다. 브라우저는 `order.new` 에 **ISIN 만** 싣고
+ * 단축코드·시장 구분을 보내지 않으므로(D-28 산술 유도 금지), 그 둘을 relay 가 여기서 푼다.
+ */
 export type SymbolInfo = {
-  /** 6자 단축코드. 주문·취소 요청 키다(`POST /api/orders` 는 ISIN 이 아니라 이 값을 받는다). */
+  /** 6자 단축코드. `dma_orders.stock_code` 에 들어갈 값이다. */
   code: string;
   /** 종목명. */
   name: string;
+  /**
+   * 게이트웨이 시장 구분. **모르면 `null` 이고 기본값으로 메우지 않는다** (T-16-05).
+   *
+   * 주문 조립 단계가 `null` 을 명시 거부한다 — `"K"` 로 메우면 코스닥 주문이 코스피로 나간다.
+   */
+  market: OrderMarket | null;
 };
 
 /** Hub 가 요구하는 최소 표면. 테스트가 DB 없이 주입할 수 있게 좁게 잡는다. */
@@ -62,8 +74,26 @@ type StockRow = {
   code: string;
   name: string;
   isin: string;
+  /** `"KOSPI"` / `"KOSDAQ"` 원문. 게이트웨이 1자 코드로는 `toOrderMarket` 이 좁힌다. */
+  market: string | null;
   is_delisted: boolean;
 };
+
+/**
+ * 시장 구분 변환의 **유일한 지점** (D-21). `server/src/services/dma-orders.ts` 에서 이식했다 —
+ * 주문 경로가 REST 에서 wss 로 넘어오면서(D-02) 변환이 필요한 곳도 relay 로 따라왔다.
+ *
+ * 게이트웨이는 이 필드의 **첫 글자만** 읽는다. 그래서 호출부마다 문자열을 지어내면
+ * `"KOSDAQ"` 이 어느 날 `K` 로 읽혀 **엉뚱한 시장으로 주문이 나간다**.
+ *
+ * **모르는 값은 지어내지 않고 `null` 이다.** 기본값 `"K"` 로 메우면 코스닥 주문이
+ * 코스피로 나가고, 그것은 조용히 성공한 것처럼 보이는 오주문이다 (T-16-05).
+ */
+export function toOrderMarket(market: string | null): OrderMarket | null {
+  if (market === "KOSPI") return "K";
+  if (market === "KOSDAQ") return "Q";
+  return null;
+}
 
 /**
  * 다음 갱신까지 남은 ms. `now` 는 테스트 주입용.
@@ -81,7 +111,7 @@ export function msUntilNextRefresh(now: number = Date.now()): number {
 }
 
 /**
- * ISIN → `{code, name}` 메모리 맵. 부팅 시 1회 + 매일 08:30 KST 재적재.
+ * ISIN → `{code, name, market}` 메모리 맵. 부팅 시 1회 + 매일 08:30 KST 재적재.
  *
  * 사용법: `const symbols = new SymbolMap(supabase); await symbols.start();`
  * → `symbols.lookup(isin)`. 종료 시 `symbols.close()` 로 타이머를 끈다.
@@ -117,7 +147,7 @@ export class SymbolMap implements SymbolLookup {
       for (let from = 0; ; from += PAGE_SIZE) {
         const { data, error } = await this.#supabase
           .from("stocks")
-          .select("code, name, isin, is_delisted")
+          .select("code, name, isin, market, is_delisted")
           .not("isin", "is", null)
           // 페이지 사이에 순서가 흔들리면 어떤 행은 두 번 오고 어떤 행은 영영 안 온다.
           .order("code", { ascending: true })
@@ -132,7 +162,12 @@ export class SymbolMap implements SymbolLookup {
           // 활성·폐지로 겹치면 **활성이 이긴다**.
           const prev = next.get(row.isin);
           if (prev !== undefined && row.is_delisted) continue;
-          next.set(row.isin, { code: row.code, name: row.name });
+          next.set(row.isin, {
+            code: row.code,
+            name: row.name,
+            // 모르는 시장은 `null` 로 남긴다 — 이름 표시는 되고 주문만 막힌다.
+            market: toOrderMarket(row.market ?? null),
+          });
         }
         if (page.length < PAGE_SIZE) break;
       }

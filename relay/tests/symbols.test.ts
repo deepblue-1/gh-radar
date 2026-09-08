@@ -7,12 +7,20 @@
  *   ② 적재 실패는 **throw 하지 않고** 옛 맵을 유지한다(이름은 표시용이다).
  *   ③ 갱신은 **하루 1회**다 — 조회마다 DB 를 때리지 않는다.
  *   ④ 같은 ISIN 이 활성·상장폐지로 겹치면 활성이 이긴다.
+ *   ⑥ (Phase 16 D-02) `market` 이 `"KOSPI"`→`"K"` / `"KOSDAQ"`→`"Q"` / 그 외→**`null`** 이다.
+ *      기본값 `"K"` 로 메우면 코스닥 주문이 코스피로 나간다 (T-16-05).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SymbolMap, msUntilNextRefresh } from "../src/store/symbols.js";
+import { SymbolMap, msUntilNextRefresh, toOrderMarket } from "../src/store/symbols.js";
 
-type Row = { code: string; name: string; isin: string; is_delisted: boolean };
+type Row = {
+  code: string;
+  name: string;
+  isin: string;
+  market: string | null;
+  is_delisted: boolean;
+};
 
 /**
  * `stocks` 조회만 흉내내는 Supabase 스텁.
@@ -20,25 +28,30 @@ type Row = { code: string; name: string; isin: string; is_delisted: boolean };
  */
 function mkSupabase(rows: Row[], opts: { failOn?: number } = {}) {
   const calls: Array<{ from: number; to: number }> = [];
+  /** select 에 실린 컬럼 목록 원문 — `market` 누락 회귀를 잡는다. */
+  const selects: string[] = [];
   const client = {
     from: () => ({
-      select: () => ({
-        not: () => ({
-          order: () => ({
-            range: (from: number, to: number) => {
-              calls.push({ from, to });
-              if (opts.failOn !== undefined && calls.length === opts.failOn) {
-                return Promise.resolve({ data: null, error: { message: "boom" } });
-              }
-              const page = rows.slice(from, to + 1).slice(0, 1000);
-              return Promise.resolve({ data: page, error: null });
-            },
+      select: (cols: string) => {
+        selects.push(cols);
+        return {
+          not: () => ({
+            order: () => ({
+              range: (from: number, to: number) => {
+                calls.push({ from, to });
+                if (opts.failOn !== undefined && calls.length === opts.failOn) {
+                  return Promise.resolve({ data: null, error: { message: "boom" } });
+                }
+                const page = rows.slice(from, to + 1).slice(0, 1000);
+                return Promise.resolve({ data: page, error: null });
+              },
+            }),
           }),
-        }),
-      }),
+        };
+      },
     }),
   };
-  return { client: client as never, calls };
+  return { client: client as never, calls, selects };
 }
 
 function mkRows(n: number, offset = 0): Row[] {
@@ -48,6 +61,7 @@ function mkRows(n: number, offset = 0): Row[] {
       code: String(100000 + k).padStart(6, "0"),
       name: `종목${k}`,
       isin: `KR7${String(k).padStart(9, "0")}`,
+      market: "KOSPI",
       is_delisted: false,
     };
   });
@@ -72,9 +86,13 @@ describe("SymbolMap", () => {
       { from: 1000, to: 1999 },
       { from: 2000, to: 2999 },
     ]);
-    expect(map.lookup("KR7000000000")).toEqual({ code: "100000", name: "종목0" });
+    expect(map.lookup("KR7000000000")).toEqual({ code: "100000", name: "종목0", market: "K" });
     // 마지막 페이지 소속 종목도 들어 있다.
-    expect(map.lookup("KR7000002499")).toEqual({ code: "102499", name: "종목2499" });
+    expect(map.lookup("KR7000002499")).toEqual({
+      code: "102499",
+      name: "종목2499",
+      market: "K",
+    });
     map.close();
   });
 
@@ -109,17 +127,17 @@ describe("SymbolMap", () => {
 
   it("④ 같은 ISIN 이 활성·상장폐지로 겹치면 활성 이름이 이긴다", async () => {
     const rows: Row[] = [
-      { code: "000001", name: "옛이름", isin: "KR7000000001", is_delisted: true },
-      { code: "000002", name: "새이름", isin: "KR7000000001", is_delisted: false },
-      { code: "000003", name: "폐지만", isin: "KR7000000003", is_delisted: true },
+      { code: "000001", name: "옛이름", isin: "KR7000000001", market: "KOSPI", is_delisted: true },
+      { code: "000002", name: "새이름", isin: "KR7000000001", market: "KOSPI", is_delisted: false },
+      { code: "000003", name: "폐지만", isin: "KR7000000003", market: "KOSPI", is_delisted: true },
     ];
     const { client } = mkSupabase(rows);
     const map = new SymbolMap(client);
     await map.refresh();
 
-    expect(map.lookup("KR7000000001")).toEqual({ code: "000002", name: "새이름" });
+    expect(map.lookup("KR7000000001")).toEqual({ code: "000002", name: "새이름", market: "K" });
     // 폐지 종목만 있는 ISIN 은 그래도 담는다 — 당일 폐지분을 아직 들고 있을 수 있다.
-    expect(map.lookup("KR7000000003")).toEqual({ code: "000003", name: "폐지만" });
+    expect(map.lookup("KR7000000003")).toEqual({ code: "000003", name: "폐지만", market: "K" });
     map.close();
   });
 
@@ -146,6 +164,53 @@ describe("SymbolMap", () => {
     expect(calls).toHaveLength(3);
 
     map.close();
+  });
+
+  it("⑥ market 은 KOSPI→K / KOSDAQ→Q / 그 외→null 로 실린다 (기본값 금지, T-16-05)", async () => {
+    const rows: Row[] = [
+      { code: "000001", name: "코스피", isin: "KR7000000001", market: "KOSPI", is_delisted: false },
+      { code: "000002", name: "코스닥", isin: "KR7000000002", market: "KOSDAQ", is_delisted: false },
+      { code: "000003", name: "코넥스", isin: "KR7000000003", market: "KONEX", is_delisted: false },
+      { code: "000004", name: "널", isin: "KR7000000004", market: null, is_delisted: false },
+    ];
+    const { client } = mkSupabase(rows);
+    const map = new SymbolMap(client);
+    await map.refresh();
+
+    expect(map.lookup("KR7000000001")?.market).toBe("K");
+    expect(map.lookup("KR7000000002")?.market).toBe("Q");
+    // ★ 여기가 이 케이스의 핵심이다 — 모르는 시장을 "K" 로 메우면 코스닥 주문이
+    //   코스피로 나간다. 주문 조립 단계가 이 null 을 명시 거부한다.
+    expect(map.lookup("KR7000000003")?.market).toBeNull();
+    expect(map.lookup("KR7000000004")?.market).toBeNull();
+    // 이름 표시는 여전히 된다 — market 미상은 주문만 막고 표시는 막지 않는다.
+    expect(map.lookup("KR7000000003")?.name).toBe("코넥스");
+    map.close();
+  });
+
+  it("⑦ market 컬럼을 select 에 싣는다 (컬럼 누락 회귀 가드)", async () => {
+    const { client, selects } = mkSupabase(mkRows(1));
+    const map = new SymbolMap(client);
+    await map.refresh();
+
+    // 컬럼이 빠지면 PostgREST 가 undefined 를 돌려주고 전 종목의 market 이 null 이 된다
+    // — 그러면 주문이 전부 거부되는데 원인이 이 한 줄에 있다는 것이 드러나지 않는다.
+    expect(selects).toEqual(["code, name, isin, market, is_delisted"]);
+    map.close();
+  });
+});
+
+describe("toOrderMarket", () => {
+  it("변환은 이 함수 한 곳뿐이다 — 모르는 값은 지어내지 않고 null 이다 (D-21)", () => {
+    expect(toOrderMarket("KOSPI")).toBe("K");
+    expect(toOrderMarket("KOSDAQ")).toBe("Q");
+    // 게이트웨이는 이 필드의 **첫 글자만** 읽는다. "KOSDAQ" 을 그대로 넘기면 어느 날
+    // "K" 로 읽혀 코스닥 주문이 코스피로 나간다 — 그래서 원문 통과 경로가 없어야 한다.
+    expect(toOrderMarket("K")).toBeNull();
+    expect(toOrderMarket("Q")).toBeNull();
+    expect(toOrderMarket("KONEX")).toBeNull();
+    expect(toOrderMarket("")).toBeNull();
+    expect(toOrderMarket(null)).toBeNull();
   });
 });
 

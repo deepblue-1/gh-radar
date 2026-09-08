@@ -346,7 +346,7 @@ describe("SubscriptionHub — 계좌 상태 (D-23)", () => {
     const named = new SubscriptionHub({
       symbols: {
         lookup: (isin) =>
-          isin === SAMPLE_ISIN ? { code: "005930", name: "삼성전자" } : undefined,
+          isin === SAMPLE_ISIN ? { code: "005930", name: "삼성전자", market: "K" } : undefined,
       },
     });
     const events: HubFanoutEvent[] = [];
