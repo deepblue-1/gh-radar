@@ -287,3 +287,27 @@ export function formFromServer(
     cancelQtyTrackEnabled: server.cancelQtyTrackEnabled,
   };
 }
+
+/**
+ * `ServerMessage(54)` 가 **상따 화면의 몫인가** — 판정의 **유일 지점**이다 (Pitfall 9).
+ *
+ * 서버는 거부를 응답 코드로 주지 않는다. 이 통지가 유일한 거부 신호라 반드시 사용자에게
+ * 보여야 하는데(PC-7 무로그 fail-safe 금지), **아무 화면이나 다 보여 주면 반대 사고**가 난다:
+ * VI 자동매수가 거부된 통지를 상따 화면이 「내 전략이 거부됐다」로 그리면 사용자가 멀쩡한
+ * 상따 전략을 끄고 다시 켠다 — 그 재등록이 곧 두 번째 발주다.
+ *
+ * 가르는 기준은 **발신 맥락 + 종목 유무** 둘뿐이다:
+ *   - `src === "SetLimitChaser"`            → 상따 등록·수정 거부. 명백히 상따 몫.
+ *   - `src === "Account"` ∧ `i` 가 **비지 않음** → 종목이 붙은 계좌 통지 = 상따 몫.
+ *   - `src === "Account"` ∧ `i` 가 **빔**      → 종목 축이 없는 계좌 통지 = **VI 몫**(여기서 안 쓴다).
+ *
+ * 판정을 두 곳에 두지 않는다. 갈리는 순간 한 화면은 남의 거부를 그리고 다른 화면은
+ * 자기 거부를 놓치는데, 둘 다 사용자가 알아챌 수 없는 방식으로 조용히 일어난다.
+ */
+export function isLimitChaserServerMessage(msg: {
+  src: string;
+  i: string;
+}): boolean {
+  if (msg.src === 'SetLimitChaser') return true;
+  return msg.src === 'Account' && msg.i !== '';
+}

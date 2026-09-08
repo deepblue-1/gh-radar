@@ -49,13 +49,27 @@
  * ★ 잔량 열 정렬: 채택 목업(`15-orderbook-mockup.html`)대로 매도잔량은 좌측 / 매수잔량은
  *   우측 정렬이고 바가 중앙 가격 축을 향해 자란다. 숫자·바가 가격 축 기준으로 대칭이라
  *   "어느 쪽에 벽이 있나"를 한 번에 읽는다. `.mono` 고정폭은 두 열 모두 유지한다.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ★ Phase 16 — 변형 2종 (`variant`)
+ *
+ *   `"orderbook"`(기본) : 위에 적은 Phase 15 사다리. **한 글자도 바뀌지 않았다.**
+ *   `"chaser"`          : 상따 전용(16-UI-SPEC A11/A11a) — 마커 슬롯 · 등락률 열 ·
+ *                         데스크톱 최근 체결 10건 · 좁은 폭 2줄 행. 파일 하단에 있다.
+ *
+ *   왜 한 파일에 두 트리인가: 「호가 10단을 어떻게 그리는가」는 이 파일의 책임이고, 색·바
+ *   정규화·기준가 대비 방향색 같은 **규칙이 공유**된다. 파일을 쪼개면 그 규칙이 두 벌이 되고
+ *   한쪽만 고쳐진 채 두 화면이 다른 가격을 다른 색으로 그린다. 대신 **렌더 트리는 섞지
+ *   않는다** — 상따 변형은 헤더·푸터·클릭·roving tabindex 가 전부 없어서, 조건문으로 엮으면
+ *   어느 쪽을 고쳐도 다른 쪽이 흔들린다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 
+import { deriveTapeSides, formatTapeTime } from '@/components/orderbook/trade-tape';
 import { cn } from '@/lib/utils';
-import type { RelayQuote } from '@gh-radar/shared';
+import type { RelayQuote, RelayTapeEntry } from '@gh-radar/shared';
 
 /** 호가 단계 수 — 계약상 ap/aq/bp/bq 는 길이 10 고정. */
 const LEVELS = 10;
@@ -85,8 +99,24 @@ export interface OrderbookLadderProps {
   isStale: boolean;
   /** 기준가(전일 종가). 가격 열 방향색의 기준이다. */
   basePrice: number;
-  /** 가격 클릭·Enter 시 호출. **매매 구분을 바꾸지 않는다**(T-15-14). */
-  onPriceClick: (price: number) => void;
+  /**
+   * 가격 클릭·Enter 시 호출. **매매 구분을 바꾸지 않는다**(T-15-14).
+   * `variant="chaser"` 에서는 **호출되지 않는다** — 상따 사다리의 가격은 클릭 대상이 아니다.
+   */
+  onPriceClick?: (price: number) => void;
+  /**
+   * 렌더 변형 (Phase 16 A11/A11a).
+   *  - `"orderbook"`(기본) : Phase 15 호가주문 탭 사다리. 아래 3개 prop 을 무시한다.
+   *  - `"chaser"`          : 상따 전용 — 마커 슬롯 · 등락률 · 최근 체결 열 · 모바일 2줄 행.
+   */
+  variant?: 'orderbook' | 'chaser';
+  /**
+   * 최근 체결(최신이 index 0). `variant="chaser"` **데스크톱**에서만 매수호가 왼쪽 열에
+   * 10건이 매수 10단과 1:1 로 정렬돼 그려진다. 좁은 폭에는 렌더하지 않는다(A11a).
+   */
+  recentTrades?: RelayTapeEntry[];
+  /** 상한가. 그 가격 행의 마커 슬롯에 「상」 아이콘이 들어간다. */
+  upperLimit?: number;
   className?: string;
 }
 
@@ -126,7 +156,51 @@ function barPct(qty: number, maxQty: number): number {
   return Math.max(BAR_MIN_PCT, Math.round((qty / maxQty) * 100));
 }
 
-export function OrderbookLadder({
+/**
+ * 호가 → 행 20개 (매도 10호가→1호가, 매수 1호가→10호가 = **가격 내림차순 20행**).
+ *
+ * 두 변형이 **같은 함수**를 쓴다. 순서·단계 번호가 갈리면 한쪽 화면의 「매도 3호가」가
+ * 다른 화면의 다른 행이 되고, 그 어긋남은 스크린샷으로만 발견된다.
+ */
+function buildLadderRows(quote: RelayQuote | null): LadderRow[] {
+  if (!quote) return [];
+  const out: LadderRow[] = [];
+  // 매도는 10호가 → 1호가(가격 내림차순)로 위에서 아래로 쌓인다.
+  for (let i = LEVELS - 1; i >= 0; i -= 1) {
+    out.push({
+      key: `a${i}`,
+      side: 'ask',
+      step: i + 1,
+      price: quote.ap[i] ?? 0,
+      qty: quote.aq[i] ?? 0,
+      far: i + 1 > NARROW_STEPS,
+    });
+  }
+  // 매수는 1호가 → 10호가(가격 내림차순).
+  for (let i = 0; i < LEVELS; i += 1) {
+    out.push({
+      key: `b${i}`,
+      side: 'bid',
+      step: i + 1,
+      price: quote.bp[i] ?? 0,
+      qty: quote.bq[i] ?? 0,
+      far: i + 1 > NARROW_STEPS,
+    });
+  }
+  return out;
+}
+
+/**
+ * 변형 분기 — `variant` 는 런타임에 바뀌지 않는다(표면마다 고정).
+ * 두 트리를 한 컴포넌트에 섞지 않는 이유: 상따 변형은 헤더·푸터·클릭·roving tabindex 가
+ * **전부 없고** 열 구성도 다르다. 조건문으로 엮으면 어느 쪽을 고쳐도 다른 쪽이 흔들린다.
+ */
+export function OrderbookLadder(props: OrderbookLadderProps) {
+  if (props.variant === 'chaser') return <ChaserLadder {...props} />;
+  return <StandardLadder {...props} />;
+}
+
+function StandardLadder({
   quote,
   depth,
   isStale,
@@ -142,33 +216,7 @@ export function OrderbookLadder({
   const prevQuoteRef = useRef<RelayQuote | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const rows = useMemo<LadderRow[]>(() => {
-    if (!quote) return [];
-    const out: LadderRow[] = [];
-    // 매도는 10호가 → 1호가(가격 내림차순)로 위에서 아래로 쌓인다.
-    for (let i = LEVELS - 1; i >= 0; i -= 1) {
-      out.push({
-        key: `a${i}`,
-        side: 'ask',
-        step: i + 1,
-        price: quote.ap[i] ?? 0,
-        qty: quote.aq[i] ?? 0,
-        far: i + 1 > NARROW_STEPS,
-      });
-    }
-    // 매수는 1호가 → 10호가(가격 내림차순).
-    for (let i = 0; i < LEVELS; i += 1) {
-      out.push({
-        key: `b${i}`,
-        side: 'bid',
-        step: i + 1,
-        price: quote.bp[i] ?? 0,
-        qty: quote.bq[i] ?? 0,
-        far: i + 1 > NARROW_STEPS,
-      });
-    }
-    return out;
-  }, [quote]);
+  const rows = useMemo<LadderRow[]>(() => buildLadderRows(quote), [quote]);
 
   const maxAsk = useMemo(() => (quote ? Math.max(0, ...quote.aq) : 0), [quote]);
   const maxBid = useMemo(() => (quote ? Math.max(0, ...quote.bq) : 0), [quote]);
@@ -235,7 +283,7 @@ export function OrderbookLadder({
           const row = rows[activeIndex];
           if (!row || row.price <= 0) return;
           event.preventDefault();
-          onPriceClick(row.price);
+          onPriceClick?.(row.price);
           return;
         }
         default:
@@ -283,7 +331,7 @@ export function OrderbookLadder({
         onClick={() => {
           if (row.price <= 0) return;
           setActiveIndex(index);
-          onPriceClick(row.price);
+          onPriceClick?.(row.price);
         }}
         className={cn(
           'cursor-pointer',
@@ -439,6 +487,400 @@ export function OrderbookLadder({
           10단 전체 보기
         </button>
       )}
+    </div>
+  );
+}
+
+/* ═════════════════════ 상따 변형 (Phase 16 A11 · A11a) ═════════════════════ */
+
+/**
+ * 마커 슬롯 한 변(px) — **모든 행에 존재하는 고정폭**이다(16-UI-SPEC §컴포넌트 고유 치수).
+ *
+ * ★ 이 값이 이 변형의 안전장치다. 마커(「상」 아이콘 · 최근 체결 도트)를 조건부로만 넣고
+ *   슬롯을 비우지 않으면, 마커가 붙고 떨어질 때마다 가격이 좌우로 밀린다. 틱마다 흔들리는
+ *   가격은 **사용자가 잘못된 가격을 읽게 만든다**(T-16-05 · `tasks/lessons.md` 등재 함정 —
+ *   Phase 15 에서 `체결` 배지를 걷어낸 것과 같은 사고다).
+ *   폭을 인라인 style 로 박는 이유는 그 규칙을 테스트가 **계산된 값으로** 단언할 수 있게
+ *   하기 위해서다(클래스만이면 jsdom 에서 폭이 0 이라 아무것도 못 잡는다).
+ */
+const MARKER_SLOT_PX = 16;
+
+/**
+ * 등락률 열 최소폭(px). `-29.0` ~ `29.0` 을 오가도 가격 열이 밀리지 않는다.
+ * 슬롯과 같은 이유로 인라인 style 이다.
+ */
+const PCT_MIN_WIDTH_PX = 40;
+
+/** 데스크톱 최근 체결 렌더 건수 — 매수 10단과 1:1 이므로 10 고정이다. */
+const RECENT_TRADE_ROWS = LEVELS;
+
+/**
+ * 기준가 대비 등락률 문자열 — **소수 1자리 · `%` 없음 · 양수 부호 없음**(A11).
+ * 기준가가 없거나 0 이면 빈 문자열이다(0.0 을 지어내지 않는다).
+ */
+export function ladderPctText(price: number, basePrice: number): string {
+  if (!(basePrice > 0) || !(price > 0)) return '';
+  return (((price - basePrice) / basePrice) * 100).toFixed(1);
+}
+
+/** 마커 슬롯 1개. 마커가 없어도 **폭을 차지한다** — 그것이 이 조각의 존재 이유다. */
+function MarkerSlot({ kind }: { kind: 'upper' | 'trade' | 'none' }) {
+  return (
+    <span
+      data-slot="ladder-marker"
+      data-marker={kind}
+      className="flex flex-none items-center justify-center"
+      style={{ width: MARKER_SLOT_PX, height: MARKER_SLOT_PX }}
+    >
+      {kind === 'upper' && (
+        <span
+          role="img"
+          aria-label="상한가"
+          className="block size-4 rounded-[3px] bg-[var(--up)] text-center text-[11px] leading-4 font-semibold text-[var(--destructive-fg)]"
+        >
+          상
+        </span>
+      )}
+      {kind === 'trade' && (
+        <span
+          role="img"
+          aria-label="최근 체결가"
+          className="block size-[6px] rounded-full bg-[var(--fg)]"
+        />
+      )}
+    </span>
+  );
+}
+
+/**
+ * 범례 1줄. 좁은 폭에는 최근 체결 열이 없으므로 마지막 항목(`체결 수량`)을 뺀다.
+ * 색 비의존(WCAG 1.4.1) — 사다리의 색이 무엇을 뜻하는지 **텍스트로** 말하는 유일한 자리다.
+ */
+function LadderLegend({ withTrades }: { withTrades: boolean }) {
+  return (
+    <div
+      data-slot="ladder-legend"
+      className="mt-[var(--s-2)] flex flex-wrap items-center gap-1 text-[11px] text-[var(--muted-fg)]"
+    >
+      <span aria-hidden="true" className="block size-[6px] rounded-full bg-[var(--fg)]" />
+      최근 체결가
+      <span aria-hidden="true" className="opacity-50">
+        ·
+      </span>
+      <span
+        aria-hidden="true"
+        className="block size-4 rounded-[3px] bg-[var(--up)] text-center text-[11px] leading-4 font-semibold text-[var(--destructive-fg)]"
+      >
+        상
+      </span>
+      상한가
+      {withTrades && (
+        <>
+          <span aria-hidden="true" className="opacity-50">
+            ·
+          </span>
+          체결 수량 <b className="font-semibold text-[var(--up)]">매수</b>/
+          <b className="font-semibold text-[var(--down)]">매도</b>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 마커 종류 판정 — 상한가가 최근 체결가보다 우선한다(상한가는 이 화면의 최상위 정보다). */
+function markerOf(
+  price: number,
+  upperLimit: number,
+  lastTradePrice: number,
+): 'upper' | 'trade' | 'none' {
+  if (upperLimit > 0 && price === upperLimit) return 'upper';
+  if (lastTradePrice > 0 && price === lastTradePrice) return 'trade';
+  return 'none';
+}
+
+/**
+ * 상따 사다리 — 매도 10단 / 「체결」 헤더 / 매수 10단.
+ *
+ * ★ 가격은 **클릭 대상이 아니다**(A11). 비교가격 자동 채움이 없어졌으므로 클릭 핸들러도
+ *   roving tabindex 도 두지 않는다 — 눌러도 아무 일이 없는 커서는 「고장난 화면」이다.
+ * ★ 데스크톱(≥1280)과 좁은 폭은 **다른 트리**다. 좁은 폭에는 최근 체결 열이 없고 행이
+ *   2줄(가격 + 등락률)이며 400px 독립 스크롤 + 현재가 중앙 초기 스크롤을 갖는다(R7).
+ *   숨김은 Tailwind `hidden`(=`display:none`)이라 **접근성 트리에서도 빠진다** — 같은
+ *   사다리가 스크린리더에 두 번 읽히지 않는다.
+ */
+function ChaserLadder({
+  quote,
+  isStale,
+  basePrice,
+  recentTrades = [],
+  upperLimit = 0,
+  className,
+}: OrderbookLadderProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const currentRowRef = useRef<HTMLLIElement | null>(null);
+  /** 최초 마운트 1회만 중앙 정렬한다 — 갱신마다 되돌리면 사용자의 스크롤을 빼앗는다(R7). */
+  const centeredRef = useRef(false);
+
+  const rows = useMemo<LadderRow[]>(() => buildLadderRows(quote), [quote]);
+  const maxAsk = useMemo(() => (quote ? Math.max(0, ...quote.aq) : 0), [quote]);
+  const maxBid = useMemo(() => (quote ? Math.max(0, ...quote.bq) : 0), [quote]);
+
+  /** 체결 방향 — `trade-tape.tsx` 의 판정을 그대로 쓴다(두 표면이 다른 방향을 말하지 않게). */
+  const tradeSides = useMemo(
+    () => deriveTapeSides(recentTrades, quote?.ap[0], quote?.bp[0]),
+    [recentTrades, quote],
+  );
+
+  useEffect(() => {
+    if (centeredRef.current) return;
+    const box = scrollRef.current;
+    const row = currentRowRef.current;
+    if (box === null || row === null) return;
+    centeredRef.current = true;
+    box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2 + row.offsetHeight / 2);
+  }, [rows]);
+
+  if (quote === null) {
+    return (
+      <div
+        data-density="compact"
+        data-slot="orderbook-ladder"
+        data-variant="chaser"
+        className={cn(
+          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center',
+          className,
+        )}
+      >
+        <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+          호가 정보가 없어요
+        </p>
+        <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+          장 시작(09:00) 이후 실시간 호가가 표시돼요.
+        </p>
+      </div>
+    );
+  }
+
+  const lastTradePrice = recentTrades[0]?.p ?? quote.p;
+  const asks = rows.filter((r) => r.side === 'ask');
+  const bids = rows.filter((r) => r.side === 'bid');
+
+  /** 가격 셀 — 마커 슬롯 · 가격 · 등락률. 세 조각의 폭 규칙이 곧 「흔들리지 않는 사다리」다. */
+  const priceCell = (row: LadderRow) => (
+    <th
+      scope="row"
+      data-slot="ladder-price-cell"
+      className="h-6 overflow-hidden px-1 align-middle font-normal"
+    >
+      <div
+        className={cn(
+          'flex min-w-0 items-center gap-1 rounded-[4px]',
+          quote.p > 0 && row.price === quote.p && 'outline outline-1 outline-[var(--fg)]',
+        )}
+      >
+        <MarkerSlot kind={markerOf(row.price, upperLimit, lastTradePrice)} />
+        {/* 색 비의존 — 스크린리더는 단계 라벨로 매도/매수를 안다(표준 변형과 같은 규약). */}
+        <span className="sr-only">
+          {row.side === 'ask' ? '매도' : '매수'} {row.step}호가{' '}
+        </span>
+        <span
+          className={cn(
+            'mono min-w-0 flex-1 truncate text-right text-[length:var(--t-caption)] font-semibold',
+            priceTone(row.price, basePrice),
+          )}
+        >
+          {row.price > 0 ? fmt(row.price) : '—'}
+        </span>
+        {/*
+          10px 은 16-UI-SPEC T3 이 허용한 **정확히 2곳** 중 하나다(ⓑ 호가 등락률).
+          다른 어떤 표면에도 10px 을 쓰지 않는다.
+        */}
+        <span
+          data-slot="ladder-pct"
+          className="mono flex-none text-right text-[10px] text-[var(--muted-fg)]"
+          style={{ minWidth: PCT_MIN_WIDTH_PX }}
+        >
+          {ladderPctText(row.price, basePrice)}
+        </span>
+      </div>
+    </th>
+  );
+
+  return (
+    <div
+      data-density="compact"
+      data-slot="orderbook-ladder"
+      data-variant="chaser"
+      data-stale={isStale ? 'true' : undefined}
+      className={cn('flex min-w-0 flex-col', isStale && 'opacity-[.55]', className)}
+    >
+      {/* ── 데스크톱(≥1280) — 434px 표 · 24px 행 · 최근 체결 10건 ── */}
+      <div className="hidden min-[1280px]:block">
+        <table
+          aria-label="호가 10단 (매도 10단계 · 매수 10단계) 및 최근 체결 10건"
+          className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
+        >
+          <colgroup>
+            <col className="w-[34%]" />
+            <col className="w-[32%]" />
+            <col className="w-[34%]" />
+          </colgroup>
+          <tbody>
+            {asks.map((row) => {
+              const pct = barPct(row.qty, maxAsk);
+              return (
+                <tr key={row.key} data-side="ask" data-slot="ladder-row">
+                  <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
+                    {pct > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute top-1 right-0 bottom-1 z-0 rounded-[2px] bg-[color-mix(in_oklch,var(--down)_16%,transparent)]"
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                    <span className="relative z-[1] block truncate text-right text-[var(--fg)]">
+                      {row.qty > 0 ? fmt(row.qty) : ''}
+                    </span>
+                  </td>
+                  {priceCell(row)}
+                  <td className="h-6" />
+                </tr>
+              );
+            })}
+
+            {/* 「체결」 헤더 행 — 20px, 상단 hairline. 최근 체결 열의 시작을 알린다. */}
+            <tr data-slot="ladder-fill-head">
+              <td className="h-5 border-t border-[var(--border)] px-1.5 font-sans text-[11px] font-semibold text-[var(--muted-fg)]">
+                체결
+              </td>
+              <td className="h-5 border-t border-[var(--border)]" />
+              <td className="h-5 border-t border-[var(--border)]" />
+            </tr>
+
+            {bids.map((row, i) => {
+              const pct = barPct(row.qty, maxBid);
+              const trade = i < RECENT_TRADE_ROWS ? recentTrades[i] : undefined;
+              const buySide = tradeSides[i] === 'B';
+              return (
+                <tr key={row.key} data-side="bid" data-slot="ladder-row">
+                  {/* 최근 체결 1건 — 시각(10px) · 체결가(중립) · 체결량(방향색). */}
+                  <td
+                    data-slot="ladder-fill-cell"
+                    className="h-6 overflow-hidden p-1 align-middle text-[11px] tracking-[-0.03em]"
+                  >
+                    {trade !== undefined && (
+                      <div className="flex min-w-0 items-center gap-1">
+                        <span className="flex-none text-[10px] text-[var(--muted-fg)]">
+                          {formatTapeTime(trade.t)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-right font-semibold text-[var(--fg)]">
+                          {fmt(trade.p)}
+                        </span>
+                        <span
+                          title={buySide ? '매수 체결' : '매도 체결'}
+                          className={cn(
+                            'flex-none text-right font-semibold',
+                            buySide ? 'text-[var(--up)]' : 'text-[var(--down)]',
+                          )}
+                          style={{ minWidth: 36 }}
+                        >
+                          <span className="sr-only">{buySide ? '매수' : '매도'} </span>
+                          {fmt(trade.q)}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                  {priceCell(row)}
+                  <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
+                    {pct > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute top-1 bottom-1 left-0 z-0 rounded-[2px] bg-[color-mix(in_oklch,var(--up)_16%,transparent)]"
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                    <span className="relative z-[1] block truncate text-left text-[var(--fg)]">
+                      {row.qty > 0 ? fmt(row.qty) : ''}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <LadderLegend withTrades />
+      </div>
+
+      {/* ── 좁은 폭(<1280) — 32px 2줄 행 · 400px 독립 스크롤 · 현재가 중앙 초기 스크롤 ── */}
+      <div className="min-[1280px]:hidden">
+        <div
+          ref={scrollRef}
+          data-slot="ladder-scroll"
+          className="relative h-[400px] overflow-x-hidden overflow-y-auto"
+        >
+          <ul
+            aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
+            className="m-0 flex list-none flex-col p-0"
+          >
+            {rows.map((row) => {
+              const isAsk = row.side === 'ask';
+              const pct = barPct(row.qty, isAsk ? maxAsk : maxBid);
+              const isNow = quote.p > 0 && row.price === quote.p;
+              return (
+                <li
+                  key={row.key}
+                  ref={isNow ? currentRowRef : undefined}
+                  data-side={row.side}
+                  data-slot="ladder-row-mobile"
+                  className={cn(
+                    'relative flex h-8 min-w-0 items-center gap-1 rounded-[4px] px-1',
+                    isNow && 'outline outline-1 outline-[var(--fg)]',
+                  )}
+                >
+                  {pct > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'absolute top-0.5 right-0 bottom-0.5 z-0 rounded-[3px]',
+                        isAsk
+                          ? 'bg-[color-mix(in_oklch,var(--down)_16%,transparent)]'
+                          : 'bg-[color-mix(in_oklch,var(--up)_16%,transparent)]',
+                      )}
+                      style={{ width: `${pct}%` }}
+                    />
+                  )}
+                  <MarkerSlot kind={markerOf(row.price, upperLimit, lastTradePrice)} />
+                  <span className="sr-only">
+                    {isAsk ? '매도' : '매수'} {row.step}호가{' '}
+                  </span>
+                  <span className="relative z-[1] flex min-w-0 flex-col leading-[1.2]">
+                    <b
+                      className={cn(
+                        'mono truncate text-[12px] font-semibold',
+                        priceTone(row.price, basePrice),
+                      )}
+                    >
+                      {row.price > 0 ? fmt(row.price) : '—'}
+                    </b>
+                    {/* 10px 예외 ⓑ — 데스크톱 등락률과 같은 자리다(T3). */}
+                    <span
+                      data-slot="ladder-pct"
+                      className="mono text-[10px] text-[var(--muted-fg)]"
+                      style={{ minWidth: PCT_MIN_WIDTH_PX }}
+                    >
+                      {ladderPctText(row.price, basePrice)}
+                    </span>
+                  </span>
+                  <span className="mono relative z-[1] ml-auto flex-none text-right text-[11px] text-[var(--fg)]">
+                    {row.qty > 0 ? fmt(row.qty) : ''}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        <LadderLegend withTrades={false} />
+      </div>
     </div>
   );
 }

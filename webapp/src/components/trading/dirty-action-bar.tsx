@@ -28,6 +28,18 @@
  * ⑤ 토스트를 쓰지 않는다 (UI-SPEC D3)
  *   저장소에 토스트 라이브러리가 없고, 「미반영」은 사라지면 안 되는 상태다. 몇 초 뒤 스스로
  *   없어지는 알림에 담으면 사용자가 미반영 값을 그대로 두고 화면을 떠난다.
+ *
+ * ⑥ ★ 우측에 **AI 채팅 버튼 자리를 비워 둔다** (16-13 실측 결함)
+ *   `app/layout.tsx` 의 `ChatFab` 은 `fixed right-6 bottom-6 z-40` 이라 이 바와 **정확히
+ *   같은 z-축·같은 구석**을 쓴다. DOM 순서상 FAB 이 뒤라 겹치는 자리에서 포인터 이벤트를
+ *   가로채고, 그 결과 **「수정」이 눌리지 않는다** — 이 화면의 1차 CTA 가 통째로 죽는다
+ *   (E2E 케이스 4 가 실측으로 잡았다).
+ *   z-index 를 올려 FAB 을 덮지 않는다. 덮으면 이번엔 채팅 진입점이 조용히 사라진다.
+ *   대신 버튼 묶음이 FAB 영역 밖에 놓이도록 **오른쪽 여백을 비운다.** 두 컨트롤이 서로를
+ *   가리지 않는 유일한 배치다.
+ *   ⚠️ FAB 폭은 라벨 길이에 따라 변한다(실측 83px + 우측 24px). 고정 여백은 그 값을
+ *      **가정**하는 것이므로, 가정이 깨지는 순간을 `trading-limit-chaser.spec.ts` 케이스 4 의
+ *      **좌표 단언**이 잡는다 — 숫자만 남기면 라벨이 길어졌을 때 조용히 다시 겹친다.
  */
 
 import { cn } from '@/lib/utils';
@@ -69,7 +81,8 @@ export function DirtyActionBar({
       className={cn(
         'fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center gap-[var(--s-2)]',
         'border-t border-[var(--primary)] bg-[color-mix(in_oklch,var(--card)_96%,transparent)]',
-        'px-[var(--s-4)] py-[var(--s-2)] backdrop-blur-[8px]',
+        // 오른쪽 128px = FAB 영역(우측 24 + 실측 폭 83) + 여유 21. 파일 상단 ⑥.
+        'py-[var(--s-2)] pl-[var(--s-4)] pr-[128px] backdrop-blur-[8px]',
         // 등장은 fade 120ms — slide-up 금지(파일 상단 ④). reduced-motion 에서는 전환 없음.
         'motion-safe:animate-in motion-safe:fade-in motion-safe:duration-[120ms]',
         className,

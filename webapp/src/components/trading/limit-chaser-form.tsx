@@ -155,6 +155,24 @@ export interface LimitChaserFormProps {
   sellStatusText?: string;
   /** 더티 수 통지 — 상위의 이탈 경고(라우터 가드 · `beforeunload`)가 이 값을 쓴다. */
   onDirtyCountChange?: (count: number) => void;
+  /**
+   * `lc.set` 을 **보낸 직후** 통지 (16-13).
+   *
+   * ★ 상위가 이걸 알아야 하는 이유는 두 가지이고 둘 다 오해를 막는 장치다:
+   *   ① **3초 무응답 판정** — 보낸 시각을 모르면 「미반영」을 셀 수 없다. 그래도 **자동
+   *      재전송은 하지 않는다**(T-16-10): 재전송은 사용자가 누르지 않은 두 번째 등록이다.
+   *   ② **에코의 출처** — 내가 보낸 요청의 에코와 다른 단말의 변경을 구분하지 못하면
+   *      내 「수정」이 반영될 때마다 「다른 단말에서 변경됐어요」가 뜬다.
+   */
+  onSent?: (cfg: RelayLimitChaserInput) => void;
+  /**
+   * 에코가 도착해 폼을 서버값으로 덮었을 때 통지 (16-13, D-11).
+   *
+   * `overwrittenDirty` 는 그중 **사용자가 고치던** 필드 수다 — 배너 문구
+   * 「수정하던 값 {N}개가 서버 값으로 바뀌었어요」의 N 이고, **이 폼만이 알 수 있다**
+   * (상위는 폼 값을 갖고 있지 않다).
+   */
+  onServerEcho?: (info: { changed: number; overwrittenDirty: number }) => void;
   className?: string;
 }
 
@@ -170,6 +188,8 @@ export function LimitChaserForm({
   buyStatusText = '',
   sellStatusText = '',
   onDirtyCountChange,
+  onSent,
+  onServerEcho,
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
@@ -189,6 +209,14 @@ export function LimitChaserForm({
   const flashTimer = useRef<number | null>(null);
   const formRef = useRef(form);
   formRef.current = form;
+  /**
+   * 직전 에코. **더티 기준선**이라 에코 효과 안에서만 갱신한다 —
+   * 「덮이기 직전에 사용자가 고치고 있던 필드」를 세려면 새 서버값이 아니라 옛 서버값과
+   * 비교해야 한다. 렌더 시점의 `dirty` 를 쓰면 이미 새 서버값으로 계산돼 있어 어긋난다.
+   */
+  const prevServerRef = useRef<RelayLimitChaser | null>(null);
+  const echoNotifyRef = useRef(onServerEcho);
+  echoNotifyRef.current = onServerEcho;
 
   /*
     D-11 — 에코가 도착하면 **서버가 이긴다.** 더티 필드도 덮는다.
@@ -197,12 +225,20 @@ export function LimitChaserForm({
   useEffect(() => {
     if (server == null) return;
     const prev = formRef.current;
+    const prevServer = prevServerRef.current;
+    prevServerRef.current = server;
+    // 덮이기 **직전**의 더티 집합. 상위 배너의 「수정하던 값 {N}개」가 이 수다.
+    const wasDirty = new Set<string>(dirtyFieldsOf(prevServer, prev));
     const next = formFromServer(server, prev);
     const changed = new Set<string>();
     for (const k of Object.keys(next) as (keyof LimitChaserFormValues)[]) {
       if (next[k] !== prev[k]) changed.add(k);
     }
     setForm(next);
+    echoNotifyRef.current?.({
+      changed: changed.size,
+      overwrittenDirty: [...changed].filter((k) => wasDirty.has(k)).length,
+    });
     if (changed.size === 0) return;
     setFlash(changed);
     if (flashTimer.current != null) window.clearTimeout(flashTimer.current);
@@ -263,12 +299,17 @@ export function LimitChaserForm({
    * 보조문이 그 사실을 상시 고지하고 있으므로 여기서 더티를 걸러내지 않는다 — 걸러내면
    * 「스위치를 켰는데 방금 고친 값이 안 갔다」가 된다.
    */
+  const sentNotifyRef = useRef(onSent);
+  sentNotifyRef.current = onSent;
+
   const toggleGate = useCallback(
     (key: 'buyEnabled' | 'sellEnabled' | 'sweepEnabled', next: boolean) => {
       if (disabled) return;
       const values: LimitChaserFormValues = { ...formRef.current, [key]: next };
       setForm(values);
-      send({ t: 'lc.set', cfg: buildCfg(values) });
+      const cfg = buildCfg(values);
+      send({ t: 'lc.set', cfg });
+      sentNotifyRef.current?.(cfg);
     },
     [disabled, send, buildCfg],
   );
@@ -277,7 +318,9 @@ export function LimitChaserForm({
   const handleSubmit = useCallback(() => {
     if (submitting || disabled) return; // 중복 제출 가드
     setSubmitting(true);
-    send({ t: 'lc.set', cfg: buildCfg(formRef.current) });
+    const cfg = buildCfg(formRef.current);
+    send({ t: 'lc.set', cfg });
+    sentNotifyRef.current?.(cfg);
   }, [submitting, disabled, send, buildCfg]);
 
   /** 「되돌리기」 — 서버값 복귀. **전송하지 않는다.** */

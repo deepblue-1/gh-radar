@@ -10,7 +10,6 @@
  * - refreshStockDiscussions: POST /api/stocks/:code/discussions/refresh (429 시 `retry_after_seconds`, 503 시 `PROXY_UNAVAILABLE`/`PROXY_BUDGET_EXHAUSTED`)
  */
 import type {
-  Stock,
   StockDetailResponse,
   NewsArticle,
   Discussion,
@@ -18,9 +17,19 @@ import type {
 } from '@gh-radar/shared';
 import { apiFetch } from './api';
 
-export function searchStocks(q: string, signal: AbortSignal): Promise<Stock[]> {
+/**
+ * 종목 검색.
+ *
+ * Phase 16 (16-13): 반환 타입을 `StockDetailResponse[]` 로 **넓혔다**. 서버는 검색과 상세가
+ * 같은 매퍼(`mergeMasterAndQuote`)를 쓰므로 검색 결과에도 `isin`(12자 KRX 표준코드)과
+ * `upperLimitProximity` 가 **원래부터 실려 있었다** — 선언만 `Stock[]` 이라 좁았다.
+ * 상따 전략 화면은 종목을 고르는 즉시 `isin` 이 필요한데(DMA 구독·주문 키, D-28), 타입이
+ * 좁으면 상세를 한 번 더 조회하거나 캐스팅해야 한다. 둘 다 없는 계약을 지어내는 쪽이다.
+ * `StockDetailResponse` 는 `Stock` 의 상위집합이라 기존 소비자는 무변경이다.
+ */
+export function searchStocks(q: string, signal: AbortSignal): Promise<StockDetailResponse[]> {
   const params = new URLSearchParams({ q });
-  return apiFetch<Stock[]>(`/api/stocks/search?${params.toString()}`, { signal });
+  return apiFetch<StockDetailResponse[]>(`/api/stocks/search?${params.toString()}`, { signal });
 }
 
 /**

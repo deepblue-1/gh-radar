@@ -66,11 +66,15 @@ import {
   startFakeGateway,
   type FakeGateway,
 } from '../../../relay/tests/helpers/fake-gateway.js';
-import { buildAccountStateFrame } from '../../../relay/tests/helpers/frames.js';
+import {
+  buildAccountStateFrame,
+  buildServerMessageFrame,
+} from '../../../relay/tests/helpers/frames.js';
 import type {
   FakeAccountStateInput,
   FakeLimitChaserInput,
   FakeOrderRespInput,
+  FakeServerMessageInput,
   FakeViOrderItemInput,
   FakeViTriggerInput,
 } from '../../../relay/tests/helpers/frames.js';
@@ -199,6 +203,17 @@ export interface LocalRelay {
    * 계좌번호 기본값은 `E2E_ACCOUNT_NO` 다(로그인 응답의 계좌와 같아야 화면에 뜬다).
    */
   pushAccountState(input?: FakeAccountStateInput): Promise<void>;
+  /**
+   * 서버 통지(54)를 지금 밀어 넣는다 — **거부 표시 검증의 유일한 경로**다 (T-16-07).
+   *
+   * 서버는 전략 등록 거부를 응답 코드로 주지 않는다. `ServerMessage(level:"ERROR")` 만
+   * 오고 에코는 아예 안 온다. 이 주입구가 없으면 「조용한 거부」 경로를 E2E 가 볼 수 없고,
+   * 그 경로는 화면이 아무것도 말하지 않아도 통과해 버리는 대표 구간이다.
+   *
+   * `isin` 이 **비면 브로드캐스트**다 — 상따/VI 몫 판정(Pitfall 9)의 입력이므로 기본값을
+   * 채우지 않는다. spec 이 의도한 값을 그대로 실어 보낸다.
+   */
+  pushServerMessage(input?: FakeServerMessageInput): Promise<void>;
   /**
    * `dma_orders` 스텁에 들어온 insert 바디 누적 (D-03).
    * 「주문이 나갔는데 기록이 없다」를 spec 이 확인할 수 있게 남긴다 — 스텁이 감사 기록을
@@ -627,6 +642,9 @@ export async function withLocalRelay(): Promise<LocalRelay> {
         await gatewaySocket(),
         buildAccountStateFrame({ accountNo: E2E_ACCOUNT_NO, ...input }),
       );
+    },
+    async pushServerMessage(input) {
+      gateway.sendFrame(await gatewaySocket(), buildServerMessageFrame(input));
     },
     orderInserts() {
       return [...supabase.orderInserts];
