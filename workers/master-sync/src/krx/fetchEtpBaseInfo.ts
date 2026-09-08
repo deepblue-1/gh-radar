@@ -1,4 +1,5 @@
 import type { AxiosInstance } from "axios";
+import { SHORT_CODE_RE } from "@gh-radar/shared";
 import type { KrxBaseInfoRow } from "./fetchBaseInfo";
 
 /**
@@ -19,10 +20,16 @@ import type { KrxBaseInfoRow } from "./fetchBaseInfo";
  *   BAS_DD  : 기준일
  *   (그 외 시세 컬럼: TDD_CLSPRC, FLUC_RT, ACC_TRDVOL, ACC_TRDVAL, MKTCAP, LIST_SHRS 등)
  *
- * 6자리 숫자 코드 필터:
- *   키움 ka10027 응답이 6자리 숫자 코드만 반환하므로, alphanumeric 종목 (ETF "0184E0",
- *   ELW "58L001" 등) 은 stocks 에 등록해도 키움 사이드와 매칭 불가 → 노이즈만 됨.
- *   regex `^\d{6}$` 통과 종목만 마스터 저장.
+ * 단축코드 필터 (2026-09-08 정정):
+ *   과거 주석은 "키움 ka10027 이 6자리 숫자만 반환하므로 alphanumeric ETF/ELW 는 등록해도
+ *   매칭 불가" 라고 적었지만, 그건 **우리 쪽 매퍼가 숫자 코드만 통과시켜서 그렇게 보였을 뿐**
+ *   이었다. KRX 는 숫자 6자리 소진으로 2025년부터 영문 포함 단축코드를 발급하고, 키움도
+ *   이를 그대로 반환한다.
+ *   숫자 전용 필터를 유지하면 영문코드 ETF/ETN 이 마스터에 없는 상태가 되고, intraday-sync
+ *   bootstrap 이 이들을 '미확인' 종목으로 새로 넣게 된다 — 즉 마스터가 ETP 를 ETP 라고
+ *   말해줄 수 없다. 그래서 `SHORT_CODE_RE`(`^[0-9A-Z]{6}$`) 로 넓힌다.
+ *   (quick-260908-fis 회귀: 영문코드 ETF 297종이 마스터 밖에 있던 탓에 SK하이닉스 단일종목
+ *    레버리지·원자력 ETF 가 스캐너 top_movers 에 유입됐다.)
  *
  * market 결정:
  *   ETP 매매정보 응답에 시장구분 field 없음. 한국 ETF/ETN/ELW 는 거의 모두 KOSPI
@@ -43,8 +50,6 @@ type EtpResponse = {
     ISU_NM?: string;
   }>;
 };
-
-const CODE_RE = /^\d{6}$/;
 
 const SECURITY_GROUP_BY_KIND: Record<EtpKind, string> = {
   etf: "ETF",
@@ -76,7 +81,7 @@ async function fetchOneKind(
   const dedupe = new Set<string>();
   for (const r of rows) {
     const code = (r.ISU_CD ?? "").trim();
-    if (!CODE_RE.test(code)) continue; // alphanumeric / 빈값 제외
+    if (!SHORT_CODE_RE.test(code)) continue; // 6자 단축코드(숫자+대문자) 아닌 값·빈값 제외
     if (dedupe.has(code)) continue;
     dedupe.add(code);
     out.push({

@@ -5,6 +5,13 @@ import { logger } from "../logger";
 import { stripAlSuffix } from "./map";
 
 /**
+ * bootstrap 이 붙이는 미분류 sentinel.
+ * rebuildTopMovers 의 ELIGIBLE_SECGROUPS 화이트리스트와 ETP 계열('ETF'/'ETN'/'ELW')
+ * 어느 쪽에도 속하지 않아야 한다 — 어느 방향으로도 오분류되지 않는 값이어야 한다.
+ */
+export const UNCLASSIFIED_SECURITY_GROUP = "미확인";
+
+/**
  * intraday-sync 의 FK orphan 회피. RESEARCH §3.4 + candle-sync mirror.
  *
  * ka10027 응답의 활성 종목 ~1,898 + ka10001 hot set ~250 은 stocks 마스터에 존재 가정.
@@ -35,7 +42,14 @@ export async function bootstrapMissingStocks(
     name: s.name,
     market: "KOSPI" as const, // 신규 등록 placeholder — master-sync 가 정확 시장 보강
     security_type: "보통주",
-    security_group: "주권",
+    // 모르는 종목을 '주권' 이라고 우기지 않는다 (2026-09-08 회귀).
+    //   ka10027 응답에는 주식뿐 아니라 ETF/ETN/ELW 도 섞여 온다. 여기서 '주권' 을 박으면
+    //   rebuildTopMovers 의 eligibleCodes 화이트리스트를 그대로 통과해 ETF 가 스캐너 급등
+    //   목록에 올라간다 (영문코드 ETF 297종 → SK하이닉스 단일종목 레버리지 7종 유입 사례).
+    //   bootstrap 의 목적은 FK orphan 회피이지 종목 분류가 아니다. 화이트리스트 어디에도
+    //   없는 sentinel 을 넣어, master-sync 가 정확한 값으로 덮을 때까지 배제 상태로 둔다.
+    //   (security_group 은 NOT NULL DEFAULT '주권' 이라 NULL 을 쓸 수 없다.)
+    security_group: UNCLASSIFIED_SECURITY_GROUP,
     is_delisted: false, // intraday-sync 는 활성 종목만 응답 받음 (candle-sync 의 is_delisted=true 와 차이)
     updated_at: now,
   }));

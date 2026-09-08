@@ -1,5 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
-import { bootstrapMissingStocks } from "../src/pipeline/bootstrapStocks";
+import {
+  bootstrapMissingStocks,
+  UNCLASSIFIED_SECURITY_GROUP,
+} from "../src/pipeline/bootstrapStocks";
+
+/** index.ts 의 rebuildTopMovers 화이트리스트 사본 — sentinel 이 여기 없어야 한다. */
+const ELIGIBLE_SECGROUPS = new Set([
+  "주권",
+  "외국주권",
+  "주식예탁증권",
+  "부동산투자회사",
+  "투자회사",
+  "사회간접자본투융자회사",
+]);
 
 describe("bootstrapMissingStocks", () => {
   it("빈 입력 → 0 inserted", async () => {
@@ -41,6 +54,30 @@ describe("bootstrapMissingStocks", () => {
     expect(payload).toHaveLength(3);
     expect(payload.map((p) => p.code).sort()).toEqual(["0011T0", "005930", "035720"].sort());
     expect(out.inserted).toBe(2);
+  });
+
+  // 2026-09-08 회귀: 영문코드 ETF 297종이 마스터에 없어 bootstrap 이 '주권' 으로 등록 →
+  // rebuildTopMovers 화이트리스트를 통과해 SK하이닉스 단일종목 레버리지 ETF 가 스캐너
+  // 급등 목록에 올라갔다. bootstrap 은 분류하지 않는다 — sentinel 로 배제 상태를 유지한다.
+  it("미확인 종목은 '주권' 이 아니라 sentinel 로 등록 — top_movers 화이트리스트 배제", async () => {
+    const upsert = vi.fn().mockResolvedValue({ data: null, error: null, count: 1 });
+    const from = vi.fn().mockReturnValue({ upsert });
+    const supabase = { from } as unknown as Parameters<typeof bootstrapMissingStocks>[0];
+
+    await bootstrapMissingStocks(
+      supabase,
+      [
+        // 실제 유입 사례: 영문코드 ETF. 이름만으로는 ETF 인지 알 수 없다는 것이 요점이다.
+        { stk_cd: "0193T0_AL", stk_nm: "KODEX SK하이닉스단일종목레버리지", cur_prc: "+12000" },
+      ] as unknown as Parameters<typeof bootstrapMissingStocks>[1],
+    );
+
+    const payload = upsert.mock.calls[0][0] as Array<{ security_group: string }>;
+    expect(payload[0].security_group).toBe(UNCLASSIFIED_SECURITY_GROUP);
+    expect(payload[0].security_group).not.toBe("주권");
+    expect(ELIGIBLE_SECGROUPS.has(payload[0].security_group)).toBe(false);
+    // ETP 계열로도 오분류하지 않는다 — 모르면 모른다고 둔다.
+    expect(["ETF", "ETN", "ELW"]).not.toContain(payload[0].security_group);
   });
 
   it("error 시 throw", async () => {
