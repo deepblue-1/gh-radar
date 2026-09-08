@@ -131,6 +131,23 @@ export interface AccountPanelProps {
   currentPrice?: number;
   /** 미체결 행에 붙일 출처 태그. 없으면 태그를 그리지 않는다(= 수동). */
   originTag?: AccountOriginTag;
+  /**
+   * 계좌 전용 모드의 ≥1280px 배치를 **세로 스택**으로 고정한다 (16-14 · R3).
+   *
+   * 기본(false)은 My page 규율인 2열(477/477)이다. VI 페이지는 이 패널이 992px 전폭이
+   * 아니라 **오른쪽 556px 컬럼** 안에 들어가므로, 그 안에서 2열로 쪼개지면 한 칸이
+   * 270px 이 되어 표가 조용히 잘린다. 뷰포트 기준 미디어쿼리라 컨테이너 폭을 모르는
+   * 패널이 스스로 판단할 수 없어 **호출부가 알려 준다.**
+   */
+  stack?: boolean;
+  /**
+   * 미체결 섹션 헤더 우측에 붙일 컨트롤 (UI-SPEC B7 — 거래소 필터 · 「전체 취소」).
+   *
+   * 패널이 필터·일괄취소를 **소유하지 않는다.** 필터는 어떤 행을 넘길지의 문제라
+   * `account` 를 만들어 주는 호출부의 몫이고, 일괄 취소는 표면마다 확인 문구가 다르다.
+   * 여기서는 **자리만** 내준다 — 넘기지 않으면 아무것도 그리지 않는다.
+   */
+  unfilledHeaderActions?: ReactNode;
   /** 세션 상태. `ready` 가 아니면 표를 흐리고 취소를 막는다. */
   status: RelayStatus;
   /** 취소 요청이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
@@ -167,6 +184,8 @@ export function AccountPanel({
   isin,
   currentPrice,
   originTag,
+  stack = false,
+  unfilledHeaderActions,
   status,
   onCancelSubmitted,
   className,
@@ -390,7 +409,9 @@ export function AccountPanel({
         className={cn(
           'flex flex-col',
           // R4 — 계좌 전용 모드는 ≥1280px 에서만 2열이고, 그 자식에 `min-w-0` 이 **필수**다.
+          // `stack` 이면 그 2열을 만들지 않는다(좁은 컬럼 안에 놓일 때, 위 props 주석).
           !stockScoped &&
+            !stack &&
             'min-[1280px]:grid min-[1280px]:grid-cols-2 min-[1280px]:gap-[var(--s-3)] min-[1280px]:[&>*]:min-w-0',
         )}
       >
@@ -405,14 +426,25 @@ export function AccountPanel({
             !sessionReady && 'opacity-[.55]',
           )}
         >
-          <h4
+          <div
             className={cn(
-              'text-[length:var(--t-caption)] font-semibold text-[var(--fg)]',
+              'flex min-w-0 flex-wrap items-center gap-[var(--s-2)]',
+              // 종목 축 모드에서는 ≥900 에 탭이 있어 이 머리가 통째로 사라진다.
               stockScoped && 'min-[900px]:hidden',
             )}
           >
-            미체결
-          </h4>
+            <h4 className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
+              미체결
+            </h4>
+            {unfilledHeaderActions !== undefined && (
+              <span
+                data-slot="account-unfilled-actions"
+                className="ml-auto flex flex-none items-center gap-[var(--s-2)]"
+              >
+                {unfilledHeaderActions}
+              </span>
+            )}
+          </div>
           {unfilled.length === 0 ? (
             <EmptyState
               title="미체결 주문이 없어요"

@@ -234,6 +234,59 @@ export function readQuoteRequestKey(msgType: number, payload: Buffer): QuoteRequ
   return null;
 }
 
+/** `SetVITriggerReq(11)` 요청 내용 — VI 전략 설정 전송분. */
+export type ViSetRequest = {
+  accountNo: string;
+  /** **원 단위**. 화면은 만원으로 입력받아 ×10,000 해서 보낸다. */
+  orderAmountKrw: number;
+  /** 정수 %. */
+  checkRate: number;
+  /** 상한가 고정("U") — relay 가 채운다. */
+  priceType: string;
+  run: boolean;
+};
+
+/**
+ * VI 설정 요청(11) 내용을 꺼낸다 (16-14 E2E 가 쓴다).
+ *
+ * **여기에 두는 이유는 `readQuoteRequestKey` 와 같다** — `flatbuffers` 와 생성 코드는
+ * relay 패키지 의존성이라 webapp 쪽 파일이 직접 import 할 수 없다.
+ *
+ * ★ 왜 필요한가: 「값만 수정했을 때 `run` 이 유지되는가」는 **페이로드를 보지 않으면
+ *   확인할 수 없다.** 스텁 게이트웨이는 11 에 자동 응답하지 않으므로 화면 상태로는
+ *   구분되지 않고, msg_type 만 세면 「보냈다」까지밖에 못 본다.
+ *
+ * @returns 11 요청이면 내용, 그 외 msg_type 이면 `null`
+ */
+export function readViSetRequest(msgType: number, payload: Buffer): ViSetRequest | null {
+  if (msgType !== STRATEGY_MSG.SetVITriggerReq) return null;
+  const req = rootEnvelope(payload)?.setViTrigger();
+  if (req === null || req === undefined) return null;
+  return {
+    accountNo: req.accountNo() ?? "",
+    // 와이어는 64비트지만 금액은 안전 정수 범위다 — 비교 편의를 위해 number 로 좁힌다.
+    orderAmountKrw: Number(req.orderAmountKrw()),
+    checkRate: req.checkRate(),
+    priceType: req.priceType() ?? "",
+    run: req.run(),
+  };
+}
+
+/** `ConfirmVIOrderReq(33)` 요청 내용 — VI 주문 확인 체크 전송분. */
+export type ViConfirmRequest = { orderNo: string; confirmed: boolean };
+
+/**
+ * VI 확인 요청(33) 내용을 꺼낸다 (16-14 E2E). 위 `readViSetRequest` 와 같은 이유로 여기 있다.
+ * 확인 체크는 서버가 **응답하지 않고** 73 으로만 정정하므로, 「무엇을 보냈는가」는
+ * 이 페이로드가 유일한 증거다.
+ */
+export function readViConfirmRequest(msgType: number, payload: Buffer): ViConfirmRequest | null {
+  if (msgType !== STRATEGY_MSG.ConfirmVIOrderReq) return null;
+  const req = rootEnvelope(payload)?.confirmViOrderReq();
+  if (req === null || req === undefined) return null;
+  return { orderNo: req.orderNo() ?? "", confirmed: req.confirmed() };
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];

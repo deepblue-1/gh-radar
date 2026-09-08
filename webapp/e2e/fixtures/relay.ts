@@ -63,8 +63,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import {
   readQuoteRequestKey,
+  readViConfirmRequest,
+  readViSetRequest,
   startFakeGateway,
   type FakeGateway,
+  type StrategyRequest,
+  type ViConfirmRequest,
+  type ViSetRequest,
 } from '../../../relay/tests/helpers/fake-gateway.js';
 import {
   buildAccountStateFrame,
@@ -86,6 +91,16 @@ import { MSG } from '../../../relay/src/dma/msg-type.js';
  * 구독 왕복(28 GetQuoteReq / 29 SubscribeQuoteReq)을 요청 로그로 세는 데 쓴다.
  */
 export { MSG as DMA_MSG };
+
+/**
+ * 전략 요청 페이로드 파서 재export — spec 이 relay 내부 경로를 다시 import 하지 않게 한다.
+ *
+ * `flatbuffers` 는 relay 패키지 의존성이라 spec 이 직접 프레임을 열 수 없다. 그렇다고
+ * msg_type 만 세면 **「보냈다」까지밖에 못 본다** — 「무엇을 보냈는가」(`run` 유지 · 확인
+ * on/off)는 페이로드가 유일한 증거다.
+ */
+export { readViConfirmRequest, readViSetRequest };
+export type { StrategyRequest, ViConfirmRequest, ViSetRequest };
 
 // ---------------------------------------------------------------------------
 // 상수 — 값의 정본은 여기 한 곳이다
@@ -176,6 +191,14 @@ export interface LocalRelay {
   clearDmaCredentials(): void;
   /** 게이트웨이가 수신한 요청 `msg_type` 누적(송신 순서 그대로). */
   requestLog(): number[];
+  /**
+   * 전략 **명령** 프레임(10·11·14·33) 전량 — 페이로드 포함(송신 순서 그대로).
+   *
+   * `requestLog()` 는 「보냈다」만 말한다. 「무엇을 보냈는가」가 계약인 자리
+   * (VI 「수정」이 `run` 을 유지하는가 · 확인 체크가 on/off 중 무엇을 보냈는가)는
+   * `readViSetRequest`/`readViConfirmRequest` 로 이 페이로드를 열어야 확인된다.
+   */
+  strategyRequests(): StrategyRequest[];
   /** 자동 호가 응답을 켤 거래소 목록. 빈 배열이면 어떤 거래소에도 응답하지 않는다. */
   setRespondingExchanges(exchanges: readonly string[]): void;
 
@@ -510,6 +533,12 @@ export async function withLocalRelay(): Promise<LocalRelay> {
   /** 자동 호가 응답을 켤 거래소. 기본은 KRX·NXT 둘 다. */
   let responding = new Set<string>(['KRX', 'NXT']);
   const requests: number[] = [];
+  /**
+   * 전략 명령 누적의 **테스트 시작점**. 스텁 게이트웨이는 프로세스 수명 내내 쌓아 두므로
+   * (`reset()` 이 닿지 않는다) 여기서 잘라 주지 않으면 다음 테스트가 **앞 테스트의
+   * 전송분을 보고 통과**한다.
+   */
+  let strategyBaseline = 0;
 
   /*
     스텁 게이트웨이는 업무 로직이 없다(15-02 설계). 그래서 "구독하면 호가가 온다"는
@@ -616,6 +645,9 @@ export async function withLocalRelay(): Promise<LocalRelay> {
     requestLog() {
       return [...requests];
     },
+    strategyRequests() {
+      return gateway.strategyRequests().slice(strategyBaseline);
+    },
     setRespondingExchanges(exchanges) {
       responding = new Set(exchanges);
     },
@@ -651,6 +683,7 @@ export async function withLocalRelay(): Promise<LocalRelay> {
     },
     reset() {
       requests.length = 0;
+      strategyBaseline = gateway.strategyRequests().length;
       supabase.orderInserts.length = 0;
       responding = new Set(['KRX', 'NXT']);
       supabase.rows.clear();
