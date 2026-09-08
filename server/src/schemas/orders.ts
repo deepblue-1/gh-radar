@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SHORT_CODE_RE } from "@gh-radar/shared";
 
 /**
  * Phase 15 Plan 17 — DMA 주문 입력 검증 (RELAY-02, D-20 / T-15-50).
@@ -25,8 +26,11 @@ import { z } from "zod";
  */
 export const OrderPostBody = z
   .object({
-    /** 6자 단축코드. 사용자에게 보이는 그 코드다. */
-    code: z.string().regex(/^\d{6}$/),
+    /**
+     * 6자 단축코드. 사용자에게 보이는 그 코드다.
+     * KRX 숫자 6자리 소진으로 2025년부터 영문이 섞인다(예: 채비 `0011T0`) — 숫자 전용이 아니다.
+     */
+    code: z.string().regex(SHORT_CODE_RE),
     /** 계좌번호. 세션 계좌 목록 대조는 relay 소관. */
     accountNo: z.string().min(1).max(12),
     /** 거래소 (D-04). */
