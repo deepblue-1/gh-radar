@@ -39,3 +39,12 @@ diff(`/me` 표면 · 전략 현황 카드 · 계좌 상태 맵)와 닿는 파일
 |------|------|
 | `use-relay-socket.ts` 의 `clockStamp()` | `now.toLocaleTimeString("ko-KR", { hour12: false })` 가 **Chromium 에서 `0시 57분 16초`** 를 돌려준다(16-13 E2E 가 같은 호출을 쓰던 상따 상태줄에서 실측으로 잡았다). 이 값은 `RelayServerMessageEntry.receivedAt` 이 되어 **호가주문 탭의 `relay-status-bar` 알림 시각**에 그대로 렌더된다 — `.mono` 고정폭 계약이 깨져 알림이 쌓일 때마다 시각 열 폭이 달라진다. 상따 화면은 자체 `clockNow()`(자리수 직접 채움)로 우회했고, **Phase 15 표면인 `use-relay-socket`·`relay-status-bar` 는 손대지 않았다** — 16-13 의 diff 가 닿지 않는 파일이고 고치면 이 plan 의 진단이 흐려진다. 같은 한 줄 수정이면 되므로 다음 quick 에서 함께 정리하는 것이 맞다. |
 | `text-[10px]` 선행 사용처 4파일 | `chat/agent-progress.tsx` · `stock/discussion-refresh-button.tsx` · `stock/news-refresh-button.tsx` · `stock/stock-comovement-section.tsx` · `stock/stock-limit-up-section.tsx` 에 10px 이 이미 쓰이고 있다(Phase 8/11/12 표면). 16-UI-SPEC T3 의 「10px 은 정확히 2곳」은 **Phase 16 표면 한정** 계약이고, 16-13 이 추가한 10px 은 호가 등락률·체결 시각 2곳뿐임을 RTL 이 잠갔다. 선행 사용처는 스코프 밖이라 손대지 않았다. |
+
+## 16-14 (2026-09-09)
+
+| 대상 | 내용 |
+|------|------|
+| 미체결 표 6열 전환 (UI-SPEC B7) | B7 은 「주문번호를 열이 아니라 종목 아래 보조줄(11px mono)로 내려 556px 컬럼에서 잘리지 않게」라고 적었지만, `account-panel.tsx` 의 미체결 표는 **3표면(상따·VI·My page)이 공유**하고 16-13 · 16-15 의 E2E 가 현재 7열 구조(주문번호 열 포함)에 걸려 있다. 한 표면의 폭 문제로 공용 표를 바꾸면 두 plan 의 계약이 함께 흔들린다. 16-14 는 대신 `stack` prop 으로 세로 스택만 고정했고(R3), ≥1280 에서 표는 자체 가로 스크롤로 흡수된다. **표 구조 변경은 3표면 E2E 를 함께 고치는 quick 에서** 하는 것이 맞다. |
+| `surface-placeholder.tsx` 죽은 코드 | 16-14 가 마지막 사용처(`vi-client`)를 걷어내 **사용처가 0건**이 됐다(`grep -rn SurfacePlaceholder webapp/src` = 정의 파일 1건뿐). 16-11 이 만든 파일이라 이 plan 의 스코프 밖이고, 지워도 기능 변화가 없지만 남겨 두면 「아직 준비 중인 화면이 있다」는 잘못된 신호를 준다. 16-17 또는 quick 에서 삭제. |
+| 확인 체크 잠금의 영구화 가능성 | `vi-order-list` 의 전송 잠금은 73 정정(또는 `confirmLocked`)에서 풀린다. 서버가 그 주문에 대해 **영원히 아무것도 보내지 않으면** 그 행의 체크가 잠긴 채 남는다. D-10 이 「타임아웃 UI 를 만들지 않는다」로 못박아 의도한 동작이지만(무응답이 정상 경로), 실계좌 검증(16-17 Manual-Only)에서 이 상태가 실제로 관측되는지 확인할 가치가 있다. |
+| 마감알림 실환경 미검증 | `Notification` 권한·발화는 헤드리스 Chromium 에서 재현이 어려워 **단위 테스트(생성자 호출 여부)까지만** 검증했다. 실제 알림이 뜨는지는 수동 확인 대상이다. |
