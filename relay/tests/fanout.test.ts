@@ -11,26 +11,49 @@
  *
  * 타이머 규율(15-03 과 동일): 가짜 타이머는 `setTimeout` 계열만 대체하고 `setImmediate` 는
  * 진짜로 둔다. 소켓 I/O 대기는 **고정 flush 횟수가 아니라 조건 폴링**이다.
+ *
+ * Phase 16 Plan 07 추가 — **전략 표면**(⑬~㉒). 검증 대상은 같은 신뢰 경계다:
+ *   · 인증만 하면 전략 스냅샷 3프레임이 **구독 없이** 온다 (D-12)
+ *   · 「0건」과 「아직 모른다」를 가른다 — `getViTrigger` 가 `undefined` 면 `vi` 프레임이 없다
+ *   · `dma_credentials` 미등록은 스냅샷도 전략 전송도 못 받는다 (D-04)
+ *   · `accountNo` 는 `session.allowedAccounts` 대조를 통과해야만 게이트웨이로 나간다 (T-16-01)
+ *   · 연결당 인바운드 상한 (T-16-06) · 사용자 간 전략 비교차 (T-16-02)
+ *
+ * ⚠️ 게이트웨이로 나간 전략 요청은 **디코드해서** 본다. `strategyRequests()` 는 바이트를
+ *    그대로 넘기고 해석하지 않는다 — 스텁이 요청을 해석해 주면 그 해석이 곧 프로덕션 파서의
+ *    정답지가 되어 검증이 순환한다.
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayOutbound } from "@gh-radar/shared";
+import type { RelayLimitChaserInput, RelayOutbound } from "@gh-radar/shared";
 
-import { AUTH_TIMEOUT_MS, WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
+import {
+  AUTH_TIMEOUT_MS,
+  INBOUND_RATE_LIMIT_PER_SEC,
+  RELAY_MSG_SOURCE,
+  WsFanout,
+  type WsFanoutDeps,
+} from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
+import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
-import { SAMPLE_ISIN } from "./helpers/frames.js";
+import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN, STRATEGY_MSG } from "./helpers/frames.js";
 
 const WS_PATH = "/ws";
+/** 사용자 간 전략 비교차(㉒)를 눈으로 구분하기 위한 두 번째 종목. */
+const OTHER_ISIN = "KR7000660001";
+/** `SAMPLE_ACCOUNTS` 에 **없는** 계좌 — 화이트리스트 밖 요청을 만든다 (T-16-01). */
+const FOREIGN_ACCOUNT_NO = "9999999999";
 const USER_A = "3f1c2b7a-9d40-4a11-8e55-00000000000a";
 const USER_B = "3f1c2b7a-9d40-4a11-8e55-00000000000b";
 /** 로그인은 되지만 `dma_credentials` 매핑이 없는 사용자 (D-12). */
@@ -71,6 +94,68 @@ function fakeSupabase(): SupabaseClient {
       }),
     }),
   } as unknown as SupabaseClient;
+}
+
+/**
+ * `lc.set` 이 싣는 33필드 — 스키마를 통과하는 최소 정상값.
+ *
+ * S→C 전용 4필드와 파생 `key` 는 타입이 이미 뺐다(`RelayLimitChaserInput`) — 실어 보내면
+ * "값이 왕복한다"는 착각이 생겨 에코-폼 비교가 오염된다 (Pitfall 6).
+ */
+function lcInput(overrides: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInput {
+  return {
+    isin: SAMPLE_ISIN,
+    accountNo: SAMPLE_ACCOUNT_NO,
+    market: "K",
+    crud: "C",
+    buyOrderPrice: 70_000,
+    buyOrderQty: 10,
+    buyWatchPrice: 69_900,
+    buyWatchQty: 100,
+    buyMinTradeQty: 1,
+    buyWatchSide: "1",
+    buyTradeQtyEnabled: true,
+    buyEnabled: true,
+    sellOrderPrice: 71_000,
+    sellWatchPrice: 70_900,
+    sellWatchQty: 100,
+    sellMinTradeQty: 1,
+    sellEnabled: false,
+    sellTradeQtyEnabled: false,
+    sweepWatchPrice: 0,
+    sweepEnabled: false,
+    sweepMinTickCount: 0,
+    // 클라 고정 3 — 조립기가 다른 값을 받으면 경고를 남기고 고정값으로 덮는다.
+    sweepRecalcEnabled: true,
+    sweepMinCount: 0,
+    sweepMinRate: 0,
+    exchange: "KRX",
+    sellOrderRatio: 100,
+    sellQtyTrackEnabled: false,
+    sellQtyTrackRatio: 50,
+    buyOrderAmount: 70,
+    cancelQtyEnabled: false,
+    cancelWatchQty: 0,
+    cancelTradeEnabled: false,
+    cancelQtyTrackEnabled: false,
+    ...overrides,
+  };
+}
+
+/**
+ * 요청 프레임의 루트 Envelope. `tryParseEnvelope` 를 쓰지 않는 이유는 그 함수가 **수신**
+ * 화이트리스트라 요청 대역(10·11·14·33)을 전부 드롭하기 때문이다.
+ */
+function rootEnvelope(payload: Buffer): Envelope {
+  return Envelope.getRootAsEnvelope(new flatbuffers.ByteBuffer(new Uint8Array(payload)));
+}
+
+/** 수신함에서 특정 종류의 프레임만 좁힌다(타입 술어 — 단언에서 캐스팅하지 않기 위해). */
+function framesOf<T extends RelayOutbound["t"]>(
+  inbox: RelayOutbound[],
+  t: T,
+): Extract<RelayOutbound, { t: T }>[] {
+  return inbox.filter((m): m is Extract<RelayOutbound, { t: T }> => m.t === t);
 }
 
 async function flushIo(turns = 4): Promise<void> {
@@ -378,5 +463,242 @@ describe("WsFanout", () => {
 
   it("⑫ 계약 밖 경로로는 업그레이드하지 않는다", async () => {
     await expect(connectWs(h.port, "/not-ws")).rejects.toThrow();
+  });
+
+  // ============================================================
+  // Phase 16 Plan 07 — 전략 표면 (D-01/D-12/T-16-01/T-16-02/T-16-06)
+  // ============================================================
+
+  it("⑬ 인증만 하면 전략 스냅샷 3프레임이 구독 없이 온다 (D-12)", async () => {
+    gateway.respondLimitChaserList([
+      { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO },
+      { isin: OTHER_ISIN, accountNo: SAMPLE_ACCOUNT_NO },
+    ]);
+    gateway.respondViTrigger({ run: true, orderAmountKrw: 3_000_000n, checkRate: 25 });
+    gateway.respondViOrderList([
+      { orderNo: "0000000001" },
+      { orderNo: "0000000002" },
+      { orderNo: "0000000003" },
+    ]);
+
+    // 첫 탭이 Ready 를 만들면 Hub 가 24/21/34 를 프리페치해 캐시를 채운다 (16-06).
+    await authed("token-a");
+    await waitFor(() => h.hub.getLimitChasers(USER_A).length === 2, "상따 캐시 2건");
+    await waitFor(() => h.hub.getViTrigger(USER_A) != null, "VI 설정 캐시");
+    await waitFor(() => h.hub.getViOrders(USER_A).length === 3, "VI 주문 캐시 3건");
+
+    // 새 탭은 **구독을 한 건도 보내지 않고** 캐시에서 3프레임을 받는다.
+    const second = await open();
+    second.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(second.inbox, "vi.list").length === 1, "새 탭 VI 주문 스냅샷");
+    await flushIo(20);
+
+    const [lcSnap] = framesOf(second.inbox, "lc.snap");
+    expect(lcSnap?.items).toHaveLength(2);
+    expect(lcSnap?.items.map((i) => i.isin).sort()).toEqual([OTHER_ISIN, SAMPLE_ISIN].sort());
+
+    const [vi] = framesOf(second.inbox, "vi");
+    expect(vi?.cfg).toMatchObject({ run: true, orderAmountKrw: 3_000_000, checkRate: 25 });
+
+    const [viList] = framesOf(second.inbox, "vi.list");
+    expect(viList?.snap).toBe(true);
+    expect(viList?.items).toHaveLength(3);
+
+    // 페이지는 전략을 따로 요청하지 않는다 — 구독이 0건인 채로 다 왔다.
+    expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(0);
+  });
+
+  it("⑭ 0건도 프레임이 오지만, VI 를 아직 모르면 vi 프레임은 오지 않는다", async () => {
+    // (A) 조회 결과 **미등록**(`null`) — 확정 정보이므로 `cfg:null` 을 보낸다.
+    gateway.respondViTrigger(null);
+    await authed("token-a");
+    await waitFor(() => h.hub.getViTrigger(USER_A) === null, "미등록 확정");
+
+    const tabA = await open();
+    tabA.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabA.inbox, "vi.list").length === 1, "A 새 탭 스냅샷");
+    await flushIo(20);
+
+    expect(framesOf(tabA.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
+    expect(framesOf(tabA.inbox, "vi")[0]).toEqual({ t: "vi", cfg: null });
+    expect(framesOf(tabA.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
+
+    // (B) **아직 모른다**(`undefined`) — 로그인이 끝나지 않아 61 을 받은 적이 없다.
+    //     지어낸 「미등록」을 내리면 브라우저가 사용자가 입력 중인 금액을 지운다.
+    gateway.silenceLogin();
+    const tabB = await open();
+    tabB.ws.sendAuth("token-b");
+    await waitFor(() => framesOf(tabB.inbox, "vi.list").length === 1, "B 스냅샷");
+    await flushIo(20);
+
+    expect(h.hub.getViTrigger(USER_B)).toBeUndefined();
+    expect(framesOf(tabB.inbox, "vi")).toHaveLength(0);
+    expect(framesOf(tabB.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
+    expect(framesOf(tabB.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
+  });
+
+  it("⑮ dma_credentials 미등록은 전략 스냅샷도 전략 전송도 받지 못한다 (D-04)", async () => {
+    const { ws, inbox } = await open();
+
+    ws.sendAuth("token-none");
+    await waitFor(() => inbox.length > 0, "unauthorized 상태 프레임");
+    await flushIo(20);
+
+    // 상태 프레임 **하나뿐**이다 — 전략 3프레임이 섞이지 않는다.
+    expect(inbox).toEqual([{ t: "state", s: "unauthorized" }]);
+
+    ws.sendRaw({ t: "lc.set", cfg: lcInput() });
+    await waitFor(() => inbox.length > 1, "전략 거부 상태 프레임");
+    await flushIo(20);
+
+    expect(inbox[1]).toEqual({ t: "state", s: "unauthorized" });
+    expect(gateway.strategyRequests()).toHaveLength(0);
+    expect(ws.closeInfo).toBeNull();
+  });
+
+  it("⑯ 허용 목록 밖 계좌의 lc.set 은 게이트웨이로 0바이트다 (T-16-01)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ accountNo: FOREIGN_ACCOUNT_NO }) });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    // ① 게이트웨이로 **아무것도 나가지 않았다** — 서버측 2중 차단에 기대지 않는다.
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    // ② 사유가 사용자에게 돌아간다(조용한 거부 금지). `src` 로 게이트웨이 통지와 구분된다.
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE });
+    expect(rejected?.a).toBe(FOREIGN_ACCOUNT_NO);
+    // ③ 로그에도 남는다 — 계좌번호는 마스킹본이라 원문이 실리지 않는다 (S-5 / T-16-09).
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("세션 계좌 목록 밖"),
+    );
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(FOREIGN_ACCOUNT_NO);
+  });
+
+  it("⑰ 허용 계좌의 lc.set 은 msg_type 10 으로 나가고 절단 폭을 지킨다", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    const lc = rootEnvelope(req!.payload).setLimitChaser();
+    expect(lc?.isin()).toBe(SAMPLE_ISIN);
+    expect((lc?.isin() ?? "").length).toBe(12);
+    expect(lc?.accountNo()).toBe(SAMPLE_ACCOUNT_NO);
+    // 서버가 12자 버퍼에 담으므로 relay 가 같은 폭으로 먼저 자른다 — 자른 값이 전략 키의 정본이다.
+    expect((lc?.accountNo() ?? "").length).toBeLessThanOrEqual(12);
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  it("⑱ vi.confirm 은 계좌 대조를 건너뛰고 msg_type 33 으로 나간다", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "vi.confirm", orderNo: "0000012345", confirmed: true });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.ConfirmVIOrderReq),
+      "33 수신",
+    );
+    await flushIo(20);
+
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.ConfirmVIOrderReq);
+    const confirm = rootEnvelope(req!.payload).confirmViOrderReq();
+    expect(confirm?.orderNo()).toBe("0000012345");
+    expect(confirm?.confirmed()).toBe(true);
+    // 계좌 필드가 없으므로 대조 단계를 타지 않는다 — 거부 프레임이 없다.
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  it("⑲ key 를 생략한 strategies.disable 은 msg_type 14 에 빈 키로 나간다", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "strategies.disable" });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.DisableStrategiesReq),
+      "14 수신",
+    );
+    await flushIo(20);
+
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.DisableStrategiesReq);
+    // `""` = 그 세션의 상따 전부 + VI. 등록은 유지하고 발주 게이트만 내린다.
+    expect(rootEnvelope(req!.payload).disableStrategiesReq()?.key()).toBe("");
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  it("⑳ lc.set 처리가 sub 경로의 키 계산을 건드리지 않는다 (Pitfall 14 회귀)", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendSub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "구독 성립");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "전략 요청 수신",
+    );
+    await flushIo(30);
+
+    // 전략 메시지는 구독 회계에 손대지 않는다.
+    expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+
+    // `undefined|undefined` 키가 만들어졌다면 이 해제가 「잡지 않은 키」로 무시된다.
+    a.ws.sendUnsub(SAMPLE_ISIN, "KRX");
+    await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 0, "구독 해제");
+  });
+
+  it("㉑ 인바운드 상한을 넘긴 프레임은 게이트웨이로 나가지 않고 경고는 1회다 (T-16-06)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const a = await authed("token-a");
+
+    const overflow = 5;
+    for (let i = 0; i < INBOUND_RATE_LIMIT_PER_SEC + overflow; i += 1) {
+      a.ws.sendRaw({ t: "vi.confirm", orderNo: `000000000${i % 10}`, confirmed: true });
+    }
+
+    await waitFor(
+      () => gateway.strategyRequests().length >= INBOUND_RATE_LIMIT_PER_SEC,
+      "상한까지 통과",
+    );
+    await flushIo(40);
+
+    expect(gateway.strategyRequests()).toHaveLength(INBOUND_RATE_LIMIT_PER_SEC);
+    // 건마다 로그하면 로그가 곧 두 번째 DoS 다 — 초과 구간당 1회로 묶는다.
+    const overflowWarns = warnSpy.mock.calls.filter((call) =>
+      String(call[1] ?? "").includes("인바운드 상한 초과"),
+    );
+    expect(overflowWarns).toHaveLength(1);
+    // 연결은 끊지 않는다 — 과속은 프로토콜 위반이 아니다.
+    expect(a.ws.closeInfo).toBeNull();
+  });
+
+  it("㉒ 다른 사용자의 전략 스냅샷은 절대 넘어가지 않는다 (T-16-02)", async () => {
+    gateway.respondLimitChaserList([{ isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO }]);
+    const a = await authed("token-a");
+    await waitFor(() => h.hub.getLimitChasers(USER_A).length === 1, "A 전략 캐시");
+
+    gateway.respondLimitChaserList([{ isin: OTHER_ISIN, accountNo: SAMPLE_ACCOUNT_NO }]);
+    const b = await authed("token-b");
+    await waitFor(() => h.hub.getLimitChasers(USER_B).length === 1, "B 전략 캐시");
+    await flushIo(30);
+
+    const aIsins = framesOf(a.inbox, "lc.snap").flatMap((m) => m.items.map((i) => i.isin));
+    const bIsins = framesOf(b.inbox, "lc.snap").flatMap((m) => m.items.map((i) => i.isin));
+
+    expect(aIsins).toEqual([SAMPLE_ISIN]);
+    expect(bIsins).toEqual([OTHER_ISIN]);
   });
 });
