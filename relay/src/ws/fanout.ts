@@ -442,9 +442,10 @@ export class WsFanout {
       return;
     }
 
-    const key = keyOf(msg.isin, msg.ex);
-
     if (msg.t === "sub") {
+      // `keyOf` 는 **분기 안에서** 계산한다. 가드 직후 무조건 부르면 `isin`/`ex` 가 없는
+      // 전략·주문 메시지가 `undefined|undefined` 키를 만든다 (16-RESEARCH Pitfall 14).
+      const key = keyOf(msg.isin, msg.ex);
       if (conn.keys.has(key)) {
         // 같은 소켓의 중복 구독을 참조계수에 반영하면 close 때 하나가 남아 샌다.
         logger.info({ userId, isin: msg.isin, ex: msg.ex }, "[WS] 이 소켓의 중복 구독 — 무시");
@@ -463,6 +464,7 @@ export class WsFanout {
       return;
     }
 
+    const key = keyOf(msg.isin, msg.ex);
     if (!conn.keys.has(key)) {
       logger.warn({ userId, isin: msg.isin, ex: msg.ex }, "[WS] 잡지 않은 키 해제 요청 — 무시");
       return;
