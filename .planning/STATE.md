@@ -339,6 +339,7 @@ Recent decisions affecting current work:
 | 260905-u9b | ROADMAP.md 정합성 복구 — 상단 Phases 체크리스트·Execution Order·Progress 표에 Phase 12~15 반영, Phase 12~15 상세 섹션을 Phase Details 안으로 이동, 15-02·15-06 [x] + 4/20 집계 반영 | 2026-09-05 | e9e2822 | [260905-u9b-roadmap-md-phases-execution-order-progre](./quick/260905-u9b-roadmap-md-phases-execution-order-progre/) |
 | 260908-fis | intraday-sync 종목코드 정규식을 영숫자 단축코드까지 허용 + STEP1 매핑실패 로깅 — 채비(0011T0) 등 KRX 영문 포함 단축코드 80종목이 스캐너·급등·홈에서 누락되던 회귀 수정 | 2026-09-08 | e18ea49·c3d679d | [260908-fis-intraday-sync-step1](./quick/260908-fis-intraday-sync-step1/) |
 | 260908-oh6 | 종목검색에서 ETF·ETN·ELW·상장폐지 종목 제외 — 마스터 ETP 확대(ELW 2,735·영문 ETF 303) 이후 이들이 name-asc 앞자리를 점거해 삼성전자·현대차·카카오가 limit 20 밖으로 밀려나던 회귀 수정 | 2026-09-08 | ec6cceb | [260908-oh6-get-api-stocks-search-etp-etf-etn-elw-is](./quick/260908-oh6-get-api-stocks-search-etp-etf-etn-elw-is/) |
+| 260908-py9 | Phase 15 이관 3건 종결 — 저장소 KB VPN 계정 ID 마스킹(15파일 38건, SC-8 충족) + VPN 주간 예약 재접속 타이머(일 06:00 KST, 저장소+VM 실적용, 무중단 실측) + relay README 정본화(상시 유지·실서버 라이브·14일 만료 복구 runbook) | 2026-09-08 | 2f8a507·ec60980·a1bbf8a | [260908-py9-phase-15-id-vpn-relay-readme](./quick/260908-py9-phase-15-id-vpn-relay-readme/) |
 
 ## Session Continuity
 
