@@ -200,11 +200,13 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("INBOUND_MSG_TYPES 는 응답 대역(50~71)만 담는다", () => {
-    expect(INBOUND_MSG_TYPES.size).toBe(12);
+  it("INBOUND_MSG_TYPES 는 응답 대역(50~73)만 담는다", () => {
+    // 15-02 의 12종 + 16-04 전략 응답 7종 = 19종. 개수를 못박아 두면 화이트리스트가
+    // 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간) 여기서 먼저 깨진다 (PC-12).
+    expect(INBOUND_MSG_TYPES.size).toBe(19);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(71);
+      expect(v).toBeLessThanOrEqual(73);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);
@@ -212,5 +214,42 @@ describe("MSG 상수", () => {
     // 74/75(거래원)는 본 phase 범위 밖 — 화이트리스트에 없어야 한다.
     expect(INBOUND_MSG_TYPES.has(MsgType.MemberStatsResp)).toBe(false);
     expect(INBOUND_MSG_TYPES.has(MsgType.MemberStatsPush)).toBe(false);
+  });
+
+  it("16-04 로 새로 통과하는 응답 7종이 전부 화이트리스트에 있다 (유입 집합)", () => {
+    // 파일 상단 주석이 열거한 집합과 같아야 한다. 하나라도 빠지면 16-06 의 명시 case 가
+    // 도달 불가가 되고, 반대로 여기에만 있고 case 가 없으면 조용한 default 드롭이 생긴다.
+    const newlyAdmitted = [
+      MSG.VIOrderNotice,
+      MSG.SetLimitChaserResp,
+      MSG.SetVITriggerResp,
+      MSG.GetLimitChaserListResp,
+      MSG.DisableStrategiesResp,
+      MSG.GetVIOrderListResp,
+      MSG.VIOrderListPush,
+    ];
+    expect(newlyAdmitted).toEqual([56, 60, 61, 64, 65, 72, 73]);
+    for (const v of newlyAdmitted) {
+      expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(true);
+    }
+  });
+
+  it("전략 요청 7종은 수신 대역이 아니다", () => {
+    // 10 은 우리가 보내는 번호다 — 되돌아오면 게이트웨이가 프레임을 반사한 것이므로
+    // 파싱하지 않고 드롭해야 한다.
+    for (const v of [
+      MSG.SetLimitChaserReq,
+      MSG.SetVITriggerReq,
+      MSG.DisableStrategiesReq,
+      MSG.GetVITriggerReq,
+      MSG.GetLimitChaserListReq,
+      MSG.ConfirmVIOrderReq,
+      MSG.GetVIOrderListReq,
+    ]) {
+      expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(false);
+    }
+    // 20(단건 조회) · 27/57(종목마스터) · 30/31/70(NXT 상따) 도 제외 상태여야 한다.
+    expect(INBOUND_MSG_TYPES.has(MsgType.SymbolMasterResp)).toBe(false);
+    expect(INBOUND_MSG_TYPES.has(MsgType.SetLimitChaserNXTResp)).toBe(false);
   });
 });

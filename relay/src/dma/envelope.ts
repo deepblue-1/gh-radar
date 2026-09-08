@@ -43,17 +43,25 @@ import type {
   RelayAccountState,
   RelayExchange,
   RelayHolding,
+  RelayLcCrud,
+  RelayLcWatchSide,
+  RelayLimitChaserInput,
   RelayQuote,
   RelayServerMsg,
   RelayTape,
   RelayTapeEntry,
   RelayUnfilled,
+  RelayViTrigger,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 import { AccountEntry } from "../generated/stock-dma/account-entry.js";
+import { ConfirmVIOrderReq } from "../generated/stock-dma/confirm-viorder-req.js";
 import { DirectOrderReq } from "../generated/stock-dma/direct-order-req.js";
+import { DisableStrategiesReq } from "../generated/stock-dma/disable-strategies-req.js";
 import { Envelope } from "../generated/stock-dma/envelope.js";
+import { SetLimitChaser } from "../generated/stock-dma/set-limit-chaser.js";
+import { SetVITrigger } from "../generated/stock-dma/set-vitrigger.js";
 import { GetAccountStateReq } from "../generated/stock-dma/get-account-state-req.js";
 import { GetQuoteReq } from "../generated/stock-dma/get-quote-req.js";
 import { HoldingState } from "../generated/stock-dma/holding-state.js";
@@ -696,6 +704,32 @@ export function toWireOrderType(orderType: OrderType): "N" | "C" {
   return orderType;
 }
 
+/**
+ * 상따 등록구분 → 와이어 1자 ("C"=upsert, "D"=삭제). `toWireSide` 주석의 규율을 따른다.
+ *
+ * 서버는 **첫 글자만** 보고 `'D'` 가 아니면 전부 upsert 로 처리한다. 그래서 오타 하나가
+ * "삭제하려던 전략이 되살아나는" 결과로 조용히 이어진다 — 열거 밖 값은 여기서 던진다.
+ */
+export function toWireCrud(crud: RelayLcCrud): "C" | "D" {
+  if (crud !== "C" && crud !== "D") {
+    throw new OrderBuildError("BAD_CRUD", `알 수 없는 등록구분: ${String(crud)}`);
+  }
+  return crud;
+}
+
+/**
+ * 매수 감시 기준호가 → 와이어 1자 ("1"=매수호가, 그 외=매도호가). `toWireSide` 주석 참조.
+ *
+ * 서버가 `'1'` 만 매수호가로 보고 나머지를 전부 매도호가로 접으므로, 빈 문자열이 흘러가면
+ * **감시 기준이 반대쪽 호가로 뒤바뀐 채** 발주 게이트가 열린다.
+ */
+export function toWireWatchSide(side: RelayLcWatchSide): "0" | "1" {
+  if (side !== "0" && side !== "1") {
+    throw new OrderBuildError("BAD_WATCH_SIDE", `알 수 없는 감시 기준호가: ${String(side)}`);
+  }
+  return side;
+}
+
 /** `buildDirectOrderReq` 입력. 전부 이미 계약 타입으로 좁혀진 값이다. */
 export type DirectOrderInput = {
   /** 12자 ISIN. 단축코드를 산술 유도하지 않는다 (D-28) — server 가 `stocks.isin` 에서 채운다. */
@@ -772,6 +806,339 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
   Envelope.addDirectOrderReq(b, order);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
+}
+
+// ============================================================
+// 전략 조립 (relay → 게이트웨이) — 16-04 / TRADE-03 / D-01
+// ============================================================
+//
+// 모든 테이블을 `startXxx` + `addXxx` + `endXxx` **개별 호출**로 조립한다.
+// flatc 가 만들어 준 위치 인자 생성 함수(`create*` — 37 인자를 순서로 받는다)를 쓰지 않는 이유는
+// 하나다 — `SetLimitChaser` 는 deprecated 8슬롯을 포함한 45슬롯 테이블이라 인자가 한 칸만
+// 밀려도 **타입이 우연히 맞아 컴파일된다**. bool 자리에 uint 가 들어가면 게이트가 뒤바뀐 채
+// 실계좌 발주가 나간다 (T-16-05). 이름 있는 `addXxx` 는 그 실수를 구조적으로 막는다.
+//
+// 문자열은 테이블을 **열기 전에** `createString` 한다 — FlatBuffers 는 테이블 조립 중
+// 중첩 객체 생성을 허용하지 않는다.
+
+/** `uint` 필드의 와이어 표현 범위. 넘기면 조용히 감싸 전혀 다른 값이 된다. */
+const MAX_UINT32 = 4_294_967_295;
+
+/** `ubyte` 필드의 와이어 표현 범위. 256 을 보내면 서버는 0 으로 읽는다. */
+const MAX_UBYTE = 255;
+
+/**
+ * `uint` 필드 가드. **정책 한도가 아니라 와이어 표현 범위**다 (`MAX_INT32` 주석과 같은 규율).
+ *
+ * 범위 정책(매도비율 1~100 · 잔량추적 1~90 등)은 `relay/src/ws/protocol.ts` 의 zod 스키마
+ * 한 곳에만 둔다 — 두 곳에 적으면 언젠가 갈라지고, 갈라지면 어느 쪽이 정본인지 알 수 없다.
+ */
+function toWireUint(v: number, field: string): number {
+  if (!Number.isInteger(v) || v < 0 || v > MAX_UINT32) {
+    throw new OrderBuildError("UINT_RANGE", `${field} 가 uint 표현 범위를 벗어났습니다: ${v}`);
+  }
+  return v;
+}
+
+/** `ubyte` 필드 가드. `toWireUint` 와 같은 이유로 표현 범위만 본다. */
+function toWireUByte(v: number, field: string): number {
+  if (!Number.isInteger(v) || v < 0 || v > MAX_UBYTE) {
+    throw new OrderBuildError("UBYTE_RANGE", `${field} 가 ubyte 표현 범위를 벗어났습니다: ${v}`);
+  }
+  return v;
+}
+
+/**
+ * 서버가 12자 버퍼에 `strncpy(…, 12)` 하는 문자열을 **같은 폭으로 절단**한다.
+ *
+ * 절단하지 않고 13자를 보내면 서버의 전략 키(`ISIN:accountNo:exchange`)와 클라가 기억하는
+ * 키가 어긋나 **에코가 영원히 매칭되지 않는다**. 조용한 실패이므로 절단 사실을 로그로 남긴다.
+ */
+function truncateToWire(s: string, max: number, field: string): string {
+  if (s.length <= max) return s;
+  logger.warn({ field, len: s.length, max }, "[DMA] 와이어 폭 초과 — 절단 (서버 strncpy 동형)");
+  return s.slice(0, max);
+}
+
+/** `sweep_recalc_enabled` 클라 고정값 (WinForms `LimitChaserForm.Send()` 동형). */
+export const LC_FIXED_SWEEP_RECALC_ENABLED = true;
+/** `sweep_min_count` 클라 고정값. `0` 은 Case3 비활성이다. */
+export const LC_FIXED_SWEEP_MIN_COUNT = 0;
+/** `sweep_min_rate` 클라 고정값(BasisPoints). `0` 이라 단위 함정 자체를 만나지 않는다. */
+export const LC_FIXED_SWEEP_MIN_RATE = 0;
+
+/**
+ * 상따 설정 (MsgType 10). 응답은 60 에코다.
+ *
+ * **클라 입력 30 + 클라 고정 3 = 33 필드만** 채운다. 나머지는 건드리지 않는다:
+ *   - **S→C 전용 4필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
+ *     `cancel_qty_track_baseline`) — 서버가 계산해 에코로만 내려주는 값이다. 실어 보내면
+ *     서버는 무시하지만, 보내는 쪽 코드에 남아 있는 것만으로 "왕복하는 값"이라는 착각을
+ *     만들고 에코-폼 비교가 오염된다 (Pitfall 6).
+ *   - **deprecated 8슬롯** — flatc 가 접근자를 만들지 않는다. 존재 자체를 모른 채로 둔다.
+ *
+ * 고정 3(`sweepRecalcEnabled`/`sweepMinCount`/`sweepMinRate`)은 입력값과 무관하게 **relay 가
+ * 못박는다**. WinForms 가 한 번도 다른 값을 보낸 적이 없어 서버의 Case3 경로가 실사용으로
+ * 검증된 적이 없기 때문이다 — 브라우저가 열 수 있게 두면 미검증 발주 경로가 열린다.
+ * 입력이 고정값과 다르면 조용히 덮지 않고 경고를 남긴다 (PC-7).
+ *
+ * @throws {OrderBuildError} ISIN·계좌번호·거래소 형식 위반, 단일문자 열거 밖 값, 수치 표현 범위 초과
+ */
+export function buildSetLimitChaserReq(cfg: RelayLimitChaserInput): Uint8Array {
+  // 서버와 같은 폭으로 먼저 자른다 — 자른 뒤의 값이 전략 키의 정본이다.
+  const isin = truncateToWire(cfg.isin, 12, "isin");
+  const accountNo = truncateToWire(cfg.accountNo, MAX_ACCOUNT_NO_LEN, "accountNo");
+
+  if (!isValidIsin(isin)) {
+    throw new OrderBuildError("BAD_ISIN", `ISIN 형식 위반 (12자 필요, ${isin.length}자)`);
+  }
+  if (!isValidAccountNo(accountNo)) {
+    throw new OrderBuildError("BAD_ACCOUNT_NO", "계좌번호 형식 위반");
+  }
+  if (!isValidExchange(cfg.exchange)) {
+    // 서버는 화이트리스트 밖 거래소를 **저장도 에코도 하지 않고** ERROR 통지만 보낸다.
+    // 여기서 던져야 "보냈는데 아무 일도 안 일어남"이 되지 않는다.
+    throw new OrderBuildError("BAD_EXCHANGE", `알 수 없는 거래소: ${String(cfg.exchange)}`);
+  }
+
+  const market = toWireMarket(cfg.market);
+  const crud = toWireCrud(cfg.crud);
+  const buyWatchSide = toWireWatchSide(cfg.buyWatchSide);
+
+  if (
+    cfg.sweepRecalcEnabled !== LC_FIXED_SWEEP_RECALC_ENABLED ||
+    cfg.sweepMinCount !== LC_FIXED_SWEEP_MIN_COUNT ||
+    cfg.sweepMinRate !== LC_FIXED_SWEEP_MIN_RATE
+  ) {
+    logger.warn(
+      {
+        isin,
+        got: {
+          sweepRecalcEnabled: cfg.sweepRecalcEnabled,
+          sweepMinCount: cfg.sweepMinCount,
+          sweepMinRate: cfg.sweepMinRate,
+        },
+      },
+      "[DMA] sweep 고정 3필드가 입력과 다름 — 클라 고정값으로 덮어 송신",
+    );
+  }
+
+  const b = new flatbuffers.Builder(512);
+  // 문자열 6종을 테이블 열기 전에 만든다.
+  const isinOff = b.createString(isin);
+  const accountNoOff = b.createString(accountNo);
+  const marketOff = b.createString(market);
+  const crudOff = b.createString(crud);
+  const buyWatchSideOff = b.createString(buyWatchSide);
+  const exchangeOff = b.createString(cfg.exchange);
+
+  SetLimitChaser.startSetLimitChaser(b);
+  SetLimitChaser.addIsin(b, isinOff);
+  SetLimitChaser.addAccountNo(b, accountNoOff);
+  SetLimitChaser.addMarket(b, marketOff);
+  SetLimitChaser.addCrud(b, crudOff);
+  SetLimitChaser.addBuyOrderPrice(b, toWireUint(cfg.buyOrderPrice, "buyOrderPrice"));
+  SetLimitChaser.addBuyOrderQty(b, toWireUint(cfg.buyOrderQty, "buyOrderQty"));
+  SetLimitChaser.addBuyWatchPrice(b, toWireUint(cfg.buyWatchPrice, "buyWatchPrice"));
+  SetLimitChaser.addBuyWatchQty(b, toWireUint(cfg.buyWatchQty, "buyWatchQty"));
+  SetLimitChaser.addBuyMinTradeQty(b, toWireUint(cfg.buyMinTradeQty, "buyMinTradeQty"));
+  SetLimitChaser.addBuyWatchSide(b, buyWatchSideOff);
+  SetLimitChaser.addBuyTradeQtyEnabled(b, cfg.buyTradeQtyEnabled);
+  SetLimitChaser.addBuyEnabled(b, cfg.buyEnabled);
+  SetLimitChaser.addSellOrderPrice(b, toWireUint(cfg.sellOrderPrice, "sellOrderPrice"));
+  // sell_order_qty — S→C 전용. 서버가 매도가능 x 비율로 스냅샷한다.
+  SetLimitChaser.addSellWatchPrice(b, toWireUint(cfg.sellWatchPrice, "sellWatchPrice"));
+  SetLimitChaser.addSellWatchQty(b, toWireUint(cfg.sellWatchQty, "sellWatchQty"));
+  SetLimitChaser.addSellMinTradeQty(b, toWireUint(cfg.sellMinTradeQty, "sellMinTradeQty"));
+  SetLimitChaser.addSellEnabled(b, cfg.sellEnabled);
+  SetLimitChaser.addSellTradeQtyEnabled(b, cfg.sellTradeQtyEnabled);
+  SetLimitChaser.addSweepWatchPrice(b, toWireUint(cfg.sweepWatchPrice, "sweepWatchPrice"));
+  SetLimitChaser.addSweepEnabled(b, cfg.sweepEnabled);
+  SetLimitChaser.addSweepMinTickCount(b, toWireUByte(cfg.sweepMinTickCount, "sweepMinTickCount"));
+  SetLimitChaser.addSweepRecalcEnabled(b, LC_FIXED_SWEEP_RECALC_ENABLED);
+  SetLimitChaser.addSweepMinCount(b, LC_FIXED_SWEEP_MIN_COUNT);
+  SetLimitChaser.addSweepMinRate(b, LC_FIXED_SWEEP_MIN_RATE);
+  SetLimitChaser.addExchange(b, exchangeOff);
+  SetLimitChaser.addSellOrderRatio(b, toWireUByte(cfg.sellOrderRatio, "sellOrderRatio"));
+  SetLimitChaser.addSellQtyTrackEnabled(b, cfg.sellQtyTrackEnabled);
+  SetLimitChaser.addSellQtyTrackRatio(b, toWireUByte(cfg.sellQtyTrackRatio, "sellQtyTrackRatio"));
+  // sell_qty_track_baseline — S→C 전용. 서버가 유지하는 래칫 기준선이다.
+  SetLimitChaser.addBuyOrderAmount(b, toWireUint(cfg.buyOrderAmount, "buyOrderAmount"));
+  // sell_entry_latched — S→C 전용. 매도 진입 확인 래치.
+  SetLimitChaser.addCancelQtyEnabled(b, cfg.cancelQtyEnabled);
+  SetLimitChaser.addCancelWatchQty(b, toWireUint(cfg.cancelWatchQty, "cancelWatchQty"));
+  SetLimitChaser.addCancelTradeEnabled(b, cfg.cancelTradeEnabled);
+  SetLimitChaser.addCancelQtyTrackEnabled(b, cfg.cancelQtyTrackEnabled);
+  // cancel_qty_track_baseline — S→C 전용.
+  const table = SetLimitChaser.endSetLimitChaser(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.SetLimitChaserReq);
+  Envelope.addSetLimitChaser(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * `buildSetVITriggerReq` 입력. `priceType` 은 **받지 않는다** — 상한가("U") 고정이고
+ * relay 가 채운다. 브라우저가 정할 수 있게 두면 하한가("L") 발주 경로가 열린다.
+ */
+export type ViTriggerInput = Omit<RelayViTrigger, "priceType">;
+
+/** VI 가격유형 — 상한가 고정 (D-01). 스키마는 "L"(하한가)도 알지만 relay 는 만들지 않는다. */
+export const VI_PRICE_TYPE: "U" = "U";
+
+/**
+ * VI 발동 감시 설정 (MsgType 11). 응답은 61 에코다.
+ *
+ * `order_amount_krw` 는 fbs 상 **`ulong`** 이라 생성 코드가 `bigint` 를 요구한다. 계약(D-34)은
+ * `number` 이므로 여기가 승격의 유일한 지점이다 — `BigInt(1.5)` 는 RangeError 를 던지므로
+ * 정수 여부를 먼저 본다.
+ *
+ * `check_rate` 는 **정수 %**(25 = 25%) 다. 상따의 `sweep_min_rate` 가 BasisPoints(2950 = 29.5%)
+ * 인 것과 **단위가 다르다** (Pitfall 5) — 한쪽 값을 다른 쪽에 그대로 넣으면 100배 어긋난다.
+ * 하락 감시를 막지 않으려고 음수를 허용하되 int 표현 범위는 지킨다.
+ *
+ * @throws {OrderBuildError} 계좌번호 형식 위반, 금액·상승률 표현 범위 초과
+ */
+export function buildSetVITriggerReq(cfg: ViTriggerInput): Uint8Array {
+  const accountNo = truncateToWire(cfg.accountNo, MAX_ACCOUNT_NO_LEN, "accountNo");
+  if (!isValidAccountNo(accountNo)) {
+    throw new OrderBuildError("BAD_ACCOUNT_NO", "계좌번호 형식 위반");
+  }
+  if (!Number.isInteger(cfg.orderAmountKrw) || cfg.orderAmountKrw < 0) {
+    throw new OrderBuildError("BAD_ORDER_AMOUNT", `주문금액(원)은 0 이상의 정수여야 합니다: ${cfg.orderAmountKrw}`);
+  }
+  if (!Number.isInteger(cfg.checkRate) || Math.abs(cfg.checkRate) > MAX_INT32) {
+    throw new OrderBuildError("BAD_CHECK_RATE", `발동 상승률이 int 표현 범위를 벗어났습니다: ${cfg.checkRate}`);
+  }
+
+  const b = new flatbuffers.Builder(128);
+  const accountNoOff = b.createString(accountNo);
+  const priceTypeOff = b.createString(VI_PRICE_TYPE);
+
+  SetVITrigger.startSetVITrigger(b);
+  SetVITrigger.addAccountNo(b, accountNoOff);
+  // number -> bigint 승격의 유일 지점. 정수 검사를 통과했으므로 여기서 던지지 않는다.
+  SetVITrigger.addOrderAmountKrw(b, BigInt(cfg.orderAmountKrw));
+  SetVITrigger.addCheckRate(b, cfg.checkRate);
+  SetVITrigger.addPriceType(b, priceTypeOff);
+  SetVITrigger.addRun(b, cfg.run);
+  const table = SetVITrigger.endSetVITrigger(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.SetVITriggerReq);
+  Envelope.addSetViTrigger(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** `buildConfirmVIOrderReq` 입력. 같은 메시지로 확인 on/off 를 모두 보낸다. */
+export type ConfirmVIOrderInput = {
+  /** 서버 주문번호. **빈 문자열은 접수 전(Pending)** 이라 확인 자체가 불가능하다. */
+  orderNo: string;
+  confirmed: boolean;
+};
+
+/**
+ * VI 주문 확인 체크 (MsgType 33). 반영되면 서버가 **73 푸시로만** 알린다 — 별도 응답이 없다.
+ *
+ * `order_no` 가 비면 서버는 **응답 없이 드롭**한다. 보내고 기다리는 경로를 만들면 영원히 오지
+ * 않는 응답을 기다리게 되므로 조립 전에 던진다 — `RelayViConfirmSchema` 에 이어지는 최후 방어선이다.
+ *
+ * @throws {OrderBuildError} `orderNo` 가 빈 문자열일 때
+ */
+export function buildConfirmVIOrderReq({ orderNo, confirmed }: ConfirmVIOrderInput): Uint8Array {
+  if (orderNo === "") {
+    throw new OrderBuildError(
+      "ORDER_NO_REQUIRED",
+      "VI 확인에는 주문번호가 필요합니다 (빈 값은 서버가 조용히 드롭)",
+    );
+  }
+
+  const b = new flatbuffers.Builder(128);
+  const orderNoOff = b.createString(orderNo);
+
+  ConfirmVIOrderReq.startConfirmVIOrderReq(b);
+  ConfirmVIOrderReq.addOrderNo(b, orderNoOff);
+  ConfirmVIOrderReq.addConfirmed(b, confirmed);
+  const table = ConfirmVIOrderReq.endConfirmVIOrderReq(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.ConfirmVIOrderReq);
+  Envelope.addConfirmViOrderReq(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** 전략 키(`ISIN:accountNo:exchange`) 길이 상한 — 서버 WR-09 와 같은 값이다(실제 최대 29B). */
+export const MAX_STRATEGY_KEY_BYTES = 64;
+
+/**
+ * 전략 비활성화 (MsgType 14). `key` 가 `""` 면 세션의 상따 **전부 + VI** 다.
+ *
+ * **삭제가 아니라 발주 게이트만 내린다** — 등록은 유지된다. 서버는 키별 60/61 에코를 세션 전
+ * 연결에 먼저 보낸 뒤 65 집계를 요청 연결에만 보내므로, 상태 갱신은 에코가 하고 65 는
+ * 「완료 신호」로만 쓴다.
+ *
+ * 64바이트 상한을 relay 에서 먼저 던지는 이유는 왕복 절약이 아니라 로그 폭 봉쇄다 (T-16-06).
+ * 문자열 길이가 아니라 **UTF-8 바이트**로 잰다 — 서버가 바이트로 자르기 때문이다.
+ *
+ * @throws {OrderBuildError} `key` 가 64바이트를 넘을 때
+ */
+export function buildDisableStrategiesReq(key = ""): Uint8Array {
+  const bytes = Buffer.byteLength(key, "utf8");
+  if (bytes > MAX_STRATEGY_KEY_BYTES) {
+    throw new OrderBuildError(
+      "KEY_TOO_LONG",
+      `전략 키가 상한을 넘었습니다 (${bytes}B > ${MAX_STRATEGY_KEY_BYTES}B)`,
+    );
+  }
+
+  const b = new flatbuffers.Builder(128);
+  const keyOff = b.createString(key);
+
+  DisableStrategiesReq.startDisableStrategiesReq(b);
+  DisableStrategiesReq.addKey(b, keyOff);
+  const table = DisableStrategiesReq.endDisableStrategiesReq(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.DisableStrategiesReq);
+  Envelope.addDisableStrategiesReq(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 본문 없는 요청 Envelope. 24/34 는 **요청 테이블 자체가 없고**, 21 은 `get_strategy_req` 를
+ * 서버가 파싱하되 무시한다 — 셋 다 `msg_type` 만 실어 보내면 된다.
+ */
+function buildBareRequest(msgType: number, capacity = 64): Uint8Array {
+  const b = new flatbuffers.Builder(capacity);
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, msgType);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** 상따 목록 조회 (MsgType 24). 응답 64 는 **요청 연결에만** 온다. */
+export function buildGetLimitChaserListReq(): Uint8Array {
+  return buildBareRequest(MSG.GetLimitChaserListReq);
+}
+
+/**
+ * VI 전략 조회 (MsgType 21). 응답은 61 이다.
+ *
+ * 전략이 없으면 서버는 **테이블 없는 빈 61** 을 보낸다(무응답 금지). 웹은 그것을 「미등록」으로
+ * 읽고 입력값은 그대로 둔 채 `run` 만 내린다.
+ */
+export function buildGetVITriggerReq(): Uint8Array {
+  return buildBareRequest(MSG.GetVITriggerReq);
+}
+
+/** VI 주문 목록 조회 (MsgType 34). 응답 72 는 스냅샷이고 이후 73 이 편승 푸시된다. */
+export function buildGetVIOrderListReq(): Uint8Array {
+  return buildBareRequest(MSG.GetVIOrderListReq);
 }
 
 /** 주문 통보 (51) 파싱 결과. 값은 전부 **게이트웨이 원문**이고 해석하지 않는다. */
