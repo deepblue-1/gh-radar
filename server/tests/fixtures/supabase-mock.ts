@@ -129,6 +129,40 @@ export function mockSupabase(state: State): SupabaseClient {
         );
         return builder;
       }),
+      // PostgREST `.not(col, "in", '("A","B")')` — /search 의 ETP 블랙리스트 제외에 쓰인다.
+      // 미지원 연산자를 조용히 no-op 통과시키면 목이 라우트 회귀를 못 잡으므로 명시 throw 한다
+      // (CLAUDE.md "무로그 fail-safe 금지" 교훈).
+      not: vi
+        .fn()
+        .mockImplementation((col: string, operator: string, value: unknown) => {
+          if (operator !== "in") {
+            throw new Error(
+              `supabase-mock: .not() 미지원 연산자 '${operator}' — 목에 구현을 추가하라`,
+            );
+          }
+          const literal = String(value).trim();
+          if (!literal.startsWith("(") || !literal.endsWith(")")) {
+            throw new Error(
+              `supabase-mock: .not(col,'in',...) 값은 PostgREST 리스트 리터럴이어야 한다: ${literal}`,
+            );
+          }
+          const excluded = new Set(
+            literal
+              .slice(1, -1)
+              .split(",")
+              .map((t) => t.trim().replace(/^"(.*)"$/, "$1"))
+              .filter((t) => t.length > 0),
+          );
+          filtered = filtered.filter((r) => {
+            const v = (r as any)[col];
+            // 컬럼이 행에 아예 없으면(undefined) 제외하지 않는다 — 프로덕션
+            // stocks.security_group 은 NOT NULL DEFAULT '주권' 이라 발생 불가한 경로이고,
+            // security_group 을 명시하지 않은 기존 픽스처를 깨지 않기 위한 관용이다.
+            if (v === undefined) return true;
+            return !excluded.has(String(v));
+          });
+          return builder;
+        }),
       order: vi
         .fn()
         .mockImplementation((col: string, opts?: { ascending?: boolean }) => {
