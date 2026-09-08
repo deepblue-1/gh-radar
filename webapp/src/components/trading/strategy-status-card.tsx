@@ -60,6 +60,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRelayContext } from "@/lib/relay-provider";
+import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
 const KRW = new Intl.NumberFormat("ko-KR");
@@ -304,13 +305,33 @@ function DisableAllDialog({
 // 카드
 // ---------------------------------------------------------------------------
 
+/**
+ * 전략 스냅샷을 **한 번이라도 받았는가**.
+ *
+ * relay 는 인증 직후 `lc.snap` 을 **비어 있어도 1프레임** 보낸다(16-07). 그래서
+ * `ready` 를 본 적이 있다면 「목록이 비었다」는 확정 정보다. 그 전에는 아직 묻지도
+ * 않은 상태라 「등록된 상따 전략이 없어요」가 거짓말이 된다.
+ *
+ * 재접속(`reconnecting`) 중에도 래치를 내리지 않는다 — 연결 훅이 목록을 지우지 않고
+ * `isStale` 만 세우는 규율과 짝이다(사이드바 `everReady` 와 같은 판단).
+ */
+function useSnapshotSeen(status: RelayStatus): boolean {
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (status === "ready") setSeen(true);
+  }, [status]);
+  return status === "ready" || seen;
+}
+
 export interface StrategyStatusCardProps {
   className?: string;
 }
 
 export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
-  const { limitChasers, viTrigger, accounts, strategiesDisabled, send } = useRelayContext();
+  const { status, limitChasers, viTrigger, accounts, strategiesDisabled, send } =
+    useRelayContext();
   const labels = useIsinLabels();
+  const snapshotSeen = useSnapshotSeen(status);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   /** 14 를 보내고 65 를 기다리는 중. 버튼을 잠근다(중복 송신 방지). */
@@ -362,7 +383,25 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
         </span>
       </h2>
 
-      {chaserCount === 0 ? (
+      {chaserCount === 0 && !snapshotSeen ? (
+        /* 스냅샷 수신 전 — 「없음」이 아니라 「아직 모름」이다 (C2 로딩 · 3행 스켈레톤). */
+        <div
+          data-slot="strategy-list-loading"
+          aria-busy="true"
+          className="flex flex-col gap-1"
+        >
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              aria-hidden="true"
+              className="h-11 animate-pulse rounded-[var(--r)] bg-[var(--muted)] motion-reduce:animate-none"
+            />
+          ))}
+          <p className="pt-1 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+            전략 정보를 불러오는 중이에요…
+          </p>
+        </div>
+      ) : chaserCount === 0 ? (
         <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
             등록된 상따 전략이 없어요

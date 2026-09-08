@@ -367,6 +367,23 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
+  it("⑦-a 스냅샷 수신 전에는 「없음」이 아니라 로딩이다 (C2 로딩)", () => {
+    // `connecting` — 아직 `lc.snap` 을 받은 적이 없다.
+    mockRelay = relayState({ status: "connecting", limitChasers: [], viTrigger: undefined });
+    const { rerender } = render(<StrategyStatusCard />);
+
+    expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
+    expect(screen.getByText("전략 정보를 불러오는 중이에요…")).toBeInTheDocument();
+    // ★ 묻지도 않은 상태에서 「없어요」라고 단정하지 않는다.
+    expect(screen.queryByText("등록된 상따 전략이 없어요")).not.toBeInTheDocument();
+
+    // `ready` 를 본 뒤의 빈 목록은 **확정된 0건**이다(relay 는 빈 스냅샷도 보낸다).
+    mockRelay = relayState({ status: "ready", limitChasers: [], viTrigger: null });
+    rerender(<StrategyStatusCard />);
+    expect(screen.getByText("등록된 상따 전략이 없어요")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeNull();
+  });
+
   it("⑧ VI 행 요약은 가동 중일 때만 조건을 보여주고 `/trading/vi` 로 간다 (C3)", () => {
     render(<StrategyStatusCard />);
 

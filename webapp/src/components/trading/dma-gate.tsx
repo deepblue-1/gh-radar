@@ -64,9 +64,23 @@ function topicParticle(word: string): "은" | "는" {
  * 「어떤 화면은 연결 중에 게이트가 깜빡인다」가 조용히 생긴다.
  */
 export function useDmaGateReason(): DmaGateReason | null {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const { status } = useRelayContext();
 
+  /*
+    ★ 세션 판정 전에는 게이트를 세우지 않는다.
+
+      `AuthProvider` 는 `isLoading: true, user: null` 로 시작해 `getSession()` 이 돌아온
+      뒤에야 사용자를 채운다. 그 사이를 「비로그인」으로 읽으면 **로그인한 사용자의 첫
+      페인트에 「로그인이 필요해요」가 통째로 그려진다**(SSR HTML 에도 그대로 들어간다).
+      바로 아래 `unauthorized` 에 대해 지키는 규율 — 확정 신호에만 반응한다 — 을 로그인
+      축에도 똑같이 적용한 것이다.
+
+      비로그인 진입은 이 훅이 아니라 middleware 가 `/login?next=…` 로 막는다. 이 분기가
+      살아 있는 이유는 **열려 있는 탭에서 세션이 만료**되는 경우다(`SIGNED_OUT` 이벤트로
+      `user` 가 null 이 되고, 그때는 `isLoading` 이 false 다).
+  */
+  if (isLoading) return null;
   if (user == null) return "unauthenticated";
   if (status === "unauthorized") return "unmapped";
   return null;
