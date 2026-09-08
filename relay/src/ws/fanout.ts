@@ -16,8 +16,11 @@
  *   5. 매핑 있음 → `sessions.acquire` → 현재 상태 프레임을 **즉시 1회** 전송.
  *      브라우저는 이 프레임을 인증 ACK 로 삼아 구독을 시작한다(15-12 `use-relay-socket`
  *      계약). 이 프레임을 빠뜨리면 브라우저는 영원히 구독하지 않는다
- *   6. sub → 참조계수 +1, 스냅샷 캐시가 있으면 그 소켓에 즉시 전송 (D-37)
- *   7. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
+ *   6. 인증 직후 **계좌 스냅샷 + 전략 스냅샷 3프레임**을 그 연결로 내린다 (D-12/D-23/D-37).
+ *      브라우저는 이것을 요청하지 않는다 — 구독을 기다리면 아무 종목도 열지 않은 탭이
+ *      영원히 빈 잔고·빈 전략 목록을 본다
+ *   7. sub → 참조계수 +1, 스냅샷 캐시가 있으면 그 소켓에 즉시 전송 (D-37)
+ *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
  *
  * 결정 근거:
  *   T-15-02  팬아웃 대상은 `Map<userId, …>` 로만 고른다. **전역 브로드캐스트 함수를
@@ -397,6 +400,21 @@ export class WsFanout {
     // 무관하므로 `sub` 을 기다리지 않는다 — 기다리면 아무 종목도 열지 않은 탭이
     // 영원히 빈 잔고를 본다. 캐시가 없으면(첫 세션) 곧 오는 66 스냅샷이 채운다.
     for (const acct of this.#hub.getAccountStates(userId)) this.#send(conn, acct);
+
+    // 전략 스냅샷도 **같은 이유로 구독을 기다리지 않는다** (D-12). 상따·VI 는 계좌 단위라
+    // 종목과 무관하고, 브라우저는 이것을 따로 요청하지도 않는다 — 기다리면 아무 종목도
+    // 열지 않은 탭이 영원히 스켈레톤을 본다. 캐시는 16-06 이 Ready 프리페치(24/21/34)로
+    // 채워 두었고, 여기서는 **방금 인증한 그 연결에만** 내린다(계좌 스냅샷과 동일).
+    //
+    // ⚠️ `lc.snap`·`vi.list` 는 **비어 있어도 1프레임 보낸다** — 빈 배열은 「전략 없음」의
+    //    확정 정보다. 안 보내면 브라우저는 「아직 안 왔다」와 구분하지 못해 계속 스켈레톤이다.
+    // ⚠️ VI 설정만 다르다. `getViTrigger` 는 3상태를 돌려주고 `undefined`(61 을 아직 못 받았다)
+    //    면 **보내지 않는다** — 지어낸 「미등록」을 내리면 브라우저가 사용자가 입력 중인
+    //    금액을 지운다 (16-06 결정 2). `null`(조회 결과 미등록)은 확정이므로 보낸다.
+    this.#send(conn, { t: "lc.snap", items: this.#hub.getLimitChasers(userId) });
+    const viTrigger = this.#hub.getViTrigger(userId);
+    if (viTrigger !== undefined) this.#send(conn, { t: "vi", cfg: viTrigger });
+    this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
   }
 
   #onAuthedMessage(conn: Conn, userId: string, msg: RelayInbound): void {
