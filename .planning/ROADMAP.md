@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 9/17 plans executed
+**Plans:** 11/17 plans executed
 
 Plans:
 **Wave 1**
@@ -636,11 +636,11 @@ Plans:
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
-- [ ] 16-10-PLAN.md — 주문·취소 wss 전환 + account-panel `.rlist` 모바일 리플로우 · 계좌 전용 모드
+- [x] 16-10-PLAN.md — 주문·취소 wss 전환 + account-panel `.rlist` 모바일 리플로우 · 계좌 전용 모드
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 16-11-PLAN.md — 사이드바 2단 트리 + 3단 전략 목록 + DmaGate/StrategyBadge + 라우트 셸 5개
+- [x] 16-11-PLAN.md — 사이드바 2단 트리 + 3단 전략 목록 + DmaGate/StrategyBadge + 라우트 셸 5개
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
@@ -690,4 +690,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 9/17 | In Progress|  |
+| 16. 트레이딩 메뉴(상따·VI) | 11/17 | In Progress|  |
