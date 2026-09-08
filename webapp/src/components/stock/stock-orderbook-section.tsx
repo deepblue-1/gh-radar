@@ -4,15 +4,18 @@
  * StockOrderbookSection — 호가주문 탭 섹션 셸 (UI-SPEC C1, 확정 L1=B · L6 · M1).
  *
  * ① 무엇을 하는가
- *   `useRelaySocket` 하나를 소유해 연결 상태·호가·체결을 받고, 헤더 / 전폭 상태 바 /
- *   본문(게이트·스켈레톤·에러·정상 4분기)을 조립한다. 거래소 KRX/NXT 토글과 사다리에서
- *   고른 가격(`selectedPrice`)도 이 셸이 소유한다 — 주문 패널(15-18)이 소비한다.
+ *   `useRelaySubscription` 으로 **전역 relay 연결**(16-09 `RelayProvider`, D-22) 위에 이
+ *   종목 구독만 얹어 연결 상태·호가·체결을 받고, 헤더 / 전폭 상태 바 / 본문(게이트·
+ *   스켈레톤·에러·정상 4분기)을 조립한다. 거래소 KRX/NXT 토글과 사다리에서 고른
+ *   가격(`selectedPrice`)도 이 셸이 소유한다 — 주문 패널(15-18)이 소비한다.
+ *   ★ 소켓은 이 섹션이 소유하지 않는다. 여기서 하는 일은 구독 참조계수 +1/-1 뿐이다.
  *
  * ② 어디에 마운트되는가
  *   `stock-detail-client.tsx` 의 `호가주문` 탭 패널 **전체**. 패널 폭은 15-11 이 이미
  *   넓은 컨테이너(`w-full`)로 잡아 뒀고, 좌우 24px 여백은 AppShell `main` 의 `p-6` 이 준다.
- *   탭이 Radix Tabs 라 비활성 시 **언마운트**되며, 훅의 cleanup 이 unsub + close 를 처리한다
- *   (15-12 테스트 ⑪·⑫). 그래서 `enabled` 에 탭 활성 여부를 넘기지 않는다.
+ *   탭이 Radix Tabs 라 비활성 시 **언마운트**되며, 구독 훅의 cleanup 이 `unsub`(참조계수
+ *   1→0)을 처리한다. 소켓 자체는 앱이 열려 있는 한 유지되므로 탭을 껐다 켜도 DMA 세션이
+ *   재수립되지 않는다. 그래서 `enabled` 에 탭 활성 여부를 넘기지 않는다.
  *
  * ③ ★ LOCKED 색 규칙 (UI-SPEC §Color 열거표 · 금지 목록 · 토큰 충돌)
  *   - 섹션 헤더의 등락액·등락률만 방향색(`ui/number.tsx` `withColor`). 나머지 헤더 수치
@@ -74,7 +77,7 @@ import {
 } from '@/components/orderbook/order-panel';
 import { RelayStatusBar } from '@/components/orderbook/relay-status-bar';
 import { TradeTape, formatTapeTime } from '@/components/orderbook/trade-tape';
-import { useRelaySocket } from '@/lib/use-relay-socket';
+import { useRelaySubscription } from '@/lib/relay-provider';
 import { cn } from '@/lib/utils';
 import type { RelayExchange } from '@gh-radar/shared';
 
@@ -152,7 +155,7 @@ export function StockOrderbookSection({
     messages,
     isStale,
     reconnect,
-  } = useRelaySocket({
+  } = useRelaySubscription({
     isin: subscriptionIsin ?? '',
     exchange,
     enabled: subscriptionIsin !== null,
@@ -165,7 +168,11 @@ export function StockOrderbookSection({
    *   - selectedPrice 리셋 없으면 **다른 종목의 호가 가격이 주문 입력에 남는다** —
    *     이것이 곧 "리셋 누락 = 다른 종목 호가로 주문하는 사고"다.
    *   - 전환 중 인라인 표식(switching) 리셋 없으면 새 종목에서 유령 로딩 문구가 뜬다.
-   * 구독 해제(unsub)와 quote/tape 리셋은 훅이 이미 한다(15-12 테스트 ⑦).
+   * 구독 해제(unsub)는 구독 훅이 이미 한다. quote/tape 는 전역 맵에서 **키로** 골라 오므로
+   * 종목이 바뀌면 새 키에 값이 없어 자연히 비고, 이전 종목 값이 새어 나올 여지가 없다
+   * (16-09 T-16-02 — 승격 전 `wantedKeyRef` 필터가 하던 일을 키 선택이 대신한다).
+   * ★ `account`(잔고·미체결)는 **리셋하지 않는다**. 계좌 상태는 종목 축이 없어서, 종목을
+   *   옮길 때마다 비우면 다음 델타가 올 때까지 계좌 패널이 빈 채로 남는다.
    */
   useEffect(() => {
     setExchange('KRX');

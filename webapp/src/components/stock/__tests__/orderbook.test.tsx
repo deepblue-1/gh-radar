@@ -13,7 +13,7 @@ import type { RelayAccount, RelayQuote, RelayTapeEntry } from '@gh-radar/shared'
  *   배분하면 화면은 틀린다(예: 게이트 상태인데 사다리를 그린다, 거래소를 바꿨는데
  *   훅에 안 넘긴다, stale 인데 본문을 비운다).
  *
- * ② 네트워크 0 — `@/lib/use-relay-socket` 만 스텁한다
+ * ② 네트워크 0 — `@/lib/relay-provider` 의 `useRelaySubscription` 만 스텁한다
  *   훅을 스텁하면 wss·Supabase·타이머가 전부 사라지고 "이 상태에서 이 화면"만 남는다.
  *   `importOriginal` 로 나머지 export(`RELAY_MAX_RECONNECT_ATTEMPTS` / `relayBackoffDelayMs`)
  *   는 **실제 구현을 유지**한다 — `RelayStatusBar` 가 그 둘을 import 하므로 통째로
@@ -34,10 +34,10 @@ import type { RelayAccount, RelayQuote, RelayTapeEntry } from '@gh-radar/shared'
 // ---------------------------------------------------------------------------
 
 type RelaySocketShape = ReturnType<
-  typeof import('@/lib/use-relay-socket').useRelaySocket
+  typeof import('@/lib/relay-provider').useRelaySubscription
 >;
 type RelayOptionsShape = Parameters<
-  typeof import('@/lib/use-relay-socket').useRelaySocket
+  typeof import('@/lib/relay-provider').useRelaySubscription
 >[0];
 
 /** 훅이 돌려줄 상태. **객체 신원을 유지**해야 렌더 루프가 돌지 않는다. */
@@ -45,11 +45,13 @@ let mockRelay: RelaySocketShape;
 /** 섹션이 훅에 넘긴 마지막 옵션 — 거래소 전환이 훅까지 갔는지 확인하는 정본. */
 let mockLastOptions: RelayOptionsShape | null = null;
 
-vi.mock('@/lib/use-relay-socket', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/use-relay-socket')>();
+// 16-09 전역 승격 이후 섹션의 소비 경계는 `useRelaySubscription` 이다. 반환 계약은
+// 승격 전 `useRelaySocket` 과 같으므로 이 스텁의 모양은 바뀌지 않았다.
+vi.mock('@/lib/relay-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelaySocket: (opts: RelayOptionsShape) => {
+    useRelaySubscription: (opts: RelayOptionsShape) => {
       mockLastOptions = opts;
       return mockRelay;
     },

@@ -43,15 +43,41 @@ vi.mock('@/lib/stock-api', () => ({
 vi.mock('../stock-daily-chart-section', () => ({
   StockDailyChartSection: () => null,
 }));
-// Phase 15 Plan 13: `호가주문` 탭이 StockOrderbookSection → useRelaySocket 을 마운트한다.
-// jsdom 에는 Supabase 환경변수가 없어 실제 createClient 가 throw 하므로, 세션 없는
-// 클라이언트로 대체해 **로그인 게이트(unauthorized)** 경로를 결정론적으로 태운다.
-// (wss 훅 자체의 검증은 lib/__tests__/relay-socket.test.ts 소관.)
+// Phase 15 Plan 13: `호가주문` 탭이 StockOrderbookSection 을 마운트한다.
+// jsdom 에는 Supabase 환경변수가 없어 실제 createClient 가 throw 하므로 세션 없는
+// 클라이언트로 대체한다.
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: { getSession: async () => ({ data: { session: null } }) },
   }),
 }));
+
+// Phase 16 Plan 09 — 전역 승격 이후 소켓은 `RelayProvider` 소유다. 이 테스트는 Provider
+// 없이 StockDetailClient 를 렌더하므로 세션 mock 만으로는 `unauthorized` 에 닿지 못한다
+// (Provider 밖 폴백은 `idle`). 게이트 경로(UI-SPEC C13)를 결정론적으로 태우기 위해
+// 소비자 훅을 직접 스텁한다 — 승격 전 「세션 없음 → unauthorized」와 같은 상태다.
+// (연결·구독 규율 자체의 검증은 lib/__tests__/relay-socket.test.ts · relay-provider.test.tsx 소관.)
+vi.mock('@/lib/relay-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
+  return {
+    ...actual,
+    useRelaySubscription: () => ({
+      status: 'unauthorized' as const,
+      statusLabel: '권한 없음',
+      statusMessage: '',
+      attempt: 0,
+      accounts: [],
+      quote: null,
+      tape: [],
+      account: null,
+      orders: [],
+      messages: [],
+      isStale: false,
+      send: () => {},
+      reconnect: () => {},
+    }),
+  };
+});
 
 const mockFetch = vi.mocked(fetchStockDetail);
 const mockNotFound = vi.mocked(notFound);
