@@ -88,9 +88,9 @@
 
 ### DMA Relay
 
-- [ ] **RELAY-01**: KB gh-trade-server(C++ DMA 게이트웨이) 에 gh-radar **사용자별 DMA 세션**으로 붙어 호가 10단(`QuoteState`)·체결 테이프(`TradeTape`, KRX/NXT)·계좌 상태(`AccountState` 스냅샷+델타)·`ServerMessage` 를 브라우저에 `wss://dma.jx1.io` 로 직접 팬아웃 — GCE VM `radar-gw` 의 `relay/` 워크스페이스(Node 22 + TS, FlatBuffers `[uint32 LE 길이][Envelope]` 프레이밍, 30초 LivePing, 백오프 재접속·재구독), 업그레이드 후 첫 메시지 `{t:"auth"}` Supabase 토큰 검증 + `dma_credentials` allowlist, 종목당 세션 단위 참조계수 구독(`GetQuoteReq(28)`→`SubscribeQuoteReq(29)`), 웹앱 `/stocks/[code]` 상단 4탭(차트·호가주문·종목정보·뉴스토론) 재구성 + 호가주문 탭(호가·체결·주문 패널·잔고·미체결·연결 상태 배지) — Phase 15
+- [x] **RELAY-01**: KB gh-trade-server(C++ DMA 게이트웨이) 에 gh-radar **사용자별 DMA 세션**으로 붙어 호가 10단(`QuoteState`)·체결 테이프(`TradeTape`, KRX/NXT)·계좌 상태(`AccountState` 스냅샷+델타)·`ServerMessage` 를 브라우저에 `wss://dma.jx1.io` 로 직접 팬아웃 — GCE VM `radar-gw` 의 `relay/` 워크스페이스(Node 22 + TS, FlatBuffers `[uint32 LE 길이][Envelope]` 프레이밍, 30초 LivePing, 백오프 재접속·재구독), 업그레이드 후 첫 메시지 `{t:"auth"}` Supabase 토큰 검증 + `dma_credentials` allowlist, 종목당 세션 단위 참조계수 구독(`GetQuoteReq(28)`→`SubscribeQuoteReq(29)`), 웹앱 `/stocks/[code]` 상단 4탭(차트·호가주문·종목정보·뉴스토론) 재구성 + 호가주문 탭(호가·체결·주문 패널·잔고·미체결·연결 상태 배지) — Phase 15
 - [ ] **RELAY-02**: 지정가 보통 신규 매수/매도 + 취소 주문 릴레이 — 브라우저 → Cloud Run `POST /api/orders`(requireAuth + allowlist + 형식 검사, 금액·수량 한도 없음) → Direct VPC Egress → VM relay 내부 HTTP(공유 비밀 헤더) → `DirectOrderReq(2)`, 첫 `OrderResp(51)`(접수 "A"/거부 "R") ≤5초 응답, 체결("E")·취소확인("C")은 주문자 wss 푸시, `dma_orders` 기록 + 오늘 주문 목록 복원, `stocks.isin` 코드↔ISIN 매핑, 활성 세션 없으면 409 — Phase 15
-- [ ] **RELAY-03**: DMA 중계 인프라 — GCE VM `radar-gw`(e2-micro, Debian 12, asia-northeast3, 신규 외부 고정 IP, 방화벽 3규칙: 443 공개 / 22 IAP 35.235.240.0/20 / relay 내부포트 10.10.0.0/26), KB AnyConnect VPN openconnect host systemd 유닛(재시도 상한·백오프, 비밀번호는 Secret Manager stdin, 값 미기록), Caddy TLS(`dma.jx1.io`), `relay/Dockerfile` + `setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책, KB_VPN_ACCOUNT VPN 선검증(연결·출발지 IP 제한·동시 세션) 기록 — Phase 15
+- [x] **RELAY-03**: DMA 중계 인프라 — GCE VM `radar-gw`(e2-micro, Debian 12, asia-northeast3, 신규 외부 고정 IP, 방화벽 3규칙: 443 공개 / 22 IAP 35.235.240.0/20 / relay 내부포트 10.10.0.0/26), KB AnyConnect VPN openconnect host systemd 유닛(재시도 상한·백오프, 비밀번호는 Secret Manager stdin, 값 미기록), Caddy TLS(`dma.jx1.io`), `relay/Dockerfile` + `setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책, KB_VPN_ACCOUNT VPN 선검증(연결·출발지 IP 제한·동시 세션) 기록 — Phase 15
 
 ### Trading
 
@@ -167,9 +167,9 @@
 | LIMIT-01 | Phase 12 | Complete |
 | HOME-01 | Phase 13 | Complete |
 | CHAT-01 | Phase 14 | Complete |
-| RELAY-01 | Phase 15 | Pending |
-| RELAY-02 | Phase 15 | Pending |
-| RELAY-03 | Phase 15 | Pending |
+| RELAY-01 | Phase 15 | Complete (15-LIVE-VERIFICATION §8 재집계 2026-09-08 — `/healthz` `sessionCount:1`+`dma:true` 로 Ready 세션 실측(=인증·allowlist positive) · `dma_credentials` 2행 · `531930e`/`fd7942b` 실데이터 호가·계좌 팬아웃 · `da24eec`/`12bd478` 실사용 4탭·호가주문 탭) |
+| RELAY-02 | Phase 15 | Pending — 잔여: 취소(`C`) 왕복과 `cancelled` 전이 미관측(`dma_orders` 5행 모두 `org_order_no` NULL) · `GET /api/orders` 오늘 주문 목록 복원 응답 미관측. 나머지(신규 매수/매도 릴레이 · `OrderResp` ≤5초 — 전이 Δ median 77ms · 체결(`E`) 푸시 · `dma_orders` 기록 · ISIN 매핑 · 409)는 §8 에서 증명됨 |
+| RELAY-03 | Phase 15 | Complete (15-LIVE-VERIFICATION §8 — SC-2 ✅ 유지 + SC-8 ✅ 전환: 비밀 미기록 전역 게이트 0건(quick-260908-py9) · 알림 임계값 `dd2a8cc` · VPN 재시도 상한 조항은 `f9ca062`/`1ef7cc7` 로 상시 유지 정책으로 대체) |
 | TRADE-01 | Phase 16 | Pending |
 | TRADE-02 | Phase 16 | Pending |
 | TRADE-03 | Phase 16 | Pending |
@@ -183,4 +183,4 @@
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-09-08 — Phase 16 (trading-limit-chaser-vi-my-page) plan-phase: TRADE-01/02/03·NAV-01·MYPAGE-01 v1 정의 + Traceability(Pending) 5행 + Coverage 40→45.*
+*Last updated: 2026-09-08 — Phase 16 (trading-limit-chaser-vi-my-page) plan-phase: TRADE-01/02/03·NAV-01·MYPAGE-01 v1 정의 + Traceability(Pending) 5행 + Coverage 40→45. / quick-260908-scu: Phase 15 RELAY-01/02/03 재판정 — RELAY-01·RELAY-03 Complete, RELAY-02 는 취소(`C`) 왕복·주문 목록 복원 잔여로 Pending 유지(근거 `15-LIVE-VERIFICATION.md` §8).*
