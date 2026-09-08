@@ -8,6 +8,8 @@
  *
  * 하지 않는 것: 소켓/세션은 다루지 않는다. 전부 순수 함수 왕복이다.
  */
+import { readFileSync } from "node:fs";
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { RelayExchange, RelayLimitChaserInput } from "@gh-radar/shared";
@@ -76,7 +78,21 @@ import {
   LC_FIXED_SWEEP_MIN_COUNT,
   LC_FIXED_SWEEP_MIN_RATE,
   MAX_STRATEGY_KEY_BYTES,
+  parseLimitChaserEcho,
+  parseLimitChaserList,
+  parseViTrigger,
+  parseViOrderList,
+  parseViOrderNotice,
+  parseDisableStrategiesResp,
+  fromWireMarket,
+  fromWireCrud,
+  fromWireWatchSide,
+  toOrderOrigin,
+  strategyKey,
+  skippedStrategyItemCount,
+  MAX_LIMIT_CHASER_COUNT,
 } from "../envelope.js";
+import { encode } from "../../ws/protocol.js";
 import {
   SAMPLE_ISIN,
   buildBareEnvelope,
@@ -87,6 +103,12 @@ import {
   buildUpdateAccountNoRespFrame,
   buildAccountStateFrame,
   buildOrderRespFrame,
+  buildSetLimitChaserRespFrame,
+  buildLimitChaserListRespFrame,
+  buildSetVITriggerRespFrame,
+  buildViOrderListFrame,
+  buildViOrderNoticeFrame,
+  buildDisableStrategiesRespFrame,
   SAMPLE_ACCOUNT_NO,
 } from "../../../tests/helpers/frames.js";
 
@@ -714,47 +736,51 @@ describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {
  * 아직 없으므로 생성 접근자로 직접 되읽는다 — 그래야 파서 버그가 빌더 버그를 가리지 않는다.
  * 가장 중요한 단언 둘은 "S→C 전용 4필드가 비어 있다"와 "sweep 고정 3이 못박혔다"다.
  */
-describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
-  /** 33필드를 전부 채운 기준 입력. */
-  function lcInput(over: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInput {
-    return {
-      isin: SAMPLE_ISIN,
-      accountNo: SAMPLE_ACCOUNT_NO,
-      market: "K",
-      crud: "C",
-      buyOrderPrice: 71_000,
-      buyOrderQty: 14,
-      buyWatchPrice: 71_100,
-      buyWatchQty: 10_000,
-      buyMinTradeQty: 30_000,
-      buyWatchSide: "0",
-      buyTradeQtyEnabled: true,
-      buyEnabled: true,
-      sellOrderPrice: 71_200,
-      sellWatchPrice: 71_300,
-      sellWatchQty: 10,
-      sellMinTradeQty: 30_500,
-      sellEnabled: true,
-      sellTradeQtyEnabled: false,
-      sweepWatchPrice: 71_400,
-      sweepEnabled: true,
-      sweepMinTickCount: 3,
-      sweepRecalcEnabled: true,
-      sweepMinCount: 0,
-      sweepMinRate: 0,
-      exchange: "KRX",
-      sellOrderRatio: 60,
-      sellQtyTrackEnabled: true,
-      sellQtyTrackRatio: 50,
-      buyOrderAmount: 100,
-      cancelQtyEnabled: true,
-      cancelWatchQty: 25,
-      cancelTradeEnabled: false,
-      cancelQtyTrackEnabled: true,
-      ...over,
-    };
-  }
+/**
+ * 33필드를 전부 채운 기준 입력 (16-04 조립 · 16-05 파싱이 **같은 픽스처**를 쓴다).
+ *
+ * 두 벌로 두면 한쪽만 고쳐져 「빌더는 보냈는데 파서는 못 읽는」 갈림을 테스트가 놓친다.
+ */
+function lcInput(over: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInput {
+  return {
+    isin: SAMPLE_ISIN,
+    accountNo: SAMPLE_ACCOUNT_NO,
+    market: "K",
+    crud: "C",
+    buyOrderPrice: 71_000,
+    buyOrderQty: 14,
+    buyWatchPrice: 71_100,
+    buyWatchQty: 10_000,
+    buyMinTradeQty: 30_000,
+    buyWatchSide: "0",
+    buyTradeQtyEnabled: true,
+    buyEnabled: true,
+    sellOrderPrice: 71_200,
+    sellWatchPrice: 71_300,
+    sellWatchQty: 10,
+    sellMinTradeQty: 30_500,
+    sellEnabled: true,
+    sellTradeQtyEnabled: false,
+    sweepWatchPrice: 71_400,
+    sweepEnabled: true,
+    sweepMinTickCount: 3,
+    sweepRecalcEnabled: true,
+    sweepMinCount: 0,
+    sweepMinRate: 0,
+    exchange: "KRX",
+    sellOrderRatio: 60,
+    sellQtyTrackEnabled: true,
+    sellQtyTrackRatio: 50,
+    buyOrderAmount: 100,
+    cancelQtyEnabled: true,
+    cancelWatchQty: 25,
+    cancelTradeEnabled: false,
+    cancelQtyTrackEnabled: true,
+    ...over,
+  };
+}
 
+describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
   function readLc(cfg: RelayLimitChaserInput): SetLimitChaser {
     const env = readBack(buildSetLimitChaserReq(cfg));
     expect(env.msgType()).toBe(MSG.SetLimitChaserReq);
@@ -960,5 +986,289 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
       expect(tryParseEnvelope(Buffer.from(bytes))).toBeNull();
     }
     expect(droppedEnvelopeCount()).toBe(7);
+  });
+});
+
+/**
+ * 전략 응답 파서 6종 (16-05 / TRADE-03).
+ *
+ * 증명해야 하는 것은 하나다 — **서버가 되돌려준 값이 계약 타입으로 정확히 도착하고,
+ * 도착하지 못한 것은 조용히 사라지지 않는다.** 특히 세 가지를 못박는다:
+ *   ① 37필드 왕복(S→C 전용 4 포함) — 슬롯이 한 칸 밀리면 즉시 깨진다
+ *   ② bigint 가 계약 밖으로 새지 않는다 — `encode()` 를 실제로 호출해 런타임으로 증명한다
+ *   ③ `crud:"D"` 는 삭제 신호로 보존된다 — 두 스위치만 보고 삭제를 판정하지 않는다
+ */
+describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
+  /** 응답 프레임을 **수신 경로 그대로**(화이트리스트 포함) 통과시킨다. */
+  function inbound(bytes: Uint8Array) {
+    const parsed = tryParseEnvelope(Buffer.from(bytes));
+    expect(parsed).not.toBeNull();
+    return parsed!;
+  }
+
+  it("① 37필드 왕복 — 요청 33필드가 그대로 돌아오고 S→C 전용 4는 0/false 다", () => {
+    const cfg = lcInput();
+    // 요청 빌더의 산출물을 에코 파서로 되읽는다. 빌더와 파서가 **같은 슬롯**을 보는지가
+    // 이 왕복의 전부다 — 한쪽만 밀려도 값이 어긋나 실패 메시지에 그대로 드러난다.
+    const item = parseLimitChaserEcho(readBack(buildSetLimitChaserReq(cfg)));
+
+    expect(item).not.toBeNull();
+    expect(item).toMatchObject(cfg);
+
+    // S→C 전용 4 — 빌더가 보내지 않았으므로 **서버가 안 채운 상태**로 0/false 다.
+    // 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제라 값이 존재해야 한다 (Pitfall 6).
+    expect(item!.sellOrderQty).toBe(0);
+    expect(item!.sellQtyTrackBaseline).toBe(0);
+    expect(item!.sellEntryLatched).toBe(false);
+    expect(item!.cancelQtyTrackBaseline).toBe(0);
+
+    // 활성 37 + 파생 key. 필드를 하나라도 빠뜨리면 여기서 잡힌다.
+    expect(Object.keys(item!)).toHaveLength(38);
+    expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
+  });
+
+  it("② sweep 고정 3은 어떤 입력을 줘도 클라 고정값으로 왕복한다", () => {
+    const item = parseLimitChaserEcho(
+      readBack(
+        buildSetLimitChaserReq(
+          lcInput({ sweepRecalcEnabled: false, sweepMinCount: 7, sweepMinRate: 2_950 }),
+        ),
+      ),
+    );
+
+    expect(item!.sweepRecalcEnabled).toBe(LC_FIXED_SWEEP_RECALC_ENABLED);
+    expect(item!.sweepMinCount).toBe(LC_FIXED_SWEEP_MIN_COUNT);
+    expect(item!.sweepMinRate).toBe(LC_FIXED_SWEEP_MIN_RATE);
+    // 조용히 덮지 않는다 — 덮어썼다는 사실이 로그에 남는다 (PC-7).
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("③ 13자 계좌번호는 12자로 절단돼 왕복하고 전략 키도 절단본을 쓴다", () => {
+    const item = parseLimitChaserEcho(
+      readBack(buildSetLimitChaserReq(lcInput({ accountNo: "1234567801234" }))),
+    );
+
+    expect(item!.accountNo).toBe("123456780123");
+    // 서버가 `strncpy(…,12)` 한 값으로 키를 만들므로 클라도 절단본을 써야 에코가 매칭된다.
+    expect(item!.key).toBe(`${SAMPLE_ISIN}:123456780123:KRX`);
+  });
+
+  it("④ 60 에코의 crud \"D\" 는 삭제 신호로 보존된다 (Pitfall 7)", () => {
+    const e = inbound(buildSetLimitChaserRespFrame({ crud: "D" }));
+    expect(e.msgType).toBe(MSG.SetLimitChaserResp);
+    expect(parseLimitChaserEcho(e.env)!.crud).toBe("D");
+
+    // 서버는 첫 글자만 본다 — 파서도 같아야 한다.
+    expect(parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({ crud: "Delete" })).env)!.crud).toBe("D");
+  });
+
+  it("⑤ 취소 게이트가 켜져 있으면 매수·매도를 둘 다 꺼도 삭제가 아니다 (Pitfall 7 문서화)", () => {
+    // 서버 정규화 조건은 `!buy && !sell && !AnyCancelEnabled` 다. 취소가 살아 있으면
+    // 전략이 남으므로 에코는 `crud:"C"` 로 온다 — 파서가 이것을 삭제로 바꾸면 안 된다.
+    const item = parseLimitChaserEcho(
+      inbound(
+        buildSetLimitChaserRespFrame({
+          crud: "C",
+          buyEnabled: false,
+          sellEnabled: false,
+          cancelQtyEnabled: true,
+        }),
+      ).env,
+    );
+
+    expect(item!.crud).toBe("C");
+    expect(item!.buyEnabled).toBe(false);
+    expect(item!.sellEnabled).toBe(false);
+    expect(item!.cancelQtyEnabled).toBe(true);
+  });
+
+  it("⑥ 빈 61 은 「미등록」이고 「파싱 실패」와 다른 값이다", () => {
+    const absent = parseViTrigger(inbound(buildSetVITriggerRespFrame(null)).env);
+    expect(absent).toEqual({ ok: true, cfg: null });
+    // 미등록은 정상 응답이므로 드롭이 아니다.
+    expect(droppedEnvelopeCount()).toBe(0);
+
+    const broken = parseViTrigger(
+      inbound(buildSetVITriggerRespFrame({ accountNo: "1234567801234" })).env,
+    );
+    expect(broken).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+
+    // 둘이 같은 값으로 뭉개지면 UI 가 사용자 입력을 지워야 할지 알 수 없다.
+    expect(absent).not.toEqual(broken);
+  });
+
+  it("⑦ 파서 결과를 encode() 에 넣어도 TypeError 가 없다 (bigint 미유출 런타임 증명)", () => {
+    const vi = parseViTrigger(
+      inbound(buildSetVITriggerRespFrame({ orderAmountKrw: 9_007_199_254_740_000n })).env,
+    );
+    expect(vi!.cfg!.orderAmountKrw).toBe(9_007_199_254_740_000);
+    expect(() => encode({ t: "vi", cfg: vi!.cfg })).not.toThrow();
+
+    const list = parseViOrderList(
+      inbound(buildViOrderListFrame([{ orderNo: "0000012345", state: "Accepted" }])).env,
+      true,
+    );
+    expect(() => encode({ t: "vi.list", snap: list!.snap, items: list!.items })).not.toThrow();
+
+    // 대조군 — 변환을 빠뜨리면 `encode()` 는 실제로 던진다. 위의 not.toThrow 가 공허하지 않다.
+    expect(() =>
+      encode({
+        t: "vi.list",
+        snap: true,
+        items: [{ ...list!.items[0]!, deadline110Ms: 1n as unknown as number }],
+      }),
+    ).toThrow(TypeError);
+  });
+
+  it("⑧ 72/73 은 같은 슬롯이지만 snap 이 msg_type 을 따르고 0건도 정상이다", () => {
+    const snapFrame = inbound(buildViOrderListFrame([], true));
+    expect(snapFrame.msgType).toBe(MSG.GetVIOrderListResp);
+    expect(parseViOrderList(snapFrame.env, true)).toEqual({ snap: true, items: [] });
+
+    const pushFrame = inbound(buildViOrderListFrame([], false));
+    expect(pushFrame.msgType).toBe(MSG.VIOrderListPush);
+    expect(parseViOrderList(pushFrame.env, false)).toEqual({ snap: false, items: [] });
+  });
+
+  it("⑨ 알 수 없는 state 는 그 항목만 빠지고 나머지 항목은 살아남는다", () => {
+    const r = parseViOrderList(
+      inbound(
+        buildViOrderListFrame([
+          { orderNo: "AAA", state: "Zzz" },
+          { orderNo: "BBB", state: "Accepted" },
+        ]),
+      ).env,
+      true,
+    );
+
+    expect(r!.items).toHaveLength(1);
+    expect(r!.items[0]!.orderNo).toBe("BBB");
+    expect(skippedStrategyItemCount()).toBe(1);
+    // 프레임은 살린다 — 한 행 때문에 목록 전체를 버리지 않는다 (T-16-06).
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("⑩ envelope.ts 는 위치 인자 생성 함수를 쓰지 않는다 (Pitfall 1 회귀 방지)", () => {
+    // deprecated 8슬롯 때문에 인자가 한 칸 밀려도 타입이 맞아 컴파일된다 — 그래서 소스를
+    // 직접 읽어 0건을 단언한다. 타입 시스템이 잡아 주지 못하는 유일한 방어선이다 (T-16-05).
+    const source = readFileSync(new URL("../envelope.ts", import.meta.url), "utf8");
+
+    expect(source.match(/create(SetLimitChaser|SetVITrigger)\(/g)).toBeNull();
+  });
+
+  it("⑪ toOrderOrigin — 빈 값·미지의 값은 manual 이다 (지어내지 않는다)", () => {
+    expect(toOrderOrigin("LimitChaser")).toBe("limit_chaser");
+    expect(toOrderOrigin("VITrigger")).toBe("vi");
+    expect(toOrderOrigin("Manual")).toBe("manual");
+    // 구 서버는 빈 값을 보낸다 — 오류가 아니라 정상 입력이다.
+    expect(toOrderOrigin("")).toBe("manual");
+    expect(toOrderOrigin("Zzz")).toBe("manual");
+
+    // 51 통보는 원문과 정규화본을 함께 싣는다(감사 로그 원문 · DB CHECK 통과값).
+    const resp = parseOrderResp(inbound(buildOrderRespFrame({ origin: "VITrigger" })).env);
+    expect(resp).toMatchObject({ origin: "VITrigger", originKind: "vi" });
+  });
+
+  it("⑫ 64 목록 — 0건은 빈 배열이고 원소는 60 에코와 같은 값으로 나온다", () => {
+    // `null` 로 뭉개면 웹이 "아직 안 왔다"와 "없다"를 구분할 수 없다.
+    expect(parseLimitChaserList(inbound(buildLimitChaserListRespFrame([])).env)).toEqual([]);
+
+    const items = parseLimitChaserList(
+      inbound(
+        buildLimitChaserListRespFrame([
+          { isin: SAMPLE_ISIN, exchange: "KRX" },
+          { isin: "KR7000660001", exchange: "NXT", market: "Q", crud: "D" },
+        ]),
+      ).env,
+    );
+
+    expect(items).toHaveLength(2);
+    expect(items![0]!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
+    expect(items![1]!).toMatchObject({
+      market: "Q",
+      crud: "D",
+      exchange: "NXT",
+      key: strategyKey("KR7000660001", SAMPLE_ACCOUNT_NO, "NXT"),
+    });
+  });
+
+  it("⑬ 64 목록 — 깨진 항목만 빠지고 상한을 넘는 벡터는 잘린다 (T-16-06)", () => {
+    const partial = parseLimitChaserList(
+      inbound(buildLimitChaserListRespFrame([{ isin: "005930" }, { isin: SAMPLE_ISIN }])).env,
+    );
+    expect(partial).toHaveLength(1);
+    expect(partial![0]!.isin).toBe(SAMPLE_ISIN);
+    expect(skippedStrategyItemCount()).toBe(1);
+    expect(droppedEnvelopeCount()).toBe(0);
+
+    const many = Array.from({ length: MAX_LIMIT_CHASER_COUNT + 5 }, () => ({}));
+    expect(parseLimitChaserList(inbound(buildLimitChaserListRespFrame(many)).env)).toHaveLength(
+      MAX_LIMIT_CHASER_COUNT,
+    );
+  });
+
+  it("⑭ 56 통보 — 필드가 그대로 흐르고 market 은 단일문자에서 정규화된다", () => {
+    const notice = parseViOrderNotice(
+      inbound(buildViOrderNoticeFrame({ market: "Q", viEndTime: "093215000" })).env,
+    );
+
+    expect(notice).toMatchObject({
+      t: "vi.notice",
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      triggerPrice: 87_500,
+      basePrice: 70_000,
+      changeRate: 25,
+      orderPrice: 91_000,
+      orderQty: 51,
+      market: "Q",
+      orderSeq: 1,
+      viEndTime: "093215000",
+    });
+    // 종목명은 게이트웨이가 주는 값이 아니다 — Hub 가 SymbolMap 으로 붙인다.
+    expect(notice!.name).toBeUndefined();
+  });
+
+  it("⑮ 65 집계 — 0건도 정상 응답이다 (무응답 금지)", () => {
+    expect(parseDisableStrategiesResp(inbound(buildDisableStrategiesRespFrame()).env)).toEqual({
+      count: 0,
+      viDisabled: false,
+    });
+    expect(
+      parseDisableStrategiesResp(
+        inbound(buildDisableStrategiesRespFrame({ disabledCount: 3, viDisabled: true })).env,
+      ),
+    ).toEqual({ count: 3, viDisabled: true });
+  });
+
+  it("⑯ 슬롯이 비면 null + 드롭 카운터 — 조용히 통과하지 않는다 (T-16-05)", () => {
+    expect(parseLimitChaserEcho(inbound(buildBareEnvelope(MSG.SetLimitChaserResp)).env)).toBeNull();
+    expect(
+      parseLimitChaserList(inbound(buildBareEnvelope(MSG.GetLimitChaserListResp)).env),
+    ).toBeNull();
+    expect(
+      parseViOrderList(inbound(buildBareEnvelope(MSG.GetVIOrderListResp)).env, true),
+    ).toBeNull();
+    expect(parseViOrderNotice(inbound(buildBareEnvelope(MSG.VIOrderNotice)).env)).toBeNull();
+    expect(
+      parseDisableStrategiesResp(inbound(buildBareEnvelope(MSG.DisableStrategiesResp)).env),
+    ).toBeNull();
+
+    expect(droppedEnvelopeCount()).toBe(5);
+    // 61 만 예외다 — 빈 슬롯이 「미등록」이라는 정상 응답이기 때문이다 (케이스 ⑥).
+  });
+
+  it("⑰ 수신 단일문자 변환은 첫 글자만 본다 (Pitfall 4)", () => {
+    expect(fromWireMarket("Q")).toBe("Q");
+    // ⚠ 첫 글자가 'K' 라 KOSPI 로 읽힌다 — 웹앱에 리터럴을 흩뿌리면 이 함정을 밟는다.
+    expect(fromWireMarket("KOSDAQ")).toBe("K");
+    expect(fromWireMarket("")).toBe("K");
+
+    expect(fromWireCrud("Delete")).toBe("D");
+    expect(fromWireCrud("")).toBe("C");
+
+    expect(fromWireWatchSide("1")).toBe("1");
+    expect(fromWireWatchSide("")).toBe("0");
   });
 });
