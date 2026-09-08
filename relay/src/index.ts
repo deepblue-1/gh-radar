@@ -7,17 +7,19 @@
  * 포트 2개 (D-05):
  *   :8090 `WS_PORT`        평문 ws. TLS 는 **Caddy 가 종단**하고 여기로 평문을 넘긴다 —
  *                          이 프로세스는 인증서를 다루지 않는다. 경로는 `/ws`(15-04 계약).
- *   :8091 `ORDER_API_PORT` 내부 HTTP. Cloud Run(Direct VPC Egress)만 호출하며 방화벽
- *                          source-range + `X-Relay-Secret` 이중 방어다 (D-19/D-22).
+ *   :8091 `ORDER_API_PORT` 내부 HTTP. **`/healthz` 하나뿐**이다 (16-16). 방화벽
+ *                          source-range + `X-Relay-Secret` 이중 방어를 유지한다 (D-19/D-22).
  *
  * 결정 근거:
  *   D-07  relay 는 Docker 컨테이너(`--restart=always`)로 돌고 openconnect 는 host systemd
  *         소관이다. 그래서 **컨테이너 재시작이 VPN 터널을 흔들지 않는다** — 반대로
  *         재시작마다 KB 게이트웨이에 고아 세션이 쌓이지 않도록 종료 절차가 필요하다.
  *   D-13  DMA 세션 정본은 `SessionManager` 다. 여기서는 만들어서 넘겨주기만 한다.
- *   D-22  내부 HTTP 는 `/healthz` + `POST /internal/orders` 두 개다. 주문 라우트는
- *         Hub(주문 통보 출처)와 `OrderStore`(기록 큐)를 함께 받아야 열린다 — 둘 중
- *         하나라도 없으면 상관도 감사 기록도 불가능하므로 라우트 자체를 만들지 않는다.
+ *   D-02  주문 접수는 **wss 하나**다. 내부 HTTP 의 주문 라우트는 16-16 에서 제거했고
+ *         남은 것은 `/healthz` 뿐이다. `OrderStore` 는 `WsFanout` 에만 주입한다 —
+ *         `createOrderApi` 로 다시 넘기면 지운 경로가 되살아난다.
+ *   D-22  `RELAY_ORDER_SECRET` 은 그대로 required 다. `/healthz` 외의 모든 경로가
+ *         비밀 없이는 404 조차 받지 못해야 한다 — 경로 존재 여부도 정보다.
  *
  * 종료 절차 (SC-8) — `process.exit(0)` 전에 반드시 이 순서다:
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
@@ -122,9 +124,11 @@ const fanout = new WsFanout({
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));
 
 /**
- * REST 주문 라우트 (D-22). **16-16 에서 제거한다** — 웹앱이 wss(D-02)로 넘어갈 때까지만
- * 살려 둔다. 그때까지 두 경로가 공존하지만 같은 행을 다투지는 않는다: REST 는 server 가
- * insert 한 `orderRowId` 를 실어 보내고, wss 는 relay 가 만든 행의 id 를 쓴다.
+ * 내부 HTTP 표면 — **`/healthz` + 공유 비밀 관문뿐**이다 (D-02).
+ *
+ * REST 주문 라우트는 16-16 에서 제거했다. 주문 접수는 위 `WsFanout` 의 wss 분기 하나로
+ * 나가고, `orderStore` 는 그쪽에만 주입된다 — 여기에 다시 넘기면 지운 경로가 되살아난다.
+ * `relayOrderSecret` 은 관문이 계속 쓰므로 required 그대로다 (CONTEXT deferred).
  */
 const orderApi = createOrderApi({
   relayOrderSecret: config.relayOrderSecret,
@@ -133,9 +137,6 @@ const orderApi = createOrderApi({
   appVersion: config.appVersion,
   nodeEnv: config.nodeEnv,
   sessions: sessionManager,
-  // 주문 통보(51)의 출처는 Hub 하나다 — 팬아웃과 상관이 같은 파싱을 두 번 하지 않는다.
-  orders: hub,
-  orderStore,
 });
 const orderApiServer = http.createServer(orderApi);
 
