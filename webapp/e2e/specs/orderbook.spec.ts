@@ -4,7 +4,14 @@ import { mockStockApi } from '../fixtures/mock-api';
 import { mockNewsApi, buildNewsList } from '../fixtures/news';
 import { mockDiscussionsApi, buildDiscussionList } from '../fixtures/discussions';
 import { mockThemeChips } from '../fixtures/themes';
-import { DMA_MSG, RELAY_WS_URL, withLocalRelay, type LocalRelay } from '../fixtures/relay';
+import {
+  DMA_MSG,
+  E2E_ISIN,
+  E2E_LONG_NAME_ISIN,
+  RELAY_WS_URL,
+  withLocalRelay,
+  type LocalRelay,
+} from '../fixtures/relay';
 
 /**
  * Phase 15 Plan 14 Task 2 — 호가창 wss 왕복 E2E (RELAY-01 · SC-7 · D-27/D-40).
@@ -15,10 +22,17 @@ import { DMA_MSG, RELAY_WS_URL, withLocalRelay, type LocalRelay } from '../fixtu
  *   팬아웃 → 사다리 렌더까지 한 줄로 이어진다. 이 경로는 단위 테스트로 쪼개면
  *   각 조각이 전부 통과하면서도 이어 붙였을 때 안 되는 대표적인 구간이다.
  *
+ * ①-b Phase 16 Plan 10 — **주문도 wss 다** (D-02)
+ *   `POST /api/orders` 는 더 이상 쓰지 않는다. 폼 제출 → 확인 다이얼로그 →
+ *   `{t:"order.new"}` → relay → 스텁 게이트웨이 `DirectOrderReq(2)` → 통보(51) →
+ *   `{t:"order.result"}` → 결과 배너까지가 한 줄이다. 그리고 **응답이 없을 때**의
+ *   「결과 모름」 규율(S-8)도 같은 경로로 확인한다 — 이건 단위 테스트로 쪼개면
+ *   각 조각이 통과하면서도 이어 붙였을 때 「실패」로 렌더되는 대표 구간이다.
+ *
  * ② ★ 실서버에 붙지 않는다 (D-27 / T-15-28)
  *   게이트웨이는 픽스처가 `127.0.0.1` 임의 포트에 띄운 스텁이다. KB 사내망 주소는
  *   이 파일과 픽스처 어디에도 없다(acceptance 가 문자열 0건을 검사한다).
- *   주문은 **한 건도 내지 않는다** — 이 spec 은 조회 표면만 다룬다.
+ *   주문은 **스텁 게이트웨이로만** 나간다 — 실계좌·실서버로 나가는 경로가 없다.
  *
  * ③ 왜 serial 인가
  *   relay wss 포트는 8090 **고정**이다(`NEXT_PUBLIC_*` 이 빌드 시점 인라인이라 임의
@@ -57,6 +71,9 @@ function trackRelaySockets(page: Page): string[] {
   return urls;
 }
 
+/** 모바일 리플로우 검증 뷰포트 — UI-SPEC 이 기준으로 삼은 폭이다(§반응형 "모바일 390px"). */
+const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+
 const statusBar = (page: Page) => page.locator('[data-slot="relay-status-bar"]');
 const ladder = (page: Page) => page.locator('[data-slot="orderbook-ladder"]');
 const priceCells = (page: Page) => ladder(page).locator('tbody th[scope="row"]');
@@ -65,6 +82,43 @@ const tapeRows = (page: Page) => page.locator('[data-slot="trade-tape"] tbody tr
 /** 상태가 `ready` 가 될 때까지 기다린다 — relay 부팅 + DMA 로그인 왕복 여유를 준다. */
 async function waitForReady(page: Page): Promise<void> {
   await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+}
+
+/**
+ * `POST /api/orders` 감시자. **호출되면 배열에 남는다** — D-02 이후 이 라우트로는
+ * 한 건도 나가면 안 된다(라우트 자체는 16-16 에서 지운다).
+ */
+async function watchRestOrders(page: Page): Promise<string[]> {
+  const hits: string[] = [];
+  await page.route('**/api/orders', async (route) => {
+    hits.push(route.request().method());
+    await route.abort();
+  });
+  return hits;
+}
+
+/** 매수 폼을 채워 제출 → 확인 다이얼로그의 실행 버튼까지 누른다. */
+async function submitBuyOrder(page: Page, price: string, qty: string): Promise<void> {
+  const panel = page.getByTestId('order-panel');
+  await panel.getByLabel('가격').fill(price);
+  await panel.getByLabel('수량').fill(qty);
+
+  const submit = panel.getByRole('button', { name: '매수 주문' });
+  await expect(submit).toBeEnabled();
+  await submit.click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '매수 주문' }).click();
+}
+
+/** 게이트웨이가 `DirectOrderReq(2)` 를 받을 때까지 기다린다 — 통보 주입 전 경주 방지. */
+async function waitForOrderAtGateway(relay: LocalRelay): Promise<void> {
+  await expect
+    .poll(() => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length, {
+      timeout: 15_000,
+    })
+    .toBeGreaterThan(0);
 }
 
 // ===========================================================================
@@ -179,7 +233,165 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await expect(page.getByTestId('stock-daily-chart-section')).toBeVisible({ timeout: 15_000 });
   });
 
-  test('6. 회선 단절 → `재접속 중` 배지 + **사다리는 비워지지 않는다**', async ({ page }) => {
+  // -------------------------------------------------------------------------
+  // Phase 16 Plan 10 — 주문 wss 왕복 (D-02 / S-8) · 모바일 리플로우 (C7)
+  // -------------------------------------------------------------------------
+
+  test('6. 주문 제출 → wss → 통보(51) → **접수** 배너 (REST 라우트는 한 번도 안 탄다)', async ({
+    page,
+  }) => {
+    const restHits = await watchRestOrders(page);
+
+    await page.goto(ORDERBOOK_URL);
+    await waitForReady(page);
+
+    await submitBuyOrder(page, '98000', '10');
+
+    // 통보를 주기 **전에** 게이트웨이까지 갔는지 확인한다 — 이 대기가 없으면 relay 가
+    // 대기 항목을 등록하기 전에 통보가 도착해 "가끔 실패하는 E2E" 가 된다.
+    await waitForOrderAtGateway(relay);
+
+    await relay.pushOrderResp({
+      isin: E2E_ISIN,
+      side: 'B',
+      orderNo: '0000135842',
+      noticeType: 'A',
+      resultCode: 0,
+      message: '정상처리',
+      price: 98_000,
+      quantity: 10,
+      exchange: 'KRX',
+    });
+
+    await expect(page.getByTestId('order-result-accepted')).toContainText(
+      '주문이 접수됐어요 · 주문번호 0000135842',
+    );
+
+    // ★ D-02 — 주문은 wss 단일 경로다. REST 로 한 건이라도 나가면 두 경로가 같은 행을 다툰다.
+    expect(restHits).toEqual([]);
+    // 감사 기록(D-03)이 게이트웨이 송신 **전에** 남는다 — 없으면 「나갔는지 모르는 주문」이다.
+    expect(relay.orderInserts()).toHaveLength(1);
+    expect(relay.orderInserts()[0]).toMatchObject({
+      isin: E2E_ISIN,
+      // relay 가 `stocks` 로 푼 값이다. 브라우저는 단축코드·시장을 보내지 않는다(D-28).
+      stock_code: STOCK_CODE,
+      market: 'K',
+      side: 'B',
+      order_type: 'N',
+      qty: 10,
+      price: 98_000,
+    });
+  });
+
+  test('7. 통보가 오지 않으면 **「실패」가 아니라 「결과 모름」** 이고 제출은 잠긴 채다 (S-8)', async ({
+    page,
+  }) => {
+    await page.goto(ORDERBOOK_URL);
+    await waitForReady(page);
+
+    await submitBuyOrder(page, '98000', '10');
+    await waitForOrderAtGateway(relay);
+    // 통보를 **주지 않는다.** relay 의 5초 상한이 지나면 `{status:"timeout"}` 이 온다.
+
+    const panel = page.getByTestId('order-panel');
+    const unknown = page.getByTestId('order-result-unknown');
+    await expect(unknown).toBeVisible({ timeout: 15_000 });
+    await expect(unknown).toContainText('접수 응답이 늦어지고 있어요');
+    await expect(unknown).toContainText(
+      '주문이 이미 나갔을 수 있어요. 미체결 목록에서 접수 여부를 확인한 뒤 다시 주문해 주세요.',
+    );
+    // 거부와 같은 톤을 쓰지 않는다 — 경보가 아니라 상태다.
+    await expect(unknown).toHaveAttribute('role', 'status');
+    // ★ 패널 어디에도 "실패"라고 쓰지 않는다. 그 한 단어가 중복 체결을 부른다.
+    await expect(panel).not.toContainText('실패');
+    // ★ 재주문 경로를 열지 않는다. 이 버튼이 다시 열리면 그 자리에서 중복 체결이 난다.
+    await expect(panel.getByRole('button', { name: '매수 주문' })).toBeDisabled();
+  });
+
+  test('8. 390px 에서 미체결·잔고가 `.rlist` 2줄 카드 행으로 리플로우되고 잘림이 0이다 (C7/R6)', async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.goto(ORDERBOOK_URL);
+    await waitForReady(page);
+
+    await relay.pushAccountState({
+      unfilled: [
+        {
+          orderNo: '0000135742',
+          isin: E2E_ISIN,
+          side: 'B',
+          price: 98_000,
+          orderQty: 50,
+          filledQty: 20,
+          unfilledQty: 30,
+          exchange: 'KRX',
+        },
+        {
+          // ★ 이름이 긴 종목 + 7자리 가격 + 6자리 수량. 「종목명만 신축」 규율이 빠지면
+          //   이 행에서 주문번호·취소 버튼이 컨테이너 밖으로 밀려난다(스트레스 케이스).
+          orderNo: '0000135801',
+          isin: E2E_LONG_NAME_ISIN,
+          side: 'S',
+          price: 1_234_567,
+          orderQty: 999_999,
+          filledQty: 0,
+          unfilledQty: 999_999,
+          exchange: 'NXT',
+        },
+      ],
+      holdings: [{ isin: E2E_ISIN, stockQty: 120, sellableQty: 90, avgPrice: 91_250 }],
+    });
+
+    const unfilledRows = page.locator('[data-slot="account-unfilled-row"]');
+    await expect(unfilledRows).toHaveCount(2);
+    await expect(unfilledRows.first()).toBeVisible();
+    await expect(page.locator('[data-slot="account-holding-row"]')).toHaveCount(1);
+
+    // 표는 이 폭에서 **보이지 않는다** — 콘텐츠 최소폭이 가용폭을 넘기 때문이다.
+    await expect(
+      page.getByTestId('account-unfilled').locator('[data-slot="table"]'),
+    ).toBeHidden();
+
+    /*
+      ★ 잘림 진단은 **문서 스크롤폭이 아니라 요소 실측 폭**이다 (tasks/lessons.md).
+
+        더 정확히는 **행의 폭도 아니다.** 행은 블록이라 넘쳐도 폭이 컨테이너와 같고,
+        `.rlist` 의 `overflow-hidden` 이 넘침을 삼켜 `scrollWidth` 마저 조용하다.
+        실제로 「종목명만 신축」 규율을 지운 변이가 그 두 단언을 **통과했다**(실측).
+        유일하게 무는 단언은 **행 안의 잎 요소들이 컨테이너 오른쪽 끝을 넘지 않는가** 다 —
+        `getBoundingClientRect` 는 ancestor 의 클리핑에 영향받지 않으므로 밀려난 요소의
+        진짜 좌표가 그대로 나온다.
+    */
+    const list = page.locator('[data-slot="account-unfilled-list"]');
+    const listBox = await list.boundingBox();
+    expect(listBox).not.toBeNull();
+    const listRight = listBox!.x + listBox!.width;
+
+    for (const row of await unfilledRows.all()) {
+      const overflowing = await row.evaluate(
+        (el, right) =>
+          Array.from(el.querySelectorAll<HTMLElement>('*'))
+            .map((child) => ({
+              text: (child.textContent ?? '').slice(0, 24),
+              // 1px 은 소수점 레이아웃 반올림 여유다.
+              over: Math.round(child.getBoundingClientRect().right - right),
+            }))
+            .filter((item) => item.over > 1),
+        listRight,
+      );
+      // 실패 메시지에 **무엇이 얼마나** 밀려났는지 남는다 — 「어딘가 잘렸다」로 끝나지 않게.
+      expect(overflowing).toEqual([]);
+    }
+
+    // 종목명만 줄어든다 — 취소 버튼·수량은 밀려나지 않고 그대로 눌린다.
+    await expect(
+      unfilledRows.first().getByRole('button', { name: '주문번호 0000135742 취소' }),
+    ).toBeVisible();
+    await expect(unfilledRows.first()).toContainText('30/50');
+  });
+
+  test('9. 회선 단절 → `재접속 중` 배지 + **사다리는 비워지지 않는다**', async ({ page }) => {
     await page.goto(ORDERBOOK_URL);
     await waitForReady(page);
     await expect(priceCells(page)).toHaveCount(20);
@@ -223,7 +435,7 @@ test.describe('Phase 15 Plan 14 — 비로그인 호가창 게이트', () => {
     await setupStockDetail(page);
   });
 
-  test('7. 비로그인은 로그인 화면으로 보내지고 relay wss 연결을 시도하지 않는다', async ({
+  test('10. 비로그인은 로그인 화면으로 보내지고 relay wss 연결을 시도하지 않는다', async ({
     page,
   }) => {
     const sockets = trackRelaySockets(page);

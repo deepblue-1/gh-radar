@@ -15,6 +15,7 @@ import { act, render, screen } from '@testing-library/react';
  *  6. 전략 프레임 반영 (D-12)        → 깨지면 사이드바 전략 목록이 비거나 삭제된 전략이 남는다
  *  7. 미지 프레임 무해 (T-15-41)     → 깨지면 서버가 앞서 나갈 때 화면 전체가 터진다
  *  8. Provider 밖 폴백               → 깨지면 Provider 없이 렌더되는 컴포넌트가 전부 throw 한다
+ *  9. 주문 번역 (16-10 / D-02)       → 깨지면 화면이 「거부」와 「결과 모름」을 뭉개 중복 체결이 난다
  *
  * ⚠️ 3·4 는 **실제 송신된 프레임 배열**을 세어 단언한다. 상태만 보면 「보내지 않았는데
  *    보낸 것처럼 보이는」 경우를 놓친다.
@@ -44,7 +45,12 @@ import type {
   RelayQuote,
   RelayViOrderItem,
 } from '@gh-radar/shared';
-import { RelayProvider, useRelayContext, useRelaySubscription } from '../relay-provider';
+import {
+  RelayProvider,
+  useRelayContext,
+  useRelaySubscription,
+  type RelayOrderRequest,
+} from '../relay-provider';
 
 const ISIN_A = 'KR7005930003';
 const ISIN_B = 'KR7000660001';
@@ -262,6 +268,18 @@ function StrategyProbe() {
       </div>
     </>
   );
+}
+
+/**
+ * 주문 창구를 밖으로 내보내는 대역. `sendOrder` 는 컨텍스트에만 있으므로 (훅 밖에서
+ * 부를 수 없다) 테스트가 참조를 붙잡아 쓴다.
+ */
+let sendOrderRef: ((req: RelayOrderRequest) => Promise<unknown>) | null = null;
+
+function OrderProbe() {
+  const { sendOrder } = useRelayContext();
+  sendOrderRef = sendOrder;
+  return null;
 }
 
 // ============================================================
@@ -712,5 +730,231 @@ describe('RelayProvider — 견고성', () => {
     expect(screen.getByTestId('quote-orphan')).toHaveTextContent('none');
     // 구독을 시도해도 소켓이 없으니 아무 일도 일어나지 않는다
     expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+});
+
+
+// ============================================================
+// 주문 번역 (16-10 / D-02)
+//
+// 여기서 잠그는 것은 「보기」가 아니라 **돈이 두 번 나가는 경로**다.
+//   - 실패가 reject 로 새면 호출부가 catch 로 「실패」를 렌더하고, 결과를 모르는 주문에
+//     「실패」를 쓰는 순간 사용자가 재주문한다 (S-8 / Pitfall 9).
+//   - rid 가 겹치면 relay 가 정상 주문을 「중복 요청」으로 거부한다 (T-16-10).
+// ============================================================
+
+describe('RelayProvider — sendOrder 번역 (D-02)', () => {
+  const NEW_ORDER: RelayOrderRequest = {
+    kind: 'new',
+    isin: ISIN_A,
+    exchange: 'KRX',
+    accountNo: '12345678-01',
+    side: 'B',
+    qty: 10,
+    price: 70_000,
+  };
+
+  it('⑨ 신규·취소를 와이어 프레임으로 조립하고 rid 는 매번 새로 만든다 (market 은 싣지 않는다)', async () => {
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    act(() => {
+      void sendOrderRef?.(NEW_ORDER);
+      void sendOrderRef?.({
+        kind: 'cancel',
+        isin: ISIN_B,
+        exchange: 'NXT',
+        accountNo: '12345678-01',
+        orgOrderNo: '0000135742',
+        qty: 30,
+        price: 98_000,
+      });
+    });
+
+    const sent = ws.parsedSent().filter((m) => String(m.t).startsWith('order.'));
+    expect(sent).toHaveLength(2);
+
+    expect(sent[0]).toMatchObject({
+      t: 'order.new',
+      isin: ISIN_A,
+      exchange: 'KRX',
+      side: 'B',
+      qty: 10,
+      price: 70_000,
+      accountNo: '12345678-01',
+    });
+    expect(sent[1]).toMatchObject({
+      t: 'order.cancel',
+      isin: ISIN_B,
+      exchange: 'NXT',
+      orgOrderNo: '0000135742',
+      qty: 30,
+      price: 98_000,
+    });
+
+    // ★ rid 는 브라우저가 만들고 **겹치면 안 된다** — relay 가 중복 요청으로 거부한다.
+    expect(typeof sent[0].rid).toBe('string');
+    expect(String(sent[0].rid).length).toBeGreaterThan(0);
+    expect(sent[0].rid).not.toEqual(sent[1].rid);
+
+    // 시장(K/Q)은 relay 가 ISIN 으로 푼다 (D-28). 브라우저가 지어내지 않는다.
+    for (const frame of sent) expect(frame).not.toHaveProperty('market');
+  });
+
+  it('⑨-a 응답은 그 rid 로만 resolve 된다 (다른 rid 는 그 Promise 를 풀지 않는다)', async () => {
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    let settled: { status?: string; orderNo?: string } | null = null;
+    act(() => {
+      void sendOrderRef?.(NEW_ORDER).then((r) => {
+        settled = r as { status?: string; orderNo?: string };
+      });
+    });
+    const rid = String(ws.parsedSent().at(-1)?.rid);
+
+    // 남의 rid — 이걸로 풀리면 A 의 응답이 B 의 주문 결과로 표시된다.
+    await act(async () => {
+      ws.push({
+        t: 'order.result',
+        rid: `${rid}-other`,
+        orderNo: 'ZZZZ',
+        resultCode: 0,
+        message: '',
+        status: 'accepted',
+      });
+    });
+    expect(settled).toBeNull();
+
+    await act(async () => {
+      ws.push({
+        t: 'order.result',
+        rid,
+        orderNo: 'A100',
+        resultCode: 0,
+        message: '정상처리',
+        status: 'accepted',
+      });
+    });
+    expect(settled!.status).toBe('accepted');
+    expect(settled!.orderNo).toBe('A100');
+  });
+
+  it('⑨-b 형식이 어긋난 요청은 **보내지 않고** rejected 로 resolve 한다 (throw 하지 않는다)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    const results: Array<{ status?: string }> = [];
+    await act(async () => {
+      // 취소인데 원주문번호가 없다 / 신규인데 매매 구분이 없다 / 수량 0
+      results.push(
+        (await sendOrderRef?.({
+          kind: 'cancel',
+          isin: ISIN_A,
+          exchange: 'KRX',
+          accountNo: '12345678-01',
+          qty: 10,
+          price: 70_000,
+        })) as { status?: string },
+        (await sendOrderRef?.({
+          kind: 'new',
+          isin: ISIN_A,
+          exchange: 'KRX',
+          accountNo: '12345678-01',
+          qty: 10,
+          price: 70_000,
+        })) as { status?: string },
+        (await sendOrderRef?.({ ...NEW_ORDER, qty: 0 })) as { status?: string },
+      );
+    });
+
+    // 보내지 **않았음**이 확실한 실패다 — 재시도해도 이중 발주가 아니다.
+    for (const r of results) expect(r.status).toBe('rejected');
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(0);
+    // 조용히 삼키지 않는다 (PC-7).
+    expect(spy).toHaveBeenCalledTimes(3);
+    spy.mockRestore();
+  });
+
+  it('⑨-c 미연결은 rejected, 무응답은 timeout — 둘을 뭉개지 않는다 (Pitfall 9)', async () => {
+    signedOut();
+    const view = render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    await settle();
+
+    let offline: { status?: string } | null = null;
+    await act(async () => {
+      offline = (await sendOrderRef?.(NEW_ORDER)) as { status?: string };
+    });
+    expect(offline!.status).toBe('rejected');
+
+    signedIn();
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <OrderProbe />
+        </RelayProvider>,
+      );
+    });
+    await acceptAndAuth();
+
+    let hung: { status?: string } | null = null;
+    act(() => {
+      void sendOrderRef?.(NEW_ORDER).then((r) => {
+        hung = r as { status?: string };
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    // **결과를 모른다.** 「거부」로 내려 보내면 화면이 재주문을 허용한다.
+    expect(hung!.status).toBe('timeout');
+  });
+
+  it('⑨-d 연결이 끊기면 대기 중인 주문을 전부 timeout(결과 모름)으로 정리한다', async () => {
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    const settledStatuses: string[] = [];
+    act(() => {
+      void sendOrderRef?.(NEW_ORDER).then((r) => {
+        settledStatuses.push((r as { status: string }).status);
+      });
+      void sendOrderRef?.({ ...NEW_ORDER, isin: ISIN_B }).then((r) => {
+        settledStatuses.push((r as { status: string }).status);
+      });
+    });
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(2);
+
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+
+    /*
+      소켓이 죽었다고 주문이 안 나간 것은 아니다 — 게이트웨이까지 갔을 수 있다.
+      매달린 Promise 로 두면 제출 버튼이 영원히 「주문 전송 중…」에 갇히고,
+      rejected 로 닫으면 사용자가 재주문한다. 둘 다 사고다.
+    */
+    expect(settledStatuses).toEqual(['timeout', 'timeout']);
   });
 });

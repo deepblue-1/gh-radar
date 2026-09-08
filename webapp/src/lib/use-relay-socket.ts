@@ -503,8 +503,13 @@ function mergeAccount(
 // 주문 상관 응답 — 실패도 결과 프레임으로 표면화한다
 // ============================================================
 
-/** 브라우저가 만든 합성 결과. `resultCode: -1` 은 「서버가 준 코드가 아님」의 표식이다. */
-function localOrderResult(
+/**
+ * 브라우저가 만든 합성 결과. `resultCode: -1` 은 「서버가 준 코드가 아님」의 표식이다.
+ *
+ * `relay-provider.tsx` 도 이 함수를 쓴다 — 요청이 소켓에 닿기 **전에** 형식 검사로 걸리는
+ * 경로가 그쪽에 있고, 거기서 모양을 따로 만들면 두 벌이 갈린다(`resultCode` 관례가 특히).
+ */
+export function localOrderResult(
   rid: string,
   status: RelayOrderResultMsg["status"],
   message: string,

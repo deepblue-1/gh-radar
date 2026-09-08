@@ -428,6 +428,12 @@ export function StockOrderbookSection({
             <OrderPanel
               className="order-2 min-w-0 min-[900px]:order-none"
               code={code}
+              /*
+                주문 키는 **ISIN** 이다(D-02/D-28). 여기까지 왔다는 것은 `isGated` 가 false
+                라는 뜻이고 그 조건에 `subscriptionIsin === null` 이 포함돼 있으므로
+                이 값은 null 이 아니다.
+              */
+              isin={subscriptionIsin}
               name={name}
               accounts={accounts}
               selectedAccountNo={selectedAccountNo}

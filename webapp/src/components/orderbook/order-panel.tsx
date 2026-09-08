@@ -16,14 +16,25 @@
  *   4. **제출 후 즉시 재활성 금지** — 응답 전까지 비활성 + `주문 전송 중…` + 중복 제출 가드.
  *   5. (취소 버튼 채움 금지는 `account-panel.tsx` · `order-confirm-dialog.tsx` 소관)
  *
+ * ②-b 주문은 **relay wss 단일 경로**로 나간다 (D-02, 16-10)
+ *   `POST /api/orders` 를 거치지 않는다. `useRelayContext().sendOrder(...)` 가 `rid` 를 만들어
+ *   `{t:"order.new"}` 를 보내고 같은 `rid` 의 `{t:"order.result"}` 를 기다린다. 세션을 쥔
+ *   프로세스가 상관도 쥐므로 REST 와 wss 가 같은 주문 행을 다투는 구간이 없어진다.
+ *   ★ 종목 키는 **12자 ISIN** 이다(`code` 가 아니다). 6자 단축코드→ISIN 산술 유도는 금지이고
+ *     (D-28) relay 가 `stocks.isin` 으로 `code`·`market` 을 채운다. `code` 는 표시 전용으로만
+ *     남는다.
+ *
  * ③ ★ 결과는 세 가지다 — 접수 / **결과 모름** / 거부 (15-RESEARCH Pitfall 9)
- *   `ORDER_TIMEOUT`(그리고 브라우저측 타임아웃·네트워크 오류)은 **실패가 아니다.**
+ *   `status:"timeout"`(relay 5초 미응답 · 브라우저 백스톱 · 소켓 단절)은 **실패가 아니다.**
  *   주문이 이미 게이트웨이까지 갔을 수 있으므로
  *     - "실패"라는 단어를 쓰지 않고(문구 정본은 아래 `ResultBanner` 한 곳뿐),
  *     - 미체결 목록에서 접수 여부를 확인하도록 안내하며,
  *     - **제출 버튼을 다시 열지 않는다**(`blocked`). 재주문 경로를 주면 그 자리에서
  *       중복 체결이 난다. 잠금 해제는 탭 이동(패널 언마운트)·새로고침·종목 전환뿐이고,
  *       셋 다 "미체결을 확인하러 가는" 의도적 행동이라 클릭 한 번으로 풀리지 않는다.
+ *   ★ `sendOrder` 는 **어떤 경로에서도 reject 하지 않는다**(16-10). 그래서 이 파일에는
+ *     주문 실패용 `catch` 가 없다 — catch 를 두면 거기서 「실패」 문구를 쓰게 되고, 결과를
+ *     모르는 주문에 「실패」를 쓰는 것이 이 Phase 전체에서 가장 비싼 사고다(S-8).
  *
  * ④ ★ LOCKED 색 규칙 (UI-SPEC §토큰 충돌 경보)
  *   shadcn 의 기본 accent 파랑 토큰은 `--down`(매도 파랑)과 값이 **완전히 같다**. 그래서
@@ -44,10 +55,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import type {
-  CreateOrderResponse,
   OrderSide,
   RelayAccount,
   RelayExchange,
+  RelayOrderResultMsg,
 } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
@@ -57,12 +68,7 @@ import {
   OrderConfirmDialog,
   type NewOrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
-import {
-  createOrder,
-  isUnknownOutcome,
-  orderErrorCode,
-  orderErrorMessage,
-} from '@/lib/orders-api';
+import { useRelayContext } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
@@ -155,31 +161,29 @@ type OrderResult =
   | { kind: 'rejected'; title: string; detail: string }
   | { kind: 'unknown' };
 
-/** 거부 코드별 다음 행동 안내 (UI-SPEC 결과-거부 `{해결 안내}`). */
-function guidanceFor(code: string): string {
-  switch (code) {
-    case 'SESSION_NOT_READY':
-      return '주문은 호가창이 연결된 상태에서만 보낼 수 있어요. 페이지를 새로고침하면 다시 연결돼요.';
-    case 'DMA_NOT_ALLOWED':
-      return '증권사 계정이 연결된 사용자만 주문할 수 있어요. 관리자에게 문의해 주세요.';
-    case 'ACCOUNT_NOT_ALLOWED':
-      return '이 계좌로는 주문할 수 없어요. 계좌를 다시 선택해 주세요.';
-    case 'ISIN_UNAVAILABLE':
-      return '이 종목은 주문에 필요한 표준코드가 없어요. 관리자에게 문의해 주세요.';
-    case 'RELAY_UNAVAILABLE':
-      return '주문 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.';
-    case 'VALIDATION_FAILED':
-      return '가격·수량을 다시 확인해 주세요.';
-    case 'UNAUTHENTICATED':
-      return '로그인이 필요해요. 다시 로그인한 뒤 시도해 주세요.';
-    default:
-      return '잠시 후 다시 시도해 주세요.';
-  }
+/**
+ * 거부 배너의 보조 줄 (UI-SPEC 결과-거부 `{해결 안내}`).
+ *
+ * wss 이관(D-02) 전에는 server 가 준 **에러 코드 7종**으로 다음 행동을 갈랐다. 이제 거부는
+ * 프레임 하나(`{message, resultCode}`)로 오고 그 `message` 가 사유와 다음 행동을 함께 담는다
+ * (relay: 「실시간 세션이 없습니다. 호가창을 먼저 열어 주세요.」 등). 없어진 코드 체계를
+ * 흉내 내 분기하면 「가격·수량을 다시 확인해 주세요」가 세션 문제에도 붙는다 — 사실이 아닌
+ * 안내는 안내가 없는 것보다 나쁘다. 그래서 보조 줄은 **모든 거부에 대해 참인 사실 하나**만
+ * 말한다: 거부는 「나가지 않았음이 확실」하므로 다시 시도해도 이중 발주가 아니다.
+ */
+function rejectDetail(resultCode: number): string {
+  return `주문은 나가지 않았어요. 사유를 확인한 뒤 다시 시도해 주세요. (코드 ${resultCode})`;
 }
 
 export interface OrderPanelProps {
-  /** 6자 단축코드 — 주문 요청 키(server 가 ISIN 을 채운다). */
+  /** 6자 단축코드 — **표시 전용**이다(확인 다이얼로그·종목 전환 리셋 키). */
   code: string;
+  /**
+   * 12자 ISIN — **주문 요청 키**다 (D-02 / D-28).
+   * 게이트웨이가 이 값으로 종목을 정하고, relay 가 `stocks.isin` 으로 `code`·`market` 을
+   * 채운다. 브라우저가 단축코드에서 유도하지 않는다.
+   */
+  isin: string;
   /** 종목명 — 확인 다이얼로그 요약에 쓴다. */
   name: string;
   /** 허용 계좌 목록(`{t:"state"}.accounts`). 화면에는 **전체 표시**한다(D2). */
@@ -197,13 +201,14 @@ export interface OrderPanelProps {
   sellableQty: number;
   /** 세션 상태. 제출 버튼 문구·비활성의 정본이다. */
   status: RelayStatus;
-  /** 제출이 끝났을 때(접수·거부 무관) 부모에게 알린다. */
-  onSubmitted?: (res: CreateOrderResponse) => void;
+  /** 제출이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
+  onSubmitted?: (res: RelayOrderResultMsg) => void;
   className?: string;
 }
 
 export function OrderPanel({
   code,
+  isin,
   name,
   accounts,
   selectedAccountNo,
@@ -227,6 +232,12 @@ export function OrderPanel({
   /** 결과를 모르는 주문이 하나라도 나가면 이 패널의 제출을 잠근다(중복 체결 방지). */
   const [blocked, setBlocked] = useState(false);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /*
+    주문 창구. 구독이 아니라 **연결 컨텍스트**에서 가져온다 — 주문은 종목 축이 없고
+    (계좌·ISIN 이 인자다) 이 패널이 구독을 새로 잡을 이유도 없다. Provider 밖에서는
+    안전 폴백이 `status:"rejected"` 를 돌려주므로 여기서 null 검사를 하지 않는다.
+  */
+  const { sendOrder } = useRelayContext();
 
   const price = digitsToNumber(priceText);
   const qty = digitsToNumber(qtyText);
@@ -340,53 +351,42 @@ export function OrderPanel({
     setSubmitting(true);
     setConfirm(null);
     setResult(null);
-    try {
-      const res = await createOrder({
-        code,
-        accountNo: selectedAccountNo,
-        exchange,
-        side,
-        orderType: 'N',
-        qty,
-        price,
+    /*
+      `catch` 가 없는 것이 의도다 — `sendOrder` 는 어떤 실패에서도 reject 하지 않고
+      결과 프레임으로 돌려준다(16-10). catch 를 두면 그 분기가 「실패」 문구를 쓰게 되고,
+      결과를 모르는 주문에 「실패」를 쓰면 사용자가 재주문해 중복 체결이 난다(S-8).
+    */
+    const res = await sendOrder({
+      kind: 'new',
+      // ★ 단축코드가 아니라 **ISIN** 이다 (D-28 — 브라우저는 종목 키를 유도하지 않는다).
+      isin,
+      accountNo: selectedAccountNo,
+      exchange,
+      side,
+      qty,
+      price,
+    });
+
+    if (res.status === 'timeout') {
+      // ★ 여기가 이 파일에서 가장 중요한 분기다. **결과를 모르면 잠근다.**
+      setResult({ kind: 'unknown' });
+      setBlocked(true);
+    } else if (res.status === 'rejected' || res.resultCode !== 0) {
+      setResult({
+        kind: 'rejected',
+        title: `주문이 거부됐어요 · ${res.message}`,
+        detail: rejectDetail(res.resultCode),
       });
-      if (res.status === 'timeout') {
-        // 서버가 200 으로 "결과 모름"을 실어 보낸 경우 — 실패가 아니다.
-        setResult({ kind: 'unknown' });
-        setBlocked(true);
-      } else if (res.status === 'rejected' || res.resultCode !== 0) {
-        setResult({
-          kind: 'rejected',
-          title: `주문이 거부됐어요 · ${res.message}`,
-          detail: `가격·수량을 다시 확인해 주세요. (코드 ${res.resultCode})`,
-        });
-      } else {
-        setResult({ kind: 'accepted', orderNo: res.orderNo });
-      }
-      onSubmitted?.(res);
-    } catch (err) {
-      if (isUnknownOutcome(err)) {
-        // ★ 여기가 이 파일에서 가장 중요한 분기다. 결과를 모르면 잠근다.
-        setResult({ kind: 'unknown' });
-        setBlocked(true);
-      } else {
-        const errCode = orderErrorCode(err);
-        setResult({
-          kind: 'rejected',
-          title:
-            errCode === 'SESSION_NOT_READY'
-              ? '호가창을 먼저 열어 주세요'
-              : `주문이 거부됐어요 · ${orderErrorMessage(err)}`,
-          detail: `${guidanceFor(errCode)} (코드 ${errCode})`,
-        });
-      }
-    } finally {
-      setSubmitting(false);
+    } else {
+      setResult({ kind: 'accepted', orderNo: res.orderNo });
     }
+    onSubmitted?.(res);
+    setSubmitting(false);
   }, [
     submitting,
     blocked,
-    code,
+    sendOrder,
+    isin,
     selectedAccountNo,
     exchange,
     side,
