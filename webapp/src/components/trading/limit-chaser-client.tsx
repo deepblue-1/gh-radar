@@ -93,6 +93,19 @@ const LEAVE_WARNING = '수정하지 않은 값이 있어요. 이 페이지를 �
 
 const KRW = new Intl.NumberFormat('ko-KR');
 
+/**
+ * 지금 시각 `HH:MM:SS` — **로케일 포맷터를 쓰지 않는다.**
+ *
+ * ★ `toLocaleTimeString('ko-KR', { hour12: false })` 는 브라우저에 따라 `0시 57분 16초`
+ *   를 돌려준다(Chromium 실측). UI-SPEC 은 상태줄의 `반영 HH:MM:SS` 와 로그 시각을
+ *   **`.mono` 고정폭 숫자**로 못박았는데, 한글 조사가 섞이면 폭이 매 초 달라져 로그가
+ *   좌우로 흔들리고 상태줄의 다른 항목까지 밀린다. 자리수를 우리가 직접 채운다.
+ */
+function clockNow(now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 /** 화면이 다루는 종목 1건. 검색 결과 또는 편집 키에서 만든다. */
 interface SelectedStock {
   /** 12자 ISIN — DMA 구독·주문 키(D-28). 없으면 구독도 등록도 못 한다. */
@@ -177,7 +190,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     logSeq.current += 1;
     const entry: StrategyLogEntry = {
       id: `log-${logSeq.current}`,
-      at: new Date().toLocaleTimeString('ko-KR', { hour12: false }),
+      at: clockNow(),
       text,
       level,
     };
@@ -204,6 +217,18 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
    * 이 값이 없으면 `strategyBadgesOf` 가 「발주됨」을 만들지 않는다 — 그게 맞다.
    */
   const [fired, setFired] = useState(false);
+  /**
+   * 시딩에 쓴 **실시간** 상한가. 0 이면 아직 실시간 값으로 시딩한 적이 없다.
+   *
+   * ★ 왜 필요한가: 종목을 고른 직후에는 REST 상세의 상한가밖에 없고, 실시간 호가(`quote.ul`)
+   *   는 구독 왕복 뒤에 온다. 그대로 두면 **폼의 가격 5칸은 REST 값, 위 칩은 실시간 값**이라
+   *   같은 화면이 상한가를 두 숫자로 말한다. 그 상태로 스위치를 켜면 사용자가 본 적 없는
+   *   가격으로 등록된다.
+   * ★ 한 번만 올린다. 상한가는 세션 내내 고정이므로 이 재시딩은 종목당 1회이고, 그
+   *   시점은 사용자가 값을 고치기 전(선택 직후 수백 ms)이다. 서버 전략이 이미 있으면
+   *   **아예 올리지 않는다** — 그때는 시딩 자체가 없고 remount 는 편집을 지우는 일만 한다.
+   */
+  const [liveSeed, setLiveSeed] = useState(0);
 
   const handleSent = useCallback((cfg: RelayLimitChaserInput) => {
     pendingRef.current = cfg;
@@ -226,6 +251,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     setBanner(null);
     setAppliedAt(null);
     setFired(false);
+    setLiveSeed(0);
   }, [key]);
 
   useEffect(() => {
@@ -250,7 +276,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     pendingRef.current = null;
     if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
     setUnacked(false);
-    setAppliedAt(new Date().toLocaleTimeString('ko-KR', { hour12: false }));
+    setAppliedAt(clockNow());
 
     /*
       무장 해제의 **이유**는 에코만으로 알 수 없다(Pitfall 10). 우리가 방금 끈 것이면
@@ -337,6 +363,13 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   const basePrice = quote?.base ?? picked?.basePrice ?? 0;
   const currentPrice = quote?.p ?? picked?.price ?? 0;
   const changeRate = quote?.cr ?? picked?.changeRate ?? 0;
+
+  // 실시간 상한가가 처음 도착하면 그 값으로 **한 번만** 다시 시딩한다(위 `liveSeed` 주석).
+  useEffect(() => {
+    if (server !== null || liveSeed !== 0) return;
+    const live = quote?.ul ?? 0;
+    if (live > 0) setLiveSeed(live);
+  }, [server, quote, liveSeed]);
   const tickSize = deriveTickSize(quote?.ap, quote?.bp, currentPrice > 0 ? currentPrice : basePrice);
 
   const badges = strategyStatusOf(server, fired);
@@ -530,7 +563,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
         {/* 폼 — 자기 안에서 ≥1280 을 매수 250 | 매도 250 으로 다시 나눈다(16-12). */}
         <LimitChaserForm
-          key={`${isin}|${accountNo}|${exchange}|${resetSeq}`}
+          key={`${isin}|${accountNo}|${exchange}|${resetSeq}|${liveSeed}`}
           isin={isin}
           accountNo={accountNo}
           market={market}
