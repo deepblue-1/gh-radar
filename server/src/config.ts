@@ -41,13 +41,11 @@ export type AppConfig = {
   chatWebSearchModel: string;    // 웹서치 — Sonnet 5 (별도 키, env override 가능)
   chatMaxToolRounds: number;     // 팀장 tool-use 루프 상한
   chatMaxHistoryMessages: number;// pruneHistory 슬라이딩 윈도우
-  // Phase 15 — DMA 주문 릴레이 (RELAY-02, D-08/D-22).
-  // 두 키 모두 optional. 하나라도 없으면 server.ts 가 relayClient=undefined 로 시작하고
-  // POST /api/orders 만 503 RELAY_UNAVAILABLE 을 반환한다 (Bright Data 선례와 동형).
-  // 다른 라우트는 영향받지 않으므로 relay 를 세우기 전에도 서버는 정상 배포된다.
-  relayInternalUrl: string | undefined;
-  relayOrderSecret: string | undefined;
-  orderTimeoutMs: number;
+  // Phase 16 Plan 16 — `RELAY_INTERNAL_URL`/`RELAY_ORDER_SECRET`/`ORDER_TIMEOUT_MS` 를
+  // 제거했다 (D-02). 셋 다 optional 이었으므로 삭제해도 부팅 검증이 느슨해지지 않는다
+  // (required 목록은 `get()` 이 쥐고 있고 거기에는 원래 없었다).
+  // ⚠️ 배포된 리비전의 env 는 스크립트 수정만으로 사라지지 않는다 —
+  //    16-17 재배포에서 `--remove-env-vars` / `--remove-secrets` 로 걷어낸다.
 };
 
 export function loadConfig(): AppConfig {
@@ -56,7 +54,6 @@ export function loadConfig(): AppConfig {
     if (!v) throw new Error(`${k} must be set`);
     return v;
   };
-  const optional = (k: string): string | undefined => process.env[k];
   return {
     nodeEnv: (process.env.NODE_ENV ?? "development") as AppConfig["nodeEnv"],
     port: Number(process.env.PORT ?? 8080),
@@ -99,11 +96,5 @@ export function loadConfig(): AppConfig {
     chatWebSearchModel: process.env.CHAT_WEBSEARCH_MODEL ?? "claude-sonnet-5",
     chatMaxToolRounds: Number(process.env.CHAT_MAX_TOOL_ROUNDS ?? "5"),
     chatMaxHistoryMessages: Number(process.env.CHAT_MAX_HISTORY_MESSAGES ?? "30"),
-    // Phase 15 — relay 내부 HTTP (D-08). 예: http://10.10.0.5:8091 (VPC 내부, 평문 http).
-    // 미설정 시 POST /api/orders 만 503 RELAY_UNAVAILABLE — 나머지 라우트는 정상.
-    relayInternalUrl: optional("RELAY_INTERNAL_URL"),
-    relayOrderSecret: optional("RELAY_ORDER_SECRET"),
-    // relay 가 첫 OrderResp 를 기다리는 상한(D-22). server 는 이 값보다 조금 더 기다린다.
-    orderTimeoutMs: Number(process.env.ORDER_TIMEOUT_MS ?? "5000"),
   };
 }
