@@ -108,7 +108,7 @@ updated: 2026-09-06
 | 15-19-02 | 15-19 | 5 | RELAY-02, RELAY-03 | T-15-12, T-15-55, T-15-01 | `/api/orders` 409(503 아님) · 기존 env 소실 0 · INV-7 재확인 · INV-10 RLS 회귀 감지 | infra INV | `bash scripts/smoke-server.sh && bash scripts/smoke-relay.sh` | ❌ W0 | ✅ |
 | 15-19-03 | 15-19 | 5 | RELAY-02 | T-15-28, T-15-14, T-15-04 | mock 전용(실서버 문자열 0) · 가격 0 거부 층 기록 · 로그 평문 비밀 0 | **manual** + 산출물 검증 | `test -f .planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-MOCK-ORDER-EVIDENCE.md` | ❌ W0 | ✅ |
 | 15-20-01 | 15-20 | 6 | RELAY-01, RELAY-02, RELAY-03 | T-15-28 | 실서버 접속은 사용자 결정으로만 — 기본 경로는 미수행 | **manual** (decision) | `test -f .planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-LIVE-VERIFICATION.md` | ❌ W0 | ✅ |
-| 15-20-02 | 15-20 | 6 | RELAY-01, RELAY-02 | T-15-14, T-15-47, T-15-11, T-15-15 | (조건부) 체결 0건 · WinForms 와 다른 user_id · split-tunnel 유지 · 계좌 뒤 4자리만 | **manual** + 산출물 검증 | `grep -riE 'kbs124\|passwd=\|password:' .../15-LIVE-VERIFICATION.md \| wc -l` == 0 | ❌ W0 | ✅ |
+| 15-20-02 | 15-20 | 6 | RELAY-01, RELAY-02 | T-15-14, T-15-47, T-15-11, T-15-15 | (조건부) 체결 0건 · WinForms 와 다른 user_id · split-tunnel 유지 · 계좌 뒤 4자리만 | **manual** + 산출물 검증 | `grep -riE 'KB_VPN_ACCOUNT\|passwd=\|password:' .../15-LIVE-VERIFICATION.md \| wc -l` == 0 | ❌ W0 | ✅ |
 | 15-20-03 | 15-20 | 6 | RELAY-01, RELAY-02, RELAY-03 | T-15-56, T-15-15 | 증거 없는 ✅ 금지 · STATE/README 비밀 값 0건 | 집계 | `grep -c 'SC-8' .planning/phases/15-dma-relay-kb-gh-trade-server-10-wss/15-LIVE-VERIFICATION.md` | ❌ W0 | ✅ |
 
 *Status: ⬜ pending · ✅ green · ❌ red(미충족) · ⚠️ 부분 충족 또는 재실행 불가*
@@ -152,7 +152,7 @@ updated: 2026-09-06
 
 | Behavior | Requirement | Task | Why Manual | Test Instructions |
 |----------|-------------|------|------------|-------------------|
-| kbs124 VPN 선검증(연결·split-tunnel 라우팅·출발지 IP 제한·Mac 동시 세션) | RELAY-03 | 15-07-02 | KB 계정 잠금 위험 — 수동 ≤3회, 실패 시 자동 재시도 없이 중단(D-03) | `infra/relay/README.md` §D-03 선검증 체크리스트 7항목. 직렬 콘솔을 별도 터미널에 미리 열어 둔다. 결과를 `15-VPN-PREFLIGHT.md` + STATE 에 기록. 게이트웨이는 `nc -zv 10.41.1.120 9100` 도달성만(D-27) |
+| KB_VPN_ACCOUNT VPN 선검증(연결·split-tunnel 라우팅·출발지 IP 제한·Mac 동시 세션) | RELAY-03 | 15-07-02 | KB 계정 잠금 위험 — 수동 ≤3회, 실패 시 자동 재시도 없이 중단(D-03) | `infra/relay/README.md` §D-03 선검증 체크리스트 7항목. 직렬 콘솔을 별도 터미널에 미리 열어 둔다. 결과를 `15-VPN-PREFLIGHT.md` + STATE 에 기록. 게이트웨이는 `nc -zv 10.41.1.120 9100` 도달성만(D-27) |
 | 사용자 DNS `dma.jx1.io` A 레코드 + Let's Encrypt 발급 | RELAY-03 | 15-07-03 | 사용자 보유 도메인, 외부 좌표(D-06) | 고정 IP 전달 → 사용자 A 레코드 추가 → `dig` 확인 **후** Caddy 기동 → INV-5. 실패 시 반복 금지(rate limit), staging CA 우회 |
 | Vercel `NEXT_PUBLIC_RELAY_WS_URL` 등록 | RELAY-01 | 15-14-03 | Vercel 대시보드 = 외부 좌표 | 등록 후 `vercel env pull` 로 trailing newline 검증(`tail -c1 \| xxd -p` 가 `0a` 아님). `vercel pull → build → deploy --prebuilt` 수동 배포 |
 | mock 브로커 가격 0 주문 거부 경로 | RELAY-02 | 15-19-03 | 로컬 mock gh-trade-server 기동 필요(D-40) | `run-mac.sh` mock + `inject_b6.py --send` + 정상 접수/가격 0 거부/취소/목록 복원 4케이스. **어느 층에서 거부됐는지** 기록. `15-MOCK-ORDER-EVIDENCE.md` |

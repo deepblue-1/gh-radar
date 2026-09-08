@@ -2204,4 +2204,4 @@ jose/JWKS 로컬 검증은 **deferred**(D-10) — 두 진입점(REST·wss)이 �
 - `15-CONTEXT.md` §Canonical References — D-번호 결정 정본
 - `15-RESEARCH.md` §Recommended Project Structure · §Pattern 1~11 · §Pitfall 1~15 · §Validation Architecture
 - `15-UI-SPEC.md` §Component Inventory · §Copywriting Contract — 호가창 UI 계약 정본
-- **[BLOCKING] 게이트 2건:** ① D-03 kbs124 VPN 선검증 ② D-25 gh-trade Phase 17 완료 후 `sync-relay-schema.sh` 재실행
+- **[BLOCKING] 게이트 2건:** ① D-03 KB_VPN_ACCOUNT VPN 선검증 ② D-25 gh-trade Phase 17 완료 후 `sync-relay-schema.sh` 재실행

@@ -34,8 +34,9 @@
 | 로컬 mock까지만, 배포는 별도 | 코드·스크립트·문서만 | |
 | 실서버 연결까지 이 phase | KB 확인이 phase 중 끝난다고 가정 | |
 
-**User's choice:** (Other) "kbs124로 하면되고, 진행하기전에 OpenConnect으로 VPN 연결해서 연결이 되는지, IP 제한이 있는지 검증하고 진행하는게 좋겠어."
-**Notes:** KB 확인 대기 대신 kbs124 계정으로 VM 에서 VPN 연결·IP 제한 선검증을 초기 게이트로 채택(D-03). 계정 잠금 방지를 위해 시도 횟수 제한·자동 재시도 금지는 Claude 가 보강.
+**User's choice:** (Other) "KB_VPN_ACCOUNT로 하면되고, 진행하기전에 OpenConnect으로 VPN 연결해서 연결이 되는지, IP 제한이 있는지 검증하고 진행하는게 좋겠어."
+> (원문 인용이다. 계정 ID 는 quick-260908-py9 에서 `KB_VPN_ACCOUNT` 로 마스킹됐다 — 발언 내용은 그대로다.)
+**Notes:** KB 확인 대기 대신 KB_VPN_ACCOUNT 계정으로 VM 에서 VPN 연결·IP 제한 선검증을 초기 게이트로 채택(D-03). 계정 잠금 방지를 위해 시도 횟수 제한·자동 재시도 금지는 Claude 가 보강.
 
 | Option | Description | Selected |
 |--------|-------------|----------|

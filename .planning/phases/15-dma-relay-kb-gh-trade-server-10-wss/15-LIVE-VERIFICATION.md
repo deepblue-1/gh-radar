@@ -138,6 +138,16 @@ B/C안을 고르더라도 서버측 allowlist(`isDmaAllowed`)가 `403 DMA_NOT_AL
   실제 비밀번호 값은 어디에도 없다(Secret Manager `gh-radar-kb-vpn-...` + VM `/etc/kbvpn.env` 0600 에만 존재).
 - 참고: 이 문서(`15-LIVE-VERIFICATION.md`)와 `infra/relay/README.md` 는 **0건**이다(§6).
 
+**해소 (quick-260908-py9, 2026-09-08).**
+
+- 위 13개 문서에 `ROADMAP.md`(3건) 를 포함한 실측 범위 재산정 결과 **15개 파일 · 38건**이었고
+  (`.planning/` 14개 + `tasks/relay-handoff.md` 1개), 전부 맨 토큰 `KB_VPN_ACCOUNT` 로 치환했다.
+  저장소 전체 정규식 게이트가 **0건**이 되어 SC-8 의 "비밀 미기록" 조항이 충족됐다.
+- **마스킹은 작업 트리 기준이다.** 과거 커밋 객체에는 원 문자열이 그대로 남아 있다.
+- `git filter-repo` 등 **히스토리 재작성은 의도적으로 하지 않았다.** 값이 비밀번호가 아닌 계정 ID 이고,
+  원격 히스토리 재작성(모든 참조 무효화·강제 push·협업자 재클론)의 비용과 리스크가 얻는 이득을 초과한다.
+- 실제 접속 비밀 값은 여전히 Secret Manager 와 VM `/etc/kbvpn.env`(0600) 에만 존재한다 — 저장소에는 과거 이력에도 없다.
+
 ---
 
 ## 5. 이관되는 알려진 미해결 항목 (하나도 버리지 않는다)
@@ -157,7 +167,7 @@ B/C안을 고르더라도 서버측 allowlist(`isDmaAllowed`)가 `403 DMA_NOT_AL
 | 11 | E2E 픽스처 `webapp/e2e/fixtures/stocks.ts` 에 `isin` 부재 | 알려진 경계 | 15-14 가 relay 픽스처로 호가 경로를 따로 덮었다. 탭 회귀 단언은 존재 여부만 본다 |
 | 12 | KB VPN 세션 인증 **14일 만료** (선검증 시점 기준 2026-09-19) | 운영 정책 미설계 | 상시 운용 시 재인증 주기 설계 필요 |
 | 13 | 터널 IP 는 **계정 고정이 아니라 풀 할당** | 설계 가정 정정 완료 | 선검증에서 Mac `.126` / VM `.124` 동시 관측으로 반증됐다. 터널 IP 를 하드코딩·allow-list 하지 말 것. 게이트웨이 `10.41.1.120` 은 서버측 고정값이라 상수 취급 가능 |
-| 14 | `.planning/` 13개 문서에 KB VPN **계정 ID** 잔존 | §4-E | 마스킹 quick task |
+| 14 | `.planning/` 문서에 KB VPN **계정 ID** 잔존 | §4-E | **해소 (quick-260908-py9, 2026-09-08)** — 실측 15개 파일 38건을 `KB_VPN_ACCOUNT` 로 마스킹, 저장소 전체 게이트 0건. 히스토리 재작성은 미수행(§4-E) |
 | 15 | `REQUIREMENTS.md` 의 RELAY-01/02/03 이 여전히 `Pending` | 판단 필요 | **이 plan 은 바꾸지 않았다.** SC-4~SC-8 이 ⚠ 인 상태에서 `Complete` 로 올리는 것은 증거와 어긋난다. 실서버 검증 또는 최소한 자격증명 등록 후 재판정할 것 |
 
 > **해소됨(기록만 남긴다):** `packages/shared` 의 `THEME_STOCK_SOURCES` 테스트 선재 실패는

@@ -11,7 +11,7 @@ gh-radar 에 **DMA 중계 서버 `relay/` 워크스페이스**(Node 22 + TypeScr
 1. **시세 팬아웃(읽기):** 호가 10단(`QuoteState`) + 체결 테이프(`TradeTape`), KRX/NXT — 브라우저에 **wss 로 직접**(`wss://dma.jx1.io`, Caddy TLS) 푸시. 웹앱 `/stocks/[code]` 에 호가창 섹션 신설.
 2. **계좌 상태 팬아웃:** 잔고·미체결(`AccountState` 66/67 스냅샷+델타) — 미체결 목록·취소 버튼·잔고 패널의 원천.
 3. **주문 릴레이(쓰기):** 브라우저 → Cloud Run `server` REST(`requireAuth`) → Direct VPC Egress → VM relay 내부 HTTP → `DirectOrderReq`. 신규 매수/매도 + 취소, 지정가 보통만.
-4. **인프라:** VM 프로비저닝(e2-micro Debian 12, 신규 고정 IP, 방화벽 443/IAP/내부포트), openconnect systemd 유닛, Caddy, `relay/Dockerfile` + `scripts/deploy-relay.sh`(Artifact Registry → VM pull), **kbs124 계정으로 VM 에서 VPN 연결·출발지 IP 제한·동시 세션 선검증**(초기 게이트).
+4. **인프라:** VM 프로비저닝(e2-micro Debian 12, 신규 고정 IP, 방화벽 443/IAP/내부포트), openconnect systemd 유닛, Caddy, `relay/Dockerfile` + `scripts/deploy-relay.sh`(Artifact Registry → VM pull), **KB_VPN_ACCOUNT 계정으로 VM 에서 VPN 연결·출발지 IP 제한·동시 세션 선검증**(초기 게이트).
 
 **DMA 세션 모델은 사용자별**이다. gh-radar 사용자(Gmail 로그인) ↔ DMA `user_id/password` 매핑(Supabase, AES 암호화)으로 사용자마다 별도 DMA TCP 세션을 열고, 그 세션으로 시세·체결·계좌·주문을 모두 처리한다. 이는 gh-trade **Phase 17**(users.toml 로그인 인증 + `LoginResp.accounts` 허용 계좌 공급)에 의존하며 두 phase 는 병행한다.
 
@@ -30,7 +30,7 @@ gh-radar 에 **DMA 중계 서버 `relay/` 워크스페이스**(Node 22 + TypeScr
 - **D-01:** 시세 팬아웃 + 주문 릴레이를 **한 phase(15)** 에 포함(핸드오프 유지). plan 은 wave 로 나누되 계좌·주문 wave 는 D-25 의존 게이트 뒤에 둔다.
 - **D-02:** 웹앱 `/stocks/[code]` 에 **호가창 섹션 포함** — 호가 10단 + 체결 테이프 + 연결/세션 상태 + 주문 패널(신규/취소, 계좌 선택) + 잔고·미체결. 프론트 phase 규칙대로 **HTML 목업(globals.css 토큰 인라인, 변형 + 다크/라이트) 시각 확인 → UI-SPEC → 구현**.
 - **D-02a (UI-phase 2026-09-05 사용자 결정 — D-02 의 마운트 위치를 대체):** 종목상세 `/stocks/[code]` 를 **히어로(공통) + 상단 4탭 `차트 · 호가주문 · 종목정보 · 뉴스토론`** 으로 재구성한다(모바일 기준, 토스증권식). 호가창은 별도 섹션이 아니라 **호가주문 탭**이다. 탭 배치: 차트=일봉차트 / 종목정보=통계·테마·상한가이력·동조종목 / 뉴스토론=뉴스·종목토론 — 기존 섹션(Phase 6/7/9/11/12 표면)은 내용 무변경으로 탭 안에 재배치만 하며 **Playwright 회귀 E2E**(각 탭 진입·딥링크·기존 섹션 렌더)를 plan 에 포함한다. 탭은 `?tab=chart|orderbook|info|news` 쿼리로 URL 반영(딥링크·뒤로가기), 기본 `chart`, 탭 바 sticky. 탭 컴포넌트는 shadcn 공식 registry `tabs`(Radix, ARIA tablist 내장) 추가. 데스크톱에서 호가주문 탭 패널만 넓은 컨테이너(좌우 여백 24px, 다른 탭은 현행 `max-w-4xl`)를 쓰고 채택 레이아웃 L1=B(좌 호가+체결 / 우 주문+잔고·미체결) / L2=A(중앙 가격 1열) / L3=A(단계 최대 정규화 잔량바). 모바일(390px)은 세로 스택 **연결상태 → 호가 5단(+10단 전체 버튼) → 주문 패널 → 체결 → 잔고 → 미체결**. 이중 가격(히어로 스냅샷 vs 호가주문 실시간)은 둘 다 유지 + 출처 라벨, 계좌번호는 화면 전체 표시(로그만 마스킹). 채택 목업: `15-tabs-mockup.html`(페이지 구조·탭·모바일) + `15-orderbook-mockup.html`(호가창 상세·상태 8종). 정본은 `15-UI-SPEC.md`.
-- **D-03:** **VM 프로비저닝·openconnect·Caddy·relay 배포까지 이 phase.** 핸드오프의 "KB 확인 3건 대기" 대신 **kbs124 계정으로 VM 에서 openconnect 연결이 되는지·출발지 공인 IP 제한이 있는지·Mac 세션과 동시 접속이 되는지를 먼저 검증**한다(초기 wave, [BLOCKING] 사용자 체크포인트). 검증 시도는 수동 소수 횟수(≤3)로 제한하고 실패 시 자동 재시도 없이 중단 — 반복 실패는 KB 계정 잠금.
+- **D-03:** **VM 프로비저닝·openconnect·Caddy·relay 배포까지 이 phase.** 핸드오프의 "KB 확인 3건 대기" 대신 **KB_VPN_ACCOUNT 계정으로 VM 에서 openconnect 연결이 되는지·출발지 공인 IP 제한이 있는지·Mac 세션과 동시 접속이 되는지를 먼저 검증**한다(초기 wave, [BLOCKING] 사용자 체크포인트). 검증 시도는 수동 소수 횟수(≤3)로 제한하고 실패 시 자동 재시도 없이 중단 — 반복 실패는 KB 계정 잠금.
 - **D-04:** 데이터 범위 = **호가 10단 + 체결 테이프, KRX+NXT**(거래소는 보는 사람이 토글). 거래원(MemberStats)은 제외(deferred).
 
 ### 배포 토폴로지

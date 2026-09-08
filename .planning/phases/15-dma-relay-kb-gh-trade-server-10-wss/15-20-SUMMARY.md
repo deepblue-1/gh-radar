@@ -136,7 +136,7 @@ plan 의 `files_modified` 와 Task 3 action 은 `.planning/STATE.md` 갱신(Curr
 
 ### 2. [Rule 2 - 발견] STATE.md 에 KB VPN 계정 ID 잔존 — 제거하지 않고 이관
 
-- **발견:** Task 3 acceptance 의 `grep -riE 'kbs124|passwd=|password:'` 를 돌리니 `.planning/STATE.md:344` 에서 1건 매치.
+- **발견:** Task 3 acceptance 의 `grep -riE 'KB_VPN_ACCOUNT|passwd=|password:'` 를 돌리니 `.planning/STATE.md:344` 에서 1건 매치.
 - **성격:** 비밀번호가 아니라 **계정 ID** 다. 그러나 `15-VPN-PREFLIGHT.md` 가 스스로 세운 규율이 "접속 비밀 값·계정 ID·서버 주소·인증서 핀을 기록하지 않는다"이므로 문자열 자체가 규율 위반이다.
 - **범위:** `.planning/` 기획 문서 **13개**(STATE·ROADMAP·REQUIREMENTS·CONTEXT·RESEARCH·PATTERNS·DISCUSSION-LOG·VALIDATION·15-05/06/07/19/20-PLAN). discuss/research/plan 단계에서 들어갔다.
 - **왜 안 고쳤나:** STATE·ROADMAP 은 오케스트레이터 소유이고, 나머지도 확정된 기획 산출물이라 종결 plan 이 임의 편집할 대상이 아니다. **실제 비밀번호 값은 어디에도 없다**(Secret Manager + VM `/etc/kbvpn.env` 0600).

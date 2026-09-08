@@ -16,7 +16,7 @@
 **범위·분할**
 - **D-01:** 시세 팬아웃 + 주문 릴레이를 한 phase(15)에 포함. plan 은 wave 로 나누되 계좌·주문 wave 는 D-25 의존 게이트 뒤.
 - **D-02:** 웹앱 `/stocks/[code]` 에 호가창 섹션 포함 — 호가 10단 + 체결 테이프 + 연결/세션 상태 + 주문 패널 + 잔고·미체결. HTML 목업 → UI-SPEC → 구현.
-- **D-03:** VM 프로비저닝·openconnect·Caddy·relay 배포까지 이 phase. kbs124 계정으로 VM 에서 VPN 연결·출발지 IP 제한·동시 세션 선검증(초기 wave, [BLOCKING] 체크포인트). 시도 ≤3회, 실패 시 자동 재시도 없이 중단.
+- **D-03:** VM 프로비저닝·openconnect·Caddy·relay 배포까지 이 phase. KB_VPN_ACCOUNT 계정으로 VM 에서 VPN 연결·출발지 IP 제한·동시 세션 선검증(초기 wave, [BLOCKING] 체크포인트). 시도 ≤3회, 실패 시 자동 재시도 없이 중단.
 - **D-04:** 호가 10단 + 체결 테이프, KRX+NXT. 거래원(MemberStats) 제외.
 
 **배포 토폴로지**
@@ -117,7 +117,7 @@
 
 - [ ] **RELAY-01**: KB gh-trade-server(C++ DMA 게이트웨이) 에 gh-radar **사용자별 DMA 세션**으로 붙어 호가 10단(`QuoteState`)·체결 테이프(`TradeTape`, KRX/NXT)·계좌 상태(`AccountState` 스냅샷+델타)·`ServerMessage` 를 브라우저에 `wss://dma.jx1.io` 로 직접 팬아웃 — GCE VM `radar-gw` 의 `relay/` 워크스페이스(Node 22 + TS, FlatBuffers `[uint32 LE 길이][Envelope]` 프레이밍, 30초 LivePing, 백오프 재접속·재구독), 업그레이드 후 첫 메시지 `{t:"auth"}` Supabase 토큰 검증 + `dma_credentials` allowlist, 종목당 세션 단위 참조계수 구독(`GetQuoteReq(28)`→`SubscribeQuoteReq(29)`), 웹앱 `/stocks/[code]` 호가창 섹션(호가·체결·잔고·미체결·연결 상태 배지) — Phase 15
 - [ ] **RELAY-02**: 지정가 보통 신규 매수/매도 + 취소 주문 릴레이 — 브라우저 → Cloud Run `POST /api/orders`(requireAuth + allowlist + 형식 검사, 금액·수량 한도 없음) → Direct VPC Egress → VM relay 내부 HTTP(공유 비밀 헤더) → `DirectOrderReq(2)`, 첫 `OrderResp(51)`(접수 "A"/거부 "R") ≤5초 응답, 체결("E")·취소확인("C")은 주문자 wss 푸시, `dma_orders` 기록 + 오늘 주문 목록 복원, `stocks.isin` 코드↔ISIN 매핑, 활성 세션 없으면 409 — Phase 15
-- [ ] **RELAY-03**: DMA 중계 인프라 — GCE VM `radar-gw`(e2-micro, Debian 12, asia-northeast3, 신규 외부 고정 IP, 방화벽 3규칙: 443 공개 / 22 IAP 35.235.240.0/20 / relay 내부포트 10.10.0.0/26), KB AnyConnect VPN openconnect host systemd 유닛(재시도 상한·백오프, 비밀번호는 Secret Manager stdin, 값 미기록), Caddy TLS(`dma.jx1.io`), `relay/Dockerfile` + `setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책, kbs124 VPN 선검증(연결·출발지 IP 제한·동시 세션) 기록 — Phase 15
+- [ ] **RELAY-03**: DMA 중계 인프라 — GCE VM `radar-gw`(e2-micro, Debian 12, asia-northeast3, 신규 외부 고정 IP, 방화벽 3규칙: 443 공개 / 22 IAP 35.235.240.0/20 / relay 내부포트 10.10.0.0/26), KB AnyConnect VPN openconnect host systemd 유닛(재시도 상한·백오프, 비밀번호는 Secret Manager stdin, 값 미기록), Caddy TLS(`dma.jx1.io`), `relay/Dockerfile` + `setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책, KB_VPN_ACCOUNT VPN 선검증(연결·출발지 IP 제한·동시 세션) 기록 — Phase 15
 ```
 
 ### Traceability 행 (115행 표 말미에 추가)
@@ -1203,7 +1203,7 @@ function fakeGateway(onFrame: (mt: number, payload: Buffer) => Buffer[] | void):
 |--------------|------------------|--------------|--------|
 | 핸드오프: "단일 radar 세션 · 종목당 구독 1개" | **사용자별 DMA 세션** + 세션 단위 참조계수 | 15-CONTEXT D-13 | 구독 키에 userId 포함. gh-trade 17 의존이 생김 |
 | 핸드오프: WsFanout 이 `jose` 로 JWT 검증 | `supabase.auth.getUser` 네트워크 검증 | 15-CONTEXT D-10 | jose 의존 제거, revoke 즉시 반영 |
-| 핸드오프: "KB 확인 3건 대기" | kbs124 로 **선검증**(D-03) | 15-CONTEXT | 초기 wave 에 [BLOCKING] 체크포인트 |
+| 핸드오프: "KB 확인 3건 대기" | KB_VPN_ACCOUNT 로 **선검증**(D-03) | 15-CONTEXT | 초기 wave 에 [BLOCKING] 체크포인트 |
 | 핸드오프: 프레임 상한 4MB | **1MB** | 본 리서치 실측 | 서버 `kMaxRecvBufSize` / C# 상수 일치 |
 | 핸드오프: VPC 커넥터 | **Direct VPC Egress**(기존 설정 재사용) | 15-CONTEXT D-08 / 실측 | 커넥터 신설 없음, 방화벽 source-ranges |
 | 클라 `UpdateAccountNoReq(mode "2")` 조회 왕복 | 제거 — `LoginResp.accounts` 가 원천 | gh-trade 17 D-11 | relay 도 mode "2" 를 쓰지 않는다 |
@@ -1222,7 +1222,7 @@ function fakeGateway(onFrame: (mt: number, payload: Buffer) => Buffer[] | void):
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
 | A1 | KB VPN 서버가 default route 를 푸시할 것이므로 split-tunnel 이 필요하다 | Pattern 8 / Pitfall 10 | 실제로 split-include 만 푸시한다면 래퍼가 불필요(무해). 반대로 푸시하는데 대비 안 하면 VM 이 고립됨 |
-| A2 | kbs124 계정이 GCE 외부 IP 에서 접속 가능하고 Mac 세션과 동시 접속된다 | Pattern 8 / D-03 | 불가하면 phase 전체 재설계(전용 계정 발급 or Mac 상시 릴레이). **D-03 선검증이 이 가정을 검증하는 목적** |
+| A2 | KB_VPN_ACCOUNT 계정이 GCE 외부 IP 에서 접속 가능하고 Mac 세션과 동시 접속된다 | Pattern 8 / D-03 | 불가하면 phase 전체 재설계(전용 계정 발급 or Mac 상시 릴레이). **D-03 선검증이 이 가정을 검증하는 목적** |
 | A3 | e2-micro 1GB 로 Docker+Node+Caddy+openconnect 가 동작한다 | Pitfall 11 | OOM 반복 시 e2-small 로 변경(D-07 허용). 비용 +$7/월 |
 | A4 | GCE Debian 12 이미지에 gcloud 가 있는지 불확실 | Pattern 7 | 없어도 메타데이터+REST 경로로 동작하도록 설계했으므로 영향 없음 |
 | A5 | gh-trade Phase 17 이 이 phase 진행 중 완료된다 | D-25 / Pitfall 1 | 지연 시 계좌·주문 wave 가 무기한 대기 → RELAY-01 의 시세 부분만 먼저 완료 처리하는 분할이 필요 |
@@ -1299,7 +1299,7 @@ function fakeGateway(onFrame: (mt: number, payload: Buffer) => Buffer[] | void):
 - GCE VM·방화벽·고정 IP·SA·Secret 4종 — RELAY-03 wave 가 만든다.
 - `dma.jx1.io` A 레코드 — **사용자 체크포인트**. IP 확보 후 전달 → 등록 확인까지 Caddy 배포 불가.
 - gh-trade Phase 17 — 계좌·주문 wave [BLOCKING].
-- kbs124 VPN 접속 가능성 — D-03 선검증. 실패 시 KB 문의.
+- KB_VPN_ACCOUNT VPN 접속 가능성 — D-03 선검증. 실패 시 KB 문의.
 
 **Missing dependencies with fallback:**
 - `vpn-slice` → `CISCO_SPLIT_INC` 래퍼
@@ -1512,7 +1512,7 @@ function fakeGateway(onFrame: (mt: number, payload: Buffer) => Buffer[] | void):
 ### Open Questions
 
 - gh-trade Phase 17 완료 시점 (외부 일정) — 계좌·주문 wave 진입 시점을 결정
-- kbs124 계정의 출발지 IP 제한·동시 세션 정책 — 선검증 전 확인 불가
+- KB_VPN_ACCOUNT 계정의 출발지 IP 제한·동시 세션 정책 — 선검증 전 확인 불가
 - `gh-radar-deployer` SA 의 Secret Manager 접근 권한 유무 (관리자 등록 스크립트 실행 주체)
 - 공개 `/healthz` 노출 범위
 - wss 토큰 만료 처리 방식(v1 미채택 권고)

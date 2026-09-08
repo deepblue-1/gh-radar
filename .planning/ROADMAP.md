@@ -539,11 +539,11 @@ Plans:
 
 **Goal:** gh-radar 에 `relay/` 워크스페이스(Node 22 + TS)를 신설해 GCE VM(`radar-gw`, e2-micro, asia-northeast3) 위에서 KB AnyConnect VPN(openconnect, host systemd) 너머의 gh-trade-server(C++ DMA 게이트웨이 10.41.1.120:9100, `[uint32 LE 길이][FlatBuffer Envelope]`)에 **gh-radar 사용자별 DMA 세션**으로 붙는다. 호가 10단 + 체결 테이프(KRX/NXT)와 계좌 상태(잔고·미체결)를 브라우저에 **`wss://dma.jx1.io`(Caddy TLS) 로 직접 팬아웃**하고, 주문(신규 매수/매도 + 취소, 지정가 보통)은 **브라우저 → Cloud Run server REST(requireAuth) → Direct VPC Egress → VM relay 내부 HTTP → `DirectOrderReq`** 로 릴레이한다. 웹앱 `/stocks/[code]` 를 상단 4탭(차트·호가주문·종목정보·뉴스토론)으로 재구성하고 호가주문 탭(호가·체결·주문 패널·잔고/미체결·연결 상태)을 신설한다(기존 섹션은 탭 안 재배치, 내용 무변경). 사용자 ↔ DMA 자격증명 매핑은 Supabase `dma_credentials`(AES-GCM, 서비스롤 전용)이며 allowlist = 매핑 행 존재. Cloud Run 에서는 WebSocket 을 열지 않는다. 인계 문서 `tasks/relay-handoff.md` 를 전면 재검토한 결정은 `15-CONTEXT.md` 가 정본(핸드오프와 충돌 시 CONTEXT 우선).
 **Requirements**: RELAY-01, RELAY-02, RELAY-03 (신규 — 2026-09-05 plan 단계 REQUIREMENTS 등록 완료)
-**Depends on:** Phase 14; **외부 의존** gh-trade Phase 17(users.toml 로그인 인증 + `LoginResp.accounts`) — 병행 진행, 계좌·주문 wave 는 17 완료 후 `sync-relay-schema.sh` 재동기화가 선행 조건; 사용자 DNS(`dma.jx1.io` A 레코드); kbs124 VPN 선검증 통과
+**Depends on:** Phase 14; **외부 의존** gh-trade Phase 17(users.toml 로그인 인증 + `LoginResp.accounts`) — 병행 진행, 계좌·주문 wave 는 17 완료 후 `sync-relay-schema.sh` 재동기화가 선행 조건; 사용자 DNS(`dma.jx1.io` A 레코드); KB_VPN_ACCOUNT VPN 선검증 통과
 **Success Criteria** (what must be TRUE):
 
   1. `relay/` 워크스페이스가 pnpm 워크스페이스에 등록되고 gh-trade `sync-relay-schema.sh` 산출물(`relay/src/generated/` 40개 + SYNC MARKER fbs 사본)이 커밋돼 있으며 `sync-relay-schema.sh --check` 가 무변경으로 통과한다. 생성물은 손으로 고치지 않는다.
-  2. GCE VM `radar-gw` 가 신규 고정 IP·방화벽(443 공개, 22 IAP 한정, relay 내부포트 서브넷 한정)으로 프로비저닝되고, kbs124 계정으로 VM 에서 openconnect VPN 연결·출발지 IP 제한·동시 세션 여부가 **검증·기록**돼 있다(실패 시 자동 재시도 없이 중단, 수동 ≤3회).
+  2. GCE VM `radar-gw` 가 신규 고정 IP·방화벽(443 공개, 22 IAP 한정, relay 내부포트 서브넷 한정)으로 프로비저닝되고, KB_VPN_ACCOUNT 계정으로 VM 에서 openconnect VPN 연결·출발지 IP 제한·동시 세션 여부가 **검증·기록**돼 있다(실패 시 자동 재시도 없이 중단, 수동 ≤3회).
   3. relay 가 프레이밍 코덱(**1MB 상한** — 서버 `kMaxRecvBufSize`·C# `MAX_FRAME_SIZE` 실측, 4MB 는 서버 *송신 큐* 상한이라 15-RESEARCH Key Finding 2 로 정정 · 상한 초과는 드롭이 아니라 연결 재수립 · 불량 프레임만 드롭하고 연결 유지)·30초 LivePing·백오프 재접속(재로그인·계좌 재선언·재구독, 서버 거부 시 루프 중단)을 갖춘 사용자별 DMA 세션(Idle→Connecting→LoggingIn→DeclaringAccounts→Ready)을 열고, vitest 가짜 서버 소켓 테스트로 프레임 결합/분할·드롭·핑·재접속을 증명한다.
   4. 브라우저가 `wss://dma.jx1.io` 에 첫 메시지 `{t:"auth", token}` 으로 인증(`supabase.auth.getUser`, 5초 내 미인증 close)하면 `dma_credentials` 매핑이 있는 사용자만 세션이 열리고, 종목 구독 시 `GetQuoteReq(28)` 스냅샷 → `SubscribeQuoteReq(29)` 로 호가 10단·체결 테이프(200ms 배치)·`ServerMessage`·세션 상태 프레임을 받으며(업스트림 100ms 그대로, permessage-deflate), 마지막 wss 종료 5분 뒤 DMA 세션이 닫힌다.
   5. 세션 Ready 후 `LoginResp.accounts` 전부가 `UpdateAccountNoReq` 로 선언되고 `GetAccountStateReq(25)` 스냅샷 + `AccountStateDelta(67)` 델타가 wss 로 내려와 잔고·미체결 목록이 표시된다(gh-trade Phase 17 재동기화 후).
@@ -569,7 +569,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 15-06-PLAN.md — `setup-relay-iam.sh` + openconnect systemd·split-tunnel 래퍼 + startup.sh/Caddyfile/운영 README **작성만** (SC-2, SC-8)
-- [x] 15-07-PLAN.md — [BLOCKING] GCP 인프라 실행 + **kbs124 VPN 선검증(D-03)** + **DNS A 레코드·Caddy 인증서(D-06)** (SC-2)
+- [x] 15-07-PLAN.md — [BLOCKING] GCP 인프라 실행 + **KB_VPN_ACCOUNT VPN 선검증(D-03)** + **DNS A 레코드·Caddy 인증서(D-06)** (SC-2)
 - [x] 15-08-PLAN.md — `deploy-relay.sh`/`smoke-relay.sh`(INV-1~8)/`ops/alert-relay-down.yaml` + relay 배포·INV 검증 (SC-8)
 
 **Wave 4** *(blocked on Wave 3 completion)*
