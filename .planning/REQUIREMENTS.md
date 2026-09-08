@@ -92,6 +92,14 @@
 - [ ] **RELAY-02**: 지정가 보통 신규 매수/매도 + 취소 주문 릴레이 — 브라우저 → Cloud Run `POST /api/orders`(requireAuth + allowlist + 형식 검사, 금액·수량 한도 없음) → Direct VPC Egress → VM relay 내부 HTTP(공유 비밀 헤더) → `DirectOrderReq(2)`, 첫 `OrderResp(51)`(접수 "A"/거부 "R") ≤5초 응답, 체결("E")·취소확인("C")은 주문자 wss 푸시, `dma_orders` 기록 + 오늘 주문 목록 복원, `stocks.isin` 코드↔ISIN 매핑, 활성 세션 없으면 409 — Phase 15
 - [ ] **RELAY-03**: DMA 중계 인프라 — GCE VM `radar-gw`(e2-micro, Debian 12, asia-northeast3, 신규 외부 고정 IP, 방화벽 3규칙: 443 공개 / 22 IAP 35.235.240.0/20 / relay 내부포트 10.10.0.0/26), KB AnyConnect VPN openconnect host systemd 유닛(재시도 상한·백오프, 비밀번호는 Secret Manager stdin, 값 미기록), Caddy TLS(`dma.jx1.io`), `relay/Dockerfile` + `setup-relay-iam.sh`/`deploy-relay.sh`/`smoke-relay.sh` + Cloud Monitoring 알림 정책, kbs124 VPN 선검증(연결·출발지 IP 제한·동시 세션) 기록 — Phase 15
 
+### Trading
+
+- [ ] **TRADE-01**: 상따(LimitChaser) 전략 페이지 — `/trading/limit-chaser/new`(빈 폼) · `/trading/limit-chaser/{ISIN}:{accountNo}:{exchange}`(편집). `SetLimitChaser` 활성 37필드(클라 입력 30 + 클라 고정 3 `sweep_recalc_enabled=true`/`sweep_min_count=0`/`sweep_min_rate=0` + S→C 표시 전용 4 `sell_order_qty`/`sell_qty_track_baseline`/`sell_entry_latched`/`cancel_qty_track_baseline`) 폼, 매수·매도·한방 스위치 즉시 전송(crud "C") · 세 게이트 전부 OFF = 삭제(crud "D") · 값 변경은 「수정」 버튼, 호가 10단 + 데스크톱 최근 체결 10건 · 미체결/잔고 · 전략 로그 — Phase 16
+- [ ] **TRADE-02**: VI 종합주문 페이지 `/trading/vi` — 세션당 1건(`SetVITrigger`: account_no · order_amount_krw(원 단위, UI 만원 × 10,000) · check_rate(정수 %) · price_type "U" 고정 · run), 시작/중지 확인 다이얼로그, VI 주문내역(`VIOrderList` 72/73, state 6종 + `Accepted ∧ filledQty>0` 파생 부분체결, `confirm_locked`, deadline 110/119초) + `ConfirmVIOrderReq(33)` 확인 체크 — Phase 16
+- [ ] **TRADE-03**: relay 전략 중계 + 주문 wss 이관 — 인바운드 `lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`/`order.new`/`order.cancel`, DMA Ready 시 24/21/34 프리페치 + 세션 전략 캐시, auth 직후 전략 스냅샷 팬아웃, 56/60/61/64/65/72/73 파싱·팬아웃, `DirectOrderReq(2)` 5초 상관 이관 + `dma_orders` insert/update 를 relay 가 전담(origin manual/limit_chaser/vi), server `POST /api/orders` 제거(GET 유지) — Phase 16
+- [ ] **NAV-01**: 사이드 메뉴 2단 그룹 트리 — 홈 / 종목검색(상승률 상위 `/scanner` · 테마 · 관심종목) / 트레이딩(상따 + 3단 등록 전략 목록 · VI) / My page / AI 애널리스트. 기존 URL 유지, 비로그인·`unauthorized`·미연결 시 트레이딩·My page 숨김, 모바일 Sheet drawer 동일 트리 — Phase 16
+- [ ] **MYPAGE-01**: My page `/me` — 전략 현황(상따 목록 + VI 상태 + 전체 비활성화 `DisableStrategiesReq(14)` key="") → 계좌별 미체결·잔고 세로 반복(`account-panel` 재사용, 모바일 2줄 카드 행) — Phase 16
+
 ## v2 Requirements
 
 ### Personalization
@@ -111,7 +119,7 @@
 
 | Feature | Reason |
 |---------|--------|
-| 주문/매매 기능 (공개 사용자 대상) | 인허가 필요, 법적 리스크, 복잡도. **예외(2026-09-05):** Phase 15 RELAY-02 는 `dma_credentials` allowlist 사용자 한정 KB DMA 주문 릴레이(사용자 본인 계좌·본인 자격증명)로 범위 안 |
+| 주문/매매 기능 (공개 사용자 대상) | 인허가 필요, 법적 리스크, 복잡도. **예외(2026-09-05):** Phase 15 RELAY-02 는 `dma_credentials` allowlist 사용자 한정 KB DMA 주문 릴레이(사용자 본인 계좌·본인 자격증명)로 범위 안. Phase 16 의 전략 자동매매(상따·VI)도 **사용자 본인이 값을 정하고 본인이 스위치를 켜는** 같은 allowlist 범위이며, 범위 밖인 「AI 자동매매 추천」과는 다르다 |
 | 포트폴리오 관리 | 인증 필요, v2 이후 |
 | AI 자동매매 추천 | 법적/윤리적 리스크, 복잡도 |
 | 모바일 앱 | 웹 우선, 반응형으로 대응 |
@@ -162,12 +170,17 @@
 | RELAY-01 | Phase 15 | Pending |
 | RELAY-02 | Phase 15 | Pending |
 | RELAY-03 | Phase 15 | Pending |
+| TRADE-01 | Phase 16 | Pending |
+| TRADE-02 | Phase 16 | Pending |
+| TRADE-03 | Phase 16 | Pending |
+| NAV-01 | Phase 16 | Pending |
+| MYPAGE-01 | Phase 16 | Pending |
 
 **Coverage:**
-- v1 requirements: 40 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36; CHAT-01 added 2026-07-02 with Phase 14(AI 애널리스트 챗봇) → 36→37; RELAY-01·RELAY-02·RELAY-03 added 2026-09-05 with Phase 15(DMA 중계 서버) → 37→40)
-- Mapped to phases: 40
+- v1 requirements: 45 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36; CHAT-01 added 2026-07-02 with Phase 14(AI 애널리스트 챗봇) → 36→37; RELAY-01·RELAY-02·RELAY-03 added 2026-09-05 with Phase 15(DMA 중계 서버) → 37→40; TRADE-01·TRADE-02·TRADE-03·NAV-01·MYPAGE-01 added 2026-09-08 with Phase 16(트레이딩 메뉴 — 상따·VI·My page) → 40→45)
+- Mapped to phases: 45
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-09-05 — Phase 15 (dma-relay) plan-phase: RELAY-01/02/03 v1 정의(15-RESEARCH §Phase Requirements 초안 채택, RELAY-01 은 UI-SPEC 확정 4탭 구조 반영) + Traceability(Pending) 3행 + Coverage 37→40. Out of Scope 「주문/매매 기능」행에 Phase 15 allowlist 한정 예외 주석.*
+*Last updated: 2026-09-08 — Phase 16 (trading-limit-chaser-vi-my-page) plan-phase: TRADE-01/02/03·NAV-01·MYPAGE-01 v1 정의 + Traceability(Pending) 5행 + Coverage 40→45.*
