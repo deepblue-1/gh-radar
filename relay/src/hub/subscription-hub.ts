@@ -309,18 +309,13 @@ export class SubscriptionHub extends EventEmitter {
     logger.info({ userId }, "[HUB] 세션 결선");
   }
 
-  /**
-   * 세션이 사라졌을 때의 상태 폐기. **게이트웨이로 아무것도 보내지 않는다**(보낼 연결이 없다).
-   * 프로세스 종료·테스트 정리용이며, 브라우저 소켓 종료 경로는 `unsubscribe` 를 쓴다.
-   */
-  detach(userId: string): void {
-    this.#sessions.delete(userId);
-    this.#clearCaches(userId);
-    for (const key of [...this.#refs.keys()]) {
-      if (key.startsWith(userPrefix(userId))) this.#refs.delete(key);
-    }
-    logger.info({ userId }, "[HUB] 세션 분리 — 구독·캐시 폐기");
-  }
+  // ⚠️ `detach(userId)` 가 여기 있었다 — **삭제됐다** (R2-IN-02). 호출자가 `relay/src` ·
+  //    `relay/tests` 어디에도 없었고, 세션 상태를 파괴하는 공개 메서드가 남아 있으면
+  //    「정리하려면 이것을 부르면 된다」는 오해를 만든다. 실제로는 **부르면 안 됐다** —
+  //    `#sessions` 에서 지우기만 하고 `attach` 가 건 `session.on("frame"/"ready")` 는
+  //    떼지 않아, 그 세션이 살아 있는 한 리스너가 계속 쌓인다.
+  //    프로세스 종료 경로의 정본은 `closeAll()` 이고, 소켓 1개가 닫히는 경로는
+  //    `unsubscribe` 를 그 소켓이 잡고 있던 키마다 부르는 것이다.
 
   // ----------------------------------------------------------
   // 구독 참조계수 (D-33)
@@ -373,31 +368,12 @@ export class SubscriptionHub extends EventEmitter {
     logger.info({ userId, isin, exchange }, "[HUB] 마지막 구독 해제 — 업스트림 구독 해제");
   }
 
-  /**
-   * 그 사용자의 구독을 **전부** 해제한다. 세션이 준비돼 있으면 해제 프레임도 보낸다.
-   *
-   * 소켓 1개가 닫히는 정상 경로는 이 함수가 아니라 `unsubscribe` 를 그 소켓이 잡고 있던
-   * 키마다 부르는 것이다(다른 탭의 구독을 끊으면 안 된다). 여기는 사용자 단위 정리
-   * (프로세스 종료·강제 정리) 전용이다.
-   */
-  releaseAll(userId: string): void {
-    const prefix = userPrefix(userId);
-    const session = this.#sessions.get(userId);
-    let released = 0;
-
-    for (const key of [...this.#refs.keys()]) {
-      if (!key.startsWith(prefix)) continue;
-      this.#refs.delete(key);
-      released += 1;
-      const parts = this.#splitKey(key);
-      if (parts === null) continue;
-      if (session === undefined || !session.isReady) continue;
-      session.send(buildSubscribeQuoteReq(parts.isin, parts.exchange, false));
-    }
-
-    this.#clearCaches(userId);
-    logger.info({ userId, released }, "[HUB] 사용자 구독 전량 해제");
-  }
+  // ⚠️ `releaseAll(userId)` 가 여기 있었다 — **삭제됐다** (R2-IN-02). `detach` 와 같은
+  //    이유다: 호출자 0건인데 그 사용자의 구독·캐시를 통째로 버리는 공개 메서드였다.
+  //    다른 탭이 여전히 보고 있어도 구독이 끊기므로 부르는 순간이 곧 사고다.
+  //    소켓 1개가 닫히는 정상 경로는 `unsubscribe` 를 그 소켓이 잡고 있던 키마다 부르는
+  //    것이고, 사용자 단위 정리가 정말 필요해지면 그때 「무엇을 보존하는가」를 정해
+  //    다시 만든다 — 쓰이지 않는 채로 미리 놓아두지 않는다.
 
   /**
    * 세션 `ready` 에서 **Hub 가 소유한 키 집합**을 순회해 전량 재구독한다 (Pitfall 4).
@@ -757,7 +733,14 @@ export class SubscriptionHub extends EventEmitter {
    * **삭제도 프레임으로 내린다.** 캐시에서만 지우고 침묵하면 이미 열려 있는 탭의 목록에
    * 사라진 전략이 그대로 남고, 사용자가 그것을 보고 「아직 살아 있다」로 읽는다.
    */
-  #onLimitChaserEcho(userId: string, item: RelayLimitChaser): void {
+  #onLimitChaserEcho(userId: string, raw: RelayLimitChaser): void {
+    // 보강은 **캐시에 넣기 전**이다. 캐시가 곧 `getLimitChasers` → `lc.snap`(재접속 복원)
+    // 의 원천이므로, 여기서 붙이지 않으면 「지금 화면」과 「새로 연 탭」의 이름이 갈린다.
+    //
+    // 삭제(`crud:"D"`) 프레임에도 붙인다 — 캐시에서는 지우지만 프레임은 그대로 내리므로
+    // (아래 규율), 이름이 있어야 UI 가 「무엇이 사라졌는지」를 말할 수 있다. 붙이는 비용은
+    // 맵 조회 1회이고 분기를 하나 줄인다(`#enrichNames` 의 톰스톤 행과 같은 판단).
+    const item = this.#enrichLimitChaser(raw);
     const key = lcKey(userId, item);
     if (item.crud === "D") this.#limitChasers.delete(key);
     else this.#limitChasers.set(key, item);
@@ -769,12 +752,31 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * 상따 전략 1건에 종목명·단축코드를 채운다 (게이트웨이는 주지 않는다 — 갭 4).
+   *
+   * `#enrichViOrder`·`#enrichNames` 와 **같은 규율**이다: 맵에 없으면 **필드를 비워 둔다**.
+   * ISIN 을 이름 자리에 넣으면 UI 가 "이름이 없다"와 "이름이 ISIN 이다"를 구분하지 못한다.
+   *
+   * 미해석 건수 로그는 **남기지 않는다.** `#enrichNames` 가 건수를 세는 이유는 잔고·미체결이
+   * 계좌당 수십 행이라 「전량 미스 = 맵이 비었다」를 그 비율로만 알 수 있기 때문인데, 상따는
+   * 한 프레임에 1건(60)이거나 소수(64)라 같은 판정을 못 한다. 맵 적재 실패는 이미 잔고 경로의
+   * `[SYM]` 로그가 말하므로, 여기서 종목당 한 줄씩 더 쌓는 것은 신호가 아니라 소음이다.
+   */
+  #enrichLimitChaser(item: RelayLimitChaser): RelayLimitChaser {
+    const info = this.#symbols?.lookup(item.isin);
+    return info === undefined ? item : { ...item, name: info.name, code: info.code };
+  }
+
+  /**
    * 상따 전량 스냅샷 (64) — **전량 교체**다.
    *
    * 그 사용자의 엔트리를 전부 지우고 새로 넣는다. 병합(upsert)으로 처리하면 게이트웨이에서
    * 사라진 전략이 캐시에 영원히 남는다 — 다른 클라이언트(WinForms)가 지운 전략이 그것이다.
    */
-  #onLimitChaserList(userId: string, items: RelayLimitChaser[]): void {
+  #onLimitChaserList(userId: string, raw: RelayLimitChaser[]): void {
+    // 전량 교체 규율은 그대로다 — 보강만 앞에 얹는다. 캐시와 팬아웃이 **같은 배열**을
+    // 쓰므로 두 경로의 이름이 갈릴 수 없다.
+    const items = raw.map((item) => this.#enrichLimitChaser(item));
     const prefix = userPrefix(userId);
     for (const key of [...this.#limitChasers.keys()]) {
       if (key.startsWith(prefix)) this.#limitChasers.delete(key);
