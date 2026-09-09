@@ -81,19 +81,60 @@ export function formatServerTime(raw: string | undefined): string | null {
  * 상태줄은 계좌 축이 없는 전역 표시라 「어느 계좌인가」가 아니라 **「가장 최근 언제
  * 반영됐나」**가 답이어야 한다. 계좌가 하나면 결과는 이전과 완전히 같다.
  *
- * ★ 비교는 **정규화한 뒤**에 한다. 게이트웨이는 `YYYYMMDDHHMMSS` 를, 구현·스텁에 따라
- *   `HH:MM:SS` 를 주므로 원문끼리 비교하면 자릿수가 다른 두 모양이 뒤섞여 엉뚱한 값이
- *   최댓값이 된다. `HH:MM:SS` 는 제로패딩이라 문자열 비교가 곧 시각 비교다.
+ * ★ 비교는 **정규화 전** 값으로 한다 (GC-IN-03). `formatServerTime` 은 `HH:MM:SS` 로 자르며
+ *   **날짜를 버리는데**, 날짜를 버린 뒤 비교하면 두 자리에서 최댓값이 뒤집힌다:
+ *     - **자정 경계** — 전일 `23:59:00` 과 당일 `00:01:00` 이 있으면 `"23:59:00" > "00:01:00"`
+ *       이라 **어제 값이 「가장 최근」으로 뽑힌다.**
+ *     - **혼합 포맷** — 게이트웨이는 `YYYYMMDDHHMMSS` 를, 구현·스텁은 `HH:MM:SS` 를 준다.
+ *       날짜를 버리면 날짜를 **아는** 값과 모르는 값이 같은 축에서 겨루게 된다.
+ *   그래서 아래 `serverTimeKey` 로 **원문에서** 비교 키를 만들고(날짜 유무를 축으로 분리),
+ *   승자를 고른 뒤 **그 승자의 원문에서** 표시 문자열을 뽑는다. 반환 계약(표시 문자열 ·
+ *   값이 없으면 `null`)과 소비부(상태줄 C1)의 표시 형식은 그대로다 — 바뀌는 것은
+ *   **어느 값을 고르는가**뿐이고, 모든 값이 `HH:MM:SS` 뿐이면 결과는 이전과 완전히 같다.
  */
 export function latestAccountTime(
   states: ReadonlyMap<string, RelayAccountState>,
 ): string | null {
-  let latest: string | null = null;
+  let best: { key: ServerTimeKey; raw: string } | null = null;
   for (const state of states.values()) {
-    const at = formatServerTime(state.st);
-    if (at !== null && (latest === null || at > latest)) latest = at;
+    const key = serverTimeKey(state.st);
+    if (key === null) continue;
+    if (best === null || isNewerServerTime(key, best.key)) best = { key, raw: state.st };
   }
-  return latest;
+  // 표시는 **승자의 원문**에서 뽑는다 — 고르기와 그리기가 같은 값을 본다.
+  return best === null ? null : formatServerTime(best.raw);
+}
+
+/**
+ * 비교용 키. `dated` 가 **첫 번째 축**이다 — 날짜를 아는 값이 모르는 값에 지면 안 된다.
+ * `key` 는 제로패딩 숫자열이라 같은 축 안에서는 문자열 비교가 곧 시각 비교다.
+ */
+interface ServerTimeKey {
+  /** 원문에 날짜가 실려 있는가(`YYYYMMDDHHMMSS`). */
+  dated: boolean;
+  /** 날짜가 있으면 14자리, 없으면 `HHMMSS` 6자리. */
+  key: string;
+}
+
+/** 원문 → 비교 키. 모르는 모양은 `formatServerTime` 과 **같은 기준**으로 버린다. */
+function serverTimeKey(raw: string | undefined): ServerTimeKey | null {
+  if (raw === undefined || raw === "") return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length >= 14) return { dated: true, key: digits.slice(0, 14) };
+  if (digits.length === 6) return { dated: false, key: digits };
+  return null;
+}
+
+/**
+ * `a` 가 `b` 보다 최근인가.
+ *
+ * ★ 날짜를 아는 값이 **언제나** 이긴다. 둘을 같은 축에서 겨루게 할 방법이 없기 때문이다 —
+ *   날짜 없는 `23:59:00` 이 오늘인지 어제인지 이 함수는 알 수 없고, 모르는 값을 오늘로
+ *   가정하면 자정 직후마다 「가장 최근」이 어제로 뒤집힌다.
+ */
+function isNewerServerTime(a: ServerTimeKey, b: ServerTimeKey): boolean {
+  if (a.dated !== b.dated) return a.dated;
+  return a.key > b.key;
 }
 
 /**
