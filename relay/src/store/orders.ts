@@ -252,6 +252,31 @@ export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
               .lt("created_at", to);
           })();
     if (error) {
+      // ★ `order_no` 를 채우는 갱신의 `23505`(부분 UNIQUE 위반) 만 예외다
+      //   (16-28 / GC-WR-08 · T-16-53).
+      //
+      //   update 가 `23505` 로 실패했다는 것은 「쓸 수 없다」가 아니라 **「그 주문번호를 가진
+      //   행이 이미 따로 있다」**는 뜻이다. 수동 주문의 `finish` 가 자기 행에 접수 주문번호를
+      //   채우는 사이, 자동 통보 분기가 같은 `order_no` 로 행을 먼저 만든 경우가 그것이다.
+      //   원인이 데이터 분기이므로 **재시도해도 영원히 같은 결과**다. 그래서:
+      //     · throw 하지 않는다 — `#drain` 이 재시도 1회를 태우고 `#dropped` 를 올리면
+      //       「이유를 아는 실패」가 「이유를 모르는 실패」와 뒤섞여 카운터가 오염된다 (S-5).
+      //     · 대신 error 로그로 사유를 남긴다. 조용히 성공한 척하지는 않는다.
+      //
+      //   조건을 **셀렉터가 아니라 patch** 에 건다. 그 갱신을 실제로 내는 자리(`finish`)는
+      //   상관 1순위 키를 쥐고 있어 셀렉터가 `id` 이고 `order_no` 는 **채울 컬럼**으로 실린다
+      //   (`selectorOf` — `orderRowId` 우선). 셀렉터 컬럼으로 좁히면 정작 이 갭이 지목한
+      //   경로를 비켜 간다. 이 인덱스의 유일한 컬럼이 `order_no` 이므로, 그것을 싣지 않는
+      //   갱신은 애초에 이 위반을 낼 수 없다 — 조건을 넓히지 않으면서 그 경로만 덮는다.
+      if (patch.order_no !== undefined && (error as { code?: string }).code === "23505") {
+        // 로그에 `error` 원문을 싣지 않는다 — Postgres 의 UNIQUE 위반 detail 은
+        // `Key (user_id, order_no, …)=(…)` 로 **주문번호 원문을 그대로 담는다** (T-16-45).
+        logger.error(
+          { column: sel.column, code: "23505" },
+          "[orders] order_no 갱신이 UNIQUE 위반 — 같은 주문번호 행이 이미 있다(감사 기록 분기). 재시도로 풀리지 않으므로 드롭 카운터를 올리지 않는다",
+        );
+        return;
+      }
       // upsert.ts 규약 — 에러를 로그로 남기고 throw. 삼키면 재시도 판단을 할 수 없다.
       logger.error({ error, column: sel.column }, "[orders] dma_orders update 실패");
       throw error;
@@ -290,6 +315,36 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
       .select("id")
       .single();
     if (error || !data) {
+      // ★ `23505` = `idx_dma_orders_user_order_no_kst_day` 위반 (16-28 / GC-WR-08 · T-16-52).
+      //
+      //   16-18 이 넣은 부분 UNIQUE 인덱스는 「같은 주문이 두 벌 남는」 경주를 막았다. 그런데
+      //   그 위반을 아무도 해석하지 않으면 경주가 「두 벌」에서 **「소실」**로 바뀔 뿐이다 —
+      //   호출자(`ensureRow`)는 모든 insert 예외를 `{kind:"unavailable"}` 로 접고 그 통보를
+      //   드롭한다. 「행이 이미 있다」가 「기록 불가」로 열화되는 것이 그 경로다.
+      //
+      //   그래서 `23505` 만 「이미 있다」로 읽고 **같은 3축으로 재조회해 그 행으로 수렴**한다.
+      //   다른 코드는 아래에서 지금까지와 완전히 동일하게 로그 + throw 다 — 예외 삼키기를
+      //   넓히지 않는다.
+      //
+      //   `orderNo` 가 비어 있으면 부분 인덱스(`WHERE order_no IS NOT NULL`)의 대상이 아니라
+      //   애초에 이 위반이 날 수 없다. 그때는 재조회하지 않고 그대로 throw 한다.
+      if (
+        (error as { code?: string } | null)?.code === "23505" &&
+        row.orderNo !== undefined &&
+        row.orderNo !== ""
+      ) {
+        const existing = await supabaseOrderLookupSink(supabase)(row.userId, row.orderNo);
+        if (existing !== null) {
+          // 조용히 수렴하면 이 경로가 얼마나 도는지 영원히 모른다 (S-5). 계좌번호·주문번호
+          // 원문은 싣지 않는다 — `origin` 과 SQLSTATE 만으로 충분히 추적된다 (T-16-45).
+          logger.warn(
+            { origin: row.origin, code: "23505" },
+            "[orders] 같은 사용자·같은 날의 같은 주문번호 insert 경주 — 기존 행으로 수렴",
+          );
+          return existing;
+        }
+        // 재조회도 못 찾으면 지어내지 않는다 — 아래 기존 경로로 떨어진다.
+      }
       logger.error({ error, origin: row.origin }, "[orders] dma_orders insert 실패");
       throw error ?? new Error("dma_orders insert 가 행을 돌려주지 않았습니다");
     }

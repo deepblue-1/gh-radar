@@ -26,6 +26,7 @@ import {
   kstDayRangeUtc,
   rowPatchOf,
   selectorOf,
+  supabaseOrderInsertSink,
   supabaseOrderLookupSink,
   supabaseOrderSink,
   type OrderInsertRow,
@@ -437,9 +438,11 @@ type FakeFilter = { op: "eq" | "gte" | "lt" | "order" | "limit"; column: string;
 
 /** 가짜가 본 쿼리 1건. `matched` 는 필터를 **실제로 적용한** 결과다. */
 type FakeQuery = {
-  verb: "select" | "update";
+  verb: "select" | "update" | "insert";
   filters: FakeFilter[];
   patch?: OrderRowPatch;
+  /** insert 가 실어 보낸 컬럼 값. 부분 UNIQUE 흉내가 여기서 `user_id`/`order_no` 를 읽는다. */
+  values?: Record<string, unknown>;
   matched: FakeRow[];
 };
 
@@ -452,8 +455,30 @@ type FakeRow = { id: string; user_id: string; order_no: string; created_at: stri
  * 필터가 아무 행도 거르지 않아도 초록이 된다. 그래서 `matched` 로 「영향 받은 행」을 계산해
  * 남의 행·어제 행이 그 안에 없음을 단언한다.
  */
-function fakeDmaOrders(rows: FakeRow[]): { supabase: SupabaseClient; queries: FakeQuery[] } {
+function fakeDmaOrders(
+  rows: FakeRow[],
+  opts: { insertError?: { code?: string; message: string } } = {},
+): { supabase: SupabaseClient; queries: FakeQuery[]; rows: FakeRow[] } {
   const queries: FakeQuery[] = [];
+
+  /**
+   * `idx_dma_orders_user_order_no_kst_day` 흉내 — `(user_id, order_no, KST일)` 3축.
+   *
+   * 스텁이 아니라 **실제로 충돌 여부를 계산한다**. 「23505 를 던지도록 설정했다」로 만들면
+   * 픽스처에 중복이 없어도 초록이 되어, 정작 「같은 3축일 때만 충돌한다」가 검증되지 않는다.
+   */
+  function dupToday(userId: unknown, orderNo: unknown): FakeRow | undefined {
+    if (typeof orderNo !== "string" || orderNo === "") return undefined; // 부분 인덱스 대상 밖
+    const { from, to } = kstDayRangeUtc();
+    return rows.find(
+      (r) => r.user_id === userId && r.order_no === orderNo && r.created_at >= from && r.created_at < to,
+    );
+  }
+
+  const uniqueViolation = {
+    code: "23505",
+    message: 'duplicate key value violates unique constraint "idx_dma_orders_user_order_no_kst_day"',
+  };
 
   function applyFilters(filters: FakeFilter[]): FakeRow[] {
     let out = [...rows];
@@ -488,6 +513,15 @@ function fakeDmaOrders(rows: FakeRow[]): { supabase: SupabaseClient; queries: Fa
     // Supabase 빌더는 thenable 이다 — `await` 시점에 필터를 적용해 결과를 만든다.
     self.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
       query.matched = applyFilters(query.filters);
+      // 갱신이 `order_no` 를 **채우는** 경우에만 인덱스에 걸릴 수 있다. 그 값을 이미 가진
+      // 다른 행(같은 사용자·오늘)이 있으면 실제 DB 처럼 23505 로 거부한다.
+      if (query.verb === "update" && query.patch?.order_no !== undefined) {
+        const owner = query.matched[0]?.user_id ?? query.filters.find((f) => f.column === "user_id")?.value;
+        const clash = dupToday(owner, query.patch.order_no);
+        if (clash !== undefined && !query.matched.some((r) => r.id === clash.id)) {
+          return Promise.resolve({ data: null, error: uniqueViolation }).then(resolve, reject);
+        }
+      }
       const result =
         query.verb === "select"
           ? { data: query.matched.map((r) => ({ id: r.id })), error: null }
@@ -511,11 +545,37 @@ function fakeDmaOrders(rows: FakeRow[]): { supabase: SupabaseClient; queries: Fa
           queries.push(q);
           return builder(q);
         },
+        insert: (values: Record<string, unknown>) => {
+          const q: FakeQuery = { verb: "insert", filters: [], values, matched: [] };
+          queries.push(q);
+          const ins: Record<string, unknown> = {};
+          ins.select = () => ins;
+          ins.single = () => {
+            if (opts.insertError !== undefined) {
+              return Promise.resolve({ data: null, error: opts.insertError });
+            }
+            const clash = dupToday(values.user_id, values.order_no);
+            if (clash !== undefined) {
+              q.matched = [clash];
+              return Promise.resolve({ data: null, error: uniqueViolation });
+            }
+            const created: FakeRow = {
+              id: `row-new-${String(rows.length)}`,
+              user_id: String(values.user_id),
+              order_no: typeof values.order_no === "string" ? values.order_no : "",
+              created_at: new Date().toISOString(),
+            };
+            rows.push(created);
+            q.matched = [created];
+            return Promise.resolve({ data: { id: created.id }, error: null });
+          };
+          return ins;
+        },
       };
     },
   } as unknown as SupabaseClient;
 
-  return { supabase, queries };
+  return { supabase, queries, rows };
 }
 
 const ORDER_NO = "0000012345";
@@ -605,5 +665,77 @@ describe("Supabase 쿼리 경계 (gap 1)", () => {
     // 2026-09-09 23:30 UTC = 2026-09-10 08:30 KST → 그 날의 00:00 KST 부터다.
     expect(from).toBe(new Date("2026-09-10T00:00:00+09:00").toISOString());
     expect(new Date(to).getTime() - new Date(from).getTime()).toBe(24 * 3600_000);
+  });
+});
+
+
+// ============================================================
+// 부분 UNIQUE 인덱스 위반(`23505`) 해석 (16-28 / GC-WR-08)
+// ============================================================
+
+/**
+ * 16-18 의 `idx_dma_orders_user_order_no_kst_day` 는 「같은 주문이 두 벌 남는」 경주를 막았다.
+ * 그런데 그 위반을 아무도 읽지 않으면 경주 결과가 「두 벌」에서 **「소실」**로 바뀔 뿐이다 —
+ * `ensureRow` 는 insert 예외를 통째로 `{kind:"unavailable"}` 로 접고 그 통보를 드롭한다.
+ *
+ * 여기서 잠그는 것은 셋이다: ① `23505` 는 기존 행으로 **수렴**한다 ② 다른 코드는 **여전히
+ * throw** 된다(예외 삼키기를 넓히지 않았다) ③ `order_no` 를 채우는 갱신의 `23505` 는
+ * 드롭 카운터를 오염시키지 않는다.
+ */
+describe("23505 수렴 (GC-WR-08)", () => {
+  it("⓻ insert 가 23505 를 받으면 새 행을 만들지 않고 기존 행 id 로 수렴한다", async () => {
+    const { supabase, queries, rows } = fakeDmaOrders(fixtureRows());
+    const before = rows.length;
+
+    // USER_A 의 오늘 ORDER_NO 행(`row-a-today`)이 이미 있다 = 경주에서 진 쪽의 insert 다.
+    const id = await supabaseOrderInsertSink(supabase)(
+      insertRow({ userId: USER_A, orderNo: ORDER_NO, origin: "vi" }),
+    );
+
+    // 「기록 불가」로 열화되지 않는다 — 그 통보는 이 행에 귀속된다.
+    expect(id).toBe("row-a-today");
+    // 두 벌이 되지도 않는다. 가짜 테이블의 행 수가 그대로다.
+    expect(rows).toHaveLength(before);
+    // insert 1회 + 수렴 재조회 1회. 재조회는 같은 3축이다(남의 행·어제 행이 아니다).
+    expect(queries.map((q) => q.verb)).toEqual(["insert", "select"]);
+    const lookup = queries[1]?.filters ?? [];
+    expect(lookup).toContainEqual(expect.objectContaining({ op: "eq", column: "user_id", value: USER_A }));
+    expect(lookup).toContainEqual(expect.objectContaining({ op: "eq", column: "order_no", value: ORDER_NO }));
+    expect(queries[1]?.matched.map((r) => r.id)).toEqual(["row-a-today"]);
+  });
+
+  it("⓼ 23505 가 아닌 에러는 여전히 throw 된다 — 예외 삼키기를 넓히지 않았다", async () => {
+    const { supabase, queries } = fakeDmaOrders(fixtureRows(), {
+      insertError: { code: "23514", message: "check constraint 위반" },
+    });
+
+    await expect(
+      supabaseOrderInsertSink(supabase)(insertRow({ userId: USER_A, orderNo: ORDER_NO })),
+    ).rejects.toMatchObject({ code: "23514" });
+
+    // 재조회로 새지 않는다 — 「이미 있다」가 아닌 실패를 행 하나로 덮으면 안 된다.
+    expect(queries.map((q) => q.verb)).toEqual(["insert"]);
+  });
+
+  it("⓽ order_no 를 채우는 갱신의 23505 는 드롭 카운터를 올리지 않는다 (S-5)", async () => {
+    const { from } = kstDayRangeUtc();
+    const todayIso = new Date(new Date(from).getTime() + 3600_000).toISOString();
+    // 수동 주문이 만든 자기 행. 아직 주문번호가 없다.
+    const manual: FakeRow = { id: "row-manual", user_id: USER_A, order_no: "", created_at: todayIso };
+    const { supabase, queries } = fakeDmaOrders([...fixtureRows(), manual]);
+
+    const store = new OrderStore(supabaseOrderSink(supabase));
+    // `finish` 의 실제 모양이다 — 셀렉터는 상관 1순위 키(`id`)이고 `order_no` 는 채울 컬럼이다.
+    store.enqueueUpdate({ orderRowId: "row-manual", orderNo: ORDER_NO, status: "accepted" });
+    await store.flushNow();
+
+    expect(queries[0]?.verb).toBe("update");
+    expect(queries[0]?.matched.map((r) => r.id)).toEqual(["row-manual"]);
+    // 재시도해도 영원히 같은 결과다. 태우지 않고, 「이유를 모르는 실패」와 뒤섞지도 않는다.
+    expect(store.stats().dropped).toBe(0);
+    expect(store.stats().retried).toBe(0);
+    expect(store.stats().queued).toBe(0);
+    // 쿼리는 한 번만 나갔다 — 재큐잉이 없었다는 증거다.
+    expect(queries).toHaveLength(1);
   });
 });
