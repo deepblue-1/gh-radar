@@ -23,15 +23,22 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 서비스 계정 | `gh-radar-relay-sa@gh-radar.iam.gserviceaccount.com` |
 | 호스트명 | `dma.jx1.io` (443) |
 
-### 방화벽 3규칙 (`gh-radar-vpc` 최초 규칙)
+### 방화벽 4규칙 (`gh-radar-vpc` 최초 규칙)
 
 | 규칙 | 포트 | 출발지 | 목적 |
 |------|------|--------|------|
-| `relay-allow-https` | tcp:443 | `0.0.0.0/0` | Caddy TLS 종단. 유일한 공인 인바운드 |
+| `relay-allow-https` | tcp:443 | `0.0.0.0/0` | Caddy TLS 종단 |
 | `relay-allow-iap-ssh` | tcp:22 | `35.235.240.0/20` | IAP 터널 SSH 전용 |
 | `relay-allow-internal-order` | tcp:8091 | 서브넷 대역 | Cloud Run → 주문 경로 |
+| `relay-allow-wireguard` | udp:51820 | `0.0.0.0/0` | 개발기 WireGuard 직결 (인증은 피어 공개키) |
 
 포트 80 은 열지 않는다 — Caddy 는 TLS-ALPN-01(443)로 인증서를 발급받는다.
+
+> `relay-allow-wireguard` 의 출발지를 좁히지 않은 이유: 개발기의 공인 IP 가 유동이라
+> 대역을 고정할 수 없고, **실제 인증은 피어 공개키**이기 때문이다 — WireGuard 는 유효한
+> 키로 서명되지 않은 UDP 에 아무 응답도 하지 않고 버리므로(silent drop) 포트 스캔에
+> 노출 표면이 생기지 않는다. 통과한 트래픽이 어디까지 가는지는 VM 의 nft 규칙이 따로
+> 좁힌다(게이트웨이 한 대의 9100·22 만 — §DMA 터널).
 
 > `relay-allow-internal-order` 는 네트워크 태그가 아니라 출발지 대역으로만 좁혀져 있다.
 > **Cloud Run 워크로드에는 네트워크 태그를 붙일 수 없기 때문**이다.
@@ -76,7 +83,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 이미지 | `debian-12-bookworm-v20260902` | 2026-09-05T13:45Z |
 | 부팅 디스크 | 20GB · `pd-balanced` | 2026-09-05T13:45Z |
 | Shielded VM | secure-boot · vTPM · integrity-monitoring 모두 on | 2026-09-05T13:45Z |
-| 방화벽 (`gh-radar-vpc`) | 정확히 3규칙 — 443 공인 / 22 IAP대역 / 8091 서브넷 | 2026-09-05T13:45Z |
+| 방화벽 (`gh-radar-vpc`) | 정확히 3규칙 — 443 공인 / 22 IAP대역 / 8091 서브넷 *(당시 — 현재는 4규칙, §구성 개요)* | 2026-09-05T13:45Z |
 | `free -m` 여유 | total 969 · used 417 · **available 552** · swap 1024M(사용 11M) | 2026-09-05T13:45Z |
 | 툴체인 | docker 20.10.24 · openconnect **v9.01-3** · caddy **v2.11.4** | 2026-09-05T13:45Z |
 | `caddy` | `enabled` + `active` — D-06 DNS 게이트 통과 후 기동 | 2026-09-05T14:16Z |
@@ -154,7 +161,7 @@ bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재
 | `smoke-server.sh` | **PASS 14 / FAIL 0 / SKIP 0** | 2026-09-06 |
 | `smoke-relay.sh` | **PASS 11 / FAIL 0 / SKIP 2** — INV-4(VPN 수동 유닛) · INV-9(아래) | 2026-09-06 |
 | 내부 포트 공인 노출 | `8091` · `9100` 둘 다 **여전히 차단** — 이번 배포로 열리지 않았다 (INV-7 재확인) | 2026-09-06 |
-| 방화벽 | 여전히 정확히 3규칙 (443 / 22 / 8091). **포트 80 규칙 0건** | 2026-09-06 |
+| 방화벽 | 여전히 정확히 3규칙 (443 / 22 / 8091). **포트 80 규칙 0건** *(당시 — 현재는 4규칙, §구성 개요)* | 2026-09-06 |
 | `dma_orders` 접근 경계 | service_role 조회 성공 · **anon 차단** (INV-10, RLS 회귀 없음) | 2026-09-06 |
 
 #### ⚠️ 미측정: Cloud Run → VM 8091 도달성 (INV-9 = SKIP)
@@ -237,7 +244,7 @@ relay 컨테이너는 위 3종 중 `dma-cred-key` · `relay-order-secret` 2종�
 | **VPN 기동 정책** | **수동 전용.** `openconnect@kb` = `disabled` + `inactive`. 자동 기동 미등록 — 장중 외 내려가 있는 것이 정상이며 `smoke-relay.sh` 는 이를 FAIL 이 아니라 **SKIP(INV-4)** 으로 센다 | `systemctl is-active` / `is-enabled` |
 | 기본 경로 | `default via 10.10.0.1 dev ens4` · `tun0` 없음 · `kbvpn-*` 타이머 0건 | `ip route show default` |
 | 알림 정책 | **`gh-radar-relay-down`** — `projects/gh-radar/alertPolicies/7995724305267722560` · `enabled=True` · uptime check `gh-radar-relay-healthz` 결선 | `gcloud alpha monitoring policies list` |
-| 방화벽 | 정확히 **3규칙** (`443 ← 0.0.0.0/0` · `22 ← 35.235.240.0/20` · `8091 ← 10.10.0.0/26`). **포트 80 규칙 0건** | `gcloud compute firewall-rules list` |
+| 방화벽 | 정확히 **3규칙** (`443 ← 0.0.0.0/0` · `22 ← 35.235.240.0/20` · `8091 ← 10.10.0.0/26`). **포트 80 규칙 0건** *(당시 — 현재는 4규칙, §구성 개요)* | `gcloud compute firewall-rules list` |
 | 고정 IP | `gh-radar-relay-ip 34.22.79.103` · `gh-radar-relay-internal 10.10.0.5` — 둘 다 `IN_USE` | `gcloud compute addresses list` |
 | `smoke-relay.sh` | **11 PASS / 0 FAIL / 2 SKIP** (INV-4 VPN 수동 유닛 · INV-9 로그인 토큰 필요) | — |
 | `smoke-server.sh` | **14 PASS / 0 FAIL / 0 SKIP** | — |
@@ -297,30 +304,95 @@ gcloud compute connect-to-serial-port radar-gw --zone=asia-northeast3-a
 
 ## DMA 터널 — 개발기에서 게이트웨이 직결
 
-개발기(Mac / Windows)가 KB VPN 없이 **`10.41.1.120:9100` 에 주소 그대로** 붙게 하는 스크립트다.
-radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션을 IAP SSH 로 빌린다.
+개발기(Mac / Windows)가 KB VPN 없이 **`10.41.1.120:9100` 에 주소 그대로** 붙게 한다.
+radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션을 빌린다.
+
+경로가 **두 갈래**다. 기본은 A(WireGuard)이고, UDP 51820 이 막힌 망에서만 B(IAP)로 간다.
+
+| 갈래 | 경로 | 언제 |
+|------|------|------|
+| **A. WireGuard (기본)** | 개발기 WireGuard 앱 → UDP 51820 → radar-gw `wg0` → `tun0` → 게이트웨이 | 평소. gcloud·sudo·별칭·포워딩 프로세스가 전부 필요 없다 |
+| **B. IAP 터널 (폴백)** | `scripts/dma-tunnel.sh` / `.ps1` → IAP → radar-gw → `tun0` → 게이트웨이 | UDP 51820 이 막힌 망 (사내 방화벽·일부 호텔/공용 Wi-Fi) |
+
+> 🔴 **이 터널 너머는 실계좌가 걸린 실 게이트웨이다** (§실서버 라이브 상태).
+> **두 갈래 모두**, 도구는 **TCP connect 후 즉시 close** 하는 도달성 확인까지만 한다 —
+> 로그인·주문 프레임을 보내지 않는다 (D-27). 터널을 연 다음 무엇을 보내는지는 사용자 책임이다.
+
+---
+
+### A. WireGuard 직결 (기본)
+
+> 🔴 **터널 너머는 실계좌 실 게이트웨이다.** 도달성 확인(`nc -z`)까지만. 로그인·주문 금지 (D-27).
+
+VM 쪽 자산은 `infra/relay/startup.sh` **섹션 8** 이 부팅마다 멱등하게 만든다
+(`wg0` = `10.20.0.1/24` · UDP 51820 · nft `wgfwd` · `DOCKER-USER` 우회 · `wg-peer-add`).
+피어가 닿을 수 있는 곳은 **`10.41.1.120` 의 `9100`·`22` 두 포트뿐**이고, 그 외 `wg0` 출입은
+명시적으로 drop 된다. 클라이언트 `AllowedIPs` 도 `/32` 하나라 기본 경로를 뺏지 않는다.
+
+**Mac / Windows 공통 절차 (최초 1회)**
+
+1. WireGuard 공식 앱 설치 (App Store 또는 <https://www.wireguard.com/install/>).
+2. 앱에서 **「빈 터널 만들기 (Add empty tunnel)」** 로 키쌍을 생성한다.
+   → 개인키가 개발기 밖으로 나가지 않는 유일한 방법이다.
+3. 화면에 뜬 **공개키만** 관리자에게 전달한다.
+4. 관리자가 VM 에서 피어를 등록한다:
+
+   ```bash
+   sudo /usr/local/sbin/wg-peer-add <이름> <공개키> 10.20.0.<N>
+   ```
+
+   `wg-peer-add` 는 공개키 형식·주소 범위를 검증하고, **같은 공개키나 같은 주소가 이미
+   있으면 거부한다**(주소 중복은 오류 없이 라우팅만 조용히 망가지기 때문이다).
+5. 관리자가 서버 공개키를 확인해 회신한다:
+
+   ```bash
+   sudo wg show wg0 public-key
+   ```
+
+6. `infra/relay/wireguard/client.conf.template` 을 받은 값으로 채워
+   **`KB DMA.conf`** 라는 이름으로 저장하고 앱에 import 한다.
+   **파일명이 곧 터널 이름**이며, macOS 메뉴바 앱이 그 이름으로 `scutil` 제어를 건다 —
+   다른 이름으로 저장하면 메뉴바 앱의 터널 버튼이 열리지 않는다.
+7. 연결 후 도달성만 확인한다:
+
+   ```bash
+   nc -z 10.41.1.120 9100 && echo reachable
+   ```
+
+> ⚠️ **개인키·공개키의 실값을 이 문서나 저장소 어디에도 적지 않는다.**
+> 서버 개인키는 VM 의 `/etc/wireguard/wg0.key`(0600) 안에만 존재하고, 클라이언트
+> 개인키는 개발기 키체인 안에만 존재한다. 템플릿에는 플레이스홀더만 둔다.
+
+**메뉴바 앱 (macOS)** — 개인 설치 스크립트 `scripts/install-vpn-menubar.sh` (v3.5, 미추적)
+가 만드는 `VPN.app` 은 이 프로필을 `scutil --nc start/stop "KB DMA"` 로 토글한다.
+sudo·별칭·외부 CLI 가 필요 없고, 재연결은 WireGuard 앱이 맡는다.
+
+---
+
+### B. IAP 터널 (폴백)
+
+> 🔴 **터널 너머는 실계좌 실 게이트웨이다.** 도달성 확인까지만. 로그인·주문 금지 (D-27).
+
+**UDP 51820 이 막힌 망**에서 쓴다. A 의 핸드셰이크가 아예 성립하지 않을 때가 그 신호다.
 
 | 스크립트 | 대상 | IAP 경유 방식 |
 |----------|------|---------------|
 | `scripts/dma-tunnel.sh` | macOS | `gcloud compute ssh --tunnel-through-iap -- -N -L …` (1단) |
 | `scripts/dma-tunnel.ps1` | Windows (PowerShell 5.1, 관리자) | `start-iap-tunnel` + 내장 `ssh.exe` (2단) |
 
-> 🔴 **이 터널 너머는 실계좌가 걸린 실 게이트웨이다** (§실서버 라이브 상태).
-> 두 스크립트는 **TCP connect 후 즉시 close** 하는 도달성 확인까지만 한다 —
-> 로그인·주문 프레임을 보내지 않는다 (D-27). 터널을 연 다음 무엇을 보내는지는 사용자 책임이다.
-
-### 왜 `127.0.0.1` 이 아니라 주소 별칭인가
+#### 왜 `127.0.0.1` 이 아니라 주소 별칭인가
 
 소비자(gh-trade WinForms `settings.ini` 의 `[DMA] Host=10.41.1.120`, relay 의 `DMA_HOST`)의
 설정을 **하나도 바꾸지 않기 위해서**다. 로컬에 `10.41.1.120/32` 별칭을 붙이고 그 주소에
 바인딩된 포워딩을 열면, 터널의 on/off 가 KB VPN 직결과 동치가 된다.
+(A 는 별칭이 필요 없다 — 실제 라우팅이 그 주소로 가기 때문이다.)
 
 - macOS: `sudo ifconfig lo0 alias 10.41.1.120 255.255.255.255` — 소유권 표식은 `lo0` + `netmask 0xffffffff`. VPN 은 절대 `lo0` 에 주소를 얹지 않는다.
 - Windows: `New-NetIPAddress -PrefixLength 32 -SkipAsSource $true` (루프백 의사 인터페이스 우선, 실패 시 기본 경로 어댑터). `-SkipAsSource` 는 이 주소가 **나가는** 트래픽의 출발지로 뽑혀 로컬 통신이 깨지는 것을 막는다.
 
 별칭은 종료 시(`Ctrl+C` 포함) 제거된다. 창을 강제 종료해 잔여물이 남으면 `--stop` / `-Stop` 이 복구 경로다.
 
-### 사용법
+#### 사용법
 
 ```bash
 bash scripts/dma-tunnel.sh --check      # 아무것도 바꾸지 않고 선행 점검만
@@ -341,7 +413,7 @@ Windows 는 최초 1회 SSH 키가 필요하다. 없으면 스크립트가 아�
 gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --project=gh-radar --command="echo ok"
 ```
 
-### 선행 점검 (`--check` / `-Check` 가 출력하는 항목)
+#### 선행 점검 (`--check` / `-Check` 가 출력하는 항목)
 
 | ID | 항목 | 실패 시 |
 |----|------|---------|
@@ -359,19 +431,81 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --proj
 
 **종료 코드:** 0 성공 / 1 인자 오류 / 2 선행 점검 실패 / 3 로컬 KB VPN 충돌 / 4 별칭 추가 실패 / 5 재연결 상한(5회) 도달.
 
-### 막힐 때
-
-| 증상 | 원인 · 조치 |
-|------|-------------|
-| `exit 3` 로 거부 | 설계다. 이미 KB VPN 직결이라 터널이 불필요하고 `10.41.0.0/16` 라우팅이 겹친다. VPN 을 내리고 재실행 |
-| P5 FAIL | VM 쪽 VPN 이 죽었다 → §VPN 조작 의 회수·재접속 절차 |
-| IAP 접속 거부 | 실행 주체에 `roles/iap.tunnelResourceAccessor` 확인 (§VM 접근) |
-| 창 강제 종료 후 잔여 별칭 | `--stop` / `-Stop` |
-
 > **실측 근거 (2026-09-09, quick-260909-el9):** VM sshd 는 `allowtcpforwarding yes` · `permitopen any`
 > 라 `-L` 목적지로 `10.41.1.120:9100` 을 지정할 수 있다. Mac 에서
 > `gcloud compute ssh radar-gw --tunnel-through-iap -- -N -L 19100:10.41.1.120:9100` 로
 > 게이트웨이까지 TCP 연결이 성립하는 것을 확인했다(로그인·주문 없음).
+
+---
+
+### 검증 명령
+
+**VM 에서 (읽기만):**
+
+```bash
+systemctl is-active wg-quick@wg0        # active 여야 한다
+sudo wg show                            # 핸드셰이크 시각 · 피어 수 · 전송량
+sudo nft list table inet wgfwd          # forward 4규칙 + postrouting masquerade
+sudo iptables -S DOCKER-USER            # ACCEPT 두 줄이 있어야 한다
+ip route show default                   # 반드시 `dev ens4` — tun0 면 즉시 중단
+```
+
+> ⚠️ `wg show` 는 **서버 공개키와 피어 공개키를 화면에 출력한다.** 로그·이슈·문서에
+> 붙여 넣지 말 것. 개인키는 출력되지 않지만, 공개키도 피어 식별자이므로 남기지 않는다.
+
+**클라이언트에서:**
+
+```bash
+nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임 없음
+```
+
+---
+
+### 막힐 때
+
+| 증상 | 원인 · 조치 |
+|------|-------------|
+| (A) 핸드셰이크는 되는데 `9100` 이 안 열림 | **docker 재시작으로 `DOCKER-USER` 규칙이 날아갔다.** `sudo systemctl restart wg-quick@wg0` 로 PostUp 재삽입 |
+| (A) 핸드셰이크 자체가 없음 (`wg show` 에 latest handshake 없음) | 방화벽 `relay-allow-wireguard` 미생성, 또는 이 망이 UDP 51820 을 막는다 → **B(IAP 폴백)** 로 간다 |
+| (A) 연결은 되는데 대용량 응답에서 멈춤 | MSS 클램프가 빠졌다. `sudo nft list table inet wgfwd` 에 `maxseg` 두 줄이 있는지 확인 |
+| (A) `tun0` 재생성 후 무반응 | nft 규칙은 인터페이스 **이름** 기준이라 재생성에 영향받지 않는다 → openconnect 상태부터 확인 (§VPN 조작) |
+| (A) 메뉴바 앱 터널 버튼이 잠김 | WireGuard 앱 미설치이거나 프로필 이름이 `KB DMA` 가 아니다. `scutil --nc list` 로 확인 |
+| `deploy-relay.sh` 가 방화벽 불일치로 `exit 1` | 기대값이 4규칙인데 GCP 에 3번째까지만 있다 → **방화벽 4번째 규칙을 먼저 만든다** (§적용 런북 ①) |
+| (B) `exit 3` 로 거부 | 설계다. 이미 KB VPN 직결이라 터널이 불필요하고 `10.41.0.0/16` 라우팅이 겹친다. VPN 을 내리고 재실행 |
+| (B) P5 FAIL | VM 쪽 VPN 이 죽었다 → §VPN 조작 의 회수·재접속 절차 |
+| (B) IAP 접속 거부 | 실행 주체에 `roles/iap.tunnelResourceAccessor` 확인 (§VM 접근) |
+| (B) 창 강제 종료 후 잔여 별칭 | `--stop` / `-Stop` |
+
+---
+
+## 적용 런북 — WireGuard 최초 반영
+
+> **실행 주체는 사용자 확인 후 오케스트레이터다.** 순서를 지킨다 — ① 을 건너뛰면 ② 이후의
+> 배포·스모크가 방화벽 불일치로 막힌다.
+
+```bash
+# ① 방화벽 4번째 규칙 (deploy-relay.sh 게이트가 이 규칙을 기대하므로 반드시 먼저)
+GCP_PROJECT_ID=gh-radar bash scripts/setup-relay-iam.sh
+
+# ② 메타데이터 갱신은 ① 이 함께 수행한다. VM 재적용:
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='sudo google_metadata_script_runner startup'
+
+# ③ 확인 (읽기만)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='systemctl is-active wg-quick@wg0; sudo wg show wg0 public-key; sudo nft list table inet wgfwd; ip route show default'
+
+# ④ 피어 등록 (사용자 공개키를 받은 뒤)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='sudo /usr/local/sbin/wg-peer-add <이름> <공개키> 10.20.0.<N>'
+```
+
+- ③ 에서 `ip route show default` 가 **`dev ens4` 가 아니면 즉시 중단**하고 §VPN 조작 의
+  복구 절차(라우팅 안전장치 · 직렬 콘솔)로 간다. 기본 경로를 잃으면 IAP SSH 도 막힌다.
+- ③ 의 `sudo wg show wg0 public-key` 출력은 **클라이언트 프로필에 넣을 값**이다.
+  사용자에게 직접 전달하고 문서·로그에는 남기지 않는다.
+- ② 를 돌릴 때 `wg0` 이 **이미 떠 있었다면** `startup.sh` 는 재기동하지 않는다(끊김 방지).
+  설정 재작성분을 반영하려면 `sudo systemctl restart wg-quick@wg0` 를 따로 실행한다.
 
 ---
 
@@ -609,6 +743,8 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 
 `startup.sh` 는 매 부팅 실행되며 전 단계가 멱등이다.
 
+WireGuard(섹션 8)를 **처음** 반영할 때는 방화벽 규칙이 먼저 필요하다 — §적용 런북 을 따른다.
+
 ---
 
 ## 메모리 예산 (1024 MB)
@@ -655,6 +791,19 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 | _(생성됨)_ | `/usr/local/sbin/kbvpn-renew` | 0700 |
 | _(생성됨)_ | `/etc/systemd/system/kbvpn-renew.service` | 0644 |
 | _(생성됨)_ | `/etc/systemd/system/kbvpn-renew.timer` | 0644 |
+| _(생성됨)_ | `/etc/wireguard/wg0.conf` | 0600 |
+| _(생성됨)_ | `/etc/wireguard/wgfwd.nft` | 0600 |
+| _(생성됨)_ | `/usr/local/sbin/wg-peer-add` | 0700 |
+| _(생성됨)_ | `/etc/sysctl.d/99-wireguard.conf` | 0644 |
+| _(생성됨)_ | `/etc/systemd/system/wg-quick@wg0.service.d/10-after-docker.conf` | 0644 |
+| **(VM 이 1회 생성 — 재작성하지 않는다)** | `/etc/wireguard/wg0.key` | 0600 |
+| **(사람이 관리 — 없으면 빈 파일만 만든다)** | `/etc/wireguard/peers.conf` | 0600 |
+| `wireguard/client.conf.template` | **VM 배치 없음** — 개발기에서 채워 쓰는 템플릿 | — |
 
-> `_(생성됨)_` 6종은 `startup.sh` 가 **매 부팅마다 재작성**한다(멱등).
+> `_(생성됨)_` 항목은 `startup.sh` 가 **매 부팅마다 재작성**한다(멱등).
 > VM 에서 직접 고치지 말 것 — 다음 부팅에 덮어쓰인다. 저장소가 단일 정본이다.
+>
+> **예외 2종.** `/etc/wireguard/wg0.key` 는 **없을 때만 1회 생성**한다 — 재생성하면 서버
+> 공개키가 바뀌어 배포된 모든 클라이언트 프로필이 한꺼번에 무효가 된다.
+> `/etc/wireguard/peers.conf` 는 **사람(관리자)이 `wg-peer-add` 로 관리**하며,
+> `startup.sh` 는 파일이 없을 때만 빈 목록을 만들고 있으면 손대지 않는다.
