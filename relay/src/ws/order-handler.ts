@@ -690,6 +690,30 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
+    // ③-3 **연결 생존 재확인** (GC-CR-03). 위 `await` 는 Supabase 왕복 수십~수백 ms 이고,
+    //     그 사이에 사용자가 탭을 닫으면 `closeConn` 이 먼저 돌아 `state.pending` 을 비우고
+    //     `conns`·`byUser` 에서 이 연결을 지운다. **보내기 전에 확인한다**가 유일한 안전한
+    //     순서다 — 대기 등록·타이머 생성 이전이라 회수할 것이 없다. 뒤에서 확인하면 고아
+    //     `ConnState` 에 매달린 대기가 통보 상관 후보가 되지 못한 채 5초 뒤 `timeout` 으로
+    //     확정되고, **실제로 접수·체결된 주문이 감사 기록에 `timeout` 으로 남는다.**
+    //     판정은 `conns.get(conn) !== state` 하나다 — `closeConn` 이 `conns.delete(conn)` 을
+    //     하므로 이 비교가 「그 사이에 닫혔다」의 유일한 정본이다.
+    if (conns.get(conn) !== state) {
+      logger.warn({ ...logCtx, orderRowId }, "[WS-order] 요청 처리 중 연결 종료 — 주문을 보내지 않는다");
+      // 행이 `requested` 로 영원히 남지 않게 한다 — 나가지 않은 주문의 진실은 `rejected` 다.
+      deps.orderStore.enqueueUpdate({
+        orderRowId,
+        status: "rejected",
+        message: "요청 처리 중 연결이 끊겨 주문을 보내지 않았습니다.",
+      });
+      // `closeConn` 이 이미 claims·dup 키를 회수했다면 `release` 는 조기 반환으로 무해하게
+      // 지나간다(위 `release` 의 `dupKeys.delete` 가드). 아직 남아 있을 때만 실제로 푼다.
+      release(state, keys);
+      // `reject` 는 부르지 않는다 — 받을 소켓이 이미 없다. 닫힌 연결로 프레임을 쏘는 것은
+      // 사용자에게 아무것도 알리지 못하면서 에러만 만든다.
+      return;
+    }
+
     let payload: Uint8Array;
     try {
       payload = buildDirectOrderReq({

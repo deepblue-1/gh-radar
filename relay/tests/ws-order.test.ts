@@ -943,6 +943,42 @@ describe("wss 주문 경로 (D-02)", () => {
     );
     expect(orders.inserts).toHaveLength(2);
   });
+
+  it("㉕ await 중 연결 종료 — insert 왕복 도중 탭을 닫으면 게이트웨이로 나가지 않는다 (GC-CR-03)", async () => {
+    let openGate: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    orders = mkOrderStore({ insertGate: gate });
+    await restartHarness();
+
+    const a = await authed("token-a");
+    a.ws.sendRaw(orderNew({ rid: "rid-toctou" }));
+    await waitFor(() => orders.started.insert === 1, "insert 왕복 진입");
+
+    // 아직 왕복이 끝나지 않았다 — 이 순간에 사용자가 탭을 닫는다.
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
+    await a.ws.close();
+    await flushIo(20);
+
+    // 이제 Supabase 가 응답한다. 가드가 없으면 여기서 고아 `ConnState` 에 대기가 붙고
+    // **주문이 실제로 게이트웨이로 나간다**.
+    openGate?.();
+    await flushIo(20);
+
+    // ★ 송신 0건. 받을 소켓이 없는 주문을 실계좌로 내보내지 않는다.
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
+    // 행은 `requested` 로 남지 않는다 — 나가지 않았다는 사실이 상태로 남는다.
+    expect(orders.updates.filter((u) => u.status === "rejected")).toHaveLength(1);
+    expect(orders.updates[0]?.message).toContain("요청 처리 중 연결이 끊겨");
+
+    // ★ 5초를 넘겨도 `timeout` 이 **추가로** 확정되지 않는다 — 고아 타이머가 아예 없다.
+    //   (여기가 무너지면 접수·체결된 주문이 감사 기록에 `timeout` 으로 남는다.)
+    await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS * 2);
+    await flushIo(20);
+    expect(orders.updates.filter((u) => u.status === "timeout")).toHaveLength(0);
+    expect(orders.updates).toHaveLength(1);
+  });
 });
 
 // ============================================================
