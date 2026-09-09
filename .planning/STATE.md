@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-32-PLAN.md (GC-WR-06 VI 2곳 · GC-IN-03)
-last_updated: "2026-09-09T05:55:04.625Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-32 실행 완료 (GC-WR-06 VI 2곳 · GC-IN-03)
+stopped_at: Completed 16-33-PLAN.md (GC-CR-02 · GC-WR-01 · GC-WR-02)
+last_updated: "2026-09-09T06:10:59.624Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-33 실행 완료 (GC-CR-02 · GC-WR-01 · GC-WR-02)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 157
+  completed_plans: 158
   percent: 72
 ---
 
@@ -26,15 +26,28 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 33 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-32 완료, 16-33~16-35 대기)
-Plans completed: 157 / 174
+Plan: 34 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-33 완료, 16-34~16-35 대기)
+Plans completed: 158 / 174
 Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-32 실행 완료 (GC-WR-06 VI 2곳 · GC-IN-03)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-33 실행 완료 (GC-CR-02 · GC-WR-01 · GC-WR-02)
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 91%
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-33 완료 — GC-CR-02 · GC-WR-01 · GC-WR-02 종결.** 셋 다 `recordUnmatched`/`ensureRow` 한 경로에 있고, 셋 다 「통보 1건의 사고가 기록 소실 또는 전면 장애로 번진다」는 모양이었다. relay 3파일(소스 2 + 테스트 1).
+- **수동 통보도 조회를 거친다.** 수동 주문의 insert 는 접수 전이라 `order_no` 를 싣지 않고 `finish` 가 정산할 때 채운다 — 그런데 좁히기 실패·연결 종료 후 도착 두 경로는 그 정산을 거치지 않으므로, 그 시점의 `order_no` 셀렉터 갱신은 **0행**이다. PostgREST 는 0행 update 를 에러로 주지 않아 **로그 한 줄 없이** 사라졌다(이 파일이 머리말에서 없애겠다고 선언한 Pitfall 18 그 자체). 이제 `findIdByOrderNo`(`:427`)로 좁혀 **행이 있음이 확인된 경우에만** `orderRowId` 로 갱신하고(`:444`), 없으면 통보 원문(`orderNo`·`noticeType`·`resultCode`·`isin`·수량·가격)을 `logger.error` 로 남기며 **갱신을 큐에 넣지 않는다**(`:452-462`). 조회 실패는 기존 `lookup-failed` 와 동형으로 열화 갱신 + error(S-5).
+- **D-24 의 두 번째 감사 사본이 실재하게 됐다.** `subscription-hub.ts:708-716` 에 통보 수신 stdout 1줄(`userId`·주문번호·통보종류·결과코드·origin). 계좌번호·자격증명 미포함(D-19 승계). `dma_orders` 에 붙지 못한 통보라도 이 줄로 브로커 주문번호와 대조된다.
+- **예외 격리는 두 겹이다.** 호출부 `void recordUnmatched(...).catch`(`:374`) + `autoInsertRow` 를 `insertOnly` 의 try 안으로(`:547`/`:548`). `index.ts` 의 `unhandledRejection` 은 `logger.fatal` + **프로세스 종료**라, `.catch` 하나가 없으면 통보 1건의 파손이 접속한 **전 사용자의 DMA 세션**을 끊는다. 한 겹만 두면 원인은 남고 증상만 가려지므로 둘 다 했고, **각각 독립으로 잠긴 것을 변이 2종으로 실증**했다.
+- **빈 주문번호는 상관 키가 아니다.** `ensureRow:500` 이 `orderNo === ""` 를 in-flight(`:524`) 밖으로 뺀다. 합치면 그 사용자의 **모든** 접수 전 거부("R")가 `"user|"` 하나를 공유해 서로 다른 거부 2건이 같은 `row.id` 를 받고 차례로 덮어써졌다. `findIdByOrderNo` 는 이 값에서 항상 `null` 이라 dedup 의 의미도 애초에 없다.
+- **기존 테스트 2건이 「일어나지 않는 일」을 참이라고 잠그고 있었다.** ⑨ 의 「다만 기록은 남는다 — `order_no` 로 좁힌 갱신이다」와 ⑭ 의 제목 「조회도 insert 도 하지 않는다」는 프로덕션에서 거짓이었다(그 update 는 0행). 옛 구현을 그대로 베낀 단언이라 **결함과 함께 초록**이었다 — 문구·단언을 진실로 교체했다. 계획은 ㉑ 만 예고했지만 실제로 깨진 것은 3건이다.
+- **회귀 잠금 실증 4회.** manual 분기 원복 → **4건 실패**(⑨·⑭·㉑·㉖) / Hub 감사 사본 `info`→`debug` → ㉖ 실패 / `autoInsertRow` 를 try 밖으로 → ㉗ 가 로그 문구로 실패 / 거기에 `.catch` 까지 제거 → ㉗ 이 **실제 unhandledRejection 1건**으로 실패 / 빈 주문번호 갈래 차단 → ㉘ 이 「두 번째 insert 진입」 조건 미달로 실패. 확인 후 전부 복원(`grep -c MUTATION` = 0).
+- **테스트 하네스 교훈.** `waitFor` 의 조건을 **결과**(error 로그)에 걸면 회귀가 생겼을 때 단언이 아니라 **타임아웃**으로 죽어 뒤 단언이 아예 실행되지 않는다. 조건을 회귀와 무관하게 항상 뜨는 **입력 수신**(Hub 감사 사본)으로 옮겼다.
+- **relay 368 tests**(365 → +3, 17 files) · typecheck · typecheck:tests green. 신규 마이그레이션 0건.
+- **`10.41.1.120` 실측은 여전히 2건**(`relay/README.md:17` 경고문 · `relay/src/dma/link-health.ts:20` 주석) — 2라운드 4번째 연속 동일. 둘 다 산문이라 지우지 않았다.
+- **TRADE-03 은 계속 Pending.** `requirements.mark-complete` 미실행 — 프로덕션 `everReadyCount: 0` 판정(16-26)이 그대로다.
+- **배포 미실시.** relay 재배포는 16-35 몫이다. 16-34 가 같은 파일의 `narrowPending`·`dupKey` 를 이어 손대므로 그 두 지점은 재배열하지 않았다.
 
 - **16-32 완료 — GC-WR-06(VI 2곳) · GC-IN-03 종결.** 셋 다 「화면이 사실과 다른 것을 말하던」 자리다. webapp 5파일 + 신규 테스트 1(relay 0줄).
 - **VI 확인 체크가 `send` 반환값을 읽는다.** `toggle` 은 반환값을 버리고 곧바로 낙관 반영과 행 잠금을 걸었다 — 이 화면에서 **잠금을 푸는 유일한 신호가 서버 73 델타**라, 요청이 나가지 않으면 그 델타는 오지 않고 행은 **영구히** 회색으로 남는다. 사용자는 「119초 자동취소를 면제시켰다」고 믿는다. 실패 분기의 `return`(`:255`)이 `setOptimistic`(`:258`)·`setSending`(`:259`)보다 **앞**이고, 순서가 곧 안전장치다. `isConfirmable` 가드는 그대로 — 이 분기는 「`ready` 표시와 소켓 `readyState` 가 어긋나는」 얇은 창을 메운다.
@@ -47,7 +60,6 @@ Progress: [█████████░] 90%
 - **`10.41.1.120` 실측은 여전히 2건**(`relay/README.md:17` 경고문 · `relay/src/dma/link-health.ts:20` 주석). 둘 다 산문이라 지우지 않았다 — 지우면 D-27 안전장치의 근거가 사라진다.
 - **TRADE-02 · MYPAGE-01 은 상태를 바꾸지 않았다.** `requirements.mark-complete` 미실행 — 이 plan 이 닫은 것은 VI 표면의 **전송 정직성**과 상태줄 표시 정확성 1건이고, 종결 판정은 2라운드 종결 plan 의 배포·실측 몫이다.
 - **배포 미실시.** webapp(Vercel) 배포는 relay 재배포와 함께 2라운드 종결 plan 에서 일괄 처리한다.
-
 
 - **16-31 완료 — GC-WR-09 · GC-WR-06(상따 폼 2곳) · GC-WR-12 · GC-IN-01 · GC-IN-02 종결.** 공통점은 「이 화면이 **자기 주석이 말하는 대로 동작하지 않는다**」였다. webapp 4파일만 손댔다(relay 0줄).
 - **「수정」도 무장 판정을 지난다.** 파일 머리말이 「전송 직전 가드가 `gateBlocked` 를 함께 읽는다」고 적어 왔지만 실제로 읽던 것은 `toggleGate` 하나였다 — 서버가 `buyEnabled:true` 로 에코한 뒤 시세가 끊겨 가격 칸이 0 이 되면 「수정」이 relay `#strategyArmable`(16-29)에 **통째로** 거부되고 함께 실린 다른 값까지 하나도 저장되지 않았다. 가드를 `setSubmitting(true)` **앞**에 뒀고(잠근 뒤 막으면 60 에코가 안 와 버튼이 영구히 죽는다), **켜져 있는 게이트만** 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다(T-16-44 확장, 케이스로 잠금).
@@ -245,6 +257,7 @@ Progress: [█████████░] 90%
 | Phase 16 P30 | 20min | 2 tasks | 5 files |
 | Phase 16 P31 | 21min | 3 tasks | 4 files |
 | Phase 16 P32 | 18min | 2 tasks | 6 files |
+| Phase 16 P33 | 8min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -439,6 +452,9 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-32: vi-order-list 의 send 실패 분기는 setOptimistic·setSending 앞에서 return 한다 — 잠금을 푸는 신호가 서버 73 델타뿐이라 나가지 않은 요청에 건 잠금은 영구다
 - [Phase 16]: 16-32: vi-settings-card 의 submit 을 ViSubmitResult 3갈래(sent/blocked/failed)로 만들었다 — failed 만 확인 다이얼로그를 열어 둔다. 「닫힘」이 성공 신호로 읽히지 않게
 - [Phase 16]: 16-32: latestAccountTime 은 st 원문에서 만든 비교 키(dated 축 우선)로 고르고 승자의 원문에서 표시값을 뽑는다 — epoch 승격은 모르는 날짜를 「오늘」로 가정해야 해서 자정 뒤집힘의 원인이 된다
+- [Phase 16 Plan 33]: 붙을 행이 없는 수동 통보는 **0행 update 를 보내지 않는다** — 조회로 확인된 경우에만 `orderRowId` 로 갱신하고, 없으면 통보 원문을 `logger.error` 로 남긴다. PostgREST 가 0행 update 를 성공으로 답하는 것이 이 파일이 없애겠다고 선언한 Pitfall 18 의 정체다.
+- [Phase 16 Plan 33]: 통보 기록 경로의 예외는 **두 겹**으로 막는다 — 호출부 `.catch`(증상) + `insertOnly` 의 try 안으로 옮긴 `autoInsertRow`(원인). 한 겹만 두면 원인은 남고 증상만 가려진다. `index.ts` 의 `unhandledRejection` 은 프로세스 종료이므로 통보 1건의 파손이 전 사용자 세션 절단이다.
+- [Phase 16 Plan 33]: 빈 주문번호(`""`)는 in-flight 상관 키가 아니다 — `findIdByOrderNo` 가 이 값에서 항상 `null` 이라 dedup 의 의미가 애초에 없고, 합치면 서로 다른 자동주문 거부가 한 행에 겹쳐 쓰인다. 각자 insert 한다.
 
 ### Pending Todos
 
@@ -490,6 +506,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T05:54:44.312Z
-Stopped at: Completed 16-31-PLAN.md (GC-WR-09·GC-WR-06 상따폼 2곳·GC-WR-12·GC-IN-01·GC-IN-02)
+Last session: 2026-09-09T06:10:28.766Z
+Stopped at: Completed 16-33-PLAN.md (GC-CR-02 · GC-WR-01 · GC-WR-02)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
