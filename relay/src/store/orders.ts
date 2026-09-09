@@ -207,10 +207,27 @@ export type OrderInsertRow = {
 };
 
 /**
- * insert 경로. **`await` 로 즉시 쓰고 새 행의 `id` 를 돌려준다** — 이 값이 상관 1순위 키라
- * 큐에 넣으면 호출자가 쓸 수 없다 (A10). 실패는 throw 다(조용한 실패 금지).
+ * insert 한 번의 결과 (16-40 / R2-WR-07①).
+ *
+ * **`created` 의 의미를 여기서 못박는다:**
+ *   - `true`  = **새 행을 만들었다.** `id` 는 방금 만든 행의 것이고 테이블의 행 수가 1 늘었다.
+ *   - `false` = **기존 행으로 수렴했다** (`23505` — 같은 사용자·같은 날의 같은 주문번호가
+ *               이미 있다, 16-28). `id` 는 **그 기존 행**의 것이고 행 수는 **늘지 않았다**.
+ *
+ * 이 한 비트가 없으면 `OrderStore.stats().inserted`(「새로 만든 행 누적 건수」)가 수렴까지
+ * 세어 실제 insert 보다 커진다. 카운터를 감사 지표로 쓰겠다고 선언한 모듈에서(S-5) 그 오염은
+ * 사소하지 않다 — 「몇 건을 만들었나」와 「몇 건이 이미 있었나」는 **다른 질문**이고, 후자가
+ * 늘어나는 것은 경주가 늘고 있다는 신호다.
  */
-export type OrderInsertSink = (row: OrderInsertRow) => Promise<string>;
+export type OrderInsertResult = { id: string; created: boolean };
+
+/**
+ * insert 경로. **`await` 로 즉시 쓰고 그 행의 `id` 를 돌려준다** — 이 값이 상관 1순위 키라
+ * 큐에 넣으면 호출자가 쓸 수 없다 (A10). 실패는 throw 다(조용한 실패 금지).
+ *
+ * 반환이 `string` 이 아니라 `OrderInsertResult` 인 이유는 위 `created` 의 docstring 에 있다.
+ */
+export type OrderInsertSink = (row: OrderInsertRow) => Promise<OrderInsertResult>;
 
 /**
  * `(userId, order_no)` → `dma_orders.id`. 없으면 `null`. insert/update 분기의 근거다 (Pitfall 18).
@@ -236,8 +253,21 @@ export type OrderStoreStats = {
   retried: number;
   /** 버린 누적 건수 = 감사 기록의 결손량 (S-5). */
   dropped: number;
-  /** 새로 만든 행 누적 건수 (D-03). 수동 + 자동주문 합계다. */
+  /**
+   * 새로 만든 행 누적 건수 (D-03). 수동 + 자동주문 합계다.
+   *
+   * **수렴(`23505`)은 세지 않는다 — 이 값은 「행을 만든 횟수」다** (16-40 / R2-WR-07①).
+   * 기존 행으로 수렴한 건수는 아래 `insertConverged` 가 따로 센다.
+   */
   inserted: number;
+  /**
+   * `23505` 로 **기존 행에 수렴한** 누적 건수 (16-40 / R2-WR-07①).
+   *
+   * `inserted` 에서 덜어낸 값을 버리지 않고 여기에 둔다 — 이 수가 늘고 있다는 것은 같은
+   * 사용자·같은 날의 같은 주문번호 insert 경주가 실제로 돌고 있다는 뜻이고, 그것은 감사
+   * 지표다 (S-5). `inserted + insertConverged` = 성공한 insert 호출 횟수.
+   */
+  insertConverged: number;
 };
 
 /**
@@ -397,14 +427,17 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
             { origin: row.origin, code: "23505" },
             "[orders] 같은 사용자·같은 날의 같은 주문번호 insert 경주 — 기존 행으로 수렴",
           );
-          return existing;
+          // ★ `created: false` — **행을 만들지 않았다.** 이 한 비트가 `#inserted` 오염을 막는다
+          //   (16-40 / R2-WR-07①). 예전에는 sink 가 id 만 돌려줘 호출자가 이 둘을 구분할 수
+          //   없었고, 그래서 「새로 만든 행 누적 건수」가 수렴까지 세고 있었다.
+          return { id: existing, created: false };
         }
         // 재조회도 못 찾으면 지어내지 않는다 — 아래 기존 경로로 떨어진다.
       }
       logger.error({ pgError: safePgError(error), origin: row.origin }, "[orders] dma_orders insert 실패");
       throw error ?? new Error("dma_orders insert 가 행을 돌려주지 않았습니다");
     }
-    return (data as { id: string }).id;
+    return { id: (data as { id: string }).id, created: true };
   };
 }
 
@@ -486,6 +519,8 @@ export class OrderStore {
   #retried = 0;
   #dropped = 0;
   #inserted = 0;
+  /** `23505` 수렴 누적 — `#inserted` 에 섞지 않는다 (16-40 / R2-WR-07①). */
+  #insertConverged = 0;
 
   /**
    * update sink 하나만 주면 **갱신 전용**이고 `insertRequest` 는 던진다 — 결선이 반쪽인
@@ -520,8 +555,12 @@ export class OrderStore {
     if (this.#insert === null) {
       throw new Error("[orders] insert sink 미결선 — OrderStore 를 OrderSinks 로 만들어야 한다");
     }
-    const id = await this.#insert(row);
-    this.#inserted += 1;
+    const { id, created } = await this.#insert(row);
+    // ★ 수렴(`23505`)은 **기존 행을 돌려받은 것**이지 insert 가 아니다 — 세지 않는다
+    //   (16-40 / R2-WR-07① / T-16-81). 대신 조용히 버리지도 않는다: 경주가 얼마나 도는지가
+    //   `insertConverged` 로 남는다 (S-5 — 사유를 지우는 마스킹은 그것대로 사고다).
+    if (created) this.#inserted += 1;
+    else this.#insertConverged += 1;
     return id;
   }
 
@@ -696,6 +735,7 @@ export class OrderStore {
       retried: this.#retried,
       dropped: this.#dropped,
       inserted: this.#inserted,
+      insertConverged: this.#insertConverged,
     };
   }
 }

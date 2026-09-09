@@ -80,7 +80,9 @@ function recordingSinks(opts: { insertFails?: boolean; existingId?: string | nul
         await Promise.resolve();
         if (opts.insertFails === true) throw new Error("supabase insert down");
         inserted.push(row);
-        return `id-${inserted.length}`;
+        // `created: true` — 이 가짜는 언제나 새 행을 만든다. 수렴(`created: false`) 경로는
+        // 진짜 sink + 가짜 `SupabaseClient` 로 ⓻-b 가 본다 (16-40).
+        return { id: `id-${inserted.length}`, created: true };
       },
       findIdByOrderNo: async (userId, orderNo) => {
         looked.push({ userId, orderNo });
@@ -747,12 +749,15 @@ describe("23505 수렴 (GC-WR-08)", () => {
     const before = rows.length;
 
     // USER_A 의 오늘 ORDER_NO 행(`row-a-today`)이 이미 있다 = 경주에서 진 쪽의 insert 다.
-    const id = await supabaseOrderInsertSink(supabase)(
+    const result = await supabaseOrderInsertSink(supabase)(
       insertRow({ userId: USER_A, orderNo: ORDER_NO, origin: "vi" }),
     );
 
     // 「기록 불가」로 열화되지 않는다 — 그 통보는 이 행에 귀속된다.
-    expect(id).toBe("row-a-today");
+    expect(result.id).toBe("row-a-today");
+    // ★ **행을 만들지 않았다**를 sink 가 말한다 (16-40 / R2-WR-07①). 예전에는 id 만 돌려줘
+    //   호출자가 「만들었다」와 「이미 있었다」를 구분할 수 없었다.
+    expect(result.created).toBe(false);
     // 두 벌이 되지도 않는다. 가짜 테이블의 행 수가 그대로다.
     expect(rows).toHaveLength(before);
     // insert 1회 + 수렴 재조회 1회. 재조회는 같은 3축이다(남의 행·어제 행이 아니다).
@@ -761,6 +766,35 @@ describe("23505 수렴 (GC-WR-08)", () => {
     expect(lookup).toContainEqual(expect.objectContaining({ op: "eq", column: "user_id", value: USER_A }));
     expect(lookup).toContainEqual(expect.objectContaining({ op: "eq", column: "order_no", value: ORDER_NO }));
     expect(queries[1]?.matched.map((r) => r.id)).toEqual(["row-a-today"]);
+  });
+
+  it("⓻-b 수렴은 inserted 를 올리지 않는다 — 「새로 만든 행 누적 건수」가 참말이다 (16-40 / R2-WR-07①)", async () => {
+    const { supabase, rows } = fakeDmaOrders(fixtureRows());
+    const before = rows.length;
+    // 진짜 sink 세 벌을 그대로 결선한다 — 「sink 가 created 를 말하고 store 가 그것을 센다」의
+    // 사슬 전체를 봐야 이 갭이 잠긴다. 가짜 sink 로는 sink 쪽 판정을 시험할 수 없다.
+    const store = new OrderStore({
+      update: supabaseOrderSink(supabase),
+      insert: supabaseOrderInsertSink(supabase),
+      findIdByOrderNo: supabaseOrderLookupSink(supabase),
+    });
+
+    // ① 진짜로 행을 만드는 insert — USER_A 의 오늘에 아직 없는 주문번호다.
+    const fresh = await store.insertRequest(insertRow({ userId: USER_A, orderNo: "0000099999" }));
+    expect(rows).toHaveLength(before + 1);
+    expect(fresh).toBe(rows[rows.length - 1]?.id);
+    expect(store.stats()).toMatchObject({ inserted: 1, insertConverged: 0 });
+
+    // ② 이미 있는 행으로 수렴하는 insert — 테이블의 행 수는 **늘지 않는다**.
+    const converged = await store.insertRequest(insertRow({ userId: USER_A, orderNo: ORDER_NO }));
+    expect(converged).toBe("row-a-today");
+    expect(rows).toHaveLength(before + 1);
+
+    // ★ 여기가 이 케이스의 전부다. 예전에는 `inserted: 2` 였다 — 만든 행은 하나뿐인데.
+    //   부풀린 감사 지표는 결손을 보이지 않게 만든다 (S-5 / T-16-81).
+    expect(store.stats()).toMatchObject({ inserted: 1, insertConverged: 1 });
+    // 공개 반환 타입은 `string` 그대로다 — 호출자(`order-handler.ts`)가 바뀌지 않았다.
+    expect(typeof converged).toBe("string");
   });
 
   it("⓼ 23505 가 아닌 에러는 여전히 throw 된다 — 예외 삼키기를 넓히지 않았다", async () => {
