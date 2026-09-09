@@ -234,6 +234,19 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * **이 문단은 위 16-21 문단을 되돌리지 않는다.** `everReadyCount === 0` 유예는 유지되고
    * 거기에 **시간 상한**이 붙을 뿐이다. 「Ready 였다가 죽은 세션은 여전히 degraded」와
    * 「`vpn` 은 세션과 독립」 두 문장도 그대로다.
+   *
+   * ★ 2026-09-09 보강 (16-37 / R2-CR-02) — `stalledCount` 는 **사용자 자격증명 원인을
+   * 제외한** 수치다. 자격증명이 거부된 세션(`session_rejected`·`unauthorized`)은 재로그인해도
+   * 결과가 같아 `acquire` 가 재생성하지 않고, 탭이 열려 있는 한 `refCount > 0` 이라 유예
+   * 소멸도 걸리지 않아 무기한 남는다 — 그것까지 세면 사용자 **한 명**의 잘못된 DMA
+   * 비밀번호가 서비스 전체를 영구 503 으로 만든다. 그 세션의 사유는 `/healthz` 가 아니라
+   * **그 사용자의 상태 프레임**이 직접 말한다.
+   *
+   * **판정식(`sessionsOk`)은 바뀌지 않는다.** 이번 변경은 입력값(`stalledCount`)의 정의를
+   * 「게이트웨이가 원인일 수 있는 미Ready」로 **좁히는** 것이지 판정을 느슨하게 하는 것이
+   * 아니다. 응답 없는 게이트웨이는 `connecting`·`logging_in`·`failed` 로 남아 여전히
+   * `stalledCount` 에 들어가므로 GC-WR-07 은 그대로 산다. 제외의 정본 목록은
+   * `session-manager.ts` 의 `NO_RETRY_STATES` 한 벌뿐이다 — 여기에 복제하지 않는다.
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -246,6 +259,8 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     // 「Ready 였다가 죽은 세션」(everReadyCount > 0, readyCount 0) 만 장애다 (16-21).
     // 단, 그 면제에는 **시간 상한**이 있다 — 재시작으로 래치가 지워진 진짜 장애가
     // 영원히 초록으로 남지 않도록 `stalledCount` 를 함께 본다 (16-30 / GC-WR-07).
+    // `stalledCount` 는 **사용자 자격증명 원인을 제외한** 수치다 — 그 사유는 여기가 아니라
+    // 그 사용자의 상태 프레임이 말한다 (16-37 / R2-CR-02). 판정식은 바뀌지 않았다.
     const sessionsOk =
       (stats.everReadyCount === 0 && stats.stalledCount === 0) || stats.readyCount > 0;
     const healthy = linkUp && sessionsOk;

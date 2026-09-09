@@ -93,6 +93,20 @@ export type SessionStats = {
    * `everReadyCount === 0` 인 상태를 「게이트웨이 부재(정상)」와 「게이트웨이 장애」로
    * 가르는 시간축이다 (16-30 / GC-WR-07).
    *
+   * **단, 사유를 본다.** 이 카운터가 답하는 질문은 「**게이트웨이가 붙지 못하고 있는가**」
+   * 이지 「Ready 가 아닌 세션이 있는가」가 아니다. 그래서 `NO_RETRY_STATES`(자격증명 거부
+   * 계열 = **사용자 원인**) 세션은 시간이 아무리 흘러도 세지 않는다 (16-37 / R2-CR-02).
+   *
+   * 사유를 보지 않으면 **영구 적색**이 된다. `session_rejected` 세션은 `acquire` 가
+   * 재생성하지 않고(T-15-10 / D-16 — 재로그인을 되풀이하면 KB 계정이 잠긴다), 탭이 열려
+   * 있는 한 `refCount > 0` 이라 유예 소멸 타이머조차 걸리지 않아 **무기한** 남는다. 그러면
+   * 사용자 한 명의 잘못된 DMA 비밀번호가 relay 전체의 `/healthz` 를 영원히 503 으로 만든다.
+   *
+   * 16-30 이 스스로 적어 둔 근거(「상시 적색은 곧 알림 무시다. 그러면 진짜 장애도 함께
+   * 놓친다」)는 **이 방향으로도 그대로 성립한다.** 거부된 세션의 사유는 `/healthz` 가
+   * 아니라 **그 사용자의 상태 프레임**이 직접 말한다 — 전역 건강 신호가 대신 말할 일이
+   * 아니다.
+   *
    * `everReadyCount` 와 같은 규율로 **optional 이 아니다** — 필수 필드여야 소비자·테스트가
    * 컴파일 단계에서 갱신을 강제받는다.
    */
@@ -121,6 +135,24 @@ type Entry = {
  * 세션을 새로 만들면 백오프마다 같은 거부를 되풀이해 KB 계정이 잠긴다 (T-15-10, D-16).
  * 사용자가 자격증명을 고치기 전에는 같은 결과이므로 죽은 세션을 그대로 돌려주고,
  * 상태 프레임이 이유를 설명한다.
+ *
+ * ★ 2026-09-09 (16-37 / R2-CR-02) — 이 집합은 「재로그인해도 결과가 같은 **사용자 원인**」
+ * 의 정의이기도 하다. 그래서 `/healthz` 의 게이트웨이 판정축(`stats().stalledCount`)도
+ * **같은 집합**을 쓴다. 목록을 두 벌로 만들지 않는다 — 갈리는 순간 「이 세션을 재로그인할
+ * 것인가」와 「이 세션이 서비스 장애인가」가 서로 다른 목록을 근거로 삼게 되고, 그때
+ * 한쪽이 다른 쪽을 조용히 배신한다.
+ *
+ * 이 집합을 그 판정에 써도 되는 근거(`session.ts` 실측):
+ *   - `session_rejected` 로 들어가는 경로는 `#failNoRetry` 둘뿐이다 —
+ *     ① `LoginResp.success === false`(자격증명 거부) ② `LoginResp.accounts.length === 0`
+ *     (그 DMA 계정에 등록된 계좌 0건, `NO_ACCOUNTS_MESSAGE`). **둘 다 그 사용자 한 명의
+ *     등록 상태**이고, 그 시점 게이트웨이는 정상으로 응답하고 있다.
+ *   - `unauthorized` 는 세션이 스스로 들어가는 상태가 아니다 — `dma_credentials` 미등록은
+ *     wss 계층이 세션 생성 **전에** 판정한다. D-38 규율(상태를 나중에 추가하지 않는다)로
+ *     선언만 되어 있으므로 여기 포함해도 판정이 넓어지지 않는다.
+ *   - 게이트웨이가 죽었을 때의 상태는 `connecting`·`reconnecting`·`logging_in`·`failed` 로
+ *     **이 집합 밖**이다. 그래서 16-30 이 GC-WR-07 로 얻은 것(재시작 후 영원한 초록 금지)
+ *     이 이 제외로 깨지지 않는다.
  */
 const NO_RETRY_STATES: ReadonlySet<string> = new Set(["session_rejected", "unauthorized"]);
 
@@ -265,7 +297,15 @@ export class SessionManager {
       if (entry.session.hasBeenReady) everReadyCount += 1;
       // 한 번이라도 Ready 였던 세션은 여기서 세지 않는다 — 그쪽은 `everReadyCount` 가
       // 이미 잡고 있고, 이 카운터는 **래치가 비어 있는 상태**만 시간으로 가른다 (16-30).
-      else if (now - entry.createdAt > STALE_SESSION_MS) stalledCount += 1;
+      // 그리고 그 안에서도 **게이트웨이가 원인일 수 있는 상태**만 센다 — 자격증명 거부
+      // 계열은 사용자 원인이고 무기한 남으므로 세면 영구 적색이다 (16-37 / R2-CR-02).
+      // 판정은 **세션 단위**다. 거부 세션 1개가 옆의 진짜 미Ready 세션을 가리지 않는다.
+      else if (
+        now - entry.createdAt > STALE_SESSION_MS &&
+        !NO_RETRY_STATES.has(entry.session.state)
+      ) {
+        stalledCount += 1;
+      }
     }
     return {
       sessionCount: this.#sessions.size,
