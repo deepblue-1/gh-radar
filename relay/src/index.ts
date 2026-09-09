@@ -196,6 +196,9 @@ async function shutdown(signal: string): Promise<void> {
     hub.closeAll();
     symbols.close();
     // 5) 주문 기록 잔여분 반영 후 tick 정지 (순서 중요 — close 를 먼저 하면 큐가 남는다)
+    //    `flushNow()` 는 진행 중 배치를 **기다린 뒤** 재큐잉분까지 비운다 (16-24 / WR-09).
+    //    그래서 `close()` 를 그 뒤에 부르는 이 순서가 여전히 유효하다 — 옛 구현은 진행 중이면
+    //    즉시 반환해서, SIGTERM 이 200ms tick 과 겹치면 마지막 체결 통보가 사라졌다.
     await orderStore.flushNow();
     orderStore.close();
     logger.info({ signal }, "[relay] 종료 절차 완료");

@@ -167,28 +167,35 @@ describe("OrderStore — 비동기 갱신 큐", () => {
     expect(store.stats().dropped).toBe(1);
   });
 
-  it("⑤ 실패는 1회 재큐잉하고, 2회째 실패면 드롭 + 카운터 (무한 재시도 금지)", async () => {
+  /*
+    ⑤ 는 **tick 경로**로 본다 (16-24). 재큐잉을 「같은 순회에서 다시 때리지 않는다」는
+    규율의 무대가 인터벌 tick 이기 때문이다 — 종료 경로(`flushNow`)는 반대로 재큐잉분까지
+    한 번에 비운다(⑮ 참조). 두 경로의 계약이 다르다는 사실 자체를 여기서 고정한다.
+  */
+  it("⑤ tick 은 실패를 1회 재큐잉하고 **다음 tick** 에서 드롭한다 (무한 재시도 금지)", async () => {
     let calls = 0;
     const sink: OrderUpdateSink = async () => {
       calls += 1;
       await Promise.resolve();
       throw new Error("supabase down");
     };
-    const store = new OrderStore(sink);
+    const store = new OrderStore(sink, 200);
+    store.start();
 
     store.enqueueUpdate({ orderRowId: "row-1", status: "filled" });
 
-    await store.flushNow();
+    await vi.advanceTimersByTimeAsync(200);
     expect(calls).toBe(1);
     expect(store.stats()).toMatchObject({ queued: 1, retried: 1, dropped: 0 });
 
-    await store.flushNow();
+    await vi.advanceTimersByTimeAsync(200);
     expect(calls).toBe(2);
     expect(store.stats()).toMatchObject({ queued: 0, retried: 1, dropped: 1 });
 
-    // 세 번째 flush 에서 다시 때리지 않는다.
-    await store.flushNow();
+    // 세 번째 tick 에서 다시 때리지 않는다.
+    await vi.advanceTimersByTimeAsync(200);
     expect(calls).toBe(2);
+    store.close();
   });
 
   it("⑥ 재시도 후 성공하면 드롭하지 않는다", async () => {
@@ -204,10 +211,99 @@ describe("OrderStore — 비동기 갱신 큐", () => {
 
     store.enqueueUpdate({ orderRowId: "row-1", status: "accepted" });
     await store.flushNow();
-    await store.flushNow();
+    // ★ 16-24 이후 재시도는 **같은 `flushNow()` 안에서** 끝난다 (WR-09 — 재큐잉분까지 비운다).
+    expect(calls).toBe(2);
+    await store.flushNow(); // 두 번째 호출은 무동작이다.
 
     expect(written).toHaveLength(1);
-    expect(store.stats()).toMatchObject({ flushed: 1, dropped: 0 });
+    expect(calls).toBe(2);
+    expect(store.stats()).toMatchObject({ flushed: 1, dropped: 0, queued: 0 });
+  });
+
+  /*
+    ⑮~⑰ — 종료 경로의 계약 (16-24 / WR-09).
+
+    옛 `flushNow` 는 `if (this.#flushing) return;` 이라 200ms tick 이 도는 중에 SIGTERM 이
+    오면 **아무것도 기다리지 않고** 반환했다. 그 뒤 `close()` 가 인터벌을 끊으므로, 진행 중
+    배치 이후에 큐에 들어간 마지막 체결 통보는 그대로 사라졌다. 여기 셋이 그 경로를 잠근다.
+  */
+  it("⑮ 인터벌 플러시가 진행 중이면 flushNow 는 **기다렸다가** 남은 큐까지 비운다", async () => {
+    const written: Written[] = [];
+    let release: (() => void) | null = null;
+    const sink: OrderUpdateSink = async (sel, patch) => {
+      // 첫 항목만 붙잡아 둔다 — 그 사이가 곧 SIGTERM 이 끼어드는 창이다.
+      if (written.length === 0 && release === null) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      written.push({ sel, patch });
+    };
+    const store = new OrderStore(sink, 200);
+    store.start();
+
+    store.enqueueUpdate({ orderRowId: "row-1", status: "accepted" });
+    await vi.advanceTimersByTimeAsync(200); // tick 이 배치를 시작하고 sink 에서 멈춘다
+    expect(written).toHaveLength(0);
+
+    // 진행 중 배치 **이후**에 도착한 마지막 통보 — 옛 구현이 잃어버리던 바로 그 항목이다.
+    store.enqueueUpdate({ orderRowId: "row-2", status: "filled", filledQty: 7 });
+
+    const shutdown = store.flushNow();
+    let settled = false;
+    void shutdown.then(() => {
+      settled = true;
+    });
+
+    // 아직 진행 중이므로 **반환하지 않았다**(옛 구현은 여기서 이미 끝나 있었다).
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    (release as unknown as () => void)();
+    await shutdown;
+
+    expect(written.map((w) => w.sel)).toEqual([
+      { column: "id", value: "row-1" },
+      { column: "id", value: "row-2" },
+    ]);
+    expect(store.stats()).toMatchObject({ queued: 0, flushed: 2, dropped: 0 });
+    store.close();
+  });
+
+  it("⑯ 배치 중 실패로 재큐잉된 항목도 **같은 flushNow 안에서** 다시 시도된다", async () => {
+    let calls = 0;
+    const written: Written[] = [];
+    const sink: OrderUpdateSink = async (sel, patch) => {
+      calls += 1;
+      await Promise.resolve();
+      if (calls === 1) throw new Error("일시 장애");
+      written.push({ sel, patch });
+    };
+    const store = new OrderStore(sink);
+
+    store.enqueueUpdate({ orderRowId: "row-1", status: "filled", filledQty: 3 });
+    await store.flushNow();
+
+    // 「비웠다」가 참이어야 한다 — 재큐잉분을 남긴 채 반환하면 close() 가 그것을 버린다.
+    expect(calls).toBe(2);
+    expect(written).toHaveLength(1);
+    expect(store.stats()).toMatchObject({ queued: 0, flushed: 1, retried: 1, dropped: 0 });
+  });
+
+  it("⑰ 계속 실패해도 flushNow 는 반복 상한에서 반환한다 (종료를 영원히 막지 않는다)", async () => {
+    const sink: OrderUpdateSink = async () => {
+      await Promise.resolve();
+      throw new Error("supabase down");
+    };
+    const store = new OrderStore(sink);
+
+    store.enqueueUpdate({ orderRowId: "row-1", status: "filled" });
+
+    // 무한 대기가 아니다 — 재시도를 소진하면 드롭하고 반환한다.
+    await store.flushNow();
+
+    expect(store.stats().dropped).toBeGreaterThan(0);
+    expect(store.stats().queued).toBe(0);
   });
 
   it("⑦ 큐 상한을 넘으면 가장 오래된 항목부터 버린다 (OOM 방지)", () => {

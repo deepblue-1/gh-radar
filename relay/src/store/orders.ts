@@ -68,6 +68,16 @@ export const ORDER_FLUSH_INTERVAL_MS = 200;
 export const ORDER_MAX_RETRIES = 1;
 
 /**
+ * `flushNow()` 한 번이 도는 배치 **횟수 상한** (16-24 / WR-09 · T-16-40).
+ *
+ * 종료 절차는 재큐잉분까지 비워야 「비웠다」가 참이 된다. `ORDER_MAX_RETRIES` 가 1 이라
+ * 이론상 2회면 끝나지만(첫 배치 + 재시도분), 상한이 없으면 「큐가 비지 않는」 상태가
+ * 종료를 **영원히** 막는다. 여기서 멈추고 남은 큐 길이를 error 로 남긴다 — 조용히
+ * 포기하지도, 무한히 매달리지도 않는다 (S-5).
+ */
+export const ORDER_FLUSH_MAX_ROUNDS = ORDER_MAX_RETRIES + 2;
+
+/**
  * 큐 길이 상한. 넘으면 **가장 오래된 것부터** 버린다.
  *
  * 상한이 없으면 Supabase 장애가 곧 e2-micro(1GB) OOM 이다. 오래된 것을 버리는 이유는
@@ -352,8 +362,15 @@ export class OrderStore {
   readonly #intervalMs: number;
   #queue: QueueItem[] = [];
   #timer: NodeJS.Timeout | null = null;
-  /** 플러시 중복 진입 방지. tick 이 겹치면 같은 항목을 두 번 쓴다. */
-  #flushing = false;
+  /**
+   * 진행 중 배치의 **대기 가능한 핸들**. `null` 이면 도는 배치가 없다.
+   *
+   * 옛 `#flushing: boolean` 을 대신한다 (16-24 / WR-09). 중복 진입 방지라는 목적은 그대로다
+   * — tick 이 겹치면 같은 항목을 두 번 쓴다. 달라진 것은 **기다릴 수 있다**는 점 하나이고,
+   * 그 하나가 종료 절차의 `flushNow()` 를 「즉시 반환」에서 「기다렸다 비운다」로 바꾼다.
+   * 두 경로의 규율이 다르다: **tick 은 건너뛰고, 종료는 기다린다**(`#tick` / `flushNow`).
+   */
+  #current: Promise<void> | null = null;
   #flushed = 0;
   #retried = 0;
   #dropped = 0;
@@ -418,7 +435,7 @@ export class OrderStore {
   start(): void {
     if (this.#timer !== null) return;
     this.#timer = setInterval(() => {
-      void this.flushNow();
+      this.#tick();
     }, this.#intervalMs);
     // 이 타이머가 프로세스 종료를 붙들지 않게 한다. 종료 절차는 `flushNow()` 를 명시 호출한다.
     this.#timer.unref?.();
@@ -460,43 +477,97 @@ export class OrderStore {
   }
 
   /**
+   * 인터벌 tick — 진행 중이면 **건너뛴다. 기다리지 않는다.**
+   *
+   * ★ 종료 경로(`flushNow`)와 규율이 다른 유일한 자리다. tick 이 기다리면 200ms 마다
+   *   대기자가 쌓여 장애 중인 Supabase 를 겹쳐 두드리게 되고, 같은 항목을 두 번 쓰는
+   *   중복 진입도 그대로 열린다. 지금 못 비운 큐는 **다음 tick** 이 가져간다.
+   */
+  #tick(): void {
+    if (this.#current !== null) return;
+    if (this.#queue.length === 0) return;
+    this.#current = this.#runDrain();
+    // `#drain` 은 항목 단위로 catch 하므로 여기까지 오지 않는 것이 정상이다 — 그래도
+    // 조용한 unhandled rejection 은 만들지 않는다 (S-5).
+    this.#current.catch((err: unknown) => {
+      logger.error({ err }, "[orders] 배치 플러시가 예외로 끝났다");
+    });
+  }
+
+  /** 배치 1회 + `#current` 해제. 성공·실패와 무관하게 핸들을 반드시 비운다. */
+  async #runDrain(): Promise<void> {
+    try {
+      await this.#drain();
+    } finally {
+      this.#current = null;
+    }
+  }
+
+  /**
    * 대기 중인 항목을 지금 전부 밀어낸다. graceful shutdown 이 `await` 로 부른다 —
    * 마지막 체결 통보가 기록되지 않은 채 컨테이너가 내려가면 감사 기록에 구멍이 남는다.
+   *
+   * ★ 계약 (16-24 / WR-09): 진행 중 플러시를 **기다렸다가** 비운다. 옛 구현은 진행 중이면
+   *   (`#flushing` 플래그를 보고) **아무것도 기다리지 않고 즉시 반환**했다. 200ms 인터벌
+   *   tick 이 도는 중에 SIGTERM 이 오면 곧바로 `close()` 가 인터벌을 끊었고, 진행 중 배치
+   *   이후에 큐에 들어간 갱신(마지막 체결 통보 등)이 그대로 사라졌다.
+   *
+   * **재큐잉분(재시도 1회)까지 비운 뒤에 반환한다** — 그래야 「비웠다」가 참이다. 다만
+   * 무한히 매달리지 않는다: `ORDER_FLUSH_MAX_ROUNDS` 회에서 남은 큐 길이를 error 로 남기고
+   * 반환한다(T-16-40 — 종료를 영원히 막지 않는다).
    */
   async flushNow(): Promise<void> {
-    if (this.#flushing) return;
-    if (this.#queue.length === 0) return;
+    // 진행 중 배치를 기다린다. 기다리는 사이 tick 이 새 배치를 시작할 수 있으므로 루프다.
+    while (this.#current !== null) await this.#current;
 
-    this.#flushing = true;
+    for (let round = 0; round < ORDER_FLUSH_MAX_ROUNDS; round += 1) {
+      if (this.#queue.length === 0) return;
+      this.#current = this.#runDrain();
+      await this.#current;
+    }
+
+    if (this.#queue.length > 0) {
+      // 조용히 포기하지 않는다 — 남은 길이가 곧 감사 기록의 결손량이다 (S-5).
+      logger.error(
+        { queued: this.#queue.length, rounds: ORDER_FLUSH_MAX_ROUNDS, dropped: this.#dropped },
+        "[orders] flushNow 반복 상한 도달 — 남은 큐를 비우지 못한 채 반환 (감사 기록 결손)",
+      );
+    }
+  }
+
+  /**
+   * 배치 1회 — 큐를 스왑해 순회하고 실패는 1회 재큐잉 후 드롭한다.
+   *
+   * `flushNow` 에서 뽑아낸 몸통이다(16-24). 카운터 규율(`#flushed`/`#retried`/`#dropped`)은
+   * 그대로다 — 여기서 세는 값이 곧 감사 기록의 성패다.
+   */
+  async #drain(): Promise<void> {
     const batch = this.#queue;
     this.#queue = [];
-    try {
-      for (const item of batch) {
-        try {
-          await this.#sink(item.sel, item.patch);
-          this.#flushed += 1;
-        } catch (err) {
-          if (item.attempts < ORDER_MAX_RETRIES) {
-            item.attempts += 1;
-            this.#retried += 1;
-            // 재큐잉은 **다음 tick** 으로 미룬다. 같은 루프에서 다시 때리면 장애 중인
-            // Supabase 를 초당 수십 번 두드리게 된다.
-            this.#queue.push(item);
-            logger.warn(
-              { err, column: item.sel.column, attempts: item.attempts },
-              "[orders] dma_orders 갱신 실패 — 1회 재큐잉",
-            );
-            continue;
-          }
-          this.#dropped += 1;
-          logger.error(
-            { err, column: item.sel.column, dropped: this.#dropped },
-            "[orders] dma_orders 갱신 재시도 소진 — 드롭 (감사 기록 결손)",
+    for (const item of batch) {
+      try {
+        await this.#sink(item.sel, item.patch);
+        this.#flushed += 1;
+      } catch (err) {
+        if (item.attempts < ORDER_MAX_RETRIES) {
+          item.attempts += 1;
+          this.#retried += 1;
+          // 재큐잉은 **이 배치 밖**으로 미룬다. 같은 순회에서 다시 때리면 장애 중인
+          // Supabase 를 초당 수십 번 두드리게 된다. 평시에는 다음 tick 이 가져가고,
+          // 종료 절차에서만 `flushNow` 가 다음 라운드로 곧바로 이어 받는다(WR-09).
+          this.#queue.push(item);
+          logger.warn(
+            { err, column: item.sel.column, attempts: item.attempts },
+            "[orders] dma_orders 갱신 실패 — 1회 재큐잉",
           );
+          continue;
         }
+        this.#dropped += 1;
+        logger.error(
+          { err, column: item.sel.column, dropped: this.#dropped },
+          "[orders] dma_orders 갱신 재시도 소진 — 드롭 (감사 기록 결손)",
+        );
       }
-    } finally {
-      this.#flushing = false;
     }
   }
 
