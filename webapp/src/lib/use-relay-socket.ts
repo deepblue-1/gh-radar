@@ -203,10 +203,13 @@ export interface RelayConnectionState {
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
   /**
    * 송신구. 구독 제어(`sub`/`unsub`)와 **전략 설정**(`lc.set`/`vi.set`/`vi.confirm`/
-   * `strategies.disable`)이 여기로 나간다. 소켓이 열려 있지 않으면 조용히 무시한다.
-   * 주문은 상관 응답이 필요하므로 `sendOrder` 를 쓴다.
+   * `strategies.disable`)이 여기로 나간다. 주문은 상관 응답이 필요하므로 `sendOrder` 를 쓴다.
+   *
+   * ★ 소켓이 열려 있지 않으면 `console.error` 를 남기고 `false` 를 돌려준다. 호출부는
+   *   반환값으로 「보내지 **않았음**」을 알 수 있다 — 조용한 드롭은 PC-7 위반이다.
+   *   전략 4종의 유일한 출구이고 그중 하나가 킬 스위치다(T-16-19).
    */
-  send: (msg: RelayInbound) => void;
+  send: (msg: RelayInbound) => boolean;
   /** 수동 재연결. 백오프 카운터를 0 으로 되돌리고 새 소켓을 연다. */
   reconnect: () => void;
   /** 구독 참조계수 +1. 0→1 에서만 와이어에 `sub` 이 나간다. */
@@ -242,8 +245,11 @@ export interface RelaySocketState {
   orders: RelayOrderMsg[];
   messages: RelayServerMessageEntry[];
   isStale: boolean;
-  /** 송신구. `RelayConnectionState.send` 와 같다(D-02 이후 전략·주문도 이 경로다). */
-  send: (msg: RelayInbound) => void;
+  /**
+   * 송신구. `RelayConnectionState.send` 와 같다(D-02 이후 전략·주문도 이 경로다).
+   * 보내지 못하면 `false` 다 — 반환값을 버리면 드롭이 화면에서 사라진다.
+   */
+  send: (msg: RelayInbound) => boolean;
   reconnect: () => void;
 }
 
@@ -847,10 +853,19 @@ export function useRelayConnection({
     ws.send(JSON.stringify({ t: "unsub", isin: wire.isin, ex: wire.ex }));
   }, []);
 
-  const send = useCallback((msg: RelayInbound) => {
+  const send = useCallback((msg: RelayInbound): boolean => {
     const ws = socketRef.current;
-    if (!ws || ws.readyState !== WS_READY_OPEN) return;
+    if (!ws || ws.readyState !== WS_READY_OPEN) {
+      /*
+        ★ 조용히 삼키지 않는다 (PC-7 「무로그 fail-safe 금지」 / T-16-19).
+          로그에는 **메시지 종류만** 싣는다 — `lc.set.cfg`·`vi.set.accountNo` 에 계좌번호가
+          들어 있고 이 로그가 나가는 곳은 브라우저 콘솔이다(T-16-18).
+      */
+      console.error(`[relay] 소켓 미연결 — 전송하지 않음 (t=${msg.t})`);
+      return false;
+    }
     ws.send(JSON.stringify(msg));
+    return true;
   }, []);
 
   const sendOrder = useCallback(

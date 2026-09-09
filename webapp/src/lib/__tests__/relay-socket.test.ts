@@ -48,6 +48,8 @@ import type {
 import { relayQuoteKey, useRelayConnection } from '../use-relay-socket';
 
 const ISIN_A = 'KR7005930003';
+/** 로그에 **새면 안 되는** 값. 계좌번호가 콘솔에 찍히는지 단언에 쓴다(T-16-18). */
+const ACCOUNT_NO = '37728502101';
 const ISIN_B = 'KR7000660001';
 
 // ============================================================
@@ -658,6 +660,58 @@ describe('useRelayConnection — 주문 상관 응답 (D-02)', () => {
     });
 
     expect(hung!.status).toBe('timeout');
+  });
+});
+
+describe('useRelayConnection — 전략 송신구 `send` (T-16-19 / PC-7)', () => {
+  it('⑱ 소켓이 열리기 전 send 는 false 를 돌려주고 console.error 를 한 번 남긴다', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const hook = render({ enabled: false });
+    await settle();
+
+    let sent: boolean | null = null;
+    act(() => {
+      sent = hook.result.current.send({
+        t: 'vi.set',
+        accountNo: ACCOUNT_NO,
+        orderAmountKrw: 10_000_000,
+        checkRate: 22,
+        run: true,
+      });
+    });
+
+    // 보내지 **않았음**이 반환값으로 드러난다 — 조용한 드롭은 PC-7 위반이다.
+    expect(sent).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    const logged = String(spy.mock.calls[0]?.[0]);
+    // 메시지 종류는 남는다 — 무엇이 사라졌는지 알 수 없으면 로그가 아니다.
+    expect(logged).toContain('t=vi.set');
+    // ★ 계좌번호는 남지 않는다 (T-16-18). 이 로그가 나가는 곳은 브라우저 콘솔이다.
+    expect(logged).not.toContain(ACCOUNT_NO);
+    expect(logged).not.toContain('10000000');
+
+    spy.mockRestore();
+  });
+
+  it('⑱-a 연결 후 send 는 true 를 돌려주고 소켓에 정확히 1프레임이 나간다', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const hook = render();
+    const ws = await connected(hook);
+    const before = ws.sent.length;
+
+    let sent: boolean | null = null;
+    act(() => {
+      sent = hook.result.current.send({ t: 'strategies.disable' });
+    });
+
+    expect(sent).toBe(true);
+    expect(ws.sent).toHaveLength(before + 1);
+    expect(ws.parsedSent().at(-1)).toEqual({ t: 'strategies.disable' });
+    // 정상 경로에서는 로그가 없다 — 매 송신마다 콘솔이 더러워지면 아무도 안 본다.
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
   });
 });
 

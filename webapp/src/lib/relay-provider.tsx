@@ -204,7 +204,9 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,
-  send: NOOP,
+  // 보내지 **않았음**이 확실하다 — Provider 밖에는 소켓이 없다. 호출부가 반환값으로
+  // 그 사실을 알 수 있어야 한다(PC-7 무로그 fail-safe 금지).
+  send: () => false,
   reconnect: NOOP,
   subscribe: NOOP,
   unsubscribe: NOOP,
