@@ -252,42 +252,78 @@ export type OrderStoreStats = {
  */
 export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
   return async (sel, patch) => {
-    const table = supabase.from("dma_orders");
-    const { error } =
-      sel.column === "id"
-        ? await table.update(patch).eq("id", sel.value)
-        : await (() => {
-            const { from, to } = kstDayRangeUtc();
-            return table
-              .update(patch)
-              .eq("order_no", sel.value)
-              .eq("user_id", sel.userId)
-              .gte("created_at", from)
-              .lt("created_at", to);
-          })();
+    /**
+     * 셀렉터 조립은 **이 함수 한 곳뿐이다.** 최초 시도도, `23505` 재시도도 여기를 지난다 —
+     * 두 자리에 손으로 적으면 언젠가 한쪽이 3축(`order_no`+`user_id`+당일)을 잃고, 그것이
+     * 곧 전역 쓰기다 (gap 1 / T-16-14).
+     */
+    const runUpdate = async (values: OrderRowPatch): Promise<{ error: unknown }> => {
+      const table = supabase.from("dma_orders");
+      if (sel.column === "id") return await table.update(values).eq("id", sel.value);
+      const { from, to } = kstDayRangeUtc();
+      return await table
+        .update(values)
+        .eq("order_no", sel.value)
+        .eq("user_id", sel.userId)
+        .gte("created_at", from)
+        .lt("created_at", to);
+    };
+
+    const { error } = await runUpdate(patch);
     if (error) {
       // ★ `order_no` 를 채우는 갱신의 `23505`(부분 UNIQUE 위반) 만 예외다
-      //   (16-28 / GC-WR-08 · T-16-53).
+      //   (16-28 / GC-WR-08 · T-16-53, 포기 단위는 16-39 / R2-WR-01 이 좁혔다).
       //
       //   update 가 `23505` 로 실패했다는 것은 「쓸 수 없다」가 아니라 **「그 주문번호를 가진
       //   행이 이미 따로 있다」**는 뜻이다. 수동 주문의 `finish` 가 자기 행에 접수 주문번호를
       //   채우는 사이, 자동 통보 분기가 같은 `order_no` 로 행을 먼저 만든 경우가 그것이다.
-      //   원인이 데이터 분기이므로 **재시도해도 영원히 같은 결과**다. 그래서:
+      //   원인이 데이터 분기이므로 **재시도해도 영원히 같은 결과**다. 그래서 16-28 의 규율
+      //   세 줄은 그대로다:
       //     · throw 하지 않는다 — `#drain` 이 재시도 1회를 태우고 `#dropped` 를 올리면
       //       「이유를 아는 실패」가 「이유를 모르는 실패」와 뒤섞여 카운터가 오염된다 (S-5).
       //     · 대신 error 로그로 사유를 남긴다. 조용히 성공한 척하지는 않는다.
+      //     · 조건을 **셀렉터가 아니라 patch** 에 건다. 그 갱신을 실제로 내는 자리(`finish`)는
+      //       상관 1순위 키를 쥐고 있어 셀렉터가 `id` 이고 `order_no` 는 **채울 컬럼**으로
+      //       실린다 (`selectorOf` — `orderRowId` 우선). 셀렉터 컬럼으로 좁히면 정작 이 갭이
+      //       지목한 경로를 비켜 간다. 이 인덱스의 유일한 컬럼이 `order_no` 이므로, 그것을
+      //       싣지 않는 갱신은 애초에 이 위반을 낼 수 없다 — 조건을 넓히지 않으면서 그
+      //       경로만 덮는다.
       //
-      //   조건을 **셀렉터가 아니라 patch** 에 건다. 그 갱신을 실제로 내는 자리(`finish`)는
-      //   상관 1순위 키를 쥐고 있어 셀렉터가 `id` 이고 `order_no` 는 **채울 컬럼**으로 실린다
-      //   (`selectorOf` — `orderRowId` 우선). 셀렉터 컬럼으로 좁히면 정작 이 갭이 지목한
-      //   경로를 비켜 간다. 이 인덱스의 유일한 컬럼이 `order_no` 이므로, 그것을 싣지 않는
-      //   갱신은 애초에 이 위반을 낼 수 없다 — 조건을 넓히지 않으면서 그 경로만 덮는다.
+      //   ★ **그러나 포기의 단위는 컬럼 하나여야 한다 (16-39 / R2-WR-01 · T-16-79).**
+      //     `finish` 가 내는 갱신은 `{order_no, status, result_code, notice_type, message,
+      //     filled_qty, origin}` 한 덩어리다. 패치를 통째로 버리면 그 행은 `status:'requested'`
+      //     · `filled_qty:0` 인 채 **영구히** 남는다 — 16-28 이 인정한 대가는 「주문번호를 못
+      //     채운다」였지 「자기 행의 수명주기가 갱신되지 않는다」가 아니었다. 그래서 충돌한
+      //     컬럼 하나만 빼고 **같은 셀렉터로 한 번 더** 보낸다.
       if (patch.order_no !== undefined && (error as { code?: string }).code === "23505") {
-        // 로그에 `error` 원문을 싣지 않는다 — Postgres 의 UNIQUE 위반 detail 은
+        const { order_no: _abandoned, ...rest } = patch;
+        // `updated_at` 은 `rowPatchOf` 가 언제나 싣는다 — 그것만 남았다면 이 갱신은 애초에
+        // 주문번호만 채우려던 것이고, 반영할 나머지가 없다. (`updated_at` 유무를 세지 않고
+        // **이름으로** 거른다 — sink 를 직접 부르는 호출자는 그것을 싣지 않을 수 있다.)
+        const meaningful = Object.keys(rest).filter((k) => k !== "updated_at");
+        if (meaningful.length === 0) {
+          logger.error(
+            { column: sel.column, code: "23505" },
+            "[orders] order_no 만 채우는 갱신이 UNIQUE 위반 — 반영할 나머지 필드가 없다(감사 기록 분기). 재시도로 풀리지 않으므로 드롭 카운터를 올리지 않는다",
+          );
+          return;
+        }
+        const { error: retryError } = await runUpdate(rest);
+        if (retryError) {
+          // 이것은 「이유를 아는 실패」가 아니다 — 던져서 `#drain` 의 재시도·드롭 규율을 타야
+          // 한다. 여기서 삼키면 결손이 카운터에도 남지 않는다 (S-5).
+          logger.error(
+            { pgError: safePgError(retryError), column: sel.column },
+            "[orders] order_no 를 뺀 재시도도 실패 — 큐 재시도로 넘긴다",
+          );
+          throw retryError;
+        }
+        // 로그에 `error` 원문도, 주문번호 값도 싣지 않는다 — Postgres 의 UNIQUE 위반 detail 은
         // `Key (user_id, order_no, …)=(…)` 로 **주문번호 원문을 그대로 담는다** (T-16-45).
+        // 감사 결손이 실재하므로 level 을 warn 으로 낮추지 않는다.
         logger.error(
-          { column: sel.column, code: "23505" },
-          "[orders] order_no 갱신이 UNIQUE 위반 — 같은 주문번호 행이 이미 있다(감사 기록 분기). 재시도로 풀리지 않으므로 드롭 카운터를 올리지 않는다",
+          { column: sel.column, code: "23505", abandonedColumn: "order_no", applied: meaningful.length },
+          "[orders] order_no 갱신이 UNIQUE 위반 — 같은 주문번호 행이 이미 있다(감사 기록 분기). order_no 만 포기하고 나머지 필드는 반영했다",
         );
         return;
       }
