@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-35-PLAN.md — 재검증 결과 gaps_found (162/165), 3라운드 갭 클로징 필요
-last_updated: "2026-09-09T07:28:46.725Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 실행 완료 + 재검증 gaps_found (신규 Critical 3건)
+stopped_at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
+last_updated: "2026-09-09T09:48:52.324Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 착수 — 16-36 (R2-CR-01) 완료
 progress:
   total_phases: 25
   completed_phases: 18
-  total_plans: 174
-  completed_plans: 160
-  percent: 76
+  total_plans: 185
+  completed_plans: 161
+  percent: 72
 ---
 
 # Project State
@@ -25,14 +25,28 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 2라운드 종결 (35/35)**
-Plan: 35 of 35 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35)
-Plans completed: 160 / 174
-Status: Phase 16 실행 완료 — **TRADE-03 만 Pending**(D-27 상 실서버 결선 전까지). 나머지 TRADE-01·02·NAV-01·MYPAGE-01 은 Complete
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (36/46)**
+Plan: 36 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 161 / 185
+Status: 3라운드 실행 중 — R2-CR-01 종결. **TRADE-03 은 Pending 유지**(프로덕션 `everReadyCount: 0`)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 종결(16-35) — 배포 2종 + 실측 + 문서 6종
+Last activity: 2026-09-09
 
-Progress: [█████████░] 92%
+Progress: [█████████░] 87%
+
+### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-36 완료 — R2-CR-01 종결. 마지막 관문이 클라이언트의 자칭을 근거로 자기 자신을 면제하던 것을 없앴다.** relay 2파일(소스 1 + 테스트 1).
+- **철거 판정의 정본이 `crud` 에서 게이트 4종으로 옮겨졌다.** `#isTeardown` 첫 줄 `if (cfg.crud === "D") return true;` 를 제거했다 — `crud` 는 **인바운드 필드**라(`protocol.ts` `z.enum(["C","D"])`, `RelayLimitChaserInput` 이 Omit 하지 않는다) 브라우저·옛 탭·임의 wss 가 값을 정한다. 계약 원문(`packages/shared/src/relay.ts:136-141`)이 「게이트가 전부 꺼지면 **서버가** `"D"` 로 정규화한다」고 못박은 대로, `crud` 는 정규화의 **결과**를 말하는 힌트이지 근거가 아니다. `{crud:"D", buyEnabled:true, buyOrderPrice:0, buyOrderQty:0, isin:<마스터에 없는 ISIN>}` 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 지나던 경로가 닫혔다.
+- **GC-WR-04 를 잃지 않았다.** 게이트 4종 OFF 는 여전히 시장을 못 풀어도 폴백(`"K"`)으로 통과하고, `#strategyArmable` 첫 줄의 철거 면제도 남겼다 — 게이트 4종이 다 꺼져 있어도 `sweepEnabled: true` ∧ 가격/수량 0 이면 `reason === "sweep"` 으로 **철거가 거부되기** 때문이다(`sweepEnabled` 는 삭제 판정 4종에 없다). 그 이유를 그 줄 옆 주석에 박았고 16-42 의 UI 측 대칭 수정(R2-WR-02)이 이 문장을 근거로 삼는다.
+- **불일치 로그는 `#isTeardown` 안이 아니라 `lc.set` 진입점 한 곳이다.** 그 함수는 한 프레임당 최대 두 번(`lc.set` · `#strategyArmable`) 호출되므로 안에 두면 사고 1건이 두 줄로 샌다. 계획 문구는 시그니처 확장을 지시했지만 그러면 acceptance criteria 의 `if (this.#isTeardown(cfg)) return true;` 원형 유지와 충돌한다 — 순수 판정 유지 + 진입점 로그가 둘을 모두 만족하는 배치다. 로그는 `{ userId, t, isin, crud }` 뿐, 계좌번호 미포함(T-16-45).
+- **기존 테스트 2건의 전제가 거짓이었다.** Task 1 커밋 직후 실측 **2 failed | 371 passed**. 깨진 ⑰-e·⑰-e2 는 `lcInput()` 기본값 `buyEnabled: true` 때문에 「진짜 철거」가 아니라 **정확히 이 갭이 지목한 스푸핑 조합**을 태우면서, 그 위험을 단언하지 않고 초록이었다. **수정을 약화시키지 않고** 게이트 4종을 명시 OFF 로 바꿔 테스트를 진실로 만들었다.
+- **신규 3케이스로 두 가드를 각각 잠갔다.** ⑰-e3(`crud:"D"` + 게이트 ON + UNKNOWN_ISIN → **시장 해석** 거부, 게이트웨이 미송신) · ⑰-e4(알려진 ISIN + `buyOrderQty:0` → **무장 가드** 거부, `gate:"buy"`) — **실패 원인이 다르다.** ⑰-e5(`crud:"C"` + 게이트 4종 OFF → 통과)는 ⑰-e3 과 **반대 방향**을 단언해 「게이트가 정본」의 대칭을 잠근다.
+- **회귀 잠금 실증.** `if (cfg.crud === "D") return true;` 를 되돌리자 **⑰-e3·⑰-e4 2건 실패**(나머지 33 통과). 복원 후 `grep -c MUTATION` = 0, `git diff --stat eeb4539 -- relay/src/ws/fanout.ts` 출력 0줄. ⑰-e·⑰-e2·⑰-e5 는 무력화 상태에서도 통과하는데 **그것이 곧 GC-WR-04 를 잃지 않았다는 증거**다.
+- **relay 376 tests**(373 → +3, 17 files) · `pnpm -r typecheck` exit 0 · `pnpm -r test` exit 0 **2,015 passed**(기준선 2,012 → +3, relay 외 변동 없음) · `typecheck:tests` exit 0. 포매터 미실행(prettier 설정 없음 / 16-30 사고). 자동 수정(Rule 1~3) **0건**.
+- **`10.41.1.120` 실측 2건**(`relay/README.md` 경고문 · `relay/src/dma/link-health.ts` 주석) — 둘 다 산문이고 접속 대상 설정이 아니다. FakeGateway 만 사용, 실서버·실계좌 접속 0회(D-27).
+- **⚠️ 배포 미실시 — 프로덕션에는 R2-CR-01 이 여전히 살아 있다.** 프로덕션이 실 게이트웨이(`10.41.1.120:9100`)에 결선된 상태이므로, 3라운드 종결 plan **16-46** 의 재배포 전까지 이 사실이 정본이다.
+- **TRADE-03 은 계속 Pending.** `requirements.mark-complete` 미실행.
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~16-35)
 
@@ -302,6 +316,7 @@ Progress: [█████████░] 92%
 | Phase 16 P33 | 8min | 2 tasks | 3 files |
 | Phase 16 P34 | 9min | 2 tasks | 2 files |
 | Phase 16 P35 | 70m | 3 tasks | 6 files |
+| Phase 16 P36 | 11min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -556,8 +571,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T07:28:39.515Z
-Stopped at: Completed 16-35-PLAN.md (갭 클로징 2라운드 종결 — 배포 2종 + `/healthz` 실측 + 문서 6종)
+Last session: 2026-09-09T09:48:52.310Z
+Stopped at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
 - **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
