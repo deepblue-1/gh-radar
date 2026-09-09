@@ -61,6 +61,7 @@ import { logger } from "../logger.js";
 import {
   OrderBuildError,
   buildDirectOrderReq,
+  fromWireSide,
   maskAccountNo,
   type ParsedOrderResp,
 } from "../dma/envelope.js";
@@ -156,13 +157,24 @@ export type PendingOrder = {
   orderRowId: string;
   isin: string;
   /**
-   * 아래 넷(`isin`·`qty`·`price`·`isCancel`/`orgOrderNo`)은 **통보 매칭 축**이다
+   * 아래 다섯(`isin`·`qty`·`price`·`side`·`isCancel`/`orgOrderNo`)은 **통보 매칭 축**이다
    * (`narrowPending`). 저장만 하고 읽지 않으면 gap 2 가 재발한다 — ISIN 하나로만 고르던
    * 시절에는 「취소하고 다시 걸기」에서 살아 있는 매수 주문이 「취소됨」으로 표시됐다.
    * (IN-01 은 `qty` 가 실린 채 어디서도 읽히지 않던 그 상태의 이름이다.)
    */
   qty: number;
   price: number;
+  /**
+   * 이 대기의 매매구분 — **요청 원문**이다 (GC-WR-03).
+   *
+   * 취소 대기는 `""` 다. `handle` 이 계산하는 `const side = isCancel ? "S" : msg.side` 는
+   * `dma_orders.side` CHECK(B/S 둘뿐)를 통과시키기 위한 **표기**이지 방향의 정본이 아니다
+   * — 취소 요청 자체에 매매구분이 실리지 않는다(방향의 정본은 `orgOrderNo` 가 가리키는
+   * 원주문 행이다). 그 표기를 여기로 가져오면 매도 취소가 아니라 **모든** 취소 대기가
+   * 「매도」로 보여 ②-1 축이 남의 통보를 정산한다. 그래서 값을 비우고, ②-1 축은
+   * `!p.isCancel` 인 후보에만 적용한다.
+   */
+  side: OrderSide | "";
   /** 이 대기가 취소 주문인가. 통보의 `noticeType`("C"/"M") 과 맞춘다. */
   isCancel: boolean;
   /** 취소 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
@@ -326,7 +338,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   deps.hub.on("order", ({ userId, notice }: HubOrderEvent) => {
     // **그 사용자의 연결만** 훑는다. 통보는 그 사용자의 세션에서 왔으므로 다른 사용자의
     // 대기 주문과 섞일 수 없다 (T-15-02). 그 안에서 ISIN 으로 **후보를 모으고**,
-    // `narrowPending` 이 통보가 실어 온 축(`orgOrderNo`→`noticeType`→`quantity`→`price`)
+    // `narrowPending` 이 통보가 실어 온 축(`orgOrderNo`→`noticeType`→`side`→`quantity`→`price`)
     // 으로 하나까지 좁힌다. **좁히지 못하면 아무것도 정산하지 않는다** — 잘못 귀속된
     // 기록은 없는 기록보다 나쁘다 (gap 2 / T-16-29).
     //
@@ -883,9 +895,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       rid: msg.rid,
       orderRowId,
       isin: msg.isin,
-      // 매칭 축 4종. 통보가 실어 오는 값과 대조할 수 있게 **요청 원문 그대로** 싣는다.
+      // 매칭 축 5종. 통보가 실어 오는 값과 대조할 수 있게 **요청 원문 그대로** 싣는다.
       qty: msg.qty,
       price: msg.price,
+      // 취소 요청에는 매매구분이 없다 — 위 `const side` 의 "S" 는 DB CHECK 용 표기라
+      // 여기로 가져오면 안 된다 (`PendingOrder.side` 주석 / GC-WR-03).
+      side: isCancel ? "" : msg.side,
       isCancel,
       orgOrderNo,
       timer,
@@ -1012,6 +1027,31 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //    (신규 통보 → 신규 대기)을 좁히는 몫이 남는다.
   if (n.noticeType !== "" && n.noticeType !== "R") {
     refine((p) => p.isCancel === isCancelNotice);
+  }
+
+  // ②-1 매매구분 축 (GC-WR-03). 매수 10@70000 과 매도 10@70000 이 동시에 대기하면
+  //     ③④ 로는 영원히 갈리지 않는다 — 그 둘을 가르는 유일한 값이 방향이고, 접수 통보는
+  //     그것을 실어 온다. 축을 안 쓰면 **실제로 접수된 주문 2건이 모두** 「결과를 확인하지
+  //     못했습니다」로 끝난다.
+  //
+  //     적용 조건이 세 겹인 이유:
+  //       · `sideTrusted` — 취소·정정 통보(C/M)에는 매매구분이 없다. 요청에 담기지 않아
+  //         브로커가 채울 값이 없고 MockBroker 는 "B" 를 남긴다 (Pitfall 8 / envelope.ts:1186).
+  //       · `noticeType` 이 "A"/"E" — 거부("R")와 빈 값(구 서버)은 **취소 대기에도 온다.**
+  //         취소거부의 `side` 는 브로커 기본값이므로 그것으로 좁히면 살아 있는 신규 주문이
+  //         「거부됨」으로 뜬다. ② 가 "R" 을 건너뛰는 것과 같은 근거다.
+  //       · `fromWireSide` 가 `null` 이 아님 — 첫 글자로만 판정하고, 모르는 값은 매수로
+  //         지어내지 않는다 (envelope.ts:1322-1333 의 규율을 그대로 쓴다).
+  //
+  //     ③④ 보다 **앞**인 이유: 체결 통보의 수량·가격은 부분체결이면 주문값과 다르지만
+  //     방향은 어떤 통보에서도 변하지 않는다 — 더 강한 축이 먼저다.
+  //
+  //     `refine` 이므로 남는 후보가 0이면 이 축은 없던 것으로 한다. 하드 필터가 아니다.
+  if (n.sideTrusted && (n.noticeType === "A" || n.noticeType === "E")) {
+    const noticeSide = fromWireSide(n.side);
+    if (noticeSide !== null) {
+      refine((p) => !p.isCancel && p.side === noticeSide);
+    }
   }
 
   // ③ 수량 축 · ④ 가격 축. 체결("E")은 부분체결이면 주문값과 다르므로 둘 다 건너뛴다.
