@@ -19,6 +19,9 @@
  *   **73(`vi.list` 델타)** 으로 정정한다 — 그래서 낙관 반영 후 73 을 기다리고,
  *   ★ **타임아웃 UI 를 만들지 않는다.** 서버 무응답이 정상 경로인 자리에 「실패」를 쓰면
  *     사용자가 되돌리려고 다시 눌러 반대 값을 보낸다.
+ *   ★ 단, **보내지 못한 것**은 무응답과 다른 사실이다 (GC-WR-06). `send` 가 `false` 면
+ *     낙관 반영도 잠금도 걸지 않고 사유를 남긴다 — 잠금을 푸는 신호가 73 뿐이라
+ *     나가지 않은 요청에 건 잠금은 **영구**다.
  *
  * ④ ★ 체크할 수 없는 행이 있다
  *   - `orderNo === ""`(접수 전): 빈 주문번호의 확인은 **서버가 응답 없이 드롭**한다.
@@ -70,6 +73,17 @@ export const VI_DEADLINE_HOT_SECONDS = 20;
 export const VI_ORDER_LIST_CAPTION = '확인 체크 = 119초 미확인 취소 면제';
 export const VI_ORDER_LIST_TIP =
   '110초 미도달 취소는 서버 규칙이라 면제되지 않아요 · 접수 전(주문번호 없음)은 확인할 수 없어요';
+
+/**
+ * ★ 확인이 **나가지 못했을 때**의 문구 (GC-WR-06).
+ *
+ * ③ 의 「타임아웃 UI 를 만들지 않는다」와 충돌하지 않는다 — 저것은 **보낸 뒤 응답이 없는**
+ * 경우이고(서버 무응답이 정상 경로다), 이것은 `send` 가 `false` 를 돌려준 **보내지 못한**
+ * 경우다. 둘은 다른 사실이고, 후자는 화면이 말하지 않으면 아무도 모른다.
+ * 어조는 `strategy-status-card.tsx` 의 전송 실패 문구를 그대로 승계한다.
+ */
+export const VI_CONFIRM_SEND_FAILED_TEXT =
+  '연결이 끊겨 확인을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
 
 /** 상태 배지 1건의 표시 계약. 색·형태·텍스트 **3중**이라 색맹·흑백에서도 읽힌다. */
 interface StateFace {
@@ -195,6 +209,8 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
   const [optimistic, setOptimistic] = useState<ReadonlyMap<string, boolean>>(new Map());
   /** 전송 중 주문번호 — 같은 행의 연타를 막는다(정정이 오면 풀린다). */
   const [sending, setSending] = useState<ReadonlySet<string>>(new Set());
+  /** 보내지 **못한** 확인의 사유. 다음 성공 전송에서 지워진다(영구 경고가 아니다). */
+  const [sendError, setSendError] = useState('');
 
   useEffect(() => {
     if (optimistic.size === 0 && sending.size === 0) return;
@@ -227,7 +243,18 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
       // 세션 가드는 위 `isConfirmable(item, disabled)` 안에 있다 — `disabled` ←
       // `vi-client.tsx` `ViSurface` 의 `<ViOrderList disabled={!sessionReady}>`,
       // `sessionReady = status === 'ready'`(16-19 감사).
-      send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next });
+      /*
+        ★ 반환값을 **반드시** 읽는다 — 16-19 가 `send` 를 `boolean` 으로 바꾼 이유가 이 분기다
+          (`use-relay-socket.ts:863`, `false` = 보내지 **않았음**이 확실하다, GC-WR-06).
+          실패 경로에서 `setOptimistic`·`setSending` 어느 것도 부르지 않는다: 이 화면에서
+          잠금을 푸는 유일한 신호가 **서버 73 델타**인데, 나가지 않은 요청에는 그 델타가
+          영영 오지 않는다 — 사용자는 「확인했다」고 믿고 행은 영구히 회색으로 남는다.
+      */
+      if (!send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next })) {
+        setSendError(VI_CONFIRM_SEND_FAILED_TEXT);
+        return;
+      }
+      setSendError('');
       setOptimistic((prev) => new Map(prev).set(item.orderNo, next));
       setSending((prev) => new Set(prev).add(item.orderNo));
     },
@@ -267,6 +294,17 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
           {VI_ORDER_LIST_CAPTION}
         </span>
       </h3>
+
+      {sendError === '' ? null : (
+        /* 눌렀는데 못 나갔다 — 체크가 켜지지 않은 이유를 화면이 말한다(GC-WR-06). */
+        <p
+          data-slot="vi-confirm-error"
+          role="alert"
+          className="m-0 mb-[var(--s-2)] text-[11px] text-[var(--destructive)]"
+        >
+          {sendError}
+        </p>
+      )}
 
       {loading ? (
         <div aria-busy="true" data-slot="vi-order-skeleton" className="flex flex-col gap-[var(--s-1)]">

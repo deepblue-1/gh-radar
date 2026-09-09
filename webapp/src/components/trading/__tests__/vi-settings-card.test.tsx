@@ -28,7 +28,12 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
-import { ViSettingsCard, VI_ACK_TIMEOUT_MS, VI_AMOUNT_LIMIT_MESSAGE } from '../vi-settings-card';
+import {
+  ViSettingsCard,
+  VI_ACK_TIMEOUT_MS,
+  VI_AMOUNT_LIMIT_MESSAGE,
+  VI_SET_SEND_FAILED_TEXT,
+} from '../vi-settings-card';
 import { MAX_VI_ORDER_AMOUNT_MANWON, manwonToKrw } from '@/lib/vi-alert';
 
 const ACCOUNT = '37728502101';
@@ -62,8 +67,14 @@ function renderCard(props: Partial<React.ComponentProps<typeof ViSettingsCard>> 
 const amountInput = () => document.querySelector('#vi-amount') as HTMLInputElement;
 const rateInput = () => document.querySelector('#vi-check-rate') as HTMLInputElement;
 
+/**
+ * ★ `send` 스텁의 기본값은 **`true`** 다 (GC-WR-06 / 16-31 승계).
+ *   `submit` 이 반환값을 읽게 된 뒤로 `undefined`(falsy)는 「보내지 못했다」로 읽힌다 —
+ *   기본값을 세우지 않으면 전송 관련 케이스가 전부 실패 경로로 떨어진다.
+ */
 beforeEach(() => {
-  sendMock.mockClear();
+  sendMock.mockReset();
+  sendMock.mockReturnValue(true);
   window.localStorage.clear();
 });
 
@@ -454,6 +465,70 @@ describe('⑧ 금액 상한 — 세 층이 같은 값으로 막는다 (16-24 / W
 
     // ★ 0바이트로 조용히 사라지는 것이 아니라 **애초에 보내지 않는다**(PC-7).
     expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('⑨ 보내지 못한 `vi.set` 은 성공처럼 보이지 않는다 (GC-WR-06)', () => {
+  const cardError = () => document.querySelector('[data-slot="vi-send-error"]');
+  const dialogError = () => document.querySelector('[data-slot="vi-confirm-error"]');
+
+  it('「수정」이 못 나가면 실패 문구가 뜨고 「반영 중…」으로 잠기지 않는다', () => {
+    sendMock.mockReturnValue(false);
+    renderCard();
+
+    fireEvent.change(amountInput(), { target: { value: '1500' } });
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    // ★ 사유가 화면에 있다.
+    expect(cardError()).toHaveTextContent(VI_SET_SEND_FAILED_TEXT);
+    // ★ 잠기지 않았다 — 기다릴 에코가 없는데 잠그면 3초 동안 등록됐다고 믿는다.
+    expect(document.querySelector('[data-slot="vi-run-button"]')).toHaveTextContent('시작');
+    expect(screen.getByRole('button', { name: '수정' })).toBeEnabled();
+
+    // 연결이 돌아오면 같은 클릭이 나가고 사유가 접힌다(영구 잠금·영구 경고가 아니다).
+    sendMock.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(cardError()).toBeNull();
+  });
+
+  it('「시작」이 못 나가면 다이얼로그가 열린 채 사유를 보여 준다 — 닫힘 = 성공이 아니다', async () => {
+    sendMock.mockReturnValue(false);
+    renderCard();
+
+    fireEvent.click(screen.getByRole('button', { name: '시작' }));
+    const dialog = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '시작' }));
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    // ★ 창이 그대로다 — 「눌렀고 닫혔다」가 성공 신호로 읽히지 않는다.
+    expect(screen.queryByTestId('vi-start-dialog')).not.toBeNull();
+    expect(dialogError()).toHaveTextContent(VI_SET_SEND_FAILED_TEXT);
+    // ★ 램프도 버튼도 가동 전 그대로다.
+    expect(document.querySelector('[data-slot="vi-run-bar"]')).toHaveAttribute(
+      'data-run',
+      'false',
+    );
+
+    // 연결이 돌아오면 같은 자리에서 다시 눌러 나가고, 그때야 창이 닫힌다.
+    sendMock.mockReturnValue(true);
+    fireEvent.click(within(dialog).getByRole('button', { name: '시작' }));
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sendMock.mock.calls[1][0]).toMatchObject({ t: 'vi.set', run: true });
+    await waitFor(() => expect(screen.queryByTestId('vi-start-dialog')).toBeNull());
+  });
+
+  it('전송에 성공하면 기존 잠금·다이얼로그 닫힘이 그대로다 (회귀 방지)', async () => {
+    renderCard();
+
+    fireEvent.click(screen.getByRole('button', { name: '시작' }));
+    const dialog = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '시작' }));
+
+    await waitFor(() => expect(screen.queryByTestId('vi-start-dialog')).toBeNull());
+    expect(document.querySelector('[data-slot="vi-run-button"]')).toHaveTextContent('반영 중…');
+    expect(cardError()).toBeNull();
   });
 });
 

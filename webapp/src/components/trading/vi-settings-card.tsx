@@ -29,6 +29,9 @@
  *   전송하면 에코(61) 또는 타임아웃 전까지 버튼이 잠기고 `반영 중…` 을 보여 준다.
  *   곧바로 열어 두면 응답이 늦을 때 사용자가 한 번 더 눌러 **두 번째 등록**을 만든다.
  *   ★ 타임아웃은 **표시를 되돌리는 용도**일 뿐 재전송 경로가 아니다(T-16-10).
+ *   ★ 단, `send` 가 `false` 를 돌려준 **보내지 못한** 경우에는 잠그지도 않는다 (GC-WR-06).
+ *     기다릴 에코가 없는데 잠그면 「반영 중…」이 3초 뜨고 사용자는 등록됐다고 믿는다.
+ *     확인 다이얼로그도 그 경우에만 **열린 채로** 남아 사유를 보여 준다.
  *
  * ⑤ ★ 빈 61(미등록)은 입력값을 지우지 않는다 (WinForms CR-01)
  *   서버는 전략이 없어도 61 을 **빈 슬롯**으로 돌려준다. 그것을 「값 0」으로 읽으면
@@ -100,6 +103,26 @@ export const VI_DEFAULT_CHECK_RATE = 22;
  *   여기에 숫자를 다시 적으면 세 층의 상한이 갈린다 (WR-07).
  */
 export const VI_AMOUNT_LIMIT_MESSAGE = `주문금액은 최대 ${NUM.format(MAX_VI_ORDER_AMOUNT_MANWON)}만원까지 넣을 수 있어요`;
+
+/**
+ * ★ `vi.set` 이 **나가지 못했을 때**의 문구 (GC-WR-06).
+ *
+ * 어조는 `strategy-status-card.tsx` 의 전송 실패 문구를 그대로 승계한다 — 같은 사실
+ * (「연결이 끊겨 보내지 못했다」)을 화면마다 다른 말로 하면 같은 상태가 두 이름을 갖는다.
+ */
+export const VI_SET_SEND_FAILED_TEXT =
+  '연결이 끊겨 설정을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
+
+/**
+ * `submit` 한 번의 결과. **세 갈래를 구분하는 이유는 다이얼로그의 거취가 다르기 때문**이다.
+ *
+ * - `sent` — 나갔다. 다이얼로그를 닫고 에코를 기다린다.
+ * - `blocked` — 애초에 보내지 않기로 했다(세션 잠금·연타·금액 상한). 사유는 **카드 안에**
+ *   이미 떠 있으므로 다이얼로그를 닫아 그 사유가 보이게 한다.
+ * - `failed` — 보내려 했으나 소켓이 받지 않았다. **다이얼로그를 성공처럼 닫지 않는다** —
+ *   닫으면 「눌렀고 창이 닫혔다」가 곧 성공 신호로 읽힌다. 열어 둔 채 사유를 그 안에 띄운다.
+ */
+type ViSubmitResult = 'sent' | 'blocked' | 'failed';
 
 /** 폼이 다루는 값 3개. `run` 은 여기 없다 — 「수정」의 대상이 아니기 때문이다(②). */
 interface ViFormValues {
@@ -240,6 +263,9 @@ export function ViSettingsCard({
   const amountOverLimit = form.amountManwon > MAX_VI_ORDER_AMOUNT_MANWON;
   const showAmountLimit = amountClamped || amountOverLimit;
 
+  /** 보내지 **못한** `vi.set` 의 사유. 다음 성공 전송에서 지워진다(영구 경고가 아니다). */
+  const [sendError, setSendError] = useState('');
+
   /**
    * 금액 입력 — 상한을 넘으면 **상한으로 고정**한다.
    *
@@ -295,7 +321,7 @@ export function ViSettingsCard({
   const locked = disabled || server === undefined;
 
   const submit = useCallback(
-    (nextRun: boolean) => {
+    (nextRun: boolean): ViSubmitResult => {
       /*
         ★ 세션 가드가 **여기** 있어야 한다 (16-19 감사에서 뚫려 있던 자리).
           「시작/중지」 버튼은 `disabled={locked || submitting}` 이지만 `DirtyActionBar` 의
@@ -303,8 +329,8 @@ export function ViSettingsCard({
           세션이 끊기면 그 버튼은 그대로 눌렸고 `vi.set` 이 0바이트로 사라졌다.
           확인 다이얼로그가 열린 채 세션이 끊기는 경로도 같은 한 줄이 막는다.
       */
-      if (locked) return;
-      if (submittingRef.current) return; // 연타 가드 — 두 번째 등록을 만들지 않는다.
+      if (locked) return 'blocked';
+      if (submittingRef.current) return 'blocked'; // 연타 가드 — 두 번째 등록을 만들지 않는다.
       /*
         ★ 금액 상한 가드 (WR-07 / T-16-41). 입력은 이미 상한으로 자르지만 **서버 에코**가
           상한 밖 금액을 돌려주면 폼 값이 그대로 상한을 넘는다. 그 값을 그냥 보내면
@@ -313,7 +339,7 @@ export function ViSettingsCard({
       */
       if (form.amountManwon > MAX_VI_ORDER_AMOUNT_MANWON) {
         setAmountClamped(true);
-        return;
+        return 'blocked';
       }
       const msg: RelayViSetMsg = {
         t: 'vi.set',
@@ -323,19 +349,33 @@ export function ViSettingsCard({
         checkRate: form.checkRate,
         run: nextRun,
       };
+      /*
+        ★ 반환값을 **반드시** 읽는다 — 16-19 가 `send` 를 `boolean` 으로 바꾼 이유가 이 분기다
+          (`use-relay-socket.ts:863`, `false` = 보내지 **않았음**이 확실하다, GC-WR-06).
+          실패 경로에서 `submitting` 잠금·`ackTimer`·`onSent` 어느 것도 걸지 않는다:
+          ④ 의 잠금은 「보냈으니 에코를 기다린다」는 뜻인데, 보내지 않았으면 기다릴 에코가
+          없다 — 잠그면 `VI_ACK_TIMEOUT_MS` 동안 「반영 중…」이 뜨고 사용자는 등록됐다고 믿는다.
+      */
+      if (!send(msg)) {
+        setSendError(VI_SET_SEND_FAILED_TEXT);
+        return 'failed';
+      }
+      setSendError('');
       submittingRef.current = true;
-      send(msg);
       onSent?.(msg);
       setSubmitting(true);
       if (ackTimer.current !== null) window.clearTimeout(ackTimer.current);
       // 표시 잠금을 푸는 것뿐이다 — 재전송 경로는 이 파일에 없다.
       ackTimer.current = window.setTimeout(unlock, VI_ACK_TIMEOUT_MS);
+      return 'sent';
     },
     [form, locked, onSent, send, unlock],
   );
 
   /** 「수정」 — `run` 은 **현재값 그대로**다(②). */
-  const handleModify = useCallback(() => submit(run), [submit, run]);
+  const handleModify = useCallback(() => {
+    submit(run);
+  }, [submit, run]);
   const handleRevert = useCallback(() => setForm(baseline), [baseline]);
 
   /* ── 마감알림 (⑥) ─────────────────────────────────────────────────── */
@@ -539,6 +579,21 @@ export function ViSettingsCard({
             {submitting ? '반영 중…' : run ? '중지' : '시작'}
           </button>
         </div>
+
+        {sendError === '' ? null : (
+          /*
+            눌렀는데 못 나갔다 — 「반영 중…」도 뜨지 않고 램프도 그대로인 이유를 말한다.
+            자리가 **카드 안**인 이유: `DirtyActionBar` 는 더티 0 이면 렌더되지 않는데
+            「시작/중지」 실패가 정확히 그 경우다(16-31 에서 상따 폼이 겪은 것과 같은 함정).
+          */
+          <p
+            data-slot="vi-send-error"
+            role="alert"
+            className="mt-[var(--s-2)] m-0 text-[11px] text-[var(--destructive)]"
+          >
+            {sendError}
+          </p>
+        )}
       </section>
 
       {/* ── B4 하단 액션 바 (더티 0 이면 렌더 자체가 없다) ── */}
@@ -563,15 +618,25 @@ export function ViSettingsCard({
         checkRate={form.checkRate}
         todayOrderCount={todayOrderCount}
         unfilledCount={unfilledCount}
+        error={sendError}
         onOpenChange={(open) => {
-          if (!open) setConfirmKind(null);
+          if (!open) {
+            setConfirmKind(null);
+            setSendError(''); // 닫으면 사유도 접는다 — 다음에 열 때 남은 문구가 붙어 있지 않다.
+          }
         }}
         onConfirm={() => {
-          const kind = confirmKind;
-          setConfirmKind(null);
-          if (kind === null) return;
+          if (confirmKind === null) return;
           // ★ 중지 상태에서 「시작」은 **현재 폼 값**으로 나간다(더티 값 포함, D-07).
-          submit(kind === 'start');
+          const result = submit(confirmKind === 'start');
+          /*
+            ★ `failed` 면 **닫지 않는다** (GC-WR-06). 닫으면 「눌렀고 창이 닫혔다」가 곧
+              성공 신호로 읽히는데, 이 화면에서 그 오독의 대가는 「자동매수를 켰다고 믿는
+              사용자」다. 사유는 다이얼로그 안에 뜨고, 연결이 돌아오면 그 자리에서 다시 누르면 된다.
+              `blocked`(세션 잠금·연타·금액 상한)는 사유가 **카드 안**에 이미 떠 있으므로 닫는다.
+          */
+          if (result === 'failed') return;
+          setConfirmKind(null);
         }}
       />
     </>
@@ -704,6 +769,7 @@ function ViConfirmDialog({
   checkRate,
   todayOrderCount,
   unfilledCount,
+  error,
   onOpenChange,
   onConfirm,
 }: {
@@ -714,6 +780,8 @@ function ViConfirmDialog({
   checkRate: number;
   todayOrderCount: number;
   unfilledCount: number;
+  /** 보내지 못한 사유(GC-WR-06). 빈 문자열이면 아무것도 그리지 않는다. */
+  error: string;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
@@ -774,6 +842,21 @@ function ViConfirmDialog({
             ? '시작하면 사람 확인 없이 주문이 나가요. 금액·상승률을 다시 확인해 주세요.'
             : '이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.'}
         </p>
+
+        {error === '' ? null : (
+          /*
+            눌렀는데 못 나갔다 — 창이 그대로 열려 있는 이유가 여기 있다(GC-WR-06).
+            카드 안의 같은 문구는 오버레이에 가려 보이지 않으므로, 사용자가 보고 있는
+            **이 창 안**에 사유를 둔다. 상태는 카드의 `sendError` 하나뿐이다.
+          */
+          <p
+            data-slot="vi-confirm-error"
+            role="alert"
+            className="m-0 text-[length:var(--t-caption)] text-[var(--destructive)]"
+          >
+            {error}
+          </p>
+        )}
 
         <DialogFooter>
           {/* 기본 포커스 대상 — 실행 버튼보다 **앞**에 둔다(탭 순서·오클릭 방어). */}

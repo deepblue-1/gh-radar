@@ -30,6 +30,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import {
+  VI_CONFIRM_SEND_FAILED_TEXT,
   ViOrderList,
   acceptedClock,
   changeRateOf,
@@ -73,7 +74,15 @@ function renderList(items: RelayViOrderItem[], nowMs = NOW) {
   return render(<ViOrderList items={items} nowMs={nowMs} />);
 }
 
-beforeEach(() => sendMock.mockClear());
+/**
+ * ★ `send` 스텁의 기본값은 **`true`** 다 (GC-WR-06 / 16-31 승계).
+ *   `toggle` 이 반환값을 읽게 된 뒤로 `undefined`(falsy)는 「보내지 못했다」로 읽힌다 —
+ *   기본값을 세우지 않으면 전송 관련 케이스가 전부 실패 경로로 떨어진다.
+ */
+beforeEach(() => {
+  sendMock.mockReset();
+  sendMock.mockReturnValue(true);
+});
 
 describe('순수 함수', () => {
   it('remainingSeconds 는 음수를 0 으로 접고 **올림**이다', () => {
@@ -252,6 +261,48 @@ describe('④⑧ 확인 체크는 즉시 1회 전송', () => {
     const box = within(table()).getByRole('checkbox');
     expect(box).toHaveAttribute('data-state', 'unchecked');
     expect(box).toBeDisabled();
+  });
+});
+
+describe('⑨ 보내지 못한 확인에는 낙관 반영도 잠금도 걸리지 않는다 (GC-WR-06)', () => {
+  const errorText = () => document.querySelector('[data-slot="vi-confirm-error"]');
+
+  it('`send` 가 false 면 체크가 켜지지 않고 행이 잠기지 않으며 사유가 뜬다', () => {
+    sendMock.mockReturnValue(false);
+    renderList([item()]);
+
+    fireEvent.click(within(table()).getByRole('checkbox'));
+
+    // 시도는 했다 — 그러나 소켓이 받지 않았다.
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    // ★ 낙관 반영 없음. 「확인했다」고 믿게 두지 않는다.
+    expect(within(table()).getByRole('checkbox')).toHaveAttribute('data-state', 'unchecked');
+    // ★ 사유가 화면에 있다.
+    expect(errorText()).not.toBeNull();
+    expect(errorText()).toHaveTextContent(VI_CONFIRM_SEND_FAILED_TEXT);
+
+    /*
+      ★ 잠기지 않았다는 증명 — `sending` 이 걸렸다면 두 번째 클릭이 삼켜진다.
+        이 화면에서 잠금을 푸는 신호는 서버 73 델타뿐이라, 잘못 건 잠금은 **영구**다.
+    */
+    sendMock.mockReturnValue(true);
+    fireEvent.click(within(table()).getByRole('checkbox'));
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(within(table()).getByRole('checkbox')).toHaveAttribute('data-state', 'checked');
+    // 성공 전송이 사유를 지운다(영구 경고가 아니다).
+    expect(errorText()).toBeNull();
+  });
+
+  it('`send` 가 true 면 기존 낙관 반영·잠금이 그대로 걸린다 (회귀 방지)', () => {
+    renderList([item()]);
+
+    fireEvent.click(within(table()).getByRole('checkbox'));
+    expect(within(table()).getByRole('checkbox')).toHaveAttribute('data-state', 'checked');
+    expect(errorText()).toBeNull();
+
+    // 연타 잠금이 살아 있다 — 실패 분기가 성공 경로를 갉아먹지 않았다.
+    fireEvent.click(within(table()).getByRole('checkbox'));
+    expect(sendMock).toHaveBeenCalledTimes(1);
   });
 });
 
