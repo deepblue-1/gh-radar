@@ -397,8 +397,16 @@ function finish(verdict, why) {
   } catch {
     /* 이미 닫힌 소켓 */
   }
-  console.log(verdict);
-  process.exit(0);
+  // ★ 판정을 `console.log` 로 찍고 곧바로 `process.exit(0)` 하면 안 된다 (R2-IN-05 / T-16-57).
+  //   이 프로브의 stdout 은 호출부가 `verdict="$(... node ...)"` 로 잡으므로 **항상 파이프**이고,
+  //   POSIX 파이프에서 `process.stdout` 은 **비동기**다. `process.exit()` 는 대기 중인 쓰기를
+  //   버릴 수 있다는 것이 Node 문서의 명시 경고다. 잘리면 호출부는 `verdict=""` 를 받고
+  //   `case` 의 `*` 갈래로 떨어져 **FAIL 이 SKIP 으로 강등된다** — T-16-57 이 막겠다고 선언한
+  //   바로 그 결과이고, rc 가 0 이라 `inconclusive` 덮어쓰기도 걸리지 않는다.
+  //   그래서 **쓰기 완료 콜백에서** 종료한다. `process.exitCode` 는 콜백이 오지 못한 경우에도
+  //   종료 코드가 0 이도록 미리 세워 둔다 (사유는 stderr 에 이미 남았다).
+  process.exitCode = 0;
+  process.stdout.write(verdict + "\n", () => process.exit(0));
 }
 
 function sendOrder() {
@@ -664,6 +672,13 @@ else
       ;;
     unreachable)
       check "INV-9 브라우저 → relay wss 주문 왕복 도달성 (order.result 미수신)" false
+      ;;
+    "")
+      # 빈 판정은 **SKIP 이 아니다** (R2-IN-05 이중 방어). 프로브는 세 갈래 중 하나를
+      # 반드시 찍고, rc≠0 이면 호출부가 `inconclusive` 로 덮어쓴다. 그러고도 비어 있다면
+      # 판정이 유실된 것이다 — 원인이 stdout 잘림이든 프로브 버그든, 「아무것도 모른다」를
+      # 조용한 초록불로 바꾸지 않는다. FAIL 로 세워 사람이 보게 한다.
+      check "INV-9 브라우저 → relay wss 주문 왕복 도달성 (판정 유실 — 빈 문자열)" false
       ;;
     *)
       # 매핑(`dma_credentials` 행 0건)이나 토큰에서 끊기면 주문 핸들러까지 가지 않는다.
