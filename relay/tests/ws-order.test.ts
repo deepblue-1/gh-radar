@@ -1244,6 +1244,111 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(1);
     expect(orders.inserts).toHaveLength(1);
   });
+
+  // ----------------------------------------------------------
+  // 표기·미지 값 — R2-WR-03 / R2-WR-06
+  // ----------------------------------------------------------
+
+  it("㉜ 원주문번호의 표기가 달라도 취소는 정산된다 — 선행 0 하나로 timeout 이 되지 않는다 (R2-WR-03①)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    // 요청은 미체결 목록의 표기를 그대로 싣는다 — 와이어 주문번호는 10자리 고정폭 0 패딩이다.
+    ws.sendRaw(orderCancel({ rid: "rid-cancel", orgOrderNo: "0000012345" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "취소 송신");
+
+    // 통보는 **다른 단말이 만든 표기**로 온다. 같은 주문번호이고 패딩만 없다 —
+    // 원장 유입분·재기동 복원분이 섞이는 미체결 목록에서 실제로 갈리는 자리다.
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "C",
+      orderNo: "0000012399",
+      orgOrderNo: "12345",
+      quantity: 10,
+      price: 70_000,
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "취소확인 order.result");
+
+    // ★ 정규화가 없으면 하드 필터가 후보를 0건으로 만들고 `null` 을 돌려준다 — 5초 뒤
+    //   `finish(null)` 이 `status:"timeout"` 을 큐에 넣어, **실제로 확인된 취소가 감사
+    //   기록에 「결과를 확인하지 못했습니다」로 남는다.** 그것이 이 케이스의 의미다.
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-cancel",
+      status: "cancelled",
+      orderNo: "0000012399",
+    });
+    expect(orders.updates.find((u) => u.status === "cancelled")?.orderRowId).toBe("row-1");
+
+    // 5초가 지나도 timeout 은 나가지 않는다 — 대기는 이미 걷혔다.
+    await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS);
+    await flushIo(20);
+    expect(orders.updates.filter((u) => u.status === "timeout")).toHaveLength(0);
+    expect(framesOf(inbox, "order.result")).toHaveLength(1);
+  });
+
+  it("㉝ 정규화 후에도 어긋나는 원주문번호는 축 전멸 로그를 남긴다 — 원문은 싣지 않는다 (R2-WR-03②)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw(orderCancel({ rid: "rid-cancel", orgOrderNo: "0000012345" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "취소 송신");
+
+    // 표기가 아니라 **값**이 다르다 — 남의 취소확인이다. 정산하지 않는 것이 옳다.
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "C",
+      orderNo: "0000012399",
+      orgOrderNo: "0000099999",
+      quantity: 10,
+      price: 70_000,
+    });
+    await waitFor(() => framesOf(inbox, "order").length === 1, "51 푸시");
+    await flushIo(20);
+
+    // (a) 아무것도 정산되지 않는다.
+    expect(framesOf(inbox, "order.result")).toHaveLength(0);
+
+    // (b) 축이 후보를 **전부** 지운 사실이 전용 로그로 남는다. 바깥의 「좁히지 못했다」만
+    //     있으면 표기 어긋남과 남의 통보를 구분할 수 없다 — 실계좌에서 원인을 못 짚는다.
+    const warned = JSON.stringify(warnSpy.mock.calls);
+    expect(warned).toContain("강한 축이 후보를 전부 지웠다");
+    // 원인 축이 로그만으로 특정된다: 원주문번호 축이 지웠다(취소성 축 이전에 이미 0건).
+    expect(warned).toContain('"afterOrgOrderNo":0');
+    expect(warned).toContain('"orgOrderNoApplied":true');
+    // 비식별 신호는 싣는다 — 정규화 후 길이("99999")로 패딩 문제와 값 불일치를 가른다.
+    expect(warned).toContain('"orgOrderNoLen":5');
+
+    // (c) 주문번호 **원문**은 어느 쪽도 로그에 없다 (T-16-45 — ㉑ 과 같은 규율).
+    expect(warned).not.toContain("0000099999");
+    expect(warned).not.toContain("0000012345");
+    expect(warned).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
+  it("㉞ 구 게이트웨이의 빈 매매구분은 감사 행에 매수로 기록되지 않는다 (R2-WR-06)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    await authed("token-a");
+
+    // 상따 자동주문의 접수 통보인데 매매구분이 비어 있다(구 게이트웨이·미완성 브로커).
+    // 파서는 이것을 `sideTrusted: true` 로 준다 — C/M 만 false 로 두기 때문이다.
+    // 「믿을 수 있는가」와 「해석되는가」는 다른 질문이고, 옛 `startsWith("S") ? "S" : "B"`
+    // 는 이 자리를 **매수로 지어냈다**. 매도 자동주문이 감사 기록에 매수로 남는 형태다.
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "A",
+      side: "",
+      orderNo: "0000099999",
+      origin: "LimitChaser",
+      quantity: 7,
+      price: 12_345,
+    });
+    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
+
+    expect(orders.inserts[0]?.side).not.toBe("B");
+    // CHECK 가 B/S 둘뿐이라 행을 남기려면 하나를 골라야 한다 — 취소 행과 같은 「방향의
+    // 정본이 아님」 표기로 수렴시킨다.
+    expect(orders.inserts[0]?.side).toBe("S");
+
+    // 사유는 반드시 남는다 (S-5 — 무로그 fail-safe 금지). 계좌번호는 싣지 않는다 (T-16-45).
+    const warned = JSON.stringify(warnSpy.mock.calls);
+    expect(warned).toContain("매매구분을 해석하지 못했다");
+    expect(warned).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
 });
 
 // ============================================================
@@ -1416,5 +1521,47 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     // 남은 축으로도 갈리지 않아 결국 `null` 이다 (하드 필터였다면 여기서도 `null` 이지만
     // 정상 통보를 버리는 다른 경로들이 함께 깨진다).
     expect(narrowPending([first, second], mkNotice({ noticeType: "A", side: "S" }))).toBeNull();
+  });
+
+  it("원주문번호는 표기가 달라도 같은 값으로 읽는다 — 선행 0·공백 (R2-WR-03①)", () => {
+    const fresh = mkPending({ rid: "new" });
+    const padded = mkPending({ rid: "padded", side: "", isCancel: true, orgOrderNo: "0000012345" });
+
+    // 통보 쪽만 패딩이 없다. 완전일치였다면 하드 필터가 후보를 0건으로 만들고 `null` 이다.
+    expect(narrowPending([fresh, padded], mkNotice({ noticeType: "C", orgOrderNo: "12345" }))).toBe(
+      padded,
+    );
+
+    // 반대 방향(요청 쪽에 패딩이 없다)과 공백 패딩도 같은 값으로 읽는다.
+    const bare = mkPending({ rid: "bare", side: "", isCancel: true, orgOrderNo: "12345" });
+    expect(
+      narrowPending([fresh, bare], mkNotice({ noticeType: "C", orgOrderNo: " 0000012345 " })),
+    ).toBe(bare);
+
+    // 관대해진 것은 **표기**뿐이다 — 값이 실제로 다르면 여전히 정산하지 않는다.
+    expect(
+      narrowPending([fresh, padded], mkNotice({ noticeType: "C", orgOrderNo: "0000099999" })),
+    ).toBeNull();
+
+    // 0 으로만 채워진 고정폭 필드는 「값 없음」이다. 이것을 축으로 쓰면 신규 통보가 취소
+    // 대기만 남기고 0건이 되어 **통째로 미정산**된다.
+    expect(narrowPending([fresh], mkNotice({ noticeType: "A", orgOrderNo: "0000000000" }))).toBe(
+      fresh,
+    );
+  });
+
+  it("모르는 통보 종류는 축으로 쓰이지 않는다 — 신규 쪽으로 단정하지 않는다 (R2-IN-03)", () => {
+    const fresh = mkPending({ rid: "new" });
+    const cancel = mkPending({ rid: "cancel", side: "", isCancel: true, orgOrderNo: "0000012345" });
+
+    // 블랙리스트(`noticeType !== "" && !== "R"`)였을 때 이 통보들은 `p.isCancel === false`
+    // 로 좁혀져 **신규 대기를 정산**했다. 장래에 추가될 종류(부분취소·예약확인 등)가 전부
+    // 그 경로로 떨어진다 — 확장될 때마다 조용히 오분류하는 형태다.
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "P" }))).toBeNull();
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "X", side: "B" }))).toBeNull();
+
+    // 아는 값은 그대로 축이다 — 화이트리스트가 기존 정산을 좁히지 않았다.
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "A" }))).toBe(fresh);
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "E", quantity: 3 }))).toBe(fresh);
   });
 });
