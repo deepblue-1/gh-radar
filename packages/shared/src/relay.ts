@@ -217,6 +217,19 @@ export type RelayLimitChaser = {
    * `strategies.disable` 의 서버 키 상한(WR-09)은 64B 다.
    */
   key: string;
+  /**
+   * 종목명 — **게이트웨이가 주는 값이 아니다.** relay 가 `stocks.isin` 역매핑(SymbolMap)으로
+   * 채운다. `key` 와 같은 **파생값**이지 와이어 필드가 아니다.
+   *
+   * 마스터에 없는 ISIN(신규 상장 직후·마스터 미로딩)에서는 **없다** — 빈 문자열이나 ISIN 을
+   * 이 자리에 넣지 않는다. UI 가 `name ?? isin` 으로 폴백한다.
+   *
+   * 잔고(`RelayAccountState.hold[].name`)·미체결·VI 주문의 이름과 **같은 맵**이 원천이다 —
+   * 웹앱이 이름을 따로 조회하면 목록의 원천이 둘이 된다(T-16-02).
+   */
+  name?: string;
+  /** 6자 단축코드 — 표시용. 같은 역매핑 산물이고 없을 수 있다(위 주의 참조). */
+  code?: string;
 };
 
 /**
@@ -231,6 +244,11 @@ export type RelayLimitChaser = {
  *    브라우저는 KOSDAQ 이 아닌 **모든** 값(KONEX·`null`·미확인 sentinel)을 조용히 KOSPI 로
  *    접었고, 그 추측이 반복 발주 설정으로 굳었다 — 형식 검증(`z.enum(["K","Q"])`)은 그것을
  *    잡지 못한다. 값을 검증하는 대신 **애초에 받지 않는다**.
+ *
+ * ⚠️ **`name`·`code` 도 브라우저가 싣지 않는다** — `market` 과 같은 규율이다. 이름의 소유자도
+ *    relay 다(`SymbolMap`). 브라우저가 실어 보내면 화면이 **자기가 만든 이름을 자기가 믿는**
+ *    순환이 생기고, 임의의 종목명을 서버 캐시(`getLimitChasers` → `lc.snap`)에 밀어 넣어
+ *    다른 탭까지 오염시키는 표면이 열린다. 값을 검증하는 대신 **애초에 받지 않는다**.
  */
 export type RelayLimitChaserInput = Omit<
   RelayLimitChaser,
@@ -240,6 +258,8 @@ export type RelayLimitChaserInput = Omit<
   | "cancelQtyTrackBaseline"
   | "key"
   | "market"
+  | "name"
+  | "code"
 >;
 
 /**
