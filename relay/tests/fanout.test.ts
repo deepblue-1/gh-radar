@@ -41,6 +41,7 @@ import {
 } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
+import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
@@ -1105,5 +1106,69 @@ describe("WsFanout", () => {
 
     expect(aIsins).toEqual([SAMPLE_ISIN]);
     expect(bIsins).toEqual([OTHER_ISIN]);
+  });
+
+  /**
+   * ㉓㉔ — R2-WR-05. `#register` 의 docstring 이 선언한 「상태 리스너는 **사용자당 1개**」가
+   * 실제로 성립하는지 본다.
+   *
+   * 전제: `#onClose` 는 마지막 소켓에서 `#users` 엔트리를 지우지만 `DmaSession` 은 유예
+   * 5분 동안 살아 있다(D-15). 가짜 타이머라 유예가 흐르지 않으므로 재접속은 **같은 세션**을
+   * 받는다 — 각 케이스가 그 사실을 `toBe(session)` 으로 먼저 확인한다. 그 전제가 깨지면
+   * (세션이 새로 생기면) 리스너가 1개인 것은 당연해져 검증이 무의미해지기 때문이다.
+   */
+  async function refresh(
+    times: number,
+    session: DmaSession,
+  ): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+    let conn = await authed("token-a");
+    for (let i = 0; i < times; i += 1) {
+      await conn.ws.close();
+      // 클라이언트 close 만으로는 서버측 `#onClose` 가 끝났다고 볼 수 없다.
+      await waitFor(() => h.fanout.stats().authedUserCount === 0, `${i + 1}회차 서버측 엔트리 회수`);
+      conn = await authed("token-a");
+      expect(h.sessions.get(USER_A)).toBe(session);
+    }
+    return conn;
+  }
+
+  it("㉓ 새로고침을 3회 반복해도 세션 \"state\" 리스너는 1개다 (R2-WR-05)", async () => {
+    const boot = await authed("token-a");
+    const session = h.sessions.get(USER_A);
+    expect(session).toBeDefined();
+    if (session === undefined) throw new Error("세션이 없다");
+    // 이 파일 밖에서 `"state"` 를 듣는 곳은 없다 — 이 수는 곧 팬아웃 리스너 수다.
+    expect(session.listenerCount("state")).toBe(1);
+    await boot.ws.close();
+    await waitFor(() => h.fanout.stats().authedUserCount === 0, "부팅 소켓 회수");
+
+    await refresh(3, session);
+
+    // 누적이 있으면 4(부팅 1 + 재접속 3)가 된다.
+    expect(session.listenerCount("state")).toBe(1);
+  });
+
+  it("㉔ 재접속을 반복해도 상태 프레임은 브라우저로 한 번만 간다 (R2-WR-05)", async () => {
+    const boot = await authed("token-a");
+    const session = h.sessions.get(USER_A);
+    if (session === undefined) throw new Error("세션이 없다");
+    await boot.ws.close();
+    await waitFor(() => h.fanout.stats().authedUserCount === 0, "부팅 소켓 회수");
+
+    const last = await refresh(3, session);
+    const before = framesOf(last.inbox, "state").length;
+
+    // 인증 ACK 는 `#send` 직접 경로다 — 리스너 경로를 보려면 상태 전이를 따로 발행한다.
+    session.emit("state", { t: "state", s: "reconnecting", attempt: 7 });
+    await waitFor(
+      () => framesOf(last.inbox, "state").length > before,
+      "리스너 경로로 내려온 상태 프레임",
+    );
+    await flushIo(30);
+
+    const delivered = framesOf(last.inbox, "state").slice(before);
+    // 리스너가 k 개면 같은 프레임이 k 건 온다. 이것이 증상 그 자체다.
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toEqual({ t: "state", s: "reconnecting", attempt: 7 });
   });
 });

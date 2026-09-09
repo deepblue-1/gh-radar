@@ -1123,6 +1123,15 @@ export class WsFanout {
       for (const c of existing.conns) conns.add(c);
       // 버려질 entry 의 리스너를 **여기서 뗀다.** 옛 세션이 살아 있는 동안(유예·재접속
       // 경합) 죽은 entry 의 리스너가 그 세션에 남아 있으면 그것이 곧 누수다.
+      //
+      // ⚠️ 정직하게 적는다: **이 갈래는 오늘의 코드로는 도달하지 않는다.** `SessionManager`
+      //    가 세션을 새로 세우는 유일한 조건이 `refCount === 0` 인데(`acquire` 의 죽은 세션
+      //    폐기 갈래), 여기 `existing` 이 있다는 것은 그 사용자의 소켓이 아직 살아 있다는
+      //    뜻이라 `refCount >= 1` 이다. 그래서 16-44 의 회귀 실증에서 이 줄만 지웠을 때는
+      //    빨개지는 테스트가 **0건**이었다(㉓㉔ 를 깨는 것은 `#onClose` 쪽이다).
+      //    그럼에도 남긴다 — 이 `if` 블록 자체가 이미 있는 갈래이고(「세션 교체」 로그),
+      //    `acquire` 의 재생성 조건이 언젠가 완화되면 리스너 누수가 **조용히** 되살아난다.
+      //    갈래를 두면서 정리만 빼는 것은 버그를 예약해 두는 것이다.
       existing.session.off("state", existing.onState);
       logger.info({ userId, conns: conns.size }, "[WS] 세션 교체 — 상태 리스너 재결선");
     }
