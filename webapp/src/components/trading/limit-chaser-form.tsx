@@ -21,7 +21,12 @@
  *      우측 끝 고정 위치**(`ml-auto`). 이 세 가지가 이 파일에서 유일한 오터치 방어이므로
  *      크기·간격·위치를 줄이는 변경은 곧 안전장치를 줄이는 변경이다.
  *   4. **제출 후 즉시 재활성 금지** — 전송 중에는 액션 바가 `반영 중…` 으로 잠긴다.
- *   5. **삭제 버튼을 만들지 않는다**(D-08). 매수·매도·취소 게이트가 전부 꺼지면 그것이 삭제
+ *   5. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 발주가·산출 수량이 0 이면 스위치를
+ *      **켤 수 없고** 그 자리에 사유 한 줄(`data-slot="lc-arm-blocked"`)이 선다. 판정은
+ *      `gateBlocked()` 하나이고 렌더의 `disabled` 와 전송 직전 가드가 그것을 함께 읽는다.
+ *      ★ **끄는 것은 언제나 허용**한다 — 무장 해제를 막으면 그게 더 위험하다(T-16-44).
+ *      relay 도 같은 조건을 거부하므로 UI 를 우회한 경로가 있어도 무장 상태가 만들어지지 않는다.
+ *   6. **삭제 버튼을 만들지 않는다**(D-08). 매수·매도·취소 게이트가 전부 꺼지면 그것이 삭제
  *      (`crud "D"`)다. 판정은 `crudOf()` 한 곳이고, **화면의 「삭제됨」 표시는 서버 에코의
  *      `crud`** 를 본다(클라 판정은 전송용 힌트일 뿐이다).
  *
@@ -98,6 +103,18 @@ import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
 
 /** 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다. */
 const DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
+
+/**
+ * 무장 불가 사유 (WR-06). 배지만 회색으로 두면 사용자는 **왜** 안 켜지는지 모른다.
+ *
+ * 발생 조건은 「시세를 못 받은 종목」이다 — `stock_quotes` 행이 없으면 상한가·현재가가 0 이고
+ * 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그래서 사유가 아니라 **다음 행동**을 말한다.
+ */
+const ARM_BLOCKED_TEXT = {
+  buy: '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+  sell: '매도가격이나 예상 매도수량이 0 이에요. 값을 확인하면 켤 수 있어요.',
+  sweep: '한방가격이나 매수 주문수량이 0 이에요. 값을 입력하면 켤 수 있어요.',
+} as const;
 
 const NUM = new Intl.NumberFormat('ko-KR');
 const EMPTY_FLASH: ReadonlySet<string> = new Set();
@@ -307,18 +324,81 @@ export function LimitChaserForm({
   const sentNotifyRef = useRef(onSent);
   sentNotifyRef.current = onSent;
 
+  /*
+    ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다.
+
+    `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
+    그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그 상태로 매수를 켜면
+    `{buyEnabled:true, buyOrderPrice:0, buyOrderQty:0}` 이 나가고(`UIntSchema` 는 0 을
+    통과시킨다) 화면에는 「무장」 배지가 뜬다 — 사용자는 무장했다고 믿지만 그 전략은 영원히
+    발주하지 않는다. 조용한 실패다.
+
+    ★ 산출식을 **복제하지 않는다**. 아래 `buyQty`/`sellQty` 파생값을 그대로 읽는다 —
+      `lib/limit-chaser.ts` 가 유일 지점이다.
+  */
+  const buyQty = buyOrderQtyFromAmount(form.buyOrderAmount, form.buyOrderPrice);
+  /** 예상 매도수량 — **표시 전용**이다(무장 조건이 아니다. 아래 `canArmSell` 주석 참조). */
+  const sellQty = estimatedSellQty(sellableQty, form.sellOrderRatio);
+
+  const canArmBuy = form.buyOrderPrice > 0 && buyQty > 0;
+  /*
+    ★ 매도는 **`sellQty`(예상 매도수량)를 조건으로 쓰지 않는다.**
+
+    `sellQty` 는 `estimatedSellQty(sellableQty, ratio)` 이고 `lib/limit-chaser.ts` 가 그것을
+    **표시 전용**이라고 못박았다 — 정본은 서버가 Set 시점에 스냅샷하는 `sellOrderQty` 다.
+    게다가 상따의 정상 흐름은 「아직 한 주도 없는 상태에서 매수·매도를 함께 무장」이다.
+    보유 0 을 무장 차단 조건으로 삼으면 이 화면의 주 동선이 통째로 막힌다.
+
+    그래서 **서버 검증과 동형**으로 잡는다: 서버가 매도를 눕히는 조건은 `sellWatchQty === 0`
+    (「0 이면 서버가 매도 활성화를 거부한다」)과 비율 범위이지 보유수량이 아니다. WR-06 이
+    말한 「시세를 못 받은 종목」은 `sellOrderPrice === 0` 으로 여기서 그대로 걸린다.
+  */
+  const canArmSell = form.sellOrderPrice > 0 && form.sellWatchQty > 0;
+  /*
+    한방(스윕)은 **매수 발주를 재계산**하는 보조 트리거다. `crudOf` 의 게이트 4종
+    (`buyEnabled`·`sellEnabled`·`cancelQtyEnabled`·`cancelTradeEnabled`)에 `sweepEnabled` 가
+    없다는 사실이 그것을 말한다 — 한방만 켠 전략은 서버가 삭제(`crud "D"`)로 정규화한다.
+    그래서 한방은 **자기 감시가(`sweepWatchPrice`) + 매수 무장 조건**을 함께 요구한다.
+    매수를 못 켜는 상태에서 한방만 켜는 것은 정의상 아무 발주도 만들지 못한다.
+  */
+  const canArmSweep = form.sweepWatchPrice > 0 && canArmBuy;
+
+  const canArm: Record<'buyEnabled' | 'sellEnabled' | 'sweepEnabled', boolean> = {
+    buyEnabled: canArmBuy,
+    sellEnabled: canArmSell,
+    sweepEnabled: canArmSweep,
+  };
+
+  /**
+   * 스위치 1개의 **판정 지점 하나**. 렌더의 `disabled` 와 전송 직전 가드가 이 함수를 함께
+   * 읽는다 — 두 곳에 따로 적으면 한쪽만 고쳐지고, 그때 뚫리는 것이 「비활성인데 눌리면
+   * 나가는 무장」이다 (`vi-order-list.tsx` 의 `isConfirmable` 과 같은 규율이다).
+   *
+   * ★ **끄는 것은 언제나 허용한다** (`next === false` 면 무장 조건을 보지 않는다).
+   *   무장 해제를 막으면 그게 더 위험하다 — 이미 켜진 게이트를 못 끄는 화면은 사용자의
+   *   자산을 인질로 잡는다 (T-16-44).
+   */
+  const gateBlocked = useCallback(
+    (key: 'buyEnabled' | 'sellEnabled' | 'sweepEnabled', next: boolean): boolean => {
+      if (disabled) return true;
+      if (!next) return false;
+      return !canArm[key];
+    },
+    [disabled, canArm],
+  );
+
   const toggleGate = useCallback(
     (key: 'buyEnabled' | 'sellEnabled' | 'sweepEnabled', next: boolean) => {
-      if (disabled) return;
+      // 세션 가드(`disabled`)와 무장 가드가 **같은 함수** 안에 있다 — `disabled` ←
+      // `limit-chaser-client.tsx` 의 `LimitChaserSurface`(`status !== 'ready'`, 16-19 감사).
+      if (gateBlocked(key, next)) return;
       const values: LimitChaserFormValues = { ...formRef.current, [key]: next };
       setForm(values);
       const cfg = buildCfg(values);
-      // 세션 가드는 **이 위 `disabled` 한 줄**이다 — `limit-chaser-client.tsx` 의
-      // `LimitChaserSurface` 가 `disabled={… || status !== 'ready'}` 로 내려보낸다(16-19 감사).
       send({ t: 'lc.set', cfg });
       sentNotifyRef.current?.(cfg);
     },
-    [disabled, send, buildCfg],
+    [gateBlocked, send, buildCfg],
   );
 
   /** 「수정」 — 표시값 전체를 한 번에 보낸다. 부분 갱신이 없다(D-06). */
@@ -344,9 +424,6 @@ export function LimitChaserForm({
     setSubmitting(false);
   }, [server]);
 
-  const buyQty = buyOrderQtyFromAmount(form.buyOrderAmount, form.buyOrderPrice);
-  const sellQty = estimatedSellQty(sellableQty, form.sellOrderRatio);
-
   const shared = { dirty: dirtySet, flash, disabled };
 
   const buyCard = (
@@ -362,7 +439,10 @@ export function LimitChaserForm({
           label: '매수주문 켜기',
           checked: form.buyEnabled,
           onChange: (v) => toggleGate('buyEnabled', v),
+          // ★ 켜는 방향만 막는다 — `!form.buyEnabled` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
+          disabled: gateBlocked('buyEnabled', !form.buyEnabled),
         }}
+        armBlocked={!form.buyEnabled && !canArmBuy && !disabled ? ARM_BLOCKED_TEXT.buy : undefined}
       >
         <NumField
           id="lc-buy-watch-price"
@@ -466,7 +546,11 @@ export function LimitChaserForm({
           label: '한방체결 켜기',
           checked: form.sweepEnabled,
           onChange: (v) => toggleGate('sweepEnabled', v),
+          disabled: gateBlocked('sweepEnabled', !form.sweepEnabled),
         }}
+        armBlocked={
+          !form.sweepEnabled && !canArmSweep && !disabled ? ARM_BLOCKED_TEXT.sweep : undefined
+        }
       >
         <NumField
           id="lc-sweep-tick"
@@ -502,7 +586,11 @@ export function LimitChaserForm({
           label: '매도주문 켜기',
           checked: form.sellEnabled,
           onChange: (v) => toggleGate('sellEnabled', v),
+          disabled: gateBlocked('sellEnabled', !form.sellEnabled),
         }}
+        armBlocked={
+          !form.sellEnabled && !canArmSell && !disabled ? ARM_BLOCKED_TEXT.sell : undefined
+        }
       >
         <NumField
           id="lc-sell-watch-price"
@@ -724,6 +812,8 @@ interface GroupSwitchProps {
   label: string;
   checked: boolean;
   onChange: (next: boolean) => void;
+  /** 이 스위치를 지금 누를 수 없는가. 판정은 호출부의 `gateBlocked` 하나다(WR-06). */
+  disabled?: boolean;
 }
 
 /** `.grp` — 좌측 3px 액센트 + 헤더(LED · 제목 · 상태문구 · 우측 끝 스위치). */
@@ -737,6 +827,7 @@ function Group({
   hint,
   showHint = false,
   switchProps,
+  armBlocked,
   children,
 }: {
   slot: 'buy' | 'buy-price' | 'sweep' | 'sell' | 'sell-price' | 'cancel';
@@ -749,6 +840,8 @@ function Group({
   /** 힌트를 화면에 렌더할지. 기본은 **`title` 툴팁으로만** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
   showHint?: boolean;
   switchProps?: GroupSwitchProps;
+  /** 무장 불가 사유 1줄 (WR-06). 켤 수 없을 때만 넘어온다 — 없으면 렌더하지 않는다. */
+  armBlocked?: string;
   children: ReactNode;
 }) {
   const accent =
@@ -793,6 +886,14 @@ function Group({
         {switchProps != null ? <GateSwitch tone={tone} {...switchProps} /> : null}
       </div>
       {children}
+      {armBlocked != null ? (
+        <p
+          data-slot="lc-arm-blocked"
+          className="mt-[var(--s-1)] text-[11px] leading-normal text-[var(--muted-fg)]"
+        >
+          {armBlocked}
+        </p>
+      ) : null}
       {showHint && hint ? (
         <p className="mt-[var(--s-1)] hidden text-[11px] text-[var(--muted-fg)] min-[1280px]:block">
           {hint}
@@ -813,6 +914,7 @@ function GateSwitch({
   label,
   checked,
   onChange,
+  disabled = false,
 }: GroupSwitchProps & { tone: 'buy' | 'sell' | 'neutral' }) {
   const on = tone === 'buy' ? 'var(--up)' : tone === 'sell' ? 'var(--down)' : 'var(--primary)';
   return (
@@ -821,6 +923,7 @@ function GateSwitch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className="relative ml-auto h-[26px] w-[44px] flex-none rounded-full border-0 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       style={{ background: checked ? on : 'var(--border)' }}

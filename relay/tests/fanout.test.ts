@@ -672,6 +672,52 @@ describe("WsFanout", () => {
     expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
   });
 
+  /*
+    WR-06 — 「켜졌는데 아무 일도 안 하는」 전략을 만들 수 없게 한다.
+
+    `UIntSchema` 는 `min(0)` 이라 0 을 통과시킨다. 스키마가 못 잡으므로 **조립 단계가 마지막
+    관문**이다 — UI 를 우회한 경로(직접 wss·옛 탭)가 있어도 무장 상태가 만들어지면 안 된다.
+  */
+  it("⑰-c 발주가 0 인 매수 무장 lc.set 은 거부되고 게이트웨이로 0바이트다 (WR-06)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ buyEnabled: true, buyOrderPrice: 0, buyOrderQty: 0 }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: SAMPLE_ISIN });
+    expect(rejected?.m).toContain("전략을 켤 수 없습니다");
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("발주가·수량 0 인 게이트 무장"),
+    );
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
+  it("⑰-d 게이트가 꺼져 있으면 값이 0 이어도 통과한다 — 과잉 차단도 조용한 거부다", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ buyEnabled: false, buyOrderPrice: 0, buyOrderQty: 0, sellEnabled: false }),
+    });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    await flushIo(20);
+
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
   it("⑱ vi.confirm 은 계좌 대조를 건너뛰고 msg_type 33 으로 나간다", async () => {
     const a = await authed("token-a");
 

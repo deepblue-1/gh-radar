@@ -65,6 +65,7 @@ import type {
   OrderMarket,
   RelayExchange,
   RelayInbound,
+  RelayLimitChaserInput,
   RelayOutbound,
   RelayServerMsg,
   RelayStateMsg,
@@ -568,6 +569,7 @@ export class WsFanout {
     // ★ `lc.set` 만 **②-1 ISIN → 시장 해석** 단계가 하나 더 있다 (WR-03 / D-28). 브라우저가
     //   `market` 을 싣지 않으므로 relay 가 `SymbolMap` 으로 풀어 채운다 — 못 풀면 거부다.
     //   `order.new` 가 이미 같은 규율이고(`order-handler.ts` 게이트 ③-1) `lc.set` 만 예외였다.
+    // ★ 이어서 **②-2 무장 조건 검사** — 발주가·수량 0 인 게이트는 켤 수 없다 (WR-06).
     // ------------------------------------------------------------------
     if (msg.t === "lc.set") {
       const { cfg } = msg;
@@ -576,6 +578,7 @@ export class WsFanout {
       if (!this.#accountAllowed(conn, session, userId, msg.t, cfg.accountNo)) return;
       const market = this.#strategyMarket(conn, userId, msg.t, cfg.isin);
       if (market === null) return;
+      if (!this.#strategyArmable(conn, userId, msg.t, cfg)) return;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
         // ★ 시장 구분은 **여기서** 얹는다. 조립기에 기본값을 두지 않는 것이 규율이다 —
         //   기본값 "K" 는 코스닥 전략을 코스피로 등록시킨다 (Pitfall 7).
@@ -776,6 +779,47 @@ export class WsFanout {
       return null;
     }
     return info.market;
+  }
+
+  /**
+   * ②-2 **무장 조건 검사** — `lc.set` 전용 (WR-06).
+   *
+   * 발주가나 발주 수량이 0 인데 게이트가 켜져 있으면 그 전략은 **영원히 발주하지 않는다**.
+   * 그런데 화면에는 「무장」 배지가 뜬다 — 사용자는 무장했다고 믿는 조용한 실패다.
+   *
+   * ★ UI 가 먼저 막지만(`limit-chaser-form.tsx` `gateBlocked`) **조립 단계가 모든 호출 경로의
+   *   마지막 관문**이어야 한다. `UIntSchema` 는 `min(0)` 이라 0 을 통과시키므로 스키마는
+   *   이것을 잡지 못한다 — UI 를 우회한 경로(직접 wss, 옛 탭)가 있어도 무장 상태가 만들어지면
+   *   안 된다 (T-16-43).
+   * ★ 매도 수량(`sellOrderQty`)은 **S→C 전용**이라 요청에 없다. 매도는 발주가만 본다.
+   */
+  #strategyArmable(
+    conn: Conn,
+    userId: string,
+    t: RelayInbound["t"],
+    cfg: RelayLimitChaserInput,
+  ): boolean {
+    const reason =
+      cfg.buyEnabled && (cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0)
+        ? "buy"
+        : cfg.sellEnabled && cfg.sellOrderPrice === 0
+          ? "sell"
+          : null;
+    if (reason === null) return true;
+    // 계좌번호는 싣지 않는다 (`maskAccountNo` 규율 / T-16-45) — `isin` 과 사유만 남긴다.
+    logger.error(
+      { userId, t, isin: cfg.isin, gate: reason },
+      "[WS] 발주가·수량 0 인 게이트 무장 — 전략 요청 거부 (게이트웨이로 나가지 않았다)",
+    );
+    this.#send(
+      conn,
+      rejectFrame(
+        "발주가나 수량이 0 이라 전략을 켤 수 없습니다. 가격을 확인해 주세요.",
+        "",
+        cfg.isin,
+      ),
+    );
+    return false;
   }
 
   /**

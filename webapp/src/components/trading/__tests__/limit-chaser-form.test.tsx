@@ -78,7 +78,9 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     buyWatchSide: '0',
     buyTradeQtyEnabled: false,
     buyEnabled: true,
-    buyOrderAmount: 10,
+    // ★ 발주 가능한 값이다 — `floor(50만원 / 130,000) = 3주`. 0 주가 나오는 조합은 WR-06 이
+    //   무장을 막으므로, 「무장이 되는 전략」을 전제로 하는 케이스들의 기본값이어야 한다.
+    buyOrderAmount: 50,
     sellOrderPrice: 130_000,
     sellWatchPrice: 130_000,
     sellWatchQty: 100_000,
@@ -88,7 +90,7 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellOrderRatio: 100,
     sellQtyTrackEnabled: false,
     sellQtyTrackRatio: 50,
-    sweepWatchPrice: 0,
+    sweepWatchPrice: 130_000,
     sweepEnabled: false,
     sweepMinTickCount: 3,
     sweepRecalcEnabled: true,
@@ -156,8 +158,9 @@ afterEach(() => {
 describe('① 스위치는 확인 없이 즉시 전송된다 (D-05)', () => {
   it('매수주문 스위치 ON → lc.set 1회, buyEnabled true, crud "C", **다이얼로그 없음**', async () => {
     const user = userEvent.setup();
-    // 신규 폼(에코 없음) — 첫 스위치가 곧 등록이다.
-    render(<LimitChaserForm {...props({ server: null })} />);
+    // 신규 폼(에코 없음) — 첫 스위치가 곧 등록이다. 상한가 시딩으로 가격 칸이 차 있어야
+    // 무장할 수 있다(WR-06) — 시세를 못 받은 종목은 애초에 켤 수 없다.
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
 
     await user.click(screen.getByRole('switch', { name: '매수주문 켜기' }));
 
@@ -533,5 +536,105 @@ describe('⑫ 접근성 · 모바일 탭', () => {
   it('취소잔량이 꺼져 있으면 「매도 「비율」 값 재사용」이 비활성이다 (A9)', () => {
     render(<LimitChaserForm {...props()} />);
     expect(screen.getByLabelText(/매도 「비율」 값 재사용/)).toBeDisabled();
+  });
+});
+
+/*
+  WR-06 — 「켜졌는데 아무 일도 안 하는」 전략을 만들 수 없게 한다.
+
+  `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
+  상한가 시딩이 가격 칸을 전부 0 으로 채운다. 옛 폼은 그 상태에서도 스위치를 켤 수 있었고
+  `{buyEnabled:true, buyOrderPrice:0, buyOrderQty:0}` 이 나갔다 — 화면은 「무장」인데 그 전략은
+  영원히 발주하지 않는 조용한 실패다.
+
+  ★ 이 describe 가 잠그는 세 가지: **못 켠다 · 이유가 보인다 · 그래도 끌 수는 있다**.
+*/
+describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', () => {
+  const buySwitch = () => screen.getByRole('switch', { name: '매수주문 켜기' });
+  const armBlockedTexts = () =>
+    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).map(
+      (el) => el.textContent ?? '',
+    );
+
+  it('시세를 못 받은 종목(가격 칸 전부 0)은 매수 스위치가 비활성이고 사유가 뜬다', () => {
+    // 에코 없음 + 상한가 0 = 시세를 못 받은 종목을 고른 신규 폼.
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 0 })} />);
+
+    expect(buySwitch()).toBeDisabled();
+    expect(armBlockedTexts()).toContain(
+      '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+    );
+    // 배지만 회색으로 두지 않는다 — 눌러도 아무 일이 없으면 사용자는 이유를 모른다.
+    fireEvent.click(buySwitch());
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('가격을 입력하면 켤 수 있게 되고 사유가 사라진다', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 0 })} />);
+    expect(buySwitch()).toBeDisabled();
+
+    // 매수가격 30,000 + 기본 주문금액 10만원 → 산출 3주.
+    setNumber(screen.getByLabelText(/매수가격/), '30000');
+
+    expect(buySwitch()).toBeEnabled();
+    expect(armBlockedTexts()).not.toContain(
+      '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+    );
+    await user.click(buySwitch());
+    expect(lastConfig().buyEnabled).toBe(true);
+    expect(lastConfig().buyOrderQty).toBe(3);
+  });
+
+  it('주문금액이 가격보다 작아 산출 수량이 0 이면 켤 수 없다 — 0 주 발주는 무장이 아니다', () => {
+    // 130,000원 종목에 주문금액 1만원 → `floor(10,000 / 130,000) = 0주`.
+    // 꺼져 있는 게이트라야 「켤 수 없다」를 볼 수 있다 — 켜진 것은 언제나 끌 수 있다.
+    render(<LimitChaserForm {...props({ server: echo({ buyEnabled: false, buyOrderAmount: 1 }) })} />);
+
+    expect(buySwitch()).toBeDisabled();
+  });
+
+  it('★ 이미 켜진 게이트는 값이 0 이 돼도 **끌 수 있다** (T-16-44)', async () => {
+    const user = userEvent.setup();
+    // 서버가 「매수 무장」으로 에코했는데 발주가가 0 인 상태 — 끄는 길이 막히면 안 된다.
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ buyEnabled: true, buyOrderPrice: 0, buyOrderAmount: 0 }) })}
+      />,
+    );
+
+    const sw = buySwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect(sw).toBeEnabled(); // 끄는 방향은 언제나 열려 있다
+
+    await user.click(sw);
+    expect(lastConfig().buyEnabled).toBe(false);
+  });
+
+  it('한방체결은 매수 무장 조건까지 함께 본다 — 매수를 못 켜면 한방도 못 켠다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1 }) })} />);
+
+    expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeDisabled();
+    expect(armBlockedTexts()).toContain(
+      '한방가격이나 매수 주문수량이 0 이에요. 값을 입력하면 켤 수 있어요.',
+    );
+  });
+
+  it('매도는 감시 호가잔량 0 일 때 못 켠다 — 서버가 눕히는 조건과 같은 축이다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellWatchQty: 0 }) })} />);
+
+    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toBeDisabled();
+    expect(armBlockedTexts()).toContain(
+      '매도가격이나 예상 매도수량이 0 이에요. 값을 확인하면 켤 수 있어요.',
+    );
+  });
+
+  it('보유 0 이어도 매도는 무장할 수 있다 — 상따는 사기 전에 팔 조건을 건다', async () => {
+    const user = userEvent.setup();
+    // `sellableQty: 0` (아직 한 주도 없다). 예상 매도수량은 0 이지만 **표시 전용**이다.
+    render(<LimitChaserForm {...props({ sellableQty: 0 })} />);
+
+    await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
+    expect(lastConfig().sellEnabled).toBe(true);
   });
 });
