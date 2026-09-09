@@ -308,6 +308,7 @@ gcloud compute connect-to-serial-port radar-gw --zone=asia-northeast3-a
 radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션을 빌린다.
 
 경로가 **두 갈래**다. 기본은 A(WireGuard)이고, UDP 51820 이 막힌 망에서만 B(IAP)로 간다.
+**사용자 관점 절차(설치 → 등록 → 연결 → 확인, Mac / Windows 구분)는 [`docs/dma-tunnel-guide.md`](../../docs/dma-tunnel-guide.md) 에 있다.**
 
 | 갈래 | 경로 | 언제 |
 |------|------|------|

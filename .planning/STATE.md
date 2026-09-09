@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-44-PLAN.md — R2-WR-05 세션 상태 리스너 누수 종결
-last_updated: "2026-09-09T11:59:46.499Z"
+stopped_at: Completed 16-46-PLAN.md — 갭 클로징 3라운드 종결 (배포·문서·TRADE-03 재판정)
+last_updated: "2026-09-09T13:10:00.000Z"
 last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 170
+  completed_plans: 171
   percent: 72
 ---
 
@@ -25,16 +25,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (45/46)**
-Plan: 45 of 46 완료 (16-46 미실행 · 16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 170 / 185
-Status: Ready to execute
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 종결 (46/46 plans · 28 waves)**
+Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · **3라운드 16-36~16-46**)
+Plans completed: 171 / 185
+Status: **phase 미완결 — plan 은 전량 실행됐으나 TRADE-03 이 Pending 이다.** 잔여는 「WinForms ↔ 웹 한 세션 동기화 실측」 **1건**(human-only · D-27)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
 Progress: [█████████░] 92%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-46 완료 — 3라운드 종결.** 17건(R2-CR-01~03 · R2-WR-01~07 · R2-IN-01~05 · 갭 4 · 갭 5)이 10개 plan 으로 전부 닫혔고, 16-46 이 게이트·배포·문서·재판정을 맡았다. 처리 결과 정본은 `16-VALIDATION.md` §Gap Closure 3라운드 **17행 표**.
+- **전량 게이트 (배포 전):** `pnpm -r test` exit 0 · **2,044 passed** · 1 skipped · 6 todo · **191 파일**(2라운드 기준선 2,012 / 190 → **+32 / +1**). 워크스페이스별 shared 99 · relay **397** · server 252 · webapp **680** = 1,428. `pnpm -r typecheck` · relay `typecheck:tests` · `pnpm build` 전부 exit 0. Playwright **126 passed · 9 skipped · 0 failed**. 임시 마커 0건 · 부채 마커 0건.
+- **★ 갭 5 프로덕션 실증 — `DMA_HOST` 를 주입하지 않은 배포가 실 게이트웨이를 보존했다.** 사용자가 A안(무주입)을 직접 선택했다. 스크립트 출력 원문: `현재 컨테이너 DMA_HOST=10.41.1.120 — 이번 배포로 바뀌지 않는다` / `DMA_HOST 출처: 실행 중 컨테이너 보존`. **강등 경고 미출력 · 복구 배포 불필요.** 배포 후 독립 재측정: 컨테이너 실 env `DMA_HOST=10.41.1.120` · `APP_VERSION=a1f4ed6` · `/healthz` **200** `{"status":"ok","vpn":true,"dma":true,"version":"a1f4ed6","sessionCount":1,"everReadyCount":1,"stalledCount":0}`. 이 phase 배포 2회를 망가뜨린 회귀 경로가 프로덕션에서 처음 닫혔다.
+- **webapp — 이 phase 처음으로 「내용」 증명에 성공했다.** 공개 청크 20개 중 **18개가 로컬 `pnpm build`(HEAD `a1f4ed6`) 산출물과 해시 완전 일치**. 나머지 2개도 코드 차이가 아니라 `NEXT_PUBLIC_RELAY_WS_URL` **빌드 타임 인라인** 유무와 그로 인한 minifier 변수명 리플이었다. 일치 청크 `2422-ff4cf64d654c9829.js`(app-sidebar 포함) 안 `useIsinLabels` 에 `for(let e of t)n(e.isin,{name:e.name,code:e.code})` 가 `viOrders` 뒤에 있고 의존성 3축 — **16-42 의 갭 4 수정이 라이브임이 내용으로 확인됐다.** 인증 게이트 뒤 라우트 청크는 여전히 대조 불가(정직 기록).
+- **server 는 근거를 갖고 건너뛰었다 — 「배포 누락」이 아니다.** `git diff --stat 2cb5620..HEAD -- server/ packages/shared/` 는 비어 있지 **않지만**(`packages/shared/src/relay.ts` +20), ① `server/` 0줄 ② +20줄이 전부 `type` 선언과 주석(**런타임 코드 0줄**) ③ `grep -rn "RelayLimitChaser\|/relay\"" server/src` = **0건**(server 는 이 계약을 import 하지 않는다). 리비전 `gh-radar-server-00043-s4f` 유지 · `/api/health` `version=2cb5620` · smoke 15/15.
+- **smoke:** `smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1** / `smoke-server.sh` **PASS 15 · FAIL 0 · SKIP 0**. **INV-9 는 「돌렸는데 SKIP」이 아니라 「토큰이 없어 프로브 본체가 한 줄도 실행되지 않았다」** — 16-21 재작성 이후 프로덕션 첫 실행 여전히 미수행. `INV-5a` 는 이번엔 시각 의존이 아니었다(실 게이트웨이 결선으로 `stalledCount:0`) — 그 열린 항목은 **해소가 아니라 조건 미성립**이라 유지한다. `INV-2` 문구가 「방화벽 3규칙 → 4규칙」으로 바뀌었는데 이는 다른 세션(`quick-260909-t08` WireGuard)의 결과이며 RELAY-03 요구사항 문장과의 정합은 그 세션 소관이다.
+- **회귀 잠금 감사 10건:** 16-36~16-44 **9건 실증함**(무력화 → 실패 관측 → 복원, `git diff` 0줄). **16-45 만 자동 테스트가 없다** — 배포 스크립트는 vitest 가 볼 수 없어 원문 추출 + 로컬 `source` 검증뿐이었고, 실 VM 실증은 이번 무주입 배포 **한 번**뿐이다. **16-44 의 `#register` 갈래는 잠기지 않았다**(오늘 코드로 도달 불가 — 지워도 빨개지는 테스트 0건).
+- **SUMMARY 를 믿지 않고 코드를 직접 열었다 (T-16-96).** `#isTeardown`(`fanout.ts:841-845`, `crud` 미참조) · `NO_RETRY_STATES`(`session-manager.ts:305`) · `safePgError`(orders.ts **8곳** / relay 전체 **15곳**) · `#enrichLimitChaser`(`subscription-hub.ts:743`·`779`, 캐시 삽입 이전) · `deploy-relay.sh` 3단 우선순위(`:123-131`).
+- **★ 새 함정 — `pnpm -r typecheck` 가 낡은 `packages/shared/dist` 를 보고 통과한다.** 계약 변경은 `pnpm --filter @gh-radar/shared run build` **후에야** 소비처 타입 체크에 보인다(16-41 이 실제로 데였다). 「절대 실패할 수 없는 검증 명령」 계열의 **세 번째** 사례다(앞선 둘: `pnpm --filter gh-radar-webapp` = `No projects matched` + exit 0 · relay `tests/` 가 루트 typecheck 밖).
+- **★ `grep "10.41.1.120"` 0건 기준은 3라운드에서도 충족 불가였다 — 정본 계약을 확정했다.** 리터럴 0건이 아니라 **「접속 경로 0건」**(`webapp/src`·`webapp/e2e` 0건 실측 ∧ relay·scripts 잔존이 전부 경고·가드·주석·타 세션 파일)이다. 다음 라운드는 이 문장을 그대로 인용할 것.
+- **이 라운드가 드러낸 것:** ① **계획·리뷰의 불완전함이 6번 잡혔다**(16-37·38·39·40·43·44) — 실행자가 코드에서 재확인하는 규율이 없었으면 그대로 새 결함이 됐다. ② **기존 테스트가 결함을 「진실」로 잠근 사례 3건 추가**(16-36 ⑰-e·⑰-e2, 16-39 ⓽) — 2라운드 3건과 합쳐 **이 phase 누적 6건**.
+- **TRADE-03 재판정 → Pending 유지 (사용자 결정).** 잔여를 **「WinForms ↔ 웹 한 세션 동기화 실측」 1건**으로 좁혔다. 옛 사유(「Ready 도달 이력 0」)는 **해소됐다** — 그것을 그대로 두면 이미 거짓인 근거로 Pending 을 유지하는 셈이라 사유를 갱신했다. **`everReadyCount: 1` 은 「relay 가 게이트웨이에 붙어 DMA 세션이 Ready 상태에 도달했다」까지만 말하며, 「WinForms 와 전략·체결·미체결이 즉시 공유된다」는 뜻이 아니다** — 후자는 구조에서 파생될 것으로 기대되는 결과이지 관측된 사실이 아니다. RELAY-02 와 같은 기준을 유지한다. 실주문 검증은 하지 않았다(D-27).
 
 - **16-44 완료 — R2-WR-05(세션 `"state"` 리스너 누수) 종결.** relay 2파일(`ws/fanout.ts` · `tests/fanout.test.ts`). 파일이 주석으로만 선언하던 「상태 리스너는 **사용자당 1개**」를 실제로 성립시켰다.
 - **누수의 정체:** `#onClose` 가 마지막 소켓에서 `#users.delete` 를 하지만 `DmaSession` 은 유예 5분 동안 살아 있다(D-15). 그래서 새로고침 재접속이 `existing === undefined` 로 들어와 **같은 세션에 리스너를 하나 더** 걸었고, 옛 리스너는 `current.session === session` 이라 침묵 가드에도 안 걸렸다 — 새로고침 k 번이면 상태 프레임이 브라우저로 k 번, 11회째부터 `MaxListenersExceededWarning`.
@@ -247,6 +260,8 @@ Progress: [█████████░] 92%
 - `smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**(INV-9, 토큰 미설정)
 
 **이 결선으로 위험도가 올라간 항목 — 라운드 3에서 최우선.** `16-REVIEW-R2.md` 의 **R2-CR-01**(`relay/src/ws/fanout.ts:793` — `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 확인 없이 단독 신뢰 -> 시장 해석 엄격성 T-16-42 와 무장 가드 T-16-43 을 **동시에** 우회)은 mock 시절엔 이론적 결함이었으나, **이제 실계좌 게이트웨이가 붙어 있으므로 무장된 반복 발주 설정이 폴백 시장으로 실제로 나갈 수 있다.** R2-CR-03(계좌번호 로그 유출)도 실주문이 흐르면 노출 표면이 커진다.
+
+**후속 (2026-09-09, 16-46) — 근본 원인이 닫혔고 프로덕션에서 실증됐다.** 16-45 가 `deploy-relay.sh` 를 3단 우선순위(명시 주입 > **실행 중 컨테이너 값 보존** > 로컬 mock)로 고쳤고, 16-46 이 **`DMA_HOST` 를 주입하지 않고** 배포해 그 보존을 실측했다 — `현재 컨테이너 DMA_HOST=10.41.1.120 — 이번 배포로 바뀌지 않는다` · `DMA_HOST 출처: 실행 중 컨테이너 보존` · 강등 경고 미출력 · 배포 후 컨테이너 실 env `DMA_HOST=10.41.1.120` · `/healthz` 200 `version=a1f4ed6` `everReadyCount:1` `stalledCount:0`. **주입하는 배포로는 이 수정을 증명할 수 없다**(주입이 보존을 이기는지만 확인된다)는 이유로 무주입을 택했고 사용자가 그 위험을 명시 수용했다. 다만 이 실증은 **한 번**뿐이며 자동 테스트로 잠기지 않는다 — 다음 배포에서 다시 관측해야 「재발하지 않는다」가 된다.
 
 ### Phase 16 Gap Closure State (2026-09-09, 16-26)
 
@@ -690,17 +705,16 @@ Recent decisions affecting current work:
 | 260909-ftd | `scripts/dma-credentials.ts` 에 `--from-email <원본>` 링크 모드 추가 — 이미 등록된 gh-radar 계정의 DMA 자격증명을 원본 user_id 로 복호 → 대상 user_id(AAD) 로 재암호화 → 라운드트립 검증 후 upsert. 비밀번호 프롬프트 없음, `--dma-user` 는 원본과 다르면 차단(T-15-10), 성공 시 DMA 세션 공유(D-17) 경고. `scripts/dma-credentials.sh` 래퍼 신규 — 어느 cwd 에서든 저장소 루트 이동 + env source + gcloud 기본값 후 tsx 실행. `/tmp` 에서 `--list` 실측 성립 | 2026-09-09 | 147fac7 | [260909-ftd-scripts-dma-credentials-ts-from-email-dm](./quick/260909-ftd-scripts-dma-credentials-ts-from-email-dm/) |
 | 260909-muo | radar-gw 에 WireGuard 서버(wg0 10.20.0.1/24 · udp 51820, nft `inet wgfwd` 로 10.41.1.120 의 9100·22 만 forward, DOCKER-USER 짝, 개인키 VM 생성·피어는 `wg-peer-add`) + 방화벽 4번째 규칙 `relay-allow-wireguard` + deploy/smoke 게이트 4규칙 + 클라이언트 템플릿(AllowedIPs /32) + 메뉴바 v3.5(DMA 터널을 `scutil --nc` WireGuard 프로필 제어로 교체, gcloud·lo0·sudoers ifconfig·2222 제거, 개인 파일은 .gitignore) + README 재편. GCP·VM 실반영 완료(기본 경로 ens4·openconnect 유지, INV-2 PASS, netns e2e 22 경로 성립). 남은 것: 클라이언트 피어 등록·9100 확정·메뉴바 재설치 | 2026-09-09 | 7d8482f·78605a8 | [260909-muo-radar-gw-wireguard-dma-wireguard](./quick/260909-muo-radar-gw-wireguard-dma-wireguard/) |
 | 260909-t08 | 메뉴바 앱 v3.6 — DMA 터널을 App Store WireGuard 앱(scutil) 대신 brew wireguard-tools(wg-quick + wireguard-go)로 앱 자체가 제어. 설치 스크립트가 키쌍 생성(공개키만 출력·재실행 시 키 보존)·`KB-DMA.conf`(root 0600, AllowedIPs 10.41.1.120/32)·root 헬퍼 `kbdma-connect/disconnect` + sudoers 2줄. 상태 판정은 utun 10.20.0.x. README A절을 mac(brew)/win(공식 앱) 두 갈래로. 개인 파일은 미커밋(.gitignore). VM·방화벽 무변경. 정적 검증 22항목 PASS, 설치 실행·e2e 는 사용자 차례 | 2026-09-09 | 88d34ed | [260909-t08-v3-6-dma-brew-wireguard-tools](./quick/260909-t08-v3-6-dma-brew-wireguard-tools/) |
+| 260910-fast | `docs/dma-tunnel-guide.md` 신규 — DMA 터널 사용자 설명서(공통 주의 · Mac 메뉴바 v3.6 · Windows 공식 앱 · 문제 해결 · 관리자 피어 등록 · UDP 차단 시 IAP 폴백). README §DMA 터널에 링크 1줄 | 2026-09-10 | fc2f45a | — |
 
 ## Session Continuity
 
-Last session: 2026-09-09T11:59:29.239Z
-Stopped at: Completed 16-44-PLAN.md — R2-WR-05 세션 상태 리스너 누수 종결
-Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
+Last session: 2026-09-09T13:10:00.000Z
+Stopped at: Completed 16-46-PLAN.md — 갭 클로징 3라운드 종결 (전량 게이트 + 무주입 배포로 갭 5 실증 + 문서 6종 + TRADE-03 재판정)
+Next: **Phase 16 은 plan 46/46 실행 완료이나 phase 는 미완결이다.** 3라운드 17건이 전부 닫혔고 프로덕션에 반영됐다(relay `a1f4ed6` · webapp 청크 내용 대조 확인 · server 는 근거를 갖고 건너뜀). **남은 것은 단 하나 — TRADE-03 의 「WinForms ↔ 웹 한 세션 동기화 실측」이다.**
 
-- **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
-- **R2-CR-02** (`relay/src/dma/session-manager.ts:125,176-186,265-268`) `stalledCount` 가 자격증명 거부(`session_rejected`, 터미널 상태)를 게이트웨이 장애와 구분하지 않는다 → 사용자 1명의 잘못된 비밀번호가 relay 전체를 영구 503 으로 만든다. 16-30 이 GC-WR-07 을 닫으며 만든 경로다. (현재 프로덕션 503 은 이 시나리오가 **아니라** DMA_HOST 부재로 인한 의도된 판정임이 확인됐다.)
-- **R2-CR-03** (`relay/src/store/orders.ts:294,361,395`) PostgREST error 원문 로깅이 CHECK/FK 위반 시 `Failing row contains (...)` 로 계좌번호·주문번호를 Cloud Logging 에 흘린다 (T-16-45 위반). 16-28 이 `23505` 분기에서만 원문을 뺐고 옆의 일반 경로 3줄이 남았다.
-
-**다음 행동:** `/gsd:plan-phase 16 --gaps` 로 3라운드 갭 클로징을 계획한다. Warning 7 · Info 5 는 `16-REVIEW-R2.md` 참조.
-
-**병행하는 사용자 결정 2건 (실행이 아니라 판단):** ① `/healthz` 가 게이트웨이 부재 동안 5분 뒤 503 으로 상시화되므로 `gh-radar-relay-down` 알림을 어떻게 할지(유예 연장 / VM mock 상주 / 알림 임계 조정 / 실서버 결선). ② smoke `INV-9` 는 `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 **첫 실행**이 된다 — 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 실서버·실계좌(D-27)와 WinForms 세션 공유는 **사용자 명시 지시가 있을 때만**. 상세는 `16-VALIDATION.md` §Deployment Verification (16-35) · `deferred-items.md` §16-35.
+- **이것은 코드 작업이 아니라 사람이 하는 관측이다** (`16-VALIDATION.md` §Manual-Only 1행 · `16-VERIFICATION.md` §Human Verification #1). 절차: WinForms 상따창과 `/trading/limit-chaser/[key]` 를 동시에 열고 → 웹 스위치 ON → WinForms 「무장」 배지 확인 → WinForms 에서 매수가격 변경 → 웹에 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인.
+- **지금이 이 검증에 가장 안전한 시점이다.** 재검증이 「실서버 결선 이전에 반드시 닫아야 한다」고 지목한 R2-CR-01(무장 가드 우회)·R2-CR-03(계좌번호 유출)이 닫혀 배포됐다. 그럼에도 **D-27 상 사용자 명시 지시가 있어야 실행한다** — 실계좌·실서버 조작이다.
+- **별도 열린 항목:** smoke `INV-9` 는 `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 **첫 실행**이 된다. 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 명령은 `deferred-items.md` §16-46.
+- **사용자 결정 대기 1건:** `/healthz` 알림 정책(`gh-radar-relay-down`). 게이트웨이가 붙어 있는 지금은 조용하지만, 게이트웨이가 끊기면 5분 뒤 503 이 상시화된다. 해법 후보 4개는 `deferred-items.md` §16-35 참조 — 실행자가 단독으로 고를 문제가 아니다.
+- **다른 세션과의 정합 1건:** `quick-260909-t08`(WireGuard)이 방화벽 규칙을 4개로 늘려 smoke `INV-2` 문구가 바뀌었다. `REQUIREMENTS.md` RELAY-03 의 「방화벽 3규칙」과 어긋나므로 그 세션이 정합을 맡아야 한다.
