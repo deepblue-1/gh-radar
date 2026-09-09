@@ -804,6 +804,83 @@ describe("WsFanout", () => {
     expect(rejected?.m).toContain("전략을 등록할 수 없습니다");
   });
 
+  /*
+    GC-WR-05 — 마지막 관문이 첫 관문보다 느슨하면 안 된다.
+
+    이 검사의 존재 이유가 「UI 를 우회한 경로(직접 wss·옛 탭)가 있어도 무장 상태가 만들어지면
+    안 된다」(T-16-43)이므로, relay 는 UI 의 `canArmBuy`·`canArmSell`·`canArmSweep` **세 식과
+    동형**이어야 한다. 아래 두 조합은 UI 가 스위치를 못 켜게 막는 값인데 relay 는 통과시켰다.
+  */
+  it("⑰-g sellEnabled + sellWatchQty 0 은 거부된다 — UI canArmSell 과 동형 (GC-WR-05)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    // 매도가는 정상이다 — 옛 갈래(`sellOrderPrice === 0`)로는 잡히지 않는 조합이다.
+    // `sellWatchQty === 0` 은 계약이 「0 이면 서버가 매도 활성화를 거부(눕힘)한다」고 못박은 값.
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ sellEnabled: true, sellOrderPrice: 71_000, sellWatchQty: 0 }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: SAMPLE_ISIN });
+    expect(rejected?.m).toContain("전략을 켤 수 없습니다");
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("발주가·수량 0 인 게이트 무장"),
+    );
+    expect(logged).toBeDefined();
+    expect(logged?.[0]).toMatchObject({ gate: "sell" });
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
+  it("⑰-h sweepEnabled + sweepWatchPrice 0 은 거부된다 — UI canArmSweep 과 동형 (GC-WR-05)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ sweepEnabled: true, sweepWatchPrice: 0 }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("발주가·수량 0 인 게이트 무장"),
+    );
+    expect(logged?.[0]).toMatchObject({ gate: "sweep" });
+  });
+
+  it("⑰-h2 한방은 **매수 무장 조건**을 함께 요구한다 — buyEnabled 가 꺼져 있어도 마찬가지다", async () => {
+    const a = await authed("token-a");
+
+    // 매도만 켜 둬 「전 게이트 OFF = 삭제」로 새지 않게 한다. 한방 감시가는 정상이고
+    // 막히는 이유는 **매수 발주수량 0** 이다 — `canArmSweep = sweepWatchPrice > 0 && canArmBuy`.
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({
+        buyEnabled: false,
+        buyOrderQty: 0,
+        sellEnabled: true,
+        sweepEnabled: true,
+        sweepWatchPrice: 71_400,
+      }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+  });
+
   it("⑱ vi.confirm 은 계좌 대조를 건너뛰고 msg_type 33 으로 나간다", async () => {
     const a = await authed("token-a");
 

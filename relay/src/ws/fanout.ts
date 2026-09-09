@@ -884,7 +884,15 @@ export class WsFanout {
    *   마지막 관문**이어야 한다. `UIntSchema` 는 `min(0)` 이라 0 을 통과시키므로 스키마는
    *   이것을 잡지 못한다 — UI 를 우회한 경로(직접 wss, 옛 탭)가 있어도 무장 상태가 만들어지면
    *   안 된다 (T-16-43).
-   * ★ 매도 수량(`sellOrderQty`)은 **S→C 전용**이라 요청에 없다. 매도는 발주가만 본다.
+   * ★ 그래서 이 함수는 UI 의 `canArm*` **세 식과 동형**이어야 한다 (GC-WR-05). 마지막 관문이
+   *   첫 관문보다 느슨하면 위 문장이 성립하지 않는다 — 아래 세 갈래가 각각
+   *   `canArmBuy` · `canArmSell` · `canArmSweep`(`limit-chaser-form.tsx:343-365`)의 부정이다.
+   * ★ 매도 수량(`sellOrderQty`)은 **S→C 전용**이라 요청에 없다. 매도가 대신 보는 것은
+   *   `sellWatchQty` 이고, 계약이 「**0 이면 서버가 매도 활성화를 거부**(눕힘)한다」고 못박은
+   *   값이다(`packages/shared/src/relay.ts`). 그것을 통과시키면 조용한 부분 거부가 재현된다.
+   * ★ **철거(삭제) 요청에는 걸지 않는다** (GC-WR-04 와 같은 규율). 무장이 아니라 해제이므로
+   *   막으면 사용자의 자산을 인질로 잡는다 (T-16-44 의 서버측). 판정을 호출부가 아니라 이
+   *   함수가 소유해 호출부가 늘어도 규율이 갈리지 않게 한다.
    */
   #strategyArmable(
     conn: Conn,
@@ -892,22 +900,38 @@ export class WsFanout {
     t: RelayInbound["t"],
     cfg: RelayLimitChaserInput,
   ): boolean {
+    if (this.#isTeardown(cfg)) return true;
+    // UI 는 `buyQty` 를 `buyOrderQtyFromAmount(금액, 가격)` 로 **산출**하지만 relay 가 받는 것은
+    // 이미 산출된 `buyOrderQty` 다 — 그래서 여기서는 `buyOrderQty === 0` 을 본다. 「식이 다르다」가
+    // 아니라 같은 식의 양 끝이다.
     const reason =
+      // UI `canArmBuy = buyOrderPrice > 0 && buyQty > 0`
       cfg.buyEnabled && (cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0)
         ? "buy"
-        : cfg.sellEnabled && cfg.sellOrderPrice === 0
+        : // UI `canArmSell = sellOrderPrice > 0 && sellWatchQty > 0`
+          cfg.sellEnabled && (cfg.sellOrderPrice === 0 || cfg.sellWatchQty === 0)
           ? "sell"
-          : null;
+          : // UI `canArmSweep = sweepWatchPrice > 0 && canArmBuy` — 한방은 매수 발주를
+            // **재계산**하는 보조 트리거라 매수 무장 조건을 함께 요구한다. 매수를 못 켜는
+            // 상태에서 한방만 켜면 정의상 아무 발주도 만들지 못한다.
+            cfg.sweepEnabled &&
+              (cfg.sweepWatchPrice === 0 || cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0)
+            ? "sweep"
+            : null;
     if (reason === null) return true;
     // 계좌번호는 싣지 않는다 (`maskAccountNo` 규율 / T-16-45) — `isin` 과 사유만 남긴다.
     logger.error(
       { userId, t, isin: cfg.isin, gate: reason },
       "[WS] 발주가·수량 0 인 게이트 무장 — 전략 요청 거부 (게이트웨이로 나가지 않았다)",
     );
+    // 문구는 **갈래별로 가르지 않는다.** UI 의 `ARM_BLOCKED_TEXT` 3종이 이미 필드 단위로
+    // 정확하게 안내하고(첫 관문), 이 프레임은 그 UI 를 우회한 경로에만 도달한다 — 여기서
+    // 필드명을 따로 적으면 두 벌의 문구가 갈려 언젠가 서로 모순된다. 갈래는 로그의
+    // `gate` 로 구분한다.
     this.#send(
       conn,
       rejectFrame(
-        "발주가나 수량이 0 이라 전략을 켤 수 없습니다. 가격을 확인해 주세요.",
+        "가격이나 수량이 0 인 게이트가 있어 전략을 켤 수 없습니다. 값을 확인해 주세요.",
         "",
         cfg.isin,
       ),
