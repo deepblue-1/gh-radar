@@ -236,6 +236,21 @@ export type RelayLimitChaserInput = Omit<
 >;
 
 /**
+ * VI 주문금액 상한 — **원 단위**다(만원이 아니다). 100억원 = UI 단위로 100만 만원.
+ *
+ * ① **원 단위**다. 화면은 만원으로 입력받으므로 UI 는 이 값을 10,000 으로 나눠 쓴다.
+ *    두 단위를 헷갈리면 상한이 1만 배 어긋나 상한이 없는 것과 같아진다.
+ * ② `SetVITrigger.order_amount_krw` 는 fbs 상 **`ulong`** 이다. 상한 없이 통과시키면
+ *    `BigInt(1e21)` 같은 값이 `DataView.setBigUint64` 에서 **modulo 2^64 로 감싸**
+ *    전혀 다른 금액이 게이트웨이로 나간다 — 상따 필드의 `toWireUint`(MAX_UINT32) 가
+ *    "넘기면 조용히 감싸 전혀 다른 값이 된다"고 적어 둔 것과 같은 규율이다 (WR-07).
+ * ③ 이 값이 **zod(relay 스키마) · envelope(조립기) · UI(입력·제출 가드) 세 층의 유일한
+ *    정본**이다. 층마다 숫자를 따로 적으면 언젠가 갈라지고, 갈라진 순간 가장 느슨한 층이
+ *    실질 상한이 된다.
+ */
+export const MAX_VI_ORDER_AMOUNT_KRW = 10_000_000_000;
+
+/**
  * VI 발동 감시 전략 (`SetVITrigger`, 5필드). 계좌당 1건이다.
  *
  * 서버는 「거부」를 응답 코드로 주지 않는다 — `run` 인데 `orderAmountKrw === 0` 이면

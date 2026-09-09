@@ -21,6 +21,8 @@
  *   `Notification` 접근은 전부 가드 뒤에 있고, 서버에서는 **끔(false)** 으로 읽힌다.
  */
 
+import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
+
 import { isLimitChaserServerMessage } from "@/lib/limit-chaser";
 
 /** 마감 알림 on/off 저장 키. **이 기기 전용**이라는 사실의 유일한 물리적 근거다. */
@@ -62,6 +64,15 @@ export function manwonToKrw(manwon: number): number {
 export function krwToManwon(krw: number): number {
   return Math.floor(krw / MANWON_IN_KRW);
 }
+
+/**
+ * 금액 입력 상한 — **만원 단위**. 원 단위 정본에서 **유도**한다 (WR-07).
+ *
+ * 정본은 `@gh-radar/shared` 의 `MAX_VI_ORDER_AMOUNT_KRW`(원) 하나이고 relay 의 zod 스키마·
+ * envelope 조립기가 같은 값을 본다. 여기에 만원 숫자를 직접 적으면 세 층의 상한이 갈리고,
+ * 갈라진 순간 **가장 느슨한 층이 실질 상한**이 된다. 변환은 위 두 함수 밖에서 하지 않는다.
+ */
+export const MAX_VI_ORDER_AMOUNT_MANWON = krwToManwon(MAX_VI_ORDER_AMOUNT_KRW);
 
 /**
  * `"HHMMSSuuu"`(9자) 해제 예정 시각을 **수신일**에 붙여 Date 로 만든다.

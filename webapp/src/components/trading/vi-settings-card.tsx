@@ -59,6 +59,7 @@ import {
 } from '@/components/ui/dialog';
 import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
 import {
+  MAX_VI_ORDER_AMOUNT_MANWON,
   krwToManwon,
   manwonToKrw,
   readViAlertEnabled,
@@ -86,6 +87,19 @@ export const VI_ACK_TIMEOUT_MS = 3_000;
 /** WinForms `VITrigger` 초기 상태값 이식 — 금액 1,000만원 · 상승률 22%. */
 export const VI_DEFAULT_AMOUNT_MANWON = 1_000;
 export const VI_DEFAULT_CHECK_RATE = 22;
+
+/**
+ * 금액 상한 안내 문구 — **잘린 이유**를 말한다 (WR-07).
+ *
+ * 입력을 조용히 삼키면 사용자는 왜 안 써지는지 알 수 없다. 상한으로 자르고 이 한 줄이
+ * 이유를 대는 편이 낫다(PC-7 무로그 fail-safe 금지의 UI 판).
+ *
+ * ★ 상한값은 이 파일에 없다. `@gh-radar/shared` 의 `MAX_VI_ORDER_AMOUNT_KRW`(**원 단위**
+ *   정본, relay 의 zod 스키마·envelope 조립기가 같은 값을 본다)를 `vi-alert.ts` 가
+ *   `krwToManwon` 으로 만원 단위로 유도한 것이 `MAX_VI_ORDER_AMOUNT_MANWON` 이다.
+ *   여기에 숫자를 다시 적으면 세 층의 상한이 갈린다 (WR-07).
+ */
+export const VI_AMOUNT_LIMIT_MESSAGE = `주문금액은 최대 ${NUM.format(MAX_VI_ORDER_AMOUNT_MANWON)}만원까지 넣을 수 있어요`;
 
 /** 폼이 다루는 값 3개. `run` 은 여기 없다 — 「수정」의 대상이 아니기 때문이다(②). */
 interface ViFormValues {
@@ -215,6 +229,32 @@ export function ViSettingsCard({
     onDirtyCountChange?.(dirtyCount);
   }, [dirtyCount, onDirtyCountChange]);
 
+  /* ── 금액 상한 (WR-07) ────────────────────────────────────────────── */
+
+  /**
+   * 「상한에 걸렸다」는 사실. 사용자가 상한을 넘겨 입력해 **잘렸을 때** 켜진다.
+   * 폼 값 자체가 상한 밖인 경우(서버 에코가 상한 넘는 금액을 돌려준 경우)는 아래
+   * `amountOverLimit` 가 따로 잡는다 — 사용자가 아무것도 안 했어도 이유는 말해야 한다.
+   */
+  const [amountClamped, setAmountClamped] = useState(false);
+  const amountOverLimit = form.amountManwon > MAX_VI_ORDER_AMOUNT_MANWON;
+  const showAmountLimit = amountClamped || amountOverLimit;
+
+  /**
+   * 금액 입력 — 상한을 넘으면 **상한으로 고정**한다.
+   *
+   * 입력 자체를 삼키면 사용자는 왜 안 써지는지 모른다. 상한으로 잘리고 아래 문구가 이유를
+   * 대는 편이 낫다. 자른 결과가 곧 폼 값이므로 **확인 다이얼로그 표시값 = 전송값**이다.
+   */
+  const handleAmountChange = useCallback((next: number) => {
+    const clamped = next > MAX_VI_ORDER_AMOUNT_MANWON;
+    setAmountClamped(clamped);
+    setForm((prev) => ({
+      ...prev,
+      amountManwon: clamped ? MAX_VI_ORDER_AMOUNT_MANWON : next,
+    }));
+  }, []);
+
   /* ── 전송 (④) ─────────────────────────────────────────────────────── */
 
   const [submitting, setSubmitting] = useState(false);
@@ -265,6 +305,16 @@ export function ViSettingsCard({
       */
       if (locked) return;
       if (submittingRef.current) return; // 연타 가드 — 두 번째 등록을 만들지 않는다.
+      /*
+        ★ 금액 상한 가드 (WR-07 / T-16-41). 입력은 이미 상한으로 자르지만 **서버 에코**가
+          상한 밖 금액을 돌려주면 폼 값이 그대로 상한을 넘는다. 그 값을 그냥 보내면
+          zod 가 프레임을 통째로 버리고(사용자는 이유를 모른다) 확인 다이얼로그가 보여 준
+          금액과 실제로 나가는 금액이 어긋난다. 보내지 않고 사유를 남긴다.
+      */
+      if (form.amountManwon > MAX_VI_ORDER_AMOUNT_MANWON) {
+        setAmountClamped(true);
+        return;
+      }
       const msg: RelayViSetMsg = {
         t: 'vi.set',
         accountNo: form.accountNo,
@@ -381,13 +431,24 @@ export function ViSettingsCard({
               value={form.amountManwon}
               disabled={locked}
               dirty={dirty.has('amountManwon')}
-              onValueChange={(v) => setForm((prev) => ({ ...prev, amountManwon: v }))}
+              onValueChange={handleAmountChange}
             />
             <span className="min-w-0 text-[11px] text-[var(--muted-fg)]">
               주문수량 = 금액 ÷ 상한가
             </span>
           </div>
         </FieldRow>
+
+        {/* 상한 안내 — 잘린 이유를 말한다. 조용히 삼키지 않는다(WR-07). */}
+        {showAmountLimit && (
+          <p
+            role="status"
+            data-slot="vi-amount-limit"
+            className="mt-[var(--s-1)] m-0 pl-[calc(72px+var(--s-2))] text-[11px] text-[var(--destructive)]"
+          >
+            {VI_AMOUNT_LIMIT_MESSAGE}
+          </p>
+        )}
 
         {/*
           상승률 — **정수 %** 다(와이어 계약). 소수 입력을 열면 서버가 잘라 버려
@@ -489,6 +550,11 @@ export function ViSettingsCard({
         hint={DIRTY_HINT}
       />
 
+      {/*
+        ★ 요약 금액은 `form.amountManwon` 에서 온다 — 입력이 상한으로 **잘린 뒤의 값**이고
+          `submit` 도 같은 값을 보낸다. 그래서 **다이얼로그 표시값 = 실제 전송값**이 구조적으로
+          성립한다(조립 단계가 조용히 다른 값으로 바꾸는 경로가 없다, T-16-41).
+      */}
       <ViConfirmDialog
         kind={confirmKind}
         accountNo={form.accountNo}

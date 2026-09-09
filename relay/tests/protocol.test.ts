@@ -15,7 +15,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
+
 import { parseInbound } from "../src/ws/protocol.js";
+import { OrderBuildError, buildSetVITriggerReq } from "../src/dma/envelope.js";
 import { logger } from "../src/logger.js";
 
 const ISIN = "KR7005930003";
@@ -66,6 +69,17 @@ function lcCfg(overrides: Record<string, unknown> = {}): Record<string, unknown>
 
 function lcSet(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({ t: "lc.set", cfg: lcCfg(overrides) });
+}
+
+function viSet(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    t: "vi.set",
+    accountNo: ACCOUNT_NO,
+    orderAmountKrw: 10_000_000,
+    checkRate: 22,
+    run: true,
+    ...overrides,
+  });
 }
 
 function orderNew(overrides: Record<string, unknown> = {}): string {
@@ -266,6 +280,27 @@ describe("parseInbound — 경계값 거부 (T-16-05)", () => {
     ).toBeNull();
   });
 
+  /*
+    WR-07 — `vi.set.orderAmountKrw` 는 fbs 상 `ulong` 이다. 상한 없이 통과하면
+    `setBigUint64` 가 modulo 2^64 로 감싸 **전혀 다른 금액**이 게이트웨이로 나간다.
+    상한값은 `MAX_VI_ORDER_AMOUNT_KRW` 하나가 정본이므로 테스트도 그 상수를 본다 —
+    숫자를 다시 적으면 상한을 바꿀 때 테스트가 먼저 거짓말을 한다.
+  */
+  it("⑥ `vi.set.orderAmountKrw` 는 상한을 넘으면 거부된다 (WR-07 — ulong 감김 차단)", () => {
+    expect(parseInbound(viSet({ orderAmountKrw: MAX_VI_ORDER_AMOUNT_KRW + 1 }))).toBeNull();
+    expect(parseInbound(viSet({ orderAmountKrw: 1e21 }))).toBeNull();
+    expect(logger.warn).toHaveBeenCalled(); // 조용한 드롭 금지 (S-5)
+  });
+
+  it("⑥ 상한값 자체와 0 은 통과한다 (과잉 차단도 조용한 거부다)", () => {
+    const atLimit = parseInbound(viSet({ orderAmountKrw: MAX_VI_ORDER_AMOUNT_KRW }));
+    if (atLimit?.t !== "vi.set") throw new Error("상한값이 거부됐습니다");
+    expect(atLimit.orderAmountKrw).toBe(MAX_VI_ORDER_AMOUNT_KRW);
+    expect(parseInbound(viSet({ orderAmountKrw: 0 }))).not.toBeNull();
+    expect(parseInbound(viSet({ orderAmountKrw: -1 }))).toBeNull();
+    expect(parseInbound(viSet({ orderAmountKrw: 1.5 }))).toBeNull();
+  });
+
   it("④ `strategies.disable` 의 65자 key 는 거부된다 (서버 WR-09 상한 64B)", () => {
     expect(
       parseInbound(JSON.stringify({ t: "strategies.disable", key: "k".repeat(65) })),
@@ -292,6 +327,40 @@ describe("parseInbound — 경계값 거부 (T-16-05)", () => {
     const partial = lcCfg();
     delete partial.cancelQtyTrackEnabled;
     expect(parseInbound(JSON.stringify({ t: "lc.set", cfg: partial }))).toBeNull();
+  });
+});
+
+/**
+ * 조립기 자체의 상한 (WR-07 / T-16-38).
+ *
+ * 스키마가 먼저 막지만 **조립 단계가 모든 호출 경로의 마지막 관문**이어야 한다 — 스키마를
+ * 타지 않는 내부 호출이 생겨도 `ulong` 감김은 여기서 끝난다. 세 층(zod·envelope·UI)이
+ * 같은 상수를 보는지도 여기서 함께 잠근다.
+ */
+describe("buildSetVITriggerReq — 금액 상한 (WR-07)", () => {
+  const cfg = (orderAmountKrw: number) => ({
+    accountNo: ACCOUNT_NO,
+    orderAmountKrw,
+    checkRate: 22,
+    run: true,
+  });
+
+  it("스키마를 우회해 조립기를 직접 불러도 상한 초과는 BAD_ORDER_AMOUNT 다", () => {
+    expect(() => buildSetVITriggerReq(cfg(MAX_VI_ORDER_AMOUNT_KRW + 1))).toThrow(OrderBuildError);
+    try {
+      buildSetVITriggerReq(cfg(MAX_VI_ORDER_AMOUNT_KRW + 1));
+      throw new Error("상한 초과가 통과했습니다");
+    } catch (err) {
+      expect(err).toBeInstanceOf(OrderBuildError);
+      expect((err as OrderBuildError).code).toBe("BAD_ORDER_AMOUNT");
+    }
+    // `Number.MAX_SAFE_INTEGER` 초과는 이 상한에 이미 포함된다 — 별도 분기가 없어도 막힌다.
+    expect(() => buildSetVITriggerReq(cfg(1e21))).toThrow(OrderBuildError);
+  });
+
+  it("상한값 자체는 조립된다 (과잉 차단 금지)", () => {
+    expect(buildSetVITriggerReq(cfg(MAX_VI_ORDER_AMOUNT_KRW)).length).toBeGreaterThan(0);
+    expect(buildSetVITriggerReq(cfg(0)).length).toBeGreaterThan(0);
   });
 });
 

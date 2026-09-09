@@ -34,7 +34,7 @@
  *     v1 범위 밖이라 리터럴 유니온으로 봉쇄한다 — `AccountDeclareMode` 와 같은 규율이다.
  */
 import * as flatbuffers from "flatbuffers";
-import { ORDER_CONDITION_NORMAL } from "@gh-radar/shared";
+import { MAX_VI_ORDER_AMOUNT_KRW, ORDER_CONDITION_NORMAL } from "@gh-radar/shared";
 import type {
   OrderMarket,
   OrderSide,
@@ -1005,7 +1005,7 @@ export const VI_PRICE_TYPE: "U" = "U";
  * 인 것과 **단위가 다르다** (Pitfall 5) — 한쪽 값을 다른 쪽에 그대로 넣으면 100배 어긋난다.
  * 하락 감시를 막지 않으려고 음수를 허용하되 int 표현 범위는 지킨다.
  *
- * @throws {OrderBuildError} 계좌번호 형식 위반, 금액·상승률 표현 범위 초과
+ * @throws {OrderBuildError} 계좌번호 형식 위반, **금액 상한 초과**, 금액·상승률 표현 범위 초과
  */
 export function buildSetVITriggerReq(cfg: ViTriggerInput): Uint8Array {
   const accountNo = truncateToWire(cfg.accountNo, MAX_ACCOUNT_NO_LEN, "accountNo");
@@ -1014,6 +1014,19 @@ export function buildSetVITriggerReq(cfg: ViTriggerInput): Uint8Array {
   }
   if (!Number.isInteger(cfg.orderAmountKrw) || cfg.orderAmountKrw < 0) {
     throw new OrderBuildError("BAD_ORDER_AMOUNT", `주문금액(원)은 0 이상의 정수여야 합니다: ${cfg.orderAmountKrw}`);
+  }
+  /*
+    상한 검사 (WR-07). zod(`RelayViSetSchema`)가 먼저 막지만 **조립 단계가 모든 호출 경로의
+    마지막 관문**이어야 한다 — `buildConfirmVIOrderReq` 의 빈 `orderNo` 검사가
+    "`RelayViConfirmSchema` 에 이어지는 최후 방어선" 인 것과 같은 논리다. 스키마를 타지 않는
+    내부 호출(테스트·후속 기능)이 생겨도 `ulong` 감김은 여기서 끝난다.
+    ★ `Number.MAX_SAFE_INTEGER` 초과는 이 상한에 이미 포함된다 — 분기를 따로 만들지 않는다.
+  */
+  if (cfg.orderAmountKrw > MAX_VI_ORDER_AMOUNT_KRW) {
+    throw new OrderBuildError(
+      "BAD_ORDER_AMOUNT",
+      `주문금액(원)이 상한 ${MAX_VI_ORDER_AMOUNT_KRW} 을 넘었습니다: ${cfg.orderAmountKrw}`,
+    );
   }
   if (!Number.isInteger(cfg.checkRate) || Math.abs(cfg.checkRate) > MAX_INT32) {
     throw new OrderBuildError("BAD_CHECK_RATE", `발동 상승률이 int 표현 범위를 벗어났습니다: ${cfg.checkRate}`);

@@ -26,6 +26,7 @@
  *     이것이고, 그래서 이 파일에는 화이트리스트가 없다.
  */
 import { z } from "zod";
+import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
 import type { RelayInbound, RelayOutbound } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -146,8 +147,16 @@ export const RelayLcSetSchema = z.object({
 export const RelayViSetSchema = z.object({
   t: z.literal("vi.set"),
   accountNo: AccountNoSchema,
-  /** **원 단위**. UI 의 만원 입력을 x 10,000 한 값이다. */
-  orderAmountKrw: UIntSchema,
+  /**
+   * **원 단위**. UI 의 만원 입력을 x 10,000 한 값이다.
+   *
+   * ★ `UIntSchema` 를 쓰지 않는다 — 그것은 상한이 없고, 이 필드는 fbs 상 **`ulong`** 이라
+   *   상한 없이 통과하면 `setBigUint64` 가 **modulo 2^64 로 감싸** 전혀 다른 금액이 나간다
+   *   (WR-07). 상한값은 `@gh-radar/shared` 의 `MAX_VI_ORDER_AMOUNT_KRW` 하나가 정본이고
+   *   envelope 조립기·UI 가 같은 상수를 본다 — 여기에 숫자를 다시 적으면 갈라진다.
+   *   (`UIntSchema` 자체는 그대로 둔다. 그것을 공유하는 상따 필드는 `toWireUint` 가 지킨다.)
+   */
+  orderAmountKrw: z.number().int().min(0).max(MAX_VI_ORDER_AMOUNT_KRW),
   /** 발동 판정 상승률 — 정수 %. 하락 감시를 막지 않으려고 음수를 허용한다. */
   checkRate: z.number().int(),
   run: z.boolean(),

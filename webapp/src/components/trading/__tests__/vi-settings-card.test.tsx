@@ -28,7 +28,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
-import { ViSettingsCard, VI_ACK_TIMEOUT_MS } from '../vi-settings-card';
+import { ViSettingsCard, VI_ACK_TIMEOUT_MS, VI_AMOUNT_LIMIT_MESSAGE } from '../vi-settings-card';
+import { MAX_VI_ORDER_AMOUNT_MANWON, manwonToKrw } from '@/lib/vi-alert';
 
 const ACCOUNT = '37728502101';
 const ACCOUNTS = [{ accountNo: ACCOUNT, name: 'KB 위탁종합' }];
@@ -404,6 +405,55 @@ describe('⑦ 세션 가드 — 단절 중에는 `vi.set` 이 나가지 않는�
       orderAmountKrw: 15_000_000,
       run: true,
     });
+  });
+});
+
+describe('⑧ 금액 상한 — 세 층이 같은 값으로 막는다 (16-24 / WR-07)', () => {
+  const limitText = () => document.querySelector('[data-slot="vi-amount-limit"]');
+
+  it('만원 상한을 넘는 입력은 상한으로 잘리고 이유를 말한다', () => {
+    renderCard();
+
+    fireEvent.change(amountInput(), {
+      target: { value: String(MAX_VI_ORDER_AMOUNT_MANWON + 1) },
+    });
+
+    // ★ 입력을 삼키지 않는다 — 상한으로 자르고 그 이유를 문장으로 남긴다.
+    expect(amountInput()).toHaveValue(
+      new Intl.NumberFormat('ko-KR').format(MAX_VI_ORDER_AMOUNT_MANWON),
+    );
+    expect(limitText()).not.toBeNull();
+    expect(limitText()).toHaveTextContent(VI_AMOUNT_LIMIT_MESSAGE);
+
+    // 상한 안쪽으로 되돌리면 안내도 사라진다(영구 경고가 아니다).
+    fireEvent.change(amountInput(), { target: { value: '1500' } });
+    expect(limitText()).toBeNull();
+  });
+
+  it('잘린 값 그대로 「수정」이 나간다 — 다이얼로그 표시값 = 전송값', () => {
+    renderCard();
+    fireEvent.change(amountInput(), { target: { value: '99999999999' } });
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0][0]).toMatchObject({
+      orderAmountKrw: manwonToKrw(MAX_VI_ORDER_AMOUNT_MANWON),
+    });
+  });
+
+  it('상한 초과 상태(서버 에코발)에서는 `vi.set` 이 아예 나가지 않는다', async () => {
+    // 서버가 상한 밖 금액을 돌려주면 폼 값 자체가 상한을 넘는다 — 사용자는 아무것도 안 했다.
+    renderCard({
+      server: trigger({ orderAmountKrw: manwonToKrw(MAX_VI_ORDER_AMOUNT_MANWON) * 2, run: false }),
+    });
+    expect(limitText()).toHaveTextContent(VI_AMOUNT_LIMIT_MESSAGE);
+
+    fireEvent.click(screen.getByRole('button', { name: '시작' }));
+    const dialog = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(dialog.querySelector('button:last-of-type') as HTMLButtonElement);
+
+    // ★ 0바이트로 조용히 사라지는 것이 아니라 **애초에 보내지 않는다**(PC-7).
+    expect(sendMock).not.toHaveBeenCalled();
   });
 });
 

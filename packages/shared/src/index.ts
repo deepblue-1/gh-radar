@@ -66,7 +66,12 @@ export type {
   RelayStrategiesDisabledMsg,
   RelayOrderResultMsg,
 } from "./relay";
-export { RELAY_STATE_LABELS, RELAY_WS_CLOSE, ORDER_CONDITION_NORMAL } from "./relay";
+export {
+  RELAY_STATE_LABELS,
+  RELAY_WS_CLOSE,
+  ORDER_CONDITION_NORMAL,
+  MAX_VI_ORDER_AMOUNT_KRW,
+} from "./relay";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";
