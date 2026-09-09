@@ -170,10 +170,10 @@
 | RELAY-01 | Phase 15 | Complete (15-LIVE-VERIFICATION §8 재집계 2026-09-08 — `/healthz` `sessionCount:1`+`dma:true` 로 Ready 세션 실측(=인증·allowlist positive) · `dma_credentials` 2행 · `531930e`/`fd7942b` 실데이터 호가·계좌 팬아웃 · `da24eec`/`12bd478` 실사용 4탭·호가주문 탭) |
 | RELAY-02 | Phase 15 | Pending — 잔여: 취소(`C`) 왕복과 `cancelled` 전이 미관측(`dma_orders` 5행 모두 `org_order_no` NULL) · `GET /api/orders` 오늘 주문 목록 복원 응답 미관측. 나머지(신규 매수/매도 릴레이 · `OrderResp` ≤5초 — 전이 Δ median 77ms · 체결(`E`) 푸시 · `dma_orders` 기록 · ISIN 매핑 · 409)는 §8 에서 증명됨 |
 | RELAY-03 | Phase 15 | Complete (15-LIVE-VERIFICATION §8 — SC-2 ✅ 유지 + SC-8 ✅ 전환: 비밀 미기록 전역 게이트 0건(quick-260908-py9) · 알림 임계값 `dd2a8cc` · VPN 재시도 상한 조항은 `f9ca062`/`1ef7cc7` 로 상시 유지 정책으로 대체) |
-| TRADE-01 | Phase 16 | Pending |
-| TRADE-02 | Phase 16 | Pending |
-| TRADE-03 | Phase 16 | Pending — 잔여: gap 2(`DirectOrderReq(2)` 5초 상관 오귀속, 16-VERIFICATION §gaps[1]) 미해소. gap 1(감사 기록 · `dma_orders` 전역 쓰기)은 16-18 에서 닫혔고 나머지 절(인바운드 6 · Ready 프리페치 · 세션 캐시 · auth 스냅샷 · 파서·팬아웃 · `POST /api/orders` 제거)은 VERIFIED |
-| NAV-01 | Phase 16 | Pending |
+| TRADE-01 | Phase 16 | Complete (16-VERIFICATION Truth 48~60 전부 VERIFIED · `trading-limit-chaser.spec.ts` 12케이스 + `limit-chaser-form.test.tsx` 23케이스 · 16-25 가 WR-06 무장 규율 반영. 2026-09-09 프로덕션 `2cb5620` 배포, `/trading/limit-chaser/new` 는 인증 게이트를 통과해 도달 가능) |
+| TRADE-02 | Phase 16 | Complete (16-VERIFICATION Truth 61~68 전부 VERIFIED · `trading-vi.spec.ts` 11케이스 · 16-24 가 WR-07 주문금액 상한을 zod·envelope·UI 세 층에 통일. 2026-09-09 프로덕션 `2cb5620` 배포, `/trading/vi` 는 인증 게이트를 통과해 도달 가능) |
+| TRADE-03 | Phase 16 | Pending — 잔여: **프로덕션에서 이 경로가 한 번도 실행된 적이 없다.** 2026-09-09 배포 후 `https://dma.jx1.io/healthz` 실측이 `everReadyCount: 0` 이다 — Ready 에 도달한 DMA 세션이 프로덕션에 **한 건도 없었다**는 뜻이고, 따라서 전략 중계·팬아웃·주문 5초 상관이 실제 프레임을 나른 적이 없다. `DMA_HOST` 는 D-27 상 로컬 mock 이며 그 mock 은 VM 에 떠 있지 않다. 코드 층위는 전부 닫혔다: gap 1(감사 기록·전역 쓰기) → 16-18 + 부분 UNIQUE 인덱스 프로덕션 적용, gap 2(5초 상관 오귀속) → 16-22 다축 상관(좁히기 실패 시 미정산), WR-01(in-flight 가드)·WR-02(사용자 스코프 중복 가드)·WR-03(시장 소유권 relay 이관)·WR-05(`origin` 노출)·WR-09(flushNow) 종결. 인바운드 6 · Ready 프리페치 · 세션 캐시 · auth 스냅샷 · 파서·팬아웃은 16-VERIFICATION 에서 VERIFIED 이고, `POST /api/orders` 제거는 프로덕션 smoke INV-10(404) · INV-12a/b/c(env 잔존 0건)로 재확인됐다. **mock·단위 검증만으로 Complete 로 올리지 않는다** — RELAY-02 와 같은 기준이다 |
+| NAV-01 | Phase 16 | Complete (16-VERIFICATION Truth 40~47 전부 VERIFIED · `sidebar-tree.spec.ts`·`auth-guards.spec.ts`·`app-sidebar.test.tsx` · 2026-09-09 프로덕션 HTML 재실측 — 「상승률 상위」 + `data-nav-item` 검출) |
 | MYPAGE-01 | Phase 16 | Complete (16-19 에서 gap 3 종결 — 킬 스위치가 단절 중 비활성이고 전송 실패·ack 미수신이 화면에 드러난다. 나머지 Truth 69~71·73 은 16-VERIFICATION 에서 VERIFIED) |
 
 **Coverage:**
@@ -183,4 +183,4 @@
 
 ---
 *Requirements defined: 2026-04-10*
-*Last updated: 2026-09-08 — Phase 16 (trading-limit-chaser-vi-my-page) plan-phase: TRADE-01/02/03·NAV-01·MYPAGE-01 v1 정의 + Traceability(Pending) 5행 + Coverage 40→45. / quick-260908-scu: Phase 15 RELAY-01/02/03 재판정 — RELAY-01·RELAY-03 Complete, RELAY-02 는 취소(`C`) 왕복·주문 목록 복원 잔여로 Pending 유지(근거 `15-LIVE-VERIFICATION.md` §8).*
+*Last updated: 2026-09-08 — Phase 16 (trading-limit-chaser-vi-my-page) plan-phase: TRADE-01/02/03·NAV-01·MYPAGE-01 v1 정의 + Traceability(Pending) 5행 + Coverage 40→45. / quick-260908-scu: Phase 15 RELAY-01/02/03 재판정 — RELAY-01·RELAY-03 Complete, RELAY-02 는 취소(`C`) 왕복·주문 목록 복원 잔여로 Pending 유지(근거 `15-LIVE-VERIFICATION.md` §8). / 2026-09-09 — Phase 16 갭 클로징 종결(16-18~16-26, 14건): TRADE-01·TRADE-02·NAV-01 을 Pending→**Complete** 로 재판정(전량 스위트 green + 프로덕션 `2cb5620` 배포 실측). MYPAGE-01 은 16-19 에서 이미 Complete. **TRADE-03 은 Pending 유지** — 코드 층위(gap 1·2 포함)는 전부 닫혔으나 프로덕션 `/healthz` 가 `everReadyCount:0` 이라 relay 전략·주문 경로가 실서버에서 한 번도 실행된 적이 없다(D-27 상 실서버 결선 미실시). 근거 정본: `16-VALIDATION.md` §Gap Closure · §Deployment Verification (16-26).*

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-25-PLAN.md (WR-03 lc.set 시장구분 소유권 + WR-06 무장 가드)
+stopped_at: Completed 16-26-PLAN.md (갭 클로징 종결 — 배포 3종 + 세션 있는 상태 /healthz 200 실측 + 문서 4종 갱신)
 last_updated: "2026-09-09T02:50:19.461Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-25 실행 완료 (WR-03 + WR-06 종결)
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 종결 (16-26): 14건 전부 닫힘 · relay/server/webapp 배포 · gap 4 프로덕션 실측
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 165
-  completed_plans: 150
+  completed_plans: 151
   percent: 73
 ---
 
@@ -26,13 +26,24 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 26 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-25 완료 · 16-26 대기)
-Plans completed: 150 / 165
-Status: Executing Phase 16 (갭 클로징 1 plan 남음)
+Plan: 26 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-26 전량 완료)
+Plans completed: 151 / 165
+Status: Phase 16 갭 클로징 완료 (26/26) — 남은 것은 TRADE-03 실서버 실측(D-27, 사용자 명시 지시 필요)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-25 실행 완료 (WR-03 + WR-06 종결)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 종결 (16-26)
 
-Progress: [█████████░] 91% (150/165 plans · 18/25 phases)
+Progress: [█████████░] 92% (151/165 plans · 18/25 phases)
+
+### Phase 16 Gap Closure State (2026-09-09, 16-26)
+
+- **14건 전부 닫혔다.** `16-VERIFICATION.md` 갭 4건(G1~G4) + `16-REVIEW.md` Critical 1(CR-01) · Warning 9(WR-01~09). 담당 plan 은 16-18(G1·WR-01) · 16-19(G3) · 16-20(WR-04·WR-05) · 16-21(G4 코드) · 16-22(G2·WR-02) · 16-23(CR-01·WR-08) · 16-24(WR-07·WR-09) · 16-25(WR-03·WR-06) · 16-26(G4 배포·실측 + 문서). 처리 결과 정본은 `16-VALIDATION.md` §Gap Closure 표 14행.
+- **배포 3종 완료** (사용자 「배포 승인」, 순서 relay → server → webapp 고정, 커밋 `2cb5620`). relay `relay:2cb5620` @ VM `radar-gw` · server 리비전 `gh-radar-server-00043-s4f` · webapp `dpl_6Uwsjm3qT7WnKrhFmMPDt73Bz9C9` (Vercel **git 통합 자동 배포** — 16-17 이 우회해야 했던 `ignoreCommand` skip 은 `b691b15` 로 이미 해결돼 있었다). CLI 수동 배포 경로는 이 실행 환경 권한 정책에 막혔으나, 라이브 번들에서 16-19·16-23 의 코드 마커를 직접 검출해 갭 클로징 코드가 이미 프로덕션임을 확인했다.
+- **gap 4 종결 — 세션이 있는 상태의 200 을 실측했다.** 배포 전 `{"status":"degraded",…,"version":"4b6d792","sessionCount":2}` = **503** → 배포 후 `{"status":"ok","vpn":true,"dma":true,"version":"2cb5620","sessionCount":2,"everReadyCount":0}` = **200**. `sessionCount` 가 2 로 **같고 판정만 뒤집혔다** — 배포 직후 세션 0 의 200 이 아니다. smoke `INV-5a` 도 16-17 의 유일한 FAIL 에서 PASS 로 전환.
+- **smoke:** `smoke-relay.sh` PASS 12 · FAIL 0 · SKIP 1 / `smoke-server.sh` PASS 15 · FAIL 0 · SKIP 0. SKIP 은 INV-9 이며 **`SMOKE_AUTH_TOKEN` 이 없어 프로브를 한 번도 돌리지 못했다** — 16-21 의 재작성 이후 첫 실행 미수행이 열린 항목으로 남는다(재실행 명령은 `deferred-items.md` §16-26).
+- **요구사항 재판정:** TRADE-01 · TRADE-02 · NAV-01 **Complete** · MYPAGE-01 Complete(16-19). **TRADE-03 은 Pending 유지** — 코드 층위(gap 1·2 포함)는 전부 닫혔으나 프로덕션 `/healthz` 의 `everReadyCount: 0` 이 **Ready 에 도달한 DMA 세션이 한 건도 없었음**을 말한다. 즉 relay 전략 중계·주문 상관 경로가 실서버에서 한 번도 실행된 적이 없다. mock·단위 검증만으로 올리지 않는다(RELAY-02 와 같은 기준).
+- **이 배포가 바꾸지 않는 것:** DMA 게이트웨이는 여전히 없다(`DMA_HOST` = 로컬 mock, VM 에 미기동). 로그인 사용자는 트레이딩 3표면에서 DMA 게이트를 계속 본다. 바뀐 것은 그 상태가 **더 이상 relay 장애로 보고되지 않는다**는 것뿐이다.
+- **실서버·실계좌 검증은 이번에도 미실시**(D-27). `16-VALIDATION.md` §Manual-Only 5행 유지. `dma_credentials` 는 2행이지만 사유는 「자격증명 부재」가 아니라 **「사용자 명시 지시 없이는 하지 않는다」** 다.
+- **검사 사각지대 실측:** ① relay `tests/` 는 루트 `typecheck` 밖이라 16-25 의 형 경계 오류 14건을 `pnpm -r test` 가 통째로 놓쳤다(vitest 는 형을 안 본다) — `pnpm --filter @gh-radar/relay run typecheck:tests` 만 잡았고 16-26 이 고쳤다(`2cb5620`). ② phase 문서 88곳이 인용한 `pnpm --filter gh-radar-webapp test:e2e` 는 **어떤 프로젝트에도 매치되지 않아 exit 0** 으로 끝난다 — 「절대 실패할 수 없는 검증 명령」이었다. 정본은 `@gh-radar/webapp`.
 
 ### Phase 15 Production State (2026-09-08)
 
@@ -169,6 +180,7 @@ Progress: [█████████░] 91% (150/165 plans · 18/25 phases)
 | Phase 16 P23 | 15min | 3 tasks | 12 files |
 | Phase 16 P24 | 12min | 2 tasks | 11 files |
 | Phase 16 P25 | 20min | 3 tasks | 13 files |
+| Phase 16 P26 | 78min (배포 게이트 포함) | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -201,6 +213,10 @@ Progress: [█████████░] 91% (150/165 plans · 18/25 phases)
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 16 Plan 26]: TRADE-03 은 갭이 전부 닫힌 뒤에도 **Pending 으로 남긴다**. 프로덕션 `/healthz` 의 `everReadyCount: 0` 이 「Ready 에 도달한 DMA 세션이 한 건도 없었다」를 뜻하므로 전략 중계·주문 상관 경로가 실서버에서 실행된 적이 없다. 코드가 옳다는 것과 그 코드가 운영에서 돈다는 것은 다른 주장이고, 요구사항은 후자다 (RELAY-02 와 같은 기준).
+- [Phase 16 Plan 26]: 배포 순서 relay → server → webapp 은 취향이 아니라 계약 방향이다. 새 webapp + 옛 relay 는 `market` 없는 `cfg` 가 옛 zod 필수 필드에 걸려 `lc.set` 이 통째로 드롭되지만, 역방향(새 relay + 옛 webapp)은 스키마가 `.strict()` 가 아니라 안전하다 — 그래서 relay 가 먼저다.
+- [Phase 16 Plan 26]: gap 4 의 증거는 「200」이 아니라 「**세션이 있는 상태의** 200」이다. 배포 전후로 `sessionCount` 가 2 로 같고 판정만 503→200 으로 뒤집힌 대조를 근거로 삼는다 — 세션 0 의 200 은 판정 로직을 통과하지 않으므로 아무것도 증명하지 않는다.
+- [Phase 16 Plan 26]: 검증 명령이 「대상을 못 찾아도 exit 0」인 부류인지 확인한다. `pnpm --filter gh-radar-webapp test:e2e` 는 존재한 적 없는 이름이라 88개 문서에서 무동작으로 통과하고 있었다. `pnpm --filter`·`vitest -- <패턴>`·`grep` 이 전부 이 부류다.
 - [Phase 16 Plan 18]: `dma_orders` 의 `order_no` 셀렉터는 `user_id` + KST 당일까지 **세 축**으로 좁힌다 — 브로커 주문번호는 일별 재사용 시퀀스라 한 축만으로는 전역 쓰기다 (T-16-14). `userId` 없는 `order_no` 갱신은 `selectorOf` 가 `null` 을 돌려 드롭 + error 로그.
 - [Phase 16 Plan 18]: `maybeSingle()` 제거 — 2행일 때의 throw 가 호출자 catch 를 「셀렉터 없는 갱신」으로 열화시켜 그 자체가 전역 쓰기의 방아쇠였다. `order(created_at desc).limit(1)` 로 최근 1행 선택.
 - [Phase 16 Plan 18]: 자동주문 통보의 「조회 → 없으면 insert」를 `` `${userId}|${orderNo}` `` 키 in-flight Promise 로 감싼다 (WR-01). `closeConn`/`close` 는 `inflight` 을 건드리지 않는다 — 진행 중 왕복 중단이 곧 기록 결손.

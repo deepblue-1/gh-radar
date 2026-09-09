@@ -78,3 +78,75 @@ Map 하단 표에 있다. 요약: **접근성 위반 1건(진짜 결함) + 스�
 | **`GET /api/orders?date=<오늘>` 의 200 확인 미실시** | 미인증은 `401 UNAUTHENTICATED` 로 라우트 생존과 관문을 확인했다(smoke INV-11). 200 경로는 로그인 토큰(`SMOKE_AUTH_TOKEN`)이 있어야 하는데 실행자에게 없고 자격증명을 새로 만들지 않았다. 브라우저 로그인 상태의 확인은 §Manual-Only 소관. |
 | **`smoke-relay.sh` INV-9 는 여전히 SKIP** | `SMOKE_AUTH_TOKEN` 미설정. 다만 이 검사는 `POST /api/orders` 로 도달성을 재는데 **그 라우트가 16-16 에서 사라졌다** — 지금 이 프로브는 무조건 404 를 받아 `inconclusive` 로 떨어진다. 즉 토큰을 넣어도 의미가 없다. 도달성 판정의 새 근거(예: relay wss 주문 왕복)로 갈아끼우는 것은 relay 스코프 quick 소관. |
 | `surface-placeholder.tsx` 죽은 코드 | 그대로 남아 있다(위 16-17 절과 동일 사유 — 계획 밖 파일). |
+
+
+## 16-26 — 갭 클로징 종결 후 (2026-09-09)
+
+14건(G1~G4 · CR-01 · WR-01~09)은 전부 닫혔다(`16-VALIDATION.md` §Gap Closure). **여전히
+남는 것**을 여기 정직하게 남긴다.
+
+### 범위 밖으로 확정된 Info 6건
+
+`16-REVIEW.md` 의 Info 는 7건이고 그중 **IN-01 은 16-22 가 해소**했다(`PendingOrder.qty` 가
+저장만 되고 읽히지 않던 문제 — 다축 상관이 그 값을 매칭 축으로 소비한다). 나머지 6건은
+**사용자가 이 phase 의 갭 클로징 범위를 14건으로 명시 확정**했으므로 손대지 않았다.
+
+| ID | 한 줄 요약 | 파일 |
+|----|------------|------|
+| IN-02 | `CreateOrderResponse` 가 계약에 남아 있다 — 자기 주석이 「16-16 에서 제거된다」고 적었는데 사용처 0건인 채 export 로 살아 있다 | `packages/shared/src/relay.ts:820-836`, `index.ts:43` |
+| IN-03 | 인증 왕복 중 도착한 프레임마다 `logger.warn` — 미인증 피어의 로그 증폭(「로그가 곧 두 번째 DoS」 규율과 어긋난다). `authInFlight` 검사를 `t !== "auth"` 보다 앞으로 옮기고 경고를 1회로 묶어야 한다 | `relay/src/ws/fanout.ts:457-467` |
+| IN-04 | `relayOrderSecret` 이 실질적으로 아무 라우트도 지키지 않는다 — REST 주문 라우트가 사라진 뒤 남은 것은 `/healthz` 하나뿐이고 가드가 그것을 명시적으로 통과시킨다. 그럼에도 relay 부팅 필수 env 다 | `relay/src/order/order-api.ts:132-151,187` |
+| IN-05 | `DmaOrderRow` 주석이 D-03 **이전** 상태를 설명한다(「server 가 요청을 insert 하고」). 계약 문서가 소유권을 틀리게 말하면 다음 사람이 server 에 쓰기 경로를 다시 만든다 | `packages/shared/src/relay.ts:841` |
+| IN-06 | 서버 통지 로그가 버퍼 넘침 시 전체를 다시 기록한다 — `messages.indexOf(seen)` 가 참조 동일성이라 `MAX_MESSAGES`(20) 를 넘기면 `idx < 0` 이 되어 20건 전부가 다시 쌓인다 | `webapp/src/components/trading/limit-chaser-client.tsx:322-336` |
+| IN-07 | `checkRate` 음수 허용 경로가 UI 에서 도달 불가능하다 — `parseDigits` 가 부호를 제거하므로 두 곳의 근거 주석이 아무 경로도 열지 않는다. 하락 감시가 요구사항이면 입력에 부호를 허용하고, 아니면 스키마를 `min(0)` 으로 좁혀야 한다 | `relay/src/ws/protocol.ts:152`, `relay/src/dma/envelope.ts:1026`, `webapp/src/components/trading/vi-settings-card.tsx:747-750` |
+
+### 새로 드러난 것 — 「절대 실패할 수 없는 검증 명령」이 문서 계약에 박혀 있었다
+
+`pnpm --filter gh-radar-webapp test:e2e` 는 **어떤 프로젝트에도 매치되지 않는다.**
+`webapp/package.json` 의 이름은 2026-06-10(`b691b15`)부터 `@gh-radar/webapp` 이고,
+`gh-radar-webapp` 이라는 이름은 **이 파일 이력에 한 번도 존재한 적이 없다**(`git log -S` 0건).
+pnpm 은 `No projects matched the filters` 를 찍고 **exit 0** 으로 끝난다.
+
+이 문자열은 phase 16 문서 **88곳**에 인용돼 있다. 즉 「E2E 전량 green」을 이 명령으로
+확인했다고 적은 문장은 **아무것도 확인하지 않았을 수 있다**. 16-17 이 기록한 126/9 는 다행히
+실제 값과 일치했지만(16-26 이 올바른 필터로 재실행해 `126 passed · 9 skipped · 0 failed` 를
+확인), 그것은 16-17 이 실제로는 제대로 돌리고 **명령 문자열만 잘못 옮겨 적었다**는 뜻이다.
+
+- **조치:** `16-VALIDATION.md` §Test Infrastructure 의 Full suite command 를
+  `@gh-radar/webapp` 로 정정하고 정정 사유를 같은 표에 남겼다.
+- **하지 않은 것:** 과거 PLAN·SUMMARY 87곳은 **역사 기록이므로 손대지 않았다.** 인용할 때
+  주의해야 한다.
+- **일반화:** 검증 명령이 「대상을 못 찾아도 exit 0」인 종류인지 확인하는 습관이 필요하다.
+  `pnpm --filter` · `vitest -- <패턴>` · `grep` 이 전부 이 부류다.
+
+### 열린 항목 — smoke `INV-9` 는 재작성 후 **첫 실행이 아직 미수행**이다
+
+16-21 이 INV-9 를 「`POST /api/orders` 도달성」(16-16 이 없앤 라우트라 무조건 404)에서
+**relay wss 주문 왕복 도달성**으로 재작성했다. 16-26 배포에서도 `SMOKE_AUTH_TOKEN` 이
+없어 프로브 본체가 **한 번도 실행되지 않았다.**
+
+「돌렸는데 SKIP 이었다」와 섞지 말 것 — 정확한 상태는 **「토큰이 없어 못 돌렸다」** 이며,
+따라서 재작성된 프로브가 실제로 동작하는지는 아직 모른다(16-21 은 스크립트에서 프로브 JS 를
+추출해 로컬 가짜 wss 서버로 4갈래 판정만 실측했다).
+
+**재실행 방법 (한 줄).** 로그인한 브라우저 DevTools 의 localStorage
+`sb-ivdbzxgaapbmrxreyuht-auth-token` → `access_token` 값(약 1시간 만료)을 넣어:
+
+```bash
+GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://ivdbzxgaapbmrxreyuht.supabase.co \
+SMOKE_AUTH_TOKEN='<access_token>' bash scripts/smoke-relay.sh
+```
+
+기대값은 `reachable`(주문 핸들러가 **거부**로 답한다). `inconclusive` 면 매핑·토큰을 먼저
+의심한다. 이 프로브는 화이트리스트 밖 계좌번호 + 미해석 ISIN 을 쓰므로 `dma_orders` insert ·
+게이트웨이 송신 **이전에** 끝난다 — 실계좌에 주문이 나가지 않는다 (T-16-28).
+
+### 승계되는 기존 항목
+
+| 대상 | 현재 상태 |
+|------|-----------|
+| `surface-placeholder.tsx` 죽은 코드 | **여전히 남아 있다.** 사용처 0건이고 지우면 기능 변화 0 이지만, 16-14 → 16-17 → 16-26 어느 plan 의 `files_modified` 에도 없다. 이유는 위험이 아니라 **권한**이다. 다음 quick 에서 한 줄로 끝난다 |
+| `use-relay-socket.ts` 의 `clockStamp()` ko-KR locale 버그 | **여전히 그대로다 — 실측 확인함.** 16-19(`d52e788`·`593f306`)와 16-23(`29cbb03`)이 **같은 파일을 만졌지만** `clockStamp` 는 손대지 않았다. 각 plan 의 스코프(킬 스위치 · 계좌축)에 그 함수가 들어 있지 않았고, 고쳤다면 그 plan 의 diff 진단이 흐려진다. jsdom 은 `00:57:16` 을 돌려주므로 **단위 테스트로는 영원히 안 잡힌다** — 고치는 quick 은 브라우저 단언(E2E)을 함께 넣어야 한다 |
+| 미체결 표 6열 전환 (UI-SPEC B7) | 16-14 → 16-17 이 넘긴 그대로. 3표면 공용 표라 E2E 3개를 함께 고쳐야 한다 |
+| 실서버·실계좌 검증 (D-27) | **여전히 Manual-Only.** `16-VALIDATION.md` §Manual-Only 표 5행이 정본이며 이번에도 실시하지 않았다. `dma_credentials` 는 2행이지만 「자격증명이 없어서 못 한다」가 아니라 **「있어도 사용자 명시 지시 없이는 하지 않는다」** 가 정확한 사유다 |
+| relay `tests/` 가 루트 `typecheck` 밖 | **이번에 실제 피해가 났다.** 16-25 의 형 경계 오류 14건을 `pnpm -r test`(vitest 는 형을 안 본다)가 통째로 놓쳤고 `pnpm --filter @gh-radar/relay run typecheck:tests` 만 잡았다(16-26 `2cb5620`). 루트 편입 여부는 relay 소관 quick 에서 결정하되, 그때까지는 **전량 검증 시 반드시 함께 돌려야 한다** |
