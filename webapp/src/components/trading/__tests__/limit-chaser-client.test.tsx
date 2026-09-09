@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 /**
@@ -33,6 +33,18 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
       ...relayValue,
     }),
   };
+});
+
+/**
+ * 검색 API 스텁 — `StockSearchField` 가 유일하게 바깥과 맺는 계약이다.
+ *
+ * 실제 네트워크를 태우면 「우리 목업이 우리 목업과 잘 맞는다」만 증명하게 된다. 여기서 필요한
+ * 것은 **응답 행의 `market`/`isin` 값에 따라 행이 고를 수 있는가**뿐이다 (WR-03).
+ */
+const searchMock = vi.fn();
+vi.mock('@/lib/stock-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stock-api')>();
+  return { ...actual, searchStocks: (...args: unknown[]) => searchMock(...args) };
 });
 
 vi.mock('@/components/trading/dma-gate', async (importOriginal) => {
@@ -133,6 +145,8 @@ const watchQtyInput = (): HTMLInputElement =>
 
 beforeEach(() => {
   sendMock.mockReset();
+  searchMock.mockReset();
+  searchMock.mockResolvedValue([]);
   setRelay({});
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
@@ -448,5 +462,110 @@ describe('LimitChaserClient — 결선', () => {
     expect(screen.getAllByText('상따').length).toBeGreaterThan(0);
     // ★ 계좌 셀렉터가 두 벌이면 「지금 어느 계좌인가」가 갈린다 — 상단 카드 것 하나뿐이다.
     expect(screen.getAllByRole('combobox')).toHaveLength(1);
+  });
+});
+
+/*
+  WR-03 / D-28 — 시장 구분의 정본은 relay 다.
+
+  옛 코드는 검색 행의 `market` 을 `row.market === 'KOSDAQ' ? 'Q' : 'K'` 로 접어 `lc.set.cfg`
+  에 실었다. KOSDAQ 이 아닌 **모든** 값(KONEX·`null`·master-sync 의 미확인 sentinel)이 조용히
+  KOSPI 가 됐고, 그것이 실계좌 **반복 발주 설정**이 됐다. 여기서 잠그는 것은 두 가지다:
+    ① relay 가 못 푸는 종목은 **목록에서 이미** 고를 수 없다 (폼을 다 채운 뒤 거부는 늦다)
+    ② 전송되는 `cfg` 에 `market` 키가 **없다** — 브라우저가 시장을 지어낼 자리가 없다
+*/
+describe('⑯ 시장 미상 종목은 고를 수 없고 cfg 에 market 이 없다 (WR-03 / D-28)', () => {
+  /** 검색 응답 1행. `market` 은 타입상 KOSPI|KOSDAQ 이지만 **런타임은 그렇지 않다**. */
+  function row(over: Record<string, unknown> = {}) {
+    return {
+      code: '086520',
+      name: '에코프로',
+      market: 'KOSPI',
+      isin: ISIN,
+      price: 130_000,
+      changeAmount: 30_000,
+      changeRate: 29.97,
+      volume: 100,
+      tradeAmount: 100,
+      open: 100_000,
+      high: 130_000,
+      low: 100_000,
+      marketCap: 0,
+      upperLimit: 130_000,
+      lowerLimit: 70_000,
+      updatedAt: '2026-09-09T02:00:00Z',
+      upperLimitProximity: 100,
+      ...over,
+    };
+  }
+
+  async function search(rows: unknown[]): Promise<void> {
+    searchMock.mockResolvedValue(rows);
+    render(<LimitChaserClient />);
+    fireEvent.change(screen.getByLabelText('종목 검색'), { target: { value: '에코' } });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-slot="lc-search-option"]').length).toBe(rows.length),
+    );
+  }
+
+  const options = () =>
+    Array.from(
+      document.querySelectorAll('[data-slot="lc-search-option"]'),
+    ) as HTMLButtonElement[];
+
+  it('KONEX·시장 null 행은 비활성이고 「주문 불가」 사유 배지가 붙는다', async () => {
+    await search([
+      row(),
+      row({ code: '000001', name: '코넥스종목', market: 'KONEX' }),
+      row({ code: '000002', name: '시장미상', market: null }),
+    ]);
+
+    const [ok, konex, unknown] = options();
+    expect(ok).toBeEnabled();
+    expect(konex).toBeDisabled();
+    expect(unknown).toBeDisabled();
+    // 회색으로만 두지 않는다 — 왜 못 고르는지 말한다.
+    expect(within(konex).getByText('주문 불가')).toHaveAttribute(
+      'data-slot',
+      'lc-search-unorderable',
+    );
+    expect(within(unknown).getByText('주문 불가')).toBeInTheDocument();
+    // 기존 규율도 그대로다 — ISIN 이 없으면 여전히 못 고른다 (D-28).
+    expect(within(ok).queryByText('주문 불가')).toBeNull();
+  });
+
+  it('ISIN 이 없는 행도 같은 취급이다 (D-28 회귀)', async () => {
+    await search([row({ isin: null })]);
+
+    expect(options()[0]).toBeDisabled();
+    expect(document.querySelector('[data-slot="lc-search-unorderable"]')).not.toBeNull();
+  });
+
+  it('★ 선택 후 전송되는 `lc.set.cfg` 에 `market` 키가 **없다** — D-28 회귀 잠금', async () => {
+    await search([row()]);
+
+    act(() => {
+      options()[0]!.click();
+    });
+    // 종목이 정해지면 폼이 열린다(계좌는 단일 계좌가 자동 선택된다).
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: '매수주문 켜기' })).toBeInTheDocument(),
+    );
+
+    act(() => {
+      screen.getByRole('switch', { name: '매수주문 켜기' }).click();
+    });
+
+    const sent = sendMock.mock.calls
+      .map(([m]) => m as { t?: string; cfg?: Record<string, unknown> })
+      .filter((m) => m?.t === 'lc.set');
+    expect(sent.length).toBeGreaterThan(0);
+    for (const { cfg } of sent) {
+      expect('market' in (cfg as object)).toBe(false);
+      expect(cfg?.isin).toBe(ISIN);
+    }
   });
 });

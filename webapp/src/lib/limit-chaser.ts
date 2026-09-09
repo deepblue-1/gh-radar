@@ -44,8 +44,9 @@ import type { RelayExchange, RelayLcCrud, RelayLimitChaser, RelayLimitChaserInpu
 /**
  * 폼이 실제로 편집하는 값 24종.
  *
- * `RelayLimitChaserInput`(33) 에서 뺀 것:
- *   - 정체성 4 (`isin`·`accountNo`·`market`·`exchange`) — 상단 종목·거래소·계좌 카드(A1) 소관
+ * `RelayLimitChaserInput`(32) 에서 뺀 것:
+ *   - 정체성 3 (`isin`·`accountNo`·`exchange`) — 상단 종목·거래소·계좌 카드(A1) 소관.
+ *     `market` 은 애초에 `RelayLimitChaserInput` 에 없다 — relay 가 ISIN 으로 푼다(WR-03/D-28)
  *   - 파생 2 (`crud` = `crudOf`, `buyOrderQty` = `buyOrderQtyFromAmount`)
  *   - 클라 고정 3 (`sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0`)
  *
@@ -56,7 +57,6 @@ export type LimitChaserFormValues = Omit<
   RelayLimitChaserInput,
   | 'isin'
   | 'accountNo'
-  | 'market'
   | 'exchange'
   | 'crud'
   | 'buyOrderQty'

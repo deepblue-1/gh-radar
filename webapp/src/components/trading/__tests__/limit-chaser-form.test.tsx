@@ -111,7 +111,6 @@ function props(over: Partial<LimitChaserFormProps> = {}): LimitChaserFormProps {
   return {
     isin: ISIN,
     accountNo: ACCOUNT,
-    market: 'K',
     exchange: 'KRX',
     server: echo(),
     ...over,
@@ -362,11 +361,13 @@ describe('⑨ S→C 전용 4필드를 보내지 않는다 (Pitfall 6)', () => {
     'cancelQtyTrackBaseline',
   ] as const;
 
-  /** 클라 입력 30 + 클라 고정 3 = 33. `key` 도 싣지 않는다(relay 파생값이다). */
+  /**
+   * 클라 입력 29 + 클라 고정 3 = 32. `key` 도 싣지 않는다(relay 파생값이다).
+   * `market` 도 없다 — relay 가 `SymbolMap` 으로 ISIN 을 푼다 (WR-03 / D-28).
+   */
   const EXPECTED_KEYS = [
     'isin',
     'accountNo',
-    'market',
     'exchange',
     'crud',
     'buyOrderQty',
@@ -399,7 +400,7 @@ describe('⑨ S→C 전용 4필드를 보내지 않는다 (Pitfall 6)', () => {
     'cancelQtyTrackEnabled',
   ];
 
-  it('스위치 경로·「수정」 경로 어느 쪽에서도 cfg 키 집합이 정확히 33개다', async () => {
+  it('스위치 경로·「수정」 경로 어느 쪽에서도 cfg 키 집합이 정확히 32개다', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
 
@@ -411,10 +412,12 @@ describe('⑨ S→C 전용 4필드를 보내지 않는다 (Pitfall 6)', () => {
     expect(cfgs).toHaveLength(2);
     for (const cfg of cfgs) {
       const keys = Object.keys(cfg);
-      expect(keys).toHaveLength(33);
+      expect(keys).toHaveLength(32);
       expect(keys.sort()).toEqual([...EXPECTED_KEYS].sort());
       for (const f of FORBIDDEN) expect(keys).not.toContain(f);
       expect(keys).not.toContain('key');
+      // ★ D-28 회귀 잠금 — 브라우저가 시장을 지어내 싣지 않는다 (WR-03).
+      expect(keys).not.toContain('market');
     }
   });
 

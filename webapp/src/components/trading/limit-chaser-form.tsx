@@ -39,7 +39,7 @@
  *   유일한 예외가 `buyOrderAmount === 0`(=「서버가 모른다」)이고 그 판단은 `formFromServer`
  *   한 곳에 있다.
  *
- * ⑤ ★ 전송 필드는 **클라 입력 30 + 클라 고정 3 = 33** 이다
+ * ⑤ ★ 전송 필드는 **클라 입력 29 + 클라 고정 3 = 32** 이다
  *   S→C 전용 4필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
  *   `cancelQtyTrackBaseline`)를 **싣지 않는다**(Pitfall 6). 되보내면 「값이 왕복한다」는
  *   착각으로 에코 비교가 오염된다.
@@ -76,7 +76,6 @@ import {
   type ReactNode,
 } from 'react';
 import type {
-  OrderMarket,
   RelayExchange,
   RelayLimitChaser,
   RelayLimitChaserInput,
@@ -137,7 +136,13 @@ export interface LimitChaserFormProps {
   isin: string;
   /** 주문 계좌. 소유권 대조는 relay 가 한다(`session.allowedAccounts`, T-16-01). */
   accountNo: string;
-  market: OrderMarket;
+  /*
+    ★ `market` prop 이 **없다** (WR-03 / D-28). 시장 구분은 relay 가 `SymbolMap` 으로 ISIN 을
+      풀어 채운다 — 브라우저는 그 값을 만들지도, 싣지도 않는다. 예전에는 상위가
+      `row.market === 'KOSDAQ' ? 'Q' : 'K'` 로 **추측**해 내려보냈고 KONEX·`null` 이 조용히
+      KOSPI 가 됐다. 표시가 필요해지더라도 이 폼이 **와이어로 내보내지 않는다**는 사실은
+      바뀌지 않는다.
+  */
   exchange: RelayExchange;
   /**
    * 서버 에코 1건. `null`/`undefined` 면 신규 폼이고 더티 기준선이 없다.
@@ -179,7 +184,6 @@ export interface LimitChaserFormProps {
 export function LimitChaserForm({
   isin,
   accountNo,
-  market,
   exchange,
   server = null,
   upperLimit,
@@ -274,7 +278,8 @@ export function LimitChaserForm({
       ...values,
       isin,
       accountNo,
-      market,
+      // ★ `market` 을 싣지 않는다 (WR-03 / D-28) — relay 가 `symbols.lookup(isin)` 으로 푼다.
+      //   여기서 추측해 넣으면 그 추측이 **반복 발주 설정**이 된다. 스키마도 이 키를 떨어뜨린다.
       exchange,
       crud: crudOf(values),
       // 발주 정본. **역산 금지** — 산출식은 `lib/limit-chaser.ts` 한 곳뿐이다.
@@ -284,7 +289,7 @@ export function LimitChaserForm({
       sweepMinCount: 0,
       sweepMinRate: 0,
     }),
-    [isin, accountNo, market, exchange],
+    [isin, accountNo, exchange],
   );
 
   const setField = useCallback(<K extends keyof LimitChaserFormValues>(key: K, value: LimitChaserFormValues[K]) => {

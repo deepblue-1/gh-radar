@@ -46,7 +46,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RELAY_STATE_LABELS } from '@gh-radar/shared';
 import type {
-  OrderMarket,
   RelayExchange,
   RelayLimitChaser,
   RelayLimitChaserInput,
@@ -114,7 +113,11 @@ interface SelectedStock {
   /** 6자 단축코드. 표시 전용이다. */
   code: string;
   name: string;
-  market: OrderMarket;
+  /*
+    ★ `market` 이 **없다** (WR-03 / D-28). 검색 결과의 시장구분은 「고를 수 있는가」를 판정할
+      때만 쓰고, 화면 상태로 남기지 않는다 — 남기면 언젠가 그 값이 와이어로 새어 나간다.
+      전략 등록의 시장구분은 relay 가 `SymbolMap` 으로 ISIN 을 풀어 채운다.
+  */
   /** REST 상세의 값. 실시간 호가(`quote.ul` 등)가 도착하면 그쪽이 이긴다. */
   upperLimit: number;
   lowerLimit: number;
@@ -374,7 +377,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   const tickSize = deriveTickSize(quote?.ap, quote?.bp, currentPrice > 0 ? currentPrice : basePrice);
 
   const badges = strategyStatusOf(server, fired);
-  const market: OrderMarket = picked?.market ?? server?.market ?? 'K';
 
   /** 스냅샷 도착 전 — 편집 진입인데 아직 그 전략을 못 받았다(UI-SPEC §동기화). */
   const awaitingSnapshot =
@@ -567,7 +569,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
           key={`${isin}|${accountNo}|${exchange}|${resetSeq}|${liveSeed}`}
           isin={isin}
           accountNo={accountNo}
-          market={market}
           exchange={exchange}
           server={server}
           upperLimit={upperLimit}
@@ -765,7 +766,25 @@ function Dot({ tone, pulse = false }: { tone: 'ok' | 'up' | 'down' | 'hollow' | 
  *
  * ★ `isin` 이 없는 종목은 고를 수 없다(ETP 등 — 게이트웨이 구독·주문 대상이 아니다, D-28).
  *   고를 수 있게 두면 「등록했는데 아무 일도 안 일어나는 전략」이 만들어진다.
+ * ★ **시장구분을 알 수 없는 종목도 같은 취급**이다 (WR-03). 전략 등록의 시장은 relay 가
+ *   `SymbolMap` 으로 푸는데, 그것이 못 푸는 종목을 고를 수 있게 두면 사용자가 폼을 다 채우고
+ *   스위치를 켠 **뒤에야** 거부 프레임을 본다. 고를 수 없다는 사실을 목록에서 먼저 말한다.
  */
+/**
+ * 고를 수 있는 종목인가 — **판정 지점 하나**.
+ *
+ * `disabled` 와 `onClick` 가드가 같은 함수를 읽는다(`vi-order-list.tsx` 의 `isConfirmable` 과
+ * 같은 규율이다). 두 곳에 따로 적으면 한쪽만 고쳐지고, 그때 뚫리는 것이 「비활성인데 눌리면
+ * 선택되는」 행이다.
+ *
+ * ★ 타입은 `market: 'KOSPI' | 'KOSDAQ'` 이라고 말하지만 **런타임은 그렇지 않다** — KONEX·
+ *   `null`·master-sync 의 미확인 sentinel 이 그대로 실려 온다. 그래서 문자열 목록으로 본다.
+ */
+const ORDERABLE_MARKETS: readonly string[] = ['KOSPI', 'KOSDAQ'];
+function isPickable(row: StockDetailResponse): boolean {
+  return row.isin !== null && ORDERABLE_MARKETS.includes(row.market);
+}
+
 function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StockDetailResponse[]>([]);
@@ -825,14 +844,14 @@ function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }
                 <button
                   type="button"
                   data-slot="lc-search-option"
-                  disabled={row.isin === null}
+                  disabled={!isPickable(row)}
                   onClick={() => {
-                    if (row.isin === null) return;
+                    if (!isPickable(row)) return;
                     onPick({
-                      isin: row.isin,
+                      isin: row.isin as string,
                       code: row.code,
                       name: row.name,
-                      market: row.market === 'KOSDAQ' ? 'Q' : 'K',
+                      // `market` 을 싣지 않는다 (WR-03 / D-28) — 추측이 발주 설정이 되지 않게.
                       upperLimit: row.upperLimit,
                       lowerLimit: row.lowerLimit,
                       // 기준가 = 현재가 − 전일대비. 실시간 호가가 오면 `quote.base` 가 이긴다.
@@ -850,8 +869,13 @@ function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }
                   <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                     {row.code}
                   </span>
-                  {row.isin === null && (
-                    <span className="flex-none text-[11px] text-[var(--muted-fg)]">주문 불가</span>
+                  {!isPickable(row) && (
+                    <span
+                      data-slot="lc-search-unorderable"
+                      className="flex-none text-[11px] text-[var(--muted-fg)]"
+                    >
+                      주문 불가
+                    </span>
                   )}
                 </button>
               </li>
