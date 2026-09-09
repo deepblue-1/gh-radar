@@ -823,3 +823,94 @@ describe('⑮ 무장 불가 안내가 원인을 값으로 가른다 (GC-WR-12)',
     );
   });
 });
+
+/*
+  R2-WR-02 · R2-IN-01 — **첫 관문이 마지막 관문보다 엄격하면 안 된다 · 해결된 경고는 접힌다**.
+
+  ⑭ 가 「수정」에도 무장 가드를 걸어 준 것은 옳았지만, 그 가드에 **철거 면제가 빠졌다.**
+  `GATE_KEYS` 는 `['buyEnabled','sweepEnabled','sellEnabled']` 인데 `sweepEnabled` 는 삭제
+  판정 4종(`isDeleteIntent`: buy/sell/cancelQty/cancelTrade)에 **들어 있지 않다.** 그래서
+  「게이트 4종 OFF(= 전략을 내린다) + 한방 ON + 시세가 끊겨 매수가격 0」이면 화면이 「수정」을
+  막는데, **relay 는 같은 요청을 받아 준다** — `fanout.ts` `#strategyArmable` 첫 줄이
+  `#isTeardown` 으로 면제하기 때문이다(16-36 이 그 줄을 남긴 이유가 정확히 이 조합이다).
+  전략을 내리려는 사용자를 화면이 막는 것은 자산을 인질로 잡는 방향이다(T-16-44).
+
+  그리고 `submitError` 는 (a) 다음 성공 전송 (b) `[server]` 에코 두 곳에서만 지워졌다 —
+  「금액을 올리면 켤 수 있어요」를 읽고 금액을 올려도 `role="alert"` 가 그대로 남았다.
+  상시 표시되는 안전 문구는 다음번에 읽히지 않는다(T-16-86).
+*/
+describe('⑯ 철거 의도의 「수정」은 막히지 않고, 원인을 고치면 문구가 접힌다 (R2-WR-02 / R2-IN-01)', () => {
+  const submitError = () => document.querySelector('[data-slot="lc-submit-error"]');
+
+  /**
+   * 게이트 4종이 전부 꺼진 = **전략을 내리는** 전략. 한방만 켜져 있고 시세가 끊겨
+   * 매수가격이 0 이라 `canArmSweep` 이 거짓이다 — 옛 코드가 정확히 여기서 막았다.
+   */
+  const teardownWithSweep = () =>
+    echo({
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+      cancelTradeEnabled: false,
+      sweepEnabled: true,
+      buyOrderPrice: 0,
+      buyOrderAmount: 0,
+    });
+
+  it('게이트 4종 OFF + 한방 ON + 매수가격 0 이어도 「수정」이 나간다 (R2-WR-02 / T-16-44)', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props({ server: teardownWithSweep() })} />);
+
+    // 더티를 하나 만들어 액션 바를 띄운다 — 「수정」은 그 바에만 있다.
+    setNumber(screen.getByLabelText(/한방가격/), '140000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    // relay 가 받아 주는 요청을 화면이 막지 않는다.
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0]![0]).toMatchObject({ t: 'lc.set' });
+    // 삭제 의도가 맞다 — `crudOf` 가 'D' 로 파생됐다.
+    expect(lastConfig().crud).toBe('D');
+    expect(submitError()).toBeNull();
+  });
+
+  it('게이트가 하나라도 켜진 무장 미달은 여전히 막힌다 (T-16-60 회귀 게이트)', async () => {
+    const user = userEvent.setup();
+    // 위와 **같은 조합**인데 `cancelTradeEnabled` 하나만 켠다 — 삭제 의도가 아니게 된다.
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ ...teardownWithSweep(), cancelTradeEnabled: true }) })}
+      />,
+    );
+
+    setNumber(screen.getByLabelText(/한방가격/), '140000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(submitError()).toHaveTextContent(
+      '한방은 매수 무장 조건을 함께 요구해요 — 시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
+    );
+  });
+
+  it('값을 고치면 무장 차단 문구가 사라진다 (R2-IN-01 / T-16-86)', async () => {
+    const user = userEvent.setup();
+    // 「주문금액이 매수가격보다 작아 주문수량이 0 주예요」 — 사용자가 금액을 올려 고칠 수 있는 쪽.
+    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1 }) })} />);
+
+    setNumber(screen.getByLabelText(/한방가격/), '140000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(submitError()).toHaveTextContent(
+      '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+    );
+
+    // ★ 원인 필드를 고친다 — 문구가 접힌다. 전송은 하지 않는다(D-06).
+    setNumber(screen.getByLabelText(/주문금액/), '50');
+    expect(submitError()).toBeNull();
+    expect(sendMock).not.toHaveBeenCalled();
+
+    // 그리고 이제 「수정」이 나간다 — 문구가 사라진 것이 표시만의 일이 아니다.
+    await user.click(screen.getByRole('button', { name: '수정' }));
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+});

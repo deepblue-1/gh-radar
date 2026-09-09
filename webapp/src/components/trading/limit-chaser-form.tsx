@@ -96,6 +96,7 @@ import {
   dirtyFieldsOf,
   estimatedSellQty,
   formFromServer,
+  isDeleteIntent,
   seedFromUpperLimit,
   type LimitChaserDirtyField,
   type LimitChaserFormValues,
@@ -373,6 +374,17 @@ export function LimitChaserForm({
   const setField = useCallback(<K extends keyof LimitChaserFormValues>(key: K, value: LimitChaserFormValues[K]) => {
     // ★ 여기서 전송하지 않는다(D-06). 디바운스도 타이머도 없다 — 「수정」 버튼이 유일한 출구다.
     setForm((prev) => ({ ...prev, [key]: value }));
+    /*
+      ★ **원인을 고치면 문구가 접힌다** (R2-IN-01 / T-16-86). 옛 동작에서 `submitError` 는
+        (a) 다음 성공 전송 (b) `[server]` 에코 두 곳에서만 지워졌다. 그래서 「주문금액이
+        매수가격보다 작아 주문수량이 0 주예요」를 보고 **금액을 올려도** `role="alert"` 문구가
+        그대로 남았다. 상시 표시되는 안전 문구는 다음번에 읽히지 않고, 그때 진짜 경고도 함께
+        죽는다.
+        **값 변경만을 트리거로 삼는다** — 「수정」 실패 직후에 스스로 지워지면 사용자가 읽을
+        시간이 없다. `handleSubmit`·`toggleGate` 는 `setField` 를 거치지 않으므로 방금 띄운
+        문구가 같은 렌더에서 지워질 경로가 없다. `[server]` 이펙트의 해제는 그대로 둔다.
+    */
+    setSubmitError('');
   }, []);
 
   /**
@@ -492,7 +504,25 @@ export function LimitChaserForm({
           (T-16-44) — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나가야 한다.
         `setSubmitting(true)` **앞**이다. 잠근 뒤에 막으면 버튼이 영구히 잠긴다.
     */
-    const blocked = GATE_KEYS.find((key) => values[key] && gateBlocked(key, true));
+    /*
+      ★★ **철거 면제** (R2-WR-02 / T-16-44). 게이트 4종(`buyEnabled`·`sellEnabled`·
+        `cancelQtyEnabled`·`cancelTradeEnabled`)이 전부 꺼진 「수정」은 **전략을 내리는**
+        요청이다. 여기서 막으면 안 된다:
+        · relay 는 이 요청을 **받아 준다** — `fanout.ts` `#strategyArmable` 첫 줄이
+          `if (this.#isTeardown(cfg)) return true;` 로 면제한다(16-36 이 그 줄을 남긴 이유가
+          정확히 이것이다). **첫 관문이 마지막 관문보다 엄격하면** 사용자는 전략을 내리려는데
+          화면이 막고, 그 사이 시장은 계속 움직인다 — 자산을 인질로 잡는 방향이다.
+        · `sweepEnabled` 는 삭제 판정 4종에 **들어 있지 않다.** 그래서 「게이트 4종 OFF +
+          한방 ON + 시세 끊겨 `buyOrderPrice === 0`」이 정확히 이 함정이다 — 아래 `find` 가
+          `sweepEnabled` 를 짚어 철거를 거부한다.
+        · 바로 위 ★ 가 적어 둔 T-16-44(「끄는 방향은 여기서도 막지 않는다」)의 **누락된
+          나머지 절반**이다. 그쪽은 게이트 하나하나를 보고, 이쪽은 **전략 전체를 내리는
+          의도**를 본다.
+    */
+    const teardown = isDeleteIntent(values);
+    const blocked = teardown
+      ? undefined
+      : GATE_KEYS.find((key) => values[key] && gateBlocked(key, true));
     if (blocked !== undefined) {
       setSubmitError(armBlockedTextOf(blocked, values));
       return;
