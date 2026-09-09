@@ -98,7 +98,7 @@
 - [ ] **TRADE-02**: VI 종합주문 페이지 `/trading/vi` — 세션당 1건(`SetVITrigger`: account_no · order_amount_krw(원 단위, UI 만원 × 10,000) · check_rate(정수 %) · price_type "U" 고정 · run), 시작/중지 확인 다이얼로그, VI 주문내역(`VIOrderList` 72/73, state 6종 + `Accepted ∧ filledQty>0` 파생 부분체결, `confirm_locked`, deadline 110/119초) + `ConfirmVIOrderReq(33)` 확인 체크 — Phase 16
 - [ ] **TRADE-03**: relay 전략 중계 + 주문 wss 이관 — 인바운드 `lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`/`order.new`/`order.cancel`, DMA Ready 시 24/21/34 프리페치 + 세션 전략 캐시, auth 직후 전략 스냅샷 팬아웃, 56/60/61/64/65/72/73 파싱·팬아웃, `DirectOrderReq(2)` 5초 상관 이관 + `dma_orders` insert/update 를 relay 가 전담(origin manual/limit_chaser/vi), server `POST /api/orders` 제거(GET 유지) — Phase 16
 - [ ] **NAV-01**: 사이드 메뉴 2단 그룹 트리 — 홈 / 종목검색(상승률 상위 `/scanner` · 테마 · 관심종목) / 트레이딩(상따 + 3단 등록 전략 목록 · VI) / My page / AI 애널리스트. 기존 URL 유지, 비로그인·`unauthorized`·미연결 시 트레이딩·My page 숨김, 모바일 Sheet drawer 동일 트리 — Phase 16
-- [ ] **MYPAGE-01**: My page `/me` — 전략 현황(상따 목록 + VI 상태 + 전체 비활성화 `DisableStrategiesReq(14)` key="") → 계좌별 미체결·잔고 세로 반복(`account-panel` 재사용, 모바일 2줄 카드 행) — Phase 16
+- [x] **MYPAGE-01**: My page `/me` — 전략 현황(상따 목록 + VI 상태 + 전체 비활성화 `DisableStrategiesReq(14)` key="") → 계좌별 미체결·잔고 세로 반복(`account-panel` 재사용, 모바일 2줄 카드 행) — Phase 16
 
 ## v2 Requirements
 
@@ -172,9 +172,9 @@
 | RELAY-03 | Phase 15 | Complete (15-LIVE-VERIFICATION §8 — SC-2 ✅ 유지 + SC-8 ✅ 전환: 비밀 미기록 전역 게이트 0건(quick-260908-py9) · 알림 임계값 `dd2a8cc` · VPN 재시도 상한 조항은 `f9ca062`/`1ef7cc7` 로 상시 유지 정책으로 대체) |
 | TRADE-01 | Phase 16 | Pending |
 | TRADE-02 | Phase 16 | Pending |
-| TRADE-03 | Phase 16 | Pending |
+| TRADE-03 | Phase 16 | Pending — 잔여: gap 2(`DirectOrderReq(2)` 5초 상관 오귀속, 16-VERIFICATION §gaps[1]) 미해소. gap 1(감사 기록 · `dma_orders` 전역 쓰기)은 16-18 에서 닫혔고 나머지 절(인바운드 6 · Ready 프리페치 · 세션 캐시 · auth 스냅샷 · 파서·팬아웃 · `POST /api/orders` 제거)은 VERIFIED |
 | NAV-01 | Phase 16 | Pending |
-| MYPAGE-01 | Phase 16 | Pending |
+| MYPAGE-01 | Phase 16 | Complete (16-19 에서 gap 3 종결 — 킬 스위치가 단절 중 비활성이고 전송 실패·ack 미수신이 화면에 드러난다. 나머지 Truth 69~71·73 은 16-VERIFICATION 에서 VERIFIED) |
 
 **Coverage:**
 - v1 requirements: 45 total (DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36; CHAT-01 added 2026-07-02 with Phase 14(AI 애널리스트 챗봇) → 36→37; RELAY-01·RELAY-02·RELAY-03 added 2026-09-05 with Phase 15(DMA 중계 서버) → 37→40; TRADE-01·TRADE-02·TRADE-03·NAV-01·MYPAGE-01 added 2026-09-08 with Phase 16(트레이딩 메뉴 — 상따·VI·My page) → 40→45)

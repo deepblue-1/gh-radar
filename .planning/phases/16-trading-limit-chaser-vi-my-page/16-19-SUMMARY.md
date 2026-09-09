@@ -46,7 +46,7 @@ patterns-established:
   - "계약 JSDoc 이 결함을 선언하고 있으면 코드와 함께 문장을 지운다 (「조용히 무시한다」 삭제)"
   - "가드 보강은 뮤테이션(가드 한 줄 주석 처리 → 테스트 실패)으로 실효를 실증한다"
 
-requirements-completed: [MYPAGE-01, TRADE-03]
+requirements-completed: [MYPAGE-01]  # TRADE-03 은 gap 2 미해소로 Pending 유지 — 아래 「요구사항 판정」 참조
 
 duration: 9min
 completed: 2026-09-09
@@ -175,6 +175,13 @@ completed: 2026-09-09
 | 8초 ack 타임아웃이 「반영을 확인하지 못했어요」를 남긴다 | ✅ | 백스톱 `useEffect`, 테스트 ⑪ |
 | 나머지 4개 호출부가 전부 세션 준비 상태로 가려져 있음이 소스 단언으로 확인 | ⚠️ **정정** | 3곳은 실재, **`vi.set` 1곳은 부재였고 이 plan 이 세웠다**. 위 감사 표 참조 — 「킬 스위치만 예외」는 사실이 아니었다 |
 
+## 요구사항 판정
+
+| 요구사항 | 판정 | 근거 |
+|----------|------|------|
+| **MYPAGE-01** | ✅ **Complete** | 16-VERIFICATION 의 PARTIAL 사유는 gap 3 단 하나였다(「전체 비활성화가 단절 시 무로그 no-op」). 이 plan 이 그것을 닫았고 Truth 69~71·73 은 이미 VERIFIED 였다 |
+| **TRADE-03** | ⏸ **Pending 유지** | 계획 frontmatter 에 있었으나 **닫지 않았다**. 16-VERIFICATION 의 BLOCKED 사유는 gap 1 + **gap 2(`DirectOrderReq(2)` 5초 상관 오귀속)** 둘이고, gap 1 은 16-18 이 닫았지만 **gap 2 는 아직 열려 있다**. `requirements.mark-complete` 가 두 건을 함께 올렸기에 TRADE-03 을 되돌리고 `REQUIREMENTS.md:175` Traceability 에 잔여 사유를 명시했다(RELAY-02 선례와 같은 형식) |
+
 ## Known Stubs
 
 없음.
@@ -196,3 +203,8 @@ None — 외부 서비스 설정 없음.
 ---
 *Phase: 16-trading-limit-chaser-vi-my-page*
 *Completed: 2026-09-09*
+
+## Self-Check: PASSED
+
+- 파일 4/4 실재 (SUMMARY · use-relay-socket.ts · strategy-status-card.tsx · vi-settings-card.tsx)
+- 커밋 4/4 실재 (`d52e788` · `593f306` · `5bb089f` · `95477de`)

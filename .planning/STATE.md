@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-18-PLAN.md (gap 1 + WR-01 · 부분 UNIQUE 인덱스 프로덕션 적용)
-last_updated: "2026-09-09T00:55:00.000Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-18 실행 완료 (gap 1 + WR-01)
+stopped_at: Completed 16-19-PLAN.md (gap 3 — 킬 스위치 침묵 제거 + vi.set 가드 보강)
+last_updated: "2026-09-09T01:12:52.962Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-19 실행 완료 (gap 3 + vi.set 가드)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 165
-  completed_plans: 142
+  completed_plans: 144
   percent: 72
 ---
 
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 19 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18 완료 · 16-19~16-26 대기)
-Plans completed: 142 / 165
-Status: Executing Phase 16 (갭 클로징 8 plans 남음)
+Plan: 20 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18·16-19 완료 · 16-20~16-26 대기)
+Plans completed: 144 / 165
+Status: Executing Phase 16 (갭 클로징 7 plans 남음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-18 실행 완료 (gap 1 + WR-01)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-19 실행 완료 (gap 3 + vi.set 가드)
 
-Progress: [█████████░] 86% (142/165 plans · 18/25 phases)
+Progress: [█████████░] 87% (144/165 plans · 18/25 phases)
 
 ### Phase 15 Production State (2026-09-08)
 
@@ -162,6 +162,7 @@ Progress: [█████████░] 86% (142/165 plans · 18/25 phases)
 | Phase 14 P10 | 8 min | 2 tasks | 4 files |
 | Phase 14 P11 | ~50min | 2 tasks | 15 files |
 | Phase 16 P18 | 14min (게이트 대기 제외) | 3 tasks | 5 files |
+| Phase 16 P19 | 9min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -311,6 +312,9 @@ Recent decisions affecting current work:
 - [Phase 14]: 챗 대화목록 GET 은 bare array 반환 — { data } envelope 가 webapp apiFetch(unwrap 없음) 계약과 불일치해 종목별 히스토리 유실. production smoke 로 발견, Rule 1 수정(05e96b4)
 - [Phase 14]: 챗 면책 문구 전면 제거 — 사용자 checkpoint 결정. 서버 프롬프트+webapp UI+테스트 전부 삭제, 매매지시 금지·환각 금지 안전 가드는 유지(8fd25cc)
 - [Phase 14]: 챗 모델 전면 claude-sonnet-5 — 사용자 결정(팀장+전문가+웹서치 3키). 전문가 temperature 제거+thinking disabled, 팀장 adaptive thinking 유지+max_tokens 8192. web_search_20250305 유지, [chat] usage 에 model=claude-sonnet-5 관측(2918a4b)
+- [Phase 16 Plan 19]: relay 송신구 `send` 는 `boolean` 을 돌려주고 소켓 미연결 드롭을 `console.error` 로 남긴다 (PC-7 무로그 fail-safe 금지 / T-16-19) — 로그에는 `msg.t` 만 싣는다 — `lc.set.cfg`·`vi.set.accountNo` 의 계좌번호가 브라우저 콘솔로 새면 안 된다 (T-16-18)
+- [Phase 16 Plan 19]: 킬 스위치는 세션이 `ready` 가 아니면 비활성이고, 전송 실패 시 `awaitingAck` 를 세우지 않는다 — 「보내지 못했어요」(0바이트 확실)와 「반영을 확인하지 못했어요」(65 유실 — 결과 모름)는 다른 문구다 (T-16-20 / T-16-21)
+- [Phase 16 Plan 19]: send 호출부 감사 결과 세션 가드 예외는 킬 스위치 하나가 아니라 둘이었다 — `vi-settings-card` 의 `submit` 이 `DirtyActionBar` 「수정」 경로로 우회했다 — 가드는 UI 의 `disabled` prop 이 아니라 송신 콜백 첫 줄에 둔다. 공용 액션 바는 세션 상태를 모른다
 
 ### Pending Todos
 
@@ -360,6 +364,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-08T11:22:00.000Z
-Stopped at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
+Last session: 2026-09-09T01:12:52.948Z
+Stopped at: Completed 16-19-PLAN.md (gap 3 — 킬 스위치 침묵 제거 + vi.set 가드 보강)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
