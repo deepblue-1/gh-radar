@@ -988,13 +988,30 @@ function mkNotice(over: Partial<ParsedOrderResp> = {}): ParsedOrderResp {
 }
 
 describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
-  it("후보가 없으면 null, 하나면 축이 어긋나도 그것이다 (정상 경로 회귀 방지)", () => {
+  it("유일 후보라도 취소확인은 신규 대기를 정산하지 않는다 (GC-CR-01)", () => {
     expect(narrowPending([], mkNotice())).toBeNull();
 
-    // 유일 후보는 축을 보지 않는다 — 구 서버가 값을 비워 보내는 축이 있어서, 여기서
-    // 필터를 걸면 **대부분의 실사용**이 매칭 실패로 떨어진다.
+    // 통보가 **실어 온** 강한 축은 후보 수와 무관한 하드 필터다. 신규 대기 1건 앞에
+    // 취소확인이 오면(다른 탭·자동주문·세션 합류로 들어온 남의 통보) 아무것도 정산하지
+    // 않는다 — 정산하면 살아 있는 매수 주문이 화면에 「취소됨」으로 뜨고, 사용자가 그것을
+    // 믿고 재주문하면 중복 체결이다.
+    const fresh = mkPending({ rid: "new" });
+    expect(
+      narrowPending([fresh], mkNotice({ noticeType: "C", orgOrderNo: "0000012345" })),
+    ).toBeNull();
+
+    // 비어 있는 축은 여전히 건너뛴다 — 구 게이트웨이 호환·정상 경로 회귀 방지.
+    // 수량·가격이 어긋나도 ③④ 는 단계적 좁히기라 그 대기가 그대로 나온다.
     const only = mkPending({ qty: 3, price: 111 });
-    expect(narrowPending([only], mkNotice({ quantity: 999, price: 999 }))).toBe(only);
+    expect(narrowPending([only], mkNotice({ noticeType: "A", quantity: 999, price: 999 }))).toBe(
+      only,
+    );
+
+    // 취소 대기 1건 + **다른** 원주문번호의 취소확인 → 그 취소 대기의 것이 아니다.
+    const cancel = mkPending({ rid: "cancel", isCancel: true, orgOrderNo: "0000012345" });
+    expect(
+      narrowPending([cancel], mkNotice({ noticeType: "C", orgOrderNo: "0000099999" })),
+    ).toBeNull();
   });
 
   it("① 취소 축 — 원주문번호가 있으면 그 취소 대기로 좁힌다", () => {

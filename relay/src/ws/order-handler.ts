@@ -353,8 +353,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    if (candidates.length > 1) {
-      // 계좌번호·주문번호 원문은 싣지 않는다 (T-16-32) — 후보 수와 축만으로 진단된다.
+    // 후보가 **1건이어도** 좁히지 못하고 끝날 수 있다 (GC-CR-01 이후) — 그 침묵을
+    // 남기지 않는다 (무로그 fail-safe 금지 / T-16-51). 계좌번호·주문번호 원문은 싣지
+    // 않는다 (T-16-32) — 후보 수와 축만으로 진단된다.
+    if (candidates.length > 0 && picked === null) {
       logger.warn(
         { isin: notice.isin, noticeType: notice.noticeType, candidates: candidates.length },
         "[WS-order] 통보를 대기 항목 하나로 좁히지 못했다 — 아무것도 정산하지 않는다",
@@ -854,17 +856,38 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
  * 대기**를 정산해 살아 있는 매수 주문이 화면에 「취소됨」으로 뜬다. 사용자가 그 표시를 믿고
  * 재주문하면 중복 체결이다 — 이 파일이 스스로 「최악의 결과」라고 적어 둔 상황이다.
  *
- * 축을 **하드 필터가 아니라 단계적 좁히기**로 쓰는 이유: 구 게이트웨이는 `noticeType` 을
+ * ①~④ 를 **하드 필터가 아니라 단계적 좁히기**로 쓰는 이유: 구 게이트웨이는 `noticeType` 을
  * 비워 보내고(fbs 주석), 체결 통보의 `quantity`·`price` 는 주문값이 아니라 **체결값**이다
  * (부분체결이면 다르다). 하드 필터로 쓰면 정상 통보가 후보를 전부 지워 매칭이 통째로
  * 실패한다. 그래서 각 단계는 **남는 후보가 0이 되면 적용하지 않는다** — 축이 틀렸을
  * 가능성이 후보를 전부 지우는 것보다 낫다.
+ *
+ * **그러나 그 근거의 유효 범위는 「비어 있는 축」까지다** (GC-CR-01). 통보가 **실제로 실어
+ * 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` "C"/"M")은 후보 수와
+ * 무관한 **하드 필터**다 — 구 서버 호환은 「비어 있는 축을 건너뛴다」였지 「실어 온 축을
+ * 무시한다」가 아니었다. 후보가 1건이어도 그 축과 어긋나면 정산하지 않는다.
  */
 export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): PendingOrder | null {
-  // 후보 1개는 지금까지의 정상 경로다(대부분의 실사용). 여기서 회귀가 없어야 한다.
-  if (candidates.length <= 1) return candidates[0] ?? null;
+  if (candidates.length === 0) return null;
 
-  let pool = candidates;
+  // ★ 하드 필터 — `refine` 과 **규율이 다르다.** 하드 필터는 결과가 0건이면 `null` 을
+  //   돌려주고, `refine` 은 0건이면 그 축을 건너뛴다. 두 규율이 갈리는 지점은 오직
+  //   「통보가 그 축을 **실어 왔는가**」다. 비어 있는 축은 여기서도 적용하지 않으므로
+  //   구 게이트웨이 호환은 그대로다 (GC-CR-01).
+  const isCancelNotice = n.noticeType === "C" || n.noticeType === "M";
+  const hard = candidates.filter(
+    (p) =>
+      // 원주문번호를 실어 온 통보는 **그 취소 대기**의 것이다. 신규 통보는 이 값이 "" 다.
+      (n.orgOrderNo === "" || (p.isCancel && p.orgOrderNo === n.orgOrderNo)) &&
+      // 취소확인·정정확인은 **취소 대기**의 것이다. 신규 대기를 정산하면 살아 있는 주문이
+      // 화면에 「취소됨」으로 뜨고, 사용자가 그것을 믿고 재주문하면 중복 체결이다.
+      (!isCancelNotice || p.isCancel),
+  );
+  // 아무것도 정산하지 않는다 — 5초 타임아웃이 이 상황의 진실이다 (Pitfall 9).
+  if (hard.length === 0) return null;
+  if (hard.length === 1) return hard[0] ?? null;
+
+  let pool = hard;
   /** 축 1개를 적용한다. 남는 후보가 0이면 **그 축은 없던 것으로 한다**. */
   const refine = (keep: (p: PendingOrder) => boolean): void => {
     const next = pool.filter(keep);
@@ -872,13 +895,16 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   };
 
   // ① 취소 축. 원주문번호가 가장 강하다 — 신규 통보는 이 값을 비워 보낸다.
+  //    위 하드 필터와 조건이 같아 여기까지 온 후보는 이미 통과했다. 무해한 중복이므로
+  //    남겨 둔다 — 축 순서 ①~④ 의 문서적 대응을 깨지 않는 편이 읽기에 낫다.
   if (n.orgOrderNo !== "") {
     refine((p) => p.isCancel && p.orgOrderNo === n.orgOrderNo);
   }
 
   // ② 통보 종류 축. 거부("R")는 신규·취소 어느 쪽에도 오므로 이 축을 쓰지 않는다.
+  //    취소성("C"/"M")은 위 하드 필터가 이미 걸렀고, 여기서는 **접수·체결의 반대 방향**
+  //    (신규 통보 → 신규 대기)을 좁히는 몫이 남는다.
   if (n.noticeType !== "" && n.noticeType !== "R") {
-    const isCancelNotice = n.noticeType === "C" || n.noticeType === "M";
     refine((p) => p.isCancel === isCancelNotice);
   }
 
