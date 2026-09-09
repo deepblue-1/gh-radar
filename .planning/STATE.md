@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Completed 16-34-PLAN.md (GC-WR-03 · GC-WR-10)
+status: executing
+stopped_at: Completed 16-35-PLAN.md — 재검증 결과 gaps_found (162/165), 3라운드 갭 클로징 필요
 last_updated: "2026-09-09T07:28:46.725Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 종결(16-35) — 배포 2종 + 실측 + 문서 6종
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 실행 완료 + 재검증 gaps_found (신규 Critical 3건)
 progress:
   total_phases: 25
-  completed_phases: 19
+  completed_phases: 18
   total_plans: 174
   completed_plans: 160
   percent: 76
@@ -539,4 +539,12 @@ Recent decisions affecting current work:
 
 Last session: 2026-09-09T07:28:39.515Z
 Stopped at: Completed 16-35-PLAN.md (갭 클로징 2라운드 종결 — 배포 2종 + `/healthz` 실측 + 문서 6종)
-Next: **Phase 16 은 35/35 실행 완료.** 남은 것은 실행이 아니라 **사용자 결정 2건**이다 — ① `/healthz` 가 게이트웨이 부재 동안 5분 뒤 503 으로 상시화되므로 `gh-radar-relay-down` 알림을 어떻게 할지(유예 연장 / VM mock 상주 / 알림 임계 조정 / 실서버 결선). ② smoke `INV-9` 는 `SMOKE_AUTH_TOKEN` 이 있어야 프로덕션 첫 실행이 된다. 실서버·실계좌(D-27)와 WinForms 세션 공유는 **사용자 명시 지시가 있을 때만**. 상세는 `16-VALIDATION.md` §Deployment Verification (16-35) · `deferred-items.md` §16-35.
+Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
+
+- **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
+- **R2-CR-02** (`relay/src/dma/session-manager.ts:125,176-186,265-268`) `stalledCount` 가 자격증명 거부(`session_rejected`, 터미널 상태)를 게이트웨이 장애와 구분하지 않는다 → 사용자 1명의 잘못된 비밀번호가 relay 전체를 영구 503 으로 만든다. 16-30 이 GC-WR-07 을 닫으며 만든 경로다. (현재 프로덕션 503 은 이 시나리오가 **아니라** DMA_HOST 부재로 인한 의도된 판정임이 확인됐다.)
+- **R2-CR-03** (`relay/src/store/orders.ts:294,361,395`) PostgREST error 원문 로깅이 CHECK/FK 위반 시 `Failing row contains (...)` 로 계좌번호·주문번호를 Cloud Logging 에 흘린다 (T-16-45 위반). 16-28 이 `23505` 분기에서만 원문을 뺐고 옆의 일반 경로 3줄이 남았다.
+
+**다음 행동:** `/gsd:plan-phase 16 --gaps` 로 3라운드 갭 클로징을 계획한다. Warning 7 · Info 5 는 `16-REVIEW-R2.md` 참조.
+
+**병행하는 사용자 결정 2건 (실행이 아니라 판단):** ① `/healthz` 가 게이트웨이 부재 동안 5분 뒤 503 으로 상시화되므로 `gh-radar-relay-down` 알림을 어떻게 할지(유예 연장 / VM mock 상주 / 알림 임계 조정 / 실서버 결선). ② smoke `INV-9` 는 `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 **첫 실행**이 된다 — 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 실서버·실계좌(D-27)와 WinForms 세션 공유는 **사용자 명시 지시가 있을 때만**. 상세는 `16-VALIDATION.md` §Deployment Verification (16-35) · `deferred-items.md` §16-35.

@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
-- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (35 plans / 22 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 — **전부 실행 완료**) (1차 완료 2026-09-08 · 갭 클로징 2라운드 종결 2026-09-09 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending)
+- [ ] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (35 plans / 22 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 — **plan 은 전부 실행 완료**) (1차 완료 2026-09-08 · 갭 클로징 2라운드 실행 2026-09-09 — **재검증 `16-VERIFICATION-R2.md` = gaps_found (162/165)**: 2라운드 갭 3건은 닫혔으나 3라운드 리뷰가 제기한 Critical 3건(R2-CR-01~03)이 실재 확인돼 3라운드 갭 클로징 필요. TRADE-03 은 D-27 상 실서버 결선 전까지 Pending)
 
 ## Phase Details
 
@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 35/35 plans complete (17 실행 + 갭 클로징 1라운드 9 + 2라운드 9)
+**Plans:** 35/35 plans executed (17 실행 + 갭 클로징 1라운드 9 + 2라운드 9) — **phase 는 미완결**: `16-VERIFICATION-R2.md` = `gaps_found` (162/165), 신규 Critical 3건(R2-CR-01~03) 미해소
 
 Plans:
 **Wave 1**
