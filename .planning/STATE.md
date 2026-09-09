@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-42-PLAN.md — 갭 4 webapp 측 + R2-WR-02 + R2-IN-01 종결
-last_updated: "2026-09-09T11:48:30.980Z"
+stopped_at: Completed 16-44-PLAN.md — R2-WR-05 세션 상태 리스너 누수 종결
+last_updated: "2026-09-09T11:59:46.499Z"
 last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 169
+  completed_plans: 170
   percent: 72
 ---
 
@@ -25,16 +25,27 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (44/46)**
-Plan: 44 of 46 완료 (16-44·16-46 미실행 · 16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 169 / 185
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (45/46)**
+Plan: 45 of 46 완료 (16-46 미실행 · 16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 170 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 92%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-44 완료 — R2-WR-05(세션 `"state"` 리스너 누수) 종결.** relay 2파일(`ws/fanout.ts` · `tests/fanout.test.ts`). 파일이 주석으로만 선언하던 「상태 리스너는 **사용자당 1개**」를 실제로 성립시켰다.
+- **누수의 정체:** `#onClose` 가 마지막 소켓에서 `#users.delete` 를 하지만 `DmaSession` 은 유예 5분 동안 살아 있다(D-15). 그래서 새로고침 재접속이 `existing === undefined` 로 들어와 **같은 세션에 리스너를 하나 더** 걸었고, 옛 리스너는 `current.session === session` 이라 침묵 가드에도 안 걸렸다 — 새로고침 k 번이면 상태 프레임이 브라우저로 k 번, 11회째부터 `MaxListenersExceededWarning`.
+- **`UserEntry` 가 리스너 핸들(`onState`)을 소유한다.** 인라인 익명 함수는 참조가 남지 않아 영원히 뗄 수 없다 — 리스너를 만든 주체가 그 수명을 소유하게 했다. `off("state"` 는 정확히 **2곳**(`:1082` `#onClose` · `:1135` `#register`).
+- **★ 실제 누수 지점은 `#onClose` 하나였다 — 「둘 다 필요함이 증명됐다」고 쓰지 않았다.** 회귀 실증을 두 곳 **따로** 돌린 결과: `#onClose` 쪽만 제거 → **2 failed**(㉓ `expected 5 to be 1` · ㉔ `length 1 but got 5`), `#register` 쪽만 제거 → **0 failed**. 그 갈래는 오늘의 코드로 도달하지 않는다(`acquire` 의 세션 재생성은 `refCount === 0` 을 요구하는데 `existing` 이 있다는 것은 소켓이 살아 있다는 뜻이라 `refCount >= 1`). **그럼에도 남겼다** — `if (existing !== undefined)` 블록은 이미 있던 갈래이고, 갈래를 두면서 정리만 빼는 것은 버그를 예약해 두는 것이다. 도달 불가라는 사실과 실증 결과를 그 자리 주석에 못박았다.
+- **침묵 가드를 지우지 않았다.** `EventEmitter.emit` 은 리스너 배열의 **사본**을 순회하므로 실행 도중 `off` 가 걸려도 같은 emit 안의 나머지 리스너는 호출된다 — 「떼는 것」과 「침묵시키는 것」은 서로 다른 시점의 방어다. 그 이유를 코드에 적었다.
+- **`setMaxListeners` 로 경고만 끄지 않았다** (`grep -c` = 0). `closeAll()` 에는 세 번째 `off` 를 넣지 않았고 그 이유(같은 종료에서 `SessionManager.closeAll()` 이 세션을 끊는다)만 주석으로 남겼다.
+- **신규 2케이스.** ㉓ `session.listenerCount("state")` **`toBe(1)`**(재접속 3회 반복, 매 회차 `expect(h.sessions.get(USER_A)).toBe(session)` 로 「같은 세션 재사용」 전제를 먼저 확인) · ㉔ 상태 전이 1회 발행 후 마지막 소켓 inbox 의 `state` 프레임 **`toHaveLength(1)`**. 인증 ACK 는 `#send` 직접 경로라 리스너 누수를 관측할 수 없어 `session.emit("state", ...)` 로 따로 발행했다.
+- **계획이 허용한 생략 1건 — 「세션 교체 시 옛 리스너가 떨어진다」 케이스는 작성하지 않았다.** 하네스로 유발 불가함을 코드로 확인했다. **그 갈래는 잠겨 있지 않다** — 과장하지 않고 그대로 적었다.
+- **게이트:** relay **395 → 397**(+2, fanout 35 → 37) · `pnpm -r test` exit 0 **2,044 passed**(기준선 2,042 → +2) · `pnpm -r typecheck` exit 0 · `typecheck:tests` exit 0 · `#deliver` diff **0줄** · 16-36 의 `#isTeardown`·sweep 면제·시장 정책 **한 글자도 손대지 않음** · 포매터 미실행. 게이트 전에 `pnpm --filter @gh-radar/shared run build` 를 먼저 돌려 낡은 `dist` 함정(16-41 발견)을 회피했다.
+- **⚠️ 배포 미실시.** 프로덕션 relay 에는 R2-WR-05 가 **여전히 살아 있다** — 재배포는 **16-46** 몫. **TRADE-03 계속 Pending**(재판정 16-46).
 
 - **16-45 완료 — 갭 5(프로덕션 회귀의 근본 원인) + R2-IN-05 종결.** 셸 스크립트 2파일. **배포가 프로덕션 상태를 되돌리지 않게** 하고, **판정이 조용히 사라지지 않게** 했다.
 - **`DMA_HOST` 를 3단 우선순위로 바꿨다: 명시 주입 > 실행 중인 컨테이너 값 보존 > 로컬 mock.** 종전 해석은 미주입 시 무조건 `127.0.0.1` 로 떨어져 16-26(`2cb5620`)·16-35(`c8aa7ae`) 두 배포가 실 게이트웨이를 mock 으로 강등시켰다. 우선순위를 **한 줄**(`deploy-relay.sh:124`)에 모아 두어, 승인 기준이 재구현이 아니라 **원문 추출 + 격리 실행**으로 대조되게 했다.
@@ -402,6 +413,7 @@ Progress: [█████████░] 91%
 | Phase 16 P43 | 12min | 3 tasks | 2 files |
 | Phase 16 P45 | 35m | 2 tasks | 2 files |
 | Phase 16 P42 | ~40분 | 3 tasks | 5 files |
+| Phase 16 P44 | 18min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -626,6 +638,8 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 43]: sideOf 미해석 기본값을 B 에서 S 로 뒤집었다 — S 는 이 파일에서 이미 방향의 정본이 아님 표기이고, dma_orders.side 를 읽어 주문을 내는 경로는 없다
 - [Phase 16 Plan 45]: deploy-relay.sh 의 DMA_HOST 를 3단 우선순위(명시 주입 > 실행 중 컨테이너 보존 > 로컬 mock)로 교체 — 보존은 런타임 docker inspect 조회로만 하고 저장소 실주소 리터럴은 늘리지 않는다(2 → 2)
 - [Phase 16 Plan 45]: smoke INV-9 프로브는 stdout 쓰기 완료 콜백에서 종료하고 호출부는 빈 verdict 를 SKIP 이 아니라 FAIL 로 센다 — 판정 유실이 조용한 초록불이 되는 경로를 이중 차단
+- [Phase 16 Plan 44]: 세션 state 리스너의 실제 누수 지점은 #onClose 였다 — #register 갈래는 refCount 대칭 때문에 도달 불가라 방어로만 남기고 잠기지 않았음을 명시
+- [Phase 16 Plan 44]: 떼는 것(off)과 침묵시키는 것(정본 대조 가드)은 서로 다른 시점의 방어다 — EventEmitter.emit 이 리스너 배열 사본을 순회하므로 둘 다 필요하다
 
 ### Pending Todos
 
@@ -678,8 +692,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T11:48:30.967Z
-Stopped at: Completed 16-42-PLAN.md — 갭 4 webapp 측 + R2-WR-02 + R2-IN-01 종결
+Last session: 2026-09-09T11:59:29.239Z
+Stopped at: Completed 16-44-PLAN.md — R2-WR-05 세션 상태 리스너 누수 종결
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
 - **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
