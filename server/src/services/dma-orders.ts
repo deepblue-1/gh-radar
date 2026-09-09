@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  DmaOrderOrigin,
   DmaOrderRow,
   DmaOrderStatus,
   OrderMarket,
@@ -24,6 +25,9 @@ import { ApiError } from "../errors.js";
  * relay 로 이식됐고(각각 `OrderStore.insertRequest` · `OrderStore.enqueueUpdate` ·
  * `SymbolMap.lookup`+`toOrderMarket` · `store/credentials.ts`), 이 plan 에서 server
  * 쪽 사본을 지웠다. 같은 행을 두 프로세스가 서로 다른 셀렉터로 쓰면 주문 상태가 갈린다.
+ *
+ * `origin`(주문 출처)도 relay 만 쓴다(D-03). server 는 **읽기만** 한다 — 여기에 기본값 보정을
+ * 넣지 않는다. DB DEFAULT 가 이미 `'manual'` 이고 NOT NULL 이라 빈 값이 올라올 수 없다.
  */
 
 /** `dma_orders` row (snake_case). */
@@ -45,13 +49,15 @@ type DmaOrderDbRow = {
   notice_type: string | null;
   message: string | null;
   filled_qty: number;
+  /** DB 는 NOT NULL + DEFAULT `'manual'` 이라 optional 이 아니다. */
+  origin: DmaOrderOrigin;
   created_at: string;
   updated_at: string;
 };
 
 /** 조회 컬럼 화이트리스트. `user_id` 는 응답에 싣지 않는다(본인 행만 나간다). */
 const ORDER_COLS =
-  "id,account_no,isin,stock_code,exchange,market,side,order_type,org_order_no,qty,price,order_no,status,result_code,notice_type,message,filled_qty,created_at,updated_at";
+  "id,account_no,isin,stock_code,exchange,market,side,order_type,org_order_no,qty,price,order_no,status,result_code,notice_type,message,filled_qty,origin,created_at,updated_at";
 
 function mapOrder(r: DmaOrderDbRow): DmaOrderRow {
   return {
@@ -72,6 +78,7 @@ function mapOrder(r: DmaOrderDbRow): DmaOrderRow {
     noticeType: r.notice_type,
     message: r.message,
     filledQty: r.filled_qty,
+    origin: r.origin,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

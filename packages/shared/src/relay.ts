@@ -847,6 +847,16 @@ export type CreateOrderResponse = {
  * ⚠️ `status:"timeout"` 은 **"실패"가 아니라 "결과를 모름"** 이다. UI 는 "결과 확인 중 —
  * 미체결 목록을 확인하세요"를 표시하고 재주문을 유도하지 않는다 (Pitfall 9).
  */
+/**
+ * 주문 출처 3종. `dma_orders.origin` 의 CHECK 3종(`manual`/`limit_chaser`/`vi`)과 **같은 값**이다
+ * (`20260908120000_dma_orders_origin.sql`).
+ *
+ * relay 의 `OrderOriginKind`(`dma/envelope.ts`)와 동형이지만 **사본을 둔다** — server 는 relay 를
+ * 의존하지 않으므로(패키지 경계) 그 타입을 import 할 수 없다. 값이 갈리면 relay 의 insert 가
+ * DB CHECK 위반으로 즉시 드러난다 — 조용히 어긋나지 않는다.
+ */
+export type DmaOrderOrigin = "manual" | "limit_chaser" | "vi";
+
 export type DmaOrderRow = {
   id: string;
   accountNo: string;
@@ -871,6 +881,14 @@ export type DmaOrderRow = {
   noticeType: string | null;
   message: string | null;
   filledQty: number;
+  /**
+   * 발주 주체. `manual`=사용자가 직접 낸 주문 / `limit_chaser`=상따 자동주문 / `vi`=VI 자동주문.
+   *
+   * ⚠️ 구 게이트웨이가 빈 값을 보내면 relay 가 `manual` 로 좁힌다(DB DEFAULT 도 `'manual'`) —
+   * **"수동"과 "출처 불명"이 같은 값**이다. 표시에서 이 사실을 잊지 말 것: `manual` 을
+   * "사용자가 직접 냈다"의 **증거**로 쓰면 안 된다(자동주문 감사에서 거짓 음성이 된다).
+   */
+  origin: DmaOrderOrigin;
   createdAt: string;
   updatedAt: string;
 };

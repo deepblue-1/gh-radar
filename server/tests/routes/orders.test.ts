@@ -36,12 +36,14 @@ type SupabaseOpts = {
 type Recorder = {
   /** `dma_orders` 조회에 실제로 걸린 필터 (소유권·날짜 경계 단언용). */
   listFilters: Record<string, any>[];
+  /** `select(...)` 에 넘어간 컬럼 목록 원문 (화이트리스트 회귀 잠금용). */
+  selects: { table: string; cols: string }[];
   /** 쓰기가 한 번도 일어나지 않음을 단언하기 위한 기록. */
   writes: { table: string; kind: "insert" | "update" }[];
 };
 
 function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
-  const rec: Recorder = { listFilters: [], writes: [] };
+  const rec: Recorder = { listFilters: [], selects: [], writes: [] };
 
   const client = {
     auth: {
@@ -54,7 +56,10 @@ function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
       const filters: Record<string, any> = {};
 
       const b: any = {
-        select: () => b,
+        select: (cols?: string) => {
+          rec.selects.push({ table, cols: cols ?? "*" });
+          return b;
+        },
         insert: () => {
           rec.writes.push({ table, kind: "insert" });
           return b;
@@ -113,6 +118,9 @@ const orderRow = (userId: string, id: string) => ({
   notice_type: "A",
   message: "정상처리",
   filled_qty: 0,
+  // 자동주문 출처. 수동(manual)이 DEFAULT 라 픽스처를 manual 로 두면 "매핑이 빠져도
+  // 통과"하는 케이스가 된다 — 일부러 자동주문 값을 넣어 왕복을 잠근다 (WR-05).
+  origin: "limit_chaser",
   created_at: "2026-09-06T00:30:00Z",
   updated_at: "2026-09-06T00:30:01Z",
 });
@@ -197,9 +205,31 @@ describe("GET /api/orders", () => {
       orderNo: "0000123",
       status: "accepted",
       filledQty: 0,
+      // 자동주문/수동주문 구분이 API 층까지 도달한다 (WR-05 / T-16-23).
+      // 표시 층(주문 이력 표)은 D-20 deferred 라 아직 없다 — 계약만 먼저 완성한 상태다.
+      origin: "limit_chaser",
     });
     // 응답에 타 사용자 식별자를 싣지 않는다.
     expect(r.body[0]).not.toHaveProperty("userId");
+  });
+
+  it("⑯-b2 조회 컬럼 목록에 origin 이 있고 user_id 는 없다 (T-16-22)", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, orders: [orderRow(user.id, ORDER_ROW_ID)] });
+
+    await request(createApp({ supabase: client }))
+      .get("/api/orders")
+      .set("Authorization", "Bearer tok");
+
+    const sel = rec.selects.find((s) => s.table === "dma_orders");
+    expect(sel).toBeDefined();
+    const cols = sel!.cols.split(",");
+    // 화이트리스트로 명시 조회한다 — `*` 면 컬럼이 늘 때마다 응답이 조용히 넓어진다.
+    expect(sel!.cols).not.toBe("*");
+    expect(cols).toContain("origin");
+    // ★ `user_id` 는 `WHERE` 로만 쓰고 응답에는 싣지 않는다. 컬럼 추가가 이 규율을
+    //   흐리지 않았음을 회귀 잠금한다.
+    expect(cols).not.toContain("user_id");
   });
 
   it("⑯-c WHERE user_id 필터가 요청자 id 로 걸린다 (T-15-01)", async () => {
