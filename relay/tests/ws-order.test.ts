@@ -31,11 +31,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RelayOutbound } from "@gh-radar/shared";
 
 import { WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
-import { createOrderHandler } from "../src/ws/order-handler.js";
+import {
+  createOrderHandler,
+  narrowPending,
+  type PendingOrder,
+} from "../src/ws/order-handler.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
-import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
+import { resetDroppedEnvelopeCount, type ParsedOrderResp } from "../src/dma/envelope.js";
 import { ORDER_RESP_TIMEOUT_MS } from "../src/order/notice-status.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
@@ -781,5 +785,222 @@ describe("wss 주문 경로 (D-02)", () => {
     // 테넌트 경계 붕괴다.
     await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
     expect(orders.inserts[0]?.userId).toBe(USER_B);
+  });
+
+  // ----------------------------------------------------------
+  // 통보 매칭 축 — gap 2 / T-16-29 / T-16-30
+  // ----------------------------------------------------------
+
+  it("⑳ 같은 ISIN 의 신규·취소가 겹치면 취소확인은 **취소 대기**를 정산한다 (gap 2)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    // 「취소하고 다시 걸기」 — 호가주문 탭에서 주문 패널과 계좌 패널이 나란히 놓인
+    // 이 phase 의 가장 흔한 조작이다. 두 대기의 ISIN 은 같다.
+    ws.sendRaw(orderNew({ rid: "rid-new" }));
+    ws.sendRaw({
+      t: "order.cancel",
+      rid: "rid-cancel",
+      isin: SAMPLE_ISIN,
+      exchange: "KRX",
+      orgOrderNo: "0000012345",
+      qty: 10,
+      price: 70_000,
+      accountNo: SAMPLE_ACCOUNT_NO,
+    });
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "신규·취소 2건 송신");
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "C",
+      orderNo: "0000012399",
+      orgOrderNo: "0000012345",
+      quantity: 10,
+      price: 70_000,
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "취소확인 order.result");
+
+    // ★ ISIN 하나로 고르던 시절에는 여기서 **먼저 등록된 신규 대기**가 정산됐다 —
+    //   살아 있는 매수 주문이 화면에 「취소됨」으로 뜨는 정확한 조건이다.
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-cancel",
+      status: "cancelled",
+      orderNo: "0000012399",
+    });
+    // 신규 대기는 아직 정산되지 않았다 — 그 주문은 살아 있다.
+    expect(framesOf(inbox, "order.result").map((f) => f.rid)).not.toContain("rid-new");
+
+    // 기록도 교차하지 않는다: `cancelled` 는 **취소 행**에만 붙는다.
+    const cancelRowNo = orders.inserts.findIndex((r) => r.orderType === "C") + 1;
+    expect(cancelRowNo).toBeGreaterThan(0);
+    expect(orders.updates.find((u) => u.status === "cancelled")?.orderRowId).toBe(
+      `row-${cancelRowNo}`,
+    );
+  });
+
+  it("㉑ 좁히지 못한 통보는 아무것도 정산하지 않는다 — 대기는 살아서 타임아웃으로 끝난다 (gap 2)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { ws, inbox } = await authed("token-a");
+
+    // 매수/매도라 dup 키는 다르지만 **매칭 축(취소여부·수량·가격)은 완전히 같다** —
+    // 통보가 실어 오는 값으로는 둘을 가를 수 없다.
+    ws.sendRaw(orderNew({ rid: "rid-buy", side: "B" }));
+    ws.sendRaw(orderNew({ rid: "rid-sell", side: "S" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "신규 2건 송신");
+
+    gateway.pushOrderResp(gatewaySocket(), { noticeType: "A", orderNo: "0000012345" });
+    await waitFor(() => framesOf(inbox, "order").length === 1, "51 푸시");
+    await flushIo(20);
+
+    // ★ 「가장 오래된 것」 폴백이 있으면 여기서 rid-buy 가 정산된다 — 그것이 gap 2 다.
+    //   잘못 귀속된 기록은 없는 기록보다 나쁘므로 **아무것도** 정산하지 않는다.
+    expect(framesOf(inbox, "order.result")).toHaveLength(0);
+    // 정산하지 않았으므로 통보는 기록 경로(`recordUnmatched`)로 간다. 수동 통보라
+    // `userId` 셀렉터 갱신이다 — 정산됐다면 `orderRowId` 셀렉터였을 것이라 두 경로는
+    // 인자만으로 구분된다.
+    expect(orders.updates).toContainEqual(
+      expect.objectContaining({ userId: USER_A, orderNo: "0000012345" }),
+    );
+    const warned = JSON.stringify(warnSpy.mock.calls);
+    expect(warned).toContain("좁히지 못했다");
+    // 좁히기 실패 로그에 계좌번호·주문번호 원문은 없다 (T-16-32).
+    expect(warned).not.toContain(SAMPLE_ACCOUNT_NO);
+    expect(warned).not.toContain("0000012345");
+
+    // 대기 2건은 **그대로 살아 있다** — 5초 뒤 각자 「결과 모름」으로 끝난다.
+    await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS);
+    await waitFor(() => framesOf(inbox, "order.result").length === 2, "두 대기의 timeout");
+    expect(framesOf(inbox, "order.result").map((f) => f.status)).toEqual(["timeout", "timeout"]);
+  });
+
+  it("㉒ 두 연결이 같은 ISIN 으로 대기해도 통보는 좁혀진 연결로만 간다 (T-16-30)", async () => {
+    const a = await authed("token-a");
+    const b = await authed("token-a"); // 같은 사용자의 두 번째 탭
+
+    // 같은 종목, 수량만 다르다. 후보를 **전 연결에서 모아** 좁혀야 B 가 나온다.
+    a.ws.sendRaw(orderNew({ rid: "rid-a", qty: 10 }));
+    b.ws.sendRaw(orderNew({ rid: "rid-b", qty: 5 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "두 탭의 주문 송신");
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "A",
+      orderNo: "0000012345",
+      quantity: 5,
+      price: 70_000,
+    });
+    await waitFor(() => framesOf(b.inbox, "order.result").length === 1, "B 연결 order.result");
+    await flushIo(20);
+
+    expect(framesOf(b.inbox, "order.result")[0]).toMatchObject({ rid: "rid-b" });
+    // ★ 「ISIN 이 맞는 첫 연결」을 고르던 시절에는 A 가 이 통보를 가져갔다 — 탭 A 의 화면이
+    //   탭 B 의 주문 결과를 그리고, 기록도 A 의 행에 붙었다.
+    expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// `narrowPending` 순수 단위 — 축별 좁히기 (gap 2 / T-16-29)
+// ============================================================
+
+/** 대기 1건. 타이머는 즉시 걷는다 — 이 구역은 매칭 규칙만 본다. */
+function mkPending(over: Partial<PendingOrder> = {}): PendingOrder {
+  const timer = setTimeout(() => undefined, 0);
+  clearTimeout(timer);
+  return {
+    rid: "rid",
+    orderRowId: "row",
+    isin: SAMPLE_ISIN,
+    qty: 10,
+    price: 70_000,
+    isCancel: false,
+    orgOrderNo: "",
+    timer,
+    settle: () => undefined,
+    ...over,
+  };
+}
+
+/** 통보 1건. 게이트웨이 파싱 결과를 그대로 흉내 낸다. */
+function mkNotice(over: Partial<ParsedOrderResp> = {}): ParsedOrderResp {
+  return {
+    orderNo: "0000012345",
+    noticeType: "A",
+    resultCode: 0,
+    message: "정상처리",
+    isin: SAMPLE_ISIN,
+    side: "B",
+    sideTrusted: true,
+    price: 70_000,
+    quantity: 10,
+    orgOrderNo: "",
+    exchange: "KRX",
+    origin: "Manual",
+    originKind: "manual",
+    ...over,
+  };
+}
+
+describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
+  it("후보가 없으면 null, 하나면 축이 어긋나도 그것이다 (정상 경로 회귀 방지)", () => {
+    expect(narrowPending([], mkNotice())).toBeNull();
+
+    // 유일 후보는 축을 보지 않는다 — 구 서버가 값을 비워 보내는 축이 있어서, 여기서
+    // 필터를 걸면 **대부분의 실사용**이 매칭 실패로 떨어진다.
+    const only = mkPending({ qty: 3, price: 111 });
+    expect(narrowPending([only], mkNotice({ quantity: 999, price: 999 }))).toBe(only);
+  });
+
+  it("① 취소 축 — 원주문번호가 있으면 그 취소 대기로 좁힌다", () => {
+    const fresh = mkPending({ rid: "new" });
+    const cancel = mkPending({ rid: "cancel", isCancel: true, orgOrderNo: "0000012345" });
+
+    const picked = narrowPending(
+      [fresh, cancel],
+      mkNotice({ noticeType: "C", orgOrderNo: "0000012345" }),
+    );
+    expect(picked).toBe(cancel);
+  });
+
+  it("② 통보 종류 축 — 구 서버가 원주문번호를 비워도 취소확인은 취소 대기로 간다", () => {
+    const fresh = mkPending({ rid: "new" });
+    const cancel = mkPending({ rid: "cancel", isCancel: true, orgOrderNo: "0000012345" });
+
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "C" }))).toBe(cancel);
+    // 접수는 반대쪽이다.
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "A" }))).toBe(fresh);
+    // 거부("R")는 신규·취소 어느 쪽에도 오므로 이 축을 쓰지 않는다 — 좁히지 못한다.
+    expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "R" }))).toBeNull();
+  });
+
+  it("③ 수량 축 · ④ 가격 축 — 접수 통보는 주문값을 그대로 싣는다", () => {
+    const ten = mkPending({ rid: "ten", qty: 10 });
+    const five = mkPending({ rid: "five", qty: 5 });
+    expect(narrowPending([ten, five], mkNotice({ quantity: 5 }))).toBe(five);
+
+    const cheap = mkPending({ rid: "cheap", price: 70_000 });
+    const dear = mkPending({ rid: "dear", price: 71_000 });
+    expect(narrowPending([cheap, dear], mkNotice({ price: 71_000 }))).toBe(dear);
+  });
+
+  it("체결(\"E\") 통보는 수량·가격 축을 쓰지 않는다 — 부분체결이면 주문값과 다르다", () => {
+    const ten = mkPending({ rid: "ten", qty: 10 });
+    const five = mkPending({ rid: "five", qty: 5 });
+
+    // 3주 부분체결. 하드 필터였다면 후보가 0이 되어 정상 통보를 버렸을 것이다.
+    expect(narrowPending([ten, five], mkNotice({ noticeType: "E", quantity: 3 }))).toBeNull();
+  });
+
+  it("축이 후보를 전부 지우면 그 축은 적용하지 않는다 — 다음 축이 계속 좁힌다", () => {
+    const a = mkPending({ rid: "a", qty: 10, price: 70_000 });
+    const b = mkPending({ rid: "b", qty: 5, price: 71_000 });
+
+    // 수량 7 은 어느 후보와도 맞지 않는다(축이 틀렸다). 그 축을 버리고 가격으로 좁힌다.
+    expect(narrowPending([a, b], mkNotice({ quantity: 7, price: 71_000 }))).toBe(b);
+  });
+
+  it("하나로 좁히지 못하면 null 이다 — 「가장 오래된 것」 폴백은 없다", () => {
+    const first = mkPending({ rid: "first" });
+    const second = mkPending({ rid: "second" });
+
+    // 축이 전부 같다. 폴백이 있으면 `first` 가 나오고, 그것이 gap 2 의 재발이다.
+    expect(narrowPending([first, second], mkNotice())).toBeNull();
   });
 });

@@ -150,11 +150,22 @@ export interface OrderHandler<C> {
  * `settle` 은 **정확히 한 번만** 실행된다(내부 `settled` 플래그). 통보와 타임아웃이 같은
  * 틱에 겹쳐도 프레임이 두 번 나가지 않는다.
  */
-type PendingOrder = {
+export type PendingOrder = {
   rid: string;
   orderRowId: string;
   isin: string;
+  /**
+   * 아래 넷(`isin`·`qty`·`price`·`isCancel`/`orgOrderNo`)은 **통보 매칭 축**이다
+   * (`narrowPending`). 저장만 하고 읽지 않으면 gap 2 가 재발한다 — ISIN 하나로만 고르던
+   * 시절에는 「취소하고 다시 걸기」에서 살아 있는 매수 주문이 「취소됨」으로 표시됐다.
+   * (IN-01 은 `qty` 가 실린 채 어디서도 읽히지 않던 그 상태의 이름이다.)
+   */
   qty: number;
+  price: number;
+  /** 이 대기가 취소 주문인가. 통보의 `noticeType`("C"/"M") 과 맞춘다. */
+  isCancel: boolean;
+  /** 취소 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
+  orgOrderNo: string;
   timer: NodeJS.Timeout;
   settle: (notice: ParsedOrderResp | null) => void;
 };
@@ -257,19 +268,45 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
 
   deps.hub.on("order", ({ userId, notice }: HubOrderEvent) => {
     // **그 사용자의 연결만** 훑는다. 통보는 그 사용자의 세션에서 왔으므로 다른 사용자의
-    // 대기 주문과 섞일 수 없다 (T-15-02). 그 안에서 ISIN 으로 다시 좁힌다.
+    // 대기 주문과 섞일 수 없다 (T-15-02). 그 안에서 ISIN 으로 **후보를 모으고**,
+    // `narrowPending` 이 통보가 실어 온 축(`orgOrderNo`→`noticeType`→`quantity`→`price`)
+    // 으로 하나까지 좁힌다. **좁히지 못하면 아무것도 정산하지 않는다** — 잘못 귀속된
+    // 기록은 없는 기록보다 나쁘다 (gap 2 / T-16-29).
+    //
+    // 후보를 그 사용자의 **전 연결에서** 모으는 것이 연결 축 오귀속의 방어다 (T-16-30):
+    // 「ISIN 이 맞는 첫 연결」을 고르면 탭 A 의 통보가 탭 B 의 대기를 정산한다.
+    const candidates: { state: ConnState; entry: PendingOrder }[] = [];
     for (const conn of byUser.get(userId) ?? []) {
       const state = conns.get(conn);
       if (state === undefined) continue;
-      const index = state.pending.findIndex((p) => p.isin === notice.isin);
-      if (index < 0) continue;
+      for (const entry of state.pending) {
+        if (entry.isin === notice.isin) candidates.push({ state, entry });
+      }
+    }
 
-      const [entry] = state.pending.splice(index, 1);
-      entry?.settle(notice);
+    const picked = narrowPending(
+      candidates.map((c) => c.entry),
+      notice,
+    );
+    const hit = picked === null ? undefined : candidates.find((c) => c.entry === picked);
+    if (hit !== undefined) {
+      const at = hit.state.pending.indexOf(hit.entry);
+      if (at >= 0) hit.state.pending.splice(at, 1);
+      hit.entry.settle(notice);
       return;
     }
 
-    // 대기열에 없다 = 접수 이후의 통보이거나 **자동주문**(상따·VI)이다.
+    if (candidates.length > 1) {
+      // 계좌번호·주문번호 원문은 싣지 않는다 (T-16-32) — 후보 수와 축만으로 진단된다.
+      logger.warn(
+        { isin: notice.isin, noticeType: notice.noticeType, candidates: candidates.length },
+        "[WS-order] 통보를 대기 항목 하나로 좁히지 못했다 — 아무것도 정산하지 않는다",
+      );
+    }
+
+    // 후보가 없거나 좁히지 못했다. 남은 대기 항목은 **그대로 둔다** — 5초 타임아웃이
+    // 「결과 모름」으로 끝내는 것이 이 상황의 진실이다 (Pitfall 9). 통보 자체는
+    // 접수 이후의 것이거나 **자동주문**(상따·VI)이므로 기록 경로로 보낸다.
     void recordUnmatched(userId, notice);
   });
 
@@ -677,7 +714,11 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       rid: msg.rid,
       orderRowId,
       isin: msg.isin,
+      // 매칭 축 4종. 통보가 실어 오는 값과 대조할 수 있게 **요청 원문 그대로** 싣는다.
       qty: msg.qty,
+      price: msg.price,
+      isCancel,
+      orgOrderNo,
       timer,
       settle: finish,
     };
@@ -732,4 +773,54 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   }
 
   return { handle, closeConn, close };
+}
+
+// ============================================================
+// 통보 매칭 (순수 함수 — 단위 테스트가 직접 친다)
+// ============================================================
+
+/**
+ * ISIN 이 일치하는 대기 후보들을 **통보가 실어 온 축으로 하나까지 좁힌다** (gap 2 / T-16-29).
+ *
+ * 하나로 좁히지 못하면 `null` 이다. 「가장 오래된 것」 폴백을 두지 않는 이유가 이 함수의
+ * 전부다 — **잘못 귀속된 기록은 없는 기록보다 나쁘다.** 폴백이 있던 시절의 실패는 이렇다:
+ * 매수 주문을 낸 5초 안에 같은 종목의 미체결을 취소하면, 먼저 도착한 취소확인이 **신규
+ * 대기**를 정산해 살아 있는 매수 주문이 화면에 「취소됨」으로 뜬다. 사용자가 그 표시를 믿고
+ * 재주문하면 중복 체결이다 — 이 파일이 스스로 「최악의 결과」라고 적어 둔 상황이다.
+ *
+ * 축을 **하드 필터가 아니라 단계적 좁히기**로 쓰는 이유: 구 게이트웨이는 `noticeType` 을
+ * 비워 보내고(fbs 주석), 체결 통보의 `quantity`·`price` 는 주문값이 아니라 **체결값**이다
+ * (부분체결이면 다르다). 하드 필터로 쓰면 정상 통보가 후보를 전부 지워 매칭이 통째로
+ * 실패한다. 그래서 각 단계는 **남는 후보가 0이 되면 적용하지 않는다** — 축이 틀렸을
+ * 가능성이 후보를 전부 지우는 것보다 낫다.
+ */
+export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): PendingOrder | null {
+  // 후보 1개는 지금까지의 정상 경로다(대부분의 실사용). 여기서 회귀가 없어야 한다.
+  if (candidates.length <= 1) return candidates[0] ?? null;
+
+  let pool = candidates;
+  /** 축 1개를 적용한다. 남는 후보가 0이면 **그 축은 없던 것으로 한다**. */
+  const refine = (keep: (p: PendingOrder) => boolean): void => {
+    const next = pool.filter(keep);
+    if (next.length > 0) pool = next;
+  };
+
+  // ① 취소 축. 원주문번호가 가장 강하다 — 신규 통보는 이 값을 비워 보낸다.
+  if (n.orgOrderNo !== "") {
+    refine((p) => p.isCancel && p.orgOrderNo === n.orgOrderNo);
+  }
+
+  // ② 통보 종류 축. 거부("R")는 신규·취소 어느 쪽에도 오므로 이 축을 쓰지 않는다.
+  if (n.noticeType !== "" && n.noticeType !== "R") {
+    const isCancelNotice = n.noticeType === "C" || n.noticeType === "M";
+    refine((p) => p.isCancel === isCancelNotice);
+  }
+
+  // ③ 수량 축 · ④ 가격 축. 체결("E")은 부분체결이면 주문값과 다르므로 둘 다 건너뛴다.
+  if (n.noticeType !== "E") {
+    if (n.quantity > 0) refine((p) => p.qty === n.quantity);
+    if (n.price > 0) refine((p) => p.price === n.price);
+  }
+
+  return pool.length === 1 ? (pool[0] ?? null) : null;
 }
