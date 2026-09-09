@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-43-PLAN.md — R2-WR-03 + R2-WR-06 + R2-IN-03 종결
-last_updated: "2026-09-09T11:20:54.682Z"
+stopped_at: Completed 16-45-PLAN.md — 갭 5(DMA_HOST 보존) + R2-IN-05 종결
+last_updated: "2026-09-09T11:35:20.783Z"
 last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 167
+  completed_plans: 168
   percent: 72
 ---
 
@@ -25,16 +25,30 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (41/46)**
-Plan: 42 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 166 / 185
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (43/46)**
+Plan: 43 of 46 완료 (16-42·16-44 미실행 · 16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 167 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 91%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-45 완료 — 갭 5(프로덕션 회귀의 근본 원인) + R2-IN-05 종결.** 셸 스크립트 2파일. **배포가 프로덕션 상태를 되돌리지 않게** 하고, **판정이 조용히 사라지지 않게** 했다.
+- **`DMA_HOST` 를 3단 우선순위로 바꿨다: 명시 주입 > 실행 중인 컨테이너 값 보존 > 로컬 mock.** 종전 해석은 미주입 시 무조건 `127.0.0.1` 로 떨어져 16-26(`2cb5620`)·16-35(`c8aa7ae`) 두 배포가 실 게이트웨이를 mock 으로 강등시켰다. 우선순위를 **한 줄**(`deploy-relay.sh:124`)에 모아 두어, 승인 기준이 재구현이 아니라 **원문 추출 + 격리 실행**으로 대조되게 했다.
+- **`read_live_dma_host()` — 1곳 정의(:104) · 2곳 호출(:123 배포 전 · :469 배포 후).** 배포 후 요약이 쓰던 `docker inspect` 명령을 그대로 함수로 뽑았다. 두 벌로 적으면 언젠가 한쪽만 고쳐진다(T-16-14). 조회 실패(VM 접근 불가·컨테이너 부재·최초 배포)는 **정상 경로**로 처리해 배포를 중단시키지 않는다.
+- **출처와 변경 전/후를 출력한다.** `DMA_HOST 출처: 명시 주입 | 실행 중 컨테이너 보존 | 기본값(로컬 mock)` 을 variables 줄 옆에 찍고, 값이 바뀌면 `⚠ 이전 → 이후` 를 강등 시 복구 명령과 함께 낸다. 배포 후 요약에도 **두 번의 컨테이너 실측** 비교를 더했다.
+- **D-27 의 취지는 그대로다.** 스크립트에 실주소 리터럴을 새로 넣지 않았다 — 보존은 오직 런타임 조회다. `grep -c '10.41.1.120' scripts/deploy-relay.sh` **전 2 = 후 2**. D-27 경고 2줄 **diff 0줄**. 헤더 §선택 env 는 「저장소에 박제하지 않는다」와 「배포마다 mock 으로 되돌린다」가 **다른 문장**임을 본문에 박아, 두 번의 강등을 만든 오독을 명시적으로 닫았다.
+- **`--rollback` 도 같은 해석을 지난다** — `MODE` 분기(:152)가 해석부(:124)보다 뒤라 순서 조정이 불필요했다(코드로 확인). rollback 이 배포 **후** 되읽기에 닿지 않는 것은 기존 동작이며 SUMMARY §알려진 한계에 남겼다.
+- **R2-IN-05 — 프로브 판정 유실 차단.** `finish()` 를 `process.stdout.write(verdict + "\n", () => process.exit(0))` + `process.exitCode = 0` 으로 바꿨다. 이 프로브의 stdout 은 `verdict="$(...)"` 라 **항상 파이프**이고 POSIX 파이프에서 `process.stdout` 은 비동기다 — `process.exit()` 가 대기 중인 쓰기를 버리면 `verdict=""` → 호출부 `*` 갈래 → **FAIL 이 SKIP 으로 강등**된다(T-16-57 이 막겠다 선언한 결과 그대로, rc 0 이라 `inconclusive` 덮어쓰기도 안 걸린다).
+- **이중 방어 — 빈 verdict 는 SKIP 이 아니라 FAIL.** 호출부 `case` 에 `""` 전용 갈래를 신설했다. 기존 `reachable`·`unreachable`·`*` 세 갈래는 한 줄도 바꾸지 않아 `inconclusive` 의 SKIP 판정(의도된 3갈래)은 그대로다. 격리 실행으로 4갈래 전부 확인.
+- **실행 검증을 전부 원문 추출로 했다.** 해석부(3케이스)·변경보고(4케이스)·호출부 `case`(4케이스)를 `sed`/`awk` 로 **스크립트 원문에서 뽑아** `source` 했다 — 손으로 옮겨 적은 스니펫이 아니다. 프로브 JS 는 heredoc 경계로 124줄 추출해 `node --check` exit 0, 추가로 **로컬 폐쇄 포트**(`ws://127.0.0.1:1`)로 파이프 왕복을 실측해 `verdict="unreachable"`(길이 11) rc 0 을 확인했다.
+- **`grep "10.41.1.120"` 0건은 승인 기준으로 쓰지 않았다** — 저장소 전체 실측 **239건**(산문·경고문·주석)이라 만족 불가능하다. 정본 계약은 리터럴 0건이 아니라 **접속 경로 0건**이다.
+- **잘림을 「재현했다」고 쓰지 않았다.** 판정 문자열이 11~12바이트라 파이프 버퍼에 들어가 종전 형태도 로컬에서는 대개 온전하다. 이번 수정은 관측된 실패의 사후 수리가 아니라 **문서화된 위험의 선제 차단**이고, 그래서 빈 verdict FAIL 갈래를 함께 넣었다.
+- **게이트:** `pnpm -r test` exit 0 **2,034 passed**(기준선 동일) · relay **395**(동일) · `pnpm -r typecheck` exit 0 · `typecheck:tests` exit 0 · `bash -n` 2종 exit 0. 셸만 만졌으므로 TS 게이트가 움직이지 않는 것이 정상이며 실측이 확인했다.
+- **⚠️ 배포·smoke 미실행. `gcloud` 호출 0회.** 두 스크립트 수정은 **다음 배포 때부터** 효력이 생긴다 — 프로덕션은 여전히 `relay:59465e1`(사람이 명시 주입해 복구해 둔 `DMA_HOST=10.41.1.120`). 「주입 없이도 보존되는가」는 **16-46 재배포에서 처음 실측**된다. smoke 실행에 필요한 `SMOKE_AUTH_TOKEN` 은 저장소에 없는 것이 정상이다(T-16-74) — 「돌렸는데 SKIP」이 아니라 **못 돌렸다**. **TRADE-03 계속 Pending**(재판정 16-46).
 
 - **16-41 완료 — 갭 4(사용자 직접 보고)의 relay 측 종결 + R2-IN-02.** 이름을 아는 유일한 프로세스가 이름을 붙이게 했다. relay 3파일(공유 계약 1 + 소스 1 + 테스트 1).
 - **원천을 늘리지 않고 증상을 없앴다 (T-16-02).** 웹앱에 새 조회 경로(REST·Supabase)를 만들지 않았다 — relay 가 이미 들고 있는 `SymbolMap` 으로 **잔고·미체결·VI 주문에 이름을 붙이는 것과 똑같은 방식**을 상따 에코(60)·스냅샷(64)에 얹었다. `RelayLimitChaser` 에 선택 필드 `name`·`code` 를 더하고 `#enrichLimitChaser`(= `#enrichViOrder` 와 같은 모양)를 신설했다.
@@ -386,6 +400,7 @@ Progress: [█████████░] 90%
 | Phase 16 P40 | 21min | 3 tasks | 2 files |
 | Phase 16 P41 | 35m | 3 tasks | 3 files |
 | Phase 16 P43 | 12min | 3 tasks | 2 files |
+| Phase 16 P45 | 35m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -604,6 +619,8 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 43]: 주문번호 비교 정규화(공백·선행 0 제거)의 정본은 게이트웨이의 NormalizeOrderNo(AccountManager.cpp:607-621) — relay 가 규칙을 지어내지 않고 그대로 옮겼다
 - [Phase 16 Plan 43]: 통보 종류 축을 블랙리스트에서 화이트리스트(A/E)로 전환. A 는 명시 값이자 IBroker 기본값이라 교보 경로가 살아나면 재판정 필요 — 조건을 코드 주석에 박았다
 - [Phase 16 Plan 43]: sideOf 미해석 기본값을 B 에서 S 로 뒤집었다 — S 는 이 파일에서 이미 방향의 정본이 아님 표기이고, dma_orders.side 를 읽어 주문을 내는 경로는 없다
+- [Phase 16 Plan 45]: deploy-relay.sh 의 DMA_HOST 를 3단 우선순위(명시 주입 > 실행 중 컨테이너 보존 > 로컬 mock)로 교체 — 보존은 런타임 docker inspect 조회로만 하고 저장소 실주소 리터럴은 늘리지 않는다(2 → 2)
+- [Phase 16 Plan 45]: smoke INV-9 프로브는 stdout 쓰기 완료 콜백에서 종료하고 호출부는 빈 verdict 를 SKIP 이 아니라 FAIL 로 센다 — 판정 유실이 조용한 초록불이 되는 경로를 이중 차단
 
 ### Pending Todos
 
@@ -656,7 +673,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T11:20:36.701Z
+Last session: 2026-09-09T11:34:51.275Z
 Stopped at: Completed 16-43-PLAN.md — R2-WR-03 + R2-WR-06 + R2-IN-03 종결
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 

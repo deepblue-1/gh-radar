@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 42/46 plans executed
+**Plans:** 43/46 plans executed
 
 Plans:
 **Wave 1**
@@ -720,7 +720,7 @@ Plans:
 
 - [x] 16-41-PLAN.md — [갭 4 계약·relay + R2-IN-02] `RelayLimitChaser` 에 `name`·`code` 선택 필드 + Hub 가 60/64 에 `SymbolMap` 으로 이름을 붙인다 (원천은 relay wss 하나 유지, T-16-02) + 죽은 `detach`/`releaseAll` 정리
 - [x] 16-43-PLAN.md — [R2-WR-03 + R2-WR-06 + R2-IN-03] 주문번호 비교 정규화 + 축 전멸 로그 + `noticeType` 화이트리스트 + `sideOf` 를 `fromWireSide` 로 통일(모르는 값을 매수로 지어내지 않는다)
-- [ ] 16-45-PLAN.md — [갭 5 + R2-IN-05] `deploy-relay.sh` 가 실행 중 컨테이너 `DMA_HOST` 를 보존(명시 주입 우선 · 변경 전/후 출력) + smoke 프로브 stdout 안전 종료
+- [x] 16-45-PLAN.md — [갭 5 + R2-IN-05] `deploy-relay.sh` 가 실행 중 컨테이너 `DMA_HOST` 를 보존(명시 주입 우선 · 변경 전/후 출력) + smoke 프로브 stdout 안전 종료
 
 **Wave 27** *(blocked on Wave 26 completion)*
 
@@ -761,4 +761,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 42/46 | In Progress|  |
+| 16. 트레이딩 메뉴(상따·VI) | 43/46 | In Progress|  |
