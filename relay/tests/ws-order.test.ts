@@ -894,6 +894,55 @@ describe("wss 주문 경로 (D-02)", () => {
     //   탭 B 의 주문 결과를 그리고, 기록도 A 의 행에 붙었다.
     expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
   });
+
+  // ----------------------------------------------------------
+  // 중복 판정의 축 — WR-02 / T-16-31 / T-16-33
+  // ----------------------------------------------------------
+
+  it("㉓ 두 번째 탭의 완전히 동일한 주문은 거부된다 — 중복 판정은 사용자 스코프다 (WR-02)", async () => {
+    const a = await authed("token-a");
+    const b = await authed("token-a"); // `RelayProvider` 는 탭당 소켓 1개를 연다
+
+    a.ws.sendRaw(orderNew({ rid: "rid-tab-a" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "첫 탭 주문 송신");
+
+    // 같은 (계좌, ISIN, side, 가격, 수량). rid 만 다르다 — 두 번째 탭의 더블클릭이다.
+    b.ws.sendRaw(orderNew({ rid: "rid-tab-b" }));
+    await waitFor(() => framesOf(b.inbox, "order.result").length === 1, "두 번째 탭 거부");
+    await flushIo(20);
+
+    expect(framesOf(b.inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-tab-b",
+      status: "rejected",
+    });
+    // ★ 연결 스코프 가드는 여기서 무력했다(가드가 `ConnState` 안에 있었다) — 게이트웨이로
+    //   나간 것이 여전히 1건이라는 사실이 사용자 축으로 올라갔다는 증거다.
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(1);
+    expect(orders.inserts).toHaveLength(1);
+    // 첫 탭의 주문은 멀쩡히 살아 있다 — 거부가 엉뚱한 쪽으로 가지 않았다.
+    expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
+  });
+
+  it("㉔ 첫 연결을 닫으면 같은 주문을 다시 낼 수 있다 — 가드가 leak 되지 않는다 (T-16-33)", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw(orderNew({ rid: "rid-first" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "첫 주문 송신");
+
+    // 탭을 닫는다 → `closeConn` 이 그 연결이 잡은 dup 키를 사용자 맵에서 회수해야 한다.
+    await a.ws.close();
+    await flushIo(20);
+
+    const b = await authed("token-a");
+    b.ws.sendRaw(orderNew({ rid: "rid-second" }));
+    // ★ 회수가 없으면 여기서 영원히 거부된다 — 사용자는 그 주문을 다시 낼 수 없다.
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "닫은 뒤 같은 주문 재송신");
+
+    expect(framesOf(b.inbox, "order.result").filter((f) => f.status === "rejected")).toHaveLength(
+      0,
+    );
+    expect(orders.inserts).toHaveLength(2);
+  });
 });
 
 // ============================================================

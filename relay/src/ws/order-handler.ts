@@ -27,8 +27,9 @@
  *            PostgREST 의 update 는 0행이어도 에러가 아니므로, 조회 없이 갱신만 하면
  *            자동주문 기록이 조용히 사라진다 (Pitfall 18).
  *   T-16-09  계좌번호는 **로그에서만** 마스킹한다(`maskAccountNo`). 화면·프레임에는 전체다.
- *   T-16-10  같은 `rid` 또는 같은 `(accountNo,isin,side,price,qty)` 가 대기 중이면 거부한다.
- *            더블클릭·재전송이 중복 체결로 이어지는 것이 이 파일 최악의 결과다.
+ *   T-16-10  같은 `rid`(**연결 스코프**) 또는 같은 `(accountNo,isin,side,price,qty)`
+ *            (**사용자 스코프** — WR-02)가 대기 중이면 거부한다. 더블클릭·재전송·두 번째
+ *            탭이 중복 체결로 이어지는 것이 이 파일 최악의 결과다.
  *
  * 함정 (Pitfall 9 / S-8):
  *   5초를 넘긴 주문은 **「실패」가 아니라 「결과 모름」**이다. 주문은 이미 나갔을 수 있으므로
@@ -181,16 +182,44 @@ export type PendingOrder = {
 type ConnState = {
   userId: string;
   claims: Set<string>;
+  /**
+   * **이 연결이 잡고 있는 사용자 스코프 dup 키** — `userDupKeys` 의 역인덱스다.
+   *
+   * 이게 없으면 탭을 닫은 뒤 그 키가 사용자 맵에 영원히 남아 같은 주문을 다시 낼 수 없다
+   * (가드 leak). 연결 종료가 곧 회수 시점이라 추적을 연결 쪽에 둔다 (T-16-33).
+   */
+  dupKeys: Set<string>;
   pending: PendingOrder[];
 };
 
-/** 중복 판정 키 2종 (T-16-10). `rid` 는 재전송, 파라미터 조합은 더블클릭을 잡는다. */
-function claimKeys(msg: RelayOrderNewMsg | RelayOrderCancelMsg): [string, string] {
+/** 이 요청의 키 2종. **잡는 자료구조가 다르다** — 아래 두 함수의 주석이 그 이유다. */
+type ClaimKeys = { rid: string; dup: string };
+
+/**
+ * 재전송 키 — **연결 스코프**다 (`ConnState.claims`, T-16-03 유지).
+ *
+ * `rid` 는 브라우저가 그 탭에서 만드는 값이라 탭 간 충돌이 없다. 사용자 축으로 올리면
+ * 다른 탭이 우연히 같은 `rid` 를 만들었을 때 정상 주문이 거부된다.
+ */
+function ridKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
+  return `rid:${msg.rid}`;
+}
+
+/**
+ * 중복 주문 키 — **사용자 스코프**다 (`userDupKeys`, WR-02 / T-16-31).
+ *
+ * `RelayProvider` 는 문서(탭)당 소켓 1개를 연다. 연결 스코프 가드는 같은 화면을 두 탭에
+ * 띄우는 순간 무력해져 **완전히 동일한 주문 2건이 모두 통과**한다(재접속 직후도 같다).
+ * 중복 체결이 이 파일 최악의 결과이므로 이 판정만 사용자 축으로 올린다.
+ */
+function dupKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
   const side = msg.t === "order.new" ? msg.side : "C";
-  return [
-    `rid:${msg.rid}`,
-    `dup:${msg.accountNo}|${msg.isin}|${side}|${msg.price}|${msg.qty}`,
-  ];
+  return `dup:${msg.accountNo}|${msg.isin}|${side}|${msg.price}|${msg.qty}`;
+}
+
+/** 두 키를 함께 만든다. 잡고 놓는 자리에서 한 쌍으로 다뤄야 누락이 없다. */
+function claimKeys(msg: RelayOrderNewMsg | RelayOrderCancelMsg): ClaimKeys {
+  return { rid: ridKey(msg), dup: dupKey(msg) };
 }
 
 /**
@@ -226,6 +255,17 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   /** userId → 그 사용자의 연결들. 통보 상관이 훑을 범위를 그 사용자로 좁힌다 (T-15-02). */
   const byUser = new Map<string, Set<C>>();
   /**
+   * userId → 그 사용자가 **지금 대기 중인 주문의 dup 키** (WR-02 / T-16-31).
+   *
+   * **중복 판정은 사용자 스코프**다 — `RelayProvider` 는 탭당 소켓 1개를 열므로 연결 스코프
+   * 가드는 두 번째 탭에서 무력하다. 반대로 `rid` 키는 브라우저가 만드는 값이라 탭 간 충돌이
+   * 없으므로 **연결 스코프로 남긴다**(T-16-03 유지) — 두 요구는 애초에 다른 것이다.
+   *
+   * Set 이 비면 사용자 항목 자체를 지운다. 맵이 사용자 수만큼 무한히 자라면 그 자체가
+   * 장기 실행 프로세스의 누수다 (T-16-33).
+   */
+  const userDupKeys = new Map<string, Set<string>>();
+  /**
    * `${userId}|${orderNo}` → 진행 중인 「조회 → 없으면 insert」 왕복 (WR-01 / T-16-16).
    *
    * 같은 자동주문의 접수(A)·체결(E) 통보는 **수십 ms 간격**으로 겹쳐 온다. 각자 조회를
@@ -237,7 +277,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   function stateOf(conn: C, userId: string): ConnState {
     const existing = conns.get(conn);
     if (existing !== undefined) return existing;
-    const created: ConnState = { userId, claims: new Set(), pending: [] };
+    const created: ConnState = {
+      userId,
+      claims: new Set(),
+      dupKeys: new Set(),
+      pending: [],
+    };
     conns.set(conn, created);
     const set = byUser.get(userId) ?? new Set<C>();
     set.add(conn);
@@ -245,9 +290,21 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     return created;
   }
 
-  function release(state: ConnState, keys: [string, string]): void {
-    state.claims.delete(keys[0]);
-    state.claims.delete(keys[1]);
+  function release(state: ConnState, keys: ClaimKeys): void {
+    state.claims.delete(keys.rid);
+    // **이 연결이 아직 그 키를 쥐고 있을 때만** 사용자 맵에서 회수한다. `closeConn` 이
+    // 이미 회수한 뒤(= `dupKeys` 가 비었다) 진행 중이던 `handle` 이 늦게 놓으면, 그 사이
+    // 다른 탭이 새로 잡은 **같은 키**를 풀어 주게 되어 중복 가드가 조용히 뚫린다.
+    if (!state.dupKeys.delete(keys.dup)) return;
+    dropUserDupKeys(state.userId, [keys.dup]);
+  }
+
+  /** 사용자 스코프 dup 키 회수. Set 이 비면 사용자 항목 자체를 지운다 (T-16-33). */
+  function dropUserDupKeys(userId: string, keys: Iterable<string>): void {
+    const held = userDupKeys.get(userId);
+    if (held === undefined) return;
+    for (const key of keys) held.delete(key);
+    if (held.size === 0) userDupKeys.delete(userId);
   }
 
   function reject(conn: C, rid: string, message: string): void {
@@ -546,14 +603,18 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     const keys = claimKeys(msg);
 
     // ⓪ **중복 방지** (T-16-10). insert 를 기다리는 동안 두 번째 클릭이 통과하지 않도록
-    //    `await` 보다 **먼저**, 동기적으로 잡는다.
-    if (state.claims.has(keys[0]) || state.claims.has(keys[1])) {
+    //    `await` 보다 **먼저**, 동기적으로 잡는다. `rid` 는 이 연결에서 보고, dup 키는
+    //    **이 사용자의 전 연결**에서 본다 (WR-02) — 두 번째 탭도 같은 주문을 낼 수 없다.
+    if (state.claims.has(keys.rid) || userDupKeys.get(userId)?.has(keys.dup) === true) {
       logger.warn(logCtx, "[WS-order] 이미 대기 중인 주문 — 중복 요청 거부");
       reject(conn, msg.rid, "같은 주문이 이미 처리 중입니다. 결과를 기다려 주세요.");
       return;
     }
-    state.claims.add(keys[0]);
-    state.claims.add(keys[1]);
+    state.claims.add(keys.rid);
+    state.dupKeys.add(keys.dup);
+    const heldDupKeys = userDupKeys.get(userId) ?? new Set<string>();
+    heldDupKeys.add(keys.dup);
+    userDupKeys.set(userId, heldDupKeys);
 
     // ① 활성 Ready 세션이 있어야 한다. **여기서 대신 로그인하지 않는다** (D-15).
     const session = deps.sessions.get(userId);
@@ -759,6 +820,11 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     for (const p of state.pending) clearTimeout(p.timer);
     state.pending.length = 0;
     state.claims.clear();
+    // 이 연결이 잡은 사용자 스코프 dup 키를 **반드시** 회수한다. 남기면 탭을 닫은 뒤
+    // 같은 주문을 영원히 못 낸다 (가드 leak / T-16-33). `close()` 도 이 경로를 지나므로
+    // 전 연결 정리에 별도 처리가 필요 없다.
+    dropUserDupKeys(state.userId, state.dupKeys);
+    state.dupKeys.clear();
     conns.delete(conn);
 
     const set = byUser.get(state.userId);
