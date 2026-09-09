@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 16-35-PLAN.md (갭 클로징 2라운드 종결 — 배포·실측·문서 6종)
-last_updated: "2026-09-09T07:25:00.000Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 **종결**(16-35): GC- 19건 전부 닫힘 + relay·webapp 재배포(`c8aa7ae`) + `/healthz` 200→503 전이 실측. TRADE-03 은 Pending 유지
+status: completed
+stopped_at: Completed 16-34-PLAN.md (GC-WR-03 · GC-WR-10)
+last_updated: "2026-09-09T07:28:46.725Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 종결(16-35) — 배포 2종 + 실측 + 문서 6종
 progress:
   total_phases: 25
-  completed_phases: 18
+  completed_phases: 19
   total_plans: 174
   completed_plans: 160
-  percent: 72
+  percent: 76
 ---
 
 # Project State
@@ -32,7 +32,7 @@ Status: Phase 16 실행 완료 — **TRADE-03 만 Pending**(D-27 상 실서버 �
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 종결(16-35) — 배포 2종 + 실측 + 문서 6종
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 92%
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~16-35)
 
@@ -47,7 +47,6 @@ Progress: [█████████░] 91%
 - **webapp 반영은 정황 증명까지다(정직 기록).** 이번 라운드 webapp diff 5파일이 전부 인증 게이트 뒤 트레이딩 표면이라 청크를 내려받아 내용 대조를 할 수 없다. 근거는 ① build 1m(SKIP 배포는 3~5초 `Canceled`) ② `…-git-master-…` alias 결선 ③ 프로덕션 HTML 에 「상승률 상위」 2건·`data-nav-item` 1건 ④ 공개 루트 청크 `2345-c0133ca9890ddb86.js` 해시가 16-26 과 **동일** — 공개 표면을 한 줄도 안 건드린 diff 와 정확히 일치한다.
 - **TRADE-03 은 Pending 을 유지한다.** 코드 19건이 닫히고 배포까지 됐으나 프로덕션 `everReadyCount: 0` · `stalledCount: 2` 는 **Ready 에 도달한 DMA 세션이 한 건도 없었다**는 뜻이다. WinForms ↔ 웹 세션 공유는 여전히 미실행이다. mock·단위 검증만으로 올리지 않는다(RELAY-02 와 같은 기준). TRADE-01·02·NAV-01·MYPAGE-01 은 체크박스와 Traceability 가 **5개 ID 전부에서 일치**함을 재확인했고 손대지 않았다.
 - **자동 수정(Rule 1~3) 0건.** 이 plan 은 소스를 고치지 않았다.
-
 
 - **16-34 완료 — GC-WR-03 · GC-WR-10 종결.** 둘 다 「relay 가 이미 손에 쥔 식별 정보를 쓰지 않아 가를 수 있는 것을 못 가르고, 막지 말아야 할 것을 막던」 자리다. relay 2파일(소스 1 + 테스트 1).
 - **매매구분이 통보 매칭 축이 됐다(②-1).** 같은 종목·수량·가격의 매수/매도가 동시에 대기하면 ③④ 로는 영원히 갈리지 않는데, 접수 통보는 방향을 실어 온다 — 축이 없어 **실제로 접수된 주문 2건이 모두** 「결과를 확인하지 못했습니다」로 끝났다. `PendingOrder.side`(`:179`) 신설 + `narrowPending:1050-1073` 에 `refine` 축 추가. 취소 대기의 `side` 는 `""` 다 — `handle` 의 `const side = isCancel ? "S"`(`:774`)는 `dma_orders.side` CHECK 통과용 **표기**이지 방향의 정본이 아니다.
@@ -284,6 +283,7 @@ Progress: [█████████░] 91%
 | Phase 16 P32 | 18min | 2 tasks | 6 files |
 | Phase 16 P33 | 8min | 2 tasks | 3 files |
 | Phase 16 P34 | 9min | 2 tasks | 2 files |
+| Phase 16 P35 | 70m | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -483,6 +483,9 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 33]: 빈 주문번호(`""`)는 in-flight 상관 키가 아니다 — `findIdByOrderNo` 가 이 값에서 항상 `null` 이라 dedup 의 의미가 애초에 없고, 합치면 서로 다른 자동주문 거부가 한 행에 겹쳐 쓰인다. 각자 insert 한다.
 - [Phase 16 Plan 34]: narrowPending ②-1 매매구분 축은 sideTrusted 만으로 부족하다 — 거부(R)는 파서가 신뢰로 표시하지만 취소 대기에도 오므로 noticeType∈{A,E} 한 겹을 더 건다
 - [Phase 16 Plan 34]: 취소 dup 키는 (accountNo,isin,C,orgOrderNo) — 취소의 정체성은 원주문번호다. 신규 키 문자열은 불변(두 탭 동시 발주 차단 유지)
+- [Phase 16]: 16-35: TRADE-03 은 Pending 유지 — 코드 19건이 닫히고 relay 가 c8aa7ae 로 재배포됐으나 프로덕션 /healthz 가 everReadyCount:0 · stalledCount:2 · 503 이라 DMA 경로가 실서버에서 한 프레임도 나른 적이 없다 (RELAY-02 와 같은 기준)
+- [Phase 16]: 16-35: 배포 후 /healthz 503 은 회귀가 아니라 GC-WR-07 의 의도된 판정 — version·sessionCount 고정 상태에서 stalledCount 0→2 만으로 뒤집혔다. 알림을 끄는 것은 판정을 되돌리는 사용자 결정 사항이라 deferred-items 로 넘겼다
+- [Phase 16]: 16-35: server 재배포 생략 — git diff --stat 2cb5620..HEAD 가 server/ 와 packages/shared/ 둘 다 빈 출력. 계약 무변경이라 배포 순서 위험도 이번 라운드에는 없다
 
 ### Pending Todos
 
@@ -534,6 +537,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T06:25:46.484Z
-Stopped at: Completed 16-34-PLAN.md (GC-WR-03 · GC-WR-10)
-Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
+Last session: 2026-09-09T07:28:39.515Z
+Stopped at: Completed 16-35-PLAN.md (갭 클로징 2라운드 종결 — 배포 2종 + `/healthz` 실측 + 문서 6종)
+Next: **Phase 16 은 35/35 실행 완료.** 남은 것은 실행이 아니라 **사용자 결정 2건**이다 — ① `/healthz` 가 게이트웨이 부재 동안 5분 뒤 503 으로 상시화되므로 `gh-radar-relay-down` 알림을 어떻게 할지(유예 연장 / VM mock 상주 / 알림 임계 조정 / 실서버 결선). ② smoke `INV-9` 는 `SMOKE_AUTH_TOKEN` 이 있어야 프로덕션 첫 실행이 된다. 실서버·실계좌(D-27)와 WinForms 세션 공유는 **사용자 명시 지시가 있을 때만**. 상세는 `16-VALIDATION.md` §Deployment Verification (16-35) · `deferred-items.md` §16-35.
