@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-33-PLAN.md (GC-CR-02 · GC-WR-01 · GC-WR-02)
-last_updated: "2026-09-09T06:10:59.624Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-33 실행 완료 (GC-CR-02 · GC-WR-01 · GC-WR-02)
+stopped_at: Completed 16-34-PLAN.md (GC-WR-03 · GC-WR-10)
+last_updated: "2026-09-09T06:25:52.241Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-34 실행 완료 (GC-WR-03 · GC-WR-10)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 158
+  completed_plans: 159
   percent: 72
 ---
 
@@ -26,15 +26,27 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 34 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-33 완료, 16-34~16-35 대기)
-Plans completed: 158 / 174
+Plan: 35 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-34 완료, 16-35 대기)
+Plans completed: 159 / 174
 Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-33 실행 완료 (GC-CR-02 · GC-WR-01 · GC-WR-02)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-34 실행 완료 (GC-WR-03 · GC-WR-10)
 
 Progress: [█████████░] 91%
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-34 완료 — GC-WR-03 · GC-WR-10 종결.** 둘 다 「relay 가 이미 손에 쥔 식별 정보를 쓰지 않아 가를 수 있는 것을 못 가르고, 막지 말아야 할 것을 막던」 자리다. relay 2파일(소스 1 + 테스트 1).
+- **매매구분이 통보 매칭 축이 됐다(②-1).** 같은 종목·수량·가격의 매수/매도가 동시에 대기하면 ③④ 로는 영원히 갈리지 않는데, 접수 통보는 방향을 실어 온다 — 축이 없어 **실제로 접수된 주문 2건이 모두** 「결과를 확인하지 못했습니다」로 끝났다. `PendingOrder.side`(`:179`) 신설 + `narrowPending:1050-1073` 에 `refine` 축 추가. 취소 대기의 `side` 는 `""` 다 — `handle` 의 `const side = isCancel ? "S"`(`:774`)는 `dma_orders.side` CHECK 통과용 **표기**이지 방향의 정본이 아니다.
+- **`sideTrusted` 한 축으로는 모자랐다.** 계획·REVIEW 스니펫은 `sideTrusted && side !== ""` 였는데 그대로 넣으니 기존 테스트 ②(「거부는 신규·취소 어느 쪽에도 온다」)가 깨졌고, **그 단언이 참이었다** — 파서는 `sideTrusted = noticeType !== "C" && !== "M"` 이라 거부("R")에 `true` 를 주지만 "R" 은 취소 요청에도 온다. 취소 요청에는 매매구분이 없어 그 통보의 side 는 브로커 기본값이므로, 축을 걸면 **취소거부가 살아 있는 신규 매수를 「거부됨」으로 정산**한다. `noticeType ∈ {A, E}` 한 겹을 더 걸었다. 즉 `sideTrusted` 는 「표시해도 되는가」의 축이지 「좁혀도 되는가」의 축이 아니다.
+- **정규화는 `fromWireSide`(envelope.ts) 재사용.** `sideOf` 의 `startsWith("S") ? "S" : "B"` 를 베끼면 **모르는 값이 매수로 확정**된다. `fromWireSide` 는 첫 글자로 판정하고 아니면 `null` → 축을 건너뛴다.
+- **취소 중복 키가 원주문번호로 갈렸다.** `dupKey:244-247` — 취소는 `(accountNo,isin,"C",orgOrderNo)`, **신규는 문자열 한 글자도 안 바뀌었다**(두 탭 동시 발주 차단 = 16-22 truth 25). 취소 수량은 언제나 미체결 잔량 전부라(UI D-21) 가격·수량은 취소의 식별자가 아니고, 같은 종목·가격·잔량의 미체결 2건(다른 단말·전일 잔여·자동주문)에서 두 번째 취소가 최대 5초 거부됐다 — 급락 국면의 일괄 취소를 막는 가드는 사고를 막는 것이 아니라 만든다. 같은 `orgOrderNo` 연타는 여전히 거부다. 키 회수 경로(`release`·`closeConn`·`dropUserDupKeys`)는 `claimKeys` 쌍 관례 덕에 **변경 0건**.
+- **㉑ 은 「좁혀지지 않는 예」를 바꿔야 했다.** 계획은 「매수 10@70000 두 건」을 지시했지만 **그 상태는 이 경로에 존재할 수 없다** — 완전히 동일한 신규 2건은 dup 키가 같아 두 번째가 게이트 ⓪에서 거부된다. 신규 dup 축이 매칭 축을 덮기 때문이다. 대신 **부분체결**을 썼다: 체결("E") 통보는 수량·가격이 체결값이라 ③④ 가 죽고, 방향이 같으면 ②-1 도 갈라 주지 못한다. 「모든 축이 같은 신규 2건」은 단위 케이스가 계속 잠근다.
+- **회귀 잠금 실증 5회.** ②-1 축 차단 → **2건**(㉙·단위) / 가드를 REVIEW 스니펫대로 되돌림 → **2건**(기존 ②·신규 단위) / 취소 dup 키 원복 → ㉚ / 취소 키를 `rid` 로 → ㉛ / 취소 대기 `side` 에 DB 표기 주입 → **0건**(`!p.isCancel` 이 먼저 걸러 관측 불가 — 의도적 중복 방어임을 SUMMARY 에 사실대로 남겼다). 확인 후 전부 복원(`grep -c MUTATION` = 0).
+- **relay 373 tests**(368 → +5, 17 files) · typecheck · typecheck:tests green. 신규 마이그레이션 0건. 자동 수정(Rule 1~3) **0건**.
+- **`10.41.1.120` 실측은 여전히 2건**(`relay/README.md:17` 경고문 · `relay/src/dma/link-health.ts:20` 주석) — 2라운드 5번째 연속 동일. 둘 다 산문이라 지우지 않았다.
+- **TRADE-03 은 계속 Pending.** `requirements.mark-complete` 미실행 — 프로덕션 `everReadyCount: 0` 판정(16-26)이 그대로다.
+- **배포 미실시.** relay 재배포는 16-35 몫이다.
 
 - **16-33 완료 — GC-CR-02 · GC-WR-01 · GC-WR-02 종결.** 셋 다 `recordUnmatched`/`ensureRow` 한 경로에 있고, 셋 다 「통보 1건의 사고가 기록 소실 또는 전면 장애로 번진다」는 모양이었다. relay 3파일(소스 2 + 테스트 1).
 - **수동 통보도 조회를 거친다.** 수동 주문의 insert 는 접수 전이라 `order_no` 를 싣지 않고 `finish` 가 정산할 때 채운다 — 그런데 좁히기 실패·연결 종료 후 도착 두 경로는 그 정산을 거치지 않으므로, 그 시점의 `order_no` 셀렉터 갱신은 **0행**이다. PostgREST 는 0행 update 를 에러로 주지 않아 **로그 한 줄 없이** 사라졌다(이 파일이 머리말에서 없애겠다고 선언한 Pitfall 18 그 자체). 이제 `findIdByOrderNo`(`:427`)로 좁혀 **행이 있음이 확인된 경우에만** `orderRowId` 로 갱신하고(`:444`), 없으면 통보 원문(`orderNo`·`noticeType`·`resultCode`·`isin`·수량·가격)을 `logger.error` 로 남기며 **갱신을 큐에 넣지 않는다**(`:452-462`). 조회 실패는 기존 `lookup-failed` 와 동형으로 열화 갱신 + error(S-5).
@@ -258,6 +270,7 @@ Progress: [█████████░] 91%
 | Phase 16 P31 | 21min | 3 tasks | 4 files |
 | Phase 16 P32 | 18min | 2 tasks | 6 files |
 | Phase 16 P33 | 8min | 2 tasks | 3 files |
+| Phase 16 P34 | 9min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -455,6 +468,8 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 33]: 붙을 행이 없는 수동 통보는 **0행 update 를 보내지 않는다** — 조회로 확인된 경우에만 `orderRowId` 로 갱신하고, 없으면 통보 원문을 `logger.error` 로 남긴다. PostgREST 가 0행 update 를 성공으로 답하는 것이 이 파일이 없애겠다고 선언한 Pitfall 18 의 정체다.
 - [Phase 16 Plan 33]: 통보 기록 경로의 예외는 **두 겹**으로 막는다 — 호출부 `.catch`(증상) + `insertOnly` 의 try 안으로 옮긴 `autoInsertRow`(원인). 한 겹만 두면 원인은 남고 증상만 가려진다. `index.ts` 의 `unhandledRejection` 은 프로세스 종료이므로 통보 1건의 파손이 전 사용자 세션 절단이다.
 - [Phase 16 Plan 33]: 빈 주문번호(`""`)는 in-flight 상관 키가 아니다 — `findIdByOrderNo` 가 이 값에서 항상 `null` 이라 dedup 의 의미가 애초에 없고, 합치면 서로 다른 자동주문 거부가 한 행에 겹쳐 쓰인다. 각자 insert 한다.
+- [Phase 16 Plan 34]: narrowPending ②-1 매매구분 축은 sideTrusted 만으로 부족하다 — 거부(R)는 파서가 신뢰로 표시하지만 취소 대기에도 오므로 noticeType∈{A,E} 한 겹을 더 건다
+- [Phase 16 Plan 34]: 취소 dup 키는 (accountNo,isin,C,orgOrderNo) — 취소의 정체성은 원주문번호다. 신규 키 문자열은 불변(두 탭 동시 발주 차단 유지)
 
 ### Pending Todos
 
@@ -506,6 +521,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T06:10:28.766Z
-Stopped at: Completed 16-33-PLAN.md (GC-CR-02 · GC-WR-01 · GC-WR-02)
+Last session: 2026-09-09T06:25:46.484Z
+Stopped at: Completed 16-34-PLAN.md (GC-WR-03 · GC-WR-10)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
