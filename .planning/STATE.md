@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-37-PLAN.md — R2-CR-02 종결(stalledCount 가 사유를 본다)
-last_updated: "2026-09-09T09:58:58.427Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 — 16-37 (R2-CR-02) 완료
+stopped_at: Completed 16-38-PLAN.md — R2-CR-03 종결(PostgREST 오류 원문 유출 차단)
+last_updated: "2026-09-09T10:14:02.464Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 — 16-38 (R2-CR-03) 완료
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 162
+  completed_plans: 163
   percent: 72
 ---
 
@@ -25,16 +25,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (37/46)**
-Plan: 37 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 162 / 185
-Status: 3라운드 실행 중 — R2-CR-02 종결. **TRADE-03 은 Pending 유지**(코드 층위만 닫힘, 배포는 16-46)
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (38/46)**
+Plan: 38 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 163 / 185
+Status: 3라운드 실행 중 — R2-CR-03 종결. **TRADE-03 은 Pending 유지**(코드 층위만 닫힘, 배포는 16-46)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
 Progress: [█████████░] 88%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-38 완료 — R2-CR-03 종결. 제약 위반 한 번이면 계좌번호 원문이 Cloud Logging 에 영구히 남던 경로를 닫았다.** relay 7파일(신규 1 + 소스 5 + 테스트 1).
+- **규율을 경로가 아니라 타입에 걸었다.** 신규 `relay/src/store/pg-error.ts` 의 `safePgError(err) -> {code?, message?}` 하나가 정본이다. `details`·`hint` 를 **읽지도 않는다** — 없는 값은 샐 수 없다. 반환 타입을 두 필드로 좁혀 다음 사람이 `details` 를 다시 얹지 못하게 했다. PostgreSQL 은 CHECK(`23514`)·NOT NULL(`23502`)·FK(`23503`) 위반의 `DETAIL` 에 `Failing row contains (<모든 컬럼 값>)` 을 넣고 `dma_orders` 행에는 `account_no`·`order_no`·`user_id` 가 다 있다 (T-16-45/D-19).
+- **계획이 지목한 7곳이 아니라 전수 조사 23곳 중 13곳을 교체했다.** 계획의 grep 은 한 줄짜리만 잡아 `#drain` 두 줄과 `credentials.ts` 의 `{ userId, error }`(키 순서가 다르다)를 놓친다. 멀티라인 스캔으로 찾은 **계획 목록 밖 6곳**: `order-handler` 통보 경로 3곳(`findIdByOrderNo`/`insertRequest` 가 던진 원문) · `credentials.ts`+`fanout.ts`(**같은 오류를 두 번** 로그하고 그 테이블에는 `dma_password_enc` 가 있다) · `symbols.ts`.
+- **유지 10곳도 근거를 남겼다.** `order-handler.ts:411`(최후 그물)은 안쪽 Supabase 왕복 3곳이 **각각** catch 로 종결되므로 PostgREST 가 닿지 않고, `:862`(조립 거부)는 try 가 감싼 것이 `buildDirectOrderReq` 하나라 `OrderBuildError` 만 온다 — 그때는 스택이 유일한 단서다. 안쪽 catch 를 걷어내면 판정이 무효가 된다는 사실을 그 줄 주석에 박았다.
+- **로그 키는 `pgError` 다.** GCP pino 설정의 `messageKey` 가 **`message`** 라, 안전 필드를 최상위로 펼치면 로그 메시지 자체와 충돌한다.
+- **동작은 한 줄도 바꾸지 않았다.** `#dropped`·`#retried`·`#flushed` 대입문 diff **0줄**, throw·재시도 분기 0줄. 16-28 의 `23505` 수렴(insert 재조회 + warn, update 정상 반환)도 그대로다. 로그 페이로드만 좁혔다.
+- **신규 4케이스** — ⓼-b(insert) · ⓼-c(update) · ⓼-d(조회) · ⓼-e(`#drain` 재큐잉/드롭). 세 sink 중 하나만 잠그면 나머지 둘이 다시 열린다. 각 케이스가 가짜 계좌번호·`"Failing row"`·`hint` 부재 **와 `code` 존재**를 함께 단언한다 (S-5 — 마스킹이 조용한 실패가 되지 않았다는 증거). `fakeDmaOrders` 주입 훅을 `details`·`hint` 를 실을 수 있게 넓히고 `updateError`·`selectError` 를 추가했다 — `details` 없는 스텁으로는 이 갭을 **재현조차 할 수 없다**.
+- **회귀 잠금 실증 4라운드 — 되돌린 지점마다 정확히 그 케이스만 빨개졌다.** A(insert)→⓼-b 1건 · B(update)→⓼-c·⓼-e 2건 · C(조회)→⓼-d 1건 · **D(`#drain` 두 줄만, sink 는 안전한 채로)→⓼-e 1건**. 라운드 D 가 「한 자리만 고치면 옆 줄이 그대로 흘린다」의 관측 증거다. 복원 후 diff 0줄.
+- **테스트 격리 결함을 잡았다(Rule 1).** 1차 실증에서 한 곳만 되돌렸는데 4건이 빨개졌다 — `vi.spyOn` 은 이미 감싼 메서드에 **같은 spy** 를 돌려주므로 복원 없이는 `mock.calls` 가 케이스를 넘어 누적된다. `afterEach(restoreAllMocks)` 를 넣어 「어느 줄이 새는가」를 이 파일이 말할 수 있게 했다.
+- **relay 382 tests**(378 → +4, 17 files) · `pnpm -r typecheck` exit 0 · `pnpm -r test` exit 0 **2,021 passed**(기준선 2,017 → +4, relay 외 변동 없음) · `typecheck:tests` exit 0. 포매터 미실행(prettier 설정 없음).
+- **⚠️ 배포 미실시 — 프로덕션에는 R2-CR-03 이 여전히 살아 있다.** 프로덕션이 실 게이트웨이(`10.41.1.120:9100`)에 결선돼 실주문이 흐르는 상태라 노출 표면이 실재한다. 재배포는 3라운드 종결 plan **16-46** 몫. FakeGateway·가짜 `SupabaseClient` 만 사용, 실서버·실계좌 접속 0회(D-27).
+- **TRADE-03 은 계속 Pending.** `requirements.mark-complete` 미실행.
 
 - **16-37 완료 — R2-CR-02 종결. 하나의 카운터가 서로 다른 두 원인을 삼키던 것을 갈랐다.** relay 3파일(소스 2 + 테스트 1).
 - **`stats().stalledCount` 가 사유를 본다.** `NO_RETRY_STATES`(`session_rejected`·`unauthorized`) 세션은 유예를 아무리 넘겨도 세지 않는다. 그 세션은 `acquire` 가 재생성하지 않고(T-15-10/D-16) 탭이 열려 있으면 `refCount > 0` 이라 유예 소멸도 걸리지 않아 **무기한** 남는다 — 사유를 안 보면 사용자 한 명의 잘못된 DMA 비밀번호가 relay 전체를 **영구 503** 으로 만든다.
@@ -329,6 +342,7 @@ Progress: [█████████░] 88%
 | Phase 16 P35 | 70m | 3 tasks | 6 files |
 | Phase 16 P36 | 11min | 2 tasks | 2 files |
 | Phase 16 P37 | 25min | 2 tasks | 3 files |
+| Phase 16 P38 | 16min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -532,6 +546,10 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-35: 배포 후 /healthz 503 은 회귀가 아니라 GC-WR-07 의 의도된 판정 — version·sessionCount 고정 상태에서 stalledCount 0→2 만으로 뒤집혔다. 알림을 끄는 것은 판정을 되돌리는 사용자 결정 사항이라 deferred-items 로 넘겼다
 - [Phase 16]: 16-35: server 재배포 생략 — git diff --stat 2cb5620..HEAD 가 server/ 와 packages/shared/ 둘 다 빈 출력. 계약 무변경이라 배포 순서 위험도 이번 라운드에는 없다
 - [Phase 16]: 16-37 (R2-CR-02): stalledCount 가 사유를 본다 — NO_RETRY_STATES(session_rejected·unauthorized) 세션은 집계에서 제외. 사용자 한 명의 자격증명 거부가 relay 전체를 영구 503 으로 만들던 경로를 닫았다. sessionsOk 판정식 무변경(입력값 정의만 좁힘), acquire·release diff 0줄로 T-15-10 유지, 기존 ⑩ 통과로 GC-WR-07 생존
+- [Phase 16]: 16-38 (R2-CR-03): 마스킹 규율을 경로가 아니라 **타입**에 건다 — `safePgError` 의 좁은 반환 타입(`{code?, message?}`)이 계약의 집행 수단이다. PostgREST 오류에서 값이 들어가는 통로는 `details`/`hint` 두 곳뿐이라 그 둘을 읽지 않는 것이 마스킹의 전부다
+- [Phase 16]: 16-38: 로그 키를 `pgError` 로 둔다 — GCP pino 설정의 `messageKey` 가 **`message`** 라 안전 필드를 최상위로 펼치면 로그 메시지 자체와 충돌한다
+- [Phase 16]: 16-38: 리뷰·계획이 지목한 7곳이 아니라 **전수 조사 23곳 중 13곳**을 교체했다 — `order-handler` 통보 경로 3곳·`credentials`+`fanout`(같은 오류를 두 번 로그)·`symbols` 가 계획 목록 밖이었다. 계획의 grep 은 한 줄짜리만 잡아 `#drain` 두 줄과 `{ userId, error }` 순서를 놓친다
+- [Phase 16]: 16-38: `order-handler.ts:411`(최후 그물)·`:862`(조립 거부)는 **유지** — 안쪽 Supabase 왕복 3곳이 각각 catch 로 종결되고 조립 try 는 `OrderBuildError` 만 던진다. PostgREST 가 닿지 않는 자리라 스택이 유일한 단서다
 
 ### Pending Todos
 
@@ -584,7 +602,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T09:58:42.594Z
+Last session: 2026-09-09T10:13:42.764Z
 Stopped at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
