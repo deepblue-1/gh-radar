@@ -15,8 +15,15 @@
  *   pnpm --filter @gh-radar/relay exec tsx ../scripts/dma-credentials.ts \
  *     --email <gh-radar 계정 이메일> --dma-user <DMA user_id>
  *
+ *   # 이미 등록된 계정의 자격증명을 다른 gh-radar 계정에 연결 (비밀번호 프롬프트 없음)
+ *   pnpm --filter @gh-radar/relay exec tsx ../scripts/dma-credentials.ts \
+ *     --email <대상 계정 이메일> --from-email <이미 등록된 원본 계정 이메일>
+ *
  *   # 등록 현황 (비밀번호 제외)
  *   pnpm --filter @gh-radar/relay exec tsx ../scripts/dma-credentials.ts --list
+ *
+ *   env·gcloud 준비가 번거로우면 래퍼를 쓴다 — 어느 cwd 에서 실행해도 동작한다:
+ *     bash scripts/dma-credentials.sh --list
  *
  *   저장소 루트가 아니라 relay 워크스페이스를 통해 실행한다 — tsx·supabase-js·pino 가
  *   relay/node_modules 에만 있고 루트에는 없다.
@@ -37,6 +44,17 @@
  *     에 남지 않는다 (T-15-05). 오타로 KB 계정이 잠기지 않도록 두 번 입력받아 대조한다.
  *   - 평문 비밀번호와 AES 키는 stdout/stderr 어디에도 출력하지 않는다.
  *   - 인자 오류 · 사용자 미존재 · 키 조회 실패 · DB 실패는 사유 출력 후 exit 1
+ *   - 링크 모드(`--from-email`)는 **비밀번호를 묻지 않는다.** 원본 행의 암호문을 원본
+ *     user_id 로 복호한 뒤 **대상 user_id 로 재암호화**해 저장한다. AAD 가 user_id 이므로
+ *     (D-18 행 이동 방지) 암호문을 그대로 복사하면 대상 행에서 tag 검증이 깨지고 relay 는
+ *     그 사용자를 영구히 `unauthorized` 로 처리한다.
+ *   - 링크 모드는 아래 경우 **저장 없이** exit 1 이다:
+ *       · 원본 계정에 `dma_credentials` 행이 없음
+ *       · 대상 == 원본 (이메일 표기가 달라도 같은 user_id 로 해석되면 동일 처리)
+ *       · `--dma-user` 가 원본 행의 dma_user_id 와 다름 — 저장된 암호문은 원본
+ *         dma_user_id 의 비밀번호라, 다른 id 로 연결하면 틀린 비밀번호로 KB 에 로그인해
+ *         계정이 잠긴다 (T-15-10). 링크 모드에서 `--dma-user` 는 지정용이 아니라 확인용이다.
+ *       · 재암호화 라운드트립(재복호 == 평문) 검증 실패
  *
  * D-17 (중요):
  *   gh-radar 용 DMA `user_id` 는 **WinForms 클라이언트가 쓰는 값과 달라야 한다.**
@@ -44,13 +62,17 @@
  *   계좌 범위가 서로 섞인다. 실제 값은 gh-trade 측 users.toml 운영 절차로 발급하며
  *   이 저장소에는 적지 않는다.
  *
+ *   링크 모드(`--from-email`)는 D-17 이 경고하던 "같은 DMA user_id 공유"를 **의도적으로**
+ *   수행하는 유일한 경로다 — 연결된 gh-radar 계정들은 하나의 DMA 세션을 나눠 쓰게 되므로,
+ *   성공 시 그 사실을 stderr 경고로 반드시 알린다.
+ *
  * 선행 조건:
  *   `dma_credentials` 테이블은 15-09 의 마이그레이션이 만든다. 그 전에 실행하면 DB 오류로
  *   끝난다(테이블 없음) — 스키마를 이 스크립트가 만들지 않는 것은 의도다.
  */
 import { execFileSync } from "node:child_process";
 
-import { encryptDmaPassword } from "../relay/src/store/credentials.js";
+import { decryptDmaPassword, encryptDmaPassword } from "../relay/src/store/credentials.js";
 import { createRelaySupabase } from "../relay/src/store/supabase.js";
 
 /**
@@ -70,7 +92,7 @@ const CRED_KEY_SECRET = "gh-radar-dma-cred-key";
 // 인자 파싱
 // ============================================================
 
-type Args = { list: boolean; email?: string; dmaUser?: string };
+type Args = { list: boolean; email?: string; dmaUser?: string; fromEmail?: string };
 
 function parseArgs(argv: string[]): Args {
   const args: Args = { list: false };
@@ -82,6 +104,8 @@ function parseArgs(argv: string[]): Args {
       args.email = argv[(i += 1)];
     } else if (flag === "--dma-user") {
       args.dmaUser = argv[(i += 1)];
+    } else if (flag === "--from-email") {
+      args.fromEmail = argv[(i += 1)];
     } else if (flag === "--password" || flag === "--dma-password") {
       // 실수 방지 — 인자로 받는 순간 shell history 에 평문이 남는다 (T-15-05).
       fail("비밀번호는 인자로 받지 않습니다. 인자 없이 실행하면 프롬프트가 뜹니다.");
@@ -102,6 +126,7 @@ function usage(): never {
     [
       "사용법:",
       "  --email <이메일> --dma-user <DMA user_id>   자격증명 등록/갱신",
+      "  --email <대상> --from-email <원본>          기존 자격증명을 다른 계정에 연결(프롬프트 없음)",
       "  --list                                      등록 현황 출력",
       "",
       "비밀번호는 인자가 아니라 프롬프트로 입력합니다 (shell history 미기록).",
@@ -333,6 +358,115 @@ async function runRegister(admin: Admin, email: string, dmaUser: string): Promis
   );
 }
 
+/**
+ * 원본 user_id 로 복호 → 대상 user_id 로 재암호화하고, 저장 전에 라운드트립을 검증한다.
+ *
+ * 평문을 **이 함수 밖으로 내보내지 않으려고** 따로 뺀 함수다. 반환값은 암호문뿐이고 평문
+ * 이름은 이 스코프에서 끝난다. 실패 경로에서도 원본 예외 메시지를 그대로 흘리지 않는다 —
+ * 예외 문자열에 암호문·키 조각이 섞여 나올 수 있다.
+ */
+function reencryptForTarget(
+  passwordEnc: string,
+  sourceUserId: string,
+  targetUserId: string,
+  credKey: string,
+): string {
+  try {
+    const plain = decryptDmaPassword(passwordEnc, sourceUserId, credKey);
+    const next = encryptDmaPassword(plain, targetUserId, credKey);
+    // 저장 전 라운드트립. 어긋난 값을 저장하면 relay 가 그 사용자를 영구히 `unauthorized`
+    // 로 만들고, 되돌리려면 결국 비밀번호를 다시 물어야 한다.
+    if (decryptDmaPassword(next, targetUserId, credKey) !== plain) {
+      fail("재암호화 검증 실패 — 저장하지 않았습니다.");
+    }
+    return next;
+  } catch {
+    fail(
+      "복호에 실패했습니다. DMA_CRED_KEY 가 원본 등록 시점 키와 같은지 확인하세요. (저장하지 않았습니다.)",
+    );
+  }
+}
+
+/**
+ * 이미 등록된 계정(`--from-email`)의 자격증명을 다른 계정(`--email`)에 연결한다.
+ *
+ * 비밀번호를 다시 묻지 않는 것이 이 모드의 존재 이유다 — 재입력은 오타로 실계좌를 잠글
+ * 위험(T-15-10)을 매번 다시 여는 일이고, 이미 검증된 암호문이 DB 에 있는데 사람 손을 한 번
+ * 더 태울 이유가 없다.
+ *
+ * 최종 저장에 쓰는 dma_user_id 는 **언제나 원본 행의 값**이다. `--dma-user` 는 그 값을
+ * 확인하는 용도이지 바꾸는 용도가 아니다.
+ */
+async function runLink(
+  admin: Admin,
+  targetEmail: string,
+  fromEmail: string,
+  dmaUser?: string,
+): Promise<void> {
+  if (targetEmail.trim().toLowerCase() === fromEmail.trim().toLowerCase()) {
+    fail("대상과 원본이 같은 계정입니다.");
+  }
+
+  const targetUserId = await findUserIdByEmail(admin, targetEmail);
+  const sourceUserId = await findUserIdByEmail(admin, fromEmail);
+  // 이메일 표기가 달라도 같은 계정으로 해석될 수 있다. id 로 한 번 더 막는다 — 자기 행을
+  // 자기 행으로 덮어쓰는 동작은 얻는 것이 없고, 실패하면 멀쩡한 행만 잃는다.
+  if (targetUserId === sourceUserId) {
+    fail("대상과 원본이 같은 계정입니다.");
+  }
+
+  const { data, error } = await admin
+    .from("dma_credentials")
+    .select("dma_user_id, dma_password_enc")
+    .eq("user_id", sourceUserId)
+    .maybeSingle();
+
+  if (error) fail(`원본 조회 실패: ${error.message}`);
+  if (data === null) fail(`원본 계정에 등록된 DMA 자격증명이 없습니다: ${fromEmail}`);
+
+  const row = data as { dma_user_id: string; dma_password_enc: string };
+
+  if (dmaUser !== undefined && dmaUser !== row.dma_user_id) {
+    // 저장된 암호문은 **원본 dma_user_id 의** 비밀번호다. 다른 id 로 연결하면 relay 가
+    // 틀린 비밀번호로 KB 에 로그인해 계정이 잠긴다 (T-15-10).
+    fail(
+      `--dma-user 가 원본 행과 다릅니다 (원본=${row.dma_user_id}). ` +
+        "저장된 암호문은 원본 dma_user_id 의 비밀번호라 다른 id 로 연결하면 틀린 비밀번호로 " +
+        "로그인해 계정이 잠깁니다. 인자를 빼거나 원본 값과 맞추세요.",
+    );
+  }
+
+  const credKey = resolveCredKey();
+  const encrypted = reencryptForTarget(row.dma_password_enc, sourceUserId, targetUserId, credKey);
+
+  const { error: upsertError } = await admin.from("dma_credentials").upsert(
+    {
+      user_id: targetUserId,
+      dma_user_id: row.dma_user_id,
+      dma_password_enc: encrypted,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+
+  if (upsertError) fail(`저장 실패: ${upsertError.message}`);
+
+  console.log(
+    `연결 완료: user_id=${targetUserId} dma_user_id=${row.dma_user_id} (원본 ${fromEmail})`,
+  );
+  console.error(
+    "참고: 이미 열려 있는 relay 세션은 즉시 갱신되지 않습니다 (SessionManager 축출 경로 미구현).",
+  );
+  console.error(
+    [
+      "경고: 게이트웨이는 DMA user_id + broker 로 세션을 합류시킵니다 (D-17).",
+      "      같은 DMA 계정을 공유하게 된 gh-radar 사용자끼리는 계좌 범위와 주문 상태",
+      "      (체결·잔고·주문 목록)가 서로 섞여 보입니다.",
+      "      분리가 필요하면 별도 DMA user_id 를 발급해 등록 모드로 따로 등록하세요.",
+    ].join("\n"),
+  );
+}
+
 // ============================================================
 // main
 // ============================================================
@@ -346,6 +480,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.fromEmail !== undefined) {
+    if (args.email === undefined) usage();
+    await runLink(admin, args.email, args.fromEmail, args.dmaUser);
+    return;
+  }
+
+  // 등록 모드에서는 `--dma-user` 가 여전히 필수다 (링크 모드에서만 선택).
   if (args.email === undefined || args.dmaUser === undefined) usage();
   await runRegister(admin, args.email, args.dmaUser);
 }
