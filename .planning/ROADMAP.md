@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
-- [ ] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (35 plans / 22 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 — **plan 은 전부 실행 완료**) (1차 완료 2026-09-08 · 갭 클로징 2라운드 실행 2026-09-09 — **재검증 `16-VERIFICATION-R2.md` = gaps_found (162/165)**: 2라운드 갭 3건은 닫혔으나 3라운드 리뷰가 제기한 Critical 3건(R2-CR-01~03)이 실재 확인돼 3라운드 갭 클로징 필요. TRADE-03 은 D-27 상 실서버 결선 전까지 Pending)
+- [ ] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (46 plans / 28 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11(계획됨)**) (1차 완료 2026-09-08 · 갭 클로징 2라운드 실행 2026-09-09 · **3라운드 계획 2026-09-09** — 재검증 `16-VERIFICATION-R2.md` = gaps_found (162/165) 의 Critical 3건(R2-CR-01~03)에 더해 **실 게이트웨이 결선 후 드러난 갭 2건**(사이드바 ISIN 표시 · `deploy-relay.sh` 가 `DMA_HOST` 를 보존하지 않음) 과 Warning 7 · Info 5 를 16-36~16-46 이 닫는다. TRADE-03 은 종결 plan 에서 재판정)
 
 ## Phase Details
 
@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 35/35 plans executed (17 실행 + 갭 클로징 1라운드 9 + 2라운드 9) — **phase 는 미완결**: `16-VERIFICATION-R2.md` = `gaps_found` (162/165), 신규 Critical 3건(R2-CR-01~03) 미해소
+**Plans:** 46 plans (35 executed + **3라운드 11 계획됨**: 16-36~16-46) — **phase 는 미완결**: `16-VERIFICATION-R2.md` = `gaps_found` (162/165) 의 Critical 3건(R2-CR-01~03) + 결선 후 드러난 갭 2건(사이드바 ISIN 표시 · `DMA_HOST` 배포 회귀) + Warning 7 · Info 5 = **17건**을 3라운드가 닫는다
 
 Plans:
 **Wave 1**
@@ -701,6 +701,35 @@ Plans:
 **Wave 22** *(blocked on Wave 21 completion)*
 
 - [x] 16-35-PLAN.md — 전체 스위트 green(2,012 pass · e2e 126/9/0) + 배포 2종(`c8aa7ae` — relay 재배포 · webapp Vercel `dpl_7iFWNKh…`, server 는 무변경으로 건너뜀) + **`/healthz` 200 → 503 전이 실측(`stalledCount` 0 → 2 = GC-WR-07 의도된 판정)** + smoke 2종 + 문서 6종 갱신 (TRADE-03 은 D-27 상 Pending 유지)
+
+**Wave 23** *(blocked on Wave 22 completion — 갭 클로징 3라운드 시작. Critical 3건, 실계좌 결선 후라 최우선)*
+
+- [ ] 16-36-PLAN.md — [R2-CR-01] `#isTeardown` 이 클라이언트의 `crud:"D"` 를 단독 신뢰 → 철거 판정을 게이트 4종으로 옮긴다 (시장 해석 T-16-42 · 무장 가드 T-16-43 동시 우회 차단, GC-WR-04 는 유지)
+- [ ] 16-37-PLAN.md — [R2-CR-02] `stalledCount` 가 자격증명 거부(`NO_RETRY_STATES`)를 게이트웨이 장애로 오분류 → 사유를 보고 센다 (사용자 1명이 relay 를 영구 503 으로 만들지 않는다, GC-WR-07 은 유지)
+- [ ] 16-38-PLAN.md — [R2-CR-03] PostgREST `error` 원문 로깅이 `Failing row contains (...)` 로 계좌번호 유출 → `safePgError` 단일 정본으로 전수 교체 (T-16-45)
+
+**Wave 24** *(blocked on Wave 23 completion — `orders.ts` 순차)*
+
+- [ ] 16-39-PLAN.md — [R2-WR-01 + R2-IN-04] `23505` 갱신 예외가 패치 전체를 버림 → `order_no` 만 빼고 1회 재시도 + `flushed` 정합 + 테스트 ⓽ 가 「행이 실제로 갱신됐는가」를 본다
+
+**Wave 25** *(blocked on Wave 24 completion — `orders.ts` 순차)*
+
+- [ ] 16-40-PLAN.md — [R2-WR-07 + R2-WR-04] `inserted` 가 23505 수렴을 셈 · 수렴 재조회 예외가 원래 사유를 덮음 · `flushNow` 가 진행 중 배치를 덮어씀
+
+**Wave 26** *(blocked on Wave 25 completion)*
+
+- [ ] 16-41-PLAN.md — [갭 4 계약·relay + R2-IN-02] `RelayLimitChaser` 에 `name`·`code` 선택 필드 + Hub 가 60/64 에 `SymbolMap` 으로 이름을 붙인다 (원천은 relay wss 하나 유지, T-16-02) + 죽은 `detach`/`releaseAll` 정리
+- [ ] 16-43-PLAN.md — [R2-WR-03 + R2-WR-06 + R2-IN-03] 주문번호 비교 정규화 + 축 전멸 로그 + `noticeType` 화이트리스트 + `sideOf` 를 `fromWireSide` 로 통일(모르는 값을 매수로 지어내지 않는다)
+- [ ] 16-45-PLAN.md — [갭 5 + R2-IN-05] `deploy-relay.sh` 가 실행 중 컨테이너 `DMA_HOST` 를 보존(명시 주입 우선 · 변경 전/후 출력) + smoke 프로브 stdout 안전 종료
+
+**Wave 27** *(blocked on Wave 26 completion)*
+
+- [ ] 16-42-PLAN.md — [갭 4 webapp + R2-WR-02 + R2-IN-01] `isin-labels` 원천에 상따 전략 추가 + 철거 의도의 「수정」 무장 가드 면제(relay 와 동형) + 안전 문구 자동 해제
+- [ ] 16-44-PLAN.md — [R2-WR-05] `WsFanout#register` 의 세션 `"state"` 리스너 누수 — entry 가 핸들을 소유하고 `#register`·`#onClose` 양쪽이 뗀다
+
+**Wave 28** *(blocked on Wave 27 completion — 종결, `autonomous: false`)*
+
+- [ ] 16-46-PLAN.md — 전량 게이트 + 회귀 잠금 감사 · 배포 3종(**`DMA_HOST` 주입 없이 = 갭 5 의 유일한 실증**) + `/healthz`·smoke 실측(INV-9 는 실행/미실행을 정직 기록) · 문서 6종 정합 · **TRADE-03 재판정 체크포인트**
 
 ## Progress
 
