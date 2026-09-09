@@ -61,6 +61,14 @@ export const ProxyUnavailable = () =>
 // 거부 사유는 relay 가 `{t:"order.result", status:"rejected"}` 로 직접 브라우저에 답한다
 // (16-08). 여기에 사본을 남기면 "어느 쪽 문구가 진짜인가"를 두 곳에서 관리하게 된다.
 //
-// 웹앱의 `lib/orders-api.ts` 는 `ORDER_ERROR_CODES` 를 **그대로 유지**한다 — 그것은
-// wss 결과 판정("결과 모름 vs 거부", Pitfall 9)에 계속 쓰이는 브라우저 측 상수다.
+// 브라우저의 결과 판정("결과 모름 vs 거부", Pitfall 9)도 **에러 코드 테이블이 아니다.**
+// 정본은 `RelayOrderResultMsg.status` 하나이며, `webapp/src/components/orderbook/order-panel.tsx`
+// 와 `webapp/src/components/orderbook/account-panel.tsx` 가 `res.status === 'timeout'` 을
+// **인라인**으로 본다 — 판정 지점이 그 둘뿐이라 상수 테이블을 따로 둘 이유가 없다.
+// (16-20 에서 그 테이블을 들고 있던 `webapp/src/lib/orders-api.ts` 를 삭제했다 — 임포터 0건의
+//  죽은 모듈이었다. 여기에 그 모듈을 가리키는 문장을 다시 만들지 말 것.)
+//
+// `GET /api/orders`(조회)는 살아 있다(D-03). 다만 **브라우저 호출자는 아직 없다** — 그 조회가
+// 메우는 구멍은 「오늘 주문 이력 표」뿐이고 그 표는 D-20 이 v1 범위 밖(deferred)에 두었다.
+// 표를 만들 때 클라이언트를 함께 만든다. 그때까지 조회 라우트에 클라이언트 사본을 미리 두지 않는다.
 // ============================================================
