@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
-- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (planned — 17 plans / 14 waves) (completed 2026-09-08)
+- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (planned — 35 plans / 22 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9) (1차 완료 2026-09-08 · 갭 클로징 2라운드 계획 2026-09-09)
 
 ## Phase Details
 
@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 26/26 plans complete (17 실행 완료 + 갭 클로징 9 — 16-18~16-26 전량 완료)
+**Plans:** 26/35 plans complete (17 실행 완료 + 갭 클로징 1라운드 9 완료 + 2라운드 9 계획됨 — 16-27~16-35)
 
 Plans:
 **Wave 1**
@@ -680,6 +680,27 @@ Plans:
 **Wave 18** *(blocked on Wave 17 completion)*
 
 - [x] 16-26-PLAN.md — 전체 스위트 green + 배포 3종(`2cb5620`) + **세션 있는 상태 `/healthz` 200 실측(`sessionCount:2, everReadyCount:0`)** + 문서 갱신
+
+**Wave 19** *(갭 클로징 2라운드 — 16-VERIFICATION 갭 2건 + 16-REVIEW GC-CR 3·GC-WR 12·GC-IN 4 = 19건)*
+
+- [ ] 16-27-PLAN.md — [GC-CR-01 + GC-CR-03] 통보 하드 필터(후보 1건 지름길 제거) + await insertRequest 후 연결 생존 재확인
+- [ ] 16-28-PLAN.md — [GC-WR-08 + GC-IN-04] 부분 UNIQUE 위반(23505) 재조회 수렴 + flushNow 라운드 상한 근거 정합
+- [ ] 16-29-PLAN.md — [GC-WR-04 + GC-WR-05] lc.set 삭제는 시장 해석 실패로 막지 않음 + relay 무장 가드를 UI canArm* 3식과 동형화
+- [ ] 16-30-PLAN.md — [GC-WR-07 + GC-WR-11] /healthz stalledCount 판정(재시작 후 상시 초록 방지) + smoke INV-9 env 토큰·verdict 덮어쓰기
+- [ ] 16-31-PLAN.md — [GC-WR-09 + GC-WR-12 + GC-IN-01 + GC-IN-02 + GC-WR-06 상따] handleSubmit 무장 가드 · 원인별 안내 문구 · send 반환값 분기 · 타입 서술자
+- [ ] 16-32-PLAN.md — [GC-WR-06 VI + GC-IN-03] vi.confirm·vi.set 전송 실패 시 낙관 반영·잠금 금지 + latestAccountTime 정규화 전 비교
+
+**Wave 20** *(blocked on Wave 19 completion)*
+
+- [ ] 16-33-PLAN.md — [GC-CR-02 + GC-WR-01 + GC-WR-02] 수동 통보 조회 경유·0행 error 로그·stdout 감사 사본 + recordUnmatched .catch + 빈 주문번호 in-flight 제외
+
+**Wave 21** *(blocked on Wave 20 completion)*
+
+- [ ] 16-34-PLAN.md — [GC-WR-03 + GC-WR-10] narrowPending 매매구분 축(sideTrusted) + 취소 중복 키를 원주문번호로 분리
+
+**Wave 22** *(blocked on Wave 21 completion)*
+
+- [ ] 16-35-PLAN.md — 전체 스위트 green + 배포(relay·webapp) + /healthz·smoke 실측 + 문서 6종 갱신 (TRADE-03 은 D-27 상 Pending 유지)
 
 ## Progress
 
