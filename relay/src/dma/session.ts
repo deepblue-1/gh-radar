@@ -182,6 +182,18 @@ export class DmaSession extends EventEmitter {
   }
 
   /**
+   * 이 세션이 **한 번이라도** `ready` 에 도달한 적이 있는가.
+   *
+   * `/healthz` 가 「게이트웨이가 애초에 없는 환경」과 「게이트웨이가 죽은 환경」을 가르는
+   * 근거다 — 전자는 정상, 후자는 장애다. `#hasBeenReady` 는 **래치**이며 `false` 로
+   * 되돌리는 경로를 만들지 않는다. 되돌리는 순간 그 구분이 사라지고, 진짜 게이트웨이
+   * 장애 탐지가 함께 죽는다 (16-21 / T-16-26).
+   */
+  get hasBeenReady(): boolean {
+    return this.#hasBeenReady;
+  }
+
+  /**
    * 대조를 통과한 계좌 목록의 복사본. 이름이 `accounts` 가 아닌 이유는 생성 코드의
    * 계좌 접근자와 이름이 겹쳐 D-25 게이트 검사(grep)를 흐리기 때문이다.
    */

@@ -70,7 +70,7 @@ describe("SessionManager", () => {
     expect(a).not.toBe(b);
     expect(a.userId).toBe("user-a");
     expect(b.userId).toBe("user-b");
-    expect(manager.stats()).toEqual({ sessionCount: 2, readyCount: 2 });
+    expect(manager.stats()).toEqual({ sessionCount: 2, readyCount: 2, everReadyCount: 2 });
     await waitFor(() => gateway.sockets.length === 2, "게이트웨이 연결 2개");
 
     // 한쪽을 닫아도 다른 쪽은 살아 있다.
@@ -127,7 +127,7 @@ describe("SessionManager", () => {
     await manager.closeAll();
     await waitFor(() => gateway.sockets.length === 0, "전 연결 종료");
 
-    expect(manager.stats()).toEqual({ sessionCount: 0, readyCount: 0 });
+    expect(manager.stats()).toEqual({ sessionCount: 0, readyCount: 0, everReadyCount: 0 });
     expect(manager.get("user-a")).toBeUndefined();
     expect(manager.get("user-b")).toBeUndefined();
 
@@ -142,7 +142,7 @@ describe("SessionManager", () => {
     await waitFor(() => s.state === "ready", "ready 진입");
 
     const stats = manager.stats();
-    expect(Object.keys(stats).sort()).toEqual(["readyCount", "sessionCount"]);
+    expect(Object.keys(stats).sort()).toEqual(["everReadyCount", "readyCount", "sessionCount"]);
 
     const dumped = JSON.stringify(stats);
     expect(dumped).not.toContain(CREDS.dmaUserId);
@@ -178,5 +178,37 @@ describe("SessionManager", () => {
   it("⑧ 세션 없는 release 는 조용히 넘어가지 않고 경고만 남긴 뒤 무해하게 끝난다", () => {
     expect(() => manager.release("없는-사용자")).not.toThrow();
     expect(manager.stats().sessionCount).toBe(0);
+  });
+
+  it("⑨ everReadyCount 는 「한 번도 Ready 인 적 없는」 세션과 「Ready 였다가 죽은」 세션을 가른다", async () => {
+    // (가) 로그인에 답하지 않는 게이트웨이 = 「게이트웨이가 애초에 없는 환경」의 재현.
+    //      세션은 만들어지지만 영원히 Ready 가 되지 않는다 → everReadyCount 0.
+    const silent = await startFakeGateway({ autoLogin: false });
+    const mgr = new SessionManager({ host: "127.0.0.1", port: silent.port, broker: "KB" });
+    const never = mgr.acquire("user-never", CREDS);
+    await waitFor(() => silent.sockets.length === 1, "침묵 게이트웨이 연결");
+    await flushIo();
+
+    expect(never.isReady).toBe(false);
+    expect(never.hasBeenReady).toBe(false);
+    expect(mgr.stats()).toEqual({ sessionCount: 1, readyCount: 0, everReadyCount: 0 });
+
+    await mgr.closeAll();
+    await silent.close();
+
+    // (나) Ready 에 도달한 뒤 전송이 끊긴 세션 = 「게이트웨이 장애」 → everReadyCount 1.
+    const s = manager.acquire("user-1", CREDS);
+    await waitFor(() => s.state === "ready", "ready 진입");
+    expect(manager.stats()).toEqual({ sessionCount: 1, readyCount: 1, everReadyCount: 1 });
+
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 연결이 없습니다");
+    gateway.hardClose(sock);
+    await waitFor(() => !s.isReady, "전송 단절 후 Ready 해제");
+
+    // 래치다 — 죽어도 되돌아가지 않는다. `/healthz` 가 「부재」와 「장애」를 가르는
+    // 유일한 근거이므로 되돌리는 경로를 만들면 진짜 장애 탐지가 함께 죽는다.
+    expect(s.hasBeenReady).toBe(true);
+    expect(manager.stats()).toEqual({ sessionCount: 1, readyCount: 0, everReadyCount: 1 });
   });
 });

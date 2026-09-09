@@ -53,6 +53,13 @@ export type SessionManagerOptions = {
 export type SessionStats = {
   sessionCount: number;
   readyCount: number;
+  /**
+   * `hasBeenReady === true` 인 세션 수. `readyCount`(**지금** Ready) 와 다르다 —
+   * Ready 였다가 죽은 세션도 여기 세어진다.
+   *
+   * optional 이 아니다. 필수 필드여야 소비자·테스트가 컴파일 단계에서 갱신을 강제받는다.
+   */
+  everReadyCount: number;
 };
 
 type Entry = {
@@ -201,10 +208,13 @@ export class SessionManager {
   /** `/healthz` 용 요약. 식별자(userId·DMA user_id·계좌번호)를 담지 않는다. */
   stats(): SessionStats {
     let readyCount = 0;
+    let everReadyCount = 0;
     for (const entry of this.#sessions.values()) {
       if (entry.session.isReady) readyCount += 1;
+      // 래치다 — 지금 Ready 가 아니어도 한 번이라도 Ready 였으면 센다 (16-21).
+      if (entry.session.hasBeenReady) everReadyCount += 1;
     }
-    return { sessionCount: this.#sessions.size, readyCount };
+    return { sessionCount: this.#sessions.size, readyCount, everReadyCount };
   }
 
   #create(userId: string, creds: DmaCredentials): DmaSession {
