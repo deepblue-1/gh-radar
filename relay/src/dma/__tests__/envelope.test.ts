@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
-import type { RelayExchange, RelayLimitChaserInput } from "@gh-radar/shared";
+import type { OrderMarket, RelayExchange, RelayLimitChaserInput } from "@gh-radar/shared";
 
 import { logger } from "../../logger.js";
 import { Envelope } from "../../generated/stock-dma/envelope.js";
@@ -741,7 +741,11 @@ describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {
  *
  * 두 벌로 두면 한쪽만 고쳐져 「빌더는 보냈는데 파서는 못 읽는」 갈림을 테스트가 놓친다.
  */
-function lcInput(over: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInput {
+// 16-25(WR-03/D-28) 이후 `market` 은 `RelayLimitChaserInput` 밖이다 — relay 가 마스터에서
+// 채워 빌더에 넘긴다. 픽스처도 빌더와 **같은 형**(입력 + market)이어야 갈리지 않는다.
+type LcBuildInput = RelayLimitChaserInput & { market: OrderMarket };
+
+function lcInput(over: Partial<LcBuildInput> = {}): LcBuildInput {
   return {
     isin: SAMPLE_ISIN,
     accountNo: SAMPLE_ACCOUNT_NO,
@@ -781,7 +785,7 @@ function lcInput(over: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInp
 }
 
 describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
-  function readLc(cfg: RelayLimitChaserInput): SetLimitChaser {
+  function readLc(cfg: LcBuildInput): SetLimitChaser {
     const env = readBack(buildSetLimitChaserReq(cfg));
     expect(env.msgType()).toBe(MSG.SetLimitChaserReq);
     const t = env.setLimitChaser(new SetLimitChaser());
