@@ -17,6 +17,11 @@ set -uo pipefail
 #      FAIL 이다. 부정을 `bash -c '! nc -z ...'` 로 명시한다 (T-15-12).
 #   ② **INV-4 는 SKIP 될 수 있다.** openconnect 는 자동 기동을 등록하지 않은 수동 유닛이라
 #      장중 외에는 내려가 있는 것이 정상이다. 미기동을 FAIL 로 세면 스모크가 상시 빨간불이 된다.
+#   ③ **INV-9 는 `SMOKE_AUTH_TOKEN` 이 있어야 돈다.** 없으면 SKIP 이다(FAIL 아님).
+#      server 의 주문 라우트는 16-16 에서 제거됐다 — 이 검사는 그 라우트가 아니라
+#      **relay wss 주문 핸들러**의 도달성을 잰다. 프로브가 보내는 주문은 화이트리스트 밖
+#      계좌번호 + 미해석 ISIN 조합이라 어떤 세션 상태에서도 게이트웨이로 나가지 않는다
+#      (근거 3겹은 `ws_order_probe` 안의 프로브 주석에 적혀 있다).
 # ═══════════════════════════════════════════════════════════════
 
 VM=radar-gw
@@ -290,15 +295,13 @@ isin_column_present() {
 }
 
 # ───────────────────────────────────────────────────────────────
-# 주문 경로 프로브 (INV-9 / INV-10 — Phase 15 Plan 19)
+# 주문 경로 프로브 (INV-9 / INV-10 — Phase 15 Plan 19 · INV-9 는 16-21 에서 재작성)
 # ───────────────────────────────────────────────────────────────
 
-# Cloud Run 서비스 URL. 명시 env 가 우선, 없으면 배포된 서비스에서 읽는다.
-server_url() {
-  if [[ -n "${SERVER_URL:-}" ]]; then printf '%s' "$SERVER_URL"; return 0; fi
-  gcloud run services describe gh-radar-server --region="$REGION" \
-    --format='value(status.url)' 2>/dev/null
-}
+# ★ `server_url()` 은 16-21 에서 삭제됐다. 유일한 소비자가 INV-9 의 옛 프로브였고,
+#   주문이 server 를 거치지 않게 된 뒤로는 부를 곳이 없다 — 남겨 두면 다음 사람이
+#   "주문 경로가 아직 server 를 지난다" 고 읽는다. `load_anon_key()` 는 INV-10b 가
+#   여전히 쓰므로 그대로 둔다.
 
 # anon key 해석: 환경변수 → webapp/.env.local (E2E/dev 용으로 이미 있는 값).
 # 서비스롤과 달리 anon 은 **공개 키**다 — 없으면 검사를 건너뛸 뿐 실패로 세지 않는다.
@@ -311,52 +314,159 @@ load_anon_key() {
   [[ -n "${SUPABASE_ANON_KEY:-}" ]]
 }
 
-# INV-9 — **Cloud Run → Direct VPC Egress → VM 8091 도달성**.
+# INV-9 — **브라우저 → relay wss 주문 왕복 도달성**.
 #
-# VM 내부 포트는 정의상 바깥에서 두드릴 수 없으므로(INV-7 이 그것을 지킨다), 도달성은
-# **server 를 통해 간접으로** 잰다. 인증 토큰으로 주문을 한 건 던지고 응답을 읽는다.
+# ⚠️ 옛 검사(server 의 주문 라우트 → relay 내부 HTTP 주문 경로)는 **측정 대상 자체가
+#    사라졌다.** 그 라우트는 16-16 에서 제거됐고(D-02), 주문은 이제 브라우저가 relay wss 로
+#    직접 보낸다.
+#    그래서 이 검사는 **relay 주문 핸들러**가 살아서 답하는지를 잰다.
 #
-# ⚠️ **상태코드만 보면 안 된다.** `POST /api/orders` 는 relay 를 부르기 **전에** 두 관문을
-#    지난다 — `requireAuth`(401) 과 `dma_credentials` allowlist(403 `DMA_NOT_ALLOWED`).
-#    그런데 relay 가 계좌를 거절할 때도 403 이다(`ACCOUNT_NOT_ALLOWED`). 403 을 뭉뚱그려
-#    PASS 로 세면 **relay 에 닿지도 못한 요청이 도달성 증거로 둔갑한다.** 그래서 상태코드가
-#    아니라 **에러 코드**로 판정한다:
+# 판정표 (`order.result` 기준. 상태코드가 아니라 **응답의 존재와 내용**으로 가른다):
 #
-#   error.code                판정        의미
+#   관측                                    판정        의미
 #   ─────────────────────────────────────────────────────────────────────
-#   RELAY_UNAVAILABLE (503)   unreachable env 미주입 / 방화벽 / 경로 문제
-#   UNAUTHENTICATED   (401)   inconclusive 토큰이 죽었다 — relay 와 무관
-#   DMA_NOT_ALLOWED   (403)   inconclusive **allowlist 에서 끊겼다. relay 미도달**
-#   SESSION_NOT_READY (409)   reachable    relay 가 "세션 없음" 이라 답했다 ← 기대값
-#   ACCOUNT_NOT_ALLOWED(403)  reachable    relay 가 세션 계좌 목록으로 거절했다
-#   (200 / 202)               reachable    relay 가 처리했다
+#   order.result(status=rejected)           reachable   주문 핸들러가 살아서 답했다 ← 기대값
+#   응답 없음(15초)                          unreachable 핸들러가 멎었거나 경로가 끊겼다
+#   연결 실패 / 핸드셰이크 실패               unreachable relay 에 닿지 못했다
+#   close 4401 (토큰 거부·인증 타임아웃)       inconclusive 토큰이 죽었다 — 주문 경로와 무관
+#   state s=unauthorized (매핑 없음)         inconclusive allowlist 에서 끊겼다. 주문 경로 미도달
 #
-# 세션(호가창)을 열지 않은 상태의 기대값은 409 다. 주문은 **나가지 않는다** — relay 가
-# 세션 부재로 조립 전에 끊기 때문이다. 그래서 이 검사는 실계좌에 안전하다.
-#
-# 표준출력에 판정 한 단어를 찍는다: reachable / inconclusive / unreachable.
-order_path_probe() {
-  local url token body code errcode
-  url="$(server_url)"; token="${SMOKE_AUTH_TOKEN:-}"
-  if [[ -z "$url" ]] || [[ -z "$token" ]]; then printf 'inconclusive'; return 0; fi
-  body="$(curl -s -w $'\n%{http_code}' --max-time 20 -X POST \
-    -H "Authorization: Bearer ${token}" \
-    -H 'content-type: application/json' \
-    -d '{"code":"005930","accountNo":"0","exchange":"KRX","side":"B","orderType":"N","qty":1,"price":1}' \
-    "${url}/api/orders")"
-  code="$(printf '%s' "$body" | tail -1)"
-  errcode="$(printf '%s' "$body" | sed '$d' | sed -n 's/.*"code"[[:space:]]*:[[:space:]]*"\([A-Z_]*\)".*/\1/p' | head -1)"
-  echo "  (POST /api/orders → HTTP ${code} / ${errcode:-<본문 코드 없음>})" >&2
-  case "${errcode:-}" in
-    SESSION_NOT_READY|ACCOUNT_NOT_ALLOWED) printf 'reachable'; return 0 ;;
-    RELAY_UNAVAILABLE)                     printf 'unreachable'; return 0 ;;
-    DMA_NOT_ALLOWED|UNAUTHENTICATED|RATE_LIMITED) printf 'inconclusive'; return 0 ;;
-  esac
-  case "$code" in
-    200|202) printf 'reachable' ;;
-    503|502) printf 'unreachable' ;;
-    *)       printf 'inconclusive' ;;
-  esac
+# 「확인하지 않았다」를 PASS 로 세지 않는다 — 그게 이 검사가 3갈래인 유일한 이유다.
+ws_order_probe() {
+  local dir js ws_module rc=0 token
+  token="${SMOKE_AUTH_TOKEN:-}"
+  if [[ -z "$token" ]]; then printf 'inconclusive'; return 0; fi
+
+  # `ws` 절대 경로 해석 — `ws_auth_probe()` 와 같은 함정, 같은 해법이다.
+  ws_module="$(cd "$REPO_ROOT" && pnpm --filter @gh-radar/relay exec node -p "require.resolve('ws')" 2>/dev/null | tail -1)"
+  if [[ -z "$ws_module" ]] || [[ ! -f "$ws_module" ]]; then
+    echo "  (ws 모듈 해석 실패 — 'pnpm install' 이 선행돼야 합니다)" >&2
+    printf 'inconclusive'; return 0
+  fi
+
+  dir="$(mktemp -d)"
+  js="${dir}/ws-order-probe.cjs"
+  cat > "$js" <<'WS_ORDER_PROBE_EOF'
+/*
+ * relay wss 주문 왕복 프로브 (INV-9).
+ *
+ * ★★ 실계좌에 주문이 나가지 않는 근거 — **3겹이다.** 다음 사람이 "실계좌에 주문이 나가나?"
+ *    를 다시 묻지 않도록 여기에 적어 둔다. 셋 중 무엇이 먼저 걸리든 `dma_orders` insert
+ *    **이전**, 게이트웨이 송신 **이전**에 끝난다 (relay/src/ws/order-handler.ts `handle`).
+ *
+ *    ① 게이트 ① — 활성 Ready 세션이 없으면(호가창을 열지 않은 프로브가 바로 이 경우다)
+ *       세션 미준비로 거부된다. 프로브는 시세 구독을 하지 않으므로 대개 여기서 끝난다.
+ *    ② 게이트 ② — 계좌번호 `0000000000` 은 **어떤 세션의 `allowedAccounts` 에도 없다.**
+ *       원천이 게이트웨이가 에코한 계좌 목록이므로 인바운드 값으로 뚫을 수 없다 (T-16-01).
+ *    ③ 게이트 ③-1 — ISIN `KR0000000000` 은 `SymbolMap` 이 풀지 못한다. 모르는 종목은
+ *       지어내지 않고 거부한다 (D-28).
+ *
+ *    이 셋을 모두 통과하는 경우는 존재하지 않는다. 그래도 만에 하나 `rejected` 가 아닌
+ *    `order.result` 가 오면 stderr 로 크게 경고한다 — 침묵하면 그게 사고다.
+ *
+ * 표준출력에는 판정 한 단어만 찍는다: reachable / unreachable / inconclusive.
+ */
+const WebSocket = require(process.argv[3]);
+
+const url = process.argv[2];
+const token = process.argv[4];
+const RID = `smoke-${Date.now()}`;
+/** `order.new` 송신 후 `order.result` 를 기다리는 상한. */
+const ORDER_TIMEOUT_MS = 15_000;
+/** 연결·인증까지 포함한 전체 상한. 어디서 멎어도 프로브가 매달리지 않게 한다. */
+const TOTAL_TIMEOUT_MS = 30_000;
+
+let settled = false;
+let orderSent = false;
+let orderTimer = null;
+
+const ws = new WebSocket(url, { handshakeTimeout: 10_000 });
+const totalTimer = setTimeout(() => finish("unreachable", "전체 시간 초과"), TOTAL_TIMEOUT_MS);
+
+function finish(verdict, why) {
+  if (settled) return;
+  settled = true;
+  clearTimeout(totalTimer);
+  if (orderTimer !== null) clearTimeout(orderTimer);
+  if (why) console.error(`  (INV-9: ${verdict} — ${why})`);
+  try {
+    ws.terminate();
+  } catch {
+    /* 이미 닫힌 소켓 */
+  }
+  console.log(verdict);
+  process.exit(0);
+}
+
+function sendOrder() {
+  if (orderSent) return;
+  orderSent = true;
+  ws.send(
+    JSON.stringify({
+      t: "order.new",
+      rid: RID,
+      // 위 ★★ 3겹 근거 참조. 이 조합은 어떤 세션 상태에서도 게이트웨이로 나갈 수 없다.
+      accountNo: "0000000000",
+      isin: "KR0000000000",
+      exchange: "KRX",
+      side: "B",
+      qty: 1,
+      price: 1,
+    }),
+  );
+  orderTimer = setTimeout(() => finish("unreachable", "order.result 미수신"), ORDER_TIMEOUT_MS);
+}
+
+ws.on("open", () => {
+  ws.send(JSON.stringify({ t: "auth", token }));
+});
+
+ws.on("message", (raw) => {
+  let msg;
+  try {
+    msg = JSON.parse(String(raw));
+  } catch {
+    return; // 프로브가 모르는 프레임은 무시한다 — 판정 근거가 아니다.
+  }
+
+  if (msg.t === "state") {
+    if (msg.s === "unauthorized") {
+      finish("inconclusive", "dma_credentials 매핑 없음 — 주문 경로 미도달");
+      return;
+    }
+    sendOrder();
+    return;
+  }
+
+  if (msg.t === "order.result" && msg.rid === RID) {
+    if (msg.status === "rejected") {
+      finish("reachable", `거부 응답 수신: ${msg.message ?? ""}`);
+      return;
+    }
+    // 여기 오면 안 된다. 3겹 게이트를 모두 통과했다는 뜻이므로 크게 남긴다.
+    console.error(`  ⚠️ 예상 밖 order.result status=${msg.status} — 게이트 회귀 여부를 즉시 확인할 것`);
+    finish("reachable", "rejected 가 아닌 응답");
+  }
+});
+
+ws.on("close", (code) => {
+  if (code === 4401) {
+    finish("inconclusive", `close ${code} — 토큰 거부/인증 타임아웃`);
+    return;
+  }
+  finish("unreachable", `응답 전 연결 종료 (close ${code})`);
+});
+
+ws.on("error", (err) => {
+  finish("unreachable", String(err && err.message ? err.message : err));
+});
+WS_ORDER_PROBE_EOF
+
+  node "$js" "wss://${HOST}/ws" "$ws_module" "$token" || rc=$?
+  rm -rf "$dir"
+  # 프로브가 비정상 종료하면 판정을 지어내지 않는다.
+  if [[ "$rc" -ne 0 ]]; then printf 'inconclusive'; fi
+  return 0
 }
 
 # INV-10 — `dma_orders` 접근 경계 (T-15-01).
@@ -526,30 +636,29 @@ check "INV-8 알림 정책 ${ALERT_POLICY} + 채널 + uptime check" bash -c '
 ' _ "$ALERT_POLICY" "$UPTIME_CHECK"
 
 # ───────────────────────────────────────────────────────────────
-# INV-9 / INV-10 — 주문 경로 (Phase 15 Plan 19, RELAY-02)
+# INV-9 / INV-10 — 주문 경로 (Phase 15 Plan 19, RELAY-02 · INV-9 는 16-21 재작성)
 # ───────────────────────────────────────────────────────────────
 
-# INV-9: Cloud Run → VM 내부 포트 도달성.
+# INV-9: 브라우저 → relay wss 주문 왕복 도달성.
 #   판정은 3갈래다. "확인 안 함"(SKIP)을 PASS 로 세면 주문 경로가 죽어도 스모크가
 #   초록불로 남고, 반대로 FAIL 로 세면 토큰 없는 일상 실행이 상시 빨간불이 된다.
+#   server URL 은 더 이상 보지 않는다 — 주문이 server 를 거치지 않기 때문이다 (16-16).
 if [[ -z "${SMOKE_AUTH_TOKEN:-}" ]]; then
-  skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" "SMOKE_AUTH_TOKEN 미설정 — 로그인 토큰 필요"
-elif [[ -z "$(server_url)" ]]; then
-  skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" "server URL 조회 실패"
+  skip "INV-9 브라우저 → relay wss 주문 왕복 도달성" "SMOKE_AUTH_TOKEN 미설정 — 로그인 토큰 필요"
 else
-  ORDER_PATH_VERDICT="$(order_path_probe)"
+  ORDER_PATH_VERDICT="$(ws_order_probe)"
   case "$ORDER_PATH_VERDICT" in
     reachable)
-      check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" true
+      check "INV-9 브라우저 → relay wss 주문 왕복 도달성" true
       ;;
     unreachable)
-      check "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성 (RELAY_UNAVAILABLE)" false
+      check "INV-9 브라우저 → relay wss 주문 왕복 도달성 (order.result 미수신)" false
       ;;
     *)
-      # allowlist(`dma_credentials` 행 0건)에서 끊기면 요청이 relay 까지 가지 않는다.
+      # 매핑(`dma_credentials` 행 0건)이나 토큰에서 끊기면 주문 핸들러까지 가지 않는다.
       # 도달성에 대해 **아무것도 알 수 없다** — 초록불로 위장하지 않는다.
-      skip "INV-9 Cloud Run → VM ${ORDER_API_PORT} 도달성" \
-        "relay 이전 관문에서 종료(allowlist/토큰) — 도달성 판정 불가"
+      skip "INV-9 브라우저 → relay wss 주문 왕복 도달성" \
+        "주문 핸들러 이전에서 종료(매핑/토큰) — 도달성 판정 불가"
       ;;
   esac
 fi
