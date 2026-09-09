@@ -304,3 +304,37 @@ GC-WR-07(「재시작 중 장애가 초록으로 위장되지 않게 한다」)�
 
 _Verified: 2026-09-09_
 _Verifier: Claude (gsd-verifier) — 재검증 (갭 클로징 2라운드 16-27~16-35 이후)_
+
+---
+
+## 부록 — 검증 직후 전제가 바뀌었다 (2026-09-09, orchestrator 추가)
+
+위 「진행 판단」은 **「프로덕션에서 이 경로가 아직 한 프레임도 나른 적이 없다」**를 전제로 위험을 유예했고, **「실서버 결선 이전에 반드시 닫아야 한다」**를 조건으로 달았다. **그 결선이 이 검증 직후에 일어났다 — 조건이 발동했다.**
+
+### A. 전제 정정 — 프로덕션 503 은 「의도된 degraded」가 아니라 배포 회귀였다
+
+위 본문의 「프로덕션 현재 503 은 … DMA_HOST 부재로 인한 **의도된** degraded」는 사실이 아니다. `scripts/deploy-relay.sh:95` 의 `DMA_HOST="${DMA_HOST:-127.0.0.1}"` 가 **현재 컨테이너 값을 보존하지 않아**, Phase 16 의 배포 2회(16-26 `2cb5620` · 16-35 `c8aa7ae`)가 Phase 15 에서 결선했던 실 게이트웨이를 로컬 mock 으로 되돌려 놓은 것이다. 두 executor 가 D-27 을 「주입하지 말라」로 읽고 그 강등을 의도된 상태로 SUMMARY 에 기록했고, 검증도 그 기록을 승계했다.
+
+한 원인이 세 증상으로 보였다 — ① `/healthz` 503 ② `gh-radar-relay-down` 알림(**참 양성**이었다) ③ 웹앱 사이드바 「트레이딩」 그룹 미표시(`useTradingVisible()` 이 relay `ready` 를 요구).
+
+### B. 결선 실측 — 위험이 이론에서 실제로 옮겨왔다
+
+`DMA_HOST=10.41.1.120 bash scripts/deploy-relay.sh` -> `relay:59465e1`.
+- 게이트웨이 TCP 도달성 `REACHABLE 10.41.1.120:9100`
+- `/healthz` **200** `{"vpn":true,"dma":true,"version":"59465e1","sessionCount":1,"everReadyCount":1,"stalledCount":0}`
+- **`everReadyCount: 1` — 프로덕션에서 DMA 세션이 Ready 에 도달한 첫 실측**
+- `smoke-relay.sh` PASS 12 · FAIL 0 · SKIP 1(INV-9)
+
+따라서 **R2-CR-01(무장 가드 우회)과 R2-CR-03(계좌번호 유출)은 이제 실계좌 위에서 도는 경로다.** 라운드 3 최우선.
+
+### C. 새 갭 2건 — 결선 후 실사용에서 드러났다
+
+**갭 4 — 사이드바 상따 전략이 종목명 대신 ISIN 으로 표시된다.**
+`webapp/src/lib/isin-labels.ts` 는 `accountStates.hold` · `unf` · `viOrders` 에서만 이름을 모은다. 보유도 미체결도 없는 종목에 전략을 걸면 이름을 알 길이 없어 `KR7005930003` 같은 원문이 사이드바에 그대로 뜬다. 파일 주석은 이를 「모르면 ISIN 을 그대로 보여준다가 정답」이라고 규정했고 근거로 T-16-02(목록의 원천을 둘로 만들지 않는다)를 든다.
+
+**그러나 원천을 늘리지 않고 고칠 수 있다.** relay 는 이미 `SymbolMap`(`relay/src/store/symbols.ts`, Supabase `stocks` 기반, 부팅 1회 + 매일 08:30 재적재)을 메모리에 들고 있고 `lookup(isin)` 이 `{code, name, market}` 을 돌려준다. 잔고·미체결·VI 주문의 이름도 Hub 가 같은 맵으로 붙인다. **상따 전략 에코(60/61)에도 같은 방식으로 `name`·`code` 를 붙이면** 웹앱에 새 조회 경로가 생기지 않고 원천도 여전히 relay wss 하나다 — T-16-02 를 지키면서 증상이 사라진다. 계약 변경(`RelayLimitChaser` 에 선택 필드 추가)과 relay fanout·webapp 표시·테스트가 범위다.
+
+**갭 5 — `deploy-relay.sh` 가 현재 `DMA_HOST` 를 보존하지 않는다 (A 의 근본 원인).**
+고치지 않으면 다음 배포에서 프로덕션이 **또** mock 으로 떨어진다. 이번 라운드에 두 번 일어났다. 수정 방향: 배포 전 실행 중인 컨테이너의 `DMA_HOST` 를 읽어 기본값으로 삼고(명시 주입이 있으면 그것이 우선), 값이 바뀌는 배포는 요약에 **변경 전/후를 나란히** 찍는다. D-27 의 취지는 「실주소를 저장소에 박제하지 않는다」이지 「배포마다 mock 으로 되돌린다」가 아니다.
+
+_부록 작성: 2026-09-09, orchestrator (execute-phase 16 --gaps-only 세션)_
