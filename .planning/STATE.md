@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-41-PLAN.md — 갭 4 relay 측(상따 에코 이름 보강) + R2-IN-02 종결
-last_updated: "2026-09-09T11:02:23.692Z"
+stopped_at: Completed 16-43-PLAN.md — R2-WR-03 + R2-WR-06 + R2-IN-03 종결
+last_updated: "2026-09-09T11:20:54.682Z"
 last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 166
+  completed_plans: 167
   percent: 72
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (41/46)**
-Plan: 41 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plan: 42 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
 Plans completed: 166 / 185
-Status: 3라운드 실행 중 — 갭 4(사용자 직접 보고) 의 relay 측 종결 + R2-IN-02. **웹앱 소비는 16-42 몫이라 사용자가 보는 증상은 아직 그대로다.** TRADE-03 은 Pending 유지(재판정 16-46)
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
@@ -385,6 +385,7 @@ Progress: [█████████░] 90%
 | Phase 16 P39 | 14min | 2 tasks | 2 files |
 | Phase 16 P40 | 21min | 3 tasks | 2 files |
 | Phase 16 P41 | 35m | 3 tasks | 3 files |
+| Phase 16 P43 | 12min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -600,6 +601,9 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-41: RelayLimitChaserInput 이 name·code 를 Omit — 표시 문자열의 소유자는 relay 다(market 과 같은 규율, T-16-84)
 - [Phase 16]: 16-41: detach()·releaseAll() 삭제 — 호출자 0건이고 detach 는 attach 가 건 리스너를 떼지 않아 호출 자체가 누수였다 (R2-IN-02)
 - [Phase 16]: 16-41 함정: 공유 계약 변경 후 pnpm -r typecheck 단독 통과는 검증이 아니다 — 소비처가 packages/shared/dist 를 보므로 shared build 를 먼저 돌려야 한다
+- [Phase 16 Plan 43]: 주문번호 비교 정규화(공백·선행 0 제거)의 정본은 게이트웨이의 NormalizeOrderNo(AccountManager.cpp:607-621) — relay 가 규칙을 지어내지 않고 그대로 옮겼다
+- [Phase 16 Plan 43]: 통보 종류 축을 블랙리스트에서 화이트리스트(A/E)로 전환. A 는 명시 값이자 IBroker 기본값이라 교보 경로가 살아나면 재판정 필요 — 조건을 코드 주석에 박았다
+- [Phase 16 Plan 43]: sideOf 미해석 기본값을 B 에서 S 로 뒤집었다 — S 는 이 파일에서 이미 방향의 정본이 아님 표기이고, dma_orders.side 를 읽어 주문을 내는 경로는 없다
 
 ### Pending Todos
 
@@ -652,8 +656,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T11:01:59.822Z
-Stopped at: Completed 16-40-PLAN.md — R2-WR-07 + R2-WR-04 종결(+ 16-39 flushed 잔여 오차)
+Last session: 2026-09-09T11:20:36.701Z
+Stopped at: Completed 16-43-PLAN.md — R2-WR-03 + R2-WR-06 + R2-IN-03 종결
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
 - **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
