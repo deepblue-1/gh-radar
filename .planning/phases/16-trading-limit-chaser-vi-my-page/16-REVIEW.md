@@ -1,66 +1,66 @@
 ---
 phase: 16-trading-limit-chaser-vi-my-page
-reviewed: 2026-09-08T22:12:46Z
+reviewed: 2026-09-09T03:42:42Z
 depth: standard
-files_reviewed: 52
+files_reviewed: 47
 files_reviewed_list:
+  - packages/shared/src/index.ts
+  - packages/shared/src/relay.ts
   - relay/src/dma/envelope.ts
-  - relay/src/dma/msg-type.ts
-  - relay/src/hub/subscription-hub.ts
+  - relay/src/dma/session-manager.ts
+  - relay/src/dma/session.ts
+  - relay/src/index.ts
+  - relay/src/order/order-api.ts
+  - relay/src/store/orders.ts
   - relay/src/ws/fanout.ts
   - relay/src/ws/order-handler.ts
   - relay/src/ws/protocol.ts
-  - relay/src/order/notice-status.ts
-  - relay/src/order/order-api.ts
-  - relay/src/store/orders.ts
-  - relay/src/store/symbols.ts
-  - relay/src/index.ts
-  - packages/shared/src/relay.ts
-  - packages/shared/src/index.ts
-  - webapp/src/lib/use-relay-socket.ts
-  - webapp/src/lib/relay-provider.tsx
-  - webapp/src/lib/limit-chaser.ts
-  - webapp/src/lib/vi-alert.ts
-  - webapp/src/lib/orders-api.ts
-  - webapp/src/lib/stock-api.ts
-  - webapp/src/components/trading/limit-chaser-form.tsx
+  - relay/src/dma/__tests__/envelope.test.ts
+  - relay/tests/fanout.test.ts
+  - relay/tests/order-api.test.ts
+  - relay/tests/order-store.test.ts
+  - relay/tests/protocol.test.ts
+  - relay/tests/session-manager.test.ts
+  - relay/tests/ws-order.test.ts
+  - relay/README.md
+  - scripts/smoke-relay.sh
+  - server/src/errors.ts
+  - server/src/services/dma-orders.ts
+  - server/tests/routes/orders.test.ts
+  - supabase/migrations/20260909120000_dma_orders_user_order_no_unique.sql
+  - webapp/e2e/fixtures/relay.ts
+  - webapp/e2e/specs/trading-limit-chaser.spec.ts
+  - webapp/src/components/layout/app-sidebar.tsx
+  - webapp/src/components/layout/__tests__/app-sidebar.test.tsx
+  - webapp/src/components/stock/stock-orderbook-section.tsx
+  - webapp/src/components/stock/__tests__/orderbook.test.tsx
+  - webapp/src/components/stock/__tests__/stock-detail-client.test.tsx
   - webapp/src/components/trading/limit-chaser-client.tsx
-  - webapp/src/components/trading/vi-client.tsx
-  - webapp/src/components/trading/vi-order-list.tsx
-  - webapp/src/components/trading/vi-settings-card.tsx
+  - webapp/src/components/trading/limit-chaser-form.tsx
   - webapp/src/components/trading/me-client.tsx
   - webapp/src/components/trading/strategy-status-card.tsx
-  - webapp/src/components/trading/dirty-action-bar.tsx
-  - webapp/src/components/trading/dma-gate.tsx
-  - webapp/src/components/orderbook/order-panel.tsx
-  - webapp/src/components/orderbook/account-panel.tsx
-  - webapp/src/components/orderbook/orderbook-ladder.tsx
-  - webapp/src/components/layout/app-sidebar.tsx
-  - webapp/src/components/stock/stock-orderbook-section.tsx
-  - webapp/src/app/layout.tsx
-  - webapp/src/app/me/page.tsx
-  - webapp/src/app/trading/vi/page.tsx
-  - webapp/src/app/trading/limit-chaser/page.tsx
-  - webapp/src/app/trading/limit-chaser/new/page.tsx
-  - webapp/src/app/trading/limit-chaser/[key]/page.tsx
-  - server/src/routes/orders.ts
-  - server/src/services/dma-orders.ts
-  - server/src/app.ts
-  - server/src/config.ts
-  - server/src/server.ts
-  - server/src/schemas/orders.ts
-  - server/src/errors.ts
-  - supabase/migrations/20260908120000_dma_orders_origin.sql
-  - scripts/deploy-server.sh
-  - scripts/smoke-server.sh
-  - relay/tests/ws-order.test.ts
-  - relay/tests/order-store.test.ts
-  - webapp/e2e/specs/orderbook.spec.ts
+  - webapp/src/components/trading/vi-order-list.tsx
+  - webapp/src/components/trading/vi-settings-card.tsx
+  - webapp/src/components/trading/__tests__/limit-chaser-client.test.tsx
+  - webapp/src/components/trading/__tests__/limit-chaser-form.test.tsx
+  - webapp/src/components/trading/__tests__/strategy-status-card.test.tsx
+  - webapp/src/components/trading/__tests__/vi-settings-card.test.tsx
+  - webapp/src/lib/isin-labels.ts
+  - webapp/src/lib/limit-chaser.ts
+  - webapp/src/lib/relay-provider.tsx
+  - webapp/src/lib/use-relay-socket.ts
+  - webapp/src/lib/vi-alert.ts
+  - webapp/src/lib/__tests__/relay-socket.test.ts
 findings:
-  critical: 4
-  warning: 9
-  info: 7
-  total: 20
+  critical: 7
+  warning: 21
+  info: 11
+  total: 39
+findings_gap_closure:
+  critical: 3
+  warning: 12
+  info: 4
+  total: 19
 status: issues_found
 ---
 
@@ -476,5 +476,417 @@ REST 주문 라우트가 사라진 뒤 이 Express 앱에 남은 라우트는 `/
 ---
 
 _Reviewed: 2026-09-08T22:12:46Z_
+_Reviewer: Claude (gsd-code-reviewer)_
+_Depth: standard_
+
+---
+
+## 갭 클로징 재리뷰 (16-18 ~ 16-26)
+
+**검토 일시:** 2026-09-09T03:42:42Z
+**깊이:** standard
+**범위:** `git diff 584b49c..HEAD` 의 소스 47파일 (계획 산출물 제외, `scripts/dma-credentials.*` · `infra/relay/README.md` 제외)
+**상태:** issues_found — Critical 3 · Warning 12 · Info 4
+
+이 절은 **새 ID 네임스페이스**(`GC-CR-`/`GC-WR-`/`GC-IN-`)를 쓴다. 위쪽 CR-01~04 · WR-01~09 · IN-01~07 은 클로징 **이전** 리뷰이고 `deferred-items.md` 가 그 앵커를 참조하므로 건드리지 않았다.
+
+### 요약
+
+아홉 개 갭 클로징 플랜이 각자 선언한 것은 대체로 실제로 구현돼 있다: `order_no` 셀렉터의 3축 좁히기(16-18)는 타입 수준에서 `userId` 를 요구하고, `market` 소유권 이전(16-25)은 zod 스키마에서 필드 자체를 지웠으며, `MAX_VI_ORDER_AMOUNT_KRW` 는 zod·envelope·UI 세 층이 같은 상수를 본다. 테스트도 대체로 실효적이다(`fakeDmaOrders` 는 필터를 **실제로 적용해** 영향 행을 계산하고, `insertGate` 는 경주를 결정론적으로 재현한다).
+
+문제는 **새로 도입된 상관 로직**에 있다. 세 Critical 은 모두 「기록이 조용히 사라지거나 엉뚱한 주문에 붙는」 형태이고, 그중 하나(`GC-CR-01`)는 16-22 가 스스로 「최악의 결과」라고 적어 둔 시나리오를 **후보가 1개일 때** 그대로 남겨 두었다.
+
+---
+
+### Critical
+
+#### GC-CR-01: `narrowPending` 의 「후보 1개」 지름길이 **모든 상관 축을 건너뛴다** — 살아 있는 주문이 「취소됨」으로 정산된다
+
+**File:** `relay/src/ws/order-handler.ts:863-865`
+
+```ts
+export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): PendingOrder | null {
+  // 후보 1개는 지금까지의 정상 경로다(대부분의 실사용). 여기서 회귀가 없어야 한다.
+  if (candidates.length <= 1) return candidates[0] ?? null;
+```
+
+**Issue:**
+후보 수집 필터는 `entry.isin === notice.isin` **하나뿐**이다(`order-handler.ts:340`). 따라서 후보가 1건이면 통보가 무엇을 실어 왔든 그 대기가 정산된다 — `orgOrderNo` 가 채워진 취소확인이든, 이 relay 가 낸 적 없는 주문의 통보든 상관없다. 16-22 의 docstring 이 「폴백이 있던 시절의 실패」로 적어 둔 시나리오가 **후보 1개 경로에서 그대로 재현된다**:
+
+- 사용자가 A 종목 매수(신규)를 낸다 → 대기 1건.
+- 5초 안에 같은 종목의 **다른 경로** 통보가 도착한다. 경로는 최소 셋이다:
+  - 다른 탭·다른 단말에서 이미 정산돼 대기열에서 빠진 취소 요청의 취소확인("C" + `orgOrderNo`),
+  - 상따·VI 자동주문의 취소확인,
+  - **세션 합류로 들어오는 남의 통보** — `notice-status.ts:51` 이 "정정은 v1 이 만들지 않지만 **세션 합류로 남의 통보가 올 수 있다**"고 명시한다(같은 DMA 세션에 붙은 WinForms 클라이언트 등).
+- `narrowPending` 은 후보가 1개이므로 축을 보지 않고 그 대기를 고른다 → `finish(notice)` 가 실행된다.
+
+결과는 둘 다 실계좌 사고다.
+1. 브라우저는 `{t:"order.result", status:"cancelled"}`(`statusOf` 의 `"C" → "cancelled"`, `notice-status.ts:48-49`)를 받는다. **살아 있는 매수 주문이 화면에 「취소됨」으로 뜬다.** 사용자가 그 표시를 믿고 재주문하면 중복 체결이다 — 이 파일이 스스로 「최악의 결과」라고 부른 상황이다.
+2. `dma_orders` 행에 **남의 `order_no`** 가 기록된다(`finish` 의 `enqueueUpdate({orderRowId, orderNo: notice.orderNo, …})`, L749-758). 감사 기록이 다른 주문을 가리키게 된다.
+
+단위 테스트(`ws-order.test.ts` — "유일 후보는 축을 보지 않는다")가 이 동작을 **의도로 못박아** 두었으므로, 회귀가 아니라 설계 결함이다. 근거로 든 「구 서버가 축을 비워 보낸다」는 **비어 있는 축을 건너뛸** 이유이지, **통보가 실제로 실어 온 축을 무시할** 이유가 아니다.
+
+**Fix:** 통보가 실어 온 강한 축(취소 원주문번호 · 취소성 통보종류)은 후보 수와 **무관하게** 하드 필터로 적용한다. 비어 있으면 적용하지 않으므로 구 서버 호환은 유지된다.
+
+```ts
+export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): PendingOrder | null {
+  if (candidates.length === 0) return null;
+
+  // ★ 통보가 **실어 온** 축은 후보 수와 무관하게 하드 필터다. 비어 있는 축만 건너뛴다
+  //   (구 서버 호환의 원래 의미). 이 둘이 어긋난 통보는 이 대기의 것이 아니다.
+  const isCancelNotice = n.noticeType === "C" || n.noticeType === "M";
+  const hard = candidates.filter(
+    (p) =>
+      (n.orgOrderNo === "" || (p.isCancel && p.orgOrderNo === n.orgOrderNo)) &&
+      (!isCancelNotice || p.isCancel),
+  );
+  if (hard.length === 0) return null; // 아무것도 정산하지 않는다 — 5초 타임아웃이 진실이다.
+  if (hard.length === 1) return hard[0] ?? null;
+
+  let pool = hard;
+  /* … 기존 ①~④ 단계적 좁히기 그대로 … */
+}
+```
+
+테스트도 함께 바꿔야 한다: "유일 후보는 축을 보지 않는다" 케이스를 **"유일 후보라도 취소확인은 신규 대기를 정산하지 않는다"** 로 뒤집는다.
+
+---
+
+#### GC-CR-02: 좁히지 못한 **수동** 통보는 존재하지 않는 `order_no` 행을 갱신한다 — 접수·체결 기록이 로그도 없이 사라진다
+
+**File:** `relay/src/ws/order-handler.ts:395-403`, `relay/src/ws/order-handler.ts:665-681`
+
+**Issue:**
+수동 주문의 insert 는 `order_no` 를 **싣지 않는다**(`handle` ③-2, L665-681 — 접수 전이라 주문번호를 모른다). `order_no` 는 `finish` 가 정산할 때 큐로 채운다(L749-758).
+
+그런데 `recordUnmatched` 의 `manual` 분기는 `{...patch, userId}` 를 큐에 넣고(L402), `selectorOf` 는 이를 `{column:"order_no", …}` 셀렉터로 만든다(`store/orders.ts:607-609`). **그 시점에 그 사용자의 오늘 행 중 `order_no = notice.orderNo` 인 행은 없다.** PostgREST 의 update 는 0행이어도 에러가 아니므로 이 갱신은 아무것도 하지 않고 조용히 끝난다 — 이 모듈이 파일 머리말에서 「Pitfall 18」이라고 부르며 없애겠다고 선언한 바로 그 침묵이다.
+
+발생 경로는 둘 다 실사용에서 재현된다.
+1. **좁히기 실패** — 같은 종목·같은 수량·같은 가격의 매수/매도가 동시에 대기하면 `narrowPending` 이 `null` 을 돌려준다(테스트 ㉑ 이 그 상태를 고정한다). 이때 `logger.warn` 은 후보 수와 축만 남기고 **통보 내용은 남기지 않는다**.
+2. **연결 종료** — `closeConn` 이 `state.pending` 을 비운 뒤 도착한 통보는 후보가 0건이라 같은 분기를 탄다. 이 경로는 `candidates.length > 1` 이 아니므로 **경고 로그조차 없다**.
+
+`SubscriptionHub#onOrderNotice`(`subscription-hub.ts:690-703`)도 통보를 stdout 에 남기지 않는다. 즉 D-24 가 약속한 「두 번째 감사 사본(stdout)」이 이 경로에는 **없다.** 그 결과 실제로 접수·체결된 주문이 `dma_orders` 에 `status:'requested'` → (5초 뒤) `status:'timeout'`, `order_no: null` 로 남고, 브로커 주문번호와 대조할 수단이 사라진다.
+
+**Fix:** 수동 분기도 자동 분기와 **같은 조회**를 거쳐 `orderRowId` 로 좁히고, 행이 없으면 최소한 통보 원문을 error 로 남긴다. `order_no` 셀렉터는 「행이 있음이 확인된」 경우에만 쓴다.
+
+```ts
+if (notice.originKind === "manual") {
+  const id = await deps.orderStore
+    .findIdByOrderNo(userId, notice.orderNo)
+    .catch(() => undefined); // 조회 실패는 아래 열화 경로로 간다
+
+  if (typeof id === "string") {
+    deps.orderStore.enqueueUpdate({ ...patch, orderRowId: id });
+    return;
+  }
+  // 행이 없다 = 갱신은 0행이다. **조용히 보내지 않는다** — 감사 사본을 stdout 에 남긴다 (D-24/S-5).
+  logger.error(
+    { orderNo: notice.orderNo, noticeType: notice.noticeType, resultCode: notice.resultCode,
+      isin: notice.isin, qty: notice.quantity, price: notice.price },
+    "[WS-order] 대기·행 어디에도 붙지 않는 수동 통보 — stdout 이 유일한 기록이다",
+  );
+  if (id === undefined) deps.orderStore.enqueueUpdate({ ...patch, userId }); // 조회 실패 시 열화 갱신
+  return;
+}
+```
+
+---
+
+#### GC-CR-03: `handle` 의 `await insertRequest` 중에 연결이 닫히면 **회수되지 않는 대기·타이머**가 남고, 체결된 주문이 `timeout` 으로 기록된다
+
+**File:** `relay/src/ws/order-handler.ts:663-689`(await), `:770-786`(타이머·대기 등록), `:816-835`(`closeConn`)
+
+**Issue:**
+`handle` 은 `deps.orderStore.insertRequest(...)` 를 `await` 한다(Supabase 왕복 수십~수백 ms). 그 사이에 사용자가 탭을 닫거나 다른 페이지로 이동하면 `closeConn` 이 먼저 돌아 `state.pending` 을 비우고 `state.claims`/`state.dupKeys` 를 지우고 `conns`·`byUser` 에서 그 연결을 제거한다. 그 **뒤에** `handle` 이 재개해서:
+
+- `setTimeout(() => finish(null), timeoutMs)` 를 새로 걸고(L770) — `closeConn` 은 이미 지나갔으므로 **이 타이머를 걷을 주체가 없다**,
+- `state.pending.push(entry)`(L786) 로 **`conns` 에서 이미 떨어져 나간 고아 `ConnState`** 에 대기를 등록하고,
+- `session.send(payload)` 로 **주문을 실제로 게이트웨이에 보낸다**(L789).
+
+결과:
+1. 통보 상관은 `byUser.get(userId)` → `conns.get(conn)` 을 훑는데(L336-338) 그 연결이 없으므로 이 대기는 **영원히 후보가 되지 않는다.** 접수·체결 통보는 `GC-CR-02` 의 침묵 경로로 흘러간다.
+2. 5초 뒤 고아 타이머가 `finish(null)` 을 실행해 `enqueueUpdate({orderRowId, status:"timeout"})` 을 큐에 넣는다 — **실제로 접수·체결된 주문이 감사 기록에 `timeout` 으로 확정된다.** 이 값은 나중에 정정할 경로도 없다(그 행을 가리키는 `orderRowId` 를 아는 주체가 사라졌다).
+3. `release` 는 `state.dupKeys.delete` 가 false 를 돌려 조기 반환하므로(L298) 정리 자체는 안전하지만, 그 안전장치가 **고아 대기의 존재를 감춘다.**
+
+**Fix:** 연결이 살아 있는지를 `await` **직후에** 다시 확인하고, 죽었으면 조립·송신 이전에 중단한다. 「보내기 전에 확인한다」가 유일한 안전한 순서다.
+
+```ts
+// ③-2 insert 직후 — `await` 중에 연결이 닫혔는지 확인한다. 닫혔으면 **보내지 않는다**.
+if (conns.get(conn) !== state) {
+  logger.warn({ ...logCtx, orderRowId }, "[WS-order] 요청 처리 중 연결 종료 — 주문을 보내지 않는다");
+  deps.orderStore.enqueueUpdate({
+    orderRowId, status: "rejected", message: "요청 처리 중 연결이 끊겨 주문을 보내지 않았습니다.",
+  });
+  return; // 대기 등록·타이머 생성 이전이다 — 회수할 것이 없다.
+}
+```
+
+(설계상 「이미 보낸 뒤 연결이 끊기는」 경우는 여전히 존재하지만, 그때는 통보가 `recordUnmatched` 로 가면 되므로 `GC-CR-02` 의 수정이 그 구멍을 메운다.)
+
+---
+
+### Warning
+
+#### GC-WR-01: `void recordUnmatched(...)` — `.catch` 가 없어 한 번의 예외가 **relay 프로세스 전체**를 내린다
+
+**File:** `relay/src/ws/order-handler.ts:367`, `relay/src/index.ts:220-223`
+
+`recordUnmatched` → `ensureRow` 안에서 `autoInsertRow(userId, notice)`(L454)와 그 안의 `deps.symbols.lookup` · `deps.hub.getLimitChasers` · `deps.hub.getViTrigger` 호출은 **try 밖**에 있다. 여기서 예외가 나면 `task` 가 reject 되고, `await task` 를 거쳐 `recordUnmatched` 가 reject 되며, 호출부가 `void` 라 아무도 잡지 않는다. `index.ts:220` 의 핸들러는 `unhandledRejection` 을 `logger.fatal` + **프로세스 종료**로 다룬다 — 통보 1건의 파손이 그 순간 접속한 **모든 사용자의 DMA 세션**을 끊는다.
+
+**Fix:** `void recordUnmatched(userId, notice).catch((err) => logger.error({ err, orderNo: notice.orderNo }, "[WS-order] 통보 기록 경로 예외"));` 그리고 `autoInsertRow` 호출을 `ensureRow` 의 try 안으로 옮긴다.
+
+---
+
+#### GC-WR-02: `ensureRow` 의 inflight 키가 **빈 주문번호에서 충돌**한다 — 서로 다른 자동주문 거부가 한 행에 겹쳐 쓰인다
+
+**File:** `relay/src/ws/order-handler.ts:435`, `relay/src/store/orders.ts:428`
+
+키는 `${userId}|${notice.orderNo}` 다. 접수 전 거부("R")는 `orderNo === ""` 로 오므로 그 사용자의 **모든** 빈 주문번호 통보가 같은 키 `"user|"` 를 공유한다. 동시에 도착한 두 개의 서로 다른 자동주문 거부는 첫 번째의 Promise 를 재사용해 **같은 `row.id`** 를 받고, 두 통보의 `patch` 가 그 한 행에 차례로 덮어써진다 — 한 건의 거부 기록이 사라진다. (덧붙여 `OrderStore.findIdByOrderNo` 는 `orderNo === ""` 에서 항상 `null` 을 돌려주므로(orders.ts:428) 이 키에는 dedup 의 의미가 애초에 없다.)
+
+**Fix:** 빈 주문번호는 inflight 를 태우지 않는다.
+
+```ts
+async function ensureRow(userId: string, notice: ParsedOrderResp): Promise<EnsureResult> {
+  // 빈 주문번호는 상관 키가 아니다 — 합치면 서로 다른 거부가 한 행에 겹친다.
+  if (notice.orderNo === "") return insertOnly(userId, notice);
+  const key = `${userId}|${notice.orderNo}`;
+  …
+}
+```
+
+---
+
+#### GC-WR-03: `narrowPending` 에 **매매구분 축이 없다** — 매수/매도 동시 대기가 둘 다 「결과 모름」으로 끝난다
+
+**File:** `relay/src/ws/order-handler.ts:874-889`
+
+`ParsedOrderResp` 는 `side` 와 「믿어도 되는가」를 말하는 `sideTrusted` 를 **둘 다** 싣는다(`envelope.ts:1183-1192`). 그런데 `narrowPending` 은 이 축을 전혀 쓰지 않는다. 테스트 ㉑ 이 고정한 「매수 10@70000 + 매도 10@70000」은 `sideTrusted === true` 인 접수 통보 하나로 **완전히 가를 수 있는데도** 좁히기에 실패해 두 주문 모두 `timeout` 으로 끝난다 — 사용자는 실제로 접수된 두 주문에 대해 「결과를 확인하지 못했습니다」를 본다.
+
+**Fix:** ② 뒤에 축 하나를 추가한다. `sideTrusted` 가 false 면(취소·정정 통보) 적용하지 않는다.
+
+```ts
+// ②-1 매매구분 축. 취소·정정 통보에는 매매구분이 없다 (Pitfall 8) — 그때는 쓰지 않는다.
+if (n.sideTrusted && n.side !== "") {
+  const noticeSide: OrderSide = n.side.startsWith("S") ? "S" : "B";
+  refine((p) => !p.isCancel && p.side === noticeSide);
+}
+```
+(`PendingOrder` 에 `side` 를 싣는 변경이 함께 필요하다 — `handle` 이 이미 `const side` 를 계산해 둔다, L660.)
+
+---
+
+#### GC-WR-04: `lc.set` 의 **삭제(`crud:"D"`)도** ISIN 해석 실패로 거부된다 — 상장폐지·마스터 미로딩 종목의 전략을 지울 수 없다
+
+**File:** `relay/src/ws/fanout.ts:579-581`, `:761-790`
+
+`#strategyMarket` 은 `crud` 를 보지 않는다. `SymbolMap` 이 그 ISIN 을 못 풀면(상장폐지로 `stocks` 에서 빠졌거나, relay 부팅 직후 `symbols.start()` 가 아직 안 끝났거나) **등록·수정·삭제가 전부** 「이 종목은 지금 전략을 등록할 수 없습니다」로 막힌다. 즉 사용자가 자기 전략을 **내릴 수 없는** 상태가 만들어진다 — `limit-chaser-form.tsx` 가 T-16-44 로 "무장 해제를 막으면 그게 더 위험하다"고 적어 둔 것과 정확히 같은 종류의 위험이 서버 쪽에 남아 있다. (`strategies.disable` 이 게이트만 내리는 우회로이지만, 그것은 삭제가 아니고 단건 지정도 UI 에 없다.)
+
+**Fix:** 삭제·전 게이트 off 요청은 시장 해석을 요구하지 않는다. 캐시된 에코의 `market` 을 쓰고, 그것도 없으면 `"K"` 가 아니라 **요청을 통과시키되 게이트웨이가 키로만 지우도록** 한다.
+
+```ts
+const cached = this.#strategyEcho(userId, cfg.isin, cfg.accountNo, cfg.exchange)?.market;
+const market =
+  cfg.crud === "D"
+    ? (cached ?? this.#strategyMarketOrNull(cfg.isin))   // 삭제는 해석 실패로 막지 않는다
+    : this.#strategyMarket(conn, userId, msg.t, cfg.isin);
+if (cfg.crud !== "D" && market === null) return;
+```
+
+---
+
+#### GC-WR-05: relay 의 무장 가드가 UI 보다 **느슨하다** — `sellWatchQty === 0` · 한방 게이트가 서버에서 통과한다
+
+**File:** `relay/src/ws/fanout.ts:796-812` vs `webapp/src/components/trading/limit-chaser-form.tsx:343-368`
+
+UI 는 `canArmSell = sellOrderPrice > 0 && sellWatchQty > 0`, `canArmSweep = sweepWatchPrice > 0 && canArmBuy` 로 판정한다. relay 의 `#strategyArmable` 은 `sellEnabled && sellOrderPrice === 0` 하나만 보고 **`sellWatchQty` 도 `sweepEnabled` 도 보지 않는다.** 그런데 이 검사의 존재 이유가 "UI 를 우회한 경로(직접 wss, 옛 탭)가 있어도 무장 상태가 만들어지면 안 된다"(주석 T-16-43)이므로, 마지막 관문이 첫 관문보다 느슨하면 그 문장은 성립하지 않는다. 특히 `sellWatchQty === 0` 은 계약 자체가 "**0 이면 서버가 매도 활성화를 거부**(눕힘)한다"(`packages/shared/src/relay.ts:167`)고 못박은 값이라, 조용한 부분 거부가 그대로 재현된다.
+
+**Fix:** 두 조건을 relay 쪽에도 추가한다(UI 의 `canArm*` 세 식을 그대로 이식).
+
+```ts
+const reason =
+  cfg.buyEnabled && (cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0) ? "buy"
+  : cfg.sellEnabled && (cfg.sellOrderPrice === 0 || cfg.sellWatchQty === 0) ? "sell"
+  : cfg.sweepEnabled && (cfg.sweepWatchPrice === 0 || cfg.buyOrderPrice === 0 || cfg.buyOrderQty === 0) ? "sweep"
+  : null;
+```
+
+---
+
+#### GC-WR-06: `send()` 의 boolean 을 **4곳 중 1곳만** 읽는다 — `vi.confirm` 은 보내지 못한 요청에 낙관 반영을 건다
+
+**File:** `webapp/src/components/trading/vi-order-list.tsx:230-233`, `webapp/src/components/trading/limit-chaser-form.tsx:398,412`, `webapp/src/components/trading/vi-settings-card.tsx`
+
+16-19 가 `send` 를 `void → boolean` 으로 바꾼 목적은 "호출부가 반환값으로 「보내지 않았음」을 알 수 있어야 한다"(`use-relay-socket.ts:863-874`)이다. 실제로 그것을 읽는 곳은 `strategy-status-card.tsx:354` 하나뿐이다.
+
+`vi-order-list.tsx` 가 특히 문제다:
+
+```ts
+send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next });
+setOptimistic((prev) => new Map(prev).set(item.orderNo, next));
+setSending((prev) => new Set(prev).add(item.orderNo));
+```
+
+전송이 실패해도 체크박스는 「확인됨」으로 바뀌고 행은 `sending` 으로 잠긴다. 잠금을 푸는 신호는 서버의 73 델타인데 **요청이 나가지 않았으므로 그 델타는 오지 않는다** — 사용자는 확인했다고 믿고 행은 영구히 회색으로 남는다. `disabled` 가드(`status !== 'ready'`)가 대부분을 막지만, `ready` 표시와 소켓 `readyState` 가 어긋나는 창(재접속 직전 · `onclose` 직전)이 정확히 이 경로다.
+
+**Fix:** 세 호출부 모두 반환값으로 분기한다.
+
+```ts
+if (!send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next })) {
+  setError('연결이 끊겨 확인을 보내지 못했어요. 다시 시도해 주세요.');
+  return; // 낙관 반영·잠금 어느 것도 걸지 않는다.
+}
+```
+
+---
+
+#### GC-WR-07: `everReadyCount` 래치는 **프로세스 메모리**다 — 장애 중 relay 가 재시작되면 진짜 게이트웨이 장애가 `ok/200` 으로 보고된다
+
+**File:** `relay/src/order/order-api.ts:223`, `relay/src/dma/session-manager.ts:208-218`
+
+`sessionsOk = everReadyCount === 0 || readyCount > 0` 으로 바뀌면서, **한 번도 Ready 인 적 없는** 세션들만 있는 상태는 항상 `ok` 다. `hasBeenReady` 는 `DmaSession` 인스턴스의 인메모리 래치이므로 relay 컨테이너가 재시작하면 0 으로 초기화된다. 게이트웨이가 죽어 있는 동안 relay 가 재배포·OOM·크래시로 한 번만 재시작하면, 그 뒤로는 사용자가 아무리 붙어도 `everReadyCount === 0` 이라 **uptime check 가 영원히 초록**이다. 예전 규칙(`sessionCount > 0 && readyCount === 0` → degraded)이 잡던 사례가 통째로 빠졌다. `vpn` 신호는 인터페이스 존재만 보므로(터널은 살아 있고 게이트웨이 프로세스만 죽은 경우) 이를 대체하지 못한다.
+
+**Fix:** 「생성된 지 N분이 지났는데 한 번도 Ready 가 아닌 세션」을 별도로 세어 판정에 넣는다. 부팅 직후의 정상 구간은 그 유예로 흡수된다.
+
+```ts
+// stats() 에 추가: 생성 후 STALE_SESSION_MS 가 지나도록 Ready 를 못 본 세션 수
+const stalledCount = /* now - entry.createdAt > STALE_SESSION_MS && !hasBeenReady */;
+const sessionsOk = (stats.everReadyCount === 0 && stats.stalledCount === 0) || stats.readyCount > 0;
+```
+
+---
+
+#### GC-WR-08: 새 부분 UNIQUE 인덱스의 `23505` 를 **어느 경로도 다루지 않는다** — 경주가 「두 벌 기록」에서 「기록 소실」로 바뀌었을 뿐이다
+
+**File:** `supabase/migrations/20260909120000_dma_orders_user_order_no_unique.sql:73-75`, `relay/src/store/orders.ts:269-298`, `:239-260`
+
+인덱스 도입으로 `(user_id, order_no, KST일)` 중복 insert 는 이제 `23505` 를 던진다. 그런데:
+
+- `supabaseOrderInsertSink` 는 모든 에러를 동일하게 throw 한다 → `ensureRow` 가 `{kind:"unavailable"}` 로 접고(order-handler.ts:469-475) **그 통보를 드롭한다.** 「행이 이미 있다」는 신호가 「기록 불가」로 열화된다.
+- `finish` 가 수동 행에 `order_no` 를 채우는 update(L749-758)도 같은 인덱스에 걸릴 수 있다. 자동 분기가 그 사이 같은 `order_no` 로 행을 만들어 두면(GC-CR-01/02 의 좁히기 실패 뒤에 충분히 가능하다) 이 update 가 `23505` 로 실패하고, `OrderStore` 는 1회 재시도 후 **드롭**한다(`orders.ts:551-569`) — 그 주문 행은 `order_no` 도 최종 상태도 영원히 못 받는다.
+
+**Fix:** `23505` 를 「이미 있다」로 해석해 재조회로 수렴시킨다. 그 코드만 특별 취급하고 나머지는 그대로 던진다.
+
+```ts
+if (error) {
+  if ((error as { code?: string }).code === "23505") {
+    // 같은 사용자·같은 날의 같은 주문번호 — 경주에서 진 쪽이다. 새 행이 아니라 **그 행**을 쓴다.
+    const existing = await supabaseOrderLookupSink(supabase)(row.userId, row.orderNo ?? "");
+    if (existing !== null) return existing;
+  }
+  logger.error({ error, origin: row.origin }, "[orders] dma_orders insert 실패");
+  throw error;
+}
+```
+
+---
+
+#### GC-WR-09: `handleSubmit` 이 `gateBlocked` 를 **읽지 않는다** — 파일 머리말의 「전송 직전 가드」 주장이 사실이 아니다
+
+**File:** `webapp/src/components/trading/limit-chaser-form.tsx:405-415`, 주석 `:26`
+
+머리말은 "판정은 `gateBlocked()` 하나이고 **렌더의 `disabled` 와 전송 직전 가드가 그것을 함께 읽는다**"고 적었지만, 실제로 읽는 것은 `toggleGate`(L394)뿐이다. 「수정」 버튼 경로(`handleSubmit`)는 `submitting || disabled` 만 본다. 서버 에코로 `buyEnabled: true` 를 받은 상태에서 시세가 끊겨 가격 칸이 0 이 되면(이 파일이 `ARM_BLOCKED_TEXT` 에서 설명하는 바로 그 상황), 「수정」은 relay 의 `#strategyArmable` 에 통째로 거부된다 — 사용자는 **아무 값도 저장하지 못하고** 원인은 일반 거부 프레임 한 줄뿐이다.
+
+**Fix:** `handleSubmit` 도 같은 판정을 지나게 한다.
+
+```ts
+const blocked = (['buyEnabled','sellEnabled','sweepEnabled'] as const)
+  .find((k) => formRef.current[k] && gateBlocked(k, true));
+if (blocked !== undefined) { setSubmitError(ARM_BLOCKED_TEXT[…]); return; }
+```
+
+---
+
+#### GC-WR-10: 취소 중복 키에 **원주문번호가 없다** — 동일 가격·수량의 미체결 2건을 연달아 취소할 수 없다
+
+**File:** `relay/src/ws/order-handler.ts:215-218`
+
+```ts
+const side = msg.t === "order.new" ? msg.side : "C";
+return `dup:${msg.accountNo}|${msg.isin}|${side}|${msg.price}|${msg.qty}`;
+```
+
+취소 요청의 정체성은 **`orgOrderNo`** 인데 키에 들어 있지 않다. 같은 종목·같은 가격·같은 잔량의 미체결이 2건 있으면(다른 단말·전일 잔여·자동주문으로 흔히 생긴다) 두 번째 취소가 「같은 주문이 이미 처리 중입니다」로 **최대 5초 거부**된다. 급락 국면에서 미체결 일괄 취소가 막히는 것은 자산 위험이다.
+
+**Fix:** 취소 키에 원주문번호를 넣는다. 신규는 지금과 동일하다.
+
+```ts
+return msg.t === "order.cancel"
+  ? `dup:${msg.accountNo}|${msg.isin}|C|${msg.orgOrderNo}`
+  : `dup:${msg.accountNo}|${msg.isin}|${msg.side}|${msg.price}|${msg.qty}`;
+```
+
+---
+
+#### GC-WR-11: 스모크 프로브가 **토큰을 argv 로 넘기고**, 판정 문자열이 이어 붙으면 FAIL 이 SKIP 으로 강등된다
+
+**File:** `scripts/smoke-relay.sh:465-468`
+
+두 가지다.
+1. `node "$js" "wss://${HOST}/ws" "$ws_module" "$token"` — Supabase 액세스 토큰이 **프로세스 목록(`ps`)에 노출**된다. 같은 호스트의 다른 사용자·프로세스가 읽을 수 있다. 옛 구현의 `curl -H` 도 같은 문제였지만, 새로 쓰는 코드에서 반복할 이유는 없다.
+2. 프로브가 판정을 stdout 에 찍은 **뒤** 비정상 종료하면 `rc != 0` 분기가 `inconclusive` 를 **덧붙인다**(L468). 결과 문자열이 `reachableinconclusive` 가 되어 `case` 의 `reachable`/`unreachable` 중 어느 것에도 매치하지 않고 `*` → **SKIP** 이 된다. 즉 실패 판정이 조용히 「확인 안 함」으로 바뀔 수 있다 — 이 검사가 3갈래인 이유를 스스로 무너뜨린다.
+
+**Fix:**
+```bash
+SMOKE_TOKEN="$token" node "$js" "wss://${HOST}/ws" "$ws_module" || rc=$?   # 프로브는 process.env.SMOKE_TOKEN 을 읽는다
+…
+verdict="$(…)"
+if [[ "$rc" -ne 0 ]]; then verdict="inconclusive"; fi   # 덧붙이지 않고 **덮어쓴다**
+printf '%s' "$verdict"
+```
+
+---
+
+#### GC-WR-12: 무장 불가 안내 문구가 **가장 흔한 원인을 잘못 짚는다**
+
+**File:** `webapp/src/components/trading/limit-chaser-form.tsx:113-118`
+
+`ARM_BLOCKED_TEXT.buy` 는 "**시세를 받지 못해** 발주가·수량이 0 이에요"라고 단정한다. 그런데 같은 phase 의 e2e(`trading-limit-chaser.spec.ts:181-192`)가 고정한 실제 재현 조건은 **"기본 주문금액 10만원으로 127,400원 종목을 사면 `floor(10만/12.74만) = 0주`"** 다 — 시세는 정상이고 금액이 부족한 것이다. 안전 게이트의 안내가 원인을 틀리게 말하면 사용자는 엉뚱한 곳(재접속·새로고침)을 만진다.
+
+**Fix:** 두 원인을 값으로 가른다.
+```ts
+const buyBlockReason =
+  form.buyOrderPrice === 0
+    ? '시세를 받지 못해 매수가격이 0 이에요. 가격을 입력하면 켤 수 있어요.'
+    : '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.';
+```
+
+---
+
+### Info
+
+#### GC-IN-01: `gateBlocked` 의 `useCallback` 의존성이 매 렌더 새 객체다
+
+**File:** `webapp/src/components/trading/limit-chaser-form.tsx:373-390`
+`canArm` 은 렌더마다 새로 만드는 객체 리터럴이므로 `[disabled, canArm]` 는 항상 바뀐다 — `useCallback` 이 아무것도 메모하지 않는다. `canArm` 을 `useMemo` 로 감싸거나, 세 boolean 을 개별 의존성으로 넘길 것.
+
+#### GC-IN-02: `row.isin as string` 타입 단언
+
+**File:** `webapp/src/components/trading/limit-chaser-client.tsx:851`
+`isPickable(row)` 이 이미 `row.isin !== null` 을 확인하지만 TS 가 좁히지 못해 단언으로 메웠다. `isPickable` 을 타입 서술자로 만들면 단언이 사라진다: `function isPickable(row: StockDetailResponse): row is StockDetailResponse & { isin: string }`.
+
+#### GC-IN-03: `latestAccountTime` 이 `HH:MM:SS` 문자열 비교다
+
+**File:** `webapp/src/components/trading/me-client.tsx:88-97`
+`formatServerTime` 이 날짜를 버리고 시각만 남기므로, 자정을 넘긴 계좌 프레임(혹은 한쪽만 `YYYYMMDDHHMMSS` 로 오는 경우) 사이에서 「가장 최근」이 뒤집힌다. 표시 전용이라 영향은 작지만, 비교는 정규화 **전** 값(또는 epoch)으로 하는 편이 맞다.
+
+#### GC-IN-04: `ORDER_FLUSH_MAX_ROUNDS = ORDER_MAX_RETRIES + 2` 의 `+2` 가 설명되지 않은 상수다
+
+**File:** `relay/src/store/orders.ts:78`
+주석은 "이론상 2회면 끝난다"고 하지만 식은 `+2`(=3)다. 「첫 배치 + 재시도 + 종료 확인」이라는 근거를 식 옆에 적거나 `ORDER_MAX_RETRIES + 1` 로 맞출 것.
+
+---
+
+### 검토했으나 결함을 찾지 못한 영역 (갭 클로징분)
+
+- **`market` 소유권 이전(16-25)** — `RelayLimitChaserInput` 에서 필드가 빠졌고, zod 스키마에서도 지워졌고(`z.object` 가 미지 키를 떨어뜨린다), `buildSetLimitChaserReq` 는 기본값 없이 호출부가 채우도록 시그니처를 바꿨다. 웹앱은 `SelectedStock`·`LimitChaserFormProps`·`LimitChaserFormValues` 세 곳에서 모두 제거됐다. 구 클라이언트가 `market` 을 실어 보내도 조용히 무시되고 relay 해석값이 이긴다 — 계약 드리프트가 남지 않는다(`protocol.test.ts` 가 그 경로를 명시적으로 잠근다).
+- **`MAX_VI_ORDER_AMOUNT_KRW` 단일 정본(16-24)** — zod(`min(0).max(상수)`) · `buildSetVITriggerReq` · UI(`MAX_VI_ORDER_AMOUNT_MANWON = krwToManwon(상수)`) 세 층이 같은 export 를 참조한다. 층별 숫자 하드코딩이 없고, 상한값 자체와 0 을 통과시키는 테스트가 과잉 차단도 함께 막는다.
+- **`flushNow` 상태 기계(16-24)** — `#current` 를 `#runDrain` 의 `finally` 에서 반드시 비우고, `#tick` 은 건너뛰고 `flushNow` 는 기다리는 두 규율이 코드와 테스트(⑮~⑰) 양쪽에서 일치한다. `while (this.#current !== null)` 루프는 마이크로태스크 순서상 최대 1회 추가 대기로 끝나므로 종료를 무한히 막지 않는다.
+- **`userDupKeys` 소유권 회수(16-08 수정분)** — `release` 의 `if (!state.dupKeys.delete(...)) return;` 이 「`closeConn` 이 이미 회수한 뒤 늦게 놓는」 경우에 다른 탭의 키를 풀지 않도록 정확히 막는다. `closeConn` → `dropUserDupKeys` → `Set` 이 비면 사용자 항목 삭제까지 누수 없이 닫힌다.
+- **`kstDayRangeUtc` 반열린 구간** — `+09:00` 오프셋을 명시해 만들고 `[from, to)` 로 쓰며, 마이그레이션의 `(created_at AT TIME ZONE 'Asia/Seoul')::date` 와 같은 경계를 가리킨다. `fakeDmaOrders` 가 필터를 실제로 적용해 「어제 행·남의 행이 영향 범위에 없음」을 단언하므로 이 축은 실효적으로 잠겨 있다.
+- **`isin-labels` 통합(16-23)** — 세 사본이 하나로 합쳐졌고, `accountStates` 전체를 훑으며 빈 값이 기존 값을 지우지 않는 병합 규칙이 유지된다. `useMemo` 의존성도 정확하다.
+
+---
+
+_Reviewed: 2026-09-09T03:42:42Z (갭 클로징 재리뷰)_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
