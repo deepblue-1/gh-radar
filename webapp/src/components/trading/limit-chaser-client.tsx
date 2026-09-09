@@ -66,6 +66,7 @@ import {
   strategyLogLine,
   type StrategyLogEntry,
 } from '@/components/trading/strategy-log';
+import { useIsinLabels } from '@/lib/isin-labels';
 import { isLimitChaserServerMessage, strategyKey } from '@/lib/limit-chaser';
 import { useRelayContext, useRelaySubscription } from '@/lib/relay-provider';
 import { searchStocks } from '@/lib/stock-api';
@@ -159,7 +160,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     relay;
 
   const parsedKey = useMemo(() => (routeKey === undefined ? null : parseStrategyKey(routeKey)), [routeKey]);
-  const isinNames = useIsinNames();
+  const isinLabels = useIsinLabels();
 
   const [picked, setPicked] = useState<SelectedStock | null>(null);
   const [exchange, setExchange] = useState<RelayExchange>(parsedKey?.exchange ?? 'KRX');
@@ -352,7 +353,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   /* ── 파생 표시값 ──────────────────────────────────────────────────────── */
 
-  const displayName = picked?.name ?? (isin === '' ? '' : (isinNames.get(isin) ?? isin));
+  const displayName = picked?.name ?? (isin === '' ? '' : (isinLabels.get(isin)?.name ?? isin));
   const accountState = accountNo === '' ? null : (accountStates.get(accountNo) ?? null);
   const sellableQty =
     accountState?.hold.find((h) => h.isin === isin)?.sellableQty ?? 0;
@@ -860,24 +861,6 @@ function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }
       )}
     </div>
   );
-}
-
-/**
- * ISIN → 종목명 역매핑 (⑧). **이미 받은 프레임에서만** 만든다.
- * `app-sidebar.tsx` 의 `useIsinNames()` · `strategy-status-card.tsx` 의 `useIsinLabels()` 와
- * 같은 규약이다 — 이름 하나 때문에 별도 조회 경로를 만들지 않는다(T-16-02).
- */
-function useIsinNames(): ReadonlyMap<string, string> {
-  const { accountStates, viOrders } = useRelayContext();
-  return useMemo(() => {
-    const names = new Map<string, string>();
-    for (const state of accountStates.values()) {
-      for (const row of state.hold) if (row.name != null && row.name !== '') names.set(row.isin, row.name);
-      for (const row of state.unf) if (row.name != null && row.name !== '') names.set(row.isin, row.name);
-    }
-    for (const row of viOrders) if (row.name != null && row.name !== '') names.set(row.isin, row.name);
-    return names;
-  }, [accountStates, viOrders]);
 }
 
 /**

@@ -18,6 +18,7 @@ import {
 
 import { StrategyBadge, viBadgeOf } from "@/components/trading/strategy-badge";
 import { useAuth } from "@/lib/auth-context";
+import { useIsinLabels } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
 import type { RelayLimitChaser } from "@gh-radar/shared";
@@ -235,31 +236,6 @@ function StrategyItem({
 }
 
 /**
- * ISIN → 종목명 역매핑을 **이미 받은 프레임에서만** 만든다.
- *
- * `RelayLimitChaser` 에는 종목명이 없다(게이트웨이가 싣지 않는다). relay 는 잔고·미체결·
- * VI 주문에만 `stocks.isin` 역매핑으로 이름을 채워 준다. 그래서 여기서는 그 세 곳을 훑어
- * 이름을 얻고, 없으면 ISIN 을 그대로 보여준다 — `account-panel` 이 `name ?? isin` 으로
- * 폴백하는 것과 같은 규약이다. **이름 하나 때문에 별도 조회 경로를 만들지 않는다**(T-16-02:
- * 목록의 원천은 전역 wss 스냅샷뿐이어야 한다).
- */
-function useIsinNames(): ReadonlyMap<string, string> {
-  const { account, viOrders } = useRelayContext();
-
-  const names = new Map<string, string>();
-  for (const row of account?.hold ?? []) {
-    if (row.name != null && row.name !== "") names.set(row.isin, row.name);
-  }
-  for (const row of account?.unf ?? []) {
-    if (row.name != null && row.name !== "") names.set(row.isin, row.name);
-  }
-  for (const row of viOrders) {
-    if (row.name != null && row.name !== "") names.set(row.isin, row.name);
-  }
-  return names;
-}
-
-/**
  * 트레이딩 그룹 · My page 노출 여부 (위 ④⑤).
  * 반환 `true` 는 「보여도 된다」이지 「권한이 있다」가 아니다.
  */
@@ -286,7 +262,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { limitChasers, viTrigger } = useRelayContext();
   const tradingVisible = useTradingVisible();
-  const names = useIsinNames();
+  const labels = useIsinLabels();
 
   const isActive = (href: string) => samePath(pathname, href);
 
@@ -331,7 +307,7 @@ export function AppSidebar() {
                         <li key={item.key}>
                           <StrategyItem
                             item={item}
-                            name={names.get(item.isin) ?? null}
+                            name={labels.get(item.isin)?.name ?? null}
                             active={isActive(limitChaserHref(item.key))}
                           />
                         </li>

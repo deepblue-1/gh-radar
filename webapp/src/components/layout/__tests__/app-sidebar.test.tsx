@@ -119,39 +119,62 @@ const CHASER_B = makeChaser({
   sellEnabled: true,
 });
 
-/** 잔고에 실린 종목명 — 사이드바가 이름을 얻는 유일한 경로다(relay 역매핑 산물). */
-function accountWithNames(): RelayShape["account"] {
-  return {
-    t: "acct",
-    a: "37728502101",
-    snap: true,
-    hold: [
+/**
+ * 잔고·미체결에 실린 종목명 — 사이드바가 이름을 얻는 유일한 경로다(relay 역매핑 산물).
+ *
+ * ★ **계좌를 둘로 나눠 둔다** (16-23 WR-08). CHASER_A 의 종목은 계좌 A 의 잔고에만,
+ *   CHASER_B 의 종목은 계좌 B 의 미체결에만 있다. 역매핑이 「마지막으로 받은 계좌」
+ *   하나만 보면 둘 중 하나는 반드시 ISIN 원문으로 남는다 — 그 회귀를 이 픽스처가 잠근다.
+ */
+function accountStatesWithNames(): RelayShape["accountStates"] {
+  return new Map([
+    [
+      "37728502101",
       {
-        isin: "KR7086520004",
-        qty: 76,
-        sellableQty: 76,
-        avgPrice: 130_000,
-        // 긴 이름 — 잘림 회귀를 잡을 수 있게 넉넉히 길다.
-        name: "에코프로머티리얼즈우선주",
+        t: "acct",
+        a: "37728502101",
+        snap: true,
+        hold: [
+          {
+            isin: "KR7086520004",
+            qty: 76,
+            sellableQty: 76,
+            avgPrice: 130_000,
+            // 긴 이름 — 잘림 회귀를 잡을 수 있게 넉넉히 길다.
+            name: "에코프로머티리얼즈우선주",
+          },
+        ],
+        unf: [],
+        rm: [],
+        st: "13:44:02",
       },
     ],
-    unf: [
+    [
+      "37728502102",
       {
-        orderNo: "0031102",
-        orgOrderNo: "",
-        isin: "KR7007660006",
-        side: "B",
-        price: 48_750,
-        orderQty: 205,
-        filledQty: 0,
-        unfilledQty: 205,
-        exchange: "NXT",
-        name: "이수페타시스",
+        t: "acct",
+        a: "37728502102",
+        snap: true,
+        hold: [],
+        unf: [
+          {
+            orderNo: "0031102",
+            orgOrderNo: "",
+            isin: "KR7007660006",
+            side: "B",
+            price: 48_750,
+            orderQty: 205,
+            filledQty: 0,
+            unfilledQty: 205,
+            exchange: "NXT",
+            name: "이수페타시스",
+          },
+        ],
+        rm: [],
+        st: "13:44:05",
       },
     ],
-    rm: [],
-    st: "13:44:02",
-  } as RelayShape["account"];
+  ]) as RelayShape["accountStates"];
 }
 
 function relayState(over: Partial<RelayShape> = {}): RelayShape {
@@ -182,7 +205,7 @@ function setupReady(over: Partial<RelayShape> = {}): void {
   mockRelay = relayState({
     status: "ready",
     limitChasers: [CHASER_A, CHASER_B],
-    account: accountWithNames(),
+    accountStates: accountStatesWithNames(),
     ...over,
   });
 }
@@ -286,7 +309,7 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
       attempt: 1,
       isStale: true,
       limitChasers: [CHASER_A, CHASER_B],
-      account: accountWithNames(),
+      accountStates: accountStatesWithNames(),
     });
     view.rerender(<AppSidebar />);
 
@@ -332,8 +355,22 @@ describe("AppSidebar — 전략 3단 목록 (N3/N3a/N5)", () => {
     expect(b.querySelector('[data-slot="strategy-badge"]')).toBeNull();
   });
 
+  it("WR-08 — 계좌가 둘이면 **두 계좌 모두**에서 이름을 얻는다 (마지막 수신 계좌 하나가 아니다)", () => {
+    // 픽스처: A 의 종목은 계좌 A 잔고에만, B 의 종목은 계좌 B 미체결에만 있다.
+    setupReady();
+    render(<AppSidebar />);
+
+    expect(
+      screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /이수페타시스/ })).toBeInTheDocument();
+    // 어느 쪽도 ISIN 원문으로 남지 않는다 — 「마지막 수신 계좌」만 보면 하나는 반드시 남는다.
+    expect(screen.queryByText(new RegExp(CHASER_A.isin))).toBeNull();
+    expect(screen.queryByText(new RegExp(CHASER_B.isin))).toBeNull();
+  });
+
   it("종목명을 모르면 ISIN 을 그대로 보여준다", () => {
-    setupReady({ account: null, limitChasers: [CHASER_A] });
+    setupReady({ accountStates: new Map(), limitChasers: [CHASER_A] });
     render(<AppSidebar />);
 
     expect(

@@ -67,6 +67,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
@@ -80,47 +81,6 @@ const KRW = new Intl.NumberFormat("ko-KR");
  * 같은 일(전부 끄기)이 한 번 더 나갈 뿐이라 위험하지 않다. 영원히 잠그는 쪽이 나쁘다.
  */
 const DISABLE_ACK_TIMEOUT_MS = 8_000;
-
-// ---------------------------------------------------------------------------
-// ISIN → 표시 이름·단축코드
-// ---------------------------------------------------------------------------
-
-interface IsinLabel {
-  name?: string;
-  code?: string;
-}
-
-/**
- * ISIN → 종목명·단축코드를 **이미 받은 프레임에서만** 만든다.
- *
- * `RelayLimitChaser` 에는 종목명도 단축코드도 없다(게이트웨이가 싣지 않는다). relay 는
- * 잔고·미체결·VI 주문에만 `stocks.isin` 역매핑으로 이름/코드를 채워 준다. `app-sidebar`
- * 의 `useIsinNames()` 와 같은 규약이고, 이름 하나 때문에 별도 조회 경로를 만들지 않는다
- * (T-16-02: 목록의 원천은 전역 wss 스냅샷뿐이어야 한다).
- *
- * ⚠️ 계좌가 여럿이면 `accountStates` 전부를 훑는다. 마지막 계좌만 보면 다른 계좌의
- *    전략이 이름 없이 ISIN 으로 남는다.
- */
-function useIsinLabels(): ReadonlyMap<string, IsinLabel> {
-  const { accountStates, viOrders } = useRelayContext();
-
-  const out = new Map<string, IsinLabel>();
-  const put = (isin: string, next: IsinLabel): void => {
-    const prev = out.get(isin) ?? {};
-    out.set(isin, {
-      name: next.name !== undefined && next.name !== "" ? next.name : prev.name,
-      code: next.code !== undefined && next.code !== "" ? next.code : prev.code,
-    });
-  };
-
-  for (const state of accountStates.values()) {
-    for (const row of state.hold) put(row.isin, { name: row.name, code: row.code });
-    for (const row of state.unf) put(row.isin, { name: row.name, code: row.code });
-  }
-  for (const row of viOrders) put(row.isin, { name: row.name });
-
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // VI 요약
