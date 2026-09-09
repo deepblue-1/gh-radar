@@ -700,6 +700,20 @@ export class SubscriptionHub extends EventEmitter {
     };
     // 화면이 먼저다. DB 기록(비동기 큐)은 이 이벤트를 받는 쪽이 건다.
     this.#fanout(userId, msg);
+    // **두 번째 감사 사본** (D-24). `dma_orders` 에 붙지 못한 통보 — 좁히기 실패·연결 종료
+    // 후 도착·행 생성 실패 — 라도 이 한 줄이 있으면 브로커 주문번호와 대조할 수 있다.
+    // 계좌번호·비밀번호·DMA user_id 는 싣지 않는다 (D-19 승계). 51 통보에 계좌번호 필드는
+    // 애초에 없고, 여기 `userId` 는 Supabase 사용자 식별자다.
+    logger.info(
+      {
+        userId,
+        orderNo: notice.orderNo,
+        noticeType: notice.noticeType,
+        resultCode: notice.resultCode,
+        origin: notice.originKind,
+      },
+      "[HUB] 주문 통보 수신(감사 사본)",
+    );
     this.emit("order", { userId, notice });
   }
 

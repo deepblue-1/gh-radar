@@ -485,6 +485,7 @@ describe("wss 주문 경로 (D-02)", () => {
   });
 
   it("⑨ 늦게 온 통보가 이미 정산된 요청에 두 번째 order.result 를 만들지 않는다", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
     const { ws, inbox } = await authed("token-a");
 
     ws.sendRaw(orderNew());
@@ -498,10 +499,13 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // 상관 응답은 한 번뿐이다. 두 번 오면 브라우저가 상태를 되돌려 그린다.
     expect(framesOf(inbox, "order.result")).toHaveLength(1);
-    // 다만 기록은 남는다 — `order_no` 로 좁힌 갱신이다 (수동 주문이라 insert 분기는 아니다).
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderNo: "0000012345", status: "accepted" }),
-    );
+    // 기록 경로는 **조회를 거친다** (GC-CR-02). 이 행은 접수 전에 만들어져 `order_no` 가
+    // 비어 있으므로 조회는 「없음」이고, 그 상태에서 `order_no` 셀렉터로 보내는 갱신은
+    // **0행**이다 — 옛 코드는 그것을 성공처럼 보내고 침묵했다(Pitfall 18). 이제 보내지 않고
+    // 통보 원문을 error 로 남긴다.
+    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
+    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
+    expect(JSON.stringify(errorSpy.mock.calls)).toContain("붙지 않는 수동 통보");
   });
 
   it("⑩ 송신 실패는 대기열을 즉시 걷는다 — 5초를 기다리지 않는다", async () => {
@@ -609,7 +613,10 @@ describe("wss 주문 경로 (D-02)", () => {
     );
   });
 
-  it("⑭ 수동 통보는 조회도 insert 도 하지 않는다 — 행은 요청 시점에 이미 있다", async () => {
+  it("⑭ 수동 통보는 조회를 거쳐 orderRowId 로 갱신한다 — insert 는 하지 않는다 (GC-CR-02)", async () => {
+    // `finish` 가 이미 접수 주문번호를 채워 둔 행이 있는 상황이다 — 조회가 그것을 찾는다.
+    orders = mkOrderStore({ existingId: "row-manual" });
+    await restartHarness();
     await authed("token-a");
 
     gateway.pushOrderResp(gatewaySocket(), {
@@ -621,11 +628,15 @@ describe("wss 주문 경로 (D-02)", () => {
     await waitFor(() => orders.updates.length > 0, "수동 통보 갱신");
     await flushIo();
 
-    expect(orders.lookups).toHaveLength(0);
+    // 조회는 **소유자와 함께** 나간다 (gap 1 / T-16-14).
+    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
+    // 수동 주문의 행은 요청 시점에 relay 가 이미 만들었다 — 여기서 두 번째 행을 만들지 않는다.
     expect(orders.inserts).toHaveLength(0);
+    // ★ 셀렉터가 `order_no` 가 아니라 **확인된 행의 id** 다 (A10 1순위).
     expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderNo: "0000012345", origin: "manual" }),
+      expect.objectContaining({ orderRowId: "row-manual", orderNo: "0000012345", origin: "manual" }),
     );
+    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
   });
 
   // ----------------------------------------------------------
@@ -838,6 +849,7 @@ describe("wss 주문 경로 (D-02)", () => {
 
   it("㉑ 좁히지 못한 통보는 아무것도 정산하지 않는다 — 대기는 살아서 타임아웃으로 끝난다 (gap 2)", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
     const { ws, inbox } = await authed("token-a");
 
     // 매수/매도라 dup 키는 다르지만 **매칭 축(취소여부·수량·가격)은 완전히 같다** —
@@ -853,12 +865,23 @@ describe("wss 주문 경로 (D-02)", () => {
     // ★ 「가장 오래된 것」 폴백이 있으면 여기서 rid-buy 가 정산된다 — 그것이 gap 2 다.
     //   잘못 귀속된 기록은 없는 기록보다 나쁘므로 **아무것도** 정산하지 않는다.
     expect(framesOf(inbox, "order.result")).toHaveLength(0);
-    // 정산하지 않았으므로 통보는 기록 경로(`recordUnmatched`)로 간다. 수동 통보라
-    // `userId` 셀렉터 갱신이다 — 정산됐다면 `orderRowId` 셀렉터였을 것이라 두 경로는
-    // 인자만으로 구분된다.
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ userId: USER_A, orderNo: "0000012345" }),
-    );
+    // 정산하지 않았으므로 통보는 기록 경로(`recordUnmatched`)로 간다. 그 경로가 지금까지
+    // 관찰되지 않던 **뒷부분**이 여기부터다 (GC-CR-02).
+    //
+    // 좁히기에 실패한 수동 통보는 이제 조회를 한 번 거친다. 대기 2건의 행은 접수 전에
+    // 만들어져 `order_no` 가 비어 있으므로 조회는 「없음」이고 — 그 상태에서 `order_no`
+    // 셀렉터 갱신을 보내면 **0행**이다. PostgREST 는 0행 update 를 에러로 주지 않으므로
+    // 옛 코드에서는 이 기록이 로그 한 줄 없이 사라졌다.
+    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
+    // ★ `orderRowId` 없는 갱신 = `order_no` 셀렉터 갱신이다. **한 건도 나가지 않는다.**
+    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
+    // 대신 통보 원문이 stdout 에 남는다 — 이 경로의 유일한 기록이다 (D-24 / S-5).
+    const errored = JSON.stringify(errorSpy.mock.calls);
+    expect(errored).toContain("붙지 않는 수동 통보");
+    expect(errored).toContain("0000012345");
+    // 감사 사본이므로 통보 원문은 싣되, 계좌번호는 여기에도 없다 (T-16-45).
+    expect(errored).not.toContain(SAMPLE_ACCOUNT_NO);
+
     const warned = JSON.stringify(warnSpy.mock.calls);
     expect(warned).toContain("좁히지 못했다");
     // 좁히기 실패 로그에 계좌번호·주문번호 원문은 없다 (T-16-32).
@@ -978,6 +1001,48 @@ describe("wss 주문 경로 (D-02)", () => {
     await flushIo(20);
     expect(orders.updates.filter((u) => u.status === "timeout")).toHaveLength(0);
     expect(orders.updates).toHaveLength(1);
+  });
+
+  it("㉖ 연결 종료 후 도착한 수동 통보 — 후보 0건이어도 사라지지 않는다, 0행 갱신 대신 error 다 (GC-CR-02)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+    // 탭 2개를 연다. 하나를 닫아도 DMA 세션이 살아 있어야 51 통보를 밀어 넣을 수 있다.
+    const a = await authed("token-a");
+    await authed("token-a");
+
+    a.ws.sendRaw(orderNew({ rid: "rid-closed" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "주문 송신");
+
+    // 주문을 낸 탭을 닫는다 → `closeConn` 이 `state.pending` 을 비운다. 이후 도착하는
+    // 통보는 **후보 0건**이라 좁히기 warn 조차 나지 않는다 — 옛 코드에서 이 경로는
+    // 경고도 기록도 없이 통째로 침묵했다.
+    await a.ws.close();
+    await flushIo(20);
+
+    gateway.pushOrderResp(gatewaySocket(), { noticeType: "A", orderNo: "0000012345" });
+    await waitFor(() => orders.lookups.length === 1, "수동 통보 조회");
+    await flushIo(20);
+
+    // 후보가 0건이므로 좁히기 warn 은 없다. 그래도 기록 경로는 돌았다.
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain("좁히지 못했다");
+    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
+    // 0행 갱신을 보내지 않는다. 수동 통보는 새 행도 만들지 않는다(행은 ③-2 가 이미 만들었다).
+    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
+    expect(orders.inserts).toHaveLength(1);
+
+    const errored = JSON.stringify(errorSpy.mock.calls);
+    expect(errored).toContain("붙지 않는 수동 통보");
+    expect(errored).toContain("0000012345");
+    expect(errored).not.toContain(SAMPLE_ACCOUNT_NO);
+
+    // ★ D-24 의 **두 번째 감사 사본**. `dma_orders` 에 붙지 못한 통보라도 Hub 가 수신
+    //   사실을 stdout 에 남긴다 — 이 한 줄이 브로커 주문번호와 대조할 유일한 근거다.
+    const infoed = JSON.stringify(infoSpy.mock.calls);
+    expect(infoed).toContain("감사 사본");
+    expect(infoed).toContain("0000012345");
+    // 계좌번호·자격증명은 싣지 않는다 (D-19 승계 / T-16-45).
+    expect(infoed).not.toContain(SAMPLE_ACCOUNT_NO);
   });
 });
 

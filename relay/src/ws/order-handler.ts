@@ -389,19 +389,67 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 그래서 조회 없이 `order_no` 로 갱신만 하면 상따·VI 자동주문 통보가 **조용히 사라진다** —
    * 사용자는 자기 계좌에서 나간 주문의 기록을 어디서도 볼 수 없게 된다 (T-16-07 Repudiation).
    *
-   * 수동 주문은 이 분기를 타지 않는다: 행은 요청 시점에 이미 만들어졌고(D-03 ③-2 / REST 는
-   * server 가), 여기 오는 것은 접수 이후의 체결·취소확인이다. 구 게이트웨이가 `origin` 을
-   * 비워 보내면 `toOrderOrigin` 이 `"manual"` 로 좁히므로 자동주문도 이 길로 온다 — 그것은
-   * 와이어에 정보가 없는 것이라 relay 가 메울 수 없다(envelope.ts 가 같은 이유를 적어 둔다).
+   * **수동 주문도 이 분기를 탄다.** 옛 주석은 「행은 요청 시점에 이미 만들어졌으니(D-03 ③-2)
+   * 여기 올 일이 없다」고 적었지만 그 전제는 틀렸다 — 실사용에서 두 경로가 여기로 온다
+   * (GC-CR-02):
+   *   1. **좁히기 실패** — 같은 종목·수량·가격의 매수/매도가 동시에 대기하면 `narrowPending`
+   *      이 `null` 을 돌려준다 (테스트 ㉑ 이 그 상태를 고정한다).
+   *   2. **연결 종료 후 도착** — `closeConn` 이 `state.pending` 을 비운 뒤 온 통보는 후보가
+   *      0건이라 좁히기 경고조차 없이 여기로 떨어진다.
+   *
+   * 그리고 그 시점의 수동 행에는 **`order_no` 가 아직 없다** — insert 는 접수 전이라 주문번호를
+   * 모르고(③-2), `finish` 가 정산할 때 비로소 채운다. 그래서 조회 없이 `order_no` 셀렉터로
+   * 갱신하면 **0행**이고 PostgREST 는 그것을 에러로 주지 않는다. 이 분기가 조회를 거치는
+   * 이유가 그것이다.
+   *
+   * 구 게이트웨이가 `origin` 을 비워 보내면 `toOrderOrigin` 이 `"manual"` 로 좁히므로 자동주문도
+   * 이 길로 온다 — 그것은 와이어에 정보가 없는 것이라 relay 가 메울 수 없다(envelope.ts 가
+   * 같은 이유를 적어 둔다).
    */
   async function recordUnmatched(userId: string, notice: ParsedOrderResp): Promise<void> {
     const patch = patchOf(notice);
 
     if (notice.originKind === "manual") {
-      // 접수 이후의 통보다. `order_no` 로 행을 좁혀 갱신한다 (A10 셀렉터 2순위).
-      // **`userId` 를 반드시 싣는다** (gap 1): 없으면 `selectorOf` 가 `null` 을 돌려 이
-      // 갱신이 통째로 드롭되고, 접수 이후 수동 통보가 전부 사라진다.
-      deps.orderStore.enqueueUpdate({ ...patch, userId });
+      // 자동 분기와 **같은 조회**를 거친다. 「행이 있는가」는 조회해야만 알 수 있고, 모르는
+      // 채로 보낸 갱신은 0행이어도 성공처럼 보인다 (GC-CR-02 / Pitfall 18).
+      let existingId: string | null;
+      try {
+        existingId = await deps.orderStore.findIdByOrderNo(userId, notice.orderNo);
+      } catch (err) {
+        // 조회가 죽었다고 통보를 버리지 않는다 (S-5). 아래 `lookup-failed` 규율과 **동형**이다:
+        // 셀렉터가 사용자·당일로 좁혀져 있으므로 없으면 0행이고 있으면 **내 행**이다.
+        // `userId` 를 반드시 싣는다 (gap 1) — 없으면 `selectorOf` 가 `null` 을 돌려 드롭이다.
+        logger.error(
+          { err, orderNo: notice.orderNo, noticeType: notice.noticeType },
+          "[WS-order] 수동 통보 — 기존 행 조회 실패, 열화 갱신만 시도",
+        );
+        deps.orderStore.enqueueUpdate({ ...patch, userId });
+        return;
+      }
+
+      if (existingId !== null) {
+        // 행이 있음이 **확인된** 경우다. 이때만 갱신을 보낸다 — `order_no` 셀렉터는 확인
+        // 없이 쓰지 않는다는 것이 이 분기의 규율이고, 확인했으므로 A10 1순위인
+        // `orderRowId` 로 좁히는 것이 더 정확하다.
+        deps.orderStore.enqueueUpdate({ ...patch, orderRowId: existingId });
+        return;
+      }
+
+      // 붙을 행이 없다 = 이 갱신은 0행이다. **큐에 넣지 않는다** — 0행 update 는 아무것도
+      // 하지 않으면서 성공으로 보이고, 그 침묵이 이 파일이 없애겠다고 선언한 Pitfall 18 이다.
+      // 대신 통보 원문을 stdout 에 남긴다. relay stdout 이 D-24 의 두 번째 감사 사본이므로
+      // 기록이 0 이 되지는 않는다 (S-5). 계좌번호는 51 통보에 실려 오지 않는다 (T-16-45).
+      logger.error(
+        {
+          orderNo: notice.orderNo,
+          noticeType: notice.noticeType,
+          resultCode: notice.resultCode,
+          isin: notice.isin,
+          quantity: notice.quantity,
+          price: notice.price,
+        },
+        "[WS-order] 대기·행 어디에도 붙지 않는 수동 통보 — stdout 이 유일한 기록이다",
+      );
       return;
     }
 
