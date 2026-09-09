@@ -374,4 +374,89 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
 
     named.closeAll();
   });
+
+  it("⑬ 60 에코와 64 스냅샷에 종목명·단축코드가 붙는다 — 캐시 복사본에도 (갭 4)", () => {
+    const named = new SubscriptionHub({
+      symbols: new FakeSymbols({ [SAMPLE_ISIN]: { code: "005930", name: "삼성전자", market: "K" } }),
+    });
+    const events: HubFanoutEvent[] = [];
+    named.on("fanout", (e) => events.push(e));
+    const s = new FakeSession(USER_A);
+    named.attach(s);
+
+    // (a) 60 에코 — 팬아웃 프레임에 이름이 붙는다.
+    s.pushFrame(buildSetLimitChaserRespFrame({ isin: SAMPLE_ISIN }));
+    const lc = msgsOf(events, "lc") as RelayLimitChaserMsg[];
+    expect(lc).toHaveLength(1);
+    expect(lc[0]?.item.name).toBe("삼성전자");
+    expect(lc[0]?.item.code).toBe("005930");
+
+    // (b) 캐시 복사본에도 붙어 있다 — 이것이 재접속 복원(`lc.snap`, fanout.ts:554)의 잠금이다.
+    //     캐시에 원본을 넣으면 「지금 화면」은 이름이 있고 「새로 연 탭」은 ISIN 이 된다.
+    const cachedAfterEcho = named.getLimitChasers(USER_A);
+    expect(cachedAfterEcho).toHaveLength(1);
+    expect(cachedAfterEcho[0]?.name).toBe("삼성전자");
+    expect(cachedAfterEcho[0]?.code).toBe("005930");
+
+    // (c) 64 전량 스냅샷도 같은 보강을 거친다.
+    s.pushFrame(buildLimitChaserListRespFrame([{ isin: SAMPLE_ISIN }]));
+    const snap = msgsOf(events, "lc.snap") as RelayLimitChaserSnapMsg[];
+    expect(snap).toHaveLength(1);
+    expect(snap[0]?.items).toHaveLength(1);
+    expect(snap[0]?.items[0]?.name).toBe("삼성전자");
+    expect(snap[0]?.items[0]?.code).toBe("005930");
+
+    const cachedAfterSnap = named.getLimitChasers(USER_A);
+    expect(cachedAfterSnap[0]?.name).toBe("삼성전자");
+    expect(cachedAfterSnap[0]?.code).toBe("005930");
+
+    named.closeAll();
+  });
+
+  it("⑭ SymbolMap 이 모르는 ISIN 은 필드를 비워 둔다 — ISIN 을 이름 자리에 넣지 않는다", () => {
+    const named = new SubscriptionHub({
+      symbols: new FakeSymbols({ [SAMPLE_ISIN]: { code: "005930", name: "삼성전자", market: "K" } }),
+    });
+    const events: HubFanoutEvent[] = [];
+    named.on("fanout", (e) => events.push(e));
+    const s = new FakeSession(USER_A);
+    named.attach(s);
+
+    s.pushFrame(buildSetLimitChaserRespFrame({ isin: OTHER_ISIN }));
+
+    const lc = msgsOf(events, "lc") as RelayLimitChaserMsg[];
+    expect(lc).toHaveLength(1);
+    // 「이름이 없다」와 「이름이 ISIN 이다」는 다른 사실이다 — 후자를 만들면 UI 가 둘을
+    // 구분하지 못한다. 서버는 **비워 두고**, 「모르면 ISIN 을 그대로」 폴백은 UI 의 몫이다.
+    expect(lc[0]?.item.name).toBeUndefined();
+    expect(lc[0]?.item.code).toBeUndefined();
+    expect(lc[0]?.item.name).not.toBe(OTHER_ISIN);
+    expect(lc[0]?.item.isin).toBe(OTHER_ISIN);
+
+    // 캐시도 같다 — 스냅샷 경로로 지어낸 이름이 새지 않는다.
+    const cached = named.getLimitChasers(USER_A);
+    expect(cached[0]?.name).toBeUndefined();
+    expect(cached[0]?.name).not.toBe(OTHER_ISIN);
+
+    named.closeAll();
+  });
+
+  it("⑮ symbols 를 주입하지 않은 Hub 도 무해하다 — 60/64 가 흐르고 이름만 없다", () => {
+    // `hub` 는 beforeEach 가 만든 **기본 구성**이다(`#symbols === undefined`).
+    session.pushFrame(buildSetLimitChaserRespFrame({ isin: SAMPLE_ISIN }));
+    session.pushFrame(buildLimitChaserListRespFrame([{ isin: SAMPLE_ISIN }]));
+
+    const lc = msgsOf(fanout, "lc") as RelayLimitChaserMsg[];
+    expect(lc).toHaveLength(1);
+    expect(lc[0]?.item.name).toBeUndefined();
+
+    const snap = msgsOf(fanout, "lc.snap") as RelayLimitChaserSnapMsg[];
+    expect(snap).toHaveLength(1);
+    expect(snap[0]?.items[0]?.name).toBeUndefined();
+
+    // 캐시 규율은 보강 유무와 무관하게 그대로다.
+    const cached = hub.getLimitChasers(USER_A);
+    expect(cached).toHaveLength(1);
+    expect(cached[0]?.key).toBe(KEY_A);
+  });
 });
