@@ -178,7 +178,20 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     // 등록 전에는 사이드바 3단이 비어 있다.
     await expect(strategyItems(page)).toHaveCount(0);
 
-    await page.getByRole('switch', { name: '매수주문 켜기' }).click();
+    /*
+      ★ WR-06 — 발주할 수 없는 전략은 무장되지 않는다.
+        기본 주문금액 10만원으로 127,400원 종목을 사면 `floor(10만 / 12.74만) = 0주` 다.
+        0주 발주는 「켜졌는데 아무 일도 안 하는」 전략이므로 스위치가 잠기고 이유가 뜬다.
+        금액을 올리면 그때 켤 수 있게 된다 — 이 왕복 자체가 회귀 잠금이다.
+    */
+    const buySwitch = page.getByRole('switch', { name: '매수주문 켜기' });
+    await expect(buySwitch).toBeDisabled();
+    await expect(page.locator('[data-slot="lc-arm-blocked"]').first()).toBeVisible();
+
+    await field(page, 'lc-buy-order-amount').fill('50'); // 50만원 → 3주
+    await expect(buySwitch).toBeEnabled();
+
+    await buySwitch.click();
 
     // ★ 확인 다이얼로그가 없다(D-05) — 그 자리에서 바로 나간다.
     await expect(page.getByRole('dialog')).toHaveCount(0);
