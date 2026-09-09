@@ -145,6 +145,10 @@ const watchQtyInput = (): HTMLInputElement =>
 
 beforeEach(() => {
   sendMock.mockReset();
+  // ★ `send` 는 「소켓에 실었는가」를 돌려주는 boolean 계약이다(16-19). 상따 폼의 두 호출부가
+  //   그 값으로 분기하므로(GC-WR-06), 세우지 않으면 `undefined`(falsy)라 모든 전송이
+  //   「보내지 못했다」로 접힌다.
+  sendMock.mockReturnValue(true);
   searchMock.mockReset();
   searchMock.mockResolvedValue([]);
   setRelay({});

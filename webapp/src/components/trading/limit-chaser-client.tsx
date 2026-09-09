@@ -781,7 +781,13 @@ function Dot({ tone, pulse = false }: { tone: 'ok' | 'up' | 'down' | 'hollow' | 
  *   `null`·master-sync 의 미확인 sentinel 이 그대로 실려 온다. 그래서 문자열 목록으로 본다.
  */
 const ORDERABLE_MARKETS: readonly string[] = ['KOSPI', 'KOSDAQ'];
-function isPickable(row: StockDetailResponse): boolean {
+/*
+  ★ 반환형이 **타입 서술자**다 (GC-IN-02) — 이 함수가 런타임에 확인하는 `row.isin !== null` 을
+    타입에도 그대로 말한다. `boolean` 이면 TS 가 좁히지 못해 소비부가 `isin` 을 `string` 으로
+    단언해 메우게 되고, 그 단언은 「검사와 타입이 갈라져도 컴파일러가 침묵한다」는 뜻이다 —
+    나중에 이 함수에서 `isin` 검사를 빼도 아무 데서도 터지지 않는다.
+*/
+function isPickable(row: StockDetailResponse): row is StockDetailResponse & { isin: string } {
   return row.isin !== null && ORDERABLE_MARKETS.includes(row.market);
 }
 
@@ -846,9 +852,10 @@ function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }
                   data-slot="lc-search-option"
                   disabled={!isPickable(row)}
                   onClick={() => {
+                    // 서술자가 여기서 `row.isin` 을 `string` 으로 좁힌다 — 단언이 필요 없다.
                     if (!isPickable(row)) return;
                     onPick({
-                      isin: row.isin as string,
+                      isin: row.isin,
                       code: row.code,
                       name: row.name,
                       // `market` 을 싣지 않는다 (WR-03 / D-28) — 추측이 발주 설정이 되지 않게.
