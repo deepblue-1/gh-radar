@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-29-PLAN.md (GC-WR-04 삭제 통과 + GC-WR-05 무장 3식 동형)
-last_updated: "2026-09-09T05:13:35.996Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-29 실행 완료 (GC-WR-04·GC-WR-05)
+stopped_at: Completed 16-30-PLAN.md (GC-WR-07 stalledCount 판정 + GC-WR-11 토큰·판정 무결성)
+last_updated: "2026-09-09T05:26:25.256Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-30 실행 완료 (GC-WR-07·GC-WR-11)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 154
+  completed_plans: 155
   percent: 72
 ---
 
@@ -26,15 +26,27 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 30 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-29 완료, 16-30~16-35 대기)
-Plans completed: 154 / 174
+Plan: 31 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-30 완료, 16-31~16-35 대기)
+Plans completed: 155 / 174
 Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-29 실행 완료 (GC-WR-04·GC-WR-05)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-30 실행 완료 (GC-WR-07·GC-WR-11)
 
 Progress: [█████████░] 89%
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-30 완료 — GC-WR-07 · GC-WR-11 종결.** 둘 다 「우리가 장애를 **관측하는 수단**」이 스스로를 무력화하던 자리다 — 하나는 uptime check, 하나는 smoke 판정이다.
+- **`/healthz` 의 면제에 시간 상한이 붙었다.** 16-21 의 `everReadyCount === 0` 유예는 그대로 두되, 「생성 후 `STALE_SESSION_MS`(5분)가 지나도록 한 번도 Ready 가 아닌 세션」(`stalledCount`)을 함께 세어 판정을 `(everReadyCount === 0 && stalledCount === 0) || readyCount > 0` 으로 바꿨다. `hasBeenReady` 는 **프로세스 메모리 래치**라 게이트웨이 장애 중에 relay 가 한 번만 재시작하면 진짜 장애가 영원히 `ok/200` 이었다 — 예전 규칙(`sessionCount > 0 && readyCount === 0`)이 잡던 사례가 통째로 빠져 있었다. 부팅 직후 유예(16-21 이 gap 4 로 얻은 것)는 그대로다.
+- **래치는 건드리지 않았다.** 시각을 `DmaSession` 이 아니라 매니저 `Entry.createdAt` 에 얹어 `relay/src/dma/session.ts` diff **0줄**(T-16-26). `stalledCount` 는 `everReadyCount` 와 같은 규율로 **필수 필드**라, 스텁 5곳과 필드 화이트리스트 2곳이 컴파일·단정 단계에서 갱신을 강제받았다.
+- **smoke INV-9 의 두 결함을 닫았다.** ① Supabase 액세스 토큰이 `node ... "$token"` argv 로 나가 `ps` 에 노출되던 것을 `SMOKE_TOKEN` **env 전달**로 바꿨다(T-16-56). ② 프로브가 판정을 찍은 **뒤** 비정상 종료하면 `printf 'inconclusive'` 가 **덧붙어** `reachable\ninconclusive` 가 되고 `case` 의 `*` 로 떨어져 **FAIL 이 SKIP 으로 강등**되던 것을, 변수 **대입 + 단일 출력 지점**으로 바꿨다(T-16-57). `case *` 갈래는 이제 관측 문자열 원문을 남긴다.
+- **회귀 잠금 실증.** `sessionsOk` 를 16-21 원형으로 되돌리면 ⑧-d 가, `stats()` 의 stalled 분기를 차단하면 ⑩ 이 실제로 실패하는 것을 확인 후 복원. relay **365 tests** · typecheck · typecheck:tests green. 신규 마이그레이션 0건.
+- **smoke 는 프로덕션 대상으로 돌리지 않았다** (실행은 2라운드 종결 plan 몫). 대신 `node`·`pnpm` PATH 셰임으로 `ws_order_probe` 만 격리 실행해 수정 전/후를 실측했다 — 수정 전 argv 토큰 **1건** · 판정 `reachable\ninconclusive`, 수정 후 argv 토큰 **0건** · 판정 `inconclusive`. 토큰 미설정 시 SKIP 은 전후 동일.
+- **실행 중 자초한 회귀 1건을 되돌렸다.** 저장소에 prettier 설정이 **없어** `npx prettier --write` 가 기본 `printWidth: 80` 으로 무관한 줄을 통째로 재배열했다(459 insertions). 테스트 2종은 `git checkout` 후 편집 재적용으로 복구했고 최종 diff 의 삭제 줄은 의도한 것뿐이다. **이 저장소에는 자동 포매터가 없으므로 돌리지 않는다.**
+- **`10.41.1.120` 실측은 여전히 2건**(`relay/README.md:17` 경고문 · `relay/src/dma/link-health.ts:20` 주석). 둘 다 산문이고 접속 대상 설정이 아니라 **삭제하지 않았다** — 지우면 D-27 안전장치의 근거가 사라진다.
+- **TRADE-03 은 계속 Pending.** `requirements.mark-complete` 를 돌리지 않았다 — `stalledCount` 판정은 아직 배포되지 않았고 프로덕션 `/healthz` 의 `everReadyCount: 0`(16-26)은 그대로다.
+- **배포 미실시.** relay 재배포는 2라운드 종결 plan 에서 일괄 처리한다.
+
 
 - **16-29 완료 — GC-WR-04 · GC-WR-05 종결.** `lc.set` 의 관문이 **한쪽으로는 과하게 엄격하고 다른 쪽으로는 느슨하던** 상태를 동시에 바로잡았다. 시장 해석은 이제 **의도로 갈린다**: 철거(`crud:"D"` ∨ 게이트 4종 전부 OFF)는 `#teardownMarket` 이 받아 **에코 캐시(`getLimitChasers`) → `SymbolMap` → 상수 폴백** 순으로 풀고 **절대 거부하지 않는다**. 등록·수정은 `#strategyMarket` 그대로라 16-25 의 엄격함(기본값 `"K"` 금지 / T-16-42)이 유지된다.
 - **폴백을 「통과」로 정한 근거는 전략 키에 시장이 없다는 사실이다.** `strategyKey()` = `ISIN:계좌:거래소` 이고 게이트웨이 `LimitChaser::MakeKey` 와 동형이라, 철거 프레임의 `market` 은 **무엇을 지울지에 관여하지 않는다** — 지어낸 값이 엉뚱한 대상을 지울 위험이 구조적으로 없다. 최종 폴백은 `logger.error` 를 동반한다(S-5, 계좌번호 미포함).
@@ -207,6 +219,7 @@ Progress: [█████████░] 89%
 | Phase 16 P27 | 21min | 2 tasks | 2 files |
 | Phase 16 P28 | 18min | 2 tasks | 2 files |
 | Phase 16 P29 | 12min | 2 tasks | 2 files |
+| Phase 16 P30 | 20min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -391,6 +404,9 @@ Recent decisions affecting current work:
 - [Phase 16]: ORDER_FLUSH_MAX_ROUNDS 는 +2 를 유지하고 세 라운드의 정체를 docstring 에 적는다 (a안) — 3라운드는 재시도가 아니라 flushNow 가 await 하는 동안 동기 enqueueUpdate 로 들어온 항목의 몫이다. +1 로 자르면 SIGTERM 과 마지막 통보가 겹칠 때 그 항목이 손도 못 대고 결손으로 보고된다.
 - [Phase 16]: 상따 삭제(crud D · 전 게이트 OFF)는 시장 해석 실패로 거부하지 않는다 — 전략 키에 시장이 없어 폴백이 삭제 대상을 바꾸지 않는다 (GC-WR-04)
 - [Phase 16]: relay 무장 가드를 UI canArmBuy·canArmSell·canArmSweep 3식과 동형으로 이식 — sellWatchQty 0 과 sweep 게이트를 서버가 막는다 (GC-WR-05)
+- [Phase 16]: 세션 생성 시각(createdAt)은 DmaSession 이 아니라 SessionManager 의 Entry 에 둔다 — hasBeenReady 래치의 의미(T-16-26)를 흐리지 않기 위해서다. session.ts diff 0줄 (GC-WR-07)
+- [Phase 16]: STALE_SESSION_MS(5분)는 env 로 열지 않는다 — 판정 임계가 배포 환경마다 갈리면 uptime 알림의 의미가 환경별로 갈라진다 (GC-WR-07)
+- [Phase 16]: smoke 프로브 비밀은 argv 가 아니라 env(SMOKE_TOKEN)로 넘긴다(argv 는 ps 로 world-readable). 판정 문자열은 대입으로 덮어쓰고 출력 지점은 하나 (GC-WR-11)
 
 ### Pending Todos
 
@@ -442,6 +458,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T05:13:30.581Z
-Stopped at: Completed 16-28-PLAN.md (GC-WR-08 23505 수렴 + GC-IN-04 상한 상수 정합)
+Last session: 2026-09-09T05:26:18.381Z
+Stopped at: Completed 16-30-PLAN.md (GC-WR-07 stalledCount 판정 + GC-WR-11 토큰·판정 무결성)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
