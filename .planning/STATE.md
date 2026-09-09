@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-27-PLAN.md (GC-CR-01 하드 필터 + GC-CR-03 await TOCTOU 가드)
-last_updated: "2026-09-09T05:09:00.000Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-27 실행 완료 (GC-CR-01·GC-CR-03)
+stopped_at: Completed 16-28-PLAN.md (GC-WR-08 23505 수렴 + GC-IN-04 상한 상수 정합)
+last_updated: "2026-09-09T05:02:49.620Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-28 실행 완료 (GC-WR-08·GC-IN-04)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 152
+  completed_plans: 153
   percent: 72
 ---
 
@@ -26,15 +26,21 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 27 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27 완료, 16-28~16-35 대기)
-Plans completed: 152 / 174
+Plan: 29 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-28 완료, 16-29~16-35 대기)
+Plans completed: 153 / 174
 Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-27 실행 완료 (GC-CR-01·GC-CR-03)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-28 실행 완료 (GC-WR-08·GC-IN-04)
 
-Progress: [█████████░] 93% (152/174 plans · 18/25 phases)
+Progress: [█████████░] 88% (153/174 plans · 18/25 phases)
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-28 완료 — GC-WR-08 · GC-IN-04 종결.** 16-18 의 부분 UNIQUE 인덱스가 막은 「같은 주문 두 벌」 경주는, 그 위반(`23505`)을 아무도 해석하지 않아 **「기록 소실」로 바뀌어 있었다**. insert sink 는 이제 `23505` 이고 `orderNo` 가 비어 있지 않을 때만 같은 3축으로 재조회해 **기존 행 id 로 수렴**하고 warn 을 남긴다(`origin`·SQLSTATE 만 — 계좌·주문번호 원문 없음). 다른 코드는 이 plan 전후로 완전히 동일하게 throw 다.
+- **`order_no` 를 채우는 갱신의 `23505` 는 재시도하지 않는다.** 재시도해도 결과가 같은 데이터 분기라, throw 대신 사유 있는 error 로그로 끝내 `#dropped` 를 오염시키지 않는다(S-5). 분기 조건은 **셀렉터가 아니라 patch** 에 걸었다 — `finish` 는 `orderRowId` 를 쥐고 있어 셀렉터가 `id` 이고 `order_no` 는 채울 컬럼이다. 계획 문구(`order_no` 셀렉터)대로였다면 갭이 지목한 경로를 비켜 갔다.
+- **`ORDER_FLUSH_MAX_ROUNDS` 의 `+2` 에 근거가 붙었다.** 「이론상 2회면 끝난다」와 식(=3)이 다른 수를 말하던 상태를 없애고, 라운드 1 첫 배치 / 2 재시도분 / **3 동시 유입 확인**(`flushNow` 가 `await` 하는 사이 동기 `enqueueUpdate` 로 들어온 항목)을 docstring 에 명시했다. 식은 유지.
+- **회귀 잠금 실증.** 두 `23505` 분기를 `false` 로 무력화하면 새 테스트 ⓻·⓽ 가 실제로 실패한다(⓽ 는 드롭 카운터가 1 로 오른다)는 것을 확인 후 복원. relay 355 tests · typecheck · typecheck:tests green. 신규 마이그레이션 0건.
+- **TRADE-03 은 계속 Pending.** 프로덕션 `everReadyCount: 0` 판정(16-26)은 그대로다 — `requirements.mark-complete` 를 돌리지 않았다.
 
 - **16-27 완료 — GC-CR-01 · GC-CR-03 종결.** `narrowPending` 의 「후보 1건 지름길」을 제거하고, 통보가 **실어 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` C/M)을 후보 수와 무관한 **하드 필터**로 승격했다(0건이면 `null`). 비어 있는 축은 그대로 건너뛰므로 구 게이트웨이 호환은 유지된다. 통보 소비 루프의 warn 조건도 `candidates.length > 0 && picked === null` 로 넓혀 후보 1건 미정산의 침묵을 없앴다.
 - **await 경계 TOCTOU 가드.** `await insertRequest` 직후·`buildDirectOrderReq` 이전(`order-handler.ts:701` vs `:719`)에 `conns.get(conn) !== state` 를 두어, 왕복 중 탭이 닫히면 **주문이 게이트웨이로 나가지 않는다**. 중단 시 `logger.warn` + `status:"rejected"` 를 남기며, 고아 `ConnState` 대기·타이머가 아예 생기지 않아 「실제로 접수된 주문이 `timeout` 으로 감사 기록에 남는」 경로가 사라졌다.
@@ -190,6 +196,7 @@ Progress: [█████████░] 93% (152/174 plans · 18/25 phases)
 | Phase 16 P25 | 20min | 3 tasks | 13 files |
 | Phase 16 P26 | 78min (배포 게이트 포함) | 3 tasks | 6 files |
 | Phase 16 P27 | 21min | 2 tasks | 2 files |
+| Phase 16 P28 | 18min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -370,6 +377,8 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 25]: 게이트 무장 판정은 gateBlocked(key, next) 하나이고 스위치 disabled 와 toggleGate 전송 가드가 그것을 함께 읽는다 (WR-06 / T-16-43, vi-order-list 의 isConfirmable 승계). next === false(끄기)는 무장 조건을 보지 않는다 — 무장 해제를 막으면 사용자의 자산을 인질로 잡는다 (T-16-44).
 - [Phase 16 Plan 25]: 매도 무장 조건은 계획의 sellQty 대신 sellWatchQty 를 본다. estimatedSellQty 는 lib/limit-chaser.ts 가 「표시 전용」이라 못박은 값이고, 보유 0 을 차단 조건으로 삼으면 「사기 전에 팔 조건을 거는」 상따 주 동선이 통째로 막힌다 — 서버가 매도를 눕히는 조건도 sellWatchQty === 0 이다.
 - [Phase 16 Plan 25]: 배포는 relay 를 먼저 올린다. 새 webapp + 옛 relay 조합은 market 없는 cfg 가 옛 스키마의 필수 필드 검증에 걸려 lc.set 이 전부 조용히 드롭된다 (16-26 배포 순서).
+- [Phase 16]: update 의 23505 분기는 셀렉터가 아니라 patch.order_no 에 건다 — finish 경로는 셀렉터가 id 다 — selectorOf 가 orderRowId 를 우선하므로 GC-WR-08 이 지목한 경로의 셀렉터는 id 이고 order_no 는 채울 컬럼이다. 셀렉터로 좁히면 그 경로를 비켜 간다.
+- [Phase 16]: ORDER_FLUSH_MAX_ROUNDS 는 +2 를 유지하고 세 라운드의 정체를 docstring 에 적는다 (a안) — 3라운드는 재시도가 아니라 flushNow 가 await 하는 동안 동기 enqueueUpdate 로 들어온 항목의 몫이다. +1 로 자르면 SIGTERM 과 마지막 통보가 겹칠 때 그 항목이 손도 못 대고 결손으로 보고된다.
 
 ### Pending Todos
 
@@ -421,6 +430,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T02:50:15.982Z
-Stopped at: Completed 16-24-PLAN.md (WR-07 VI 금액 상한 3층 + WR-09 종료 플러시 경주)
+Last session: 2026-09-09T05:02:49.608Z
+Stopped at: Completed 16-28-PLAN.md (GC-WR-08 23505 수렴 + GC-IN-04 상한 상수 정합)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
