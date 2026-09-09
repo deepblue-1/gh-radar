@@ -116,17 +116,52 @@ type GateKey = (typeof GATE_KEYS)[number];
 /**
  * 무장 불가 사유 (WR-06). 배지만 회색으로 두면 사용자는 **왜** 안 켜지는지 모른다.
  *
- * 발생 조건은 「시세를 못 받은 종목」이다 — `stock_quotes` 행이 없으면 상한가·현재가가 0 이고
- * 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그래서 사유가 아니라 **다음 행동**을 말한다.
- *
- * ★ 키는 **게이트 필드명**(`GateKey`)이다 — 그룹 렌더와 `handleSubmit` 이 같은 키로 읽어야
- *   문구가 두 벌로 갈리지 않는다(GC-WR-09).
+ * ★ **원인이 둘이고, 사용자가 만져야 할 곳이 서로 다르다** (GC-WR-12).
+ *   1. **시세 미수신** — `stock_quotes` 행이 없으면 상한가·현재가가 0 이고, 상한가 시딩이
+ *      가격 칸을 전부 0 으로 채운다. 이때 만져야 할 것은 **가격**이다.
+ *   2. **주문금액 부족** — 가격은 정상인데 `floor(주문금액 / 매수가격) = 0주` 인 경우다.
+ *      이쪽이 **훨씬 흔하다**: 기본 주문금액 10만원으로 127,400원 종목을 고르면 그 자리에서
+ *      0주가 된다(`e2e/specs/trading-limit-chaser.spec.ts:181-192` 가 고정한 재현 조건).
+ *      이때 만져야 할 것은 **금액**이고, 「시세를 못 받았다」고 말하면 사용자는 엉뚱한 곳
+ *      (재접속·새로고침)을 만지며 그 사이 시장은 움직인다.
+ *   옛 문구는 둘을 「시세를 받지 못해 …」 한 줄로 뭉개 ②를 ①로 오인시켰다.
  */
-const ARM_BLOCKED_TEXT: Record<GateKey, string> = {
-  buyEnabled: '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
-  sellEnabled: '매도가격이나 예상 매도수량이 0 이에요. 값을 확인하면 켤 수 있어요.',
-  sweepEnabled: '한방가격이나 매수 주문수량이 0 이에요. 값을 입력하면 켤 수 있어요.',
-};
+const ARM_BLOCKED_TEXT = {
+  buyPrice: '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
+  buyAmount: '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+  sellPrice: '시세를 받지 못해 매도가격이 0 이에요. 매도가격을 입력하면 켤 수 있어요.',
+  sellWatchQty: '매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
+  sweepPrice: '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
+  sweepBuyPrefix: '한방은 매수 무장 조건을 함께 요구해요 — ',
+} as const;
+
+/**
+ * 게이트 하나가 왜 안 켜지는가 — **문구 산출 지점 하나**.
+ *
+ * 그룹 렌더의 사유줄과 `handleSubmit` 의 차단 문구가 **이 함수 하나**를 읽는다. 두 곳에 따로
+ * 적으면 언젠가 서로 다른 말을 하고, 그때 사용자는 「화면이 서로 다른 이유를 대는」 상태를
+ * 본다 — 안전 게이트에서 그것은 문구 결함이 아니라 신뢰 결함이다(GC-WR-09 + GC-WR-12).
+ *
+ * ★ 판정은 `canArm*` 3식과 **같은 값**을 본다(`limit-chaser.ts` 의 산출식을 복제하지 않는다).
+ */
+function armBlockedTextOf(key: GateKey, values: LimitChaserFormValues): string {
+  // 매도는 두 값이 독립이다 — 가격이 0 이면 시세, 아니면 감시 호가잔량이다(`canArmSell` 동형).
+  if (key === 'sellEnabled') {
+    return values.sellOrderPrice === 0 ? ARM_BLOCKED_TEXT.sellPrice : ARM_BLOCKED_TEXT.sellWatchQty;
+  }
+  // 매수는 「가격이 없다」와 「금액이 모자라 0주가 됐다」가 다른 행동을 요구한다.
+  const buyReason =
+    values.buyOrderPrice === 0 ? ARM_BLOCKED_TEXT.buyPrice : ARM_BLOCKED_TEXT.buyAmount;
+  if (key === 'buyEnabled') return buyReason;
+  /*
+    한방은 `canArmSweep = sweepWatchPrice > 0 && canArmBuy` 라 원인이 **두 축**이다.
+    자기 감시가가 0 인 경우를 먼저 짚고, 아니면 매수 쪽 사유를 그대로 이어 붙인다 —
+    「한방가격이나 매수 주문수량이 0」처럼 뭉뚱그리면 어느 쪽을 만져야 하는지 알 수 없다.
+  */
+  return values.sweepWatchPrice === 0
+    ? ARM_BLOCKED_TEXT.sweepPrice
+    : `${ARM_BLOCKED_TEXT.sweepBuyPrefix}${buyReason}`;
+}
 
 /**
  * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
@@ -389,11 +424,18 @@ export function LimitChaserForm({
   */
   const canArmSweep = form.sweepWatchPrice > 0 && canArmBuy;
 
-  const canArm: Record<GateKey, boolean> = {
-    buyEnabled: canArmBuy,
-    sellEnabled: canArmSell,
-    sweepEnabled: canArmSweep,
-  };
+  /*
+    ★ **`useMemo` 다** (GC-IN-01). 객체 리터럴로 두면 매 렌더 새 참조가 되고, 그것을 의존성으로
+      받는 아래 `gateBlocked` 의 `useCallback` 이 **아무것도 메모하지 않는다** — 21개 컨트롤이
+      붙은 고밀도 폼에서 한 글자 입력마다 스위치 3개의 콜백이 통째로 새로 만들어진다.
+    의존성이 세 boolean 이면 충분한 근거: `canArmBuy/Sell/Sweep` 는 이미 폼 값에서 계산이
+      끝난 **결과**이고, 이 객체는 그 셋을 키에 얹기만 한다. 폼 값을 다시 의존성에 넣으면
+      결과가 그대로인 입력(예: 비교가격 변경)에도 참조가 깨져 메모가 다시 무의미해진다.
+  */
+  const canArm: Record<GateKey, boolean> = useMemo(
+    () => ({ buyEnabled: canArmBuy, sellEnabled: canArmSell, sweepEnabled: canArmSweep }),
+    [canArmBuy, canArmSell, canArmSweep],
+  );
 
   /**
    * 스위치 1개의 **판정 지점 하나**. 렌더의 `disabled` 와 전송 직전 가드가 이 함수를 함께
@@ -452,7 +494,7 @@ export function LimitChaserForm({
     */
     const blocked = GATE_KEYS.find((key) => values[key] && gateBlocked(key, true));
     if (blocked !== undefined) {
-      setSubmitError(ARM_BLOCKED_TEXT[blocked]);
+      setSubmitError(armBlockedTextOf(blocked, values));
       return;
     }
     setSubmitting(true);
@@ -504,7 +546,11 @@ export function LimitChaserForm({
           // ★ 켜는 방향만 막는다 — `!form.buyEnabled` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
           disabled: gateBlocked('buyEnabled', !form.buyEnabled),
         }}
-        armBlocked={!form.buyEnabled && !canArmBuy && !disabled ? ARM_BLOCKED_TEXT.buyEnabled : undefined}
+        armBlocked={
+          !form.buyEnabled && !canArmBuy && !disabled
+            ? armBlockedTextOf('buyEnabled', form)
+            : undefined
+        }
       >
         <NumField
           id="lc-buy-watch-price"
@@ -611,7 +657,9 @@ export function LimitChaserForm({
           disabled: gateBlocked('sweepEnabled', !form.sweepEnabled),
         }}
         armBlocked={
-          !form.sweepEnabled && !canArmSweep && !disabled ? ARM_BLOCKED_TEXT.sweepEnabled : undefined
+          !form.sweepEnabled && !canArmSweep && !disabled
+            ? armBlockedTextOf('sweepEnabled', form)
+            : undefined
         }
       >
         <NumField
@@ -651,7 +699,9 @@ export function LimitChaserForm({
           disabled: gateBlocked('sellEnabled', !form.sellEnabled),
         }}
         armBlocked={
-          !form.sellEnabled && !canArmSell && !disabled ? ARM_BLOCKED_TEXT.sellEnabled : undefined
+          !form.sellEnabled && !canArmSell && !disabled
+            ? armBlockedTextOf('sellEnabled', form)
+            : undefined
         }
       >
         <NumField

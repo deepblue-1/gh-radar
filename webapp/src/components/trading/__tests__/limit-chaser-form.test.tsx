@@ -567,7 +567,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
 
     expect(buySwitch()).toBeDisabled();
     expect(armBlockedTexts()).toContain(
-      '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+      '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
     );
     // 배지만 회색으로 두지 않는다 — 눌러도 아무 일이 없으면 사용자는 이유를 모른다.
     fireEvent.click(buySwitch());
@@ -584,7 +584,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
 
     expect(buySwitch()).toBeEnabled();
     expect(armBlockedTexts()).not.toContain(
-      '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+      '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
     );
     await user.click(buySwitch());
     expect(lastConfig().buyEnabled).toBe(true);
@@ -621,7 +621,8 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
 
     expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeDisabled();
     expect(armBlockedTexts()).toContain(
-      '한방가격이나 매수 주문수량이 0 이에요. 값을 입력하면 켤 수 있어요.',
+      // 한방가격(130,000)은 정상이고 막은 것은 매수 쪽이다 — 문구가 그 사실을 그대로 말한다.
+      '한방은 매수 무장 조건을 함께 요구해요 — 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
     );
   });
 
@@ -630,7 +631,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
 
     expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toBeDisabled();
     expect(armBlockedTexts()).toContain(
-      '매도가격이나 예상 매도수량이 0 이에요. 값을 확인하면 켤 수 있어요.',
+      '매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
     );
   });
 
@@ -680,7 +681,7 @@ describe('⑭ 전송 직전 가드가 「수정」에도 걸리고, 못 보낸 �
     // relay 에 통째로 거부되기 **전에** 화면이 사유를 말한다.
     expect(sendMock).not.toHaveBeenCalled();
     expect(submitError()).toHaveTextContent(
-      '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+      '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
     );
     // 잠금 **전**에 막았다 — 버튼은 살아 있다(잠근 뒤 막으면 영구히 잠긴다).
     expect(screen.getByRole('button', { name: '수정' })).toBeEnabled();
@@ -747,5 +748,78 @@ describe('⑭ 전송 직전 가드가 「수정」에도 걸리고, 못 보낸 �
     await user.click(screen.getByRole('button', { name: '수정' }));
     expect(sendMock).toHaveBeenCalledTimes(2);
     expect(submitError()).toBeNull();
+  });
+});
+
+/*
+  GC-WR-12 — **안내가 사용자가 실제로 만져야 할 곳을 가리킨다**.
+
+  옛 `ARM_BLOCKED_TEXT.buy` 는 "**시세를 받지 못해** 발주가·수량이 0 이에요"라고 단정했다.
+  그런데 같은 phase 의 e2e(`trading-limit-chaser.spec.ts:181-192`)가 고정한 실제 재현 조건은
+  「기본 주문금액 10만원으로 127,400원 종목을 사면 `floor(10만/12.74만) = 0주`」다 —
+  **시세는 정상이고 금액이 부족한 것**이다. 안전 게이트가 원인을 틀리게 말하면 사용자는
+  엉뚱한 곳(재접속·새로고침)을 만지고, 그 사이 시장은 움직인다.
+
+  ★ 이 describe 가 잠그는 것: **두 원인이 값으로 갈리고 서로 다른 문구를 낸다**.
+*/
+describe('⑮ 무장 불가 안내가 원인을 값으로 가른다 (GC-WR-12)', () => {
+  const armBlockedTexts = () =>
+    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).map(
+      (el) => el.textContent ?? '',
+    );
+
+  it('매수가격이 0 이면 **시세** 문구다 — 만져야 할 것은 가격이다', () => {
+    // 에코 없음 + 상한가 0 = `stock_quotes` 행이 없어 가격 칸이 전부 0 인 종목.
+    render(<LimitChaserForm {...props({ server: null, upperLimit: 0 })} />);
+
+    expect(armBlockedTexts()).toContain(
+      '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
+    );
+  });
+
+  it('매수가격은 있는데 주문금액이 부족하면 **금액** 문구다 (e2e 가 고정한 흔한 쪽)', () => {
+    // 130,000원 종목 + 주문금액 1만원 → `floor(10,000 / 130,000) = 0주`. 시세는 정상이다.
+    render(
+      <LimitChaserForm {...props({ server: echo({ buyEnabled: false, buyOrderAmount: 1 }) })} />,
+    );
+
+    expect(armBlockedTexts()).toContain(
+      '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+    );
+    // ★ 두 문구는 배타적이다 — 시세 문구가 함께 뜨면 사용자는 다시 원인을 고르게 된다.
+    expect(armBlockedTexts()).not.toContain(
+      '시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
+    );
+  });
+
+  it('매도는 가격 0 과 감시 호가잔량 0 이 서로 다른 문구다', () => {
+    const { unmount } = render(
+      <LimitChaserForm {...props({ server: echo({ sellOrderPrice: 0 }) })} />,
+    );
+    expect(armBlockedTexts()).toContain(
+      '시세를 받지 못해 매도가격이 0 이에요. 매도가격을 입력하면 켤 수 있어요.',
+    );
+    unmount();
+
+    render(<LimitChaserForm {...props({ server: echo({ sellWatchQty: 0 }) })} />);
+    expect(armBlockedTexts()).toContain(
+      '매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
+    );
+  });
+
+  it('한방은 자기 감시가가 0 인 경우와 매수가 막힌 경우를 가른다', () => {
+    const { unmount } = render(
+      <LimitChaserForm {...props({ server: echo({ sweepWatchPrice: 0 }) })} />,
+    );
+    expect(armBlockedTexts()).toContain(
+      '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
+    );
+    unmount();
+
+    // 한방가격은 정상(130,000)이고 매수 쪽이 0주라 못 켠다.
+    render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1 }) })} />);
+    expect(armBlockedTexts()).toContain(
+      '한방은 매수 무장 조건을 함께 요구해요 — 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+    );
   });
 });
