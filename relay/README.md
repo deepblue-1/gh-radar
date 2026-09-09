@@ -72,7 +72,7 @@ DMA_HOST=127.0.0.1 DMA_PORT=9100 pnpm --filter @gh-radar/relay run dev
 
 ```bash
 curl -s http://localhost:8091/healthz
-# {"status":"ok","vpn":true,"dma":true,"version":"dev","sessionCount":0}
+# {"status":"ok","vpn":true,"dma":true,"version":"dev","sessionCount":0,"everReadyCount":0}
 ```
 
 웹앱이 붙게 하려면 `webapp/.env.local` 에 다음을 넣는다 (D-41):

@@ -54,7 +54,7 @@ const DOWN_INTERFACES: NodeJS.Dict<os.NetworkInterfaceInfo[]> = {
 };
 
 async function start(opts: StartOptions = {}): Promise<Harness> {
-  const stats = opts.stats ?? { sessionCount: 0, readyCount: 0 };
+  const stats = opts.stats ?? { sessionCount: 0, readyCount: 0, everReadyCount: 0 };
 
   const apiSessions: OrderApiSessions = {
     stats: () => stats,
@@ -111,6 +111,7 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
     // 필드 화이트리스트 — 늘어나면 이 테스트가 먼저 깨져야 한다.
     expect(Object.keys(body).sort()).toEqual([
       "dma",
+      "everReadyCount",
       "sessionCount",
       "status",
       "version",
@@ -222,8 +223,10 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
     }
   });
 
-  it("⑧ 세션이 있는데 Ready 가 0개면 degraded + HTTP 503 (Assumption A7)", async () => {
-    const degraded = await start({ stats: { sessionCount: 2, readyCount: 0 } });
+  it("⑧ Ready 였다가 죽은 세션 2건이면 degraded + HTTP 503 (Assumption A7)", async () => {
+    // 게이트웨이가 **있었는데** 죽은 경우다. everReadyCount 가 sessionCount 와 같으므로
+    // 「애초에 없는 환경」과 구분된다 — 이쪽은 진짜 장애이고 알림이 울려야 한다.
+    const degraded = await start({ stats: { sessionCount: 2, readyCount: 0, everReadyCount: 2 } });
     try {
       const res = await fetch(degraded.url("/healthz"));
       const body = (await res.json()) as Record<string, unknown>;
@@ -232,14 +235,59 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
       expect(res.status).toBe(503);
       // 회선은 멀쩡한데 세션만 못 서는 경우다(게이트웨이 거부 등). 두 신호를 분리했으므로
       // `vpn` 은 true 로 남아야 한다 — 여기를 false 로 적으면 VPN 을 애먼 범인으로 만든다.
-      expect(body).toMatchObject({ status: "degraded", vpn: true, dma: false, sessionCount: 2 });
+      expect(body).toMatchObject({
+        status: "degraded",
+        vpn: true,
+        dma: false,
+        sessionCount: 2,
+        everReadyCount: 2,
+      });
     } finally {
       await degraded.close();
     }
   });
 
+  it("⑧-b 한 번도 Ready 인 적 없는 세션 1건은 ok 200 이다 — 게이트웨이 부재는 장애가 아니다 (gap 4)", async () => {
+    // `DMA_HOST` 가 뜨지 않은 환경. 로그인 사용자가 붙는 즉시 세션이 만들어지지만 영원히
+    // Ready 가 되지 않는다. 이 구간을 503 으로 보고하면 uptime 이 상시 적색이 되고,
+    // 상시 적색은 곧 알림 무시다 (15-05 계약 대체, 16-21).
+    const absent = await start({ stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0 } });
+    try {
+      const res = await fetch(absent.url("/healthz"));
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(res.status).toBe(200);
+      expect(body).toMatchObject({
+        status: "ok",
+        vpn: true,
+        dma: true,
+        sessionCount: 1,
+        everReadyCount: 0,
+      });
+    } finally {
+      await absent.close();
+    }
+  });
+
+  it("⑧-c never-Ready 세션이 있어도 VPN 이 죽으면 degraded 503 이다 (세션 완화가 회선 신호를 가리지 않는다)", async () => {
+    const absentNoVpn = await start({
+      stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0 },
+      interfaces: DOWN_INTERFACES,
+    });
+    try {
+      const res = await fetch(absentNoVpn.url("/healthz"));
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(res.status).toBe(503);
+      // 세션 판정은 통과(dma:true)했는데 회선이 죽었다 — 두 신호가 분리되어 있다는 증거다.
+      expect(body).toMatchObject({ status: "degraded", vpn: false, dma: true, everReadyCount: 0 });
+    } finally {
+      await absentNoVpn.close();
+    }
+  });
+
   it("⑨ Ready 세션이 하나라도 있으면 ok 다", async () => {
-    const ready = await start({ stats: { sessionCount: 3, readyCount: 1 } });
+    const ready = await start({ stats: { sessionCount: 3, readyCount: 1, everReadyCount: 3 } });
     try {
       const res = await fetch(ready.url("/healthz"));
       expect(res.status).toBe(200);

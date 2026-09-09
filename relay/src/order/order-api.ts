@@ -88,6 +88,15 @@ export type HealthPayload = {
   version: string;
   /** 활성 세션 **수**. 누구인지는 담지 않는다. */
   sessionCount: number;
+  /**
+   * **한 번이라도 Ready 였던** 세션 수. 누구인지는 담지 않는다 (식별자가 아니므로
+   * T-15-22 위반이 아니다).
+   *
+   * `sessionCount:1, everReadyCount:0`(게이트웨이 부재) 과 `sessionCount:1,
+   * everReadyCount:1`(게이트웨이 장애) 은 운영상 전혀 다른 상황인데 `sessionCount`
+   * 만으로는 구분되지 않는다. 판정의 근거를 응답에서 읽을 수 있어야 한다 (16-21).
+   */
+  everReadyCount: number;
 };
 
 // ============================================================
@@ -165,9 +174,10 @@ export function createOrderApi(deps: OrderApiDeps): Express {
   /**
    * 공개 상태 점검.
    *
-   * `degraded` 판정: 활성 세션이 하나라도 있는데 **그중 Ready 가 0개**면 회선/게이트웨이
-   * 쪽 문제로 본다. 세션이 0개면 게이트웨이에 아무것도 요구하지 않은 상태라 `ok` 다
-   * (아무도 접속하지 않은 장 시작 전이 정상 상태여야 한다 — 테스트 ⑦).
+   * `degraded` 판정 (15-05 원문 — 아래 ★ 2026-09-09 문단이 **대체한다**. 이 문단은
+   * 판정의 유래를 남기기 위해 보존한다): 활성 세션이 하나라도 있는데 **그중 Ready 가
+   * 0개**면 회선/게이트웨이 쪽 문제로 본다. 세션이 0개면 게이트웨이에 아무것도 요구하지
+   * 않은 상태라 `ok` 다 (아무도 접속하지 않은 장 시작 전이 정상 상태여야 한다 — 테스트 ⑦).
    *
    * `vpn` 은 **회선 실측**이다 (2026-09-06 변경). 예전에는 `dma` 와 같은 신호(세션 Ready)
    * 에서 파생했는데, 그러면 **접속자가 0명일 때 VPN 이 완전히 죽어도 `ok`** 였다. uptime
@@ -181,6 +191,25 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * uptime check 규약(RESEARCH Assumption A7): **degraded 는 HTTP 503 으로 내려야 한다.**
    * 200 으로 내리면서 본문에만 "degraded" 를 적으면 Cloud Monitoring 의 기본 uptime check
    * 는 본문을 보지 않으므로 컨테이너 내부 장애가 영원히 감지되지 않는다.
+   *
+   * ★ 2026-09-09 변경 (16-21, gap 4) — **이 문단이 15-05 의 계약(「세션이 0건이거나
+   * Ready 가 1건 이상이면 ok」)을 대체한다.** 판정의 기준축이 `sessionCount` 에서
+   * `everReadyCount` 로 옮겨간다.
+   *
+   * 판정에서 **「한 번도 Ready 인 적 없는 세션」을 제외**한다. `DMA_HOST` 가 뜨지 않은
+   * 환경(D-27 상 로컬 mock)에서는 로그인 사용자가 붙는 즉시 세션이 만들어지고 영원히
+   * Ready 가 되지 않는다 — 그것은 relay 의 장애가 아니라 **게이트웨이가 애초에 없는
+   * 상태**다. 그 구간을 503 으로 보고하면 uptime 이 상시 적색이 되고, 상시 적색은 곧
+   * 알림 무시다. 그러면 진짜 장애도 함께 놓친다.
+   *
+   * **Ready 였다가 죽은 세션은 여전히 degraded 다.** `DmaSession#hasBeenReady` 래치가
+   * 그 구분의 유일한 근거다 — 이것을 지우거나 되돌리면 진짜 게이트웨이 장애 탐지가
+   * 함께 죽는다 (T-16-26).
+   *
+   * `vpn`(회선 실측)은 **바뀌지 않았다.** 접속자 0명일 때 터널이 죽으면 여전히
+   * degraded 다 (2026-09-06 변경 유지). 세션 판정 완화가 회선 신호를 가리지 않는다.
+   *
+   * `sessionCount` 는 **판정에서 빠지고 페이로드에만 남는다**(진단용).
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -189,7 +218,9 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     // 두 신호를 **분리**한다. 회선은 접속자 수와 무관한 사실이고, 세션은 접속자가 있을
     // 때만 의미가 있다. 하나로 합치면 접속자 0명이 회선 장애를 가려 버린다.
     const linkUp = isGatewayLinkUp(deps.dmaHost, readInterfaces());
-    const sessionsOk = stats.sessionCount === 0 || stats.readyCount > 0;
+    // 「게이트웨이가 애초에 없는 환경」(everReadyCount 0) 은 장애가 아니다.
+    // 「Ready 였다가 죽은 세션」(everReadyCount > 0, readyCount 0) 만 장애다 (16-21).
+    const sessionsOk = stats.everReadyCount === 0 || stats.readyCount > 0;
     const healthy = linkUp && sessionsOk;
 
     const payload: HealthPayload = {
@@ -198,6 +229,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       dma: sessionsOk,
       version: deps.appVersion,
       sessionCount: stats.sessionCount,
+      everReadyCount: stats.everReadyCount,
     };
 
     res.status(healthy ? 200 : 503).json(payload);
