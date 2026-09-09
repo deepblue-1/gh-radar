@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-21-PLAN.md (gap 4 /healthz 판정 완화 + smoke INV-9 교체)
-last_updated: "2026-09-09T01:34:02.113Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-21 실행 완료 (gap 4 종결)
+stopped_at: Completed 16-22-PLAN.md (gap 2 다축 통보 매칭 + WR-02 사용자 스코프 중복 가드)
+last_updated: "2026-09-09T01:51:05.437Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-22 실행 완료 (gap 2 + WR-02 종결)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 165
-  completed_plans: 146
-  percent: 72
+  completed_plans: 147
+  percent: 89
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 22 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-21 완료 · 16-22~16-26 대기)
-Plans completed: 146 / 165
-Status: Executing Phase 16 (갭 클로징 5 plans 남음)
+Plan: 23 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-22 완료 · 16-23~16-26 대기)
+Plans completed: 147 / 165
+Status: Executing Phase 16 (갭 클로징 4 plans 남음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-21 실행 완료 (gap 4 종결)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-22 실행 완료 (gap 2 + WR-02 종결)
 
-Progress: [█████████░] 88% (146/165 plans · 18/25 phases)
+Progress: [█████████░] 89% (147/165 plans · 18/25 phases)
 
 ### Phase 15 Production State (2026-09-08)
 
@@ -165,6 +165,7 @@ Progress: [█████████░] 88% (146/165 plans · 18/25 phases)
 | Phase 16 P19 | 9min | 3 tasks | 9 files |
 | Phase 16 P20 | 5min | 2 tasks | 6 files |
 | Phase 16 P21 | 8min | 3 tasks | 7 files |
+| Phase 16 P22 | 11min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -322,6 +323,10 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 21]: relay `/healthz` degraded 판정에서 「한 번도 Ready 인 적 없는 세션」을 제외한다 (gap 4 해법 ③). 판정축이 `sessionCount` → `everReadyCount` 로 옮겨가 15-05 계약을 대체한다 — 게이트웨이가 애초에 없는 환경은 relay 장애가 아니다.
 - [Phase 16 Plan 21]: `DmaSession#hasBeenReady` 는 래치이며 `false` 로 되돌리는 경로를 만들지 않는다 (T-16-26). 「게이트웨이 부재」와 「게이트웨이 장애」를 가르는 유일한 근거라, 되돌리면 진짜 장애 탐지가 함께 죽는다.
 - [Phase 16 Plan 21]: smoke INV-9 는 사라진 server 주문 라우트 대신 relay wss 주문 왕복으로 도달성을 잰다. 기대값은 `order.result(status=rejected)` — 화이트리스트 밖 계좌 `0000000000` + 미해석 ISIN 조합이라 게이트웨이 송신·`dma_orders` insert 이전에 끝난다 (T-16-28).
+- [Phase 16 Plan 22]: 주문 통보 상관을 다축 단계적 좁히기로 바꿨다 — orgOrderNo → noticeType("R" 제외) → quantity·price("E" 제외). 각 축은 남는 후보가 0이면 적용하지 않는다(구 서버가 비워 보내는 축이 정상 통보를 죽이지 않게)
+- [Phase 16 Plan 22]: 하나로 좁히지 못하면 아무것도 정산하지 않고 recordUnmatched 로 보낸다 (T-16-29). 「가장 오래된 것」 폴백을 만들지 않는다 — 잘못 귀속된 기록은 없는 기록보다 나쁘다. 남은 대기는 5초 타임아웃이 「결과 모름」으로 끝낸다
+- [Phase 16 Plan 22]: 통보 후보를 그 사용자의 전 연결에서 모아 좁힌다 (T-16-30). order.result 는 여전히 요청 연결로만 간다 — T-16-03 은 유지
+- [Phase 16 Plan 22]: 중복 주문 판정만 userDupKeys(Map<userId, Set>) 로 사용자 스코프에 올리고 rid 재전송 가드는 연결 스코프로 남겼다 (WR-02). ConnState.dupKeys 역인덱스를 closeConn 이 회수하고, release 는 이 연결이 아직 쥔 키만 푼다 (T-16-31 / T-16-33)
 
 ### Pending Todos
 
@@ -368,9 +373,10 @@ Recent decisions affecting current work:
 | 260908-py9 | Phase 15 이관 3건 종결 — 저장소 KB VPN 계정 ID 마스킹(15파일 38건, SC-8 충족) + VPN 주간 예약 재접속 타이머(일 06:00 KST, 저장소+VM 실적용, 무중단 실측) + relay README 정본화(상시 유지·실서버 라이브·14일 만료 복구 runbook) | 2026-09-08 | 2f8a507·ec60980·a1bbf8a | [260908-py9-phase-15-id-vpn-relay-readme](./quick/260908-py9-phase-15-id-vpn-relay-readme/) |
 | 260908-qnf | Phase 15 이관 6건 종결 — rls_auto_enable() 정의를 마이그레이션 이력에 보정(빈 DB 35파일 전량 재생 0오류·anon/authenticated 실행권한 f 실증) + server·intraday-sync dockerignore 를 BuildKit 이 읽는 이름으로 교정(builder 레이어 .env 0건) + 선재 E2E 11건 청산(29건 green, 원인 2종 — envelope 계약 7건·CLASSIFY_PAUSED 3건·auth-guards 1건) + stocks 픽스처 ISIN 유일성 + 상태 바/게이트 문구 분리·UI-SPEC 소유처 명시. server flake 는 3/3 통과로 무수정. production DB·배포 무변경 | 2026-09-08 | a5187ce·bccd89d·4458b90·3e5d572·663bf35·6ce5137·18999b0·82ce673 | [260908-qnf-phase-15-rls-auto-enable-e2e-11-dockerig](./quick/260908-qnf-phase-15-rls-auto-enable-e2e-11-dockerig/) |
 | 260908-scu | Phase 15 장부 재집계 — 라이브 전환(D-17 철회·실 게이트웨이·실주문 5건 왕복)을 반영해 SC-4~8 재판정(✅3/⚠5 → ✅6/⚠2) + §4-A~E 미증명 17항·이관 15건 재분류를 `15-LIVE-VERIFICATION.md` §8 로 append(§1~§7 무변경) + REQUIREMENTS RELAY-01/03 Complete·RELAY-02 Pending(잔여 2건) 대칭 갱신 + ROADMAP Phase 15 20/20 종결. 읽기 전용 실측만 — 코드·배포·새 주문·Supabase 쓰기 0건 | 2026-09-08 | 0575091·2709455 | [260908-scu-phase-15-sc-4-8-relay-01-03-roadmap-stat](./quick/260908-scu-phase-15-sc-4-8-relay-01-03-roadmap-stat/) |
+| 260909-el9 | DMA 게이트웨이 터널 스크립트 2종 — 개발기가 KB VPN 없이 `10.41.1.120:9100` 에 **주소 그대로** 붙게 한다(로컬 /32 별칭 + radar-gw IAP SSH 포워딩). mac `scripts/dma-tunnel.sh`(1단) · win `scripts/dma-tunnel.ps1`(2단, PS5.1) · relay README `## DMA 터널` 절 추가. 종료 코드 0~5·선행 점검 P1~P8 계약 공유, `--check` 무변경, 실계좌 경고 + TCP connect 까지만(D-27). 전송 경로 실측 성립(19100 포워딩 → 게이트웨이 TCP 연결), P6 로컬 VPN 가드 exit 3 발화 실증. 별칭 경로·ps1 런타임은 미검증(사유·주체 SUMMARY 기재) | 2026-09-09 | PENDING_HASH | [260909-el9-dma-2-windows-powershell-macos-bash](./quick/260909-el9-dma-2-windows-powershell-macos-bash/) |
 
 ## Session Continuity
 
-Last session: 2026-09-09T01:33:39.717Z
-Stopped at: Completed 16-21-PLAN.md (gap 4 /healthz 판정 완화 + smoke INV-9 교체)
+Last session: 2026-09-09T01:51:05.425Z
+Stopped at: Completed 16-22-PLAN.md (gap 2 다축 통보 매칭 + WR-02 사용자 스코프 중복 가드)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
