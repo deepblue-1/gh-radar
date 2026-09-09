@@ -1044,6 +1044,103 @@ describe("wss 주문 경로 (D-02)", () => {
     // 계좌번호·자격증명은 싣지 않는다 (D-19 승계 / T-16-45).
     expect(infoed).not.toContain(SAMPLE_ACCOUNT_NO);
   });
+
+  it("㉗ 행 생성 경로의 예외가 프로세스를 내리지 않는다 — error 로그로 끝난다 (GC-WR-01)", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+    await authed("token-a");
+
+    // `autoInsertRow` 가 계좌·시장을 물어보는 자리다. 여기서 터지면 예전에는 그 reject 가
+    // `void recordUnmatched(...)` 를 지나 `index.ts` 의 `unhandledRejection` 까지 올라갔고,
+    // 그 핸들러는 `logger.fatal` + **프로세스 종료**다 — 접속한 전 사용자의 DMA 세션이 끊긴다.
+    vi.spyOn(hub, "getLimitChasers").mockImplementation(() => {
+      throw new Error("전략 캐시 파손");
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "A",
+        orderNo: "0000077777",
+        origin: "LimitChaser",
+        quantity: 7,
+        price: 12_345,
+      });
+      // 기다리는 조건을 **기록 결과가 아니라 통보 수신**에 건다 — 결과에 걸면 회귀가
+      // 생겼을 때 단언이 아니라 타임아웃으로 죽어 아래 두 단언이 아예 실행되지 않는다.
+      await waitFor(
+        () => JSON.stringify(infoSpy.mock.calls).includes("감사 사본"),
+        "통보 수신 감사 사본",
+      );
+      await flushIo(30);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    // ★ 프로세스를 내릴 rejection 이 하나도 없다.
+    expect(unhandled).toHaveLength(0);
+    // 행은 만들어지지 않았고(지어내지 않는다), 그 사실이 stdout 에 남는다 — 기록이 0 은 아니다.
+    expect(orders.inserts).toHaveLength(0);
+    expect(orders.updates).toHaveLength(0);
+    expect(JSON.stringify(errorSpy.mock.calls)).toContain("감사 기록 결손");
+  });
+
+  it("㉘ 빈 주문번호 거부 2건은 서로 다른 행으로 기록된다 — in-flight 으로 합치지 않는다 (GC-WR-02)", async () => {
+    let openGate: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    orders = mkOrderStore({ insertGate: gate });
+    await restartHarness();
+    await authed("token-a");
+
+    const sock = gatewaySocket();
+    // 접수 **전** 거부라 주문번호가 없다 — 두 건 다 `orderNo === ""` 로 온다.
+    gateway.pushOrderResp(sock, {
+      noticeType: "R",
+      orderNo: "",
+      origin: "LimitChaser",
+      quantity: 7,
+      price: 12_345,
+      message: "증거금 부족",
+    });
+    await waitFor(() => orders.started.insert === 1, "첫 insert 진입");
+
+    // 그 왕복이 끝나기 전에 **다른** 자동주문의 거부가 도착한다. 키를 `"user|"` 하나로
+    // 합치면 두 번째가 첫 번째의 Promise 를 재사용해 같은 `row.id` 를 받고, 두 patch 가
+    // 그 한 행에 차례로 덮어써진다 — 거부 1건이 감사 기록에서 사라진다.
+    gateway.pushOrderResp(sock, {
+      noticeType: "R",
+      orderNo: "",
+      origin: "LimitChaser",
+      isin: SECOND_ISIN,
+      quantity: 3,
+      price: 5_000,
+      message: "주문가능금액 초과",
+    });
+    await waitFor(() => orders.started.insert === 2, "두 번째 insert 진입 (합쳐지지 않았다)");
+
+    openGate?.();
+    await waitFor(() => orders.updates.length >= 2, "두 거부 모두 기록");
+    await flushIo(20);
+
+    // ★ 행 2건, 서로 다른 id 2건. 조회는 한 번도 하지 않는다 — 빈 주문번호에서
+    //   `findIdByOrderNo` 는 항상 `null` 이라 왕복이 순손실이다.
+    expect(orders.inserts).toHaveLength(2);
+    expect(orders.lookups).toHaveLength(0);
+    const rowIds = orders.updates.map((u) => u.orderRowId);
+    expect(new Set(rowIds).size).toBe(2);
+    expect(rowIds).toEqual(expect.arrayContaining(["row-1", "row-2"]));
+    // 두 거부의 사유가 각자의 행에 남는다.
+    expect(orders.updates).toContainEqual(expect.objectContaining({ message: "증거금 부족" }));
+    expect(orders.updates).toContainEqual(
+      expect.objectContaining({ message: "주문가능금액 초과" }),
+    );
+  });
 });
 
 // ============================================================

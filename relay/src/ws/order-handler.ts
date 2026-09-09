@@ -366,7 +366,17 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     // 후보가 없거나 좁히지 못했다. 남은 대기 항목은 **그대로 둔다** — 5초 타임아웃이
     // 「결과 모름」으로 끝내는 것이 이 상황의 진실이다 (Pitfall 9). 통보 자체는
     // 접수 이후의 것이거나 **자동주문**(상따·VI)이므로 기록 경로로 보낸다.
-    void recordUnmatched(userId, notice);
+    // `.catch` 가 없으면 이 한 줄이 프로세스 종료 스위치다 — `index.ts` 의
+    // `unhandledRejection` 핸들러는 `logger.fatal` + **프로세스 종료**이므로, 통보 1건의
+    // 파손이 그 순간 접속한 **모든 사용자의 DMA 세션**을 끊는다. 그렇게 두지 않는다
+    // (GC-WR-01). 원인 쪽(`ensureRow` 의 try 범위)도 함께 막았다 — 한 겹만 두면 원인은
+    // 남고 증상만 가려진다.
+    void recordUnmatched(userId, notice).catch((err: unknown) => {
+      logger.error(
+        { err, orderNo: notice.orderNo },
+        "[WS-order] 통보 기록 경로 예외 — 이 통보는 기록되지 않았다 (stdout 이 두 번째 사본이다)",
+      );
+    });
   });
 
   /** 통보에서 뽑은 수명주기 갱신값. insert 든 update 든 같은 값을 쓴다. */
@@ -482,6 +492,13 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 주문번호는 일별 재사용 시퀀스라 그 자체로는 사용자를 가르지 않는다.
    */
   async function ensureRow(userId: string, notice: ParsedOrderResp): Promise<EnsureResult> {
+    // 빈 주문번호는 상관 키가 아니다 — 합치면 서로 다른 거부가 한 행에 겹친다 (GC-WR-02).
+    // 접수 전 거부("R")는 `orderNo === ""` 로 오므로, 키를 만들면 그 사용자의 **모든** 빈
+    // 주문번호 통보가 `"user|"` 하나를 공유하고 동시 도착한 서로 다른 거부가 같은 `row.id`
+    // 를 받아 차례로 덮어쓴다. 게다가 `findIdByOrderNo` 는 이 값에서 **항상 `null`** 이라
+    // (`store/orders.ts` 의 빈 값 방어) 이 키에는 dedup 의 의미가 애초에 없다.
+    if (notice.orderNo === "") return insertOnly(userId, notice);
+
     const key = `${userId}|${notice.orderNo}`;
     const running = inflight.get(key);
     if (running !== undefined) return running;
@@ -501,28 +518,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 이 자동주문의 첫 통보에서 이미 행을 만들었다. 이후 통보는 그 행의 갱신이다.
       if (existingId !== null) return { kind: "row", id: existingId };
 
-      const row = autoInsertRow(userId, notice);
-      if (row === null) return { kind: "unavailable" }; // 사유는 `autoInsertRow` 가 남겼다.
-
-      try {
-        const orderRowId = await deps.orderStore.insertRequest(row);
-        logger.info(
-          {
-            origin: notice.originKind,
-            orderNo: notice.orderNo,
-            noticeType: notice.noticeType,
-            accountNo: maskAccountNo(row.accountNo),
-          },
-          "[WS-order] 자동주문 통보 — 대기 행이 없어 새 행으로 기록",
-        );
-        return { kind: "row", id: orderRowId };
-      } catch (err) {
-        logger.error(
-          { err, origin: notice.originKind, orderNo: notice.orderNo },
-          "[WS-order] 자동주문 행 생성 실패 — 감사 기록 결손 (stdout 이 두 번째 사본이다)",
-        );
-        return { kind: "unavailable" };
-      }
+      return insertOnly(userId, notice);
     })();
 
     inflight.set(key, task);
@@ -531,6 +527,44 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     } finally {
       // 왕복이 끝나면 키를 놓는다. 이후 통보는 새로 조회해 **이미 만들어진 행**을 찾는다.
       inflight.delete(key);
+    }
+  }
+
+  /**
+   * `ensureRow` 의 **insert 갈래**. 조회를 거치지 않고 새 행 하나를 만든다.
+   *
+   * 뽑아낸 이유가 둘이다.
+   *   1. **`autoInsertRow` 를 try 안으로** 넣기 위해서다 (GC-WR-01). 그 함수는
+   *      `deps.symbols.lookup` · `deps.hub.getLimitChasers` · `deps.hub.getViTrigger` 를
+   *      부르는데, 예전에는 try **밖**이라 여기서 난 예외가 `recordUnmatched` 를 reject 시키고
+   *      `index.ts` 의 `unhandledRejection`(= 프로세스 종료)까지 그대로 올라갔다.
+   *   2. 빈 주문번호 갈래(GC-WR-02)가 in-flight 맵을 지나지 않고 곧장 여기로 오기 위해서다.
+   *
+   * 어느 경로로 실패하든 **행을 지어내지 않고** `unavailable` 로 끝낸다 — 사유는 stdout 에
+   * 남으므로 기록이 0 이 되지는 않는다 (D-24).
+   */
+  async function insertOnly(userId: string, notice: ParsedOrderResp): Promise<EnsureResult> {
+    try {
+      const row = autoInsertRow(userId, notice);
+      if (row === null) return { kind: "unavailable" }; // 사유는 `autoInsertRow` 가 남겼다.
+
+      const orderRowId = await deps.orderStore.insertRequest(row);
+      logger.info(
+        {
+          origin: notice.originKind,
+          orderNo: notice.orderNo,
+          noticeType: notice.noticeType,
+          accountNo: maskAccountNo(row.accountNo),
+        },
+        "[WS-order] 자동주문 통보 — 대기 행이 없어 새 행으로 기록",
+      );
+      return { kind: "row", id: orderRowId };
+    } catch (err) {
+      logger.error(
+        { err, origin: notice.originKind, orderNo: notice.orderNo },
+        "[WS-order] 자동주문 행 생성 실패 — 감사 기록 결손 (stdout 이 두 번째 사본이다)",
+      );
+      return { kind: "unavailable" };
     }
   }
 
