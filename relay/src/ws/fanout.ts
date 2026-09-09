@@ -74,6 +74,7 @@ import type {
 import { logger } from "../logger.js";
 import { verifyToken } from "../auth/verify-token.js";
 import { getDmaCredentials } from "../store/credentials.js";
+import { safePgError } from "../store/pg-error.js";
 import type { SubscriptionHub } from "../hub/subscription-hub.js";
 import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials } from "../dma/session-manager.js";
@@ -507,7 +508,9 @@ export class WsFanout {
       creds = await this.#lookupCredentials(userId);
     } catch (err) {
       // 장애다 — "권한 없음"으로 위장하지 않는다. 브라우저는 재접속 가치가 있는 close 로 받는다.
-      logger.error({ err, userId }, "[WS] 자격증명 조회 실패 — 연결 종료");
+      // `err` 는 `getDmaCredentials` 가 던진 **PostgREST 원문**이다 (16-38 / R2-CR-03).
+      // `dma_credentials` 행에는 `dma_password_enc` 가 있으므로 `details` 를 싣지 않는다.
+      logger.error({ pgError: safePgError(err), userId }, "[WS] 자격증명 조회 실패 — 연결 종료");
       this.#send(conn, { t: "state", s: "failed", msg: "자격증명 확인에 실패했습니다" });
       conn.ws.close(1011, "credential lookup failed");
       return;

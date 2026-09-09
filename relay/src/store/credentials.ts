@@ -28,6 +28,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "../logger.js";
+import { safePgError } from "./pg-error.js";
 
 // ============================================================
 // 저장 포맷 상수 (D-18). 값을 여기서만 정의한다.
@@ -129,7 +130,10 @@ export async function getDmaCredentials(
     .maybeSingle<CredentialRow>();
 
   if (error !== null) {
-    logger.error({ userId, error }, "[CRED] dma_credentials 조회 실패");
+    // `error` 원문을 싣지 않는다 (16-38 / R2-CR-03 · T-16-45) — PostgREST 오류의
+    // `details`/`hint` 는 위반 행의 값을 담고, 이 테이블의 행에는 `dma_password_enc` 가
+    // 있다. 사유(SQLSTATE)는 `pgError.code` 로 그대로 남는다. → `store/pg-error.ts`
+    logger.error({ userId, pgError: safePgError(error) }, "[CRED] dma_credentials 조회 실패");
     throw error;
   }
   if (data === null) {

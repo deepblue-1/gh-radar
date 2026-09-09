@@ -51,6 +51,7 @@ import type {
 
 import type { OrderOriginKind } from "../dma/envelope.js";
 import { logger } from "../logger.js";
+import { safePgError } from "./pg-error.js";
 
 // ============================================================
 // 상수 정본
@@ -291,7 +292,13 @@ export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
         return;
       }
       // upsert.ts 규약 — 에러를 로그로 남기고 throw. 삼키면 재시도 판단을 할 수 없다.
-      logger.error({ error, column: sel.column }, "[orders] dma_orders update 실패");
+      //
+      // ★ 이 파일에서 PostgREST 오류가 로그로 나가는 자리는 **전부** `safePgError` 를 지난다
+      //   (16-38 / R2-CR-03 · T-16-45). 근거는 `store/pg-error.ts` 의 docstring 한 곳에만
+      //   적는다 — 여섯 자리에 같은 문장을 복사하면 다음 사람이 그중 한 곳만 고친다.
+      //   요약하면: 제약 위반의 `details` 는 `Failing row contains (…)` 로 **행 전체**를
+      //   담고, `dma_orders` 의 행에는 `account_no`·`order_no`·`user_id` 가 다 들어 있다.
+      logger.error({ pgError: safePgError(error), column: sel.column }, "[orders] dma_orders update 실패");
       throw error;
     }
   };
@@ -358,7 +365,7 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
         }
         // 재조회도 못 찾으면 지어내지 않는다 — 아래 기존 경로로 떨어진다.
       }
-      logger.error({ error, origin: row.origin }, "[orders] dma_orders insert 실패");
+      logger.error({ pgError: safePgError(error), origin: row.origin }, "[orders] dma_orders insert 실패");
       throw error ?? new Error("dma_orders insert 가 행을 돌려주지 않았습니다");
     }
     return (data as { id: string }).id;
@@ -392,7 +399,7 @@ export function supabaseOrderLookupSink(supabase: SupabaseClient): OrderLookupSi
       .order("created_at", { ascending: false })
       .limit(1);
     if (error) {
-      logger.error({ error }, "[orders] dma_orders order_no 조회 실패");
+      logger.error({ pgError: safePgError(error) }, "[orders] dma_orders order_no 조회 실패");
       throw error;
     }
     const rows = (data ?? []) as { id: string }[];
@@ -558,7 +565,7 @@ export class OrderStore {
     // `#drain` 은 항목 단위로 catch 하므로 여기까지 오지 않는 것이 정상이다 — 그래도
     // 조용한 unhandled rejection 은 만들지 않는다 (S-5).
     this.#current.catch((err: unknown) => {
-      logger.error({ err }, "[orders] 배치 플러시가 예외로 끝났다");
+      logger.error({ pgError: safePgError(err) }, "[orders] 배치 플러시가 예외로 끝났다");
     });
   }
 
@@ -625,14 +632,14 @@ export class OrderStore {
           // 종료 절차에서만 `flushNow` 가 다음 라운드로 곧바로 이어 받는다(WR-09).
           this.#queue.push(item);
           logger.warn(
-            { err, column: item.sel.column, attempts: item.attempts },
+            { pgError: safePgError(err), column: item.sel.column, attempts: item.attempts },
             "[orders] dma_orders 갱신 실패 — 1회 재큐잉",
           );
           continue;
         }
         this.#dropped += 1;
         logger.error(
-          { err, column: item.sel.column, dropped: this.#dropped },
+          { pgError: safePgError(err), column: item.sel.column, dropped: this.#dropped },
           "[orders] dma_orders 갱신 재시도 소진 — 드롭 (감사 기록 결손)",
         );
       }

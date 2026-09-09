@@ -70,6 +70,7 @@ import {
 import { ORDER_RESP_TIMEOUT_MS, filledQtyOf, statusOf } from "../order/notice-status.js";
 import type { HubOrderEvent } from "../hub/subscription-hub.js";
 import type { OrderInsertRow, OrderUpdate } from "../store/orders.js";
+import { safePgError } from "../store/pg-error.js";
 import type { SymbolLookup } from "../store/symbols.js";
 
 // ============================================================
@@ -402,6 +403,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     // (GC-WR-01). 원인 쪽(`ensureRow` 의 try 범위)도 함께 막았다 — 한 겹만 두면 원인은
     // 남고 증상만 가려진다.
     void recordUnmatched(userId, notice).catch((err: unknown) => {
+      // 여기 `err` 는 PostgREST 가 아니다 — `recordUnmatched` 안의 Supabase 왕복 세 곳
+      // (`findIdByOrderNo` ×2 · `insertRequest`)이 **각각** catch 로 종결되므로, 이 최후
+      // 그물까지 오는 것은 조립·프로그래밍 예외뿐이고 그때는 스택이 유일한 단서다.
+      // 안쪽 catch 를 하나라도 걷어내면 이 판정이 무효가 된다 (16-38 / R2-CR-03 판정).
       logger.error(
         { err, orderNo: notice.orderNo },
         "[WS-order] 통보 기록 경로 예외 — 이 통보는 기록되지 않았다 (stdout 이 두 번째 사본이다)",
@@ -459,8 +464,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         // 조회가 죽었다고 통보를 버리지 않는다 (S-5). 아래 `lookup-failed` 규율과 **동형**이다:
         // 셀렉터가 사용자·당일로 좁혀져 있으므로 없으면 0행이고 있으면 **내 행**이다.
         // `userId` 를 반드시 싣는다 (gap 1) — 없으면 `selectorOf` 가 `null` 을 돌려 드롭이다.
+        // ★ 이 파일에서 **PostgREST 오류를 받을 수 있는** catch 는 전부 `safePgError` 를
+        //   지난다 (16-38 / R2-CR-03 · T-16-45). 근거는 `store/pg-error.ts` docstring 한
+        //   곳에만 있다 — 요약하면 제약 위반의 `details` 가 `dma_orders` 행 전체(계좌번호
+        //   포함)를 실어 나른다. 여기 `err` 는 `findIdByOrderNo` = 조회 sink 가 던진 원문이다.
         logger.error(
-          { err, orderNo: notice.orderNo, noticeType: notice.noticeType },
+          { pgError: safePgError(err), orderNo: notice.orderNo, noticeType: notice.noticeType },
           "[WS-order] 수동 통보 — 기존 행 조회 실패, 열화 갱신만 시도",
         );
         deps.orderStore.enqueueUpdate({ ...patch, userId });
@@ -539,7 +548,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         existingId = await deps.orderStore.findIdByOrderNo(userId, notice.orderNo);
       } catch (err) {
         logger.error(
-          { err, origin: notice.originKind, orderNo: notice.orderNo },
+          { pgError: safePgError(err), origin: notice.originKind, orderNo: notice.orderNo },
           "[WS-order] 자동주문 통보 — 기존 행 조회 실패, 갱신만 시도",
         );
         return { kind: "lookup-failed" };
@@ -591,7 +600,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return { kind: "row", id: orderRowId };
     } catch (err) {
       logger.error(
-        { err, origin: notice.originKind, orderNo: notice.orderNo },
+        { pgError: safePgError(err), origin: notice.originKind, orderNo: notice.orderNo },
         "[WS-order] 자동주문 행 생성 실패 — 감사 기록 결손 (stdout 이 두 번째 사본이다)",
       );
       return { kind: "unavailable" };
@@ -796,7 +805,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     } catch (err) {
       // 기록에 실패했으면 **보내지 않는다.** 감사 기록 없는 실주문을 만드는 것보다,
       // 사용자에게 지금 못 보낸다고 말하는 편이 낫다 (D-24).
-      logger.error({ err, ...logCtx }, "[WS-order] dma_orders 기록 실패 — 주문을 보내지 않는다");
+      logger.error(
+        { pgError: safePgError(err), ...logCtx },
+        "[WS-order] dma_orders 기록 실패 — 주문을 보내지 않는다",
+      );
       release(state, keys);
       reject(conn, msg.rid, "주문 기록에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       return;
@@ -843,6 +855,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       const code = err instanceof OrderBuildError ? err.code : "BUILD_FAILED";
       const reason =
         err instanceof OrderBuildError ? err.message : "주문 요청을 만들지 못했습니다.";
+      // `err` 원문을 그대로 싣는 것이 여기서는 옳다 — 이 try 가 감싼 것은 `buildDirectOrderReq`
+      // 하나이고 그것이 던지는 값은 `OrderBuildError`(`dma/envelope.ts`)뿐이다. PostgREST 가
+      // 닿지 않는 자리라 `details` 유출 경로가 없고, 조립 실패는 스택이 유일한 단서다.
+      // 메시지에도 값이 실리지 않는다(예: `BAD_ACCOUNT_NO` → "계좌번호 형식 위반") — 16-38 판정.
       logger.error({ err, ...logCtx, code }, "[WS-order] 주문 조립 거부 — 게이트웨이로 나가지 않았다");
       deps.orderStore.enqueueUpdate({ orderRowId, status: "rejected", message: reason });
       release(state, keys);

@@ -29,6 +29,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrderMarket } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
+import { safePgError } from "./pg-error.js";
 
 /**
  * PostgREST 페이지 크기.
@@ -173,8 +174,11 @@ export class SymbolMap implements SymbolLookup {
       }
     } catch (error) {
       // 이름은 표시용이다 — 실패로 relay 를 멈추지 않는다. 다만 조용히 넘기지도 않는다.
+      // `stocks` 조회 오류도 같은 규율을 지난다 (16-38 / R2-CR-03) — 이 표면 자체는
+      // 공개 마스터라 값이 민감하지 않지만, 「PostgREST 오류를 통째로 싣는 로그」를 한 줄이라도
+      // 남겨 두면 그것이 다음 복사의 원본이 된다. → `store/pg-error.ts`
       logger.error(
-        { error, cachedCount: this.#byIsin.size },
+        { pgError: safePgError(error), cachedCount: this.#byIsin.size },
         "[SYM] 종목마스터 적재 실패 — 기존 맵 유지 (이름 없는 ISIN 은 원문 표시)",
       );
       return null;
