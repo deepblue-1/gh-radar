@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 26/26 plans (17 실행 완료 + 갭 클로징 9 — 16-18~16-24 완료, 16-25~16-26 대기)
+**Plans:** 26/26 plans (17 실행 완료 + 갭 클로징 9 — 16-18~16-25 완료, 16-26 대기)
 
 Plans:
 **Wave 1**
@@ -675,7 +675,7 @@ Plans:
 
 **Wave 17** *(blocked on Wave 16 completion)*
 
-- [ ] 16-25-PLAN.md — [WR-03 + WR-06] lc.set 시장구분 소유권 relay 이전(D-28) + 발주가·수량 0 무장 차단
+- [x] 16-25-PLAN.md — [WR-03 + WR-06] lc.set 시장구분 소유권 relay 이전(D-28) + 발주가·수량 0 무장 차단
 
 **Wave 18** *(blocked on Wave 17 completion)*
 
@@ -711,4 +711,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 24/26 | Gap Closure |  |
+| 16. 트레이딩 메뉴(상따·VI) | 25/26 | Gap Closure |  |

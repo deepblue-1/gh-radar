@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-24-PLAN.md (WR-07 VI 금액 상한 3층 + WR-09 종료 플러시 경주)
-last_updated: "2026-09-09T02:27:14.565Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-24 실행 완료 (WR-07 + WR-09 종결)
+stopped_at: Completed 16-25-PLAN.md (WR-03 lc.set 시장구분 소유권 + WR-06 무장 가드)
+last_updated: "2026-09-09T02:50:19.461Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-25 실행 완료 (WR-03 + WR-06 종결)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 165
-  completed_plans: 149
-  percent: 72
+  completed_plans: 150
+  percent: 73
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 25 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-24 완료 · 16-25~16-26 대기)
-Plans completed: 149 / 165
-Status: Executing Phase 16 (갭 클로징 2 plans 남음)
+Plan: 26 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-25 완료 · 16-26 대기)
+Plans completed: 150 / 165
+Status: Executing Phase 16 (갭 클로징 1 plan 남음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Completed quick task 260909-ftd: dma-credentials --from-email 링크 모드 + 실행 래퍼
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-25 실행 완료 (WR-03 + WR-06 종결)
 
-Progress: [█████████░] 90% (149/165 plans · 18/25 phases)
+Progress: [█████████░] 91% (150/165 plans · 18/25 phases)
 
 ### Phase 15 Production State (2026-09-08)
 
@@ -168,6 +168,7 @@ Progress: [█████████░] 90% (149/165 plans · 18/25 phases)
 | Phase 16 P22 | 11min | 2 tasks | 2 files |
 | Phase 16 P23 | 15min | 3 tasks | 12 files |
 | Phase 16 P24 | 12min | 2 tasks | 11 files |
+| Phase 16 P25 | 20min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -339,6 +340,11 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 24]: 금액 입력 초과는 거부가 아니라 상한 클램프다 (T-16-41). 입력을 삼키면 왜 안 써지는지 알 수 없다 — 자르고 vi-amount-limit 한 줄이 이유를 댄다. 자른 결과가 곧 폼 값이라 「확인 다이얼로그 표시값 = 전송값」이 구조적으로 성립한다. 서버 에코발 초과는 submit 가드가 따로 막는다.
 - [Phase 16 Plan 24]: OrderStore 의 #flushing(boolean) 을 #current(Promise|null) 로 완전히 대체했다 (WR-09 / T-16-39). boolean 은 「지금 도는가」만 답하고 「끝날 때까지 기다린다」를 답할 수 없다 — 종료 절차가 기다릴 수 있게 된 것이 이 한 줄의 전부다. 병행하지 않은 이유는 정본이 둘이면 다음 사람이 boolean 으로 즉시반환 분기를 다시 만들기 때문이다.
 - [Phase 16 Plan 24]: tick 과 종료의 플러시 계약을 의도적으로 다르게 뒀다 — tick 은 진행 중이면 건너뛰고(기다리면 200ms 마다 대기자가 쌓여 장애 중인 Supabase 를 겹쳐 두드린다) 종료만 기다린다. 기다림은 「곧 죽는 프로세스」의 특권이다. 반복 상한 ORDER_FLUSH_MAX_ROUNDS(=ORDER_MAX_RETRIES+2) 에 걸리면 남은 큐 길이를 logger.error 로 남기고 반환한다 (S-5 / T-16-40).
+- [Phase 16 Plan 25]: lc.set 의 시장 구분은 relay 가 소유한다 (WR-03 / D-28). RelayLcSetSchema.cfg 에서 market 필드를 **삭제**해 브라우저가 실어 보내도 z.object 가 떨어뜨리게 하고, fanout 의 ②-1 단계가 symbols.lookup(isin) 으로 푼다 — 못 풀면 거부다. 값을 검증하는 대신 애초에 받지 않는 것이 order.new 게이트 ③-1 과 같은 규율이다.
+- [Phase 16 Plan 25]: buildSetLimitChaserReq 의 파라미터를 RelayLimitChaserInput & { market } 으로 좁혔다 — 조립기에 기본값 "K" 를 두는 순간 코스닥 전략이 코스피로 등록되고, 전략은 한 번의 주문이 아니라 반복 발주 설정이라 그 오차가 계속 재생산된다.
+- [Phase 16 Plan 25]: 게이트 무장 판정은 gateBlocked(key, next) 하나이고 스위치 disabled 와 toggleGate 전송 가드가 그것을 함께 읽는다 (WR-06 / T-16-43, vi-order-list 의 isConfirmable 승계). next === false(끄기)는 무장 조건을 보지 않는다 — 무장 해제를 막으면 사용자의 자산을 인질로 잡는다 (T-16-44).
+- [Phase 16 Plan 25]: 매도 무장 조건은 계획의 sellQty 대신 sellWatchQty 를 본다. estimatedSellQty 는 lib/limit-chaser.ts 가 「표시 전용」이라 못박은 값이고, 보유 0 을 차단 조건으로 삼으면 「사기 전에 팔 조건을 거는」 상따 주 동선이 통째로 막힌다 — 서버가 매도를 눕히는 조건도 sellWatchQty === 0 이다.
+- [Phase 16 Plan 25]: 배포는 relay 를 먼저 올린다. 새 webapp + 옛 relay 조합은 market 없는 cfg 가 옛 스키마의 필수 필드 검증에 걸려 lc.set 이 전부 조용히 드롭된다 (16-26 배포 순서).
 
 ### Pending Todos
 
@@ -390,6 +396,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T02:26:18.212Z
+Last session: 2026-09-09T02:50:15.982Z
 Stopped at: Completed 16-24-PLAN.md (WR-07 VI 금액 상한 3층 + WR-09 종료 플러시 경주)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
