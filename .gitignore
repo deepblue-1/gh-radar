@@ -44,3 +44,6 @@ coverage/
 # Misc
 *.local
 .vercel
+
+# 개인 파일 — KB VPN 접속 파라미터·계정·인증서 핀이 하드코딩돼 있다. 커밋 금지.
+scripts/install-vpn-menubar.sh

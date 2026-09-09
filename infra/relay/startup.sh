@@ -376,5 +376,249 @@ systemd-run --on-active=180 --unit=kbvpn-route-guard \
   || log "WARN: 라우팅 안전장치 타이머 예약 실패 — 수동 점검 필요"
 log "✓ 라우팅 안전장치 예약 (부팅 후 180초 1회)"
 
+# ───────────────────────────────────────────────────────────────
+# 8. WireGuard 서버 (개발기 직결) — quick-260909-muo
+#    개발기(Mac/Windows)가 외부 CLI·IAP·포트 포워딩 없이 wg0 를 통해
+#    10.41.1.120 의 {9100, 22} 에만 닿게 한다. 인증은 피어 공개키다.
+#
+#    ⚠️ 이 섹션은 기본 경로·tun0 라우트·kbvpn-* 자산(연결·워치독·주간갱신·
+#       라우팅 안전장치)·Caddy·relay 컨테이너를 **한 줄도 건드리지 않는다.**
+#       wg0 에 Table/기본경로 설정을 넣지 않으므로 기본 경로는 ens4 그대로다.
+#
+#    ⚠️ 인터페이스는 **이름**(iifname/oifname)으로만 매칭한다. openconnect 가
+#       재접속하면 tun0 이 재생성되며 인덱스(iif/oif)가 바뀌어, 인덱스 기준
+#       규칙은 오류 없이 조용히 죽는다. 이름 기준은 재생성에 영향받지 않는다.
+#
+#    ⚠️ docker 함정: 이 VM 에는 docker.io 가 있어 iptables-nft 의 filter/FORWARD
+#       정책이 **DROP** 이다. 별도 nft 테이블(inet wgfwd)의 accept 는 이를 덮지
+#       못한다 — 어느 base chain 에서든 drop 판정이 나오면 그 자리에서 끝나기
+#       때문이다. 그래서 docker 가 체인 재생성 시에도 보존하는 유일한 훅인
+#       DOCKER-USER 에 같은 조건을 PostUp 이 넣고 PostDown 이 뺀다.
+# ───────────────────────────────────────────────────────────────
+log "▶ WireGuard 서버 구성..."
+
+# 8.1 패키지 — Debian 12 커널에 wireguard 모듈이 내장돼 있어 DKMS·외부 저장소가
+#     필요 없다. 이미 설치돼 있으면 apt 가 no-op 이다.
+apt-get install -y --no-install-recommends wireguard nftables \
+  || log "WARN: wireguard/nftables 설치 실패 — 아래 단계가 무의미해진다"
+
+install -d -m 0700 /etc/wireguard
+
+# 8.2 서버 개인키 — **없을 때만 1회 생성한다.**
+#     재생성하면 서버 공개키가 바뀌어 이미 배포된 모든 클라이언트 프로필이
+#     한꺼번에 무효가 된다. 이 파일이 이 섹션에서 유일하게 멱등하지 않으면
+#     안 되는 자산이다.
+if [[ ! -s /etc/wireguard/wg0.key ]]; then
+  ( umask 077; wg genkey >/etc/wireguard/wg0.key )
+  chmod 0600 /etc/wireguard/wg0.key
+  log "✓ 서버 개인키 생성 (/etc/wireguard/wg0.key 0600 — 값은 출력하지 않는다)"
+else
+  log "· 서버 개인키 기존 키 유지 (재생성 금지 — 클라이언트 프로필 무효화 방지)"
+fi
+
+# 8.3 peers.conf — 사람(관리자)이 wg-peer-add 로 관리하는 파일이다.
+#     있으면 손대지 않는다. 없을 때만 헤더 주석만 담긴 빈 파일을 만든다.
+if [[ ! -f /etc/wireguard/peers.conf ]]; then
+  cat >/etc/wireguard/peers.conf <<'PEERS_SEED_EOF'
+# WireGuard 피어 목록 — /usr/local/sbin/wg-peer-add 가 append 한다.
+# startup.sh 는 이 파일이 없을 때만 만들고, 있으면 절대 덮어쓰지 않는다.
+PEERS_SEED_EOF
+  chmod 0600 /etc/wireguard/peers.conf
+  log "✓ /etc/wireguard/peers.conf 생성 (빈 목록, 0600)"
+else
+  log "· /etc/wireguard/peers.conf 기존 파일 유지 (사람이 관리)"
+fi
+
+# 8.4 nft 규칙 파일 — 매 부팅 재작성(순수 생성물).
+cat >/etc/wireguard/wgfwd.nft <<'WGFWD_NFT_EOF'
+#!/usr/sbin/nft -f
+# wgfwd — wg0(개발기) → tun0(KB 사내망) 최소 통로.
+#
+# ⚠️ forward 체인의 policy 를 drop 으로 두지 않는다. 별도 테이블의 drop 정책은
+#    docker 브리지를 포함한 **호스트 전체 forward** 를 죽인다. 「그 외는 막는다」는
+#    맨 아래 두 줄의 **명시 drop 규칙**으로 구현한다.
+#
+# ⚠️ 인터페이스는 iifname/oifname(이름)으로만 쓴다. openconnect 재접속으로 tun0 이
+#    재생성되면 인덱스가 바뀌어 iif/oif(인덱스) 기준 규칙이 조용히 죽는다.
+
+# 재적용 멱등 관용구: 없으면 만들고(no-op), 지운 뒤, 새로 정의한다.
+table inet wgfwd
+delete table inet wgfwd
+
+table inet wgfwd {
+  chain forward {
+    type filter hook forward priority filter + 10; policy accept;
+
+    # ① MSS 클램프 — 터널 오버헤드로 큰 응답이 조용히 멈추는 것을 막는다(양방향).
+    iifname "wg0" oifname "tun0" tcp flags syn tcp option maxseg size set rt mtu
+    iifname "tun0" oifname "wg0" tcp flags syn tcp option maxseg size set rt mtu
+
+    # ② 허용은 게이트웨이 한 대의 두 포트뿐이다.
+    iifname "wg0" oifname "tun0" ip daddr 10.41.1.120 tcp dport { 9100, 22 } accept
+
+    # ③ 그 응답만 돌아온다.
+    iifname "tun0" oifname "wg0" ct state established,related accept
+
+    # ④ 나머지 wg0 출입은 전부 막는다 (사내망 횡이동 차단).
+    iifname "wg0" drop
+    oifname "wg0" drop
+  }
+
+  chain postrouting {
+    type nat hook postrouting priority srcnat; policy accept;
+    # 10.20.0.0/24 를 VM 의 tun0 주소로 바꿔 내보낸다 — 사내망은 이 대역을 모른다.
+    oifname "tun0" ip saddr 10.20.0.0/24 masquerade
+  }
+}
+WGFWD_NFT_EOF
+chmod 0600 /etc/wireguard/wgfwd.nft
+log "✓ /etc/wireguard/wgfwd.nft 재작성 (0600)"
+
+# 8.5 wg0.conf — 매 부팅 재작성(순수 생성물).
+#     ⚠️ 개인키를 이 파일에 넣지 않는다. PostUp 이 0600 키 파일에서 주입하므로
+#        이 파일은 비밀을 담지 않는 생성물이 되고, 재작성이 안전해진다.
+cat >/etc/wireguard/wg0.conf <<'WG0_CONF_EOF'
+# 생성물 — startup.sh 가 매 부팅 재작성한다. VM 에서 직접 고치지 말 것.
+# 피어는 /etc/wireguard/peers.conf 에서 온다 (wg-peer-add 가 관리).
+[Interface]
+Address = 10.20.0.1/24
+ListenPort = 51820
+SaveConfig = false
+
+PostUp = wg set %i private-key /etc/wireguard/wg0.key
+PostUp = wg addconf %i /etc/wireguard/peers.conf || true
+PostUp = nft -f /etc/wireguard/wgfwd.nft
+PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT
+PostUp = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+PostDown = nft delete table inet wgfwd || true
+WG0_CONF_EOF
+chmod 0600 /etc/wireguard/wg0.conf
+log "✓ /etc/wireguard/wg0.conf 재작성 (0600 · 개인키 미포함)"
+
+# 8.6 기동 순서 드롭인 — DOCKER-USER 체인은 dockerd 가 만든다.
+#     부팅 시 wg-quick 이 dockerd 보다 먼저 뜨면 삽입이 조용히 실패한다.
+install -d -m 0755 /etc/systemd/system/wg-quick@wg0.service.d
+cat >/etc/systemd/system/wg-quick@wg0.service.d/10-after-docker.conf <<'WG_DROPIN_EOF'
+# 생성물 — startup.sh 가 매 부팅 재작성한다.
+# DOCKER-USER 체인은 dockerd 가 만든다. 그보다 먼저 뜨면 PostUp 의 iptables 삽입이
+# 조용히 실패해 핸드셰이크는 되는데 9100 이 안 열리는 상태가 된다.
+[Unit]
+After=docker.service
+Wants=docker.service
+WG_DROPIN_EOF
+chmod 0644 /etc/systemd/system/wg-quick@wg0.service.d/10-after-docker.conf
+
+# 8.7 IP 포워딩 — VM 이 wg0 ↔ tun0 사이를 중계하려면 필요하다.
+#     (GCE 의 canIpForward 는 켜지 않는다: tun0 로 나가는 패킷은 openconnect 가
+#      캡슐화해 출발지가 VM 자신이므로 anti-spoof 와 무관하다 — T-15-27 최소권한.)
+cat >/etc/sysctl.d/99-wireguard.conf <<'WG_SYSCTL_EOF'
+# 생성물 — startup.sh 가 매 부팅 재작성한다.
+net.ipv4.ip_forward=1
+WG_SYSCTL_EOF
+chmod 0644 /etc/sysctl.d/99-wireguard.conf
+sysctl --system >/dev/null 2>&1 || log "WARN: sysctl --system 실패 — ip_forward 확인 필요"
+
+# 8.8 피어 추가 헬퍼 — 관리자가 공개키를 받아 등록할 때 쓴다.
+cat >/usr/local/sbin/wg-peer-add <<'WG_PEER_ADD_EOF'
+#!/usr/bin/env bash
+# wg-peer-add <이름> <공개키> <10.20.0.N>
+#
+# 피어를 /etc/wireguard/peers.conf 에 추가하고, wg0 이 살아 있으면 즉시 반영한다.
+# 공개키 전체를 화면에 출력하지 않는다.
+set -euo pipefail
+
+PEERS=/etc/wireguard/peers.conf
+
+usage() {
+  cat <<'USAGE'
+사용법: wg-peer-add <이름> <공개키> <10.20.0.N>
+
+  <이름>     기록용 라벨 (예: alex-mac)
+  <공개키>   WireGuard 앱이 만든 base64 44자 공개키 (개인키가 아니다)
+  <10.20.0.N>  배정할 주소. N 은 2~254 (10.20.0.1 은 서버)
+
+예: wg-peer-add alex-mac aBc...=  10.20.0.2
+USAGE
+}
+
+if [[ $# -ne 3 ]]; then
+  usage >&2
+  exit 64
+fi
+
+NAME="$1"
+PUBKEY="$2"
+ADDR="$3"
+
+if [[ ! "$NAME" =~ ^[A-Za-z0-9._-]{1,32}$ ]]; then
+  echo "ERROR: 이름은 영숫자/._- 1~32자여야 한다: ${NAME}" >&2
+  exit 1
+fi
+
+if [[ ! "$PUBKEY" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+  echo "ERROR: 공개키 형식이 아니다 (base64 44자여야 한다)." >&2
+  echo "Hint: 앱의 '공개키(Public key)' 를 복사했는지 확인할 것. 개인키를 넣지 말 것." >&2
+  exit 1
+fi
+
+if [[ ! "$ADDR" =~ ^10\.20\.0\.([2-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-4])$ ]]; then
+  echo "ERROR: 주소는 10.20.0.2 ~ 10.20.0.254 여야 한다 (10.20.0.1 은 서버): ${ADDR}" >&2
+  exit 1
+fi
+
+install -d -m 0700 /etc/wireguard
+[[ -f "$PEERS" ]] || { : >"$PEERS"; chmod 0600 "$PEERS"; }
+
+# 중복 거부 — 같은 주소가 둘이면 라우팅이 조용히 오작동한다(오류가 안 난다).
+if grep -qF "$PUBKEY" "$PEERS"; then
+  echo "ERROR: 이 공개키는 이미 등록돼 있다. 먼저 ${PEERS} 에서 제거할 것." >&2
+  exit 1
+fi
+if grep -qE "^AllowedIPs = ${ADDR//./\\.}/32$" "$PEERS"; then
+  echo "ERROR: 주소 ${ADDR} 는 이미 배정돼 있다. 다른 N 을 쓸 것." >&2
+  exit 1
+fi
+
+{
+  printf '\n# %s  (추가 %s)\n' "$NAME" "$(date +%F)"
+  printf '[Peer]\n'
+  printf 'PublicKey = %s\n' "$PUBKEY"
+  printf 'AllowedIPs = %s/32\n' "$ADDR"
+} >>"$PEERS"
+chmod 0600 "$PEERS"
+
+echo "✓ ${NAME} → ${ADDR} 등록 (${PEERS})"
+
+if wg show wg0 >/dev/null 2>&1; then
+  wg addconf wg0 "$PEERS"
+  echo "✓ wg0 에 즉시 반영됨"
+else
+  echo "· wg0 이 내려가 있다 — 다음 기동 시 반영된다 (systemctl start wg-quick@wg0)"
+fi
+
+echo "현재 피어 수: $(wg show wg0 peers 2>/dev/null | wc -l)"
+WG_PEER_ADD_EOF
+chmod 0700 /usr/local/sbin/wg-peer-add
+log "✓ /usr/local/sbin/wg-peer-add 배치 (0700)"
+
+# 8.9 기동. 실패해도 부팅을 죽이지 않는다.
+WG_WAS_ACTIVE=0
+systemctl is-active --quiet wg-quick@wg0 && WG_WAS_ACTIVE=1
+systemctl daemon-reload
+if systemctl enable --now wg-quick@wg0 >/dev/null 2>&1; then
+  if [[ "$WG_WAS_ACTIVE" == "1" ]]; then
+    log "· wg-quick@wg0 이미 기동 중 — 설정 재작성분 반영은 'systemctl restart wg-quick@wg0'"
+  else
+    log "✓ wg-quick@wg0 기동 (wg0 10.20.0.1/24 · UDP 51820)"
+  fi
+else
+  log "WARN: wg-quick@wg0 기동 실패 — 'journalctl -u wg-quick@wg0' 확인 필요"
+fi
+
 log "═══ startup.sh 완료 ═══"
 log "다음: ① D-06 DNS A 레코드 → caddy 기동  ② D-03 VPN 선검증(수동 ≤3회)"

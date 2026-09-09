@@ -10,8 +10,9 @@ set -euo pipefail
 #         relay 전용 신규 외부 고정 IP (Cloud NAT 용 IP 재사용 금지)
 #   D-08: 주문 경로 = Cloud Run Direct VPC Egress → VM 내부 IP:8091.
 #         Cloud Run 워크로드에는 네트워크 태그를 붙일 수 없어 source-ranges 로만 좁힌다.
-#   D-09: 공인 인바운드는 443 만. SSH 는 IAP 터널만. gh-radar-vpc 에 방화벽 규칙이
-#         0개이므로 3규칙을 여기서 최초 생성한다 (RESEARCH Pitfall 12).
+#   D-09: SSH 는 IAP 터널만. gh-radar-vpc 에 방화벽 규칙이 0개이므로 여기서 최초 생성한다
+#         (RESEARCH Pitfall 12). 최초 3규칙이었고, quick-260909-muo 가 개발기 WireGuard
+#         직결용 udp:51820 을 더해 **4규칙**이 됐다 — 공인 인바운드는 tcp:443 + udp:51820 둘이다.
 #
 # 멱등 — 재실행 시 기존 리소스 skip.
 # 이 스크립트는 비밀 "값" 을 만들지도 출력하지도 않는다. 값 주입은 사람이 별도 수행한다.
@@ -247,8 +248,9 @@ if ! gcloud compute addresses describe "$INT_IP_NAME" --region="$REGION" >/dev/n
 fi
 echo "✓ internal static IP: $INT_IP_NAME = $INT_IP_ADDR"
 
-# 5.4 방화벽 3규칙 — gh-radar-vpc 최초 규칙 (현재 0개, 인그레스 기본 거부).
-#     이 3규칙이 없으면 IAP SSH 조차 되지 않는다 (RESEARCH Pitfall 12).
+# 5.4 방화벽 4규칙 — gh-radar-vpc 최초 규칙 (최초 0개, 인그레스 기본 거부).
+#     (a)~(c) 가 없으면 IAP SSH 조차 되지 않는다 (RESEARCH Pitfall 12).
+#     (d) 는 개발기 WireGuard 직결용이다 (quick-260909-muo).
 
 # (a) 공개 HTTPS — Caddy TLS 종단. 유일한 공인 인바운드.
 #     포트 80 은 열지 않는다: Caddy 는 TLS-ALPN-01(443)로 인증서를 발급받을 수 있다.
@@ -287,13 +289,29 @@ if ! gcloud compute firewall-rules describe relay-allow-internal-order >/dev/nul
 fi
 echo "✓ firewall ready: relay-allow-internal-order (tcp:8091 ← 서브넷 출발지)"
 
+# (d) WireGuard — 개발기(Mac/Windows)가 radar-gw 를 통해 게이트웨이에 직결한다.
+#     ⚠️ 출발지를 좁히지 않는 이유: 개발기의 공인 IP 가 유동(가정 회선·모바일 테더링·
+#        외부 Wi-Fi)이라 대역을 고정할 수 없다. **실제 인증은 피어 공개키**이며,
+#        WireGuard 는 유효한 키로 서명되지 않은 UDP 패킷에 아무 응답도 하지 않고 버린다
+#        (silent drop). 그래서 포트 스캔에 노출 표면이 생기지 않는다.
+#     통과한 트래픽이 어디까지 가는지는 VM 의 nft 규칙이 따로 좁힌다
+#     (10.41.1.120 의 9100·22 만 — infra/relay/startup.sh 섹션 8).
+if ! gcloud compute firewall-rules describe relay-allow-wireguard >/dev/null 2>&1; then
+  echo "▶ creating firewall rule: relay-allow-wireguard..."
+  run gcloud compute firewall-rules create relay-allow-wireguard \
+    --network="$VPC_NAME" --direction=INGRESS --action=ALLOW \
+    --rules=udp:51820 --source-ranges=0.0.0.0/0 --target-tags="$NETWORK_TAG" \
+    --description="Phase15 relay: WireGuard from dev machines (peer pubkey is the real auth)"
+fi
+echo "✓ firewall ready: relay-allow-wireguard (udp:51820 ← 공인망, 인증은 피어 공개키)"
+
 # ───────────────────────────────────────────────────────────────
 # Section 6: VM radar-gw
 # ───────────────────────────────────────────────────────────────
 
 # 6.1 VM 생성 전 방화벽 가드 — 규칙이 없는 상태에서 VM 을 띄우면 IAP SSH 로도 못 들어간다.
 MISSING_RULES=""
-for RULE in relay-allow-https relay-allow-iap-ssh relay-allow-internal-order; do
+for RULE in relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-wireguard; do
   if ! gcloud compute firewall-rules describe "$RULE" >/dev/null 2>&1; then
     MISSING_RULES="${MISSING_RULES} ${RULE}"
   fi
@@ -307,7 +325,7 @@ if [[ -n "$MISSING_RULES" ]]; then
     exit 1
   fi
 fi
-echo "✓ firewall guard passed (VM 생성 전 3규칙 확인)"
+echo "✓ firewall guard passed (VM 생성 전 4규칙 확인)"
 
 # 6.2 VM 자산 존재 확인 (메타데이터로 실어 보낼 파일 전부)
 for ASSET in startup.sh kbvpn-fetch-secret.sh kbvpn-connect.sh kbvpn-vpnc-wrapper.sh \

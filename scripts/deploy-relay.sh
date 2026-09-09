@@ -147,10 +147,15 @@ for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar
 done
 echo "✓ Secret 3종 존재 + ENABLED 버전 + relay SA 접근권"
 
-# 방화벽은 **정확히 3규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09 위반이므로 이름까지 본다.
+# 방화벽은 **정확히 4규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09 위반이므로 이름까지 본다.
 # (`--filter='... AND allowed.ports=80'` 형태는 기대대로 걸러지지 않는다 — 전체 목록을 읽는다.)
+#
+# ⚠️ 적용 순서는 **방화벽 먼저 → 배포**다. 4번째 규칙(개발기 WireGuard 직결 udp:51820,
+#    quick-260909-muo)이 아직 GCP 에 없으면 이 게이트가 불일치로 exit 1 해 배포가 통째로
+#    막힌다. 먼저 `GCP_PROJECT_ID=gh-radar bash scripts/setup-relay-iam.sh` 로 규칙을
+#    만든 뒤 이 스크립트를 돌린다 (infra/relay/README.md §적용 런북).
 FW_RULES=$(gcloud compute firewall-rules list --filter="network=${VPC}" --format='value(name)' | sort | tr '\n' ' ')
-EXPECTED_FW="relay-allow-https relay-allow-iap-ssh relay-allow-internal-order "
+EXPECTED_FW="relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-wireguard "
 if [[ "$FW_RULES" != "$EXPECTED_FW" ]]; then
   echo "ERROR: ${VPC} 방화벽 규칙이 기대와 다릅니다." >&2
   echo "  expected: $EXPECTED_FW" >&2
@@ -158,7 +163,7 @@ if [[ "$FW_RULES" != "$EXPECTED_FW" ]]; then
   echo "  $SETUP_HINT" >&2
   exit 1
 fi
-echo "✓ 방화벽 3규칙 (포트 80 규칙 없음)"
+echo "✓ 방화벽 4규칙 (포트 80 규칙 없음)"
 
 # ───────────────────────────────────────────────────────────────
 # Section 4: amd64 빌드 + push  (rollback 에서는 건너뛴다)
