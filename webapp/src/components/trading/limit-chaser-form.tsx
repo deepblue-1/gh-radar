@@ -23,7 +23,9 @@
  *   4. **제출 후 즉시 재활성 금지** — 전송 중에는 액션 바가 `반영 중…` 으로 잠긴다.
  *   5. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 발주가·산출 수량이 0 이면 스위치를
  *      **켤 수 없고** 그 자리에 사유 한 줄(`data-slot="lc-arm-blocked"`)이 선다. 판정은
- *      `gateBlocked()` 하나이고 렌더의 `disabled` 와 전송 직전 가드가 그것을 함께 읽는다.
+ *      `gateBlocked()` 하나이고 렌더의 `disabled` 와 **전송 직전 가드 2곳**(`toggleGate` ·
+ *      `handleSubmit`)이 그것을 함께 읽는다 (GC-WR-09 이전에는 `toggleGate` 만 읽었고,
+ *      그래서 「수정」은 relay 에 통째로 거부될 값을 그대로 밀어 넣었다).
  *      ★ **끄는 것은 언제나 허용**한다 — 무장 해제를 막으면 그게 더 위험하다(T-16-44).
  *      relay 도 같은 조건을 거부하므로 UI 를 우회한 경로가 있어도 무장 상태가 만들어지지 않는다.
  *   6. **삭제 버튼을 만들지 않는다**(D-08). 매수·매도·취소 게이트가 전부 꺼지면 그것이 삭제
@@ -105,15 +107,34 @@ import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
 const DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
 
 /**
+ * 무장 판정을 지나는 게이트 3종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
+ * (매수 → 한방 → 매도)와 같게 두어야 「수정」이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
+ */
+const GATE_KEYS = ['buyEnabled', 'sweepEnabled', 'sellEnabled'] as const;
+type GateKey = (typeof GATE_KEYS)[number];
+
+/**
  * 무장 불가 사유 (WR-06). 배지만 회색으로 두면 사용자는 **왜** 안 켜지는지 모른다.
  *
  * 발생 조건은 「시세를 못 받은 종목」이다 — `stock_quotes` 행이 없으면 상한가·현재가가 0 이고
  * 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그래서 사유가 아니라 **다음 행동**을 말한다.
+ *
+ * ★ 키는 **게이트 필드명**(`GateKey`)이다 — 그룹 렌더와 `handleSubmit` 이 같은 키로 읽어야
+ *   문구가 두 벌로 갈리지 않는다(GC-WR-09).
  */
-const ARM_BLOCKED_TEXT = {
-  buy: '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
-  sell: '매도가격이나 예상 매도수량이 0 이에요. 값을 확인하면 켤 수 있어요.',
-  sweep: '한방가격이나 매수 주문수량이 0 이에요. 값을 입력하면 켤 수 있어요.',
+const ARM_BLOCKED_TEXT: Record<GateKey, string> = {
+  buyEnabled: '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+  sellEnabled: '매도가격이나 예상 매도수량이 0 이에요. 값을 확인하면 켤 수 있어요.',
+  sweepEnabled: '한방가격이나 매수 주문수량이 0 이에요. 값을 입력하면 켤 수 있어요.',
+};
+
+/**
+ * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
+ * 같은 어조다. 두 화면이 같은 사건을 다른 말로 하면 사용자는 다른 사건으로 읽는다.
+ */
+const SEND_FAILED_TEXT = {
+  gate: '연결이 끊겨 스위치를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
+  submit: '연결이 끊겨 수정 내용을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
 } as const;
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -217,6 +238,11 @@ export function LimitChaserForm({
   const narrow = useNarrowLayout();
   const [tab, setTab] = useState<'buy' | 'sell'>('buy');
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * 전송 직전 가드가 막았거나(무장 불가) 소켓이 받아 주지 않았을 때의 사유 1줄.
+   * 토스트를 쓰지 않으므로(파일 상단 ⑥) 화면에 남는 문장이 유일한 통보 수단이다.
+   */
+  const [submitError, setSubmitError] = useState('');
   const [flash, setFlash] = useState<ReadonlySet<string>>(EMPTY_FLASH);
 
   const [form, setForm] = useState<LimitChaserFormValues>(() => {
@@ -363,7 +389,7 @@ export function LimitChaserForm({
   */
   const canArmSweep = form.sweepWatchPrice > 0 && canArmBuy;
 
-  const canArm: Record<'buyEnabled' | 'sellEnabled' | 'sweepEnabled', boolean> = {
+  const canArm: Record<GateKey, boolean> = {
     buyEnabled: canArmBuy,
     sellEnabled: canArmSell,
     sweepEnabled: canArmSweep,
@@ -379,7 +405,7 @@ export function LimitChaserForm({
    *   자산을 인질로 잡는다 (T-16-44).
    */
   const gateBlocked = useCallback(
-    (key: 'buyEnabled' | 'sellEnabled' | 'sweepEnabled', next: boolean): boolean => {
+    (key: GateKey, next: boolean): boolean => {
       if (disabled) return true;
       if (!next) return false;
       return !canArm[key];
@@ -388,14 +414,24 @@ export function LimitChaserForm({
   );
 
   const toggleGate = useCallback(
-    (key: 'buyEnabled' | 'sellEnabled' | 'sweepEnabled', next: boolean) => {
+    (key: GateKey, next: boolean) => {
       // 세션 가드(`disabled`)와 무장 가드가 **같은 함수** 안에 있다 — `disabled` ←
       // `limit-chaser-client.tsx` 의 `LimitChaserSurface`(`status !== 'ready'`, 16-19 감사).
       if (gateBlocked(key, next)) return;
       const values: LimitChaserFormValues = { ...formRef.current, [key]: next };
-      setForm(values);
       const cfg = buildCfg(values);
-      send({ t: 'lc.set', cfg });
+      /*
+        ★ **`setForm` 을 전송 뒤로 옮겼다** (GC-WR-06 / T-16-59). 옛 순서는 낙관 반영이
+          먼저였고, 그러면 소켓이 받지 않은 요청에도 스위치가 켜진 것처럼 보인다 — 이 화면
+          최악의 결과다(사용자는 무장했다고 믿고 시장은 계속 움직인다). `send` 가 `false`
+          면 **보내지 않았음이 확실**하므로(`use-relay-socket.ts:863`) 폼도 그대로 둔다.
+      */
+      if (!send({ t: 'lc.set', cfg })) {
+        setSubmitError(SEND_FAILED_TEXT.gate);
+        return;
+      }
+      setForm(values);
+      setSubmitError('');
       sentNotifyRef.current?.(cfg);
     },
     [gateBlocked, send, buildCfg],
@@ -404,14 +440,38 @@ export function LimitChaserForm({
   /** 「수정」 — 표시값 전체를 한 번에 보낸다. 부분 갱신이 없다(D-06). */
   const handleSubmit = useCallback(() => {
     if (submitting || disabled) return; // 중복 제출 가드 + 세션 가드
+    const values = formRef.current;
+    /*
+      ★ **무장 판정은 「수정」에도 걸린다** (GC-WR-09 / T-16-60).
+        서버 에코로 `buyEnabled: true` 를 받은 뒤 시세가 끊겨 가격 칸이 0 이 되면, 이 cfg 는
+        relay 의 `#strategyArmable` 에 **통째로** 거부된다 — 사용자는 함께 실린 다른 값까지
+        하나도 저장하지 못한 채 일반 거부 프레임 한 줄만 본다. 그 전에 화면이 사유를 말한다.
+        ★ **켜져 있는 게이트만** 본다(`values[key]`). 끄는 방향은 여기서도 막지 않는다
+          (T-16-44) — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나가야 한다.
+        `setSubmitting(true)` **앞**이다. 잠근 뒤에 막으면 버튼이 영구히 잠긴다.
+    */
+    const blocked = GATE_KEYS.find((key) => values[key] && gateBlocked(key, true));
+    if (blocked !== undefined) {
+      setSubmitError(ARM_BLOCKED_TEXT[blocked]);
+      return;
+    }
     setSubmitting(true);
-    const cfg = buildCfg(formRef.current);
+    const cfg = buildCfg(values);
     // ★ `DirtyActionBar` 의 「수정」 버튼은 `submitting` 으로만 잠긴다 — 세션 판정은
     //   **여기**서 한다. `disabled` ← `limit-chaser-client.tsx` `LimitChaserSurface`
     //   (`status !== 'ready'`). 이 줄을 지우면 단절 중 클릭이 0바이트가 된다(16-19 감사).
-    send({ t: 'lc.set', cfg });
+    if (!send({ t: 'lc.set', cfg })) {
+      /*
+        보내지 **않았음**이 확실하다 — `submitting` 을 되돌린다(GC-WR-06 / T-16-59).
+        남겨 두면 잠금을 푸는 신호가 60 에코인데 그 에코는 영영 오지 않는다.
+      */
+      setSubmitting(false);
+      setSubmitError(SEND_FAILED_TEXT.submit);
+      return;
+    }
+    setSubmitError('');
     sentNotifyRef.current?.(cfg);
-  }, [submitting, disabled, send, buildCfg]);
+  }, [submitting, disabled, send, buildCfg, gateBlocked]);
 
   /** 「되돌리기」 — 서버값 복귀. **전송하지 않는다.** */
   const handleRevert = useCallback(() => {
@@ -420,8 +480,10 @@ export function LimitChaserForm({
   }, [server]);
 
   // 에코가 도착하면 전송 잠금을 푼다 — 응답(또는 상위의 타임아웃) 전까지 열지 않는다.
+  // 실패 문구도 같이 접는다: 에코가 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다.
   useEffect(() => {
     setSubmitting(false);
+    setSubmitError('');
   }, [server]);
 
   const shared = { dirty: dirtySet, flash, disabled };
@@ -442,7 +504,7 @@ export function LimitChaserForm({
           // ★ 켜는 방향만 막는다 — `!form.buyEnabled` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
           disabled: gateBlocked('buyEnabled', !form.buyEnabled),
         }}
-        armBlocked={!form.buyEnabled && !canArmBuy && !disabled ? ARM_BLOCKED_TEXT.buy : undefined}
+        armBlocked={!form.buyEnabled && !canArmBuy && !disabled ? ARM_BLOCKED_TEXT.buyEnabled : undefined}
       >
         <NumField
           id="lc-buy-watch-price"
@@ -549,7 +611,7 @@ export function LimitChaserForm({
           disabled: gateBlocked('sweepEnabled', !form.sweepEnabled),
         }}
         armBlocked={
-          !form.sweepEnabled && !canArmSweep && !disabled ? ARM_BLOCKED_TEXT.sweep : undefined
+          !form.sweepEnabled && !canArmSweep && !disabled ? ARM_BLOCKED_TEXT.sweepEnabled : undefined
         }
       >
         <NumField
@@ -589,7 +651,7 @@ export function LimitChaserForm({
           disabled: gateBlocked('sellEnabled', !form.sellEnabled),
         }}
         armBlocked={
-          !form.sellEnabled && !canArmSell && !disabled ? ARM_BLOCKED_TEXT.sell : undefined
+          !form.sellEnabled && !canArmSell && !disabled ? ARM_BLOCKED_TEXT.sellEnabled : undefined
         }
       >
         <NumField
@@ -741,6 +803,22 @@ export function LimitChaserForm({
 
   return (
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)}>
+      {submitError === '' ? null : (
+        /*
+          눌렀는데 못 나갔거나 무장 판정에 막혔다 — 화면이 그 사실을 말한다.
+          ★ **폼 맨 위**다. 「수정」 버튼은 화면 하단 고정 바(`DirtyActionBar`)에 있고 그 바는
+            `dirtyCount === 0` 이면 아예 렌더되지 않으므로(스위치 실패가 정확히 그 경우다)
+            바 안에 넣으면 사유가 통째로 사라진다. `role="alert"` 이라 스크롤 위치와 무관하게
+            읽힌다. 토스트를 쓰지 않는 근거는 파일 상단 ⑥.
+        */
+        <p
+          data-slot="lc-submit-error"
+          role="alert"
+          className="mb-[var(--s-2)] m-0 text-[11px] leading-normal text-[var(--destructive)]"
+        >
+          {submitError}
+        </p>
+      )}
       {/*
         모바일 세그먼트 탭 — `order-panel.tsx:426~449` 마크업 승계.
         Radix `ToggleGroup` 을 쓰지 않는 근거는 파일 상단 ⑧.

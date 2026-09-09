@@ -21,9 +21,10 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   - **토스트 없음** — 결과는 액션 바 소멸로만 알린다(파일 전역: 토스트 조회가 하나도 없다).
  *
  * ★ 스텁 경계 — `@/lib/relay-provider` 의 `useRelayContext` 하나다. 폼이 바깥과 맺는 계약은
- *   `send({t:"lc.set", cfg})` 뿐이고, `send` 는 **응답을 돌려주지 않는다**(fire-and-forget).
- *   반영 판정은 60 에코 수신이므로 이 파일에는 「전송 성공/실패」 시나리오가 없다 — 있으면
- *   존재하지 않는 경로를 검증하게 된다.
+ *   `send({t:"lc.set", cfg})` 뿐이고, 그 반환값은 **「소켓에 실었는가」** 하나다(16-19,
+ *   `use-relay-socket.ts:863`). 서버 응답이 아니다 — 반영 판정은 여전히 60 에코 수신이다.
+ *   기본 스텁은 `true`(나갔다)이고, `false` 를 돌려주는 케이스가 잠그는 것은 **보내지 못한
+ *   요청에 낙관 반영·잠금을 걸지 않는다**는 규율뿐이다(⑭, GC-WR-06).
  *
  * ★ jsdom 에는 CSS 가 없다. 모바일 탭 pane 의 `hidden` 은 **좁은 폭에서만** 걸리므로,
  *   ⑫ 는 `matchMedia` 를 좁은 폭으로 갈아끼운 뒤 단언한다. 갈아끼우지 않으면 데스크톱
@@ -148,6 +149,10 @@ const originalMatchMedia = window.matchMedia;
 
 beforeEach(() => {
   sendMock.mockReset();
+  // ★ 기본은 「소켓에 실렸다」 — `send` 는 boolean 계약이고(16-19) 호출부가 그것으로 분기한다.
+  //   `mockReset()` 뒤의 기본 반환은 `undefined`(falsy)라, 세우지 않으면 모든 케이스가
+  //   「전송 실패」 경로로 떨어진다.
+  sendMock.mockReturnValue(true);
   setViewport(false); // 기본은 데스크톱 — 두 폼 카드가 모두 보인다.
 });
 
@@ -636,5 +641,111 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
 
     await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
     expect(lastConfig().sellEnabled).toBe(true);
+  });
+});
+
+/*
+  GC-WR-09 · GC-WR-06 — **말한 대로 동작하는 전송 직전 가드**.
+
+  파일 머리말은 "판정은 `gateBlocked()` 하나이고 렌더의 `disabled` 와 전송 직전 가드가 그것을
+  함께 읽는다"고 적어 왔지만, 실제로 읽던 것은 `toggleGate` 하나였다. 서버 에코로
+  `buyEnabled: true` 를 받은 뒤 시세가 끊겨 가격 칸이 0 이 되면 「수정」이 relay 의
+  `#strategyArmable` 에 **통째로** 거부되고, 함께 실린 다른 값까지 하나도 저장되지 않는다.
+
+  그리고 16-19 가 `send` 를 `void → boolean` 으로 바꾼 목적은 "호출부가 **보내지 않았음**을
+  알 수 있어야 한다"였는데, 이 파일의 두 호출부는 반환값을 버렸다 — 소켓이 받지 않은 요청에도
+  스위치가 켜진 것처럼 보이고 「수정」 버튼은 오지 않을 에코를 기다리며 잠긴 채로 남았다.
+
+  ★ 이 describe 가 잠그는 세 가지: **막힌 이유가 보인다 · 못 보낸 것은 반영되지 않는다 ·
+    못 보냈으면 다시 누를 수 있다**.
+*/
+describe('⑭ 전송 직전 가드가 「수정」에도 걸리고, 못 보낸 요청은 반영되지 않는다 (GC-WR-09 / GC-WR-06)', () => {
+  const submitError = () => document.querySelector('[data-slot="lc-submit-error"]');
+
+  it('게이트가 켜진 채 발주가가 0 이면 「수정」이 나가지 않고 사유가 뜬다 (GC-WR-09)', async () => {
+    const user = userEvent.setup();
+    // 서버는 「매수 무장」으로 에코했는데 시세가 끊겨 가격 칸이 0 인 상태 — 스위치는 이미
+    // 켜져 있으므로(끄는 방향은 언제나 열려 있다) `armBlocked` 사유줄은 뜨지 않는다.
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ buyEnabled: true, buyOrderPrice: 0, buyOrderAmount: 0 }) })}
+      />,
+    );
+
+    // 더티를 하나 만들어 액션 바를 띄운다 — 「수정」은 그 바에만 있다.
+    // ★ 매수 무장 조건과 무관한 필드를 고른다(주문금액은 가격이 0 이면 수량을 못 만든다).
+    setNumber(screen.getByLabelText(/한방가격/), '140000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    // relay 에 통째로 거부되기 **전에** 화면이 사유를 말한다.
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(submitError()).toHaveTextContent(
+      '시세를 받지 못해 발주가·수량이 0 이에요. 매수가격과 주문금액을 입력하면 켤 수 있어요.',
+    );
+    // 잠금 **전**에 막았다 — 버튼은 살아 있다(잠근 뒤 막으면 영구히 잠긴다).
+    expect(screen.getByRole('button', { name: '수정' })).toBeEnabled();
+  });
+
+  it('게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다 (T-16-44 승계)', async () => {
+    const user = userEvent.setup();
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ buyEnabled: true, buyOrderPrice: 0, buyOrderAmount: 0 }) })}
+      />,
+    );
+
+    // 스위치를 끄면(끄는 방향은 허용) 그 자리에서 나가고, 폼의 게이트도 내려간다.
+    await user.click(screen.getByRole('switch', { name: '매수주문 켜기' }));
+    expect(lastConfig().buyEnabled).toBe(false);
+
+    // 그 뒤의 「수정」은 켜진 게이트가 없으므로 가드를 지난다.
+    setNumber(screen.getByLabelText(/한방가격/), '140000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+    expect(sentConfigs()).toHaveLength(2);
+    expect(submitError()).toBeNull();
+  });
+
+  it('`send` 가 false 면 스위치 낙관 반영이 걸리지 않고 실패 문구가 뜬다 (GC-WR-06)', async () => {
+    const user = userEvent.setup();
+    sendMock.mockReturnValue(false); // `ready` 표시와 소켓 readyState 가 어긋나는 창
+    render(<LimitChaserForm {...props()} />);
+
+    const sellSwitch = screen.getByRole('switch', { name: '매도주문 켜기' });
+    expect(sellSwitch).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(sellSwitch);
+
+    expect(sendMock).toHaveBeenCalledTimes(1); // 시도는 했다
+    // ★ 그러나 켜진 것처럼 보이지 않는다 — 이 화면 최악의 결과를 막는 단언이다.
+    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(submitError()).toHaveTextContent(
+      '연결이 끊겨 스위치를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
+    );
+  });
+
+  it('`send` 가 false 면 「수정」이 잠기지 않아 다시 누를 수 있다 (GC-WR-06)', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props()} />);
+
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+    sendMock.mockReturnValue(false);
+
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    // `반영 중…` 으로 잠기지 않는다 — 잠금을 푸는 신호(60 에코)가 영영 오지 않기 때문이다.
+    expect(screen.queryByRole('button', { name: '반영 중…' })).toBeNull();
+    expect(submitError()).toHaveTextContent(
+      '연결이 끊겨 수정 내용을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
+    );
+
+    // 연결이 돌아오면 같은 버튼이 그대로 다시 나간다.
+    sendMock.mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: '수정' }));
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(submitError()).toBeNull();
   });
 });
