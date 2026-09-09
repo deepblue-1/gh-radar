@@ -245,8 +245,25 @@ export function ViSettingsCard({
     [],
   );
 
+  /**
+   * 잠금 판정의 **유일 지점**. 필드·「시작/중지」·`submit` 이 같은 값을 본다.
+   *
+   * 미조회(`server === undefined`) 중에는 서버 상태를 모르는 채로 「시작」을 누르게 두지
+   * 않는다. `disabled` 는 `vi-client.tsx` 의 `ViSurface` 가 `<ViSettingsCard
+   * disabled={!sessionReady}>` 로 내려보내는 세션 판정이다(`sessionReady = status === 'ready'`).
+   */
+  const locked = disabled || server === undefined;
+
   const submit = useCallback(
     (nextRun: boolean) => {
+      /*
+        ★ 세션 가드가 **여기** 있어야 한다 (16-19 감사에서 뚫려 있던 자리).
+          「시작/중지」 버튼은 `disabled={locked || submitting}` 이지만 `DirtyActionBar` 의
+          「수정」은 `submitting` 으로만 잠긴다 — `ready` 일 때 값을 고쳐 더티를 만든 뒤
+          세션이 끊기면 그 버튼은 그대로 눌렸고 `vi.set` 이 0바이트로 사라졌다.
+          확인 다이얼로그가 열린 채 세션이 끊기는 경로도 같은 한 줄이 막는다.
+      */
+      if (locked) return;
       if (submittingRef.current) return; // 연타 가드 — 두 번째 등록을 만들지 않는다.
       const msg: RelayViSetMsg = {
         t: 'vi.set',
@@ -264,7 +281,7 @@ export function ViSettingsCard({
       // 표시 잠금을 푸는 것뿐이다 — 재전송 경로는 이 파일에 없다.
       ackTimer.current = window.setTimeout(unlock, VI_ACK_TIMEOUT_MS);
     },
-    [form, onSent, send, unlock],
+    [form, locked, onSent, send, unlock],
   );
 
   /** 「수정」 — `run` 은 **현재값 그대로**다(②). */
@@ -309,8 +326,6 @@ export function ViSettingsCard({
   const [confirmKind, setConfirmKind] = useState<'start' | 'stop' | null>(null);
 
   const accountName = accounts.find((a) => a.accountNo === form.accountNo)?.name;
-  // 미조회 중에는 폼을 잠근다 — 서버 상태를 모르는 채로 「시작」을 누르게 두지 않는다.
-  const locked = disabled || server === undefined;
 
   return (
     <>

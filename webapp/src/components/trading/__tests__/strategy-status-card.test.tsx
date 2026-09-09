@@ -325,7 +325,8 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
 
   it("⑤ 확정하면 `{t:\"strategies.disable\"}` 이 1회 나가고 `key` 프로퍼티가 없다 (전체)", async () => {
     // `send` 는 boolean 계약이다 — 성공을 뜻하는 `true` 를 돌려줘야 65 대기로 넘어간다.
-    const send = vi.fn(() => true);
+    // 인자 타입을 남겨 둔다: `vi.fn(() => true)` 로 쓰면 `mock.calls` 가 빈 튜플이 된다.
+    const send = vi.fn((_msg: unknown) => true);
     mockRelay = populated({ send });
     const user = userEvent.setup();
     render(<StrategyStatusCard />);

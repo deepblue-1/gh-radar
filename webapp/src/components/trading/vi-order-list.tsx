@@ -224,6 +224,9 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
       // ④ 보내 봐야 서버가 드롭하거나 거부하는 행은 애초에 보내지 않는다.
       if (!isConfirmable(item, disabled)) return;
       if (sending.has(item.orderNo)) return; // 연타 1회화
+      // 세션 가드는 위 `isConfirmable(item, disabled)` 안에 있다 — `disabled` ←
+      // `vi-client.tsx` `ViSurface` 의 `<ViOrderList disabled={!sessionReady}>`,
+      // `sessionReady = status === 'ready'`(16-19 감사).
       send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next });
       setOptimistic((prev) => new Map(prev).set(item.orderNo, next));
       setSending((prev) => new Set(prev).add(item.orderNo));

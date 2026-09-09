@@ -308,6 +308,8 @@ export function LimitChaserForm({
       const values: LimitChaserFormValues = { ...formRef.current, [key]: next };
       setForm(values);
       const cfg = buildCfg(values);
+      // 세션 가드는 **이 위 `disabled` 한 줄**이다 — `limit-chaser-client.tsx` 의
+      // `LimitChaserSurface` 가 `disabled={… || status !== 'ready'}` 로 내려보낸다(16-19 감사).
       send({ t: 'lc.set', cfg });
       sentNotifyRef.current?.(cfg);
     },
@@ -316,9 +318,12 @@ export function LimitChaserForm({
 
   /** 「수정」 — 표시값 전체를 한 번에 보낸다. 부분 갱신이 없다(D-06). */
   const handleSubmit = useCallback(() => {
-    if (submitting || disabled) return; // 중복 제출 가드
+    if (submitting || disabled) return; // 중복 제출 가드 + 세션 가드
     setSubmitting(true);
     const cfg = buildCfg(formRef.current);
+    // ★ `DirtyActionBar` 의 「수정」 버튼은 `submitting` 으로만 잠긴다 — 세션 판정은
+    //   **여기**서 한다. `disabled` ← `limit-chaser-client.tsx` `LimitChaserSurface`
+    //   (`status !== 'ready'`). 이 줄을 지우면 단절 중 클릭이 0바이트가 된다(16-19 감사).
     send({ t: 'lc.set', cfg });
     sentNotifyRef.current?.(cfg);
   }, [submitting, disabled, send, buildCfg]);

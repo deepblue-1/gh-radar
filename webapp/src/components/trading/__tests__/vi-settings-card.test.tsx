@@ -12,6 +12,10 @@ import type { RelayViTrigger } from '@gh-radar/shared';
  *   ④ 제출 후 에코 전까지 재활성되지 않는다 (두 번째 등록 = 두 번째 무인 발주)
  *   ⑤ 빈 61(미등록)이 사용자의 입력을 지우지 않는다 (WinForms CR-01)
  *   ⑥ 만원 → 원 변환이 와이어에서 정확하다
+ *
+ * Plan 19(gap 3) 감사가 덧붙인 것:
+ *   ⑦ 단절 중에는 `vi.set` 이 **아예 나가지 않는다** — `DirtyActionBar` 의 「수정」은
+ *      `submitting` 으로만 잠기므로 세션 판정은 `submit` 안에 있어야 한다
  */
 
 const sendMock = vi.fn();
@@ -348,6 +352,58 @@ describe('⑤ 에코 규율', () => {
     renderCard({ server: undefined });
     expect(amountInput()).toBeDisabled();
     expect(document.querySelector('[data-slot="vi-run-button"]')).toBeDisabled();
+  });
+});
+
+describe('⑦ 세션 가드 — 단절 중에는 `vi.set` 이 나가지 않는다 (16-19 감사)', () => {
+  /** `server` 참조를 유지해야 한다 — 새 객체를 넘기면 에코 규율이 더티를 덮는다(⑤). */
+  function card(server: RelayViTrigger, disabled: boolean) {
+    return (
+      <ViSettingsCard
+        accounts={ACCOUNTS}
+        server={server}
+        disabled={disabled}
+        todayOrderCount={5}
+        unfilledCount={3}
+        appliedAt="13:44:02"
+      />
+    );
+  }
+
+  it('더티 상태에서 세션이 끊기면 「수정」을 눌러도 아무것도 나가지 않는다', () => {
+    const server = trigger({ run: true });
+    const { rerender } = render(card(server, false));
+
+    // 아직 `ready` 다 — 값을 고쳐 더티를 만든다.
+    fireEvent.change(amountInput(), { target: { value: '1500' } });
+    expect(document.querySelector('[data-slot="dirty-action-bar"]')).not.toBeNull();
+
+    // 세션이 끊겼다. 「시작/중지」는 `locked` 로 잠기지만 액션 바의 「수정」은 살아 있다.
+    rerender(card(server, true));
+    expect(document.querySelector('[data-slot="vi-run-button"]')).toBeDisabled();
+    const modify = screen.getByRole('button', { name: '수정' });
+    expect(modify).toBeEnabled();
+
+    fireEvent.click(modify);
+
+    // ★ 0바이트가 조용히 사라지는 것이 아니라 **애초에 보내지 않는다**(PC-7).
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('세션이 돌아오면 같은 클릭이 정상적으로 나간다 (영구 잠금이 아니다)', () => {
+    const server = trigger({ run: true });
+    const { rerender } = render(card(server, true));
+
+    rerender(card(server, false));
+    fireEvent.change(amountInput(), { target: { value: '1500' } });
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0][0]).toMatchObject({
+      t: 'vi.set',
+      orderAmountKrw: 15_000_000,
+      run: true,
+    });
   });
 });
 
