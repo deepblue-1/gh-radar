@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
-last_updated: "2026-09-09T09:48:52.324Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 착수 — 16-36 (R2-CR-01) 완료
+stopped_at: Completed 16-37-PLAN.md — R2-CR-02 종결(stalledCount 가 사유를 본다)
+last_updated: "2026-09-09T09:58:58.427Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 — 16-37 (R2-CR-02) 완료
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 161
+  completed_plans: 162
   percent: 72
 ---
 
@@ -25,16 +25,27 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (36/46)**
-Plan: 36 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 161 / 185
-Status: 3라운드 실행 중 — R2-CR-01 종결. **TRADE-03 은 Pending 유지**(프로덕션 `everReadyCount: 0`)
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (37/46)**
+Plan: 37 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 162 / 185
+Status: 3라운드 실행 중 — R2-CR-02 종결. **TRADE-03 은 Pending 유지**(코드 층위만 닫힘, 배포는 16-46)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 88%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-37 완료 — R2-CR-02 종결. 하나의 카운터가 서로 다른 두 원인을 삼키던 것을 갈랐다.** relay 3파일(소스 2 + 테스트 1).
+- **`stats().stalledCount` 가 사유를 본다.** `NO_RETRY_STATES`(`session_rejected`·`unauthorized`) 세션은 유예를 아무리 넘겨도 세지 않는다. 그 세션은 `acquire` 가 재생성하지 않고(T-15-10/D-16) 탭이 열려 있으면 `refCount > 0` 이라 유예 소멸도 걸리지 않아 **무기한** 남는다 — 사유를 안 보면 사용자 한 명의 잘못된 DMA 비밀번호가 relay 전체를 **영구 503** 으로 만든다.
+- **`sessionsOk` 판정식은 한 글자도 바뀌지 않았다.** 입력값의 정의를 좁힌 것이지 판정을 느슨하게 한 것이 아니다. `acquire`·`release`·`RETRYABLE_DEAD_STATES` diff **0줄**(hunk 헤더 3개가 전부 두 함수 밖) — T-15-10/D-16 유지.
+- **GC-WR-07 을 잃지 않았다.** 응답 없는 게이트웨이의 세션 상태는 `connecting`·`reconnecting`·`logging_in`·`failed` 로 `NO_RETRY_STATES` **밖**이라 여전히 stalled 로 세어진다. 기존 ⑩·⑪ 통과 유지가 그 증거다.
+- **REVIEW 스니펫을 그대로 믿지 않고 코드에서 확인했다.** `session_rejected` 진입 경로는 `#failNoRetry` **둘**이다 — 자격증명 거부 **와 등록 계좌 0건**(`NO_ACCOUNTS_MESSAGE`). R2 리뷰는 전자만 말했다. 둘 다 그 사용자 한 명의 등록 상태라 같은 처분이 맞고, 그 사실을 `NO_RETRY_STATES` 선언부에 박았다. `unauthorized` 는 세션이 스스로 들어가지 않는 상태(wss 계층이 생성 전 판정)다.
+- **신규 2케이스.** ⑩-b(거부 세션, `release` 미호출 = refCount>0 재현 → `stalledCount: 0` **객체 전체 단언**) · ⑩-c(거부 세션 + 무응답 세션을 한 매니저에 함께 두고 `stalledCount: 1` — 제외가 **세션 단위**임을 잠근다). ⑩-c 는 plan 이 허용한 대체 조합(거부+Ready)을 쓰지 않았다 — 그 조합은 제외 유무와 무관하게 0 이라 회귀 게이트가 못 된다.
+- **회귀 잠금 실증.** 제외 조건 무력화 시 **⑩-b·⑩-c 2건 실패**(0→1, 1→2), ⑩ 은 통과 유지. 복원 후 13 전부 통과.
+- **relay 378 tests**(376 → +2, 17 files) · `pnpm -r typecheck` exit 0 · `pnpm -r test` exit 0 **2,017 passed**(기준선 2,015 → +2) · `typecheck:tests` exit 0. 포매터 미실행. 테스트 diff 삭제 **0줄**.
+- **프로덕션 발현과 구분할 것.** 이번 라운드에 관측된 프로덕션 `/healthz` 503 의 원인은 R2-CR-02 가 아니라 **`DMA_HOST` 배포 회귀**(deploy-relay.sh 가 현재 값을 미보존 → 실 게이트웨이가 로컬 mock 으로 강등)였고 `DMA_HOST=10.41.1.120` 복구로 200 `everReadyCount:1` 이 됐다. R2-CR-02 는 **아직 프로덕션에서 발현한 적 없는 코드 결함**이다.
+- **⚠️ 배포 미실시.** 사유를 보는 `stalledCount` 는 아직 프로덕션 `/healthz` 에 없다 — 재배포는 3라운드 종결 plan **16-46** 몫. FakeGateway 만 사용, 실서버·실계좌 접속 0회(D-27). 자동 수정(Rule 1~3) 0건, Rule 2 서술 정정 1건.
 
 - **16-36 완료 — R2-CR-01 종결. 마지막 관문이 클라이언트의 자칭을 근거로 자기 자신을 면제하던 것을 없앴다.** relay 2파일(소스 1 + 테스트 1).
 - **철거 판정의 정본이 `crud` 에서 게이트 4종으로 옮겨졌다.** `#isTeardown` 첫 줄 `if (cfg.crud === "D") return true;` 를 제거했다 — `crud` 는 **인바운드 필드**라(`protocol.ts` `z.enum(["C","D"])`, `RelayLimitChaserInput` 이 Omit 하지 않는다) 브라우저·옛 탭·임의 wss 가 값을 정한다. 계약 원문(`packages/shared/src/relay.ts:136-141`)이 「게이트가 전부 꺼지면 **서버가** `"D"` 로 정규화한다」고 못박은 대로, `crud` 는 정규화의 **결과**를 말하는 힌트이지 근거가 아니다. `{crud:"D", buyEnabled:true, buyOrderPrice:0, buyOrderQty:0, isin:<마스터에 없는 ISIN>}` 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 지나던 경로가 닫혔다.
@@ -317,6 +328,7 @@ Progress: [█████████░] 87%
 | Phase 16 P34 | 9min | 2 tasks | 2 files |
 | Phase 16 P35 | 70m | 3 tasks | 6 files |
 | Phase 16 P36 | 11min | 2 tasks | 2 files |
+| Phase 16 P37 | 25min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -519,6 +531,7 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-35: TRADE-03 은 Pending 유지 — 코드 19건이 닫히고 relay 가 c8aa7ae 로 재배포됐으나 프로덕션 /healthz 가 everReadyCount:0 · stalledCount:2 · 503 이라 DMA 경로가 실서버에서 한 프레임도 나른 적이 없다 (RELAY-02 와 같은 기준)
 - [Phase 16]: 16-35: 배포 후 /healthz 503 은 회귀가 아니라 GC-WR-07 의 의도된 판정 — version·sessionCount 고정 상태에서 stalledCount 0→2 만으로 뒤집혔다. 알림을 끄는 것은 판정을 되돌리는 사용자 결정 사항이라 deferred-items 로 넘겼다
 - [Phase 16]: 16-35: server 재배포 생략 — git diff --stat 2cb5620..HEAD 가 server/ 와 packages/shared/ 둘 다 빈 출력. 계약 무변경이라 배포 순서 위험도 이번 라운드에는 없다
+- [Phase 16]: 16-37 (R2-CR-02): stalledCount 가 사유를 본다 — NO_RETRY_STATES(session_rejected·unauthorized) 세션은 집계에서 제외. 사용자 한 명의 자격증명 거부가 relay 전체를 영구 503 으로 만들던 경로를 닫았다. sessionsOk 판정식 무변경(입력값 정의만 좁힘), acquire·release diff 0줄로 T-15-10 유지, 기존 ⑩ 통과로 GC-WR-07 생존
 
 ### Pending Todos
 
@@ -571,7 +584,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T09:48:52.310Z
+Last session: 2026-09-09T09:58:42.594Z
 Stopped at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
