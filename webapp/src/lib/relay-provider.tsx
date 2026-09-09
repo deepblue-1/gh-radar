@@ -321,6 +321,8 @@ export function useRelaySubscription({
       accounts: relay.accounts,
       quote,
       tape,
+      // 계좌 축 선택은 **소비자가** 한다 — 훅은 어느 계좌를 골랐는지 모른다(CR-01).
+      accountStates: relay.accountStates,
       account: relay.account,
       orders: relay.orders,
       messages: relay.messages,

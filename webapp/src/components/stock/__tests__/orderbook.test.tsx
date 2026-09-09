@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { RelayAccount, RelayQuote, RelayTapeEntry } from '@gh-radar/shared';
+import type {
+  RelayAccount,
+  RelayAccountState,
+  RelayQuote,
+  RelayTapeEntry,
+} from '@gh-radar/shared';
 
 /**
  * Phase 15 Plan 14 Task 1 — 호가창 **섹션 단위** 계약 검증 (RELAY-01, SC-7).
@@ -15,6 +20,10 @@ import type { RelayAccount, RelayQuote, RelayTapeEntry } from '@gh-radar/shared'
  *
  * ② 네트워크 0 — `@/lib/relay-provider` 의 `useRelaySubscription` 만 스텁한다
  *   훅을 스텁하면 wss·Supabase·타이머가 전부 사라지고 "이 상태에서 이 화면"만 남는다.
+ *   **계좌 축(`accountStates`)도 같은 스텁으로 들어온다**(16-23) — 섹션이 계좌 상태를
+ *   얻는 경로가 이 훅 하나뿐이기 때문이다. `useRelayContext` 는 스텁하지 않는다:
+ *   `AccountPanel` 이 그 컨텍스트에서 `sendOrder` 만 꺼내 쓰는데, Provider 밖 폴백이
+ *   「보내지 않았음」을 돌려주므로 실제 구현을 그대로 두는 편이 사실에 가깝다(⑤ 폴백 규율).
  *   `importOriginal` 로 나머지 export(`RELAY_MAX_RECONNECT_ATTEMPTS` / `relayBackoffDelayMs`)
  *   는 **실제 구현을 유지**한다 — `RelayStatusBar` 가 그 둘을 import 하므로 통째로
  *   대체하면 상태 바가 `재접속 중 k/10` 의 분모를 잃는다.
@@ -71,6 +80,83 @@ const BASE = 98_000;
 
 const ACCOUNTS: RelayAccount[] = [{ accountNo: '12345678-01', name: '위탁종합' }];
 
+/*
+  CR-01 회귀용 계좌 2개. 사용자는 **A** 를 고르고(목록 첫 계좌), B 에서도 프레임이 온다.
+  기본 `ACCOUNTS`(1개)를 늘리지 않는 이유: 상태 배지 문구가 「실시간 · 계좌 1개」로
+  고정돼 있어서 늘리면 무관한 케이스가 함께 깨진다.
+*/
+const ACCOUNT_A = '12345678-01';
+const ACCOUNT_B = '87654321-02';
+const ACCOUNTS_AB: RelayAccount[] = [
+  { accountNo: ACCOUNT_A, name: '위탁종합' },
+  { accountNo: ACCOUNT_B, name: '위탁CMA' },
+];
+
+/**
+ * 같은 종목을 **두 계좌 모두** 들고 있고 미체결도 각각 있다.
+ * 계좌를 섞으면 즉시 티가 나도록 주문번호·수량을 겹치지 않게 둔다.
+ */
+function accountStatesAB(): ReadonlyMap<string, RelayAccountState> {
+  return new Map<string, RelayAccountState>([
+    [
+      ACCOUNT_A,
+      {
+        t: 'acct',
+        a: ACCOUNT_A,
+        snap: true,
+        hold: [
+          { isin: ISIN, qty: 76, sellableQty: 76, avgPrice: 97_000, name: NAME, code: CODE },
+        ],
+        unf: [
+          {
+            orderNo: 'A-0001',
+            orgOrderNo: '',
+            isin: ISIN,
+            side: 'B',
+            price: 97_900,
+            orderQty: 10,
+            filledQty: 0,
+            unfilledQty: 10,
+            exchange: 'KRX',
+            name: NAME,
+            code: CODE,
+          },
+        ],
+        rm: [],
+        st: '093015',
+      },
+    ],
+    [
+      ACCOUNT_B,
+      {
+        t: 'acct',
+        a: ACCOUNT_B,
+        snap: true,
+        hold: [
+          { isin: ISIN, qty: 500, sellableQty: 500, avgPrice: 90_000, name: NAME, code: CODE },
+        ],
+        unf: [
+          {
+            orderNo: 'B-9999',
+            orgOrderNo: '',
+            isin: ISIN,
+            side: 'S',
+            price: 98_500,
+            orderQty: 20,
+            filledQty: 0,
+            unfilledQty: 20,
+            exchange: 'KRX',
+            name: NAME,
+            code: CODE,
+          },
+        ],
+        rm: [],
+        st: '093016',
+      },
+    ],
+  ]);
+}
+
 /**
  * 매도 1~10호가 98,100~99,000 / 매수 1~10호가 97,900~97,000.
  * 잔량은 **단계 최대 정규화**를 눈으로 검산할 수 있게 10 단위 등차로 둔다
@@ -126,6 +212,7 @@ function makeRelay(over: Partial<RelaySocketShape> = {}): RelaySocketShape {
     accounts: ACCOUNTS,
     quote: makeQuote(),
     tape: makeTape(),
+    accountStates: new Map(),
     account: null,
     orders: [],
     messages: [],
@@ -416,6 +503,49 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(
       within(tape).getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
     ).toBeInTheDocument();
+  });
+
+  it('⑭ ★ 계좌 A 를 고른 상태에서 계좌 패널은 **A 의 미체결만** 그린다 (CR-01)', () => {
+    /*
+      실패 경로: 계좌 A 선택 → 계좌 B 체결로 67 델타 도착 → 「마지막 수신 계좌」가 B 가
+      된다 → 머리는 A 인데 행은 B → 그 행의 `✕ 취소` 가 `accountNo: A` + `orgOrderNo:
+      B의 주문번호` 로 나간다. relay 화이트리스트는 둘 다 그 사용자 계좌라 막지 못한다.
+      계좌 패널의 입력이 `accountStates.get(selectedAccountNo)` 하나로 통일돼 있으면
+      머리와 행의 출처가 같아져 이 경로 자체가 사라진다.
+    */
+    mockRelay = makeRelay({ accounts: ACCOUNTS_AB, accountStates: accountStatesAB() });
+    renderSection();
+
+    // 머리 = 선택 계좌 A. 계좌 목록의 첫 항목이 자동 선택된다.
+    const panel = screen.getByTestId('account-panel');
+    expect(within(panel).getByRole('tab', { name: '미체결 (1)' })).toBeInTheDocument();
+    expect(within(panel).getByRole('tab', { name: '잔고 (1)' })).toBeInTheDocument();
+
+    // 행 = A 의 것. 표(≥1280)와 카드(<1280)가 둘 다 렌더되므로 2벌이다.
+    expect(within(panel).getAllByText('A-0001').length).toBeGreaterThan(0);
+    // ★ B 의 주문번호는 화면 어디에도 없다 — 있으면 그 행의 취소가 A 계좌로 나간다.
+    expect(within(panel).queryAllByText('B-9999')).toHaveLength(0);
+  });
+
+  it('⑮ 매도가능수량은 **선택 계좌 A** 의 보유에서 온다 — B 에만 있는 보유는 0 이다 (CR-01)', async () => {
+    const user = userEvent.setup();
+
+    // (1) A·B 모두 보유 — 100% 는 A 의 76주여야 한다(B 의 500주가 아니다).
+    mockRelay = makeRelay({ accounts: ACCOUNTS_AB, accountStates: accountStatesAB() });
+    const first = renderSection();
+    await user.click(screen.getByRole('tab', { name: '매도' }));
+    await user.click(screen.getByRole('button', { name: '100%' }));
+    expect(screen.getByLabelText('수량')).toHaveValue('76');
+    first.unmount();
+
+    // (2) B 에만 보유 — 선택 계좌 A 의 매도가능수량은 0 이라 비율 버튼이 채우지 않는다.
+    const bOnly = new Map(accountStatesAB());
+    bOnly.set(ACCOUNT_A, { ...accountStatesAB().get(ACCOUNT_A)!, hold: [] });
+    mockRelay = makeRelay({ accounts: ACCOUNTS_AB, accountStates: bOnly });
+    renderSection();
+    await user.click(screen.getByRole('tab', { name: '매도' }));
+    await user.click(screen.getByRole('button', { name: '100%' }));
+    expect(screen.getByLabelText('수량')).toHaveValue('');
   });
 
   it('⑬ 상태 배지 4종 문구가 UI-SPEC verbatim 이다 (connecting/ready/reconnecting/failed)', () => {

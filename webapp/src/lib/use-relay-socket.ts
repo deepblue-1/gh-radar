@@ -241,6 +241,14 @@ export interface RelaySocketState {
   quote: RelayQuote | null;
   /** **자기 구독 키**의 체결 테이프. 최신이 index 0. */
   tape: RelayTapeEntry[];
+  /**
+   * **계좌번호 → 병합된 계좌 상태.** 계좌 축 소비자는 이것만 쓴다 (16-23).
+   *
+   * 「마지막으로 받은 계좌」 단일 값(`account`)은 계약에서 **제거됐다** — 그 값을 계좌 축에
+   * 쓰면 머리는 A 인데 행은 B 가 되고, 그 행의 `✕ 취소` 가 A 계좌로 B 의 주문번호를
+   * 보낸다(CR-01). 어느 계좌를 골랐는지는 **소비자만** 안다.
+   */
+  accountStates: ReadonlyMap<string, RelayAccountState>;
   account: RelayAccountState | null;
   orders: RelayOrderMsg[];
   messages: RelayServerMessageEntry[];

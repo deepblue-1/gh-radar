@@ -151,7 +151,7 @@ export function StockOrderbookSection({
     accounts,
     quote,
     tape,
-    account,
+    accountStates,
     messages,
     isStale,
     reconnect,
@@ -160,6 +160,15 @@ export function StockOrderbookSection({
     exchange,
     enabled: subscriptionIsin !== null,
   });
+
+  /*
+    **선택 계좌**의 상태다. 「마지막으로 받은 계좌」를 쓰면 머리는 A 인데 행은 B 가 되고,
+    그 행의 `✕ 취소` 가 A 계좌로 B 의 주문번호를 보낸다(CR-01). 주문번호는 계좌별
+    시퀀스라 A 에 같은 번호의 주문이 살아 있으면 **엉뚱한 주문이 취소된다.**
+    계좌 축 선택은 이렇게 **소비자가** 한다 — 구독 훅은 어느 계좌를 골랐는지 모른다.
+  */
+  const selectedAccount =
+    selectedAccountNo === '' ? null : (accountStates.get(selectedAccountNo) ?? null);
 
   /*
    * 종목 전환 state sticky 방어 (WR-04 관례 · T-15-40).
@@ -171,8 +180,10 @@ export function StockOrderbookSection({
    * 구독 해제(unsub)는 구독 훅이 이미 한다. quote/tape 는 전역 맵에서 **키로** 골라 오므로
    * 종목이 바뀌면 새 키에 값이 없어 자연히 비고, 이전 종목 값이 새어 나올 여지가 없다
    * (16-09 T-16-02 — 승격 전 `wantedKeyRef` 필터가 하던 일을 키 선택이 대신한다).
-   * ★ `account`(잔고·미체결)는 **리셋하지 않는다**. 계좌 상태는 종목 축이 없어서, 종목을
-   *   옮길 때마다 비우면 다음 델타가 올 때까지 계좌 패널이 빈 채로 남는다.
+   * ★ 계좌 축은 **리셋하지 않는다** — 사용자가 고른 `selectedAccountNo` 도, 거기서
+   *   파생되는 `selectedAccount`(잔고·미체결)도 그대로 둔다. 계좌 상태는 종목 축이 없어서
+   *   종목을 옮길 때마다 비우면 다음 델타가 올 때까지 계좌 패널이 빈 채로 남고, 계좌
+   *   선택까지 되돌리면 종목을 옮길 때마다 사용자가 고른 계좌가 첫 계좌로 튕긴다.
    */
   useEffect(() => {
     setExchange('KRX');
@@ -252,9 +263,9 @@ export function StockOrderbookSection({
 
   /** 이 종목의 매도가능수량 — 매도 비율 버튼의 기준. 잔고에 없으면 0. */
   const sellableQty = useMemo(() => {
-    if (subscriptionIsin === null || !account) return 0;
-    return account.hold.find((h) => h.isin === subscriptionIsin)?.sellableQty ?? 0;
-  }, [account, subscriptionIsin]);
+    if (subscriptionIsin === null || !selectedAccount) return 0;
+    return selectedAccount.hold.find((h) => h.isin === subscriptionIsin)?.sellableQty ?? 0;
+  }, [selectedAccount, subscriptionIsin]);
 
   const isGated = subscriptionIsin === null || status === 'unauthorized';
   const isLoading = !isGated && !quote && CONNECTING_STATES.has(status);
@@ -449,7 +460,7 @@ export function StockOrderbookSection({
               accounts={accounts}
               selectedAccountNo={selectedAccountNo}
               onAccountChange={setSelectedAccountNo}
-              account={account}
+              account={selectedAccount}
               code={code}
               name={name}
               isin={subscriptionIsin}
