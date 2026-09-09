@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-20-PLAN.md (WR-04 죽은 주문 모듈 삭제 + WR-05 origin 읽기 계약)
-last_updated: "2026-09-09T01:21:11.515Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-20 실행 완료 (WR-04 + WR-05)
+stopped_at: Completed 16-21-PLAN.md (gap 4 /healthz 판정 완화 + smoke INV-9 교체)
+last_updated: "2026-09-09T01:34:02.113Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-21 실행 완료 (gap 4 종결)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 165
-  completed_plans: 145
+  completed_plans: 146
   percent: 72
 ---
 
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 21 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18·16-19·16-20 완료 · 16-21~16-26 대기)
-Plans completed: 145 / 165
-Status: Executing Phase 16 (갭 클로징 6 plans 남음)
+Plan: 22 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-21 완료 · 16-22~16-26 대기)
+Plans completed: 146 / 165
+Status: Executing Phase 16 (갭 클로징 5 plans 남음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-20 실행 완료 (WR-04 + WR-05)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-21 실행 완료 (gap 4 종결)
 
-Progress: [█████████░] 88% (145/165 plans · 18/25 phases)
+Progress: [█████████░] 88% (146/165 plans · 18/25 phases)
 
 ### Phase 15 Production State (2026-09-08)
 
@@ -164,6 +164,7 @@ Progress: [█████████░] 88% (145/165 plans · 18/25 phases)
 | Phase 16 P18 | 14min (게이트 대기 제외) | 3 tasks | 5 files |
 | Phase 16 P19 | 9min | 3 tasks | 9 files |
 | Phase 16 P20 | 5min | 2 tasks | 6 files |
+| Phase 16 P21 | 8min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -318,6 +319,9 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 19]: send 호출부 감사 결과 세션 가드 예외는 킬 스위치 하나가 아니라 둘이었다 — `vi-settings-card` 의 `submit` 이 `DirtyActionBar` 「수정」 경로로 우회했다 — 가드는 UI 의 `disabled` prop 이 아니라 송신 콜백 첫 줄에 둔다. 공용 액션 바는 세션 상태를 모른다
 - [Phase 16 Plan 20]: WR-04 는 「모듈 삭제」로 확정 — listOrders 결선은 곧 주문 이력 표를 만드는 것이고 그 표는 D-20 이 이 phase 밖(deferred)에 두었다. 라우트(GET /api/orders)는 D-03 사용자 결정이라 남긴다.
 - [Phase 16 Plan 20]: dma_orders.origin 은 shared 계약(DmaOrderOrigin)에 사본으로 둔다 — server 는 relay 를 의존하지 않는다. server 에 기본값 보정을 넣지 않는다(DB DEFAULT manual + NOT NULL 이 정본). manual 은 「수동」과 「출처 불명」이 같은 값이라 자동주문 감사의 증거로 쓸 수 없다.
+- [Phase 16 Plan 21]: relay `/healthz` degraded 판정에서 「한 번도 Ready 인 적 없는 세션」을 제외한다 (gap 4 해법 ③). 판정축이 `sessionCount` → `everReadyCount` 로 옮겨가 15-05 계약을 대체한다 — 게이트웨이가 애초에 없는 환경은 relay 장애가 아니다.
+- [Phase 16 Plan 21]: `DmaSession#hasBeenReady` 는 래치이며 `false` 로 되돌리는 경로를 만들지 않는다 (T-16-26). 「게이트웨이 부재」와 「게이트웨이 장애」를 가르는 유일한 근거라, 되돌리면 진짜 장애 탐지가 함께 죽는다.
+- [Phase 16 Plan 21]: smoke INV-9 는 사라진 server 주문 라우트 대신 relay wss 주문 왕복으로 도달성을 잰다. 기대값은 `order.result(status=rejected)` — 화이트리스트 밖 계좌 `0000000000` + 미해석 ISIN 조합이라 게이트웨이 송신·`dma_orders` insert 이전에 끝난다 (T-16-28).
 
 ### Pending Todos
 
@@ -367,6 +371,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T01:20:44.843Z
-Stopped at: Completed 16-19-PLAN.md (gap 3 — 킬 스위치 침묵 제거 + vi.set 가드 보강)
+Last session: 2026-09-09T01:33:39.717Z
+Stopped at: Completed 16-21-PLAN.md (gap 4 /healthz 판정 완화 + smoke INV-9 교체)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
