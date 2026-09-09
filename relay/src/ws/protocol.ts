@@ -83,7 +83,7 @@ const UByteSchema = z.number().int().min(0).max(255);
 const RidSchema = z.string().min(1).max(64);
 
 /**
- * 상따 설정 (`lc.set`, D-01/D-06). `cfg` 는 **33필드 전부**다 — 부분 갱신이 없다.
+ * 상따 설정 (`lc.set`, D-01/D-06). `cfg` 는 **32필드 전부**다 — 부분 갱신이 없다.
  *
  * 범위 경계를 게이트웨이 검증과 **같은 값**으로 잡는다. 서버는 범위를 벗어난 설정을 거부하는
  * 대신 **게이트를 눕혀서 저장**하고 `ServerMessage ERROR` 만 따로 보내기 때문이다(조용한 거부).
@@ -93,14 +93,19 @@ const RidSchema = z.string().min(1).max(64);
  *    `cancelQtyTrackBaseline`)를 두지 않는다** — 서버가 계산해 에코로만 주는 값이라, 받으면
  *    "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6). `z.object` 가 미지
  *    키를 떨어뜨리므로 실려 와도 통과하지 못한다.
+ *
+ * ⚠️ **`market` 도 두지 않는다** (WR-03 / D-28). 시장 구분의 소유자는 relay 다 —
+ *    `fanout.ts` 의 `lc.set` 분기가 `symbols.lookup(cfg.isin)` 으로 풀어 조립 시점에 채운다.
+ *    `order.new` 가 이미 그렇게 하고(`order-handler.ts` 게이트 ③-1) `lc.set` 만 예외였다.
+ *    `z.enum(["K","Q"])` 는 **형식만** 볼 뿐 `SymbolMap` 과 대조하지 않으므로, 브라우저의
+ *    `market === 'KOSDAQ' ? 'Q' : 'K'` 추측이 그대로 반복 발주 설정이 됐다. 위 4필드와 같은
+ *    논리로 **필드를 지운다** — `z.object` 가 미지 키를 떨어뜨리므로 실려 와도 통과하지 못한다.
  */
 export const RelayLcSetSchema = z.object({
   t: z.literal("lc.set"),
   cfg: z.object({
     isin: IsinSchema,
     accountNo: AccountNoSchema,
-    /** 서버는 첫 글자만 읽는다 — 빈 값이 오면 KOSPI 로 오인되므로 열거로 못박는다. */
-    market: z.enum(["K", "Q"]),
     crud: z.enum(["C", "D"]),
     buyOrderPrice: UIntSchema,
     buyOrderQty: UIntSchema,

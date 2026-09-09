@@ -62,6 +62,7 @@ import type { RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RELAY_WS_CLOSE } from "@gh-radar/shared";
 import type {
+  OrderMarket,
   RelayExchange,
   RelayInbound,
   RelayOutbound,
@@ -284,6 +285,13 @@ export class WsFanout {
   readonly #onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
   /** 주문 상관 핸들러 (D-02). 결선이 반쪽이면 `null` 이고 주문 분기가 사유를 돌려준다. */
   readonly #orders: OrderHandler<Conn> | null;
+  /**
+   * ISIN → 단축코드·시장 (D-28). `lc.set` 의 시장 구분을 **여기서** 푼다 (WR-03).
+   *
+   * 주문 분기(`#orders`)는 `orderStore` 와 조합해야 열리지만 전략 분기는 종목맵 하나면 된다 —
+   * 그래서 조합 판정과 별개로 인스턴스에 따로 보관한다.
+   */
+  readonly #symbols: SymbolLookup | null;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -294,6 +302,7 @@ export class WsFanout {
     this.#path = deps.path ?? DEFAULT_WS_PATH;
     this.#authTimeoutMs = deps.authTimeoutMs ?? AUTH_TIMEOUT_MS;
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
+    this.#symbols = deps.symbols ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -555,14 +564,22 @@ export class WsFanout {
     //   ① Ready 세션 확인 → ② 계좌 화이트리스트 대조 → ③ 조립·송신.
     // 어느 단계에서 멈추든 **로그 + 거부 프레임**을 남긴다. `vi.confirm`/`strategies.disable`
     // 은 계좌 필드가 없으므로 ② 를 건너뛴다.
+    //
+    // ★ `lc.set` 만 **②-1 ISIN → 시장 해석** 단계가 하나 더 있다 (WR-03 / D-28). 브라우저가
+    //   `market` 을 싣지 않으므로 relay 가 `SymbolMap` 으로 풀어 채운다 — 못 풀면 거부다.
+    //   `order.new` 가 이미 같은 규율이고(`order-handler.ts` 게이트 ③-1) `lc.set` 만 예외였다.
     // ------------------------------------------------------------------
     if (msg.t === "lc.set") {
       const { cfg } = msg;
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, cfg.accountNo)) return;
+      const market = this.#strategyMarket(conn, userId, msg.t, cfg.isin);
+      if (market === null) return;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
-        buildSetLimitChaserReq(cfg),
+        // ★ 시장 구분은 **여기서** 얹는다. 조립기에 기본값을 두지 않는 것이 규율이다 —
+        //   기본값 "K" 는 코스닥 전략을 코스피로 등록시킨다 (Pitfall 7).
+        buildSetLimitChaserReq({ ...cfg, market }),
       );
       if (payload === null) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
@@ -724,6 +741,41 @@ export class WsFanout {
     );
     this.#send(conn, rejectFrame("이 세션에서 사용할 수 없는 계좌입니다.", accountNo));
     return false;
+  }
+
+  /**
+   * ②-1 **ISIN → 시장 구분 해석** — `lc.set` 전용 (WR-03 / D-28).
+   *
+   * 브라우저는 `market` 을 싣지 않는다(스키마에서 지웠다). 시장의 정본은 `SymbolMap` 하나이고
+   * relay 가 그것을 소유한다 — `order.new` 의 게이트 ③-1 과 **동형**이다.
+   *
+   * ★ 못 풀면 **거부**다. 기본값 `"K"` 로 메우면 코스닥 전략이 코스피로 등록되고, 전략은
+   *   한 번의 주문이 아니라 **반복 발주 설정**이라 그 오차가 계속 재생산된다 (T-16-42).
+   * ★ `#symbols` 가 없으면(테스트 하네스가 결선하지 않은 경우) 역시 거부다 — 종목맵 없이
+   *   전략을 조립하면 결국 시장을 지어내게 된다. 프로덕션 부팅은 항상 결선한다(`index.ts`).
+   * ★ 로그에 계좌번호를 싣지 않는다 (`maskAccountNo` 규율 / T-16-45) — `isin` 과 사유만 남긴다.
+   */
+  #strategyMarket(
+    conn: Conn,
+    userId: string,
+    t: RelayInbound["t"],
+    isin: string,
+  ): OrderMarket | null {
+    if (this.#symbols === null) {
+      logger.error({ userId, t, isin }, "[WS] 종목맵 미결선 — 전략 요청 거부 (시장을 지어내지 않는다)");
+      this.#send(conn, rejectFrame("이 종목은 지금 전략을 등록할 수 없습니다.", "", isin));
+      return null;
+    }
+    const info = this.#symbols.lookup(isin);
+    if (info === undefined || info.market === null) {
+      logger.error(
+        { userId, t, isin, known: info !== undefined },
+        "[WS] ISIN → 시장 해석 실패 — 전략 요청 거부 (게이트웨이로 나가지 않았다)",
+      );
+      this.#send(conn, rejectFrame("이 종목은 지금 전략을 등록할 수 없습니다.", "", isin));
+      return null;
+    }
+    return info.market;
   }
 
   /**

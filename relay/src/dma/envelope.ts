@@ -876,7 +876,13 @@ export const LC_FIXED_SWEEP_MIN_RATE = 0;
 /**
  * 상따 설정 (MsgType 10). 응답은 60 에코다.
  *
- * **클라 입력 30 + 클라 고정 3 = 33 필드만** 채운다. 나머지는 건드리지 않는다:
+ * ★ `market` 은 **호출부가 채워 넣는다** (WR-03 / D-28). `RelayLimitChaserInput` 에서 뺐기
+ *   때문이다 — 브라우저가 시장을 실어 보내지 못하게 스키마에서 지웠고, `fanout.ts` 의
+ *   `lc.set` 분기가 `symbols.lookup(cfg.isin)` 으로 푼 값을 여기로 넘긴다. 조립기가 기본값을
+ *   두지 않는 것이 핵심이다: 기본값 `"K"` 를 두는 순간 코스닥 전략이 코스피로 등록된다.
+ *
+ * **클라 입력 29 + relay 해석 1(`market`) + 클라 고정 3 = 33 필드만** 채운다. 나머지는
+ * 건드리지 않는다:
  *   - **S→C 전용 4필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
  *     `cancel_qty_track_baseline`) — 서버가 계산해 에코로만 내려주는 값이다. 실어 보내면
  *     서버는 무시하지만, 보내는 쪽 코드에 남아 있는 것만으로 "왕복하는 값"이라는 착각을
@@ -890,7 +896,9 @@ export const LC_FIXED_SWEEP_MIN_RATE = 0;
  *
  * @throws {OrderBuildError} ISIN·계좌번호·거래소 형식 위반, 단일문자 열거 밖 값, 수치 표현 범위 초과
  */
-export function buildSetLimitChaserReq(cfg: RelayLimitChaserInput): Uint8Array {
+export function buildSetLimitChaserReq(
+  cfg: RelayLimitChaserInput & { market: OrderMarket },
+): Uint8Array {
   // 서버와 같은 폭으로 먼저 자른다 — 자른 뒤의 값이 전략 키의 정본이다.
   const isin = truncateToWire(cfg.isin, 12, "isin");
   const accountNo = truncateToWire(cfg.accountNo, MAX_ACCOUNT_NO_LEN, "accountNo");

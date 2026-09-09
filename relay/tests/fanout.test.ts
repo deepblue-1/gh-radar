@@ -30,6 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RelayLimitChaserInput, RelayOutbound } from "@gh-radar/shared";
+import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 
 import {
   AUTH_TIMEOUT_MS,
@@ -54,6 +55,23 @@ const WS_PATH = "/ws";
 const OTHER_ISIN = "KR7000660001";
 /** `SAMPLE_ACCOUNTS` 에 **없는** 계좌 — 화이트리스트 밖 요청을 만든다 (T-16-01). */
 const FOREIGN_ACCOUNT_NO = "9999999999";
+/** `SymbolMap` 이 모르는 ISIN — `lc.set` 의 ②-1 해석 실패 경로를 만든다 (WR-03). */
+const UNKNOWN_ISIN = "KR7999999999";
+
+/**
+ * 종목맵 스텁 (D-28).
+ *
+ * `lc.set` 의 시장 구분은 relay 가 여기서 푼다 — 브라우저는 `market` 을 싣지 않는다(WR-03).
+ * `OTHER_ISIN` 을 **KOSDAQ("Q")** 로 둔 것이 핵심이다: 브라우저가 아무것도 안 실었는데
+ * 게이트웨이로 나간 프레임의 market 이 `"Q"` 라면 relay 가 채웠다는 뜻이다.
+ */
+const SYMBOLS: SymbolLookup = {
+  lookup: (isin: string): SymbolInfo | undefined => {
+    if (isin === SAMPLE_ISIN) return { code: "005930", name: "삼성전자", market: "K" };
+    if (isin === OTHER_ISIN) return { code: "000660", name: "에스케이하이닉스", market: "Q" };
+    return undefined;
+  },
+};
 const USER_A = "3f1c2b7a-9d40-4a11-8e55-00000000000a";
 const USER_B = "3f1c2b7a-9d40-4a11-8e55-00000000000b";
 /** 로그인은 되지만 `dma_credentials` 매핑이 없는 사용자 (D-12). */
@@ -97,16 +115,16 @@ function fakeSupabase(): SupabaseClient {
 }
 
 /**
- * `lc.set` 이 싣는 33필드 — 스키마를 통과하는 최소 정상값.
+ * `lc.set` 이 싣는 32필드 — 스키마를 통과하는 최소 정상값.
  *
  * S→C 전용 4필드와 파생 `key` 는 타입이 이미 뺐다(`RelayLimitChaserInput`) — 실어 보내면
  * "값이 왕복한다"는 착각이 생겨 에코-폼 비교가 오염된다 (Pitfall 6).
+ * `market` 도 없다 — relay 가 ISIN 으로 푼다 (WR-03 / D-28).
  */
 function lcInput(overrides: Partial<RelayLimitChaserInput> = {}): RelayLimitChaserInput {
   return {
     isin: SAMPLE_ISIN,
     accountNo: SAMPLE_ACCOUNT_NO,
-    market: "K",
     crud: "C",
     buyOrderPrice: 70_000,
     buyOrderQty: 10,
@@ -207,6 +225,8 @@ describe("WsFanout", () => {
       hub,
       credKey: CRED_KEY,
       path: WS_PATH,
+      // 종목맵은 **전략 분기의 전제**다 (WR-03) — 없으면 `lc.set` 이 전부 거부된다.
+      symbols: SYMBOLS,
       ...overrides,
     });
 
@@ -599,6 +619,57 @@ describe("WsFanout", () => {
     // 서버가 12자 버퍼에 담으므로 relay 가 같은 폭으로 먼저 자른다 — 자른 값이 전략 키의 정본이다.
     expect((lc?.accountNo() ?? "").length).toBeLessThanOrEqual(12);
     expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  /*
+    WR-03 / D-28 — 시장 구분의 소유자는 relay 다.
+
+    브라우저는 `market` 을 **싣지 않는다**(`lcInput()` 에 그 키가 없다). 그런데도 게이트웨이로
+    나간 `SetLimitChaserReq` 의 market 이 KOSDAQ(`"Q"`) 이라면, relay 가 `SymbolMap` 으로 풀어
+    채웠다는 뜻이다. 옛 브라우저는 `row.market === 'KOSDAQ' ? 'Q' : 'K'` 로 **추측**했고
+    KONEX·`null` 이 조용히 KOSPI 가 됐다 (Pitfall 7 「엉뚱한 시장으로 주문이 나간다」).
+  */
+  it("⑰-a lc.set 의 시장은 relay 가 ISIN 으로 채운다 — KOSDAQ 종목은 \"Q\" 로 나간다 (WR-03)", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ isin: OTHER_ISIN }) });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    const lc = rootEnvelope(req!.payload).setLimitChaser();
+    expect(lc?.isin()).toBe(OTHER_ISIN);
+    // 브라우저가 아무것도 안 실었는데 시장이 채워져 있다 — 그 값의 출처가 `SymbolMap` 이다.
+    expect(lc?.market()).toBe("Q");
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  it("⑰-b SymbolMap 이 모르는 ISIN 의 lc.set 은 거부 프레임이 나가고 게이트웨이로 0바이트다", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ isin: UNKNOWN_ISIN }) });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    // ① 기본값 "K" 로 메우지 않는다 — 아무것도 나가지 않았다.
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    // ② 사유가 사용자에게 돌아간다. 형태는 기존 전략 거부 프레임과 **같다**(새 종류를 만들지 않는다).
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: UNKNOWN_ISIN });
+    expect(rejected?.m).toContain("전략을 등록할 수 없습니다");
+    // ③ 로그에 계좌번호가 실리지 않는다 (T-16-45).
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("ISIN → 시장 해석 실패"),
+    );
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
   });
 
   it("⑱ vi.confirm 은 계좌 대조를 건너뛰고 msg_type 33 으로 나간다", async () => {

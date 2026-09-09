@@ -220,11 +220,17 @@ export type RelayLimitChaser = {
 };
 
 /**
- * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 30 + 클라 고정 3 = 33필드**.
+ * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 29 + 클라 고정 3 = 32필드**.
  *
- * `RelayLimitChaser` 에서 S→C 전용 4필드와 파생 `key` 를 뺀 것이다. 고정 3 은
+ * `RelayLimitChaser` 에서 S→C 전용 4필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
  * `sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0` 으로 WinForms
  * `LimitChaserForm.Send()` 와 같은 값을 보낸다. CONTEXT 의 "29필드" 는 실측과 다르다 (Pitfall 6).
+ *
+ * ⚠️ **`market` 은 브라우저가 싣지 않는다** — relay 가 `SymbolMap` 으로 ISIN 을 풀어 채운다(D-28).
+ *    `order.new` 와 같은 규율이다: 브라우저의 추측이 실계좌 발주 설정이 되지 않게 한다(WR-03).
+ *    브라우저는 KOSDAQ 이 아닌 **모든** 값(KONEX·`null`·미확인 sentinel)을 조용히 KOSPI 로
+ *    접었고, 그 추측이 반복 발주 설정으로 굳었다 — 형식 검증(`z.enum(["K","Q"])`)은 그것을
+ *    잡지 못한다. 값을 검증하는 대신 **애초에 받지 않는다**.
  */
 export type RelayLimitChaserInput = Omit<
   RelayLimitChaser,
@@ -233,6 +239,7 @@ export type RelayLimitChaserInput = Omit<
   | "sellEntryLatched"
   | "cancelQtyTrackBaseline"
   | "key"
+  | "market"
 >;
 
 /**

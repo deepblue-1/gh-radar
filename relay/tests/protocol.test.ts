@@ -25,14 +25,15 @@ const ISIN = "KR7005930003";
 const ACCOUNT_NO = "1234567890";
 
 /**
- * 유효한 `lc.set` cfg 33필드. 값은 WinForms 기본값(`LimitChaserForm`)을 따른다 —
+ * 유효한 `lc.set` cfg 32필드. 값은 WinForms 기본값(`LimitChaserForm`)을 따른다 —
  * 고정 3(`sweepRecalcEnabled:true` · `sweepMinCount:0` · `sweepMinRate:0`) 포함.
+ *
+ * ★ `market` 이 없다 (WR-03 / D-28). 시장 구분은 relay 가 `SymbolMap` 으로 푼다.
  */
 function lcCfg(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     isin: ISIN,
     accountNo: ACCOUNT_NO,
-    market: "K",
     crud: "C",
     buyOrderPrice: 70_000,
     buyOrderQty: 10,
@@ -119,7 +120,7 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     vi.restoreAllMocks();
   });
 
-  it("① `lc.set` 33필드가 파싱되고 S→C 전용 4필드는 떨어져 나간다", () => {
+  it("① `lc.set` 32필드가 파싱되고 S→C 전용 4필드는 떨어져 나간다", () => {
     // S→C 전용 4개를 일부러 실어 보낸다. 서버가 계산하는 값이라 여기서 걸러지지 않으면
     // "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6).
     const msg = parseInbound(
@@ -139,12 +140,34 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(msg.cfg.isin).toBe(ISIN);
     expect(msg.cfg.accountNo).toBe(ACCOUNT_NO);
     expect(msg.cfg.sweepRecalcEnabled).toBe(true);
-    // 33필드 정확히 — 미지 키가 통과하면 개수가 늘어난다.
-    expect(Object.keys(msg.cfg)).toHaveLength(33);
+    // 32필드 정확히 — 미지 키가 통과하면 개수가 늘어난다.
+    expect(Object.keys(msg.cfg)).toHaveLength(32);
     expect(msg.cfg).not.toHaveProperty("sellOrderQty");
     expect(msg.cfg).not.toHaveProperty("sellQtyTrackBaseline");
     expect(msg.cfg).not.toHaveProperty("sellEntryLatched");
     expect(msg.cfg).not.toHaveProperty("cancelQtyTrackBaseline");
+  });
+
+  /*
+    WR-03 / D-28 — 시장 구분의 소유자는 relay 다. 브라우저가 `market` 을 실어 보내도 스키마가
+    떨어뜨려야 한다. `order.new` 가 이미 같은 규율이고 `lc.set` 만 예외였다: 형식만 보는
+    `z.enum(["K","Q"])` 는 `row.market === 'KOSDAQ' ? 'Q' : 'K'` 라는 브라우저의 **추측**을
+    통과시켰고, 그 추측이 실계좌 반복 발주 설정으로 굳었다.
+  */
+  it("① `lc.set` 이 `market` 을 실어 보내도 파싱 결과에 없다 (WR-03 — relay 가 ISIN 으로 푼다)", () => {
+    const msg = parseInbound(lcSet({ market: "Q" }));
+
+    if (msg?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(msg.cfg).not.toHaveProperty("market");
+    expect(Object.keys(msg.cfg)).toHaveLength(32);
+  });
+
+  it("① `market` 없이 보낸 정상 `lc.set` 은 그대로 통과한다", () => {
+    const msg = parseInbound(lcSet());
+
+    if (msg?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(msg.cfg.isin).toBe(ISIN);
+    expect(msg.cfg).not.toHaveProperty("market");
   });
 
   it("① `lc.set` 은 삭제(`crud:\"D\"`)도 같은 스키마로 받는다", () => {
@@ -265,7 +288,7 @@ describe("parseInbound — 경계값 거부 (T-16-05)", () => {
   });
 
   it("단일 문자 필드는 열거 밖 값을 거부한다 (서버가 첫 글자만 읽어 기본값으로 오인)", () => {
-    expect(parseInbound(lcSet({ market: "" }))).toBeNull();
+    // `market` 은 이 목록에 없다 — 값을 검증하는 대신 **필드 자체를 받지 않는다**(WR-03).
     expect(parseInbound(lcSet({ crud: "U" }))).toBeNull();
     expect(parseInbound(lcSet({ buyWatchSide: "2" }))).toBeNull();
     expect(parseInbound(lcSet({ exchange: "KOSPI" }))).toBeNull();
