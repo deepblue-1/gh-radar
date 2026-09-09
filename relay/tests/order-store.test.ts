@@ -447,7 +447,19 @@ type FakeQuery = {
   matched: FakeRow[];
 };
 
-type FakeRow = { id: string; user_id: string; order_no: string; created_at: string };
+/**
+ * 가짜 테이블의 행 1건.
+ *
+ * 고정 4컬럼 외에 **성공한 update 가 병합한 나머지 컬럼**(`status`·`filled_qty` 등)이 그대로
+ * 남는다 — 「갱신이 실제로 행에 반영됐는가」를 이 객체로 볼 수 있어야 한다 (16-39 / R2-IN-04).
+ */
+type FakeRow = {
+  id: string;
+  user_id: string;
+  order_no: string;
+  created_at: string;
+  [column: string]: unknown;
+};
 
 /**
  * 주입할 PostgREST 오류 1건.
@@ -469,11 +481,18 @@ function fakeDmaOrders(
   rows: FakeRow[],
   opts: {
     insertError?: FakePgError;
-    updateError?: FakePgError;
+    /**
+     * update 오류 주입. **함수형은 몇 번째 update 인가로 갈라 준다** — `23505` 재시도(짝수
+     * 번째)만 실패시키는 케이스가 필요하기 때문이다 (16-39). `undefined` 를 돌려주면 주입하지
+     * 않고 아래 `dupToday` 의 **실계산**으로 떨어진다.
+     */
+    updateError?: FakePgError | ((nth: number, patch?: OrderRowPatch) => FakePgError | undefined);
     selectError?: FakePgError;
   } = {},
 ): { supabase: SupabaseClient; queries: FakeQuery[]; rows: FakeRow[] } {
   const queries: FakeQuery[] = [];
+  /** update 호출 순번 — 주입 함수가 「최초 시도」와 「재시도」를 가르는 근거다. */
+  let updateCalls = 0;
 
   /**
    * `idx_dma_orders_user_order_no_kst_day` 흉내 — `(user_id, order_no, KST일)` 3축.
@@ -529,8 +548,16 @@ function fakeDmaOrders(
       query.matched = applyFilters(query.filters);
       // 강제 오류 주입 — 「제약 위반을 실제로 계산」하는 `dupToday` 와 달리, 여기서는
       // `details` 를 담은 오류를 **의도적으로** 흘려보내 로깅 경로를 시험한다 (16-38).
-      const forced =
-        query.verb === "update" ? opts.updateError : query.verb === "select" ? opts.selectError : undefined;
+      let forced: FakePgError | undefined;
+      if (query.verb === "update") {
+        updateCalls += 1;
+        forced =
+          typeof opts.updateError === "function"
+            ? opts.updateError(updateCalls, query.patch)
+            : opts.updateError;
+      } else if (query.verb === "select") {
+        forced = opts.selectError;
+      }
       if (forced !== undefined) return Promise.resolve({ data: null, error: forced }).then(resolve, reject);
       // 갱신이 `order_no` 를 **채우는** 경우에만 인덱스에 걸릴 수 있다. 그 값을 이미 가진
       // 다른 행(같은 사용자·오늘)이 있으면 실제 DB 처럼 23505 로 거부한다.
@@ -540,6 +567,13 @@ function fakeDmaOrders(
         if (clash !== undefined && !query.matched.some((r) => r.id === clash.id)) {
           return Promise.resolve({ data: null, error: uniqueViolation }).then(resolve, reject);
         }
+      }
+      // ★ 성공한 update 는 **행을 실제로 갱신한다** (16-39 / R2-IN-04). 예전 스텁은
+      //   `{ data: null, error: null }` 만 돌려줘 「갱신이 반영됐는가」를 이 파일이 볼 수
+      //   없었고, 그래서 패치가 통째로 사라지는 결함이 초록불 아래 숨어 있었다.
+      //   `matched` 는 `rows` 의 **같은 객체 참조**라 여기서 병합하면 `rows` 에도 남는다.
+      if (query.verb === "update" && query.patch !== undefined) {
+        for (const row of query.matched) Object.assign(row, query.patch);
       }
       const result =
         query.verb === "select"
@@ -702,6 +736,12 @@ describe("Supabase 쿼리 경계 (gap 1)", () => {
  * 드롭 카운터를 오염시키지 않는다.
  */
 describe("23505 수렴 (GC-WR-08)", () => {
+  // ★ 케이스마다 spy 를 되돌린다 — `vi.spyOn` 은 이미 감싼 메서드에 **같은 spy 를 돌려주므로**
+  //   복원하지 않으면 `mock.calls` 가 케이스를 넘어 누적된다 (16-38 에서 실제로 드러난 함정).
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("⓻ insert 가 23505 를 받으면 새 행을 만들지 않고 기존 행 id 로 수렴한다", async () => {
     const { supabase, queries, rows } = fakeDmaOrders(fixtureRows());
     const before = rows.length;
@@ -736,26 +776,115 @@ describe("23505 수렴 (GC-WR-08)", () => {
     expect(queries.map((q) => q.verb)).toEqual(["insert"]);
   });
 
-  it("⓽ order_no 를 채우는 갱신의 23505 는 드롭 카운터를 올리지 않는다 (S-5)", async () => {
+  /** 수동 주문이 만든 자기 행 — 아직 주문번호가 없고 수명주기도 시작 전이다(`finish` 직전). */
+  function manualRow(): FakeRow {
     const { from } = kstDayRangeUtc();
-    const todayIso = new Date(new Date(from).getTime() + 3600_000).toISOString();
-    // 수동 주문이 만든 자기 행. 아직 주문번호가 없다.
-    const manual: FakeRow = { id: "row-manual", user_id: USER_A, order_no: "", created_at: todayIso };
-    const { supabase, queries } = fakeDmaOrders([...fixtureRows(), manual]);
+    return {
+      id: "row-manual",
+      user_id: USER_A,
+      order_no: "",
+      created_at: new Date(new Date(from).getTime() + 3600_000).toISOString(),
+      status: "requested",
+      filled_qty: 0,
+    };
+  }
+
+  it("⓽ order_no 갱신의 23505 는 주문번호만 포기하고 나머지는 반영한다 (16-39 / R2-WR-01)", async () => {
+    const { supabase, queries, rows } = fakeDmaOrders([...fixtureRows(), manualRow()]);
 
     const store = new OrderStore(supabaseOrderSink(supabase));
-    // `finish` 의 실제 모양이다 — 셀렉터는 상관 1순위 키(`id`)이고 `order_no` 는 채울 컬럼이다.
-    store.enqueueUpdate({ orderRowId: "row-manual", orderNo: ORDER_NO, status: "accepted" });
+    // `finish` 의 실제 모양이다 — 셀렉터는 상관 1순위 키(`id`)이고 `order_no` 는 채울 컬럼이며,
+    // 수명주기 필드(`status`·`filled_qty`)가 **같은 덩어리**에 실려 온다.
+    store.enqueueUpdate({ orderRowId: "row-manual", orderNo: ORDER_NO, status: "accepted", filledQty: 7 });
     await store.flushNow();
 
-    expect(queries[0]?.verb).toBe("update");
-    expect(queries[0]?.matched.map((r) => r.id)).toEqual(["row-manual"]);
-    // 재시도해도 영원히 같은 결과다. 태우지 않고, 「이유를 모르는 실패」와 뒤섞지도 않는다.
+    // ★ 이 세 줄이 R2-WR-01 이다. 예전에는 패치가 통째로 버려져 이 행이 `requested`·0 인 채
+    //   **영구히** 남았다 — 16-28 이 인정한 대가는 「주문번호를 못 채운다」였지 「자기 행의
+    //   수명주기가 갱신되지 않는다」가 아니었다. 포기하는 것은 충돌한 컬럼 하나뿐이다.
+    const row = rows.find((r) => r.id === "row-manual");
+    expect(row?.status).toBe("accepted");
+    expect(row?.filled_qty).toBe(7);
+    expect(row?.order_no).toBe(""); // 포기한 컬럼 — 여전히 비어 있다
+
+    // ★ 「반영된 누적 건수」가 이제 참말이다 (S-5 / R2-IN-04). 재시도가 성공했으므로 sink 가
+    //   정상 반환하고 `#drain` 이 세는 1건은 실제로 행에 남았다. 카운터 코드는 한 줄도
+    //   바뀌지 않았다 — **카운터가 참이 되게 동작을 고쳤다.**
+    expect(store.stats().flushed).toBe(1);
+    // 16-28 의 규율은 그대로다 — 23505 는 큐 재시도를 태우지 않고 드롭 카운터도 오염시키지 않는다.
     expect(store.stats().dropped).toBe(0);
     expect(store.stats().retried).toBe(0);
     expect(store.stats().queued).toBe(0);
-    // 쿼리는 한 번만 나갔다 — 재큐잉이 없었다는 증거다.
+
+    // update 2건 = 최초(23505) + `order_no` 를 뺀 재시도. 기존의 `toHaveLength(1)` 단언은
+    // 「패치를 통째로 버린다」는 손실을 **진실로 잠그고 있었으므로** 고쳤다 (R2-IN-04).
+    expect(queries.map((q) => q.verb)).toEqual(["update", "update"]);
+    expect(queries[0]?.patch?.order_no).toBe(ORDER_NO);
+    expect(queries[0]?.matched.map((r) => r.id)).toEqual(["row-manual"]);
+    expect(queries[1]?.patch?.order_no).toBeUndefined();
+    expect(queries[1]?.patch?.status).toBe("accepted");
+    // 재시도가 셀렉터를 다시 조립하지 않는다 — 같은 축으로 나간다 (T-16-14).
+    expect(queries[1]?.filters).toEqual([{ op: "eq", column: "id", value: "row-manual" }]);
+    expect(queries[1]?.matched.map((r) => r.id)).toEqual(["row-manual"]);
+  });
+
+  it("⓽-b order_no 만 담긴 갱신의 23505 는 재시도하지 않는다 — 보낼 것이 없다", async () => {
+    const { supabase, queries, rows } = fakeDmaOrders([...fixtureRows(), manualRow()]);
+
+    const store = new OrderStore(supabaseOrderSink(supabase));
+    // 주문번호만 채우려던 갱신. `rowPatchOf` 가 언제나 싣는 `updated_at` 덕에 patch 키가 2개라
+    // **큐에는 들어간다**(`enqueueUpdate` 의 「갱신할 필드가 없다」 판정에 걸리지 않는다) —
+    // 그래서 sink 를 직접 부르지 않고 실제 경로 그대로 재현할 수 있다.
+    store.enqueueUpdate({ orderRowId: "row-manual", orderNo: ORDER_NO });
+    await store.flushNow();
+
+    // `order_no` 를 빼면 남는 것이 `updated_at` 뿐이다 = 두 번째 왕복이 무의미하다.
     expect(queries).toHaveLength(1);
+    expect(rows.find((r) => r.id === "row-manual")?.order_no).toBe("");
+    expect(store.stats().dropped).toBe(0);
+    expect(store.stats().retried).toBe(0);
+    expect(store.stats().queued).toBe(0);
+    // ⚠️ 이 한 경우만은 `flushed` 가 「반영했다」가 아니라 「더 할 것이 없다」를 센다. 유일하게
+    //    실릴 값이던 `order_no` 를 포기했으므로 반영된 것은 없다. 카운터를 고치려면 `#drain`
+    //    을 건드려야 하는데 그것은 16-28 의 드롭 규율과 얽혀 있어 이 plan 의 범위가 아니다 —
+    //    잔여 오차로 드러내 둔다(16-39 SUMMARY).
+    expect(store.stats().flushed).toBe(1);
+  });
+
+  it("⓽-c 재시도도 실패하면 throw 되어 큐 재시도 규율을 탄다", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    /** 로그에 나타나면 안 되는 문자열의 표식. 실제 계좌가 아니다 (16-38 회귀 게이트). */
+    const LEAKED_ACCOUNT = "9876543210";
+    const RETRY_FAILURE: FakePgError = {
+      code: "23514",
+      message: 'new row for relation "dma_orders" violates check constraint "dma_orders_filled_qty_check"',
+      details: `Failing row contains (a1b2, ${LEAKED_ACCOUNT}, KR7005930003, 0, 70000, …).`,
+      hint: "계좌 담당자에게 문의하십시오",
+    };
+    const { supabase, queries } = fakeDmaOrders([...fixtureRows(), manualRow()], {
+      // 최초 시도(홀수 번째)는 `dupToday` 가 23505 를 **실제로 계산**하게 두고, 재시도(짝수
+      // 번째)만 다른 코드로 실패시킨다.
+      updateError: (nth) => (nth % 2 === 0 ? RETRY_FAILURE : undefined),
+    });
+
+    const store = new OrderStore(supabaseOrderSink(supabase));
+    store.enqueueUpdate({ orderRowId: "row-manual", orderNo: ORDER_NO, status: "accepted" });
+    await store.flushNow();
+
+    // 재시도 실패는 「이유를 아는 실패」가 아니다 — 삼키지 않고 던져서 큐의 재시도 1회 →
+    // 드롭 규율을 그대로 탄다. 결손이 카운터에 남는다 (S-5).
+    expect(store.stats().retried).toBe(1);
+    expect(store.stats().dropped).toBe(1);
+    expect(store.stats().flushed).toBe(0);
+    // 라운드 2회 × (최초 + 재시도) = 4건.
+    expect(queries.map((q) => q.verb)).toEqual(["update", "update", "update", "update"]);
+
+    // 16-38 의 마스킹 회귀 게이트 — 재시도 실패 로그도 `safePgError` 를 지난다.
+    const dumped = JSON.stringify([...warnSpy.mock.calls, ...errorSpy.mock.calls].map((c) => c[0]));
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain("Failing row");
+    expect(dumped).not.toContain("문의하십시오");
+    expect(dumped).toContain("23514"); // 사유까지 지우면 그것대로 사고다
   });
 });
 
