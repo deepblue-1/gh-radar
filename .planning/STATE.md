@@ -128,6 +128,24 @@ Progress: [█████████░] 92%
 - **TRADE-03 은 계속 Pending.** 코드 층위만 닫혔고 프로덕션 `everReadyCount: 0` 판정(16-26)은 그대로다 — 단위 검증만으로 Complete 로 올리지 않는다.
 - **배포 미실시.** relay 재배포는 2라운드 종결 plan 에서 일괄 처리한다.
 
+### DMA_HOST 배포 회귀 — 발견·수정 (2026-09-09, 갭 클로징 2라운드 직후)
+
+**Phase 16 의 배포 2회가 프로덕션 relay 를 실 게이트웨이에서 로컬 mock 으로 조용히 강등시켜 놓았다.**
+
+- `scripts/deploy-relay.sh:95` 는 `DMA_HOST="${DMA_HOST:-127.0.0.1}"` 이고 **현재 컨테이너 값을 보존하지 않는다.** 주입 없이 배포하면 실 게이트웨이에 붙어 있던 프로덕션이 mock 으로 내려간다. mock 은 VM 에 기동돼 있지도 않아 `connect ECONNREFUSED 127.0.0.1:9100` 이 된다.
+- Phase 15 는 실 게이트웨이(`10.41.1.120:9100`) 결선 + 실계좌 왕복(`dma_orders` 5행)까지 갔다. 그런데 **16-26(`2cb5620`) 과 16-35(`c8aa7ae`) 가 모두 `DMA_HOST` 를 빠뜨렸다.** 두 executor 다 D-27(「실서버 주소는 명시 주입 전용」)을 **「주입하지 말라」**로 읽고 mock 강등을 의도된 상태로 SUMMARY 에 기록했다.
+- **한 원인이 세 증상으로 보였다.** ① `/healthz` 503 `degraded` ② `gh-radar-relay-down` 알림 — **오탐이 아니라 런북 원인 #4 그대로의 참 양성** ③ **웹앱 사이드바에 「트레이딩」 그룹 미표시** — `useTradingVisible()` 이 `user != null && relay status === "ready"` 를 요구하는데 `ready` 는 DMA 세션의 로그인+계좌선언 완료가 조건이다(`packages/shared/src/relay.ts:454`). 배포 누락이 **아니었다**.
+- **오진 기록.** 이 세션은 처음에 「게이트웨이는 설계상 미결선」으로 판단하고 알림 snooze 를 권고·적용했다. 전제가 틀렸다 — snooze 는 5분 만에 `cancel` 했고 알림은 정상 복귀했다. `everReadyCount: 0` 을 「환경에 게이트웨이가 없다」로 읽기 전에 **컨테이너 실 env 를 먼저 확인**해야 한다.
+
+**수정 실측 (2026-09-09):** `DMA_HOST=10.41.1.120 bash scripts/deploy-relay.sh` -> `relay:59465e1`.
+
+- 컨테이너 실 env `DMA_HOST=10.41.1.120` · 게이트웨이 TCP 도달성 `REACHABLE 10.41.1.120:9100`
+- 프로덕션 `/healthz` **200** `{"status":"ok","vpn":true,"dma":true,"version":"59465e1","sessionCount":1,"everReadyCount":1,"stalledCount":0}`
+- **`everReadyCount: 1` — 프로덕션에서 DMA 세션이 Ready 에 도달한 첫 실측이다.** TRADE-03 이 Pending 이던 근거(「Ready 에 도달한 세션이 한 건도 없다」)가 해소됐다. 다만 **자동 Complete 승격은 하지 않는다** — 아래 리스크와 WinForms 세션 공유 실측(human-only)이 남아 있다.
+- `smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**(INV-9, 토큰 미설정)
+
+**이 결선으로 위험도가 올라간 항목 — 라운드 3에서 최우선.** `16-REVIEW-R2.md` 의 **R2-CR-01**(`relay/src/ws/fanout.ts:793` — `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 확인 없이 단독 신뢰 -> 시장 해석 엄격성 T-16-42 와 무장 가드 T-16-43 을 **동시에** 우회)은 mock 시절엔 이론적 결함이었으나, **이제 실계좌 게이트웨이가 붙어 있으므로 무장된 반복 발주 설정이 폴백 시장으로 실제로 나갈 수 있다.** R2-CR-03(계좌번호 로그 유출)도 실주문이 흐르면 노출 표면이 커진다.
+
 ### Phase 16 Gap Closure State (2026-09-09, 16-26)
 
 - **14건 전부 닫혔다.** `16-VERIFICATION.md` 갭 4건(G1~G4) + `16-REVIEW.md` Critical 1(CR-01) · Warning 9(WR-01~09). 담당 plan 은 16-18(G1·WR-01) · 16-19(G3) · 16-20(WR-04·WR-05) · 16-21(G4 코드) · 16-22(G2·WR-02) · 16-23(CR-01·WR-08) · 16-24(WR-07·WR-09) · 16-25(WR-03·WR-06) · 16-26(G4 배포·실측 + 문서). 처리 결과 정본은 `16-VALIDATION.md` §Gap Closure 표 14행.
