@@ -32,6 +32,14 @@
  *   갈음한다. 같은 일을 하는 경로가 둘이면 「스위치는 껐는데 왜 아직 켜져 있나」류의
  *   상태 불일치가 생긴다.
  *
+ * ⑦ ★ 킬 스위치는 **세션이 `ready` 일 때만** 눌린다 (gap 3 / T-16-20)
+ *   리듀서는 단절 시 `isStale` 만 세우고 `limitChasers` 를 유지한다 — 재접속 중에도 목록이
+ *   남아 있으니 가드가 없으면 버튼이 활성인 채 0바이트가 나간다. 게다가 `send` 가 `false` 를
+ *   돌려준 경우에는 `awaitingAck` 를 **세우지 않는다**: 세우면 8초 동안 버튼이 잠긴 채 아무
+ *   일도 일어나지 않고 그 사이 사용자는 「껐다」고 믿는다. 전송 실패(「보내지 못했어요」)와
+ *   ack 미수신(「반영을 확인하지 못했어요」)은 **다른 문구**다 — 전자는 0바이트가 확실하고
+ *   후자는 결과를 모른다(Pitfall 9 / T-16-21). 조용히 버튼만 다시 여는 것은 PC-7 위반이다.
+ *
  * ⑥ 「발주됨」 배지는 이 화면에서 뜨지 않는다 — **모르는 것을 지어내지 않기 때문이다**
  *   `strategyBadgesOf` 의 `hadOrder` 는 「그 전략의 매수 발주가 나갔다」는 사실이다.
  *   주문 통보(`RelayOrderMsg`)에는 ISIN 이 없어 어느 전략의 주문인지 귀속시킬 수 없고,
@@ -338,6 +346,14 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
   const [awaitingAck, setAwaitingAck] = useState(false);
   /** 송신 시점의 65 참조. **이것과 달라지는 순간**이 새 완료 신호다. */
   const ackBaseline = useRef<RelayStrategiesDisabledMsg | null>(null);
+  /**
+   * 전송 실패·ack 미수신 문구. 빈 문자열이면 아무것도 그리지 않는다.
+   *
+   * ★ 두 사건은 **다른 문구**를 쓴다 (Pitfall 9 동형).
+   *   「보내지 못했다」 = 0바이트가 확실하다 → 다시 눌러도 안전하다.
+   *   「반영을 확인하지 못했다」 = 결과를 모른다 → 실제로 꺼졌을 수 있다.
+   */
+  const [sendError, setSendError] = useState("");
 
   const viRunning = viTrigger?.run === true;
   const chaserCount = limitChasers.length;
@@ -347,25 +363,48 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
   // 65 수신 → 버튼을 다시 연다. **목록 상태는 건드리지 않는다**(파일 상단 ④).
   useEffect(() => {
     if (!awaitingAck) return;
-    if (strategiesDisabled !== ackBaseline.current) setAwaitingAck(false);
+    if (strategiesDisabled !== ackBaseline.current) {
+      setAwaitingAck(false);
+      // 65 가 왔다 — 직전의 「확인하지 못했어요」는 더 이상 사실이 아니다.
+      setSendError("");
+    }
   }, [awaitingAck, strategiesDisabled]);
 
   // 65 유실 백스톱. 다시 눌러도 같은 일이 한 번 더 나갈 뿐이라 안전하다.
   useEffect(() => {
     if (!awaitingAck) return;
-    const timer = setTimeout(() => setAwaitingAck(false), DISABLE_ACK_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      setAwaitingAck(false);
+      /*
+        ★ 「실패했다」고 말하지 않는다. 65 가 유실됐을 뿐 전략은 실제로 꺼졌을 수 있다 —
+          결과를 모르는 것과 실패를 뭉개면 사용자가 사실과 다른 상태를 믿는다(T-16-21).
+          조용히 버튼만 다시 여는 것도 무로그 fail-safe 다(PC-7).
+      */
+      setSendError("전체 비활성화 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.");
+    }, DISABLE_ACK_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [awaitingAck]);
 
   const handleConfirm = (): void => {
-    ackBaseline.current = strategiesDisabled;
-    setAwaitingAck(true);
     setDialogOpen(false);
     /*
       ★ `key` 를 **싣지 않는다** — 생략이 곧 「그 세션의 상따 전부 + VI」다.
         단건 비활성화 UI 는 만들지 않는다(D-09, 파일 상단 ⑤).
     */
-    send({ t: "strategies.disable" });
+    if (!send({ t: "strategies.disable" })) {
+      /*
+        ★ 보내지 **않았음**이 확실하다 — `awaitingAck` 를 세우지 않는다(T-16-20).
+          세우면 8초 동안 버튼이 잠긴 채 아무 일도 일어나지 않고, 그동안 사용자는
+          「껐다」고 믿는다. 자동매매는 그 사이 계속 돈다.
+      */
+      setSendError(
+        "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.",
+      );
+      return;
+    }
+    ackBaseline.current = strategiesDisabled;
+    setAwaitingAck(true);
+    setSendError("");
   };
 
   return (
@@ -450,15 +489,30 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
         <span className="min-w-[160px] flex-1 text-[11px] text-[var(--muted-fg)]">
           모든 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.
         </span>
+        {/*
+          ★ 세션이 `ready` 가 아니면 누를 수 없다. 리듀서는 단절 시 `isStale` 만 세우고
+            `limitChasers` 를 유지하므로 재접속 중에도 목록이 남아 있다 — 가드가 없으면
+            버튼이 활성인 채 0바이트가 나간다(gap 3 / T-16-20).
+        */}
         <Button
           type="button"
           variant="outline"
-          disabled={nothingToDisable || awaitingAck}
+          disabled={nothingToDisable || awaitingAck || status !== "ready"}
           onClick={() => setDialogOpen(true)}
           className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] disabled:opacity-[.45]"
         >
           전체 비활성화
         </Button>
+        {sendError === "" ? null : (
+          /* 눌렀는데 못 나갔거나 반영을 확인하지 못했다 — 화면이 그 사실을 말한다. */
+          <p
+            data-slot="strategy-disable-error"
+            role="alert"
+            className="m-0 w-full text-[11px] text-[var(--destructive)]"
+          >
+            {sendError}
+          </p>
+        )}
       </div>
 
       <DisableAllDialog

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { RelayAccountState, RelayLimitChaser } from "@gh-radar/shared";
@@ -15,6 +15,11 @@ import type { RelayAccountState, RelayLimitChaser } from "@gh-radar/shared";
  *  ⑤ 확정 시 `{t:"strategies.disable"}` 1회 · **`key` 프로퍼티 없음**(생략 = 전체)
  *  ⑥ 65 수신이 목록 상태를 바꾸지 않는다 (완료 신호일 뿐 — T-16-07)
  *  ⑦ 전략 0 빈 상태 문구
+ *
+ * Plan 19(gap 3) 가 덧붙인 것 — **킬 스위치가 침묵하지 않는다**:
+ *  ⑨  단절 중에는 목록이 남아 있어도 버튼이 비활성이다 (회귀 잠금)
+ *  ⑩  `send` 가 `false` 면 `awaitingAck` 가 서지 않고 실패 문구가 뜬다
+ *  ⑪  8초 안에 65 가 오지 않으면 「반영을 확인하지 못했어요」가 뜬다 (실패로 단정하지 않는다)
  */
 
 // ---------------------------------------------------------------------------
@@ -202,6 +207,11 @@ beforeEach(() => {
   mockRelay = populated();
 });
 
+// 가짜 타이머를 쓴 케이스가 다음 케이스로 새면 무관한 테스트가 멈춘다.
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 // ===========================================================================
 
 describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
@@ -314,7 +324,8 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
   });
 
   it("⑤ 확정하면 `{t:\"strategies.disable\"}` 이 1회 나가고 `key` 프로퍼티가 없다 (전체)", async () => {
-    const send = vi.fn();
+    // `send` 는 boolean 계약이다 — 성공을 뜻하는 `true` 를 돌려줘야 65 대기로 넘어간다.
+    const send = vi.fn(() => true);
     mockRelay = populated({ send });
     const user = userEvent.setup();
     render(<StrategyStatusCard />);
@@ -391,6 +402,85 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(viRow.getAttribute("href")).toBe("/trading/vi");
     expect(within(viRow).getByText("가동")).toBeInTheDocument();
     expect(within(viRow).getByText("1,000만원 · 22.0% 이상")).toBeInTheDocument();
+  });
+});
+
+describe("StrategyStatusCard — 킬 스위치의 침묵 방지 (gap 3 · T-16-19/20/21)", () => {
+  const errorLine = () =>
+    document.querySelector('[data-slot="strategy-disable-error"]') as HTMLElement | null;
+
+  it("⑨ 단절 중에는 상따 목록이 남아 있어도 「전체 비활성화」가 비활성이다", () => {
+    /*
+      리듀서는 단절 시 `isStale` 만 세우고 `limitChasers` 를 유지한다 — 목록이 남아 있으니
+      `nothingToDisable` 은 false 다. 세션 가드가 없으면 버튼이 열린 채 0바이트가 나간다.
+    */
+    mockRelay = populated({ status: "reconnecting", isStale: true });
+    render(<StrategyStatusCard />);
+
+    expect(rows()).toHaveLength(3);
+    expect(disableButton()).toBeDisabled();
+  });
+
+  it("⑨-a `ready` 로 돌아오면 다시 열린다 (영구 잠금이 아니다)", () => {
+    mockRelay = populated({ status: "reconnecting", isStale: true });
+    const { rerender } = render(<StrategyStatusCard />);
+    expect(disableButton()).toBeDisabled();
+
+    mockRelay = populated();
+    rerender(<StrategyStatusCard />);
+    expect(disableButton()).toBeEnabled();
+  });
+
+  it("⑩ send 가 false 면 awaitingAck 가 서지 않고 실패 문구가 뜬다", async () => {
+    // `ready` 인데도 소켓이 이미 닫혀 있는 경우다 — 상태 갱신보다 절단이 빠를 수 있다.
+    const send = vi.fn(() => false);
+    mockRelay = populated({ send });
+    const user = userEvent.setup();
+    render(<StrategyStatusCard />);
+
+    await user.click(disableButton());
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "전체 비활성화" }));
+
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toBe(errorLine());
+    expect(alert).toHaveTextContent(
+      "연결이 끊겨 비활성화 요청을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.",
+    );
+    // ★ 못 나갔으면 기다릴 것도 없다 — 8초 동안 잠기면 사용자는 껐다고 믿는다.
+    expect(disableButton()).toBeEnabled();
+  });
+
+  it("⑪ 8초가 지나도 65 가 오지 않으면 「반영을 확인하지 못했어요」가 뜬다", async () => {
+    // `shouldAdvanceTime` 없이는 Radix 다이얼로그의 열림 대기가 가짜 시계에 갇힌다.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const send = vi.fn(() => true);
+    mockRelay = populated({ send });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StrategyStatusCard />);
+
+    await user.click(disableButton());
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "전체 비활성화" }));
+
+    // 65 를 기다리는 동안은 잠긴다 — 아직 아무 문구도 없다.
+    expect(disableButton()).toBeDisabled();
+    expect(errorLine()).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(8_000);
+    });
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toBe(errorLine());
+    expect(alert).toHaveTextContent(
+      "전체 비활성화 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.",
+    );
+    // ★ 「실패」라고 단정하지 않는다 — 65 가 유실됐을 뿐 실제로 꺼졌을 수 있다(T-16-21).
+    expect(alert.textContent ?? "").not.toContain("실패");
+    expect(disableButton()).toBeEnabled();
   });
 });
 
