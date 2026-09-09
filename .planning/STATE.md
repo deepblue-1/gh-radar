@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-38-PLAN.md — R2-CR-03 종결(PostgREST 오류 원문 유출 차단)
-last_updated: "2026-09-09T10:14:02.464Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 — 16-38 (R2-CR-03) 완료
+stopped_at: Completed 16-39-PLAN.md — R2-WR-01 + R2-IN-04 종결(23505 포기 단위를 컬럼 하나로)
+last_updated: "2026-09-09T10:26:06.603Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 — 16-39 (R2-WR-01·R2-IN-04) 완료
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 163
+  completed_plans: 164
   percent: 72
 ---
 
@@ -25,16 +25,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (38/46)**
-Plan: 38 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 163 / 185
-Status: 3라운드 실행 중 — R2-CR-03 종결. **TRADE-03 은 Pending 유지**(코드 층위만 닫힘, 배포는 16-46)
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (39/46)**
+Plan: 39 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 164 / 185
+Status: 3라운드 실행 중 — R2-WR-01·R2-IN-04 종결. **TRADE-03 은 Pending 유지**(코드 층위만 닫힘, 배포는 16-46)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 89%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-39 완료 — R2-WR-01 + R2-IN-04 종결. `23505` 가 「주문번호를 못 채운다」에서 「그 행의 수명주기가 영원히 갱신되지 않는다」로 번지던 것을 컬럼 하나로 좁혔다.** relay 2파일(소스 1 + 테스트 1).
+- **포기의 단위를 「패치 전체」에서 「`order_no` 컬럼 하나」로 줄였다.** `finish` 가 내는 갱신은 `{order_no, status, result_code, notice_type, message, filled_qty, origin}` **한 덩어리**다 — 종전에는 `23505` 하나로 그것이 통째로 사라져 수동 주문 행이 `requested`·`filled_qty:0` 인 채 **영구히** 남았다. 이제 `order_no` 만 뺀 patch 로 **같은 셀렉터**에 1회 재시도한다.
+- **16-28 의 규율 셋은 그대로다.** ① 23505 는 큐 재시도를 태우지 않는다 ② `dropped` 를 오염시키지 않는다 ③ 조건을 셀렉터가 아니라 patch 에 건다. 바뀐 것은 포기 단위뿐이고, 그 근거 3줄을 주석에 **인용하며** 이었다.
+- **카운터를 고치지 않고 `flushed` 를 참말로 만들었다.** `#flushed`/`#retried`/`#dropped` 대입문 diff **0줄** — 재시도가 성공하면 sink 가 정상 반환하므로 `#drain` 이 세는 1건이 실제로 행에 남는다. **카운터가 참이 되게 동작을 고치는** 형태다 (S-5 / T-16-80).
+- **셀렉터 조립을 지역 헬퍼 `runUpdate` 한 곳으로 모았다.** 재시도가 3축(`order_no`+`user_id`+당일)을 복제했다면 언젠가 한쪽이 축을 잃고 그것이 전역 쓰기다(T-16-14). `grep -c 'eq("order_no"'` = **2 → 2**(늘지 않음), 재시도 필터를 ⓽ 가 `[{eq id row-manual}]` 로 정확히 단언한다.
+- **계획의 판정식을 코드에서 검증해 고쳤다(Rule 1).** 계획은 「남은 것이 `updated_at` 뿐」을 `Object.keys(rest).length <= 1` 로 세라고 했지만, `updated_at` 이 항상 실리는 것은 **큐 경로뿐**이다 — sink 를 직접 부르는 호출자가 `{order_no, status}` 를 보내면 그 식이 **실필드 1개를 조용히 버린다**(이 plan 이 없애려는 결함 그 자체). `updated_at` 이라는 **이름을 걸러** 센다.
+- **가짜 테이블이 스텁을 벗었다.** 성공한 update 가 `matched` 행에 patch 를 **실제로 병합**한다 — 예전 `{data:null,error:null}` 스텁으로는 「갱신이 반영됐는가」를 이 파일이 물을 수조차 없었고, 그래서 손실이 초록불 아래 숨어 있었다. 하네스만 바꿔 전량 실행한 결과 **옛 스텁 동작을 베낀 단언은 ⓽ 의 `toHaveLength(1)` 하나뿐**이었다.
+- **⓽ 재작성 + ⓽-b·⓽-c 신규.** ⓽ = `row.status==='accepted'` · `filled_qty===7` · `order_no===''` · **`flushed===1`** · update 2건. ⓽-b = 「보낼 것이 없다」(주문번호만 채우는 갱신)는 재시도하지 않는다 — 계획이 우려한 것과 달리 `rowPatchOf` 의 `updated_at` 덕에 **실제 큐 경로로** 재현된다. ⓽-c = 재시도 실패는 throw 되어 `retried:1`·`dropped:1`·update 4건, 로그에 `details` 부재(16-38 회귀 게이트 겸용).
+- **회귀 잠금 실증 2라운드.** A(재시도 무력화) → **2건**(⓽·⓽-c) · B(하네스 병합 제거) → **1건**(⓽, `expected 'requested' to be 'accepted'`). ⓽-b 는 두 라운드 모두 초록 — 그 케이스가 잠그는 명제는 재시도 유무와 무관하므로 옳다. 복원 후 diff 0줄.
+- **잔여 오차를 숨기지 않았다.** 「`order_no` 만 담긴 갱신의 23505」 한 경우만은 `flushed` 가 「반영했다」가 아니라 「더 할 것이 없다」를 센다. 고치려면 `#drain` 을 건드려야 하고 그것은 16-28 의 드롭 규율과 얽혀 이 plan 범위 밖이라, ⓽-b 에 주석·단언으로 **드러내 뒀다**.
+- **relay 384 tests**(382 → +2, 17 files) · `pnpm -r typecheck` exit 0 · `pnpm -r test` exit 0 **2,023 passed**(기준선 2,021 → +2, relay 외 변동 없음) · `typecheck:tests` exit 0. 포매터 미실행. DB 미변경.
+- **⚠️ 배포 미실시 — 프로덕션에는 R2-WR-01 이 여전히 살아 있다.** 재배포는 16-46 몫. FakeGateway·가짜 `SupabaseClient` 만, 실서버·실계좌 접속 0회(D-27). **TRADE-03 은 계속 Pending.**
 
 - **16-38 완료 — R2-CR-03 종결. 제약 위반 한 번이면 계좌번호 원문이 Cloud Logging 에 영구히 남던 경로를 닫았다.** relay 7파일(신규 1 + 소스 5 + 테스트 1).
 - **규율을 경로가 아니라 타입에 걸었다.** 신규 `relay/src/store/pg-error.ts` 의 `safePgError(err) -> {code?, message?}` 하나가 정본이다. `details`·`hint` 를 **읽지도 않는다** — 없는 값은 샐 수 없다. 반환 타입을 두 필드로 좁혀 다음 사람이 `details` 를 다시 얹지 못하게 했다. PostgreSQL 은 CHECK(`23514`)·NOT NULL(`23502`)·FK(`23503`) 위반의 `DETAIL` 에 `Failing row contains (<모든 컬럼 값>)` 을 넣고 `dma_orders` 행에는 `account_no`·`order_no`·`user_id` 가 다 있다 (T-16-45/D-19).
@@ -343,6 +356,7 @@ Progress: [█████████░] 88%
 | Phase 16 P36 | 11min | 2 tasks | 2 files |
 | Phase 16 P37 | 25min | 2 tasks | 3 files |
 | Phase 16 P38 | 16min | 3 tasks | 7 files |
+| Phase 16 P39 | 14min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -550,6 +564,8 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-38: 로그 키를 `pgError` 로 둔다 — GCP pino 설정의 `messageKey` 가 **`message`** 라 안전 필드를 최상위로 펼치면 로그 메시지 자체와 충돌한다
 - [Phase 16]: 16-38: 리뷰·계획이 지목한 7곳이 아니라 **전수 조사 23곳 중 13곳**을 교체했다 — `order-handler` 통보 경로 3곳·`credentials`+`fanout`(같은 오류를 두 번 로그)·`symbols` 가 계획 목록 밖이었다. 계획의 grep 은 한 줄짜리만 잡아 `#drain` 두 줄과 `{ userId, error }` 순서를 놓친다
 - [Phase 16]: 16-38: `order-handler.ts:411`(최후 그물)·`:862`(조립 거부)는 **유지** — 안쪽 Supabase 왕복 3곳이 각각 catch 로 종결되고 조립 try 는 `OrderBuildError` 만 던진다. PostgREST 가 닿지 않는 자리라 스택이 유일한 단서다
+- [Phase 16]: 16-39: 23505 의 포기 단위를 패치 전체에서 order_no 컬럼 하나로 좁혔다 — 카운터를 고치지 않고 flushed 가 참이 되게 동작을 고쳤다 (#flushed 대입문 diff 0줄)
+- [Phase 16]: 16-39: 「보낼 것이 없다」 판정을 키 개수(<=1)가 아니라 updated_at 이름 필터로 센다 — 계획 식은 sink 직접 호출자의 실필드 1개를 조용히 버린다
 
 ### Pending Todos
 
@@ -602,7 +618,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T10:13:42.764Z
+Last session: 2026-09-09T10:25:50.236Z
 Stopped at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
