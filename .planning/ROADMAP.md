@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 26/26 plans (17 실행 완료 + 갭 클로징 9 — 16-18~16-22 완료, 16-23~16-26 대기)
+**Plans:** 26/26 plans (17 실행 완료 + 갭 클로징 9 — 16-18~16-23 완료, 16-24~16-26 대기)
 
 Plans:
 **Wave 1**
@@ -670,7 +670,7 @@ Plans:
 **Wave 16** *(blocked on Wave 15 completion)*
 
 - [x] 16-22-PLAN.md — [gap 2 + WR-02] 통보 상관 다축 매칭(좁히기 실패 시 미정산) + 사용자 스코프 중복 가드
-- [ ] 16-23-PLAN.md — [CR-01 + WR-08] 계좌축 소비자 정리(account 필드 제거·accountStates) + ISIN 역매핑 공용 훅
+- [x] 16-23-PLAN.md — [CR-01 + WR-08] 계좌축 소비자 정리(account 필드 제거·accountStates) + ISIN 역매핑 공용 훅
 - [ ] 16-24-PLAN.md — [WR-07 + WR-09] VI 주문금액 상한 3층 + flushNow 진행 중 대기·재큐잉 소진
 
 **Wave 17** *(blocked on Wave 16 completion)*
@@ -711,4 +711,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 22/26 | Gap Closure |  |
+| 16. 트레이딩 메뉴(상따·VI) | 23/26 | Gap Closure |  |

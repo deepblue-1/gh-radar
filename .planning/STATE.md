@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 16-22-PLAN.md (gap 2 다축 통보 매칭 + WR-02 사용자 스코프 중복 가드)
-last_updated: "2026-09-09T01:51:05.437Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-22 실행 완료 (gap 2 + WR-02 종결)
+last_updated: "2026-09-09T02:10:11.890Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-23 실행 완료 (CR-01 + WR-08 종결)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 165
-  completed_plans: 147
-  percent: 89
+  completed_plans: 148
+  percent: 72
 ---
 
 # Project State
@@ -26,13 +26,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 23 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-22 완료 · 16-23~16-26 대기)
-Plans completed: 147 / 165
-Status: Executing Phase 16 (갭 클로징 4 plans 남음)
+Plan: 24 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-23 완료 · 16-24~16-26 대기)
+Plans completed: 148 / 165
+Status: Executing Phase 16 (갭 클로징 3 plans 남음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-22 실행 완료 (gap 2 + WR-02 종결)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-23 실행 완료 (CR-01 + WR-08 종결)
 
-Progress: [█████████░] 89% (147/165 plans · 18/25 phases)
+Progress: [█████████░] 90% (148/165 plans · 18/25 phases)
 
 ### Phase 15 Production State (2026-09-08)
 
@@ -166,6 +166,7 @@ Progress: [█████████░] 89% (147/165 plans · 18/25 phases)
 | Phase 16 P20 | 5min | 2 tasks | 6 files |
 | Phase 16 P21 | 8min | 3 tasks | 7 files |
 | Phase 16 P22 | 11min | 2 tasks | 2 files |
+| Phase 16 P23 | 15min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -327,6 +328,11 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 22]: 하나로 좁히지 못하면 아무것도 정산하지 않고 recordUnmatched 로 보낸다 (T-16-29). 「가장 오래된 것」 폴백을 만들지 않는다 — 잘못 귀속된 기록은 없는 기록보다 나쁘다. 남은 대기는 5초 타임아웃이 「결과 모름」으로 끝낸다
 - [Phase 16 Plan 22]: 통보 후보를 그 사용자의 전 연결에서 모아 좁힌다 (T-16-30). order.result 는 여전히 요청 연결로만 간다 — T-16-03 은 유지
 - [Phase 16 Plan 22]: 중복 주문 판정만 userDupKeys(Map<userId, Set>) 로 사용자 스코프에 올리고 rid 재전송 가드는 연결 스코프로 남겼다 (WR-02). ConnState.dupKeys 역인덱스를 closeConn 이 회수하고, release 는 이 연결이 아직 쥔 키만 푼다 (T-16-31 / T-16-33)
+- [Phase 16 Plan 23]: `account`(마지막 수신 계좌)를 relay 계약에서 **필드째 제거**했다 (CR-01 / T-16-35). 소비자 2곳을 `accountStates` 로 옮기는 것만으로는 다음 소비자가 같은 실수를 반복한다 — 계좌 축에 쓸 수 있는 값이 이제 `accountStates` 맵 하나뿐이고, 거기서 무언가를 꺼내려면 계좌번호를 명시해야 한다.
+- [Phase 16 Plan 23]: 계좌 선택은 **소비자가** 한다 — `useRelaySubscription` 이 계좌 하나를 골라 주는 설계는 원리상 불가능하다. 훅은 사용자가 어느 계좌를 골랐는지 모르므로, 그럼에도 고르면 그 값은 필연적으로 「마지막으로 프레임이 온 계좌」가 되고 그것이 정확히 CR-01 이다.
+- [Phase 16 Plan 23]: 호가주문 탭의 계좌 패널·매도가능수량 입력을 `accountStates.get(selectedAccountNo)` 하나로 통일했다 (T-16-34). 머리와 행의 출처가 같아져 「A 계좌 화면에서 B 주문번호를 취소」 경로가 사라진다 — relay 화이트리스트는 두 계좌 모두 그 사용자 것이라 막지 못한다.
+- [Phase 16 Plan 23]: ISIN→종목명 역매핑 사본 3개를 `webapp/src/lib/isin-labels.ts` 로 합쳤다 (WR-08 / T-16-37). 사본 수가 아니라 **동작이 갈라지는 것**이 결함이었다 — 사이드바만 계좌 하나를 봐서 계좌 2개에서 표시가 프레임마다 흔들렸다. 공용 훅은 `useMemo` 로 감싼다.
+- [Phase 16 Plan 23]: `me-client` 상태줄 반영 시각을 계좌 전체의 최신값(`latestAccountTime`)으로 재정의했다. 상태줄은 계좌 축이 없는 전역 요약이라 답해야 할 질문이 「어느 계좌인가」가 아니라 「가장 최근 언제 반영됐나」다. 비교는 `formatServerTime` 정규화 후에 한다(`YYYYMMDDHHMMSS` 와 `HH:MM:SS` 혼재).
 
 ### Pending Todos
 
@@ -377,6 +383,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T01:51:05.425Z
+Last session: 2026-09-09T02:09:25.540Z
 Stopped at: Completed 16-22-PLAN.md (gap 2 다축 통보 매칭 + WR-02 사용자 스코프 중복 가드)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
