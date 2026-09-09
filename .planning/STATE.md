@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-40-PLAN.md — R2-WR-07 + R2-WR-04 종결(+ 16-39 flushed 잔여 오차)
-last_updated: "2026-09-09T10:51:16.432Z"
+stopped_at: Completed 16-41-PLAN.md — 갭 4 relay 측(상따 에코 이름 보강) + R2-IN-02 종결
+last_updated: "2026-09-09T11:02:23.692Z"
 last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 165
+  completed_plans: 166
   percent: 72
 ---
 
@@ -25,16 +25,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (40/46)**
-Plan: 40 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 165 / 185
-Status: 3라운드 실행 중 — R2-WR-07·R2-WR-04 종결 + 16-39 잔여 오차 종결. **TRADE-03 은 Pending 유지**(재판정은 16-46)
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (41/46)**
+Plan: 41 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 166 / 185
+Status: 3라운드 실행 중 — 갭 4(사용자 직접 보고) 의 relay 측 종결 + R2-IN-02. **웹앱 소비는 16-42 몫이라 사용자가 보는 증상은 아직 그대로다.** TRADE-03 은 Pending 유지(재판정 16-46)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 90%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-41 완료 — 갭 4(사용자 직접 보고)의 relay 측 종결 + R2-IN-02.** 이름을 아는 유일한 프로세스가 이름을 붙이게 했다. relay 3파일(공유 계약 1 + 소스 1 + 테스트 1).
+- **원천을 늘리지 않고 증상을 없앴다 (T-16-02).** 웹앱에 새 조회 경로(REST·Supabase)를 만들지 않았다 — relay 가 이미 들고 있는 `SymbolMap` 으로 **잔고·미체결·VI 주문에 이름을 붙이는 것과 똑같은 방식**을 상따 에코(60)·스냅샷(64)에 얹었다. `RelayLimitChaser` 에 선택 필드 `name`·`code` 를 더하고 `#enrichLimitChaser`(= `#enrichViOrder` 와 같은 모양)를 신설했다.
+- **보강은 캐시에 넣기 전에 한다 — 그것이 이 수정의 핵심이다.** 캐시가 곧 `getLimitChasers` → `lc.snap`(재접속 복원, `fanout.ts:554`)의 원천이라, 팬아웃만 보강하면 「지금 화면」은 이름이 있고 「새로 연 탭」은 ISIN 이 된다. **`fanout.ts` 는 한 줄도 고치지 않았다.** 전량 교체 규율도 그대로다.
+- **브라우저는 두 필드를 보낼 수 없다 (T-16-84).** `RelayLimitChaserInput` 의 `Omit` 에 `name`·`code` 를 **둘 다** 넣었다 — 「이름의 소유자도 relay 다. 브라우저가 실어 보내면 화면이 자기가 만든 이름을 자기가 믿는 순환이 생기고, 임의의 종목명이 서버 캐시를 거쳐 다른 탭까지 오염시킨다」. `market` 제외 근거(WR-03/D-28) 아래에 이었다. `webapp/src/lib/limit-chaser.ts` **diff 0줄**(실측).
+- **못 풀면 비워 둔다 (T-16-05).** 「이름이 없다」와 「이름이 ISIN 이다」는 다른 사실이고, 후자를 만들면 UI 가 둘을 구분하지 못한다. 「모르면 ISIN 을 그대로」 폴백은 **UI 의 몫**으로 남겼다(16-42).
+- **처분 판단 2건을 근거와 함께 남겼다.** ① `crud:"D"` 프레임에도 이름을 붙인다(캐시에서는 지우지만 프레임은 내리므로 「무엇이 사라졌는지」를 말할 수 있어야 한다). ② **미해석 건수 로그는 남기지 않는다** — `#enrichNames` 가 건수를 세는 이유는 계좌당 수십 행이라 「전량 미스 = 맵이 비었다」를 비율로만 알 수 있기 때문인데, 상따는 프레임당 1건이라 같은 판정이 성립하지 않는다.
+- **R2-IN-02 — `detach()`·`releaseAll()` 삭제.** 호출자 0건을 리뷰 주장이 아니라 grep 으로 재확인했다(선언 2건이 전부). `detach` 는 `#sessions` 에서 지우기만 하고 `attach` 가 건 `frame`/`ready` 리스너를 **떼지 않아** 부르는 순간이 곧 누수였다. **메서드 선언 `1 → 0`**, 문자열 등장은 `1 → 1`(삭제 사유를 적은 **묘비 주석**) — 두 숫자를 함께 봐야 판정이 선다. `#clearCaches`·`#splitKey`·`buildSubscribeQuoteReq` 중 미사용이 되는 것은 없음을 먼저 확인했다.
+- **신규 3케이스.** ⑬(60/64 팬아웃 **그리고 `getLimitChasers` 캐시 복사본**에 이름) · ⑭(모르는 ISIN 은 `undefined` 이고 **ISIN 문자열이 아님**을 명시 단언) · ⑮(`symbols` 미주입 Hub 도 무해). 기존 ③④⑤(에코 upsert·`crud "D"` 삭제·64 전량 교체) **전부 통과**.
+- **회귀 잠금 실증 3라운드.** A(보강 무력화)→⑬ 1건 · **B(캐시에는 원본, 팬아웃만 보강)→⑬ 1건이 `strategy-hub.test.ts:398` 즉 `getLimitChasers` 단언 줄에서 실패** · C(못 풀면 `name: item.isin` 지어내기)→⑭·⑮ 2건. **라운드 B 가 「캐시 삽입 이전 보강」이 장식이 아니라는 관측 증거다.** 라운드 A 에서 ⑭·⑮ 가 초록으로 남는 것도 옳다 — 그 둘이 잠그는 명제는 보강 유무와 무관하다. 복원 후 `grep -c MUTATION` = 0, diff 0줄.
+- **함정 1건을 실측으로 잡았다(Rule 1).** Task 1 직후의 `pnpm -r typecheck` exit 0 은 **낡은 `packages/shared/dist` 를 본 것**이었다 — relay·webapp 은 shared 를 소스가 아니라 빌드 산출물(gitignored)로 해석한다. Task 2 에서 `TS2353: 'name' does not exist in type 'RelayLimitChaser'` 로 드러났고, `pnpm --filter @gh-radar/shared run build` 후 전 게이트를 다시 돌렸다. **공유 계약을 바꾼 뒤 `pnpm -r typecheck` 단독 통과는 검증이 아니다** — 같은 계약을 webapp 에서 소비하는 **16-42 에 직접 해당한다**.
+- **relay 390 tests**(387 → +3, 17 files) · `pnpm -r typecheck` exit 0 · `pnpm -r test` exit 0 **2,029 passed**(기준선 2,026 → +3, relay 외 변동 없음) · `typecheck:tests` exit 0. 포매터 미실행. DB 미변경.
+- **⚠️ 사용자가 보는 증상은 아직 그대로다.** `isin-labels.ts` 가 새 필드를 읽지 않으므로 사이드바는 계속 ISIN 을 보여준다 — 소비는 **16-42(wave 27)** 몫이다. 배포도 미실시(**16-46**). `FakeSession`·`FakeSymbols` 만, 실서버·실계좌 접속 0회(D-27). **TRADE-01·TRADE-03 상태 미변경**(TRADE-03 계속 Pending).
 
 - **16-40 완료 — R2-WR-07 + R2-WR-04 종결. 세 카운터와 한 불변식이 각자 자기가 선언한 문장을 실제로 지키게 했다.** relay 2파일(소스 1 + 테스트 1).
 - **`inserted` 가 만들지 않은 행을 세지 않는다 (R2-WR-07①).** `OrderInsertSink` 반환을 `{id, created}` 로 넓혀 「새로 만들었다」와 「`23505` 로 기존 행에 수렴했다」를 sink 가 직접 말하게 했다. **`insertRequest` 의 공개 반환 타입은 `Promise<string>` 그대로**라 `order-handler.ts` diff **0줄** — 그것이 이 변경이 최소 침습임의 증거다. 덜어낸 값은 버리지 않고 `insertConverged` 로 노출했다(S-5). `stats()` 는 relay/src 에 소비처가 없어 필드 추가가 `/healthz` 에 닿지 않음을 먼저 확인했다.
@@ -371,6 +384,7 @@ Progress: [█████████░] 89%
 | Phase 16 P38 | 16min | 3 tasks | 7 files |
 | Phase 16 P39 | 14min | 2 tasks | 2 files |
 | Phase 16 P40 | 21min | 3 tasks | 2 files |
+| Phase 16 P41 | 35m | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -582,6 +596,10 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-39: 「보낼 것이 없다」 판정을 키 개수(<=1)가 아니라 updated_at 이름 필터로 센다 — 계획 식은 sink 직접 호출자의 실필드 1개를 조용히 버린다
 - [Phase 16]: 16-40: 카운터가 아니라 sink 가 참말을 하게 한다 — insert 는 created, update 는 applied 한 비트씩 — inserted 가 23505 수렴까지 세던 오염과 16-39 가 남긴 flushed 잔여 오차를 같은 형태로 닫았다. 카운터 대입문이 아니라 sink 반환 타입을 넓혀 고쳤고, 반환 생략은 기존 의미와 같게 두어 기존 sink 구현 변경 0줄.
 - [Phase 16]: 16-40: flushNow 의 진행 중 배치 대기를 라운드 루프 안으로 흡수 — close() 순서는 유지 — 실제로 열려 있던 창은 라운드 N 종료와 N+1 대입 사이였다(계획·리뷰가 지목한 진입부는 종전 while 이 이미 막고 있었다). close() 를 앞으로 옮기는 대안은 ORDER_FLUSH_MAX_ROUNDS 의 3라운드 근거(16-24)를 흔들어 채택하지 않았다.
+- [Phase 16]: 16-41: 상따 에코 보강은 캐시 삽입 이전에 한다 — 캐시가 lc.snap 재접속 복원의 원천이라 팬아웃만 보강하면 새 탭의 이름이 갈린다
+- [Phase 16]: 16-41: RelayLimitChaserInput 이 name·code 를 Omit — 표시 문자열의 소유자는 relay 다(market 과 같은 규율, T-16-84)
+- [Phase 16]: 16-41: detach()·releaseAll() 삭제 — 호출자 0건이고 detach 는 attach 가 건 리스너를 떼지 않아 호출 자체가 누수였다 (R2-IN-02)
+- [Phase 16]: 16-41 함정: 공유 계약 변경 후 pnpm -r typecheck 단독 통과는 검증이 아니다 — 소비처가 packages/shared/dist 를 보므로 shared build 를 먼저 돌려야 한다
 
 ### Pending Todos
 
@@ -634,7 +652,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T10:51:16.420Z
+Last session: 2026-09-09T11:01:59.822Z
 Stopped at: Completed 16-40-PLAN.md — R2-WR-07 + R2-WR-04 종결(+ 16-39 flushed 잔여 오차)
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
