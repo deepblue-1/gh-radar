@@ -669,10 +669,47 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     };
   }
 
-  /** 통보의 매매구분. 믿을 수 없으면(취소·정정) 위 주석의 규율대로 "S" 다. */
+  /**
+   * 감사 행(`dma_orders.side`)에 적을 매매구분 — **표시해도 되는가**의 질문이다.
+   *
+   * ⚠️ 매칭 축 ②-1(`narrowPending`)과 이 함수는 **같은 필드를 다르게 쓴다.** 축은 「이 값으로
+   * 후보를 **좁혀도** 되는가」를 묻고 여기는 「이 값을 **표시해도** 되는가」를 묻는다. 16-34 가
+   * 판정했듯 `sideTrusted` 는 후자에는 맞지만 전자에는 한 겹 모자라다(거부 "R" 도 신뢰로
+   * 표시되는데 취소 대기에도 온다) — 그래서 두 곳의 **적용 조건이 다른 것이 정상**이다.
+   * 다만 **모르는 값을 지어내지 않는 규율은 공통**이라, 둘 다 `fromWireSide` 를 지난다.
+   *
+   * 세 갈래다:
+   *   · `sideTrusted === false`(취소·정정 통보) → `"S"`. 취소·정정 요청에는 매매구분이 실리지
+   *     않아 브로커가 채울 값이 없다(Pitfall 8). 위 행 조립 주석과 `handle` 의
+   *     `const side = isCancel ? "S" : msg.side` 가 같은 규율이고, **방향의 정본은
+   *     `org_order_no` 가 가리키는 원주문 행**이라는 뜻의 표기다.
+   *   · 신뢰할 수 있고 해석되면 → 그 값. `startsWith("S") ? "S" : "B"` 는 쓰지 않는다 —
+   *     빈 값(구 게이트웨이)·`"X"`·소문자 `"b"` 가 전부 `"B"` 가 되어 **매도 자동주문이 감사
+   *     기록에 매수로 남는다** (R2-WR-06). `fromWireSide` 가 첫 글자로만 판정하고 아니면
+   *     `null` 을 주는 그 규율이 정본이다(`envelope.ts` — 「모르는 값을 매수로 지어내지 않는다」).
+   *   · 신뢰할 수 있는데 **해석되지 않으면**(빈 값·미지 표기) → 지어내지 않는다. 그런데
+   *     `dma_orders.side` CHECK 는 `B`/`S` 둘뿐이라 **행을 남기려면 하나를 골라야 한다**
+   *     (감사 우선 — 계좌 미상 분기와 같은 판단이다). 그래서 **취소 행과 같은 `"S"`** 를 적고
+   *     사유를 `logger.warn` 으로 남긴다(S-5 — 무로그 fail-safe 금지).
+   *
+   * `"S"` 를 고른 이유(기본값을 `"B"` 에서 뒤집는 변경이라 근거를 적는다): 이 파일에서 `"S"` 는
+   * 이미 **「이 행의 side 는 방향의 정본이 아니다」를 뜻하는 표기**로 쓰이고 있고(취소 행),
+   * 그 규율을 읽는 사람에게 「믿지 말 것」이라고 위 주석이 말하고 있다. 모르는 값을 그 표기로
+   * 수렴시키면 「믿을 수 없는 side」가 한 값으로 모인다. 반대로 `"B"` 는 이 파일 어디에서도
+   * 「모른다」를 뜻하지 않는 **평범한 매수**이므로, 거기에 미지 값을 섞으면 매수 기록과
+   * 구분되지 않는다. `dma_orders.side` 를 읽어 주문을 내는 경로는 없다(취소 주문의 방향은
+   * 미체결 행에서 오고 그쪽은 `fromWireSide` 가 이미 지킨다) — 영향은 표시와 감사뿐이다.
+   */
   function sideOf(notice: ParsedOrderResp): OrderSide {
     if (!notice.sideTrusted) return "S";
-    return notice.side.startsWith("S") ? "S" : "B";
+    const side = fromWireSide(notice.side);
+    if (side !== null) return side;
+    // 계좌번호는 싣지 않는다 (T-16-45). 어느 통보인지와 그 종류면 추적에 충분하다.
+    logger.warn(
+      { orderNo: notice.orderNo, noticeType: notice.noticeType },
+      '[WS-order] 통보의 매매구분을 해석하지 못했다 — 감사 행에 "S"(방향 미상) 로 남긴다',
+    );
+    return "S";
   }
 
   /**
