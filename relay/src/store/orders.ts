@@ -690,13 +690,33 @@ export class OrderStore {
    * **재큐잉분(재시도 1회)까지 비운 뒤에 반환한다** — 그래야 「비웠다」가 참이다. 다만
    * 무한히 매달리지 않는다: `ORDER_FLUSH_MAX_ROUNDS` 회에서 남은 큐 길이를 error 로 남기고
    * 반환한다(T-16-40 — 종료를 영원히 막지 않는다).
+   *
+   * ★ **`close()` 를 이 앞으로 옮기지 않는다** (16-40 / R2-WR-04 판단). tick 을 먼저 끊으면
+   *   아래 루프의 `#current` 재확인이 필요 없어 보이지만, 그러면 `ORDER_FLUSH_MAX_ROUNDS` 의
+   *   세 번째 라운드 근거(「1·2 를 `await` 하는 **동안** 다른 경로가 새로 넣은 항목」, 16-24)가
+   *   흔들린다 — 종료 중 유입은 tick 이 아니라 DMA 수신 콜백(D-32)에서 오므로 tick 을 끊어도
+   *   사라지지 않고, 반대로 tick 을 끊으면 그 유입을 가져갈 배치가 이 함수뿐이 된다.
+   *   순서는 그대로 두고 경합만 닫는다. 다음 사람이 다시 고민하지 않도록 여기 적어 둔다.
    */
   async flushNow(): Promise<void> {
-    // 진행 중 배치를 기다린다. 기다리는 사이 tick 이 새 배치를 시작할 수 있으므로 루프다.
-    while (this.#current !== null) await this.#current;
-
     for (let round = 0; round < ORDER_FLUSH_MAX_ROUNDS; round += 1) {
+      // ★ 진행 중 배치 대기를 **루프 안으로** 넣었다 (16-40 / R2-WR-04 / T-16-83).
+      //
+      //   종전에는 이 `while` 이 루프 **밖**에 한 번만 있었고, 루프 안에서는 확인 없이
+      //   `this.#current = this.#runDrain()` 로 **덮어썼다**. 그 사이가 위험하다:
+      //   `await` 가 풀린 뒤 대입까지 **마이크로태스크 경계**가 있고, 이 시점은 아직
+      //   `close()` 전이라 200ms `#tick` 이 살아 있다 (종료 절차는 `flushNow()` → `close()`
+      //   순서다). 그 경계에서 tick 이 자기 배치를 시작하면 우리가 그 핸들을 덮어써 버리고,
+      //   덮어쓴 남의 배치가 먼저 끝나며 `#current = null` 을 하므로 **세 번째 drain** 이
+      //   시작될 수 있다 — 「도는 배치는 언제나 1개」가 깨진다. 장애 중인 Supabase 를
+      //   여러 겹으로 두드리는 것이 정확히 그때다.
+      //
+      //   루프 밖의 최초 대기는 이 한 줄에 **흡수**했다 — 라운드 0 에서의 동작이 종전과
+      //   완전히 같고(대기 → 큐 확인 → 배치), 대기 지점이 둘이면 언젠가 한쪽만 고쳐진다.
+      while (this.#current !== null) await this.#current;
       if (this.#queue.length === 0) return;
+      // 여기서 대입까지 `await` 이 없다 — 위 `while` 이 `null` 을 관측한 순간부터 대입까지
+      // 마이크로태스크 경계가 없어야 이 방어가 성립한다. 사이에 `await` 을 넣지 말 것.
       this.#current = this.#runDrain();
       await this.#current;
     }
@@ -715,6 +735,13 @@ export class OrderStore {
    *
    * `flushNow` 에서 뽑아낸 몸통이다(16-24). 카운터 규율(`#flushed`/`#retried`/`#dropped`)은
    * 그대로다 — 여기서 세는 값이 곧 감사 기록의 성패다.
+   *
+   * ★ **진입 즉시의 큐 스왑은 중복 방어의 2선이지 1선이 아니다** (16-40 / R2-WR-04).
+   *   배치가 겹쳐 돌아도 「같은 항목이 두 번 쓰이지」 않아 온 이유가 이 스왑이다 — 그래서
+   *   `flushNow` 의 `#current` 덮어쓰기가 오래 눈에 띄지 않았다. 1선은 `#tick` 의 건너뛰기와
+   *   `flushNow` 의 라운드 재확인이고, 그 둘이 「도는 배치는 언제나 1개」를 지킨다. 이 스왑에
+   *   기대어 1선을 느슨하게 하지 말 것 — 겹쳐 도는 배치는 항목 중복이 없어도 장애 중인
+   *   Supabase 를 여러 겹으로 두드린다.
    */
   async #drain(): Promise<void> {
     const batch = this.#queue;

@@ -274,6 +274,85 @@ describe("OrderStore — 비동기 갱신 큐", () => {
     store.close();
   });
 
+  it("⑮-b flushNow 는 라운드마다 #current 를 재확인한다 — 남의 배치를 덮어쓰지 않는다 (16-40 / R2-WR-04)", async () => {
+    /*
+      잠그는 것: **「도는 배치는 언제나 1개」**. 종전 `flushNow` 는 진행 중 배치 대기를 루프
+      **밖**에 한 번만 두고, 루프 안에서는 `this.#current = this.#runDrain()` 을 확인 없이
+      대입했다. 라운드 끝의 `await` 이 풀린 뒤 대입까지 마이크로태스크 경계가 있고, 이 시점은
+      아직 `close()` 전이라 200ms `#tick` 이 살아 있다 — 그 경계에서 tick 이 자기 배치를
+      시작하면 우리가 그 핸들을 덮어쓰고 배치를 하나 더 띄운다.
+
+      **관측 대상은 항목 중복이 아니라 동시에 도는 배치 수(`maxLive`)다.** 같은 항목이 두 번
+      쓰이지 않은 것은 `#drain` 이 진입 즉시 큐를 스왑하기 때문이고(2선 방어), 그래서 이
+      결함이 오래 보이지 않았다.
+
+      재현 3단계 — 순서가 곧 이 케이스의 내용이다:
+        P1  tick 이 `row-a` 배치를 시작하고 sink 에서 멈춘다.
+        P2  SIGTERM. `flushNow` 가 진행 중 배치를 기다린다. **틱을 때리지 않고** 마이크로태스크만
+            돌려 `flushNow` 를 라운드 루프 안으로 들여보낸다(round 0 = `row-b`).
+        P3  이제 마이크로태스크 경계마다 틱을 때린다. round 0 이 끝나 `#current` 가 `null` 인
+            순간을 tick 이 낚아채 `row-c` 배치를 시작하고, 그 sink 가 `row-d` 를 큐에 넣는다
+            (종료 중 유입 — DMA 수신 콜백은 플러시를 기다리지 않는다, D-32/16-24).
+            여기서 `flushNow` 의 round 1 이 재확인 없이 대입하면 **배치가 둘** 이 된다.
+
+      실측: 이 케이스는 수정 전 구현에서 `maxLive === 2` 로 실패한다(회귀 잠금 실증 C).
+    */
+    const gates: (() => void)[] = [];
+    const seen: string[] = [];
+    /** 「이 항목의 sink 가 도는 동안 새로 들어오는 갱신」 — 종료 중 유입 사슬이다. */
+    const NEXT: Record<string, string | undefined> = { "row-b": "row-c", "row-c": "row-d" };
+    let live = 0;
+    let maxLive = 0;
+    let store: OrderStore | undefined;
+
+    const sink: OrderUpdateSink = async (sel) => {
+      live += 1;
+      maxLive = Math.max(maxLive, live);
+      seen.push(String(sel.value));
+      const next = NEXT[String(sel.value)];
+      if (next !== undefined) {
+        store?.enqueueUpdate({ orderRowId: next, status: "filled", filledQty: 1 });
+      }
+      await new Promise<void>((resolve) => {
+        gates.push(resolve);
+      });
+      live -= 1;
+    };
+
+    store = new OrderStore(sink, 200);
+    store.start();
+
+    // P1 — tick 이 배치를 시작하고 sink 에서 멈춘다.
+    store.enqueueUpdate({ orderRowId: "row-a", status: "accepted" });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(live).toBe(1);
+
+    // P2 — SIGTERM. `close()` 는 아직이다(종료 절차 순서: `flushNow()` → `close()`).
+    const shutdown = store.flushNow();
+    store.enqueueUpdate({ orderRowId: "row-b", status: "accepted" });
+
+    // 틱을 때리지 않고 마이크로태스크만 돌린다 — `flushNow` 가 라운드 루프에 진입한다.
+    for (const g of gates) g();
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(seen).toEqual(["row-a", "row-b"]);
+
+    // P3 — 이제 경계마다 틱을 때린다. 창이 열리는 hop 은 구현 세부라 전부 때린다.
+    for (let i = 0; i < 30; i += 1) {
+      for (const g of gates) g();
+      await Promise.resolve();
+      vi.advanceTimersByTime(200);
+    }
+    for (const g of gates) g();
+    await shutdown;
+
+    // ★ 이 한 줄이 불변식이다. 수정 전에는 **2** 다.
+    expect(maxLive).toBe(1);
+    // 계약은 그대로 — 종료 중 유입분까지 비운다 (16-24 / T-16-40).
+    expect(seen).toEqual(["row-a", "row-b", "row-c", "row-d"]);
+    expect(store.stats()).toMatchObject({ queued: 0, flushed: 4, dropped: 0 });
+    store.close();
+  });
+
   it("⑯ 배치 중 실패로 재큐잉된 항목도 **같은 flushNow 안에서** 다시 시도된다", async () => {
     let calls = 0;
     const written: Written[] = [];
