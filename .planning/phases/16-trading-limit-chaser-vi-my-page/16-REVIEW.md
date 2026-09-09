@@ -486,7 +486,9 @@ _Depth: standard_
 **검토 일시:** 2026-09-09T03:42:42Z
 **깊이:** standard
 **범위:** `git diff 584b49c..HEAD` 의 소스 47파일 (계획 산출물 제외, `scripts/dma-credentials.*` · `infra/relay/README.md` 제외)
-**상태:** issues_found — Critical 3 · Warning 12 · Info 4
+**상태:** issues_found — Critical 3 · Warning 12 · Info 4 → **2라운드 갭 클로징(16-27~16-35)에서 19건 전부 종결 — 상세는 항목별 `> **종결:**` 표시 참조.** 처리 표는 `16-VALIDATION.md` §Gap Closure 2라운드 (16-27 ~ 16-35). 원문 Issue·Fix 는 근거를 되짚을 수 있도록 **지우지 않았다**.
+
+> ⚠️ **이 절의 Fix 스니펫을 그대로 베끼지 말 것.** `GC-WR-03` 의 제안(`sideTrusted && side !== ""`)은 실행해 보니 **그 자체로 새 버그**였다 — 취소거부가 살아 있는 신규 매수를 「거부됨」으로 정산한다. 기존 테스트 ②가 그것을 잡았고 16-34 가 `noticeType ∈ {A, E}` 가드를 한 겹 더 걸어 닫았다. 리뷰의 스니펫은 방향이지 정답이 아니다.
 
 이 절은 **새 ID 네임스페이스**(`GC-CR-`/`GC-WR-`/`GC-IN-`)를 쓴다. 위쪽 CR-01~04 · WR-01~09 · IN-01~07 은 클로징 **이전** 리뷰이고 `deferred-items.md` 가 그 앵커를 참조하므로 건드리지 않았다.
 
@@ -501,6 +503,8 @@ _Depth: standard_
 ### Critical
 
 #### GC-CR-01: `narrowPending` 의 「후보 1개」 지름길이 **모든 상관 축을 건너뛴다** — 살아 있는 주문이 「취소됨」으로 정산된다
+
+> **종결:** 16-27 — 「후보 1건 지름길」을 없애고, 통보가 **실어 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` C/M)을 후보 수와 무관한 **하드 필터**로 승격했다(0건이면 `null`). 비어 있는 축은 그대로 건너뛰어 구 게이트웨이 호환 유지. 통보 소비 루프의 warn 조건도 `candidates.length > 0 && picked === null` 로 넓혔다. — 근거: 커밋 `eeb3a6e` · `pnpm --filter @gh-radar/relay test -- order`
 
 **File:** `relay/src/ws/order-handler.ts:863-865`
 
@@ -554,6 +558,8 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
 
 #### GC-CR-02: 좁히지 못한 **수동** 통보는 존재하지 않는 `order_no` 행을 갱신한다 — 접수·체결 기록이 로그도 없이 사라진다
 
+> **종결:** 16-33 — 수동 통보도 `findIdByOrderNo`(`:427`) 조회를 거치고, **행이 있음이 확인된 경우에만** `orderRowId` 로 갱신한다(`:444`). 없으면 통보 원문(`orderNo`·`noticeType`·`resultCode`·`isin`·수량·가격)을 `logger.error` 로 남기고 **갱신을 큐에 넣지 않는다**(`:452-462`). D-24 의 두 번째 감사 사본으로 `subscription-hub.ts:708-716` stdout 1줄을 함께 넣었다. — 근거: 커밋 `0ce0e2d` · `pnpm --filter @gh-radar/relay test -- order` (변이 실증 4건)
+
 **File:** `relay/src/ws/order-handler.ts:395-403`, `relay/src/ws/order-handler.ts:665-681`
 
 **Issue:**
@@ -594,6 +600,8 @@ if (notice.originKind === "manual") {
 
 #### GC-CR-03: `handle` 의 `await insertRequest` 중에 연결이 닫히면 **회수되지 않는 대기·타이머**가 남고, 체결된 주문이 `timeout` 으로 기록된다
 
+> **종결:** 16-27 — `await insertRequest` 직후·`buildDirectOrderReq` 이전(`order-handler.ts:701` vs `:719`)에 `conns.get(conn) !== state` 재확인을 두어 왕복 중 탭이 닫히면 **게이트웨이로 나가기 전에** 중단한다(`logger.warn` + `status:"rejected"`). 고아 `ConnState` 대기·타이머가 생기지 않는다. — 근거: 커밋 `909a217` · 변이 실증 ㉕(가드 무력화 시 `DirectOrderReq` 1건 송신으로 실패)
+
 **File:** `relay/src/ws/order-handler.ts:663-689`(await), `:770-786`(타이머·대기 등록), `:816-835`(`closeConn`)
 
 **Issue:**
@@ -629,6 +637,8 @@ if (conns.get(conn) !== state) {
 
 #### GC-WR-01: `void recordUnmatched(...)` — `.catch` 가 없어 한 번의 예외가 **relay 프로세스 전체**를 내린다
 
+> **종결:** 16-33 — 예외 격리를 두 겹으로 했다: 호출부 `void recordUnmatched(...).catch`(`:374`) + `autoInsertRow` 를 `insertOnly` 의 try 안으로(`:547`/`:548`). `index.ts` 의 `unhandledRejection` 이 `logger.fatal` + 프로세스 종료라 한 겹만으로는 통보 1건의 파손이 전 사용자의 DMA 세션을 끊는다. 두 겹이 **각각 독립으로** 잠긴 것을 변이 2종으로 실증. — 근거: 커밋 `49db808`
+
 **File:** `relay/src/ws/order-handler.ts:367`, `relay/src/index.ts:220-223`
 
 `recordUnmatched` → `ensureRow` 안에서 `autoInsertRow(userId, notice)`(L454)와 그 안의 `deps.symbols.lookup` · `deps.hub.getLimitChasers` · `deps.hub.getViTrigger` 호출은 **try 밖**에 있다. 여기서 예외가 나면 `task` 가 reject 되고, `await task` 를 거쳐 `recordUnmatched` 가 reject 되며, 호출부가 `void` 라 아무도 잡지 않는다. `index.ts:220` 의 핸들러는 `unhandledRejection` 을 `logger.fatal` + **프로세스 종료**로 다룬다 — 통보 1건의 파손이 그 순간 접속한 **모든 사용자의 DMA 세션**을 끊는다.
@@ -638,6 +648,8 @@ if (conns.get(conn) !== state) {
 ---
 
 #### GC-WR-02: `ensureRow` 의 inflight 키가 **빈 주문번호에서 충돌**한다 — 서로 다른 자동주문 거부가 한 행에 겹쳐 쓰인다
+
+> **종결:** 16-33 — `ensureRow:500` 이 `orderNo === ""` 를 in-flight 키(`:524`) 밖으로 뺀다. 합치면 그 사용자의 **모든** 접수 전 거부("R")가 `"user|"` 하나를 공유해 서로 다른 거부가 같은 `row.id` 를 덮어썼다. `findIdByOrderNo` 는 이 값에서 항상 `null` 이라 dedup 의 의미도 없다. — 근거: 커밋 `49db808` · 변이 실증 ㉘
 
 **File:** `relay/src/ws/order-handler.ts:435`, `relay/src/store/orders.ts:428`
 
@@ -658,6 +670,8 @@ async function ensureRow(userId: string, notice: ParsedOrderResp): Promise<Ensur
 
 #### GC-WR-03: `narrowPending` 에 **매매구분 축이 없다** — 매수/매도 동시 대기가 둘 다 「결과 모름」으로 끝난다
 
+> **종결:** 16-34 — `PendingOrder.side`(`:179`) 신설 + `narrowPending:1050-1073` 에 `refine` 축 추가. **다만 이 절의 Fix 스니펫(`sideTrusted && side !== ""`)을 그대로 넣으면 새 버그가 된다** — 파서의 `sideTrusted = noticeType !== "C" && !== "M"` 는 거부("R")에도 `true` 를 주는데 "R" 은 취소 요청에도 오고 취소 통보의 side 는 브로커 기본값이므로, 축을 걸면 **취소거부가 살아 있는 신규 매수를 「거부됨」으로 정산**한다(기존 테스트 ②가 실제로 깨져 이것을 잡았다). `noticeType ∈ {A, E}` 한 겹을 더 걸었다. 정규화는 `fromWireSide`(envelope.ts) 재사용 — 모르는 값은 `null` 로 축을 건너뛴다. — 근거: 커밋 `770da64`
+
 **File:** `relay/src/ws/order-handler.ts:874-889`
 
 `ParsedOrderResp` 는 `side` 와 「믿어도 되는가」를 말하는 `sideTrusted` 를 **둘 다** 싣는다(`envelope.ts:1183-1192`). 그런데 `narrowPending` 은 이 축을 전혀 쓰지 않는다. 테스트 ㉑ 이 고정한 「매수 10@70000 + 매도 10@70000」은 `sideTrusted === true` 인 접수 통보 하나로 **완전히 가를 수 있는데도** 좁히기에 실패해 두 주문 모두 `timeout` 으로 끝난다 — 사용자는 실제로 접수된 두 주문에 대해 「결과를 확인하지 못했습니다」를 본다.
@@ -676,6 +690,8 @@ if (n.sideTrusted && n.side !== "") {
 ---
 
 #### GC-WR-04: `lc.set` 의 **삭제(`crud:"D"`)도** ISIN 해석 실패로 거부된다 — 상장폐지·마스터 미로딩 종목의 전략을 지울 수 없다
+
+> **종결:** 16-29 — 철거(`crud:"D"` ∨ 게이트 4종 전부 OFF)를 `#teardownMarket` 이 받아 **에코 캐시(`getLimitChasers`) → `SymbolMap` → 상수 폴백** 순으로 풀고 **절대 거부하지 않는다**. 등록·수정은 `#strategyMarket` 그대로라 16-25 의 엄격함(T-16-42)이 유지된다. 폴백이 안전한 근거는 `strategyKey()` = `ISIN:계좌:거래소` 라 철거 프레임의 `market` 이 **무엇을 지울지에 관여하지 않는다**는 사실이다. `#isTeardown` 은 `crud` 하나에 의존하지 않고 `isDeleteIntent()` 와 같은 네 항을 함께 본다. — 근거: 커밋 `e1c627e` · 변이 실증 ⑰-e·⑰-e2
 
 **File:** `relay/src/ws/fanout.ts:579-581`, `:761-790`
 
@@ -696,6 +712,8 @@ if (cfg.crud !== "D" && market === null) return;
 
 #### GC-WR-05: relay 의 무장 가드가 UI 보다 **느슨하다** — `sellWatchQty === 0` · 한방 게이트가 서버에서 통과한다
 
+> **종결:** 16-29 — `#strategyArmable` 의 `reason` 이 `buy`·`sell`·`sweep` 3갈래가 됐다. `sellWatchQty === 0` 과 한방 게이트가 이제 서버에서 통과하지 못한다. 삭제에는 이 가드가 걸리지 않으며 그 예외를 호출부가 아니라 **함수 자신이** 소유한다. — 근거: 커밋 `b059be8` · 변이 실증 ⑰-g·⑰-h·⑰-h2
+
 **File:** `relay/src/ws/fanout.ts:796-812` vs `webapp/src/components/trading/limit-chaser-form.tsx:343-368`
 
 UI 는 `canArmSell = sellOrderPrice > 0 && sellWatchQty > 0`, `canArmSweep = sweepWatchPrice > 0 && canArmBuy` 로 판정한다. relay 의 `#strategyArmable` 은 `sellEnabled && sellOrderPrice === 0` 하나만 보고 **`sellWatchQty` 도 `sweepEnabled` 도 보지 않는다.** 그런데 이 검사의 존재 이유가 "UI 를 우회한 경로(직접 wss, 옛 탭)가 있어도 무장 상태가 만들어지면 안 된다"(주석 T-16-43)이므로, 마지막 관문이 첫 관문보다 느슨하면 그 문장은 성립하지 않는다. 특히 `sellWatchQty === 0` 은 계약 자체가 "**0 이면 서버가 매도 활성화를 거부**(눕힘)한다"(`packages/shared/src/relay.ts:167`)고 못박은 값이라, 조용한 부분 거부가 그대로 재현된다.
@@ -713,6 +731,8 @@ const reason =
 ---
 
 #### GC-WR-06: `send()` 의 boolean 을 **4곳 중 1곳만** 읽는다 — `vi.confirm` 은 보내지 못한 요청에 낙관 반영을 건다
+
+> **종결:** 16-31(상따 폼 2곳) · 16-32(VI 2곳) — `send()` 의 boolean 을 **4곳 전부** 읽는다. 상따: `toggleGate` 가 `setForm` 낙관 반영을 전송 **뒤로** 옮겼고 `handleSubmit` 은 실패 시 `submitting` 을 되돌린다(`data-slot="lc-submit-error"`, `role="alert"`). VI: `toggle` 의 실패 `return`(`:255`)이 `setOptimistic`(`:258`)·`setSending`(`:259`)보다 **앞**이다 — 이 화면에서 잠금을 푸는 유일한 신호가 서버 73 델타라 요청이 나가지 않으면 행이 **영구히** 회색으로 남는다. VI 설정 `submit` 은 `blocked`(사유가 카드에 이미 있음 → 닫는다)와 `failed`(사유가 아직 없음 → **열어 둔다**)를 가른다. — 근거: 커밋 `a44dd66`·`551d89c` · 변이 실증 3+3건
 
 **File:** `webapp/src/components/trading/vi-order-list.tsx:230-233`, `webapp/src/components/trading/limit-chaser-form.tsx:398,412`, `webapp/src/components/trading/vi-settings-card.tsx`
 
@@ -741,6 +761,8 @@ if (!send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next })) {
 
 #### GC-WR-07: `everReadyCount` 래치는 **프로세스 메모리**다 — 장애 중 relay 가 재시작되면 진짜 게이트웨이 장애가 `ok/200` 으로 보고된다
 
+> **종결:** 16-30(코드) · 16-35(배포·실측) — 판정을 `(everReadyCount === 0 && stalledCount === 0) || readyCount > 0` 으로 바꿔, 「생성 후 `STALE_SESSION_MS`(5분)가 지나도록 한 번도 Ready 가 아닌 세션」(`stalledCount`)을 함께 센다. 16-21 의 부팅 직후 유예는 유지된다. 시각을 `DmaSession` 이 아니라 매니저 `Entry.createdAt` 에 얹어 `relay/src/dma/session.ts` diff **0줄**(T-16-26). — 근거: 커밋 `51a66c8` · 변이 실증 ⑧-d·⑩ · **프로덕션 실측은 `16-VALIDATION.md` §Deployment Verification (16-35)**
+
 **File:** `relay/src/order/order-api.ts:223`, `relay/src/dma/session-manager.ts:208-218`
 
 `sessionsOk = everReadyCount === 0 || readyCount > 0` 으로 바뀌면서, **한 번도 Ready 인 적 없는** 세션들만 있는 상태는 항상 `ok` 다. `hasBeenReady` 는 `DmaSession` 인스턴스의 인메모리 래치이므로 relay 컨테이너가 재시작하면 0 으로 초기화된다. 게이트웨이가 죽어 있는 동안 relay 가 재배포·OOM·크래시로 한 번만 재시작하면, 그 뒤로는 사용자가 아무리 붙어도 `everReadyCount === 0` 이라 **uptime check 가 영원히 초록**이다. 예전 규칙(`sessionCount > 0 && readyCount === 0` → degraded)이 잡던 사례가 통째로 빠졌다. `vpn` 신호는 인터페이스 존재만 보므로(터널은 살아 있고 게이트웨이 프로세스만 죽은 경우) 이를 대체하지 못한다.
@@ -756,6 +778,8 @@ const sessionsOk = (stats.everReadyCount === 0 && stats.stalledCount === 0) || s
 ---
 
 #### GC-WR-08: 새 부분 UNIQUE 인덱스의 `23505` 를 **어느 경로도 다루지 않는다** — 경주가 「두 벌 기록」에서 「기록 소실」로 바뀌었을 뿐이다
+
+> **종결:** 16-28 — insert sink 가 `23505` 이고 `orderNo` 가 비어 있지 않을 때만 같은 3축으로 재조회해 **기존 행 id 로 수렴**하고 warn 을 남긴다(`origin`·SQLSTATE 만 — 계좌·주문번호 원문 없음). 다른 코드는 전후 완전히 동일하게 throw. `order_no` 를 채우는 **갱신**의 `23505` 는 재시도해도 결과가 같으므로 사유 있는 error 로그로 끝내 `#dropped` 를 오염시키지 않는다(S-5) — 분기 조건을 셀렉터가 아니라 **patch** 에 걸었다. — 근거: 커밋 `f7435e9` · 변이 실증 ⓻·⓽
 
 **File:** `supabase/migrations/20260909120000_dma_orders_user_order_no_unique.sql:73-75`, `relay/src/store/orders.ts:269-298`, `:239-260`
 
@@ -782,6 +806,8 @@ if (error) {
 
 #### GC-WR-09: `handleSubmit` 이 `gateBlocked` 를 **읽지 않는다** — 파일 머리말의 「전송 직전 가드」 주장이 사실이 아니다
 
+> **종결:** 16-31 — 가드를 `setSubmitting(true)` **앞**에 뒀고(잠근 뒤 막으면 60 에코가 안 와 버튼이 영구히 죽는다), **켜져 있는 게이트만** 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다(T-16-44 확장). 파일 머리말의 「전송 직전 가드가 `gateBlocked` 를 함께 읽는다」가 이제 사실이다. — 근거: 커밋 `a44dd66` · 변이 실증 ⑭ 2건
+
 **File:** `webapp/src/components/trading/limit-chaser-form.tsx:405-415`, 주석 `:26`
 
 머리말은 "판정은 `gateBlocked()` 하나이고 **렌더의 `disabled` 와 전송 직전 가드가 그것을 함께 읽는다**"고 적었지만, 실제로 읽는 것은 `toggleGate`(L394)뿐이다. 「수정」 버튼 경로(`handleSubmit`)는 `submitting || disabled` 만 본다. 서버 에코로 `buyEnabled: true` 를 받은 상태에서 시세가 끊겨 가격 칸이 0 이 되면(이 파일이 `ARM_BLOCKED_TEXT` 에서 설명하는 바로 그 상황), 「수정」은 relay 의 `#strategyArmable` 에 통째로 거부된다 — 사용자는 **아무 값도 저장하지 못하고** 원인은 일반 거부 프레임 한 줄뿐이다.
@@ -797,6 +823,8 @@ if (blocked !== undefined) { setSubmitError(ARM_BLOCKED_TEXT[…]); return; }
 ---
 
 #### GC-WR-10: 취소 중복 키에 **원주문번호가 없다** — 동일 가격·수량의 미체결 2건을 연달아 취소할 수 없다
+
+> **종결:** 16-34 — `dupKey:244-247` 에서 취소는 `(accountNo,isin,"C",orgOrderNo)` 로 가르고 **신규 키는 문자열 한 글자도 바뀌지 않았다**(두 탭 동시 발주 차단 = 16-22 truth 25 유지). 취소 수량은 언제나 미체결 잔량 전부라(UI D-21) 가격·수량은 취소의 식별자가 아니다. 같은 `orgOrderNo` 연타는 여전히 거부. 키 회수 경로(`release`·`closeConn`·`dropUserDupKeys`)는 `claimKeys` 쌍 관례 덕에 **변경 0건**. — 근거: 커밋 `e86dfa1` · 변이 실증 ㉚·㉛
 
 **File:** `relay/src/ws/order-handler.ts:215-218`
 
@@ -819,6 +847,8 @@ return msg.t === "order.cancel"
 
 #### GC-WR-11: 스모크 프로브가 **토큰을 argv 로 넘기고**, 판정 문자열이 이어 붙으면 FAIL 이 SKIP 으로 강등된다
 
+> **종결:** 16-30 — ① 액세스 토큰을 `node ... "$token"` argv 대신 `SMOKE_TOKEN` **env** 로 넘긴다(T-16-56). ② 판정을 **변수 대입 + 단일 출력 지점**으로 바꿔 `printf 'inconclusive'` 덧붙임을 없앴다(T-16-57); `case *` 갈래는 이제 관측 문자열 원문을 남긴다. 격리 실측: 수정 전 argv 토큰 1건 · 판정 `reachable\ninconclusive` → 수정 후 argv 토큰 **0건** · 판정 `inconclusive`. — 근거: 커밋 `024ce72`. **주의:** 16-35 의 프로덕션 smoke 도 `SMOKE_AUTH_TOKEN` 부재로 조기 반환 갈래(SKIP)만 탔다 — 프로브 본체는 아직 프로덕션에서 한 번도 돌지 않았다
+
 **File:** `scripts/smoke-relay.sh:465-468`
 
 두 가지다.
@@ -838,6 +868,8 @@ printf '%s' "$verdict"
 
 #### GC-WR-12: 무장 불가 안내 문구가 **가장 흔한 원인을 잘못 짚는다**
 
+> **종결:** 16-31 — `armBlockedTextOf(key, values)` 하나가 매수 2·매도 2·한방 2 갈래를 내고, 그룹 사유줄과 전송 차단 문구가 **같은 함수**를 읽는다. e2e 가 고정한 실제 재현 조건은 「시세 없음」이 아니라 **금액 부족**(기본 10만원으로 127,400원 종목 → 0주)이었다. 매도 문구는 「예상 매도수량」이 아니라 **감시 호가잔량**을 가리키게 바로잡았다. — 근거: 커밋 `f76daa3` · 변이 실증 ⑮·⑬ 3건
+
 **File:** `webapp/src/components/trading/limit-chaser-form.tsx:113-118`
 
 `ARM_BLOCKED_TEXT.buy` 는 "**시세를 받지 못해** 발주가·수량이 0 이에요"라고 단정한다. 그런데 같은 phase 의 e2e(`trading-limit-chaser.spec.ts:181-192`)가 고정한 실제 재현 조건은 **"기본 주문금액 10만원으로 127,400원 종목을 사면 `floor(10만/12.74만) = 0주`"** 다 — 시세는 정상이고 금액이 부족한 것이다. 안전 게이트의 안내가 원인을 틀리게 말하면 사용자는 엉뚱한 곳(재접속·새로고침)을 만진다.
@@ -856,20 +888,28 @@ const buyBlockReason =
 
 #### GC-IN-01: `gateBlocked` 의 `useCallback` 의존성이 매 렌더 새 객체다
 
+> **종결:** 16-31 — `canArm` 을 `useMemo`(세 파생 boolean 의존)로 감싸 `gateBlocked` 의 `useCallback` 이 실제로 메모된다. eslint `react-hooks/exhaustive-deps` 경고가 **1건 → 0건**으로 소멸하는 것을 실측했다. — 근거: 커밋 `f76daa3`
+
 **File:** `webapp/src/components/trading/limit-chaser-form.tsx:373-390`
 `canArm` 은 렌더마다 새로 만드는 객체 리터럴이므로 `[disabled, canArm]` 는 항상 바뀐다 — `useCallback` 이 아무것도 메모하지 않는다. `canArm` 을 `useMemo` 로 감싸거나, 세 boolean 을 개별 의존성으로 넘길 것.
 
 #### GC-IN-02: `row.isin as string` 타입 단언
+
+> **종결:** 16-31 — `isPickable` 을 타입 서술자(`row is StockDetailResponse & { isin: string }`)로 만들어 `as string` 단언이 파일에서 **1 → 0**. — 근거: 커밋 `8e3227c`
 
 **File:** `webapp/src/components/trading/limit-chaser-client.tsx:851`
 `isPickable(row)` 이 이미 `row.isin !== null` 을 확인하지만 TS 가 좁히지 못해 단언으로 메웠다. `isPickable` 을 타입 서술자로 만들면 단언이 사라진다: `function isPickable(row: StockDetailResponse): row is StockDetailResponse & { isin: string }`.
 
 #### GC-IN-03: `latestAccountTime` 이 `HH:MM:SS` 문자열 비교다
 
+> **종결:** 16-32 — 비교 키를 `st` **원문**에서 만들고(`dated` 가 첫 번째 축) 승자의 원문에서 표시값을 뽑는다. **epoch 승격을 고르지 않은 이유**: `HH:MM:SS` 만 오는 값은 날짜를 몰라 「오늘」을 가정해야 하고 그 가정이 정확히 버그의 원인이다. 표시 형식·`null` 계약·「계좌가 하나면 결과가 같다」는 16-23 보장은 그대로. `latestAccountTime` 에 첫 테스트가 생겼다(`me-client.test.tsx`, 그전까지 0건). — 근거: 커밋 `821486f` · 변이 실증 3건
+
 **File:** `webapp/src/components/trading/me-client.tsx:88-97`
 `formatServerTime` 이 날짜를 버리고 시각만 남기므로, 자정을 넘긴 계좌 프레임(혹은 한쪽만 `YYYYMMDDHHMMSS` 로 오는 경우) 사이에서 「가장 최근」이 뒤집힌다. 표시 전용이라 영향은 작지만, 비교는 정규화 **전** 값(또는 epoch)으로 하는 편이 맞다.
 
 #### GC-IN-04: `ORDER_FLUSH_MAX_ROUNDS = ORDER_MAX_RETRIES + 2` 의 `+2` 가 설명되지 않은 상수다
+
+> **종결:** 16-28 — 「이론상 2회면 끝난다」와 식(=3)이 다른 수를 말하던 상태를 없애고, 라운드 1 첫 배치 / 2 재시도분 / **3 동시 유입 확인**(`flushNow` 가 `await` 하는 사이 동기 `enqueueUpdate` 로 들어온 항목)을 docstring 에 명시했다. 식은 유지. — 근거: 커밋 `a31f529`
 
 **File:** `relay/src/store/orders.ts:78`
 주석은 "이론상 2회면 끝난다"고 하지만 식은 `+2`(=3)다. 「첫 배치 + 재시도 + 종료 확인」이라는 근거를 식 옆에 적거나 `ORDER_MAX_RETRIES + 1` 로 맞출 것.

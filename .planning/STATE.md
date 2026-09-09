@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-34-PLAN.md (GC-WR-03 · GC-WR-10)
-last_updated: "2026-09-09T06:25:52.241Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-34 실행 완료 (GC-WR-03 · GC-WR-10)
+stopped_at: Completed 16-35-PLAN.md (갭 클로징 2라운드 종결 — 배포·실측·문서 6종)
+last_updated: "2026-09-09T07:25:00.000Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 **종결**(16-35): GC- 19건 전부 닫힘 + relay·webapp 재배포(`c8aa7ae`) + `/healthz` 200→503 전이 실측. TRADE-03 은 Pending 유지
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 159
+  completed_plans: 160
   percent: 72
 ---
 
@@ -25,16 +25,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 35 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-34 완료, 16-35 대기)
-Plans completed: 159 / 174
-Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 2라운드 종결 (35/35)**
+Plan: 35 of 35 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35)
+Plans completed: 160 / 174
+Status: Phase 16 실행 완료 — **TRADE-03 만 Pending**(D-27 상 실서버 결선 전까지). 나머지 TRADE-01·02·NAV-01·MYPAGE-01 은 Complete
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-34 실행 완료 (GC-WR-03 · GC-WR-10)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 종결(16-35) — 배포 2종 + 실측 + 문서 6종
 
 Progress: [█████████░] 91%
 
-### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~16-35)
+
+- **16-35 완료 — 2라운드 종결. GC- 19건이 코드에서 닫히고 프로덕션에 올라갔다.** 저장소 소스 diff **0줄**(이 plan 은 문서 6종만 고친다).
+- **전량 게이트 green.** `pnpm typecheck` exit 0(13 워크스페이스) · `pnpm --filter @gh-radar/relay run typecheck:tests` exit 0 · `pnpm -r test` exit 0 **190 파일 / 2,012 passed · 1 skipped · 6 todo**(16-26 기준선 189 / 1,970 → **+42**; shared 99 · relay 373 · server 252 · webapp 672 = 1,396) · `pnpm build` exit 0 · Playwright **126 passed · 9 skipped · 0 failed**(2.5분). **E2E 문구 단언은 고칠 것이 없었다** — 16-31 이 문구 변경과 같은 커밋에서 spec 을 맞췄기 때문이고, 회귀가 숨은 것이 아니라 애초에 red 가 없었다.
+- **배포 2종.** relay `relay:c8aa7ae`(digest `sha256:a9bd44f4…`) @ VM `radar-gw`, 기동 직후 VM 로컬 `/healthz` 200 · 71.99MiB/384MiB. webapp Vercel **git 통합 자동 배포** `dpl_7iFWNKh6DYDCWofhFsqBi42QiGxQ` (16:10:25 KST, build **1m**, alias 결선). **server 는 재배포하지 않았다** — `git diff --stat 2cb5620..HEAD -- server/` 와 `-- packages/shared/` 둘 다 **출력 없음**이라 바뀐 것이 없다(리비전 `gh-radar-server-00043-s4f` 유지, smoke 15/15 PASS).
+- **`/healthz` 가 200 에서 503 으로 뒤집히는 순간을 잡았다 — 이것이 GC-WR-07 의 직접 증거다.** `16:16:21 200 {…"version":"c8aa7ae","sessionCount":2,"everReadyCount":0,"stalledCount":0}` → `16:17:21 **503** {"status":"degraded",…,"sessionCount":2,"everReadyCount":0,"stalledCount":2}`. **`version` 은 고정, `sessionCount` 도 2 로 고정, 오직 `stalledCount` 만 0→2 로 올라 판정이 뒤집혔다.** relay 가 16:09 에 재기동하며 새로 생긴 세션의 `Entry.createdAt` 이 `STALE_SESSION_MS`(300,000ms)를 넘긴 **바로 다음 샘플**이다. 배포 전 빌드(`2cb5620`)에는 `stalledCount` 필드 자체가 없었다.
+- **이 503 은 배포 실패가 아니라 「판정이 옳게 울린 것」이다.** 16-21 유예(`everReadyCount===0`)만 보면 이 상태는 계속 초록이어야 하고 실제로 16:16 은 `ok/200` 이었다. 게이트웨이가 5분이 지나도록 붙지 못한다는 **사실을 그대로 말하는 것**이 GC-WR-07 의 목적이다. ⚠️ 따라서 **uptime check 적색과 `gh-radar-relay-down` 발화는 예상된 결과**이고, 끄려면 그것은 판정을 되돌리는 **사용자 결정**이다(deferred-items §16-35 에 후보 4개와 함께 열린 항목으로 남겼다).
+- **smoke 2종 실행.** `smoke-relay.sh` PASS 12 · FAIL 0 · SKIP 1 / `smoke-server.sh` PASS 15 · FAIL 0 · SKIP 0. **INV-9 는 이번에도 못 돌렸다** — `SMOKE_AUTH_TOKEN` 부재로 `ws_order_probe()` 첫 줄에서 조기 반환했으므로 **프로브 본체가 한 줄도 실행되지 않았다**. 「돌렸는데 SKIP」이 아니다. 따라서 **GC-WR-11 의 수정이 실제로 동작하는지는 프로덕션에서 여전히 미검증**이며(16-30 의 격리 실측만 있다), 16-21 재작성 이후 첫 실행은 열린 항목으로 유지된다. 토큰 값은 어디에도 기록하지 않았다(T-16-74).
+- **`INV-5a` 의 판정이 시각 의존이 됐다.** 실행 시각(16:14 경)에는 200 이라 PASS 였지만 5분 뒤 같은 검사는 FAIL 이 된다 — GC-WR-07 이 만든 새 성질이다. 재설계 여부는 알림 정책 결정에 딸린 문제라 함께 미뤘다.
+- **승인 기준 문구 2건을 정정했다(반복 방지).** ① `grep "10.41.1.120"` **0건**은 만족 불가능하다 — 실측 **33건**(`webapp/src`·`webapp/e2e` 0 / relay 산문·주석 2 / `deploy-relay.sh` 경고·가드 2 / 다른 세션의 미추적 터널 스크립트 29). 2라운드 plan 6건이 이 조건을 인용해 **6회 연속 같은 불일치**를 관측했다. **정본 계약은 리터럴 0건이 아니라 「접속 경로 0건」**이다. ② `pnpm --filter gh-radar-webapp` 은 없는 필터이고(정본 `@gh-radar/webapp`) `No projects matched the filters` + **exit 0** 이라 「절대 실패할 수 없는 검증」이다 — 16-26 이 정정했음에도 16-31·16-32 가 **또** 만났다.
+- **webapp 반영은 정황 증명까지다(정직 기록).** 이번 라운드 webapp diff 5파일이 전부 인증 게이트 뒤 트레이딩 표면이라 청크를 내려받아 내용 대조를 할 수 없다. 근거는 ① build 1m(SKIP 배포는 3~5초 `Canceled`) ② `…-git-master-…` alias 결선 ③ 프로덕션 HTML 에 「상승률 상위」 2건·`data-nav-item` 1건 ④ 공개 루트 청크 `2345-c0133ca9890ddb86.js` 해시가 16-26 과 **동일** — 공개 표면을 한 줄도 안 건드린 diff 와 정확히 일치한다.
+- **TRADE-03 은 Pending 을 유지한다.** 코드 19건이 닫히고 배포까지 됐으나 프로덕션 `everReadyCount: 0` · `stalledCount: 2` 는 **Ready 에 도달한 DMA 세션이 한 건도 없었다**는 뜻이다. WinForms ↔ 웹 세션 공유는 여전히 미실행이다. mock·단위 검증만으로 올리지 않는다(RELAY-02 와 같은 기준). TRADE-01·02·NAV-01·MYPAGE-01 은 체크박스와 Traceability 가 **5개 ID 전부에서 일치**함을 재확인했고 손대지 않았다.
+- **자동 수정(Rule 1~3) 0건.** 이 plan 은 소스를 고치지 않았다.
+
 
 - **16-34 완료 — GC-WR-03 · GC-WR-10 종결.** 둘 다 「relay 가 이미 손에 쥔 식별 정보를 쓰지 않아 가를 수 있는 것을 못 가르고, 막지 말아야 할 것을 막던」 자리다. relay 2파일(소스 1 + 테스트 1).
 - **매매구분이 통보 매칭 축이 됐다(②-1).** 같은 종목·수량·가격의 매수/매도가 동시에 대기하면 ③④ 로는 영원히 갈리지 않는데, 접수 통보는 방향을 실어 온다 — 축이 없어 **실제로 접수된 주문 2건이 모두** 「결과를 확인하지 못했습니다」로 끝났다. `PendingOrder.side`(`:179`) 신설 + `narrowPending:1050-1073` 에 `refine` 축 추가. 취소 대기의 `side` 는 `""` 다 — `handle` 의 `const side = isCancel ? "S"`(`:774`)는 `dma_orders.side` CHECK 통과용 **표기**이지 방향의 정본이 아니다.

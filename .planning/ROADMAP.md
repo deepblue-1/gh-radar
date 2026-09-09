@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
-- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (planned — 35 plans / 22 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9) (1차 완료 2026-09-08 · 갭 클로징 2라운드 계획 2026-09-09)
+- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (35 plans / 22 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 — **전부 실행 완료**) (1차 완료 2026-09-08 · 갭 클로징 2라운드 종결 2026-09-09 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending)
 
 ## Phase Details
 
@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 34/35 plans executed
+**Plans:** 35/35 plans complete (17 실행 + 갭 클로징 1라운드 9 + 2라운드 9)
 
 Plans:
 **Wave 1**
@@ -700,7 +700,7 @@ Plans:
 
 **Wave 22** *(blocked on Wave 21 completion)*
 
-- [ ] 16-35-PLAN.md — 전체 스위트 green + 배포(relay·webapp) + /healthz·smoke 실측 + 문서 6종 갱신 (TRADE-03 은 D-27 상 Pending 유지)
+- [x] 16-35-PLAN.md — 전체 스위트 green(2,012 pass · e2e 126/9/0) + 배포 2종(`c8aa7ae` — relay 재배포 · webapp Vercel `dpl_7iFWNKh…`, server 는 무변경으로 건너뜀) + **`/healthz` 200 → 503 전이 실측(`stalledCount` 0 → 2 = GC-WR-07 의도된 판정)** + smoke 2종 + 문서 6종 갱신 (TRADE-03 은 D-27 상 Pending 유지)
 
 ## Progress
 
@@ -732,4 +732,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 34/35 | In Progress|  |
+| 16. 트레이딩 메뉴(상따·VI) | 35/35 | Complete    | 2026-09-09 |

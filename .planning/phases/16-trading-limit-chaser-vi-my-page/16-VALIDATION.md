@@ -457,3 +457,225 @@ DMA 게이트웨이는 살아나지 않았다. `DMA_HOST` 는 여전히 로컬 m
 mock 은 VM 에 떠 있지 않다. `everReadyCount:0` 이 그 사실을 그대로 말한다 — **프로덕션에서
 Ready 에 도달한 DMA 세션은 한 번도 없다.** 로그인 사용자는 트레이딩 3표면에서 DMA 게이트를
 계속 본다. 바뀐 것은 **그 상태가 더 이상 relay 장애로 보고되지 않는다**는 것뿐이다.
+
+---
+
+## Gap Closure 2라운드 (16-27 ~ 16-35)
+
+`16-REVIEW.md` §갭 클로징 재리뷰의 **GC-CR 3 · GC-WR 12 · GC-IN 4 = 19건**을 사용자가 범위로
+확정했고, 9개 plan(16-27 ~ 16-35)이 전부 닫았다. 항목별 종결 근거는 `16-REVIEW.md` 의
+각 항목 아래 `> **종결:**` 줄이 정본이며, 아래는 그 요약표다.
+
+| ID | 담당 plan | 무엇을 바꿨는가 | 회귀를 잠근 명령 |
+|----|-----------|-----------------|------------------|
+| **GC-CR-01** — `narrowPending` 「후보 1개」 지름길이 모든 상관 축을 건너뛴다 | 16-27 (`eeb3a6e`) | 지름길 제거 + 통보가 **실어 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` C/M)을 후보 수와 **무관한 하드 필터**로 승격(0건이면 `null`). 비어 있는 축은 건너뛰어 구 게이트웨이 호환 유지. 소비 루프 warn 조건도 `candidates.length > 0 && picked === null` 로 확대 | `pnpm --filter @gh-radar/relay test -- order` |
+| **GC-CR-02** — 좁히지 못한 **수동** 통보가 존재하지 않는 `order_no` 행을 갱신(0행, 무로그) | 16-33 (`0ce0e2d`) | 수동 분기도 `findIdByOrderNo` 조회 경유 → 행이 **있을 때만** `orderRowId` 로 갱신, 없으면 통보 원문을 `logger.error` 로 남기고 **큐에 넣지 않는다**. D-24 두 번째 감사 사본으로 Hub stdout 1줄 추가 | `pnpm --filter @gh-radar/relay test -- order` (변이 실증 4건) |
+| **GC-CR-03** — `await insertRequest` 중 연결이 닫히면 고아 대기·타이머 + 체결분이 `timeout` 으로 기록 | 16-27 (`909a217`) | `await` 직후·`buildDirectOrderReq` 이전에 `conns.get(conn) !== state` 재확인 → **송신 전** 중단(`logger.warn` + `rejected`) | `pnpm --filter @gh-radar/relay test -- order` (㉕) |
+| **GC-WR-01** — `void recordUnmatched(...)` 에 `.catch` 가 없어 예외 1건이 relay 전체를 내린다 | 16-33 (`49db808`) | 호출부 `.catch` + `autoInsertRow` 를 `insertOnly` try 안으로 — **두 겹**. `unhandledRejection` 이 `logger.fatal` + 프로세스 종료라 한 겹은 부족 | `pnpm --filter @gh-radar/relay test -- order` (변이 2종) |
+| **GC-WR-02** — `ensureRow` in-flight 키가 빈 주문번호에서 충돌 | 16-33 (`49db808`) | `orderNo === ""` 를 in-flight 밖으로. 합치면 그 사용자의 **모든** 접수 전 거부가 한 `row.id` 를 덮어썼다 | `pnpm --filter @gh-radar/relay test -- order` (㉘) |
+| **GC-WR-03** — `narrowPending` 에 매매구분 축이 없다 | 16-34 (`770da64`) | `PendingOrder.side` 신설 + `refine` 축. **REVIEW 스니펫대로 `sideTrusted && side !== ""` 만 걸면 취소거부가 살아 있는 신규 매수를 오정산**하므로 `noticeType ∈ {A, E}` 가드를 한 겹 더 걸었다. 정규화는 `fromWireSide` 재사용(모르는 값 → `null` → 축 생략) | `pnpm --filter @gh-radar/relay test -- order` (②·㉙) |
+| **GC-WR-04** — `lc.set` 의 **삭제**도 ISIN 해석 실패로 거부된다 | 16-29 (`e1c627e`) | 철거(`crud:"D"` ∨ 게이트 4종 OFF)는 `#teardownMarket` 이 에코 캐시 → `SymbolMap` → 상수 폴백으로 풀고 **거부하지 않는다**. 폴백이 안전한 근거는 `strategyKey()` 에 시장이 없다는 사실. `#isTeardown` 은 `crud` 하나에 의존하지 않는다 | `pnpm --filter @gh-radar/relay test -- envelope protocol` (⑰-e·⑰-e2) |
+| **GC-WR-05** — relay 무장 가드가 UI 보다 느슨하다 | 16-29 (`b059be8`) | `#strategyArmable` 의 `reason` 을 `buy`·`sell`·`sweep` 3갈래로 — `sellWatchQty === 0` 과 한방 게이트가 서버에서도 막힌다. 삭제에는 걸리지 않으며 그 예외를 함수 자신이 소유 | `pnpm --filter @gh-radar/relay test -- protocol` (⑰-g·⑰-h·⑰-h2) |
+| **GC-WR-06** — `send()` 의 boolean 을 4곳 중 1곳만 읽는다 | 16-31 상따 2곳 (`a44dd66`) · 16-32 VI 2곳 (`551d89c`) | 4곳 전부 반환값 분기. 상따는 낙관 반영을 전송 **뒤로**, 실패 표시는 `data-slot="lc-submit-error"`. VI `toggle` 은 실패 `return` 이 `setOptimistic`·`setSending` **앞**(잠금을 푸는 유일한 신호가 서버 73 델타라 안 보내면 행이 영구 회색). VI 설정 `submit` 은 `blocked`(닫는다) / `failed`(열어 둔다) 3갈래 | `pnpm --filter @gh-radar/webapp test -- limit-chaser vi-order-list vi-settings-card` |
+| **GC-WR-07** — `everReadyCount` 래치가 프로세스 메모리라 재시작 후 진짜 장애가 `ok/200` | 16-30 (`51a66c8`) · **16-35 (배포·실측)** | 판정을 `(everReadyCount === 0 && stalledCount === 0) \|\| readyCount > 0` 으로. `stalledCount` = 생성 후 `STALE_SESSION_MS`(5분)가 지나도록 한 번도 Ready 가 아닌 세션. 시각을 매니저 `Entry.createdAt` 에 얹어 `session.ts` diff **0줄**(T-16-26) | `pnpm --filter @gh-radar/relay test -- order-api session-manager` (⑧-d·⑩) + **아래 §Deployment Verification (16-35) 프로덕션 실측 200 → 503 전이** |
+| **GC-WR-08** — 부분 UNIQUE 위반(`23505`)을 어느 경로도 다루지 않는다 | 16-28 (`f7435e9`) | insert sink 가 `23505` ∧ `orderNo != ""` 일 때만 같은 3축 재조회로 **기존 행 id 수렴** + warn(`origin`·SQLSTATE 만). `order_no` 를 채우는 **갱신**의 `23505` 는 재시도 무의미이므로 사유 있는 error 로 끝내 `#dropped` 를 오염시키지 않는다. 분기 조건은 셀렉터가 아니라 **patch** 에 걸었다 | `pnpm --filter @gh-radar/relay test -- order-store` (⓻·⓽) |
+| **GC-WR-09** — `handleSubmit` 이 `gateBlocked` 를 읽지 않는다 | 16-31 (`a44dd66`) | 가드를 `setSubmitting(true)` **앞**에 두고 **켜져 있는 게이트만** 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다(T-16-44 확장) | `pnpm --filter @gh-radar/webapp test -- limit-chaser` (⑭ 2건) |
+| **GC-WR-10** — 취소 중복 키에 원주문번호가 없다 | 16-34 (`e86dfa1`) | 취소는 `(accountNo,isin,"C",orgOrderNo)`, **신규 키는 불변**(16-22 truth 25 유지). 취소 수량은 언제나 잔량 전부라 가격·수량은 취소의 식별자가 아니다. 같은 `orgOrderNo` 연타는 여전히 거부 | `pnpm --filter @gh-radar/relay test -- order` (㉚·㉛) |
+| **GC-WR-11** — 스모크 프로브가 토큰을 argv 로 넘기고, 판정 문자열이 이어 붙으면 FAIL 이 SKIP 으로 강등 | 16-30 (`024ce72`) | ① `SMOKE_TOKEN` **env** 전달(T-16-56) ② 판정을 **변수 대입 + 단일 출력 지점**으로(T-16-57), `case *` 는 관측 원문을 남긴다. 격리 실측: 수정 전 argv 토큰 1건 · `reachable\ninconclusive` → 후 argv 0건 · `inconclusive` | `bash scripts/smoke-relay.sh` (**16-35 실행분도 토큰 부재라 조기 반환 갈래만 탔다** — 프로브 본체 프로덕션 첫 실행은 여전히 미수행) |
+| **GC-WR-12** — 무장 불가 안내가 가장 흔한 원인을 잘못 짚는다 | 16-31 (`f76daa3`) | `armBlockedTextOf(key, values)` 하나가 매수 2·매도 2·한방 2 갈래를 내고 그룹 사유줄과 전송 차단 문구가 **같은 함수**를 읽는다. e2e 가 고정한 실제 조건은 「시세 없음」이 아니라 **금액 부족**. 매도 문구는 감시 **호가잔량**을 가리키게 정정 | `pnpm --filter @gh-radar/webapp test -- limit-chaser` (⑮·⑬ 3건) |
+| **GC-IN-01** — `gateBlocked` 의 `useCallback` 의존성이 매 렌더 새 객체 | 16-31 (`f76daa3`) | `canArm` 을 `useMemo` 로 — eslint `react-hooks/exhaustive-deps` 경고 **1 → 0** 실측 | `pnpm --filter @gh-radar/webapp lint` |
+| **GC-IN-02** — `row.isin as string` 타입 단언 | 16-31 (`8e3227c`) | `isPickable` 을 타입 서술자로 — 단언이 파일에서 **1 → 0** | `pnpm typecheck` |
+| **GC-IN-03** — `latestAccountTime` 이 `HH:MM:SS` 문자열 비교 | 16-32 (`821486f`) | 비교 키를 `st` **원문**에서 만들고(`dated` 가 첫 축) 승자의 원문에서 표시값을 뽑는다. epoch 승격을 안 고른 이유: `HH:MM:SS` 만 오는 값은 「오늘」을 가정해야 하고 **그 가정이 버그의 원인**이다 | `pnpm --filter @gh-radar/webapp test -- me-client` (신규 3건) |
+| **GC-IN-04** — `ORDER_FLUSH_MAX_ROUNDS` 의 `+2` 가 설명되지 않는다 | 16-28 (`a31f529`) | 라운드 1 첫 배치 / 2 재시도분 / **3 동시 유입 확인**을 docstring 에 명시. 식은 유지 | `pnpm --filter @gh-radar/relay test -- order-store` |
+
+**전량 재실행 결과 (2026-09-09, 16-35 Task 1 — 배포 전 게이트):**
+
+| 명령 | 결과 |
+|------|------|
+| `pnpm typecheck` | exit 0 · 13 워크스페이스 |
+| `pnpm --filter @gh-radar/relay run typecheck:tests` | exit 0 |
+| `pnpm -r test` | exit 0 · **190 파일 / 2,012 passed · 1 skipped · 6 todo** (16-26 기준선 189 파일 / 1,970 → **+1 파일 / +42**) |
+| ↳ shared + relay + server + webapp 만 | **1,396** (99 · 373 · 252 · 672) — 16-26 기준선 1,354 초과 |
+| `pnpm build` | exit 0 |
+| `pnpm --filter @gh-radar/webapp test:e2e` | **126 passed · 9 skipped · 0 failed** (2.5분) |
+
+> **E2E 문구 단언은 갱신할 것이 없었다.** 계획은 16-31 이 안내 문구를 바꿨으니
+> `trading-limit-chaser.spec.ts` 가 걸릴 수 있다고 예고했으나 실측 126/9/0 으로 전량 green
+> 이다 — 16-31 이 문구 변경과 같은 커밋에서 spec 을 함께 맞췄기 때문이며, 회귀가 숨은 것이
+> 아니라 애초에 red 가 없었다. 9 skipped 는 16-17 이래 같은 `user-themes`·`watchlist`
+> (서비스롤 키를 E2E env 허용목록에서 의도적으로 제외한 결과)다.
+
+### ⚠️ 승인 기준 문구 정정 — `grep "10.41.1.120"` **0건은 만족 불가능한 조건이다**
+
+2라운드 plan 6건(16-29·30·31·32·33·34)이 이 조건을 승인 기준으로 인용했고 **여섯 번 연속
+같은 불일치를 관측**했다. 16-26 이 이미 정정했음에도 2라운드 plan 문서에 그대로 남아 있었다.
+16-35 실측(`grep -rn "10\.41\.1\.120" relay/ webapp/src webapp/e2e scripts/`) = **33건**:
+
+| 위치 | 건수 | 성격 |
+|------|------|------|
+| `webapp/src` · `webapp/e2e` | **0** | ✅ 스펙·픽스처·클라이언트 코드에 게이트웨이 주소 없음 |
+| `relay/README.md:17` · `relay/src/dma/link-health.ts:20` | 2 | 산문·주석. README 는 **접속 금지 경고문 자체**이므로 지우면 D-27 안전장치의 근거가 사라진다 |
+| `scripts/deploy-relay.sh:96,416` | 2 | 실서버 주소 주입 시 **경고를 띄우는 가드**와 안내문 |
+| `scripts/dma-tunnel.sh`(6) · `dma-tunnel.ps1`(7) · `install-vpn-menubar.sh`(16) | 29 | **다른 세션(quick 260909-el9)의 미추적 파일** — phase 16 소관 아님 |
+
+**정본 계약:** 리터럴 0건이 아니라 **접속 경로 0건**이다. 즉
+`grep -rn "10\.41\.1\.120" webapp/src webapp/e2e` **0건** ∧ relay·scripts 의 잔존이
+전부 「경고·가드·주석」임이 확인될 것. 다음 라운드는 이 문장을 인용할 것.
+
+### ⚠️ 승인 기준 문구 정정 — `pnpm --filter gh-radar-webapp` 은 **없는 필터다** (재발 2회)
+
+16-26 이 이 표의 §Test Infrastructure 를 정정했음에도, **16-31·16-32 가 자기 plan 의
+승인 기준에서 같은 문자열을 다시 만났다.** 정본은 `@gh-radar/webapp` 이고, 잘못된 필터는
+`No projects matched the filters` + **exit 0** 이라 「절대 실패할 수 없는 검증」이다.
+16-35 는 정본 필터로 실행했다.
+
+---
+
+## Deployment Verification (2026-09-09, 16-35 Task 2)
+
+사용자 응답: **「배포 승인 — 배포까지 전부 진행」**. 배포 커밋 **`c8aa7ae`**.
+순서는 의존 방향대로 **relay → webapp**(server 는 무변경이라 건너뜀).
+
+### server 를 건너뛴 근거 (실측 출력)
+
+```
+$ git diff --stat 2cb5620..HEAD -- server/
+(출력 없음)
+$ git diff --stat 2cb5620..HEAD -- packages/shared/
+(출력 없음)
+```
+
+이번 라운드는 `server/` 와 `packages/shared/` 를 **한 줄도 바꾸지 않았다.** 따라서
+불필요한 재배포를 하지 않고 리비전 **`gh-radar-server-00043-s4f`**(16-26 배포분)를 그대로
+둔다. 살아 있음은 아래 `smoke-server.sh` 15/15 로 확인했다.
+
+`packages/shared/` 무변경은 **배포 순서 위험이 이번 라운드에는 없다**는 뜻이기도 하다 —
+16-26 때 relay 를 먼저 배포해야 했던 이유(16-25 의 `RelayLcSetSchema.cfg` 에서 `market`
+삭제)는 계약 변경이었는데, 이번에는 계약이 그대로다. 그래도 규율대로 relay 를 먼저 올렸다.
+
+### 배포 산출물 (실측)
+
+| 대상 | 산출물 | 확인 |
+|------|--------|------|
+| relay | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:c8aa7ae` (digest `sha256:a9bd44f4…`) · VM `radar-gw` 컨테이너 `gh-radar-relay` | 기동 직후 VM 로컬 `/healthz` 200 `{"status":"ok","vpn":true,"dma":true,"version":"c8aa7ae","sessionCount":0,"everReadyCount":0,"stalledCount":0}` · 71.99MiB/384MiB · `DMA_HOST=127.0.0.1`(로컬 mock, D-27) |
+| server | **재배포 없음** — 리비전 `gh-radar-server-00043-s4f` 유지 | `smoke-server.sh` PASS 15 · FAIL 0 |
+| webapp | Vercel **`dpl_7iFWNKh6DYDCWofhFsqBi42QiGxQ`** (`gh-radar-webapp-buig1m003-…`) · created 2026-09-09 **16:10:25 KST** · build **1m** · alias `https://gh-radar-webapp.vercel.app` + `…-git-master-…` 결선 | **git 통합 자동 배포** (push `f82bb49..c8aa7ae` 직후 16:09) |
+
+### webapp — 무엇이 증명됐고 무엇이 안 됐는가
+
+**증명된 것:**
+
+1. 배포가 **실제로 빌드됐다** — duration **1m**. `scripts/vercel-ignore-build.sh` 가 SKIP 한
+   배포는 이 프로젝트 이력에서 전부 `Canceled` / 3~5초다.
+2. 브랜치 alias `…-git-master-…` 가 이 배포를 가리킨다 = master 최신 빌드.
+3. 프로덕션 HTML 회귀 없음: `GET /` 에 「상승률 상위」 **2건** · `data-nav-item` **1건** 검출.
+4. 공개 루트 청크 `2345-c0133ca9890ddb86.js` 의 해시가 16-26 기록과 **동일**하다. 이것은
+   회귀가 아니라 **일치의 증거**다 — 이번 라운드 webapp diff 5파일
+   (`limit-chaser-client` · `limit-chaser-form` · `me-client` · `vi-order-list` ·
+   `vi-settings-card`)은 전부 **인증 게이트 뒤 트레이딩 표면**이고 공개 표면을 한 줄도
+   건드리지 않았다. 공개 청크가 그대로인 것이 diff 와 정확히 맞아떨어진다.
+
+**증명하지 못한 것(정직 기록):** 이번 라운드가 바꾼 5파일은 전부 `/trading/*`·`/me` 청크에
+있고 그 라우트는 미인증에 `307 → /login` 이라 **청크를 내려받아 내용으로 대조할 수 없다.**
+Vercel CLI 도 배포의 git SHA 를 노출하지 않는다(`vercel inspect --json` 의 `meta` 가 비어
+있다 — 16-26 과 동일). 로컬 `.next` 는 turbopack 산출물이라 청크 이름이 프로덕션(webpack)과
+달라 이름 대조로도 못 잇는다. 따라서 webapp 반영의 근거는 위 1~4 의 **정황**이며, 내용
+증명이 아니다. 로그인 상태의 화면 확인은 §Manual-Only 소관으로 남는다.
+
+### `/healthz` 실측 — **200 → 503 전이가 GC-WR-07 의 직접 증거다**
+
+배포 직후(세션 0)의 200 은 증거가 아니다. 아래는 **로그인 세션이 붙어 있는 상태**의
+연속 관측이며, `version` 이 고정된 채 **판정만 뒤집히는 순간**을 잡았다.
+
+```
+16:16:21 http=200 {"status":"ok",      "vpn":true,"dma":true, "version":"c8aa7ae","sessionCount":2,"everReadyCount":0,"stalledCount":0}
+16:17:21 http=503 {"status":"degraded","vpn":true,"dma":false,"version":"c8aa7ae","sessionCount":2,"everReadyCount":0,"stalledCount":2}
+16:18:21 http=503 {"status":"degraded","vpn":true,"dma":false,"version":"c8aa7ae","sessionCount":2,"everReadyCount":0,"stalledCount":2}
+16:19:21 http=503 {"status":"degraded","vpn":true,"dma":false,"version":"c8aa7ae","sessionCount":1,"everReadyCount":0,"stalledCount":1}
+```
+
+**이 503 은 배포 실패가 아니라 「판정이 옳게 울린 것」이다. 근거는 본문 필드 셋이다:**
+
+- `version` 이 세 샘플에서 **`c8aa7ae` 로 동일**하다 — 배포는 성공했고 같은 빌드가 계속 답한다.
+- `everReadyCount` 가 **0** 이다 — 16-21 의 유예 축(「한 번도 Ready 인 적 없는 세션은 장애가
+  아니다」)만 보면 이 상태는 여전히 `ok` 여야 한다. 실제로 16:16:21 은 `ok/200` 이었다.
+- 판정을 뒤집은 것은 **`stalledCount` 가 `0 → 2` 로 오른 것 하나뿐**이다. relay 컨테이너가
+  16:09 에 재기동하며 세션이 새로 만들어졌고, 그 `Entry.createdAt` 이 `STALE_SESSION_MS`
+  (=300,000ms, `session-manager.ts:53`)를 넘긴 **정확히 그 다음 샘플**에서 degraded 로 갔다.
+  `sessionCount` 는 2 로 **그대로**다.
+
+즉 `(everReadyCount === 0 && stalledCount === 0) || readyCount > 0` 의 두 항이 프로덕션에서
+**따로따로 관측됐다**. 배포 전 빌드(`2cb5620`)에는 `stalledCount` 필드 자체가 없었으므로,
+이 필드가 응답에 실린다는 사실만으로도 16-30 이 프로덕션에 반영됐다는 1차 증거가 된다.
+
+**이 판정이 옳은 이유.** DMA 게이트웨이는 여전히 없다(`DMA_HOST=127.0.0.1`, mock 미기동).
+16-21 이후의 relay 는 이 상태를 「부팅 직후 유예」로 보고 초록으로 답해 왔는데, **그 유예에
+시간 상한이 없었다** — 장애 중 relay 가 한 번만 재시작하면 진짜 게이트웨이 장애도 영원히
+`ok/200` 이었다(GC-WR-07). 지금 관측된 503 은 「게이트웨이가 5분이 지나도록 붙지 못하고
+있다」는 **사실을 그대로 말하는 것**이며, 그것이 이 수정의 목적이다.
+
+⚠️ **따라서 uptime check 적색과 `gh-radar-relay-down` 알림 발화는 예상된 결과다.**
+알림 정책은 `enabled=True` · 조건 `relay uptime check failing` · uptime check
+`gh-radar-relay-healthz`(host `dma.jx1.io`, period 60s)로 살아 있다. 알림을 끄고 싶다면
+그것은 **판정을 되돌리는 결정**(유예 연장 / 임계 완화 / mock 상주 / 실서버 결선)이고
+사용자 판단 사항이다 — §Deferred 열린 항목으로 남긴다.
+
+### smoke 결과 (실측 전문)
+
+`scripts/smoke-relay.sh` — **PASS 12 · FAIL 0 · SKIP 1**
+
+```
+  INV-1 VM radar-gw RUNNING ... PASS
+  INV-2 방화벽 3규칙 (gh-radar-vpc) ... PASS
+  INV-3 고정 IP gh-radar-relay-ip → radar-gw 결선 ... PASS
+  INV-4 tun0 활성 + 기본 경로 ens4 유지 ... PASS
+  INV-5a 공개 /healthz 200 + 식별자 미포함 ... PASS
+  INV-5b TLS issuer=Let's Encrypt + notAfter 미래 ... PASS
+  INV-6 wss 인증 왕복 (4401 × 2) ... PASS
+  INV-7a 8091 공인 차단 (nc 실패해야 PASS) ... PASS
+  INV-7b 9100 공인 차단 (nc 실패해야 PASS) ... PASS
+  INV-8 알림 정책 gh-radar-relay-down + 채널 + uptime check ... PASS
+  INV-9 브라우저 → relay wss 주문 왕복 도달성 ... SKIP (SMOKE_AUTH_TOKEN 미설정 — 로그인 토큰 필요)
+  INV-10a dma_orders service_role 조회 ... PASS
+  INV-10b dma_orders anon 차단 (200 이면 RLS 회귀) ... PASS
+```
+
+> `INV-5a` 는 이 실행 시각(16:14 경)에 `/healthz` 가 아직 200 이던 구간에서 통과했다.
+> 위 §전이 관측이 보여주듯 이 검사는 **시각 의존**이다 — 게이트웨이가 없는 한 세션 생성
+> 5분 뒤에는 503 이 되어 FAIL 로 바뀐다. 그것이 GC-WR-07 이 의도한 동작이므로 `INV-5a` 의
+> 판정 문구를 「200 이어야 한다」에서 「게이트웨이 부재 시 5분 뒤 503 이 정상」으로 다시
+> 설계할지가 열린 항목이다(§Deferred).
+
+`scripts/smoke-server.sh https://gh-radar-server-fnbhvevuva-du.a.run.app` — **PASS 15 · FAIL 0 · SKIP 0**
+
+```
+  INV-1 /api/health status=ok ... PASS          INV-9  X-Request-Id 헤더 ... PASS
+  INV-2 /api/scanner upperLimitProximity ... PASS  INV-10 POST /api/orders → 404 ... PASS
+  INV-3 /api/stocks/:code (scanner 연동) ... PASS  INV-11 GET /api/orders 미인증 → 401 ... PASS
+  INV-4 /api/stocks/000000 → 404 ... PASS        INV-12a RELAY_INTERNAL_URL 잔존 없음 ... PASS
+  INV-5 /api/stocks/search (scanner 연동) ... PASS INV-12b ORDER_TIMEOUT_MS 잔존 없음 ... PASS
+  INV-6 CORS preflight (허용) ... PASS            INV-12c RELAY_ORDER_SECRET 바인딩 잔존 없음 ... PASS
+  INV-7 CORS preflight (거부) ... PASS            INV-12d 기존 env 잔존 ... PASS
+                                                 INV-8  rate limit 240 req(병렬) → 429 ... PASS
+```
+
+**INV-9 는 이번에도 실행되지 않았다.** `SMOKE_AUTH_TOKEN` 이 없어 프로브가
+`ws_order_probe()` 첫 줄(`if [[ -z "$token" ]]; then printf 'inconclusive'; return 0; fi`)에서
+**조기 반환**했다. 정확히 말하면 **「돌렸는데 SKIP 이었다」가 아니라 「토큰이 없어 프로브
+본체를 한 번도 돌리지 못했다」** 이다.
+
+> **GC-WR-11 의 실증 범위를 오해하지 말 것.** 위 SKIP 은 판정 문자열이 이어 붙지 않은
+> 깨끗한 단일값(`inconclusive`)이지만, 그것은 **조기 반환 갈래**라 GC-WR-11 이 고친 지점
+> (프로브가 판정을 찍은 **뒤** 비정상 종료하는 경로)을 지나가지 않는다. 그 수정이 실제로
+> 동작함은 16-30 의 **격리 실측**으로만 확인됐고, 프로덕션에서는 여전히 미검증이다.
+> 16-21 재작성 이후 이 프로브의 프로덕션 첫 실행은 **아직 미수행**이며 §Deferred 의 열린
+> 항목으로 유지된다. 토큰 값은 이 문서·SUMMARY·로그 어디에도 기록하지 않는다(T-16-74).
+
+### 이 배포가 바꾸지 않는 것 (과장 방지)
+
+DMA 게이트웨이는 여전히 없다. `DMA_HOST` 는 로컬 mock(`127.0.0.1:9100`)이고 그 mock 은 VM 에
+떠 있지 않다. `everReadyCount:0` 이 그 사실을 그대로 말한다 — **프로덕션에서 Ready 에 도달한
+DMA 세션은 지금까지 한 건도 없다.** WinForms ↔ 웹 세션 공유는 **한 번도 실행된 적이 없고**,
+따라서 **TRADE-03 은 Pending 을 유지한다.** 이번 배포로 바뀐 것은 ① 코드 결함 19건이
+프로덕션에 반영됐다는 것 ② 게이트웨이 부재가 **5분 뒤에는 정직하게 degraded 로 보고된다**는
+것 두 가지뿐이다.
