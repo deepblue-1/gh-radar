@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Planned 16-27~16-35 (갭 클로징 2라운드 계획 — GC- 19건, 9 plan / Wave 19~22)
-last_updated: "2026-09-09T04:38:27.783Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 계획 완료 (16-27~16-35, GC-CR 3·GC-WR 12·GC-IN 4)
+stopped_at: Completed 16-27-PLAN.md (GC-CR-01 하드 필터 + GC-CR-03 await TOCTOU 가드)
+last_updated: "2026-09-09T05:09:00.000Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-27 실행 완료 (GC-CR-01·GC-CR-03)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 151
+  completed_plans: 152
   percent: 72
 ---
 
@@ -25,14 +25,22 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 26 of 35 (16-01~16-17 실행 완료 · 갭 클로징 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-35 계획됨)
-Plans completed: 151 / 174
-Status: 갭 클로징 2라운드 실행 대기 (16-27~16-35) — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
+Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
+Plan: 27 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27 완료, 16-28~16-35 대기)
+Plans completed: 152 / 174
+Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 계획 (16-27~16-35)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-27 실행 완료 (GC-CR-01·GC-CR-03)
 
-Progress: [█████████░] 92% (151/174 plans · 18/25 phases)
+Progress: [█████████░] 93% (152/174 plans · 18/25 phases)
+
+### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-27 완료 — GC-CR-01 · GC-CR-03 종결.** `narrowPending` 의 「후보 1건 지름길」을 제거하고, 통보가 **실어 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` C/M)을 후보 수와 무관한 **하드 필터**로 승격했다(0건이면 `null`). 비어 있는 축은 그대로 건너뛰므로 구 게이트웨이 호환은 유지된다. 통보 소비 루프의 warn 조건도 `candidates.length > 0 && picked === null` 로 넓혀 후보 1건 미정산의 침묵을 없앴다.
+- **await 경계 TOCTOU 가드.** `await insertRequest` 직후·`buildDirectOrderReq` 이전(`order-handler.ts:701` vs `:719`)에 `conns.get(conn) !== state` 를 두어, 왕복 중 탭이 닫히면 **주문이 게이트웨이로 나가지 않는다**. 중단 시 `logger.warn` + `status:"rejected"` 를 남기며, 고아 `ConnState` 대기·타이머가 아예 생기지 않아 「실제로 접수된 주문이 `timeout` 으로 감사 기록에 남는」 경로가 사라졌다.
+- **회귀 잠금을 실증했다.** 새 테스트 ㉕ 는 가드를 임시 무력화했을 때 실제로 실패한다(`DirectOrderReq` 1건 송신)는 것을 확인한 뒤 복원했다. relay 전체 352 tests · typecheck · typecheck:tests 모두 green.
+- **TRADE-03 은 계속 Pending.** 코드 층위만 닫혔고 프로덕션 `everReadyCount: 0` 판정(16-26)은 그대로다 — 단위 검증만으로 Complete 로 올리지 않는다.
+- **배포 미실시.** relay 재배포는 2라운드 종결 plan 에서 일괄 처리한다.
 
 ### Phase 16 Gap Closure State (2026-09-09, 16-26)
 
@@ -181,6 +189,7 @@ Progress: [█████████░] 92% (151/174 plans · 18/25 phases)
 | Phase 16 P24 | 12min | 2 tasks | 11 files |
 | Phase 16 P25 | 20min | 3 tasks | 13 files |
 | Phase 16 P26 | 78min (배포 게이트 포함) | 3 tasks | 6 files |
+| Phase 16 P27 | 21min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
