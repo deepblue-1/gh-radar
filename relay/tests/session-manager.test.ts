@@ -285,6 +285,81 @@ describe("SessionManager", () => {
     }
   });
 
+  it("⑩-b 자격증명이 거부된 세션은 유예를 한참 넘겨도 stalled 로 세지 않는다 (16-37 / R2-CR-02)", async () => {
+    // 로그인을 **명시 거부**하는 게이트웨이 = 사용자가 DMA 비밀번호를 틀린 상태. 게이트웨이도
+    // VPN 도 멀쩡하고, 답을 정상적으로 보내고 있다 — relay 의 장애가 아니다.
+    const rejecting = await startFakeGateway({
+      autoLogin: true,
+      loginResp: { success: false, message: "등록되지 않은 사용자" },
+    });
+    let clock = 1_000_000;
+    const mgr = new SessionManager({
+      host: "127.0.0.1",
+      port: rejecting.port,
+      broker: "KB",
+      now: () => clock,
+    });
+    try {
+      const s = mgr.acquire("user-rejected", CREDS);
+      await waitFor(() => s.state === "session_rejected", "session_rejected 확정");
+
+      // **`release` 를 부르지 않는다.** 탭이 열려 있는 상태(refCount > 0)가 이 갭의 조건이다 —
+      // `acquire` 는 거부 세션을 재생성하지 않고(T-15-10 / D-16), 참조계수가 0 이 아니라
+      // 유예 소멸 타이머도 걸리지 않아 세션이 **무기한** 남는다. 사유를 보지 않는 카운터라면
+      // 이 한 사람이 relay 전체를 영구 503 으로 만든다.
+      clock += STALE_SESSION_MS * 10;
+
+      // 옆 필드가 함께 뒤집히는 것을 놓치지 않도록 객체 전체로 단언한다.
+      expect(mgr.stats()).toEqual({
+        sessionCount: 1,
+        readyCount: 0,
+        everReadyCount: 0,
+        stalledCount: 0,
+      });
+    } finally {
+      await mgr.closeAll();
+      await rejecting.close();
+    }
+  });
+
+  it("⑩-c 거부 세션이 옆의 진짜 미Ready 세션을 가리지 않는다 — 제외는 세션 단위다 (16-37)", async () => {
+    // 한 매니저(=한 게이트웨이) 안에 두 사유를 같이 만든다. 게이트웨이의 응답 방식을 두 번째
+    // acquire 직전에 바꿔, 사용자 A 는 「거부」로 B 는 「무응답」으로 몰아넣는다.
+    const gw = await startFakeGateway({
+      autoLogin: true,
+      loginResp: { success: false, message: "등록되지 않은 사용자" },
+    });
+    let clock = 1_000_000;
+    const mgr = new SessionManager({
+      host: "127.0.0.1",
+      port: gw.port,
+      broker: "KB",
+      now: () => clock,
+    });
+    try {
+      const rejected = mgr.acquire("user-rejected", CREDS);
+      await waitFor(() => rejected.state === "session_rejected", "거부 세션 확정");
+
+      // 이제부터는 LoginReq 를 받기만 하고 답하지 않는다 = 게이트웨이가 죽은 상태의 재현.
+      gw.silenceLogin();
+      const stalling = mgr.acquire("user-stalling", CREDS);
+      await waitFor(() => stalling.state === "logging_in", "무응답 세션 로그인 대기 진입");
+
+      clock += STALE_SESSION_MS * 10;
+
+      // 거부 세션은 빠지고 무응답 세션만 남는다. 전역 플래그였다면 0 이 나온다.
+      expect(mgr.stats()).toEqual({
+        sessionCount: 2,
+        readyCount: 0,
+        everReadyCount: 0,
+        stalledCount: 1,
+      });
+    } finally {
+      await mgr.closeAll();
+      await gw.close();
+    }
+  });
+
   it("⑪ Ready 를 한 번이라도 본 세션은 시간이 아무리 지나도 stalled 로 세지 않는다", async () => {
     let clock = 1_000_000;
     const mgr = new SessionManager({
