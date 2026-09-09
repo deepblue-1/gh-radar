@@ -293,6 +293,24 @@ describe('⑨ 보내지 못한 확인에는 낙관 반영도 잠금도 걸리지
     expect(errorText()).toBeNull();
   });
 
+  it('★ 실패 문구는 73 델타가 오면 접힌다 — 상시 경고가 아니다 (R2-IN-01 / T-16-86)', () => {
+    sendMock.mockReturnValue(false);
+    const { rerender } = render(<ViOrderList items={[item()]} nowMs={NOW} />);
+
+    fireEvent.click(within(table()).getByRole('checkbox'));
+    expect(errorText()).toHaveTextContent(VI_CONFIRM_SEND_FAILED_TEXT);
+
+    /*
+      서버가 무언가를 말했다 — 73 푸시가 도착하면 「연결이 끊겨 보내지 못했다」는 이미
+      지나간 사건이다. `limit-chaser-form` 의 `[server]` 이펙트와 같은 논리다.
+      ★ 이 행은 낙관값도 잠금도 걸린 적이 없다(실패 경로) — 즉 낙관 정리 이펙트의
+        조기 반환 조건에 정확히 걸리는 상태이고, 그래도 문구는 접혀야 한다.
+    */
+    rerender(<ViOrderList items={[item({ confirmed: true })]} nowMs={NOW} />);
+
+    expect(errorText()).toBeNull();
+  });
+
   it('`send` 가 true 면 기존 낙관 반영·잠금이 그대로 걸린다 (회귀 방지)', () => {
     renderList([item()]);
 

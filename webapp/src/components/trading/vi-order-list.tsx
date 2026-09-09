@@ -209,8 +209,28 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
   const [optimistic, setOptimistic] = useState<ReadonlyMap<string, boolean>>(new Map());
   /** 전송 중 주문번호 — 같은 행의 연타를 막는다(정정이 오면 풀린다). */
   const [sending, setSending] = useState<ReadonlySet<string>>(new Set());
-  /** 보내지 **못한** 확인의 사유. 다음 성공 전송에서 지워진다(영구 경고가 아니다). */
+  /**
+   * 보내지 **못한** 확인의 사유. 다음 성공 전송 **또는 73 델타 수신**에서 지워진다
+   * (영구 경고가 아니다 — R2-IN-01).
+   */
   const [sendError, setSendError] = useState('');
+
+  /*
+    ★ **서버가 말을 걸면 지난 실패 문구는 물러난다** (R2-IN-01 / T-16-86).
+      `items` 갱신은 73 푸시가 도착했다는 뜻이고, 그 순간 「연결이 끊겨 보내지 못했다」는
+      이미 지나간 사건이다. `limit-chaser-form.tsx` 의 `[server]` 이펙트(60 에코가 오면
+      `submitError` 를 접는다)와 **같은 논리**다 — 두 화면이 같은 사건을 다르게 다루면
+      사용자는 다른 사건으로 읽는다.
+
+      ★ 아래 낙관 정리 이펙트에 **잇지 않은 이유**: 그 이펙트는 첫 줄에서
+      `optimistic.size === 0 && sending.size === 0` 이면 되돌아가는데, **전송 실패 직후가
+      정확히 그 상태다**(실패 경로는 둘 중 무엇도 세우지 않는다). 거기에 얹으면 이 문구는
+      영영 접히지 않는다. 두 이펙트는 건드리는 상태가 겹치지 않으므로(이쪽은 `sendError`
+      하나, 저쪽은 `optimistic`·`sending`) 실행 순서에 의존하지 않는다.
+  */
+  useEffect(() => {
+    setSendError('');
+  }, [items]);
 
   useEffect(() => {
     if (optimistic.size === 0 && sending.size === 0) return;
