@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-30-PLAN.md (GC-WR-07 stalledCount 판정 + GC-WR-11 토큰·판정 무결성)
-last_updated: "2026-09-09T05:26:25.256Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-30 실행 완료 (GC-WR-07·GC-WR-11)
+stopped_at: Completed 16-31-PLAN.md (GC-WR-09·GC-WR-06 상따폼 2곳·GC-WR-12·GC-IN-01·GC-IN-02)
+last_updated: "2026-09-09T05:41:42.993Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-31 실행 완료 (GC-WR-09·GC-WR-06·GC-WR-12·GC-IN-01·GC-IN-02)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 155
+  completed_plans: 156
   percent: 72
 ---
 
@@ -26,15 +26,26 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 31 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-30 완료, 16-31~16-35 대기)
-Plans completed: 155 / 174
+Plan: 32 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-31 완료, 16-32~16-35 대기)
+Plans completed: 156 / 174
 Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-30 실행 완료 (GC-WR-07·GC-WR-11)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-31 실행 완료 (GC-WR-09·GC-WR-06·GC-WR-12·GC-IN-01·GC-IN-02)
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 90%
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-31 완료 — GC-WR-09 · GC-WR-06(상따 폼 2곳) · GC-WR-12 · GC-IN-01 · GC-IN-02 종결.** 공통점은 「이 화면이 **자기 주석이 말하는 대로 동작하지 않는다**」였다. webapp 4파일만 손댔다(relay 0줄).
+- **「수정」도 무장 판정을 지난다.** 파일 머리말이 「전송 직전 가드가 `gateBlocked` 를 함께 읽는다」고 적어 왔지만 실제로 읽던 것은 `toggleGate` 하나였다 — 서버가 `buyEnabled:true` 로 에코한 뒤 시세가 끊겨 가격 칸이 0 이 되면 「수정」이 relay `#strategyArmable`(16-29)에 **통째로** 거부되고 함께 실린 다른 값까지 하나도 저장되지 않았다. 가드를 `setSubmitting(true)` **앞**에 뒀고(잠근 뒤 막으면 60 에코가 안 와 버튼이 영구히 죽는다), **켜져 있는 게이트만** 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다(T-16-44 확장, 케이스로 잠금).
+- **상따 폼의 `send` 2곳이 반환값을 읽는다.** `toggleGate` 는 `setForm` 낙관 반영을 **전송 뒤로** 옮겼다 — 소켓이 받지 않은 요청에도 스위치가 켜진 것처럼 보이던 것이 이 화면 최악의 결과였다. `handleSubmit` 은 실패 시 `submitting` 을 되돌린다(잠금을 푸는 신호가 오지 않을 요청이므로). 실패 문구는 `strategy-status-card.tsx` 의 「연결이 끊겨 …」 계열과 같은 어조이고, 표시 자리는 새로 만든 `data-slot="lc-submit-error"`(`role="alert"`, 폼 맨 위 — `DirtyActionBar` 는 더티 0 이면 렌더되지 않아 스위치 실패 사유를 담을 수 없다).
+- **안내가 원인을 값으로 가른다.** 옛 문구는 「시세를 받지 못해 발주가·수량이 0」 한 줄로 뭉갰지만, e2e 가 고정한 실제 재현 조건은 「기본 10만원으로 127,400원 종목 → 0주」 즉 **금액 부족**이다. `armBlockedTextOf(key, values)` 하나가 매수 2·매도 2·한방 2 갈래를 내고 그룹 사유줄과 전송 차단 문구가 **같은 함수**를 읽는다. 매도 문구는 「예상 매도수량」(표시 전용)이 아니라 **감시 호가잔량**을 가리키게 바로잡았다.
+- **메모가 실제로 작동한다.** `canArm` 을 `useMemo`(세 파생 boolean 의존)로 감싸 `gateBlocked` 의 `useCallback` 이 진짜로 메모된다 — eslint `react-hooks/exhaustive-deps` 경고가 **1건 → 0건**으로 소멸하는 것을 실측했다. `isPickable` 은 타입 서술자가 됐고 `as string` 단언이 파일에서 **1 → 0**.
+- **회귀 잠금 실증 3회.** 새 분기를 무력화하면 ⑭ 2건 / ⑭ 1건 / ⑮·⑬ 3건이 각각 실제로 실패하는 것을 확인 후 복원. webapp **660 tests** · typecheck · eslint green. 신규 마이그레이션 0건.
+- **자동 수정 1건(Rule 1).** `send` 분기 도입으로 `limit-chaser-client.test.tsx` 의 스텁이 `undefined`(falsy)를 돌려주며 2건이 깨졌다 — `mockReturnValue(true)` 로 세웠다. **`send` 계약을 읽는 호출부를 늘릴 때는 그 컴포넌트를 렌더하는 모든 테스트 파일의 스텁을 함께 세워야 한다** (GC-WR-06 의 남은 2곳: `vi-order-list.tsx` · `vi-settings-card.tsx`).
+- **계획 문언 오류 1건.** `pnpm --filter gh-radar-webapp` 은 존재하지 않는 필터다(실제 name 은 **`@gh-radar/webapp`**). 그대로 돌리면 `No projects matched the filters` 로 exit 1 — 이후 plan 이 이 문자열을 그대로 인용하면 같은 불일치가 반복된다.
+- **TRADE-01 은 상태를 바꾸지 않았다.** `requirements.mark-complete` 미실행 — 이 plan 이 닫은 것은 안전 게이트의 **UI 측 정직성**이고 종결 판정은 2라운드 종결 plan 의 배포·실측 몫이다.
+- **배포 미실시.** webapp(Vercel) 배포는 relay 재배포와 함께 2라운드 종결 plan 에서 일괄 처리한다.
 
 - **16-30 완료 — GC-WR-07 · GC-WR-11 종결.** 둘 다 「우리가 장애를 **관측하는 수단**」이 스스로를 무력화하던 자리다 — 하나는 uptime check, 하나는 smoke 판정이다.
 - **`/healthz` 의 면제에 시간 상한이 붙었다.** 16-21 의 `everReadyCount === 0` 유예는 그대로 두되, 「생성 후 `STALE_SESSION_MS`(5분)가 지나도록 한 번도 Ready 가 아닌 세션」(`stalledCount`)을 함께 세어 판정을 `(everReadyCount === 0 && stalledCount === 0) || readyCount > 0` 으로 바꿨다. `hasBeenReady` 는 **프로세스 메모리 래치**라 게이트웨이 장애 중에 relay 가 한 번만 재시작하면 진짜 장애가 영원히 `ok/200` 이었다 — 예전 규칙(`sessionCount > 0 && readyCount === 0`)이 잡던 사례가 통째로 빠져 있었다. 부팅 직후 유예(16-21 이 gap 4 로 얻은 것)는 그대로다.
@@ -46,7 +57,6 @@ Progress: [█████████░] 89%
 - **`10.41.1.120` 실측은 여전히 2건**(`relay/README.md:17` 경고문 · `relay/src/dma/link-health.ts:20` 주석). 둘 다 산문이고 접속 대상 설정이 아니라 **삭제하지 않았다** — 지우면 D-27 안전장치의 근거가 사라진다.
 - **TRADE-03 은 계속 Pending.** `requirements.mark-complete` 를 돌리지 않았다 — `stalledCount` 판정은 아직 배포되지 않았고 프로덕션 `/healthz` 의 `everReadyCount: 0`(16-26)은 그대로다.
 - **배포 미실시.** relay 재배포는 2라운드 종결 plan 에서 일괄 처리한다.
-
 
 - **16-29 완료 — GC-WR-04 · GC-WR-05 종결.** `lc.set` 의 관문이 **한쪽으로는 과하게 엄격하고 다른 쪽으로는 느슨하던** 상태를 동시에 바로잡았다. 시장 해석은 이제 **의도로 갈린다**: 철거(`crud:"D"` ∨ 게이트 4종 전부 OFF)는 `#teardownMarket` 이 받아 **에코 캐시(`getLimitChasers`) → `SymbolMap` → 상수 폴백** 순으로 풀고 **절대 거부하지 않는다**. 등록·수정은 `#strategyMarket` 그대로라 16-25 의 엄격함(기본값 `"K"` 금지 / T-16-42)이 유지된다.
 - **폴백을 「통과」로 정한 근거는 전략 키에 시장이 없다는 사실이다.** `strategyKey()` = `ISIN:계좌:거래소` 이고 게이트웨이 `LimitChaser::MakeKey` 와 동형이라, 철거 프레임의 `market` 은 **무엇을 지울지에 관여하지 않는다** — 지어낸 값이 엉뚱한 대상을 지울 위험이 구조적으로 없다. 최종 폴백은 `logger.error` 를 동반한다(S-5, 계좌번호 미포함).
@@ -220,6 +230,7 @@ Progress: [█████████░] 89%
 | Phase 16 P28 | 18min | 2 tasks | 2 files |
 | Phase 16 P29 | 12min | 2 tasks | 2 files |
 | Phase 16 P30 | 20min | 2 tasks | 5 files |
+| Phase 16 P31 | 21min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -407,6 +418,10 @@ Recent decisions affecting current work:
 - [Phase 16]: 세션 생성 시각(createdAt)은 DmaSession 이 아니라 SessionManager 의 Entry 에 둔다 — hasBeenReady 래치의 의미(T-16-26)를 흐리지 않기 위해서다. session.ts diff 0줄 (GC-WR-07)
 - [Phase 16]: STALE_SESSION_MS(5분)는 env 로 열지 않는다 — 판정 임계가 배포 환경마다 갈리면 uptime 알림의 의미가 환경별로 갈라진다 (GC-WR-07)
 - [Phase 16]: smoke 프로브 비밀은 argv 가 아니라 env(SMOKE_TOKEN)로 넘긴다(argv 는 ps 로 world-readable). 판정 문자열은 대입으로 덮어쓰고 출력 지점은 하나 (GC-WR-11)
+- [Phase 16]: 16-31: 무장 판정을 setSubmitting(true) 앞에 둔다 — 잠근 뒤 막으면 60 에코가 오지 않아 「수정」이 영구히 잠긴다
+- [Phase 16]: 16-31: handleSubmit 가드는 켜져 있는 게이트만 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다 (T-16-44 확장)
+- [Phase 16]: 16-31: 무장 불가 문구를 상수 3종 → 원인 6종 + armBlockedTextOf 산출 함수 — 렌더와 전송 차단이 같은 함수를 읽는다
+- [Phase 16]: 16-31: pnpm 필터명은 @gh-radar/webapp — 계획 문언의 gh-radar-webapp 은 존재하지 않는 필터로 exit 1
 
 ### Pending Todos
 
@@ -458,6 +473,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T05:26:18.381Z
-Stopped at: Completed 16-30-PLAN.md (GC-WR-07 stalledCount 판정 + GC-WR-11 토큰·판정 무결성)
+Last session: 2026-09-09T05:41:36.043Z
+Stopped at: Completed 16-31-PLAN.md (GC-WR-09·GC-WR-06 상따폼 2곳·GC-WR-12·GC-IN-01·GC-IN-02)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
