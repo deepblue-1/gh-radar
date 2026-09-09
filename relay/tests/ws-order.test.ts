@@ -198,6 +198,21 @@ function orderNew(overrides: Record<string, unknown> = {}): Record<string, unkno
   };
 }
 
+/** 정상 취소 인바운드. 미체결 1행의 취소를 그대로 흉내 낸다 (UI D-21 — 잔량 전부). */
+function orderCancel(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    t: "order.cancel",
+    rid: "rid-c",
+    isin: SAMPLE_ISIN,
+    exchange: "KRX",
+    orgOrderNo: "0000012345",
+    qty: 10,
+    price: 70_000,
+    accountNo: SAMPLE_ACCOUNT_NO,
+    ...overrides,
+  };
+}
+
 describe("wss 주문 경로 (D-02)", () => {
   let gateway: FakeGateway;
   let server: http.Server;
@@ -1190,6 +1205,44 @@ describe("wss 주문 경로 (D-02)", () => {
       rid: "rid-buy",
       status: "timeout",
     });
+  });
+
+  it("㉚ 같은 가격·같은 잔량의 미체결 2건을 연달아 취소할 수 있다 — 취소 키는 원주문번호다 (GC-WR-10)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    // 같은 종목·같은 가격·같은 잔량의 미체결 2건은 흔하다(다른 단말·전일 잔여·자동주문).
+    // 취소 수량은 언제나 미체결 잔량 전부이므로(UI D-21) 가격·수량 키로는 두 취소가
+    // **같은 주문**으로 보인다 — 그러면 급락 국면의 일괄 취소가 최대 5초 막힌다.
+    ws.sendRaw(orderCancel({ rid: "rid-c1", orgOrderNo: "0000012345" }));
+    ws.sendRaw(orderCancel({ rid: "rid-c2", orgOrderNo: "0000067890" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "취소 2건 송신");
+
+    // ★ 둘 다 게이트웨이로 나간다. 거부 프레임은 한 건도 없다.
+    const reqs = orderReqsOf(gatewayPayloads).map((e) => e.directOrderReq());
+    expect(reqs.map((r) => r?.orgOrderNo())).toEqual(["0000012345", "0000067890"]);
+    expect(reqs.every((r) => r?.orderType() === "C")).toBe(true);
+    expect(framesOf(inbox, "order.result")).toHaveLength(0);
+    expect(orders.inserts).toHaveLength(2);
+  });
+
+  it("㉛ 같은 원주문번호 취소를 연타하면 두 번째는 거부다 — 가드를 없앤 것이 아니다 (GC-WR-10)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw(orderCancel({ rid: "rid-c1", orgOrderNo: "0000012345" }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "첫 취소 송신");
+
+    // 같은 원주문번호 = 같은 취소다. rid 가 달라도(다른 탭·다른 클릭) 거부한다.
+    ws.sendRaw(orderCancel({ rid: "rid-c2", orgOrderNo: "0000012345" }));
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "중복 취소 거부");
+
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-c2",
+      status: "rejected",
+      message: "같은 주문이 이미 처리 중입니다. 결과를 기다려 주세요.",
+    });
+    // 게이트웨이로 나간 것은 여전히 1건뿐이다.
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(1);
+    expect(orders.inserts).toHaveLength(1);
   });
 });
 

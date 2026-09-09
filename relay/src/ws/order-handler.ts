@@ -29,7 +29,9 @@
  *   T-16-09  계좌번호는 **로그에서만** 마스킹한다(`maskAccountNo`). 화면·프레임에는 전체다.
  *   T-16-10  같은 `rid`(**연결 스코프**) 또는 같은 `(accountNo,isin,side,price,qty)`
  *            (**사용자 스코프** — WR-02)가 대기 중이면 거부한다. 더블클릭·재전송·두 번째
- *            탭이 중복 체결로 이어지는 것이 이 파일 최악의 결과다.
+ *            탭이 중복 체결로 이어지는 것이 이 파일 최악의 결과다. **취소는 그 튜플이
+ *            아니라 `(accountNo,isin,"C",orgOrderNo)` 다** — 취소의 정체성은 원주문번호이고,
+ *            가격·수량으로 묶으면 서로 다른 미체결의 연속 취소가 막힌다 (GC-WR-10).
  *
  * 함정 (Pitfall 9 / S-8):
  *   5초를 넘긴 주문은 **「실패」가 아니라 「결과 모름」**이다. 주문은 이미 나갔을 수 있으므로
@@ -223,10 +225,26 @@ function ridKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
  * `RelayProvider` 는 문서(탭)당 소켓 1개를 연다. 연결 스코프 가드는 같은 화면을 두 탭에
  * 띄우는 순간 무력해져 **완전히 동일한 주문 2건이 모두 통과**한다(재접속 직후도 같다).
  * 중복 체결이 이 파일 최악의 결과이므로 이 판정만 사용자 축으로 올린다.
+ *
+ * **요청 종류로 키가 갈린다** (GC-WR-10) — 「같은 주문」의 정의가 서로 다르기 때문이다.
+ *
+ *   · 신규: `(accountNo, isin, side, price, qty)`. 같은 값이면 같은 주문이다. 이 형태는
+ *     **바뀌지 않는다** — 두 탭 동시 발주 차단이 여기 달려 있다 (T-16-31 / 16-22).
+ *   · 취소: `(accountNo, isin, "C", orgOrderNo)`. **취소의 정체성은 원주문번호**이고
+ *     가격·수량은 식별자가 아니다(취소 수량은 언제나 미체결 잔량 전부다 — UI D-21).
+ *     가격·수량으로 묶으면 같은 종목·같은 가격·같은 잔량의 미체결 2건(다른 단말·전일
+ *     잔여·자동주문으로 흔히 생긴다)에서 **두 번째 취소가 최대 5초 거부**된다. 급락
+ *     국면에서 미체결 일괄 취소가 막히는 것은 자산 위험이고, 그 가드는 사고를 막는 것이
+ *     아니라 사고를 만든다.
+ *
+ * 이 분기는 중복 가드를 **없애지 않는다.** 같은 `orgOrderNo` 로 두 번 누르면 키가 같으므로
+ * 두 번째는 그대로 거부다 — 좁아진 것은 「무엇이 같은 취소인가」의 정의뿐이다.
  */
 function dupKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
-  const side = msg.t === "order.new" ? msg.side : "C";
-  return `dup:${msg.accountNo}|${msg.isin}|${side}|${msg.price}|${msg.qty}`;
+  if (msg.t === "order.cancel") {
+    return `dup:${msg.accountNo}|${msg.isin}|C|${msg.orgOrderNo}`;
+  }
+  return `dup:${msg.accountNo}|${msg.isin}|${msg.side}|${msg.price}|${msg.qty}`;
 }
 
 /** 두 키를 함께 만든다. 잡고 놓는 자리에서 한 쌍으로 다뤄야 누락이 없다. */
