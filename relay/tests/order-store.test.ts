@@ -20,6 +20,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { logger } from "../src/logger.js";
 import {
   ORDER_QUEUE_LIMIT,
   OrderStore,
@@ -449,6 +450,15 @@ type FakeQuery = {
 type FakeRow = { id: string; user_id: string; order_no: string; created_at: string };
 
 /**
+ * 주입할 PostgREST 오류 1건.
+ *
+ * **`details` 를 실을 수 있는 것이 핵심이다** (16-38 / R2-CR-03). 실제 PostgreSQL 은 CHECK·
+ * NOT NULL·FK 위반의 `DETAIL` 에 `Failing row contains (<모든 컬럼 값>)` 을 넣고 PostgREST 가
+ * 그것을 `error.details` 로 넘긴다 — 그 필드가 없는 스텁으로는 이 갭을 **재현조차 할 수 없다**.
+ */
+type FakePgError = { code?: string; message: string; details?: string; hint?: string };
+
+/**
  * `dma_orders` 3행을 든 가짜 `SupabaseClient`.
  *
  * 스텁이 아니라 **필터를 실제로 적용한다** — 「`.eq("user_id", …)` 를 불렀다」만 보면 그
@@ -457,7 +467,11 @@ type FakeRow = { id: string; user_id: string; order_no: string; created_at: stri
  */
 function fakeDmaOrders(
   rows: FakeRow[],
-  opts: { insertError?: { code?: string; message: string } } = {},
+  opts: {
+    insertError?: FakePgError;
+    updateError?: FakePgError;
+    selectError?: FakePgError;
+  } = {},
 ): { supabase: SupabaseClient; queries: FakeQuery[]; rows: FakeRow[] } {
   const queries: FakeQuery[] = [];
 
@@ -513,6 +527,11 @@ function fakeDmaOrders(
     // Supabase 빌더는 thenable 이다 — `await` 시점에 필터를 적용해 결과를 만든다.
     self.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
       query.matched = applyFilters(query.filters);
+      // 강제 오류 주입 — 「제약 위반을 실제로 계산」하는 `dupToday` 와 달리, 여기서는
+      // `details` 를 담은 오류를 **의도적으로** 흘려보내 로깅 경로를 시험한다 (16-38).
+      const forced =
+        query.verb === "update" ? opts.updateError : query.verb === "select" ? opts.selectError : undefined;
+      if (forced !== undefined) return Promise.resolve({ data: null, error: forced }).then(resolve, reject);
       // 갱신이 `order_no` 를 **채우는** 경우에만 인덱스에 걸릴 수 있다. 그 값을 이미 가진
       // 다른 행(같은 사용자·오늘)이 있으면 실제 DB 처럼 23505 로 거부한다.
       if (query.verb === "update" && query.patch?.order_no !== undefined) {
@@ -737,5 +756,121 @@ describe("23505 수렴 (GC-WR-08)", () => {
     expect(store.stats().queued).toBe(0);
     // 쿼리는 한 번만 나갔다 — 재큐잉이 없었다는 증거다.
     expect(queries).toHaveLength(1);
+  });
+});
+
+
+// ============================================================
+// PostgREST 오류 원문 유출 (16-38 / R2-CR-03 · T-16-45)
+// ============================================================
+
+/**
+ * PostgreSQL 은 제약 위반의 `DETAIL` 에 **위반한 행의 값 전체**를 넣는다 —
+ * `Failing row contains (…)`. `dma_orders` 의 행에는 `account_no`·`order_no`·`user_id` 가
+ * 다 있으므로, 오류 객체를 통째로 로그에 실으면 `qty <= 0` 같은 CHECK 위반 한 번으로
+ * 계좌번호 원문이 Cloud Logging 에 영구히 남는다. 이 phase 가 화면과 로그를 갈라 온
+ * 마스킹 규율(T-16-09/T-16-45 — `maskAccountNo`)을 오류 로그 한 줄이 우회하고 있었다.
+ *
+ * 여기서 잠그는 것은 넷이다:
+ *   ① insert · ② update · ③ 조회 — **세 sink 각각**이 `details` 를 흘리지 않는다.
+ *     하나만 잠그면 나머지 둘이 다시 열린다. 이 갭이 애초에 그렇게 생겼다.
+ *   ④ `#drain` 의 재큐잉 warn / 드롭 error — sink 가 **던진** 그 객체를 다시 받는 자리다.
+ *     「sink 에서만 막으면 옆 줄이 흘린다」가 이 갭의 교훈이다.
+ * 그리고 매 케이스가 `code` 는 **남아 있음**을 함께 단언한다 — 마스킹이 「조용한 실패」가
+ * 되면 그것대로 사고다 (S-5).
+ */
+describe("PostgREST 오류 원문 유출 (R2-CR-03)", () => {
+  // ★ 케이스마다 spy 를 반드시 되돌린다. `vi.spyOn` 은 이미 감싼 메서드에 대해 **같은 spy 를
+  //   돌려주므로**, 복원하지 않으면 `mock.calls` 가 케이스를 넘어 누적되고 앞 케이스의
+  //   페이로드가 뒤 케이스의 단언에 걸린다 — 회귀 잠금 실증에서 한 곳만 되돌렸는데 네 건이
+  //   빨개지는 것으로 실제로 드러났다. 그 상태면 「어느 줄이 새는가」를 이 파일이 말하지 못한다.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** 테스트만 아는 가짜 계좌번호. 실제 계좌가 아니다 — 로그에 나타나면 안 되는 문자열의 표식이다. */
+  const LEAKED_ACCOUNT = "9876543210";
+  /** 실제 PostgREST 가 주는 모양 그대로. 값은 `details` 에만 들어간다. */
+  const CHECK_VIOLATION: FakePgError = {
+    code: "23514",
+    message: 'new row for relation "dma_orders" violates check constraint "dma_orders_qty_check"',
+    details: `Failing row contains (a1b2, ${LEAKED_ACCOUNT}, KR7005930003, 0, 70000, …).`,
+    hint: "계좌 담당자에게 문의하십시오",
+  };
+
+  /** spy 가 받은 **첫 인자(로그 페이로드)** 만 모아 직렬화한다 — 메시지 문자열은 대상이 아니다. */
+  function payloads(...spies: { mock: { calls: unknown[][] } }[]): string {
+    return JSON.stringify(spies.flatMap((s) => s.mock.calls.map((c) => c[0])));
+  }
+
+  it("⓼-b insert 실패 로그에 details 가 실리지 않는다 — code 는 남는다", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { supabase, queries } = fakeDmaOrders(fixtureRows(), { insertError: CHECK_VIOLATION });
+
+    // 기존 ⓼ 의 계약은 그대로다 — 23505 가 아닌 에러는 여전히 throw 된다.
+    await expect(
+      supabaseOrderInsertSink(supabase)(insertRow({ userId: USER_A, orderNo: ORDER_NO })),
+    ).rejects.toMatchObject({ code: "23514" });
+    expect(queries.map((q) => q.verb)).toEqual(["insert"]);
+
+    const dumped = payloads(errorSpy);
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain("Failing row");
+    expect(dumped).not.toContain("문의하십시오"); // `hint` 도 나가지 않는다
+    // 마스킹이 사유까지 지우면 그것대로 사고다 (S-5).
+    expect(dumped).toContain("23514");
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("⓼-c update 실패 로그에 details 가 실리지 않는다 — code 는 남는다", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { supabase } = fakeDmaOrders(fixtureRows(), { updateError: CHECK_VIOLATION });
+
+    await expect(
+      supabaseOrderSink(supabase)({ column: "id", value: "row-a-today" }, { status: "filled" }),
+    ).rejects.toMatchObject({ code: "23514" });
+
+    const dumped = payloads(errorSpy);
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain("Failing row");
+    expect(dumped).toContain("23514");
+    // 비식별 필드는 그대로 남는다 — 사유 추적에 필요하고 식별자가 아니다.
+    expect(dumped).toContain('"column":"id"');
+  });
+
+  it("⓼-d order_no 조회 실패 로그에 details 가 실리지 않는다 — code 는 남는다", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { supabase } = fakeDmaOrders(fixtureRows(), { selectError: CHECK_VIOLATION });
+
+    await expect(supabaseOrderLookupSink(supabase)(USER_A, ORDER_NO)).rejects.toMatchObject({
+      code: "23514",
+    });
+
+    const dumped = payloads(errorSpy);
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain("Failing row");
+    expect(dumped).toContain("23514");
+  });
+
+  it("⓼-e #drain 의 재큐잉 warn·드롭 error 도 details 를 싣지 않는다 (sink 옆 줄)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { supabase } = fakeDmaOrders(fixtureRows(), { updateError: CHECK_VIOLATION });
+
+    const store = new OrderStore(supabaseOrderSink(supabase));
+    store.enqueueUpdate({ orderRowId: "row-a-today", status: "filled" });
+    await store.flushNow();
+    store.close();
+
+    // 재시도 1회 후 드롭 — 동작은 이 plan 이 건드리지 않는다.
+    expect(store.stats().retried).toBe(1);
+    expect(store.stats().dropped).toBe(1);
+    // sink 의 error · 재큐잉 warn · 드롭 error 를 **전부** 본다. 한 줄만 막으면 옆 줄이 흘린다.
+    expect(warnSpy).toHaveBeenCalled();
+    const dumped = payloads(warnSpy, errorSpy);
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain("Failing row");
+    expect(dumped).not.toContain("문의하십시오");
+    expect(dumped).toContain("23514");
   });
 });
