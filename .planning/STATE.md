@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-45-PLAN.md — 갭 5(DMA_HOST 보존) + R2-IN-05 종결
-last_updated: "2026-09-09T11:35:20.783Z"
+stopped_at: Completed 16-42-PLAN.md — 갭 4 webapp 측 + R2-WR-02 + R2-IN-01 종결
+last_updated: "2026-09-09T11:48:30.980Z"
 last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 168
+  completed_plans: 169
   percent: 72
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (43/46)**
-Plan: 43 of 46 완료 (16-42·16-44 미실행 · 16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 167 / 185
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (44/46)**
+Plan: 44 of 46 완료 (16-44·16-46 미실행 · 16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 169 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
@@ -401,6 +401,7 @@ Progress: [█████████░] 91%
 | Phase 16 P41 | 35m | 3 tasks | 3 files |
 | Phase 16 P43 | 12min | 3 tasks | 2 files |
 | Phase 16 P45 | 35m | 2 tasks | 2 files |
+| Phase 16 P42 | ~40분 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -433,6 +434,10 @@ Progress: [█████████░] 91%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 16 Plan 42]: `isin-labels.ts` 의 이름 원천에 `limitChasers` 를 더한다 — 16-41 이 relay 에 실은 `name`·`code` 를 소비하므로 새 조회 경로가 생기지 않고(T-16-02), 못 푼 종목은 필드가 비어 「모르면 ISIN 그대로」 폴백이 그대로 산다(T-16-05). 새 원천은 **맨 뒤**에 두어 `put` 의 「빈 값이 이전 값을 지우지 않는다」 규칙에 태운다.
+- [Phase 16 Plan 42]: 「수정」의 무장 가드에 `isDeleteIntent` 철거 면제를 붙인다 — relay `#strategyArmable` 첫 줄의 `#isTeardown` 면제와 **동형**이어야 한다. `sweepEnabled` 가 삭제 판정 4종에 없어 「게이트 4종 OFF + 한방 ON + 시세 끊김」이 막히던 것이 R2-WR-02 다. 첫 관문이 마지막 관문보다 엄격하면 사용자가 전략을 못 내린다(T-16-44).
+- [Phase 16 Plan 42]: 안전 문구의 해제 트리거는 **원인 변경**(`setField`)과 **서버 응답**(`items`·`[server]`) 둘 뿐이다 — 자기 자신(전송 시도)은 아니다. 방금 띄운 문구가 같은 렌더에서 지워지면 읽을 시간이 없고, 상시 표시되는 경고는 다음번에 읽히지 않는다(T-16-86).
+- [Phase 16 Plan 42]: 단일 렌더 테스트는 `useMemo` 의존성 누락을 잡지 못한다 — 「조용한 실패」를 잠그려면 다른 원천을 **같은 참조로 고정**한 채 `rerender()` 하는 케이스가 따로 있어야 한다.
 - [Phase 16 Plan 26]: TRADE-03 은 갭이 전부 닫힌 뒤에도 **Pending 으로 남긴다**. 프로덕션 `/healthz` 의 `everReadyCount: 0` 이 「Ready 에 도달한 DMA 세션이 한 건도 없었다」를 뜻하므로 전략 중계·주문 상관 경로가 실서버에서 실행된 적이 없다. 코드가 옳다는 것과 그 코드가 운영에서 돈다는 것은 다른 주장이고, 요구사항은 후자다 (RELAY-02 와 같은 기준).
 - [Phase 16 Plan 26]: 배포 순서 relay → server → webapp 은 취향이 아니라 계약 방향이다. 새 webapp + 옛 relay 는 `market` 없는 `cfg` 가 옛 zod 필수 필드에 걸려 `lc.set` 이 통째로 드롭되지만, 역방향(새 relay + 옛 webapp)은 스키마가 `.strict()` 가 아니라 안전하다 — 그래서 relay 가 먼저다.
 - [Phase 16 Plan 26]: gap 4 의 증거는 「200」이 아니라 「**세션이 있는 상태의** 200」이다. 배포 전후로 `sessionCount` 가 2 로 같고 판정만 503→200 으로 뒤집힌 대조를 근거로 삼는다 — 세션 0 의 200 은 판정 로직을 통과하지 않으므로 아무것도 증명하지 않는다.
@@ -673,8 +678,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T11:34:51.275Z
-Stopped at: Completed 16-43-PLAN.md — R2-WR-03 + R2-WR-06 + R2-IN-03 종결
+Last session: 2026-09-09T11:48:30.967Z
+Stopped at: Completed 16-42-PLAN.md — 갭 4 webapp 측 + R2-WR-02 + R2-IN-01 종결
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
 - **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
