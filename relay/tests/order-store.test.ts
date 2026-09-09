@@ -987,11 +987,13 @@ describe("23505 수렴 (GC-WR-08)", () => {
     expect(store.stats().dropped).toBe(0);
     expect(store.stats().retried).toBe(0);
     expect(store.stats().queued).toBe(0);
-    // ⚠️ 이 한 경우만은 `flushed` 가 「반영했다」가 아니라 「더 할 것이 없다」를 센다. 유일하게
-    //    실릴 값이던 `order_no` 를 포기했으므로 반영된 것은 없다. 카운터를 고치려면 `#drain`
-    //    을 건드려야 하는데 그것은 16-28 의 드롭 규율과 얽혀 있어 이 plan 의 범위가 아니다 —
-    //    잔여 오차로 드러내 둔다(16-39 SUMMARY).
-    expect(store.stats().flushed).toBe(1);
+    // ★ 16-39 가 잔여 오차로 드러내 두었던 자리를 16-40 이 닫았다. 유일하게 실릴 값이던
+    //   `order_no` 를 포기했으므로 **반영된 것은 없다** — 그래서 `flushed` 가 아니라
+    //   `flushedNoop` 이 1 이다. 실패가 아니므로 `dropped` 도 아니다 (S-5: 버리지 않고 센다).
+    //   고친 방식이 이 plan 의 형태 그대로다 — 카운터 대입문이 아니라 **sink 가 참말을 하게**
+    //   해서 닫았다(`OrderUpdateResult.applied`).
+    expect(store.stats().flushed).toBe(0);
+    expect(store.stats().flushedNoop).toBe(1);
   });
 
   it("⓽-c 재시도도 실패하면 throw 되어 큐 재시도 규율을 탄다", async () => {

@@ -169,10 +169,30 @@ export type OrderSelector =
 export type OrderRowPatch = Record<string, unknown>;
 
 /**
+ * update 한 번의 결과 (16-40 — 16-39 가 남긴 `flushed` 잔여 오차를 닫는다).
+ *
+ * `applied` 의 의미:
+ *   - `true`  = **행에 무언가를 반영했다.**
+ *   - `false` = 호출은 성공했지만 **반영된 것이 없다.** 지금 이 값이 나오는 자리는 하나다 —
+ *               `order_no` 만 채우려던 갱신이 `23505` 를 받아 그 컬럼을 포기한 경우(16-39).
+ *               실릴 값이 그것뿐이었으므로 남은 것이 없다.
+ *
+ * **반환을 생략(`void`)하면 `applied: true` 와 같다.** 압도적 다수의 sink 는 「보냈으면
+ * 반영됐다」이고, 그것들을 전부 고치는 것은 이 한 비트의 값어치보다 크다. 예외를 말하는 쪽만
+ * 명시한다 — insert 쪽의 `created` 와 방향이 같다(`OrderInsertResult`).
+ */
+export type OrderUpdateResult = { applied: boolean };
+
+/**
  * 실제 쓰기 경로. 주입 가능한 이유는 테스트가 Supabase 없이 큐 규율(재시도·드롭·flushNow)을
  * 검증할 수 있어야 하기 때문이다 — 큐의 리스크는 SQL 이 아니라 **타이밍**이다.
+ *
+ * 반환값은 위 `OrderUpdateResult` 를 보라. 생략은 「반영했다」다.
  */
-export type OrderUpdateSink = (sel: OrderSelector, patch: OrderRowPatch) => Promise<void>;
+export type OrderUpdateSink = (
+  sel: OrderSelector,
+  patch: OrderRowPatch,
+) => Promise<void | OrderUpdateResult>;
 
 /**
  * insert 1건 (D-03). `server/src/services/dma-orders.ts` 의 `OrderRequestInsert` 를 이식하고
@@ -247,8 +267,21 @@ export type OrderSinks = {
 /** 진단용 카운터. 식별자를 담지 않는다. */
 export type OrderStoreStats = {
   queued: number;
-  /** 성공적으로 반영된 누적 건수. */
+  /**
+   * 성공적으로 **반영된** 누적 건수.
+   *
+   * 호출이 성공했더라도 반영된 것이 없으면 세지 않는다 — 그쪽은 `flushedNoop` 이다
+   * (16-40 / 16-39 잔여 오차).
+   */
   flushed: number;
+  /**
+   * 호출은 성공했으나 **반영할 것이 없어** 무동작으로 끝난 누적 건수 (16-40).
+   *
+   * 지금 이 값이 오르는 자리는 하나다 — `order_no` 만 채우려던 갱신이 `23505` 를 받아 그
+   * 컬럼을 포기한 경우(16-39 / R2-WR-01). 실패는 아니므로 `dropped` 가 아니고, 반영도
+   * 아니므로 `flushed` 도 아니다. 버리지 않고 여기서 센다 (S-5).
+   */
+  flushedNoop: number;
   /** 재시도로 넘어간 누적 건수. */
   retried: number;
   /** 버린 누적 건수 = 감사 기록의 결손량 (S-5). */
@@ -336,7 +369,13 @@ export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
             { column: sel.column, code: "23505" },
             "[orders] order_no 만 채우는 갱신이 UNIQUE 위반 — 반영할 나머지 필드가 없다(감사 기록 분기). 재시도로 풀리지 않으므로 드롭 카운터를 올리지 않는다",
           );
-          return;
+          // ★ `applied: false` — **반영된 것이 없다** (16-40). 16-39 는 이 자리에서 그냥
+          //   `return` 했고, `#drain` 은 그것을 성공으로 읽어 `flushed += 1` 을 했다. 「반영된
+          //   누적 건수」가 반영되지 않은 1건을 세던 잔여 오차가 그것이다(16-39 SUMMARY 가
+          //   드러내 두고 범위 밖으로 남긴 항목). 카운터 대입문이 아니라 **sink 가 참말을
+          //   하게** 해서 닫는다 — 16-39 가 `flushed` 를, 이 plan 이 `inserted` 를 고친 것과
+          //   같은 형태다.
+          return { applied: false };
         }
         const { error: retryError } = await runUpdate(rest);
         if (retryError) {
@@ -541,6 +580,8 @@ export class OrderStore {
    */
   #current: Promise<void> | null = null;
   #flushed = 0;
+  /** 반영할 것이 없어 무동작으로 끝난 누적 — `#flushed` 에 섞지 않는다 (16-40). */
+  #flushedNoop = 0;
   #retried = 0;
   #dropped = 0;
   #inserted = 0;
@@ -748,8 +789,11 @@ export class OrderStore {
     this.#queue = [];
     for (const item of batch) {
       try {
-        await this.#sink(item.sel, item.patch);
-        this.#flushed += 1;
+        const outcome = await this.#sink(item.sel, item.patch);
+        // 반환 생략(`void`)은 「반영했다」다 — 예외를 말하는 sink 만 `{applied:false}` 를
+        // 돌려준다 (16-40 / `OrderUpdateResult`).
+        if (outcome !== undefined && !outcome.applied) this.#flushedNoop += 1;
+        else this.#flushed += 1;
       } catch (err) {
         if (item.attempts < ORDER_MAX_RETRIES) {
           item.attempts += 1;
@@ -784,6 +828,7 @@ export class OrderStore {
     return {
       queued: this.#queue.length,
       flushed: this.#flushed,
+      flushedNoop: this.#flushedNoop,
       retried: this.#retried,
       dropped: this.#dropped,
       inserted: this.#inserted,
