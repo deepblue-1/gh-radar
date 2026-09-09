@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   SESSION_GRACE_MS,
+  STALE_SESSION_MS,
   SessionManager,
   type DmaCredentials,
 } from "../src/dma/session-manager.js";
@@ -70,7 +71,12 @@ describe("SessionManager", () => {
     expect(a).not.toBe(b);
     expect(a.userId).toBe("user-a");
     expect(b.userId).toBe("user-b");
-    expect(manager.stats()).toEqual({ sessionCount: 2, readyCount: 2, everReadyCount: 2 });
+    expect(manager.stats()).toEqual({
+      sessionCount: 2,
+      readyCount: 2,
+      everReadyCount: 2,
+      stalledCount: 0,
+    });
     await waitFor(() => gateway.sockets.length === 2, "게이트웨이 연결 2개");
 
     // 한쪽을 닫아도 다른 쪽은 살아 있다.
@@ -127,7 +133,12 @@ describe("SessionManager", () => {
     await manager.closeAll();
     await waitFor(() => gateway.sockets.length === 0, "전 연결 종료");
 
-    expect(manager.stats()).toEqual({ sessionCount: 0, readyCount: 0, everReadyCount: 0 });
+    expect(manager.stats()).toEqual({
+      sessionCount: 0,
+      readyCount: 0,
+      everReadyCount: 0,
+      stalledCount: 0,
+    });
     expect(manager.get("user-a")).toBeUndefined();
     expect(manager.get("user-b")).toBeUndefined();
 
@@ -142,7 +153,12 @@ describe("SessionManager", () => {
     await waitFor(() => s.state === "ready", "ready 진입");
 
     const stats = manager.stats();
-    expect(Object.keys(stats).sort()).toEqual(["everReadyCount", "readyCount", "sessionCount"]);
+    expect(Object.keys(stats).sort()).toEqual([
+      "everReadyCount",
+      "readyCount",
+      "sessionCount",
+      "stalledCount",
+    ]);
 
     const dumped = JSON.stringify(stats);
     expect(dumped).not.toContain(CREDS.dmaUserId);
@@ -191,7 +207,12 @@ describe("SessionManager", () => {
 
     expect(never.isReady).toBe(false);
     expect(never.hasBeenReady).toBe(false);
-    expect(mgr.stats()).toEqual({ sessionCount: 1, readyCount: 0, everReadyCount: 0 });
+    expect(mgr.stats()).toEqual({
+      sessionCount: 1,
+      readyCount: 0,
+      everReadyCount: 0,
+      stalledCount: 0,
+    });
 
     await mgr.closeAll();
     await silent.close();
@@ -199,7 +220,12 @@ describe("SessionManager", () => {
     // (나) Ready 에 도달한 뒤 전송이 끊긴 세션 = 「게이트웨이 장애」 → everReadyCount 1.
     const s = manager.acquire("user-1", CREDS);
     await waitFor(() => s.state === "ready", "ready 진입");
-    expect(manager.stats()).toEqual({ sessionCount: 1, readyCount: 1, everReadyCount: 1 });
+    expect(manager.stats()).toEqual({
+      sessionCount: 1,
+      readyCount: 1,
+      everReadyCount: 1,
+      stalledCount: 0,
+    });
 
     const sock = gateway.sockets[0];
     if (sock === undefined) throw new Error("게이트웨이 연결이 없습니다");
@@ -209,6 +235,92 @@ describe("SessionManager", () => {
     // 래치다 — 죽어도 되돌아가지 않는다. `/healthz` 가 「부재」와 「장애」를 가르는
     // 유일한 근거이므로 되돌리는 경로를 만들면 진짜 장애 탐지가 함께 죽는다.
     expect(s.hasBeenReady).toBe(true);
-    expect(manager.stats()).toEqual({ sessionCount: 1, readyCount: 0, everReadyCount: 1 });
+    expect(manager.stats()).toEqual({
+      sessionCount: 1,
+      readyCount: 0,
+      everReadyCount: 1,
+      stalledCount: 0,
+    });
+  });
+
+  it("⑩ stalledCount 는 생성 직후 0 이고 STALE_SESSION_MS 를 넘기면 1 이 된다 (16-30 / GC-WR-07)", async () => {
+    // 로그인에 답하지 않는 게이트웨이 = 「게이트웨이 프로세스가 죽은」 상태. relay 가
+    // 재시작한 뒤라 `hasBeenReady` 래치는 비어 있고, 남는 신호는 **경과 시간**뿐이다.
+    const silent = await startFakeGateway({ autoLogin: false });
+    // 벽시계를 주입한다 — 기존 fake timer 는 setTimeout 계열만 가짜라 Date.now 를 못 민다.
+    let clock = 1_000_000;
+    const mgr = new SessionManager({
+      host: "127.0.0.1",
+      port: silent.port,
+      broker: "KB",
+      now: () => clock,
+    });
+    try {
+      mgr.acquire("user-never", CREDS);
+      await waitFor(() => silent.sockets.length === 1, "침묵 게이트웨이 연결");
+      await flushIo();
+
+      // 부팅·로그인 왕복 구간이다. 여기서 degraded 를 내면 재배포마다 알림이 울린다.
+      expect(mgr.stats()).toEqual({
+        sessionCount: 1,
+        readyCount: 0,
+        everReadyCount: 0,
+        stalledCount: 0,
+      });
+
+      // 경계 위(정확히 유예만큼 경과)는 아직 정상이다 — 판정은 초과에서만 뒤집힌다.
+      clock += STALE_SESSION_MS;
+      expect(mgr.stats().stalledCount).toBe(0);
+
+      clock += 1;
+      expect(mgr.stats()).toEqual({
+        sessionCount: 1,
+        readyCount: 0,
+        everReadyCount: 0,
+        stalledCount: 1,
+      });
+    } finally {
+      await mgr.closeAll();
+      await silent.close();
+    }
+  });
+
+  it("⑪ Ready 를 한 번이라도 본 세션은 시간이 아무리 지나도 stalled 로 세지 않는다", async () => {
+    let clock = 1_000_000;
+    const mgr = new SessionManager({
+      host: "127.0.0.1",
+      port: gateway.port,
+      broker: "KB",
+      now: () => clock,
+    });
+    try {
+      const s = mgr.acquire("user-1", CREDS);
+      await waitFor(() => s.state === "ready", "ready 진입");
+
+      clock += STALE_SESSION_MS * 10;
+      expect(mgr.stats()).toEqual({
+        sessionCount: 1,
+        readyCount: 1,
+        everReadyCount: 1,
+        stalledCount: 0,
+      });
+
+      // 전송이 끊겨 Ready 가 풀려도 stalled 가 아니다 — 그 상태는 everReadyCount 가
+      // 이미 degraded 로 잡는다(16-21). 한 사건을 두 카운터가 겹쳐 세면 안 된다.
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 연결이 없습니다");
+      gateway.hardClose(sock);
+      await waitFor(() => !s.isReady, "전송 단절 후 Ready 해제");
+
+      clock += STALE_SESSION_MS * 10;
+      expect(mgr.stats()).toEqual({
+        sessionCount: 1,
+        readyCount: 0,
+        everReadyCount: 1,
+        stalledCount: 0,
+      });
+    } finally {
+      await mgr.closeAll();
+    }
   });
 });

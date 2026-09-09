@@ -97,6 +97,15 @@ export type HealthPayload = {
    * 만으로는 구분되지 않는다. 판정의 근거를 응답에서 읽을 수 있어야 한다 (16-21).
    */
   everReadyCount: number;
+  /**
+   * 생성 후 `STALE_SESSION_MS` 가 지나도록 **한 번도** Ready 가 아닌 세션 수. 누구인지는
+   * 담지 않는다 — `sessionCount` 와 같은 취급이다(수는 있고 식별자는 없다).
+   *
+   * `everReadyCount:0` 하나만으로는 「게이트웨이가 아직 없는 환경」과 「장애 중에 relay 가
+   * 재시작해 래치가 지워진 상태」가 같은 값으로 보인다. 이 필드가 그 둘을 응답에서 바로
+   * 읽게 해 준다 (16-30 / GC-WR-07).
+   */
+  stalledCount: number;
 };
 
 // ============================================================
@@ -210,6 +219,21 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * degraded 다 (2026-09-06 변경 유지). 세션 판정 완화가 회선 신호를 가리지 않는다.
    *
    * `sessionCount` 는 **판정에서 빠지고 페이로드에만 남는다**(진단용).
+   *
+   * ★ 2026-09-09 보강 (16-30 / GC-WR-07) — `hasBeenReady` 는 **프로세스 메모리 래치**다.
+   * 게이트웨이 장애 중에 relay 가 재배포·OOM·크래시로 한 번 재시작하면 `everReadyCount`
+   * 가 0 으로 초기화되어, 그 뒤로는 사용자가 아무리 붙어도 진짜 장애가 **영원히 `ok`** 로
+   * 보고된다. 예전 규칙(`sessionCount > 0 && readyCount === 0` → degraded)이 잡던 사례가
+   * 통째로 빠지는 자리다. `vpn` 은 인터페이스 존재만 보므로(터널은 살아 있고 게이트웨이
+   * 프로세스만 죽은 경우) 이를 대체하지 못한다.
+   *
+   * 그래서 「생성 후 `STALE_SESSION_MS` 가 지나도록 한 번도 Ready 가 아닌 세션」
+   * (`stalledCount`)을 함께 센다. 부팅 직후의 정상 구간은 그 유예가 흡수하므로 16-21 이
+   * 얻은 면제는 그대로이고, 그 시간을 넘긴 미Ready 만 degraded 다.
+   *
+   * **이 문단은 위 16-21 문단을 되돌리지 않는다.** `everReadyCount === 0` 유예는 유지되고
+   * 거기에 **시간 상한**이 붙을 뿐이다. 「Ready 였다가 죽은 세션은 여전히 degraded」와
+   * 「`vpn` 은 세션과 독립」 두 문장도 그대로다.
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -220,7 +244,10 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     const linkUp = isGatewayLinkUp(deps.dmaHost, readInterfaces());
     // 「게이트웨이가 애초에 없는 환경」(everReadyCount 0) 은 장애가 아니다.
     // 「Ready 였다가 죽은 세션」(everReadyCount > 0, readyCount 0) 만 장애다 (16-21).
-    const sessionsOk = stats.everReadyCount === 0 || stats.readyCount > 0;
+    // 단, 그 면제에는 **시간 상한**이 있다 — 재시작으로 래치가 지워진 진짜 장애가
+    // 영원히 초록으로 남지 않도록 `stalledCount` 를 함께 본다 (16-30 / GC-WR-07).
+    const sessionsOk =
+      (stats.everReadyCount === 0 && stats.stalledCount === 0) || stats.readyCount > 0;
     const healthy = linkUp && sessionsOk;
 
     const payload: HealthPayload = {
@@ -230,6 +257,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       version: deps.appVersion,
       sessionCount: stats.sessionCount,
       everReadyCount: stats.everReadyCount,
+      stalledCount: stats.stalledCount,
     };
 
     res.status(healthy ? 200 : 503).json(payload);

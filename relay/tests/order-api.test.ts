@@ -54,7 +54,7 @@ const DOWN_INTERFACES: NodeJS.Dict<os.NetworkInterfaceInfo[]> = {
 };
 
 async function start(opts: StartOptions = {}): Promise<Harness> {
-  const stats = opts.stats ?? { sessionCount: 0, readyCount: 0, everReadyCount: 0 };
+  const stats = opts.stats ?? { sessionCount: 0, readyCount: 0, everReadyCount: 0, stalledCount: 0 };
 
   const apiSessions: OrderApiSessions = {
     stats: () => stats,
@@ -113,6 +113,7 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
       "dma",
       "everReadyCount",
       "sessionCount",
+      "stalledCount",
       "status",
       "version",
       "vpn",
@@ -226,7 +227,9 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
   it("⑧ Ready 였다가 죽은 세션 2건이면 degraded + HTTP 503 (Assumption A7)", async () => {
     // 게이트웨이가 **있었는데** 죽은 경우다. everReadyCount 가 sessionCount 와 같으므로
     // 「애초에 없는 환경」과 구분된다 — 이쪽은 진짜 장애이고 알림이 울려야 한다.
-    const degraded = await start({ stats: { sessionCount: 2, readyCount: 0, everReadyCount: 2 } });
+    const degraded = await start({
+      stats: { sessionCount: 2, readyCount: 0, everReadyCount: 2, stalledCount: 0 },
+    });
     try {
       const res = await fetch(degraded.url("/healthz"));
       const body = (await res.json()) as Record<string, unknown>;
@@ -251,7 +254,9 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
     // `DMA_HOST` 가 뜨지 않은 환경. 로그인 사용자가 붙는 즉시 세션이 만들어지지만 영원히
     // Ready 가 되지 않는다. 이 구간을 503 으로 보고하면 uptime 이 상시 적색이 되고,
     // 상시 적색은 곧 알림 무시다 (15-05 계약 대체, 16-21).
-    const absent = await start({ stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0 } });
+    const absent = await start({
+      stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0, stalledCount: 0 },
+    });
     try {
       const res = await fetch(absent.url("/healthz"));
       const body = (await res.json()) as Record<string, unknown>;
@@ -263,6 +268,9 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
         dma: true,
         sessionCount: 1,
         everReadyCount: 0,
+        // 유예 안이라 stalled 가 아니다 — 16-30 이 붙인 시간 상한이 16-21 의 면제를
+        // 잡아먹지 않는다는 회귀 잠금이다.
+        stalledCount: 0,
       });
     } finally {
       await absent.close();
@@ -271,7 +279,7 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
 
   it("⑧-c never-Ready 세션이 있어도 VPN 이 죽으면 degraded 503 이다 (세션 완화가 회선 신호를 가리지 않는다)", async () => {
     const absentNoVpn = await start({
-      stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0 },
+      stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0, stalledCount: 0 },
       interfaces: DOWN_INTERFACES,
     });
     try {
@@ -286,8 +294,51 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
     }
   });
 
+  it("⑧-d everReadyCount 0 이라도 stalledCount 가 1 이면 degraded 503 이다 (재시작 후 영원한 초록 차단, 16-30)", async () => {
+    // 게이트웨이가 죽어 있는 동안 relay 가 한 번 재시작한 상태의 재현. `hasBeenReady`
+    // 래치는 프로세스 메모리라 0 으로 지워졌지만, 세션이 생성 후 STALE_SESSION_MS 를
+    // 넘기도록 Ready 를 못 봤다는 사실은 남는다 — 그것이 진짜 장애의 유일한 신호다.
+    const stalled = await start({
+      stats: { sessionCount: 1, readyCount: 0, everReadyCount: 0, stalledCount: 1 },
+    });
+    try {
+      const res = await fetch(stalled.url("/healthz"));
+      const body = (await res.json()) as Record<string, unknown>;
+
+      expect(res.status).toBe(503);
+      // 회선은 멀쩡하다 — 죽은 것은 게이트웨이 프로세스이지 터널이 아니다.
+      expect(body).toMatchObject({
+        status: "degraded",
+        vpn: true,
+        dma: false,
+        sessionCount: 1,
+        everReadyCount: 0,
+        stalledCount: 1,
+      });
+    } finally {
+      await stalled.close();
+    }
+  });
+
+  it("⑧-e stalled 세션이 있어도 지금 Ready 가 하나 있으면 ok 200 이다 (readyCount 우선)", async () => {
+    // 한 사용자의 세션이 오래 미Ready 라도 다른 세션이 지금 서 있으면 게이트웨이는 산다.
+    // 판정의 `|| readyCount > 0` 항이 stalled 를 덮는다는 계약을 잠근다.
+    const mixed = await start({
+      stats: { sessionCount: 2, readyCount: 1, everReadyCount: 1, stalledCount: 1 },
+    });
+    try {
+      const res = await fetch(mixed.url("/healthz"));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as unknown).toMatchObject({ status: "ok", stalledCount: 1 });
+    } finally {
+      await mixed.close();
+    }
+  });
+
   it("⑨ Ready 세션이 하나라도 있으면 ok 다", async () => {
-    const ready = await start({ stats: { sessionCount: 3, readyCount: 1, everReadyCount: 3 } });
+    const ready = await start({
+      stats: { sessionCount: 3, readyCount: 1, everReadyCount: 3, stalledCount: 0 },
+    });
     try {
       const res = await fetch(ready.url("/healthz"));
       expect(res.status).toBe(200);

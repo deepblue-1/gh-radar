@@ -32,6 +32,26 @@ import { DmaSession, type DmaSessionCreds } from "./session.js";
  */
 export const SESSION_GRACE_MS = 300_000;
 
+/**
+ * 「생성된 지 이만큼 지나도록 **한 번도** Ready 가 아니면 게이트웨이가 응답하지 않는
+ * 것으로 본다」의 상한(ms) = 5분 (16-30 / GC-WR-07).
+ *
+ * 이 유예 **안에서는** never-Ready 가 정상이다 — TCP 연결 + LoginReq 왕복 + 계좌 선언은
+ * 즉시 끝나지 않고, 부팅 직후·재배포 직후에는 붙은 세션 전부가 잠시 never-Ready 다.
+ * 그 구간을 장애로 보고하면 재배포마다 알림이 울리고, 상시 적색은 곧 알림 무시다.
+ *
+ * 그 시간을 **넘긴** never-Ready 는 다르다. 정상 왕복의 수백 배가 지나도록 Ready 를
+ * 못 봤다는 뜻이고, 이는 16-21 이 「게이트웨이 부재」로 면제해 준 상태와 실제 장애를
+ * 가르는 유일한 시간축이다 (`hasBeenReady` 래치는 프로세스 재시작으로 사라지므로
+ * `everReadyCount` 만으로는 못 가른다).
+ *
+ * 눈금을 `SESSION_GRACE_MS` 와 같은 5분으로 맞춘 근거: 두 값 모두 「사람의 왕복(새로고침·
+ * 로그인)이 끝나기를 기다려 주는 시간」이라 같은 자릿수여야 운영자가 두 상수를 따로
+ * 기억하지 않아도 된다. env 로 덮지 않는다 — 판정 임계를 배포 환경마다 달리 두면
+ * uptime 알림의 의미가 환경별로 갈라진다.
+ */
+export const STALE_SESSION_MS = 300_000;
+
 /** `acquire` 가 받는 자격증명. `userId` 는 키라서 따로 받는다. */
 export type DmaCredentials = {
   /** DMA 게이트웨이 로그인 id. 로그에 남기지 않는다. */
@@ -47,6 +67,14 @@ export type SessionManagerOptions = {
   broker: string;
   /** 유예(ms). 미지정 시 `SESSION_GRACE_MS`. */
   graceMs?: number;
+  /**
+   * 벽시계 주입구. 미지정 시 `Date.now`.
+   *
+   * `stalledCount` 는 **경과 시간**이 판정 기준이라 테스트가 시계를 제어할 수 있어야
+   * 한다. 기존 테스트는 `vi.useFakeTimers({ toFake: ["setTimeout", ...] })` 로 타이머만
+   * 가짜로 쓰고 `Date.now` 는 진짜를 쓴다 — 그래서 타이머가 아니라 이 주입구로 연다.
+   */
+  now?: () => number;
 };
 
 /** `/healthz` 노출용 요약. **식별자를 담지 않는다** — userId·계좌번호 모두 제외다. */
@@ -60,6 +88,15 @@ export type SessionStats = {
    * optional 이 아니다. 필수 필드여야 소비자·테스트가 컴파일 단계에서 갱신을 강제받는다.
    */
   everReadyCount: number;
+  /**
+   * 생성된 지 `STALE_SESSION_MS` 가 지나도록 **한 번도** Ready 가 아닌 세션 수.
+   * `everReadyCount === 0` 인 상태를 「게이트웨이 부재(정상)」와 「게이트웨이 장애」로
+   * 가르는 시간축이다 (16-30 / GC-WR-07).
+   *
+   * `everReadyCount` 와 같은 규율로 **optional 이 아니다** — 필수 필드여야 소비자·테스트가
+   * 컴파일 단계에서 갱신을 강제받는다.
+   */
+  stalledCount: number;
 };
 
 type Entry = {
@@ -68,6 +105,15 @@ type Entry = {
   refCount: number;
   /** 참조계수가 0 이 된 뒤의 소멸 예약. 재연결이 오면 취소한다. */
   graceTimer: NodeJS.Timeout | null;
+  /**
+   * 이 엔트리를 만든 시각(ms). `stalledCount` 의 기준점이다.
+   *
+   * **세션 인스턴스가 아니라 매니저 엔트리에 둔다.** `DmaSession` 은 `hasBeenReady`
+   * 래치의 주인이고 그 래치의 의미는 「이 세션이 Ready 를 본 적 있는가」 하나뿐이다.
+   * 거기에 수명 시각을 얹으면 `session.ts` 가 「부재 vs 장애」 판정까지 아는 모듈이 되어
+   * 래치의 의미가 흐려진다 (T-16-26 — 래치를 건드리지 않는다).
+   */
+  createdAt: number;
 };
 
 /**
@@ -90,12 +136,14 @@ export class SessionManager {
   readonly #port: number;
   readonly #broker: string;
   readonly #graceMs: number;
+  readonly #now: () => number;
 
   constructor(opts: SessionManagerOptions) {
     this.#host = opts.host;
     this.#port = opts.port;
     this.#broker = opts.broker;
     this.#graceMs = opts.graceMs ?? SESSION_GRACE_MS;
+    this.#now = opts.now ?? (() => Date.now());
   }
 
   /**
@@ -209,12 +257,22 @@ export class SessionManager {
   stats(): SessionStats {
     let readyCount = 0;
     let everReadyCount = 0;
+    let stalledCount = 0;
+    const now = this.#now();
     for (const entry of this.#sessions.values()) {
       if (entry.session.isReady) readyCount += 1;
       // 래치다 — 지금 Ready 가 아니어도 한 번이라도 Ready 였으면 센다 (16-21).
       if (entry.session.hasBeenReady) everReadyCount += 1;
+      // 한 번이라도 Ready 였던 세션은 여기서 세지 않는다 — 그쪽은 `everReadyCount` 가
+      // 이미 잡고 있고, 이 카운터는 **래치가 비어 있는 상태**만 시간으로 가른다 (16-30).
+      else if (now - entry.createdAt > STALE_SESSION_MS) stalledCount += 1;
     }
-    return { sessionCount: this.#sessions.size, readyCount, everReadyCount };
+    return {
+      sessionCount: this.#sessions.size,
+      readyCount,
+      everReadyCount,
+      stalledCount,
+    };
   }
 
   #create(userId: string, creds: DmaCredentials): DmaSession {
@@ -226,7 +284,12 @@ export class SessionManager {
       broker: this.#broker,
     };
     const session = new DmaSession(sessionCreds, client);
-    this.#sessions.set(userId, { session, refCount: 1, graceTimer: null });
+    this.#sessions.set(userId, {
+      session,
+      refCount: 1,
+      graceTimer: null,
+      createdAt: this.#now(),
+    });
 
     // 로그 인자에 dmaUserId·password 를 넣지 않는다 (D-19).
     logger.info(
