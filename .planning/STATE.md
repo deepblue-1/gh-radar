@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 16 UI-SPEC approved (mockups user-approved 2026-09-08)
-last_updated: "2026-09-08T23:30:01.672Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 계획 완료 (16-18~16-26)
+stopped_at: Completed 16-18-PLAN.md (gap 1 + WR-01 · 부분 UNIQUE 인덱스 프로덕션 적용)
+last_updated: "2026-09-09T00:55:00.000Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 16-18 실행 완료 (gap 1 + WR-01)
 progress:
   total_phases: 25
   completed_phases: 18
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE
-Plan: 18 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18~16-26 계획됨)
+Plan: 19 of 26 (16-01~16-17 실행 완료 · 갭 클로징 16-18 완료 · 16-19~16-26 대기)
 Plans completed: 142 / 165
-Status: Ready to execute (갭 클로징 9 plans)
+Status: Executing Phase 16 (갭 클로징 8 plans 남음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 계획 완료 (16-18~16-26)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 16-18 실행 완료 (gap 1 + WR-01)
 
 Progress: [█████████░] 86% (142/165 plans · 18/25 phases)
 
@@ -161,6 +161,7 @@ Progress: [█████████░] 86% (142/165 plans · 18/25 phases)
 | Phase 14 P09 | 9 min | 3 tasks | 9 files |
 | Phase 14 P10 | 8 min | 2 tasks | 4 files |
 | Phase 14 P11 | ~50min | 2 tasks | 15 files |
+| Phase 16 P18 | 14min (게이트 대기 제외) | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,11 @@ Progress: [█████████░] 86% (142/165 plans · 18/25 phases)
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 16 Plan 18]: `dma_orders` 의 `order_no` 셀렉터는 `user_id` + KST 당일까지 **세 축**으로 좁힌다 — 브로커 주문번호는 일별 재사용 시퀀스라 한 축만으로는 전역 쓰기다 (T-16-14). `userId` 없는 `order_no` 갱신은 `selectorOf` 가 `null` 을 돌려 드롭 + error 로그.
+- [Phase 16 Plan 18]: `maybeSingle()` 제거 — 2행일 때의 throw 가 호출자 catch 를 「셀렉터 없는 갱신」으로 열화시켜 그 자체가 전역 쓰기의 방아쇠였다. `order(created_at desc).limit(1)` 로 최근 1행 선택.
+- [Phase 16 Plan 18]: 자동주문 통보의 「조회 → 없으면 insert」를 `` `${userId}|${orderNo}` `` 키 in-flight Promise 로 감싼다 (WR-01). `closeConn`/`close` 는 `inflight` 을 건드리지 않는다 — 진행 중 왕복 중단이 곧 기록 결손.
+- [Phase 16 Plan 18]: `dma_orders` 유일성은 `(user_id, order_no, (created_at AT TIME ZONE 'Asia/Seoul')::date)` 부분 UNIQUE 인덱스로 DB 가 강제한다 (프로덕션 적용 2026-09-09). 전역 UNIQUE 는 일별 재사용 시퀀스라 불가능.
+- [Phase 16 Plan 18]: 쿼리 경계 테스트는 sink 를 스텁으로 바꾸지 않는다 — 진짜 sink 팩토리에 가짜 `SupabaseClient` 를 주입해 **적용된 필터와 영향 받은 행**을 단언한다 (gap 1 이 통과했던 사각지대).
 - Phase 1: KIS 실계좌 사용 결정 (모의투자 대신) → readOnlyGuard 안전장치 적용
 - Phase 1: TR ID FHPST01700000 확정, 마켓코드 J(KOSPI)/NX(KOSDAQ)
 - Phase 1: 등락률 순위에 상한가/하한가 없음 → inquirePrice(FHKST01010100) 2단계 파이프라인
