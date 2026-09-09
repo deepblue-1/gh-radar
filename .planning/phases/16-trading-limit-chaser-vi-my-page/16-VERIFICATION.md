@@ -1,102 +1,146 @@
 ---
 phase: 16-trading-limit-chaser-vi-my-page
-verified: 2026-09-08T22:28:49Z
+verified: 2026-09-09T03:54:59Z
 status: gaps_found
-score: 78/82 must-haves verified
+score: 127/133 must-haves verified
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 78/82
+  gaps_closed:
+    - "자동주문 통보의 행 조회·갱신에 사용자·당일 경계가 없다 (gap 1 BLOCKER) — 16-18 이 3축 좁히기 + 부분 UNIQUE 인덱스(프로덕션 실측 확인)로 닫았다"
+    - "전체 비활성화(킬 스위치)가 소켓 미연결 시 조용히 사라진다 (gap 3) — 16-19 가 send→boolean·console.error·세션 가드·실패/ack 문구로 닫았다. 감사 중 vi.set 의 두 번째 구멍까지 찾아 막았다"
+    - "프로덕션 relay /healthz 가 503 이다 (gap 4) — 16-21 의 everReadyCount 판정 + 16-26 배포(2cb5620)로 200 이 됐다. 본 검증에서 직접 실측 확인"
+  gaps_remaining:
+    - "주문 통보 상관의 오귀속 (gap 2 잔여) — 후보 2건 이상은 닫혔으나 후보 1건 경로가 열려 있다 (GC-CR-01)"
+  regressions:
+    - "GC-CR-02 — 좁히지 못한 수동 통보가 존재하지 않는 order_no 행을 갱신해 0행·무로그로 사라진다 (16-18/16-22 가 새로 만든 경로)"
+    - "GC-CR-03 — await insertRequest 중 연결이 닫히면 고아 대기·타이머가 남고 실제 나간 주문이 timeout 으로 확정된다"
 gaps:
-  - truth: "상따·VI 자동주문 통보는 기존 행을 못 찾으면 새 행으로 insert 되어 감사 기록이 비지 않는다 (16-08 / D-03 / Pitfall 18)"
+  - truth: "통보로 대기 항목을 하나로 좁히지 못하면 「가장 오래된 것」을 고르지 않고 매칭 실패로 두어 recordUnmatched 로 보낸다 — 잘못 귀속된 기록은 없는 기록보다 나쁘다 (16-22 truth 2 / gap 2)"
     status: failed
-    reason: "`findIdByOrderNo` 가 `order_no` 만으로 조회한다 — `user_id` 필터도 날짜 범위도 없다. 브로커 주문번호는 일별 재사용 시퀀스이고 `dma_orders.order_no` 에 UNIQUE 제약이 없으므로(일반 인덱스), 운영 2일차부터는 **어제 행**이 매치되어 오늘 자동주문의 insert 가 일어나지 않는다. 이 함수가 막으려던 Pitfall 18 이 그대로 재발한다. 다중 매치 시에는 `maybeSingle()` 이 던지고 catch 가 셀렉터 없는 `enqueueUpdate` 로 열화해 `.update(patch).eq(\"order_no\", v)` 가 **전 사용자·전 날짜 행**을 덮는다(테넌트 간 쓰기)."
-    artifacts:
-      - path: "relay/src/store/orders.ts"
-        issue: "L239-252 `supabaseOrderLookupSink` — `.eq(\"order_no\", orderNo).maybeSingle()` 만 있고 `user_id`·`created_at` 범위가 없다. L452-457 `selectorOf` 가 만드는 `{column:\"order_no\"}` 셀렉터도 사용자 경계가 없다."
-      - path: "relay/src/ws/order-handler.ts"
-        issue: "L275-302 `recordUnmatched` — 조회 실패 catch 가 셀렉터 없는 `enqueueUpdate(patch)` 로 열화한다. 주석의 전제(「대상은 내 행 하나뿐」)가 성립하지 않는다."
-      - path: "supabase/migrations/20260905120200_dma_orders.sql"
-        issue: "L76 `CREATE INDEX idx_dma_orders_order_no` — UNIQUE 가 아니라 DB 방어선이 없다."
-    missing:
-      - "`OrderLookupSink` 시그니처를 `(userId, orderNo)` 로 좁히고 `.eq(\"user_id\", userId)` + KST 당일 `created_at` 범위 필터 추가"
-      - "`OrderSelector` 의 `order_no` 변형에 `userId` 를 실어 `supabaseOrderSink` 의 update 에도 `.eq(\"user_id\", …)` 적용"
-      - "`dma_orders (user_id, order_no, (created_at AT TIME ZONE 'Asia/Seoul')::date)` 부분 UNIQUE 인덱스 마이그레이션"
-      - "sink 를 스텁으로 바꾸지 않는 경계 테스트 — 같은 `order_no` 가 다른 사용자·다른 날짜에 있을 때의 동작"
-  - truth: "브라우저가 wss 로 보낸 주문이 relay 에서 5초 상관 후 order.result 로 돌아온다 (16-08 / D-02)"
-    status: partial
-    reason: "상관 축이 ISIN 하나뿐이다. `state.pending.findIndex((p) => p.isin === notice.isin)` 이라 같은 종목의 대기 항목이 2건 이상이면 **먼저 등록된 것**이 무조건 정산된다. 「취소하고 다시 걸기」(호가주문 탭에서 주문 패널·계좌 패널이 나란히 있는, 이 phase 가 만든 가장 흔한 조작)에서 5초 안에 신규+취소가 겹치면 두 주문의 `order.result` 와 `dma_orders` 기록이 서로 바뀐다. 살아 있는 매수 주문이 「취소됨」으로 표시되고 사용자가 그 표시를 믿고 재주문하면 중복 체결이다. `PendingOrder.qty` 는 저장만 되고 매칭에 쓰이지 않으며, 통보의 `noticeType`·`orgOrderNo`·`price`·`quantity` 도 전혀 보지 않는다. (Phase 15 15-16 에서 이식된 축이지만, 16-10 이 같은 화면에 wss 취소를 붙이면서 이 phase 의 계약 안으로 들어왔다.)"
+    reason: "`narrowPending` 의 첫 줄이 `if (candidates.length <= 1) return candidates[0] ?? null;` 이다(order-handler.ts:864-865). 후보 수집 필터는 `entry.isin === notice.isin` 하나뿐이므로(:340), 후보가 1건이면 통보가 무엇을 실어 왔든 그 대기가 정산된다 — `orgOrderNo` 가 채워진 취소확인이든, 세션 합류로 들어온 남의 통보(notice-status.ts:51 이 그 존재를 명시한다)든 상관없다. 결과는 이 파일이 스스로 「최악의 결과」라고 적은 그 상황이다: 살아 있는 매수 주문이 `{t:\"order.result\", status:\"cancelled\"}` 로 화면에 「취소됨」으로 뜨고(statusOf 의 \"C\"→cancelled), 사용자가 그 표시를 믿고 재주문하면 중복 체결이다. 동시에 `dma_orders` 행에 남의 `order_no` 가 기록된다(finish 의 enqueueUpdate, :749-758). 단위 테스트 `ws-order.test.ts:991-998` (「유일 후보는 축을 보지 않는다」)가 이 동작을 **의도로 못박아** 두었으므로 회귀가 아니라 설계 결함이다. 근거로 든 「구 서버가 축을 비워 보낸다」는 **비어 있는 축을 건너뛸** 이유이지 **통보가 실제로 실어 온 축을 무시할** 이유가 아니다. 후보 2건 이상 경로(원래 gap 2)는 실제로 닫혔다 — 이 갭은 그 인접면이다."
     artifacts:
       - path: "relay/src/ws/order-handler.ts"
-        issue: "L232-245 통보 매칭이 ISIN 단일 축. `byUser` 루프도 ISIN 이 맞는 첫 연결을 고르므로 탭 A 의 통보가 탭 B 의 대기 주문을 정산한다."
+        issue: "L864-865 후보 1개 지름길이 모든 상관 축을 건너뛴다. L340 후보 수집 필터는 ISIN 단일 축이다."
+      - path: "relay/tests/ws-order.test.ts"
+        issue: "L991-998 이 지름길을 「정상 경로 회귀 방지」로 고정한다 — 고칠 때 이 케이스를 함께 뒤집어야 한다."
     missing:
-      - "`PendingOrder` 에 `isCancel`·`price` 를 싣고 `noticeType`(C/M vs 그 외)·`quantity` 로 후보를 좁히는 `matches()` 도입"
-      - "못 좁히면 「가장 오래된 것」이 아니라 매칭 실패로 두어 `recordUnmatched` 로 보내기"
-      - "같은 ISIN 의 신규+취소가 5초 안에 겹치는 relay 테스트 케이스"
-  - truth: "전체 비활성화(킬 스위치)가 My page 에서 확인 다이얼로그를 거쳐 실제로 전략을 내린다 (16-15 / D-09 · PC-7)"
-    status: partial
-    reason: "버튼·다이얼로그·65 백스톱은 실재하고 연결 상태에서는 동작한다. 그러나 `use-relay-socket.ts` 의 `send()` 가 소켓 미연결 시 **로그도 반환값도 없이** 조용히 드롭하고(L850-854), 킬 스위치만 `status !== 'ready'` 가드가 없다(`disabled={nothingToDisable || awaitingAck}`). 리듀서는 단절 시 `isStale` 만 세우고 `limitChasers` 를 유지하므로 재접속 중에도 버튼이 활성이다. 결과: 게이트웨이로 0바이트가 나가고 8초 뒤 `awaitingAck` 만 내려가며 오류 문구·로그·재시도가 전부 없다 — 사용자는 껐다고 믿고 자동매매는 계속 돈다. `lc.set`/`vi.set`/`vi.confirm` 호출부는 전부 `sessionReady` 로 가려져 있어 킬 스위치만 예외다. 프로젝트 규율 「무로그 fail-safe 금지」(PC-7 / S-5) 위반이고 하필 대상이 가장 안전 임계적인 컨트롤이다."
+      - "통보가 **실어 온** 강한 축(`orgOrderNo` 비어 있지 않음 · `noticeType` 이 C/M)은 후보 수와 무관하게 하드 필터로 적용 — 비어 있는 축만 건너뛰면 구 서버 호환은 그대로 유지된다"
+      - "하드 필터 결과가 0건이면 `null` 을 돌려 아무것도 정산하지 않기 (5초 타임아웃이 진실이다)"
+      - "테스트 「유일 후보는 축을 보지 않는다」를 「유일 후보라도 취소확인은 신규 대기를 정산하지 않는다」로 뒤집기"
+  - truth: "브라우저가 낸 주문의 수명주기(요청→접수·체결·취소·타임아웃)가 dma_orders 에 결손·오기록 없이 남는다 (phase goal 파생 / TRADE-03 「dma_orders insert/update 를 relay 가 전담」 · 프로젝트 규율 「무로그 fail-safe 금지」)"
+    status: failed
+    reason: "두 경로가 조용히 기록을 잃는다. ① **수동 통보의 0행 갱신 (GC-CR-02).** 수동 주문의 insert 는 `order_no` 를 싣지 않는다(order-handler.ts:661-681 — 접수 전이라 주문번호를 모른다). `order_no` 는 `finish` 가 정산할 때 채운다(:749-758). 그런데 좁히기에 실패했거나 연결이 이미 닫힌 통보는 `recordUnmatched` 의 manual 분기로 가서 `enqueueUpdate({...patch, userId})` 를 큐에 넣고(:395-403), `selectorOf` 가 이를 `order_no` 셀렉터로 만든다(store/orders.ts:597-609). **그 시점에 그 사용자의 오늘 행 중 `order_no = notice.orderNo` 인 행은 없다.** PostgREST 의 update 는 0행이어도 에러가 아니므로 이 갱신은 아무것도 하지 않고 끝나며, 로그도 없다 — 이 모듈이 머리말에서 「Pitfall 18」이라고 부르며 없애겠다고 선언한 바로 그 침묵이다. 후보 0건 경로(`closeConn` 이후 도착한 통보)는 `candidates.length > 1` 이 아니라 warn 조차 없다. ② **await 중 연결 종료 (GC-CR-03).** `handle` 은 `insertRequest` 를 `await` 하는데(:661-689), 그 사이 `closeConn` 이 돌면 `state.pending` 을 비우고 `conns`·`byUser` 에서 연결을 지운다(:816-835). `await` 재개 후 코드는 **연결 생존을 다시 확인하지 않고** 타이머를 걸고(:770) 고아 `ConnState` 에 대기를 등록하고(:786) **주문을 실제로 게이트웨이에 보낸다**(:789). 통보 상관은 `byUser`→`conns` 를 훑으므로 이 대기는 영원히 후보가 되지 않고, 5초 뒤 고아 타이머가 `enqueueUpdate({orderRowId, status:\"timeout\"})` 을 확정한다 — **실제로 접수·체결된 주문이 감사 기록에 `timeout` 으로 남고 정정 경로가 없다.**"
     artifacts:
-      - path: "webapp/src/lib/use-relay-socket.ts"
-        issue: "L850-854 `send` 가 `readyState !== OPEN` 이면 무로그·무반환 드롭. 전략 4종의 유일한 출구다."
-      - path: "webapp/src/components/trading/strategy-status-card.tsx"
-        issue: "L456 `disabled={nothingToDisable || awaitingAck}` — 세션 상태를 보지 않는다. L360-368 `handleConfirm` 이 전송 성공 여부를 확인하지 않고 `awaitingAck` 를 세운다."
+      - path: "relay/src/ws/order-handler.ts"
+        issue: "L395-403 manual 분기가 존재하지 않는 order_no 행을 무로그로 갱신한다. L661-689 `await insertRequest` 직후 연결 생존 재확인이 없다. L770·L786·L789 가 고아 상태에 타이머·대기를 걸고 주문을 송신한다."
+      - path: "relay/src/dma/subscription-hub.ts"
+        issue: "L690-703 `#onOrderNotice` 가 통보를 stdout 에 남기지 않아 D-24 의 「두 번째 감사 사본」이 이 경로에 없다."
     missing:
-      - "`send(msg): boolean` 으로 바꾸고 드롭 시 `console.error` 로그 남기기"
-      - "킬 스위치 `disabled` 에 `status !== 'ready'` 추가"
-      - "전송 실패 시 `awaitingAck` 를 세우지 않고 「연결이 끊겨 보내지 못했어요」 표시"
-      - "8초 ack 타임아웃도 조용히 지나가지 않게 「반영을 확인하지 못했어요」 남기기"
-  - truth: "relay·server·webapp 이 재배포되어 프로덕션에서 전략·주문 wss 경로가 살아 있다 (16-17)"
+      - "manual 분기도 `findIdByOrderNo(userId, orderNo)` 로 좁혀 `orderRowId` 로 갱신하고, 행이 없으면 통보 원문을 `logger.error` 로 남기기 (S-5)"
+      - "`await insertRequest` 직후 `conns.get(conn) !== state` 재확인 — 죽었으면 조립·송신 **이전에** 중단하고 `status:\"rejected\"` 로 기록"
+      - "연결 종료·좁히기 실패로 도착한 통보에 대한 relay 테스트 (현재 ㉑ 은 좁히기 실패까지만 고정하고 그 뒤 0행 갱신은 관찰하지 않는다)"
+  - truth: "닫힌 14건과 남은 항목이 VALIDATION·STATE·ROADMAP·REQUIREMENTS 에 정직하게 반영된다 (16-26 truth 5)"
     status: partial
-    reason: "배포 3종은 실측 확인됐다 — relay `4b6d792`(VM radar-gw), server `gh-radar-server-00042-p78`(env 17종·relay 바인딩 0건), webapp 은 Phase 16 사이드바(「상승률 상위」·「종목검색」)가 라이브다. 그러나 relay 공개 `/healthz` 는 지금 `503 {\"status\":\"degraded\",\"vpn\":true,\"dma\":false,\"version\":\"4b6d792\",\"sessionCount\":1}` 이다. DMA 게이트웨이 세션이 Ready 가 아니므로 **전략·주문 wss 경로는 프로덕션에서 끝까지 살아 있지 않다** — 로그인 사용자는 트레이딩 3표면에서 게이트만 본다. 판정 로직 차분은 0 이고 2026-09-06 에도 같은 구간이 있었던 재발형 조건이지만, 이 phase 가 `RelayProvider` 를 루트 레이아웃으로 올리면서(`enabled: user != null`) 트리거 표면이 「호가주문 탭」에서 「로그인한 모든 페이지」로 넓어졌다. uptime check 적색 + `gh-radar-relay-down` 발화가 상시화된다."
+    reason: "서술은 정직하다 — TRADE-03 을 Pending 으로 남긴 근거(`everReadyCount:0`)와 INV-9 미실행 사실이 정확히 적혀 있고 과장이 없다. 그러나 **REQUIREMENTS.md 안에서 두 표현이 서로 어긋난다.** Traceability 표(L173·174·176)는 TRADE-01·TRADE-02·NAV-01 을 Complete 로 재판정했는데, 같은 파일 요구사항 목록의 체크박스(L97·98·100)는 여전히 `- [ ]` 다. 이 파일의 관례는 체크박스 = Complete 다(RELAY-01·RELAY-03 은 `- [x]`, Pending 인 RELAY-02 는 `- [ ]`, 그리고 같은 phase 의 MYPAGE-01 은 `- [x]` 로 갱신돼 있다). 세 요구사항의 상태를 파일 안에서 두 곳이 다르게 말한다."
     artifacts:
-      - path: "webapp/src/app/layout.tsx"
-        issue: "RelayProvider 가 루트 레이아웃 — 게이트웨이 부재 구간에 503 트리거 표면이 앱 전역으로 넓어졌다."
-      - path: "scripts/smoke-relay.sh"
-        issue: "INV-9 가 `POST /api/orders` 도달성으로 판정하는데 그 라우트는 16-16 에서 사라졌다 — 토큰을 넣어도 무조건 404/inconclusive 다."
+      - path: ".planning/REQUIREMENTS.md"
+        issue: "L97 TRADE-01 · L98 TRADE-02 · L100 NAV-01 이 `- [ ]` 인데 L173·174·176 은 Complete. MYPAGE-01(L101)만 `- [x]` 로 갱신됐다."
     missing:
-      - "해법 4안 중 택1(사용자 결정): ① VM 에 mock 게이트웨이 상주 ② 실서버 결선(D-27 금지) ③ degraded 판정에서 「한 번도 Ready 인 적 없는 세션」 제외 ④ 알림 정책 조정"
-      - "`smoke-relay.sh` INV-9 의 도달성 근거를 relay wss 주문 왕복으로 교체"
+      - "TRADE-01 · TRADE-02 · NAV-01 요구사항 목록 체크박스를 `- [x]` 로 갱신 (TRADE-03 은 Pending 이므로 `- [ ]` 유지가 맞다)"
 human_verification:
   - test: "WinForms ↔ 웹 「한 세션」 동기화 — WinForms 상따창과 `/trading/limit-chaser/[key]` 를 동시에 열고, 웹 스위치 ON → WinForms 무장 배지 확인, WinForms 매수가격 변경 → 웹 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인"
-    expected: "같은 DMA 세션(`ezmesya`)에서 전략·체결·미체결이 즉시 공유된다 (phase goal 의 핵심 문장)"
-    why_human: "실 gh-trade 서버 + WinForms 클라이언트가 필요하다. mock 으로 재현 불가이며 D-27 상 사용자 명시 지시가 있어야 실행한다."
+    expected: "같은 DMA 세션(`ezmesya`)에서 전략·체결·미체결이 즉시 공유된다 — phase goal 의 핵심 문장이다"
+    why_human: "실 gh-trade 서버 + WinForms 클라이언트가 필요하다. mock 으로 재현 불가이며 D-27 상 사용자 명시 지시가 있어야 실행한다. 프로덕션 `/healthz` 의 `everReadyCount:0` 은 이 경로가 **한 번도 실행된 적이 없음**을 뜻한다"
+  - test: "smoke `INV-9` 첫 실행 — 로그인 브라우저 localStorage 의 `access_token` 을 `SMOKE_AUTH_TOKEN` 으로 넣고 `bash scripts/smoke-relay.sh` 실행"
+    expected: "`reachable` (주문 핸들러가 거부로 답한다). 프로브는 화이트리스트 밖 계좌번호 + 미해석 ISIN 을 쓰므로 실계좌에 주문이 나가지 않는다"
+    why_human: "16-21 이 재작성한 프로브가 **한 번도 실행된 적이 없다.** 토큰은 사용자 브라우저에서만 얻을 수 있고 약 1시간 만료다"
   - test: "gh-trade mock 서버 대상 전략 왕복 — `../gh-trade/server/scripts/run-mac.sh` 기동 → relay 로컬 기동 → 브라우저 로그인 → 스냅샷 3프레임 수신 로그 확인 → 상따 등록 → 60 에코 수신 확인"
     expected: "24/21/34 빈 Envelope 요청에 60/61/73 응답이 돌아오고 화면에 반영된다"
-    why_human: "로컬 mock 바이너리 실행이 필요하다. E2E 는 relay 스텁 게이트웨이까지만 검증한다."
+    why_human: "로컬 mock 바이너리 실행이 필요하다. E2E 는 relay 스텁 게이트웨이까지만 검증한다"
   - test: "VI 마감알림 — 브라우저 Notification 권한 허용 후 `vi_end_time` 임박 시 알림 표시 확인"
     expected: "마감 10초 전 알림이 이 기기에서만 뜬다 (다른 단말 전파 없음)"
-    why_human: "headless Chromium 에서 Notification 실제 표시가 불가능하다. 단위 테스트는 생성자 호출 여부까지만 잠근다."
+    why_human: "headless Chromium 에서 Notification 실제 표시가 불가능하다. 단위 테스트는 생성자 호출 여부까지만 잠근다"
   - test: "15:40 서버 자동 비활성화(61 Broadcast) — 장 마감 후 VI 페이지에서 `run=false` 반영 + 로그 1줄 확인"
     expected: "서버가 내린 61 Broadcast 가 화면의 가동 램프를 「중지됨」으로 바꾸고 전략 로그에 남는다"
-    why_human: "서버 시각에 의존한다."
+    why_human: "서버 시각에 의존한다"
   - test: "확인 체크 잠금의 영구화 — 실계좌 검증 시 73 정정도 `confirmLocked` 도 오지 않는 행이 실제로 관측되는지 확인"
     expected: "D-10 상 의도된 동작(무응답이 정상 경로)이지만 실측으로 관측 빈도를 확인한다"
-    why_human: "서버가 영원히 아무것도 보내지 않는 경우를 mock 으로 재현할 수 없다."
-  - test: "relay `/healthz` 503 해법 결정 — 위 gap 4 의 4안 중 어느 것을 채택할지"
-    expected: "프로덕션 uptime check 가 녹색으로 돌아오거나, 알림 정책이 이 조건을 정상으로 인정한다"
-    why_human: "게이트웨이 상주 여부·D-27 완화·판정 로직 변경·알림 정책은 전부 사용자 결정 사항이다. 실행자가 단독으로 고를 수 없다."
+    why_human: "서버가 영원히 아무것도 보내지 않는 경우를 mock 으로 재현할 수 없다"
 ---
 
-# Phase 16: 트레이딩 메뉴(상따·VI·My page) 검증 보고서
+# Phase 16: 트레이딩 메뉴(상따·VI·My page) 검증 보고서 — 갭 클로징 후 재검증
 
 **Phase Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 
-**검증 일시:** 2026-09-08T22:28:49Z
+**검증 일시:** 2026-09-09T03:54:59Z
+**HEAD:** `8207a47` (배포본 `2cb5620` + 문서 3커밋)
 **상태:** gaps_found
-**재검증:** 아니오 — 최초 검증
+**재검증:** 예 — 1차 검증(2026-09-08T22:28:49Z, 78/82 · 갭 4건) 이후 갭 클로징 9개 plan(16-18~16-26) 실행 결과에 대한 재검증
+
+---
+
+## 이 phase 가 지나온 경로 (이력 보존)
+
+| 단계 | 결과 |
+|---|---|
+| 1차 실행 (16-01~16-17) | 17 plan 완료 |
+| 1차 검증 | **78/82** · 갭 4건 · TRADE-03 BLOCKED |
+| 1차 코드 리뷰 (`16-REVIEW.md`) | Critical 4 · Warning 9 · Info 7 (`CR-`/`WR-`/`IN-`) |
+| 갭 클로징 (16-18~16-26) | 14건 종결 (G1~G4 · CR-01 · WR-01~09) · 배포 `2cb5620` |
+| 2차 코드 리뷰 (`16-REVIEW.md` §갭 클로징 재리뷰) | **Critical 3 · Warning 12 · Info 4** (`GC-` 네임스페이스) — 전부 relay 주문 상관 경로 |
+| **본 재검증** | **127/133** · 갭 3건(BLOCKER 2 · WARNING 1) · TRADE-03 Pending 유지 |
 
 ---
 
 ## 요약
 
-**골격은 실재한다.** 17개 plan 이 선언한 46개 아티팩트가 전부 존재하고, 선언한 `contains` 패턴 37건이 100% 일치하며, 키 링크 17건이 전부 결선돼 있다. 스텁 파일도, 자리표시 카피도, 미해결 부채 마커(`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`)도 phase 16 이 손댄 141개 파일에서 **0건**이다. 자동 검증은 SUMMARY 주장을 그대로 재현했다 — typecheck 13 워크스페이스 exit 0, 단위 1,293 통과(shared 99 / relay 315 / server 251 / webapp 628), Playwright **126 통과 · 0 실패 · 9 skip (2.4분)**. 프로덕션도 실측했다: `dma_orders.origin` 컬럼이 라이브 DB 에 존재하고(PostgREST 200 vs 없는 컬럼 400 대조), server 리비전 `00042-p78` 의 env 이름 17종에 relay 바인딩이 0건이며, webapp 은 Phase 16 사이드바가 라이브다.
+**1차 갭 4건 중 3건은 실제로 닫혔다.** SUMMARY 주장을 믿지 않고 코드·라이브 DB·프로덕션 엔드포인트를 직접 쳤고, 세 건 모두 1차 증거가 나왔다.
 
-**문제는 「있는데 틀린」 네 자리다.** 전부 각 모듈이 자기 규율을 지켰는데 모듈 사이 계약이 어긋난 형태이고, 세 자리가 **돈이 나가는 경로**에 있다.
+- **gap 1 (BLOCKER · 감사 기록 결손 + 테넌트 간 쓰기)** — `supabaseOrderLookupSink` 가 `(user_id, order_no, KST 당일)` 3축으로 좁고(`orders.ts:314-331`), `order_no` 셀렉터 update 도 같은 3축을 건다(`:246-250`), `userId` 없는 `order_no` 갱신은 `selectorOf` 가 `null` 을 돌려 드롭 로그를 남긴다(`:456`). 경계 테스트는 **sink 를 스텁으로 바꾸지 않고** 가짜 `SupabaseClient` 가 필터를 실제 적용해 「영향 받은 행」을 계산한다(`order-store.test.ts:436-560`) — 1차 갭이 통과했던 사각지대가 구조적으로 닫혔다. 그리고 **라이브 DB 를 직접 덤프해 부분 UNIQUE 인덱스의 실재를 확인했다**(아래 실측 ①).
+- **gap 3 (킬 스위치 무로그 드롭)** — `send()` 가 `boolean` 을 돌려주고 드롭 시 `console.error` 를 남기며(`use-relay-socket.ts:863-876`), 킬 스위치 `disabled` 에 `status !== "ready"` 가 붙었고(`strategy-status-card.tsx:460`), 전송 실패 시 `awaitingAck` 를 세우지 않고 문구를 띄우며(`:354-365`), 8초 ack 타임아웃도 「반영을 확인하지 못했어요」를 남긴다(`:333-346`). 감사 과정에서 `vi.set` 의 「수정」 경로에 같은 구멍이 **하나 더** 있었음을 찾아 막았다(`vi-settings-card.tsx:306` `if (locked) return;`) — 1차 리뷰의 「킬 스위치만 예외」는 사실이 아니었고 SUMMARY 가 그것을 정정해 적었다.
+- **gap 4 (프로덕션 relay 503)** — 판정이 `sessionsOk = everReadyCount === 0 || readyCount > 0` 로 바뀌었고(`order-api.ts:223`), 「Ready 였다가 죽은 세션」은 여전히 degraded 이며(`order-api.test.ts:227-243`), 회선(`vpn`) 신호는 세션과 독립이다(`:274-283`). **본 검증에서 프로덕션을 직접 쳐 200 을 받았다**(아래 실측 ②).
 
-1. **감사 기록이 운영 2일차부터 빈다 (BLOCKER).** 자동주문 통보의 행 조회가 `order_no` 단독이라, 일별 재사용되는 브로커 주문번호가 어제 행에 매치되면 오늘 자동주문의 insert 가 아예 일어나지 않는다. 16-08 의 must-have 문장이 정확히 이 실패를 막겠다고 선언한 것인데, 그 방어가 자기 조건에서 무력하다. 다중 매치 열화 경로에서는 `order_no` 단독 update 가 **다른 사용자의 행**까지 덮는다.
-2. **주문 결과가 서로 바뀔 수 있다.** 통보 상관이 ISIN 하나뿐이라 「취소하고 다시 걸기」에서 신규와 취소의 결과·기록이 교차한다. 살아 있는 매수 주문이 「취소됨」으로 보이면 사용자는 재주문하고, 그게 중복 체결이다.
-3. **킬 스위치가 조용히 사라진다.** 소켓이 끊긴 상태에서 「전체 비활성화」를 눌러도 0바이트가 나가고 로그도 오류 표시도 없다. 전략 4종 중 이것만 세션 상태 가드가 없다.
-4. **프로덕션 relay 가 지금 503 이다.** 배포는 됐지만 게이트웨이 세션이 없어 전략·주문 wss 경로가 끝까지 살아 있지 않다. 판정 로직 차분은 0 이나, `RelayProvider` 의 루트 승격이 트리거 표면을 앱 전역으로 넓혔다.
+**gap 2 는 선언한 범위까지만 닫혔다.** 후보 2건 이상에서 `narrowPending` 이 `orgOrderNo`→`noticeType`→`quantity`→`price` 로 좁히고 폴백 없이 미정산으로 두는 것은 코드·테스트로 확인된다. 그런데 **후보가 1건이면 함수 첫 줄이 모든 축을 건너뛴다**(`order-handler.ts:864-865`). 후보 수집 필터가 ISIN 하나뿐이므로, 살아 있는 매수 주문 하나가 대기 중일 때 도착한 취소확인·남의 통보가 그 대기를 정산한다 — 이 파일이 스스로 「최악의 결과」라고 적어 둔 상황(살아 있는 주문이 「취소됨」으로 표시 → 사용자 재주문 → 중복 체결)이 그대로 재현된다. 단위 테스트가 이 동작을 **의도로 못박고** 있으므로 실수가 아니라 설계 결함이다.
 
-1~3 은 코드로 닫을 수 있고, 4 는 사용자 결정이 필요하다.
+**그리고 갭 클로징이 두 개의 새 침묵을 만들었다.** 둘 다 「기록이 조용히 사라지거나 틀리게 확정되는」 형태다 — 이 phase 가 `Pitfall 18` · `D-24` · `S-5` 로 반복해 금지한 바로 그 부류다.
+
+- **GC-CR-02** — 좁히지 못한 **수동** 통보가 `order_no` 셀렉터로 갱신되는데, 수동 insert 는 `order_no` 를 싣지 않으므로 그 시점에 매치되는 행이 없다. PostgREST 는 0행 update 를 에러로 보지 않고, 이 경로에는 로그가 없다.
+- **GC-CR-03** — `await insertRequest` 중에 연결이 닫히면 코드가 그것을 확인하지 않고 타이머·대기를 고아 상태에 걸고 **주문을 실제로 보낸다**. 그 주문은 영원히 상관 후보가 되지 않고 5초 뒤 `status:"timeout"` 으로 확정된다.
+
+**phase goal 의 핵심 문장은 여전히 미검증이다.** 「같은 DMA 세션으로 WinForms 와 즉시 공유」는 프로덕션에서 한 번도 실행된 적이 없다 — 실측한 `everReadyCount: 0` 이 그 증거다. TRADE-03 을 Pending 으로 남긴 판단은 정확하다. 다만 이것은 갭 클로징의 실패가 아니라 D-27(사용자 명시 지시 없이 실서버 결선 금지)의 결과이며, 문서가 이를 과장 없이 적었다.
+
+---
+
+## 본 검증이 직접 취한 실측 (SUMMARY 인용이 아님)
+
+### ① 프로덕션 부분 UNIQUE 인덱스 — 라이브 DB 덤프 원문
+
+```
+$ npx supabase db dump --linked --schema public | grep dma_orders
+CREATE UNIQUE INDEX "idx_dma_orders_user_order_no_kst_day" ON "public"."dma_orders"
+  USING "btree" ("user_id", "order_no", ((("created_at" AT TIME ZONE 'Asia/Seoul'::"text"))::"date"))
+  WHERE ("order_no" IS NOT NULL);
+COMMENT ON INDEX "public"."idx_dma_orders_user_order_no_kst_day" IS '한 사용자의 하루 안에서 order_no 는 유일하다. …';
+CONSTRAINT "dma_orders_origin_check" CHECK (("origin" = ANY (ARRAY['manual','limit_chaser','vi'])))
+```
+
+16-18 의 「프로덕션 적용」 주장은 참이다. `origin` 컬럼의 CHECK 3종도 라이브에 실재한다(16-01·16-20 계약의 근거).
+
+### ② 프로덕션 relay `/healthz`
+
+```
+$ curl -s -o - -w "%{http_code}" https://dma.jx1.io/healthz
+200
+{"status":"ok","vpn":true,"dma":true,"version":"2cb5620","sessionCount":2,"everReadyCount":0}
+```
+
+배포본 `2cb5620` 이 프로덕션에서 돌고 있고, **세션이 2건 붙어 있는 상태에서** 200 이다 — 「배포 직후 세션 0 인 200」이 아니므로 16-26 truth 3 의 증거 기준을 만족한다. 동시에 `everReadyCount: 0` 은 **Ready 에 도달한 DMA 세션이 프로덕션에 한 건도 없었다**는 뜻이며, TRADE-03 Pending 판정의 1차 근거다.
+
+### ③ 부채 마커 스캔
+
+`relay/src` · `webapp/src` · `server/src` · `packages/shared/src` 전량에서 `TBD`/`FIXME`/`XXX` **0건**, `TODO`/`HACK` **0건**. (검출된 `XXXX` 1건은 `limit-chaser.test.ts:99` 의 테스트용 ISIN 접미사, `PLACEHOLDER` 는 Phase 7/8 표면의 em-dash 상수로 이 phase 무관.)
 
 ---
 
@@ -104,347 +148,296 @@ human_verification:
 
 ### Observable Truths
 
-**Score: 78/82 truths verified**
+**Score: 127/133** (plan frontmatter 131 + goal 파생 2)
 
-#### 16-01 — REQUIREMENTS · relay 생성코드 · checkbox · origin 마이그레이션
+#### 1차 갭 4건 — 재판정
 
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 1 | REQUIREMENTS.md 에 TRADE-01/02/03·NAV-01·MYPAGE-01 5건 등록 + Coverage 40→45 | ✓ VERIFIED | `REQUIREMENTS.md:97-101` 정의 5건, `:173-177` Traceability 5행, `:180` "40→45" |
-| 2 | `SetLimitChaser.cancelQtyTrackBaseline()` 접근자 존재 (정본 .fbs 동기화) | ✓ VERIFIED | `set-limit-chaser.ts` 에 `cancelQtyTrackBaseline` + `startObject(45)` 둘 다 존재 |
-| 3 | webapp 에 shadcn checkbox 존재 | ✓ VERIFIED | `webapp/src/components/ui/checkbox.tsx` 48줄, Radix 래핑 |
-| 4 | `dma_orders.origin` 이 **프로덕션 DB** 에 적용 | ✓ VERIFIED | 라이브 PostgREST 실측 — `select=origin` → `200`, `select=bogus_col_xyz` → `400 42703`. 컬럼 실재 확인 |
+| # | Truth (1차 갭) | 1차 | 지금 | 증거 |
+|---|---|---|---|---|
+| G1 | 자동주문 통보는 기존 행을 못 찾으면 새 행으로 insert 되어 감사 기록이 비지 않는다 | ✗ FAILED | ✓ **VERIFIED** | `orders.ts:314-331` 3축 조회 · `:246-250` 3축 update · `:456` userId 없는 갱신 드롭 로그 · `ensureRow`/`autoInsertRow` insert 분기 · 라이브 DB 인덱스(실측 ①) |
+| G2 | 브라우저가 wss 로 보낸 주문이 relay 에서 5초 상관 후 order.result 로 돌아온다 | ⚠️ PARTIAL | ⚠️ **PARTIAL** | 후보 2건 이상 다축 상관은 실재(`order-handler.ts:868-891`, 테스트 ⑳㉑). **후보 1건 지름길(:864-865)이 남아 오귀속 경로가 열려 있다** → 갭 1 |
+| G3 | 전체 비활성화가 확인 다이얼로그를 거쳐 실제로 전략을 내린다 | ⚠️ PARTIAL | ✓ **VERIFIED** | `use-relay-socket.ts:863-876` · `strategy-status-card.tsx:354·460` · `vi-settings-card.tsx:306` |
+| G4 | relay·server·webapp 이 재배포되어 프로덕션에서 전략·주문 wss 경로가 살아 있다 | ⚠️ PARTIAL | ✓ **VERIFIED** | 실측 ② — `version:2cb5620` · `status:ok` · 200 |
 
-#### 16-02 — 테스트 하네스
+#### 갭 클로징 plan 별 must-have (16-18 ~ 16-26, 49건)
 
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 5 | 60/61/64/72/73/56/51 프레임을 FakeGateway 로 주입 가능 | ✓ VERIFIED | `frames.ts` 909줄 `buildSetLimitChaserRespFrame` 외, `fake-gateway.ts` `respondLimitChaserList` 등 5종. relay 315 테스트 통과 |
-| 6 | relay spec 다중 파일에서 8090 EADDRINUSE 없음 | ✓ VERIFIED | `playwright.config.ts` `workers: 1` + `fullyParallel: false`. relay 쓰는 spec 5개 포함 E2E 126 통과 |
-| 7 | 실서버 IP·실계좌 리터럴 0건 | ✓ VERIFIED | 테스트의 IP 는 RFC1918 (`10.41.1.124` 등) 이고 `order-api.test.ts:67` 이 "실주소를 테스트에 [적지 않는다]" 명시. `ezmesya`·게이트웨이 주소 0건 |
-
-#### 16-03 — shared 계약 + zod 인바운드
+**16-18 — dma_orders 사용자·당일 경계 + in-flight 가드 + 부분 UNIQUE 인덱스 (6/6)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 8 | 전략·주문 메시지가 하나의 타입 계약 | ✓ VERIFIED | `packages/shared/src/relay.ts` `RelayLimitChaser` 외, `protocol.ts:217` `z.discriminatedUnion("t", …)` |
-| 9 | 스키마 위반 인바운드는 조용히 무시되지 않고 거부 | ✓ VERIFIED | `protocol.ts:244,251` `logger.warn` → `null` → 호출자 `close(4400)` |
-| 10 | 인바운드 주문 판별자가 아웃바운드 `{t:"order"}` 와 비충돌 | ✓ VERIFIED | 인바운드는 `order.new`/`order.cancel`, 아웃바운드는 `order`/`order.result` — 판별자 분리 |
+|---|---|---|---|
+| 1 | 같은 `order_no` 가 타 사용자·타 날짜에 있어도 내 오늘 행만 찾고, 못 찾으면 insert | ✓ VERIFIED | `orders.ts:314-331` `.eq(user_id).eq(order_no).gte/lt(created_at).order(desc).limit(1)` · `ensureRow` → `autoInsertRow` |
+| 2 | `order_no` 셀렉터 update 가 `user_id`·KST 당일로 좁혀져 남의 행을 덮을 수 없다 | ✓ VERIFIED | `orders.ts:246-250` 세 축 전부 |
+| 3 | `userId` 없는 `order_no` 갱신은 큐에 실리지 않고 error 로그 + 드롭 카운터 | ✓ VERIFIED | `selectorOf`(`:597-609`) 가 `null` → `:450-457` 드롭 로그 「userId 없는 order_no 갱신 포함」 |
+| 4 | 같은 자동주문의 접수(A)·체결(E) 가 겹쳐도 행은 1건 | ✓ VERIFIED | `order-handler.ts` `inflight` Map(`${userId}\|${orderNo}`) 재사용. ※ `orderNo === ""` 키 충돌은 별개 문제(GC-WR-02, 아래 경고) |
+| 5 | DB 부분 UNIQUE 인덱스가 프로덕션에 적용 | ✓ VERIFIED | **실측 ① — 라이브 덤프 원문** |
+| 6 | 경계 테스트가 sink 를 스텁으로 바꾸지 않고 적용 필터를 검사 | ✓ VERIFIED | `order-store.test.ts:436-560` — `fakeDmaOrders` 가 필터를 **실제 적용**해 `matched` 계산, 픽스처 3행(타사용자 오늘·내 어제·내 오늘) |
 
-#### 16-04 — msg-type 화이트리스트 + 요청 빌더 7종
-
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 11 | 전략 요청 7종(10/11/14/21/24/33/34) FlatBuffers 조립 | ✓ VERIFIED | `envelope.ts` `buildSetLimitChaserReq`·`buildSetVITriggerReq`·`buildConfirmVIOrderReq`·`buildDisableStrategiesReq`·`buildGetLimitChaserListReq`·`buildGetVITriggerReq`·`buildGetVIOrderListReq` |
-| 12 | 새로 통과하는 수신 msg_type 7종(56/60/61/64/65/72/73) 전부 열거 | ✓ VERIFIED | `msg-type.ts:136-155` `INBOUND_MSG_TYPES` 에 7종 명시. 74/75·27/57 제외 근거도 주석에 있음 |
-| 13 | deprecated 슬롯·위치 인자 생성 함수 미사용 | ✓ VERIFIED | `createSetLimitChaser(`/`createSetVITrigger(`/`createDirectOrder(` 호출 0건. `startXxx` + `addXxx` 개별 호출만 |
-
-#### 16-05 — 응답 파서 7종
+**16-19 — send() boolean 계약 + 킬 스위치 세션 가드 (5/5)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 14 | 60/61/64/65/72/73/56 을 JSON 계약으로 파싱 (브라우저에 FlatBuffers 미노출) | ✓ VERIFIED | `parseLimitChaserEcho`·`parseLimitChaserList`·`parseViTrigger`·`parseViOrderList`·`parseViOrderNotice`·`parseDisableStrategiesResp` |
-| 15 | bigint 필드가 Number 로 변환되어 팬아웃 루프가 죽지 않음 | ✓ VERIFIED | `envelope.ts:213` `toNum(v: bigint, label)` 단일 통과점 + `:1493` 주석 계약 |
-| 16 | 60 에코의 `crud "D"` 가 삭제 신호로 보존 | ✓ VERIFIED | `:1579` `crud: fromWireCrud(t.crud() ?? "")`, `:1635` "삭제 판정은 스위치가 아니라 이 값" |
+|---|---|---|---|
+| 7 | 미연결 `send()` 가 로그를 남기고 false 반환 | ✓ VERIFIED | `use-relay-socket.ts:863-876` `console.error(\`[relay] 소켓 미연결 … (t=${msg.t})\`)` + 본문 미기재 |
+| 8 | 「전체 비활성화」가 `status !== 'ready'` 면 비활성 | ✓ VERIFIED | `strategy-status-card.tsx:460` |
+| 9 | 전송 실패 시 `awaitingAck` 안 서고 「연결이 끊겨…」 표시 | ✓ VERIFIED | `:354-365` `if (!send(...)) { setSendError(...); return; }` |
+| 10 | 8초 ack 타임아웃이 「반영을 확인하지 못했어요」를 남긴다 | ✓ VERIFIED | `:333-346` |
+| 11 | 나머지 4개 호출부가 전부 세션 준비 상태로 가려져 있음이 확인된다 | ✓ VERIFIED (정정) | 감사 결과 3곳은 실재, **`vi.set` 1곳은 부재였고 이 plan 이 세웠다**(`vi-settings-card.tsx:306`). SUMMARY 가 「킬 스위치만 예외」가 거짓이었음을 정직하게 기록 |
 
-#### 16-06 — SubscriptionHub 전략 캐시 + Ready 프리페치
-
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 17 | 세션 단위 전략 캐시 3맵 | ✓ VERIFIED | `subscription-hub.ts:253/261/268` `#limitChasers`·`#viTriggers`·`#viOrders` |
-| 18 | Ready 직후 24/21/34 를 한 번 호출해 캐시 시딩 | ✓ VERIFIED | `requestStrategySnapshot()` 이 `buildGetLimitChaserListReq`/`GetVITriggerReq`/`GetVIOrderListReq` 3종 송신. `#onReady` 에서만 호출(`:1007`) |
-| 19 | 60 에코의 `crud "D"` 가 캐시에서 삭제로 반영 | ✓ VERIFIED | `:748` `if (item.crud === "D") this.#limitChasers.delete(key)` |
-| 20 | 세션 교체 시 전략 캐시 폐기 | ✓ VERIFIED | `#clearCaches(userId)` 가 3맵 전부 prefix 삭제. 호출점 3개(`:302/318/398`) |
-| 21 | 전략 팬아웃은 언제나 userId 한 명 대상 | ✓ VERIFIED | `#fanout(userId, msg)` 단일 경로, 전역 브로드캐스트 함수 부재 |
-
-#### 16-07 — fanout 전략 인바운드 + auth 직후 스냅샷
+**16-20 — 죽은 orders-api 삭제 + origin 읽기 노출 (5/5)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 22 | 인증만 하면 종목 구독 없이 전략 스냅샷 3프레임 즉시 수신 | ✓ VERIFIED | `fanout.ts:526-529` `lc.snap` + `vi` + `vi.list` 를 auth 직후 `#send` |
-| 23 | 전략 4종이 wss 로 올라가 그 사용자의 DMA 세션으로 나감 | ✓ VERIFIED | `:560-610` `lc.set`/`vi.set`/`vi.confirm`/`strategies.disable` 4분기 → `session.send(payload)` |
-| 24 | 매핑 없는 사용자의 전략 메시지는 거부 + unauthorized 프레임 | ✓ VERIFIED | `:543-547` `conn.unauthorized` → `logger.warn` + `{t:"state", s:"unauthorized"}` |
-| 25 | 전략 `account_no` 는 `session.allowedAccounts` 대조 후에만 송신 | ✓ VERIFIED | `:564/578` `#accountAllowed(conn, session, userId, msg.t, accountNo)` 게이트. 근거는 `session.allowedAccounts` 하나 |
+|---|---|---|---|
+| 12 | 임포터 0건 죽은 주문 모듈이 남아 있지 않다 | ✓ VERIFIED | `webapp/src/lib/orders-api.ts` 부재, 참조 0건 |
+| 13 | `server/src/errors.ts` 의 거짓 문장이 정정 | ✓ VERIFIED | `errors.ts:68` 「16-20 에서 …를 삭제했다」 + 판정 정본 명시 |
+| 14 | `GET /api/orders` 응답에 `origin` 이 실린다 | ✓ VERIFIED | `dma-orders.ts:60` ORDER_COLS 에 `origin` · `:81` `origin: r.origin` |
+| 15 | `DmaOrderRow.origin` 이 3종 열거로 shared 에 | ✓ VERIFIED | `shared/relay.ts:880` `DmaOrderOrigin` · `:913` · 라이브 CHECK 3종(실측 ①) |
+| 16 | 주문 이력 표는 범위 밖(D-20)이라는 근거가 남는다 | ✓ VERIFIED | `errors.ts:68` 주석 + 16-20-SUMMARY §91 |
 
-#### 16-08 — 주문 wss 이관 · SymbolMap market · dma_orders insert/origin
-
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 26 | wss 주문이 5초 상관 후 `order.result` 로 복귀 | ⚠️ **PARTIAL** | 왕복 자체는 실재(`ORDER_RESP_TIMEOUT_MS`, `ws-order.test.ts` 17케이스 통과). **그러나 상관 축이 ISIN 단일**(`order-handler.ts:238`) — 같은 종목 대기 2건이면 먼저 등록된 것이 무조건 정산된다. 「취소하고 다시 걸기」에서 결과·기록 교차. → **gap 2** |
-| 27 | 5초 초과는 「실패」가 아니라 「결과 모름」 | ✓ VERIFIED | relay `ORDER_RESP_TIMEOUT_MS` + webapp `order-panel.tsx:370` `res.status === 'timeout'` → `setResult({kind:'unknown'}); setBlocked(true)` |
-| 28 | `dma_orders` insert·update 를 relay 가 전담 | ✓ VERIFIED | `server/src/services/dma-orders.ts:22` "★ **쓰기 함수가 없다**" — `insertOrderRequest`·`updateOrderResult` 전부 relay 로 이식. relay `OrderStore.insertRequest`/`enqueueUpdate` |
-| 29 | 자동주문 통보는 기존 행을 못 찾으면 새 행으로 insert (감사 기록 미결손) | ✗ **FAILED** | `orders.ts:239-252` `findIdByOrderNo` 가 `order_no` 단독 조회 — `user_id`·날짜 범위 없음. `order_no` 는 일별 재사용, DB 는 일반 인덱스(UNIQUE 아님) → 2일차부터 어제 행 매치 → insert 안 일어남. 다중 매치는 전역 update 로 열화. → **gap 1 (BLOCKER)** |
-| 30 | 주문 `account_no` 는 `allowedAccounts` 대조 후에만 송신 | ✓ VERIFIED | `order-handler.ts:471-478` 화이트리스트 대조, 근거는 `session.allowedAccounts` 하나 |
-
-#### 16-09 — RelayProvider 전역 승격 + 구독 ref-count
+**16-21 — /healthz never-Ready 제외 + INV-9 재작성 (4/5, 1 UNCERTAIN)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 31 | 로그인 상태면 앱 전역 relay wss 1연결 유지 | ✓ VERIFIED | `layout.tsx` AuthProvider 안쪽 RelayProvider, `relay-provider.tsx:227` `useRelayConnection({ enabled: user != null })` |
-| 32 | 비로그인 미연결 · 로그아웃 즉시 close | ✓ VERIFIED | 같은 `enabled` 게이트 + `case "reset"` 이 계좌·전략·시세 전량 폐기(`use-relay-socket.ts:322`) |
-| 33 | 같은 종목 다중 소비자에도 sub/unsub 는 0→1 · 1→0 에서만 | ✓ VERIFIED | `subscribe`/`unsubscribe` 가 `subRefsRef` count 증감, `entry.count > 0` 이면 조기 반환 |
-| 34 | 호가주문 탭이 전역 연결 위에서 회귀 없이 동작 | ✓ VERIFIED | `stock-orderbook-section.tsx:158` `useRelaySubscription`, `orderbook.spec.ts` E2E 통과 (`POST /api/orders` 부재도 `restHits` 로 강제) ※ 다중계좌 결함은 아래 WR-A 참조 (Phase 15 승계) |
-| 35 | 전략 프레임 7종이 전역 상태에 반영 | ✓ VERIFIED | `use-relay-socket.ts:391-423` `lc`·`lc.snap`·`vi`·`vi.list`·`vi.notice`·`strategies.disabled` case + `order.result` 는 `rid` Promise 상관 |
+|---|---|---|---|
+| 17 | 한 번도 Ready 인 적 없는 환경에서 `/healthz` 가 ok 200 | ✓ VERIFIED | `order-api.ts:223` + `order-api.test.ts:254-265` + **실측 ②** |
+| 18 | Ready 였다가 죽은 세션은 여전히 degraded 503 | ✓ VERIFIED | `order-api.test.ts:227-243` (`sessionCount:2, readyCount:0, everReadyCount:2` → degraded) |
+| 19 | 회선(VPN) 실측 신호는 세션과 무관하게 유지 | ✓ VERIFIED | `order-api.test.ts:274-283` (`vpn:false` → degraded, `everReadyCount:0` 이어도) |
+| 20 | 판정 변경 근거가 코드 주석·테스트 이름에 남는다 | ✓ VERIFIED | `order-api.ts:177-210` ★ 2026-09-09 문단 |
+| 21 | `smoke-relay.sh` INV-9 가 relay wss 주문 왕복으로 도달성을 잰다 | ? **UNCERTAIN** | 프로브는 실재하고 4갈래 판정 로직도 있다(`:317-468`). **그러나 `SMOKE_AUTH_TOKEN` 이 없어 재작성 후 한 번도 실행된 적이 없다** — 「돌렸는데 SKIP」이 아니라 「못 돌렸다」이다. 게다가 `:468` 이 `printf 'inconclusive'` 를 **덧붙여** FAIL 을 SKIP 으로 강등시킬 수 있다(GC-WR-11) |
 
-#### 16-10 — 주문·취소 wss 전환 + account-panel 공용화
-
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 36 | 신규 주문·취소가 REST 아닌 wss 로 | ✓ VERIFIED | `order-panel.tsx:359` `sendOrder({kind:'new', …})`, `account-panel.tsx` wss 취소. `orders-api.createOrder` 삭제됨 |
-| 37 | 타임아웃은 실패로 렌더되지 않고 제출 버튼이 잠긴 채 미체결 확인 안내 | ✓ VERIFIED | `order-panel.tsx:370-372` + `:355-357` "catch 가 없는 것이 의도" 주석 |
-| 38 | 미체결·잔고가 모바일에서 2줄 카드 행으로 리플로우, 3표면 공유 | ✓ VERIFIED | `account-panel.tsx` `.rlist` + `me.spec.ts`/`trading-vi.spec.ts`/`trading-limit-chaser.spec.ts` 390px 케이스 전부 통과 |
-| 39 | account-panel 이 계좌 전용 모드로 렌더 (My page 계좌별 반복) | ✓ VERIFIED | `me-client.tsx:170-178` `code` 미전달 + `accounts.map` 반복 |
-
-#### 16-11 — 사이드바 2단 트리 + 3단 전략 목록
+**16-22 — 통보 다축 상관 + 사용자 스코프 중복 가드 (5/6)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 40 | 홈 / 종목검색(3) / 트레이딩(상따+목록 · VI) / My page / AI 애널리스트 2단 트리 | ✓ VERIFIED | `app-sidebar.tsx:74-93` NAV 상수 + `:300-360` 렌더 |
-| 41 | 그룹 소제목은 링크 아님 · 항상 펼침 · 접기 상태 미저장 | ✓ VERIFIED | `GroupHeading` 은 `<li>` + 텍스트, 접기 state 없음 |
-| 42 | 3단에 종목명 + 매수/매도 원 아이콘 2개, 클릭 시 편집 페이지 | ✓ VERIFIED | `StrategyItem` → `limitChaserHref(item.key)` + `role="img" aria-label={ioLabel}` 원 2개 |
-| 43 | 비로그인 · unauthorized · 미연결이면 트레이딩·My page 미렌더 | ✓ VERIFIED | `useTradingVisible()` — `user == null \|\| status === "unauthorized"` → false. `app-sidebar.test.tsx` 조건부 숨김 4케이스 |
-| 44 | 모바일 drawer 가 같은 트리 · 링크 클릭 시 자동 닫힘 | ✓ VERIFIED | `app-shell.tsx:61-87` Sheet 안에 같은 `sidebar` 노드, `data-nav-item` 클릭 위임 → `setSheetOpen(false)` |
-| 45 | `/scanner` 라벨이 「상승률 상위」이고 URL 유지 | ✓ VERIFIED | `:79` `{ href: "/scanner", label: "상승률 상위" }`. **프로덕션 HTML 에서도 확인** |
-| 46 | 시각 계약은 승인 목업 `16-mypage-sidebar-mockup.html` 정본 | ✓ VERIFIED | 목업 파일 존재 + `sidebar-tree.spec.ts` E2E 통과 |
-| 47 | 직접 URL 진입 시 비로그인=로그인 유도, 매핑 없음=DMA 게이트 | ✓ VERIFIED | `dma-gate.tsx` 「DMA 계정이 연결되지 않았어요」 + `auth-guards.spec.ts` E2E 통과 |
+|---|---|---|---|
+| 22 | 같은 종목 신규+취소가 5초 안에 겹쳐도 각자의 통보로 정산 | ✓ VERIFIED | `narrowPending` ①~④ 축(`:868-891`) + 테스트 ⑳ (`ws-order.test.ts:794`) |
+| 23 | 좁히지 못하면 「가장 오래된 것」 폴백 없이 `recordUnmatched` 로 | ✗ **FAILED** | 후보 2건 이상은 참(테스트 ㉑ `:839`, `:1048`). **후보 1건은 축을 보지 않고 정산한다**(`:864-865`) — 테스트 `:991-998` 이 그것을 의도로 고정. → **갭 1** |
+| 24 | 탭 A 의 통보가 탭 B 의 대기를 정산하지 않는다 | ✓ VERIFIED | `:336-342` 후보를 `byUser` 전 연결에서 모은 뒤 좁힌다 · 테스트 ⑰ |
+| 25 | 중복 주문 판정이 사용자 스코프 | ✓ VERIFIED | `userDupKeys` Map(`:253-262`) + 테스트 ㉓ (`:902`) |
+| 26 | `rid` 상관은 여전히 연결 스코프 | ✓ VERIFIED | `conns` Map 유지, 전역 rid 맵 부재 |
+| 27 | `PendingOrder.qty` 가 실제 매칭에 쓰인다 | ✓ VERIFIED | `:886` `refine((p) => p.qty === n.quantity)` |
 
-#### 16-12 — 상따 폼 조작 규율
+**16-23 — 계좌축 소비자 정리 + ISIN 역매핑 공용 훅 (6/6)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 48 | 스위치 3종은 확인 다이얼로그 없이 즉시 전송 | ✓ VERIFIED | `limit-chaser-form.tsx:305-315` `toggleGate` → `send({t:'lc.set', cfg})` 직행 |
-| 49 | 값 변경은 즉시 전송 안 함 — 더티 + 「수정」 액션 바로만 | ✓ VERIFIED | `:290-293` `setField` 주석 "여기서 전송하지 않는다. 디바운스도 타이머도 없다" |
-| 50 | 스위치 전송에 그 시점 폼 값(더티 포함) 동반 + 액션 바 상시 고지 | ✓ VERIFIED | `toggleGate` 가 `{...formRef.current, [key]: next}` 전량 전송. `dirty-action-bar.tsx` 보조문 |
-| 51 | 매수·매도·취소 게이트 전부 OFF = 삭제(crud "D"), 별도 삭제 버튼 없음 | ✓ VERIFIED | `limit-chaser.ts:182` `crudOf(gates)` 단일 판정점 + 삭제 버튼 부재 |
-| 52 | 서버 에코 도착 시 더티 필드도 덮고 액션 바 사라지고 배너 표시 | ✓ VERIFIED | `:335` `useEffect(() => setSubmitting(false), [server])` + `onDirtyCountChange` 소비 |
-| 53 | 전송 필드 = 클라 입력 30 + 고정 3, S→C 전용 4필드 미전송 | ✓ VERIFIED | `RelayLimitChaserInput` 이 `sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·`cancelQtyTrackBaseline` Omit (`shared/relay.ts:231-234`), `buildCfg` 가 고정 3 추가 |
+|---|---|---|---|
+| 28 | 호가주문 탭 계좌 패널이 **선택 계좌**를 그린다 | ✓ VERIFIED | `stock-orderbook-section.tsx:170-171` `accountStates.get(selectedAccountNo)` → `AccountPanel account={selectedAccount}` (`:463`) |
+| 29 | `✕ 취소` 가 그 행이 속한 계좌로 나간다 | ✓ VERIFIED | `account-panel.tsx:257` `accountNo: selectedAccountNo` (같은 `selectedAccountNo` 가 표시 축) |
+| 30 | `sellableQty` 도 선택 계좌 보유에서 계산 | ✓ VERIFIED | `stock-orderbook-section.tsx:265-267` |
+| 31 | `account`(마지막 수신 계좌)가 계약에서 사라진다 | ✓ VERIFIED | `use-relay-socket.ts:250` 「계약에서 **제거됐다**」 + 소비자 계약에 필드 부재 |
+| 32 | ISIN 역매핑 사본 3개가 `lib/` 훅 하나로 합쳐지고 `accountStates` 전체를 훑는다 | ✓ VERIFIED | `isin-labels.ts:44` `useIsinLabels()` · `app-sidebar.tsx:21,265` |
+| 33 | 역매핑이 `useMemo` 로 감싸진다 | ✓ VERIFIED | `isin-labels.ts:47` |
 
-#### 16-13 — 상따 페이지 조립
-
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 54 | 종목·거래소·계좌 · 상태줄 · 호가 10단 · 매수/매도 폼 · 미체결/잔고 · 전략 로그 구성 | ✓ VERIFIED | `limit-chaser-client.tsx` 924줄, `data-slot="limit-chaser-page"` + `strategy-log.tsx` + `orderbook-ladder.tsx` `recentTrades` |
-| 55 | ≥1280 3열(460\|250\|250), 390 2열(42%\|58%) | ✓ VERIFIED | `:540` `grid-cols-[42%_minmax(0,1fr)] … min-[1280px]:grid-cols-[460px_minmax(0,1fr)]` + E2E 반응형 케이스 통과 |
-| 56 | 종목 선택 시 가격 5칸 상한가 1회 시딩, 이후 서버 에코 우선 | ✓ VERIFIED | `limit-chaser-form.tsx:206` `upperLimit > 0` 일 때만 `seedFromUpperLimit`, 이후 `formFromServer` |
-| 57 | 서버 거부(ServerMessage ERROR)가 상태줄·전략 로그 양쪽에 기록 | ✓ VERIFIED | `:322-336` `messages` 소비 → `pushLog` + 상태줄. `trading-limit-chaser.spec.ts` E2E 통과 |
-| 58 | 전략 편집 페이지가 전략 키로 진입, 두 스위치 OFF 후 빈 폼 복귀 | ✓ VERIFIED | `/trading/limit-chaser/[key]` 라우트 + `:29` remount 주석 + E2E |
-| 59 | 더티 상태 이탈 시 경고 | ✓ VERIFIED | `:92` `LEAVE_WARNING` + `:916` `beforeunload` 리스너 (더티 0 이면 미등록) |
-| 60 | 시각 계약은 승인 목업 `16-limit-chaser-mockup.html` 정본 | ✓ VERIFIED | 목업 파일 존재 + E2E 12케이스 통과 |
-
-#### 16-14 — VI 페이지
+**16-24 — VI 주문금액 상한 3층 + flushNow (5/5)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 61 | VI 설정은 세션당 1건, 주문가 상한가 고정·KRX 전용 | ✓ VERIFIED | `fanout.ts:579` "`priceType` 은 싣지 않는다 — 상한가(\"U\") 고정이라 조립기가 채운다" |
-| 62 | 계좌·금액·상승률은 「수정」으로만 반영, run 유지 | ✓ VERIFIED | `vi-settings-card.tsx:271` `handleModify = submit(run)` + `:74` DIRTY_HINT |
-| 63 | 시작/중지는 확인 다이얼로그 · 기본 포커스 취소/닫기 | ✓ VERIFIED | `:618-697` `ViConfirmDialog` + `:639` "기본 포커스 대상(취소/닫기)" `onOpenAutoFocus` 가로채기 |
-| 64 | VI 주문 확인 체크 즉시 전송 · `confirm_locked` 행 체크 불가 | ✓ VERIFIED | `vi-order-list.tsx:227` `send({t:'vi.confirm', …})` 직행, `:136-142` `isConfirmable` 이 `disabled` 와 전송 가드 공유 |
-| 65 | VI 주문 상태 6종 + 부분체결 파생이 색·형태·텍스트 3중 구분 | ✓ VERIFIED | `vi-order-list.tsx` 배지 매핑 + `vi-order-list.test.tsx` + E2E |
-| 66 | 110/119초 데드라인이 진행바+숫자, 20초 미만 색 변화 | ✓ VERIFIED | `VI_DEADLINE_SECONDS = 110`, `role="progressbar"`, E2E 「7. 데드라인 — 20초 경계에서 색·문구가 바뀐다」 통과 |
-| 67 | VI 마감알림은 이 기기 전용(localStorage + Notification), 서버 미저장 | ✓ VERIFIED | `vi-alert.ts:131/142` localStorage, `:167-191` `window.Notification`. fetch·api 호출 0건 |
-| 68 | 시각 계약은 승인 목업 `16-vi-trigger-mockup.html` 정본 | ✓ VERIFIED | 목업 파일 존재 + `trading-vi.spec.ts` 11케이스 통과 |
+|---|---|---|---|
+| 34 | VI 주문금액이 표현 범위를 넘으면 거부 | ✓ VERIFIED | `envelope.ts:1033-1036` |
+| 35 | 상한이 zod·envelope·UI 세 층에 같은 값 | ✓ VERIFIED | `shared/relay.ts:258` 단일 정본 → `protocol.ts:164` `.max()` · `envelope.ts:1033` · `vi-settings-card.tsx:97` |
+| 36 | 확인 다이얼로그 금액 = 실제 나가는 금액 | ✓ VERIFIED | UI 가 같은 상수를 만원 단위로 환산, 조립 단계 무변환 |
+| 37 | 종료의 `flushNow()` 가 진행 중 플러시와 겹쳐도 비우고 반환 | ✓ VERIFIED | `orders.ts:519-526` `while (#current !== null) await #current` · 테스트 ⑮ (`order-store.test.ts:230`) · `index.ts:202` `await orderStore.flushNow()` |
+| 38 | 재큐잉분(재시도 1회)까지 비운 뒤 반환 | ✓ VERIFIED | `ORDER_FLUSH_MAX_ROUNDS` 루프 + 테스트 ⑯ (`:273`) |
 
-#### 16-15 — My page
+**16-25 — lc.set 시장구분 소유권 relay 이전 + 무장 차단 (6/6)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 69 | `/me` 가 전략 현황 → 계좌별 미체결 → 잔고 순서로 세로 배치 | ✓ VERIFIED | `me-client.tsx:132-178` `MeStatusBar` → `StrategyStatusCard` → `accounts.map(AccountPanel)` |
-| 70 | 계좌 2개 이상이면 선택 UI 없이 계좌별 섹션 세로 반복 · 계좌번호 전체 표시 | ✓ VERIFIED | `accounts.map` + `accountStates.get(acct.accountNo)`. `me.spec.ts` 「계좌 2개 반복」 E2E 통과 |
-| 71 | 전략 현황 행이 종목·코드·거래소·계좌번호·상태 배지 표시 + 클릭 시 편집 | ✓ VERIFIED | `strategy-status-card.tsx` + `<Link href={limitChaserHref}>` |
-| 72 | 전체 비활성화가 My page 에만 있고 확인 다이얼로그를 거쳐 실제로 전략을 내림 | ⚠️ **PARTIAL** | 버튼·다이얼로그·65 백스톱 실재하고 연결 상태에서 동작(E2E 「전체 비활성화 14 왕복」 통과). **그러나 `send()` 가 소켓 미연결 시 무로그 드롭**(`use-relay-socket.ts:850-854`)이고 킬 스위치만 `status` 가드 없음(`:456`). 단절 중 눌러도 0바이트. → **gap 3** |
-| 73 | 전체 비활성화 후 상태는 65 가 아니라 60/61 에코로 갱신 | ✓ VERIFIED | `strategy-status-card.tsx:23` "65 는 **완료 신호로만**" + `ackBaseline`/`awaitingAck` 구조 |
+|---|---|---|---|
+| 39 | 상따 전략 시장구분을 relay 가 ISIN 으로 푼다 | ✓ VERIFIED | `fanout.ts:579` `#strategyMarket` → `:772` `#symbols.lookup(isin)` |
+| 40 | 브라우저의 `KOSDAQ ? 'Q' : 'K'` 추정이 사라진다 | ✓ VERIFIED | `shared/relay.ts:229` 「market 은 브라우저가 싣지 않는다」 · `limit-chaser-client.tsx:854` 「`market` 을 싣지 않는다」 · zod 스키마에서 필드 제거 |
+| 41 | ISIN 을 못 풀면 거부 + 사유 프레임 | ✓ VERIFIED | `fanout.ts:761-781` `rejectFrame` (※ 삭제까지 막는 부작용은 GC-WR-04 경고) |
+| 42 | 발주가 0·산출 수량 0 이면 매수 게이트를 켤 수 없다 | ✓ VERIFIED | `limit-chaser-form.tsx:343` `canArmBuy` → `gateBlocked` → `toggleGate:394` |
+| 43 | relay 도 `buyEnabled && (price===0 \|\| qty===0)` 를 거부 | ✓ VERIFIED | `fanout.ts:802-804` (※ 매도·한방 축 누락은 GC-WR-05 경고) |
+| 44 | 시장구분 미상 종목은 `isin === null` 과 같은 취급으로 선택 차단 | ✓ VERIFIED | `limit-chaser-client.tsx:784-785` `isPickable` = `isin !== null && ORDERABLE_MARKETS.includes(market)` · `:847,849,872` |
 
-#### 16-16 — REST 주문 경로 제거
-
-| # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 74 | 주문 경로가 wss 하나뿐 (POST /api/orders · relay 내부 HTTP 주문 라우트 제거) | ✓ VERIFIED | `server/src/routes/orders.ts` 는 `ordersRouter.get` 1개뿐, `order-api.ts` 의 Express 라우트는 `/healthz` 하나. `orderbook.spec.ts` 가 `restHits` 로 부재를 강제 |
-| 75 | `GET /api/orders?date=` 조회 라우트는 동작 | ✓ VERIFIED | `routes/orders.ts:38-57` + `app.ts:84` 마운트. smoke INV-11 미인증 401 확인 ※ 브라우저 호출자는 0건 (WR-B) |
-| 76 | server 에 relay 결선(RelayClient · RELAY_INTERNAL_URL · RELAY_ORDER_SECRET · ORDER_TIMEOUT_MS) 잔존 없음 | ✓ VERIFIED | `services/relay-client.ts` 파일 부재. 코드 내 언급은 전부 주석. **프로덕션 리비전 `00042-p78` env 17종에 0건** (gcloud 실측) |
-| 77 | relay 내부 HTTP 는 `/healthz` 만, `relaySecretGuard` 유지 | ✓ VERIFIED | `order-api.ts:163` `app.use(relaySecretGuard(...))`, `:187` `app.get(HEALTH_PATH, …)` 하나 |
-
-#### 16-17 — a11y · 전체 테스트 · 배포
+**16-26 — 전량 스위트 + 배포 + 문서 (4/5)**
 
 | # | Truth | Status | Evidence |
-|---|-------|--------|----------|
-| 78 | 신규 3표면이 axe 위반 0 으로 통과 | ✓ VERIFIED | `a11y.spec.ts` `/trading/limit-chaser/new`·`/trading/limit-chaser`(390)·`/trading/vi`·`/me` 4케이스 — **직접 실행하여 통과 확인** |
-| 79 | 전체 테스트(typecheck · 전 워크스페이스 단위 · E2E 전량) green | ✓ VERIFIED | **직접 재현**: `pnpm typecheck` 13 워크스페이스 exit 0 / 단위 1,293 통과 / Playwright **126 통과 0 실패 9 skip (2.4분)** |
-| 80 | relay·server·webapp 재배포 + 프로덕션에서 전략·주문 wss 경로 생존 | ⚠️ **PARTIAL** | 배포는 실측 확인(relay `4b6d792` · server `00042-p78` · webapp 사이드바 라이브). **그러나 relay 공개 `/healthz` 가 지금 503 `{"status":"degraded","dma":false,"sessionCount":1}`** — 게이트웨이 세션 부재로 wss 경로가 끝까지 살아 있지 않다. → **gap 4** |
-| 81 | server 리비전에서 RELAY_* · ORDER_TIMEOUT_MS 바인딩 소멸 | ✓ VERIFIED | `gcloud run revisions describe gh-radar-server-00042-p78` env 이름 17종 나열 — 3종 모두 0건 |
-| 82 | 실서버·실계좌 검증은 Manual-Only, 이 phase 는 mock 검증 종결 | ✓ VERIFIED | `16-VALIDATION.md` Manual-Only 표 5항목 + 코드·픽스처·주석에 게이트웨이 주소·실계좌 리터럴 0건 |
+|---|---|---|---|
+| 45 | 전체 스위트가 갭 수정 후에도 green | ✓ VERIFIED | typecheck 13 워크스페이스 exit 0 · `typecheck:tests` exit 0 · `pnpm -r test` 1,970 pass / 1 skip / 6 todo (189 파일) · `pnpm build` exit 0 |
+| 46 | relay·server·webapp 3종이 갭 수정본으로 재배포 | ✓ VERIFIED | 실측 ② `version:"2cb5620"` |
+| 47 | 세션이 붙은 상태에서 `/healthz` 200 | ✓ VERIFIED | 실측 ② `sessionCount:2, everReadyCount:0, 200` — 「배포 직후 세션 0」이 아니다 |
+| 48 | INV-9 통과 또는 SKIP 사유가 `SMOKE_AUTH_TOKEN` 미설정임이 기록 | ✓ VERIFIED | smoke PASS 12/FAIL 0/SKIP 1, SKIP 사유 명시 · `deferred-items.md:122-142` 가 「돌렸는데 SKIP 이 아니라 못 돌렸다」로 정확히 기록 |
+| 49 | 닫힌 14건·남은 항목이 4개 문서에 정직하게 반영 | ⚠️ **PARTIAL** | 서술은 정직하고 과장이 없다. **그러나 REQUIREMENTS.md 체크박스(L97·98·100)가 Traceability 표(L173·174·176)와 어긋난다** → **갭 3** |
+
+#### phase goal 파생 truth (ROADMAP 에 Success Criteria 배열이 없어 목표에서 역산)
+
+| # | Truth | Status | Evidence |
+|---|---|---|---|
+| G-A | 브라우저가 낸 주문의 수명주기가 `dma_orders` 에 결손·오기록 없이 남는다 | ✗ **FAILED** | GC-CR-02(수동 통보 0행 무로그 갱신) + GC-CR-03(고아 대기 → 실제 나간 주문이 `timeout` 확정) → **갭 2** |
+| G-B | 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유된다 | ? **UNCERTAIN** | 프로덕션 `everReadyCount: 0` — **이 경로가 한 번도 실행된 적이 없다.** D-27 상 실서버 결선은 사용자 명시 지시 사항. 인간 검증 #1 |
+
+#### 1차 검증에서 VERIFIED 였던 78건 — 회귀 점검
+
+갭 클로징 9개 plan 이 손댄 표면(`use-relay-socket` · `relay-provider` · `strategy-status-card` · `limit-chaser-form` · `limit-chaser-client` · `vi-settings-card` · `vi-order-list` · `stock-orderbook-section` · `app-sidebar` · `orders.ts` · `order-handler.ts` · `fanout.ts` · `protocol.ts` · `envelope.ts` · `order-api.ts` · `session.ts` · `session-manager.ts` · `shared/relay.ts` · `server/dma-orders.ts` · `errors.ts` · `smoke-relay.sh`)을 직접 열어 확인했고, 전량 스위트가 green 이다. 회귀 **0건**. 특히:
+
+- 1차 truth 36 「`orders-api.createOrder` 삭제됨」 → 16-20 이 모듈 전체를 지워 더 강해졌다.
+- 1차 truth 34 「호가주문 탭 회귀 없음」 → 16-23 이 계좌축을 고쳤고 webapp 652 테스트 green.
+- 1차 truth 48~52 (상따 폼 조작 규율) → 16-25 가 `market` 을 빼고 무장 가드를 추가했으나 스위치 즉시 전송 · 값은 수정 버튼 · 전 게이트 OFF = 삭제 규율은 그대로다.
 
 ---
-
-### Required Artifacts
-
-46개 선언 아티팩트 전부 존재하고 선언한 `contains` 패턴 37건이 100% 일치한다. Level 3(결선) 이상에서 문제가 있는 것만 표기한다.
-
-| Artifact | Expected | Status | Details |
-|----------|----------|--------|---------|
-| `relay/src/generated/stock-dma/set-limit-chaser.ts` | 45 슬롯 빌더·접근자 | ✓ VERIFIED | `startObject(45)` + `cancelQtyTrackBaseline` |
-| `supabase/migrations/20260908120000_dma_orders_origin.sql` | `dma_orders.origin` | ✓ VERIFIED | **라이브 DB 반영 실측** |
-| `relay/src/dma/msg-type.ts` · `envelope.ts` | 화이트리스트 + 빌더 7 + 파서 7 | ✓ VERIFIED | 전부 결선, relay 315 테스트 통과 |
-| `relay/src/hub/subscription-hub.ts` | 3맵 + 프리페치 + 7 case | ✓ VERIFIED | |
-| `relay/src/ws/fanout.ts` | 전략 4분기 + auth 스냅샷 | ✓ VERIFIED | |
-| `relay/src/ws/order-handler.ts` | 5초 상관 + 5단계 | ⚠️ **결함** | 존재·결선 OK. 통보 매칭이 ISIN 단일 축(gap 2) |
-| `relay/src/store/orders.ts` | insertRequest + update 큐 + origin | ⚠️ **결함** | 존재·결선 OK. `findIdByOrderNo` 에 사용자·날짜 경계 없음(gap 1) |
-| `webapp/src/lib/relay-provider.tsx` | 전역 컨텍스트 + ref-count + sendOrder | ✓ VERIFIED | |
-| `webapp/src/components/trading/*` (8종) | 상따·VI·My page 표면 | ✓ VERIFIED | 전부 라우트에 결선 + E2E 커버 |
-| `webapp/src/lib/orders-api.ts` | `listOrders` + 오류 판정 유틸 | ⚠️ **ORPHANED** | webapp 전체에서 **임포터 0건**. `listOrders`·`isUnknownOutcome`·`orderErrorCode`·`ORDER_ERROR_CODES` 전부 사용처 0. `GET /api/orders` 의 클라이언트가 없다 (WR-B) |
-| `webapp/src/components/trading/surface-placeholder.tsx` | (16-11 자리표시) | ⚠️ **DEAD** | 사용처 0건. deferred-items 에 「다음 quick 에서 삭제」로 기록됨 |
-| `webapp/e2e/specs/a11y.spec.ts` | 신규 3표면 a11y | ✓ VERIFIED | 직접 실행 통과 |
-| `.planning/STATE.md` · `ROADMAP.md` | Phase 16 완료 기록 | ✓ VERIFIED | ROADMAP 17/17 Complete 2026-09-08 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
-|------|----|-----|--------|---------|
-| `e2e/fixtures/relay.ts` | `relay/tests/helpers/fake-gateway.ts` | `LocalRelay.gateway` 위임 | ✓ WIRED | `:655/664/692` |
-| `relay/src/ws/protocol.ts` | `packages/shared/src/relay.ts` | `RelayInbound` 판별 유니온 | ✓ WIRED | `:217` |
-| `relay/src/dma/envelope.ts` | `generated/stock-dma/set-limit-chaser.ts` | `startSetLimitChaser` + `addXxx` | ✓ WIRED | `:941` |
-| `relay/src/dma/envelope.ts` | `packages/shared/src/relay.ts` | `RelayLimitChaser` 반환 | ✓ WIRED | 7개소 |
-| `subscription-hub.ts` | `envelope.ts` | `parseLimitChaserEcho`/`parseViTrigger`/`parseViOrderList` | ✓ WIRED | `:620/632/639` |
-| `subscription-hub.ts` | `ws/fanout.ts` | `emit("fanout", {userId, msg})` | ✓ WIRED | `#fanout(userId, …)` 5개소 |
-| `ws/fanout.ts` | `subscription-hub.ts` | `hub.getLimitChasers`/`getViTrigger`/`getViOrders` | ✓ WIRED | `:526-529` |
-| `ws/fanout.ts` | `envelope.ts` | `build*Req` 4종 | ✓ WIRED | `:565/579/593/607` |
-| `order-handler.ts` | `store/symbols.ts` | `lookup(isin) → {code, market}` | ✓ WIRED | `:352/487` |
-| `order-handler.ts` | `store/orders.ts` | `insertRequest` 로 얻은 id 가 상관 1순위 키 | ✓ WIRED | `:308/503` |
-| `stock-orderbook-section.tsx` | `relay-provider.tsx` | `useRelaySubscription({isin, exchange, enabled})` | ✓ WIRED | `:158` |
-| `order-panel.tsx` | `relay-provider.tsx` | `sendOrder({t:'order.new'}) → order.result` | ✓ WIRED | `:240/359` |
-| `app-sidebar.tsx` | `relay-provider.tsx` | 전역 전략 스냅샷 + 상태 | ✓ WIRED | `:247/268/287` `useRelayContext` |
-| `limit-chaser-form.tsx` | `relay-provider.tsx` | `send({t:"lc.set", cfg})` | ✓ WIRED | `:311/322` |
-| `limit-chaser-client.tsx` | `relay-provider.tsx` | `useRelaySubscription` + `limitChasers` | ✓ WIRED | `:158/176` |
-| `vi-client.tsx` | `relay-provider.tsx` | `send({t:"vi.set"})` / `send({t:"vi.confirm"})` | ⚠️ **PARTIAL** | vi-client 자신은 `sendOrder`·스냅샷만 소비. `vi.set` 은 자식 `vi-settings-card.tsx:252`, `vi.confirm` 은 `vi-order-list.tsx:227` 에서 나간다. **기능적으로는 완전히 결선**돼 있고 E2E 가 왕복을 확인한다 — 선언한 파일 위치만 다르다 |
-| `strategy-status-card.tsx` | `relay-provider.tsx` | `send({t:"strategies.disable"})` | ⚠️ **PARTIAL** | `:368` 호출은 실재. **전송 실패 경로가 무처리**(gap 3) |
-| `server/src/app.ts` | `routes/orders.ts` | `app.use("/api/orders", ordersRouter)` — GET 만 | ✓ WIRED | `:84` |
-| `scripts/deploy-relay.sh` | GCE VM radar-gw | 컨테이너 재배포 후 smoke | ✓ WIRED | 프로덕션 `/healthz` 가 `version:"4b6d792"` 응답 |
+|---|---|---|---|---|
+| `ws/order-handler.ts` | `store/orders.ts` | `findIdByOrderNo(userId, orderNo)` | ✓ WIRED | `ensureRow` 가 `userId` 를 실어 호출 |
+| `store/orders.ts` | Supabase `dma_orders` | `user_id` 필터가 붙은 select/update | ✓ WIRED | `:246-250`, `:314-331` |
+| `strategy-status-card.tsx` | `relay-provider.tsx` | `if (!send(...))` 반환값 분기 | ✓ WIRED | `:354` |
+| `relay-provider.tsx` | `use-relay-socket.ts` | `RelayInbound → boolean` | ✓ WIRED | `:215`, `:262` `send: (msg: RelayInbound) => boolean` |
+| `services/dma-orders.ts` | `shared/relay.ts` | `mapOrder → DmaOrderRow.origin` | ✓ WIRED | `:81` `origin: r.origin` |
+| `order/order-api.ts` | `dma/session-manager.ts` | `stats().everReadyCount` | ✓ WIRED | `:223` |
+| `dma/session-manager.ts` | `dma/session.ts` | `entry.session.hasBeenReady` | ✓ WIRED | `:215` |
+| `ws/order-handler.ts` | `dma/envelope.ts` | `noticeType`·`orgOrderNo`·`quantity` 를 매칭 축으로 소비 | ⚠️ PARTIAL | 축은 소비되지만 **후보 1건에서는 소비되지 않는다**(:864-865) |
+| `ws/protocol.ts` | `shared/relay.ts` | `z.max(MAX_VI_ORDER_AMOUNT_KRW)` | ✓ WIRED | `:164` |
+| `index.ts` | `store/orders.ts` | 종료 절차 `await orderStore.flushNow()` | ✓ WIRED | `:202` |
+| `ws/fanout.ts` | `store/symbols.ts` | `symbols.lookup(cfg.isin) → market` | ✓ WIRED | `:772` |
+| `stock-orderbook-section.tsx` | `relay-provider.tsx` | `accountStates.get(selectedAccountNo)` | ✓ WIRED | `:171` |
+| `app-sidebar.tsx` | `lib/isin-labels.ts` | `useIsinLabels()` | ✓ WIRED | `:21`, `:265` |
+| `scripts/deploy-relay.sh` | GCE VM `radar-gw` | 재배포 후 `/healthz` | ✓ WIRED | 실측 ② `version:2cb5620` |
 
-### Data-Flow Trace (Level 4)
-
-| Artifact | Data Variable | Source | Produces Real Data | Status |
-|----------|---------------|--------|--------------------|--------|
-| `app-sidebar.tsx` | `limitChasers`, `viTrigger` | `useRelayContext()` ← `use-relay-socket` `case "lc"/"lc.snap"/"vi"` ← relay 60/61/64 | 예 | ✓ FLOWING |
-| `limit-chaser-client.tsx` | `limitChasers`, `accountStates`, `messages`, `quote/tape` | 동상 + `useRelaySubscription` | 예 | ✓ FLOWING |
-| `vi-client.tsx` / `vi-order-list.tsx` | `viTrigger`, `viOrders` | `case "vi"/"vi.list"/"vi.notice"` ← relay 61/72/73/56 | 예 | ✓ FLOWING |
-| `me-client.tsx` | `accounts`, `accountStates` | `case "acct"` ← relay 66/67 | 예 | ✓ FLOWING |
-| `strategy-status-card.tsx` | `limitChasers`, `viTrigger`, `strategiesDisabled` | `case "strategies.disabled"` ← relay 65 | 예 | ✓ FLOWING |
-| `order-panel.tsx` | `res` (주문 결과) | `sendOrder` rid 상관 ← relay `order.result` | 예 (단, gap 2 로 **엉뚱한 주문의** 결과가 올 수 있음) | ⚠️ 오귀속 위험 |
-| `account-panel.tsx` (호가주문 탭) | `account` | `useRelaySubscription().account` = **마지막 수신 계좌** | 예 (단, 선택 계좌와 불일치 가능) | ⚠️ HOLLOW_PROP (WR-A, Phase 15 승계) |
-| `webapp/src/lib/orders-api.ts` | `listOrders` 결과 | — | 소비자 없음 | ✗ DISCONNECTED (WR-B) |
-| `dma_orders.origin` | — | relay 가 write, 브라우저 read 경로 없음 (`ORDER_COLS`·`DmaOrderRow` 에 부재) | write-only | ⚠️ 단방향 (WR-C) |
+---
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
-|----------|---------|--------|--------|
-| 13 워크스페이스 타입 검사 | `pnpm typecheck` | 전 워크스페이스 `Done`, exit 0 | ✓ PASS |
-| relay 단위 | `pnpm --filter @gh-radar/relay test` | 17 파일 · **315 통과** | ✓ PASS |
-| webapp 단위 | `pnpm --filter @gh-radar/webapp test` | 57 파일 · **628 통과 1 skip** | ✓ PASS |
-| server 단위 | `pnpm --filter @gh-radar/server test` | 31 파일 · **251 통과** | ✓ PASS |
-| shared 단위 | `pnpm --filter @gh-radar/shared test` | 8 파일 · **99 통과** | ✓ PASS |
-| E2E 전량 (a11y 3표면 포함) | `pnpm exec playwright test` | **126 통과 · 0 실패 · 9 skip (2.4분)**, exit 0 | ✓ PASS |
-| 프로덕션 `dma_orders.origin` 존재 | PostgREST `select=origin` vs `select=bogus_col_xyz` | `200` vs `400 42703` | ✓ PASS |
-| server 리비전 relay env 부재 | `gcloud run revisions describe gh-radar-server-00042-p78` | env 17종, RELAY_*·ORDER_TIMEOUT_MS **0건** | ✓ PASS |
-| server 헬스 | `GET /api/health` | `{"status":"ok","version":"99fdf15"}` 200 | ✓ PASS |
-| **relay 공개 헬스** | `GET https://dma.jx1.io/healthz` | `{"status":"degraded","vpn":true,"dma":false,"version":"4b6d792","sessionCount":1}` **503** | ✗ **FAIL** |
-| webapp 배포 반영 | `GET https://gh-radar-webapp.vercel.app/` HTML | 「상승률 상위」·「종목검색」·「관심종목」·「AI 애널리스트」 검출 | ✓ PASS |
+|---|---|---|---|
+| 프로덕션 relay healthz | `curl -s -w "%{http_code}" https://dma.jx1.io/healthz` | `200 {"status":"ok",…,"version":"2cb5620","sessionCount":2,"everReadyCount":0}` | ✓ PASS |
+| 프로덕션 부분 UNIQUE 인덱스 실재 | `npx supabase db dump --linked --schema public \| grep idx_dma_orders` | `CREATE UNIQUE INDEX "idx_dma_orders_user_order_no_kst_day" … WHERE (order_no IS NOT NULL)` | ✓ PASS |
+| 프로덕션 `dma_orders.origin` CHECK | 같은 덤프 | `CHECK (origin = ANY (ARRAY['manual','limit_chaser','vi']))` | ✓ PASS |
+| 부채 마커 0건 | `grep -rn "TBD\|FIXME\|XXX\|TODO\|HACK"` (4 워크스페이스 src) | 0건 (테스트용 `XXXX` 접미사 1건 제외) | ✓ PASS |
+| 전량 스위트 | typecheck / `typecheck:tests` / `pnpm -r test` / `pnpm build` | exit 0 · 1,970 pass / 1 skip / 6 todo | ✓ PASS (오케스트레이터 실측) |
+| relay 주문 왕복 도달성 (INV-9) | `SMOKE_AUTH_TOKEN=… bash scripts/smoke-relay.sh` | 미실행 — 토큰 부재 | ? **SKIP** → 인간 검증 #2 |
+| WinForms ↔ 웹 세션 공유 | — | 실행 불가 (실서버·D-27) | ? **SKIP** → 인간 검증 #1 |
 
 ### Probe Execution
 
 | Probe | Command | Result | Status |
-|-------|---------|--------|--------|
-| — | — | 이 저장소에는 `scripts/*/tests/probe-*.sh` 규약이 없고 PLAN·SUMMARY 어디에도 probe 선언이 없다 | SKIPPED |
+|---|---|---|---|
+| `scripts/*/tests/probe-*.sh` | `find scripts -path '*/tests/probe-*.sh'` | 0건 — 이 프로젝트는 probe 관례를 쓰지 않는다 | N/A |
+| `scripts/smoke-relay.sh` | 오케스트레이터 실행 | PASS 12 / FAIL 0 / **SKIP 1 (INV-9)** | ⚠️ 부분 |
+| `scripts/smoke-server.sh` | 오케스트레이터 실행 | PASS 15 / FAIL 0 / SKIP 0 | ✓ PASS |
 
-프로브 대신 `scripts/smoke-*.sh` 규약을 쓰며, 그 실행 기록은 `16-VALIDATION.md` §Deployment Verification 에 있다. 위 Behavioral Spot-Checks 가 그 중 핵심 불변식(server env 제거 · relay healthz · webapp 배포 반영)을 **검증자 프로세스에서 직접 재실행**했다.
+> smoke 2종은 프로덕션 엔드포인트를 치므로 본 검증에서 중복 실행하지 않고 오케스트레이터 실측을 인용했다. 다만 그 결과의 **핵심 한 칸(INV-9)이 SKIP** 이며, 그 프로브는 재작성 후 한 번도 실행된 적이 없다.
+
+---
 
 ### Requirements Coverage
 
-| Requirement | Source Plan | Description | Status | Evidence |
-|-------------|------------|-------------|--------|----------|
-| **TRADE-01** | 16-01·11·12·13·17 | 상따 전략 페이지 — 라우트 2종, 37필드 폼, 스위치 즉시 전송, 전부 OFF=삭제, 값은 「수정」, 호가 10단 + 체결 10건, 미체결/잔고, 전략 로그 | ✓ SATISFIED | Truth 48~60 전부 VERIFIED. `trading-limit-chaser.spec.ts` 12케이스 + `limit-chaser-form.test.tsx` 23케이스 통과 |
-| **TRADE-02** | 16-01·11·14·17 | VI 종합주문 페이지 — 세션당 1건, 시작/중지 확인, 주문내역 상태 6종+부분체결, `confirm_locked`, 110/119초, `ConfirmVIOrderReq(33)` | ✓ SATISFIED | Truth 61~68 전부 VERIFIED. `trading-vi.spec.ts` 11케이스 통과 |
-| **TRADE-03** | 16-01~10·16·17 | relay 전략 중계 + 주문 wss 이관 — 인바운드 6, Ready 프리페치 24/21/34 + 캐시, auth 직후 스냅샷, 56/60/61/64/65/72/73 파싱·팬아웃, `DirectOrderReq(2)` 5초 상관, `dma_orders` insert/update relay 전담(origin), `POST /api/orders` 제거 | ✗ **BLOCKED** | 인바운드·프리페치·캐시·스냅샷·파서·팬아웃·REST 제거는 전부 VERIFIED. **그러나 「`dma_orders` insert/update 를 relay 가 전담」의 감사 기록 보장이 깨졌고(gap 1) 5초 상관이 오귀속된다(gap 2).** 요구사항 문장의 핵심 절이 「구현됐지만 틀렸다」 |
-| **NAV-01** | 16-01·11·17 | 사이드 메뉴 2단 그룹 트리, 기존 URL 유지, 조건부 숨김, 모바일 Sheet 동일 트리 | ✓ SATISFIED | Truth 40~47 전부 VERIFIED. `sidebar-tree.spec.ts`·`auth-guards.spec.ts`·`app-sidebar.test.tsx` 통과. 프로덕션 HTML 실측 |
-| **MYPAGE-01** | 16-01·11·15·17 | My page — 전략 현황(상따 목록 + VI + 전체 비활성화 `key=""`) → 계좌별 미체결·잔고 세로 반복, 모바일 2줄 카드 행 | ⚠️ **PARTIAL** | Truth 69~71·73 VERIFIED, `me.spec.ts` 8케이스 통과. **전체 비활성화가 단절 시 무로그 no-op**(gap 3) — 요구사항의 킬 스위치 절이 안전하게 성립하지 않는다 |
+| Requirement | Source Plans | Status | Evidence |
+|---|---|---|---|
+| **TRADE-01** (상따 전략 페이지) | 16-01·02·11·12·13·17·23·25·26 | ✓ SATISFIED | 1차 truth 48~60 VERIFIED + 16-25 무장 규율. 프로덕션 `2cb5620` 배포. ※ REQUIREMENTS.md 체크박스 미갱신(갭 3) |
+| **TRADE-02** (VI 종합주문) | 16-01·02·11·14·17·24·26 | ✓ SATISFIED | 1차 truth 61~68 VERIFIED + 16-24 상한 3층. ※ 체크박스 미갱신(갭 3) |
+| **TRADE-03** (relay 전략 중계 + 주문 wss 이관) | 16-01~10·16·17·18·19·20·21·22·23·24·25·26 | ✗ **BLOCKED** | 코드·단위·E2E 층위는 대부분 닫혔고 gap 1 도 닫혔다. **그러나** ① 프로덕션에서 이 경로가 한 번도 실행된 적 없음(`everReadyCount:0`, `DMA_HOST` 는 뜨지 않은 로컬 mock) ② 주문 상관에 오귀속·무로그 결손 3건(갭 1·2)이 남아 있다. REQUIREMENTS.md 의 Pending 판정이 정확하다 |
+| **NAV-01** (사이드 메뉴 2단 트리) | 16-01·09·11·17·23·26 | ✓ SATISFIED | 1차 truth 40~47 VERIFIED · 프로덕션 HTML 실측 · 16-23 이 `useIsinLabels` 로 다계좌 3단 목록 교정. ※ 체크박스 미갱신(갭 3) |
+| **MYPAGE-01** (My page) | 16-01·10·11·15·17·19·23·26 | ✓ SATISFIED | 1차 truth 69~73 + 16-19 가 gap 3 종결. REQUIREMENTS.md `- [x]` + Traceability Complete 일치 |
 
-**Orphaned requirements:** 없음. REQUIREMENTS.md 가 Phase 16 에 매핑한 ID 는 정확히 이 5건이고 모두 plan frontmatter 에 선언돼 있다.
+**Orphaned requirements:** 없음. REQUIREMENTS.md 가 Phase 16 에 매핑한 5개 ID 가 전부 plan frontmatter 에 선언돼 있다.
 
-**참고:** Traceability 표(`REQUIREMENTS.md:173-177`)는 5건 모두 `Pending` 이다. `Complete` 전환은 이 검증 결과 반영 후에 해야 하며, 현재 판정상 TRADE-03 · MYPAGE-01 은 아직 `Complete` 로 올릴 수 없다.
+---
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| `relay/src/store/orders.ts` | 239-252 | 사용자·날짜 경계 없는 조회 + UNIQUE 없는 컬럼 | 🛑 Blocker | 감사 기록 결손 + 테넌트 간 쓰기 (gap 1) |
-| `relay/src/ws/order-handler.ts` | 232-245 | 단일 축 매칭 (ISIN) | 🛑 Blocker | 주문 결과·기록 교차 (gap 2) |
-| `webapp/src/lib/use-relay-socket.ts` | 850-854 | **무로그 fail-safe** — `if (!ws \|\| readyState !== OPEN) return;` | 🛑 Blocker | 킬 스위치 조용한 소실 (gap 3). 프로젝트 규율 PC-7 / 자동 메모리 「무로그 fail-safe 금지」 정면 위반 |
-| `webapp/src/components/stock/stock-orderbook-section.tsx` | 452 | 「선택 계좌」와 「마지막 수신 계좌」 혼선 | ⚠️ Warning | WR-A — 계좌 2개 이상에서 엉뚱한 계좌로 취소 가능. **Phase 15 (`8a96283`) 승계**이며 phase 16 은 신규 3표면만 `accountStates` 로 고쳤다 |
-| `webapp/src/lib/orders-api.ts` | 1-127 | 죽은 모듈 (임포터 0건) | ⚠️ Warning | WR-B — 「새로고침 후 목록 복원」이 구현돼 있지 않다. `server/src/errors.ts:62-63` 주석은 사실과 다르다 |
-| `server/src/services/dma-orders.ts` | 53-54 | `ORDER_COLS` 에 `origin` 부재 | ⚠️ Warning | WR-C — 마이그레이션이 선언한 목적(「내가 낸 주문」 vs 「전략이 낸 주문」 구분)이 브라우저에 도달하지 못한다 |
-| `webapp/src/components/trading/surface-placeholder.tsx` | 전체 | 죽은 코드 (사용처 0건) | ℹ️ Info | 「아직 준비 중인 화면이 있다」는 잘못된 신호. deferred-items 기록됨 |
-| `webapp/src/lib/use-relay-socket.ts` | `clockStamp()` | ko-KR locale 버그 (Chromium `0시 57분 16초`) | ℹ️ Info | 호가주문 탭 알림 시각 폭이 흔들린다. deferred-items 기록됨 |
-| — | — | `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` | ✓ 없음 | phase 16 이 손댄 141개 파일에서 **0건** |
+|---|---|---|---|---|
+| `relay/src/ws/order-handler.ts` | 864-865 | 상관 축을 건너뛰는 조기 반환 | 🛑 **Blocker** | 살아 있는 주문이 「취소됨」으로 정산 → 재주문 → 중복 체결 (갭 1) |
+| `relay/src/ws/order-handler.ts` | 395-403 | 존재하지 않는 행에 대한 무로그 0행 update | 🛑 **Blocker** | 접수·체결 기록 소실 — 이 파일이 금지 선언한 Pitfall 18 (갭 2) |
+| `relay/src/ws/order-handler.ts` | 661-689 / 770 / 786 / 789 | `await` 후 상태 재확인 없음 (TOCTOU) | 🛑 **Blocker** | 고아 대기·타이머 + 실제 나간 주문이 `timeout` 확정 (갭 2) |
+| `relay/src/ws/order-handler.ts` | 367 | `.catch` 없는 `void` 비동기 호출 | ⚠️ Warning | `index.ts:220` 의 `unhandledRejection` → **프로세스 종료** → 전 사용자 세션 절단 (GC-WR-01) |
+| `relay/src/ws/order-handler.ts` | 435 | 빈 키(`${userId}\|`)의 inflight 병합 | ⚠️ Warning | 서로 다른 자동주문 거부가 한 행에 겹쳐 쓰임 (GC-WR-02) |
+| `relay/src/ws/order-handler.ts` | 874-889 | 신뢰 가능한 축(`sideTrusted`/`side`)을 쓰지 않음 | ⚠️ Warning | 매수/매도 동시 대기가 둘 다 「결과 모름」 (GC-WR-03) |
+| `relay/src/ws/order-handler.ts` | 215-218 | 취소 dup 키에 `orgOrderNo` 없음 | ⚠️ Warning | 동일 가격·수량 미체결 2건 연속 취소가 최대 5초 차단 — 급락 국면 자산 위험 (GC-WR-10) |
+| `relay/src/ws/fanout.ts` | 579, 761-790 | `crud` 무관 ISIN 해석 강제 | ⚠️ Warning | 상장폐지·마스터 미로딩 종목의 전략을 **내릴 수 없다** (GC-WR-04) |
+| `relay/src/ws/fanout.ts` | 796-812 | 마지막 관문이 첫 관문보다 느슨 | ⚠️ Warning | `sellWatchQty === 0` · 한방 게이트가 서버에서 통과 (GC-WR-05) |
+| `relay/src/store/orders.ts` | 269-298, 239-260 | `23505` 미처리 | ⚠️ Warning | 새 UNIQUE 인덱스 위반이 「기록 불가」로 열화 — 경주가 「두 벌」에서 「소실」로 바뀌었을 뿐 (GC-WR-08) |
+| `relay/src/order/order-api.ts` | 223 | 인메모리 래치에 의존한 장애 판정 | ⚠️ Warning | relay 재시작 후 게이트웨이 장애가 영원히 `ok/200` (GC-WR-07) — gap 4 해법의 부작용 |
+| `webapp/.../vi-order-list.tsx` | 230-233 | `send()` 반환값 미확인 + 낙관 반영 | ⚠️ Warning | 나가지 않은 `vi.confirm` 에 잠금이 걸려 행이 영구 회색 (GC-WR-06) |
+| `webapp/.../limit-chaser-form.tsx` | 405-415 / 주석 26 | 주석이 사실과 다름 (`handleSubmit` 이 `gateBlocked` 미독) | ⚠️ Warning | 「수정」이 relay 에 통째로 거부되고 사유는 일반 거부 한 줄 (GC-WR-09) |
+| `webapp/.../limit-chaser-form.tsx` | 113-118 | 안내 문구가 가장 흔한 원인을 잘못 짚음 | ℹ️ Info | 사용자가 엉뚱한 곳(재접속)을 만짐 (GC-WR-12) |
+| `scripts/smoke-relay.sh` | 465-468 | 토큰 argv 노출 + 판정 문자열 이어붙임 | ⚠️ Warning | `ps` 노출 + FAIL 이 SKIP 으로 강등 (GC-WR-11) — 이 검사가 3갈래인 이유를 무너뜨린다 |
+| `.planning/REQUIREMENTS.md` | 97·98·100 vs 173·174·176 | 같은 파일 안 두 표현 불일치 | ⚠️ Warning | 세 요구사항의 상태를 두 곳이 다르게 말한다 (갭 3) |
 
-**Warning 상세(WR-01·02·06·07·08·09 등 나머지 6건)는 `16-REVIEW.md` 를 정본으로 본다.** 이 보고서는 must-have 판정에 직접 걸리는 것만 재확인했다.
+> **부채 마커(`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`)는 0건**이다. 위 항목은 전부 코드 구조·계약 결함이지 미완성 표시가 아니다.
+> **Info 6건(IN-02~IN-07)** 과 **GC-IN-01~04** 는 `deferred-items.md` 가 이미 범위 밖으로 명시 기록했다 — 새 갭으로 세지 않는다.
+
+---
+
+### 반증(Disconfirmation) 패스
+
+1. **부분적으로만 충족된 요구사항:** TRADE-03. 「`dma_orders` insert/update 를 relay 가 전담」은 구현돼 있으나 **전담이 정확할 때만** 성립하고, 수동 통보 0행 경로(GC-CR-02)와 고아 대기 경로(GC-CR-03)에서 정확하지 않다.
+2. **통과하지만 서술한 동작을 실제로 검사하지 않는 테스트:** `ws-order.test.ts:991-998` 「후보가 없으면 null, 하나면 축이 어긋나도 그것이다」. 이 케이스는 「정상 경로 회귀 방지」를 표방하지만 실제로 잠그는 것은 **오귀속 허용**이다. 같은 파일의 ㉑ 도 좁히기 실패까지만 고정하고 그 뒤 `recordUnmatched` 가 실제로 무엇을 하는지(0행 갱신)는 관찰하지 않는다.
+3. **테스트 커버리지가 없는 에러 경로:** `await insertRequest` 진행 중 `closeConn` 이 도는 경합. `ws-order.test.ts` 에 이 순서를 재현하는 케이스가 없고, `order-store.test.ts` 의 `insertGate` 는 insert 경주만 재현한다.
+4. **DEVIATION 재해석:** 16-19 SUMMARY 가 must-have #5 를 「⚠️ 정정」으로 기록했다 — 계획의 전제(「킬 스위치만 예외」)가 거짓이었고 `vi.set` 에 구멍이 하나 더 있었다. 이것은 must-have 미달이 아니라 **더 강한 충족**이므로 VERIFIED 로 판정했다. 반대로 16-22 의 must-have #2 는 SUMMARY 가 충족으로 적었으나 코드가 그 문장의 원칙(「잘못 귀속된 기록은 없는 기록보다 나쁘다」)을 후보 1건 경로에서 어기므로 FAILED 로 판정했다.
+
+---
+
+### Deferred Items
+
+Phase 16 은 ROADMAP 의 **마지막 phase** 다. 뒤에 오는 phase 가 없으므로 이번 갭을 넘길 곳이 없다 — 전부 실제 갭이다. (`deferred-items.md` 가 기록한 Info 6건 · UI 후속 3건은 phase 범위 밖으로 이미 확정된 항목이며 must-have 가 아니다.)
+
+---
 
 ### Human Verification Required
 
-#### 1. WinForms ↔ 웹 「한 세션」 동기화
+#### 1. WinForms ↔ 웹 「한 세션」 동기화 — phase goal 의 핵심 문장
 
-**Test:** WinForms 상따창과 `/trading/limit-chaser/[key]` 를 동시에 열고 → 웹 스위치 ON → WinForms 무장 배지 확인 → WinForms 매수가격 변경 → 웹 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인
+**Test:** WinForms 상따창과 `/trading/limit-chaser/[key]` 를 동시에 열고, 웹 스위치 ON → WinForms 무장 배지 확인, WinForms 매수가격 변경 → 웹 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인
 **Expected:** 같은 DMA 세션(`ezmesya`)에서 전략·체결·미체결이 즉시 공유된다
-**Why human:** 실 gh-trade 서버 + WinForms 클라이언트 필요. **이것이 phase goal 문장의 핵심 절이며 지금까지 한 번도 실측되지 않았다.** D-27 상 사용자 명시 지시가 있어야 실행한다.
+**Why human:** 실 gh-trade 서버 + WinForms 클라이언트가 필요하고 D-27 상 사용자 명시 지시가 있어야 실행한다. 프로덕션 `everReadyCount:0` 은 이 경로가 **한 번도 실행된 적이 없음**을 뜻한다 — 추론으로 메울 수 없다
 
-#### 2. gh-trade mock 서버 대상 전략 왕복
+#### 2. smoke `INV-9` 첫 실행
+
+**Test:**
+```bash
+GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://ivdbzxgaapbmrxreyuht.supabase.co \
+SMOKE_AUTH_TOKEN='<브라우저 localStorage 의 access_token>' bash scripts/smoke-relay.sh
+```
+**Expected:** `reachable` — 주문 핸들러가 **거부**로 답한다. 화이트리스트 밖 계좌번호 + 미해석 ISIN 을 쓰므로 실계좌에 주문이 나가지 않는다
+**Why human:** 토큰은 로그인 브라우저에서만 얻을 수 있고 약 1시간 만료다. 16-21 이 재작성한 프로브가 아직 **한 번도 실행되지 않았다** — 「돌렸는데 SKIP」과 섞지 말 것. (실행 전에 GC-WR-11 의 `printf 'inconclusive'` 덧붙임 버그를 먼저 고치는 편이 좋다. 안 고치면 FAIL 이 SKIP 으로 보인다.)
+
+#### 3. gh-trade mock 서버 대상 전략 왕복
 
 **Test:** `../gh-trade/server/scripts/run-mac.sh` 기동 → relay 로컬 기동 → 브라우저 로그인 → 스냅샷 3프레임 수신 로그 확인 → 상따 등록 → 60 에코 수신 확인
 **Expected:** 24/21/34 빈 Envelope 요청에 60/61/73 응답이 돌아오고 화면에 반영된다
-**Why human:** 로컬 mock 바이너리 실행 필요. E2E 는 relay 의 스텁 게이트웨이까지만 검증한다
+**Why human:** 로컬 mock 바이너리 실행이 필요하다. E2E 는 relay 스텁 게이트웨이까지만 검증한다
 
-#### 3. VI 마감알림 브라우저 Notification
+#### 4. VI 마감알림 실환경
 
-**Test:** Notification 권한 허용 후 `vi_end_time` 임박 시 알림 표시 확인
+**Test:** 브라우저 Notification 권한 허용 후 `vi_end_time` 임박 시 알림 표시 확인
 **Expected:** 마감 10초 전 알림이 이 기기에서만 뜬다
-**Why human:** headless Chromium 에서 실제 표시 불가. 단위 테스트는 생성자 호출 여부까지만 잠금
+**Why human:** headless Chromium 에서 Notification 실제 표시가 불가능하다
 
-#### 4. 15:40 서버 자동 비활성화(61 Broadcast) 표시
+#### 5. 15:40 서버 자동 비활성화(61 Broadcast)
 
 **Test:** 장 마감 후 VI 페이지에서 `run=false` 반영 + 로그 1줄 확인
-**Expected:** 서버가 내린 61 Broadcast 가 가동 램프를 「중지됨」으로 바꾸고 전략 로그에 남는다
-**Why human:** 서버 시각 의존
+**Expected:** 서버가 내린 61 Broadcast 가 가동 램프를 「중지됨」으로 바꾼다
+**Why human:** 서버 시각에 의존한다
 
-#### 5. 확인 체크 잠금의 영구화
+#### 6. 확인 체크 잠금의 영구화
 
 **Test:** 실계좌 검증 시 73 정정도 `confirmLocked` 도 오지 않는 행이 실제로 관측되는지 확인
-**Expected:** D-10 상 의도된 동작이나 관측 빈도를 실측
-**Why human:** 서버 무응답 케이스를 mock 으로 재현 불가
-
-#### 6. relay `/healthz` 503 해법 결정 — **결정 요청**
-
-**Test:** 아래 4안 중 채택안 지정
-① VM 에 mock 게이트웨이 상주 / ② 실서버 결선(현 D-27 금지) / ③ degraded 판정에서 「한 번도 Ready 인 적 없는 세션」 제외 / ④ 알림 정책 조정
-**Expected:** uptime check 가 녹색으로 돌아오거나 알림 정책이 이 조건을 정상으로 인정한다
-**Why human:** 게이트웨이 상주 여부·D-27 완화·판정 로직 변경·알림 정책은 전부 사용자 결정 사항이다. 실행자가 단독으로 고를 수 없다
+**Expected:** D-10 상 의도된 동작이지만 실측으로 관측 빈도를 확인한다
+**Why human:** 서버가 영원히 아무것도 보내지 않는 경우를 mock 으로 재현할 수 없다
 
 ---
 
 ## Gaps Summary
 
-**82개 must-have 중 78개가 검증됐고 4개가 남았다.** 넷 다 「없다」가 아니라 「있는데 틀렸다」이며, 그래서 파일 존재·테스트 green·배포 성공 어느 신호로도 잡히지 않았다.
+**갭 3건. 두 건은 BLOCKER 이고 둘 다 relay 주문 상관 경로에 있다 — 돈이 나가는 자리다.**
 
-**gap 1 (BLOCKER) — 감사 기록.** 16-08 은 「자동주문 통보는 기존 행을 못 찾으면 새 행으로 insert 되어 감사 기록이 비지 않는다」를 must-have 로 선언했다. 그 방어의 유일한 근거인 `findIdByOrderNo` 가 `order_no` 단독으로 조회하고, 그 컬럼에는 UNIQUE 제약이 없으며, 브로커 주문번호는 일별 재사용 시퀀스다. 세 사실을 곱하면 **운영 2일차부터 이 방어가 정상 경로에서 무력하다** — 어제 행이 매치되어 오늘 자동주문의 행이 만들어지지 않고, 동시에 어제 행(때로는 **다른 사용자의** 행)이 오늘 값으로 덮인다. 테스트가 이 경계를 못 잡는 이유도 명확하다: `ws-order.test.ts` 는 sink 를 스텁으로 대체해 Supabase 쿼리 자체를 검사 범위 밖에 둔다. 요구사항 TRADE-03 의 「`dma_orders` insert/update 를 relay 가 전담」이 성립하려면 그 전담이 **정확해야** 하므로, 이 phase 의 TRADE-03 은 아직 닫히지 않았다.
+**갭 1 (BLOCKER · GC-CR-01) — 후보 1개면 상관 축을 통째로 건너뛴다.**
+16-22 는 「좁히지 못하면 정산하지 않는다」를 세웠고 후보 2건 이상에서는 그것이 지켜진다. 그런데 함수 첫 줄이 `candidates.length <= 1` 을 지름길로 빼놓았고, 후보 수집 필터는 ISIN 하나뿐이다. 그래서 대기가 1건일 때는 취소확인이든 세션 합류로 들어온 남의 통보든 그 대기를 정산한다. 화면에는 살아 있는 매수 주문이 「취소됨」으로 뜨고, `dma_orders` 에는 남의 주문번호가 박힌다. **1차 갭 2 를 만든 것과 똑같은 실패 모양이 인접면에 남아 있다.** 단위 테스트가 이것을 「정상 경로 회귀 방지」로 못박아 두었으니, 고칠 때 그 케이스를 함께 뒤집어야 한다. 수정 방향은 명확하다 — 통보가 **실어 온** 축만 하드 필터로 걸고 비어 있는 축은 건너뛴다. 그러면 구 서버 호환(축을 비워 보내는 게이트웨이)은 그대로 유지된다.
 
-**gap 2 — 주문 결과 오귀속.** 통보 상관이 ISIN 하나다. `PendingOrder` 는 `qty` 를 들고 있고 통보는 `noticeType`·`orgOrderNo`·`price`·`quantity` 를 실어 오는데 어느 것도 매칭에 쓰이지 않는다. 「취소하고 다시 걸기」는 호가주문 탭에서 주문 패널과 계좌 패널이 나란히 놓인 이 phase 의 가장 흔한 조작이고, 그 조작에서 5초 창이 겹치면 살아 있는 매수 주문이 「취소됨」으로 표시된다. 사용자가 그 표시를 믿고 재주문하면 중복 체결 — `order-handler.ts` 가 스스로 「최악의 결과」라고 적어 둔 상황이다. Phase 15 에서 이식된 축이지만 16-10 이 같은 화면에 wss 취소를 붙이면서 이 phase 의 계약 안으로 들어왔다.
+**갭 2 (BLOCKER · GC-CR-02 + GC-CR-03) — 기록이 조용히 사라지거나 틀리게 확정된다.**
+갭 클로징이 새로 만든 두 경로다. ① 수동 통보가 좁히기에 실패하거나 연결 종료 후 도착하면 `order_no` 셀렉터로 갱신되는데, 수동 insert 는 `order_no` 를 싣지 않으므로 매치되는 행이 없고 PostgREST 는 0행을 에러로 보지 않으며 이 경로에 로그가 없다. ② `await insertRequest` 중에 사용자가 탭을 닫으면 코드가 그것을 확인하지 않고 고아 상태에 타이머·대기를 걸고 **주문을 실제로 보낸다** — 그 주문은 영원히 상관 후보가 되지 않고 5초 뒤 `timeout` 으로 확정되며 정정 경로가 없다. 두 경로 모두 이 phase 가 `Pitfall 18`·`D-24`·`S-5`(「무로그 fail-safe 금지」)로 반복 금지한 부류다. 수정은 각각 한 자리다: manual 분기도 `findIdByOrderNo` 를 거치고 행이 없으면 통보 원문을 `logger.error` 로 남기기, 그리고 `await` 직후 `conns.get(conn) !== state` 재확인 후 **보내기 전에** 중단하기.
 
-**gap 3 — 킬 스위치의 침묵.** `send()` 는 전략 4종의 유일한 출구인데 소켓이 닫혀 있으면 로그도 반환값도 없이 사라진다. `lc.set`/`vi.set`/`vi.confirm` 호출부는 전부 `status !== 'ready'` 로 가려져 있어 이 구멍에 닿지 않지만, **전체 비활성화만 그 가드가 없다.** 리듀서가 단절 시 목록을 지우지 않으므로 재접속 중에도 버튼은 활성이고, 누르면 0바이트가 나가고 8초 뒤 `awaitingAck` 만 조용히 내려간다. 사용자는 껐다고 믿고 자리를 뜨고 자동매매는 계속 돈다. 프로젝트 규율 「무로그 fail-safe 금지」(PC-7 / S-5)를 정면으로 위반하는 자리이고 하필 그 대상이 킬 스위치다.
+**갭 3 (WARNING) — REQUIREMENTS.md 가 자기 자신과 어긋난다.**
+16-26 이 Traceability 표에서 TRADE-01·TRADE-02·NAV-01 을 Complete 로 재판정했는데 같은 파일의 요구사항 목록 체크박스는 `- [ ]` 로 남아 있다. 이 파일의 관례는 체크박스 = Complete 이고(RELAY-01/03 은 `[x]`, Pending 인 RELAY-02 는 `[ ]`, 같은 phase 의 MYPAGE-01 은 `[x]`), 서술 자체는 정직하므로 기계적 누락이다. 체크박스 3개면 끝난다.
 
-**gap 4 — 프로덕션 wss 경로.** 배포 3종은 실측으로 확인됐다. 그러나 relay 공개 `/healthz` 가 지금 이 순간 503 `degraded, dma:false` 다. 게이트웨이 세션이 Ready 가 아니므로 로그인 사용자는 트레이딩 3표면에서 게이트만 본다. 판정 로직 차분은 0 이고 2026-09-06 에도 같은 구간이 있었으나, 이 phase 가 `RelayProvider` 를 루트 레이아웃으로 올리면서 트리거 표면이 「호가주문 탭」에서 「로그인한 모든 페이지」로 넓어졌다 — 게이트웨이 부재 구간이 길어지고 `gh-radar-relay-down` 발화가 상시화된다. 해법 4안이 전부 사용자 결정이라 실행자가 단독으로 고르지 않았고, 이 검증도 같은 판단이다.
+**갭이 아닌 것 — 명확히 해 둔다.**
+- **gap 1·3·4 는 진짜로 닫혔다.** 코드를 읽었고, 라이브 DB 를 덤프해 인덱스를 봤고, 프로덕션 엔드포인트를 직접 쳤다. 특히 16-18 의 경계 테스트는 「필터를 불렀다」가 아니라 「필터가 실제로 무엇을 걸렀다」를 단언하므로 1차 갭이 통과했던 사각지대가 구조적으로 닫혔다.
+- **TRADE-03 Pending 은 갭 클로징의 실패가 아니다.** D-27 이 실서버 결선을 사용자 명시 지시 사항으로 두었고, 문서가 「mock·단위 검증만으로 Complete 로 올리지 않는다」를 명시했다. 이 절제는 정확하고, RELAY-02 와 같은 기준이다.
+- **`everReadyCount` 판정 완화(GC-WR-07)는 gap 4 해법 ③ 을 사용자가 고른 결과다.** 다만 그 래치가 프로세스 메모리라 relay 가 한 번만 재시작하면 진짜 장애도 초록이 된다 — 「생성 후 N분 경과 + 미Ready」 카운터를 함께 넣어야 예전 규칙이 잡던 사례를 잃지 않는다.
+- **Warning 12건 · Info 4건 중 위에 갭으로 올리지 않은 것들**은 must-have 문장을 어기지 않는다. 다만 GC-WR-01(프로세스 종료), GC-WR-10(급락 국면 일괄 취소 차단), GC-WR-11(FAIL→SKIP 강등)은 다음 라운드 우선순위로 둘 만하다.
 
-**닫는 순서 제안.** gap 1 → gap 3 → gap 2 → gap 4. gap 1 은 데이터 정합성이자 테넌트 경계라 가장 급하고 DB 마이그레이션이 붙는다. gap 3 은 한 파일 두 곳 수정이라 비용이 가장 작은데 안전 임계도는 가장 높다. gap 2 는 매칭 축 설계 변경이라 테스트를 함께 늘려야 한다. gap 4 는 코드가 아니라 결정이다.
-
-**Phase goal 자체는 어떤가.** 「상따전략창·VI 종합주문창을 웹앱으로 옮긴다」와 「사이드 메뉴 재편 + My page」는 달성됐다 — 화면·라우트·폼·조작 규율·반응형·a11y 가 전부 실재하고 126개 E2E 가 그것을 잠근다. 달성되지 **않은** 절은 「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」이다. 그 절은 mock 왕복까지만 검증됐고(D-27), 프로덕션에서는 게이트웨이가 없어 지금 살아 있지 않으며, 그 위에 얹힌 주문 기록·상관 경로에 위 3개의 결함이 있다.
+**진행 판단.** 갭 1·2 는 relay 주문 경로(TRADE-03)에 국한되고, 그 요구사항은 이미 Pending 이다. 프로덕션에서 그 경로가 아직 한 프레임도 나른 적이 없으므로 **지금 당장 실사용자에게 손실이 발생하고 있지는 않다.** 그러나 실서버 결선(인간 검증 #1) 이전에 반드시 닫혀야 한다 — 결선하는 순간 이 세 경로가 전부 실계좌 위에서 돈다.
 
 ---
 
-_Verified: 2026-09-08T22:28:49Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-09-09T03:54:59Z_
+_Verifier: Claude (gsd-verifier) — 재검증 (갭 클로징 16-18~16-26 이후)_

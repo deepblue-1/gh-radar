@@ -94,10 +94,10 @@
 
 ### Trading
 
-- [ ] **TRADE-01**: 상따(LimitChaser) 전략 페이지 — `/trading/limit-chaser/new`(빈 폼) · `/trading/limit-chaser/{ISIN}:{accountNo}:{exchange}`(편집). `SetLimitChaser` 활성 37필드(클라 입력 30 + 클라 고정 3 `sweep_recalc_enabled=true`/`sweep_min_count=0`/`sweep_min_rate=0` + S→C 표시 전용 4 `sell_order_qty`/`sell_qty_track_baseline`/`sell_entry_latched`/`cancel_qty_track_baseline`) 폼, 매수·매도·한방 스위치 즉시 전송(crud "C") · 세 게이트 전부 OFF = 삭제(crud "D") · 값 변경은 「수정」 버튼, 호가 10단 + 데스크톱 최근 체결 10건 · 미체결/잔고 · 전략 로그 — Phase 16
-- [ ] **TRADE-02**: VI 종합주문 페이지 `/trading/vi` — 세션당 1건(`SetVITrigger`: account_no · order_amount_krw(원 단위, UI 만원 × 10,000) · check_rate(정수 %) · price_type "U" 고정 · run), 시작/중지 확인 다이얼로그, VI 주문내역(`VIOrderList` 72/73, state 6종 + `Accepted ∧ filledQty>0` 파생 부분체결, `confirm_locked`, deadline 110/119초) + `ConfirmVIOrderReq(33)` 확인 체크 — Phase 16
+- [x] **TRADE-01**: 상따(LimitChaser) 전략 페이지 — `/trading/limit-chaser/new`(빈 폼) · `/trading/limit-chaser/{ISIN}:{accountNo}:{exchange}`(편집). `SetLimitChaser` 활성 37필드(클라 입력 30 + 클라 고정 3 `sweep_recalc_enabled=true`/`sweep_min_count=0`/`sweep_min_rate=0` + S→C 표시 전용 4 `sell_order_qty`/`sell_qty_track_baseline`/`sell_entry_latched`/`cancel_qty_track_baseline`) 폼, 매수·매도·한방 스위치 즉시 전송(crud "C") · 세 게이트 전부 OFF = 삭제(crud "D") · 값 변경은 「수정」 버튼, 호가 10단 + 데스크톱 최근 체결 10건 · 미체결/잔고 · 전략 로그 — Phase 16
+- [x] **TRADE-02**: VI 종합주문 페이지 `/trading/vi` — 세션당 1건(`SetVITrigger`: account_no · order_amount_krw(원 단위, UI 만원 × 10,000) · check_rate(정수 %) · price_type "U" 고정 · run), 시작/중지 확인 다이얼로그, VI 주문내역(`VIOrderList` 72/73, state 6종 + `Accepted ∧ filledQty>0` 파생 부분체결, `confirm_locked`, deadline 110/119초) + `ConfirmVIOrderReq(33)` 확인 체크 — Phase 16
 - [ ] **TRADE-03**: relay 전략 중계 + 주문 wss 이관 — 인바운드 `lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`/`order.new`/`order.cancel`, DMA Ready 시 24/21/34 프리페치 + 세션 전략 캐시, auth 직후 전략 스냅샷 팬아웃, 56/60/61/64/65/72/73 파싱·팬아웃, `DirectOrderReq(2)` 5초 상관 이관 + `dma_orders` insert/update 를 relay 가 전담(origin manual/limit_chaser/vi), server `POST /api/orders` 제거(GET 유지) — Phase 16
-- [ ] **NAV-01**: 사이드 메뉴 2단 그룹 트리 — 홈 / 종목검색(상승률 상위 `/scanner` · 테마 · 관심종목) / 트레이딩(상따 + 3단 등록 전략 목록 · VI) / My page / AI 애널리스트. 기존 URL 유지, 비로그인·`unauthorized`·미연결 시 트레이딩·My page 숨김, 모바일 Sheet drawer 동일 트리 — Phase 16
+- [x] **NAV-01**: 사이드 메뉴 2단 그룹 트리 — 홈 / 종목검색(상승률 상위 `/scanner` · 테마 · 관심종목) / 트레이딩(상따 + 3단 등록 전략 목록 · VI) / My page / AI 애널리스트. 기존 URL 유지, 비로그인·`unauthorized`·미연결 시 트레이딩·My page 숨김, 모바일 Sheet drawer 동일 트리 — Phase 16
 - [x] **MYPAGE-01**: My page `/me` — 전략 현황(상따 목록 + VI 상태 + 전체 비활성화 `DisableStrategiesReq(14)` key="") → 계좌별 미체결·잔고 세로 반복(`account-panel` 재사용, 모바일 2줄 카드 행) — Phase 16
 
 ## v2 Requirements
