@@ -20,7 +20,14 @@ set -euo pipefail
 #   bash scripts/deploy-relay.sh --rollback <이미지 태그>   # 빌드 없이 이전 태그로 복귀
 #
 # 선택 env:
-#   DMA_HOST   미설정 시 127.0.0.1 (로컬 mock). **실서버 주소는 D-27 상 명시 주입 전용.**
+#   DMA_HOST   우선순위: **명시 주입 > 실행 중인 컨테이너 값 보존 > 127.0.0.1 (로컬 mock)**.
+#              주입 없이 배포해도 **지금 붙어 있는 게이트웨이가 유지된다** — 배포가 프로덕션
+#              상태를 조용히 되돌리지 않는다 (갭 5, 2026-09-09).
+#              ⚠️ D-27 과 이 동작은 **다른 문장**이다. D-27 은 「실서버 주소를 **저장소에**
+#              **박제하지 않는다**」이고, 저장소에는 지금도 실주소가 기본값으로 적혀 있지
+#              않다 — 보존은 오직 런타임 `docker inspect` 조회로만 이뤄진다. 그것을
+#              「배포 때 주입하지 말라」로 읽어 배포마다 mock 으로 되돌린 것이
+#              16-26(`2cb5620`)·16-35(`c8aa7ae`) 의 프로덕션 강등이었다.
 #   LOG_LEVEL  미설정 시 info
 #
 # 비밀은 이 스크립트가 만지지 않는다 (T-15-29):
@@ -90,9 +97,53 @@ ORDER_API_PORT=8091
 DMA_PORT=9100
 DMA_BROKER=KB
 
-# D-27 / T-15-30 — 기본값은 **로컬 mock** 이다. relay/src/config.ts 의 기본값과 같은 이유로,
-# 실서버(KB 사내망 게이트웨이) 주소는 배포자가 명시적으로 넘길 때만 컨테이너에 들어간다.
-DMA_HOST="${DMA_HOST:-127.0.0.1}"
+# 돌고 있는 컨테이너의 DMA_HOST 를 되읽는다. **배포 전(기본값 결정)과 배포 후(최종 요약)가**
+# **같은 이 함수를 쓴다** — 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (T-16-14).
+# 실패(VM 접근 불가 · 컨테이너 부재 · 최초 배포)는 **정상 경로**다. 빈 문자열을 돌려주고
+# 호출부가 다음 순위로 넘어간다. `set -e` 아래이므로 호출부는 `|| true` 를 붙인다.
+read_live_dma_host() {
+  gcloud compute ssh "$VM" --zone="$ZONE" --tunnel-through-iap --command \
+    "sudo docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^DMA_HOST=//p'" \
+    2>/dev/null | tr -d '\r' | tail -1
+}
+
+# D-27 / T-15-30 — 이 스크립트에는 실서버 주소가 **기본값으로 적히지 않는다.** 값은
+# 배포자의 명시 주입이거나, 지금 돌고 있는 컨테이너에서 런타임으로 읽어 온 것이다.
+#
+# 갭 5 (2026-09-09) — 종전 해석은 미주입 시 무조건 `127.0.0.1` 로 떨어져 **현재 컨테이너 값을**
+# **보존하지 않아**, 주입 없는 배포가 실 게이트웨이를 로컬 mock 으로 되돌렸다. mock 은 VM 에
+# 기동돼 있지도 않아 `connect ECONNREFUSED 127.0.0.1:9100` 이 된다. Phase 16 에서 **두 번**
+# 일어났다(16-26 `2cb5620` · 16-35 `c8aa7ae`). 두 executor 다 D-27 을 「주입하지 말라」로
+# 읽고 그 강등을 의도된 상태로 기록했다. **「저장소에 박제하지 않는다」와 「배포마다 mock 으로**
+# **되돌린다」는 다른 문장이다** — 이 오독을 되풀이하지 않도록 우선순위를 아래 한 줄에 모아 둔다.
+#
+# 우선순위: 명시 주입 > 실행 중인 컨테이너 값 > 로컬 mock
+DMA_HOST_INJECTED="${DMA_HOST:-}"
+echo "▶ 현재 컨테이너 DMA_HOST 조회 ..."
+CURRENT_DMA_HOST="$(read_live_dma_host || true)"
+DMA_HOST="${DMA_HOST_INJECTED:-${CURRENT_DMA_HOST:-127.0.0.1}}"
+if [[ -n "$DMA_HOST_INJECTED" ]]; then
+  DMA_HOST_SOURCE="명시 주입"
+elif [[ -n "$CURRENT_DMA_HOST" ]]; then
+  DMA_HOST_SOURCE="실행 중 컨테이너 보존"
+else
+  DMA_HOST_SOURCE="기본값(로컬 mock)"
+fi
+
+# 값이 바뀌는 배포는 **변경 전/후를 나란히** 찍는다. 강등(실주소 → mock)이든 승격이든
+# 배포자가 그 자리에서 본다. 같으면 조용히 한 줄만 남긴다.
+if [[ -z "$CURRENT_DMA_HOST" ]]; then
+  echo "  현재 값 확인 실패 — 기본값을 쓴다 (VM 접근 불가 · 컨테이너 부재 · 최초 배포)"
+elif [[ "$CURRENT_DMA_HOST" == "$DMA_HOST" ]]; then
+  echo "  현재 컨테이너 DMA_HOST=$CURRENT_DMA_HOST — 이번 배포로 바뀌지 않는다"
+else
+  echo "⚠ DMA_HOST 가 이번 배포로 바뀝니다:  $CURRENT_DMA_HOST  →  $DMA_HOST  (출처: $DMA_HOST_SOURCE)" >&2
+  if [[ "$DMA_HOST" == "127.0.0.1" ]]; then
+    echo "  이것은 실서버 → 로컬 mock **강등**입니다. 의도한 것이 아니면 중단하고" >&2
+    echo "  현재 값을 명시 주입해 다시 실행하세요: DMA_HOST=$CURRENT_DMA_HOST bash scripts/deploy-relay.sh" >&2
+  fi
+fi
+
 if [[ "$DMA_HOST" == "10.41.1.120" ]]; then
   echo "⚠ 실서버 접속 모드 — 사용자 지시가 있었는지 확인하세요 (D-27)" >&2
   echo "  이 phase 의 기본 검증 대상은 로컬 mock 이며, 실서버 접속 검증은 15-20 소관입니다." >&2
@@ -111,6 +162,9 @@ else
   APP_VERSION="$SHA"
 fi
 echo "✓ variables: mode=$MODE SHA=$SHA TARGET=$TARGET_IMAGE DMA_HOST=$DMA_HOST"
+# 「무슨 값이냐」만으로는 부족하다 — **어디서 왔느냐**가 강등을 알아채는 유일한 단서다.
+# rollback 경로도 위의 같은 해석을 이미 지나왔으므로 여기서 함께 찍힌다.
+echo "  DMA_HOST 출처: $DMA_HOST_SOURCE (배포 전 컨테이너 값=${CURRENT_DMA_HOST:-<확인 실패>})"
 
 # ───────────────────────────────────────────────────────────────
 # Section 3: 선행 리소스 검증
@@ -412,9 +466,11 @@ echo "   Container: $CONTAINER (재시작 정책 always · 384MB 상한)"
 # 셸 변수가 아니라 **돌고 있는 컨테이너**에서 되읽는다. "내가 넘긴 값" 이 아니라
 # "실제로 붙는 주소" 를 봐야 한다 — 인자를 빠뜨려 기본값(127.0.0.1 mock)으로 뜬 것을
 # 성공 로그만 보고 놓치는 사고를 막는다 (2026-09-06 실장애).
-LIVE_DMA_HOST=$(gcloud compute ssh "$VM" --zone="$ZONE" --tunnel-through-iap --command \
-  "sudo docker inspect $CONTAINER --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^DMA_HOST=//p'" \
-  2>/dev/null | tr -d '\r' | tail -1)
+LIVE_DMA_HOST="$(read_live_dma_host || true)"
+# 배포 전 실측(위 `CURRENT_DMA_HOST`) 대비 실제로 무엇이 바뀌었는지를 나란히 남긴다.
+if [[ -n "$LIVE_DMA_HOST" && -n "$CURRENT_DMA_HOST" && "$LIVE_DMA_HOST" != "$CURRENT_DMA_HOST" ]]; then
+  echo "   변경:      $CURRENT_DMA_HOST  →  $LIVE_DMA_HOST   (출처: $DMA_HOST_SOURCE)"
+fi
 LIVE_DMA_HOST="${LIVE_DMA_HOST:-(확인 실패)}"
 if [[ "$LIVE_DMA_HOST" == "127.0.0.1" ]]; then
   echo "   DMA_HOST:  $LIVE_DMA_HOST : $DMA_PORT   ⚠️  로컬 MOCK 입니다 (실서버 아님)"
