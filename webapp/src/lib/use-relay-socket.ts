@@ -163,15 +163,18 @@ export interface RelayConnectionState {
   quotes: ReadonlyMap<string, RelayQuote>;
   /** `isin|exchange` → 체결 테이프. **최신이 index 0**, 키당 상한 200. */
   tapes: ReadonlyMap<string, RelayTapeEntry[]>;
-  /** 잔고·미체결 병합 결과. 델타는 upsert + 0행/`rm` 제거 후 스냅샷 형태로 정규화된다. */
-  account: RelayAccountState | null;
   /**
-   * **계좌번호 → 병합된 계좌 상태** (16-15).
+   * **계좌번호 → 병합된 계좌 상태** (16-15). 잔고·미체결 병합 결과이며, 델타는
+   * upsert + 0행/`rm` 제거 후 스냅샷 형태로 정규화된다.
    *
    * relay 는 인증 직후 캐시된 계좌 상태를 **계좌마다 한 프레임씩** 내려보낸다
-   * (`fanout.ts` — `hub.getAccountStates(userId)` 전량). `account` 는 그중 **마지막
-   * 한 건**이라 계좌가 2개 이상이면 나머지가 사라진다 — My page 는 계좌별 미체결·잔고를
+   * (`fanout.ts` — `hub.getAccountStates(userId)` 전량). My page 는 계좌별 미체결·잔고를
    * 세로로 반복하므로(D-21) 계좌마다 자기 상태가 필요하다.
+   *
+   * ★ **계좌축 소비자는 이것만 쓴다.** 「마지막 수신 계좌」 단일 값(`account`)은
+   *   16-23 에서 계약에서 **제거됐다** — 그 값을 계좌 축에 쓰면 머리와 행이 서로 다른
+   *   계좌가 되고, 그 행의 `✕ 취소` 가 A 계좌로 B 의 주문번호를 보낸다(CR-01).
+   *   필드를 남겨 두면 다음 소비자가 같은 실수를 반복하므로 표면 자체를 없앴다.
    *
    * ⚠️ 병합은 **계좌별로** 한다. 이전 구현은 `prev.a !== next.a` 를 전량 교체로 처리해서
    *    계좌 B 의 델타가 계좌 A 의 스냅샷을 통째로 밀어냈다.
@@ -244,12 +247,11 @@ export interface RelaySocketState {
   /**
    * **계좌번호 → 병합된 계좌 상태.** 계좌 축 소비자는 이것만 쓴다 (16-23).
    *
-   * 「마지막으로 받은 계좌」 단일 값(`account`)은 계약에서 **제거됐다** — 그 값을 계좌 축에
+   * 「마지막 수신 계좌」 단일 값(`account`)은 계약에서 **제거됐다** — 그 값을 계좌 축에
    * 쓰면 머리는 A 인데 행은 B 가 되고, 그 행의 `✕ 취소` 가 A 계좌로 B 의 주문번호를
    * 보낸다(CR-01). 어느 계좌를 골랐는지는 **소비자만** 안다.
    */
   accountStates: ReadonlyMap<string, RelayAccountState>;
-  account: RelayAccountState | null;
   orders: RelayOrderMsg[];
   messages: RelayServerMessageEntry[];
   isStale: boolean;
@@ -277,7 +279,6 @@ interface RelayData {
   accounts: RelayAccount[];
   quotes: Map<string, RelayQuote>;
   tapes: Map<string, RelayTapeEntry[]>;
-  account: RelayAccountState | null;
   accountStates: Map<string, RelayAccountState>;
   orders: RelayOrderMsg[];
   messages: RelayServerMessageEntry[];
@@ -296,7 +297,6 @@ const INITIAL_DATA: RelayData = {
   accounts: [],
   quotes: new Map(),
   tapes: new Map(),
-  account: null,
   accountStates: new Map(),
   orders: [],
   messages: [],
@@ -381,16 +381,15 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
 
     case "acct": {
       /*
-        ★ 병합 기준은 **그 계좌의 이전 상태**다. `state.account`(마지막 수신분)를 기준으로
+        ★ 병합 기준은 **그 계좌의 이전 상태**다. 계좌를 가리지 않는 단일 값을 기준으로
           삼으면 계좌 B 의 델타가 계좌 A 의 상태와 `prev.a !== next.a` 로 만나 전량 교체로
           처리되고, 그 순간 A 의 잔고·미체결이 통째로 사라진다.
-        `account` 는 「마지막으로 받은 계좌」라는 기존 의미를 그대로 유지한다 — 호가주문 탭이
-        그 값을 쓰고 있고, 계좌 축 소비자는 `accountStates` 를 쓴다.
+        단일 「마지막 수신 계좌」 필드는 16-23 에서 제거했다. 병합은 계좌별로만 한다.
       */
       const merged = mergeAccount(state.accountStates.get(frame.a) ?? null, frame);
       const accountStates = new Map(state.accountStates);
       accountStates.set(frame.a, merged);
-      return { ...state, account: merged, accountStates };
+      return { ...state, accountStates };
     }
 
     case "order":
@@ -925,7 +924,6 @@ export function useRelayConnection({
       accounts: data.accounts,
       quotes: data.quotes,
       tapes: data.tapes,
-      account: data.account,
       accountStates: data.accountStates,
       orders: data.orders,
       messages: data.messages,

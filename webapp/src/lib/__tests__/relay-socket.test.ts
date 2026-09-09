@@ -179,10 +179,13 @@ function tapeFrame(
   return { t: 'tape', i: ISIN_A, x: 'KRX', snap, e: entries, ...over };
 }
 
+/** `acctFrame` 기본 계좌번호. 단언이 「어느 계좌인가」를 명시할 수 있게 상수로 둔다. */
+const ACCT_NO = '12345678-01';
+
 function acctFrame(over: Partial<RelayAccountState> = {}): RelayAccountState {
   return {
     t: 'acct',
-    a: '12345678-01',
+    a: ACCT_NO,
     snap: true,
     hold: [{ isin: ISIN_A, qty: 10, sellableQty: 10, avgPrice: 68_500 }],
     unf: [],
@@ -190,6 +193,18 @@ function acctFrame(over: Partial<RelayAccountState> = {}): RelayAccountState {
     st: '09:30:15',
     ...over,
   };
+}
+
+/**
+ * `acctFrame` 이 쓰는 기본 계좌의 병합 결과.
+ *
+ * 16-23 에서 「마지막 수신 계좌」 단일 필드(`account`)가 계약에서 제거됐다 — 계좌 축은
+ * **계좌번호로 골라야** 한다(CR-01). 그래서 단언도 계좌번호를 명시한다.
+ */
+function acctOf(current: {
+  accountStates: ReadonlyMap<string, RelayAccountState>;
+}): RelayAccountState | null {
+  return current.accountStates.get(ACCT_NO) ?? null;
 }
 
 function orderNew(rid: string): RelayOrderNewMsg {
@@ -579,7 +594,7 @@ describe('useRelayConnection — 정리 (cleanup)', () => {
       ws.push(quoteFrame({ p: 70_000 }));
       ws.push(acctFrame());
     });
-    expect(hook.result.current.account).not.toBeNull();
+    expect(acctOf(hook.result.current)).not.toBeNull();
 
     await act(async () => {
       hook.rerender({ enabled: false });
@@ -589,7 +604,7 @@ describe('useRelayConnection — 정리 (cleanup)', () => {
     expect(ws.closedWith).toEqual({ code: 1000 });
     expect(hook.result.current.status).toBe('idle');
     // 로그아웃 뒤 이전 사용자의 잔고·시세가 메모리에 남으면 안 된다 (T-16-04)
-    expect(hook.result.current.account).toBeNull();
+    expect(acctOf(hook.result.current)).toBeNull();
     expect(hook.result.current.quotes.size).toBe(0);
 
     // 다시 켜면 새 소켓으로 깨끗하게 재연결된다
@@ -794,7 +809,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
         }),
       );
     });
-    expect(hook.result.current.account?.unf).toHaveLength(1);
+    expect(acctOf(hook.result.current)?.unf).toHaveLength(1);
 
     await act(async () => {
       ws.push(
@@ -807,11 +822,11 @@ describe('useRelayConnection — 프레임 견고성', () => {
       );
     });
 
-    expect(hook.result.current.account?.unf).toHaveLength(0);
-    expect(hook.result.current.account?.hold[0]?.qty).toBe(20);
+    expect(acctOf(hook.result.current)?.unf).toHaveLength(0);
+    expect(acctOf(hook.result.current)?.hold[0]?.qty).toBe(20);
     // 소비자가 델타를 다시 해석하지 않도록 스냅샷 형태로 정규화한다
-    expect(hook.result.current.account?.snap).toBe(true);
-    expect(hook.result.current.account?.rm).toEqual([]);
+    expect(acctOf(hook.result.current)?.snap).toBe(true);
+    expect(acctOf(hook.result.current)?.rm).toEqual([]);
   });
 
   // ----------------------------------------------------------
@@ -849,8 +864,8 @@ describe('useRelayConnection — 프레임 견고성', () => {
       );
     });
 
-    expect(hook.result.current.account?.hold.map((h) => h.isin)).toEqual([ISIN_A]);
-    expect(hook.result.current.account?.unf).toEqual([]);
+    expect(acctOf(hook.result.current)?.hold.map((h) => h.isin)).toEqual([ISIN_A]);
+    expect(acctOf(hook.result.current)?.unf).toEqual([]);
   });
 
   it('⑮-b 델타의 수량 0 톰스톤 잔고 행이 기존 보유 종목을 지운다', async () => {
@@ -868,7 +883,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
         }),
       );
     });
-    expect(hook.result.current.account?.hold).toHaveLength(2);
+    expect(acctOf(hook.result.current)?.hold).toHaveLength(2);
 
     // 전량 매도 → 서버가 맵에서 지우고 0/0/0 행으로 알린다. 잔고에는 `rm` 이 없다.
     await act(async () => {
@@ -882,7 +897,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
       );
     });
 
-    expect(hook.result.current.account?.hold.map((h) => h.isin)).toEqual([ISIN_B]);
+    expect(acctOf(hook.result.current)?.hold.map((h) => h.isin)).toEqual([ISIN_B]);
   });
 
   it('⑮-c 델타의 unfilledQty 0 행은 rm 없이도 미체결에서 사라진다', async () => {
@@ -904,7 +919,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
     await act(async () => {
       ws.push(acctFrame({ snap: true, unf: [unf('A1', 10, 0), unf('A2', 5, 5)] }));
     });
-    expect(hook.result.current.account?.unf).toHaveLength(2);
+    expect(acctOf(hook.result.current)?.unf).toHaveLength(2);
 
     await act(async () => {
       ws.push(
@@ -912,8 +927,8 @@ describe('useRelayConnection — 프레임 견고성', () => {
       );
     });
 
-    expect(hook.result.current.account?.unf.map((u) => u.orderNo)).toEqual(['A2']);
-    expect(hook.result.current.account?.unf[0]?.unfilledQty).toBe(3);
+    expect(acctOf(hook.result.current)?.unf.map((u) => u.orderNo)).toEqual(['A2']);
+    expect(acctOf(hook.result.current)?.unf[0]?.unfilledQty).toBe(3);
   });
 
   it("⑮-d 같은 델타가 한 주문을 갱신하면서 rm 으로도 지우면 최종은 '없음'이다", async () => {
@@ -941,7 +956,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
       ws.push(acctFrame({ snap: false, hold: [], unf: [unf(4)], rm: ['A1'] }));
     });
 
-    expect(hook.result.current.account?.unf).toEqual([]);
+    expect(acctOf(hook.result.current)?.unf).toEqual([]);
   });
 
   it('⑯ msg 프레임은 최신 우선으로 누적된다 (상태 바 최근 3건의 원천)', async () => {

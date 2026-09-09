@@ -193,7 +193,6 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   accounts: [],
   quotes: EMPTY_QUOTES,
   tapes: EMPTY_TAPES,
-  account: null,
   accountStates: EMPTY_ACCOUNT_STATES,
   orders: [],
   messages: [],
@@ -287,8 +286,11 @@ export interface UseRelaySubscriptionOptions {
  * ★ `quote`/`tape` 는 **자기 키의 값만** 돌려준다. 전역 맵에는 다른 종목이 섞여 있고,
  *   키가 바뀐 직후에는 새 키에 아직 값이 없어 자연히 `null`/`[]` 이 된다 — 전환 직전 키로
  *   지연 도착한 프레임이 화면에 올라올 여지가 구조적으로 없다(T-15-40 / T-16-02).
- * ★ `account`/`accounts`/`orders`/`messages` 는 **종목 축이 없다**. 전역 값을 그대로
+ * ★ `accountStates`/`accounts`/`orders`/`messages` 는 **종목 축이 없다**. 전역 값을 그대로
  *   통과시킨다. 종목을 옮겼다고 잔고를 비우면 다음 델타가 올 때까지 계좌 패널이 빈다.
+ *   계좌 축 선택은 **소비자가** `accountStates.get(선택계좌)` 로 한다 — 훅이 대신 고르지
+ *   않는다(어느 계좌를 골랐는지는 훅이 모른다). 훅이 하나를 골라 주면 그 값은 필연적으로
+ *   「마지막으로 프레임이 온 계좌」가 되고, 그 순간 머리와 행이 다른 계좌가 된다(CR-01).
  */
 export function useRelaySubscription({
   isin,
@@ -323,7 +325,6 @@ export function useRelaySubscription({
       tape,
       // 계좌 축 선택은 **소비자가** 한다 — 훅은 어느 계좌를 골랐는지 모른다(CR-01).
       accountStates: relay.accountStates,
-      account: relay.account,
       orders: relay.orders,
       messages: relay.messages,
       isStale: relay.isStale,

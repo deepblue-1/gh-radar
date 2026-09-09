@@ -213,7 +213,6 @@ function makeRelay(over: Partial<RelaySocketShape> = {}): RelaySocketShape {
     quote: makeQuote(),
     tape: makeTape(),
     accountStates: new Map(),
-    account: null,
     orders: [],
     messages: [],
     isStale: false,

@@ -38,6 +38,7 @@
  */
 
 import { RELAY_STATE_LABELS } from "@gh-radar/shared";
+import type { RelayAccountState } from "@gh-radar/shared";
 
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
@@ -73,15 +74,39 @@ export function formatServerTime(raw: string | undefined): string | null {
 }
 
 /**
+ * 계좌 **전체** 중 가장 최근 갱신시각 (16-23).
+ *
+ * 16-23 이전에는 「마지막으로 프레임이 온 계좌」 단일 값의 `st` 를 그렸다. 그 필드가
+ * 계좌 경계 사고의 원인이라 계약에서 제거됐으므로(CR-01) 여기서는 계좌 전체를 훑는다 —
+ * 상태줄은 계좌 축이 없는 전역 표시라 「어느 계좌인가」가 아니라 **「가장 최근 언제
+ * 반영됐나」**가 답이어야 한다. 계좌가 하나면 결과는 이전과 완전히 같다.
+ *
+ * ★ 비교는 **정규화한 뒤**에 한다. 게이트웨이는 `YYYYMMDDHHMMSS` 를, 구현·스텁에 따라
+ *   `HH:MM:SS` 를 주므로 원문끼리 비교하면 자릿수가 다른 두 모양이 뒤섞여 엉뚱한 값이
+ *   최댓값이 된다. `HH:MM:SS` 는 제로패딩이라 문자열 비교가 곧 시각 비교다.
+ */
+export function latestAccountTime(
+  states: ReadonlyMap<string, RelayAccountState>,
+): string | null {
+  let latest: string | null = null;
+  for (const state of states.values()) {
+    const at = formatServerTime(state.st);
+    if (at !== null && (latest === null || at > latest)) latest = at;
+  }
+  return latest;
+}
+
+/**
  * 상태줄 (C1) — `DMA {상태}` · 상따 N건 · VI 가동/중지 · 계좌 N개 · 반영 시각.
  *
  * ★ 상태 문구는 `RELAY_STATE_LABELS` **단일 정본**을 쓴다(D-36). 화면마다 문구를 다시
  *   지으면 호가주문 탭은 「실시간」, My page 는 다른 말이 되어 같은 상태가 두 이름을 갖는다.
  */
 function MeStatusBar() {
-  const { status, statusLabel, accounts, limitChasers, viTrigger, account } = useRelayContext();
+  const { status, statusLabel, accounts, limitChasers, viTrigger, accountStates } =
+    useRelayContext();
   const label = statusLabel === "" ? RELAY_STATE_LABELS.connecting : statusLabel;
-  const updatedAt = formatServerTime(account?.st);
+  const updatedAt = latestAccountTime(accountStates);
 
   return (
     <div

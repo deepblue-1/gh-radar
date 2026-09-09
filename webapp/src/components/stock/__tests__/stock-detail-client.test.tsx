@@ -69,7 +69,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
       accounts: [],
       quote: null,
       tape: [],
-      account: null,
+      // 16-23: 「마지막 수신 계좌」 단일 필드는 계약에서 사라졌다. 계좌 축은 이 맵뿐이다.
+      accountStates: new Map(),
       orders: [],
       messages: [],
       isStale: false,
