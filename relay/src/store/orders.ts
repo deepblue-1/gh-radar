@@ -378,6 +378,12 @@ export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
  * 주문」이 흔적 없이 사라진다. 그래서 게이트웨이 송신 **전에** 부른다.
  */
 export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSink {
+  // ★ 수렴 재조회 sink 를 **한 번만** 조립한다 (16-40 / R2-WR-07③).
+  //   종전에는 `23505` 분기 안에서 `supabaseOrderLookupSink(supabase)(...)` 를 매 호출마다
+  //   새로 만들었다. 클로저 생성 비용이 문제가 아니라, 같은 파일 안에서 **sink 조립 방식이
+  //   두 벌**이 되는 것이 문제다 — 16-39 가 update 셀렉터에서 겪은 것과 같은 종류의 분기다
+  //   (T-16-14: 조립이 복제되면 언젠가 한쪽이 축을 잃는다). 조립 지점을 하나로 둔다.
+  const lookup = supabaseOrderLookupSink(supabase);
   return async (row) => {
     const { data, error } = await supabase
       .from("dma_orders")
@@ -419,7 +425,25 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
         row.orderNo !== undefined &&
         row.orderNo !== ""
       ) {
-        const existing = await supabaseOrderLookupSink(supabase)(row.userId, row.orderNo);
+        // ★ 재조회의 실패가 **원래 사유를 덮지 않게** 한다 (16-40 / R2-WR-07② / T-16-82).
+        //
+        //   `supabaseOrderLookupSink` 는 조회 실패 시 **throw** 한다. 그것을 그대로 흘려보내면
+        //   호출자에게 올라가는 것이 `23505` 가 아니라 **조회 오류**이고, `ensureRow` 는 모든
+        //   insert 예외를 `{kind:"unavailable"}` 로 접어 그 통보를 드롭한다. 즉 「이미 있다」가
+        //   「조회 불가」를 거쳐 「기록 불가」로 열화된다 — 16-28 이 없애려던 바로 그 경로가
+        //   재조회 실패라는 뒷문으로 되살아난다.
+        //
+        //   그래서 **여기서만** 삼킨다. 예외 삼키기를 넓히는 것이 아니다: 삼킨 사실은 로그로
+        //   남고(S-5), 흐름은 아래 기존 throw 경로로 떨어져 **원래의 `23505`** 를 올린다.
+        let existing: string | null = null;
+        try {
+          existing = await lookup(row.userId, row.orderNo);
+        } catch (lookupErr) {
+          logger.error(
+            { pgError: safePgError(lookupErr), origin: row.origin },
+            "[orders] 23505 후 수렴 재조회 실패 — 원래 사유(23505)를 그대로 올린다",
+          );
+        }
         if (existing !== null) {
           // 조용히 수렴하면 이 경로가 얼마나 도는지 영원히 모른다 (S-5). 계좌번호·주문번호
           // 원문은 싣지 않는다 — `origin` 과 SQLSTATE 만으로 충분히 추적된다 (T-16-45).
@@ -432,7 +456,8 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
           //   없었고, 그래서 「새로 만든 행 누적 건수」가 수렴까지 세고 있었다.
           return { id: existing, created: false };
         }
-        // 재조회도 못 찾으면 지어내지 않는다 — 아래 기존 경로로 떨어진다.
+        // 재조회가 못 찾았거나(행 없음) 실패했으면(위 catch) 지어내지 않는다 — 아래 기존
+        // 경로로 떨어져 `23505` 를 그대로 올린다. 「지어내지 않는다」 규율(16-28)은 그대로다.
       }
       logger.error({ pgError: safePgError(error), origin: row.origin }, "[orders] dma_orders insert 실패");
       throw error ?? new Error("dma_orders insert 가 행을 돌려주지 않았습니다");

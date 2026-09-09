@@ -797,6 +797,37 @@ describe("23505 수렴 (GC-WR-08)", () => {
     expect(typeof converged).toBe("string");
   });
 
+  it("⓻-c 23505 후 재조회가 실패하면 올라가는 것은 23505 다 (16-40 / R2-WR-07②)", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const LEAKED_ACCOUNT = "9876543210";
+    const { supabase, queries } = fakeDmaOrders(fixtureRows(), {
+      // 재조회(select)만 실패시킨다 — insert 는 `dupToday` 가 **실제로 계산한** 23505 다.
+      selectError: {
+        code: "57014",
+        message: "canceling statement due to statement timeout",
+        details: `Failing row contains (a1b2, ${LEAKED_ACCOUNT}, KR7005930003, 0, 70000, …).`,
+        hint: "계좌 담당자에게 문의하십시오",
+      },
+    });
+
+    // ★ 여기가 전부다. 예전에는 `57014`(조회 오류)가 올라갔고, `ensureRow` 가 그것을
+    //   `{kind:"unavailable"}` 로 접어 자동주문 통보를 **드롭**했다 — 「이미 있다」가
+    //   「기록 불가」로 열화되는 경로가 재조회 실패라는 뒷문으로 살아 있었다.
+    await expect(
+      supabaseOrderInsertSink(supabase)(insertRow({ userId: USER_A, orderNo: ORDER_NO })),
+    ).rejects.toMatchObject({ code: "23505" });
+
+    // insert 1회 + 재조회 1회. 재조회 실패를 재시도로 두드리지 않는다.
+    expect(queries.map((q) => q.verb)).toEqual(["insert", "select"]);
+
+    // 삼킨 사실이 로그에 남는다 (S-5) — 그리고 그 로그는 `safePgError` 를 지난다 (16-38 회귀 게이트).
+    const dumped = JSON.stringify(errorSpy.mock.calls.map((c) => c[0]));
+    expect(dumped).toContain("57014");
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain("Failing row");
+    expect(dumped).not.toContain("문의하십시오");
+  });
+
   it("⓼ 23505 가 아닌 에러는 여전히 throw 된다 — 예외 삼키기를 넓히지 않았다", async () => {
     const { supabase, queries } = fakeDmaOrders(fixtureRows(), {
       insertError: { code: "23514", message: "check constraint 위반" },
