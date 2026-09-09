@@ -269,6 +269,15 @@ function rejectFrame(reason: string, accountNo = "", isin = ""): RelayServerMsg 
 type UserEntry = {
   session: DmaSession;
   conns: Set<Conn>;
+  /**
+   * 이 entry 가 `session` 에 건 `"state"` 리스너의 **핸들**. entry 를 버리는 모든 경로가
+   * 이것으로 리스너를 뗀다 (`#register` 의 세션 교체 갈래 · `#onClose` 의 마지막 소켓 갈래).
+   *
+   * 핸들을 entry 가 들고 있어야 하는 이유: `session.on("state", (f) => ...)` 처럼 익명
+   * 함수를 인라인으로 넘기면 **참조가 남지 않아 영원히 뗄 수 없다**. 리스너를 만든 주체가
+   * 그 수명을 소유한다.
+   */
+  onState: (frame: RelayStateMsg) => void;
 };
 
 function keyOf(isin: string, ex: RelayExchange): string {
@@ -406,6 +415,10 @@ export class WsFanout {
     }
 
     this.#conns.clear();
+    // 여기서는 세션 리스너를 따로 떼지 않는다 — `closeAll()` 은 프로세스 종료 경로이고
+    // 같은 종료에서 `SessionManager.closeAll()` 이 세션 객체 자체를 끊는다(`index.ts`).
+    // 끊길 객체의 리스너를 떼는 것은 정리가 아니라 소음이다. **살아 있는 세션에 죽은
+    // entry 의 리스너가 남는 경로는 `#register`·`#onClose` 두 곳뿐**이고, 그 둘만 뗀다.
     this.#users.clear();
     // 남은 주문 대기 타이머를 전부 끈다 — 하나라도 남으면 프로세스가 안 내려간다.
     this.#orders?.close();
@@ -1060,7 +1073,15 @@ export class WsFanout {
     const entry = this.#users.get(userId);
     if (entry !== undefined) {
       entry.conns.delete(conn);
-      if (entry.conns.size === 0) this.#users.delete(userId);
+      if (entry.conns.size === 0) {
+        // entry 를 버리기 **전에** 그 리스너를 뗀다 (R2-WR-05). 여기를 빼먹으면
+        // `DmaSession` 이 유예 5분 동안 살아 있으므로(D-15) 리스너만 세션에 남고,
+        // 같은 세션으로 재접속한 `#register` 가 하나 더 걸어 새로고침마다 누적된다.
+        // `#register` 의 세션 교체 갈래로는 이 경로를 못 막는다 — 그때는 `existing` 이
+        // 이미 없기 때문이다.
+        entry.session.off("state", entry.onState);
+        this.#users.delete(userId);
+      }
     }
 
     if (conn.acquired) this.#sessions.release(userId);
@@ -1074,6 +1095,20 @@ export class WsFanout {
   /**
    * 사용자를 팬아웃 대상 표에 등록한다. 세션 상태 리스너는 **사용자당 1개**다 —
    * 탭마다 붙이면 세션 하나에 리스너가 쌓인다.
+   *
+   * ★ 이 불변식은 **오랫동안 주석에만 있었다** (R2-WR-05). 성립하지 않았던 이유:
+   *   `#onClose` 가 마지막 소켓에서 `#users.delete(userId)` 를 하는데 `DmaSession` 은
+   *   유예 5분 동안 살아 있다(D-15 — 새로고침 왕복 흡수). 그래서 탭 1개짜리 사용자가
+   *   새로고침하면 close 로 entry 만 사라지고(리스너는 세션에 남는다) 재접속 때
+   *   `acquire` 가 **같은 세션**을 돌려주므로 여기 `existing === undefined` 로 들어와
+   *   같은 세션에 리스너를 하나 더 건다. 옛 리스너는 아래 침묵 가드로도 안 막힌다 —
+   *   `current.session === session` 이기 때문이다. 결과: 새로고침 k 번이면 상태 프레임이
+   *   브라우저로 k 번 나가고 11회째부터 `MaxListenersExceededWarning` 이 뜬다.
+   *
+   *   `SubscriptionHub.attach` 는 같은 함정을 `prev === session` 조기 반환으로 피했다
+   *   (`subscription-hub.ts`) — 그쪽 `#sessions` 는 소켓이 닫혀도 지워지지 않아 조기
+   *   반환이 실제로 걸리기 때문이다. 여기 `#users` 는 지워지므로 조기 반환만으로는
+   *   부족하고, **entry 를 버리는 경로가 리스너도 함께 버려야** 한다.
    */
   #register(conn: Conn, userId: string, session: DmaSession): void {
     const existing = this.#users.get(userId);
@@ -1082,20 +1117,34 @@ export class WsFanout {
       return;
     }
 
-    const entry: UserEntry = { session, conns: new Set([conn]) };
+    const conns = new Set<Conn>([conn]);
     if (existing !== undefined) {
       // 세션이 재생성됐다 — 기존 소켓들도 새 세션의 상태를 받아야 한다.
-      for (const c of existing.conns) entry.conns.add(c);
-      logger.info({ userId, conns: entry.conns.size }, "[WS] 세션 교체 — 상태 리스너 재결선");
+      for (const c of existing.conns) conns.add(c);
+      // 버려질 entry 의 리스너를 **여기서 뗀다.** 옛 세션이 살아 있는 동안(유예·재접속
+      // 경합) 죽은 entry 의 리스너가 그 세션에 남아 있으면 그것이 곧 누수다.
+      existing.session.off("state", existing.onState);
+      logger.info({ userId, conns: conns.size }, "[WS] 세션 교체 — 상태 리스너 재결선");
     }
-    this.#users.set(userId, entry);
 
-    session.on("state", (frame: RelayStateMsg) => {
+    // 핸들을 지역 변수로 먼저 만든다 — 인라인 익명 함수는 참조가 남지 않아 뗄 수 없다.
+    const onState = (frame: RelayStateMsg): void => {
       // 정본이 바뀌었으면 옛 리스너는 침묵한다 (15-03 generation 규율 동형).
+      //
+      // ★ 위·아래의 `off` 가 있어도 **이 가드를 지우면 안 된다.** 둘은 서로 다른 시점의
+      //   방어다: `off` 는 「entry 를 버리는 순간」에 걸고, 이 가드는 「이벤트가 발행되는
+      //   순간」에 건다. `DmaSession.emit` 은 리스너 배열의 **사본**을 순회하므로, 어떤
+      //   리스너가 실행되는 도중에 `off` 가 걸려도 같은 emit 안의 나머지 리스너는 그대로
+      //   호출된다 — 그 창에서 정본 대조가 없으면 이미 버려진 entry 가 프레임을 흘린다.
+      //   반대로 가드만 있고 `off` 가 없으면(= R2-WR-05 이전 상태) **같은 세션**으로
+      //   재접속했을 때 `current.session === session` 이라 가드가 통과해 버린다.
       const current = this.#users.get(userId);
       if (current === undefined || current.session !== session) return;
       this.#deliver(userId, frame);
-    });
+    };
+
+    this.#users.set(userId, { session, conns, onState });
+    session.on("state", onState);
   }
 
   /** **그 사용자의 소켓 집합에만** 보낸다. 전역 순회 경로를 만들지 않는다 (T-15-02). */
