@@ -592,17 +592,32 @@ export class WsFanout {
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, cfg.accountNo)) return;
-      // ②-1 시장 해석은 **`crud` 로 갈린다** (GC-WR-04 / T-16-55).
+      // ②-1 시장 해석은 **게이트 상태로 갈린다** (R2-CR-01 / GC-WR-04 / T-16-55).
+      //
+      // 갈림의 근거는 클라이언트가 자칭하는 `crud` 가 **아니라** 게이트 4종의 실제 상태다
+      // (`#isTeardown`). `crud` 는 인바운드 필드라 브라우저·옛 탭·임의 wss 가 값을 정하고,
+      // 자칭을 가드 면제 조건으로 쓰면 한 프레임이 이 관문과 아래 ②-2 를 **동시에** 지난다
+      // (R2-CR-01). 계약의 정본도 게이트다 — `packages/shared/src/relay.ts:136-141`.
       //
       // `#isTeardown(cfg)` 인 요청은 「전략을 내린다」는 뜻이고, 그것을 시장 해석 실패로 막으면
       // 상장폐지·마스터 미로딩 종목의 전략을 **영원히 못 지우는** 상태가 만들어진다. UI 가
       // `gateBlocked` 에 「끄는 것은 언제나 허용한다 — 무장 해제를 막으면 그게 더 위험하다」
       // (T-16-44)고 적어 둔 규율의 **서버측 대응**이 이 분기다.
       //
-      // 반대로 등록·수정(`crud:"C"` ∧ 게이트가 하나라도 켜짐)은 **완전히 그대로**다. 여기를
-      // 함께 느슨하게 하면 기본값 `"K"` 로 코스닥 전략을 코스피로 등록하는 경로가 열린다
-      // (16-25 truth 41 / T-16-42) — 그래서 두 경로가 같은 함수를 쓰지 않는다.
+      // 반대로 등록·수정(게이트가 **하나라도** 켜짐)은 `crud` 가 무엇으로 오든 **완전히
+      // 그대로**다 — `#strategyMarket` 이고, 못 풀면 거부다. 여기를 함께 느슨하게 하면 기본값
+      // `"K"` 로 코스닥 전략을 코스피로 등록하는 경로가 열린다 (16-25 truth 41 / T-16-42) —
+      // 그래서 두 경로가 같은 함수를 쓰지 않는다.
       const teardown = this.#isTeardown(cfg);
+      // `crud:"D"` 인데 게이트가 켜져 있는 프레임은 계약과 어긋난다 — 정상 브라우저는 `crud` 를
+      // `crudOf(gates)` 로 파생시키므로 이 조합을 만들 수 없다. 조용히 통과시키지 않고 운영
+      // 신호를 남긴다(S-5). 계좌번호는 싣지 않는다 (T-16-45) — `isin`·`crud` 와 사유만.
+      if (!teardown && cfg.crud === "D") {
+        logger.error(
+          { userId, t: msg.t, isin: cfg.isin, crud: cfg.crud },
+          '[WS] crud:"D" 인데 게이트가 켜져 있다 — 철거로 보지 않고 등록 경로 가드를 적용한다',
+        );
+      }
       const market = teardown
         ? this.#teardownMarket(userId, msg.t, cfg)
         : this.#strategyMarket(conn, userId, msg.t, cfg.isin);
@@ -778,20 +793,36 @@ export class WsFanout {
   }
 
   /**
-   * **철거(삭제) 요청인가** (GC-WR-04 / T-16-55).
+   * **철거(삭제) 요청인가** — 판정의 정본은 **게이트 4종**이다 (R2-CR-01 / GC-WR-04 / T-16-55).
    *
-   * 두 갈래를 모두 철거로 본다:
-   *   ① `crud === "D"` — 브라우저의 `crudOf()` 판정이 이 값으로 도착한다.
-   *   ② 게이트 4종이 **전부 꺼진** 요청 — `crud` 가 `"C"` 로 와도 게이트웨이가 `"D"` 로
-   *      정규화하므로(`RelayLimitChaser.crud` 계약 / Pitfall 7) 사실상 삭제다. 옛 탭·직접
-   *      wss 처럼 `crudOf` 를 안 태운 경로가 여기로 온다.
+   * 계약 원문(`packages/shared/src/relay.ts:136-141` `RelayLimitChaser.crud`)이 못박은 문장은
+   * 「매수·매도·취소 게이트가 **전부** 꺼지면 **서버가** `"D"` 로 정규화한다」이다. 즉 삭제의
+   * 정본은 **게이트 상태**이고 `crud` 는 그 정규화의 결과를 말하는 힌트일 뿐이다 —
+   * `webapp/src/lib/limit-chaser.ts` 의 `crudOf()` 도 자기 docstring 에 「전송용 힌트일
+   * 뿐이다」라고 적어 두었고, 그 값은 `isDeleteIntent(gates)` 의 파생값이다.
+   *
+   * ⚠️ 그래서 `cfg.crud === "D"` 를 **판정의 단독 근거로 쓰지 않는다.** `crud` 는 **인바운드
+   *   필드**라(`relay/src/ws/protocol.ts` `crud: z.enum(["C","D"])`, `RelayLimitChaserInput` 이
+   *   `crud` 를 Omit 하지 않는다) 브라우저·옛 탭·임의의 wss 클라이언트가 값을 정한다.
+   *   클라이언트의 자칭을 서버 가드의 면제 조건으로 쓰면 그것은 가드가 아니다 —
+   *   `{crud:"D", buyEnabled:true, buyOrderPrice:0, buyOrderQty:0, isin:<마스터에 없는 ISIN>}`
+   *   한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 지나
+   *   「시장이 틀리고 무장까지 걸린 반복 발주 설정」으로 게이트웨이에 나갔다 (R2-CR-01).
+   *
+   * 그래서 갈래는 **하나**다 — 게이트 4종이 전부 꺼졌는가. 16-29 의 ② 갈래(「`crud` 가 `"C"`
+   * 로 와도 게이트가 다 꺼졌으면 게이트웨이가 `"D"` 로 정규화하므로 사실상 삭제」)는 **여전히
+   * 참이고 이제 유일한 갈래**다. `crudOf` 를 안 태운 경로(옛 탭·직접 wss)의 전 게이트 OFF 도
+   * 그대로 삭제로 온다.
    *
    * ★ 게이트 4종에 **`sweepEnabled` 는 없다** — 한방만 켠 전략도 서버가 삭제로 정규화한다.
    *   `webapp/src/lib/limit-chaser.ts` 의 `isDeleteIntent()` 와 **같은 네 항**이다(그쪽이
    *   원본이고 여기가 서버측 사본이다 — 항이 갈리면 「지운 줄 알았는데 남는」 전략이 생긴다).
+   *
+   * ★ **부수효과 없는 순수 판정**이다. `crud` 불일치 로그는 프레임이 들어오는 지점(`lc.set`
+   *   분기) 한 곳에서만 남긴다 — 이 함수는 한 프레임당 최대 두 번(`lc.set` · `#strategyArmable`)
+   *   호출되므로 여기에 로그를 두면 사고 1건이 두 줄로 새어 운영 신호가 부풀려진다.
    */
   #isTeardown(cfg: RelayLimitChaserInput): boolean {
-    if (cfg.crud === "D") return true;
     return (
       !cfg.buyEnabled && !cfg.sellEnabled && !cfg.cancelQtyEnabled && !cfg.cancelTradeEnabled
     );
@@ -893,6 +924,8 @@ export class WsFanout {
    * ★ **철거(삭제) 요청에는 걸지 않는다** (GC-WR-04 와 같은 규율). 무장이 아니라 해제이므로
    *   막으면 사용자의 자산을 인질로 잡는다 (T-16-44 의 서버측). 판정을 호출부가 아니라 이
    *   함수가 소유해 호출부가 늘어도 규율이 갈리지 않게 한다.
+   * ★ 그 면제의 조건은 이제 **게이트 4종의 실제 상태**다 — 클라이언트가 보낸 `crud:"D"` 가
+   *   아니다 (R2-CR-01). 자칭으로 면제되면 이 가드는 「끄고 싶은 사람은 D 라고 쓰세요」가 된다.
    */
   #strategyArmable(
     conn: Conn,
@@ -900,6 +933,11 @@ export class WsFanout {
     t: RelayInbound["t"],
     cfg: RelayLimitChaserInput,
   ): boolean {
+    // ★ 이 줄을 지우면 안 된다 — 무용지물이 아니다. 게이트 4종이 **전부 꺼져 있어도**
+    //   `sweepEnabled: true` ∧ (`sweepWatchPrice === 0` ∨ `buyOrderPrice === 0` ∨
+    //   `buyOrderQty === 0`) 이면 아래에서 `reason === "sweep"` 이 되어 **철거가 거부된다.**
+    //   `sweepEnabled` 는 삭제 판정 4종(`#isTeardown`)에 들어 있지 않기 때문이다. 이 면제가
+    //   없으면 「한방만 켜 둔 전략을 영원히 못 지우는」 상태가 만들어진다 (T-16-55 / T-16-44).
     if (this.#isTeardown(cfg)) return true;
     // UI 는 `buyQty` 를 `buyOrderQtyFromAmount(금액, 가격)` 로 **산출**하지만 relay 가 받는 것은
     // 이미 산출된 `buyOrderQty` 다 — 그래서 여기서는 `buyOrderQty === 0` 을 본다. 「식이 다르다」가
