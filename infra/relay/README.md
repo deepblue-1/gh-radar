@@ -295,6 +295,86 @@ gcloud compute connect-to-serial-port radar-gw --zone=asia-northeast3-a
 
 ---
 
+## DMA 터널 — 개발기에서 게이트웨이 직결
+
+개발기(Mac / Windows)가 KB VPN 없이 **`10.41.1.120:9100` 에 주소 그대로** 붙게 하는 스크립트다.
+radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션을 IAP SSH 로 빌린다.
+
+| 스크립트 | 대상 | IAP 경유 방식 |
+|----------|------|---------------|
+| `scripts/dma-tunnel.sh` | macOS | `gcloud compute ssh --tunnel-through-iap -- -N -L …` (1단) |
+| `scripts/dma-tunnel.ps1` | Windows (PowerShell 5.1, 관리자) | `start-iap-tunnel` + 내장 `ssh.exe` (2단) |
+
+> 🔴 **이 터널 너머는 실계좌가 걸린 실 게이트웨이다** (§실서버 라이브 상태).
+> 두 스크립트는 **TCP connect 후 즉시 close** 하는 도달성 확인까지만 한다 —
+> 로그인·주문 프레임을 보내지 않는다 (D-27). 터널을 연 다음 무엇을 보내는지는 사용자 책임이다.
+
+### 왜 `127.0.0.1` 이 아니라 주소 별칭인가
+
+소비자(gh-trade WinForms `settings.ini` 의 `[DMA] Host=10.41.1.120`, relay 의 `DMA_HOST`)의
+설정을 **하나도 바꾸지 않기 위해서**다. 로컬에 `10.41.1.120/32` 별칭을 붙이고 그 주소에
+바인딩된 포워딩을 열면, 터널의 on/off 가 KB VPN 직결과 동치가 된다.
+
+- macOS: `sudo ifconfig lo0 alias 10.41.1.120 255.255.255.255` — 소유권 표식은 `lo0` + `netmask 0xffffffff`. VPN 은 절대 `lo0` 에 주소를 얹지 않는다.
+- Windows: `New-NetIPAddress -PrefixLength 32 -SkipAsSource $true` (루프백 의사 인터페이스 우선, 실패 시 기본 경로 어댑터). `-SkipAsSource` 는 이 주소가 **나가는** 트래픽의 출발지로 뽑혀 로컬 통신이 깨지는 것을 막는다.
+
+별칭은 종료 시(`Ctrl+C` 포함) 제거된다. 창을 강제 종료해 잔여물이 남으면 `--stop` / `-Stop` 이 복구 경로다.
+
+### 사용법
+
+```bash
+bash scripts/dma-tunnel.sh --check      # 아무것도 바꾸지 않고 선행 점검만
+bash scripts/dma-tunnel.sh              # 터널 개설 후 Ctrl+C 까지 유지
+bash scripts/dma-tunnel.sh --stop       # 잔여 별칭·프로세스 정리
+```
+
+```powershell
+.\scripts\dma-tunnel.ps1 -Check        # 관리자 PowerShell 에서
+.\scripts\dma-tunnel.ps1
+.\scripts\dma-tunnel.ps1 -Stop
+```
+
+Windows 는 최초 1회 SSH 키가 필요하다. 없으면 스크립트가 아래를 안내하고 멈춘다
+(**스크립트가 GCP 메타데이터를 직접 고치지 않는다** — 부수효과를 스크립트에 넣지 않는 원칙):
+
+```powershell
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --project=gh-radar --command="echo ok"
+```
+
+### 선행 점검 (`--check` / `-Check` 가 출력하는 항목)
+
+| ID | 항목 | 실패 시 |
+|----|------|---------|
+| P1 | `gcloud` 존재 | exit 2 |
+| P2 | 활성 인증 계정 | exit 2 |
+| P3 | ssh 클라이언트 (win: OpenSSH 클라이언트 선택적 기능) | exit 2 |
+| P4 | `radar-gw` = RUNNING | exit 2 |
+| P5 | `/healthz` 의 `"vpn":true` — VM 쪽 VPN 이 죽었으면 터널이 무의미 | exit 2 |
+| P6 | 로컬 KB VPN 충돌 없음 | **exit 3** |
+| P7 | 권한 (mac: 대화형 sudo 가능하므로 WARN / win: 관리자 필수) | win 만 exit 2 |
+| P8 | (win) SSH 개인키 존재 | exit 2 |
+
+`--check` 는 **아무것도 바꾸지 않는다**(별칭 미생성·프로세스 미기동). 그래서 첫 실패에서 멈추지 않고
+전 항목을 평가한 뒤 `PASS: n  FAIL: n` 요약을 낸다 — P6 이 먼저 걸려도 나머지 항목을 관측할 수 있다.
+
+**종료 코드:** 0 성공 / 1 인자 오류 / 2 선행 점검 실패 / 3 로컬 KB VPN 충돌 / 4 별칭 추가 실패 / 5 재연결 상한(5회) 도달.
+
+### 막힐 때
+
+| 증상 | 원인 · 조치 |
+|------|-------------|
+| `exit 3` 로 거부 | 설계다. 이미 KB VPN 직결이라 터널이 불필요하고 `10.41.0.0/16` 라우팅이 겹친다. VPN 을 내리고 재실행 |
+| P5 FAIL | VM 쪽 VPN 이 죽었다 → §VPN 조작 의 회수·재접속 절차 |
+| IAP 접속 거부 | 실행 주체에 `roles/iap.tunnelResourceAccessor` 확인 (§VM 접근) |
+| 창 강제 종료 후 잔여 별칭 | `--stop` / `-Stop` |
+
+> **실측 근거 (2026-09-09, quick-260909-el9):** VM sshd 는 `allowtcpforwarding yes` · `permitopen any`
+> 라 `-L` 목적지로 `10.41.1.120:9100` 을 지정할 수 있다. Mac 에서
+> `gcloud compute ssh radar-gw --tunnel-through-iap -- -N -L 19100:10.41.1.120:9100` 로
+> 게이트웨이까지 TCP 연결이 성립하는 것을 확인했다(로그인·주문 없음).
+
+---
+
 ## Secret 3종 값 주입
 
 `setup-relay-iam.sh` 는 **빈 Secret 만 만든다.** 값은 사람이 넣는다.
