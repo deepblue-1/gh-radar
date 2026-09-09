@@ -311,7 +311,7 @@ radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션�
 
 | 갈래 | 경로 | 언제 |
 |------|------|------|
-| **A. WireGuard (기본)** | 개발기 WireGuard 앱 → UDP 51820 → radar-gw `wg0` → `tun0` → 게이트웨이 | 평소. gcloud·sudo·별칭·포워딩 프로세스가 전부 필요 없다 |
+| **A. WireGuard (기본)** | 개발기 WireGuard (mac: `brew wireguard-tools` · win: 공식 앱) → UDP 51820 → radar-gw `wg0` → `tun0` → 게이트웨이 | 평소. gcloud·별칭·포워딩 프로세스가 필요 없다 |
 | **B. IAP 터널 (폴백)** | `scripts/dma-tunnel.sh` / `.ps1` → IAP → radar-gw → `tun0` → 게이트웨이 | UDP 51820 이 막힌 망 (사내 방화벽·일부 호텔/공용 Wi-Fi) |
 
 > 🔴 **이 터널 너머는 실계좌가 걸린 실 게이트웨이다** (§실서버 라이브 상태).
@@ -329,13 +329,34 @@ VM 쪽 자산은 `infra/relay/startup.sh` **섹션 8** 이 부팅마다 멱등�
 피어가 닿을 수 있는 곳은 **`10.41.1.120` 의 `9100`·`22` 두 포트뿐**이고, 그 외 `wg0` 출입은
 명시적으로 drop 된다. 클라이언트 `AllowedIPs` 도 `/32` 하나라 기본 경로를 뺏지 않는다.
 
-**Mac / Windows 공통 절차 (최초 1회)**
+발급 절차는 **OS 별로 갈린다.** mac 은 GUI 앱을 쓰지 않고 `brew wireguard-tools` 를
+메뉴바 앱이 직접 몬다. Windows 는 공식 앱 + 템플릿 방식을 그대로 쓴다.
 
-1. WireGuard 공식 앱 설치 (App Store 또는 <https://www.wireguard.com/install/>).
-2. 앱에서 **「빈 터널 만들기 (Add empty tunnel)」** 로 키쌍을 생성한다.
-   → 개인키가 개발기 밖으로 나가지 않는 유일한 방법이다.
-3. 화면에 뜬 **공개키만** 관리자에게 전달한다.
-4. 관리자가 VM 에서 피어를 등록한다:
+#### Mac (권장 — 앱 설치 불필요, 최초 1회)
+
+1. 도구를 설치한다. `wireguard-go` 와 brew `bash` 를 함께 끌고 온다:
+
+   ```bash
+   brew install wireguard-tools
+   ```
+
+2. 관리자에게 **서버 공개키**와 **배정 주소 `10.20.0.<N>`** 을 받는다.
+   관리자 쪽 확인 명령:
+
+   ```bash
+   sudo wg show wg0 public-key
+   ```
+
+3. 설치 스크립트를 실행하고, 진행 중 물어보는 두 값을 입력한다:
+
+   ```bash
+   bash scripts/install-vpn-menubar.sh
+   ```
+
+   스크립트가 키쌍을 만든다. **개인키는 `$(brew --prefix)/etc/wireguard/KB-DMA.conf`
+   (root:wheel 0600) 안에만** 들어가고 화면·로그·클립보드에 나오지 않는다.
+   화면에 뜨는 것은 **공개키 하나뿐**이다.
+4. 그 공개키를 관리자에게 전달한다. 관리자가 VM 에서 등록한다:
 
    ```bash
    sudo /usr/local/sbin/wg-peer-add <이름> <공개키> 10.20.0.<N>
@@ -343,29 +364,75 @@ VM 쪽 자산은 `infra/relay/startup.sh` **섹션 8** 이 부팅마다 멱등�
 
    `wg-peer-add` 는 공개키 형식·주소 범위를 검증하고, **같은 공개키나 같은 주소가 이미
    있으면 거부한다**(주소 중복은 오류 없이 라우팅만 조용히 망가지기 때문이다).
-5. 관리자가 서버 공개키를 확인해 회신한다:
-
-   ```bash
-   sudo wg show wg0 public-key
-   ```
-
-6. `infra/relay/wireguard/client.conf.template` 을 받은 값으로 채워
-   **`KB DMA.conf`** 라는 이름으로 저장하고 앱에 import 한다.
-   **파일명이 곧 터널 이름**이며, macOS 메뉴바 앱이 그 이름으로 `scutil` 제어를 건다 —
-   다른 이름으로 저장하면 메뉴바 앱의 터널 버튼이 열리지 않는다.
-7. 연결 후 도달성만 확인한다:
+5. 등록이 끝나면 **스크립트를 다시 실행할 필요 없이** 메뉴바에서 터널을 토글한다.
+6. 연결 후 도달성만 확인한다:
 
    ```bash
    nc -z 10.41.1.120 9100 && echo reachable
    ```
 
-> ⚠️ **개인키·공개키의 실값을 이 문서나 저장소 어디에도 적지 않는다.**
-> 서버 개인키는 VM 의 `/etc/wireguard/wg0.key`(0600) 안에만 존재하고, 클라이언트
-> 개인키는 개발기 키체인 안에만 존재한다. 템플릿에는 플레이스홀더만 둔다.
+> 2번 값을 아직 못 받았다면 3번은 WARN 을 내고 **설정 파일을 만들지 않는다**
+> (자리표시자를 쓰지 않는다). 그동안 터널 메뉴는 비활성이고 KB VPN 직결·교보는 그대로 동작한다.
+> 값을 받은 뒤 **스크립트를 다시 실행**하면 채워진다. 재실행해도 **키는 재생성되지 않아**
+> 이미 등록된 피어가 그대로 살아 있다.
 
-**메뉴바 앱 (macOS)** — 개인 설치 스크립트 `scripts/install-vpn-menubar.sh` (v3.5, 미추적)
-가 만드는 `VPN.app` 은 이 프로필을 `scutil --nc start/stop "KB DMA"` 로 토글한다.
-sudo·별칭·외부 CLI 가 필요 없고, 재연결은 WireGuard 앱이 맡는다.
+#### Windows (공식 앱, 최초 1회)
+
+1. WireGuard 공식 앱 설치 (<https://www.wireguard.com/install/>).
+2. 앱에서 **「빈 터널 만들기 (Add empty tunnel)」** 로 키쌍을 생성한다.
+   → 개인키가 개발기 밖으로 나가지 않는 유일한 방법이다.
+3. 화면에 뜬 **공개키만** 관리자에게 전달한다.
+4. 관리자가 VM 에서 피어를 등록한다 (`wg-peer-add`, 위 Mac 4번과 같은 명령).
+5. 관리자가 `sudo wg show wg0 public-key` 로 서버 공개키를 확인해 회신한다.
+6. `infra/relay/wireguard/client.conf.template` 을 받은 값으로 채워 앱에 import 한다.
+   <!-- 템플릿 상단의 "Mac / Windows 공용" · 메뉴바 관련 문구는 v3.5 시절 표현이다.
+        mac 은 v3.6 부터 템플릿을 쓰지 않는다 (설치 스크립트가 conf 를 만든다).
+        파일 자체는 Windows 용으로 계속 유지한다. -->
+7. 연결 후 도달성만 확인한다:
+
+   ```powershell
+   Test-NetConnection 10.41.1.120 -Port 9100
+   ```
+
+   (WSL·git-bash 라면 `nc -z 10.41.1.120 9100`)
+
+> ⚠️ **개인키·공개키의 실값을 이 문서나 저장소 어디에도 적지 않는다.**
+> 서버 개인키는 VM 의 `/etc/wireguard/wg0.key`(0600) 안에만 존재한다. 클라이언트 개인키는
+> **mac** 은 `$(brew --prefix)/etc/wireguard/KB-DMA.conf`(root:wheel 0600),
+> **win** 은 WireGuard 앱의 로컬 저장소 안에만 존재한다. 템플릿에는 플레이스홀더만 둔다.
+
+**메뉴바 앱 (macOS, v3.6)** — 개인 설치 스크립트 `scripts/install-vpn-menubar.sh`
+(**git 미추적 개인 파일** — KB VPN 접속 파라미터가 들어 있어 저장소에 넣지 않는다)
+가 만드는 `VPN.app` 이 터널을 직접 올리고 내린다:
+
+```
+VPN.app → sudo -n /usr/local/sbin/kbdma-connect
+        → wg-quick up $(brew --prefix)/etc/wireguard/KB-DMA.conf
+```
+
+- **상태 판정 축은 하나** — utun 인터페이스에 `10.20.0.x` 가 붙어 있으면 연결됨이다.
+- **선행 점검 5항목** — ① `wg-quick` 설치 ② `KB-DMA.conf` 존재 ③ `sudo -n` 면제 등록
+  ④ VM 쪽 VPN 활성(`/healthz` 의 `"vpn":true`) ⑤ 로컬 KB VPN 충돌 없음.
+  점검은 아무것도 바꾸지 않는다.
+- **재연결을 대신해 줄 GUI 앱이 없다.** `PersistentKeepalive = 25` 로 NAT 만료를 늦추지만,
+  세션이 죽으면 사용자가 메뉴에서 다시 토글해야 한다.
+- KB VPN 직결과 터널은 **동시에 쓸 수 없다** (라우팅이 겹친다). 한쪽이 켜지면 다른 쪽이 잠긴다.
+
+**mac 클라이언트 자산** (설치 스크립트가 만든다)
+
+| 경로 | 소유 · 권한 | 역할 |
+|------|-------------|------|
+| `/usr/local/sbin/kbdma-connect` | root:wheel 0755 | 인자 없음. PATH 를 고정하고 `wg-quick up` |
+| `/usr/local/sbin/kbdma-disconnect` | root:wheel 0755 | 인자 없음. `wg-quick down` 후 항상 `exit 0` |
+| `$(brew --prefix)/etc/wireguard/` | root:wheel **0755** | 사용자 프로세스(앱)가 conf **존재만** 확인할 수 있어야 한다 |
+| `$(brew --prefix)/etc/wireguard/KB-DMA.conf` | root:wheel **0600** | 클라이언트 **개인키가 여기에만** 있다. 앱도 읽지 못한다 |
+| `/etc/sudoers.d/kbvpn` | 0440 | NOPASSWD 4개 — VPN 직결 2 + DMA 터널 2 |
+| `/var/log/kbdma.log` | 0644 | `wg-quick` 출력. 터널 실패 알림이 이 경로를 지목한다 |
+
+> 디렉터리를 0700 으로 잠그지 않는 이유: 0700 root 디렉터리는 사용자 권한으로 도는 앱의
+> traverse 자체를 막아 "conf 존재" 점검이 **항상 거짓**이 되고 터널 메뉴가 영구 비활성이 된다.
+> 개인키의 비공개는 **파일 0600** 이 지키고, 디렉터리에서 드러나는 것은 이 문서에도 적혀 있는
+> 파일명 하나뿐이다.
 
 ---
 
@@ -469,7 +536,8 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 | (A) 핸드셰이크 자체가 없음 (`wg show` 에 latest handshake 없음) | 방화벽 `relay-allow-wireguard` 미생성, 또는 이 망이 UDP 51820 을 막는다 → **B(IAP 폴백)** 로 간다 |
 | (A) 연결은 되는데 대용량 응답에서 멈춤 | MSS 클램프가 빠졌다. `sudo nft list table inet wgfwd` 에 `maxseg` 두 줄이 있는지 확인 |
 | (A) `tun0` 재생성 후 무반응 | nft 규칙은 인터페이스 **이름** 기준이라 재생성에 영향받지 않는다 → openconnect 상태부터 확인 (§VPN 조작) |
-| (A) 메뉴바 앱 터널 버튼이 잠김 | WireGuard 앱 미설치이거나 프로필 이름이 `KB DMA` 가 아니다. `scutil --nc list` 로 확인 |
+| (A) 메뉴바 앱 터널 버튼이 잠김 | **mac**: `wireguard-tools` 미설치이거나 `KB-DMA.conf` 미생성 → `brew install wireguard-tools` 후 설치 스크립트 재실행. **win**: 프로필 이름 확인 |
+| (A·mac) 토글은 눌리는데 즉시 실패 | `sudo -n /usr/local/sbin/kbdma-connect` 면제가 없거나, `wg-quick` 이 PATH 에서 `wireguard-go` 를 못 찾는다 → `/var/log/kbdma.log` 확인 후 설치 스크립트 재실행 |
 | `deploy-relay.sh` 가 방화벽 불일치로 `exit 1` | 기대값이 4규칙인데 GCP 에 3번째까지만 있다 → **방화벽 4번째 규칙을 먼저 만든다** (§적용 런북 ①) |
 | (B) `exit 3` 로 거부 | 설계다. 이미 KB VPN 직결이라 터널이 불필요하고 `10.41.0.0/16` 라우팅이 겹친다. VPN 을 내리고 재실행 |
 | (B) P5 FAIL | VM 쪽 VPN 이 죽었다 → §VPN 조작 의 회수·재접속 절차 |
