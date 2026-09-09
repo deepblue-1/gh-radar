@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-31-PLAN.md (GC-WR-09·GC-WR-06 상따폼 2곳·GC-WR-12·GC-IN-01·GC-IN-02)
-last_updated: "2026-09-09T05:41:42.993Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-31 실행 완료 (GC-WR-09·GC-WR-06·GC-WR-12·GC-IN-01·GC-IN-02)
+stopped_at: Completed 16-32-PLAN.md (GC-WR-06 VI 2곳 · GC-IN-03)
+last_updated: "2026-09-09T05:55:04.625Z"
+last_activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-32 실행 완료 (GC-WR-06 VI 2곳 · GC-IN-03)
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 174
-  completed_plans: 156
+  completed_plans: 157
   percent: 72
 ---
 
@@ -26,15 +26,28 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 16 (trading-limit-chaser-vi-my-page) — GAP CLOSURE (2라운드 실행 중)
-Plan: 32 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-31 완료, 16-32~16-35 대기)
-Plans completed: 156 / 174
+Plan: 33 of 35 (16-01~16-17 실행 완료 · 1라운드 16-18~16-26 완료 · 2라운드 16-27~16-32 완료, 16-33~16-35 대기)
+Plans completed: 157 / 174
 Status: 갭 클로징 2라운드 실행 중 — TRADE-03 은 D-27 상 실서버 결선 전까지 Pending
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-31 실행 완료 (GC-WR-09·GC-WR-06·GC-WR-12·GC-IN-01·GC-IN-02)
+Last activity: 2026-09-09 -- Phase 16 갭 클로징 2라운드 16-32 실행 완료 (GC-WR-06 VI 2곳 · GC-IN-03)
 
 Progress: [█████████░] 90%
 
 ### Phase 16 Gap Closure 2라운드 (2026-09-09, 16-27~)
+
+- **16-32 완료 — GC-WR-06(VI 2곳) · GC-IN-03 종결.** 셋 다 「화면이 사실과 다른 것을 말하던」 자리다. webapp 5파일 + 신규 테스트 1(relay 0줄).
+- **VI 확인 체크가 `send` 반환값을 읽는다.** `toggle` 은 반환값을 버리고 곧바로 낙관 반영과 행 잠금을 걸었다 — 이 화면에서 **잠금을 푸는 유일한 신호가 서버 73 델타**라, 요청이 나가지 않으면 그 델타는 오지 않고 행은 **영구히** 회색으로 남는다. 사용자는 「119초 자동취소를 면제시켰다」고 믿는다. 실패 분기의 `return`(`:255`)이 `setOptimistic`(`:258`)·`setSending`(`:259`)보다 **앞**이고, 순서가 곧 안전장치다. `isConfirmable` 가드는 그대로 — 이 분기는 「`ready` 표시와 소켓 `readyState` 가 어긋나는」 얇은 창을 메운다.
+- **VI 설정의 `submit` 이 3갈래가 됐다.** boolean 으로는 뭉개지는 것이 있었다: `blocked`(세션 잠금·연타·금액 상한)는 사유가 **카드 안에 이미** 떠 있어 다이얼로그를 **닫아야** 보이고, `failed`(소켓이 안 받음)는 사유가 아직 없어 창을 **열어 둬야** 한다 — 닫으면 「눌렀고 창이 닫혔다」가 곧 성공 신호로 읽히고, 이 화면에서 그 오독은 「자동매수를 켰다고 믿는 사용자」다. `failed` 면 `submitting` 잠금·`ackTimer`·`onSent` 어느 것도 걸지 않는다(기다릴 에코가 없는데 잠그면 3초 동안 등록됐다고 믿는다). 사유는 오버레이에 가리지 않도록 **다이얼로그 안에도** 그린다.
+- **「가장 최근 반영 시각」이 정규화 전 값으로 비교된다.** `formatServerTime` 은 `HH:MM:SS` 로 자르며 **날짜를 버리는데**, 그 뒤 비교하면 자정 경계에서 `"23:59:00" > "00:01:00"` 이라 **어제 값이 「가장 최근」으로 뽑히고**, 혼합 포맷에서는 날짜를 **아는** 값이 모르는 값에 진다. 이제 `st` 원문에서 비교 키를 만들고(`dated` 가 첫 번째 축) 승자의 원문에서 표시값을 뽑는다. **epoch 승격을 고르지 않은 이유**: `HH:MM:SS` 만 오는 값은 날짜를 몰라 「오늘」을 가정해야 하고, 그 가정이 정확히 버그의 원인이다. 표시 형식·`null` 계약·「계좌가 하나면 결과가 같다」는 16-23 보장은 그대로 — 바뀐 것은 **어느 값을 고르는가**뿐이다.
+- **16-31 의 교훈을 예방으로 적용했다.** 두 테스트 파일의 `send` 스텁을 `mockClear()` → `mockReset() + mockReturnValue(true)` 로 **같은 커밋 안에서** 세웠다. 16-31 은 이것을 놓쳐 `limit-chaser-client.test.tsx` 2건이 한 커밋 동안 깨져 있었다 — 이번에는 중간에 깨진 상태가 없었고, **자동 수정(Rule 1~3) 0건**이다.
+- **회귀 잠금 실증 3회.** `if (!send(...))` 2곳 동시 무력화 → **3건 실패**(나머지 51 통과) · `isNewerServerTime` 의 `dated` 축 **한 줄**만 제거 → 혼합 포맷 1건 실패 · `latestAccountTime` 을 16-23 원형으로 되돌림 → 2건 실패. webapp **672 tests**(665 → +7, 58 files) · typecheck · eslint green. 신규 마이그레이션 0건.
+- **`latestAccountTime` 에 첫 테스트가 생겼다** (`me-client.test.tsx`, 그전까지 0건).
+- **계획 문언 오류가 2라운드에서 두 번째로 반복됐다.** `pnpm --filter gh-radar-webapp` 은 존재하지 않는 필터다(정본 **`@gh-radar/webapp`**). 남은 plan(16-33~16-35)의 같은 문자열도 같은 치환이 필요하다.
+- **`10.41.1.120` 실측은 여전히 2건**(`relay/README.md:17` 경고문 · `relay/src/dma/link-health.ts:20` 주석). 둘 다 산문이라 지우지 않았다 — 지우면 D-27 안전장치의 근거가 사라진다.
+- **TRADE-02 · MYPAGE-01 은 상태를 바꾸지 않았다.** `requirements.mark-complete` 미실행 — 이 plan 이 닫은 것은 VI 표면의 **전송 정직성**과 상태줄 표시 정확성 1건이고, 종결 판정은 2라운드 종결 plan 의 배포·실측 몫이다.
+- **배포 미실시.** webapp(Vercel) 배포는 relay 재배포와 함께 2라운드 종결 plan 에서 일괄 처리한다.
+
 
 - **16-31 완료 — GC-WR-09 · GC-WR-06(상따 폼 2곳) · GC-WR-12 · GC-IN-01 · GC-IN-02 종결.** 공통점은 「이 화면이 **자기 주석이 말하는 대로 동작하지 않는다**」였다. webapp 4파일만 손댔다(relay 0줄).
 - **「수정」도 무장 판정을 지난다.** 파일 머리말이 「전송 직전 가드가 `gateBlocked` 를 함께 읽는다」고 적어 왔지만 실제로 읽던 것은 `toggleGate` 하나였다 — 서버가 `buyEnabled:true` 로 에코한 뒤 시세가 끊겨 가격 칸이 0 이 되면 「수정」이 relay `#strategyArmable`(16-29)에 **통째로** 거부되고 함께 실린 다른 값까지 하나도 저장되지 않았다. 가드를 `setSubmitting(true)` **앞**에 뒀고(잠근 뒤 막으면 60 에코가 안 와 버튼이 영구히 죽는다), **켜져 있는 게이트만** 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다(T-16-44 확장, 케이스로 잠금).
@@ -231,6 +244,7 @@ Progress: [█████████░] 90%
 | Phase 16 P29 | 12min | 2 tasks | 2 files |
 | Phase 16 P30 | 20min | 2 tasks | 5 files |
 | Phase 16 P31 | 21min | 3 tasks | 4 files |
+| Phase 16 P32 | 18min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -422,6 +436,9 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-31: handleSubmit 가드는 켜져 있는 게이트만 본다 — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나간다 (T-16-44 확장)
 - [Phase 16]: 16-31: 무장 불가 문구를 상수 3종 → 원인 6종 + armBlockedTextOf 산출 함수 — 렌더와 전송 차단이 같은 함수를 읽는다
 - [Phase 16]: 16-31: pnpm 필터명은 @gh-radar/webapp — 계획 문언의 gh-radar-webapp 은 존재하지 않는 필터로 exit 1
+- [Phase 16]: 16-32: vi-order-list 의 send 실패 분기는 setOptimistic·setSending 앞에서 return 한다 — 잠금을 푸는 신호가 서버 73 델타뿐이라 나가지 않은 요청에 건 잠금은 영구다
+- [Phase 16]: 16-32: vi-settings-card 의 submit 을 ViSubmitResult 3갈래(sent/blocked/failed)로 만들었다 — failed 만 확인 다이얼로그를 열어 둔다. 「닫힘」이 성공 신호로 읽히지 않게
+- [Phase 16]: 16-32: latestAccountTime 은 st 원문에서 만든 비교 키(dated 축 우선)로 고르고 승자의 원문에서 표시값을 뽑는다 — epoch 승격은 모르는 날짜를 「오늘」로 가정해야 해서 자정 뒤집힘의 원인이 된다
 
 ### Pending Todos
 
@@ -473,6 +490,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T05:41:36.043Z
+Last session: 2026-09-09T05:54:44.312Z
 Stopped at: Completed 16-31-PLAN.md (GC-WR-09·GC-WR-06 상따폼 2곳·GC-WR-12·GC-IN-01·GC-IN-02)
 Next: /gsd-execute-phase 15 — Wave 1(15-01 relay 스캐폴드+생성물 커밋, 15-02 코덱/Envelope 가드)부터. [BLOCKING] 게이트 5건: 15-07 KB_VPN_ACCOUNT VPN 선검증(D-03, 수동 ≤3회)·dma.jx1.io A 레코드(D-06) / 15-09 supabase db push / 15-15 gh-trade Phase 17 완료+sync-relay-schema.sh 재동기화(D-25) / 15-20 실서버·실계좌는 사용자 지시 시에만(D-27, 기본 미수행). 실서버 10.41.1.120·실계좌 접속 금지 원칙 유지.
