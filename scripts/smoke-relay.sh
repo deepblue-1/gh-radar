@@ -333,7 +333,7 @@ load_anon_key() {
 #
 # 「확인하지 않았다」를 PASS 로 세지 않는다 — 그게 이 검사가 3갈래인 유일한 이유다.
 ws_order_probe() {
-  local dir js ws_module rc=0 token
+  local dir js ws_module rc=0 token verdict=""
   token="${SMOKE_AUTH_TOKEN:-}"
   if [[ -z "$token" ]]; then printf 'inconclusive'; return 0; fi
 
@@ -365,11 +365,14 @@ ws_order_probe() {
  *    `order.result` 가 오면 stderr 로 크게 경고한다 — 침묵하면 그게 사고다.
  *
  * 표준출력에는 판정 한 단어만 찍는다: reachable / unreachable / inconclusive.
+ *
+ * ★ 토큰은 **env 로만** 넘긴다 — argv 는 `ps` 로 같은 호스트의 다른 프로세스가 읽는다
+ *   (GC-WR-11 / T-16-56). 토큰을 stdout·stderr 어디에도 싣지 않는다.
  */
 const WebSocket = require(process.argv[3]);
 
 const url = process.argv[2];
-const token = process.argv[4];
+const token = process.env.SMOKE_TOKEN;
 const RID = `smoke-${Date.now()}`;
 /** `order.new` 송신 후 `order.result` 를 기다리는 상한. */
 const ORDER_TIMEOUT_MS = 15_000;
@@ -462,10 +465,15 @@ ws.on("error", (err) => {
 });
 WS_ORDER_PROBE_EOF
 
-  node "$js" "wss://${HOST}/ws" "$ws_module" "$token" || rc=$?
+  # 토큰은 argv 가 아니라 env 로 넘긴다 (T-16-56). argv 는 `ps` 에 그대로 보인다.
+  verdict="$(SMOKE_TOKEN="$token" node "$js" "wss://${HOST}/ws" "$ws_module")" || rc=$?
   rm -rf "$dir"
-  # 프로브가 비정상 종료하면 판정을 지어내지 않는다.
-  if [[ "$rc" -ne 0 ]]; then printf 'inconclusive'; fi
+  # 프로브가 비정상 종료하면 판정을 지어내지 않는다. **덧붙이지 않고 덮어쓴다** —
+  # 이어 붙이면 `reachableinconclusive` 같은 문자열이 되어 호출부 `case` 의 어느 갈래에도
+  # 매치하지 않고 `*` 로 떨어진다. 즉 FAIL 이 조용히 SKIP 으로 강등된다 (T-16-57).
+  if [[ "$rc" -ne 0 ]]; then verdict="inconclusive"; fi
+  # 출력은 여기 한 곳뿐이다. 출력 지점이 둘이면 언젠가 다시 이어 붙는다.
+  printf '%s' "$verdict"
   return 0
 }
 
@@ -657,8 +665,12 @@ else
     *)
       # 매핑(`dma_credentials` 행 0건)이나 토큰에서 끊기면 주문 핸들러까지 가지 않는다.
       # 도달성에 대해 **아무것도 알 수 없다** — 초록불로 위장하지 않는다.
+      #
+      # 관측 문자열 원문을 남긴다. 예상 밖 값이 이 갈래로 떨어지면 그것이 프로브의
+      # 버그인지 진짜 inconclusive 인지 사후에 가릴 수 있어야 한다 (T-16-57).
+      # ★ 판정 문자열만 싣는다 — 토큰은 프로브가 출력하지 않으므로 여기 실릴 수 없다.
       skip "INV-9 브라우저 → relay wss 주문 왕복 도달성" \
-        "주문 핸들러 이전에서 종료(매핑/토큰) — 도달성 판정 불가"
+        "주문 핸들러 이전에서 종료(매핑/토큰) — 도달성 판정 불가 (관측: '${ORDER_PATH_VERDICT}')"
       ;;
   esac
 fi
