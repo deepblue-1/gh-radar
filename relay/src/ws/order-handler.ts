@@ -1003,6 +1003,83 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
 // ============================================================
 
 /**
+ * 브로커 주문번호 비교용 정규화 — **앞뒤 공백 제거 + 선행 0 제거**.
+ *
+ * 규칙의 정본은 relay 가 아니라 게이트웨이다: `gh-trade/server/src/trade/account/
+ * AccountManager.cpp:607-621` 의 `NormalizeOrderNo` 가 정확히 같은 두 줄을 한다(주석 그대로
+ * 「주문번호 정규화 — 공백 제거 + 선행 0 제거」). 원장(OCX TR)과 브로커 통보의 표기가 어긋나
+ * **같은 주문 하나가 「원장에만 있음」+「서버에만 있음」 두 건의 어긋남**으로 잡히던 사고를
+ * 막으려고 거기 들어간 함수다. 여기서 막으려는 것도 같은 부류다 (R2-WR-03①).
+ *
+ * 표기가 갈리는 경로가 실제로 있다 — 완전일치를 전제로 삼으면 진실을 잃는다:
+ *   · 와이어 주문번호 필드는 10자리 **고정폭**이고 `IntToChar`(`broker/krx/
+ *     KRXOrderProtocol.h:256`)가 **0 으로 좌패딩**한다. 브로커는 그 10바이트를 `strncpy` 로
+ *     그대로 옮긴다(`broker/kb/KBBroker.cpp:1341-1342`) — 통보 쪽은 패딩이 붙어 온다.
+ *   · 반면 요청 쪽 값은 미체결 목록에서 왔고, 그 목록에는 원장 유입분·재기동 복원분(TOML)이
+ *     섞인다(`AccountManager.cpp:830-840` — 「키는 원장 표기를 그대로 쓴다」). 패딩이 없을 수
+ *     있는 자리다.
+ *   · 게이트웨이는 값의 정체성을 **숫자**로 본다: `CharToUint64`(`KRXOrderProtocol.h:243-251`)
+ *     는 숫자가 아닌 문자를 건너뛰고 자릿값만 누적한다. 즉 정규화는 이 값의 **원래 규약**이지
+ *     relay 가 새로 만든 관대함이 아니다.
+ *
+ * 완전일치를 고집하면 실패의 모양이 나쁜 쪽이다 — 하드 필터가 후보를 0으로 만들고 `null` 이
+ * 나가면 5초 뒤 `finish(null)` → `status:"timeout"` 이라, **실제로 접수·확인된 취소가 감사
+ * 기록에 「결과를 확인하지 못했습니다」로 남는다.**
+ *
+ * ⚠️ **부작용**: 선행 0 을 지우면 `"0000012345"` 와 `"12345"` 가 같아진다. 이 축은 언제나
+ *    `p.isCancel` 과 함께 걸리므로 오귀속이 성립하려면 **같은 종목의 취소 대기 2건**이 동시에
+ *    살아 있고 그 둘의 주문번호가 **선행 0 만** 다른 값이어야 한다. KB 주문번호 대역은
+ *    3,406,000,000 부터라 10자리를 꽉 채워 선행 0 이 없다(`KRXOrderProtocol.h:240-242`,
+ *    그리고 `AccountManager.cpp:614` 이 같은 사실을 「현 주문번호 대역(3404~)은 선행 0 이
+ *    없어 지금은 무동작이다」로 적어 뒀다). 충돌 확률이 현 대역에서 0 인 쪽과, 표기가 갈릴
+ *    확률이 위 세 경로만큼 있는 쪽을 저울질한 결과가 이 방향이다.
+ *
+ * 「값 없음」은 `""` 하나로 수렴한다 — 공백만 담긴 필드(`FillSpaces`)도, 0 으로 채워진 고정폭
+ * 필드도 여기서 `""` 가 된다. 게이트웨이의 `NormalizeOrderNo` 는 맵 키라 전부 0 일 때
+ * 마지막 한 자리(`"0"`)를 남기지만 **여기서는 그 한 줄만 일부러 다르다**: 이 함수의 반환값이
+ * `""` 면 「원주문번호 축 없음」을 뜻하는데, `"0"` 을 축으로 쓰면 존재하지 않는 주문번호
+ * 0 번을 실어 온 것으로 읽혀 **신규 통보가 취소 대기만 남기고 0건 → 통째로 미정산**이 된다.
+ * 같은 규칙, 다른 용도다.
+ */
+export function normalizeOrderNo(raw: string): string {
+  const t = raw.trim();
+  let z = 0;
+  while (z < t.length && t[z] === "0") z += 1;
+  return t.slice(z);
+}
+
+/**
+ * 「이 통보는 **신규 대기**의 것」이라고 단정할 수 있는 통보 종류 — **화이트리스트**다
+ * (R2-IN-03 / R2-WR-03③).
+ *
+ * 블랙리스트(`noticeType !== "" && !== "R"`)였을 때의 문제: 장래에 추가될 종류(부분취소·예약
+ * 확인 등)가 전부 `false` 로 떨어져 **신규 대기 쪽으로** 좁혀진다. 확장될 때마다 조용히
+ * 오분류하는 형태라, 아는 값만 축으로 쓰고 모르는 값은 **축을 건너뛴다** — 이 파일의 `refine`
+ * 규율과 같은 방향이다(축이 틀렸을 가능성이 후보를 전부 지우는 것보다 낫다).
+ *
+ * 채택 근거 (gh-trade 원본에서 확인한 것):
+ *   · `server/src/protocol/StockDMA.fbs:204` — 「"A"=접수 "E"=체결 "C"=취소확인 "M"=정정확인
+ *     "R"=거부」. 프로토콜 계약 그대로다.
+ *   · `server/src/broker/kb/KBBroker.cpp:1367`(접수 → 'A') · `:1420`(체결 → 'E'),
+ *     `server/src/broker/mock/MockBroker.h:104`·`:125` — 실브로커·Mock 둘 다 **명시로** 채운다.
+ *   · 취소성("C"/"M")은 이 함수의 하드 필터가 이미 걸렀고, 거부("R")는 신규·취소 **어느 쪽에도**
+ *     온다(그래서 예전부터 축에서 빠져 있었다).
+ *
+ * ⚠️ **알고 받아들인 잔여 위험 — "A" 는 기본값이기도 하다.** `ExecutionReport.noticeType` 의
+ *    선언 기본값이 `'A'` 라(`server/src/broker/IBroker.h:118`) 이 필드를 채우지 않는 브로커에서는
+ *    취소확인도 'A' 로 온다. 교보가 그 상태다 — `server/src/broker/kyobo/KyoboBroker.cpp:406`
+ *    이 「noticeType → 기본 'A'(접수) 라 취소확인/정정확인이 접수로 처리된다」고 적어 뒀다.
+ *    그럼에도 "A" 를 남기는 이유는 **그 경로가 relay 에 닿지 않기 때문**이다: 같은 주석
+ *    (`:404`)이 「termId/origin (0) → Server 콜백의 GetSession(0) 실패 → 모든 통보가 전달
+ *    포기」라고 적고 있고, 같은 목록에서 `orgOrderNo` 도 채우지 않는다고 밝힌다(그 브로커에서는
+ *    취소 정산 자체가 서지 않는다). **교보 경로가 살아나는 날 이 집합을 다시 판정해야 한다.**
+ *
+ * ②(통보 종류 축)와 ②-1(매매구분 축)이 **같은 집합**을 본다 — 두 축이 각자 리터럴을 들고
+ * 있으면 언젠가 한쪽만 갱신된다.
+ */
+const NEW_ORDER_NOTICE_TYPES: ReadonlySet<string> = new Set(["A", "E"]);
+
+/**
  * ISIN 이 일치하는 대기 후보들을 **통보가 실어 온 축으로 하나까지 좁힌다** (gap 2 / T-16-29).
  *
  * 하나로 좁히지 못하면 `null` 이다. 「가장 오래된 것」 폴백을 두지 않는 이유가 이 함수의
@@ -1021,6 +1098,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
  * 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` "C"/"M")은 후보 수와
  * 무관한 **하드 필터**다 — 구 서버 호환은 「비어 있는 축을 건너뛴다」였지 「실어 온 축을
  * 무시한다」가 아니었다. 후보가 1건이어도 그 축과 어긋나면 정산하지 않는다.
+ *
+ * 그 하드 필터의 비교는 **정규화 뒤에** 한다 (R2-WR-03① / `normalizeOrderNo`). 표기 차이는
+ * 「축이 어긋난 것」이 아니라 **같은 값의 다른 표기**이고, 둘을 구분하지 못하면 실제로
+ * 접수·확인된 취소가 감사 기록에 `timeout` 으로 남는다. 그리고 축이 후보를 **전부** 지운
+ * 상황은 전용 로그로 남긴다 (R2-WR-03②) — 어느 축이 원인인지 알 수 없는 침묵은 실계좌에서
+ * 원인 추적을 통째로 잃는다.
  */
 export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): PendingOrder | null {
   if (candidates.length === 0) return null;
@@ -1030,16 +1113,45 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //   「통보가 그 축을 **실어 왔는가**」다. 비어 있는 축은 여기서도 적용하지 않으므로
   //   구 게이트웨이 호환은 그대로다 (GC-CR-01).
   const isCancelNotice = n.noticeType === "C" || n.noticeType === "M";
-  const hard = candidates.filter(
-    (p) =>
-      // 원주문번호를 실어 온 통보는 **그 취소 대기**의 것이다. 신규 통보는 이 값이 "" 다.
-      (n.orgOrderNo === "" || (p.isCancel && p.orgOrderNo === n.orgOrderNo)) &&
-      // 취소확인·정정확인은 **취소 대기**의 것이다. 신규 대기를 정산하면 살아 있는 주문이
-      // 화면에 「취소됨」으로 뜨고, 사용자가 그것을 믿고 재주문하면 중복 체결이다.
-      (!isCancelNotice || p.isCancel),
-  );
+  // 비교는 **정규화 뒤에** 한다 (R2-WR-03① / `normalizeOrderNo` 의 근거 참조). 요청 문자열과
+  // 통보 문자열은 서로 다른 단말이 만든 표기라, 선행 0 하나가 달라도 완전일치는 깨지고 그
+  // 취소는 영영 정산되지 않는다.
+  const noticeOrgNo = normalizeOrderNo(n.orgOrderNo);
+  // 두 축을 **따로** 세운다 — 후보가 0건이 됐을 때 「어느 축이 지웠는가」를 로그가 말할 수
+  // 있어야 한다 (R2-WR-03②). 한 번에 `filter` 하면 그 정보가 사라진다.
+  //
+  // 원주문번호를 실어 온 통보는 **그 취소 대기**의 것이다. 신규 통보는 이 값이 "" 다.
+  const byOrgOrderNo =
+    noticeOrgNo === ""
+      ? candidates
+      : candidates.filter((p) => p.isCancel && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
+  // 취소확인·정정확인은 **취소 대기**의 것이다. 신규 대기를 정산하면 살아 있는 주문이
+  // 화면에 「취소됨」으로 뜨고, 사용자가 그것을 믿고 재주문하면 중복 체결이다.
+  const hard = isCancelNotice ? byOrgOrderNo.filter((p) => p.isCancel) : byOrgOrderNo;
   // 아무것도 정산하지 않는다 — 5초 타임아웃이 이 상황의 진실이다 (Pitfall 9).
-  if (hard.length === 0) return null;
+  if (hard.length === 0) {
+    // 이 침묵은 일반 미매칭과 **다르다.** 바깥 통보 루프의 warn(「좁히지 못했다」)은 후보 수만
+    // 말할 뿐 원인 축을 구분하지 못하는데, 여기서는 원인이 둘 중 하나로 특정된다 —
+    // `afterOrgOrderNo === 0` 이면 **원주문번호 축**이, 그 이상인데 최종 0건이면 **취소성
+    // 통보 축**이 지운 것이다. 표기 어긋남으로 취소가 통째로 타임아웃되는 상황이 정확히
+    // 앞의 갈래이고, 그것을 로그에서 갈라내지 못하면 실계좌에서 원인을 짚을 수 없다.
+    //
+    // 주문번호 **원문은 싣지 않는다** (T-16-45 — ㉑ 이 같은 규율을 잠그고 있다). 길이·적용
+    // 여부·축별 잔존 수만으로 진단된다.
+    logger.warn(
+      {
+        isin: n.isin,
+        noticeType: n.noticeType,
+        candidates: candidates.length,
+        afterOrgOrderNo: byOrgOrderNo.length,
+        orgOrderNoApplied: noticeOrgNo !== "",
+        orgOrderNoLen: noticeOrgNo.length,
+        cancelNoticeApplied: isCancelNotice,
+      },
+      "[WS-order] 강한 축이 후보를 전부 지웠다 — 아무것도 정산하지 않는다",
+    );
+    return null;
+  }
   if (hard.length === 1) return hard[0] ?? null;
 
   let pool = hard;
@@ -1052,15 +1164,17 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   // ① 취소 축. 원주문번호가 가장 강하다 — 신규 통보는 이 값을 비워 보낸다.
   //    위 하드 필터와 조건이 같아 여기까지 온 후보는 이미 통과했다. 무해한 중복이므로
   //    남겨 둔다 — 축 순서 ①~④ 의 문서적 대응을 깨지 않는 편이 읽기에 낫다.
-  if (n.orgOrderNo !== "") {
-    refine((p) => p.isCancel && p.orgOrderNo === n.orgOrderNo);
+  if (noticeOrgNo !== "") {
+    refine((p) => p.isCancel && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
   }
 
-  // ② 통보 종류 축. 거부("R")는 신규·취소 어느 쪽에도 오므로 이 축을 쓰지 않는다.
-  //    취소성("C"/"M")은 위 하드 필터가 이미 걸렀고, 여기서는 **접수·체결의 반대 방향**
-  //    (신규 통보 → 신규 대기)을 좁히는 몫이 남는다.
-  if (n.noticeType !== "" && n.noticeType !== "R") {
-    refine((p) => p.isCancel === isCancelNotice);
+  // ② 통보 종류 축. **화이트리스트**다 (R2-IN-03) — 채택 근거와 잔여 위험은
+  //    `NEW_ORDER_NOTICE_TYPES` 주석에 있다. 취소성("C"/"M")은 위 하드 필터가 이미 걸렀고,
+  //    여기서는 **접수·체결의 반대 방향**(신규 통보 → 신규 대기)을 좁히는 몫이 남는다.
+  //    거부("R")·빈 값(구 서버)·**모르는 종류**는 축을 건너뛴다 — 「신규」로 단정할 근거가
+  //    그 값에 없다. 부정 조건(`!== "R"`)으로 적으면 장래에 추가될 종류가 자동으로 신규가 된다.
+  if (NEW_ORDER_NOTICE_TYPES.has(n.noticeType)) {
+    refine((p) => !p.isCancel);
   }
 
   // ②-1 매매구분 축 (GC-WR-03). 매수 10@70000 과 매도 10@70000 이 동시에 대기하면
@@ -1071,7 +1185,9 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //     적용 조건이 세 겹인 이유:
   //       · `sideTrusted` — 취소·정정 통보(C/M)에는 매매구분이 없다. 요청에 담기지 않아
   //         브로커가 채울 값이 없고 MockBroker 는 "B" 를 남긴다 (Pitfall 8 / envelope.ts:1186).
-  //       · `noticeType` 이 "A"/"E" — 거부("R")와 빈 값(구 서버)은 **취소 대기에도 온다.**
+  //       · `noticeType` 이 `NEW_ORDER_NOTICE_TYPES`("A"/"E") — 거부("R")와 빈 값(구 서버)은
+  //         **취소 대기에도 온다.** ② 축과 **같은 집합**을 본다(R2-IN-03) — 리터럴을 두 벌
+  //         적으면 통보 종류가 늘어나는 날 한쪽만 갱신된다.
   //         취소거부의 `side` 는 브로커 기본값이므로 그것으로 좁히면 살아 있는 신규 주문이
   //         「거부됨」으로 뜬다. ② 가 "R" 을 건너뛰는 것과 같은 근거다.
   //       · `fromWireSide` 가 `null` 이 아님 — 첫 글자로만 판정하고, 모르는 값은 매수로
@@ -1081,7 +1197,7 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //     방향은 어떤 통보에서도 변하지 않는다 — 더 강한 축이 먼저다.
   //
   //     `refine` 이므로 남는 후보가 0이면 이 축은 없던 것으로 한다. 하드 필터가 아니다.
-  if (n.sideTrusted && (n.noticeType === "A" || n.noticeType === "E")) {
+  if (n.sideTrusted && NEW_ORDER_NOTICE_TYPES.has(n.noticeType)) {
     const noticeSide = fromWireSide(n.side);
     if (noticeSide !== null) {
       refine((p) => !p.isCancel && p.side === noticeSide);
