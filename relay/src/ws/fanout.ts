@@ -84,6 +84,7 @@ import {
   buildSetLimitChaserReq,
   buildSetVITriggerReq,
   maskAccountNo,
+  strategyKey,
 } from "../dma/envelope.js";
 import { encode, parseInbound } from "./protocol.js";
 import {
@@ -135,6 +136,20 @@ export const INBOUND_RATE_BURST = INBOUND_RATE_LIMIT_PER_SEC;
  * 흉내 내면 relay 의 거부가 VI 통지로 오독된다.
  */
 export const RELAY_MSG_SOURCE = "Relay";
+
+/**
+ * **전략 철거(삭제) 요청의 최종 시장 폴백** (GC-WR-04 / T-16-55).
+ *
+ * 등록·수정에서는 이 값을 절대 쓰지 않는다 — 기본값 `"K"` 로 메우면 코스닥 전략이 코스피로
+ * 등록되고 그 오차가 반복 발주로 재생산된다(T-16-42). 삭제만 다른 이유는 **전략 키에 시장이
+ * 없기 때문**이다: `strategyKey()` = `${isin}:${accountNo}:${exchange}` 이고 게이트웨이의
+ * `LimitChaser::MakeKey` 도 동형이라, 철거 요청의 `market` 은 **무엇을 지울지에 관여하지
+ * 않는다**. 그래서 「지어낸 값이 잘못된 대상을 지운다」는 위험이 구조적으로 없다.
+ *
+ * ★ 이 폴백이 쓰이는 경로는 **반드시 `logger.error` 를 남긴다**(무로그 fail-safe 금지 / S-5).
+ *   조용히 메우면 「마스터가 안 떠 있다」는 운영 신호가 사라진다.
+ */
+const TEARDOWN_MARKET_FALLBACK: OrderMarket = "K";
 
 /**
  * `ws` README 권고 기반 압축 튜닝 (D-35).
@@ -567,8 +582,9 @@ export class WsFanout {
     // 은 계좌 필드가 없으므로 ② 를 건너뛴다.
     //
     // ★ `lc.set` 만 **②-1 ISIN → 시장 해석** 단계가 하나 더 있다 (WR-03 / D-28). 브라우저가
-    //   `market` 을 싣지 않으므로 relay 가 `SymbolMap` 으로 풀어 채운다 — 못 풀면 거부다.
-    //   `order.new` 가 이미 같은 규율이고(`order-handler.ts` 게이트 ③-1) `lc.set` 만 예외였다.
+    //   `market` 을 싣지 않으므로 relay 가 `SymbolMap` 으로 풀어 채운다 — 등록·수정은 못 풀면
+    //   거부다. `order.new` 가 이미 같은 규율이고(`order-handler.ts` 게이트 ③-1) `lc.set` 만
+    //   예외였다. **단, 철거(삭제)는 이 관문을 지나지 않는다** (GC-WR-04, 아래 참조).
     // ★ 이어서 **②-2 무장 조건 검사** — 발주가·수량 0 인 게이트는 켤 수 없다 (WR-06).
     // ------------------------------------------------------------------
     if (msg.t === "lc.set") {
@@ -576,8 +592,23 @@ export class WsFanout {
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, cfg.accountNo)) return;
-      const market = this.#strategyMarket(conn, userId, msg.t, cfg.isin);
+      // ②-1 시장 해석은 **`crud` 로 갈린다** (GC-WR-04 / T-16-55).
+      //
+      // `#isTeardown(cfg)` 인 요청은 「전략을 내린다」는 뜻이고, 그것을 시장 해석 실패로 막으면
+      // 상장폐지·마스터 미로딩 종목의 전략을 **영원히 못 지우는** 상태가 만들어진다. UI 가
+      // `gateBlocked` 에 「끄는 것은 언제나 허용한다 — 무장 해제를 막으면 그게 더 위험하다」
+      // (T-16-44)고 적어 둔 규율의 **서버측 대응**이 이 분기다.
+      //
+      // 반대로 등록·수정(`crud:"C"` ∧ 게이트가 하나라도 켜짐)은 **완전히 그대로**다. 여기를
+      // 함께 느슨하게 하면 기본값 `"K"` 로 코스닥 전략을 코스피로 등록하는 경로가 열린다
+      // (16-25 truth 41 / T-16-42) — 그래서 두 경로가 같은 함수를 쓰지 않는다.
+      const teardown = this.#isTeardown(cfg);
+      const market = teardown
+        ? this.#teardownMarket(userId, msg.t, cfg)
+        : this.#strategyMarket(conn, userId, msg.t, cfg.isin);
       if (market === null) return;
+      // ②-2 무장 가드도 철거에는 걸리지 않는다 — 판정은 `#strategyArmable` 안에 있다(호출부가
+      // 아니라 함수가 소유해야 나중에 호출부가 늘어도 규율이 갈리지 않는다).
       if (!this.#strategyArmable(conn, userId, msg.t, cfg)) return;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
         // ★ 시장 구분은 **여기서** 얹는다. 조립기에 기본값을 두지 않는 것이 규율이다 —
@@ -747,10 +778,72 @@ export class WsFanout {
   }
 
   /**
-   * ②-1 **ISIN → 시장 구분 해석** — `lc.set` 전용 (WR-03 / D-28).
+   * **철거(삭제) 요청인가** (GC-WR-04 / T-16-55).
+   *
+   * 두 갈래를 모두 철거로 본다:
+   *   ① `crud === "D"` — 브라우저의 `crudOf()` 판정이 이 값으로 도착한다.
+   *   ② 게이트 4종이 **전부 꺼진** 요청 — `crud` 가 `"C"` 로 와도 게이트웨이가 `"D"` 로
+   *      정규화하므로(`RelayLimitChaser.crud` 계약 / Pitfall 7) 사실상 삭제다. 옛 탭·직접
+   *      wss 처럼 `crudOf` 를 안 태운 경로가 여기로 온다.
+   *
+   * ★ 게이트 4종에 **`sweepEnabled` 는 없다** — 한방만 켠 전략도 서버가 삭제로 정규화한다.
+   *   `webapp/src/lib/limit-chaser.ts` 의 `isDeleteIntent()` 와 **같은 네 항**이다(그쪽이
+   *   원본이고 여기가 서버측 사본이다 — 항이 갈리면 「지운 줄 알았는데 남는」 전략이 생긴다).
+   */
+  #isTeardown(cfg: RelayLimitChaserInput): boolean {
+    if (cfg.crud === "D") return true;
+    return (
+      !cfg.buyEnabled && !cfg.sellEnabled && !cfg.cancelQtyEnabled && !cfg.cancelTradeEnabled
+    );
+  }
+
+  /**
+   * ②-1′ **철거 요청의 시장 해석** — 실패해도 **거부하지 않는다** (GC-WR-04 / T-16-55).
+   *
+   * `#strategyMarket` 과 이름이 아니라 **정책이** 다르다. 여기서 `null` 은 절대 나오지 않는다 —
+   * 사용자가 자기 전략을 내리지 못하는 상태를 만드는 것이, 철거 프레임의 `market` 한 글자가
+   * 틀리는 것보다 나쁘다는 판단이다(T-16-44 의 서버측). 그 판단이 안전한 이유는 **전략 키에
+   * 시장이 없다**는 사실이다 — `strategyKey()` = `${isin}:${accountNo}:${exchange}`.
+   *
+   * 폴백 사슬(근거가 강한 순):
+   *   ① **서버가 에코한 전략의 `market`** — 게이트웨이가 그 값으로 저장했다는 1차 증거다.
+   *      `lc.snap` 이 쓰는 바로 그 캐시(`getLimitChasers`)를 읽는다.
+   *   ② `SymbolMap` 해석 — 캐시에 없을 때(다른 세션이 등록했거나 재시작 직후)의 2차 근거.
+   *   ③ `TEARDOWN_MARKET_FALLBACK` — **`logger.error` 를 남기고** 통과시킨다(S-5).
+   */
+  #teardownMarket(
+    userId: string,
+    t: RelayInbound["t"],
+    cfg: RelayLimitChaserInput,
+  ): OrderMarket {
+    // ① 키 조립 지점은 `strategyKey()` 하나뿐이다 — 세 필드를 여기서 손으로 비교하면
+    //    12자 절단·거래소 정규화 중 한쪽만 반영돼 「에코가 영원히 안 맞는」 실패가 된다.
+    const wanted = strategyKey(cfg.isin, cfg.accountNo, cfg.exchange);
+    const echoed = this.#hub.getLimitChasers(userId).find((lc) => lc.key === wanted);
+    if (echoed !== undefined) return echoed.market;
+
+    // ② 캐시에 없으면 종목맵. 여기서 실패해도 거부로 이어지지 않는다.
+    const info = this.#symbols?.lookup(cfg.isin);
+    if (info !== undefined && info.market !== null) return info.market;
+
+    // ③ 조용히 메우지 않는다 — 이 줄이 곧 「마스터가 안 떠 있다/상장폐지됐다」는 운영 신호다.
+    //    계좌번호는 싣지 않는다 (T-16-45).
+    logger.error(
+      { userId, t, isin: cfg.isin, fallbackMarket: TEARDOWN_MARKET_FALLBACK },
+      "[WS] 시장 미해석 상태의 전략 삭제 — 폴백 시장으로 송신 (전략 키에 시장이 없어 대상은 정확하다)",
+    );
+    return TEARDOWN_MARKET_FALLBACK;
+  }
+
+  /**
+   * ②-1 **ISIN → 시장 구분 해석** — `lc.set` 의 **등록·수정 전용** (WR-03 / D-28).
    *
    * 브라우저는 `market` 을 싣지 않는다(스키마에서 지웠다). 시장의 정본은 `SymbolMap` 하나이고
    * relay 가 그것을 소유한다 — `order.new` 의 게이트 ③-1 과 **동형**이다.
+   *
+   * ★ **철거 요청은 이 함수를 지나지 않는다**(`#teardownMarket` 이 받는다). 삭제를 해석 실패로
+   *   막으면 사용자의 자산을 인질로 잡는다 — 상장폐지·마스터 미로딩 종목의 전략을 영원히
+   *   내리지 못하게 된다 (GC-WR-04 / T-16-44 의 서버측).
    *
    * ★ 못 풀면 **거부**다. 기본값 `"K"` 로 메우면 코스닥 전략이 코스피로 등록되고, 전략은
    *   한 번의 주문이 아니라 **반복 발주 설정**이라 그 오차가 계속 재생산된다 (T-16-42).

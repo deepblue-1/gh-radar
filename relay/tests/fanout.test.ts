@@ -718,6 +718,92 @@ describe("WsFanout", () => {
     expect(framesOf(a.inbox, "msg")).toHaveLength(0);
   });
 
+  /*
+    GC-WR-04 — 「시장을 못 푸는 종목의 전략을 내릴 수 없다」를 없앤다.
+
+    상장폐지로 `stocks` 에서 빠졌거나 relay 부팅 직후 `symbols.start()` 가 아직 안 끝났으면
+    `SymbolMap` 은 그 ISIN 을 못 푼다. 그 상태에서 **등록·수정과 삭제가 함께** 막히면 사용자는
+    자기 전략을 영원히 못 지운다 — UI 가 `gateBlocked` 에 「끄는 것은 언제나 허용한다」(T-16-44)
+    라고 적어 둔 규율의 서버측이 이 두 케이스다.
+  */
+  it("⑰-e SymbolMap 이 모르는 ISIN 이어도 crud:\"D\" 는 거부 없이 게이트웨이로 나간다 (GC-WR-04)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ isin: UNKNOWN_ISIN, crud: "D" }) });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    await flushIo(20);
+
+    // ① 거부 프레임이 0 건이다 — 자산을 인질로 잡지 않는다.
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    // ② 실제로 나갔고, 폴백 시장이 실려 있다. 전략 키(`ISIN:계좌:거래소`)에 시장이 없으므로
+    //    이 값은 「무엇을 지울지」에 관여하지 않는다.
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    const lc = rootEnvelope(req!.payload).setLimitChaser();
+    expect(lc?.isin()).toBe(UNKNOWN_ISIN);
+    expect(lc?.crud()).toBe("D");
+    expect(lc?.market()).toBe("K");
+    // ③ 조용한 폴백이 아니다 — 운영 신호가 로그로 남고, 계좌번호는 실리지 않는다 (S-5 / T-16-45).
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("시장 미해석 상태의 전략 삭제"),
+    );
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
+  it("⑰-e2 삭제의 시장은 **에코 캐시가 1순위**다 — 종목맵이 못 풀어도 폴백까지 가지 않는다", async () => {
+    // 서버가 그 전략을 KOSDAQ("Q") 로 저장했다고 에코한다. `SymbolMap` 은 이 ISIN 을 모른다.
+    gateway.respondLimitChaserList([
+      { isin: UNKNOWN_ISIN, accountNo: SAMPLE_ACCOUNT_NO, market: "Q" },
+    ]);
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+    await waitFor(() => h.hub.getLimitChasers(USER_A).length === 1, "상따 캐시 1건");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ isin: UNKNOWN_ISIN, crud: "D" }) });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    await flushIo(20);
+
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    // 폴백("K") 이 아니라 **서버가 저장했다고 말한 값**이 나간다.
+    expect(rootEnvelope(req!.payload).setLimitChaser()?.market()).toBe("Q");
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    expect(
+      errSpy.mock.calls.some((call) =>
+        String(call[1] ?? "").includes("시장 미해석 상태의 전략 삭제"),
+      ),
+    ).toBe(false);
+  });
+
+  it("⑰-f 같은 ISIN 이라도 crud:\"C\" 는 여전히 거부된다 — 등록의 엄격함은 그대로다 (16-25 회귀)", async () => {
+    const a = await authed("token-a");
+
+    // 게이트가 켜진 등록 요청이다(전 게이트 OFF 였다면 그것은 사실상 삭제라 통과가 옳다).
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ isin: UNKNOWN_ISIN, crud: "C", buyEnabled: true }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: UNKNOWN_ISIN });
+    expect(rejected?.m).toContain("전략을 등록할 수 없습니다");
+  });
+
   it("⑱ vi.confirm 은 계좌 대조를 건너뛰고 msg_type 33 으로 나간다", async () => {
     const a = await authed("token-a");
 
