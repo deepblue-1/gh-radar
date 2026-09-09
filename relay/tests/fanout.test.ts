@@ -726,11 +726,24 @@ describe("WsFanout", () => {
     자기 전략을 영원히 못 지운다 — UI 가 `gateBlocked` 에 「끄는 것은 언제나 허용한다」(T-16-44)
     라고 적어 둔 규율의 서버측이 이 두 케이스다.
   */
-  it("⑰-e SymbolMap 이 모르는 ISIN 이어도 crud:\"D\" 는 거부 없이 게이트웨이로 나간다 (GC-WR-04)", async () => {
+  it("⑰-e SymbolMap 이 모르는 ISIN 이어도 **게이트 4종이 전부 꺼진** 철거는 거부 없이 게이트웨이로 나간다 (GC-WR-04)", async () => {
     const errSpy = vi.spyOn(logger, "error");
     const a = await authed("token-a");
 
-    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ isin: UNKNOWN_ISIN, crud: "D" }) });
+    // ★ 게이트 4종을 **명시적으로 전부** 끈다. `lcInput()` 기본값이 `buyEnabled: true` 라
+    //   헬퍼에 기대면 이 케이스는 「진짜 철거」가 아니라 **스푸핑 조합**(crud:"D" + 게이트 ON)을
+    //   태우게 된다 — 실제로 16-29 판 ⑰-e 가 그랬고, 그 상태로 초록이었다(R2-CR-01).
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({
+        isin: UNKNOWN_ISIN,
+        crud: "D",
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+      }),
+    });
     await waitFor(
       () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
       "10 수신",
@@ -765,7 +778,18 @@ describe("WsFanout", () => {
     const a = await authed("token-a");
     await waitFor(() => h.hub.getLimitChasers(USER_A).length === 1, "상따 캐시 1건");
 
-    a.ws.sendRaw({ t: "lc.set", cfg: lcInput({ isin: UNKNOWN_ISIN, crud: "D" }) });
+    // ⑰-e 와 같은 이유로 게이트 4종을 명시적으로 끈다 — 철거의 정본은 `crud` 가 아니라 게이트다.
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({
+        isin: UNKNOWN_ISIN,
+        crud: "D",
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+      }),
+    });
     await waitFor(
       () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
       "10 수신",
@@ -783,6 +807,107 @@ describe("WsFanout", () => {
         String(call[1] ?? "").includes("시장 미해석 상태의 전략 삭제"),
       ),
     ).toBe(false);
+  });
+
+  /*
+    R2-CR-01 — **클라이언트의 자칭을 서버 가드의 면제 조건으로 쓰지 않는다.**
+
+    `crud` 는 인바운드 필드다(`protocol.ts` `z.enum(["C","D"])`). 그것을 철거 판정의 단독
+    근거로 쓰면 `{crud:"D", buyEnabled:true, …}` 한 프레임이 시장 해석 엄격성(T-16-42)과
+    무장 가드(T-16-43)를 **동시에** 지나 「시장이 틀리고 무장까지 걸린 반복 발주 설정」이
+    게이트웨이로 나간다. 아래 두 케이스는 **실패 원인이 서로 다르다** — 각각 다른 가드가
+    살아 있음을 가른다.
+  */
+  it("⑰-e3 crud:\"D\" 라고 자칭해도 게이트가 켜져 있으면 시장 해석 엄격성이 그대로 걸린다 (R2-CR-01 / T-16-42)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    // 자칭은 삭제인데 매수 게이트가 켜져 있다 — 계약상 존재할 수 없는 조합이고, 옛 판정에서는
+    // 이 프레임이 `#teardownMarket` 의 폴백("K")을 타고 그대로 나갔다.
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ isin: UNKNOWN_ISIN, crud: "D", buyEnabled: true }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    // (a) 게이트웨이로 **나가지 않았다**.
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    // (b) 거부 프레임 1건이 브라우저로 갔다 — 등록 경로의 문구다.
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: UNKNOWN_ISIN });
+    expect(rejected?.m).toContain("전략을 등록할 수 없습니다");
+    // (c) `crud` 불일치가 운영 신호로 남고, 계좌번호는 실리지 않는다 (S-5 / T-16-45).
+    const mismatch = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("게이트가 켜져 있다"),
+    );
+    expect(mismatch).toBeDefined();
+    expect(mismatch?.[0]).toMatchObject({ isin: UNKNOWN_ISIN, crud: "D" });
+    expect(JSON.stringify(mismatch?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+    // 삭제 폴백 로그는 **없다** — 이 프레임은 철거 경로로 가지 않았다.
+    expect(
+      errSpy.mock.calls.some((call) =>
+        String(call[1] ?? "").includes("시장 미해석 상태의 전략 삭제"),
+      ),
+    ).toBe(false);
+  });
+
+  it("⑰-e4 시장이 풀려도 crud:\"D\" 자칭은 무장 가드를 면제받지 못한다 (R2-CR-01 / T-16-43)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const a = await authed("token-a");
+
+    // ⑰-e3 과 달리 ISIN 은 `SymbolMap` 이 푸는 값이다 — 시장 해석은 통과하고 **무장 가드**가
+    // 잡는다. 두 케이스의 실패 원인이 갈려야 두 가드가 각각 살아 있음이 증명된다.
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({ isin: SAMPLE_ISIN, crud: "D", buyEnabled: true, buyOrderQty: 0 }),
+    });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "거부 통지");
+    await flushIo(30);
+
+    expect(gateway.strategyRequests().map((r) => r.msgType)).not.toContain(
+      STRATEGY_MSG.SetLimitChaserReq,
+    );
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({ lv: "ERROR", src: RELAY_MSG_SOURCE, i: SAMPLE_ISIN });
+    expect(rejected?.m).toContain("전략을 켤 수 없습니다");
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("발주가·수량 0 인 게이트 무장"),
+    );
+    expect(logged).toBeDefined();
+    expect(logged?.[0]).toMatchObject({ gate: "buy" });
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
+  it("⑰-e5 반대 방향의 대칭 — crud:\"C\" 라도 게이트 4종이 전부 꺼졌으면 철거로 통과한다 (기존 ② 갈래 회귀)", async () => {
+    const a = await authed("token-a");
+
+    // `crudOf()` 는 브라우저에만 있다 — 옛 탭·직접 wss 는 게이트를 다 끄고도 `"C"` 로 보낸다.
+    // 게이트웨이가 어차피 `"D"` 로 정규화하므로 이것도 철거이고, 시장 해석 실패로 막지 않는다.
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: lcInput({
+        isin: UNKNOWN_ISIN,
+        crud: "C",
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+      }),
+    });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "10 수신",
+    );
+    await flushIo(20);
+
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    const req = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    expect(rootEnvelope(req!.payload).setLimitChaser()?.isin()).toBe(UNKNOWN_ISIN);
   });
 
   it("⑰-f 같은 ISIN 이라도 crud:\"C\" 는 여전히 거부된다 — 등록의 엄격함은 그대로다 (16-25 회귀)", async () => {
