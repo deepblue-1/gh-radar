@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 16-39-PLAN.md — R2-WR-01 + R2-IN-04 종결(23505 포기 단위를 컬럼 하나로)
-last_updated: "2026-09-09T10:26:06.603Z"
-last_activity: 2026-09-09 -- Phase 16 갭 클로징 3라운드 — 16-39 (R2-WR-01·R2-IN-04) 완료
+stopped_at: Completed 16-40-PLAN.md — R2-WR-07 + R2-WR-04 종결(+ 16-39 flushed 잔여 오차)
+last_updated: "2026-09-09T10:51:16.432Z"
+last_activity: 2026-09-09
 progress:
   total_phases: 25
   completed_phases: 18
   total_plans: 185
-  completed_plans: 164
+  completed_plans: 165
   percent: 72
 ---
 
@@ -25,16 +25,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (39/46)**
-Plan: 39 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
-Plans completed: 164 / 185
-Status: 3라운드 실행 중 — R2-WR-01·R2-IN-04 종결. **TRADE-03 은 Pending 유지**(코드 층위만 닫힘, 배포는 16-46)
+Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 진행 중 (40/46)**
+Plan: 40 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · 3라운드 16-36~16-46)
+Plans completed: 165 / 185
+Status: 3라운드 실행 중 — R2-WR-07·R2-WR-04 종결 + 16-39 잔여 오차 종결. **TRADE-03 은 Pending 유지**(재판정은 16-46)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-09
 
 Progress: [█████████░] 89%
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
+
+- **16-40 완료 — R2-WR-07 + R2-WR-04 종결. 세 카운터와 한 불변식이 각자 자기가 선언한 문장을 실제로 지키게 했다.** relay 2파일(소스 1 + 테스트 1).
+- **`inserted` 가 만들지 않은 행을 세지 않는다 (R2-WR-07①).** `OrderInsertSink` 반환을 `{id, created}` 로 넓혀 「새로 만들었다」와 「`23505` 로 기존 행에 수렴했다」를 sink 가 직접 말하게 했다. **`insertRequest` 의 공개 반환 타입은 `Promise<string>` 그대로**라 `order-handler.ts` diff **0줄** — 그것이 이 변경이 최소 침습임의 증거다. 덜어낸 값은 버리지 않고 `insertConverged` 로 노출했다(S-5). `stats()` 는 relay/src 에 소비처가 없어 필드 추가가 `/healthz` 에 닿지 않음을 먼저 확인했다.
+- **「이미 있다」가 「기록 불가」로 열화되지 않는다 (R2-WR-07②).** 수렴 재조회를 `try`/`catch` 로 감쌌다 — 재조회가 실패해도 호출자에게 올라가는 것은 **원래의 `23505`** 다. 종전에는 조회 오류가 올라가 `ensureRow` 가 `{kind:"unavailable"}` 로 접고 통보를 드롭했다(16-28 이 닫은 문의 **뒷문**). 삼킨 사실은 `safePgError` 로그로 남는다. lookup sink 조립도 팩토리 본문 한 곳으로 모았다(T-16-14).
+- **「도는 배치는 언제나 1개」를 실제로 지킨다 (R2-WR-04).** `flushNow` 의 진행 중 배치 대기를 **라운드 루프 안으로 흡수**해 남의 `#current` 핸들을 덮어쓰지 않게 했다. `close()` 호출 순서는 **바꾸지 않았다**(`index.ts` diff 0줄) — tick 을 먼저 끊으면 `ORDER_FLUSH_MAX_ROUNDS` 의 3라운드 근거(16-24)가 흔들린다. 「큐 스왑은 2선 방어다」를 `#drain` docstring 에 박았다.
+- **계획·리뷰의 재현 조건이 실제와 달랐다 — 실측으로 다시 세웠다(Rule 1).** 첫 작성 케이스가 **수정 전 구현에서도 통과**했다. 임시 프로브로 이벤트 순서를 찍어 확인한 결과 ⓐ `setInterval` 은 macrotask 라 마이크로태스크 경계에 끼어들 수 없고 ⓑ 종전 구현의 **루프 밖 `while` 이 진입 구간을 이미 막고 있었다.** 실제로 열려 있던 창은 **라운드 N 종료와 N+1 대입 사이** 하나였다. 3단계 시나리오로 다시 써 **수정 전 `maxLive 2` / 수정 후 `1`** 을 실측했다. 「무엇을 못 잠갔는지」(프로덕션 실시간 경합 그대로는 아니다 — 실제 위험 경로는 `flushNow` 중복 호출)도 SUMMARY 에 명시했다.
+- **16-39 가 남긴 `flushed` 잔여 오차를 함께 닫았다(Rule 2).** 「`order_no` 만 담긴 갱신의 `23505`」가 반영 0건인데 `flushed += 1` 하던 것. 16-41~46 어느 plan 도 맡고 있지 않아 여기서 종결했다. `OrderUpdateSink` 반환을 `Promise<void \| {applied}>` 로 넓혀 **기존 sink 구현 변경 0줄**(반환 생략 = `applied:true`)로 `flushedNoop` 을 분리했다. `#retried`·`#dropped` 대입문 diff **0줄** — 16-28 드롭 규율 유지.
+- **패턴: 카운터가 아니라 sink 가 참말을 하게 한다.** 16-39 가 `flushed` 를, 이 plan 이 `inserted` 를, 그리고 마지막에 `flushed` 잔여분까지 **같은 형태**로 고쳤다 — 카운터 대입문이 아니라 반환 타입에 한 비트를 더한다.
+- **신규 3케이스 + 1건 갱신.** ⓻-b(진짜 sink 3벌 결선으로 `inserted:1`·`insertConverged:1`) · ⓻-c(`rejects.toMatchObject({code:"23505"})` + `details` 부재) · ⑮-b(`maxLive === 1`) · ⓽-b(`flushed:0`·`flushedNoop:1` 로 잔여 오차 주석을 종결 근거로 교체).
+- **회귀 잠금 실증 4라운드 — 되돌린 지점마다 정확히 그 케이스 하나만 빨개졌다.** A(created 무시)→⓻-b · B(try/catch 제거)→⓻-c · C(옛 flushNow)→⑮-b `expected 2 to be 1` · D(`applied:false` 제거)→⓽-b `expected 1 to be +0`. 복원 후 전량 통과.
+- **`ws-order.test.ts` 는 손대지 않았다.** 계획 frontmatter 에 있으나 전수 확인 결과 `OrderInsertSink` 구현이 없다(있는 것은 `OrderRecorder.insertRequest` 흉내이고 그 시그니처는 의도적으로 유지했다). **없는 변경을 지어내지 않았다.** 후속 16-43 에도 영향 없음.
+- **relay 387 tests**(384 → +3, 17 files) · `pnpm -r typecheck` exit 0 · `pnpm -r test` exit 0 **2,026 passed**(기준선 2,023 → +3, relay 외 변동 없음) · `typecheck:tests` exit 0. 포매터 미실행. DB 미변경.
+- **⚠️ 배포 미실시 — 프로덕션에는 R2-WR-07·R2-WR-04 가 여전히 살아 있다.** 재배포는 16-46 몫. 가짜 `SupabaseClient` 하네스만, 실서버·실계좌 접속 0회(D-27). **TRADE-03 은 계속 Pending**(재판정 16-46).
 
 - **16-39 완료 — R2-WR-01 + R2-IN-04 종결. `23505` 가 「주문번호를 못 채운다」에서 「그 행의 수명주기가 영원히 갱신되지 않는다」로 번지던 것을 컬럼 하나로 좁혔다.** relay 2파일(소스 1 + 테스트 1).
 - **포기의 단위를 「패치 전체」에서 「`order_no` 컬럼 하나」로 줄였다.** `finish` 가 내는 갱신은 `{order_no, status, result_code, notice_type, message, filled_qty, origin}` **한 덩어리**다 — 종전에는 `23505` 하나로 그것이 통째로 사라져 수동 주문 행이 `requested`·`filled_qty:0` 인 채 **영구히** 남았다. 이제 `order_no` 만 뺀 patch 로 **같은 셀렉터**에 1회 재시도한다.
@@ -357,6 +370,7 @@ Progress: [█████████░] 89%
 | Phase 16 P37 | 25min | 2 tasks | 3 files |
 | Phase 16 P38 | 16min | 3 tasks | 7 files |
 | Phase 16 P39 | 14min | 2 tasks | 2 files |
+| Phase 16 P40 | 21min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -566,6 +580,8 @@ Recent decisions affecting current work:
 - [Phase 16]: 16-38: `order-handler.ts:411`(최후 그물)·`:862`(조립 거부)는 **유지** — 안쪽 Supabase 왕복 3곳이 각각 catch 로 종결되고 조립 try 는 `OrderBuildError` 만 던진다. PostgREST 가 닿지 않는 자리라 스택이 유일한 단서다
 - [Phase 16]: 16-39: 23505 의 포기 단위를 패치 전체에서 order_no 컬럼 하나로 좁혔다 — 카운터를 고치지 않고 flushed 가 참이 되게 동작을 고쳤다 (#flushed 대입문 diff 0줄)
 - [Phase 16]: 16-39: 「보낼 것이 없다」 판정을 키 개수(<=1)가 아니라 updated_at 이름 필터로 센다 — 계획 식은 sink 직접 호출자의 실필드 1개를 조용히 버린다
+- [Phase 16]: 16-40: 카운터가 아니라 sink 가 참말을 하게 한다 — insert 는 created, update 는 applied 한 비트씩 — inserted 가 23505 수렴까지 세던 오염과 16-39 가 남긴 flushed 잔여 오차를 같은 형태로 닫았다. 카운터 대입문이 아니라 sink 반환 타입을 넓혀 고쳤고, 반환 생략은 기존 의미와 같게 두어 기존 sink 구현 변경 0줄.
+- [Phase 16]: 16-40: flushNow 의 진행 중 배치 대기를 라운드 루프 안으로 흡수 — close() 순서는 유지 — 실제로 열려 있던 창은 라운드 N 종료와 N+1 대입 사이였다(계획·리뷰가 지목한 진입부는 종전 while 이 이미 막고 있었다). close() 를 앞으로 옮기는 대안은 ORDER_FLUSH_MAX_ROUNDS 의 3라운드 근거(16-24)를 흔들어 채택하지 않았다.
 
 ### Pending Todos
 
@@ -618,8 +634,8 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T10:25:50.236Z
-Stopped at: Completed 16-36-PLAN.md — R2-CR-01 종결(철거 판정 정본을 게이트 4종으로)
+Last session: 2026-09-09T10:51:16.420Z
+Stopped at: Completed 16-40-PLAN.md — R2-WR-07 + R2-WR-04 종결(+ 16-39 flushed 잔여 오차)
 Next: **Phase 16 은 plan 35/35 실행 완료이나 phase 는 미완결이다.** 2라운드 갭 19건(GC-)은 전부 닫혔고 재검증이 이를 코드에서 확인했으나(`16-VERIFICATION-R2.md` 162/165), **3라운드 리뷰(`16-REVIEW-R2.md`)가 제기한 Critical 3건이 실재 결함으로 확인**됐다 — 이번 라운드 수정이 새로 만든 것이다:
 
 - **R2-CR-01** (`relay/src/ws/fanout.ts:793-798`) `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태 확인 없이 단독 신뢰 → 한 프레임이 시장 해석 엄격성(T-16-42)과 무장 가드(T-16-43)를 **동시에** 우회한다. 16-29 가 GC-WR-04 를 닫으며 만든 경로다.
