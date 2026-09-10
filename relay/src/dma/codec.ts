@@ -106,24 +106,30 @@ export function tryExtract(buf: Buffer): ExtractResult {
  *
  * `msgTypeHint` 는 "무엇이 왔는지 짐작"용이다. 8바이트 미만 페이로드는 루트 테이블
  * 자체를 읽을 수 없어 `null` 이 된다 — 이때는 hex 덤프가 유일한 단서다.
+ *
+ * ★ `level` 은 **레벨의 유일한 소유자**다 (quick-260910-jce). 기본값이 `warn` 이라
+ *   기존 호출부(desync·min-envelope-size)는 인자를 한 글자도 바꾸지 않고 그대로 warn 이다.
+ *   `debug` 는 **왜 드롭하는지 우리가 아는** 유입(범위 밖 응답 대역)에만 쓴다 — 25~55초마다
+ *   나오는 의도된 드롭이 진짜 이상 신호를 가리는 것이 이 인자를 만든 이유다.
+ *   로그 본문·필드 구성은 레벨과 무관하게 같다.
  */
 export function logDroppedFrame(fields: {
   reason: string;
   msgTypeHint: number | null;
   payload: Buffer;
   droppedFrameCount: number;
+  level?: "warn" | "debug";
 }): void {
-  const { reason, msgTypeHint, payload, droppedFrameCount } = fields;
-  logger.warn(
-    {
-      reason,
-      msgTypeHint,
-      payloadLength: payload.length,
-      droppedFrameCount,
-      head: payload.subarray(0, DUMP_BYTES).toString("hex"),
-    },
-    "[DMA] 프레임 드롭",
-  );
+  const { reason, msgTypeHint, payload, droppedFrameCount, level = "warn" } = fields;
+  const body = {
+    reason,
+    msgTypeHint,
+    payloadLength: payload.length,
+    droppedFrameCount,
+    head: payload.subarray(0, DUMP_BYTES).toString("hex"),
+  };
+  if (level === "debug") logger.debug(body, "[DMA] 프레임 드롭");
+  else logger.warn(body, "[DMA] 프레임 드롭");
 }
 
 /** `FrameReader.push` 결과. */
