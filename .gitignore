@@ -47,3 +47,6 @@ coverage/
 
 # 개인 파일 — KB VPN 접속 파라미터·계정·인증서 핀이 하드코딩돼 있다. 커밋 금지.
 scripts/install-vpn-menubar.sh
+
+# GSD(@opengsd/gsd-core) 훅이 세션마다 쓰는 실행 격리 센티널. 머신 로컬 상태다.
+.gsd/
