@@ -6,45 +6,19 @@
  * 분리 — 이 모듈은 스트림이 아니므로 apiFetch 로 충분하다.
  *
  * 서버 챗 라우트는 requireAuth(P03) — `Authorization: Bearer <access_token>` 필수.
- * apiFetch 는 헤더 주입을 지원(ApiFetchInit.headers)하므로, getSession 으로 토큰을
- * 취득해 헤더로 부착하는 얇은 래퍼(withAuth)만 얹는다.
+ * 토큰 부착은 `lib/auth-fetch.ts` 의 `authFetch` 한 곳이 소유한다(quick-260910-jce 에서
+ * 이 파일의 private 함수를 **본문 무변경으로** 옮겼다) — 인증 패턴이 두 벌이 되면
+ * 언젠가 한쪽만 고쳐진다.
  */
 
 import type { ConversationRow, MessageRow } from "@gh-radar/shared";
 
-import { apiFetch, ApiClientError, type ApiFetchInit } from "./api";
-import { createClient } from "./supabase/client";
+import { authFetch } from "./auth-fetch";
 
 /** getConversation 응답 — 대화 메타 + 메시지 목록(오래된→최신). */
 export interface ConversationDetail {
   conversation: ConversationRow;
   messages: MessageRow[];
-}
-
-/**
- * Supabase access_token 을 Authorization 헤더로 주입한 apiFetch 래퍼.
- * 세션이 없으면 서버 왕복 없이 401 성격의 ApiClientError 를 throw(로그인 게이트).
- */
-async function authFetch<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
-  const {
-    data: { session },
-  } = await createClient().auth.getSession();
-
-  if (!session) {
-    throw new ApiClientError({
-      code: "UNAUTHENTICATED",
-      message: "로그인이 필요합니다.",
-      status: 401,
-    });
-  }
-
-  return apiFetch<T>(path, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      ...(init.headers ?? {}),
-    },
-  });
 }
 
 /**

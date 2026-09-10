@@ -4,9 +4,10 @@
  * MeClient — My page (`/me`) 본문 (MYPAGE-01 · 16-UI-SPEC C1~C7 · D-19/D-20/D-21).
  *
  * ① 세로 순서가 계약이다 (D-20)
- *   상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … 로 **고정**이다. 데스크톱
- *   에서도 이 순서를 바꾸지 않는다 — 전략이 지금 어떤 상태인지가 먼저이고, 계좌별 주문·
- *   잔고는 그 결과다.
+ *   상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … → **오늘 주문** 으로
+ *   **고정**이다. 데스크톱에서도 이 순서를 바꾸지 않는다 — 전략이 지금 어떤 상태인지가
+ *   먼저이고, 계좌별 주문·잔고는 그 결과이며, 오늘의 주문 이력은 그 뒤에 붙는 기록이다
+ *   (quick-260910-jce 가 마지막 칸을 더했다).
  *
  * ② ★ 계좌 선택 UI 를 만들지 않는다 (D-21)
  *   계좌가 몇 개든 **계좌마다 카드 하나**를 세로로 반복한다. 셀렉터를 두면 「지금 보는
@@ -25,11 +26,17 @@
  *   이 빠지면 표의 콘텐츠 최소폭(미체결 439px · 잔고 444px) 때문에 스크롤이 아니라
  *   **조용한 잘림**이 된다(`tasks/lessons.md` 등재 함정).
  *
- * ⑤ ★ 오늘 주문 이력 표를 만들지 않는다 (D-20 deferred)
- *   주문 이력 조회 REST 라우트를 호출하지 않는다(경로명을 주석에도 적지 않는다 — 계획의
- *   grep 감시선이 주석 때문에 무력화되면 안 된다). 표시 원천은 전역 wss 계좌 스냅샷 하나뿐이다
- *   (T-16-02) — 화면마다 조회 경로를 늘리면 그만큼 「내 계좌가 아닌 값이 보일 수 있는」
- *   표면이 늘어난다.
+ * ⑤ ★ 오늘 주문 이력 표를 **만든다** — D-20 의 유예를 명시적으로 되돌렸다 (RELAY-02)
+ *   ⓐ 왜 뒤집었나. 「오늘 주문 목록 복원」은 RELAY-02 의 요구사항이고 D-20 의 부재는 v1
+ *      편의였다 — 요구사항이 이긴다. 16-16 이 접수를 wss 로 옮기면서 복원을 옮기지 않아
+ *      새로고침하면 오늘 낸 주문이 화면에서 사라졌다. 이 주석은 그 부재를 서술하던 자리이고,
+ *      **조용히 어기지 않으려고** 같은 커밋에서 다시 썼다(`me.spec.ts` 단언도 함께 고쳤다).
+ *   ⓑ 조회는 **페이지당 1회**이고 계좌 카드 안이 아니다. `AccountPanel` 은 4표면이 공유하고
+ *      여기서는 계좌마다 한 벌씩 렌더되므로, 그 안에 넣으면 계좌 축이 없는 같은 응답을
+ *      계좌 수만큼 부르게 된다. T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는
+ *      유지된다 — 늘어난 조회 표면은 **하나**이고, 그 라우트는 `user_id` 로만 거른다.
+ *   ⓒ 미체결로는 이 요구를 담을 수 없다. **취소된 주문은 정의상 미체결 목록에 없다** —
+ *      「오늘 낸 주문 전체」는 취소·거부까지 남는 별도 표면이어야 한다.
  *
  * ⑥ 직접 URL 진입은 게이트가 받는다 (D-19 / C6)
  *   사이드바에서 숨겨져 있어도 주소창으로는 들어올 수 있다. 비로그인·매핑 없음은
@@ -43,6 +50,7 @@ import type { RelayAccountState } from "@gh-radar/shared";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
+import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
@@ -242,6 +250,12 @@ export function MeClient() {
           </section>
         ))
       )}
+
+      {/*
+        세로 순서 계약의 **마지막 칸**(위 ①). 계좌 카드 뒤에 오는 이유는 위 ⑤ ⓑ·ⓒ 에 있다 —
+        계좌 축이 없는 「오늘 낸 주문 전체」라 계좌 카드 안에 들어갈 수 없다.
+      */}
+      <TodayOrdersCard />
     </div>
   );
 }
