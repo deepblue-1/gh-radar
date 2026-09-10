@@ -31,6 +31,18 @@
  *   flex 자식 중 `flex:1 1 auto; min-width:0` 은 **종목 칸 하나뿐**이고 나머지는 전부
  *   `flex-none` 이다. 이 규칙이 어긋나면 스크롤이 아니라 **조용한 잘림**이 된다
  *   (`tasks/lessons.md` 등재 함정). 색 토큰도 account-panel 이 쓰는 것만 쓴다.
+ *
+ * ⑥ ★ 종목명의 원천은 `useIsinLabels` **하나**다 (quick-260910-kql)
+ *   이름을 얻으려고 별도 조회 경로(REST·Supabase·`orders-api` 확장)를 만들지 않는다 —
+ *   그 훅은 이미 받은 relay wss 스냅샷만 읽고 네트워크를 타지 않는다(T-16-02). 표시 표면이
+ *   늘어도 호출량이 늘지 않는 이유가 그것이다.
+ *   ★ 이름을 모르면 **코드 → ISIN 으로 무너진다**(3단 폴백) — 훅에 「로딩」 신호가 따로 없고
+ *     아직 프레임이 안 왔으면 Map 이 그냥 비어 있으므로, 소비자가 폴백으로 처리하는 것이
+ *     그 훅의 규약이다. 그래서 어느 경우에도 종목 칸이 비지 않는다.
+ *   ★ 코드 칸을 더해도 모바일 ①줄의 신축 항목은 **여전히 종목명 하나뿐**이다 — 새 코드
+ *     span 은 `flex:none` 이다(위 ⑤). 긴 종목명은 말줄임으로 잘리되 **식별자인 코드는
+ *     온전히 남는다.** 코드를 ②줄로 내리지 않는다: ②줄은 전부 `flex:none` 이라 넘침을
+ *     흡수할 신축 항목이 없어, 항목을 더하면 truncate 가 아니라 조용한 잘림이 된다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -45,6 +57,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import {
   fetchTodayOrders,
   mergeTodayOrders,
@@ -74,13 +87,29 @@ function orderTime(iso: string): string {
   return Number.isNaN(at.getTime()) ? "—" : KST_TIME.format(at);
 }
 
-/** 표시용 종목 — 단축코드가 없으면(상장폐지) ISIN 으로 폴백한다. 기록은 남아야 한다. */
-function stockLabel(row: DmaOrderRow): string {
-  return row.stockCode ?? row.isin;
+/**
+ * 표시용 종목 — **이름 → 코드 → ISIN** 3단 폴백이라 어느 경우에도 칸이 비지 않는다.
+ *
+ * 코드 칸은 `row.stockCode` → `label.code` → `row.isin` 순으로 무너진다. DB 가 아는
+ * 단축코드를 **맨 앞**에 두는 이유: 주문 이력에 기록된 단축코드는 그 주문 시점의 사실이고,
+ * 라벨은 지금 relay 가 아는 값이다. 이력의 식별자는 기록된 값이어야 한다.
+ *
+ * 이름을 모르면(계좌 프레임 도착 전·`SymbolMap` 미해석) 코드 칸 값을 **이름 자리로 올리고**
+ * 코드 칸은 `null` 로 둔다 — 이름 칸이 이미 코드/ISIN 인 행에 같은 값을 두 번 쓰지 않는
+ * `strategy-status-card` 의 `StrategyRow` 와 같은 판단이다.
+ */
+function stockLabel(
+  row: DmaOrderRow,
+  label: IsinLabel | undefined,
+): { name: string; code: string | null } {
+  const code = row.stockCode ?? label?.code ?? row.isin;
+  return label?.name !== undefined ? { name: label.name, code } : { name: code, code: null };
 }
 
 export function TodayOrdersCard() {
   const { orders } = useRelayContext();
+  /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
+  const labels = useIsinLabels();
 
   /** `null` = 아직 한 번도 응답을 못 받음(로딩). `[]` = 오늘 주문이 정말 없음. */
   const [restored, setRestored] = useState<DmaOrderRow[] | null>(null);
@@ -187,31 +216,53 @@ export function TodayOrdersCard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id} data-slot="today-order-table-row">
-                    <TableCell className="mono text-[length:var(--t-caption)]">
-                      {orderTime(row.createdAt)}
-                    </TableCell>
-                    <TableCell className="mono text-[length:var(--t-caption)]">
-                      {stockLabel(row)}
-                    </TableCell>
-                    <TableCell>
-                      <SideTag side={row.side} cancel={row.orderType === "C"} />
-                    </TableCell>
-                    <TableCell className="num mono text-[length:var(--t-caption)]">
-                      {KRW.format(row.qty)}
-                    </TableCell>
-                    <TableCell className="num mono text-[length:var(--t-caption)]">
-                      {KRW.format(row.price)}
-                    </TableCell>
-                    <TableCell>
-                      <StatusTag shown={orderDisplayStatus(row)} />
-                    </TableCell>
-                    <TableCell className="mono text-[length:var(--t-caption)]">
-                      {row.orderNo ?? "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {rows.map((row) => {
+                  const stock = stockLabel(row, labels.get(row.isin));
+                  return (
+                    <TableRow key={row.id} data-slot="today-order-table-row">
+                      <TableCell className="mono text-[length:var(--t-caption)]">
+                        {orderTime(row.createdAt)}
+                      </TableCell>
+                      {/*
+                        표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
+                        감싸는 `.tbl-wrap overflow-x-auto` 가 가로 스크롤로 받는다(설계된 동작).
+                      */}
+                      <TableCell>
+                        <span className="flex items-center gap-1.5 whitespace-nowrap">
+                          <span
+                            className={cn(
+                              "text-[length:var(--t-caption)] font-semibold text-[var(--fg)]",
+                              // 이름 자리에 코드/ISIN 이 올라온 행만 mono — 한글 종목명에는 씌우지 않는다.
+                              stock.code === null && "mono",
+                            )}
+                          >
+                            {stock.name}
+                          </span>
+                          {stock.code !== null && (
+                            <span className="mono text-[11px] text-[var(--muted-fg)]">
+                              {stock.code}
+                            </span>
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <SideTag side={row.side} cancel={row.orderType === "C"} />
+                      </TableCell>
+                      <TableCell className="num mono text-[length:var(--t-caption)]">
+                        {KRW.format(row.qty)}
+                      </TableCell>
+                      <TableCell className="num mono text-[length:var(--t-caption)]">
+                        {KRW.format(row.price)}
+                      </TableCell>
+                      <TableCell>
+                        <StatusTag shown={orderDisplayStatus(row)} />
+                      </TableCell>
+                      <TableCell className="mono text-[length:var(--t-caption)]">
+                        {row.orderNo ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -221,44 +272,59 @@ export function TodayOrdersCard() {
             data-slot="today-orders-list"
             className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
           >
-            {rows.map((row) => (
-              <div
-                key={row.id}
-                data-slot="today-order-row"
-                className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
-              >
-                {/* ①줄 — 종목(유일한 신축 항목) · 구분 · (우) 상태 */}
-                <div className="flex min-w-0 items-center gap-[var(--s-2)]">
-                  <span className="mono min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-                    {stockLabel(row)}
-                  </span>
-                  <span className="flex flex-none items-center gap-1">
-                    <SideTag side={row.side} cancel={row.orderType === "C"} />
-                  </span>
-                  <span className="ml-auto flex flex-none items-center gap-1">
-                    <StatusTag shown={orderDisplayStatus(row)} />
-                  </span>
+            {rows.map((row) => {
+              const stock = stockLabel(row, labels.get(row.isin));
+              return (
+                <div
+                  key={row.id}
+                  data-slot="today-order-row"
+                  className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
+                >
+                  {/* ①줄 — 종목명(유일한 신축 항목) · 코드 · 구분 · (우) 상태 */}
+                  <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]",
+                        // 이름 자리에 코드/ISIN 이 올라온 행만 mono (위 ⑥).
+                        stock.code === null && "mono",
+                      )}
+                    >
+                      {stock.name}
+                    </span>
+                    {/* 식별자 — 이름이 잘려도 이것은 온전히 남아야 하므로 `flex:none` 이다. */}
+                    {stock.code !== null && (
+                      <span className="mono flex-none whitespace-nowrap text-[11px] text-[var(--muted-fg)]">
+                        {stock.code}
+                      </span>
+                    )}
+                    <span className="flex flex-none items-center gap-1">
+                      <SideTag side={row.side} cancel={row.orderType === "C"} />
+                    </span>
+                    <span className="ml-auto flex flex-none items-center gap-1">
+                      <StatusTag shown={orderDisplayStatus(row)} />
+                    </span>
+                  </div>
+                  {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
+                  <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
+                    <span className="flex flex-none items-center gap-1">
+                      <RowValue>{orderTime(row.createdAt)}</RowValue>
+                    </span>
+                    <span className="flex flex-none items-center gap-1">
+                      <RowKey>수량</RowKey>
+                      <RowValue>{KRW.format(row.qty)}</RowValue>
+                    </span>
+                    <span className="flex flex-none items-center gap-1">
+                      <RowKey>가격</RowKey>
+                      <RowValue>{KRW.format(row.price)}</RowValue>
+                    </span>
+                    <span className="ml-auto flex flex-none items-center gap-1">
+                      <RowKey>주문</RowKey>
+                      <RowValue>{row.orderNo ?? "—"}</RowValue>
+                    </span>
+                  </div>
                 </div>
-                {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
-                <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
-                  <span className="flex flex-none items-center gap-1">
-                    <RowValue>{orderTime(row.createdAt)}</RowValue>
-                  </span>
-                  <span className="flex flex-none items-center gap-1">
-                    <RowKey>수량</RowKey>
-                    <RowValue>{KRW.format(row.qty)}</RowValue>
-                  </span>
-                  <span className="flex flex-none items-center gap-1">
-                    <RowKey>가격</RowKey>
-                    <RowValue>{KRW.format(row.price)}</RowValue>
-                  </span>
-                  <span className="ml-auto flex flex-none items-center gap-1">
-                    <RowKey>주문</RowKey>
-                    <RowValue>{row.orderNo ?? "—"}</RowValue>
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

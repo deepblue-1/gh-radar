@@ -372,6 +372,18 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // 취소된 주문은 미체결 목록에 없다 — 이 표면만이 그 행을 담는다.
     await expect(ordersCard).toContainText('0000900003');
     await expect(ordersCard).toContainText('취소');
+    /*
+      ★ 종목명 (quick-260910-kql) — **라벨용 라우트 스텁이 없는 것이 정상이다.**
+        `useIsinLabels` 는 `useRelayContext()` 밖을 보지 않는다 — 이름 때문에 나가는
+        REST·Supabase 호출이 **존재하지 않는다**(T-16-02). 이름은 relay 가 `acct` 프레임에
+        실어 보내고, 그 이름의 원천은 이미 스텁된 `/rest/v1/stocks`(`E2E_STOCK_ROWS`)를
+        relay 의 `SymbolMap` 이 푼 값이다. 여기서 없는 스텁을 찾지 말 것.
+      ★ 이름과 코드를 **함께** 단언한다 — 이름만 보면 식별자가 사라진 회귀를 통과시킨다.
+    */
+    await expect(ordersCard).toContainText('삼성전자', { timeout: 15_000 });
+    await expect(ordersCard).toContainText('005930');
+    await expect(ordersCard).toContainText('한국제7호기업인수목적우선주식회사');
+    await expect(ordersCard).toContainText('000660');
     // 이 경로로는 **읽기만** 나간다 (D-02 — 주문 접수는 wss 단일 경로다).
     expect(ordersRequestMethods.length).toBeGreaterThan(0);
     expect([...new Set(ordersRequestMethods)]).toEqual(['GET']);
@@ -633,5 +645,31 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
         listRight,
       );
     expect(overflowing).toEqual([]);
+
+    /*
+      「오늘 주문」 카드도 **같은 자**로 잰다 (quick-260910-kql). 위에서 `ACCOUNT_B_STATE` 를
+      밀었으므로 `E2E_LONG_NAME_ISIN` 의 긴 종목명이 `ord-b` 행에 실제로 렌더된다 —
+      스트레스 데이터의 존재 이유가 그것이다. 행이 아니라 **잎**을 재는 것이 핵심이다
+      (위 헤더 ④): 행은 `overflow-hidden` 이라 폭·`scrollWidth` 가 조용하다.
+      대상 행은 주문번호로 좁힌다 — `nth(0)` 은 정렬이 바뀌면 애먼 행을 잰다.
+    */
+    const orderList = page.locator('[data-slot="today-orders-list"]');
+    const longOrderRow = todayOrderRows(page).filter({ hasText: '0000900002' });
+    await expect(longOrderRow).toHaveCount(1, { timeout: 15_000 });
+    // 이름이 실제로 실렸는지 먼저 본다 — 안 실리면 잘림 단언이 헛통과한다.
+    await expect(longOrderRow).toContainText('한국제7호기업인수목적우선주식회사');
+    const orderListRight = (await boxOf(orderList)).right;
+    const orderOverflowing = await longOrderRow.evaluate(
+      (el, right) =>
+        Array.from(el.querySelectorAll<HTMLElement>('*'))
+          .map((child) => ({
+            text: (child.textContent ?? '').slice(0, 24),
+            // 1px 은 소수점 레이아웃 반올림 여유다(위 블록과 같은 값).
+            over: Math.round(child.getBoundingClientRect().right - right),
+          }))
+          .filter((item) => item.over > 1),
+      orderListRight,
+    );
+    expect(orderOverflowing).toEqual([]);
   });
 });
