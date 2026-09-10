@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
-- [ ] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (46 plans / 28 waves: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11(계획됨)**) (1차 완료 2026-09-08 · 갭 클로징 2라운드 실행 2026-09-09 · **3라운드 계획 2026-09-09** — 재검증 `16-VERIFICATION-R2.md` = gaps_found (162/165) 의 Critical 3건(R2-CR-01~03)에 더해 **실 게이트웨이 결선 후 드러난 갭 2건**(사이드바 ISIN 표시 · `deploy-relay.sh` 가 `DMA_HOST` 를 보존하지 않음) 과 Warning 7 · Info 5 를 16-36~16-46 이 닫는다. TRADE-03 은 종결 plan 에서 재판정)
+- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 은 Pending 유지 — 잔여가 「WinForms ↔ 웹 한 세션 동기화 실측」 1건으로 좁혀졌다**(사용자 결정))
 
 ## Phase Details
 
@@ -598,7 +598,7 @@ Plans:
 **Goal:** gh-trade 상따전략창·VI 종합주문창을 웹앱으로 옮겨(트레이딩 메뉴), 같은 DMA 세션(`ezmesya`)으로 WinForms 와 전략·체결·미체결이 즉시 공유되게 한다. 사이드 메뉴를 종목검색(상승률 상위·테마·관심종목)/트레이딩(상따·VI)/My page 로 재편하고, My page 에 전략 현황·잔고·미체결을 둔다.
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
-**Plans:** 45/46 plans executed
+**Plans:** 46/46 plans executed
 
 Plans:
 **Wave 1**
@@ -729,7 +729,7 @@ Plans:
 
 **Wave 28** *(blocked on Wave 27 completion — 종결, `autonomous: false`)*
 
-- [ ] 16-46-PLAN.md — 전량 게이트 + 회귀 잠금 감사 · 배포 3종(**`DMA_HOST` 주입 없이 = 갭 5 의 유일한 실증**) + `/healthz`·smoke 실측(INV-9 는 실행/미실행을 정직 기록) · 문서 6종 정합 · **TRADE-03 재판정 체크포인트**
+- [x] 16-46-PLAN.md — 전량 게이트 green(**2,044 pass** · 191 파일 · e2e 126/9/0 · `typecheck`·relay `typecheck:tests`·`build` exit 0) + 회귀 잠금 감사 10건(9 실증 · **16-45 만 자동 테스트 없음**) + Critical 3·갭 2 코드 직접 대조 + **`DMA_HOST` 무주입 배포로 갭 5 프로덕션 실증**(`10.41.1.120` 보존, 강등 없음 · relay `a1f4ed6` · `/healthz` 200 `everReadyCount:1 stalledCount:0`) + webapp **청크 내용 대조**(20개 중 18개 해시 일치, 나머지 2개는 env 인라인 차이) + server 는 근거를 갖고 건너뜀 + smoke 2종(relay 12/0/1 · server 15/0/0, **INV-9 는 토큰 부재로 프로브 본체 미실행**) + 문서 6종 정합 + **TRADE-03 재판정 → Pending 유지, 잔여 1건으로 축소**(사용자 결정)
 
 ## Progress
 
@@ -760,5 +760,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 12. 상한가 다음날 이력 통계 | 5/5 | Complete    | 2026-06-26 |
 | 13. 홈 급등 테마 AI 분석 | 6/6 | Complete    | 2026-07-02 |
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
-| 15. DMA 중계 서버(relay) | 19/20 | In Progress|  |
-| 16. 트레이딩 메뉴(상따·VI) | 45/46 | In Progress|  |
+| 15. DMA 중계 서버(relay) | 20/20 | Complete    | 2026-09-06 |
+| 16. 트레이딩 메뉴(상따·VI) | 46/46 | Complete    | 2026-09-09 |

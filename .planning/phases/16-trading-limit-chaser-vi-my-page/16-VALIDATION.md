@@ -679,3 +679,316 @@ DMA 세션은 지금까지 한 건도 없다.** WinForms ↔ 웹 세션 공유�
 따라서 **TRADE-03 은 Pending 을 유지한다.** 이번 배포로 바뀐 것은 ① 코드 결함 19건이
 프로덕션에 반영됐다는 것 ② 게이트웨이 부재가 **5분 뒤에는 정직하게 degraded 로 보고된다**는
 것 두 가지뿐이다.
+
+---
+
+## Gap Closure 3라운드 (16-36 ~ 16-46)
+
+`16-REVIEW-R2.md` 의 **Critical 3 · Warning 7 · Info 5** 와 `16-VERIFICATION-R2.md` §부록의
+**새 갭 2건** = **17건**을 사용자가 범위로 확정했고, 10개 plan(16-36 ~ 16-45)이 전부 닫았다.
+16-46 이 게이트·배포·문서를 맡았다.
+
+**이 라운드가 앞선 두 라운드와 다른 점.** 2026-09-09 프로덕션 relay 가 실 게이트웨이
+(`10.41.1.120:9100`)에 결선됐다. 즉 Critical 3건은 **실계좌가 붙은 경로 위에서** 닫혔다.
+
+| ID | 담당 plan | 무엇을 바꿨는가 | 회귀를 잠근 명령 · 근거 |
+|----|-----------|-----------------|------------------------|
+| **R2-CR-01** — `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 상태와 무관하게 믿어 시장 해석 엄격성과 무장 가드를 **동시에** 우회 | 16-36 (`eeb4539`·`51408ee`) | 철거 판정의 정본을 `crud` 에서 **게이트 4종**으로 옮겼다. 계약 원문(`packages/shared/src/relay.ts:136-141`)이 「게이트가 전부 꺼지면 서버가 `"D"` 로 정규화한다」고 못박은 대로다 — `crud` 는 정규화의 **결과**를 말하는 힌트이지 근거가 아니다. `crud:"D"` ↔ 게이트 불일치는 `lc.set` 진입점 **한 곳**에서만 `logger.error`(계좌번호 미포함) | `pnpm --filter @gh-radar/relay test -- fanout` (⑰-e3·e4·e5) + **전제가 거짓이던 기존 ⑰-e·⑰-e2 정정** |
+| **R2-CR-02** — 자격증명이 거부된 세션 1건이 5분을 넘기면 게이트웨이가 정상이어도 `/healthz` 가 **영구 503** | 16-37 (`f2bdb48`·`d6f1efb`) | `stats()` 의 stalled 집계에서 `NO_RETRY_STATES`(`session_rejected`·`unauthorized`) 세션을 제외했다. 하나의 카운터가 「인프라 원인」과 「사용자 원인」을 삼키던 것을 갈랐다 | `pnpm --filter @gh-radar/relay test -- session-manager` (⑩-b 사용자 원인 0 · ⑩-c 제외는 세션 단위) |
+| **R2-CR-03** — `orders.ts` 3곳이 PostgREST error 원문을 로그에 실어 `Failing row`(계좌번호·주문번호)가 Cloud Logging 에 유출 | 16-38 (`dc19f09`·`84c23d7`·`110bbb7`) | 규율을 경로마다 적는 대신 `safePgError` **한 모듈의 좁은 반환 타입**에 걸었다. 계획이 지목한 7곳이 아니라 **전수 조사로 찾은 13곳**을 교체 — `details`·`hint` 는 어느 경로에서도 나가지 않는다 | `pnpm --filter @gh-radar/relay test -- order-store` (⓼-b~⓼-e). **16-46 재실측: relay 전체 15곳**(16-39·16-40 이 2곳 추가) |
+| **R2-WR-01** — `23505` 갱신 예외가 패치 **전체**를 버려 수동 주문 행이 `requested`·0 인 채 영구 잔류 | 16-39 (`f0dd2a0`) | 포기 단위를 「패치 전체」에서 **충돌한 `order_no` 컬럼 하나**로 축소. `#flushed` 대입문은 한 줄도 바꾸지 않은 채 `flushed` 가 참말이 됐다 | `pnpm --filter @gh-radar/relay test -- order-store` (⓽·⓽-c) |
+| **R2-WR-02** — 「수정」 무장 가드에 철거 면제가 없어 relay 는 허용하는 삭제를 UI 가 막는다 | 16-42 (`e803355`) | 철거 면제를 UI 쪽에도 대칭으로. 16-36 이 서버에 세운 규율(「끄는 것은 언제나 허용」)의 화면측 대응 | `pnpm --filter @gh-radar/webapp test -- limit-chaser-form` |
+| **R2-WR-03** — `orgOrderNo` 문자열 완전일치라 선행 0 표기 차이로 실제 취소가 `timeout` 오기록 | 16-43 (`8bcf01c`·`31c0fd4`) | 비교 전 정규화 + 축이 전멸하면 로그를 남긴다. 게이트웨이 원본(`AccountManager.cpp:830-840`)에서 「키는 원장 표기를 그대로 쓴다」를 확인해 근거를 세웠다 | `pnpm --filter @gh-radar/relay test -- order` (㉜·㉝) |
+| **R2-WR-04** — 종료 절차 `flushNow()` 가 진행 중 배치를 덮어써 배치가 둘이 된다 | 16-40 (`a59d8f7`·`e32ca65`) | 라운드마다 진행 중 배치를 재확인. **`maxLive 2 → 1` 로 실측 확인**. 덤으로 16-39 가 잔여로 남긴 `flushed` 오차도 같은 기법으로 종결 | `pnpm --filter @gh-radar/relay test -- order-store` |
+| **R2-WR-05** — `#register` state 리스너가 재접속마다 누적(`MaxListenersExceededWarning`) | 16-44 (`5ee91f6`·`dac2856`) | 리스너를 `entry` 가 소유하고 폐기 경로가 뗀다. **실제 누수 지점은 `#register` 가 아니라 `#onClose` 였다** — 계획이 요구한 두 갈래를 따로 되돌려 실측으로 갈랐다 | `pnpm --filter @gh-radar/relay test -- fanout` (새로고침 k회 → 상태 프레임 1회) |
+| **R2-WR-06** — 빈 매매구분이 매도 자동주문을 매수로 기록 | 16-43 (`6ca650d`) | 감사 행의 매매구분을 `fromWireSide` 로 통일 — 모르는 값은 `null` 로 축을 생략한다 | `pnpm --filter @gh-radar/relay test -- order` |
+| **R2-WR-07** — `inserted` 카운터가 만들지 않은 행을 세고, 재조회 실패가 원래 `23505` 를 덮는다 | 16-40 (`d8ade31`·`52cc1da`) | ① `inserted` 는 **새로 만든 행만** 센다 ② 수렴 재조회가 실패해도 「기록 불가」로 열화되지 않는다 | `pnpm --filter @gh-radar/relay test -- order-store` |
+| **R2-IN-01** — 해결됐는데 남아 있는 전송 실패 경고 | 16-42 (`e803355`·`65f8ece`) | 원인이 수정되면 문구가 풀리고, VI 주문 목록의 실패 문구도 73 델타에 접힌다 | `pnpm --filter @gh-radar/webapp test -- limit-chaser-form vi-order-list` |
+| **R2-IN-02** — `detach()`·`releaseAll()` 죽은 공개 메서드 | 16-41 (`9c30c99`) | **삭제**했다(`@internal` 유지 아님) — 호출자 0건이고 `detach` 는 리스너를 떼지 않아 호출 자체가 누수였다 | `pnpm -r typecheck` (임포터 0건이므로 삭제가 곧 증명) |
+| **R2-IN-03** — 미지 `noticeType` 을 「신규」로 단정(블랙리스트) | 16-43 (`8bcf01c`) | 화이트리스트로 뒤집었다 — 장래 통보 종류 확장에 조용히 오분류되지 않는다 | `pnpm --filter @gh-radar/relay test -- order` |
+| **R2-IN-04** — 가짜 테이블이 갱신을 반영하지 않아 ⓽ 가 결함을 못 본다 | 16-39 (`f5fbc42`) | 하네스가 갱신을 실제로 반영하게 고쳤다. **기존 ⓽ 의 `toHaveLength(1)` 이 옛 구현을 베낀 단언이었음**을 함께 정정 | `pnpm --filter @gh-radar/relay test -- order-store` |
+| **R2-IN-05** — INV-9 프로브 판정이 파이프에서 잘려 FAIL 이 SKIP 으로 강등 | 16-45 (`dea737b`) | stdout **쓰기 완료 후** 종료 + 호출부의 「빈 verdict = FAIL」 이중 방어. 빈 문자열은 「모른다」가 아니라 **판정 유실**이다 | 격리 실측(4갈래). **프로덕션 실행은 여전히 미수행** — 아래 §INV-9 참조 |
+| **갭 4** — 사이드바 상따 전략이 종목명 대신 ISIN 원문으로 표시 | **16-41**(relay `03d0ee8`·`9c30c99`·`feedf2f`) + **16-42**(webapp `50bcece`) | 이름을 아는 유일한 프로세스가 이름을 붙인다. relay 가 이미 들고 있는 `SymbolMap` 으로 60/64 를 **캐시 삽입 이전** 보강하고(`#enrichLimitChaser`), 계약에 `name?`·`code?` 를 더하되 `Input` 에서 `Omit` 해 **브라우저는 보낼 수 없게** 했다. 웹앱은 새 조회 경로 없이 그 필드를 읽는다(T-16-02 유지) | `pnpm --filter @gh-radar/relay test -- strategy-hub` (⑬) · `pnpm --filter @gh-radar/webapp test -- isin-labels` (신규 4케이스). **16-46 프로덕션 청크 내용 대조로 라이브 확인** |
+| **갭 5** — `deploy-relay.sh` 가 현재 `DMA_HOST` 를 보존하지 않아 배포마다 실 게이트웨이가 mock 으로 강등 | 16-45 (`9329e1b`) | `read_live_dma_host()` 단일 정본 + **3단 우선순위**(명시 주입 > 실행 중 컨테이너 보존 > 로컬 mock)를 한 줄에 모았다. `DMA_HOST_SOURCE` 로 출처를 배포 로그에 남기고, 값이 바뀌면 변경 전/후와 복구 명령을 찍는다 | 16-45 는 원문 추출 + 로컬 `source` 3케이스뿐. **아래 §Deployment Verification (16-46) 의 무주입 배포가 유일한 실증** |
+
+### 전량 재실행 결과 (2026-09-09, 16-46 Task 1 — 배포 전 게이트)
+
+| 명령 | 결과 |
+|------|------|
+| `pnpm --filter @gh-radar/shared run build` | exit 0 — **선행 필수**(아래 §새 함정) |
+| `pnpm -r typecheck` | exit 0 · 13 워크스페이스 |
+| `pnpm --filter @gh-radar/relay run typecheck:tests` | exit 0 (루트 밖, 따로 실행) |
+| `pnpm -r test` | exit 0 · **191 파일 / 2,044 passed · 1 skipped · 6 todo** (16-35 기준선 190 파일 / 2,012 → **+1 파일 / +32**) |
+| ↳ shared + relay + server + webapp 만 | **1,428** (99 · **397** · 252 · **680**) — 16-35 기준선 1,396 초과 |
+| `pnpm build` | exit 0 |
+| `pnpm --filter @gh-radar/webapp test:e2e` | **126 passed · 9 skipped · 0 failed** (2.5분) |
+
+임시 마커(`MUTATION`/`TEMP_DISABLE`/`XXX_REVERT`) **0건** · 부채 마커(`TODO`/`FIXME`/`XXX`/`HACK`/`TBD`) **0건**.
+
+### 회귀 잠금 감사 — 10개 plan 전수
+
+| plan | 회귀 잠금 실증 | 비고 |
+|------|----------------|------|
+| 16-36 | ✅ 실증함 | `#isTeardown` 첫 줄에 옛 `crud` 분기를 되돌려 확인 후 복원. `grep -c MUTATION` = 0 |
+| 16-37 | ✅ 실증함 | 새 분기 무력화 → 실패 확인 → 복원(13 tests). **plan 이 허용한 대체 조합을 쓰지 않았다** — 그 조합은 무력화해도 실패하지 않아 게이트 역할을 못 한다 |
+| 16-38 | ✅ 실증함 (4라운드) | 지점마다 따로. **라운드 D 가 핵심** — sink 3곳을 안전하게 둔 채 `#drain` 두 줄만 되돌려도 계좌번호가 샌다 |
+| 16-39 | ✅ 실증함 (2라운드) | 수정(재시도)과 하네스(병합)를 **각각** 되돌려 어느 케이스가 무엇을 지키는지 분리 |
+| 16-40 | ✅ 실증함 (4라운드) | 되돌린 지점마다 **정확히 그 케이스 하나만** 빨개짐 |
+| 16-41 | ✅ 실증함 | `#enrichLimitChaser` 무력화 → ⑬ 1건만 빨개짐. `grep -c MUTATION` = 0 |
+| 16-42 | ✅ 실증함 | 3파일 전부 `grep -c MUTATION` = 0, `git status --short` 의도치 않은 변경 0건 |
+| 16-43 | ✅ 실증함 (3라운드) | `grep -c MUTATION order-handler.ts` = 0 |
+| 16-44 | ✅ 실증함 · **일부 미잠금** | 두 곳을 따로 지웠다. **`#register` 갈래는 지워도 빨개지는 테스트 0건** — 그 갈래는 오늘의 코드로 도달하지 않는다. 하네스로 유발 불가함을 코드로 확인하고 **「잠그지 못했다」로 정직 기록** |
+| **16-45** | ❌ **자동 테스트 없음** | `gcloud` 를 한 번도 부르지 않았다. 검증은 스크립트 **원문 추출 + 로컬 `source`**(우선순위 3케이스 · 출력 4케이스)뿐. 보존 로직의 실 VM 동작은 **아래 §Deployment Verification (16-46) 의 무주입 배포가 유일한 실증**이다 |
+
+### SUMMARY 주장 vs 코드 직접 대조 (Critical 3 + 갭 2, 16-46 실측)
+
+SUMMARY 를 근거로 삼으면 오진이 승계된다(T-16-96). 5건을 코드에서 직접 열어 확인했다.
+
+| 확인 대상 | 위치 | 실제 원문 |
+|-----------|------|-----------|
+| `#isTeardown` 반환식 | `relay/src/ws/fanout.ts:841-845` | `return (!cfg.buyEnabled && !cfg.sellEnabled && !cfg.cancelQtyEnabled && !cfg.cancelTradeEnabled);` — **`crud` 미참조**, 부수효과 없는 순수 판정 |
+| `stats()` 의 `NO_RETRY_STATES` | `relay/src/dma/session-manager.ts:157·208·305` | `:157` 정의, `:305` stalled 집계에 `!NO_RETRY_STATES.has(entry.session.state)` |
+| `orders.ts` 의 `safePgError` 사용 지점 | `relay/src/store/orders.ts` **8곳** / relay 전체 **15곳** (`credentials.ts` 1 · `symbols.ts` 1 · `fanout.ts` 1 · `order-handler.ts` 4) | 16-38 기록 13곳 + 16-39·16-40 이 2곳 추가. `:401` 주석이 「이 파일에서 PostgREST 오류가 로그로 나가는 자리는 **전부** `safePgError` 를 지난다」 |
+| `#enrichLimitChaser` 호출 위치 | `relay/src/hub/subscription-hub.ts:743`(60 에코) · `:779`(64 스냅샷 map) · 정의 `:765` | 둘 다 **캐시 삽입 이전**. `fanout.ts` 는 한 줄도 안 고쳤고 `lc.snap` 재접속 복원이 같은 캐시를 읽는다 |
+| `deploy-relay.sh` 의 3단 우선순위 | `scripts/deploy-relay.sh:104`(함수) · `:123-131`(해석) · `:469-472`(배포 후) | `DMA_HOST="${DMA_HOST_INJECTED:-${CURRENT_DMA_HOST:-127.0.0.1}}"` + `DMA_HOST_SOURCE` 3갈래. 배포 전/후가 **같은 함수**를 쓴다(T-16-14) |
+
+---
+
+## Deployment Verification (2026-09-09, 16-46 Task 3)
+
+사용자 응답: **「배포 승인 — `DMA_HOST` 를 주입하지 않는다(A안)」**. 배포 커밋 **`a1f4ed6`**.
+배포된 것은 **relay · webapp 2종**이며 **server 는 근거를 갖고 건너뛰었다**(아래 §server).
+
+### 갭 5 실증 — **주입 없는 배포가 실 게이트웨이를 보존했다**
+
+이 항목이 이번 배포의 핵심이다. 16-45 의 수정은 실 VM 에서 한 번도 돌지 않았고, **주입하지
+않는 배포만이 그 수정을 증명**한다(주입하면 「주입이 보존을 이기는지」만 확인된다).
+
+배포 전 실측(모든 비교의 기준):
+
+```
+DMA_HOST = 10.41.1.120        (VM radar-gw · docker inspect 직접)
+이미지    = …/relay:59465e1
+/healthz  = 200 {"status":"ok","vpn":true,"dma":true,"version":"59465e1",
+                 "sessionCount":1,"everReadyCount":1,"stalledCount":0}
+```
+
+배포 명령: `DMA_HOST` **미주입**. `GCP_PROJECT_ID`·`SUPABASE_URL`·`NOTIFICATION_CHANNEL_ID`
+만 주입 → `bash scripts/deploy-relay.sh` → **exit 0**.
+
+스크립트 출력 원문 (갭 5 의 증거):
+
+```
+▶ 현재 컨테이너 DMA_HOST 조회 ...
+  현재 컨테이너 DMA_HOST=10.41.1.120 — 이번 배포로 바뀌지 않는다
+✓ variables: mode=deploy SHA=a1f4ed6 TARGET=…/relay:a1f4ed6 DMA_HOST=10.41.1.120
+  DMA_HOST 출처: 실행 중 컨테이너 보존 (배포 전 컨테이너 값=10.41.1.120)
+…
+  DMA_HOST:  10.41.1.120 : 9100   ← 실제 컨테이너 값
+```
+
+**강등 경고(`⚠ DMA_HOST 가 이번 배포로 바뀝니다`)는 출력되지 않았고, 복구 배포도 필요하지
+않았다.** 이 phase 의 배포 2회(16-26 `2cb5620` · 16-35 `c8aa7ae`)를 망가뜨린 회귀 경로가
+**프로덕션에서 처음으로 닫힌 것이 확인됐다.**
+
+배포 후 실측 (16-46 실행자가 **독립 재측정**):
+
+```
+$ curl -s -w 'http=%{http_code}' https://dma.jx1.io/healthz
+{"status":"ok","vpn":true,"dma":true,"version":"a1f4ed6",
+ "sessionCount":1,"everReadyCount":1,"stalledCount":0}
+http=200
+
+$ docker inspect gh-radar-relay …
+APP_VERSION=a1f4ed6
+DMA_HOST=10.41.1.120
+DMA_PORT=9100
+이미지: asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:a1f4ed6
+```
+
+`/healthz` 전 필드: `status=ok` · `vpn=true` · `dma=true` · `version=a1f4ed6` ·
+`sessionCount=1` · `everReadyCount=1` · `stalledCount=0`.
+
+### server — **근거를 갖고 건너뛰었다** (「배포 누락」이 아니다)
+
+16-35 의 판정 방식(`git diff` 가 비면 건너뛴다)을 이번에는 **한 단계 더 밀어야 했다.**
+diff 가 비어 있지 **않기** 때문이다.
+
+```
+$ git diff --stat 2cb5620..HEAD -- server/ packages/shared/
+ packages/shared/src/relay.ts | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+```
+
+그럼에도 재배포가 **기능적 no-op** 인 근거 3겹:
+
+1. **`server/` 는 0줄**이다. 바뀐 것은 `packages/shared/src/relay.ts` 하나뿐이다.
+2. **그 +20줄이 전부 `type` 선언과 주석**이다 — `RelayLimitChaser` 에 `name?`·`code?` 추가,
+   `RelayLimitChaserInput` 의 `Omit` 에 두 키 추가. **런타임 코드 0줄**(타입은 컴파일에서 소거).
+3. **server 는 이 계약을 import 하지 않는다** — `grep -rn "RelayLimitChaser\|/relay\"" server/src`
+   = **0건**. server 가 `@gh-radar/shared` 에서 쓰는 것은 `SHORT_CODE_RE`·`DmaOrderRow`·
+   `Stock`·`Market` 등이고 relay 계약은 소비처가 없다.
+
+현재 server: 리비전 **`gh-radar-server-00043-s4f`**(16-26 배포분) · `GET /api/health` →
+`{"status":"ok","version":"2cb5620"}` · `smoke-server.sh` **15/15**.
+
+> ⚠️ **다음 사람에게.** 이 줄을 「배포를 빠뜨렸다」로 읽지 말 것. **근거를 갖고 건너뛴 것**이며,
+> `version` 문자열이 `2cb5620` 인 것은 회귀가 아니라 그 결정의 결과다.
+
+### webapp — **이 phase 처음으로 「정황」이 아니라 「내용」으로 증명됐다**
+
+16-26·16-35 는 webapp 반영을 정황(빌드 시간·alias·공개 HTML 마커)으로만 증명할 수 있었다.
+이번에는 **공개 청크 해시를 로컬 빌드 산출물과 직접 대조**해 내용으로 이었다.
+
+**증명된 것:**
+
+1. **공개 청크 20개 중 18개가 로컬 `pnpm build`(HEAD `a1f4ed6`) 산출물과 해시 완전 일치.**
+2. 나머지 2개도 **코드 차이가 아니다**:
+   - `2345-c0133ca9890ddb86.js` — 프로덕션은 `NEXT_PUBLIC_RELAY_WS_URL` 을
+     `"wss://dma.jx1.io/ws"` 로 **빌드 타임 인라인**하고, 로컬 빌드는 그 env 가 없어 런타임
+     참조로 남는다. 그 한 줄 차이가 minifier 변수명 리플을 일으킨다.
+   - `6011-…` — 위 리플로 인한 **변수명만** 다르다(토큰 diff 3블록 전부 `l`↔`o` 류).
+3. **갭 4 의 webapp 측이 라이브임이 내용으로 확인됐다.** 일치한 청크
+   `2422-ff4cf64d654c9829.js`(app-sidebar 포함 — 「주 메뉴」·「상승률 상위」 검출) 안의
+   `useIsinLabels` 모듈:
+
+   ```js
+   49821:(e,a,t)=>{ … function l(){let{accountStates:e,viOrders:a,limitChasers:t}=(0,n._)();
+     return(0,r.useMemo)(()=>{ … for(let e of a)n(e.isin,{name:e.name});
+     for(let e of t)n(e.isin,{name:e.name,code:e.code});return r},[e,a,t])}}
+   ```
+
+   `limitChasers` 순회가 **`viOrders` 뒤**에 있고 의존성이 3축이다 — 16-42 의 「맨 뒤에 둔다」
+   병합 규율까지 그대로다.
+4. 프로덕션 HTML 회귀 없음: `GET /` 200 · 「상승률 상위」 **2건** · `data-nav-item` **1건**.
+
+**따라서 갭 4 의 두 축(relay 16-41 + webapp 16-42)이 프로덕션에서 함께 라이브다** — 사용자가
+보고한 사이드바 ISIN 증상이 사라지는 조건이 처음으로 충족됐다.
+
+**증명하지 못한 것(정직 기록):** 인증 게이트 뒤 라우트 청크(`/trading/*`·`/me`)는 미인증으로
+내려받을 수 없어 **여전히 내용 대조가 불가능**하다. 16-42 의 나머지 두 변경
+(`limit-chaser-form` 철거 면제 · `vi-order-list` 문구)은 그 청크에 있다. 로그인 상태의 화면
+확인은 §Manual-Only 소관이다.
+
+### smoke 결과 (실측 전문)
+
+`scripts/smoke-relay.sh` — **PASS 12 · FAIL 0 · SKIP 1**
+
+```
+  INV-1 VM radar-gw RUNNING ... PASS
+  INV-2 방화벽 4규칙 (gh-radar-vpc) ... PASS
+  INV-3 고정 IP gh-radar-relay-ip → radar-gw 결선 ... PASS
+  INV-4 tun0 활성 + 기본 경로 ens4 유지 ... PASS
+  INV-5a 공개 /healthz 200 + 식별자 미포함 ... PASS
+  INV-5b TLS issuer=Let's Encrypt + notAfter 미래 ... PASS
+  INV-6 wss 인증 왕복 (4401 × 2) ... PASS
+  INV-7a 8091 공인 차단 (nc 실패해야 PASS) ... PASS
+  INV-7b 9100 공인 차단 (nc 실패해야 PASS) ... PASS
+  INV-8 알림 정책 gh-radar-relay-down + 채널 + uptime check ... PASS
+  INV-9 브라우저 → relay wss 주문 왕복 도달성 ... SKIP (SMOKE_AUTH_TOKEN 미설정 — 로그인 토큰 필요)
+  INV-10a dma_orders service_role 조회 ... PASS
+  INV-10b dma_orders anon 차단 (200 이면 RLS 회귀) ... PASS
+```
+
+`scripts/smoke-server.sh https://gh-radar-server-fnbhvevuva-du.a.run.app` —
+**PASS 15 · FAIL 0 · SKIP 0** (INV-1~12d 전량, 이전 라운드와 동일 항목).
+
+**두 가지를 명시한다:**
+
+- **`INV-2` 문구가 「방화벽 3규칙」 → 「4규칙」으로 바뀌었다.** 동시 진행 중이던 다른 세션
+  (`quick-260909-t08`, WireGuard 터널)이 규칙을 추가한 결과이며 **phase 16 소관이 아니다.**
+  RELAY-03 요구사항 문장의 「방화벽 3규칙」과 어긋나므로 그 세션이 정합을 맡아야 한다.
+- **`INV-5a` 는 이번엔 시각 의존이 아니었다.** 16-35 가 열린 항목으로 남긴 「5분 뒤 503 이
+  되어 FAIL 로 바뀐다」는 **게이트웨이가 없을 때만** 발현한다. 이번에는 실 게이트웨이가
+  붙어 `stalledCount:0` 이라 5분 뒤에도 200 이다. 그 열린 항목은 **해소된 것이 아니라
+  조건이 성립하지 않았을 뿐**이므로 §Deferred 에 유지한다.
+
+### INV-9 — **돌렸는데 SKIP 이 아니다. 토큰이 없어 못 돌렸다**
+
+`SMOKE_AUTH_TOKEN` 이 없어 `ws_order_probe()` 첫 줄에서 **조기 반환**했다. 프로브 본체는
+**한 줄도 실행되지 않았다.** 16-21 이 이 프로브를 relay wss 주문 왕복으로 재작성한 뒤
+**프로덕션 첫 실행은 여전히 미수행**이며, 16-45(R2-IN-05)가 고친 「판정이 파이프에서 잘리는」
+경로도 조기 반환 갈래를 지나가지 않으므로 **프로덕션에서는 미검증**이다.
+
+토큰은 로그인 브라우저 세션 JWT(약 1시간 만료)라 **저장소 어디에도 값이 없는 것이 정상**이다
+(T-16-74). 이 문서·SUMMARY·커밋·로그 어디에도 값을 남기지 않았다.
+
+### 알림 · uptime check
+
+`gh-radar-relay-down` = `enabled=True`. `/healthz` 가 200 이므로 발화 근거는 해소돼 있으나,
+**인시던트가 닫히는 이벤트 자체는 관측하지 않았다**(이전 두 라운드와 동일). 알림 정책 변경은
+사용자 결정 사항이라 실행자가 단독으로 고르지 않았다(§Deferred).
+
+### 이 배포가 바꾸지 않는 것 (과장 방지)
+
+- **WinForms ↔ 웹 「한 세션」 동기화는 여전히 한 번도 관측되지 않았다.** `everReadyCount: 1`
+  은 「relay 가 게이트웨이에 붙어 DMA 세션이 Ready 상태에 도달했다」까지만 말한다.
+  **「WinForms 와 전략·체결·미체결이 즉시 공유된다」는 뜻이 아니다** — 후자는 relay 가 같은
+  DMA 세션을 쓴다는 구조에서 파생될 것으로 **기대되는** 결과이지 관측된 사실이 아니다.
+- **실주문을 내는 검증을 하지 않았다** (D-27 — 사용자 명시 지시 없이는 하지 않는다).
+- 따라서 **TRADE-03 은 Pending 을 유지한다.** 다만 Pending 사유가 갱신됐다 — 아래 참조.
+
+### TRADE-03 재판정 (사용자 결정, 2026-09-09)
+
+사용자 선택: **② Pending 유지 — 잔여를 「WinForms ↔ 웹 한 세션 동기화 미실측」 1건으로 좁힌다.**
+
+| 구분 | 내용 |
+|------|------|
+| **해소됨** | 「Ready 에 도달한 DMA 세션이 프로덕션에 한 건도 없다」 — **더 이상 참이 아니다.** `everReadyCount: 1` · `stalledCount: 0` · `dma: true` 를 배포 전·후 모두 실측 |
+| **해소됨** | 「실서버 결선 전에 반드시 닫아야 한다」던 Critical 3건(R2-CR-01·02·03) 종결 + 코드 직접 대조 |
+| **해소됨** | 코드가 프로덕션에 실제로 반영됨 — relay `a1f4ed6` 실컨테이너 확인 + webapp 청크 **내용** 대조 |
+| **잔여 (1건)** | **WinForms ↔ 웹 「한 세션」 동기화 실측.** phase goal 의 핵심 문장이고 human-only 이며 D-27 상 사용자 명시 지시가 필요하다 |
+| 별도 열린 항목 | smoke `INV-9` 프로덕션 첫 실행 (토큰 부재로 미수행) · RELAY-02 도 같은 기준으로 Pending 유지 |
+
+**판정 기준을 RELAY-02 와 같게 유지한다** — 두 요구사항의 기준을 갈라 놓으면 다음 사람이
+어느 쪽을 믿을지 모른다. 진전은 **잔여가 1건으로 좁혀졌다는 것**이다.
+
+### ⚠️ 승인 기준 문구 확정 — `grep "10.41.1.120"` 0건은 **3라운드에서도 충족 불가**였다
+
+1·2라운드에 이어 **세 라운드 연속** 같은 불일치를 관측했다(2라운드 실측 33건). 16-46 실측:
+
+| 위치 | 결과 |
+|------|------|
+| `webapp/src` · `webapp/e2e` | **0건** ✅ |
+| `relay/README.md` · `relay/src/dma/link-health.ts` | 잔존 — 산문·주석. README 는 **접속 금지 경고문 자체** |
+| `scripts/deploy-relay.sh` · `scripts/setup-relay-iam.sh` | 잔존 — 실서버 주소 주입 시 **경고를 띄우는 가드**와 안내문 |
+| `scripts/dma-tunnel.sh` · `dma-tunnel.ps1` · `install-vpn-menubar.sh` | 잔존 — **다른 세션(quick 260909-el9/t08)의 파일**, phase 16 소관 아님 |
+
+**정본 계약을 여기서 확정한다.** 리터럴 0건이 아니라 **「접속 경로 0건」**이다:
+
+> `grep -rn "10\.41\.1\.120" webapp/src webapp/e2e` = **0건** ∧
+> relay·scripts 의 잔존이 전부 「경고·가드·주석·타 세션 파일」임이 확인될 것.
+
+**다음 라운드는 이 문장을 그대로 인용할 것.** 리터럴 0건을 승인 기준으로 적으면 또 불일치한다.
+
+### ⚠️ 새 함정 — `pnpm -r typecheck` 가 **낡은 `packages/shared/dist` 를 보고 통과한다**
+
+16-41 이 실제로 데였다. `packages/shared/src/relay.ts` 를 고쳐도 소비처(relay·webapp)의
+타입 체크는 **빌드된 `dist`** 를 보므로, `pnpm --filter @gh-radar/shared run build` 를 먼저
+돌리지 않으면 **계약 변경이 타입 체크에 보이지 않는다.**
+
+이것은 §Test Infrastructure 가 이미 기록한 **「절대 실패할 수 없는 검증 명령」 계열의 새
+사례**다(앞선 둘: `pnpm --filter gh-radar-webapp` = `No projects matched` + exit 0 · relay
+`tests/` 가 루트 typecheck 밖).
+
+**정본 순서 (계약을 건드리는 라운드에서는 반드시):**
+
+```bash
+pnpm --filter @gh-radar/shared run build   # ← 이것을 빼면 아래가 낡은 dist 를 본다
+pnpm -r typecheck
+pnpm --filter @gh-radar/relay run typecheck:tests
+pnpm -r test
+pnpm build
+pnpm --filter @gh-radar/webapp test:e2e
+```
+
+### 이 라운드가 드러낸 것 — 다음 라운드가 반복하지 말 것
+
+| 항목 | 내용 |
+|------|------|
+| **계획·리뷰의 불완전함이 6번 잡혔다** | 16-37(R2 가 `session_rejected` 진입 경로를 하나만 언급 — 실제로는 등록 계좌 0건도) · 16-38(계획 grep 이 한 줄짜리만 잡아 유출 지점 6곳 누락, 실제 13곳) · 16-39(계획 판정식이 없애려는 결함을 그대로 재현) · 16-40(R2-WR-04 재현 조건이 실제와 달라 수정 전에도 통과) · 16-43(`"A"` 채택 반대 근거를 게이트웨이 원본에서 발견) · 16-44(두 `off` 갈래 중 하나는 오늘 코드로 도달 불가). **실행자가 코드에서 재확인하는 규율이 없었으면 그대로 새 결함이 됐을 자리다** |
+| **기존 테스트가 결함을 「진실」로 잠근 사례 3건 추가** | 16-36 의 ⑰-e·⑰-e2(헬퍼 기본값 `buyEnabled:true` 가 케이스 전제를 오염) · 16-39 의 ⓽(`toHaveLength(1)` 이 옛 구현을 베낀 단언). **2라운드 3건과 합쳐 이 phase 누적 6건.** 갭을 고칠 때 깨지는 기존 테스트가 곧 회귀 신호는 아니다 — 그 단언이 옛 구현을 베낀 것인지 먼저 확인할 것 |
+| **REVIEW 의 Fix 스니펫은 방향이지 정답이 아니다** | 2라운드 GC-WR-03 에 이어 이번에도 반복 확인됐다 |
+| **16-45 만 회귀 잠금 자동 테스트가 없다** | 배포 스크립트는 vitest 가 볼 수 없다. 실증은 이번 무주입 배포 **한 번**뿐이며, 다음 배포에서 다시 관측해야 「재발하지 않는다」가 된다 |
+| **16-44 의 `#register` 갈래는 잠기지 않았다** | 오늘의 코드로 도달 불가라 하네스로 유발할 수 없다. 그 갈래를 지워도 빨개지는 테스트가 0건이다 — 지우면 안 되지만 **테스트가 지켜 주지도 않는다** |
+| **포매터를 돌리지 않는다** | 이 저장소에 prettier 설정이 없다(16-30 사고, 459 insertions, 되돌림). 3라운드도 돌리지 않았다 |
