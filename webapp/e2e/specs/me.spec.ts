@@ -138,6 +138,82 @@ const ACCOUNT_B_STATE = {
   ],
 };
 
+/**
+ * 오늘 주문 3건 — **접수 2 · 취소 1** (RELAY-02 / D-24).
+ *
+ * ★ 취소 1건이 이 픽스처의 존재 이유다. 「오늘 낸 주문 전체」를 미체결 목록으로는 담을 수
+ *   없다는 것이 이 카드가 별도 표면인 이유인데(me-client 헤더 ⑤ ⓒ), 취소 행이 없으면
+ *   그 구조적 결손을 spec 이 통과시켜 버린다.
+ */
+const TODAY_ORDERS = [
+  {
+    id: 'ord-a',
+    accountNo: E2E_ACCOUNT_NO,
+    isin: E2E_ISIN,
+    stockCode: '005930',
+    exchange: 'KRX',
+    market: 'K',
+    side: 'B',
+    orderType: 'N',
+    orgOrderNo: null,
+    qty: 10,
+    price: 70_000,
+    orderNo: '0000900001',
+    status: 'accepted',
+    resultCode: 0,
+    noticeType: 'A',
+    message: null,
+    filledQty: 0,
+    origin: 'manual',
+    createdAt: '2026-09-10T00:10:00.000Z',
+    updatedAt: '2026-09-10T00:10:00.000Z',
+  },
+  {
+    id: 'ord-b',
+    accountNo: ACCOUNT_B,
+    isin: E2E_LONG_NAME_ISIN,
+    stockCode: '000660',
+    exchange: 'NXT',
+    market: 'K',
+    side: 'S',
+    orderType: 'N',
+    orgOrderNo: null,
+    qty: 3,
+    price: 180_000,
+    orderNo: '0000900002',
+    status: 'accepted',
+    resultCode: 0,
+    noticeType: 'A',
+    message: null,
+    filledQty: 0,
+    origin: 'limit_chaser',
+    createdAt: '2026-09-10T00:20:00.000Z',
+    updatedAt: '2026-09-10T00:20:00.000Z',
+  },
+  {
+    id: 'ord-c',
+    accountNo: E2E_ACCOUNT_NO,
+    isin: E2E_ISIN,
+    stockCode: '005930',
+    exchange: 'KRX',
+    market: 'K',
+    side: 'B',
+    orderType: 'C',
+    orgOrderNo: '0000900001',
+    qty: 10,
+    price: 70_000,
+    orderNo: '0000900003',
+    status: 'cancelled',
+    resultCode: 0,
+    noticeType: 'C',
+    message: null,
+    filledQty: 0,
+    origin: 'manual',
+    createdAt: '2026-09-10T00:30:00.000Z',
+    updatedAt: '2026-09-10T00:30:00.000Z',
+  },
+];
+
 /** UI-SPEC 이 기준으로 삼은 모바일 폭(§반응형 "모바일 390px"). */
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
 
@@ -151,6 +227,9 @@ const strategyRows = (page: Page) => page.locator('[data-slot="strategy-row"]');
 const accountCards = (page: Page) => page.locator('[data-slot="me-account-card"]');
 const accountCard = (page: Page, accountNo: string) =>
   page.locator(`[data-slot="me-account-card"][data-account-no="${accountNo}"]`);
+const todayOrdersCard = (page: Page) => page.locator('[data-slot="today-orders-card"]');
+/** 모바일 카드 행만 센다 — 표 행은 같은 정보를 CSS 로 가려 둔 한 벌이다. */
+const todayOrderRows = (page: Page) => page.locator('[data-slot="today-order-row"]');
 const desktopNav = (page: Page) => page.locator('aside nav[aria-label="주 메뉴"]');
 const disableAllButton = (page: Page) =>
   strategyCard(page).getByRole('button', { name: '전체 비활성화' });
@@ -181,6 +260,9 @@ async function computedMinWidth(locator: Locator): Promise<string> {
 
 // ===========================================================================
 
+/** 주문 복원 라우트로 실제로 나간 HTTP 메서드. 핸들러는 기록만 하고 단언은 케이스가 한다. */
+const ordersRequestMethods: string[] = [];
+
 test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
   let relay: LocalRelay;
 
@@ -206,6 +288,21 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     relay.seedViTrigger(VI_CFG);
     await mockStockApi(page);
     await mockHomeApi(page, { response: HOME_POPULATED });
+    /*
+      「오늘 주문」 복원 라우트(`GET /api/orders`, bare array).
+      ★ 단언은 핸들러 **밖**에서 한다 — 핸들러 안에서 expect 가 던지면 라우트가 영영
+        fulfill 되지 않아 실패가 아니라 **타임아웃**으로 나타나고, 원인이 가려진다.
+        여기서는 메서드를 기록만 하고 케이스에서 대조한다(D-02: 이 경로로 주문은 나가지 않는다).
+    */
+    ordersRequestMethods.length = 0;
+    await page.route('**/api/orders', async (route) => {
+      ordersRequestMethods.push(route.request().method());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(TODAY_ORDERS),
+      });
+    });
   });
 
   test('1. 전략 3 · 계좌 2 — 전략 행이 배지·거래소·계좌번호 전체를 보여주고 계좌 카드가 세로로 반복된다', async ({
@@ -263,16 +360,32 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     // ★ 계좌 선택 UI 가 없다 (D-21) — 세로 반복이 계좌 구분이다.
     await expect(page$(page).locator('select')).toHaveCount(0);
 
-    // 세로 순서 고정 (D-20): 상태줄 → 전략 현황 → 계좌 A → 계좌 B.
+    /*
+      ★ 오늘 주문 카드 (RELAY-02 / D-24) — **D-20 의 v1 유예를 명시적으로 되돌렸다.**
+        이 자리에 있던 「주문 이력 표는 v1 미포함」 부재 단언을 존재 단언으로 바꿨다
+        (quick-260910-jce). me-client 헤더 ⑤ 도 같은 커밋에서 다시 썼다 — 파일과 spec 이
+        서로 다른 말을 하는 상태를 남기지 않는다.
+    */
+    const ordersCard = todayOrdersCard(page);
+    await expect(ordersCard).toBeVisible();
+    await expect(todayOrderRows(page)).toHaveCount(3, { timeout: 15_000 });
+    // 취소된 주문은 미체결 목록에 없다 — 이 표면만이 그 행을 담는다.
+    await expect(ordersCard).toContainText('0000900003');
+    await expect(ordersCard).toContainText('취소');
+    // 이 경로로는 **읽기만** 나간다 (D-02 — 주문 접수는 wss 단일 경로다).
+    expect(ordersRequestMethods.length).toBeGreaterThan(0);
+    expect([...new Set(ordersRequestMethods)]).toEqual(['GET']);
+
+    // 세로 순서 고정 (D-20 + jce): 상태줄 → 전략 현황 → 계좌 A → 계좌 B → 오늘 주문.
     const ys = await Promise.all(
-      [statusBar, strategyCard(page), cardA, cardB].map(async (l) => (await boxOf(l)).y),
+      [statusBar, strategyCard(page), cardA, cardB, ordersCard].map(
+        async (l) => (await boxOf(l)).y,
+      ),
     );
     expect(ys[0]).toBeLessThan(ys[1]);
     expect(ys[1]).toBeLessThan(ys[2]);
     expect(ys[2]).toBeLessThan(ys[3]);
-
-    // 오늘 주문 이력 표는 v1 미포함(D-20 deferred).
-    await expect(page$(page)).not.toContainText('주문 이력');
+    expect(ys[3]).toBeLessThan(ys[4]);
   });
 
   test('2. 전략 행 클릭 → 인코딩된 키로 편집 화면으로 이동한다', async ({ page }) => {

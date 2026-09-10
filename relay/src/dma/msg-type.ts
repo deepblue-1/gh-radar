@@ -23,13 +23,22 @@
  *   `envelope.ts` 의 `drop`/`dropField` 가 사유·카운터를 남긴다. `default:` 로 조용히 사라지는
  *   프레임은 확장 후에도 여전히 0이다.
  *
- * 하지 않는 것:
+ * 하지 않는 것:  ← **이 목록이 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 의 정본이다.**
  *   - 74/75 (MemberStatsResp/Push — 거래원) 는 본 phase 범위 밖이라 넣지 않는다.
  *     화이트리스트에 없으면 수신 시 드롭되며, 그것이 의도된 동작이다.
  *   - 27/57 (GetSymbolMasterReq/SymbolMasterResp — 종목마스터) 도 같은 이유로 제외한다.
  *     종목 메타는 Supabase `stocks` 가 정본이라 게이트웨이에서 받아올 이유가 없다.
  *   - 20 (`GetLimitChaserReq` 단건 조회) 은 24 목록 조회로 갈음한다 — 왕복이 하나면 충분하다.
  *   - 26/68 (Reconcile) · 30/31/70 (NXT 전용 상따) 도 v1 범위 밖이다.
+ *
+ *   ★ **이 목록이 바뀌면 아래 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 도 같이 바꾼다.** 주석과 상수가
+ *     어긋나면 로그 레벨이 조용히 틀어지고, 그 틀어짐은 「경고가 안 뜬다」로만 드러나
+ *     아무도 눈치채지 못한다. 서로를 가리키게 두는 것이 유일한 방어다.
+ *
+ *   ★ 그 상수에는 **응답 대역(S→C)만** 담는다. 위 목록의 요청 번호(20 · 26 · 27 · 30 · 31)는
+ *     **C→S** 라, 수신 경로로 들어오는 것 자체가 이상 신호다 — 아래 `INBOUND_MSG_TYPES`
+ *     주석이 이미 못박아 둔 규율이고, 그 번호까지 debug 로 내리면 이번 강등이 없애려던
+ *     실명(失明)을 새로 만든다.
  */
 
 /**
@@ -153,4 +162,26 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.TradeTapePush,
   MSG.GetVIOrderListResp,
   MSG.VIOrderListPush,
+]);
+
+/**
+ * 「범위 밖인 줄 알면서 받는」 유입 번호 (quick-260910-jce).
+ *
+ * `INBOUND_MSG_TYPES` 에 없다는 점에서는 정체불명 번호와 같지만, **왜 없는지를 우리가
+ * 알고 있다**는 점이 다르다(위 「하지 않는 것」). 게이트웨이는 74/75(MemberStats)를
+ * 25~55초마다 밀어 넣으므로, 이것을 정체불명과 같은 WARNING 으로 쌓으면 진짜 이상 신호가
+ * 그 사이에 묻힌다. 드롭 자체는 설계대로 옳다 — 틀린 것은 로그 레벨 하나였다.
+ *
+ * 원소는 **응답 대역 5종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
+ * 리터럴을 지어내지 않는다):
+ *   - `SymbolMasterResp` = 57
+ *   - `ReconcileAccountStateResp` = 68
+ *   - `SetLimitChaserNXTResp` = 70
+ *   - `MemberStatsResp` = 74
+ *   - `MemberStatsPush` = 75
+ *
+ * 요청 대역(20 · 26 · 27 · 30 · 31)은 **의도적으로 뺐다** — 위 주석의 ★ 참조.
+ */
+export const OUT_OF_SCOPE_INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
+  57, 68, 70, 74, 75,
 ]);

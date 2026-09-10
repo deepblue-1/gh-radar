@@ -79,7 +79,7 @@ import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
 import { VIOrderItem } from "../generated/stock-dma/viorder-item.js";
 import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
-import { MSG, INBOUND_MSG_TYPES } from "./msg-type.js";
+import { MSG, INBOUND_MSG_TYPES, OUT_OF_SCOPE_INBOUND_MSG_TYPES } from "./msg-type.js";
 
 // ============================================================
 // 벡터 길이 상한 (C# Client.cs L59-70 이식)
@@ -165,9 +165,29 @@ function skipAccount(reason: string, index: number, accountNo: string): void {
   );
 }
 
-function drop(reason: string, msgTypeHint: number | null, payload: Buffer): null {
+/**
+ * `level` 기본값은 `warn` 이라 기존 호출부는 전부 무변경이다 (quick-260910-jce).
+ *
+ * ★ 카운터는 **나누지 않는다.** `droppedEnvelopes` 는 「이 프로세스가 지금까지 몇 프레임을
+ *   버렸나」를 세는 단조 증가값이고 운영자가 재시작 간에 비교하는 숫자다. 둘로 쪼개면 기존
+ *   WARNING 줄의 `droppedFrameCount` 가 **조용히 다른 모집단을 세기 시작해** Cloud Logging 에
+ *   이미 쌓인 값과의 연속성이 끊긴다. 두 모집단은 `reason` 필드로 로그 쿼리에서 이미 분리된다 —
+ *   새 상태를 만들 이유가 없다.
+ */
+function drop(
+  reason: string,
+  msgTypeHint: number | null,
+  payload: Buffer,
+  level: "warn" | "debug" = "warn",
+): null {
   droppedEnvelopes += 1;
-  logDroppedFrame({ reason, msgTypeHint, payload, droppedFrameCount: droppedEnvelopes });
+  logDroppedFrame({
+    reason,
+    msgTypeHint,
+    payload,
+    droppedFrameCount: droppedEnvelopes,
+    level,
+  });
   return null;
 }
 
@@ -423,6 +443,17 @@ export function tryParseEnvelope(payload: Buffer): ParsedEnvelope | null {
     const msgType = env.msgType();
     if (!INBOUND_MSG_TYPES.has(msgType)) {
       // 예외가 나지 않으므로 이 화이트리스트가 구조 레벨의 실질 방어선이다.
+      /*
+        ★ 드롭은 두 갈래다 — **버리는 동작은 같고 로그 레벨만 다르다** (quick-260910-jce).
+          ⓐ 「왜 범위 밖인지 아는」 응답 대역(msg-type.ts 「하지 않는 것」)은 debug.
+             거래원 푸시 74/75 가 25~55초마다 들어오는데, 이것을 정체불명과 같은 WARNING 으로
+             쌓으면 진짜 이상 신호가 그 사이에 묻힌다.
+          ⓑ 그 밖은 전부 warn 그대로다. **요청 대역이 수신 경로로 오는 것**(20·26·27·30·31)도
+             여기 남는다 — 그 자체가 이상 신호이기 때문이다(INBOUND_MSG_TYPES 주석).
+      */
+      if (OUT_OF_SCOPE_INBOUND_MSG_TYPES.has(msgType)) {
+        return drop("out-of-scope-msg-type", msgType, payload, "debug");
+      }
       return drop("unknown-msg-type", msgType, payload);
     }
     return { msgType, env };

@@ -24,7 +24,7 @@ import { SetLimitChaser } from "../../generated/stock-dma/set-limit-chaser.js";
 import { SetVITrigger } from "../../generated/stock-dma/set-vitrigger.js";
 import { ConfirmVIOrderReq } from "../../generated/stock-dma/confirm-viorder-req.js";
 import { DisableStrategiesReq } from "../../generated/stock-dma/disable-strategies-req.js";
-import { MSG } from "../msg-type.js";
+import { MSG, OUT_OF_SCOPE_INBOUND_MSG_TYPES } from "../msg-type.js";
 import {
   buildLoginReq,
   buildLivePing,
@@ -113,10 +113,13 @@ import {
 } from "../../../tests/helpers/frames.js";
 
 let warn: ReturnType<typeof vi.spyOn>;
+/** 범위 밖 유입(74/75 등)은 **debug** 로만 남는다 — warn 스파이와 같은 방식으로 잡는다. */
+let debug: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   resetDroppedEnvelopeCount();
   warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+  debug = vi.spyOn(logger, "debug").mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -196,6 +199,8 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(droppedEnvelopeCount()).toBe(1);
     const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
     expect(fields.reason).toBe("min-envelope-size");
+    // 기존 드롭 경로의 레벨은 바뀌지 않는다 — 기본값 warn 그대로다.
+    expect(debug).not.toHaveBeenCalled();
   });
 
   it("⑤ 화이트리스트 밖 msg_type(99)은 드롭 + 카운터 증가", () => {
@@ -206,6 +211,47 @@ describe("tryParseEnvelope — total 파서", () => {
     const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
     expect(fields.reason).toBe("unknown-msg-type");
     expect(fields.msgTypeHint).toBe(99);
+    // ★ 정체불명 번호는 **debug 로 새지 않는다** — 이 강등이 없애려던 실명을 새로 만들면 안 된다.
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it("⑤-a 범위 밖 응답(75 MemberStatsPush)은 드롭하되 debug 로만 남는다", () => {
+    const payload = Buffer.from(buildBareEnvelope(75));
+
+    expect(tryParseEnvelope(payload)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledTimes(1);
+    const [fields] = debug.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("out-of-scope-msg-type");
+    expect(fields.msgTypeHint).toBe(75);
+  });
+
+  it("⑤-a2 범위 밖 응답(74 MemberStatsResp)도 같다 — 25~55초마다 나오는 의도된 드롭이다", () => {
+    expect(tryParseEnvelope(Buffer.from(buildBareEnvelope(74)))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledTimes(1);
+  });
+
+  it("⑤-a3 요청 대역(30 SetLimitChaserNXTReq)은 범위 밖 목록에 있어도 WARNING 이다", () => {
+    /*
+      ★ 이 갈래가 이번 수정의 핵심이다. 30 은 「하지 않는 것」 목록에 있지만 **C→S 요청**이라
+        수신 경로로 들어오는 것 자체가 이상 신호다(INBOUND_MSG_TYPES 주석의 기존 규율).
+        요청 번호까지 debug 로 내리면 없애려던 실명을 새로 만든다.
+    */
+    expect(tryParseEnvelope(Buffer.from(buildBareEnvelope(30)))).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    expect(debug).not.toHaveBeenCalled();
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("unknown-msg-type");
+  });
+
+  it("⑤-a4 강등 집합은 **응답 대역 5종뿐**이고 요청 번호는 하나도 없다", () => {
+    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([
+      57, 68, 70, 74, 75,
+    ]);
+    for (const n of OUT_OF_SCOPE_INBOUND_MSG_TYPES) expect(n).toBeGreaterThanOrEqual(50);
   });
 
   it("⑤-b 요청 계열(LivePing=4)이 수신 경로로 들어오면 드롭한다", () => {
