@@ -799,6 +799,78 @@ Caddyfile 의 `issuer acme { disable_http_challenge }` 가 이를 명시적으�
 
 ---
 
+## /ghtrade/* — gh-trade 클라 자동 업데이트 정적 배포
+
+gh-trade WinForms 클라가 기동 시(로그인 창을 띄우기 전) `https://dma.jx1.io/ghtrade/manifest.json`
+을 받아 서명을 검증하고, 파일별 SHA-256 이 다른 파일만 내려받아 자기 자신을 교체한 뒤 재실행한다.
+
+**게이트웨이(10.41.1.120)가 아니라 여기에 둔 이유.** WireGuard 터널 사용자는 VM 의 nft `wgfwd`
+규칙상 120 의 9100·22 에만 닿는다. 반면 `dma.jx1.io` 는 공인 443 + Let's Encrypt TLS 가 이미
+있어 **VPN·터널 상태와 무관하게** 받을 수 있다. 업데이트는 터널이 서기 전에 끝나야 한다.
+
+### 인증
+
+고정 `Authorization: Bearer <키>` 가 **정확히 일치**할 때만 서빙한다.
+불일치·부재는 **404** 다 — 401 이 아니다. 401 은 "여기 뭔가 있다" 를 알려 주므로,
+이 표면은 경로의 존재 자체를 숨긴다. 인증된 요청이라도 파일을 지목하지 않은
+정확 경로 `/ghtrade` 는 404 다.
+
+> **키 값은 이 문서에 적지 않는다.** 정본은 `infra/relay/Caddyfile` 의 `@ghtrade_deny`
+> 매처 **한 곳**이고, 같은 문자열이 gh-trade 클라 소스 상수에도 들어간다(D-11).
+> 한쪽만 바꾸면 배포된 전 클라가 404 를 받는다. 이 키가 왜 비밀이 아닌지
+> (무결성은 클라의 manifest RSA-SHA256 서명 검증이 담당한다 — gh-trade D-09)
+> 는 Caddyfile 의 해당 블록 주석에 5항목으로 적혀 있다.
+
+### 캐시 · 디렉터리 목록
+
+`manifest.json` · `manifest.sig` **2종만** `Cache-Control: no-store` 다 — 클라가 이 둘로
+"무엇이 바뀌었나" 를 판단하므로 캐시된 옛 manifest 를 받으면 업데이트가 조용히 멈춘다.
+나머지 파일은 내용이 바뀌면 해시가 달라지므로 기본 캐시 동작을 그대로 쓴다.
+
+디렉터리 목록은 꺼져 있고 **의도적으로 켜지 않는다.** 켜면 배포 파일 전체 목록이 공개된다.
+
+### 업로드 (gh-trade 발행 스크립트)
+
+사용자 `alex`, 대상 `/srv/ghtrade`, 공개 URL `https://dma.jx1.io/ghtrade/<파일명>`.
+
+```bash
+gcloud compute scp --tunnel-through-iap --zone=asia-northeast3-a \
+  <로컬파일...> alex@radar-gw:/srv/ghtrade/          # 디렉터리째면 --recurse
+```
+
+> ⚠️ **업로드 순서: 파일들 먼저 → `manifest.sig` → `manifest.json` 마지막** (gh-trade D-16).
+> manifest 가 먼저 올라가면 아직 존재하지 않는 파일을 가리키는 중간 상태가 클라에 노출된다.
+
+업로드 후 확인 (키 자리는 `infra/relay/Caddyfile` 의 값으로 채운다):
+
+```bash
+curl -sI -H "Authorization: Bearer <Caddyfile 의 값>" \
+  https://dma.jx1.io/ghtrade/manifest.json
+```
+
+**권한 주의.** 올라간 파일이 `0600` 이면 caddy(uid 999)가 읽지 못해 **404 처럼 보인다.**
+발행 측 umask 가 022(→`0644`)면 문제없고, 027(→`0640`)이어도 `/srv/ghtrade` 의
+setgid(`2755`, 그룹 `caddy`) 덕에 읽힌다. umask 077 이면 발행 측이 모드를 보장해야 한다.
+
+### 리로드 타이밍
+
+이 블록을 바꾸면 §자산 갱신 절차 대로 메타데이터를 갱신하고 VM 에 재적용해야 하는데,
+**`startup.sh` 재적용 자체는 caddy 를 켜거나 리로드하지 않는다**(가드 유지). 따라서
+**사람이 명시적으로 리로드**해야 새 Caddyfile 이 반영된다.
+
+> ⚠️ **Caddy 설정 리로드는 진행 중인 wss 연결을 강제 종료한다**
+> (Caddyfile 상단 주석 ③ · §Caddy / TLS 마지막 줄과 같은 규칙).
+> **장중(09:00–15:30 KST) 리로드 금지** — 장 마감 후 1회만.
+> 최초 반영은 **2026-09-11 15:40 KST** 에 수행한다.
+
+리로드 직전에는 반드시 VM 에서 설정을 먼저 검증한다(§기동 전에 반드시 설정을 먼저 검증한다):
+
+```bash
+sudo -u caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+---
+
 ## 자산 갱신 절차
 
 `infra/relay/` 의 파일이 단일 정본이다. VM 에는 사본을 두지 않는다.
@@ -813,6 +885,11 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 `startup.sh` 는 매 부팅 실행되며 전 단계가 멱등이다.
 
 WireGuard(섹션 8)를 **처음** 반영할 때는 방화벽 규칙이 먼저 필요하다 — §적용 런북 을 따른다.
+
+`Caddyfile` 을 바꾼 경우 위 메타데이터 재적용만으로는 **반영되지 않는다.** `startup.sh` 는
+caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전면 down 재발 방지 가드).
+반영하려면 **사람이 명시적으로 리로드**해야 하고, 그 타이밍 규칙은
+§`/ghtrade/*` 의 「리로드 타이밍」 을 따른다 — **장중(09:00–15:30 KST) 금지.**
 
 ---
 
@@ -867,6 +944,7 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 | _(생성됨)_ | `/etc/systemd/system/wg-quick@wg0.service.d/10-after-docker.conf` | 0644 |
 | **(VM 이 1회 생성 — 재작성하지 않는다)** | `/etc/wireguard/wg0.key` | 0600 |
 | **(사람이 관리 — 없으면 빈 파일만 만든다)** | `/etc/wireguard/peers.conf` | 0600 |
+| **(생성됨 — 디렉터리만. 내용물은 gh-trade 발행 스크립트가 올린다)** | `/srv/ghtrade` | `2755` (소유 `alex:caddy`) |
 | `wireguard/client.conf.template` | **VM 배치 없음** — 개발기에서 채워 쓰는 템플릿 | — |
 
 > `_(생성됨)_` 항목은 `startup.sh` 가 **매 부팅마다 재작성**한다(멱등).
@@ -876,3 +954,7 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 > 공개키가 바뀌어 배포된 모든 클라이언트 프로필이 한꺼번에 무효가 된다.
 > `/etc/wireguard/peers.conf` 는 **사람(관리자)이 `wg-peer-add` 로 관리**하며,
 > `startup.sh` 는 파일이 없을 때만 빈 목록을 만들고 있으면 손대지 않는다.
+>
+> **예외 3.** `/srv/ghtrade` 는 **디렉터리만** `startup.sh` 가 매 부팅 보증하고
+> **안의 파일은 저장소가 정본이 아니다** — gh-trade 발행 스크립트의 산출물이다.
+> `startup.sh` 는 그 내용물을 만들지도 지우지도 않는다. 자세한 내용은 §`/ghtrade/*`.

@@ -166,6 +166,38 @@ if [[ -f /etc/systemd/system/caddy.service.d/10-env.conf ]]; then
   log "· 구 CADDY_EMAIL 드롭인 제거"
 fi
 
+# /srv/ghtrade — gh-trade WinForms 클라 자동 업데이트 정적 배포 디렉터리 (quick-260911-dps).
+# Caddyfile 의 `handle_path /ghtrade/*` → `root * /srv/ghtrade` 와 **같은 경로**여야 한다.
+#
+# ⚠️ **디렉터리만 보증하고 내용물은 손대지 않는다.** 안의 파일은 저장소가 정본이 아니다 —
+#    gh-trade 발행 스크립트가 IAP scp 로 올린다. 여기서 만들지도 지우지도 않는다.
+#
+# 권한 근거:
+#   · caddy(uid 999)가 읽으려면 `/srv`(root:root 0755)와 `/srv/ghtrade` 의 검색 권한
+#     `o+x` 가 필요하고, 아래 모드로 둘 다 충족된다.
+#   · scp 는 `-p` 없이도 원본 모드를 원격 umask 로 마스킹해 적용한다. 발행 측 umask 022
+#     → `0644` 이므로 caddy 는 **other 비트로** 읽는다.
+#   · `2755` 의 setgid 는 그 자체가 필수라서가 아니라, 발행 측 umask 가 027 이어서
+#     `0640` 이 되는 경우에도 그룹 `caddy` 로 읽히게 하는 **보험**이다.
+#   · 한계: umask 077(`0600`)이면 setgid 로도 못 읽는다 — 그때는 발행 측이 모드를
+#     보장해야 한다(README §/ghtrade/*).
+#
+# `install -d` 는 **이미 있는 디렉터리에도** 모드·소유권을 적용하므로 이 자체가 멱등이자
+# 자가 치유다. `set -euo pipefail` 아래이므로 실패할 수 있는 명령은 전부 조건부로 감싼다 —
+# `alex` 계정이 없는 환경에서 부팅이 죽으면 안 된다.
+#
+# 이 블록은 caddy 를 기동·재기동·리로드하지 **않는다.** 새 Caddyfile 이 실제로 반영되는
+# 시점은 사람이 명시적으로 수행하는 별도 리로드다(장중 리로드 금지 — 상단 주석 ③).
+if install -d -m 2755 -o alex -g caddy /srv/ghtrade 2>/dev/null; then
+  log "✓ /srv/ghtrade ready (alex:caddy 2755)"
+elif install -d -m 2755 -g caddy /srv/ghtrade 2>/dev/null; then
+  log "· /srv/ghtrade ready (:caddy 2755 — alex 계정 없음, 폴백 2단)"
+elif install -d -m 0755 /srv/ghtrade 2>/dev/null; then
+  log "· /srv/ghtrade ready (0755 — alex·caddy 모두 없음, 폴백 3단)"
+else
+  log "⚠ /srv/ghtrade 준비 실패 — /ghtrade/* 정적 서빙이 404 로 보인다"
+fi
+
 # ───────────────────────────────────────────────────────────────
 # 5. VPN 자산 배치 (기동은 하지 않는다)
 # ───────────────────────────────────────────────────────────────
