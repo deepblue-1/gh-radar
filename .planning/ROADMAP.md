@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: 홈 급등 테마 AI 분석** - 홈 화면 오늘의 급등 테마 AI 분석 + `/` 루트 승격 (completed 2026-07-02)
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
-- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 은 Pending 유지 — 잔여가 「WinForms ↔ 웹 한 세션 동기화 실측」 1건으로 좁혀졌다**(사용자 결정))
+- [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 Complete (2026-09-10 재판정 · `quick-260910-ogq`)** — 잔여였던 「WinForms ↔ 웹 한 세션 동기화」를 사용자가 장중 실계좌에서 **양방향 직접 관찰**했다. 2026-09-11 에 마지막 단서(웹 철거 시 WinForms 종목창 매수주문 체크박스 미반영)까지 해소 — **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **요구사항 5종 전부 Complete**. 열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건)
 
 ## Phase Details
 
@@ -599,6 +599,7 @@ Plans:
 **Requirements**: TRADE-01, TRADE-02, TRADE-03, NAV-01, MYPAGE-01
 **Depends on:** Phase 15
 **Plans:** 46/46 plans executed
+**Status:** Complete — 요구사항 5종(TRADE-01/02/03 · NAV-01 · MYPAGE-01) 전부 Complete. TRADE-03 은 2026-09-10 재판정(`quick-260910-ogq`), 2026-09-11 철거 방향까지 확인 완료.
 
 Plans:
 **Wave 1**
