@@ -215,39 +215,70 @@ afterEach(() => {
 // ===========================================================================
 
 describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
-  it("① 전략 3건이 종목명·코드·거래소 태그·계좌번호 전체·상태 배지를 모두 보여준다", () => {
+  /*
+    ★ 260911-w5h — 행이 **2줄**이 됐다: r1(종목명 + 상태 배지 + 화살표) /
+      r2(`{코드} · {거래소} · {계좌번호}`). 거래소가 **배지에서 텍스트로** 내려간 것이
+      이 변경의 핵심이고, 그래서 r1 의 칩 개수가 **상태 배지 개수와 정확히 같아졌다** —
+      행 높이가 배지 개수와 무관하게 일정해진다.
+      보여주는 정보는 하나도 줄지 않았다(아래 단언이 셋 다 그대로 남는 이유다).
+  */
+  it("① 전략 3건이 2줄 문법으로 종목명·코드·거래소·계좌번호 전체·상태 배지를 보여준다", () => {
     render(<StrategyStatusCard />);
 
     expect(rows()).toHaveLength(3);
 
     const first = rows()[0] as HTMLElement;
-    // 종목명·단축코드는 relay 역매핑에서만 온다.
-    expect(within(first).getByText("에코프로머티리얼즈우선주")).toBeInTheDocument();
-    expect(within(first).getByText("086520")).toBeInTheDocument();
-    // 거래소 태그 — 사이드바와 달리 이 화면은 전부 편다(C2).
-    expect(within(first).getByText("KRX")).toBeInTheDocument();
+    const r1 = (row: HTMLElement) =>
+      row.querySelector('[data-slot="strategy-row-status"]') as HTMLElement;
+    const r2 = (row: HTMLElement) =>
+      row.querySelector('[data-slot="strategy-row-meta"]') as HTMLElement;
+
+    // r1 — 종목명(relay 역매핑에서만 온다) + 상태 배지.
+    expect(within(r1(first)).getByText("에코프로머티리얼즈우선주")).toBeInTheDocument();
+    expect(within(r1(first)).getByText("매수ON")).toBeInTheDocument();
+    // r2 — 코드 · 거래소 · 계좌번호.
+    expect(within(r2(first)).getByText("086520")).toBeInTheDocument();
+    expect(within(r2(first)).getByText("KRX")).toBeInTheDocument();
     // ★ 계좌번호는 **마스킹 없이 전체** 표시된다 (D2 · S-5).
-    expect(within(first).getByText("37728502101")).toBeInTheDocument();
-    // 상태 배지.
-    expect(within(first).getByText("매수ON")).toBeInTheDocument();
+    expect(within(r2(first)).getByText("37728502101")).toBeInTheDocument();
+    expect(
+      r2(first).querySelector('[data-slot="strategy-row-account"]'),
+    ).toHaveTextContent("37728502101");
+
+    /*
+      ★ **거래소가 배지가 아니다.** r1 의 `strategy-badge` 개수가 상태 배지 개수와
+        정확히 같다 — 하나라도 많으면 거래소가 다시 칩으로 올라온 것이다.
+    */
+    expect(r1(first).querySelectorAll('[data-slot="strategy-badge"]')).toHaveLength(1);
+    expect(r2(first).querySelectorAll('[data-slot="strategy-badge"]')).toHaveLength(0);
 
     const second = rows()[1] as HTMLElement;
-    expect(within(second).getByText("이수페타시스")).toBeInTheDocument();
-    expect(within(second).getByText("NXT")).toBeInTheDocument();
-    expect(within(second).getByText("37728502102")).toBeInTheDocument();
-    expect(within(second).getByText("매도대기")).toBeInTheDocument();
+    expect(within(r1(second)).getByText("이수페타시스")).toBeInTheDocument();
+    expect(within(r1(second)).getByText("매도대기")).toBeInTheDocument();
+    expect(within(r2(second)).getByText("NXT")).toBeInTheDocument();
+    expect(within(r2(second)).getByText("37728502102")).toBeInTheDocument();
 
     // 이름을 모르는 전략은 ISIN 으로 폴백하고 **같은 값을 코드 칸에 두 번 쓰지 않는다**.
     const third = rows()[2] as HTMLElement;
     expect(within(third).getAllByText("KR7000660001")).toHaveLength(1);
-    expect(within(third).getByText("매수ON")).toBeInTheDocument();
-    expect(within(third).getByText("매도감시")).toBeInTheDocument();
+    expect(within(r1(third)).getByText("매수ON")).toBeInTheDocument();
+    expect(within(r1(third)).getByText("매도감시")).toBeInTheDocument();
+    // 코드 조각이 없어도 r2 는 `{거래소} · {계좌번호}` 로 이어진다.
+    expect(r2(third).textContent).toContain("KRX");
+    expect(r2(third).textContent).toContain("37728502101");
+    expect(r1(third).querySelectorAll('[data-slot="strategy-badge"]')).toHaveLength(2);
 
-    // 접근성 라벨은 배지 텍스트까지 읽어 준다(UI-SPEC §접근성 라벨).
+    /*
+      ★ 접근성 라벨은 **그대로**다 — 거래소가 화면에서 배지 → 텍스트로 내려갔어도
+        「{종목명} {거래소} 전략 — {배지텍스트}」 계약은 바뀌지 않았다.
+    */
     expect(first).toHaveAttribute(
       "aria-label",
       "에코프로머티리얼즈우선주 KRX 전략 — 매수ON",
     );
+
+    // 44px 터치 타깃 유지 — 2줄이 됐다고 행이 더 얕아지지 않는다.
+    for (const row of rows()) expect((row as HTMLElement).className).toContain("min-h-11");
 
     // 카드 헤더 요약.
     expect(screen.getByText("상따 3 · VI 가동")).toBeInTheDocument();

@@ -246,14 +246,26 @@ describe('AccountPanel — 미체결 표', () => {
     expect(sendOrderMock.mock.calls[0][0]).not.toHaveProperty('code');
   });
 
-  it('⑥ 취소 버튼은 채움이 아니라 테두리다 (--destructive == --up 충돌)', () => {
+  it('⑥ 취소 버튼은 테두리형이고 보이는 글자가 「취소」 한 단어다 (--destructive == --up 충돌)', () => {
     renderPanel();
-    for (const cancel of cancelButtons('0000135742')) {
+    const buttons = cancelButtons('0000135742');
+    // 표 행과 카드 행이 **같은 버튼**을 쓴다 — 두 벌이 나온다.
+    expect(buttons.length).toBe(2);
+    for (const cancel of buttons) {
       expect(cancel).toHaveAttribute('data-variant', 'outline');
       expect(cancel.className).toContain('border-[var(--destructive)]');
       expect(cancel.className).toContain('text-[var(--destructive)]');
       // 채움 배경이 붙으면 매수 버튼과 구분되지 않는다.
       expect(cancel.className).not.toContain('bg-[var(--destructive)]');
+      /*
+        ★ 글리프를 걷었다 (260911-w5h). 버튼이 하나라 이 제거가 **데스크톱 표에도 함께**
+          걸린다 — 그것이 의도다(파일 상단 ② 의 「규율이 갈리지 않게」).
+        ★ 접근성 이름은 그대로 주문번호를 말한다 — 그것이 카드에서 주문번호 문자열을
+          걷을 수 있었던 근거다(⑰-a).
+      */
+      expect(cancel.textContent).toBe('취소');
+      expect(cancel.textContent).not.toContain('✕');
+      expect(cancel).toHaveAccessibleName('주문번호 0000135742 취소');
     }
   });
 
@@ -524,13 +536,26 @@ describe('AccountPanel — 계좌 전용 모드 (D-21 / My page)', () => {
     expect(screen.getByRole('heading', { name: '잔고' })).toBeInTheDocument();
   });
 
-  it('⑯-c 현재가를 하나도 모르므로 손익을 지어내지 않는다 (⑤)', () => {
+  /*
+    ★ **뒤집힌 계약** (260911-w5h). 종전에는 「카드에 대시가 3개 이상」을 단언했지만, 그것은
+      결함의 서술이었다 — 계좌 전용 모드에서는 현재가·평가·손익·손익률을 **하나도 모르므로**
+      한 행이 대시 3개로 채워졌고, 「모른다」를 세 번 말하는 줄이 목록의 절반을 먹었다.
+      새 계약은 **모르면 줄 자체가 없다**: `account-holding-r3` 가 렌더되지 않고 카드 안에
+      대시가 **0개**다. 표(데스크톱)의 대시는 그대로 남는다 — 거기는 열 구조가 고정이라
+      칸을 비울 수 없고, 헤더가 그 칸이 무엇인지 이미 말한다.
+  */
+  it('⑯-c 현재가를 모르면 셋째 줄 자체가 없다 — 카드에 대시가 0개다 (⑤)', () => {
     renderAccountOnly();
 
     for (const card of holdingCards()) {
-      // 현재 · 손익 · 손익률 3곳이 —. 5번째 칸은 매입금액으로 채워지므로(⑯-f) 여기 들지 않는다.
-      expect(within(card).getAllByText('—').length).toBeGreaterThanOrEqual(3);
+      expect(card.querySelector('[data-slot="account-holding-r3"]')).toBeNull();
+      expect(within(card).queryAllByText('—')).toHaveLength(0);
+      // 대신 언제나 알 수 있는 값(매입금액·수량·평단)은 그대로 있다.
+      expect(card.querySelector('[data-slot="account-holding-r1"]')).not.toBeNull();
+      expect(card.querySelector('[data-slot="account-holding-r2"]')).not.toBeNull();
     }
+    // 표에는 여전히 대시가 있다 — 열 구조가 고정이라 칸을 비울 수 없다(⑯-g 가 잠근다).
+    expect(within(tableOf('account-holdings')).getAllByText('—').length).toBeGreaterThan(0);
   });
 
   it('⑯-e 5번째 칸은 「매입금액」 헤더이고 셀이 보유수량 × 평단가다 (⑤ 예외)', () => {
@@ -546,14 +571,46 @@ describe('AccountPanel — 계좌 전용 모드 (D-21 / My page)', () => {
     expect(within(table).getByText('8,820,000')).toBeInTheDocument();
   });
 
-  it('⑯-f 모바일 카드의 같은 칸도 「매입」 + 같은 숫자다 (표와 카드가 갈리지 않는다)', () => {
+  it('⑯-f 모바일 카드 r1 의 오른쪽 굵은 자리가 표와 **같은 숫자**다 (두 뷰가 갈리지 않는다)', () => {
     renderAccountOnly();
 
     const [first, second] = holdingCards();
-    expect(within(first).getByText('매입')).toBeInTheDocument();
-    expect(within(first).queryByText('평가')).toBeNull();
-    expect(within(first).getByText('10,950,000')).toBeInTheDocument();
-    expect(within(second).getByText('8,820,000')).toBeInTheDocument();
+    const r1 = (card: HTMLElement) =>
+      card.querySelector('[data-slot="account-holding-r1"]') as HTMLElement;
+
+    expect(r1(first!)).toHaveTextContent('10,950,000');
+    expect(r1(second!)).toHaveTextContent('8,820,000');
+    /*
+      ★ 카드 행에는 라벨 글자가 없다 (260911-w5h) — 오른쪽 굵은 자리가 곧 그 뜻이고,
+        세 목록이 같은 자리를 같은 규칙으로 쓴다. 표는 헤더가 그 일을 하므로 라벨이 남는다.
+    */
+    expect(within(first!).queryByText('매입')).toBeNull();
+    expect(within(first!).queryByText('평가')).toBeNull();
+  });
+
+  /*
+    ★ **`stockScoped` 가 카드로 새지 않았다는 증거.** 종목 축이 있는 모드에서도 카드 r1 의
+      오른쪽 굵은 자리는 **매입금액**이다. 한 목록 안에서 같은 자리가 모드에 따라 두 의미를
+      가지면 그 목록은 읽을 수 없다. 평가금액은 r3 에 따로 있다.
+  */
+  it('⑯-h 종목 축이 있어도 카드 r1 금액은 평가금액이 아니라 **매입금액**이다', () => {
+    renderPanel(); // 종목 축 있음(code/isin/currentPrice 주입)
+
+    const card = holdingCards()[0]!;
+    const r1 = card.querySelector('[data-slot="account-holding-r1"]') as HTMLElement;
+    // 120 × 91,250 = 10,950,000 (매입) — 120 × 98,400 = 11,808,000 (평가) 이 아니다.
+    expect(r1).toHaveTextContent('10,950,000');
+    expect(r1).not.toHaveTextContent('11,808,000');
+
+    // 평가금액은 셋째 줄에 있다 — 현재가를 아는 행이므로 그 줄이 생긴다.
+    const r3 = card.querySelector('[data-slot="account-holding-r3"]') as HTMLElement;
+    expect(r3).not.toBeNull();
+    expect(r3).toHaveTextContent('11,808,000');
+
+    // 데스크톱 표의 `stockScoped` 분기는 그대로다 — 5번째 칸 헤더가 「평가금액」이다.
+    expect(
+      within(tableOf('account-holdings')).getByRole('columnheader', { name: '평가금액' }),
+    ).toBeInTheDocument();
   });
 
   it('⑯-g 매입금액을 채워도 평가손익·수익률은 여전히 — 다 (손익은 지어내지 않는다)', () => {
@@ -592,61 +649,88 @@ describe('AccountPanel — 모바일 2줄 카드 행 (UI-SPEC C7 / R6)', () => {
    *   실측 폭 단언은 E2E(`orderbook.spec.ts`)가 맡고, 여기서는 그 전제인
    *   **클래스 구성**을 잠근다(jsdom 에는 레이아웃이 없다).
    */
-  it('⑰ 신축 항목은 종목명 하나뿐이고 나머지는 flex-none 이다', () => {
+  it('⑰ 각 줄의 신축은 왼쪽 하나뿐이고 나머지는 flex-none 이다 (260911-w5h 문법)', () => {
     renderPanel();
 
-    const card = unfilledCards()[0];
-    const lines = Array.from(card.children) as HTMLElement[];
-    expect(lines).toHaveLength(2); // 정확히 2줄이다
+    const check = (card: HTMLElement, expectedLines: number) => {
+      const lines = Array.from(card.children) as HTMLElement[];
+      expect(lines).toHaveLength(expectedLines);
+      for (const line of lines) {
+        expect(line.className).toContain('min-w-0');
+        const growers = Array.from(line.children).filter((el) =>
+          el.className.includes('flex-1'),
+        );
+        // 신축은 0개 또는 1개뿐이고, 있으면 **그 줄의 첫 자식**(= 왼쪽)이다.
+        expect(growers.length).toBeLessThanOrEqual(1);
+        if (growers.length === 1) expect(growers[0]).toBe(line.children[0]);
+        for (const grower of growers) {
+          expect(grower.className).toContain('min-w-0');
+          expect(grower.className).toContain('truncate');
+        }
+        // 신축이 아닌 항목은 전부 flex-none 이어야 밀려나지 않는다.
+        for (const child of Array.from(line.children)) {
+          if (child.className.includes('flex-1')) continue;
+          expect(child.className).toContain('flex-none');
+        }
+      }
+      // r1 의 신축은 반드시 종목명이다.
+      const r1 = lines[0]!;
+      expect((r1.children[0] as HTMLElement).textContent).toContain('한미반도체');
+    };
 
-    for (const line of lines) {
-      expect(line.className).toContain('min-w-0');
-      const growers = Array.from(line.children).filter((el) =>
-        el.className.includes('flex-1'),
-      );
-      // 신축은 0개(②줄) 또는 1개(①줄 종목명)뿐이다.
-      expect(growers.length).toBeLessThanOrEqual(1);
-      for (const grower of growers) {
-        expect(grower.className).toContain('min-w-0');
-        expect(grower.className).toContain('truncate');
-      }
-      // 신축이 아닌 항목은 전부 flex-none 이어야 밀려나지 않는다.
-      for (const child of Array.from(line.children)) {
-        if (child.className.includes('flex-1')) continue;
-        expect(child.className).toContain('flex-none');
-      }
-    }
+    // 미체결 2줄 / 잔고는 현재가를 아는 행이라 3줄.
+    check(unfilledCards()[0]!, 2);
+    check(holdingCards()[0]!, 3);
   });
 
-  it('⑰-a 카드 행이 UI-SPEC 이 정한 값을 그 순서로 담는다', () => {
+  it('⑰-a 카드 행이 줄별로 정해진 값을 담고, 주문번호는 **카드에 없고 표에 있다**', () => {
     renderPanel();
 
-    const card = unfilledCards()[0];
-    // ①줄 종목명 · 구분 · 주문번호 / ②줄 주문가 · 미체결 잔량/주문량 · 취소
-    expect(card).toHaveTextContent('한미반도체');
-    expect(card).toHaveTextContent('▲ 매수');
-    expect(card).toHaveTextContent('0000135742');
-    expect(card).toHaveTextContent('98,000');
-    expect(card).toHaveTextContent('30/50');
-    expect(within(card).getByRole('button', { name: '주문번호 0000135742 취소' })).toBeVisible();
+    const card = unfilledCards()[0]!;
+    const r1 = card.querySelector('[data-slot="account-unfilled-r1"]') as HTMLElement;
+    const r2 = card.querySelector('[data-slot="account-unfilled-r2"]') as HTMLElement;
 
-    const hold = holdingCards()[0];
-    expect(hold).toHaveTextContent('한미반도체');
-    expect(hold).toHaveTextContent('120'); // 보유
-    expect(hold).toHaveTextContent('90'); // 매도가능
-    expect(hold).toHaveTextContent('91,250'); // 평단
-    expect(hold).toHaveTextContent('98,400'); // 현재
-    expect(hold).toHaveTextContent('+858,000');
+    // r1 — 종목명 + 구분 태그 … (우) 주문가
+    expect(r1).toHaveTextContent('한미반도체');
+    expect(r1).toHaveTextContent('▲ 매수');
+    expect(r1).toHaveTextContent('98,000');
+    // r2 — 미체결 수량 … (우) 취소
+    expect(r2).toHaveTextContent('미체결');
+    expect(r2).toHaveTextContent('30');
+    expect(r2).toHaveTextContent('50');
+    expect(within(r2).getByRole('button', { name: '주문번호 0000135742 취소' })).toBeVisible();
+
+    /*
+      ★ 주문번호 **문자열**이 카드 행에 없다 (260911-w5h · T-w5h-02). 사용자가 읽고 행동에
+        쓰는 값이 아니고(취소는 버튼이 한다), 좁은 화면의 노출 표면도 함께 줄어든다.
+        식별은 취소 버튼의 접근성 이름이 계속 한다 — 바로 위 단언이 그것이다.
+      ★ 데스크톱 표에는 **남는다** — 거기서는 주문번호가 열 하나다.
+    */
+    expect(card).not.toHaveTextContent('0000135742');
+    expect(within(tableOf('account-unfilled')).getByText('0000135742')).toBeInTheDocument();
+
+    const hold = holdingCards()[0]!;
+    expect(hold.querySelector('[data-slot="account-holding-r1"]')).toHaveTextContent('한미반도체');
+    expect(hold.querySelector('[data-slot="account-holding-r2"]')).toHaveTextContent('120'); // 수량
+    expect(hold.querySelector('[data-slot="account-holding-r2"]')).toHaveTextContent('90'); // 매도가능
+    expect(hold.querySelector('[data-slot="account-holding-r2"]')).toHaveTextContent('91,250'); // 평단
+    expect(hold.querySelector('[data-slot="account-holding-r3"]')).toHaveTextContent('98,400'); // 현재
+    expect(hold.querySelector('[data-slot="account-holding-r3"]')).toHaveTextContent('+858,000');
   });
 
-  it('⑰-b 출처 태그는 prop 으로 들어온 화면 컨텍스트다 (없으면 태그가 없다)', () => {
+  it('⑰-b 출처 태그는 **표에만** 남는다 (카드에서는 모든 행이 같은 값이라 정보가 0 이다)', () => {
     const { unmount } = renderPanel();
     expect(document.querySelectorAll('[data-slot="account-origin-tag"]')).toHaveLength(0);
     unmount();
 
     renderPanel({ originTag: '상따' });
-    // 미체결 3행 × (표 + 카드) 두 벌
-    expect(document.querySelectorAll('[data-slot="account-origin-tag"]').length).toBe(6);
-    expect(within(unfilledCards()[0]).getByText('상따')).toBeInTheDocument();
+    // 미체결 3행 × **표 한 벌**뿐이다(카드 행에서 걷었다 — 260911-w5h).
+    expect(document.querySelectorAll('[data-slot="account-origin-tag"]')).toHaveLength(3);
+    for (const card of unfilledCards()) {
+      expect(card.querySelector('[data-slot="account-origin-tag"]')).toBeNull();
+    }
+    expect(
+      tableOf('account-unfilled').querySelectorAll('[data-slot="account-origin-tag"]'),
+    ).toHaveLength(3);
   });
 });

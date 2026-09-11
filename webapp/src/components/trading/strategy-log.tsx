@@ -15,8 +15,11 @@
  *   「아까 뭐라고 떴었지」를 되짚을 수 있는 곳은 여기뿐이다.
  *
  * ③ 브라우저 메모리 전용이다 (T-16-02)
- *   서버에 저장하지 않고 새로고침하면 사라진다. 그 사실을 캡션으로 **고지**한다 —
- *   영구 기록으로 오해하면 사용자가 사후 확인을 이 화면에 의존한다.
+ *   서버에 저장하지 않고 새로고침하면 사라진다.
+ *   ★ 그 사실을 **화면에 고지하지 않는다**(사용자 결정 260911-w5h). 옛 캡션
+ *     (「서버 에코 기준 · 새로고침 시 지워져요」)은 제목 줄 우측에 붙어 모바일에서 제목을
+ *     두 줄로 접었고, 그 상시 표시 문구는 어차피 다음번에 읽히지 않는다(T-16-86 과 같은
+ *     이유다). **접는 비용이 고지의 값보다 컸다.** 이 사실 자체는 여기 주석으로만 남는다.
  *
  * ④ 토스트를 쓰지 않는다 (D3)
  *   알림 채널은 상태줄 인라인 배너(6초) + 이 로그 2개뿐이다. Phase 15 D-36 이 이미
@@ -202,12 +205,9 @@ export function StrategyLog({ entries, className }: StrategyLogProps) {
         className,
       )}
     >
-      <h3 className="m-0 mb-[var(--s-2)] flex flex-wrap items-center gap-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+      {/* 캡션이 사라져 `flex-wrap`/`gap`/`ml-auto` 가 필요 없다 — 제목 한 줄이다. */}
+      <h3 className="m-0 mb-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
         전략 로그
-        {/* ③ 고지 — 「영구 기록」으로 오해하면 사후 확인을 이 화면에 의존하게 된다. */}
-        <span className="ml-auto text-[length:var(--t-caption)] font-normal text-[var(--muted-fg)]">
-          서버 에코 기준 · 새로고침 시 지워져요
-        </span>
       </h3>
 
       {entries.length === 0 ? (
@@ -222,7 +222,12 @@ export function StrategyLog({ entries, className }: StrategyLogProps) {
       ) : (
         <ol
           data-slot="strategy-log-list"
-          className="mono m-0 flex max-h-[160px] list-none flex-col gap-0.5 overflow-x-hidden overflow-y-auto p-0 text-[11px] leading-[1.6]"
+          /*
+            ★ `mono` 는 **시각 `<span>` 에만** 건다 (260911-w5h). 목록 전체를 mono 로 두면
+              한글 로그 문장이 자간이 벌어진 채 읽히고, 좁은 폭에서 두세 줄로 접힌다.
+              세로로 줄을 맞춰야 하는 것은 시각뿐이다.
+          */
+          className="m-0 flex max-h-[160px] list-none flex-col gap-0.5 overflow-x-hidden overflow-y-auto p-0 text-[11px] leading-[1.6]"
         >
           {entries.map((entry) => (
             <li
@@ -231,7 +236,7 @@ export function StrategyLog({ entries, className }: StrategyLogProps) {
               data-level={entry.level ?? 'info'}
               className="flex min-w-0 items-baseline gap-[var(--s-2)]"
             >
-              <span className="flex-none text-[var(--muted-fg)]">{entry.at}</span>
+              <span className="mono flex-none text-[var(--muted-fg)]">{entry.at}</span>
               <span
                 className={cn(
                   'min-w-0',

@@ -8,11 +8,17 @@
  *   카드 하단의 **전체 비활성화**로 이루어진다. 시각 정본은 사용자 승인 목업
  *   `16-mypage-sidebar-mockup.html` 이다(D-24).
  *
- * ② ★ 사이드바와 달리 **거래소 태그·상태 배지를 전부 보여준다** (C2)
+ * ② ★ 사이드바와 달리 **상태를 전부 보여준다** — 단, 거래소는 배지가 아니다 (C2 · 260911-w5h)
  *   사이드바 3단은 240px 폭이라 종목명 + 태그 + 배지 2개가 종목명을 3~4글자로 잘라먹어
- *   원 아이콘 2개로 단순화했다(N3a). 이 화면은 폭이 넉넉하고 **상태 요약의 정본**이므로
- *   반대로 전부 편다. 두 표면이 같은 배지 정의(`strategy-badge.tsx`)를 쓰기 때문에
- *   「어느 화면에서는 다른 상태로 보인다」가 생기지 않는다.
+ *   원 아이콘 2개로 단순화했다(N3a). 이 화면은 **상태 요약의 정본**이므로 반대로 전부 편다.
+ *   두 표면이 같은 배지 정의(`strategy-badge.tsx`)를 쓰기 때문에 「어느 화면에서는 다른
+ *   상태로 보인다」가 생기지 않는다.
+ *   ★ 배치는 **2줄**이다: r1 = 종목명 + **상태 배지** + 화살표 · r2 = `{코드} · {거래소} ·
+ *     {계좌번호}`(muted 텍스트). 거래소를 **배지에서 텍스트로 내린** 이유는 행 높이다 —
+ *     r1 의 칩 개수가 상태에 따라 1~3개로 바뀌면 행 높이가 목록 안에서 들쭉날쭉해진다.
+ *     거래소는 상태가 아니라 **식별자**라 다른 식별자(코드·계좌번호)와 같은 줄이 맞다.
+ *     `exchangeBadgeOf` 정의는 `strategy-badge.tsx` 에 **그대로 있다**(다른 소비처와 자기
+ *     단위 테스트가 쓴다) — 이 파일의 import 만 사라졌다.
  *
  * ③ ★ 전체 비활성화는 **이 화면에만** 둔다 (D-09 · UI-SPEC §오조작 방지 4)
  *   상따·VI 편집 화면에 두면 값을 고치는 중에 바로 옆에서 전부 끄는 오클릭 경로가 생긴다.
@@ -54,7 +60,6 @@ import type { RelayLimitChaser, RelayStrategiesDisabledMsg } from "@gh-radar/sha
 import { limitChaserHref } from "@/components/layout/app-sidebar";
 import {
   StrategyBadge,
-  exchangeBadgeOf,
   strategyBadgesOf,
   viBadgeOf,
 } from "@/components/trading/strategy-badge";
@@ -124,6 +129,14 @@ function StrategyRow({
   const code = label?.code ?? (label?.name !== undefined ? item.isin : null);
   const badgeText = badges.map((b) => b.label).join(" · ");
 
+  /*
+    ★ **2줄 행**이다 (260911-w5h). r1 에서 거래소 배지를 빼면서 그 줄의 칩 개수가 **상태
+      배지 개수와 정확히 같아졌다** — 행 높이가 배지 개수와 무관하게 일정해진다. 옛 구조는
+      한 줄에 6항목(이름·코드·거래소 배지·계좌·상태 배지들·화살표)을 `flex-wrap` 으로
+      흘려 보내 전략마다 1줄/2줄이 갈렸고, 그것이 이 목록을 훑기 어렵게 만든 원인이었다.
+    ★ 잔고·미체결 카드 행과 **같은 문법**이다: 이름 왼쪽 굵게 / 오른쪽에 핵심(여기서는
+      상태 배지) / 둘째 줄부터 muted 보조.
+  */
   return (
     <Link
       href={limitChaserHref(item.key)}
@@ -132,39 +145,60 @@ function StrategyRow({
       /*
         UI-SPEC §접근성 라벨 — 「{종목명} {거래소} 전략 — {상태 배지 텍스트}」.
         배지가 하나도 없는 전략(취소 게이트만 켜진 경우)에는 `—` 뒤를 비우지 않는다.
+        ★ 거래소가 화면에서 배지 → 텍스트로 내려갔지만 이 계약은 **그대로**다.
       */
       aria-label={`${name} ${item.exchange} 전략${badgeText === "" ? "" : ` — ${badgeText}`}`}
       className={cn(
-        "flex min-h-11 flex-wrap items-center gap-2 rounded-[var(--r)] px-2 py-2.5",
+        "flex min-h-11 min-w-0 flex-col justify-center gap-0.5 rounded-[var(--r)] px-2 py-2",
         "hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)]",
       )}
     >
-      {/* 신축 항목은 종목명 **하나뿐**이다 — 나머지가 줄어들면 숫자가 잘린다. */}
-      <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-        {name}
-      </span>
-      {code !== null && (
-        <span className="mono shrink-0 text-[11px] text-[var(--muted-fg)]">{code}</span>
-      )}
-      <StrategyBadge badge={exchangeBadgeOf(item.exchange)} className="shrink-0" />
       {/*
-        계좌번호는 **마스킹하지 않는다**(D2 · S-5). 모바일에서는 둘째 줄 전폭으로 내려
-        (order 9) 첫 줄이 종목명을 잘라먹지 않게 한다(C2).
+        r1 — `<div>` 다. `me.spec` 이 `row.locator('span').first()` 로 종목명을 짚으므로
+        줄 컨테이너가 `span` 이면 그 로케이터가 줄 전체를 잡는다.
       */}
-      <span
-        data-slot="strategy-row-account"
-        className="mono shrink-0 text-[11px] text-[var(--muted-fg)] max-[1279px]:order-9 max-[1279px]:w-full"
+      <div
+        data-slot="strategy-row-status"
+        className="flex min-w-0 items-center gap-2"
       >
-        {item.accountNo}
-      </span>
-      <span className="ml-auto flex shrink-0 items-center gap-1">
-        {badges.map((badge) => (
-          <StrategyBadge key={badge.kind} badge={badge} />
-        ))}
-      </span>
-      <span aria-hidden="true" className="shrink-0 text-[12px] text-[var(--muted-fg)]">
-        ›
-      </span>
+        {/* 신축 항목은 종목명 **하나뿐**이다 — 나머지가 줄어들면 배지가 잘린다. */}
+        <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+          {name}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {badges.map((badge) => (
+            <StrategyBadge key={badge.kind} badge={badge} />
+          ))}
+        </span>
+        <span aria-hidden="true" className="shrink-0 text-[12px] text-[var(--muted-fg)]">
+          ›
+        </span>
+      </div>
+      {/*
+        r2 — 식별자 줄. `{코드} · {거래소} · {계좌번호}`.
+        계좌번호는 **마스킹하지 않는다**(D2 · S-5) — 앞자리가 같은 두 계좌를 구분할 수
+        없게 되는 쪽이 더 위험하다.
+      */}
+      <div
+        data-slot="strategy-row-meta"
+        className="flex min-w-0 items-center gap-1 truncate text-[11px] text-[var(--muted-fg)]"
+      >
+        {code !== null && (
+          <>
+            <span className="mono">{code}</span>
+            <span aria-hidden="true" className="opacity-60">
+              ·
+            </span>
+          </>
+        )}
+        <span>{item.exchange}</span>
+        <span aria-hidden="true" className="opacity-60">
+          ·
+        </span>
+        <span data-slot="strategy-row-account" className="mono">
+          {item.accountNo}
+        </span>
+      </div>
     </Link>
   );
 }

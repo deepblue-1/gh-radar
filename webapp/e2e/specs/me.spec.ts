@@ -589,7 +589,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(Math.round(wrapRight.right - unfilledBox.right)).toBeLessThanOrEqual(1);
   });
 
-  test('8. 모바일 390 — 미체결·잔고가 `.rlist` 카드 행이 되고 전략 행 계좌번호가 둘째 줄로 내려간다', async ({
+  test('8. 모바일 390 — 미체결·잔고가 `.rlist` 카드 행이 되고 전략 행이 2줄이다', async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -607,25 +607,35 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(card.getByTestId('account-unfilled').locator('[data-slot="table"]')).toBeHidden();
 
     /*
-      전략 행은 wrap 되고 계좌번호가 **둘째 줄 전폭**으로 내려간다(C2 · order 9).
-      같은 줄에 남으면 첫 줄이 종목명을 잘라먹는다.
+      전략 행은 **2줄 flex-col** 이다(C2 · 260911-w5h). r1 = 종목명 + 상태 배지 + 화살표,
+      r2(`strategy-row-meta`) = `{코드} · {거래소} · {계좌번호}`. 계좌번호가 첫 줄에 남으면
+      그 줄이 종목명을 잘라먹는다.
+      ★ 옛 구조(`flex-wrap` + `order:9` + `w-full`)에서는 계좌번호 `<span>` **자신**이
+        전폭이었다. 2줄 구조에서 계좌번호는 둘째 **줄 안의 한 조각**이므로, 전폭을 재는
+        대상을 조각에서 **줄 자체**(`strategy-row-meta`)로 옮긴다.
+      ★ `nameBox`/`badgeBox` 비교는 **그대로 남긴다** — 폭이 좁으면 규율이 없어도 자연
+        wrap 으로 내려가 「둘째 줄」 단언이 헛통과하므로(변이 실측), 배지 **뒤**(=아래)에
+        온다는 사실이 그 헛통과를 막는다.
+      ★ 인덱스 1 을 쓰는 이유: `strategy-badge` 를 `.last()` 로 짚으므로 그 행에 상태
+        배지가 **하나라도** 있어야 한다. 거래소 배지가 빠지면서 배지 0개 행이 생길 수
+        있는데, 이 fixture 의 2번째 전략은 「매도대기」 배지를 갖는다(아래 단언이 그것을
+        먼저 확인한다).
     */
     const row = strategyRows(page).nth(1);
+    const meta = row.locator('[data-slot="strategy-row-meta"]');
     const account = row.locator('[data-slot="strategy-row-account"]');
+    await expect(row.locator('[data-slot="strategy-badge"]')).not.toHaveCount(0);
     const rowBox = await boxOf(row);
     const nameBox = await boxOf(row.locator('span').first());
     const badgeBox = await boxOf(row.locator('[data-slot="strategy-badge"]').last());
     const accountBox = await boxOf(account);
+    const metaBox = await boxOf(meta);
 
     // 둘째 줄로 내려간다.
     expect(accountBox.y).toBeGreaterThan(nameBox.y);
-    /*
-      ★ 「둘째 줄」만으로는 부족하다 — 폭이 좁으면 규율이 없어도 자연 wrap 으로 내려가서
-        단언이 헛통과한다(변이 실측). `order:9` + 전폭이 만드는 두 가지를 함께 본다:
-        배지 **뒤**(=아래)에 오고, 줄 전체를 차지한다.
-    */
     expect(accountBox.y).toBeGreaterThan(badgeBox.y);
-    expect(accountBox.width).toBeGreaterThan(rowBox.width * 0.8);
+    // 그 줄이 행 폭의 대부분을 차지한다.
+    expect(metaBox.width).toBeGreaterThan(rowBox.width * 0.8);
 
     // `.rlist` 행의 잎 요소가 목록 밖으로 밀려나지 않는다 (16-10 실측 규율).
     const list = card.locator('[data-slot="account-unfilled-list"]');

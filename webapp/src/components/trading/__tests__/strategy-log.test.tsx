@@ -196,15 +196,35 @@ describe('StrategyLog — 렌더', () => {
     expect(rows[0].innerHTML).not.toContain('--destructive');
   });
 
-  it('⑯ 캡션이 「새로고침 시 지워진다」를 고지하고 목록은 160px 스크롤이다', () => {
+  /*
+    ★ **뒤집힌 계약** (260911-w5h). 옛 캡션(「서버 에코 기준 · 새로고침 시 지워져요」)은
+      제목 줄 우측에 붙어 모바일에서 제목을 두 줄로 접었고, 상시 표시 문구는 어차피
+      다음번에 읽히지 않는다(T-16-86 과 같은 이유). 사용자가 **없앤다**로 확정했다 —
+      아래로 내린 것이 아니라 컴포넌트 어디에도 없다.
+  */
+  it('⑯ 캡션 문구가 컴포넌트 어디에도 없고 목록은 160px 스크롤이다', () => {
     const { container } = render(<StrategyLog entries={entries} />);
 
-    const root = container.querySelector('[data-slot="strategy-log"]');
+    const root = container.querySelector('[data-slot="strategy-log"]') as HTMLElement;
     expect(root).not.toBeNull();
-    expect(within(root as HTMLElement).getByText('서버 에코 기준 · 새로고침 시 지워져요')).toBeInTheDocument();
+    expect(within(root).queryByText('서버 에코 기준 · 새로고침 시 지워져요')).toBeNull();
+    expect(root.textContent).not.toContain('새로고침');
+    // 제목은 그대로다 — 없앤 것은 캡션뿐이다.
+    expect(within(root).getByRole('heading', { name: '전략 로그' })).toBeInTheDocument();
 
     const list = container.querySelector('[data-slot="strategy-log-list"]');
     expect(list?.className).toContain('max-h-[160px]');
     expect(list?.className).toContain('overflow-y-auto');
+
+    /*
+      ★ `mono` 는 **시각에만** 있다. 목록 전체가 mono 면 한글 로그 문장이 자간이 벌어진 채
+        읽히고 좁은 폭에서 두세 줄로 접힌다 — 세로로 줄을 맞춰야 하는 것은 시각뿐이다.
+    */
+    expect(list?.className).not.toContain('mono');
+    const row = container.querySelector('[data-slot="strategy-log-row"]') as HTMLElement;
+    const spans = Array.from(row.querySelectorAll('span'));
+    expect(spans[0]!.className).toContain('mono'); // 시각
+    expect(spans[0]!.textContent).toBe('13:44:02');
+    expect(spans[1]!.className).not.toContain('mono'); // 문장은 본문 폰트
   });
 });

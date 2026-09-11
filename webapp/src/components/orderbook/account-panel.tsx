@@ -16,7 +16,11 @@
  *
  * ② ★ 취소 버튼은 채우지 않는다 (UI-SPEC §토큰 충돌 경보)
  *   `--destructive` 와 `--up`(매수)의 oklch 값이 완전히 같다. 채움 빨강으로 만들면 매수
- *   버튼과 구분되지 않는다. **테두리 + `--destructive` 텍스트 + `✕`** 가 유일한 표현이다.
+ *   버튼과 구분되지 않는다. **테두리 + `--destructive` 텍스트**가 유일한 표현이다.
+ *   보이는 글자는 「취소」 한 단어뿐이다(260911-w5h — 옛 `✕` 글리프를 걷었다). 접근성
+ *   이름은 계속 `주문번호 {orderNo} 취소` 다.
+ *   ★ 이 버튼은 **표 행과 카드 행이 공유하는 하나**다. 규율이 갈리지 않게 두 벌로 쪼개지
+ *     않는다 — 그래서 글리프 제거가 데스크톱에도 함께 걸린다.
  *
  * ③ ★ 미체결 잔량 0 행에는 취소 버튼을 렌더하지 않는다
  *   취소 수량은 언제나 **미체결 잔량 전부**이고, 잔량 0 의 취소는 게이트웨이가 즉시 거부한다
@@ -52,13 +56,23 @@
  *   계좌 전용 모드에는 계좌 `<select>` 가 없다 — 세로 반복(계좌마다 한 벌)이 계좌 구분이고,
  *   패널 안에서 계좌를 바꿀 수 있으면 "지금 보는 카드"와 "선택된 계좌"가 어긋난다.
  *
- * ⑧ ★ 모바일은 표가 아니라 **2줄 카드 행**(`.rlist`)이다 (UI-SPEC C7 / R6)
+ * ⑧ ★ 모바일은 표가 아니라 **카드 행**(`.rlist`)이다 (UI-SPEC C7 / R6 · 260911-w5h)
  *   미체결 표의 콘텐츠 최소폭(439px)·잔고(444px)가 모바일 가용폭(338px)을 넘는다. 표로 두면
  *   `overflow` 아래에서 가로 스크롤이 생기거나 **조용히 잘린다**. 그래서 <1280px 에서는 표를
  *   숨기고 카드 행을 그린다(≥1280 은 반대).
- *   ★ 카드 행에서 **`flex:1 1 auto; min-width:0` 은 종목명 하나뿐**이고 나머지는 전부
- *     `flex:none` 이다. 이게 어긋나면 긴 종목명이 숫자를 밀어내 잘린다 — 플렉스/그리드
- *     자식의 `min-w-0` 누락은 `tasks/lessons.md` 에 등재된 함정이다.
+ *
+ *   ★ **한 문법**을 쓴다 — 이름 왼쪽 굵게(14px) / 핵심 숫자 오른쪽 굵게(14px mono) /
+ *     둘째 줄부터 muted 보조(11px). 잔고·미체결·전략 현황 세 목록이 한 화면에 세로로
+ *     이어지므로, 문법이 서로 다르면 사용자의 눈이 목록마다 다시 적응해야 한다.
+ *     미체결은 r1(이름+구분 / 주문가) · r2(미체결 수량 / 취소) 2줄,
+ *     잔고는 r1(이름 / 매입금액) · r2(수량·매도가능 / 평단) · r3(현재 / 평가·손익·손익률,
+ *     **현재가를 아는 행에만**) 이다.
+ *
+ *   ★ 카드 행의 **각 줄은 신축 1개(왼쪽) + 나머지 `flex-none`** 이다. r1 의 신축은 반드시
+ *     종목명이고, 신축에는 `min-w-0 truncate` 가 함께 간다. 우측 항목은 `ml-auto flex-none`
+ *     으로 붙인다. 이게 어긋나면 긴 종목명이 숫자를 밀어내 잘린다 — 플렉스/그리드 자식의
+ *     `min-w-0` 누락은 `tasks/lessons.md` 에 등재된 함정이다. r2/r3 의 왼쪽 보조 문장도
+ *     길어질 수 있으므로 그 줄의 신축 역시 **왼쪽 하나**다.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -305,7 +319,12 @@ export function AccountPanel({
     view.cancellable ? (
       /*
         C11 — 26px(36px 행 안), 좁은 폭에서는 `size="sm"`(32px).
-        채움 금지: `--destructive` 테두리 + 텍스트 + `✕` 뿐이다.
+        채움 금지: `--destructive` **테두리 + 텍스트**가 유일한 표현이다
+        (`--destructive` == `--up` 이라 채우면 매수 버튼과 구분이 안 된다).
+        ★ 보이는 글자는 「취소」 한 단어뿐이다 (260911-w5h) — 옛 `✕` 글리프를 걷었다.
+          이 버튼은 **표 행과 카드 행이 공유하는 하나**라 그 제거가 데스크톱에도 함께
+          걸린다. 그것이 의도다: 버튼을 두 벌로 쪼개 모바일만 바꾸면 이 파일 ② 가 적어 둔
+          「규율이 갈리지 않게」가 깨진다.
       */
       <Button
         type="button"
@@ -319,7 +338,7 @@ export function AccountPanel({
           className,
         )}
       >
-        ✕ 취소
+        취소
       </Button>
     ) : (
       <span className="text-[11px] text-[var(--muted-fg)]">—</span>
@@ -517,31 +536,43 @@ export function AccountPanel({
                     data-slot="account-unfilled-row"
                     className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
                   >
-                    {/* ①줄 — 종목명(유일한 신축 항목) · 구분/출처 태그 · (우) 주문번호 */}
-                    <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+                    {/*
+                      r1 — 종목명(유일한 신축) + 구분 태그 … (우) **주문가**.
+                      ★ 주문번호와 출처 태그를 뺐다 (260911-w5h). 주문번호는 사용자가 읽고
+                        행동에 쓰는 값이 아니고(취소는 버튼이 한다), 출처는 상따 화면에서
+                        모든 행이 같은 값이라 정보가 0 이었다. 좁은 화면의 노출 표면도 함께
+                        줄어든다(T-w5h-02). **데스크톱 표에는 둘 다 남는다.**
+                      ★ 취소 버튼의 `aria-label` 이 주문번호를 계속 말하므로 식별은 가능하다.
+                    */}
+                    <div
+                      data-slot="account-unfilled-r1"
+                      className="flex min-w-0 items-center gap-[var(--s-2)]"
+                    >
                       <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
                         {view.label ?? <span className="mono">{view.row.isin}</span>}
                       </span>
                       <span className="flex flex-none items-center gap-1">
                         <SideTag side={view.row.side} />
-                        <OriginTag tag={originTag} />
                       </span>
-                      <span className="ml-auto flex flex-none items-center gap-1">
-                        <RowKey>주문</RowKey>
-                        <RowValue>{view.row.orderNo}</RowValue>
+                      <span className="mono ml-auto flex-none text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--fg)]">
+                        {KRW.format(view.row.price)}
                       </span>
                     </div>
-                    {/* ②줄 — 주문가 · 미체결 {잔량}/{주문량} · (우) 취소 */}
-                    <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
-                      <span className="flex flex-none items-center gap-1">
-                        <RowKey>주문가</RowKey>
-                        <RowValue>{KRW.format(view.row.price)}</RowValue>
-                      </span>
-                      <span className="flex flex-none items-center gap-1">
-                        <RowKey>미체결</RowKey>
-                        <RowValue>
-                          {KRW.format(view.row.unfilledQty)}/{KRW.format(view.row.orderQty)}
-                        </RowValue>
+                    {/* r2 — 미체결 {잔량}/{주문량}주(muted 보조) … (우) 취소 */}
+                    <div
+                      data-slot="account-unfilled-r2"
+                      className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-fg)]">
+                        미체결{' '}
+                        <b className="mono font-semibold text-[var(--fg)]">
+                          {KRW.format(view.row.unfilledQty)}
+                        </b>{' '}
+                        /{' '}
+                        <b className="mono font-semibold text-[var(--fg)]">
+                          {KRW.format(view.row.orderQty)}
+                        </b>
+                        주
                       </span>
                       <span className="ml-auto flex-none">{cancelButton(view)}</span>
                     </div>
@@ -650,57 +681,77 @@ export function AccountPanel({
                     data-slot="account-holding-row"
                     className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
                   >
-                    {/* ①줄 — 종목명(유일한 신축 항목) · 보유 · 매도 · (우) 평가 */}
-                    <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+                    {/*
+                      r1 — 종목명(유일한 신축) … (우) **매입금액**.
+                      ★ 오른쪽 굵은 자리는 **모드와 무관하게 언제나 매입금액**이다
+                        (260911-w5h). 데스크톱 표는 `stockScoped` 로 5번째 칸의 의미를
+                        가르지만(⑤ 예외, 그쪽은 헤더가 그 사실을 말한다), **카드 행에서는
+                        그 분기를 쓰지 않는다** — 한 목록 안에서 같은 자리가 두 의미를 가지면
+                        그 목록은 읽을 수 없다. 평가금액은 아래 r3 에 있다.
+                      ★ 라벨을 붙이지 않는다 — 오른쪽 굵은 자리가 곧 그 뜻이고, 세 목록이
+                        같은 자리를 같은 규칙으로 쓴다.
+                    */}
+                    <div
+                      data-slot="account-holding-r1"
+                      className="flex min-w-0 items-center gap-[var(--s-2)]"
+                    >
                       <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
                         {view.label ?? <span className="mono">{view.row.isin}</span>}
                       </span>
-                      <span className="flex flex-none items-center gap-1">
-                        <RowKey>보유</RowKey>
-                        <RowValue>{KRW.format(view.row.qty)}</RowValue>
-                      </span>
-                      <span className="flex flex-none items-center gap-1">
-                        <RowKey>매도</RowKey>
-                        <RowValue>{KRW.format(view.row.sellableQty)}</RowValue>
-                      </span>
-                      <span className="ml-auto flex flex-none items-center gap-1">
-                        {/* 표 5번째 칸과 같은 분기다(⑤ 예외) — 한쪽만 바꾸면 두 뷰가 갈린다. */}
-                        <RowKey>{stockScoped ? '평가' : '매입'}</RowKey>
-                        <RowValue>
-                          {stockScoped
-                            ? view.value == null
-                              ? '—'
-                              : KRW.format(Math.round(view.value))
-                            : KRW.format(Math.round(view.cost))}
-                        </RowValue>
+                      <span className="mono ml-auto flex-none text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--fg)]">
+                        {KRW.format(Math.round(view.cost))}
                       </span>
                     </div>
-                    {/* ②줄 — 평단 → 현재 · (우) 손익 · 손익률 */}
-                    <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
-                      <span className="flex flex-none items-center gap-1">
-                        <RowKey>평단</RowKey>
-                        <RowValue>{KRW.format(Math.round(view.row.avgPrice))}</RowValue>
-                        <RowKey>→</RowKey>
-                        <RowValue>{view.price == null ? '—' : KRW.format(view.price)}</RowValue>
+                    {/* r2 — 수량 · 매도가능(좌) … 평단(우). 둘 다 muted 보조다. */}
+                    <div
+                      data-slot="account-holding-r2"
+                      className="mt-1 flex min-w-0 items-center gap-[var(--s-2)] text-[11px] text-[var(--muted-fg)]"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        <b className="mono font-semibold">{KRW.format(view.row.qty)}</b>주 · 매도가능{' '}
+                        <b className="mono font-semibold">{KRW.format(view.row.sellableQty)}</b>
                       </span>
-                      <span className="ml-auto flex flex-none items-center gap-1 text-[length:var(--t-caption)]">
-                        {view.pnl == null ? (
-                          <RowValue>—</RowValue>
-                        ) : (
-                          <UiNumber
-                            value={Math.round(view.pnl)}
-                            format="price"
-                            showSign
-                            withColor
-                          />
-                        )}
-                        {view.rate == null ? (
-                          <RowValue>—</RowValue>
-                        ) : (
-                          <UiNumber value={view.rate} format="percent" showSign withColor />
-                        )}
+                      <span className="ml-auto flex-none whitespace-nowrap">
+                        평단{' '}
+                        <b className="mono font-semibold">
+                          {KRW.format(Math.round(view.row.avgPrice))}
+                        </b>
                       </span>
                     </div>
+                    {/*
+                      r3 — **현재가를 아는 행에만** 있다.
+                      ★ 대시를 찍지 않는다 (260911-w5h). 계좌 전용 모드에서는 현재가·평가·
+                        손익·손익률을 전부 모르므로 옛 구조는 한 행에 대시를 3개씩 그렸다 —
+                        「모른다」를 세 번 말하는 줄은 정보가 0 이고 목록의 절반을 먹는다.
+                        모르면 **줄 자체가 없다.**
+                    */}
+                    {view.price != null && (
+                      <div
+                        data-slot="account-holding-r3"
+                        className="mt-1 flex min-w-0 items-center gap-[var(--s-2)] text-[11px] text-[var(--muted-fg)]"
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          현재 <b className="mono font-semibold">{KRW.format(view.price)}</b>
+                        </span>
+                        <span className="ml-auto flex flex-none items-center gap-1 whitespace-nowrap">
+                          평가{' '}
+                          <b className="mono font-semibold">
+                            {view.value == null ? '—' : KRW.format(Math.round(view.value))}
+                          </b>
+                          {view.pnl != null && (
+                            <UiNumber
+                              value={Math.round(view.pnl)}
+                              format="price"
+                              showSign
+                              withColor
+                            />
+                          )}
+                          {view.rate != null && (
+                            <UiNumber value={view.rate} format="percent" showSign withColor />
+                          )}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -717,20 +768,6 @@ export function AccountPanel({
         onConfirm={handleCancelConfirmed}
       />
     </div>
-  );
-}
-
-/** 카드 행의 라벨(11px 중립). **`flex:none`** 이라 숫자를 밀어내지 않는다. */
-function RowKey({ children }: { children: ReactNode }) {
-  return <span className="text-[11px] text-[var(--muted-fg)]">{children}</span>;
-}
-
-/** 카드 행의 값(mono·tabular). 이것도 `flex:none` 이어야 잘리지 않는다. */
-function RowValue({ children }: { children: ReactNode }) {
-  return (
-    <span className="mono whitespace-nowrap text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
-      {children}
-    </span>
   );
 }
 
