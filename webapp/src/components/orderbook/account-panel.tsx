@@ -35,6 +35,12 @@
  *   `HoldingState` 에는 현재가가 없다. 실시간가는 지금 구독 중인 **한 종목**만 안다
  *   (계좌 전용 모드에서는 하나도 모른다). 모르는 행에 값을 지어내면 그 숫자로 매도 판단을
  *   하게 된다 — 모르면 `—` 로 둔다.
+ *   ★ 예외 하나 — **계좌 전용 모드에서 그 칸은 「평가금액」이 아니라 「매입금액」**이다
+ *     (`qty × avgPrice`). 현재가를 하나도 모르는 표면이라 평가금액 칸이 전부 `—` 로 비는데,
+ *     매입금액은 현재가와 무관하게 항상 알 수 있다. 값을 지어내는 것이 아니라 **칸의 의미를
+ *     바꾸는 것**이라 헤더 문구와 셀 값이 `stockScoped` **같은 분기**를 읽는다 — 둘이 갈리면
+ *     「평가금액」 헤더 아래 매입금액이 앉는다. 평가손익·수익률은 그대로 `—` 다(손익은
+ *     현재가 없이 성립하지 않는다).
  *
  * ⑥ 취소 결과도 세 갈래다 — 접수 / **결과 모름** / 거부
  *   주문과 같은 규율이다. `sendOrder` 는 **어떤 경로에서도 reject 하지 않으므로**(16-10)
@@ -171,6 +177,8 @@ interface HoldingView {
   value: number | null;
   pnl: number | null;
   rate: number | null;
+  /** 매입금액(`qty × avgPrice`). 현재가와 무관하므로 **항상** 채워진다 — 계좌 전용 모드의 5번째 칸이다(⑤ 예외). */
+  cost: number;
 }
 
 export function AccountPanel({
@@ -233,6 +241,7 @@ export function AccountPanel({
           value: priced ? price * row.qty : null,
           pnl: priced ? (price - row.avgPrice) * row.qty : null,
           rate: priced ? (price - row.avgPrice) / row.avgPrice : null,
+          cost: row.qty * row.avgPrice,
         };
       }),
     [account, isin, name, currentPrice],
@@ -576,7 +585,9 @@ export function AccountPanel({
                       <TableHead scope="col" className="num">보유</TableHead>
                       <TableHead scope="col" className="num">매도가능</TableHead>
                       <TableHead scope="col" className="num">평단가</TableHead>
-                      <TableHead scope="col" className="num">평가금액</TableHead>
+                      {/* ⑤ 예외 — 현재가를 하나도 모르는 계좌 전용 모드에서는 매입금액 칸이다.
+                          아래 셀과 **같은 분기**(`stockScoped`)를 읽어야 헤더와 값이 갈리지 않는다. */}
+                      <TableHead scope="col" className="num">{stockScoped ? '평가금액' : '매입금액'}</TableHead>
                       <TableHead scope="col" className="num">평가손익</TableHead>
                       <TableHead scope="col" className="num">수익률</TableHead>
                     </TableRow>
@@ -597,7 +608,11 @@ export function AccountPanel({
                           {KRW.format(Math.round(view.row.avgPrice))}
                         </TableCell>
                         <TableCell className="num mono text-[length:var(--t-caption)]">
-                          {view.value == null ? '—' : KRW.format(Math.round(view.value))}
+                          {stockScoped
+                            ? view.value == null
+                              ? '—'
+                              : KRW.format(Math.round(view.value))
+                            : KRW.format(Math.round(view.cost))}
                         </TableCell>
                         <TableCell className="num text-[length:var(--t-caption)]">
                           {view.pnl == null ? (
@@ -649,9 +664,14 @@ export function AccountPanel({
                         <RowValue>{KRW.format(view.row.sellableQty)}</RowValue>
                       </span>
                       <span className="ml-auto flex flex-none items-center gap-1">
-                        <RowKey>평가</RowKey>
+                        {/* 표 5번째 칸과 같은 분기다(⑤ 예외) — 한쪽만 바꾸면 두 뷰가 갈린다. */}
+                        <RowKey>{stockScoped ? '평가' : '매입'}</RowKey>
                         <RowValue>
-                          {view.value == null ? '—' : KRW.format(Math.round(view.value))}
+                          {stockScoped
+                            ? view.value == null
+                              ? '—'
+                              : KRW.format(Math.round(view.value))
+                            : KRW.format(Math.round(view.cost))}
                         </RowValue>
                       </span>
                     </div>

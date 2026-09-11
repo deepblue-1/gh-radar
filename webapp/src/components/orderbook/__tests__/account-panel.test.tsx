@@ -19,6 +19,7 @@ import type {
  *   - **결과 모름은 그 주문의 취소 버튼을 다시 열지 않는다**(⑦)
  *   - **취소 키는 그 행의 ISIN 이다**(⑭, D-02/D-28) — 화면에 열린 종목을 쓰면 오취소
  *   - **계좌 전용 모드**(종목 축 없음)에서도 미체결·잔고가 그려진다(⑯, D-21)
+ *   - **계좌 전용 모드의 5번째 칸은 「매입금액」**이고 헤더와 셀이 같은 분기를 읽는다(⑯-e/⑯-f, ⑤ 예외)
  *   - **모바일 2줄 카드 행**(`.rlist`)에서 신축 항목은 종목명 하나뿐이다(⑰, UI-SPEC C7)
  *
  * ★ 스텁 경계 — `@/lib/relay-provider` 의 `useRelayContext` 하나다 (D-02).
@@ -306,6 +307,22 @@ describe('AccountPanel — 잔고 표 · 빈 상태 · 계좌', () => {
     expect(within(table).getByText('+7.84%')).toHaveClass('text-[var(--up)]');
   });
 
+  it('⑧-b 종목 축이 있으면 5번째 칸은 「평가금액」 헤더 + 현재가 기반 값이다 (⑤)', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('tab', { name: '잔고 (2)' }));
+
+    const table = tableOf('account-holdings');
+    expect(within(table).getByRole('columnheader', { name: '평가금액' })).toBeInTheDocument();
+    expect(within(table).queryByRole('columnheader', { name: '매입금액' })).toBeNull();
+
+    // 98,400 × 120 = 11,808,000 — 매입금액(91,250 × 120 = 10,950,000)이 아니다.
+    const row = within(table).getByText('한미반도체').closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('11,808,000')).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText('10,950,000')).toBeNull();
+  });
+
   it('⑨ 현재가를 모르는 보유 종목의 평가손익은 지어내지 않고 — 로 둔다', async () => {
     const user = userEvent.setup();
     renderPanel();
@@ -507,13 +524,50 @@ describe('AccountPanel — 계좌 전용 모드 (D-21 / My page)', () => {
     expect(screen.getByRole('heading', { name: '잔고' })).toBeInTheDocument();
   });
 
-  it('⑯-c 현재가를 하나도 모르므로 평가·손익을 지어내지 않는다 (⑤)', () => {
+  it('⑯-c 현재가를 하나도 모르므로 손익을 지어내지 않는다 (⑤)', () => {
     renderAccountOnly();
 
     for (const card of holdingCards()) {
-      // 평가 · 현재 · 손익 · 손익률 4곳이 전부 —
-      expect(within(card).getAllByText('—').length).toBeGreaterThanOrEqual(4);
+      // 현재 · 손익 · 손익률 3곳이 —. 5번째 칸은 매입금액으로 채워지므로(⑯-f) 여기 들지 않는다.
+      expect(within(card).getAllByText('—').length).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('⑯-e 5번째 칸은 「매입금액」 헤더이고 셀이 보유수량 × 평단가다 (⑤ 예외)', () => {
+    renderAccountOnly();
+
+    const table = tableOf('account-holdings');
+    expect(within(table).getByRole('columnheader', { name: '매입금액' })).toBeInTheDocument();
+    // 헤더와 셀은 같은 분기를 읽는다 — 「평가금액」 문구가 남아 있으면 안 된다.
+    expect(within(table).queryByRole('columnheader', { name: '평가금액' })).toBeNull();
+
+    // 120 × 91,250 = 10,950,000 / 200 × 44,100 = 8,820,000 — 대시가 아니다.
+    expect(within(table).getByText('10,950,000')).toBeInTheDocument();
+    expect(within(table).getByText('8,820,000')).toBeInTheDocument();
+  });
+
+  it('⑯-f 모바일 카드의 같은 칸도 「매입」 + 같은 숫자다 (표와 카드가 갈리지 않는다)', () => {
+    renderAccountOnly();
+
+    const [first, second] = holdingCards();
+    expect(within(first).getByText('매입')).toBeInTheDocument();
+    expect(within(first).queryByText('평가')).toBeNull();
+    expect(within(first).getByText('10,950,000')).toBeInTheDocument();
+    expect(within(second).getByText('8,820,000')).toBeInTheDocument();
+  });
+
+  it('⑯-g 매입금액을 채워도 평가손익·수익률은 여전히 — 다 (손익은 지어내지 않는다)', () => {
+    renderAccountOnly();
+
+    const table = tableOf('account-holdings');
+    const row = within(table).getByText(ISIN).closest('tr');
+    expect(row).not.toBeNull();
+    const cells = within(row as HTMLElement).getAllByRole('cell');
+    // 종목 · 보유 · 매도가능 · 평단가 · 매입금액 · 평가손익 · 수익률
+    expect(cells).toHaveLength(7);
+    expect(cells[4]).toHaveTextContent('10,950,000');
+    expect(cells[5]).toHaveTextContent('—');
+    expect(cells[6]).toHaveTextContent('—');
   });
 
   it('⑯-d 취소는 계좌 전용 모드에서도 그 행의 ISIN 으로 나간다', async () => {

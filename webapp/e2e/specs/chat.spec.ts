@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 import { mockStockApi } from '../fixtures/mock-api';
 import { FIXTURE_SK_HYNIX } from '../fixtures/stocks';
-import { mockHomeApi, HOME_EMPTY, HOME_POPULATED } from '../fixtures/home';
+import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import {
   mockChatApi,
   CHAT_ASSISTANT_TEXT,
@@ -36,9 +36,9 @@ test.describe('Phase 14 — 챗 비로그인 게이트 (D-01)', () => {
   test('비로그인 FAB 클릭 → "로그인이 필요해요" 게이트(스트리밍 미발생)', async ({
     page,
   }) => {
-    // `/` 는 PUBLIC_EXACT — 비로그인도 공개. 홈 급등 데이터는 empty mock 으로 고정.
-    await mockHomeApi(page, { response: HOME_EMPTY });
-    await page.goto('/');
+    // 홈(`/`)은 quick 260911-tuk 으로 로그인 벽 뒤로 들어갔다 — 비로그인이 실제로 머무는
+    // 공개 화면은 `/login` 이고, FAB 은 root layout 전역 마운트라 거기서도 그려진다.
+    await page.goto('/login');
 
     // 전역 FAB(aria-label "AI") 노출 확인.
     const fab = page.getByRole('button', { name: 'AI', exact: true });

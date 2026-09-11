@@ -15,7 +15,8 @@ import { mockStockApi } from '../fixtures/mock-api';
  *
  * 데이터(급등)는 날마다 변동하므로 `/api/home` 을 결정론 mock 으로 고정(themes.spec 동형).
  * populated/empty 두 응답을 명시 주입해 라이브 데이터 부재로 하드 실패하지 않도록 한다.
- * storageState(로그인)는 config chromium project 가 자동 주입 — 단 `/` 는 비로그인도 공개.
+ * storageState(로그인)는 config chromium project 가 자동 주입 — `/` 도 로그인 필수 표면이라
+ * (quick 260911-tuk) 그 주입이 없으면 middleware 가 `/login?next=%2F` 로 튕긴다.
  */
 
 test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {

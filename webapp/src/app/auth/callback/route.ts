@@ -13,7 +13,7 @@ import { createClient } from "@/lib/supabase/server";
  * Security (T-06.2-02 Open redirect mitigation):
  * - `next` 파라미터는 `/` 로 시작하는 상대 경로만 허용
  * - `//attacker.com` 같은 protocol-relative URL 차단
- * - fallback: `/scanner`
+ * - fallback: `/` (홈 — 홈이 인증 표면이라 로그인 직후 착지점이다)
  *
  * [Phase 06.2 변경사항] whitelist/role 체크 없음 (D-04).
  */
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   const safeNext =
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
       ? rawNext
-      : "/scanner";
+      : "/";
 
   if (code) {
     const supabase = await createClient();

@@ -42,7 +42,7 @@ function LoginForm() {
   const safeNext =
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
       ? rawNext
-      : "/scanner";
+      : "/";
 
   // 알 수 없는 에러 키는 unknown fallback (T-06.2-15 — 내부 상태 유출 없음)
   const errorMessage = errorKey

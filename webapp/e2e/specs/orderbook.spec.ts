@@ -443,7 +443,7 @@ test.describe('Phase 15 Plan 14 — 비로그인 호가창 게이트', () => {
     await page.goto(ORDERBOOK_URL);
 
     /*
-      `/stocks/*` 는 공개 경로가 아니다(`lib/supabase/middleware.ts` 의 PUBLIC_EXACT/PREFIXES).
+      `/stocks/*` 는 공개 경로가 아니다(`lib/supabase/middleware.ts` 의 PUBLIC_PREFIXES).
       그래서 "호가주문 탭에 로그인 안내" 가 아니라 **middleware 가 /login 으로 돌려보내는 것**이
       실제 제품 동작이고, 그게 곧 로그인 안내다.
     */

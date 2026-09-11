@@ -193,30 +193,29 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
     }
   });
 
-  test('3. 비로그인 — 동일 미렌더 + 홈·상승률 상위·테마·AI 애널리스트는 보인다', async ({
+  test('3. 비로그인 — 사이드바가 있는 경로에 도달하지 못한다 (홈도 로그인 벽 뒤다)', async ({
     browser,
   }) => {
+    /*
+      quick 260911-tuk 으로 홈(`/`)이 로그인 필수 표면이 되면서 **사이드바를 그리는 공개
+      경로가 하나도 남지 않았다.** 예전 이 케이스는 `/` 에서 트리를 열어 「비로그인이면
+      트레이딩·My page 가 미렌더」를 봤지만, 지금 그 화면은 도달 자체가 불가능하다 —
+      도달하지 않는 상태를 단언하면 그것이 곧 가짜 테스트다(me.spec.ts 의 같은 판단).
+
+      그래서 여기서는 **실제 계약**인 리다이렉트와 「사이드바 없음」을 본다. 트리 자체의
+      비로그인 미렌더 계약은 컴포넌트 단위 테스트가 잠근다
+      (`src/components/layout/__tests__/app-sidebar.test.tsx` ③-a).
+    */
     // 프로젝트 storageState 는 로그인 상태다. 파일/describe 레벨 `test.use` 는 워커 재사용
     // 환경에서 경합이 관찰됐으므로(auth-guards.spec.ts 주석) **빈 context 를 직접 만든다**.
     const context = await browser.newContext({
       storageState: { cookies: [], origins: [] },
     });
     const page = await context.newPage();
-    await mockHomeApi(page, { response: HOME_POPULATED });
 
-    // `/trading/vi` 는 middleware 가 /login 으로 돌려보내 사이드바가 없다.
-    // 비로그인도 볼 수 있는 공개 경로에서 트리를 확인한다.
     await page.goto('/');
-    const nav = desktopNav(page);
-    await expect(nav.getByRole('link', { name: '홈' })).toBeVisible({ timeout: 15_000 });
-
-    await expect(nav.getByText('트레이딩', { exact: true })).toHaveCount(0);
-    await expect(nav.getByRole('link', { name: 'My page' })).toHaveCount(0);
-    await expect(strategyItems(nav)).toHaveCount(0);
-
-    await expect(nav.getByRole('link', { name: '상승률 상위' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: '테마' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'AI 애널리스트' })).toBeVisible();
+    await expect(page).toHaveURL(/\/login\?next=%2F$/);
+    await expect(desktopNav(page)).toHaveCount(0);
 
     await context.close();
   });

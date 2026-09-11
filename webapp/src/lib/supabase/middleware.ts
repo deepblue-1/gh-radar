@@ -8,12 +8,6 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PREFIXES = ["/login", "/auth"];
 
 /**
- * 공개 exact 매치 — 정확히 일치해야 공개인 경로
- * (루트 "/" 는 공개 — Phase 13 D-07 홈 루트 승격)
- */
-const PUBLIC_EXACT = ["/"];
-
-/**
  * updateSession — @supabase/ssr 공식 패턴 기반 세션 쿠키 동기화 + 라우트 가드.
  *
  * 핵심 책임:
@@ -21,9 +15,10 @@ const PUBLIC_EXACT = ["/"];
  *    → Pitfall 1 방지 (stale session → 무한 리다이렉트 루프)
  * 2. `supabase.auth.getUser()` 호출로 JWT refresh rotation 트리거
  *    → `getSession()` 금지 (Anti-pattern: 서명 미검증)
- * 3. PUBLIC_PREFIXES / PUBLIC_EXACT 공개 whitelist 기반 기본 차단
+ * 3. PUBLIC_PREFIXES 공개 whitelist 기반 기본 차단 — 공개 exact 경로는 **없다**
  *    - D-10: 비로그인 사용자가 비공개 경로 접근 → /login?next=<원래경로> 302
- *    - D-12: 로그인 사용자가 /login 접근 → /scanner 302 (루프 방지)
+ *    - 홈("/")도 인증 표면이다 — 미인증은 /login?next=%2F 로 튕긴다
+ *    - D-12: 로그인 사용자가 /login 접근 → / 302 (루프 방지 — "/" 는 인증 통과 경로)
  *    - D-13: /api/* 는 webapp middleware 대상 외 (Express Cloud Run 별도 도메인)
  */
 export async function updateSession(request: NextRequest) {
@@ -57,11 +52,9 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isPublic =
-    PUBLIC_EXACT.includes(pathname) ||
-    PUBLIC_PREFIXES.some(
-      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-    );
+  const isPublic = PUBLIC_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 
   // D-10: 기본 차단 + 공개 whitelist — 비로그인 사용자가 비공개 경로 접근 시
   //       /login?next=<원래경로+쿼리> 로 302 리다이렉트
@@ -73,10 +66,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // D-12: 로그인 상태에서 /login 접근 시 → /scanner 리다이렉트 (루프 방지)
+  // D-12: 로그인 상태에서 /login 접근 시 → / 리다이렉트 (루프 방지)
+  //        홈이 인증 표면이 됐으므로 로그인 직후 착지점은 홈이다. "/" 는 인증
+  //        사용자에게 통과되는 경로라 위의 차단 분기로 되돌아오지 않는다.
   if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
-    url.pathname = "/scanner";
+    url.pathname = "/";
     url.search = "";
     return NextResponse.redirect(url);
   }

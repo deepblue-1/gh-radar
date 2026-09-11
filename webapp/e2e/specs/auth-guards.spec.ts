@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
  * 검증:
  * - middleware-guard (D2): 미인증 /scanner, /watchlist → /login?next=<원본>
  * - middleware-guard (Phase 16): 미인증 /trading/limit-chaser/new, /trading/vi, /me → 동일
- * - public whitelist: "/" 루트는 미인증도 접근 가능 (200 유지 · /login 리다이렉트 없음)
+ * - middleware-guard (quick 260911-tuk): 미인증 루트 "/" 도 → /login?next=%2F (공개 exact 경로 없음)
  * - login error 파라미터 한글 메시지 + Google 버튼
  * - open-redirect 가드: /auth/callback, /login 의 `//attacker.com` next 차단
  *
@@ -72,21 +72,15 @@ test.describe("auth — 로그인 벽 + 리다이렉트 (미인증)", () => {
     await expect(page).toHaveURL(/\/login\?next=/);
   });
 
-  test("public whitelist: 미인증 루트 / 는 200 으로 유지되고 /login 으로 튕기지 않는다", async ({
-    page,
-    baseURL,
-  }) => {
-    // `/` 는 PUBLIC_EXACT(`src/lib/supabase/middleware.ts`)라 미인증도 middleware 를 통과한다.
-    // Phase 13 D-07 로 홈이 루트로 승격되면서 예전의 `/` → `/scanner` 서버사이드 이동이
-    // 사라졌으므로, 지금 보장해야 할 것은 "리다이렉트되지 않고 그대로 렌더된다" 이다
-    // (quick 260908-qnf · 이관 6 — 예전 서사 `/ → /scanner → /login` 단언을 현재 동작으로 교체).
+  test("middleware-guard: 미인증 루트 / → /login?next=%2F", async ({ page }) => {
+    // `middleware.ts` 에 공개 exact 경로가 더 이상 없다 — 공개 판정은 `PUBLIC_PREFIXES`
+    // (`/login`·`/auth`) 하나뿐이라 홈도 나머지 보호 경로와 **같은 벽 뒤**에 있다
+    // (quick 260911-tuk — 예전 "public whitelist: 루트는 200 유지" 단언을 뒤집었다).
     //
     // 홈의 **내용**은 여기서 단언하지 않는다 — 이 파일은 auth 가드 전용이고 `/api/home` 을
     // 목하지 않는다(내용 단언은 `home.spec.ts` 소관).
-    const response = await page.goto("/");
-    expect(response?.status()).toBe(200);
-    await expect(page).toHaveURL(`${baseURL}/`);
-    await expect(page).not.toHaveURL(/\/login/);
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login\?next=%2F$/);
   });
 
   test("login page: ?error=auth_failed → 한글 alert", async ({ page }) => {
