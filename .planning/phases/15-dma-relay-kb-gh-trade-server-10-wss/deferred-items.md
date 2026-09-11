@@ -315,3 +315,25 @@ quick 이전 커밋(`399ade3`) 버전으로 되돌려 실행해도 **동일하�
 
 셋 다 30분 이내 quick 감이다. 전체 스위트 5회 실행 중 1회(2026-09-08 19:47)는 `79 passed / 0 failed`
 로 exit 0 이었으나, 이후 저부하(load1 2.8~3.9)에서도 위 3건이 결정적으로 재현된다.
+
+> **[2026-09-11 종결]** 위 3건은 **Phase 16 의 16-17 이 이미 닫았다.** 이 표는 기록으로 남기고
+> 상태만 여기 적는다(덮어쓰지 않는다).
+>
+> | 스펙 | 종결 커밋 | 실제 원인 (위 「관측된 원인」 대비) |
+> |------|----------|-----------------------------------|
+> | `a11y.spec.ts:37` | `8c5bcaa` | 위 진단대로. `stock-daily-chart-skeleton` 에 `role="status"` 추가 — 형제 스켈레톤 3종과 같은 규약이었고 이것만 누락돼 있었다 |
+> | `news.spec.ts:117` | `d2acd17` | **위 진단은 절반만 맞았다.** `count()` 가 비재시도인 것은 맞지만 그보다 앞의 문제는 **`h1` 이 동기화 지점이 아니었다**는 것이다 — `headingName = stock?.name ?? code` 라 제목은 목록이 스켈레톤일 때부터 정규식에 걸린다. 그래서 50건 케이스는 늘 통과하고 100건만 깨졌다. 컨테이너 대기 + 재시도 하한 확인 후 상한 측정으로 교체 |
+> | `search.spec.ts:17` | `d2acd17` | 위 진단대로 하이드레이션 경주. `useCmdKShortcut` 의 `addEventListener` 가 effect 안에서 서는데 서버 HTML 은 이미 화면에 있어, `goto` 직후 dispatch 는 리스너 없는 document 에 떨어져 사라진다. `toPass` 로 재발사 |
+>
+> `d2acd17` 은 위 표에 없던 `news` 「refresh cooldown (V-19)」 1건도 같이 닫았다
+> (`disabled = isRefreshing || isCooldown` 이라 429 도착 전에도 disabled — 기다릴 신호는
+> disabled 가 아니라 `data-remaining-seconds` 였다).
+>
+> *재확인 (2026-09-11, 16-17 과 독립 실행):* `pnpm --filter webapp exec playwright test` 전량
+> **126 passed / 9 skipped / 0 failed**, exit 0. 16-17 이 기록한 수치와 일치한다.
+>
+> **skip 9건은 결함이 아니다.** `user-themes` 4 · `watchlist` 5 가 `SUPABASE_SERVICE_ROLE_KEY`
+> 부재로 건너뛴다. `playwright.config.ts` 의 `E2E_ENV_ALLOWLIST` 가 그 키를 **의도적으로**
+> 제외하기 때문이다 — `webServer` 는 부모 env 를 그대로 물려주므로 통째로 로드하면 서비스롤
+> 키가 Next dev 런타임에 주입되고, 이는 SETUP.md §3 이 금지한 RLS 우회 상태다. 시딩은 셸에서
+> 직접 export 하는 별도 경로로 분리돼 있다. **이 skip 을 없애려면 그 보안 결정을 뒤집어야 한다.**
