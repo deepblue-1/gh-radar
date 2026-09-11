@@ -23,6 +23,7 @@ import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
 import type { RelayLimitChaser } from "@gh-radar/shared";
 
+import { ThemeToggle } from "./theme-toggle";
 import { UserSection } from "./user-section";
 
 /**
@@ -336,7 +337,17 @@ export function AppSidebar() {
           <NavLink item={NAV_CHAT} active={isActive(NAV_CHAT.href)} />
         </li>
       </ul>
-      <UserSection />
+      {/*
+        하단 한 줄 — 유저 섹션과 테마 토글이 나란히 선다. 토글이 탑바를 떠나 여기로 왔다.
+        `UserSection` 트리거의 `w-full` 은 이 래퍼 안에서만 늘어나므로 토글을 밀어내지 않는다.
+        `user == null` 이면 `UserSection` 이 `null` 을 돌려주고 토글만 남는 것이 정상이다.
+      */}
+      <div className="flex min-w-0 items-center gap-1">
+        <div className="min-w-0 flex-1">
+          <UserSection />
+        </div>
+        <ThemeToggle className="size-9 shrink-0" />
+      </div>
     </nav>
   );
 }

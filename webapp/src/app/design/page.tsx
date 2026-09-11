@@ -1,8 +1,9 @@
 /**
  * `/design` 카탈로그 — UI-SPEC §6, D-29 (7 섹션).
  *
- * Server RSC. CenterShell 는 이미 AppHeader 에 `<ThemeToggle />` 을 고정 배치하므로
- * 별도 헤더 버튼 없이도 우측 상단에 3상태 토글이 노출된다 (CONTEXT D-28/D-30).
+ * Server RSC. 테마 토글의 기본 거처는 사이드바 하단 유저 섹션 줄이지만, `CenterShell` 은
+ * 사이드바가 없는 셸이라 `AppHeader` 에 `themeToggle` 을 켠다 — 그래서 이 페이지도 별도
+ * 헤더 버튼 없이 우측 상단에서 토글을 쓸 수 있다 (CONTEXT D-28/D-30).
  *
  * 각 섹션은 `_sections/*` 에 분리. Slider/Sheet/Tooltip/DensityProvider 가 포함된
  * Components 섹션만 client boundary 로 표시된다.
@@ -38,8 +39,8 @@ function IntroSection() {
         <h1 className="text-[length:var(--t-h1)] font-bold">Design Catalog</h1>
         <p className="mt-2 text-[length:var(--t-base)] text-[var(--muted-fg)]">
           Phase 3 · gh-radar 디자인 시스템. 이 페이지는 토큰·컴포넌트·레이아웃 전체를 한 화면에
-          회수하는 단일 소스다. 우측 상단 ThemeToggle 로 Light / Dark / System 을 실시간 전환할 수
-          있다.
+          회수하는 단일 소스다. 우측 상단 ThemeToggle(CenterShell 전용 — 사이드바가 있는 화면에서는
+          사이드바 하단에 있다)로 Light / Dark / System 을 실시간 전환할 수 있다.
         </p>
       </div>
 

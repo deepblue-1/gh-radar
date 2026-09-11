@@ -14,6 +14,7 @@ import type { RelayLimitChaser } from "@gh-radar/shared";
  *  ⑤ `aria-current` 는 `/trading/limit-chaser/new` 에서 「상따」에만
  *  ⑥ 모든 링크에 `data-nav-item`
  *  ⑦ 전략 0건이면 「등록된 전략 없음」(링크 아님)
+ *  ⑧ 하단 줄에 유저 섹션과 **테마 토글**이 나란히 산다 (토글이 탑바를 떠나 여기로 왔다)
  */
 
 // ---------------------------------------------------------------------------
@@ -452,5 +453,43 @@ describe("AppSidebar — 활성 표시 · drawer 계약", () => {
     for (const link of links) {
       expect(link.hasAttribute("data-nav-item")).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("AppSidebar — 하단 줄 (테마 토글의 새 집)", () => {
+  /**
+   * 토글이 탑바에서 사이드바 하단으로 이사했다(quick 260911-tuk). 그래서 **여기 없으면
+   * 사이드바가 있는 화면에는 토글이 아예 없다** — 그 사실을 이 파일이 잠근다.
+   * `UserSection` 은 파일 상단에서 모킹돼 있으므로 보이는 것은 그 자리표시자다.
+   */
+  it("⑧ 유저 섹션과 테마 토글이 같은 줄에 나란히 있다", () => {
+    setupReady();
+    render(<AppSidebar />);
+
+    const toggle = screen.getByRole("button", { name: /모드 \(클릭 시/ });
+    const userSection = screen.getByTestId("user-section");
+
+    // 같은 래퍼의 자식 둘 — 하나가 다른 하나를 감싸면 레이아웃이 어긋난다.
+    const row = toggle.parentElement;
+    expect(row).not.toBeNull();
+    expect(row).toContainElement(userSection);
+    expect(row?.className).toContain("items-center");
+
+    // 유저 섹션만 늘어난다(`w-full` 트리거가 토글을 밀어내지 않게) — 토글은 shrink-0.
+    expect(userSection.parentElement?.className).toContain("flex-1");
+    expect(toggle.className).toContain("shrink-0");
+  });
+
+  it("⑧-b 비로그인 사이드바에도 토글은 있다", () => {
+    // 실제 `UserSection` 은 `user == null` 이면 `null` 을 돌려주지만 이 파일은 그것을
+    // 모킹한다(트리 계약과 무관한 표면이라서). 그래서 여기서 잠그는 것은 「유저 섹션이
+    // 사라져도 토글이 남는다」가 아니라 **토글이 로그인 여부와 무관하게 렌더된다**이다 —
+    // 없는 검증을 이름으로 지어내지 않는다.
+    mockAuth = guest();
+    render(<AppSidebar />);
+
+    expect(screen.getByRole("button", { name: /모드 \(클릭 시/ })).toBeInTheDocument();
   });
 });

@@ -4,6 +4,8 @@ import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 
+import { cn } from '@/lib/utils';
+
 type ThemeValue = 'light' | 'dark';
 
 const LABELS: Record<ThemeValue, string> = {
@@ -13,8 +15,11 @@ const LABELS: Record<ThemeValue, string> = {
 
 /**
  * 2 상태 토글 ThemeToggle — Light ↔ Dark. UI-SPEC §4.3 / D-26: 44×44px hit target.
+ *
+ * `className` 은 크기·여백만 덮어쓰라고 있는 구멍이다. 기본값 `h-11 w-11`(44×44 hit target)은
+ * 그대로 두고, 사이드바 하단처럼 유저 섹션과 한 줄을 나눠 쓰는 자리에서만 좁힌다.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -33,7 +38,10 @@ export function ThemeToggle() {
       onClick={() => setTheme(nextTheme)}
       aria-label={LABELS[current]}
       title={LABELS[current]}
-      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className={cn(
+        'inline-flex h-11 w-11 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        className,
+      )}
       suppressHydrationWarning
     >
       <Icon className="h-5 w-5" aria-hidden="true" />
