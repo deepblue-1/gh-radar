@@ -11,7 +11,10 @@
  *
  * ② ★ 오조작 방지 — 이 파일의 존재 이유
  *   1. **색·위치·문구 3중 일치** — 매수 = `--up` · **왼쪽/위** · 「매수」, 매도 = `--down` ·
- *      **오른쪽/아래** · 「매도」. 그룹 좌측 3px 액센트 바가 그 축을 카드 안에서도 잇는다.
+ *      **오른쪽/아래** · 「매도」. ★ 옛 「그룹 좌측 3px 액센트 바」는 260911-w5h 에서 사라졌다.
+ *      그 축을 카드 안에서 잇는 일은 이제 **셋이 함께** 한다 — ⓐ 상단 세그먼트 탭(선택 시
+ *      매수 `--up` / 매도 `--down` 테두리+배경) ⓑ 게이트 스위치 색(`tone`) ⓒ 그룹 소제목
+ *      (「매수주문」·「한방체결」·「매도주문」). 바 하나를 지운 것이지 축을 지운 것이 아니다.
  *   2. **자동취소(가드) 그룹은 중립색**이다. 경고 전용 색 토큰은 이 저장소에 **없다**(UI-SPEC
  *      C1/FLAG-1) — 없는 토큰을 쓰면 색이 통째로 죽어 「경고인데 안 보이는 경고」가 된다.
  *   3. ★ **규율 3(확인 다이얼로그)은 D-05 로 뒤집혔다.** `order-panel.tsx` 는 제출마다
@@ -22,7 +25,11 @@
  *      크기·간격·위치를 줄이는 변경은 곧 안전장치를 줄이는 변경이다.
  *   4. **제출 후 즉시 재활성 금지** — 전송 중에는 액션 바가 `반영 중…` 으로 잠긴다.
  *   5. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 발주가·산출 수량이 0 이면 스위치를
- *      **켤 수 없고** 그 자리에 사유 한 줄(`data-slot="lc-arm-blocked"`)이 선다. 판정은
+ *      **켤 수 없고** 그 사유가 **카드 맨 아래 한 곳**(`data-slot="lc-arm-blocked-panel"`)에
+ *      모인다 — 그룹 안에 끼워 넣으면 사유가 뜰 때마다 아래 입력 행이 세로로 밀린다.
+ *      같은 문장을 공유하는 게이트는 **한 줄로 합쳐지고**(`armBlockedGroupsOf`) 게이트 이름이
+ *      `·` 로 앞에 나열된다(`GATE_LABEL`). 문구 산출 지점은 계속 `armBlockedTextOf` **하나**고,
+ *      `handleSubmit` 의 차단 문구도 **같은 조립 규칙**(`{게이트이름} · {사유}`)을 쓴다. 판정은
  *      `gateBlocked()` 하나이고 렌더의 `disabled` 와 **전송 직전 가드 2곳**(`toggleGate` ·
  *      `handleSubmit`)이 그것을 함께 읽는다 (GC-WR-09 이전에는 `toggleGate` 만 읽었고,
  *      그래서 「수정」은 relay 에 통째로 거부될 값을 그대로 밀어 넣었다).
@@ -35,7 +42,9 @@
  * ③ ★ 값은 자동 반영되지 않는다 (D-06)
  *   초안의 「0.3초 자동 반영」은 폐기됐다. 이 파일에 **디바운스도 지연 전송도 없다.**
  *   값이 서버값과 달라지면 그 필드가 더티가 되고(라벨 `--primary` + `● ` 접두 · 입력 테두리
- *   `--primary` + 2px 링), 하단 `DirtyActionBar` 의 「수정」을 눌러야 나간다.
+ *   `--primary` **한 겹**), 하단 `DirtyActionBar` 의 「수정」을 눌러야 나간다.
+ *   ★ 옛 2px 링 그림자는 260911-w5h 에서 사라졌다 — 포커스·더티 둘 다 **테두리 한 겹**이
+ *     유일한 표현이다. 비색 경로는 라벨의 `● ` 접두가 그대로 잇는다(WCAG 1.4.1).
  *   ★ **스위치는 더티 값을 함께 밀어낸다** — 스위치를 켜면 그 시점 폼 전체가 실린다.
  *     스위치를 막지 않는 대신 액션 바 보조문이 그 사실을 상시 고지한다.
  *
@@ -132,8 +141,19 @@ const ARM_BLOCKED_TEXT = {
   sellPrice: '시세를 받지 못해 매도가격이 0 이에요. 매도가격을 입력하면 켤 수 있어요.',
   sellWatchQty: '매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
   sweepPrice: '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
-  sweepBuyPrefix: '한방은 매수 무장 조건을 함께 요구해요 — ',
 } as const;
+
+/**
+ * 게이트의 **표시 이름** — 값은 각 `Group` 의 `title` 과 **같은 문자열**이어야 한다.
+ *
+ * 사용자가 카드 위에서 본 이름과 사유가 부르는 이름이 갈리면 그것이 곧 오독이다.
+ * 사유 줄과 `handleSubmit` 차단 문구가 **이 표 하나**를 읽는다.
+ */
+const GATE_LABEL: Record<GateKey, string> = {
+  buyEnabled: '매수주문',
+  sweepEnabled: '한방체결',
+  sellEnabled: '매도주문',
+};
 
 /**
  * 게이트 하나가 왜 안 켜지는가 — **문구 산출 지점 하나**.
@@ -155,13 +175,58 @@ function armBlockedTextOf(key: GateKey, values: LimitChaserFormValues): string {
   if (key === 'buyEnabled') return buyReason;
   /*
     한방은 `canArmSweep = sweepWatchPrice > 0 && canArmBuy` 라 원인이 **두 축**이다.
-    자기 감시가가 0 인 경우를 먼저 짚고, 아니면 매수 쪽 사유를 그대로 이어 붙인다 —
-    「한방가격이나 매수 주문수량이 0」처럼 뭉뚱그리면 어느 쪽을 만져야 하는지 알 수 없다.
+    자기 감시가가 0 인 경우를 먼저 짚고, 아니면 매수 쪽 사유를 **접두 없이 그대로** 쓴다.
+    ★ 옛 접두어(「한방은 매수 무장 조건을 함께 요구해요 — 」)는 260911-w5h 에서 사라졌다.
+      그것이 하던 「한방이라는 맥락 고지」는 이제 **게이트 이름 나열**(`GATE_LABEL`)이 한다 —
+      같은 문장을 공유하는 두 게이트가 한 줄로 합쳐지므로(`armBlockedGroupsOf`) 접두를 남기면
+      같은 사유가 두 줄로 갈려 중복 병합이 영영 일어나지 않는다.
   */
-  return values.sweepWatchPrice === 0
-    ? ARM_BLOCKED_TEXT.sweepPrice
-    : `${ARM_BLOCKED_TEXT.sweepBuyPrefix}${buyReason}`;
+  return values.sweepWatchPrice === 0 ? ARM_BLOCKED_TEXT.sweepPrice : buyReason;
 }
+
+/** 사유 한 줄 — 같은 문장을 공유하는 게이트들이 한 줄로 합쳐진 결과다. */
+export interface ArmBlockedGroup {
+  /** `GATE_LABEL` 값들. 화면 위→아래(`GATE_KEYS`) 순서다. */
+  gates: string[];
+  /** `armBlockedTextOf` 가 돌려준 문장 그대로. */
+  text: string;
+}
+
+/**
+ * 「켤 수 없는 이유」 목록 산출 — **순수 함수 하나**.
+ *
+ * `GATE_KEYS` 순서(매수 → 한방 → 매도 = 화면 위→아래)로 막힌 게이트를 고른 뒤
+ * `armBlockedTextOf` 결과가 **같은 문자열인 것끼리 묶는다**. 첫 등장 순서를 유지한다 —
+ * 그래야 카드 위에서 본 순서와 사유 순서가 같다.
+ *
+ * ★ 문장은 여기서 짓지 않는다. 산출 지점은 계속 `armBlockedTextOf` 하나다(파일 상단 ② 5).
+ */
+function armBlockedGroupsOf(
+  keys: readonly GateKey[],
+  values: LimitChaserFormValues,
+  canArm: Record<GateKey, boolean>,
+  disabled: boolean,
+): ArmBlockedGroup[] {
+  if (disabled) return [];
+  const out: ArmBlockedGroup[] = [];
+  for (const key of GATE_KEYS) {
+    if (!keys.includes(key)) continue;
+    if (values[key] || canArm[key]) continue;
+    const text = armBlockedTextOf(key, values);
+    const hit = out.find((g) => g.text === text);
+    if (hit) hit.gates.push(GATE_LABEL[key]);
+    else out.push({ gates: [GATE_LABEL[key]], text });
+  }
+  return out;
+}
+
+/** 사유 한 줄의 조립 규칙 — 패널과 `handleSubmit` 이 **같은 규칙**을 쓴다. */
+const ARM_BLOCKED_SEP = ' · ';
+
+/** 매수 카드가 품는 게이트 — 한방은 매수 카드 안에 있으므로 그 사유도 이 카드에 선다. */
+const BUY_CARD_GATES: readonly GateKey[] = ['buyEnabled', 'sweepEnabled'];
+/** 매도 카드는 자기 사유만 갖는다 — 매수 사유가 매도 카드에 새지 않는다. */
+const SELL_CARD_GATES: readonly GateKey[] = ['sellEnabled'];
 
 /**
  * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
@@ -519,7 +584,9 @@ export function LimitChaserForm({
       ? undefined
       : GATE_KEYS.find((key) => values[key] && gateBlocked(key, true));
     if (blocked !== undefined) {
-      setSubmitError(armBlockedTextOf(blocked, values));
+      setSubmitError(
+        `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`,
+      );
       return;
     }
     setSubmitting(true);
@@ -555,6 +622,15 @@ export function LimitChaserForm({
 
   const shared = { dirty: dirtySet, flash, disabled };
 
+  /*
+    「켤 수 없는 이유」는 **카드 맨 아래 한 곳**에만 모인다 (260911-w5h).
+    옛 구조는 그룹 헤더 바로 아래에 사유 `<p>` 를 끼워 넣어, 사유가 뜨거나 사라질 때마다
+    **그 아래 입력 행 전체가 세로로 밀렸다** — 숫자를 치는 도중 행이 움직이는 화면이었다.
+    카드 마지막 자식으로 옮기면 위쪽 입력의 세로 위치가 사유 유무와 무관해진다.
+  */
+  const buyReasons = armBlockedGroupsOf(BUY_CARD_GATES, form, canArm, disabled);
+  const sellReasons = armBlockedGroupsOf(SELL_CARD_GATES, form, canArm, disabled);
+
   const buyCard = (
     <Card>
       <Group
@@ -571,11 +647,6 @@ export function LimitChaserForm({
           // ★ 켜는 방향만 막는다 — `!form.buyEnabled` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
           disabled: gateBlocked('buyEnabled', !form.buyEnabled),
         }}
-        armBlocked={
-          !form.buyEnabled && !canArmBuy && !disabled
-            ? armBlockedTextOf('buyEnabled', form)
-            : undefined
-        }
       >
         <NumField
           id="lc-buy-watch-price"
@@ -586,32 +657,45 @@ export function LimitChaserForm({
           onChange={setField}
           {...shared}
         />
-        <Row label="감시 대상" dirty={dirtySet.has('buyWatchSide')}>
-          <div
-            role="group"
-            aria-label="감시 대상"
-            className="flex h-8 min-w-0 overflow-hidden rounded-[var(--r)] border border-[var(--border)]"
-          >
-            {(['0', '1'] as const).map((side) => (
-              <button
-                key={side}
-                type="button"
-                aria-pressed={form.buyWatchSide === side}
-                disabled={disabled}
-                onClick={() => setField('buyWatchSide', side)}
-                className={cn(
-                  'min-w-0 flex-1 px-1 text-[11px] font-semibold',
-                  form.buyWatchSide === side
-                    ? 'bg-[var(--up-bg)] text-[var(--up)]'
-                    : 'bg-transparent text-[var(--muted-fg)]',
-                  'disabled:cursor-not-allowed disabled:opacity-50',
-                )}
-              >
-                {side === '0' ? '매도잔량' : '매수잔량'}
-              </button>
-            ))}
-          </div>
-        </Row>
+        {/*
+          ★ 「감시 대상」 세그먼트는 `Row` 밖의 **단독 행**이다 (260911-w5h).
+            `Row` 안에 있으면 라벨 칸(`--lw`)이 폭을 먹어 390px 에서 「매도잔량」 4글자가
+            두 줄로 접혔다. `w-full` 로 그 칸을 회수하면 두 버튼이 한 줄에 들어간다.
+          ★ 시각 라벨만 없앤 것이지 **접근성 이름을 없앤 것이 아니다** — `role="group"` +
+            `aria-label="감시 대상"` 은 그대로다.
+          ★ 라벨이 사라지면서 더티 표현(라벨 `● ` + `--primary` 색)도 함께 사라진다. 그것을
+            **세그먼트 테두리**로 옮긴다 — 더티가 조용히 사라지면 사용자는 바꾼 줄 모른다.
+            `NumInput` 과 같은 규율로 **테두리 한 겹뿐**이고 링은 걸지 않는다.
+        */}
+        <div
+          role="group"
+          aria-label="감시 대상"
+          className={cn(
+            'mt-[var(--s-1)] flex h-9 w-full min-w-0 overflow-hidden rounded-[var(--r)] border min-[1280px]:h-8',
+            dirtySet.has('buyWatchSide')
+              ? 'border-[var(--primary)]'
+              : 'border-[var(--border)]',
+          )}
+        >
+          {(['0', '1'] as const).map((side) => (
+            <button
+              key={side}
+              type="button"
+              aria-pressed={form.buyWatchSide === side}
+              disabled={disabled}
+              onClick={() => setField('buyWatchSide', side)}
+              className={cn(
+                'min-w-0 flex-1 px-1 text-[12px] font-semibold whitespace-nowrap',
+                form.buyWatchSide === side
+                  ? 'bg-[var(--up-bg)] text-[var(--up)]'
+                  : 'bg-transparent text-[var(--muted-fg)]',
+                'disabled:cursor-not-allowed disabled:opacity-50',
+              )}
+            >
+              {side === '0' ? '매도잔량' : '매수잔량'}
+            </button>
+          ))}
+        </div>
         <NumField
           id="lc-buy-watch-qty"
           label="잔량"
@@ -674,11 +758,6 @@ export function LimitChaserForm({
           onChange: (v) => toggleGate('sweepEnabled', v),
           disabled: gateBlocked('sweepEnabled', !form.sweepEnabled),
         }}
-        armBlocked={
-          !form.sweepEnabled && !canArmSweep && !disabled
-            ? armBlockedTextOf('sweepEnabled', form)
-            : undefined
-        }
       >
         <NumField
           id="lc-sweep-tick"
@@ -699,6 +778,7 @@ export function LimitChaserForm({
           {...shared}
         />
       </Group>
+      <ArmBlockedPanel groups={buyReasons} />
     </Card>
   );
 
@@ -716,11 +796,6 @@ export function LimitChaserForm({
           onChange: (v) => toggleGate('sellEnabled', v),
           disabled: gateBlocked('sellEnabled', !form.sellEnabled),
         }}
-        armBlocked={
-          !form.sellEnabled && !canArmSell && !disabled
-            ? armBlockedTextOf('sellEnabled', form)
-            : undefined
-        }
       >
         <NumField
           id="lc-sell-watch-price"
@@ -857,6 +932,7 @@ export function LimitChaserForm({
           dirty={dirtySet.has('cancelQtyTrackEnabled')}
         />
       </Group>
+      <ArmBlockedPanel groups={sellReasons} />
     </Card>
   );
 
@@ -937,16 +1013,56 @@ export function LimitChaserForm({
 /**
  * `.fcard` — 라벨 컬럼 폭(`--lw`)을 카드 안에서 공유한다. 그룹을 카드로 쪼개면 그 공유가 깨진다.
  *
- * ★ `--lw` 는 `Row` 와 `CheckRow` **둘 다**의 1열 폭이다. `CheckRow` 의 1열에는 체크박스(18px)와
- *   간격(4px)이 라벨과 함께 들어가므로, 4글자 라벨(「잔량추적」·「취소잔량」)이 잘리지 않으려면
- *   순수 라벨만 담는 `Row` 기준으로 잡은 60/72px 로는 모자란다 — 그래서 76/88px 이다.
+ * ★ `--lw` 는 `Row` 와 `CheckRow` **둘 다**의 1열 폭이다. `CheckRow` 의 1열에는 체크박스와
+ *   간격이 라벨과 함께 들어가므로, 순수 라벨만 담는 `Row` 기준 폭으로는 4글자 라벨
+ *   (「잔량추적」·「취소잔량」)이 잘린다 — 그래서 모바일 **64px** · 데스크톱 **88px** 이다.
+ *   모바일이 76 → 64 로 내려온 근거: 라벨 글꼴 11px + 체크박스 16px + gap 3px 이면 4글자가
+ *   64px 에 들어간다(목업 7 이 390px 에서 실제로 렌더해 확인했다). 회수한 12px 은 전부 입력
+ *   쪽으로 간다.
+ *
+ * ★ 카드 **크롬(테두리·배경·radius)은 데스크톱에만** 있다. 390px 에서는 본문 여백(8px) 안에
+ *   카드 테두리와 그룹 패딩이 겹겹이 들어와 입력 폭을 먹었다 — 모바일에서는 카드가 화면
+ *   자체이므로 테두리가 구분하는 「바깥」이 없다.
  */
 function Card({ children }: { children: ReactNode }) {
   return (
     <div
-      className="min-w-0 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] [--lw:76px] min-[1280px]:[--lw:88px]"
+      className="min-w-0 overflow-hidden [--lw:64px] min-[1280px]:rounded-[var(--r-lg)] min-[1280px]:border min-[1280px]:border-[var(--border)] min-[1280px]:bg-[var(--card)] min-[1280px]:[--lw:88px]"
     >
       {children}
+    </div>
+  );
+}
+
+/**
+ * 「켤 수 없는 이유」 — 카드의 **마지막 자식**. 목록이 비면 `null` 이라 영역 자체가 DOM 에 없다.
+ *
+ * ★ 슬롯 이름 `lc-arm-blocked` 는 옛 그룹 안 사유줄에서 그대로 이어받았다 —
+ *   `e2e/specs/trading-limit-chaser.spec.ts` 가 그 슬롯의 가시성을 보고 있고, 그 단언은 새
+ *   구조에서도 그대로 참이어야 한다(사유가 **어디서** 보이는지가 바뀐 것이지 보이는지
+ *   여부가 바뀐 것이 아니다).
+ */
+function ArmBlockedPanel({ groups }: { groups: ArmBlockedGroup[] }) {
+  if (groups.length === 0) return null;
+  return (
+    <div
+      data-slot="lc-arm-blocked-panel"
+      className="mt-[var(--s-2)] border-t border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5"
+    >
+      <p className="m-0 mb-0.5 text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
+        켤 수 없는 이유
+      </p>
+      <ul className="m-0 list-disc pl-[13px] text-[11px] leading-[1.5] text-[var(--muted-fg)]">
+        {groups.map((g) => (
+          <li key={g.gates.join('|')} data-slot="lc-arm-blocked">
+            <b data-slot="lc-arm-blocked-gates" className="font-semibold text-[var(--fg)]">
+              {g.gates.join(ARM_BLOCKED_SEP)}
+            </b>
+            {ARM_BLOCKED_SEP}
+            <span data-slot="lc-arm-blocked-text">{g.text}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -959,7 +1075,13 @@ interface GroupSwitchProps {
   disabled?: boolean;
 }
 
-/** `.grp` — 좌측 3px 액센트 + 헤더(LED · 제목 · 상태문구 · 우측 끝 스위치). */
+/**
+ * `.grp` — 헤더(LED · 제목 · 상태문구 · 우측 끝 스위치) + 행들.
+ *
+ * ★ 좌측 3px 세로 액센트 바는 260911-w5h 에서 사라졌다. 매수/매도 축을 카드 안에서 잇는
+ *   일은 이제 **상단 세그먼트 탭**(선택 시 매수 `--up` / 매도 `--down`) + **게이트 스위치
+ *   색**(`tone`) + **그룹 소제목**(「매수주문」/「매도주문」) 셋이 함께 한다 — 파일 상단 ② 1.
+ */
 function Group({
   slot,
   tone,
@@ -969,7 +1091,6 @@ function Group({
   led,
   hint,
   switchProps,
-  armBlocked,
   children,
 }: {
   slot: 'buy' | 'buy-price' | 'sweep' | 'sell' | 'sell-price' | 'cancel';
@@ -986,12 +1107,8 @@ function Group({
   /** 그룹 전체 툴팁(`<section title>`). **화면에는 렌더하지 않는다** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
   hint?: string;
   switchProps?: GroupSwitchProps;
-  /** 무장 불가 사유 1줄 (WR-06). 켤 수 없을 때만 넘어온다 — 없으면 렌더하지 않는다. */
-  armBlocked?: string;
   children: ReactNode;
 }) {
-  const accent =
-    tone === 'buy' ? 'var(--up)' : tone === 'sell' ? 'var(--down)' : 'var(--border)';
   // 헤더 줄에 보여 줄 것이 하나라도 있어야 줄을 만든다 — 없으면 빈 24px 줄만 남는다.
   const hasHeader =
     title != null || status != null || caption != null || led != null || switchProps != null;
@@ -999,13 +1116,8 @@ function Group({
     <section
       data-slot={`lc-group-${slot}`}
       title={hint}
-      className="relative min-w-0 border-t border-[var(--border)] py-[var(--s-2)] pl-[var(--s-4)] pr-[var(--s-2)] first:border-t-0 min-[1280px]:pr-[var(--s-3)]"
+      className="min-w-0 border-t border-[var(--border)] px-0 py-1.5 first:border-t-0 min-[1280px]:px-[var(--s-3)] min-[1280px]:py-[var(--s-2)]"
     >
-      <span
-        aria-hidden="true"
-        className="absolute inset-y-0 left-0 w-[3px]"
-        style={{ background: accent }}
-      />
       {hasHeader ? (
       <div className="flex min-h-6 min-w-0 items-center gap-[var(--s-2)]">
         {led != null ? (
@@ -1039,14 +1151,6 @@ function Group({
       </div>
       ) : null}
       {children}
-      {armBlocked != null ? (
-        <p
-          data-slot="lc-arm-blocked"
-          className="mt-[var(--s-1)] text-[11px] leading-normal text-[var(--muted-fg)]"
-        >
-          {armBlocked}
-        </p>
-      ) : null}
     </section>
   );
 }
@@ -1100,11 +1204,11 @@ function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="mt-[var(--s-1)] grid min-h-8 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-[var(--s-2)]">
+    <div className="mt-[var(--s-1)] grid min-h-9 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:min-h-8 min-[1280px]:gap-[var(--s-2)]">
       <label
         htmlFor={htmlFor}
         className={cn(
-          'truncate text-[length:var(--t-caption)]',
+          'truncate text-[11px] min-[1280px]:text-[length:var(--t-caption)]',
           dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--muted-fg)]',
         )}
       >
@@ -1141,10 +1245,16 @@ function NumInput({
   return (
     <div
       className={cn(
-        'flex h-8 min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-2',
-        dirty
-          ? 'border-[var(--primary)] shadow-[0_0_0_2px_color-mix(in_oklch,var(--primary)_18%,transparent)]'
-          : 'border-[var(--input)]',
+        /*
+          ★ 포커스·더티 표현은 **테두리 한 겹뿐**이다 (260911-w5h). 옛 더티 표현의 2px 링
+            그림자를 걷었다 — 고밀도 폼에서 링이 이웃 행과 겹쳐 어느 입력이 더티인지가 오히려
+            흐려졌다. 비색 경로는 그대로 남는다: `Row`/`CheckRow` 라벨의 `● ` 접두 + `--primary`
+            라벨색이 색 단독 전달을 막는다(WCAG 1.4.1).
+          ★ `focus-within:` 은 의사클래스가 붙어 특이도가 더 높으므로, 더티 테두리와 동시에
+            걸려도 **포커스색 하나**가 이긴다 — 순서로 다투지 않는다.
+        */
+        'flex h-9 min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5 focus-within:border-[var(--ring)] min-[1280px]:h-8',
+        dirty ? 'border-[var(--primary)]' : 'border-[var(--input)]',
         flash && 'motion-safe:bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]',
         disabled && 'opacity-45',
         className,
@@ -1157,10 +1267,29 @@ function NumInput({
         disabled={disabled}
         value={NUM.format(value)}
         onChange={(e) => onValueChange(parseDigits(e.target.value))}
-        className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-caption)] text-[var(--fg)] outline-none disabled:cursor-not-allowed"
+        /*
+          ★ 누르면 값이 **통째로 선택**된다 — 상따에서 값을 고치는 동작은 거의 언제나 「전부
+            지우고 새로 친다」이고, 커서만 놓이면 사용자가 백스페이스를 7번 눌러야 한다.
+          ★ `e.currentTarget` 을 먼저 캡처해야 한다 — 핸들러가 끝나면 `null` 이 되므로 타이머
+            안에서 바로 읽으면 터진다. iOS 는 `onFocus` 안의 `select()` 가 곧바로 풀리는 경우가
+            있어 **직후 1회 더** 부르는 것이 실효 처리다.
+        */
+        onFocus={(e) => {
+          const el = e.currentTarget;
+          el.select();
+          window.setTimeout(() => el.select(), 0);
+        }}
+        onClick={(e) => e.currentTarget.select()}
+        /*
+          ★ 모바일 글꼴이 **16px** 인 이유: iOS Safari 는 글꼴 16px 미만 입력에 포커스하면
+            화면을 자동 확대하고 **되돌리지 않는다**. 16px 이면 확대가 아예 일어나지 않으므로
+            `viewport` 에 `user-scalable=no` / `maximum-scale=1` 을 걸어 핀치줌을 죽일 필요가
+            없다 — 접근성을 유지한 채 「확대되고 안 돌아옴」을 없애는 유일한 근본 해결이다.
+        */
+        className="mono min-w-0 flex-1 bg-transparent text-right text-[16px] text-[var(--fg)] outline-none disabled:cursor-not-allowed min-[1280px]:text-[length:var(--t-caption)]"
         {...rest}
       />
-      {unit ? <span className="flex-none text-[11px] text-[var(--muted-fg)]">{unit}</span> : null}
+      {unit ? <span className="flex-none text-[10px] text-[var(--muted-fg)]">{unit}</span> : null}
     </div>
   );
 }
@@ -1233,23 +1362,23 @@ function CheckRow({
   return (
     <div
       className={cn(
-        'mt-[var(--s-1)] grid min-h-8 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-[var(--s-2)]',
+        'mt-[var(--s-1)] grid min-h-9 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:min-h-8 min-[1280px]:gap-[var(--s-2)]',
         dimmed && 'opacity-45',
       )}
     >
-      <span className="flex min-w-0 items-center gap-[var(--s-1)]">
+      <span className="flex min-w-0 items-center gap-[3px] min-[1280px]:gap-[var(--s-1)]">
         <input
           id={id}
           type="checkbox"
           checked={checked}
           disabled={disabled}
           onChange={(e) => onCheckedChange(e.target.checked)}
-          className="size-[18px] flex-none accent-[var(--primary)] disabled:cursor-not-allowed"
+          className="size-4 flex-none accent-[var(--primary)] disabled:cursor-not-allowed min-[1280px]:size-[18px]"
         />
         <label
           htmlFor={id}
           className={cn(
-            'min-w-0 truncate text-[length:var(--t-caption)]',
+            'min-w-0 truncate text-[11px] min-[1280px]:text-[length:var(--t-caption)]',
             dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--fg)]',
           )}
         >

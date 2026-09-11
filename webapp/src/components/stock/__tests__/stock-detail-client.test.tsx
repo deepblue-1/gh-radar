@@ -278,4 +278,25 @@ describe('StockDetailClient', () => {
     expect(label).toBeInTheDocument();
     expect(label.textContent).toBe('갱신 14:30:00 KST');
   });
+
+  /*
+    260911-w5h — sticky 탭 바는 **본문 패딩을 가로지르도록** 만들어졌다(`-mx-*` + `px-*`).
+    그 상쇄 값이 `AppShell main` 의 패딩(`p-2 lg:p-6`)과 **같은 브레이크포인트로 갈려야**
+    한다. 한쪽만 고치면 모바일에서 바가 좌우로 16px 씩 삐져나간다 — 주석은 참인데 화면이
+    깨지는, 이번 변경에서 가장 놓치기 쉬운 자리다.
+  */
+  it('Test 8 — sticky 탭 바 상쇄가 본문 여백(모바일 8px · ≥lg 24px)과 같은 축으로 갈린다', async () => {
+    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
+    render(<StockDetailClient code="005930" />);
+
+    const list = await screen.findByRole('tablist', { name: '종목 정보 탭' });
+    const bar = list.closest('.sticky')!;
+    expect(bar.className).toContain('-mx-2');
+    expect(bar.className).toContain('px-2');
+    expect(bar.className).toContain('lg:-mx-6');
+    expect(bar.className).toContain('lg:px-6');
+    // 맨몸 24px 상쇄가 남아 있으면 모바일에서 그대로 걸린다.
+    expect(bar.className).not.toMatch(/(^|\s)-mx-6(\s|$)/);
+    expect(bar.className).not.toMatch(/(^|\s)px-6(\s|$)/);
+  });
 });

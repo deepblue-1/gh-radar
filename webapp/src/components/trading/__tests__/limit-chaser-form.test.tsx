@@ -604,8 +604,17 @@ describe('⑫ 접근성 · 모바일 탭', () => {
 */
 describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', () => {
   const buySwitch = () => screen.getByRole('switch', { name: '매수주문 켜기' });
+  /*
+    ★ 260911-w5h — 사유는 카드 **맨 아래** 패널로 모였고 한 줄이 「게이트 이름 · 문장」이 됐다.
+      문장만 뽑아야 기존 문구 단언이 그대로 유효하다(문구 계약은 바뀌지 않았다).
+      게이트 이름은 `armBlockedGates()` 로 따로 본다.
+  */
   const armBlockedTexts = () =>
-    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).map(
+    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked-text"]')).map(
+      (el) => el.textContent ?? '',
+    );
+  const armBlockedGates = () =>
+    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked-gates"]')).map(
       (el) => el.textContent ?? '',
     );
 
@@ -668,10 +677,13 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
     render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1 }) })} />);
 
     expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeDisabled();
+    // 한방가격(130,000)은 정상이고 막은 것은 매수 쪽이다 — 문장이 매수 사유 **그대로**다.
+    // (옛 「한방은 매수 무장 조건을 함께 요구해요 — 」 접두는 폐기됐다. 그 맥락 고지는 이제
+    //  게이트 이름 나열이 한다 — 여기서는 매수가 이미 켜져 있어 한방만 나열된다.)
     expect(armBlockedTexts()).toContain(
-      // 한방가격(130,000)은 정상이고 막은 것은 매수 쪽이다 — 문구가 그 사실을 그대로 말한다.
-      '한방은 매수 무장 조건을 함께 요구해요 — 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+      '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
     );
+    expect(armBlockedGates()).toContain('한방체결');
   });
 
   it('매도는 감시 호가잔량 0 일 때 못 켠다 — 서버가 눕히는 조건과 같은 축이다', () => {
@@ -812,8 +824,17 @@ describe('⑭ 전송 직전 가드가 「수정」에도 걸리고, 못 보낸 �
   ★ 이 describe 가 잠그는 것: **두 원인이 값으로 갈리고 서로 다른 문구를 낸다**.
 */
 describe('⑮ 무장 불가 안내가 원인을 값으로 가른다 (GC-WR-12)', () => {
+  /*
+    ★ 260911-w5h — 사유는 카드 **맨 아래** 패널로 모였고 한 줄이 「게이트 이름 · 문장」이 됐다.
+      문장만 뽑아야 기존 문구 단언이 그대로 유효하다(문구 계약은 바뀌지 않았다).
+      게이트 이름은 `armBlockedGates()` 로 따로 본다.
+  */
   const armBlockedTexts = () =>
-    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).map(
+    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked-text"]')).map(
+      (el) => el.textContent ?? '',
+    );
+  const armBlockedGates = () =>
+    Array.from(document.querySelectorAll('[data-slot="lc-arm-blocked-gates"]')).map(
       (el) => el.textContent ?? '',
     );
 
@@ -865,11 +886,93 @@ describe('⑮ 무장 불가 안내가 원인을 값으로 가른다 (GC-WR-12)',
     );
     unmount();
 
-    // 한방가격은 정상(130,000)이고 매수 쪽이 0주라 못 켠다.
+    // 한방가격은 정상(130,000)이고 매수 쪽이 0주라 못 켠다 — 문장은 매수 사유 그대로다.
     render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1 }) })} />);
     expect(armBlockedTexts()).toContain(
-      '한방은 매수 무장 조건을 함께 요구해요 — 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+      '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
     );
+  });
+
+  /*
+    ★ **중복 병합 잠금** (260911-w5h). 매수와 한방이 **같은 사유**를 공유하면 한 줄로 합쳐지고
+      게이트 이름이 `·` 로 앞에 나열된다. 옛 계약은 한방 문장에 접두어를 붙여 **같은 문장을
+      두 번** 보여 줬다 — 390px 에서 그것은 카드 하단 절반을 같은 말로 채우는 일이었다.
+  */
+  it('매수와 한방이 같은 사유면 한 줄로 합쳐지고 게이트 이름이 앞에 나열된다', () => {
+    // 매수 OFF + 주문금액 부족 → 매수·한방 둘 다 `주문금액…` 하나로 막힌다.
+    render(
+      <LimitChaserForm {...props({ server: echo({ buyEnabled: false, buyOrderAmount: 1 }) })} />,
+    );
+
+    // 매수 카드의 사유는 **한 줄**이다.
+    expect(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).toHaveLength(1);
+    expect(armBlockedGates()).toEqual(['매수주문 · 한방체결']);
+    // 문장은 매수 사유 **그대로** — 접두어가 붙지 않는다.
+    expect(armBlockedTexts()).toEqual([
+      '주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.',
+    ]);
+  });
+
+  /*
+    ★ **반대 방향 잠금**. 병합만 잠그면 「한방이 자기 고유 원인일 때도 매수와 합쳐지는」
+      퇴행이 초록으로 지나간다. 두 방향을 서로 다른 입력으로 각각 박는다.
+  */
+  it('한방이 자기 고유 원인이면 자기 사유만 쓴다 — 매수와 합쳐지지 않는다', () => {
+    // 매수는 무장 가능(이미 ON)하고 한방만 자기 감시가가 0 이다.
+    render(<LimitChaserForm {...props({ server: echo({ sweepWatchPrice: 0 }) })} />);
+
+    expect(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).toHaveLength(1);
+    expect(armBlockedGates()).toEqual(['한방체결']);
+    expect(armBlockedTexts()).toEqual([
+      '시세를 받지 못해 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.',
+    ]);
+  });
+
+  it('사유가 하나도 없으면 「켤 수 없는 이유」 영역 자체가 DOM 에 없다', () => {
+    // 기본 에코는 매수 ON · 매도/한방 전부 무장 가능한 값이다.
+    render(<LimitChaserForm {...props()} />);
+
+    expect(document.querySelector('[data-slot="lc-arm-blocked-panel"]')).toBeNull();
+    expect(document.querySelectorAll('[data-slot="lc-arm-blocked"]')).toHaveLength(0);
+  });
+
+  it('매도 카드는 자기 사유만 갖는다 — 매수 사유가 매도 카드로 새지 않는다', () => {
+    render(
+      <LimitChaserForm
+        {...props({ server: echo({ buyEnabled: false, buyOrderAmount: 1, sellWatchQty: 0 }) })}
+      />,
+    );
+
+    const panels = Array.from(
+      document.querySelectorAll('[data-slot="lc-arm-blocked-panel"]'),
+    );
+    expect(panels).toHaveLength(2); // 매수 카드 1 + 매도 카드 1
+
+    const sellPanel = panels.find((el) =>
+      el.parentElement?.querySelector('[data-slot="lc-group-sell"]'),
+    )!;
+    expect(
+      Array.from(sellPanel.querySelectorAll('[data-slot="lc-arm-blocked-gates"]')).map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(['매도주문']);
+    expect(sellPanel.textContent).not.toContain('주문금액이 매수가격보다');
+  });
+
+  it('사유 패널은 카드의 **마지막 자식**이다 — 사유 유무로 입력 그룹이 밀리지 않는다', () => {
+    render(
+      <LimitChaserForm {...props({ server: echo({ buyEnabled: false, buyOrderAmount: 1 }) })} />,
+    );
+
+    const panel = document.querySelector('[data-slot="lc-arm-blocked-panel"]')!;
+    const card = panel.parentElement!;
+    expect(card.lastElementChild).toBe(panel);
+    // 패널 뒤에 입력 그룹이 오지 않는다 — 그룹들은 전부 패널 **앞**에 있다.
+    const groups = Array.from(card.querySelectorAll('[data-slot^="lc-group-"]'));
+    expect(groups.length).toBeGreaterThan(0);
+    for (const g of groups) {
+      expect(panel.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    }
   });
 });
 
@@ -935,8 +1038,10 @@ describe('⑯ 철거 의도의 「수정」은 막히지 않고, 원인을 고�
     await user.click(screen.getByRole('button', { name: '수정' }));
 
     expect(sendMock).not.toHaveBeenCalled();
+    // ★ 패널과 **같은 조립 규칙**이다 — `{게이트 표시이름} · {사유}`.
+    //   접두어를 지우면서 잃을 뻔한 「어느 게이트가 막혔는가」가 여기서도 남는다.
     expect(submitError()).toHaveTextContent(
-      '한방은 매수 무장 조건을 함께 요구해요 — 시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
+      '한방체결 · 시세를 받지 못해 매수가격이 0 이에요. 매수가격을 입력하면 켤 수 있어요.',
     );
   });
 
@@ -961,5 +1066,153 @@ describe('⑯ 철거 의도의 「수정」은 막히지 않고, 원인을 고�
     // 그리고 이제 「수정」이 나간다 — 문구가 사라진 것이 표시만의 일이 아니다.
     await user.click(screen.getByRole('button', { name: '수정' }));
     expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/*
+  260911-w5h — **모바일 폼 전면 정리**. 390px 에서 이 폼이 쓰기 어려웠던 원인은 전부
+  표시 쪽이었다: ⓐ 「감시 대상」 라벨이 폭을 먹어 세그먼트가 두 줄로 접혔고 ⓑ 사유가 그룹
+  안에 끼어 뜰 때마다 아래 입력이 밀렸고 ⓒ 입력 글꼴이 16px 미만이라 iOS 가 포커스 시
+  화면을 확대하고 되돌리지 않았고 ⓓ 포커스·더티가 링 그림자로 겹쳐 보였다.
+
+  ★ 이 describe 가 잠그는 것은 **표시 계약**이다. 무장 판정식·전송 cfg 는 한 줄도 바뀌지
+    않았고, 그 사실은 ①~⑯ 이 그대로 통과하는 것으로 증명된다.
+*/
+describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
+  const segment = () => screen.getByRole('group', { name: '감시 대상' });
+
+  it('세그먼트는 접근성 이름을 유지하되 시각 라벨이 없고 행 전체 폭을 쓴다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    // 접근성 이름은 그대로 정확히 1개다 — 라벨을 없앤 것이 이름을 없앤 것이 아니다.
+    expect(screen.getAllByRole('group', { name: '감시 대상' })).toHaveLength(1);
+    // 시각 라벨 `<label>` 로서의 「감시 대상」은 없다.
+    expect(
+      Array.from(document.querySelectorAll('label')).map((el) => el.textContent?.trim()),
+    ).not.toContain('감시 대상');
+    // 라벨 칸(`--lw`)을 회수했다.
+    expect(segment().className).toContain('w-full');
+  });
+
+  it('세그먼트 두 버튼이 절대 접히지 않는다 — 「매도잔량」 4글자가 한 줄이다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const buttons = within(segment()).getAllByRole('button');
+    expect(buttons).toHaveLength(2);
+    for (const b of buttons) expect(b.className).toContain('whitespace-nowrap');
+  });
+
+  it('`buyWatchSide` 더티는 세그먼트 **테두리**로 읽힌다 — 링은 붙지 않는다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    // 서버값과 같으면 더티가 아니다.
+    expect(segment().className).toContain('border-[var(--border)]');
+    expect(segment().className).not.toContain('border-[var(--primary)]');
+
+    // 값을 바꾸면 테두리가 `--primary` 로 간다(라벨이 사라지며 더티가 조용히 사라지지 않는다).
+    fireEvent.click(within(segment()).getByRole('button', { name: '매수잔량' }));
+    expect(segment().className).toContain('border-[var(--primary)]');
+    expect(segment().className).not.toContain('shadow-[0_0_0_2px');
+  });
+
+  it('세그먼트 클릭은 여전히 `buyWatchSide` 를 전송 cfg 에 반영한다 (회귀 없음)', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props()} />);
+
+    fireEvent.click(within(segment()).getByRole('button', { name: '매수잔량' }));
+    await user.click(screen.getByRole('button', { name: '수정' }));
+    expect(lastConfig().buyWatchSide).toBe('1');
+  });
+
+  it('그룹에 좌측 3px 세로 액센트 바가 없다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    expect(document.querySelectorAll('[class*="w-[3px]"]')).toHaveLength(0);
+  });
+
+  it('카드 크롬은 데스크톱에만 있고 `--lw` 가 64/88 로 갈린다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const card = document.querySelector('[data-slot="lc-group-buy"]')!.parentElement!;
+    expect(card.className).toContain('[--lw:64px]');
+    expect(card.className).toContain('min-[1280px]:[--lw:88px]');
+    // 테두리·배경·radius 는 전부 `min-[1280px]:` 접두가 붙어 있다.
+    expect(card.className).toContain('min-[1280px]:border');
+    expect(card.className).toContain('min-[1280px]:bg-[var(--card)]');
+    expect(card.className).toContain('min-[1280px]:rounded-[var(--r-lg)]');
+    // 맨몸 크롬 유틸이 남아 있지 않다(모바일에서 그대로 걸린다).
+    expect(card.className).not.toMatch(/(^|\s)border(\s|$)/);
+    expect(card.className).not.toMatch(/(^|\s)bg-\[var\(--card\)\]/);
+  });
+
+  it('입력 치수가 모바일 36px · 데스크톱 32px 이고 글꼴이 16px 이다 (iOS 자동 확대 차단)', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
+    const wrap = input.parentElement!;
+    expect(wrap.className).toContain('h-9');
+    expect(wrap.className).toContain('min-[1280px]:h-8');
+    // ★ 16px 미만이면 iOS Safari 가 포커스 시 화면을 확대하고 되돌리지 않는다.
+    expect(input.className).toContain('text-[16px]');
+    expect(input.className).toContain('min-[1280px]:text-[length:var(--t-caption)]');
+  });
+
+  it('체크박스가 모바일 16px · 데스크톱 18px 이다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const box = document.querySelector('input[type="checkbox"]')!;
+    expect(box.className).toContain('size-4');
+    expect(box.className).toContain('min-[1280px]:size-[18px]');
+  });
+
+  it('포커스·더티 표현이 테두리 한 겹뿐이다 — 링 그림자가 하나도 없다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
+    const wrap = input.parentElement!;
+    expect(wrap.className).toContain('focus-within:border-[var(--ring)]');
+    expect(wrap.className).not.toContain('shadow-');
+
+    // 값을 바꾸면 더티 테두리 하나만 붙는다.
+    setNumber(input, '140000');
+    const dirtyWrap = (screen.getByLabelText(/매수가격/) as HTMLInputElement).parentElement!;
+    expect(dirtyWrap.className).toContain('border-[var(--primary)]');
+    expect(dirtyWrap.className).not.toContain('shadow-');
+
+    // 비색 경로는 남는다 — 라벨의 `● ` 접두(WCAG 1.4.1).
+    const label = document.querySelector('label[for="lc-buy-order-price"]')!;
+    expect(label.textContent).toContain('●');
+  });
+
+  it('폼 전체에 2px 링 그림자 유틸이 하나도 없다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    expect(document.querySelectorAll('[class*="shadow-[0_0_0_2px"]')).toHaveLength(0);
+  });
+
+  it('입력에 포커스하면 값이 통째로 선택된다 — 바로 숫자를 치면 교체된다', () => {
+    vi.useFakeTimers();
+    try {
+      render(<LimitChaserForm {...props()} />);
+      const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
+
+      fireEvent.focus(input);
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(input.value.length);
+
+      // iOS 대비 직후 1회 더 선택하는 경로도 터지지 않는다(`currentTarget` 캡처).
+      input.setSelectionRange(3, 3);
+      vi.runAllTimers();
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(input.value.length);
+
+      // 클릭도 같은 동작이다.
+      input.setSelectionRange(3, 3);
+      fireEvent.click(input);
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe(input.value.length);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

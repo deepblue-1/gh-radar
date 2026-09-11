@@ -25,6 +25,7 @@ export interface AppShellProps {
 /**
  * AppShell — UI-SPEC §4.1 (상승률 상위/대시보드 레이아웃).
  * - Desktop(>=lg): 56px top header + 240px left sidebar + 24px padding main
+ * - Mobile(<lg): 본문 좌우/상하 여백 8px(`p-2`) — 좁은 화면에서 콘텐츠 폭을 최대로 회수한다.
  * - Desktop 사이드바는 **뷰포트에 고정**(`lg:sticky top-14` + `h-[calc(100dvh-3.5rem)]`)이라
  *   본문을 끝까지 스크롤해도 하단 유저 섹션·테마 토글이 화면 안에 남는다.
  *   ★ 이 세 가지는 한 묶음이다 — ① `aside` 의 sticky/self-start ② 부모 flex 래퍼에
@@ -65,7 +66,7 @@ export function AppShell({
         )}
 
         {/* `min-w-0` — 부모의 `overflow-hidden` 을 걷어내며 되살아난 flex 자동 최소 크기 차단. */}
-        <main className="min-w-0 flex-1 overflow-auto p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto p-2 lg:p-6">{children}</main>
       </div>
 
       {showSidebar && (

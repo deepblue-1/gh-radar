@@ -93,13 +93,15 @@ export function StockDetailTabs({
       className="flex-col gap-0"
     >
       {/*
-        T4 — sticky 탭 바. AppShell 의 `main` 이 스크롤 컨테이너(`overflow-auto p-6`) 이므로
-        `top-0` 은 그 패딩 박스 상단에 고정된다. `-mx-6 px-6` 은 좌우 24px 패딩을 가로질러
-        바가 스크롤 폭을 꽉 채우게 한다 — 없으면 스크롤된 콘텐츠가 바 좌우로 비쳐 보인다.
+        T4 — sticky 탭 바. AppShell 의 `main` 이 스크롤 컨테이너(`overflow-auto p-2 lg:p-6`) 이므로
+        `top-0` 은 그 패딩 박스 상단에 고정된다. `-mx-2 px-2 lg:-mx-6 lg:px-6` 은 좌우 여백
+        (모바일 8px · >=lg 24px)을 가로질러 바가 스크롤 폭을 꽉 채우게 한다 — 없으면 스크롤된
+        콘텐츠가 바 좌우로 비쳐 보인다. ★ 상쇄 값이 본문 패딩과 **같은 브레이크포인트로 갈려야**
+        한다. 한쪽만 고치면 모바일에서 바가 좌우로 16px 씩 삐져나간다.
       */}
       <div
         ref={tabBarRef}
-        className="sticky top-0 z-20 -mx-6 border-b border-[var(--border)] bg-[var(--bg)] px-6"
+        className="sticky top-0 z-20 -mx-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 lg:-mx-6 lg:px-6"
       >
         <TabsList
           variant="line"
@@ -127,8 +129,9 @@ export function StockDetailTabs({
       </TabsContent>
 
       {/*
-        T6 — `호가주문` 만 `max-w` 해제. 좌우 여백 24px 은 AppShell `main` 의 `p-6` 이 그대로
-        제공하므로 여기서 패딩을 더하지 않는다(더하면 48px 이 되어 계약을 벗어난다).
+        T6 — `호가주문` 만 `max-w` 해제. 좌우 여백(모바일 8px · >=lg 24px)은 AppShell `main` 의
+        `p-2 lg:p-6` 이 그대로 제공하므로 여기서 패딩을 더하지 않는다(더하면 두 배가 되어
+        계약을 벗어난다).
       */}
       <TabsContent
         value="orderbook"
