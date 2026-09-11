@@ -801,6 +801,32 @@ Caddyfile 의 `issuer acme { disable_http_challenge }` 가 이를 명시적으�
 
 ## /ghtrade/* — gh-trade 클라 자동 업데이트 정적 배포
 
+> **적용 상태: 프로덕션 반영 완료 (2026-09-11 15:39:35 KST · quick-260911-dps).**
+> 메타데이터 갱신 → `google_metadata_script_runner startup` 재적용(`/srv/ghtrade ready (alex:caddy 2755)` ·
+> `/etc/caddy/Caddyfile` 배치 · caddy 가드 동작으로 미기동 · apt 업그레이드 0건) →
+> `sudo -u caddy caddy validate` **Valid configuration**(exit 0, `dma.log` 소유권 `caddy:caddy` 유지) →
+> `systemctl reload caddy`. 리로드 후 `/healthz` 200 유지 · wss 재접속 완료
+> (`sessionCount` 2 · `everReadyCount` 2 · `stalledCount` 0).
+>
+> **양성·음성 실측** — 프로브 파일을 `/srv/ghtrade` 에 두고 확인한 뒤 삭제했다(현재 디렉터리는 비어 있다):
+>
+> | 요청 | 결과 |
+> |------|------|
+> | 헤더 있음 + 파일 존재 | **200** · 본문 정확 |
+> | 헤더 없음 | **404** |
+> | 틀린 키 | **404** |
+> | `manifest.json` | `cache-control: no-store` |
+> | 일반 파일 | `cache-control` 없음(기본 캐시) |
+> | 디렉터리 목록 `/ghtrade/` | **404** (browse 비활성) |
+> | 트레일링 슬래시 없는 `/ghtrade` | **404** (전용 블록이 막는다) |
+>
+> **404 만으로는 증명이 되지 않는다** — 인증 실패와 파일 부재가 같은 코드라, 매처가 항상 거부해도
+> 똑같이 보인다. 그래서 프로브 파일로 **양성(200)** 을 먼저 확인했다. 이 절을 다시 검증할 사람도
+> 같은 순서를 따를 것.
+>
+> scp 권한 논증도 실측으로 확인됐다 — 프로브 파일이 `alex:caddy 0644` 로 생성되고
+> `sudo -u caddy test -r` 가 통과했다. setgid 가 그룹을 상속시킨다.
+
 gh-trade WinForms 클라가 기동 시(로그인 창을 띄우기 전) `https://dma.jx1.io/ghtrade/manifest.json`
 을 받아 서명을 검증하고, 파일별 SHA-256 이 다른 파일만 내려받아 자기 자신을 교체한 뒤 재실행한다.
 
