@@ -1,0 +1,335 @@
+<title>미체결·전략 정리 목업</title>
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --destructive:oklch(0.66 0.20 22);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --destructive:oklch(0.72 0.19 22);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1100px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:36px 0 4px;padding-top:20px;border-top:1px solid var(--border)}
+h2:first-of-type{border-top:0;padding-top:0}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 16px;line-height:1.6}
+.pair{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:1 1 330px;min-width:0}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;
+  padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.tag.now{background:var(--muted);color:var(--muted-fg)}
+.tag.new{background:var(--up-bg);color:var(--up)}
+.tag.ok{background:var(--down-bg);color:var(--down)}
+.phone{width:358px;max-width:100%;border:1px solid var(--border);border-radius:var(--r-lg);
+  overflow:hidden;background:var(--card);padding:var(--s-3)}
+.note{font-size:11px;color:var(--muted-fg);margin:6px 0 0;line-height:1.6}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+h4.sec{font-size:var(--t-caption);font-weight:600;margin:0 0 var(--s-1)}
+
+.rlist{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden}
+.rlist > div + div{border-top:1px solid var(--border-subtle)}
+.hrow{padding:var(--s-2) var(--s-3)}
+.k{font-size:11px;color:var(--muted-fg)}
+.v{font-size:var(--t-caption);font-weight:600;color:var(--fg);white-space:nowrap}
+.up{color:var(--up)} .down{color:var(--down)}
+
+/* 태그 */
+.sidetag{font-size:10px;font-weight:700;padding:1px 5px;border-radius:var(--r-sm);white-space:nowrap}
+.sidetag.buy{background:var(--up-bg);color:var(--up)}
+.sidetag.sell{background:var(--down-bg);color:var(--down)}
+.otag{font-size:10px;padding:1px 5px;border-radius:var(--r-sm);border:1px solid var(--border);
+  color:var(--muted-fg);white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;
+  padding:1px 6px;border-radius:999px;border:1px solid var(--border);color:var(--muted-fg);white-space:nowrap}
+.badge i{width:6px;height:6px;border-radius:999px;display:block}
+.badge.buyon{border-color:var(--up);color:var(--up)} .badge.buyon i{background:var(--up)}
+.badge.watch{border-color:var(--down);color:var(--down)} .badge.watch i{background:transparent;border:1.5px solid var(--down)}
+.badge.krx{border-color:var(--border)}
+.cancel{font-size:11px;font-weight:600;padding:3px 8px;border-radius:var(--r);
+  border:1px solid var(--destructive);color:var(--destructive);background:transparent;white-space:nowrap;cursor:pointer}
+
+/* 현행 미체결 */
+.o1{display:flex;align-items:center;gap:var(--s-2);min-width:0}
+.o2{display:flex;align-items:center;gap:var(--s-2);min-width:0;margin-top:4px}
+.oname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-sm);font-weight:600}
+
+/* 개선 공통 (잔고 A 와 같은 문법) */
+.a-r1{display:flex;align-items:center;gap:var(--s-2)}
+.a-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-sm);font-weight:700}
+.a-amt{flex:none;font-size:var(--t-sm);font-weight:700}
+.a-r2{display:flex;align-items:center;gap:var(--s-2);margin-top:3px;font-size:11px;color:var(--muted-fg)}
+.a-r2 .l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 전략 행 */
+.srow-old{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2);min-height:44px;padding:10px 8px;border-radius:var(--r)}
+.srow-old .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-sm);font-weight:600}
+.srow-old .acct{order:9;width:100%;font-size:11px;color:var(--muted-fg)}
+.srow-new{padding:10px 8px;border-radius:var(--r)}
+.srow-new .r1{display:flex;align-items:center;gap:6px}
+.srow-new .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--t-sm);font-weight:700}
+.srow-new .r2{display:flex;align-items:center;gap:6px;margin-top:3px;font-size:11px;color:var(--muted-fg)}
+.chev{font-size:12px;color:var(--muted-fg);flex:none}
+.divide > div + div{border-top:1px solid var(--border-subtle)}
+
+/* 로그 */
+.log{margin:0;padding:0;list-style:none;font-size:11px;line-height:1.6}
+.log li{display:flex;gap:var(--s-2);align-items:baseline}
+.log .t{flex:none;color:var(--muted-fg)}
+.logdate{font-size:10px;font-weight:600;color:var(--muted-fg);margin:6px 0 2px;
+  padding-top:4px;border-top:1px solid var(--border-subtle)}
+
+/* 호가+체결 확정본 */
+.panel{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);padding:var(--s-2)}
+.ptitle{display:flex;align-items:center;font-size:var(--t-sm);font-weight:600;margin:0 0 var(--s-1)}
+.ptitle small{margin-left:auto;font-size:var(--t-caption);font-weight:400;color:var(--muted-fg)}
+.lrow{position:relative;display:flex;align-items:center;gap:4px;height:32px;padding:0 4px;border-radius:4px}
+.lbar{position:absolute;top:2px;bottom:2px;right:0;border-radius:3px;z-index:0}
+.lrow[data-side="ask"] .lbar{background:color-mix(in oklch,var(--down) 16%,transparent)}
+.lrow[data-side="bid"] .lbar{background:color-mix(in oklch,var(--up) 16%,transparent)}
+.lp{position:relative;z-index:1;display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.lp b{font-size:12px;font-weight:600}
+.lp span{font-size:10px;color:var(--muted-fg)}
+.lq{position:relative;z-index:1;margin-left:auto;font-size:11px;text-align:right}
+.now{outline:1px solid var(--fg)}
+.tape{width:100%;border-collapse:collapse}
+.tape td{font-size:11px;padding:3px 4px;text-align:right}
+.tape td:first-child{text-align:left;color:var(--muted-fg)}
+.split{margin:var(--s-2) 0;border:0;border-top:1px solid var(--border)}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>미체결 · 전략 정리 목업</h1>
+<p class="lede">
+  모바일 390px 기준. 앞서 확정한 <b>잔고 개선안 A</b>(종목명 왼쪽 굵게 / 핵심 숫자 오른쪽 굵게 / 둘째 줄은
+  muted 보조정보)와 <b>같은 문법</b>으로 미체결·전략을 맞춥니다 — 세 목록이 한 화면에 세로로 이어지므로
+  문법이 갈리면 그것만으로도 읽기 어려워집니다.
+</p>
+
+<!-- ═══ 미체결 ═══ -->
+<h2>⑤-1 미체결 내역</h2>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행</span>
+    <div class="phone"><h4 class="sec">미체결</h4><div class="rlist">
+      <div class="hrow">
+        <div class="o1">
+          <span class="oname">에코프로비엠</span>
+          <span style="flex:none;display:flex;gap:4px"><span class="sidetag buy">매수</span><span class="otag">상따</span></span>
+          <span style="margin-left:auto;flex:none"><span class="k">주문</span> <span class="v mono">0001234567</span></span>
+        </div>
+        <div class="o2">
+          <span style="flex:none"><span class="k">주문가</span> <span class="v mono">127,400</span></span>
+          <span style="flex:none"><span class="k">미체결</span> <span class="v mono">120/300</span></span>
+          <span style="margin-left:auto;flex:none"><button class="cancel">✕ 취소</button></span>
+        </div>
+      </div>
+      <div class="hrow">
+        <div class="o1">
+          <span class="oname">삼성전자</span>
+          <span style="flex:none;display:flex;gap:4px"><span class="sidetag sell">매도</span><span class="otag">상따</span></span>
+          <span style="margin-left:auto;flex:none"><span class="k">주문</span> <span class="v mono">0001234568</span></span>
+        </div>
+        <div class="o2">
+          <span style="flex:none"><span class="k">주문가</span> <span class="v mono">62,700</span></span>
+          <span style="flex:none"><span class="k">미체결</span> <span class="v mono">100/100</span></span>
+          <span style="margin-left:auto;flex:none"><button class="cancel">✕ 취소</button></span>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">
+      제일 자주 보는 값(주문가·미체결)이 왼쪽에 작게 붙어 있고, 거의 안 보는 <b>주문번호 10자리가
+      오른쪽 제일 눈에 띄는 자리</b>를 차지합니다. 종목명이 길면 주문번호에 밀려 먼저 잘립니다.
+    </p>
+  </div>
+
+  <div class="col">
+    <span class="tag new">개선 — 잔고 A 와 같은 문법</span>
+    <div class="phone"><h4 class="sec">미체결</h4><div class="rlist">
+      <div class="hrow">
+        <div class="a-r1">
+          <span class="a-name">에코프로비엠</span>
+          <span class="sidetag buy" style="flex:none">매수</span>
+          <span class="a-amt mono">127,400</span>
+        </div>
+        <div class="a-r2">
+          <span class="l">미체결 <b style="color:var(--fg)" class="mono">120</b> / 300주 · 상따 · <span class="mono">#0001234567</span></span>
+          <button class="cancel">취소</button>
+        </div>
+      </div>
+      <div class="hrow">
+        <div class="a-r1">
+          <span class="a-name">삼성전자</span>
+          <span class="sidetag sell" style="flex:none">매도</span>
+          <span class="a-amt mono">62,700</span>
+        </div>
+        <div class="a-r2">
+          <span class="l">미체결 <b style="color:var(--fg)" class="mono">100</b> / 100주 · 상따 · <span class="mono">#0001234568</span></span>
+          <button class="cancel">취소</button>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">
+      오른쪽 굵은 자리는 <b>주문가</b>(잔고의 금액 자리와 같은 축). 주문번호는 둘째 줄 꼬리로 내려
+      <code>#</code> 접두만 붙입니다 — 취소가 이미 버튼으로 되니 번호를 눈으로 대조할 일이 거의 없습니다.
+      「✕」 글리프는 뺐습니다(테두리 + `--destructive` 텍스트 규율은 유지).
+    </p>
+  </div>
+</div>
+
+<!-- ═══ 전략 현황 ═══ -->
+<h2>⑤-2 전략 현황 행 (My page)</h2>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행</span>
+    <div class="phone">
+      <h4 class="sec" style="display:flex">전략 현황 <span class="mono" style="margin-left:auto;font-weight:400;color:var(--muted-fg)">상따 2 · VI 가동</span></h4>
+      <div class="divide">
+        <div class="srow-old">
+          <span class="n">에코프로비엠</span>
+          <span class="mono" style="flex:none;font-size:11px;color:var(--muted-fg)">247540</span>
+          <span class="badge krx" style="flex:none">KRX</span>
+          <span class="acct mono">37728502101</span>
+          <span style="margin-left:auto;flex:none;display:flex;gap:4px">
+            <span class="badge buyon"><i></i>매수ON</span><span class="badge watch"><i></i>매도감시</span>
+          </span>
+          <span class="chev">›</span>
+        </div>
+        <div class="srow-old">
+          <span class="n">한화오션</span>
+          <span class="mono" style="flex:none;font-size:11px;color:var(--muted-fg)">042660</span>
+          <span class="badge krx" style="flex:none">KRX</span>
+          <span class="acct mono">37728502101</span>
+          <span style="margin-left:auto;flex:none;display:flex;gap:4px">
+            <span class="badge buyon"><i></i>매수ON</span>
+          </span>
+          <span class="chev">›</span>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      한 줄에 종목명·코드·거래소·배지·화살표 5종이 겹치고, 계좌번호는 <b>둘째 줄 전폭</b>으로 따로 내려가
+      행이 위아래로 벌어집니다. 좁아지면 배지가 줄바꿈돼 행 높이가 행마다 달라집니다.
+    </p>
+  </div>
+
+  <div class="col">
+    <span class="tag new">개선</span>
+    <div class="phone">
+      <h4 class="sec" style="display:flex">전략 현황 <span class="mono" style="margin-left:auto;font-weight:400;color:var(--muted-fg)">상따 2 · VI 가동</span></h4>
+      <div class="divide">
+        <div class="srow-new">
+          <div class="r1">
+            <span class="n">에코프로비엠</span>
+            <span style="flex:none;display:flex;gap:4px">
+              <span class="badge buyon"><i></i>매수ON</span><span class="badge watch"><i></i>매도감시</span>
+            </span>
+            <span class="chev">›</span>
+          </div>
+          <div class="r2"><span class="mono">247540</span> · KRX · <span class="mono">37728502101</span></div>
+        </div>
+        <div class="srow-new">
+          <div class="r1">
+            <span class="n">한화오션</span>
+            <span style="flex:none;display:flex;gap:4px"><span class="badge buyon"><i></i>매수ON</span></span>
+            <span class="chev">›</span>
+          </div>
+          <div class="r2"><span class="mono">042660</span> · KRX · <span class="mono">37728502101</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      <b>첫 줄 = 지금 상태</b>(종목명 + 배지), <b>둘째 줄 = 신원</b>(코드 · 거래소 · 계좌)로 역할을 갈랐습니다.
+      거래소를 배지에서 텍스트로 내려 첫 줄의 칩 개수를 줄였고, 행 높이가 배지 개수와 무관하게 일정해집니다.
+      배지 정의(<code>strategy-badge.tsx</code>)는 그대로 쓰므로 사이드바·상따 상태줄과 안 갈립니다.
+    </p>
+  </div>
+</div>
+
+<!-- ═══ 전략 로그 ═══ -->
+<h2>⑤-3 전략 로그 (상따 하단)</h2>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행</span>
+    <div class="phone">
+      <h4 class="sec" style="display:flex">전략 로그 <span style="margin-left:auto;font-weight:400;color:var(--muted-fg)">서버 에코 기준 · 새로고침 시 지워져요</span></h4>
+      <ul class="log mono">
+        <li><span class="t">10:46:12</span><span>매수 무장</span></li>
+        <li><span class="t">10:46:02</span><span>전략 등록</span></li>
+        <li><span class="t">10:45:58</span><span style="color:var(--destructive)">주문금액이 부족해 매수를 켜지 못했어요</span></li>
+      </ul>
+    </div>
+    <p class="note">캡션이 제목과 한 줄을 다퉈 모바일에서 두 줄로 접힙니다. 그 외에는 이미 단순합니다.</p>
+  </div>
+  <div class="col">
+    <span class="tag new">개선 — 최소 손질</span>
+    <div class="phone">
+      <h4 class="sec">전략 로그</h4>
+      <ul class="log">
+        <li><span class="t mono">10:46:12</span><span>매수 무장</span></li>
+        <li><span class="t mono">10:46:02</span><span>전략 등록</span></li>
+        <li><span class="t mono">10:45:58</span><span style="color:var(--destructive)">주문금액이 부족해 매수를 켜지 못했어요</span></li>
+      </ul>
+      <p class="note" style="margin-top:8px">서버 에코 기준 · 새로고침 시 지워져요</p>
+    </div>
+    <p class="note">
+      캡션을 제목 옆이 아니라 <b>목록 아래</b>로 내려 제목 줄을 한 줄로 고정했습니다.
+      본문 글자는 mono 를 풀고(시각만 mono 유지) 한글 가독을 올렸습니다. 그 외 구조는 그대로입니다.
+    </p>
+  </div>
+</div>
+
+<!-- ═══ 확정본 참고 ═══ -->
+<h2>참고 — ③ 확정본 (타이틀·컬럼헤더 없이 가로선만)</h2>
+<div class="pair"><div class="col">
+  <span class="tag ok">확정</span>
+  <div class="phone" style="width:190px;padding:0"><div class="panel" style="border:0">
+    <p class="ptitle">호가 5단 <small>KRX</small></p>
+    <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="lp"><b class="up">63,200</b><span>+2.4%</span></span><span class="lq mono">3,120</span></div>
+    <div class="lrow" data-side="ask"><span class="lbar" style="width:70%"></span><span class="lp"><b class="up">63,100</b><span>+2.3%</span></span><span class="lq mono">8,400</span></div>
+    <div class="lrow" data-side="ask"><span class="lbar" style="width:25%"></span><span class="lp"><b class="up">63,000</b><span>+2.1%</span></span><span class="lq mono">1,980</span></div>
+    <div class="lrow" data-side="ask"><span class="lbar" style="width:55%"></span><span class="lp"><b class="up">62,900</b><span>+2.0%</span></span><span class="lq mono">6,210</span></div>
+    <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="lp"><b class="up">62,800</b><span>+1.8%</span></span><span class="lq mono">2,440</span></div>
+    <div class="lrow now" data-side="bid"><span class="lbar" style="width:60%"></span><span class="lp"><b class="up">62,700</b><span>+1.6%</span></span><span class="lq mono">7,050</span></div>
+    <div class="lrow" data-side="bid"><span class="lbar" style="width:35%"></span><span class="lp"><b class="up">62,600</b><span>+1.5%</span></span><span class="lq mono">3,310</span></div>
+    <div class="lrow" data-side="bid"><span class="lbar" style="width:80%"></span><span class="lp"><b class="up">62,500</b><span>+1.3%</span></span><span class="lq mono">9,870</span></div>
+    <div class="lrow" data-side="bid"><span class="lbar" style="width:20%"></span><span class="lp"><b class="up">62,400</b><span>+1.1%</span></span><span class="lq mono">1,240</span></div>
+    <div class="lrow" data-side="bid"><span class="lbar" style="width:45%"></span><span class="lp"><b class="up">62,300</b><span>+1.0%</span></span><span class="lq mono">4,660</span></div>
+    <hr class="split">
+    <table class="tape"><tbody>
+      <tr><td class="mono">10:46:12</td><td class="mono up">62,700</td><td class="mono up">120</td></tr>
+      <tr><td class="mono">10:46:11</td><td class="mono up">62,700</td><td class="mono down">40</td></tr>
+      <tr><td class="mono">10:46:09</td><td class="mono up">62,600</td><td class="mono down">1,200</td></tr>
+      <tr><td class="mono">10:46:08</td><td class="mono up">62,700</td><td class="mono up">85</td></tr>
+      <tr><td class="mono">10:46:05</td><td class="mono up">62,700</td><td class="mono up">300</td></tr>
+      <tr><td class="mono">10:46:02</td><td class="mono up">62,600</td><td class="mono down">760</td></tr>
+    </tbody></table>
+  </div></div>
+  <p class="note">
+    말씀대로 「체결 · 최근 20건」 제목행과 「시각/체결가/수량」 컬럼헤더를 없애고 <b>가로선 하나</b>만 남겼습니다.
+    수량 색(매수 빨강 / 매도 파랑)은 유지합니다 — 색이 유일한 구분이 되므로
+    스크린리더용 <code>sr-only</code> 「매수」/「매도」는 그대로 둡니다(WCAG 1.4.1).
+  </p>
+</div></div>
+
+<h2>확인해 주실 것</h2>
+<p class="lede">⑤-1 미체결 · ⑤-2 전략 현황 · ⑤-3 전략 로그 — 각각 이대로 갈지만 알려 주시면 ①~④와 함께 한 번에 구현하겠습니다.</p>
+</div>

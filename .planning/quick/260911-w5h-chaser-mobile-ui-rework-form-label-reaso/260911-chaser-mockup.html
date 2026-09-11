@@ -1,0 +1,420 @@
+<title>상따 화면 개선 목업</title>
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px;
+  --lw:76px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1100px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:36px 0 4px;padding-top:20px;border-top:1px solid var(--border)}
+h2:first-of-type{border-top:0;padding-top:0}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 16px;line-height:1.6}
+.pair{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:1 1 320px;min-width:0}
+.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;
+  padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.tag.now{background:var(--muted);color:var(--muted-fg)}
+.tag.new{background:var(--up-bg);color:var(--up)}
+.tag.alt{background:var(--down-bg);color:var(--down)}
+.phone{width:390px;max-width:100%;border:1px solid var(--border);border-radius:var(--r-lg);
+  overflow:hidden;background:var(--card)}
+.note{font-size:11px;color:var(--muted-fg);margin:6px 0 0;line-height:1.6}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+
+/* ── 폼 조각 ── */
+.fcard{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);overflow:hidden}
+.grp{position:relative;border-top:1px solid var(--border);padding:var(--s-2) var(--s-2) var(--s-2) var(--s-4)}
+.grp:first-child{border-top:0}
+.grp::before{content:'';position:absolute;inset-block:0;left:0;width:3px;background:var(--up)}
+.grp.sell::before{background:var(--down)}
+.ghead{display:flex;align-items:center;gap:var(--s-2);min-height:24px}
+.gtitle{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--muted-fg)}
+.sw{margin-left:auto;width:44px;height:26px;border-radius:999px;background:var(--border);position:relative;flex:none}
+.sw i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#fff;
+  box-shadow:0 1px 2px oklch(0 0 0/.3)}
+.fr{margin-top:var(--s-1);display:grid;grid-template-columns:var(--lw) minmax(0,1fr);
+  align-items:center;gap:var(--s-2);min-height:32px}
+.fr > label{font-size:var(--t-caption);color:var(--muted-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inp{display:flex;height:32px;align-items:center;gap:4px;border:1px solid var(--input);
+  border-radius:var(--r);background:var(--bg);padding:0 8px}
+.inp span.v{flex:1;text-align:right;font-size:var(--t-caption)}
+.inp span.u{font-size:11px;color:var(--muted-fg)}
+.seg{display:flex;height:32px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.seg button{flex:1;min-width:0;border:0;background:transparent;color:var(--muted-fg);
+  font:inherit;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--up-bg);color:var(--up)}
+.full{grid-column:1 / -1}
+
+/* ── 잔고 행 ── */
+.rlist{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden}
+.rlist > div + div{border-top:1px solid var(--border-subtle)}
+.hrow{padding:var(--s-2) var(--s-3)}
+.k{font-size:11px;color:var(--muted-fg)}
+.v{font-size:var(--t-caption);font-weight:600;color:var(--fg);white-space:nowrap}
+.up{color:var(--up)} .down{color:var(--down)}
+
+/* 현행 */
+.old-l1{display:flex;align-items:center;gap:var(--s-2);min-width:0}
+.old-l2{display:flex;align-items:center;gap:var(--s-2);min-width:0;margin-top:4px}
+.old-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--t-sm);font-weight:600}
+
+/* 개선안 A */
+.a-r1{display:flex;align-items:baseline;gap:var(--s-2)}
+.a-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--t-sm);font-weight:700}
+.a-amt{flex:none;font-size:var(--t-sm);font-weight:700}
+.a-r2{display:flex;align-items:baseline;gap:var(--s-2);margin-top:2px;font-size:11px;color:var(--muted-fg)}
+.a-r2 .l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-r3{display:flex;align-items:baseline;gap:var(--s-2);margin-top:4px;font-size:11px}
+.a-r3 .l{flex:1;color:var(--muted-fg)}
+.a-r3 .r{flex:none;font-weight:700}
+
+/* 개선안 B */
+.b-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px var(--s-2);align-items:baseline}
+.b-name{font-size:var(--t-sm);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.b-amt{text-align:right;font-size:var(--t-sm);font-weight:700}
+.b-sub{font-size:11px;color:var(--muted-fg)}
+.b-sub2{text-align:right;font-size:11px;color:var(--muted-fg)}
+
+/* ── 호가 + 체결 ── */
+.panel{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);padding:var(--s-2)}
+.ptitle{display:flex;align-items:center;font-size:var(--t-sm);font-weight:600;margin:0 0 var(--s-1)}
+.ptitle small{margin-left:auto;font-size:var(--t-caption);font-weight:400;color:var(--muted-fg)}
+.lrow{position:relative;display:flex;align-items:center;gap:4px;height:32px;padding:0 4px;border-radius:4px}
+.lbar{position:absolute;top:2px;bottom:2px;right:0;border-radius:3px;z-index:0}
+.lrow[data-side="ask"] .lbar{background:color-mix(in oklch,var(--down) 16%,transparent)}
+.lrow[data-side="bid"] .lbar{background:color-mix(in oklch,var(--up) 16%,transparent)}
+.lp{position:relative;z-index:1;display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.lp b{font-size:12px;font-weight:600}
+.lp span{font-size:10px;color:var(--muted-fg)}
+.lq{position:relative;z-index:1;margin-left:auto;font-size:11px;text-align:right}
+.now{outline:1px solid var(--fg)}
+.tape{width:100%;border-collapse:collapse}
+.tape th{font-size:10px;color:var(--muted-fg);font-weight:600;text-align:right;padding:2px 4px;
+  border-bottom:1px solid var(--border-subtle)}
+.tape th:first-child{text-align:left}
+.tape td{font-size:11px;padding:3px 4px;text-align:right}
+.tape td:first-child{text-align:left;color:var(--muted-fg)}
+.split{margin:var(--s-2) 0;border:0;border-top:1px solid var(--border)}
+.empty{border:1px dashed var(--border);border-radius:var(--r-md);padding:20px 8px;text-align:center;
+  font-size:var(--t-caption);color:var(--muted-fg)}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>상따 화면 개선 목업 — 3건</h1>
+<p class="lede">전부 <b>모바일 폭 390px</b> 기준입니다. 토큰은 <code>globals.css</code> 실값을 그대로 인라인했습니다.</p>
+
+<!-- ═══ 1 ═══ -->
+<h2>① 매수옵션 — 「감시 대상」 라벨 제거</h2>
+<p class="lede">라벨 칸(76px)을 떼고 세그먼트를 행 전체로 넓힙니다. 「매도잔량」이 두 줄로 깨지던 것이 해소됩니다.</p>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행</span>
+    <div class="phone" style="width:300px"><div class="fcard"><div class="grp">
+      <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+      <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">0</span><span class="u">원</span></div></div>
+      <div class="fr"><label>감시 대상</label>
+        <div class="seg"><button aria-pressed="true" style="white-space:normal">매도잔량</button><button style="white-space:normal">매수잔량</button></div>
+      </div>
+      <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000</span><span class="u">주</span></div></div>
+    </div></div></div>
+    <p class="note">세그먼트가 224px→148px 로 눌려 4글자가 줄바꿈됩니다.</p>
+  </div>
+  <div class="col">
+    <span class="tag new">개선</span>
+    <div class="phone" style="width:300px"><div class="fcard"><div class="grp">
+      <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+      <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">0</span><span class="u">원</span></div></div>
+      <div class="fr"><div class="seg full"><button aria-pressed="true">매도잔량</button><button>매수잔량</button></div></div>
+      <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000</span><span class="u">주</span></div></div>
+    </div></div></div>
+    <p class="note">세그먼트가 행 전체(2열 span)를 씁니다. 접근성 이름은 <code>aria-label="감시 대상"</code> 으로 그룹에 그대로 남습니다.</p>
+  </div>
+</div>
+
+<!-- ═══ 2 ═══ -->
+<h2>② 잔고 내역 — 읽기 쉽게</h2>
+<p class="lede">
+  핵심 문제는 <b>현재가를 모르는 행이 대부분</b>이라는 점입니다. 게이트웨이 잔고에는 현재가가 없어서,
+  지금 보고 있는 종목 1개를 뺀 나머지는 「평단 → <b>—</b>」, 「<b>—</b> <b>—</b>」 처럼 대시가 3개씩 찍힙니다.
+  <b>모르는 값을 대시로 그리는 대신 그 줄을 아예 만들지 않는</b> 것이 가장 큰 개선입니다.
+</p>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행</span>
+    <div class="phone" style="width:358px"><div style="padding:var(--s-3)"><div class="rlist">
+      <div class="hrow">
+        <div class="old-l1">
+          <span class="old-name">삼성전자</span>
+          <span style="flex:none"><span class="k">보유</span> <span class="v mono">100</span></span>
+          <span style="flex:none"><span class="k">매도</span> <span class="v mono">100</span></span>
+          <span style="margin-left:auto;flex:none"><span class="k">매입</span> <span class="v mono">6,170,000</span></span>
+        </div>
+        <div class="old-l2">
+          <span style="flex:none"><span class="k">평단</span> <span class="v mono">61,700</span> <span class="k">→</span> <span class="v mono">—</span></span>
+          <span style="margin-left:auto;flex:none"><span class="v mono">—</span> <span class="v mono">—</span></span>
+        </div>
+      </div>
+      <div class="hrow">
+        <div class="old-l1">
+          <span class="old-name">에코프로비엠</span>
+          <span style="flex:none"><span class="k">보유</span> <span class="v mono">12</span></span>
+          <span style="flex:none"><span class="k">매도</span> <span class="v mono">12</span></span>
+          <span style="margin-left:auto;flex:none"><span class="k">매입</span> <span class="v mono">1,528,800</span></span>
+        </div>
+        <div class="old-l2">
+          <span style="flex:none"><span class="k">평단</span> <span class="v mono">127,400</span> <span class="k">→</span> <span class="v mono">131,200</span></span>
+          <span style="margin-left:auto;flex:none"><span class="v mono up">+45,600</span> <span class="v mono up">+2.98%</span></span>
+        </div>
+      </div>
+    </div></div></div>
+    <p class="note">11px 라벨 6개와 숫자가 한 줄에서 경쟁합니다. 종목명이 길면 먼저 잘립니다.</p>
+  </div>
+
+  <div class="col">
+    <span class="tag new">개선안 A — 금액 우측 고정</span>
+    <div class="phone" style="width:358px"><div style="padding:var(--s-3)"><div class="rlist">
+      <div class="hrow">
+        <div class="a-r1"><span class="a-name">삼성전자</span><span class="a-amt mono">6,170,000</span></div>
+        <div class="a-r2"><span class="l">100주 · 매도가능 100</span><span class="mono">평단 61,700</span></div>
+      </div>
+      <div class="hrow">
+        <div class="a-r1"><span class="a-name">에코프로비엠</span><span class="a-amt mono">1,573,440</span></div>
+        <div class="a-r2"><span class="l">12주 · 매도가능 12</span><span class="mono">평단 127,400</span></div>
+        <div class="a-r3"><span class="l mono">현재 131,200</span><span class="r mono up">+45,600 · +2.98%</span></div>
+      </div>
+    </div></div></div>
+    <p class="note">
+      금액이 항상 오른쪽 같은 자리에 굵게 섭니다. 손익 줄(3번째)은 <b>현재가를 아는 행에만</b> 생깁니다 —
+      삼성전자 행에는 대시가 하나도 없습니다. 첫 행 금액은 매입금액, 손익 줄이 있는 행은 평가금액입니다.
+    </p>
+  </div>
+
+  <div class="col">
+    <span class="tag alt">개선안 B — 라벨을 왼쪽에 모음</span>
+    <div class="phone" style="width:358px"><div style="padding:var(--s-3)"><div class="rlist">
+      <div class="hrow"><div class="b-grid">
+        <span class="b-name">삼성전자</span><span class="b-amt mono">6,170,000</span>
+        <span class="b-sub">보유 100주 · 매도가능 100주</span><span class="b-sub2 mono">평단 61,700</span>
+      </div></div>
+      <div class="hrow"><div class="b-grid">
+        <span class="b-name">에코프로비엠</span><span class="b-amt mono">1,573,440</span>
+        <span class="b-sub">보유 12주 · 매도가능 12주</span><span class="b-sub2 mono">평단 127,400 → 131,200</span>
+        <span class="b-sub">평가손익</span><span class="b-sub2 mono up" style="font-size:var(--t-caption);font-weight:700">+45,600 (+2.98%)</span>
+      </div></div>
+    </div></div></div>
+    <p class="note">A 와 정보는 같고 「보유 N주」처럼 라벨을 값 앞에 붙여 읽는 순서를 지킵니다. 세로가 A 보다 약간 깁니다.</p>
+  </div>
+</div>
+<p class="note" style="font-size:12px">데스크톱(≥1280px)의 7열 표는 두 안 모두 <b>그대로 둡니다</b> — 표는 이미 열이 정렬돼 읽힙니다.</p>
+
+<!-- ═══ 3 ═══ -->
+<h2>③ 좌측 패널 — 5단 호가 + 체결내역</h2>
+<p class="lede">
+  먼저 사실 하나 — <b>체결내역은 이미 있습니다. 다만 데스크톱(≥1280px)에만</b> 있습니다.
+  상따 사다리는 데스크톱에서 매수호가 왼쪽에 최근 체결 10건을 10단과 1:1 로 붙여 그립니다.
+  모바일에는 그 열이 없어서(폭 부족) 지금 보시는 화면에 체결이 전혀 없는 겁니다.
+  그래서 <b>모바일만</b> 5단 + 체결내역으로 바꾸고, 데스크톱은 10단 + 체결 열을 그대로 두는 것을 제안합니다.
+</p>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행 (모바일)</span>
+    <div class="phone" style="width:190px"><div class="panel">
+      <p class="ptitle">호가 10단 <small>KRX</small></p>
+      <div style="height:320px;overflow:hidden;position:relative">
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:40%"></span><span class="lp"><b class="up">63,200</b><span>+2.4%</span></span><span class="lq mono">3,120</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:70%"></span><span class="lp"><b class="up">63,100</b><span>+2.3%</span></span><span class="lq mono">8,400</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:25%"></span><span class="lp"><b class="up">63,000</b><span>+2.1%</span></span><span class="lq mono">1,980</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:55%"></span><span class="lp"><b class="up">62,900</b><span>+2.0%</span></span><span class="lq mono">6,210</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="lp"><b class="up">62,800</b><span>+1.8%</span></span><span class="lq mono">2,440</span></div>
+        <div class="lrow now" data-side="bid"><span class="lbar" style="width:60%"></span><span class="lp"><b class="up">62,700</b><span>+1.6%</span></span><span class="lq mono">7,050</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:35%"></span><span class="lp"><b class="up">62,600</b><span>+1.5%</span></span><span class="lq mono">3,310</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:80%"></span><span class="lp"><b class="up">62,500</b><span>+1.3%</span></span><span class="lq mono">9,870</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:20%"></span><span class="lp"><b class="up">62,400</b><span>+1.1%</span></span><span class="lq mono">1,240</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:45%"></span><span class="lp"><b class="up">62,300</b><span>+1.0%</span></span><span class="lq mono">4,660</span></div>
+        <div style="position:absolute;inset-inline:0;bottom:0;height:40px;
+          background:linear-gradient(to top,var(--card),transparent);display:flex;align-items:flex-end;
+          justify-content:center;font-size:10px;color:var(--muted-fg)">↓ 20행 중 10행 · 스크롤</div>
+      </div>
+    </div></div>
+    <p class="note">400px 스크롤 박스 안에 20행. 체결내역 없음.</p>
+  </div>
+
+  <div class="col">
+    <span class="tag new">개선 (모바일)</span>
+    <div class="phone" style="width:190px"><div class="panel">
+      <p class="ptitle">호가 5단 <small>KRX</small></p>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="lp"><b class="up">63,200</b><span>+2.4%</span></span><span class="lq mono">3,120</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:70%"></span><span class="lp"><b class="up">63,100</b><span>+2.3%</span></span><span class="lq mono">8,400</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:25%"></span><span class="lp"><b class="up">63,000</b><span>+2.1%</span></span><span class="lq mono">1,980</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:55%"></span><span class="lp"><b class="up">62,900</b><span>+2.0%</span></span><span class="lq mono">6,210</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="lp"><b class="up">62,800</b><span>+1.8%</span></span><span class="lq mono">2,440</span></div>
+      <div class="lrow now" data-side="bid"><span class="lbar" style="width:60%"></span><span class="lp"><b class="up">62,700</b><span>+1.6%</span></span><span class="lq mono">7,050</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:35%"></span><span class="lp"><b class="up">62,600</b><span>+1.5%</span></span><span class="lq mono">3,310</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:80%"></span><span class="lp"><b class="up">62,500</b><span>+1.3%</span></span><span class="lq mono">9,870</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:20%"></span><span class="lp"><b class="up">62,400</b><span>+1.1%</span></span><span class="lq mono">1,240</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:45%"></span><span class="lp"><b class="up">62,300</b><span>+1.0%</span></span><span class="lq mono">4,660</span></div>
+
+      <hr class="split">
+      <p class="ptitle">체결 <small>최근 20건</small></p>
+      <table class="tape">
+        <thead><tr><th>시각</th><th>체결가</th><th>수량</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">10:46:12</td><td class="mono up">62,700</td><td class="mono up">120</td></tr>
+          <tr><td class="mono">10:46:11</td><td class="mono up">62,700</td><td class="mono down">40</td></tr>
+          <tr><td class="mono">10:46:09</td><td class="mono up">62,600</td><td class="mono down">1,200</td></tr>
+          <tr><td class="mono">10:46:08</td><td class="mono up">62,700</td><td class="mono up">85</td></tr>
+          <tr><td class="mono">10:46:05</td><td class="mono up">62,700</td><td class="mono up">300</td></tr>
+          <tr><td class="mono">10:46:02</td><td class="mono up">62,600</td><td class="mono down">760</td></tr>
+        </tbody>
+      </table>
+    </div></div>
+    <p class="note">
+      5단(10행)은 스크롤 없이 다 보입니다. 아래 체결내역은 <b>이미 만들어져 있는 <code>TradeTape</code></b> 를
+      그대로 씁니다 — 200ms 배치 플래시·자동스크롤 정지·수량 색(매수 빨강/매도 파랑) 규율이 그대로 따라옵니다.
+    </p>
+  </div>
+
+  <div class="col">
+    <span class="tag now">데스크톱 — 변경 없음</span>
+    <div class="phone" style="width:330px"><div class="panel">
+      <p class="ptitle">호가 10단 <small>KRX · 실시간(DMA)</small></p>
+      <table class="tape" style="text-align:right">
+        <thead><tr><th style="text-align:left">체결</th><th>매도잔량</th><th>호가</th><th>매수잔량</th></tr></thead>
+        <tbody>
+          <tr><td></td><td class="mono">3,120</td><td class="mono up" style="font-weight:700">63,200 <span style="font-size:10px;color:var(--muted-fg)">+2.4%</span></td><td></td></tr>
+          <tr><td></td><td class="mono">8,400</td><td class="mono up" style="font-weight:700">63,100 <span style="font-size:10px;color:var(--muted-fg)">+2.3%</span></td><td></td></tr>
+          <tr><td></td><td class="mono">1,980</td><td class="mono up" style="font-weight:700">63,000 <span style="font-size:10px;color:var(--muted-fg)">+2.1%</span></td><td></td></tr>
+          <tr><td class="mono" style="text-align:left">10:46:12 <span class="up">62,700</span></td><td></td><td class="mono up" style="font-weight:700">62,700 <span style="font-size:10px;color:var(--muted-fg)">+1.6%</span></td><td class="mono">7,050</td></tr>
+          <tr><td class="mono" style="text-align:left">10:46:11 <span class="up">62,700</span></td><td></td><td class="mono up" style="font-weight:700">62,600 <span style="font-size:10px;color:var(--muted-fg)">+1.5%</span></td><td class="mono">3,310</td></tr>
+          <tr><td class="mono" style="text-align:left">10:46:09 <span class="up">62,600</span></td><td></td><td class="mono up" style="font-weight:700">62,500 <span style="font-size:10px;color:var(--muted-fg)">+1.3%</span></td><td class="mono">9,870</td></tr>
+        </tbody>
+      </table>
+    </div></div>
+    <p class="note">데스크톱은 최근 체결 10건이 이미 매수 10단 왼쪽에 1:1 로 붙어 있습니다. 여기를 5단으로 줄이면 정보가 줄기만 합니다.</p>
+  </div>
+</div>
+
+<!-- ═══ 4 ═══ -->
+<h2>④ 「켤 수 없는 이유」 문구 — 카드 하단으로 모으기</h2>
+<p class="lede">
+  지금은 사유가 <b>그룹 바로 밑</b>에 붙어서, 뜰 때마다 그 아래 입력들이 통째로 밀려 내려갑니다.
+  게다가 한방 사유는 매수 사유를 앞에 그대로 달고 나와 <b>같은 문장이 두 번</b> 보입니다.
+  카드 맨 아래에 영역을 하나 만들어 <b>중복을 걷어낸 사유만</b> 모읍니다 — 켤 수 있으면 영역 자체가 없습니다.
+</p>
+<div class="pair">
+  <div class="col">
+    <span class="tag now">현행</span>
+    <div class="phone" style="width:330px"><div class="fcard">
+      <div class="grp">
+        <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+        <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+        <div class="fr"><div class="seg full"><button aria-pressed="true">매도잔량</button><button>매수잔량</button></div></div>
+        <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000</span><span class="u">주</span></div></div>
+        <p style="margin:4px 0 0;font-size:11px;line-height:1.5;color:var(--muted-fg)">주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.</p>
+      </div>
+      <div class="grp">
+        <div class="fr"><label>매수가격</label><div class="inp"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+        <div class="fr"><label>주문금액</label><div class="inp"><span class="v mono">10</span><span class="u">만원</span></div></div>
+      </div>
+      <div class="grp">
+        <div class="ghead"><span class="gtitle">한방체결</span><span class="sw"><i></i></span></div>
+        <div class="fr"><label>호가변경</label><div class="inp"><span class="v mono">3</span><span class="u">건</span></div></div>
+        <div class="fr"><label>한방가격</label><div class="inp"><span class="v mono">0</span><span class="u">원</span></div></div>
+        <p style="margin:4px 0 0;font-size:11px;line-height:1.5;color:var(--muted-fg)">한방은 매수 무장 조건을 함께 요구해요 — 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.</p>
+      </div>
+    </div></div>
+    <p class="note">사유 2줄이 그룹 사이에 끼어들어 입력 위치가 흔들립니다. 문장은 사실상 같은 내용입니다.</p>
+  </div>
+
+  <div class="col">
+    <span class="tag new">개선</span>
+    <div class="phone" style="width:330px"><div class="fcard">
+      <div class="grp">
+        <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+        <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+        <div class="fr"><div class="seg full"><button aria-pressed="true">매도잔량</button><button>매수잔량</button></div></div>
+        <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000</span><span class="u">주</span></div></div>
+      </div>
+      <div class="grp">
+        <div class="fr"><label>매수가격</label><div class="inp"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+        <div class="fr"><label>주문금액</label><div class="inp"><span class="v mono">10</span><span class="u">만원</span></div></div>
+      </div>
+      <div class="grp">
+        <div class="ghead"><span class="gtitle">한방체결</span><span class="sw"><i></i></span></div>
+        <div class="fr"><label>호가변경</label><div class="inp"><span class="v mono">3</span><span class="u">건</span></div></div>
+        <div class="fr"><label>한방가격</label><div class="inp"><span class="v mono">0</span><span class="u">원</span></div></div>
+      </div>
+      <div style="border-top:1px solid var(--border);background:var(--muted);padding:var(--s-2) var(--s-3)">
+        <p style="margin:0 0 2px;font-size:10px;font-weight:600;letter-spacing:.04em;color:var(--muted-fg)">켤 수 없는 이유</p>
+        <ul style="margin:0;padding-left:14px;font-size:11px;line-height:1.55;color:var(--muted-fg)">
+          <li><b style="color:var(--fg)">매수주문</b> · 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.</li>
+          <li><b style="color:var(--fg)">한방체결</b> · 한방가격이 0 이에요. 한방가격을 입력하면 켤 수 있어요.</li>
+        </ul>
+      </div>
+    </div></div>
+    <p class="note">
+      입력 배치가 사유 유무와 무관하게 고정됩니다. 한방 항목은 <b>자기 고유 원인만</b> 말합니다 —
+      매수와 원인이 같으면 그 줄은 아예 빠집니다(아래 참고).
+    </p>
+  </div>
+
+  <div class="col">
+    <span class="tag alt">개선 — 원인이 겹칠 때</span>
+    <div class="phone" style="width:330px"><div class="fcard">
+      <div class="grp" style="opacity:.45">
+        <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+        <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+      </div>
+      <div class="grp" style="opacity:.45">
+        <div class="ghead"><span class="gtitle">한방체결</span><span class="sw"><i></i></span></div>
+        <div class="fr"><label>한방가격</label><div class="inp"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+      </div>
+      <div style="border-top:1px solid var(--border);background:var(--muted);padding:var(--s-2) var(--s-3)">
+        <p style="margin:0 0 2px;font-size:10px;font-weight:600;letter-spacing:.04em;color:var(--muted-fg)">켤 수 없는 이유</p>
+        <ul style="margin:0;padding-left:14px;font-size:11px;line-height:1.55;color:var(--muted-fg)">
+          <li><b style="color:var(--fg)">매수주문 · 한방체결</b> · 주문금액이 매수가격보다 작아 주문수량이 0 주예요. 금액을 올리면 켤 수 있어요.</li>
+        </ul>
+      </div>
+    </div></div>
+    <p class="note">같은 원인이면 한 줄로 합치고 앞에 해당 스위치 이름을 모두 답니다. 「같은 말 두 번」이 사라집니다.</p>
+  </div>
+</div>
+<p class="note" style="font-size:12px">
+  ★ 사유를 <b>지우지는 않습니다.</b> 스위치가 회색인데 왜 안 켜지는지 말해 주는 유일한 장치라서,
+  없애면 「눌러도 아무 일 없는 스위치」가 됩니다. 위치만 옮기고 중복만 제거합니다.
+  「수정」을 눌렀는데 막힌 경우의 <code>role="alert"</code> 문구는 지금처럼 폼 맨 위에 그대로 둡니다.
+</p>
+
+<h2>확인해 주실 것</h2>
+<p class="lede">
+  ① 그대로 진행할지 · ② <b>A 와 B 중 어느 쪽</b>인지 · ③ <b>모바일만</b> 바꾸는 게 맞는지
+  (데스크톱도 5단으로 통일하길 원하시면 그렇게 합니다) · ④ 카드 하단 「켤 수 없는 이유」 영역이 맞는지
+  — 네 가지만 정해 주시면 바로 구현하겠습니다.
+</p>
+</div>

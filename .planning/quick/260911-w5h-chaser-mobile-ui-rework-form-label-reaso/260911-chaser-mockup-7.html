@@ -1,0 +1,284 @@
+<title>상따 헤더·오더북 최종안</title>
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --ring:oklch(0.63 0.18 250);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --r:6px; --r-md:8px; --r-lg:12px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --ring:oklch(0.72 0.16 250);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1200px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:34px 0 4px;padding-top:20px;border-top:1px solid var(--border)}
+h2:first-of-type{border-top:0;padding-top:0}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 16px;line-height:1.6}
+.pair{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.note{font-size:11px;color:var(--muted-fg);margin:8px 0 0;line-height:1.65}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+.ruler{width:390px;font-size:10px;color:var(--muted-fg);text-align:center;padding-bottom:4px}
+.dev{width:390px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--bg)}
+.devbar{height:32px;display:flex;align-items:center;justify-content:center;font-size:11px;
+  color:var(--muted-fg);background:var(--muted);border-bottom:1px solid var(--border)}
+.main{padding:8px}
+
+/* ── 페이지 타이틀 줄 : 상따 [계좌 ▾] ── */
+.ttl{display:flex;align-items:center;gap:8px;padding:2px 2px 8px}
+.ttl h3{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
+.acct{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px;border-radius:999px;
+  border:1px solid var(--border);background:var(--card);color:var(--muted-fg);
+  font:inherit;font-size:11px;cursor:pointer;max-width:100%;min-width:0}
+.acct .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg);font-weight:600}
+.acct .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct .cv{flex:none;font-size:9px}
+
+/* ── 헤더 카드 (B안 · 거래소 왼쪽 · 타이틀 탭하면 검색) ── */
+.hd{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);overflow:hidden;margin-bottom:8px}
+.hd-top{display:flex;align-items:center;gap:8px;padding:8px 10px}
+.exv{display:flex;flex-direction:column;flex:none;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.exv button{border:0;background:var(--bg);color:var(--muted-fg);font:inherit;font-size:10px;
+  font-weight:700;padding:3px 7px;cursor:pointer;line-height:1.2}
+.exv button.on{background:var(--accent);color:var(--accent-fg)}
+.nmbtn{display:flex;align-items:center;gap:5px;min-width:0;flex:1;border:0;background:transparent;
+  padding:2px 4px;margin:-2px -4px;border-radius:var(--r);cursor:pointer;text-align:left;color:inherit;font:inherit}
+.nmbtn:hover{background:var(--muted)}
+.hd-nm{min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.hd-nm b{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd-nm span{font-size:11px;color:var(--muted-fg)}
+.caret{flex:none;font-size:10px;color:var(--muted-fg)}
+.chg{margin-left:auto;text-align:right;flex:none;display:flex;flex-direction:column;line-height:1.2}
+.chg b{font-size:16px;font-weight:700}
+.chg span{font-size:11px;font-weight:600}
+.info2{border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:1fr 1fr;padding:4px 0}
+.info2 .cell{display:flex;align-items:baseline;gap:6px;padding:3px 10px;font-size:11px}
+.info2 .cell .k{color:var(--muted-fg);flex:none;min-width:34px}
+.info2 .cell .v{margin-left:auto;font-weight:600;white-space:nowrap}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+
+/* ── 본문 2열 ── */
+.body{display:grid;grid-template-columns:40% minmax(0,1fr);gap:0}
+.lad{min-width:0;padding-right:6px;border-right:1px solid var(--border)}
+.ordr{min-width:0;padding-left:8px}
+.lhead{display:flex;align-items:baseline;font-size:10px;color:var(--muted-fg);padding:0 2px 2px}
+.lhead b{font-size:11px;color:var(--fg);font-weight:600}
+/* ★ 10행(=5단) 높이 박스 안에서 20행(=10단)을 스크롤 */
+.ladbox{height:340px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.lrow{position:relative;display:flex;align-items:center;gap:3px;height:34px;padding:0 3px;border-radius:3px}
+.lbar{position:absolute;top:3px;bottom:3px;right:0;border-radius:3px;z-index:0}
+.lrow[data-side="ask"] .lbar{background:color-mix(in oklch,var(--down) 14%,transparent)}
+.lrow[data-side="bid"] .lbar{background:color-mix(in oklch,var(--up) 14%,transparent)}
+.lrow.ul{background:color-mix(in oklch,var(--up) 8%,transparent)}
+.lp{position:relative;z-index:1;display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.lp b{font-size:13px;font-weight:500;letter-spacing:-.02em}
+.lp em{font-size:10px;font-style:normal;font-weight:400}
+.lrow.last .lp b{font-weight:800} .lrow.last .lp em{font-weight:700}
+.lq{position:relative;z-index:1;margin-left:auto;font-size:9px;color:var(--muted-fg);padding-right:2px}
+.mid{margin:3px 0;border:0;border-top:1px solid var(--border)}
+.tapeline{margin:6px 0;border:0;border-top:1px solid var(--border)}
+.tape{width:100%;border-collapse:collapse}
+.tape td{font-size:10px;padding:1px 2px;text-align:right;height:20px;white-space:nowrap}
+.tape td:first-child{text-align:left;color:var(--muted-fg);font-size:9px}
+
+/* 주문 폼 */
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px}
+.tabs button{height:32px;border-radius:var(--r);border:1px solid var(--border);background:transparent;
+  color:var(--muted-fg);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.tabs button.on{border-color:var(--up);background:var(--up-bg);color:var(--up)}
+.grp{border-top:1px solid var(--border-subtle);padding:6px 0}
+.grp:first-of-type{border-top:0;padding-top:2px}
+.ghead{display:flex;align-items:center;gap:6px;min-height:22px}
+.gtitle{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted-fg)}
+.sw{margin-left:auto;width:44px;height:26px;border-radius:999px;background:var(--border);position:relative;flex:none}
+.sw i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#fff;box-shadow:0 1px 2px oklch(0 0 0/.3)}
+.form{--lw:64px}
+.fr{margin-top:4px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:6px}
+.fr > .lb{font-size:11px;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inp{display:flex;height:36px;align-items:center;gap:3px;border:1px solid var(--input);
+  border-radius:var(--r);background:var(--bg);padding:0 6px}
+.inp input{flex:1;min-width:0;text-align:right;font-size:16px;border:0;outline:0;background:transparent;
+  color:var(--fg);padding:0;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.inp .u{font-size:10px;color:var(--muted-fg);flex:none}
+.inp:focus-within{border-color:var(--ring)}
+.seg{display:flex;height:36px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;grid-column:1/-1}
+.seg button{flex:1;min-width:0;border:0;background:transparent;color:var(--muted-fg);
+  font:inherit;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer}
+.seg button.on{background:var(--up-bg);color:var(--up)}
+.ck{margin-top:4px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:6px}
+.ckbox{display:flex;align-items:center;gap:3px;min-width:0}
+.ckbox input{width:16px;height:16px;flex:none;margin:0;accent-color:var(--primary)}
+.ckbox label{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dirty{border-color:var(--primary)!important}
+.dirtylb{color:var(--primary)!important;font-weight:600}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>상따 헤더·오더북 최종안</h1>
+<p class="lede">
+  계좌를 페이지 타이틀 옆으로 · 거래소를 종목명 왼쪽으로 · 종목명 자체가 검색 트리거 · 헤더 정보 B안 ·
+  <b>호가는 5단 높이 박스 안에서 10단 전부 스크롤</b>. <b>호가 칸을 실제로 스크롤해 보세요.</b>
+</p>
+
+<div class="pair">
+<div>
+<div class="ruler">← 390px →</div>
+<div class="dev"><div class="devbar">trade.jx1.io</div><div class="main">
+
+  <div class="ttl">
+    <h3>상따</h3>
+    <button class="acct" title="계좌 변경">
+      <span class="num">37728502101</span><span class="nm">김현중</span><span class="cv">▾</span>
+    </button>
+  </div>
+
+  <div class="hd">
+    <div class="hd-top">
+      <span class="exv"><button class="on">KRX</button><button>NXT</button></span>
+      <button class="nmbtn" title="눌러서 종목 변경">
+        <span class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></span>
+        <span class="caret">▾</span>
+      </button>
+      <span class="chg"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></span>
+    </div>
+    <div class="info2">
+      <div class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></div>
+      <div class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></div>
+      <div class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></div>
+      <div class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></div>
+      <div class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></div>
+      <div class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></div>
+      <div class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></div>
+      <div class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></div>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="lad">
+      <div class="lhead"><b>호가</b><span style="margin-left:auto">10단 · KRX</span></div>
+      <div class="ladbox" id="ladbox" tabindex="0">
+        <div class="lrow ul" data-side="ask"><span class="lbar" style="width:12%"></span><span class="lp"><b class="mono up">2,408,000</b><em class="mono up">+29.95%</em></span><span class="lq mono">419</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="lp"><b class="mono down">1,850,000</b><em class="mono down">-0.16%</em></span><span class="lq mono">1,120</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:45%"></span><span class="lp"><b class="mono down">1,848,000</b><em class="mono down">-0.27%</em></span><span class="lq mono">1,640</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:22%"></span><span class="lp"><b class="mono down">1,846,000</b><em class="mono down">-0.38%</em></span><span class="lq mono">880</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:60%"></span><span class="lp"><b class="mono down">1,844,000</b><em class="mono down">-0.49%</em></span><span class="lq mono">2,210</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:70%"></span><span class="lp"><b class="mono down">1,841,000</b><em class="mono down">-0.64%</em></span><span class="lq mono">2,580</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:25%"></span><span class="lp"><b class="mono down">1,840,000</b><em class="mono down">-0.70%</em></span><span class="lq mono">970</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:52%"></span><span class="lp"><b class="mono down">1,838,000</b><em class="mono down">-0.80%</em></span><span class="lq mono">1,883</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:44%"></span><span class="lp"><b class="mono down">1,837,000</b><em class="mono down">-0.86%</em></span><span class="lq mono">1,607</span></div>
+        <div class="lrow" data-side="ask" id="ask1"><span class="lbar" style="width:33%"></span><span class="lp"><b class="mono down">1,834,000</b><em class="mono down">-1.02%</em></span><span class="lq mono">1,205</span></div>
+
+        <hr class="mid">
+
+        <div class="lrow last" data-side="bid"><span class="lbar" style="width:60%"></span><span class="lp"><b class="mono down">1,832,000</b><em class="mono down">-1.10%</em></span><span class="lq mono">1,451</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:38%"></span><span class="lp"><b class="mono down">1,830,000</b><em class="mono down">-1.19%</em></span><span class="lq mono">2,468</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:80%"></span><span class="lp"><b class="mono down">1,828,000</b><em class="mono down">-1.29%</em></span><span class="lq mono">2,847</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:22%"></span><span class="lp"><b class="mono down">1,826,000</b><em class="mono down">-1.40%</em></span><span class="lq mono">903</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:48%"></span><span class="lp"><b class="mono down">1,824,000</b><em class="mono down">-1.51%</em></span><span class="lq mono">1,776</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:35%"></span><span class="lp"><b class="mono down">1,822,000</b><em class="mono down">-1.62%</em></span><span class="lq mono">1,310</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:66%"></span><span class="lp"><b class="mono down">1,820,000</b><em class="mono down">-1.73%</em></span><span class="lq mono">2,402</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:18%"></span><span class="lp"><b class="mono down">1,818,000</b><em class="mono down">-1.83%</em></span><span class="lq mono">640</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:52%"></span><span class="lp"><b class="mono down">1,816,000</b><em class="mono down">-1.94%</em></span><span class="lq mono">1,905</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:28%"></span><span class="lp"><b class="mono down">1,814,000</b><em class="mono down">-2.05%</em></span><span class="lq mono">1,020</span></div>
+      </div>
+
+      <hr class="tapeline">
+      <table class="tape"><tbody>
+        <tr><td class="mono">46:12</td><td class="mono down">1,832,000</td><td class="mono up">120</td></tr>
+        <tr><td class="mono">46:11</td><td class="mono down">1,832,000</td><td class="mono down">40</td></tr>
+        <tr><td class="mono">46:09</td><td class="mono down">1,830,000</td><td class="mono down">1,200</td></tr>
+        <tr><td class="mono">46:08</td><td class="mono down">1,832,000</td><td class="mono up">85</td></tr>
+        <tr><td class="mono">46:05</td><td class="mono down">1,834,000</td><td class="mono up">300</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="ordr">
+      <div class="tabs"><button class="on">매수</button><button>매도</button></div>
+      <div class="form">
+        <div class="grp">
+          <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+          <div class="fr"><span class="lb">비교가격</span><div class="inp"><input class="sel" value="10,000,000" inputmode="numeric"><span class="u">원</span></div></div>
+          <div class="fr"><div class="seg"><button class="on">매도잔량</button><button>매수잔량</button></div></div>
+          <div class="fr"><span class="lb">잔량</span><div class="inp"><input class="sel" value="10,000,000" inputmode="numeric"><span class="u">주</span></div></div>
+          <div class="ck"><span class="ckbox"><input type="checkbox" id="c1"><label for="c1">체결</label></span>
+            <div class="inp"><input class="sel" value="30,000" inputmode="numeric"><span class="u">주</span></div></div>
+        </div>
+        <div class="grp">
+          <div class="fr"><span class="lb dirtylb">● 매수가격</span><div class="inp dirty"><input class="sel" value="1,832,000" inputmode="numeric"><span class="u">원</span></div></div>
+          <div class="fr"><span class="lb">주문금액</span><div class="inp"><input class="sel" value="100" inputmode="numeric"><span class="u">만원</span></div></div>
+        </div>
+        <div class="grp">
+          <div class="ghead"><span class="gtitle">한방체결</span><span class="sw"><i></i></span></div>
+          <div class="fr"><span class="lb">호가변경</span><div class="inp"><input class="sel" value="3" inputmode="numeric"><span class="u">건</span></div></div>
+          <div class="fr"><span class="lb">한방가격</span><div class="inp"><input class="sel" value="10,000,000" inputmode="numeric"><span class="u">원</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+</div>
+
+<div style="flex:1 1 300px;min-width:280px">
+<p class="note" style="max-width:none">
+<b>① 계좌 → 페이지 타이틀 옆</b><br>
+<code>상따 [37728502101 김현중 ▾]</code> 칩입니다. 눌러 계좌를 고릅니다(네이티브 <code>&lt;select&gt;</code> 를 칩 모양으로 덮어씁니다).
+헤더 카드 아래쪽 회색 바는 통째로 사라졌습니다.<br><br>
+<b>★ 계좌번호를 <code>377285xxx</code> 로 줄일지 확인이 필요합니다.</b> 지금은 전체(11자리)로 뒀습니다 —
+이 저장소는 「계좌번호는 마스킹 없이 전체 표시」(D2·S-5)를 결정으로 못박아 뒀고, 뒷자리를 가리면
+앞자리가 같은 두 계좌를 구분할 수 없게 됩니다. 폭 때문이라면 <b>좁을 때만 CSS 로 말줄임</b>하는 쪽을
+권합니다. 그래도 줄이길 원하시면 그렇게 하겠습니다.<br><br>
+
+<b>② 거래소 → 종목명 왼쪽</b><br>
+세로 2단 토글(KRX 위 / NXT 아래)로 종목명 왼쪽에 뒀습니다. 가로로 두면 종목명 폭을 52px×2 먹습니다.
+기존 전략 편집 진입에서는 거래소가 키의 일부라 잠깁니다(지금 규칙 그대로).<br><br>
+
+<b>③ 종목명 = 검색 트리거</b><br>
+종목명 블록 전체가 버튼입니다. 누르면 그 자리가 종목 검색창으로 바뀝니다.
+<code>▾</code> 캐럿이 「누를 수 있다」를 알립니다. 별도 「종목 변경」 버튼은 없앴습니다.<br><br>
+
+<b>④ 헤더 정보 B안</b><br>
+선 없이 여백만. 8칸이 2열 4행으로 붙습니다.<br><br>
+
+<b>⑤ 호가 = 5단 높이 · 10단 스크롤</b><br>
+박스 높이를 <b>340px(=10행)</b> 로 고정하고 안에 20행(10단 전부)을 넣었습니다.
+<b>처음 열릴 때 매도1/매수1 경계가 가운데</b> 오도록 스크롤을 맞춥니다(왼쪽 목업이 그렇게 시작합니다).
+가운데 가로선은 <b>매도1과 매수1 사이</b>에 붙어 함께 스크롤됩니다.
+스크롤 박스라 키보드 접근성(<code>tabindex</code>)도 다시 붙입니다.
+</p>
+</div>
+</div>
+
+<h2>확인해 주실 것</h2>
+<p class="lede">계좌번호를 <b>전체 표시</b>로 둘지 <b>뒷자리 가림</b>으로 할지만 알려 주세요. 나머지는 전부 확정으로 보고 구현에 들어가겠습니다.</p>
+
+<script>
+document.querySelectorAll('input.sel').forEach((el)=>{
+  const pick=()=>{try{el.setSelectionRange(0,el.value.length)}catch(e){}};
+  el.addEventListener('focus',()=>{pick();setTimeout(pick,0)});
+  el.addEventListener('click',pick);
+});
+// 최초 1회: 매도1/매수1 경계를 박스 가운데로
+(function(){
+  var box=document.getElementById('ladbox'), a1=document.getElementById('ask1');
+  if(box&&a1) box.scrollTop = Math.max(0, a1.offsetTop + a1.offsetHeight - box.clientHeight/2);
+})();
+</script>
+</div>

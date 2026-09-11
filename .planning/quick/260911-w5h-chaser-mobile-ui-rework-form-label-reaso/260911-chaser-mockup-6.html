@@ -1,0 +1,259 @@
+<title>헤더 종목정보 목업</title>
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --ring:oklch(0.63 0.18 250);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --r:6px; --r-md:8px; --r-lg:12px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --ring:oklch(0.72 0.16 250);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1200px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:34px 0 4px;padding-top:20px;border-top:1px solid var(--border)}
+h2:first-of-type{border-top:0;padding-top:0}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 16px;line-height:1.6}
+.pair{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.note{font-size:11px;color:var(--muted-fg);margin:8px 0 0;line-height:1.65;max-width:374px}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.tag.a{background:var(--up-bg);color:var(--up)}
+.tag.b{background:var(--down-bg);color:var(--down)}
+.frame{width:374px}
+
+/* 헤더 카드 */
+.hd{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);overflow:hidden}
+.hd-top{display:flex;align-items:center;gap:8px;padding:8px 10px}
+.hd-nm{min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.hd-nm b{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd-nm span{font-size:11px;color:var(--muted-fg)}
+.chg{margin-left:auto;text-align:right;flex:none;display:flex;flex-direction:column;line-height:1.2}
+.chg b{font-size:16px;font-weight:700}
+.chg span{font-size:11px;font-weight:600}
+
+/* ── 종목정보 2열 그리드 ── */
+.info{border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:1fr 1px 1fr}
+.info .divider{background:var(--border-subtle)}
+.info .cell{display:flex;align-items:baseline;gap:6px;padding:5px 10px;font-size:11px;
+  border-top:1px solid var(--border-subtle)}
+.info .cell:nth-child(-n+3){border-top:0}
+.info .cell .k{color:var(--muted-fg);flex:none}
+.info .cell .v{margin-left:auto;font-weight:600;white-space:nowrap}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+
+/* 압축형(B) — 라벨·값 한 덩어리, 행 높이 더 낮음 */
+.info2{border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:1fr 1fr;
+  column-gap:0;padding:4px 0}
+.info2 .cell{display:flex;align-items:baseline;gap:6px;padding:3px 10px;font-size:11px}
+.info2 .cell .k{color:var(--muted-fg);flex:none;min-width:34px}
+.info2 .cell .v{margin-left:auto;font-weight:600;white-space:nowrap}
+
+.hd-bot{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border-subtle);
+  background:var(--muted);padding:6px 10px;font-size:11px;color:var(--muted-fg)}
+.pill{display:flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;flex:none;height:24px;background:var(--bg)}
+.pill button{border:0;background:transparent;color:var(--muted-fg);font:inherit;font-size:11px;font-weight:700;padding:0 9px;cursor:pointer}
+.pill button.on{background:var(--accent);color:var(--accent-fg)}
+.hd-btn{flex:none;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--border);
+  background:var(--bg);color:var(--muted-fg);font:inherit;font-size:11px;font-weight:600;cursor:pointer}
+.more{width:100%;border:0;border-top:1px solid var(--border-subtle);background:transparent;
+  color:var(--muted-fg);font:inherit;font-size:11px;padding:5px 0;cursor:pointer}
+
+/* 호가 (가로선 데모) */
+.lad{width:150px;padding-right:6px}
+.lhead{display:flex;align-items:baseline;font-size:10px;color:var(--muted-fg);padding:0 2px 2px}
+.lhead b{font-size:11px;color:var(--fg);font-weight:600}
+.lrow{position:relative;display:flex;align-items:center;gap:3px;height:34px;padding:0 3px;border-radius:3px}
+.lbar{position:absolute;top:3px;bottom:3px;right:0;border-radius:3px;z-index:0}
+.lrow[data-side="ask"] .lbar{background:color-mix(in oklch,var(--down) 14%,transparent)}
+.lrow[data-side="bid"] .lbar{background:color-mix(in oklch,var(--up) 14%,transparent)}
+.lrow.ul{background:color-mix(in oklch,var(--up) 8%,transparent)}
+.lp{position:relative;z-index:1;display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.lp b{font-size:13px;font-weight:500;letter-spacing:-.02em}
+.lp em{font-size:10px;font-style:normal;font-weight:400}
+.lrow.last .lp b{font-weight:800} .lrow.last .lp em{font-weight:700}
+.lq{position:relative;z-index:1;margin-left:auto;font-size:9px;color:var(--muted-fg);padding-right:2px}
+.mid{margin:3px 0;border:0;border-top:1px solid var(--border)}
+.tapeline{margin:6px 0;border:0;border-top:1px solid var(--border)}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>헤더 종목정보 8종 + 호가 중앙선</h1>
+<p class="lede">
+  8종 전부 <b>이미 들어오는 실시간 호가 필드</b>입니다 — 시가 <code>o</code> · 고가 <code>h</code> · 저가 <code>l</code> ·
+  상한 <code>ul</code> · 하한 <code>ll</code> · 상승VI <code>viu</code> · 상장주식수 <code>ls</code>.
+  <b>시총 = 현재가 × ls</b>, <b>발행1% = ls ÷ 100</b> 으로 계산합니다. 새 API·새 조회가 필요 없습니다.
+</p>
+
+<h2>③ 헤더 종목정보 — A · B 두 가지</h2>
+<div class="pair">
+
+  <div class="frame">
+    <span class="tag a">안 A — 가운데 세로선 + 행 구분선</span>
+    <div class="hd">
+      <div class="hd-top">
+        <div class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></div>
+        <div class="chg"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></div>
+      </div>
+      <div class="info">
+        <div class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></div>
+
+        <div class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></div>
+
+        <div class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></div>
+
+        <div class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></div>
+      </div>
+      <div class="hd-bot">
+        <span class="pill"><button class="on">KRX</button><button>NXT</button></span>
+        <span class="mono" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">37728502101 · 김현중</span>
+        <button class="hd-btn" style="margin-left:auto">종목 변경</button>
+      </div>
+    </div>
+    <p class="note">
+      말씀하신 2단 컬럼 그대로입니다. 가운데 세로 헤어라인 + 행 사이 헤어라인으로 8칸이 표처럼 정렬됩니다.
+      라벨은 왼쪽 고정, <b>값은 오른쪽 정렬</b>이라 자릿수가 세로로 맞습니다. 높이 <b>+92px</b>.
+    </p>
+  </div>
+
+  <div class="frame">
+    <span class="tag b">안 B — 선 없이 여백만 (더 낮음)</span>
+    <div class="hd">
+      <div class="hd-top">
+        <div class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></div>
+        <div class="chg"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></div>
+      </div>
+      <div class="info2">
+        <div class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></div>
+        <div class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></div>
+        <div class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></div>
+        <div class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></div>
+        <div class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></div>
+        <div class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></div>
+        <div class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></div>
+        <div class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></div>
+      </div>
+      <div class="hd-bot">
+        <span class="pill"><button class="on">KRX</button><button>NXT</button></span>
+        <span class="mono" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">37728502101 · 김현중</span>
+        <button class="hd-btn" style="margin-left:auto">종목 변경</button>
+      </div>
+    </div>
+    <p class="note">
+      같은 배치인데 선을 전부 빼고 여백만으로 나눴습니다. 높이 <b>+68px</b> 로 A 보다 24px 낮고 더 가볍지만,
+      값이 길어지면 좌우 칸 경계가 흐려집니다.
+    </p>
+  </div>
+
+  <div class="frame">
+    <span class="tag a">안 A + 접기 (기본 접힘)</span>
+    <div class="hd">
+      <div class="hd-top">
+        <div class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></div>
+        <div class="chg"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></div>
+      </div>
+      <button class="more" onclick="var e=document.getElementById('fold');e.style.display=e.style.display==='none'?'grid':'none';this.textContent=e.style.display==='none'?'종목정보 ▾':'종목정보 ▴'">종목정보 ▾</button>
+      <div class="info" id="fold" style="display:none">
+        <div class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></div>
+        <div class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></div>
+        <div class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></div>
+        <div class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></div>
+        <div class="divider"></div>
+        <div class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></div>
+      </div>
+      <div class="hd-bot">
+        <span class="pill"><button class="on">KRX</button><button>NXT</button></span>
+        <span class="mono" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">37728502101 · 김현중</span>
+        <button class="hd-btn" style="margin-left:auto">종목 변경</button>
+      </div>
+    </div>
+    <p class="note">
+      <b>눌러서 펼쳐 보세요.</b> A 와 같은 표인데 기본은 접혀 있어 헤더가 <b>+22px</b> 만 늘어납니다.
+      모바일에서 호가·주문이 위로 올라오는 게 중요하면 이쪽입니다. 데스크톱은 항상 펼침으로 둘 수 있습니다.
+    </p>
+  </div>
+</div>
+
+<p class="note" style="max-width:none;font-size:12px">
+  <b>색 규칙</b> — 시가·고가·저가는 기준가(전일 종가) 대비 방향색, <b>상한·상승VI 는 항상 빨강</b>, <b>하한은 항상 파랑</b>,
+  시총·발행1% 는 중립입니다. &nbsp;<b>단위</b> — 시총은 <code>조/억</code>(예: 133조 4,120억), 발행1% 는 주 단위 정수
+  (예: 728,002주). 「12만주」식 축약이 더 좋으면 말씀해 주세요.
+</p>
+
+<h2>② 매도호가 · 매수호가 사이 가로선</h2>
+<div class="pair">
+  <div>
+    <span class="tag a">적용</span>
+    <div class="lad">
+      <div class="lhead"><b>호가 5단</b><span style="margin-left:auto">KRX</span></div>
+      <div class="lrow ul" data-side="ask"><span class="lbar" style="width:35%"></span>
+        <span class="lp"><b class="mono up">2,408,000</b><em class="mono up">+29.95%</em></span><span class="lq mono">419</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:70%"></span>
+        <span class="lp"><b class="mono down">1,841,000</b><em class="mono down">-0.64%</em></span><span class="lq mono">2,580</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:25%"></span>
+        <span class="lp"><b class="mono down">1,840,000</b><em class="mono down">-0.70%</em></span><span class="lq mono">970</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:52%"></span>
+        <span class="lp"><b class="mono down">1,838,000</b><em class="mono down">-0.80%</em></span><span class="lq mono">1,883</span></div>
+      <div class="lrow" data-side="ask"><span class="lbar" style="width:44%"></span>
+        <span class="lp"><b class="mono down">1,837,000</b><em class="mono down">-0.86%</em></span><span class="lq mono">1,607</span></div>
+
+      <hr class="mid">
+
+      <div class="lrow last" data-side="bid"><span class="lbar" style="width:60%"></span>
+        <span class="lp"><b class="mono down">1,832,000</b><em class="mono down">-1.10%</em></span><span class="lq mono">1,451</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:38%"></span>
+        <span class="lp"><b class="mono down">1,830,000</b><em class="mono down">-1.19%</em></span><span class="lq mono">2,468</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:80%"></span>
+        <span class="lp"><b class="mono down">1,828,000</b><em class="mono down">-1.29%</em></span><span class="lq mono">2,847</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:22%"></span>
+        <span class="lp"><b class="mono down">1,826,000</b><em class="mono down">-1.40%</em></span><span class="lq mono">903</span></div>
+      <div class="lrow" data-side="bid"><span class="lbar" style="width:48%"></span>
+        <span class="lp"><b class="mono down">1,824,000</b><em class="mono down">-1.51%</em></span><span class="lq mono">1,776</span></div>
+      <hr class="tapeline">
+      <div style="font-size:9px;color:var(--muted-fg);padding:2px">…체결내역</div>
+    </div>
+  </div>
+  <div style="flex:1 1 260px">
+    <p class="note" style="max-width:none">
+      매도 5단과 매수 5단 사이에 <b>1px 가로선</b>을 넣었습니다. 아래 체결내역 구분선과 <b>같은 굵기·같은 색</b>이라
+      한 칼럼 안에 두 종류의 선이 생기지 않습니다.<br><br>
+      상한가 행(맨 위)은 <b>옅은 빨강 배경</b>, 최근 체결가 행(<span class="mono" style="font-weight:800">1,832,000</span>)은 <b>굵게</b> — 앞서 확정한 그대로입니다.
+    </p>
+  </div>
+</div>
+
+<h2>확인해 주실 것</h2>
+<p class="lede">헤더 종목정보를 <b>A / B / A+접기</b> 중 어느 것으로 할지만 정해 주세요. 나머지는 전부 확정입니다.</p>
+</div>

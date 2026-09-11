@@ -1,0 +1,363 @@
+<title>모바일 레이아웃 · 헤더 · 포커스 목업</title>
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --ring:oklch(0.63 0.18 250);
+  --destructive:oklch(0.66 0.20 22);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --ring:oklch(0.72 0.16 250);
+  --destructive:oklch(0.72 0.19 22);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1200px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:34px 0 4px;padding-top:20px;border-top:1px solid var(--border)}
+h2:first-of-type{border-top:0;padding-top:0}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 16px;line-height:1.6}
+.pair{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:0 1 auto;min-width:0}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.tag.a{background:var(--up-bg);color:var(--up)}
+.tag.b{background:var(--down-bg);color:var(--down)}
+.tag.c{background:var(--muted);color:var(--muted-fg)}
+.note{font-size:11px;color:var(--muted-fg);margin:8px 0 0;line-height:1.6;max-width:390px}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+
+/* 390px 기기 프레임 */
+.dev{width:390px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--bg)}
+.devbar{height:34px;display:flex;align-items:center;justify-content:center;font-size:11px;
+  color:var(--muted-fg);background:var(--muted);border-bottom:1px solid var(--border)}
+.main{padding:16px}           /* 현행 p-6=24px → 이번 제안 16px */
+.main.tight{padding:12px}     /* 안 B 는 12px */
+.gut{font-size:10px;color:var(--muted-fg);text-align:center;padding:2px 0}
+
+.card{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card)}
+.pad{padding:var(--s-2)}
+.stack{display:flex;flex-direction:column;gap:var(--s-2)}
+
+/* 호가 */
+.ptitle{display:flex;align-items:center;font-size:var(--t-sm);font-weight:600;margin:0 0 var(--s-1)}
+.ptitle small{margin-left:auto;font-size:var(--t-caption);font-weight:400;color:var(--muted-fg)}
+.lrow{position:relative;display:flex;align-items:center;gap:4px;height:30px;padding:0 4px;border-radius:4px}
+.lbar{position:absolute;top:2px;bottom:2px;right:0;border-radius:3px;z-index:0}
+.lrow[data-side="ask"] .lbar{background:color-mix(in oklch,var(--down) 16%,transparent)}
+.lrow[data-side="bid"] .lbar{background:color-mix(in oklch,var(--up) 16%,transparent)}
+.dot{width:14px;flex:none;display:flex;align-items:center;justify-content:center}
+.dot i{width:6px;height:6px;border-radius:999px;background:var(--fg);display:block}
+.lp{position:relative;z-index:1;display:flex;align-items:baseline;gap:4px;min-width:0}
+.lp b{font-size:12px;font-weight:600}
+.lp em{font-size:10px;font-style:normal}
+.lq{position:relative;z-index:1;margin-left:auto;font-size:11px}
+.tape{width:100%;border-collapse:collapse}
+.tape td{font-size:11px;padding:2px 4px;text-align:right;height:24px}
+.tape td:first-child{text-align:left;color:var(--muted-fg);font-size:10px}
+.split{margin:var(--s-2) 0;border:0;border-top:1px solid var(--border)}
+
+/* 폼 */
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-1);margin-bottom:var(--s-2)}
+.tabs button{height:36px;border-radius:var(--r);border:1px solid var(--border);background:transparent;
+  color:var(--muted-fg);font:inherit;font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.tabs button.on{border-color:var(--up);background:var(--up-bg);color:var(--up)}
+.grp{position:relative;border-top:1px solid var(--border);padding:var(--s-2) var(--s-2) var(--s-2) var(--s-4)}
+.grp:first-child{border-top:0}
+.grp::before{content:'';position:absolute;inset-block:0;left:0;width:3px;background:var(--up)}
+.ghead{display:flex;align-items:center;gap:var(--s-2);min-height:24px}
+.gtitle{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--muted-fg)}
+.sw{margin-left:auto;width:44px;height:26px;border-radius:999px;background:var(--border);position:relative;flex:none}
+.sw i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#fff;box-shadow:0 1px 2px oklch(0 0 0/.3)}
+.fr{margin-top:var(--s-1);display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:var(--s-2)}
+.fr > label{font-size:var(--t-caption);color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inp{display:flex;align-items:center;gap:4px;border:1px solid var(--input);border-radius:var(--r);
+  background:var(--bg);padding:0 8px}
+.inp .v{flex:1;text-align:right;min-width:0;overflow:hidden}
+.inp .u{font-size:11px;color:var(--muted-fg);flex:none}
+.seg{display:flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.seg button{flex:1;min-width:0;border:0;background:transparent;color:var(--muted-fg);
+  font:inherit;font-size:11px;font-weight:600;white-space:nowrap;cursor:pointer}
+.seg button.on{background:var(--up-bg);color:var(--up)}
+.full{grid-column:1/-1}
+/* 크기 프로파일 */
+.big{--lw:84px}      .big .inp{height:40px}   .big .inp .v{font-size:16px}
+.small{--lw:64px}    .small .inp{height:32px} .small .inp .v{font-size:12px}
+
+/* 헤더 카드 */
+.hd-old{display:flex;align-items:center;gap:var(--s-2);border:1px solid var(--input);
+  border-radius:var(--r-md);background:var(--bg);padding:8px 10px}
+.exseg{display:flex;height:40px;flex:none;border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden}
+.exseg button{min-width:52px;padding:0 12px;border:0;background:var(--bg);color:var(--muted-fg);
+  font:inherit;font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.exseg button.on{background:var(--accent);color:var(--accent-fg)}
+.sel{height:40px;border:1px solid var(--input);border-radius:var(--r-md);background:var(--bg);
+  display:flex;align-items:center;padding:0 10px;font-size:var(--t-caption)}
+
+.hd-new{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);overflow:hidden}
+.hd-top{display:flex;align-items:center;gap:var(--s-2);padding:10px var(--s-3)}
+.hd-nm{min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.hd-nm b{font-size:16px;font-weight:700}
+.hd-nm span{font-size:11px;color:var(--muted-fg)}
+.chg{margin-left:auto;text-align:right;flex:none;display:flex;flex-direction:column;line-height:1.2}
+.chg b{font-size:16px;font-weight:700}
+.chg span{font-size:11px;font-weight:600}
+.hd-btn{flex:none;height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--border);
+  background:var(--bg);color:var(--muted-fg);font:inherit;font-size:11px;font-weight:600;cursor:pointer}
+.hd-bot{display:flex;align-items:center;gap:var(--s-2);border-top:1px solid var(--border-subtle);
+  background:var(--muted);padding:8px var(--s-3);font-size:11px;color:var(--muted-fg)}
+.pill{display:flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;flex:none;height:26px}
+.pill button{border:0;background:transparent;color:var(--muted-fg);font:inherit;font-size:11px;
+  font-weight:700;padding:0 10px;cursor:pointer}
+.pill button.on{background:var(--accent);color:var(--accent-fg)}
+
+/* 포커스 데모 */
+.demo{display:flex;flex-direction:column;gap:10px;width:300px}
+.demo .fr{margin:0}
+.old-focus{border:2px solid #1a73e8 !important;outline:2px solid #1a73e8;outline-offset:1px}
+.old-dirty{border-color:var(--primary)!important;box-shadow:0 0 0 2px color-mix(in oklch,var(--primary) 18%,transparent)}
+.new-focus{border-color:var(--ring)!important;box-shadow:0 0 0 3px color-mix(in oklch,var(--ring) 22%,transparent)}
+.new-dirty{border-color:var(--primary)!important;background:color-mix(in oklch,var(--primary) 6%,var(--bg))!important}
+.dirtylabel{color:var(--primary)!important;font-weight:600}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>모바일 레이아웃 3안 · 헤더 카드 · 입력 포커스</h1>
+<p class="lede">
+  전부 <b>390px 실제 기기 폭</b> 프레임 안에서 그렸습니다. 입력값은 전부 <b>10,000,000</b> 을 넣어
+  실제로 안 잘리는지 볼 수 있게 했습니다.
+</p>
+
+<h2>A · B · C — 모바일 상따 레이아웃</h2>
+<div class="pair">
+
+  <!-- ── 안 A ── -->
+  <div class="col">
+    <span class="tag a">안 A — 세로 스택 · 여백 16px · 입력 16px</span>
+    <div class="dev"><div class="devbar">trade.jx1.io</div><div class="main"><div class="stack">
+      <div class="card pad">
+        <div class="hd-top" style="padding:6px 4px">
+          <div class="hd-nm"><b>에코프로비엠</b><span>247540 · KRX</span></div>
+          <div class="chg"><b class="mono" style="color:var(--up)">127,400</b><span style="color:var(--up)">+2.98%</span></div>
+        </div>
+      </div>
+
+      <div class="card pad">
+        <p class="ptitle">호가 5단 <small>KRX</small></p>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:30%"></span><span class="dot"></span><span class="lp"><b class="mono" style="color:var(--up)">131,200</b><em class="mono" style="color:var(--up)">2.9</em></span><span class="lq mono">3,120</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:70%"></span><span class="dot"></span><span class="lp"><b class="mono" style="color:var(--up)">131,100</b><em class="mono" style="color:var(--up)">2.8</em></span><span class="lq mono">8,400</span></div>
+        <div class="lrow" data-side="ask"><span class="lbar" style="width:25%"></span><span class="dot"></span><span class="lp"><b class="mono" style="color:var(--up)">131,000</b><em class="mono" style="color:var(--up)">2.7</em></span><span class="lq mono">1,980</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:60%"></span><span class="dot"><i></i></span><span class="lp"><b class="mono" style="color:var(--up)">130,900</b><em class="mono" style="color:var(--up)">2.6</em></span><span class="lq mono">7,050</span></div>
+        <div class="lrow" data-side="bid"><span class="lbar" style="width:35%"></span><span class="dot"></span><span class="lp"><b class="mono" style="color:var(--down)">126,900</b><em class="mono" style="color:var(--down)">0.4</em></span><span class="lq mono">3,310</span></div>
+        <hr class="split">
+        <table class="tape"><tbody>
+          <tr><td class="mono">46:12</td><td class="mono" style="color:var(--up)">130,900</td><td class="mono" style="color:var(--up)">120</td></tr>
+          <tr><td class="mono">46:11</td><td class="mono" style="color:var(--up)">130,900</td><td class="mono" style="color:var(--down)">40</td></tr>
+          <tr><td class="mono">46:09</td><td class="mono" style="color:var(--up)">130,800</td><td class="mono" style="color:var(--down)">1,200</td></tr>
+        </tbody></table>
+      </div>
+
+      <div>
+        <div class="tabs"><button class="on">매수</button><button>매도</button></div>
+        <div class="card big">
+          <div class="grp">
+            <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+            <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">원</span></div></div>
+            <div class="fr"><div class="seg full"><button class="on">매도잔량</button><button>매수잔량</button></div></div>
+            <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">주</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div></div></div>
+    <p class="note">
+      입력창 <b>약 230px</b> · 글꼴 <b>16px</b>. iOS 는 16px 미만 입력에 포커스하면 자동 확대하고
+      되돌리지 않으므로, 16px 이면 <b>확대 자체가 안 일어납니다</b>(viewport 로 줌을 막지 않아도 됨 = 접근성 유지).
+      대신 호가를 보면서 값을 고치려면 스크롤이 필요합니다.
+    </p>
+  </div>
+
+  <!-- ── 안 B ── -->
+  <div class="col">
+    <span class="tag b">안 B — 좌우 분할 유지 · 여백 12px · 34/66</span>
+    <div class="dev"><div class="devbar">trade.jx1.io</div><div class="main tight">
+      <div class="card pad" style="margin-bottom:8px">
+        <div class="hd-top" style="padding:4px">
+          <div class="hd-nm"><b style="font-size:14px">에코프로비엠</b><span>247540 · KRX</span></div>
+          <div class="chg"><b class="mono" style="font-size:14px;color:var(--up)">127,400</b><span style="color:var(--up)">+2.98%</span></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:34% minmax(0,1fr);gap:8px">
+        <div class="card pad" style="min-width:0">
+          <p class="ptitle" style="font-size:11px">5단</p>
+          <div class="lrow" data-side="ask" style="height:26px"><span class="lbar" style="width:30%"></span><span class="dot"></span><span class="lp"><b class="mono" style="font-size:11px;color:var(--up)">131,200</b><em class="mono" style="color:var(--up)">2.9</em></span></div>
+          <div class="lrow" data-side="ask" style="height:26px"><span class="lbar" style="width:70%"></span><span class="dot"></span><span class="lp"><b class="mono" style="font-size:11px;color:var(--up)">131,100</b><em class="mono" style="color:var(--up)">2.8</em></span></div>
+          <div class="lrow" data-side="bid" style="height:26px"><span class="lbar" style="width:60%"></span><span class="dot"><i></i></span><span class="lp"><b class="mono" style="font-size:11px;color:var(--up)">130,900</b><em class="mono" style="color:var(--up)">2.6</em></span></div>
+          <div class="lrow" data-side="bid" style="height:26px"><span class="lbar" style="width:35%"></span><span class="dot"></span><span class="lp"><b class="mono" style="font-size:11px;color:var(--down)">126,900</b><em class="mono" style="color:var(--down)">0.4</em></span></div>
+          <hr class="split">
+          <table class="tape"><tbody>
+            <tr><td class="mono">46:12</td><td class="mono" style="color:var(--up)">130,900</td></tr>
+            <tr><td class="mono">46:11</td><td class="mono" style="color:var(--up)">130,900</td></tr>
+          </tbody></table>
+        </div>
+        <div style="min-width:0">
+          <div class="tabs"><button class="on">매수</button><button>매도</button></div>
+          <div class="card small">
+            <div class="grp" style="padding-left:10px">
+              <div class="ghead"><span class="gtitle">매수주문</span><span class="sw" style="width:36px;height:22px"><i style="width:16px;height:16px"></i></span></div>
+              <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">원</span></div></div>
+              <div class="fr"><div class="seg full"><button class="on">매도잔량</button><button>매수잔량</button></div></div>
+              <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">주</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">
+      입력창 <b>약 126px</b> · 글꼴 <b>12px</b>. 10,000,000 이 딱 들어가지만 여유가 거의 없고,
+      잔량 열을 버려야 호가가 들어갑니다(위 그림에서 호가 우측 잔량 숫자가 사라졌습니다).
+      <b>16px 로 못 올리므로 iOS 확대는 viewport 로 막아야 합니다</b> — 핀치줌까지 제약될 수 있습니다.
+    </p>
+  </div>
+
+  <!-- ── 안 C ── -->
+  <div class="col">
+    <span class="tag c">안 C — 상단 탭 전환</span>
+    <div class="dev"><div class="devbar">trade.jx1.io</div><div class="main">
+      <div class="card pad" style="margin-bottom:8px">
+        <div class="hd-top" style="padding:6px 4px">
+          <div class="hd-nm"><b>에코프로비엠</b><span>247540 · KRX</span></div>
+          <div class="chg"><b class="mono" style="color:var(--up)">127,400</b><span style="color:var(--up)">+2.98%</span></div>
+        </div>
+      </div>
+      <div class="tabs" style="grid-template-columns:1fr 1fr"><button>호가 · 체결</button><button class="on">주문</button></div>
+      <div class="tabs"><button class="on">매수</button><button>매도</button></div>
+      <div class="card big">
+        <div class="grp">
+          <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+          <div class="fr"><label>비교가격</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">원</span></div></div>
+          <div class="fr"><div class="seg full"><button class="on">매도잔량</button><button>매수잔량</button></div></div>
+          <div class="fr"><label>잔량</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">주</span></div></div>
+          <div class="fr"><label>체결</label><div class="inp"><span class="v mono">10,000,000</span><span class="u">주</span></div></div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">
+      입력은 A 와 같은 230px·16px. 스크롤이 가장 짧지만 <b>탭이 2층</b>(호가/주문 + 매수/매도)이 되고,
+      호가를 보며 값을 고치는 동선이 끊깁니다.
+    </p>
+  </div>
+</div>
+
+<h2>④ 상따 헤더 카드 — 종목 변경 가능 + 정보 정리</h2>
+<p class="lede">
+  지금은 종목을 한 번 고르면 <b>바꿀 방법이 없습니다</b>(<code>isin===''</code> 일 때만 검색창이 뜹니다).
+  새로고침하거나 사이드바 「상따」로 다시 들어가야 합니다. 그리고 종목명·코드·현재가·거래소·계좌가
+  모두 같은 굵기의 한 줄에 늘어서 있어 무엇이 중요한지 안 보입니다.
+</p>
+<div class="pair">
+  <div class="col">
+    <span class="tag c">현행</span>
+    <div class="dev" style="width:358px"><div class="main">
+      <div class="card pad">
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="hd-old" style="flex:1;min-width:0">
+            <b style="font-size:14px">에코프로비엠</b>
+            <span class="mono" style="font-size:12px;color:var(--muted-fg)">247540</span>
+            <span class="mono" style="margin-left:auto;font-size:14px;font-weight:600;color:var(--up)">127,400 <small style="font-weight:400">2.98%</small></span>
+          </div>
+          <div class="exseg"><button class="on">KRX</button><button>NXT</button></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <label style="font-size:12px;font-weight:600;color:var(--muted-fg)">계좌</label>
+          <div class="sel" style="flex:1">37728502101 · 김현중</div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">종목 칸이 입력창처럼 생겼는데 <b>눌러도 아무 일이 없습니다</b>. 거래소 버튼이 종목명 폭을 먹습니다.</p>
+  </div>
+
+  <div class="col">
+    <span class="tag a">개선</span>
+    <div class="dev" style="width:358px"><div class="main">
+      <div class="hd-new">
+        <div class="hd-top">
+          <div class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></div>
+          <div class="chg"><b class="mono" style="color:var(--up)">127,400</b><span class="mono" style="color:var(--up)">+2.98%</span></div>
+        </div>
+        <div class="hd-bot">
+          <span class="pill"><button class="on">KRX</button><button>NXT</button></span>
+          <span class="mono" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">37728502101 · 김현중</span>
+          <button class="hd-btn" style="margin-left:auto">종목 변경</button>
+        </div>
+      </div>
+    </div></div>
+    <p class="note">
+      <b>위 = 지금 무엇을 보고 있나</b>(종목명 16px + 현재가·등락률 우측 정렬),
+      <b>아래 = 설정</b>(거래소 · 계좌 · <b>종목 변경</b>).
+      「종목 변경」을 누르면 그 자리가 검색창으로 돌아갑니다. 편집 진입(기존 전략)에서는
+      거래소·종목이 키의 일부라 <b>버튼이 비활성</b>입니다 — 지금 거래소 버튼이 잠기는 규칙과 같습니다.
+      계좌는 지금처럼 네이티브 <code>&lt;select&gt;</code> 로 두되 칩 높이에 맞춥니다.
+    </p>
+  </div>
+</div>
+
+<h2>① 입력창 포커스 · 더티 표시</h2>
+<p class="lede">
+  스크린샷의 굵은 파란 사각형은 두 가지가 겹친 결과입니다 — <b>더티(값 변경됨) 표시</b>
+  (<code>--primary</code> 테두리 + 2px 링)와 <b>브라우저 기본 포커스 링</b>. 둘 다 파랑이라
+  「포커스가 저렇게 생겼다」로 보입니다.
+</p>
+<div class="pair">
+  <div class="col">
+    <span class="tag c">현행</span>
+    <div class="demo big">
+      <div class="fr"><label>비교가격</label><div class="inp old-focus"><span class="v mono">3,495,000</span><span class="u">원</span></div></div>
+      <div class="fr"><label class="dirtylabel">● 주문금액</label><div class="inp old-dirty"><span class="v mono">10</span><span class="u">만원</span></div></div>
+    </div>
+    <p class="note">포커스 = 기본 파란 이중 테두리(디자인 토큰과 무관). 더티 = 또 다른 파랑. 구분이 안 됩니다.</p>
+  </div>
+  <div class="col">
+    <span class="tag a">개선</span>
+    <div class="demo big">
+      <div class="fr"><label>비교가격</label><div class="inp new-focus"><span class="v mono">3,495,000</span><span class="u">원</span></div></div>
+      <div class="fr"><label class="dirtylabel">● 주문금액</label><div class="inp new-dirty"><span class="v mono">10</span><span class="u">만원</span></div></div>
+      <div class="fr"><label class="dirtylabel">● 매수가격</label><div class="inp new-dirty new-focus"><span class="v mono">127,400</span><span class="u">원</span></div></div>
+    </div>
+    <p class="note">
+      <b>포커스</b> = <code>--ring</code> 테두리 + 부드러운 3px 헤일로(브라우저 기본 링은 끔).
+      <b>더티</b> = 테두리 <code>--primary</code> + <b>아주 옅은 배경 틴트</b>(링 제거) + 라벨의 <code>●</code>.
+      셋째 줄은 <b>더티이면서 포커스</b>인 상태 — 헤일로가 있으면 포커스, 배경 틴트가 있으면 더티라
+      겹쳐도 구분됩니다. 더티의 색·문자 2중 표기 규율(WCAG 1.4.1)은 그대로 유지합니다.
+    </p>
+  </div>
+</div>
+
+<h2>따로 물어볼 것 없이 그냥 넣을 것</h2>
+<p class="lede">
+  <b>첫 접속 기본 테마를 라이트로</b> — <code>theme-provider.tsx</code> 의 <code>defaultTheme="dark"</code> 를
+  <code>"light"</code> 로 바꿉니다. 이미 토글로 바꾼 적 있는 사용자는 그 선택이 유지됩니다(localStorage).
+</p>
+
+<h2>정해 주실 것</h2>
+<p class="lede">
+  <b>레이아웃 A / B / C 중 하나</b>만 골라 주세요. ④ 헤더와 ① 포커스는 이대로 진행해도 될지도 함께요.
+</p>
+</div>
