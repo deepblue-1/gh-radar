@@ -112,14 +112,15 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
   });
 
-  test('1. 빈 폼 진입 — 제목·부제 + WinForms 기본값 + 액션 바 미렌더', async ({ page }) => {
+  test('1. 빈 폼 진입 — 제목(부제 없음) + WinForms 기본값 + 액션 바 미렌더', async ({ page }) => {
     await page.goto(NEW_URL);
     await waitForReady(page);
 
     await expect(page.getByRole('heading', { name: '상따', exact: true })).toBeVisible();
+    // 신규 진입 안내 부제는 걷어냈다(quick 260911-tuk).
     await expect(
       page.getByText('종목을 고르면 아래 값이 상한가 기준으로 채워져요'),
-    ).toBeVisible();
+    ).toHaveCount(0);
 
     // 기본값 — `LimitChaserForm.cs` 상수 이식분이다(주문금액 10만원 · 감시잔량 10,000).
     await expect(field(page, 'lc-buy-order-amount')).toHaveValue('10');

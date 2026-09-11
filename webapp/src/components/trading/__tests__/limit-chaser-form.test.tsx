@@ -442,31 +442,53 @@ describe('⑨ S→C 전용 4필드를 보내지 않는다 (Pitfall 6)', () => {
   });
 });
 
-describe('⑩ 파생값은 금액 → 수량 한 방향이다', () => {
-  it('주문금액 10(만원) · 매수가격 30,000 → 산출 3주 / 실제 90,000원', () => {
+describe('⑩ 화면에 파생값 3행을 그리지 않는다', () => {
+  /**
+   * quick 260911-tuk — 「산출 주문수량」·「실제 주문금액」·「예상 매도수량」 3행을 걷어냈다.
+   *
+   * **산출식이 사라진 것이 아니다.** `buyOrderQtyFromAmount` 는 무장 판정(`canArmBuy`)이
+   * 계속 쓰고 `estimatedSellQty` 는 `lib/__tests__/limit-chaser.test.ts` 가 단위로 잠근다.
+   * 여기서 잠그는 것은 **표시하지 않는다**는 사실 하나다 — 지운 줄이 슬그머니 돌아오면
+   * 이 케이스가 빨개진다.
+   */
+  it('매수 파생값 2행이 없다 (산출식은 무장 판정이 계속 쓴다)', () => {
     render(
       <LimitChaserForm {...props({ server: echo({ buyOrderPrice: 30_000, buyOrderAmount: 10 }) })} />,
     );
 
-    const qtyRow = screen.getByText('산출 주문수량').closest('div')!;
-    expect(within(qtyRow).getByText('3주')).toBeInTheDocument();
-
-    const amtRow = screen.getByText('실제 주문금액').closest('div')!;
-    expect(within(amtRow).getByText('90,000원')).toBeInTheDocument();
+    expect(screen.queryByText('산출 주문수량')).toBeNull();
+    expect(screen.queryByText('실제 주문금액')).toBeNull();
+    // 값도 함께 사라졌다 — 라벨만 지우고 숫자가 떠 있는 상태가 아니다.
+    expect(screen.queryByText('3주')).toBeNull();
+    expect(screen.queryByText('90,000원')).toBeNull();
   });
 
-  it('매수가격 0 이면 파생값은 `—` 다 — 0 으로 나눈 숫자를 보여주지 않는다', () => {
-    render(<LimitChaserForm {...props({ server: echo({ buyOrderPrice: 0 }) })} />);
+  it('예상 매도수량 행이 없다 (「서버 계산값이 정본」 주석도 함께 사라진다)', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellOrderRatio: 50 }) })} />);
 
-    const qtyRow = screen.getByText('산출 주문수량').closest('div')!;
-    expect(within(qtyRow).getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText(/예상 매도수량/)).toBeNull();
+    expect(screen.queryByText('· 서버 계산값이 정본이에요')).toBeNull();
   });
 
-  it('예상 매도수량은 매도가능 × 비율 이고 「서버 계산값이 정본」임을 표시한다', () => {
-    render(<LimitChaserForm {...props({ sellableQty: 153, server: echo({ sellOrderRatio: 50 }) })} />);
+  it('매수가격·매도가격 그룹에는 제목이 없고 빈 헤더 줄도 남지 않는다', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
 
-    expect(screen.getByText('예상 매도수량 (매도가능 153주 × 50%)')).toBeInTheDocument();
-    expect(screen.getByText('· 서버 계산값이 정본이에요')).toBeInTheDocument();
+    for (const slot of ['lc-group-buy-price', 'lc-group-sell-price']) {
+      const group = container.querySelector(`[data-slot="${slot}"]`)!;
+      expect(group).not.toBeNull();
+      // 첫 자식이 곧 첫 입력 행이다 — 앞에 빈 24px 헤더 줄이 끼어 있으면 안 된다.
+      const first = group.firstElementChild!.nextElementSibling!; // [0] 은 좌측 3px 액센트 바
+      expect(first.className).toContain('grid-cols-[var(--lw)_minmax(0,1fr)]');
+    }
+  });
+
+  it('한방체결·자동취소 그룹의 hint 한 줄이 화면에서 사라졌다 (툴팁도 함께)', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+
+    expect(screen.queryByText(/N건 연속 한 호가에서 체결이 쏟아지면/)).toBeNull();
+    expect(screen.queryByText(/비교가격은 매수가격을 그대로 사용/)).toBeNull();
+    expect(container.querySelector('[data-slot="lc-group-sweep"]')).not.toHaveAttribute('title');
+    expect(container.querySelector('[data-slot="lc-group-cancel"]')).not.toHaveAttribute('title');
   });
 });
 
@@ -538,9 +560,35 @@ describe('⑫ 접근성 · 모바일 탭', () => {
     expect(actionBar()).not.toBeNull();
   });
 
-  it('취소잔량이 꺼져 있으면 「매도 「비율」 값 재사용」이 비활성이다 (A9)', () => {
-    render(<LimitChaserForm {...props()} />);
-    expect(screen.getByLabelText(/매도 「비율」 값 재사용/)).toBeDisabled();
+  it('취소잔량이 꺼져 있으면 자동취소의 「잔량추적」이 비활성이다 (A9)', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+    // 라벨을 축약하면서(quick 260911-tuk) 매도 그룹의 체크박스와 **같은 문구**가 됐다.
+    // 그래서 문구가 아니라 id 로 좁힌다 — 문구 조회는 2건을 잡아 터진다.
+    expect(container.querySelector('#lc-cancel-qty-track')).toBeDisabled();
+  });
+
+  it('자동취소 체크박스 2개의 라벨이 「체결」·「잔량추적」이다', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+
+    const cancelGroup = container.querySelector('[data-slot="lc-group-cancel"]')!;
+    expect(within(cancelGroup as HTMLElement).getByText('체결')).toBeInTheDocument();
+    expect(within(cancelGroup as HTMLElement).getByText('잔량추적')).toBeInTheDocument();
+    expect(screen.queryByText(/값 재사용/)).toBeNull();
+  });
+
+  it('체크박스 행이 NumField 와 같은 2열 그리드를 쓰고 입력에 고정폭이 없다', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+
+    // 입력을 가진 체크박스 행 — 취소 감시 잔량.
+    const input = container.querySelector('#lc-cancel-watch-qty')!;
+    const inputBox = input.parentElement!; // NumInput 의 테두리 박스
+    expect(inputBox.className).not.toContain('w-[104px]');
+    expect(inputBox.className).not.toContain('flex-none');
+
+    const row = inputBox.parentElement!;
+    expect(row.className).toContain('grid-cols-[var(--lw)_minmax(0,1fr)]');
+    // 체크박스와 라벨은 1열 안에 함께 묶인다(2열은 입력 차지).
+    expect(row.querySelector('#lc-cancel-qty')!.parentElement).not.toBe(row);
   });
 });
 
@@ -637,8 +685,9 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
 
   it('보유 0 이어도 매도는 무장할 수 있다 — 상따는 사기 전에 팔 조건을 건다', async () => {
     const user = userEvent.setup();
-    // `sellableQty: 0` (아직 한 주도 없다). 예상 매도수량은 0 이지만 **표시 전용**이다.
-    render(<LimitChaserForm {...props({ sellableQty: 0 })} />);
+    // 보유가 0 이어도(예상 매도수량은 애초에 표시 전용이었고 지금은 화면에도 없다)
+    // 무장 판정은 `sellOrderPrice`·`sellWatchQty` 만 본다.
+    render(<LimitChaserForm {...props()} />);
 
     await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
     expect(lastConfig().sellEnabled).toBe(true);

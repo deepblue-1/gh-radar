@@ -196,13 +196,14 @@ describe('strategyStatusOf', () => {
 });
 
 describe('LimitChaserClient — 결선', () => {
-  it('④ 신규 진입은 제목·부제가 UI-SPEC verbatim 이고 가격 칩 행을 그리지 않는다 (A1)', () => {
+  it('④ 신규 진입은 제목만이고 부제도 가격 칩 행도 그리지 않는다 (A1)', () => {
     render(<LimitChaserClient />);
 
     expect(screen.getByRole('heading', { name: '상따' })).toBeInTheDocument();
+    // 안내 부제를 걷어냈다(quick 260911-tuk) — 문구를 비운 것이 아니라 요소가 없다.
     expect(
-      screen.getByText('종목을 고르면 아래 값이 상한가 기준으로 채워져요'),
-    ).toBeInTheDocument();
+      screen.queryByText('종목을 고르면 아래 값이 상한가 기준으로 채워져요'),
+    ).toBeNull();
     // 종목이 없으면 칩 자체가 없다 — 「상한가 —」 같은 빈 칩을 그리지 않는다.
     expect(document.querySelector('[data-slot="lc-price-chips"]')).toBeNull();
     expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();

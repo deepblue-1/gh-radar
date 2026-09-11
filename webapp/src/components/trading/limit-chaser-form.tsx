@@ -94,7 +94,6 @@ import {
   crudOf,
   defaultLimitChaserForm,
   dirtyFieldsOf,
-  estimatedSellQty,
   formFromServer,
   isDeleteIntent,
   seedFromUpperLimit,
@@ -225,8 +224,6 @@ export interface LimitChaserFormProps {
   server?: RelayLimitChaser | null;
   /** 상한가 — 신규 폼에서 가격 5칸을 **1회만** 시딩한다. */
   upperLimit?: number;
-  /** 매도가능 수량(`RelayAccountState.hold[].sellableQty`) — 예상 매도수량 표시용. */
-  sellableQty?: number;
   /** 세션 미준비 등 — 폼 전체 비활성. */
   disabled?: boolean;
   /** 그룹 헤더 상태 문구(`무장` / `발주 완료 · 무장 해제` 등). 매핑은 상위 소관이다. */
@@ -261,7 +258,6 @@ export function LimitChaserForm({
   exchange,
   server = null,
   upperLimit,
-  sellableQty = 0,
   disabled = false,
   buyStatusText = '',
   sellStatusText = '',
@@ -406,19 +402,18 @@ export function LimitChaserForm({
     통과시킨다) 화면에는 「무장」 배지가 뜬다 — 사용자는 무장했다고 믿지만 그 전략은 영원히
     발주하지 않는다. 조용한 실패다.
 
-    ★ 산출식을 **복제하지 않는다**. 아래 `buyQty`/`sellQty` 파생값을 그대로 읽는다 —
+    ★ 산출식을 **복제하지 않는다**. 아래 `buyQty` 파생값을 그대로 읽는다 —
       `lib/limit-chaser.ts` 가 유일 지점이다.
   */
   const buyQty = buyOrderQtyFromAmount(form.buyOrderAmount, form.buyOrderPrice);
-  /** 예상 매도수량 — **표시 전용**이다(무장 조건이 아니다. 아래 `canArmSell` 주석 참조). */
-  const sellQty = estimatedSellQty(sellableQty, form.sellOrderRatio);
 
   const canArmBuy = form.buyOrderPrice > 0 && buyQty > 0;
   /*
-    ★ 매도는 **`sellQty`(예상 매도수량)를 조건으로 쓰지 않는다.**
+    ★ 매도는 **예상 매도수량(`estimatedSellQty(매도가능, 비율)`)을 조건으로 쓰지 않는다.**
 
-    `sellQty` 는 `estimatedSellQty(sellableQty, ratio)` 이고 `lib/limit-chaser.ts` 가 그것을
-    **표시 전용**이라고 못박았다 — 정본은 서버가 Set 시점에 스냅샷하는 `sellOrderQty` 다.
+    `lib/limit-chaser.ts` 가 그 값을 **표시 전용**이라고 못박았고, 정본은 서버가 Set 시점에
+    스냅샷하는 `sellOrderQty` 다. 화면에서 그 예상값 행 자체를 걷어낸 지금도(quick 260911-tuk)
+    이 문장은 그대로다 — 표시를 지운 것이지 판정 기준을 바꾼 것이 아니다.
     게다가 상따의 정상 흐름은 「아직 한 주도 없는 상태에서 매수·매도를 함께 무장」이다.
     보유 0 을 무장 차단 조건으로 삼으면 이 화면의 주 동선이 통째로 막힌다.
 
@@ -643,12 +638,12 @@ export function LimitChaserForm({
             disabled={disabled || !form.buyTradeQtyEnabled}
             dirty={dirtySet.has('buyMinTradeQty')}
             flash={flash.has('buyMinTradeQty')}
-            className="w-[104px] flex-none"
           />
         </CheckRow>
       </Group>
 
-      <Group slot="buy-price" tone="buy" title="매수가격">
+      {/* 제목 없음 — 첫 `NumField` 라벨이 「매수가격」이라 그룹 제목이 같은 말의 반복이었다. */}
+      <Group slot="buy-price" tone="buy">
         <NumField
           id="lc-buy-order-price"
           label="매수가격"
@@ -667,19 +662,12 @@ export function LimitChaserForm({
           onChange={setField}
           {...shared}
         />
-        <Derived label="산출 주문수량" value={buyQty > 0 ? `${NUM.format(buyQty)}주` : '—'} />
-        <Derived
-          label="실제 주문금액"
-          value={buyQty > 0 ? `${NUM.format(buyQty * form.buyOrderPrice)}원` : '—'}
-        />
       </Group>
 
       <Group
         slot="sweep"
         tone="buy"
         title="한방체결"
-        hint="N건 연속 한 호가에서 체결이 쏟아지면 매수 재평가"
-        showHint
         switchProps={{
           label: '한방체결 켜기',
           checked: form.sweepEnabled,
@@ -769,7 +757,6 @@ export function LimitChaserForm({
             disabled={disabled || !form.sellQtyTrackEnabled}
             dirty={dirtySet.has('sellQtyTrackRatio')}
             flash={flash.has('sellQtyTrackRatio')}
-            className="w-[104px] flex-none"
           />
         </CheckRow>
         <CheckRow
@@ -789,7 +776,6 @@ export function LimitChaserForm({
             disabled={disabled || !form.sellTradeQtyEnabled}
             dirty={dirtySet.has('sellMinTradeQty')}
             flash={flash.has('sellMinTradeQty')}
-            className="w-[104px] flex-none"
           />
         </CheckRow>
         {/* 잔량추적 기준선은 **S→C 전용**이다 — 서버가 매도 진입을 래치한 뒤에만 존재한다. */}
@@ -801,7 +787,8 @@ export function LimitChaserForm({
         ) : null}
       </Group>
 
-      <Group slot="sell-price" tone="sell" title="매도가격">
+      {/* 제목 없음 — 「매수가격」 그룹과 같은 이유(첫 라벨이 「매도가격」이다). */}
+      <Group slot="sell-price" tone="sell">
         <NumField
           id="lc-sell-order-price"
           label="매도가격"
@@ -820,11 +807,6 @@ export function LimitChaserForm({
           onChange={setField}
           {...shared}
         />
-        <Derived
-          label={`예상 매도수량 (매도가능 ${NUM.format(sellableQty)}주 × ${form.sellOrderRatio}%)`}
-          value={sellQty > 0 ? `${NUM.format(sellQty)}주` : '—'}
-          note="서버 계산값이 정본이에요"
-        />
       </Group>
 
       {/*
@@ -836,8 +818,6 @@ export function LimitChaserForm({
         tone="neutral"
         title="매수 미체결 자동취소"
         caption="가드"
-        hint="비교가격은 매수가격을 그대로 사용 · 잔량추적은 취소잔량과 함께만 동작"
-        showHint
       >
         <CheckRow
           id="lc-cancel-qty"
@@ -856,12 +836,11 @@ export function LimitChaserForm({
             disabled={disabled || !form.cancelQtyEnabled}
             dirty={dirtySet.has('cancelWatchQty')}
             flash={flash.has('cancelWatchQty')}
-            className="w-[104px] flex-none"
           />
         </CheckRow>
         <CheckRow
           id="lc-cancel-trade"
-          label="매도 「체결」 값 재사용"
+          label="체결"
           checked={form.cancelTradeEnabled}
           onCheckedChange={(v) => setField('cancelTradeEnabled', v)}
           disabled={disabled}
@@ -870,7 +849,7 @@ export function LimitChaserForm({
         {/* 취소 잔량추적은 **취소잔량과 함께만** 동작한다 — 미체크면 비활성(A9). */}
         <CheckRow
           id="lc-cancel-qty-track"
-          label="매도 「비율」 값 재사용"
+          label="잔량추적"
           checked={form.cancelQtyTrackEnabled}
           onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
           disabled={disabled || !form.cancelQtyEnabled}
@@ -955,11 +934,17 @@ export function LimitChaserForm({
 
 /* ───────────────────────── 폼 구성 요소 ───────────────────────── */
 
-/** `.fcard` — 라벨 컬럼 폭(`--lw`)을 카드 안에서 공유한다. 그룹을 카드로 쪼개면 그 공유가 깨진다. */
+/**
+ * `.fcard` — 라벨 컬럼 폭(`--lw`)을 카드 안에서 공유한다. 그룹을 카드로 쪼개면 그 공유가 깨진다.
+ *
+ * ★ `--lw` 는 `Row` 와 `CheckRow` **둘 다**의 1열 폭이다. `CheckRow` 의 1열에는 체크박스(18px)와
+ *   간격(4px)이 라벨과 함께 들어가므로, 4글자 라벨(「잔량추적」·「취소잔량」)이 잘리지 않으려면
+ *   순수 라벨만 담는 `Row` 기준으로 잡은 60/72px 로는 모자란다 — 그래서 76/88px 이다.
+ */
 function Card({ children }: { children: ReactNode }) {
   return (
     <div
-      className="min-w-0 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] [--lw:60px] min-[1280px]:[--lw:72px]"
+      className="min-w-0 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] [--lw:76px] min-[1280px]:[--lw:88px]"
     >
       {children}
     </div>
@@ -983,20 +968,23 @@ function Group({
   caption,
   led,
   hint,
-  showHint = false,
   switchProps,
   armBlocked,
   children,
 }: {
   slot: 'buy' | 'buy-price' | 'sweep' | 'sell' | 'sell-price' | 'cancel';
   tone: 'buy' | 'sell' | 'neutral';
-  title: string;
+  /**
+   * 그룹 제목. **없어도 된다** — 첫 행 라벨이 곧 제목인 그룹(매수가격·매도가격)은 제목이
+   * 같은 말의 반복이었다. 헤더 줄에 보여 줄 것이 하나도 없으면 줄 자체를 렌더하지 않는다
+   * (빈 24px 줄이 남으면 그것이 곧 정체 모를 여백이다).
+   */
+  title?: string;
   status?: string;
   caption?: string;
   led?: 'on' | 'off' | 'watch';
+  /** 그룹 전체 툴팁(`<section title>`). **화면에는 렌더하지 않는다** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
   hint?: string;
-  /** 힌트를 화면에 렌더할지. 기본은 **`title` 툴팁으로만** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
-  showHint?: boolean;
   switchProps?: GroupSwitchProps;
   /** 무장 불가 사유 1줄 (WR-06). 켤 수 없을 때만 넘어온다 — 없으면 렌더하지 않는다. */
   armBlocked?: string;
@@ -1004,6 +992,9 @@ function Group({
 }) {
   const accent =
     tone === 'buy' ? 'var(--up)' : tone === 'sell' ? 'var(--down)' : 'var(--border)';
+  // 헤더 줄에 보여 줄 것이 하나라도 있어야 줄을 만든다 — 없으면 빈 24px 줄만 남는다.
+  const hasHeader =
+    title != null || status != null || caption != null || led != null || switchProps != null;
   return (
     <section
       data-slot={`lc-group-${slot}`}
@@ -1015,6 +1006,7 @@ function Group({
         className="absolute inset-y-0 left-0 w-[3px]"
         style={{ background: accent }}
       />
+      {hasHeader ? (
       <div className="flex min-h-6 min-w-0 items-center gap-[var(--s-2)]">
         {led != null ? (
           <span
@@ -1029,9 +1021,11 @@ function Group({
           />
         ) : null}
         <span className="min-w-0 flex-1 leading-normal">
-          <span className="text-[11px] font-semibold tracking-[0.06em] text-[var(--muted-fg)]">
-            {title}
-          </span>
+          {title ? (
+            <span className="text-[11px] font-semibold tracking-[0.06em] text-[var(--muted-fg)]">
+              {title}
+            </span>
+          ) : null}
           {status ? <span className="ml-1 text-[11px] text-[var(--muted-fg)]">{status}</span> : null}
           {caption ? (
             <span className="ml-1 text-[11px] text-[var(--muted-fg)]">{caption}</span>
@@ -1043,6 +1037,7 @@ function Group({
         */}
         {switchProps != null ? <GateSwitch tone={tone} {...switchProps} /> : null}
       </div>
+      ) : null}
       {children}
       {armBlocked != null ? (
         <p
@@ -1050,11 +1045,6 @@ function Group({
           className="mt-[var(--s-1)] text-[11px] leading-normal text-[var(--muted-fg)]"
         >
           {armBlocked}
-        </p>
-      ) : null}
-      {showHint && hint ? (
-        <p className="mt-[var(--s-1)] hidden text-[11px] text-[var(--muted-fg)] min-[1280px]:block">
-          {hint}
         </p>
       ) : null}
     </section>
@@ -1213,7 +1203,13 @@ function NumField<K extends keyof LimitChaserFormValues>({
   );
 }
 
-/** `.ck` — 체크박스 한 줄. 입력이 있으면 오른쪽 끝으로 민다(위 「라벨 | 입력」 행과 끝이 맞는다). */
+/**
+ * `.ck` — 체크박스 한 줄. **`Row` 와 같은 2열 그리드**(`--lw | 1fr`)를 쓴다.
+ *
+ * 1열에 체크박스 + 라벨을 묶고 2열에 입력을 둔다 — 그래야 위쪽 「라벨 | 입력」 행과 입력의
+ * 좌우 끝·폭이 정확히 맞는다(예전 `flex flex-wrap` + 입력 고정폭 104px 은 끝이 어긋났다).
+ * 입력이 없는 행은 2열이 비어도 무방하다.
+ */
 function CheckRow({
   id,
   label,
@@ -1237,28 +1233,31 @@ function CheckRow({
   return (
     <div
       className={cn(
-        'mt-[var(--s-1)] flex min-h-8 min-w-0 flex-wrap items-center gap-[var(--s-2)]',
+        'mt-[var(--s-1)] grid min-h-8 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-[var(--s-2)]',
         dimmed && 'opacity-45',
       )}
     >
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onCheckedChange(e.target.checked)}
-        className="size-[18px] flex-none accent-[var(--primary)] disabled:cursor-not-allowed"
-      />
-      <label
-        htmlFor={id}
-        className={cn(
-          'min-w-0 truncate text-[length:var(--t-caption)]',
-          dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--fg)]',
-        )}
-      >
-        {dirty ? '● ' : ''}
-        {label}
-      </label>
+      <span className="flex min-w-0 items-center gap-[var(--s-1)]">
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onCheckedChange(e.target.checked)}
+          className="size-[18px] flex-none accent-[var(--primary)] disabled:cursor-not-allowed"
+        />
+        <label
+          htmlFor={id}
+          className={cn(
+            'min-w-0 truncate text-[length:var(--t-caption)]',
+            dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--fg)]',
+          )}
+        >
+          {/* 더티 표시는 색만이 아니라 **문자**로도 남긴다(WCAG 1.4.1) — `Row` 와 같은 규율. */}
+          {dirty ? '● ' : ''}
+          {label}
+        </label>
+      </span>
       {children}
     </div>
   );

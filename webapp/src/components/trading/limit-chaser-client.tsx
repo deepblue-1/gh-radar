@@ -358,8 +358,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   const displayName = picked?.name ?? (isin === '' ? '' : (isinLabels.get(isin)?.name ?? isin));
   const accountState = accountNo === '' ? null : (accountStates.get(accountNo) ?? null);
-  const sellableQty =
-    accountState?.hold.find((h) => h.isin === isin)?.sellableQty ?? 0;
 
   // 실시간 호가가 있으면 그쪽이 정본이다 — REST 상세는 스냅샷 전의 임시값이다.
   const upperLimit = quote?.ul ?? picked?.upperLimit ?? 0;
@@ -389,11 +387,12 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         <h1 className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-semibold text-[var(--fg)]">
           {parsedKey === null ? '상따' : `${displayName} · ${parsedKey.exchange}`}
         </h1>
-        <p className={cn('m-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]', parsedKey !== null && 'mono')}>
-          {parsedKey === null
-            ? '종목을 고르면 아래 값이 상한가 기준으로 채워져요'
-            : (routeKey ?? '')}
-        </p>
+        {/* 부제는 **편집일 때만**이다 — 신규 진입의 안내 문구는 걷어냈다(quick 260911-tuk). */}
+        {parsedKey !== null ? (
+          <p className="mono m-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+            {routeKey ?? ''}
+          </p>
+        ) : null}
       </div>
 
       {/* ── A1 종목 · 거래소 · 계좌 ── */}
@@ -572,7 +571,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
           exchange={exchange}
           server={server}
           upperLimit={upperLimit}
-          sellableQty={sellableQty}
           disabled={isin === '' || accountNo === '' || status !== 'ready'}
           buyStatusText={badges.buyText}
           sellStatusText={badges.sellText}
