@@ -67,6 +67,16 @@ export interface TradeTapeProps {
   bestAsk?: number;
   /** 매수 1호가. 있으면 구분 추정의 1차 근거가 된다. */
   bestBid?: number;
+  /**
+   * 상따 모바일 좌측 칼럼(콘텐츠 ≈140px)용 축약 모드.
+   *
+   * ★ 기본값 `false` 일 때 동작은 **한 픽셀도 달라지지 않는다** — 기존 호출부(호가주문 탭)의
+   *   렌더 결과 불변이 이 옵션의 계약이다.
+   * 켜면: `<thead>` 없음 · 시각 `MM:SS` · 셀 10px · 행 24px · `max-h-[200px]` ·
+   * 셀 패딩 `px-1` · 스크롤 영역에 `tabIndex={0}`.
+   * 그대로 남는 것: 핀 버튼 · 배치 플래시 · 수량 색 · `sr-only` 매수/매도 · 「추정이에요」 라벨.
+   */
+  compact?: boolean;
   className?: string;
 }
 
@@ -93,6 +103,20 @@ export function formatTapeTime(raw: string): string {
   const digits = raw.replace(/\D/g, '');
   if (digits.length < 6) return raw;
   return `${digits.slice(0, 2)}:${digits.slice(2, 4)}:${digits.slice(4, 6)}`;
+}
+
+/**
+ * 같은 원문 → `MM:SS`(compact 전용).
+ *
+ * 좁은 칼럼에서 `HH:MM:SS` 8자는 체결가(9자)와 폭을 다툰다. 상따 모바일에서 체결 테이프를
+ * 훑는 목적은 「방금 몇 초 사이에 무슨 일이 있었나」라 시(時)는 언제나 같은 값이다.
+ * ★ 6자 미만 원문은 `formatTapeTime` 과 **같은 규율**로 원문을 그대로 돌려준다 —
+ *   모르는 형식을 잘라 내면 없는 시각을 지어내게 된다.
+ */
+export function formatTapeTimeShort(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 6) return raw;
+  return `${digits.slice(2, 4)}:${digits.slice(4, 6)}`;
 }
 
 /**
@@ -142,6 +166,7 @@ export function TradeTape({
   basePrice,
   bestAsk,
   bestBid,
+  compact = false,
   className,
 }: TradeTapeProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +255,8 @@ export function TradeTape({
       <div
         data-density="compact"
         data-slot="trade-tape"
+        // 상태와 무관하게 compact 를 짚을 수 있어야 한다 — 빈 상태에도 같이 건다.
+        data-compact={compact ? 'true' : undefined}
         className={cn(
           'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center',
           className,
@@ -249,13 +276,30 @@ export function TradeTape({
     <div
       data-density="compact"
       data-slot="trade-tape"
+      data-compact={compact ? 'true' : undefined}
       data-stale={isStale ? 'true' : undefined}
       className={cn('flex min-w-0 flex-col', isStale && 'opacity-[.55]', className)}
     >
+      {/*
+        ★ compact 스크롤 영역에 `tabIndex={0}` 을 건다 (axe `scrollable-region-focusable`,
+          impact serious). `max-h-[200px]` 가 실제로 넘치는 스크롤 영역이고 그 안에 **상시**
+          포커스 가능한 자식이 없다(핀 버튼은 스크롤을 내린 동안에만 뜬다) — 박스 자신이
+          포커스를 못 받으면 키보드 사용자가 아래 체결에 영영 닿지 못한다. 같은 화면의
+          `ladder-scroll` 이 16-17 에서 정확히 이 조합으로 실측돼 생겼다.
+          이름은 자식 `<table aria-label="체결 테이프">` 가 읽어 주므로 중복 라벨을 달지 않는다.
+        ★ **비 compact 경로에는 걸지 않는다** — 기존 동작 불변이 `compact` 옵션의 계약이다.
+          (그쪽은 `min-[900px]:max-h-[664px]` 로 데스크톱에서 거의 넘치지 않고, 호가주문 탭의
+           탭 순서를 바꾸면 그 화면의 키보드 동선이 통째로 달라진다.)
+      */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="relative max-h-[320px] overflow-y-auto min-[900px]:max-h-[664px]"
+        tabIndex={compact ? 0 : undefined}
+        data-slot={compact ? 'tape-scroll' : undefined}
+        className={cn(
+          'relative overflow-y-auto',
+          compact ? 'max-h-[200px]' : 'max-h-[320px] min-[900px]:max-h-[664px]',
+        )}
       >
         {/* 핀 버튼 — 사용자가 스크롤을 내린 동안에만. scrollTop<=4 면 자동으로 사라진다. */}
         {!pinned && pendingCount > 0 && (
@@ -284,24 +328,34 @@ export function TradeTape({
             셀은 전부 `whitespace-nowrap` 이라 폭이 모자라도
             **줄바꿈 대신 잘린다** — 두 줄로 무너지는 것보다 낫다.
           */}
+          {/*
+            ★ compact 비율 근거: 390px 뷰포트 → `AppShell main` 의 `p-2` 로 본문 374px →
+              `lc-body-grid` 좌측 칼럼 42% ≈157px → 카드 패딩 8×2 제외 **콘텐츠 ≈140px**.
+              가장 넓은 것은 체결가(9자)이므로 **가운데가 가장 넓다**.
+              계약은 비율이 아니라 그 규율이다 — 셀이 전부 `whitespace-nowrap` 이라 모자라면
+              줄바꿈 대신 잘리고, 체결가가 두 줄로 갈리면 테이프의 존재 이유가 사라진다.
+          */}
           <colgroup>
-            <col className="w-[36%]" />
-            <col className="w-[34%]" />
-            <col className="w-[30%]" />
+            <col className={compact ? 'w-[26%]' : 'w-[36%]'} />
+            <col className={compact ? 'w-[42%]' : 'w-[34%]'} />
+            <col className={compact ? 'w-[32%]' : 'w-[30%]'} />
           </colgroup>
-          <thead className="sticky top-0 z-[1]">
-            <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-[var(--border)] [&>th]:bg-[var(--muted)] [&>th]:px-1.5 [&>th]:py-1.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-[var(--muted-fg)]">
-              <th scope="col" className="text-left">
-                시각
-              </th>
-              <th scope="col" className="num">
-                체결가
-              </th>
-              <th scope="col" className="num">
-                수량
-              </th>
-            </tr>
-          </thead>
+          {/* compact 에는 컬럼헤더를 두지 않는다(사용자 확정) — 140px 에서 3칸 헤더는 순 소음이다. */}
+          {!compact && (
+            <thead className="sticky top-0 z-[1]">
+              <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-[var(--border)] [&>th]:bg-[var(--muted)] [&>th]:px-1.5 [&>th]:py-1.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-[var(--muted-fg)]">
+                <th scope="col" className="text-left">
+                  시각
+                </th>
+                <th scope="col" className="num">
+                  체결가
+                </th>
+                <th scope="col" className="num">
+                  수량
+                </th>
+              </tr>
+            </thead>
+          )}
           <tbody className="[&>tr+tr>td]:border-t [&>tr+tr>td]:border-[var(--border-subtle)]">
             {rows.map((entry, index) => {
               const isBuy = sides[index] === 'B';
@@ -313,13 +367,26 @@ export function TradeTape({
                   key={index}
                   data-side={isBuy ? 'B' : 'S'}
                   className={cn(
-                    '[&>td]:h-[var(--row-h)] [&>td]:whitespace-nowrap [&>td]:px-1.5 [&>td]:align-middle [&>td]:text-[length:var(--t-caption)]',
+                    '[&>td]:whitespace-nowrap [&>td]:align-middle',
+                    /*
+                      ★ compact 은 **세 셀 전부** 10px 이다(T3 허용처 ⓓ). 시각만 줄이면
+                        9자리 체결가가 140px 칼럼에서 잘린다.
+                    */
+                    compact
+                      ? '[&>td]:h-6 [&>td]:px-1 [&>td]:text-[10px]'
+                      : '[&>td]:h-[var(--row-h)] [&>td]:px-1.5 [&>td]:text-[length:var(--t-caption)]',
                     FLASH_FADE,
                     flashed && FLASH_BG,
                   )}
                 >
-                  <td className="mono text-left text-[11px] text-[var(--muted-fg)]">
-                    {formatTapeTime(entry.t)}
+                  <td
+                    className={cn(
+                      'mono text-left text-[var(--muted-fg)]',
+                      // compact 에서는 행 규칙의 10px 이 이긴다 — 개별 11px 을 걷는다.
+                      !compact && 'text-[11px]',
+                    )}
+                  >
+                    {compact ? formatTapeTimeShort(entry.t) : formatTapeTime(entry.t)}
                   </td>
                   <td className={cn('mono num font-semibold', priceTone(entry.p, basePrice))}>
                     {fmt(entry.p)}

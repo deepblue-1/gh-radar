@@ -67,7 +67,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 
-import { deriveTapeSides, formatTapeTime } from '@/components/orderbook/trade-tape';
+import { TradeTape, deriveTapeSides, formatTapeTime } from '@/components/orderbook/trade-tape';
 import { cn } from '@/lib/utils';
 import type { RelayQuote, RelayTapeEntry } from '@gh-radar/shared';
 
@@ -508,6 +508,9 @@ const MARKER_SLOT_PX = 16;
 /**
  * 등락률 열 최소폭(px). `-29.0` ~ `29.0` 을 오가도 가격 열이 밀리지 않는다.
  * 슬롯과 같은 이유로 인라인 style 이다.
+ *
+ * ★ **데스크톱 전용**이다. 좁은 폭은 등락률이 가격 **아래 줄**이라 가로 폭을 다툴 상대가
+ *   없고, 40px 최소폭은 그 예산에서 낭비다(260911-w5h).
  */
 const PCT_MIN_WIDTH_PX = 40;
 
@@ -521,6 +524,22 @@ const RECENT_TRADE_ROWS = LEVELS;
 export function ladderPctText(price: number, basePrice: number): string {
   if (!(basePrice > 0) || !(price > 0)) return '';
   return (((price - basePrice) / basePrice) * 100).toFixed(1);
+}
+
+/**
+ * 좁은 폭 전용 등락률 표기 — **부호 + `%`**.
+ *
+ * ★ 계산식을 복제하지 않는다. `ladderPctText` 의 결과를 **꾸미기만** 한다 — 데스크톱과 좁은
+ *   폭이 다른 숫자를 말할 자리를 만들지 않기 위해서다(그 함수의 반환값·export 는 불변이다).
+ * ★ **보합(`0.0`)에는 부호를 붙이지 않는다.** `+0.0%` 는 「조금 올랐다」로 읽히고, 상한가
+ *   근처에서 그 오독은 곧 매수 판단이 된다.
+ */
+export function ladderPctTextSigned(price: number, basePrice: number): string {
+  const raw = ladderPctText(price, basePrice);
+  if (raw === '') return '';
+  if (raw.startsWith('-')) return `${raw}%`;
+  if (raw === '0.0') return `${raw}%`;
+  return `+${raw}%`;
 }
 
 /** 마커 슬롯 1개. 마커가 없어도 **폭을 차지한다** — 그것이 이 조각의 존재 이유다. */
@@ -603,8 +622,15 @@ function markerOf(
  *
  * ★ 가격은 **클릭 대상이 아니다**(A11). 비교가격 자동 채움이 없어졌으므로 클릭 핸들러도
  *   roving tabindex 도 두지 않는다 — 눌러도 아무 일이 없는 커서는 「고장난 화면」이다.
- * ★ 데스크톱(≥1280)과 좁은 폭은 **다른 트리**다. 좁은 폭에는 최근 체결 열이 없고 행이
- *   2줄(가격 + 등락률)이며 400px 독립 스크롤 + 현재가 중앙 초기 스크롤을 갖는다(R7).
+ * ★ 데스크톱(≥1280)과 좁은 폭은 **다른 트리**다. 좁은 폭은 (260911-w5h):
+ *   · 마커 슬롯 **없음** — 회수한 16px 이 가격 쪽으로 간다
+ *   · 2줄 행(가격 13px + 아래 등락률 10px, **부호·`%`** 와 방향색)
+ *   · **340px(=34px × 10행) 박스 안에서 10단 전부 스크롤**
+ *   · 초기 스크롤은 **매도1/매수1 경계 중앙**(최초 1회) — 그 뒤로는 사용자의 스크롤을
+ *     되돌리지 않는다
+ *   · 상한가는 **행 배경**, 최근 체결가는 **굵기**로 구분하고 둘 다 `sr-only` 로도 읽힌다
+ *     (제거된 마커의 `aria-label` 과 같은 말이다)
+ *   · 사다리 아래 가로선 하나 + **compact 체결 테이프**(데스크톱의 체결 열을 대신한다)
  *   숨김은 Tailwind `hidden`(=`display:none`)이라 **접근성 트리에서도 빠진다** — 같은
  *   사다리가 스크린리더에 두 번 읽히지 않는다.
  */
@@ -617,7 +643,8 @@ function ChaserLadder({
   className,
 }: OrderbookLadderProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const currentRowRef = useRef<HTMLLIElement | null>(null);
+  /** **매수 1호가 행**. 초기 스크롤이 맞추는 것은 이 행의 **위 경계**(= 매도1/매수1 사이)다. */
+  const bidTopRef = useRef<HTMLLIElement | null>(null);
   /** 최초 마운트 1회만 중앙 정렬한다 — 갱신마다 되돌리면 사용자의 스크롤을 빼앗는다(R7). */
   const centeredRef = useRef(false);
 
@@ -631,13 +658,20 @@ function ChaserLadder({
     [recentTrades, quote],
   );
 
+  /*
+    처음 열릴 때 **매도1/매수1 경계**가 박스 정중앙에 온다 (260911-w5h).
+    ★ `offsetHeight / 2` 를 더하지 않는다 — 맞추는 것은 행의 중앙이 아니라 그 행의 **위
+      경계**다. 상따에서 눈이 가장 먼저 가는 지점이 그 경계이고, 위아래로 같은 단수가 보여야
+      벽의 균형이 한눈에 읽힌다(현재가 중앙이면 상한가 근처에서 매도 쪽이 통째로 잘린다).
+    ★ **최초 1회만**이다. 갱신마다 되돌리면 사용자가 스크롤한 위치를 매 틱 빼앗는다(R7).
+  */
   useEffect(() => {
     if (centeredRef.current) return;
     const box = scrollRef.current;
-    const row = currentRowRef.current;
+    const row = bidTopRef.current;
     if (box === null || row === null) return;
     centeredRef.current = true;
-    box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2 + row.offsetHeight / 2);
+    box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2);
   }, [rows]);
 
   if (quote === null) {
@@ -697,7 +731,10 @@ function ChaserLadder({
             ⓐ 데스크톱 사다리 체결 시각
             ⓑ 호가 등락률 (데스크톱 · 모바일)
             ⓒ 상따 폼 — 「켤 수 없는 이유」 소제목 · `NumInput` 단위(`원`/`주`)
-          이 셋 밖의 어떤 표면에도 10px 을 쓰지 않는다.
+            ⓓ compact `TradeTape` 의 셀 3종 (시각 · 체결가 · 수량)
+          이 넷 밖의 어떤 표면에도 10px 을 쓰지 않는다.
+          ★ **9px 예외는 정확히 1곳** — 좁은 폭 사다리의 잔량이다. 그 자리가 바 안에 앉는
+            보조 숫자라 가격(13px)과 경쟁하면 안 되고, 다른 어떤 표면에도 9px 을 쓰지 않는다.
         */}
         <span
           data-slot="ladder-pct"
@@ -815,13 +852,13 @@ function ChaserLadder({
         <LadderLegend withTrades />
       </div>
 
-      {/* ── 좁은 폭(<1280) — 32px 2줄 행 · 400px 독립 스크롤 · 현재가 중앙 초기 스크롤 ── */}
+      {/* ── 좁은 폭(<1280) — 34px 2줄 행 · 340px(=10행) 스크롤 · 매도1/매수1 경계 중앙 ── */}
       <div className="min-[1280px]:hidden">
         {/*
           ★ `tabIndex={0}` 은 장식이 아니라 **WCAG 2.1.1(키보드) 필수**다 (16-17 a11y 확장이
             실측으로 잡았다 — axe `scrollable-region-focusable`, impact serious).
 
-            이 박스는 400px 안에서 20행을 스크롤한다. 안에 포커스 가능한 자식이 하나도
+            이 박스는 **340px 안에서 20행**을 스크롤한다. 안에 포커스 가능한 자식이 하나도
             없으므로(가격 클릭이 없어졌다 — 그게 이 변형의 설계다) 박스 자신이 포커스를
             받지 못하면 **키보드만 쓰는 사용자는 매수 10단을 영원히 볼 수 없다.** 마우스
             휠·터치로만 닿는 정보가 생긴다.
@@ -830,12 +867,15 @@ function ChaserLadder({
             않는다 — 그 규칙이 금지한 것은 **호가 셀(행)의 roving tabindex** 이고, 여기서
             포커스를 받는 것은 셀이 아니라 스크롤 영역 하나다. 이름은 자식 `<ul>` 의
             `aria-label` 이 곧바로 읽어 주므로 중복 라벨을 달지 않는다.
+
+          ★ 340 = 34 × 10 이다. 「10행 높이 박스 안에서 10단 전부를 스크롤」이 확정 규칙이라
+            박스 높이는 행 높이에 매여 있다 — 한쪽만 고치면 마지막 행이 반쯤 잘려 보인다.
         */}
         <div
           ref={scrollRef}
           tabIndex={0}
           data-slot="ladder-scroll"
-          className="relative h-[400px] overflow-x-hidden overflow-y-auto"
+          className="relative h-[340px] overflow-x-hidden overflow-y-auto"
         >
           <ul
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
@@ -844,16 +884,32 @@ function ChaserLadder({
             {rows.map((row) => {
               const isAsk = row.side === 'ask';
               const pct = barPct(row.qty, isAsk ? maxAsk : maxBid);
-              const isNow = quote.p > 0 && row.price === quote.p;
+              /*
+                ★ 마커 슬롯을 없앤 좁은 폭에서 **상한가·최근 체결가를 대신 말하는 두 축**이다.
+                  판정은 `markerOf` 와 **같은 조건**을 쓴다 — 데스크톱의 도트/배지와 모바일의
+                  배경/굵기가 같은 행을 가리켜야 두 화면이 다른 말을 하지 않는다.
+              */
+              const isUpper = upperLimit > 0 && row.price === upperLimit;
+              const isLast = !isUpper && lastTradePrice > 0 && row.price === lastTradePrice;
+              /** 매수 1호가 = 매도1/매수1 경계. 초기 스크롤의 기준점이자 경계선이 붙는 행이다. */
+              const isBidTop = row.key === 'b0';
               return (
                 <li
                   key={row.key}
-                  ref={isNow ? currentRowRef : undefined}
+                  ref={isBidTop ? bidTopRef : undefined}
                   data-side={row.side}
                   data-slot="ladder-row-mobile"
                   className={cn(
-                    'relative flex h-8 min-w-0 items-center gap-1 rounded-[4px] px-1',
-                    isNow && 'outline outline-1 outline-[var(--fg)]',
+                    'relative flex h-[34px] min-w-0 items-center gap-1 rounded-[4px] px-1',
+                    // 상한가는 **행 배경**이 말한다(마커 배지를 대신한다).
+                    isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
+                    /*
+                      ★ 매도1/매수1 경계선. `<ul>` 안에 `<hr>` 을 넣지 않는 이유는 axe 의
+                        `list` 규칙이 「`ul` 의 직계 자식은 `li`/`script`/`template` 뿐」을
+                        보기 때문이다. 행 테두리는 그 규칙을 건드리지 않으면서 같은 선을 그리고,
+                        스크롤 내용의 일부라 스크롤과 함께 움직인다.
+                    */
+                    isBidTop && 'border-t border-[var(--border)]',
                   )}
                 >
                   {pct > 0 && (
@@ -868,29 +924,43 @@ function ChaserLadder({
                       style={{ width: `${pct}%` }}
                     />
                   )}
-                  <MarkerSlot kind={markerOf(row.price, upperLimit, lastTradePrice)} />
                   <span className="sr-only">
                     {isAsk ? '매도' : '매수'} {row.step}호가{' '}
                   </span>
+                  {/*
+                    ★ 배경·굵기는 **색과 형태**뿐이라 그것만으로는 WCAG 1.4.1 을 만족하지
+                      못한다. 제거된 `MarkerSlot` 의 두 `aria-label` 과 **같은 말**을 여기에
+                      잇는다 — 스크린리더가 읽는 내용이 한 글자도 줄지 않는다.
+                  */}
+                  {isUpper && <span className="sr-only">상한가 </span>}
+                  {isLast && <span className="sr-only">최근 체결가 </span>}
                   <span className="relative z-[1] flex min-w-0 flex-col leading-[1.2]">
                     <b
                       className={cn(
-                        'mono truncate text-[12px] font-semibold',
+                        'mono truncate text-[13px] tracking-[-0.02em]',
+                        // 최근 체결가는 **굵기**가 말한다(마커 도트를 대신한다).
+                        isLast ? 'font-extrabold' : 'font-medium',
                         priceTone(row.price, basePrice),
                       )}
                     >
                       {row.price > 0 ? fmt(row.price) : '—'}
                     </b>
-                    {/* 10px 예외 ⓑ — 데스크톱 등락률과 같은 자리다(T3). */}
+                    {/*
+                      10px 예외 ⓑ — 데스크톱 등락률과 같은 자리다(T3).
+                      ★ 좁은 폭에는 **부호와 `%`** 가 붙고 방향색이 붙는다. 가격 아래 줄이라
+                        가로 폭을 다툴 상대가 없어 `PCT_MIN_WIDTH_PX`(데스크톱 전용)를 쓰지
+                        않는다 — 40px 최소폭은 좁은 폭 예산에서 낭비다.
+                      ★ 색 판정은 가격 셀과 **같은 `priceTone`** 이다. 판정식을 복제하지 않는다.
+                    */}
                     <span
                       data-slot="ladder-pct"
-                      className="mono text-[10px] text-[var(--muted-fg)]"
-                      style={{ minWidth: PCT_MIN_WIDTH_PX }}
+                      className={cn('mono text-[10px]', priceTone(row.price, basePrice))}
                     >
-                      {ladderPctText(row.price, basePrice)}
+                      {ladderPctTextSigned(row.price, basePrice)}
                     </span>
                   </span>
-                  <span className="mono relative z-[1] ml-auto flex-none text-right text-[11px] text-[var(--fg)]">
+                  {/* 9px 은 이 저장소에서 **여기 한 곳뿐**이다(T3 예외 1곳). */}
+                  <span className="mono relative z-[1] ml-auto flex-none pr-0.5 text-right text-[9px] text-[var(--muted-fg)]">
                     {row.qty > 0 ? fmt(row.qty) : ''}
                   </span>
                 </li>
@@ -898,7 +968,26 @@ function ChaserLadder({
             })}
           </ul>
         </div>
-        <LadderLegend withTrades={false} />
+        {/*
+          ★ 좁은 폭에는 `LadderLegend` 를 두지 않는다. 그 범례의 두 항목(최근 체결가 도트 ·
+            상한가 배지)이 마커 슬롯과 함께 사라졌으므로, 남겨 두면 **없는 것을 설명하는 줄**이
+            된다. 그 역할은 위 `sr-only` 두 줄이 이어받았다. 데스크톱 범례는 그대로다.
+
+          아래 가로선 + compact 체결 테이프 — 제목행도 컬럼헤더도 두지 않는다(사용자 확정).
+          ★ `<hr>` 에 `border-0` 을 함께 쓰는 이유는 UA 기본 테두리가 남아 이중선이 되기
+            때문이다. 굵기·색은 위 매수1 경계선과 **같다**.
+          ★ props 는 전부 **이 컴포넌트가 이미 들고 있는 값**이다 — 체결내역을 위해 만든
+            새 조회 경로가 0개다.
+        */}
+        <hr className="my-[var(--s-2)] border-0 border-t border-[var(--border)]" />
+        <TradeTape
+          compact
+          entries={recentTrades}
+          isStale={isStale}
+          basePrice={basePrice}
+          bestAsk={quote.ap[0]}
+          bestBid={quote.bp[0]}
+        />
       </div>
     </div>
   );

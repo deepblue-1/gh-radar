@@ -3,7 +3,12 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RelayTapeEntry } from '@gh-radar/shared';
 
-import { TradeTape, deriveTapeSides, formatTapeTime } from '../trade-tape';
+import {
+  TradeTape,
+  deriveTapeSides,
+  formatTapeTime,
+  formatTapeTimeShort,
+} from '../trade-tape';
 
 /**
  * Phase 15 Plan 13 — 체결 테이프 계약 검증.
@@ -161,5 +166,151 @@ describe('TradeTape', () => {
     expect(
       screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
     ).toBeInTheDocument();
+  });
+});
+
+/*
+  260911-w5h — `compact` 옵션(상따 모바일 좌측 칼럼, 콘텐츠 ≈140px).
+
+  ★ 이 describe 의 **첫 케이스가 회귀 잠금**이다: `compact` 를 넘기지 않는 기존 호출부
+    (호가주문 탭)의 렌더 결과가 변경 전과 **완전히 같아야** 한다. 그 단언 없이 compact 만
+    잠그면 「새 옵션은 맞는데 기존 화면이 조용히 바뀐」 상태가 초록으로 지나간다.
+*/
+describe('⑩ TradeTape compact (260911-w5h)', () => {
+  const rows = () => tape([98_100, 97_900, 98_300]);
+  const scroller = (root: HTMLElement) =>
+    root.querySelector('[data-slot="trade-tape"] > div') as HTMLElement;
+
+  it('★ 회귀 잠금 — `compact` 미전달이면 변경 전과 완전히 같다', () => {
+    const { container } = render(
+      <TradeTape entries={rows()} isStale={false} basePrice={BASE} />,
+    );
+
+    const root = container.querySelector('[data-slot="trade-tape"]')!;
+    expect(root).not.toHaveAttribute('data-compact');
+
+    // `<thead>` 3개 헤더가 그대로 있다.
+    const ths = container.querySelectorAll('thead th');
+    expect(ths).toHaveLength(3);
+    expect(Array.from(ths).map((el) => el.textContent)).toEqual(['시각', '체결가', '수량']);
+
+    // 시각은 `HH:MM:SS` 다.
+    expect(container.querySelector('tbody td')!.textContent).toBe('09:30:10');
+
+    // 스크롤 상한 · tabindex · 셀 패딩이 그대로다.
+    const box = scroller(container);
+    expect(box.className).toContain('max-h-[320px]');
+    expect(box.className).toContain('min-[900px]:max-h-[664px]');
+    expect(box).not.toHaveAttribute('tabindex');
+    expect(box).not.toHaveAttribute('data-slot');
+
+    const row = container.querySelector('tbody tr') as HTMLElement;
+    expect(row.className).toContain('[&>td]:px-1.5');
+    expect(row.className).toContain('[&>td]:h-[var(--row-h)]');
+    expect(row.className).toContain('[&>td]:text-[length:var(--t-caption)]');
+  });
+
+  it('compact 는 컬럼헤더가 없고 시각이 `MM:SS` 이며 셀이 10px · 행이 24px 이다', () => {
+    const { container } = render(
+      <TradeTape compact entries={rows()} isStale={false} basePrice={BASE} />,
+    );
+
+    const root = container.querySelector('[data-slot="trade-tape"]')!;
+    expect(root).toHaveAttribute('data-compact', 'true');
+    expect(container.querySelector('thead')).toBeNull();
+    expect(container.querySelector('tbody td')!.textContent).toBe('30:10');
+
+    const row = container.querySelector('tbody tr') as HTMLElement;
+    expect(row.className).toContain('[&>td]:h-6');
+    expect(row.className).toContain('[&>td]:px-1');
+    // ★ 세 셀 **전부** 10px 이다 — 시각만 줄이면 9자리 체결가가 140px 칼럼에서 잘린다.
+    expect(row.className).toContain('[&>td]:text-[10px]');
+    expect(row.className).not.toContain('[&>td]:text-[length:var(--t-caption)]');
+    // 시각 셀의 개별 11px 도 compact 에서는 걷는다(행 규칙의 10px 이 이겨야 한다).
+    expect((container.querySelector('tbody td') as HTMLElement).className).not.toContain(
+      'text-[11px]',
+    );
+  });
+
+  it('compact 스크롤 영역이 200px 상한이고 키보드로 닿는다 (axe scrollable-region-focusable)', () => {
+    const { container } = render(
+      <TradeTape compact entries={rows()} isStale={false} basePrice={BASE} />,
+    );
+
+    const box = scroller(container);
+    expect(box.className).toContain('max-h-[200px]');
+    expect(box.className).not.toContain('max-h-[320px]');
+    // 안에 상시 포커스 가능한 자식이 없다 — 박스 자신이 tab stop 이어야 한다.
+    expect(box).toHaveAttribute('tabindex', '0');
+    expect(box).toHaveAttribute('data-slot', 'tape-scroll');
+    // 이름은 자식 table 의 `aria-label` 이 읽어 준다 — 중복 라벨을 달지 않는다.
+    expect(box).not.toHaveAttribute('aria-label');
+  });
+
+  it('compact 도 colgroup 비율을 갖고 체결가 칼럼이 가장 넓다', () => {
+    const { container } = render(
+      <TradeTape compact entries={rows()} isStale={false} basePrice={BASE} />,
+    );
+
+    const cols = Array.from(container.querySelectorAll('table > colgroup > col'));
+    expect(cols).toHaveLength(3);
+    expect(cols[0]!.className).toContain('w-[26%]');
+    expect(cols[1]!.className).toContain('w-[42%]'); // 가장 넓다 — 9자리 체결가
+    expect(cols[2]!.className).toContain('w-[32%]');
+  });
+
+  it('compact 에서도 핀 버튼 · 수량 sr-only · 「추정이에요」 라벨이 전부 남는다', () => {
+    const { container, rerender } = render(
+      <TradeTape compact entries={rows()} isStale={false} basePrice={BASE} />,
+    );
+
+    // 수량 색의 비색 경로.
+    expect(screen.getAllByText(/매수|매도/, { selector: '.sr-only' }).length).toBeGreaterThan(0);
+    // 하단 추정 고지.
+    expect(
+      screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
+    ).toBeInTheDocument();
+
+    // 스크롤을 내린 뒤 새 체결이 들어오면 핀 버튼이 뜬다.
+    fireEvent.scroll(scroller(container), { target: { scrollTop: 120 } });
+    rerender(
+      <TradeTape
+        compact
+        entries={[entry({ p: 99_000, cv: 99_999, t: '093099000000' }), ...rows()]}
+        isStale={false}
+        basePrice={BASE}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /새 체결 .*맨 위로/ })).toBeInTheDocument();
+  });
+
+  it('빈 상태에도 `data-compact` 가 붙는다 — 상태와 무관하게 compact 를 짚을 수 있다', () => {
+    const { container } = render(
+      <TradeTape compact entries={[]} isStale={false} basePrice={BASE} />,
+    );
+
+    expect(container.querySelector('[data-slot="trade-tape"]')).toHaveAttribute(
+      'data-compact',
+      'true',
+    );
+    expect(screen.getByText('아직 체결이 없어요')).toBeInTheDocument();
+  });
+});
+
+describe('formatTapeTimeShort', () => {
+  it('12자 원문에서 `MM:SS` 두 조각만 뽑는다', () => {
+    expect(formatTapeTimeShort('093015123456')).toBe('30:15');
+    expect(formatTapeTimeShort('145959000000')).toBe('59:59');
+  });
+
+  it('구분자가 섞여도 숫자만 남겨 처리한다', () => {
+    expect(formatTapeTimeShort('09:30:15')).toBe('30:15');
+  });
+
+  it('6자 미만 원문은 그대로 돌려준다 — 모르는 형식을 잘라 시각을 지어내지 않는다', () => {
+    expect(formatTapeTimeShort('0930')).toBe('0930');
+    expect(formatTapeTimeShort('')).toBe('');
+    // `formatTapeTime` 과 **같은 규율**이다.
+    expect(formatTapeTimeShort('0930')).toBe(formatTapeTime('0930'));
   });
 });

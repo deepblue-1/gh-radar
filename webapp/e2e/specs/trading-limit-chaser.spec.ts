@@ -429,10 +429,21 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     await expect(sellPane(page)).toBeVisible();
     await expect(buyPane(page)).toHaveAttribute('hidden', '');
 
-    // 좁은 폭 호가는 2줄 행이고 **최근 체결 열이 없다**(A11a).
+    /*
+      좁은 폭 호가는 **2줄 행 · 340px 박스 스크롤**이고, 데스크톱의 최근 체결 **열** 대신
+      사다리 아래 **compact 체결 테이프**가 온다(A11a · 260911-w5h).
+      행 수는 여전히 20 이다 — 10단 전부를 스크롤로 본다(`depth` 는 10 그대로다).
+    */
     await expect(ladder(page).locator('[data-slot="ladder-row-mobile"]')).toHaveCount(20);
     await expect(
       ladder(page).locator('[data-slot="ladder-row-mobile"] [data-slot="ladder-fill-cell"]'),
+    ).toHaveCount(0);
+    await expect(
+      ladder(page).locator('[data-slot="trade-tape"][data-compact="true"]'),
+    ).toHaveCount(1);
+    // 제목행도 컬럼헤더도 없다 — 140px 칼럼에서 3칸 헤더는 순 소음이다.
+    await expect(
+      ladder(page).locator('[data-slot="trade-tape"][data-compact="true"] thead'),
     ).toHaveCount(0);
 
     /*

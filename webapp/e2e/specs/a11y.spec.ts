@@ -423,17 +423,21 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
     await expect(page.locator('[data-pane="sell"]')).not.toHaveAttribute('hidden', '');
 
     /*
-      ⑤-b ★ 모바일 호가는 400px 안에서 20행을 스크롤한다. 「사다리는 포커스 대상이
+      ⑤-b ★ 모바일 호가는 **340px** 안에서 20행을 스크롤한다. 「사다리는 포커스 대상이
         아니다」가 금지한 것은 **호가 셀(행)의 roving tabindex** 이지 스크롤 영역이
         아니다 — 영역이 포커스를 못 받으면 키보드만 쓰는 사용자는 매수 10단에 영원히
         닿지 못한다(WCAG 2.1.1 · axe `scrollable-region-focusable`).
-        그래서 탭으로 닿는 것은 **스크롤 박스 하나뿐**이어야 한다: 0 도 아니고 20 도 아니다.
+
+        ★ 260911-w5h — 사다리 아래 **compact 체결 테이프**가 들어오면서 같은 조건의 스크롤
+          영역이 하나 더 생겼다(`tape-scroll`, 200px 상한). 둘 다 안에 상시 포커스 가능한
+          자식이 없다. 그래서 탭으로 닿는 것은 **그 두 스크롤 영역뿐**이다 — 0 도 아니고
+          행 수만큼도 아니다. 순서는 DOM 순서(사다리 → 테이프)를 따른다.
     */
     const ladderTabbables = await tabbablesIn(
       page,
       '[data-slot="orderbook-ladder"][data-variant="chaser"]',
     );
-    expect(ladderTabbables).toEqual(['div[ladder-scroll]']);
+    expect(ladderTabbables).toEqual(['div[ladder-scroll]', 'div[tape-scroll]']);
     await expect(
       page.locator('[data-slot="ladder-scroll"]:visible'),
     ).toHaveAttribute('tabindex', '0');
