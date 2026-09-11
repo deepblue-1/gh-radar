@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 16-46-PLAN.md — 갭 클로징 3라운드 종결 (배포·문서·TRADE-03 재판정)
-last_updated: "2026-09-09T13:10:00.000Z"
-last_activity: 2026-09-09
+status: completed
+stopped_at: Phase 16 완결 — TRADE-03 Complete 재판정 문서 정합 (quick-260911-mrl)
+last_updated: "2026-09-11T00:00:00.000Z"
+last_activity: 2026-09-11 -- Phase 16 종결 문서 정합 (TRADE-03 Complete)
 progress:
   total_phases: 25
   completed_phases: 18
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 종결 (46/46 plans · 28 waves)**
 Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · **3라운드 16-36~16-46**)
 Plans completed: 171 / 185
-Status: **phase 미완결 — plan 은 전량 실행됐으나 TRADE-03 이 Pending 이다.** 잔여는 「WinForms ↔ 웹 한 세션 동기화 실측」 **1건**(human-only · D-27)
+Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-09
+Last activity: 2026-09-11
 
 Progress: [█████████░] 92%
 
@@ -257,6 +257,7 @@ Progress: [█████████░] 92%
 - 컨테이너 실 env `DMA_HOST=10.41.1.120` · 게이트웨이 TCP 도달성 `REACHABLE 10.41.1.120:9100`
 - 프로덕션 `/healthz` **200** `{"status":"ok","vpn":true,"dma":true,"version":"59465e1","sessionCount":1,"everReadyCount":1,"stalledCount":0}`
 - **`everReadyCount: 1` — 프로덕션에서 DMA 세션이 Ready 에 도달한 첫 실측이다.** TRADE-03 이 Pending 이던 근거(「Ready 에 도달한 세션이 한 건도 없다」)가 해소됐다. 다만 **자동 Complete 승격은 하지 않는다** — 아래 리스크와 WinForms 세션 공유 실측(human-only)이 남아 있다.
+- **후속 (2026-09-10 ~ 09-11) — 위 줄의 유보가 풀렸다.** 남아 있던 「WinForms 세션 공유 실측(human-only)」을 2026-09-10 장중 실계좌에서 사용자가 **양방향 직접 관찰**했고(`quick-260910-ogq`), 2026-09-11 에 철거 방향까지 확인됐다. **TRADE-03 은 Complete 다** — 정본은 `REQUIREMENTS.md` Traceability.
 - `smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**(INV-9, 토큰 미설정)
 
 **이 결선으로 위험도가 올라간 항목 — 라운드 3에서 최우선.** `16-REVIEW-R2.md` 의 **R2-CR-01**(`relay/src/ws/fanout.ts:793` — `#isTeardown` 이 클라이언트가 보낸 `crud:"D"` 를 게이트 확인 없이 단독 신뢰 -> 시장 해석 엄격성 T-16-42 와 무장 가드 T-16-43 을 **동시에** 우회)은 mock 시절엔 이론적 결함이었으나, **이제 실계좌 게이트웨이가 붙어 있으므로 무장된 반복 발주 설정이 폴백 시장으로 실제로 나갈 수 있다.** R2-CR-03(계좌번호 로그 유출)도 실주문이 흐르면 노출 표면이 커진다.
@@ -715,12 +716,11 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-09T13:10:00.000Z
-Stopped at: Completed 16-46-PLAN.md — 갭 클로징 3라운드 종결 (전량 게이트 + 무주입 배포로 갭 5 실증 + 문서 6종 + TRADE-03 재판정)
-Next: **Phase 16 은 plan 46/46 실행 완료이나 phase 는 미완결이다.** 3라운드 17건이 전부 닫혔고 프로덕션에 반영됐다(relay `a1f4ed6` · webapp 청크 내용 대조 확인 · server 는 근거를 갖고 건너뜀). **남은 것은 단 하나 — TRADE-03 의 「WinForms ↔ 웹 한 세션 동기화 실측」이다.**
+Last session: 2026-09-11T00:00:00.000Z
+Stopped at: Phase 16 완결 — TRADE-03 Complete 재판정이 REQUIREMENTS 에만 반영돼 있던 드리프트를 ROADMAP·STATE·16-VALIDATION 에 정합 (quick-260911-mrl)
+Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
-- **이것은 코드 작업이 아니라 사람이 하는 관측이다** (`16-VALIDATION.md` §Manual-Only 1행 · `16-VERIFICATION.md` §Human Verification #1). 절차: WinForms 상따창과 `/trading/limit-chaser/[key]` 를 동시에 열고 → 웹 스위치 ON → WinForms 「무장」 배지 확인 → WinForms 에서 매수가격 변경 → 웹에 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인.
-- **지금이 이 검증에 가장 안전한 시점이다.** 재검증이 「실서버 결선 이전에 반드시 닫아야 한다」고 지목한 R2-CR-01(무장 가드 우회)·R2-CR-03(계좌번호 유출)이 닫혀 배포됐다. 그럼에도 **D-27 상 사용자 명시 지시가 있어야 실행한다** — 실계좌·실서버 조작이다.
-- **별도 열린 항목:** smoke `INV-9` 는 `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 **첫 실행**이 된다. 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 명령은 `deferred-items.md` §16-46.
-- **사용자 결정 대기 1건:** `/healthz` 알림 정책(`gh-radar-relay-down`). 게이트웨이가 붙어 있는 지금은 조용하지만, 게이트웨이가 끊기면 5분 뒤 503 이 상시화된다. 해법 후보 4개는 `deferred-items.md` §16-35 참조 — 실행자가 단독으로 고를 문제가 아니다.
-- **다른 세션과의 정합 1건:** `quick-260909-t08`(WireGuard)이 방화벽 규칙을 4개로 늘려 smoke `INV-2` 문구가 바뀌었다. `REQUIREMENTS.md` RELAY-03 의 「방화벽 3규칙」과 어긋나므로 그 세션이 정합을 맡아야 한다.
+- **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
+- **① smoke `INV-9` 프로덕션 첫 실행 미수행.** `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 첫 실행이 된다. 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 명령은 `deferred-items.md` §16-46. **이것은 TRADE-03 조항의 결손이 아니라 프로브의 미실행이다** — 섞어 적지 말 것.
+- **② `/healthz` 알림 정책 — 사용자 결정 대기.** `gh-radar-relay-down` 은 게이트웨이가 붙어 있는 지금(`stalledCount: 0`)은 조용하지만, 끊기면 세션 생성 5분 뒤 503 이 상시화된다. 해법 후보 4개는 `deferred-items.md` §16-35. 실행자가 단독으로 고를 문제가 아니다.
+- **③ 다른 세션과의 정합.** WireGuard 작업(`quick-260909-t08` 계열)이 방화벽 규칙을 4개로 늘려 smoke `INV-2` 문구가 바뀌었다. `REQUIREMENTS.md` RELAY-03 의 「방화벽 3규칙」과 어긋나므로 그 세션이 정합을 맡는다.
