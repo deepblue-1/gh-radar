@@ -676,6 +676,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260911-mrl | Phase 16 종결 문서 정합 — TRADE-03 Complete 재판정이 REQUIREMENTS 에만 반영돼 있던 드리프트를 ROADMAP·STATE·16-VALIDATION 에 맞춤. 역사 블록은 덮어쓰지 않고 후속만 덧붙임. 소스 diff 0줄 | 2026-09-11 | 1960c69 | [260911-mrl-phase-16-trade-03-complete](./quick/260911-mrl-phase-16-trade-03-complete/) |
 | 260418-kd8 | phase 7 뉴스 풀페이지 무한 스크롤 (Phase 8 토론방 1:1 미러) | 2026-04-18 | fb2607c | [260418-kd8-phase-7](./quick/260418-kd8-phase-7/) |
 | 260424-dld | 스캐너 등락률 슬라이더 제거 + 서버 고정 10% 하한 | 2026-04-24 | a371cc2 | [260424-dld-remove-scanner-rate-filter](./quick/260424-dld-remove-scanner-rate-filter/) |
 | 260608-g0k | CLAUDE.md 한국 크롤링 법적 진술 정정 + 운영 5원칙 추가 | 2026-06-08 | e97e436 | [260608-g0k-claude-md-5](./quick/260608-g0k-claude-md-5/) |
