@@ -52,6 +52,7 @@ vi.mock('@/components/trading/dma-gate', async (importOriginal) => {
   return { ...actual, useDmaGateReason: () => null };
 });
 
+import { formatMarketCap, formatOnePercentShares } from '@/lib/quote-format';
 import {
   ACK_TIMEOUT_MS,
   ECHO_BANNER_MS,
@@ -196,7 +197,7 @@ describe('strategyStatusOf', () => {
 });
 
 describe('LimitChaserClient — 결선', () => {
-  it('④ 신규 진입은 제목만이고 부제도 가격 칩 행도 그리지 않는다 (A1)', () => {
+  it('④ 신규 진입은 제목만이고 부제도 칩 행도 종목정보 그리드도 그리지 않는다 (A1)', () => {
     render(<LimitChaserClient />);
 
     expect(screen.getByRole('heading', { name: '상따' })).toBeInTheDocument();
@@ -206,13 +207,21 @@ describe('LimitChaserClient — 결선', () => {
     ).toBeNull();
     // 종목이 없으면 칩 자체가 없다 — 「상한가 —」 같은 빈 칩을 그리지 않는다.
     expect(document.querySelector('[data-slot="lc-price-chips"]')).toBeNull();
+    // 같은 이유로 종목정보 8칸도 없다 — 빈 칸에 대시 8개를 그리는 것이 곧 소음이다(260911-w5h).
+    expect(document.querySelector('[data-slot="lc-quote-grid"]')).toBeNull();
     expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
     // 자리표시가 걷혔다(16-11 인계).
     expect(document.querySelector('[data-slot="surface-placeholder"]')).toBeNull();
     expect(document.querySelector('[data-slot="limit-chaser-page"]')).not.toBeNull();
   });
 
-  it('⑤ 편집 진입은 제목이 `{종목명} · {거래소}`, 부제가 전략키이고 거래소·계좌가 잠긴다', () => {
+  /*
+    ★ 260911-w5h — 제목은 **편집 진입에서도 「상따」**다. 종목·거래소는 바로 아래 헤더
+      카드가 보여주고, 전략키 mono 부제는 사용자가 읽을 일이 없는 내부 식별자였다.
+      「바꿀 수 없다」는 규율(거래소·계좌·종목이 키의 일부)은 그대로이므로 잠금 단언이 셋으로
+      늘었다 — 종목명 버튼까지 잠긴다.
+  */
+  it('⑤ 편집 진입도 제목은 「상따」이고 전략키는 화면에 없으며 거래소·계좌·종목이 잠긴다', () => {
     setRelay({
       limitChasers: [echo()],
       accountStates: new Map([
@@ -232,10 +241,15 @@ describe('LimitChaserClient — 결선', () => {
     });
     render(<LimitChaserClient strategyKey={KEY} />);
 
-    expect(screen.getByRole('heading', { name: '에코프로 · KRX' })).toBeInTheDocument();
-    expect(screen.getByText(KEY)).toBeInTheDocument();
-    // 거래소·계좌는 전략 키의 일부다 — 바꾸면 다른 전략이 되므로 여기서 못 바꾼다.
-    expect(screen.getByRole('button', { name: 'NXT' })).toBeDisabled();
+    expect(screen.getByRole('heading', { name: '상따' })).toBeInTheDocument();
+    // 전략키는 화면에 없다 — 내부 식별자다.
+    expect(screen.queryByText(KEY)).toBeNull();
+    // 종목명은 헤더 카드의 검색 트리거 버튼이 보여준다.
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]')!;
+    expect(trigger).toHaveTextContent('에코프로');
+    // 거래소·계좌·종목은 전략 키의 일부다 — 바꾸면 다른 전략이 되므로 여기서 못 바꾼다.
+    expect(trigger).toBeDisabled();
+    expect(screen.getByLabelText('거래소')).toBeDisabled();
     expect(screen.getByLabelText('계좌')).toBeDisabled();
   });
 
@@ -465,8 +479,14 @@ describe('LimitChaserClient — 결선', () => {
     render(<LimitChaserClient strategyKey={KEY} />);
 
     expect(screen.getAllByText('상따').length).toBeGreaterThan(0);
-    // ★ 계좌 셀렉터가 두 벌이면 「지금 어느 계좌인가」가 갈린다 — 상단 카드 것 하나뿐이다.
-    expect(screen.getAllByRole('combobox')).toHaveLength(1);
+    /*
+      ★ 계좌 셀렉터가 두 벌이면 「지금 어느 계좌인가」가 갈린다 — 그것이 이 단언의 의도다.
+        260911-w5h 로 헤더에 **거래소** `<select>` 가 생기면서 페이지의 combobox 총합은
+        2개가 됐다(계좌 + 거래소). 총합이 아니라 **접근성 이름이 「계좌」인 select** 를
+        세야 원래 의도가 유지된다.
+    */
+    expect(screen.getAllByRole('combobox', { name: '계좌' })).toHaveLength(1);
+    expect(screen.getAllByRole('combobox')).toHaveLength(2);
   });
 });
 
@@ -574,5 +594,194 @@ describe('⑯ 시장 미상 종목은 고를 수 없고 cfg 에 market 이 없�
       expect('market' in (cfg as object)).toBe(false);
       expect(cfg?.isin).toBe(ISIN);
     }
+  });
+});
+
+/*
+  260911-w5h — **헤더 카드 계약**.
+
+  종전 헤더는 종목명·현재가·거래소 토글·계좌 행만 보여 줬고, 한 번 고른 종목을 되돌릴
+  경로가 **없었다**(`isin === ''` 일 때만 검색창이 떴다). 새 헤더는 그 경로를 열고, 이미
+  구독으로 오는 `RelayQuote` 프레임에서 종목정보 8칸을 뽑는다.
+
+  ★ 이 describe 가 잠그는 핵심 둘:
+    ① **되돌릴 경로가 있다** — 종목명 버튼 → 검색 → 재선택 왕복.
+    ② **새 조회 경로가 0개다** — 8칸의 값이 전부 `quote` 한 프레임에서 나오고, 모르면 대시다.
+*/
+describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리거 · 종목정보 8칸 (260911-w5h)', () => {
+  /** 이미 구독으로 오는 프레임 하나. 여기 없는 값은 화면 어디에도 없어야 한다. */
+  function quote(over: Record<string, unknown> = {}) {
+    return {
+      t: 'quote' as const,
+      i: ISIN,
+      p: 130_000,
+      cr: 12.34,
+      base: 116_000,
+      o: 118_000,
+      h: 131_000,
+      l: 115_000,
+      ul: 150_800,
+      ll: 81_200,
+      viu: 127_600,
+      ls: 72_800_200,
+      // 사다리도 같은 프레임을 읽는다 — 10단 배열이 없으면 `buildLadderRows` 가 터진다.
+      ap: Array.from({ length: 10 }, (_, i) => 130_500 + i * 500),
+      aq: Array.from({ length: 10 }, () => 100),
+      bp: Array.from({ length: 10 }, (_, i) => 130_000 - i * 500),
+      bq: Array.from({ length: 10 }, () => 100),
+      ...over,
+    };
+  }
+
+  const cells = () =>
+    Array.from(document.querySelectorAll('[data-slot="lc-quote-grid"] > div'));
+  const cellText = () =>
+    cells().map((el) => Array.from(el.children).map((c) => c.textContent));
+
+  function renderEdit(over: Record<string, unknown> = {}) {
+    setRelay({ limitChasers: [echo()], ...over });
+    return render(<LimitChaserClient strategyKey={KEY} />);
+  }
+
+  it('계좌 칩이 접근성 이름을 갖고 계좌번호를 **마스킹 없이 전체** 보여준다 (D2 · S-5)', () => {
+    renderEdit();
+
+    const sel = screen.getByLabelText('계좌') as HTMLSelectElement;
+    expect(sel.tagName).toBe('SELECT');
+    expect(within(sel).getByRole('option', { name: `${ACCOUNT} · KB 위탁종합` })).toBeInTheDocument();
+    // 앞자리가 같은 두 계좌를 구분할 수 없게 되는 쪽이 더 위험하다 — 마스킹하지 않는다.
+    expect(sel.textContent).toContain(ACCOUNT);
+  });
+
+  it('거래소는 1단 네이티브 콤보이고 2버튼 토글이 아니다', () => {
+    renderEdit();
+
+    const sel = screen.getByLabelText('거래소') as HTMLSelectElement;
+    expect(sel.tagName).toBe('SELECT');
+    expect(Array.from(sel.options).map((o) => o.value)).toEqual(['KRX', 'NXT']);
+    // 옛 `role="group"` 2버튼 토글은 없다.
+    expect(screen.queryByRole('group', { name: '거래소 선택' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'NXT' })).toBeNull();
+  });
+
+  it('★ 종목명 버튼 → 검색 → 재선택 왕복 — 한 번 고른 종목을 되돌릴 경로가 있다', async () => {
+    searchMock.mockResolvedValue([
+      {
+        code: '000660',
+        name: 'SK하이닉스',
+        market: 'KOSPI',
+        isin: 'KR7000660001',
+        price: 200_000,
+        changeAmount: 1_000,
+        changeRate: 0.5,
+        volume: 1,
+        tradeAmount: 1,
+        open: 1,
+        high: 1,
+        low: 1,
+        marketCap: 0,
+        upperLimit: 260_000,
+        lowerLimit: 140_000,
+        updatedAt: '2026-09-09T02:00:00Z',
+        upperLimitProximity: 1,
+      },
+    ]);
+    // 신규 진입이라야 종목을 바꿀 수 있다(편집은 키의 일부라 잠긴다).
+    setRelay({});
+    render(<LimitChaserClient />);
+
+    // ① 처음에는 검색창이다 — 고르면 버튼이 된다.
+    fireEvent.change(screen.getByLabelText('종목 검색'), { target: { value: 'SK' } });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-slot="lc-search-option"]')).toHaveLength(1),
+    );
+    fireEvent.click(document.querySelector('[data-slot="lc-search-option"]') as HTMLButtonElement);
+
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]') as HTMLButtonElement;
+    expect(trigger).not.toBeNull();
+    expect(trigger).toHaveTextContent('SK하이닉스');
+    expect(trigger).toHaveTextContent('000660');
+    // ★ 보이는 글자가 접근성 이름에 남는다(WCAG 2.5.3) + 「무엇이 되는가」를 덧붙인다.
+    expect(trigger).toHaveAccessibleName(expect.stringContaining('SK하이닉스'));
+    expect(trigger).toHaveAccessibleName(expect.stringContaining('종목 변경'));
+    expect(screen.queryByLabelText('종목 검색')).toBeNull();
+
+    // ② 버튼을 누르면 그 자리가 다시 검색창이 된다 — **이것이 이 변경의 핵심이다.**
+    fireEvent.click(trigger);
+    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
+  });
+
+  it('종목정보가 2열 4행 8칸이고 라벨 순서가 고정이다', () => {
+    renderEdit({ quote: quote() });
+
+    expect(cells()).toHaveLength(8);
+    expect(cellText().map(([label]) => label)).toEqual([
+      '시가',
+      '고가',
+      '저가',
+      '상승VI',
+      '상한',
+      '하한',
+      '시총',
+      '발행1%',
+    ]);
+  });
+
+  it('`quote` 가 없으면 8칸이 전부 대시다 — 0 을 그리지 않는다 (T-w5h-04)', () => {
+    renderEdit({ quote: null });
+
+    expect(cellText().map(([, value]) => value)).toEqual(Array(8).fill('—'));
+  });
+
+  it('`quote` 가 있으면 8칸이 그 프레임 하나에서 나온다 — 새 조회 경로가 0개다', () => {
+    renderEdit({ quote: quote() });
+
+    expect(cellText().map(([, value]) => value)).toEqual([
+      '118,000', // o
+      '131,000', // h
+      '115,000', // l
+      '127,600', // viu
+      '150,800', // ul
+      '81,200', // ll
+      // 시총 = p × ls = 130,000 × 72,800,200 = 9,464조 …
+      formatMarketCap(130_000, 72_800_200),
+      formatOnePercentShares(72_800_200),
+    ]);
+  });
+
+  it('색: 시·고·저는 기준가 대비 방향색, 상한·상승VI 는 up, 하한은 down, 시총은 중립', () => {
+    // base = 116,000 → o(118,000) 위 · h(131,000) 위 · l(115,000) 아래
+    renderEdit({ quote: quote() });
+
+    const tone = (i: number) => cells()[i]!.children[1]!.className;
+    expect(tone(0)).toContain('text-[var(--up)]'); // 시가
+    expect(tone(1)).toContain('text-[var(--up)]'); // 고가
+    expect(tone(2)).toContain('text-[var(--down)]'); // 저가
+    expect(tone(3)).toContain('text-[var(--up)]'); // 상승VI — 언제나 위쪽 사건이다
+    expect(tone(4)).toContain('text-[var(--up)]'); // 상한
+    expect(tone(5)).toContain('text-[var(--down)]'); // 하한
+    expect(tone(6)).toContain('text-[var(--fg)]'); // 시총 — 방향이 없다
+    expect(tone(7)).toContain('text-[var(--fg)]'); // 발행1%
+  });
+
+  it('가격 칩은 기준가 · 호가단위 2개뿐이다 — 상한·하한은 8칸이 이미 갖는다', () => {
+    renderEdit({ quote: quote() });
+
+    const chips = document.querySelector('[data-slot="lc-price-chips"]')!;
+    expect(chips.children).toHaveLength(2);
+    expect(chips.textContent).toContain('기준가');
+    expect(chips.textContent).toContain('호가단위');
+    expect(chips.textContent).not.toContain('상한가');
+    expect(chips.textContent).not.toContain('하한가');
+  });
+
+  it('카드 하단 회색 바(거래소·계좌·종목변경)가 없다 — 별도 「종목 변경」 버튼도 없다', () => {
+    renderEdit({ quote: quote() });
+
+    expect(screen.queryByRole('button', { name: '종목 변경' })).toBeNull();
   });
 });

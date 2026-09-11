@@ -3,10 +3,14 @@
 /**
  * LimitChaserClient — 상따 전략 화면 본문 (`/trading/limit-chaser/{new,[key]}`, TRADE-01).
  *
- * ① 무엇을 조립하는가 (16-UI-SPEC A1~A14)
- *   종목·거래소·계좌 카드 → 상태줄 → (에코 배너) → [호가 10단 | 매수·매도 폼] → 미체결/잔고
- *   → 전략 로그. 레이아웃 정본은 채택 목업 `16-limit-chaser-mockup.html` 이다
+ * ① 무엇을 조립하는가 (16-UI-SPEC A1~A14 · 260911-w5h)
+ *   제목 줄(「상따」 + 계좌 칩) → 헤더 카드(거래소 콤보 | 종목명 버튼 = 검색 트리거 |
+ *   현재가·등락률, 그 아래 종목정보 2열 4행 + 기준가·호가단위 칩) → 상태줄 → (에코 배너) →
+ *   [호가 10단 | 매수·매도 폼] → 미체결/잔고 → 전략 로그. 레이아웃 정본은 채택 목업
+ *   `16-limit-chaser-mockup.html` + 모바일 확정 목업 `260911-chaser-mockup-7.html` 이다
  *   (≥1280 `.lc3` 460 | 매수 250 | 매도 250 · <1024 `.lc2` 42% | 1fr · 1024~1279 1열, R1/R2/R7).
+ *   ★ 제목은 **신규·편집 모두 「상따」**다. 종목·거래소를 제목에 넣으면 바로 아래 헤더 카드와
+ *     같은 말을 두 번 하게 되고, 전략키 mono 부제는 사용자가 읽을 일이 없는 내부 식별자였다.
  *
  * ② ★ 서버값이 언제나 이긴다 (D-11)
  *   폼은 에코가 오면 더티 필드까지 덮는다. 이 파일의 일은 그 사건을 **사용자가 놓치지 않게**
@@ -58,6 +62,7 @@ import { deriveTickSize } from '@/components/orderbook/order-panel';
 import { DmaGate, useDmaGateReason } from '@/components/trading/dma-gate';
 import { LimitChaserForm } from '@/components/trading/limit-chaser-form';
 import { strategyBadgesOf } from '@/components/trading/strategy-badge';
+import { formatMarketCap, formatOnePercentShares } from '@/lib/quote-format';
 import {
   StrategyLog,
   serverMessageLogLine,
@@ -167,6 +172,11 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   const [picked, setPicked] = useState<SelectedStock | null>(null);
   const [exchange, setExchange] = useState<RelayExchange>(parsedKey?.exchange ?? 'KRX');
+  /*
+    헤더의 종목명 버튼을 누르면 그 자리가 검색창이 된다 — 한 번 고른 종목을 되돌릴 경로다.
+    지역 state 하나로 충분하다: 검색은 화면 표시일 뿐이고, 고른 결과는 `picked` 가 받는다.
+  */
+  const [searching, setSearching] = useState(false);
   const [accountNo, setAccountNo] = useState<string>(parsedKey?.accountNo ?? '');
 
   // 계좌가 도착하면 **미선택일 때만** 첫 계좌를 고른다. 이미 고른 계좌를 덮지 않는다.
@@ -357,6 +367,12 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   /* ── 파생 표시값 ──────────────────────────────────────────────────────── */
 
   const displayName = picked?.name ?? (isin === '' ? '' : (isinLabels.get(isin)?.name ?? isin));
+  /*
+    단축코드는 **아는 경우에만** 쓴다. 편집 진입처럼 `picked` 가 없으면 역매핑 라벨을 보고,
+    그것도 없으면 조각 자체를 렌더하지 않는다 — ISIN 을 코드 자리에 넣으면 종목명 자리와
+    같은 값을 두 번 쓰게 된다(파일 상단 ⑧ 과 같은 규율).
+  */
+  const stockCode = picked?.code ?? (isin === '' ? null : (isinLabels.get(isin)?.code ?? null));
   const accountState = accountNo === '' ? null : (accountStates.get(accountNo) ?? null);
 
   // 실시간 호가가 있으면 그쪽이 정본이다 — REST 상세는 스냅샷 전의 임시값이다.
@@ -382,40 +398,109 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   return (
     <div data-slot="limit-chaser-page" className="flex min-w-0 flex-col gap-[var(--s-2)]">
-      {/* 제목 — 신규는 「상따」, 편집은 `{종목명} · {거래소}` + 전략키(mono). */}
-      <div className="flex flex-wrap items-baseline gap-[var(--s-2)]">
-        <h1 className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-semibold text-[var(--fg)]">
-          {parsedKey === null ? '상따' : `${displayName} · ${parsedKey.exchange}`}
+      {/*
+        제목 줄 — 제목은 **언제나 「상따」**이고 그 옆 칩에서 계좌를 고른다 (260911-w5h).
+        옛 편집 제목(`{종목명} · {거래소}`)과 전략키 mono 부제는 걷었다 — 종목·거래소는
+        바로 아래 헤더 카드가 더 많은 맥락과 함께 보여주므로 같은 말을 세 번 하고 있었다.
+      */}
+      <div className="flex min-w-0 flex-wrap items-center gap-[var(--s-2)]">
+        <h1 className="m-0 flex-none text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-semibold text-[var(--fg)]">
+          상따
         </h1>
-        {/* 부제는 **편집일 때만**이다 — 신규 진입의 안내 문구는 걷어냈다(quick 260911-tuk). */}
-        {parsedKey !== null ? (
-          <p className="mono m-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-            {routeKey ?? ''}
-          </p>
-        ) : null}
+        {/*
+          계좌 칩 — 옛 「계좌」 라벨 + `<select>` 행을 **그대로 옮긴** 것이다(새 컨트롤이 아니다).
+          ★ 라벨 행이 사라졌으므로 `aria-label` 이 접근성 이름을 잇는다 — 없으면 axe
+            `select-name`(critical)이 뜨고 라벨 기반 단언도 함께 죽는다.
+          ★ `appearance-none` 을 쓰지 않는다 — 네이티브 캐럿이 공짜로 따라오고 모바일에서
+            OS 기본 선택 UI 가 그대로 뜬다.
+          ★ **계좌번호는 마스킹하지 않는다**(D2 · S-5). 앞자리가 같은 두 계좌를 구분할 수
+            없게 되는 쪽이 더 위험하다.
+        */}
+        <select
+          id="lc-account"
+          aria-label="계좌"
+          value={accountNo}
+          onChange={(e) => setAccountNo(e.target.value)}
+          disabled={accounts.length === 0 || parsedKey !== null}
+          className="mono h-[26px] max-w-full min-w-0 rounded-full border border-[var(--border)] bg-[var(--card)] px-2 text-[11px] text-[var(--fg)] disabled:opacity-50"
+        >
+          {accounts.length === 0 ? (
+            <option value="">계좌 확인 중…</option>
+          ) : (
+            accounts.map((a) => (
+              <option key={a.accountNo} value={a.accountNo}>
+                {a.accountNo} · {a.name}
+              </option>
+            ))
+          )}
+        </select>
       </div>
 
-      {/* ── A1 종목 · 거래소 · 계좌 ── */}
+      {/* ── A1 헤더 카드 — 거래소 | 종목명(검색 트리거) | 현재가 · 아래 종목정보 8칸 ── */}
       <section
         data-slot="lc-stock-card"
-        className="flex min-w-0 flex-col gap-[var(--s-2)] rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-3)]"
+        className="min-w-0 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-0"
       >
-        <div className="flex min-w-0 items-center gap-[var(--s-2)]">
-          {isin === '' ? (
-            <StockSearchField onPick={setPicked} />
+        <div className="flex min-w-0 items-center gap-[var(--s-2)] px-2.5 py-2">
+          {/*
+            거래소 — 네이티브 1단 콤보. 방향 의미가 없어 중립이다.
+            편집 진입은 거래소가 **키의 일부**라 바꾸면 다른 전략이 되므로 잠근다.
+          */}
+          <select
+            aria-label="거래소"
+            value={exchange}
+            onChange={(e) => setExchange(e.target.value as RelayExchange)}
+            disabled={parsedKey !== null}
+            className="flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[10px] font-bold text-[var(--muted-fg)] disabled:opacity-50"
+          >
+            {(['KRX', 'NXT'] as const).map((ex) => (
+              <option key={ex} value={ex}>
+                {ex}
+              </option>
+            ))}
+          </select>
+
+          {isin === '' || searching ? (
+            <StockSearchField
+              onPick={(s) => {
+                setPicked(s);
+                setSearching(false);
+              }}
+            />
           ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-[var(--s-2)] rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 py-2">
-              <b className="min-w-0 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-                {displayName}
-              </b>
-              {picked !== null && (
-                <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                  {picked.code}
+            <>
+              {/*
+                ★ **종목을 되돌릴 유일한 경로**다 (260911-w5h). 종전에는 `isin === ''` 일
+                  때만 검색창이 떴고, 한 번 고르면 페이지를 새로 열지 않는 한 다른 종목으로
+                  갈 방법이 없었다. 종목명 블록 전체가 그 트리거다.
+                ★ `aria-label` 을 걸지 않는다 — 보이는 글자(종목명·코드)가 접근성 이름에
+                  그대로 남아야 WCAG 2.5.3(label in name)을 만족한다. 「무엇이 되는가」는
+                  `sr-only` 한 조각이 덧붙인다.
+              */}
+              <button
+                type="button"
+                data-slot="lc-stock-trigger"
+                disabled={parsedKey !== null}
+                onClick={() => setSearching(true)}
+                className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-[var(--r)] px-1 py-0.5 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+              >
+                <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)]">
+                  {displayName}
+                </b>
+                {stockCode !== null && (
+                  <span className="mono flex-none text-[11px] text-[var(--muted-fg)]">
+                    {stockCode}
+                  </span>
+                )}
+                <span className="sr-only">종목 변경</span>
+                <span aria-hidden="true" className="flex-none text-[10px] text-[var(--muted-fg)]">
+                  ▾
                 </span>
-              )}
+              </button>
+
               <span
                 className={cn(
-                  'mono ml-auto flex-none text-right text-[length:var(--t-sm)] font-semibold',
+                  'ml-auto flex flex-none flex-col items-end leading-[1.2]',
                   changeRate > 0
                     ? 'text-[var(--up)]'
                     : changeRate < 0
@@ -423,75 +508,52 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                       : 'text-[var(--flat)]',
                 )}
               >
-                {currentPrice > 0 ? KRW.format(currentPrice) : '—'}{' '}
-                <small className="font-normal">{changeRate.toFixed(2)}%</small>
+                <b className="mono text-[16px] font-bold">
+                  {currentPrice > 0 ? KRW.format(currentPrice) : '—'}
+                </b>
+                <small className="mono text-[11px] font-semibold">
+                  {changeRate.toFixed(2)}%
+                </small>
               </span>
-            </div>
+            </>
           )}
+        </div>
 
-          {/* 거래소 — 방향 의미가 없어 중립 accent 다(§Accent 2). */}
+        {/*
+          종목정보 8칸 — 2열 4행, 셀 사이 구분선 없이 여백만(목업 6 「안 B」).
+          ★ 값의 원천은 **이미 구독으로 오는 `RelayQuote` 프레임 하나뿐**이다. 이 그리드를
+            위해 만든 새 API·새 조회 경로가 0개다(파일 상단 ⑧ 과 같은 규율).
+          ★ 값이 0 이거나 아직 안 왔으면 `—` 다 — 0 을 그리면 그 숫자로 매도 판단이 이뤄진다.
+        */}
+        {isin !== '' && !searching && (
           <div
-            role="group"
-            aria-label="거래소 선택"
-            className="flex h-10 flex-none overflow-hidden rounded-[var(--r-md)] border border-[var(--border)]"
+            data-slot="lc-quote-grid"
+            className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1"
           >
-            {(['KRX', 'NXT'] as const).map((ex) => (
-              <button
-                key={ex}
-                type="button"
-                aria-pressed={exchange === ex}
-                // 편집 진입은 거래소가 키의 일부다 — 바꾸면 다른 전략이 되므로 잠근다.
-                disabled={parsedKey !== null}
-                onClick={() => setExchange(ex)}
-                className={cn(
-                  'min-w-[52px] px-3 text-[length:var(--t-sm)] font-semibold disabled:opacity-50',
-                  exchange === ex
-                    ? 'bg-[var(--accent)] text-[var(--accent-fg)]'
-                    : 'bg-[var(--bg)] text-[var(--muted-fg)]',
-                )}
-              >
-                {ex}
-              </button>
-            ))}
+            <QuoteCell label="시가" value={priceText(quote?.o ?? 0)} tone={priceTone(quote?.o ?? 0, basePrice)} />
+            <QuoteCell label="고가" value={priceText(quote?.h ?? 0)} tone={priceTone(quote?.h ?? 0, basePrice)} />
+            <QuoteCell label="저가" value={priceText(quote?.l ?? 0)} tone={priceTone(quote?.l ?? 0, basePrice)} />
+            {/* 상승VI 는 발동가라 언제나 위쪽 사건이다 — 기준가 대비가 아니라 항상 `--up`. */}
+            <QuoteCell label="상승VI" value={priceText(quote?.viu ?? 0)} tone="text-[var(--up)]" />
+            <QuoteCell label="상한" value={priceText(upperLimit)} tone="text-[var(--up)]" />
+            <QuoteCell label="하한" value={priceText(lowerLimit)} tone="text-[var(--down)]" />
+            <QuoteCell label="시총" value={formatMarketCap(currentPrice, quote?.ls ?? 0)} />
+            <QuoteCell label="발행1%" value={formatOnePercentShares(quote?.ls ?? 0)} />
           </div>
-        </div>
+        )}
 
-        {/* 계좌 — 네이티브 `<select>`(Phase 15 결정 승계). **계좌번호는 전체 표시**한다(D2). */}
-        <div className="flex min-w-0 items-center gap-[var(--s-2)]">
-          <label
-            htmlFor="lc-account"
-            className="flex-none text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]"
-          >
-            계좌
-          </label>
-          <select
-            id="lc-account"
-            value={accountNo}
-            onChange={(e) => setAccountNo(e.target.value)}
-            disabled={accounts.length === 0 || parsedKey !== null}
-            className="mono h-10 min-w-0 flex-1 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)] disabled:opacity-50"
-          >
-            {accounts.length === 0 ? (
-              <option value="">계좌 확인 중…</option>
-            ) : (
-              accounts.map((a) => (
-                <option key={a.accountNo} value={a.accountNo}>
-                  {a.accountNo} · {a.name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        {/* 가격 칩 — 종목이 정해졌을 때만 그린다(신규 빈 폼에는 칩 행 자체가 없다, A1). */}
-        {isin !== '' && (
+        {/*
+          가격 칩 — 종목이 정해졌을 때만 그린다(신규 빈 폼에는 칩 행 자체가 없다, A1).
+          ★ 상한가·하한가 칩은 걷었다 (260911-w5h): 바로 위 8칸이 같은 값을 이미 보여 주므로
+            한 카드 안에서 같은 숫자가 두 번 나왔다. 기준가·호가단위는 8칸 어디에도 없어
+            남긴다 — 지우면 정보가 사라진다.
+        */}
+        {isin !== '' && !searching && (
           <div
             data-slot="lc-price-chips"
-            className="flex flex-wrap gap-1.5 text-[length:var(--t-caption)]"
+            className="flex flex-wrap gap-1.5 px-2.5 pb-2 text-[length:var(--t-caption)]"
           >
-            <PriceChip label="상한가" value={upperLimit} tone="up" />
             <PriceChip label="기준가" value={basePrice} />
-            <PriceChip label="하한가" value={lowerLimit} tone="down" />
             <PriceChip label="호가단위" value={tickSize} />
           </div>
         )}
@@ -602,6 +664,38 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 /* ───────────────────────────── 조각 ───────────────────────────── */
 
 /** 가격 칩 1개. 방향색은 상한가·하한가에만 붙는다(§Color 열거표). */
+/**
+ * 헤더 종목정보 한 칸. 라벨 왼쪽 · 값 오른쪽 mono, 셀 사이 구분선 없이 여백만.
+ * 색은 호출부가 정한다 — 이 칸은 포맷과 배치만 안다(`limit-up-format.ts` 와 같은 분리).
+ */
+function QuoteCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px]">
+      <span className="min-w-[34px] flex-none text-[var(--muted-fg)]">{label}</span>
+      <span className={cn('mono ml-auto font-semibold whitespace-nowrap', tone ?? 'text-[var(--fg)]')}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** 가격 한 칸 — **0 은 「모른다」**이므로 대시다. 0 을 그리면 그 숫자로 판단이 이뤄진다. */
+function priceText(value: number): string {
+  return value > 0 ? KRW.format(value) : '—';
+}
+
+/**
+ * 기준가 대비 방향색.
+ *
+ * ★ `orderbook-ladder.tsx` 의 `priceTone` 과 **동형**이다. 그쪽에서 import 하지 않는 이유는
+ *   의존 방향이다 — 페이지 컨테이너가 사다리 컴포넌트의 색 유틸을 끌어오면 화면 조립자가
+ *   자기 자식에게 의존하게 된다. 규칙이 갈라지면 두 곳을 함께 고쳐라(판정식은 세 줄이다).
+ */
+function priceTone(value: number, base: number): string {
+  if (value <= 0 || base <= 0 || value === base) return 'text-[var(--flat)]';
+  return value > base ? 'text-[var(--up)]' : 'text-[var(--down)]';
+}
+
 function PriceChip({ label, value, tone }: { label: string; value: number; tone?: 'up' | 'down' }) {
   return (
     <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted-fg)]">
