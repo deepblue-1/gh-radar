@@ -129,7 +129,7 @@ verified: 2026-09-09
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| WinForms ↔ 웹 「한 세션」 동기화 (웹 스위치 ON → WinForms 「무장」, WinForms 값 변경 → 웹 토스트+덮어쓰기) | TRADE-01 / TRADE-03 | 실 gh-trade 서버 + WinForms 클라이언트 필요. `dma_credentials` 0행(15-20 A안 skip-live) 상태에서는 불가 | 실서버 접속 시: WinForms 상따창과 `/trading/limit-chaser/[key]` 동시 열기 → 웹 스위치 ON → WinForms 무장 배지 확인 → WinForms 매수가격 변경 → 웹 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인 |
+| ✅ WinForms ↔ 웹 「한 세션」 동기화 (웹 스위치 ON → WinForms 「무장」, WinForms 값 변경 → 웹 토스트+덮어쓰기) | TRADE-01 / TRADE-03 | 실 gh-trade 서버 + WinForms 클라이언트 필요 (human-only). **2026-09-10 실측 완료 · 2026-09-11 철거 방향까지 확인** — `quick-260910-ogq` / `260911-mrl` | 실서버 접속 시: WinForms 상따창과 `/trading/limit-chaser/[key]` 동시 열기 → 웹 스위치 ON → WinForms 무장 배지 확인 → WinForms 매수가격 변경 → 웹 토스트 「다른 단말에서 변경됨」 + 값 갱신 확인 |
 | gh-trade mock 서버 대상 전략 왕복 (24/21/34 빈 Envelope → 60/61/73 응답) | TRADE-03 | 로컬 mock 바이너리 실행 필요 (`../gh-trade/server/scripts/run-mac.sh`) | relay 로컬 기동 → 브라우저 로그인 → 스냅샷 3프레임 수신 로그 확인 → 상따 등록 → 60 에코 수신 확인 |
 | VI 마감알림 브라우저 Notification | TRADE-02 | Notification 권한은 headless 에서 실제 표시 불가 | 권한 허용 후 `vi_end_time` 임박 시 알림 표시 확인 (이 기기만) |
 | 15:40 서버 자동 비활성화(61 Broadcast) 표시 | TRADE-02 | 서버 시각 의존 | 장 마감 후 VI 페이지에서 `run=false` 반영 + 로그 1줄 확인 |
@@ -927,6 +927,15 @@ $ git diff --stat 2cb5620..HEAD -- server/ packages/shared/
   DMA 세션을 쓴다는 구조에서 파생될 것으로 **기대되는** 결과이지 관측된 사실이 아니다.
 - **실주문을 내는 검증을 하지 않았다** (D-27 — 사용자 명시 지시 없이는 하지 않는다).
 - 따라서 **TRADE-03 은 Pending 을 유지한다.** 다만 Pending 사유가 갱신됐다 — 아래 참조.
+
+#### 후속 (2026-09-10 ~ 09-11) — 위 문단의 전제가 뒤집혔다
+
+**「WinForms ↔ 웹 「한 세션」 동기화는 여전히 한 번도 관측되지 않았다」는 2026-09-09 기준 사실이었고, 지금은 아니다.** 위 문단은 그 시점의 기록이므로 고치지 않고 여기에 후속을 남긴다.
+
+- **2026-09-10 (`quick-260910-ogq`)** — 사용자가 장중 실계좌에서 **양방향을 직접 관찰**했다. 웹 `/trading/limit-chaser` 조작 → WinForms 반영, WinForms 조작 → 웹 반영. 이 항목은 `16-VERIFICATION.md` §Human Verification Required #1 이 애초에 **human-only** 로 지정한 것이라 사용자 관찰이 **의도된 증거 형태**다. 이를 근거로 **TRADE-03 · RELAY-02 를 Pending → Complete** 로 재판정했다.
+- **2026-09-11** — 그 관찰에 남아 있던 마지막 단서가 해소됐다. 「웹에서 매수전략 OFF → WinForms **메인폼 전략목록에서는 사라지나 종목창 매수주문 체크박스는 미반영**」이 관측됐었고, 이는 **gh-trade(WinForms) 클라이언트 측 결함**이다 — relay 는 `crud:"D"` 를 정상 전달했고 **그 증거가 메인폼 목록 제거**다. 사용자가 gh-trade 에서 수정했고 **주문 끄기까지 정상 동작을 확인**했다. 철거 방향을 포함한 양방향 동기화가 완전히 관측됐다.
+- **gh-radar 측에는 같은 결함이 없다.** 웹 상따 폼은 철거를 다른 단말에서 받으면 `server === null` 분기에서 폼을 리셋한다(`webapp/src/components/trading/limit-chaser-client.tsx:265-274` 의 `setResetSeq`). 비대칭은 WinForms 쪽에만 있었다. **이 phase 는 이 후속으로 소스 코드를 한 줄도 바꾸지 않았다.**
+- **이 후속이 바꾸지 않는 것:** smoke `INV-9` 는 `SMOKE_AUTH_TOKEN` 부재로 16-21 재작성 이후 **프로덕션 첫 실행 미수행** 그대로다 — TRADE-03 조항의 결손이 아니라 **프로브의 미실행**이다. 실주문을 내는 검증도 하지 않았다(D-27).
 
 ### TRADE-03 재판정 (사용자 결정, 2026-09-09)
 
