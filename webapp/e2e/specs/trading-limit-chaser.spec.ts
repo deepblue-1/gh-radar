@@ -96,6 +96,50 @@ async function leavesOverflowing(
   );
 }
 
+/**
+ * 잘림 진단 ② — **스크롤 판정식**이다 (quick-260912-u58 ⑤, 브리프가 정한 그대로).
+ *
+ * 위 `leavesOverflowing` 은 잎 요소의 **좌표**가 컨테이너 오른쪽 밖으로 밀렸는지 본다.
+ * 이쪽은 요소 **자신의 내용이 자기 상자보다 넓은지**(`scrollWidth - clientWidth > 1`) 본다.
+ * 둘은 **서로 다른 실패를 본다** — `truncate`(`overflow:hidden`) 가 걸린 요소는 좌표가
+ * 밀리지 않아 ①이 못 보고, 부모를 밀어내며 넘치는 요소는 자기 `scrollWidth` 가 멀쩡해
+ * ②가 못 본다. 그래서 **대체하지 않고 나란히** 쓴다(케이스 11 이 같은 이유로 두 판정을
+ * 나란히 둔 것을 읽어라).
+ *
+ * 제외 두 가지:
+ *   · `sr-only` — 1px 상자에 글자를 숨기는 장치라 **항상** 넘친다(설계다).
+ *   · overflow 가 `auto`/`scroll` 인 조상 안 — 스크롤하라고 만든 영역이다(호가 사다리 등).
+ *
+ * 실패 메시지에 **무엇이 얼마나** 넘쳤는지 남는다 — 「어딘가 잘렸다」로 끝나지 않게.
+ */
+async function scrollOverflowing(
+  page: Page,
+  rootSelector: string,
+): Promise<{ tag: string; text: string; over: number }[]> {
+  return page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    if (root === null) return [{ tag: '<ROOT_MISSING>', text: sel, over: -1 }];
+    const inScroller = (el: Element): boolean => {
+      let p = el.parentElement;
+      while (p !== null && p !== root) {
+        const o = getComputedStyle(p);
+        if (/(auto|scroll)/.test(o.overflowX) || /(auto|scroll)/.test(o.overflow)) return true;
+        p = p.parentElement;
+      }
+      return false;
+    };
+    return Array.from(root.querySelectorAll<HTMLElement>('*'))
+      .filter((el) => !el.classList.contains('sr-only') && el.closest('.sr-only') === null)
+      .filter((el) => el.scrollWidth - el.clientWidth > 1)
+      .filter((el) => !inScroller(el))
+      .map((el) => ({
+        tag: `${el.tagName.toLowerCase()}${el.dataset.slot ? `[${el.dataset.slot}]` : ''}`,
+        text: (el.textContent ?? '').slice(0, 24),
+        over: el.scrollWidth - el.clientWidth,
+      }));
+  }, rootSelector);
+}
+
 /** 게이트웨이가 `SetLimitChaserReq(10)` 을 n건 받을 때까지 기다린다 — 에코 주입 전 경주 방지. */
 async function waitForSetAtGateway(relay: LocalRelay, count: number): Promise<void> {
   await expect
@@ -654,5 +698,141 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     // 「머무른다」를 골랐으므로 이 화면에 그대로 있고 고치던 값도 남아 있다.
     await expect(page$(page)).toBeVisible();
     await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
+  });
+
+  /*
+    12. quick-260912-u58 ⑤ — **여백 램프를 바꾼 뒤에도 상따 본문이 안 잘린다.**
+
+    여백을 8/16/24 램프로 키우면 768~1023 구간의 컨테이너가 **16px 줄어든다**. 그 구간이
+    상따에서 가장 빡빡한 곳이라, 램프 변경이 잘림을 새로 만들지 않았는지 브라우저가 상시
+    확인해야 한다. 폭 판정은 jsdom 이 증명할 수 없다 — **흉내내지 말고 여기 둔다.**
+
+    ★ 두 판정을 **나란히** 쓴다(위 두 헬퍼의 주석 참조) — 좌표가 밀린 실패와 자기 상자를
+      넘친 실패는 서로 다르고, 하나만 쓰면 나머지 하나가 조용히 지난다.
+    ★ 360 은 **폰 하한**이다. 여백 8px 기준 컨테이너가 정확히 344 이고, 그 344 가 상따가
+      안 잘리는 실측 하한이다 — 폰 구간의 여유는 **0** 이라 여기서 1px 이라도 늘리면 즉시
+      빨개진다. 그 사실이 이 케이스의 존재 이유다.
+  */
+  test('12. 여백 램프 후 상따 본문 잘림 0 — 뷰포트 360·390·768·1023 (quick-260912-u58 ⑤)', async ({
+    page,
+  }) => {
+    for (const width of [360, 390, 768, 1023]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(EDIT_URL);
+      await waitForReady(page);
+      await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000', { timeout: 15_000 });
+
+      // ① 자기 상자를 넘친 요소 — `truncate` 로 삼켜진 잘림이 여기서 드러난다.
+      const scrolled = await scrollOverflowing(page, '[data-slot="limit-chaser-page"]');
+      expect(scrolled, `뷰포트 ${width} — 내용이 상자를 넘친 요소`).toEqual([]);
+
+      // ② 좌표가 컨테이너 오른쪽 밖으로 밀린 잎 요소 — 부모를 밀어낸 잘림이 여기서 드러난다.
+      const box = await page$(page).boundingBox();
+      expect(box, `뷰포트 ${width} — 상따 본문을 못 찾았다`).not.toBeNull();
+      const pushed = await leavesOverflowing(page$(page), box!.x + box!.width);
+      expect(pushed, `뷰포트 ${width} — 컨테이너 밖으로 밀린 잎 요소`).toEqual([]);
+    }
+  });
+
+  /*
+    13. quick-260912-u58 ⑥ — **와이드 밴드에서 체결가·체결량이 둘 다 안 잘린다.**
+
+    선재 결함이었다(실측으로 찾았다): 컨테이너 **832~991 전 구간**에서 3단 호가표 체결 셀의
+    체결가가 **폭과 무관하게 늘 5px** 잘렸다(`clientWidth 33 / scrollWidth 38`). 반응형
+    문제가 아니라 셀의 고정 폭 예산 문제였고, `98,10…` 은 **없는 가격을 보여 주는 것**과
+    같다 — 이 화면에서 읽은 숫자가 실계좌 발주 설정이 된다(T-u58-03).
+
+    ★ 뷰포트를 **추정하지 않는다.** 뷰포트를 잡은 뒤 본문의 실제 폭을 재서 그것이 830~991
+      안에 있음을 **먼저 단언**한다 — 그래야 「와이드 밴드를 봤다」가 참이 된다. 스크롤바
+      유무로 계산이 몇 px 어긋나는 환경이 있어서, 계산만 믿으면 엉뚱한 밴드를 재고도 초록이
+      된다.
+    ★ 체결 샘플은 **수량 5자리**(`12,345`·`54,321`)로 심는다 — 짧은 샘플은 공허한 단언을
+      만든다. 가격도 상한가(`127,400`, 7자)까지 올린다.
+    ★ 데스크톱 밴드(컨테이너 ≥992)도 **같은 케이스에서** 확인한다 — 와이드에서 줄인 것이
+      데스크톱까지 따라가면 안 된다는 것이 이 수정의 절반이다.
+  */
+  test('13. 와이드 밴드(컨테이너 832·880·960) 체결가·체결량 잘림 0 — 데스크톱 현상 유지 (quick-260912-u58 ⑥)', async ({
+    page,
+  }) => {
+    /** 뷰포트를 잡고 본문 실폭을 돌려준다. 여백 램프상 ≥1024 는 `뷰포트 − 240 − 48` 이다. */
+    const openAt = async (viewportWidth: number): Promise<number> => {
+      await page.setViewportSize({ width: viewportWidth, height: 1000 });
+      await page.goto(EDIT_URL);
+      await waitForReady(page);
+      await expect(page.locator('[data-tree="three"]')).toBeVisible({ timeout: 15_000 });
+
+      // 수량 5자리 + 상한가(7자) 체결을 심는다.
+      const sock = await relay.gateway.waitForConnection(15_000);
+      relay.gateway.pushTape(sock, {
+        isin: E2E_ISIN,
+        exchange: 'KRX',
+        snapshot: true,
+        entries: [
+          { tradeTime: '093015123456', price: 127_400n, qty: 12_345n, cumVolume: 999_966n },
+          { tradeTime: '093016123456', price: 98_100n, qty: 54_321n, cumVolume: 1_000_000n },
+          { tradeTime: '093017123456', price: 127_400n, qty: 12_345n, cumVolume: 1_000_012n },
+        ],
+      });
+      await expect(
+        page.locator('[data-tree="three"] [data-slot="ladder-fill-cell"]').first(),
+      ).toContainText('12,345', { timeout: 15_000 });
+
+      return page$(page).evaluate((el) => el.clientWidth);
+    };
+
+    /** 보이는 체결 셀 전부의 체결가·체결량 넘침. `sr-only` 방향 라벨은 제외한다. */
+    const fillOverflow = async () =>
+      page.evaluate(() => {
+        const tree = document.querySelector('[data-tree="three"]')!;
+        return Array.from(tree.querySelectorAll<HTMLElement>('[data-slot="ladder-fill-cell"]'))
+          .filter((c) => c.getClientRects().length > 0 && (c.textContent ?? '').trim() !== '')
+          .flatMap((c) => {
+            // 셀 안 직계 span 3개 = 시각 · 체결가 · 체결량(그 안의 sr-only 는 건너뛴다).
+            const spans = Array.from(c.querySelectorAll<HTMLElement>(':scope > div > span'));
+            return [
+              { what: '체결가', el: spans[1] },
+              { what: '체결량', el: spans[2] },
+            ]
+              .filter((x) => x.el !== undefined)
+              .map((x) => ({
+                what: x.what,
+                text: (x.el!.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 16),
+                over: x.el!.scrollWidth - x.el!.clientWidth,
+              }))
+              .filter((x) => x.over > 1);
+          });
+      });
+
+    // ── 와이드 밴드 3지점 — 폭과 무관하게 늘 5px 이었다는 것이 이 결함의 성질이다 ──
+    for (const [viewportWidth, expectedContainer] of [
+      [1120, 832],
+      [1168, 880],
+      [1248, 960],
+    ] as const) {
+      const container = await openAt(viewportWidth);
+      // ★ 먼저 「와이드 밴드를 보고 있다」를 참으로 만든다.
+      expect(
+        container,
+        `뷰포트 ${viewportWidth} 의 본문이 ${container}px — 와이드 밴드(830~991) 밖이다`,
+      ).toBe(expectedContainer);
+      expect(container).toBeGreaterThanOrEqual(830);
+      expect(container).toBeLessThanOrEqual(991);
+
+      expect(await fillOverflow(), `컨테이너 ${container} — 체결 셀 넘침`).toEqual([]);
+    }
+
+    // ── 데스크톱 밴드(≥992) — 와이드에서 줄인 것이 여기까지 따라오지 않는다 ──
+    const desktop = await openAt(1388);
+    expect(desktop).toBeGreaterThanOrEqual(992);
+    expect(await fillOverflow(), `컨테이너 ${desktop}(데스크톱) — 체결 셀 넘침`).toEqual([]);
+    // 데스크톱은 시(時)까지 보인다 — 와이드에서만 감추는 것이 계약이다.
+    await expect(
+      page.locator('[data-tree="three"] [data-slot="ladder-fill-time-hh"]').first(),
+    ).toBeVisible();
+
+    // 컴팩트·데스크톱의 `sr-only` 방향 라벨과 방향색은 그대로다.
+    const firstCell = page.locator('[data-tree="three"] [data-slot="ladder-fill-cell"]').first();
+    await expect(firstCell.locator('.sr-only')).toHaveText(/매수|매도/);
+    await expect(firstCell.locator('[title]')).toHaveAttribute('title', /매수 체결|매도 체결/);
   });
 });

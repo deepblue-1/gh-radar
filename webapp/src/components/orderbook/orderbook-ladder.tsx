@@ -75,7 +75,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 
-import { TradeTape, deriveTapeSides, formatTapeTime } from '@/components/orderbook/trade-tape';
+import {
+  TradeTape,
+  deriveTapeSides,
+  formatTapeTime,
+  formatTapeTimeShort,
+} from '@/components/orderbook/trade-tape';
 import { cn } from '@/lib/utils';
 import type { RelayQuote, RelayTapeEntry } from '@gh-radar/shared';
 
@@ -511,6 +516,25 @@ function StandardLadder({
  *   폭을 인라인 style 로 박는 이유는 그 규칙을 테스트가 **계산된 값으로** 단언할 수 있게
  *   하기 위해서다(클래스만이면 jsdom 에서 폭이 0 이라 아무것도 못 잡는다).
  */
+/**
+ * 체결 시각을 `HH:` 접두와 `MM:SS` 로 쪼갠다 — **와이드 밴드에서 접두만 감추기 위해서**다
+ * (quick-260912-u58 ⑥).
+ *
+ * 3단 표(`data-tree="three"`)는 와이드(컨테이너 830~991)와 데스크톱(≥992)이 **같은 DOM 을
+ * 공유**한다. 그래서 밴드별로 다른 문자열을 보이려면 두 조각으로 나눠 컨테이너 쿼리로
+ * 한쪽을 `display:none` 하는 길뿐이다 — 트리를 한 벌 더 만드는 것보다 훨씬 싸다.
+ *
+ * ★ 모르는 형식(6자리 미만)은 `formatTapeTime`·`formatTapeTimeShort` 와 **같은 규율**로
+ *   원문을 그대로 흘린다. 그 경우 접두가 빈 문자열이라 어느 밴드에서나 원문 전체가 보인다 —
+ *   자를 수 없는 것을 잘라 **없는 시각을 지어내지 않는다**.
+ */
+function splitTapeTime(raw: string): { hh: string; mmss: string } {
+  const full = formatTapeTime(raw);
+  const short = formatTapeTimeShort(raw);
+  if (full === short || !full.endsWith(short)) return { hh: '', mmss: full };
+  return { hh: full.slice(0, full.length - short.length), mmss: short };
+}
+
 const MARKER_SLOT_PX = 16;
 
 /**
@@ -906,8 +930,38 @@ function ChaserLadder({
                   >
                     {trade !== undefined && (
                       <div className="flex min-w-0 items-center gap-1">
-                        <span className="flex-none text-[10px] text-[var(--muted-fg)]">
-                          {formatTapeTime(trade.t)}
+                        {/*
+                          ★ quick-260912-u58 ⑥ — **폭 예산을 체결가에 먼저 준다.**
+
+                          옛 배치는 시각(`flex-none` 45px)과 수량(`flex-none` min 36)이
+                          고정이고 체결가만 `flex-1 truncate` 라, 좁아지면 **가격이 잘리는**
+                          유일한 요소였다. 컨테이너 832~991 전 구간에서 가격 span 이
+                          `clientWidth 33 / scrollWidth 38` — 폭과 무관하게 **늘 5px**
+                          잘렸고(브라우저 실측), `98,10…` 은 없는 가격을 보여 주는 것과 같다.
+                          시각은 잘려도 의미가 남지만 가격이 잘리면 거짓이 된다.
+
+                          그래서 **와이드 밴드에서만 시(時) 두 자리를 감춘다** — `HH:` 접두를
+                          별도 span 으로 떼어 `hidden @min-[992px]/lc:inline` 을 건다.
+                          · 데스크톱(≥992)은 `09:30:17` 과 클래스가 **그대로**다(현상 유지).
+                          · 와이드는 `30:17` 이 되어 ~17px 을 가격에 돌려준다 — 수량 5자리
+                            (`12,345`)와 7자리 가격이 함께 와도 남는다(e2e 가 잰다).
+                          · 접두 span 에는 `text-[10px]` 을 **걸지 않는다** — 그 클래스를 세는
+                            케이스 ⑪ 의 총계 90 이 이 사실 하나에 걸려 있다. 시각 span 자신이
+                            이미 10px 허용처이고, 접두는 그 안에서 글꼴을 상속한다.
+                          근거는 `formatTapeTimeShort` 가 컴팩트 테이프에서 쓰는 것과 같다 —
+                          체결 테이프를 훑는 목적에서 시(時)는 언제나 같은 값이다.
+                        */}
+                        <span
+                          data-slot="ladder-fill-time"
+                          className="flex-none text-[10px] text-[var(--muted-fg)]"
+                        >
+                          <span
+                            data-slot="ladder-fill-time-hh"
+                            className="hidden @min-[992px]/lc:inline"
+                          >
+                            {splitTapeTime(trade.t).hh}
+                          </span>
+                          {splitTapeTime(trade.t).mmss}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-right font-semibold text-[var(--fg)]">
                           {fmt(trade.p)}

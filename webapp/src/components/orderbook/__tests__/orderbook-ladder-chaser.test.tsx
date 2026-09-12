@@ -248,6 +248,58 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(cells[0].querySelector('[title]')?.getAttribute('title')).toMatch(/매수 체결|매도 체결/);
   });
 
+  /*
+    ★ quick-260912-u58 ⑥ — **와이드 밴드에서 체결가가 5px 잘리던 것**을 고친 자리.
+
+    증상(브라우저 실측): 컨테이너 **832~991 전 구간**에서 체결가 span 이 `clientWidth 33 /
+    scrollWidth 38` 로 **항상 5px** 잘렸다 — 폭과 무관하게 늘 5px 이라 반응형 문제가 아니라
+    셀의 **고정 폭 예산** 문제였다. `98,10…` 은 없는 가격을 보여 주는 것과 같다.
+
+    폭 예산(컨테이너 832, 셀 130 → 내부 122):
+      시각 45 + gap 4 + 가격 33(필요 38) + gap 4 + 수량 36 = 122.
+    시각·수량이 `flex-none` 이라 **유일하게 줄어들 수 있는 것이 가격**이었다 — 예산 우선순위가
+    거꾸로 서 있었다. 시각은 잘려도 의미가 남지만 가격이 잘리면 거짓이 된다.
+
+    고친 방법: **와이드 밴드에서만 시(時) 두 자리를 감춘다**(`09:30:17` → `30:17`).
+    `data-tree="three"` 는 와이드(830~991)와 데스크톱(≥992)이 **같은 DOM 을 공유**하므로
+    텍스트를 밴드별로 갈라 쓰려면 컨테이너 쿼리뿐이다. `HH:` 접두만 별도 span 으로 떼어
+    `hidden @min-[992px]/lc:inline` 을 건다 —
+      · 데스크톱(≥992)은 `09:30:17` 그대로, 클래스도 그대로다(현상 유지).
+      · 와이드는 `30:17` 로 ~17px 을 가격에 돌려준다.
+      · 접두 span 에는 `text-[10px]` 을 걸지 않는다 — 케이스 ⑪ 의 **총계 90 이 불변**이다.
+      · jsdom 에는 CSS 가 없으므로 `textContent` 는 여전히 `09:30:10` 전체다(위 케이스 ⑤).
+    근거는 `formatTapeTimeShort` 가 이미 컴팩트 테이프에서 쓰는 것과 같다 — 체결 테이프를
+    훑는 목적에서 시(時)는 언제나 같은 값이다.
+
+    ★ 실제 픽셀(잘림 0)은 jsdom 이 증명할 수 없다 — `trading-limit-chaser.spec.ts` 의
+      와이드 밴드 케이스가 컨테이너 832·880·960 에서 그것을 잰다. 여기서 잠그는 것은
+      **밴드 결선**이고, 그 둘이 짝이다.
+  */
+  it('⑤-b 3단 체결 시각의 `HH:` 접두가 와이드에서 숨고 데스크톱에서만 보인다 (quick-260912-u58 ⑥)', () => {
+    renderChaser();
+
+    const cell = within(desktopTable())
+      .getAllByRole('row')
+      .flatMap((r) => Array.from(r.querySelectorAll('[data-slot="ladder-fill-cell"]')))[0]!;
+
+    const timeSpan = cell.querySelector('[data-slot="ladder-fill-time"]') as HTMLElement;
+    expect(timeSpan).not.toBeNull();
+    // 시각 span 자신은 10px 예외처 그대로다 — 총계가 흔들리지 않는 이유다.
+    expect(timeSpan.className).toContain('text-[10px]');
+
+    const prefix = timeSpan.querySelector('[data-slot="ladder-fill-time-hh"]') as HTMLElement;
+    expect(prefix).not.toBeNull();
+    expect(prefix.textContent).toBe('09:');
+    // 와이드에서 숨고 데스크톱에서만 되살아난다.
+    expect(prefix.className).toContain('hidden');
+    expect(prefix.className).toContain('@min-[992px]/lc:inline');
+    // ★ 접두에는 `text-[10px]` 을 걸지 않는다 — 케이스 ⑪ 의 총계 90 이 이 사실에 걸려 있다.
+    expect(prefix.className).not.toContain('text-[10px]');
+
+    // 나머지(MM:SS)는 어느 밴드에서도 보인다 — 두 조각을 합치면 옛 문자열 그대로다.
+    expect(timeSpan.textContent).toBe('09:30:10');
+  });
+
   it('⑥ 체결이 없으면 셀을 비운다 (없는 체결을 지어내지 않는다)', () => {
     const { container } = renderChaser({ recentTrades: [] });
 
