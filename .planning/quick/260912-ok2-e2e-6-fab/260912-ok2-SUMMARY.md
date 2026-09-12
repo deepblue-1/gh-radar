@@ -48,7 +48,7 @@ metrics:
 actuals:
   tokens: 17000
   tasks: 3
-  commits: 3
+  commits: 4
 plan_head_before: d74b3d0be8feaae5297facff6652b18dc7c22fe0
 status: complete
 ---
@@ -67,7 +67,7 @@ status: complete
 | `626f41e` | ③ 액션 바 FAB 여백 제거 · ⑤ 체크박스 라벨색 통일 · a11y pane 단언 효과 기준 |
 | `93c7e10` | 선재 실패 5건 재작성 + WINDOWS 7건 종결 |
 
-측정: `git rev-list --count d74b3d0..HEAD` = **3**. 13 files / +553 −115.
+측정: `git rev-list --count d74b3d0..HEAD` = **4**(위 3건 + 문서 커밋 `c1c9a0b`). 소스/스펙 13 files / +553 −115.
 
 ## 게이트 실측값
 
