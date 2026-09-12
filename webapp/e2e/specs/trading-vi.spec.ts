@@ -646,8 +646,23 @@ test.describe('Phase 16 Plan 14 — VI 자동매수 화면 (로컬 relay + 스�
       ],
       holdings: [{ isin: E2E_ISIN, stockQty: 120, sellableQty: 90, avgPrice: 91_250 }],
     });
-    const unfilledRows = page.locator('[data-slot="account-unfilled-list"] [data-slot="account-unfilled-row"]');
+    /*
+      ★ 260912-ok2 — 이 케이스는 **≥1280** 이다. 그 폭에서 보이는 미체결 표면은 카드 목록이
+        아니라 **표**다(`account-panel.tsx`: 표는 `max-[1279px]:hidden`, 카드 목록은
+        `min-[1280px]:hidden`). 카드 목록을 세던 옛 조회구는 **숨은 DOM 을 세고 있었고**,
+        그래서 260911-w5h 가 카드에서 주문번호·출처 태그를 뺀 뒤에도 개수 단언만 통과하고
+        내용 단언이 깨졌다. 조회구를 **보이는 표면**으로 옮긴다 — 단언의 의도(필터가 행을
+        줄인다 · 그 행이 그 주문이다 · 출처 태그가 붙는다)는 셋 다 그대로다.
+      ★ 주문번호와 출처 태그는 **데스크톱 표에는 그대로 살아 있다.** 좁은 화면에서만 뺀
+        것이므로(사용자 승인 사항) 여기서는 증거를 다른 채널로 옮길 필요조차 없다 —
+        옮길 것은 조회구뿐이다.
+    */
+    const unfilledRows = page
+      .getByTestId('account-unfilled')
+      .locator('[data-slot="table"] tbody tr');
     await expect(unfilledRows).toHaveCount(2, { timeout: 15_000 });
+    // 이 폭에서 카드 목록은 보이지 않는다 — 그 사실이 위 조회구 선택의 근거다.
+    await expect(page.locator('[data-slot="account-unfilled-list"]')).toBeHidden();
 
     /*
       ★ 레이아웃은 **실측 좌표**로 본다. 클래스 문자열만 보면 CSS 가 안 먹어도 통과한다.
@@ -697,6 +712,7 @@ test.describe('Phase 16 Plan 14 — VI 자동매수 화면 (로컬 relay + 스�
     await expect(dialog).toBeHidden();
 
     // 미체결 행에 출처 태그 `VI` 가 붙는다(UI-SPEC §미체결 출처 태그).
+    // ★ 이 태그가 사는 곳도 **표**다 — 좁은 화면 카드에서는 260911-w5h 가 걷어냈다.
     await expect(unfilledRows.first()).toContainText('VI');
   });
 

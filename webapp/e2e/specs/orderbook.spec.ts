@@ -388,7 +388,15 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await expect(
       unfilledRows.first().getByRole('button', { name: '주문번호 0000135742 취소' }),
     ).toBeVisible();
-    await expect(unfilledRows.first()).toContainText('30/50');
+    /*
+      ★ 260912-ok2 — **문구가 바뀐 자리다. 화면이 정본이고 단언을 옮긴다.**
+        옛 단언은 `30/50` 이라는 붙여쓴 문자열을 요구했는데, 260911-w5h 가 카드 2번째 줄을
+        「미체결 {잔량} / {주문량}주」로 다시 쓰면서 그 형태는 화면에서 사라졌다.
+        잠그던 것(「30 중 50 이 **둘 다** 보인다」 = 잔량만 보여 주문량을 잃지 않는다)은
+        그대로이므로, 같은 의도를 현재 문구로 다시 쓴다. 지웠으면 다음에 주문량이 조용히
+        빠져도 아무도 모른다.
+    */
+    await expect(unfilledRows.first()).toContainText('미체결 30 / 50주');
   });
 
   test('9. 회선 단절 → `재접속 중` 배지 + **사다리는 비워지지 않는다**', async ({ page }) => {

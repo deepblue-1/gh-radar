@@ -14,7 +14,8 @@ import {
  * baseURL=http://localhost:3100 (playwright.config, dev.sh PORT=3100 규약).
  *
  * VALIDATION (4 시나리오):
- *   1. 비로그인 FAB 클릭 → "로그인이 필요해요" 게이트(D-01), 스트리밍 미발생.
+ *   1. 비로그인 `/stocks/{code}` → `/login?next=…` 로그인 벽 (260912-ok2 가 다시 썼다 —
+ *      아래 케이스 주석 참조. D-01 게이트 자체는 `chat-fab.test.tsx` Test 1 이 잠근다).
  *   2. 로그인 후 FAB → 시트 open → 질문 전송 → SSE text 스트리밍(assistant 답변).
  *   3. 종목상세(/stocks/000660) FAB 라벨에 종목명 컨텍스트("SK하이닉스 분석") 표시(D-03).
  *   4. /chat 페이지 대화목록 렌더 + 삭제 다이얼로그 open/취소(T-14-11).
@@ -37,31 +38,50 @@ test.describe('Phase 14 — 챗 비로그인 게이트 (D-01)', () => {
     await context.clearCookies();
   });
 
-  test('비로그인 FAB 클릭 → "로그인이 필요해요" 게이트(스트리밍 미발생)', async ({
+  /*
+    ★ quick-260912-ok2 — 이 시나리오는 **구조적으로 도달 불가**가 됐다. 다시 쓴다.
+
+    무엇이 깨져 있었나: 「비로그인 사용자가 FAB 을 눌러 게이트를 본다」였는데, 두 변화가
+    겹치면서 그런 사용자가 존재할 수 없게 됐다.
+      ⓐ 260911-tuk — 앱 전체가 로그인 벽 뒤로 갔다. `middleware.ts` 의 공개 판정은
+         `PUBLIC_PREFIXES`(`/login`·`/auth`) 하나뿐이고, 홈조차 벽 뒤다.
+      ⓑ 260912-mvo Q-01 — FAB 이 전역에서 `/stocks/{code}` 본문으로 좁혀졌다.
+      그 결과 「FAB 이 보이는 페이지」와 「비로그인으로 도달 가능한 페이지」의 교집합이
+      **공집합**이다. 위 단언은 영원히 볼 수 없는 화면을 기다리고 있었다.
+
+    무엇으로 다시 썼나: **현재의 진짜 계약** — 「비로그인은 `/stocks/{code}` 에 닿지 못하고
+    `/login?next=…` 으로 막힌다」. `auth-guards.spec.ts` 가 `/scanner`·`/watchlist`·`/`·
+    `/trading/*`·`/me` 를 잠그고 있지만 **`/stocks/{code}` 는 아무도 잠그지 않았다** —
+    챗 FAB 이 사는 바로 그 표면이다. 죽은 시나리오가 새 커버리지가 된다.
+
+    ★ **D-01 커버리지는 소실되지 않았다.** 「비로그인 클릭 → 로그인 필요 상태 + `openChat`
+      미호출」은 `src/components/chat/__tests__/chat-fab.test.tsx` 의 **Test 1** 이 그대로
+      잠그고 있다. 게이트 자체는 컴포넌트 계약이라 브라우저 왕복이 필요하지 않고, 브라우저가
+      증명해야 하는 것(그 표면에 비로그인으로 닿을 수 있는가)은 이제 **닿지 못한다**는
+      사실이다. 이 케이스가 그 사실을 본다.
+  */
+  test('비로그인 /stocks/{code} → /login?next 로 막힌다 (챗 FAB 표면의 로그인 벽)', async ({
     page,
   }) => {
-    // quick-260912-mvo Q-01 — FAB 이 뜨는 유일한 표면은 종목상세 본문이다.
-    // 시나리오 3 과 같은 mock·라우트를 재사용해 새 전제를 만들지 않는다.
+    // 라우트가 벽에 막히는지를 보는 케이스다. mock 은 그대로 둔다 — 벽이 걷히면 이 mock
+    // 위에서 페이지가 그려지고, 그때 이 단언이 정확히 그 변화를 붙잡는다.
     await mockStockApi(page, {
       detailByCode: { '000660': FIXTURE_SK_HYNIX },
     });
     await page.goto('/stocks/000660');
 
-    // FAB(aria-label 이 "AI" 또는 "AI · {종목명} 분석") 노출 확인 — 라벨은 stockContext
-    // 발행 타이밍에 따라 달라지므로 접두로 잡는다. 이 테스트의 대상은 라벨이 아니라 게이트다.
-    const fab = page.getByRole('button', { name: /^AI/ });
-    await expect(fab).toBeVisible({ timeout: 10_000 });
+    // `next` 는 **한 번만** 인코딩된다 — `auth-guards.spec.ts` 와 같은 규약이다.
+    await expect(page).toHaveURL(
+      new RegExp(`/login\\?next=${encodeURIComponent('/stocks/000660')}$`),
+    );
 
-    await fab.click();
-
-    // D-01 — 로그인 필요 상태 박스(시트/스트리밍 미발생).
-    await expect(page.getByText('로그인이 필요해요')).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'Google로 로그인' }),
-    ).toBeVisible();
-
-    // composer(입력창)는 열리지 않는다 — 시트 미오픈 확인.
+    // 벽 뒤의 것은 무엇도 렌더되지 않는다 — FAB 도, 챗 게이트 박스도, 입력창도.
+    await expect(page.getByRole('button', { name: /^AI/ })).toHaveCount(0);
+    await expect(page.getByText('로그인이 필요해요')).toHaveCount(0);
     await expect(page.getByLabel('메시지 입력')).toHaveCount(0);
+
+    // 로그인 화면의 진입점은 실제로 있다 — 벽에 막힌 사용자가 갈 곳이 없으면 벽이 아니라 벽돌이다.
+    await expect(page.getByRole('button', { name: 'Google로 로그인' })).toBeVisible();
   });
 });
 

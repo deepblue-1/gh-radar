@@ -142,8 +142,39 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
     const expected = `/trading/limit-chaser/${encodeURIComponent(keyOf(CHASERS[1]))}`;
     await strategyItems(nav).nth(1).click();
     await expect(page).toHaveURL(new RegExp(`${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
-    // 편집 화면이 실제로 그 키를 풀어서 보여준다(디코드 왕복).
-    await expect(page.getByText(keyOf(CHASERS[1]))).toBeVisible({ timeout: 15_000 });
+    /*
+      편집 화면이 실제로 그 키를 **풀어서** 보여준다(디코드 왕복).
+
+      ★ 260912-ok2 — 여기서 깨져 있던 것은 **코드가 아니라 단언**이었다. 근거:
+        ⓐ `limit-chaser-client.tsx` 가 옛 편집 제목(`{종목명} · {거래소}`)과 전략키 mono
+           부제를 의도적으로 걷었다 — 「종목·거래소는 바로 아래 헤더 카드가 더 많은 맥락과
+           함께 보여주므로 같은 말을 세 번 하고 있었다」가 그 자리 주석이다.
+        ⓑ 유닛 `limit-chaser-client.test.tsx` ⑤ 가 **「전략키는 화면에 없다」를 이미
+           단언하고 있다**(`expect(screen.queryByText(KEY)).toBeNull()`). 즉 화면에서 키가
+           사라진 것은 회귀가 아니라 **현재 계약**이고, 두 단언이 정반대를 요구하고 있었다.
+        전략키는 내부 식별자라 화면에 그리지 않는 쪽이 맞다 — 되살리지 않는다.
+      ★ 그래서 증거를 **살아 있는 채널**로 옮긴다. 키 세 조각이 전부 풀렸다는 것은:
+        · 거래소(3번째 조각) = 콤보의 값
+        · 계좌(2번째 조각)   = 계좌 칩의 값
+        · 종목(1번째 조각)   = **그 ISIN 의 전략이 실제로 로드됐다** — 이 전략만 매도가
+          켜져 있으므로(CHASERS[1]), 스위치가 켜져 있다는 것은 신규 폼이 아니라 바로 그
+          전략을 찾아 열었다는 뜻이다. 세 조각 중 하나라도 안 풀리면 `parseStrategyKey` 가
+          `null` 을 내고 화면은 **잠기지 않은 신규 폼**이 된다 — 그래서 잠금도 함께 본다.
+    */
+    const card = page.locator('[data-slot="lc-stock-card"]');
+    await expect(card.locator('select[aria-label="거래소"]')).toHaveValue(
+      CHASERS[1].exchange,
+      { timeout: 15_000 },
+    );
+    await expect(page.locator('select[aria-label="계좌"]')).toHaveValue(CHASERS[1].accountNo);
+    await expect(page.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+      { timeout: 15_000 },
+    );
+    // 키의 일부인 거래소·계좌·종목은 편집 화면에서 바꿀 수 없다 — 바꾸면 다른 전략이 된다.
+    await expect(card.locator('select[aria-label="거래소"]')).toBeDisabled();
+    await expect(page.locator('[data-slot="lc-stock-trigger"]')).toBeDisabled();
   });
 
   test('2. 매핑 없음 — 트레이딩 그룹·My page 가 DOM 에 없다 (미렌더)', async ({ page }) => {
