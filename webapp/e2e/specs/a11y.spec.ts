@@ -383,7 +383,7 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading/limit-chaser (모바일 390) — 탭 2종 · 비활성 pane `hidden` · 액션 바 `role="status"`', async ({
+  test('/trading/limit-chaser (모바일 390) — 탭 2종 · 비활성 pane 비가시 · 액션 바 `role="status"`', async ({
     page,
   }) => {
     await page.setViewportSize(A11Y_MOBILE_VIEWPORT);
@@ -403,7 +403,7 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
       `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
     ).toEqual([]);
 
-    // ⑥ 모바일 탭 — `role="tablist"` + `aria-selected` + 비활성 pane 은 `hidden` 속성.
+    // ⑥ 모바일 탭 — `role="tablist"` + `aria-selected` + 비활성 pane 은 보이지 않는다.
     const tablist = page.locator('[data-slot="limit-chaser-form"] [role="tablist"]');
     await expect(tablist).toHaveAttribute('aria-label', '주문 설정');
     await expect(tablist.getByRole('tab')).toHaveCount(2);
@@ -412,15 +412,33 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
       'aria-selected',
       'false',
     );
-    await expect(page.locator('[data-pane="sell"]')).toHaveAttribute('hidden', '');
-    // `hidden` 은 곧 **탭 순서 제외**다. 숨김이 시각 효과로만 남으면 여기서 깨진다.
+    /*
+      ★ 260912-k2x — 숨김이 DOM **속성**에서 **CSS 클래스**로 옮겨졌으므로 단언도
+        가시성으로 옮긴다. **성질은 같다** — `toBeHidden()` 은 `display:none` 을 그대로
+        잡고(Playwright 의 가시성 판정이 계산된 스타일을 본다), `display:none` 은 접근성
+        트리에서도 빠지므로 「안 보이는 폼을 스크린리더가 읽지 않는다」는 계약이 그대로다.
+        판정 기준이 뷰포트가 아니라 본문 폭이 된 이유는 `styles/globals.css` §2.2b 에 있다.
+      ★ 여기서 `hidden` **속성**으로 되돌리면 같은 파일의 `[hidden]{display:none!important}`
+        (globals.css) 가 `@min-[700px]/lc:block` 을 이겨, 컴팩트 이상에서 두 pane 을 나란히
+        세울 수 없게 된다. 단언을 맞추려고 화면을 되돌리는 자리가 정확히 여기다.
+      ★ 두 pane 은 각각 **한 요소**로 해석돼야 한다(폼이 여러 벌 렌더되면 `toBeHidden()` 이
+        개수 단언과 다른 방식으로 실패한다). 그 사실을 먼저 센다.
+    */
+    await expect(page.locator('[data-pane="buy"]')).toHaveCount(1);
+    await expect(page.locator('[data-pane="sell"]')).toHaveCount(1);
+    await expect(page.locator('[data-pane="buy"]')).toBeVisible();
+    await expect(page.locator('[data-pane="sell"]')).toBeHidden();
+    // 숨김은 곧 **탭 순서 제외**다. 숨김이 시각 효과로만 남으면 여기서 깨진다.
     expect(await tabbablesIn(page, '[data-pane="sell"]')).toEqual([]);
     expect((await tabbablesIn(page, '[data-pane="buy"]')).length).toBeGreaterThan(0);
 
-    // 탭을 바꾸면 `hidden` 도 반대로 간다 — 한쪽만 거는 구현을 잡는다.
+    // 탭을 바꾸면 가시성도 반대로 간다 — 한쪽만 거는 구현을 잡는다.
     await page.getByRole('tab', { name: '매도' }).click();
-    await expect(page.locator('[data-pane="buy"]')).toHaveAttribute('hidden', '');
-    await expect(page.locator('[data-pane="sell"]')).not.toHaveAttribute('hidden', '');
+    await expect(page.locator('[data-pane="buy"]')).toBeHidden();
+    await expect(page.locator('[data-pane="sell"]')).toBeVisible();
+    // 탭 순서도 함께 뒤집힌다 — 가시성만 뒤집히고 포커스가 남는 구현을 잡는다.
+    expect(await tabbablesIn(page, '[data-pane="buy"]')).toEqual([]);
+    expect((await tabbablesIn(page, '[data-pane="sell"]')).length).toBeGreaterThan(0);
 
     /*
       ⑤-b ★ 모바일 호가는 **340px** 안에서 20행을 스크롤한다. 「사다리는 포커스 대상이

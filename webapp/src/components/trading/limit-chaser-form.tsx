@@ -1466,11 +1466,19 @@ function CheckRow({
           onChange={(e) => onCheckedChange(e.target.checked)}
           className="size-[17px] flex-none accent-[var(--primary)] disabled:cursor-not-allowed"
         />
+        {/*
+          ★ quick-260912-ok2 ⑤ — 비더티 색이 `Row` 와 **같은 `--muted-fg`** 다.
+            여기만 `--fg` 이던 시절 브라우저 실측이 `lab(5.26802 0 0)` vs `Row` 의
+            `lab(42 0 0)` 이었다 — 같은 카드 안 같은 위계의 라벨이 두 색으로 읽혀,
+            체크박스 행만 강조된 것처럼 보였다. 라벨의 위계는 문구가 아니라 색이 말한다.
+          ★ 더티 표현 3종(`● ` + `--primary` + `font-semibold`)은 **그대로다.** 색 하나로만
+            더티를 말하면 WCAG 1.4.1 위반이고, 이 화면에서 「바꾼 줄 몰랐다」는 곧 오발주다.
+        */}
         <label
           htmlFor={id}
           className={cn(
             'min-w-0 truncate text-[13px]',
-            dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--fg)]',
+            dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--muted-fg)]',
           )}
         >
           {/* 더티 표시는 색만이 아니라 **문자**로도 남긴다(WCAG 1.4.1) — `Row` 와 같은 규율. */}

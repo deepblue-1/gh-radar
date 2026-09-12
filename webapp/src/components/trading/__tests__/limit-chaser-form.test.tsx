@@ -1422,3 +1422,99 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     }
   });
 });
+
+/* =========================================================================
+   quick-260912-ok2 — ③ FAB 회피 여백 제거 · ⑤ 체크박스 행(색·정렬)
+   ========================================================================= */
+describe('quick-260912-ok2 — 액션 바 여백 · 체크박스 행', () => {
+  /** 체크박스 하나를 켜서 더티를 만든다 — 액션 바는 더티일 때만 DOM 에 있다. */
+  function renderDirty() {
+    render(<LimitChaserForm {...props()} />);
+    fireEvent.click(screen.getByText('취소잔량', { selector: 'label' }));
+    const bar = actionBar() as HTMLElement | null;
+    expect(bar).not.toBeNull();
+    return bar!;
+  }
+
+  /*
+    ★ ③ 회귀 잠금을 **렌더된 className** 으로 만든다 — 소스 grep 이 아니다.
+      제거 사유를 파일 상단 주석에 적는 순간 그 주석이 옛 값(`pr-[128px]`)을 언급하게 되고,
+      grep 게이트는 스스로 무효가 된다. 클래스 문자열은 주석을 보지 않는다.
+  */
+  it('③ 액션 바에 FAB 회피용 오른쪽 여백 예약이 없다', () => {
+    const bar = renderDirty();
+    const utils = bar.className.split(/\s+/);
+
+    // 임의의 `pr-*` 예약이 하나도 없다 — 숫자만 바꿔 되살리는 우회를 함께 막는다.
+    expect(utils.filter((c) => /^pr-/.test(c))).toEqual([]);
+    // 좌우는 **한 유틸리티**로 대칭이다 — `pl-`/`pr-` 로 갈리면 「오른쪽만 조금 더」가 돌아온다.
+    expect(utils.filter((c) => /^pl-/.test(c))).toEqual([]);
+    expect(utils).toContain('px-[var(--s-4)]');
+    // 하단 고정·`role="status"` 계약은 불변이다.
+    expect(bar.getAttribute('role')).toBe('status');
+    expect(bar.getAttribute('aria-live')).toBe('polite');
+    expect(utils).toContain('fixed');
+  });
+
+  /*
+    ★ ⑤ⓑ 색 — `CheckRow` 라벨이 `Row` 라벨보다 진했다. 브라우저 실측:
+      CheckRow 라벨 `lab(5.26802 0 0)`(= --fg) vs Row 라벨 `lab(42 0 0)`(= --muted-fg).
+      같은 카드 안에서 같은 위계의 라벨이 두 색으로 읽히면 체크박스 행만 강조로 보인다.
+  */
+  it('⑤ 비더티 `CheckRow` 라벨색이 `Row` 라벨과 같은 `--muted-fg` 다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const checkLabel = document.querySelector<HTMLElement>('label[for="lc-cancel-qty"]')!;
+    const rowLabel = document.querySelector<HTMLElement>('label[for="lc-buy-watch-qty"]')!;
+
+    expect(rowLabel.className).toContain('text-[var(--muted-fg)]');
+    expect(checkLabel.className).toContain('text-[var(--muted-fg)]');
+    expect(checkLabel.className).not.toContain('text-[var(--fg)]');
+    // 글자 크기 계약도 같은 값이다 — 색만 맞추고 크기가 갈리면 같은 오독이 남는다.
+    expect(checkLabel.className).toContain('text-[13px]');
+    expect(rowLabel.className).toContain('text-[13px]');
+  });
+
+  /*
+    ★ ⑤ 더티 표현 3종은 **그대로 둔다.** 색만으로 더티를 말하면 WCAG 1.4.1 위반이고,
+      이 화면은 실계좌 발주 설정이라 「바꾼 줄 몰랐다」가 곧 오발주다.
+  */
+  it('⑤ 더티 `CheckRow` 라벨은 `● ` + `--primary` + `font-semibold` 를 그대로 갖는다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    fireEvent.click(screen.getByText('취소잔량', { selector: 'label' }));
+
+    const checkLabel = document.querySelector<HTMLElement>('label[for="lc-cancel-qty"]')!;
+    expect(checkLabel.className).toContain('text-[var(--primary)]');
+    expect(checkLabel.className).toContain('font-semibold');
+    expect(checkLabel.textContent).toMatch(/^● /);
+  });
+
+  /*
+    ★ ⑤ⓒ 정렬 — **고칠 것이 없다.** 브라우저 실측(390, `lc-buy-trade` 행):
+        체크박스  top 543.38 · h 17   · center 551.88
+        라벨 박스 top 542.13 · h 19.5 · center 551.88   → 박스 중심 차 **0.00px**
+        글자 잉크 top 544.13 · h 15   · center 551.63   → 광학 중심 차 **0.25px**
+        체크박스 margin 0/0(Tailwind preflight), 라벨 line-height 19.5px / font 13px.
+      `items-center` 가 이미 두 상자의 중심을 정확히 맞추고 있고, 남은 0.25px 는 13px
+      글자의 잉크 중심과 17px 상자 기하 중심의 차다 — 1px 미만이라 렌더에 나타나지 않는다.
+      `mt-[1px]` 같은 매직 오프셋을 박으면 다음 폰트·크기 변경에서 조용히 **반대로** 틀어진다.
+      그래서 여기서 잠그는 것은 오프셋이 아니라 **정렬 장치 자체의 존재**다.
+  */
+  it('⑤ 체크박스·라벨 묶음이 `items-center` 로 정렬된다 — 매직 오프셋이 없다 (실측 0.25px)', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const checkbox = document.querySelector<HTMLElement>('#lc-cancel-qty')!;
+    const group = checkbox.parentElement!;
+
+    expect(group.className).toContain('items-center');
+    // 체크박스·라벨 어디에도 세로 오프셋 유틸리티가 없다.
+    for (const el of [checkbox, group.querySelector('label')!]) {
+      const utils = el.className.split(/\s+/);
+      expect(utils.filter((c) => /^-?(mt|mb|translate-y|top)-/.test(c))).toEqual([]);
+    }
+    // 체크박스 크기 계약은 그대로다(17px + 축소 금지).
+    expect(checkbox.className).toContain('size-[17px]');
+    expect(checkbox.className).toContain('flex-none');
+  });
+});
