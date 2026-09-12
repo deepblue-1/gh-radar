@@ -151,10 +151,17 @@ function NavLink({
   );
 }
 
-/** 그룹 소제목. `<li>` + 시각 스타일만 — 링크·버튼으로 만들지 않는다(위 ①). */
+/**
+ * 그룹 소제목. `<li>` + 시각 스타일만 — 링크·버튼으로 만들지 않는다(위 ①).
+ *
+ * ★ 글꼴은 다른 메뉴와 **같은 14px**(`--t-sm`)이다 (260912-k2x). 11px 하드코딩이던 시절에는
+ *   「종목검색」·「트레이딩」만 메뉴보다 작아 사이드바 안에서 혼자 다른 축을 썼다.
+ * ★ `font-semibold` + `--muted-fg` 구분은 **그대로 둔다** — 소제목은 링크가 아니고, 그
+ *   구분까지 지우면 소제목과 메뉴가 같아 보인다.
+ */
 function GroupHeading({ label, icon: Icon }: { label: string; icon: NavIcon }) {
   return (
-    <li className="flex items-center gap-2 px-3 pt-2 pb-1 text-[11px] font-semibold tracking-[0.02em] text-[var(--muted-fg)]">
+    <li className="flex items-center gap-2 px-3 pt-2 pb-1 text-[length:var(--t-sm)] font-semibold tracking-[0.02em] text-[var(--muted-fg)]">
       <Icon className="size-4 shrink-0" aria-hidden="true" />
       {label}
     </li>

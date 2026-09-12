@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatMarketCap, formatOnePercentShares } from '../quote-format';
+import { formatMarketCap, formatOnePercentShares, formatTradeValue } from '../quote-format';
 
 /**
  * 260911-w5h — 상따 헤더 종목정보 표기의 **경계**를 박제한다.
@@ -77,5 +77,45 @@ describe('formatOnePercentShares', () => {
         반면 `ls` 가 **0**(= 프레임 미수신)인 경우는 실재하고, 그것은 위 케이스가 잠근다.
     */
     expect(formatOnePercentShares(99)).toBe('0주');
+  });
+});
+
+/**
+ * 260912-k2x — 헤더 종목정보가 10칸이 되면서 들어온 **누적거래대금** 칸.
+ *
+ * ★ `lib/format.ts` 의 `formatTradeAmount`(`133.4조` — 소수 1자리 **한 단위**, 스캐너 표기)와
+ *   **다른 함수**다. 합치면 스캐너의 거래대금 표기가 함께 바뀐다. 여기는 `formatMarketCap`
+ *   과 동형인 **조/억 두 단위**다.
+ */
+describe('formatTradeValue', () => {
+  it('모르는 값에는 대시를 돌려준다 — 0 · 음수 · NaN · Infinity (「0억」을 그리지 않는다)', () => {
+    expect(formatTradeValue(0)).toBe('—');
+    expect(formatTradeValue(-1)).toBe('—');
+    expect(formatTradeValue(Number.NaN)).toBe('—');
+    expect(formatTradeValue(Number.POSITIVE_INFINITY)).toBe('—');
+  });
+
+  it('1억 미만은 대시다 — 표시할 유효 자릿수가 없다', () => {
+    expect(formatTradeValue(99_999_999)).toBe('—');
+    expect(formatTradeValue(1)).toBe('—');
+  });
+
+  it('1억 ~ 1조 미만은 억 한 단위다', () => {
+    expect(formatTradeValue(100_000_000)).toBe('1억');
+    expect(formatTradeValue(184_200_000_000)).toBe('1,842억');
+  });
+
+  it('1조 이상은 조 + 억 두 단위다', () => {
+    expect(formatTradeValue(133_412_000_000_000)).toBe('133조 4,120억');
+  });
+
+  it('억 자리가 0 이면 조만 쓴다', () => {
+    expect(formatTradeValue(1_000_000_000_000)).toBe('1조');
+    expect(formatTradeValue(133_000_000_000_000)).toBe('133조');
+  });
+
+  it('억 미만 잔액은 **버린다** — 반올림하면 없는 정밀도를 주장한다', () => {
+    expect(formatTradeValue(184_299_999_999)).toBe('1,842억');
+    expect(formatTradeValue(133_412_099_999_999)).toBe('133조 4,120억');
   });
 });

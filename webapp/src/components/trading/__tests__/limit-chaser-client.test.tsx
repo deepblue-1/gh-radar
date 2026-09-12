@@ -52,7 +52,11 @@ vi.mock('@/components/trading/dma-gate', async (importOriginal) => {
   return { ...actual, useDmaGateReason: () => null };
 });
 
-import { formatMarketCap, formatOnePercentShares } from '@/lib/quote-format';
+import {
+  formatMarketCap,
+  formatOnePercentShares,
+  formatTradeValue,
+} from '@/lib/quote-format';
 import {
   ACK_TIMEOUT_MS,
   ECHO_BANNER_MS,
@@ -662,7 +666,7 @@ describe('⑯ 시장 미상 종목은 고를 수 없고 cfg 에 market 이 없�
     ① **되돌릴 경로가 있다** — 종목명 버튼 → 검색 → 재선택 왕복.
     ② **새 조회 경로가 0개다** — 8칸의 값이 전부 `quote` 한 프레임에서 나오고, 모르면 대시다.
 */
-describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리거 · 종목정보 8칸 (260911-w5h)', () => {
+describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리거 · 종목정보 10칸 (260912-k2x)', () => {
   /** 이미 구독으로 오는 프레임 하나. 여기 없는 값은 화면 어디에도 없어야 한다. */
   function quote(over: Record<string, unknown> = {}) {
     return {
@@ -678,6 +682,8 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
       ll: 81_200,
       viu: 127_600,
       ls: 72_800_200,
+      // 누적거래대금 — 「거래」 칸이 읽는 프레임 필드다(1,842억).
+      va: 184_200_000_000,
       // 사다리도 같은 프레임을 읽는다 — 10단 배열이 없으면 `buildLadderRows` 가 터진다.
       ap: Array.from({ length: 10 }, (_, i) => 130_500 + i * 500),
       aq: Array.from({ length: 10 }, () => 100),
@@ -769,57 +775,74 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
   });
 
-  it('종목정보가 2열 4행 8칸이고 라벨 순서가 고정이다', () => {
+  /*
+    ★ 260912-k2x — 8칸 → **10칸**(`기준`·`거래` 추가). 단언을 지운 것이 아니라 새 칸 수로
+      다시 썼다. **DOM 순서**가 이 배열이고, 5열 배치의 다른 순서는 CSS `order` 로만 난다 —
+      배열을 두 벌로 내면 폭에 따라 다른 값이 보이는 문이 열린다(T-k2x-02).
+  */
+  it('종목정보가 10칸이고 DOM 라벨 순서가 고정이다', () => {
     renderEdit({ quote: quote() });
 
-    expect(cells()).toHaveLength(8);
+    expect(cells()).toHaveLength(10);
     expect(cellText().map(([label]) => label)).toEqual([
+      '기준',
       '시가',
       '고가',
       '저가',
-      '상승VI',
       '상한',
       '하한',
+      '상승VI',
+      '거래',
       '시총',
       '발행1%',
     ]);
   });
 
-  it('`quote` 가 없으면 8칸이 전부 대시다 — 0 을 그리지 않는다 (T-w5h-04)', () => {
+  it('`quote` 가 없으면 10칸이 전부 대시다 — 0 을 그리지 않는다 (T-w5h-04)', () => {
     renderEdit({ quote: null });
 
-    expect(cellText().map(([, value]) => value)).toEqual(Array(8).fill('—'));
+    expect(cellText().map(([, value]) => value)).toEqual(Array(10).fill('—'));
   });
 
-  it('`quote` 가 있으면 8칸이 그 프레임 하나에서 나온다 — 새 조회 경로가 0개다', () => {
+  it('`quote` 가 있으면 10칸이 그 프레임 하나에서 나온다 — 새 조회 경로가 0개다', () => {
     renderEdit({ quote: quote() });
 
     expect(cellText().map(([, value]) => value)).toEqual([
+      '116,000', // base — 새 칸. 이미 방향색 기준으로 읽고 있던 프레임 필드다.
       '118,000', // o
       '131,000', // h
       '115,000', // l
-      '127,600', // viu
       '150,800', // ul
       '81,200', // ll
+      '127,600', // viu
+      // 거래 — 새 칸. `va`(누적거래대금)를 **조/억 두 단위**로 쓴다(스캐너 표기와 다르다).
+      formatTradeValue(184_200_000_000),
       // 시총 = p × ls = 130,000 × 72,800,200 = 9,464조 …
       formatMarketCap(130_000, 72_800_200),
       formatOnePercentShares(72_800_200),
     ]);
   });
 
-  it('색: 시·고·저는 기준가 대비 방향색, 상한·상승VI 는 up, 하한은 down, 시총은 중립', () => {
+  it('색: 기준은 **언제나 보합**, 시·고·저는 기준가 대비, 상한·상승VI up, 하한 down, 나머지 중립', () => {
     // base = 116,000 → o(118,000) 위 · h(131,000) 위 · l(115,000) 아래
     renderEdit({ quote: quote() });
 
     const tone = (i: number) => cells()[i]!.children[1]!.className;
-    expect(tone(0)).toContain('text-[var(--up)]'); // 시가
-    expect(tone(1)).toContain('text-[var(--up)]'); // 고가
-    expect(tone(2)).toContain('text-[var(--down)]'); // 저가
-    expect(tone(3)).toContain('text-[var(--up)]'); // 상승VI — 언제나 위쪽 사건이다
+    /*
+      ★ `기준` 은 **자기 자신과의 비교**라 값이 아무리 커도 언제나 보합이다. 10칸의 방향색
+        규칙 중 유일하게 자명하지 않은 칸이라 명시로 잠근다 — 여기가 `--up` 으로 새면
+        사용자는 기준가가 「올랐다」고 읽는다.
+    */
+    expect(tone(0)).toContain('text-[var(--flat)]'); // 기준
+    expect(tone(1)).toContain('text-[var(--up)]'); // 시가
+    expect(tone(2)).toContain('text-[var(--up)]'); // 고가
+    expect(tone(3)).toContain('text-[var(--down)]'); // 저가
     expect(tone(4)).toContain('text-[var(--up)]'); // 상한
     expect(tone(5)).toContain('text-[var(--down)]'); // 하한
-    expect(tone(6)).toContain('text-[var(--fg)]'); // 시총 — 방향이 없다
-    expect(tone(7)).toContain('text-[var(--fg)]'); // 발행1%
+    expect(tone(6)).toContain('text-[var(--up)]'); // 상승VI — 언제나 위쪽 사건이다
+    expect(tone(7)).toContain('text-[var(--fg)]'); // 거래 — 방향이 없다
+    expect(tone(8)).toContain('text-[var(--fg)]'); // 시총 — 방향이 없다
+    expect(tone(9)).toContain('text-[var(--fg)]'); // 발행1%
   });
 
   /*
@@ -833,59 +856,83 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
 
     expect(document.querySelector('[data-slot="lc-price-chips"]')).toBeNull();
     expect(screen.queryByText('호가단위')).toBeNull();
-    // 정보는 8칸에 그대로 남아 있다.
+    // 정보는 10칸에 그대로 남아 있다.
     expect(document.querySelector('[data-slot="lc-quote-grid"]')).not.toBeNull();
-    expect(cells()).toHaveLength(8);
+    expect(cells()).toHaveLength(10);
   });
 
   /*
-    ★ ④ 데스크톱(≥1280) 8칸은 **한 줄 가로 나열**, 모바일(<1280)은 2열 4행 그대로다
-      (260912-gyz · 목업 `260912-chaser-desktop.html` 「안 A」). 같은 8칸이 **클래스만
-      갈아입는다** — 배열도 JSX 도 한 벌이다. 배치를 조건부 렌더나 폭 측정 훅으로 가르면
-      언젠가 한쪽만 고쳐지고, 그때 사용자는 폭에 따라 **다른 숫자**를 본다(T-gyz-06).
+    ★ ④ 260912-k2x — 종목정보 배치가 **본문 폭 3밴드**가 됐다: 폰 2열 5행 / 컴팩트·와이드
+      5열 2행 / 데스크톱 한 줄 나열. 같은 10칸이 **클래스만 갈아입는다** — 배열도 JSX 도 한
+      벌이다. 배치를 조건부 렌더나 폭 측정 훅으로 가르면 언젠가 한쪽만 고쳐지고, 그때
+      사용자는 폭에 따라 **다른 숫자**를 본다(T-k2x-02).
+      옛 `min-[1280px]:` 단언은 삭제한 것이 아니라 같은 명제를 **컨테이너 키**로 다시 쓴 것이다.
   */
-  it('④ 컨테이너가 모바일 2열을 유지한 채 데스크톱 flex-wrap 유틸만 얹는다', () => {
+  it('④ 컨테이너가 폰 2열을 유지한 채 5열·한 줄 밴드를 컨테이너 키로 얹는다', () => {
     renderEdit({ quote: quote() });
 
     const grid = document.querySelector('[data-slot="lc-quote-grid"]')!;
-    // 모바일 클래스는 한 글자도 바뀌지 않았다.
+    // 폰 클래스는 한 글자도 바뀌지 않았다.
     expect(grid.className).toContain('grid grid-cols-2');
     expect(grid.className).toContain('border-t border-[var(--border-subtle)]');
-    // 데스크톱 배치는 전부 `min-[1280px]:` 접두로만 얹힌다.
+    // 5열(700) · 한 줄(992) — 전부 본문 폭 컨테이너 키다.
+    expect(grid.className).toContain('@min-[700px]/lc:grid-cols-5');
     for (const util of [
-      'min-[1280px]:flex',
-      'min-[1280px]:flex-wrap',
-      'min-[1280px]:items-baseline',
-      'min-[1280px]:gap-x-[22px]',
+      '@min-[992px]/lc:flex',
+      '@min-[992px]/lc:flex-wrap',
+      '@min-[992px]/lc:items-baseline',
+      '@min-[992px]/lc:gap-x-[20px]',
     ]) {
       expect(grid.className).toContain(util);
     }
+    // 뷰포트 분기가 한 톨도 남지 않았다.
+    expect(grid.className).not.toContain('min-[1280px]:');
   });
 
-  it('④ 칸 8개가 각각 데스크톱 override 3종을 갖고 모바일 장치를 함께 유지한다', () => {
+  it('④ 칸 10개가 각각 데스크톱 override 3종을 갖고 폰 장치를 함께 유지한다', () => {
     renderEdit({ quote: quote() });
 
-    expect(cells()).toHaveLength(8);
+    expect(cells()).toHaveLength(10);
     for (const cell of cells()) {
-      expect(cell.className).toContain('min-[1280px]:text-[12px]');
+      expect(cell.className).toContain('@min-[992px]/lc:text-[12px]');
       const [label, value] = Array.from(cell.children);
       // 한 줄 나열에서는 라벨 최소폭이 풀리고 값이 라벨 바로 옆에 붙는다.
-      expect(label!.className).toContain('min-[1280px]:min-w-0');
-      expect(value!.className).toContain('min-[1280px]:ml-0');
-      // 모바일 2열 배치의 장치는 그대로다.
+      expect(label!.className).toContain('@min-[992px]/lc:min-w-0');
+      expect(value!.className).toContain('@min-[992px]/lc:ml-0');
+      // 폰 2열 배치의 장치는 그대로다.
       expect(label!.className).toContain('min-w-[34px]');
       expect(value!.className).toContain('ml-auto');
     }
   });
 
-  it('★ ④ 그리드가 문서에 **1개**다 — 모바일용·데스크톱용을 둘 다 그리지 않는다', () => {
+  /*
+    ★ 5열 배치의 순서는 **CSS `order` 하나로만** 난다 (T-k2x-02). 여기서 잠그는 것은 둘이다:
+      ⓐ 10칸 **전부**가 700 밴드 `order` 를 갖는다 — 일부만 붙이면 값이 없는 칸(`order:0`)이
+        지정한 칸보다 **앞**으로 몰려 순서가 통째로 무너진다.
+      ⓑ 992 에서 전부 `order-[0]` 으로 되돌아온다 — 한 줄 나열은 DOM 순서를 그대로 쓴다.
+    jsdom 은 `order` 를 시각적으로 적용하지 않으므로 **규칙 자체**를 단언한다.
+  */
+  it('★ ④ 5열 순서가 CSS `order` 로만 나고, 10칸 전부가 그 값을 갖는다 (T-k2x-02)', () => {
+    renderEdit({ quote: quote() });
+
+    // DOM 순서(기준·시가·고가·저가·상한·하한·상승VI·거래·시총·발행1%)에 대응하는 5열 순서.
+    const expected = [1, 2, 3, 4, 6, 7, 5, 8, 9, 10];
+    const actual = cells().map((el) => el.className);
+    expect(actual).toHaveLength(10);
+    expected.forEach((order, i) => {
+      expect(actual[i]).toContain(`@min-[700px]/lc:order-[${order}]`);
+      expect(actual[i]).toContain('@min-[992px]/lc:order-[0]');
+    });
+  });
+
+  it('★ ④ 그리드가 문서에 **1개**다 — 폰용·데스크톱용을 둘 다 그리지 않는다', () => {
     renderEdit({ quote: quote() });
 
     expect(document.querySelectorAll('[data-slot="lc-quote-grid"]')).toHaveLength(1);
-    expect(document.querySelectorAll('[data-slot="lc-quote-grid"] > div')).toHaveLength(8);
+    expect(document.querySelectorAll('[data-slot="lc-quote-grid"] > div')).toHaveLength(10);
   });
 
-  it('④ 헤더 글꼴 4종이 모바일 값을 유지한 채 데스크톱 override 를 갖는다', () => {
+  it('④ 헤더 글꼴 4종이 폰 값을 유지한 채 데스크톱 override 를 갖는다', () => {
     renderEdit({
       limitChasers: [echo({ name: '에코프로비엠', code: '086520' })],
       quote: quote(),
@@ -897,14 +944,36 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     const price = document.querySelector('[data-slot="lc-stock-card"] b.font-bold')!;
     const change = document.querySelector('[data-slot="lc-stock-card"] small')!;
 
+    // 값은 한 톨도 바뀌지 않았다 — **키만** 992 컨테이너 분기로 옮겼다(260912-k2x).
     expect(name.className).toContain('text-[16px]');
-    expect(name.className).toContain('min-[1280px]:text-[20px]');
+    expect(name.className).toContain('@min-[992px]/lc:text-[20px]');
     expect(code.className).toContain('text-[11px]');
-    expect(code.className).toContain('min-[1280px]:text-[12px]');
+    expect(code.className).toContain('@min-[992px]/lc:text-[12px]');
     expect(price.className).toContain('text-[16px]');
-    expect(price.className).toContain('min-[1280px]:text-[22px]');
+    expect(price.className).toContain('@min-[992px]/lc:text-[22px]');
     expect(change.className).toContain('text-[11px]');
-    expect(change.className).toContain('min-[1280px]:text-[13px]');
+    expect(change.className).toContain('@min-[992px]/lc:text-[13px]');
+  });
+
+  /*
+    ★ 260912-k2x — 오더북 카드의 제목행(「호가 10단」 + 거래소 · 실시간 표기)을 **행째 걷었다**
+      (숨긴 것이 아니라 DOM 에 없다). 걷어도 되는 이유는 그 줄이 같은 말을 두 번 하고 있었기
+      때문이다 — 거래소는 헤더 카드 콤보가 말하고, 「호가 10단」이라는 **접근성 이름**은
+      사다리 표·목록의 `aria-label` 이 그대로 잇는다. 그 쌍을 함께 단언한다: 제목행은 없지만
+      접근성 이름은 한 글자도 줄지 않았다.
+  */
+  it('오더북 카드 제목행이 DOM 에 없고, 「호가 10단」 접근성 이름은 사다리가 잇는다', () => {
+    renderEdit({ quote: quote() });
+
+    const card = document.querySelector('[data-slot="lc-orderbook-card"]')!;
+    expect(card).not.toBeNull();
+    expect(card.querySelector('h3')).toBeNull();
+    // 카드 자체는 남는다 — 사다리를 감싸는 크롬이다.
+    expect(card.querySelector('[data-slot="orderbook-ladder"]')).not.toBeNull();
+    // 접근성 이름은 사다리가 들고 있다.
+    expect(
+      screen.getByRole('list', { name: '호가 10단 (매도 10단계 · 매수 10단계)' }),
+    ).toBeInTheDocument();
   });
 
   it('카드 하단 회색 바(거래소·계좌·종목변경)가 없다 — 별도 「종목 변경」 버튼도 없다', () => {

@@ -321,24 +321,28 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(container.querySelectorAll('hr')).toHaveLength(1);
   });
 
-  it('⑨ 범례는 **데스크톱에만** 있다 — 좁은 폭에는 설명할 마커가 없다 (260911-w5h)', () => {
-    const { container } = renderChaser();
+  /*
+    ⑨ 260912-k2x — 범례는 **어느 트리에도 없다**(사용자 확정). 옛 단언(「데스크톱에만 1개」)을
+      지운 것이 아니라 **새 계약으로 다시 썼다**: 범례가 0개인데도 방향·상한가·최근 체결가를
+      말하는 보조 텍스트는 한 줄도 줄지 않았다는 쌍이 이 케이스의 본체다.
+      그 쌍이 없으면 「범례를 지웠다」는 곧 「색 단독 전달로 떨어졌다」(WCAG 1.4.1 위반)와
+      구분되지 않는다.
+  */
+  it('⑨ 범례가 **전 구간에서 없고**, 방향 보조 텍스트는 20행 전부에 남아 있다 (WCAG 1.4.1)', () => {
+    // 상한가를 실제 호가 안(매도 10호가)에 두어 두 마커가 모두 뜨는 상태에서 잰다.
+    const { container } = renderChaser({ upperLimit: 101_000 });
 
-    const legends = Array.from(
-      container.querySelectorAll<HTMLElement>('[data-slot="ladder-legend"]'),
-    );
-    /*
-      ★ 좁은 폭 범례를 없앤 이유는 그 두 항목(최근 체결가 도트 · 상한가 배지)이 마커 슬롯과
-        함께 사라졌기 때문이다 — 남겨 두면 **없는 것을 설명하는 줄**이 된다. 그 역할은
-        행마다 붙는 `sr-only` 두 줄이 이어받았다(아래 케이스가 잠근다).
-    */
-    expect(legends).toHaveLength(1);
-    expect(legends[0].textContent).toContain('최근 체결가');
-    expect(legends[0].textContent).toContain('상한가');
-    expect(legends[0].textContent).toContain('체결 수량');
-    expect(
-      container.querySelectorAll('.min-\\[1280px\\]\\:hidden [data-slot="ladder-legend"]'),
-    ).toHaveLength(0);
+    expect(container.querySelectorAll('[data-slot="ladder-legend"]')).toHaveLength(0);
+
+    // 방향(매도/매수)은 **두 트리 모두** 각 행의 단계 라벨이 말한다 — 10단 × 2트리 = 20.
+    expect(screen.getAllByText(/매도 \d+호가/)).toHaveLength(20);
+    expect(screen.getAllByText(/매수 \d+호가/)).toHaveLength(20);
+
+    // 상한가·최근 체결가도 여전히 텍스트로 읽힌다(데스크톱은 마커 `aria-label`, 좁은 폭은 `sr-only`).
+    expect(screen.getAllByRole('img', { name: '상한가' })).toHaveLength(1);
+    expect(screen.getAllByRole('img', { name: '최근 체결가' })).toHaveLength(1);
+    expect(screen.getAllByText('상한가').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('최근 체결가').length).toBeGreaterThan(0);
   });
 
   it('⑩ 호가가 없으면 빈 상태, 재접속 중에는 값을 유지하고 감쇠한다', () => {

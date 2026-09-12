@@ -68,7 +68,7 @@ import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
 import { DmaGate, useDmaGateReason } from '@/components/trading/dma-gate';
 import { LimitChaserForm } from '@/components/trading/limit-chaser-form';
 import { strategyBadgesOf } from '@/components/trading/strategy-badge';
-import { formatMarketCap, formatOnePercentShares } from '@/lib/quote-format';
+import { formatMarketCap, formatOnePercentShares, formatTradeValue } from '@/lib/quote-format';
 import {
   StrategyLog,
   serverMessageLogLine,
@@ -499,11 +499,11 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                 onClick={() => setSearching(true)}
                 className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-[var(--r)] px-1 py-0.5 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
-                <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] min-[1280px]:text-[20px]">
+                <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] @min-[992px]/lc:text-[20px]">
                   {displayName}
                 </b>
                 {stockCode !== null && (
-                  <span className="mono flex-none text-[11px] text-[var(--muted-fg)] min-[1280px]:text-[12px]">
+                  <span className="mono flex-none text-[11px] text-[var(--muted-fg)] @min-[992px]/lc:text-[12px]">
                     {stockCode}
                   </span>
                 )}
@@ -523,10 +523,10 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                       : 'text-[var(--flat)]',
                 )}
               >
-                <b className="mono text-[16px] font-bold min-[1280px]:text-[22px]">
+                <b className="mono text-[16px] font-bold @min-[992px]/lc:text-[22px]">
                   {currentPrice > 0 ? KRW.format(currentPrice) : '—'}
                 </b>
-                <small className="mono text-[11px] font-semibold min-[1280px]:text-[13px]">
+                <small className="mono text-[11px] font-semibold @min-[992px]/lc:text-[13px]">
                   {changeRate.toFixed(2)}%
                 </small>
               </span>
@@ -535,33 +535,94 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         </div>
 
         {/*
-          종목정보 8칸 — **모바일 2열 4행 · 데스크톱(≥1280) 한 줄 가로 나열**
-          (목업 6 「안 B」 + `260912-chaser-desktop.html` 「안 A」).
-          ★ 배치 분기는 **CSS 로만** 한다 — 같은 8칸이 클래스만 갈아입고, 배열도 JSX 도 한
+          종목정보 **10칸** — 본문 폭 3밴드 배치다 (260912-k2x · 목업 `260912-chaser-breakpoints.html`).
+            폰(~699)        : 2열 5행
+            컴팩트·와이드(700~991) : **5열 2행** — 윗줄은 일중 가격, 아랫줄은 경계와 규모
+            데스크톱(992~)  : 한 줄 가로 나열(`flex-wrap` — 넘치면 잘리지 않고 다음 줄로 흐른다)
+          ★ 배치 분기는 **CSS 로만** 한다 — 같은 10칸이 클래스만 갈아입고, 배열도 JSX 도 한
             벌이다. 두 벌로 렌더하면 언젠가 한쪽만 고쳐지고 그때 사용자는 폭에 따라 다른
-            숫자를 본다. 뷰포트 폭을 JS 로 재는 훅도 두지 않는다 — SSR 과 첫 페인트에서
-            배치가 튄다.
-          ★ 데스크톱 `gap-x-[22px]` · `px-3.5`(14px) · `py-2`(8px) 는 목업 `.i-row` 의
-            `gap:0 22px` · `padding:8px 14px` 동형이다. `flex` 가 켜지면 `grid-cols-2` 는
-            무시되므로 따로 해제하지 않는다.
-          ★ 값의 원천은 **이미 구독으로 오는 `RelayQuote` 프레임 하나뿐**이다. 이 그리드를
-            위해 만든 새 API·새 조회 경로가 0개다(파일 상단 ⑧ 과 같은 규율).
+            숫자를 본다(T-k2x-02). 뷰포트 폭을 JS 로 재는 훅도 두지 않는다 — SSR 과 첫
+            페인트에서 배치가 튄다.
+          ★ 5열 배치의 **순서 차이도 CSS `order` 하나로만** 낸다. 배열을 두 벌로 내면 같은
+            함정이 순서 쪽에서 다시 열린다. 그래서 10칸 **전부**가 700 밴드의 `order` 를 갖고
+            992 에서 전부 0 으로 돌아온다 — 일부만 붙이면 값이 없는 칸(`order:0`)이 지정한
+            칸보다 **앞**으로 몰린다.
+          ★ 데스크톱 `gap-x-[20px]` · `px-3.5`(14px) · `py-2`(8px) 는 목업 정본과 동형이다
+            (칸이 8 → 10 으로 늘어 가로 예산이 2px 좁아졌다). `flex` 가 켜지면 `grid-cols-*`
+            는 무시되므로 따로 해제하지 않는다.
+          ★ 값의 원천은 **이미 구독으로 오는 `RelayQuote` 프레임 하나뿐**이다 — 새로 들어온
+            `기준`(`base`)·`거래`(`va`) 도 그 프레임의 필드라 새 API·새 조회 경로가 0개다.
           ★ 값이 0 이거나 아직 안 왔으면 `—` 다 — 0 을 그리면 그 숫자로 매도 판단이 이뤄진다.
         */}
         {isin !== '' && !searching && (
           <div
             data-slot="lc-quote-grid"
-            className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1 min-[1280px]:flex min-[1280px]:flex-wrap min-[1280px]:items-baseline min-[1280px]:gap-x-[22px] min-[1280px]:gap-y-0 min-[1280px]:px-3.5 min-[1280px]:py-2"
+            className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1 @min-[700px]/lc:grid-cols-5 @min-[992px]/lc:flex @min-[992px]/lc:flex-wrap @min-[992px]/lc:items-baseline @min-[992px]/lc:gap-x-[20px] @min-[992px]/lc:gap-y-0 @min-[992px]/lc:px-3.5 @min-[992px]/lc:py-2"
           >
-            <QuoteCell label="시가" value={priceText(quote?.o ?? 0)} tone={priceTone(quote?.o ?? 0, basePrice)} />
-            <QuoteCell label="고가" value={priceText(quote?.h ?? 0)} tone={priceTone(quote?.h ?? 0, basePrice)} />
-            <QuoteCell label="저가" value={priceText(quote?.l ?? 0)} tone={priceTone(quote?.l ?? 0, basePrice)} />
+            {/*
+              ★ `기준` 의 방향색은 **자기 자신과의 비교**라 언제나 보합이다. 새 분기를 만들지
+                않고 같은 `priceTone` 에 같은 값을 두 번 넘긴다 — 분기를 하나 더 만들면
+                기준가 색 규칙이 두 곳이 되고, 언젠가 한쪽만 고쳐진다.
+            */}
+            <QuoteCell
+              label="기준"
+              value={priceText(basePrice)}
+              tone={priceTone(basePrice, basePrice)}
+              order="@min-[700px]/lc:order-[1] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="시가"
+              value={priceText(quote?.o ?? 0)}
+              tone={priceTone(quote?.o ?? 0, basePrice)}
+              order="@min-[700px]/lc:order-[2] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="고가"
+              value={priceText(quote?.h ?? 0)}
+              tone={priceTone(quote?.h ?? 0, basePrice)}
+              order="@min-[700px]/lc:order-[3] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="저가"
+              value={priceText(quote?.l ?? 0)}
+              tone={priceTone(quote?.l ?? 0, basePrice)}
+              order="@min-[700px]/lc:order-[4] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="상한"
+              value={priceText(upperLimit)}
+              tone="text-[var(--up)]"
+              order="@min-[700px]/lc:order-[6] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="하한"
+              value={priceText(lowerLimit)}
+              tone="text-[var(--down)]"
+              order="@min-[700px]/lc:order-[7] @min-[992px]/lc:order-[0]"
+            />
             {/* 상승VI 는 발동가라 언제나 위쪽 사건이다 — 기준가 대비가 아니라 항상 `--up`. */}
-            <QuoteCell label="상승VI" value={priceText(quote?.viu ?? 0)} tone="text-[var(--up)]" />
-            <QuoteCell label="상한" value={priceText(upperLimit)} tone="text-[var(--up)]" />
-            <QuoteCell label="하한" value={priceText(lowerLimit)} tone="text-[var(--down)]" />
-            <QuoteCell label="시총" value={formatMarketCap(currentPrice, quote?.ls ?? 0)} />
-            <QuoteCell label="발행1%" value={formatOnePercentShares(quote?.ls ?? 0)} />
+            <QuoteCell
+              label="상승VI"
+              value={priceText(quote?.viu ?? 0)}
+              tone="text-[var(--up)]"
+              order="@min-[700px]/lc:order-[5] @min-[992px]/lc:order-[0]"
+            />
+            {/* 누적거래대금 — 스캐너의 `formatTradeAmount`(`133.4조`)와 **다른 함수**다. */}
+            <QuoteCell
+              label="거래"
+              value={formatTradeValue(quote?.va ?? 0)}
+              order="@min-[700px]/lc:order-[8] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="시총"
+              value={formatMarketCap(currentPrice, quote?.ls ?? 0)}
+              order="@min-[700px]/lc:order-[9] @min-[992px]/lc:order-[0]"
+            />
+            <QuoteCell
+              label="발행1%"
+              value={formatOnePercentShares(quote?.ls ?? 0)}
+              order="@min-[700px]/lc:order-[10] @min-[992px]/lc:order-[0]"
+            />
           </div>
         )}
       </section>
@@ -618,13 +679,12 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
           data-slot="lc-orderbook-card"
           className="flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-2)] @min-[992px]/lc:p-[var(--s-3)]"
         >
-          <h3 className="m-0 mb-[var(--s-1)] flex flex-wrap items-center gap-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)] min-[1280px]:mb-[var(--s-2)]">
-            호가 10단
-            <span className="ml-auto text-[length:var(--t-caption)] font-normal text-[var(--muted-fg)]">
-              <span className="min-[1280px]:hidden">{exchange}</span>
-              <span className="hidden min-[1280px]:inline">{exchange} · 실시간(DMA)</span>
-            </span>
-          </h3>
+          {/*
+            ★ 카드 제목행은 260912-k2x 에서 **행째 걷었다**(숨긴 것이 아니라 DOM 에 없다).
+              거래소는 바로 위 헤더 카드의 콤보가 이미 말하고 있었고, 「호가 10단」이라는
+              접근성 이름은 사다리 표·목록의 `aria-label` 이 그대로 잇는다 — 스크린리더가
+              읽는 내용은 한 글자도 줄지 않았다. **카드 자체는 남는다.**
+          */}
           <OrderbookLadder
             variant="chaser"
             quote={quote}
@@ -675,25 +735,47 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 /* ───────────────────────────── 조각 ───────────────────────────── */
 
 /**
- * 헤더 종목정보 한 칸. **두 배치를 산다** (260912-gyz):
- *   - 모바일(<1280) 2열 4행 — 라벨 왼쪽 · 값이 `ml-auto` 로 칸의 오른쪽 끝. 라벨
+ * 헤더 종목정보 한 칸. **세 배치를 산다** (260912-k2x · 본문 폭 기준):
+ *   - 폰(~699) 2열 5행 — 라벨 왼쪽 · 값이 `ml-auto` 로 칸의 오른쪽 끝. 라벨
  *     `min-w-[34px]` 가 2열에서 값의 좌측 끝을 맞춘다.
- *   - 데스크톱(≥1280) 한 줄 가로 나열 — 「라벨 값」 인라인 쌍. 그래서 라벨 최소폭을 풀고
+ *   - 컴팩트·와이드(700~991) 5열 2행 — 같은 칸 모양이고 **순서만** `order` 로 바뀐다.
+ *   - 데스크톱(992~) 한 줄 가로 나열 — 「라벨 값」 인라인 쌍. 그래서 라벨 최소폭을 풀고
  *     (`min-w-0`) 값을 라벨 바로 옆에 붙인다(`ml-0`). 칸 패딩도 0 으로 돌린다: 칸 사이
- *     간격은 컨테이너의 `gap-x-[22px]` 가 담당하고, 둘 다 주면 22 + 20px 이 되어 한 줄에
- *     8칸이 들어가지 않는다.
+ *     간격은 컨테이너의 `gap-x-[20px]` 가 담당하고, 둘 다 주면 20 + 20px 이 되어 한 줄에
+ *     10칸이 들어가지 않는다.
+ *
+ * ★ 라벨 최소폭 34px 는 그대로다 — 새로 들어온 두 라벨(`기준`·`거래`)이 기존 최장 라벨보다
+ *   짧아 늘릴 이유가 없다.
+ * ★ `order` 는 **완성된 문자열 리터럴**로 받는다. 템플릿 문자열로 숫자를 끼워 넣으면
+ *   Tailwind 가 스캔하지 못해 클래스가 아예 생성되지 않고, 그러면 5열에서 순서가 DOM
+ *   순서로 조용히 되돌아간다(에러가 아니라 잘못된 배치다).
  *
  * 색은 호출부가 정한다 — 이 칸은 포맷과 배치만 안다(`limit-up-format.ts` 와 같은 분리).
  */
-function QuoteCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function QuoteCell({
+  label,
+  value,
+  tone,
+  order,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  order?: string;
+}) {
   return (
-    <div className="flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px] min-[1280px]:px-0 min-[1280px]:py-0 min-[1280px]:text-[12px]">
-      <span className="min-w-[34px] flex-none text-[var(--muted-fg)] min-[1280px]:min-w-0">
+    <div
+      className={cn(
+        'flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px] @min-[992px]/lc:px-0 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[12px]',
+        order,
+      )}
+    >
+      <span className="min-w-[34px] flex-none text-[var(--muted-fg)] @min-[992px]/lc:min-w-0">
         {label}
       </span>
       <span
         className={cn(
-          'mono ml-auto font-semibold whitespace-nowrap min-[1280px]:ml-0',
+          'mono ml-auto font-semibold whitespace-nowrap @min-[992px]/lc:ml-0',
           tone ?? 'text-[var(--fg)]',
         )}
       >

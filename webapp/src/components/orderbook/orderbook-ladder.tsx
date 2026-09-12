@@ -571,41 +571,6 @@ function MarkerSlot({ kind }: { kind: 'upper' | 'trade' | 'none' }) {
   );
 }
 
-/**
- * 범례 1줄. 좁은 폭에는 최근 체결 열이 없으므로 마지막 항목(`체결 수량`)을 뺀다.
- * 색 비의존(WCAG 1.4.1) — 사다리의 색이 무엇을 뜻하는지 **텍스트로** 말하는 유일한 자리다.
- */
-function LadderLegend({ withTrades }: { withTrades: boolean }) {
-  return (
-    <div
-      data-slot="ladder-legend"
-      className="mt-[var(--s-2)] flex flex-wrap items-center gap-1 text-[11px] text-[var(--muted-fg)]"
-    >
-      <span aria-hidden="true" className="block size-[6px] rounded-full bg-[var(--fg)]" />
-      최근 체결가
-      <span aria-hidden="true" className="opacity-50">
-        ·
-      </span>
-      <span
-        aria-hidden="true"
-        className="block size-4 rounded-[3px] bg-[var(--up)] text-center text-[11px] leading-4 font-semibold text-[var(--destructive-fg)]"
-      >
-        상
-      </span>
-      상한가
-      {withTrades && (
-        <>
-          <span aria-hidden="true" className="opacity-50">
-            ·
-          </span>
-          체결 수량 <b className="font-semibold text-[var(--up)]">매수</b>/
-          <b className="font-semibold text-[var(--down)]">매도</b>
-        </>
-      )}
-    </div>
-  );
-}
-
 /** 마커 종류 판정 — 상한가가 최근 체결가보다 우선한다(상한가는 이 화면의 최상위 정보다). */
 function markerOf(
   price: number,
@@ -849,7 +814,13 @@ function ChaserLadder({
             })}
           </tbody>
         </table>
-        <LadderLegend withTrades />
+        {/*
+          ★ 사다리 범례 한 줄은 260912-k2x 에서 **전 구간에서 걷었다**(사용자 확정).
+            걷어도 되는 이유는 색·형태가 유일한 채널이 아니기 때문이다 — 방향(매도/매수)과
+            상한가·최근 체결가는 각 셀의 보조 텍스트가 이미 말하고 있고, 그 텍스트가
+            WCAG 1.4.1 을 잇는다. **그 보조 텍스트는 한 줄도 건드리지 마라** — 그것까지
+            지우면 그 순간 색 단독 전달이 된다.
+        */}
       </div>
 
       {/* ── 좁은 폭(<1280) — 34px 2줄 행 · 340px(=10행) 스크롤 · 매도1/매수1 경계 중앙 ── */}
@@ -969,9 +940,9 @@ function ChaserLadder({
           </ul>
         </div>
         {/*
-          ★ 좁은 폭에는 `LadderLegend` 를 두지 않는다. 그 범례의 두 항목(최근 체결가 도트 ·
-            상한가 배지)이 마커 슬롯과 함께 사라졌으므로, 남겨 두면 **없는 것을 설명하는 줄**이
-            된다. 그 역할은 위 `sr-only` 두 줄이 이어받았다. 데스크톱 범례는 그대로다.
+          ★ 범례 한 줄은 260912-k2x 에서 걷었다 — 방향·상한가·최근 체결가는 각 행의 보조
+            텍스트가 이미 말한다. 그 보조 텍스트가 색 비의존(WCAG 1.4.1)을 잇는 유일한
+            채널이므로 함께 지우면 안 된다.
 
           아래 가로선 + compact 체결 테이프 — 제목행도 컬럼헤더도 두지 않는다(사용자 확정).
           ★ `<hr>` 에 `border-0` 을 함께 쓰는 이유는 UA 기본 테두리가 남아 이중선이 되기
