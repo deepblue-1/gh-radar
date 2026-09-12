@@ -1092,7 +1092,21 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(document.querySelector('[data-slot="lc-stock-card"] b.font-bold')).not.toBeNull();
   });
 
-  it('Q-05 — 트리거가 행의 빈 공간을 먹지 않고 아이콘 + 옅은 테두리로 눌리는 컨트롤임을 드러낸다', async () => {
+  /*
+    ★ quick-260912-u58 ③ — 이 케이스는 **지우지 않고 뒤집어 다시 썼다.**
+      옛 단언은 `border-[var(--border-subtle)]` 의 **존재**를 요구했다. 그 테두리는
+      260912-mvo 가 「눌리는 컨트롤로 보이게」 하려고 넣은 것인데, 사용자가 같은 목적을
+      **아이콘 쪽**으로 달성하기를 택했다(「콤보박스 테두리는 필요없고 종목명 옆에 세모
+      아이콘만 잘 보여줘」). 그래서 요구를 반대 방향으로 옮긴다 — 테두리 **부재** +
+      아이콘의 새 계약(크기·색). 지웠으면 다음에 테두리가 되살아나도 아무도 모른다.
+    ★ 기존에 옳았던 단언(`flex-1` 부재 · `min-w-0` 존재 · `<svg>` 존재 · 텍스트 캐럿
+      부재)은 **한 줄도 바뀌지 않았다** — 그것들은 이번 변경의 대상이 아니다.
+    ★ 실제 픽셀(아이콘이 종목명 16/20px 옆에서 컨트롤로 읽히는가, 누르는 범위가
+      종목명+코드+아이콘인가)은 jsdom 이 증명할 수 없다 — `trading-limit-chaser.spec.ts`
+      케이스 11 과 브라우저 실측이 그 몫이다. 여기서 잠그는 것은 **클래스 계약**이고,
+      그 둘이 짝이다.
+  */
+  it('Q-05 — 트리거가 행의 빈 공간을 먹지 않고, **테두리 없이** 세모 아이콘으로 컨트롤임을 드러낸다', async () => {
     const input = await pickThenOpenSearch();
     fireEvent.keyDown(input, { key: 'Escape' });
 
@@ -1101,9 +1115,26 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(trigger.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
     // 긴 종목명이 줄어들 수 있어야 하므로 `min-w-0` 은 남는다.
     expect(trigger.className).toContain('min-w-0');
-    // 옅은 테두리 + lucide svg 아이콘.
-    expect(trigger.className).toContain('border-[var(--border-subtle)]');
-    expect(trigger.querySelector('svg')).not.toBeNull();
+    // ★ 테두리는 걷혔다 — 어떤 테두리 유틸리티도 남지 않는다.
+    expect(trigger.className).not.toContain('border-[var(--border-subtle)]');
+    expect(trigger.className).not.toMatch(/(^|\s)border(\s|$)/);
+    /*
+      ★ 테두리를 뺀 뒤 「눌린다」를 말하는 채널은 둘이다 — 호버 배경과 전역 포커스 링.
+        둘 중 하나라도 빠지면 이 버튼은 그냥 글자가 된다(WCAG 2.4.7).
+    */
+    expect(trigger.className).toContain('hover:bg-[var(--muted)]');
+    // 높이는 그대로 `h-9` — 거래소 콤보·검색 입력과 같은 키로 선다(ok2 ④).
+    expect(trigger.className).toContain('h-9');
+
+    // lucide svg 아이콘 — 한 단 커지고 색이 `--fg` 로 올라온다(장식 → 컨트롤).
+    const icon = trigger.querySelector('svg') as SVGElement;
+    expect(icon).not.toBeNull();
+    expect(icon.getAttribute('class')).toContain('size-4');
+    expect(icon.getAttribute('class')).not.toContain('size-3.5');
+    expect(icon.getAttribute('class')).toContain('@min-[992px]/lc:size-4.5');
+    expect(icon.getAttribute('class')).toContain('text-[var(--fg)]');
+    expect(icon.getAttribute('class')).not.toContain('text-[var(--muted-fg)]');
+
     /*
       ★ 텍스트 캐럿은 **렌더 결과**로 없음을 확인한다 — 소스 grep 이 아니라 DOM 이다.
         글자 캐럿은 접근성 이름에도 섞여 들어갈 수 있어 문자 자체를 금지한다.

@@ -588,7 +588,15 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                 ★ quick-260912-mvo Q-05 — **눌리는 컨트롤로 보이게 + 행을 먹지 않게.**
                   ⓐ 텍스트 캐럿(`▾`)을 lucide `ChevronDown` 으로 바꿨다. 글자 캐럿은 글꼴에
                     따라 위치·굵기가 흔들려 장식으로 읽혔다.
-                  ⓑ 아이콘만으로는 약해서 **옅은 테두리**(`--border-subtle`)를 둘렀다.
+                  ⓑ ~~아이콘만으로는 약해서 **옅은 테두리**(`--border-subtle`)를 둘렀다.~~
+                    ★ quick-260912-u58 ③ — **되돌렸다.** 사용자가 그 테두리를 「콤보박스
+                      테두리」로 읽었고, 필요 없다고 명시했다(「테두리는 필요없고 종목명 옆에
+                      세모 아이콘만 잘 보여줘」). 테두리가 하던 「눌리는 컨트롤이다」는 역할은
+                      이제 **아이콘 자신**이 맡는다 — 색을 `--muted-fg`(회색 장식)에서 `--fg`
+                      로 올리고 크기를 한 단 키웠다(14→16 / 데스크톱 16→18px, 브라우저 실측).
+                      「눌린다」를 말하는 나머지 두 채널(`hover:bg-[var(--muted)]` · 전역
+                      `*:focus-visible` 링)은 **그대로**다 — 테두리를 뺀 뒤 그 둘이 유일한
+                      채널이라 하나라도 지우면 이 버튼은 그냥 글자가 된다(WCAG 2.4.7).
                   ⓒ `flex-1` 을 걷었다 — 트리거가 행의 빈 공간까지 먹어, 종목명에서 한참
                     떨어진 허공을 눌러도 검색이 열렸다. `min-w-0` 은 남겨 긴 종목명이
                     `truncate` 로 줄어들게 하고, 다른 폭 유틸리티는 새로 넣지 않는다
@@ -611,7 +619,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                 data-slot="lc-stock-trigger"
                 disabled={parsedKey !== null}
                 onClick={() => setSearching(true)}
-                className="flex h-9 min-w-0 items-center rounded-[var(--r)] border border-[var(--border-subtle)] px-1 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                className="flex h-9 min-w-0 items-center rounded-[var(--r)] px-1 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
                 <span className="flex min-w-0 items-baseline gap-1.5">
                   <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] @min-[992px]/lc:text-[20px]">
@@ -623,9 +631,14 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                     </span>
                   )}
                   <span className="sr-only">종목 변경</span>
+                  {/*
+                    ★ 새 색 토큰을 만들지 않는다 — 이미 있는 `--fg` 로 올릴 뿐이다.
+                      `--muted-fg`(lab 42) 로는 종목명(16/20px) 옆에서 14px 아이콘이
+                      배경 잡티처럼 읽혔다(브라우저 실측 스크린샷).
+                  */}
                   <ChevronDown
                     aria-hidden="true"
-                    className="size-3.5 flex-none text-[var(--muted-fg)] @min-[992px]/lc:size-4"
+                    className="size-4 flex-none text-[var(--fg)] @min-[992px]/lc:size-4.5"
                   />
                 </span>
               </button>
