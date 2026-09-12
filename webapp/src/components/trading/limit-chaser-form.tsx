@@ -620,7 +620,7 @@ export function LimitChaserForm({
   const sellReasons = armBlockedGroupsOf(SELL_CARD_GATES, form, canArm, disabled);
 
   const buyCard = (
-    <Card>
+    <Card side="buy">
       <Group
         slot="buy"
         tone="buy"
@@ -646,9 +646,17 @@ export function LimitChaserForm({
           {...shared}
         />
         {/*
-          ★ 「감시 대상」 세그먼트는 `Row` 밖의 **단독 행**이다 (260911-w5h).
-            `Row` 안에 있으면 라벨 칸(`--lw`)이 폭을 먹어 390px 에서 「매도잔량」 4글자가
-            두 줄로 접혔다. `w-full` 로 그 칸을 회수하면 두 버튼이 한 줄에 들어간다.
+          ★ 「감시 대상」 세그먼트는 `Row`/`CheckRow` 와 **같은 2열 그리드의 오른쪽 칸**에
+            들어간다 (quick-260912-mvo Q-03). 1열은 **빈 칸**이다 — 시각 라벨은 여전히 없고,
+            폭 정렬만 이웃 행과 맞춘다.
+            ↳ 이력: 260911-w5h 에서는 `Row` 밖 단독 행(`w-full`)이었다. 그때는 `Row` 안에
+              넣으면 라벨 칸(`--lw`)이 폭을 먹어 390px 에서 「매도잔량」 4글자가 두 줄로
+              접혔기 때문이다. 그 폭 예산은 **라벨 글꼴이 11px 이던 시절**의 것이고, 13px 로
+              오르면서 `--lw` 가 76/104px 로 재산정됐다(위 `Card` 주석 참조). 새 예산에서
+              실측하면 버튼이 폰 67px · 와이드 78px 로 서고 접힘·잘림이 0 이다.
+              **왜 예전에 접혔는지를 지우지 마라** — 지우면 다음 사람이 단독 행으로 되돌린다.
+            ↳ 행 간격: `mt-[var(--s-1)]` 은 **래퍼**가 갖는다. 그룹 자신에게 남기면 행 간격이
+              두 배가 된다. `w-full` 은 남는다 — 이제 「칸 폭을 채운다」는 뜻이다.
           ★ **선택된 버튼의 색은 그 선택지의 방향색**이다 (260912-gyz). 감시 대상은 「어느 쪽
             호가 잔량을 보는가」이므로 색은 그룹(매수주문 = `--up`)이 아니라 **그 호가의 방향**을
             따라야 한다 — 매도잔량 = `--down` · 매수잔량 = `--up` 으로, 호가창
@@ -662,36 +670,39 @@ export function LimitChaserForm({
             **세그먼트 테두리**로 옮긴다 — 더티가 조용히 사라지면 사용자는 바꾼 줄 모른다.
             `NumInput` 과 같은 규율로 **테두리 한 겹뿐**이고 링은 걸지 않는다.
         */}
-        <div
-          role="group"
-          aria-label="감시 대상"
-          className={cn(
-            'mt-[var(--s-1)] flex h-[38px] w-full min-w-0 overflow-hidden rounded-[var(--r)] border',
-            dirtySet.has('buyWatchSide')
-              ? 'border-[var(--primary)]'
-              : 'border-[var(--border)]',
-          )}
-        >
-          {(['0', '1'] as const).map((side) => (
-            <button
-              key={side}
-              type="button"
-              aria-pressed={form.buyWatchSide === side}
-              disabled={disabled}
-              onClick={() => setField('buyWatchSide', side)}
-              className={cn(
-                'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap',
-                form.buyWatchSide !== side
-                  ? 'bg-transparent text-[var(--muted-fg)]'
-                  : side === '0'
-                    ? 'bg-[var(--down-bg)] text-[var(--down)]'
-                    : 'bg-[var(--up-bg)] text-[var(--up)]',
-                'disabled:cursor-not-allowed disabled:opacity-50',
-              )}
-            >
-              {side === '0' ? '매도잔량' : '매수잔량'}
-            </button>
-          ))}
+        <div className="mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
+          <span aria-hidden="true" />
+          <div
+            role="group"
+            aria-label="감시 대상"
+            className={cn(
+              'flex h-[38px] w-full min-w-0 overflow-hidden rounded-[var(--r)] border',
+              dirtySet.has('buyWatchSide')
+                ? 'border-[var(--primary)]'
+                : 'border-[var(--border)]',
+            )}
+          >
+            {(['0', '1'] as const).map((side) => (
+              <button
+                key={side}
+                type="button"
+                aria-pressed={form.buyWatchSide === side}
+                disabled={disabled}
+                onClick={() => setField('buyWatchSide', side)}
+                className={cn(
+                  'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap',
+                  form.buyWatchSide !== side
+                    ? 'bg-transparent text-[var(--muted-fg)]'
+                    : side === '0'
+                      ? 'bg-[var(--down-bg)] text-[var(--down)]'
+                      : 'bg-[var(--up-bg)] text-[var(--up)]',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                )}
+              >
+                {side === '0' ? '매도잔량' : '매수잔량'}
+              </button>
+            ))}
+          </div>
         </div>
         <NumField
           id="lc-buy-watch-qty"
@@ -780,7 +791,7 @@ export function LimitChaserForm({
   );
 
   const sellCard = (
-    <Card>
+    <Card side="sell">
       <Group
         slot="sell"
         tone="sell"
@@ -1054,11 +1065,42 @@ export function LimitChaserForm({
  * ★ 카드 **크롬(테두리·배경·radius)은 데스크톱에만** 있다. 390px 에서는 본문 여백(8px) 안에
  *   카드 테두리와 그룹 패딩이 겹겹이 들어와 입력 폭을 먹었다 — 모바일에서는 카드가 화면
  *   자체이므로 테두리가 구분하는 「바깥」이 없다.
+ *
+ * ## 방향색 틴트 (quick-260912-mvo Q-06, 사용자 채택 C안)
+ * ⓐ **2열부터만** 칠한다(`@min-[700px]/lc:`). 폰(≤699)은 매수/매도 **탭**이 이미 어느 쪽인지
+ *    말하므로 틴트가 중복이고, 좁은 폭에서 배경색은 입력 대비만 깎는다.
+ * ⓑ 배경 선언은 **한 줄뿐**이어야 한다. 예전에는 `@min-[992px]/lc:bg-[var(--card)]` 가 있어
+ *    ≥992 에서 두 배경이 캐스케이드로 다퉜다(어느 쪽이 이기는지 클래스 문자열 순서로
+ *    정해지지 않는다). 그래서 카드색을 **변수 스위치**(`--card-base`)로 바꿨다 —
+ *    기본 `transparent`, ≥992 에서 `var(--card)`. 틴트는 그 위에 5% 를 섞는다.
+ *    결과: 폰 = 틴트 없음 · 컴팩트/와이드 = 투명 위 5% · 데스크톱 = `--card` 위 5%.
+ *    **배경만** 틴트가 되고 테두리는 `--border` 그대로라 더티 테두리(`--primary`)와 다투지 않는다.
+ * ⓒ 가로 패딩 8px×2 가 카드 **안쪽 폼 폭을 16px 줄인다.** 본문 700px 경계의 잘림 여유를
+ *    그만큼 갉아먹는다 — jsdom 에 레이아웃이 없어 유닛으로 증명할 수 없다(WINDOWS 등재).
+ * ⓓ 5% 는 목업(`260912-buysell-ladder.html` `.vC .fcard`)에서 검증된 값이다. **올리지 마라** —
+ *    그 위에 흰 입력칸이 얹힌다. 그리고 색은 유일 채널이 아니다: 그룹 제목(「매수주문」/
+ *    「매도주문」)과 폰 탭 문구가 글자로 말한다(WCAG 1.4.1) — 그 문구를 지우면 이 틴트는 위반이 된다.
  */
-function Card({ children }: { children: ReactNode }) {
+function Card({
+  children,
+  side,
+}: {
+  children: ReactNode;
+  /** 방향색 틴트 대상. 없으면 틴트 없이 기본 카드 크롬만. */
+  side?: 'buy' | 'sell';
+}) {
   return (
     <div
-      className="min-w-0 overflow-hidden [--lw:76px] @min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:bg-[var(--card)] @min-[992px]/lc:[--lw:104px]"
+      data-side={side}
+      className={cn(
+        'min-w-0 overflow-hidden [--card-base:transparent] [--lw:76px]',
+        '@min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
+        'bg-[var(--card-base)]',
+        side === 'buy' &&
+          '@min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] @min-[700px]/lc:px-2 @min-[700px]/lc:py-1.5',
+        side === 'sell' &&
+          '@min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))] @min-[700px]/lc:px-2 @min-[700px]/lc:py-1.5',
+      )}
     >
       {children}
     </div>
@@ -1299,6 +1341,12 @@ function NumInput({
         id={id}
         type="text"
         inputMode="numeric"
+        /*
+          ★ quick-260912-mvo Q-02 — 전역 Double-Ring 해제. 포커스 표시는 위 래퍼의
+            `focus-within:border-[var(--ring)]` 한 겹이다. 둘은 **한 쌍**이라 한쪽만 남으면
+            포커스가 두 겹으로 보이거나 통째로 사라진다(WCAG 2.4.7).
+        */
+        data-focus-ring="seamless"
         disabled={disabled}
         value={NUM.format(value)}
         onChange={(e) => onValueChange(parseDigits(e.target.value))}

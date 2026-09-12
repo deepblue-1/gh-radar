@@ -695,6 +695,11 @@ function NumInput({
     <div
       className={cn(
         'flex h-10 w-[140px] flex-none items-center gap-1 rounded-[var(--r-md)] border bg-[var(--bg)] px-2.5',
+        // quick-260912-mvo Q-02 — 포커스는 **테두리색 한 겹**. 안쪽 input 의
+        // `data-focus-ring="seamless"` 가 전역 Double-Ring 을 걷고 이 래퍼가 그 자리를 대신한다.
+        // 의사클래스라 특이도가 아래 더티/기본 테두리보다 높아, 더티 상태에서도 포커스색이 이긴다.
+        // ⚠️ 이 유틸리티를 지우면 포커스가 아무 표시 없이 사라진다(WCAG 2.4.7).
+        'focus-within:border-[var(--ring)]',
         dirty
           ? 'border-[var(--primary)] shadow-[0_0_0_2px_color-mix(in_oklch,var(--primary)_18%,transparent)]'
           : 'border-[var(--input)]',
@@ -705,6 +710,7 @@ function NumInput({
         id={id}
         type="text"
         inputMode="numeric"
+        data-focus-ring="seamless"
         disabled={disabled}
         value={NUM.format(value)}
         onChange={(e) => onValueChange(parseDigits(e.target.value))}

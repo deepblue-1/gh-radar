@@ -1219,8 +1219,18 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(card.className).not.toContain('[--lw:88px]');
     // 테두리·배경·radius 는 전부 992 컨테이너 접두가 붙어 있다.
     expect(card.className).toContain('@min-[992px]/lc:border');
-    expect(card.className).toContain('@min-[992px]/lc:bg-[var(--card)]');
     expect(card.className).toContain('@min-[992px]/lc:rounded-[var(--r-lg)]');
+    /*
+      ★ quick-260912-mvo Q-06 — **같은 명제를 새 기계로 다시 쓴다.**
+        「데스크톱에서만 카드 배경이 `--card` 다」는 그대로인데, 그 배경을 직접 거는 유틸리티
+        (`@min-[992px]/lc:bg-[var(--card)]`)를 **변수 스위치**로 바꿨다. 방향색 틴트가 같은
+        배경 채널을 쓰기 때문에, 배경 선언이 둘이면 ≥992 에서 캐스케이드로 다툰다.
+        그래서 배경 선언은 `bg-[var(--card-base)]` **하나뿐**이고, 992 에서 바뀌는 것은
+        그 변수의 값이다. 아래 세 줄이 옛 한 줄과 같은 사실을 말한다.
+    */
+    expect(card.className).toContain('[--card-base:transparent]');
+    expect(card.className).toContain('@min-[992px]/lc:[--card-base:var(--card)]');
+    expect(card.className).toContain('bg-[var(--card-base)]');
     // 옛 뷰포트 분기가 한 톨도 남지 않았다.
     expect(card.className).not.toContain('min-[1280px]:');
     // 맨몸 크롬 유틸이 남아 있지 않다(모바일에서 그대로 걸린다).
@@ -1329,6 +1339,86 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
       expect(input.selectionEnd).toBe(input.value.length);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  /* ---------------------------------------------------------------------
+     quick-260912-mvo — Q-02 포커스 한 겹 · Q-03 세그먼트 2열 · Q-06 방향색 틴트
+     --------------------------------------------------------------------- */
+
+  it('Q-02 — `NumInput` 안쪽 입력이 전역 Double-Ring 을 해제하고, 래퍼가 테두리 채널을 갖는다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
+    expect(input.getAttribute('data-focus-ring')).toBe('seamless');
+    /*
+      ★ 링을 걷은 자리를 대신할 표시가 **같은 컨트롤에 실재해야** 한다. 둘은 한 쌍이고,
+        한쪽만 남으면 포커스가 통째로 보이지 않는다(WCAG 2.4.7, T-mvo-01).
+    */
+    expect(input.parentElement!.className).toContain('focus-within:border-[var(--ring)]');
+  });
+
+  it('Q-02 — 체크박스에는 seamless 를 걸지 않는다 (전역 링이 유일한 포커스 표시다)', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const boxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    );
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) {
+      expect(box.getAttribute('data-focus-ring')).toBeNull();
+    }
+  });
+
+  it('Q-03 — 「감시 대상」이 `Row` 와 같은 2열 그리드의 **오른쪽 칸**에 들어간다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const group = segment();
+    const wrap = group.parentElement!;
+
+    // `Row`/`CheckRow` 와 **같은** 2열 그리드다.
+    expect(wrap.className).toContain('grid-cols-[var(--lw)_minmax(0,1fr)]');
+    // 행 간격은 래퍼가 갖고, 그룹 자신에게 남아 있지 않다(남으면 간격이 두 배가 된다).
+    expect(wrap.className).toContain('mt-[var(--s-1)]');
+    expect(group.className).not.toContain('mt-[var(--s-1)]');
+    // 1열은 비어 있고 그룹은 **두 번째** 칸이다.
+    expect(wrap.children).toHaveLength(2);
+    expect(wrap.children[1]).toBe(group);
+    expect(wrap.children[0]!.textContent).toBe('');
+    // 접근성 이름·더티 테두리 분기는 그대로다.
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('감시 대상');
+    expect(group.className).toContain('w-full');
+    expect(group.className).toContain('border-[var(--border)]');
+    fireEvent.click(within(group).getByRole('button', { name: '매수잔량' }));
+    expect(segment().className).toContain('border-[var(--primary)]');
+  });
+
+  it('Q-06 — 매수/매도 카드가 방향색 5% 틴트를 **2열부터만** 갖는다 (폰 틴트 금지)', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const buy = document.querySelector<HTMLElement>('[data-side="buy"]')!;
+    const sell = document.querySelector<HTMLElement>('[data-side="sell"]')!;
+    expect(buy).not.toBeNull();
+    expect(sell).not.toBeNull();
+
+    expect(buy.className).toContain(
+      '@min-[700px]/lc:bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))]',
+    );
+    expect(sell.className).toContain(
+      '@min-[700px]/lc:bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))]',
+    );
+
+    /*
+      ★ 폰(≤699)에는 틴트가 없어야 한다 — 탭 문구가 이미 어느 쪽인지 말한다.
+        접두 없는 방향색 배경 유틸리티가 하나라도 있으면 폰에서 그대로 칠해진다.
+        배경 선언은 `bg-[var(--card-base)]` **하나뿐**이라는 사실까지 함께 잠근다.
+    */
+    for (const card of [buy, sell]) {
+      const bare = card.className
+        .split(/\s+/)
+        .filter((c) => c.startsWith('bg-'));
+      expect(bare).toEqual(['bg-[var(--card-base)]']);
     }
   });
 });
