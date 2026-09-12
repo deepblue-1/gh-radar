@@ -107,13 +107,27 @@ async function waitForSetAtGateway(relay: LocalRelay, count: number): Promise<vo
 }
 
 /**
- * 검색으로 종목을 고른다. 고르면 구독이 서고 실시간 상한가로 다시 시딩된다.
+ * 상단 카드의 **종목 검색 입력** — 조회 정의를 한 곳에 모은다.
  *
  * ★ 조회를 **상단 카드로 좁힌다.** 앱 헤더에도 「종목 검색 열기」 버튼이 2개(데스크톱/모바일)
  *   있어서 `getByLabel('종목 검색')` 은 부분 일치로 셋을 다 잡는다.
+ * ★ quick-260912-u58 ① — 이 입력은 이제 `role="combobox"` 다(`aria-activedescendant` 로
+ *   ↓/↑/Enter 를 받는다). 그래서 옛 `getByRole('searchbox')` 는 **0건**이 된다.
+ *   그렇다고 `getByRole('combobox')` 로 단순 치환하면 같은 카드의 거래소 `<select>` 도
+ *   combobox 라 2건을 잡아 strict mode 위반이 난다 — **이름으로 좁혀야** 한다.
+ *   세 곳(여기 · 테스트 1 · 테스트 11)이 이 헬퍼 하나를 공유해 다시 갈라지지 않게 한다.
+ */
+function searchBoxOf(page: Page) {
+  return page
+    .locator('[data-slot="lc-stock-card"]')
+    .getByRole('combobox', { name: '종목 검색' });
+}
+
+/**
+ * 검색으로 종목을 고른다. 고르면 구독이 서고 실시간 상한가로 다시 시딩된다.
  */
 async function pickStock(page: Page): Promise<void> {
-  await page.locator('[data-slot="lc-stock-card"]').getByRole('searchbox').fill('삼성');
+  await searchBoxOf(page).fill('삼성');
   const option = page.locator('[data-slot="lc-search-option"]').first();
   await expect(option).toBeVisible({ timeout: 15_000 });
   await option.click();
@@ -162,7 +176,7 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     // 가격 칩 행은 **행 자체를 없앴다**(260912-gyz) — 종목 유무와 무관하게 DOM 에 없다.
     await expect(page.locator('[data-slot="lc-price-chips"]')).toHaveCount(0);
     // 인라인 검색이 상단 카드 안에 있다(헤더의 전역 검색과 다른 컨트롤이다).
-    await expect(page.locator('[data-slot="lc-stock-card"]').getByRole('searchbox')).toBeVisible();
+    await expect(searchBoxOf(page)).toBeVisible();
     // 16-11 자리표시가 걷혔다.
     await expect(page.locator('[data-slot="surface-placeholder"]')).toHaveCount(0);
     await expect(page$(page)).toBeVisible();
@@ -568,7 +582,7 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     const card = page.locator('[data-slot="lc-stock-card"]');
     const combo = card.locator('select[aria-label="거래소"]');
     const trigger = page.locator('[data-slot="lc-stock-trigger"]');
-    const searchBox = card.getByRole('searchbox');
+    const searchBox = searchBoxOf(page);
 
     const heightOf = async (target: typeof combo): Promise<number> => {
       const box = await target.boundingBox();

@@ -1189,3 +1189,216 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(input.className).toContain('h-9');
   });
 });
+
+/*
+  quick-260912-u58 ① — **종목 검색 결과 키보드 탐색**.
+
+  여기서 증명하는 것은 **상태 전이**다 — ↓/↑ 가 무엇을 활성으로 만들고, Enter 가 무엇을
+  고르는가. 그 매체는 jsdom 이 맞다(레이아웃이 필요 없다).
+  실제 키보드 왕복(브라우저에서 진짜 키가 들어가고 진짜 포커스가 남는가)은 이 파일이
+  증명하지 않는다 — `trading-limit-chaser.spec.ts` · `a11y.spec.ts` 가 그 몫이다.
+
+  ★ 활성 표시는 **클래스가 아니라 `aria-activedescendant` ↔ 옵션 `id` 일치**로 단언한다.
+    색 유틸리티는 바뀔 수 있지만 그 연결이 끊기면 스크린리더가 **조용히** 아무것도 읽지
+    않는다 — 에러가 아니라 기능 소실이다.
+  ★ **마우스 클릭 경로**는 새 케이스를 만들지 않는다 — 위 `pickThenOpenSearch` 와 ⑯ 의
+    선택 케이스들이 이미 `click()` 으로 `onPick` 을 지나고 있고, 그 케이스들이 초록인 것이
+    곧 클릭 경로가 살아 있다는 증거다. 같은 것을 두 번 잠그면 계약이 두 벌이 된다.
+*/
+describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 ①)', () => {
+  function row(over: Record<string, unknown> = {}) {
+    return {
+      code: '086520',
+      name: '에코프로',
+      market: 'KOSPI',
+      isin: ISIN,
+      price: 30_000,
+      changeAmount: 6_900,
+      changeRate: 29.87,
+      volume: 100,
+      tradeAmount: 100,
+      open: 23_100,
+      high: 30_000,
+      low: 23_000,
+      marketCap: 0,
+      upperLimit: 30_000,
+      lowerLimit: 16_200,
+      updatedAt: '2026-09-09T02:00:00Z',
+      upperLimitProximity: 100,
+      ...over,
+    };
+  }
+
+  const options = () =>
+    Array.from(
+      document.querySelectorAll('[data-slot="lc-search-option"]'),
+    ) as HTMLButtonElement[];
+
+  /** 질의를 넣고 결과가 뜰 때까지 기다린다. 입력을 돌려준다. */
+  async function search(rows: unknown[], q = '에코'): Promise<HTMLInputElement> {
+    searchMock.mockResolvedValue(rows);
+    const input = screen.getByLabelText('종목 검색') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: q } });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    await waitFor(() => expect(options()).toHaveLength(rows.length));
+    return input;
+  }
+
+  async function open(rows: unknown[]): Promise<HTMLInputElement> {
+    setRelay({});
+    render(<LimitChaserClient />);
+    return search(rows);
+  }
+
+  /** 입력의 `aria-activedescendant` 가 가리키는 옵션 버튼(없으면 null). */
+  function activeOption(input: HTMLInputElement): HTMLButtonElement | null {
+    const id = input.getAttribute('aria-activedescendant');
+    if (!id) return null;
+    return document.getElementById(id) as HTMLButtonElement | null;
+  }
+
+  it('↓ 가 활성 항목을 내리고, `aria-activedescendant` 가 그 옵션의 `id` 와 정확히 맞는다', async () => {
+    const input = await open([row(), row({ code: '000660', name: 'SK하이닉스' })]);
+
+    // 열린 직후에는 활성 항목이 없다 — 첫 항목을 자동으로 고르지 않는다.
+    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(activeOption(input)).toBe(options()[0]);
+    expect(options()[0]).toHaveAttribute('aria-selected', 'true');
+    expect(options()[1]).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(activeOption(input)).toBe(options()[1]);
+
+    // ↑ 로 같은 규칙을 거슬러 올라간다.
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(activeOption(input)).toBe(options()[0]);
+  });
+
+  it('↓/↑ 는 **고를 수 없는 행을 건너뛴다** — 활성인데 Enter 가 먹통인 행을 만들지 않는다 (T-u58-01)', async () => {
+    const input = await open([
+      row({ code: '000001', name: '코넥스종목', market: 'KONEX' }),
+      row(),
+      row({ code: '000002', name: '시장미상', isin: null }),
+      row({ code: '000660', name: 'SK하이닉스' }),
+    ]);
+
+    // 0 번(KONEX)은 건너뛰고 1 번이 첫 활성이다.
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(activeOption(input)).toBe(options()[1]);
+
+    // 2 번(ISIN null)도 건너뛰고 3 번으로 간다.
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(activeOption(input)).toBe(options()[3]);
+
+    // 고를 수 없는 행은 활성이 된 적이 없다.
+    expect(options()[0]).toHaveAttribute('aria-disabled', 'true');
+    expect(options()[2]).toHaveAttribute('aria-disabled', 'true');
+    expect(options()[0]).toHaveAttribute('aria-selected', 'false');
+    expect(options()[2]).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('Enter 가 활성 항목을 고른다 — `onPick` 이 정확히 1회, 기본 동작은 막힌다', async () => {
+    const input = await open([row({ code: '000660', name: 'SK하이닉스', isin: 'KR7000660001' })]);
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    const enter = createEvent.keyDown(input, { key: 'Enter', bubbles: true, cancelable: true });
+    fireEvent(input, enter);
+
+    // `type="search"` 안에서 Enter 가 폼 제출로 새는 경로를 막는다.
+    expect(enter.defaultPrevented).toBe(true);
+    // 고른 결과가 트리거 하나로 확정된다 — 두 번 불렸으면 두 번 바뀌었을 것이다.
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="lc-stock-trigger"]')).not.toBeNull(),
+    );
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toHaveTextContent(
+      'SK하이닉스',
+    );
+    expect(screen.queryByLabelText('종목 검색')).toBeNull();
+  });
+
+  it('활성 항목이 없으면 Enter 는 **아무 일도 하지 않는다** — 첫 항목 자동 선택 금지 (T-u58-01)', async () => {
+    const input = await open([row(), row({ code: '000660', name: 'SK하이닉스' })]);
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // 검색은 열린 채로 남고, 종목이 정해지지 않는다.
+    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
+  });
+
+  it('고를 수 있는 행이 하나도 없으면 ↓ 로도 활성이 생기지 않고 Enter 가 조용하다', async () => {
+    const input = await open([
+      row({ code: '000001', name: '코넥스종목', market: 'KONEX' }),
+      row({ code: '000002', name: '시장미상', isin: null }),
+    ]);
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
+  });
+
+  it('★ 목록이 갱신되면 활성 인덱스가 초기화된다 — 다른 종목을 가리킨 채로 Enter 를 받지 않는다', async () => {
+    const input = await open([row(), row({ code: '000660', name: 'SK하이닉스' })]);
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(activeOption(input)).toBe(options()[1]);
+
+    // 질의가 바뀌어 **다른 결과**가 온다.
+    await search([row({ code: '005930', name: '삼성전자', isin: 'KR7005930003' })], '삼성');
+
+    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
+  });
+
+  it('Esc 는 여전히 `onCancel` 을 부른다 — ↓/↑/Enter 를 얹어도 기존 계약이 살아 있다', async () => {
+    // 이미 종목을 고른 상태에서 검색을 다시 연다(취소할 대상이 있어야 계약이 보인다).
+    let input = await open([row({ code: '000660', name: 'SK하이닉스', isin: 'KR7000660001' })]);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="lc-stock-trigger"]')).not.toBeNull(),
+    );
+    fireEvent.click(document.querySelector('[data-slot="lc-stock-trigger"]') as HTMLButtonElement);
+
+    input = await search([row()]);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(screen.queryByLabelText('종목 검색')).toBeNull();
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toHaveTextContent(
+      'SK하이닉스',
+    );
+  });
+
+  it('ARIA 조합 — 목록이 없을 때는 `aria-controls` 를 걸지 않는다 (T-u58-06)', async () => {
+    setRelay({});
+    render(<LimitChaserClient />);
+    const input = screen.getByLabelText('종목 검색') as HTMLInputElement;
+
+    // 질의 전: 목록이 DOM 에 없으므로 존재하지 않는 id 를 가리키면 axe critical 이다.
+    expect(input).toHaveAttribute('role', 'combobox');
+    expect(input).toHaveAttribute('aria-expanded', 'false');
+    expect(input.getAttribute('aria-controls')).toBeNull();
+
+    await search([row()]);
+
+    const list = document.querySelector('[data-slot="lc-search-results"]')!;
+    expect(list).toHaveAttribute('role', 'listbox');
+    expect(input).toHaveAttribute('aria-expanded', 'true');
+    expect(input.getAttribute('aria-controls')).toBe(list.id);
+    expect(list.id).not.toBe('');
+    // 옵션 role 은 `<li>` 가 아니라 **버튼**이 갖는다 — axe `nested-interactive` 회피.
+    expect(options()[0]).toHaveAttribute('role', 'option');
+    expect(options()[0]!.closest('li')).toHaveAttribute('role', 'presentation');
+  });
+});

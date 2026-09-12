@@ -380,6 +380,43 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
     expect(
       await tabbablesIn(page, '[data-slot="orderbook-ladder"][data-variant="chaser"]'),
     ).toEqual([]);
+
+    /*
+      ⑥ ★ quick-260912-u58 ① — **검색 결과가 뜬 상태**를 따로 한 번 더 스캔한다.
+
+      위 스캔은 질의를 넣기 전 상태다 — 그때는 `listbox`·`option` 이 DOM 에 아예 없어서
+      새 ARIA 조합을 **한 번도 보지 못한다.** 이 화면(`/new`)은 검색이 열린 채로 진입하므로
+      질의 한 번이면 그 상태에 닿는다. 여기서 잡으려는 것은 셋이다:
+        · `aria-controls`/`aria-activedescendant` 가 **존재하는 id** 를 가리키는가
+          (`aria-valid-attr-value`, critical — 없는 id 를 가리키면 스크린리더가 조용해진다)
+        · `<li role="option">` 안에 `<button>` 이 들어 있지 않은가 (`nested-interactive`, serious)
+        · listbox 가 옵션 아닌 자식을 소유하지 않는가 (`aria-required-children`)
+    */
+    const searchBox = page
+      .locator('[data-slot="lc-stock-card"]')
+      .getByRole('combobox', { name: '종목 검색' });
+    await expect(searchBox).toHaveAttribute('aria-expanded', 'false');
+    await searchBox.fill('삼성');
+    const option = page.locator('[data-slot="lc-search-option"]').first();
+    await expect(option).toBeVisible({ timeout: 15_000 });
+
+    // 결선이 실제로 서 있는지 먼저 본다 — axe 가 통과해도 결선이 없으면 기능이 없는 것이다.
+    await expect(searchBox).toHaveAttribute('aria-expanded', 'true');
+    const listId = await searchBox.getAttribute('aria-controls');
+    expect(listId).not.toBeNull();
+    await expect(page.locator(`#${listId}`)).toHaveAttribute('role', 'listbox');
+
+    // ↓ 로 활성 항목을 만든 **그 상태**를 스캔한다(`aria-activedescendant` 가 걸린 상태다).
+    await searchBox.press('ArrowDown');
+    const activeId = await searchBox.getAttribute('aria-activedescendant');
+    expect(activeId).not.toBeNull();
+    await expect(page.locator(`#${activeId}`)).toHaveAttribute('role', 'option');
+
+    const withList = await scanSurface(page);
+    expect(
+      withList,
+      `검색 결과 열린 상태 critical/serious 위반 ${withList.length}건\n${JSON.stringify(withList, null, 2)}`,
+    ).toEqual([]);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

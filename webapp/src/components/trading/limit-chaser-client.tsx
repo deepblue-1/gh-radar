@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 /**
  * LimitChaserClient — 상따 전략 화면 본문 (`/trading/limit-chaser/{new,[key]}`, TRADE-01).
@@ -60,35 +60,49 @@
  *   경로를 만들지 않는다(`app-sidebar` · `strategy-status-card` 와 같은 규약).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { RELAY_STATE_LABELS } from '@gh-radar/shared';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { ChevronDown } from "lucide-react";
+import { RELAY_STATE_LABELS } from "@gh-radar/shared";
 import type {
   RelayExchange,
   RelayLimitChaser,
   RelayLimitChaserInput,
   StockDetailResponse,
-} from '@gh-radar/shared';
+} from "@gh-radar/shared";
 
-import { AccountPanel } from '@/components/orderbook/account-panel';
-import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
-import { DmaGate, useDmaGateReason } from '@/components/trading/dma-gate';
-import { LimitChaserForm } from '@/components/trading/limit-chaser-form';
-import { strategyBadgesOf } from '@/components/trading/strategy-badge';
-import { formatMarketCap, formatOnePercentShares, formatTradeValue } from '@/lib/quote-format';
+import { AccountPanel } from "@/components/orderbook/account-panel";
+import { OrderbookLadder } from "@/components/orderbook/orderbook-ladder";
+import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
+import { LimitChaserForm } from "@/components/trading/limit-chaser-form";
+import { strategyBadgesOf } from "@/components/trading/strategy-badge";
+import {
+  formatMarketCap,
+  formatOnePercentShares,
+  formatTradeValue,
+} from "@/lib/quote-format";
 import {
   StrategyLog,
   serverMessageLogLine,
   strategiesDisabledLogLine,
   strategyLogLine,
   type StrategyLogEntry,
-} from '@/components/trading/strategy-log';
-import { useIsinLabels } from '@/lib/isin-labels';
-import { isLimitChaserServerMessage, strategyKey } from '@/lib/limit-chaser';
-import { useRelayContext, useRelaySubscription } from '@/lib/relay-provider';
-import { searchStocks } from '@/lib/stock-api';
-import type { RelayServerMessageEntry, RelayStatus } from '@/lib/use-relay-socket';
-import { cn } from '@/lib/utils';
+} from "@/components/trading/strategy-log";
+import { useIsinLabels } from "@/lib/isin-labels";
+import { isLimitChaserServerMessage, strategyKey } from "@/lib/limit-chaser";
+import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
+import { searchStocks } from "@/lib/stock-api";
+import type {
+  RelayServerMessageEntry,
+  RelayStatus,
+} from "@/lib/use-relay-socket";
+import { cn } from "@/lib/utils";
 
 /**
  * 에코 배너 자동 소멸(ms) — UI-SPEC A3 「6초 배너」.
@@ -107,9 +121,10 @@ const SEARCH_DELAY_MS = 250;
 const MAX_LOG = 100;
 
 /** 이탈 경고 문구 — UI-SPEC §CTA verbatim. `beforeunload` 와 라우터 가드가 **같은 말**을 쓴다. */
-const LEAVE_WARNING = '수정하지 않은 값이 있어요. 이 페이지를 벗어나면 사라져요.';
+const LEAVE_WARNING =
+  "수정하지 않은 값이 있어요. 이 페이지를 벗어나면 사라져요.";
 
-const KRW = new Intl.NumberFormat('ko-KR');
+const KRW = new Intl.NumberFormat("ko-KR");
 
 /**
  * 지금 시각 `HH:MM:SS` — **로케일 포맷터를 쓰지 않는다.**
@@ -120,7 +135,7 @@ const KRW = new Intl.NumberFormat('ko-KR');
  *   좌우로 흔들리고 상태줄의 다른 항목까지 밀린다. 자리수를 우리가 직접 채운다.
  */
 function clockNow(now: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
+  const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
@@ -153,11 +168,11 @@ interface SelectedStock {
 export function parseStrategyKey(
   key: string,
 ): { isin: string; accountNo: string; exchange: RelayExchange } | null {
-  const parts = key.split(':');
+  const parts = key.split(":");
   if (parts.length !== 3) return null;
   const [isin, accountNo, exchange] = parts;
-  if (isin === '' || accountNo === '') return null;
-  if (exchange !== 'KRX' && exchange !== 'NXT') return null;
+  if (isin === "" || accountNo === "") return null;
+  if (exchange !== "KRX" && exchange !== "NXT") return null;
   return { isin, accountNo, exchange };
 }
 
@@ -166,7 +181,9 @@ export interface LimitChaserClientProps {
   strategyKey?: string;
 }
 
-export function LimitChaserClient({ strategyKey: routeKey }: LimitChaserClientProps) {
+export function LimitChaserClient({
+  strategyKey: routeKey,
+}: LimitChaserClientProps) {
   const gateReason = useDmaGateReason();
   // 게이트는 본문을 **대체**한다(A14). 아래 본문의 훅이 돌지 않도록 컴포넌트를 가른다.
   if (gateReason !== null) {
@@ -177,35 +194,57 @@ export function LimitChaserClient({ strategyKey: routeKey }: LimitChaserClientPr
 
 function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   const relay = useRelayContext();
-  const { accounts, limitChasers, accountStates, messages, status, statusLabel, strategiesDisabled } =
-    relay;
+  const {
+    accounts,
+    limitChasers,
+    accountStates,
+    messages,
+    status,
+    statusLabel,
+    strategiesDisabled,
+  } = relay;
 
-  const parsedKey = useMemo(() => (routeKey === undefined ? null : parseStrategyKey(routeKey)), [routeKey]);
+  const parsedKey = useMemo(
+    () => (routeKey === undefined ? null : parseStrategyKey(routeKey)),
+    [routeKey],
+  );
   const isinLabels = useIsinLabels();
 
   const [picked, setPicked] = useState<SelectedStock | null>(null);
-  const [exchange, setExchange] = useState<RelayExchange>(parsedKey?.exchange ?? 'KRX');
+  const [exchange, setExchange] = useState<RelayExchange>(
+    parsedKey?.exchange ?? "KRX",
+  );
   /*
     헤더의 종목명 버튼을 누르면 그 자리가 검색창이 된다 — 한 번 고른 종목을 되돌릴 경로다.
     지역 state 하나로 충분하다: 검색은 화면 표시일 뿐이고, 고른 결과는 `picked` 가 받는다.
   */
   const [searching, setSearching] = useState(false);
-  const [accountNo, setAccountNo] = useState<string>(parsedKey?.accountNo ?? '');
+  const [accountNo, setAccountNo] = useState<string>(
+    parsedKey?.accountNo ?? "",
+  );
 
   // 계좌가 도착하면 **미선택일 때만** 첫 계좌를 고른다. 이미 고른 계좌를 덮지 않는다.
   useEffect(() => {
-    if (accountNo !== '' || accounts.length === 0) return;
+    if (accountNo !== "" || accounts.length === 0) return;
     setAccountNo(accounts[0].accountNo);
   }, [accountNo, accounts]);
 
   /** 편집 진입은 키가 종목 축을 정한다 — 검색으로 고른 종목이 그 자리를 덮지 않는다. */
-  const isin = parsedKey?.isin ?? picked?.isin ?? '';
-  const subscription = useRelaySubscription({ isin, exchange, enabled: isin.length > 0 });
+  const isin = parsedKey?.isin ?? picked?.isin ?? "";
+  const subscription = useRelaySubscription({
+    isin,
+    exchange,
+    enabled: isin.length > 0,
+  });
   const { quote, tape, isStale } = subscription;
 
-  const key = isin === '' || accountNo === '' ? '' : strategyKey(isin, accountNo, exchange);
+  const key =
+    isin === "" || accountNo === ""
+      ? ""
+      : strategyKey(isin, accountNo, exchange);
   const server = useMemo(
-    () => (key === '' ? null : (limitChasers.find((c) => c.key === key) ?? null)),
+    () =>
+      key === "" ? null : (limitChasers.find((c) => c.key === key) ?? null),
     [limitChasers, key],
   );
 
@@ -213,16 +252,19 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   const [log, setLog] = useState<StrategyLogEntry[]>([]);
   const logSeq = useRef(0);
-  const pushLog = useCallback((text: string, level: 'info' | 'error' = 'info') => {
-    logSeq.current += 1;
-    const entry: StrategyLogEntry = {
-      id: `log-${logSeq.current}`,
-      at: clockNow(),
-      text,
-      level,
-    };
-    setLog((prev) => [entry, ...prev].slice(0, MAX_LOG));
-  }, []);
+  const pushLog = useCallback(
+    (text: string, level: "info" | "error" = "info") => {
+      logSeq.current += 1;
+      const entry: StrategyLogEntry = {
+        id: `log-${logSeq.current}`,
+        at: clockNow(),
+        text,
+        level,
+      };
+      setLog((prev) => [entry, ...prev].slice(0, MAX_LOG));
+    },
+    [],
+  );
 
   /* ── 전송 ↔ 에코 상관 (③) ─────────────────────────────────────────────── */
 
@@ -262,7 +304,10 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     setUnacked(false);
     if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
     // ★ 여기서 하는 일은 **표시**뿐이다. 타이머가 끝나도 아무것도 다시 보내지 않는다.
-    ackTimer.current = window.setTimeout(() => setUnacked(true), ACK_TIMEOUT_MS);
+    ackTimer.current = window.setTimeout(
+      () => setUnacked(true),
+      ACK_TIMEOUT_MS,
+    );
   }, []);
 
   const handleServerEcho = useCallback((info: { overwrittenDirty: number }) => {
@@ -291,7 +336,9 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         pendingRef.current = null;
         setUnacked(false);
         setResetSeq((n) => n + 1);
-        pushLog(strategyLogLine(prev, { ...prev, crud: 'D' }) ?? '전략이 삭제됐어요');
+        pushLog(
+          strategyLogLine(prev, { ...prev, crud: "D" }) ?? "전략이 삭제됐어요",
+        );
       }
       return;
     }
@@ -326,11 +373,14 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       const text =
         overwritten > 0
           ? `다른 단말에서 변경돼 수정하던 값 ${overwritten}개가 서버 값으로 바뀌었어요`
-          : '다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요';
+          : "다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요";
       setBanner(text);
       pushLog(text);
       if (bannerTimer.current != null) window.clearTimeout(bannerTimer.current);
-      bannerTimer.current = window.setTimeout(() => setBanner(null), ECHO_BANNER_MS);
+      bannerTimer.current = window.setTimeout(
+        () => setBanner(null),
+        ECHO_BANNER_MS,
+      );
     }
   }, [server, pushLog]);
 
@@ -358,7 +408,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       const { text, level } = serverMessageLogLine(msg);
       pushLog(text, level);
       // ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
-      if (level === 'error') setLastError(text);
+      if (level === "error") setLastError(text);
     }
   }, [messages, pushLog]);
 
@@ -366,7 +416,10 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   const lastDisabledRef = useRef(strategiesDisabled);
   useEffect(() => {
-    if (strategiesDisabled === null || strategiesDisabled === lastDisabledRef.current) {
+    if (
+      strategiesDisabled === null ||
+      strategiesDisabled === lastDisabledRef.current
+    ) {
       lastDisabledRef.current = strategiesDisabled;
       return;
     }
@@ -379,14 +432,17 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   /* ── 파생 표시값 ──────────────────────────────────────────────────────── */
 
-  const displayName = picked?.name ?? (isin === '' ? '' : (isinLabels.get(isin)?.name ?? isin));
+  const displayName =
+    picked?.name ?? (isin === "" ? "" : (isinLabels.get(isin)?.name ?? isin));
   /*
     단축코드는 **아는 경우에만** 쓴다. 편집 진입처럼 `picked` 가 없으면 역매핑 라벨을 보고,
     그것도 없으면 조각 자체를 렌더하지 않는다 — ISIN 을 코드 자리에 넣으면 종목명 자리와
     같은 값을 두 번 쓰게 된다(파일 상단 ⑧ 과 같은 규율).
   */
-  const stockCode = picked?.code ?? (isin === '' ? null : (isinLabels.get(isin)?.code ?? null));
-  const accountState = accountNo === '' ? null : (accountStates.get(accountNo) ?? null);
+  const stockCode =
+    picked?.code ?? (isin === "" ? null : (isinLabels.get(isin)?.code ?? null));
+  const accountState =
+    accountNo === "" ? null : (accountStates.get(accountNo) ?? null);
 
   // 실시간 호가가 있으면 그쪽이 정본이다 — REST 상세는 스냅샷 전의 임시값이다.
   const upperLimit = quote?.ul ?? picked?.upperLimit ?? 0;
@@ -405,7 +461,10 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
   /** 스냅샷 도착 전 — 편집 진입인데 아직 그 전략을 못 받았다(UI-SPEC §동기화). */
   const awaitingSnapshot =
-    parsedKey !== null && server === null && status !== 'ready' && limitChasers.length === 0;
+    parsedKey !== null &&
+    server === null &&
+    status !== "ready" &&
+    limitChasers.length === 0;
 
   /*
     ★ `@container/lc` — 상따 본문 전체가 **자기 폭**을 재는 컨테이너다 (260912-k2x).
@@ -493,14 +552,14 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
             disabled={parsedKey !== null}
             className="h-9 flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[10px] font-bold text-[var(--muted-fg)] disabled:opacity-50 @min-[992px]/lc:px-1.5 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[14px]"
           >
-            {(['KRX', 'NXT'] as const).map((ex) => (
+            {(["KRX", "NXT"] as const).map((ex) => (
               <option key={ex} value={ex}>
                 {ex}
               </option>
             ))}
           </select>
 
-          {isin === '' || searching ? (
+          {isin === "" || searching ? (
             <StockSearchField
               /*
                 ★ quick-260912-ok2 ② — **사용자가 종목명을 눌러 연 경우에만** 포커스한다.
@@ -570,7 +629,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                   />
                 </span>
               </button>
-
             </>
           )}
 
@@ -580,19 +638,19 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
               사라졌고, 그것이 이 화면에서 가장 큰 레이아웃 점프이자 「종목이 이미 바뀌었나」
               하는 오독의 원인이었다. 바꾸는 것은 왼쪽 자리 하나뿐이어야 한다.
           */}
-          {isin !== '' && (
+          {isin !== "" && (
             <span
               className={cn(
-                'ml-auto flex flex-none flex-col items-end leading-[1.2]',
+                "ml-auto flex flex-none flex-col items-end leading-[1.2]",
                 changeRate > 0
-                  ? 'text-[var(--up)]'
+                  ? "text-[var(--up)]"
                   : changeRate < 0
-                    ? 'text-[var(--down)]'
-                    : 'text-[var(--flat)]',
+                    ? "text-[var(--down)]"
+                    : "text-[var(--flat)]",
               )}
             >
               <b className="mono text-[16px] font-bold @min-[992px]/lc:text-[22px]">
-                {currentPrice > 0 ? KRW.format(currentPrice) : '—'}
+                {currentPrice > 0 ? KRW.format(currentPrice) : "—"}
               </b>
               <small className="mono text-[11px] font-semibold @min-[992px]/lc:text-[13px]">
                 {changeRate.toFixed(2)}%
@@ -626,7 +684,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
             종목정보 10칸이 통째로 사라져 「하단 내용이 바뀐다」로 읽혔다. 검색은 종목명
             **자리에서만** 일어나야 한다 — 아래 내용은 취소했을 때 돌아올 그 종목의 것이다.
         */}
-        {isin !== '' && (
+        {isin !== "" && (
           <div
             data-slot="lc-quote-grid"
             className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1 @min-[700px]/lc:grid-cols-5 @min-[992px]/lc:flex @min-[992px]/lc:flex-wrap @min-[992px]/lc:items-baseline @min-[992px]/lc:gap-x-[20px] @min-[992px]/lc:gap-y-0 @min-[992px]/lc:px-3.5 @min-[992px]/lc:py-2"
@@ -704,7 +762,9 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         status={status}
         statusLabel={statusLabel}
         badges={badges}
-        trackBaseline={server?.sellEntryLatched === true ? server.sellQtyTrackBaseline : null}
+        trackBaseline={
+          server?.sellEntryLatched === true ? server.sellQtyTrackBaseline : null
+        }
         unacked={unacked}
         error={lastError}
         appliedAt={appliedAt}
@@ -776,7 +836,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
           exchange={exchange}
           server={server}
           upperLimit={upperLimit}
-          disabled={isin === '' || accountNo === '' || status !== 'ready'}
+          disabled={isin === "" || accountNo === "" || status !== "ready"}
           buyStatusText={badges.buyText}
           sellStatusText={badges.sellText}
           onDirtyCountChange={setDirtyCount}
@@ -790,8 +850,8 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         selectedAccountNo={accountNo}
         accountName={accounts.find((a) => a.accountNo === accountNo)?.name}
         account={accountState}
-        isin={isin === '' ? null : isin}
-        name={displayName === '' ? undefined : displayName}
+        isin={isin === "" ? null : isin}
+        name={displayName === "" ? undefined : displayName}
         currentPrice={currentPrice > 0 ? currentPrice : undefined}
         originTag="상따"
         status={status}
@@ -838,7 +898,7 @@ function QuoteCell({
   return (
     <div
       className={cn(
-        'flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px] @min-[992px]/lc:px-0 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[12px]',
+        "flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px] @min-[992px]/lc:px-0 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[12px]",
         order,
       )}
     >
@@ -847,8 +907,8 @@ function QuoteCell({
       </span>
       <span
         className={cn(
-          'mono ml-auto font-semibold whitespace-nowrap @min-[992px]/lc:ml-0',
-          tone ?? 'text-[var(--fg)]',
+          "mono ml-auto font-semibold whitespace-nowrap @min-[992px]/lc:ml-0",
+          tone ?? "text-[var(--fg)]",
         )}
       >
         {value}
@@ -859,7 +919,7 @@ function QuoteCell({
 
 /** 가격 한 칸 — **0 은 「모른다」**이므로 대시다. 0 을 그리면 그 숫자로 판단이 이뤄진다. */
 function priceText(value: number): string {
-  return value > 0 ? KRW.format(value) : '—';
+  return value > 0 ? KRW.format(value) : "—";
 }
 
 /**
@@ -870,8 +930,8 @@ function priceText(value: number): string {
  *   자기 자식에게 의존하게 된다. 규칙이 갈라지면 두 곳을 함께 고쳐라(판정식은 세 줄이다).
  */
 function priceTone(value: number, base: number): string {
-  if (value <= 0 || base <= 0 || value === base) return 'text-[var(--flat)]';
-  return value > base ? 'text-[var(--up)]' : 'text-[var(--down)]';
+  if (value <= 0 || base <= 0 || value === base) return "text-[var(--flat)]";
+  return value > base ? "text-[var(--up)]" : "text-[var(--down)]";
 }
 
 export interface StrategyStatus {
@@ -882,17 +942,17 @@ export interface StrategyStatus {
   /** 상태줄 값 — `ON`/`OFF`, `감시`/`대기`/`OFF`. */
   buyLabel: string;
   sellLabel: string;
-  buyTone: 'on' | 'off';
-  sellTone: 'watch' | 'wait' | 'off';
+  buyTone: "on" | "off";
+  sellTone: "watch" | "wait" | "off";
 }
 
 const EMPTY_STATUS: StrategyStatus = {
-  buyText: '',
-  sellText: '',
-  buyLabel: 'OFF',
-  sellLabel: 'OFF',
-  buyTone: 'off',
-  sellTone: 'off',
+  buyText: "",
+  sellText: "",
+  buyLabel: "OFF",
+  sellLabel: "OFF",
+  buyTone: "off",
+  sellTone: "off",
 };
 
 /**
@@ -903,16 +963,37 @@ const EMPTY_STATUS: StrategyStatus = {
  * ★ `hadOrder` 가 false 면 「발주됨」을 만들지 않는다 — 한 번도 발주된 적 없는 전략을
  *   「발주 완료」로 쓰면 사용자가 나가지도 않은 주문을 찾아 미체결을 뒤진다(Pitfall 10).
  */
-export function strategyStatusOf(item: RelayLimitChaser | null, hadOrder: boolean): StrategyStatus {
+export function strategyStatusOf(
+  item: RelayLimitChaser | null,
+  hadOrder: boolean,
+): StrategyStatus {
   if (item === null) return EMPTY_STATUS;
-  const kinds = new Set(strategyBadgesOf({ ...item, hadOrder }).map((b) => b.kind));
+  const kinds = new Set(
+    strategyBadgesOf({ ...item, hadOrder }).map((b) => b.kind),
+  );
   return {
-    buyText: kinds.has('buyOn') ? '무장' : kinds.has('fired') ? '발주 완료 · 무장 해제' : '',
-    sellText: kinds.has('sellWatch') ? '감시 중' : kinds.has('sellWait') ? '대기 (지지벽 미관측)' : '',
-    buyLabel: kinds.has('buyOn') ? 'ON' : 'OFF',
-    sellLabel: kinds.has('sellWatch') ? '감시' : kinds.has('sellWait') ? '대기' : 'OFF',
-    buyTone: kinds.has('buyOn') ? 'on' : 'off',
-    sellTone: kinds.has('sellWatch') ? 'watch' : kinds.has('sellWait') ? 'wait' : 'off',
+    buyText: kinds.has("buyOn")
+      ? "무장"
+      : kinds.has("fired")
+        ? "발주 완료 · 무장 해제"
+        : "",
+    sellText: kinds.has("sellWatch")
+      ? "감시 중"
+      : kinds.has("sellWait")
+        ? "대기 (지지벽 미관측)"
+        : "",
+    buyLabel: kinds.has("buyOn") ? "ON" : "OFF",
+    sellLabel: kinds.has("sellWatch")
+      ? "감시"
+      : kinds.has("sellWait")
+        ? "대기"
+        : "OFF",
+    buyTone: kinds.has("buyOn") ? "on" : "off",
+    sellTone: kinds.has("sellWatch")
+      ? "watch"
+      : kinds.has("sellWait")
+        ? "wait"
+        : "off",
   };
 }
 
@@ -934,7 +1015,8 @@ function StatusBar({
   appliedAt: string | null;
 }) {
   // ⑥ 연결 상태 문구는 계약 한 곳(`RELAY_STATE_LABELS`)에서만 온다(D-36).
-  const label = statusLabel === '' ? RELAY_STATE_LABELS.connecting : statusLabel;
+  const label =
+    statusLabel === "" ? RELAY_STATE_LABELS.connecting : statusLabel;
 
   return (
     <div
@@ -944,21 +1026,35 @@ function StatusBar({
       className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--muted-fg)]"
     >
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone={status === 'ready' ? 'ok' : 'off'} pulse={PROGRESS_STATES.has(status)} />
+        <Dot
+          tone={status === "ready" ? "ok" : "off"}
+          pulse={PROGRESS_STATES.has(status)}
+        />
         DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone={s.buyTone === 'on' ? 'up' : 'off'} />
+        <Dot tone={s.buyTone === "on" ? "up" : "off"} />
         매수 <b className="font-semibold text-[var(--fg)]">{s.buyLabel}</b>
-        {s.buyText === '발주 완료 · 무장 해제' && <small>(발주됨)</small>}
+        {s.buyText === "발주 완료 · 무장 해제" && <small>(발주됨)</small>}
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <Dot tone={s.sellTone === 'watch' ? 'down' : s.sellTone === 'wait' ? 'hollow' : 'off'} />
+        <Dot
+          tone={
+            s.sellTone === "watch"
+              ? "down"
+              : s.sellTone === "wait"
+                ? "hollow"
+                : "off"
+          }
+        />
         매도 <b className="font-semibold text-[var(--fg)]">{s.sellLabel}</b>
       </span>
       {trackBaseline !== null && (
         <span>
-          잔량추적 기준선 <b className="mono font-semibold text-[var(--fg)]">{KRW.format(trackBaseline)}</b>
+          잔량추적 기준선{" "}
+          <b className="mono font-semibold text-[var(--fg)]">
+            {KRW.format(trackBaseline)}
+          </b>
         </span>
       )}
       {/*
@@ -966,42 +1062,58 @@ function StatusBar({
         「다시 시도한다」를 말하는 곳이 아니다.
       */}
       {unacked && (
-        <span data-slot="lc-unacked" className="font-semibold text-[var(--destructive)]">
+        <span
+          data-slot="lc-unacked"
+          className="font-semibold text-[var(--destructive)]"
+        >
           미반영 · 서버 응답을 기다리고 있어요
         </span>
       )}
       {error !== null && (
-        <span role="alert" data-slot="lc-server-error" className="min-w-0 text-[var(--destructive)]">
+        <span
+          role="alert"
+          data-slot="lc-server-error"
+          className="min-w-0 text-[var(--destructive)]"
+        >
           {error}
         </span>
       )}
-      {appliedAt !== null && <span className="mono ml-auto">반영 {appliedAt}</span>}
+      {appliedAt !== null && (
+        <span className="mono ml-auto">반영 {appliedAt}</span>
+      )}
     </div>
   );
 }
 
 /** 점멸 도트를 쓰는 진행 상태 — `relay-status-bar`·`me-client` 와 같은 집합이다. */
 const PROGRESS_STATES: ReadonlySet<RelayStatus> = new Set<RelayStatus>([
-  'idle',
-  'connecting',
-  'logging_in',
-  'declaring',
+  "idle",
+  "connecting",
+  "logging_in",
+  "declaring",
 ]);
 
 /** 상태 도트. **형태(채움/속빔)가 색과 함께 상태를 말한다**(WCAG 1.4.1). */
-function Dot({ tone, pulse = false }: { tone: 'ok' | 'up' | 'down' | 'hollow' | 'off'; pulse?: boolean }) {
+function Dot({
+  tone,
+  pulse = false,
+}: {
+  tone: "ok" | "up" | "down" | "hollow" | "off";
+  pulse?: boolean;
+}) {
   return (
     <span
       aria-hidden="true"
       data-tone={tone}
       className={cn(
-        'block size-[7px] shrink-0 rounded-full',
-        tone === 'ok' && 'bg-[oklch(0.72_0.19_150)]',
-        tone === 'up' && 'bg-[var(--up)]',
-        tone === 'down' && 'bg-[var(--down)]',
-        tone === 'hollow' && 'border-[1.5px] border-[var(--muted-fg)] bg-transparent',
-        tone === 'off' && 'bg-[var(--flat)]',
-        pulse && 'animate-pulse motion-reduce:animate-none',
+        "block size-[7px] shrink-0 rounded-full",
+        tone === "ok" && "bg-[oklch(0.72_0.19_150)]",
+        tone === "up" && "bg-[var(--up)]",
+        tone === "down" && "bg-[var(--down)]",
+        tone === "hollow" &&
+          "border-[1.5px] border-[var(--muted-fg)] bg-transparent",
+        tone === "off" && "bg-[var(--flat)]",
+        pulse && "animate-pulse motion-reduce:animate-none",
       )}
     />
   );
@@ -1030,14 +1142,16 @@ function Dot({ tone, pulse = false }: { tone: 'ok' | 'up' | 'down' | 'hollow' | 
  * ★ 타입은 `market: 'KOSPI' | 'KOSDAQ'` 이라고 말하지만 **런타임은 그렇지 않다** — KONEX·
  *   `null`·master-sync 의 미확인 sentinel 이 그대로 실려 온다. 그래서 문자열 목록으로 본다.
  */
-const ORDERABLE_MARKETS: readonly string[] = ['KOSPI', 'KOSDAQ'];
+const ORDERABLE_MARKETS: readonly string[] = ["KOSPI", "KOSDAQ"];
 /*
   ★ 반환형이 **타입 서술자**다 (GC-IN-02) — 이 함수가 런타임에 확인하는 `row.isin !== null` 을
     타입에도 그대로 말한다. `boolean` 이면 TS 가 좁히지 못해 소비부가 `isin` 을 `string` 으로
     단언해 메우게 되고, 그 단언은 「검사와 타입이 갈라져도 컴파일러가 침묵한다」는 뜻이다 —
     나중에 이 함수에서 `isin` 검사를 빼도 아무 데서도 터지지 않는다.
 */
-function isPickable(row: StockDetailResponse): row is StockDetailResponse & { isin: string } {
+function isPickable(
+  row: StockDetailResponse,
+): row is StockDetailResponse & { isin: string } {
   return row.isin !== null && ORDERABLE_MARKETS.includes(row.market);
 }
 
@@ -1057,10 +1171,41 @@ function StockSearchField({
   onPick: (stock: SelectedStock) => void;
   onCancel: () => void;
 }) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState<StockDetailResponse[]>([]);
   const [loading, setLoading] = useState(false);
+  /**
+   * 활성 항목을 **인덱스가 아니라 종목코드**로 들고 있는다 (quick-260912-u58 ①).
+   *
+   * 인덱스로 두면 목록이 갱신될 때 같은 숫자가 **다른 종목**을 가리킨다 — 화면은 그대로인데
+   * Enter 가 엉뚱한 종목을 고르는 상태다(실계좌 발주 설정이므로 조용한 오발주다).
+   * 코드로 들고 있으면 그 종목이 새 목록에 없을 때 아래 `activeRow` 파생이 **스스로 null** 이
+   * 된다 — 초기화를 잊는 경로가 아예 없다.
+   */
+  const [activeCode, setActiveCode] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  /*
+    ARIA 결선용 id 뿌리. `useId()` 한 개 + 행의 `code`(이미 `key` 로 쓰는 값)로 만든다 —
+    인덱스로 만들면 목록이 갱신될 때 **같은 id 가 다른 종목**을 가리키고, 그러면
+    `aria-activedescendant` 가 가리키는 이름과 Enter 가 고르는 종목이 갈라진다.
+  */
+  const uid = useId();
+  const listId = `${uid}-lc-search-list`;
+  const optionId = (code: string) => `${uid}-lc-search-opt-${code}`;
+
+  /**
+   * 고를 수 있는 행만. ↓/↑ 가 지나가는 목록이자 Enter 가 고르는 후보다 — **판정 하나**를
+   * `isPickable` 이 갖고, 세 곳이 그것을 공유한다(다르게 쓰면 Enter 가 먹통인 활성 행이 난다).
+   */
+  const pickables = useMemo(() => results.filter(isPickable), [results]);
+  /*
+    ★ 파생이다 — 별도 초기화 effect 를 두지 않는다. 목록이 갱신돼 그 코드가 사라지면 이 값이
+      곧바로 null 이 되고, `aria-activedescendant` 도 함께 사라진다. (setResults 지점에서도
+      명시적으로 비우지만, 그 호출을 하나 빠뜨려도 여기서 막힌다.)
+  */
+  const activeRow = pickables.find((r) => r.code === activeCode) ?? null;
+  /** 결과 목록이 DOM 에 있는가 — `aria-expanded`·`aria-controls` 가 이 한 값을 말한다. */
+  const hasList = query.trim() !== "";
 
   /*
     ★ quick-260912-ok2 ② — 이 effect 가 **래퍼의 `onKeyDown`(Esc)·`onBlur`(취소)를 처음으로
@@ -1082,8 +1227,9 @@ function StockSearchField({
 
   useEffect(() => {
     const q = query.trim();
-    if (q === '') {
+    if (q === "") {
       setResults([]);
+      setActiveCode(null);
       setLoading(false);
       return;
     }
@@ -1094,11 +1240,14 @@ function StockSearchField({
         .then((rows) => {
           if (controller.signal.aborted) return;
           setResults(rows);
+          // 새 목록에는 활성 항목이 없다 — 다른 종목을 가리킨 채로 Enter 를 받지 않는다.
+          setActiveCode(null);
           setLoading(false);
         })
         .catch(() => {
           if (controller.signal.aborted) return;
           setResults([]);
+          setActiveCode(null);
           setLoading(false);
         });
     }, SEARCH_DELAY_MS);
@@ -1108,6 +1257,57 @@ function StockSearchField({
     };
   }, [query]);
 
+  /*
+    ★ 활성 항목이 `max-h-60` 목록 밖으로 나가면 따라간다. `block: 'nearest'` 라 이미 보이는
+      항목에는 아무 일도 하지 않는다 — 페이지 전체가 튀지 않는다.
+      (jsdom 에는 이 API 가 없다. `webapp/tests/setup.ts` 가 이미 폴리필을 갖고 있다.)
+  */
+  useEffect(() => {
+    if (!activeRow) return;
+    document
+      .getElementById(optionId(activeRow.code))
+      ?.scrollIntoView({ block: "nearest" });
+    // `optionId` 는 `uid` 만 닫는 순수 함수라 의존성에서 뺀다 — 매 렌더 새 함수라 넣으면 매번 돈다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRow?.code, uid]);
+
+  /**
+   * ↓/↑ 이동 — **고를 수 있는 행만** 지난다.
+   *
+   * 끝에서는 **멈춘다(순환하지 않는다)**. 순환을 고르면 긴 목록에서 ↓ 를 눌러 끝에 닿았을 때
+   * 화면이 소리 없이 맨 위로 튀어, 사용자가 「내가 어디를 보고 있는지」를 잃는다. 멈추면
+   * 끝에 닿았다는 사실이 그대로 드러난다.
+   */
+  const moveActive = (delta: 1 | -1) => {
+    if (pickables.length === 0) return;
+    const cur = pickables.findIndex((r) => r.code === activeCode);
+    const next =
+      cur === -1
+        ? delta === 1
+          ? 0
+          : pickables.length - 1
+        : Math.min(pickables.length - 1, Math.max(0, cur + delta));
+    setActiveCode(pickables[next]!.code);
+  };
+
+  /** 행 하나를 골라 위로 올린다 — 클릭 경로와 Enter 경로가 **같은 함수**를 지난다. */
+  const pick = (row: StockDetailResponse & { isin: string }) => {
+    onPick({
+      isin: row.isin,
+      code: row.code,
+      name: row.name,
+      // `market` 을 싣지 않는다 (WR-03 / D-28) — 추측이 발주 설정이 되지 않게.
+      upperLimit: row.upperLimit,
+      lowerLimit: row.lowerLimit,
+      // 기준가 = 현재가 − 전일대비. 실시간 호가가 오면 `quote.base` 가 이긴다.
+      basePrice: row.price - row.changeAmount,
+      price: row.price,
+      changeRate: row.changeRate,
+    });
+    setQuery("");
+    setActiveCode(null);
+  };
+
   return (
     <div
       className="relative min-w-0 flex-1"
@@ -1116,7 +1316,7 @@ function StockSearchField({
           네이티브 「지우기」가 같은 키를 쓰고, 그것까지 뺏으면 입력만 남고 닫히지도 않는다.
       */
       onKeyDown={(e) => {
-        if (e.key === 'Escape') {
+        if (e.key === "Escape") {
           e.stopPropagation();
           onCancel();
         }
@@ -1142,6 +1342,57 @@ function StockSearchField({
         aria-label="종목 검색"
         placeholder="종목명 또는 코드로 검색"
         /*
+          ★ quick-260912-u58 ① — **`aria-activedescendant` 콤보박스**다. 실제 DOM 포커스는
+            입력에 **남는다**. 로밍 tabindex 로 포커스를 항목에 옮기면 래퍼 `onBlur` 의
+            「밖으로 나가면 취소」 계약과 싸운다 — 항목으로 옮기는 순간 blur 가 나고, 그
+            판정이 조금이라도 어긋나면 고르기 직전에 목록이 사라진다.
+          ★ 목록이 **없을 때는 `aria-controls` 를 걸지 않는다.** `<ul>` 은 질의가 비면 아예
+            렌더되지 않으므로, 상수 id 를 늘 걸어 두면 존재하지 않는 요소를 가리켜 axe
+            `aria-valid-attr-value`(critical)에 걸린다 — `/trading/limit-chaser/new` 는 a11y
+            스캔 대상이고 그 화면은 **검색이 열린 채로** 진입한다. `aria-activedescendant` 도
+            같은 이유로 활성 항목이 있을 때만 건다.
+          ★ `role="combobox"` 를 거는 순간 `getByRole('searchbox')` 가 죽는다 —
+            `trading-limit-chaser.spec.ts` 의 조회 3곳을 **같은 커밋에서** 함께 고쳤다.
+          ★ `jsx-a11y/role-has-required-aria-props` 를 이 한 줄에서만 끈다 — 그 규칙은 ARIA
+            **1.1** 판이라 combobox 에 `aria-controls` 를 **항상** 요구한다. ARIA 1.2 는
+            `aria-expanded="false"` 일 때 `aria-controls` 를 요구하지 않고, axe(1.2 판)도
+            그렇다. 여기서 규칙을 따르면 목록이 없을 때 **존재하지 않는 id** 를 가리켜
+            `aria-valid-attr-value`(critical)로 바뀐다 — warning 하나를 끄려고 critical 하나를
+            만드는 거래다. 열린 상태의 결선은 `a11y.spec.ts` 가 실제 브라우저에서 잰다.
+        */
+        // eslint-disable-next-line jsx-a11y/role-has-required-aria-props
+        role="combobox"
+        aria-expanded={hasList}
+        aria-autocomplete="list"
+        {...(hasList ? { "aria-controls": listId } : {})}
+        {...(activeRow
+          ? { "aria-activedescendant": optionId(activeRow.code) }
+          : {})}
+        /*
+          ★ ↓/↑/Enter 는 **래퍼가 아니라 입력**에 건다. Esc 가 래퍼에 있는 이유는 포커스가
+            결과 버튼(Tab 으로 닿는다) 안에 있을 때도 닫혀야 하기 때문인데, 이 셋은 정반대다 —
+            포커스가 결과 버튼 위에 있을 때 Enter 는 이미 그 버튼의 네이티브 클릭이다. 래퍼에
+            걸면 같은 Enter 한 번이 버튼 클릭 + 활성항목 선택으로 **두 번** 고르게 된다.
+            콤보박스 키보드는 콤보박스(=입력)의 것이다.
+        */
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            // 캐럿이 입력 양끝으로 튀는 네이티브 동작을 막는다 — 목록 이동이 이 키의 뜻이다.
+            e.preventDefault();
+            moveActive(e.key === "ArrowDown" ? 1 : -1);
+            return;
+          }
+          if (e.key === "Enter") {
+            /*
+              ★ 활성 항목이 없어도 `preventDefault` 는 한다 — `type="search"` 의 Enter 가
+                조상 폼 제출로 새는 경로를 여기서 끊는다. 다만 **`onPick` 은 부르지 않는다**:
+                첫 항목 자동 선택은 「엉뚱한 종목이 실계좌 발주 설정이 되는」 문이다(T-u58-01).
+            */
+            e.preventDefault();
+            if (activeRow) pick(activeRow);
+          }
+        }}
+        /*
           ★ quick-260912-mvo Q-02 — 포커스는 **테두리색 한 겹**이다. 이 입력은 래퍼가 아니라
             자기 자신이 테두리(`border-[var(--input)]`)를 가지므로 `focus-within:` 이 아니라
             `focus-visible:` 이다. seamless 로 전역 링을 걷었으니 이 테두리 유틸리티를 지우면
@@ -1152,8 +1403,10 @@ function StockSearchField({
         data-focus-ring="seamless"
         className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
       />
-      {query.trim() !== '' && (
+      {hasList && (
         <ul
+          id={listId}
+          role="listbox"
           data-slot="lc-search-results"
           aria-label="종목 검색 결과"
           /* 위 `onBlur` 주석 참조 — 클릭 도중 포커스가 입력에서 떠나지 않게 하는 절반이다. */
@@ -1161,52 +1414,71 @@ function StockSearchField({
           className="absolute inset-x-0 top-10 z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] p-1 shadow-lg"
         >
           {results.length === 0 ? (
-            <li className="px-2 py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-              {loading ? '검색 중이에요…' : '검색 결과가 없어요'}
+            /*
+              ★ 안내 문구는 **옵션이 아니다.** `role="presentation"` 으로 낮춰 listbox 가
+                옵션 아닌 자식을 소유하지 않게 한다 — 그대로 두면 axe 가 이 `<li>` 를 owned
+                child 로 보고 `aria-required-children` 을 낸다. 문구 자체는 텍스트 노드라
+                role 을 갖지 않으므로 listbox 는 「옵션 0개」로 읽힌다(= 사실 그대로다).
+            */
+            <li
+              role="presentation"
+              className="px-2 py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+            >
+              {loading ? "검색 중이에요…" : "검색 결과가 없어요"}
             </li>
           ) : (
-            results.map((row) => (
-              <li key={row.code}>
-                <button
-                  type="button"
-                  data-slot="lc-search-option"
-                  disabled={!isPickable(row)}
-                  onClick={() => {
-                    // 서술자가 여기서 `row.isin` 을 `string` 으로 좁힌다 — 단언이 필요 없다.
-                    if (!isPickable(row)) return;
-                    onPick({
-                      isin: row.isin,
-                      code: row.code,
-                      name: row.name,
-                      // `market` 을 싣지 않는다 (WR-03 / D-28) — 추측이 발주 설정이 되지 않게.
-                      upperLimit: row.upperLimit,
-                      lowerLimit: row.lowerLimit,
-                      // 기준가 = 현재가 − 전일대비. 실시간 호가가 오면 `quote.base` 가 이긴다.
-                      basePrice: row.price - row.changeAmount,
-                      price: row.price,
-                      changeRate: row.changeRate,
-                    });
-                    setQuery('');
-                  }}
-                  className="flex w-full min-w-0 items-center gap-[var(--s-2)] rounded-[var(--r)] px-2 py-1.5 text-left hover:bg-[var(--muted)] disabled:opacity-45"
-                >
-                  <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-                    {row.name}
-                  </span>
-                  <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                    {row.code}
-                  </span>
-                  {!isPickable(row) && (
-                    <span
-                      data-slot="lc-search-unorderable"
-                      className="flex-none text-[11px] text-[var(--muted-fg)]"
-                    >
-                      주문 불가
+            results.map((row) => {
+              const pickable = isPickable(row);
+              const active = activeRow?.code === row.code;
+              return (
+                /*
+                ★ `role="option"` 은 `<li>` 가 아니라 **버튼**이 갖는다. `<li role="option">`
+                  안에 `<button>` 을 두면 axe `nested-interactive`(wcag2a · serious)에 걸리고,
+                  마우스 클릭 경로를 유지하려면 버튼이 남아야 한다. `<li>` 는
+                  `role="presentation"` 으로 낮춰 listbox 가 **옵션만** 소유하게 한다.
+              */
+                <li key={row.code} role="presentation">
+                  <button
+                    type="button"
+                    id={optionId(row.code)}
+                    role="option"
+                    aria-selected={active}
+                    {...(pickable ? {} : { "aria-disabled": true })}
+                    data-slot="lc-search-option"
+                    disabled={!pickable}
+                    onClick={() => {
+                      // 서술자가 여기서 `row.isin` 을 `string` 으로 좁힌다 — 단언이 필요 없다.
+                      if (!isPickable(row)) return;
+                      pick(row);
+                    }}
+                    /*
+                    ★ 활성 표시는 **호버와 같은 배경**이다 — 새 색 토큰을 만들지 않는다.
+                      기계가 읽는 계약은 `aria-activedescendant` ↔ 이 버튼의 `id` 이고,
+                      이 배경은 사람이 읽는 같은 사실의 다른 채널이다.
+                  */
+                    className={cn(
+                      "flex w-full min-w-0 items-center gap-[var(--s-2)] rounded-[var(--r)] px-2 py-1.5 text-left hover:bg-[var(--muted)] disabled:opacity-45",
+                      active && "bg-[var(--muted)]",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+                      {row.name}
                     </span>
-                  )}
-                </button>
-              </li>
-            ))
+                    <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                      {row.code}
+                    </span>
+                    {!isPickable(row) && (
+                      <span
+                        data-slot="lc-search-unorderable"
+                        className="flex-none text-[11px] text-[var(--muted-fg)]"
+                      >
+                        주문 불가
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })
           )}
         </ul>
       )}
@@ -1234,11 +1506,13 @@ function useLeaveWarning(dirty: boolean): void {
 
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+        return;
       const target = event.target;
       if (!(target instanceof Element)) return;
-      const anchor = target.closest('a[href]');
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === '_blank') return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank")
+        return;
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin) return;
       if (url.pathname === window.location.pathname) return;
@@ -1247,12 +1521,12 @@ function useLeaveWarning(dirty: boolean): void {
       event.stopPropagation();
     };
 
-    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener("beforeunload", onBeforeUnload);
     // capture 단계에서 잡아야 Next `<Link>` 의 핸들러보다 먼저 막을 수 있다.
-    document.addEventListener('click', onClick, true);
+    document.addEventListener("click", onClick, true);
     return () => {
-      window.removeEventListener('beforeunload', onBeforeUnload);
-      document.removeEventListener('click', onClick, true);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onClick, true);
     };
   }, [dirty]);
 }
