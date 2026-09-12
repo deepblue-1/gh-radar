@@ -61,6 +61,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { RELAY_STATE_LABELS } from '@gh-radar/shared';
 import type {
   RelayExchange,
@@ -466,13 +467,19 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
           {/*
             거래소 — 네이티브 1단 콤보. 방향 의미가 없어 중립이다.
             편집 진입은 거래소가 **키의 일부**라 바꾸면 다른 전략이 되므로 잠근다.
+            ★ `appearance-none` 을 넣지 않는다 — 네이티브 캐럿과 OS 선택 UI 를 잃는다.
+            ★ 데스크톱(≥992)에서만 글자·높이를 키운다 (quick-260912-mvo Q-04). 넓은 화면에서
+              10px 은 같은 줄의 20px 종목명 옆에서 읽히지 않았다. 좁은 폭의
+              `text-[10px] px-1 py-0.5` 는 **그대로**다 — 폰 헤더는 이미 빡빡하다.
+            ★ 종목명과 **같은 크기로 만들지 않는다.** 같은 줄에 선 보조 컨트롤로 읽혀야 한다.
+              `py-0` 은 `h-7` 과 기본 `py-0.5` 가 다투지 않게 하는 짝이다.
           */}
           <select
             aria-label="거래소"
             value={exchange}
             onChange={(e) => setExchange(e.target.value as RelayExchange)}
             disabled={parsedKey !== null}
-            className="flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[10px] font-bold text-[var(--muted-fg)] disabled:opacity-50"
+            className="flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[10px] font-bold text-[var(--muted-fg)] disabled:opacity-50 @min-[992px]/lc:h-7 @min-[992px]/lc:px-1.5 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[14px]"
           >
             {(['KRX', 'NXT'] as const).map((ex) => (
               <option key={ex} value={ex}>
@@ -487,6 +494,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                 setPicked(s);
                 setSearching(false);
               }}
+              onCancel={() => setSearching(false)}
             />
           ) : (
             <>
@@ -497,13 +505,21 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                 ★ `aria-label` 을 걸지 않는다 — 보이는 글자(종목명·코드)가 접근성 이름에
                   그대로 남아야 WCAG 2.5.3(label in name)을 만족한다. 「무엇이 되는가」는
                   `sr-only` 한 조각이 덧붙인다.
+                ★ quick-260912-mvo Q-05 — **눌리는 컨트롤로 보이게 + 행을 먹지 않게.**
+                  ⓐ 텍스트 캐럿(`▾`)을 lucide `ChevronDown` 으로 바꿨다. 글자 캐럿은 글꼴에
+                    따라 위치·굵기가 흔들려 장식으로 읽혔다.
+                  ⓑ 아이콘만으로는 약해서 **옅은 테두리**(`--border-subtle`)를 둘렀다.
+                  ⓒ `flex-1` 을 걷었다 — 트리거가 행의 빈 공간까지 먹어, 종목명에서 한참
+                    떨어진 허공을 눌러도 검색이 열렸다. `min-w-0` 은 남겨 긴 종목명이
+                    `truncate` 로 줄어들게 하고, 다른 폭 유틸리티는 새로 넣지 않는다
+                    (flex 기본값이 「내용 폭, 필요하면 축소」다).
               */}
               <button
                 type="button"
                 data-slot="lc-stock-trigger"
                 disabled={parsedKey !== null}
                 onClick={() => setSearching(true)}
-                className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-[var(--r)] px-1 py-0.5 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                className="flex min-w-0 items-baseline gap-1.5 rounded-[var(--r)] border border-[var(--border-subtle)] px-1 py-0.5 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
                 <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] @min-[992px]/lc:text-[20px]">
                   {displayName}
@@ -514,29 +530,39 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                   </span>
                 )}
                 <span className="sr-only">종목 변경</span>
-                <span aria-hidden="true" className="flex-none text-[10px] text-[var(--muted-fg)]">
-                  ▾
-                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="size-3.5 flex-none text-[var(--muted-fg)] @min-[992px]/lc:size-4"
+                />
               </button>
 
-              <span
-                className={cn(
-                  'ml-auto flex flex-none flex-col items-end leading-[1.2]',
-                  changeRate > 0
-                    ? 'text-[var(--up)]'
-                    : changeRate < 0
-                      ? 'text-[var(--down)]'
-                      : 'text-[var(--flat)]',
-                )}
-              >
-                <b className="mono text-[16px] font-bold @min-[992px]/lc:text-[22px]">
-                  {currentPrice > 0 ? KRW.format(currentPrice) : '—'}
-                </b>
-                <small className="mono text-[11px] font-semibold @min-[992px]/lc:text-[13px]">
-                  {changeRate.toFixed(2)}%
-                </small>
-              </span>
             </>
+          )}
+
+          {/*
+            ★ quick-260912-mvo Q-05 (d) — 현재가는 **검색 중에도 남는다**(`isin !== ''` 이기만
+              하면 렌더). 예전에는 종목명 트리거와 한 덩어리라 검색을 열면 현재가까지 통째로
+              사라졌고, 그것이 이 화면에서 가장 큰 레이아웃 점프이자 「종목이 이미 바뀌었나」
+              하는 오독의 원인이었다. 바꾸는 것은 왼쪽 자리 하나뿐이어야 한다.
+          */}
+          {isin !== '' && (
+            <span
+              className={cn(
+                'ml-auto flex flex-none flex-col items-end leading-[1.2]',
+                changeRate > 0
+                  ? 'text-[var(--up)]'
+                  : changeRate < 0
+                    ? 'text-[var(--down)]'
+                    : 'text-[var(--flat)]',
+              )}
+            >
+              <b className="mono text-[16px] font-bold @min-[992px]/lc:text-[22px]">
+                {currentPrice > 0 ? KRW.format(currentPrice) : '—'}
+              </b>
+              <small className="mono text-[11px] font-semibold @min-[992px]/lc:text-[13px]">
+                {changeRate.toFixed(2)}%
+              </small>
+            </span>
           )}
         </div>
 
@@ -560,7 +586,12 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
             `기준`(`base`)·`거래`(`va`) 도 그 프레임의 필드라 새 API·새 조회 경로가 0개다.
           ★ 값이 0 이거나 아직 안 왔으면 `—` 다 — 0 을 그리면 그 숫자로 매도 판단이 이뤄진다.
         */}
-        {isin !== '' && !searching && (
+        {/*
+          ★ quick-260912-mvo Q-05 (d) — `!searching` 조건을 **걷었다.** 검색을 여는 순간
+            종목정보 10칸이 통째로 사라져 「하단 내용이 바뀐다」로 읽혔다. 검색은 종목명
+            **자리에서만** 일어나야 한다 — 아래 내용은 취소했을 때 돌아올 그 종목의 것이다.
+        */}
+        {isin !== '' && (
           <div
             data-slot="lc-quote-grid"
             className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1 @min-[700px]/lc:grid-cols-5 @min-[992px]/lc:flex @min-[992px]/lc:flex-wrap @min-[992px]/lc:items-baseline @min-[992px]/lc:gap-x-[20px] @min-[992px]/lc:gap-y-0 @min-[992px]/lc:px-3.5 @min-[992px]/lc:py-2"
@@ -975,7 +1006,19 @@ function isPickable(row: StockDetailResponse): row is StockDetailResponse & { is
   return row.isin !== null && ORDERABLE_MARKETS.includes(row.market);
 }
 
-function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }) {
+/**
+ * 종목 검색 — 종목명 **자리에** in-place 로 뜬다 (quick-260912-mvo Q-05).
+ *
+ * `onCancel` 은 「고르지 않고 닫는다」다. 이미 고른 종목(`picked`)은 **건드리지 않으므로**
+ * 취소해도 종목이 바뀌지 않는다 — 그것이 이 프롭의 존재 이유다.
+ */
+function StockSearchField({
+  onPick,
+  onCancel,
+}: {
+  onPick: (stock: SelectedStock) => void;
+  onCancel: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StockDetailResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1009,20 +1052,55 @@ function StockSearchField({ onPick }: { onPick: (stock: SelectedStock) => void }
   }, [query]);
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div
+      className="relative min-w-0 flex-1"
+      /*
+        ★ Esc 로 취소한다. 전파는 멈추되 **기본 동작은 막지 않는다** — `type="search"` 의
+          네이티브 「지우기」가 같은 키를 쓰고, 그것까지 뺏으면 입력만 남고 닫히지도 않는다.
+      */
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+      /*
+        ★ 컨테이너 **밖**으로 포커스가 나갈 때만 닫는다. 안쪽(입력 ↔ 결과 버튼) 이동은 닫지
+          않는다 — 닫히면 항목을 영영 못 고른다(T-mvo-03).
+        ★ `relatedTarget` 포함 판정만으로는 부족하다. 일부 브라우저는 버튼 mousedown 에서
+          포커스를 옮기지 않아 `relatedTarget` 이 `null` 로 온다 — 그 경우 「밖으로 나갔다」로
+          오판해 클릭이 완성되기 전에 목록이 사라진다. 그래서 결과 `<ul>` 의 mousedown 기본
+          동작을 함께 막아 포커스가 입력에서 **떠나지 않게** 한다(click 은 그대로 발생한다).
+          **두 장치가 함께여야** 이 실패가 닫힌다.
+      */
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) onCancel();
+      }}
+    >
       <input
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         aria-label="종목 검색"
         placeholder="종목명 또는 코드로 검색"
-        className="h-10 w-full min-w-0 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)]"
+        /*
+          ★ quick-260912-mvo Q-02 — 포커스는 **테두리색 한 겹**이다. 이 입력은 래퍼가 아니라
+            자기 자신이 테두리(`border-[var(--input)]`)를 가지므로 `focus-within:` 이 아니라
+            `focus-visible:` 이다. seamless 로 전역 링을 걷었으니 이 테두리 유틸리티를 지우면
+            포커스가 아무 표시 없이 사라진다(WCAG 2.4.7).
+          ★ 높이 `h-9` 는 아래 결과 목록의 `top-10` 과 **한 쌍**이다. 한쪽만 고치면 목록이
+            입력에서 떠서, 마우스가 그 틈을 지나는 순간 닫힌 것처럼 보인다.
+        */
+        data-focus-ring="seamless"
+        className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
       />
       {query.trim() !== '' && (
         <ul
           data-slot="lc-search-results"
           aria-label="종목 검색 결과"
-          className="absolute inset-x-0 top-11 z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] p-1 shadow-lg"
+          /* 위 `onBlur` 주석 참조 — 클릭 도중 포커스가 입력에서 떠나지 않게 하는 절반이다. */
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute inset-x-0 top-10 z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] p-1 shadow-lg"
         >
           {results.length === 0 ? (
             <li className="px-2 py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]">

@@ -274,17 +274,24 @@ describe('OrderbookLadder — 상따 변형', () => {
 
       ★ 260911-w5h — 사다리 아래 **compact 체결 테이프**가 들어오면서 같은 조건의 스크롤
         영역이 하나 더 생겼다(`tape-scroll`, `max-h-[200px]`).
-      ★ 260912-k2x — **2단 트리**가 신설되면서 그 테이프가 한 벌 더 생겼다. 그래서 계약은
-        「**스크롤 영역 정확히 3개, 그리고 행에는 0개**」이고 DOM 순서까지 고정한다:
+      ★ 260912-k2x — **2단 트리**가 신설되면서 그 테이프가 한 벌 더 생겼다.
+      ★ quick-260912-mvo Q-07 — 2단 트리의 호가표가 **240px 스크롤 박스**(`ladder-scroll-two`)
+        안으로 들어갔다. 20행을 통째로 펼치면 480px 이라 옆 폼과 높이가 크게 어긋났다.
+        단수를 자른 것이 **아니라** 박스 높이만 자른 것이므로, 이 박스도 앞의 둘과 **같은
+        이유로** tab stop 이어야 한다 — 안에 포커스 가능한 자식이 없어서, 박스가 포커스를
+        못 받으면 키보드 사용자는 매수 6~10단에 닿을 수 없다.
+        그래서 계약은 「**스크롤 영역 정확히 4개, 그리고 행에는 0개**」이고 DOM 순서까지
+        고정한다(늘어난 것은 숫자가 아니라 같은 규칙이 적용되는 영역의 개수다):
           · 3단 트리 — 스크롤 영역 없음(표가 통째로 보인다)
-          · 2단 트리 — `tape-scroll`
+          · 2단 트리 — `ladder-scroll-two`(240px 박스 안의 호가 20행) + `tape-scroll`
           · 1단 트리 — `ladder-scroll`(340px 박스 안의 호가 20행) + `tape-scroll`
         전부 안에 상시 포커스 가능한 자식이 없다. 행에 하나라도 붙으면 마지막 단언이 깨진다.
         범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
     */
     const tabbables = Array.from(container.querySelectorAll('[tabindex]'));
-    expect(tabbables).toHaveLength(3);
+    expect(tabbables).toHaveLength(4);
     expect(tabbables.map((el) => el.getAttribute('data-slot'))).toEqual([
+      'ladder-scroll-two',
       'tape-scroll',
       'ladder-scroll',
       'tape-scroll',
@@ -609,5 +616,60 @@ describe('OrderbookLadder — 상따 변형', () => {
       expect(el.textContent).not.toContain('+');
       expect(getComputedStyle(el).minWidth).toBe('40px');
     }
+  });
+
+  /* ---------------------------------------------------------------------
+     quick-260912-mvo Q-07 — 2단 호가를 240px(=10행) 스크롤 박스에 넣는다.
+     **단수를 자른 것이 아니라 박스 높이만 잘랐다** — 20행은 전부 살아 있다.
+     --------------------------------------------------------------------- */
+
+  it('⑰e 2단 호가가 240px 스크롤 박스 안에 있고 그 안의 행이 **20개 그대로**다 (T-mvo-04)', () => {
+    const { container } = renderChaser();
+
+    const box = container.querySelector<HTMLElement>('[data-slot="ladder-scroll-two"]')!;
+    expect(box).not.toBeNull();
+
+    // 240 = 24 × 10 이고 24px 은 `twoRow` 가격 셀의 `h-6` 이다 — 둘은 한 쌍이다.
+    expect(box.className).toContain('h-[240px]');
+    expect(box.className).toContain('overflow-y-auto');
+    /*
+      ★ 박스 안에 포커스 가능한 자식이 없다 — `tabIndex=0` 이 없으면 키보드만 쓰는 사용자가
+        매수 6~10단에 닿을 방법이 사라진다(axe `scrollable-region-focusable`, serious).
+    */
+    expect(box).toHaveAttribute('tabindex', '0');
+    // 이름은 안쪽 `<table>` 이 갖는다 — 박스에 중복 라벨을 달지 않는다.
+    expect(box).not.toHaveAttribute('aria-label');
+
+    // ★ **20행 전부**가 박스 안에 있다. 5단만 그리면 6~10단을 볼 방법이 사라진다.
+    expect(box.querySelectorAll('[data-slot="ladder-row-two"]')).toHaveLength(20);
+  });
+
+  it('⑰f 체결 테이프는 그 스크롤 박스 **밖**에 있다 — 체결 10건이 스크롤에 묻히지 않는다', () => {
+    const { container } = renderChaser();
+
+    const two = container.querySelector<HTMLElement>('[data-tree="two"]')!;
+    const box = container.querySelector<HTMLElement>('[data-slot="ladder-scroll-two"]')!;
+    const tape = two.querySelector<HTMLElement>('[data-slot="tape-scroll"]')!;
+    expect(tape).not.toBeNull();
+    expect(box.contains(tape)).toBe(false);
+    expect(two.contains(tape)).toBe(true);
+  });
+
+  it('⑰g 3단 표와 1단 사다리 트리는 구조가 변하지 않았다 (와이드·폰 불변 회귀 잠금)', () => {
+    const { container } = renderChaser();
+
+    const three = container.querySelector<HTMLElement>('[data-tree="three"]')!;
+    const one = container.querySelector<HTMLElement>('[data-tree="one"]')!;
+
+    // 새 박스는 2단 트리에만 있다.
+    expect(three.querySelector('[data-slot="ladder-scroll-two"]')).toBeNull();
+    expect(one.querySelector('[data-slot="ladder-scroll-two"]')).toBeNull();
+    // 3단 표는 여전히 스크롤 박스가 없다(표가 통째로 보인다).
+    expect(three.querySelector('[data-slot="ladder-scroll"]')).toBeNull();
+    // 1단 사다리의 340px 박스는 그대로다.
+    const oneBox = one.querySelector<HTMLElement>('[data-slot="ladder-scroll"]')!;
+    expect(oneBox).not.toBeNull();
+    expect(oneBox.className).toContain('h-[340px]');
+    expect(oneBox).toHaveAttribute('tabindex', '0');
   });
 });

@@ -1,5 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 /**
@@ -980,5 +988,157 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     renderEdit({ quote: quote() });
 
     expect(screen.queryByRole('button', { name: '종목 변경' })).toBeNull();
+  });
+
+  /* ---------------------------------------------------------------------
+     quick-260912-mvo — Q-04 거래소 콤보 · Q-05 종목 변경 4가지 · Q-02 검색 입력
+     --------------------------------------------------------------------- */
+
+  /** 신규 진입에서 종목 하나를 고르고 **검색을 다시 연** 상태까지 만든다. */
+  async function pickThenOpenSearch(over: Record<string, unknown> = {}) {
+    searchMock.mockResolvedValue([
+      {
+        code: '000660',
+        name: 'SK하이닉스',
+        market: 'KOSPI',
+        isin: 'KR7000660001',
+        price: 200_000,
+        changeAmount: 1_000,
+        changeRate: 0.5,
+        volume: 1,
+        tradeAmount: 1,
+        open: 1,
+        high: 1,
+        low: 1,
+        marketCap: 0,
+        upperLimit: 260_000,
+        lowerLimit: 140_000,
+        updatedAt: '2026-09-09T02:00:00Z',
+        upperLimitProximity: 1,
+      },
+    ]);
+    setRelay(over);
+    render(<LimitChaserClient />);
+
+    fireEvent.change(screen.getByLabelText('종목 검색'), { target: { value: 'SK' } });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-slot="lc-search-option"]')).toHaveLength(1),
+    );
+    fireEvent.click(document.querySelector('[data-slot="lc-search-option"]') as HTMLButtonElement);
+
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]') as HTMLButtonElement;
+    fireEvent.click(trigger);
+    return screen.getByLabelText('종목 검색') as HTMLInputElement;
+  }
+
+  it('Q-05 — Esc 로 검색이 닫히고 **고른 종목이 그대로**다', async () => {
+    const input = await pickThenOpenSearch();
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    // 트리거가 돌아오고, 그 이름이 취소 전과 같다 — 취소가 종목을 바꾸지 않는다.
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]')!;
+    expect(trigger).not.toBeNull();
+    expect(trigger).toHaveTextContent('SK하이닉스');
+    expect(screen.queryByLabelText('종목 검색')).toBeNull();
+  });
+
+  it('Q-05 — 컨테이너 밖 blur 는 닫고, 결과 목록으로 가는 blur 는 **닫지 않는다** (T-mvo-03)', async () => {
+    const input = await pickThenOpenSearch();
+    const container = input.parentElement!;
+
+    // ① 결과 목록 안쪽으로 포커스가 옮겨가는 중에는 닫히면 안 된다 — 닫히면 항목을 못 고른다.
+    fireEvent.change(input, { target: { value: 'SK' } });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-slot="lc-search-option"]')).toHaveLength(1),
+    );
+    const option = document.querySelector('[data-slot="lc-search-option"]') as HTMLButtonElement;
+    fireEvent.blur(input, { relatedTarget: option });
+    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
+
+    /*
+      ★ 결과 `<ul>` 의 mousedown 기본 동작 차단이 나머지 절반이다 — 일부 브라우저는 버튼
+        mousedown 에서 포커스를 옮기지 않아 `relatedTarget` 이 `null` 로 온다. 그 경우에도
+        포커스가 입력에서 떠나지 않아야 목록이 닫히지 않는다.
+    */
+    const list = document.querySelector('[data-slot="lc-search-results"]')!;
+    const down = createEvent.mouseDown(list, { bubbles: true, cancelable: true });
+    fireEvent(list, down);
+    expect(down.defaultPrevented).toBe(true);
+
+    // ② 컨테이너 **밖**으로 나가면 닫힌다.
+    fireEvent.blur(container, { relatedTarget: document.body });
+    expect(screen.queryByLabelText('종목 검색')).toBeNull();
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toHaveTextContent(
+      'SK하이닉스',
+    );
+  });
+
+  it('Q-05 — 검색 중에도 종목정보 10칸과 현재가가 **계속 보인다** (T-mvo-05)', async () => {
+    await pickThenOpenSearch({ quote: quote() });
+
+    // 검색이 열려 있다.
+    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
+    // 그런데 하단은 바뀌지 않았다 — 10칸이 살아 있다.
+    expect(document.querySelectorAll('[data-slot="lc-quote-grid"]')).toHaveLength(1);
+    expect(cells()).toHaveLength(10);
+    // 현재가 블록도 남는다(가장 큰 점프였다).
+    expect(document.querySelector('[data-slot="lc-stock-card"] b.font-bold')).not.toBeNull();
+  });
+
+  it('Q-05 — 트리거가 행의 빈 공간을 먹지 않고 아이콘 + 옅은 테두리로 눌리는 컨트롤임을 드러낸다', async () => {
+    const input = await pickThenOpenSearch();
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]') as HTMLButtonElement;
+    // `flex-1` 을 걷었다 — 허공을 눌러도 검색이 열리던 동작이 사라진다.
+    expect(trigger.className).not.toMatch(/(^|\s)flex-1(\s|$)/);
+    // 긴 종목명이 줄어들 수 있어야 하므로 `min-w-0` 은 남는다.
+    expect(trigger.className).toContain('min-w-0');
+    // 옅은 테두리 + lucide svg 아이콘.
+    expect(trigger.className).toContain('border-[var(--border-subtle)]');
+    expect(trigger.querySelector('svg')).not.toBeNull();
+    /*
+      ★ 텍스트 캐럿은 **렌더 결과**로 없음을 확인한다 — 소스 grep 이 아니라 DOM 이다.
+        글자 캐럿은 접근성 이름에도 섞여 들어갈 수 있어 문자 자체를 금지한다.
+    */
+    expect(trigger.textContent).not.toContain('▾');
+  });
+
+  it('Q-04 — 거래소 콤보가 데스크톱에서만 커지고 좁은 폭 크기·네이티브 캐럿은 그대로다', () => {
+    renderEdit({ quote: quote() });
+
+    const sel = screen.getByLabelText('거래소') as HTMLSelectElement;
+    // 좁은 폭 값은 한 글자도 바뀌지 않았다 — 폰 헤더는 이미 빡빡하다.
+    expect(sel.className).toContain('text-[10px]');
+    expect(sel.className).toContain('px-1');
+    expect(sel.className).toContain('py-0.5');
+    // 데스크톱에서만 글자·높이가 커진다.
+    expect(sel.className).toContain('@min-[992px]/lc:text-[14px]');
+    expect(sel.className).toContain('@min-[992px]/lc:h-7');
+    // ★ 네이티브 캐럿과 OS 선택 UI 를 잃지 않는다.
+    expect(sel.className).not.toContain('appearance-none');
+  });
+
+  it('Q-02 — 종목 검색 입력이 전역 Double-Ring 을 걷고 테두리 채널을 **쌍으로** 갖는다', () => {
+    setRelay({});
+    render(<LimitChaserClient />);
+
+    const input = screen.getByLabelText('종목 검색') as HTMLInputElement;
+    expect(input.getAttribute('data-focus-ring')).toBe('seamless');
+    /*
+      ★ 이 입력은 래퍼가 아니라 **자기 자신이** 테두리를 갖는다 — `focus-within:` 이 아니라
+        `focus-visible:` 이다. 링만 걷고 이 유틸리티를 지우면 포커스가 아무 표시 없이
+        사라진다(WCAG 2.4.7, T-mvo-01).
+    */
+    expect(input.className).toContain('focus-visible:border-[var(--ring)]');
+    // 입력 높이와 결과 목록 위치는 한 쌍이다.
+    expect(input.className).toContain('h-9');
   });
 });

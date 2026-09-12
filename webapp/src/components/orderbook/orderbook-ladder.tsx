@@ -626,6 +626,16 @@ function ChaserLadder({
   /** 최초 마운트 1회만 중앙 정렬한다 — 갱신마다 되돌리면 사용자의 스크롤을 빼앗는다(R7). */
   const centeredRef = useRef(false);
 
+  /*
+    ★ 2단 트리 전용 ref **3개를 따로** 둔다 (quick-260912-mvo Q-07). 위 1단용을 재사용하면
+      안 된다 — 세 트리는 조건부 렌더가 아니라 **전부 DOM 에 있고 CSS 로만 숨겨진다.**
+      하나의 ref 를 공유하면 마지막에 마운트된 트리가 앞의 값을 덮어써서, 보이는 트리가
+      아니라 숨은 트리를 스크롤하게 된다.
+  */
+  const scrollTwoRef = useRef<HTMLDivElement | null>(null);
+  const bidTopTwoRef = useRef<HTMLTableRowElement | null>(null);
+  const centeredTwoRef = useRef(false);
+
   const rows = useMemo<LadderRow[]>(() => buildLadderRows(quote), [quote]);
   const maxAsk = useMemo(() => (quote ? Math.max(0, ...quote.aq) : 0), [quote]);
   const maxBid = useMemo(() => (quote ? Math.max(0, ...quote.bq) : 0), [quote]);
@@ -649,6 +659,28 @@ function ChaserLadder({
     const row = bidTopRef.current;
     if (box === null || row === null) return;
     centeredRef.current = true;
+    box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2);
+  }, [rows]);
+
+  /*
+    2단 트리(본문 700~829)의 같은 장치 (quick-260912-mvo Q-07). 계산식은 위와 **한 글자도
+    다르지 않다** — 맞추는 것은 매도1/매수1 **위 경계**이지 행의 중앙이 아니다.
+
+    ★ 위 effect 와 **다른 점이 하나** 있다: `clientHeight === 0` 이면 아무것도 하지 않고
+      **플래그도 세우지 않고** 반환한다. 세 트리가 동시에 DOM 에 있고 `display:none` 으로만
+      숨겨지므로, 숨은 동안 이 effect 가 돌면 높이가 0 이라 정렬이 무의미한데 플래그만 소진된다.
+      그러면 사용자가 700 밴드로 넘어와 트리가 실제로 보이는 순간에는 「최초 1회」가 이미
+      쓰여 있어, 매도 10단 한가운데서 시작하게 된다.
+    ★ 위 1단 effect 는 **고치지 않는다** — 이번 승인 범위 밖이다. 두 effect 가 다른 이유가
+      바로 이 문단이다(1단은 폰 밴드의 기본 트리라 첫 마운트에 대개 보인다).
+  */
+  useEffect(() => {
+    if (centeredTwoRef.current) return;
+    const box = scrollTwoRef.current;
+    const row = bidTopTwoRef.current;
+    if (box === null || row === null) return;
+    if (box.clientHeight === 0) return;
+    centeredTwoRef.current = true;
     box.scrollTop = Math.max(0, row.offsetTop - box.clientHeight / 2);
   }, [rows]);
 
@@ -746,6 +778,7 @@ function ChaserLadder({
     return (
       <tr
         key={row.key}
+        ref={isBidTop ? bidTopTwoRef : undefined}
         data-side={row.side}
         data-slot="ladder-row-two"
         className={cn(
@@ -920,7 +953,7 @@ function ChaserLadder({
         */}
       </div>
 
-      {/* ── 2단 호가 (본문 700~829) — 260px 폭 · `가격 | 잔량` 2열 · 24px 행 ── */}
+      {/* ── 2단 호가 (본문 700~829) — 260px 폭 · `가격 | 잔량` 2열 · 24px 행 · 240px(=10행) 스크롤 ── */}
       <div
         data-slot="ladder-tree"
         data-tree="two"
@@ -934,19 +967,40 @@ function ChaserLadder({
           ★ 행 조립은 **기존 `buildLadderRows` 결과를 그대로** 쓴다. 순서·단계 번호를 다시
             계산하면 같은 화면의 「매도 3호가」가 트리마다 다른 행이 된다.
         */}
-        <table
-          aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
-          className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
+        {/*
+          ★ quick-260912-mvo Q-07 — **5단 높이 스크롤 박스**다. 컴팩트 밴드에서 20행을 통째로
+            펼치면 480px 을 먹어 옆 폼과 높이가 크게 어긋났다.
+          ★ **단수를 자르지 않았다.** `asks`/`bids` 매핑은 그대로 20행 전부를 렌더하고, 자른
+            것은 박스 높이뿐이다 — 5단만 그리면 매수 6~10단을 볼 방법이 사라진다(T-mvo-04).
+          ★ **240 = 24 × 10** 이고 24px 은 `twoRow` 가격 셀의 `h-6` 이다. 한쪽만 고치면
+            마지막 행이 반쯤 잘린다 — 두 숫자는 한 쌍으로 움직인다.
+          ★ `tabIndex={0}` 은 장식이 아니다. 박스 안에 포커스 가능한 자식이 하나도 없어서,
+            박스가 포커스를 못 받으면 **키보드만 쓰는 사용자는 매수 10단을 영영 볼 수 없다**
+            (axe `scrollable-region-focusable`, impact serious — 1단 사다리가 같은 이유로
+            이미 그렇다). 이름은 안쪽 `<table>` 의 `aria-label` 이 읽어 주므로 **중복 라벨을
+            달지 않는다.**
+          ★ `<hr>` 과 체결 테이프는 이 박스 **밖**이다 — 체결 10건은 스크롤에 묻히지 않는다.
+        */}
+        <div
+          ref={scrollTwoRef}
+          tabIndex={0}
+          data-slot="ladder-scroll-two"
+          className="relative h-[240px] overflow-x-hidden overflow-y-auto"
         >
-          <colgroup>
-            <col className="w-[58%]" />
-            <col className="w-[42%]" />
-          </colgroup>
-          <tbody>
-            {asks.map((row) => twoRow(row, false))}
-            {bids.map((row, i) => twoRow(row, i === 0))}
-          </tbody>
-        </table>
+          <table
+            aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
+            className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
+          >
+            <colgroup>
+              <col className="w-[58%]" />
+              <col className="w-[42%]" />
+            </colgroup>
+            <tbody>
+              {asks.map((row) => twoRow(row, false))}
+              {bids.map((row, i) => twoRow(row, i === 0))}
+            </tbody>
+          </table>
+        </div>
         {/*
           3단 표는 체결 10건을 매수 10단 **왼쪽 칸**에 품지만 2단에는 그 칸이 없다 —
           그래서 1단 트리와 **같은** 가로선 + compact 체결 테이프를 아래에 둔다.
