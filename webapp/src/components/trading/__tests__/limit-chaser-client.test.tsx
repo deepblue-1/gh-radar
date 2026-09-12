@@ -768,15 +768,20 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(tone(7)).toContain('text-[var(--fg)]'); // 발행1%
   });
 
-  it('가격 칩은 기준가 · 호가단위 2개뿐이다 — 상한·하한은 8칸이 이미 갖는다', () => {
+  /*
+    ★ 가격 칩 행은 **행 자체가 삭제됐다** (260912-gyz). 숨긴 것이 아니라 DOM 에 없다 —
+      편집 진입이라 종목이 정해져 있고 호가까지 도착한, 칩이 뜰 수 있는 유일한 상태에서
+      단언한다. 같은 케이스가 헤더 8칸은 **여전히 있다**를 함께 단언한다: 칩만 사라진
+      것이지 정보가 사라진 것이 아니다(기준가는 8칸의 방향색 기준으로 계속 살아 있다).
+  */
+  it('가격 칩 행이 없다 — 편집 진입 + 호가 도착에도 DOM 에 부재다', () => {
     renderEdit({ quote: quote() });
 
-    const chips = document.querySelector('[data-slot="lc-price-chips"]')!;
-    expect(chips.children).toHaveLength(2);
-    expect(chips.textContent).toContain('기준가');
-    expect(chips.textContent).toContain('호가단위');
-    expect(chips.textContent).not.toContain('상한가');
-    expect(chips.textContent).not.toContain('하한가');
+    expect(document.querySelector('[data-slot="lc-price-chips"]')).toBeNull();
+    expect(screen.queryByText('호가단위')).toBeNull();
+    // 정보는 8칸에 그대로 남아 있다.
+    expect(document.querySelector('[data-slot="lc-quote-grid"]')).not.toBeNull();
+    expect(cells()).toHaveLength(8);
   });
 
   it('카드 하단 회색 바(거래소·계좌·종목변경)가 없다 — 별도 「종목 변경」 버튼도 없다', () => {

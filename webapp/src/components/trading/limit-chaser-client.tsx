@@ -5,10 +5,13 @@
  *
  * ① 무엇을 조립하는가 (16-UI-SPEC A1~A14 · 260911-w5h)
  *   제목 줄(「상따」 + 계좌 칩) → 헤더 카드(거래소 콤보 | 종목명 버튼 = 검색 트리거 |
- *   현재가·등락률, 그 아래 종목정보 2열 4행 + 기준가·호가단위 칩) → 상태줄 → (에코 배너) →
+ *   현재가·등락률, 그 아래 종목정보 8칸) → 상태줄 → (에코 배너) →
  *   [호가 10단 | 매수·매도 폼] → 미체결/잔고 → 전략 로그. 레이아웃 정본은 채택 목업
  *   `16-limit-chaser-mockup.html` + 모바일 확정 목업 `260911-chaser-mockup-7.html` 이다
  *   (≥1280 `.lc3` 460 | 매수 250 | 매도 250 · <1024 `.lc2` 42% | 1fr · 1024~1279 1열, R1/R2/R7).
+ *   ★ **가격 칩 행은 없다** (260912-gyz). 헤더 카드는 종목정보 8칸에서 끝난다 — 상한·하한은
+ *     8칸이 이미 말하고, 기준가는 그 8칸의 방향색 기준으로 살아 있으며, 호가단위는 폼이
+ *     사용자에게 요구하지 않는 값이라 같은 카드에서 같은 말을 두 번 하던 행이었다.
  *   ★ 제목은 **신규·편집 모두 「상따」**다. 종목·거래소를 제목에 넣으면 바로 아래 헤더 카드와
  *     같은 말을 두 번 하게 되고, 전략키 mono 부제는 사용자가 읽을 일이 없는 내부 식별자였다.
  *
@@ -58,7 +61,6 @@ import type {
 
 import { AccountPanel } from '@/components/orderbook/account-panel';
 import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
-import { deriveTickSize } from '@/components/orderbook/order-panel';
 import { DmaGate, useDmaGateReason } from '@/components/trading/dma-gate';
 import { LimitChaserForm } from '@/components/trading/limit-chaser-form';
 import { strategyBadgesOf } from '@/components/trading/strategy-badge';
@@ -388,8 +390,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     const live = quote?.ul ?? 0;
     if (live > 0) setLiveSeed(live);
   }, [server, quote, liveSeed]);
-  const tickSize = deriveTickSize(quote?.ap, quote?.bp, currentPrice > 0 ? currentPrice : basePrice);
-
   const badges = strategyStatusOf(server, fired);
 
   /** 스냅샷 도착 전 — 편집 진입인데 아직 그 전략을 못 받았다(UI-SPEC §동기화). */
@@ -541,22 +541,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
             <QuoteCell label="발행1%" value={formatOnePercentShares(quote?.ls ?? 0)} />
           </div>
         )}
-
-        {/*
-          가격 칩 — 종목이 정해졌을 때만 그린다(신규 빈 폼에는 칩 행 자체가 없다, A1).
-          ★ 상한가·하한가 칩은 걷었다 (260911-w5h): 바로 위 8칸이 같은 값을 이미 보여 주므로
-            한 카드 안에서 같은 숫자가 두 번 나왔다. 기준가·호가단위는 8칸 어디에도 없어
-            남긴다 — 지우면 정보가 사라진다.
-        */}
-        {isin !== '' && !searching && (
-          <div
-            data-slot="lc-price-chips"
-            className="flex flex-wrap gap-1.5 px-2.5 pb-2 text-[length:var(--t-caption)]"
-          >
-            <PriceChip label="기준가" value={basePrice} />
-            <PriceChip label="호가단위" value={tickSize} />
-          </div>
-        )}
       </section>
 
       {/* ── A2 상태줄 ── */}
@@ -663,7 +647,6 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
 /* ───────────────────────────── 조각 ───────────────────────────── */
 
-/** 가격 칩 1개. 방향색은 상한가·하한가에만 붙는다(§Color 열거표). */
 /**
  * 헤더 종목정보 한 칸. 라벨 왼쪽 · 값 오른쪽 mono, 셀 사이 구분선 없이 여백만.
  * 색은 호출부가 정한다 — 이 칸은 포맷과 배치만 안다(`limit-up-format.ts` 와 같은 분리).
@@ -694,26 +677,6 @@ function priceText(value: number): string {
 function priceTone(value: number, base: number): string {
   if (value <= 0 || base <= 0 || value === base) return 'text-[var(--flat)]';
   return value > base ? 'text-[var(--up)]' : 'text-[var(--down)]';
-}
-
-function PriceChip({ label, value, tone }: { label: string; value: number; tone?: 'up' | 'down' }) {
-  return (
-    <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted-fg)]">
-      {label}{' '}
-      <b
-        className={cn(
-          'mono font-semibold',
-          tone === 'up'
-            ? 'text-[var(--up)]'
-            : tone === 'down'
-              ? 'text-[var(--down)]'
-              : 'text-[var(--fg)]',
-        )}
-      >
-        {value > 0 ? KRW.format(value) : '—'}
-      </b>
-    </span>
-  );
 }
 
 export interface StrategyStatus {

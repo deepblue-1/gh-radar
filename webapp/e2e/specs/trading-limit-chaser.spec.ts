@@ -133,7 +133,7 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
 
     // ★ 더티 0 이면 액션 바는 **렌더 자체가 없다**(A10). 숨김이 아니다.
     await expect(actionBar(page)).toHaveCount(0);
-    // 종목이 없으면 가격 칩 행도 없다 — 「상한가 —」 같은 빈 칩을 그리지 않는다.
+    // 가격 칩 행은 **행 자체를 없앴다**(260912-gyz) — 종목 유무와 무관하게 DOM 에 없다.
     await expect(page.locator('[data-slot="lc-price-chips"]')).toHaveCount(0);
     // 인라인 검색이 상단 카드 안에 있다(헤더의 전역 검색과 다른 컨트롤이다).
     await expect(page.locator('[data-slot="lc-stock-card"]').getByRole('searchbox')).toBeVisible();
@@ -147,7 +147,7 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     await waitForReady(page);
     await pickStock(page);
 
-    // 실시간 호가가 도착하면 그 상한가가 정본이다 — 폼과 칩이 **같은 숫자**를 말해야 한다.
+    // 실시간 호가가 도착하면 그 상한가가 정본이다 — 폼과 **헤더 8칸**이 같은 숫자를 말해야 한다.
     for (const id of [
       'lc-buy-watch-price',
       'lc-buy-order-price',
@@ -157,9 +157,17 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     ]) {
       await expect(field(page, id)).toHaveValue(LIVE_UPPER_LIMIT, { timeout: 15_000 });
     }
-    await expect(page.locator('[data-slot="lc-price-chips"]')).toContainText(
-      `상한가 ${LIVE_UPPER_LIMIT}`,
-    );
+    /*
+      ★ 증거를 **살아 있는 표면으로 옮겼다** (260912-gyz). 옛 단언은 칩 행이 「상한가
+        {값}」을 담기를 요구했는데, 260911-w5h 가 상한가 칩을 걷은 시점부터 이미 거짓이었고
+        이번에 칩 행 자체가 사라졌다. 의도(폼과 화면이 **같은 상한가**를 말한다)는 그대로
+        두고 그 증거를 헤더 종목정보 8칸으로 옮긴다 — 지웠으면 다음에 시딩이 깨져도 아무도
+        모른다.
+    */
+    await expect(page.locator('[data-slot="lc-price-chips"]')).toHaveCount(0);
+    const quoteGrid = page.locator('[data-slot="lc-quote-grid"]');
+    await expect(quoteGrid).toContainText('상한');
+    await expect(quoteGrid).toContainText(LIVE_UPPER_LIMIT);
 
     // 호가 10단이 실제로 그려진다(매도 10 + 매수 10).
     await expect(ladder(page).locator('[data-slot="ladder-row"]')).toHaveCount(20);

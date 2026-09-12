@@ -15,6 +15,9 @@
  *      그 축을 카드 안에서 잇는 일은 이제 **셋이 함께** 한다 — ⓐ 상단 세그먼트 탭(선택 시
  *      매수 `--up` / 매도 `--down` 테두리+배경) ⓑ 게이트 스위치 색(`tone`) ⓒ 그룹 소제목
  *      (「매수주문」·「한방체결」·「매도주문」). 바 하나를 지운 것이지 축을 지운 것이 아니다.
+ *      ★ **「감시 대상」 세그먼트는 그 축의 예외**다 (260912-gyz) — 그룹색이 아니라 자기
+ *        선택지의 호가 방향색(매도잔량 `--down` · 매수잔량 `--up`)을 따른다. 근거는 세그먼트
+ *        블록 주석에 있다.
  *   2. **자동취소(가드) 그룹은 중립색**이다. 경고 전용 색 토큰은 이 저장소에 **없다**(UI-SPEC
  *      C1/FLAG-1) — 없는 토큰을 쓰면 색이 통째로 죽어 「경고인데 안 보이는 경고」가 된다.
  *   3. ★ **규율 3(확인 다이얼로그)은 D-05 로 뒤집혔다.** `order-panel.tsx` 는 제출마다
@@ -661,6 +664,13 @@ export function LimitChaserForm({
           ★ 「감시 대상」 세그먼트는 `Row` 밖의 **단독 행**이다 (260911-w5h).
             `Row` 안에 있으면 라벨 칸(`--lw`)이 폭을 먹어 390px 에서 「매도잔량」 4글자가
             두 줄로 접혔다. `w-full` 로 그 칸을 회수하면 두 버튼이 한 줄에 들어간다.
+          ★ **선택된 버튼의 색은 그 선택지의 방향색**이다 (260912-gyz). 감시 대상은 「어느 쪽
+            호가 잔량을 보는가」이므로 색은 그룹(매수주문 = `--up`)이 아니라 **그 호가의 방향**을
+            따라야 한다 — 매도잔량 = `--down` · 매수잔량 = `--up` 으로, 호가창
+            (`orderbook-ladder`)의 매도=파랑 / 매수=빨강 축과 **같은 축**이다. 그룹 색을 그대로
+            쓰면 매도호가 잔량을 감시하는데 화면은 빨강이라고 말한다.
+          ★ 파일 상단 ②-1 의 「색·위치·문구 3중 일치」는 **게이트 스위치와 매수/매도 탭**에 대한
+            규율이고 이 세그먼트는 그 대상이 아니다 — 두 규율은 충돌하지 않는다.
           ★ 시각 라벨만 없앤 것이지 **접근성 이름을 없앤 것이 아니다** — `role="group"` +
             `aria-label="감시 대상"` 은 그대로다.
           ★ 라벨이 사라지면서 더티 표현(라벨 `● ` + `--primary` 색)도 함께 사라진다. 그것을
@@ -671,7 +681,7 @@ export function LimitChaserForm({
           role="group"
           aria-label="감시 대상"
           className={cn(
-            'mt-[var(--s-1)] flex h-9 w-full min-w-0 overflow-hidden rounded-[var(--r)] border min-[1280px]:h-8',
+            'mt-[var(--s-1)] flex h-[38px] w-full min-w-0 overflow-hidden rounded-[var(--r)] border',
             dirtySet.has('buyWatchSide')
               ? 'border-[var(--primary)]'
               : 'border-[var(--border)]',
@@ -685,10 +695,12 @@ export function LimitChaserForm({
               disabled={disabled}
               onClick={() => setField('buyWatchSide', side)}
               className={cn(
-                'min-w-0 flex-1 px-1 text-[12px] font-semibold whitespace-nowrap',
-                form.buyWatchSide === side
-                  ? 'bg-[var(--up-bg)] text-[var(--up)]'
-                  : 'bg-transparent text-[var(--muted-fg)]',
+                'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap',
+                form.buyWatchSide !== side
+                  ? 'bg-transparent text-[var(--muted-fg)]'
+                  : side === '0'
+                    ? 'bg-[var(--down-bg)] text-[var(--down)]'
+                    : 'bg-[var(--up-bg)] text-[var(--up)]',
                 'disabled:cursor-not-allowed disabled:opacity-50',
               )}
             >
@@ -1015,10 +1027,13 @@ export function LimitChaserForm({
  *
  * ★ `--lw` 는 `Row` 와 `CheckRow` **둘 다**의 1열 폭이다. `CheckRow` 의 1열에는 체크박스와
  *   간격이 라벨과 함께 들어가므로, 순수 라벨만 담는 `Row` 기준 폭으로는 4글자 라벨
- *   (「잔량추적」·「취소잔량」)이 잘린다 — 그래서 모바일 **64px** · 데스크톱 **88px** 이다.
- *   모바일이 76 → 64 로 내려온 근거: 라벨 글꼴 11px + 체크박스 16px + gap 3px 이면 4글자가
- *   64px 에 들어간다(목업 7 이 390px 에서 실제로 렌더해 확인했다). 회수한 12px 은 전부 입력
- *   쪽으로 간다.
+ *   (「잔량추적」·「취소잔량」)이 잘린다 — 그래서 모바일 **76px** · 데스크톱 **104px** 이다.
+ *   그 값의 근거(260912-gyz): 라벨 글꼴이 11px → **13px** 로 올라가면서 4글자가 체크박스
+ *   **17px + gap** 과 함께 옛 64/88px 에 더 이상 들어가지 않아 조용히 잘린다. 잘린 라벨은
+ *   사용자가 「잔량추적」과 「취소잔량」을 구분하지 못하게 만들고, 그 혼동이 곧 오발주다.
+ *   목업 `260912-chaser-desktop.html`(`.mform.big` `--lw:76px` · `.form.big` `--lw:104px`)이
+ *   390px·1152px 실폭에서 렌더해 확인한 값이다 — 모바일 76px 에서도 `10,000,000` + 단위가
+ *   잘리지 않는다(입력 글꼴 16px 유지가 그 조건의 일부다).
  *
  * ★ 카드 **크롬(테두리·배경·radius)은 데스크톱에만** 있다. 390px 에서는 본문 여백(8px) 안에
  *   카드 테두리와 그룹 패딩이 겹겹이 들어와 입력 폭을 먹었다 — 모바일에서는 카드가 화면
@@ -1027,7 +1042,7 @@ export function LimitChaserForm({
 function Card({ children }: { children: ReactNode }) {
   return (
     <div
-      className="min-w-0 overflow-hidden [--lw:64px] min-[1280px]:rounded-[var(--r-lg)] min-[1280px]:border min-[1280px]:border-[var(--border)] min-[1280px]:bg-[var(--card)] min-[1280px]:[--lw:88px]"
+      className="min-w-0 overflow-hidden [--lw:76px] min-[1280px]:rounded-[var(--r-lg)] min-[1280px]:border min-[1280px]:border-[var(--border)] min-[1280px]:bg-[var(--card)] min-[1280px]:[--lw:104px]"
     >
       {children}
     </div>
@@ -1134,7 +1149,7 @@ function Group({
         ) : null}
         <span className="min-w-0 flex-1 leading-normal">
           {title ? (
-            <span className="text-[11px] font-semibold tracking-[0.06em] text-[var(--muted-fg)]">
+            <span className="text-[13px] font-semibold tracking-[0.06em] text-[var(--muted-fg)]">
               {title}
             </span>
           ) : null}
@@ -1203,12 +1218,16 @@ function Row({
   dirty?: boolean;
   children: ReactNode;
 }) {
+  /*
+    ★ 행 최소 높이는 **입력 높이를 따른다** (260912-gyz). 입력이 38px 로 양쪽 폭에서
+      같아졌으므로, 입력이 없는 행만 36/32px 로 남으면 그 행에서만 세로 리듬이 끊긴다.
+  */
   return (
-    <div className="mt-[var(--s-1)] grid min-h-9 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:min-h-8 min-[1280px]:gap-[var(--s-2)]">
+    <div className="mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:gap-[var(--s-2)]">
       <label
         htmlFor={htmlFor}
         className={cn(
-          'truncate text-[11px] min-[1280px]:text-[length:var(--t-caption)]',
+          'truncate text-[13px]',
           dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--muted-fg)]',
         )}
       >
@@ -1253,7 +1272,7 @@ function NumInput({
           ★ `focus-within:` 은 의사클래스가 붙어 특이도가 더 높으므로, 더티 테두리와 동시에
             걸려도 **포커스색 하나**가 이긴다 — 순서로 다투지 않는다.
         */
-        'flex h-9 min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5 focus-within:border-[var(--ring)] min-[1280px]:h-8',
+        'flex h-[38px] min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5 focus-within:border-[var(--ring)]',
         dirty ? 'border-[var(--primary)]' : 'border-[var(--input)]',
         flash && 'motion-safe:bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]',
         disabled && 'opacity-45',
@@ -1285,11 +1304,18 @@ function NumInput({
             화면을 자동 확대하고 **되돌리지 않는다**. 16px 이면 확대가 아예 일어나지 않으므로
             `viewport` 에 `user-scalable=no` / `maximum-scale=1` 을 걸어 핀치줌을 죽일 필요가
             없다 — 접근성을 유지한 채 「확대되고 안 돌아옴」을 없애는 유일한 근본 해결이다.
+          ★ 260912-gyz 에서 **데스크톱만 15px 로 올렸고 모바일 16px 은 그대로 두었다.** 이 값이
+            그 문제를 막는 **유일한 장치**이므로, 뒤에 오는 어떤 「데스크톱과 통일하자」 변경도
+            모바일 값을 16px 미만으로 내려서는 안 된다.
         */
-        className="mono min-w-0 flex-1 bg-transparent text-right text-[16px] text-[var(--fg)] outline-none disabled:cursor-not-allowed min-[1280px]:text-[length:var(--t-caption)]"
+        className="mono min-w-0 flex-1 bg-transparent text-right text-[16px] text-[var(--fg)] outline-none disabled:cursor-not-allowed min-[1280px]:text-[15px]"
         {...rest}
       />
-      {unit ? <span className="flex-none text-[10px] text-[var(--muted-fg)]">{unit}</span> : null}
+      {unit ? (
+        <span className="flex-none text-[13px] text-[var(--muted-fg)] min-[1280px]:text-[12px]">
+          {unit}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -1362,7 +1388,8 @@ function CheckRow({
   return (
     <div
       className={cn(
-        'mt-[var(--s-1)] grid min-h-9 min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:min-h-8 min-[1280px]:gap-[var(--s-2)]',
+        // 행 최소 높이가 입력 높이(38px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
+        'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:gap-[var(--s-2)]',
         dimmed && 'opacity-45',
       )}
     >
@@ -1373,12 +1400,12 @@ function CheckRow({
           checked={checked}
           disabled={disabled}
           onChange={(e) => onCheckedChange(e.target.checked)}
-          className="size-4 flex-none accent-[var(--primary)] disabled:cursor-not-allowed min-[1280px]:size-[18px]"
+          className="size-[17px] flex-none accent-[var(--primary)] disabled:cursor-not-allowed"
         />
         <label
           htmlFor={id}
           className={cn(
-            'min-w-0 truncate text-[11px] min-[1280px]:text-[length:var(--t-caption)]',
+            'min-w-0 truncate text-[13px]',
             dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--fg)]',
           )}
         >

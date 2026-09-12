@@ -1130,12 +1130,51 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(document.querySelectorAll('[class*="w-[3px]"]')).toHaveLength(0);
   });
 
-  it('카드 크롬은 데스크톱에만 있고 `--lw` 가 64/88 로 갈린다', () => {
+  /*
+    ★ ② 감시 대상 세그먼트 = **그 선택지의 방향색** (260912-gyz).
+      서버 기본값은 `buyWatchSide:'0'`(매도잔량)이므로 첫 렌더에서 파랑이어야 한다.
+      두 방향을 **둘 다** 단언한다 — 한쪽만 잠그면 반대쪽이 조용히 그룹색(빨강)으로 남는다.
+  */
+  it('② 매도잔량이 선택되면 파랑(`--down`)이고 매수잔량은 중립이다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const ask = within(segment()).getByRole('button', { name: '매도잔량' });
+    const bid = within(segment()).getByRole('button', { name: '매수잔량' });
+
+    expect(ask.className).toContain('bg-[var(--down-bg)]');
+    expect(ask.className).toContain('text-[var(--down)]');
+    // 그룹색(매수주문 = `--up`)이 새어 들어오지 않는다 — 그것이 이번에 고친 거짓말이다.
+    expect(ask.className).not.toContain('--up-bg');
+    expect(bid.className).toContain('bg-transparent');
+    expect(bid.className).toContain('text-[var(--muted-fg)]');
+  });
+
+  it('② 매수잔량을 고르면 빨강(`--up`)으로 갈리고 매도잔량이 중립으로 돌아온다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    fireEvent.click(within(segment()).getByRole('button', { name: '매수잔량' }));
+
+    const ask = within(segment()).getByRole('button', { name: '매도잔량' });
+    const bid = within(segment()).getByRole('button', { name: '매수잔량' });
+    expect(bid.className).toContain('bg-[var(--up-bg)]');
+    expect(bid.className).toContain('text-[var(--up)]');
+    expect(ask.className).toContain('bg-transparent');
+    expect(ask.className).not.toContain('--down-bg');
+  });
+
+  it('카드 크롬은 데스크톱에만 있고 `--lw` 가 76/104 로 갈린다 (13px 라벨 + 17px 체크박스)', () => {
     render(<LimitChaserForm {...props()} />);
 
     const card = document.querySelector('[data-slot="lc-group-buy"]')!.parentElement!;
-    expect(card.className).toContain('[--lw:64px]');
-    expect(card.className).toContain('min-[1280px]:[--lw:88px]');
+    /*
+      ★ 라벨이 13px 이 되면 4글자(「잔량추적」·「취소잔량」)가 체크박스 17px + gap 과 함께
+        옛 64/88px 에 **들어가지 않아 조용히 잘린다**. 잘린 라벨은 사용자가 다른 필드를
+        고치게 만든다(T-gyz-04) — 그래서 라벨 칸을 같은 커밋에서 함께 넓힌다.
+    */
+    expect(card.className).toContain('[--lw:76px]');
+    expect(card.className).toContain('min-[1280px]:[--lw:104px]');
+    expect(card.className).not.toContain('[--lw:64px]');
+    expect(card.className).not.toContain('min-[1280px]:[--lw:88px]');
     // 테두리·배경·radius 는 전부 `min-[1280px]:` 접두가 붙어 있다.
     expect(card.className).toContain('min-[1280px]:border');
     expect(card.className).toContain('min-[1280px]:bg-[var(--card)]');
@@ -1145,24 +1184,57 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(card.className).not.toMatch(/(^|\s)bg-\[var\(--card\)\]/);
   });
 
-  it('입력 치수가 모바일 36px · 데스크톱 32px 이고 글꼴이 16px 이다 (iOS 자동 확대 차단)', () => {
+  it('입력 높이가 양쪽 폭 모두 38px 이고 글꼴이 모바일 16px · 데스크톱 15px 이다', () => {
     render(<LimitChaserForm {...props()} />);
 
     const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
     const wrap = input.parentElement!;
-    expect(wrap.className).toContain('h-9');
-    expect(wrap.className).toContain('min-[1280px]:h-8');
-    // ★ 16px 미만이면 iOS Safari 가 포커스 시 화면을 확대하고 되돌리지 않는다.
+    expect(wrap.className).toContain('h-[38px]');
+    // 높이가 양쪽 폭에서 같아졌으므로 데스크톱 높이 override 가 남아 있으면 안 된다.
+    expect(wrap.className).not.toMatch(/min-\[1280px\]:h-/);
+    /*
+      ★ 16px 미만이면 iOS Safari 가 포커스 시 화면을 확대하고 **되돌리지 않는다**.
+        데스크톱만 15px 로 올렸고 모바일 16px 은 그대로다 — 뒤에 오는 어떤 「통일」 변경도
+        이 값을 내려서는 안 된다(T-gyz-05).
+    */
     expect(input.className).toContain('text-[16px]');
-    expect(input.className).toContain('min-[1280px]:text-[length:var(--t-caption)]');
+    expect(input.className).toContain('min-[1280px]:text-[15px]');
+    expect(input.className).not.toContain('--t-caption');
   });
 
-  it('체크박스가 모바일 16px · 데스크톱 18px 이다', () => {
+  it('체크박스가 양쪽 폭 모두 17px 이다', () => {
     render(<LimitChaserForm {...props()} />);
 
     const box = document.querySelector('input[type="checkbox"]')!;
-    expect(box.className).toContain('size-4');
-    expect(box.className).toContain('min-[1280px]:size-[18px]');
+    expect(box.className).toContain('size-[17px]');
+    expect(box.className).not.toMatch(/min-\[1280px\]:size-/);
+  });
+
+  it('행 라벨 · 체크박스 라벨 · 그룹 소제목 · 세그먼트 버튼 글꼴이 전부 13px 이다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const rowLabel = document.querySelector('label[for="lc-buy-order-price"]')!;
+    const checkLabel = document.querySelector('label[for="lc-cancel-qty"]')!;
+    const groupTitle = screen.getByText('매수주문');
+    const segButton = within(segment()).getByRole('button', { name: '매도잔량' });
+
+    for (const el of [rowLabel, checkLabel, groupTitle, segButton]) {
+      expect(el.className).toContain('text-[13px]');
+      expect(el.className).not.toContain('text-[11px]');
+      expect(el.className).not.toContain('text-[12px]');
+      // 데스크톱에서 다시 작아지던 `--t-caption` override 도 없다.
+      expect(el.className).not.toContain('--t-caption');
+    }
+  });
+
+  it('입력 단위(원/주)가 모바일 13px · 데스크톱 12px 이다', () => {
+    render(<LimitChaserForm {...props()} />);
+
+    const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
+    const unit = input.parentElement!.lastElementChild!;
+    expect(unit.textContent).toBe('원');
+    expect(unit.className).toContain('text-[13px]');
+    expect(unit.className).toContain('min-[1280px]:text-[12px]');
   });
 
   it('포커스·더티 표현이 테두리 한 겹뿐이다 — 링 그림자가 하나도 없다', () => {
