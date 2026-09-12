@@ -51,7 +51,25 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
             type="button"
             onClick={onMenuClick}
             aria-label="사이드바 열기"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[var(--fg)] transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] lg:hidden"
+            /*
+              ★ quick-260913-0em — **잉크 보정용 음수 마진**. 여기를 읽고 「여백이 안 맞네」라며
+                위 `px-2 md:px-4 lg:px-6` 램프를 고치지 마라. **박스는 이미 정확히 맞아 있다**
+                (실측: 헤더 패딩 == `app-shell.tsx` 의 `main` 패딩, 모든 폭에서 동일).
+                어긋나 보이는 것은 **보이는 잉크**다 — 44×44 터치 타깃 한가운데 20px 아이콘이
+                박혀 있어 버튼 상자가 여백선에 붙어 있어도 아이콘은 12px 안쪽에서 시작한다.
+                본문 카드는 테두리가 여백선에 딱 붙으므로 둘이 12px 어긋나 보인다.
+                패딩을 건드리면 260912-u58 이 맞춰 놓은 박스가 도로 어긋난다.
+              ★ 44×44 를 **줄여서 맞추지 마라**(WCAG 2.5.5 Target Size). 타깃 크기는 그대로 두고
+                음수 마진으로만 당긴다 — 그것이 잉크만 움직이는 유일한 방법이다.
+              ★ 폰 8 / `md`(768)↑ 12 의 **비대칭에는 실측 근거가 있다**. 패딩이 8 인 폰에서 12 를
+                당기면 반대쪽(오른쪽) 버튼이 뷰포트 밖으로 4px 나가 **가로 스크롤이 생긴다**
+                (왼쪽 음수 오버플로는 스크롤을 만들지 않지만 오른쪽은 만든다). 좌우를 같은
+                값으로 유지하려고 폰 구간만 8 로 멈춘다 — 잉크가 좌우 대칭으로 4px 안쪽에 서고,
+                지금의 12px 짝짝이보다 3배 낫다. `md` 부터는 패딩이 16 이라 12 를 다 당겨도
+                안전하고 잉크가 본문선과 **정확히 일치**한다.
+              ★ 실제 픽셀은 `e2e/specs/home.spec.ts` 의 잉크 케이스가 390·768·1004·1023 에서 잰다.
+            */
+            className="-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-md text-[var(--fg)] transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] md:-ml-3 lg:hidden"
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -72,7 +90,18 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
       </div>
 
       {themeToggle && (
-        <div className="flex items-center gap-2">
+        <div
+          /*
+            ★ quick-260913-0em — 이 화면(사이드바 없는 셸)에서는 토글이 **헤더 오른쪽 끝
+              컨트롤**이라 위 햄버거와 같은 잉크 보정(-8 / md↑ -12)을 받는다. 값의 근거와
+              폰 8 의 이유는 햄버거 쪽 주석이 정본이다.
+            ★ 보정은 **호출부인 여기**에만 준다. `ThemeToggle` 컴포넌트 자체를 고치면 토글의
+              본거지인 사이드바 하단 유저 섹션 줄까지 딸려가는데, 거기서는 이 보정이 틀린다
+              (그 자리는 헤더 여백선과 무관하다). 그 컴포넌트의 `className` 은 「크기·여백만
+              덮어쓰라고 있는 구멍」이라고 스스로 주석에 적어 두었다 — 그 용법대로 쓴다.
+          */
+          className="-mr-2 flex items-center gap-2 md:-mr-3"
+        >
           <ThemeToggle />
         </div>
       )}

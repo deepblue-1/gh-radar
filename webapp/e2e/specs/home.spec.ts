@@ -257,4 +257,85 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       }
     }
   });
+
+  /*
+    ★ quick-260913-0em — **잉크 불변식**. 위 케이스(260912-u58 ⑤)와 **짝이고, 그것을 대체하지
+      않는다**: 저쪽은 헤더/본문의 패딩 **박스**가 같은 램프인지를 보고, 이쪽은 헤더 좌우 끝
+      아이콘의 **보이는 잉크**가 본문 여백선에 서는지를 본다. 둘 다 참이어야 한다.
+
+    왜 둘이 갈라지는가: 헤더 끝 컨트롤은 44×44 터치 타깃(WCAG 2.5.5) 한가운데 20px 아이콘이
+    박힌 아이콘 버튼이라, **박스가 정확히 맞아도 잉크는 12px 안쪽**에 선다. 본문 카드는 테두리가
+    여백선에 딱 붙으므로 사용자 눈에는 12px 짝짝이로 보인다 — 사용자 신고가 정확히 이것이었다.
+    박스 단언만 있으면 이 결함이 통과한다. 그래서 잉크를 따로 잰다.
+
+    ★ 값을 **절대 px 로 굳히지 않는다** — 헤드리스 스크롤바 폭이 뷰포트마다 clientWidth 를
+      깎아서 절대값은 환경 의존이다. 잉크를 **본문 여백선과의 상대 거리**로 재면 그 의존이 없다.
+    ★ 폰(390)만 `inset 4` 인 것은 타협이 아니라 **오버플로 제약**이다: 패딩이 8 이라 12 를 다
+      당기면 오른쪽 버튼이 뷰포트를 넘어 가로 스크롤이 생긴다. 그래서 좌우 대칭 4px 안쪽에서
+      멈춘다. `md`(768)↑ 는 패딩이 16 이라 정확히 0 이다. 근거는 `app-header.tsx` 주석이 정본.
+    ★ `scrollWidth === clientWidth` 를 같은 케이스에서 본다 — 이 변경은 **음수 마진**이라
+      가로 스크롤을 만들 수 있는 종류다. 그 위험을 잰 적 없는 상태로 두지 않는다.
+    ★ 1004·1023 은 사용자가 신고한 실제 폭과 `lg`(1024) 직전 경계다 — 램프의 마지막 칸이
+      `lg` 로 새지 않는지를 잡는다.
+  */
+  test('★ 셸 불변식 — 헤더 아이콘 **잉크**가 본문 여백선에 선다 (quick-260913-0em)', async ({
+    page,
+  }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await mockStockApi(page);
+
+    // [뷰포트, 잉크가 본문 여백선보다 안쪽으로 들어가도 되는 px]
+    for (const [width, inset] of [
+      [390, 4],
+      [768, 0],
+      [1004, 0],
+      [1023, 0],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await page.locator('header').first().waitFor({ timeout: 15_000 });
+      await page.locator('main').first().waitFor({ timeout: 15_000 });
+      // <lg 헤더의 좌우 끝 컨트롤 — 이 둘이 붙기 전에 재면 잉크가 없다.
+      // ★ 검색 트리거는 **같은 aria-label 을 가진 버튼이 둘**이다(데스크톱 readonly input +
+      //   모바일 아이콘). DOM 순서상 데스크톱이 먼저라 `.first()` 는 `<lg` 에서 항상 hidden 인
+      //   쪽을 집는다 — 여기서 필요한 것은 뒤쪽(모바일 아이콘)이다.
+      await page.getByLabel('사이드바 열기').first().waitFor({ timeout: 15_000 });
+      await page.getByLabel('종목 검색 열기').last().waitFor({ timeout: 15_000 });
+
+      const m = await page.evaluate(() => {
+        const main = document.querySelector('main')!;
+        const r = main.getBoundingClientRect();
+        const cs = getComputedStyle(main);
+        // 잉크 = 아이콘 `<svg>` 의 경계 상자. `display:none` 인 lg+ 전용 컨트롤은 0 크기라 걸러진다.
+        const inks = Array.from(document.querySelectorAll('header svg'))
+          .map((el) => el.getBoundingClientRect())
+          .filter((b) => b.width > 0 && b.height > 0);
+        return {
+          inkCount: inks.length,
+          leftGap: Math.round(
+            Math.min(...inks.map((b) => b.left)) - (r.left + parseFloat(cs.paddingLeft)),
+          ),
+          rightGap: Math.round(
+            r.right - parseFloat(cs.paddingRight) - Math.max(...inks.map((b) => b.right)),
+          ),
+          scrollW: document.documentElement.scrollWidth,
+          clientW: document.documentElement.clientWidth,
+        };
+      });
+
+      // 잰 대상이 맞는지부터 — 0개면 위 비교가 Infinity 로 조용히 통과한다.
+      expect(
+        m.inkCount,
+        `@${width} 헤더에서 보이는 아이콘 잉크가 2개(햄버거·검색)가 아니다`,
+      ).toBe(2);
+
+      expect(
+        { leftGap: m.leftGap, rightGap: m.rightGap },
+        `@${width} 헤더 잉크가 본문 여백선에서 ${inset}px 안쪽이 아니다`,
+      ).toEqual({ leftGap: inset, rightGap: inset });
+
+      // 음수 마진이 오른쪽으로 넘치면 여기서 걸린다.
+      expect(m.scrollW, `@${width} 가로 스크롤이 생겼다`).toBe(m.clientW);
+    }
+  });
 });
