@@ -205,4 +205,56 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       page.getByLabel('종목 검색 열기').first(),
     ).toBeVisible({ timeout: 10_000 });
   });
+
+  /*
+    ★ quick-260912-u58 ⑤ — **앱 셸 여백 불변식**. 헤더와 본문의 좌우 여백이 같은 램프여야
+      한다: 뷰포트 8 / 768↑ 16 / 1024↑ 24 px.
+
+    왜 여기(홈 spec)인가: 헤더는 **전 페이지 공통**이다. 상따 spec 에만 두면 「상따에서만
+    맞다」와 구분되지 않는다. 이 파일이 이미 여는 두 경로(`/` · `/scanner`)에서 확인하면
+    한 화면의 우연이 아님이 드러난다.
+
+    ★ **클래스 문자열이 아니라 계산된 스타일**을 본다. 클래스만 보면 CSS 가 아예 안 먹어도
+      통과한다 — 그 구분이 이 케이스의 존재 이유다(클래스 계약은 `app-shell-chrome.test.tsx`
+      가 이미 잠근다. 이쪽은 실제 픽셀이다).
+    ★ 옛 결함은 `main`=`p-2 lg:p-6` / `header`=맨몸 `px-6` 이라 폰에서 헤더 24 · 본문 8 로
+      16px 어긋나 있었다. 두 값을 **같은 케이스에서** 재야 그 어긋남이 다시 나지 않는다.
+  */
+  test('★ 셸 불변식 — 헤더와 본문의 좌우 여백이 8/16/24 한 램프다 (quick-260912-u58 ⑤)', async ({
+    page,
+  }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await mockStockApi(page);
+
+    for (const path of ['/', '/scanner']) {
+      for (const [width, expected] of [
+        [390, '8px'],
+        [768, '16px'],
+        [1024, '24px'],
+      ] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(path);
+        await page.locator('header').first().waitFor({ timeout: 15_000 });
+        await page.locator('main').first().waitFor({ timeout: 15_000 });
+
+        const m = await page.evaluate(() => {
+          const h = getComputedStyle(document.querySelector('header')!);
+          const mn = getComputedStyle(document.querySelector('main')!);
+          return {
+            headerL: h.paddingLeft,
+            headerR: h.paddingRight,
+            mainL: mn.paddingLeft,
+            mainR: mn.paddingRight,
+          };
+        });
+
+        expect(m, `${path} @${width} 의 좌우 여백이 ${expected} 한 값이 아니다`).toEqual({
+          headerL: expected,
+          headerR: expected,
+          mainL: expected,
+          mainR: expected,
+        });
+      }
+    }
+  });
 });

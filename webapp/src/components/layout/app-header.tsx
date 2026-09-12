@@ -35,7 +35,15 @@ export interface AppHeaderProps {
 export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderProps) {
   return (
     <header
-      className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-[var(--border)] bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-6 backdrop-blur-md"
+      /*
+        ★ quick-260912-u58 ⑤ — 가로 여백은 `app-shell.tsx` 의 `main` 패딩 램프와 **같은 값**
+          이다(8 / 768↑ 16 / 1024↑ 24). 옛 값은 맨몸 `px-6` 이라 폰에서 헤더 24 / 본문 8 로
+          16px 어긋나 있었다 — 헤더는 **전 페이지 공통**이라 그 어긋남이 모든 화면에 났다.
+          한쪽만 고치면 그대로 되돌아온다. 두 값이 같은지는 `e2e/specs/home.spec.ts` 의 셸
+          불변식 케이스가 계산된 스타일로 잰다.
+        ★ 세로·높이(`h-14`)는 이번 변경 대상이 아니다.
+      */
+      className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-[var(--border)] bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
     >
       <div className="flex items-center gap-2">
         {onMenuClick && (

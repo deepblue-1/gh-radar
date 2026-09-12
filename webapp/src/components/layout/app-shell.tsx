@@ -65,8 +65,21 @@ export function AppShell({
           </aside>
         )}
 
-        {/* `min-w-0` — 부모의 `overflow-hidden` 을 걷어내며 되살아난 flex 자동 최소 크기 차단. */}
-        <main className="min-w-0 flex-1 overflow-auto p-2 lg:p-6">{children}</main>
+        {/*
+          `min-w-0` — 부모의 `overflow-hidden` 을 걷어내며 되살아난 flex 자동 최소 크기 차단.
+
+          ★ quick-260912-u58 ⑤ — 여백은 **8 / 768↑ 16 / 1024↑ 24 한 램프**다. 사용자가 실측
+            3안 중 고른 확정안이고, `app-header.tsx` 의 `px` 램프와 **같은 값**이어야 한다 —
+            두 값이 갈라지는 순간 전 페이지에서 헤더와 본문의 좌측 끝이 어긋난다(옛 상태가
+            정확히 그랬다: `main` 은 `p-2 lg:p-6`, `header` 는 맨몸 `px-6` 이라 폰에서 16px 차).
+          ★ **폰 구간은 못 늘린다.** 상따 본문이 안 잘리는 하한이 컨테이너 344px 이고,
+            여백 8px 기준 뷰포트 360px 폰이 정확히 344 라 여유가 0 이다(실폭 스윕 300~1220).
+            768 이상에서 16 으로 키워도 컨테이너가 ≥700 이라 컴팩트 밴드는 유지된다.
+          ★ 이 램프가 `globals.css` §2.2b 밴드 경계의 **뷰포트 환산**을 정한다 — 표 자체는
+            컨테이너 폭 기준이라 불변이지만, 「뷰포트 몇에서 그 밴드가 시작하는가」는 여기가
+            정본이다. 값을 바꾸면 §2.2b 의 그 단락도 함께 고쳐야 한다.
+        */}
+        <main className="min-w-0 flex-1 overflow-auto p-2 md:p-4 lg:p-6">{children}</main>
       </div>
 
       {showSidebar && (
