@@ -1,17 +1,20 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: "1.0"
 milestone: v1.0
-milestone_name: milestone
+current_phase: 16
+current_phase_name: "**GAP CLOSURE 3라운드 종결  **"
 status: completed
-stopped_at: Phase 16 완결 — TRADE-03 Complete 재판정 문서 정합 (quick-260911-mrl)
-last_updated: "2026-09-11T00:00:00.000Z"
-last_activity: 2026-09-11 -- Phase 16 종결 문서 정합 (TRADE-03 Complete)
+stopped_at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
+last_updated: "2026-09-12T09:31:18.173Z"
+last_activity: 2026-09-12
+last_activity_desc: "Completed quick task 260912-mvo: 상따 폼·헤더 후속 7건 (FAB 범위 · 포커스 한 겹 · 세그먼트 폭 · 거래소 콤보 · 종목변경 4종 · 매수매도 틴트 · 컴팩트 호가 박스)"
+state_head: 93c7e10c1dd75ebd6d91292c2eaba484f4ec2f7c
 progress:
   total_phases: 25
-  completed_phases: 18
+  completed_phases: 4
   total_plans: 185
-  completed_plans: 171
-  percent: 72
+  completed_plans: 170
+milestone_name: milestone
 ---
 
 # Project State
@@ -676,6 +679,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260912-ok2 | **Playwright 를 실제로 돌려** e2e 선재·오늘 실패 7건(계획 6 + 전량 실행이 드러낸 `auth-session` 1)을 현재 계약으로 다시 쓰고(삭제 0 · 화면 되돌림 0), 그 실측이 드러낸 진짜 결함을 고침 — 검색 입력에 포커스가 없어 Esc·blur 취소가 **한 번도 동작한 적 없던** 죽은 코드였다(activeElement=BODY 실측). 트리거로 연 경우에만 포커스(첫 진입 제외 = 폰 키보드). 헤더 3컨트롤(콤보 20/28 · 트리거 30/36 · 입력 36)을 `h-9` 36px 한 값으로 모아 잔여 점프 +3.62px → 0. 액션 바 FAB 회피 `pr-[128px]` 제거(`px-` 대칭 + `pr-*` 전면 금지 단언), `CheckRow` 라벨색 `--muted-fg` 통일. 체크박스 정렬은 실측 0.25px 이라 **변경 0줄**(매직 오프셋 금지). 전량 e2e **127 passed / 0 failed / 9 skipped · exit 0**. WINDOWS 7건 종결(잔여 2: 밴드 경계 830/992 · ≥992 높이 단언 부재) | 2026-09-12 | 93c7e10 | [260912-ok2-e2e-6-fab](./quick/260912-ok2-e2e-6-fab/) |
 | 260912-mvo | 상따 폼·헤더 후속 7건 — AI FAB 을 종목상세에서만 노출, 텍스트 입력 포커스를 **테두리 한 겹**으로 통일(전역 `*:focus-visible` 의 box-shadow 가 겹쳐 그리던 것 · `data-focus-ring="seamless"` 를 5곳에 걸되 테두리 채널과 **쌍으로** 게이트), 감시 대상 세그먼트를 입력 칸 폭에 맞춤, 데스크톱 거래소 콤보 확대, 종목 변경 4가지(아이콘·터치영역·Esc/blur 복귀·검색 중 종목정보 10칸 유지), 2열 매수/매도 카드 방향색 5% 틴트, 컴팩트 2단 호가를 240px 스크롤 박스로(20행 전부 유지) | 2026-09-12 | 2851514 | [260912-mvo-7-5-ai-fab-ux](./quick/260912-mvo-7-5-ai-fab-ux/) |
 | 260912-k2x | 상따 본문 반응형을 뷰포트 → **본문 폭 컨테이너 쿼리 4밴드**(700·830·992)로 재정의 + 확정 4건 — 2단 호가 트리 신설(사다리 3트리 배타 노출), 종목정보 10칸(`기준`·`거래`, 5열 순서는 CSS `order`), 사이드바 소제목 14px, 오더북 제목행·사다리 범례 삭제. 더티 액션 바는 컨테이너 containment 때문에 `document.body` 포털 | 2026-09-12 | 87fcaac | [260912-k2x-4-10](./quick/260912-k2x-4-10/) |
 | 260912-gyz | 상따 후속 다듬기 4건 — 가격 칩 행 전체 삭제, 감시 대상 세그먼트를 방향색(매도잔량 파랑·매수잔량 빨강)으로, 폼 글자 확대(소제목·라벨 13px · 데스크톱 입력 15px · --lw 76/104), 데스크톱 헤더 종목정보 8칸을 한 줄 가로 나열로 | 2026-09-12 | a536474 | [260912-gyz-chaser-polish-remove-price-chips-directi](./quick/260912-gyz-chaser-polish-remove-price-chips-directi/) |
@@ -722,8 +726,10 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-09-11T00:00:00.000Z
-Stopped at: Phase 16 완결 — TRADE-03 Complete 재판정이 REQUIREMENTS 에만 반영돼 있던 드리프트를 ROADMAP·STATE·16-VALIDATION 에 정합 (quick-260911-mrl)
+**Resume file:** None
+
+Last session: 2026-09-12T09:31:17.343Z
+Stopped at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
