@@ -835,4 +835,50 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     await expect(firstCell.locator('.sr-only')).toHaveText(/매수|매도/);
     await expect(firstCell.locator('[title]')).toHaveAttribute('title', /매수 체결|매도 체결/);
   });
+  test('14. ↓/Enter 로 종목이 **실제로 바뀐다** — 키보드만으로 끝나는 왕복 (quick-260912-u58 ①)', async ({
+    page,
+  }) => {
+    /*
+      ★ 왜 이 케이스가 따로 필요한가 — **결선이 아니라 결과**를 본다.
+
+      `a11y.spec.ts` 는 `aria-controls`/`aria-activedescendant` 가 존재하는 id 를 가리키는지,
+      즉 **ARIA 결선**을 본다. 유닛은 활성 인덱스의 상태 전이를 본다. 둘 다 통과하면서도
+      「키보드로는 종목이 안 바뀐다」가 성립할 수 있다 — 이 화면에서 정확히 그런 결함이
+      한 번 있었다(260912-ok2: 입력에 포커스가 없어 Esc 핸들러가 **한 번도 돌지 않는**
+      죽은 코드였고, jsdom 유닛은 입력에 직접 이벤트를 쏘기 때문에 그 사실을 볼 수 없었다).
+      그래서 여기서는 진짜 브라우저가 진짜 포커스로 ↓ 와 Enter 를 쳐서 **헤더의 종목명이
+      바뀌는 것까지** 본다. 마우스는 한 번도 쓰지 않는다.
+    */
+    await page.goto(NEW_URL);
+    await waitForReady(page);
+
+    const searchBox = searchBoxOf(page);
+    await expect(searchBox).toBeVisible();
+
+    // 키보드만 쓴다 — `click()` 이 아니라 `focus()` 로 캐럿을 넣고 타이핑한다.
+    await searchBox.focus();
+    await page.keyboard.type('삼성');
+    await expect(page.locator('[data-slot="lc-search-option"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // ↓ 전에는 활성 항목이 없다 — **첫 항목 자동 선택 금지**가 계약이다.
+    expect(await searchBox.getAttribute('aria-activedescendant')).toBeNull();
+
+    await searchBox.press('ArrowDown');
+    const activeId = await searchBox.getAttribute('aria-activedescendant');
+    expect(activeId).not.toBeNull();
+    // 활성 항목은 **고를 수 있는 항목**이다(비활성 행을 가리키면 Enter 가 먹통이 된다).
+    await expect(page.locator(`#${activeId}`)).not.toBeDisabled();
+
+    await searchBox.press('Enter');
+
+    // ★ 결과 — 검색이 닫히고 헤더가 그 종목으로 바뀐다. 여기까지 와야 「고른 것」이다.
+    const trigger = page.locator('[data-slot="lc-stock-trigger"]');
+    await expect(trigger).toBeVisible({ timeout: 15_000 });
+    await expect(trigger).toContainText('삼성전자');
+    await expect(searchBoxOf(page)).toHaveCount(0);
+    // 고르면 구독이 서고 종목정보 10칸이 채워진다 — 껍데기만 바뀐 게 아니다.
+    await expect(page.locator('[data-slot="lc-quote-grid"] > *')).toHaveCount(10);
+  });
 });
