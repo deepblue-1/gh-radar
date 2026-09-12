@@ -30,7 +30,7 @@ Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운�
 Plans completed: 171 / 185
 Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-12 - Completed quick task 260911-w5h: 상따·목록 모바일 전면 정리 (목업 승인본 4커밋)
+Last activity: 2026-09-12 - Completed quick task 260912-gyz: 상따 후속 다듬기 4건 (칩 행 삭제 · 방향색 세그먼트 · 글자 확대 · 데스크톱 한 줄 정보)
 
 Progress: [█████████░] 92%
 
@@ -676,6 +676,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260912-gyz | 상따 후속 다듬기 4건 — 가격 칩 행 전체 삭제, 감시 대상 세그먼트를 방향색(매도잔량 파랑·매수잔량 빨강)으로, 폼 글자 확대(소제목·라벨 13px · 데스크톱 입력 15px · --lw 76/104), 데스크톱 헤더 종목정보 8칸을 한 줄 가로 나열로 | 2026-09-12 | a536474 | [260912-gyz-chaser-polish-remove-price-chips-directi](./quick/260912-gyz-chaser-polish-remove-price-chips-directi/) |
 | 260911-w5h | 상따·목록 모바일 전면 정리 (목업 7벌 승인본) — 기본 테마 라이트, main 여백 p-2, 상따 폼 모바일 무카드·입력 16px(iOS 확대 차단)·포커스/더티 테두리만·전체선택, 헤더 계좌칩+거래소콤보+종목검색 트리거+종목정보 8칸, 모바일 호가 마커 제거·10단 스크롤·compact 체결테이프, 잔고·미체결·전략 3목록 문법 통일 | 2026-09-12 | e0f6ad0 | [260911-w5h-chaser-mobile-ui-rework-form-label-reaso](./quick/260911-w5h-chaser-mobile-ui-rework-form-label-reaso/) |
 | 260911-tuk | 웹앱 UI 수정 5건 — 홈(`/`) 로그인 게이트, My page 계좌 전용 잔고에 매입금액(보유×평단) 표시, 데스크탑 사이드바 하단 sticky 고정, 테마 토글을 탑바→사이드바 하단(모바일 검색 아이콘은 탑바 우측), 상따 폼 파생값·힌트 정리 + 체크박스 행 입력 그리드 정렬 | 2026-09-11 | 63a6261 | [260911-tuk-webapp-ui-fixes-home-auth-gate-my-page-b](./quick/260911-tuk-webapp-ui-fixes-home-auth-gate-my-page-b/) |
 | 260911-mrl | Phase 16 종결 문서 정합 — TRADE-03 Complete 재판정이 REQUIREMENTS 에만 반영돼 있던 드리프트를 ROADMAP·STATE·16-VALIDATION 에 맞춤. 역사 블록은 덮어쓰지 않고 후속만 덧붙임. 소스 diff 0줄 | 2026-09-11 | 1960c69 | [260911-mrl-phase-16-trade-03-complete](./quick/260911-mrl-phase-16-trade-03-complete/) |

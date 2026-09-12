@@ -1,0 +1,316 @@
+<title>상따 데스크톱 목업</title>
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --ring:oklch(0.63 0.18 250);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --r:6px; --r-md:8px; --r-lg:12px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --ring:oklch(0.72 0.16 250);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1240px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:34px 0 8px;padding-top:20px;border-top:1px solid var(--border)}
+h2:first-of-type{border-top:0;padding-top:0}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 16px;line-height:1.6}
+.note{font-size:11px;color:var(--muted-fg);margin:8px 0 0;line-height:1.65}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.tag.a{background:var(--up-bg);color:var(--up)}
+.tag.b{background:var(--down-bg);color:var(--down)}
+.tag.c{background:var(--muted);color:var(--muted-fg)}
+.dt{width:1152px;max-width:100%;border:1px solid var(--border);border-radius:12px;padding:16px;
+  background:var(--bg);overflow-x:auto}
+.dtlab{font-size:10px;color:var(--muted-fg);padding-bottom:4px}
+
+/* 타이틀 */
+.ttl{display:flex;align-items:center;gap:10px;padding-bottom:10px}
+.ttl h3{margin:0;font-size:22px;font-weight:700}
+.acct{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:999px;
+  border:1px solid var(--border);background:var(--card);color:var(--muted-fg);font-size:12px;cursor:pointer}
+.acct .num{font-family:var(--font-mono);color:var(--fg);font-weight:600}
+
+/* 헤더 카드 */
+.hd{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);overflow:hidden;margin-bottom:12px}
+.hd-top{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.exsel{height:32px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);
+  color:var(--fg);font:inherit;font-size:12px;font-weight:700;padding:0 8px;flex:none}
+.nmbtn{display:flex;align-items:center;gap:6px;min-width:0;border:0;background:transparent;
+  padding:3px 6px;margin:-3px -6px;border-radius:var(--r);cursor:pointer;text-align:left;color:inherit;font:inherit}
+.nmbtn:hover{background:var(--muted)}
+.hd-nm{min-width:0;display:flex;align-items:baseline;gap:8px}
+.hd-nm b{font-size:20px;font-weight:700}
+.hd-nm span{font-size:12px;color:var(--muted-fg)}
+.caret{font-size:11px;color:var(--muted-fg)}
+.chg{margin-left:auto;display:flex;align-items:baseline;gap:8px}
+.chg b{font-size:22px;font-weight:700}
+.chg span{font-size:13px;font-weight:600}
+
+/* 정보 변형들 */
+.i-row{border-top:1px solid var(--border-subtle);display:flex;flex-wrap:wrap;
+  align-items:baseline;gap:0 22px;padding:8px 14px;font-size:12px}
+.i-row .cell{display:flex;align-items:baseline;gap:6px}
+.i-row .k{color:var(--muted-fg)}
+.i-row .v{font-weight:600}
+.i-4{border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:repeat(4,1fr);
+  padding:6px 6px;font-size:12px}
+.i-4 .cell{display:flex;align-items:baseline;gap:6px;padding:4px 8px}
+.i-4 .k{color:var(--muted-fg);flex:none}
+.i-4 .v{margin-left:auto;font-weight:600}
+.i-2{border-top:1px solid var(--border-subtle);display:grid;grid-template-columns:repeat(2,1fr);
+  padding:6px 6px;font-size:12px}
+.i-2 .cell{display:flex;align-items:baseline;gap:6px;padding:5px 10px}
+.i-2 .k{color:var(--muted-fg);flex:none;min-width:40px}
+.i-2 .v{margin-left:auto;font-weight:600}
+.i-in{margin-left:auto;display:flex;flex-wrap:wrap;gap:2px 18px;max-width:620px;justify-content:flex-end;font-size:12px}
+.i-in .cell{display:flex;align-items:baseline;gap:5px}
+.i-in .k{color:var(--muted-fg)}
+.i-in .v{font-weight:600}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+
+/* 본문 */
+.body{display:grid;grid-template-columns:460px minmax(0,1fr);gap:16px;align-items:start}
+.card{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);padding:12px}
+.lcols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* 폼 — before / after 두 프로파일 */
+.form{--lw:88px;--tt:11px;--lbf:12px;--inf:12px;--inh:32px}
+.form.big{--lw:104px;--tt:13px;--lbf:13px;--inf:15px;--inh:38px}
+.grp{border-top:1px solid var(--border-subtle);padding:8px 0}
+.grp:first-child{border-top:0;padding-top:0}
+.ghead{display:flex;align-items:center;gap:8px;min-height:24px}
+.gtitle{font-size:var(--tt);font-weight:600;letter-spacing:.04em;color:var(--muted-fg)}
+.sw{margin-left:auto;width:44px;height:26px;border-radius:999px;background:var(--border);position:relative;flex:none}
+.sw i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#fff;box-shadow:0 1px 2px oklch(0 0 0/.3)}
+.fr{margin-top:5px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:8px}
+.fr > .lb{font-size:var(--lbf);color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inp{display:flex;height:var(--inh);align-items:center;gap:4px;border:1px solid var(--input);
+  border-radius:var(--r);background:var(--bg);padding:0 8px}
+.inp input{flex:1;min-width:0;text-align:right;font-size:var(--inf);border:0;outline:0;background:transparent;
+  color:var(--fg);padding:0;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.inp .u{font-size:calc(var(--inf) - 3px);color:var(--muted-fg);flex:none}
+.inp:focus-within{border-color:var(--ring)}
+.seg{display:flex;height:var(--inh);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;grid-column:1/-1}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted-fg);font:inherit;
+  font-size:calc(var(--lbf) + 0px);font-weight:600;white-space:nowrap;cursor:pointer}
+/* ★ 세그먼트 색 = 그 선택지의 방향색 */
+.seg button.onask{background:var(--down-bg);color:var(--down)}
+.seg button.onbid{background:var(--up-bg);color:var(--up)}
+.ck{margin-top:5px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:8px}
+.ckbox{display:flex;align-items:center;gap:5px;min-width:0}
+.ckbox input{width:17px;height:17px;flex:none;margin:0;accent-color:var(--primary)}
+.ckbox label{font-size:var(--lbf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 모바일 프레임 */
+.dev{width:390px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:var(--bg)}
+.devbar{height:30px;display:flex;align-items:center;justify-content:center;font-size:11px;
+  color:var(--muted-fg);background:var(--muted);border-bottom:1px solid var(--border)}
+.mmain{padding:8px}
+.mform{--lw:64px;--tt:11px;--lbf:11px;--inf:16px;--inh:36px}
+.mform.big{--lw:76px;--tt:13px;--lbf:13px;--inf:16px;--inh:38px}
+.mform .fr,.mform .ck{gap:6px;margin-top:4px}
+.pair{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>데스크톱 헤더 3안 + 글자 크기 조정</h1>
+<p class="lede">
+  데스크톱 프레임은 <b>1152px</b>(1440 뷰포트 − 사이드바 240 − 여백 48) 실폭입니다.
+  ① 칩 행은 전부 삭제했고, ② 「매도잔량」은 파랑으로 고쳤습니다.
+</p>
+
+<h2>④ 데스크톱 종목정보 — A · B · C</h2>
+
+<div class="dtlab">← 1152px · 안 A : 한 줄 가로 나열</div>
+<div class="dt">
+  <div class="ttl"><h3>상따</h3><button class="acct"><span class="num">37728502101</span><span>김현중</span><span>▾</span></button></div>
+  <div class="hd">
+    <div class="hd-top">
+      <select class="exsel"><option>KRX</option><option>NXT</option></select>
+      <button class="nmbtn"><span class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></span><span class="caret">▾</span></button>
+      <span class="chg"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></span>
+    </div>
+    <div class="i-row">
+      <span class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></span>
+      <span class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></span>
+      <span class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></span>
+      <span class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></span>
+      <span class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></span>
+      <span class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></span>
+      <span class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></span>
+      <span class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></span>
+    </div>
+  </div>
+  <p class="note" style="margin:0">헤더가 <b>+33px</b> 만 늘어납니다. 8칸이 한 줄에 다 들어가고 좁아지면 자연스럽게 다음 줄로 넘어갑니다.</p>
+</div>
+
+<div class="dtlab" style="padding-top:20px">← 1152px · 안 B : 현재가 줄 오른쪽에 흡수 (헤더 한 줄)</div>
+<div class="dt">
+  <div class="ttl"><h3>상따</h3><button class="acct"><span class="num">37728502101</span><span>김현중</span><span>▾</span></button></div>
+  <div class="hd">
+    <div class="hd-top">
+      <select class="exsel"><option>KRX</option><option>NXT</option></select>
+      <button class="nmbtn"><span class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></span><span class="caret">▾</span></button>
+      <span class="chg" style="margin-left:16px"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></span>
+      <span class="i-in">
+        <span class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></span>
+        <span class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></span>
+        <span class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></span>
+        <span class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></span>
+        <span class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></span>
+        <span class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></span>
+        <span class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></span>
+        <span class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></span>
+      </span>
+    </div>
+  </div>
+  <p class="note" style="margin:0">헤더 높이가 <b>전혀 안 늘어납니다</b>(+0px). 8칸이 현재가 오른쪽 빈 공간을 2줄로 채웁니다. 가장 납작하지만 종목명과 정보가 한 덩어리로 보입니다.</p>
+</div>
+
+<div class="dtlab" style="padding-top:20px">← 1152px · 안 C : 4열 2행</div>
+<div class="dt">
+  <div class="ttl"><h3>상따</h3><button class="acct"><span class="num">37728502101</span><span>김현중</span><span>▾</span></button></div>
+  <div class="hd">
+    <div class="hd-top">
+      <select class="exsel"><option>KRX</option><option>NXT</option></select>
+      <button class="nmbtn"><span class="hd-nm"><b>에코프로비엠</b><span class="mono">247540</span></span><span class="caret">▾</span></button>
+      <span class="chg"><b class="mono down">1,832,000</b><span class="mono down">-1.10%</span></span>
+    </div>
+    <div class="i-4">
+      <span class="cell"><span class="k">시가</span><span class="v mono up">1,850,000</span></span>
+      <span class="cell"><span class="k">고가</span><span class="v mono up">1,884,000</span></span>
+      <span class="cell"><span class="k">저가</span><span class="v mono down">1,820,000</span></span>
+      <span class="cell"><span class="k">상승VI</span><span class="v mono up">2,038,000</span></span>
+      <span class="cell"><span class="k">상한</span><span class="v mono up">2,408,000</span></span>
+      <span class="cell"><span class="k">하한</span><span class="v mono down">1,298,000</span></span>
+      <span class="cell"><span class="k">시총</span><span class="v mono">133조 4,120억</span></span>
+      <span class="cell"><span class="k">발행1%</span><span class="v mono">728,002주</span></span>
+    </div>
+  </div>
+  <p class="note" style="margin:0">헤더 <b>+56px</b>. 값이 오른쪽 정렬이라 자릿수가 세로로 맞습니다. 지금(2열 4행, +92px)의 절반 높이입니다.</p>
+</div>
+
+<h2>③ 글자 크기 — 데스크톱</h2>
+<div class="pair">
+  <div>
+    <span class="tag c">현행</span>
+    <div class="card" style="width:330px"><div class="form">
+      <div class="grp">
+        <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+        <div class="fr"><span class="lb">비교가격</span><div class="inp"><input class="sel" value="1,832,000"><span class="u">원</span></div></div>
+        <div class="fr"><div class="seg"><button class="onask">매도잔량</button><button>매수잔량</button></div></div>
+        <div class="fr"><span class="lb">잔량</span><div class="inp"><input class="sel" value="10,000"><span class="u">주</span></div></div>
+        <div class="ck"><span class="ckbox"><input type="checkbox" id="d1"><label for="d1">체결</label></span>
+          <div class="inp"><input class="sel" value="30,000"><span class="u">주</span></div></div>
+      </div>
+    </div></div>
+    <p class="note">소제목 11px · 라벨 12px · 입력 12px · 높이 32px</p>
+  </div>
+  <div>
+    <span class="tag a">확대안</span>
+    <div class="card" style="width:330px"><div class="form big">
+      <div class="grp">
+        <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+        <div class="fr"><span class="lb">비교가격</span><div class="inp"><input class="sel" value="1,832,000"><span class="u">원</span></div></div>
+        <div class="fr"><div class="seg"><button class="onask">매도잔량</button><button>매수잔량</button></div></div>
+        <div class="fr"><span class="lb">잔량</span><div class="inp"><input class="sel" value="10,000"><span class="u">주</span></div></div>
+        <div class="ck"><span class="ckbox"><input type="checkbox" id="d2"><label for="d2">체결</label></span>
+          <div class="inp"><input class="sel" value="30,000"><span class="u">주</span></div></div>
+      </div>
+    </div></div>
+    <p class="note">소제목 <b>13px</b> · 라벨 <b>13px</b> · 입력 <b>15px</b> · 높이 <b>38px</b> · 라벨칸 88 → <b>104px</b></p>
+  </div>
+</div>
+
+<h2>③ 글자 크기 — 모바일</h2>
+<div class="pair">
+  <div>
+    <span class="tag c">현행(방금 배포본)</span>
+    <div class="dev"><div class="devbar">trade.jx1.io</div><div class="mmain">
+      <div style="display:grid;grid-template-columns:40% minmax(0,1fr)">
+        <div style="border-right:1px solid var(--border);font-size:10px;color:var(--muted-fg);padding-right:6px">호가…</div>
+        <div style="padding-left:8px"><div class="form mform">
+          <div class="grp">
+            <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+            <div class="fr"><span class="lb">비교가격</span><div class="inp"><input class="sel" value="10,000,000"><span class="u">원</span></div></div>
+            <div class="fr"><div class="seg"><button class="onask">매도잔량</button><button>매수잔량</button></div></div>
+            <div class="fr"><span class="lb">잔량</span><div class="inp"><input class="sel" value="10,000,000"><span class="u">주</span></div></div>
+            <div class="ck"><span class="ckbox"><input type="checkbox" id="m1"><label for="m1">체결</label></span>
+              <div class="inp"><input class="sel" value="30,000"><span class="u">주</span></div></div>
+          </div>
+        </div></div>
+      </div>
+    </div></div>
+    <p class="note">소제목 11px · 라벨 11px</p>
+  </div>
+  <div>
+    <span class="tag a">확대안</span>
+    <div class="dev"><div class="devbar">trade.jx1.io</div><div class="mmain">
+      <div style="display:grid;grid-template-columns:40% minmax(0,1fr)">
+        <div style="border-right:1px solid var(--border);font-size:10px;color:var(--muted-fg);padding-right:6px">호가…</div>
+        <div style="padding-left:8px"><div class="form mform big">
+          <div class="grp">
+            <div class="ghead"><span class="gtitle">매수주문</span><span class="sw"><i></i></span></div>
+            <div class="fr"><span class="lb">비교가격</span><div class="inp"><input class="sel" value="10,000,000"><span class="u">원</span></div></div>
+            <div class="fr"><div class="seg"><button class="onask">매도잔량</button><button>매수잔량</button></div></div>
+            <div class="fr"><span class="lb">잔량</span><div class="inp"><input class="sel" value="10,000,000"><span class="u">주</span></div></div>
+            <div class="ck"><span class="ckbox"><input type="checkbox" id="m2"><label for="m2">체결</label></span>
+              <div class="inp"><input class="sel" value="30,000"><span class="u">주</span></div></div>
+          </div>
+        </div></div>
+      </div>
+    </div></div>
+    <p class="note">
+      소제목 <b>13px</b> · 라벨 <b>13px</b> · 라벨칸 64 → <b>76px</b>.
+      <b>10,000,000 이 여전히 안 잘립니다</b>(입력 16px 유지 — iOS 확대 방지 조건).
+      라벨칸을 안 넓히면 「잔량추적」 4글자가 잘립니다.
+    </p>
+  </div>
+</div>
+
+<h2>② 매도잔량 = 파랑</h2>
+<p class="lede">
+  선택된 세그먼트의 색을 <b>그 선택지의 방향색</b>으로 바꿨습니다 —
+  <b>매도잔량 = <span class="down">파랑</span></b>, <b>매수잔량 = <span class="up">빨강</span></b>.
+  지금은 매수주문 그룹이라는 이유로 둘 다 빨강이라, 매도호가 잔량을 감시하는데 화면은 빨강이라고 말하고 있었습니다.
+  호가창의 매도=파랑 / 매수=빨강 축과도 이제 일치합니다. 위 목업의 세그먼트가 그 색입니다(매수잔량을 눌러 보세요).
+</p>
+
+<h2>① 가격 칩 행</h2>
+<p class="lede">기준가·호가단위 칩까지 <b>행 전체를 삭제</b>합니다. 위 목업 어디에도 칩 행이 없습니다.</p>
+
+<h2>정해 주실 것</h2>
+<p class="lede">데스크톱 헤더 정보를 <b>A(한 줄) / B(현재가 줄에 흡수) / C(4열 2행)</b> 중 무엇으로 할지, 그리고 글자 확대안이 적당한지 알려 주세요.</p>
+
+<script>
+document.querySelectorAll('input.sel').forEach((el)=>{
+  const pick=()=>{try{el.setSelectionRange(0,el.value.length)}catch(e){}};
+  el.addEventListener('focus',()=>{pick();setTimeout(pick,0)});
+  el.addEventListener('click',pick);
+});
+document.querySelectorAll('.seg').forEach((seg)=>{
+  const [ask,bid]=seg.querySelectorAll('button');
+  ask.onclick=()=>{ask.className='onask';bid.className='';};
+  bid.onclick=()=>{bid.className='onbid';ask.className='';};
+});
+</script>
+</div>
