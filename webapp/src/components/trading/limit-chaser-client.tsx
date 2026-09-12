@@ -468,18 +468,30 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
             거래소 — 네이티브 1단 콤보. 방향 의미가 없어 중립이다.
             편집 진입은 거래소가 **키의 일부**라 바꾸면 다른 전략이 되므로 잠근다.
             ★ `appearance-none` 을 넣지 않는다 — 네이티브 캐럿과 OS 선택 UI 를 잃는다.
-            ★ 데스크톱(≥992)에서만 글자·높이를 키운다 (quick-260912-mvo Q-04). 넓은 화면에서
+            ★ 데스크톱(≥992)에서만 **글자**를 키운다 (quick-260912-mvo Q-04). 넓은 화면에서
               10px 은 같은 줄의 20px 종목명 옆에서 읽히지 않았다. 좁은 폭의
               `text-[10px] px-1 py-0.5` 는 **그대로**다 — 폰 헤더는 이미 빡빡하다.
             ★ 종목명과 **같은 크기로 만들지 않는다.** 같은 줄에 선 보조 컨트롤로 읽혀야 한다.
-              `py-0` 은 `h-7` 과 기본 `py-0.5` 가 다투지 않게 하는 짝이다.
+            ★ quick-260912-ok2 ④ — **높이는 `h-9`(36px) 한 값이다.** 브라우저 실측이 이랬다:
+              폰 390 · 컴팩트 716 에서 콤보 20 / 트리거 30 / 검색 입력 36, 와이드(컨테이너
+              ≥992)에서 콤보 28 / 트리거 36 / 입력 36. 콤보가 **두 상태 어느 쪽과도** 높이가
+              달랐고, 그래서 종목을 고르고 검색을 여는 동안 헤더 한 줄이 48.38 ↔ 52 로 튀었다
+              (WINDOWS 8 의 「잔여 점프」가 이것이다).
+              세 컨트롤을 한 값(36)에 모으면 ⓐ 콤보 = 트리거, ⓑ 콤보 = 입력, ⓒ 상태 전환에
+              콤보 불변 — 세 요구가 **동시에** 성립한다. 둘만 맞추는 어떤 조합도 나머지 한
+              상태에서 튄다.
+              ★ `h-7`(28px) 데스크톱 override 를 **지웠다.** 남겨 두면 와이드에서만 콤보가
+                8px 낮아져 같은 결함이 그 밴드에 되살아난다. 글자 크기(14px)는 그대로다 —
+                직전 quick 이 키운 값이고 이번 목적은 높이 정렬이다.
+              ★ `appearance-none` 을 넣지 않는 이유는 위와 같다 — 유닛이 렌더된 `className`
+                으로 그 부재를 잠근다.
           */}
           <select
             aria-label="거래소"
             value={exchange}
             onChange={(e) => setExchange(e.target.value as RelayExchange)}
             disabled={parsedKey !== null}
-            className="flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[10px] font-bold text-[var(--muted-fg)] disabled:opacity-50 @min-[992px]/lc:h-7 @min-[992px]/lc:px-1.5 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[14px]"
+            className="h-9 flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[10px] font-bold text-[var(--muted-fg)] disabled:opacity-50 @min-[992px]/lc:px-1.5 @min-[992px]/lc:py-0 @min-[992px]/lc:text-[14px]"
           >
             {(['KRX', 'NXT'] as const).map((ex) => (
               <option key={ex} value={ex}>
@@ -490,6 +502,15 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
           {isin === '' || searching ? (
             <StockSearchField
+              /*
+                ★ quick-260912-ok2 ② — **사용자가 종목명을 눌러 연 경우에만** 포커스한다.
+                  `searching` 이 곧 그 신호다(첫 진입은 `isin === ''` 쪽으로 들어온다).
+                  첫 진입에도 포커스를 주면 폰에서 페이지를 여는 순간 소프트 키보드가 올라와
+                  헤더·호가가 화면 밖으로 밀린다 — 아직 타이핑하겠다고 말한 적 없는 사용자에게
+                  키보드를 띄우는 것은 조작이지 편의가 아니다(T-ok2-06).
+                  종목명을 **눌러서** 열었다면 다음 동작은 타이핑뿐이므로 그때는 포커스가 맞다.
+              */
+              focusOnOpen={searching}
               onPick={(s) => {
                 setPicked(s);
                 setSearching(false);
@@ -514,26 +535,40 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                     `truncate` 로 줄어들게 하고, 다른 폭 유틸리티는 새로 넣지 않는다
                     (flex 기본값이 「내용 폭, 필요하면 축소」다).
               */}
+              {/*
+                ★ quick-260912-ok2 ④ — 높이를 `h-9`(36px)로 못박아 거래소 콤보·검색 입력과
+                  같은 줄에 **같은 키로** 선다. 폰에서 30px 이던 자연 높이가 36 이 되면서
+                  헤더 한 줄의 48.38 ↔ 52 점프도 함께 사라진다(위 콤보 주석의 실측).
+                ★ 바깥이 `items-center`, **안쪽 span 이 `items-baseline`** 이다. 고정 높이
+                  flex 에서 `align-items:baseline` 은 베이스라인 묶음을 cross-start(위쪽)에
+                  붙여 글자가 36px 상자 천장에 매달린다. 묶음을 span 으로 한 겹 싸면 종목명
+                  16px · 코드 11px · 캐럿의 **베이스라인 관계는 그대로 두고** 묶음 전체만
+                  세로 중앙에 온다. 둘을 한 요소에 겹쳐 쓸 수는 없다.
+                ★ `min-w-0` 은 버튼 → span → `<b>` 세 겹 전부에 있어야 긴 종목명이
+                  `truncate` 로 줄어든다. 한 겹만 빠져도 축소가 멈추고 행을 밀어낸다.
+              */}
               <button
                 type="button"
                 data-slot="lc-stock-trigger"
                 disabled={parsedKey !== null}
                 onClick={() => setSearching(true)}
-                className="flex min-w-0 items-baseline gap-1.5 rounded-[var(--r)] border border-[var(--border-subtle)] px-1 py-0.5 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                className="flex h-9 min-w-0 items-center rounded-[var(--r)] border border-[var(--border-subtle)] px-1 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
-                <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] @min-[992px]/lc:text-[20px]">
-                  {displayName}
-                </b>
-                {stockCode !== null && (
-                  <span className="mono flex-none text-[11px] text-[var(--muted-fg)] @min-[992px]/lc:text-[12px]">
-                    {stockCode}
-                  </span>
-                )}
-                <span className="sr-only">종목 변경</span>
-                <ChevronDown
-                  aria-hidden="true"
-                  className="size-3.5 flex-none text-[var(--muted-fg)] @min-[992px]/lc:size-4"
-                />
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] @min-[992px]/lc:text-[20px]">
+                    {displayName}
+                  </b>
+                  {stockCode !== null && (
+                    <span className="mono flex-none text-[11px] text-[var(--muted-fg)] @min-[992px]/lc:text-[12px]">
+                      {stockCode}
+                    </span>
+                  )}
+                  <span className="sr-only">종목 변경</span>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className="size-3.5 flex-none text-[var(--muted-fg)] @min-[992px]/lc:size-4"
+                  />
+                </span>
               </button>
 
             </>
@@ -1013,15 +1048,37 @@ function isPickable(row: StockDetailResponse): row is StockDetailResponse & { is
  * 취소해도 종목이 바뀌지 않는다 — 그것이 이 프롭의 존재 이유다.
  */
 function StockSearchField({
+  focusOnOpen,
   onPick,
   onCancel,
 }: {
+  /** 열릴 때 입력에 포커스를 줄지 — 호출부 주석 참조(눌러서 연 경우에만 true). */
+  focusOnOpen: boolean;
   onPick: (stock: SelectedStock) => void;
   onCancel: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StockDetailResponse[]>([]);
   const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  /*
+    ★ quick-260912-ok2 ② — 이 effect 가 **래퍼의 `onKeyDown`(Esc)·`onBlur`(취소)를 처음으로
+      살린다.** 그 두 핸들러는 포커스가 컨테이너 안에 있을 때만 실행되는데, 여기 오기 전까지
+      검색을 열어도 `document.activeElement` 는 `body` 였다(브라우저 실측). 즉 Esc 도 blur
+      취소도 **한 번도 동작한 적이 없는 죽은 코드**였고, jsdom 유닛은 입력에 직접 이벤트를
+      쏘기 때문에 그 사실을 볼 수 없었다.
+    ★ React 의 `autoFocus` 속성 대신 ref + effect 를 쓴다. `autoFocus` 는 **마운트 순간에만**
+      동작하는 특례라, 나중에 누가 두 분기를 하나의 상시 마운트 입력으로 합치는 순간 조용히
+      아무 일도 하지 않게 된다(에러가 아니라 기능 소실이다). 조건을 effect 로 적어 두면 그
+      리팩터링에서도 계속 동작하고, 「어느 상태에서 포커스가 가는가」가 코드에 그대로 남는다.
+    ★ `preventScroll` 은 쓰지 않는다 — 입력은 이미 화면 안에 있고, 끄면 폰에서 키보드가
+      올라올 때 입력이 가려진 채로 남을 수 있다.
+  */
+  useEffect(() => {
+    if (!focusOnOpen) return;
+    inputRef.current?.focus();
+  }, [focusOnOpen]);
 
   useEffect(() => {
     const q = query.trim();
@@ -1078,6 +1135,7 @@ function StockSearchField({
       }}
     >
       <input
+        ref={inputRef}
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}

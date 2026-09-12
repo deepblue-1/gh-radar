@@ -70,6 +70,32 @@ async function waitForReady(page: Page): Promise<void> {
   await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
 }
 
+/**
+ * 잘림 진단 — **행 안의 잎 요소 좌표**다 (260912-ok2 가 지역 헬퍼로 뽑았다).
+ *
+ * 행은 블록이라 넘쳐도 폭이 컨테이너와 같고 `overflow-hidden` 이 넘침을 삼킨다.
+ * `getBoundingClientRect` 는 ancestor 클리핑에 영향받지 않아 밀려난 진짜 좌표가 나온다.
+ * 실패 메시지에 **무엇이 얼마나** 밀려났는지 남는다 — 「어딘가 잘렸다」로 끝나지 않게.
+ *
+ * ★ 판정식은 뽑기 전 두 호출부(미체결 행 루프 · 폼 컬럼)와 **한 글자도 다르지 않다** —
+ *   `slice(0, 24)` · `Math.round` · `over > 1`(1px 반올림 여유) 전부 그대로다.
+ */
+async function leavesOverflowing(
+  scope: Locator,
+  right: number,
+): Promise<{ text: string; over: number }[]> {
+  return scope.evaluate(
+    (el, r) =>
+      Array.from(el.querySelectorAll<HTMLElement>('*'))
+        .map((child) => ({
+          text: (child.textContent ?? '').slice(0, 24),
+          over: Math.round(child.getBoundingClientRect().right - r), // 1px = 반올림 여유
+        }))
+        .filter((item) => item.over > 1),
+    right,
+  );
+}
+
 /** 게이트웨이가 `SetLimitChaserReq(10)` 을 n건 받을 때까지 기다린다 — 에코 주입 전 경주 방지. */
 async function waitForSetAtGateway(relay: LocalRelay, count: number): Promise<void> {
   await expect
@@ -455,10 +481,17 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     await expect(
       ladder(page).locator('[data-slot="ladder-row-mobile"] [data-slot="ladder-fill-cell"]'),
     ).toHaveCount(0);
+    /*
+      ★ 260912-ok2 — `:visible` 이 **계약의 일부**다. 사다리는 1단·2단·3단 트리 **3벌이
+        DOM 에 공존**하고 밴드 밖 트리는 `display:none` 으로만 죽는다. compact 테이프는
+        1단·2단 **양쪽**에 있어서(`orderbook-ladder.tsx:1010,1148`) `toHaveCount` 는
+        가시성을 보지 않고 2를 센다. 세려는 것은 「이 밴드에서 **보이는** 테이프가 하나」다.
+    */
     await expect(
-      ladder(page).locator('[data-slot="trade-tape"][data-compact="true"]'),
+      ladder(page).locator('[data-slot="trade-tape"][data-compact="true"]:visible'),
     ).toHaveCount(1);
     // 제목행도 컬럼헤더도 없다 — 140px 칼럼에서 3칸 헤더는 순 소음이다.
+    // (여기는 0 이라 숨은 트리가 섞여도 판정이 느슨해지지 않는다 — 0 은 「어디에도 없다」다.)
     await expect(
       ladder(page).locator('[data-slot="trade-tape"][data-compact="true"] thead'),
     ).toHaveCount(0);
@@ -473,17 +506,7 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     expect(listBox).not.toBeNull();
     const listRight = listBox!.x + listBox!.width;
     for (const row of await page.locator('[data-slot="account-unfilled-row"]').all()) {
-      const overflowing = await row.evaluate(
-        (el, right) =>
-          Array.from(el.querySelectorAll<HTMLElement>('*'))
-            .map((child) => ({
-              text: (child.textContent ?? '').slice(0, 24),
-              over: Math.round(child.getBoundingClientRect().right - right), // 1px = 반올림 여유
-            }))
-            .filter((item) => item.over > 1),
-        listRight,
-      );
-      expect(overflowing).toEqual([]);
+      expect(await leavesOverflowing(row, listRight)).toEqual([]);
     }
 
     // 폼 컬럼도 같은 기준으로 본다 — 라벨 60px + 입력이 204px 안에 들어가야 한다.
@@ -493,17 +516,95 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     const paneBox = await buyPane(page).boundingBox();
     expect(paneBox).not.toBeNull();
     const paneRight = paneBox!.x + paneBox!.width;
-    const formOverflow = await buyPane(page).evaluate(
-      (el, right) =>
-        Array.from(el.querySelectorAll<HTMLElement>('*'))
-          .map((child) => ({
-            text: (child.textContent ?? '').slice(0, 24),
-            over: Math.round(child.getBoundingClientRect().right - right),
-          }))
+    expect(await leavesOverflowing(buyPane(page), paneRight)).toEqual([]);
+  });
+
+  /*
+    ★ 260912-ok2 ⑥ — 지금까지 **목업 실측으로만** 근거를 대던 3건을 단언으로 박제한다.
+      목업은 저장소가 아니라 사람이 지운다. 여기 있어야 다음 사람이 되돌릴 때 붉어진다.
+      (WINDOWS 5·6·8 이 「jsdom 에는 레이아웃이 없다」로 열려 있던 그 자리다.)
+  */
+  test('11. 컴팩트 최소(본문 700) — 세그먼트 잘림 0 · 검색 중 종목정보 10칸 · 헤더 3컨트롤 동일 높이 · Esc 복귀', async ({
+    page,
+  }) => {
+    /*
+      본문 **700** 이 컴팩트 밴드(`@min-[700px]/lc`)의 최소 폭이다. 뷰포트 716 에서 상단
+      카드의 폭이 정확히 700 이 된다(실측) — 그 경계 한 칸 위가 아니라 **경계 그 자체**를
+      본다. 경계 안쪽만 보면 경계에서 깨지는 변이를 통과시킨다.
+    */
+    await page.setViewportSize({ width: 716, height: 900 });
+    await page.goto(NEW_URL);
+    await waitForReady(page);
+    await pickStock(page);
+    await expect(field(page, 'lc-buy-order-price')).toHaveValue(LIVE_UPPER_LIMIT, {
+      timeout: 15_000,
+    });
+
+    // ── ⓐ 감시 대상 세그먼트가 잘리지 않는다 ──────────────────────────────
+    const segment = page.locator('[role="group"][aria-label="감시 대상"]').first();
+    await expect(segment).toBeVisible();
+    const segBox = await segment.boundingBox();
+    expect(segBox).not.toBeNull();
+    expect(await leavesOverflowing(segment, segBox!.x + segBox!.width)).toEqual([]);
+    /*
+      ★ 위 잎 좌표 판정은 이 세그먼트에서 **혼자서는 장님**이다. 버튼은
+        `min-w-0 flex-1` 이라 컨테이너를 넘을 수 없고, 진짜 잘리는 것은 버튼 **안의**
+        `whitespace-nowrap` 텍스트인데 텍스트 노드에는 `getBoundingClientRect` 가
+        걸리는 요소가 없다. 기존 방식을 **대체하지 않고 함께** 둔다 — 통과하는 단언이
+        「참이다」라는 선언이므로, 장님인 단언 하나만 남기면 거짓을 참이라 말하게 된다.
+    */
+    expect(
+      await segment.evaluate((el) =>
+        Array.from(el.querySelectorAll('button'))
+          .map((b) => ({ text: b.textContent ?? '', over: b.scrollWidth - b.clientWidth }))
           .filter((item) => item.over > 1),
-      paneRight,
-    );
-    expect(formOverflow).toEqual([]);
+      ),
+    ).toEqual([]);
+
+    // ── ⓑ 검색을 열어도 종목정보 10칸이 그대로다 (Q-05 d 회귀 잠금) ────────
+    const quoteCells = page.locator('[data-slot="lc-quote-grid"] > *');
+    await expect(quoteCells).toHaveCount(10);
+
+    const card = page.locator('[data-slot="lc-stock-card"]');
+    const combo = card.locator('select[aria-label="거래소"]');
+    const trigger = page.locator('[data-slot="lc-stock-trigger"]');
+    const searchBox = card.getByRole('searchbox');
+
+    const heightOf = async (target: typeof combo): Promise<number> => {
+      const box = await target.boundingBox();
+      expect(box).not.toBeNull();
+      return box!.height;
+    };
+
+    // ── ⓒ 헤더 3컨트롤 높이 — **종목 선택 상태** ─────────────────────────
+    const comboClosed = await heightOf(combo);
+    expect(Math.abs(comboClosed - (await heightOf(trigger)))).toBeLessThanOrEqual(1);
+
+    await trigger.click();
+    await expect(searchBox).toBeVisible();
+    await expect(quoteCells).toHaveCount(10);
+
+    // ── ⓓ 헤더 3컨트롤 높이 — **검색 상태** + 상태 전환에 콤보가 튀지 않는다 ──
+    /*
+      셋 중 둘만 맞추면 나머지 한 상태에서 콤보가 위아래로 튄다. 그래서 「콤보 = 입력」과
+      「콤보 = 트리거」와 「콤보가 상태 전환에 불변」을 **한 케이스에서 함께** 본다.
+    */
+    const comboOpen = await heightOf(combo);
+    expect(Math.abs(comboOpen - (await heightOf(searchBox)))).toBeLessThanOrEqual(1);
+    expect(Math.abs(comboOpen - comboClosed)).toBeLessThanOrEqual(1);
+
+    // ── ⓔ 검색 입력에 포커스가 있고 Esc 가 종목명으로 되돌린다 ─────────────
+    /*
+      ★ 포커스가 **계약**이다. 래퍼의 `onKeyDown`(Esc)·`onBlur`(취소) 는 포커스가
+        컨테이너 안에 있을 때만 실행된다 — 포커스가 없으면 두 핸들러는 한 번도 돌지 않는
+        죽은 코드이고, 이 Esc 단언은 그 사실을 **실제 브라우저에서** 처음 시험했다.
+    */
+    await expect(searchBox).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeVisible();
+    await expect(searchBox).toHaveCount(0);
+    // 취소가 종목을 바꾸지 않는다 — 10칸도 그대로다.
+    await expect(quoteCells).toHaveCount(10);
   });
 
   test('10. 더티 상태로 사이드바 다른 항목 클릭 → 확인 UI 가 뜨고 머무를 수 있다', async ({

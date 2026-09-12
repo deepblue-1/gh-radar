@@ -1111,7 +1111,17 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(trigger.textContent).not.toContain('▾');
   });
 
-  it('Q-04 — 거래소 콤보가 데스크톱에서만 커지고 좁은 폭 크기·네이티브 캐럿은 그대로다', () => {
+  /*
+    ★ quick-260912-ok2 ④ — 이 케이스는 **지우지 않고 다시 썼다.** 옛 단언은 데스크톱 높이
+      override(`@min-[992px]/lc:h-7`)의 **존재**를 요구했는데, 그 28px 이 바로 결함이었다 —
+      같은 줄의 트리거(36)·검색 입력(36)과 높이가 달라 헤더가 상태 전환마다 튀었다(실측).
+      의도(「좁은 폭 크기와 네이티브 캐럿은 그대로다」)는 그대로 두고, 높이 쪽 증거를
+      **한 값(36) 계약**으로 옮긴다. 지웠으면 다음에 다시 28 로 돌아가도 아무도 모른다.
+    ★ 실제 픽셀 정렬(콤보 = 트리거 = 입력, 상태 전환 불변)은 jsdom 이 증명할 수 없다 —
+      `trading-limit-chaser.spec.ts` 케이스 11 이 실제 브라우저에서 그 세 조건을 잰다.
+      여기서 잠그는 것은 **클래스 계약**이고, 그 둘이 짝이다.
+  */
+  it('Q-04 — 거래소 콤보가 데스크톱에서 글자만 커지고, 높이는 세 컨트롤이 `h-9` 한 값이다', () => {
     renderEdit({ quote: quote() });
 
     const sel = screen.getByLabelText('거래소') as HTMLSelectElement;
@@ -1119,11 +1129,48 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(sel.className).toContain('text-[10px]');
     expect(sel.className).toContain('px-1');
     expect(sel.className).toContain('py-0.5');
-    // 데스크톱에서만 글자·높이가 커진다.
+    // 데스크톱에서는 **글자만** 커진다.
     expect(sel.className).toContain('@min-[992px]/lc:text-[14px]');
-    expect(sel.className).toContain('@min-[992px]/lc:h-7');
+    // 높이 override 는 사라졌다 — 밴드마다 다른 높이가 곧 그 밴드의 점프다.
+    expect(sel.className).not.toContain('@min-[992px]/lc:h-7');
+    // 세 컨트롤이 같은 높이 유틸리티를 공유한다.
+    expect(sel.className).toContain('h-9');
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]') as HTMLButtonElement;
+    expect(trigger.className).toContain('h-9');
+    /*
+      고정 높이 flex 에서 `items-baseline` 은 글자를 상자 천장에 매단다. 바깥은 중앙정렬,
+      베이스라인 묶음은 **안쪽 span** 이 갖는다 — 한 요소에 겹쳐 쓸 수 없다.
+    */
+    expect(trigger.className).toContain('items-center');
+    expect(trigger.className).not.toContain('items-baseline');
+    expect(
+      (trigger.querySelector('span.items-baseline') as HTMLElement | null)?.className,
+    ).toContain('min-w-0');
     // ★ 네이티브 캐럿과 OS 선택 UI 를 잃지 않는다.
     expect(sel.className).not.toContain('appearance-none');
+  });
+
+  /*
+    ★ quick-260912-ok2 ② — **포커스 정책**이 계약이다.
+      브라우저 실측에서 검색을 열어도 `document.activeElement` 가 `body` 였다. 그 말은
+      래퍼의 `onKeyDown`(Esc)·`onBlur`(취소)가 한 번도 실행된 적이 없다는 뜻이다 —
+      아래 두 케이스(Q-05 Esc · T-mvo-03 blur)는 입력에 **직접** 이벤트를 쏘기 때문에
+      그 사실을 보지 못했다. jsdom 으로 통과했다고 브라우저에서 동작하는 것이 아니다.
+  */
+  it('★ ② 첫 진입에서는 검색 입력에 포커스가 가지 않는다 — 폰에서 키보드가 스스로 올라오지 않게', () => {
+    setRelay({});
+    render(<LimitChaserClient />);
+
+    const input = screen.getByLabelText('종목 검색') as HTMLInputElement;
+    expect(input).toBeInTheDocument();
+    // 아직 타이핑하겠다고 말한 적 없는 사용자다 — 포커스는 본문 어디에도 옮겨가지 않는다.
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('★ ② 종목명을 눌러 연 검색에는 포커스가 간다 — Esc·blur 경로가 그때 비로소 살아난다', async () => {
+    const input = await pickThenOpenSearch();
+
+    expect(document.activeElement).toBe(input);
   });
 
   it('Q-02 — 종목 검색 입력이 전역 Double-Ring 을 걷고 테두리 채널을 **쌍으로** 갖는다', () => {
