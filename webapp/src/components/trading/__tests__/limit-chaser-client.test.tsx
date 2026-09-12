@@ -432,17 +432,71 @@ describe('LimitChaserClient — 결선', () => {
     ).toBeInTheDocument();
   });
 
-  it('⑭ 본문 그리드 자식이 전부 `min-w-0` 이다 (R8 — 조용한 잘림 방지)', () => {
+  /*
+    ⑭ 260912-k2x — 본문 배치 판정이 **뷰포트에서 본문 폭 컨테이너 쿼리로** 옮겨졌다.
+      옛 단언(데스크톱 컬럼 클래스 · 1024 1열 강제)은 삭제한 것이 아니라 **새 계약으로 다시
+      쓴 것**이다: ⓐ 래퍼가 컨테이너다 ⓑ 그리드가 네 밴드 템플릿을 전부 선언한다
+      ⓒ 자식이 여전히 둘이고 전부 `min-w-0` 이다.
+      jsdom 은 폭을 계산하지 않으므로 「700 에서 실제로 260px 이 된다」는 증명할 수 없다 —
+      증명할 수 있는 것은 **규칙이 선언돼 있다**는 사실뿐이고, 그 규칙이 지워지면 실패한다.
+      (폭 판정 자체가 미검증이라는 사실은 `.planning/WINDOWS.md` 에 남아 있다.)
+  */
+  it('⑭ 본문이 컨테이너를 기준으로 4밴드를 선언하고 자식이 전부 `min-w-0` 이다', () => {
     setRelay({ limitChasers: [echo()] });
     render(<LimitChaserClient strategyKey={KEY} />);
 
+    // ⓐ 래퍼가 이름 붙은 컨테이너다 — 빠지면 모든 분기가 **조용히** 폰 밴드로 떨어진다.
+    const page = document.querySelector('[data-slot="limit-chaser-page"]') as HTMLElement;
+    expect(page).not.toBeNull();
+    expect(page.className).toContain('@container/lc');
+
     const grid = document.querySelector('[data-slot="lc-body-grid"]');
     expect(grid).not.toBeNull();
-    // 클래스로 규칙 자체를 잠근다 — jsdom 은 폭을 계산하지 않아 실측으로는 못 잡는다.
-    expect((grid as HTMLElement).className).toContain('[&>*]:min-w-0');
-    expect((grid as HTMLElement).className).toContain('min-[1280px]:grid-cols-[460px_minmax(0,1fr)]');
+    // ⓑ 네 밴드가 전부 선언돼 있다(폰 기본 + 컴팩트 700 + 와이드 830 + 데스크톱 992).
     expect((grid as HTMLElement).className).toContain('grid-cols-[42%_minmax(0,1fr)]');
-    expect((grid as HTMLElement).className).toContain('min-[1024px]:grid-cols-1');
+    expect((grid as HTMLElement).className).toContain(
+      '@min-[700px]/lc:grid-cols-[260px_minmax(0,1fr)]',
+    );
+    expect((grid as HTMLElement).className).toContain(
+      '@min-[830px]/lc:grid-cols-[400px_minmax(0,1fr)]',
+    );
+    expect((grid as HTMLElement).className).toContain(
+      '@min-[992px]/lc:grid-cols-[460px_minmax(0,1fr)]',
+    );
+    // 옛 뷰포트 분기는 본문에서 사라졌다 — 하나라도 남으면 271px 역전이 되살아난다.
+    expect((grid as HTMLElement).className).not.toContain('min-[1024px]:');
+    expect((grid as HTMLElement).className).not.toContain('min-[1280px]:');
+    // ⓒ R8 — 자식 둘이 전부 `min-w-0`. 빠지면 스크롤이 아니라 **조용한 잘림**이다.
+    expect((grid as HTMLElement).className).toContain('[&>*]:min-w-0');
+    expect((grid as HTMLElement).children).toHaveLength(2);
+  });
+
+  /*
+    ⑭b ★ 260912-k2x — **이번 변경에서 자동으로 잠글 수 있는 유일한 회귀**다.
+
+      `container-type:inline-size` 는 layout containment 를 걸고, layout containment 가 걸린
+      요소는 `position:fixed` 자손의 **컨테이닝 블록**이 된다. 그래서 상따 본문에 컨테이너를
+      거는 순간, 폼 안에 있던 하단 고정 바는 뷰포트 하단이 아니라 **본문 끝**에 앉는다 —
+      사용자는 화면을 끝까지 스크롤해야만 「수정」을 누를 수 있게 되고, 이 화면의 1차 CTA 가
+      사실상 죽는다(T-k2x-03).
+      jsdom 에 레이아웃은 없어 「뷰포트 하단에 붙는다」는 못 재지만, **부모 관계는 잰다.**
+      바가 래퍼 밖(= `document.body` 직속)에 있다는 사실이 곧 포털이 살아 있다는 증거다.
+  */
+  it('⑭b ★ 더티 액션 바가 컨테이너 래퍼 **밖**(body 직속)에 렌더된다 (T-k2x-03)', () => {
+    setRelay({ limitChasers: [echo()] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    const page = document.querySelector('[data-slot="limit-chaser-page"]') as HTMLElement;
+    // 더티 0 — 바는 애초에 DOM 에 없다(기존 계약 불변).
+    expect(document.querySelector('[data-slot="dirty-action-bar"]')).toBeNull();
+
+    // 값 하나를 더티로 만든다 → 바가 나타난다.
+    fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
+
+    const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
+    expect(bar).not.toBeNull();
+    expect(page.contains(bar)).toBe(false);
+    expect(bar.parentElement).toBe(document.body);
   });
 
   it('⑮ 미체결에 출처 태그 `상따` 가 붙고 계좌 셀렉터가 **한 벌뿐**이다', () => {

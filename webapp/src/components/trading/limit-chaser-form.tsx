@@ -94,6 +94,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   RelayExchange,
   RelayLimitChaser,
@@ -337,6 +338,12 @@ export function LimitChaserForm({
   const { send } = useRelayContext();
   const narrow = useNarrowLayout();
   const [tab, setTab] = useState<'buy' | 'sell'>('buy');
+  /**
+   * 하단 액션 바 포털의 SSR 가드 — 서버 렌더에는 `document` 가 없다.
+   * 마운트 뒤 한 번만 true 가 되고 다시 false 로 돌아가지 않는다.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [submitting, setSubmitting] = useState(false);
   /**
    * 전송 직전 가드가 막았거나(무장 불가) 소켓이 받아 주지 않았을 때의 사유 1줄.
@@ -1009,13 +1016,30 @@ export function LimitChaserForm({
         </div>
       </div>
 
-      <DirtyActionBar
-        dirtyCount={dirty.length}
-        submitting={submitting}
-        onSubmit={handleSubmit}
-        onRevert={handleRevert}
-        hint={DIRTY_HINT}
-      />
+      {/*
+        ★ 액션 바는 `document.body` **로 포털한다 — 장식이 아니라 필수다** (260912-k2x).
+          상따 본문 래퍼가 `container-type:inline-size` 를 쓰는데, 그것은 layout containment
+          를 걸고 layout containment 가 걸린 요소는 `position:fixed` 자손의 **컨테이닝 블록**
+          이 된다. 포털을 걷으면 이 바가 뷰포트 하단이 아니라 **본문 끝**에 앉고, 그때부터
+          사용자는 화면을 끝까지 스크롤해야만 「수정」을 누를 수 있다 — 이 화면의 1차 CTA 가
+          사실상 사라진다. 「불필요한 포털」로 보고 지우지 마라.
+        ★ 공유 컴포넌트(`dirty-action-bar.tsx`)는 한 줄도 고치지 않았다 — VI 설정 화면도 같은
+          바를 쓰고 그쪽은 컨테이너 안이 아니다. 포털은 **이 호출부의 사정**이다.
+        ★ SSR 가드 — 서버 렌더에는 `document` 가 없다. 마운트된 뒤에만 포털을 만든다.
+        ★ 더티 0 이면 렌더하지 않는 규율은 **바 자신**이 이미 지킨다(`dirtyCount <= 0 → null`).
+          여기서 다시 판정하면 그 규율이 두 곳이 되고, 언젠가 한쪽만 고쳐진다.
+      */}
+      {mounted &&
+        createPortal(
+          <DirtyActionBar
+            dirtyCount={dirty.length}
+            submitting={submitting}
+            onSubmit={handleSubmit}
+            onRevert={handleRevert}
+            hint={DIRTY_HINT}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

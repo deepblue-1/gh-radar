@@ -400,8 +400,19 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   const awaitingSnapshot =
     parsedKey !== null && server === null && status !== 'ready' && limitChasers.length === 0;
 
+  /*
+    ★ `@container/lc` — 상따 본문 전체가 **자기 폭**을 재는 컨테이너다 (260912-k2x).
+      이 래퍼가 빠지거나 이름(`lc`)이 어긋나면 아래 모든 밴드 분기가 **에러 없이** 조용히
+      폰 밴드로 떨어진다(잘못된 배치이지 실패가 아니라 눈에 띄지 않는다). 밴드 표와 경계
+      셋의 실측 근거는 `globals.css` §2.2b 가 정본이다.
+    ★ 컨테이너는 layout containment 를 걸어 `position:fixed` 자손의 **컨테이닝 블록**이
+      된다 — 그래서 폼의 더티 액션 바는 `document.body` 로 포털된다(`limit-chaser-form`).
+  */
   return (
-    <div data-slot="limit-chaser-page" className="flex min-w-0 flex-col gap-[var(--s-2)]">
+    <div
+      data-slot="limit-chaser-page"
+      className="@container/lc flex min-w-0 flex-col gap-[var(--s-2)]"
+    >
       {/*
         제목 줄 — 제목은 **언제나 「상따」**이고 그 옆 칩에서 계좌를 고른다 (260911-w5h).
         옛 편집 제목(`{종목명} · {거래소}`)과 전략키 mono 부제는 걷었다 — 종목·거래소는
@@ -588,20 +599,24 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       )}
 
       {/*
-        본문 그리드 — 정본은 목업이다.
-          <1024   : `.lc2` 42% | 1fr, gap 8 (R7 — 모바일 2열은 390px 부터)
-          1024~1279: 1열 (R1 — 콘텐츠 735px 로는 2축이 잘린다)
-          ≥1280   : `.lc3` 460 | 나머지, gap 16. 오른쪽 칸을 폼이 다시 250|250 으로 나눈다.
+        본문 그리드 — **본문 폭 4밴드**(260912-k2x). 표와 실측 근거의 정본은 `globals.css`
+        §2.2b 이고, 여기에 복사하지 않는다.
+          폰(~본문 699)      : 42% | 1fr, gap 8
+          컴팩트(700~829)    : 260px | 1fr
+          와이드(830~991)    : 400px | 1fr  ← 마커 슬롯 20px 이 만든 실측 하한이다
+          데스크톱(992~)     : 460px | 1fr, gap 16
+        ★ 옛 「1열로 강제」 분기는 **삭제됐다** — 그 분기는 사이드바가 뜨면서 본문이 좁아지는
+          뷰포트 1024~1279 구간을 손으로 메우던 것이고, 본문 폭을 직접 재는 지금은 대응이 없다.
         ★ 그리드 자식 전부 `min-w-0` — 빠지면 `overflow-hidden` 아래에서 스크롤이 아니라
           **조용한 잘림**이 된다(`tasks/lessons.md` 등재 함정).
       */}
       <div
         data-slot="lc-body-grid"
-        className="grid min-w-0 grid-cols-[42%_minmax(0,1fr)] items-start gap-[var(--s-2)] min-[1024px]:grid-cols-1 min-[1280px]:grid-cols-[460px_minmax(0,1fr)] min-[1280px]:gap-[var(--s-4)] [&>*]:min-w-0"
+        className="grid min-w-0 grid-cols-[42%_minmax(0,1fr)] items-start gap-[var(--s-2)] @min-[700px]/lc:grid-cols-[260px_minmax(0,1fr)] @min-[830px]/lc:grid-cols-[400px_minmax(0,1fr)] @min-[992px]/lc:grid-cols-[460px_minmax(0,1fr)] @min-[992px]/lc:gap-[var(--s-4)] [&>*]:min-w-0"
       >
         <section
           data-slot="lc-orderbook-card"
-          className="flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-2)] min-[1280px]:p-[var(--s-3)]"
+          className="flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-2)] @min-[992px]/lc:p-[var(--s-3)]"
         >
           <h3 className="m-0 mb-[var(--s-1)] flex flex-wrap items-center gap-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)] min-[1280px]:mb-[var(--s-2)]">
             호가 10단

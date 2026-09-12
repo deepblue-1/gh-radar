@@ -162,7 +162,7 @@
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+- **상따 화면(`/trading/limit-chaser`)의 반응형은 뷰포트가 아니라 본문 폭 4밴드 컨테이너 쿼리다.** 밴드 표와 경계 3개(본문 700 · 830 · 992)의 실측 근거는 `webapp/src/styles/globals.css` 상단 주석(§2.2b)이 정본이다. 여기에 표를 복사하지 마라 — 표가 둘이 되면 갈라진다. 앱 셸·사이드바는 여전히 뷰포트 브레이크포인트다.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
