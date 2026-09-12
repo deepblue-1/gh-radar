@@ -30,7 +30,7 @@ Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운�
 Plans completed: 171 / 185
 Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-12 - Completed quick task 260912-gyz: 상따 후속 다듬기 4건 (칩 행 삭제 · 방향색 세그먼트 · 글자 확대 · 데스크톱 한 줄 정보)
+Last activity: 2026-09-12 - Completed quick task 260912-mvo: 상따 폼·헤더 후속 7건 (FAB 범위 · 포커스 한 겹 · 세그먼트 폭 · 거래소 콤보 · 종목변경 4종 · 매수매도 틴트 · 컴팩트 호가 박스)
 
 Progress: [█████████░] 92%
 
@@ -676,6 +676,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260912-mvo | 상따 폼·헤더 후속 7건 — AI FAB 을 종목상세에서만 노출, 텍스트 입력 포커스를 **테두리 한 겹**으로 통일(전역 `*:focus-visible` 의 box-shadow 가 겹쳐 그리던 것 · `data-focus-ring="seamless"` 를 5곳에 걸되 테두리 채널과 **쌍으로** 게이트), 감시 대상 세그먼트를 입력 칸 폭에 맞춤, 데스크톱 거래소 콤보 확대, 종목 변경 4가지(아이콘·터치영역·Esc/blur 복귀·검색 중 종목정보 10칸 유지), 2열 매수/매도 카드 방향색 5% 틴트, 컴팩트 2단 호가를 240px 스크롤 박스로(20행 전부 유지) | 2026-09-12 | 2851514 | [260912-mvo-7-5-ai-fab-ux](./quick/260912-mvo-7-5-ai-fab-ux/) |
 | 260912-k2x | 상따 본문 반응형을 뷰포트 → **본문 폭 컨테이너 쿼리 4밴드**(700·830·992)로 재정의 + 확정 4건 — 2단 호가 트리 신설(사다리 3트리 배타 노출), 종목정보 10칸(`기준`·`거래`, 5열 순서는 CSS `order`), 사이드바 소제목 14px, 오더북 제목행·사다리 범례 삭제. 더티 액션 바는 컨테이너 containment 때문에 `document.body` 포털 | 2026-09-12 | 87fcaac | [260912-k2x-4-10](./quick/260912-k2x-4-10/) |
 | 260912-gyz | 상따 후속 다듬기 4건 — 가격 칩 행 전체 삭제, 감시 대상 세그먼트를 방향색(매도잔량 파랑·매수잔량 빨강)으로, 폼 글자 확대(소제목·라벨 13px · 데스크톱 입력 15px · --lw 76/104), 데스크톱 헤더 종목정보 8칸을 한 줄 가로 나열로 | 2026-09-12 | a536474 | [260912-gyz-chaser-polish-remove-price-chips-directi](./quick/260912-gyz-chaser-polish-remove-price-chips-directi/) |
 | 260911-w5h | 상따·목록 모바일 전면 정리 (목업 7벌 승인본) — 기본 테마 라이트, main 여백 p-2, 상따 폼 모바일 무카드·입력 16px(iOS 확대 차단)·포커스/더티 테두리만·전체선택, 헤더 계좌칩+거래소콤보+종목검색 트리거+종목정보 8칸, 모바일 호가 마커 제거·10단 스크롤·compact 체결테이프, 잔고·미체결·전략 3목록 문법 통일 | 2026-09-12 | e0f6ad0 | [260911-w5h-chaser-mobile-ui-rework-form-label-reaso](./quick/260911-w5h-chaser-mobile-ui-rework-form-label-reaso/) |
