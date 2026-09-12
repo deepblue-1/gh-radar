@@ -604,6 +604,24 @@ describe('⑫ 접근성 · 모바일 탭', () => {
     expect(container.querySelector('#lc-cancel-qty-track')).toBeDisabled();
   });
 
+  /*
+    ★ quick-260912-u58 ② — 취소 그룹 라벨이 **「매수취소」한 덩어리**다.
+
+    옛 헤더는 `title="매수 미체결 자동취소" caption="가드"` 라 화면에서 「매수 미체결
+    자동취소 가드」로 읽혔다. 사용자가 그 덩어리 전체를 「매수취소」로 줄이라고 지시했다.
+    ★ `strategy-log.tsx` 의 **로그 문구는 다른 표면**이고 문장으로서 여전히 정확하다 —
+      함께 바꾸면 `strategy-log.test.tsx` 4곳이 흔들린다. 여기서 잠그는 것은 폼뿐이다.
+  */
+  it('취소 그룹 헤더가 「매수취소」로만 읽힌다 — 캡션이 없다 (quick-260912-u58 ②)', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+
+    const cancelGroup = container.querySelector('[data-slot="lc-group-cancel"]') as HTMLElement;
+    expect(within(cancelGroup).getByText('매수취소')).toBeInTheDocument();
+    // 옛 문구와 캡션이 그룹 어디에도 렌더되지 않는다.
+    expect(cancelGroup.textContent).not.toContain('매수 미체결 자동취소');
+    expect(within(cancelGroup).queryByText('가드')).toBeNull();
+  });
+
   it('자동취소 체크박스 2개의 라벨이 「체결」·「잔량추적」이다', () => {
     const { container } = render(<LimitChaserForm {...props()} />);
 

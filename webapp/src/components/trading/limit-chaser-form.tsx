@@ -893,15 +893,16 @@ export function LimitChaserForm({
       </Group>
 
       {/*
-        ★ 자동취소는 **가드**다 — 중립색(좌측 3px `--border`)이고 방향색을 쓰지 않는다.
-        경고 전용 색 토큰은 이 저장소에 없다(UI-SPEC C1/FLAG-1).
+        ★ 이 그룹은 **가드**다 — 중립색(좌측 3px `--border`)이고 방향색을 쓰지 않는다.
+        경고 전용 색 토큰은 이 저장소에 없다(UI-SPEC C1/FLAG-1). 이 근거는 그대로 유효하다.
+        ★ quick-260912-u58 ② — 「가드」를 **캡션으로 화면에 적던 것**을 걷었다(사용자 지시:
+          「매수 미체결 자동취소가드 → 매수취소」 — 캡션까지 포함한 덩어리가 대상이었다).
+          가드라는 성격은 위 중립색이 계속 말하고, 라벨은 짧아졌다.
+        ★ `strategy-log.tsx` 의 「매수 미체결 자동취소 무장/해제」 **로그 문구는 그대로다** —
+          그 줄은 다른 표면이고 문장으로서 여전히 정확하다. 여기 라벨을 줄였다고 로그까지
+          따라가면 안 된다.
       */}
-      <Group
-        slot="cancel"
-        tone="neutral"
-        title="매수 미체결 자동취소"
-        caption="가드"
-      >
+      <Group slot="cancel" tone="neutral" title="매수취소">
         <CheckRow
           id="lc-cancel-qty"
           label="취소잔량"
@@ -1160,7 +1161,6 @@ function Group({
   tone,
   title,
   status,
-  caption,
   led,
   hint,
   switchProps,
@@ -1175,7 +1175,12 @@ function Group({
    */
   title?: string;
   status?: string;
-  caption?: string;
+  /*
+    ★ 묘비 — `caption?: string` 은 quick-260912-u58 ② 에서 걷혔다. 마지막 호출부는 취소
+      그룹의 `caption="가드"` 하나였고, 사용자가 그 라벨을 「매수취소」 한 덩어리로 줄이면서
+      0 이 됐다(편집 후 재확인: 호출부 0건). 쓰는 곳이 없는 표현 장치를 남겨 두면 다음
+      사람이 「자리가 있으니 채우자」로 다시 건다.
+  */
   led?: 'on' | 'off' | 'watch';
   /** 그룹 전체 툴팁(`<section title>`). **화면에는 렌더하지 않는다** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
   hint?: string;
@@ -1183,8 +1188,7 @@ function Group({
   children: ReactNode;
 }) {
   // 헤더 줄에 보여 줄 것이 하나라도 있어야 줄을 만든다 — 없으면 빈 24px 줄만 남는다.
-  const hasHeader =
-    title != null || status != null || caption != null || led != null || switchProps != null;
+  const hasHeader = title != null || status != null || led != null || switchProps != null;
   return (
     <section
       data-slot={`lc-group-${slot}`}
@@ -1212,9 +1216,6 @@ function Group({
             </span>
           ) : null}
           {status ? <span className="ml-1 text-[11px] text-[var(--muted-fg)]">{status}</span> : null}
-          {caption ? (
-            <span className="ml-1 text-[11px] text-[var(--muted-fg)]">{caption}</span>
-          ) : null}
         </span>
         {/*
           ★ 스위치는 그룹 헤더 **우측 끝 고정**(`ml-auto`)이다 — 크기(44×26)·간격(gap 8px)과
