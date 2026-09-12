@@ -597,11 +597,57 @@ describe('⑫ 접근성 · 모바일 탭', () => {
     expect(actionBar()).not.toBeNull();
   });
 
-  it('취소잔량이 꺼져 있으면 자동취소의 「잔량추적」이 비활성이다 (A9)', () => {
+  /*
+    ★ quick-260912-u58 ④ — 이 케이스는 **지우지 않고 뒤집어 다시 썼다.**
+
+      옛 계약(UI-SPEC A9)은 「취소잔량이 꺼져 있으면 잔량추적이 비활성」이었다. 사용자가
+      그 결합을 명시적으로 풀었다 — 「체크박스가 꺼져있어도 입력은 되게 해줘. 취소옵션
+      안켜도 취소옵션의 체결, 잔량추적은 킬 수 있게 해줘.」
+      지웠으면 다음 사람이 A9 를 읽고 결합을 다시 걸어도 아무 데서도 빨개지지 않는다.
+
+    ★ **범위를 5곳 전부로 넓혔다.** 한 곳만 잠그면 나머지 넷이 조용히 되돌아간다.
+    ★ 그리고 **전역 `disabled` 는 여전히 다섯 곳을 전부 잠근다**는 짝 단언을 함께 둔다 —
+      한쪽만 잠그면 다음 사람이 전역 `disabled` 까지 걷어내도 게이트가 초록이다.
+    ★★ 「입력 가능 여부」와 「무장 판정」은 **다른 층**이다. `lib/limit-chaser.ts` 의 게이트
+      4종(「취소잔량이 꺼져 있으면 취소는 무장하지 않는다」)은 **그대로**이고, 그 파일은
+      이번 변경에서 diff 0줄이다. 섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 돈다.
+
+    문구 조회는 매도 그룹과 같은 라벨을 2건 잡아 터진다 — 기존 케이스가 그랬듯 **id 로**
+    좁힌다(라벨 축약은 quick 260911-tuk).
+  */
+  /** ④ 결합 해제 대상 5곳 — 체크박스가 꺼져 있어도 조작할 수 있어야 하는 컨트롤들. */
+  const DECOUPLED_IDS = [
+    'lc-buy-min-trade-qty', // 매수 체결 수량 (buyTradeQtyEnabled)
+    'lc-sell-qty-track-ratio', // 매도 잔량추적 비율 (sellQtyTrackEnabled)
+    'lc-sell-min-trade-qty', // 매도 체결 수량 (sellTradeQtyEnabled)
+    'lc-cancel-watch-qty', // 취소 감시 잔량 (cancelQtyEnabled)
+    'lc-cancel-qty-track', // 취소 **잔량추적 체크박스** (cancelQtyEnabled)
+  ] as const;
+
+  it('체크박스가 꺼져 있어도 5곳이 전부 조작 가능하다 — A9 결합 해제 (quick-260912-u58 ④)', () => {
+    // `echo()` 기본값은 체크박스 5종이 전부 **꺼진** 상태다(파일 상단 참조).
     const { container } = render(<LimitChaserForm {...props()} />);
-    // 라벨을 축약하면서(quick 260911-tuk) 매도 그룹의 체크박스와 **같은 문구**가 됐다.
-    // 그래서 문구가 아니라 id 로 좁힌다 — 문구 조회는 2건을 잡아 터진다.
-    expect(container.querySelector('#lc-cancel-qty-track')).toBeDisabled();
+
+    for (const id of DECOUPLED_IDS) {
+      const el = container.querySelector(`#${id}`);
+      expect(el, `#${id} 가 DOM 에 없다`).not.toBeNull();
+      expect(el, `#${id} 가 체크박스 미체크로 비활성이다`).toBeEnabled();
+    }
+  });
+
+  it('★ 전역 `disabled` 는 여전히 그 5곳을 전부 잠근다 — 남은 결합은 이것 하나다', () => {
+    const { container } = render(<LimitChaserForm {...props({ disabled: true })} />);
+
+    for (const id of DECOUPLED_IDS) {
+      expect(container.querySelector(`#${id}`), `#${id} 가 전역 disabled 를 무시한다`).toBeDisabled();
+    }
+  });
+
+  it('취소 잔량추적 행에 흐림(`opacity-45`)이 없다 — 비활성이 아닌데 흐리면 거짓말이다', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+
+    const row = container.querySelector('#lc-cancel-qty-track')!.closest('[class*="grid"]')!;
+    expect(row.className).not.toContain('opacity-45');
   });
 
   /*

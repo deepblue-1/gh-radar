@@ -727,7 +727,7 @@ export function LimitChaserForm({
             unit="주"
             value={form.buyMinTradeQty}
             onValueChange={(v) => setField('buyMinTradeQty', v)}
-            disabled={disabled || !form.buyTradeQtyEnabled}
+            disabled={disabled}
             dirty={dirtySet.has('buyMinTradeQty')}
             flash={flash.has('buyMinTradeQty')}
           />
@@ -837,7 +837,7 @@ export function LimitChaserForm({
             unit="%"
             value={form.sellQtyTrackRatio}
             onValueChange={(v) => setField('sellQtyTrackRatio', v)}
-            disabled={disabled || !form.sellQtyTrackEnabled}
+            disabled={disabled}
             dirty={dirtySet.has('sellQtyTrackRatio')}
             flash={flash.has('sellQtyTrackRatio')}
           />
@@ -856,7 +856,7 @@ export function LimitChaserForm({
             unit="주"
             value={form.sellMinTradeQty}
             onValueChange={(v) => setField('sellMinTradeQty', v)}
-            disabled={disabled || !form.sellTradeQtyEnabled}
+            disabled={disabled}
             dirty={dirtySet.has('sellMinTradeQty')}
             flash={flash.has('sellMinTradeQty')}
           />
@@ -917,7 +917,7 @@ export function LimitChaserForm({
             unit="주"
             value={form.cancelWatchQty}
             onValueChange={(v) => setField('cancelWatchQty', v)}
-            disabled={disabled || !form.cancelQtyEnabled}
+            disabled={disabled}
             dirty={dirtySet.has('cancelWatchQty')}
             flash={flash.has('cancelWatchQty')}
           />
@@ -930,14 +930,24 @@ export function LimitChaserForm({
           disabled={disabled}
           dirty={dirtySet.has('cancelTradeEnabled')}
         />
-        {/* 취소 잔량추적은 **취소잔량과 함께만** 동작한다 — 미체크면 비활성(A9). */}
+        {/*
+          ★ quick-260912-u58 ④ — ~~취소 잔량추적은 **취소잔량과 함께만** 동작한다 —
+            미체크면 비활성(A9).~~ **UI-SPEC A9 의 결합을 사용자가 명시적으로 풀었다**
+            (「취소옵션 안켜도 취소옵션의 체결, 잔량추적은 킬 수 있게 해줘」). 이제 취소잔량이
+            꺼져 있어도 이 체크박스를 켤 수 있고, 흐림(`dimmed`)도 함께 걷었다 — 비활성이
+            아닌데 흐리면 거짓말이다.
+          ★★ **그럼에도 무장 판정은 그대로다.** `lib/limit-chaser.ts` 의 게이트 4종은
+            「취소잔량이 꺼져 있으면 취소는 무장하지 않는다」를 계속 말한다(이번 변경에서
+            그 파일 diff 0줄). 바뀐 것은 **입력 가능 여부** 한 층뿐이다.
+            두 문장이 함께 있어야 다음 사람이 「그럼 무장도 풀자」로 넘어가지 않는다 —
+            섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 도는 상태가 된다.
+        */}
         <CheckRow
           id="lc-cancel-qty-track"
           label="잔량추적"
           checked={form.cancelQtyTrackEnabled}
           onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
-          disabled={disabled || !form.cancelQtyEnabled}
-          dimmed={!form.cancelQtyEnabled}
+          disabled={disabled}
           dirty={dirtySet.has('cancelQtyTrackEnabled')}
         />
       </Group>
@@ -1436,7 +1446,6 @@ function CheckRow({
   checked,
   onCheckedChange,
   disabled,
-  dimmed = false,
   dirty = false,
   children,
 }: {
@@ -1445,8 +1454,14 @@ function CheckRow({
   checked: boolean;
   onCheckedChange: (next: boolean) => void;
   disabled?: boolean;
-  /** 선행 조건이 꺼져 있을 때 — 비활성 + `opacity:.45`(A9). */
-  dimmed?: boolean;
+  /*
+    ★ 묘비 — `dimmed?: boolean`(선행 조건이 꺼져 있을 때 `opacity:.45`, UI-SPEC A9)은
+      quick-260912-u58 ④ 에서 걷혔다. 마지막 호출부는 취소 잔량추적 행의
+      `dimmed={!form.cancelQtyEnabled}` 하나였고, 사용자가 A9 의 결합을 명시적으로 풀면서
+      0 이 됐다(편집 후 재확인: 호출부 0건 · 이 표현을 단언하던 테스트 0건).
+      「어떤 행은 시각적으로 죽어 있다」고 말하는 장치를, 그런 행이 하나도 없는데 남겨 두면
+      다음 사람이 자리를 보고 다시 건다.
+  */
   dirty?: boolean;
   children?: ReactNode;
 }) {
@@ -1455,7 +1470,6 @@ function CheckRow({
       className={cn(
         // 행 최소 높이가 입력 높이(38px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
         'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
-        dimmed && 'opacity-45',
       )}
     >
       <span className="flex min-w-0 items-center gap-[3px] @min-[992px]/lc:gap-[var(--s-1)]">
