@@ -676,6 +676,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260912-k2x | 상따 본문 반응형을 뷰포트 → **본문 폭 컨테이너 쿼리 4밴드**(700·830·992)로 재정의 + 확정 4건 — 2단 호가 트리 신설(사다리 3트리 배타 노출), 종목정보 10칸(`기준`·`거래`, 5열 순서는 CSS `order`), 사이드바 소제목 14px, 오더북 제목행·사다리 범례 삭제. 더티 액션 바는 컨테이너 containment 때문에 `document.body` 포털 | 2026-09-12 | 87fcaac | [260912-k2x-4-10](./quick/260912-k2x-4-10/) |
 | 260912-gyz | 상따 후속 다듬기 4건 — 가격 칩 행 전체 삭제, 감시 대상 세그먼트를 방향색(매도잔량 파랑·매수잔량 빨강)으로, 폼 글자 확대(소제목·라벨 13px · 데스크톱 입력 15px · --lw 76/104), 데스크톱 헤더 종목정보 8칸을 한 줄 가로 나열로 | 2026-09-12 | a536474 | [260912-gyz-chaser-polish-remove-price-chips-directi](./quick/260912-gyz-chaser-polish-remove-price-chips-directi/) |
 | 260911-w5h | 상따·목록 모바일 전면 정리 (목업 7벌 승인본) — 기본 테마 라이트, main 여백 p-2, 상따 폼 모바일 무카드·입력 16px(iOS 확대 차단)·포커스/더티 테두리만·전체선택, 헤더 계좌칩+거래소콤보+종목검색 트리거+종목정보 8칸, 모바일 호가 마커 제거·10단 스크롤·compact 체결테이프, 잔고·미체결·전략 3목록 문법 통일 | 2026-09-12 | e0f6ad0 | [260911-w5h-chaser-mobile-ui-rework-form-label-reaso](./quick/260911-w5h-chaser-mobile-ui-rework-form-label-reaso/) |
 | 260911-tuk | 웹앱 UI 수정 5건 — 홈(`/`) 로그인 게이트, My page 계좌 전용 잔고에 매입금액(보유×평단) 표시, 데스크탑 사이드바 하단 sticky 고정, 테마 토글을 탑바→사이드바 하단(모바일 검색 아이콘은 탑바 우측), 상따 폼 파생값·힌트 정리 + 체크박스 행 입력 그리드 정렬 | 2026-09-11 | 63a6261 | [260911-tuk-webapp-ui-fixes-home-auth-gate-my-page-b](./quick/260911-tuk-webapp-ui-fixes-home-auth-gate-my-page-b/) |
