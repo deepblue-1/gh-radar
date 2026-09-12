@@ -45,7 +45,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 전략 상태를 봐야 하므로 ChatProvider 보다 바깥, 즉 앱 전역이어야 한다. */}
             <RelayProvider>
               {/* ChatProvider 는 AuthProvider 안쪽 — FAB/시트가 useChat + useAuth 둘 다 소비.
-                  FAB/Sheet 를 children 뒤에 전역 마운트해 모든 페이지 우하단에서 접근한다. */}
+                  FAB/Sheet 는 children 뒤에 마운트하되, FAB 이 실제로 보이는 곳은
+                  종목상세 본문(`/stocks/{code}`)뿐이다 — 경로 판정은 클라이언트 컴포넌트인
+                  `chat-fab.tsx` 안에서 한다(여기서 읽으면 레이아웃이 클라이언트가 된다). */}
               <ChatProvider>
                 <WatchlistSetProvider>{children}</WatchlistSetProvider>
                 <ChatFab />

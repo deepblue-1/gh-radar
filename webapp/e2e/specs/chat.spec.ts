@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 
 import { mockStockApi } from '../fixtures/mock-api';
 import { FIXTURE_SK_HYNIX } from '../fixtures/stocks';
-import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import {
   mockChatApi,
   CHAT_ASSISTANT_TEXT,
@@ -20,6 +19,11 @@ import {
  *   3. 종목상세(/stocks/000660) FAB 라벨에 종목명 컨텍스트("SK하이닉스 분석") 표시(D-03).
  *   4. /chat 페이지 대화목록 렌더 + 삭제 다이얼로그 open/취소(T-14-11).
  *
+ * ★ quick-260912-mvo Q-01 — FAB 은 더 이상 전역이 아니다. 종목상세 본문(`/stocks/{code}`)
+ *   에서만 렌더되므로 1·2 도 시나리오 3 과 **같은 라우트·같은 mock**(`mockStockApi` +
+ *   `/stocks/000660`)에서 FAB 을 누른다. 검증 대상(비로그인 게이트 / 시트 open + SSE)은
+ *   그대로다 — 진입 지점만 새 계약에 맞췄고, 그 라우트의 FAB 가시성은 시나리오 3 이 이미 증명한다.
+ *
  * SSE/대화관리는 fixtures/chat 의 결정론 mock(실서버·Anthropic 호출 없음). 스트리밍은
  * 첫 토큰/조립 텍스트 + 시트 상태 중심으로 assert(네트워크 불안정 대비).
  */
@@ -36,12 +40,16 @@ test.describe('Phase 14 — 챗 비로그인 게이트 (D-01)', () => {
   test('비로그인 FAB 클릭 → "로그인이 필요해요" 게이트(스트리밍 미발생)', async ({
     page,
   }) => {
-    // 홈(`/`)은 quick 260911-tuk 으로 로그인 벽 뒤로 들어갔다 — 비로그인이 실제로 머무는
-    // 공개 화면은 `/login` 이고, FAB 은 root layout 전역 마운트라 거기서도 그려진다.
-    await page.goto('/login');
+    // quick-260912-mvo Q-01 — FAB 이 뜨는 유일한 표면은 종목상세 본문이다.
+    // 시나리오 3 과 같은 mock·라우트를 재사용해 새 전제를 만들지 않는다.
+    await mockStockApi(page, {
+      detailByCode: { '000660': FIXTURE_SK_HYNIX },
+    });
+    await page.goto('/stocks/000660');
 
-    // 전역 FAB(aria-label "AI") 노출 확인.
-    const fab = page.getByRole('button', { name: 'AI', exact: true });
+    // FAB(aria-label 이 "AI" 또는 "AI · {종목명} 분석") 노출 확인 — 라벨은 stockContext
+    // 발행 타이밍에 따라 달라지므로 접두로 잡는다. 이 테스트의 대상은 라벨이 아니라 게이트다.
+    const fab = page.getByRole('button', { name: /^AI/ });
     await expect(fab).toBeVisible({ timeout: 10_000 });
 
     await fab.click();
@@ -62,13 +70,17 @@ test.describe('Phase 14 — 챗 로그인 플로우 (CHAT-01)', () => {
   test('로그인 후 FAB → 시트 open → 질문 전송 → SSE 스트리밍', async ({
     page,
   }) => {
-    await mockHomeApi(page, { response: HOME_POPULATED });
+    // quick-260912-mvo Q-01 — 홈(`/`)에는 FAB 이 없다. 시나리오 3 과 같은 종목상세
+    // 라우트·mock 에서 누른다(SSE 검증 자체는 라우트와 무관하다).
+    await mockStockApi(page, {
+      detailByCode: { '000660': FIXTURE_SK_HYNIX },
+    });
     await mockChatApi(page);
-    await page.goto('/');
+    await page.goto('/stocks/000660');
     await page.waitForLoadState('networkidle');
 
-    // FAB 클릭 → 시트 open(로그인 상태이므로 openChat).
-    const fab = page.getByRole('button', { name: 'AI', exact: true });
+    // FAB 클릭 → 시트 open(로그인 상태이므로 openChat). 라벨은 접두로 잡는다.
+    const fab = page.getByRole('button', { name: /^AI/ });
     await expect(fab).toBeVisible({ timeout: 10_000 });
     await fab.click();
 

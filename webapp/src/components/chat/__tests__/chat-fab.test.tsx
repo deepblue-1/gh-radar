@@ -8,6 +8,14 @@ import { ChatFab } from '../chat-fab';
 const mockUseAuth = vi.fn();
 const mockUseChat = vi.fn();
 
+// quick-260912-mvo Q-01 — FAB 은 종목상세 본문에서만 렌더된다.
+// app-sidebar.test.tsx 의 선례를 그대로 따라 usePathname 을 let 변수로 스텁한다.
+let mockPathname = '/stocks/005930';
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockPathname,
+}));
+
 vi.mock('@/lib/auth-context', () => ({
   useAuth: () => mockUseAuth(),
 }));
@@ -20,7 +28,8 @@ const openChat = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // 기본값: 로그인 + 종목 컨텍스트 없음. 각 테스트에서 override.
+  // 기본값: 로그인 + 종목 컨텍스트 없음 + 종목상세 본문 경로. 각 테스트에서 override.
+  mockPathname = '/stocks/005930';
   mockUseAuth.mockReturnValue({ user: { id: 'u1' } });
   mockUseChat.mockReturnValue({ openChat, stockContext: null });
 });
@@ -76,5 +85,34 @@ describe('ChatFab', () => {
     expect(
       screen.queryByRole('button', { name: /분석$/ }),
     ).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // quick-260912-mvo Q-01 — 경로 게이트.
+  // 비렌더는 라벨 부재 **와** 컨테이너가 통째로 비어 있음 둘 다로 잠근다 —
+  // 라벨만 보면 다이얼로그 잔재 같은 잔여 DOM 을 놓친다.
+  // -------------------------------------------------------------------------
+  it('Test 5 — 상따(/trading/limit-chaser)에서는 FAB 이 렌더되지 않는다 (Q-01)', () => {
+    mockPathname = '/trading/limit-chaser';
+    const { container } = render(<ChatFab />);
+
+    expect(screen.queryByRole('button', { name: /AI/ })).toBeNull();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('Test 6 — 홈(/)에서는 FAB 이 렌더되지 않는다 (Q-01)', () => {
+    mockPathname = '/';
+    const { container } = render(<ChatFab />);
+
+    expect(screen.queryByRole('button', { name: /AI/ })).toBeNull();
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('Test 7 — 종목상세 하위 라우트(/stocks/{code}/news)에서는 렌더되지 않는다 (Q-01 경계)', () => {
+    mockPathname = '/stocks/005930/news';
+    const { container } = render(<ChatFab />);
+
+    expect(screen.queryByRole('button', { name: /AI/ })).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 });

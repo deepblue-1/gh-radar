@@ -1,0 +1,375 @@
+<style>
+:root{
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --input:oklch(0.92 0 0);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --ring:oklch(0.63 0.18 250);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --up-bg:oklch(0.97 0.03 22); --down-bg:oklch(0.97 0.03 250);
+  --r:6px; --r-md:8px; --r-lg:12px;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+:root[data-theme="dark"]{
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --input:oklch(0.24 0 0);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --ring:oklch(0.72 0.16 250);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --up-bg:oklch(0.22 0.06 22); --down-bg:oklch(0.22 0.05 250);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{padding-block:24px;padding-left:16px;padding-right:16px;max-width:1320px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:16px;margin:30px 0 8px;padding-top:18px;border-top:1px solid var(--border)}
+.lede{color:var(--muted-fg);font-size:13px;margin:0 0 14px;line-height:1.65}
+.note{font-size:11px;color:var(--muted-fg);margin:8px 0 0;line-height:1.65}
+.toggle{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;
+  border-bottom:1px solid var(--border);margin-bottom:16px}
+.toggle button{font:inherit;font-size:12px;padding:6px 12px;border-radius:var(--r);
+  border:1px solid var(--border);background:var(--card);color:var(--fg);cursor:pointer}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;margin-bottom:8px}
+.tag.a{background:var(--up-bg);color:var(--up)}
+.tag.b{background:var(--down-bg);color:var(--down)}
+.tag.c{background:var(--muted);color:var(--muted-fg)}
+.frame{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);
+  overflow-x:auto;max-width:100%;margin-bottom:6px}
+.flab{font-size:10px;color:var(--muted-fg);padding-bottom:6px}
+table.map{border-collapse:collapse;font-size:12px;width:100%}
+table.map th,table.map td{border:1px solid var(--border);padding:6px 8px;text-align:left;vertical-align:top}
+table.map th{background:var(--muted);font-weight:600}
+table.map td b{font-weight:600}
+
+/* 타이틀 */
+.ttl{display:flex;align-items:center;gap:10px;padding-bottom:8px}
+.ttl h3{margin:0;font-size:20px;font-weight:700}
+.acct{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border-radius:999px;
+  border:1px solid var(--border);background:var(--card);color:var(--muted-fg);font-size:11px}
+.acct .num{font-family:var(--font-mono);color:var(--fg);font-weight:600}
+
+/* 헤더 카드 */
+.hd{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);overflow:hidden;margin-bottom:8px}
+.hd-top{display:flex;align-items:center;gap:8px;padding:8px 10px}
+.exsel{height:26px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);
+  color:var(--muted-fg);font:inherit;font-size:11px;font-weight:700;padding:0 6px;flex:none}
+.nmbtn{display:flex;align-items:baseline;gap:6px;min-width:0;border:0;background:transparent;
+  padding:2px 4px;border-radius:var(--r);cursor:pointer;text-align:left;color:inherit;font:inherit}
+.nmbtn b{font-size:18px;font-weight:700}
+.nmbtn span{font-size:12px;color:var(--muted-fg)}
+.chg{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;line-height:1.2}
+.chg b{font-size:18px;font-weight:700}
+.chg small{font-size:12px;font-weight:600}
+
+/* 정보 그리드 */
+.i{border-top:1px solid var(--border-subtle);display:grid;font-size:12px;padding:4px 4px}
+.i .cell{display:flex;align-items:baseline;gap:6px;padding:4px 8px;min-width:0}
+.i .k{color:var(--muted-fg);flex:none}
+.i .v{margin-left:auto;font-weight:600;white-space:nowrap}
+.i-2{grid-template-columns:repeat(2,1fr);font-size:11px}
+.i-2 .k{min-width:40px}
+.i-5{grid-template-columns:repeat(5,1fr)}
+.i-row{border-top:1px solid var(--border-subtle);display:flex;flex-wrap:wrap;align-items:baseline;
+  gap:0 20px;padding:8px 14px;font-size:12px}
+.i-row .cell{display:flex;align-items:baseline;gap:6px}
+.i-row .k{color:var(--muted-fg)}
+.i-row .v{font-weight:600}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+
+/* 본문 */
+.body{display:grid;align-items:start;gap:8px}
+.card{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--card);padding:8px;min-width:0}
+.chd{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:4px}
+.chd .ex{margin-left:auto;font-size:11px;font-weight:400;color:var(--muted-fg)}
+
+/* 3열 호가표 */
+table.lad{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px;
+  font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+table.lad td,table.lad th{height:24px;padding:2px 6px;overflow:hidden}
+table.lad .qa,table.lad .qb{position:relative}
+table.lad .bar{position:absolute;top:4px;bottom:4px;z-index:0;border-radius:2px}
+table.lad .qa .bar{right:0;background:color-mix(in oklch,var(--down) 16%,transparent)}
+table.lad .qb .bar{left:0;background:color-mix(in oklch,var(--up) 16%,transparent)}
+table.lad .q{position:relative;z-index:1;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.lad .qa .q{text-align:right}
+table.lad .qb .q{text-align:left}
+table.lad th{font-weight:400}
+table.lad .pc{display:flex;align-items:center;gap:4px;min-width:0}
+table.lad .mk{flex:none;width:16px;height:16px}
+table.lad .pv{flex:1;min-width:0;text-align:right;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.lad .pp{flex:none;min-width:40px;text-align:right;font-size:10px;color:var(--muted-fg)}
+table.lad tr.fill td{height:20px;border-top:1px solid var(--border);font-size:11px;font-weight:600;
+  color:var(--muted-fg);font-family:inherit}
+table.lad td.fc{font-size:11px;letter-spacing:-.03em}
+table.lad td.fc .row{display:flex;align-items:center;gap:4px;min-width:0}
+table.lad td.fc .t{flex:none;font-size:10px;color:var(--muted-fg)}
+table.lad td.fc .p{flex:1;min-width:0;text-align:right;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.lad td.fc .v{flex:none;min-width:34px;text-align:right;font-weight:600}
+
+/* 2단 호가 — 가격 | 잔량 */
+table.lad2{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px;
+  font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+table.lad2 th,table.lad2 td{height:24px;padding:2px 6px;overflow:hidden;font-weight:400}
+table.lad2 .pc{display:flex;align-items:center;gap:4px;min-width:0}
+table.lad2 .pv{flex:1;min-width:0;text-align:right;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.lad2 .pp{flex:none;min-width:40px;text-align:right;font-size:10px;color:var(--muted-fg)}
+table.lad2 .qc{position:relative}
+table.lad2 .qc .bar{position:absolute;top:4px;bottom:4px;left:0;z-index:0;border-radius:2px}
+table.lad2 tr[data-s="a"] .bar{background:color-mix(in oklch,var(--down) 16%,transparent)}
+table.lad2 tr[data-s="b"] .bar{background:color-mix(in oklch,var(--up) 16%,transparent)}
+table.lad2 .q{position:relative;z-index:1;display:block;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.lad2 tr.mid th,table.lad2 tr.mid td{border-top:1px solid var(--border)}
+
+/* 폼 탭 */
+.ftabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.ftabs button{flex:1;border:0;background:transparent;font:inherit;font-size:14px;font-weight:600;
+  color:var(--muted-fg);padding:8px 4px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.ftabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--fg)}
+
+/* 1단 사다리 */
+.lad1{height:340px;overflow:auto;border-radius:var(--r)}
+.lad1 ul{margin:0;padding:0;list-style:none}
+.lad1 li{position:relative;height:34px;display:flex;align-items:center;gap:6px;padding:0 6px}
+.lad1 li .bar{position:absolute;top:3px;bottom:3px;z-index:0;border-radius:2px}
+.lad1 li[data-s="a"] .bar{right:0;background:color-mix(in oklch,var(--down) 16%,transparent)}
+.lad1 li[data-s="b"] .bar{left:0;background:color-mix(in oklch,var(--up) 16%,transparent)}
+.lad1 li.hi{background:color-mix(in oklch,var(--up) 7%,transparent)}
+.lad1 .px{position:relative;z-index:1;display:flex;flex-direction:column;line-height:1.15;flex:1;min-width:0}
+.lad1 .px b{font-size:13px;font-weight:600;font-family:var(--font-mono)}
+.lad1 .px small{font-size:10px}
+.lad1 .qq{position:relative;z-index:1;font-size:9px;font-family:var(--font-mono);color:var(--muted-fg)}
+.lad1 .mid{border-top:1px solid var(--border)}
+.tape{border-top:1px solid var(--border);margin-top:6px;padding-top:4px;font-size:10px;
+  font-family:var(--font-mono);color:var(--muted-fg)}
+.tape div{display:flex;gap:6px;height:24px;align-items:center}
+.tape div span:nth-child(2){flex:1;text-align:right;color:var(--fg);font-weight:600}
+
+/* 폼 */
+.form{--lw:76px;--tt:13px;--lbf:13px;--inf:16px;--inh:38px;min-width:0}
+.fcols{display:grid;gap:8px}
+.fcard{min-width:0}
+.grp{border-top:1px solid var(--border-subtle);padding:6px 0}
+.grp:first-child{border-top:0;padding-top:0}
+.ghead{display:flex;align-items:center;gap:8px;min-height:24px}
+.gtitle{font-size:var(--tt);font-weight:600;letter-spacing:.04em;color:var(--muted-fg);white-space:nowrap}
+.sw{margin-left:auto;width:44px;height:26px;border-radius:999px;background:var(--border);position:relative;flex:none}
+.sw i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:999px;background:#fff;box-shadow:0 1px 2px oklch(0 0 0/.3)}
+.fr{margin-top:4px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:6px}
+.fr > .lb{font-size:var(--lbf);color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inp{display:flex;height:var(--inh);align-items:center;gap:4px;border:1px solid var(--input);
+  border-radius:var(--r);background:var(--bg);padding:0 6px;min-width:0}
+.inp input{flex:1;min-width:0;text-align:right;font-size:var(--inf);border:0;outline:0;background:transparent;
+  color:var(--fg);padding:0;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.inp .u{font-size:calc(var(--inf) - 3px);color:var(--muted-fg);flex:none}
+.seg{display:flex;height:var(--inh);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;grid-column:1/-1}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted-fg);font:inherit;
+  font-size:var(--lbf);font-weight:600;white-space:nowrap;cursor:pointer;min-width:0;overflow:hidden}
+.seg button.onask{background:var(--down-bg);color:var(--down)}
+.seg button.onbid{background:var(--up-bg);color:var(--up)}
+.ck{margin-top:4px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:6px}
+.ckbox{display:flex;align-items:center;gap:5px;min-width:0}
+.ckbox input{width:17px;height:17px;flex:none;margin:0;accent-color:var(--primary)}
+.ckbox label{font-size:var(--lbf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.why{border-top:1px solid var(--border-subtle);margin-top:6px;padding-top:6px;font-size:11px;color:var(--muted-fg)}
+</style><title>매수/매도 구분 + 호가 단수 목업</title>
+<style>
+/* 이 목업 전용 추가분 */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+.fcard{min-width:0;position:relative}
+/* 변형 A — 그룹 제목을 방향색으로 */
+.vA .fcard[data-side="buy"] .gtitle{color:var(--up)}
+.vA .fcard[data-side="sell"] .gtitle{color:var(--down)}
+/* 변형 B — 카드 상단 2px 색 라인 */
+.vB .fcard{border-top:2px solid transparent;padding-top:6px}
+.vB .fcard[data-side="buy"]{border-top-color:var(--up)}
+.vB .fcard[data-side="sell"]{border-top-color:var(--down)}
+/* 변형 C — 카드 배경 전체 옅은 색 (요청) */
+.vC .fcard{border-radius:var(--r-md);padding:6px 8px}
+.vC .fcard[data-side="buy"]{background:color-mix(in oklch,var(--up) 5%,transparent)}
+.vC .fcard[data-side="sell"]{background:color-mix(in oklch,var(--down) 5%,transparent)}
+/* 변형 D — 방향색 칩 배지 */
+.chip{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;
+  font-size:11px;font-weight:700;margin-right:6px;flex:none}
+.chip.buy{background:var(--up-bg);color:var(--up)}
+.chip.sell{background:var(--down-bg);color:var(--down)}
+/* 변형 E — 좌측 3px 세로 바 */
+.vE .fcard{padding-left:9px}
+.vE .fcard:before{content:"";position:absolute;left:0;top:2px;bottom:2px;width:3px;border-radius:2px}
+.vE .fcard[data-side="buy"]:before{background:var(--up)}
+.vE .fcard[data-side="sell"]:before{background:var(--down)}
+
+.vlab{font-size:12px;font-weight:700;margin:0 0 6px}
+.vnote{font-size:11px;color:var(--muted-fg);margin:6px 0 0;line-height:1.6}
+.pairwrap{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.cmp{border:1px solid var(--border);border-radius:12px;padding:10px;width:560px;max-width:100%}
+.hcmp{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.hbox{border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:14px;overflow-x:auto}
+.hh{font-size:11px;color:var(--muted-fg);margin-bottom:6px}
+/* 세그먼트를 입력 칸에 맞춘 변형 */
+.segrow{margin-top:4px;display:grid;grid-template-columns:var(--lw) minmax(0,1fr);align-items:center;gap:6px}
+.segrow .seg{grid-column:auto}
+</style>
+
+<div class="wrap">
+<div class="toggle"><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">라이트 / 다크 전환</button></div>
+
+<h1>매수 / 매도 구분 5안 + 호가 단수 3안</h1>
+<p class="lede">
+  프레임은 <b>와이드 밴드 892px</b>(iPad Air 가로) 실폭입니다. 여백을 더 먹는 안은 넣지 않았습니다 —
+  다섯 안 모두 <b>세로 높이가 늘지 않거나 6px 이내</b>로만 늘어납니다.
+</p>
+
+<h2>① 매수 / 매도 구분 — 5안</h2>
+<div class="pairwrap" id="variants"></div>
+
+<h2>② 호가 단수 — 와이드에서 체결이 잘 보이는가</h2>
+<p class="lede" style="margin-bottom:10px">
+  옆에 세운 것은 <b>실제 주문옵션 2열</b>입니다(와이드 실폭 — 호가 400 | 폼 484). 임의의 높이 상자가 아니라 진짜 폼이라 남는 여백이 그대로 보입니다.
+</p>
+<div id="ladders"></div>
+
+<h2>④ 컴팩트 밴드(본문 792px) — 2단 호가 단수와 체결</h2>
+<p class="lede" style="margin-bottom:10px">
+  여기가 말씀하신 자리입니다. 호가 260px | 폼 524px 실폭이고, 체결 테이프는 호가 <b>아래</b>에 붙습니다 —
+  호가가 길면 체결이 그만큼 아래로 밀려납니다. 옆의 폼은 실제 행 구성 그대로입니다.
+</p>
+<div id="compact"></div>
+
+<h2>③ 「매도잔량 / 매수잔량」을 입력 칸 폭에 맞출 수 있는가</h2>
+<p class="lede" style="margin-bottom:10px">왼쪽이 지금(행 전체), 오른쪽이 입력 칸에 맞춘 것. 폰 폭에서 글자가 접히는지가 관건입니다.</p>
+<div class="pairwrap" id="segs"></div>
+
+</div>
+
+<script>
+const ASK=[[12670,3120],[12665,880],[12660,1240],[12655,640],[12650,2210],[12645,410],[12640,905],[12635,1530],[12630,720],[12625,1180]];
+const BID=[[12620,2480],[12615,1310],[12610,760],[12605,1920],[12600,3400],[12595,880],[12590,1140],[12585,620],[12580,1760],[12575,940]];
+const FILLS=[['42:07',12620,120],['42:07',12620,45],['42:06',12625,300],['42:06',12620,80],['42:05',12625,15],
+             ['42:05',12620,210],['42:04',12620,60],['42:03',12625,180],['42:03',12620,25],['42:02',12615,90]];
+const n=x=>x.toLocaleString('ko-KR');
+const BASE=9750,LAST=12620,UL=12670;
+const pct=p=>((p-BASE)/BASE*100).toFixed(2)+'%';
+const tone=p=>p>BASE?'up':p<BASE?'down':'flat';
+
+function lad3(depth, tape){
+  const A=ASK.slice(0,depth), B=BID.slice(0,depth);
+  const maxA=Math.max(...A.map(r=>r[1])), maxB=Math.max(...B.map(r=>r[1]));
+  let h='<table class="lad"><colgroup><col style="width:34%"><col style="width:32%"><col style="width:34%"></colgroup><tbody>';
+  A.slice().reverse().forEach(([p,q])=>{
+    const up=p===UL;
+    h+=`<tr${up?' style="background:color-mix(in oklch,var(--up) 7%,transparent)"':''}>
+      <td class="qa"><span class="bar" style="width:${q/maxA*100}%"></span><span class="q">${n(q)}</span></td>
+      <th><div class="pc"><span class="mk"></span><span class="pv ${tone(p)}"${up?' style="font-weight:800"':''}>${n(p)}</span><span class="pp">${pct(p)}</span></div></th>
+      <td></td></tr>`;
+  });
+  h+=`<tr class="fill"><td>${tape?'':'체결'}</td><td></td><td></td></tr>`;
+  B.forEach(([p,q],i)=>{
+    const f=tape?null:FILLS[i];
+    h+=`<tr>
+      <td class="fc">${f?`<div class="row"><span class="t">${f[0]}</span><span class="p">${n(f[1])}</span><span class="v ${i%3===0?'up':'down'}">${n(f[2])}</span></div>`:''}</td>
+      <th><div class="pc"><span class="mk"></span><span class="pv ${tone(p)}"${p===LAST?' style="font-weight:800"':''}>${n(p)}</span><span class="pp">${pct(p)}</span></div></th>
+      <td class="qb"><span class="bar" style="width:${q/maxB*100}%"></span><span class="q">${n(q)}</span></td></tr>`;
+  });
+  h+='</tbody></table>';
+  if(tape){
+    h+='<div class="tape" style="margin-top:8px;padding-top:6px"><div style="font-size:11px;font-weight:600;color:var(--muted-fg);height:18px">체결</div>';
+    FILLS.forEach(f=>{h+=`<div><span>${f[0]}</span><span>${n(f[1])}</span><span>${n(f[2])}</span></div>`;});
+    h+='</div>';
+  }
+  return h;
+}
+
+function lad2(boxRows, fills){
+  const A=ASK, B=BID;   // ★ 언제나 10단 전부 렌더 — 박스 높이만 자른다
+  const maxA=Math.max(...A.map(r=>r[1])), maxB=Math.max(...B.map(r=>r[1]));
+  const boxed = boxRows>0;
+  let h=(boxed?`<div style="height:${boxRows*24}px;overflow-y:auto" data-box>`:'')+'<table class="lad2"><colgroup><col style="width:58%"><col style="width:42%"></colgroup><tbody>';
+  A.slice().reverse().forEach(([p,q])=>{
+    const up=p===UL;
+    h+=`<tr data-s="a"${up?' style="background:color-mix(in oklch,var(--up) 7%,transparent)"':''}>
+      <th><div class="pc"><span class="pv ${tone(p)}"${up?' style="font-weight:800"':''}>${n(p)}</span><span class="pp">${pct(p)}</span></div></th>
+      <td class="qc"><span class="bar" style="width:${q/maxA*100}%"></span><span class="q">${n(q)}</span></td></tr>`;
+  });
+  B.forEach(([p,q],i)=>{
+    h+=`<tr data-s="b"${i===0?' class="mid"':''}>
+      <th><div class="pc"><span class="pv ${tone(p)}"${p===LAST?' style="font-weight:800"':''}>${n(p)}</span><span class="pp">${pct(p)}</span></div></th>
+      <td class="qc"><span class="bar" style="width:${q/maxB*100}%"></span><span class="q">${n(q)}</span></td></tr>`;
+  });
+  h+='</tbody></table>'+(boxed?'</div>':'')+'<div class="tape" style="margin-top:6px;padding-top:6px" data-tape>';
+  FILLS.slice(0,fills).forEach(f=>{h+=`<div><span>${f[0]}</span><span>${n(f[1])}</span><span>${n(f[2])}</span></div>`;});
+  return h+'</div>';
+}
+
+const grp=(t,rows,chip)=>`<div class="grp"><div class="ghead">${chip||''}<span class="gtitle">${t}</span><span class="sw"><i></i></span></div>${rows}</div>`;
+const fr=(l,v,u)=>`<div class="fr"><span class="lb">${l}</span><div class="inp"><input value="${v}"><span class="u">${u}</span></div></div>`;
+const ck=(l,c)=>`<div class="ck"><span class="ckbox"><input type="checkbox" ${c?'checked':''}><label>${l}</label></span></div>`;
+const segFull=`<div class="fr"><div class="seg" style="grid-column:1/-1"><button class="onask">매도잔량</button><button>매수잔량</button></div></div>`;
+const segCol =`<div class="segrow"><span class="lb"></span><div class="seg"><button class="onask">매도잔량</button><button>매수잔량</button></div></div>`;
+
+/* ★ 실제 폼 행 구성을 그대로 옮겼다 (limit-chaser-form.tsx 의 Group/Row/CheckRow 순서).
+   매수 8행 + 그룹헤더 3 · 매도 11행 + 그룹헤더 3 + 「켤 수 없는 이유」. */
+function cards(variant, seg){
+  const chipBuy  = variant==='D'?'<span class="chip buy">매수</span>':'';
+  const chipSell = variant==='D'?'<span class="chip sell">매도</span>':'';
+  const buy = grp('매수주문',
+      fr('비교가격','349,500','원')+seg+fr('잔량','10,000','주')
+      +`<div class="ck"><span class="ckbox"><input type="checkbox" checked><label>체결</label></span><div class="inp"><input value="30,000"><span class="u">주</span></div></div>`
+      , chipBuy)
+    + grp('', fr('매수가격','349,500','원')+fr('주문금액','1,000','만원'))
+    + grp('한방체결', fr('호가변경','3','건')+fr('한방가격','349,500','원'), chipBuy);
+  const sell = grp('매도주문',
+      fr('비교가격','349,500','원')+fr('호가잔량','5,000','주')
+      +`<div class="ck"><span class="ckbox"><input type="checkbox" checked><label>잔량추적</label></span><div class="inp"><input value="100"><span class="u">%</span></div></div>`
+      +`<div class="ck"><span class="ckbox"><input type="checkbox"><label>체결</label></span><div class="inp"><input value="30,000"><span class="u">주</span></div></div>`
+      +fr('기준선','12,620','원')
+      , chipSell)
+    + grp('', fr('매도가격','349,500','원')+fr('매도비율','100','%'))
+    + grp('매수 미체결 자동취소',
+      `<div class="ck"><span class="ckbox"><input type="checkbox" checked><label>취소잔량</label></span><div class="inp"><input value="1,000"><span class="u">주</span></div></div>`
+      +ck('체결',false)+ck('잔량추적',true), chipSell);
+  return `<div class="form grid2 v${variant}">
+    <div class="fcard" data-side="buy">${buy}</div>
+    <div class="fcard" data-side="sell">${sell}
+      <p class="why" style="margin:6px 0 0">켤 수 없는 이유 · 주문금액이 매수가격보다 작아요</p>
+    </div>
+  </div>`;
+}
+
+const VARIANTS=[
+  ['A','안 A — 그룹 제목만 방향색','세로 높이 증가 0. 가장 조용하지만 스위치가 꺼져 있을 때 단서가 글자색 하나뿐입니다.'],
+  ['B','안 B — 카드 상단 2px 색 라인','높이 +8px. 두 기둥의 시작점이 색으로 갈려 스캔이 빠릅니다.'],
+  ['C','안 C — 카드 배경 전체 옅은 색 (요청하신 안)','높이 증가 0. 면으로 갈리니 곁눈으로도 어느 쪽인지 압니다. 다만 입력칸 흰 배경과 대비가 줄어듭니다.'],
+  ['D','안 D — 그룹 제목 앞 방향색 칩','높이 증가 0. 글자로도 읽히니 색 단독 전달이 아닙니다(WCAG 1.4.1).'],
+  ['E','안 E — 카드 왼쪽 3px 세로 바','높이 증가 0. ※ 전에 「옵션 그룹 왼쪽 세로바」를 빼자고 하셨던 것과 같은 계열입니다 — 그때는 그룹마다, 이번엔 카드에 하나입니다.'],
+];
+document.getElementById('variants').innerHTML = VARIANTS.map(([v,lab,note])=>
+  `<div class="cmp"><p class="vlab">${lab}</p><div style="width:536px">${cards(v,segFull)}</div><p class="vnote">${note}</p></div>`).join('');
+
+const LADS=[
+  ['지금 — 10단 · 체결 10건 내장',10,false],
+  ['안 A — 5단 · 체결 5건 내장',5,false],
+  ['안 B — 5단 · 아래 체결 10건 따로',5,true],
+];
+document.getElementById('ladders').innerHTML = LADS.map(([lab,d,tape])=>
+  `<div class="hbox"><div class="hh">${lab}</div>
+    <div style="display:flex;gap:8px;align-items:flex-start;width:892px">
+      <div style="width:400px;flex:none" data-lad>${lad3(d,tape)}</div>
+      <div style="width:484px;flex:none" data-formcol>${cards('C',segCol)}</div>
+    </div></div>`).join('');
+
+const CMP=[['지금 — 10단 전부 펼침 · 체결 10건',0,10],['안 — 5단 높이 박스에서 10단 스크롤 · 체결 10건',10,10]];
+document.getElementById('compact').innerHTML = CMP.map(([lab,d,f])=>
+  `<div class="hbox"><div class="hh">${lab}</div>
+    <div style="display:flex;gap:8px;align-items:flex-start;width:792px">
+      <div style="width:260px;flex:none" data-lad2>${lad2(d,f)}</div>
+      <div style="width:524px;flex:none" data-formcol2>${cards('C',segCol)}</div>
+    </div></div>`).join('');
+
+document.getElementById('segs').innerHTML =
+  [['지금 — 행 전체',segFull],['안 — 입력 칸 폭에 맞춤',segCol]].map(([lab,seg])=>
+  `<div class="cmp" style="width:250px"><p class="vlab">${lab}</p>
+    <div class="hh">폰 폼 칸 217px</div>
+    <div class="form" style="width:217px">${grp('매수주문', fr('비교가격','349,500','원')+seg+fr('잔량','10,000','주'))}</div>
+    <div class="hh" style="margin-top:10px">와이드 폼 칸 240px</div>
+    <div class="form" style="width:240px">${grp('매수주문', fr('비교가격','349,500','원')+seg+fr('잔량','10,000','주'))}</div>
+  </div>`).join('');
+</script>

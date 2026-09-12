@@ -233,15 +233,18 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
 
     /*
       ★ 1차 CTA 가 AI 채팅 FAB 과 **겹치지 않는다.**
-        둘 다 `fixed … bottom … z-40` 이라 겹치면 DOM 뒤인 FAB 이 포인터 이벤트를 가로채
-        「수정」이 아예 눌리지 않는다(실측 결함 — 이 케이스가 처음 잡았다). 클릭 성공만으로는
-        회귀 원인이 「타이밍」으로 오독되므로 좌표로 직접 못박는다.
+        예전에는 둘 다 `fixed … bottom … z-40` 이라 DOM 뒤인 FAB 이 포인터 이벤트를 가로채
+        「수정」이 아예 눌리지 않았다(실측 결함 — 이 케이스가 처음 잡았다). 그래서 두 박스의
+        **좌표**를 비교했다.
+        quick-260912-mvo Q-01 이후 FAB 은 종목상세 본문(`/stocks/{code}`)에서만 렌더된다 —
+        상따 화면에는 아예 없다. 그러므로 좌표 비교의 전제(둘이 같은 화면에 있다)가 사라졌고,
+        계약을 **부재**로 다시 쓴다. 「없다」만 말하면 바가 레이아웃에서 통째로 빠져도 초록이
+        되므로, 바가 실제로 올라와 있다는 사실(`boundingBox()` non-null)을 함께 잠근다.
     */
-    const fabBox = await page.getByRole('button', { name: 'AI' }).boundingBox();
+    await expect(page.getByRole('button', { name: 'AI' })).toHaveCount(0);
     const submitBox = await actionBar(page).getByRole('button', { name: '수정' }).boundingBox();
-    expect(fabBox).not.toBeNull();
     expect(submitBox).not.toBeNull();
-    expect(submitBox!.x + submitBox!.width).toBeLessThanOrEqual(fabBox!.x);
+    expect(submitBox!.width).toBeGreaterThan(0);
 
     await actionBar(page).getByRole('button', { name: '수정' }).click();
     await waitForSetAtGateway(relay, before + 1);

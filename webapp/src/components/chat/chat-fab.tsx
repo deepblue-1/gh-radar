@@ -1,9 +1,24 @@
 "use client";
 
 /**
- * Phase 14 Plan 08 — 전역 FAB (C1, CHAT-01, D-01/D-03).
+ * Phase 14 Plan 08 — AI FAB (C1, CHAT-01, D-01/D-03).
  *
- * 모든 페이지 우하단 고정 진입점. 클릭 동작:
+ * ## 렌더 범위 — 종목상세 본문(`/stocks/{code}`)에서만 (quick-260912-mvo Q-01)
+ * 원래는 모든 페이지 우하단에 고정으로 떴다. 상따 화면(`/trading/limit-chaser`)에서
+ * 우하단 FAB 이 폼 마지막 행과 「켤 수 없는 이유」 문구를 가리는 것이 사용자
+ * 스크린샷으로 관측됐다(DirtyActionBar 의 CTA 와 같은 구석을 쓴다).
+ * 그래서 판정을 레이아웃이 아니라 이 클라이언트 컴포넌트 안에서 하고,
+ * 경로가 맞지 않으면 `null` 을 반환한다 — `app/layout.tsx` 는 서버 컴포넌트로
+ * 남아야 하므로 거기서 경로를 읽지 않는다(클라이언트 경계를 하나 더 만들지 않는다).
+ *
+ * 좁힌 뒤에도 **AI 진입점은 사라지지 않는다** — 사이드바의 「AI 애널리스트」 항목이
+ * `/chat` 으로 그대로 남아 모든 화면에서 도달 가능하다.
+ *
+ * 하위 라우트(`/stocks/{code}/news` · `/stocks/{code}/discussions`)는 제외한다.
+ * FAB 의 종목 라벨은 종목상세 본문이 발행하는 stockContext 에 기대고 있고,
+ * 그 컨텍스트가 서는 곳이 본문 한 곳이기 때문이다.
+ *
+ * 클릭 동작:
  * - 비로그인(useAuth().user 없음) → 로그인 필요 상태 다이얼로그(D-01). 체험 모드 없음.
  *   실제 서버 방어는 requireAuth(P03) — 이 게이트는 UX(T-14-02b accept).
  * - 로그인 → openChat(stockContext) 로 챗 시트 오픈.
@@ -16,6 +31,7 @@
  */
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { MessageSquare } from "lucide-react";
 
 import { useAuth } from "@/lib/auth-context";
@@ -31,7 +47,14 @@ import { LoginRequiredState } from "./chat-states";
 
 const BASE_LABEL = "AI";
 
+/**
+ * 종목상세 **본문**만 통과시킨다 — `/stocks/{code}` (말미 슬래시 허용).
+ * 세그먼트가 정확히 하나여야 하므로 `/stocks/{code}/news` 같은 하위 라우트는 불통과다.
+ */
+const STOCK_DETAIL_PATH = /^\/stocks\/[^/]+\/?$/;
+
 export function ChatFab() {
+  const pathname = usePathname();
   const { user } = useAuth();
   const { openChat, stockContext } = useChat();
   const [showLoginGate, setShowLoginGate] = useState(false);
@@ -48,6 +71,12 @@ export function ChatFab() {
     }
     openChat(stockContext ?? undefined);
   };
+
+  // 경로 게이트는 **모든 훅 호출이 끝난 다음**에 온다 — 훅 위로 올리면 경로가 바뀌는
+  // 순간 훅 호출 개수가 달라져 React 가 훅 순서 위반으로 터진다.
+  if (pathname === null || !STOCK_DETAIL_PATH.test(pathname)) {
+    return null;
+  }
 
   return (
     <>

@@ -281,15 +281,17 @@ test.describe('Phase 16 Plan 14 — VI 자동매수 화면 (로컬 relay + 스�
     await expect(actionBar(page)).toContainText('가동 상태(run)는 그대로 유지돼요');
 
     /*
-      ★ 1차 CTA 가 AI 채팅 FAB 과 겹치지 않는다. 둘 다 `fixed … bottom … z-40` 이라
-        겹치면 DOM 뒤인 FAB 이 포인터를 가로채 「수정」이 아예 눌리지 않는다(16-13 실측).
-        VI 화면도 같은 바를 쓰므로 같은 결함이다 — 좌표로 못박는다.
+      ★ 1차 CTA 가 AI 채팅 FAB 과 겹치지 않는다. 예전에는 둘 다 `fixed … bottom … z-40` 이라
+        겹치면 DOM 뒤인 FAB 이 포인터를 가로채 「수정」이 아예 눌리지 않았다(16-13 실측).
+        VI 화면도 같은 바를 쓰므로 같은 결함이었다.
+        quick-260912-mvo Q-01 이후 FAB 은 종목상세 본문에서만 렌더되어 `/trading/*` 에는
+        존재하지 않는다 — 좌표 비교의 전제가 사라졌으므로 **부재 단언**으로 다시 쓴다.
+        바가 레이아웃에서 통째로 빠져도 초록이 되지 않게, 「수정」의 박스가 실재함을 함께 잠근다.
     */
-    const fabBox = await page.getByRole('button', { name: 'AI' }).boundingBox();
+    await expect(page.getByRole('button', { name: 'AI' })).toHaveCount(0);
     const submitBox = await actionBar(page).getByRole('button', { name: '수정' }).boundingBox();
-    expect(fabBox).not.toBeNull();
     expect(submitBox).not.toBeNull();
-    expect(submitBox!.x + submitBox!.width).toBeLessThanOrEqual(fabBox!.x);
+    expect(submitBox!.width).toBeGreaterThan(0);
 
     await actionBar(page).getByRole('button', { name: '수정' }).click();
 
