@@ -430,12 +430,18 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
     );
     expect(minWidths).toEqual(['0px', '0px']);
 
-    // 탭 — 활성 pane 하나만 보인다. 비활성은 `hidden` **속성**이라 접근성 트리에서도 빠진다.
+    /*
+      탭 — 활성 pane 하나만 보인다. 비활성은 `display:none` 이라 접근성 트리에서도 빠진다.
+      ★ 260912-k2x — 숨김이 DOM **속성**에서 **CSS 클래스**로 옮겨졌으므로 단언도
+        가시성으로 옮긴다. **성질은 같다** — `toBeHidden()` 은 `display:none` 을 그대로
+        잡는다(Playwright 의 가시성 판정이 계산된 스타일을 본다). 판정 기준이 본문 폭이 된
+        이유는 `styles/globals.css` §2.2b 에 있다.
+    */
     await expect(buyPane(page)).toBeVisible();
-    await expect(sellPane(page)).toHaveAttribute('hidden', '');
+    await expect(sellPane(page)).toBeHidden();
     await page.getByRole('tab', { name: '매도' }).click();
     await expect(sellPane(page)).toBeVisible();
-    await expect(buyPane(page)).toHaveAttribute('hidden', '');
+    await expect(buyPane(page)).toBeHidden();
 
     /*
       좁은 폭 호가는 **2줄 행 · 340px 박스 스크롤**이고, 데스크톱의 최근 체결 **열** 대신

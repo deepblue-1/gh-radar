@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
@@ -26,9 +26,11 @@ import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh
  *   기본 스텁은 `true`(나갔다)이고, `false` 를 돌려주는 케이스가 잠그는 것은 **보내지 못한
  *   요청에 낙관 반영·잠금을 걸지 않는다**는 규율뿐이다(⑭, GC-WR-06).
  *
- * ★ jsdom 에는 CSS 가 없다. 모바일 탭 pane 의 `hidden` 은 **좁은 폭에서만** 걸리므로,
- *   ⑫ 는 `matchMedia` 를 좁은 폭으로 갈아끼운 뒤 단언한다. 갈아끼우지 않으면 데스크톱
- *   스냅샷(`matches:false`)이라 `hidden` 이 애초에 붙지 않는다.
+ * ★ jsdom 에는 CSS 도 레이아웃도 없다. 260912-k2x 부터 탭 pane 숨김은 **CSS 클래스**이고
+ *   판정 기준이 뷰포트가 아니라 **본문 폭**이라, 뷰포트를 갈아끼워 확인할 대상이 아예 없다
+ *   (본문 폭은 미디어 질의 API 로 관측할 수 없다). 그래서 ⑫ 는 **클래스 계약**과
+ *   **언마운트하지 않는다**는 사실을 단언하고, 실제 폭 판정은 `.planning/WINDOWS.md` 에
+ *   미검증으로 남아 있다. 없는 검증을 했다고 적지 않는다.
  */
 
 const sendMock = vi.fn();
@@ -129,23 +131,7 @@ function setNumber(input: HTMLElement, value: string) {
   fireEvent.change(input, { target: { value } });
 }
 
-/** 뷰포트 스냅샷 교체 — `useSyncExternalStore` 가 렌더 시점에 읽는다. */
-function setViewport(narrow: boolean) {
-  window.matchMedia = ((query: string) => ({
-    matches: narrow && query.includes('max-width'),
-    media: query,
-    onchange: null,
-    addListener: () => {},
-    removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    dispatchEvent: () => false,
-  })) as unknown as typeof window.matchMedia;
-}
-
 const actionBar = () => document.querySelector('[data-slot="dirty-action-bar"]');
-
-const originalMatchMedia = window.matchMedia;
 
 beforeEach(() => {
   sendMock.mockReset();
@@ -153,11 +139,6 @@ beforeEach(() => {
   //   `mockReset()` 뒤의 기본 반환은 `undefined`(falsy)라, 세우지 않으면 모든 케이스가
   //   「전송 실패」 경로로 떨어진다.
   sendMock.mockReturnValue(true);
-  setViewport(false); // 기본은 데스크톱 — 두 폼 카드가 모두 보인다.
-});
-
-afterEach(() => {
-  window.matchMedia = originalMatchMedia;
 });
 
 describe('① 스위치는 확인 없이 즉시 전송된다 (D-05)', () => {
@@ -517,33 +498,89 @@ describe('⑫ 접근성 · 모바일 탭', () => {
     }
   });
 
-  it('좁은 폭에서 비활성 pane 이 `hidden` 속성으로 감춰지고 탭이 tablist 다', async () => {
-    setViewport(true);
+  /*
+    ★ 260912-k2x — 탭 pane 숨김이 **DOM 속성에서 CSS 클래스로** 옮겨졌다. 같은 명제를 다시
+      쓴 것이지 단언을 지운 것이 아니다.
+
+      옮긴 이유는 판정 기준이 바뀌었기 때문이다: 이제 「탭이냐 2열이냐」를 가르는 것은
+      뷰포트가 아니라 **본문 폭**인데, 본문 폭은 미디어 질의 API 로 관측할 수 없다(그 API 는
+      뷰포트만 본다). 그래서 폭 판정을 CSS 에 통째로 넘기고 JS 는 「어느 탭이 선택됐나」만 안다.
+      `display:none` 은 접근성 트리에서도 빠지므로 사용자 결정이 요구한 성질은 그대로다.
+  */
+  it('비활성 pane 이 폰에서 숨고 700 이상에서 되살아나는 **클래스 쌍**을 갖는다', async () => {
     const user = userEvent.setup();
     const { container } = render(<LimitChaserForm {...props()} />);
 
     const tablist = screen.getByRole('tablist', { name: '주문 설정' });
+    // 탭 줄 자체가 폰 전용이다 — 700 이상에서는 사라진다.
+    expect(tablist.className).toContain('@min-[700px]/lc:hidden');
     const [buyTab, sellTab] = within(tablist).getAllByRole('tab');
     expect(buyTab).toHaveAttribute('aria-selected', 'true');
     expect(sellTab).toHaveAttribute('aria-selected', 'false');
 
     const buyPane = container.querySelector('[data-pane="buy"]')!;
     const sellPane = container.querySelector('[data-pane="sell"]')!;
-    // ★ 클래스가 아니라 **속성**이어야 한다 — 작성자 `display:grid` 가 UA 규칙을 이긴다(Pitfall 13).
-    expect(buyPane.hasAttribute('hidden')).toBe(false);
-    expect(sellPane.hasAttribute('hidden')).toBe(true);
+    // 활성 pane 에는 숨김 클래스가 없다.
+    expect(buyPane.className).not.toContain('hidden');
+    // 비활성 pane 은 폰에서 숨고 700 이상에서 다시 블록이다.
+    expect(sellPane.className).toContain('hidden');
+    expect(sellPane.className).toContain('@min-[700px]/lc:block');
 
     await user.click(sellTab!);
-    expect(buyPane.hasAttribute('hidden')).toBe(true);
-    expect(sellPane.hasAttribute('hidden')).toBe(false);
+    expect(buyPane.className).toContain('hidden');
+    expect(buyPane.className).toContain('@min-[700px]/lc:block');
+    expect(sellPane.className).not.toContain('hidden');
+
+    // 두 카드 그리드도 같은 경계에서 2열이 된다.
+    const grid = buyPane.parentElement!;
+    expect(grid.className).toContain('@min-[700px]/lc:grid-cols-2');
+    // 옛 뷰포트 분기가 한 톨도 남지 않았다.
+    expect(grid.className).not.toContain('min-[1280px]:grid-cols-2');
   });
 
-  it('데스크톱에서는 어느 pane 도 `hidden` 이 아니다 — 접근성 트리에서 매도 폼이 사라지면 안 된다', () => {
-    setViewport(false);
+  it('★ 두 pane 이 **언제나 DOM 에 있다** — 조건부 렌더가 아니다', () => {
     const { container } = render(<LimitChaserForm {...props()} />);
 
+    // 폭과 무관하게 둘 다 마운트돼 있다. 접근성 트리에서 빼는 일은 CSS 가 한다.
+    expect(container.querySelector('[data-pane="buy"]')).not.toBeNull();
+    expect(container.querySelector('[data-pane="sell"]')).not.toBeNull();
+    // 옛 `hidden` **속성** 경로는 사라졌다 — 이제 숨김은 클래스 한 축뿐이다.
     expect(container.querySelector('[data-pane="buy"]')!.hasAttribute('hidden')).toBe(false);
     expect(container.querySelector('[data-pane="sell"]')!.hasAttribute('hidden')).toBe(false);
+  });
+
+  /*
+    ★ **이번 변경의 핵심 계약이고, 지금까지 어느 테스트도 잠그지 않았다.**
+      pane 을 조건부 렌더로 바꾸면(=언마운트) 탭을 옮길 때마다 매도 설정이 초기화되고
+      더티 카운트·에코 덮어쓰기 계산이 함께 망가진다. 사용자 입장에서는 「탭을 갔다 왔더니
+      방금 친 매도가격이 사라졌다」이고, 그 상태로 「수정」을 누르면 서버에 **의도하지 않은
+      값**이 나간다.
+  */
+  it('★ 탭을 오가도 반대편 입력값과 더티 수가 그대로다 (언마운트 금지)', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props()} />);
+
+    const sellTab = within(screen.getByRole('tablist', { name: '주문 설정' })).getAllByRole(
+      'tab',
+    )[1]!;
+    await user.click(sellTab);
+    setNumber(screen.getByLabelText(/매도가격/), '150000');
+    expect(
+      screen.getByText('변경한 값 1개가 아직 서버에 반영되지 않았어요'),
+    ).toBeInTheDocument();
+
+    // 매수 탭으로 갔다가 돌아온다.
+    const buyTab = within(screen.getByRole('tablist', { name: '주문 설정' })).getAllByRole(
+      'tab',
+    )[0]!;
+    await user.click(buyTab);
+    // ★ 더티 수는 탭을 옮기는 동안에도 유지된다 — 매도 pane 이 살아 있다는 증거다.
+    expect(
+      screen.getByText('변경한 값 1개가 아직 서버에 반영되지 않았어요'),
+    ).toBeInTheDocument();
+
+    await user.click(sellTab);
+    expect((screen.getByLabelText(/매도가격/) as HTMLInputElement).value).toBe('150,000');
   });
 
   it('체크박스는 라벨로 찾히고 라벨 클릭으로 토글된다', async () => {
@@ -1171,14 +1208,21 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
         옛 64/88px 에 **들어가지 않아 조용히 잘린다**. 잘린 라벨은 사용자가 다른 필드를
         고치게 만든다(T-gyz-04) — 그래서 라벨 칸을 같은 커밋에서 함께 넓힌다.
     */
+    /*
+      ★ 260912-k2x — **값은 한 톨도 바뀌지 않았다.** 키만 뷰포트 1280 에서 본문 폭 992
+        컨테이너 분기로 옮겼다(둘은 같은 지점이다 — 1280 − 사이드바 240 − 패딩 48 = 992).
+        그래서 아래 단언은 지운 것이 아니라 **같은 명제를 새 키로 다시 쓴 것**이다.
+    */
     expect(card.className).toContain('[--lw:76px]');
-    expect(card.className).toContain('min-[1280px]:[--lw:104px]');
+    expect(card.className).toContain('@min-[992px]/lc:[--lw:104px]');
     expect(card.className).not.toContain('[--lw:64px]');
-    expect(card.className).not.toContain('min-[1280px]:[--lw:88px]');
-    // 테두리·배경·radius 는 전부 `min-[1280px]:` 접두가 붙어 있다.
-    expect(card.className).toContain('min-[1280px]:border');
-    expect(card.className).toContain('min-[1280px]:bg-[var(--card)]');
-    expect(card.className).toContain('min-[1280px]:rounded-[var(--r-lg)]');
+    expect(card.className).not.toContain('[--lw:88px]');
+    // 테두리·배경·radius 는 전부 992 컨테이너 접두가 붙어 있다.
+    expect(card.className).toContain('@min-[992px]/lc:border');
+    expect(card.className).toContain('@min-[992px]/lc:bg-[var(--card)]');
+    expect(card.className).toContain('@min-[992px]/lc:rounded-[var(--r-lg)]');
+    // 옛 뷰포트 분기가 한 톨도 남지 않았다.
+    expect(card.className).not.toContain('min-[1280px]:');
     // 맨몸 크롬 유틸이 남아 있지 않다(모바일에서 그대로 걸린다).
     expect(card.className).not.toMatch(/(^|\s)border(\s|$)/);
     expect(card.className).not.toMatch(/(^|\s)bg-\[var\(--card\)\]/);
@@ -1191,14 +1235,14 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     const wrap = input.parentElement!;
     expect(wrap.className).toContain('h-[38px]');
     // 높이가 양쪽 폭에서 같아졌으므로 데스크톱 높이 override 가 남아 있으면 안 된다.
-    expect(wrap.className).not.toMatch(/min-\[1280px\]:h-/);
+    expect(wrap.className).not.toMatch(/:h-\[/);
     /*
       ★ 16px 미만이면 iOS Safari 가 포커스 시 화면을 확대하고 **되돌리지 않는다**.
         데스크톱만 15px 로 올렸고 모바일 16px 은 그대로다 — 뒤에 오는 어떤 「통일」 변경도
         이 값을 내려서는 안 된다(T-gyz-05).
     */
     expect(input.className).toContain('text-[16px]');
-    expect(input.className).toContain('min-[1280px]:text-[15px]');
+    expect(input.className).toContain('@min-[992px]/lc:text-[15px]');
     expect(input.className).not.toContain('--t-caption');
   });
 
@@ -1207,7 +1251,7 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
 
     const box = document.querySelector('input[type="checkbox"]')!;
     expect(box.className).toContain('size-[17px]');
-    expect(box.className).not.toMatch(/min-\[1280px\]:size-/);
+    expect(box.className).not.toMatch(/:size-\[/);
   });
 
   it('행 라벨 · 체크박스 라벨 · 그룹 소제목 · 세그먼트 버튼 글꼴이 전부 13px 이다', () => {
@@ -1234,7 +1278,7 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     const unit = input.parentElement!.lastElementChild!;
     expect(unit.textContent).toBe('원');
     expect(unit.className).toContain('text-[13px]');
-    expect(unit.className).toContain('min-[1280px]:text-[12px]');
+    expect(unit.className).toContain('@min-[992px]/lc:text-[12px]');
   });
 
   it('포커스·더티 표현이 테두리 한 겹뿐이다 — 링 그림자가 하나도 없다', () => {

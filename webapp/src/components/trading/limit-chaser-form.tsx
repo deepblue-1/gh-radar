@@ -4,8 +4,17 @@
  * LimitChaserForm — 상따 매수/매도 폼 카드 (UI-SPEC A4~A9, TRADE-01).
  *
  * ① 무엇을 어디에
- *   데스크톱(≥1280) 3열 중 **가운데(매수) · 오른쪽(매도)** 두 컬럼. 좁은 폭에서는 오른쪽 58%
- *   컬럼 안의 **「매수」/「매도」 세그먼트 탭**이고 탭당 카드 하나만 보인다.
+ *   본문 폭 **700px 이상**이면 매수·매도 두 카드가 **2열**로 나란히 선다. 그 아래(폰 밴드)
+ *   에서는 **「매수」/「매도」 세그먼트 탭**이고 탭당 카드 하나만 보인다.
+ *   ★ 판정 기준은 뷰포트가 아니라 **본문 폭**이다 (260912-k2x). 밴드 표와 경계 셋의 실측
+ *     근거는 `webapp/src/styles/globals.css` §2.2b 가 정본이다 — 여기에 복사하지 마라.
+ *   ★ **탭은 폰 전용이고, 숨김은 CSS 이며, 언마운트하지 않는다.** 뷰포트를 재던 경로는
+ *     사라졌다(본문 폭은 미디어 질의 API 로 관측할 수 없다). 비활성 pane 은 `display:none`
+ *     이라 접근성 트리에서도 빠지지만 **DOM 에는 남는다** — 조건부 렌더로 바꾸면 탭을 옮길
+ *     때마다 매도 설정이 초기화되고 더티 카운트·에코 덮어쓰기 계산이 함께 망가진다.
+ *   ★ 하단 더티 액션 바는 `document.body` 로 **포털**된다 — 상따 본문 컨테이너가 layout
+ *     containment 를 걸어 `position:fixed` 자손의 컨테이닝 블록이 되기 때문이다. 포털을
+ *     걷으면 그 바가 본문 끝으로 내려앉는다.
  *   ★ 카드는 **2개**다. 그룹 6개를 카드 6개로 쪼개지 않는다 — 라벨 컬럼 폭(`--lw`)이 카드
  *     안에서 공유돼야 값이 세로로 정렬되고, 카드를 쪼개면 그 정렬이 깨진다.
  *
@@ -91,7 +100,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -244,35 +252,6 @@ const SEND_FAILED_TEXT = {
 const NUM = new Intl.NumberFormat('ko-KR');
 const EMPTY_FLASH: ReadonlySet<string> = new Set();
 
-/** 데스크톱 3열(`.lc3`) 분기점. `account-panel.tsx` 의 `min-[1280px]` 과 같은 값이다. */
-const NARROW_QUERY = '(max-width: 1279.98px)';
-
-function subscribeNarrow(onChange: () => void): () => void {
-  const mql = window.matchMedia(NARROW_QUERY);
-  mql.addEventListener('change', onChange);
-  return () => mql.removeEventListener('change', onChange);
-}
-function narrowSnapshot(): boolean {
-  return window.matchMedia(NARROW_QUERY).matches;
-}
-/** SSR 스냅샷은 데스크톱이다 — 하이드레이션 시점에 실제 폭으로 한 번 정정된다. */
-function narrowServerSnapshot(): boolean {
-  return false;
-}
-
-/**
- * 탭 pane 을 숨길지 판단하는 **유일한 근거**.
- *
- * ★ CSS 만으로는 못 한다. `hidden` 은 DOM **속성**이라 반응형 분기가 없고, 데스크톱에서까지
- *   걸리면 접근성 트리에서 매도 폼이 통째로 사라진다. 반대로 클래스(`md:hidden`)로만 숨기면
- *   목업 R2① 회귀 — 작성자 `display:grid` 가 이겨 두 폼이 아래로 흐른다.
- *   그래서 **좁을 때만** `hidden` 속성을 걸고, 그 backstop 으로 globals.css 에
- *   `[hidden]{display:none!important}` 를 둔다(Pitfall 13).
- */
-function useNarrowLayout(): boolean {
-  return useSyncExternalStore(subscribeNarrow, narrowSnapshot, narrowServerSnapshot);
-}
-
 export interface LimitChaserFormProps {
   /** 12자 ISIN — 상단 종목 카드(A1)가 고른 값. */
   isin: string;
@@ -336,7 +315,6 @@ export function LimitChaserForm({
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
-  const narrow = useNarrowLayout();
   const [tab, setTab] = useState<'buy' | 'sell'>('buy');
   /**
    * 하단 액션 바 포털의 SSR 가드 — 서버 렌더에는 `document` 가 없다.
@@ -980,7 +958,7 @@ export function LimitChaserForm({
       <div
         role="tablist"
         aria-label="주문 설정"
-        className="mb-[var(--s-2)] grid grid-cols-2 gap-[var(--s-1)] min-[1280px]:hidden"
+        className="mb-[var(--s-2)] grid grid-cols-2 gap-[var(--s-1)] @min-[700px]/lc:hidden"
       >
         {(['buy', 'sell'] as const).map((t) => (
           <button
@@ -1001,17 +979,31 @@ export function LimitChaserForm({
         ))}
       </div>
 
-      {/* `.lc3` 의 매수·매도 두 컬럼. **그리드 자식 전부 `min-w-0`**(lessons.md). */}
-      <div className="grid min-w-0 grid-cols-1 gap-[var(--s-2)] min-[1280px]:grid-cols-2 min-[1280px]:gap-[var(--s-4)] [&>*]:min-w-0">
+      {/* 매수·매도 두 컬럼(본문 700~). **그리드 자식 전부 `min-w-0`**(lessons.md). */}
+      <div className="grid min-w-0 grid-cols-1 gap-[var(--s-2)] @min-[700px]/lc:grid-cols-2 @min-[992px]/lc:gap-[var(--s-4)] [&>*]:min-w-0">
         {/*
-          ★ 비활성 pane 은 **`hidden` 속성**이다 — 좁은 폭에서만 건다(`useNarrowLayout`).
-            작성자 `display:grid` 가 UA 규칙을 이기므로 globals.css 의
-            `[hidden]{display:none!important}` 가 backstop 이다(Pitfall 13).
+          ★ 비활성 pane 숨김은 **CSS 클래스**다 (260912-k2x). 뷰포트를 재던 경로는 사라졌다 —
+            이제 「탭이냐 2열이냐」를 가르는 것은 뷰포트가 아니라 **본문 폭**인데, 본문 폭은
+            미디어 질의 API 로 관측할 수 없다(그 API 는 뷰포트만 본다). 폭 판정을 CSS 에
+            통째로 넘기고 JS 는 「어느 탭이 선택됐나」만 안다.
+          ★ `display:none` 은 접근성 트리에서도 빠지므로, 안 보이는 폼을 스크린리더가 읽지
+            않는다는 성질은 그대로다.
+          ★ **조건부 렌더로 바꾸지 마라.** 언마운트하면 탭을 옮길 때마다 매도 설정이 초기화되고
+            더티 카운트·에코 덮어쓰기 계산이 함께 망가진다. 두 pane 은 언제나 마운트돼 있고
+            바뀌는 것은 클래스뿐이다.
+          ★ 탭 마크업(`role`·`aria-selected`·버튼 요소)은 **이미 계약을 만족하므로 그대로**다 —
+            버튼이라 Tab+Enter 가 이미 동작한다.
         */}
-        <div data-pane="buy" hidden={narrow && tab !== 'buy'} className="min-w-0">
+        <div
+          data-pane="buy"
+          className={cn('min-w-0', tab !== 'buy' && 'hidden @min-[700px]/lc:block')}
+        >
           {buyCard}
         </div>
-        <div data-pane="sell" hidden={narrow && tab !== 'sell'} className="min-w-0">
+        <div
+          data-pane="sell"
+          className={cn('min-w-0', tab !== 'sell' && 'hidden @min-[700px]/lc:block')}
+        >
           {sellCard}
         </div>
       </div>
@@ -1066,7 +1058,7 @@ export function LimitChaserForm({
 function Card({ children }: { children: ReactNode }) {
   return (
     <div
-      className="min-w-0 overflow-hidden [--lw:76px] min-[1280px]:rounded-[var(--r-lg)] min-[1280px]:border min-[1280px]:border-[var(--border)] min-[1280px]:bg-[var(--card)] min-[1280px]:[--lw:104px]"
+      className="min-w-0 overflow-hidden [--lw:76px] @min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:bg-[var(--card)] @min-[992px]/lc:[--lw:104px]"
     >
       {children}
     </div>
@@ -1155,7 +1147,7 @@ function Group({
     <section
       data-slot={`lc-group-${slot}`}
       title={hint}
-      className="min-w-0 border-t border-[var(--border)] px-0 py-1.5 first:border-t-0 min-[1280px]:px-[var(--s-3)] min-[1280px]:py-[var(--s-2)]"
+      className="min-w-0 border-t border-[var(--border)] px-0 py-1.5 first:border-t-0 @min-[992px]/lc:px-[var(--s-3)] @min-[992px]/lc:py-[var(--s-2)]"
     >
       {hasHeader ? (
       <div className="flex min-h-6 min-w-0 items-center gap-[var(--s-2)]">
@@ -1247,7 +1239,7 @@ function Row({
       같아졌으므로, 입력이 없는 행만 36/32px 로 남으면 그 행에서만 세로 리듬이 끊긴다.
   */
   return (
-    <div className="mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:gap-[var(--s-2)]">
+    <div className="mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
       <label
         htmlFor={htmlFor}
         className={cn(
@@ -1332,11 +1324,11 @@ function NumInput({
             그 문제를 막는 **유일한 장치**이므로, 뒤에 오는 어떤 「데스크톱과 통일하자」 변경도
             모바일 값을 16px 미만으로 내려서는 안 된다.
         */
-        className="mono min-w-0 flex-1 bg-transparent text-right text-[16px] text-[var(--fg)] outline-none disabled:cursor-not-allowed min-[1280px]:text-[15px]"
+        className="mono min-w-0 flex-1 bg-transparent text-right text-[16px] text-[var(--fg)] outline-none disabled:cursor-not-allowed @min-[992px]/lc:text-[15px]"
         {...rest}
       />
       {unit ? (
-        <span className="flex-none text-[13px] text-[var(--muted-fg)] min-[1280px]:text-[12px]">
+        <span className="flex-none text-[13px] text-[var(--muted-fg)] @min-[992px]/lc:text-[12px]">
           {unit}
         </span>
       ) : null}
@@ -1413,11 +1405,11 @@ function CheckRow({
     <div
       className={cn(
         // 행 최소 높이가 입력 높이(38px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
-        'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 min-[1280px]:gap-[var(--s-2)]',
+        'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
         dimmed && 'opacity-45',
       )}
     >
-      <span className="flex min-w-0 items-center gap-[3px] min-[1280px]:gap-[var(--s-1)]">
+      <span className="flex min-w-0 items-center gap-[3px] @min-[992px]/lc:gap-[var(--s-1)]">
         <input
           id={id}
           type="checkbox"

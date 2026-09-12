@@ -103,8 +103,10 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(container.querySelectorAll('[data-slot="ladder-fill-head"]')).toHaveLength(1);
     expect(within(desktopTable()).getByText('체결')).toBeInTheDocument();
     // 색 비의존 — 단계 라벨은 데스크톱·모바일 두 트리에 각각 있다.
-    expect(screen.getAllByText(/매도 10호가/)).toHaveLength(2);
-    expect(screen.getAllByText(/매수 1호가/)).toHaveLength(2);
+    // ★ 260912-k2x — 트리가 **셋**(1단·2단·3단)이 되면서 같은 단계 라벨이 세 번 나온다.
+    //   어느 폭에서도 **정확히 하나만** 보이므로 스크린리더에는 한 번만 읽힌다(아래 ⑰).
+    expect(screen.getAllByText(/매도 10호가/)).toHaveLength(3);
+    expect(screen.getAllByText(/매수 1호가/)).toHaveLength(3);
   });
 
   it('② ★ 마커 슬롯은 **데스크톱 20행 전부**에 있고 폭이 16px 로 고정이다 (T-16-05)', () => {
@@ -271,15 +273,19 @@ describe('OrderbookLadder — 상따 변형', () => {
       `scrollable-region-focusable`(serious)이 실제로 잡았다(16-17 a11y 확장).
 
       ★ 260911-w5h — 사다리 아래 **compact 체결 테이프**가 들어오면서 같은 조건의 스크롤
-        영역이 하나 더 생겼다(`tape-scroll`, `max-h-[200px]`). 그래서 계약은 「1개」가
-        아니라 「**스크롤 영역 정확히 2개, 그리고 행에는 0개**」다:
-          · `ladder-scroll` — 340px 박스 안의 호가 20행
-          · `tape-scroll`   — 200px 박스 안의 체결 목록
-        둘 다 안에 상시 포커스 가능한 자식이 없다. 행에 하나라도 붙으면 마지막 단언이 깨진다.
+        영역이 하나 더 생겼다(`tape-scroll`, `max-h-[200px]`).
+      ★ 260912-k2x — **2단 트리**가 신설되면서 그 테이프가 한 벌 더 생겼다. 그래서 계약은
+        「**스크롤 영역 정확히 3개, 그리고 행에는 0개**」이고 DOM 순서까지 고정한다:
+          · 3단 트리 — 스크롤 영역 없음(표가 통째로 보인다)
+          · 2단 트리 — `tape-scroll`
+          · 1단 트리 — `ladder-scroll`(340px 박스 안의 호가 20행) + `tape-scroll`
+        전부 안에 상시 포커스 가능한 자식이 없다. 행에 하나라도 붙으면 마지막 단언이 깨진다.
+        범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
     */
     const tabbables = Array.from(container.querySelectorAll('[tabindex]'));
-    expect(tabbables).toHaveLength(2);
+    expect(tabbables).toHaveLength(3);
     expect(tabbables.map((el) => el.getAttribute('data-slot'))).toEqual([
+      'tape-scroll',
       'ladder-scroll',
       'tape-scroll',
     ]);
@@ -312,13 +318,20 @@ describe('OrderbookLadder — 상따 변형', () => {
       ★ 데스크톱의 체결 **열**을 좁은 폭에서는 **아래 테이프**가 대신한다. 데이터 원천은
         같은 `recentTrades` 하나이고 새 조회 경로가 없다.
     */
+    /*
+      ★ 260912-k2x — compact 테이프는 **둘**이다: 1단 트리 아래 하나 + 2단 트리 아래 하나.
+        3단 표만 체결 10건을 매수 10단 왼쪽 칸에 품고, 그 칸이 없는 두 트리는 아래 테이프가
+        대신한다. 범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
+    */
     const tapes = container.querySelectorAll('[data-slot="trade-tape"][data-compact="true"]');
-    expect(tapes).toHaveLength(1);
-    expect(tapes[0]!.querySelector('thead')).toBeNull(); // 컬럼헤더도 제목행도 없다
+    expect(tapes).toHaveLength(2);
+    for (const tape of Array.from(tapes)) {
+      expect(tape.querySelector('thead')).toBeNull(); // 컬럼헤더도 제목행도 없다
+    }
     // 데스크톱 트리에는 테이프가 없다 — 거기엔 체결 열이 이미 있다.
     expect(desktopTable().querySelector('[data-slot="trade-tape"]')).toBeNull();
-    // 사다리와 테이프 사이 가로선 하나.
-    expect(container.querySelectorAll('hr')).toHaveLength(1);
+    // 가로선도 테이프 수와 같다 — 사다리와 테이프 사이 한 줄씩.
+    expect(container.querySelectorAll('hr')).toHaveLength(2);
   });
 
   /*
@@ -334,9 +347,9 @@ describe('OrderbookLadder — 상따 변형', () => {
 
     expect(container.querySelectorAll('[data-slot="ladder-legend"]')).toHaveLength(0);
 
-    // 방향(매도/매수)은 **두 트리 모두** 각 행의 단계 라벨이 말한다 — 10단 × 2트리 = 20.
-    expect(screen.getAllByText(/매도 \d+호가/)).toHaveLength(20);
-    expect(screen.getAllByText(/매수 \d+호가/)).toHaveLength(20);
+    // 방향(매도/매수)은 **세 트리 모두** 각 행의 단계 라벨이 말한다 — 10단 × 3트리 = 30.
+    expect(screen.getAllByText(/매도 \d+호가/)).toHaveLength(30);
+    expect(screen.getAllByText(/매수 \d+호가/)).toHaveLength(30);
 
     // 상한가·최근 체결가도 여전히 텍스트로 읽힌다(데스크톱은 마커 `aria-label`, 좁은 폭은 `sr-only`).
     expect(screen.getAllByRole('img', { name: '상한가' })).toHaveLength(1);
@@ -369,8 +382,11 @@ describe('OrderbookLadder — 상따 변형', () => {
       const isCompactTape = el.closest('[data-slot="trade-tape"]') !== null;
       expect(isPct || isFillTime || isCompactTape).toBe(true);
     }
-    // 등락률 40(데스크톱 20 + 모바일 20) + 체결 시각 10 + compact 테이프 행 10 = 60.
-    expect(tenPx).toHaveLength(60);
+    /*
+      ★ 260912-k2x — 2단 트리가 들어오면서 총계가 다시 세어졌다:
+        등락률 60(3단 20 + 2단 20 + 1단 20) + 3단 체결 시각 10 + compact 테이프 2벌 × 10 = 90.
+    */
+    expect(tenPx).toHaveLength(90);
 
     /*
       ★ **9px 예외는 정확히 1곳**(좁은 폭 사다리의 잔량) — 20행이므로 20개다.
@@ -481,5 +497,117 @@ describe('OrderbookLadder — 상따 변형', () => {
     );
     expect(deskPcts).toHaveLength(20);
     for (const el of deskPcts) expect(el.textContent).not.toContain('%');
+  });
+
+  /*
+    ⑰ ★ 260912-k2x — **2단 호가**(본문 700~829)를 신설하면서 사다리 트리가 셋이 됐다.
+
+      여기서 잠그는 것은 「보기 좋은가」가 아니라 **같은 사다리가 두 번 읽히지 않는가**다.
+      세 트리의 노출 조건이 배타적이지 않으면 겹친 구간에서 스크린리더가 같은 호가를 두 번
+      읽고, 시각 사용자에게는 두 사다리가 세로로 쌓인다(T-k2x-04).
+      jsdom 에는 레이아웃이 없어 「700 에서 실제로 2단이 뜬다」는 증명할 수 없다 — 증명할 수
+      있는 것은 **세 조건이 서로 겹치지 않는다**는 규칙뿐이고, 그것이 이 케이스의 본체다.
+  */
+  it('⑰ 사다리 트리가 셋이고 노출 조건이 **배타적**이다 (T-k2x-04)', () => {
+    const { container } = renderChaser();
+
+    const trees = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="ladder-tree"]'));
+    expect(trees.map((t) => t.dataset.tree)).toEqual(['three', 'two', 'one']);
+
+    const byName = Object.fromEntries(trees.map((t) => [t.dataset.tree!, t.className]));
+    // 3단 — 830 이상에서만. 기본이 `hidden` 이므로 그 아래에서는 접근성 트리에서도 빠진다.
+    expect(byName.three).toContain('hidden');
+    expect(byName.three).toContain('@min-[830px]/lc:block');
+    // 2단 — 700 이상 830 **미만**. 하한·상한 두 조건을 함께 건다.
+    expect(byName.two).toContain('hidden');
+    expect(byName.two).toContain('@min-[700px]/lc:block');
+    expect(byName.two).toContain('@min-[830px]/lc:hidden');
+    // 1단 — 700 미만에서만. 기본이 보임이고 700 에서 꺼진다.
+    expect(byName.one).toContain('@min-[700px]/lc:hidden');
+    expect(byName.one).not.toContain('@min-[830px]');
+    // 옛 뷰포트 키가 한 톨도 남지 않았다.
+    for (const cls of Object.values(byName)) expect(cls).not.toContain('min-[1280px]:');
+  });
+
+  it('⑰b 2단 호가 — 20행 · 2열 · 매수1 경계선 1개 · 마커 슬롯 없음', () => {
+    const { container } = renderChaser();
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="ladder-row-two"]'),
+    );
+    expect(rows).toHaveLength(20);
+    // 매도 10 → 매수 10 순서다. 행 조립은 기존 `buildLadderRows` 결과를 그대로 쓴다.
+    expect(rows.filter((r) => r.dataset.side === 'ask')).toHaveLength(10);
+    expect(rows.filter((r) => r.dataset.side === 'bid')).toHaveLength(10);
+    expect(rows[0]!.textContent).toContain('매도 10호가');
+    expect(rows[10]!.textContent).toContain('매수 1호가');
+
+    // 가격 | 잔량 2열이다.
+    for (const row of rows) expect(row.children).toHaveLength(2);
+
+    // 매수 1호가 행에만 위 경계선 — 매도1/매수1 사이를 가르는 선이다.
+    const bordered = rows.filter((r) => r.className.includes('border-t'));
+    expect(bordered).toHaveLength(1);
+    expect(rows.indexOf(bordered[0]!)).toBe(10);
+
+    // ★ 마커 슬롯은 두지 않는다 — 좁은 칸에서 16px 은 가격 몫이다(목업 정본과 같다).
+    for (const row of rows) {
+      expect(row.querySelector('[data-slot="ladder-marker"]')).toBeNull();
+    }
+  });
+
+  it('⑰c 2단 호가가 기존 두 트리와 **같은 규약**을 쓴다 — 방향색 · 굵기 · 배경 · 바 색', () => {
+    // 상한가를 매도 3호가(100,300)에, 최근 체결가는 매수 1호가(99,900)에 둔다.
+    const { container } = renderChaser({ upperLimit: 100_300 });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="ladder-row-two"]'),
+    );
+
+    // 상한가 = 행 배경 + 보조 텍스트(색만으로 말하지 않는다).
+    const upperRows = rows.filter((r) => r.className.includes('var(--up)_8%'));
+    expect(upperRows).toHaveLength(1);
+    expect(upperRows[0]!.textContent).toContain('100,300');
+    expect(upperRows[0]!.textContent).toContain('상한가');
+
+    // 최근 체결가 = 굵기 + 보조 텍스트.
+    const boldRows = rows.filter(
+      (r) => r.querySelector('[data-slot="ladder-price-two"]')?.className.includes('font-extrabold') === true,
+    );
+    expect(boldRows).toHaveLength(1);
+    expect(boldRows[0]!.textContent).toContain('99,900');
+    expect(boldRows[0]!.textContent).toContain('최근 체결가');
+
+    // 잔량 바 색은 방향을 따른다 — 매도 `--down` 16% / 매수 `--up` 16% 믹스.
+    for (const row of rows) {
+      const bar = row.querySelector<HTMLElement>('[data-slot="ladder-bar-two"]');
+      if (bar === null) continue;
+      expect(bar.className).toContain(
+        row.dataset.side === 'ask' ? 'var(--down)_16%' : 'var(--up)_16%',
+      );
+    }
+
+    // 가격 방향색은 **기준가 대비**다 — 판정식을 복제하지 않고 같은 함수를 쓴다.
+    const prices = rows.map((r) => r.querySelector<HTMLElement>('[data-slot="ladder-price-two"]')!);
+    expect(prices.filter((el) => el.className.includes('text-[var(--up)]')).length).toBeGreaterThan(0);
+    expect(prices.filter((el) => el.className.includes('text-[var(--down)]')).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('⑰d 2단 등락률이 3단 표와 **같은 문자열·같은 최소폭**이다 — 한 화면에서 두 말을 하지 않는다', () => {
+    const { container } = renderChaser();
+
+    const pcts = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="ladder-price-cell-two"] [data-slot="ladder-pct"]',
+      ),
+    );
+    expect(pcts).toHaveLength(20);
+    for (const el of pcts) {
+      // 목업의 2자리·`%` 표기는 목업 편의였다 — 계약은 데스크톱 표와 같은 `ladderPctText` 다.
+      expect(el.textContent).not.toContain('%');
+      expect(el.textContent).not.toContain('+');
+      expect(getComputedStyle(el).minWidth).toBe('40px');
+    }
   });
 });

@@ -54,8 +54,16 @@
  * ★ Phase 16 — 변형 2종 (`variant`)
  *
  *   `"orderbook"`(기본) : 위에 적은 Phase 15 사다리. **한 글자도 바뀌지 않았다.**
- *   `"chaser"`          : 상따 전용(16-UI-SPEC A11/A11a) — 마커 슬롯 · 등락률 열 ·
- *                         데스크톱 최근 체결 10건 · 좁은 폭 2줄 행. 파일 하단에 있다.
+ *   `"chaser"`          : 상따 전용(16-UI-SPEC A11/A11a). 파일 하단에 있다.
+ *                         ★ **트리가 셋이고 어느 폭에서도 정확히 하나만 산다** (260912-k2x):
+ *                           3단 표(본문 830~) · 2단 호가(700~829) · 1단 사다리(~699).
+ *                           판정 기준은 뷰포트가 아니라 **본문 폭**(`@container/lc`)이고,
+ *                           밴드 표의 정본은 `styles/globals.css` §2.2b 다(여기에 복사하지
+ *                           마라). 세 조건이 배타적이지 않으면 스크린리더가 같은 호가를 두 번
+ *                           읽고 겹친 구간에서 두 사다리가 세로로 쌓인다.
+ *                         ★ **범례 줄은 없다** — 방향·상한가·최근 체결가는 각 행의 보조
+ *                           텍스트가 말한다. 그 텍스트가 WCAG 1.4.1 을 잇는 유일한 채널이므로
+ *                           함께 지우면 그 순간 색 단독 전달이 된다.
  *
  *   왜 한 파일에 두 트리인가: 「호가 10단을 어떻게 그리는가」는 이 파일의 책임이고, 색·바
  *   정규화·기준가 대비 방향색 같은 **규칙이 공유**된다. 파일을 쪼개면 그 규칙이 두 벌이 되고
@@ -587,7 +595,12 @@ function markerOf(
  *
  * ★ 가격은 **클릭 대상이 아니다**(A11). 비교가격 자동 채움이 없어졌으므로 클릭 핸들러도
  *   roving tabindex 도 두지 않는다 — 눌러도 아무 일이 없는 커서는 「고장난 화면」이다.
- * ★ 데스크톱(≥1280)과 좁은 폭은 **다른 트리**다. 좁은 폭은 (260911-w5h):
+ * ★ 트리가 **셋**이고 노출 조건이 배타적이다 (260912-k2x · 판정은 **본문 폭**):
+ *     · 3단 표  (본문 830~)    — 마커 슬롯 · 등락률 열 · 매수 10단 왼쪽에 최근 체결 10건
+ *     · 2단 호가(700~829)      — `가격 | 잔량` 2열 · 마커 슬롯 없음 · 아래 compact 테이프
+ *     · 1단 사다리(~699)       — 2줄 행 · 340px 스크롤 · 아래 compact 테이프
+ *   숨김은 Tailwind `hidden`(=`display:none`)이라 **접근성 트리에서도 빠진다**.
+ * ★ 1단 사다리는 (260911-w5h):
  *   · 마커 슬롯 **없음** — 회수한 16px 이 가격 쪽으로 간다
  *   · 2줄 행(가격 13px + 아래 등락률 10px, **부호·`%`** 와 방향색)
  *   · **340px(=34px × 10행) 박스 안에서 10단 전부 스크롤**
@@ -712,6 +725,90 @@ function ChaserLadder({
     </th>
   );
 
+  /**
+   * 2단 호가 한 행 (본문 700~829) — `가격(+등락률) | 잔량(바+숫자)`.
+   *
+   * ★ 규약은 전부 **기존 두 트리와 같은 함수**에서 온다 — `priceTone`(기준가 대비 방향색),
+   *   `barPct`(단계 최대값 정규화), `ladderPctText`(등락률 문자열). 판정식을 복제하면 한
+   *   화면 안에서 2단과 3단이 같은 호가를 다른 색·다른 숫자로 말하게 된다.
+   * ★ 마커 슬롯은 **두지 않는다** — 이 폭에서 16px 은 가격 몫이다. 그래서 상한가는 **행
+   *   배경**, 최근 체결가는 **굵기**가 말하고(1단 트리와 같은 축), 둘 다 보조 텍스트로도
+   *   읽힌다. 배경·굵기는 색과 형태뿐이라 그것만으로는 WCAG 1.4.1 을 넘지 못한다.
+   * ★ 등락률은 **3단 표와 같은 문자열·같은 최소폭**이다(부호·`%` 없음). 목업의 2자리·`%`
+   *   표기는 목업 편의였지 계약이 아니다.
+   */
+  const twoRow = (row: LadderRow, isBidTop: boolean) => {
+    const isAsk = row.side === 'ask';
+    const pct = barPct(row.qty, isAsk ? maxAsk : maxBid);
+    // 판정은 `markerOf` 와 **같은 조건**이다 — 세 트리가 같은 행을 가리켜야 한다.
+    const isUpper = upperLimit > 0 && row.price === upperLimit;
+    const isLast = !isUpper && lastTradePrice > 0 && row.price === lastTradePrice;
+    return (
+      <tr
+        key={row.key}
+        data-side={row.side}
+        data-slot="ladder-row-two"
+        className={cn(
+          isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
+          // 매도1/매수1 경계선. `<tr>` 에 테두리를 걸면 `border-collapse` 아래에서 살지
+          // 않으므로 **셀**에 건다(3단 표의 「체결」 헤더 행과 같은 방식이다).
+          isBidTop && '[&>*]:border-t [&>*]:border-[var(--border)]',
+        )}
+      >
+        <th
+          scope="row"
+          data-slot="ladder-price-cell-two"
+          className="h-6 overflow-hidden px-1.5 align-middle font-normal"
+        >
+          <div className="flex min-w-0 items-center gap-1">
+            {/* 색 비의존 — 스크린리더는 단계 라벨로 매도/매수를 안다(세 트리 공통 규약). */}
+            <span className="sr-only">
+              {isAsk ? '매도' : '매수'} {row.step}호가{' '}
+            </span>
+            {isUpper && <span className="sr-only">상한가 </span>}
+            {isLast && <span className="sr-only">최근 체결가 </span>}
+            <span
+              data-slot="ladder-price-two"
+              className={cn(
+                'mono min-w-0 flex-1 truncate text-right',
+                isLast ? 'font-extrabold' : 'font-semibold',
+                priceTone(row.price, basePrice),
+              )}
+            >
+              {row.price > 0 ? fmt(row.price) : '—'}
+            </span>
+            {/* 10px 예외 ⓑ — 3단 표 등락률과 같은 자리·같은 최소폭이다(T3). */}
+            <span
+              data-slot="ladder-pct"
+              className="mono flex-none text-right text-[10px] text-[var(--muted-fg)]"
+              style={{ minWidth: PCT_MIN_WIDTH_PX }}
+            >
+              {ladderPctText(row.price, basePrice)}
+            </span>
+          </div>
+        </th>
+        <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
+          {pct > 0 && (
+            <span
+              aria-hidden="true"
+              data-slot="ladder-bar-two"
+              className={cn(
+                'absolute top-1 bottom-1 left-0 z-0 rounded-[2px]',
+                isAsk
+                  ? 'bg-[color-mix(in_oklch,var(--down)_16%,transparent)]'
+                  : 'bg-[color-mix(in_oklch,var(--up)_16%,transparent)]',
+              )}
+              style={{ width: `${pct}%` }}
+            />
+          )}
+          <span className="relative z-[1] block truncate text-right text-[var(--fg)]">
+            {row.qty > 0 ? fmt(row.qty) : ''}
+          </span>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div
       data-density="compact"
@@ -720,8 +817,8 @@ function ChaserLadder({
       data-stale={isStale ? 'true' : undefined}
       className={cn('flex min-w-0 flex-col', isStale && 'opacity-[.55]', className)}
     >
-      {/* ── 데스크톱(≥1280) — 434px 표 · 24px 행 · 최근 체결 10건 ── */}
-      <div className="hidden min-[1280px]:block">
+      {/* ── 3단 표 (본문 830~) — 24px 행 · 최근 체결 10건 · 마커 슬롯 ── */}
+      <div data-slot="ladder-tree" data-tree="three" className="hidden @min-[830px]/lc:block">
         <table
           aria-label="호가 10단 (매도 10단계 · 매수 10단계) 및 최근 체결 10건"
           className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
@@ -823,8 +920,51 @@ function ChaserLadder({
         */}
       </div>
 
-      {/* ── 좁은 폭(<1280) — 34px 2줄 행 · 340px(=10행) 스크롤 · 매도1/매수1 경계 중앙 ── */}
-      <div className="min-[1280px]:hidden">
+      {/* ── 2단 호가 (본문 700~829) — 260px 폭 · `가격 | 잔량` 2열 · 24px 행 ── */}
+      <div
+        data-slot="ladder-tree"
+        data-tree="two"
+        className="hidden @min-[700px]/lc:block @min-[830px]/lc:hidden"
+      >
+        {/*
+          ★ 이 트리는 기존 두 트리와 **나란한 세 번째 렌더 블록**이다. 조건문으로 엮지 않는다 —
+            엮으면 어느 쪽을 고쳐도 다른 쪽이 흔들린다(파일 상단의 같은 규율).
+          ★ 접근성 이름은 1단 목록과 **같은 문자열**이다. role 이 달라(table ↔ list) 충돌하지
+            않고, 세 트리 중 하나만 살아 있으므로 스크린리더에는 한 번만 읽힌다.
+          ★ 행 조립은 **기존 `buildLadderRows` 결과를 그대로** 쓴다. 순서·단계 번호를 다시
+            계산하면 같은 화면의 「매도 3호가」가 트리마다 다른 행이 된다.
+        */}
+        <table
+          aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
+          className="mono w-full table-fixed border-collapse text-[length:var(--t-caption)]"
+        >
+          <colgroup>
+            <col className="w-[58%]" />
+            <col className="w-[42%]" />
+          </colgroup>
+          <tbody>
+            {asks.map((row) => twoRow(row, false))}
+            {bids.map((row, i) => twoRow(row, i === 0))}
+          </tbody>
+        </table>
+        {/*
+          3단 표는 체결 10건을 매수 10단 **왼쪽 칸**에 품지만 2단에는 그 칸이 없다 —
+          그래서 1단 트리와 **같은** 가로선 + compact 체결 테이프를 아래에 둔다.
+          ★ props 는 전부 이 컴포넌트가 이미 들고 있는 값이다 — 새 조회 경로가 0개다.
+        */}
+        <hr className="my-[var(--s-2)] border-0 border-t border-[var(--border)]" />
+        <TradeTape
+          compact
+          entries={recentTrades}
+          isStale={isStale}
+          basePrice={basePrice}
+          bestAsk={quote.ap[0]}
+          bestBid={quote.bp[0]}
+        />
+      </div>
+
+      {/* ── 1단 사다리 (본문 ~699) — 34px 2줄 행 · 340px(=10행) 스크롤 · 매도1/매수1 경계 중앙 ── */}
+      <div data-slot="ladder-tree" data-tree="one" className="@min-[700px]/lc:hidden">
         {/*
           ★ `tabIndex={0}` 은 장식이 아니라 **WCAG 2.1.1(키보드) 필수**다 (16-17 a11y 확장이
             실측으로 잡았다 — axe `scrollable-region-focusable`, impact serious).
