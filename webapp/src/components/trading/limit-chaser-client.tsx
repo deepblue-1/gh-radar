@@ -9,6 +9,10 @@
  *   [호가 10단 | 매수·매도 폼] → 미체결/잔고 → 전략 로그. 레이아웃 정본은 채택 목업
  *   `16-limit-chaser-mockup.html` + 모바일 확정 목업 `260911-chaser-mockup-7.html` 이다
  *   (≥1280 `.lc3` 460 | 매수 250 | 매도 250 · <1024 `.lc2` 42% | 1fr · 1024~1279 1열, R1/R2/R7).
+ *   ★ 헤더 종목정보 8칸은 **모바일 2열 4행 · 데스크톱(≥1280) 한 줄 가로 나열**이다
+ *     (260912-gyz · 목업 `260912-chaser-desktop.html` 「안 A」). 배치 분기는 CSS 뿐이고
+ *     **같은 8칸이 클래스만 갈아입는다** — 배열도 JSX 도 한 벌이라 폭에 따라 다른 숫자가
+ *     나올 자리가 없다. 폭을 JS 로 재는 훅·조건부 렌더를 두지 않는다.
  *   ★ **가격 칩 행은 없다** (260912-gyz). 헤더 카드는 종목정보 8칸에서 끝난다 — 상한·하한은
  *     8칸이 이미 말하고, 기준가는 그 8칸의 방향색 기준으로 살아 있으며, 호가단위는 폼이
  *     사용자에게 요구하지 않는 값이라 같은 카드에서 같은 말을 두 번 하던 행이었다.
@@ -484,11 +488,11 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                 onClick={() => setSearching(true)}
                 className="flex min-w-0 flex-1 items-baseline gap-1.5 rounded-[var(--r)] px-1 py-0.5 text-left hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
-                <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)]">
+                <b className="min-w-0 truncate text-[16px] font-semibold text-[var(--fg)] min-[1280px]:text-[20px]">
                   {displayName}
                 </b>
                 {stockCode !== null && (
-                  <span className="mono flex-none text-[11px] text-[var(--muted-fg)]">
+                  <span className="mono flex-none text-[11px] text-[var(--muted-fg)] min-[1280px]:text-[12px]">
                     {stockCode}
                   </span>
                 )}
@@ -508,10 +512,10 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
                       : 'text-[var(--flat)]',
                 )}
               >
-                <b className="mono text-[16px] font-bold">
+                <b className="mono text-[16px] font-bold min-[1280px]:text-[22px]">
                   {currentPrice > 0 ? KRW.format(currentPrice) : '—'}
                 </b>
-                <small className="mono text-[11px] font-semibold">
+                <small className="mono text-[11px] font-semibold min-[1280px]:text-[13px]">
                   {changeRate.toFixed(2)}%
                 </small>
               </span>
@@ -520,7 +524,15 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         </div>
 
         {/*
-          종목정보 8칸 — 2열 4행, 셀 사이 구분선 없이 여백만(목업 6 「안 B」).
+          종목정보 8칸 — **모바일 2열 4행 · 데스크톱(≥1280) 한 줄 가로 나열**
+          (목업 6 「안 B」 + `260912-chaser-desktop.html` 「안 A」).
+          ★ 배치 분기는 **CSS 로만** 한다 — 같은 8칸이 클래스만 갈아입고, 배열도 JSX 도 한
+            벌이다. 두 벌로 렌더하면 언젠가 한쪽만 고쳐지고 그때 사용자는 폭에 따라 다른
+            숫자를 본다. 뷰포트 폭을 JS 로 재는 훅도 두지 않는다 — SSR 과 첫 페인트에서
+            배치가 튄다.
+          ★ 데스크톱 `gap-x-[22px]` · `px-3.5`(14px) · `py-2`(8px) 는 목업 `.i-row` 의
+            `gap:0 22px` · `padding:8px 14px` 동형이다. `flex` 가 켜지면 `grid-cols-2` 는
+            무시되므로 따로 해제하지 않는다.
           ★ 값의 원천은 **이미 구독으로 오는 `RelayQuote` 프레임 하나뿐**이다. 이 그리드를
             위해 만든 새 API·새 조회 경로가 0개다(파일 상단 ⑧ 과 같은 규율).
           ★ 값이 0 이거나 아직 안 왔으면 `—` 다 — 0 을 그리면 그 숫자로 매도 판단이 이뤄진다.
@@ -528,7 +540,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         {isin !== '' && !searching && (
           <div
             data-slot="lc-quote-grid"
-            className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1"
+            className="grid grid-cols-2 border-t border-[var(--border-subtle)] py-1 min-[1280px]:flex min-[1280px]:flex-wrap min-[1280px]:items-baseline min-[1280px]:gap-x-[22px] min-[1280px]:gap-y-0 min-[1280px]:px-3.5 min-[1280px]:py-2"
           >
             <QuoteCell label="시가" value={priceText(quote?.o ?? 0)} tone={priceTone(quote?.o ?? 0, basePrice)} />
             <QuoteCell label="고가" value={priceText(quote?.h ?? 0)} tone={priceTone(quote?.h ?? 0, basePrice)} />
@@ -648,14 +660,28 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 /* ───────────────────────────── 조각 ───────────────────────────── */
 
 /**
- * 헤더 종목정보 한 칸. 라벨 왼쪽 · 값 오른쪽 mono, 셀 사이 구분선 없이 여백만.
+ * 헤더 종목정보 한 칸. **두 배치를 산다** (260912-gyz):
+ *   - 모바일(<1280) 2열 4행 — 라벨 왼쪽 · 값이 `ml-auto` 로 칸의 오른쪽 끝. 라벨
+ *     `min-w-[34px]` 가 2열에서 값의 좌측 끝을 맞춘다.
+ *   - 데스크톱(≥1280) 한 줄 가로 나열 — 「라벨 값」 인라인 쌍. 그래서 라벨 최소폭을 풀고
+ *     (`min-w-0`) 값을 라벨 바로 옆에 붙인다(`ml-0`). 칸 패딩도 0 으로 돌린다: 칸 사이
+ *     간격은 컨테이너의 `gap-x-[22px]` 가 담당하고, 둘 다 주면 22 + 20px 이 되어 한 줄에
+ *     8칸이 들어가지 않는다.
+ *
  * 색은 호출부가 정한다 — 이 칸은 포맷과 배치만 안다(`limit-up-format.ts` 와 같은 분리).
  */
 function QuoteCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px]">
-      <span className="min-w-[34px] flex-none text-[var(--muted-fg)]">{label}</span>
-      <span className={cn('mono ml-auto font-semibold whitespace-nowrap', tone ?? 'text-[var(--fg)]')}>
+    <div className="flex items-baseline gap-1.5 px-2.5 py-[3px] text-[11px] min-[1280px]:px-0 min-[1280px]:py-0 min-[1280px]:text-[12px]">
+      <span className="min-w-[34px] flex-none text-[var(--muted-fg)] min-[1280px]:min-w-0">
+        {label}
+      </span>
+      <span
+        className={cn(
+          'mono ml-auto font-semibold whitespace-nowrap min-[1280px]:ml-0',
+          tone ?? 'text-[var(--fg)]',
+        )}
+      >
         {value}
       </span>
     </div>

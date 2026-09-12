@@ -784,6 +784,75 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(cells()).toHaveLength(8);
   });
 
+  /*
+    ★ ④ 데스크톱(≥1280) 8칸은 **한 줄 가로 나열**, 모바일(<1280)은 2열 4행 그대로다
+      (260912-gyz · 목업 `260912-chaser-desktop.html` 「안 A」). 같은 8칸이 **클래스만
+      갈아입는다** — 배열도 JSX 도 한 벌이다. 배치를 조건부 렌더나 폭 측정 훅으로 가르면
+      언젠가 한쪽만 고쳐지고, 그때 사용자는 폭에 따라 **다른 숫자**를 본다(T-gyz-06).
+  */
+  it('④ 컨테이너가 모바일 2열을 유지한 채 데스크톱 flex-wrap 유틸만 얹는다', () => {
+    renderEdit({ quote: quote() });
+
+    const grid = document.querySelector('[data-slot="lc-quote-grid"]')!;
+    // 모바일 클래스는 한 글자도 바뀌지 않았다.
+    expect(grid.className).toContain('grid grid-cols-2');
+    expect(grid.className).toContain('border-t border-[var(--border-subtle)]');
+    // 데스크톱 배치는 전부 `min-[1280px]:` 접두로만 얹힌다.
+    for (const util of [
+      'min-[1280px]:flex',
+      'min-[1280px]:flex-wrap',
+      'min-[1280px]:items-baseline',
+      'min-[1280px]:gap-x-[22px]',
+    ]) {
+      expect(grid.className).toContain(util);
+    }
+  });
+
+  it('④ 칸 8개가 각각 데스크톱 override 3종을 갖고 모바일 장치를 함께 유지한다', () => {
+    renderEdit({ quote: quote() });
+
+    expect(cells()).toHaveLength(8);
+    for (const cell of cells()) {
+      expect(cell.className).toContain('min-[1280px]:text-[12px]');
+      const [label, value] = Array.from(cell.children);
+      // 한 줄 나열에서는 라벨 최소폭이 풀리고 값이 라벨 바로 옆에 붙는다.
+      expect(label!.className).toContain('min-[1280px]:min-w-0');
+      expect(value!.className).toContain('min-[1280px]:ml-0');
+      // 모바일 2열 배치의 장치는 그대로다.
+      expect(label!.className).toContain('min-w-[34px]');
+      expect(value!.className).toContain('ml-auto');
+    }
+  });
+
+  it('★ ④ 그리드가 문서에 **1개**다 — 모바일용·데스크톱용을 둘 다 그리지 않는다', () => {
+    renderEdit({ quote: quote() });
+
+    expect(document.querySelectorAll('[data-slot="lc-quote-grid"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-slot="lc-quote-grid"] > div')).toHaveLength(8);
+  });
+
+  it('④ 헤더 글꼴 4종이 모바일 값을 유지한 채 데스크톱 override 를 갖는다', () => {
+    renderEdit({
+      limitChasers: [echo({ name: '에코프로비엠', code: '086520' })],
+      quote: quote(),
+    });
+
+    const trigger = document.querySelector('[data-slot="lc-stock-trigger"]')!;
+    const name = trigger.querySelector('b')!;
+    const code = trigger.querySelector('span.mono')!;
+    const price = document.querySelector('[data-slot="lc-stock-card"] b.font-bold')!;
+    const change = document.querySelector('[data-slot="lc-stock-card"] small')!;
+
+    expect(name.className).toContain('text-[16px]');
+    expect(name.className).toContain('min-[1280px]:text-[20px]');
+    expect(code.className).toContain('text-[11px]');
+    expect(code.className).toContain('min-[1280px]:text-[12px]');
+    expect(price.className).toContain('text-[16px]');
+    expect(price.className).toContain('min-[1280px]:text-[22px]');
+    expect(change.className).toContain('text-[11px]');
+    expect(change.className).toContain('min-[1280px]:text-[13px]');
+  });
+
   it('카드 하단 회색 바(거래소·계좌·종목변경)가 없다 — 별도 「종목 변경」 버튼도 없다', () => {
     renderEdit({ quote: quote() });
 
