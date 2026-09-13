@@ -90,6 +90,41 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
     expect(scrollSpy).toHaveBeenCalledWith({ block: 'start' });
   });
 
+  it('Test 5 — 한 번 연 차트·종목정보·뉴스토론 패널은 숨겨질 뿐 남아 있다(재마운트·재조회 없음)', () => {
+    const view = renderTabs();
+    const panelOf = (text: string) => screen.getByText(text).closest('[role="tabpanel"]');
+
+    // 차트(기본) → 종목정보 → 뉴스토론 순으로 연다. useSearchParams 목은 URL 을 따라가지 않으므로
+    // 활성값 변화를 rerender 로 흉내 낸다.
+    mockSearchParams = new URLSearchParams('tab=info');
+    view.rerender(
+      <StockDetailTabs code="005930" chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+    );
+    mockSearchParams = new URLSearchParams('tab=news');
+    view.rerender(
+      <StockDetailTabs code="005930" chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+    );
+
+    expect(panelOf('차트 패널')).toHaveAttribute('data-state', 'inactive');
+    expect(panelOf('종목정보 패널')).toHaveAttribute('data-state', 'inactive');
+    expect(panelOf('뉴스토론 패널')).toHaveAttribute('data-state', 'active');
+    // 아직 열지 않은 호가주문은 마운트하지 않는다.
+    expect(screen.queryByText('호가주문 패널')).toBeNull();
+  });
+
+  it('Test 6 — 호가주문은 떠나면 언마운트된다(실시간 구독을 탭 밖에서 붙잡지 않음)', () => {
+    mockSearchParams = new URLSearchParams('tab=orderbook');
+    const view = renderTabs();
+    expect(screen.getByText('호가주문 패널')).toBeInTheDocument();
+
+    mockSearchParams = new URLSearchParams('tab=chart');
+    view.rerender(
+      <StockDetailTabs code="005930" chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+    );
+    expect(screen.queryByText('호가주문 패널')).toBeNull();
+    expect(screen.getByText('차트 패널')).toBeInTheDocument();
+  });
+
   it('Test 4 — 이미 활성인 탭을 다시 누르면 pushState·스크롤 0회', async () => {
     mockSearchParams = new URLSearchParams('tab=news');
     window.history.replaceState(null, '', '/stocks/005930?tab=news');

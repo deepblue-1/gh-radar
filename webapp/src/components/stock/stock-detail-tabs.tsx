@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,6 +23,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
  *   T4 탭 바 sticky
  *   T5 shadcn 공식 `tabs`(Radix) — ←/→ · Home/End 키보드는 Radix 기본 동작 상속
  *   T6 `호가주문` 패널만 넓은 컨테이너, 나머지 3탭은 `max-w-4xl`
+ *   T8 한 번 연 `차트 · 종목정보 · 뉴스토론` 패널은 떠나도 언마운트하지 않고 숨긴다(forceMount +
+ *      `data-[state=inactive]:hidden`). Radix 기본은 비활성 패널을 언마운트해 재방문마다 섹션이
+ *      다시 마운트·재조회되고 스켈레톤이 떴다. 열지 않은 탭은 여전히 마운트하지 않는다(첫 진입 비용
+ *      그대로). `호가주문`은 예외로 떠나면 언마운트한다 — 실시간 호가 구독을 보이지 않는 탭에서
+ *      붙잡지 않기 위해서다.
  *
  * 하지 않는 것:
  *   - 탭 라벨에 연결 상태 점·배지를 붙이지 않는다 (T4 — 연결 상태는 `호가주문` 탭 안
@@ -51,8 +56,12 @@ function toTabValue(raw: string | null): TabValue {
   return TABS.some((t) => t.v === raw) ? (raw as TabValue) : DEFAULT_TAB;
 }
 
-/** T6 — 3탭 공통 폭. `호가주문` 만 이 제한을 쓰지 않는다. */
-const NARROW_PANEL = 'mx-auto w-full max-w-4xl pt-[var(--s-5)]';
+/**
+ * T6 — 3탭 공통 폭. `호가주문` 만 이 제한을 쓰지 않는다.
+ * T8 — 이 3탭은 한 번 열면 계속 마운트되므로 비활성일 때 display:none 으로 숨긴다.
+ */
+const NARROW_PANEL =
+  'mx-auto w-full max-w-4xl pt-[var(--s-5)] data-[state=inactive]:hidden';
 
 export interface StockDetailTabsProps {
   code: string;
@@ -74,6 +83,15 @@ export function StockDetailTabs({
 
   // 딥링크 진입도 이 한 줄로 처리된다 — URL 이 단일 진실이라 별도 초기 state 가 없다.
   const active = toTabValue(searchParams.get('tab'));
+
+  // T8 — 한 번이라도 활성이었던 탭. 클릭·뒤로가기·딥링크 어느 경로로 바뀌어도 `active` 에서
+  // 파생되므로 렌더 중에 갱신한다(이전 렌더 값에서 파생되는 state — effect 로 한 박자 늦추지 않음).
+  const [visited, setVisited] = useState<ReadonlySet<TabValue>>(
+    () => new Set([active]),
+  );
+  if (!visited.has(active)) setVisited(new Set(visited).add(active));
+  const keepMounted = (v: TabValue): true | undefined =>
+    v !== 'orderbook' && visited.has(v) ? true : undefined;
 
   const handleValueChange = useCallback(
     (next: string) => {
@@ -135,6 +153,7 @@ export function StockDetailTabs({
       <TabsContent
         value="chart"
         data-testid="stock-tab-panel-chart"
+        forceMount={keepMounted('chart')}
         className={NARROW_PANEL}
       >
         {chart}
@@ -156,6 +175,7 @@ export function StockDetailTabs({
       <TabsContent
         value="info"
         data-testid="stock-tab-panel-info"
+        forceMount={keepMounted('info')}
         className={NARROW_PANEL}
       >
         {info}
@@ -164,6 +184,7 @@ export function StockDetailTabs({
       <TabsContent
         value="news"
         data-testid="stock-tab-panel-news"
+        forceMount={keepMounted('news')}
         className={NARROW_PANEL}
       >
         {news}

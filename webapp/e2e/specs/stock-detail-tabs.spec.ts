@@ -220,7 +220,9 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
     await page.goto(`/stocks/${STOCK_CODE}`);
     await waitForHero(page);
 
-    const refresh = page.getByRole('button', { name: '새로고침' });
+    // exact — `뉴스토론` 탭 안의 "뉴스 새로고침"·"토론방 새로고침" 버튼까지 substring 으로 잡으면
+    // strict mode 위반이 난다. 여기서 보는 것은 탭 밖 공통 영역의 새로고침 하나다.
+    const refresh = page.getByRole('button', { name: '새로고침', exact: true });
     await expect(refresh).toBeVisible();
 
     for (const label of ['호가주문', '종목정보', '뉴스토론']) {
@@ -260,5 +262,49 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
 
     // 배열 자체를 비교해 실패 시 모인 URL 목록이 보이게 한다.
     expect(rscTabRequests).toEqual([]);
+  });
+
+  test('11. 한 번 연 탭은 다시 열 때 재조회하지 않고, 숨겼던 차트도 제 크기로 돌아온다 (T8)', async ({
+    page,
+  }) => {
+    await setupStockDetail(page);
+    const limitUpRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/limit-up')) limitUpRequests.push(request.url());
+    });
+
+    await page.goto(`/stocks/${STOCK_CODE}`);
+    await waitForHero(page);
+    const chartCanvas = page
+      .getByTestId('stock-tab-panel-chart')
+      .locator('canvas')
+      .first();
+    await expect(chartCanvas).toBeVisible();
+
+    const infoTab = page.getByRole('tab', { name: '종목정보', exact: true });
+    const chartTab = page.getByRole('tab', { name: '차트', exact: true });
+
+    await infoTab.click();
+    await expect(page.getByTestId('stock-tab-panel-info')).toBeVisible();
+    await expect.poll(() => limitUpRequests.length).toBeGreaterThan(0);
+    // 첫 마운트 요청 수가 안정될 때까지 둔다 — 개발 서버는 React StrictMode 가 effect 를 두 번
+    // 돌려 1회가 아니라 2회일 수 있다. 단언 대상은 "재방문에서 늘지 않는다" 이다.
+    await page.waitForTimeout(1_000);
+    const afterFirstOpen = limitUpRequests.length;
+    // 떠난 차트는 언마운트가 아니라 숨김.
+    await expect(page.getByTestId('stock-tab-panel-chart')).toBeHidden();
+
+    await chartTab.click();
+    await expect(chartCanvas).toBeVisible();
+    // display:none 동안 autoSize 가 0 으로 줄었다가 다시 펼쳐져야 한다.
+    await expect
+      .poll(async () => (await chartCanvas.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(100);
+
+    await infoTab.click();
+    await expect(page.getByTestId('stock-tab-panel-info')).toBeVisible();
+    await page.waitForTimeout(1_000);
+    // 재방문은 재마운트가 아니므로 상한가 섹션이 다시 부르지 않는다.
+    expect(limitUpRequests).toHaveLength(afterFirstOpen);
   });
 });
