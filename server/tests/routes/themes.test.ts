@@ -121,117 +121,105 @@ const baseState = () => ({
 const app = (state: any = baseState()) =>
   createApp({ supabase: mockSupabase(state) });
 
+// ------------------------------------------------------------------
+// 목록은 system_theme_list() RPC 한 번으로 만든다 (migration 20260913150000).
+// 집계 의미(유저 테마·hidden 제외, effective_to 제외 멤버, 시세 없는 멤버, 상위3평균)는 SQL 이
+// 소유한다 — 목에서 SQL 을 재현하면 테스트가 목을 검증하게 되므로 여기서는 라우트 책임
+// (RPC 1회 호출·행 매핑·정렬·캐시·에러 전파)만 본다. SQL 의미는 마이그레이션 적용 직후 운영
+// 데이터로 종전 JS 집계(themes·theme_stocks·stock_quotes 직접 조회)와 테마별로 대조한다.
+// ------------------------------------------------------------------
+const C_NONE = "d4444444-4444-4444-8444-444444444444"; // 시세 있는 멤버 없음 → live null
+
+function listRow(
+  id: string,
+  name: string,
+  liveTop3: string | number | null,
+  stockCount: number,
+) {
+  return {
+    ...theme(id, name, true),
+    top3_avg_change_rate: "1.0000", // 캐시 컬럼 — 응답에 쓰이면 안 됨
+    stock_count: stockCount,
+    live_top3_avg: liveTop3,
+  };
+}
+
+const listRows = () => [
+  listRow(C_NONE, "시세없음", null, 2),
+  listRow(SYS_B, "2차전지", 3, 3),
+  listRow(SYS_A, "HBM", "20.0000", 3), // numeric 이 문자열로 와도 숫자로
+];
+
+function listSupabase(rpc: { data?: unknown; error?: unknown }) {
+  return mockSupabase({ rpc: { system_theme_list: rpc } });
+}
+
 describe("GET /api/themes (시스템 테마 목록 + 상위3평균 desc 정렬)", () => {
-  it("200 + 시스템 테마만 + 상위3평균 desc 정렬", async () => {
-    const r = await request(app()).get("/api/themes");
+  it("system_theme_list RPC 1회로 만든다 — 테이블 직접 조회 0회", async () => {
+    const supabase = listSupabase({ data: listRows() });
+    const r = await request(createApp({ supabase })).get("/api/themes");
     expect(r.status).toBe(200);
-    // 유저 테마 제외 → 시스템 2개만
-    expect(r.body.length).toBe(2);
-    // 상위3평균 desc: SYS_A(20) 먼저, SYS_B(3) 나중
-    expect(r.body[0].id).toBe(SYS_A);
-    expect(r.body[1].id).toBe(SYS_B);
-    expect(r.body[0].top3AvgChangeRate).toBeCloseTo(20);
-    expect(r.body[1].top3AvgChangeRate).toBeCloseTo(3);
+    const rpcSpy = supabase.rpc as unknown as ReturnType<typeof vi.fn>;
+    const fromSpy = supabase.from as unknown as ReturnType<typeof vi.fn>;
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+    expect(rpcSpy.mock.calls[0][0]).toBe("system_theme_list");
+    expect(fromSpy).not.toHaveBeenCalled();
   });
 
-  it("30초 목록 캐시 — 같은 앱에 연속 요청하면 두 번째는 쿼리 0회, 응답 동일", async () => {
-    const supabase = mockSupabase(baseState());
+  it("live_top3_avg 로 상위3평균(캐시 컬럼 아님) + stockCount 매핑 + desc 정렬, null 은 맨 뒤", async () => {
+    const r = await request(
+      createApp({ supabase: listSupabase({ data: listRows() }) }),
+    ).get("/api/themes");
+    expect(r.body.map((t: any) => t.id)).toEqual([SYS_A, SYS_B, C_NONE]);
+    expect(r.body[0]).toMatchObject({
+      id: SYS_A,
+      name: "HBM",
+      isSystem: true,
+      sources: ["naver"],
+      stockCount: 3,
+    });
+    expect(r.body[0].top3AvgChangeRate).toBeCloseTo(20);
+    expect(r.body[1].top3AvgChangeRate).toBeCloseTo(3);
+    expect(r.body[2].top3AvgChangeRate).toBeNull();
+    expect(r.body[2].stockCount).toBe(2);
+  });
+
+  it("30초 목록 캐시 — 같은 앱에 연속 요청하면 두 번째는 RPC 0회, 응답 동일", async () => {
+    const supabase = listSupabase({ data: listRows() });
     const a = createApp({ supabase });
-    const fromSpy = supabase.from as unknown as ReturnType<typeof vi.fn>;
+    const rpcSpy = supabase.rpc as unknown as ReturnType<typeof vi.fn>;
 
     const first = await request(a).get("/api/themes");
-    expect(first.status).toBe(200);
-    const callsAfterFirst = fromSpy.mock.calls.length;
-    expect(callsAfterFirst).toBeGreaterThan(0);
-
     const second = await request(a).get("/api/themes");
     expect(second.status).toBe(200);
     expect(second.body).toEqual(first.body);
-    expect(fromSpy.mock.calls.length).toBe(callsAfterFirst);
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("유저 테마는 목록에 새지 않는다 (is_system=true 만)", async () => {
-    const r = await request(app()).get("/api/themes");
-    expect(r.body.some((t: any) => t.id === USER_T)).toBe(false);
-    expect(r.body.every((t: any) => t.isSystem === true)).toBe(true);
-  });
+  it("RPC 에러 → 500, 실패는 캐시하지 않아 다음 요청이 다시 부른다", async () => {
+    const supabase = listSupabase({ error: { message: "boom" } });
+    const a = createApp({ supabase });
+    const rpcSpy = supabase.rpc as unknown as ReturnType<typeof vi.fn>;
 
-  it("hidden(운영자 삭제) 시스템 테마는 목록에서 제외된다 (tombstone, 마이그레이션 20260610130000)", async () => {
-    const state = baseState();
-    state.themes = [
-      theme(SYS_A, "HBM", true),
-      theme(SYS_B, "2차전지", true, true), // hidden
-    ];
-    const r = await request(app(state)).get("/api/themes");
-    expect(r.body.some((t: any) => t.id === SYS_B)).toBe(false);
-    expect(r.body.some((t: any) => t.id === SYS_A)).toBe(true);
-  });
-
-  it("effective_to 설정된(제외) 멤버는 상위3평균/종목수에서 빠진다", async () => {
-    const r = await request(app()).get("/api/themes");
-    const a = r.body.find((t: any) => t.id === SYS_A);
-    // A4(rate=99) 가 들어왔으면 평균이 99 쪽으로 튐 → 20 이어야 정상
-    expect(a.top3AvgChangeRate).toBeCloseTo(20);
-    expect(a.stockCount).toBe(3); // active 3개 (A4 제외)
+    const first = await request(a).get("/api/themes");
+    expect(first.status).toBe(500);
+    await request(a).get("/api/themes");
+    expect(rpcSpy).toHaveBeenCalledTimes(2);
   });
 
   it("Cache-Control: no-store", async () => {
-    const r = await request(app()).get("/api/themes");
+    const r = await request(
+      createApp({ supabase: listSupabase({ data: listRows() }) }),
+    ).get("/api/themes");
     expect(r.headers["cache-control"]).toBe("no-store");
   });
 
-  it("시스템 테마 없으면 200 + 빈 배열", async () => {
+  it("시스템 테마 없으면(RPC 가 빈 배열) 200 + 빈 배열", async () => {
     const r = await request(
-      app({ themes: [], themeStocks: [], masters: [], quotes: [] }),
+      createApp({ supabase: listSupabase({ data: [] }) }),
     ).get("/api/themes");
     expect(r.status).toBe(200);
     expect(r.body).toEqual([]);
-  });
-
-  it("stock_quotes 를 200개 청크로 IN fetch — 201개 code 면 2회 이상 분할 (37afcde 회귀)", async () => {
-    // 단일 시스템 테마에 201개 종목 → stock_quotes IN 이 청크(200) 분할되어야 함
-    const codes = Array.from({ length: 201 }, (_, i) =>
-      String(i).padStart(6, "0"),
-    );
-    const state = {
-      themes: [theme(SYS_A, "대형테마", true)],
-      themeStocks: codes.map((c) => ts(SYS_A, c)),
-      masters: codes.map((c) => master(c, `종목${c}`)),
-      quotes: codes.map((c, i) => quote(c, String((i % 30) + 1))),
-    };
-    const supabase = mockSupabase(state);
-    const fromSpy = supabase.from as unknown as ReturnType<typeof vi.fn>;
-    const r = await request(createApp({ supabase })).get("/api/themes");
-    expect(r.status).toBe(200);
-    expect(r.body.length).toBe(1);
-    expect(r.body[0].stockCount).toBe(201);
-    // stock_quotes 호출 횟수 ≥ 2 (201 > 200 → 청크 분할 증거)
-    const quoteCalls = fromSpy.mock.calls.filter(
-      (c) => c[0] === "stock_quotes",
-    );
-    expect(quoteCalls.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("active theme_stocks 가 1000 행 초과여도 전 테마 stockCount 정확 (결과-행 페이지네이션, db-max-rows 회귀)", async () => {
-    // 한 theme_id 청크의 active 행이 db-max-rows(1000)를 넘으면 .range() 페이지네이션
-    // 없이는 통째로 잘려 뒤쪽 테마가 stockCount=0 으로 사라진다(목록 합계 2000 회귀).
-    const mkTs = (themeId: string, prefix: string, n: number) =>
-      Array.from({ length: n }, (_, i) =>
-        ts(themeId, `${prefix}${String(i).padStart(5, "0")}`),
-      );
-    const state = {
-      // A:1500 + B:800 = 2300 active 행 > 1000. 정렬상 B 가 뒤쪽 → 페이지네이션 없으면 0.
-      themes: [theme(SYS_A, "큰테마A", true), theme(SYS_B, "큰테마B", true)],
-      themeStocks: [...mkTs(SYS_A, "A", 1500), ...mkTs(SYS_B, "B", 800)],
-      masters: [],
-      quotes: [],
-    };
-    const r = await request(app(state)).get("/api/themes");
-    expect(r.status).toBe(200);
-    const a = r.body.find((t: any) => t.id === SYS_A);
-    const b = r.body.find((t: any) => t.id === SYS_B);
-    expect(a.stockCount).toBe(1500);
-    expect(b.stockCount).toBe(800); // 1000 행 너머 — 페이지네이션 없으면 깨짐
   });
 });
 

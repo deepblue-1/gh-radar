@@ -29,6 +29,9 @@ type State = {
   limitUpThemeStats?: any[];
   // Phase 13 — 홈 급등 테마 스냅샷 데이터셋 (home_theme_snapshots)
   homeSnapshots?: any[];
+  // RPC 결과 — 함수 이름별 { data, error }. SQL 집계는 목에서 재현하지 않는다(테스트가 목을
+  // 검증하게 되므로). 없는 함수를 부르면 throw 해 누락을 드러낸다.
+  rpc?: Record<string, { data?: unknown; error?: unknown }>;
   upserts?: { table: string; rows: any[] }[];
 };
 
@@ -213,6 +216,15 @@ export function mockSupabase(state: State): SupabaseClient {
 
   return {
     from: vi.fn().mockImplementation((table: string) => makeBuilder(table)),
+    rpc: vi.fn().mockImplementation(async (fn: string) => {
+      const r = state.rpc?.[fn];
+      if (!r) {
+        throw new Error(
+          `supabase-mock: rpc '${fn}' 결과가 state.rpc 에 없다 — 테스트에 명시하라`,
+        );
+      }
+      return { data: r.data ?? null, error: r.error ?? null };
+    }),
   } as unknown as SupabaseClient;
 }
 

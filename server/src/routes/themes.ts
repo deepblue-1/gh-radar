@@ -3,33 +3,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ThemeWithStats, ThemeStockMember } from "@gh-radar/shared";
 import { ThemeDetailParams } from "../schemas/themes.js";
 import {
+  systemThemeListRowToThemeWithStats,
   themeRowToThemeWithStats,
   themeStockRowToMember,
+  type SystemThemeListRow,
   type ThemeRow,
   type ThemeStockRow,
 } from "../mappers/theme.js";
 import { ApiError } from "../errors.js";
 import {
   ROW_PAGE,
-  mapChunks,
-  fetchChangeRatesChunked,
   fetchQuotesChunked,
   fetchMastersChunked,
 } from "../lib/quoteJoin.js";
-
-/**
- * 목록 경로는 소속 관계만 필요하다. THEME_STOCK_COLS 의 `reason` 은 긴 텍스트라
- * 25개 테마 청크가 250KB(두 컬럼만이면 40KB) — 청크 14개를 받으면 3MB 넘게 오가 2초가 걸렸다.
- */
-const THEME_MEMBER_COLS = "theme_id,stock_code";
-type ThemeMemberRow = Pick<ThemeStockRow, "theme_id" | "stock_code">;
-
-/**
- * 목록 경로 theme_id IN 청크 크기. 시스템 테마 334개 · 활성 멤버 7,700행(평균 23행/테마)
- * 기준 청크당 약 600행 → 대부분 1페이지로 끝나고 청크끼리 병렬로 돈다.
- * (종전 200 청크는 청크당 4~5페이지를 순차로 넘겨 왕복이 쌓였다.)
- */
-const THEME_ID_CHUNK = 25;
 
 /**
  * GET /api/themes 결과 캐시 TTL. 시세(stock_quotes)가 1분 단위로 갱신되고 webapp 은 60초
@@ -50,43 +36,6 @@ const THEME_COLS =
   "id,name,description,is_system,owner_id,sources,top3_avg_change_rate,stats_updated_at,created_at,updated_at";
 const THEME_STOCK_COLS =
   "theme_id,stock_code,source,confidence,reason,effective_from,effective_to";
-
-/**
- * theme_stocks active(effective_to IS NULL) 행을 theme_id 청크로 IN fetch.
- * theme_id 도 시스템 테마가 수백 개일 수 있어 청크 분할(목록 경로).
- */
-async function fetchActiveThemeStocksChunked(
-  supabase: SupabaseClient,
-  themeIds: string[],
-): Promise<ThemeMemberRow[]> {
-  const pages = await mapChunks(themeIds, THEME_ID_CHUNK, async (chunk) => {
-    const out: ThemeMemberRow[] = [];
-    // 결과 행 페이지네이션(ROW_PAGE) — 한 theme_id 청크의 active 행이 1000 을 넘으면
-    // PostgREST 가 통째로 잘라 그 너머 테마가 stockCount=0 으로 사라진다(목록 합계가
-    // 정확히 2000=2×1000 으로 관측됨). 안정 정렬(PK) + .range() 로 끝까지 수집.
-    // 청크 안의 페이지는 순차(끝을 모름), 청크끼리는 병렬.
-    // ROW_PAGE 가 max_rows(1000) 와 같으므로 꽉 차지 않은 페이지가 마지막이다 — 빈 페이지를
-    // 확인하러 한 번 더 가지 않는다(home.ts index 페이지네이션과 같은 규칙).
-    let from = 0;
-    for (;;) {
-      const { data, error } = await supabase
-        .from("theme_stocks")
-        .select(THEME_MEMBER_COLS)
-        .in("theme_id", chunk)
-        .is("effective_to", null)
-        .order("theme_id", { ascending: true })
-        .order("stock_code", { ascending: true })
-        .range(from, from + ROW_PAGE - 1);
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as ThemeMemberRow[];
-      out.push(...rows);
-      if (rows.length < ROW_PAGE) break;
-      from += rows.length;
-    }
-    return out;
-  });
-  return pages.flat();
-}
 
 /**
  * 단일 테마의 active(effective_to IS NULL) theme_stocks 행을 ROW_PAGE 페이지네이션으로 전수 수집.
@@ -157,44 +106,15 @@ function getSystemThemeList(supabase: SupabaseClient): Promise<ThemeWithStats[]>
 async function computeSystemThemeList(
   supabase: SupabaseClient,
 ): Promise<ThemeWithStats[]> {
-  // 1. 시스템 테마 (RLS: read_system_themes / service_role bypass)
-  //    hidden=false 만 — service_role 은 RLS 우회라 코드로 tombstone(운영자 삭제) 필터 필수.
-  const { data: themes, error: tErr } = await supabase
-    .from("themes")
-    .select(THEME_COLS)
-    .eq("is_system", true)
-    .eq("hidden", false);
-  if (tErr) throw tErr;
-  const themeRows = (themes ?? []) as unknown as ThemeRow[];
-
-  if (themeRows.length === 0) return [];
-
-  // 2. active theme_stocks (청크 IN)
-  const themeIds = themeRows.map((t) => t.id);
-  const memberRows = await fetchActiveThemeStocksChunked(supabase, themeIds);
-
-  // theme_id → code[] + 전체 code 합집합
-  const codesByTheme = new Map<string, string[]>();
-  const allCodes = new Set<string>();
-  for (const m of memberRows) {
-    const arr = codesByTheme.get(m.theme_id);
-    if (arr) arr.push(m.stock_code);
-    else codesByTheme.set(m.theme_id, [m.stock_code]);
-    allCodes.add(m.stock_code);
-  }
-
-  // 3. stock_quotes 청크 IN (37afcde 회귀 방지)
-  //    상위3평균만 계산하므로 등락률 컬럼만 받는다.
-  const quoteByCode = await fetchChangeRatesChunked(supabase, [...allCodes]);
-
-  // 4. 테마별 ThemeWithStats (상위3평균 실시간 계산)
-  const result: ThemeWithStats[] = themeRows.map((t) =>
-    themeRowToThemeWithStats(
-      t,
-      codesByTheme.get(t.id) ?? [],
-      quoteByCode,
-    ),
-  );
+  // 1~4. 시스템 테마(hidden 제외) + 활성 멤버 수 + 시세 있는 멤버 등락률 상위3평균을 DB 가
+  //      한 번에 집계한다 (migration 20260913150000_system_theme_list_rpc.sql — 집계 계약은 그
+  //      파일 헤더). 종전엔 themes·theme_stocks 청크·stock_quotes 청크를 합쳐 PostgREST 를
+  //      28회 왕복했는데, Cloud Run 은 VPC all-traffic egress 라 왕복 비용이 커 캐시 미스가
+  //      1초를 넘었다. jsonb 단일 값이라 max_rows(1000) 에 잘리지 않는다.
+  const { data, error } = await supabase.rpc("system_theme_list");
+  if (error) throw error;
+  const rows = (data ?? []) as SystemThemeListRow[];
+  const result: ThemeWithStats[] = rows.map(systemThemeListRowToThemeWithStats);
 
   // 5. top3AvgChangeRate desc (null 은 맨 뒤 — D-14)
   result.sort((a, b) => {

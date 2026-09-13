@@ -70,30 +70,6 @@ export async function fetchQuotesChunked(
   return byCode;
 }
 
-/** 등락률만 필요한 집계용 시세 행 (테마 목록 상위3평균). */
-export type ChangeRateRow = Pick<StockQuoteRow, "code" | "change_rate">;
-
-/**
- * fetchQuotesChunked 의 등락률 전용판. 테마 목록은 334개 테마의 상위3평균만 계산하므로
- * 13개 시세 컬럼을 전부 받을 이유가 없다(200종목 56KB → 수 KB). 청크·error throw 규칙은 같다.
- */
-export async function fetchChangeRatesChunked(
-  supabase: SupabaseClient,
-  codes: string[],
-): Promise<Map<string, ChangeRateRow>> {
-  const pages = await mapChunks(codes, QUOTE_CHUNK, async (chunk) => {
-    const { data, error } = await supabase
-      .from("stock_quotes")
-      .select("code,change_rate")
-      .in("code", chunk);
-    if (error) throw error;
-    return (data ?? []) as unknown as ChangeRateRow[];
-  });
-  const byCode = new Map<string, ChangeRateRow>();
-  for (const q of pages.flat()) byCode.set(q.code, q);
-  return byCode;
-}
-
 /**
  * stocks 마스터(name/market)를 code 청크로 나눠 IN fetch → Map<code, master>.
  * 상세 응답의 종목명/마켓 캐노니컬 소스.

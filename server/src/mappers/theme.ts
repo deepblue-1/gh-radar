@@ -111,6 +111,32 @@ export function themeRowToThemeWithStats(
 }
 
 /**
+ * `system_theme_list()` RPC 행 — themes 컬럼 + DB 가 집계한 종목수·실시간 상위3평균
+ * (migration 20260913150000_system_theme_list_rpc.sql).
+ */
+export type SystemThemeListRow = ThemeRow & {
+  /** 활성 멤버(effective_to IS NULL) 수 — 시세 유무 무관 */
+  stock_count: number;
+  /** 시세가 있는 활성 멤버의 등락률 상위 3 평균. 그런 멤버가 없으면 null */
+  live_top3_avg: string | number | null;
+};
+
+/**
+ * RPC 행 → ThemeWithStats. 응답의 top3AvgChangeRate 는 캐시 컬럼(top3_avg_change_rate)이
+ * 아니라 DB 가 방금 계산한 live_top3_avg 다 — themeRowToThemeWithStats 와 같은 계약.
+ */
+export function systemThemeListRowToThemeWithStats(
+  row: SystemThemeListRow,
+): ThemeWithStats {
+  const live = row.live_top3_avg === null ? null : Number(row.live_top3_avg);
+  return {
+    ...themeRowToTheme(row),
+    top3AvgChangeRate: live !== null && Number.isFinite(live) ? live : null,
+    stockCount: row.stock_count,
+  };
+}
+
+/**
  * theme_stocks active row → ThemeStockMember (scanner row 와 매핑되는 최소 필드).
  * 종목명/마켓은 stocks 마스터, 현재가/등락률/거래대금은 stock_quotes 에서.
  * 시세 부재 종목은 price/changeRate/tradeAmount = 0 (em-dash 폴백, search.ts 선례).
