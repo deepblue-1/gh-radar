@@ -68,16 +68,38 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       page.getByRole('button', { name: '오늘', exact: true }),
     ).toBeVisible();
 
-    // 시점 슬라이더 — populated 는 슬롯 2개(14:30 / 15:30 · 마감). 기본 선택 = 최신(마감).
+    // 시점 슬라이더 — populated 는 슬롯 2개(14:30 / 15:30 · 애프터마켓). 기본 선택 = 최신.
     const slider = page.getByRole('slider', { name: '시점 선택' });
     await expect(slider).toBeVisible();
-    await expect(page.getByText(/15:30 · 마감/)).toBeVisible();
+    await expect(page.getByText(/15:30 · 애프터마켓/)).toBeVisible();
+
+    // quick-260913-g4c — 가장 긴 라벨 "15:30 · 애프터마켓" 이 390px 에서도 줄바꿈·잘림·가로 스크롤 없이
+    // 고정 폭 pill 안에 들어간다.
+    await page.setViewportSize({ width: 390, height: 900 });
+    const pill = page.getByTestId('home-slot-label');
+    await expect(pill).toHaveText('15:30 · 애프터마켓');
+    const fit = await pill.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const lineH = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+      const contentH = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      return {
+        scrollW: el.scrollWidth,
+        clientW: el.clientWidth,
+        oneLine: contentH <= lineH * 1.5,
+        docScrollW: document.documentElement.scrollWidth,
+        docClientW: document.documentElement.clientWidth,
+      };
+    });
+    expect(fit.scrollW, '라벨 pill 이 잘린다').toBeLessThanOrEqual(fit.clientW);
+    expect(fit.oneLine, '라벨 pill 이 줄바꿈된다').toBe(true);
+    expect(fit.docScrollW, '390px 에서 가로 스크롤이 생겼다').toBe(fit.docClientW);
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     // 슬라이더를 0(이른 슬롯)으로 → 선택이 14:30 으로 바뀜 (aria-valuetext 로 검증 —
     // "14:30" 텍스트는 min 라벨과 선택 pill 두 곳에 떠 strict-mode 충돌).
     await slider.fill('0');
     await expect(slider).toHaveAttribute('aria-valuetext', '14:30');
-    await expect(page.getByText(/15:30 · 마감/)).toHaveCount(0);
+    await expect(page.getByText(/15:30 · 애프터마켓/)).toHaveCount(0);
   });
 
   test('/ — 급등 없는 날 empty-state("+15% 급등 종목이 없습니다" + 상승률 상위로 이동 CTA)', async ({

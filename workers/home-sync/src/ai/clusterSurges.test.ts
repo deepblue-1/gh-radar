@@ -733,7 +733,7 @@ describe("clusterSurges", () => {
       messages: Array<{ role: string; content: string }>;
     };
     const userMsg = arg.messages[arg.messages.length - 1].content;
-    expect(userMsg).toContain("직전 테마 구성 (5분 전):");
+    expect(userMsg).toContain("직전 테마 구성 (직전 슬롯):");
     expect(userMsg).toContain("- 사료: 002140 종목-002140, 218150 종목-218150");
   });
 

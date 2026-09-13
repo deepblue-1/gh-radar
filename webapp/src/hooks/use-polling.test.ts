@@ -5,11 +5,35 @@ import { usePolling } from './use-polling';
 describe('usePolling', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // 자동 갱신은 KST 평일 08:00~20:05 창에서만 돈다 — 실행 시각에 따라 깨지지 않게 창 안으로 고정.
+    vi.setSystemTime(new Date('2026-09-14T01:00:00Z')); // 월 10:00 KST
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    delete (document as unknown as { visibilityState?: string }).visibilityState;
+  });
+
+  it('창 밖(토요일)이면 interval 무호출, refresh() 는 즉시 호출', async () => {
+    vi.setSystemTime(new Date('2026-09-19T01:00:00Z')); // 토 10:00 KST
+    const fetcher = vi.fn().mockResolvedValue('v1');
+    const { result } = renderHook(() =>
+      usePolling(fetcher, { intervalMs: 30_000, key: 'k1' }),
+    );
+    await waitFor(() => expect(result.current.data).toBe('v1'));
+    expect(fetcher).toHaveBeenCalledTimes(1); // 초기 로드는 게이트 무관
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('mount 즉시 1회 호출 + 60s 후 재호출', async () => {

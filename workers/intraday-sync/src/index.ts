@@ -95,7 +95,7 @@ export async function runIntradayCycle(): Promise<{
   const log = logger.child({ dateIso });
 
   // 일봉 쓰기 창 / EOD 종가 패스 판정 (quick-260820-fh2).
-  //   dailyWrite=false 인 사이클(08:00~08:59, 15:31~15:59)은 stock_daily_ohlcv 를 건드리지 않는다.
+  //   dailyWrite=false 인 사이클(08:00~08:59, 15:31~20:02)은 stock_daily_ohlcv 를 건드리지 않는다.
   //   NXT 프리/애프터마켓 체결가가 일봉 종가를 오염시키던 경로를 근본 차단 (D-fh2-01).
   //   eodPass=true 인 사이클(15:35~15:55)은 KRX 전용 종가로 당일 일봉을 확정한다 (D-fh2-02).
   const dailyWrite = isDailyWriteWindow(now);

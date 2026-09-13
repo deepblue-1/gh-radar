@@ -22,7 +22,7 @@ import type {
 
 const TRADE_DATE = '2026-07-02';
 const SLOT_1430 = '2026-07-02T05:30:00.000Z'; // KST 14:30
-const SLOT_1530 = '2026-07-02T06:30:00.000Z'; // KST 15:30 (마감)
+const SLOT_1530 = '2026-07-02T06:30:00.000Z'; // KST 15:30 (애프터마켓 구간 첫 슬롯)
 
 const POPULATED_SNAPSHOT: HomeThemeSnapshot = {
   tradeDate: TRADE_DATE,

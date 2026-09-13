@@ -6,7 +6,10 @@ set -euo pipefail
 # Phase 09.1 (DATA-02) — Cloud Run Job + Scheduler + Alert 배포
 #
 # RESEARCH §4.5 — --network --subnet --vpc-egress=all-traffic 으로 Static IP 경유
-# RESEARCH §9.4 — cron * 8-15 * * 1-5 Asia/Seoul, task-timeout 60s
+# Scheduler 2개 (Asia/Seoul, quick-260913-g4c KRX 애프터마켓 대응 — 08:00~20:02 매분):
+#   gh-radar-intraday-sync-cron     '* 8-19 * * 1-5'
+#   gh-radar-intraday-sync-cron-20h '0-2 20 * * 1-5'
+# task-timeout 60s
 # Phase 05.1 D-07 lesson — --oauth-service-account-email (OIDC 금지)
 # ═══════════════════════════════════════════════════════════════
 
@@ -49,6 +52,7 @@ echo "✓ guard + Static IP: $STATIC_IP"
 # Section 2: 변수
 JOB=gh-radar-intraday-sync
 SCHED=gh-radar-intraday-sync-cron
+SCHED_20H=gh-radar-intraday-sync-cron-20h
 REPO=gh-radar
 SHA=$(git rev-parse --short HEAD)
 REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
@@ -125,26 +129,33 @@ echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 
-if gcloud scheduler jobs describe "$SCHED" --location="$REGION" >/dev/null 2>&1; then
-  echo "▶ scheduler update: $SCHED..."
-  gcloud scheduler jobs update http "$SCHED" \
-    --location="$REGION" \
-    --schedule="* 8-15 * * 1-5" \
-    --time-zone="Asia/Seoul" \
-    --uri="$URI" \
-    --http-method=POST \
-    --oauth-service-account-email="$SCHED_SA"
-else
-  echo "▶ scheduler create: $SCHED..."
-  gcloud scheduler jobs create http "$SCHED" \
-    --location="$REGION" \
-    --schedule="* 8-15 * * 1-5" \
-    --time-zone="Asia/Seoul" \
-    --uri="$URI" \
-    --http-method=POST \
-    --oauth-service-account-email="$SCHED_SA"
-fi
-echo "✓ Scheduler ready: $SCHED (cron '* 8-15 * * 1-5' Asia/Seoul)"
+# 하나의 cron 식으로 08:00~20:02 를 표현할 수 없어 Scheduler 2개로 나눈다 (idempotent update-or-create).
+upsert_scheduler_job() {
+  local name="$1" schedule="$2"
+  if gcloud scheduler jobs describe "$name" --location="$REGION" >/dev/null 2>&1; then
+    echo "▶ scheduler update: $name ($schedule)..."
+    gcloud scheduler jobs update http "$name" \
+      --location="$REGION" \
+      --schedule="$schedule" \
+      --time-zone="Asia/Seoul" \
+      --uri="$URI" \
+      --http-method=POST \
+      --oauth-service-account-email="$SCHED_SA"
+  else
+    echo "▶ scheduler create: $name ($schedule)..."
+    gcloud scheduler jobs create http "$name" \
+      --location="$REGION" \
+      --schedule="$schedule" \
+      --time-zone="Asia/Seoul" \
+      --uri="$URI" \
+      --http-method=POST \
+      --oauth-service-account-email="$SCHED_SA"
+  fi
+  echo "✓ Scheduler ready: $name (cron '$schedule' Asia/Seoul)"
+}
+
+upsert_scheduler_job "$SCHED" "* 8-19 * * 1-5"
+upsert_scheduler_job "$SCHED_20H" "0-2 20 * * 1-5"
 
 # Section 7: Alert policy (idempotent — update-or-create)
 ALERT_FILE="ops/alert-intraday-sync-failure.yaml"
@@ -178,7 +189,7 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "✅ Deployed @ $IMAGE"
 echo "   Job:       $JOB"
-echo "   Scheduler: $SCHED (cron '* 8-15 * * 1-5' Asia/Seoul)"
+echo "   Scheduler: $SCHED (cron '* 8-19 * * 1-5') + $SCHED_20H (cron '0-2 20 * * 1-5') Asia/Seoul"
 echo "   VPC:       $VPC_NAME / Static IP $STATIC_IP"
 echo ""
 echo "Next: bash scripts/smoke-intraday-sync.sh"

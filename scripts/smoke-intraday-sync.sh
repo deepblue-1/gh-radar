@@ -8,13 +8,17 @@ set -uo pipefail
 #
 # Usage:
 #   bash scripts/smoke-intraday-sync.sh                 # INV-1~6 전체
-#   bash scripts/smoke-intraday-sync.sh --check-scheduler
+#   bash scripts/smoke-intraday-sync.sh --check-scheduler  # Scheduler 2개 ENABLED + cron + Asia/Seoul (잡 실행 없음)
 #   bash scripts/smoke-intraday-sync.sh --check-static-ip  # Cloud Run task 가 reserved IP 로 outbound
 # ═══════════════════════════════════════════════════════════════
 
 REGION=asia-northeast3
 JOB=gh-radar-intraday-sync
 SCHED=gh-radar-intraday-sync-cron
+SCHED_20H=gh-radar-intraday-sync-cron-20h
+# deploy-intraday-sync.sh 와 같은 이름·cron 2쌍 — 한쪽만 바꾸면 이 smoke 가 FAIL.
+SCHEDULE_MAIN='* 8-19 * * 1-5'
+SCHEDULE_20H='0-2 20 * * 1-5'
 
 PASS=0
 FAIL=0
@@ -35,12 +39,16 @@ check() {
 
 case "${1:-}" in
   --check-scheduler)
-    check "Scheduler ENABLED + cron '* 8-15 * * 1-5' Asia/Seoul" bash -c "
-      STATE=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(state)' 2>/dev/null)
-      SCHEDULE=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(schedule)' 2>/dev/null)
-      TZ=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(timeZone)' 2>/dev/null)
-      [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '* 8-15 * * 1-5' ] && [ \"\$TZ\" = 'Asia/Seoul' ]
-    "
+    for pair in "$SCHED|$SCHEDULE_MAIN" "$SCHED_20H|$SCHEDULE_20H"; do
+      NAME="${pair%%|*}"
+      WANT="${pair#*|}"
+      check "$NAME ENABLED + cron '$WANT' Asia/Seoul" bash -c "
+        STATE=\$(gcloud scheduler jobs describe $NAME --location=$REGION --format='value(state)' 2>/dev/null)
+        SCHEDULE=\$(gcloud scheduler jobs describe $NAME --location=$REGION --format='value(schedule)' 2>/dev/null)
+        TZ=\$(gcloud scheduler jobs describe $NAME --location=$REGION --format='value(timeZone)' 2>/dev/null)
+        [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '$WANT' ] && [ \"\$TZ\" = 'Asia/Seoul' ]
+      "
+    done
     echo ""
     echo "PASS: $PASS  FAIL: $FAIL"
     [[ $FAIL -gt 0 ]] && exit 1 || exit 0
@@ -123,10 +131,11 @@ check "INV-5 stock_daily_ohlcv 오늘 row >= 800" bash -c "
   [ -n \"\$TOTAL\" ] && [ \"\$TOTAL\" -ge 800 ]
 "
 
-# INV-6: Scheduler ENABLED
-check "INV-6 Scheduler ENABLED" bash -c "
-  STATE=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(state)' 2>/dev/null)
-  [ \"\$STATE\" = ENABLED ]
+# INV-6: Scheduler 2개 모두 ENABLED
+check "INV-6 Scheduler ENABLED ($SCHED + $SCHED_20H)" bash -c "
+  S1=\$(gcloud scheduler jobs describe $SCHED --location=$REGION --format='value(state)' 2>/dev/null)
+  S2=\$(gcloud scheduler jobs describe $SCHED_20H --location=$REGION --format='value(state)' 2>/dev/null)
+  [ \"\$S1\" = ENABLED ] && [ \"\$S2\" = ENABLED ]
 "
 
 echo ""

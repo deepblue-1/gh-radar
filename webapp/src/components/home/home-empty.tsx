@@ -22,7 +22,7 @@ export function HomeEmpty() {
         오늘은 +15% 급등 종목이 없습니다
       </h3>
       <p className="max-w-[44ch] text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-        장중 10분마다 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.
+        평일 08:00~20:00 동안 1분마다 갱신됩니다. 상단 날짜를 바꿔 지난 급등 테마를 확인해 보세요.
       </p>
       <Link
         href="/scanner"

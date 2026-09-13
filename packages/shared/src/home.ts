@@ -3,14 +3,15 @@
  *
  * webapp · server 가 공유하는 홈 급등 테마 도메인 타입 (apiFetch<HomeSnapshotResponse> 계약).
  * 오늘 +20% 급등 종목을 bottom-up AI(Claude Haiku) 클러스터링한 "오늘의 주도 테마 ·
- * 상승 이유 · 소속 종목 · 대표 뉴스" 를 시점별(:30) 스냅샷으로 표시한다.
+ * 상승 이유 · 소속 종목 · 대표 뉴스" 를 시점별 스냅샷(KST 1분 슬롯(08:00~20:04) — 과거 거래일은
+ * 5분 해상도로 thinning)으로 표시한다.
  *
  * DB 는 snake_case (supabase/migrations/{ts}_home_theme_snapshots.sql) —
  * server 의 순수함수가 row → 아래 camelCase 타입으로 변환한다.
  * payload 는 Claude 출력 1:1 blob (RESEARCH §Pattern 1, D-06).
  *
  * 결정 근거:
- *   D-01: 시점별(:30) 스냅샷 — capturedAt 이 장중 매시 :30 시점.
+ *   D-01: 시점별 스냅샷 — capturedAt 은 KST 1분 슬롯(08:00~20:04) — 과거 거래일은 5분 해상도로 thinning.
  *   D-04: content_hash — 급등집합+뉴스 해시 동일 시 Claude 호출 skip.
  *   D-05: isCarried — hash-skip 으로 직전 스냅샷 복제 append 한 row 표시.
  *   D-06: payload 는 Claude 출력 verbatim blob (themes/singles/threshold/marketStatus).
@@ -66,19 +67,26 @@ export interface HomeSurgeSingle {
 export interface HomeSnapshotPayload {
   /** 급등 임계값 % (기본 20 고정) */
   threshold: number;
-  /** 시점 시장 상태 (장전 프리마켓(NXT, 08시대) premarket / 장중 open / 마감직후 closed) */
-  marketStatus: "premarket" | "open" | "closed";
+  /**
+   * 시점 시장 상태 (KST 슬롯 기준).
+   *   - premarket   08시대 — NXT 프리마켓
+   *   - open        09:00~15:29 — KRX 정규장
+   *   - aftermarket 15:30~19:59 — NXT 애프터마켓 15:40~20:00, KRX 시간외 종가 15:40~16:00,
+   *                 KRX 애프터마켓 16:00~20:00(접속매매, 가격제한폭 전일종가 ±30%)
+   *   - closed      20:00~20:04 — 마감 슬롯
+   */
+  marketStatus: "premarket" | "open" | "aftermarket" | "closed";
   /** 오늘의 주도 테마 (2종목 이상 클러스터) */
   themes: HomeSurgeTheme[];
   /** 개별 급등 종목 (단독 급등, 테마 미소속) */
   singles: HomeSurgeSingle[];
 }
 
-/** 홈 스냅샷 1건 — 시점별(:30) 스냅샷 + payload (D-01). */
+/** 홈 스냅샷 1건 — 시점별 스냅샷 + payload (D-01). */
 export interface HomeThemeSnapshot {
   /** KST 거래일 (YYYY-MM-DD) */
   tradeDate: string;
-  /** 스냅샷 시점 (ISO timestamptz, 장중 매시 :30) */
+  /** 스냅샷 시점 (ISO timestamptz, KST 1분 슬롯(08:00~20:04) — 과거 거래일은 5분 해상도로 thinning) */
   capturedAt: string;
   /** payload.themes 개수 (목록 표시용) */
   themeCount: number;

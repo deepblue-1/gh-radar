@@ -10,8 +10,10 @@ set -euo pipefail
 # 리소스:
 #   - Cloud Run Job: gh-radar-home-sync (asia-northeast3, 512Mi, 120s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/home-sync:<sha>
-#   - Scheduler: gh-radar-home-sync-cron "*/5 8-15 * * 1-5" (KST, 장중 5분 간격)
-#       09:00~15:55 매 5분(15:30 마감 슬롯 포함). hash-skip 로 변경 없는 슬롯은 Claude 0회.
+#   - Scheduler 2개 (KST, 평일 08:00~20:04 매분(1분 슬롯), hash-skip 은 유지):
+#       gh-radar-home-sync-cron     "* 8-19 * * 1-5"
+#       gh-radar-home-sync-cron-20h "0-4 20 * * 1-5"  (20:03·20:04 슬롯이 intraday 20:02 최종 체결을 읽는다)
+#       hash-skip 로 변경 없는 슬롯은 Claude 0회.
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용
 #   (OIDC 금지, Phase 05.1 Pitfall 2 — Cloud Run Job 호출은 OAuth bearer token 만 허용)
@@ -157,8 +159,11 @@ gcloud run jobs add-iam-policy-binding "$JOB" \
 echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 7: Cloud Scheduler — 장중 5분 간격 KST (09:00~15:55, 15:30 마감 포함)
-#   - --schedule="*/5 8-15 * * 1-5" (분=매 5분, 시=9~15, 월~금)
+# Section 7: Cloud Scheduler 2개 — 평일 08:00~20:04 매분(1분 슬롯) KST, hash-skip 은 유지
+#   - gh-radar-home-sync-cron     "* 8-19 * * 1-5"  (08:00~19:59)
+#   - gh-radar-home-sync-cron-20h "0-4 20 * * 1-5"  (20:00~20:04 마감 슬롯)
+#     하나의 cron 식으로 08:00~20:04 를 표현할 수 없어 둘로 나눈다.
+#   - task-timeout 120s 유지 (9/11 실측 Claude p50 15s · p90 19s)
 #   - hash-skip clone-append 로 변경 없는 슬롯은 Claude 호출 0 (비용 방어)
 #   - --oauth-service-account-email 사용 (OIDC 금지, Phase 05.1 Pitfall 2)
 #   - time-zone Asia/Seoul
@@ -166,36 +171,43 @@ echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 SCHEDULER_NAME="gh-radar-home-sync-cron"
-SCHEDULE="*/5 8-15 * * 1-5"
+SCHEDULER_NAME_20H="gh-radar-home-sync-cron-20h"
 
-if gcloud scheduler jobs describe "$SCHEDULER_NAME" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
-  echo "▶ scheduler update: $SCHEDULER_NAME (schedule: $SCHEDULE)"
-  gcloud scheduler jobs update http "$SCHEDULER_NAME" \
-    --location="$REGION" \
-    --schedule="$SCHEDULE" \
-    --time-zone="Asia/Seoul" \
-    --uri="$JOB_INVOKE_URI" \
-    --http-method=POST \
-    --oauth-service-account-email="$SCHED_SA" \
-    --project="$EXPECTED_PROJECT"
-else
-  echo "▶ scheduler create: $SCHEDULER_NAME (schedule: $SCHEDULE)"
-  gcloud scheduler jobs create http "$SCHEDULER_NAME" \
-    --location="$REGION" \
-    --schedule="$SCHEDULE" \
-    --time-zone="Asia/Seoul" \
-    --uri="$JOB_INVOKE_URI" \
-    --http-method=POST \
-    --oauth-service-account-email="$SCHED_SA" \
-    --project="$EXPECTED_PROJECT"
-fi
+# idempotent update-or-create (OAuth, OIDC 금지).
+upsert_scheduler_job() {
+  local name="$1" schedule="$2"
+  if gcloud scheduler jobs describe "$name" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
+    echo "▶ scheduler update: $name (schedule: $schedule)"
+    gcloud scheduler jobs update http "$name" \
+      --location="$REGION" \
+      --schedule="$schedule" \
+      --time-zone="Asia/Seoul" \
+      --uri="$JOB_INVOKE_URI" \
+      --http-method=POST \
+      --oauth-service-account-email="$SCHED_SA" \
+      --project="$EXPECTED_PROJECT"
+  else
+    echo "▶ scheduler create: $name (schedule: $schedule)"
+    gcloud scheduler jobs create http "$name" \
+      --location="$REGION" \
+      --schedule="$schedule" \
+      --time-zone="Asia/Seoul" \
+      --uri="$JOB_INVOKE_URI" \
+      --http-method=POST \
+      --oauth-service-account-email="$SCHED_SA" \
+      --project="$EXPECTED_PROJECT"
+  fi
+}
+
+upsert_scheduler_job "$SCHEDULER_NAME" "* 8-19 * * 1-5"
+upsert_scheduler_job "$SCHEDULER_NAME_20H" "0-4 20 * * 1-5"
 
 # ═══════════════════════════════════════════════════════════════
 # Section 8: 결과 출력
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
-echo "  Scheduler: $SCHEDULER_NAME (KST 장중 5분 간격, OAuth invoker)"
+echo "  Scheduler: $SCHEDULER_NAME + $SCHEDULER_NAME_20H (KST 평일 08:00~20:04 매분(1분 슬롯), hash-skip 은 유지, OAuth invoker)"
 echo "  Secrets reused (신규 0): supabase-service-role, anthropic-api-key"
 echo "  No VPC / no brightdata (home-sync 는 Supabase + Anthropic 만)"
 echo ""

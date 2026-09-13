@@ -16,9 +16,11 @@ import type {
  *     날짜 네비 = prev/next icon-btn(32×32, aria-label "이전 날짜"/"다음 날짜")
  *                + mono 날짜 라벨(YYYY-MM-DD 14/800) + "오늘" reset pill.
  *                next 는 최신 날짜에서 disabled, prev 는 더 과거 날짜 없으면 disabled.
- *   시점 슬라이더 행 = 선택 날짜의 슬롯들을 range 슬라이더로 탐색(10분 슬롯 하루 최대
- *                 ~40개라 pill 나열 대신 슬라이더). 좌우 min/max HH:MM 라벨 + 선택 라벨
- *                 pill(--primary fill 800, 최신 슬롯 --up dot). 마감(15:30) "HH:MM · 마감".
+ *   시점 슬라이더 행 = 선택 날짜의 슬롯들을 range 슬라이더로 탐색(1분 슬롯 하루 최대
+ *                 ~725개라 pill 나열 대신 슬라이더, 키보드 화살표 1슬롯=1분). 좌우 min/max HH:MM
+ *                 라벨 + 선택 라벨 pill(--primary fill 800, 최신 슬롯 --up dot).
+ *                 라벨 규칙(워커 marketStatus 경계와 동일): 08시대 "HH:MM · 프리마켓" /
+ *                 15:30~19:59 "HH:MM · 애프터마켓" / 20:00~ "HH:MM · 마감" / 그 외 "HH:MM".
  *
  * 모든 날짜/시간 = `.mono`. 색상 globals 토큰만.
  */
@@ -55,15 +57,17 @@ function toKstHhmm(iso: string): string {
   }).format(new Date(iso));
 }
 
-/** 정규장 마감 슬롯(15:30) 판별. */
-function isCloseSlot(iso: string): boolean {
-  return toKstHhmm(iso) === '15:30';
-}
-
-/** 장전 프리마켓 슬롯(08시대, NXT) 판별. */
-function isPremarketSlot(iso: string): boolean {
-  const hh = toKstHhmm(iso).slice(0, 2);
-  return hh === '08';
+/**
+ * 슬롯 구간 라벨 — 워커 computeSlot marketStatus 경계와 같다.
+ * 08시대 '프리마켓'(NXT) / 20:00~ '마감' / 15:30~19:59 '애프터마켓' / 그 외(정규장) null.
+ * HH:MM 은 zero-pad 라 문자열 비교 = 시각 비교.
+ */
+function slotPhaseLabel(iso: string): string | null {
+  const hhmm = toKstHhmm(iso);
+  if (hhmm.slice(0, 2) === '08') return '프리마켓';
+  if (hhmm >= '20:00') return '마감';
+  if (hhmm >= '15:30') return '애프터마켓';
+  return null;
 }
 
 /** 거래일 오름차순 유니크 목록 (오래된 → 최신). */
@@ -173,7 +177,7 @@ export function HomeHeader({
         </div>
       </div>
 
-      {/* 시점 슬라이더 행 — 10분 슬롯(하루 최대 ~40개)이라 pill 나열 대신 range 슬라이더 */}
+      {/* 시점 슬라이더 행 — 1분 슬롯(하루 최대 ~725개)이라 pill 나열 대신 range 슬라이더 */}
       {slots.length > 0 &&
         (() => {
           const foundIdx = slots.findIndex(
@@ -187,14 +191,9 @@ export function HomeHeader({
           );
           const current = slots[displayIdx];
           const live = current.capturedAt === liveCapturedAt;
-          const close = isCloseSlot(current.capturedAt);
-          const premarket = isPremarketSlot(current.capturedAt);
+          const phase = slotPhaseLabel(current.capturedAt);
           const hhmm = toKstHhmm(current.capturedAt);
-          const label = close
-            ? `${hhmm} · 마감`
-            : premarket
-              ? `${hhmm} · 프리마켓`
-              : hhmm;
+          const label = phase ? `${hhmm} · ${phase}` : hhmm;
           const handleSlide = (idx: number) => {
             setPendingIdx(idx);
             pendingRef.current = idx;
@@ -245,9 +244,14 @@ export function HomeHeader({
               <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                 {toKstHhmm(slots[slots.length - 1].capturedAt)}
               </span>
-              {/* 고정 폭 — 라벨이 "15:30 · 마감" 으로 길어질 때 트랙(flex-1)이 리사이즈되며
-                  커서 밑에서 값이 재매핑 → 좌우 반복 점프하는 레이아웃 피드백 루프 방지. */}
-              <span className="relative mono flex-none w-[116px] rounded-full border border-[var(--primary)] bg-[var(--primary)] py-[5px] text-center text-[length:var(--t-sm)] font-extrabold text-[var(--primary-fg)]">
+              {/* 고정 폭 — 라벨이 "15:30 · 애프터마켓" 으로 길어질 때 트랙(flex-1)이 리사이즈되며
+                  커서 밑에서 값이 재매핑 → 좌우 반복 점프하는 레이아웃 피드백 루프 방지.
+                  폭은 브라우저 실측(390px): "15:30 · 애프터마켓" 텍스트 126px — 156px 에선 live dot 과
+                  1px 거의 붙어 168px 로 넓혀 텍스트↔dot 간격 ~8px 확보. */}
+              <span
+                data-testid="home-slot-label"
+                className="relative mono flex-none w-[168px] whitespace-nowrap rounded-full border border-[var(--primary)] bg-[var(--primary)] px-[14px] py-[5px] text-center text-[length:var(--t-sm)] font-extrabold text-[var(--primary-fg)]"
+              >
                 {label}
                 {live && (
                   <span

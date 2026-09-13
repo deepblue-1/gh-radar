@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runHomeSyncCycle, computeSlot, countStocks } from "./index";
+import {
+  runHomeSyncCycle,
+  computeSlot,
+  countStocks,
+  canReusePrevClassification,
+} from "./index";
 import type { HomeSyncConfig } from "./config";
 import type { HomeSnapshotPayload } from "@gh-radar/shared";
 import { createMockSupabase } from "../tests/helpers/supabase-mock";
@@ -87,94 +92,80 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("computeSlot (5분 슬롯 flooring)", () => {
+describe("computeSlot (1분 슬롯 · aftermarket · 20:04 경계, quick-260913-g4c)", () => {
   // KST = UTC + 9h. now(UTC) → KST slot 검증.
-  it("10:37 KST → capturedAt 10:35 슬롯 (5분 floor), open", () => {
-    // 10:37 KST = 01:37 UTC → floor 10:35 = 01:35 UTC.
-    const r = computeSlot(new Date("2026-07-01T01:37:00Z"));
+  it("10:37:45 KST → capturedAt 10:37:00 (초 버림, 5분 floor 없음), open", () => {
+    const r = computeSlot(new Date("2026-07-01T01:37:45.123Z"));
     expect(r.tradeDate).toBe("2026-07-01");
-    expect(r.capturedAt).toBe("2026-07-01T01:35:00.000Z");
+    expect(r.capturedAt).toBe("2026-07-01T01:37:00.000Z");
+    expect(r.marketStatus).toBe("open");
+    expect(r.afterClose).toBe(false);
+  });
+
+  it("15:29 KST → open", () => {
+    const r = computeSlot(new Date("2026-07-01T06:29:00Z"));
+    expect(r.capturedAt).toBe("2026-07-01T06:29:00.000Z");
     expect(r.marketStatus).toBe("open");
   });
 
-  it("10:42 KST → capturedAt 10:40 슬롯 (40 은 5의 배수)", () => {
-    // 10:42 KST = 01:42 UTC → floor 10:40 = 01:40 UTC.
-    const r = computeSlot(new Date("2026-07-01T01:42:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T01:40:00.000Z");
-    expect(r.marketStatus).toBe("open");
-  });
-
-  it("10:30 KST → 10:30 유지 (경계, 회귀 없음)", () => {
-    // 10:30 KST = 01:30 UTC → floor 유지.
-    const r = computeSlot(new Date("2026-07-01T01:30:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T01:30:00.000Z");
-    expect(r.marketStatus).toBe("open");
-  });
-
-  it("15:00 KST → open (마감 전)", () => {
-    // 15:00 KST = 06:00 UTC.
-    const r = computeSlot(new Date("2026-07-01T06:00:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T06:00:00.000Z");
-    expect(r.marketStatus).toBe("open");
-  });
-
-  it("15:30 KST → closed, afterClose=false (종가 슬롯 실행)", () => {
-    // 15:30 KST = 06:30 UTC.
+  it("15:30 KST → aftermarket, afterClose=false", () => {
     const r = computeSlot(new Date("2026-07-01T06:30:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T06:30:00.000Z");
-    expect(r.marketStatus).toBe("closed");
+    expect(r.marketStatus).toBe("aftermarket");
     expect(r.afterClose).toBe(false);
   });
 
-  it("15:34 KST → capturedAt 15:30, closed, afterClose=false (5분 슬롯 종가 귀속)", () => {
-    // 15:34 KST = 06:34 UTC → floor 15:30 = 06:30 UTC. slotMinute 30 → skip 아님.
-    const r = computeSlot(new Date("2026-07-01T06:34:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T06:30:00.000Z");
-    expect(r.marketStatus).toBe("closed");
-    expect(r.afterClose).toBe(false);
+  it("16:05 / 19:59 KST → aftermarket", () => {
+    const a = computeSlot(new Date("2026-07-01T07:05:00Z"));
+    expect(a.capturedAt).toBe("2026-07-01T07:05:00.000Z");
+    expect(a.marketStatus).toBe("aftermarket");
+    expect(a.afterClose).toBe(false);
+    const b = computeSlot(new Date("2026-07-01T10:59:30Z"));
+    expect(b.capturedAt).toBe("2026-07-01T10:59:00.000Z");
+    expect(b.marketStatus).toBe("aftermarket");
+    expect(b.afterClose).toBe(false);
   });
 
-  it("15:35 KST → capturedAt 15:35, closed, afterClose=true (5분 슬롯 skip 경계)", () => {
-    // 15:35 KST = 06:35 UTC → floor 15:35 = 06:35 UTC. slotMinute 35 > 30 → skip.
-    const r = computeSlot(new Date("2026-07-01T06:35:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T06:35:00.000Z");
-    expect(r.marketStatus).toBe("closed");
+  it("20:00 / 20:04 KST → closed, afterClose=false (마감 슬롯 실행)", () => {
+    const a = computeSlot(new Date("2026-07-01T11:00:00Z"));
+    expect(a.marketStatus).toBe("closed");
+    expect(a.afterClose).toBe(false);
+    const b = computeSlot(new Date("2026-07-01T11:04:59Z"));
+    expect(b.capturedAt).toBe("2026-07-01T11:04:00.000Z");
+    expect(b.marketStatus).toBe("closed");
+    expect(b.afterClose).toBe(false);
+  });
+
+  it("20:05 KST → afterClose=true (skip 경계)", () => {
+    const r = computeSlot(new Date("2026-07-01T11:05:00Z"));
     expect(r.afterClose).toBe(true);
   });
 
-  it("15:40 KST → closed, afterClose=true (마감 후)", () => {
-    // 15:40 KST = 06:40 UTC → floor 15:40 = 06:40 UTC.
-    const r = computeSlot(new Date("2026-07-01T06:40:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T06:40:00.000Z");
-    expect(r.marketStatus).toBe("closed");
-    expect(r.afterClose).toBe(true);
-  });
-
-  it("16:05 KST → closed (16시대는 slotMinute 무관 closed)", () => {
-    // 16:05 KST = 07:05 UTC → floor 16:05 = 07:05 UTC.
-    const r = computeSlot(new Date("2026-07-01T07:05:00Z"));
-    expect(r.capturedAt).toBe("2026-07-01T07:05:00.000Z");
-    expect(r.marketStatus).toBe("closed");
-  });
-
-  it("08:37 KST → premarket, 08:35 슬롯 (NXT 프리마켓)", () => {
-    // 08:37 KST = 2026-06-30 23:37 UTC → floor 08:35 = 2026-06-30 23:35 UTC.
+  it("08:00 / 08:37 KST → premarket (08:37 은 capturedAt 08:37)", () => {
+    expect(computeSlot(new Date("2026-06-30T23:00:00Z")).marketStatus).toBe("premarket");
     const r = computeSlot(new Date("2026-06-30T23:37:00Z"));
-    expect(r.capturedAt).toBe("2026-06-30T23:35:00.000Z");
+    expect(r.capturedAt).toBe("2026-06-30T23:37:00.000Z");
     expect(r.marketStatus).toBe("premarket");
     expect(r.afterClose).toBe(false);
-  });
-
-  it("08:00 KST → premarket (프리마켓 시작)", () => {
-    // 08:00 KST = 2026-06-30 23:00 UTC.
-    const r = computeSlot(new Date("2026-06-30T23:00:00Z"));
-    expect(r.marketStatus).toBe("premarket");
   });
 
   it("09:00 KST → open (프리마켓 경계 회귀 없음)", () => {
-    // 09:00 KST = 2026-07-01 00:00 UTC.
-    const r = computeSlot(new Date("2026-07-01T00:00:00Z"));
-    expect(r.marketStatus).toBe("open");
+    expect(computeSlot(new Date("2026-07-01T00:00:00Z")).marketStatus).toBe("open");
+  });
+});
+
+describe("canReusePrevClassification (Claude 호출 게이트)", () => {
+  const P: HomeSnapshotPayload = { threshold: 20, marketStatus: "open", themes: [], singles: [] };
+  it("prevRow null → 재분류 필요(false)", () => {
+    expect(canReusePrevClassification(null, "h")).toBe(false);
+  });
+  it("hash 다름 → 재분류 필요(false)", () => {
+    expect(canReusePrevClassification({ content_hash: "x", payload: P }, "h")).toBe(false);
+  });
+  it("hash 같음 + payload 있음 → 재사용(true)", () => {
+    expect(canReusePrevClassification({ content_hash: "h", payload: P }, "h")).toBe(true);
+  });
+  it("hash 같음 + payload null → 재분류 필요(false)", () => {
+    expect(canReusePrevClassification({ content_hash: "h", payload: null }, "h")).toBe(false);
   });
 });
 
@@ -389,10 +380,28 @@ describe("runHomeSyncCycle (hash-skip clone-append)", () => {
   });
 });
 
-describe("runHomeSyncCycle (마감 초과 슬롯 skip)", () => {
-  it("15:40 KST → skipped=true, DB/cluster 호출 없음 (upsert 없음)", async () => {
+describe("runHomeSyncCycle (저녁 슬롯 · 마감 초과 skip, quick-260913-g4c)", () => {
+  it("20:05 KST → skipped=true, home_theme_snapshots 접근 0 (upsert 없음)", async () => {
     const sb = createMockSupabase();
     const cluster = vi.fn();
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: new Date("2026-07-01T11:05:00Z"), // 20:05 KST
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(summary.skipped).toBe(true);
+    expect(cluster).not.toHaveBeenCalled();
+    expect(sb._chains.home_theme_snapshots).toBeUndefined(); // 테이블 접근 자체 없음
+  });
+
+  it("15:40 KST → skip 아님, upsert payload.marketStatus === 'aftermarket'", async () => {
+    const sb = seedSurgeSupabase();
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
 
     const summary = await runHomeSyncCycle({
       config: cfg(),
@@ -402,12 +411,13 @@ describe("runHomeSyncCycle (마감 초과 슬롯 skip)", () => {
       loadSurgesOptions: { retryDelayMs: 0 },
     });
 
-    expect(summary.skipped).toBe(true);
-    expect(cluster).not.toHaveBeenCalled();
-    expect(sb._chains.home_theme_snapshots?.upsert).toBeUndefined(); // 테이블 접근 자체 없음
+    expect(summary.skipped).toBeUndefined();
+    const upsertArg = sb._chains.home_theme_snapshots.upsert.mock.calls[0][0];
+    expect(upsertArg.captured_at).toBe("2026-07-01T06:40:00.000Z");
+    expect(upsertArg.payload.marketStatus).toBe("aftermarket");
   });
 
-  it("15:30 KST(마감 종가 슬롯) → skip 아님, 정상 실행", async () => {
+  it("20:04 KST → skip 아님, upsert payload.marketStatus === 'closed'", async () => {
     const sb = seedSurgeSupabase();
     sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
     const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
@@ -416,12 +426,56 @@ describe("runHomeSyncCycle (마감 초과 슬롯 skip)", () => {
       config: cfg(),
       supabase: sb as never,
       cluster,
-      now: new Date("2026-07-01T06:30:00Z"), // 15:30 KST
+      now: new Date("2026-07-01T11:04:00Z"), // 20:04 KST
       loadSurgesOptions: { retryDelayMs: 0 },
     });
 
     expect(summary.skipped).toBeUndefined();
-    expect(sb._chains.home_theme_snapshots.upsert).toHaveBeenCalled();
+    const upsertArg = sb._chains.home_theme_snapshots.upsert.mock.calls[0][0];
+    expect(upsertArg.payload.marketStatus).toBe("closed");
+  });
+});
+
+describe("runHomeSyncCycle (과거 스냅샷 thinning 배선, quick-260913-g4c)", () => {
+  it("08:05 KST → thinning select 실행, select error 여도 summary 반환 + upsert 호출", async () => {
+    const sb = seedSurgeSupabase();
+    const snaps = sb.from("home_theme_snapshots");
+    snaps.limit.mockResolvedValue({ data: [], error: null });
+    snaps.range.mockResolvedValue({ data: null, error: new Error("thin-select-fail") });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: new Date("2026-07-01T23:05:00Z"), // 2026-07-02 08:05 KST
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(summary.tradeDate).toBe("2026-07-02");
+    expect(summary.skipped).toBeUndefined();
+    expect(snaps.upsert).toHaveBeenCalledTimes(1);
+    expect(snaps.range).toHaveBeenCalledTimes(1);
+    expect(snaps.lt).toHaveBeenCalledWith("trade_date", "2026-07-02");
+  });
+
+  it("10:30 KST → thinning select 미실행", async () => {
+    const sb = seedSurgeSupabase();
+    const snaps = sb.from("home_theme_snapshots");
+    snaps.limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(snaps.upsert).toHaveBeenCalledTimes(1);
+    expect(snaps.range).not.toHaveBeenCalled();
+    expect(snaps.delete).not.toHaveBeenCalled();
   });
 });
 

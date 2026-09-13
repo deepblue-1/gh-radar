@@ -292,9 +292,9 @@ describe("formatClusterMessage 직전 테마 구성 섹션 (quick-260720-kyh sti
     },
   ];
 
-  it("prevThemes 전달 시 '직전 테마 구성 (5분 전):' 섹션 + 멤버 라인 (현재 이름)", () => {
+  it("prevThemes 전달 시 '직전 테마 구성 (직전 슬롯):' 섹션 + 멤버 라인 (현재 이름)", () => {
     const { message } = formatClusterMessage(surges, new Map(), prevThemes);
-    expect(message).toContain("직전 테마 구성 (5분 전):");
+    expect(message).toContain("직전 테마 구성 (직전 슬롯):");
     expect(message).toContain("- 사료: 002140 고려산업, 218150 미래생명자원");
   });
 

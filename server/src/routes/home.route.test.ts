@@ -120,4 +120,35 @@ describe("GET /api/home (홈 급등 테마 스냅샷)", () => {
     );
     expect(r.status).toBe(200);
   });
+
+  // 7·8 — index 는 Supabase max_rows(1000) 에 잘리지 않는다 (quick-260913-g4c).
+  //   오늘 1분 슬롯 ≈725 + 과거 거래일 5분 슬롯 ≈145/일 → 최신 1500 슬롯을 .range 2페이지로 받는다.
+  //   mock 이 DB_MAX_ROWS=1000 캡을 재현하므로 단일 쿼리로 돌아가면 이 테스트가 빨개진다.
+  function minuteRows(n: number) {
+    const base = Date.parse("2026-09-14T11:00:00Z"); // 20:00 KST
+    return Array.from({ length: n }, (_, i) =>
+      snapshotRow({
+        trade_date: "2026-09-14",
+        captured_at: new Date(base - i * 60_000).toISOString(),
+      }),
+    );
+  }
+
+  it("7: 1,200행 → index 1200 (max_rows 1000 초과), 최신순, captured_at 중복 0", async () => {
+    const r = await request(app({ homeSnapshots: minuteRows(1200) })).get("/api/home");
+    expect(r.status).toBe(200);
+    const caps: string[] = r.body.index.map((e: { capturedAt: string }) => e.capturedAt);
+    expect(caps.length).toBe(1200);
+    expect(new Set(caps).size).toBe(1200);
+    const sorted = [...caps].sort((a, b) => b.localeCompare(a));
+    expect(caps).toEqual(sorted);
+    expect(caps[0]).toBe("2026-09-14T11:00:00.000Z");
+  });
+
+  it("8: 1,600행 → index 1500 (INDEX_LIMIT 상한)", async () => {
+    const r = await request(app({ homeSnapshots: minuteRows(1600) })).get("/api/home");
+    expect(r.status).toBe(200);
+    expect(r.body.index.length).toBe(1500);
+    expect(new Set(r.body.index.map((e: { capturedAt: string }) => e.capturedAt)).size).toBe(1500);
+  });
 });

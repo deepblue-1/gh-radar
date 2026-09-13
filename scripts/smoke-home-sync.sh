@@ -10,18 +10,36 @@ set -uo pipefail
 # INV-3: 최근 로그 "home-sync failed" OR "401" 0건 (Scheduler OAuth/시크릿 정상)
 # INV-4: Supabase home_theme_snapshots count (오늘 trade_date) >= 1
 #          ← 핵심 성공 기준. 급등 없는 날에도 스냅샷 row 자체는 적재됨(payload themes/singles 빈 배열).
-# INV-5: Scheduler ENABLED + schedule == "*/5 8-15 * * 1-5"
-# INV-6: Scheduler OAuth invoker (Pitfall — OIDC 금지)
+# INV-5: Scheduler 2개 ENABLED + schedule
+#          gh-radar-home-sync-cron     == "* 8-19 * * 1-5"
+#          gh-radar-home-sync-cron-20h == "0-4 20 * * 1-5"   (평일 08:00~20:04 매분, quick-260913-g4c)
+# INV-6: Scheduler 2개 OAuth invoker (Pitfall — OIDC 금지)
+#
+# Usage:
+#   bash scripts/smoke-home-sync.sh [JOB] [REGION]                    # INV-1~6 전체 (잡 1회 실행)
+#   bash scripts/smoke-home-sync.sh --check-scheduler [JOB] [REGION]  # INV-5·6 만 (잡 실행 없음)
+#     --check-scheduler 는 비거래일 배포 검증용이다. 주말은 KRX_HOLIDAYS 에 없어(cron 1-5 가 막는
+#     설계) 주말에 잡을 실행하면 home-sync 가 가짜(주말) 스냅샷을 써서 날짜 네비를 오염시킨다.
 #
 # DI-02 주의: curl -I 의 Content-Range 헤더 끝에 CR(\r) 이 붙어
 #   `grep -oE '[0-9]+$'` 가 매치 실패할 수 있음 → `tr -d '\r'` 로 CR 제거 후 파싱.
 # 로그 필드명은 jsonPayload.msg (raw pino — Cloud Run Job 은 msg 보존, Phase 10 lesson).
 # ═══════════════════════════════════════════════════════════════
 
+CHECK_SCHEDULER_ONLY=0
+if [[ "${1:-}" == "--check-scheduler" ]]; then
+  CHECK_SCHEDULER_ONLY=1
+  shift
+fi
+
 JOB="${1:-gh-radar-home-sync}"
 REGION="${2:-asia-northeast3}"
 PROJECT="${EXPECTED_PROJECT:-${GCP_PROJECT_ID:-gh-radar}}"
+# deploy-home-sync.sh 와 같은 이름·cron 2쌍 — 한쪽만 바꾸면 이 smoke 가 FAIL.
 SCHEDULER_NAME="gh-radar-home-sync-cron"
+SCHEDULER_NAME_20H="gh-radar-home-sync-cron-20h"
+SCHEDULE_MAIN='* 8-19 * * 1-5'
+SCHEDULE_20H='0-4 20 * * 1-5'
 
 PASS=0
 FAIL=0
@@ -40,8 +58,10 @@ check() {
   fi
 }
 
-echo "Smoke testing Job=$JOB Region=$REGION Project=$PROJECT"
+echo "Smoke testing Job=$JOB Region=$REGION Project=$PROJECT (check-scheduler-only=$CHECK_SCHEDULER_ONLY)"
 echo ""
+
+if [[ $CHECK_SCHEDULER_ONLY -eq 0 ]]; then
 
 # ─────────────────────────────────────────────────────────────
 # INV-1: Job 실행 --wait exit 0 (첫 production 적재 겸 검증)
@@ -100,21 +120,29 @@ check "INV-4 Supabase home_theme_snapshots (today) >= 1" bash -c "
 "
 
 # ─────────────────────────────────────────────────────────────
-# INV-5: Scheduler ENABLED + schedule == "*/5 8-15 * * 1-5"
+# INV-5: Scheduler 2개 ENABLED + schedule
 # ─────────────────────────────────────────────────────────────
-check "INV-5 scheduler ENABLED + correct schedule" bash -c "
-  STATE=\$(gcloud scheduler jobs describe $SCHEDULER_NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(state)' 2>/dev/null)
-  SCHEDULE=\$(gcloud scheduler jobs describe $SCHEDULER_NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '*/5 8-15 * * 1-5' ]
-"
+fi  # CHECK_SCHEDULER_ONLY — INV-1~4 는 잡 실행 모드에서만
+
+for pair in "$SCHEDULER_NAME|$SCHEDULE_MAIN" "$SCHEDULER_NAME_20H|$SCHEDULE_20H"; do
+  NAME="${pair%%|*}"
+  WANT="${pair#*|}"
+  check "INV-5 $NAME ENABLED + schedule '$WANT'" bash -c "
+    STATE=\$(gcloud scheduler jobs describe $NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(state)' 2>/dev/null)
+    SCHEDULE=\$(gcloud scheduler jobs describe $NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(schedule)' 2>/dev/null)
+    [ \"\$STATE\" = ENABLED ] && [ \"\$SCHEDULE\" = '$WANT' ]
+  "
+done
 
 # ─────────────────────────────────────────────────────────────
-# INV-6: Scheduler OAuth invoker (Pitfall — OIDC 금지)
+# INV-6: Scheduler 2개 OAuth invoker (Pitfall — OIDC 금지)
 # ─────────────────────────────────────────────────────────────
-check "INV-6 Scheduler OAuth invoker (no OIDC)" bash -c "
-  AUTH=\$(gcloud scheduler jobs describe $SCHEDULER_NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(httpTarget.oauthToken.serviceAccountEmail)' 2>/dev/null)
-  [[ \"\$AUTH\" == *'gh-radar-scheduler-sa'* ]]
-"
+for NAME in "$SCHEDULER_NAME" "$SCHEDULER_NAME_20H"; do
+  check "INV-6 $NAME OAuth invoker (no OIDC)" bash -c "
+    AUTH=\$(gcloud scheduler jobs describe $NAME --location=\"$REGION\" --project=\"$PROJECT\" --format='value(httpTarget.oauthToken.serviceAccountEmail)' 2>/dev/null)
+    [[ \"\$AUTH\" == *'gh-radar-scheduler-sa'* ]]
+  "
+done
 
 echo ""
 echo "═══════════════════════════════════════"

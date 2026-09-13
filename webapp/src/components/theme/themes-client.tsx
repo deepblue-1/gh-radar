@@ -19,7 +19,7 @@ import { ThemesSkeleton } from './themes-skeleton';
  * 레이아웃:
  *   - 헤더: 테마(h1) + '지금 뜨는 테마 랭킹 — 상위 3종목 평균 등락률' sub + 최근 갱신 16:00 KST
  *   - 내 테마(상단, 가로 스크롤 칩, border primary tint, [＋ 테마 만들기] CTA / empty)
- *   - 시스템 테마 랭킹(theme-rank-row, top3avg desc — 서버가 이미 정렬)
+ *   - 시스템 테마 랭킹(theme-rank-row, top3avg desc — 서버가 이미 정렬, 상위 20개만)
  *   - 출처 푸터(카피 계약)
  *
  * loading=themes-skeleton, error=role=alert 카드(카피). 모든 색은 globals.css 토큰만.
@@ -29,6 +29,8 @@ const ERROR_MSG = '테마를 불러오지 못했습니다. 새로고침해주세
 const SOURCE_FOOTER =
   '출처: 네이버 금융 테마 · 알파스퀘어 · 일 1회 16:00 KST 갱신';
 const SORT_LABEL = '상위 3종목 평균 등락률';
+/** 시스템 테마 랭킹 표시 개수 — 서버(/api/themes)가 top3avg desc 로 정렬해 준 앞 20개. */
+const SYSTEM_RANK_LIMIT = 20;
 
 export function ThemesClient() {
   const {
@@ -46,16 +48,22 @@ export function ThemesClient() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<ThemeEditMode>({ kind: 'create' });
 
+  const rankedSystemThemes = useMemo(
+    () => systemThemes.slice(0, SYSTEM_RANK_LIMIT),
+    [systemThemes],
+  );
+
+  // 막대 길이 기준 — **표시되는 20개** 집합의 최대 |상위3평균| (하위 음수 테마가 스케일을 왜곡하지 않게).
   const maxAvg = useMemo(
     () =>
-      systemThemes.reduce(
+      rankedSystemThemes.reduce(
         (m, t) =>
           t.top3AvgChangeRate != null
             ? Math.max(m, Math.abs(t.top3AvgChangeRate))
             : m,
         0,
       ),
-    [systemThemes],
+    [rankedSystemThemes],
   );
 
   // 내 테마 랭킹 행의 막대 길이 기준 — 내 테마 집합 내 최대 |상위3평균|.
@@ -181,7 +189,7 @@ export function ThemesClient() {
               isRefreshing && 'opacity-90 transition-opacity',
             )}
           >
-            {systemThemes.map((t, i) => (
+            {rankedSystemThemes.map((t, i) => (
               <li key={t.id}>
                 <ThemeRankRow theme={t} rank={i + 1} maxAvg={maxAvg} />
               </li>

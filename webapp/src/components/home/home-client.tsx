@@ -30,10 +30,12 @@ import { ThemeCard } from './theme-card';
 export function HomeClient() {
   const [selected, setSelected] = useState<HomeSelection | null>(null);
 
+  // 자동 갱신은 최신 보기에서만 — 과거 슬롯/날짜 탐색 중 폴링하면 화면이 점프한다.
   const { data, isLoading, isRefreshing, error, refresh } = useHomeQuery(
     selected
       ? { date: selected.date, capturedAt: selected.capturedAt }
       : {},
+    { autoRefresh: selected === null },
   );
 
   const snapshot = data?.snapshot ?? null;

@@ -18,6 +18,10 @@ import { loadThemeHints } from "./pipeline/loadThemeHints";
 import { computeContentHash } from "./pipeline/contentHash";
 import { clusterSurges, type ClusterResult } from "./ai/clusterSurges";
 import { upsertSnapshot } from "./pipeline/upsertSnapshot";
+import {
+  shouldThinPastSnapshots,
+  thinPastSnapshots,
+} from "./pipeline/thinSnapshots";
 
 /**
  * Phase 13 Plan 02 Task 3 — home-sync cycle entry point (RESEARCH §Pattern 2 + §Pattern 4).
@@ -26,12 +30,14 @@ import { upsertSnapshot } from "./pipeline/upsertSnapshot";
  *   1. loadSurges (오늘 +threshold% 급등 + 종목별 top-K 뉴스).
  *   2. computeContentHash (급등코드 + 뉴스 id).
  *   3. 오늘 최신 스냅샷 조회 (captured_at desc limit 1).
- *   4. 분기 (Pattern 4 hash-skip clone-append):
- *        - prev.content_hash === hash → 직전 payload 복제 append (is_carried=true, Claude 호출 0).
+ *   4. 분기 (Pattern 4 hash-skip clone-append, 게이트 = canReusePrevClassification):
+ *        - 재사용 가능(prev.content_hash === hash) → 직전 payload 복제 append (is_carried=true, Claude 호출 0).
  *        - else → clusterSurges (Claude 1x) → payload append (is_carried=false).
  *   5. upsertSnapshot (onConflict PK ignoreDuplicates — slot 재실행 idempotent).
+ *   6. KST 08:00~08:09 사이클만 과거 거래일 스냅샷 5분 thinning (실패는 warn, cycle 성공).
  *
- * captured_at 은 KST 5분 슬롯 (장중). marketStatus: 8시대 = premarket(NXT 프리마켓), slot >= 15:30 KST → closed.
+ * captured_at 은 KST 1분 슬롯 (08:00~20:04). marketStatus: 08시대 premarket / 09:00~15:29 open /
+ * 15:30~19:59 aftermarket / 20:00~20:04 closed. 20:05 이후 슬롯은 upsert 없이 skip.
  * surges 0 처리: 오늘 이미 non-empty 스냅샷이 있으면 마지막 non-empty payload 를 clone-append
  * (transient-empty 가드 — stock_quotes 상류 갱신 갭 시 spurious empty 방지). 오늘 아직 non-empty
  * 가 없으면(진짜 급등 없는 날) 빈 payload 스냅샷을 append (홈 빈 상태 표시용).
@@ -59,25 +65,36 @@ export interface HomeSyncSummary {
   stockCount: number;
   claudeCalled: boolean;
   isCarried: boolean;
-  /** cycle 을 건너뜀 (upsert 없음) — KRX 휴장일(0차 가드) 또는 마감(15:30 KST) 초과 슬롯. */
+  /** cycle 을 건너뜀 (upsert 없음) — KRX 휴장일(0차 가드) 또는 마감(20:04 KST) 초과 슬롯. */
   skipped?: boolean;
 }
 
 const KST_OFFSET_MS = 9 * 3600_000;
 
+/** KRX 정규장 시작 09:00 KST (분). 이전은 premarket. */
+const REGULAR_OPEN_MIN = 9 * 60;
+/** 애프터마켓 구간 시작 15:30 KST (분). */
+const AFTERMARKET_START_MIN = 15 * 60 + 30;
+/** 마감 슬롯 시작 20:00 KST (분). */
+const CLOSE_SLOT_MIN = 20 * 60;
 /**
- * now → KST 5분 슬롯 { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus }.
+ * 마지막 슬롯 20:04 KST (분). 이 분 수를 **초과**하면 cycle skip.
+ * 20:04 까지 도는 이유: intraday-sync 20:02 사이클이 ~20:02:50 에 끝나므로 20:03·20:04 슬롯이
+ * 최종 체결을 읽는다.
+ */
+const LAST_SLOT_MIN = 20 * 60 + 4;
+
+/**
+ * now → KST 1분 슬롯 { tradeDate(YYYY-MM-DD), capturedAt(ISO), marketStatus, afterClose }.
  *
- * 슬롯 분은 5분 경계로 floor (00/05/10/…/55) — 5분 cron(매 5분) 실행이 같은 HH:MM
- * PK 로 뭉쳐 ignoreDuplicates 로 무시되던 문제 해소. 각 5분 슬롯이 고유 PK 를 갖는다.
- * marketStatus: 8시대(hour<9) = premarket(NXT 프리마켓). 정규장 마감 15:30 KST 기준 —
- * hour>15 또는 (hour===15 && slotMinute>=30) → closed. 그 외 open.
+ * 슬롯 분은 KST 분 그대로(초·ms 버림) — 매분 cron 실행이 각자 고유 PK 를 갖는다.
+ * marketStatus: 08시대 premarket / 09:00~15:29 open / 15:30~19:59 aftermarket / 20:00~ closed.
  */
 export function computeSlot(now: Date): {
   tradeDate: string;
   capturedAt: string;
-  marketStatus: "premarket" | "open" | "closed";
-  /** 슬롯이 마감(15:30 KST) **초과** — 15:40/15:50 등. cycle skip 대상 (15:30 은 종가 슬롯이라 실행). */
+  marketStatus: HomeSnapshotPayload["marketStatus"];
+  /** 슬롯이 마지막 슬롯(20:04 KST) **초과** — 20:05 이후. cycle skip 대상. */
   afterClose: boolean;
 } {
   const kst = new Date(now.getTime() + KST_OFFSET_MS);
@@ -86,19 +103,41 @@ export function computeSlot(now: Date): {
   const d = String(kst.getUTCDate()).padStart(2, "0");
   const tradeDate = `${y}-${m}-${d}`;
   const hour = kst.getUTCHours();
-  // slotMinute = 해당 분을 5분 경계로 floor. capturedAt 은 그 슬롯 시각(KST)→UTC.
-  const slotMinute = Math.floor(kst.getUTCMinutes() / 5) * 5;
-  const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, slotMinute, 0);
+  const minute = kst.getUTCMinutes();
+  // capturedAt = 그 분의 시작(초·ms 버림) 시각(KST) → UTC.
+  const slotKstMs = Date.UTC(y, kst.getUTCMonth(), kst.getUTCDate(), hour, minute, 0);
   const capturedAt = new Date(slotKstMs - KST_OFFSET_MS).toISOString();
-  // 8시대(hour<9) → premarket(NXT 프리마켓). 정규장 마감 15:30 KST 이상 → closed. 15:30 초과(15:40+)는 skip 대상.
-  const marketStatus: "premarket" | "open" | "closed" =
-    hour < 9
+  const minOfDay = hour * 60 + minute;
+  const marketStatus: HomeSnapshotPayload["marketStatus"] =
+    minOfDay < REGULAR_OPEN_MIN
       ? "premarket"
-      : hour > 15 || (hour === 15 && slotMinute >= 30)
-        ? "closed"
-        : "open";
-  const afterClose = hour > 15 || (hour === 15 && slotMinute > 30);
+      : minOfDay < AFTERMARKET_START_MIN
+        ? "open"
+        : minOfDay < CLOSE_SLOT_MIN
+          ? "aftermarket"
+          : "closed";
+  const afterClose = minOfDay > LAST_SLOT_MIN;
   return { tradeDate, capturedAt, marketStatus, afterClose };
+}
+
+/** 오늘 최신 스냅샷 행 (prev lookup 결과). */
+export interface PrevSnapshotRow {
+  content_hash?: string | null;
+  payload?: HomeSnapshotPayload | null;
+}
+
+/**
+ * Claude 호출 게이트 — 재분류 여부를 결정하는 유일한 지점.
+ *
+ * 현재 정책: 급등집합·뉴스 hash 가 바뀌면 매 슬롯(1분) 재분류(비용 증가 수용, 사용자 결정 1).
+ * true 면 직전 분류(payload)를 재사용하고 Claude 를 부르지 않는다.
+ * 추후 '목록/등락률 1분 + AI 재분류 N분 쿨다운' 분리는 이 함수만 바꾼다.
+ */
+export function canReusePrevClassification(
+  prevRow: PrevSnapshotRow | null,
+  hash: string,
+): prevRow is PrevSnapshotRow & { payload: HomeSnapshotPayload } {
+  return prevRow !== null && prevRow.content_hash === hash && !!prevRow.payload;
 }
 
 /**
@@ -179,9 +218,9 @@ export async function runHomeSyncCycle(
     };
   }
 
-  // 정규장 마감(15:30 KST) 초과 슬롯(15:40/15:50)은 skip — 종가는 15:30 슬롯이 최종.
+  // 마지막 슬롯(20:04 KST) 초과(20:05~)는 skip — 애프터마켓 최종 체결은 20:03·20:04 슬롯이 읽는다.
   if (afterClose) {
-    log.info({ capturedAt }, "마감(15:30) 초과 슬롯 — cycle skip (upsert 없음)");
+    log.info({ capturedAt }, "마감(20:04) 초과 슬롯 — cycle skip (upsert 없음)");
     return {
       tradeDate,
       capturedAt,
@@ -209,10 +248,7 @@ export async function runHomeSyncCycle(
     .limit(1);
   if (prevErr) throw prevErr;
 
-  const prevRows = (prevData ?? []) as Array<{
-    content_hash?: string | null;
-    payload?: HomeSnapshotPayload | null;
-  }>;
+  const prevRows = (prevData ?? []) as PrevSnapshotRow[];
   const prevRow = prevRows.length > 0 ? prevRows[0] : null;
 
   let payload: HomeSnapshotPayload;
@@ -247,7 +283,7 @@ export async function runHomeSyncCycle(
       isCarried = false;
       claudeCalled = false;
     }
-  } else if (prevRow && prevRow.content_hash === hash && prevRow.payload) {
+  } else if (canReusePrevClassification(prevRow, hash)) {
     // 4a) hash-match — 직전 payload 복제 append (Claude 호출 skip, Pattern 4).
     //     단, 종목 등락률은 이번 사이클 최신 시세로 갱신(carry stale 방지, applyLatestRates).
     const rateByCode = new Map(surges.map((s) => [s.code, s.changeRate]));
@@ -293,6 +329,20 @@ export async function runHomeSyncCycle(
     is_carried: isCarried,
     payload,
   });
+
+  // 6) 과거 거래일 스냅샷 5분 thinning (KST 08:00~08:09 사이클만, idempotent 재시도).
+  //    실패는 cycle 을 실패시키지 않는다 — 단, 무로그 fail-safe 금지라 err 를 warn 으로 남긴다.
+  if (shouldThinPastSnapshots(now)) {
+    try {
+      const deleted = await thinPastSnapshots(supabase, tradeDate);
+      log.info({ deleted }, "과거 스냅샷 5분 thinning 완료");
+    } catch (err) {
+      log.warn(
+        { err },
+        "과거 스냅샷 thinning 실패 — cycle 은 성공 처리, 다음 슬롯(08:09 까지) 재시도",
+      );
+    }
+  }
 
   log.info(
     { tradeDate, capturedAt, themeCount, stockCount, claudeCalled, isCarried },

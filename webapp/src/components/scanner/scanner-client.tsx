@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { usePolling } from '@/hooks/use-polling';
+import { AUTO_REFRESH_INTERVAL_MS } from '@/lib/auto-refresh-window';
 import { fetchScannerStocks } from '@/lib/scanner-api';
 import {
   parseScannerSearchParams,
@@ -16,11 +17,9 @@ import { ScannerFilters } from './scanner-filters';
 import { ScannerSkeleton } from './scanner-skeleton';
 import { ScannerTable } from './scanner-table';
 
-const POLL_INTERVAL_MS = 60_000;
-
 /**
  * Scanner 최상위 배선 (Phase 5 전체 SCAN-01~07 오케스트레이션).
- * URL = 단일 진리원. usePolling 이 60s 자동 갱신 + refresh 제공.
+ * URL = 단일 진리원. usePolling 이 30s 자동 갱신(탭 visible + KST 평일 08:00~20:05 게이트) + refresh 제공.
  * stale-but-visible: data 와 error 를 동시에 렌더할 수 있다.
  */
 export function ScannerClient() {
@@ -43,7 +42,7 @@ export function ScannerClient() {
   );
 
   const { data, error, refresh, isRefreshing, isInitialLoading } =
-    usePolling(fetcher, { intervalMs: POLL_INTERVAL_MS, key });
+    usePolling(fetcher, { intervalMs: AUTO_REFRESH_INTERVAL_MS, key });
 
   // Phase 05.2 D-17/D-18: 갱신시각 소스를 서버 X-Last-Updated-At 헤더로 교체.
   // data: { stocks, lastUpdatedAt: string | null } | undefined

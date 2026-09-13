@@ -2,18 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useAutoRefresh } from './use-auto-refresh';
+
 /**
- * 범용 폴링 훅 (Phase 5 SCAN-07 · T-5-03).
+ * 범용 폴링 훅 (Phase 5 SCAN-07 · T-5-03, quick-260913-g4c).
  *
- * - mount 즉시 fetcher 1회 호출 후 `intervalMs` 간격 자동 재호출
- * - `key` 변경 시: in-flight 요청 abort → 타이머 리셋 → 즉시 재요청
- * - unmount 시 interval clear + in-flight abort
+ * - mount 즉시 fetcher 1회 호출(시각 무관) 후 주기 재호출은 `useAutoRefresh` 에 위임:
+ *   `intervalMs`(Scanner 30초) 마다, **탭 visible + KST 평일·비휴장일 08:00~20:05 창** 일 때만.
+ *   탭이 visible 로 돌아오면(창 안이면) 즉시 1회.
+ * - `key` 변경 시: in-flight 요청 abort → 즉시 재요청
+ * - unmount 시 in-flight abort (타이머·리스너는 useAutoRefresh cleanup)
  * - 에러 stale-but-visible: data 는 보존하고 error 만 갱신. 다음 성공 시 error 클리어
- * - `refresh()`: 타이머 유지한 채 즉시 1회 호출, 연속 호출 시 이전 요청 abort
- * - stale closure 방지: fetcher 는 `useRef` 에 저장 후 타이머 콜백에서 `ref.current` 사용
+ * - `refresh()`: 게이트 무관 즉시 1회 호출, 연속 호출 시 이전 요청 abort
+ * - stale closure 방지: fetcher 는 `useRef` 에 저장 후 콜백에서 `ref.current` 사용
  */
 export interface UsePollingOptions {
-  /** 폴링 간격 (ms). 60_000 = 60초 (Scanner 기본) */
+  /** 자동 갱신 간격 (ms). Scanner 는 AUTO_REFRESH_INTERVAL_MS(30초) */
   intervalMs: number;
   /** 변경 시 in-flight abort + 타이머 리셋 + 즉시 재요청 */
   key: string;
@@ -46,7 +50,6 @@ export function usePolling<T>(
   fetcherRef.current = fetcher;
 
   const controllerRef = useRef<AbortController | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
   const runFetch = useCallback(async (): Promise<void> => {
@@ -79,18 +82,22 @@ export function usePolling<T>(
     mountedRef.current = true;
     // key 변경 시 initial loading 플래그는 유지하지 않음 — data 는 보존, 새 key 요청 중임을 isRefreshing 으로 표현
     void runFetch();
-    intervalRef.current = setInterval(() => {
-      void runFetch();
-    }, intervalMs);
 
     return () => {
       mountedRef.current = false;
-      if (intervalRef.current) clearInterval(intervalRef.current);
       controllerRef.current?.abort();
     };
-    // key 가 바뀌면 effect 재실행 (타이머 재설정 + 즉시 재요청)
+    // key 가 바뀌면 effect 재실행 (즉시 재요청)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, intervalMs]);
+  }, [key]);
+
+  // 주기 갱신 — visibility + KST 창 게이트 (수동 refresh·초기 로드는 게이트 무관).
+  useAutoRefresh(
+    () => {
+      void runFetch();
+    },
+    { enabled: true, intervalMs },
+  );
 
   const refresh = useCallback(async (): Promise<void> => {
     await runFetch();

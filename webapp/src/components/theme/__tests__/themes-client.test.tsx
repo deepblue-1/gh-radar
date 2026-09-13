@@ -222,6 +222,36 @@ describe('ThemesClient — 변형 C 랭킹', () => {
     expect(within(items[2]!).getByText('한동훈(정치)')).toBeInTheDocument();
   });
 
+  it('시스템 테마 25개 → 랭킹은 상위 20개만 렌더 (21위 부재, quick-260913-g4c)', () => {
+    setQuery({
+      myThemes: [],
+      systemThemes: Array.from({ length: 25 }, (_, i) =>
+        sysTheme(`s${i + 1}`, `시스템${i + 1}`, 30 - i),
+      ),
+    });
+    render(<ThemesClient />);
+
+    expect(screen.getByText('시스템1')).toBeInTheDocument();
+    expect(screen.getByText('시스템20')).toBeInTheDocument();
+    expect(screen.queryByText('시스템21')).toBeNull();
+    expect(screen.queryByText('시스템25')).toBeNull();
+    const list = screen.getByRole('list');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(20);
+  });
+
+  it('막대 스케일은 표시 20개 기준 — 21위 이하 큰 |음수| 가 스케일을 왜곡하지 않는다', () => {
+    const top = Array.from({ length: 20 }, (_, i) => sysTheme(`s${i + 1}`, `시스템${i + 1}`, 10));
+    setQuery({
+      myThemes: [],
+      systemThemes: [...top, sysTheme('s21', '시스템21', -40)],
+    });
+    const { container } = render(<ThemesClient />);
+    const bars = Array.from(container.querySelectorAll('span[style*="width"]')) as HTMLElement[];
+    expect(bars.length).toBe(20);
+    // 모두 |10| / max|10| = 100% — -40 이 스케일에 들어가면 25% 가 된다.
+    for (const b of bars) expect(b.style.width).toBe('100%');
+  });
+
   it('강도 막대 색: 양수 평균은 --up, 음수 평균은 --down', () => {
     setQuery({
       systemThemes: [

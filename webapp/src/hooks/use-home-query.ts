@@ -6,13 +6,16 @@ import type { HomeSnapshotResponse } from '@gh-radar/shared';
 
 import { fetchHome, type FetchHomeParams } from '@/lib/home-api';
 
+import { useAutoRefresh } from './use-auto-refresh';
+
 /**
  * Phase 13 Plan 04 — useHomeQuery.
  *
  * 읽기 전용 홈 급등 테마 fetch 훅 (HOME-01). useThemesQuery/useWatchlistQuery 의
- * stale-but-visible + mountedRef 패턴 계승. 다만 **폴링 없음** — 홈은 시점별(:30)
- * 이력 조망 화면이라 사용자 탐색(date/slot 전환)이 fetch 트리거. 파라미터가 바뀌면
- * 재조회한다.
+ * stale-but-visible + mountedRef 패턴 계승. 파라미터(date/slot)가 바뀌면 재조회한다.
+ * autoRefresh(최신 보기)일 때만 30초 자동 갱신(useAutoRefresh — visibility + KST 창 게이트) —
+ * 과거 슬롯 탐색 중에는 화면 점프 방지를 위해 폴링 금지. 폴링 갱신은 isInitialRef 가 이미
+ * false 라 isRefreshing 경로를 타 스켈레톤이 뜨지 않는다(stale-but-visible).
  *
  * 에러 정책 (scanner-error / T-13-09):
  * - 훅은 raw Error 만 `error` state 로 노출. UI 레이어가 고정 한글 문구로 렌더
@@ -36,10 +39,19 @@ export interface UseHomeQueryResult {
   refresh: () => Promise<void>;
 }
 
+export interface UseHomeQueryOptions {
+  /** true 면 30초 자동 갱신(최신 보기 전용). 기본 false. */
+  autoRefresh?: boolean;
+}
+
 /**
  * @param params date/capturedAt (미지정 시 최신 스냅샷). 값이 바뀌면 자동 재조회.
+ * @param options autoRefresh — 최신 보기에서만 true.
  */
-export function useHomeQuery(params: FetchHomeParams = {}): UseHomeQueryResult {
+export function useHomeQuery(
+  params: FetchHomeParams = {},
+  options: UseHomeQueryOptions = {},
+): UseHomeQueryResult {
   const { date, capturedAt } = params;
 
   const [data, setData] = useState<HomeSnapshotResponse | null>(null);
@@ -91,6 +103,13 @@ export function useHomeQuery(params: FetchHomeParams = {}): UseHomeQueryResult {
       abortRef.current?.abort();
     };
   }, [load]);
+
+  useAutoRefresh(
+    () => {
+      void load();
+    },
+    { enabled: options.autoRefresh ?? false },
+  );
 
   return { data, isLoading, isRefreshing, error, refresh: load };
 }
