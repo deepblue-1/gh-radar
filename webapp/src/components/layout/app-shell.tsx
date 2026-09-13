@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 
 import { AppHeader } from '@/components/layout/app-header';
 import { GlobalSearch } from '@/components/search/global-search';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 
 export interface AppShellProps {
   /** 좌측 사이드바 콘텐츠. Desktop 240px, Mobile Drawer 렌더. */
@@ -88,6 +88,15 @@ export function AppShell({
             side="left"
             className="w-[min(280px,85vw)] bg-[var(--muted)] p-3"
           >
+            {/*
+              Radix Dialog 는 접근 이름(Title)이 없으면 콘솔 에러를, 설명(Description)이
+              없으면 경고를 낸다. 드로어는 사이드바를 그대로 담아 보이는 제목이 따로 없으므로
+              스크린리더에만 읽히게 `sr-only` 로 둔다. 지우면 그 에러가 돌아온다.
+            */}
+            <SheetTitle className="sr-only">메뉴</SheetTitle>
+            <SheetDescription className="sr-only">
+              페이지 이동과 계정 메뉴
+            </SheetDescription>
             <div
               className="h-full"
               onClick={(e) => {
