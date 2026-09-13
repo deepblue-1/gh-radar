@@ -12,9 +12,17 @@ import { ApiError } from "../errors.js";
 import {
   ROW_PAGE,
   mapChunks,
+  fetchChangeRatesChunked,
   fetchQuotesChunked,
   fetchMastersChunked,
 } from "../lib/quoteJoin.js";
+
+/**
+ * 목록 경로는 소속 관계만 필요하다. THEME_STOCK_COLS 의 `reason` 은 긴 텍스트라
+ * 25개 테마 청크가 250KB(두 컬럼만이면 40KB) — 청크 14개를 받으면 3MB 넘게 오가 2초가 걸렸다.
+ */
+const THEME_MEMBER_COLS = "theme_id,stock_code";
+type ThemeMemberRow = Pick<ThemeStockRow, "theme_id" | "stock_code">;
 
 /**
  * 목록 경로 theme_id IN 청크 크기. 시스템 테마 334개 · 활성 멤버 7,700행(평균 23행/테마)
@@ -50,27 +58,29 @@ const THEME_STOCK_COLS =
 async function fetchActiveThemeStocksChunked(
   supabase: SupabaseClient,
   themeIds: string[],
-): Promise<ThemeStockRow[]> {
+): Promise<ThemeMemberRow[]> {
   const pages = await mapChunks(themeIds, THEME_ID_CHUNK, async (chunk) => {
-    const out: ThemeStockRow[] = [];
+    const out: ThemeMemberRow[] = [];
     // 결과 행 페이지네이션(ROW_PAGE) — 한 theme_id 청크의 active 행이 1000 을 넘으면
     // PostgREST 가 통째로 잘라 그 너머 테마가 stockCount=0 으로 사라진다(목록 합계가
     // 정확히 2000=2×1000 으로 관측됨). 안정 정렬(PK) + .range() 로 끝까지 수집.
     // 청크 안의 페이지는 순차(끝을 모름), 청크끼리는 병렬.
+    // ROW_PAGE 가 max_rows(1000) 와 같으므로 꽉 차지 않은 페이지가 마지막이다 — 빈 페이지를
+    // 확인하러 한 번 더 가지 않는다(home.ts index 페이지네이션과 같은 규칙).
     let from = 0;
     for (;;) {
       const { data, error } = await supabase
         .from("theme_stocks")
-        .select(THEME_STOCK_COLS)
+        .select(THEME_MEMBER_COLS)
         .in("theme_id", chunk)
         .is("effective_to", null)
         .order("theme_id", { ascending: true })
         .order("stock_code", { ascending: true })
         .range(from, from + ROW_PAGE - 1);
       if (error) throw error;
-      const rows = (data ?? []) as unknown as ThemeStockRow[];
-      if (rows.length === 0) break;
+      const rows = (data ?? []) as unknown as ThemeMemberRow[];
       out.push(...rows);
+      if (rows.length < ROW_PAGE) break;
       from += rows.length;
     }
     return out;
@@ -174,7 +184,8 @@ async function computeSystemThemeList(
   }
 
   // 3. stock_quotes 청크 IN (37afcde 회귀 방지)
-  const quoteByCode = await fetchQuotesChunked(supabase, [...allCodes]);
+  //    상위3평균만 계산하므로 등락률 컬럼만 받는다.
+  const quoteByCode = await fetchChangeRatesChunked(supabase, [...allCodes]);
 
   // 4. 테마별 ThemeWithStats (상위3평균 실시간 계산)
   const result: ThemeWithStats[] = themeRows.map((t) =>

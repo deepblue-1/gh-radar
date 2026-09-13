@@ -85,12 +85,12 @@ export function themeRowToTheme(row: ThemeRow): Theme {
  *
  * @param row          themes row
  * @param memberCodes  해당 테마 active 소속 종목 code 배열
- * @param quoteByCode  code → stock_quotes row (청크 IN 결과 Map)
+ * @param quoteByCode  code → 시세 row (청크 IN 결과 Map). 등락률만 읽으므로 change_rate 만 있으면 된다.
  */
 export function themeRowToThemeWithStats(
   row: ThemeRow,
   memberCodes: string[],
-  quoteByCode: Map<string, StockQuoteRow>,
+  quoteByCode: Map<string, Pick<StockQuoteRow, "change_rate">>,
 ): ThemeWithStats {
   const base = themeRowToTheme(row);
   // 시세 있는 종목의 등락률만 수집 (시세 부재 종목은 정렬 지표에서 제외 — RESEARCH Pattern 5)
