@@ -1,0 +1,58 @@
+# 왜 이 파일이 있는가 — 2026-09-13 실측, quick-260913-csp
+#
+# scripts/deploy-*.sh 11개 전부가 **저장소 루트를 빌드 컨텍스트**로 docker build 한다:
+#   docker build --platform=linux/amd64 -f <pkg>/Dockerfile .
+# 그래서 각 Dockerfile 의 `COPY <pkg>/ ./<pkg>/` 가 그 디렉터리의 .env 까지 builder 레이어로
+# 복사한다. 실측: workers/master-sync/.env (KRX_AUTH_KEY) 와 심어둔 카나리가
+# builder 의 /app/workers/master-sync/ 에 들어갔고, `pnpm --prod --legacy deploy /out` 이
+# /out/ 으로 한 번 더 복사했다.
+# 최종 이미지는 /out/{dist,package.json,node_modules} 만 복사하므로 레지스트리로 새지는
+# 않았지만, 비밀이 로컬 빌드 캐시 레이어에 남고 누군가 프로덕션 스테이지를
+# `COPY --from=builder /out ./` 로 한 줄 고치는 순간 이미지에 실린다. 그 경로를 막는다.
+#
+# 빼면 빌드가 깨지는 것들 — 11개 Dockerfile 이 COPY 하는 전부다:
+#   루트 package.json · pnpm-workspace.yaml · pnpm-lock.yaml · tsconfig.base.json
+#   packages/shared/** · relay/** · server/** · workers/**
+# 패턴은 모두 **컨텍스트 루트 기준**이다(`scripts` 는 루트 scripts 만, 패키지 안의
+# scripts 디렉터리는 건드리지 않는다).
+
+# ── 비밀: .env 전면 차단 (템플릿만 예외) ───────────────────────────────
+# 디렉터리가 아니라 **파일 글롭**으로 제외한다. `!` 재포함은 부모 디렉터리가
+# 제외되지 않았을 때만 듣기 때문에, 파일 글롭 제외 + 파일 글롭 재포함이어야 한다.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+!**/.env.sample
+!**/.env.template
+
+# ── 의존성·빌드 산출물: 컨테이너 안에서 다시 만든다 ────────────────────
+# node_modules: pnpm install --frozen-lockfile 이 새로 만든다. 호스트 것을 올리면
+#   워크스페이스 심링크가 설치 결과를 덮어써 빌드가 호스트 상태에 의존하게 된다.
+# dist: `pnpm -F <pkg> build` 가 만들고, 워커는 `cp -r /app/workers/<n>/dist /out/dist`
+#   로 그 **새로 만든** dist 를 쓴다. 호스트 dist 는 필요 없다.
+# tsbuildinfo: dist 를 빼면서 이것만 남기면, 나중에 incremental 을 켜는 순간
+#   tsc 가 "최신"으로 오판해 emit 을 건너뛴다(지금은 incremental 미사용). 항상 같이 뺀다.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/coverage
+**/*.log
+
+# ── 빌드가 쓰지 않는 루트 디렉터리 ─────────────────────────────────────
+.git
+.claude
+.gsd
+.planning
+.vercel
+tasks
+docs
+infra
+ops
+supabase
+scripts
+webapp
+
+# ── OS 잡동사니 ────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
