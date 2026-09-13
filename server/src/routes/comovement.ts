@@ -3,11 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CoMovementResponse, Market } from "@gh-radar/shared";
 import { CoMovementParams } from "../schemas/comovement.js";
 import { ApiError } from "../errors.js";
-import {
-  ROW_PAGE,
-  fetchQuotesChunked,
-  fetchMastersChunked,
-} from "../lib/quoteJoin.js";
 import { computeComovement } from "../lib/computeComovement.js";
 import type {
   ThemeComovementRow,
@@ -21,42 +16,25 @@ import type {
  * stock_quotes 실시간 등락률을 조인하고, computeComovement 순수함수로 결합점수 TOP-K 를
  * **객체** { candidates:[...] } 로 반환한다 (CoMovementResponse 계약 — 배열 아님, 드리프트 회피).
  *
- * themes.ts 의 청크 IN(QUOTE_CHUNK) + .range(ROW_PAGE) 페이지네이션 선례를 재사용한다.
+ * 입력은 `stock_comovement_inputs(p_code)` RPC 한 번으로 받는다
+ * (migration 20260914090000 — 필드 계약은 그 파일 헤더). 종전엔 순차 8~10회 왕복이라
+ * Cloud Run(VPC all-traffic egress)에서 1초를 넘었다. 점수 계산은 여기 JS 에 그대로 둔다.
  * mergeParams:true 로 부모 라우터(stocks.ts)의 :code 를 접근 (news.ts/discussions.ts 패턴).
  */
 
-const THEME_COMOVEMENT_COLS =
-  "theme_id,stock_code,ignite_days,member_count,conf_d0,conf_d1,lift,avg_ret";
-const COSURGE_COLS =
-  "code_a,code_b,co_count,lift,avg_pair_ret,w_sum_a,ws_sum_a,w_sum_b,ws_sum_b,recent_pairs";
-
-/**
- * 앵커의 theme_id 들이 매칭하는 theme_comovement 멤버 전 행을 .range() 페이지네이션 수집.
- * 멤버가 1000 을 넘는 메가 테마(반도체 등)에서 db-max-rows 침묵 절단 방지 (themes.ts 동일 클래스).
- */
-async function fetchThemeMembersPaged(
-  supabase: SupabaseClient,
-  themeIds: string[],
-): Promise<ThemeComovementRow[]> {
-  if (themeIds.length === 0) return [];
-  const out: ThemeComovementRow[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .from("theme_comovement")
-      .select(THEME_COMOVEMENT_COLS)
-      .in("theme_id", themeIds)
-      .order("theme_id", { ascending: true })
-      .order("stock_code", { ascending: true })
-      .range(from, from + ROW_PAGE - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as unknown as ThemeComovementRow[];
-    if (rows.length === 0) break;
-    out.push(...rows);
-    from += rows.length;
-  }
-  return out;
-}
+/** stock_comovement_inputs RPC 반환 (jsonb). */
+type ComovementInputs = {
+  theme_ids: string[];
+  members: ThemeComovementRow[];
+  edges: CosurgeEdgeRow[];
+  themes: { id: string; name: string }[];
+  stocks: {
+    code: string;
+    name: string | null;
+    market: string | null;
+    change_rate: string | number | null;
+  }[];
+};
 
 export const comovementRouter: RouterT = Router({ mergeParams: true });
 
@@ -77,84 +55,31 @@ comovementRouter.get("/", async (req, res, next) => {
 
     const supabase = req.app.locals.supabase as SupabaseClient;
 
-    // 1. 앵커가 속한 theme_comovement 의 theme_id 집합 (idx_theme_comovement_code).
-    const { data: anchorRows, error: aErr } = await supabase
-      .from("theme_comovement")
-      .select("theme_id")
-      .eq("stock_code", code);
-    if (aErr) throw aErr;
-    const themeIds = [
-      ...new Set(
-        ((anchorRows ?? []) as { theme_id: string }[]).map((r) => r.theme_id),
-      ),
-    ];
-
-    // 2. co-surge 이웃 — 양방향 (code_a=:code, code_b=:code) 두 쿼리 union.
-    //    OR 금지: 단일 .or() 는 인덱스 2개를 못 타 seq-scan (RESEARCH §읽기경로).
-    const { data: aSide, error: e1 } = await supabase
-      .from("cosurge_edges")
-      .select(COSURGE_COLS)
-      .eq("code_a", code);
-    if (e1) throw e1;
-    const { data: bSide, error: e2 } = await supabase
-      .from("cosurge_edges")
-      .select(COSURGE_COLS)
-      .eq("code_b", code);
-    if (e2) throw e2;
-    const cosurgeRows = [
-      ...((aSide ?? []) as unknown as CosurgeEdgeRow[]),
-      ...((bSide ?? []) as unknown as CosurgeEdgeRow[]),
-    ];
+    // 1~5. 앵커 테마·멤버·co-surge 이웃·테마 메타(hidden 제외)·후보 마스터+시세를 한 번에.
+    const { data, error } = await supabase.rpc("stock_comovement_inputs", {
+      p_code: code,
+    });
+    if (error) throw error;
+    const inputs = data as ComovementInputs;
 
     // 테마도 이웃도 없으면 빈 후보 (무테마 종목 — T-11-12 quiet).
-    if (themeIds.length === 0 && cosurgeRows.length === 0) {
+    if (inputs.theme_ids.length === 0 && inputs.edges.length === 0) {
       res.setHeader("Cache-Control", "no-store");
       res.json({ candidates: [] } satisfies CoMovementResponse);
       return;
     }
 
-    // 3. 앵커 테마들의 전 멤버 통계 (.range() 페이지네이션).
-    const themeMemberRows = await fetchThemeMembersPaged(supabase, themeIds);
-
-    // 4. 테마 메타 (id,name, hidden=false — service_role RLS 우회라 tombstone 코드 필터).
-    const anchorThemes: { id: string; name: string }[] = [];
-    if (themeIds.length > 0) {
-      const { data: themes, error: tErr } = await supabase
-        .from("themes")
-        .select("id,name")
-        .in("id", themeIds)
-        .eq("hidden", false);
-      if (tErr) throw tErr;
-      for (const t of (themes ?? []) as { id: string; name: string }[]) {
-        anchorThemes.push({ id: t.id, name: t.name });
-      }
-    }
-
-    // 5. 후보 code 합집합 (앵커 제외) → 마스터 + 시세 청크 조인.
-    const candidateCodes = new Set<string>();
-    for (const r of themeMemberRows) {
-      if (r.stock_code !== code) candidateCodes.add(r.stock_code);
-    }
-    for (const e of cosurgeRows) {
-      const other = e.code_a === code ? e.code_b : e.code_a;
-      if (other !== code) candidateCodes.add(other);
-    }
-    const codes = [...candidateCodes];
-    const masterByCode = await fetchMastersChunked(supabase, codes);
-    const quoteRowByCode = await fetchQuotesChunked(supabase, codes);
-
     // computeComovement 입력 Map<code, {name, market, changeRate}> 합성.
+    // 마스터 없음 → name=code·KOSPI, 시세 없음/비유한 → changeRate null (종전과 동일 폴백).
     const quoteByCode = new Map<
       string,
       { name: string; market: Market; changeRate: number | null }
     >();
-    for (const c of codes) {
-      const m = masterByCode.get(c);
-      const q = quoteRowByCode.get(c);
-      const rate = q ? Number(q.change_rate) : NaN;
-      quoteByCode.set(c, {
-        name: m?.name ?? c,
-        market: (m?.market ?? "KOSPI") as Market,
+    for (const s of inputs.stocks) {
+      const rate = s.change_rate === null ? NaN : Number(s.change_rate);
+      quoteByCode.set(s.code, {
+        name: s.name ?? s.code,
+        market: (s.market ?? "KOSPI") as Market,
         changeRate: Number.isFinite(rate) ? rate : null,
       });
     }
@@ -162,9 +87,9 @@ comovementRouter.get("/", async (req, res, next) => {
     // 6. 결합점수 랭킹 → TOP-K. 앵커 코드(:code)를 명시 전달 — 다중 테마에서
     //    휴리스틱 추론이 앵커를 못 찾아 자기 후보에 섞이는 회귀 방지.
     const candidates = computeComovement(
-      themeMemberRows,
-      cosurgeRows,
-      anchorThemes,
+      inputs.members,
+      inputs.edges,
+      inputs.themes,
       quoteByCode,
       k,
       code,
