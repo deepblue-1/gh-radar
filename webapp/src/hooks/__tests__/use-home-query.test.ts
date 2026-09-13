@@ -58,4 +58,51 @@ describe('useHomeQuery autoRefresh (quick-260913-g4c)', () => {
     });
     expect(fetchHomeMock).toHaveBeenCalledTimes(1);
   });
+
+  const slot = (hhmm: string) => ({
+    tradeDate: '2026-09-14',
+    capturedAt: `2026-09-14T${hhmm}:00Z`,
+    themeCount: 1,
+    stockCount: 1,
+    isCarried: false,
+  });
+
+  it('증분 index — 두 번째 조회는 indexSince=가진 최신 슬롯, 새 슬롯만 받아 앞에 병합', async () => {
+    fetchHomeMock
+      .mockResolvedValueOnce({ snapshot: null, index: [slot('01:01'), slot('01:00')] })
+      .mockResolvedValueOnce({ snapshot: null, index: [slot('01:02')] });
+
+    const { result } = renderHook(() => useHomeQuery({}, { autoRefresh: true }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    // 처음엔 가진 index 가 없으니 전체 조회.
+    expect(fetchHomeMock.mock.calls[0][0]).not.toHaveProperty('indexSince');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    await waitFor(() => expect(fetchHomeMock).toHaveBeenCalledTimes(2));
+    expect(fetchHomeMock.mock.calls[1][0]).toMatchObject({
+      indexSince: '2026-09-14T01:01:00Z',
+    });
+    await waitFor(() =>
+      expect(result.current.data?.index.map((e) => e.capturedAt)).toEqual([
+        '2026-09-14T01:02:00Z',
+        '2026-09-14T01:01:00Z',
+        '2026-09-14T01:00:00Z',
+      ]),
+    );
+  });
+
+  it('페이지 이동 캐시 — 재마운트 시 마지막 응답으로 즉시 그림(isLoading 없음)', async () => {
+    fetchHomeMock.mockResolvedValue({ snapshot: null, index: [slot('01:00')] });
+
+    const first = renderHook(() => useHomeQuery({}));
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false));
+    first.unmount();
+
+    const second = renderHook(() => useHomeQuery({}));
+    expect(second.result.current.isLoading).toBe(false);
+    expect(second.result.current.data?.index).toHaveLength(1);
+    await waitFor(() => expect(fetchHomeMock).toHaveBeenCalledTimes(2));
+  });
 });

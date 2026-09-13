@@ -51,35 +51,47 @@ homeRouter.get("/", async (req, res, next) => {
         `${issue.path.join(".")}: ${issue.message}`,
       );
     }
-    const { date, capturedAt } = parsed.data;
+    const { date, capturedAt, indexSince } = parsed.data;
     const supabase = req.app.locals.supabase as SupabaseClient;
 
     // 1. 대상 스냅샷 (payload 포함). capturedAt 우선 → date → 무필터(오늘 최신).
-    let q = supabase.from("home_theme_snapshots").select(SNAPSHOT_COLS);
-    if (capturedAt) q = q.eq("captured_at", capturedAt);
-    else if (date) q = q.eq("trade_date", date);
-    const { data: snap, error: snapErr } = await q
-      .order("captured_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (snapErr) throw snapErr;
+    const fetchSnapshot = async () => {
+      let q = supabase.from("home_theme_snapshots").select(SNAPSHOT_COLS);
+      if (capturedAt) q = q.eq("captured_at", capturedAt);
+      else if (date) q = q.eq("trade_date", date);
+      const { data, error } = await q
+        .order("captured_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    };
 
-    // 2. 네비게이션 인덱스 (payload 제외 — 경량, 최신 INDEX_LIMIT 슬롯).
+    // 2. 네비게이션 인덱스 (payload 제외 — 경량, 최신순).
     //    max_rows(1000) 때문에 .limit(1500) 단일 쿼리는 조용히 1000 에서 잘린다 → .range 페이지.
-    const rows: HomeIndexRow[] = [];
-    for (let from = 0; from < INDEX_LIMIT; from += INDEX_PAGE) {
-      const to = Math.min(from + INDEX_PAGE, INDEX_LIMIT) - 1;
-      const { data: page, error: idxErr } = await supabase
-        .from("home_theme_snapshots")
-        .select(INDEX_COLS)
+    //    indexSince 가 있으면 그보다 새 슬롯만 (증분 — 폴링 1회당 보통 0~1행).
+    const fetchIndexPage = async (from: number, to: number) => {
+      let q = supabase.from("home_theme_snapshots").select(INDEX_COLS);
+      if (indexSince) q = q.gt("captured_at", indexSince);
+      const { data, error } = await q
         .order("captured_at", { ascending: false })
         .range(from, to);
-      if (idxErr) throw idxErr;
-      const got = (page ?? []) as unknown as HomeIndexRow[];
-      rows.push(...got);
-      if (got.length < to - from + 1) break;
+      if (error) throw error;
+      return (data ?? []) as unknown as HomeIndexRow[];
+    };
+    const indexRanges: [number, number][] = [];
+    const indexLimit = indexSince ? INDEX_PAGE : INDEX_LIMIT;
+    for (let from = 0; from < indexLimit; from += INDEX_PAGE) {
+      indexRanges.push([from, Math.min(from + INDEX_PAGE, indexLimit) - 1]);
     }
-    // 두 요청 사이에 새 슬롯이 끼면 페이지 경계 행이 한 칸 밀려 중복될 수 있다 → 먼저 나온 행만.
+
+    // 스냅샷과 index 페이지들은 서로 의존하지 않으므로 한 번에 보낸다.
+    const [snap, ...pages] = await Promise.all([
+      fetchSnapshot(),
+      ...indexRanges.map(([from, to]) => fetchIndexPage(from, to)),
+    ]);
+    const rows = (pages as HomeIndexRow[][]).flat();
+    // 페이지 요청 사이에 새 슬롯이 끼면 경계 행이 한 칸 밀려 중복될 수 있다 → 먼저 나온 행만.
     const seen = new Set<string>();
     const idx = rows.filter((r) => {
       if (seen.has(r.captured_at)) return false;

@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import compression from "compression";
 import helmet from "helmet";
 import cors from "cors";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -67,7 +68,18 @@ export function createApp(deps: AppDeps): Express {
   // 5) CORS
   app.use(cors(corsOptions()));
 
-  // 6) body parser (16kb)
+  // 6) 응답 압축 — /api/home(≈190KB)·/api/themes(≈160KB) JSON 이 무압축으로 나가던 것.
+  //    SSE(/api/chat)는 제외한다: compressible 이 text/event-stream 을 압축 대상으로 보므로
+  //    기본 필터를 쓰면 gzip 버퍼에 이벤트가 묶여 스트리밍·keepalive 가 끊긴다.
+  app.use(
+    compression({
+      filter: (req, res) =>
+        !String(res.getHeader("Content-Type") ?? "").startsWith("text/event-stream") &&
+        compression.filter(req, res),
+    }),
+  );
+
+  // 7) body parser (16kb)
   app.use(express.json({ limit: "16kb" }));
 
   // 7) rate-limit on /api

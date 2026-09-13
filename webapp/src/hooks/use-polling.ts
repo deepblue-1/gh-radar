@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { readQueryCache, writeQueryCache } from '@/lib/query-cache';
+
 import { useAutoRefresh } from './use-auto-refresh';
 
 /**
@@ -21,6 +23,12 @@ export interface UsePollingOptions {
   intervalMs: number;
   /** 변경 시 in-flight abort + 타이머 리셋 + 즉시 재요청 */
   key: string;
+  /**
+   * 주면 마지막 응답을 페이지 이동 사이에 기억한다(`lib/query-cache`). 재방문 시 캐시로 즉시
+   * 그리고(스켈레톤 없음) 백그라운드에서 다시 받는다. 사용자별 데이터면 키에 사용자를 담지
+   * 않아도 된다 — 로그인 사용자가 바뀌면 캐시 전체가 비워진다.
+   */
+  cacheKey?: string;
 }
 
 export interface UsePollingResult<T> {
@@ -34,20 +42,25 @@ export interface UsePollingResult<T> {
 
 export function usePolling<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
-  { intervalMs, key }: UsePollingOptions,
+  { intervalMs, key, cacheKey }: UsePollingOptions,
 ): UsePollingResult<T> {
-  const [data, setData] = useState<T | undefined>(undefined);
+  const [cached] = useState(() =>
+    cacheKey ? readQueryCache<T>(cacheKey) : undefined,
+  );
+  const [data, setData] = useState<T | undefined>(cached);
   const [error, setError] = useState<Error | undefined>(undefined);
   // Phase 05.2 D-17: lastUpdatedAt 은 더 이상 client clock 으로 갱신하지 않는다.
   // UsePollingResult 타입 호환을 위해 상수로 유지 (실제 값은 scanner-client 가
   // fetcher 결과의 X-Last-Updated-At 헤더에서 직접 추출하여 ScannerFilters 로 전달).
   const lastUpdatedAt: number | undefined = undefined;
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(cached === undefined);
 
-  // stale closure 방지 — 최신 fetcher 를 ref 로 유지
+  // stale closure 방지 — 최신 fetcher·cacheKey 를 ref 로 유지
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const cacheKeyRef = useRef(cacheKey);
+  cacheKeyRef.current = cacheKey;
 
   const controllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
@@ -63,6 +76,7 @@ export function usePolling<T>(
       if (controller.signal.aborted || !mountedRef.current) return;
       setData(result);
       setError(undefined);
+      if (cacheKeyRef.current) writeQueryCache(cacheKeyRef.current, result);
       // Phase 05.2 D-17: lastUpdatedAt 소스는 더 이상 client clock 아님.
       // scanner-client 가 fetcher 결과(서버 X-Last-Updated-At 헤더)에서 직접 추출.
     } catch (err) {
@@ -81,6 +95,11 @@ export function usePolling<T>(
   useEffect(() => {
     mountedRef.current = true;
     // key 변경 시 initial loading 플래그는 유지하지 않음 — data 는 보존, 새 key 요청 중임을 isRefreshing 으로 표현
+    // 새 key 의 캐시가 있으면 먼저 그것으로 바꿔 그린다(이전 key 데이터가 새 필터 아래 남지 않게).
+    if (cacheKeyRef.current) {
+      const hit = readQueryCache<T>(cacheKeyRef.current);
+      if (hit !== undefined) setData(hit);
+    }
     void runFetch();
 
     return () => {

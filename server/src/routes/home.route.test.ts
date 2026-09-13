@@ -121,6 +121,23 @@ describe("GET /api/home (홈 급등 테마 스냅샷)", () => {
     expect(r.status).toBe(200);
   });
 
+  // 6a·6b — 증분 index: 폴링마다 전체 index(≈175KB)를 다시 보내지 않는다.
+  it("6a: indexSince → index 는 그보다 새 슬롯만, snapshot 은 평소대로 최신", async () => {
+    const r = await request(app()).get(
+      "/api/home?indexSince=" + encodeURIComponent("2026-07-01T00:30:00Z"),
+    );
+    expect(r.status).toBe(200);
+    expect(r.body.snapshot.capturedAt).toBe("2026-07-01T06:30:00Z");
+    expect(r.body.index.map((e: { capturedAt: string }) => e.capturedAt)).toEqual([
+      "2026-07-01T06:30:00Z",
+    ]);
+  });
+
+  it("6b: 잘못된 indexSince → 400", async () => {
+    const r = await request(app()).get("/api/home?indexSince=yesterday");
+    expect(r.status).toBe(400);
+  });
+
   // 7·8 — index 는 Supabase max_rows(1000) 에 잘리지 않는다 (quick-260913-g4c).
   //   오늘 1분 슬롯 ≈725 + 과거 거래일 5분 슬롯 ≈145/일 → 최신 1500 슬롯을 .range 2페이지로 받는다.
   //   mock 이 DB_MAX_ROWS=1000 캡을 재현하므로 단일 쿼리로 돌아가면 이 테스트가 빨개진다.
@@ -150,5 +167,14 @@ describe("GET /api/home (홈 급등 테마 스냅샷)", () => {
     expect(r.status).toBe(200);
     expect(r.body.index.length).toBe(1500);
     expect(new Set(r.body.index.map((e: { capturedAt: string }) => e.capturedAt)).size).toBe(1500);
+  });
+
+  it("9: 큰 JSON 응답은 gzip 으로 압축된다 (Accept-Encoding: gzip)", async () => {
+    const r = await request(app({ homeSnapshots: minuteRows(1200) }))
+      .get("/api/home")
+      .set("Accept-Encoding", "gzip");
+    expect(r.status).toBe(200);
+    expect(r.headers["content-encoding"]).toBe("gzip");
+    expect(r.body.index.length).toBe(1200); // supertest 가 해제한 본문이 온전하다
   });
 });

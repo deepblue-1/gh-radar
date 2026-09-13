@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { clearQueryCache } from "@/lib/query-cache";
 import type { User } from "@supabase/supabase-js";
 
 interface AuthState {
@@ -56,8 +57,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.location.href = "/login";
     };
 
+    // 페이지 이동 캐시(lib/query-cache)에는 사용자별 데이터(내 테마)가 있다 — 사용자가
+    // 바뀌면 비운다. TOKEN_REFRESHED 처럼 같은 사용자로 다시 불리는 경우는 유지.
+    let lastUserId: string | null | undefined;
+
     function handleSession(session: { user: User } | null) {
       const user = session?.user ?? null;
+      const userId = user?.id ?? null;
+      if (lastUserId !== undefined && lastUserId !== userId) clearQueryCache();
+      lastUserId = userId;
       if (!user) {
         setState({ ...EMPTY, signOut });
         return;

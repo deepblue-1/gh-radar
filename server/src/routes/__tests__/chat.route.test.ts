@@ -108,8 +108,11 @@ describe("POST /api/chat", () => {
     const r = await request(app(makeSupabase({ user: USER })))
       .post("/api/chat")
       .set("Authorization", "Bearer tok")
+      .set("Accept-Encoding", "gzip")
       .send({ message: "삼성전자 어때?" });
     expect(r.status).toBe(200);
+    // SSE 는 압축 제외 — gzip 버퍼에 이벤트가 묶이면 스트리밍·keepalive 가 끊긴다.
+    expect(r.headers["content-encoding"]).toBeUndefined();
     expect(handleChatStreamMock).toHaveBeenCalledTimes(1);
     expect(handleChatStreamMock.mock.calls[0][3]).toMatchObject({
       userId: "user-1",

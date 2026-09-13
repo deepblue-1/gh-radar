@@ -134,6 +134,22 @@ describe("GET /api/themes (시스템 테마 목록 + 상위3평균 desc 정렬)"
     expect(r.body[1].top3AvgChangeRate).toBeCloseTo(3);
   });
 
+  it("30초 목록 캐시 — 같은 앱에 연속 요청하면 두 번째는 쿼리 0회, 응답 동일", async () => {
+    const supabase = mockSupabase(baseState());
+    const a = createApp({ supabase });
+    const fromSpy = supabase.from as unknown as ReturnType<typeof vi.fn>;
+
+    const first = await request(a).get("/api/themes");
+    expect(first.status).toBe(200);
+    const callsAfterFirst = fromSpy.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+
+    const second = await request(a).get("/api/themes");
+    expect(second.status).toBe(200);
+    expect(second.body).toEqual(first.body);
+    expect(fromSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
   it("유저 테마는 목록에 새지 않는다 (is_system=true 만)", async () => {
     const r = await request(app()).get("/api/themes");
     expect(r.body.some((t: any) => t.id === USER_T)).toBe(false);

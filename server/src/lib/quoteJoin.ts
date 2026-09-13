@@ -6,6 +6,7 @@
  * 테마/동조 후보는 종목 합집합이 수천 개일 수 있으므로 반드시 청크 분할 + error throw.
  */
 
+import pLimit from "p-limit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StockMasterRow, StockQuoteRow } from "../mappers/stock.js";
 
@@ -24,6 +25,30 @@ export const QUOTE_CHUNK = 200;
 export const ROW_PAGE = 1000;
 
 /**
+ * 청크 쿼리 동시 실행 상한. 순차 await 는 청크 수만큼 왕복이 쌓여 /api/themes 가 2초였다
+ * (쿼리 20여 회 × 약 80ms). 무제한 병렬은 요청 하나가 PostgREST 커넥션을 독점하므로 상한을 둔다.
+ */
+export const CHUNK_CONCURRENCY = 6;
+
+/**
+ * items 를 size 단위 청크로 나눠 fn 을 CHUNK_CONCURRENCY 병렬로 실행하고 청크 순서대로 결과를 모은다.
+ * 하나라도 throw 하면 전체가 reject 된다 (부분 결과로 진행 금지 — 37afcde 교훈).
+ */
+export async function mapChunks<T, R>(
+  items: T[],
+  size: number,
+  fn: (chunk: T[]) => Promise<R>,
+): Promise<R[]> {
+  const limit = pLimit(CHUNK_CONCURRENCY);
+  const tasks: Promise<R>[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    const chunk = items.slice(i, i + size);
+    tasks.push(limit(() => fn(chunk)));
+  }
+  return Promise.all(tasks);
+}
+
+/**
  * stock_quotes 를 code 청크(QUOTE_CHUNK)로 나눠 IN fetch → Map<code, quote>.
  * error 는 throw — 조용히 빈 결과로 진행하면 등락률이 전부 0/누락되어 정렬/표시가
  * silent 하게 깨진다 (37afcde 교훈: error 무시 금지).
@@ -32,18 +57,16 @@ export async function fetchQuotesChunked(
   supabase: SupabaseClient,
   codes: string[],
 ): Promise<Map<string, StockQuoteRow>> {
-  const byCode = new Map<string, StockQuoteRow>();
-  for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
-    const chunk = codes.slice(i, i + QUOTE_CHUNK);
+  const pages = await mapChunks(codes, QUOTE_CHUNK, async (chunk) => {
     const { data, error } = await supabase
       .from("stock_quotes")
       .select(QUOTE_COLS)
       .in("code", chunk);
     if (error) throw error;
-    for (const q of (data ?? []) as unknown as StockQuoteRow[]) {
-      byCode.set(q.code, q);
-    }
-  }
+    return (data ?? []) as unknown as StockQuoteRow[];
+  });
+  const byCode = new Map<string, StockQuoteRow>();
+  for (const q of pages.flat()) byCode.set(q.code, q);
   return byCode;
 }
 
@@ -55,17 +78,15 @@ export async function fetchMastersChunked(
   supabase: SupabaseClient,
   codes: string[],
 ): Promise<Map<string, StockMasterRow>> {
-  const byCode = new Map<string, StockMasterRow>();
-  for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
-    const chunk = codes.slice(i, i + QUOTE_CHUNK);
+  const pages = await mapChunks(codes, QUOTE_CHUNK, async (chunk) => {
     const { data, error } = await supabase
       .from("stocks")
       .select(MASTER_COLS)
       .in("code", chunk);
     if (error) throw error;
-    for (const m of (data ?? []) as unknown as StockMasterRow[]) {
-      byCode.set(m.code, m);
-    }
-  }
+    return (data ?? []) as unknown as StockMasterRow[];
+  });
+  const byCode = new Map<string, StockMasterRow>();
+  for (const m of pages.flat()) byCode.set(m.code, m);
   return byCode;
 }

@@ -49,24 +49,27 @@ scannerRouter.get("/", async (req, res, next) => {
     }
 
     // 2. stock_quotes IN (codes) — 시세
+    // 3. stocks (마스터) IN (codes) — name/market 캐노니컬 (top_movers 의 캐시보다 우선)
+    //    CRIT-2: 상장폐지 종목은 제외 — top_movers 에 잔존하더라도 스캐너 응답에서 필터
+    //    두 쿼리는 서로 의존하지 않으므로 병렬로 보낸다.
     const codes = moverRows.map((m) => m.code);
-    const { data: quotes, error: qErr } = await supabase
-      .from("stock_quotes")
-      .select(QUOTE_COLS)
-      .in("code", codes);
+    const [
+      { data: quotes, error: qErr },
+      { data: masters, error: mErr },
+    ] = await Promise.all([
+      supabase.from("stock_quotes").select(QUOTE_COLS).in("code", codes),
+      supabase
+        .from("stocks")
+        .select(MASTER_COLS)
+        .in("code", codes)
+        .eq("is_delisted", false),
+    ]);
     if (qErr) throw qErr;
     const quoteByCode = new Map<string, StockQuoteRow>();
     for (const q of (quotes ?? []) as unknown as StockQuoteRow[]) {
       quoteByCode.set(q.code, q);
     }
 
-    // 3. stocks (마스터) IN (codes) — name/market 캐노니컬 (top_movers 의 캐시보다 우선)
-    //    CRIT-2: 상장폐지 종목은 제외 — top_movers 에 잔존하더라도 스캐너 응답에서 필터
-    const { data: masters, error: mErr } = await supabase
-      .from("stocks")
-      .select(MASTER_COLS)
-      .in("code", codes)
-      .eq("is_delisted", false);
     if (mErr) throw mErr;
     const masterByCode = new Map<string, StockMasterRow>();
     for (const m of (masters ?? []) as unknown as StockMasterRow[]) {

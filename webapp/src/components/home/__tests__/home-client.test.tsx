@@ -73,7 +73,8 @@ describe('HomeClient 자동 갱신 (최신 보기에서만)', () => {
     fireEvent.change(slider, { target: { value: '0' } });
     await advance(500);
     await waitFor(() => expect(fetchHomeMock).toHaveBeenCalledTimes(3));
-    expect(fetchHomeMock.mock.calls[2][0]).toEqual({ date: DATE, capturedAt: SLOT_A });
+    // index 를 이미 가졌으므로 indexSince(증분)가 함께 갈 수 있다 — 슬롯 선택 계약만 본다.
+    expect(fetchHomeMock.mock.calls[2][0]).toMatchObject({ date: DATE, capturedAt: SLOT_A });
 
     // 탐색 중 — 60s 동안 자동 요청 0.
     await advance(60_000);
@@ -82,7 +83,8 @@ describe('HomeClient 자동 갱신 (최신 보기에서만)', () => {
     // '오늘' → 무필터 즉시 조회 + 폴링 재개.
     fireEvent.click(screen.getByRole('button', { name: '오늘' }));
     await waitFor(() => expect(fetchHomeMock).toHaveBeenCalledTimes(4));
-    expect(fetchHomeMock.mock.calls[3][0]).toEqual({ date: undefined, capturedAt: undefined });
+    expect(fetchHomeMock.mock.calls[3][0].date).toBeUndefined();
+    expect(fetchHomeMock.mock.calls[3][0].capturedAt).toBeUndefined();
     await advance(30_000);
     await waitFor(() => expect(fetchHomeMock).toHaveBeenCalledTimes(5));
   });

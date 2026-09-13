@@ -19,6 +19,9 @@ export const HomeQuery = z.object({
   // offset: true — DB/index 가 반환하는 "+00:00" 오프셋 표기 허용 (기본은 "Z" 만 허용해
   // 클라가 index.capturedAt 을 그대로 되돌려보내면 400 → 슬롯 네비가 조용히 죽는다).
   capturedAt: z.string().datetime({ offset: true }).optional(),
+  // 증분 index — 클라가 이미 가진 최신 captured_at. 주면 index 는 그보다 새 슬롯만 담는다.
+  // 전체 index(≈175KB) 를 30초 폴링마다 다시 받지 않기 위함.
+  indexSince: z.string().datetime({ offset: true }).optional(),
 });
 
 export type HomeQueryT = z.infer<typeof HomeQuery>;

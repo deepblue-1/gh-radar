@@ -21,6 +21,11 @@ export interface FetchHomeParams {
   date?: string;
   /** 정확한 시점 (ISO timestamptz). 지정 시 date 무시하고 해당 슬롯. */
   capturedAt?: string;
+  /**
+   * 증분 index — 이미 가진 최신 capturedAt. 주면 응답 index 는 그보다 새 슬롯만 담는다
+   * (전체 index ≈175KB 를 폴링마다 다시 받지 않기 위함). 병합은 호출부 책임.
+   */
+  indexSince?: string;
 }
 
 /**
@@ -34,6 +39,7 @@ export function fetchHome(
   const search = new URLSearchParams();
   if (params.capturedAt) search.set('capturedAt', params.capturedAt);
   else if (params.date) search.set('date', params.date);
+  if (params.indexSince) search.set('indexSince', params.indexSince);
 
   const qs = search.toString();
   const path = qs ? `/api/home?${qs}` : '/api/home';

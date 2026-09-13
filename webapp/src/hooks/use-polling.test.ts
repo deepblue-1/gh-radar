@@ -66,6 +66,34 @@ describe('usePolling', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('cacheKey — 재마운트 시 캐시로 즉시 그리고(초기 로딩 없음) 백그라운드로 교체', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce('v1').mockResolvedValueOnce('v2');
+    const opts = { intervalMs: 60_000, key: 'k1', cacheKey: 'test:k1' };
+
+    const first = renderHook(() => usePolling(fetcher, opts));
+    await waitFor(() => expect(first.result.current.data).toBe('v1'));
+    first.unmount();
+
+    // 페이지 재방문 — 첫 렌더부터 마지막 값, 스켈레톤 경로(isInitialLoading) 없음.
+    const second = renderHook(() => usePolling(fetcher, opts));
+    expect(second.result.current.data).toBe('v1');
+    expect(second.result.current.isInitialLoading).toBe(false);
+    await waitFor(() => expect(second.result.current.data).toBe('v2'));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('cacheKey 없으면 재마운트 시 다시 초기 로딩부터', async () => {
+    const fetcher = vi.fn().mockResolvedValue('v1');
+    const first = renderHook(() => usePolling(fetcher, { intervalMs: 60_000, key: 'k1' }));
+    await waitFor(() => expect(first.result.current.data).toBe('v1'));
+    first.unmount();
+
+    const second = renderHook(() => usePolling(fetcher, { intervalMs: 60_000, key: 'k1' }));
+    expect(second.result.current.data).toBeUndefined();
+    expect(second.result.current.isInitialLoading).toBe(true);
+    await waitFor(() => expect(second.result.current.data).toBe('v1'));
+  });
+
   it('key 변경 시 즉시 재요청', async () => {
     const fetcher = vi.fn().mockResolvedValue('v1');
     const { result, rerender } = renderHook(

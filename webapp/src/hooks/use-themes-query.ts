@@ -4,8 +4,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ThemeWithStats } from '@gh-radar/shared';
 
+import { readQueryCache, writeQueryCache } from '@/lib/query-cache';
 import { createClient } from '@/lib/supabase/client';
 import { fetchMyThemes, fetchSystemThemes } from '@/lib/theme-api';
+
+/**
+ * 페이지 이동 캐시 키. 내 테마는 사용자별이지만 로그인 사용자가 바뀌면 AuthProvider 가
+ * 캐시 전체를 비우므로 키에 사용자를 담지 않는다.
+ */
+const THEMES_CACHE_KEY = 'themes';
+
+interface ThemesCache {
+  system: ThemeWithStats[];
+  mine: ThemeWithStats[];
+}
 
 /**
  * Phase 10 Plan 05 Task 2 — useThemesQuery.
@@ -58,14 +70,18 @@ export interface UseThemesQueryResult {
 }
 
 export function useThemesQuery(): UseThemesQueryResult {
-  const [systemThemes, setSystemThemes] = useState<ThemeWithStats[]>([]);
-  const [myThemes, setMyThemes] = useState<ThemeWithStats[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // 재방문 시 마지막 목록으로 즉시 그리고(스켈레톤 없음) 아래 load 가 백그라운드로 교체한다.
+  const [cached] = useState(() => readQueryCache<ThemesCache>(THEMES_CACHE_KEY));
+  const [systemThemes, setSystemThemes] = useState<ThemeWithStats[]>(
+    cached?.system ?? [],
+  );
+  const [myThemes, setMyThemes] = useState<ThemeWithStats[]>(cached?.mine ?? []);
+  const [isLoading, setIsLoading] = useState(cached === undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const mountedRef = useRef(true);
-  const isInitialRef = useRef(true);
+  const isInitialRef = useRef(cached === undefined);
 
   const load = useCallback(async () => {
     const initial = isInitialRef.current;
@@ -89,6 +105,7 @@ export function useThemesQuery(): UseThemesQueryResult {
       setSystemThemes(system);
       setMyThemes(mine);
       setError(null);
+      writeQueryCache<ThemesCache>(THEMES_CACHE_KEY, { system, mine });
     } catch (err) {
       if (!mountedRef.current) return;
       setError(err instanceof Error ? err : new Error(String(err)));

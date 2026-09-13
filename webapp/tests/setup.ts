@@ -1,6 +1,7 @@
 import * as matchers from '@testing-library/jest-dom/matchers';
 import { afterEach, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { clearQueryCache } from '@/lib/query-cache';
 
 // NOTE: `@testing-library/jest-dom/vitest` 진입점은 monorepo root 의 vitest@4
 // (hoisted) 를 resolve 하여 webapp 의 vitest@2 `expect` 와 분리된 인스턴스에
@@ -14,7 +15,11 @@ expect.extend(matchers);
  * - RTL cleanup after each test
  * - matchMedia / ResizeObserver / scrollIntoView polyfill (cmdk CommandDialog 요구)
  */
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  // 훅 메모리 캐시가 테스트 사이로 새면 두 번째 테스트가 스켈레톤 없이 시작한다.
+  clearQueryCache();
+});
 
 if (typeof window !== 'undefined') {
   if (!window.matchMedia) {

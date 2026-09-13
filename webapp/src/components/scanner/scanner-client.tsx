@@ -42,7 +42,11 @@ export function ScannerClient() {
   );
 
   const { data, error, refresh, isRefreshing, isInitialLoading } =
-    usePolling(fetcher, { intervalMs: AUTO_REFRESH_INTERVAL_MS, key });
+    usePolling(fetcher, {
+      intervalMs: AUTO_REFRESH_INTERVAL_MS,
+      key,
+      cacheKey: `scanner:${key}`,
+    });
 
   // Phase 05.2 D-17/D-18: 갱신시각 소스를 서버 X-Last-Updated-At 헤더로 교체.
   // data: { stocks, lastUpdatedAt: string | null } | undefined

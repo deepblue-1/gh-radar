@@ -98,6 +98,16 @@ export function mockSupabase(state: State): SupabaseClient {
         );
         return builder;
       }),
+      // .gt(col, iso) — 문자열(ISO timestamptz)은 사전순, 그 외는 숫자 비교
+      gt: vi.fn().mockImplementation((col: string, val: unknown) => {
+        filtered = filtered.filter((r) => {
+          const v = (r as any)[col];
+          return typeof v === "string" && typeof val === "string"
+            ? v > val
+            : Number(v) > Number(val);
+        });
+        return builder;
+      }),
       in: vi.fn().mockImplementation((col: string, vals: any[]) => {
         const set = new Set(vals);
         filtered = filtered.filter((r) => set.has((r as any)[col]));
