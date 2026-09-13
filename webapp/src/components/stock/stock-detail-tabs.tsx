@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, type ReactNode } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -16,7 +16,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
  * 계약 (D-02a · 15-UI-SPEC §확정 결정 T1~T7):
  *   T1 히어로·갱신행은 탭 밖 — 이 셸은 탭 바와 패널만 소유한다
  *   T2 탭 순서·라벨 고정. 라벨에 띄어쓰기 없음(모바일 390px 한 줄 배치)
- *   T3 `?tab=chart|orderbook|info|news`, 기본 `chart`, `router.push`(뒤로가기가 이전 탭으로)
+ *   T3 `?tab=chart|orderbook|info|news`, 기본 `chart`, `window.history.pushState`(push 계열 — 뒤로가기가 이전 탭으로)
+ *      라우터 내비게이션은 RSC 서버 왕복이 끝나야 `?tab=` 이 바뀌어 탭 전환이 지연됐다. Next 15 가
+ *      네이티브 pushState 를 검색 파라미터 훅과 동기화하므로 서버 요청 없이 즉시 전환된다.
+ *      한 클릭 = 기록 1개는 핸들러의 실시간 URL 가드가 보장한다 (260913-v2e)
  *   T4 탭 바 sticky
  *   T5 shadcn 공식 `tabs`(Radix) — ←/→ · Home/End 키보드는 Radix 기본 동작 상속
  *   T6 `호가주문` 패널만 넓은 컨테이너, 나머지 3탭은 `max-w-4xl`
@@ -66,7 +69,6 @@ export function StockDetailTabs({
   info,
   news,
 }: StockDetailTabsProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const tabBarRef = useRef<HTMLDivElement>(null);
 
@@ -76,13 +78,23 @@ export function StockDetailTabs({
   const handleValueChange = useCallback(
     (next: string) => {
       const value = toTabValue(next);
-      // T3 — `replace` 가 아니라 `push`. 브라우저 뒤로가기가 이전 탭으로 돌아가야 한다.
-      // `scroll:false` 로 Next 의 최상단 점프를 끄고, 아래에서 탭 바 기준으로 직접 맞춘다.
-      router.push(`?tab=${value}`, { scroll: false });
+      // 한 클릭 = 기록 1개 가드. Radix TabsTrigger 는 mousedown 과 focus(자동 활성화) 두 곳에서
+      // onValueChange 를 부른다(Chrome·안드로이드는 mousedown 에 포커스한다). 종전 라우터
+      // 내비게이션은 Next 가 같은 URL 푸시를 합쳐 줬지만 네이티브 pushState 는 기록을 2개 남겨
+      // 뒤로가기를 두 번 눌러야 이전 탭으로 간다(T3 위반). 렌더 클로저의 `active` 는 Next 의
+      // transition 반영 전이라 낡아 있으므로, 동기로 바뀌는 실시간 URL 로 거른다 (260913-v2e).
+      if (toTabValue(new URLSearchParams(window.location.search).get('tab')) === value) {
+        return;
+      }
+      // T3 — `replace` 가 아니라 push 계열. 브라우저 뒤로가기가 이전 탭으로 돌아가야 한다.
+      // 라우터 내비게이션은 RSC 서버 왕복이 끝나야 `?tab=` 이 바뀌어 탭 전환이 지연됐다.
+      // Next 15 는 네이티브 pushState 를 검색 파라미터 훅과 동기화하므로 서버 요청 없이
+      // 즉시 전환된다. 쿼리만 쓰는 상대 URL 이라 pathname 은 유지된다 (260913-v2e).
+      window.history.pushState(null, '', `?tab=${value}`);
       // 탭 바 바로 아래가 보이도록 스크롤(히어로는 지나간 상태). 탭별 스크롤 복원은 없다.
       tabBarRef.current?.scrollIntoView({ block: 'start' });
     },
-    [router],
+    [],
   );
 
   return (
