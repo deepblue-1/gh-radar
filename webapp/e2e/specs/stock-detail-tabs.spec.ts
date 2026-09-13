@@ -9,7 +9,8 @@ import { mockThemeChips } from '../fixtures/themes';
  *
  * 스코프:
  *   - 상단 4탭(`차트`/`호가주문`/`종목정보`/`뉴스토론`)이 role="tab" 으로 존재 (T2)
- *   - 탭 전환이 `?tab=` 에 반영되고 딥링크·뒤로가기가 동작 (T3)
+ *   - 탭 전환이 서버 요청 없이(네이티브 pushState) `?tab=` 에 반영되고 딥링크·뒤로가기가 동작 (T3)
+ *   - test 10: 탭 전환이 `tab=` 을 담은 RSC 요청을 0건 만든다 — 지연 해소 증명 (260913-v2e)
  *   - **기존 5개 phase 의 섹션이 탭 안에서 그대로 렌더된다** — 재배치가 기능을 잃지
  *     않았음을 증명하는 회귀 테스트가 이 spec 의 핵심 목적 (T7)
  *   - 히어로·새로고침이 탭 밖 공통 영역이라 모든 탭에서 보인다 (T1)
@@ -189,7 +190,7 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
     await expect(page.getByTestId('stock-daily-chart-section')).toBeVisible();
   });
 
-  test('8. 뒤로가기가 이전 탭으로 돌아간다 — router.push 증명 (T3)', async ({
+  test('8. 뒤로가기 한 번이 이전 탭으로 돌아간다 — history.pushState 증명 (T3)', async ({
     page,
   }) => {
     await setupStockDetail(page);
@@ -203,7 +204,9 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
 
     await page.goBack();
 
-    // replace 였다면 종목상세를 벗어났을 것이다. push 이므로 `차트` 탭으로 되돌아온다.
+    // 두 실패 모드를 함께 잡는다: replace 였다면 종목상세를 벗어났을 것이고, 한 클릭이 기록을
+    // 2개 남겼다면(Radix mousedown+focus 이중 호출) goBack 한 번으로는 종목정보에 머물렀을 것이다.
+    // push 1회이므로 `차트` 탭으로 되돌아온다 (260913-v2e).
     await expect(
       page.getByRole('tab', { name: '차트', exact: true }),
     ).toHaveAttribute('aria-selected', 'true');
@@ -227,5 +230,35 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
       ).toBeVisible();
       await expect(refresh).toBeVisible();
     }
+  });
+
+  test('10. 탭 전환은 서버(RSC) 요청을 만들지 않는다 — 지연 해소 증명 (260913-v2e)', async ({
+    page,
+  }) => {
+    await setupStockDetail(page);
+    await page.goto(`/stocks/${STOCK_CODE}`);
+    await waitForHero(page);
+
+    // `tab=` 을 담은 RSC 요청만 센다. 사이드바 Link 프리페치는 `next-router-prefetch` 헤더가
+    // 붙으므로 뺀다(Playwright 는 헤더 이름을 소문자로 준다).
+    const rscTabRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = request.url();
+      const headers = request.headers();
+      const isRsc = headers['rsc'] === '1' || url.includes('_rsc=');
+      if (url.includes('tab=') && isRsc && !headers['next-router-prefetch']) {
+        rscTabRequests.push(url);
+      }
+    });
+
+    for (const label of ['종목정보', '뉴스토론', '호가주문']) {
+      const trigger = page.getByRole('tab', { name: label, exact: true });
+      await trigger.click();
+      await expect(trigger).toHaveAttribute('aria-selected', 'true');
+    }
+    await expect(page).toHaveURL(/\?tab=orderbook$/);
+
+    // 배열 자체를 비교해 실패 시 모인 URL 목록이 보이게 한다.
+    expect(rscTabRequests).toEqual([]);
   });
 });
