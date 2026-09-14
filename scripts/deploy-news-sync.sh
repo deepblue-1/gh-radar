@@ -9,8 +9,10 @@ set -euo pipefail
 # 리소스:
 #   - Cloud Run Job: gh-radar-news-sync (asia-northeast3, 512Mi, 600s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/news-sync:<sha>
-#   - Scheduler 1: gh-radar-news-sync-intraday "*/15 8-15 * * 1-5" (장중 평일 KST)
-#   - Scheduler 2: gh-radar-news-sync-offhours "0 */2 * * *"      (장외, 2h 주기 KST)
+#   - Scheduler 1: gh-radar-news-sync-morning     "*/3 8-9 * * 1-5"      (평일 08:00~09:57 3분)
+#   - Scheduler 2: gh-radar-news-sync-morning-10h "0-30/3,45 10 * * 1-5" (평일 10:00~10:30 3분 + 10:45)
+#   - Scheduler 3: gh-radar-news-sync-intraday    "*/15 11-15 * * 1-5"   (평일 11:00~15:45 15분)
+#   - Scheduler 4: gh-radar-news-sync-offhours    "0 */2 * * *"          (장외, 2h 주기 KST)
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용 (OIDC 금지, Pitfall 2).
 # ═══════════════════════════════════════════════════════════════
@@ -145,15 +147,29 @@ gcloud run jobs add-iam-policy-binding "$JOB" \
 echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 8: Cloud Scheduler — R6 분리 운영 (intraday + offhours)
+# Section 8: Cloud Scheduler — 아침장 3분(morning · morning-10h) + 장중 15분(intraday) + offhours
 #   주의: --oauth-service-account-email 사용 (OIDC 금지, Pitfall 2)
 #         time-zone Asia/Seoul
+#
+#   아침장 3분 주기 (quick-260915-boq):
+#   - 운영 근거(CLAUDE.md 크롤링 5원칙 대비): 2026-09-15 사용자 명시 승인. 호출량은 사용자 수가
+#     아니라 고정 대상 집합(top_movers 상위 100 + watchlists)에 비례하는 서버측 배치이며,
+#     사용자 클릭 on-demand 호출은 없다.
+#   - 예산 실측: 회당 104~152 호출(targets 104), 장중 평일 실행 32회 → 76회(+44),
+#     일 추정 ≈9.9K (offhours 12회 포함) < NEWS_SYNC_DAILY_BUDGET 24,500.
+#     실행 시간 18~43s(3분 주기 대비 충분), 겹쳐도 upsert ignoreDuplicates + atomic incr_api_usage 로 안전.
+#   - 장중 잡 3개는 시 범위 8-9 / 10 / 11-15 가 서로소라 서로 같은 분에 발화하지 않는다.
+#   - 순서 중요: 새 아침 잡을 먼저 만들고 기존 intraday 를 나중에 좁혀야 적용 중 공백이 없다.
+#   - 알고 남겨 둔 기존 중복: offhours `0 */2` 가 08:00·10:00·12:00·14:00 에 장중 잡과
+#     같은 분에 발화한다(offhours 불변 결정 — 2번째 실행은 inserted≈0, 호출 ≈+100).
 # ═══════════════════════════════════════════════════════════════
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 
 declare -a NEWS_SCHEDULERS=(
-  "gh-radar-news-sync-intraday|*/15 8-15 * * 1-5"
+  "gh-radar-news-sync-morning|*/3 8-9 * * 1-5"
+  "gh-radar-news-sync-morning-10h|0-30/3,45 10 * * 1-5"
+  "gh-radar-news-sync-intraday|*/15 11-15 * * 1-5"
   "gh-radar-news-sync-offhours|0 */2 * * *"
 )
 
@@ -188,7 +204,7 @@ done
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
-echo "  Schedulers: gh-radar-news-sync-intraday + gh-radar-news-sync-offhours"
+echo "  Schedulers: gh-radar-news-sync-morning + gh-radar-news-sync-morning-10h + gh-radar-news-sync-intraday + gh-radar-news-sync-offhours"
 echo ""
 
 echo "▶ smoke tests..."

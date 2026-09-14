@@ -38,11 +38,27 @@ check "INV-2 jobs describe" \
   gcloud run jobs describe "$JOB" --region="$REGION"
 
 # ─────────────────────────────────────────────────────────────
-# INV-3a: Scheduler intraday schedule === '*/15 8-15 * * 1-5'
+# INV-3a: Scheduler intraday schedule === '*/15 11-15 * * 1-5'
 # ─────────────────────────────────────────────────────────────
 check "INV-3a scheduler intraday schedule" bash -c "
   SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-intraday --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$SCHEDULE\" = '*/15 8-15 * * 1-5' ]
+  [ \"\$SCHEDULE\" = '*/15 11-15 * * 1-5' ]
+"
+
+# ─────────────────────────────────────────────────────────────
+# INV-3d: Scheduler morning schedule === '*/3 8-9 * * 1-5' (quick-260915-boq)
+# ─────────────────────────────────────────────────────────────
+check "INV-3d scheduler morning schedule" bash -c "
+  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-morning --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
+  [ \"\$SCHEDULE\" = '*/3 8-9 * * 1-5' ]
+"
+
+# ─────────────────────────────────────────────────────────────
+# INV-3e: Scheduler morning-10h schedule === '0-30/3,45 10 * * 1-5' (quick-260915-boq)
+# ─────────────────────────────────────────────────────────────
+check "INV-3e scheduler morning-10h schedule" bash -c "
+  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-morning-10h --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
+  [ \"\$SCHEDULE\" = '0-30/3,45 10 * * 1-5' ]
 "
 
 # ─────────────────────────────────────────────────────────────
@@ -54,12 +70,13 @@ check "INV-3b scheduler offhours schedule" bash -c "
 "
 
 # ─────────────────────────────────────────────────────────────
-# INV-3c: 두 scheduler 모두 ENABLED
+# INV-3c: 네 scheduler 모두 ENABLED (morning · morning-10h · intraday · offhours)
 # ─────────────────────────────────────────────────────────────
-check "INV-3c both schedulers ENABLED" bash -c "
-  S1=\$(gcloud scheduler jobs describe gh-radar-news-sync-intraday --location=\"$REGION\" --format='value(state)' 2>/dev/null)
-  S2=\$(gcloud scheduler jobs describe gh-radar-news-sync-offhours --location=\"$REGION\" --format='value(state)' 2>/dev/null)
-  [ \"\$S1\" = 'ENABLED' ] && [ \"\$S2\" = 'ENABLED' ]
+check "INV-3c all schedulers ENABLED" bash -c "
+  for S in gh-radar-news-sync-morning gh-radar-news-sync-morning-10h gh-radar-news-sync-intraday gh-radar-news-sync-offhours; do
+    STATE=\$(gcloud scheduler jobs describe \"\$S\" --location=\"$REGION\" --format='value(state)' 2>/dev/null)
+    [ \"\$STATE\" = 'ENABLED' ] || exit 1
+  done
 "
 
 # ─────────────────────────────────────────────────────────────
