@@ -67,8 +67,8 @@ export function rowToStock(r: StockRow): StockWithProximity {
     volume: r.volume,
     tradeAmount: r.trade_amount,
     open: Number(r.open ?? 0),
-    high: Number(r.high ?? 0),
-    low: Number(r.low ?? 0),
+    high: clampHigh(Number(r.high ?? 0), price),
+    low: clampLow(Number(r.low ?? 0), price),
     marketCap: Number(r.market_cap ?? 0),
     upperLimit: upper,
     lowerLimit: Number(r.lower_limit),
@@ -111,6 +111,18 @@ export type StockQuoteRow = {
 
 export type StockWithProximityResponse = StockDetailResponse;
 
+/**
+ * 표시 보정 — 현재가(STEP1 ka10027 통합, 애프터마켓·NXT 포함)가 고가/저가(STEP2 ka10001 KRX,
+ * hot set 만 갱신)를 벗어나면 현재가로 맞춘다. 값이 없으면(0) 그대로 둔다.
+ * 추가 API 호출 없이 "현재가 > 고가" 모순만 제거(260915 실측 331행).
+ */
+function clampHigh(high: number, price: number): number {
+  return high > 0 && price > high ? price : high;
+}
+function clampLow(low: number, price: number): number {
+  return low > 0 && price > 0 && price < low ? price : low;
+}
+
 export function mergeMasterAndQuote(
   master: StockMasterRow,
   quote: StockQuoteRow | null,
@@ -128,8 +140,8 @@ export function mergeMasterAndQuote(
     volume: quote ? quote.volume : 0,
     tradeAmount: quote ? quote.trade_amount : 0,
     open: quote ? Number(quote.open ?? 0) : 0,
-    high: quote ? Number(quote.high ?? 0) : 0,
-    low: quote ? Number(quote.low ?? 0) : 0,
+    high: quote ? clampHigh(Number(quote.high ?? 0), price) : 0,
+    low: quote ? clampLow(Number(quote.low ?? 0), price) : 0,
     marketCap: quote ? Number(quote.market_cap ?? 0) : 0,
     upperLimit: upper,
     lowerLimit: quote ? Number(quote.lower_limit) : 0,

@@ -1,8 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IntradayCloseUpdate, IntradayOhlcUpdate } from "@gh-radar/shared";
+import { limitUpPrice } from "@gh-radar/shared";
 import { logger } from "../logger";
 
 const CHUNK = 1000;
+
+/** 전일종가 = 현재가 − 전일대비. 비정상(≤0·NaN)이면 현재가로 폴백. */
+function prevCloseOf(u: IntradayCloseUpdate): number {
+  const prev = u.price - (u.changeAmount ?? 0);
+  return Number.isFinite(prev) && prev > 0 ? prev : u.price;
+}
+
+/** 하한가 = ceil(전일종가 × 0.7 / tick) × tick — tick 은 target 가격대 기준(limitUpPrice 와 같은 7구간). */
+function limitDownPrice(prevClose: number): number {
+  const tgt = prevClose * 0.7;
+  const unit =
+    tgt < 2000 ? 1 : tgt < 5000 ? 5 : tgt < 20000 ? 10 : tgt < 50000 ? 50 : tgt < 200000 ? 100 : tgt < 500000 ? 500 : 1000;
+  return Math.ceil(tgt / unit) * unit;
+}
 
 /**
  * STEP1 stock_quotes UPSERT — 1,898 row × 6 컬럼. RESEARCH §3.3.1 + Pattern 3.
@@ -29,13 +44,12 @@ export async function upsertQuotesStep1(
     change_rate: u.changeRate,
     volume: u.volume,
     trade_amount: u.tradeAmount,
-    // upper_limit/lower_limit 는 stock_quotes 의 NOT NULL 제약 (Phase 1 schema 잔재).
-    // 키움 ka10027 STEP1 응답에는 미포함 — STEP2 (ka10001 hot set) 가 정확값으로 덮어씀.
-    // 한국 시장 일일 변동폭 ±30% 규칙으로 근사값 채워 신규 종목 INSERT 의 NULL 위반 방지.
-    // hot set 외 종목은 다음 cycle 부터 본 임시값 그대로 유지 (EOD candle-sync 가 보정 가능).
-    // 향후 deferred: stock_quotes.upper_limit/lower_limit DROP NOT NULL migration 으로 정리.
-    upper_limit: Math.round(u.price * 1.3 * 100) / 100,
-    lower_limit: Math.round(u.price * 0.7 * 100) / 100,
+    // upper_limit/lower_limit — ka10027 응답에는 없어 전일종가(price − 전일대비)로 계산한다.
+    // 가격제한폭 ±30% 를 호가단위로 절사/절상(RPC limit_up_price 와 동형). STEP2(ka10001 hot set)
+    // 가 이어서 upl_pric/lst_pric 정확값으로 덮는다. 예전 price×1.3 임시값은 매분 전 종목을
+    // 덮어써 상한가 근접도(price/upper)를 ≈0.77 로 고정시켰다(260915 실측, 2,779행).
+    upper_limit: limitUpPrice(prevCloseOf(u)),
+    lower_limit: limitDownPrice(prevCloseOf(u)),
     updated_at: now,
   }));
 

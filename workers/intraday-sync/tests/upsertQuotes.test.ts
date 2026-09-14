@@ -39,9 +39,9 @@ describe("upsertQuotesStep1", () => {
         change_rate: 0.71,
         volume: 10000000,
         trade_amount: 705000000000,
-        // 한국 시장 일일 변동폭 ±30% 임시값 — NOT NULL 제약 만족, STEP2 가 정확값으로 덮어씀
-        upper_limit: 70500 * 1.3,
-        lower_limit: 70500 * 0.7,
+        // 전일종가 70000(=70500−500) ±30% 호가단위(50) 절사/절상
+        upper_limit: 91000,
+        lower_limit: 49000,
       }),
     );
     // stock_quotes 스키마에 없는 컬럼은 페이로드에 없어야 함 (2026-05-15 first cycle 에서 'market' 누락 에러 발견)
@@ -50,6 +50,22 @@ describe("upsertQuotesStep1", () => {
     expect(payload[0].open).toBeUndefined();
     expect(payload[0].high).toBeUndefined();
     expect(payload[0].market_cap).toBeUndefined();
+  });
+
+  it("upper/lower_limit 는 전일종가 기준 호가단위 산출 (260914 실측값 대조)", async () => {
+    const supabase = mockUpsert();
+    const mk = (code: string, price: number, changeAmount: number): IntradayCloseUpdate => ({
+      code, date: "2026-09-14", price, changeAmount, changeRate: 0, volume: 0, tradeAmount: 0,
+    });
+    await upsertQuotesStep1(
+      supabase as unknown as Parameters<typeof upsertQuotesStep1>[0],
+      [mk("017900", 10270, 2370), mk("296640", 7990, 1840), mk("000670", 49950, 11500), mk("012700", 3775, 850)],
+    );
+    const p = supabase._upsert.mock.calls[0][0] as Array<Record<string, number>>;
+    // 017900 전일 7900 → 10270 / 296640 전일 6150 → 7990 / 000670 전일 38450 → 49950 / 012700 전일 2925 → 3800
+    expect(p.map((r) => r.upper_limit)).toEqual([10270, 7990, 49950, 3800]);
+    // 하한가: 5530 / 4305 / 26915→26950(tick 50 절상) / 2047.5→2050(tick 5 절상)
+    expect(p.map((r) => r.lower_limit)).toEqual([5530, 4305, 26950, 2050]);
   });
 
   it("1500 row → 2 chunk", async () => {

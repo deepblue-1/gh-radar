@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rowToStock, inquirePriceToQuoteRow } from "../../src/mappers/stock";
+import { rowToStock, inquirePriceToQuoteRow, mergeMasterAndQuote } from "../../src/mappers/stock";
 import { samsungRow } from "../fixtures/stocks";
 import type { KiwoomKa10001Row } from "@gh-radar/shared";
 
@@ -24,6 +24,29 @@ describe("rowToStock", () => {
   });
   it("preserves market as 'KOSPI' | 'KOSDAQ'", () => {
     expect(rowToStock(samsungRow).market).toBe("KOSPI");
+  });
+  it("high/low 를 현재가로 보정 (애프터마켓 통합가 > KRX 고가)", () => {
+    const up = rowToStock({ ...samsungRow, price: "75000", high: "71000", low: "69000" });
+    expect(up.high).toBe(75000);
+    expect(up.low).toBe(69000);
+    const down = rowToStock({ ...samsungRow, price: "68000", high: "71000", low: "69000" });
+    expect(down.high).toBe(71000);
+    expect(down.low).toBe(68000);
+    const missing = rowToStock({ ...samsungRow, high: null, low: null });
+    expect(missing.high).toBe(0);
+    expect(missing.low).toBe(0);
+  });
+});
+
+describe("mergeMasterAndQuote high/low 보정", () => {
+  it("price > high 이면 high=price", () => {
+    const s = rowToStock(samsungRow);
+    const out = mergeMasterAndQuote(
+      { code: s.code, name: s.name, isin: null, market: "KOSPI", sector: null, security_type: "주권", listing_date: null, is_delisted: false, updated_at: s.updatedAt },
+      { ...samsungRow, price: "75000", high: "71000", low: "69000" },
+    );
+    expect(out.high).toBe(75000);
+    expect(out.low).toBe(69000);
   });
 });
 
