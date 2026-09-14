@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { loadSurges, kstMidnightIso, isExcludedProduct } from "./loadSurges";
+import {
+  loadSurges,
+  kstMidnightIso,
+  isExcludedProduct,
+  newsWindowCutoffIso,
+} from "./loadSurges";
 import type { HomeSyncConfig } from "../config";
 import {
   createMockSupabase,
@@ -90,6 +95,32 @@ describe("kstMidnightIso", () => {
     // 2026-07-07 00:01 KST → KST 당일 2026-07-07 자정 = 2026-07-06T15:00Z.
     expect(kstMidnightIso(new Date("2026-07-07T00:01:00+09:00"))).toBe(
       "2026-07-06T15:00:00.000Z",
+    );
+  });
+});
+
+describe("newsWindowCutoffIso (quick-260915-boq: min(now−48h, 직전 거래일 15:30 KST))", () => {
+  it("월 09:05 → 금 15:30 KST (48h 보다 이름)", () => {
+    expect(newsWindowCutoffIso(new Date("2026-09-14T09:05:00+09:00"))).toBe(
+      "2026-09-11T06:30:00.000Z",
+    );
+  });
+
+  it("화 09:05 → now−48h (48h 가 더 이름)", () => {
+    expect(newsWindowCutoffIso(new Date("2026-09-15T09:05:00+09:00"))).toBe(
+      "2026-09-13T00:05:00.000Z",
+    );
+  });
+
+  it("추석 연휴 다음날(월) 09:05 → 수 15:30 KST", () => {
+    expect(newsWindowCutoffIso(new Date("2026-09-28T09:05:00+09:00"))).toBe(
+      "2026-09-23T06:30:00.000Z",
+    );
+  });
+
+  it("개천절 대체공휴일 다음날(화) 09:05 → 금 15:30 KST", () => {
+    expect(newsWindowCutoffIso(new Date("2026-10-06T09:05:00+09:00"))).toBe(
+      "2026-10-02T06:30:00.000Z",
     );
   });
 });
@@ -279,7 +310,7 @@ describe("loadSurges", () => {
     expect(news.map((n) => n.id)).toEqual(["m1", "m2", "r1", "r2"]);
   });
 
-  it("48h 창 필터: news_articles 쿼리에 published_at >= now-48h cutoff 적용", async () => {
+  it("48h 창 필터: 화~금은 news_articles 쿼리에 published_at >= 주입 now-48h cutoff 적용", async () => {
     const sb = createMockSupabase();
     setQuotes(sb.from("stock_quotes"), [
       { data: [{ code: "005930", change_rate: 25 }], error: null },
@@ -290,17 +321,38 @@ describe("loadSurges", () => {
     });
     sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
 
-    const lower = Date.now() - 48 * 60 * 60 * 1000 - 5000;
-    await loadSurges(sb as never, cfg());
-    const upper = Date.now() - 48 * 60 * 60 * 1000 + 5000;
+    // 수 09:05 KST — 48h 전(월 09:05)이 직전 거래일(화) 15:30 보다 이르다.
+    await loadSurges(sb as never, cfg(), {
+      now: new Date("2026-09-16T09:05:00+09:00"),
+    });
 
     const gte = sb.from("news_articles").gte;
     expect(gte).toHaveBeenCalled();
-    const [col, val] = gte.mock.calls[0] as [string, string];
-    expect(col).toBe("published_at");
-    const cutoff = Date.parse(val);
-    expect(cutoff).toBeGreaterThanOrEqual(lower);
-    expect(cutoff).toBeLessThanOrEqual(upper);
+    expect(gte.mock.calls[0]).toEqual([
+      "published_at",
+      "2026-09-14T00:05:00.000Z",
+    ]);
+  });
+
+  it("월요일 창: 주입 now 가 월 09:05 면 컷오프 = 직전 거래일(금) 15:30 KST (quick-260915-boq)", async () => {
+    const sb = createMockSupabase();
+    setQuotes(sb.from("stock_quotes"), [
+      { data: [{ code: "005930", change_rate: 25 }], error: null },
+    ]);
+    sb.from("stocks").in.mockResolvedValue({
+      data: [{ code: "005930", name: "삼성전자", market: "KOSPI" }],
+      error: null,
+    });
+    sb.from("news_articles").order.mockResolvedValue({ data: [], error: null });
+
+    await loadSurges(sb as never, cfg(), {
+      now: new Date("2026-09-14T09:05:00+09:00"),
+    });
+
+    expect(sb.from("news_articles").gte.mock.calls[0]).toEqual([
+      "published_at",
+      "2026-09-11T06:30:00.000Z",
+    ]);
   });
 
   it("retry-on-empty: 첫 read 가 빈 결과면 재시도 후 non-empty 반환", async () => {

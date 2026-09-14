@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { kstDateIso } from "@gh-radar/shared";
 import type { HomeSyncConfig } from "../config";
+import { previousTradingDate } from "./tradingDay";
 
 /**
  * Phase 13 Plan 02 Task 1 — 오늘의 급등 종목 + 종목명 + 종목별 top-K 뉴스 로드.
@@ -10,7 +12,8 @@ import type { HomeSyncConfig } from "../config";
  *      ETN/ETF/레버리지·인버스 제외(isExcludedProduct) → change_rate desc → surgeMax cap.
  *      **필터가 slice 보다 먼저여야** 제외된 자리를 후순위 일반 종목이 채운다 (slice 를 먼저 하면
  *      제외분만큼 급등 슬롯이 빈 채로 남는다 — quick 260803-it6).
- *   3. news_articles 를 code 청크로 나눠 최근 48h 창(published_at >= now-48h)만 로드 후
+ *   3. news_articles 를 code 청크로 나눠 뉴스 창(최근 48h, 단 직전 거래일 15:30 KST 가 더
+ *      이르면 그 시각부터 — 월요일·연휴 다음날 전 거래일 저녁 기사 보장, quick-260915-boq)만 로드 후
  *      **앱 측에서 종목별 2단 정렬 top-K** (newsPerStock) 유지 — 단일 .in() 은 PostgREST
  *      db-max-rows(1000) 에서 통째 truncation 되어 정렬상 뒤쪽 종목의 뉴스가 조용히 사라진다
  *      (D-07 / Pitfall 1).
@@ -67,11 +70,27 @@ export function kstMidnightIso(now: Date): string {
 
 const NEWS_COLS = "id,stock_code,title,url,source,published_at,description";
 
-/** 뉴스 후보 창 — 최근 48h (전일 저녁 공시가 당일 재료이므로 "당일만"은 금물). */
+/**
+ * 뉴스 후보 창 — 최근 48h, 단 직전 거래일 15:30 KST 가 더 이르면 그 시각부터
+ * (월요일·연휴 다음날 전 거래일 저녁 기사 보장, quick-260915-boq).
+ * 전일 저녁 공시가 당일 재료이므로 "당일만"은 금물.
+ */
 const NEWS_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 /**
- * 종목당 메모리에 보관할 뉴스 후보 상한 — 48h 창 + 이 cap 으로 정렬 비용을 bound 한다.
+ * 뉴스 창 컷오프 = min(now − 48h, 직전 거래일 15:30 KST) 을 UTC ISO 로.
+ * 두 시각 중 이른 쪽이라 화~금 커버리지(48h)는 절대 좁아지지 않는다.
+ * 예: 2026-09-14(월) 09:05 KST → "2026-09-11T06:30:00.000Z" (금 15:30 KST).
+ */
+export function newsWindowCutoffIso(now: Date): string {
+  const prevTradingDay = previousTradingDate(kstDateIso(now));
+  const prevCloseMs = Date.parse(`${prevTradingDay}T15:30:00+09:00`);
+  const rollingMs = now.getTime() - NEWS_WINDOW_MS;
+  return new Date(Math.min(prevCloseMs, rollingMs)).toISOString();
+}
+
+/**
+ * 종목당 메모리에 보관할 뉴스 후보 상한 — 뉴스 창(48h 또는 직전 거래일 15:30 이후) + 이 cap 으로 정렬 비용을 bound 한다.
  * newsPerStock(기본 5) 보다 넉넉히 잡아 2단 정렬이 종목 특정 재료 기사를 top-K 안으로
  * 끌어올릴 여지를 확보한다. (Supabase 쿼리로 무리하게 풀지 않고 앱 측 슬라이스.)
  */
@@ -109,7 +128,7 @@ export function isExcludedProduct(
 export interface LoadSurgesOptions {
   emptyRetries?: number;
   retryDelayMs?: number;
-  /** 신선도 컷오프 기준 시각 (테스트 주입용). 미지정 시 new Date(). */
+  /** 신선도·뉴스 창 컷오프 기준 시각 (테스트 주입용). 미지정 시 new Date(). */
   now?: Date;
 }
 
@@ -130,9 +149,11 @@ export async function loadSurges(
 ): Promise<Surge[]> {
   const emptyRetries = opts.emptyRetries ?? 2;
   const retryDelayMs = opts.retryDelayMs ?? 1500;
+  // 사이클 기준 시각 1회 고정 — 신선도 컷오프와 뉴스 창 컷오프가 같은 now 를 쓴다(벽시계 직접 읽기 금지).
+  const now = opts.now ?? new Date();
   // stale cleanup 없는 stock_quotes(D-21)에서 어제 급등/거래정지 잔존 행 제외 — 오늘 KST 자정 이후 갱신만.
   // 사이클 내 고정값이므로 retry 루프 밖에서 1회 계산.
-  const freshnessCutoff = kstMidnightIso(opts.now ?? new Date());
+  const freshnessCutoff = kstMidnightIso(now);
 
   // 1) 급등 종목 (change_rate >= threshold, updated_at >= 오늘 KST 자정) — 통과분 전체.
   //    정렬/cap 은 2b(제외 필터 뒤)에서 한다.
@@ -195,9 +216,9 @@ export async function loadSurges(
 
   const codes = surges.map((s) => s.code);
 
-  // 3) 종목별 뉴스 후보 로드 (최근 48h 창) — code 청크로 fetch → 종목당 후보 cap 유지.
+  // 3) 종목별 뉴스 후보 로드 (min(now−48h, 직전 거래일 15:30 KST) 이후) — code 청크로 fetch → 종목당 후보 cap 유지.
   //    (단일 .in() 1000-row truncation 회피, D-07 / Pitfall 1.)
-  const cutoffIso = new Date(Date.now() - NEWS_WINDOW_MS).toISOString();
+  const cutoffIso = newsWindowCutoffIso(now);
   const candidatesByCode = new Map<string, NewsRow[]>();
   for (let i = 0; i < codes.length; i += QUOTE_CHUNK) {
     const chunk = codes.slice(i, i + QUOTE_CHUNK);
