@@ -17,6 +17,7 @@ import {
   CLUSTER_SYSTEM_PROMPT,
   buildClusterFewShot,
   formatClusterMessage,
+  type PrevThemesSource,
 } from "./prompt";
 import type { Surge } from "../pipeline/loadSurges";
 import type { HomeSyncConfig } from "../config";
@@ -479,6 +480,7 @@ export async function clusterSurges(
   cfg: HomeSyncConfig,
   themeHints: Map<string, string[]> = new Map(),
   prevThemes: HomeSurgeTheme[] = [],
+  prevThemesSource: PrevThemesSource = "slot",
 ): Promise<ClusterResult> {
   // short-circuit — 급등 없으면 Claude 호출 0.
   if (surges.length === 0) return { themes: [], singles: [] };
@@ -490,10 +492,13 @@ export async function clusterSurges(
   // themeHints (quick-260720-in0) — 급등 2+ 공유 네이버 테마를 "참고 테마 분류" 섹션으로
   // 프롬프트에 전달. 뉴스 공백 시 동반 급등 묶기 힌트로만 사용(anti-hallucination 유지).
   // prevThemes (quick-260720-kyh) — 직전 슬롯 테마 구성을 "직전 테마 구성" 섹션으로 전달(sticky prior).
+  //   quick-260915-boq: 오늘 테마가 비면 전 거래일 마지막 테마(prevThemesSource="prevTradingDay").
+  //   급등 밖 code 는 prompt 렌더 단계에서 빠지고, Claude 가 돌려줘도 demoteInvalidThemes 가 surgeCodes 밖을 drop.
   const { message, indexedNews } = formatClusterMessage(
     surges,
     themeHints,
     prevThemes,
+    prevThemesSource,
   );
 
   let raw: { themes: RawTheme[]; singles: RawSingle[] };

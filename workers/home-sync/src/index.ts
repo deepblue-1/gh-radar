@@ -17,6 +17,8 @@ import {
 import { loadThemeHints } from "./pipeline/loadThemeHints";
 import { computeContentHash } from "./pipeline/contentHash";
 import { clusterSurges, type ClusterResult } from "./ai/clusterSurges";
+import type { PrevThemesSource } from "./ai/prompt";
+import { previousTradingDate } from "./pipeline/tradingDay";
 import { upsertSnapshot } from "./pipeline/upsertSnapshot";
 import {
   shouldThinPastSnapshots,
@@ -52,6 +54,7 @@ export interface HomeSyncDeps {
     cfg: HomeSyncConfig,
     themeHints: Map<string, string[]>,
     prevThemes: HomeSurgeTheme[],
+    prevThemesSource: PrevThemesSource,
   ) => Promise<ClusterResult>;
   now?: Date;
   /** 테스트 주입: loadSurges retry 옵션 (delay 0 등). 미지정 시 프로덕션 기본(2회/1.5s). */
@@ -124,6 +127,58 @@ export function computeSlot(now: Date): {
 export interface PrevSnapshotRow {
   content_hash?: string | null;
   payload?: HomeSnapshotPayload | null;
+}
+
+/** resolvePrevThemes 가 쓰는 로거 표면 — pino child 제네릭 불일치를 피하려 필요한 메서드만. */
+type CycleLogger = Pick<typeof logger, "info" | "warn">;
+
+/**
+ * 4b 분기 prevThemes 결정 (quick-260915-boq).
+ *
+ * - 오늘 최신 스냅샷 테마가 non-empty → 그대로 "slot" (추가 쿼리 없음).
+ * - 아니면(오늘 행 없음 / 08시대처럼 테마가 빔) 전 거래일 마지막 non-empty 스냅샷 테마를
+ *   "prevTradingDay" 로 이월 — 개장 초 직전 구성 힌트 공백을 메운다.
+ *   gte(직전 거래일)로 한정: 라벨 "(전 거래일 마지막)" 이 사실이도록 + 며칠 묵은 테마 차단.
+ *   order 에 trade_date 를 앞세운 것은 PK(trade_date, captured_at) 역방향 스캔용(의미는 captured_at desc).
+ * - 조회 error 는 warn 로그 후 [] "slot" — 힌트만 영향이므로 cycle 을 실패시키지 않는다.
+ */
+export async function resolvePrevThemes(
+  supabase: SupabaseClient,
+  prevRow: PrevSnapshotRow | null,
+  tradeDate: string,
+  log: CycleLogger,
+): Promise<{ themes: HomeSurgeTheme[]; source: PrevThemesSource }> {
+  const todayThemes = prevRow?.payload?.themes ?? [];
+  if (todayThemes.length > 0) return { themes: todayThemes, source: "slot" };
+
+  const { data, error } = await supabase
+    .from("home_theme_snapshots")
+    .select("payload")
+    .lt("trade_date", tradeDate)
+    .gte("trade_date", previousTradingDate(tradeDate))
+    .gt("theme_count", 0)
+    .order("trade_date", { ascending: false })
+    .order("captured_at", { ascending: false })
+    .limit(1);
+  if (error) {
+    log.warn(
+      { err: error, tradeDate },
+      "전 거래일 테마 조회 실패 — prevThemes 없이 분류(힌트만 영향)",
+    );
+    return { themes: [], source: "slot" };
+  }
+
+  const prevDayThemes =
+    ((data ?? [])[0] as { payload?: HomeSnapshotPayload | null } | undefined)
+      ?.payload?.themes ?? [];
+  if (prevDayThemes.length > 0) {
+    log.info(
+      { themeCount: prevDayThemes.length },
+      "오늘 테마 없음 — 전 거래일 마지막 테마를 prevThemes 로 이월",
+    );
+    return { themes: prevDayThemes, source: "prevTradingDay" };
+  }
+  return { themes: [], source: "slot" };
 }
 
 /**
@@ -302,10 +357,18 @@ export async function runHomeSyncCycle(
       supabase,
       surges.map((s) => s.code),
     );
-    // sticky prior (quick-260720-kyh) — 직전 슬롯 테마 구성을 cluster 로 전달해 슬롯 간 명멸을
-    // 줄인다. prevRow(오늘 최신 스냅샷)의 payload.themes 재사용(추가 쿼리 없음). 없으면 [].
-    const prevThemes = prevRow?.payload?.themes ?? [];
-    const clustered = await cluster(surges, cfg, themeHints, prevThemes);
+    // sticky prior (quick-260720-kyh) — 직전 테마 구성을 cluster 로 전달해 슬롯 간 명멸을 줄인다.
+    // quick-260915-boq: 오늘 최신 스냅샷 테마가 있으면 그것("slot", 추가 쿼리 없음), 비면 전 거래일
+    // 마지막 non-empty 테마("prevTradingDay")를 이월 — 08시대 빈 테마로 개장 시점 힌트가 비는 문제.
+    const { themes: prevThemes, source: prevThemesSource } =
+      await resolvePrevThemes(supabase, prevRow, tradeDate, log);
+    const clustered = await cluster(
+      surges,
+      cfg,
+      themeHints,
+      prevThemes,
+      prevThemesSource,
+    );
     payload = {
       threshold: cfg.surgeThreshold,
       marketStatus,

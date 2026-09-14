@@ -298,6 +298,32 @@ describe("formatClusterMessage 직전 테마 구성 섹션 (quick-260720-kyh sti
     expect(message).toContain("- 사료: 002140 고려산업, 218150 미래생명자원");
   });
 
+  it("source='prevTradingDay' → '(전 거래일 마지막)' 라벨, '(직전 슬롯)' 미포함, 급등 밖 코드 미렌더 (quick-260915-boq)", () => {
+    const prevDay: HomeSurgeTheme[] = [
+      {
+        name: "사료",
+        reason: null,
+        stocks: [
+          { code: "002140", name: "고려산업", changeRate: 20 },
+          { code: "218150", name: "미래생명자원", changeRate: 15 },
+          { code: "777777", name: "전일만급등", changeRate: 12 },
+        ],
+        news: [],
+      },
+    ];
+    const { message } = formatClusterMessage(surges, new Map(), prevDay, "prevTradingDay");
+    expect(message).toContain("직전 테마 구성 (전 거래일 마지막):");
+    expect(message).not.toContain("(직전 슬롯)");
+    expect(message).toContain("- 사료: 002140 고려산업, 218150 미래생명자원");
+    expect(message).not.toContain("777777");
+  });
+
+  it("source 인자 생략 → 기존 '직전 테마 구성 (직전 슬롯):' 그대로 (하위호환)", () => {
+    const { message } = formatClusterMessage(surges, new Map(), prevThemes);
+    expect(message).toContain("직전 테마 구성 (직전 슬롯):");
+    expect(message).not.toContain("(전 거래일 마지막)");
+  });
+
   it("prevThemes=[] → 섹션 미출력 (하위호환, 기본값과 동일)", () => {
     const { message } = formatClusterMessage(surges, new Map(), []);
     expect(message).not.toContain("직전 테마 구성");

@@ -275,6 +275,182 @@ describe("runHomeSyncCycle (4b prevThemes 배선, quick-260720-kyh)", () => {
   });
 });
 
+describe("runHomeSyncCycle (전 거래일 테마 이월, quick-260915-boq)", () => {
+  /** 전 거래일 마지막 non-empty 스냅샷 — 오늘 급등 2종목(005930/000660) + 급등 밖 999999. */
+  const PREV_DAY_PAYLOAD: HomeSnapshotPayload = {
+    threshold: 20,
+    marketStatus: "aftermarket",
+    themes: [
+      {
+        name: "전일반도체",
+        reason: "r",
+        stocks: [
+          { code: "005930", name: "삼성전자", changeRate: 18 },
+          { code: "000660", name: "SK하이닉스", changeRate: 17 },
+          { code: "999999", name: "급등밖", changeRate: 16 },
+        ],
+        news: [],
+      },
+    ],
+    singles: [],
+  };
+
+  const TODAY_SINGLES_ONLY: HomeSnapshotPayload = {
+    threshold: 20,
+    marketStatus: "premarket",
+    themes: [],
+    singles: [{ code: "347700", name: "라파스", changeRate: 22, reason: "r", news: [] }],
+  };
+
+  it("오늘 최신 행 themes=[] + hash 불일치 → 전 거래일 themes + 'prevTradingDay' 전달 (조회 필터 검증)", async () => {
+    const sb = seedSurgeSupabase();
+    const snaps = sb.from("home_theme_snapshots");
+    snaps.limit
+      .mockResolvedValueOnce({
+        data: [{ content_hash: "STALE", theme_count: 0, stock_count: 1, payload: TODAY_SINGLES_ONLY }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [{ payload: PREV_DAY_PAYLOAD }], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster).toHaveBeenCalledTimes(1);
+    expect(cluster.mock.calls[0][3]).toEqual(PREV_DAY_PAYLOAD.themes);
+    expect(cluster.mock.calls[0][4]).toBe("prevTradingDay");
+    // 전 거래일 한정 조회 (NOW = 2026-07-01 10:30 KST → 직전 거래일 2026-06-30).
+    expect(snaps.lt).toHaveBeenCalledWith("trade_date", "2026-07-01");
+    expect(snaps.gte).toHaveBeenCalledWith("trade_date", "2026-06-30");
+    expect(snaps.gt).toHaveBeenCalledWith("theme_count", 0);
+  });
+
+  it("오늘 행 없음 → 전 거래일 themes + 'prevTradingDay'", async () => {
+    const sb = seedSurgeSupabase();
+    sb.from("home_theme_snapshots")
+      .limit.mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [{ payload: PREV_DAY_PAYLOAD }], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster.mock.calls[0][3]).toEqual(PREV_DAY_PAYLOAD.themes);
+    expect(cluster.mock.calls[0][4]).toBe("prevTradingDay");
+  });
+
+  it("오늘 최신 행 themes non-empty → 오늘 themes + 'slot', 전 거래일 조회(lt) 없음", async () => {
+    const sb = seedSurgeSupabase();
+    const snaps = sb.from("home_theme_snapshots");
+    snaps.limit.mockResolvedValueOnce({
+      data: [{ content_hash: "STALE", theme_count: 1, stock_count: 3, payload: CLUSTER_PAYLOAD }],
+      error: null,
+    });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster.mock.calls[0][3]).toEqual(CLUSTER_PAYLOAD.themes);
+    expect(cluster.mock.calls[0][4]).toBe("slot");
+    expect(snaps.lt).not.toHaveBeenCalled();
+  });
+
+  it("전 거래일 조회 error → prevThemes [] + 'slot', cycle 계속(upsert 호출)", async () => {
+    const sb = seedSurgeSupabase();
+    const snaps = sb.from("home_theme_snapshots");
+    snaps.limit
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: null, error: new Error("prev-day-fail") });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster.mock.calls[0][3]).toEqual([]);
+    expect(cluster.mock.calls[0][4]).toBe("slot");
+    expect(snaps.upsert).toHaveBeenCalledTimes(1);
+    expect(summary.claudeCalled).toBe(true);
+  });
+
+  it("hash-match carry 분기 → 전 거래일 조회(lt) 없음 (carry 무영향)", async () => {
+    // 1) hash 확보용 실행.
+    const sb = seedSurgeSupabase();
+    sb.from("home_theme_snapshots").limit.mockResolvedValue({ data: [], error: null });
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster: vi.fn().mockResolvedValue(CLUSTER_PAYLOAD),
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+    const computedHash = sb._chains.home_theme_snapshots.upsert.mock.calls[0][0].content_hash;
+
+    // 2) 오늘 최신 행이 같은 hash + themes=[] 이어도 carry 분기 → 전 거래일 조회 없음.
+    const sb2 = seedSurgeSupabase();
+    const snaps2 = sb2.from("home_theme_snapshots");
+    snaps2.limit.mockResolvedValue({
+      data: [{ content_hash: computedHash, theme_count: 0, stock_count: 1, payload: TODAY_SINGLES_ONLY }],
+      error: null,
+    });
+    const cluster2 = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    const summary = await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb2 as never,
+      cluster: cluster2,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster2).not.toHaveBeenCalled();
+    expect(summary.isCarried).toBe(true);
+    expect(snaps2.lt).not.toHaveBeenCalled();
+  });
+
+  it("surges 0 fallback 분기 → 전 거래일 조회(lt) 없음", async () => {
+    const sb = createMockSupabase();
+    const q = sb.from("stock_quotes");
+    q.gte.mockImplementation((col: string) =>
+      col === "updated_at" ? Promise.resolve({ data: [], error: null }) : q,
+    );
+    const snaps = sb.from("home_theme_snapshots");
+    snaps.limit.mockResolvedValue({ data: [], error: null });
+    const cluster = vi.fn().mockResolvedValue(CLUSTER_PAYLOAD);
+
+    await runHomeSyncCycle({
+      config: cfg(),
+      supabase: sb as never,
+      cluster,
+      now: NOW,
+      loadSurgesOptions: { retryDelayMs: 0 },
+    });
+
+    expect(cluster).not.toHaveBeenCalled();
+    expect(snaps.lt).not.toHaveBeenCalled();
+  });
+});
+
 describe("runHomeSyncCycle (hash-skip clone-append)", () => {
   it("hash-miss (첫 slot): cluster 1회 호출, is_carried=false, payload 저장", async () => {
     const sb = seedSurgeSupabase();
