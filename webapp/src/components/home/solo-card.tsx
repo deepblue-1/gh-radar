@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { HomeSurgeSingle } from '@gh-radar/shared';
 
+import { formatChange } from './home-format';
 import { NewsBlock } from './news-block';
 
 /**
@@ -22,12 +23,6 @@ import { NewsBlock } from './news-block';
  */
 export interface SoloCardProps {
   single: HomeSurgeSingle;
-}
-
-/** 등락% 표시 — 부호 포함 소수 1자리. */
-function formatChange(rate: number): string {
-  const sign = rate > 0 ? '+' : '';
-  return `${sign}${rate.toFixed(1)}%`;
 }
 
 export function SoloCard({ single }: SoloCardProps) {

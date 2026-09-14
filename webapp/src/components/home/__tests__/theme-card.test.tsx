@@ -9,7 +9,7 @@
  * Sheet(Radix Dialog)는 document.body 로 portal → screen 루트 조회.
  */
 /// <reference types="@testing-library/jest-dom" />
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { HomeSurgeTheme } from '@gh-radar/shared';
 
@@ -94,7 +94,8 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
   it('B: 헤더 테마명은 aria-haspopup=dialog 버튼이고 클릭 시 전체 종목 시트가 열린다', () => {
     render(<ThemeCard theme={makeTheme()} />);
 
-    const trigger = screen.getByRole('button', { name: /2차전지/ });
+    // 정확 일치 — 정규식이면 "2차전지 요약 복사" 버튼까지 매칭돼 다중 매칭 에러.
+    const trigger = screen.getByRole('button', { name: '2차전지' });
     expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
 
     fireEvent.click(trigger);
@@ -130,7 +131,7 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
   it('B: 시트에는 근거 뉴스 전체 목록(2건 초과·dedup 후 5건)을 노출한다', () => {
     render(<ThemeCard theme={makeNewsyTheme()} />);
 
-    const trigger = screen.getByRole('button', { name: /초전도체/ });
+    const trigger = screen.getByRole('button', { name: '초전도체' });
     fireEvent.click(trigger);
     const dialog = screen.getByRole('dialog');
 
@@ -161,5 +162,59 @@ describe('ThemeCard — 소속 종목 전체 보기', () => {
     render(<ThemeCard theme={small} />);
     expect(screen.queryByText(/종목 더/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '접기' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ThemeCard — 요약 복사 (quick-260914-jtj)', () => {
+  let writeText: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    vi.restoreAllMocks();
+  });
+
+  it('아이콘 버튼 클릭 → 그 테마 블록만(번호·날짜 헤더·뉴스 없이, 종목 desc) 복사 + 복사됨 피드백', async () => {
+    const theme: HomeSurgeTheme = {
+      name: '원전',
+      reason: null,
+      stocks: [
+        { code: '052690', name: '한전기술', changeRate: 20 },
+        { code: '034020', name: '두산에너빌리티', changeRate: 23 },
+      ],
+      news: [{ title: '원전 기사', url: 'https://example.com/n', source: '연합뉴스' }],
+    };
+    render(<ThemeCard theme={theme} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '원전 요약 복사' }));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(
+      '원전 (평균 +21.5%)\n- 두산에너빌리티 +23.0%\n- 한전기술 +20.0%',
+    );
+    expect(await screen.findByText('복사됨')).toBeInTheDocument();
+  });
+
+  it('TOP 4 가 아니라 소속 종목 전부를 복사한다', async () => {
+    render(<ThemeCard theme={makeTheme()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '2차전지 요약 복사' }));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const text = writeText.mock.calls[0][0] as string;
+    const lines = text.split('\n');
+    expect(lines[0]).toBe('2차전지 (평균 +24.0%)');
+    expect(lines.filter((l) => l.startsWith('- '))).toHaveLength(17);
+    expect(text).toContain('- 종목16 +28.0%');
+    expect(text).toContain('- 종목0 +20.0%');
+    expect(text).not.toContain('https://');
+    expect(await screen.findByText('복사됨')).toBeInTheDocument();
   });
 });

@@ -12,6 +12,13 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet';
 
+import { CopyTextButton } from './copy-text-button';
+import {
+  avgChange,
+  formatChange,
+  formatThemeBlock,
+  sortStocksByChangeDesc,
+} from './home-format';
 import { NewsBlock } from './news-block';
 
 /**
@@ -21,6 +28,8 @@ import { NewsBlock } from './news-block';
  * 구조:
  *   헤더 = 테마명(--t-h4 800, **버튼 → 바텀시트 B**) + 상승이유(muted 14/400)
  *          | 평균 등락(--t-h4 800 mono --up) + "평균 등락" cap
+ *            + 요약 복사 아이콘 버튼(32px, aria-label "{테마명} 요약 복사" — 그 테마 블록만
+ *              일반 텍스트로 복사, quick-260914-jtj)
  *   소속 종목 mini-row (grid 1fr auto, change% desc, top 4 + "+N개 종목 더" **토글 A**)
  *   근거 뉴스 블록 (showLabel)
  *
@@ -39,21 +48,6 @@ export interface ThemeCardProps {
 }
 
 const TOP_N = 4;
-
-/** 등락% 표시 — 부호 포함 소수 1자리 (+24.1% / -3.2%). 급등 화면이라 대부분 +. */
-function formatChange(rate: number): string {
-  const sign = rate > 0 ? '+' : '';
-  return `${sign}${rate.toFixed(1)}%`;
-}
-
-/** 소속 종목 평균 등락 — 카드 헤더 metric. */
-function avgChange(theme: HomeSurgeTheme): number {
-  const rates = theme.stocks
-    .map((s) => s.changeRate)
-    .filter((r) => Number.isFinite(r));
-  if (rates.length === 0) return 0;
-  return rates.reduce((sum, r) => sum + r, 0) / rates.length;
-}
 
 /**
  * 소속 종목 mini-row 1건 — `/stocks/{code}` 링크(C).
@@ -83,8 +77,8 @@ function StockRow({ stock }: { stock: HomeSurgeStock }) {
 
 export function ThemeCard({ theme }: ThemeCardProps) {
   const avg = avgChange(theme);
-  // change% desc 정렬 (카드 내). 원본 불변 위해 복사.
-  const sorted = [...theme.stocks].sort((a, b) => b.changeRate - a.changeRate);
+  // change% desc 정렬 (카드 내) — 복사 텍스트와 같은 정렬 함수.
+  const sorted = sortStocksByChangeDesc(theme.stocks);
   const top = sorted.slice(0, TOP_N);
   const rest = sorted.slice(TOP_N);
   const overflow = rest.length;
@@ -124,13 +118,21 @@ export function ThemeCard({ theme }: ThemeCardProps) {
               </span>
             )}
           </div>
-          <div className="shrink-0 text-right">
-            <div className="mono text-[length:var(--t-h4)] font-extrabold text-[var(--up)]">
-              {avgLabel}
+          <div className="flex shrink-0 items-start gap-1">
+            <div className="text-right">
+              <div className="mono text-[length:var(--t-h4)] font-extrabold text-[var(--up)]">
+                {avgLabel}
+              </div>
+              <div className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                평균 등락
+              </div>
             </div>
-            <div className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-              평균 등락
-            </div>
+            {/* 이 테마 블록만 복사 (번호·날짜 헤더 없음). 카드 우상단 모서리로 당긴다. */}
+            <CopyTextButton
+              ariaLabel={`${theme.name} 요약 복사`}
+              getText={() => formatThemeBlock(theme)}
+              className="-mr-1 -mt-1"
+            />
           </div>
         </div>
 

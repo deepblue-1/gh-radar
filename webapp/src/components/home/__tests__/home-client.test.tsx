@@ -89,3 +89,78 @@ describe('HomeClient 자동 갱신 (최신 보기에서만)', () => {
     await waitFor(() => expect(fetchHomeMock).toHaveBeenCalledTimes(5));
   });
 });
+
+/**
+ * quick-260914-jtj — "주도 테마 N" 제목 행 '전체 복사' → 보고 있는 스냅샷의 모든 테마.
+ * 실제 타이머 사용(자동 갱신 describe 와 독립). setup.ts 가 테스트마다 쿼리 캐시를 비운다.
+ */
+const THEMED_RESPONSE: HomeSnapshotResponse = {
+  snapshot: {
+    tradeDate: DATE,
+    capturedAt: SLOT_B,
+    themeCount: 2,
+    stockCount: 4,
+    isCarried: false,
+    payload: {
+      threshold: 15,
+      marketStatus: 'open',
+      themes: [
+        {
+          name: '2차전지',
+          reason: '리튬 가격 반등·수주 공시',
+          stocks: [
+            { code: '003670', name: '포스코퓨처엠', changeRate: 22.3 },
+            { code: '086520', name: '에코프로', changeRate: 29.9 },
+          ],
+          news: [{ title: '리튬 반등 기사', url: 'https://example.com/li', source: '연합뉴스' }],
+        },
+        {
+          name: '원전',
+          reason: null,
+          stocks: [
+            { code: '052690', name: '한전기술', changeRate: 20 },
+            { code: '034020', name: '두산에너빌리티', changeRate: 23 },
+          ],
+          news: [],
+        },
+      ],
+      singles: [],
+    },
+  },
+  index: [
+    { tradeDate: DATE, capturedAt: SLOT_B, themeCount: 2, stockCount: 4, isCarried: false },
+  ],
+};
+
+describe('주도 테마 전체 복사 (quick-260914-jtj)', () => {
+  let writeText: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    fetchHomeMock.mockReset();
+    fetchHomeMock.mockResolvedValue(THEMED_RESPONSE);
+  });
+
+  afterEach(() => {
+    delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    vi.restoreAllMocks();
+  });
+
+  it('제목 행 버튼 클릭 → 헤더 + 번호 블록 전체를 복사하고 복사됨 표시', async () => {
+    render(<HomeClient />);
+
+    const button = await screen.findByRole('button', { name: '주도 테마 전체 복사' });
+    expect(button).toHaveTextContent('전체 복사');
+    fireEvent.click(button);
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(
+      '[주도 테마] 2026-09-14 10:00\n\n1. 2차전지 (평균 +26.1%)\n리튬 가격 반등·수주 공시\n- 에코프로 +29.9%\n- 포스코퓨처엠 +22.3%\n\n2. 원전 (평균 +21.5%)\n- 두산에너빌리티 +23.0%\n- 한전기술 +20.0%',
+    );
+    expect(await screen.findByText('복사됨')).toBeInTheDocument();
+  });
+});

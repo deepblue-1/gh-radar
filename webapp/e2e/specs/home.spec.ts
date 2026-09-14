@@ -162,7 +162,7 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // 테마명 트리거 = aria-haspopup="dialog" 버튼.
-    const trigger = page.getByRole('button', { name: /AI 반도체/ });
+    const trigger = page.getByRole('button', { name: 'AI 반도체', exact: true });
     await expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
     await trigger.click();
 

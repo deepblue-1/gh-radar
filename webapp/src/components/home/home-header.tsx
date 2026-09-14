@@ -8,6 +8,8 @@ import type {
   HomeThemeSnapshot,
 } from '@gh-radar/shared';
 
+import { toKstHhmm } from './home-format';
+
 /**
  * HomeHeader — 홈 헤더 (13-UI-SPEC §Component Inventory · home-top).
  *
@@ -45,16 +47,6 @@ export interface HomeHeaderProps {
   onSelectSlot: (capturedAt: string) => void;
   /** "오늘"(최신 스냅샷)으로 리셋. */
   onToday: () => void;
-}
-
-/** KST(Asia/Seoul) HH:MM 라벨. */
-function toKstHhmm(iso: string): string {
-  return new Intl.DateTimeFormat('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(iso));
 }
 
 /**

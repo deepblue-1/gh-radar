@@ -6,7 +6,9 @@ import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useHomeQuery } from '@/hooks/use-home-query';
 
+import { CopyTextButton } from './copy-text-button';
 import { HomeEmpty } from './home-empty';
+import { formatThemesSummary } from './home-format';
 import { HomeHeader, type HomeSelection } from './home-header';
 import { HomeSkeleton } from './home-skeleton';
 import { SoloCard } from './solo-card';
@@ -20,7 +22,9 @@ import { ThemeCard } from './theme-card';
  *   error (이전 data 없음) → 인라인 에러 카드("불러오지 못했습니다" / "다시 불러오기")
  *   error (이전 data 있음) → stale-but-visible + 하단 에러 카드 병기
  *   empty (snapshot null 또는 themes+singles 모두 비어있음) → HomeEmpty
- *   populated → HomeHeader + "주도 테마"(count-badge) ThemeCard + "개별 급등"(count-badge) SoloCard
+ *   populated → HomeHeader + "주도 테마"(count-badge + 우측 '전체 복사' 버튼 — 보고 있는 스냅샷의
+ *               모든 테마 요약을 일반 텍스트로 복사, quick-260914-jtj) ThemeCard
+ *               + "개별 급등"(count-badge) SoloCard
  *
  * 네비: selected {date, capturedAt} state. onSelectDate/onSelectSlot/onToday → useHomeQuery 재조회.
  * error.message 미노출 (T-13-09) — 고정 문구 + console.error 는 훅에서 분리.
@@ -98,7 +102,8 @@ export function HomeClient() {
         <HomeEmpty />
       ) : (
         <>
-          {themes.length > 0 && (
+          {/* snapshot null 이면 themes 도 비어 런타임 동일 — snapshot 타입 narrowing 용. */}
+          {snapshot && themes.length > 0 && (
             <>
               <div className="mt-[var(--s-2)] flex items-center gap-2">
                 <h2 className="text-[length:var(--t-h4)] font-extrabold text-[var(--fg)]">
@@ -107,6 +112,13 @@ export function HomeClient() {
                 <span className="mono rounded-full bg-[var(--muted)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                   {themes.length}
                 </span>
+                {/* getText lazy — 과거 슬롯을 보고 있으면 그 스냅샷을 복사. */}
+                <CopyTextButton
+                  label="전체 복사"
+                  ariaLabel="주도 테마 전체 복사"
+                  getText={() => formatThemesSummary(snapshot, themes)}
+                  className="ml-auto"
+                />
               </div>
               {themes.map((theme, i) => (
                 <ThemeCard key={`${theme.name}-${i}`} theme={theme} />
