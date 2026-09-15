@@ -6,13 +6,11 @@ import {
   readQuotaStrikes,
   recordQuotaStrike,
   QUOTA_STRIKE_SERVICE,
-  QUOTA_STRIKES_TO_STOP_DAY,
 } from "../src/apiUsage";
 
 describe("quota strike 마커 (quick-260915-h3p)", () => {
   it("상수", () => {
     expect(QUOTA_STRIKE_SERVICE).toBe("naver_search_news_quota_strike");
-    expect(QUOTA_STRIKES_TO_STOP_DAY).toBe(2);
   });
 
   it("recordQuotaStrike → incr_api_usage(strike service, amount 1)", async () => {

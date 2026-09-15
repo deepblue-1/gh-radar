@@ -8,11 +8,15 @@ import {
   type NaverNewsItem,
 } from "./searchNews.js";
 
+/** 429 backoff 재시도 지연 — 첫 실패 후 2회 재시도. */
+const RATE_LIMIT_RETRY_DELAYS_MS: readonly number[] = [250, 500];
+
 /**
  * Phase 07.2 — page 호출을 429 backoff retry 로 감싼다.
  * NaverRateLimitError 만 retry (sleep 250ms → 500ms, 최대 2회).
  * 3회 시도 모두 429 → propagate (per-stock 루프에서 종목 skip).
  * 다른 에러는 즉시 propagate.
+ * quick-260915-il4: 빈 delaysMs 를 받으면 1회만 시도한다 (CollectOpts.retryOnRateLimit=false).
  *
  * NOTE (incrementUsage): 이 함수 내부에서는 onPage 를 호출하지 않는다.
  * budget 카운터는 페이지 루프가 성공 반환을 받은 뒤 1회만 증가 (retry 중간 증가 금지).
@@ -23,8 +27,8 @@ async function fetchPageWithRateLimitBackoff(
   query: string,
   start: number,
   display: number,
+  delaysMs: readonly number[],
 ): Promise<NaverNewsItem[]> {
-  const delaysMs = [250, 500]; // 2 retries after first failure
   let lastErr: unknown;
   for (let attempt = 0; attempt <= delaysMs.length; attempt++) {
     try {
@@ -51,6 +55,11 @@ export interface CollectOpts {
   firstCutoffIso: string;
   /** page 하나 호출 직후 실행되는 콜백 — budget 증가/abort 판정. false 반환 시 루프 즉시 종료 */
   onPage: () => Promise<boolean>;
+  /**
+   * 기본 true. false 면 429(NaverRateLimitError)를 재시도하지 않고 첫 응답에서 propagate —
+   * 한도 탐침용(quick-260915-il4). 이 run 의 탐침 대상 모든 페이지에 적용된다.
+   */
+  retryOnRateLimit?: boolean;
 }
 
 export interface CollectResult {
@@ -79,6 +88,7 @@ export async function collectStockNews(
   let pages = 0;
   let start = 1;
   let stoppedBy: CollectResult["stoppedBy"] = "empty";
+  const delaysMs = opts.retryOnRateLimit === false ? [] : RATE_LIMIT_RETRY_DELAYS_MS;
 
   while (start <= NAVER_MAX_START) {
     const page = await fetchPageWithRateLimitBackoff(
@@ -86,6 +96,7 @@ export async function collectStockNews(
       query,
       start,
       NAVER_MAX_DISPLAY,
+      delaysMs,
     );
     pages++;
 

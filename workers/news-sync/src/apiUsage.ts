@@ -16,11 +16,9 @@ const SERVICE = "naver_search_news";
  *  - KST 날짜 키(usage_date)이므로 KST 자정에 자연 리셋된다.
  *  - service 는 CHECK 없는 자유 text 라 마이그레이션이 필요 없다(theme-sync 마커 선례).
  *  - 호출 카운터 naver_search_news 값은 오염시키지 않는다.
+ *  - quick-260915-il4: strike 는 관측용 마커이자 다음 run 의 단독 탐침 트리거다(당일 중단 없음).
  */
 export const QUOTA_STRIKE_SERVICE = "naver_search_news_quota_strike";
-
-/** 같은 KST 날짜에 이 수 이상 strike 가 쌓이면 자정까지 run 을 네이버 호출 0 으로 skip. */
-export const QUOTA_STRIKES_TO_STOP_DAY = 2;
 
 /**
  * UTC 기준 now → KST 기준 YYYY-MM-DD.

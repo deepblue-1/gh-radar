@@ -238,6 +238,18 @@ describe("collectStockNews — 429 backoff retry (Phase 07.2)", () => {
     expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(3);
   });
 
+  it("retryOnRateLimit false + 429 1회 → 재시도 없이 NaverRateLimitError (quick-260915-il4 탐침)", async () => {
+    const client = mkSeq([
+      async () => {
+        throw axiosErr(429);
+      },
+    ]);
+    await expect(
+      collectStockNews(client, "q", { ...baseOpts, retryOnRateLimit: false }),
+    ).rejects.toBeInstanceOf(NaverRateLimitError);
+    expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1);
+  });
+
   it("400 (non-429) → 즉시 propagate, retry 없음", async () => {
     const client = mkSeq([
       async () => {
