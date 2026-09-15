@@ -5,10 +5,10 @@ current_phase: 16
 current_phase_name: "**GAP CLOSURE 3라운드 종결  **"
 status: completed
 stopped_at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
-last_updated: "2026-09-14T23:25:33.752Z"
-last_activity: 2026-09-14
+last_updated: "2026-09-15T02:12:00.430Z"
+last_activity: 2026-09-15
 last_activity_desc: "Completed quick task 260912-mvo: 상따 폼·헤더 후속 7건 (FAB 범위 · 포커스 한 겹 · 세그먼트 폭 · 거래소 콤보 · 종목변경 4종 · 매수매도 틴트 · 컴팩트 호가 박스)"
-state_head: c9fcb35c4c40c36a09b277d75b3278e7b51725b6
+state_head: 21b331846b3574fabd431f6c9c58aa3501107fa3
 progress:
   total_phases: 25
   completed_phases: 4
@@ -732,6 +732,7 @@ Recent decisions affecting current work:
 | 260911-dps | **radar-gw Caddy `/ghtrade/*` 정적 서빙** — gh-trade Phase 20 클라 자동 업데이트 인계(D-09~D-16). `handle` 3블록(미인증 404 → `handle_path` 서빙 → 트레일링 슬래시 없는 `/ghtrade` 404) · `/srv/ghtrade` 멱등 생성 3단 폴백 · README 파일 맵·업로드 절차. **2026-09-11 15:39:35 KST 프로덕션 반영** — validate 선통과 후 reload, 양성 200 / 음성 404 양쪽 실측, `/healthz` 200·wss 재접속 유지. D-11 고정키는 `infra/relay/Caddyfile` 한 곳만 정본 | 2026-09-11 | 5fa7221·3fa691e | [260911-dps-radar-gw-caddy-ghtrade-srv-ghtrade](./quick/260911-dps-radar-gw-caddy-ghtrade-srv-ghtrade/) |
 | 260911-lss | `/ghtrade` 적용 결과를 README 정본에 기록 + **거래원 푸시(74/75) 드롭 로그 이관 항목 종결** — 장중 4.5분 구독 활성 상태에서 `unknown-msg-type` 0건(대조군 `a1f4ed6` 는 같은 조건 40분에 13건). 한계 명시: `LOG_LEVEL=info` 라 debug 강등분은 미관측 — 증명된 것은 「WARNING 이 사라졌다」이지 「75가 out-of-scope 로 분류됐다」가 아니다. 문서만 | 2026-09-11 | — | [260911-lss-ghtrade-caddy](./quick/260911-lss-ghtrade-caddy/) |
 | 51 | 상한가·하한가를 전일종가 기준 호가단위로 계산(STEP1 price×1.3 임시값 제거) + 서버 고가·저가 현재가 표시 보정 (260914 애프터마켓 실측 후속, c9fcb35) | 2026-09-14 | c9fcb35 | — |
+| 54 | install-vpn-menubar.sh 재실행 시 기존 KB-DMA.conf AllowedIPs 보존(10.41.1.x/32 만·게이트웨이 포함 조건, 그 밖은 게이트웨이 /32 로 복귀) — 개인 파일(.gitignore)이라 저장소 밖 수정, bash 3.2 모의 9/9 통과; README 의 '재실행하면 121 이 빠진다' 주의를 '유지된다' 로 정정 | 2026-09-15 | 21b3318 | — |
 
 ## Session Continuity
 
