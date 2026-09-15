@@ -295,7 +295,8 @@ echo "✓ firewall ready: relay-allow-internal-order (tcp:8091 ← 서브넷 출
 #        WireGuard 는 유효한 키로 서명되지 않은 UDP 패킷에 아무 응답도 하지 않고 버린다
 #        (silent drop). 그래서 포트 스캔에 노출 표면이 생기지 않는다.
 #     통과한 트래픽이 어디까지 가는지는 VM 의 nft 규칙이 따로 좁힌다
-#     (10.41.1.120 의 9100·22 만 — infra/relay/startup.sh 섹션 8).
+#     (10.41.1.120 의 9100·22 만, alex-mac(10.20.0.2) 전용으로 10.41.1.121 의 9100·22 도
+#      — infra/relay/startup.sh 섹션 8).
 if ! gcloud compute firewall-rules describe relay-allow-wireguard >/dev/null 2>&1; then
   echo "▶ creating firewall rule: relay-allow-wireguard..."
   run gcloud compute firewall-rules create relay-allow-wireguard \

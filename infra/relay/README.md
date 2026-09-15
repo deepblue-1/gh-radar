@@ -38,7 +38,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 > 대역을 고정할 수 없고, **실제 인증은 피어 공개키**이기 때문이다 — WireGuard 는 유효한
 > 키로 서명되지 않은 UDP 에 아무 응답도 하지 않고 버리므로(silent drop) 포트 스캔에
 > 노출 표면이 생기지 않는다. 통과한 트래픽이 어디까지 가는지는 VM 의 nft 규칙이 따로
-> 좁힌다(게이트웨이 한 대의 9100·22 만 — §DMA 터널).
+> 좁힌다(게이트웨이 120 의 9100·22 만, 예외로 alex-mac 피어만 121 의 9100·22 도 — §DMA 터널).
 
 > `relay-allow-internal-order` 는 네트워크 태그가 아니라 출발지 대역으로만 좁혀져 있다.
 > **Cloud Run 워크로드에는 네트워크 태그를 붙일 수 없기 때문**이다.
@@ -327,8 +327,12 @@ radar-gw 가 이미 VPN 을 상시 물고 있으므로(§VPN 조작) 그 세션�
 
 VM 쪽 자산은 `infra/relay/startup.sh` **섹션 8** 이 부팅마다 멱등하게 만든다
 (`wg0` = `10.20.0.1/24` · UDP 51820 · nft `wgfwd` · `DOCKER-USER` 우회 · `wg-peer-add`).
-피어가 닿을 수 있는 곳은 **`10.41.1.120` 의 `9100`·`22` 두 포트뿐**이고, 그 외 `wg0` 출입은
-명시적으로 drop 된다. 클라이언트 `AllowedIPs` 도 `/32` 하나라 기본 경로를 뺏지 않는다.
+피어가 닿을 수 있는 곳은 **`10.41.1.120` 의 `9100`·`22` 두 포트뿐**(예외: alex-mac `10.20.0.2` 만 `10.41.1.121` 의 `9100`·`22` 도 — nft·`DOCKER-USER` 두 층 모두 출발지로 묶는다, quick-260915-doz)
+이고, 그 외 `wg0` 출입은 명시적으로 drop 된다. 클라이언트 `AllowedIPs` 는 게이트웨이 `/32` 만
+담아(alex-mac 은 `10.41.1.121/32` 를 하나 더) 기본 경로를 뺏지 않는다.
+
+> alex-mac 의 `$(brew --prefix)/etc/wireguard/KB-DMA.conf` 에 더한 `10.41.1.121/32` 는 `scripts/install-vpn-menubar.sh` 를
+> 다시 돌리면 사라진다 — 그 스크립트가 `AllowedIPs` 를 게이트웨이 `/32` 하나로 다시 쓰므로, 재실행 뒤 손으로 다시 더한다.
 
 발급 절차는 **OS 별로 갈린다.** mac 은 GUI 앱을 쓰지 않고 `brew wireguard-tools` 를
 메뉴바 앱이 직접 몬다. Windows 는 공식 앱 + 템플릿 방식을 그대로 쓴다.
@@ -514,7 +518,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --proj
 systemctl is-active wg-quick@wg0        # active 여야 한다
 sudo wg show                            # 핸드셰이크 시각 · 피어 수 · 전송량
 sudo nft list table inet wgfwd          # forward 4규칙 + postrouting masquerade
-sudo iptables -S DOCKER-USER            # ACCEPT 두 줄이 있어야 한다
+sudo iptables -S DOCKER-USER            # ACCEPT 세 줄이 있어야 한다 (120 · alex-mac 전용 121 · 응답)
 ip route show default                   # 반드시 `dev ens4` — tun0 면 즉시 중단
 ```
 
@@ -831,7 +835,8 @@ gh-trade WinForms 클라가 기동 시(로그인 창을 띄우기 전) `https://
 을 받아 서명을 검증하고, 파일별 SHA-256 이 다른 파일만 내려받아 자기 자신을 교체한 뒤 재실행한다.
 
 **게이트웨이(10.41.1.120)가 아니라 여기에 둔 이유.** WireGuard 터널 사용자는 VM 의 nft `wgfwd`
-규칙상 120 의 9100·22 에만 닿는다. 반면 `dma.jx1.io` 는 공인 443 + Let's Encrypt TLS 가 이미
+규칙상 120 의 9100·22 에만 닿는다(alex-mac 만 121 의 같은 두 포트 예외).
+반면 `dma.jx1.io` 는 공인 443 + Let's Encrypt TLS 가 이미
 있어 **VPN·터널 상태와 무관하게** 받을 수 있다. 업데이트는 터널이 서기 전에 끝나야 한다.
 
 ### 인증
