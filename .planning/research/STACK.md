@@ -164,10 +164,37 @@ One WebSocket session subscribes to at most 41 stocks. The 상한가 근접 스�
 KIS real-time APIs only provide live data during trading hours (09:00–15:30 KST). The polling/scanning job should only run during market hours; implement a market-hours guard using Korean timezone (Asia/Seoul).
 
 ### Naver 종목토론방 Scraping Risk
-Naver actively blocks bots. Scrape only on user demand, cache aggressively (5–10 min TTL), limit to 1 request/stock/interval, and add retry-with-backoff. Do not bulk-scrape the entire market.
+
+- **Legal posture (정정 요약).** 본 프로젝트의 보수적 운영 근거는 형사 처벌 회피가 아니라 **민사 DB제작자 권리 침해 (대법원 2017다224395) 회피** 이다. 대법원 2021도1533 (형사) 은 무죄 확정이며 ToS 위반만으로 형사 책임은 성립하지 않는다. 단, 민사 DB권 침해는 "전체의 상당한 부분" 복제 / 반복적 체계적 수집 / 원본 서비스의 시장가치 잠식 시 인정될 수 있다.
+
+**Operational 5 rules — 모든 한국 크롤링 (Naver 종목토론방 포함) 에 적용.**
+
+1. **일 1~2회 배치 캡.** 장중 실시간 폴링 금지. 배치 잡 (Cloud Run Job + Scheduler) 만 허용. 사용자 트래픽에 비례하는 호출량은 "체계적 수집" 으로 해석될 위험이 있으므로 사용자 수와 분리된 고정 배치만 사용.
+
+2. **24h 캐싱 + 콘텐츠 해시 변경 감지 시에만 갱신.** Supabase 에 fetch 결과를 저장하고 24시간 TTL. 재방문 시 원본 페이지의 콘텐츠 해시 (또는 last-modified, etag) 가 바뀐 경우에만 갱신 호출. 동일 콘텐츠 재크롤링은 비용 / 법적 양면에서 순손실.
+
+3. **사용자 클릭 시 on-demand fetch 금지.** 종목 상세 페이지 진입이 백엔드 원본 fetch 를 트리거하면 안 됨. 서버측 배치가 미리 채워둔 캐시만 읽음. 사용자 수가 N 일 때 호출량이 O(N) 이 되는 패턴 전면 금지. (= "서버측 배치만, on-demand 금지" 원칙)
+
+4. **HTTP 429 / 403 감지 시 즉시 24h backoff.** 429 (rate-limit) 또는 403 (access denied) 응답이 한 번이라도 관측되면 해당 source 전체에 대해 24시간 동안 새 호출을 차단하고 알림을 띄움. 자동 재시도 / 지수 backoff 으로 두드리지 않음 — 차단 신호는 명시 차단으로 해석.
+
+5. **출처 표기 + 부분 캐싱 (전체 DB 덤프 보관 금지).** 캐시 / 요약 / 표시에 원본 URL + 출처명을 항상 함께 노출. DB 에는 표시·요약에 필요한 최소 필드만 저장 (전체 본문·전체 게시판 덤프 불가). 핵심 가치는 "AI 요약 + 컨텍스트" 이지 "원본 데이터의 재배포" 가 아님 — 민사 DB권 침해의 핵심 요건인 "상당한 부분 복제" 를 구조적으로 회피.
+
+> 이 5원칙은 **스크래핑 source** (Naver 종목토론방 및 향후 추가될 스크래핑 source) 에 적용한다. 공식 쿼터가 공개된 API (Naver Search API 등) 는 아래 "공식 API 운영 기준" 을 따른다. 새 source 추가 시 먼저 둘 중 어느 쪽인지 분류하고, 해당 기준을 만족하는 운영 설계를 점검할 것.
 
 ### Naver Search API Rate Limit
-25,000 calls/day is generous for a single-user app but can be exhausted if news is fetched for every scan result. Only fetch + summarize news when user explicitly views a stock detail page, not during bulk scans.
+
+- **공식 한도:** 앱(Client ID) 당 25,000 호출/일. 본 프로젝트 카운터는 `api_usage` service `naver_search_news` (KST 날짜 키). `display` 최대 100, `start` 최대 1000.
+- **소비처:** `workers/news-sync` (주 소비). server `POST /api/stocks/:code/news/refresh` 가 같은 Client ID · 같은 카운터를 공유한다 (스로틀된 수동 새로고침).
+- **예산:** news-sync `NEWS_SYNC_DAILY_BUDGET` 18,750 (공식 25,000 의 75%). server `NAVER_DAILY_BUDGET` 24,500 은 별도 가드.
+- **수집 주기:** 평일 08:00~20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈15.5K/일 (~62%).
+
+**공식 API 운영 기준 — 공식 쿼터가 공개된 API (Naver Search API 등) 에 적용.**
+
+1. **설계 예산은 공식 일일 한도의 75% 이하.**
+2. **한도 안에서 서버측 주기 배치 폴링 허용 (장중 포함).**
+3. **호출량은 사용자 수와 독립.** 사용자 트리거로 O(N) 호출이 생기는 패턴 금지 (예외: 기존 스로틀된 수동 새로고침).
+4. **일일 한도 소진 신호 시 당일 중단, 재시도로 두드리지 않음.** news-sync 는 판정 run 을 즉시 중단하고, 같은 KST 날짜 두 번째 판정부터 자정까지 skip.
+5. **출처 표기와 원문 링크를 항상 노출.**
 
 ---
 
@@ -211,3 +238,4 @@ npm install @supabase/supabase-js
 - BullMQ + Express pattern: https://www.thisdot.co/blog/bullmq-with-expressjs
 - Supabase realtime + Next.js 15: https://dev.to/lra8dev/building-real-time-magic-supabase-subscriptions-in-nextjs-15-2kmp
 - Korean scraping legal ruling (2022): https://file.scourt.go.kr/dcboard/1727143941701_111221.pdf
+- Naver OpenAPI 공식 오류 코드 (429 = 일 허용량 초과): https://developers.naver.com/docs/common/openapiguide/errorcode.md

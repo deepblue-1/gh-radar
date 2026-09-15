@@ -132,9 +132,22 @@
 
 5. **출처 표기 + 부분 캐싱 (전체 DB 덤프 보관 금지).** 캐시 / 요약 / 표시에 원본 URL + 출처명을 항상 함께 노출. DB 에는 표시·요약에 필요한 최소 필드만 저장 (전체 본문·전체 게시판 덤프 불가). 핵심 가치는 "AI 요약 + 컨텍스트" 이지 "원본 데이터의 재배포" 가 아님 — 민사 DB권 침해의 핵심 요건인 "상당한 부분 복제" 를 구조적으로 회피.
 
-> 이 5원칙은 Naver 종목토론방뿐 아니라 Naver Search API · 향후 추가될 다른 한국 데이터 소스에도 동일 적용. 새로운 source 추가 시 본 5원칙을 만족하는 운영 설계를 먼저 점검할 것.
+> 이 5원칙은 **스크래핑 source** (Naver 종목토론방 및 향후 추가될 스크래핑 source) 에 적용한다. 공식 쿼터가 공개된 API (Naver Search API 등) 는 아래 "공식 API 운영 기준" 을 따른다. 새 source 추가 시 먼저 둘 중 어느 쪽인지 분류하고, 해당 기준을 만족하는 운영 설계를 점검할 것.
 
 ### Naver Search API Rate Limit
+
+- **공식 한도:** 앱(Client ID) 당 25,000 호출/일. 본 프로젝트 카운터는 `api_usage` service `naver_search_news` (KST 날짜 키). `display` 최대 100, `start` 최대 1000.
+- **소비처:** `workers/news-sync` (주 소비). server `POST /api/stocks/:code/news/refresh` 가 같은 Client ID · 같은 카운터를 공유한다 (스로틀된 수동 새로고침).
+- **예산:** news-sync `NEWS_SYNC_DAILY_BUDGET` 18,750 (공식 25,000 의 75%). server `NAVER_DAILY_BUDGET` 24,500 은 별도 가드.
+- **수집 주기:** 평일 08:00~20:00 KST 3분 단일 잡 — 급등 상위 30 + 관심종목 매회, 나머지 top_movers 3조 순환 (종목당 9분). 평일 00·02·04·06·22시, 주말 2시간마다 전체 대상. 예상 ≈15.5K/일 (~62%).
+
+**공식 API 운영 기준 — 공식 쿼터가 공개된 API (Naver Search API 등) 에 적용.**
+
+1. **설계 예산은 공식 일일 한도의 75% 이하.**
+2. **한도 안에서 서버측 주기 배치 폴링 허용 (장중 포함).**
+3. **호출량은 사용자 수와 독립.** 사용자 트리거로 O(N) 호출이 생기는 패턴 금지 (예외: 기존 스로틀된 수동 새로고침).
+4. **일일 한도 소진 신호 시 당일 중단, 재시도로 두드리지 않음.** news-sync 는 판정 run 을 즉시 중단하고, 같은 KST 날짜 두 번째 판정부터 자정까지 skip.
+5. **출처 표기와 원문 링크를 항상 노출.**
 ## Installation Reference
 # Frontend (Next.js)
 # shadcn/ui
@@ -157,6 +170,7 @@
 - BullMQ + Express pattern: https://www.thisdot.co/blog/bullmq-with-expressjs
 - Supabase realtime + Next.js 15: https://dev.to/lra8dev/building-real-time-magic-supabase-subscriptions-in-nextjs-15-2kmp
 - Korean scraping legal ruling (2022): https://file.scourt.go.kr/dcboard/1727143941701_111221.pdf
+- Naver OpenAPI 공식 오류 코드 (429 = 일 허용량 초과): https://developers.naver.com/docs/common/openapiguide/errorcode.md
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
