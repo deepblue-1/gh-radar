@@ -34,9 +34,24 @@ describe("loadConfig (Phase 07.2)", () => {
     expect(() => loadConfig()).toThrow(/NAVER_CLIENT_SECRET/);
   });
 
-  it("naverDailyBudget default = 24500", () => {
+  it("naverDailyBudget default = 18750 (공식 25,000 의 75% — quick-260915-h3p)", () => {
     delete process.env.NEWS_SYNC_DAILY_BUDGET;
     const cfg = loadConfig();
-    expect(cfg.naverDailyBudget).toBe(24500);
+    expect(cfg.naverDailyBudget).toBe(18750);
+  });
+
+  it("NEWS_SYNC_MODE 미지정 → auto", () => {
+    delete process.env.NEWS_SYNC_MODE;
+    expect(loadConfig().newsSyncMode).toBe("auto");
+  });
+
+  it("NEWS_SYNC_MODE=full → full", () => {
+    process.env.NEWS_SYNC_MODE = "full";
+    expect(loadConfig().newsSyncMode).toBe("full");
+  });
+
+  it("NEWS_SYNC_MODE=bogus → throw", () => {
+    process.env.NEWS_SYNC_MODE = "bogus";
+    expect(() => loadConfig()).toThrow(/NEWS_SYNC_MODE/);
   });
 });

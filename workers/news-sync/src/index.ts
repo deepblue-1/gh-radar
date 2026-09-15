@@ -5,6 +5,7 @@ import { createSupabaseClient } from "./services/supabase.js";
 import { createNaverClient } from "./naver/client.js";
 import { collectStockNews } from "./naver/collectStockNews.js";
 import { loadTargets } from "./pipeline/targets.js";
+import { planRun } from "./pipeline/cadence.js";
 import { loadLastSeenMap } from "./pipeline/lastSeen.js";
 import { mapToNewsRow } from "./pipeline/map.js";
 import { upsertNews } from "./pipeline/upsert.js";
@@ -16,11 +17,14 @@ import { runRetention } from "./retention.js";
  * Phase 07 — news-sync cycle entry point.
  *
  * Flow:
- *  1. loadConfig + service_role Supabase + Naver client 초기화
- *  2. loadTargets (top_movers ∪ watchlists, stocks 마스터로 FK 검증)
- *  3. checkBudget — 예상 호출량 초과 시 cycle skip
- *  4. lastSeenMap 사전 로드 + firstCutoffIso (7일)
- *  5. p-limit(concurrency) 로 per-stock collectStockNews → upsertNews
+ *  1. loadConfig + service_role Supabase + Naver client 초기화, now 1회 캡처
+ *  2. loadTargets (top_movers(code, rank) ∪ watchlists, stocks 마스터로 FK 검증)
+ *  2b. planRun(now, NEWS_SYNC_MODE, records) — quick-260915-h3p
+ *     · 평일 KST 08:00~20:02 = tiered: hot(rank≤30 ∪ 관심종목) 전부 + rest 3조 순환 버킷 1개
+ *     · 그 외 시각 · 토·일 = full: 전체 대상
+ *  3. checkBudget — 선택 대상 수 기준 예상 호출량 초과 시 cycle skip
+ *  4. lastSeenMap 사전 로드(선택 대상) + firstCutoffIso (now 기준 7일)
+ *  5. p-limit(concurrency) 로 선택 대상 per-stock collectStockNews → upsertNews
  *     - onPage 콜백에서 incrementUsage + 초과 시 stopAll
  *     - Phase 07.2: classifyPerStockError 결과로 stopAll/skip 결정
  *       · auth (401) / budget-exhausted → stopAll
@@ -37,17 +41,27 @@ export async function runNewsSyncCycle(): Promise<void> {
   });
   const supabase = createSupabaseClient(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
   const naver = createNaverClient(cfg);
+  // quick-260915-h3p: run 시작 시각을 1회만 캡처 — 모드·버킷·KST 날짜·컷오프가 같은 시각을 본다.
+  const now = new Date();
 
-  const targets = await loadTargets(supabase);
-  log.info({ count: targets.length }, "news-sync targets loaded");
+  const records = await loadTargets(supabase);
+  const { mode, restBucket, selected, counts } = planRun(
+    now,
+    cfg.newsSyncMode,
+    records,
+  );
+  log.info(
+    { mode, restBucket, ...counts, selected: selected.length },
+    "news-sync targets selected",
+  );
 
-  const dateKst = kstDateString();
+  const dateKst = kstDateString(now);
   const budgetBefore = await checkBudget(supabase, dateKst);
-  if (budgetBefore + targets.length > cfg.naverDailyBudget) {
+  if (budgetBefore + selected.length > cfg.naverDailyBudget) {
     log.warn(
       {
         budgetBefore,
-        targets: targets.length,
+        targets: selected.length,
         budget: cfg.naverDailyBudget,
       },
       "budget would exceed — skipping cycle",
@@ -56,9 +70,9 @@ export async function runNewsSyncCycle(): Promise<void> {
   }
 
   // R7: 종목별 마지막 수집 MAX(published_at) 선로드 — 증분 종료조건 기준
-  const codes = targets.map((t) => t.code);
+  const codes = selected.map((t) => t.code);
   const lastSeenMap = await loadLastSeenMap(supabase, codes);
-  const firstCutoffIso = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const firstCutoffIso = new Date(now.getTime() - 7 * 86_400_000).toISOString();
 
   let pages = 0;
   let inserted = 0;
@@ -69,7 +83,7 @@ export async function runNewsSyncCycle(): Promise<void> {
   const limit = pLimit(cfg.newsSyncConcurrency);
 
   await Promise.allSettled(
-    targets.map((t) =>
+    selected.map((t) =>
       limit(async () => {
         if (stopAll) {
           skipped++;
@@ -134,6 +148,9 @@ export async function runNewsSyncCycle(): Promise<void> {
 
   log.info(
     {
+      mode,
+      restBucket,
+      targets: selected.length,
       pages,
       inserted,
       skipped,
