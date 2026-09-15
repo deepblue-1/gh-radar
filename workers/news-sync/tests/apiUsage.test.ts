@@ -3,7 +3,42 @@ import {
   kstDateString,
   checkBudget,
   incrementUsage,
+  readQuotaStrikes,
+  recordQuotaStrike,
+  QUOTA_STRIKE_SERVICE,
+  QUOTA_STRIKES_TO_STOP_DAY,
 } from "../src/apiUsage";
+
+describe("quota strike 마커 (quick-260915-h3p)", () => {
+  it("상수", () => {
+    expect(QUOTA_STRIKE_SERVICE).toBe("naver_search_news_quota_strike");
+    expect(QUOTA_STRIKES_TO_STOP_DAY).toBe(2);
+  });
+
+  it("recordQuotaStrike → incr_api_usage(strike service, amount 1)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: 1, error: null });
+    const n = await recordQuotaStrike({ rpc } as any, "2026-09-15");
+    expect(rpc).toHaveBeenCalledWith("incr_api_usage", {
+      p_service: "naver_search_news_quota_strike",
+      p_date: "2026-09-15",
+      p_amount: 1,
+    });
+    expect(n).toBe(1);
+  });
+
+  it("readQuotaStrikes → service eq strike service", async () => {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { count: 2 }, error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(chain) } as any;
+    expect(await readQuotaStrikes(supabase, "2026-09-15")).toBe(2);
+    expect(chain.eq).toHaveBeenCalledWith("service", "naver_search_news_quota_strike");
+    expect(chain.eq).not.toHaveBeenCalledWith("service", "naver_search_news");
+    expect(chain.eq).toHaveBeenCalledWith("usage_date", "2026-09-15");
+  });
+});
 
 describe("kstDateString (V-02)", () => {
   it("UTC 15:00 → KST 다음날 00:00 → 다음날짜 반환", () => {

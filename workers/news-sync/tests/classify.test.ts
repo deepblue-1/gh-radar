@@ -1,5 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { classifyPerStockError } from "../src/pipeline/classify";
+import {
+  CONSECUTIVE_429_STOCKS_FOR_EXHAUSTION,
+  Consecutive429Tracker,
+  classifyPerStockError,
+} from "../src/pipeline/classify";
+
+describe("Consecutive429Tracker (quick-260915-h3p)", () => {
+  it("임계값 5", () => {
+    expect(CONSECUTIVE_429_STOCKS_FOR_EXHAUSTION).toBe(5);
+  });
+
+  it("4번까지 false, 5번째 true", () => {
+    const t = new Consecutive429Tracker(5);
+    for (let i = 0; i < 4; i++) expect(t.recordRateLimitFailure()).toBe(false);
+    expect(t.recordRateLimitFailure()).toBe(true);
+  });
+
+  it("중간 recordSuccess 는 0 으로 리셋", () => {
+    const t = new Consecutive429Tracker(5);
+    for (let i = 0; i < 4; i++) t.recordRateLimitFailure();
+    t.recordSuccess();
+    for (let i = 0; i < 4; i++) expect(t.recordRateLimitFailure()).toBe(false);
+    expect(t.recordRateLimitFailure()).toBe(true);
+  });
+});
 import {
   NaverAuthError,
   NaverBudgetExhaustedError,

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { collectStockNews } from "../src/naver/collectStockNews";
 import {
   NaverBadRequestError,
+  NaverBudgetExhaustedError,
   NaverRateLimitError,
 } from "../src/naver/searchNews";
 
@@ -162,11 +163,23 @@ describe("collectStockNews — 429 backoff retry (Phase 07.2)", () => {
     onPage: async () => true,
   };
 
-  function axiosErr(status: number): Error {
+  function axiosErr(status: number, data: unknown = {}): Error {
     const e = new Error(`HTTP ${status}`) as Error & { response: unknown };
-    e.response = { status, data: {} };
+    e.response = { status, data };
     return e;
   }
+
+  it("429 + 본문 errorCode 010 (일일 한도 소진) → 재시도 없이 NaverBudgetExhaustedError (quick-260915-h3p)", async () => {
+    const client = mkSeq([
+      async () => {
+        throw axiosErr(429, { errorCode: "010", errorMessage: "Query limit exceeded" });
+      },
+    ]);
+    await expect(collectStockNews(client, "q", baseOpts)).rejects.toBeInstanceOf(
+      NaverBudgetExhaustedError,
+    );
+    expect((client.get as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1);
+  });
 
   function mkSeq(
     sequence: Array<() => Promise<{ data: { items: unknown[] } }>>,
