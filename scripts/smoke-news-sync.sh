@@ -38,44 +38,46 @@ check "INV-2 jobs describe" \
   gcloud run jobs describe "$JOB" --region="$REGION"
 
 # ─────────────────────────────────────────────────────────────
-# INV-3a: Scheduler intraday schedule === '*/15 11-15 * * 1-5'
+# INV-3 계열 (quick-260915-h3p): 평일 장시간 3분 단일 잡 + 장외(평일 밤 · 주말) 분리.
+#   식은 scripts/deploy-news-sync.sh NEWS_SCHEDULERS 와 같아야 한다
+#   (동분 중복 0 은 workers/news-sync/tests/schedule.test.ts 가 단언).
 # ─────────────────────────────────────────────────────────────
-check "INV-3a scheduler intraday schedule" bash -c "
-  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-intraday --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$SCHEDULE\" = '*/15 11-15 * * 1-5' ]
+# INV-3a: Scheduler market schedule === '*/3 8-19 * * 1-5'
+check "INV-3a scheduler market schedule" bash -c "
+  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-market --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
+  [ \"\$SCHEDULE\" = '*/3 8-19 * * 1-5' ]
 "
 
-# ─────────────────────────────────────────────────────────────
-# INV-3d: Scheduler morning schedule === '*/3 8-9 * * 1-5' (quick-260915-boq)
-# ─────────────────────────────────────────────────────────────
-check "INV-3d scheduler morning schedule" bash -c "
-  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-morning --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$SCHEDULE\" = '*/3 8-9 * * 1-5' ]
+# INV-3b: Scheduler market-close schedule === '0 20 * * 1-5'
+check "INV-3b scheduler market-close schedule" bash -c "
+  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-market-close --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
+  [ \"\$SCHEDULE\" = '0 20 * * 1-5' ]
 "
 
-# ─────────────────────────────────────────────────────────────
-# INV-3e: Scheduler morning-10h schedule === '0-30/3,45 10 * * 1-5' (quick-260915-boq)
-# ─────────────────────────────────────────────────────────────
-check "INV-3e scheduler morning-10h schedule" bash -c "
-  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-morning-10h --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$SCHEDULE\" = '0-30/3,45 10 * * 1-5' ]
-"
-
-# ─────────────────────────────────────────────────────────────
-# INV-3b: Scheduler offhours schedule === '0 */2 * * *'
-# ─────────────────────────────────────────────────────────────
-check "INV-3b scheduler offhours schedule" bash -c "
+# INV-3c: Scheduler offhours schedule === '0 0-6/2,22 * * 1-5'
+check "INV-3c scheduler offhours schedule" bash -c "
   SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-offhours --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
-  [ \"\$SCHEDULE\" = '0 */2 * * *' ]
+  [ \"\$SCHEDULE\" = '0 0-6/2,22 * * 1-5' ]
 "
 
-# ─────────────────────────────────────────────────────────────
-# INV-3c: 네 scheduler 모두 ENABLED (morning · morning-10h · intraday · offhours)
-# ─────────────────────────────────────────────────────────────
-check "INV-3c all schedulers ENABLED" bash -c "
-  for S in gh-radar-news-sync-morning gh-radar-news-sync-morning-10h gh-radar-news-sync-intraday gh-radar-news-sync-offhours; do
+# INV-3d: Scheduler weekend schedule === '0 */2 * * 0,6'
+check "INV-3d scheduler weekend schedule" bash -c "
+  SCHEDULE=\$(gcloud scheduler jobs describe gh-radar-news-sync-weekend --location=\"$REGION\" --format='value(schedule)' 2>/dev/null)
+  [ \"\$SCHEDULE\" = '0 */2 * * 0,6' ]
+"
+
+# INV-3e: 네 scheduler 모두 ENABLED (market · market-close · offhours · weekend)
+check "INV-3e all schedulers ENABLED" bash -c "
+  for S in gh-radar-news-sync-market gh-radar-news-sync-market-close gh-radar-news-sync-offhours gh-radar-news-sync-weekend; do
     STATE=\$(gcloud scheduler jobs describe \"\$S\" --location=\"$REGION\" --format='value(state)' 2>/dev/null)
     [ \"\$STATE\" = 'ENABLED' ] || exit 1
+  done
+"
+
+# INV-3f: 폐기 scheduler 3개는 존재하지 않는다 (describe 실패)
+check "INV-3f obsolete schedulers absent" bash -c "
+  for S in gh-radar-news-sync-morning gh-radar-news-sync-morning-10h gh-radar-news-sync-intraday; do
+    if gcloud scheduler jobs describe \"\$S\" --location=\"$REGION\" >/dev/null 2>&1; then exit 1; fi
   done
 "
 

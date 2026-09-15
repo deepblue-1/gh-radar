@@ -2,17 +2,18 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-# Phase 07 Plan 06 — news-sync Cloud Run Job + 2-Scheduler 배포
+# Phase 07 Plan 06 — news-sync Cloud Run Job + Scheduler 배포
 #
 # 선행: scripts/setup-news-sync-iam.sh (SA + Secret + Accessor 5건)
 #
 # 리소스:
 #   - Cloud Run Job: gh-radar-news-sync (asia-northeast3, 512Mi, 600s, retries=1)
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/news-sync:<sha>
-#   - Scheduler 1: gh-radar-news-sync-morning     "*/3 8-9 * * 1-5"      (평일 08:00~09:57 3분)
-#   - Scheduler 2: gh-radar-news-sync-morning-10h "0-30/3,45 10 * * 1-5" (평일 10:00~10:30 3분 + 10:45)
-#   - Scheduler 3: gh-radar-news-sync-intraday    "*/15 11-15 * * 1-5"   (평일 11:00~15:45 15분)
-#   - Scheduler 4: gh-radar-news-sync-offhours    "0 */2 * * *"          (장외, 2h 주기 KST)
+#   - Scheduler 1: gh-radar-news-sync-market       "*/3 8-19 * * 1-5"     (평일 08:00~19:57 3분, tiered)
+#   - Scheduler 2: gh-radar-news-sync-offhours     "0 0-6/2,22 * * 1-5"   (평일 00·02·04·06·22시, full)
+#   - Scheduler 3: gh-radar-news-sync-weekend      "0 */2 * * 0,6"        (토·일 2시간마다, full)
+#   - Scheduler 4: gh-radar-news-sync-market-close "0 20 * * 1-5"         (평일 20:00, tiered)
+#   - 폐기(삭제): gh-radar-news-sync-morning · gh-radar-news-sync-morning-10h · gh-radar-news-sync-intraday
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용 (OIDC 금지, Pitfall 2).
 # ═══════════════════════════════════════════════════════════════
@@ -116,9 +117,12 @@ docker push "$IMAGE_LATEST"
 # Section 6: Deploy Cloud Run Job
 #   worker config.ts 가 읽는 env:
 #     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET,
-#     NAVER_BASE_URL, NEWS_SYNC_DAILY_BUDGET, NEWS_SYNC_CONCURRENCY, LOG_LEVEL, APP_VERSION
+#     NAVER_BASE_URL, NEWS_SYNC_DAILY_BUDGET, NEWS_SYNC_MODE(미설정=auto), NEWS_SYNC_CONCURRENCY,
+#     LOG_LEVEL, APP_VERSION
 #   (plan 은 NAVER_DAILY_BUDGET 이라 표기했으나 worker 코드는 NEWS_SYNC_DAILY_BUDGET —
 #    실 코드 기준으로 세팅. plan-intent 일관성을 위해 NAVER_DAILY_BUDGET 도 함께 세팅)
+#   worker 는 NEWS_SYNC_DAILY_BUDGET 만 읽는다 (NAVER_DAILY_BUDGET=24500 은 이 Job 에서 무효 — server 가드와 별개).
+#   NEWS_SYNC_DAILY_BUDGET=18750 = 네이버 공식 25,000/일의 75% (quick-260915-h3p).
 #   delimiter `^@^` → URL 의 `:` 충돌 회피
 # ═══════════════════════════════════════════════════════════════
 echo "▶ deploying Cloud Run Job..."
@@ -132,7 +136,7 @@ gcloud run jobs deploy "$JOB" \
   --max-retries=1 \
   --parallelism=1 \
   --tasks=1 \
-  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@NEWS_SYNC_DAILY_BUDGET=24500@NEWS_SYNC_CONCURRENCY=3@LOG_LEVEL=info@APP_VERSION=${SHA}" \
+  --set-env-vars="^@^SUPABASE_URL=${SUPABASE_URL}@NAVER_BASE_URL=https://openapi.naver.com@NAVER_DAILY_BUDGET=24500@NEWS_SYNC_DAILY_BUDGET=18750@NEWS_SYNC_CONCURRENCY=3@LOG_LEVEL=info@APP_VERSION=${SHA}" \
   --set-secrets="SUPABASE_SERVICE_ROLE_KEY=gh-radar-supabase-service-role:latest,NAVER_CLIENT_ID=${NAVER_ID_SECRET}:latest,NAVER_CLIENT_SECRET=${NAVER_SECRET_SECRET}:latest" \
   --project="$EXPECTED_PROJECT"
 
@@ -147,30 +151,36 @@ gcloud run jobs add-iam-policy-binding "$JOB" \
 echo "✓ run.invoker bound: gh-radar-scheduler-sa → $JOB"
 
 # ═══════════════════════════════════════════════════════════════
-# Section 8: Cloud Scheduler — 아침장 3분(morning · morning-10h) + 장중 15분(intraday) + offhours
+# Section 8: Cloud Scheduler — 평일 장시간 3분 단일 잡 + 장외(평일 밤 · 주말) 분리 (quick-260915-h3p)
 #   주의: --oauth-service-account-email 사용 (OIDC 금지, Pitfall 2)
 #         time-zone Asia/Seoul
 #
-#   아침장 3분 주기 (quick-260915-boq):
-#   - 운영 근거(CLAUDE.md 크롤링 5원칙 대비): 2026-09-15 사용자 명시 승인. 호출량은 사용자 수가
-#     아니라 고정 대상 집합(top_movers 상위 100 + watchlists)에 비례하는 서버측 배치이며,
-#     사용자 클릭 on-demand 호출은 없다.
-#   - 예산 실측: 회당 104~152 호출(targets 104), 장중 평일 실행 32회 → 76회(+44),
-#     일 추정 ≈9.9K (offhours 12회 포함) < NEWS_SYNC_DAILY_BUDGET 24,500.
-#     실행 시간 18~43s(3분 주기 대비 충분), 겹쳐도 upsert ignoreDuplicates + atomic incr_api_usage 로 안전.
-#   - 장중 잡 3개는 시 범위 8-9 / 10 / 11-15 가 서로소라 서로 같은 분에 발화하지 않는다.
-#   - 순서 중요: 새 아침 잡을 먼저 만들고 기존 intraday 를 나중에 좁혀야 적용 중 공백이 없다.
-#   - 알고 남겨 둔 기존 중복: offhours `0 */2` 가 08:00·10:00·12:00·14:00 에 장중 잡과
-#     같은 분에 발화한다(offhours 불변 결정 — 2번째 실행은 inserted≈0, 호출 ≈+100).
+#   설계:
+#   - 평일 08:00~20:00 은 market(*/3 8-19) + market-close(20:00) 가 3분마다 호출한다. 워커가 KST 시각으로
+#     tiered 모드를 스스로 판정해 hot(급등 상위 30 ∪ 관심종목)은 매회, rest(나머지 top_movers)는
+#     floor(분/3)%3 버킷 순환으로 9분마다 수집한다(workers/news-sync/src/pipeline/cadence.ts).
+#   - 장외(평일 00·02·04·06·22시, 토·일 2시간마다)는 full 모드로 전체 대상을 수집한다.
+#   - 모드는 스케줄러가 넘기지 않는다 — 네 스케줄러 모두 본문 없는 같은 jobs:run URI 를 호출한다.
+#     수동 강제: gcloud run jobs execute gh-radar-news-sync --update-env-vars NEWS_SYNC_MODE=full|tiered
+#   - 운영 근거: CLAUDE.md "공식 API 운영 기준" — 호출량은 사용자 수가 아니라 고정 대상 집합에 비례하는
+#     서버측 배치이며, 사용자 클릭 on-demand 호출은 없다.
+#
+#   예산 추정: 장시간 241회 × ~60 호출 ≈ 14.5K, 평일 밤 5회 · 아침 첫 실행 backfill 을 더해
+#     ≈15.5K/일 (공식 25K 의 ~62%) < 가드 NEWS_SYNC_DAILY_BUDGET 18,750.
+#   동분 중복 발화 0 · 주간 발화 수 · 워커 모드 정합은 workers/news-sync/tests/schedule.test.ts 가
+#     이 NEWS_SCHEDULERS 배열을 직접 읽어 단언한다 — 배열을 바꾸면 그 테스트를 먼저 돌릴 것.
+#   quick-260915-boq 의 아침장 3분 분리와 offhours `0 */2 * * *` 가 장중 잡과 같은 분에 발화하던 중복은
+#     이번 재편으로 해소됐다.
+#   적용 순서: 새 market 잡을 먼저 만들고 offhours 를 좁힌 뒤 폐기 잡을 지운다(공백 최소화).
 # ═══════════════════════════════════════════════════════════════
 JOB_INVOKE_URI="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${EXPECTED_PROJECT}/jobs/${JOB}:run"
 SCHED_SA="gh-radar-scheduler-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
 
 declare -a NEWS_SCHEDULERS=(
-  "gh-radar-news-sync-morning|*/3 8-9 * * 1-5"
-  "gh-radar-news-sync-morning-10h|0-30/3,45 10 * * 1-5"
-  "gh-radar-news-sync-intraday|*/15 11-15 * * 1-5"
-  "gh-radar-news-sync-offhours|0 */2 * * *"
+  "gh-radar-news-sync-market|*/3 8-19 * * 1-5"
+  "gh-radar-news-sync-offhours|0 0-6/2,22 * * 1-5"
+  "gh-radar-news-sync-weekend|0 */2 * * 0,6"
+  "gh-radar-news-sync-market-close|0 20 * * 1-5"
 )
 
 for entry in "${NEWS_SCHEDULERS[@]}"; do
@@ -199,12 +209,25 @@ for entry in "${NEWS_SCHEDULERS[@]}"; do
   fi
 done
 
+# 폐기 스케줄러 삭제 (idempotent) — 새 4개 적용 후에 지워 수집 공백을 만들지 않는다.
+declare -a OBSOLETE_NEWS_SCHEDULERS=(gh-radar-news-sync-morning gh-radar-news-sync-morning-10h gh-radar-news-sync-intraday)
+
+for S in "${OBSOLETE_NEWS_SCHEDULERS[@]}"; do
+  if gcloud scheduler jobs describe "$S" --location="$REGION" --project="$EXPECTED_PROJECT" >/dev/null 2>&1; then
+    gcloud scheduler jobs delete "$S" --location="$REGION" --project="$EXPECTED_PROJECT" --quiet
+    echo "▶ scheduler delete: $S"
+  else
+    echo "✓ already absent: $S"
+  fi
+done
+
 # ═══════════════════════════════════════════════════════════════
 # Section 9: Smoke
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
-echo "  Schedulers: gh-radar-news-sync-morning + gh-radar-news-sync-morning-10h + gh-radar-news-sync-intraday + gh-radar-news-sync-offhours"
+echo "  Schedulers: gh-radar-news-sync-market + gh-radar-news-sync-market-close + gh-radar-news-sync-offhours + gh-radar-news-sync-weekend"
+echo "  Removed:    gh-radar-news-sync-morning · gh-radar-news-sync-morning-10h · gh-radar-news-sync-intraday"
 echo ""
 
 echo "▶ smoke tests..."
