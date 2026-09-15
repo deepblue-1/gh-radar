@@ -411,7 +411,10 @@ log "✓ 라우팅 안전장치 예약 (부팅 후 180초 1회)"
 # ───────────────────────────────────────────────────────────────
 # 8. WireGuard 서버 (개발기 직결) — quick-260909-muo
 #    개발기(Mac/Windows)가 외부 CLI·IAP·포트 포워딩 없이 wg0 를 통해
-#    10.41.1.120 의 {9100, 22} 에만 닿게 한다. 인증은 피어 공개키다.
+#    10.41.1.120 의 {9100, 22} 에만 닿게 한다(예외: alex-mac 10.20.0.2 만 10.41.1.121 의
+#    {9100, 22} 도). 인증은 피어 공개키다. 121 예외는 출발지 10.20.0.2 로 묶인다 —
+#    wg-peer-add 가 피어마다 /32 를 배정하고 중복 주소를 거부하므로, 그 출발지는
+#    alex-mac 키로 온 패킷만 가진다 (quick-260915-doz).
 #
 #    ⚠️ 이 섹션은 기본 경로·tun0 라우트·kbvpn-* 자산(연결·워치독·주간갱신·
 #       라우팅 안전장치)·Caddy·relay 컨테이너를 **한 줄도 건드리지 않는다.**
@@ -485,8 +488,10 @@ table inet wgfwd {
     iifname "wg0" oifname "tun0" tcp flags syn tcp option maxseg size set rt mtu
     iifname "tun0" oifname "wg0" tcp flags syn tcp option maxseg size set rt mtu
 
-    # ② 허용은 게이트웨이 한 대의 두 포트뿐이다.
+    # ② 허용은 게이트웨이 120 의 두 포트 + alex-mac(10.20.0.2) 전용 121 의 두 포트뿐이다.
+    #    121 은 ip saddr 로 한 피어에만 연다(다른 피어는 ④ 에서 drop).
     iifname "wg0" oifname "tun0" ip daddr 10.41.1.120 tcp dport { 9100, 22 } accept
+    iifname "wg0" oifname "tun0" ip saddr 10.20.0.2 ip daddr 10.41.1.121 tcp dport { 9100, 22 } accept
 
     # ③ 그 응답만 돌아온다.
     iifname "tun0" oifname "wg0" ct state established,related accept
@@ -522,10 +527,14 @@ PostUp = wg addconf %i /etc/wireguard/peers.conf || true
 PostUp = nft -f /etc/wireguard/wgfwd.nft
 PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT
+# alex-mac(10.20.0.2) 전용 — 10.41.1.121 의 9100·22 (quick-260915-doz)
+PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -s 10.20.0.2 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -s 10.20.0.2 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT
 PostUp = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -s 10.20.0.2 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostDown = nft delete table inet wgfwd || true
 WG0_CONF_EOF
