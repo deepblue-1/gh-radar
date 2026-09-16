@@ -125,6 +125,41 @@ t=1789518503 ev=close kind=tx_stall peer=10.20.0.5 dur=41.0 …
    못 미치고, GCP 쪽에서 본 송수신만 보여 「GCP 경로 vs 클라이언트 회선」을 가르지 못한다.
    그 구분은 이번에 넣은 국내 기준점 2곳 왕복시간이 맡는다.
 
+## 장 마감 후 반영 + 재부팅 실증 (2026-09-16 21:36~22:40 KST) — 미확인 항목 1 해소
+
+사용자 지시로 진행. 장중 12시간 `NRestarts=0` · 이상 줄 0건(`ev=alive` 730줄) 확인 후 착수.
+
+**사전 점검 (전부 읽기):** KRX·NXT 종료 · `apt-get update` 후 startup.sh 설치 목록 업그레이드 0(대상은 설치 목록 밖 `google-cloud-cli` 하나) ·
+`daemon.json` 기대값 일치 · 배치 자산 sha 저장소 일치 · 메타데이터 startup-script ↔ 저장소 diff = §9 한 덩어리 ·
+`setup-relay-iam.sh --dry-run` 변경 = IAM 재바인딩(멱등) + add-metadata.
+
+| 단계 | 결과 |
+|------|------|
+| ① `setup-relay-iam.sh` | 완료. 메타데이터 `startup-script 734772…` · `wg-probe cd050e…` · `wg-probe-service 4ccbbf…` = 저장소 sha |
+| ② `google_metadata_script_runner startup` | rc=0. 로그 전 단계 ✓, caddy·wg0·wg-probe 「이미 기동 중」. **재기동 0건**(ActiveEnterTimestamp·relay `StartedAt` 불변). route-guard 「기본 경로 정상(ens4) — 조치 없음」 |
+| ③ 재부팅 22:34 KST | 조건부 예약(재시작 정책 `always` · 자동 기동 유닛 7개 enabled · `/etc/kbvpn.env`). **61초** 만에 `/healthz` `vpn:true·dma:true` |
+| 부팅 후 | `system: running` · 실패 유닛 0 · **wg-probe 부팅 중 자동 기동** 13:34:56 UTC(`NRestarts=0`, `ev=alive` 정상) · openconnect 재접속 → 세션 창 **2026-09-30 13:34:57 UTC** · relay `RestartCount=0`·웹 세션 재접속 · WG 피어 `10.20.0.2`·`.4` 재핸드셰이크(나머지 3개는 재부팅 전에도 수 시간~수 일 유휴) · 기본 경로 `dev ens4` · route-guard 「조치 없음」 · nft·`DOCKER-USER` 에 121 규칙 존재 |
+
+**재부팅으로 `/proc/net/dev` 카운터 리셋 — wg0 `tx_drop` 기준선은 371 → 0.**
+
+### 드러난 잠복 결함 — quick-260915-doz 의 121 규칙이 커널에만 있었다
+
+재적용 후 `wg0.conf`·`wgfwd.nft` sha 가 적용 전과 달랐다(`cad30d…→6417f7…`, `2d61c4…→845d7a…`). 메타데이터 차이는 §9 뿐이었으므로
+원인을 추적했다: **저장소의 `startup.sh` 커밋별로 두 heredoc 을 추출·해시**해 보니 적용 전 파일 = `7d8482f`(9/9 muo)·`5fa7221`(9/11 dps)
+생성물, 적용 후 = `5625273`(9/15 doz) 이후 생성물이었다. 그런데 커널 nft·`DOCKER-USER` 에는 이미 alex-mac 전용 121 규칙이 있었다.
+
+→ doz 때 규칙을 **커널에만** 넣고 디스크 생성물은 갱신하지 않았다. 그 상태로 재부팅됐다면 enabled 인 `wg-quick@wg0` 가 옛 파일로
+올라오고 startup.sh 는 「이미 기동 중」이라 재기동하지 않으므로 **121 접근이 조용히 사라졌을 것**이다.
+재부팅 전에 새 파일의 `nft -c` 통과 · 규칙 줄 커널과 일치(집합 원소 순서만 정규화 차이) · PostUp 3규칙 = `DOCKER-USER` 를 확인했고,
+재부팅 후 121 규칙이 양쪽에 살아 있음을 확인했다. 대조 명령은 README 런북에 박았다.
+
+### 남은 관찰 항목
+
+- `MemoryCurrent` 가 기동 직후 ≈7.9MB → 12시간 뒤 ≈11.5MB 로 늘었다(재부팅 후 8.5MB 로 재시작). 상한 64M 대비 여유는 크지만
+  누수인지 할당기 워밍업인지는 **아직 판정할 수 없다** — 며칠 치 추이를 보고 판단한다.
+- `wg-probe` 는 부팅 시 `wg-quick@wg0`(13:34:58) 보다 2초 먼저 기동했다. 첫 틱에 `wg show` 가 실패했다면 `wg_read_fail` 한 줄을
+  남기고 계속 도는 설계이며, 이번 부팅 저널에는 그런 줄이 없다.
+
 ## 실행 순서 준수
 
 `google_metadata_script_runner startup` 과 `scripts/setup-relay-iam.sh` 는 **이 plan 에서 실행되지

@@ -7,7 +7,7 @@ status: completed
 stopped_at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
 last_updated: "2026-09-16T00:35:00.000Z"
 last_activity: 2026-09-16
-last_activity_desc: "Completed quick task 260916-c9y: radar-gw WireGuard 터널 상시 측정기(wg-probe) — 1초 주기 피어·카운터·국내 기준점 RTT, 이상 시에만 journald. 장중 A안 직접 설치 완료(재부팅 생존은 장 마감 후 런북)"
+last_activity_desc: "quick 260916-c9y 장 마감 후 반영 완료: 메타데이터 갱신 + startup.sh 재적용 + 재부팅 실증(wg-probe 부팅 자동 기동). doz 121 규칙 커널 전용 잠복 결함 발견·해소"
 state_head: 21b331846b3574fabd431f6c9c58aa3501107fa3
 progress:
   total_phases: 25
@@ -33,7 +33,7 @@ Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운�
 Plans completed: 171 / 185
 Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-16 - Completed quick task 260916-c9y: radar-gw WireGuard 터널 상시 측정기(wg-probe) — 1초 주기 피어·카운터·국내 기준점 RTT, 이상 시에만 journald. 장중 A안 직접 설치 완료(재부팅 생존은 장 마감 15:30 KST 이후 런북)
+Last activity: 2026-09-16 - quick task 260916-c9y 장 마감 후 반영 완료: 메타데이터 갱신 + startup.sh 재적용 + **재부팅 실증**(22:34 KST, 61초 복귀, wg-probe 부팅 자동 기동). 재적용 중 doz 의 121 규칙이 커널에만 있고 디스크 생성물은 옛것이던 잠복 결함 발견·해소
 
 Progress: [█████████░] 92%
 

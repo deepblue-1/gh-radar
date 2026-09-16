@@ -54,12 +54,12 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 
 | 항목 | 값 | 확인 방법 |
 |------|-----|-----------|
-| relay 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:a2c5238` | `docker inspect … .Config.Image` |
-| `/healthz` | `200` · `{"status":"ok","vpn":true,"dma":true,"version":"a2c5238","sessionCount":1}` | `curl -s https://dma.jx1.io/healthz` |
+| relay 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:11072e4` (2026-09-16 실측) | `docker inspect … .Config.Image` |
+| `/healthz` | `200` · `{"status":"ok","vpn":true,"dma":true,"version":"11072e4","sessionCount":1,"everReadyCount":1,"stalledCount":0}` (2026-09-16 재부팅 후 실측) | `curl -s https://dma.jx1.io/healthz` |
 | **`DMA_HOST` 실측 분류** | **실 게이트웨이 (`10.41.1.120`)** — mock 아님. **주문이 실계좌로 나간다** | `docker inspect … \| sed -n 's/^DMA_HOST=//p'` (키 하나만 추출) |
 | `openconnect@kb` | `active` + **`enabled`** — 상시 유지가 정책이다 | `systemctl is-active` / `is-enabled` |
 | `kbvpn-*` 타이머 | **2개** — `kbvpn-watchdog.timer`(10분 주기 회수) · `kbvpn-renew.timer`(일 06:00 KST 예약 재접속) | `systemctl list-timers 'kbvpn-*' --all` |
-| 세션 인증 만료 예정 | `2026-09-20 04:03:55 UTC` (= 마지막 접속 `2026-09-06 04:03:55 UTC` + 14일) | `journalctl -u openconnect@kb \| grep -i 'Session authentication will expire'` 마지막 줄 |
+| 세션 인증 만료 예정 | `2026-09-30 13:34:57 UTC` (= 마지막 접속 `2026-09-16 13:34:57 UTC` 재부팅 + 14일 · 2026-09-16 실측) | `journalctl -u openconnect@kb \| grep -i 'Session authentication will expire'` 마지막 줄 |
 | 기본 경로 | `default via 10.10.0.1 dev ens4` — 터널이 기본 경로를 탈취하지 않았다 | `ip route show default` |
 | `caddy` | `active` | `systemctl is-active caddy` |
 | `wg-probe` | `active` + `enabled` — wg0 터널 1초 주기 읽기 전용 측정기 (2026-09-16 신설, §터널 정지 판정 절차) | `systemctl is-active wg-probe` / `journalctl -t wg-probe -n 5` |
@@ -593,12 +593,34 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 > `/healthz` **200** · `available` 545→531MB.
 >
 > **아직 확인되지 않은 것 (정직 기록).**
-> ⓐ **메타데이터 반영과 재부팅 생존은 미확인이다.** 지금 VM 의 두 파일은 `startup.sh` 를 거치지
-> 않고 올라갔으므로 **재부팅하면 사라진다** — §장 마감 후 재부팅 생존 반영 런북 소관.
+> ⓐ ~~메타데이터 반영과 재부팅 생존은 미확인이다~~ → **같은 날 장 마감 후 실증 완료** (바로 아래 블록).
 > ⓑ **실제 10.5초급 사건에서의 포착은 다음 재발 때 처음 검증된다.** 오늘 증명된 것은
 > 「합성 시계열에서 잡는다」와 「임계값을 낮추면 실 터널에서 발화한다」 **둘뿐이다.**
 > ⓒ 기본 임계값의 저널에는 아직 `peer=` 줄이 없다(이상 0건) — **그것이 정상 상태다.**
 > 공개키·PSK 의 base64 44자 패턴 검사는 **0건**으로 통과했다.
+
+> **장 마감 후 반영 + 재부팅 실증 (2026-09-16 21:36~22:40 KST).** 장중 12시간 동안 `NRestarts=0` ·
+> 이상 줄 **0건**(`ev=alive` 730줄)을 확인한 뒤 진행했다. 사전 점검: KRX·NXT 모두 종료 ·
+> `apt-get update` 후 startup.sh 설치 목록의 업그레이드 대상 **0** · `daemon.json` 기대값 일치(docker 재시작 없음) ·
+> 메타데이터 startup-script 와 저장소의 차이는 §9 **한 덩어리뿐** · `setup-relay-iam.sh --dry-run` 변경은 IAM 재바인딩(멱등)과 메타데이터뿐.
+>
+> ① `setup-relay-iam.sh` — 메타데이터 3키 sha 저장소 일치(`startup-script 734772…` · `wg-probe cd050e…` · `wg-probe-service 4ccbbf…`).
+> ② `google_metadata_script_runner startup` rc=0 — **서비스 재기동 0건**(모든 `ActiveEnterTimestamp`·relay `StartedAt` 불변) ·
+> 생성물 sha 는 아래 2개를 빼고 전부 불변 · 180초 뒤 route-guard 「기본 경로 정상(ens4) — 조치 없음」 · `/healthz` 200.
+> ③ **재부팅 22:34 KST** — 재시작 정책 `always`·자동 기동 유닛 7개 enabled·`/etc/kbvpn.env` 존재를 조건으로 걸고 예약했다.
+> **61초 만에** 새 boot_id 로 `/healthz` `vpn:true·dma:true`. `wg-probe` 가 **부팅 중 systemd 로 자동 기동**(`NRestarts=0`,
+> 첫 `ev=alive` 정상)했고 startup.sh §9 는 「이미 기동 중」으로 건드리지 않았다. `system: running` · 실패 유닛 0 ·
+> openconnect 재접속(세션 창 **2026-09-30 13:34:57 UTC** 로 갱신) · relay 자동 재시작(`RestartCount=0`, 웹 세션 재접속) ·
+> 재부팅 전 접속해 있던 WireGuard 피어 2개(`10.20.0.2`·`.4`) 재핸드셰이크 · 기본 경로 `dev ens4` · route-guard 「조치 없음」.
+>
+> **재부팅으로 `/proc/net/dev` 카운터가 리셋됐다 — wg0 `tx_drop` 기준선은 이제 371 이 아니라 0 이다.**
+>
+> **재적용이 잠복 결함을 하나 드러냈다 (quick-260915-doz).** 재작성된 `wg0.conf`·`wgfwd.nft` 의 sha 가 적용 전과 달랐다.
+> 저장소 커밋별 생성물 해시를 재구성해 보니 적용 전 디스크 파일은 **9/9 muo·9/11 dps 생성물**이었고, 커널에는 9/15 doz 의
+> alex-mac 전용 121 규칙이 이미 살아 있었다 — **규칙이 커널에만 들어가고 파일은 갱신되지 않았던 것**이다. 그 상태로 재부팅됐다면
+> wg0 가 옛 파일로 올라와 **121 접근이 조용히 사라졌을 것**이다(startup.sh 는 이미 기동한 wg0 를 재기동하지 않는다).
+> 새 파일은 `nft -c` 통과 · 규칙 줄이 커널과 일치(`{9100, 22}`↔`{22, 9100}` 표기 차이뿐) · PostUp 3규칙이 `DOCKER-USER` 와 일치함을
+> 확인한 뒤 재부팅했고, **재부팅 후 nft·`DOCKER-USER` 양쪽에 121 규칙이 살아 있다.**
 
 **왜 있는가.** 2026-09-16 **08:02:01~08:02:12 KST**(= UTC 2026-09-15 23:02) 약 **10.5초** 동안
 wg0 를 통해 게이트웨이에 붙어 있던 클라이언트 2대가 동시에 양방향으로 멈췄다. 한쪽은 게이트웨이가
@@ -700,6 +722,17 @@ journalctl -t wg-probe -f                                                # 실�
 최초 설치(2026-09-16)는 **장중이라 신규 2자산만 VM 에 직접 얹었다.** 그 상태는 **재부팅에서
 살아남지 못한다** — 메타데이터에 자산이 실려야 `startup.sh` §9 가 매 부팅 배치한다.
 아래를 **장 마감(15:30 KST) 이후에** 한 번 돌려 완성한다.
+
+> **2026-09-16 22:40 KST 완료** — 재부팅 실증까지 끝났다(§적용 상태 블록). 다음에 VM 자산을 바꿀 때도 같은 3단계를 따르되,
+> **재부팅 전에 생성물 파일과 커널 규칙을 대조할 것** — 커널에만 손으로 넣은 규칙은 재부팅에 사라진다(doz 잠복 결함):
+>
+> ```bash
+> sudo nft -c -f /etc/wireguard/wgfwd.nft                                   # 파일 문법 (적용하지 않는다)
+> diff <(sudo grep -E '^\s*(iifname|oifname|type)' /etc/wireguard/wgfwd.nft | sed -E 's/^\s+//') \
+>      <(sudo nft list table inet wgfwd | grep -E '^\s*(iifname|oifname|type)' | sed -E 's/^\s+//')
+> ```
+>
+> 집합 원소 순서(`{ 9100, 22 }` ↔ `{ 22, 9100 }`)는 nft 가 정규화한 차이라 무시해도 된다.
 
 ```bash
 # ① 메타데이터 갱신 (wg-probe 자산 2종 반영)
