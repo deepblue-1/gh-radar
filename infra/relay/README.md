@@ -62,6 +62,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 세션 인증 만료 예정 | `2026-09-20 04:03:55 UTC` (= 마지막 접속 `2026-09-06 04:03:55 UTC` + 14일) | `journalctl -u openconnect@kb \| grep -i 'Session authentication will expire'` 마지막 줄 |
 | 기본 경로 | `default via 10.10.0.1 dev ens4` — 터널이 기본 경로를 탈취하지 않았다 | `ip route show default` |
 | `caddy` | `active` | `systemctl is-active caddy` |
+| `wg-probe` | `active` + `enabled` — wg0 터널 1초 주기 읽기 전용 측정기 (2026-09-16 신설, §터널 정지 판정 절차) | `systemctl is-active wg-probe` / `journalctl -t wg-probe -n 5` |
 
 > 이 표의 값은 2026-09-08 19:0x KST 에 읽기 명령만으로 수집했다(quick-260908-py9).
 > 라이브 전환 경위는 §실서버 라이브 상태, VPN 정책은 §VPN 조작 을 보라.
@@ -522,7 +523,12 @@ sudo wg show                            # 핸드셰이크 시각 · 피어 수 �
 sudo nft list table inet wgfwd          # forward 4규칙 + postrouting masquerade
 sudo iptables -S DOCKER-USER            # ACCEPT 세 줄이 있어야 한다 (120 · alex-mac 전용 121 · 응답)
 ip route show default                   # 반드시 `dev ens4` — tun0 면 즉시 중단
+
+systemctl is-active wg-probe            # active 여야 한다 (터널 정지 측정기)
+journalctl -t wg-probe -n 20 --no-pager # 이상 줄 + 60초 `ev=alive` 생존 줄
 ```
+
+> 터널이 멈췄을 때의 **판정 절차는 §터널 정지 판정 절차 — wg-probe** 를 따른다.
 
 > ⚠️ `wg show` 는 **서버 공개키와 피어 공개키를 화면에 출력한다.** 로그·이슈·문서에
 > 붙여 넣지 말 것. 개인키는 출력되지 않지만, 공개키도 피어 식별자이므로 남기지 않는다.
@@ -550,6 +556,111 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 | (B) P5 FAIL | VM 쪽 VPN 이 죽었다 → §VPN 조작 의 회수·재접속 절차 |
 | (B) IAP 접속 거부 | 실행 주체에 `roles/iap.tunnelResourceAccessor` 확인 (§VM 접근) |
 | (B) 창 강제 종료 후 잔여 별칭 | `--stop` / `-Stop` |
+
+---
+
+## 터널 정지 판정 절차 — wg-probe
+
+**왜 있는가.** 2026-09-16 **08:02:01~08:02:12 KST**(= UTC 2026-09-15 23:02) 약 **10.5초** 동안
+wg0 를 통해 게이트웨이에 붙어 있던 클라이언트 2대가 동시에 양방향으로 멈췄다. 한쪽은 게이트웨이가
+송신 시간초과(500ms)로 절단했고, 다른 쪽은 TCP 는 살아남았지만 데이터가 11초 뒤 몰려서 도착했다.
+그 사이 나간 신규 매도 주문과 취소 요청이 서버에 도달하지 않았다 — **실계좌다.**
+
+**VM 은 결백이 입증됐다.** 같은 순간 relay 컨테이너가 tun0 로 계좌 델타 8건을
+08:02:00.729~08:02:01.027 에 밀리초 단위로 정상 수신했다. **relay 는 wg0 를 타지 않는다** —
+즉 VM 도 openconnect 세션도 살아 있었다. 라이브 마이그레이션 없음 · 서비스 이벤트 0건 ·
+CPU 4%→10% · 방화벽 드롭 평탄 · conntrack 45/8192 · 시계 동기 정상 · 커널 메시지 없음.
+
+**남은 후보는 VM↔클라이언트 인터넷 구간**(wg0 데이터패스 또는 GCP 서울↔국내 ISP 경로)인데,
+**당시 그 구간의 연속 측정값이 없어 더 좁히지 못했다.** `wg-probe` 는 그 공백을 메우려고 있다 —
+사건을 예방하지도 고치지도 않는다. 다음 발생 때 초 단위로 귀속하는 것이 전부다.
+
+재발 이력(게이트웨이의 `송신 실패/상한(500ms) 초과` 기준): 9/8 1건 · 9/14 8건 · 9/15 4건 ·
+9/16 1건. **전부 장중 시세 폭주 구간이다.**
+
+### 임계값
+
+> **임계값 표의 정본은 `infra/relay/wg-probe.py` 헤더 주석 §임계값 표 다.**
+> 여기에 옮겨 적지 마라 — 표가 둘이 되면 갈라진다 (CLAUDE.md §Conventions).
+
+```bash
+sed -n '1,120p' infra/relay/wg-probe.py        # 저장소에서
+sudo sed -n '1,120p' /usr/local/sbin/wg-probe  # VM 에서
+```
+
+기동 시 남는 `ev=start` 줄에 **그때 유효했던 임계값 전부**가 실려 있다 — 사후에 로그만 보고도
+어떤 기준으로 판정됐는지 복원할 수 있다.
+
+임계값을 고치는 사람은 `wg-probe.py --self-check` 를 함께 통과시켜야 한다. 그 안의 단언 **D1 이
+「이번 10.5초 단방향 정지를 잡는가」**이고, 못 잡으면 self-check 가 실패한다 — 임계값이 이 절의
+목적을 배반하지 못하게 막는 기계 게이트다.
+
+### 조회
+
+**VM 시계는 UTC 다. KST = UTC+9** — 08:02 KST 는 저널에서 **전날 23:02** 다.
+
+```bash
+journalctl -t wg-probe --since '2026-09-15 23:01' --until '2026-09-15 23:04' --no-pager
+journalctl -t wg-probe --since '-24h' --no-pager | grep -v ' ev=alive '   # 이상 줄만
+journalctl -t wg-probe -f                                                # 실시간
+```
+
+### 3자 대조 — 다음에 멈추면 셋을 같은 시각 창으로 나란히 놓는다
+
+| # | 무엇 | 명령 | 역할 |
+|---|------|------|------|
+| ① | relay 컨테이너 로그 | `sudo docker logs --since <t> --until <t> gh-radar-relay` | **대조군.** relay 는 tun0 만 탄다 — 여기가 정상이면 VM·openconnect 는 살아 있었다 |
+| ② | wg-probe | `journalctl -t wg-probe --since <t> --until <t>` | 피어별·방향별 끊김 시각 + **같은 순간의** 국내 기준점 왕복시간 |
+| ③ | KB 서버 기록 | (KB 측 `송신 실패/상한(500ms) 초과`) | 게이트웨이가 본 절단 시각 |
+
+### 판정
+
+| ① relay | ② wg-probe | ② 왕복시간 | 귀속 |
+|---|---|---|---|
+| 정상 | 이상 0건 | 정상 | 클라이언트 라스트마일 또는 KB 서버측 — **VM 구간 무혐의** |
+| 정상 | 전 피어 동시 `rx_stall` | 정상 | **VM 의 wg0 데이터패스** (드롭·큐). `wg_txdrop` 동반 여부를 본다 |
+| 정상 | 전 피어 동시 `rx_stall` | 양 기준점 동시 열화 | **GCP 서울↔국내 ISP 경로** |
+| 정상 | 한 피어만 `rx_stall` | 정상 | **그 클라이언트 회선** — `peer=` 의 `10.20.0.N` 으로 특정한다 |
+| 끊김 | — | — | VM 또는 openconnect 전체 — **이번 사건은 여기가 아니었다** |
+| — | `ev=alive` 줄 자체가 없음 | — | **수집기가 죽었다.** `systemctl status wg-probe` 부터 |
+
+> 로그에 공개키·PSK·피어 엔드포인트 주소/포트는 **없다.** 식별자는 AllowedIPs 에서 뽑은
+> `10.20.0.N` 하나다(§검증 명령의 공개키 비기록 규율). 엔드포인트는 **바뀐 횟수**(`epchg=`)만 센다 —
+> NAT 재바인딩은 진단 가치가 있지만 주소는 사생활이다. 왕복시간 기준점도 국내 ISP 공개 DNS 2곳이며
+> **클라이언트 공인 IP 를 찌르지 않는다.**
+
+### 장 마감 후 재부팅 생존 반영 런북
+
+최초 설치(2026-09-16)는 **장중이라 신규 2자산만 VM 에 직접 얹었다.** 그 상태는 **재부팅에서
+살아남지 못한다** — 메타데이터에 자산이 실려야 `startup.sh` §9 가 매 부팅 배치한다.
+아래를 **장 마감(15:30 KST) 이후에** 한 번 돌려 완성한다.
+
+```bash
+# ① 메타데이터 갱신 (wg-probe 자산 2종 반영)
+GCP_PROJECT_ID=gh-radar bash scripts/setup-relay-iam.sh
+
+# ② startup.sh 전체 재적용 — 장 마감 후에만
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='sudo google_metadata_script_runner startup'
+
+# ③ 확인 (읽기만)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='systemctl is-enabled wg-probe; systemctl is-active wg-probe; journalctl -t wg-probe -n 5 --no-pager'
+```
+
+**② 가 장중 금지인 이유** — 재적용은 `startup.sh` 를 처음부터 끝까지 다시 돌린다:
+
+1. §2 `apt-get update` + 패키지 8종 설치 — e2-micro 에서 CPU·네트워크 I/O
+2. §3 `/etc/docker/daemon.json` 이 다르면 `systemctl restart docker` → **relay 컨테이너 재시작 = 호가·주문 경로 끊김**
+3. §4 `Caddyfile` 재배치
+4. §7 180초 뒤 `kbvpn-route-guard` 1회 발화 — 기본 경로가 `tun*` 면 **openconnect 를 정지시킨다**
+5. §8 `wgfwd.nft`·`wg0.conf` 재작성
+
+①·③ 은 장중에도 안전하다(① 은 메타데이터만 바꾸고 VM 을 건드리지 않으며, ③ 은 읽기뿐이다).
+**막는 것은 ② 하나다.**
+
+> 직접 설치분과 메타데이터 배치분은 **같은 파일**이다 — 오늘 올린 것도 저장소 원본을 그대로
+> `gcloud compute scp` 한 것이고, `startup.sh` §9 가 배치하는 것도 같은 `infra/relay/wg-probe.py` 다.
 
 ---
 
@@ -935,7 +1046,8 @@ caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전�
 | Caddy | 30–60 MB |
 | openconnect | 10–20 MB |
 | relay (Node 22, 5 세션 + ws + deflate) | 120–250 MB |
-| **합계** | **400–690 MB** (여유 330–620 MB) |
+| wg-probe (python3 1 + ping 2) | 15–25 MB (유닛 상한 `MemoryMax=64M`) |
+| **합계** | **415–715 MB** (여유 305–605 MB) |
 
 Ops Agent 는 설치하지 않는다(+150–250 MB 로 위험 구간 진입). 대신 Docker `json-file`
 로그 로테이션 + Cloud Monitoring uptime check 로 관측한다.
@@ -962,6 +1074,8 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 | `kbvpn-vpnc-wrapper.sh` | `/usr/local/sbin/kbvpn-vpnc-wrapper` | 0700 |
 | `openconnect@.service` | `/etc/systemd/system/openconnect@.service` | 0644 |
 | `Caddyfile` | `/etc/caddy/Caddyfile` | 0644 |
+| `wg-probe.py` | `/usr/local/sbin/wg-probe` | 0700 |
+| `wg-probe.service` | `/etc/systemd/system/wg-probe.service` | 0644 |
 | _(생성됨)_ | `/usr/local/sbin/kbvpn-route-guard` | 0700 |
 | _(생성됨)_ | `/usr/local/sbin/relay-docker-login` | 0700 |
 | _(생성됨)_ | `/usr/local/sbin/kbvpn-watchdog` | 0700 |

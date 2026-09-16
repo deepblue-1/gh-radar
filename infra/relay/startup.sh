@@ -661,5 +661,55 @@ else
   log "WARN: wg-quick@wg0 기동 실패 — 'journalctl -u wg-quick@wg0' 확인 필요"
 fi
 
+# ───────────────────────────────────────────────────────────────
+# 9. wg-probe — wg0 터널 1초 주기 **읽기 전용** 측정기 (quick-260916-c9y)
+#
+#    2026-09-16 08:02:01~08:02:12 KST 의 10.5초 터널 정지를 **그 구간의 연속
+#    측정값이 없어** 귀속하지 못한 것이 이 섹션이 존재하는 이유다. VM 은 이미
+#    결백이 입증됐고(같은 순간 relay 가 tun0 로 계좌 델타 8건을 밀리초 단위로
+#    정상 수신 — relay 는 wg0 를 타지 않는다), 남은 후보는 VM↔클라이언트 인터넷
+#    구간(wg0 데이터패스 또는 GCP 서울↔국내 ISP 경로)이다.
+#
+#    ⚠️ 이 섹션은 **읽기 전용 측정기만** 배치한다. wg0·tun0·nft·iptables·
+#       라우팅·openconnect·caddy·relay 컨테이너를 **한 줄도 건드리지 않는다.**
+#       측정기 자체도 `wg show` 읽기 · `/proc/net/dev` 읽기 · ICMP 송신만 한다.
+#
+#    ⚠️ 자산이 메타데이터에 없으면(= setup-relay-iam.sh 를 아직 안 돌렸다)
+#       섹션 전체를 건너뛰고 WARN 만 남긴다 — **부팅을 실패시키지 않는다.**
+#       측정기가 없어서 VM 이 안 뜨는 것은 본말전도다.
+#
+#    임계값 표의 **정본은 /usr/local/sbin/wg-probe 헤더 주석**이다(저장소:
+#    infra/relay/wg-probe.py). 여기에도 README 에도 옮겨 적지 않는다.
+#    조회: `journalctl -t wg-probe` · 판정 절차: README §터널 정지 판정 절차
+# ───────────────────────────────────────────────────────────────
+log "▶ wg-probe 측정기 배치..."
+
+install_wg_probe() {
+  if ! install_asset wg-probe /usr/local/sbin/wg-probe 0700; then
+    log "WARN: wg-probe 자산 없음 — 측정기를 건너뛴다 (scripts/setup-relay-iam.sh 재실행 필요)"
+    return 1
+  fi
+  if ! install_asset wg-probe-service /etc/systemd/system/wg-probe.service 0644; then
+    log "WARN: wg-probe.service 자산 없음 — 측정기를 건너뛴다"
+    return 1
+  fi
+
+  # §8.9 와 같은 규율: 이미 돌고 있으면 재기동하지 않는다. 재적용이 측정을
+  # 끊으면 정작 사건이 났을 때 그 구간이 비어 있다.
+  local was_active=0
+  systemctl is-active --quiet wg-probe && was_active=1
+  systemctl daemon-reload
+  if systemctl enable --now wg-probe >/dev/null 2>&1; then
+    if [[ "$was_active" == "1" ]]; then
+      log "· wg-probe 이미 기동 중 — 설정 재작성분 반영은 'systemctl restart wg-probe'"
+    else
+      log "✓ wg-probe 기동 (1초 주기 · 이상 시에만 기록 · journalctl -t wg-probe)"
+    fi
+  else
+    log "WARN: wg-probe 기동 실패 — 'journalctl -u wg-probe' 확인 필요"
+  fi
+}
+install_wg_probe || true
+
 log "═══ startup.sh 완료 ═══"
 log "다음: ① D-06 DNS A 레코드 → caddy 기동  ② D-03 VPN 선검증(수동 ≤3회)"

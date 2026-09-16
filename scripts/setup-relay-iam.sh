@@ -133,6 +133,11 @@ VM_METADATA_FILES="${VM_METADATA_FILES},kbvpn-connect=${RELAY_ASSET_DIR}/kbvpn-c
 VM_METADATA_FILES="${VM_METADATA_FILES},kbvpn-vpnc-wrapper=${RELAY_ASSET_DIR}/kbvpn-vpnc-wrapper.sh"
 VM_METADATA_FILES="${VM_METADATA_FILES},openconnect-service=${RELAY_ASSET_DIR}/openconnect@.service"
 VM_METADATA_FILES="${VM_METADATA_FILES},caddyfile=${RELAY_ASSET_DIR}/Caddyfile"
+# wg-probe — wg0 터널 읽기 전용 측정기 2종 (quick-260916-c9y).
+# startup.sh §9 가 이 두 키를 읽어 배치한다. 키 이름이 어긋나면 재부팅 시
+# 자산 부재로 측정기가 조용히 사라진다 — 양쪽을 함께 고칠 것.
+VM_METADATA_FILES="${VM_METADATA_FILES},wg-probe=${RELAY_ASSET_DIR}/wg-probe.py"
+VM_METADATA_FILES="${VM_METADATA_FILES},wg-probe-service=${RELAY_ASSET_DIR}/wg-probe.service"
 
 # ───────────────────────────────────────────────────────────────
 # Section 2: API enable (멱등)
@@ -330,13 +335,13 @@ echo "✓ firewall guard passed (VM 생성 전 4규칙 확인)"
 
 # 6.2 VM 자산 존재 확인 (메타데이터로 실어 보낼 파일 전부)
 for ASSET in startup.sh kbvpn-fetch-secret.sh kbvpn-connect.sh kbvpn-vpnc-wrapper.sh \
-             "openconnect@.service" Caddyfile; do
+             "openconnect@.service" Caddyfile wg-probe.py wg-probe.service; do
   if [[ ! -f "${RELAY_ASSET_DIR}/${ASSET}" ]]; then
     echo "ERROR: VM 자산이 없다: infra/relay/${ASSET}" >&2
     exit 1
   fi
 done
-echo "✓ VM 자산 6종 확인 (startup-script 포함)"
+echo "✓ VM 자산 8종 확인 (startup-script 포함)"
 
 # 6.3 VM 생성 (멱등)
 # IP forwarding 옵션은 의도적으로 붙이지 않는다: tun 인터페이스로의 로컬 라우팅에는
