@@ -561,6 +561,45 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 
 ## 터널 정지 판정 절차 — wg-probe
 
+> **적용 상태: 장중 직접 설치 완료 (2026-09-16 09:26:08 KST · quick-260916-c9y).**
+> 설치 방식은 **A안 — 신규 2자산만** `gcloud compute scp` 로 올려 `install` 한 뒤
+> `systemctl enable --now wg-probe`. `google_metadata_script_runner startup`(= `startup.sh` 전체
+> 재실행)은 **돌리지 않았다**(장중 금지 — 아래 §장 마감 후 재부팅 생존 반영 런북).
+> 저장소 원본과 VM 배치본의 `sha256` 이 두 파일 모두 일치한다.
+>
+> **기동 게이트** — `systemd-analyze verify` 경고 **0건**(rc=0) · VM 의 Python **3.11.2** 에서
+> `--self-check` **PASS**(P1 P2 D1 D2 D3 D4 D5 R1 R2). D1 통과는 임계값이 10.5초 단방향 정지를
+> **합성 시계열에서** 실제로 잡는다는 뜻이다.
+>
+> **가동 실측** — `active` + `enabled` · `NRestarts=0` · `MemoryCurrent` **8,261,632B(≈7.9MB)**
+> (상한 `64M`). 첫 `ev=start` 09:26:08 KST · 첫 `ev=alive` **09:27:08 KST**
+> (`peers=5 wg_txdrop=371 rtt_kt=1.8/2.1/2.2 rtt_lgu=3.4/4.4/9.5 miss_kt=0 miss_lgu=0`).
+>
+> **판정→출력 경로 실관측 (비침습).** 09:27:42~09:28:27 KST 에 임계값을 낮춘 1회성 전경 실행
+> (`WG_PROBE_STALL_SEC=1 WG_PROBE_TX_MIN_BYTES=1`, stdout 전용이라 journald 무오염)에서
+> `ev=open`/`cont`/`close` **8줄**이 실제로 찍혔다. 예:
+> `ev=open kind=tx_stall peer=10.20.0.3 idle=10.0 rxd=32 epchg=0 rtt_kt=1.8/2.0/2.1 …` ·
+> `ev=close kind=tx_stall peer=10.20.0.5 dur=41.0`.
+>
+> **관측된 것은 `rx_stall` 이 아니라 `tx_stall` 이었다.** 피어의 `PersistentKeepalive` 가 `off`
+> 라 유휴 피어에게는 VM 이 보낼 것이 없고, 피어가 보낸 32B 가 들어온 순간 「송신 정지 + 수신
+> 진행」으로 잡힌 것이다. **같은 시간대에 기본 임계값으로 돌던 상시 유닛은 `events=0` 이었다**
+> — `rxd=32` 가 512B 하한에 막힌다. 이 두 관측이 짝을 이뤄 ① 판정→출력 경로가 살아 있고
+> ② **512B 하한이 유휴 피어 오탐을 실제로 막는다**는 것을 실 터널에서 함께 보인다.
+>
+> **무개입 증명** — `gh-radar-relay` 의 `StartedAt` 이 설치 전후 **글자 그대로 동일**
+> (`2026-09-10T05:53:44.867315198Z`). `wg-quick@wg0`·`openconnect@kb`·`caddy`·`docker` 전부
+> `active` 유지 · 기본 경로 `dev ens4` · wg0 `tx_drop` **371 그대로**(증가 0) · ens4 오류 0 ·
+> `/healthz` **200** · `available` 545→531MB.
+>
+> **아직 확인되지 않은 것 (정직 기록).**
+> ⓐ **메타데이터 반영과 재부팅 생존은 미확인이다.** 지금 VM 의 두 파일은 `startup.sh` 를 거치지
+> 않고 올라갔으므로 **재부팅하면 사라진다** — §장 마감 후 재부팅 생존 반영 런북 소관.
+> ⓑ **실제 10.5초급 사건에서의 포착은 다음 재발 때 처음 검증된다.** 오늘 증명된 것은
+> 「합성 시계열에서 잡는다」와 「임계값을 낮추면 실 터널에서 발화한다」 **둘뿐이다.**
+> ⓒ 기본 임계값의 저널에는 아직 `peer=` 줄이 없다(이상 0건) — **그것이 정상 상태다.**
+> 공개키·PSK 의 base64 44자 패턴 검사는 **0건**으로 통과했다.
+
 **왜 있는가.** 2026-09-16 **08:02:01~08:02:12 KST**(= UTC 2026-09-15 23:02) 약 **10.5초** 동안
 wg0 를 통해 게이트웨이에 붙어 있던 클라이언트 2대가 동시에 양방향으로 멈췄다. 한쪽은 게이트웨이가
 송신 시간초과(500ms)로 절단했고, 다른 쪽은 TCP 는 살아남았지만 데이터가 11초 뒤 몰려서 도착했다.
@@ -1046,8 +1085,8 @@ caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전�
 | Caddy | 30–60 MB |
 | openconnect | 10–20 MB |
 | relay (Node 22, 5 세션 + ws + deflate) | 120–250 MB |
-| wg-probe (python3 1 + ping 2) | 15–25 MB (유닛 상한 `MemoryMax=64M`) |
-| **합계** | **415–715 MB** (여유 305–605 MB) |
+| wg-probe (python3 1 + ping 2) | **≈8 MB 실측** (2026-09-16 `MemoryCurrent` · 유닛 상한 `MemoryMax=64M`) |
+| **합계** | **408–698 MB** (여유 326–616 MB) |
 
 Ops Agent 는 설치하지 않는다(+150–250 MB 로 위험 구간 진입). 대신 Docker `json-file`
 로그 로테이션 + Cloud Monitoring uptime check 로 관측한다.
