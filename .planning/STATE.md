@@ -5,9 +5,9 @@ current_phase: 16
 current_phase_name: "**GAP CLOSURE 3라운드 종결  **"
 status: completed
 stopped_at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
-last_updated: "2026-09-15T02:12:00.430Z"
-last_activity: 2026-09-15
-last_activity_desc: "Completed quick task 260912-mvo: 상따 폼·헤더 후속 7건 (FAB 범위 · 포커스 한 겹 · 세그먼트 폭 · 거래소 콤보 · 종목변경 4종 · 매수매도 틴트 · 컴팩트 호가 박스)"
+last_updated: "2026-09-16T00:35:00.000Z"
+last_activity: 2026-09-16
+last_activity_desc: "Completed quick task 260916-c9y: radar-gw WireGuard 터널 상시 측정기(wg-probe) — 1초 주기 피어·카운터·국내 기준점 RTT, 이상 시에만 journald. 장중 A안 직접 설치 완료(재부팅 생존은 장 마감 후 런북)"
 state_head: 21b331846b3574fabd431f6c9c58aa3501107fa3
 progress:
   total_phases: 25
@@ -33,7 +33,7 @@ Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운�
 Plans completed: 171 / 185
 Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-15 - Completed quick task 260915-il4: news-sync 한도 소진 당일 중단 제거 — 판정 run 만 중단 + 다음 run 단독 탐침 호출로 자동 복구
+Last activity: 2026-09-16 - Completed quick task 260916-c9y: radar-gw WireGuard 터널 상시 측정기(wg-probe) — 1초 주기 피어·카운터·국내 기준점 RTT, 이상 시에만 journald. 장중 A안 직접 설치 완료(재부팅 생존은 장 마감 15:30 KST 이후 런북)
 
 Progress: [█████████░] 92%
 
@@ -733,6 +733,7 @@ Recent decisions affecting current work:
 | 260910-ogq | **RELAY-02 · TRADE-03 재판정 (Pending → Complete)** + 근거인 2026-09-10 장중 실측을 `15-LIVE-VERIFICATION.md` §9 로 기록 — 취소 `C` 왕복 · 첫 통보 지연 21~32 ms(§8 의 DB 측 median 77 ms 와 다른 계측) · `/me` 오늘 주문 3건 사용자 확인 · WinForms↔웹 양방향 사용자 관찰(human-only, 로그로 방향 판별 불가) · relay `11072e4` 배포. **SC-6 ✅ 전환 · SC-4 는 ⚠ 유지**(5분 유예는 오늘도 미관측) · 집계 ✅7/⚠1/❌0 · 이관 3건(거래원 푸시 74/75 프로덕션 미실측 + 재현 절차 · relay 성공 인바운드 무로그 · lint 선재 3건). 문서만, 코드·배포·주문 0 | 2026-09-10 | dfb74bf·83bdcd1 | [260910-ogq-relay-02-trade-03-complete](./quick/260910-ogq-relay-02-trade-03-complete/) |
 | 260911-dps | **radar-gw Caddy `/ghtrade/*` 정적 서빙** — gh-trade Phase 20 클라 자동 업데이트 인계(D-09~D-16). `handle` 3블록(미인증 404 → `handle_path` 서빙 → 트레일링 슬래시 없는 `/ghtrade` 404) · `/srv/ghtrade` 멱등 생성 3단 폴백 · README 파일 맵·업로드 절차. **2026-09-11 15:39:35 KST 프로덕션 반영** — validate 선통과 후 reload, 양성 200 / 음성 404 양쪽 실측, `/healthz` 200·wss 재접속 유지. D-11 고정키는 `infra/relay/Caddyfile` 한 곳만 정본 | 2026-09-11 | 5fa7221·3fa691e | [260911-dps-radar-gw-caddy-ghtrade-srv-ghtrade](./quick/260911-dps-radar-gw-caddy-ghtrade-srv-ghtrade/) |
 | 260911-lss | `/ghtrade` 적용 결과를 README 정본에 기록 + **거래원 푸시(74/75) 드롭 로그 이관 항목 종결** — 장중 4.5분 구독 활성 상태에서 `unknown-msg-type` 0건(대조군 `a1f4ed6` 는 같은 조건 40분에 13건). 한계 명시: `LOG_LEVEL=info` 라 debug 강등분은 미관측 — 증명된 것은 「WARNING 이 사라졌다」이지 「75가 out-of-scope 로 분류됐다」가 아니다. 문서만 | 2026-09-11 | — | [260911-lss-ghtrade-caddy](./quick/260911-lss-ghtrade-caddy/) |
+| 260916-c9y | **radar-gw WireGuard 터널 상시 측정기(wg-probe) — 1초 주기 피어·카운터·국내 기준점 RTT, 이상 시에만 journald** — 2026-09-16 08:02:01~08:02:12 KST **10.5초 터널 정지**를 다음 재발 때 초 단위로 귀속하기 위한 읽기 전용 측정기(gh-trade 세션 인계). 인계가 제시한 「핸드셰이크 경과 150초」는 **이번 사건을 못 잡는다**고 판정(데이터가 흐르면 REKEY_AFTER_TIME 120초로 갱신돼 10초 공백이 경과를 못 넘김) — 180초(REJECT_AFTER_TIME)+최근 60초 활동 조건의 「터널 완전 사망」 신호로 재정의하고, 주 판정을 **`rx_stall`(rx 무변화 ≥3초 ∧ 같은 창 tx 증가 ≥512B = 한 방향만 멈춘 이번 사건의 서명)** 으로 새로 세움. 기준점은 KT(168.126.63.1)·LG U+(164.124.101.2) DNS — 8.8.8.8·1.1.1.1 은 GCP 에서 1.1~1.5ms 라 국내 경로 열화를 못 본다. 로그에 공개키·PSK·엔드포인트 미기록(식별자는 AllowedIPs 의 `10.20.0.N`, 엔드포인트는 변경 횟수만). 임계값 정본은 `wg-probe.py` 헤더 주석이고 README 는 가리키기만 함. 게이트: `--self-check` 의 **D1 이 「10.5초 단방향 정지 포착」을 단언**(못 잡으면 실패하는 기계 게이트) · VM Python 3.11.2 에서도 PASS · `systemd-analyze verify` 경고 0 · `bash -n` 2종 · 메타데이터 8종 실재. VM: **A안**(신규 2자산만 scp+install, `google_metadata_script_runner` **미실행** — 장중 금지) → `active`+`enabled` · `NRestarts=0` · `MemoryCurrent` ≈7.9MB(상한 64M) · sha256 저장소 원본 일치. **무개입 증명**: relay `StartedAt` 설치 전후 동일 · 4유닛 active · 기본경로 `dev ens4` · wg0 `tx_drop` 371 증가 0 · `/healthz` 200. 임계값 주입 45초 실행에서 `ev=open/cont/close` **8줄 실관측**(단 **`rx_stall` 이 아니라 `tx_stall`** — 피어 keepalive 가 `off` 라 유휴 피어엔 VM 이 보낼 게 없다), **같은 시간대 기본 임계값 유닛은 `events=0`** 으로 512B 하한이 실 데이터에서 검증됨. 미확인: **메타데이터 반영·재부팅 생존(장 마감 15:30 KST 이후 런북)** · 실제 10.5초급 사건 포착은 다음 재발 때 · 실 터널 `rx_stall` 미관측. VPC 흐름 로그는 사용자 결정으로 미활성 | 2026-09-16 | 2c7917d | [260916-c9y-radar-gw-wireguard-1-rtt-journald](./quick/260916-c9y-radar-gw-wireguard-1-rtt-journald/) |
 | 51 | 상한가·하한가를 전일종가 기준 호가단위로 계산(STEP1 price×1.3 임시값 제거) + 서버 고가·저가 현재가 표시 보정 (260914 애프터마켓 실측 후속, c9fcb35) | 2026-09-14 | c9fcb35 | — |
 | 54 | install-vpn-menubar.sh 재실행 시 기존 KB-DMA.conf AllowedIPs 보존(10.41.1.x/32 만·게이트웨이 포함 조건, 그 밖은 게이트웨이 /32 로 복귀) — 개인 파일(.gitignore)이라 저장소 밖 수정, bash 3.2 모의 9/9 통과; README 의 '재실행하면 121 이 빠진다' 주의를 '유지된다' 로 정정 | 2026-09-15 | 21b3318 | — |
 
