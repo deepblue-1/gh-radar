@@ -1,0 +1,67 @@
+# wg-probe — wg0 터널 1초 주기 읽기 전용 측정기 (quick-260916-c9y)
+#
+# ⚠️ 이 유닛은 **아무것도 바꾸지 않는다.** wg0·tun0·nft·iptables·라우팅·
+#    openconnect·caddy·relay 컨테이너에 쓰기 명령을 한 줄도 보내지 않는다.
+#    하는 일은 `wg show wg0 dump` 읽기 · `/proc/net/dev` 읽기 · ICMP 송신뿐이다.
+#    터널 너머는 실계좌가 걸린 실 게이트웨이다 — 측정이 거래를 건드리면 안 된다.
+#
+# 무엇을·왜 재는지, 그리고 임계값 표의 **단일 정본**은 /usr/local/sbin/wg-probe
+# (저장소: infra/relay/wg-probe.py) 헤더 주석이다. 여기에 옮겨 적지 않는다 —
+# 표가 둘이 되면 갈라진다.
+#
+# ── DynamicUser 를 쓰지 않은 이유 ──────────────────────────────
+#   `wg show` 는 netlink 라 CAP_NET_ADMIN 이 필요하다. 비특권 사용자로 내리려면
+#   AmbientCapabilities 경로를 타야 하는데, 그 경로가 이 호스트에서 실제로 서는지는
+#   **살아 있는 게이트웨이를 물고 있는 이 VM 위에서만** 실증할 수 있다.
+#   기동 실패의 대가(측정 공백)가 하드닝 이득보다 크다. 그래서 root 로 돌리되
+#   CapabilityBoundingSet 을 두 능력으로 좁히고 나머지 하드닝을 전부 건다.
+#
+# ── StartLimit* 가 [Service] 가 아니라 [Unit] 에 있는 이유 ─────
+#   systemd 252(Debian 12)는 StartLimitIntervalSec·StartLimitBurst 를 [Unit] 에서
+#   읽는다. [Service] 에 두면 **오류 없이 조용히 무시된다** — 설정이 있는 것처럼
+#   보이는데 아무 일도 하지 않는 상태가 된다. 옮기지 말 것.
+
+[Unit]
+Description=wg-probe — wg0 터널 1초 주기 읽기 전용 측정기 (이상 시에만 journald 기록)
+Documentation=file:///usr/local/sbin/wg-probe
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# -u : 파이프 버퍼링으로 줄이 늦게 나오면 사건 시각이 흐려진다.
+ExecStart=/usr/bin/python3 -u /usr/local/sbin/wg-probe
+Restart=always
+RestartSec=5
+
+# journald 로만 나간다. `journalctl -t wg-probe` 로 읽는다.
+# 초당 logger fork 를 피하려고 stdout + SyslogIdentifier 를 쓴다 (1Hz 데몬이다).
+SyslogIdentifier=wg-probe
+StandardOutput=journal
+StandardError=journal
+
+# e2-micro(1024MB, 실측 여유 542MB) 예산. 측정기가 관측 대상을 굶기면 안 된다.
+Nice=10
+MemoryMax=64M
+CPUQuota=10%
+
+# 능력은 필요한 둘만 남긴다: netlink 조회(wg show) · ICMP(ping 자식).
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
