@@ -1,0 +1,133 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v1.0",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Data Foundation",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Backend API",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Design System",
+      "status": "complete"
+    },
+    {
+      "number": "4",
+      "name": "Frontend Scaffold",
+      "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "Scanner UI",
+      "status": "complete"
+    },
+    {
+      "number": "05.1",
+      "name": "Ingestion Deploy",
+      "status": "complete"
+    },
+    {
+      "number": "05.2",
+      "name": "Scanner Quality",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "Stock Search & Detail",
+      "status": "complete"
+    },
+    {
+      "number": "06.1",
+      "name": "stock-master-universe",
+      "status": "complete"
+    },
+    {
+      "number": "06.2",
+      "name": "Auth + Watchlist",
+      "status": "complete"
+    },
+    {
+      "number": "7",
+      "name": "News Ingestion",
+      "status": "complete"
+    },
+    {
+      "number": "07.1",
+      "name": "News description",
+      "status": "complete"
+    },
+    {
+      "number": "07.2",
+      "name": "News rate-limit",
+      "status": "complete"
+    },
+    {
+      "number": "8",
+      "name": "Discussion Board",
+      "status": "complete"
+    },
+    {
+      "number": "08.1",
+      "name": "Discussion Relevance Filter",
+      "status": "complete"
+    },
+    {
+      "number": "9",
+      "name": "Daily Candle Data",
+      "status": "complete"
+    },
+    {
+      "number": "09.1",
+      "name": "Intraday Current Price (KIS→키움 완전 대체)",
+      "status": "complete"
+    },
+    {
+      "number": "10",
+      "name": "Theme Classification",
+      "status": "complete"
+    },
+    {
+      "number": "11",
+      "name": "Co-movement Candidates",
+      "status": "complete"
+    },
+    {
+      "number": "12",
+      "name": "상한가 다음날 이력 통계",
+      "status": "complete"
+    },
+    {
+      "number": "13",
+      "name": "홈 급등 테마 AI 분석",
+      "status": "complete"
+    },
+    {
+      "number": "14",
+      "name": "AI 애널리스트 챗봇",
+      "status": "complete"
+    },
+    {
+      "number": "15",
+      "name": "DMA 중계 서버(relay)",
+      "status": "complete"
+    },
+    {
+      "number": "16",
+      "name": "트레이딩 메뉴(상따·VI)",
+      "status": "complete"
+    }
+  ],
+  "next": {
+    "command": "/gsd:new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
+  },
+  "updated_at": "2026-09-17T22:55:53.300Z"
+}

@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 16
-current_phase_name: "**GAP CLOSURE 3라운드 종결  **"
+current_phase: 17
+current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: completed
 stopped_at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
-last_updated: "2026-09-16T00:35:00.000Z"
+last_updated: "2026-09-17T22:55:53.281Z"
 last_activity: 2026-09-17
-last_activity_desc: "quick 260917-g45 relay 업타임 경보 싱가포르 AND 조건 반영 + wg-probe hs_stale 기준 보정(장중 파일 설치·재기동)"
-state_head: 21b331846b3574fabd431f6c9c58aa3501107fa3
+last_activity_desc: quick 260917-g45 relay 업타임 경보 싱가포르 AND 조건 반영 + wg-probe hs_stale 기준 보정(장중 파일 설치·재기동)
+state_head: 2e3a8690830e8786de2cfd52ad61cc7e524e5803
 progress:
-  total_phases: 25
+  total_phases: 27
   completed_phases: 4
-  total_plans: 185
+  total_plans: 197
   completed_plans: 170
 milestone_name: milestone
 ---
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 16 (trading-limit-chaser-vi-my-page) — **GAP CLOSURE 3라운드 종결 (46/46 plans · 28 waves)**
+Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — READY TO EXECUTE
 Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · **3라운드 16-36~16-46**)
 Plans completed: 171 / 185
 Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
@@ -438,6 +438,8 @@ Progress: [█████████░] 92%
 
 ### Roadmap Evolution
 
+- Phase 17 added 2026-09-18: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED — 서버 291a953→HEAD(59f7513e 배포) append-only 변경 반영, MsgType 36~38·76~78, 래치 3종 LED + 수동 점등
+- Phase 18 added 2026-09-18: gh-trade 신규 기능 UI — 돌파감지 목록(76/78)·예약/시간외종가 발주(77)·NXT VI 설정. Phase 17 뒤, 목업 게이트 필수
 - Phase 05.1 inserted after Phase 5: Ingestion 운영 배포 — Cloud Run Job + Cloud Scheduler 자동 트리거 (URGENT, 2026-04-14 DB stale 발견)
 - Phase 06.2 inserted after Phase 6: Auth + Watchlist (URGENT, 2026-04-16 Phase 7 discuss 중 뉴스 배치 타겟에 사용자별 관심종목 필요 판명 → AUTH-01/02 + PERS-01 v2→v1 승격)
 - Phase 07.1 inserted after Phase 7: news content ingestion enhancement — description 저장 (URGENT, 2026-04-17 Phase 9 discuss 중 AI 요약 입력 데이터 부재 판명 → Naver API 실측 후 description 스니펫 저장 결정. URL 원문 scraping 은 Phase 9 POC 후 재검토)

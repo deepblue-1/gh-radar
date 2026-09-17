@@ -31,6 +31,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
 - [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 Complete (2026-09-10 재판정 · `quick-260910-ogq`)** — 잔여였던 「WinForms ↔ 웹 한 세션 동기화」를 사용자가 장중 실계좌에서 **양방향 직접 관찰**했다. 2026-09-11 에 마지막 단서(웹 철거 시 WinForms 종목창 매수주문 체크박스 미반영)까지 해소 — **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **요구사항 5종 전부 Complete**. 열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건)
+- [ ] **Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED** - gh-trade 서버 스키마(291a953→HEAD, append-only) 를 relay 에 재동기화하고 신규 MsgType 36~38·76~78 을 등록. 기존 화면에 새 필드 반영(체결테이프 bs_code 실값 색·호가 10칸 '종가'·미체결 Q/P/종가 표식+취소보관 제외·주문통보 request_kind/requester/board·서버메시지 [상따]/[VI] 배지·VI exchange 축). 상따 3단계 래치 LED 3종(매수·매도·취소) + 클릭 토글 수동 점등(36/37/38)
+- [ ] **Phase 18: gh-trade 신규 기능 UI** - 돌파감지 목록(RateCrossAlert 76/RateCrossSnapshot 78) · 예약주문/시간외종가 발주 UI(QueuedWindowState 77 + DirectOrderReq.piece_count/krx_session) · NXT VI 전략 설정 카드(거래소별 1건). 새 화면 3개라 HTML 목업 검토 게이트 필수
 
 ## Phase Details
 
@@ -763,3 +765,60 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 14. AI 애널리스트 챗봇 | 11/11 | Complete    | 2026-07-03 |
 | 15. DMA 중계 서버(relay) | 20/20 | Complete    | 2026-09-06 |
 | 16. 트레이딩 메뉴(상따·VI) | 46/46 | Complete    | 2026-09-09 |
+
+### Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
+
+**Goal:** relay 가 gh-trade 서버 HEAD 스키마와 같은 언어를 말하고, 서버가 이미 보내는 진실(래치 3종·매수/매도 체결구분·KRX 종가·예약/접수대기/시간외종가 미체결·정정취소 요청 종류·VI 거래소)이 기존 웹 화면에 그대로 드러난다. 상따 화면은 C# 클라이언트와 같은 3단계 래치 LED(회색/주황/초록)를 보여 주고 클릭으로 수동 점등·해제(36/37/38)한다. 신규 MsgType 76/77/78 은 파싱해 브라우저 프레임으로 전달하며 드롭 경고가 0 이 된다.
+**Requirements**: TRADE-04 (프로토콜 재동기화·기존 화면 보정), TRADE-05 (상따 래치 LED 3종 + 수동 점등)
+**Depends on:** Phase 16
+**Scope notes:** gh-trade 정본 = `server/src/protocol/StockDMA.fbs`·`server/docs/protocol.md`·`docs/strategy/limit-chaser.md` §10. 생성은 gh-trade 의 `server/scripts/sync-relay-schema.sh`(flatc 25.12.19). 서버 진실은 클라가 판정하지 않는다(pending_cancel_sent bool 이 유일한 취소 제외 근거, queued/pending 문구는 표시만, OrderResp.message 파싱 금지). 매도잔량 기준(buy_watch_side "0") 매수 LED 는 2단계 유지·클릭 불가.
+**Plans:** 12 plans (8 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 17-01-PLAN.md — 스키마 재동기화 · MsgType 36/37/38·76/77/78 등록 · shared 계약 전체 · 상따 래치 2필드 end-to-end (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 17-02-PLAN.md — 기존 파서 필드 확장: 호가 `kc` · 테이프 `bs` · 미체결 5필드 · 주문통보 3필드 (wave 2)
+- [ ] 17-07-PLAN.md — 상따 래치 LED 목업 게이트 · 색 토큰 · `LatchLed` 컴포넌트와 규칙 표 테스트 (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 17-03-PLAN.md — 신규 푸시 3종(76/77/78) 중계: 파서·세션 캐시·인증 스냅샷·드롭 0 게이트 (wave 3)
+- [ ] 17-08-PLAN.md — 체결테이프 서버 체결구분 · 호가 종목정보 종가 · 호가 상태바 출처 배지 (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 17-04-PLAN.md — 래치 수동 점등 `lc.arm` → ArmSell/Cancel/BuyLatchReq 왕복 + 가드 (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 17-05-PLAN.md — VI 거래소 축(relay): 21 KRX/NXT 2회·요청 거래소 FIFO·거래소별 캐시·`{t:"vi",x}` (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 17-06-PLAN.md — VI 웹 표면: 거래소별 리듀서·가동 배지 합집합·캡션 정정·거래소 열 (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 17-09-PLAN.md — 미체결 표식 헬퍼 · 취소보관 회색/취소 숨김 · 예약·접수대기 문구 표시 (wave 7)
+- [ ] 17-10-PLAN.md — 주문통보 행위 단어·수동·시간외종가 + 자동주문 3초 창 묶기 (wave 7)
+- [ ] 17-11-PLAN.md — 상따 상태줄 LED 결선·`lc.arm` 전송 · 전략 로그 래치 전이 4종 · 헤더 종가 결정 (wave 7)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 17-12-PLAN.md — mock 게이트웨이 실기 검증 · 전량 게이트 · 문서 갱신 · 배포(20:00 KST 이후) (wave 8)
+
+### Phase 18: gh-trade 신규 기능 UI — 돌파감지·예약/시간외종가 발주·NXT VI
+
+**Goal:** 서버가 새로 제공하는 세 기능을 웹에서 쓸 수 있다 — (1) 등락률 돌파 감지 목록(76 푸시 + 78 로그인 스냅샷, 하루 1회 규칙·임계−2%p 이탈 삭제는 클라 몫), (2) 예약구간·장전·시간외종가 발주(77 표시 힌트로 라벨/조각 입력 전환, piece_count·krx_session 송신, 벽시계 판정 금지), (3) NXT VI 전략 설정(거래소별 1건, key="KRX"/"NXT" 조회·에코 거래소별 귀속).
+**Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주), TRADE-08 (NXT VI 설정)
+**Depends on:** Phase 17
+**Scope notes:** 화면 3개 신설 — globals.css 토큰 인라인 standalone HTML 목업(변형+다크/라이트) 을 먼저 열어 사용자 검토 후 UI-SPEC 확정. 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`.
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 18 to break down)
