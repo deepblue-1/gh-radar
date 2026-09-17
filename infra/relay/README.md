@@ -244,7 +244,7 @@ relay 컨테이너는 위 3종 중 `dma-cred-key` · `relay-order-secret` 2종�
 | server 리비전 | `gh-radar-server-00038-kc6` (트래픽 100%) | `gcloud run services describe gh-radar-server` |
 | **VPN 기동 정책** | **수동 전용.** `openconnect@kb` = `disabled` + `inactive`. 자동 기동 미등록 — 장중 외 내려가 있는 것이 정상이며 `smoke-relay.sh` 는 이를 FAIL 이 아니라 **SKIP(INV-4)** 으로 센다 | `systemctl is-active` / `is-enabled` |
 | 기본 경로 | `default via 10.10.0.1 dev ens4` · `tun0` 없음 · `kbvpn-*` 타이머 0건 | `ip route show default` |
-| 알림 정책 | **`gh-radar-relay-down`** — `projects/gh-radar/alertPolicies/7995724305267722560` · `enabled=True` · uptime check `gh-radar-relay-healthz` 결선 | `gcloud alpha monitoring policies list` |
+| 알림 정책 | **`gh-radar-relay-down`** — `projects/gh-radar/alertPolicies/7995724305267722560` · `enabled=True` · uptime check `gh-radar-relay-healthz` 결선 · 조건 2개 **AND**(6지점 평균 <0.9 ∧ `apac-singapore` <0.9, 2026-09-17 — 해외 경로 오탐 제거, 근거는 `ops/alert-relay-down.yaml` 문서) | `gcloud alpha monitoring policies describe …` |
 | 방화벽 | 정확히 **3규칙** (`443 ← 0.0.0.0/0` · `22 ← 35.235.240.0/20` · `8091 ← 10.10.0.0/26`). **포트 80 규칙 0건** *(당시 — 현재는 4규칙, §구성 개요)* | `gcloud compute firewall-rules list` |
 | 고정 IP | `gh-radar-relay-ip 34.22.79.103` · `gh-radar-relay-internal 10.10.0.5` — 둘 다 `IN_USE` | `gcloud compute addresses list` |
 | `smoke-relay.sh` | **11 PASS / 0 FAIL / 2 SKIP** (INV-4 VPN 수동 유닛 · INV-9 로그인 토큰 필요) | — |
@@ -621,6 +621,15 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 > wg0 가 옛 파일로 올라와 **121 접근이 조용히 사라졌을 것**이다(startup.sh 는 이미 기동한 wg0 를 재기동하지 않는다).
 > 새 파일은 `nft -c` 통과 · 규칙 줄이 커널과 일치(`{9100, 22}`↔`{22, 9100}` 표기 차이뿐) · PostUp 3규칙이 `DOCKER-USER` 와 일치함을
 > 확인한 뒤 재부팅했고, **재부팅 후 nft·`DOCKER-USER` 양쪽에 121 규칙이 살아 있다.**
+
+> **`hs_stale` 기준 보정 (2026-09-17 11:39 KST 장중 반영 · quick-260917-g45).** 재부팅 뒤 휴면 피어 `10.20.0.2` 에서
+> 오탐 4건이 떴다 — `hs_age=180` 에 열려 60초 안에 닫힌 49·5·8초(만료 **전** 이동의 잔상)와 20분 휴면 뒤 깨어날 때의
+> 1초짜리(`hs_age=1213`). 새 정의와 근거는 `wg-probe.py` 헤더 §임계값 표 hs_stale 행이 정본이다(요지: 앵커 = 만료 **뒤** 첫 이동,
+> 3초 유예, `close dur` = 새 키를 기다린 시간, `open` 줄에 `wait=` 추가). self-check 에 **D6** 신설 — 옛 규칙과 유예 0초로
+> 돌리면 D6 이 실패함을 확인했다(테스트가 실제로 문다). 반영은 startup.sh 재적용 없이 **파일 설치 + `systemctl restart wg-probe`**
+> 뿐이고(읽기 전용 측정기라 데이터패스 무관), 메타데이터 `wg-probe` 키만 갱신해 재부팅 때도 새 버전이 배치된다.
+> VM Python 3.11.2 `--self-check` PASS · 저장소·VM·메타데이터 sha `68a066…` 일치 · `ev=start … hs_grace_sec=3.0` · 첫 `ev=alive` 정상.
+> **재기동으로 `MemoryCurrent` 추이 관찰이 리셋됐다** (13시간 가동분 기록 없음, 재기동 직후 ≈8.2MB).
 
 **왜 있는가.** 2026-09-16 **08:02:01~08:02:12 KST**(= UTC 2026-09-15 23:02) 약 **10.5초** 동안
 wg0 를 통해 게이트웨이에 붙어 있던 클라이언트 2대가 동시에 양방향으로 멈췄다. 한쪽은 게이트웨이가

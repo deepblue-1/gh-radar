@@ -2,7 +2,8 @@ displayName: gh-radar-relay-down
 documentation:
   content: |
     DMA relay(`https://dma.jx1.io/healthz`) 가 응답하지 않는다.
-    RELAY-03 (Phase 15) — uptime check `gh-radar-relay-healthz` 의 5분 성공률이 **0.9 미만**이면 알림.
+    RELAY-03 (Phase 15) — uptime check `gh-radar-relay-healthz` 의 5분 성공률이 6지점 평균 **0.9 미만**이고
+    **싱가포르 지점도 0.9 미만**일 때 알림 (두 조건 AND, 2026-09-17 변경 — 아래 "임계값과 오탐").
 
     **relay 가 죽으면 호가창·주문 경로가 통째로 멈춘다.** 장중이면 즉시 대응한다.
 
@@ -85,6 +86,26 @@ documentation:
     문제이지 우리 서비스 장애가 아니라 감수한 것이다. 특정 지역에서만 접속이 안 된다는
     제보가 오면 Cloud Monitoring 의 uptime check 상세에서 지점별 결과를 직접 본다.
 
+    ### 싱가포르 AND 조건 (2026-09-17 추가)
+
+    2026-09-17 03:39 KST 부터 **미국·유럽·브라질 지점만** 10초 시간초과로 실패하는 패턴이
+    나타나 평균이 0.57~0.88 까지 떨어졌고 경보가 반복됐다. 그 사이 싱가포르는 한 번도 실패하지
+    않았고, Caddy 가 실제로 받은 `/healthz` 5,127건은 전부 약 2ms 에 200 이었다 — 실패한
+    요청은 VM 에 도달조차 못 했다. 해외→서울 경로 문제이지 서비스 장애가 아니다.
+    외부 IP 는 이미 PREMIUM 등급이라 우리 쪽에서 더 좁힐 수단이 없다.
+
+    그래서 **서울에서 가장 가까운 싱가포르 지점도 실패할 때만** 울린다. 백테스트
+    (2026-09-06~09-17, 분 단위 지점별 성공률):
+
+    | 사건 | 현행(평균만) | 변경(평균 AND 싱가포르) |
+    |---|---|---|
+    | 실장애 5건 (09-06 10:17 · 09-09 06:25 · 09-09 16:24 · 09-15 09:14 · 09-16 00:23) — 전부 싱가포르 포함 전 지점 0.000 | 발화 | **발화** |
+    | 09-17 해외 경로 실패 5건 — 싱가포르 최저 1.000 | 발화 | **안 울림** |
+
+    대가: **싱가포르 검사 지점 자체가 멈추거나 싱가포르↔서울 경로만 멀쩡한 상태의 장애는
+    가려진다.** 해외 경로 실패가 사용자(국내)에게 영향을 주지 않는다는 점에서 감수한다.
+    해외 다수 지점 실패가 몇 시간 이상 지속되면 경보가 아니라 uptime check 상세에서 확인한다.
+
     ## 설계 메모
 
     relay `/healthz` 는 **degraded 를 HTTP 503 으로 내린다** (RESEARCH A7). 200 으로 내리면서
@@ -114,7 +135,25 @@ conditions:
           crossSeriesReducer: REDUCE_MEAN
           groupByFields:
             - resource.label.host
-combiner: OR
+  # 2026-09-17 추가. 해외 지점만 실패하는 경로 문제(싱가포르 무실패)를 걸러낸다.
+  # 실장애 5건(09-06~09-16)은 전부 싱가포르도 0.000 이었다 — 문서 "싱가포르 AND 조건".
+  - displayName: relay uptime check failing from apac-singapore
+    conditionThreshold:
+      filter: |
+        metric.type = "monitoring.googleapis.com/uptime_check/check_passed"
+        AND resource.type = "uptime_url"
+        AND resource.label.host = "dma.jx1.io"
+        AND metric.label.checker_location = "apac-singapore"
+      comparison: COMPARISON_LT
+      thresholdValue: 0.9
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_FRACTION_TRUE
+          crossSeriesReducer: REDUCE_MEAN
+          groupByFields:
+            - resource.label.host
+combiner: AND
 enabled: true
 notificationChannels:
   - "${NOTIFICATION_CHANNEL_ID}"

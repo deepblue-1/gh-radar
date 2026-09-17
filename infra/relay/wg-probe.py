@@ -45,7 +45,7 @@
 #   |--------------|------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 #   | rx_stall     | rx 무변화 ≥3초 ∧ 같은 창 tx 증가 ≥512B   | **이번 사건의 서명이다** — 한 방향만 멈췄다. 3초는 10.5초의 1/3.5 라 사건 시작 3초 뒤 발화하고 종료까지 여러 줄을 남긴다. 2초로 낮추지 않은 이유: 1Hz 표본은 ±1초 양자화 오차가 있어 2초 기준은 1.x초짜리 실제 공백에도 발화한다. 3초는 **온전한 표본 간격 2개**의 침묵을 보장한다. 512B 하한은 keepalive 전용 트래픽(32B/25초)을 배제한다 — 없으면 유휴 피어가 상시 발화한다 |
 #   | tx_stall     | 위의 대칭 (tx 무변화 ≥3초 ∧ rx 증가 ≥512B) | 반대 방향 고장                                                                                                                                                                                                                                                                      |
-#   | hs_stale     | 핸드셰이크 경과 >180초 ∧ 최근 60초 내 바이트 이동 있음 | **이번 10.5초 사건을 잡지 못한다.** WireGuard 는 데이터가 흐르면 REKEY_AFTER_TIME(120초) 안팎으로 갱신하므로 10초 공백은 경과를 150초든 180초든 넘기지 못한다. 인계가 제시한 150초는 **이 목적에는 무효한 기준**이다. 그럼에도 남기는 이유는 「터널 완전 사망」이라는 **다른 사건**의 신호이기 때문이고, 180초는 WireGuard 의 REJECT_AFTER_TIME — 그 시점부터 세션 키가 실제로 거부된다. 「최근 활동」 조건이 없으면 keepalive 를 끈 유휴 피어가 영구 발화한다 |
+#   | hs_stale     | 경과 >180초 **이후에** 바이트 이동이 처음 관측된 시각(앵커)부터 ≥3초 동안 핸드셰이크 미갱신 ∧ 최근 60초 내 이동 계속 | **이번 10.5초 사건을 잡지 못한다.** WireGuard 는 데이터가 흐르면 REKEY_AFTER_TIME(120초) 안팎으로 갱신하므로 10초 공백은 경과를 150초든 180초든 넘기지 못한다. 인계가 제시한 150초는 **이 목적에는 무효한 기준**이다. 그럼에도 남기는 이유는 「새 키를 못 맺는다」는 **다른 사건**의 신호이기 때문이고, 180초는 WireGuard 의 REJECT_AFTER_TIME — 그 시점부터 세션 키가 실제로 거부되어 이후의 이동은 전부 새 핸드셰이크를 기다린다. **앵커를 「만료 뒤 이동」으로 두는 이유**: 초판(경과 >180초 ∧ 최근 60초 내 이동)은 만료 **전** 이동의 잔상으로 발화했다 — 2026-09-16 휴면 피어 10.20.0.2 에서 hs_age=180 에 열려 60초 안에 닫힌 49·5·8초 에피소드 3건. **3초 유예의 이유**: 휴면 20분 뒤 깨어날 때 첫 틱에 핸드셰이크 패킷 이동이 먼저 보이고 다음 틱에 갱신된다(hs_age=1213, 1초 1건) — 1Hz 양자화상 정상 깨어남은 0~2초다. 핸드셰이크 패킷을 하나라도 잃으면 REKEY_TIMEOUT(5초) 뒤에야 재시도하므로 실제 손실은 3초 유예로도 잡힌다. `close dur` 은 앵커부터 — 데이터가 새 키를 기다린 시간이다. 「최근 60초 이동」 조건은 클라가 재시도를 포기한 뒤 에피소드를 닫는다. keepalive 를 끈 유휴 피어는 이동이 없으니 발화하지 않는다 |
 #   | wg_txdrop    | wg0 tx drop 증가 ≥1                      | `/proc/net/dev` 의 wg0 TX drop 누적 **371**(2026-09-16 실측)이 **언제** 늘었는지 모르는 것이 정확히 이 측정기가 푸는 문제다. 1건도 정보이고 폭주는 분당 상한이 막는다                                                                                                                 |
 #   | wg_rxdrop    | wg0 rx drop 증가 ≥1                      | 기준선 0                                                                                                                                                                                                                                                                            |
 #   | uplink_err   | ens4 rx/tx err·drop 증가 ≥1              | 기준선 전부 0. 상승하면 VM 업링크 쪽 증거                                                                                                                                                                                                                                            |
@@ -139,6 +139,7 @@ STALL_SEC = _env_float("WG_PROBE_STALL_SEC", 3.0)
 TX_MIN_BYTES = _env_int("WG_PROBE_TX_MIN_BYTES", 512)
 HS_STALE_SEC = _env_float("WG_PROBE_HS_STALE_SEC", 180.0)
 HS_ACTIVE_SEC = _env_float("WG_PROBE_HS_ACTIVE_SEC", 60.0)
+HS_GRACE_SEC = _env_float("WG_PROBE_HS_GRACE_SEC", 3.0)
 RTT_HIGH_MS = _env_float("WG_PROBE_RTT_HIGH_MS", 50.0)
 RTT_HIGH_N = _env_int("WG_PROBE_RTT_HIGH_N", 2)
 RTT_LOSS_N = _env_int("WG_PROBE_RTT_LOSS_N", 3)
@@ -506,7 +507,7 @@ class Detector:
                     "endpoint": s.endpoint, "epchg": 0,
                     "rx_anchor_t": now, "rx_anchor_tx": s.tx,
                     "tx_anchor_t": now, "tx_anchor_rx": s.rx,
-                    "last_move": None,
+                    "last_move": None, "stale_move_t": None,
                 }
                 continue
 
@@ -547,12 +548,21 @@ class Detector:
 
             if s.hs > 0:
                 age = wall - s.hs
-                recent = st["last_move"] is not None and (now - st["last_move"]) <= HS_ACTIVE_SEC
-                if age > HS_STALE_SEC and recent:
-                    active[("hs_stale", s.label)] = {
-                        "t0": now,
-                        "extra": (("hs_age", int(age)),),
-                    }
+                if age <= HS_STALE_SEC:
+                    st["stale_move_t"] = None  # 새 키가 맺혔다 — 앵커 해제
+                else:
+                    # 앵커는 **만료 뒤의 첫 이동**. 만료 전 이동은 새 키를 기다리지 않는다.
+                    if (rx_moved or tx_moved) and st["stale_move_t"] is None:
+                        st["stale_move_t"] = now
+                    anchor = st["stale_move_t"]
+                    # 앵커가 있으면 last_move 도 있다 (앵커는 이동 틱에만 선다).
+                    if anchor is not None and (now - st["last_move"]) > HS_ACTIVE_SEC:
+                        st["stale_move_t"] = anchor = None  # 재시도 포기 — 다음 이동이 새 앵커
+                    if anchor is not None and (now - anchor) >= HS_GRACE_SEC:
+                        active[("hs_stale", s.label)] = {
+                            "t0": anchor,
+                            "extra": (("hs_age", int(age)), ("wait", "%.1f" % (now - anchor))),
+                        }
 
         for kind, extra in self.rtt_conditions():
             label = dict(extra).get("target", "-")
@@ -627,7 +637,8 @@ def threshold_fields():
         ("iface", IFACE), ("uplink", UPLINK),
         ("interval", INTERVAL_SEC), ("stall_sec", STALL_SEC),
         ("tx_min_bytes", TX_MIN_BYTES), ("hs_stale_sec", HS_STALE_SEC),
-        ("hs_active_sec", HS_ACTIVE_SEC), ("rtt_high_ms", RTT_HIGH_MS),
+        ("hs_active_sec", HS_ACTIVE_SEC), ("hs_grace_sec", HS_GRACE_SEC),
+        ("rtt_high_ms", RTT_HIGH_MS),
         ("rtt_high_n", RTT_HIGH_N), ("rtt_loss_n", RTT_LOSS_N),
         ("heartbeat_sec", HEARTBEAT_SEC), ("episode_repeat_sec", EPISODE_REPEAT_SEC),
         ("max_lines_per_min", MAX_LINES_PER_MIN),
@@ -906,6 +917,62 @@ def self_check():
     check(not h3b.events(kind="hs_stale"),
           "D3: 유휴 피어에서 hs_stale 이 떴다 — 「최근 활동」 조건이 일하지 않는다")
 
+    # ── D6: hs_stale 실측 오탐 2형 제거 + 실제 대기 포착 ───────
+    # (a) 만료 전 이동의 잔상 — 2026-09-16 10.20.0.2 의 hs_age=180 에피소드 49·5·8초.
+    #     경과 170~179초 동안 이동, 이후 60초 유휴(경과가 180초를 넘는 동안 이동 없음).
+    h6a = _Harness()
+    w0 = 1789516000
+    for i in range(71):
+        t = float(i)
+        n = min(i, 9)  # t=9 까지만 이동
+        rows = [(w0 - 170, rx_base + n * 9000, tx_base + n * 9000)] * 5
+        h6a.tick(t, _dump_text(rows), _netdev(), wall=w0 + t)
+    all_lines.extend(h6a.lines)
+    check(not h6a.events(kind="hs_stale"),
+          "D6a: 만료 전 이동의 잔상으로 hs_stale 이 떴다 — 앵커가 「만료 뒤 이동」이 아니다")
+
+    # (b) 휴면 깨어남 — 2026-09-16 hs_age=1213, 1초 1건. 이동 틱 다음 틱에 갱신.
+    h6b = _Harness()
+    for i in range(11):
+        t = float(i)
+        n = max(0, i - 2)  # t=3 부터 이동
+        hs = w0 - 1213 if i <= 3 else w0 + 4
+        rows = [(hs, rx_base + n * 9000, tx_base + n * 9000)] * 5
+        h6b.tick(t, _dump_text(rows), _netdev(), wall=w0 + t)
+    all_lines.extend(h6b.lines)
+    check(not h6b.events(kind="hs_stale"),
+          "D6b: 정상 깨어남(1초 뒤 갱신)에서 hs_stale 이 떴다 — %.0f초 유예가 일하지 않는다"
+          % HS_GRACE_SEC)
+
+    # (c) 실제 대기 — 만료 뒤 이동이 계속되는데 t=11 에야 갱신. 앵커 t=1 → dur 10초.
+    h6c = _Harness()
+    for i in range(15):
+        t = float(i)
+        hs = w0 - 200 if i < 11 else w0 + 11
+        rows = [(hs, rx_base + i * 9000, tx_base + i * 9000)]
+        h6c.tick(t, _dump_text(rows), _netdev(), wall=w0 + t)
+    all_lines.extend(h6c.lines)
+    o6 = h6c.events(ev="open", kind="hs_stale")
+    c6 = h6c.events(ev="close", kind="hs_stale")
+    check(len(o6) == 1, "D6c: 만료 뒤 10초 대기에서 open 이 정확히 1개여야 한다 (got %d)" % len(o6))
+    check(len(c6) == 1, "D6c: close 가 정확히 1개여야 한다 (got %d)" % len(c6))
+    if c6:
+        dur = float(c6[0]["dur"])
+        check(9.0 <= dur <= 11.0,
+              "D6c: close dur 이 새 키를 기다린 시간(10초)과 안 맞는다 (got %.1f)" % dur)
+
+    # (d) 재시도 포기 — 만료 뒤 t=1~5 이동 후 갱신 없이 멈춤. 60초 뒤 닫히고 다시 열리지 않는다.
+    h6d = _Harness()
+    for i in range(90):
+        t = float(i)
+        n = min(i, 5)
+        rows = [(w0 - 200, rx_base + n * 9000, tx_base + n * 9000)]
+        h6d.tick(t, _dump_text(rows), _netdev(), wall=w0 + t)
+    all_lines.extend(h6d.lines)
+    check(len(h6d.events(ev="open", kind="hs_stale")) == 1
+          and len(h6d.events(ev="close", kind="hs_stale")) == 1,
+          "D6d: 재시도 포기 뒤 에피소드가 닫히지 않거나 다시 열렸다")
+
     # ── D4: 드롭 증가 ─────────────────────────────────────────
     h4 = _Harness()
     for i, drop in enumerate((371, 371, 372)):
@@ -971,7 +1038,7 @@ def self_check():
             print("SELF-CHECK FAIL: %s" % f)
         print("SELF-CHECK FAILED (%d)" % len(failures))
         return 1
-    print("SELF-CHECK PASS (P1 P2 D1 D2 D3 D4 D5 R1 R2 — lines=%d)" % len(all_lines))
+    print("SELF-CHECK PASS (P1 P2 D1 D2 D3 D4 D5 D6 R1 R2 — lines=%d)" % len(all_lines))
     return 0
 
 
