@@ -243,6 +243,25 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(msg.qty).toBe(10);
   });
 
+  it("② 예약주문 Q-ID 주문번호(`Q`+숫자 9자 = 10자)가 취소 경로를 통과한다 (17-02 / D-07)", () => {
+    // 예약 요약 행의 취소는 **원주문번호 = Q-ID** 로 나간다. 지금 zod 는 형식 제한이 없어
+    // 통과하지만(`min(1)`), 이 단언은 앞으로 형식 제한이 들어올 때 **깨지라고 두는 회귀
+    // 그물**이다 — 깨지면 예약 취소가 relay 에서 조용히 막혔다는 뜻이다.
+    const qid = "Q091533123";
+    expect(qid).toHaveLength(10);
+
+    const msg = parseInbound(orderCancel({ orgOrderNo: qid }));
+    if (msg?.t !== "order.cancel") throw new Error("Q-ID 취소가 relay 가드에 막혔습니다");
+    expect(msg.orgOrderNo).toBe(qid);
+
+    // `vi.confirm` 의 `orderNo` 가드(`min(1).max(10)`)도 같은 10자를 거부하지 않는다.
+    const confirm = parseInbound(
+      JSON.stringify({ t: "vi.confirm", orderNo: qid, confirmed: true }),
+    );
+    if (confirm?.t !== "vi.confirm") throw new Error("Q-ID 가 vi.confirm 가드에 막혔습니다");
+    expect(confirm.orderNo).toBe(qid);
+  });
+
   it("기존 시세 3종(`auth`/`sub`/`unsub`)은 그대로 파싱된다", () => {
     expect(parseInbound(JSON.stringify({ t: "auth", token: "jwt" }))?.t).toBe("auth");
     expect(parseInbound(JSON.stringify({ t: "sub", isin: ISIN, ex: "KRX" }))?.t).toBe("sub");

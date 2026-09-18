@@ -817,6 +817,69 @@ describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {
     expect(fromWireSide("")).toBeNull();
     expect(fromWireSide("X")).toBeNull();
   });
+
+  it("③-1 미체결 5필드는 **해석 없이 원문 그대로** 올라온다 (D-07)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildAccountStateFrame({
+          snapshot: true,
+          unfilled: [
+            {
+              orderNo: "Q091533123",
+              orderTime: "091533",
+              queuedStatus: "예약대기",
+              pendingStatus: "증권사 보관 · 09:00 처리",
+              board: "G2",
+              pendingCancelSent: true,
+            },
+          ],
+        }),
+      ),
+    );
+    const row = parseAccountState(parsed!.env, true)?.unf[0];
+
+    // 문구를 잘라 상태를 만들지 않고, `board` 로 side 를 바꾸지 않는다.
+    expect(row).toMatchObject({
+      orderNo: "Q091533123",
+      orderTime: "091533",
+      queuedStatus: "예약대기",
+      pendingStatus: "증권사 보관 · 09:00 처리",
+      board: "G2",
+      pendingCancelSent: true,
+    });
+  });
+
+  it("③-2 빈 `board` · 부재 `pending_cancel_sent` 는 `\"\"` · `false` 다 (구 서버 정상 입력)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildAccountStateFrame({ snapshot: true, unfilled: [{ orderNo: "ORD1" }] })),
+    );
+    const row = parseAccountState(parsed!.env, true)?.unf[0];
+
+    expect(row!.board).toBe("");
+    expect(row!.pendingCancelSent).toBe(false);
+    expect(row!.queuedStatus).toBe("");
+    expect(row!.pendingStatus).toBe("");
+  });
+
+  it("③-3 `pendingCancelSent === true` 행을 목록에서 **빼지 않는다** (D-07 이중 판정 금지)", () => {
+    // 서버가 브로커 앞에서 `R` 로 답한다. relay 가 여기서 또 판정하면 취소 경로가 두 벌이 된다.
+    // 회색 처리·취소 버튼 숨김은 화면의 몫이다 (D-14).
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildAccountStateFrame({
+          snapshot: true,
+          unfilled: [
+            { orderNo: "ORD1", pendingCancelSent: true },
+            { orderNo: "ORD2", pendingCancelSent: false },
+          ],
+        }),
+      ),
+    );
+    const state = parseAccountState(parsed!.env, true);
+
+    expect(state?.unf.map((u) => u.orderNo)).toEqual(["ORD1", "ORD2"]);
+    expect(skippedAccountStateItemCount()).toBe(0);
+  });
 });
 
 /**
