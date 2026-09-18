@@ -353,6 +353,14 @@ export type FakeUnfilled = {
   exchange?: string;
   /** 주문시각 `"HHMMSS"`. 미체결 그리드 '시간' 열의 유일한 원천 (16-01 재동기화로 추가). */
   orderTime?: string;
+  /** 예약주문 상태 문구 (`queued_status`). **파서는 해석하지 않는다** (D-07). */
+  queuedStatus?: string;
+  /** 접수대기 상태 문구 (`pending_status`). 문구 비교 금지 — 판정은 bool 하나다 (D-14). */
+  pendingStatus?: string;
+  /** 시간외종가 구분 (`board`) — 서버는 `"G2"`·`"G3"`·빈 값만 보낸다. */
+  board?: string;
+  /** 취소 요청을 증권사에 이미 보냈는가 (`pending_cancel_sent`). 회색·버튼숨김의 유일한 근거. */
+  pendingCancelSent?: boolean;
 };
 
 export type FakeAccountStateInput = {
@@ -402,14 +410,19 @@ export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8
 
   // 위치 인자 `createUnfilledState` 를 쓰지 않는다 (T-16-05 / 17-01). 재동기화로 말미에
   // `queued_status`·`pending_status`·`board`·`pending_cancel_sent` 4슬롯이 붙자 인자 수가
-  // 11 → 15 로 늘어 이 호출부가 깨졌다. 신규 4필드는 17-02 소관이라 싣지 않는다.
+  // 11 → 15 로 늘어 이 호출부가 깨졌다 — 이름 있는 `addXxx` 는 말미 append 에 대해
+  // 호출부를 불변으로 만든다.
   const unfilledOffsets = unfilled.map((u, i) => {
+    // 문자열은 테이블을 열기 **전에** 전부 만든다 (Pitfall 2).
     const orderNo = b.createString(u.orderNo ?? `ORD${String(i).padStart(7, "0")}`);
     const orgOrderNo = b.createString(u.orgOrderNo ?? "");
     const isin = b.createString(u.isin ?? SAMPLE_ISIN);
     const side = b.createString(u.side ?? "B");
     const exchange = b.createString(u.exchange ?? "KRX");
     const orderTime = b.createString(u.orderTime ?? "093015");
+    const queuedStatus = b.createString(u.queuedStatus ?? "");
+    const pendingStatus = b.createString(u.pendingStatus ?? "");
+    const board = b.createString(u.board ?? "");
     UnfilledState.startUnfilledState(b);
     UnfilledState.addOrderNo(b, orderNo);
     UnfilledState.addOrgOrderNo(b, orgOrderNo);
@@ -421,6 +434,10 @@ export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8
     UnfilledState.addUnfilledQty(b, u.unfilledQty ?? 10);
     UnfilledState.addExchange(b, exchange);
     UnfilledState.addOrderTime(b, orderTime);
+    UnfilledState.addQueuedStatus(b, queuedStatus);
+    UnfilledState.addPendingStatus(b, pendingStatus);
+    UnfilledState.addBoard(b, board);
+    UnfilledState.addPendingCancelSent(b, u.pendingCancelSent ?? false);
     return UnfilledState.endUnfilledState(b);
   });
   const unfilledVec = AccountState.createUnfilledVector(b, unfilledOffsets);
