@@ -584,3 +584,73 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(within(statusBar()).getByText('시세 서버 연결 중…')).toBeInTheDocument();
   });
 });
+
+/*
+  17-08 Task 2 — 호가 종목정보의 KRX 정규장 종가 표기 (D-11).
+
+  ★ 판정 입력은 `quote.kc` **하나**다. 벽시계로 「지금이 장 마감 뒤인가」를 계산해 라벨을
+    바꾸면 서버 진실과 갈린다. `kc > 0` 이 「종가가 확정됐다」의 유일한 신호이고,
+    `0` 도 「모른다」가 아니라 **권위값**이다(같은 값이면 no-op).
+  ★ NXT 프레임에도 KRX 종가가 실린다 — 거래소로 라벨을 바꾸지 않는다(C# 동일).
+*/
+describe('StockOrderbookSection 종목정보 — KRX 정규장 종가 (17-08 / D-11)', () => {
+  /** 헤더 종목정보 `dl`. 기준·상한·하한·VI(·종가)가 사는 유일한 자리다. */
+  const meta = (): HTMLElement => {
+    const el = document.querySelector<HTMLElement>('header dl');
+    if (el === null) throw new Error('종목정보 dl 이 렌더되지 않았습니다');
+    return el;
+  };
+
+  it('㉠ `kc > 0` 이면 하락VI 자리가 라벨 `종가` + 값으로 바뀌고 하락VI 값은 사라진다', () => {
+    mockRelay = makeRelay({ quote: makeQuote({ kc: 12_625 }) });
+    renderSection();
+
+    expect(within(meta()).getByText('종가')).toBeInTheDocument();
+    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
+    // 상승VI 는 어느 갈래에서도 사라지지 않는다.
+    expect(within(meta()).getByText('108,000')).toBeInTheDocument();
+    // 하락VI 값이 놓였던 자리를 종가가 차지한다.
+    expect(within(meta()).queryByText(/88,000/)).toBeNull();
+  });
+
+  it('㉡ `kc === 0` 이면 종전 표기(VI 상승 / 하락 두 값) 그대로다', () => {
+    renderSection(); // 기본 픽스처의 kc 는 0 이다.
+
+    expect(within(meta()).queryByText('종가')).toBeNull();
+    expect(within(meta()).getByText('108,000 / 88,000')).toBeInTheDocument();
+  });
+
+  it('㉢ **NXT** 프레임에도 라벨은 `종가` 다 — KRX 값이 실려 오므로 거래소로 갈라지지 않는다', () => {
+    mockRelay = makeRelay({ quote: makeQuote({ x: 'NXT', kc: 12_625 }) });
+    renderSection();
+
+    expect(within(meta()).getByText('종가')).toBeInTheDocument();
+    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
+    // 「NXT 종가」 같은 파생 라벨을 지어내지 않는다.
+    expect(within(meta()).queryByText(/NXT 종가|KRX 종가/)).toBeNull();
+  });
+
+  it('㉣ 같은 종가가 다시 와도 표시가 바뀌지 않는다 (no-op)', () => {
+    mockRelay = makeRelay({ quote: makeQuote({ kc: 12_625 }) });
+    const { setRelay } = renderSection();
+
+    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
+    // 새 프레임(다른 객체 신원)이지만 kc 는 같다.
+    setRelay({ quote: makeQuote({ kc: 12_625, et: '153015123456' }) });
+    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
+    expect(within(meta()).getByText('종가')).toBeInTheDocument();
+  });
+
+  it('㉤ 벽시계로 판정하지 않는다 — 장 마감 한참 뒤에도 `kc === 0` 이면 종전 표기다', () => {
+    vi.useFakeTimers();
+    // 20:00 KST 이후. 시각으로 판정하는 구현이라면 여기서 `종가` 로 바뀐다.
+    vi.setSystemTime(new Date('2026-09-18T12:30:00Z'));
+    try {
+      renderSection();
+      expect(within(meta()).queryByText('종가')).toBeNull();
+      expect(within(meta()).getByText('108,000 / 88,000')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
