@@ -155,6 +155,35 @@ export function deriveTapeSides(
   return sides;
 }
 
+/** `tapeSidesOf` 결과. `usedFallback` 이 하단 고지 문구의 **유일한** 입력이다. */
+export interface TapeSidesResult {
+  /** 입력과 같은 순서(최신이 index 0)의 체결 구분. */
+  sides: TapeSide[];
+  /** 한 원소라도 추정으로 채웠으면 true. */
+  usedFallback: boolean;
+}
+
+/**
+ * 체결 구분 확정 — **서버 체결구분(`bs`)이 먼저**, 값이 없는 원소만 추정으로 폴백한다 (D-10).
+ *
+ * `bs` 는 거래소 원문(`"2"` 매수 · `"1"` 매도 · `""` 미상)이라 추정할 이유가 없다.
+ * `""` 인 원소가 하나도 없으면 `deriveTapeSides` 를 **호출조차 하지 않는다** — 매 배치마다
+ * O(n) 추정을 돌릴 이유가 없고, 「추정을 쓰지 않았다」가 고지 문구의 근거이기도 하다.
+ *
+ * ★ `derive` 는 **테스트 이음매**다. 기본값이 `deriveTapeSides` 라 호출부 계약은
+ *   `tapeSidesOf(entries, bestAsk, bestBid)` 3인자 그대로다. 「전부 서버값이면 추정을
+ *   돌리지 않는다」는 호출 여부로만 증명할 수 있는 성질이라(결과만 보면 추정을 돌려놓고
+ *   버린 구현과 구분되지 않는다) 주입 이음매를 뒀다.
+ */
+export function tapeSidesOf(
+  entries: RelayTapeEntry[],
+  bestAsk?: number,
+  bestBid?: number,
+  derive: typeof deriveTapeSides = deriveTapeSides,
+): TapeSidesResult {
+  return { sides: derive(entries, bestAsk, bestBid), usedFallback: true };
+}
+
 /** 배치 경계 판정용 콘텐츠 키 — 스냅샷 교체(객체 신원 변경)에도 견딘다. */
 function entryKey(e: RelayTapeEntry): string {
   return `${e.t}|${e.p}|${e.q}|${e.cv}`;

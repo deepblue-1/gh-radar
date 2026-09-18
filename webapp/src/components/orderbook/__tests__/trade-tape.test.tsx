@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RelayTapeEntry } from '@gh-radar/shared';
@@ -6,6 +6,7 @@ import type { RelayTapeEntry } from '@gh-radar/shared';
 import {
   TradeTape,
   deriveTapeSides,
+  tapeSidesOf,
   formatTapeTime,
   formatTapeTimeShort,
 } from '../trade-tape';
@@ -59,7 +60,119 @@ describe('deriveTapeSides', () => {
   });
 });
 
+/*
+  17-08 Task 1 — 서버 체결구분(`bs`) 우선 · 값 없는 원소만 추정 폴백 (D-10).
+
+  ★ 모든 케이스에서 **서버값과 추정이 서로 어긋나게** 픽스처를 짠다. 둘이 같으면
+    「서버값을 썼다」와 「추정이 우연히 맞았다」가 구분되지 않아 단언이 아무것도 잠그지 못한다.
+    최우선호가는 항상 매도1 98,200 / 매수1 97,900 으로 두고:
+      - `p = 98,200` → 추정은 **매수(B)**  → 서버값 `"1"`(매도) 을 실어 어긋나게 한다
+      - `p = 97,900` → 추정은 **매도(S)**  → 서버값 `"2"`(매수) 를 실어 어긋나게 한다
+*/
+const ASK1 = 98_200;
+const BID1 = 97_900;
+
+describe('tapeSidesOf (17-08 / D-10)', () => {
+  it('⓪-1 모든 원소가 서버 체결구분을 실어 오면 전부 서버값을 따르고 `deriveTapeSides` 를 **호출하지 않는다**', () => {
+    const entries = [entry({ p: ASK1, bs: '1' }), entry({ p: BID1, bs: '2' })];
+    const derive = vi.fn(deriveTapeSides);
+
+    // 추정이 돌았다면 ['B','S'] 였을 자리다 — 서버값이 그것을 뒤집는다.
+    expect(deriveTapeSides(entries, ASK1, BID1)).toEqual(['B', 'S']);
+
+    const result = tapeSidesOf(entries, ASK1, BID1, derive);
+    expect(result.sides).toEqual(['S', 'B']);
+    expect(result.usedFallback).toBe(false);
+    // 「결과만 같고 추정은 돌려놓고 버렸다」와 구분하는 유일한 단언이다.
+    expect(derive).not.toHaveBeenCalled();
+  });
+
+  it('⓪-2 `bs === "2"` 는 매수 · `bs === "1"` 은 매도다 (최우선호가 추정과 어긋나도 서버가 이긴다)', () => {
+    expect(tapeSidesOf([entry({ p: ASK1, bs: '2' })], ASK1, BID1).sides).toEqual(['B']);
+    expect(tapeSidesOf([entry({ p: BID1, bs: '1' })], ASK1, BID1).sides).toEqual(['S']);
+    // 추정이라면 `bs:"2"` 자리(97,900)는 S, `bs:"1"` 자리(98,200)는 B 였다.
+    expect(tapeSidesOf([entry({ p: BID1, bs: '2' })], ASK1, BID1).sides).toEqual(['B']);
+    expect(tapeSidesOf([entry({ p: ASK1, bs: '1' })], ASK1, BID1).sides).toEqual(['S']);
+  });
+
+  it('⓪-3 `bs` 가 빈 원소가 섞이면 **그 원소만** 추정으로 채우고 나머지는 서버값 그대로다', () => {
+    // index 0 = 서버 매도("1"), index 1 = 미상 → 추정은 98,200 ≥ 매도1 이라 매수(B).
+    const entries = [entry({ p: ASK1, bs: '1' }), entry({ p: ASK1, bs: '' })];
+    const derive = vi.fn(deriveTapeSides);
+
+    const result = tapeSidesOf(entries, ASK1, BID1, derive);
+    expect(result.sides).toEqual(['S', 'B']);
+    expect(result.usedFallback).toBe(true);
+    // 추정은 **원소마다가 아니라 한 번**만 돈다 — zero-tick 상속이 배열 전체를 봐야 한다.
+    expect(derive).toHaveBeenCalledTimes(1);
+  });
+
+  it('⓪-4 폴백이 필요해도 zero-tick 상속 규칙은 `deriveTapeSides` 안에 그대로 남는다', () => {
+    // 최우선호가 없음 → 틱 규칙. 최신→과거: 98,200 / 98,200 / 98,100 / 98,300
+    const entries = [
+      entry({ p: 98_200, bs: '' }),
+      entry({ p: 98_200, bs: '' }),
+      entry({ p: 98_100, bs: '' }),
+      entry({ p: 98_300, bs: '' }),
+    ];
+    expect(tapeSidesOf(entries).sides).toEqual(deriveTapeSides(entries));
+    expect(tapeSidesOf(entries).sides).toEqual(['B', 'B', 'S', 'B']);
+  });
+});
+
 describe('TradeTape', () => {
+  it('⑫ 서버 체결구분이 전부 오면 수량 색·sr-only 가 그 값을 따르고 고지가 「서버 기준」이라 말한다 (D-10)', () => {
+    const { container } = render(
+      <TradeTape
+        entries={[
+          entry({ p: ASK1, bs: '1', t: '093017000000' }),
+          entry({ p: BID1, bs: '2', t: '093016000000' }),
+        ]}
+        isStale={false}
+        basePrice={BASE}
+        bestAsk={ASK1}
+        bestBid={BID1}
+      />,
+    );
+
+    const qty = Array.from(container.querySelectorAll('tbody tr')).map(
+      (r) => r.children[2] as HTMLElement,
+    );
+    // 추정이었다면 정확히 반대였다 — 서버값이 이긴다.
+    expect(qty[0].className).toContain('text-[var(--down)]');
+    expect(qty[1].className).toContain('text-[var(--up)]');
+    expect(qty[0].querySelector('.sr-only')?.textContent?.trim()).toBe('매도');
+    expect(qty[1].querySelector('.sr-only')?.textContent?.trim()).toBe('매수');
+
+    // 폴백 0건 → 근거를 사실대로 말한다. 「추정」이라고 하지 않는다.
+    expect(
+      screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/추정했어요/)).toBeNull();
+  });
+
+  it('⑬ 체결구분이 없는 체결이 하나라도 섞이면 고지가 **일부 추정**임을 함께 말한다 (D-10)', () => {
+    render(
+      <TradeTape
+        entries={[
+          entry({ p: ASK1, bs: '1', t: '093017000000' }),
+          entry({ p: ASK1, bs: '', t: '093016000000' }),
+        ]}
+        isStale={false}
+        basePrice={BASE}
+        bestAsk={ASK1}
+        bestBid={BID1}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
+      ),
+    ).toBeInTheDocument();
+  });
+
+
   it('③ 최신이 맨 위이고 매수/매도를 **수량 색 + sr-only 라벨**로 병기한다 (WCAG 1.4.1)', () => {
     const { container } = render(
       <TradeTape
@@ -161,10 +274,13 @@ describe('TradeTape', () => {
     expect(row.className).toContain('[&>td]:whitespace-nowrap');
   });
 
-  it('⑧ 구분이 추정임을 화면에 밝힌다 (게이트웨이가 매수/매도 플래그를 주지 않는다)', () => {
+  it('⑧ 구분이 추정임을 화면에 밝힌다 (서버가 `bs` 를 주지 않은 체결만 추정이다)', () => {
+    // `tape()` 픽스처는 `bs: ''`(구 서버) — 전 원소가 폴백이라 「일부 추정」 고지가 뜬다.
     render(<TradeTape entries={tape([98_200])} isStale={false} basePrice={BASE} />);
     expect(
-      screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
+      screen.getByText(
+        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
+      ),
     ).toBeInTheDocument();
   });
 });
@@ -259,16 +375,18 @@ describe('⑩ TradeTape compact (260911-w5h)', () => {
     expect(cols[2]!.className).toContain('w-[32%]');
   });
 
-  it('compact 에서도 핀 버튼 · 수량 sr-only · 「추정이에요」 라벨이 전부 남는다', () => {
+  it('compact 에서도 핀 버튼 · 수량 sr-only · 하단 고지 라벨이 전부 남는다', () => {
     const { container, rerender } = render(
       <TradeTape compact entries={rows()} isStale={false} basePrice={BASE} />,
     );
 
     // 수량 색의 비색 경로.
     expect(screen.getAllByText(/매수|매도/, { selector: '.sr-only' }).length).toBeGreaterThan(0);
-    // 하단 추정 고지.
+    // 하단 고지(이 픽스처는 `bs: ''` 라 폴백 갈래다).
     expect(
-      screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
+      screen.getByText(
+        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
+      ),
     ).toBeInTheDocument();
 
     // 스크롤을 내린 뒤 새 체결이 들어오면 핀 버튼이 뜬다.

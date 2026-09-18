@@ -510,8 +510,11 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(labels[1]).toBe('매도');
 
     // 추정임을 화면에 밝힌다 — 서버가 주지 않는 값을 확정 사실로 그리지 않는다.
+    // (`makeTape()` 는 `bs: ''` 구 서버 픽스처라 전 원소가 폴백 갈래다.)
     expect(
-      within(tape).getByText('수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요'),
+      within(tape).getByText(
+        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
+      ),
     ).toBeInTheDocument();
   });
 
