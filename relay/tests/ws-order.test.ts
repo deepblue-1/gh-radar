@@ -1390,6 +1390,11 @@ function mkNotice(over: Partial<ParsedOrderResp> = {}): ParsedOrderResp {
     quantity: 10,
     orgOrderNo: "",
     exchange: "KRX",
+    // 17-02 신규 3필드의 기본은 **구 서버**(전부 빈 값)다 — 이 픽스처를 쓰는 매칭 축
+    // 테스트가 「오늘 서버」로 갈아타면 구 서버 회귀를 더 이상 잡지 못한다 (D-08).
+    board: "",
+    requestKind: "",
+    requester: "",
     origin: "Manual",
     originKind: "manual",
     ...over,

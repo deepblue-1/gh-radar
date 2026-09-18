@@ -673,6 +673,12 @@ export class SubscriptionHub extends EventEmitter {
       p: notice.price,
       q: notice.quantity,
       x: notice.exchange,
+      // 구 서버는 세 필드를 비워 보낸다. 빈 값은 **키째 생략**한다 — 브라우저 계약이 셋을
+      // optional 로 둔 이유이고, 빈 문자열을 실어 보내면 "서버가 `""` 라고 말했다"와
+      // "서버가 말하지 않았다"가 구분되지 않는다 (D-08).
+      ...(notice.board === "" ? {} : { bd: notice.board }),
+      ...(notice.requestKind === "" ? {} : { rk: notice.requestKind }),
+      ...(notice.requester === "" ? {} : { rq: notice.requester }),
     };
     // 화면이 먼저다. DB 기록(비동기 큐)은 이 이벤트를 받는 쪽이 건다.
     this.#fanout(userId, msg);

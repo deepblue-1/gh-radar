@@ -286,6 +286,12 @@ export type FakeOrderRespInput = {
   orgOrderNo?: string;
   origin?: string;
   exchange?: string;
+  /** 시간외종가 구분 (`board`) — `"G2"`·`"G3"`·빈 값. 구 서버를 흉내 내려면 생략한다. */
+  board?: string;
+  /** 요청 종류 (`request_kind`) — `"New"`·`"Modify"`·`"Cancel"`. 행위 단어의 원천이다. */
+  requestKind?: string;
+  /** 요청 주체 (`requester`) — `"Manual"`. **표시 전용**이다 (D-08). */
+  requester?: string;
 };
 
 /**
@@ -297,7 +303,9 @@ export type FakeOrderRespInput = {
  * 위치 인자 `createOrderResp` 를 쓰지 않는다 (T-16-05 / 17-01). 재동기화로 말미에
  * `board`·`request_kind`·`requester` 3슬롯이 붙자 인자 수가 12 → 15 로 늘어 이 호출부가
  * 깨졌다 — 이름 있는 `addXxx` 는 말미 append 에 대해 호출부를 불변으로 만든다.
- * 신규 3필드는 17-02 소관이라 여기서는 싣지 않는다.
+ *
+ * 신규 3필드의 기본값은 `""` 다 — **구 서버 프레임이 기본**이라야 회귀 테스트가
+ * 「오늘 서버」가 아니라 「어제 서버」를 재현한다.
  */
 export function buildOrderRespFrame(input: FakeOrderRespInput = {}): Uint8Array {
   const b = new flatbuffers.Builder(512);
@@ -310,6 +318,9 @@ export function buildOrderRespFrame(input: FakeOrderRespInput = {}): Uint8Array 
   const orgOrderNo = b.createString(input.orgOrderNo ?? "");
   const origin = b.createString(input.origin ?? "Manual");
   const exchange = b.createString(input.exchange ?? "KRX");
+  const board = b.createString(input.board ?? "");
+  const requestKind = b.createString(input.requestKind ?? "");
+  const requester = b.createString(input.requester ?? "");
 
   OrderResp.startOrderResp(b);
   OrderResp.addStockCode(b, stockCode);
@@ -323,6 +334,9 @@ export function buildOrderRespFrame(input: FakeOrderRespInput = {}): Uint8Array 
   OrderResp.addOrgOrderNo(b, orgOrderNo);
   OrderResp.addOrigin(b, origin);
   OrderResp.addExchange(b, exchange);
+  OrderResp.addBoard(b, board);
+  OrderResp.addRequestKind(b, requestKind);
+  OrderResp.addRequester(b, requester);
   const resp = OrderResp.endOrderResp(b);
 
   Envelope.startEnvelope(b);

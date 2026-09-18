@@ -1262,6 +1262,25 @@ export type ParsedOrderResp = {
   orgOrderNo: string;
   /** 거래소. 구 서버 미지정은 KRX 로 열화한다 (Phase 16 D-11). */
   exchange: RelayExchange;
+  /**
+   * 시간외종가 구분 (`OrderResp.board`) — `"G2"`·`"G3"`·빈 값만 온다. 빈 값이 정상이다.
+   * 정규화하지 않고 원문 그대로 흘린다 (D-08).
+   */
+  board: string;
+  /**
+   * 요청 종류 (`OrderResp.request_kind`) — `"New"`·`"Modify"`·`"Cancel"`. 구 서버는 "".
+   *
+   * **행위 단어의 원천이다.** `message` 문구가 아니라 이 값(과 `noticeType`)으로 판정한다 —
+   * 804 정정·취소 거부에서 서버가 문구를 교체하므로 문구 비교는 조용히 틀린다 (T-17-04).
+   */
+  requestKind: string;
+  /**
+   * 요청 주체 (`OrderResp.requester`) — 지금은 `"Manual"` 뿐이다. 구 서버는 "".
+   *
+   * **표시 전용**이다. `dma_orders.origin` 은 `originKind`(원주문 주체)를 그대로 쓴다 —
+   * 취소 요청자를 원주문 주체로 덮어쓰면 자동주문이 수동으로 둔갑한다 (D-08).
+   */
+  requester: string;
   /** 발주 주체 원문 "Manual"/"LimitChaser"/"VITrigger". 구 서버는 "". */
   origin: string;
   /**
@@ -1340,6 +1359,11 @@ export function parseOrderResp(env: Envelope): ParsedOrderResp | null {
     quantity: r.quantity(),
     orgOrderNo: r.orgOrderNo() ?? "",
     exchange: fromWireExchange(r.exchange() ?? ""),
+    // 아래 3필드는 **해석하지 않는다** (D-08). 빈 값은 구 서버의 정상 입력이라 경고도 남기지
+    // 않는다 — 여기서 값을 지어내면 문구 파싱과 똑같은 실패를 다른 이름으로 되풀이한다.
+    board: r.board() ?? "",
+    requestKind: r.requestKind() ?? "",
+    requester: r.requester() ?? "",
     origin,
     originKind: toOrderOrigin(origin),
   };
