@@ -28,7 +28,9 @@
     "skip_discuss": false,
     "code_review": true,
     "code_review_depth": "standard",
-    "_auto_chain_active": false
+    "_auto_chain_active": false,
+    "build_command": "pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/relay run typecheck && pnpm --filter @gh-radar/relay run typecheck:tests && pnpm --filter @gh-radar/webapp run typecheck",
+    "test_command": "pnpm --filter @gh-radar/relay run test && pnpm --filter @gh-radar/webapp run test"
   },
   "hooks": {
     "context_warnings": true
