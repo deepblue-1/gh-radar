@@ -24,7 +24,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { RELAY_STATE_LABELS } from '@gh-radar/shared';
+import { RELAY_STATE_LABELS, serverMsgBadge } from '@gh-radar/shared';
 import type { RelayAccount, RelayExchange } from '@gh-radar/shared';
 import {
   RELAY_MAX_RECONNECT_ATTEMPTS,
@@ -239,6 +239,19 @@ export function RelayStatusBar({
                 )}
               >
                 {LEVEL_LABEL[msg.lv] ?? msg.lv}
+              </span>
+              {/*
+                출처 배지 (17-08 / D-09 · D-17). 판정은 `serverMsgBadge` **하나**만 쓴다 —
+                여기서 `msg.src` 를 직접 비교하면 서버 어휘가 늘어날 때마다 shared 정본과
+                이 표면이 갈린다. 모르는 출처는 그 함수가 `[서버]` 로 떨어뜨린다.
+                ★ **텍스트**다. 이 표면은 방향색 전면 금지라 색으로 출처를 가를 수도 없고,
+                  가를 수 있어도 색 단독 구분은 WCAG 1.4.1 위반이다.
+              */}
+              <span
+                data-testid="relay-alert-src"
+                className="shrink-0 font-semibold text-[var(--muted-fg)]"
+              >
+                {serverMsgBadge(msg.src)}
               </span>
               <span className="text-[var(--fg)]">{msg.m}</span>
             </p>
