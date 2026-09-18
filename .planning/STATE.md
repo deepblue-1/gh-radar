@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-09-18T01:31:10.994Z"
+stopped_at: Completed 17-02-PLAN.md
+last_updated: "2026-09-18T01:55:02.665Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: 2c0874af679fb60bd3f064745f97473976f18db0
+state_head: b05b0c7474005b77d4a7747d6a88c6fb43bd05d3
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 170
+  completed_plans: 171
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 2 of 12
+Plan: 3 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -438,6 +438,7 @@ Progress: [█████████░] 92%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 17 P01 | 24 min | 3 tasks | 46 files |
+| Phase 17 P02 | 8 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -666,6 +667,8 @@ Recent decisions affecting current work:
 - [Phase 16 Plan 45]: smoke INV-9 프로브는 stdout 쓰기 완료 콜백에서 종료하고 호출부는 빈 verdict 를 SKIP 이 아니라 FAIL 로 센다 — 판정 유실이 조용한 초록불이 되는 경로를 이중 차단
 - [Phase 16 Plan 44]: 세션 state 리스너의 실제 누수 지점은 #onClose 였다 — #register 갈래는 refCount 대칭 때문에 도달 불가라 방어로만 남기고 잠기지 않았음을 명시
 - [Phase 16 Plan 44]: 떼는 것(off)과 침묵시키는 것(정본 대조 가드)은 서로 다른 시점의 방어다 — EventEmitter.emit 이 리스너 배열 사본을 순회하므로 둘 다 필요하다
+- [Phase 17]: 주문통보 신규 3필드(bd/rk/rq)는 빈 값이면 브라우저 프레임에서 키째 생략한다 — 빈 문자열을 실어 보내면 「서버가 "" 라고 말했다」와 「서버가 말하지 않았다」가 구분되지 않는다. 계약이 셋을 optional 로 둔 이유다 (D-08).
+- [Phase 17]: 17-02 의 파서 층은 17-01 이 이미 채웠고(kc·bs·미체결 5필드), 이 plan 은 테스트 프레임·브라우저 프레임·불변식 게이트를 넣었다 — 중복 커밋을 지어내지 않고 각 태스크 acceptance 재실행으로 「이미 있다」를 증명했다.
 
 ### Pending Todos
 
@@ -749,8 +752,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-18T01:31:10.224Z
-Stopped at: Completed 17-01-PLAN.md
+Last session: 2026-09-18T01:54:52.280Z
+Stopped at: Completed 17-02-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
