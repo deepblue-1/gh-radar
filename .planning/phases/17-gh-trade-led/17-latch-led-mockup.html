@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ko" class="" data-variant="chip">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 17 — 상따 래치 LED 3종 목업 (상태줄 · 폰 390 / 데스크톱 1000 · 라이트/다크)</title>
+<style>
+/* gh-radar globals.css 토큰 인라인 (실측 2026-09-18) + 신규 토큰 2개(--led-latent, --led-armed) */
+:root {
+  --bg:#FFFFFF; --fg:oklch(0.18 0 0);
+  --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0);
+  --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06);
+  --ring:oklch(0.63 0.18 250);
+  --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --primary-fg:#FFFFFF;
+  --secondary:oklch(0.96 0 0); --secondary-fg:oklch(0.18 0 0);
+  --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250);
+  --destructive:oklch(0.66 0.20 22);
+  --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --flat:oklch(0.55 0 0);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px;
+  --r-sm:4px; --r:6px; --r-md:8px; --r-lg:12px;
+  --t-caption:12px; --t-sm:14px; --t-base:16px;
+  --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* ★ 신규 제안 토큰 — 회색은 기존 --flat 재사용 */
+  --led-latent:oklch(0.74 0.17 62);   /* 잠복(주황) */
+  --led-armed:oklch(0.68 0.19 150);   /* 래치 ON(초록) — 기존 DMA ok 도트 oklch(0.72 0.19 150) 계열 */
+}
+.dark {
+  --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0);
+  --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0);
+  --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06);
+  --ring:oklch(0.72 0.16 250);
+  --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --primary-fg:oklch(0.10 0 0);
+  --secondary:oklch(0.18 0 0); --secondary-fg:oklch(0.96 0 0);
+  --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250);
+  --destructive:oklch(0.72 0.19 22);
+  --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --flat:oklch(0.65 0 0);
+  --led-latent:oklch(0.80 0.16 70);
+  --led-armed:oklch(0.76 0.18 150);
+}
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font-sans); background:var(--bg); color:var(--fg); font-size:var(--t-base); line-height:1.5; font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+html[lang="ko"] { word-break:keep-all; overflow-wrap:break-word; letter-spacing:-0.01em; }
+.mono { font-family:var(--font-mono); }
+button { font-family:inherit; }
+*:focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+
+.toolbar { position:sticky; top:0; z-index:300; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 20px; background:color-mix(in oklch,var(--bg) 92%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+.toolbar h1 { font-size:var(--t-sm); font-weight:600; margin:0; margin-right:auto; }
+.toolbar .lb { font-size:11px; color:var(--muted-fg); margin-left:6px; }
+.tbtn { height:26px; padding:0 9px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--secondary); color:var(--secondary-fg); font-size:11px; font-weight:600; cursor:pointer; }
+.tbtn[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.stage { padding:20px; }
+.info { border:1px solid var(--border); border-left:3px solid var(--fg); border-radius:var(--r-md); background:var(--muted); padding:12px 14px; margin:0 0 20px; max-width:1160px; font-size:var(--t-sm); }
+.info div + div { margin-top:6px; }
+.info code { font-family:var(--font-mono); font-size:12px; }
+h2 { font-size:var(--t-sm); font-weight:600; color:var(--muted-fg); margin:24px 0 8px; }
+.frames { display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap; }
+.frame-wrap .cap { font-size:var(--t-caption); font-weight:600; color:var(--muted-fg); margin-bottom:8px; }
+.frame { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; background:var(--bg); padding:12px; }
+.frame.phone { width:390px; }
+.frame.desk { width:1000px; max-width:100%; }
+
+/* ── 실제 상태줄 (limit-chaser-client.tsx StatusBar) 재현 ── */
+.sb { display:flex; min-width:0; flex-wrap:wrap; align-items:center; column-gap:12px; row-gap:4px; border-radius:var(--r-md); border:1px solid var(--border); background:var(--muted); padding:8px 12px; font-size:var(--t-caption); color:var(--muted-fg); }
+.sb b { font-weight:600; color:var(--fg); }
+.sb .seg { display:inline-flex; align-items:center; gap:6px; }
+.sb small { font-size:11px; }
+.sb .applied { margin-left:auto; font-family:var(--font-mono); }
+.dot { display:block; width:7px; height:7px; border-radius:999px; background:var(--flat); flex-shrink:0; }
+.dot.ok { background:oklch(0.72 0.19 150); }
+
+/* ── LED (신규) ── */
+.led { display:inline-flex; align-items:center; gap:6px; border:0; background:transparent; padding:0; color:inherit; font:inherit; border-radius:999px; }
+.led .l { width:9px; height:9px; border-radius:999px; background:var(--flat); flex-shrink:0; box-shadow:inset 0 0 0 1px color-mix(in oklch, var(--fg) 12%, transparent); }
+.led[data-tone="latent"] .l { background:var(--led-latent); box-shadow:0 0 0 2px color-mix(in oklch, var(--led-latent) 28%, transparent); }
+.led[data-tone="armed"]  .l { background:var(--led-armed);  box-shadow:0 0 0 2px color-mix(in oklch, var(--led-armed) 28%, transparent); }
+.led[data-tone="off"] .l { background:transparent; border:1.5px solid var(--muted-fg); }
+.led .t { font-weight:600; color:var(--fg); }
+.led .n { color:var(--muted-fg); }
+.led[disabled] { cursor:default; }
+.led[disabled] .t { color:var(--muted-fg); font-weight:500; }
+.led:not([disabled]) { cursor:pointer; }
+/* 변형 chip — 눌리는 것임을 형태로 말한다 */
+html[data-variant="chip"] .led { padding:2px 8px 2px 6px; border:1px solid var(--border); background:var(--bg); }
+html[data-variant="chip"] .led:not([disabled]):hover { border-color:var(--muted-fg); }
+html[data-variant="chip"] .led[disabled] { background:transparent; border-style:dashed; }
+/* 변형 dot — 기존 상태줄과 같은 도트+텍스트, 클릭 가능하면 점선 밑줄 */
+html[data-variant="dot"] .led:not([disabled]) .t { text-decoration:underline dotted; text-underline-offset:3px; }
+
+/* 툴팁 미리보기 */
+.tip { margin-top:10px; font-size:var(--t-caption); color:var(--muted-fg); border:1px solid var(--border-subtle); border-radius:var(--r); padding:6px 10px; min-height:32px; }
+.tip b { color:var(--fg); }
+
+/* 시나리오 표 */
+table { border-collapse:collapse; font-size:var(--t-caption); }
+td, th { border:1px solid var(--border); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--muted); font-weight:600; }
+.sw { display:inline-block; width:9px; height:9px; border-radius:999px; vertical-align:-1px; margin-right:4px; }
+
+/* ── 헤더 10칸 → 11칸 미리보기 (lc-quote-grid 재현) ── */
+.qg { display:grid; grid-template-columns:repeat(2,1fr); border-top:1px solid var(--border-subtle); padding:4px 0; }
+.qg.c5 { grid-template-columns:repeat(5,1fr); }
+.qg.row { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:20px; padding:8px 14px; }
+.qc { display:flex; justify-content:space-between; gap:8px; padding:2px 8px; font-size:var(--t-caption); }
+.qg.row .qc { padding:0; gap:6px; }
+.qc .k { color:var(--muted-fg); }
+.qc .v { font-family:var(--font-mono); font-weight:600; }
+.qc .v.up { color:var(--up); } .qc .v.down { color:var(--down); }
+.qc.new { background:color-mix(in oklch, var(--led-armed) 14%, transparent); border-radius:var(--r-sm); }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <h1>Phase 17 · 상따 래치 LED 3종 — 상태줄 목업 (채택안: A 칩 · 라벨 OFF/대기/감시 · 2026-09-18)</h1>
+  <span class="lb">변형</span>
+  <button class="tbtn" data-v="chip" aria-pressed="true">A 칩(테두리) — 채택</button>
+  <button class="tbtn" data-v="dot" aria-pressed="false">B 도트+밑줄(현행 상태줄 동형)</button>
+  <span class="lb">시나리오</span>
+  <button class="tbtn" data-s="none">전략 없음</button>
+  <button class="tbtn" data-s="latent" aria-pressed="true">전부 잠복</button>
+  <button class="tbtn" data-s="armed">전부 감시</button>
+  <button class="tbtn" data-s="askside">매도잔량 기준</button>
+  <button class="tbtn" data-s="fired">매수 발주됨</button>
+  <button class="tbtn" id="themeBtn" aria-pressed="false">🌙 다크</button>
+</div>
+
+<div class="stage">
+  <div class="info">
+    <div><b>무엇을 보는가.</b> `/trading/limit-chaser` 의 <b>A2 상태줄</b>(현재: DMA · 매수 ON/OFF · 매도 감시/대기 · 잔량추적 기준선 · 반영 시각)에서 매수·매도 도트를 <b>LED 3종(매수·매도·취소)</b>으로 바꾼 모습. LED 는 C# 정본 규칙 그대로 <span class="sw" style="background:var(--flat)"></span>회색=무장 아님 · <span class="sw" style="background:var(--led-latent)"></span>주황=잠복 · <span class="sw" style="background:var(--led-armed)"></span>초록=래치 ON. 라벨 텍스트가 색을 대신 말한다(WCAG 1.4.1).</div>
+    <div><b>클릭 = 토글</b>(확인 다이얼로그 없음). 이 목업에서 LED 를 누르면 서버 60 에코가 온 것처럼 잠복↔감시가 바뀌고 아래 <b>툴팁 칸</b>에 C# 원문 툴팁이 뜬다. 회색과 「매도잔량 기준」의 매수 LED 는 눌리지 않는다.</div>
+    <div><b>신규 토큰 2개</b>: <code>--led-latent</code>(주황) · <code>--led-armed</code>(초록, 기존 DMA ok 도트와 같은 계열). 회색은 기존 <code>--flat</code>. 라이트/다크 각각 정의.</div>
+    <div><b>고를 것</b>: 변형 A(칩 — 눌리는 것임을 테두리로 말함) vs B(도트+텍스트 — 현행 상태줄과 같은 결, 클릭 가능하면 점선 밑줄). 폰 390 에서 상태줄이 두 줄로 접히는 모습도 함께 확인.</div>
+  </div>
+
+  <h2>상태줄 — 폰(390) / 데스크톱(1000)</h2>
+  <div class="frames">
+    <div class="frame-wrap">
+      <div class="cap">폰 · 본문 374px (2줄 접힘)</div>
+      <div class="frame phone"><div class="sb" data-bar></div><div class="tip" data-tip>LED 를 클릭하면 여기에 툴팁 문구가 표시됩니다.</div></div>
+    </div>
+    <div class="frame-wrap">
+      <div class="cap">데스크톱 · 본문 976px (한 줄)</div>
+      <div class="frame desk"><div class="sb" data-bar></div><div class="tip" data-tip>LED 를 클릭하면 여기에 툴팁 문구가 표시됩니다.</div></div>
+    </div>
+  </div>
+
+  <h2>LED 규칙 표 (C# LimitChaserForm 정본 — 이 목업의 시나리오 5개가 이 표를 덮는다)</h2>
+  <table>
+    <tr><th>LED</th><th>회색 (클릭 불가)</th><th>주황 잠복 (클릭 → 켬)</th><th>초록 (클릭 → 끔)</th><th>예외</th></tr>
+    <tr><td>매수</td><td>buyEnabled=false (미등록·발주 뒤 해제 포함)</td><td>buyEnabled ∧ 매수잔량 기준 ∧ !buyEntryLatched</td><td>buyEnabled ∧ 매수잔량 기준 ∧ buyEntryLatched</td><td><b>매도잔량 기준</b>이면 buyEnabled 일 때 항상 초록·클릭 불가(래치 없음)</td></tr>
+    <tr><td>매도</td><td>sellEnabled=false</td><td>sellEnabled ∧ !sellEntryLatched</td><td>sellEnabled ∧ sellEntryLatched</td><td>—</td></tr>
+    <tr><td>취소</td><td>!(cancelQtyEnabled ∨ cancelTradeEnabled)</td><td>무장 ∧ !cancelEntryLatched</td><td>무장 ∧ cancelEntryLatched</td><td>잔량추적(cancelQtyTrackEnabled)은 무장에 안 넣음</td></tr>
+  </table>
+
+  <h2>참고 — 상따 헤더 종목정보 칸 (별도 결정: '종가' 칸을 넣을지)</h2>
+  <div class="info">
+    <div>현재 헤더는 <b>10칸</b>(기준·시가·고가·저가·상한·하한·상승VI·거래·시총·발행1%)이고 <b>하락VI 칸이 없다</b>. 서버 <code>krx_close_price</code>('종가') 규칙은 하락VI 칸이 있는 <b>호가 종목정보 섹션</b>(종목 상세 페이지)에 적용된다. 상따 헤더는 [A] 그대로 두기 / [B] 11번째 칸 '종가' 추가(장중엔 —). 아래는 B 일 때의 배치 — 폰 2열은 홀수라 마지막 칸이 혼자 남고, 5열은 3행째에 1칸이 남는다.</div>
+  </div>
+  <div class="frames">
+    <div class="frame-wrap"><div class="cap">B · 폰 2열 (11칸)</div><div class="frame phone"><div class="qg" data-qg="2"></div></div></div>
+    <div class="frame-wrap"><div class="cap">B · 컴팩트/와이드 5열 (11칸)</div><div class="frame" style="width:760px"><div class="qg c5" data-qg="5"></div></div></div>
+    <div class="frame-wrap"><div class="cap">B · 데스크톱 한 줄 (11칸)</div><div class="frame desk"><div class="qg row" data-qg="row"></div></div></div>
+  </div>
+</div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+// 서버 에코 스냅샷(판정 근거) — LED 색은 여기서만 파생된다
+const SCEN = {
+  none:   null,
+  latent: { buyEnabled:true,  buyWatchSide:'1', buyEntryLatched:false, sellEnabled:true, sellEntryLatched:false, cancelQtyEnabled:true,  cancelTradeEnabled:false, cancelEntryLatched:false, hadOrder:false },
+  armed:  { buyEnabled:true,  buyWatchSide:'1', buyEntryLatched:true,  sellEnabled:true, sellEntryLatched:true,  cancelQtyEnabled:true,  cancelTradeEnabled:true,  cancelEntryLatched:true,  hadOrder:false },
+  askside:{ buyEnabled:true,  buyWatchSide:'0', buyEntryLatched:false, sellEnabled:true, sellEntryLatched:false, cancelQtyEnabled:false, cancelTradeEnabled:false, cancelEntryLatched:false, hadOrder:false },
+  fired:  { buyEnabled:false, buyWatchSide:'1', buyEntryLatched:false, sellEnabled:true, sellEntryLatched:true,  cancelQtyEnabled:false, cancelTradeEnabled:true,  cancelEntryLatched:true,  hadOrder:true },
+};
+let s = structuredClone(SCEN.latent);
+
+const TIP = {
+  buy: { on:'클릭하면 매수 진입 확인 래치를 지금 켠다 (다음 호가부터 잔량 항 판정 — 벽이 이미 감시수량 이상이면 바로 매수 주문이 나갈 수 있다)',
+         off:'클릭하면 매수 진입 확인 래치를 끈다 (다시 잠복 — 감시가 매수잔량이 감시수량 아래로 내려간 것을 다시 관측해야 잔량 항 판정이 시작된다)',
+         side:'매수 진입 확인 래치는 매수잔량 기준(매수1호가)일 때만 있다 — 매도잔량 기준 갈래는 원전 그대로라 등록 즉시 판정한다' },
+  sell:{ on:'클릭하면 매도 진입 확인 래치를 지금 켠다 (다음 호가부터 잔량 항 판정)', off:'클릭하면 매도 진입 확인 래치를 끈다 (다시 잠복 — 비교가격 쌓임을 다시 관측해야 잔량 항 판정이 시작된다)' },
+  cancel:{ on:'클릭하면 취소 진입 확인 래치를 지금 켠다 (임계가 이미 성립해 있으면 다음 호가에서 바로 취소가 나갈 수 있다)', off:'클릭하면 취소 진입 확인 래치를 끈다 (다시 잠복 — 매수1호가 지지벽을 다시 관측해야 취소 판정이 돈다)' },
+};
+
+// C# 규칙 그대로 — 색·라벨·클릭 가능·툴팁을 한 함수가 파생
+function ledOf(kind, s){
+  if (s === null) return { tone:'off', text:'—', note:'', clickable:false, tip:'' };
+  if (kind === 'buy'){
+    const armed = s.buyEnabled, bid = armed && s.buyWatchSide === '1';
+    if (!armed) return { tone:'off', text:'OFF', note: s.hadOrder ? '(발주됨)' : '', clickable:false, tip:'' };
+    if (!bid)   return { tone:'armed', text:'감시', note:'(매도잔량 기준)', clickable:false, tip:TIP.buy.side };
+    return s.buyEntryLatched ? { tone:'armed', text:'감시', note:'', clickable:true, tip:TIP.buy.off }
+                             : { tone:'latent', text:'대기', note:'', clickable:true, tip:TIP.buy.on };
+  }
+  if (kind === 'sell'){
+    if (!s.sellEnabled) return { tone:'off', text:'OFF', note:'', clickable:false, tip:'' };
+    return s.sellEntryLatched ? { tone:'armed', text:'감시', note:'', clickable:true, tip:TIP.sell.off }
+                              : { tone:'latent', text:'대기', note:'', clickable:true, tip:TIP.sell.on };
+  }
+  const armed = s.cancelQtyEnabled || s.cancelTradeEnabled; // cancelQtyTrackEnabled 제외
+  if (!armed) return { tone:'off', text:'OFF', note:'', clickable:false, tip:'' };
+  return s.cancelEntryLatched ? { tone:'armed', text:'감시', note:'', clickable:true, tip:TIP.cancel.off }
+                              : { tone:'latent', text:'대기', note:'', clickable:true, tip:TIP.cancel.on };
+}
+const NAME = { buy:'매수', sell:'매도', cancel:'취소' };
+function render(){
+  $$('[data-bar]').forEach(bar => {
+    const leds = ['buy','sell','cancel'].map(k => {
+      const L = ledOf(k, s);
+      return `<button class="led" data-k="${k}" data-tone="${L.tone}" ${L.clickable?'':'disabled'} title="${L.tip}" aria-pressed="${L.tone==='armed'}" aria-label="${NAME[k]} 래치 ${L.text}">
+        <span class="l" aria-hidden="true"></span><span class="n">${NAME[k]}</span> <span class="t">${L.text}</span>${L.note?` <small>${L.note}</small>`:''}
+      </button>`;
+    }).join('');
+    const baseline = (s && s.sellEntryLatched) ? `<span class="seg">잔량추적 기준선 <b class="mono">72,300</b></span>` : '';
+    bar.innerHTML = `<span class="seg"><span class="dot ok"></span>DMA <b>준비됨</b></span>${leds}${baseline}<span class="applied">반영 10:42:07</span>`;
+  });
+}
+document.addEventListener('click', e => {
+  const led = e.target.closest('.led');
+  if (led && !led.disabled){
+    const k = led.dataset.k;
+    const tipText = led.title;
+    if (k==='buy') s.buyEntryLatched = !s.buyEntryLatched;
+    if (k==='sell') s.sellEntryLatched = !s.sellEntryLatched;
+    if (k==='cancel') s.cancelEntryLatched = !s.cancelEntryLatched;
+    render();
+    $$('[data-tip]').forEach(t => t.innerHTML = `<b>툴팁(${NAME[k]})</b> ${tipText}<br><b>요청</b> {t:"lc.arm", key:"KR7005930003:12345678:KRX", latch:"${k}"} → 60 에코로 색 갱신`);
+    return;
+  }
+  const dl = e.target.closest('.led[disabled]');
+  if (dl && dl.title){ $$('[data-tip]').forEach(t => t.innerHTML = `<b>툴팁(${NAME[dl.dataset.k]})</b> ${dl.title} — 클릭 불가`); return; }
+  const v = e.target.closest('[data-v]');
+  if (v){ document.documentElement.dataset.variant = v.dataset.v; $$('[data-v]').forEach(b=>b.setAttribute('aria-pressed', String(b===v))); return; }
+  const sc = e.target.closest('[data-s]');
+  if (sc){ s = SCEN[sc.dataset.s]===null ? null : structuredClone(SCEN[sc.dataset.s]); $$('[data-s]').forEach(b=>b.setAttribute('aria-pressed', String(b===sc))); render(); return; }
+  if (e.target.closest('#themeBtn')){ const on = document.documentElement.classList.toggle('dark'); $('#themeBtn').setAttribute('aria-pressed', String(on)); $('#themeBtn').textContent = on ? '☀️ 라이트' : '🌙 다크'; }
+});
+// disabled 버튼은 click 이 안 오므로 mousedown 으로 툴팁 미리보기
+document.addEventListener('mousedown', e => { const dl = e.target.closest('.led[disabled]'); if (dl && dl.title) $$('[data-tip]').forEach(t => t.innerHTML = `<b>툴팁(${NAME[dl.dataset.k]})</b> ${dl.title} — 클릭 불가`); });
+
+// 헤더 11칸 미리보기
+const CELLS = [['기준','72,300',''],['시가','73,100','up'],['고가','75,800','up'],['저가','71,900','down'],['상한','93,900','up'],['하한','50,700','down'],['상승VI','80,300','up'],['거래','1,203억',''],['시총','43.1조',''],['발행1%','59.7만',''],['종가','75,200','up']];
+const ORDER2 = [0,1,2,3,4,5,6,7,8,9,10];
+$$('[data-qg]').forEach(g => { g.innerHTML = CELLS.map((c,i)=>`<div class="qc${i===10?' new':''}"><span class="k">${c[0]}</span><span class="v ${c[2]}">${c[1]}</span></div>`).join(''); });
+render();
+</script>
+</body>
+</html>

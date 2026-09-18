@@ -782,7 +782,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 17-02-PLAN.md — 기존 파서 필드 확장: 호가 `kc` · 테이프 `bs` · 미체결 5필드 · 주문통보 3필드 (wave 2)
-- [ ] 17-07-PLAN.md — 상따 래치 LED 목업 게이트 · 색 토큰 · `LatchLed` 컴포넌트와 규칙 표 테스트 (wave 2)
+- [ ] 17-07-PLAN.md — 상따 래치 LED 채택안(칩 · OFF/대기/감시, 목업 검토 2026-09-18 완료) · 색 토큰 · `LatchLed` 컴포넌트와 규칙 표 테스트 (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -805,7 +805,7 @@ Plans:
 
 - [ ] 17-09-PLAN.md — 미체결 표식 헬퍼 · 취소보관 회색/취소 숨김 · 예약·접수대기 문구 표시 (wave 7)
 - [ ] 17-10-PLAN.md — 주문통보 행위 단어·수동·시간외종가 + 자동주문 3초 창 묶기 (wave 7)
-- [ ] 17-11-PLAN.md — 상따 상태줄 LED 결선·`lc.arm` 전송 · 전략 로그 래치 전이 4종 · 헤더 종가 결정 (wave 7)
+- [ ] 17-11-PLAN.md — 상따 상태줄 LED 결선·`lc.arm` 전송 · 전략 로그 래치 전이 4종 · 헤더 하한 칸 종가 대체 (wave 7)
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
