@@ -108,6 +108,14 @@ export const MAX_UNFILLED_COUNT = 1000;
 export const MAX_REMOVED_ORDER_COUNT = 1000;
 /** 체결 테이프 1프레임 원소 상한. */
 export const MAX_TAPE_ENTRY_COUNT = 200;
+/**
+ * 등락률 돌파 above 집합 1프레임 원소 상한 (T-17-09).
+ *
+ * 서버는 임계−2%p 이탈 시 원소를 빼므로 집합이 무한히 자라지 않지만, 상한 없는 벡터 순회는
+ * 깨진 버퍼 하나로 프로세스를 멈춘다(JS 런타임에 FlatBuffers Verifier 가 없다). 브라우저
+ * 상한(`use-relay-socket.ts` 의 `MAX_RATE_CROSS`)도 같은 값이다.
+ */
+export const MAX_RATE_CROSS_ITEM_COUNT = 200;
 
 /** 12자 ISIN — 앞 2자는 국가코드(영문), 나머지 10자는 영숫자. */
 const ISIN_PATTERN = /^[A-Z]{2}[A-Z0-9]{10}$/;
@@ -617,19 +625,52 @@ export function parseRateCrossAlert(env: Envelope): RelayRateCrossItem | null {
 /**
  * 등락률 돌파 above 집합 전량 (78 — `rate_cross_snapshot` 슬롯).
  *
- * ⚠️ **17-03 RED 스켈레톤이다** — 규칙은 GREEN 커밋이 채운다.
+ * **`[]` 와 `null` 은 다른 뜻이다.** `[]` 는 「돌파 없음」의 확정 정보(서버가 빈 벡터를
+ * 보낸다)이고 `null` 만 파싱 실패다. 둘을 뭉개면 화면이 옛 집합을 계속 그린다.
+ *
+ * 원소 하나가 깨지면 **프레임 전체를 버린다** — `parseTradeTape` 와 같은 규율이다. 일부만
+ * 내보내면 above 집합이 조용히 어긋나고, 그 어긋남은 「돌파했는데 목록에 없다」로만 드러난다.
  */
-export function parseRateCrossSnapshot(_env: Envelope): RelayRateCrossItem[] | null {
-  return null;
+export function parseRateCrossSnapshot(env: Envelope): RelayRateCrossItem[] | null {
+  const msgType = MSG.RateCrossSnapshot;
+  const snap = env.rateCrossSnapshot();
+  if (snap === null) return dropField("slot-null", msgType, { slot: "rate_cross_snapshot" });
+
+  const n = takeCount(snap.itemsLength(), MAX_RATE_CROSS_ITEM_COUNT, "등락률 돌파 집합");
+  const items: RelayRateCrossItem[] = [];
+  const scratch = new RateCrossAlert();
+  for (let i = 0; i < n; i += 1) {
+    const a = snap.items(i, scratch);
+    if (a === null) return dropField("item-null", msgType, { index: i });
+    const item = readRateCrossItem(a, msgType, i);
+    // 원소 파서가 이미 사유·카운터를 남겼다 — 여기서 다시 로그하지 않는다.
+    if (item === null) return null;
+    items.push(item);
+  }
+  return items;
 }
 
 /**
  * 예약·장전·시간외종가 발주 창 상태 (77 — `queued_window_state` 슬롯).
  *
- * ⚠️ **17-03 RED 스켈레톤이다** — 규칙은 GREEN 커밋이 채운다.
+ * ⚠️ 여섯 값 **전부 표시 힌트**다 — relay 도 브라우저도 **벽시계로 창을 판정하지 않는다**.
+ *    fbs 주석(예약창 `[15:20,16:00)`)과 `docs/features/queued-order.md`(15:30 시작)의 시각이
+ *    서로 엇갈린다. 엇갈리는 두 문서 대신 서버가 보내는 플래그 하나를 믿는 것이 계약이다.
  */
-export function parseQueuedWindowState(_env: Envelope): RelayQueuedWindowMsg | null {
-  return null;
+export function parseQueuedWindowState(env: Envelope): RelayQueuedWindowMsg | null {
+  const q = env.queuedWindowState();
+  if (q === null) {
+    return dropField("slot-null", MSG.QueuedWindowState, { slot: "queued_window_state" });
+  }
+  return {
+    t: "queued.window",
+    open: q.open(),
+    maxPieces: q.maxPieces(),
+    preopenOpen: q.preopenOpen(),
+    g2Open: q.g2Open(),
+    g3Open: q.g3Open(),
+    nxtPreopenOpen: q.nxtPreopenOpen(),
+  };
 }
 
 /**

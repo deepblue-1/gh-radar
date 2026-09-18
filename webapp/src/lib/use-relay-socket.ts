@@ -58,6 +58,7 @@ import {
   type RelayServerMsg,
   type RelaySessionState,
   type RelayStrategiesDisabledMsg,
+  type RelayQueuedWindowMsg,
   type RelayRateCrossItem,
   type RelayTapeEntry,
   type RelayUnfilled,
@@ -223,6 +224,15 @@ export interface RelayConnectionState {
    */
   rateCrossItems: RelayRateCrossItem[];
   /**
+   * 예약·장전·시간외종가 발주 창 상태 — **2상태**다.
+   *  - `undefined` : 서버가 77 을 아직 한 번도 안 줬다(연결 전·인증 전)
+   *  - 객체        : 서버가 말한 마지막 창 상태
+   *
+   * ⚠️ 여섯 값 전부 **표시 힌트**다. 벽시계로 창을 다시 판정하지 않는다 — fbs 주석과
+   *    `docs/features/queued-order.md` 의 시각이 엇갈리므로 `open` 플래그만 믿는다.
+   */
+  queuedWindow: RelayQueuedWindowMsg | undefined;
+  /**
    * 송신구. 구독 제어(`sub`/`unsub`)와 **전략 설정**(`lc.set`/`vi.set`/`vi.confirm`/
    * `strategies.disable`)이 여기로 나간다. 주문은 상관 응답이 필요하므로 `sendOrder` 를 쓴다.
    *
@@ -307,6 +317,7 @@ interface RelayData {
   viNotices: RelayViNoticeMsg[];
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
   rateCrossItems: RelayRateCrossItem[];
+  queuedWindow: RelayQueuedWindowMsg | undefined;
 }
 
 const INITIAL_DATA: RelayData = {
@@ -327,6 +338,8 @@ const INITIAL_DATA: RelayData = {
   viNotices: [],
   strategiesDisabled: null,
   rateCrossItems: [],
+  // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
+  queuedWindow: undefined,
 };
 
 type RelayAction =
@@ -450,6 +463,15 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // **상태 보관만** 한다 — 돌파감지 UI 는 Phase 18 이다. 같은 `isin`+`exchange` 는
       // 한 원소이고 뒤 값으로 덮인다(같은 종목이 양쪽 거래소에서 돌파하면 원소 둘).
       return { ...state, rateCrossItems: upsertRateCross(state.rateCrossItems, frame.item) };
+
+    case "rate.cross.snap":
+      // **전량 교체**다. 병합하면 서버가 이미 뺀 종목(임계−2%p 이탈)이 영원히 남는다.
+      // 빈 배열도 그대로 적용한다 — 「돌파 없음」은 확정 정보다.
+      return { ...state, rateCrossItems: sortRateCross(frame.items).slice(0, MAX_RATE_CROSS) };
+
+    case "queued.window":
+      // 최신 1건 보관. 상태 보관만 하고 UI 는 만들지 않는다(Phase 18).
+      return { ...state, queuedWindow: frame };
 
     case "strategies.disabled":
       // **완료 신호로만** 보관한다. 이 프레임이 온 시점에는 60/61 에코가 이미 모든 행을
@@ -986,6 +1008,7 @@ export function useRelayConnection({
       viNotices: data.viNotices,
       strategiesDisabled: data.strategiesDisabled,
       rateCrossItems: data.rateCrossItems,
+      queuedWindow: data.queuedWindow,
       send,
       reconnect,
       subscribe,

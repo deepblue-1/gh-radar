@@ -295,6 +295,13 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #rateCrossItems = new Map<string, RelayRateCrossItem>();
   /**
+   * `userId` → 예약·장전·시간외종가 발주 창 상태 **최신 1건** (17-03 / D-03).
+   *
+   * 키 부재(= `getQueuedWindow` 가 `undefined`)는 「77 을 아직 못 받았다」이고 `open:false`
+   * 와 **다른 상태**다. `#viTriggers` 의 3상태 규율과 같은 이유로 뭉개지 않는다.
+   */
+  readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
+  /**
    * ISIN → 종목명·단축코드. 게이트웨이가 이름을 주지 않으므로 여기서 채운다.
    * 없으면(주입 안 함/미스) 필드를 비워 두고 UI 가 ISIN 원문으로 폴백한다.
    */
@@ -547,11 +554,9 @@ export class SubscriptionHub extends EventEmitter {
    *
    * **`undefined` 는 「77 을 아직 못 받았다」**이고 `getViTrigger` 의 3상태 규율과 같은
    * 이유로 뭉개지 않는다 — 지어낸 창 상태를 내리면 브라우저가 거짓 라벨을 그린다.
-   *
-   * ⚠️ **17-03 RED 스켈레톤이다** — 캐시 조회는 GREEN 커밋이 채운다.
    */
-  getQueuedWindow(_userId: string): RelayQueuedWindowMsg | undefined {
-    return undefined;
+  getQueuedWindow(userId: string): RelayQueuedWindowMsg | undefined {
+    return this.#queuedWindows.get(userId);
   }
 
   /** 마지막 호가 스냅샷. 있으면 브라우저에 즉시 내려 깜빡임을 없앤다. */
@@ -598,6 +603,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#viTriggers.clear();
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
+    this.#queuedWindows.clear();
   }
 
   // ----------------------------------------------------------
@@ -751,25 +757,38 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 등락률 돌파 above 집합 전량 (78).
+   * 등락률 돌파 above 집합 전량 (78) — **전량 교체**다.
    *
-   * ⚠️ **17-03 RED 스켈레톤이다** — 전량 교체와 Ready 게이트는 GREEN 커밋이 채운다.
+   * 그 사용자의 원소를 전부 지우고 새로 넣는다. 병합(upsert)으로 처리하면 서버가 이미
+   * 뺀 종목이 캐시에 영원히 남는다 — 76 upsert 로 들어왔다가 임계−2%p 아래로 이탈한
+   * 종목이 정확히 그것이다. **빈 벡터도 그대로 적용한다**: 「돌파 없음」은 확정 정보이고,
+   * 무시하면 로그인 전에 쌓인 옛 집합이 새 세션까지 따라온다.
    */
-  #onRateCrossSnapshot(
-    _userId: string,
-    _session: HubSession,
-    _items: RelayRateCrossItem[],
-  ): void {
-    return;
+  #onRateCrossSnapshot(userId: string, session: HubSession, items: RelayRateCrossItem[]): void {
+    const prefix = userPrefix(userId);
+    for (const key of [...this.#rateCrossItems.keys()]) {
+      if (key.startsWith(prefix)) this.#rateCrossItems.delete(key);
+    }
+    for (const item of items) {
+      this.#rateCrossItems.set(rateCrossKey(userId, item.isin, item.exchange), item);
+    }
+    logger.info({ userId, count: items.length }, "[HUB] 돌파 집합 스냅샷 수신 — 전량 교체");
+    if (!session.isReady) return;
+    this.#fanout(userId, { t: "rate.cross.snap", items });
   }
 
   /**
-   * 예약창 상태 (77).
+   * 예약·장전·시간외종가 발주 창 상태 (77) — **최신 1건만** 보관한다.
    *
-   * ⚠️ **17-03 RED 스켈레톤이다** — 최신 1건 보관과 Ready 게이트는 GREEN 커밋이 채운다.
+   * 서버가 로그인 직후 1프레임 + 창 마스크 전이마다 보내므로, 여기 남는 값은 언제나
+   * 「서버가 마지막으로 말한 창 상태」다. 키 부재(`getQueuedWindow` 가 `undefined`)는
+   * 「아직 못 받았다」이고 `open:false` 와 다른 상태다 — 뭉개면 인증 직후 팬아웃이
+   * 지어낸 「닫힘」을 보내고 브라우저가 거짓 라벨을 그린다 (`getViTrigger` 와 같은 규율).
    */
-  #onQueuedWindow(_userId: string, _session: HubSession, _state: RelayQueuedWindowMsg): void {
-    return;
+  #onQueuedWindow(userId: string, session: HubSession, state: RelayQueuedWindowMsg): void {
+    this.#queuedWindows.set(userId, state);
+    if (!session.isReady) return;
+    this.#fanout(userId, state);
   }
 
   /** 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35). */
@@ -1192,6 +1211,9 @@ export class SubscriptionHub extends EventEmitter {
     for (const key of [...this.#rateCrossItems.keys()]) {
       if (key.startsWith(prefix)) this.#rateCrossItems.delete(key);
     }
+    // 예약창도 버린다 — 키가 userId 자체이므로 지우면 `getQueuedWindow` 가 다시
+    // `undefined`(모름)가 되고, 새 세션의 77 이 올 때까지 아무 프레임도 내리지 않는다.
+    this.#queuedWindows.delete(userId);
     const timer = this.#flushTimers.get(userId);
     if (timer !== undefined) {
       clearTimeout(timer);

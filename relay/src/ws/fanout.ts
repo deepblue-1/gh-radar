@@ -572,6 +572,18 @@ export class WsFanout {
       this.#send(conn, { t: "vi", x: viTrigger?.exchange ?? "KRX", cfg: viTrigger });
     }
     this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
+
+    // 신규 푸시 3종의 스냅샷 (17-03 / D-03). **두 프레임의 규율이 다르다:**
+    // ⚠️ `rate.cross.snap` 은 `lc.snap`·`vi.list` 와 같다 — **비어 있어도 1프레임 보낸다.**
+    //    빈 배열은 「지금 돌파한 종목이 없다」는 확정 정보이고, 안 보내면 브라우저는
+    //    「아직 안 왔다」와 구분하지 못해 계속 스켈레톤이다. 76 은 로그인 전 연결에도 오므로
+    //    이 캐시에는 인증이 끝나기 전에 열린 돌파도 이미 들어 있다 (T-17-07).
+    // ⚠️ `queued.window` 는 `vi` 와 같다 — `getQueuedWindow` 가 `undefined`(77 을 한 번도
+    //    못 받았다)면 **보내지 않는다.** 지어낸 창 상태를 내리면 브라우저가 「예약 가능」
+    //    같은 거짓 라벨을 그리고, 그것을 보고 낸 주문은 서버가 거부한다.
+    this.#send(conn, { t: "rate.cross.snap", items: this.#hub.getRateCrossItems(userId) });
+    const queuedWindow = this.#hub.getQueuedWindow(userId);
+    if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
   }
 
   #onAuthedMessage(conn: Conn, userId: string, msg: RelayInbound): void {
