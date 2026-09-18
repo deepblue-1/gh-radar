@@ -26,12 +26,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RelayOutbound } from "@gh-radar/shared";
 
-import { WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
+import { INBOUND_RATE_LIMIT_PER_SEC, WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
+import { logger } from "../src/logger.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import { startFakeGateway, readArmLatchRequest, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
@@ -282,5 +283,140 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     expect(echoed?.item.sellEntryLatched).toBe(true);
     // 왕복 전체에서 브라우저가 받은 종류는 `lc` 하나뿐이다 — 별도 ack 프레임이 없다.
     expect(new Set(inbox.slice(before).map((m) => m.t))).toEqual(new Set(["lc"]));
+  });
+
+  // ==========================================================
+  // ② 가드 3종 동형 — Ready 세션 · 전략 키 형식 · 세션 계좌
+  //
+  // 거부 케이스는 **전부** 「게이트웨이 수신 프레임 0」을 함께 단언한다. 거부 로그만 보면
+  // 실제로 안 나갔는지 알 수 없고, 래치 ON 은 **발주 판정을 시작**시키므로 잘못 나간 프레임
+  // 하나가 남의 전략을 무장시킨다 (T-17-11).
+  // ==========================================================
+
+  it("②-1 세션이 Ready 가 아니면 lc.arm 은 게이트웨이로 0바이트다 (T-17-12)", async () => {
+    // 게이트웨이가 로그인에 답하지 않는다 — 붙었지만 준비되지 않은 세션이다.
+    gateway.silenceLogin();
+    const { ws, inbox } = await open();
+    ws.sendAuth("token-a");
+    await waitFor(() => framesOf(inbox, "state").length > 0, "상태 프레임");
+
+    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "sell" });
+    await waitFor(
+      () => framesOf(inbox, "state").some((m) => m.msg !== undefined),
+      "세션 미준비 거부",
+    );
+    await flushIo(30);
+
+    expect(armReqs()).toHaveLength(0);
+    // **현재 상태**를 그대로 되돌린다 — 배지와 거부 사유가 한 프레임으로 맞는다.
+    expect(framesOf(inbox, "state").every((m) => m.s !== "ready")).toBe(true);
+  });
+
+  it("②-2 dma_credentials 미등록 사용자의 lc.arm 도 0바이트다 (D-04)", async () => {
+    const { ws, inbox } = await open();
+    ws.sendAuth("token-none");
+    await waitFor(() => inbox.length > 0, "unauthorized 상태 프레임");
+
+    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "sell" });
+    await waitFor(() => inbox.length > 1, "거부 상태 프레임");
+    await flushIo(30);
+
+    expect(inbox[1]).toEqual({ t: "state", s: "unauthorized" });
+    expect(armReqs()).toHaveLength(0);
+  });
+
+  it("②-3 3토막이 아닌 key 는 거부되고 게이트웨이로 0바이트다", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({ t: "lc.arm", key: `${SAMPLE_ISIN}:${SAMPLE_ACCOUNT_NO}`, latch: "sell" });
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "형식 거부 통지");
+    await flushIo(30);
+
+    expect(armReqs()).toHaveLength(0);
+    expect(framesOf(inbox, "msg")[0]?.m).toContain("전략 키 형식");
+  });
+
+  it("②-4 ISIN 이 12자가 아닌 key 는 거부되고 게이트웨이로 0바이트다", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({ t: "lc.arm", key: `KR70059300:${SAMPLE_ACCOUNT_NO}:KRX`, latch: "sell" });
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "형식 거부 통지");
+    await flushIo(30);
+
+    expect(armReqs()).toHaveLength(0);
+  });
+
+  it("②-5 exchange 가 KRX/NXT 밖이면 거부되고 게이트웨이로 0바이트다", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({ t: "lc.arm", key: `${SAMPLE_ISIN}:${SAMPLE_ACCOUNT_NO}:NYSE`, latch: "cancel" });
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "형식 거부 통지");
+    await flushIo(30);
+
+    expect(armReqs()).toHaveLength(0);
+  });
+
+  it("②-6 형식 거부 로그에 계좌번호를 싣지 않는다 — latch 와 사유뿐이다 (T-16-45)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({ t: "lc.arm", key: `${SAMPLE_ISIN}:${SAMPLE_ACCOUNT_NO}:NYSE`, latch: "buy" });
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "형식 거부 통지");
+    await flushIo(30);
+
+    const logged = warnSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("전략 키 형식 위반"),
+    );
+    expect(logged).toBeDefined();
+    const fields = (logged?.[0] ?? {}) as Record<string, unknown>;
+    // 키에는 계좌번호가 들어 있다 — 키째 싣는 것도 금지다.
+    expect(fields).not.toHaveProperty("accountNo");
+    expect(fields).not.toHaveProperty("key");
+    expect(JSON.stringify(fields)).not.toContain(SAMPLE_ACCOUNT_NO);
+    expect(fields.latch).toBe("buy");
+  });
+
+  it("②-7 세션 계좌 목록 밖 계좌의 lc.arm 은 게이트웨이로 0바이트다 (T-17-11)", async () => {
+    const errSpy = vi.spyOn(logger, "error");
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({
+      t: "lc.arm",
+      key: `${SAMPLE_ISIN}:${FOREIGN_ACCOUNT_NO}:KRX`,
+      latch: "sell",
+    });
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "계좌 거부 통지");
+    await flushIo(30);
+
+    expect(armReqs()).toHaveLength(0);
+    // 사유는 `lc.set` 이 쓰는 **같은 문구**다 — 가드가 한 벌이라는 증거다.
+    const [rejected] = framesOf(inbox, "msg");
+    expect(rejected?.m).toContain("이 세션에서 사용할 수 없는 계좌입니다");
+    expect(rejected?.a).toBe(FOREIGN_ACCOUNT_NO);
+    // 로그의 계좌번호는 마스킹본이다 (S-5 / T-16-09).
+    const logged = errSpy.mock.calls.find((call) =>
+      String(call[1] ?? "").includes("세션 계좌 목록 밖"),
+    );
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(FOREIGN_ACCOUNT_NO);
+  });
+
+  it("②-8 lc.arm 은 다른 인바운드와 **같은 버킷**을 쓴다 — 합계가 상한이다 (T-17-13)", async () => {
+    const a = await authed("token-a");
+
+    // 절반을 다른 종류로 먼저 태운다. 버킷이 갈렸다면 래치가 상한 전부를 다시 쓴다.
+    const half = INBOUND_RATE_LIMIT_PER_SEC / 2;
+    for (let i = 0; i < half; i += 1) {
+      a.ws.sendRaw({ t: "vi.confirm", orderNo: `000000000${i}`, confirmed: true });
+    }
+    for (let i = 0; i < INBOUND_RATE_LIMIT_PER_SEC; i += 1) {
+      a.ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "sell" });
+    }
+    await waitFor(() => armReqs().length >= half, "래치 잔여 토큰만큼 통과");
+    await flushIo(40);
+
+    // 남은 토큰은 절반뿐이다 — 별도 버킷이면 여기가 10 이 된다.
+    expect(armReqs()).toHaveLength(half);
+    expect(a.ws.closeInfo).toBeNull();
   });
 });
