@@ -220,10 +220,12 @@ describe("MSG 상수", () => {
     ]).toEqual([36, 37, 38, 76, 77, 78]);
   });
 
-  it("76/77/78 은 아직 화이트리스트에 없다 — 명시 case 가 생기는 17-03 의 몫이다 (PC-12)", () => {
-    // 화이트리스트만 넓히고 hub 의 명시 `case` 를 같은 커밋에 두지 않으면 세 프레임이
+  it("76 은 화이트리스트에 있고 77/78 은 아직 없다 — 명시 case 와 한 커밋씩 자란다 (PC-12)", () => {
+    // 화이트리스트만 넓히고 hub 의 명시 `case` 를 같은 커밋에 두지 않으면 그 프레임이
     // `default:` 로 조용히 떨어진다. 「조용히 사라지는 프레임 0」을 지키는 것이 이 단언이다.
-    for (const v of [MSG.RateCrossAlert, MSG.QueuedWindowState, MSG.RateCrossSnapshot]) {
+    // 17-03 Task 1 이 76 을 case 와 **함께** 넣었고, 77/78 은 Task 2 가 같은 규율로 넣는다.
+    expect(INBOUND_MSG_TYPES.has(MSG.RateCrossAlert)).toBe(true);
+    for (const v of [MSG.QueuedWindowState, MSG.RateCrossSnapshot]) {
       expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(false);
     }
     // 36/37/38 은 C→S 라 수신 대역에 들어올 일 자체가 없다.
@@ -232,13 +234,13 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("INBOUND_MSG_TYPES 는 응답 대역(50~73)만 담는다", () => {
-    // 15-02 의 12종 + 16-04 전략 응답 7종 = 19종. 개수를 못박아 두면 화이트리스트가
-    // 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간) 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(19);
+  it("INBOUND_MSG_TYPES 는 응답 대역(50~78)만 담는다", () => {
+    // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 의 76 = 20종. 개수를 못박아 두면
+    // 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간) 여기서 먼저 깨진다 (PC-12).
+    expect(INBOUND_MSG_TYPES.size).toBe(20);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(73);
+      expect(v).toBeLessThanOrEqual(78);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);

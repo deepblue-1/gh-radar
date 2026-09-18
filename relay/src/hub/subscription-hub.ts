@@ -52,6 +52,7 @@ import type {
   RelayOrderMsg,
   RelayOutbound,
   RelayQuote,
+  RelayRateCrossItem,
   RelayTape,
   RelayTapeEntry,
   RelayViNoticeMsg,
@@ -78,6 +79,7 @@ import {
   parseLimitChaserList,
   parseOrderResp,
   parseQuoteState,
+  parseRateCrossAlert,
   parseServerMessage,
   parseTradeTape,
   parseViOrderList,
@@ -194,6 +196,16 @@ function lcKey(userId: string, item: RelayLimitChaser): string {
 }
 
 /**
+ * 등락률 돌파 above 집합 캐시 키 (17-03).
+ *
+ * `isin:exchange` 인 이유는 **같은 종목이 KRX·NXT 양쪽에서 돌파하면 원소가 둘**이기
+ * 때문이다. 앞에 `userId` 를 붙이는 것은 `subKey` 와 같은 규율이다 (T-17-08).
+ */
+function rateCrossKey(userId: string, isin: string, exchange: RelayExchange): string {
+  return `${userId}|${isin}:${exchange}`;
+}
+
+/**
  * VI 주문 캐시 키. 정본은 `orderNo` 지만 **접수 전에는 그 값이 `""`** 라 키가 되지 못한다
  * (파서가 `""` 를 보존하는 이유 — 빈 주문번호로는 확인 체크를 열 수 없다).
  *
@@ -266,6 +278,17 @@ export class SubscriptionHub extends EventEmitter {
    * `confirm_locked` 되돌림 같은 단건 변경도 73 한 경로로 온다.
    */
   readonly #viOrders = new Map<string, RelayViOrderItem>();
+  /**
+   * `${userId}|${isin}:${exchange}` → 등락률 돌파 above 집합 1원소 (17-03 / D-03).
+   *
+   * 키에 거래소가 들어가는 이유는 **같은 종목이 양쪽 거래소에서 돌파하면 원소가 둘**이기
+   * 때문이다. 키 앞의 `userId` 는 `#quotes`/`#limitChasers` 와 같은 규율 — 사용자 간
+   * above 집합 교차를 구조적으로 막는다 (T-17-08).
+   *
+   * ⚠️ **서버 above 집합을 그대로 보관한다.** 하루 1회 알림 규칙과 임계−2%p 이탈 삭제는
+   *    클라(Phase 18) 몫이다 — relay 가 집합을 가공하면 서버 재무장 폭과 갈린다 (D-03).
+   */
+  readonly #rateCrossItems = new Map<string, RelayRateCrossItem>();
   /**
    * ISIN → 종목명·단축코드. 게이트웨이가 이름을 주지 않으므로 여기서 채운다.
    * 없으면(주입 안 함/미스) 필드를 비워 두고 UI 가 ISIN 원문으로 폴백한다.
@@ -494,6 +517,26 @@ export class SubscriptionHub extends EventEmitter {
     return out;
   }
 
+  /**
+   * 그 사용자의 등락률 돌파 above 집합 복사본 (17-03 / D-03).
+   *
+   * 정렬은 **`exchangeTime` 오름차순 · 동률이면 `isin` 오름차순**이다 — 78 스냅샷이 서버에서
+   * 오는 순서와 같게 맞춰 두면, 76 upsert 로 흐트러진 순서와 78 전량 교체 후의 순서가
+   * 갈리지 않는다.
+   */
+  getRateCrossItems(userId: string): RelayRateCrossItem[] {
+    const prefix = userPrefix(userId);
+    const out: RelayRateCrossItem[] = [];
+    for (const [key, item] of this.#rateCrossItems) {
+      if (key.startsWith(prefix)) out.push(item);
+    }
+    return out.sort((a, b) =>
+      a.exchangeTime === b.exchangeTime
+        ? a.isin.localeCompare(b.isin)
+        : a.exchangeTime.localeCompare(b.exchangeTime),
+    );
+  }
+
   /** 마지막 호가 스냅샷. 있으면 브라우저에 즉시 내려 깜빡임을 없앤다. */
   getSnapshot(userId: string, isin: string, exchange: RelayExchange): RelayQuote | undefined {
     return this.#quotes.get(subKey(userId, isin, exchange));
@@ -536,6 +579,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#limitChasers.clear();
     this.#viTriggers.clear();
     this.#viOrders.clear();
+    this.#rateCrossItems.clear();
   }
 
   // ----------------------------------------------------------
@@ -630,6 +674,13 @@ export class SubscriptionHub extends EventEmitter {
         }
         return;
       }
+      case MSG.RateCrossAlert: {
+        // 화이트리스트를 넓힌 것과 **같은 커밋**에 있는 명시 case 다 (PC-12 — Pitfall 1).
+        // 76 은 요청 짝이 없는 Broadcast 라 **로그인 전 연결에도** 온다.
+        const item = parseRateCrossAlert(e.env);
+        if (item !== null) this.#onRateCrossAlert(userId, session, item);
+        return;
+      }
       case MSG.VIOrderNotice: {
         // 「주문이 이미 나갔다」는 알림이다. 캐시에 넣지 않는다 — 추적 목록의 정본은 72/73 이고,
         // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다.
@@ -643,6 +694,16 @@ export class SubscriptionHub extends EventEmitter {
         // (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
         return;
     }
+  }
+
+  /**
+   * 등락률 돌파 알림 1건 (76).
+   *
+   * ⚠️ **17-03 RED 스켈레톤이다** — 캐시 upsert 와 Ready 게이트는 GREEN 커밋이 채운다.
+   *    지금은 파서가 언제나 `null` 을 돌려주므로 이 메서드에 도달하지 않는다.
+   */
+  #onRateCrossAlert(_userId: string, _session: HubSession, _item: RelayRateCrossItem): void {
+    return;
   }
 
   /** 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35). */
@@ -1059,6 +1120,11 @@ export class SubscriptionHub extends EventEmitter {
     this.#viTriggers.delete(userId);
     for (const key of [...this.#viOrders.keys()]) {
       if (key.startsWith(prefix)) this.#viOrders.delete(key);
+    }
+    // above 집합도 버린다. 서버가 재로그인마다 78 전량을 다시 주므로 옛 집합을 남길 이유가
+    // 없고, 남기면 이미 이탈한 종목이 새 세션의 첫 스냅샷에 섞인다.
+    for (const key of [...this.#rateCrossItems.keys()]) {
+      if (key.startsWith(prefix)) this.#rateCrossItems.delete(key);
     }
     const timer = this.#flushTimers.get(userId);
     if (timer !== undefined) {

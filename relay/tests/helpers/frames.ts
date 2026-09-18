@@ -32,6 +32,7 @@ import { TradeTapeEntry } from "../../src/generated/stock-dma/trade-tape-entry.j
 import { VIOrderItem } from "../../src/generated/stock-dma/viorder-item.js";
 import { VIOrderList } from "../../src/generated/stock-dma/viorder-list.js";
 import { VIOrderNotice } from "../../src/generated/stock-dma/viorder-notice.js";
+import { RateCrossAlert } from "../../src/generated/stock-dma/rate-cross-alert.js";
 import { MSG } from "../../src/dma/msg-type.js";
 
 /** 테스트 전반이 쓰는 정상 ISIN (삼성전자). */
@@ -982,6 +983,69 @@ export function buildDisableStrategiesRespFrame(
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, STRATEGY_MSG.DisableStrategiesResp);
   Envelope.addDisableStrategiesResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+// ============================================================
+// 신규 푸시 3종 (17-03) — 76 `RateCrossAlert`
+// ============================================================
+
+/**
+ * 등락률 돌파 알림 1건 (`RateCrossAlert`, 슬롯 4~18).
+ *
+ * 76 단건과 78 스냅샷 원소는 **같은 테이블**이다 — 빌더도 하나만 둔다(두 벌이면 한쪽만
+ * 고쳐진다). 기본값은 「KRX 에서 삼성전자가 20% 를 넘었다」는 정상 입력이다.
+ */
+export type FakeRateCrossInput = {
+  isin?: string;
+  exchange?: string;
+  lastPrice?: bigint;
+  /** **double %** 다 — 내림하지 않는다. */
+  changeRate?: number;
+  thresholdPct?: number;
+  basePrice?: bigint;
+  /** 거래소 체결시각 `"HHMMSSuuuuuu"` 12자 원문. */
+  exchangeTime?: string;
+  /** 서버 시각 `"HH:MM:SS"`. */
+  serverTime?: string;
+};
+
+/**
+ * `RateCrossAlert` 테이블 1건을 만들어 offset 을 돌려준다 (76 과 78 이 함께 쓴다).
+ *
+ * 문자열은 테이블을 열기 **전에** 전부 `createString` 한다 (16-RESEARCH Pitfall 2 —
+ * `startXxx()` 이후의 `createString` 은 릴리스 빌드에서 조용히 깨진 버퍼를 만든다).
+ */
+export function buildRateCrossAlertTable(
+  b: flatbuffers.Builder,
+  input: FakeRateCrossInput = {},
+): flatbuffers.Offset {
+  const isin = b.createString(input.isin ?? SAMPLE_ISIN);
+  const exchange = b.createString(input.exchange ?? "KRX");
+  const exchangeTime = b.createString(input.exchangeTime ?? "093015123456");
+  const serverTime = b.createString(input.serverTime ?? "09:30:15");
+
+  RateCrossAlert.startRateCrossAlert(b);
+  RateCrossAlert.addIsin(b, isin);
+  RateCrossAlert.addExchange(b, exchange);
+  RateCrossAlert.addLastPrice(b, input.lastPrice ?? 84_000n);
+  RateCrossAlert.addChangeRate(b, input.changeRate ?? 20.57);
+  RateCrossAlert.addThresholdPct(b, input.thresholdPct ?? 20);
+  RateCrossAlert.addBasePrice(b, input.basePrice ?? 70_000n);
+  RateCrossAlert.addExchangeTime(b, exchangeTime);
+  RateCrossAlert.addServerTime(b, serverTime);
+  return RateCrossAlert.endRateCrossAlert(b);
+}
+
+/** 등락률 돌파 알림 프레임 (76). 요청 짝이 없는 **Broadcast** 라 로그인 전에도 온다. */
+export function buildRateCrossAlertFrame(input: FakeRateCrossInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(256);
+  const alert = buildRateCrossAlertTable(b, input);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.RateCrossAlert);
+  Envelope.addRateCrossAlert(b, alert);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

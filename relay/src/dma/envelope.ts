@@ -48,6 +48,7 @@ import type {
   RelayLimitChaser,
   RelayLimitChaserInput,
   RelayQuote,
+  RelayRateCrossItem,
   RelayServerMsg,
   RelayTape,
   RelayTapeEntry,
@@ -558,6 +559,17 @@ export function parseTradeTape(env: Envelope, isSnapshot: boolean): RelayTape | 
   }
 
   return { t: "tape", i: isin, x: exchange, snap: isSnapshot, e: entries };
+}
+
+/**
+ * 등락률 돌파 알림 1건 (76 — `rate_cross_alert` 슬롯).
+ *
+ * ⚠️ **17-03 RED 스켈레톤이다** — 시그니처만 있고 규칙은 비어 있다. 형식 가드와 필드 읽기는
+ *    같은 plan 의 GREEN 커밋이 채운다. 이 커밋의 목적은 규칙을 옮기기 전에 규칙의 부재를
+ *    실패하는 단언으로 먼저 드러내는 것이다.
+ */
+export function parseRateCrossAlert(_env: Envelope): RelayRateCrossItem | null {
+  return null;
 }
 
 /**

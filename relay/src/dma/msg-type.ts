@@ -23,6 +23,14 @@
  *   `envelope.ts` 의 `drop`/`dropField` 가 사유·카운터를 남긴다. `default:` 로 조용히 사라지는
  *   프레임은 확장 후에도 여전히 0이다.
  *
+ *   17-03 이 신규 푸시 3종 **76 `RateCrossAlert` · 77 `QueuedWindowState` · 78
+ *   `RateCrossSnapshot`** 을 더한다. 셋의 하류 처리 책임은 이렇다 — 각각 `envelope.ts` 의
+ *   전용 파서(`parseRateCrossAlert`/`parseQueuedWindowState`/`parseRateCrossSnapshot`)를 갖고,
+ *   `SubscriptionHub.#onFrame` 에 **명시 `case`** 를 가지며, 그 case 가 **사용자별 세션 캐시**
+ *   (76/78 = above 집합, 77 = 최신 창 상태 1건)에 넣은 뒤 Ready 세션에만 팬아웃한다. 76 은
+ *   요청 짝 없는 Broadcast 라 **로그인 전 연결에도** 오므로 Ready 이전 프레임은 캐시만 하고
+ *   팬아웃하지 않는다(T-17-07). 화이트리스트와 명시 case 는 **언제나 같은 커밋**에서 자란다.
+ *
  * 하지 않는 것:  ← **이 목록이 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 의 정본이다.**
  *   - 74/75 (MemberStatsResp/Push — 거래원) 는 본 phase 범위 밖이라 넣지 않는다.
  *     화이트리스트에 없으면 수신 시 드롭되며, 그것이 의도된 동작이다.
@@ -157,10 +165,10 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * 16-04 에서 56/60/61/64/65/72/73 을 더해 **19종**이 됐다. 파일 상단 「유입 집합」 주석이
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
  *
- * ★ 17-01 에서 `MSG` 에 76/77/78 을 더했지만 이 집합은 **19종 그대로 둔다**. 화이트리스트만
- *   넓히고 `SubscriptionHub.#onFrame` 의 명시 `case` 를 같은 커밋에 두지 않으면 세 프레임이
- *   `default:` 로 조용히 떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
- *   76/77/78 등록은 파서·hub case·세션 캐시를 함께 넣는 **17-03** 의 몫이다.
+ * ★ 17-03 이 76 을 더해 **20종**이 됐다(77/78 은 같은 plan 의 다음 커밋). 이 집합은
+ *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
+ *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
+ *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
  */
 export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.LoginResp,
@@ -182,6 +190,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.TradeTapePush,
   MSG.GetVIOrderListResp,
   MSG.VIOrderListPush,
+  MSG.RateCrossAlert,
 ]);
 
 /**
