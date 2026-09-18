@@ -380,6 +380,31 @@ describe("parseQuoteState", () => {
     const quote = parseQuote(buildQuoteStateFrame({ snapshot: false }), false);
     expect(quote!.snap).toBe(false);
   });
+
+  it("①-1 KRX 정규장 종가를 원값으로 나른다 (D-11)", () => {
+    // fbs 에서 long 이라 `toNum` 을 통과해야 한다 — bigint 가 계약으로 새면
+    // 팬아웃 루프의 `encode()` 가 던진다 (16-RESEARCH Pitfall 3).
+    const quote = parseQuote(buildQuoteStateFrame({ krxClosePrice: 12_625n }));
+
+    expect(quote!.kc).toBe(12_625);
+    expect(typeof quote!.kc).toBe("number");
+    expect(() => JSON.stringify(quote)).not.toThrow();
+  });
+
+  it("①-2 종가 `0` 도 권위값이라 59 증분 프레임을 버리지 않는다 (D-11 — 벽시계 판정 없음)", () => {
+    const quote = parseQuote(buildQuoteStateFrame({ krxClosePrice: 0n, snapshot: false }), false);
+
+    expect(quote).not.toBeNull();
+    expect(quote!.kc).toBe(0);
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("①-3 NXT 프레임에도 KRX 종가가 실린다 — 거래소로 값을 지우지 않는다 (D-11)", () => {
+    const quote = parseQuote(buildQuoteStateFrame({ exchange: "NXT", krxClosePrice: 12_625n }));
+
+    expect(quote!.x).toBe("NXT");
+    expect(quote!.kc).toBe(12_625);
+  });
 });
 
 describe("parseTradeTape", () => {
@@ -417,6 +442,25 @@ describe("parseTradeTape", () => {
   it("71 증분은 snap=false 로 나온다", () => {
     const tape = parseTape(buildTradeTapeFrame({ snapshot: false }), false);
     expect(tape!.snap).toBe(false);
+  });
+
+  it("②-1 서버 체결구분 `\"1\"`(매도) · `\"2\"`(매수) 는 원값 그대로 나른다 (D-10)", () => {
+    const tape = parseTape(buildTradeTapeFrame({ entries: [{ bsCode: "1" }, { bsCode: "2" }] }));
+
+    expect(tape!.e.map((e) => e.bs)).toEqual(["1", "2"]);
+  });
+
+  it("②-2 낯선·빈 체결구분은 `\"\"`(미상)으로 좁히고 **프레임을 버리지 않는다** (T-17-06)", () => {
+    // `change_sign` 과 달리 드롭하지 않는다 — 체결구분은 색 힌트일 뿐이고 원소를 버리면
+    // 누적거래량이 어긋난다. 화면은 `""` 인 원소만 추정으로 폴백한다.
+    const tape = parseTape(
+      buildTradeTapeFrame({ entries: [{ bsCode: "9" }, { bsCode: "X" }, { bsCode: "" }, {}] }),
+    );
+
+    expect(tape).not.toBeNull();
+    expect(tape!.e).toHaveLength(4);
+    expect(tape!.e.map((e) => e.bs)).toEqual(["", "", "", ""]);
+    expect(droppedEnvelopeCount()).toBe(0);
   });
 });
 
