@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-03-PLAN.md
-last_updated: "2026-09-18T02:38:54.071Z"
+stopped_at: Completed 17-08-PLAN.md
+last_updated: "2026-09-18T03:00:00.321Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: 12676e2a9ac3404ec9d801e0f01c8d47917c1cb1
+state_head: e532a030f193664ee51f9f33f3077165d5074bd2
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 174
+  completed_plans: 175
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 5 of 12
+Plan: 6 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -441,6 +441,7 @@ Progress: [█████████░] 92%
 | Phase 17 P02 | 8 min | 3 tasks | 7 files |
 | Phase 17 P07 | 8 min | 3 tasks | 3 files |
 | Phase 17 P03 | 16 min | 3 tasks | 11 files |
+| Phase 17 P08 | 17 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -677,6 +678,8 @@ Recent decisions affecting current work:
 - [Phase 17]: 17-03: 화이트리스트 한 줄과 hub 명시 case 는 언제나 같은 커밋에서 자란다 — 76 은 Task 1, 77/78 은 Task 2 커밋에서 각각 자기 case 와 함께 등록(최종 22종) — 계획서 Task 1 은 22종을 한 번에 넣으라고 했지만 77/78 의 hub case 는 Task 2 소관이라, 지시대로 하면 두 커밋 사이 빌드에서 77/78 이 default: 로 조용히 떨어져 계획서 자신이 인용한 PC-12 가 깨진다
 - [Phase 17]: 17-03: 의도적으로 무시하는 프레임(50 LoginResp · 55 UpdateAccountNoResp)에도 명시 case 를 준다 — hub default: 계수기가 「아무도 안 받은 프레임」만 세게 하려면 필수 — default: 에 맡기면 신설 unhandledFrameCount() 가 정상 로그인마다 2를 세고, 게이트를 「2 이하」로 느슨하게 잡으면 진짜 누락 1건이 경계 안에 숨는다
 - [Phase 17]: 17-03: 인증 직후 rate.cross.snap 은 비어도 1프레임(lc.snap 규율), queued.window 는 77 미수신이면 0프레임(vi 3상태 규율) — 빈 above 집합은 「돌파 없음」의 확정 정보라 안 보내면 브라우저가 스켈레톤에 멈추고, 모르는 창 상태를 지어내 보내면 브라우저가 거짓 라벨을 그려 서버가 거부할 주문을 유도한다
+- [Phase 17]: 체결 테이프 색은 서버 체결구분(bs) 우선 — 값이 없는 원소만 추정으로 폴백하고, 하단 고지는 실제로 쓴 근거만 말한다 — 추정을 확정 사실처럼 그리는 것과 서버가 준 값을 「추정」이라 부르는 것은 똑같이 화면이 거짓말하는 것이다 (T-17-27). 판정 입력은 usedFallback 한 값뿐이다.
+- [Phase 17]: 호가 종목정보의 KRX 종가 표기는 quote.kc 하나로만 판정 — 벽시계·스냅샷 폴백 금지 — kc=0 은 「모른다」가 아니라 「오늘 종가가 아니다」라는 서버의 답이다. 시각 기반 판정 grep 카운트 0 을 게이트로 잠그고, 장 마감 뒤 시각을 박아도 표기가 안 바뀌는 행동 증명을 함께 뒀다 (T-17-28).
 
 ### Pending Todos
 
@@ -760,8 +763,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-18T02:38:37.880Z
-Stopped at: Completed 17-03-PLAN.md
+Last session: 2026-09-18T02:59:59.551Z
+Stopped at: Completed 17-08-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
