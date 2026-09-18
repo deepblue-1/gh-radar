@@ -74,6 +74,7 @@ import { UnfilledState } from "../generated/stock-dma/unfilled-state.js";
 import { GetTradeTapeReq } from "../generated/stock-dma/get-trade-tape-req.js";
 import { LivePing } from "../generated/stock-dma/live-ping.js";
 import { LoginReq } from "../generated/stock-dma/login-req.js";
+import { RateCrossAlert } from "../generated/stock-dma/rate-cross-alert.js";
 import type { LoginResp } from "../generated/stock-dma/login-resp.js";
 import { SubscribeQuoteReq } from "../generated/stock-dma/subscribe-quote-req.js";
 import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
@@ -562,14 +563,54 @@ export function parseTradeTape(env: Envelope, isSnapshot: boolean): RelayTape | 
 }
 
 /**
+ * `RateCrossAlert` 테이블 1건 → `RelayRateCrossItem`. **76 단건과 78 스냅샷 원소가
+ * 같은 바이트**라 판정도 한 함수에만 둔다 — 두 벌이면 한쪽만 고쳐져 above 집합이
+ * 조용히 어긋난다.
+ *
+ * `exchangeTime`(12자)·`serverTime`("HH:MM:SS")는 **해석하지 않고 원문**으로 넘긴다 (D-03).
+ * `lastPrice`/`basePrice` 는 long 이라 `toNum` 경계를 반드시 통과시킨다(16-RESEARCH
+ * Pitfall 3 — `JSON.stringify(bigint)` 는 TypeError 다). `changeRate`/`thresholdPct` 는
+ * double % 이므로 그대로 넘긴다(내림하면 20.0 과 20.9 가 같아진다).
+ *
+ * @param index 78 스냅샷의 원소 번호. 드롭 로그에 어느 원소가 깨졌는지 남긴다.
+ */
+function readRateCrossItem(
+  a: RateCrossAlert,
+  msgType: number,
+  index?: number,
+): RelayRateCrossItem | null {
+  const at = index === undefined ? {} : { index };
+  const isin = a.isin() ?? "";
+  const exchange = a.exchange() ?? "";
+  if (!isValidIsin(isin)) return dropField("bad-isin", msgType, { isin, ...at });
+  if (!isValidExchange(exchange)) {
+    return dropField("bad-exchange", msgType, { isin, exchange, ...at });
+  }
+
+  return {
+    isin,
+    exchange,
+    lastPrice: toNum(a.lastPrice(), "rate_cross_last_price"),
+    changeRate: a.changeRate(),
+    thresholdPct: a.thresholdPct(),
+    basePrice: toNum(a.basePrice(), "rate_cross_base_price"),
+    exchangeTime: a.exchangeTime() ?? "",
+    serverTime: a.serverTime() ?? "",
+  };
+}
+
+/**
  * 등락률 돌파 알림 1건 (76 — `rate_cross_alert` 슬롯).
  *
- * ⚠️ **17-03 RED 스켈레톤이다** — 시그니처만 있고 규칙은 비어 있다. 형식 가드와 필드 읽기는
- *    같은 plan 의 GREEN 커밋이 채운다. 이 커밋의 목적은 규칙을 옮기기 전에 규칙의 부재를
- *    실패하는 단언으로 먼저 드러내는 것이다.
+ * ⚠️ 요청 짝도 snapshot 플래그도 없는 **Broadcast** 다 — 로그인 전 연결에도 온다. 그래서
+ *    이 파서는 세션 소유자를 모르고, 소유자 판정(팬아웃 여부)은 hub 의 몫이다 (T-17-07).
  */
-export function parseRateCrossAlert(_env: Envelope): RelayRateCrossItem | null {
-  return null;
+export function parseRateCrossAlert(env: Envelope): RelayRateCrossItem | null {
+  const a = env.rateCrossAlert();
+  if (a === null) {
+    return dropField("slot-null", MSG.RateCrossAlert, { slot: "rate_cross_alert" });
+  }
+  return readRateCrossItem(a, MSG.RateCrossAlert);
 }
 
 /**

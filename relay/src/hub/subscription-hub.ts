@@ -156,6 +156,8 @@ export type HubStats = {
   cachedViTriggerCount: number;
   /** 캐시된 VI 주문 추적 **개수**. */
   cachedViOrderCount: number;
+  /** 캐시된 등락률 돌파 above 원소 **개수**. ISIN 은 담지 않는다 (17-03). */
+  cachedRateCrossCount: number;
 };
 
 export interface SubscriptionHub {
@@ -563,6 +565,7 @@ export class SubscriptionHub extends EventEmitter {
       cachedLimitChaserCount: this.#limitChasers.size,
       cachedViTriggerCount: this.#viTriggers.size,
       cachedViOrderCount: this.#viOrders.size,
+      cachedRateCrossCount: this.#rateCrossItems.size,
     };
   }
 
@@ -697,13 +700,27 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 등락률 돌파 알림 1건 (76).
+   * 등락률 돌파 알림 1건 (76) — above 집합 **upsert** 다.
    *
-   * ⚠️ **17-03 RED 스켈레톤이다** — 캐시 upsert 와 Ready 게이트는 GREEN 커밋이 채운다.
-   *    지금은 파서가 언제나 `null` 을 돌려주므로 이 메서드에 도달하지 않는다.
+   * ⚠️ **캐시가 먼저이고 팬아웃이 나중이다.** 76 은 요청 짝 없는 Broadcast 라 로그인 전
+   *    연결에도 오고, 그때 세션은 아직 Ready 가 아니다. Ready 이전 프레임을 버리면 인증
+   *    직후 스냅샷이 그 사이에 열린 돌파를 모른 채로 나가고, 반대로 팬아웃하면 소유자
+   *    판정이 끝나기 전의 프레임을 브라우저에 흘리게 된다 (T-17-07). 그래서 **보관은
+   *    언제나, 전달은 Ready 뒤에만** 한다.
+   *
+   * ⚠️ 하루 1회 알림 규칙과 임계−2%p 이탈 삭제는 **여기서 하지 않는다** — 서버 above 집합을
+   *    그대로 보관하는 것이 계약이고, 표시 규칙은 Phase 18 클라 몫이다 (D-03).
    */
-  #onRateCrossAlert(_userId: string, _session: HubSession, _item: RelayRateCrossItem): void {
-    return;
+  #onRateCrossAlert(userId: string, session: HubSession, item: RelayRateCrossItem): void {
+    this.#rateCrossItems.set(rateCrossKey(userId, item.isin, item.exchange), item);
+    if (!session.isReady) {
+      logger.debug(
+        { userId, isin: item.isin, exchange: item.exchange },
+        "[HUB] Ready 이전 돌파 알림 — 캐시만 (인증 직후 스냅샷이 내려보낸다)",
+      );
+      return;
+    }
+    this.#fanout(userId, { t: "rate.cross", item });
   }
 
   /** 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35). */

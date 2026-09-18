@@ -58,6 +58,7 @@ import {
   type RelayServerMsg,
   type RelaySessionState,
   type RelayStrategiesDisabledMsg,
+  type RelayRateCrossItem,
   type RelayTapeEntry,
   type RelayUnfilled,
   type RelayViNoticeMsg,
@@ -77,6 +78,14 @@ const MAX_MESSAGES = 20;
 const MAX_ORDERS = 50;
 /** VI 발동 통지 누적 상한. 표시·이력용이라 오래된 건은 버린다. */
 const MAX_VI_NOTICES = 50;
+/**
+ * 등락률 돌파 above 집합 상한 (17-03).
+ *
+ * ⚠️ **서버 above 집합보다 작게 잡지 않는다.** 이 값이 서버 집합 크기 아래면 78 전량
+ *    교체가 조용히 잘려 「돌파했는데 목록에 없다」가 된다. 서버는 임계−2%p 이탈 시
+ *    원소를 빼므로 집합이 무한히 자라지 않는다 — 200 은 그 위의 여유다.
+ */
+const MAX_RATE_CROSS = 200;
 /**
  * 재접속 시도 상한 (D-16). 소진 시 `manual_required`.
  * 상태 바가 `재접속 중 k/10` 을 그릴 때도 이 값을 쓴다 — 상한을 두 곳에 복제하면 어긋난다.
@@ -205,6 +214,15 @@ export interface RelayConnectionState {
    */
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
   /**
+   * 등락률 돌파 above 집합 (76 upsert / 78 전량 교체). **relay 가 보관한 서버 집합 그대로**다.
+   *
+   * ⚠️ 하루 1회 알림 규칙과 임계−2%p 이탈 삭제는 **이 목록에 반영돼 있지 않다** — 그 표시
+   *    규칙은 화면(Phase 18)의 몫이고, relay 는 서버 집합을 가공하지 않는다 (D-03).
+   *
+   * 정렬은 `exchangeTime` 오름차순 · 동률이면 `isin` 오름차순 — relay getter 와 같은 축이다.
+   */
+  rateCrossItems: RelayRateCrossItem[];
+  /**
    * 송신구. 구독 제어(`sub`/`unsub`)와 **전략 설정**(`lc.set`/`vi.set`/`vi.confirm`/
    * `strategies.disable`)이 여기로 나간다. 주문은 상관 응답이 필요하므로 `sendOrder` 를 쓴다.
    *
@@ -288,6 +306,7 @@ interface RelayData {
   viOrders: RelayViOrderItem[];
   viNotices: RelayViNoticeMsg[];
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
+  rateCrossItems: RelayRateCrossItem[];
 }
 
 const INITIAL_DATA: RelayData = {
@@ -307,6 +326,7 @@ const INITIAL_DATA: RelayData = {
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,
+  rateCrossItems: [],
 };
 
 type RelayAction =
@@ -426,6 +446,11 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "vi.notice":
       return { ...state, viNotices: [frame, ...state.viNotices].slice(0, MAX_VI_NOTICES) };
 
+    case "rate.cross":
+      // **상태 보관만** 한다 — 돌파감지 UI 는 Phase 18 이다. 같은 `isin`+`exchange` 는
+      // 한 원소이고 뒤 값으로 덮인다(같은 종목이 양쪽 거래소에서 돌파하면 원소 둘).
+      return { ...state, rateCrossItems: upsertRateCross(state.rateCrossItems, frame.item) };
+
     case "strategies.disabled":
       // **완료 신호로만** 보관한다. 이 프레임이 온 시점에는 60/61 에코가 이미 모든 행을
       // 갱신해 뒀다 — 여기 담긴 숫자로 목록을 만들면 에코와 두 벌이 갈린다.
@@ -436,6 +461,33 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // `order.result` 는 상태가 아니라 `rid` 상관 Promise 로 흘러가므로 여기 오지 않는다.
       return state;
   }
+}
+
+/**
+ * 등락률 돌파 above 집합 upsert — 키는 `isin`+`exchange` 다 (17-03 / D-03).
+ *
+ * 정렬은 **`exchangeTime` 오름차순 · 동률이면 `isin` 오름차순**으로 relay getter 와 같은
+ * 축을 쓴다. 자리 보존(상따 `upsertLimitChaser`)과 다른 이유: 상따 목록은 사용자가 만든
+ * 순서가 뜻을 갖지만 above 집합은 **서버가 정한 순서**가 뜻을 갖고, 78 전량 교체가 그
+ * 순서로 오므로 76 upsert 만 자리 보존을 하면 두 경로의 순서가 갈린다.
+ *
+ * `slice` 상한은 **정렬 뒤**에 건다 — 자르고 정렬하면 남길 원소를 먼저 버린다.
+ */
+function upsertRateCross(
+  list: RelayRateCrossItem[],
+  item: RelayRateCrossItem,
+): RelayRateCrossItem[] {
+  const rest = list.filter((c) => !(c.isin === item.isin && c.exchange === item.exchange));
+  return sortRateCross([...rest, item]).slice(0, MAX_RATE_CROSS);
+}
+
+/** above 집합 정렬 축 — `exchangeTime` ↑ · 동률이면 `isin` ↑ (relay getter 와 같다). */
+function sortRateCross(list: RelayRateCrossItem[]): RelayRateCrossItem[] {
+  return [...list].sort((a, b) =>
+    a.exchangeTime === b.exchangeTime
+      ? a.isin.localeCompare(b.isin)
+      : a.exchangeTime.localeCompare(b.exchangeTime),
+  );
 }
 
 /** 상따 목록 upsert — **자리 보존**. 없으면 뒤에 붙이고, `crud:"D"` 면 지운다. */
@@ -933,6 +985,7 @@ export function useRelayConnection({
       viOrders: data.viOrders,
       viNotices: data.viNotices,
       strategiesDisabled: data.strategiesDisabled,
+      rateCrossItems: data.rateCrossItems,
       send,
       reconnect,
       subscribe,

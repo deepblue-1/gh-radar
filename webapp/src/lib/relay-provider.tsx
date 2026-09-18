@@ -203,6 +203,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,
+  // relay 가 above 집합을 아직 준 적이 없다 — 「돌파 없음」이 아니라 「연결 전」이다.
+  rateCrossItems: [],
   // 보내지 **않았음**이 확실하다 — Provider 밖에는 소켓이 없다. 호출부가 반환값으로
   // 그 사실을 알 수 있어야 한다(PC-7 무로그 fail-safe 금지).
   send: () => false,
