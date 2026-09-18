@@ -772,7 +772,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 **Requirements**: TRADE-04 (프로토콜 재동기화·기존 화면 보정), TRADE-05 (상따 래치 LED 3종 + 수동 점등)
 **Depends on:** Phase 16
 **Scope notes:** gh-trade 정본 = `server/src/protocol/StockDMA.fbs`·`server/docs/protocol.md`·`docs/strategy/limit-chaser.md` §10. 생성은 gh-trade 의 `server/scripts/sync-relay-schema.sh`(flatc 25.12.19). 서버 진실은 클라가 판정하지 않는다(pending_cancel_sent bool 이 유일한 취소 제외 근거, queued/pending 문구는 표시만, OrderResp.message 파싱 금지). 매도잔량 기준(buy_watch_side "0") 매수 LED 는 2단계 유지·클릭 불가.
-**Plans:** 1/12 plans executed (8 waves)
+**Plans:** 3/12 plans executed (8 waves)
 
 Plans:
 **Wave 1**
@@ -781,8 +781,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-02-PLAN.md — 기존 파서 필드 확장: 호가 `kc` · 테이프 `bs` · 미체결 5필드 · 주문통보 3필드 (wave 2)
-- [ ] 17-07-PLAN.md — 상따 래치 LED 채택안(칩 · OFF/대기/감시, 목업 검토 2026-09-18 완료) · 색 토큰 · `LatchLed` 컴포넌트와 규칙 표 테스트 (wave 2)
+- [x] 17-02-PLAN.md — 기존 파서 필드 확장: 호가 `kc` · 테이프 `bs` · 미체결 5필드 · 주문통보 3필드 (wave 2)
+- [x] 17-07-PLAN.md — 상따 래치 LED 채택안(칩 · OFF/대기/감시, 목업 검토 2026-09-18 완료) · 색 토큰 · `LatchLed` 컴포넌트와 규칙 표 테스트 (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
