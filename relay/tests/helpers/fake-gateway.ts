@@ -341,6 +341,25 @@ export function readArmLatchRequest(msgType: number, payload: Buffer): string | 
   return req.key() ?? "";
 }
 
+/**
+ * VI 전략 조회 요청(21)의 **거래소**를 꺼낸다 (17-05 / D-06 / D-24).
+ *
+ * 21 은 `get_strategy_req.key` 슬롯을 **거래소 문자열로 재사용**한다 (`StockDMA.fbs:642-648`
+ * · `Gateway::ProcessGetVITrigger`). 그래서 `readArmLatchRequest` 와 같은 이유로 여기가
+ * 필요하다 — msg_type 만 세면 「21 을 두 번 보냈다」까지밖에 못 보고, **두 요청이 서로 다른
+ * 거래소를 가리키는지**는 페이로드를 디코드해야 안다. 같은 거래소를 두 번 보내면
+ * NXT 슬롯은 영원히 조회되지 않는데 카운터는 2 로 정상처럼 보인다.
+ *
+ * @returns 21 이고 요청 테이블이 있으면 그 `key`(빈 문자열 = 서버가 KRX 로 접는다),
+ *          테이블이 없으면(`buildBareRequest` 회귀) `""` 가 아니라 `null` 이다.
+ */
+export function readGetVITriggerExchange(msgType: number, payload: Buffer): string | null {
+  if (msgType !== STRATEGY_MSG.GetVITriggerReq) return null;
+  const req = rootEnvelope(payload)?.getStrategyReq();
+  if (req === null || req === undefined) return null;
+  return req.key() ?? "";
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];

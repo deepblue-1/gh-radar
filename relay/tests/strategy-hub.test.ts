@@ -50,6 +50,7 @@ import {
   buildViOrderListFrame,
   buildViOrderNoticeFrame,
 } from "./helpers/frames.js";
+import { readGetVITriggerExchange } from "./helpers/fake-gateway.js";
 
 const OTHER_ISIN = "KR7000660001";
 const USER_A = "user-a";
@@ -62,6 +63,11 @@ const KEY_A = strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX");
 class FakeSession extends EventEmitter implements HubSession {
   /** 게이트웨이가 받은 요청의 msg_type 순서대로. */
   readonly sentMsgTypes: number[] = [];
+  /**
+   * 같은 순서의 **페이로드 사본**. 21 은 `get_strategy_req.key` 슬롯을 거래소로 재사용하므로
+   * msg_type 만 세면 「두 번 보냈다」까지밖에 못 본다 (17-05 / D-06).
+   */
+  readonly sentPayloads: Buffer[] = [];
   isReady = true;
 
   constructor(readonly userId: string) {
@@ -71,7 +77,18 @@ class FakeSession extends EventEmitter implements HubSession {
   send(payload: Uint8Array): boolean {
     const bb = new flatbuffers.ByteBuffer(payload);
     this.sentMsgTypes.push(Envelope.getRootAsEnvelope(bb).msgType());
+    this.sentPayloads.push(Buffer.from(payload));
     return true;
+  }
+
+  /** 보낸 21 요청들의 거래소 문자열 — **송신 순서 그대로**. */
+  viGetExchanges(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < this.sentMsgTypes.length; i += 1) {
+      const ex = readGetVITriggerExchange(this.sentMsgTypes[i]!, this.sentPayloads[i]!);
+      if (ex !== null) out.push(ex);
+    }
+    return out;
   }
 
   /** 게이트웨이가 프레임을 밀어 넣는 상황을 재현한다(수신 화이트리스트를 실제로 통과시킨다). */
@@ -144,6 +161,77 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
       ),
     );
     expect(strategyOnly).toHaveLength(3);
+  });
+
+  it("①-2 21 은 KRX·NXT 2회다 — 24·34 는 각 1회 그대로 (17-05 / D-06)", () => {
+    session.emitReady();
+
+    // VI 전략은 서버가 **거래소별 1건**으로 관리한다. KRX 만 조회하면 NXT 에 등록된 전략이
+    // relay 에 존재하지 않는 것처럼 보인다.
+    expect(session.strategyReqCount(MSG.GetVITriggerReq)).toBe(2);
+    // ★ 카운트만으로는 부족하다 — 같은 거래소를 두 번 보내도 2 다. 페이로드를 디코드해
+    //   **서로 다른 두 거래소**를 가리키는지 본다 (21 은 key 슬롯을 거래소로 재사용한다).
+    expect(session.viGetExchanges()).toEqual(["KRX", "NXT"]);
+
+    // 나머지 둘은 넓히지 않는다 — 24(상따 목록)·34(VI 주문목록)는 거래소 축이 없다.
+    expect(session.strategyReqCount(MSG.GetLimitChaserListReq)).toBe(1);
+    expect(session.strategyReqCount(MSG.GetVIOrderListReq)).toBe(1);
+  });
+
+  it("①-3 빈 61 은 **요청 거래소 FIFO** 로 귀속된다 — KRX 미등록 · NXT 등록 (17-05 / Pitfall 3)", () => {
+    session.emitReady();
+
+    // 게이트웨이가 요청 순서대로 답한다: KRX 는 빈 61(미등록), NXT 는 등록본.
+    session.pushFrame(buildSetVITriggerRespFrame(null));
+    session.pushFrame(buildSetVITriggerRespFrame({ exchange: "NXT", run: true, checkRate: 30 }));
+
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
+    expect(hub.getViTrigger(USER_A, "NXT")).toMatchObject({ exchange: "NXT", run: true });
+
+    // 프레임도 거래소별이다 — `cfg:null` 일 때도 `x` 가 실려야 브라우저가 두 칸을 구분한다.
+    const vi = msgsOf(fanout, "vi") as RelayViTriggerMsg[];
+    expect(vi.map((m) => [m.x, m.cfg === null])).toEqual([
+      ["KRX", true],
+      ["NXT", false],
+    ]);
+  });
+
+  it("①-4 응답 순서가 뒤바뀌어도 결과가 같다 — 본문 있는 61 은 본문이 정본이다", () => {
+    session.emitReady();
+
+    // NXT 등록본이 먼저 온다. 본문에 거래소가 있으므로 FIFO head(KRX)를 꺼내지 않는다
+    // (C# 규칙 (c) — head 와 다르면 팬아웃 에코이므로 큐 무변경).
+    session.pushFrame(buildSetVITriggerRespFrame({ exchange: "NXT", run: true, checkRate: 30 }));
+    // 이어서 빈 61 이 오면 아직 살아 있는 head(KRX)로 귀속된다.
+    session.pushFrame(buildSetVITriggerRespFrame(null));
+
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
+    expect(hub.getViTrigger(USER_A, "NXT")).toMatchObject({ exchange: "NXT", run: true });
+  });
+
+  it("①-5 21 을 보낸 적 없는데 온 빈 61 은 **캐시를 고치지 않는다** (T-17-16)", () => {
+    // Ready 전이라 21 을 한 번도 보내지 않았다 = FIFO 가 비어 있다.
+    session.pushFrame(buildSetVITriggerRespFrame(null));
+
+    // 지어낸 거래소로 귀속하면 사용자가 입력 중인 금액이 엉뚱한 칸에서 지워진다.
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
+    expect(hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
+    expect(msgsOf(fanout, "vi")).toHaveLength(0);
+  });
+
+  it("①-6 세션이 교체되면 FIFO 를 비운다 — 옛 큐로 귀속되지 않는다 (규칙 (d))", () => {
+    session.emitReady();
+    // KRX 응답만 오고 NXT 응답은 영영 오지 않은 채 끊긴다 → 옛 FIFO 에 NXT 가 남아 있다.
+    session.pushFrame(buildSetVITriggerRespFrame(null));
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
+
+    const next = new FakeSession(USER_A);
+    hub.attach(next);
+    // 새 세션의 Ready 전에 도착한 빈 61 — 옛 큐가 남아 있었다면 NXT 로 귀속돼 버린다.
+    next.pushFrame(buildSetVITriggerRespFrame(null));
+
+    expect(hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
   });
 
   it("② 재조회는 재접속 때만 — ready 유지 중 10분이 흘러도 추가 요청 0건이다 (D-13)", () => {
