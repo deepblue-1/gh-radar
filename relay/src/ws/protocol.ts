@@ -6,8 +6,8 @@
  * 여기를 통과하지 않은 값은 어떤 핸들러에도 닿지 않는다.
  *
  * 결정 근거:
- *   D-11  브라우저가 보낼 수 있는 것은 아래 판별 유니온에 실린 **9종뿐**이다 — 시세 3종
- *         (`auth`/`sub`/`unsub`) + 전략 4종 + 주문 2종. 그 외 형태는 프로토콜 위반이고
+ *   D-11  브라우저가 보낼 수 있는 것은 아래 판별 유니온에 실린 **10종뿐**이다 — 시세 3종
+ *         (`auth`/`sub`/`unsub`) + 전략 5종 + 주문 2종. 그 외 형태는 프로토콜 위반이고
  *         close(4400) 로 끝난다 — 관대하게 무시하면 공격 표면이 늘어난다.
  *   D-01  전략 메시지(`lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`)를 **이 소켓으로
  *         받는다**. relay 가 FlatBuffer 로 바꿔 그 사용자의 DMA 세션으로 보낸다.
@@ -27,7 +27,7 @@
  */
 import { z } from "zod";
 import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
-import type { RelayInbound, RelayOutbound } from "@gh-radar/shared";
+import type { RelayExchange, RelayInbound, RelayOutbound } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 
@@ -81,6 +81,30 @@ const UByteSchema = z.number().int().min(0).max(255);
 
 /** 요청 상관 키. 브라우저가 만들고 `order.result` 로 되돌아온다. 로그 키로도 쓰이므로 상한을 둔다. */
 const RidSchema = z.string().min(1).max(64);
+
+/*
+  전략 키(`ISIN:accountNo:exchange`) 조각 판정 3종.
+
+  **위 스키마를 그대로 재사용한다** — 정규식·상한·거래소 집합을 다른 파일에 다시 적으면
+  가드가 두 벌이 되고, 한쪽만 고쳐지면 「한 경로로는 통과하고 다른 경로로는 막히는」
+  비대칭이 조용히 생긴다. `lc.arm` 의 키는 필드 셋이 한 문자열에 붙어 오므로
+  (`fanout.ts` 의 `#armLatchAccount`) 스키마 객체가 아니라 **술어**가 필요하다.
+*/
+
+/** ISIN 12자 형식인가 (`RelaySubSchema.isin` 과 **같은 판정**). */
+export function isValidIsin(value: string): boolean {
+  return IsinSchema.safeParse(value).success;
+}
+
+/** 계좌번호 형식인가 — 1~12자 (`lc.set`/`order.*` 의 `accountNo` 와 **같은 판정**). */
+export function isValidAccountNo(value: string): boolean {
+  return AccountNoSchema.safeParse(value).success;
+}
+
+/** 거래소 값인가 — `KRX`/`NXT` (계약 `RelayExchange` 와 **같은 집합**). */
+export function isRelayExchange(value: string): value is RelayExchange {
+  return ExchangeSchema.safeParse(value).success;
+}
 
 /**
  * 상따 설정 (`lc.set`, D-01/D-06). `cfg` 는 **32필드 전부**다 — 부분 갱신이 없다.
@@ -180,6 +204,29 @@ export const RelayViConfirmSchema = z.object({
 });
 
 /**
+ * 상따 래치 수동 점등 (`lc.arm`, D-04). `latch` 가 `ArmSellLatchReq(36)` ·
+ * `ArmCancelLatchReq(37)` · `ArmBuyLatchReq(38)` 중 하나를 고른다.
+ *
+ * ⚠️ **`key` 는 빈 문자열을 거부한다.** 서버는 빈 키를 「등록된 상따 전략이 없습니다」로
+ *    거부하므로 보내는 것 자체가 낭비이고, C# 정본도 송신을 취소한다
+ *    (`client/Services/DMA/Client.cs` `SendArmSellLatch` — "키가 없으면 서버 왕복을 만들지
+ *    않는다"). 「보냈는데 사유만 돌아오는」 왕복을 relay 가 먼저 끊는다.
+ *
+ * ⚠️ **여기서는 형식의 하한만 본다.** 키가 `ISIN:accountNo:exchange` 3토막인지와 그 안의
+ *    `accountNo` 가 요청자의 계좌인지는 여기서 알 수 없다 — 세션을 쥔 핸들러가 분해해
+ *    `session.allowedAccounts` 로 대조한다 (T-17-11). 이 파일에 화이트리스트가 없는 이유와
+ *    같은 논리다.
+ *
+ * 상한 64자는 **서버 WR-09 와 같은 값**이고 `strategies.disable` 과도 같다(실제 최대 29B).
+ * 상한을 두는 목적은 왕복 절약이 아니라 로그 폭 봉쇄다 (T-16-06).
+ */
+export const RelayLcArmSchema = z.object({
+  t: z.literal("lc.arm"),
+  key: z.string().min(1).max(64),
+  latch: z.enum(["sell", "cancel", "buy"]),
+});
+
+/**
  * 전략 일괄 비활성화 (`strategies.disable`).
  *
  * `key` 생략·`""` 는 전체다. 상한 64자는 **서버 WR-09 와 같은 값**이라 relay 에서 먼저
@@ -233,6 +280,7 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
   RelaySubSchema,
   RelayUnsubSchema,
   RelayLcSetSchema,
+  RelayLcArmSchema,
   RelayViSetSchema,
   RelayViConfirmSchema,
   RelayStrategiesDisableSchema,

@@ -155,6 +155,13 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     return { ws, inbox };
   }
 
+  /**
+   * 인증 + **인증 직후 스냅샷이 전부 도착할 때까지** 기다린다.
+   *
+   * 스냅샷(`lc.snap`·`vi`·`vi.list`·`rate.cross.snap`)은 Ready 상태 프레임보다 **뒤에** 온다.
+   * 그것을 기다리지 않으면 「`lc.arm` 왕복에서 새 `t` 값이 생기지 않는다」류의 단언이 남은
+   * 스냅샷 프레임을 잉여 ack 로 오인한다 — 게이트가 자기 소음을 잡는 셈이 된다.
+   */
   async function authed(token: string): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
     const conn = await open();
     conn.ws.sendAuth(token);
@@ -162,6 +169,9 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
       () => conn.inbox.some((m) => m.t === "state" && m.s === "ready"),
       `${token} ready 상태 프레임`,
     );
+    // `vi.list`(72) 는 Ready 프리페치 3종의 마지막 응답이다 — 그것이 왔으면 앞의 둘도 왔다.
+    await waitFor(() => conn.inbox.some((m) => m.t === "vi.list"), `${token} 전략 스냅샷`);
+    await flushIo(30);
     return conn;
   }
 

@@ -70,6 +70,7 @@ import { SetLimitChaser } from "../generated/stock-dma/set-limit-chaser.js";
 import { SetVITrigger } from "../generated/stock-dma/set-vitrigger.js";
 import { GetAccountStateReq } from "../generated/stock-dma/get-account-state-req.js";
 import { GetQuoteReq } from "../generated/stock-dma/get-quote-req.js";
+import { GetStrategyReq } from "../generated/stock-dma/get-strategy-req.js";
 import { HoldingState } from "../generated/stock-dma/holding-state.js";
 import { UnfilledState } from "../generated/stock-dma/unfilled-state.js";
 import { GetTradeTapeReq } from "../generated/stock-dma/get-trade-tape-req.js";
@@ -1314,8 +1315,63 @@ export function buildDisableStrategiesReq(key = ""): Uint8Array {
 }
 
 /**
+ * 래치 점등 요청의 msg_type — **셋뿐**이다 (36/37/38).
+ *
+ * 타입으로 좁히는 이유: 본문 슬롯(`get_strategy_req`)을 공유하므로 엉뚱한 msg_type 을 넣어도
+ * 조립은 성공한다. 잘못 나간 프레임의 대가가 「남의 전략이 무장된다」라서 컴파일 타임에 막는다.
+ */
+export type ArmLatchMsgType =
+  | typeof MSG.ArmSellLatchReq
+  | typeof MSG.ArmCancelLatchReq
+  | typeof MSG.ArmBuyLatchReq;
+
+/**
+ * 상따 진입 확인 래치 수동 점등 (MsgType 36/37/38, 17 D-04).
+ *
+ * 세 요청은 **본문 슬롯을 공유한다** — 서버가 전용 요청 테이블을 만들지 않고
+ * `get_strategy_req{key}` 를 재사용했다(`GetMemberStatsReq(35)` 가 `get_quote_req` 를
+ * 재사용한 선례). 응답도 전용 번호 없이 **기존 `SetLimitChaserResp(60)` 에코**로 오고,
+ * 실패는 `ServerMessage(54)` 한글 사유로 온다 — 별도 ack 프레임이 없다.
+ *
+ * ⚠️ **`buildBareRequest` 를 쓰지 않는다.** 21 과 달리 36/37/38 은 이 슬롯을 **실제로 읽는다**.
+ *    비워 보내면 서버가 「등록된 상따 전략이 없습니다」로 거부한다 (Pitfall 2). 요청이 나간
+ *    것은 맞으므로 msg_type 만 세는 검증은 이 실패를 잡지 못한다.
+ *
+ * ⚠️ **요청은 토글이다.** 서버가 현재 래치값을 보고 켜거나 끈다 — 목표 상태를 지정하지 않는다.
+ *
+ * ★ 문자열은 테이블 빌더를 **열기 전에** 만든다. FlatBuffers 는 테이블 조립 중 중첩 생성을
+ *   금지한다(Pitfall 1·2). 이름 있는 `start`/`add`/`end` 를 쓰는 것도 규율이다 — 위치 인자
+ *   `create*` 는 fbs 말미 append 한 번에 인자가 한 칸씩 밀린다 (T-16-05).
+ *
+ * @throws {OrderBuildError} `key` 가 빈 문자열일 때 (C# `SendArmSellLatch` 동형 — 송신 취소)
+ */
+export function buildArmLatchReq(msgType: ArmLatchMsgType, key: string): Uint8Array {
+  if (key === "") {
+    throw new OrderBuildError(
+      "STRATEGY_KEY_REQUIRED",
+      "래치 점등에는 전략 키가 필요합니다 (빈 키는 서버가 「등록된 상따 전략이 없습니다」로 거부)",
+    );
+  }
+
+  const b = new flatbuffers.Builder(128);
+  const keyOff = b.createString(key);
+
+  GetStrategyReq.startGetStrategyReq(b);
+  GetStrategyReq.addKey(b, keyOff);
+  const table = GetStrategyReq.endGetStrategyReq(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, msgType);
+  Envelope.addGetStrategyReq(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
  * 본문 없는 요청 Envelope. 24/34 는 **요청 테이블 자체가 없고**, 21 은 `get_strategy_req` 를
  * 서버가 파싱하되 무시한다 — 셋 다 `msg_type` 만 실어 보내면 된다.
+ *
+ * ⚠️ **36/37/38 에 쓰지 않는다** — 그 셋은 같은 슬롯을 실제로 읽는다 (`buildArmLatchReq`).
  */
 function buildBareRequest(msgType: number, capacity = 64): Uint8Array {
   const b = new flatbuffers.Builder(capacity);

@@ -65,6 +65,7 @@ import type {
   OrderMarket,
   RelayExchange,
   RelayInbound,
+  RelayLcArmMsg,
   RelayLimitChaserInput,
   RelayOutbound,
   RelayServerMsg,
@@ -80,14 +81,23 @@ import type { DmaSession } from "../dma/session.js";
 import type { DmaCredentials } from "../dma/session-manager.js";
 import {
   OrderBuildError,
+  buildArmLatchReq,
   buildConfirmVIOrderReq,
   buildDisableStrategiesReq,
   buildSetLimitChaserReq,
   buildSetVITriggerReq,
   maskAccountNo,
   strategyKey,
+  type ArmLatchMsgType,
 } from "../dma/envelope.js";
-import { encode, parseInbound } from "./protocol.js";
+import { MSG } from "../dma/msg-type.js";
+import {
+  encode,
+  isRelayExchange,
+  isValidAccountNo,
+  isValidIsin,
+  parseInbound,
+} from "./protocol.js";
 import {
   createOrderHandler,
   type OrderHandler,
@@ -137,6 +147,19 @@ export const INBOUND_RATE_BURST = INBOUND_RATE_LIMIT_PER_SEC;
  * 흉내 내면 relay 의 거부가 VI 통지로 오독된다.
  */
 export const RELAY_MSG_SOURCE = "Relay";
+
+/**
+ * `lc.arm` 의 래치 → 게이트웨이 msg_type (D-04).
+ *
+ * **상수 객체 하나**로 둔다 — 값이 셋뿐이라 분기 안에 if 사슬을 만들면 늘어날 때 갈린다.
+ * 키 집합이 계약(`RelayLcArmMsg["latch"]`)과 같아야 하므로 `Record` 로 못박는다: 계약에
+ * 넷째 래치가 생기면 **여기가 먼저 컴파일 에러**다.
+ */
+const ARM_LATCH_MSG_TYPE: Record<RelayLcArmMsg["latch"], ArmLatchMsgType> = {
+  sell: MSG.ArmSellLatchReq,
+  cancel: MSG.ArmCancelLatchReq,
+  buy: MSG.ArmBuyLatchReq,
+};
 
 /**
  * **전략 철거(삭제) 요청의 최종 시장 폴백** (GC-WR-04 / T-16-55).
@@ -667,6 +690,34 @@ export class WsFanout {
       return;
     }
 
+    // ★ `lc.arm` 은 `lc.set` **바로 뒤**다 — 같은 전략 표면이고 같은 4단 형식을 쓴다.
+    //
+    //   다만 `lc.set` 의 ②-1 시장 해석과 ②-2 무장 가드는 **적용하지 않는다**. 래치 요청에는
+    //   `market` 도 게이트 값도 실리지 않고(본문은 전략 키 하나다), 무장 전제
+    //   (36 `IsSellArmed` · 37 `IsCancelArmed ∧ HasPendingBuy` · 38 `IsBuyArmed ∧ side=="1"`)
+    //   의 정본은 **서버가 쥔 전략 상태**다. relay 가 에코 캐시로 그것을 재판정하면 판정이
+    //   두 벌이 되고, 캐시가 한 틱 낡은 순간 「서버는 켤 수 있는데 relay 가 막는」 상태가
+    //   된다. 전제 불충족은 서버가 한글 사유(54)로 거부하고 그 문구가 기존 `msg` 경로로
+    //   그대로 내려간다 — 17-CONTEXT 「서버 진실은 클라이언트가 재계산하지 않는다」.
+    //
+    //   **pending-key FIFO 에 넣지 않는다.** 응답이 본문에 키가 있는 60 에코라 귀속이
+    //   필요 없고, 넣으면 head 를 아무도 꺼내지 않아 다음 빈 응답이 옛 키로 귀속되는
+    //   회귀가 생긴다 (Pitfall 3 / C# `Client.cs:779-784` 동형).
+    if (msg.t === "lc.arm") {
+      const session = this.#strategySession(conn, userId, msg.t);
+      if (session === null) return;
+      const accountNo = this.#armLatchAccount(conn, userId, msg);
+      if (accountNo === null) return;
+      // ② 계좌 대조는 `lc.set` 과 **같은 메서드**다 — 가드가 두 벌이면 한쪽만 고쳐진다.
+      if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
+      const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
+        buildArmLatchReq(ARM_LATCH_MSG_TYPE[msg.latch], msg.key),
+      );
+      if (payload === null) return;
+      if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
+      return;
+    }
+
     if (msg.t === "vi.set") {
       const { accountNo, orderAmountKrw, checkRate, run } = msg;
       // **미지정 = KRX** (D-06 · D-18). 기존 브라우저가 싣지 않던 값이라 optional 이고,
@@ -737,18 +788,6 @@ export class WsFanout {
       }
       // 거부·타임아웃까지 전부 프레임으로 드러나므로 여기서 예외를 기다리지 않는다.
       void this.#orders.handle(conn, userId, msg);
-      return;
-    }
-
-    if (msg.t === "lc.arm") {
-      // 계약(`RelayLcArmMsg`)은 17-01 에서 먼저 놓였고 **결선은 17-04** 다. zod
-      // `RelayInboundSchema` 에 아직 없으므로 이 분기는 런타임에 도달할 수 없다 —
-      // 도달했다면 스키마와 라우터가 갈렸다는 뜻이다. 조용히 버리지 않는 이유가 그것이다
-      // (PC-7 무로그 fail-safe 금지).
-      logger.error(
-        { userId, t: msg.t },
-        "[WS] lc.arm 라우팅 미결선 — 인바운드 스키마와 라우터가 갈렸다 (17-04 소관)",
-      );
       return;
     }
 
@@ -837,6 +876,52 @@ export class WsFanout {
     );
     this.#send(conn, rejectFrame("이 세션에서 사용할 수 없는 계좌입니다.", accountNo));
     return false;
+  }
+
+  /**
+   * ②′ **`lc.arm` 전략 키 분해** — `ISIN:accountNo:exchange` 를 세 조각으로 가른다 (D-04).
+   *
+   * `lc.set` 은 세 값을 **필드로** 받아 zod 가 각각을 검증하지만, 래치 요청은 셋이 한
+   * 문자열에 붙어 온다(서버 `LimitChaser::MakeKey` 가 정본이라 그 모양 그대로 보내야 한다).
+   * 그래서 **여기가 형식 관문**이고, 파싱은 **이 함수 하나**에 둔다 — 두 벌이 되면 한쪽만
+   * 고쳐져 「토막 수는 보는데 ISIN 길이는 안 보는」 반쪽 가드가 생긴다.
+   *
+   * 조각 판정은 `protocol.ts` 의 zod 스키마를 그대로 재사용한다(`isValidIsin` ·
+   * `isValidAccountNo` · `isRelayExchange`) — 정규식과 상한을 여기 다시 적으면 `lc.set`
+   * 경로와 갈린다.
+   *
+   * ⚠️ **거부 로그에 계좌번호를 싣지 않는다** (T-16-45). 키 전체도 싣지 않는다 — 그 안에
+   *    계좌번호가 들어 있다. 남기는 것은 `latch` 와 사유뿐이다.
+   *
+   * ⚠️ 형식을 통과했다고 **그 계좌에 대한 권한이 있는 것이 아니다.** 소유권 대조는 호출부가
+   *    `#accountAllowed` 로 한다 (T-17-11) — `protocol.ts` 가 `accountNo` 를 형식만 보고
+   *    흘리는 것과 같은 분업이다.
+   *
+   * @returns 형식이 맞으면 대조할 `accountNo`, 아니면 `null`(거부 프레임을 이미 보냈다)
+   */
+  #armLatchAccount(conn: Conn, userId: string, msg: RelayLcArmMsg): string | null {
+    const parts = msg.key.split(":");
+    const [isin, accountNo, exchange] = parts;
+    if (
+      parts.length !== 3 ||
+      isin === undefined ||
+      accountNo === undefined ||
+      exchange === undefined ||
+      !isValidIsin(isin) ||
+      !isValidAccountNo(accountNo) ||
+      !isRelayExchange(exchange)
+    ) {
+      logger.warn(
+        { userId, t: msg.t, latch: msg.latch },
+        "[WS] 래치 요청의 전략 키 형식 위반 — 게이트웨이로 나가지 않았다",
+      );
+      this.#send(
+        conn,
+        rejectFrame("전략 키 형식이 올바르지 않아 래치 요청을 보내지 못했습니다."),
+      );
+      return null;
+    }
+    return accountNo;
   }
 
   /**
