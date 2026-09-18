@@ -16,7 +16,13 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 
-import type { RelayOutbound, RelayRateCrossItem, RelayRateCrossMsg } from "@gh-radar/shared";
+import type {
+  RelayOutbound,
+  RelayQueuedWindowMsg,
+  RelayRateCrossItem,
+  RelayRateCrossMsg,
+  RelayRateCrossSnapMsg,
+} from "@gh-radar/shared";
 
 import {
   SubscriptionHub,
@@ -25,14 +31,21 @@ import {
 } from "../src/hub/subscription-hub.js";
 import { INBOUND_MSG_TYPES, MSG } from "../src/dma/msg-type.js";
 import {
+  parseQueuedWindowState,
   parseRateCrossAlert,
+  parseRateCrossSnapshot,
   resetDroppedEnvelopeCount,
   tryParseEnvelope,
 } from "../src/dma/envelope.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import { logger } from "../src/logger.js";
-import { SAMPLE_ISIN, buildRateCrossAlertFrame } from "./helpers/frames.js";
+import {
+  SAMPLE_ISIN,
+  buildQueuedWindowStateFrame,
+  buildRateCrossAlertFrame,
+  buildRateCrossSnapshotFrame,
+} from "./helpers/frames.js";
 
 const USER_A = "user-a";
 const OTHER_ISIN = "KR7000660001";
@@ -200,6 +213,155 @@ describe("76 RateCrossAlert — 화이트리스트에서 브라우저 상태까�
   it("④ 76 수신에 unknown-msg-type warn 이 0건이다 (Pitfall 1 — 드롭 0 게이트)", () => {
     session.pushFrame(buildRateCrossAlertFrame());
     session.pushFrame(buildRateCrossAlertFrame({ exchange: "NXT" }));
+
+    expect(dropCallsWithReason(warn, "unknown-msg-type")).toBe(0);
+    expect(dropCallsWithReason(warn, "out-of-scope-msg-type")).toBe(0);
+  });
+});
+
+describe("78 RateCrossSnapshot · 77 QueuedWindowState — 캐시 교체 규약 (17-03 / D-03)", () => {
+  let hub: SubscriptionHub;
+  let session: FakeSession;
+  let fanout: HubFanoutEvent[];
+  let warn: LoggerSpy;
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.spyOn(logger, "debug").mockImplementation(() => undefined);
+    hub = new SubscriptionHub();
+    fanout = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    session = new FakeSession(USER_A);
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("⑤-1 77/78 이 수신 화이트리스트에 있다 (D-02)", () => {
+    expect(INBOUND_MSG_TYPES.has(MSG.RateCrossSnapshot)).toBe(true);
+    expect(INBOUND_MSG_TYPES.has(MSG.QueuedWindowState)).toBe(true);
+  });
+
+  it("⑤-2 원소 3개인 78 은 above 집합을 통째로 교체한다 (이전 76 upsert 는 남지 않는다)", () => {
+    // 먼저 76 으로 「서버 집합에 없는」 원소를 하나 심는다.
+    session.pushFrame(buildRateCrossAlertFrame({ isin: OTHER_ISIN }));
+    expect(hub.getRateCrossItems(USER_A)).toHaveLength(1);
+
+    session.pushFrame(
+      buildRateCrossSnapshotFrame([
+        { isin: SAMPLE_ISIN, exchange: "KRX", exchangeTime: "090100000001" },
+        { isin: SAMPLE_ISIN, exchange: "NXT", exchangeTime: "090200000002" },
+        { isin: "KR7035720002", exchange: "KRX", exchangeTime: "090300000003" },
+      ]),
+    );
+
+    const cached = hub.getRateCrossItems(USER_A);
+    expect(cached).toHaveLength(3);
+    // 병합(upsert)이면 OTHER_ISIN 이 남는다 — 전량 교체의 증거다.
+    expect(cached.map((i) => i.isin)).not.toContain(OTHER_ISIN);
+    // 정렬 축은 exchangeTime ↑ · 동률이면 isin ↑.
+    expect(cached.map((i) => i.exchangeTime)).toEqual([
+      "090100000001",
+      "090200000002",
+      "090300000003",
+    ]);
+
+    const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]?.items).toHaveLength(3);
+  });
+
+  it("⑤-3 빈 벡터 78 은 캐시를 비운다 — 무시하지 않는다(「돌파 없음」의 확정 정보)", () => {
+    session.pushFrame(buildRateCrossAlertFrame());
+    expect(hub.getRateCrossItems(USER_A)).toHaveLength(1);
+
+    session.pushFrame(buildRateCrossSnapshotFrame([]));
+
+    expect(hub.getRateCrossItems(USER_A)).toHaveLength(0);
+    const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]?.items).toEqual([]);
+  });
+
+  it("⑤-4 원소 하나가 깨지면 78 프레임 전체를 버린다 (parseTradeTape 와 같은 규율)", () => {
+    session.pushFrame(buildRateCrossAlertFrame({ isin: OTHER_ISIN }));
+
+    // 두 번째 원소의 ISIN 이 11자 — 일부만 내보내면 above 집합이 조용히 어긋난다.
+    session.pushFrame(
+      buildRateCrossSnapshotFrame([{ isin: SAMPLE_ISIN }, { isin: "KR70059300" }]),
+    );
+
+    // 캐시는 손대지 않는다(교체도 비우기도 하지 않는다).
+    expect(hub.getRateCrossItems(USER_A).map((i) => i.isin)).toEqual([OTHER_ISIN]);
+    expect(msgsOf(fanout, "rate.cross.snap")).toHaveLength(0);
+    expect(dropCallsWithReason(warn, "bad-isin")).toBe(1);
+  });
+
+  it("⑥-1 77 프레임 2건이 연속으로 오면 캐시에는 마지막 1건만 남는다", () => {
+    expect(hub.getQueuedWindow(USER_A)).toBeUndefined();
+
+    session.pushFrame(buildQueuedWindowStateFrame({ open: false, maxPieces: 5 }));
+    session.pushFrame(
+      buildQueuedWindowStateFrame({ open: true, maxPieces: 9, g2Open: true, nxtPreopenOpen: true }),
+    );
+
+    // 여섯 값 전부 표시 힌트다 — 벽시계로 판정하지 않고 `open` 플래그만 믿는다.
+    expect(hub.getQueuedWindow(USER_A)).toEqual<RelayQueuedWindowMsg>({
+      t: "queued.window",
+      open: true,
+      maxPieces: 9,
+      preopenOpen: false,
+      g2Open: true,
+      g3Open: false,
+      nxtPreopenOpen: true,
+    });
+
+    const windows = msgsOf(fanout, "queued.window") as RelayQueuedWindowMsg[];
+    expect(windows).toHaveLength(2);
+    expect(windows[1]?.maxPieces).toBe(9);
+  });
+
+  it("⑥-2 Ready 이전 77/78 도 캐시만 하고 팬아웃하지 않는다 (T-17-07)", () => {
+    session.isReady = false;
+
+    session.pushFrame(buildRateCrossSnapshotFrame([{ isin: SAMPLE_ISIN }]));
+    session.pushFrame(buildQueuedWindowStateFrame({ open: true }));
+
+    expect(msgsOf(fanout, "rate.cross.snap")).toHaveLength(0);
+    expect(msgsOf(fanout, "queued.window")).toHaveLength(0);
+    expect(hub.getRateCrossItems(USER_A)).toHaveLength(1);
+    expect(hub.getQueuedWindow(USER_A)?.open).toBe(true);
+  });
+
+  it("⑥-3 파서 단위 — 78 은 원소 배열, 77 은 여섯 값을 그대로 돌려준다", () => {
+    const items = parseRateCrossSnapshot(
+      readBack(buildRateCrossSnapshotFrame([{ isin: SAMPLE_ISIN }, { isin: OTHER_ISIN }])),
+    );
+    expect(items?.map((i) => i.isin)).toEqual([SAMPLE_ISIN, OTHER_ISIN]);
+
+    // 빈 벡터는 `[]` 이고 `null`(파싱 실패)이 아니다 — 둘을 뭉개면 「돌파 없음」이 사라진다.
+    expect(parseRateCrossSnapshot(readBack(buildRateCrossSnapshotFrame([])))).toEqual([]);
+
+    expect(
+      parseQueuedWindowState(readBack(buildQueuedWindowStateFrame({ open: true, g3Open: true }))),
+    ).toEqual<RelayQueuedWindowMsg>({
+      t: "queued.window",
+      open: true,
+      maxPieces: 5,
+      preopenOpen: false,
+      g2Open: false,
+      g3Open: true,
+      nxtPreopenOpen: false,
+    });
+  });
+
+  it("⑦ 78/77 수신에 unknown-msg-type warn 이 0건이다 (드롭 0 게이트)", () => {
+    session.pushFrame(buildRateCrossSnapshotFrame([{ isin: SAMPLE_ISIN }]));
+    session.pushFrame(buildQueuedWindowStateFrame({ open: true }));
 
     expect(dropCallsWithReason(warn, "unknown-msg-type")).toBe(0);
     expect(dropCallsWithReason(warn, "out-of-scope-msg-type")).toBe(0);

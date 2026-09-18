@@ -165,7 +165,7 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * 16-04 에서 56/60/61/64/65/72/73 을 더해 **19종**이 됐다. 파일 상단 「유입 집합」 주석이
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
  *
- * ★ 17-03 이 76 을 더해 **20종**이 됐다(77/78 은 같은 plan 의 다음 커밋). 이 집합은
+ * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -191,6 +191,8 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.GetVIOrderListResp,
   MSG.VIOrderListPush,
   MSG.RateCrossAlert,
+  MSG.QueuedWindowState,
+  MSG.RateCrossSnapshot,
 ]);
 
 /**

@@ -51,6 +51,7 @@ import type {
   RelayLimitChaser,
   RelayOrderMsg,
   RelayOutbound,
+  RelayQueuedWindowMsg,
   RelayQuote,
   RelayRateCrossItem,
   RelayTape,
@@ -78,8 +79,10 @@ import {
   parseLimitChaserEcho,
   parseLimitChaserList,
   parseOrderResp,
+  parseQueuedWindowState,
   parseQuoteState,
   parseRateCrossAlert,
+  parseRateCrossSnapshot,
   parseServerMessage,
   parseTradeTape,
   parseViOrderList,
@@ -539,6 +542,18 @@ export class SubscriptionHub extends EventEmitter {
     );
   }
 
+  /**
+   * 그 사용자의 예약·장전·시간외종가 발주 창 상태 (17-03 / D-03).
+   *
+   * **`undefined` 는 「77 을 아직 못 받았다」**이고 `getViTrigger` 의 3상태 규율과 같은
+   * 이유로 뭉개지 않는다 — 지어낸 창 상태를 내리면 브라우저가 거짓 라벨을 그린다.
+   *
+   * ⚠️ **17-03 RED 스켈레톤이다** — 캐시 조회는 GREEN 커밋이 채운다.
+   */
+  getQueuedWindow(_userId: string): RelayQueuedWindowMsg | undefined {
+    return undefined;
+  }
+
   /** 마지막 호가 스냅샷. 있으면 브라우저에 즉시 내려 깜빡임을 없앤다. */
   getSnapshot(userId: string, isin: string, exchange: RelayExchange): RelayQuote | undefined {
     return this.#quotes.get(subKey(userId, isin, exchange));
@@ -684,6 +699,18 @@ export class SubscriptionHub extends EventEmitter {
         if (item !== null) this.#onRateCrossAlert(userId, session, item);
         return;
       }
+      case MSG.RateCrossSnapshot: {
+        // `[]` 는 정상이다(돌파 없음) — `null` 만 파싱 실패다. 둘을 뭉개면 「돌파 없음」이라는
+        // 확정 정보가 사라지고 브라우저가 옛 집합을 계속 그린다.
+        const items = parseRateCrossSnapshot(e.env);
+        if (items !== null) this.#onRateCrossSnapshot(userId, session, items);
+        return;
+      }
+      case MSG.QueuedWindowState: {
+        const state = parseQueuedWindowState(e.env);
+        if (state !== null) this.#onQueuedWindow(userId, session, state);
+        return;
+      }
       case MSG.VIOrderNotice: {
         // 「주문이 이미 나갔다」는 알림이다. 캐시에 넣지 않는다 — 추적 목록의 정본은 72/73 이고,
         // 이 통보에는 주문번호·상태가 없어 같은 행을 만들 수 없다.
@@ -721,6 +748,28 @@ export class SubscriptionHub extends EventEmitter {
       return;
     }
     this.#fanout(userId, { t: "rate.cross", item });
+  }
+
+  /**
+   * 등락률 돌파 above 집합 전량 (78).
+   *
+   * ⚠️ **17-03 RED 스켈레톤이다** — 전량 교체와 Ready 게이트는 GREEN 커밋이 채운다.
+   */
+  #onRateCrossSnapshot(
+    _userId: string,
+    _session: HubSession,
+    _items: RelayRateCrossItem[],
+  ): void {
+    return;
+  }
+
+  /**
+   * 예약창 상태 (77).
+   *
+   * ⚠️ **17-03 RED 스켈레톤이다** — 최신 1건 보관과 Ready 게이트는 GREEN 커밋이 채운다.
+   */
+  #onQueuedWindow(_userId: string, _session: HubSession, _state: RelayQueuedWindowMsg): void {
+    return;
   }
 
   /** 시세는 **배치하지 않는다** — 업스트림 100ms 코얼레싱을 그대로 통과시킨다 (D-35). */

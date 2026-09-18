@@ -33,6 +33,8 @@ import { VIOrderItem } from "../../src/generated/stock-dma/viorder-item.js";
 import { VIOrderList } from "../../src/generated/stock-dma/viorder-list.js";
 import { VIOrderNotice } from "../../src/generated/stock-dma/viorder-notice.js";
 import { RateCrossAlert } from "../../src/generated/stock-dma/rate-cross-alert.js";
+import { RateCrossSnapshot } from "../../src/generated/stock-dma/rate-cross-snapshot.js";
+import { QueuedWindowState } from "../../src/generated/stock-dma/queued-window-state.js";
 import { MSG } from "../../src/dma/msg-type.js";
 
 /** 테스트 전반이 쓰는 정상 ISIN (삼성전자). */
@@ -1046,6 +1048,71 @@ export function buildRateCrossAlertFrame(input: FakeRateCrossInput = {}): Uint8A
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.RateCrossAlert);
   Envelope.addRateCrossAlert(b, alert);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+// ============================================================
+// 신규 푸시 3종 (17-03) — 78 `RateCrossSnapshot` · 77 `QueuedWindowState`
+// ============================================================
+
+/**
+ * 등락률 돌파 above 집합 전량 프레임 (78).
+ *
+ * **빈 벡터도 정상 입력이다** — 「돌파 없음」의 확정 정보이고 서버가 로그인 직후 그 연결에만
+ * 1프레임 보낸다. 기본값을 1건으로 두지 않는 이유가 그것이다(빈 집합을 만들 수 있어야 한다).
+ *
+ * ⚠️ 벡터는 원소 N개를 **각각 끝낸 뒤에** `createItemsVector` 로 묶는다 (Pitfall 2 — 테이블이
+ *    열려 있는 동안 다른 테이블·문자열을 만들면 릴리스 빌드에서 조용히 깨진 버퍼가 된다).
+ */
+export function buildRateCrossSnapshotFrame(items: FakeRateCrossInput[] = []): Uint8Array {
+  const b = new flatbuffers.Builder(1024);
+
+  const offsets = items.map((item) => buildRateCrossAlertTable(b, item));
+  const vector = RateCrossSnapshot.createItemsVector(b, offsets);
+
+  RateCrossSnapshot.startRateCrossSnapshot(b);
+  RateCrossSnapshot.addItems(b, vector);
+  const snap = RateCrossSnapshot.endRateCrossSnapshot(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.RateCrossSnapshot);
+  Envelope.addRateCrossSnapshot(b, snap);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 예약·장전·시간외종가 발주 창 상태 (77).
+ *
+ * 여섯 값 **전부 표시 힌트**다 — relay 도 브라우저도 벽시계로 창을 판정하지 않는다
+ * (fbs 주석과 `docs/features/queued-order.md` 의 시각이 엇갈린다).
+ */
+export type FakeQueuedWindowInput = {
+  open?: boolean;
+  maxPieces?: number;
+  preopenOpen?: boolean;
+  g2Open?: boolean;
+  g3Open?: boolean;
+  nxtPreopenOpen?: boolean;
+};
+
+/** 예약창 상태 프레임 (77). 기본값은 「전부 닫힘 · 조각 5개」다. */
+export function buildQueuedWindowStateFrame(input: FakeQueuedWindowInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(128);
+
+  QueuedWindowState.startQueuedWindowState(b);
+  QueuedWindowState.addOpen(b, input.open ?? false);
+  QueuedWindowState.addMaxPieces(b, input.maxPieces ?? 5);
+  QueuedWindowState.addPreopenOpen(b, input.preopenOpen ?? false);
+  QueuedWindowState.addG2Open(b, input.g2Open ?? false);
+  QueuedWindowState.addG3Open(b, input.g3Open ?? false);
+  QueuedWindowState.addNxtPreopenOpen(b, input.nxtPreopenOpen ?? false);
+  const state = QueuedWindowState.endQueuedWindowState(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.QueuedWindowState);
+  Envelope.addQueuedWindowState(b, state);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
 }

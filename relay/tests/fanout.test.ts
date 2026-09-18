@@ -49,7 +49,12 @@ import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
-import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN, STRATEGY_MSG } from "./helpers/frames.js";
+import {
+  SAMPLE_ACCOUNT_NO,
+  SAMPLE_ISIN,
+  STRATEGY_MSG,
+  buildQueuedWindowStateFrame,
+} from "./helpers/frames.js";
 
 const WS_PATH = "/ws";
 /** 사용자 간 전략 비교차(㉒)를 눈으로 구분하기 위한 두 번째 종목. */
@@ -558,6 +563,35 @@ describe("WsFanout", () => {
     expect(framesOf(tabB.inbox, "vi")).toHaveLength(0);
     expect(framesOf(tabB.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
     expect(framesOf(tabB.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
+  });
+
+  it("⑭-2 인증 직후 rate.cross.snap 은 비어 있어도 1프레임 — queued.window 는 모르면 안 온다 (17-03)", async () => {
+    // (A) 77 을 한 번도 못 받은 세션. `lc.snap` 과 같은 규율로 above 집합은 **빈 배열이라도**
+    //     1프레임 나가고(「돌파 없음」의 확정 정보), 예약창은 `vi` 의 3상태 규율대로
+    //     **지어내지 않는다** — 거짓 라벨을 그리느니 아무 말도 하지 않는다.
+    await authed("token-a");
+    const tabA = await open();
+    tabA.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabA.inbox, "vi.list").length === 1, "A 새 탭 스냅샷");
+    await flushIo(20);
+
+    expect(framesOf(tabA.inbox, "rate.cross.snap")[0]).toEqual({ t: "rate.cross.snap", items: [] });
+    expect(framesOf(tabA.inbox, "queued.window")).toHaveLength(0);
+
+    // (B) 게이트웨이가 77 을 한 번 밀어 넣으면 그 뒤 인증하는 연결은 예약창도 받는다.
+    await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.sendFrame(sock, buildQueuedWindowStateFrame({ open: true, maxPieces: 7 }));
+    await waitFor(() => h.hub.getQueuedWindow(USER_A) !== undefined, "예약창 캐시");
+
+    const tabB = await open();
+    tabB.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabB.inbox, "vi.list").length === 1, "B 새 탭 스냅샷");
+    await flushIo(20);
+
+    expect(framesOf(tabB.inbox, "queued.window")[0]).toMatchObject({ open: true, maxPieces: 7 });
+    expect(framesOf(tabB.inbox, "rate.cross.snap")[0]).toEqual({ t: "rate.cross.snap", items: [] });
   });
 
   it("⑮ dma_credentials 미등록은 전략 스냅샷도 전략 전송도 받지 못한다 (D-04)", async () => {

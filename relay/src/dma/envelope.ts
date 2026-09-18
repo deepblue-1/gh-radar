@@ -47,6 +47,7 @@ import type {
   RelayLcWatchSide,
   RelayLimitChaser,
   RelayLimitChaserInput,
+  RelayQueuedWindowMsg,
   RelayQuote,
   RelayRateCrossItem,
   RelayServerMsg,
@@ -611,6 +612,24 @@ export function parseRateCrossAlert(env: Envelope): RelayRateCrossItem | null {
     return dropField("slot-null", MSG.RateCrossAlert, { slot: "rate_cross_alert" });
   }
   return readRateCrossItem(a, MSG.RateCrossAlert);
+}
+
+/**
+ * 등락률 돌파 above 집합 전량 (78 — `rate_cross_snapshot` 슬롯).
+ *
+ * ⚠️ **17-03 RED 스켈레톤이다** — 규칙은 GREEN 커밋이 채운다.
+ */
+export function parseRateCrossSnapshot(_env: Envelope): RelayRateCrossItem[] | null {
+  return null;
+}
+
+/**
+ * 예약·장전·시간외종가 발주 창 상태 (77 — `queued_window_state` 슬롯).
+ *
+ * ⚠️ **17-03 RED 스켈레톤이다** — 규칙은 GREEN 커밋이 채운다.
+ */
+export function parseQueuedWindowState(_env: Envelope): RelayQueuedWindowMsg | null {
+  return null;
 }
 
 /**
