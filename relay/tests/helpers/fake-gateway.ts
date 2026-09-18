@@ -306,6 +306,34 @@ export function readViConfirmRequest(msgType: number, payload: Buffer): ViConfir
   return { orderNo: req.orderNo() ?? "", confirmed: req.confirmed() };
 }
 
+/** 래치 점등 요청 3종 — 본문은 셋 다 `get_strategy_req{key}` 슬롯을 재사용한다 (17 D-04). */
+const ARM_LATCH_MSG_TYPES: ReadonlySet<number> = new Set<number>([
+  MSG.ArmSellLatchReq,
+  MSG.ArmCancelLatchReq,
+  MSG.ArmBuyLatchReq,
+]);
+
+/**
+ * 래치 점등 요청(36/37/38)의 전략 키를 꺼낸다 (17-04 / D-24).
+ *
+ * **여기에 두는 이유는 `readViSetRequest` 와 같다** — `flatbuffers` 와 생성 코드는 relay
+ * 패키지 의존성이라 다른 패키지의 파일이 직접 import 할 수 없고, 프레임 해석이 두 벌이 되면
+ * 스키마가 바뀔 때 한쪽만 고쳐진다.
+ *
+ * ★ 왜 필요한가: 셋은 **본문 슬롯을 공유**하므로 msg_type 만 세면 「보냈다」까지밖에 못 본다.
+ *   `buildBareRequest` 로 보낸 빈 요청도 msg_type 은 똑같이 36 이고, 그것을 받은 서버는
+ *   「등록된 상따 전략이 없습니다」로 거부한다 (Pitfall 2). 키가 실렸는지는 페이로드를
+ *   보지 않으면 확인할 수 없다.
+ *
+ * @returns 36/37/38 이고 요청 테이블이 있으면 그 `key`(빈 문자열일 수 있다), 그 외 `null`
+ */
+export function readArmLatchRequest(msgType: number, payload: Buffer): string | null {
+  if (!ARM_LATCH_MSG_TYPES.has(msgType)) return null;
+  const req = rootEnvelope(payload)?.getStrategyReq();
+  if (req === null || req === undefined) return null;
+  return req.key() ?? "";
+}
+
 export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<FakeGateway> {
   const handlers: FrameHandler[] = [];
   const sockets: net.Socket[] = [];
