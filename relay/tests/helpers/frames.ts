@@ -765,6 +765,12 @@ export type FakeViTriggerInput = {
   /** 첫 글자만 파싱된다. `"L"`=하한가, 그 외=`"U"` 상한가. */
   priceType?: string;
   run?: boolean;
+  /**
+   * 거래소 (17-05 / D-06). **생략하면 슬롯 자체를 싣지 않는다** — 구 서버의 와이어가
+   * 그 모습이고, 파서가 `fromWireExchange("")` 로 `"KRX"` 로 정규화하는 경로가 그때 탄다.
+   * 빈 문자열(`""`)을 명시로 넣는 것과 슬롯 부재를 **둘 다** 시험할 수 있어야 한다.
+   */
+  exchange?: string;
 };
 
 /**
@@ -787,6 +793,8 @@ export function buildSetVITriggerRespFrame(input: FakeViTriggerInput | null = {}
 
   const accountNo = b.createString(input.accountNo ?? SAMPLE_ACCOUNT_NO);
   const priceType = b.createString(input.priceType ?? "U");
+  // 문자열은 테이블을 열기 **전에** 만든다 (FlatBuffers 중첩 생성 금지 — Pitfall 1).
+  const exchange = input.exchange === undefined ? null : b.createString(input.exchange);
 
   SetVITrigger.startSetVITrigger(b);
   SetVITrigger.addAccountNo(b, accountNo);
@@ -794,6 +802,7 @@ export function buildSetVITriggerRespFrame(input: FakeViTriggerInput | null = {}
   SetVITrigger.addCheckRate(b, input.checkRate ?? 25);
   SetVITrigger.addPriceType(b, priceType);
   SetVITrigger.addRun(b, input.run ?? false);
+  if (exchange !== null) SetVITrigger.addExchange(b, exchange);
   const cfg = SetVITrigger.endSetVITrigger(b);
 
   Envelope.startEnvelope(b);
@@ -843,6 +852,11 @@ export type FakeViOrderItemInput = {
    */
   state?: FakeViOrderState | (string & {});
   filledQty?: number;
+  /**
+   * 거래소 (17-05 / D-06). 생략하면 슬롯을 싣지 않는다(구 서버 와이어 = `"KRX"` 정규화).
+   * R8 매칭 키가 ISIN+거래소라 같은 종목이 양쪽에서 발동하면 **행이 둘**이다.
+   */
+  exchange?: string;
 };
 
 /**
@@ -863,6 +877,7 @@ function emitViOrderItem(
   const orderNo = b.createString(input.orderNo ?? "");
   const viEndTime = b.createString(input.viEndTime ?? "093215000");
   const state = b.createString(input.state ?? "Pending");
+  const exchange = input.exchange === undefined ? null : b.createString(input.exchange);
 
   VIOrderItem.startVIOrderItem(b);
   VIOrderItem.addIsin(b, isin);
@@ -880,6 +895,7 @@ function emitViOrderItem(
   VIOrderItem.addConfirmLocked(b, input.confirmLocked ?? false);
   VIOrderItem.addState(b, state);
   VIOrderItem.addFilledQty(b, input.filledQty ?? 0);
+  if (exchange !== null) VIOrderItem.addExchange(b, exchange);
   return VIOrderItem.endVIOrderItem(b);
 }
 
@@ -929,6 +945,8 @@ export type FakeViOrderNoticeInput = {
   orderSeq?: number;
   /** `"HHMMSSuuu"` 9자. 클라가 −10초에 마감 알림을 띄우는 근거다. */
   viEndTime?: string;
+  /** 발주 거래소 (17-05 / D-06). 생략하면 슬롯을 싣지 않는다(= `"KRX"` 정규화). */
+  exchange?: string;
 };
 
 /** VI 발동 통보 프레임 (56). */
@@ -938,6 +956,7 @@ export function buildViOrderNoticeFrame(input: FakeViOrderNoticeInput = {}): Uin
   const accountNo = b.createString(input.accountNo ?? SAMPLE_ACCOUNT_NO);
   const market = b.createString(input.market ?? "K");
   const viEndTime = b.createString(input.viEndTime ?? "093215000");
+  const exchange = input.exchange === undefined ? null : b.createString(input.exchange);
 
   VIOrderNotice.startVIOrderNotice(b);
   VIOrderNotice.addIsin(b, isin);
@@ -950,6 +969,7 @@ export function buildViOrderNoticeFrame(input: FakeViOrderNoticeInput = {}): Uin
   VIOrderNotice.addMarket(b, market);
   VIOrderNotice.addOrderSeq(b, input.orderSeq ?? 1);
   VIOrderNotice.addViEndTime(b, viEndTime);
+  if (exchange !== null) VIOrderNotice.addExchange(b, exchange);
   const notice = VIOrderNotice.endVIOrderNotice(b);
 
   Envelope.startEnvelope(b);

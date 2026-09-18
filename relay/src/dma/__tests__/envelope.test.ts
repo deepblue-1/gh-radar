@@ -91,6 +91,7 @@ import {
   strategyKey,
   skippedStrategyItemCount,
   MAX_LIMIT_CHASER_COUNT,
+  type ViTriggerInput,
 } from "../envelope.js";
 import { encode } from "../../ws/protocol.js";
 import {
@@ -1122,6 +1123,45 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(down.setViTrigger(new SetVITrigger())!.checkRate()).toBe(-10);
   });
 
+  it("⑥-c 조립기는 거래소를 **호출부가 준 값 그대로** 싣는다 — 기본값이 없다 (17-05 / T-17-17)", () => {
+    // NXT 를 지정하면 NXT 가 나간다. 조립기가 기본값을 쥐고 있으면 여기서 KRX 로 덮인다 —
+    // `buildSetLimitChaserReq` 의 `market` 기본값 `"K"` 가 코스닥 전략을 코스피로 등록시킨
+    // 선례가 정확히 그 실패다.
+    const nxt = readBack(
+      buildSetVITriggerReq({
+        accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "NXT",
+        orderAmountKrw: 3_000_000,
+        checkRate: 25,
+        run: true,
+      }),
+    );
+    expect(nxt.setViTrigger(new SetVITrigger())!.exchange()).toBe("NXT");
+
+    // KRX 도 **명시로** 실린다(슬롯을 비워 서버 기본값에 기대지 않는다).
+    const krx = readBack(
+      buildSetVITriggerReq({
+        accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "KRX",
+        orderAmountKrw: 3_000_000,
+        checkRate: 25,
+        run: true,
+      }),
+    );
+    expect(krx.setViTrigger(new SetVITrigger())!.exchange()).toBe("KRX");
+
+    // 미지 거래소는 조립 단계에서 끊는다 — zod 를 타지 않는 내부 호출의 최후 방어선이다.
+    expect(() =>
+      buildSetVITriggerReq({
+        accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "KOSPI" as unknown as ViTriggerInput["exchange"],
+        orderAmountKrw: 3_000_000,
+        checkRate: 25,
+        run: true,
+      }),
+    ).toThrow(/거래소/);
+  });
+
   it("⑥-b 소수 금액·빈 계좌번호는 BigInt 승격 전에 막는다", () => {
     expect(() =>
       buildSetVITriggerReq({
@@ -1350,6 +1390,40 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
 
     // 둘이 같은 값으로 뭉개지면 UI 가 사용자 입력을 지워야 할지 알 수 없다.
     expect(absent).not.toEqual(broken);
+  });
+
+  it("⑥-d VI 파서 3종이 거래소를 싣고 빈 와이어 값은 `fromWireExchange` 가 KRX 로 정규화한다 (17-05 / D-06)", () => {
+    // ① 61 — 본문이 있는 에코에는 서버가 거래소를 반드시 싣는다(`BuildVITriggerEcho`).
+    //    그것이 **어느 행의 답인가**를 정하는 유일한 근거다.
+    expect(
+      parseViTrigger(inbound(buildSetVITriggerRespFrame({ exchange: "NXT" })).env)!.cfg!.exchange,
+    ).toBe("NXT");
+    // 슬롯 부재(구 서버) 와 빈 문자열 둘 다 KRX 다 — 정규화는 `fromWireExchange` 한 벌뿐이다.
+    expect(parseViTrigger(inbound(buildSetVITriggerRespFrame({})).env)!.cfg!.exchange).toBe("KRX");
+    expect(
+      parseViTrigger(inbound(buildSetVITriggerRespFrame({ exchange: "" })).env)!.cfg!.exchange,
+    ).toBe("KRX");
+    // 낯선 값도 KRX 로 접는다 — 서버 `StrToExchange` 와 같은 규약이다.
+    expect(
+      parseViTrigger(inbound(buildSetVITriggerRespFrame({ exchange: "KOSPI" })).env)!.cfg!.exchange,
+    ).toBe("KRX");
+
+    // ② 56 발동통보 — 주문내역 '거래소' 열과 수동 취소 `DirectOrderReq.exchange` 의 원천이다.
+    expect(parseViOrderNotice(inbound(buildViOrderNoticeFrame({ exchange: "NXT" })).env)!.exchange)
+      .toBe("NXT");
+    expect(parseViOrderNotice(inbound(buildViOrderNoticeFrame({})).env)!.exchange).toBe("KRX");
+
+    // ③ 72/73 원소 — R8 매칭 키가 ISIN+거래소라 같은 종목이 양쪽에서 발동하면 행이 둘이다.
+    const both = parseViOrderList(
+      inbound(
+        buildViOrderListFrame([
+          { orderNo: "0000000001", state: "Accepted", exchange: "NXT" },
+          { orderNo: "0000000002", state: "Accepted" },
+        ]),
+      ).env,
+      true,
+    );
+    expect(both!.items.map((i) => i.exchange)).toEqual(["NXT", "KRX"]);
   });
 
   it("⑦ 파서 결과를 encode() 에 넣어도 TypeError 가 없다 (bigint 미유출 런타임 증명)", () => {

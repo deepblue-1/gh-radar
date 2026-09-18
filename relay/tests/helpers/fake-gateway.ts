@@ -263,6 +263,12 @@ export type ViSetRequest = {
   /** 상한가 고정("U") — relay 가 채운다. */
   priceType: string;
   run: boolean;
+  /**
+   * 발주 거래소 (17-05 / D-06). **와이어 원문 그대로** 돌려준다 — 여기서 `"KRX"` 로
+   * 정규화하면 「조립기가 슬롯을 비웠다」와 「`"KRX"` 를 실었다」가 구분되지 않아,
+   * 조립기 기본값 금지(T-17-17)를 시험할 수 없다.
+   */
+  exchange: string;
 };
 
 /**
@@ -288,6 +294,7 @@ export function readViSetRequest(msgType: number, payload: Buffer): ViSetRequest
     checkRate: req.checkRate(),
     priceType: req.priceType() ?? "",
     run: req.run(),
+    exchange: req.exchange() ?? "",
   };
 }
 
