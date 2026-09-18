@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 /**
  * Phase 15 Plan 12 Task 3 — 연결 상태 바 · 스켈레톤 단위 테스트.
@@ -156,6 +156,74 @@ describe('RelayStatusBar', () => {
 
     expect(screen.getByText('비밀번호 오류 3회')).toBeInTheDocument();
     expect(screen.queryByText('계정 상태를 확인한 뒤 페이지를 새로고침해 주세요.')).toBeNull();
+  });
+
+  /*
+    17-08 Task 3 — 서버 메시지 출처 배지 (D-09 · D-17).
+
+    ★ 판정은 `@gh-radar/shared` 의 `serverMsgBadge` **하나**만 쓴다. 상태 바 안에서 `src` 를
+      직접 비교하면 어휘가 늘어날 때마다 두 곳이 갈린다 — 그래서 컴포넌트에 `src ===` 가
+      0건이어야 하고, 이 테스트는 그 계약의 **행동 쪽**을 잠근다.
+    ★ 배지는 **텍스트**다. 색만으로 출처를 가르면 WCAG 1.4.1 위반이고, 애초에 이 표면은
+      방향색 전면 금지라 쓸 색도 없다.
+  */
+  it('⑫ 서버 메시지 줄에 출처 배지가 붙는다 — LimitChaser `[상따]` · VITrigger `[VI]` (D-17)', () => {
+    const { container } = render(
+      <RelayStatusBar
+        status="ready"
+        accounts={[]}
+        messages={[
+          msg({ m: '상따 사유 줄', receivedAt: '13:42:05', src: 'LimitChaser' }),
+          msg({ m: 'VI 사유 줄', receivedAt: '13:42:04', src: 'VITrigger' }),
+          msg({ m: '계좌 안내', receivedAt: '13:42:03', src: 'Account' }),
+        ]}
+      />,
+    );
+
+    const rows = Array.from(container.querySelectorAll('[data-slot="relay-alert-row"]'));
+    expect(rows).toHaveLength(3);
+    // 색이 아니라 **문자열**로 찾힌다.
+    expect(within(rows[0] as HTMLElement).getByText('[상따]')).toBeInTheDocument();
+    expect(within(rows[1] as HTMLElement).getByText('[VI]')).toBeInTheDocument();
+    expect(within(rows[2] as HTMLElement).getByText('[서버]')).toBeInTheDocument();
+  });
+
+  it('⑬ `Account` · 빈 값 · 미상 출처는 전부 `[서버]` 로 떨어진다 (모르는 출처는 모른다고 말한다)', () => {
+    const { container } = render(
+      <RelayStatusBar
+        status="ready"
+        accounts={[]}
+        messages={[
+          msg({ m: '빈 출처', receivedAt: '13:00:03', src: '' }),
+          // 서버가 어휘를 늘려도 부분일치로 `[상따]` 가 되면 안 된다.
+          msg({ m: '미상 출처', receivedAt: '13:00:02', src: 'SetLimitChaserResp' }),
+          msg({ m: '시스템', receivedAt: '13:00:01', src: 'System' }),
+        ]}
+      />,
+    );
+
+    const badges = Array.from(container.querySelectorAll('[data-slot="relay-alert-row"]')).map(
+      (row) => within(row as HTMLElement).getByTestId('relay-alert-src').textContent,
+    );
+    expect(badges).toEqual(['[서버]', '[서버]', '[서버]']);
+  });
+
+  it('⑭ 메시지가 20건 쌓여도 상태 바는 최근 3건만 그린다 (기존 상한 유지 · Pitfall 12)', () => {
+    const many = Array.from({ length: 20 }, (_, i) =>
+      msg({
+        m: `상따 사유 ${20 - i}`,
+        receivedAt: `13:4${i % 10}:0${i % 10}`,
+        src: 'LimitChaser',
+      }),
+    );
+    const { container } = render(
+      <RelayStatusBar status="ready" accounts={[]} messages={many} />,
+    );
+
+    expect(container.querySelectorAll('[data-slot="relay-alert-row"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-testid="relay-alert-src"]')).toHaveLength(3);
+    expect(screen.getByText('상따 사유 20')).toBeInTheDocument();
+    expect(screen.queryByText('상따 사유 17')).toBeNull();
   });
 
   it('⑪ unauthorized 본문은 연결 상태를 말하고 게이트 제목 문구를 반복하지 않는다 (이관 10)', () => {
