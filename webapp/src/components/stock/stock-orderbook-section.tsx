@@ -248,6 +248,13 @@ export function StockOrderbookSection({
   }, []);
 
   const effectiveBase = quote?.base && quote.base > 0 ? quote.base : basePrice;
+  /**
+   * KRX 정규장 종가(`QuoteState.krx_close_price`). **오늘 종가가 아니면 `0`** 이다 (D-11).
+   *
+   * 스냅샷 props 로 폴백하지 않는다 — `0` 은 「아직 안 왔다」가 아니라 「오늘 종가가
+   * 아니다」라는 **서버의 답**이라, 다른 출처로 메우면 없는 사실을 지어내는 것이 된다.
+   */
+  const closePrice = quote?.kc ?? 0;
   const lastTradeAt = useMemo(
     () => (quote?.et ? formatTapeTime(quote.et) : undefined),
     [quote?.et],
@@ -356,12 +363,36 @@ export function StockOrderbookSection({
               <dt>하한</dt>
               <dd className="mono text-[var(--fg)]">{fmt(quote?.ll ?? lowerLimit)}</dd>
             </div>
-            <div className="flex gap-1">
-              <dt>VI</dt>
-              <dd className="mono text-[var(--fg)]">
-                {fmt(quote?.viu)} / {fmt(quote?.vid)}
-              </dd>
-            </div>
+            {/*
+              ★ 하락VI 자리는 KRX 정규장 종가에 내준다 (17-08 / D-11).
+                판정 입력은 `quote.kc` **하나**다 — `kc > 0` 이 「종가가 확정됐다」의 유일한
+                신호이고, `0` 은 「모른다」가 아니라 **권위값**이다(같은 값이면 no-op).
+              ⚠️ 벽시계로 판정하지 않는다. "지금이 장 마감 뒤인가"를 클라가 계산해 라벨을
+                 바꾸면 서버 진실과 갈린다 — 이 분기에 현재 시각·장 시간 상수를 들이지 말 것.
+                 (이 파일의 시각 기반 판정 건수 0 은 17-08 이 grep 게이트로 잠근 값이다.)
+              ⚠️ NXT 프레임에도 **KRX 값**이 실려 온다(C# 동일). 거래소로 라벨을 갈라
+                 「NXT 종가」 같은 없는 사실을 지어내지 않는다.
+              ★ 상승VI 는 어느 갈래에서도 사라지지 않는다.
+            */}
+            {closePrice > 0 ? (
+              <>
+                <div className="flex gap-1">
+                  <dt>VI</dt>
+                  <dd className="mono text-[var(--fg)]">{fmt(quote?.viu)}</dd>
+                </div>
+                <div className="flex gap-1">
+                  <dt>종가</dt>
+                  <dd className="mono text-[var(--fg)]">{fmt(closePrice)}</dd>
+                </div>
+              </>
+            ) : (
+              <div className="flex gap-1">
+                <dt>VI</dt>
+                <dd className="mono text-[var(--fg)]">
+                  {fmt(quote?.viu)} / {fmt(quote?.vid)}
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
       </header>
