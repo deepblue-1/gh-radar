@@ -36,7 +36,12 @@ import { logger } from "../src/logger.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import { startFakeGateway, readArmLatchRequest, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
-import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN } from "./helpers/frames.js";
+import {
+  SAMPLE_ACCOUNT_NO,
+  SAMPLE_ISIN,
+  buildServerMessageFrame,
+  buildSetVITriggerRespFrame,
+} from "./helpers/frames.js";
 
 const WS_PATH = "/ws";
 
@@ -418,5 +423,113 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     // 남은 토큰은 절반뿐이다 — 별도 버킷이면 여기가 10 이 된다.
     expect(armReqs()).toHaveLength(half);
     expect(a.ws.closeInfo).toBeNull();
+  });
+
+  // ==========================================================
+  // ③ 실패 경로 회귀 — 54 한글 사유 그대로 · 별도 ack 없음 · FIFO 무오염
+  //
+  // 문구는 gh-trade `server/src/net/Gateway.cpp` 원문이다(실측 2026-09-18). relay 가
+  // 문구를 해석·치환하지 않는다는 것을 **문자열 동등 비교**로 굳힌다 — 서버 어휘가 바뀌면
+  // 화면이 아니라 이 테스트가 먼저 말해야 한다.
+  // ==========================================================
+
+  /** 36 거부 — 전략 없음 (`Gateway.cpp:3040`). */
+  const REJECT_SELL = "등록된 상따 전략이 없습니다 — 매도 래치를 켤 수 없습니다";
+  /** 37 거부 — 매수 미체결 없음. 매도판에는 없는 두 번째 전제다 (`Gateway.cpp:3136`). */
+  const REJECT_CANCEL = "취소할 매수 미체결이 없습니다 — 미체결이 생긴 뒤에 켜세요";
+  /**
+   * 38 거부 — **매도잔량 기준(side "0")에는 매수 래치가 없다** (`Gateway.cpp:3216` / BL-01).
+   *
+   * 이 문구가 곧 「매도잔량 기준 매수 래치는 클릭 불가」라는 결정의 **서버측 정본**이다.
+   * relay 는 그 전제를 재판정하지 않고(에코 캐시로 `buyWatchSide` 를 보지 않는다) 서버가
+   * 내려보낸 사유를 그대로 나른다 — 판정이 두 벌이 되면 캐시가 낡은 순간 갈린다.
+   */
+  const REJECT_BUY =
+    "매도잔량 기준에서는 매수 진입 확인 래치가 없습니다 — 매수잔량 기준일 때만 켤 수 있습니다";
+
+  it.each([
+    ["sell", MSG.ArmSellLatchReq, REJECT_SELL],
+    ["cancel", MSG.ArmCancelLatchReq, REJECT_CANCEL],
+    ["buy", MSG.ArmBuyLatchReq, REJECT_BUY],
+  ] as const)(
+    "③-1 %s 래치 거부는 서버 한글 문구 그대로 기존 msg 경로로 온다",
+    async (latch, msgType, reason) => {
+      const { ws, inbox } = await authed("token-a");
+
+      ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch });
+      await waitFor(() => armReqs().length === 1, `${msgType} 송신`);
+      expect(armReqs()[0]?.msgType).toBe(msgType);
+
+      // 서버는 별도 거부 응답 번호 없이 `ServerMessage(54)` WARN 으로 사유를 보낸다.
+      gateway.sendFrame(
+        gatewaySocket(),
+        buildServerMessageFrame({ level: "WARN", message: reason, source: "System", kind: "" }),
+      );
+      await waitFor(() => framesOf(inbox, "msg").length === 1, "54 사유 수신");
+      await flushIo(30);
+
+      // **동등 비교**다 — relay 가 한 글자도 고치지 않았다는 뜻이다 (D-36).
+      expect(framesOf(inbox, "msg")[0]?.m).toBe(reason);
+      expect(framesOf(inbox, "msg")[0]?.lv).toBe("WARN");
+    },
+  );
+
+  it("③-2 래치 왕복에서 브라우저가 받는 t 는 lc 와 msg 뿐이다 — 전용 ack 프레임이 없다", async () => {
+    const { ws, inbox } = await authed("token-a");
+    const before = inbox.length;
+
+    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "sell" });
+    await waitFor(() => armReqs().length === 1, "36 송신");
+    gateway.pushLimitChaserEcho(gatewaySocket(), {
+      isin: SAMPLE_ISIN,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      exchange: "KRX",
+      sellEnabled: true,
+      sellEntryLatched: true,
+    });
+    await waitFor(() => framesOf(inbox, "lc").length === 1, "60 에코");
+
+    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "buy" });
+    await waitFor(() => armReqs().length === 2, "38 송신");
+    gateway.sendFrame(
+      gatewaySocket(),
+      buildServerMessageFrame({ level: "WARN", message: REJECT_BUY, source: "System", kind: "" }),
+    );
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "54 사유");
+    await flushIo(40);
+
+    // 성공은 60 에코가, 실패는 54 문구가 말한다. 그 사이에 새 `t` 값이 끼지 않는다 (D-04).
+    expect(new Set(inbox.slice(before).map((m) => m.t))).toEqual(new Set(["lc", "msg"]));
+  });
+
+  /*
+    Pitfall 3 / T-17-14 — 래치 요청은 pending-key FIFO 에 들어가지 않는다.
+
+    60 에코는 본문에 키가 있어 귀속이 필요 없다. 그런데도 요청을 큐에 넣으면 그 head 를
+    아무도 꺼내지 않아, **다음 빈 응답**이 옛 키로 귀속된다(C# VI Get 의 같은 함정).
+
+    지금 relay 의 빈 61 귀속은 「거래소 정보가 없으므로 `"KRX"`」다 — 21 을 KRX 한 번만
+    보내는 현행 동작과 같다(`subscription-hub.ts` `#onViTrigger`). 21 을 두 거래소로 넓히고
+    요청 거래소 FIFO 를 세우는 것은 17-05 이므로, 여기서는 **17-05 이전의 현행 동작**을
+    기준선으로 박는다: 래치를 몇 번 보내든 빈 61 의 귀속이 달라지지 않는다.
+  */
+  it("③-3 lc.arm 3연타 뒤 빈 61 은 여전히 미등록으로 귀속된다 — FIFO 가 오염되지 않았다", async () => {
+    const { ws, inbox } = await authed("token-a");
+    const viBefore = framesOf(inbox, "vi").length;
+
+    for (const latch of ["sell", "cancel", "buy"] as const) {
+      ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch });
+    }
+    await waitFor(() => armReqs().length === 3, "36·37·38 3연타 송신");
+
+    // VI 미등록 = 테이블 없는 빈 61. 본문에 거래소도 키도 없다.
+    gateway.sendFrame(gatewaySocket(), buildSetVITriggerRespFrame(null));
+    await waitFor(() => framesOf(inbox, "vi").length === viBefore + 1, "빈 61 귀속");
+    await flushIo(30);
+
+    // 옛 키(래치 요청의 전략 키)로 귀속되지 않는다 — 미등록 그대로다.
+    expect(framesOf(inbox, "vi").at(-1)).toEqual({ t: "vi", x: "KRX", cfg: null });
+    // 빈 61 이 상따 에코로 새지도 않는다.
+    expect(framesOf(inbox, "lc")).toHaveLength(0);
   });
 });
