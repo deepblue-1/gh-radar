@@ -103,3 +103,8 @@ export {
   type DailyOhlcvRangeKey,
   type DailyOhlcvTimeframe,
 } from "./dailyOhlcv";
+// --- 17-01 전략 표시 헬퍼. 뒤 wave 의 webapp 표면은 인라인 접미를 만들지 않고 이 둘만 부른다 ---
+export {
+  sideDisplayText,
+  serverMsgBadge,
+} from "./strategy-display";
