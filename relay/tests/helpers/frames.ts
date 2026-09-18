@@ -72,6 +72,12 @@ export type FakeQuoteInput = {
   viDownPrice?: bigint;
   listShares?: bigint;
   exchangeTime?: string;
+  /**
+   * KRX 정규장 종가 (`QuoteState.krx_close_price`, 슬롯 60). 오늘 종가가 아니면 서버가
+   * `0` 을 보낸다 — **`0` 도 권위값**이라 파서가 거르지 않는다 (D-11). 기본값 `0` 은
+   * 「아직 종가가 없다」는 정상 입력이지 미지정 마커가 아니다.
+   */
+  krxClosePrice?: bigint;
 };
 
 const TEN = (base: bigint, step: bigint): bigint[] =>
@@ -117,6 +123,7 @@ export function buildQuoteStateFrame(input: FakeQuoteInput = {}): Uint8Array {
   QuoteState.addListShares(b, input.listShares ?? 5_969_782_550n);
   QuoteState.addExchangeTime(b, exchangeTime);
   QuoteState.addIsSnapshot(b, snapshot);
+  QuoteState.addKrxClosePrice(b, input.krxClosePrice ?? 0n);
   const quote = QuoteState.endQuoteState(b);
 
   Envelope.startEnvelope(b);
@@ -133,6 +140,11 @@ export type FakeTapeEntryInput = {
   change?: bigint;
   qty?: bigint;
   cumVolume?: bigint;
+  /**
+   * 서버 체결구분 (`TradeTapeEntry.bs_code`, 슬롯 16) — `"1"` 매도 · `"2"` 매수.
+   * 그 밖(빈 값·낯선 코드)은 파서가 `""`(미상)으로 좁히고 **프레임은 살린다** (D-10).
+   */
+  bsCode?: string;
 };
 
 export type FakeTapeInput = {
@@ -153,10 +165,13 @@ export function buildTradeTapeFrame(input: FakeTapeInput = {}): Uint8Array {
 
   // 위치 인자 `createTradeTapeEntry` 를 쓰지 않는다 (T-16-05 / 17-01). 재동기화로 말미에
   // `bs_code` 가 붙자 인자 수가 7 → 8 로 늘어 이 호출부가 깨졌다 — 이름 있는 `addXxx` 는
-  // 말미 append 에 대해 호출부를 불변으로 만든다. `bs_code` 는 17-02 소관이라 싣지 않는다.
+  // 말미 append 에 대해 호출부를 불변으로 만든다.
   const offsets = rows.map((row, i) => {
+    // 문자열은 테이블을 열기 **전에** 전부 만든다 (16-RESEARCH Pitfall 2 — `startXxx()`
+    // 이후의 `createString` 은 릴리스 빌드에서 조용히 깨진 버퍼를 만든다).
     const tradeTime = b.createString(row.tradeTime ?? `09301512345${i}`);
     const changeSign = b.createString(row.changeSign ?? "2");
+    const bsCode = b.createString(row.bsCode ?? "");
     TradeTapeEntry.startTradeTapeEntry(b);
     TradeTapeEntry.addTradeTime(b, tradeTime);
     TradeTapeEntry.addPrice(b, row.price ?? 70_900n + BigInt(i) * 50n);
@@ -164,6 +179,7 @@ export function buildTradeTapeFrame(input: FakeTapeInput = {}): Uint8Array {
     TradeTapeEntry.addChange(b, row.change ?? 900n);
     TradeTapeEntry.addQty(b, row.qty ?? 10n + BigInt(i));
     TradeTapeEntry.addCumVolume(b, row.cumVolume ?? 12_345_600n + BigInt(i));
+    TradeTapeEntry.addBsCode(b, bsCode);
     return TradeTapeEntry.endTradeTapeEntry(b);
   });
   const entries = TradeTape.createEntriesVector(b, offsets);
