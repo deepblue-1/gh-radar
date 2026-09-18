@@ -739,6 +739,59 @@ describe("주문 조립·파싱 (D-21 / Pitfall 7·8)", () => {
     expect(parseOrderResp(bare!.env)).toBeNull();
     expect(droppedEnvelopeCount()).toBe(1);
   });
+
+  it("④-1 주문 통보가 board·request_kind·requester 를 원문 그대로 나른다 (D-08)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(
+        buildOrderRespFrame({
+          noticeType: "R",
+          resultCode: 804,
+          // 804 거부에서 서버가 이 문구를 **교체**한다 — 그래서 어디서도 파싱하지 않는다.
+          message: "이미 체결·취소돼 취소(정정)할 잔량 없음",
+          board: "G3",
+          requestKind: "Cancel",
+          requester: "Manual",
+        }),
+      ),
+    );
+    const resp = parseOrderResp(parsed!.env);
+
+    // 행위 단어의 원천은 문구가 아니라 `requestKind` 다.
+    expect(resp).toMatchObject({
+      board: "G3",
+      requestKind: "Cancel",
+      requester: "Manual",
+      resultCode: 804,
+    });
+  });
+
+  it("④-2 세 필드가 전부 빈 구 서버 프레임도 기존 통보를 그대로 만든다 (회귀)", () => {
+    const parsed = tryParseEnvelope(
+      Buffer.from(buildOrderRespFrame({ noticeType: "A", orderNo: "0000012345" })),
+    );
+    const resp = parseOrderResp(parsed!.env);
+
+    // 신규 3필드는 빈 문자열이 **정상 입력**이다 — 오류로 다루면 구 서버 통보가 통째로 사라진다.
+    expect(resp).toMatchObject({
+      orderNo: "0000012345",
+      noticeType: "A",
+      resultCode: 0,
+      sideTrusted: true,
+      exchange: "KRX",
+      board: "",
+      requestKind: "",
+      requester: "",
+    });
+    expect(droppedEnvelopeCount()).toBe(0);
+  });
+
+  it("④-3 `buildDirectOrderReq` 는 `piece_count`·`krx_session` 을 싣지 않는다 (D-12 / T-17-05)", () => {
+    // 재동기화로 접근자가 생겼어도 이번 phase 의 송신 바이트는 **무변경**이다 (Phase 18).
+    const req = readBack(buildDirectOrderReq(ORDER)).directOrderReq();
+
+    expect(req?.pieceCount()).toBe(0);
+    expect(req?.krxSession()).toBeNull();
+  });
 });
 
 describe("계좌 상태 조립·파싱 (D-23 / T-15-07)", () => {

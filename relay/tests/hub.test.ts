@@ -33,6 +33,7 @@ import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import {
   SAMPLE_ISIN,
+  buildOrderRespFrame,
   buildQuoteStateFrame,
   buildServerMessageFrame,
   buildTradeTapeFrame,
@@ -323,5 +324,34 @@ describe("SubscriptionHub", () => {
     hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX");
     expect(session.sent).toHaveLength(0);
     expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(0);
+  });
+
+  it("⑬ 주문 통보의 `bd`·`rk`·`rq` 가 브라우저 프레임까지 간다 (17-02 / D-08)", () => {
+    session.pushFrame(
+      buildOrderRespFrame({
+        noticeType: "C",
+        orderNo: "0000012345",
+        board: "G3",
+        requestKind: "Cancel",
+        requester: "Manual",
+      }),
+    );
+
+    const orders = fanout.map((e) => e.msg).filter((m: RelayOutbound) => m.t === "order");
+    expect(orders).toHaveLength(1);
+    expect(orders[0]).toMatchObject({ no: "0000012345", nt: "C", bd: "G3", rk: "Cancel", rq: "Manual" });
+    // `side`·`isin` 은 계속 싣지 않는다 (Pitfall 8 규율 유지).
+    expect(orders[0]).not.toHaveProperty("side");
+    expect(orders[0]).not.toHaveProperty("i");
+  });
+
+  it("⑭ 빈 `bd`·`rk`·`rq` 는 **키 자체를 생략**한다 — 구 서버 프레임을 무겁게 하지 않는다", () => {
+    session.pushFrame(buildOrderRespFrame({ noticeType: "A", orderNo: "0000012345" }));
+
+    const order = fanout.map((e) => e.msg).find((m: RelayOutbound) => m.t === "order");
+    expect(order).toMatchObject({ no: "0000012345", nt: "A" });
+    expect(order).not.toHaveProperty("bd");
+    expect(order).not.toHaveProperty("rk");
+    expect(order).not.toHaveProperty("rq");
   });
 });
