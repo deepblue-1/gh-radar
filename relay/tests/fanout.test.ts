@@ -594,6 +594,49 @@ describe("WsFanout", () => {
     expect(framesOf(tabB.inbox, "rate.cross.snap")[0]).toEqual({ t: "rate.cross.snap", items: [] });
   });
 
+  it("⑭-3 드롭 0 게이트 — 76·77·78 왕복에 default 0·warn 0, 미등록 99 는 여전히 warn 1 (T-17-10)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const conn = await authed("token-a");
+    await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+
+    // 게이트웨이가 세 프레임을 각 1건씩 실제로 내보낸다 — grep 이 아니라 소켓 왕복이다.
+    gateway.sendRateCrossAlert(sock, { isin: SAMPLE_ISIN });
+    gateway.sendRateCrossSnapshot(sock, [{ isin: SAMPLE_ISIN }, { isin: OTHER_ISIN }]);
+    gateway.sendQueuedWindowState(sock, { open: true, maxPieces: 3 });
+
+    await waitFor(() => framesOf(conn.inbox, "queued.window").length >= 1, "예약창 프레임");
+    await flushIo(20);
+
+    // ⓐ 브라우저가 세 프레임을 각각 받았다.
+    expect(framesOf(conn.inbox, "rate.cross")[0]?.item.isin).toBe(SAMPLE_ISIN);
+    expect(framesOf(conn.inbox, "rate.cross.snap").at(-1)?.items).toHaveLength(2);
+    expect(framesOf(conn.inbox, "queued.window")[0]).toMatchObject({ open: true, maxPieces: 3 });
+
+    // ⓑ hub 의 `default:` 로 떨어진 프레임이 0이다 — 화이트리스트와 명시 case 가 갈리지 않았다.
+    expect(h.hub.unhandledFrameCount()).toBe(0);
+
+    // ⓒ `unknown-msg-type` 사유의 warn 이 0건이다.
+    const unknownWarns = (): number =>
+      warnSpy.mock.calls.filter((args) => {
+        const body: unknown = args[0];
+        return (
+          typeof body === "object" &&
+          body !== null &&
+          (body as { reason?: unknown }).reason === "unknown-msg-type"
+        );
+      }).length;
+    expect(unknownWarns()).toBe(0);
+
+    // ⓓ **대조군** — 미등록 번호(99)는 여전히 warn 1건을 남긴다. 게이트가 살아 있다는 증거다.
+    //    이 단언이 없으면 「warn 0」은 「경고 경로가 죽었다」와 구분되지 않는다.
+    gateway.sendGarbage(sock, "unknown-msg-type");
+    await waitFor(() => unknownWarns() === 1, "미등록 번호 경고 1건");
+    // 화이트리스트 밖이라 hub 까지 오지 않는다 — `default:` 카운터는 여전히 0이다.
+    expect(h.hub.unhandledFrameCount()).toBe(0);
+  });
+
   it("⑮ dma_credentials 미등록은 전략 스냅샷도 전략 전송도 받지 못한다 (D-04)", async () => {
     const { ws, inbox } = await open();
 

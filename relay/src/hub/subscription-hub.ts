@@ -161,6 +161,11 @@ export type HubStats = {
   cachedViOrderCount: number;
   /** 캐시된 등락률 돌파 above 원소 **개수**. ISIN 은 담지 않는다 (17-03). */
   cachedRateCrossCount: number;
+  /**
+   * `#onFrame` 의 `default:` 도달 누적 수 (T-17-10).
+   * **운영에서도 0 이어야 한다** — 0 이 아니면 받아 줄 case 없는 번호가 유입되고 있다.
+   */
+  unhandledFrameCount: number;
 };
 
 export interface SubscriptionHub {
@@ -301,6 +306,14 @@ export class SubscriptionHub extends EventEmitter {
    * 와 **다른 상태**다. `#viTriggers` 의 3상태 규율과 같은 이유로 뭉개지 않는다.
    */
   readonly #queuedWindows = new Map<string, RelayQueuedWindowMsg>();
+  /**
+   * `#onFrame` 의 `default:` 도달 누적 수 (17-03 / T-17-10).
+   *
+   * 「조용히 떨어지는 프레임 0」을 **측정 가능한 값**으로 만든다. `envelope.ts` 의 드롭
+   * 카운터와 나누는 이유: 저쪽은 「화이트리스트 밖이라 파서 전에 버렸다」이고 이쪽은
+   * 「화이트리스트는 통과했는데 받아 줄 case 가 없다」 — 후자만이 PC-12 위반이다.
+   */
+  #unhandledFrames = 0;
   /**
    * ISIN → 종목명·단축코드. 게이트웨이가 이름을 주지 않으므로 여기서 채운다.
    * 없으면(주입 안 함/미스) 필드를 비워 두고 UI 가 ISIN 원문으로 폴백한다.
@@ -570,6 +583,16 @@ export class SubscriptionHub extends EventEmitter {
     return ring === undefined ? undefined : [...ring];
   }
 
+  /**
+   * `#onFrame` 의 `default:` 에 떨어진 프레임 누적 수 (T-17-10).
+   *
+   * **0 이 아니면 화이트리스트와 명시 `case` 가 갈렸다는 뜻이다** — 넓힌 번호를 받아 줄
+   * case 가 없어 프레임이 조용히 사라지고 있다. 회귀 테스트가 이 값을 읽는다.
+   */
+  unhandledFrameCount(): number {
+    return this.#unhandledFrames;
+  }
+
   /** 현재 참조계수(진단·테스트용). */
   refCount(userId: string, isin: string, exchange: RelayExchange): number {
     return this.#refs.get(subKey(userId, isin, exchange)) ?? 0;
@@ -586,6 +609,7 @@ export class SubscriptionHub extends EventEmitter {
       cachedViTriggerCount: this.#viTriggers.size,
       cachedViOrderCount: this.#viOrders.size,
       cachedRateCrossCount: this.#rateCrossItems.size,
+      unhandledFrameCount: this.#unhandledFrames,
     };
   }
 
@@ -724,10 +748,24 @@ export class SubscriptionHub extends EventEmitter {
         if (notice !== null) this.#fanout(userId, this.#enrichViNotice(notice));
         return;
       }
+      case MSG.LoginResp:
+      case MSG.UpdateAccountNoResp:
+        // **세션(`DmaSession`)이 처리하는 프레임이다.** Hub 는 아무것도 하지 않는 것이 맞다 —
+        // 그러나 그 사실을 `default:` 에 맡기지 않고 명시 case 로 적는다. 그래야 아래 계수기가
+        // 「아무도 안 받은 프레임」만 세고, 그 값이 곧 PC-12 위반 여부가 된다 (T-17-10).
+        return;
       default:
-        // 로그인 응답(50)·계좌 선언 응답(55)은 세션이 처리한다.
-        // 16-04 가 화이트리스트를 19종으로 넓힌 뒤에도 **여기로 조용히 떨어지는 프레임은 0**이다
-        // (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
+        // 16-04 가 화이트리스트를 19종으로, 17-03 이 22종으로 넓힌 뒤에도 **여기로 조용히
+        // 떨어지는 프레임은 0**이다 (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
+        //
+        // ★ 그 「0」이 주석이 아니라 **실행되는 게이트**가 되도록 도달 횟수를 센다 (T-17-10).
+        //   화이트리스트만 넓히고 명시 case 를 빠뜨리면 이 값이 0 을 넘고, 회귀 테스트가
+        //   그 순간 깨진다. 로그는 debug 그대로라 프로덕션 볼륨은 늘지 않는다.
+        this.#unhandledFrames += 1;
+        logger.debug(
+          { userId, msgType: e.msgType, unhandledFrameCount: this.#unhandledFrames },
+          "[HUB] 명시 case 없는 프레임 — default 도달 (PC-12 게이트)",
+        );
         return;
     }
   }

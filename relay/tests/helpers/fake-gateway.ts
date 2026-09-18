@@ -35,7 +35,10 @@ import {
   buildLimitChaserListRespFrame,
   buildLoginRespFrame,
   buildOrderRespFrame,
+  buildQueuedWindowStateFrame,
   buildQuoteStateFrame,
+  buildRateCrossAlertFrame,
+  buildRateCrossSnapshotFrame,
   buildSetLimitChaserRespFrame,
   buildSetVITriggerRespFrame,
   buildTradeTapeFrame,
@@ -45,7 +48,9 @@ import {
   type FakeLimitChaserInput,
   type FakeLoginRespInput,
   type FakeOrderRespInput,
+  type FakeQueuedWindowInput,
   type FakeQuoteInput,
+  type FakeRateCrossInput,
   type FakeTapeInput,
   type FakeViOrderItemInput,
   type FakeViTriggerInput,
@@ -154,6 +159,20 @@ export type FakeGateway = {
   pushViOrderList(sock: net.Socket, items: FakeViOrderItemInput[], snap: boolean): void;
   /** 주문 통보 주입 (51). 상따·VI 발주의 접수/체결/거부가 전부 이 하나로 온다. */
   pushOrderResp(sock: net.Socket, input?: FakeOrderRespInput): void;
+
+  // --- 신규 푸시 3종 (17-03) ---
+
+  /**
+   * 등락률 돌파 알림 주입 (76). 서버는 이것을 **로그인 전 연결에도** Broadcast 한다.
+   *
+   * 프레임 조립은 `frames.ts` 빌더에 맡긴다 — 게이트웨이 쪽에서 따로 조립하면 프레임이
+   * 두 벌이 되고, 스키마가 바뀔 때 한쪽만 고쳐진다.
+   */
+  sendRateCrossAlert(sock: net.Socket, input?: FakeRateCrossInput): void;
+  /** 등락률 돌파 above 집합 전량 주입 (78). **빈 벡터도 정상 입력**이다. */
+  sendRateCrossSnapshot(sock: net.Socket, items?: FakeRateCrossInput[]): void;
+  /** 예약·장전·시간외종가 발주 창 상태 주입 (77). */
+  sendQueuedWindowState(sock: net.Socket, input?: FakeQueuedWindowInput): void;
   /**
    * 지금까지 수신한 전략 **명령** 프레임(10·11·14·33) 전량 (송신 순서 그대로).
    *
@@ -443,6 +462,18 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
 
     pushOrderResp(sock, input) {
       sock.write(frame(buildOrderRespFrame(input)));
+    },
+
+    sendRateCrossAlert(sock, input) {
+      sock.write(frame(buildRateCrossAlertFrame(input)));
+    },
+
+    sendRateCrossSnapshot(sock, items) {
+      sock.write(frame(buildRateCrossSnapshotFrame(items)));
+    },
+
+    sendQueuedWindowState(sock, input) {
+      sock.write(frame(buildQueuedWindowStateFrame(input)));
     },
 
     strategyRequests() {
