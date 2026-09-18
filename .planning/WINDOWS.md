@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 4
 waived_count: 0
 fixed_count: 8
-total_count: 11
-last_updated: 2026-09-12T13:36:06.535Z
+total_count: 12
+last_updated: 2026-09-18T01:31:37.356Z
 ---
 
 # Broken Windows Ledger
@@ -26,6 +26,7 @@ last_updated: 2026-09-12T13:36:06.535Z
 | 9 | quick-260912-ok2 | unrun-verify | webapp/e2e/specs/trading-limit-chaser.spec.ts |  | ④ 헤더 3컨트롤(거래소 콤보·종목명 트리거·검색 입력) 동일 높이 단언은 케이스 11 이 **본문 700 밴드에서만** 잰다. 컨테이너 ≥992 밴드(뷰포트 1400 실측: 콤보 28→36 / 트리거 36 / 입력 36)는 사람이 브라우저로 잰 값일 뿐 자동 단언이 없다 — 그 밴드의 높이 회귀를 잡아 줄 기계 장치가 아직 없다 | open |  | 2026-09-12T09:27:05.670Z |  |
 | 10 | quick-260912-u58 | unrun-verify | webapp/src/components/orderbook/orderbook-ladder.tsx |  | 3단 호가표 체결 셀의 체결가 예산은 7자(127,400)까지다 — 백만원대 7자리(1,234,000)는 56px 이 필요한데 와이드 48(넘침 8) · 데스크톱 49(넘침 7)로 잘린다. 이번 변경이 만든 것이 아니라 데스크톱에도 있던 선재 한계이고, 글꼴을 10px 밑으로 줄이는 것은 §2.2b 의 10px 예외 규칙을 깨므로 하지 않았다. 고가주에서 체결가가 잘린 채 표시될 수 있다 | open |  | 2026-09-12T13:36:06.444Z |  |
 | 11 | quick-260912-u58 | unrun-verify | webapp/e2e/specs/trading-limit-chaser.spec.ts |  | 밴드 **전이점** 자동 단언은 아직 없다 — 테스트 12·13 이 컨테이너 344/374/736/991/832/880/960/1100 을 실브라우저로 재지만, 829↔830 과 991↔992 에서 실제로 밴드가 바뀌는지는(1px 차이로 3단 호가표 ↔ 2단 호가 / 10칸 ↔ 5단 2행) 단언하지 않는다. 경계값 자체가 틀어져도 그 사이 지점들이 초록이면 지난다 | open |  | 2026-09-12T13:36:06.535Z |  |
+| 12 | 17 | deviation | relay/src/ws/fanout.ts |  | lc.arm 인바운드는 17-01 에서 계약만 놓였고 라우팅은 17-04 다 — 도달 시 error 로그로만 드러난다 | open |  | 2026-09-18T01:31:37.356Z |  |
 
 ````json
 [
@@ -159,6 +160,18 @@ last_updated: 2026-09-12T13:36:06.535Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-09-12T13:36:06.535Z",
+    "resolved_at": null
+  },
+  {
+    "id": 12,
+    "kind": "deviation",
+    "phase": "17",
+    "file": "relay/src/ws/fanout.ts",
+    "line": null,
+    "description": "lc.arm 인바운드는 17-01 에서 계약만 놓였고 라우팅은 17-04 다 — 도달 시 error 로그로만 드러난다",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-18T01:31:37.356Z",
     "resolved_at": null
   }
 ]

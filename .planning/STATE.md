@@ -3,12 +3,12 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
-status: completed
-stopped_at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
-last_updated: "2026-09-17T22:55:53.281Z"
-last_activity: 2026-09-17
-last_activity_desc: quick 260917-g45 relay 업타임 경보 싱가포르 AND 조건 반영 + wg-probe hs_stale 기준 보정(장중 파일 설치·재기동)
-state_head: 2e3a8690830e8786de2cfd52ad61cc7e524e5803
+status: executing
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-09-18T01:31:10.994Z"
+last_activity: 2026-09-18
+last_activity_desc: Phase 17 execution started
+state_head: 2c0874af679fb60bd3f064745f97473976f18db0
 progress:
   total_phases: 27
   completed_phases: 4
@@ -24,16 +24,16 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 16 — trading-limit-chaser-vi-my-page
+**Current focus:** Phase 17 — gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 
 ## Current Position
 
-Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — READY TO EXECUTE
-Plan: 46 of 46 완료 (16-01~16-17 실행 · 1라운드 16-18~16-26 · 2라운드 16-27~16-35 · **3라운드 16-36~16-46**)
+Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
+Plan: 2 of 12
 Plans completed: 171 / 185
-Status: **Phase 16 완결 — plan 46/46 + 요구사항 5종 전부 Complete.** TRADE-03 은 2026-09-10 장중 실계좌 **양방향 직접 관찰**로 재판정(`quick-260910-ogq`)했고, 2026-09-11 에 철거 방향(웹 매수전략 OFF → WinForms 종목창 매수주문 체크박스)까지 확인했다 — 그 단서는 **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건**(`SMOKE_AUTH_TOKEN` 부재 — TRADE-03 조항의 결손이 아니라 프로브의 미실행)
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-17 - quick task 260917-g45 relay 업타임 경보를 「평균 <0.9 AND 싱가포르 <0.9」로 변경(해외 경로 오탐 제거, 실장애 5건 백테스트 유지) + wg-probe `hs_stale` 앵커를 만료 뒤 첫 이동·3초 유예로 보정
+Last activity: 2026-09-18 — Phase 17 execution started
 
 Progress: [█████████░] 92%
 
@@ -433,6 +433,11 @@ Progress: [█████████░] 92%
 | Phase 16 P45 | 35m | 2 tasks | 2 files |
 | Phase 16 P42 | ~40분 | 3 tasks | 5 files |
 | Phase 16 P44 | 18min | 2 tasks | 2 files |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 17 P01 | 24 min | 3 tasks | 46 files |
 
 ## Accumulated Context
 
@@ -744,8 +749,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-12T09:31:17.343Z
-Stopped at: Completed quick-260912-ok2 (e2e 6건 + 사용자 지시 3건)
+Last session: 2026-09-18T01:31:10.224Z
+Stopped at: Completed 17-01-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
