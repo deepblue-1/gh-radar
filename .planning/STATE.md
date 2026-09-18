@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-08-PLAN.md
-last_updated: "2026-09-18T03:00:00.321Z"
+stopped_at: Completed 17-04-PLAN.md
+last_updated: "2026-09-18T03:19:41.147Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: e532a030f193664ee51f9f33f3077165d5074bd2
+state_head: 8b75294dd55ea380280d16c74b8e801dc197a850
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 175
+  completed_plans: 176
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 6 of 12
+Plan: 7 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -442,6 +442,7 @@ Progress: [█████████░] 92%
 | Phase 17 P07 | 8 min | 3 tasks | 3 files |
 | Phase 17 P03 | 16 min | 3 tasks | 11 files |
 | Phase 17 P08 | 17 min | 3 tasks | 6 files |
+| Phase 17 P04 | 14 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -680,6 +681,8 @@ Recent decisions affecting current work:
 - [Phase 17]: 17-03: 인증 직후 rate.cross.snap 은 비어도 1프레임(lc.snap 규율), queued.window 는 77 미수신이면 0프레임(vi 3상태 규율) — 빈 above 집합은 「돌파 없음」의 확정 정보라 안 보내면 브라우저가 스켈레톤에 멈추고, 모르는 창 상태를 지어내 보내면 브라우저가 거짓 라벨을 그려 서버가 거부할 주문을 유도한다
 - [Phase 17]: 체결 테이프 색은 서버 체결구분(bs) 우선 — 값이 없는 원소만 추정으로 폴백하고, 하단 고지는 실제로 쓴 근거만 말한다 — 추정을 확정 사실처럼 그리는 것과 서버가 준 값을 「추정」이라 부르는 것은 똑같이 화면이 거짓말하는 것이다 (T-17-27). 판정 입력은 usedFallback 한 값뿐이다.
 - [Phase 17]: 호가 종목정보의 KRX 종가 표기는 quote.kc 하나로만 판정 — 벽시계·스냅샷 폴백 금지 — kc=0 은 「모른다」가 아니라 「오늘 종가가 아니다」라는 서버의 답이다. 시각 기반 판정 grep 카운트 0 을 게이트로 잠그고, 장 마감 뒤 시각을 박아도 표기가 안 바뀌는 행동 증명을 함께 뒀다 (T-17-28).
+- [Phase 17]: lc.arm 의 무장 전제는 relay 가 재판정하지 않는다 — 서버가 한글 사유(54)로 거부하고 relay 는 그 문구를 그대로 나른다 — relay 의 에코 캐시로 서버 전제를 다시 판정하면 판정이 두 벌이 되고, 캐시가 한 틱 낡은 순간 「서버는 켤 수 있는데 relay 가 막는」 상태가 된다
+- [Phase 17]: 전략 키 조각 판정(ISIN·계좌·거래소)은 protocol.ts zod 스키마를 재사용하는 술어 3종이 정본이다 — fanout 에 정규식을 다시 적지 않는다 — 가드가 두 벌이 되면 한쪽만 고쳐져 lc.set 경로와 lc.arm 경로 사이에 조용한 비대칭이 생긴다
 
 ### Pending Todos
 
@@ -763,8 +766,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-18T02:59:59.551Z
-Stopped at: Completed 17-08-PLAN.md
+Last session: 2026-09-18T03:19:15.065Z
+Stopped at: Completed 17-04-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
