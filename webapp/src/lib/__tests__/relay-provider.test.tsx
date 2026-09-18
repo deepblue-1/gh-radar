@@ -153,6 +153,7 @@ function quoteFrame(over: Partial<RelayQuote> = {}): RelayQuote {
     viu: 76_000,
     vid: 62_000,
     ls: 5_969_782_550,
+    kc: 0,
     et: '093015123456',
     ...over,
   };
@@ -211,6 +212,7 @@ function lcItem(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
 function viOrder(over: Partial<RelayViOrderItem> = {}): RelayViOrderItem {
   return {
     isin: ISIN_A,
+    exchange: 'KRX',
     market: 'K',
     accountNo: '12345678-01',
     orderNo: '',

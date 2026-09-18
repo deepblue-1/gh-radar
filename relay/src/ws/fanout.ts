@@ -566,7 +566,11 @@ export class WsFanout {
     //    금액을 지운다 (16-06 결정 2). `null`(조회 결과 미등록)은 확정이므로 보낸다.
     this.#send(conn, { t: "lc.snap", items: this.#hub.getLimitChasers(userId) });
     const viTrigger = this.#hub.getViTrigger(userId);
-    if (viTrigger !== undefined) this.#send(conn, { t: "vi", cfg: viTrigger });
+    // `x` 는 거래소별 프레임의 축이다 (D-06). 미등록(`null`)의 거래소 귀속은 17-05 소관 —
+    // 지금은 KRX 하나만 조회하므로 `"KRX"` 가 사실과 어긋나지 않는다.
+    if (viTrigger !== undefined) {
+      this.#send(conn, { t: "vi", x: viTrigger?.exchange ?? "KRX", cfg: viTrigger });
+    }
     this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
   }
 
@@ -653,12 +657,15 @@ export class WsFanout {
 
     if (msg.t === "vi.set") {
       const { accountNo, orderAmountKrw, checkRate, run } = msg;
+      // **미지정 = KRX** (D-06 · D-18). 기존 브라우저가 싣지 않던 값이라 optional 이고,
+      // 기본값을 여기서 한 번만 정한다 — 조립기에 두면 호출부마다 다른 기본값이 생긴다.
+      const exchange = msg.exchange ?? "KRX";
       const session = this.#strategySession(conn, userId, msg.t);
       if (session === null) return;
       if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
       // `priceType` 은 싣지 않는다 — 상한가("U") 고정이라 조립기가 채운다 (하한가 경로 봉쇄).
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
-        buildSetVITriggerReq({ accountNo, orderAmountKrw, checkRate, run }),
+        buildSetVITriggerReq({ accountNo, exchange, orderAmountKrw, checkRate, run }),
       );
       if (payload === null) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
@@ -718,6 +725,18 @@ export class WsFanout {
       }
       // 거부·타임아웃까지 전부 프레임으로 드러나므로 여기서 예외를 기다리지 않는다.
       void this.#orders.handle(conn, userId, msg);
+      return;
+    }
+
+    if (msg.t === "lc.arm") {
+      // 계약(`RelayLcArmMsg`)은 17-01 에서 먼저 놓였고 **결선은 17-04** 다. zod
+      // `RelayInboundSchema` 에 아직 없으므로 이 분기는 런타임에 도달할 수 없다 —
+      // 도달했다면 스키마와 라우터가 갈렸다는 뜻이다. 조용히 버리지 않는 이유가 그것이다
+      // (PC-7 무로그 fail-safe 금지).
+      logger.error(
+        { userId, t: msg.t },
+        "[WS] lc.arm 라우팅 미결선 — 인바운드 스키마와 라우터가 갈렸다 (17-04 소관)",
+      );
       return;
     }
 

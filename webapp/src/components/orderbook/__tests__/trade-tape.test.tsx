@@ -20,7 +20,7 @@ import {
 const BASE = 98_000;
 
 function entry(over: Partial<RelayTapeEntry> = {}): RelayTapeEntry {
-  return { t: '093015123456', p: 98_100, cs: '2', c: 100, q: 10, cv: 1_000, ...over };
+  return { t: '093015123456', p: 98_100, cs: '2', c: 100, q: 10, cv: 1_000, bs: '', ...over };
 }
 
 /** 최신이 index 0 인 배열을 만든다. cv 는 오래된 것부터 증가한다. */

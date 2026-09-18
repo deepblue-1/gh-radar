@@ -42,6 +42,7 @@ const ACCOUNTS = [{ accountNo: ACCOUNT, name: 'KB 위탁종합' }];
 function trigger(over: Partial<RelayViTrigger> = {}): RelayViTrigger {
   return {
     accountNo: ACCOUNT,
+    exchange: 'KRX',
     orderAmountKrw: 10_000_000, // 1,000만원
     checkRate: 22,
     priceType: 'U',

@@ -367,6 +367,7 @@ describe("parseInbound — 경계값 거부 (T-16-05)", () => {
 describe("buildSetVITriggerReq — 금액 상한 (WR-07)", () => {
   const cfg = (orderAmountKrw: number) => ({
     accountNo: ACCOUNT_NO,
+    exchange: "KRX" as const,
     orderAmountKrw,
     checkRate: 22,
     run: true,

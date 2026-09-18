@@ -509,6 +509,9 @@ export function parseQuoteState(env: Envelope, isSnapshot: boolean): RelayQuote 
     viu: toNum(q.viUpPrice(), "vi_up_price"),
     vid: toNum(q.viDownPrice(), "vi_down_price"),
     ls: toNum(q.listShares(), "list_shares"),
+    // KRX 정규장 종가. 오늘 종가가 아니면 서버가 `0` 을 보낸다 — **`0` 도 권위값**이라
+    // 거르지 않는다. NXT 프레임에도 KRX 값이 실린다 (D-11). 벽시계 판정은 어디에도 없다.
+    kc: toNum(q.krxClosePrice(), "krx_close_price"),
     // 해석하지 않고 원문 그대로 흘린다 — 신선도 판정의 원천 (D-34).
     et: q.exchangeTime() ?? "",
   };
@@ -548,6 +551,9 @@ export function parseTradeTape(env: Envelope, isSnapshot: boolean): RelayTape | 
       c: toNum(e.change(), "trade_change"),
       q: toNum(e.qty(), "trade_qty"),
       cv: toNum(e.cumVolume(), "trade_cum_volume"),
+      // 서버 체결구분 원문. 아는 두 값만 통과시키고 **낯선 값은 `""`(미상)으로 좁힌다** —
+      // 지어내면 매수/매도 색이 반대로 칠해진다. `""` 인 원소만 화면이 추정으로 폴백한다 (D-10).
+      bs: fromWireBsCode(e.bsCode() ?? ""),
     });
   }
 
@@ -1090,9 +1096,14 @@ export function buildSetVITriggerReq(cfg: ViTriggerInput): Uint8Array {
     throw new OrderBuildError("BAD_CHECK_RATE", `발동 상승률이 int 표현 범위를 벗어났습니다: ${cfg.checkRate}`);
   }
 
+  if (!isValidExchange(cfg.exchange)) {
+    throw new OrderBuildError("BAD_EXCHANGE", `알 수 없는 거래소: ${String(cfg.exchange)}`);
+  }
+
   const b = new flatbuffers.Builder(128);
   const accountNoOff = b.createString(accountNo);
   const priceTypeOff = b.createString(VI_PRICE_TYPE);
+  const exchangeOff = b.createString(cfg.exchange);
 
   SetVITrigger.startSetVITrigger(b);
   SetVITrigger.addAccountNo(b, accountNoOff);
@@ -1101,6 +1112,9 @@ export function buildSetVITriggerReq(cfg: ViTriggerInput): Uint8Array {
   SetVITrigger.addCheckRate(b, cfg.checkRate);
   SetVITrigger.addPriceType(b, priceTypeOff);
   SetVITrigger.addRun(b, cfg.run);
+  // VI 전략은 세션당 **거래소별 1건**이다 (D-06). 받아 두고 싣지 않으면 「값이 왕복한다」는
+  // 착각이 생기고, 호출부가 NXT 를 지정해도 조용히 KRX 슬롯을 덮어쓴다.
+  SetVITrigger.addExchange(b, exchangeOff);
   const table = SetVITrigger.endSetVITrigger(b);
 
   Envelope.startEnvelope(b);
@@ -1396,6 +1410,19 @@ export function fromWireMarket(raw: string): OrderMarket {
 }
 
 /**
+ * 수신 체결구분 정규화 (`TradeTapeEntry.bs_code`) — `"1"` 매도 · `"2"` 매수 · 그 밖 전부 `""`.
+ *
+ * **아는 두 값만 통과시킨다.** `fromWireMarket`/`fromWireCrud` 처럼 "그 외는 한쪽으로 접는"
+ * 규약이 **아니다**: 시장·등록구분은 서버가 기본값을 갖지만 체결구분은 그렇지 않아, 낯선
+ * 값을 한쪽으로 접으면 매수/매도 색이 **반대로** 칠해진다. 모르는 것은 모른다고 말하는
+ * `""` 가 유일하게 안전한 방향이다 — 화면은 `""` 인 원소만 호가 비교 추정으로 폴백하고
+ * 그때만 「추정」이라고 밝힌다 (D-10).
+ */
+export function fromWireBsCode(raw: string): "" | "1" | "2" {
+  return raw === "1" || raw === "2" ? raw : "";
+}
+
+/**
  * 수신 등록구분 정규화 — 첫 글자가 `'D'` 면 삭제, 그 외는 전부 upsert(`'C'`)다.
  *
  * **`"D"` 는 반드시 계약에 실어 보낸다** (Pitfall 7 / D-08). 서버는
@@ -1523,6 +1550,14 @@ export function parseAccountState(env: Envelope, isSnapshot: boolean): RelayAcco
       filledQty: u.filledQty(),
       // 취소 수량의 원천이다 (D-21 — 0 은 즉시 거부이므로 UI 가 버튼을 막는다).
       unfilledQty: u.unfilledQty(),
+      // 아래 5필드는 **해석하지 않고 그대로 올린다** (D-07). 문구를 파싱하거나 대기/발사중을
+      // 다시 계산하지 않는 것이 규율이고, 회색·취소 제외 판정의 근거는 `pendingCancelSent`
+      // bool 하나다(gh-trade 교훈 24).
+      orderTime: u.orderTime() ?? "",
+      queuedStatus: u.queuedStatus() ?? "",
+      pendingStatus: u.pendingStatus() ?? "",
+      board: u.board() ?? "",
+      pendingCancelSent: u.pendingCancelSent(),
       exchange: fromWireExchange(u.exchange() ?? ""),
     });
   }
@@ -1809,6 +1844,8 @@ export function parseViTrigger(env: Envelope): ParsedViTrigger | null {
     ok: true,
     cfg: {
       accountNo,
+      // 빈 값은 `"KRX"` 다 — 서버가 그렇게 정규화한 뒤 거래소별 슬롯에 넣는다 (D-06).
+      exchange: fromWireExchange(t.exchange() ?? ""),
       // ulong → number 승격의 유일 지점 (D-34). 여기서 새면 팬아웃 루프가 TypeError 로 죽는다.
       orderAmountKrw: toNum(t.orderAmountKrw(), "orderAmountKrw"),
       // 정수 %(25 = 25%). 상따의 `sweepMinRate`(BasisPoints)와 단위가 다르다 (Pitfall 5).
@@ -1887,6 +1924,8 @@ export function parseViOrderList(
 
     items.push({
       isin,
+      // 빈 값은 `"KRX"` (D-06). R8 매칭 키가 ISIN+거래소라 같은 종목이 양쪽에서 발동하면 행이 둘이다.
+      exchange: fromWireExchange(it.exchange() ?? ""),
       market: fromWireMarket(it.market() ?? ""),
       accountNo,
       // `""` 를 **그대로 보존한다** — 접수 전(Pending)이라 확인 체크를 열 수 없다는 신호이고,
@@ -1934,6 +1973,8 @@ export function parseViOrderNotice(env: Envelope): RelayViNoticeMsg | null {
   return {
     t: "vi.notice",
     isin,
+    // 빈 값은 `"KRX"` (D-06).
+    exchange: fromWireExchange(n.exchange() ?? ""),
     accountNo: n.accountNo() ?? "",
     triggerPrice: n.triggerPrice(),
     basePrice: n.basePrice(),

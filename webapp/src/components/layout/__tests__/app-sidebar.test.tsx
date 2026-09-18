@@ -394,6 +394,7 @@ describe("AppSidebar — 전략 3단 목록 (N3/N3a/N5)", () => {
     setupReady({
       viTrigger: {
         accountNo: "37728502101",
+        exchange: "KRX",
         orderAmountKrw: 1_000_000,
         checkRate: 25,
         priceType: "U",

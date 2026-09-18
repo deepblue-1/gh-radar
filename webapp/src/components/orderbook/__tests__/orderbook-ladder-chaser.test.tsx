@@ -58,6 +58,7 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
     viu: 110_000,
     vid: 90_000,
     ls: 5_969_782_550,
+    kc: 0,
     et: '093015123456',
     ...over,
   };
@@ -72,6 +73,7 @@ function makeTrades(count = 10): RelayTapeEntry[] {
     c: -10,
     q: 100 + i,
     cv: 1_000 + i,
+    bs: '',
   }));
 }
 
@@ -156,7 +158,7 @@ describe('OrderbookLadder — 상따 변형', () => {
     // 마커 우선순위가 뒤집히면 그때만 「상」이 사라지고 도트가 뜬다.
     const { container } = renderChaser({
       upperLimit: 99_900,
-      recentTrades: [{ t: '093010123456', p: 99_900, cs: '2', c: 100, q: 100, cv: 1_000 }],
+      recentTrades: [{ t: '093010123456', p: 99_900, cs: '2', c: 100, q: 100, cv: 1_000, bs: '' }],
     });
 
     expect(screen.getAllByRole('img', { name: '상한가' })).toHaveLength(1);

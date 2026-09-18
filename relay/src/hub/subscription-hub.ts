@@ -797,7 +797,11 @@ export class SubscriptionHub extends EventEmitter {
   #onViTrigger(userId: string, cfg: RelayViTrigger | null): void {
     this.#viTriggers.set(userId, cfg);
     logger.info({ userId, registered: cfg !== null, run: cfg?.run ?? false }, "[HUB] VI 전략 수신");
-    this.#fanout(userId, { t: "vi", cfg });
+    // 프레임은 **거래소별**이다 (D-06). 등록분은 파싱된 `cfg.exchange` 가 원천이고,
+    // 미등록(`cfg === null`)은 본문에 거래소가 없어 지금은 `"KRX"` 로만 말할 수 있다 —
+    // 21 을 KRX 만 보내는 현재 동작과 정확히 같다. 21 을 두 거래소로 넓히고 빈 61 을
+    // 요청 거래소 FIFO 로 귀속하는 것은 17-05 다.
+    this.#fanout(userId, { t: "vi", x: cfg?.exchange ?? "KRX", cfg });
   }
 
   /**

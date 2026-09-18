@@ -65,6 +65,12 @@ export type {
   RelayViNoticeMsg,
   RelayStrategiesDisabledMsg,
   RelayOrderResultMsg,
+  // --- 17-01 gh-trade HEAD 재동기화. 인바운드 1종(lc.arm) + 아웃바운드 3종(76/77/78) ---
+  RelayLcArmMsg,
+  RelayRateCrossItem,
+  RelayRateCrossMsg,
+  RelayRateCrossSnapMsg,
+  RelayQueuedWindowMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,

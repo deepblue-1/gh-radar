@@ -47,6 +47,7 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
     viu: 108_000,
     vid: 88_000,
     ls: 5_969_782_550,
+    kc: 0,
     et: '093015123456',
     ...over,
   };

@@ -155,6 +155,7 @@ function quoteFrame(overrides: Partial<RelayQuote> = {}): RelayQuote {
     viu: 76_000,
     vid: 62_000,
     ls: 5_969_782_550,
+    kc: 0,
     et: '093015123456',
     ...overrides,
   };
@@ -168,6 +169,7 @@ function tapeEntry(seq: number): RelayTapeEntry {
     c: seq,
     q: 10,
     cv: 1_000 + seq,
+    bs: '',
   };
 }
 
@@ -803,6 +805,11 @@ describe('useRelayConnection — 프레임 견고성', () => {
               orderQty: 10,
               filledQty: 0,
               unfilledQty: 10,
+              orderTime: '093015',
+              queuedStatus: '',
+              pendingStatus: '',
+              board: '',
+              pendingCancelSent: false,
               exchange: 'KRX',
             },
           ],
@@ -857,6 +864,11 @@ describe('useRelayConnection — 프레임 견고성', () => {
               orderQty: 10,
               filledQty: 10,
               unfilledQty: 0,
+              orderTime: '093015',
+              queuedStatus: '',
+              pendingStatus: '',
+              board: '',
+              pendingCancelSent: false,
               exchange: 'KRX',
             },
           ],
@@ -913,6 +925,11 @@ describe('useRelayConnection — 프레임 견고성', () => {
       orderQty: 10,
       filledQty,
       unfilledQty,
+      orderTime: '093015',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
       exchange: 'KRX',
     });
 
@@ -944,6 +961,11 @@ describe('useRelayConnection — 프레임 견고성', () => {
       orderQty: 10,
       filledQty: 10 - unfilledQty,
       unfilledQty,
+      orderTime: '093015',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
       exchange: 'KRX',
     });
 

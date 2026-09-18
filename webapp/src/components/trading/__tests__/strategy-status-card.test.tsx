@@ -161,6 +161,11 @@ function accountStates(): ReadonlyMap<string, RelayAccountState> {
         orderQty: 205,
         filledQty: 0,
         unfilledQty: 205,
+        orderTime: "093015",
+        queuedStatus: "",
+        pendingStatus: "",
+        board: "",
+        pendingCancelSent: false,
         exchange: "NXT",
         name: "이수페타시스",
         code: "007660",
@@ -181,6 +186,7 @@ function relayState(over: Partial<RelayShape> = {}): RelayShape {
 
 const VI_RUNNING = {
   accountNo: "37728502101",
+  exchange: "KRX" as const,
   orderAmountKrw: 10_000_000,
   checkRate: 22,
   priceType: "U" as const,

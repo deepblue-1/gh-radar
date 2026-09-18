@@ -309,6 +309,11 @@ export type RelayViTrigger = {
   /** 계좌번호 (최대 12자). */
   accountNo: string;
   /**
+   * 거래소 — VI 전략은 세션당 **거래소별 1건**이다(계좌당 1건이 아니다).
+   * 와이어의 빈 값·미지정은 **relay 가 `"KRX"` 로 정규화**한 뒤 올린다 (D-06).
+   */
+  exchange: RelayExchange;
+  /**
    * 주문금액 — **원 단위**다. UI 는 만원으로 입력받아 x 10,000 해서 보낸다.
    * 게이트웨이는 64비트 정수로 주지만 와이어 계약은 `number` 다 (D-34) — relay 가 좁힌다.
    */
@@ -337,6 +342,11 @@ export type RelayViOrderState =
 export type RelayViOrderItem = {
   /** 12자 ISIN. */
   isin: string;
+  /**
+   * 거래소. 빈 와이어 값은 relay 가 `"KRX"` 로 정규화한다 (D-06).
+   * R8 매칭 키는 **ISIN + 거래소**다 — 같은 종목이 양쪽에서 발동하면 행이 둘이다.
+   */
+  exchange: RelayExchange;
   /** 시장 구분 — 취소 주문의 `market` 원천이다. */
   market: OrderMarket;
   /** 계좌번호. */
@@ -404,11 +414,40 @@ export type RelayLcSetMsg = { t: "lc.set"; cfg: RelayLimitChaserInput };
 export type RelayViSetMsg = {
   t: "vi.set";
   accountNo: string;
+  /**
+   * 대상 거래소. **미지정 = `"KRX"`** 다 (D-06 · D-18) — 기존 브라우저가 싣지 않던 값이라
+   * optional 로 둔다. relay 가 `buildSetVITriggerReq` 에 그대로 실어 보낸다.
+   */
+  exchange?: RelayExchange;
   /** **원 단위**. UI 의 만원 입력을 x 10,000 한 값이다. */
   orderAmountKrw: number;
   /** 정수 %. */
   checkRate: number;
   run: boolean;
+};
+
+/**
+ * 상따 진입 확인 래치 **수동 점등** (`ArmSellLatchReq(36)` · `ArmCancelLatchReq(37)` ·
+ * `ArmBuyLatchReq(38)`, D-04).
+ *
+ * `latch` 가 세 msg_type 중 하나를 고른다 — 본문은 셋 다 `get_strategy_req{key}` 를
+ * 재사용한다(서버가 35·36 선례로 슬롯을 공유한다).
+ *
+ * ⚠️ **요청은 토글이다.** 서버가 현재 래치값을 보고 켜거나 끈다 — 브라우저가 목표 상태를
+ *    지정하지 않는다. 같은 키를 두 번 보내면 켜졌다 꺼진다.
+ * ⚠️ **별도 ack 프레임이 없다.** 성공은 기존 `lc`(60 에코)가 새 래치값으로 말하고, 실패는
+ *    기존 `msg`(`ServerMessage(54)` WARN) 한글 사유로 온다. 타임아웃 UI 를 만들지 않는다.
+ * ⚠️ **빈 키는 보내지 않는다** — 서버가 `등록된 상따 전략이 없습니다` 로 거부한다.
+ */
+export type RelayLcArmMsg = {
+  t: "lc.arm";
+  /**
+   * 상따 전략 키 `ISIN:accountNo:exchange` — `GetLimitChaserReq(20)` 과 **같은 값**이고
+   * `RelayLimitChaser.key` 가 그 원천이다.
+   */
+  key: string;
+  /** 어느 래치인가. `"sell"`=36 · `"cancel"`=37 · `"buy"`=38. */
+  latch: "sell" | "cancel" | "buy";
 };
 
 /**
@@ -476,6 +515,7 @@ export type RelayInbound =
   | RelaySubMsg
   | RelayUnsubMsg
   | RelayLcSetMsg
+  | RelayLcArmMsg
   | RelayViSetMsg
   | RelayViConfirmMsg
   | RelayStrategiesDisableMsg
@@ -564,6 +604,15 @@ export type RelayQuote = {
   /** VI 발동예상가 (상승/하락). */
   viu: number;
   vid: number;
+  /**
+   * KRX 정규장 종가 (`QuoteState.krx_close_price`). **오늘 종가가 아니면 `0`** 이다.
+   *
+   * ⚠️ **NXT 프레임에도 KRX 값이 실린다** — 거래소별로 다른 값이 오지 않는다(C# 동일).
+   * ⚠️ **벽시계로 판정하지 않는다.** "지금이 장 마감 뒤인가"를 클라가 계산해 라벨을 바꾸면
+   *    서버 진실과 갈린다. `kc > 0` 하나가 「종가가 확정됐다」의 유일한 신호다.
+   * ⚠️ **`0` 도 권위값**이라 거르지 않는다 — 같은 값이면 no-op 일 뿐, 「모른다」가 아니다.
+   */
+  kc: number;
   /** 상장주식수. */
   ls: number;
   /** 거래소 체결·처리시각 "HHMMSSuuuuuu" 12자 — 신선도 원천 (D-34). */
@@ -584,6 +633,13 @@ export type RelayTapeEntry = {
   q: number;
   /** 누적거래량(주). */
   cv: number;
+  /**
+   * 서버 체결구분 (`TradeTapeEntry.bs_code`) — `"1"` 매도 · `"2"` 매수 · `""` 미상.
+   *
+   * 거래소 원문이라 **추정이 아니다**. `""` 인 원소만 기존 호가 비교 추정으로 폴백하고,
+   * 그 경우에만 화면이 「추정」이라고 말한다 (D-10).
+   */
+  bs: "" | "1" | "2";
 };
 
 /**
@@ -631,6 +687,34 @@ export type RelayUnfilled = {
   unfilledQty: number;
   /** 거래소. 구 서버의 미지정은 relay 가 "KRX" 로 정규화한다. */
   exchange: RelayExchange;
+  /** 주문시각 `"HHMMSS"` (거래소 원문). 스키마에는 전부터 있었고 17-01 에서 비로소 소비한다. */
+  orderTime: string;
+  /**
+   * 예약 주문 상태 문구 (`UnfilledState.queued_status`). `""` = 일반 행.
+   * 값이 있으면 **예약 요약 행**이고 `orderNo` 가 Q-ID(`Q`+HHMMSS+3자리 = 10자)다.
+   *
+   * ⚠️ **서버 문구를 표시만 한다.** 「예약대기/발사중/발사완료/실패: 사유」를 클라가 다시
+   *    계산하거나 문구를 파싱해 분기하지 않는다 (D-07 · gh-trade 교훈 24).
+   */
+  queuedStatus: string;
+  /**
+   * 증권사 접수대기 문구 (`UnfilledState.pending_status`). `""` = 일반 행.
+   * 「증권사 보관 · 09:00 처리」 같은 값이 온다 — 역시 **표시만** 한다.
+   *
+   * ⚠️ 이 문구로 회색·취소 제외를 판정하지 않는다. 그 근거는 `pendingCancelSent` 하나다.
+   */
+  pendingStatus: string;
+  /** 시간외종가 구분 — `"G2"` · `"G3"` · `""` **셋뿐**이다. 그 밖의 값은 서버가 보내지 않는다. */
+  board: string;
+  /**
+   * 취소 보관 여부 (`UnfilledState.pending_cancel_sent`) — 서버 원장 `'X'` 행만 `true`.
+   *
+   * ⚠️ **회색 표시·취소 버튼 숨김 판정의 유일한 근거**다 (D-14 · gh-trade 교훈 24).
+   *    `pendingStatus` 문구 비교로 대신하면 서버가 문구를 바꾸는 순간 조용히 틀어진다.
+   * ⚠️ 단, relay `order.cancel` 은 이 값으로 **거부하지 않는다** — 서버가 브로커 앞에서
+   *    'R' 로 답하므로 이중 판정을 만들지 않는다 (D-07). 화면이 버튼을 감추는 것으로 충분하다.
+   */
+  pendingCancelSent: boolean;
   /** 종목명 — relay 가 `stocks.isin` 역매핑으로 채운다. 없으면 UI 가 ISIN 을 보여준다. */
   name?: string;
   /**
@@ -680,7 +764,14 @@ export type RelayOrderMsg = {
   nt: string;
   /** 결과코드 (0=성공, 그 외=거부코드). */
   rc: number;
-  /** 결과 메시지 (거부 사유 등). */
+  /**
+   * 결과 메시지 (거부 사유 등).
+   *
+   * ⚠️ **이 문구를 어디서도 파싱하지 않는다** (D-08). 정정·취소 804 거부에서 서버가 문구를
+   *    `이미 체결·취소돼 취소(정정)할 잔량 없음` 으로 **교체**하므로, 문구 매칭으로 만든
+   *    분기는 서버가 말을 바꾸는 순간 조용히 틀어진다. 행위 판정은 `nt`(notice_type) 와
+   *    `rk`(request_kind) 로 한다.
+   */
   msg: string;
   /** 원주문번호. 신규 통보는 "". */
   org: string;
@@ -688,7 +779,24 @@ export type RelayOrderMsg = {
   p: number;
   q: number;
   x: RelayExchange;
+  /** 시간외종가 구분 (`OrderResp.board`) — `"G2"` · `"G3"` 만. 빈 값은 생략한다. */
+  bd?: string;
+  /**
+   * 요청 종류 (`OrderResp.request_kind`) — `"New"` · `"Modify"` · `"Cancel"`.
+   * **행위 단어의 원천**이다(문구가 아니라 이 값). 빈 값은 생략한다.
+   */
+  rk?: string;
+  /**
+   * 요청 주체 (`OrderResp.requester`) — `"Manual"` 뿐이다. 빈 값은 생략한다.
+   * **표시 전용**이다 — `dma_orders.origin` 은 원주문 주체 그대로 둔다 (D-08).
+   */
+  rq?: string;
 };
+
+/*
+ * ★ `side`·`isin` 은 계속 싣지 않는다 (Pitfall 8 규율 유지). 주문번호로 브라우저가
+ *   자기 주문 목록과 맞춘다 — 통보에 방향·종목을 실으면 두 원천이 갈린다.
+ */
 
 /**
  * 서버 통지 (`ServerMessage(54)`) — 해석 없이 그대로 흘린다 (D-36).
@@ -703,7 +811,13 @@ export type RelayServerMsg = {
   i: string;
   /** 관련 계좌번호. */
   a: string;
-  /** 발신 맥락 "Account" / "System" 등. */
+  /**
+   * 발신 맥락. 어휘는 `"SetLimitChaser"` · `"SetVITrigger"` · `"Account"` · `"System"` 에
+   * **`"LimitChaser"` · `"VITrigger"` 둘이 더해졌다**(상따·VI 런타임 사유 줄, D-09).
+   *
+   * ⚠️ 판정은 **동등 비교만** 한다. 부분일치·정규식·대소문자 접기 같은 자유문 해석은
+   *    금지다 — 서버가 어휘를 늘리면 알 수 없는 값은 조용히 기본 분기로 떨어져야 한다.
+   */
   src: string;
   /** 사건 종류 "SessionJoin" / "Restore" / "Purge". 그 외 빈 값. */
   kind: string;
@@ -733,7 +847,16 @@ export type RelayLimitChaserSnapMsg = { t: "lc.snap"; items: RelayLimitChaser[] 
  * ⚠️ 15:40 서버 자동 비활성화의 `run=false` 는 **Broadcast 라 드롭될 수 있다** (Pitfall 19).
  *    드롭되면 화면이 「가동」으로 남으므로 장 마감 표시로 오해를 막는다.
  */
-export type RelayViTriggerMsg = { t: "vi"; cfg: RelayViTrigger | null };
+export type RelayViTriggerMsg = {
+  t: "vi";
+  /**
+   * 이 프레임이 말하는 거래소. VI 전략이 거래소별 1건이라 **프레임도 거래소별**이다 (D-06).
+   * 빈 61(그 거래소 미등록)에는 거래소 정보가 없으므로 relay 가 21 요청 거래소 FIFO 로
+   * 귀속한다 — 브라우저는 그 결과인 이 값만 믿는다.
+   */
+  x: RelayExchange;
+  cfg: RelayViTrigger | null;
+};
 
 /**
  * VI 주문 추적 목록 (`VIOrderList` 72 스냅샷 / 73 델타).
@@ -750,6 +873,8 @@ export type RelayViNoticeMsg = {
   t: "vi.notice";
   /** 발동 종목 12자 ISIN. */
   isin: string;
+  /** 발동 거래소. 빈 와이어 값은 relay 가 `"KRX"` 로 정규화한다 (D-06). */
+  exchange: RelayExchange;
   /** 발주 계좌. */
   accountNo: string;
   /** VI 발동가(원). */
@@ -770,6 +895,74 @@ export type RelayViNoticeMsg = {
   viEndTime: string;
   /** 종목명 — relay 가 `stocks.isin` 역매핑으로 채운다. 없으면 UI 가 ISIN 을 보여준다. */
   name?: string;
+};
+
+/**
+ * 등락률 돌파 알림 1건 (`RateCrossAlert`, D-03). 76 단건과 78 스냅샷 원소가 **같은 바이트**다.
+ *
+ * ⚠️ 스냅샷 원소에서 `lastPrice`/`changeRate`/`basePrice` 는 **마지막 판정 A3** 이고,
+ *    `exchangeTime` 은 above 구간을 **연** A3(또는 장중 기동 시드 A3)이다 — 셋의 시각이
+ *    같지 않다. 「이 값들이 이 시각의 스냅샷」이라고 읽으면 틀린다.
+ */
+export type RelayRateCrossItem = {
+  /** 12자 ISIN. */
+  isin: string;
+  /** 거래소. */
+  exchange: RelayExchange;
+  /** 판정 시점 현재가(원). */
+  lastPrice: number;
+  /** 등락률 — **double %** 다(내림하지 않는다). `RelayViTrigger.checkRate` 의 정수 % 와 다르다. */
+  changeRate: number;
+  /** 서버가 쓴 임계 %(돌파 기준). 재무장 폭 2%p 는 서버가 관리한다. */
+  thresholdPct: number;
+  /** 등락률 계산의 분모가 된 기준가(원). */
+  basePrice: number;
+  /** 거래소 체결시각 `"HHMMSSuuuuuu"` **12자 원문** — 해석하지 않고 그대로 흘린다. */
+  exchangeTime: string;
+  /** 서버 시각 `"HH:MM:SS"`. 표시 전용이다. */
+  serverTime: string;
+};
+
+/**
+ * 등락률 돌파 알림 단건 (76 — `RateCrossAlert`). **above 집합 upsert** 다.
+ *
+ * ⚠️ 서버가 **로그인 전 연결에도** Broadcast 한다 — 요청 짝도 snapshot 플래그도 없다.
+ *    relay 는 Ready 이전 프레임을 캐시만 하고 팬아웃은 Ready 뒤에 한다(기존 규율).
+ */
+export type RelayRateCrossMsg = { t: "rate.cross"; item: RelayRateCrossItem };
+
+/**
+ * 등락률 돌파 above 집합 **전량 교체** (78 — `RateCrossSnapshot`).
+ *
+ * 로그인 성공 직후 그 연결에만 1프레임 오고(빈 벡터도 온다), 재로그인마다 다시 온다.
+ * 원소 순서는 `exchangeTime` 오름차순 · 동률이면 `isin` 오름차순이다.
+ *
+ * ⚠️ relay 는 **서버 above 집합을 그대로 보관**한다. 하루 1회 알림 규칙과 임계−2%p 이탈
+ *    삭제는 클라(Phase 18) 몫이다 — relay 가 집합을 가공하면 서버 재무장 폭과 갈린다.
+ */
+export type RelayRateCrossSnapMsg = { t: "rate.cross.snap"; items: RelayRateCrossItem[] };
+
+/**
+ * 예약·장전·시간외종가 발주 창 상태 (77 — `QueuedWindowState`). **최신 1건만** 보관한다.
+ *
+ * ⚠️ 여섯 값 전부 **표시 힌트**다. relay 도 브라우저도 **벽시계로 창을 판정하지 않는다** —
+ *    fbs 주석(예약창 `[15:20,16:00)`)과 `docs/features/queued-order.md`(15:30 시작)의 시각이
+ *    서로 엇갈린다. 엇갈리는 두 문서 대신 서버가 보내는 플래그 하나를 믿는다.
+ */
+export type RelayQueuedWindowMsg = {
+  t: "queued.window";
+  /** 예약 발주 창이 열려 있는가. */
+  open: boolean;
+  /** 조각 주문 최대 개수. */
+  maxPieces: number;
+  /** 장전 시간외 창. */
+  preopenOpen: boolean;
+  /** 시간외종가 G2 창. */
+  g2Open: boolean;
+  /** 시간외종가 G3 창. */
+  g3Open: boolean;
+  /** NXT 장전 창. */
+  nxtPreopenOpen: boolean;
 };
 
 /**
@@ -823,7 +1016,10 @@ export type RelayOutbound =
   | RelayViListMsg
   | RelayViNoticeMsg
   | RelayStrategiesDisabledMsg
-  | RelayOrderResultMsg;
+  | RelayOrderResultMsg
+  | RelayRateCrossMsg
+  | RelayRateCrossSnapMsg
+  | RelayQueuedWindowMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)

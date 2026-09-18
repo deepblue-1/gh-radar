@@ -117,6 +117,11 @@ function accountStatesAB(): ReadonlyMap<string, RelayAccountState> {
             orderQty: 10,
             filledQty: 0,
             unfilledQty: 10,
+            orderTime: '093015',
+            queuedStatus: '',
+            pendingStatus: '',
+            board: '',
+            pendingCancelSent: false,
             exchange: 'KRX',
             name: NAME,
             code: CODE,
@@ -145,6 +150,11 @@ function accountStatesAB(): ReadonlyMap<string, RelayAccountState> {
             orderQty: 20,
             filledQty: 0,
             unfilledQty: 20,
+            orderTime: '093015',
+            queuedStatus: '',
+            pendingStatus: '',
+            board: '',
+            pendingCancelSent: false,
             exchange: 'KRX',
             name: NAME,
             code: CODE,
@@ -189,6 +199,7 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
     viu: 108_000,
     vid: 88_000,
     ls: 5_969_782_550,
+    kc: 0,
     et: '093015123456',
     ...over,
   };
@@ -197,9 +208,9 @@ function makeQuote(over: Partial<RelayQuote> = {}): RelayQuote {
 /** 체결 3건 — 최신이 index 0 (훅 계약). 최우선호가 대비 매수/매도가 갈리게 둔다. */
 function makeTape(): RelayTapeEntry[] {
   return [
-    { t: '093017100000', p: 98_100, cs: '2', c: 100, q: 12, cv: 1_000_012 },
-    { t: '093016100000', p: 97_900, cs: '5', c: -100, q: 34, cv: 1_000_000 },
-    { t: '093015100000', p: 98_100, cs: '2', c: 100, q: 56, cv: 999_966 },
+    { t: '093017100000', p: 98_100, cs: '2', c: 100, q: 12, cv: 1_000_012, bs: '' },
+    { t: '093016100000', p: 97_900, cs: '5', c: -100, q: 34, cv: 1_000_000, bs: '' },
+    { t: '093015100000', p: 98_100, cs: '2', c: 100, q: 56, cv: 999_966, bs: '' },
   ];
 }
 

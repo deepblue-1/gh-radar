@@ -541,7 +541,9 @@ describe("WsFanout", () => {
     await flushIo(20);
 
     expect(framesOf(tabA.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
-    expect(framesOf(tabA.inbox, "vi")[0]).toEqual({ t: "vi", cfg: null });
+    // `x` 는 거래소별 프레임의 축이다 (D-06 / 17-01). 미등록(`cfg: null`)의 거래소 귀속은
+    // 17-05 의 21 요청 FIFO 가 정하고, 지금은 KRX 하나만 조회하므로 "KRX" 다.
+    expect(framesOf(tabA.inbox, "vi")[0]).toEqual({ t: "vi", x: "KRX", cfg: null });
     expect(framesOf(tabA.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
 
     // (B) **아직 모른다**(`undefined`) — 로그인이 끝나지 않아 61 을 받은 적이 없다.

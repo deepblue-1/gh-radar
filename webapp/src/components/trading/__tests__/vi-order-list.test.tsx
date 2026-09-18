@@ -46,6 +46,7 @@ const NOW = Date.UTC(2026, 8, 9, 4, 44, 2);
 function item(over: Partial<RelayViOrderItem> = {}): RelayViOrderItem {
   return {
     isin: 'KR7007660006',
+    exchange: 'KRX',
     market: 'K',
     accountNo: ACCOUNT,
     orderNo: '0031245',

@@ -933,6 +933,7 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     const env = readBack(
       buildSetVITriggerReq({
         accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "KRX",
         orderAmountKrw: 3_000_000,
         checkRate: 25,
         run: true,
@@ -952,6 +953,7 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     const down = readBack(
       buildSetVITriggerReq({
         accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "KRX",
         orderAmountKrw: 0,
         checkRate: -10,
         run: false,
@@ -964,13 +966,14 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(() =>
       buildSetVITriggerReq({
         accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "KRX",
         orderAmountKrw: 1.5,
         checkRate: 25,
         run: true,
       }),
     ).toThrow(OrderBuildError);
     expect(() =>
-      buildSetVITriggerReq({ accountNo: "", orderAmountKrw: 100, checkRate: 25, run: true }),
+      buildSetVITriggerReq({ accountNo: "", exchange: "KRX", orderAmountKrw: 100, checkRate: 25, run: true }),
     ).toThrow(/계좌번호/);
   });
 
@@ -1023,6 +1026,7 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
       buildSetLimitChaserReq(lcInput()),
       buildSetVITriggerReq({
         accountNo: SAMPLE_ACCOUNT_NO,
+        exchange: "KRX",
         orderAmountKrw: 100,
         checkRate: 25,
         run: false,
@@ -1193,7 +1197,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
       inbound(buildSetVITriggerRespFrame({ orderAmountKrw: 9_007_199_254_740_000n })).env,
     );
     expect(vi!.cfg!.orderAmountKrw).toBe(9_007_199_254_740_000);
-    expect(() => encode({ t: "vi", cfg: vi!.cfg })).not.toThrow();
+    expect(() => encode({ t: "vi", x: "KRX", cfg: vi!.cfg })).not.toThrow();
 
     const list = parseViOrderList(
       inbound(buildViOrderListFrame([{ orderNo: "0000012345", state: "Accepted" }])).env,
