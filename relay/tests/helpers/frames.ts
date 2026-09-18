@@ -151,18 +151,20 @@ export function buildTradeTapeFrame(input: FakeTapeInput = {}): Uint8Array {
   const isin = b.createString(input.isin ?? SAMPLE_ISIN);
   const exchange = b.createString(input.exchange ?? "KRX");
 
+  // 위치 인자 `createTradeTapeEntry` 를 쓰지 않는다 (T-16-05 / 17-01). 재동기화로 말미에
+  // `bs_code` 가 붙자 인자 수가 7 → 8 로 늘어 이 호출부가 깨졌다 — 이름 있는 `addXxx` 는
+  // 말미 append 에 대해 호출부를 불변으로 만든다. `bs_code` 는 17-02 소관이라 싣지 않는다.
   const offsets = rows.map((row, i) => {
     const tradeTime = b.createString(row.tradeTime ?? `09301512345${i}`);
     const changeSign = b.createString(row.changeSign ?? "2");
-    return TradeTapeEntry.createTradeTapeEntry(
-      b,
-      tradeTime,
-      row.price ?? 70_900n + BigInt(i) * 50n,
-      changeSign,
-      row.change ?? 900n,
-      row.qty ?? 10n + BigInt(i),
-      row.cumVolume ?? 12_345_600n + BigInt(i),
-    );
+    TradeTapeEntry.startTradeTapeEntry(b);
+    TradeTapeEntry.addTradeTime(b, tradeTime);
+    TradeTapeEntry.addPrice(b, row.price ?? 70_900n + BigInt(i) * 50n);
+    TradeTapeEntry.addChangeSign(b, changeSign);
+    TradeTapeEntry.addChange(b, row.change ?? 900n);
+    TradeTapeEntry.addQty(b, row.qty ?? 10n + BigInt(i));
+    TradeTapeEntry.addCumVolume(b, row.cumVolume ?? 12_345_600n + BigInt(i));
+    return TradeTapeEntry.endTradeTapeEntry(b);
   });
   const entries = TradeTape.createEntriesVector(b, offsets);
 
@@ -276,25 +278,36 @@ export type FakeOrderRespInput = {
  * 접수·체결·취소확인·거부가 **전부 이 하나**로 온다. `TradeExecution(53)` 은 서버에
  * 생성 경로가 없어 테스트에서도 만들지 않는다 (fbs L221-228 / `Server.cpp` L307).
  *
- * `createOrderResp` 위치 인자에 deprecated `slot_id` 는 들어가지 않는다 — flatc 가
- * 접근자를 만들지 않으므로 인자 목록에서도 빠진다.
+ * 위치 인자 `createOrderResp` 를 쓰지 않는다 (T-16-05 / 17-01). 재동기화로 말미에
+ * `board`·`request_kind`·`requester` 3슬롯이 붙자 인자 수가 12 → 15 로 늘어 이 호출부가
+ * 깨졌다 — 이름 있는 `addXxx` 는 말미 append 에 대해 호출부를 불변으로 만든다.
+ * 신규 3필드는 17-02 소관이라 여기서는 싣지 않는다.
  */
 export function buildOrderRespFrame(input: FakeOrderRespInput = {}): Uint8Array {
   const b = new flatbuffers.Builder(512);
-  const resp = OrderResp.createOrderResp(
-    b,
-    b.createString(input.isin ?? SAMPLE_ISIN),
-    b.createString(input.side ?? "B"),
-    b.createString(input.orderNo ?? "0000012345"),
-    input.resultCode ?? 0,
-    input.price ?? 70_000,
-    input.quantity ?? 10,
-    b.createString(input.message ?? "정상처리"),
-    b.createString(input.noticeType ?? "A"),
-    b.createString(input.orgOrderNo ?? ""),
-    b.createString(input.origin ?? "Manual"),
-    b.createString(input.exchange ?? "KRX"),
-  );
+  // 문자열은 테이블을 열기 **전에** 전부 만든다 (FlatBuffers 중첩 제약).
+  const stockCode = b.createString(input.isin ?? SAMPLE_ISIN);
+  const side = b.createString(input.side ?? "B");
+  const orderNo = b.createString(input.orderNo ?? "0000012345");
+  const message = b.createString(input.message ?? "정상처리");
+  const noticeType = b.createString(input.noticeType ?? "A");
+  const orgOrderNo = b.createString(input.orgOrderNo ?? "");
+  const origin = b.createString(input.origin ?? "Manual");
+  const exchange = b.createString(input.exchange ?? "KRX");
+
+  OrderResp.startOrderResp(b);
+  OrderResp.addStockCode(b, stockCode);
+  OrderResp.addSide(b, side);
+  OrderResp.addOrderNo(b, orderNo);
+  OrderResp.addResultCode(b, input.resultCode ?? 0);
+  OrderResp.addPrice(b, input.price ?? 70_000);
+  OrderResp.addQuantity(b, input.quantity ?? 10);
+  OrderResp.addMessage(b, message);
+  OrderResp.addNoticeType(b, noticeType);
+  OrderResp.addOrgOrderNo(b, orgOrderNo);
+  OrderResp.addOrigin(b, origin);
+  OrderResp.addExchange(b, exchange);
+  const resp = OrderResp.endOrderResp(b);
 
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.OrderResp);
@@ -371,21 +384,29 @@ export function buildAccountStateFrame(input: FakeAccountStateInput = {}): Uint8
   );
   const holdingsVec = AccountState.createHoldingsVector(b, holdingOffsets);
 
-  const unfilledOffsets = unfilled.map((u, i) =>
-    UnfilledState.createUnfilledState(
-      b,
-      b.createString(u.orderNo ?? `ORD${String(i).padStart(7, "0")}`),
-      b.createString(u.orgOrderNo ?? ""),
-      b.createString(u.isin ?? SAMPLE_ISIN),
-      b.createString(u.side ?? "B"),
-      u.price ?? 70_000,
-      u.orderQty ?? 10,
-      u.filledQty ?? 0,
-      u.unfilledQty ?? 10,
-      b.createString(u.exchange ?? "KRX"),
-      b.createString(u.orderTime ?? "093015"),
-    ),
-  );
+  // 위치 인자 `createUnfilledState` 를 쓰지 않는다 (T-16-05 / 17-01). 재동기화로 말미에
+  // `queued_status`·`pending_status`·`board`·`pending_cancel_sent` 4슬롯이 붙자 인자 수가
+  // 11 → 15 로 늘어 이 호출부가 깨졌다. 신규 4필드는 17-02 소관이라 싣지 않는다.
+  const unfilledOffsets = unfilled.map((u, i) => {
+    const orderNo = b.createString(u.orderNo ?? `ORD${String(i).padStart(7, "0")}`);
+    const orgOrderNo = b.createString(u.orgOrderNo ?? "");
+    const isin = b.createString(u.isin ?? SAMPLE_ISIN);
+    const side = b.createString(u.side ?? "B");
+    const exchange = b.createString(u.exchange ?? "KRX");
+    const orderTime = b.createString(u.orderTime ?? "093015");
+    UnfilledState.startUnfilledState(b);
+    UnfilledState.addOrderNo(b, orderNo);
+    UnfilledState.addOrgOrderNo(b, orgOrderNo);
+    UnfilledState.addIsin(b, isin);
+    UnfilledState.addSide(b, side);
+    UnfilledState.addPrice(b, u.price ?? 70_000);
+    UnfilledState.addOrderQty(b, u.orderQty ?? 10);
+    UnfilledState.addFilledQty(b, u.filledQty ?? 0);
+    UnfilledState.addUnfilledQty(b, u.unfilledQty ?? 10);
+    UnfilledState.addExchange(b, exchange);
+    UnfilledState.addOrderTime(b, orderTime);
+    return UnfilledState.endUnfilledState(b);
+  });
   const unfilledVec = AccountState.createUnfilledVector(b, unfilledOffsets);
 
   const removedVec = AccountState.createRemovedOrderNosVector(
@@ -463,15 +484,16 @@ export const STRATEGY_MSG = {
 } as const;
 
 /**
- * 상따 전략 1건. **활성 37 필드 전부** override 가능하다.
+ * 상따 전략 1건. **활성 39 필드 전부** override 가능하다.
+ * (37 → 39: 17-01 재동기화로 `cancel_entry_latched` · `buy_entry_latched` 가 합류했다.)
  *
  * deprecated 8종(`client_key` · `sell_min_cum_volume` · `sell_cum_volume_enabled` ·
  * `a3_buy4_enabled` · `smart_sell` · `origin_ord_qty` · `buy_price_break_enabled` ·
  * `sell_price_break_enabled`)은 flatc 가 접근자를 만들지 않아 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * **S→C 전용 4필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
- * `cancelQtyTrackBaseline`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
+ * **S→C 전용 6필드**(`sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ * `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buyEntryLatched`)도 주입할 수 있다. 서버가 계산해 에코로만 내려주는 값이라,
  * "에코가 화면에 그대로 뜨는가"를 검증하려면 테스트가 직접 심을 수 있어야 한다.
  */
 export type FakeLimitChaserInput = {
@@ -523,6 +545,13 @@ export type FakeLimitChaserInput = {
   cancelQtyTrackEnabled?: boolean;
   /** **S→C 전용** — 취소 잔량추적 기준선(주). 16-01 재동기화로 접근자가 생겼다. */
   cancelQtyTrackBaseline?: number;
+  /** **S→C 전용** — 취소 진입 확인 래치 원값(무장과 접지 않는다). 17-01 재동기화 산물. */
+  cancelEntryLatched?: boolean;
+  /**
+   * **S→C 전용** — 매수 진입 확인 래치 원값(무장과 접지 않는다). 17-01 재동기화 산물.
+   * 서버는 `buyWatchSide === "1"` 갈래에서만 켠다 — side `"0"` 은 언제나 false(BL-01).
+   */
+  buyEntryLatched?: boolean;
 };
 
 /**
@@ -630,6 +659,8 @@ function emitSetLimitChaser(
     b,
     input.cancelQtyTrackBaseline ?? d.cancelQtyTrackBaseline,
   );
+  SetLimitChaser.addCancelEntryLatched(b, input.cancelEntryLatched ?? false);
+  SetLimitChaser.addBuyEntryLatched(b, input.buyEntryLatched ?? false);
   return SetLimitChaser.endSetLimitChaser(b);
 }
 
@@ -638,7 +669,7 @@ function emitSetLimitChaser(
  *
  * 서버는 「거부」를 응답 코드로 주지 않는다. 등록 성공은 **이 에코의 수신**이고,
  * 부분 거부는 **눕혀진 값**(예: `buyEnabled:false`)으로 온다. 그 두 경우를 테스트가
- * 직접 만들 수 있어야 하므로 37 필드가 전부 열려 있다.
+ * 직접 만들 수 있어야 하므로 39 필드가 전부 열려 있다.
  */
 export function buildSetLimitChaserRespFrame(input: FakeLimitChaserInput = {}): Uint8Array {
   const b = new flatbuffers.Builder(1024);

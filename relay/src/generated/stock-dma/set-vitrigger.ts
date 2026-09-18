@@ -51,8 +51,15 @@ run():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+exchange():string|null
+exchange(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+exchange(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startSetVITrigger(builder:flatbuffers.Builder) {
-  builder.startObject(5);
+  builder.startObject(6);
 }
 
 static addAccountNo(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset) {
@@ -75,18 +82,23 @@ static addRun(builder:flatbuffers.Builder, run:boolean) {
   builder.addFieldInt8(4, +run, +false);
 }
 
+static addExchange(builder:flatbuffers.Builder, exchangeOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(5, exchangeOffset, 0);
+}
+
 static endSetVITrigger(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createSetVITrigger(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, orderAmountKrw:bigint, checkRate:number, priceTypeOffset:flatbuffers.Offset, run:boolean):flatbuffers.Offset {
+static createSetVITrigger(builder:flatbuffers.Builder, accountNoOffset:flatbuffers.Offset, orderAmountKrw:bigint, checkRate:number, priceTypeOffset:flatbuffers.Offset, run:boolean, exchangeOffset:flatbuffers.Offset):flatbuffers.Offset {
   SetVITrigger.startSetVITrigger(builder);
   SetVITrigger.addAccountNo(builder, accountNoOffset);
   SetVITrigger.addOrderAmountKrw(builder, orderAmountKrw);
   SetVITrigger.addCheckRate(builder, checkRate);
   SetVITrigger.addPriceType(builder, priceTypeOffset);
   SetVITrigger.addRun(builder, run);
+  SetVITrigger.addExchange(builder, exchangeOffset);
   return SetVITrigger.endSetVITrigger(builder);
 }
 }

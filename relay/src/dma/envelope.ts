@@ -823,21 +823,39 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
   }
 
   const b = new flatbuffers.Builder(256);
-  const order = DirectOrderReq.createDirectOrderReq(
-    b,
-    // 게이트웨이의 `stock_code` 는 **ISIN 12자**다 (fbs 주석) — 단축코드가 아니다.
-    b.createString(req.isin),
-    b.createString(req.accountNo),
-    b.createString(side),
-    req.price,
-    req.qty,
-    b.createString(ORDER_CONDITION),
-    b.createString(market),
-    b.createString(req.exchange),
-    b.createString(orderType),
-    // 신규는 빈 문자열이 계약이다. 생략하면 슬롯이 비어 구 서버가 다르게 읽을 수 있다.
-    b.createString(orgOrderNo),
-  );
+  // 문자열은 테이블을 **열기 전에** 만든다 — FlatBuffers 는 테이블 조립 중 중첩 객체 생성을
+  // 허용하지 않는다. 아래 전략 조립부와 같은 규율이다.
+  //
+  // ★ 위치 인자 `createDirectOrderReq` 를 쓰지 않는다 (T-16-05 와 같은 이유, 17-01 에서 전환).
+  //   17-01 재동기화로 fbs 말미에 `piece_count`·`krx_session` 2슬롯이 붙자 그 생성 함수의
+  //   인자 수가 11 → 13 으로 늘어 호출부가 깨졌다. 타입이 우연히 맞는 조합이었다면 **조용히**
+  //   한 칸 밀린 채 실계좌 발주가 나갔을 것이다. 이름 있는 `addXxx` 는 그 실수를 구조적으로
+  //   막고, 말미 append 에 대해 호출부를 불변으로 만든다.
+  const stockCodeOffset = b.createString(req.isin); // `stock_code` 는 **ISIN 12자**다 (fbs 주석) — 단축코드가 아니다.
+  const accountNoOffset = b.createString(req.accountNo);
+  const sideOffset = b.createString(side);
+  const orderConditionOffset = b.createString(ORDER_CONDITION);
+  const marketOffset = b.createString(market);
+  const exchangeOffset = b.createString(req.exchange);
+  const orderTypeOffset = b.createString(orderType);
+  // 신규는 빈 문자열이 계약이다. 생략하면 슬롯이 비어 구 서버가 다르게 읽을 수 있다.
+  const orgOrderNoOffset = b.createString(orgOrderNo);
+
+  DirectOrderReq.startDirectOrderReq(b);
+  DirectOrderReq.addStockCode(b, stockCodeOffset);
+  DirectOrderReq.addAccountNo(b, accountNoOffset);
+  DirectOrderReq.addSide(b, sideOffset);
+  DirectOrderReq.addPrice(b, req.price);
+  DirectOrderReq.addQuantity(b, req.qty);
+  DirectOrderReq.addOrderCondition(b, orderConditionOffset);
+  DirectOrderReq.addMarket(b, marketOffset);
+  DirectOrderReq.addExchange(b, exchangeOffset);
+  DirectOrderReq.addOrderType(b, orderTypeOffset);
+  DirectOrderReq.addOrgOrderNo(b, orgOrderNoOffset);
+  // `piece_count`(24) · `krx_session`(26) 은 **싣지 않는다** (D-12). 미송신이 곧 기존 수동주문
+  // 경로의 바이트 무변경이다 — 예약/장전/시간외종가 발주 UI 는 Phase 18 소관이다.
+  const order = DirectOrderReq.endDirectOrderReq(b);
+
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.DirectOrderReq);
   Envelope.addDirectOrderReq(b, order);
@@ -914,8 +932,9 @@ export const LC_FIXED_SWEEP_MIN_RATE = 0;
  *
  * **클라 입력 29 + relay 해석 1(`market`) + 클라 고정 3 = 33 필드만** 채운다. 나머지는
  * 건드리지 않는다:
- *   - **S→C 전용 4필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
- *     `cancel_qty_track_baseline`) — 서버가 계산해 에코로만 내려주는 값이다. 실어 보내면
+ *   - **S→C 전용 6필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
+ *     `cancel_qty_track_baseline` · `cancel_entry_latched` · `buy_entry_latched`) — 서버가
+ *     계산해 에코로만 내려주는 값이다. 실어 보내면
  *     서버는 무시하지만, 보내는 쪽 코드에 남아 있는 것만으로 "왕복하는 값"이라는 착각을
  *     만들고 에코-폼 비교가 오염된다 (Pitfall 6).
  *   - **deprecated 8슬롯** — flatc 가 접근자를 만들지 않는다. 존재 자체를 모른 채로 둔다.
@@ -1600,8 +1619,9 @@ type ReadResult<T> = { ok: true; value: T } | { ok: false; reason: string; detai
  * 60 단건 에코와 64 목록 원소는 **같은 바이트**라 파서도 하나여야 한다 — 두 벌이면 한쪽만
  * 고쳐져 목록과 에코가 갈린다.
  *
- * **활성 37필드를 전부 읽는다.** S→C 전용 4(`sellOrderQty` · `sellQtyTrackBaseline` ·
- * `sellEntryLatched` · `cancelQtyTrackBaseline`)는 보내지 않지만 읽어서 표시한다 —
+ * **활성 39필드를 전부 읽는다.** S→C 전용 6(`sellOrderQty` · `sellQtyTrackBaseline` ·
+ * `sellEntryLatched` · `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buyEntryLatched`)는
+ * 보내지 않지만 읽어서 표시한다 —
  * 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제다 (Pitfall 6).
  *
  * 실패 사유만 돌려주고 로그는 남기지 않는다. 단건은 프레임 드롭, 목록은 항목 스킵으로
@@ -1667,6 +1687,13 @@ function readLimitChaser(t: SetLimitChaser): ReadResult<RelayLimitChaser> {
       buyOrderAmount: t.buyOrderAmount(),
       // S→C 전용 — 매도 진입 확인 래치 원값.
       sellEntryLatched: t.sellEntryLatched(),
+      // S→C 전용 — 취소 진입 확인 래치 원값. `cancelQtyEnabled` 등 취소 3플래그와 달리
+      // 무장(armed)과 **접지 않는다**. `&& enabled` 로 접으면 "취소 무장 OFF 인데 래치는
+      // 살아 있음" 이라는 서버 진실이 화면에서 소멸한다 (D-05).
+      cancelEntryLatched: t.cancelEntryLatched(),
+      // S→C 전용 — 매수 진입 확인 래치 원값. 역시 접지 않는다. 서버는 **매수잔량 기준
+      // (`buyWatchSide === "1"`) 갈래에서만** 이 래치를 켠다 — side "0" 은 언제나 false(BL-01).
+      buyEntryLatched: t.buyEntryLatched(),
       cancelQtyEnabled: t.cancelQtyEnabled(),
       cancelWatchQty: t.cancelWatchQty(),
       cancelTradeEnabled: t.cancelTradeEnabled(),

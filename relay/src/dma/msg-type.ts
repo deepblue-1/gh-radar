@@ -78,6 +78,12 @@ export const MSG = {
   ConfirmVIOrderReq: 33,
   /** VI 주문 목록 조회. **요청 테이블 없음 — 빈 Envelope**. 응답은 72. */
   GetVIOrderListReq: 34,
+  /** 상따 **매도** 진입 확인 래치 수동 점등(토글). 본문 `get_strategy_req{key}` 재사용. 응답은 60 에코, 실패는 54 WARN. */
+  ArmSellLatchReq: 36,
+  /** 상따 **취소** 진입 확인 래치 수동 점등(토글). 본문 `get_strategy_req{key}` 재사용. 응답은 60 에코, 실패는 54 WARN. */
+  ArmCancelLatchReq: 37,
+  /** 상따 **매수** 진입 확인 래치 수동 점등(토글). 본문 `get_strategy_req{key}` 재사용. 응답은 60 에코, 실패는 54 WARN. */
+  ArmBuyLatchReq: 38,
 
   // --- 응답 · 푸시 (게이트웨이 → relay) ---
   /** 로그인 응답. */
@@ -127,6 +133,15 @@ export const MSG = {
   GetVIOrderListResp: 72,
   /** VI 주문 목록 증분 (`vi_order_list` 슬롯, is_snapshot=false). **Notice** — 세션 전 연결. */
   VIOrderListPush: 73,
+  /**
+   * 등락률 돌파 알림 단건 (`rate_cross_alert` 슬롯). **Broadcast — 로그인 전 연결에도 온다.**
+   * 요청 짝이 없고 snapshot 플래그도 없다.
+   */
+  RateCrossAlert: 76,
+  /** 예약/장전/시간외종가 발주 창 상태 (`queued_window_state` 슬롯). 로그인 직후 1프레임 + 창 마스크 전이마다 Notice. */
+  QueuedWindowState: 77,
+  /** 등락률 돌파 above 집합 전량 (`rate_cross_snapshot` 슬롯). **로그인 성공 직후 그 연결에만** Notice 1프레임(빈 벡터 포함). */
+  RateCrossSnapshot: 78,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -141,6 +156,11 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  *
  * 16-04 에서 56/60/61/64/65/72/73 을 더해 **19종**이 됐다. 파일 상단 「유입 집합」 주석이
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
+ *
+ * ★ 17-01 에서 `MSG` 에 76/77/78 을 더했지만 이 집합은 **19종 그대로 둔다**. 화이트리스트만
+ *   넓히고 `SubscriptionHub.#onFrame` 의 명시 `case` 를 같은 커밋에 두지 않으면 세 프레임이
+ *   `default:` 로 조용히 떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
+ *   76/77/78 등록은 파서·hub case·세션 캐시를 함께 넣는 **17-03** 의 몫이다.
  */
 export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.LoginResp,

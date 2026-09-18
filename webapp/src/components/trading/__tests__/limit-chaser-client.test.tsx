@@ -117,6 +117,8 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
+    cancelEntryLatched: false,
+    buyEntryLatched: false,
     ...over,
   };
 }

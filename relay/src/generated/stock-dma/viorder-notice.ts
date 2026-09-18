@@ -80,8 +80,15 @@ viEndTime(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+exchange():string|null
+exchange(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+exchange(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startVIOrderNotice(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(11);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -124,12 +131,16 @@ static addViEndTime(builder:flatbuffers.Builder, viEndTimeOffset:flatbuffers.Off
   builder.addFieldOffset(9, viEndTimeOffset, 0);
 }
 
+static addExchange(builder:flatbuffers.Builder, exchangeOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, exchangeOffset, 0);
+}
+
 static endVIOrderNotice(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createVIOrderNotice(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, triggerPrice:number, basePrice:number, changeRate:number, orderPrice:number, orderQty:number, marketOffset:flatbuffers.Offset, orderSeq:number, viEndTimeOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createVIOrderNotice(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, triggerPrice:number, basePrice:number, changeRate:number, orderPrice:number, orderQty:number, marketOffset:flatbuffers.Offset, orderSeq:number, viEndTimeOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset):flatbuffers.Offset {
   VIOrderNotice.startVIOrderNotice(builder);
   VIOrderNotice.addIsin(builder, isinOffset);
   VIOrderNotice.addAccountNo(builder, accountNoOffset);
@@ -141,6 +152,7 @@ static createVIOrderNotice(builder:flatbuffers.Builder, isinOffset:flatbuffers.O
   VIOrderNotice.addMarket(builder, marketOffset);
   VIOrderNotice.addOrderSeq(builder, orderSeq);
   VIOrderNotice.addViEndTime(builder, viEndTimeOffset);
+  VIOrderNotice.addExchange(builder, exchangeOffset);
   return VIOrderNotice.endVIOrderNotice(builder);
 }
 }

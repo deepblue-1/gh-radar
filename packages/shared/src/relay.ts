@@ -102,23 +102,26 @@ export type RelayLcCrud = "C" | "D";
 export type RelayLcWatchSide = "0" | "1";
 
 /**
- * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 37필드**의 와이어 표현 + 파생 `key`.
+ * 상따(LimitChaser) 전략 1건 — `SetLimitChaser` **활성 39필드**의 와이어 표현 + 파생 `key`.
+ * (37 → 39: 17-01 재동기화로 `cancelEntryLatched` · `buyEntryLatched` 가 합류했다.)
  *
  * 필드명은 FlatBuffers 생성 코드 접근자와 같은 camelCase 다(`sell_order_ratio` →
  * `sellOrderRatio`). 게이트웨이의 deprecated 8슬롯은 접근자 자체가 없으므로 여기에도 없다 —
  * 보내지도 읽지도 않는다.
  *
- * ⚠️ **S→C 전용 4필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
- *    `cancelQtyTrackBaseline`. 서버가 계산해 **에코로만** 내려주고 요청값은 무시한다.
+ * ⚠️ **S→C 전용 6필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
+ *    `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buyEntryLatched`. 서버가 계산해
+ *    **에코로만** 내려주고 요청값은 무시한다.
  *    브라우저가 되보내면 "값이 왕복한다"는 착각이 생겨 에코-폼 비교 로직이 오염된다
- *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 4개를 뺀다.
+ *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 6개를 뺀다.
  *
  * ⚠️ **에코의 `buyEnabled`/`sellEnabled` 는 설정값이 아니라 무장 상태**다 — 서버가
  *    `cfg.buyEnabled && buyArmed` 를 실어 보낸다. 발주가 나가 게이트가 소진되면 `false` 로
  *    온다. "내가 켰는데 서버가 껐다"가 아니라 **"발주가 나갔다"**는 뜻이므로 UI 배지는 이
  *    둘을 다른 문구로 구분해야 한다 (Pitfall 10). 같은 이유로 `cancelQtyEnabled` ·
  *    `cancelTradeEnabled` 도 `&& cancelArmed` 로 접힌 값이고, 반대로 `sellQtyTrackEnabled` ·
- *    `cancelQtyTrackEnabled` · `sellEntryLatched` 는 **접지 않은 원값**이다.
+ *    `cancelQtyTrackEnabled` · `sellEntryLatched` · `cancelEntryLatched` · `buyEntryLatched` 는
+ *    **접지 않은 원값**이다.
  *
  * ⚠️ **`buyOrderAmount === 0` 은 "서버가 모른다"**는 뜻이다(한 번도 실린 적 없거나 구 클라).
  *    0 이면 금액 칸을 건드리지 않는다 — 덮어쓰면 사용자 입력이 사라진다. 수량 x 가격 역산도
@@ -212,6 +215,21 @@ export type RelayLimitChaser = {
   /** 취소 잔량추적 기준선(주) — **S→C 전용**. */
   cancelQtyTrackBaseline: number;
   /**
+   * 취소 진입 확인 래치 — **S→C 전용**. 무장(`cancelQtyEnabled || cancelTradeEnabled`)과
+   * 접지 않은 **원값**이다. `false` = 잠복(매수1호가 지지벽 미관측 — 취소 판정을 아예 하지
+   * 않는다), `true` = 관측 완료. 접어서 읽으면 "취소 무장 OFF 인데 래치는 살아 있음" 이라는
+   * 서버 진실이 소멸한다 (D-05).
+   */
+  cancelEntryLatched: boolean;
+  /**
+   * 매수 진입 확인 래치 — **S→C 전용**. 무장(`buyEnabled`)과 접지 않은 **원값**이다.
+   *
+   * ⚠️ **`buyWatchSide === "1"`(매수잔량 기준) 갈래 전용 상태**다. 매도잔량 기준(side `"0"`)은
+   *    원전 그대로라 서버가 래치를 켜지도 보지도 않아 **언제나 `false`** 로 온다(BL-01) —
+   *    화면은 그 갈래를 3단계로 그리면 안 된다.
+   */
+  buyEntryLatched: boolean;
+  /**
    * 전략 키 `${isin}:${accountNo}:${exchange}` — 게이트웨이 `LimitChaser::MakeKey` 와 동형.
    * 와이어에 실려 오는 필드가 아니라 **relay 가 파싱하며 채우는 파생값**이다. 실제 최대 29B 이고
    * `strategies.disable` 의 서버 키 상한(WR-09)은 64B 다.
@@ -235,7 +253,7 @@ export type RelayLimitChaser = {
 /**
  * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 29 + 클라 고정 3 = 32필드**.
  *
- * `RelayLimitChaser` 에서 S→C 전용 4필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
+ * `RelayLimitChaser` 에서 S→C 전용 6필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
  * `sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0` 으로 WinForms
  * `LimitChaserForm.Send()` 와 같은 값을 보낸다. CONTEXT 의 "29필드" 는 실측과 다르다 (Pitfall 6).
  *
@@ -256,6 +274,8 @@ export type RelayLimitChaserInput = Omit<
   | "sellQtyTrackBaseline"
   | "sellEntryLatched"
   | "cancelQtyTrackBaseline"
+  | "cancelEntryLatched"
+  | "buyEntryLatched"
   | "key"
   | "market"
   | "name"

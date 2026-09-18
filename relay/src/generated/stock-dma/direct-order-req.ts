@@ -88,8 +88,20 @@ orgOrderNo(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+pieceCount():number {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+krxSession():string|null
+krxSession(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+krxSession(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startDirectOrderReq(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(12);
 }
 
 static addStockCode(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.Offset) {
@@ -132,12 +144,20 @@ static addOrgOrderNo(builder:flatbuffers.Builder, orgOrderNoOffset:flatbuffers.O
   builder.addFieldOffset(9, orgOrderNoOffset, 0);
 }
 
+static addPieceCount(builder:flatbuffers.Builder, pieceCount:number) {
+  builder.addFieldInt32(10, pieceCount, 0);
+}
+
+static addKrxSession(builder:flatbuffers.Builder, krxSessionOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(11, krxSessionOffset, 0);
+}
+
 static endDirectOrderReq(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createDirectOrderReq(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, quantity:number, orderConditionOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, orderTypeOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createDirectOrderReq(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, quantity:number, orderConditionOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, orderTypeOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, pieceCount:number, krxSessionOffset:flatbuffers.Offset):flatbuffers.Offset {
   DirectOrderReq.startDirectOrderReq(builder);
   DirectOrderReq.addStockCode(builder, stockCodeOffset);
   DirectOrderReq.addAccountNo(builder, accountNoOffset);
@@ -149,6 +169,8 @@ static createDirectOrderReq(builder:flatbuffers.Builder, stockCodeOffset:flatbuf
   DirectOrderReq.addExchange(builder, exchangeOffset);
   DirectOrderReq.addOrderType(builder, orderTypeOffset);
   DirectOrderReq.addOrgOrderNo(builder, orgOrderNoOffset);
+  DirectOrderReq.addPieceCount(builder, pieceCount);
+  DirectOrderReq.addKrxSession(builder, krxSessionOffset);
   return DirectOrderReq.endDirectOrderReq(builder);
 }
 }

@@ -1056,7 +1056,7 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     return parsed!;
   }
 
-  it("① 37필드 왕복 — 요청 33필드가 그대로 돌아오고 S→C 전용 4는 0/false 다", () => {
+  it("① 39필드 왕복 — 요청 33필드가 그대로 돌아오고 S→C 전용 6은 0/false 다", () => {
     const cfg = lcInput();
     // 요청 빌더의 산출물을 에코 파서로 되읽는다. 빌더와 파서가 **같은 슬롯**을 보는지가
     // 이 왕복의 전부다 — 한쪽만 밀려도 값이 어긋나 실패 메시지에 그대로 드러난다.
@@ -1065,15 +1065,17 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(item).not.toBeNull();
     expect(item).toMatchObject(cfg);
 
-    // S→C 전용 4 — 빌더가 보내지 않았으므로 **서버가 안 채운 상태**로 0/false 다.
+    // S→C 전용 6 — 빌더가 보내지 않았으므로 **서버가 안 채운 상태**로 0/false 다.
     // 「보내지 않는 것」과 「읽지 않는 것」은 다른 문제라 값이 존재해야 한다 (Pitfall 6).
     expect(item!.sellOrderQty).toBe(0);
     expect(item!.sellQtyTrackBaseline).toBe(0);
     expect(item!.sellEntryLatched).toBe(false);
     expect(item!.cancelQtyTrackBaseline).toBe(0);
+    expect(item!.cancelEntryLatched).toBe(false);
+    expect(item!.buyEntryLatched).toBe(false);
 
-    // 활성 37 + 파생 key. 필드를 하나라도 빠뜨리면 여기서 잡힌다.
-    expect(Object.keys(item!)).toHaveLength(38);
+    // 활성 39 + 파생 key. 필드를 하나라도 빠뜨리면 여기서 잡힌다.
+    expect(Object.keys(item!)).toHaveLength(40);
     expect(item!.key).toBe(strategyKey(SAMPLE_ISIN, SAMPLE_ACCOUNT_NO, "KRX"));
   });
 
@@ -1130,6 +1132,44 @@ describe("전략 응답 파싱 (16-05 / Pitfall 3·6·7)", () => {
     expect(item!.buyEnabled).toBe(false);
     expect(item!.sellEnabled).toBe(false);
     expect(item!.cancelQtyEnabled).toBe(true);
+  });
+
+  it("⑤-2 취소·매수 진입 확인 래치는 무장과 접지 않은 **원값**으로 올라온다 (D-05)", () => {
+    // 이 단언이 17-01 재동기화가 와이어 끝에서 끝까지 통했다는 증거다.
+    // `cancelEntryLatched=true` 인데 취소 무장(`cancelQtyEnabled`·`cancelTradeEnabled`)이
+    // **둘 다 꺼진** 조합 — 파서가 `&& enabled` 로 접으면 여기서 false 가 되어 깨진다.
+    // 서버는 이 조합을 실제로 보낸다(래치는 살아 있고 무장만 꺼진 상태).
+    const latent = parseLimitChaserEcho(
+      inbound(
+        buildSetLimitChaserRespFrame({
+          cancelEntryLatched: true,
+          cancelQtyEnabled: false,
+          cancelTradeEnabled: false,
+          buyEntryLatched: true,
+          buyEnabled: false,
+        }),
+      ).env,
+    );
+
+    expect(latent!.cancelEntryLatched).toBe(true);
+    expect(latent!.buyEntryLatched).toBe(true);
+    // 접지 않았음을 대조군으로 못박는다 — 무장 쪽은 서버가 보낸 false 그대로다.
+    expect(latent!.cancelQtyEnabled).toBe(false);
+    expect(latent!.cancelTradeEnabled).toBe(false);
+    expect(latent!.buyEnabled).toBe(false);
+
+    // 부재 필드는 false(잠복)로 읽힌다 — 구 서버/미점등 상태의 안전한 방향이다.
+    const absent = parseLimitChaserEcho(inbound(buildSetLimitChaserRespFrame({})).env);
+    expect(absent!.cancelEntryLatched).toBe(false);
+    expect(absent!.buyEntryLatched).toBe(false);
+  });
+
+  it("⑤-3 S→C 전용 래치 2필드는 요청 조립기가 **싣지 않는다** (Pitfall 6 / T-17-03)", () => {
+    // 조립기 산출물을 되읽어 래치가 false 로 남는지 본다. 실어 보내면 「값이 왕복한다」는
+    // 착각이 생겨 에코-폼 비교가 오염된다.
+    const sent = parseLimitChaserEcho(readBack(buildSetLimitChaserReq(lcInput())));
+    expect(sent!.cancelEntryLatched).toBe(false);
+    expect(sent!.buyEntryLatched).toBe(false);
   });
 
   it("⑥ 빈 61 은 「미등록」이고 「파싱 실패」와 다른 값이다", () => {

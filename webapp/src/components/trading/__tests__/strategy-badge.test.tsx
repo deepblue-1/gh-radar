@@ -60,6 +60,8 @@ function chaser(over: ChaserOverrides = {}): RelayLimitChaser & { hadOrder?: boo
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
+    cancelEntryLatched: false,
+    buyEntryLatched: false,
     key: "KR7005930003:37728502101:KRX",
     ...over,
   };

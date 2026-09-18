@@ -21,7 +21,10 @@ import { MemberStats } from '../stock-dma/member-stats.js';
 import { MsgType } from '../stock-dma/msg-type.js';
 import { OrderConfirm } from '../stock-dma/order-confirm.js';
 import { OrderResp } from '../stock-dma/order-resp.js';
+import { QueuedWindowState } from '../stock-dma/queued-window-state.js';
 import { QuoteState } from '../stock-dma/quote-state.js';
+import { RateCrossAlert } from '../stock-dma/rate-cross-alert.js';
+import { RateCrossSnapshot } from '../stock-dma/rate-cross-snapshot.js';
 import { ReconcileAccountStateReq } from '../stock-dma/reconcile-account-state-req.js';
 import { ReconcileAccountStateResp } from '../stock-dma/reconcile-account-state-resp.js';
 import { ServerMessage } from '../stock-dma/server-message.js';
@@ -210,8 +213,23 @@ memberStats(obj?:MemberStats):MemberStats|null {
   return offset ? (obj || new MemberStats()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+rateCrossAlert(obj?:RateCrossAlert):RateCrossAlert|null {
+  const offset = this.bb!.__offset(this.bb_pos, 70);
+  return offset ? (obj || new RateCrossAlert()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+queuedWindowState(obj?:QueuedWindowState):QueuedWindowState|null {
+  const offset = this.bb!.__offset(this.bb_pos, 72);
+  return offset ? (obj || new QueuedWindowState()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+rateCrossSnapshot(obj?:RateCrossSnapshot):RateCrossSnapshot|null {
+  const offset = this.bb!.__offset(this.bb_pos, 74);
+  return offset ? (obj || new RateCrossSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(33);
+  builder.startObject(36);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -336,6 +354,18 @@ static addViOrderList(builder:flatbuffers.Builder, viOrderListOffset:flatbuffers
 
 static addMemberStats(builder:flatbuffers.Builder, memberStatsOffset:flatbuffers.Offset) {
   builder.addFieldOffset(32, memberStatsOffset, 0);
+}
+
+static addRateCrossAlert(builder:flatbuffers.Builder, rateCrossAlertOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(33, rateCrossAlertOffset, 0);
+}
+
+static addQueuedWindowState(builder:flatbuffers.Builder, queuedWindowStateOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(34, queuedWindowStateOffset, 0);
+}
+
+static addRateCrossSnapshot(builder:flatbuffers.Builder, rateCrossSnapshotOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(35, rateCrossSnapshotOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

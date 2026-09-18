@@ -49,6 +49,8 @@ function serverEcho(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellQtyTrackBaseline: 0,
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
+    cancelEntryLatched: false,
+    buyEntryLatched: false,
     // 클라 고정 3
     sweepRecalcEnabled: true,
     sweepMinCount: 0,
@@ -118,21 +120,25 @@ describe('dirtyFieldsOf — 더티 판정 (유일 지점, D-06)', () => {
     );
   });
 
-  it('S→C 전용 4필드는 비교 대상이 아니다 (Pitfall 6)', () => {
+  it('S→C 전용 6필드는 비교 대상이 아니다 (Pitfall 6)', () => {
     for (const f of [
       'sellOrderQty',
       'sellQtyTrackBaseline',
       'sellEntryLatched',
       'cancelQtyTrackBaseline',
+      'cancelEntryLatched',
+      'buyEntryLatched',
     ] as const) {
       expect(DIRTY_COMPARED_FIELDS).not.toContain(f);
     }
-    // 서버가 그 4필드를 아무리 흔들어도 더티가 생기지 않는다.
+    // 서버가 그 6필드를 아무리 흔들어도 더티가 생기지 않는다.
     const noisy = serverEcho({
       sellOrderQty: 999,
       sellQtyTrackBaseline: 777,
       sellEntryLatched: true,
       cancelQtyTrackBaseline: 555,
+      cancelEntryLatched: true,
+      buyEntryLatched: true,
     });
     expect(dirtyFieldsOf(noisy, defaultLimitChaserForm())).toEqual([]);
   });

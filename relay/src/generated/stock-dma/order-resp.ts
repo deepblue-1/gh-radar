@@ -93,8 +93,29 @@ exchange(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+board():string|null
+board(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+board(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+requestKind():string|null
+requestKind(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+requestKind(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+requester():string|null
+requester(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+requester(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startOrderResp(builder:flatbuffers.Builder) {
-  builder.startObject(12);
+  builder.startObject(15);
 }
 
 static addStockCode(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.Offset) {
@@ -141,12 +162,24 @@ static addExchange(builder:flatbuffers.Builder, exchangeOffset:flatbuffers.Offse
   builder.addFieldOffset(11, exchangeOffset, 0);
 }
 
+static addBoard(builder:flatbuffers.Builder, boardOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(12, boardOffset, 0);
+}
+
+static addRequestKind(builder:flatbuffers.Builder, requestKindOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(13, requestKindOffset, 0);
+}
+
+static addRequester(builder:flatbuffers.Builder, requesterOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(14, requesterOffset, 0);
+}
+
 static endOrderResp(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createOrderResp(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, resultCode:number, price:number, quantity:number, messageOffset:flatbuffers.Offset, noticeTypeOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, originOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createOrderResp(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, resultCode:number, price:number, quantity:number, messageOffset:flatbuffers.Offset, noticeTypeOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, originOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, boardOffset:flatbuffers.Offset, requestKindOffset:flatbuffers.Offset, requesterOffset:flatbuffers.Offset):flatbuffers.Offset {
   OrderResp.startOrderResp(builder);
   OrderResp.addStockCode(builder, stockCodeOffset);
   OrderResp.addSide(builder, sideOffset);
@@ -159,6 +192,9 @@ static createOrderResp(builder:flatbuffers.Builder, stockCodeOffset:flatbuffers.
   OrderResp.addOrgOrderNo(builder, orgOrderNoOffset);
   OrderResp.addOrigin(builder, originOffset);
   OrderResp.addExchange(builder, exchangeOffset);
+  OrderResp.addBoard(builder, boardOffset);
+  OrderResp.addRequestKind(builder, requestKindOffset);
+  OrderResp.addRequester(builder, requesterOffset);
   return OrderResp.endOrderResp(builder);
 }
 }

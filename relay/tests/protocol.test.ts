@@ -120,8 +120,8 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     vi.restoreAllMocks();
   });
 
-  it("① `lc.set` 32필드가 파싱되고 S→C 전용 4필드는 떨어져 나간다", () => {
-    // S→C 전용 4개를 일부러 실어 보낸다. 서버가 계산하는 값이라 여기서 걸러지지 않으면
+  it("① `lc.set` 32필드가 파싱되고 S→C 전용 6필드는 떨어져 나간다", () => {
+    // S→C 전용 6개를 일부러 실어 보낸다. 서버가 계산하는 값이라 여기서 걸러지지 않으면
     // "값이 왕복한다"는 착각이 생기고 에코-폼 비교가 오염된다 (Pitfall 6).
     const msg = parseInbound(
       JSON.stringify({
@@ -132,6 +132,8 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
           sellQtyTrackBaseline: 888,
           sellEntryLatched: true,
           cancelQtyTrackBaseline: 777,
+          cancelEntryLatched: true,
+          buyEntryLatched: true,
         },
       }),
     );
@@ -146,6 +148,8 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(msg.cfg).not.toHaveProperty("sellQtyTrackBaseline");
     expect(msg.cfg).not.toHaveProperty("sellEntryLatched");
     expect(msg.cfg).not.toHaveProperty("cancelQtyTrackBaseline");
+    expect(msg.cfg).not.toHaveProperty("cancelEntryLatched");
+    expect(msg.cfg).not.toHaveProperty("buyEntryLatched");
   });
 
   /*

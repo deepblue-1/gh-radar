@@ -108,6 +108,8 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     sellQtyTrackBaseline: 41_200,
     sellEntryLatched: false,
     cancelQtyTrackBaseline: 0,
+    cancelEntryLatched: false,
+    buyEntryLatched: false,
     ...over,
   };
 }
@@ -342,12 +344,14 @@ describe('⑧⑪ 에코가 도착하면 서버가 이긴다 (D-11)', () => {
   });
 });
 
-describe('⑨ S→C 전용 4필드를 보내지 않는다 (Pitfall 6)', () => {
+describe('⑨ S→C 전용 6필드를 보내지 않는다 (Pitfall 6)', () => {
   const FORBIDDEN = [
     'sellOrderQty',
     'sellQtyTrackBaseline',
     'sellEntryLatched',
     'cancelQtyTrackBaseline',
+    'cancelEntryLatched',
+    'buyEntryLatched',
   ] as const;
 
   /**

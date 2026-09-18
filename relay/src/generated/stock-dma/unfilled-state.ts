@@ -84,8 +84,34 @@ orderTime(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+queuedStatus():string|null
+queuedStatus(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+queuedStatus(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+pendingStatus():string|null
+pendingStatus(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+pendingStatus(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+board():string|null
+board(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+board(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+pendingCancelSent():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startUnfilledState(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(14);
 }
 
 static addOrderNo(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset) {
@@ -128,12 +154,28 @@ static addOrderTime(builder:flatbuffers.Builder, orderTimeOffset:flatbuffers.Off
   builder.addFieldOffset(9, orderTimeOffset, 0);
 }
 
+static addQueuedStatus(builder:flatbuffers.Builder, queuedStatusOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, queuedStatusOffset, 0);
+}
+
+static addPendingStatus(builder:flatbuffers.Builder, pendingStatusOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(11, pendingStatusOffset, 0);
+}
+
+static addBoard(builder:flatbuffers.Builder, boardOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(12, boardOffset, 0);
+}
+
+static addPendingCancelSent(builder:flatbuffers.Builder, pendingCancelSent:boolean) {
+  builder.addFieldInt8(13, +pendingCancelSent, +false);
+}
+
 static endUnfilledState(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, orderQty:number, filledQty:number, unfilledQty:number, exchangeOffset:flatbuffers.Offset, orderTimeOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffers.Offset, orgOrderNoOffset:flatbuffers.Offset, isinOffset:flatbuffers.Offset, sideOffset:flatbuffers.Offset, price:number, orderQty:number, filledQty:number, unfilledQty:number, exchangeOffset:flatbuffers.Offset, orderTimeOffset:flatbuffers.Offset, queuedStatusOffset:flatbuffers.Offset, pendingStatusOffset:flatbuffers.Offset, boardOffset:flatbuffers.Offset, pendingCancelSent:boolean):flatbuffers.Offset {
   UnfilledState.startUnfilledState(builder);
   UnfilledState.addOrderNo(builder, orderNoOffset);
   UnfilledState.addOrgOrderNo(builder, orgOrderNoOffset);
@@ -145,6 +187,10 @@ static createUnfilledState(builder:flatbuffers.Builder, orderNoOffset:flatbuffer
   UnfilledState.addUnfilledQty(builder, unfilledQty);
   UnfilledState.addExchange(builder, exchangeOffset);
   UnfilledState.addOrderTime(builder, orderTimeOffset);
+  UnfilledState.addQueuedStatus(builder, queuedStatusOffset);
+  UnfilledState.addPendingStatus(builder, pendingStatusOffset);
+  UnfilledState.addBoard(builder, boardOffset);
+  UnfilledState.addPendingCancelSent(builder, pendingCancelSent);
   return UnfilledState.endUnfilledState(builder);
 }
 }

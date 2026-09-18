@@ -60,6 +60,8 @@ const BASE: RelayLimitChaser = {
   cancelTradeEnabled: false,
   cancelQtyTrackEnabled: false,
   cancelQtyTrackBaseline: 0,
+  cancelEntryLatched: false,
+  buyEntryLatched: false,
   key: 'KR7005930003:1234567801:KRX',
 };
 

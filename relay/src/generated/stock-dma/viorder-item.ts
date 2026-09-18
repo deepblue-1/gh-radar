@@ -109,8 +109,15 @@ filledQty():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+exchange():string|null
+exchange(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+exchange(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 34);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startVIOrderItem(builder:flatbuffers.Builder) {
-  builder.startObject(15);
+  builder.startObject(16);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -173,12 +180,16 @@ static addFilledQty(builder:flatbuffers.Builder, filledQty:number) {
   builder.addFieldInt32(14, filledQty, 0);
 }
 
+static addExchange(builder:flatbuffers.Builder, exchangeOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(15, exchangeOffset, 0);
+}
+
 static endVIOrderItem(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createVIOrderItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, orderQty:number, orderPrice:number, triggerPrice:number, basePrice:number, viEndTimeOffset:flatbuffers.Offset, deadline110Ms:bigint, deadline119Ms:bigint, confirmed:boolean, confirmLocked:boolean, stateOffset:flatbuffers.Offset, filledQty:number):flatbuffers.Offset {
+static createVIOrderItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, orderQty:number, orderPrice:number, triggerPrice:number, basePrice:number, viEndTimeOffset:flatbuffers.Offset, deadline110Ms:bigint, deadline119Ms:bigint, confirmed:boolean, confirmLocked:boolean, stateOffset:flatbuffers.Offset, filledQty:number, exchangeOffset:flatbuffers.Offset):flatbuffers.Offset {
   VIOrderItem.startVIOrderItem(builder);
   VIOrderItem.addIsin(builder, isinOffset);
   VIOrderItem.addMarket(builder, marketOffset);
@@ -195,6 +206,7 @@ static createVIOrderItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Off
   VIOrderItem.addConfirmLocked(builder, confirmLocked);
   VIOrderItem.addState(builder, stateOffset);
   VIOrderItem.addFilledQty(builder, filledQty);
+  VIOrderItem.addExchange(builder, exchangeOffset);
   return VIOrderItem.endVIOrderItem(builder);
 }
 }

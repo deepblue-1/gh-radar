@@ -56,8 +56,15 @@ cumVolume():bigint {
   return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
 }
 
+bsCode():string|null
+bsCode(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+bsCode(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startTradeTapeEntry(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(7);
 }
 
 static addTradeTime(builder:flatbuffers.Builder, tradeTimeOffset:flatbuffers.Offset) {
@@ -84,12 +91,16 @@ static addCumVolume(builder:flatbuffers.Builder, cumVolume:bigint) {
   builder.addFieldInt64(5, cumVolume, BigInt('0'));
 }
 
+static addBsCode(builder:flatbuffers.Builder, bsCodeOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(6, bsCodeOffset, 0);
+}
+
 static endTradeTapeEntry(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createTradeTapeEntry(builder:flatbuffers.Builder, tradeTimeOffset:flatbuffers.Offset, price:bigint, changeSignOffset:flatbuffers.Offset, change:bigint, qty:bigint, cumVolume:bigint):flatbuffers.Offset {
+static createTradeTapeEntry(builder:flatbuffers.Builder, tradeTimeOffset:flatbuffers.Offset, price:bigint, changeSignOffset:flatbuffers.Offset, change:bigint, qty:bigint, cumVolume:bigint, bsCodeOffset:flatbuffers.Offset):flatbuffers.Offset {
   TradeTapeEntry.startTradeTapeEntry(builder);
   TradeTapeEntry.addTradeTime(builder, tradeTimeOffset);
   TradeTapeEntry.addPrice(builder, price);
@@ -97,6 +108,7 @@ static createTradeTapeEntry(builder:flatbuffers.Builder, tradeTimeOffset:flatbuf
   TradeTapeEntry.addChange(builder, change);
   TradeTapeEntry.addQty(builder, qty);
   TradeTapeEntry.addCumVolume(builder, cumVolume);
+  TradeTapeEntry.addBsCode(builder, bsCodeOffset);
   return TradeTapeEntry.endTradeTapeEntry(builder);
 }
 }

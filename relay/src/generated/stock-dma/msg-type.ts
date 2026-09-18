@@ -25,6 +25,9 @@ export enum MsgType {
   ConfirmVIOrderReq = 33,
   GetVIOrderListReq = 34,
   GetMemberStatsReq = 35,
+  ArmSellLatchReq = 36,
+  ArmCancelLatchReq = 37,
+  ArmBuyLatchReq = 38,
   LoginResp = 50,
   OrderResp = 51,
   OrderConfirm = 52,
@@ -48,5 +51,8 @@ export enum MsgType {
   GetVIOrderListResp = 72,
   VIOrderListPush = 73,
   MemberStatsResp = 74,
-  MemberStatsPush = 75
+  MemberStatsPush = 75,
+  RateCrossAlert = 76,
+  QueuedWindowState = 77,
+  RateCrossSnapshot = 78
 }

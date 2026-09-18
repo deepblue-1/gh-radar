@@ -93,6 +93,8 @@ function makeChaser(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
     cancelQtyTrackBaseline: 0,
+    cancelEntryLatched: false,
+    buyEntryLatched: false,
     key: `${isin}:${accountNo}:${exchange}`,
     ...over,
   };

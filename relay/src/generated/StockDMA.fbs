@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 291a953
-// synced-date:        2026-09-08
+// server-repo-commit: bcc011c4
+// synced-date:        2026-09-18
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -53,6 +53,21 @@ enum MsgType : byte {
     GetMemberStatsReq = 35,        // 거래원 스냅샷 조회 (C→S) — 요청 테이블은 get_quote_req 슬롯 재사용
                                    // (20~23 이 GetStrategyReq 를 공유하는 선례 — 인자가 isin+exchange 로 같다)
 
+    // === 이하 quick-260909-ka9 추가 (상따 매도 진입 확인 래치 수동 점등) ===
+    ArmSellLatchReq = 36,          // 매도 진입 확인 래치 수동 점등 (C→S, quick-260909-ka9 D-05)
+                                   // 요청 테이블은 get_strategy_req 슬롯 재사용(35 선례),
+                                   // 응답은 SetLimitChaserResp(60) 에코다 — 응답 전용 번호를 만들지 않는다 (D-07)
+
+    // === 이하 quick-260910-kel 추가 (상따 취소 진입 확인 래치 수동 점등) ===
+    ArmCancelLatchReq = 37,        // 취소 진입 확인 래치 수동 점등 (C→S, quick-260910-kel D-03)
+                                   // 요청 테이블은 get_strategy_req 슬롯 재사용(35·36 선례),
+                                   // 응답은 SetLimitChaserResp(60) 에코다 — 응답 전용 번호를 만들지 않는다 (D-03)
+
+    // === 이하 quick-260910-ttc 추가 (상따 매수 진입 확인 래치 수동 점등) ===
+    ArmBuyLatchReq = 38,           // 매수 진입 확인 래치 수동 점등 (C→S, quick-260910-ttc D-04)
+                                   // 요청 테이블은 get_strategy_req 슬롯 재사용(35·36·37 선례),
+                                   // 응답은 SetLimitChaserResp(60) 에코다 — 응답 전용 번호를 만들지 않는다 (D-04)
+
     // Server -> Client
     //   50~59: 기본 응답 (로그인, 주문, 체결, 메시지, 계좌)
     //   60~69: KRX 전략·계좌 상태 응답
@@ -95,7 +110,17 @@ enum MsgType : byte {
 
     // quick-260904-fi6 — 거래원 (74/75 는 Envelope 의 member_stats 슬롯 **하나를** 공유한다, 69/71 선례)
     MemberStatsResp = 74,          // 거래원 스냅샷 응답 (S→C, is_snapshot=true, 요청 연결에만 Notice — 보유 없으면 빈 벡터)
-    MemberStatsPush = 75           // 거래원 증분 푸시 (S→C, is_snapshot=false, 시세 구독(m_subs) 편승 Broadcast)
+    MemberStatsPush = 75,          // 거래원 증분 푸시 (S→C, is_snapshot=false, 시세 구독(m_subs) 편승 Broadcast)
+
+    // Phase 19 — 등락률 임계 상향 돌파 푸시 (푸시 전용·요청 짝 없음·접속 연결 전부 Broadcast — 하루 1회 규칙은 클라 몫, D-07)
+    RateCrossAlert = 76,           // 등락률 임계 상향 돌파 알림 (S→C, Envelope.rate_cross_alert 슬롯, 스냅샷 플래그 없음 — D-09/D-10)
+
+    // Phase 18.1 G5/G6 — 예약 구간 상태 (Envelope 의 queued_window_state 슬롯)
+    // 76 은 Phase 19 RateCrossAlert 가 먼저 배포돼 77 로 재번호했다 (quick-260913-kia, append-only)
+    QueuedWindowState = 77,        // 예약 구간 상태 푸시 (S→C — 로그인 직후 그 연결 + open 전이 시 전 세션 Notice, 표시 전용)
+
+    // quick-260914-eqd — 등락률 돌파 스냅샷 (Envelope 의 rate_cross_snapshot 슬롯)
+    RateCrossSnapshot = 78         // 등락률 돌파 스냅샷 (S→C, 로그인 성공 직후 그 연결에만 Notice, Envelope.rate_cross_snapshot — quick-260914-eqd)
 }
 
 // ============================================================================
@@ -142,6 +167,25 @@ table DirectOrderReq {
                               // 구 C# 클라이언트가 보내는 메시지에는 이 필드가 없으므로
                               // 기존 신규주문 경로가 바이트 하나 바뀌지 않는다
     org_order_no: string;     // 원주문번호 (10자리, order_type="M"/"C" 일 때 필수)
+
+    // === 이하 Phase 18.1 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    piece_count: uint;        // 16:00 예약 발사 조각 수 (18.1 D-17).
+                              // **0/미지정 = 1** — 구 C# 클라이언트는 이 필드를 보내지
+                              //   않으므로 기존 수동주문 경로가 바이트 하나 바뀌지 않는다.
+                              // 서버 상한은 설정값 [queued_order] max_pieces (기본 10,
+                              //   허용 1..64) — 초과는 브로커에 닿기 전에 거부다.
+                              // **예약 구간(15:20~16:00 KRX 신규) 밖에서는 무시한다** —
+                              //   정규장·애프터마켓 즉시 발주는 종전대로 1건이다.
+
+    // === 이하 Phase 18.2 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    krx_session: string;      // KRX 시간외종가 세션 지정 (18.2 D-12).
+                              // **"" / 부재 = 서버 자동 판정** (18 D-04 종전) — 구 C# 클라이언트는
+                              //   이 필드를 보내지 않으므로 기존 수동주문 경로가 바이트 하나 바뀌지 않는다.
+                              // "G2" = 장개시전 시간외종가 · "G3" = 장종료후 시간외종가.
+                              // 값이 있으면 예약(15:20~16:00)·장전 G1 판정을 타지 않는다 (18.2 D-12).
+                              // 그 외 값은 브로커에 닿기 전에 즉시 거부다 (18.2-05).
 }
 
 // 계좌번호 관리 요청
@@ -226,6 +270,22 @@ table OrderResp {
                           // 태그를 생략한다** — 필드 부재를 오류로 다루지 않는다.
                           // D-11 의 종목명 뒤 [NXT] 태그는 이 필드 하나로 성립한다. 체결 통보도
                           // 이 테이블로 온다 (notice_type="E") — TradeExecution(53) 이 아니다
+
+    // === 이하 Phase 18.2 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    board: string;        // 통보 보드 — UnfilledState.board 와 같은 규칙 (18.2 D-19).
+                          // **"G2"/"G3" 만 싣는다 — G1·G4·미상은 ""**. 원천은 브로커 수신 전문의
+                          // boardId(ExecutionReport.board). 구 서버는 부재 = "" 로 읽는다
+
+    // === 이하 quick-260917-lmm 추가 (테이블 말미 append) ===
+
+    request_kind: string; // 이 통보가 답하는 요청 "New" / "Modify" / "Cancel". 미상·구 서버 "".
+                          // 거부 줄의 행위 단어("취소"/"정정") 원천 — 클라는 message 문구를 해석하지
+                          // 않는다. 원천은 브로커 수신 전문의 정정취소구분(ExecutionReport.requestKind).
+                          // 정정·취소 804 거부는 서버가 message 를 친화 문구로 교체해 싣는다
+    requester: string;    // 정정·취소를 사람이 요청했으면 "Manual", 그 밖 "". **표시 전용** —
+                          // origin 은 원주문 주체 그대로다(D-03: 사람이 낸 상따 주문 취소도 origin
+                          // "LimitChaser"). 구 서버는 부재 = "" 로 읽는다
 }
 
 // 주문 접수 확인
@@ -285,6 +345,8 @@ table ServerMessage {
     source: string;       // 발신 맥락 "SetLimitChaser" / "SetVITrigger" / "Account" / "System"
                           // ("DirectOrder" 는 예약값 — 수동주문 실패는 전부 OrderResp rc<0
                           //  로 회신하므로 현재 발신자가 없다)
+                          // "LimitChaser" = 상따 발주·취소·인수 사유 줄 · "VITrigger" = VI 자동취소
+                          // 사유 줄 (quick-260917-lmm — 클라 배지 [상따]/[VI] 의 원천, 동등 비교)
 
     // === 이하 Phase 11 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
     // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
@@ -468,17 +530,64 @@ table SetLimitChaser {
     // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
 
     cancel_qty_track_baseline: uint; // **S→C 전용** 현재 취소 기준선 (주). 요청값은 서버가 읽지 않는다
+
+    // === 이하 quick-260910-kel 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    // 취소 진입 확인 래치 — **S→C 전용** 표시값이다 (요청값은 서버가 읽지 않는다, D-02).
+    // - false = 잠복: 매수1호가에 지지벽이 임계 위로 쌓인 것을 아직 한 번도 관측하지 못했다.
+    //           취소 판정(잔량 항·체결 항)을 아예 하지 않는다.
+    // - true  = 관측 완료: 그 시점부터 취소 판정이 돈다.
+    // 판정식·리셋 규칙(브로커 'A' 접수·재제출·비활성화가 푼다)은 docs/strategy/limit-chaser.md §6-5.
+    //
+    // ★ 값은 취소 3플래그(cancel_qty_enabled 등)와 달리 무장(armed)과 접지 않은 **원값**이다
+    //   (LimitChaser::IsCancelEntryLatched()). sell_entry_latched 의 규약과 글자 그대로 같다 —
+    //   접으면 "취소 무장 OFF 인데 래치는 살아 있음" 이라는 서버 진실이 화면에서 소멸한다.
+    //   구 클라는 이 필드가 없어 false(잠복)로 읽고, 그것이 안전한 방향이다.
+    cancel_entry_latched: bool;
+
+    // === 이하 quick-260910-ttc 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // FlatBuffers 는 선언 순서로 field id 를 매긴다. 가운데 삽입/삭제는 wire 를 깨서
+    // 미업그레이드 클라이언트가 엉뚱한 필드를 읽는다. 신규 필드는 반드시 여기 아래에만 붙인다.
+
+    // 매수 진입 확인 래치 — **S→C 전용** 표시값이다 (요청값은 서버가 읽지 않는다, D-04②).
+    // - false = 잠복: **`감시가에 걸린 매수잔량 < 감시수량`** 을 아직 한 번도 관측하지 못했다.
+    //           관측하는 사실은 하나이고 구하는 방법이 **두 갈래**다 (quick-260911-i3n) —
+    //           매수1호가가 감시가면 그 값이 곧 `bid1Qty` 라 잔량이 감시수량 **미만**인 틱이고,
+    //           매수1호가가 감시가 **아래**면 감시가 잔량이 `0` 이라 가격만으로
+    //           성립한다(벽이 통째로 사라진 것).
+    //           B6Buy1 잔량 항(`buyWatchQty <= bid1Qty`)을 아예 평가하지 않는다.
+    // - true  = 관측 완료: 그 시점부터 잔량 항 판정이 돈다.
+    // ★ **매수잔량 기준(buy_watch_side "1") 전용 상태**다. 매도잔량 기준(side "0") 갈래는
+    //   원전 그대로라 래치를 켜지도 보지도 않으므로 **언제나 false 로 온다** (BL-01) —
+    //   화면은 그 갈래를 3단계로 그리면 안 된다 (D-01).
+    // 판정식·리셋 규칙(UpdateConfig 재제출·Deactivate 가 푼다)은 docs/strategy/limit-chaser.md §5-4.
+    //
+    // ★ 값은 무장(buy_enabled)과 접지 않은 **원값**이다 (LimitChaser::IsBuyEntryLatched()).
+    //   sell_entry_latched · cancel_entry_latched 의 규약과 글자 그대로 같다 — 접으면
+    //   "매수 무장 OFF 인데 래치는 살아 있음" 이라는 서버 진실이 화면에서 소멸한다.
+    //   구 클라는 이 필드가 없어 false(잠복)로 읽고, 그것이 안전한 방향이다.
+    buy_entry_latched: bool;
 }
 
 // VITrigger (VI 발동) 전략 설정
 // - R8(VI발동) 이벤트 수신 시 상승률 체크 후 자동 매수
 // - 전 종목 대상, Stock 바인딩 없음
+// - 거래소별 1건 — R8 을 받은 fd 의 거래소 슬롯만 발주한다 (Phase 21 D-01/D-08)
 table SetVITrigger {
     account_no: string;       // 계좌번호 (최대 12자리)
     order_amount_krw: ulong;  // 주문금액 (원, 주문가격으로 나눠 수량 계산)
     check_rate: int;          // 상승률 조건 (정수 %, 예: 25=25% 이상일 때 주문)
     price_type: string;       // 주문가격 유형 ("U"=상한가, "L"=하한가)
     run: bool;                // 전략 활성화
+
+    // === 이하 Phase 21 추가 (테이블 **말미 append** — 가운데 삽입 금지, 하위호환) ===
+    exchange: string;         // 거래소 "KRX" / "NXT" (Phase 21 D-03 말미 append).
+                              // ★ **빈 값·미지정 = KRX** — 구 클라·구 strategy_state.toml 이
+                              //   마이그레이션 없이 그대로 KRX 설정으로 읽힌다.
+                              // VI 전략은 세션당 거래소별 1건(KRX 1 + NXT 1)이고 Set/Get/에코가
+                              // 전부 거래소별이다 (D-01). vtable 슬롯 14
 }
 
 // VI 자동주문 발주 통지 (Server -> Client 푸시, Phase 11.1 D-14)
@@ -499,6 +608,11 @@ table VIOrderNotice {
     market: string;        // "K"/"Q" — R8 정보구분. 클라 취소 DirectOrderReq 의 market 원천
     order_seq: ubyte;      // 발동당 주문 순번 — CP-1(cp1-g) 로 항상 1, 장래 확장 슬롯
     vi_end_time: string;   // R8 timeEndingVI 9자 "HHMMSSuuu" — 참고용 (110초 규칙은 클라 상수)
+
+    // === 이하 Phase 21 추가 (테이블 **말미 append** — 가운데 삽입 금지, 하위호환) ===
+    exchange: string;      // 발주 거래소 "KRX" / "NXT" (Phase 21 D-10). 클라 주문내역 '거래소'
+                           // 열과 수동 취소 DirectOrderReq.exchange 의 원천이다. 빈 값 = KRX.
+                           // vtable 슬롯 24
 }
 
 // 상따 전략 전수 열거 응답 (Server -> Client, Phase 12 D-02)
@@ -534,6 +648,10 @@ table DisableStrategiesResp {
 // 전략 조회 요청
 table GetStrategyReq {
     key: string;              // 전략 키 (ISIN:accountNo:exchange) — 슬롯 제거 (D-01)
+                              // ★ GetVITriggerReq(21) 에서는 거래소 문자열("KRX"/"NXT")이고
+                              //   빈 값 = KRX 다 — 새 필드 없이 슬롯을 재사용한다
+                              //   (Phase 21 D-03, MsgType 35~38 의 요청 슬롯 재사용 선례 동형 —
+                              //    스키마·vtable 은 바뀌지 않는다)
 }
 
 // ============================================================================
@@ -588,6 +706,37 @@ table UnfilledState {
                            //   ① order_time 키가 없는 구포맷 account_state.toml 복원분
                            //   ② 원장 대사로 주입된 주문 (OCX TA1006 에 시각이 없다)
                            //   클라는 공란을 공란으로 둔다 — 지어내면 화면에 거짓이 남는다.
+
+    // === 이하 Phase 18.1 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    queued_status: string;   // 예약 상태 문구 (18.1 D-13).
+                             //
+                             // ★ **빈 문자열 = 일반 미체결 행이다.** 예약이 없는 날에는
+                             //   66/67 의 모든 행이 이 값을 빈 문자열로 싣는다 — 구 클라는
+                             //   슬롯을 읽지 않으므로 화면이 한 글자도 바뀌지 않는다.
+                             //
+                             // ★ 값이 있으면 이 행은 **예약 요약 행**이다 (order_no = Q-ID,
+                             //   조각 N 개의 집계). 문구는 서버가 정하고 **클라는 판정하지
+                             //   않고 표시만 한다** — 대기/발사중/완료/실패 같은 상태를
+                             //   클라가 다시 계산하면 서버와 어긋난 화면이 생긴다 (13 D-01).
+
+    // === 이하 Phase 18.2 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    pending_status: string;  // 접수대기 문구 (18.2 D-03/D-05) — KB FEP 가 개장 전까지 보관한 주문.
+                             // ★ **빈 문자열 = 일반 행이다** (queued_status 와 같은 규약 — 구 클라는
+                             //   슬롯을 읽지 않으므로 화면이 한 글자도 바뀌지 않는다).
+                             // "증권사 보관 · 09:00 처리"(NXT 08:00) · "취소 보관 · 09:00 확정"(NXT 08:00) —
+                             // 거래소 미상 행은 시각 없이 "… 개장 때 처리/확정" (quick-260915-bh1).
+                             // 문구는 서버가 정하고 클라는 **표시만** 한다 — 판정은 아래 pending_cancel_sent.
+    board: string;           // 주문 보드 — **"G2"/"G3" 만 싣는다. G1·G4·미상은 ""** (18.2 D-19).
+                             // 시간외종가 행을 클라가 구분해 표시하는 원천이다.
+
+    // === 이하 quick-260915-bh1 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+
+    pending_cancel_sent: bool;  // 접수대기 행에 취소를 이미 보냈다(서버 원장 'X')면 true · 그 밖 false.
+                                // 구 서버는 부재 = false 라 신 클라가 종전과 같이 동작한다.
+                                // ★ 클라 회색 표시·취소 제외 판정의 **유일한 원천**이다 —
+                                //   pending_status 문구로 판정하지 않는다 (tasks/lessons.md 교훈 24).
 }
 
 // 스냅샷·델타·대사 교정 팬아웃 공용 본문 (MsgType 66/67 이 같은 슬롯을 공유한다).
@@ -627,6 +776,26 @@ table ReconcileAccountStateResp {
     holding_diffs: uint;             // 교정된 잔고 종목 수
     unfilled_diffs: uint;            // 교정된 미체결 건수 (추가+제거+수량변경)
     message: string;                 // 경고 로그 원문 (클라는 해석하지 않고 표기 — 10 D-03 관례)
+}
+
+// 예약 구간 상태 (Server -> Client, Phase 18.1 G5/G6) — MsgType QueuedWindowState(77)
+// - 로그인 성공 직후 그 연결에 1프레임, 이후 open 이 바뀔 때마다(서버 1초 감시 틱) 로그인된
+//   전 세션에 Notice 1프레임씩 보낸다. 빌더는 Gateway::BuildQueuedWindowStateEnvelope 한 벌.
+// - **표시 전용 힌트다.** 클라는 이 값으로 예약매수/예약매도 라벨·조각 입력 활성·주문확인 예약 줄을
+//   그린다. 주문이 예약인지는 주문이 도착한 시각에 서버(Gateway::ProcessDirectOrderReq)가 따로
+//   판정한다 — 경계 전이는 1초 틱이라 1초까지 늦을 수 있다.
+table QueuedWindowState {
+    open: bool;          // [queued_order] enabled AND 서버 MarketClock::IsKrxQueueWindow (평일 [15:20,16:00) 또는 mock 창)
+    max_pieces: uint;    // [queued_order] max_pieces — 클라 조각 수 입력 상한
+
+    // === 이하 Phase 18.2 추가 (테이블 **말미 append** — 기존 필드 순서 불변, 하위호환) ===
+    // 전부 표시 전용 힌트다 (18.1 G5/G6) — 서버 창 비트마스크(Gateway::ComputeWindowMask) 하나에서 나온다.
+
+    preopen_open: bool;      // [preopen_order] enabled AND IsKrxPreOpenWindow — 라벨만 예약매수/예약매도,
+                             // 조각 입력 없음 (18.2 D-11)
+    g2_open: bool;           // KRX 장개시전 시간외종가 [08:30,08:40)
+    g3_open: bool;           // KRX 장종료후 시간외종가 G3/AB1~G4/AB1 2단 (M4 미수신 폴백 [15:40,16:00))
+    nxt_preopen_open: bool;  // [preopen_order] enabled AND NXT 평일 08:00 전
 }
 
 // ============================================================================
@@ -710,6 +879,10 @@ table QuoteState {
     exchange_time: string;    // 거래소 체결·처리시각 "HHMMSSuuuuuu" 12자 — 신선도 판정의 원천 (D-04)
     server_time: string;      // 서버 송신시각 (표시용)
     is_snapshot: bool;        // true=58 스냅샷(전량 교체), false=59 증분 푸시
+    krx_close_price: long;    // 그날(서버 로컬 날짜) KRX A6 종목마감 종가 — 스탬프가 오늘이 아니면 0.
+                              // NXT 프레임에도 같은 ISIN 의 KRX 종가를 싣는다. 0 = 그날 종가 없음
+                              // (구 서버는 필드 부재라 역시 0). 기존 필드 번호 불변을 위한 맨 끝
+                              // append (quick-260916-sjb)
 }
 
 // 체결 테이프 1건 (D-02)
@@ -720,6 +893,9 @@ table TradeTapeEntry {
     change: long;             // 전일대비
     qty: long;                // 체결수량 (주)
     cum_volume: long;         // 누적거래량 (주)
+    bs_code: string;          // 최종매도매수구분 원문 1자 ('1'=매도, '2'=매수) — A3.finalBSCode.
+                              // 체결내역 수량 색(매수 빨강/매도 파랑)의 원천이다. 없던 필드라
+                              // **맨 끝에 append** 한다 (기존 필드 번호 불변 — debug/trade-tape-buy-color-blue)
 }
 
 // 체결 테이프 본문 — MsgType 69/71 이 Envelope 의 `trade_tape` 슬롯 하나를 공유한다 (58/59 동형).
@@ -786,6 +962,12 @@ table VIOrderItem {
     confirm_locked: bool;     // 확인 변경 불가 (= 119초 규칙 적용됨 ‖ Cancelling ‖ 종료) — 클라가 재계산하지 않는다
     state: string;            // "Pending" | "Accepted" | "Cancelling" | "Cancelled" | "Filled" | "Rejected"
     filled_qty: uint;         // 누적 체결수량 (부분체결은 별 상태가 아니라 이 값 > 0)
+
+    // === 이하 Phase 21 추가 (테이블 **말미 append** — 가운데 삽입 금지, 하위호환) ===
+    exchange: string;         // "KRX" / "NXT" (Phase 21 D-10 — 72/73 공용, log/vi_orders.toml 의
+                              // exchange 키와 같은 값). 빈 값 = KRX. R8 해제·연장 전문 매칭은
+                              // ISIN + 거래소다 — KRX 해제가 NXT 추적을 끝내지 않는다.
+                              // vtable 슬롯 34
 }
 
 // VI 추적 목록 (72 스냅샷 / 73 푸시 공용 본문).
@@ -820,6 +1002,53 @@ table MemberStats {
     buy: [MemberStat];        // 매수 상위 5 회원
     server_time: string;      // 서버 송신시각 "HH:MM:SS" (QuoteState.server_time 과 같은 표시용)
     is_snapshot: bool;        // true=74 스냅샷(전량 교체) / false=75 푸시 (역시 전량 — B9 특성)
+}
+
+// ============================================================================
+// Phase 19 — 등락률 임계 상향 돌파 알림 (RateCrossAlert 76, S→C 푸시 전용)
+//
+// 서버 MarketPublisher 가 KRX A3 마다 등락률(CalcChangeRateSignedBP)을 임계와 비교해
+// ISIN 당 엣지(임계 미만 → 이상)에서 접속 연결 전부에 Broadcast 로 보낸다 (D-01/D-06/D-10).
+// 재무장은 등락률이 임계 − 2%p 미만일 때만이다(quick-260914-eqd — 임계 근처 반복 발송 방지).
+// 서버는 돌파할 때마다 보내고, "하루 1회 자동 열기" 규칙은 클라 몫이다 (D-07).
+// 푸시 전용이라 스냅샷 짝이 없다 — 스냅샷 플래그를 두지 않는다 (슬롯 하나·타입 하나, D-09).
+// ============================================================================
+
+table RateCrossAlert {
+    isin: string;             // 12자 (QuoteState.isin 과 같은 키)
+    exchange: string;         // "KRX" / "NXT" (QuoteState.exchange 와 같은 어휘 — ExchangeToStr; 감지 대상은 KRX 뿐 D-02)
+    last_price: long;         // 돌파를 만든 A3 체결가
+    change_rate: double;      // 등락률 % (부호 포함 = CalcChangeRateSignedBP / 100)
+    threshold_pct: double;    // 서버 설정 임계 % ([market_data] rate_cross_alert_pct — 표시용, D-05)
+    base_price: long;         // 기준가 — A3 체결가에서 전일대비를 되돌린 값 (마스터 기준가 아님)
+    exchange_time: string;    // A3 체결시각 12자 원문 (HHMMSSuuuuuu)
+    server_time: string;      // 서버 송신시각 "HH:MM:SS" (QuoteState.server_time 과 같은 표시용)
+}
+
+// ============================================================================
+// quick-260914-eqd — 등락률 돌파 스냅샷 (RateCrossSnapshot 78, S→C)
+//
+// 서버가 로그인 성공 직후 **그 연결에만** Notice 1프레임으로 보낸다(재로그인·재접속 로그인마다).
+// 클라를 늦게 켜거나 재접속해도 "지금 임계 이상인 종목" 으로 돌파 목록을 채우기 위해서다.
+// items = 서버가 지금 above 로 들고 있는 KRX 종목 전부. 빈 목록도 1프레임을 보낸다.
+//
+// 원소는 76 의 RateCrossAlert 테이블을 재사용한다. 스냅샷 원소의 필드 의미:
+//   · last_price / change_rate / base_price = 그 종목의 **마지막 판정 대상 KRX A3** 값(스냅샷 시점 최신).
+//     Buy-in G7/G8 등 판정 제외 A3 는 반영하지 않는다. 76 과 같은 원천(CalcChangeRateSignedBP·A3 되돌림)이다.
+//   · exchange_time = **지금 above 구간을 연 A3 체결시각**(12자 원문) — 상향 돌파로 76 을 발화한 A3,
+//     또는 서버 장중 기동 시드 전용(WR-01)으로 발화 없이 above 가 된 첫 A3. 시드 종목의 실제 돌파는
+//     서버 기동 전 사건이라 서버가 모른다 — 시드 A3 시각은 서버가 "이상" 을 확인한 가장 이른 시각이다.
+//   · threshold_pct = 서버 임계 %, exchange = "KRX", server_time = 스냅샷 송신 시각(원소 공통).
+//   · 원소 순서 = exchange_time 오름차순, 같으면 isin 오름차순.
+// above 는 재무장 폭 2%p 때문에 임계 − 2%p 이상 ~ 임계 미만 원소를 포함할 수 있다 — 클라 목록 보관 구간과 같다.
+//
+// 76 에 스냅샷 플래그를 붙이지 않은 이유 = 구 클라는 모르는 필드를 무시하므로 원소를 **새 돌파**로 읽는다
+// (상따창 자동 열기·알림음 폭주). 새 MsgType 은 구 클라 수신 switch 의 default: 가 무시한다.
+// 전송은 Notice 다 — 로그인당 1회라 드롭되면 다음 로그인까지 자연 회복이 없다.
+// ============================================================================
+
+table RateCrossSnapshot {
+    items: [RateCrossAlert];  // 지금 above 인 KRX 종목 전부 (돌파 시각 오름차순, 빈 벡터 가능)
 }
 
 // ============================================================================
@@ -885,6 +1114,16 @@ table Envelope {
     // GetMemberStatsReq(35) 는 get_quote_req 슬롯을 재사용하므로 요청 슬롯을 두지 않는다.
     member_stats: MemberStats;                   // 74/75 공용 본문 — 스냅샷·푸시가 같은 슬롯을 쓴다
                                                  // (trade_tape 가 69/71 을 공유하는 선례 동형)
+
+    // === 이하 Phase 19 추가 (테이블 **말미 append** — 가운데 삽입 금지) ===
+    // RateCrossAlert(76) 은 푸시 전용이라 요청 슬롯이 없다 (스냅샷 짝도 없음 — D-09).
+    rate_cross_alert: RateCrossAlert;            // 76 본문 — 등락률 임계 상향 돌파 알림 (vtable 슬롯 70)
+
+    // === 이하 Phase 18.1 G5/G6 추가 (테이블 **말미 append** — 가운데 삽입 금지) ===
+    queued_window_state: QueuedWindowState;      // 예약 구간 상태 본문 (77) (vtable 슬롯 72)
+
+    // === 이하 quick-260914-eqd 추가 (테이블 말미 append — 가운데 삽입 금지) ===
+    rate_cross_snapshot: RateCrossSnapshot;      // 78 본문 — 등락률 돌파 스냅샷 (vtable 슬롯 74)
 }
 
 root_type Envelope;
@@ -895,4 +1134,14 @@ root_type Envelope;
 //
 // 새 테이블·새 Envelope 슬롯·새 MsgType 은 하나도 없다. 거래소 축은 기존 10/20/60/51/66/67
 // 메시지의 exchange 필드로만 흐른다 (NXT-06).
+// ============================================================================
+
+// ============================================================================
+// === Phase 21 (NXT VI 자동주문) 변경 요약: SetVITrigger·VIOrderNotice·VIOrderItem
+//     exchange 말미 append (vtable 슬롯 14/24/34) + GetStrategyReq.key 거래소 재해석 ===
+//
+// 새 테이블·새 Envelope 슬롯·새 MsgType 은 하나도 없다. 거래소 축은 기존 11/61(SetVITrigger)·
+// 56(VIOrderNotice)·72/73(VIOrderItem) 의 exchange 필드와 21(GetStrategyReq.key) 로만 흐른다
+// (NVI-04). 어휘는 "KRX"/"NXT" 3글자이고 **빈 값·미지정 = KRX** 다 — 구 클라와 구 상태파일이
+// 마이그레이션 없이 KRX 설정으로 읽힌다 (D-03/D-10). 슬롯 14/24/34 는 폐기해도 재사용 금지.
 // ============================================================================
