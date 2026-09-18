@@ -19,10 +19,13 @@
  *     비색 구분 수단이므로 지우지 말 것.
  *   - 시각은 `--muted-fg` 중립.
  *
- * ★ 구분(매수/매도)의 출처: 게이트웨이 `TradeTapeEntry` 에는 매수/매도 플래그가 없다
- *   (packages/shared `RelayTapeEntry` = t/p/cs/c/q/cv). 그래서 국내 HTS 관례대로
- *   **최우선호가 비교 → 직전 체결가 틱 규칙** 순으로 추정하고, 추정임을 화면에 밝힌다.
- *   서버가 주지 않는 값을 확정 사실처럼 그리지 않는다(오주문 유발 차단).
+ * ★ 구분(매수/매도)의 출처 (17-08 / D-10): 게이트웨이 `TradeTapeEntry` 가 **체결구분
+ *   원문**(`RelayTapeEntry.bs` — `"2"` 매수 · `"1"` 매도 · `""` 미상)을 실어 온다.
+ *   `tapeSidesOf` 가 그 값을 먼저 쓰고, **`""` 인 원소만** 국내 HTS 관례대로
+ *   `deriveTapeSides`(최우선호가 비교 → 직전 체결가 틱 규칙)로 추정한다.
+ *   ★ 하단 고지는 **실제로 쓴 근거**를 말한다 — 폴백을 한 건도 안 썼으면 「추정」이라고
+ *     하지 않는다. 서버가 준 값을 추정이라 하는 것도, 추정을 확정 사실처럼 그리는 것도
+ *     똑같이 화면이 거짓말하는 것이다(오주문 유발 차단).
  *
  * ★ 갱신 피드백 규율 (UI-SPEC §실시간 갱신 시각 피드백, T-15-45):
  *   - 200ms 배치 단위로 **1회** 플래시. **행마다 개별 애니메이션 금지.**
@@ -56,6 +59,15 @@ const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklch,var(--fg)_14%,transparent)]
 const FLASH_FADE =
   'motion-safe:transition-[background-color] motion-safe:duration-150 motion-reduce:transition-none';
 
+/**
+ * 하단 고지 — 표시된 모든 체결이 **거래소 체결구분 원문**을 따랐을 때 (D-10).
+ * 추정을 한 건도 쓰지 않았으므로 「추정」이라고 말하지 않는다.
+ */
+const SIDE_NOTE_SERVER = '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요';
+/** 하단 고지 — 체결구분이 없는 체결이 하나라도 섞여 추정으로 채웠을 때 (D-10). */
+const SIDE_NOTE_FALLBACK =
+  '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요';
+
 export interface TradeTapeProps {
   /** 훅의 `tape`. **최신이 index 0** 이다. */
   entries: RelayTapeEntry[];
@@ -74,7 +86,7 @@ export interface TradeTapeProps {
    *   렌더 결과 불변이 이 옵션의 계약이다.
    * 켜면: `<thead>` 없음 · 시각 `MM:SS` · 셀 10px · 행 24px · `max-h-[200px]` ·
    * 셀 패딩 `px-1` · 스크롤 영역에 `tabIndex={0}`.
-   * 그대로 남는 것: 핀 버튼 · 배치 플래시 · 수량 색 · `sr-only` 매수/매도 · 「추정이에요」 라벨.
+   * 그대로 남는 것: 핀 버튼 · 배치 플래시 · 수량 색 · `sr-only` 매수/매도 · 하단 고지 라벨.
    */
   compact?: boolean;
   className?: string;
@@ -181,7 +193,18 @@ export function tapeSidesOf(
   bestBid?: number,
   derive: typeof deriveTapeSides = deriveTapeSides,
 ): TapeSidesResult {
-  return { sides: derive(entries, bestAsk, bestBid), usedFallback: true };
+  const usedFallback = entries.some((e) => e.bs !== '1' && e.bs !== '2');
+  /*
+    추정은 **배열 전체를 한 번에** 돈다(원소마다 부르지 않는다) — zero-tick 상속이
+    이웃 원소를 보는 규칙이라 조각내면 뜻이 달라진다. 폴백이 필요 없으면 아예 부르지 않는다.
+  */
+  const derived = usedFallback ? derive(entries, bestAsk, bestBid) : null;
+  const sides = entries.map((e, i) => {
+    if (e.bs === '2') return 'B' as TapeSide;
+    if (e.bs === '1') return 'S' as TapeSide;
+    return derived![i];
+  });
+  return { sides, usedFallback };
 }
 
 /** 배치 경계 판정용 콘텐츠 키 — 스냅샷 교체(객체 신원 변경)에도 견딘다. */
@@ -211,8 +234,8 @@ export function TradeTape({
 
   // 링버퍼 상한을 컴포넌트에서도 강제한다 — 훅이 이미 자르지만 이 표면의 계약이기도 하다.
   const rows = useMemo(() => entries.slice(0, MAX_TAPE), [entries]);
-  const sides = useMemo(
-    () => deriveTapeSides(rows, bestAsk, bestBid),
+  const { sides, usedFallback } = useMemo(
+    () => tapeSidesOf(rows, bestAsk, bestBid),
     [rows, bestAsk, bestBid],
   );
 
@@ -438,11 +461,12 @@ export function TradeTape({
       </div>
 
       {/*
-        추정임을 밝히는 마이크로 라벨(11px). 게이트웨이 체결 레코드에 매수/매도 플래그가
-        없으므로 확정 사실로 그리면 안 된다 — 근거를 함께 노출해 오독을 막는다.
+        근거를 밝히는 마이크로 라벨(11px). ★ **실제로 쓴 근거만** 말한다 — 서버 체결구분이
+        전부 왔는데 「추정」이라고 하면 그 고지 자체가 거짓이 된다(D-10). 판정 입력은
+        `usedFallback` 하나뿐이고, 분기 인라인 문구를 두지 않는다.
       */}
       <p className="border-t border-[var(--border-subtle)] px-[var(--s-2)] pt-1 text-[11px] text-[var(--muted-fg)]">
-        수량 색(빨강 매수 · 파랑 매도)은 최우선호가·직전 체결가 기준 추정이에요
+        {usedFallback ? SIDE_NOTE_FALLBACK : SIDE_NOTE_SERVER}
       </p>
     </div>
   );
