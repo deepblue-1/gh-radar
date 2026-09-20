@@ -59,8 +59,10 @@ import {
 } from "@/components/ui/table";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import {
+  mergeOrderNotices,
   orderActionWord,
   orderNoticeLabel,
+  type MergedOrderNotice,
   type OrderNoticeFacts,
   type OrderNoticeLabel,
 } from "@/lib/order-notices";
@@ -171,6 +173,15 @@ export function TodayOrdersCard() {
     [restored, orders],
   );
 
+  /*
+    ★ 묶기는 **복원·병합이 끝난 뒤**에 온다 (17-10 / D-16). `mergeTodayOrders` 안으로
+      넣지 않는다 — 그 함수는 REST 복원과 라이브 프레임을 맞추는 다른 일을 하고, 그
+      결과(`unmatchedOrderNos`)가 아래 재조회 루프의 정본이다.
+    ★ 재조회 루프는 **묶기 전** 목록을 본다. 묶인 뒤 목록을 보면 합쳐진 주문번호가
+      사라져 그 주문의 종목명이 영원히 복원되지 않는다 (T-17-35).
+  */
+  const merged = useMemo(() => mergeOrderNotices(rows), [rows]);
+
   useEffect(() => {
     // 최초 응답 전에는 「없다」를 판정할 수 없다 — 전부 unmatched 로 보여 헛돈다.
     if (restored === null || failed) return;
@@ -245,14 +256,15 @@ export function TodayOrdersCard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => {
+                {merged.map((group) => {
+                  const row = group.head;
                   const stock = stockLabel(row, labels.get(row.isin));
                   const facts = noticeFactsOf(row);
                   const label = orderNoticeLabel(facts);
                   return (
                     <TableRow key={row.id} data-slot="today-order-table-row">
                       <TableCell className="mono text-[length:var(--t-caption)]">
-                        {orderTime(row.createdAt)}
+                        {orderTime(group.at)}
                       </TableCell>
                       {/*
                         표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
@@ -280,16 +292,19 @@ export function TodayOrdersCard() {
                         <SideTag label={label} srAction={orderActionWord(facts)} />
                       </TableCell>
                       <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {KRW.format(row.qty)}
+                        {KRW.format(group.qty)}
                       </TableCell>
                       <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {KRW.format(row.price)}
+                        {priceText(group)}
                       </TableCell>
                       <TableCell>
                         <StatusTag shown={orderDisplayStatus(row)} />
                       </TableCell>
                       <TableCell className="mono text-[length:var(--t-caption)]">
-                        {row.orderNo ?? "—"}
+                        {group.orderNoText ?? "—"}
+                        {group.count > 1 && (
+                          <span className="ml-1 text-[var(--muted-fg)]">({group.count}건)</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -303,7 +318,8 @@ export function TodayOrdersCard() {
             data-slot="today-orders-list"
             className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
           >
-            {rows.map((row) => {
+            {merged.map((group) => {
+              const row = group.head;
               const stock = stockLabel(row, labels.get(row.isin));
               const facts = noticeFactsOf(row);
               const label = orderNoticeLabel(facts);
@@ -340,19 +356,24 @@ export function TodayOrdersCard() {
                   {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
                   <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
                     <span className="flex flex-none items-center gap-1">
-                      <RowValue>{orderTime(row.createdAt)}</RowValue>
+                      <RowValue>{orderTime(group.at)}</RowValue>
                     </span>
                     <span className="flex flex-none items-center gap-1">
                       <RowKey>수량</RowKey>
-                      <RowValue>{KRW.format(row.qty)}</RowValue>
+                      <RowValue>{KRW.format(group.qty)}</RowValue>
                     </span>
                     <span className="flex flex-none items-center gap-1">
                       <RowKey>가격</RowKey>
-                      <RowValue>{KRW.format(row.price)}</RowValue>
+                      <RowValue>{priceText(group)}</RowValue>
                     </span>
                     <span className="ml-auto flex flex-none items-center gap-1">
                       <RowKey>주문</RowKey>
-                      <RowValue>{row.orderNo ?? "—"}</RowValue>
+                      <RowValue>{group.orderNoText ?? "—"}</RowValue>
+                      {group.count > 1 && (
+                        <span className="text-[11px] text-[var(--muted-fg)]">
+                          ({group.count}건)
+                        </span>
+                      )}
                     </span>
                   </div>
                 </div>
@@ -363,6 +384,16 @@ export function TodayOrdersCard() {
       )}
     </section>
   );
+}
+
+/**
+ * 묶인 행의 가격 — **범위**다. 단가를 더하면 없는 값이 생기고(3천원짜리 3건이 9천원으로
+ * 보인다), 트레이더는 그 숫자로 판단한다. 정본 C# `RewriteMerged` 도 min~max 로 쓴다.
+ */
+function priceText(group: MergedOrderNotice): string {
+  return group.priceMin === group.priceMax
+    ? KRW.format(group.priceMin)
+    : `${KRW.format(group.priceMin)}~${KRW.format(group.priceMax)}`;
 }
 
 /** 카드 행의 라벨(11px 중립). **`flex:none`** 이라 숫자를 밀어내지 않는다. */
