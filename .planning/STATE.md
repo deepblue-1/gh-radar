@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-09-PLAN.md
-last_updated: "2026-09-20T09:28:25.827Z"
+stopped_at: Completed 17-10-PLAN.md
+last_updated: "2026-09-20T09:51:34.907Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: 8a957a5158192ed72bf7fe3e68ceeb98c06aafbd
+state_head: 8fc00956e11361461f3727d0c88da8b838f5f451
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 179
+  completed_plans: 180
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 10 of 12
+Plan: 11 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -446,6 +446,7 @@ Progress: [█████████░] 92%
 | Phase 17 P05 | 1h 9m | 3 tasks | 12 files |
 | Phase 17 P06 | 15 min | 3 tasks | 17 files |
 | Phase 17 P09 | 11 min | 3 tasks | 4 files |
+| Phase 17 P10 | 15 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -694,6 +695,9 @@ Recent decisions affecting current work:
 - [Phase 17]: VI 가동 배지는 viAnyRunning 한 함수로만 판정(사이드바·My page·전략 현황 인라인 0건)하고, 요약 문구도 가동 중인 거래소별 값을 말한다 (17-06 / D-18)
 - [Phase 17]: vi.notice 는 렌더 소비처가 0곳이었다(grep 실측) — VI 상태줄에 최신 1건(종목·거래소·발동가) 줄을 새로 만들었다. isViServerMessage 는 VITrigger 를 받되 LimitChaser 는 받지 않는다(Pitfall 9 유지)
 - [Phase 17]: 17-09: 미체결 표식은 sideDisplayText 한 함수에서만 나오고, 취소보관 행은 pendingCancelSent bool 하나로 회색·취소 제외(개별·전체 두 경로 동일) — 접미는 배타가 아니라 누적(C# NotificationHub 정본). 보조 줄 컴포넌트는 문자열 배열만 받아 어느 필드인지 모르므로 문구 분기가 구조적으로 불가능하다
+- [Phase 17]: 3초 창 묶기 기준을 정본 C# 의 슬라이딩(마지막 갱신)이 아니라 묶음의 첫 통보 시각 고정으로 했다 — 매 렌더마다 목록을 다시 접는 순수함수에서 슬라이딩은 한 행을 무한히 키운다 (T-17-36)
+- [Phase 17]: 묶인 행의 가격은 합계가 아니라 min~max 범위다 — 이 표의 칸은 단가라 더하면 3천원짜리 3건이 9천원으로 보인다
+- [Phase 17]: 판정 함수가 읽으면 안 되는 값(OrderResp.message)은 주석이 아니라 시그니처에서 제거해 막는다 — 받을 수 없으면 읽을 수 없다 (T-17-33)
 
 ### Pending Todos
 
@@ -778,8 +782,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-20T09:28:18.785Z
-Stopped at: Completed 17-09-PLAN.md
+Last session: 2026-09-20T09:51:34.579Z
+Stopped at: Completed 17-10-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
