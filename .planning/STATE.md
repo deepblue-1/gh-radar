@@ -4,10 +4,10 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: awaiting-user
-stopped_at: 17-12 Task 5 — relay 배포가 권한 게이트에 거부됨 (webapp 만 배포된 반쪽 상태)
+stopped_at: 17-12 완료 — Phase 17 배포 완결. 남은 것은 D-25 실기 관측(장중·Xcode 라이선스 필요)
 last_updated: "2026-09-20T10:35:18.321Z"
 last_activity: 2026-09-20
-last_activity_desc: Phase 17 배포 부분 완료 — webapp 프로덕션 반영, relay 는 11072e4 유지
+last_activity_desc: Phase 17 배포 완결 — webapp·relay 모두 ef1499a, smoke 12 PASS, healthz 정상
 state_head: 420b7755884cd78ae42270ea883d3a67f2b1bc07
 progress:
   total_phases: 27
@@ -28,35 +28,29 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — **배포 부분 완료 (반쪽 상태)**
-Plan: 12 of 12 (17-12 `status: halted` — webapp 배포됨 · relay 배포 권한 거부)
+Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — **코드·배포 완료, 실기 관측 대기**
+Plan: 12 of 12 (17-12 `status: complete`)
 Plans completed: 172 / 185
-Status: 🚨 relay 배포 미완 — 아래 (A) 또는 (B) 필요
+Status: ✅ 배포 완결 — 남은 것은 D-25 실기 관측 1건(WINDOWS #17)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-20 20:10 — push + webapp 프로덕션 배포, relay 배포 권한 거부
+Last activity: 2026-09-20 20:31 — relay ef1499a 배포 완결 · smoke 12 PASS · healthz 정상
 
 Progress: [█████████░] 93%
 
-### 🚨 프로덕션이 반쪽 상태다 — 다음 장 시작 전에 해소해야 한다 (2026-09-20 20:10 KST)
-
-사용자가 `deploy-now` 를 승인했고 **push 는 됐으나(78 커밋, `7a2e99d..e286e33`) relay 배포가 harness 권한 분류기에 `[Production Deploy]` 로 거부**됐다. 그 사이 push 가 Vercel 빌드를 유발해 **webapp 만 프로덕션에 나갔다**(`gh-radar-webapp-kj1ryn9sy` Ready, 20:03:52 KST).
+### ✅ Phase 17 프로덕션 배포 완결 (2026-09-20 20:31 KST)
 
 ```
-webapp = e286e33 (Phase 17 전량)   ← 새것
-relay  = 11072e4 (2026-09-10)      ← 이 phase 76 커밋 전부 미반영
+webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 ```
 
-`/healthz` 는 `version 11072e4` · `sessionCount 1` 로 **살아 있던 DMA 세션은 끊기지 않았다**(relay 를 재기동하지 않았으므로).
+`/healthz` → `{"status":"ok","vpn":true,"dma":true,"version":"ef1499a","sessionCount":1,"everReadyCount":1,"stalledCount":0}` (20초 뒤 재확인 동일 — 재기동으로 끊겼던 DMA 세션이 재접속했다).
+`smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**(INV-9 는 `SMOKE_AUTH_TOKEN` 미설정 시 SKIP 이 정상). `DMA_HOST=10.41.1.120` **보존**(미주입 — mock 강등 회피).
 
-**소스 대조로 예상되는 영향(관측 아님):** VI 설정 카드가 「미조회」에 머물 수 있고(구 relay 의 `vi` 프레임에 `x` 가 없어 `use-relay-socket.ts` 가 무시), LED 클릭이 동작하지 않는다(구 relay 에 `lc.arm` 없음). 나머지 표면은 구 서버 프레임 회귀 테스트가 덮어 무해 폴백으로 예상.
+**도중 25분간 반쪽 상태를 거쳤다.** `deploy-relay.sh` 가 harness 권한 분류기에 `[Production Deploy]` 로 거부되는 동안, 먼저 나간 push 가 Vercel 빌드를 유발해 webapp 만 단독 배포됐다(20:03~20:31, 일요일 장 마감 중이라 거래 영향 없음). 사용자가 auto mode 를 해제한 뒤 재실행해 해소했다.
 
-**선택지 — 일요일이라 당장 거래 영향은 없지만 다음 장 전에 A 또는 B 를 끝낼 것:**
+**교훈 — 이 저장소에서 `git push` 는 곧 webapp 프로덕션 배포다.** `scripts/vercel-ignore-build.sh` 가 직전 배포 커밋 대비 `webapp/`·`packages/shared/`·`pnpm-lock.yaml` 변경을 보고 빌드한다. 배포 순서는 **relay 먼저 → 검증 → push** 이고, 백엔드 배포가 막히면 **push 하지 않는다**.
 
-- **(A) relay 배포를 마저 한다 — 권장.** `DMA_HOST` **미주입**(그것이 현재 게이트웨이 보존이다).
-  `GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://ivdbzxgaapbmrxreyuht.supabase.co NOTIFICATION_CHANNEL_ID=14409521670382124894 bash scripts/deploy-relay.sh`
-  (`GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/gh-radar-deployer.json` · `CLOUDSDK_CORE_PROJECT=gh-radar` 선행 export)
-  이후 `bash scripts/smoke-relay.sh`(INV-9 는 `SMOKE_AUTH_TOKEN` 없으면 SKIP 이 정상) · `/healthz` 200 · `stalledCount 0` 확인.
-- **(B) webapp 을 되돌린다.** 직전 Ready 프로덕션 배포 `gh-radar-webapp-a7b0evnin`(4일 전).
+**배포를 막았던 방화벽 가드도 고쳤다 (`4225a6f`).** `gh-radar-vpc` 를 gh-trade 와 공유하면서 `build-ssh` 태그 규칙 2개가 붙자 VPC 전체 목록 완전일치 비교가 깨졌다. `setup-relay-iam.sh` 로 "정리"하면 타 프로젝트 빌더가 끊기므로, 판정 대상을 **`radar-gw` 대상 규칙 + 태그 없는 규칙**으로 좁혔다(태그가 비면 relay VM 에도 걸리므로 포함이 필수). `deploy-relay.sh` 와 `smoke-relay.sh` INV-2 를 같은 식으로 맞췄다.
 
 ### ★ 그 외 남은 것 1건
 
@@ -827,9 +821,9 @@ Recent decisions affecting current work:
 
 Last session: 2026-09-20T10:35:17.996Z
 Stopped at: 17-12 Task 4 — 배포 승인 checkpoint (blocking-human) 대기
-Next: **Phase 17 은 12/12 plan 을 실행했고 사용자 승인 아래 배포를 시도했으나 절반만 나갔다.** 전량 게이트는 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0). **다음 행동은 반쪽 상태 해소다.**
+Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
-- **🚨 ① relay 배포 완결 (또는 webapp 롤백).** 지금 프로덕션은 `webapp e286e33` + `relay 11072e4` 다. push 는 됐고 그 push 가 Vercel 빌드를 유발해 webapp 만 나갔으며, `deploy-relay.sh` 는 harness 권한 분류기에 `[Production Deploy]` 로 거부됐다. **일요일이라 당장 거래 영향은 없지만 다음 장 전에 끝내야 한다.** 명령과 선택지는 위 `## Current Position` 의 (A)/(B).
+- **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
 - **② `sudo xcodebuild -license` 동의** — D-25 실기 검증(WINDOWS #17) 재개용. **배포해도 이 항목은 닫히지 않는다.**
 - **TRADE-04 · TRADE-05 는 Pending 유지** — 배포는 (부분)했지만 래치 36/37/38 실기 왕복은 여전히 미관측이고, 일요일이라 실거래 관측도 불가했다. 기준을 바꾸지 않았다.
 - **WINDOWS:** open 4건 — #9·#10·#11(Phase 16 승계) · **#17(D-25 미수행)**. #12·#14·#15·#16 은 이번에 닫았다(#16 은 사용자 육안 승인).
