@@ -391,3 +391,10 @@ None - no external service configuration required.
 ---
 *Phase: 17-gh-trade-led*
 *Completed: 2026-09-20*
+
+## Self-Check: PASSED
+
+- 수정 파일 6개 전부 디스크에 존재 (신규 생성 파일 없음 — 이 SUMMARY 뿐)
+- 커밋 6개 전부 git 에 존재: `8d2378d`(test RED 1) · `f77e2fa`(feat GREEN 1) · `7778ab1`(test RED 2) · `ce0ff8d`(feat GREEN 2) · `be2fcc1`(feat 3) · `a4e1fde`(docs SUMMARY)
+- 플랜 `<verification>` 4항 중 3항 green (위 Verification 표), 나머지 1항(e2e Playwright 실행)은 미실행으로 WINDOWS 15 에 기록
+- 세 태스크의 `<acceptance_criteria>` 전 항목을 재실행해 확인 — 게이트 식의 부분일치 함정 2건은 「Deviations 4」에 실측값과 함께 남겼다
