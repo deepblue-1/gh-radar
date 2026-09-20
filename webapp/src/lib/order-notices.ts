@@ -19,6 +19,8 @@
  *   — `ActionWord`(:466) · `ActionSide`(:478) · `BuildOrderScreen`(:500 부근 board 접두).
  */
 
+import type { TodayOrderRow } from "./orders-api";
+
 /** 매매구분. `null` = 모른다(지어내지 않는다). */
 export type NoticeSide = "B" | "S" | null;
 
@@ -107,4 +109,44 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
     side,
     meta: facts.requester === MANUAL_REQUESTER ? "수동" : "",
   };
+}
+
+// ===========================================================================
+// 통보 묶기 (17-10 Task 2 / D-16) — ⚠️ RED 스텁: 시그니처만 있다.
+// ===========================================================================
+
+/** 묶인(또는 단건인) 한 줄. */
+export interface MergedOrderNotice {
+  /** 대표 행 — 입력에서 **처음 만난** 행. 렌더 키·종목·행위의 정본. */
+  head: TodayOrderRow;
+  /** 묶인 건수. `1` 이면 묶임 표기를 붙이지 않는다. */
+  count: number;
+  /** 수량 합계. */
+  qty: number;
+  /** 단가 범위. 단가를 더하면 없는 값이 생기므로 합계가 아니다. */
+  priceMin: number;
+  priceMax: number;
+  /** 묶음의 **첫 통보**(가장 이른) 시각 ISO. */
+  at: string;
+  /** 주문번호 표기 — `#첫번호~끝번호`(묶임) · 원번호(단건) · `null`(번호 없음). */
+  orderNoText: string | null;
+}
+
+export function mergeKeyOf(row: TodayOrderRow): string {
+  return row.id;
+}
+
+export function mergeOrderNotices(
+  rows: readonly TodayOrderRow[],
+  _windowMs = 3000,
+): MergedOrderNotice[] {
+  return rows.map((row) => ({
+    head: row,
+    count: 1,
+    qty: row.qty,
+    priceMin: row.price,
+    priceMax: row.price,
+    at: row.createdAt,
+    orderNoText: null,
+  }));
 }
