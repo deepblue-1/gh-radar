@@ -112,8 +112,31 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
 }
 
 // ===========================================================================
-// 통보 묶기 (17-10 Task 2 / D-16) — ⚠️ RED 스텁: 시그니처만 있다.
+// 통보 묶기 (17-10 Task 2 / D-16 · T-17-34 · T-17-36)
 // ===========================================================================
+
+/**
+ * 왜 묶는가 — 부분체결 조각 매도(quick-260916-fq3)에서 통보가 조각 수만큼 쏟아져
+ * 「오늘 주문」 표가 한 종목으로 가득 찬다.
+ *
+ * ★ 무엇을 묶지 **않는가**가 더 중요하다.
+ *   - **매수 접수**: 취소 직후 3초 안 재매수가 앞 줄에 합쳐지면 **이미 취소된 수량이
+ *     더해져 보이고** 순서도 취소 줄 위로 올라간다(Pitfall 8 · 사용자 결정 2026-09-17).
+ *   - **거부·취소확인·정정확인**: 한 건 한 건이 독립 사건이다.
+ *   - **수동 발주·주체 미상**: 사람이 낸 주문은 하나하나 보여야 한다. `origin === "manual"`
+ *     은 「수동」과 「출처 불명」이 **같은 값**이라(`DmaOrderRow.origin` 주석) 자동주문의
+ *     증거로 쓸 수 없다 — 그래서 자동 판정은 `manual` 이 **아닐 때만** 참이다.
+ *   - **라이브 통보가 없는 복원 행**: 통보가 온 적 없는 주문은 묶기의 대상이 아니다.
+ *
+ * ★ 창 기준은 **그 묶음의 첫 통보 시각**이다 — 슬라이딩이 아니다(T-17-36). 정본 C#
+ *   (`LogPanelRenderer.FindMergeRecord` :330)은 마지막 갱신 기준 슬라이딩 창이지만,
+ *   그쪽은 줄이 도착할 때마다 한 줄씩 덧붙이는 **증분 렌더러**라 성장 상한을 사람이
+ *   보고 있다. 이 함수는 매 렌더마다 목록 전체를 다시 접는 순수함수이고, 슬라이딩이면
+ *   통보가 계속 오는 동안 한 행이 **무한히 자란다**. 경계 `windowMs` 는 **포함**이다.
+ *
+ * ★ 현재 시각을 읽지 않는다. 입력 행의 `createdAt` 만 본다 — 같은 입력은 언제 불러도
+ *   같은 출력이다(그래서 타이머 없이 단위 테스트로 잠긴다).
+ */
 
 /** 묶인(또는 단건인) 한 줄. */
 export interface MergedOrderNotice {
@@ -132,21 +155,158 @@ export interface MergedOrderNotice {
   orderNoText: string | null;
 }
 
+/** 기본 묶기 창 — 정본 C# `LogPanelRenderer.MERGE_WINDOW_MS` 와 같다. */
+export const MERGE_WINDOW_MS = 3000;
+
+/**
+ * 묶기 키 — **한 곳에서만** 만든다. 분기 안에 흩뿌리면 「체결만 고치고 접수는 잊는」
+ * 어긋남이 조용히 산다(정본 C# `NotificationHub.MergeKeyOf` :573 동형).
+ *
+ * 묶이지 않는 행은 **자기 주문번호**(없으면 행 id)가 키다 — 주문번호는 행마다 고유하므로
+ * 같은 키가 둘일 수 없고, 따라서 「안 묶임」이 별도 분기 없이 성립한다.
+ */
 export function mergeKeyOf(row: TodayOrderRow): string {
-  return row.id;
+  /* 번호가 없는 행(접수 전 거부·타임아웃)끼리 서로 묶이지 않도록 행 id 로 떨어진다. */
+  const own = `NO|${row.orderNo ?? row.id}`;
+  const live = row.live;
+  if (live === null) return own;
+
+  const automated = row.origin !== "manual" && live.rq !== MANUAL_REQUESTER;
+  if (!automated) return own;
+
+  const axis = `${row.origin}|${row.isin}|${row.exchange}|${row.side}`;
+  // 체결은 접두 `FG`, 매도 접수는 `AG` — 접두가 달라 둘이 섞이지 않는다.
+  if (live.nt === "E") return `FG|${axis}`;
+  if (live.nt === "A" && row.side === "S") return `AG|${axis}`;
+  return own;
 }
 
+/**
+ * 주문번호 비교 — 길이가 다르면 짧은 쪽이 작다(숫자 문자열), 같으면 사전순.
+ * 정본 C# `LogPanelRenderer.CompareOrderNo` 동형이다.
+ */
+function compareOrderNo(a: string, b: string): number {
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** 파싱 실패는 `null` — 모르는 시각으로 창을 판정하지 않는다. */
+function epochOf(iso: string): number | null {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+interface Group {
+  out: MergedOrderNotice;
+  /** 창 기준 — 그 묶음의 **첫 통보** epoch. `null`(시각 불명)이면 아무것도 붙지 않는다. */
+  anchor: number | null;
+  /** 출력 자리 — 묶음 구성원의 **입력 순서상 가장 앞** 인덱스. */
+  headIndex: number;
+  minOrderNo: string | null;
+  maxOrderNo: string | null;
+}
+
+interface Item {
+  row: TodayOrderRow;
+  index: number;
+  stamp: number | null;
+}
+
+/**
+ * 오늘 주문 표가 이미 만든 행 배열 → 묶인 행 배열.
+ *
+ * ★ **접기는 시간 오름차순**(통보가 실제로 온 순서)으로 한다. 이 표의 행은 실측상
+ *   `created_at` **내림차순**(최신 먼저)인데, 그 순서로 접으면 창 기준이 「가장 최신
+ *   통보」가 되어 버려 「첫 통보 기준」이 성립하지 않는다.
+ * ★ **출력 자리는 입력 순서**를 지킨다 — 묶인 행은 구성원 중 입력상 가장 앞(내림차순
+ *   목록에서는 가장 최신) 자리에 선다. 서버가 준 정렬을 뒤집지 않는다.
+ */
 export function mergeOrderNotices(
   rows: readonly TodayOrderRow[],
-  _windowMs = 3000,
+  windowMs: number = MERGE_WINDOW_MS,
 ): MergedOrderNotice[] {
-  return rows.map((row) => ({
-    head: row,
-    count: 1,
-    qty: row.qty,
-    priceMin: row.price,
-    priceMax: row.price,
-    at: row.createdAt,
-    orderNoText: null,
+  const items: Item[] = rows.map((row, index) => ({
+    row,
+    index,
+    stamp: epochOf(row.createdAt),
   }));
+  // 시각 불명은 맨 뒤로 — 그 행은 anchor 가 `null` 이라 아무것도 흡수하지 못한다.
+  const chronological = [...items].sort((a, b) => {
+    const left = a.stamp ?? Number.POSITIVE_INFINITY;
+    const right = b.stamp ?? Number.POSITIVE_INFINITY;
+    return left === right ? a.index - b.index : left - right;
+  });
+
+  const groups: Group[] = [];
+  /** 키 → 아직 창이 열려 있는 묶음. 창을 넘기면 **새 묶음**으로 교체된다. */
+  const open = new Map<string, Group>();
+
+  for (const item of chronological) {
+    const key = mergeKeyOf(item.row);
+    const cur = open.get(key);
+    const inWindow =
+      cur !== undefined &&
+      cur.anchor !== null &&
+      item.stamp !== null &&
+      item.stamp - cur.anchor <= windowMs;
+
+    if (cur !== undefined && inWindow) {
+      absorb(cur, item);
+      continue;
+    }
+
+    const fresh: Group = {
+      out: {
+        head: item.row,
+        count: 1,
+        qty: item.row.qty,
+        priceMin: item.row.price,
+        priceMax: item.row.price,
+        // 오름차순으로 접으므로 묶음의 **첫 통보**가 곧 이 행이다.
+        at: item.row.createdAt,
+        orderNoText: item.row.orderNo,
+      },
+      anchor: item.stamp,
+      headIndex: item.index,
+      minOrderNo: item.row.orderNo,
+      maxOrderNo: item.row.orderNo,
+    };
+    groups.push(fresh);
+    open.set(key, fresh);
+  }
+
+  return groups.sort((a, b) => a.headIndex - b.headIndex).map((group) => group.out);
+}
+
+/** 창 안의 통보 한 건을 묶음에 더한다. 시각(`at`)은 첫 통보 것이라 **건드리지 않는다**. */
+function absorb(group: Group, item: Item): void {
+  const { row } = item;
+  group.out.count += 1;
+  group.out.qty += row.qty;
+  if (row.price > 0) {
+    group.out.priceMin =
+      group.out.priceMin > 0 ? Math.min(group.out.priceMin, row.price) : row.price;
+    group.out.priceMax = Math.max(group.out.priceMax, row.price);
+  }
+  if (item.index < group.headIndex) {
+    group.headIndex = item.index;
+    group.out.head = row;
+  }
+  if (row.orderNo !== null) {
+    if (group.minOrderNo === null || compareOrderNo(row.orderNo, group.minOrderNo) < 0) {
+      group.minOrderNo = row.orderNo;
+    }
+    if (group.maxOrderNo === null || compareOrderNo(row.orderNo, group.maxOrderNo) > 0) {
+      group.maxOrderNo = row.orderNo;
+    }
+  }
+  group.out.orderNoText = orderNoTextOf(group);
+}
+
+/** 묶음 표기 — 단건(N === 1)은 원번호 그대로라 묶인 것처럼 보이지 않는다. */
+function orderNoTextOf(group: Group): string | null {
+  const { minOrderNo: min, maxOrderNo: max } = group;
+  if (min === null || max === null) return min ?? max;
+  if (min === max) return min;
+  return `#${min}~${max}`;
 }
