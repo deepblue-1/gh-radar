@@ -84,6 +84,7 @@ import type {
   RelayOrderResultMsg,
   RelayUnfilled,
 } from '@gh-radar/shared';
+import { sideDisplayText } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -180,6 +181,13 @@ interface UnfilledView {
   row: RelayUnfilled;
   /** 사람이 읽는 종목명. relay 가 못 풀었고 지금 보는 종목도 아니면 null(ISIN 원문 표기). */
   label: string | null;
+  /**
+   * 방향 라벨 + 형태 접미 (`매수Q` · `매도P` · `매수/종가`). 값은 **shared 헬퍼가 만든다**
+   * (17-09 / D-13) — 이 파일에 접미 리터럴이 없는 것이 그 계약의 증거다.
+   *
+   * ⚠️ 표시 전용이다. 회색·취소 제외는 이 문자열을 읽지 않는다(근거는 `pendingCancelSent`).
+   */
+  sideText: string;
   cancellable: boolean;
 }
 
@@ -235,6 +243,7 @@ export function AccountPanel({
         return {
           row,
           label: row.name ?? (sameStock ? (name ?? null) : null),
+          sideText: sideDisplayText(row.side, row.orderNo, row.pendingStatus, row.board),
           // ★ 취소 키는 ISIN 이고 언제나 실려 온다 — 단축코드 유무로 잠그지 않는다(④).
           cancellable: row.unfilledQty > 0 && !lockedOrderNos.has(row.orderNo),
         };
@@ -502,7 +511,7 @@ export function AccountPanel({
                         </TableCell>
                         <TableCell>
                           <span className="inline-flex items-center gap-1">
-                            <SideTag side={view.row.side} />
+                            <SideTag side={view.row.side} text={view.sideText} />
                             <OriginTag tag={originTag} />
                           </span>
                         </TableCell>
@@ -552,7 +561,7 @@ export function AccountPanel({
                         {view.label ?? <span className="mono">{view.row.isin}</span>}
                       </span>
                       <span className="flex flex-none items-center gap-1">
-                        <SideTag side={view.row.side} />
+                        <SideTag side={view.row.side} text={view.sideText} />
                       </span>
                       <span className="mono ml-auto flex-none text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--fg)]">
                         {KRW.format(view.row.price)}
@@ -771,17 +780,25 @@ export function AccountPanel({
   );
 }
 
-/** 매수/매도 구분 — **부호 + 라벨 병기**로 색에 의존하지 않는다(WCAG 1.4.1). */
-function SideTag({ side }: { side: RelayUnfilled['side'] }) {
+/**
+ * 매수/매도 구분 — **부호 + 라벨 병기**로 색에 의존하지 않는다(WCAG 1.4.1).
+ *
+ * ★ 라벨 문자열은 이 컴포넌트가 만들지 않는다 (17-09 / D-13). 예약·접수대기·시간외종가
+ *   접미를 여기서 조립하면 규칙이 화면 수만큼 생기고, 갈릴 때 어느 쪽이 맞는지 아무도
+ *   모른다. 규칙표의 주인은 shared 의 `sideDisplayText` 하나뿐이고 여기는 **받아 그린다**.
+ */
+function SideTag({ side, text }: { side: RelayUnfilled['side']; text: string }) {
   const buy = side === 'B';
   return (
     <span
+      data-slot="account-unfilled-side"
       className={cn(
         'whitespace-nowrap text-[length:var(--t-caption)] font-semibold',
         buy ? 'text-[var(--up)]' : 'text-[var(--down)]',
       )}
     >
-      {buy ? '▲ 매수' : '▼ 매도'}
+      {buy ? '▲ ' : '▼ '}
+      {text}
     </span>
   );
 }
