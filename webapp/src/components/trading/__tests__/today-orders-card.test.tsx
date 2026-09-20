@@ -233,4 +233,60 @@ describe("TodayOrdersCard", () => {
     await waitFor(() => expect(listRows()).toHaveLength(1));
     expect(listRows()[0]?.textContent).toContain("KR7005930003");
   });
+
+  // --- ⑥ 행위 단어는 서버 필드가 말한다 (17-10 / D-15) ----------------------
+
+  /** 모바일 카드 행의 행위 단어 칸. 표 행과 같은 문자열을 쓴다. */
+  const sideCells = () => [...document.querySelectorAll('[data-slot="today-order-side"]')];
+
+  it("⑥-1 신규 매수 주문에 취소확인 통보가 오면 행위 단어가 「취소」로 바뀌고 방향색이 죽는다", async () => {
+    // orderType 은 여전히 "N"(신규)이다 — 판정 근거는 **통보 종류**지 우리가 보낸 주문 종류가 아니다.
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "a", orderNo: "0000135742", side: "B", orderType: "N" }),
+    ]);
+    mockRelay = { ...EMPTY_RELAY_VALUE, orders: [frame({ no: "0000135742", nt: "C" })] };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const cells = sideCells();
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(cell.textContent).toContain("취소");
+      // 취소·정정에는 방향이 없다 — 「매수 취소」를 빨강으로 그리면 신규 매수와 헷갈린다.
+      expect(cell.getAttribute("data-side")).toBe("none");
+      expect(cell.className).not.toContain("--up");
+      expect(cell.className).not.toContain("--down");
+    }
+  });
+
+  it("⑥-2 수동 발주 · 시간외종가 접수는 「시간외종가 매수」 + 「수동」 메타로 읽힌다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "a", orderNo: "0000135742", side: "B" }),
+    ]);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      orders: [frame({ no: "0000135742", nt: "A", bd: "G2", rq: "Manual" })],
+    };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const text = listRows()[0]?.textContent ?? "";
+    expect(text).toContain("시간외종가 매수");
+    expect(text).toContain("수동");
+  });
+
+  it("⑥-3 통보가 없는 신규 매도 행은 종전대로 방향색 매도다 — 없는 행위를 지어내지 않는다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "a", orderNo: "0000135742", side: "S", noticeType: null, status: "requested" }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const cell = sideCells()[0];
+    expect(cell?.textContent).toContain("매도");
+    expect(cell?.getAttribute("data-side")).toBe("S");
+  });
 });
