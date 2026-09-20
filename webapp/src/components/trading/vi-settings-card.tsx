@@ -7,8 +7,12 @@
  * ① 무엇을 담는가
  *   「라벨 72px | 입력」 4행 — `계좌`(네이티브 `<select>`) · `금액`(만원) · `상승률`(%) ·
  *   `마감알림`(스위치). 그 아래 시작/중지 바. 정본은 채택 목업 `16-vi-trigger-mockup.html` 이다.
- *   ★ **종목 축이 없다.** VI 설정은 세션당 1건이고 주문가는 상한가 고정·KRX 전용이라
- *     종목 선택·주문유형 UI 를 만들지 않는다. 계좌 비밀번호 입력도 없다(relay 자격증명).
+ *   ★ **종목 축이 없다.** VI 설정은 **거래소별 1건**이고 주문가는 상한가 고정이라 종목
+ *     선택·주문유형 UI 를 만들지 않는다. 계좌 비밀번호 입력도 없다(relay 자격증명).
+ *   ★ 이 카드가 편집하는 것은 **`VI_EDIT_EXCHANGE`(KRX) 하나**다 (17-06 / D-18). NXT 전략은
+ *     서버에 따로 존재하고 사이드바·My page 의 가동 배지가 합집합으로 보여 주지만, **여기서
+ *     편집하지는 않는다** — NXT 설정 카드는 Phase 18 이다. 「KRX 전용」이라고 적으면 NXT
+ *     전략이 존재한다는 사실을 화면이 부정하는 셈이라 그렇게 쓰지 않는다.
  *
  * ② ★ 값은 자동 반영되지 않는다 (D-07)
  *   계좌·금액·상승률을 바꾸면 더티가 되고 하단 `DirtyActionBar` 의 「수정」을 눌러야
@@ -49,7 +53,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { RelayAccount, RelayViSetMsg, RelayViTrigger } from '@gh-radar/shared';
+import type {
+  RelayAccount,
+  RelayExchange,
+  RelayViSetMsg,
+  RelayViTrigger,
+} from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -77,8 +86,23 @@ const NUM = new Intl.NumberFormat('ko-KR');
 /** 액션 바 보조문 — VI 정본(UI-SPEC §CTA). 「수정」이 `run` 을 건드리지 않는다는 상시 고지. */
 const DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 가동 상태(run)는 그대로 유지돼요';
 
-/** 카드 헤더 우측 고정 캡션 — 이 화면의 범위를 문장 하나로 못박는다(UI-SPEC §VI 라벨). */
-export const VI_SETTINGS_CAPTION = '세션당 1건 · KRX · 주문가 = 상한가';
+/**
+ * 이 카드가 편집하는 거래소 (17-06 / D-18) — **리터럴을 흩뿌리지 않는 단 하나의 자리**다.
+ *
+ * 캡션·`vi.set` 송신·요약 행이 모두 이 상수를 읽는다. 세 곳에 `'KRX'` 를 따로 적으면
+ * 언젠가 한 곳만 고쳐지고, 그때 화면은 KRX 라고 말하면서 다른 시장에 주문을 건다.
+ * Phase 18 이 NXT 편집을 열 때는 **이 상수를 상태로 바꾸면 끝나게** 두었다.
+ */
+export const VI_EDIT_EXCHANGE: RelayExchange = 'KRX';
+
+/**
+ * 카드 헤더 우측 고정 캡션 — 이 화면의 범위를 문장 하나로 못박는다(UI-SPEC §VI 라벨).
+ *
+ * ★ 세 사실을 **전부** 담는다: ① 서버는 전략을 거래소별 1건으로 관리한다(그래서 옛 문구
+ *   「세션당 1건」은 틀렸다) ② 이 카드가 편집하는 것은 KRX 다 ③ NXT 설정은 다음 단계다.
+ *   ②만 적으면 「KRX 전용」으로 읽혀 NXT 전략의 존재가 지워진다.
+ */
+export const VI_SETTINGS_CAPTION = `거래소별 1건 · ${VI_EDIT_EXCHANGE} 설정 편집 · NXT 는 다음 단계 · 주문가 = 상한가`;
 
 /**
  * 전송 후 잠금을 푸는 상한(ms). WinForms `RespTimeoutMs` 와 **같은 값**이다 —
@@ -344,6 +368,12 @@ export function ViSettingsCard({
       const msg: RelayViSetMsg = {
         t: 'vi.set',
         accountNo: form.accountNo,
+        /*
+          ★ 거래소를 **명시**한다 (17-06 / D-18). 생략하면 relay 가 KRX 로 접어 주지만,
+            그 기본값은 서버 구현의 부산물이지 이 화면이 한 약속이 아니다 — 서버가 기본값을
+            바꾸는 날 이 카드는 조용히 다른 시장에 무인 매수를 등록한다.
+        */
+        exchange: VI_EDIT_EXCHANGE,
         // ★ 만원 → 원 변환은 `manwonToKrw` 한 곳뿐이다(단위가 갈리면 1만 배 주문이 나간다).
         orderAmountKrw: manwonToKrw(form.amountManwon),
         checkRate: form.checkRate,
@@ -830,7 +860,7 @@ function ViConfirmDialog({
               {/* ★ 금액·상승률이 요약에 **반드시** 있어야 한다(T-16-10). */}
               <SummaryRow label="1건당 금액">{NUM.format(amountManwon)}만원</SummaryRow>
               <SummaryRow label="상승률 조건">{NUM.format(checkRate)}% 이상</SummaryRow>
-              <SummaryRow label="주문가">상한가 · KRX</SummaryRow>
+              <SummaryRow label="주문가">상한가 · {VI_EDIT_EXCHANGE}</SummaryRow>
             </>
           ) : (
             <>
