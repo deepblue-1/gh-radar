@@ -4,10 +4,10 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: awaiting-user
-stopped_at: 17-12 Task 4 — 배포 승인 checkpoint (blocking-human) 대기
+stopped_at: 17-12 Task 5 — relay 배포가 권한 게이트에 거부됨 (webapp 만 배포된 반쪽 상태)
 last_updated: "2026-09-20T10:35:18.321Z"
 last_activity: 2026-09-20
-last_activity_desc: Phase 17 코드 층위 종결 — 전량 게이트·Playwright green, 배포 승인 대기
+last_activity_desc: Phase 17 배포 부분 완료 — webapp 프로덕션 반영, relay 는 11072e4 유지
 state_head: 420b7755884cd78ae42270ea883d3a67f2b1bc07
 progress:
   total_phases: 27
@@ -28,19 +28,39 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — **배포 승인 대기**
-Plan: 12 of 12 (17-12 는 Task 4 배포 승인 checkpoint 에서 정지 — `status: halted`)
+Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — **배포 부분 완료 (반쪽 상태)**
+Plan: 12 of 12 (17-12 `status: halted` — webapp 배포됨 · relay 배포 권한 거부)
 Plans completed: 172 / 185
-Status: 사용자 결정 2건 대기 (아래)
+Status: 🚨 relay 배포 미완 — 아래 (A) 또는 (B) 필요
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-20 — 17-12 전량 게이트·Playwright·LED 스크린샷·문서 갱신
+Last activity: 2026-09-20 20:10 — push + webapp 프로덕션 배포, relay 배포 권한 거부
 
 Progress: [█████████░] 93%
 
-### ★ 지금 사용자에게 필요한 것 2건 (2026-09-20)
+### 🚨 프로덕션이 반쪽 상태다 — 다음 장 시작 전에 해소해야 한다 (2026-09-20 20:10 KST)
 
-1. **배포 승인 (D-26).** `deploy-now` · `defer` · `relay-only` 중 하나. **20:00 KST 이후**에만 실행한다(장중 재기동은 살아 있는 DMA 세션을 끊는다). 자료는 `17-12-SUMMARY.md` §배포 계획.
-2. **`sudo xcodebuild -license` 동의.** Xcode 가 27.0 으로 올라갔는데 동의된 버전은 26.3 이라 `clang`·`xcrun`·Homebrew `g++-15` 가 전부 막혀 있다. 이것 때문에 gh-trade mock 게이트웨이를 HEAD 로 재빌드하지 못했고 **D-25 실기 검증이 미수행**이다. 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only` (실측 45s).
+사용자가 `deploy-now` 를 승인했고 **push 는 됐으나(78 커밋, `7a2e99d..e286e33`) relay 배포가 harness 권한 분류기에 `[Production Deploy]` 로 거부**됐다. 그 사이 push 가 Vercel 빌드를 유발해 **webapp 만 프로덕션에 나갔다**(`gh-radar-webapp-kj1ryn9sy` Ready, 20:03:52 KST).
+
+```
+webapp = e286e33 (Phase 17 전량)   ← 새것
+relay  = 11072e4 (2026-09-10)      ← 이 phase 76 커밋 전부 미반영
+```
+
+`/healthz` 는 `version 11072e4` · `sessionCount 1` 로 **살아 있던 DMA 세션은 끊기지 않았다**(relay 를 재기동하지 않았으므로).
+
+**소스 대조로 예상되는 영향(관측 아님):** VI 설정 카드가 「미조회」에 머물 수 있고(구 relay 의 `vi` 프레임에 `x` 가 없어 `use-relay-socket.ts` 가 무시), LED 클릭이 동작하지 않는다(구 relay 에 `lc.arm` 없음). 나머지 표면은 구 서버 프레임 회귀 테스트가 덮어 무해 폴백으로 예상.
+
+**선택지 — 일요일이라 당장 거래 영향은 없지만 다음 장 전에 A 또는 B 를 끝낼 것:**
+
+- **(A) relay 배포를 마저 한다 — 권장.** `DMA_HOST` **미주입**(그것이 현재 게이트웨이 보존이다).
+  `GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://ivdbzxgaapbmrxreyuht.supabase.co NOTIFICATION_CHANNEL_ID=14409521670382124894 bash scripts/deploy-relay.sh`
+  (`GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/gh-radar-deployer.json` · `CLOUDSDK_CORE_PROJECT=gh-radar` 선행 export)
+  이후 `bash scripts/smoke-relay.sh`(INV-9 는 `SMOKE_AUTH_TOKEN` 없으면 SKIP 이 정상) · `/healthz` 200 · `stalledCount 0` 확인.
+- **(B) webapp 을 되돌린다.** 직전 Ready 프로덕션 배포 `gh-radar-webapp-a7b0evnin`(4일 전).
+
+### ★ 그 외 남은 것 1건
+
+- **`sudo xcodebuild -license` 동의.** Xcode 27.0 / 동의본 26.3 불일치로 `clang`·`xcrun`·`strings`·Homebrew `g++-15` 가 전부 막혀 **D-25 실기 검증이 미수행**(WINDOWS #17 — **배포해도 닫히지 않는다**). 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only` (45s).
 
 ### Phase 16 Gap Closure 3라운드 (2026-09-09, 16-36~16-46)
 
@@ -807,13 +827,12 @@ Recent decisions affecting current work:
 
 Last session: 2026-09-20T10:35:17.996Z
 Stopped at: 17-12 Task 4 — 배포 승인 checkpoint (blocking-human) 대기
-Next: **Phase 17 은 12/12 plan 을 실행했고 코드 층위가 닫혔다 — 그러나 phase 가 끝난 것은 아니다.** 17-12 가 `status: halted` 로 **배포 승인 checkpoint 에서 정지**했다. 전량 게이트는 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 9 skip · 0 fail** · 재동기화 `--check` 차이 0)이고 Phase 16 기준선 대비 회귀 0이다. **다음 행동은 사용자 결정 2건이다.**
+Next: **Phase 17 은 12/12 plan 을 실행했고 사용자 승인 아래 배포를 시도했으나 절반만 나갔다.** 전량 게이트는 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0). **다음 행동은 반쪽 상태 해소다.**
 
-- **① 배포 승인 (D-26).** `deploy-now` · `defer` · `relay-only` 중 택1. **20:00 KST 이후**에만 — 프로덕션 `/healthz` 가 지금 `sessionCount: 1` 이라 재기동이 **살아 있는 DMA 세션을 끊는다**. 프로덕션 relay 는 `11072e4`(2026-09-10)로 이 phase 의 76 커밋이 전부 미반영이다. 자료 정본은 `17-12-SUMMARY.md` §③.
-- **② `sudo xcodebuild -license` 동의.** Xcode 27.0 / 동의본 26.3 불일치로 `clang`·`xcrun`·`strings`·Homebrew `g++-15` 가 전부 막혀 있고, 그 때문에 **D-25 mock 게이트웨이 실기 검증이 미수행**(WINDOWS #17)이다. 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only`(45s) → `./scripts/run-mac.sh` → `cd /Users/alex/repos/gh-radar && ./dev.sh --with-relay`.
-- **TRADE-04 · TRADE-05 는 Pending 유지** — 정의부·Traceability 일치. 자동 테스트 통과는 「미검증이 아님」을 말할 뿐 「실서버에서 동작함」을 말하지 않는다(Phase 16 TRADE-03 과 같은 기준).
-- **WINDOWS:** open 5건 — #9·#10·#11(Phase 16 승계) · #16(D-22 사용자 승인 대기 · 스크린샷 8장 준비됨) · **#17(D-25 미수행, 신규)**. #12·#14·#15 는 이번에 닫았다.
-- **Phase 18 주의:** 배포를 `defer` 하면 Phase 17·18 두 phase 분량이 한 번에 실서버로 나가 문제 발생 시 귀속이 어려워진다.
+- **🚨 ① relay 배포 완결 (또는 webapp 롤백).** 지금 프로덕션은 `webapp e286e33` + `relay 11072e4` 다. push 는 됐고 그 push 가 Vercel 빌드를 유발해 webapp 만 나갔으며, `deploy-relay.sh` 는 harness 권한 분류기에 `[Production Deploy]` 로 거부됐다. **일요일이라 당장 거래 영향은 없지만 다음 장 전에 끝내야 한다.** 명령과 선택지는 위 `## Current Position` 의 (A)/(B).
+- **② `sudo xcodebuild -license` 동의** — D-25 실기 검증(WINDOWS #17) 재개용. **배포해도 이 항목은 닫히지 않는다.**
+- **TRADE-04 · TRADE-05 는 Pending 유지** — 배포는 (부분)했지만 래치 36/37/38 실기 왕복은 여전히 미관측이고, 일요일이라 실거래 관측도 불가했다. 기준을 바꾸지 않았다.
+- **WINDOWS:** open 4건 — #9·#10·#11(Phase 16 승계) · **#17(D-25 미수행)**. #12·#14·#15·#16 은 이번에 닫았다(#16 은 사용자 육안 승인).
 
 - **Phase 16 승계 항목 3건 (여전히 유효).**
 - **① smoke `INV-9` 프로덕션 첫 실행 미수행.** `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 첫 실행이 된다. 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 명령은 `deferred-items.md` §16-46. **이것은 TRADE-03 조항의 결손이 아니라 프로브의 미실행이다** — 섞어 적지 말 것.

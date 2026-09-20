@@ -21,8 +21,8 @@ affects: [phase-18, deployment]
 # Actuals (#2632) — estimateTokens 스케일(chars/4, 실현 diff 기준)
 actuals:
   tokens: 6945
-  tasks: 3
-  commits: 4
+  tasks: 5
+  commits: 5
 plan_head_before: b6376b2136477f1cae7f59a6179858b93ba2db84
 
 tech-stack:
@@ -115,7 +115,7 @@ coverage:
         ref: "trading-limit-chaser.spec.ts 케이스 9·11·12·13 — 잘림 0 (뷰포트 360/390/716/768/1023, 컨테이너 832/880/960)"
         status: pass
     human_judgment: true
-    rationale: "3칩 존재·순서·라벨·두 줄 접힘·잘림 0 은 측정과 단언으로 닫혔으나, 「채택안대로 보기 좋은가」는 사람만 판정한다. 스크린샷 8장을 checkpoint 에 첨부했다 — 사용자가 승인하면 WINDOWS #16 이 닫힌다."
+    rationale: "3칩 존재·순서·라벨·두 줄 접힘·잘림 0 은 측정과 단언으로 닫혔고, 「채택안대로 보이는가」는 2026-09-20 사용자가 스크린샷 8장을 보고 **승인**했다. WINDOWS #16 은 fixed 로 닫혔다."
   - id: D4
     description: "server(Express) 배포 생략 판정 — 근거 명령과 출력이 기록됐다"
     verification:
@@ -144,16 +144,42 @@ coverage:
     verification: []
     human_judgment: true
     rationale: "**수행하지 못했다.** gh-trade HEAD 재빌드가 Xcode 27.0 라이선스 미동의(`sudo xcodebuild -license` — 사람만 가능)로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·`krx_close_price`·`request_kind` 가 없다. 띄우면 거짓 양성이 되므로 돌리지 않았다. 아래 §D-25 참조."
+  - id: D7
+    description: "Phase 17 을 프로덕션에 배포한다 (D-26) — relay → webapp → smoke"
+    verification:
+      - kind: other
+        ref: "git push origin master → 7a2e99d..e286e33 (78 커밋)"
+        status: pass
+      - kind: other
+        ref: "vercel ls → gh-radar-webapp-kj1ryn9sy ● Ready · Production · created 20:03:52 KST (push 가 유발)"
+        status: pass
+      - kind: other
+        ref: "bash scripts/deploy-relay.sh → harness 권한 분류기가 [Production Deploy] 로 거부 — 미실행"
+        status: fail
+      - kind: other
+        ref: "bash scripts/smoke-relay.sh → 미실행 (relay 재배포 없음)"
+        status: unknown
+    human_judgment: true
+    rationale: "**부분 실행이다.** webapp 은 프로덕션에 나갔고 relay 는 나가지 못했다. 번들 청크 대조도 권한 거부로 못 했으므로 「새 코드가 실려 있다」는 배포 레코드 Ready 까지만 안다 — 내용 확인은 하지 못했다."
+  - id: D8
+    description: "★ 프로덕션이 「신규 webapp + 구 relay(11072e4)」 반쪽 상태다 — 다음 장 전에 해소해야 한다"
+    verification:
+      - kind: other
+        ref: "curl https://dma.jx1.io/healthz → version 11072e4 유지 · sessionCount 1 (세션 안 끊김)"
+        status: pass
+    human_judgment: true
+    rationale: "영향 추정은 **소스 대조 결과이지 관측이 아니다**: VI 설정 카드가 「미조회」에 머물 수 있고(구 relay 의 vi 프레임에 x 가 없어 webapp 이 무시), LED 클릭이 동작하지 않는다(구 relay 에 lc.arm 없음). 나머지 표면은 구 서버 프레임 회귀 테스트가 덮는 범위라 무해 폴백으로 예상된다. 일요일이라 당장의 거래 영향은 없다."
+
 
 # Metrics
-duration: 14 min
+duration: 52 min
 completed: 2026-09-20
 status: halted
 ---
 
 # Phase 17 Plan 12: 실기 검증·전량 게이트·문서 갱신·배포 게이트 Summary
 
-**전량 게이트와 Playwright 135건을 실브라우저에서 green 으로 확인하고 상따 LED 화면을 스크린샷으로 박제했으나, mock 게이트웨이 실기 검증은 Xcode 라이선스 게이트로 수행 불가여서 TRADE-04·TRADE-05 를 Pending 으로 남기고 배포 승인 checkpoint 에서 정지했다**
+**전량 게이트와 Playwright 135건을 green 으로 확인하고 LED 화면을 스크린샷으로 박제했으며, 사용자 승인 뒤 push 로 webapp 이 프로덕션에 배포됐으나 relay 배포가 권한 게이트에 막혀 「신규 webapp + 구 relay」 반쪽 상태로 멈췄다 — D-25 실기 검증은 여전히 미수행이고 TRADE-04·TRADE-05 는 Pending 이다**
 
 ## Performance
 
@@ -179,8 +205,8 @@ status: halted
 3. **Task 3: 배포 대상 판정 + 배포 계획** — 소스 변경 없음. 판정과 자료는 이 SUMMARY 가 담는다
    - SUMMARY 커밋 `420b775` · 상태 메타 커밋 `550c561` (WINDOWS #12·#14·#15 종결 + #17 신규)
    - **측정된 총 커밋 수 4** (`git rev-list --count b6376b2..HEAD`) — 서술값이 아니라 실측값이다
-4. **Task 4: 배포 승인 checkpoint** — **정지(blocking-human)**. 사용자 결정 대기
-5. **Task 5: 배포 실행** — **미착수**. Task 4 선행 조건 미충족
+4. **Task 4: 배포 승인 checkpoint** — **사용자 승인 `deploy-now`** (2026-09-20 20:0x KST). 아래 §⑥
+5. **Task 5: 배포 실행** — **부분 실행**. push + webapp 배포됨 · **relay 배포는 권한 게이트에 막혀 미실행**. 아래 §⑥
 
 **Plan metadata:** 아래 `docs(17-12)` 커밋
 
@@ -313,6 +339,68 @@ cd /Users/alex/repos/gh-radar && ./dev.sh --with-relay     # webapp:3100 · rela
 5. **호가 종가 표기** — 종목상세 호가 종목정보와 상따 헤더 하한 칸이 `krx_close_price > 0` 일 때 `종가` 로 바뀌는가
 6. **VI 거래소 열** — KRX·NXT 양쪽 발동이 두 행으로 서고 거래소 열이 맞는가
 
+## ⑥ Task 4·5 — 배포 승인과 그 결과 (2026-09-20 20:00~20:10 KST)
+
+### 사용자 결정
+
+**`deploy-now`** (relay + webapp). D-26 의 두 조건 모두 충족: **20:03 KST**(20:00 경과) · 일요일(장 마감).
+**D-25 미관측 상태로 배포한다는 점을 사용자가 알고 내린 결정이다** — 그 사실을 여기 남긴다. `WINDOWS #17`(D-25 미수행)은 배포로 닫히지 않으므로 **open 유지**한다.
+D-22 LED 육안 확인은 **승인**됐고 `WINDOWS #16` 을 `fixed` 로 닫았다.
+
+### 실제로 어디까지 갔는가
+
+| 단계 | 결과 | 근거 |
+|---|---|---|
+| ① `git push origin master` | ✅ **완료** | `7a2e99d..e286e33` · 78 커밋 |
+| ② webapp 프로덕션 배포 | ✅ **배포됨 (단, 의도한 경로가 아니다 — 아래)** | `vercel ls` → `gh-radar-webapp-kj1ryn9sy` **● Ready · Production**, created **20:03:52 KST** |
+| ③ relay 프로덕션 배포 | ❌ **미실행 — 권한 게이트에 막힘** | `bash scripts/deploy-relay.sh` 가 harness 권한 분류기에 **`[Production Deploy]` 로 거부**됐다 |
+| ④ `smoke-relay.sh` | ❌ 미실행 | relay 를 재배포하지 않았으므로 돌릴 의미가 없다 |
+| ⑤ 번들 청크 대조 | ❌ 미실행 | 프로덕션 CSS/청크 fetch 도 같은 분류기에 거부됐다 |
+
+### ★ webapp 은 「배포 명령」이 아니라 **push 의 부수효과**로 나갔다
+
+계획은 `vercel pull → build → deploy --prebuilt` 명시 경로였다(`ignoreCommand` skip 전례 때문). 그런데 **push 가 먼저였고**, `scripts/vercel-ignore-build.sh` 는 직전 배포 커밋 대비 `webapp/` · `packages/shared/` · `pnpm-lock.yaml` 변경이 있으면 **빌드한다**(`exit 1`). 이 phase 는 그 세 경로를 전부 건드렸으므로 push 즉시 프로덕션 빌드가 돌았고 20:03:52 에 Ready 가 됐다.
+
+**즉 「webapp 배포」는 내가 실행한 것이 아니라 push 가 유발한 것이다.** 결과적으로 배포된 것은 맞지만, 계획이 요구한 **청크 내용 대조는 하지 못했다**(권한 거부). 「새 코드가 실제로 실려 있다」는 **확인하지 못했다** — 배포 레코드가 Ready 라는 것까지만 안다.
+
+### ★★ 그래서 지금 프로덕션은 **반쪽 상태**다 — 이것이 이 plan 의 최대 리스크다
+
+```
+webapp  = e286e33 (Phase 17 전량)      ← 새것
+relay   = 11072e4 (2026-09-10)         ← 이 phase 76 커밋이 전부 미반영
+```
+
+배포 후 `/healthz` 재측정: `{"status":"ok","vpn":true,"dma":true,"version":"11072e4","sessionCount":1,"everReadyCount":1,"stalledCount":0}` — **버전이 그대로이고 `sessionCount: 1` 이 유지된다.** relay 를 재기동하지 않았으므로 **살아 있던 DMA 세션은 끊기지 않았다**(이 점 하나는 반쪽 상태의 유일한 이득이다).
+
+**코드를 읽어 예상되는 영향 — 관측한 것이 아니라 소스 대조 결과임을 명시한다:**
+
+| 표면 | 예상 | 근거 |
+|---|---|---|
+| **VI 설정 카드** | **깨진다 — 「미조회」에서 안 벗어날 수 있다** | `use-relay-socket.ts` `case "vi"` 가 `if (!VI_EXCHANGES.includes(frame.x)) return state;` 다. 구 relay 는 `x` 없이 `{t:"vi",cfg}` 를 보낸다 — 주석도 「구 relay 프레임은 아무 거래소에도 귀속시키지 않는다」라고 적혀 있다 |
+| **래치 LED 클릭** | **동작 안 함** | 구 relay 의 인바운드 유니온에 `lc.arm` 이 없다 → 거부. LED 는 그려지되 눌러도 36/37/38 이 안 나간다 |
+| **LED 색** | 항상 회색/대기 쪽 | 구 relay 는 `cancelEntryLatched`·`buyEntryLatched` 를 싣지 않는다 |
+| 미체결 표식·주문통보·체결구분·종가 | **무해하게 구 표기로 폴백** | 17-02 D4 등이 「구 서버 프레임 회귀」를 명시적으로 단언해 뒀다 |
+| 돌파감지(76/78)·예약창(77) | 영향 없음 | 이 phase 에 UI 가 없다(Phase 18) |
+
+`vi.set` 의 신규 `exchange` 키는 구 relay 에서 **무해**하다 — `RelayViSetSchema` 가 `z.object`(strict 아님)라 알 수 없는 키를 버린다. 확인함.
+
+### 왜 relay 를 배포하지 못했는가
+
+harness 의 auto-mode 권한 분류기가 `deploy-relay.sh` 실행을 **`[Production Deploy]` 사유로 거부**했다. 이것은 스크립트 실패가 아니라 **권한 경계**다. 우회를 시도하지 않았다 — 다른 도구로 같은 일을 하는 것은 거부의 의도를 무력화하는 행위다. 오케스트레이터가 전달한 사용자 승인은 **권한 시스템의 허가를 대신하지 않는다.**
+
+### 남은 선택지 (사용자 몫)
+
+- **(A) relay 배포를 마저 한다 — 권장.** 반쪽 상태가 해소된다. 사용자가 직접 실행하거나 권한을 허용해야 한다:
+  ```
+  export GOOGLE_APPLICATION_CREDENTIALS=$HOME/.config/gcloud/gh-radar-deployer.json
+  export CLOUDSDK_CORE_PROJECT=gh-radar
+  GCP_PROJECT_ID=gh-radar SUPABASE_URL=https://ivdbzxgaapbmrxreyuht.supabase.co \
+  NOTIFICATION_CHANNEL_ID=14409521670382124894 bash scripts/deploy-relay.sh
+  ```
+  **`DMA_HOST` 를 주입하지 않는다** — 미주입이 곧 현재 게이트웨이 보존이다. 이후 `bash scripts/smoke-relay.sh` 와 `/healthz` 확인.
+- **(B) webapp 을 되돌린다.** 직전 Ready 프로덕션 배포는 `gh-radar-webapp-a7b0evnin`(4일 전). VI 화면 회귀가 당장 곤란하면 이쪽.
+- **(C) 그대로 둔다.** 일요일이라 장이 닫혀 있어 당장의 거래 영향은 없다. 다만 **다음 장 시작 전에 A 또는 B 를 반드시 끝내야 한다.**
+
 ## Files Created/Modified
 
 - `.planning/phases/17-gh-trade-led/17-12-led-statusbar-{phone,wide}-{light,dark}.png` — 상태줄만 크롭한 LED 증거 4장
@@ -364,10 +452,19 @@ cd /Users/alex/repos/gh-radar && ./dev.sh --with-relay     # webapp:3100 · rela
 - **Fix:** 프로젝트 설정과 181개 plan 의 이력이 명백하므로 커밋을 진행했다. **설정 파일은 건드리지 않았다** — 실행자가 단독으로 바꿀 것이 아니다.
 - **권고:** `.planning/config.json` 의 `git` 블록에 `"allow_default_branch_commits": true` 를 추가하면 가드 오발이 멎는다. 사용자 결정 사항.
 
+### 5. [Rule 4 - 권한 경계] relay 배포가 harness 권한 분류기에 거부됐고, push 가 webapp 을 먼저 내보냈다
+
+- **Found during:** Task 5 (배포 실행)
+- **Issue:** 사용자 승인(`deploy-now`) 뒤 지시대로 **push 를 먼저** 하고 relay 배포를 시도했는데, `bash scripts/deploy-relay.sh` 가 **`[Production Deploy]` 사유로 거부**됐다. 그런데 push 는 이미 됐고 `vercel-ignore-build.sh` 가 `webapp/`·`packages/shared/` 변경을 보고 빌드를 띄워 **webapp 만 프로덕션에 나갔다.** 결과는 「신규 webapp + 구 relay」 반쪽 상태다.
+- **Fix:** **우회하지 않았다.** gcloud·docker 로 스크립트를 손수 재현하는 것은 거부의 의도를 무력화하는 행위다. 오케스트레이터가 전달한 사용자 승인은 **권한 시스템의 허가를 대신하지 않는다**(실행자 규약). 대신 ⓐ 실제 배포 상태를 `vercel ls`·`/healthz` 로 확정하고 ⓑ 반쪽 상태의 영향을 소스 대조로 추정해 ⓒ 해소 선택지 2안을 문서화했다.
+- **Files modified:** 없음 (프로덕션 상태 변경은 push 의 부수효과)
+- **Verification:** `vercel ls` → `kj1ryn9sy` Ready 20:03:52 · `/healthz` → `version 11072e4` 유지
+- **교훈:** **배포가 보장되지 않는 상황에서 push 를 먼저 하면 webapp 이 단독으로 나간다.** 이 저장소의 `ignoreCommand` 는 「이전 배포 커밋 대비 변경」을 보므로 push = 사실상 webapp 배포다. 다음부터는 **relay 를 먼저 배포하고 push 는 그 뒤**가 안전하다.
+
 ---
 
-**Total deviations:** 3 처리 + 1 기록 (1 blocking-미해소 · 2 missing-critical · 1 설정 권고)
-**Impact on plan:** ①은 plan 의 핵심 목표 하나를 열어 둔 채로 남겼고 그것이 TRADE-04·TRADE-05 를 Pending 으로 묶는 직접 원인이다. ②③은 plan 이 요구하지 않았으나 WINDOWS 3건과 D-22 를 닫는 데 필요했다. 스코프 확장은 없다.
+**Total deviations:** 4 처리 + 1 기록 (1 blocking-미해소 · 2 missing-critical · 1 설정 권고)
+**Impact on plan:** ①은 plan 의 핵심 목표 하나를 열어 둔 채로 남겼고 그것이 TRADE-04·TRADE-05 를 Pending 으로 묶는 직접 원인이다. ②③은 plan 이 요구하지 않았으나 WINDOWS 4건(#12·#14·#15·#16)과 D-22 를 닫는 데 필요했다. **⑤는 프로덕션을 반쪽 상태로 남겼고 이 plan 이 넘기는 가장 큰 리스크다.** 스코프 확장은 없다.
 
 ## Issues Encountered
 
@@ -383,8 +480,8 @@ cd /Users/alex/repos/gh-radar && ./dev.sh --with-relay     # webapp:3100 · rela
 
 **사람만 할 수 있는 행위 2건이 남았다.**
 
-1. **`sudo xcodebuild -license`** — D-25 실기 검증의 선행 조건. 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only` (45s).
-2. **배포 승인 (D-26)** — `deploy-now` · `defer` · `relay-only` 중 택1. **20:00 KST 이후**에만.
+1. **🚨 relay 배포 완결 (또는 webapp 롤백)** — 프로덕션이 반쪽 상태다. 명령과 선택지는 §⑥ 「남은 선택지」. 다음 장 전에.
+2. **`sudo xcodebuild -license`** — D-25 실기 검증의 선행 조건. 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only` (45s).
 
 ## Next Phase Readiness
 
@@ -404,4 +501,7 @@ cd /Users/alex/repos/gh-radar && ./dev.sh --with-relay     # webapp:3100 · rela
 - Task 1 acceptance: 자동 게이트 5종 전부 PASS · 관측 5항목은 각각 「mock 에서 관측 불가」로 사유와 함께 명시 · 스크린샷 2장 요구에 8장 · `--check` 차이 0
 - Task 2 acceptance: `grep -c "TRADE-04\|TRADE-05" REQUIREMENTS.md` = **6** (≥4) · `grep -c "17-12-PLAN.md" ROADMAP.md` = **1** (≠0) · `grep -c "Phase 17" STATE.md` = **44** (≠0) · ROADMAP plan 줄 17-01~17-12 **12건** · 정의부 `[ ]` 와 Traceability Pending 일치 · 커밋은 main(master) 체크아웃에서 수행
 - Task 3 acceptance: server 생략 근거 4종(명령+출력) 기록 · pathspec 없는 `git status --short` 전문 기록 · 커밋 76건 기록 · KST 19:31 기록 · **배포 스크립트 미실행**
-- Task 4: 정지(blocking-human) · Task 5: 미착수
+- Task 4: 사용자 승인 `deploy-now` 수령 (2026-09-20 20:03 KST, D-26 두 조건 충족)
+- Task 5 acceptance **부분 충족**: 배포 시각 20:00 이후 ✅ · push ✅ · webapp 프로덕션 Ready ✅ · **relay 미배포 ❌(권한 거부)** · smoke 미실행 ❌ · 번들 청크 대조 미실행 ❌ · 장중 관찰 체크리스트 6항목 ✅
+- `/healthz` 재측정: `version 11072e4` 유지 · `stalledCount 0` · `sessionCount 1` — **relay 를 재기동하지 않았으므로 기존 DMA 세션이 끊기지 않았다**
+- **관측하지 않은 것:** 새 relay 의 동작 · 래치 36/37/38 실기 왕복 · webapp 번들 내용 · smoke INV-1~10

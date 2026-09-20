@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 5
+open_count: 4
 waived_count: 0
-fixed_count: 12
+fixed_count: 13
 total_count: 17
-last_updated: 2026-09-20T10:35:10.140Z
+last_updated: 2026-09-20T11:03:39.970Z
 ---
 
 # Broken Windows Ledger
@@ -30,7 +30,7 @@ last_updated: 2026-09-20T10:35:10.140Z
 | 13 | 17 | deviation | relay/src/ws/fanout.ts |  | 17-05 가 vi 스냅샷을 KRX·NXT 2프레임으로 넓혔으나 webapp 리듀서는 아직 x 를 무시하고 마지막 프레임으로 덮는다 — 17-06 이 거래소별 상태로 받는다 | fixed |  | 2026-09-20T08:44:22.645Z | 2026-09-20T09:08:20.819Z |
 | 14 | 17 | unrun-verify | webapp/e2e/specs/trading-vi.spec.ts |  | 거래소 열 추가로 110초 열 인덱스를 8→9 로 옮기고 거래소 열(index 3) 단언을 더했으나 Playwright 미실행 — tsconfig.e2e.json 타입 통과로만 확인했다 | fixed |  | 2026-09-20T09:08:20.938Z | 2026-09-20T10:35:09.874Z |
 | 15 | 17 | unrun-verify | webapp/e2e/specs/trading-limit-chaser.spec.ts |  | 17-11 이 더한 LED 가시성 케이스(3b)와 옛 「매수 ON」 → LED data-tone 로 바꾼 케이스 3 의 단언을 Playwright 로 실행하지 않았다 — tsconfig.e2e.json 타입 통과로만 확인 | fixed |  | 2026-09-20T10:11:21.196Z | 2026-09-20T10:35:09.962Z |
-| 16 | 17 | unrun-verify | webapp/src/components/trading/limit-chaser-client.tsx |  | D-22 가 약속한 dev 서버 화면 확인(상태줄 LED 3칩 · 폰 밴드 두 줄 접힘 · 잘림 0)을 수행하지 않았다 — jsdom 에는 레이아웃이 없어 유닛으로 증명 불가. 17-07 이 17-11 의 몫으로 넘긴 항목 | open |  | 2026-09-20T10:11:27.743Z |  |
+| 16 | 17 | unrun-verify | webapp/src/components/trading/limit-chaser-client.tsx |  | D-22 가 약속한 dev 서버 화면 확인(상태줄 LED 3칩 · 폰 밴드 두 줄 접힘 · 잘림 0)을 수행하지 않았다 — jsdom 에는 레이아웃이 없어 유닛으로 증명 불가. 17-07 이 17-11 의 몫으로 넘긴 항목 | fixed |  | 2026-09-20T10:11:27.743Z | 2026-09-20T11:03:39.970Z |
 | 17 | 17 | unrun-verify | .planning/phases/17-gh-trade-led/17-12-PLAN.md |  | D-25 mock 게이트웨이 실기 검증 미수행 — gh-trade HEAD 재빌드가 Xcode 27.0 라이선스 미동의(sudo xcodebuild -license)로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·krx_close_price·request_kind 가 없어 돌리면 거짓 「드롭 0」이 된다. 76/77/78 드롭 0 과 36/37/38 래치 왕복은 서버 HEAD 로만 증명된다 | open |  | 2026-09-20T10:35:10.140Z |  |
 
 ````json
@@ -222,10 +222,10 @@ last_updated: 2026-09-20T10:35:10.140Z
     "file": "webapp/src/components/trading/limit-chaser-client.tsx",
     "line": null,
     "description": "D-22 가 약속한 dev 서버 화면 확인(상태줄 LED 3칩 · 폰 밴드 두 줄 접힘 · 잘림 0)을 수행하지 않았다 — jsdom 에는 레이아웃이 없어 유닛으로 증명 불가. 17-07 이 17-11 의 몫으로 넘긴 항목",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-20T10:11:27.743Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-20T11:03:39.970Z"
   },
   {
     "id": 17,
