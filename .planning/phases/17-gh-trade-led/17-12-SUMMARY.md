@@ -22,7 +22,7 @@ affects: [phase-18, deployment]
 actuals:
   tokens: 6945
   tasks: 3
-  commits: 3
+  commits: 4
 plan_head_before: b6376b2136477f1cae7f59a6179858b93ba2db84
 
 tech-stack:
@@ -177,6 +177,8 @@ status: halted
 1. **Task 1: 전량 게이트 + Playwright + LED 스크린샷** — `9db45b0` (test)
 2. **Task 2: REQUIREMENTS · ROADMAP · STATE 갱신** — `3203da1` (docs)
 3. **Task 3: 배포 대상 판정 + 배포 계획** — 소스 변경 없음. 판정과 자료는 이 SUMMARY 가 담는다
+   - SUMMARY 커밋 `420b775` · 상태 메타 커밋 `550c561` (WINDOWS #12·#14·#15 종결 + #17 신규)
+   - **측정된 총 커밋 수 4** (`git rev-list --count b6376b2..HEAD`) — 서술값이 아니라 실측값이다
 4. **Task 4: 배포 승인 checkpoint** — **정지(blocking-human)**. 사용자 결정 대기
 5. **Task 5: 배포 실행** — **미착수**. Task 4 선행 조건 미충족
 

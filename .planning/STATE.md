@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: awaiting-user
-stopped_at: 17-12 Task 4 — 배포 승인 checkpoint (blocking-human)
-last_updated: "2026-09-20T10:35:00.000Z"
+stopped_at: 17-12 Task 4 — 배포 승인 checkpoint (blocking-human) 대기
+last_updated: "2026-09-20T10:35:18.321Z"
 last_activity: 2026-09-20
 last_activity_desc: Phase 17 코드 층위 종결 — 전량 게이트·Playwright green, 배포 승인 대기
-state_head: 6f0856bbf672894ea9d02b3cf71b1f483513edc7
+state_head: 420b7755884cd78ae42270ea883d3a67f2b1bc07
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 181
+  completed_plans: 182
 milestone_name: milestone
 ---
 
@@ -453,6 +453,7 @@ Progress: [█████████░] 93%
 | Phase 17 P09 | 11 min | 3 tasks | 4 files |
 | Phase 17 P10 | 15 min | 3 tasks | 4 files |
 | Phase 17 P11 | 14 min | 3 tasks | 6 files |
+| Phase 17 P12 | 14 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -804,11 +805,17 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-20T10:15:02.315Z
-Stopped at: Completed 17-11-PLAN.md
-Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
+Last session: 2026-09-20T10:35:17.996Z
+Stopped at: 17-12 Task 4 — 배포 승인 checkpoint (blocking-human) 대기
+Next: **Phase 17 은 12/12 plan 을 실행했고 코드 층위가 닫혔다 — 그러나 phase 가 끝난 것은 아니다.** 17-12 가 `status: halted` 로 **배포 승인 checkpoint 에서 정지**했다. 전량 게이트는 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 9 skip · 0 fail** · 재동기화 `--check` 차이 0)이고 Phase 16 기준선 대비 회귀 0이다. **다음 행동은 사용자 결정 2건이다.**
 
-- **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
+- **① 배포 승인 (D-26).** `deploy-now` · `defer` · `relay-only` 중 택1. **20:00 KST 이후**에만 — 프로덕션 `/healthz` 가 지금 `sessionCount: 1` 이라 재기동이 **살아 있는 DMA 세션을 끊는다**. 프로덕션 relay 는 `11072e4`(2026-09-10)로 이 phase 의 76 커밋이 전부 미반영이다. 자료 정본은 `17-12-SUMMARY.md` §③.
+- **② `sudo xcodebuild -license` 동의.** Xcode 27.0 / 동의본 26.3 불일치로 `clang`·`xcrun`·`strings`·Homebrew `g++-15` 가 전부 막혀 있고, 그 때문에 **D-25 mock 게이트웨이 실기 검증이 미수행**(WINDOWS #17)이다. 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only`(45s) → `./scripts/run-mac.sh` → `cd /Users/alex/repos/gh-radar && ./dev.sh --with-relay`.
+- **TRADE-04 · TRADE-05 는 Pending 유지** — 정의부·Traceability 일치. 자동 테스트 통과는 「미검증이 아님」을 말할 뿐 「실서버에서 동작함」을 말하지 않는다(Phase 16 TRADE-03 과 같은 기준).
+- **WINDOWS:** open 5건 — #9·#10·#11(Phase 16 승계) · #16(D-22 사용자 승인 대기 · 스크린샷 8장 준비됨) · **#17(D-25 미수행, 신규)**. #12·#14·#15 는 이번에 닫았다.
+- **Phase 18 주의:** 배포를 `defer` 하면 Phase 17·18 두 phase 분량이 한 번에 실서버로 나가 문제 발생 시 귀속이 어려워진다.
+
+- **Phase 16 승계 항목 3건 (여전히 유효).**
 - **① smoke `INV-9` 프로덕션 첫 실행 미수행.** `SMOKE_AUTH_TOKEN`(브라우저 로그인 `access_token`, 약 1시간 만료)이 있어야 16-21 재작성 이후 첫 실행이 된다. 저장소 어디에도 값이 없는 것이 정상이다(T-16-74). 명령은 `deferred-items.md` §16-46. **이것은 TRADE-03 조항의 결손이 아니라 프로브의 미실행이다** — 섞어 적지 말 것.
 - **② `/healthz` 알림 정책 — 사용자 결정 대기.** `gh-radar-relay-down` 은 게이트웨이가 붙어 있는 지금(`stalledCount: 0`)은 조용하지만, 끊기면 세션 생성 5분 뒤 503 이 상시화된다. 해법 후보 4개는 `deferred-items.md` §16-35. 실행자가 단독으로 고를 문제가 아니다.
 - **③ 다른 세션과의 정합.** WireGuard 작업(`quick-260909-t08` 계열)이 방화벽 규칙을 4개로 늘려 smoke `INV-2` 문구가 바뀌었다. `REQUIREMENTS.md` RELAY-03 의 「방화벽 3규칙」과 어긋나므로 그 세션이 정합을 맡는다.
