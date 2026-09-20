@@ -201,23 +201,36 @@ for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar
 done
 echo "✓ Secret 3종 존재 + ENABLED 버전 + relay SA 접근권"
 
-# 방화벽은 **정확히 4규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09 위반이므로 이름까지 본다.
-# (`--filter='... AND allowed.ports=80'` 형태는 기대대로 걸러지지 않는다 — 전체 목록을 읽는다.)
+# relay VM 에 닿는 방화벽은 **정확히 4규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09
+# 위반이므로 이름까지 본다.
+# (`--filter='... AND allowed.ports=80'` 형태는 기대대로 걸러지지 않는다 — 목록을 읽는다.)
+#
+# ★ 판정 대상은 **VPC 전체가 아니라 relay VM 표면**이다 (2026-09-20, Phase 17 배포).
+#   이 VPC 는 gh-trade 와 공유한다. gh-trade 가 자기 빌드 머신용으로 `build-ssh` 태그
+#   규칙(`gh-trade-builder-ssh` tcp:22 · `gh-trade-builder-dma` tcp:9100-9110, 둘 다
+#   고정 /32 출처)을 올리자 VPC 전체 목록 비교가 불일치로 exit 1 해 배포가 막혔다.
+#   그 규칙들은 `radar-gw` 를 겨냥하지 않으므로 이 가드가 지키려는 표면과 무관하고,
+#   `setup-relay-iam.sh` 로 "정리"하면 남의 프로젝트 빌더가 끊긴다.
+#   그래서 **`radar-gw` 를 겨냥한 규칙 + 태그 없는(= 전 인스턴스 적용) 규칙**만 본다.
+#   태그 없는 규칙을 포함하는 것이 핵심이다 — 대상 태그가 비면 relay VM 에도 걸린다.
 #
 # ⚠️ 적용 순서는 **방화벽 먼저 → 배포**다. 4번째 규칙(개발기 WireGuard 직결 udp:51820,
 #    quick-260909-muo)이 아직 GCP 에 없으면 이 게이트가 불일치로 exit 1 해 배포가 통째로
 #    막힌다. 먼저 `GCP_PROJECT_ID=gh-radar bash scripts/setup-relay-iam.sh` 로 규칙을
 #    만든 뒤 이 스크립트를 돌린다 (infra/relay/README.md §적용 런북).
-FW_RULES=$(gcloud compute firewall-rules list --filter="network=${VPC}" --format='value(name)' | sort | tr '\n' ' ')
+FW_RULES=$(gcloud compute firewall-rules list --filter="network=${VPC}" \
+  --format='value(name,targetTags.list())' \
+  | awk -F'\t' -v tag="$VM" '$2 == "" || index($2, tag) { print $1 }' | sort | tr '\n' ' ')
 EXPECTED_FW="relay-allow-https relay-allow-iap-ssh relay-allow-internal-order relay-allow-wireguard "
 if [[ "$FW_RULES" != "$EXPECTED_FW" ]]; then
-  echo "ERROR: ${VPC} 방화벽 규칙이 기대와 다릅니다." >&2
+  echo "ERROR: ${VPC} 에서 ${VM} 에 닿는 방화벽 규칙이 기대와 다릅니다." >&2
   echo "  expected: $EXPECTED_FW" >&2
   echo "  actual  : $FW_RULES" >&2
+  echo "  (${VM} 을 겨냥하지 않는 타 프로젝트 규칙은 판정에서 제외됩니다)" >&2
   echo "  $SETUP_HINT" >&2
   exit 1
 fi
-echo "✓ 방화벽 4규칙 (포트 80 규칙 없음)"
+echo "✓ ${VM} 대상 방화벽 4규칙 (포트 80 규칙 없음)"
 
 # ───────────────────────────────────────────────────────────────
 # Section 4: amd64 빌드 + push  (rollback 에서는 건너뛴다)
