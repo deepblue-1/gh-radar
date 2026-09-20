@@ -154,32 +154,52 @@ coverage:
         ref: "vercel ls → gh-radar-webapp-kj1ryn9sy ● Ready · Production · created 20:03:52 KST (push 가 유발)"
         status: pass
       - kind: other
-        ref: "bash scripts/deploy-relay.sh → harness 권한 분류기가 [Production Deploy] 로 거부 — 미실행"
-        status: fail
+        ref: "bash scripts/deploy-relay.sh → ✅ 완료 (2차 시도, 20:2x KST) — relay:ef1499a AR push → IAP SSH → 컨테이너 재기동. DMA_HOST=10.41.1.120 보존"
+        status: pass
       - kind: other
-        ref: "bash scripts/smoke-relay.sh → 미실행 (relay 재배포 없음)"
-        status: unknown
-    human_judgment: true
-    rationale: "**부분 실행이다.** webapp 은 프로덕션에 나갔고 relay 는 나가지 못했다. 번들 청크 대조도 권한 거부로 못 했으므로 「새 코드가 실려 있다」는 배포 레코드 Ready 까지만 안다 — 내용 확인은 하지 못했다."
-  - id: D8
-    description: "★ 프로덕션이 「신규 webapp + 구 relay(11072e4)」 반쪽 상태다 — 다음 장 전에 해소해야 한다"
-    verification:
+        ref: "bash scripts/smoke-relay.sh → PASS 12 / FAIL 0 / SKIP 1 (INV-9 는 SMOKE_AUTH_TOKEN 미설정 시 SKIP 이 정상)"
+        status: pass
       - kind: other
-        ref: "curl https://dma.jx1.io/healthz → version 11072e4 유지 · sessionCount 1 (세션 안 끊김)"
+        ref: "curl https://dma.jx1.io/healthz → version ef1499a · vpn true · dma true · sessionCount 1 · everReadyCount 1 · stalledCount 0 (20초 뒤 재확인 동일)"
         status: pass
     human_judgment: true
-    rationale: "영향 추정은 **소스 대조 결과이지 관측이 아니다**: VI 설정 카드가 「미조회」에 머물 수 있고(구 relay 의 vi 프레임에 x 가 없어 webapp 이 무시), LED 클릭이 동작하지 않는다(구 relay 에 lc.arm 없음). 나머지 표면은 구 서버 프레임 회귀 테스트가 덮는 범위라 무해 폴백으로 예상된다. 일요일이라 당장의 거래 영향은 없다."
+    rationale: "**1차 시도는 부분 실행이었고(webapp 만), 2차 시도로 relay 까지 완결했다.** 1차에서 relay 배포가 harness 권한 분류기에 [Production Deploy] 로 거부되는 동안 push 가 먼저 나가 webapp 만 단독 배포됐다(반쪽 상태). 사용자가 auto mode 를 해제한 뒤 재실행해 완결. 다만 **webapp 번들 청크 대조는 끝내 하지 않았다** — 「새 코드가 실려 있다」는 Vercel 배포 레코드 Ready 까지만 안다."
+  - id: D8
+    description: "반쪽 상태(「신규 webapp + 구 relay」) — 같은 날 해소됨"
+    verification:
+      - kind: other
+        ref: "해소 전: healthz version 11072e4 (webapp 만 신규) — 약 25분 지속, 일요일 장 마감 중"
+        status: pass
+      - kind: other
+        ref: "해소 후: healthz version ef1499a — webapp·relay 동일 커밋. DMA 세션 재기동 후 재접속 확인(sessionCount 1 · everReadyCount 1 · stalledCount 0)"
+        status: pass
+    human_judgment: false
+    rationale: "지속 중 영향 추정은 **소스 대조 결과이지 관측이 아니었다**(VI 설정 카드 「미조회」 잔류 · LED 클릭 무동작). 일요일 장 마감 중이라 거래 영향은 없었고, 25분 뒤 relay 배포로 해소됐다. 원인과 재발 방지는 아래 편차 #5 — 이 저장소에서 `git push` 는 곧 webapp 프로덕션 배포이므로 **배포 순서는 relay 먼저·push 나중**이다."
+  - id: D9
+    description: "배포를 막던 방화벽 가드 오탐을 삭제가 아니라 범위 축소로 해소"
+    verification:
+      - kind: other
+        ref: "gh-radar-vpc 는 gh-trade 와 공유 — gh-trade-builder-ssh(tcp:22) · gh-trade-builder-dma(tcp:9100-9110), 둘 다 고정 /32 출처 · 대상 태그 build-ssh"
+        status: pass
+      - kind: other
+        ref: "deploy-relay.sh §Section 3 · smoke-relay.sh INV-2 를 radar-gw 대상 + 태그 없는 규칙만 판정하도록 동시 수정 (4225a6f)"
+        status: pass
+      - kind: other
+        ref: "수정 후 판정식 실측 — 선택 4건(relay-allow-*) · 제외 2건(gh-trade-builder-*), smoke INV-2 PASS"
+        status: pass
+    human_judgment: false
+    rationale: "스크립트가 제안한 `setup-relay-iam.sh` 는 돌리지 않았다 — 타 프로젝트 빌더 규칙을 지울 수 있다. 가드의 의도는 **relay VM 표면**(포트 80 금지)이지 VPC 전체 목록 동결이 아니므로 판정 대상을 좁혔다. 태그 없는 규칙을 포함한 것이 핵심 — 대상 태그가 비면 relay VM 에도 걸린다. 두 스크립트를 같이 고친 이유는 한쪽만 고치면 배포는 통과하는데 smoke 가 FAIL 하는 갈라짐이 생기기 때문이다."
 
 
 # Metrics
-duration: 52 min
+duration: 52 min (+ 배포 재개 25 min)
 completed: 2026-09-20
-status: halted
+status: complete
 ---
 
 # Phase 17 Plan 12: 실기 검증·전량 게이트·문서 갱신·배포 게이트 Summary
 
-**전량 게이트와 Playwright 135건을 green 으로 확인하고 LED 화면을 스크린샷으로 박제했으며, 사용자 승인 뒤 push 로 webapp 이 프로덕션에 배포됐으나 relay 배포가 권한 게이트에 막혀 「신규 webapp + 구 relay」 반쪽 상태로 멈췄다 — D-25 실기 검증은 여전히 미수행이고 TRADE-04·TRADE-05 는 Pending 이다**
+**전량 게이트와 Playwright 135건을 green 으로 확인하고 LED 화면을 스크린샷으로 박제했으며, 사용자 승인 뒤 Phase 17 을 프로덕션에 배포 완료했다(webapp + relay `ef1499a`, smoke 12 PASS · healthz 정상 · DMA 세션 재접속 확인) — 도중 25분간 「신규 webapp + 구 relay」 반쪽 상태를 거쳤고, D-25 mock 실기 검증은 Xcode 라이선스 게이트로 여전히 미수행이라 TRADE-04·TRADE-05 는 Pending 이다**
 
 ## Performance
 
@@ -505,3 +525,41 @@ harness 의 auto-mode 권한 분류기가 `deploy-relay.sh` 실행을 **`[Produc
 - Task 5 acceptance **부분 충족**: 배포 시각 20:00 이후 ✅ · push ✅ · webapp 프로덕션 Ready ✅ · **relay 미배포 ❌(권한 거부)** · smoke 미실행 ❌ · 번들 청크 대조 미실행 ❌ · 장중 관찰 체크리스트 6항목 ✅
 - `/healthz` 재측정: `version 11072e4` 유지 · `stalledCount 0` · `sessionCount 1` — **relay 를 재기동하지 않았으므로 기존 DMA 세션이 끊기지 않았다**
 - **관측하지 않은 것:** 새 relay 의 동작 · 래치 36/37/38 실기 왕복 · webapp 번들 내용 · smoke INV-1~10
+
+---
+
+## ⑦ 배포 완결 (Task 5 재개 · 2026-09-20 20:20~20:31 KST)
+
+1차 시도의 반쪽 상태를 같은 날 해소했다. 사용자가 auto mode 를 해제해 `[Production Deploy]` 차단이 풀린 뒤 재실행했다.
+
+### 막힌 지점과 해소
+
+`deploy-relay.sh` §Section 3 의 방화벽 가드가 **VPC 전체 규칙 목록 완전일치**를 요구했는데, `gh-radar-vpc` 를 공유하는 gh-trade 가 빌드 머신용 규칙 2개를 올려 불일치로 `exit 1` 했다.
+
+| 규칙 | 포트 | 출처 | 대상 태그 |
+|---|---|---|---|
+| `gh-trade-builder-ssh` | tcp:22 | 고정 /32 6개 | `build-ssh` |
+| `gh-trade-builder-dma` | tcp:9100-9110 | 고정 /32 6개 | `build-ssh` |
+
+둘 다 `radar-gw` 를 겨냥하지 않고 0.0.0.0/0 도 포트 80 도 아니다 — 이 가드가 지키는 표면과 무관하다. 스크립트가 제안한 `setup-relay-iam.sh` 는 **돌리지 않았다**(타 프로젝트 빌더를 끊을 수 있다). 대신 판정 대상을 `radar-gw` 대상 규칙 + **태그 없는 규칙**으로 좁혔다(태그가 비면 relay VM 에도 걸리므로 포함이 필수). `smoke-relay.sh` INV-2 에 같은 비교가 복사돼 있어 **둘을 같은 커밋에서** 맞췄다 — 한쪽만 고치면 배포는 통과하는데 smoke 가 FAIL 하는 갈라짐이 생긴다. → `4225a6f`
+
+### 결과
+
+| 항목 | 값 |
+|---|---|
+| relay 이미지 | `asia-northeast3-docker.pkg.dev/gh-radar/gh-radar/relay:ef1499a` |
+| `DMA_HOST` | `10.41.1.120` — **실행 중 컨테이너에서 보존**(미주입, mock 강등 회피) |
+| smoke | **PASS 12 · FAIL 0 · SKIP 1** (INV-9 는 토큰 미설정 시 SKIP 이 정상) |
+| healthz | `{"status":"ok","vpn":true,"dma":true,"version":"ef1499a","sessionCount":1,"everReadyCount":1,"stalledCount":0}` |
+| DMA 세션 | 재기동으로 끊겼다가 **재접속 확인** (20초 뒤 재조회 동일) |
+| uptime check · alert policy | 갱신 완료 |
+
+### 여전히 관측하지 않은 것 (과장 금지)
+
+- **래치 36/37/38 실기 왕복** — 배포는 됐으나 눌러 본 적이 없다. 일요일 장 마감이라 실거래 관측도 불가. D-25(WINDOWS #17)는 **open 유지**이며 배포가 그것을 닫지 않는다.
+- **webapp 번들 청크 대조** — Vercel 배포 레코드 `Ready` 까지만 안다.
+- 따라서 **TRADE-04 · TRADE-05 는 Pending 유지**. 다음 장중에 LED 클릭 왕복이 관측되면 닫힌다.
+
+### 교훈 (편차 #5 보강)
+
+**이 저장소에서 `git push` 는 곧 webapp 프로덕션 배포다.** `scripts/vercel-ignore-build.sh` 가 직전 배포 커밋 대비 `webapp/`·`packages/shared/`·`pnpm-lock.yaml` 변경을 보고 빌드하기 때문이다. 배포 순서는 **relay 먼저 → 검증 → push** 여야 하며, 백엔드 배포가 막히면 **push 하지 않는다**.
