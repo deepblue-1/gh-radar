@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 
-import type { RelayViNoticeMsg } from '@gh-radar/shared';
+import type { RelayAccountState, RelayUnfilled, RelayViNoticeMsg } from '@gh-radar/shared';
 
 /**
  * Phase 17 Plan 06 Task 3 — VI 화면의 **서버 메시지 출처 배지**와 **발동 통보 거래소**
@@ -32,6 +32,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/trading/vi',
 }));
 
+import { AccountPanel } from '@/components/orderbook/account-panel';
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { ViClient } from '../vi-client';
 
@@ -157,5 +158,53 @@ describe('② 서버 메시지 출처 배지 (D-09 · D-17)', () => {
     });
     render(<ViClient />);
     expect(slot('vi-server-error')).toBeNull();
+  });
+});
+
+/**
+ * Phase 17 Plan 09 Task 1 — 미체결 표식은 **두 표면이 같은 문자열**이다 (D-13).
+ *
+ * ★ 실측 결과(17-09): VI 화면은 자기 미체결 표를 그리지 않는다. 거래소 필터로 행을 줄인
+ *   `panelAccount` 를 `AccountPanel` 에 넘기고 헤더 자리만 빌린다(vi-client ⑥). 그래서
+ *   표식을 만드는 자리는 계좌 패널 한 곳뿐이고, 이 테스트는 그 사실이 **런타임에서도**
+ *   참인지를 같은 행으로 두 번 렌더해 문자열을 비교하는 방식으로 잠근다.
+ */
+describe('③ 미체결 표식 — 두 표면이 같은 문자열이다 (17-09 / D-13)', () => {
+  const ROW: RelayUnfilled = {
+    orderNo: 'Q091533123',
+    orgOrderNo: '',
+    isin: 'KR7005930003',
+    side: 'B',
+    price: 41_250,
+    orderQty: 100,
+    filledQty: 0,
+    unfilledQty: 100,
+    exchange: 'KRX',
+    orderTime: '091533',
+    queuedStatus: '발사완료 미발주 3주',
+    pendingStatus: '증권사 보관 · 09:00 처리',
+    board: '',
+    pendingCancelSent: false,
+  };
+
+  function acct(rows: RelayUnfilled[]): RelayAccountState {
+    return { t: 'acct', a: ACCOUNT, snap: true, hold: [], unf: rows, rm: [], st: '09:15:33' };
+  }
+
+  function sideTextOf(root: ParentNode): string {
+    return root.querySelector('[data-slot="account-unfilled-side"]')?.textContent ?? '';
+  }
+
+  it('같은 행을 VI 화면과 계좌 패널에서 보면 표식이 **한 글자도** 다르지 않다', () => {
+    mockRelay = relayState({ accountStates: new Map([[ACCOUNT, acct([ROW])]]) });
+    const vi = render(<ViClient />);
+    const viText = sideTextOf(document);
+    expect(viText).toBe('▲ 매수QP');
+    vi.unmount();
+
+    render(
+      <AccountPanel selectedAccountNo={ACCOUNT} account={acct([ROW])} status="ready" />,
+    );
+    expect(sideTextOf(document)).toBe(viText);
   });
 });

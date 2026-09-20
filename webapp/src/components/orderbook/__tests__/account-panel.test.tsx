@@ -5,6 +5,7 @@ import type {
   RelayAccount,
   RelayAccountState,
   RelayOrderResultMsg,
+  RelayUnfilled,
 } from '@gh-radar/shared';
 
 /**
@@ -176,6 +177,43 @@ function holdingCards(): HTMLElement[] {
  */
 function cancelButtons(orderNo: string): HTMLElement[] {
   return screen.queryAllByRole('button', { name: `주문번호 ${orderNo} 취소` });
+}
+
+/**
+ * 미체결 한 행 — 기본값은 **구 서버**(신규 5필드 전부 빈 값)다. 그래야 이 파일의 기존
+ * 단언들이 어제의 화면을 계속 재현하고, 새 표식·회색은 **명시한 행에서만** 나타난다.
+ */
+function unf(over: Partial<RelayUnfilled> = {}): RelayUnfilled {
+  return {
+    orderNo: '0000135742',
+    orgOrderNo: '',
+    isin: ISIN,
+    side: 'B',
+    price: 98_000,
+    orderQty: 50,
+    filledQty: 20,
+    unfilledQty: 30,
+    exchange: 'KRX',
+    orderTime: '093015',
+    queuedStatus: '',
+    pendingStatus: '',
+    board: '',
+    pendingCancelSent: false,
+    ...over,
+  };
+}
+
+/** 그 행들만 담은 계좌 상태. 표식·회색 케이스는 픽스처 3행과 섞이면 읽기 어렵다. */
+function withUnfilled(rows: RelayUnfilled[]): RelayAccountState {
+  return accountState({ unf: rows });
+}
+
+/** 미체결 표 n번째 행의 **표식 문자열**(방향 기호 포함). 표와 카드가 같은 값을 쓴다. */
+function sideTexts(scope: 'table' | 'card' = 'table'): string[] {
+  const rows = scope === 'table' ? unfilledRows() : unfilledCards();
+  return rows.map(
+    (row) => row.querySelector('[data-slot="account-unfilled-side"]')?.textContent ?? '',
+  );
 }
 
 function orderResult(over: Partial<RelayOrderResultMsg> = {}): RelayOrderResultMsg {
@@ -762,5 +800,55 @@ describe('AccountPanel — 모바일 2줄 카드 행 (UI-SPEC C7 / R6)', () => {
     expect(
       tableOf('account-unfilled').querySelectorAll('[data-slot="account-origin-tag"]'),
     ).toHaveLength(3);
+  });
+});
+
+/**
+ * Phase 17 Plan 09 Task 1 — 미체결 표식 (TRADE-04 · D-13).
+ *
+ * 잠그는 것은 **표식 문자열을 만드는 자리가 저장소에 하나뿐**이라는 사실이다.
+ * 규칙표는 `packages/shared` 의 `sideDisplayText` 가 소유하고(C# `NotificationHub` 정본),
+ * 이 파일은 그 결과가 화면에 그대로 닿는지만 본다 — 여기에 접미 규칙을 다시 적으면
+ * 규칙이 두 벌이 되고, 둘이 갈릴 때 어느 쪽이 맞는지 아무도 모른다.
+ *
+ * ★ 접미는 **배타가 아니라 누적**이다 (C# `NotificationHub.cs:172` — 세 `if` 가 연달아
+ *   적용된다). Q-ID 이면서 접수대기인 행은 `매수QP` 다. 하나만 붙이면 같은 주문이
+ *   WinForms 와 웹에서 다르게 보인다.
+ */
+describe('AccountPanel — 미체결 표식 (17-09 / D-13)', () => {
+  it('⑱ 주문번호가 Q-ID 인 매수 행은 예약 접미를 단다', () => {
+    renderPanel({ account: withUnfilled([unf({ orderNo: 'Q091533123', side: 'B' })]) });
+    expect(sideTexts()).toEqual(['▲ 매수Q']);
+    expect(sideTexts('card')).toEqual(['▲ 매수Q']);
+  });
+
+  it('⑲ 접수대기 문구가 있는 매도 행은 접수대기 접미를 단다 (문구 내용은 보지 않는다)', () => {
+    renderPanel({
+      account: withUnfilled([
+        unf({ orderNo: '0000135801', side: 'S', pendingStatus: '증권사 보관 · 09:00 처리' }),
+      ]),
+    });
+    expect(sideTexts()).toEqual(['▼ 매도P']);
+  });
+
+  it('⑳ 시간외종가 보드 행은 종가 접미를 단다', () => {
+    renderPanel({ account: withUnfilled([unf({ board: 'G2' })]) });
+    expect(sideTexts()).toEqual(['▲ 매수/종가']);
+  });
+
+  it('㉑ 셋 다 아닌 행은 종전과 같다 — 없는 형태를 지어내지 않는다', () => {
+    renderPanel({
+      account: withUnfilled([unf({ side: 'B' }), unf({ orderNo: '0000135801', side: 'S' })]),
+    });
+    expect(sideTexts()).toEqual(['▲ 매수', '▼ 매도']);
+  });
+
+  it('㉒ 세 조건이 겹치면 접미가 **누적**된다 (C# 정본 — 배타가 아니다)', () => {
+    renderPanel({
+      account: withUnfilled([
+        unf({ orderNo: 'Q091533123', pendingStatus: '취소 보관 · 09:00 확정', board: 'G3' }),
+      ]),
+    });
+    expect(sideTexts()).toEqual(['▲ 매수QP/종가']);
   });
 });
