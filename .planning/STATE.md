@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-06-PLAN.md
-last_updated: "2026-09-20T09:11:42.325Z"
+stopped_at: Completed 17-09-PLAN.md
+last_updated: "2026-09-20T09:28:25.827Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: ef2b4f078a56978bdede6c35c9fd479a27ce6493
+state_head: 8a957a5158192ed72bf7fe3e68ceeb98c06aafbd
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 178
+  completed_plans: 179
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 9 of 12
+Plan: 10 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -445,6 +445,7 @@ Progress: [█████████░] 92%
 | Phase 17 P04 | 14 min | 3 tasks | 5 files |
 | Phase 17 P05 | 1h 9m | 3 tasks | 12 files |
 | Phase 17 P06 | 15 min | 3 tasks | 17 files |
+| Phase 17 P09 | 11 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -692,6 +693,7 @@ Recent decisions affecting current work:
 - [Phase 17]: VI 전략 상태를 거래소별 3상태(viTriggers)로 바꾸고 단수 viTrigger 를 별칭 없이 제거 — 소비처 6곳을 typecheck 가 강제 노출하게 했다 (17-06)
 - [Phase 17]: VI 가동 배지는 viAnyRunning 한 함수로만 판정(사이드바·My page·전략 현황 인라인 0건)하고, 요약 문구도 가동 중인 거래소별 값을 말한다 (17-06 / D-18)
 - [Phase 17]: vi.notice 는 렌더 소비처가 0곳이었다(grep 실측) — VI 상태줄에 최신 1건(종목·거래소·발동가) 줄을 새로 만들었다. isViServerMessage 는 VITrigger 를 받되 LimitChaser 는 받지 않는다(Pitfall 9 유지)
+- [Phase 17]: 17-09: 미체결 표식은 sideDisplayText 한 함수에서만 나오고, 취소보관 행은 pendingCancelSent bool 하나로 회색·취소 제외(개별·전체 두 경로 동일) — 접미는 배타가 아니라 누적(C# NotificationHub 정본). 보조 줄 컴포넌트는 문자열 배열만 받아 어느 필드인지 모르므로 문구 분기가 구조적으로 불가능하다
 
 ### Pending Todos
 
@@ -775,8 +777,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-20T09:11:31.500Z
-Stopped at: Completed 17-06-PLAN.md
+Last session: 2026-09-20T09:28:18.785Z
+Stopped at: Completed 17-09-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
