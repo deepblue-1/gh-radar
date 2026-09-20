@@ -73,6 +73,18 @@
  *     으로 붙인다. 이게 어긋나면 긴 종목명이 숫자를 밀어내 잘린다 — 플렉스/그리드 자식의
  *     `min-w-0` 누락은 `tasks/lessons.md` 에 등재된 함정이다. r2/r3 의 왼쪽 보조 문장도
  *     길어질 수 있으므로 그 줄의 신축 역시 **왼쪽 하나**다.
+ *
+ * ⑨ ★ 서버가 이미 취소를 보낸 행은 **회색 + 취소 버튼 없음**이다 (D-14 / 17-09)
+ *   `RelayUnfilled.pendingCancelSent` 는 서버 원장이 `'X'` 로 표시한 행, 즉 **취소가 이미
+ *   나간** 주문이다. 버튼을 남겨 두면 사용자가 그것을 눌러 게이트웨이의 거부(`R`)를 받고
+ *   **첫 취소의 성패를 오해한다**(⑥ 과 같은 함정의 다른 입구).
+ *   ★ 판정 근거는 그 **bool 하나**다. `pendingStatus`/`queuedStatus` 문구를 비교해 회색이나
+ *     숨김을 정하지 않는다 — 문구는 서버가 바꾼다(gh-trade 교훈 24 · Pitfall 6). 문구는
+ *     **표시만** 한다.
+ *   ★ 버튼이 그냥 사라지면 버그로 읽힌다. 그래서 서버 문구를 그 행의 보조 줄에 그대로 남겨
+ *     왜 취소할 수 없는지가 보이게 한다.
+ *   ★ 이 규칙은 **개별 취소와 전체 취소 두 경로가 함께** 쓴다. 한쪽만 고치면 개별은 막히는데
+ *     일괄 경로로 두 번째 취소가 나간다 (`vi-client.tsx` 의 `cancellable` 이 짝이다).
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -245,7 +257,9 @@ export function AccountPanel({
           label: row.name ?? (sameStock ? (name ?? null) : null),
           sideText: sideDisplayText(row.side, row.orderNo, row.pendingStatus, row.board),
           // ★ 취소 키는 ISIN 이고 언제나 실려 온다 — 단축코드 유무로 잠그지 않는다(④).
-          cancellable: row.unfilledQty > 0 && !lockedOrderNos.has(row.orderNo),
+          // ★ 서버가 **이미 취소를 보낸** 행은 뺀다(⑨) — 근거는 그 bool 하나다.
+          cancellable:
+            row.unfilledQty > 0 && !row.pendingCancelSent && !lockedOrderNos.has(row.orderNo),
         };
       }),
     [account, isin, name, lockedOrderNos],
@@ -505,18 +519,27 @@ export function AccountPanel({
                   </TableHeader>
                   <TableBody>
                     {unfilled.map((view) => (
-                      <TableRow key={view.row.orderNo}>
+                      <TableRow
+                        key={view.row.orderNo}
+                        data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
+                        className={cn(view.row.pendingCancelSent && 'text-[var(--muted-fg)]')}
+                      >
                         <TableCell className="mono text-[length:var(--t-caption)]">
                           {view.row.orderNo}
                         </TableCell>
                         <TableCell>
                           <span className="inline-flex items-center gap-1">
-                            <SideTag side={view.row.side} text={view.sideText} />
+                            <SideTag
+                              side={view.row.side}
+                              text={view.sideText}
+                              muted={view.row.pendingCancelSent}
+                            />
                             <OriginTag tag={originTag} />
                           </span>
                         </TableCell>
                         <TableCell className="text-[length:var(--t-caption)]">
                           {view.label ?? <span className="mono">{view.row.isin}</span>}
+                          <StatusNote text={view.row.pendingStatus} />
                         </TableCell>
                         <TableCell className="num mono text-[length:var(--t-caption)]">
                           {KRW.format(view.row.price)}
@@ -539,11 +562,25 @@ export function AccountPanel({
                 data-slot="account-unfilled-list"
                 className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
               >
-                {unfilled.map((view) => (
+                {unfilled.map((view) => {
+                  /*
+                    취소보관 행은 카드에서도 회색이다(⑨). 표는 `<TableRow>` 한 곳에 색을
+                    주면 셀들이 상속하지만, 카드는 굵은 값마다 `--fg` 를 **명시**하고 있어
+                    그 자리들이 같은 분기를 읽어야 한다 — 하나라도 빠지면 「반만 회색인 행」이
+                    되고, 그 행이 살아 있는 주문으로 읽힌다.
+                  */
+                  const fg = view.row.pendingCancelSent
+                    ? 'text-[var(--muted-fg)]'
+                    : 'text-[var(--fg)]';
+                  return (
                   <div
                     key={view.row.orderNo}
                     data-slot="account-unfilled-row"
-                    className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
+                    data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
+                    className={cn(
+                      'min-w-0 px-[var(--s-3)] py-[var(--s-2)]',
+                      view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
+                    )}
                   >
                     {/*
                       r1 — 종목명(유일한 신축) + 구분 태그 … (우) **주문가**.
@@ -557,13 +594,27 @@ export function AccountPanel({
                       data-slot="account-unfilled-r1"
                       className="flex min-w-0 items-center gap-[var(--s-2)]"
                     >
-                      <span className="min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold',
+                          fg,
+                        )}
+                      >
                         {view.label ?? <span className="mono">{view.row.isin}</span>}
                       </span>
                       <span className="flex flex-none items-center gap-1">
-                        <SideTag side={view.row.side} text={view.sideText} />
+                        <SideTag
+                          side={view.row.side}
+                          text={view.sideText}
+                          muted={view.row.pendingCancelSent}
+                        />
                       </span>
-                      <span className="mono ml-auto flex-none text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--fg)]">
+                      <span
+                        className={cn(
+                          'mono ml-auto flex-none text-[length:var(--t-sm)] font-semibold whitespace-nowrap',
+                          fg,
+                        )}
+                      >
                         {KRW.format(view.row.price)}
                       </span>
                     </div>
@@ -574,19 +625,22 @@ export function AccountPanel({
                     >
                       <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-fg)]">
                         미체결{' '}
-                        <b className="mono font-semibold text-[var(--fg)]">
+                        <b className={cn('mono font-semibold', fg)}>
                           {KRW.format(view.row.unfilledQty)}
                         </b>{' '}
                         /{' '}
-                        <b className="mono font-semibold text-[var(--fg)]">
+                        <b className={cn('mono font-semibold', fg)}>
                           {KRW.format(view.row.orderQty)}
                         </b>
                         주
                       </span>
                       <span className="ml-auto flex-none">{cancelButton(view)}</span>
                     </div>
+                    {/* r3 — 서버 상태 문구(있는 행에만). 표에서는 종목 셀 아래 자리다. */}
+                    <StatusNote text={view.row.pendingStatus} />
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -787,19 +841,54 @@ export function AccountPanel({
  *   접미를 여기서 조립하면 규칙이 화면 수만큼 생기고, 갈릴 때 어느 쪽이 맞는지 아무도
  *   모른다. 규칙표의 주인은 shared 의 `sideDisplayText` 하나뿐이고 여기는 **받아 그린다**.
  */
-function SideTag({ side, text }: { side: RelayUnfilled['side']; text: string }) {
+function SideTag({
+  side,
+  text,
+  muted = false,
+}: {
+  side: RelayUnfilled['side'];
+  text: string;
+  muted?: boolean;
+}) {
   const buy = side === 'B';
   return (
     <span
       data-slot="account-unfilled-side"
       className={cn(
         'whitespace-nowrap text-[length:var(--t-caption)] font-semibold',
-        buy ? 'text-[var(--up)]' : 'text-[var(--down)]',
+        // 취소보관 행은 방향색도 함께 죽인다(⑨) — 이 칸만 색이 살아 있으면 행이 회색으로
+        // 읽히지 않는다 (C# 도 Side 셀 ForeColor 를 따로 회색으로 덮는다).
+        muted ? 'text-[var(--muted-fg)]' : buy ? 'text-[var(--up)]' : 'text-[var(--down)]',
       )}
     >
       {buy ? '▲ ' : '▼ '}
       {text}
     </span>
+  );
+}
+
+/**
+ * 미체결 행의 **서버 상태 문구** — 접수대기(`pendingStatus`) 보조 줄 (17-09 / D-14 · ⑨).
+ *
+ * ★ 가공하지 않는다. 자르기·치환·상태 분류 없이 **서버 문자열 그대로** 그린다 — 화면이
+ *   문구를 손대는 순간 사용자가 보는 말과 서버가 한 말이 갈린다.
+ * ★ 값이 없으면 **요소 자체를 만들지 않는다.** 빈 줄을 그리면 상태가 없는 대다수 행에도
+ *   높이가 붙어 표가 두꺼워진다.
+ * ★ 이 컴포넌트는 **어느 필드의 문구인지 모른다.** 문자열 하나만 받으므로 필드 이름으로
+ *   분기할 수단이 아예 없다 — 「문구로 판정하지 않는다」가 설계로 강제된다(T-17-31).
+ * ★ 좁은 폭에서 조용히 잘리지 않게 `min-w-0` + 줄바꿈 허용이고, 전문은 `title` 에 둔다
+ *   (플렉스/그리드 자식의 `min-w-0` 누락은 `tasks/lessons.md` 에 등재된 함정이다).
+ */
+function StatusNote({ text }: { text: string }) {
+  if (text === '') return null;
+  return (
+    <p
+      data-slot="account-unfilled-note"
+      title={text}
+      className="mt-0.5 min-w-0 text-[11px] break-words text-[var(--muted-fg)]"
+    >
+      {text}
+    </p>
   );
 }
 

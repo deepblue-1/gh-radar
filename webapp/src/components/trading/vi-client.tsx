@@ -166,8 +166,16 @@ function ViSurface() {
     return { ...accountState, unf: filteredUnfilled };
   }, [accountState, exchangeFilter, filteredUnfilled]);
 
+  /**
+   * 「전체 취소」 대상. **계좌 패널의 개별 취소와 같은 식**이어야 한다 (17-09 / D-14 —
+   * `account-panel.tsx` ⑨). 한쪽만 고치면 개별 취소는 막히는데 서버가 이미 취소를 보낸
+   * 주문에 두 번째 취소가 일괄 경로로 나간다.
+   *
+   * ⚠️ 제외 근거는 `pendingCancelSent` **bool 하나**다 — `pendingStatus` 문구를 보고
+   *    정하지 않는다(문구는 서버가 바꾼다, gh-trade 교훈 24).
+   */
   const cancellable = useMemo(
-    () => filteredUnfilled.filter((r) => r.unfilledQty > 0),
+    () => filteredUnfilled.filter((r) => r.unfilledQty > 0 && !r.pendingCancelSent),
     [filteredUnfilled],
   );
 
