@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 
-import type { RelayLimitChaser } from "@gh-radar/shared";
+import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
 
 /**
  * Phase 16 Plan 11 Task 1 — AppSidebar 트리 계약 (NAV-01 · D-15~D-19 · UI-SPEC N1~N7).
@@ -121,6 +121,25 @@ const CHASER_B = makeChaser({
   buyEnabled: false,
   sellEnabled: true,
 });
+
+/**
+ * VI 전략 1건 — **거래소별**이다 (17-06 / D-06). 서버가 거래소마다 1건을 따로 들고
+ * 있으므로 픽스처도 거래소를 받는다. 기본은 중지다(가동은 케이스가 명시한다).
+ */
+function viCfg(
+  exchange: "KRX" | "NXT",
+  over: Partial<RelayViTrigger> = {},
+): RelayViTrigger {
+  return {
+    accountNo: "37728502101",
+    exchange,
+    orderAmountKrw: 1_000_000,
+    checkRate: 25,
+    priceType: "U",
+    run: false,
+    ...over,
+  };
+}
 
 /**
  * 잔고·미체결에 실린 종목명 — 사이드바가 이름을 얻는 유일한 경로다(relay 역매핑 산물).
@@ -390,21 +409,28 @@ describe("AppSidebar — 전략 3단 목록 (N3/N3a/N5)", () => {
     expect(screen.queryByRole("link", { name: "등록된 전략 없음" })).toBeNull();
   });
 
-  it("N7 — VI 항목 배지는 viTrigger.run 을 따른다", () => {
-    setupReady({
-      viTrigger: {
-        accountNo: "37728502101",
-        exchange: "KRX",
-        orderAmountKrw: 1_000_000,
-        checkRate: 25,
-        priceType: "U",
-        run: true,
-      },
-    });
+  it("N7 — VI 항목 배지는 KRX·NXT **합집합**이다 (17-06 / D-18)", () => {
+    // ① NXT 에만 등록돼 가동 중이어도 가동이다 — 이 화면이 KRX 만 보면 NXT 전략이 없는 셈이 된다.
+    setupReady({ viTriggers: { NXT: viCfg("NXT", { run: true }) } });
     const view = render(<AppSidebar />);
     expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("가동");
 
-    setupReady({ viTrigger: null });
+    // ② KRX 만 조회했고 미등록 — NXT 는 아직 모른다. 모르는 것을 가동으로 읽지 않는다.
+    setupReady({ viTriggers: { KRX: null } });
+    view.rerender(<AppSidebar />);
+    expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("중지");
+
+    // ③ KRX 중지 + NXT 가동 → 가동 (합집합 판정)
+    setupReady({
+      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: true }) },
+    });
+    view.rerender(<AppSidebar />);
+    expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("가동");
+
+    // ④ 둘 다 중지 → 중지
+    setupReady({
+      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: false }) },
+    });
     view.rerender(<AppSidebar />);
     expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("중지");
   });
