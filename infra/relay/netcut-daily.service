@@ -1,0 +1,9 @@
+[Unit]
+Description=netcut 측정 — 평일 08:00~20:00 KST 외부 경로 단절 감시 (읽기/핑 전용)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/netcut-daily
+ExecStartPre=/bin/bash -c 'find /var/tmp -maxdepth 1 -name "netcut-*" -type d -mtime +14 -exec rm -rf {} +'
+TimeoutStartSec=13h
+Nice=10

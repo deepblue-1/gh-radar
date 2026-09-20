@@ -63,6 +63,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 기본 경로 | `default via 10.10.0.1 dev ens4` — 터널이 기본 경로를 탈취하지 않았다 | `ip route show default` |
 | `caddy` | `active` | `systemctl is-active caddy` |
 | `wg-probe` | `active` + `enabled` — wg0 터널 1초 주기 읽기 전용 측정기 (2026-09-16 신설, §터널 정지 판정 절차) | `systemctl is-active wg-probe` / `journalctl -t wg-probe -n 5` |
+| `netcut-daily.timer` | `enabled` — 평일 `Mon-Fri 08:00 KST` 예약 기동, 외부 경로 단절 5축 측정기 (§외부 경로 단절 판정 — netcut). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-enabled netcut-daily.timer` / `systemctl list-timers 'netcut-*' --all` |
 
 > 이 표의 값은 2026-09-08 19:0x KST 에 읽기 명령만으로 수집했다(quick-260908-py9).
 > 라이브 전환 경위는 §실서버 라이브 상태, VPN 정책은 §VPN 조작 을 보라.
@@ -726,6 +727,14 @@ journalctl -t wg-probe -f                                                # 실�
 > NAT 재바인딩은 진단 가치가 있지만 주소는 사생활이다. 왕복시간 기준점도 국내 ISP 공개 DNS 2곳이며
 > **클라이언트 공인 IP 를 찌르지 않는다.**
 
+> **국내 방향 단절은 netcut 이 따로 잰다.** 위 §판정 표에서 「**GCP 서울↔국내 ISP 경로**」
+> 귀속이 의심되면 — 즉 전 피어 동시 `rx_stall` 에 양 기준점 왕복시간이 함께 열화됐다면 —
+> 같은 시각 창의 netcut 로그를 나란히 놓고 본다. 무엇을 어떻게 읽는지는
+> §외부 경로 단절 판정 — netcut 의 §조회·분석법 이다. netcut 은 WireGuard 를 타지 않는
+> 경로(국내 ISP·`tun0`·Google 망·호스트 내부)를 재므로 이 절의 측정과 겹치지 않는다.
+>
+> 그 귀속이 **독립 측정으로 확인된 첫 사례**가 2026-09-17~18 「61분 주기 국내 방향 단절」이다.
+
 ### 장 마감 후 재부팅 생존 반영 런북
 
 최초 설치(2026-09-16)는 **장중이라 신규 2자산만 VM 에 직접 얹었다.** 그 상태는 **재부팅에서
@@ -769,6 +778,183 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 
 > 직접 설치분과 메타데이터 배치분은 **같은 파일**이다 — 오늘 올린 것도 저장소 원본을 그대로
 > `gcloud compute scp` 한 것이고, `startup.sh` §9 가 배치하는 것도 같은 `infra/relay/wg-probe.py` 다.
+
+---
+
+## 외부 경로 단절 판정 — netcut
+
+> **왜 있는가.** VM 밖으로 나가는 경로가 끊겼을 때 **어느 층에서 끊겼는지**를 가르는 5축 동시
+> 측정기다. §터널 정지 판정 절차 — wg-probe 와 짝을 이루되 서로 다른 것을 본다 — wg-probe 가
+> **wg0 터널**을 재는 반면 netcut 은 **터널을 타지 않는 경로**(국내 ISP·`tun0`·Google 망·호스트
+> 내부)를 잰다. 그래서 「wg0 가 문제인가, 그 바깥이 문제인가」를 두 측정기가 서로 독립으로 답한다.
+> **읽기와 핑만 한다** — 데이터패스를 건드리지 않고, 아무것도 예방하거나 고치지 않는다.
+
+### 무엇을 재는가 — 5축
+
+| # | 축 | 대상 | 로그 파일 |
+|---|-----|------|-----------|
+| ① | 호스트 내부 | GCP 메타데이터 서버 `169.254.169.254` — **ICMP 가 아니라 HTTP** | `http-metadata.log` |
+| ② | Google 망 | `8.8.8.8` ICMP | `ping-google.log` |
+| ③ | 국내 ISP | KT `168.126.63.1` · LG U+ `164.124.101.2` ICMP | `ping-kt.log` · `ping-lgu.log` |
+| ④ | KB 게이트웨이 | openconnect `tun0` 경유 ICMP | `ping-kb.log` |
+| ⑤ | VM 자신 | 초당 `ens4` rx/tx 패킷 카운터 · CPU steal | `counters.log` |
+
+전부 **1초 주기**다. ① 이 HTTP 인 이유는 **메타데이터 서버가 긴 연속 ICMP 핑을 막기 때문**이고,
+그래서 같은 주기를 `curl` 의 `%{http_code} %{time_total}` 로 대신 잰다.
+
+**netcut 은 판정하지 않는다.** wg-probe 와 달리 **임계값도 에피소드 판정(`ev=open`/`close`)도 없고
+raw 로그만 남긴다.** 판정은 사람이 아래 §조회·분석법 으로 사후에 한다. 그래서 아래 사건 기록에
+나오는 「3초」는 스크립트에 박힌 임계값이 **아니라** 그 사후 분석에 쓴 기준이다.
+
+### 어떻게 도는가
+
+`netcut-daily.timer` → `netcut-daily.service` → `/usr/local/sbin/netcut-daily` → `/usr/local/sbin/netcut-probe-260917`
+
+| 단계 | 설정 | 뜻 |
+|------|------|-----|
+| `netcut-daily.timer` | `OnCalendar=Mon-Fri 08:00 Asia/Seoul` · `AccuracySec=1s` · `Persistent=false` | 평일 아침 정시 1회 기동. **놓친 회차를 나중에 몰아 돌리지 않는다** |
+| `netcut-daily.service` | `Type=oneshot` · `TimeoutStartSec=13h` · `Nice=10` | 12시간 측정이 타임아웃에 잘리지 않도록 13시간 상한. 우선순위는 낮춘다 |
+| `ExecStartPre` | `find /var/tmp -maxdepth 1 -name "netcut-*" -type d -mtime +14 -exec rm -rf {} +` | **보존 14일.** 기동 때마다 오래된 측정 디렉터리를 지운다 |
+| `netcut-daily` | `netcut-probe-260917 /var/tmp/netcut-<YYMMDD> 43200` | 43,200초 = 12시간 → 08:00~20:00 KST. 디렉터리 이름의 날짜는 **KST** 다 |
+
+수동 1회 실행은 `sudo systemctl start netcut-daily.service` 다.
+⚠️ **그날치가 이미 돌고 있으면 중복 측정이 된다** — 같은 디렉터리에 두 벌의 핑이 겹쳐 쓰여 로그가
+섞이고, 그 로그로는 끊긴 구간을 가를 수 없다. 먼저 `systemctl is-active netcut-daily.service` 로 확인할 것.
+
+### 조회·분석법
+
+**로그 5종의 시각 표기가 서로 다르다. 이것을 먼저 알고 읽어야 한다.**
+
+| 로그 | 시각 표기 | 비고 |
+|------|-----------|------|
+| `ping-*.log` 4종 | `[<epoch>.<밀리초>]` — `ping -D` 의 대괄호 epoch | 초 단위 실수. **날짜가 그 안에 있다** |
+| `http-metadata.log` · `counters.log` | `HH:MM:SS.mmm` 뿐 | **날짜는 디렉터리 이름에 있다** (`netcut-<YYMMDD>`, KST) |
+
+시계 규약(VM 은 UTC · KST = UTC+9)은 §터널 정지 판정 절차 — wg-probe 의 §조회 가 정본이다 —
+여기 다시 적지 않는다.
+
+```bash
+D=/var/tmp/netcut-260918-am    # 볼 디렉터리. 목록은 ls -d /var/tmp/netcut-*
+
+# ① 끊긴 구간 — 응답 줄 사이 간격이 3초를 넘는 지점 (4개 ping 로그 전부)
+for f in ping-kt ping-lgu ping-google ping-kb; do
+  echo "== $f"
+  awk -F'[][]' '/bytes from/{t=$2+0; if(p>0 && t-p>3) printf "  %.3f  gap %.1fs\n", p, t-p; p=t}' "$D/$f.log"
+done
+
+# ② 대조군 무응답 — 이 둘이 0 이면 Google 망과 호스트 내부는 그 순간 정상이었다
+grep -c 'no answer yet' "$D/ping-google.log"
+awk '{print $2}' "$D/http-metadata.log" | grep -vc '^200$'
+
+# ③ 회복 직후 밀린 응답 — time= 상위 10건 (ms)
+grep -o 'time=[0-9.]*' "$D/ping-kt.log" | cut -d= -f2 | sort -gr | head -10
+
+# ④ 해당 창 전후의 NIC·steal — 패킷이 NIC 를 나갔는지, VM 이 멈췄는지 (UTC 시:분으로 좁힌다)
+grep -B3 -A3 '^05:09:' "$D/counters.log"
+
+# ⑤ epoch → 사람 시각 (VM 은 Debian 이라 date -d 가 있다)
+date -d @1758085743                       # UTC
+TZ=Asia/Seoul date -d @1758085743         # KST
+```
+
+① 의 출력 `101.000  gap 9.0s` 는 「epoch 101.000 에 마지막 응답이 있었고 다음 응답까지 9.0초가
+비었다」는 뜻이다. **② 가 0 인데 ① 에 구간이 잡히는 것** — 그것이 아래 사건의 서명이다.
+
+### 2026-09-17~18 「61분 주기 국내 방향 단절」
+
+> **판정: GCP 서울 리전 ↔ 국내 ISP(KT·LG U+) 피어링/전달 구간.**
+>
+> **근거: 매 회차 같은 순간 Google `8.8.8.8` 과 GCP 메타데이터 서버(HTTP)가 무응답 0 이었다.**
+> Google 망 내부와 호스트 내부가 멀쩡한 채 **국내 방향만** 끊겼으므로 끊긴 곳은 그 둘 사이다.
+> 9/18 측정분만 해도 `8.8.8.8` 은 **17,976회 중 무응답 0** 이다.
+
+**회차.** 첫 회차 2026-09-17 14:08:03 KST · 이후 **61분 간격**(관측 오차 −1초~+4초)으로 반복했다.
+
+| 날짜 | 회차 (KST) |
+|------|------------|
+| 9/17 | 14:08 · 15:09 · 16:10 · 17:11 · 18:12 · 19:13 |
+| 9/18 | 10:04 · 11:05 · 12:06 · 14:08 · 15:09 · 17:11 |
+
+9/17 20:14 · 9/18 13:07 · 9/18 16:10 회차는 **감지 기준(3초) 미달 또는 미발생**이다.
+
+**증상.** 회차별 길이 **2~15초**. 끊기는 대상이 회차마다 바뀌었다 — KT 단독 / LG U+ 단독 / 둘 다.
+회복 직후 밀린 응답이 한꺼번에 도착했고 최대값은 **7,146ms(KT)** · **6,147ms(KB)** 다.
+
+**동반 현상.** relay↔KB(DMA) 세션이 **3회 `ECONNRESET`** 되고 1~2초 만에 재접속했다
+(9/17 15:09 · 16:10 회차 · 9/18 은 0회). 나머지 회차는 세션이 유지됐다.
+WireGuard 피어는 회차당 **2~3대가 동시에 `rx_stall`** 로 잡혔다(wg-probe 기록).
+
+**wg0·WireGuard 무혐의.** WireGuard 를 **타지 않는** 경로 — KT·LG U+ 로의 ICMP, openconnect
+`tun0` 경유 KB 핑, relay 의 DMA TCP 세션 — 도 **같은 초에 함께** 끊겼다. 피어의 `rx_stall` 은
+원인이 아니라 같은 상위 구간 장애의 그림자다.
+
+**VM 무혐의.** ens4 rx/tx err·drop **0** · wg0 drop **0** · CPU steal 변화 없음 · 커널 메시지 **0** ·
+openconnect 재접속 **0회** · GCE 라이브 마이그레이션·호스트 이벤트 로그 **0건** · 메타데이터 서버 응답 정상.
+
+**호스트 원인 배제 (실험).** 2026-09-17 21:57 KST 에 **stop → start** 를 했다 — 물리 호스트 이동을
+노린 정지 후 시작이며 **재부팅이 아니다.** 외부 접속 불가 약 3분 · 부팅 ID 변경 ·
+**MAC·내부 IP·외부 IP 모두 불변.** 그럼에도 9/18 에 같은 61분 주기로 재발했고 **분·초 위치까지
+유지**됐다 → 호스트/VM 원인 배제.
+
+**소멸.** 9/18 17:11 회차가 마지막이다. 9/19 는 개별 피어 1건(주기성 없음 · 국내 핑 정상) ·
+9/20 **0건**. 왜 멎었는지는 재지 못했다 — 상위 구간은 이쪽에서 관측할 수 없다.
+
+**증거 위치 (VM)**
+
+| 경로 | 무엇 |
+|------|------|
+| `/var/tmp/netcut-260917-1711` · `-1812` · `-1913` · `-2014` | 9/17 회차별 12분 측정 |
+| `/var/tmp/netcut-260918-am` | 9/18 08:00~13:00 연속 |
+| `/var/tmp/netcut-<YYMMDD>` | 이후 평일 08:00~20:00 자동 (보존 14일) |
+
+### 운영 한계
+
+**ⓐ VM 재생성 시 사라진다.** `netcut-daily.timer` 는 `systemctl enable` 되어 **재부팅은 생존**하지만
+인스턴스 메타데이터 startup-script(§9)에는 **미등록**이다 — `setup-relay-iam.sh` 에 이 자산의
+메타데이터 키가 없다. **wg-probe 와 다른 점이 정확히 이것이다**: wg-probe 는 메타데이터에 실려 있어
+VM 이 재생성돼도 `startup.sh` 가 다시 배치하지만, netcut 4종은 그렇지 않다. §파일 맵 의 **예외 4** 를 보라.
+
+**ⓑ 되돌리는 배치 절차.** VM 이 재생성됐거나 자산이 사라졌으면 저장소 원본을 다시 올린다.
+
+```bash
+# ① 올린다 (저장소 루트에서)
+gcloud compute scp \
+  infra/relay/netcut-probe.sh infra/relay/netcut-daily.sh \
+  infra/relay/netcut-daily.service infra/relay/netcut-daily.timer \
+  radar-gw:/tmp/ --tunnel-through-iap --zone=asia-northeast3-a
+
+# ② 설치하고 기동한다
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --command='
+  sudo install -m 0700 /tmp/netcut-probe.sh      /usr/local/sbin/netcut-probe-260917 &&
+  sudo install -m 0700 /tmp/netcut-daily.sh      /usr/local/sbin/netcut-daily &&
+  sudo install -m 0644 /tmp/netcut-daily.service /etc/systemd/system/netcut-daily.service &&
+  sudo install -m 0644 /tmp/netcut-daily.timer   /etc/systemd/system/netcut-daily.timer &&
+  sudo systemctl daemon-reload &&
+  sudo systemctl enable --now netcut-daily.timer'
+
+# ③ 확인 (읽기만)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --command='
+  systemctl is-enabled netcut-daily.timer; systemctl list-timers "netcut-*" --all --no-pager;
+  sha256sum /usr/local/sbin/netcut-probe-260917 /usr/local/sbin/netcut-daily'
+```
+
+이 절차는 `startup.sh` 전체 재적용(**장중 금지** — §장 마감 후 재부팅 생존 반영 런북)을 **요구하지
+않는다.** 측정기가 읽기·핑 전용이라 데이터패스를 건드리지 않기 때문이다. ③ 의 `sha256sum` 은
+저장소 `shasum -a 256 infra/relay/netcut-*` 와 대조하는 용도다.
+
+**ⓒ VM 실측 권한을 확인하지 않았다 — 위 배치 명령의 모드(0700/0700/0644/0644)가 정본이다.**
+현재 VM 에 놓인 파일의 실제 권한을 읽어 대조한 적이 없다. 다음 VM 접속 때
+`stat -c '%a %n' /usr/local/sbin/netcut-* /etc/systemd/system/netcut-daily.*` 로 확인할 것.
+
+**ⓓ §메모리 예산 표에 netcut 행을 두지 않았다 — RSS 실측이 없기 때문이다.** 다음 VM 접속 때
+`systemctl show netcut-daily.service -p MemoryCurrent` 로 재어 채울 것. (측정 중에만 존재하는
+`oneshot` 이라 wg-probe 처럼 상시 RSS 로 잡히지 않는다는 점도 함께 기록할 것.)
+
+**ⓔ 네트워크 등급은 비용 관점의 별건이다.** 현재 **Premium** 이고, 서울→한국 인터넷 송신은
+**$0.19/GiB**(월 1TiB 까지) · Standard 는 월 **200GiB 무료 후 $0.085/GiB** 다.
+**단절 회피 효과는 미검증이다** — 이 사건이 Standard 에서 일어나지 않았으리라는 근거는 없고,
+등급 전환을 이 사건의 대책으로 제시하지 않는다. 전환하려면 **외부 IP 재발급**이 필요하며
+(MAC·내부 IP 는 불변) 그것은 DNS·방화벽·허용 목록에 파급된다.
 
 ---
 
@@ -1184,6 +1370,10 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 | `Caddyfile` | `/etc/caddy/Caddyfile` | 0644 |
 | `wg-probe.py` | `/usr/local/sbin/wg-probe` | 0700 |
 | `wg-probe.service` | `/etc/systemd/system/wg-probe.service` | 0644 |
+| `netcut-probe.sh` | `/usr/local/sbin/netcut-probe-260917` | 0700 |
+| `netcut-daily.sh` | `/usr/local/sbin/netcut-daily` | 0700 |
+| `netcut-daily.service` | `/etc/systemd/system/netcut-daily.service` | 0644 |
+| `netcut-daily.timer` | `/etc/systemd/system/netcut-daily.timer` | 0644 |
 | _(생성됨)_ | `/usr/local/sbin/kbvpn-route-guard` | 0700 |
 | _(생성됨)_ | `/usr/local/sbin/relay-docker-login` | 0700 |
 | _(생성됨)_ | `/usr/local/sbin/kbvpn-watchdog` | 0700 |
@@ -1213,3 +1403,8 @@ gcloud compute instances start radar-gw --zone=asia-northeast3-a
 > **예외 3.** `/srv/ghtrade` 는 **디렉터리만** `startup.sh` 가 매 부팅 보증하고
 > **안의 파일은 저장소가 정본이 아니다** — gh-trade 발행 스크립트의 산출물이다.
 > `startup.sh` 는 그 내용물을 만들지도 지우지도 않는다. 자세한 내용은 §`/ghtrade/*`.
+>
+> **예외 4.** 위 `netcut-*` **4종만 `startup.sh` 가 배치하지 않는다** — `setup-relay-iam.sh` 에
+> 메타데이터 키가 없어 인스턴스 메타데이터에 실리지 않기 때문이다. 이 표의 다른 모든 행과 다르다.
+> 그래서 **재부팅은 생존하지만 VM 재생성에는 사라진다.** 저장소가 정본인 것은 같지만 배치는
+> 사람이 해야 하고, 그 절차는 §외부 경로 단절 판정 — netcut 의 §운영 한계 ⓑ 에 있다.

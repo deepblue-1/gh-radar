@@ -1,0 +1,10 @@
+[Unit]
+Description=netcut 측정 매 평일 08:00 KST 기동
+
+[Timer]
+OnCalendar=Mon-Fri 08:00 Asia/Seoul
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
