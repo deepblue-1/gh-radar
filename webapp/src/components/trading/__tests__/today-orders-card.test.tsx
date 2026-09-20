@@ -290,3 +290,103 @@ describe("TodayOrdersCard", () => {
     expect(cell?.getAttribute("data-side")).toBe("S");
   });
 });
+
+// ===========================================================================
+// 17-10 Task 3 — 오늘 주문 표에 3초 창 묶기 적용 (D-16 / T-17-35)
+// ===========================================================================
+
+/**
+ * 부분체결 조각 매도(quick-260916-fq3)에서 통보가 조각 수만큼 쏟아져 표가 한 종목으로
+ * 가득 찬다. 묶기는 그것을 한 줄로 만들되 **재조회 경로를 끊지 않아야** 한다 —
+ * 합쳐진 주문번호가 `unmatchedOrderNos` 에서 사라지면 그 주문의 종목명이 영원히
+ * 복원되지 않는다(T-17-35).
+ */
+
+/** 상따 자동주문의 조각 매도 체결 3건 — 1초 간격이라 3초 창 안이다. */
+const AUTO_SELL_FILLS: DmaOrderRow[] = [
+  row({
+    id: "f3",
+    orderNo: "0000200003",
+    side: "S",
+    origin: "limit_chaser",
+    status: "filled",
+    noticeType: "E",
+    qty: 3,
+    createdAt: "2026-09-10T00:10:02.000Z",
+  }),
+  row({
+    id: "f2",
+    orderNo: "0000200002",
+    side: "S",
+    origin: "limit_chaser",
+    status: "filled",
+    noticeType: "E",
+    qty: 5,
+    createdAt: "2026-09-10T00:10:01.000Z",
+  }),
+  row({
+    id: "f1",
+    orderNo: "0000200001",
+    side: "S",
+    origin: "limit_chaser",
+    status: "filled",
+    noticeType: "E",
+    qty: 10,
+    createdAt: "2026-09-10T00:10:00.000Z",
+  }),
+];
+
+const AUTO_SELL_FRAMES: RelayOrderMsg[] = AUTO_SELL_FILLS.map((r) =>
+  frame({ no: r.orderNo ?? "", nt: "E", q: r.qty }),
+);
+
+describe("TodayOrdersCard — 통보 묶기 (17-10 / D-16)", () => {
+  it("⑦-1 같은 자동주문의 조각 매도 체결 3건이 한 줄로 그려진다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(AUTO_SELL_FILLS);
+    mockRelay = { ...EMPTY_RELAY_VALUE, orders: AUTO_SELL_FRAMES };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const text = listRows()[0]?.textContent ?? "";
+    expect(text).toContain("#0000200001~0000200003");
+    expect(text).toContain("(3건)");
+    // 수량은 합계다 — 3 + 5 + 10.
+    expect(text).toContain("18");
+  });
+
+  it("⑦-2 묶기 뒤에도 재조회 루프는 **묶기 전** 주문번호 목록을 본다 (T-17-35)", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(AUTO_SELL_FILLS);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      // 복원에 없는 주문번호 1건 — 묶기와 무관하게 재조회가 나가야 한다.
+      orders: [frame({ no: "0000299999", nt: "A" }), ...AUTO_SELL_FRAMES],
+    };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(2));
+    // 묶기는 화면만 접는다 — 재조회 판정은 `mergeTodayOrders` 결과가 정본이다.
+    expect(listRows()).toHaveLength(1);
+  });
+
+  it("⑦-3 복원 행만 있고 relay 프레임이 없으면 묶기가 아무것도 바꾸지 않는다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(AUTO_SELL_FILLS);
+    // `orders` 가 비어 있다 = 통보가 온 적 없는 복원 스냅샷.
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+    expect(document.body.textContent).not.toContain("건)");
+  });
+
+  it("⑦-4 묶인 행을 펼치는 UI 는 만들지 않는다 (이번 phase 범위 밖)", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(AUTO_SELL_FILLS);
+    mockRelay = { ...EMPTY_RELAY_VALUE, orders: AUTO_SELL_FRAMES };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(document.querySelectorAll('[data-slot="today-orders-card"] button')).toHaveLength(0);
+  });
+});
