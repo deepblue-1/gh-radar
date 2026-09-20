@@ -155,6 +155,37 @@ function clockStamp(now: Date): string {
 }
 
 /**
+ * 거래소별 VI 전략 3상태 (17-06 / D-06).
+ *
+ * `Partial` 이 **키 부재 = 아직 모름**을 표현한다. `null` 은 「조회했고 미등록」이라
+ * 뜻이 다르므로 둘을 같은 값으로 접으면 안 된다(빈 61 이 사용자 입력을 지우는 CR-01).
+ */
+export type RelayViTriggers = Partial<Record<RelayExchange, RelayViTrigger | null>>;
+
+/**
+ * VI 전략이 존재할 수 있는 거래소 전수. relay 의 `VI_PREFETCH_EXCHANGES`(17-05) 와 같은
+ * 집합이고, 순회 순서도 표시 순서(KRX → NXT)와 같다.
+ */
+export const VI_EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
+
+/**
+ * 두 거래소 중 **하나라도** 가동 중인가 (D-18 합집합 판정).
+ *
+ * ★ 판정을 한 함수로 모으는 이유: 사이드바·My page·전략 현황 세 화면이 같은 질문에
+ *   각자 답하면 언젠가 한 곳만 고쳐지고, 그때 사용자는 「사이드바는 가동인데 My page 는
+ *   중지」를 본다. 어느 쪽이 맞는지 화면만 보고는 알 수 없다.
+ *
+ * ★ 모르는 거래소(키 부재)는 **가동이 아니다.** 모름을 가동으로 읽으면 연결 직후 잠깐
+ *   「가동」이 떴다가 사라지고, 그 깜빡임은 실제 등록과 구분되지 않는다.
+ */
+export function viAnyRunning(triggers: RelayViTriggers): boolean {
+  for (const exchange of VI_EXCHANGES) {
+    if (triggers[exchange]?.run === true) return true;
+  }
+  return false;
+}
+
+/**
  * **종목 축이 없는** 전역 상태 표면. 사이드바·My page 처럼 구독 없이 전략만 보는 화면이
  * 그대로 소비한다. 종목별 시세·체결은 `quotes`/`tapes` 맵에서 **키로 골라** 쓴다.
  */
@@ -199,12 +230,19 @@ export interface RelayConnectionState {
   /** 등록된 상따 전략 전수 (D-12 스냅샷 + 60 에코). `crud:"D"` 는 담기지 않는다. */
   limitChasers: RelayLimitChaser[];
   /**
-   * VI 전략 설정 — **3상태**다. 뭉개면 「미조회」와 「미등록」이 같은 화면이 된다.
-   *  - `undefined` : 아직 스냅샷을 못 받았다(연결 전·인증 전)
-   *  - `null`      : 조회했고 **미등록**이다(서버가 빈 응답을 보냈다)
-   *  - 객체        : 등록돼 있다
+   * VI 전략 설정 — **거래소별 3상태**다 (17-06 / D-06).
+   *
+   * 서버가 VI 전략을 **거래소마다 1건**으로 관리하므로 relay 도 캐시·프레임을 거래소별로
+   * 내려준다(17-05). 3상태의 뜻은 거래소마다 **독립**이다:
+   *  - 키 부재(`undefined`) : 그 거래소는 아직 스냅샷을 못 받았다(연결 전·인증 전)
+   *  - `null`               : 그 거래소를 조회했고 **미등록**이다(서버가 빈 응답을 보냈다)
+   *  - 객체                 : 그 거래소에 등록돼 있다
+   *
+   * ⚠️ 단수 필드(`viTrigger`)를 **별칭으로도 남기지 않는다.** 남기면 「어느 거래소의 값인지
+   *    모르는 소비처」가 조용히 살아남고, KRX-only 세션에서 뒤에 온 NXT 프레임이 방금 읽은
+   *    KRX 설정을 덮는다(17-05 가 스냅샷을 2프레임으로 넓히며 남긴 결함).
    */
-  viTrigger: RelayViTrigger | null | undefined;
+  viTriggers: RelayViTriggers;
   /** VI 주문 추적 목록 (72 스냅샷 / 73 델타 병합 결과). */
   viOrders: RelayViOrderItem[];
   /** VI 발동 통지 누적(최신 우선, 상한 50). */
@@ -312,7 +350,7 @@ interface RelayData {
   messages: RelayServerMessageEntry[];
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
-  viTrigger: RelayViTrigger | null | undefined;
+  viTriggers: RelayViTriggers;
   viOrders: RelayViOrderItem[];
   viNotices: RelayViNoticeMsg[];
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
@@ -332,8 +370,8 @@ const INITIAL_DATA: RelayData = {
   messages: [],
   isStale: false,
   limitChasers: [],
-  // 미조회(undefined) 와 미등록(null) 은 다른 화면이다 — 초기값은 미조회다.
-  viTrigger: undefined,
+  // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기값은 **두 거래소 모두 미조회**다.
+  viTriggers: {},
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,
@@ -445,10 +483,20 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // `limitChasers` 는 언제나 「등록된 전략」이다.
       return { ...state, limitChasers: frame.items.filter((item) => item.crud !== "D") };
 
-    case "vi":
-      // `cfg: null` 은 **미등록**이다(무응답이 아니다). undefined 로 되돌리지 않는다 —
-      // 되돌리면 「조회했는데 없음」이 「아직 모름」으로 퇴행한다.
-      return { ...state, viTrigger: frame.cfg };
+    case "vi": {
+      // `cfg: null` 은 **미등록**이다(무응답이 아니다). 키를 지우지 않는다 —
+      // 지우면 「조회했는데 없음」이 「아직 모름」으로 퇴행한다.
+      //
+      // ★ 병합은 **거래소별**이다 (17-06 / D-06). 한 거래소의 프레임이 다른 거래소 값을
+      //   건드리지 않는다: 17-05 이후 인증 스냅샷은 KRX·NXT 2프레임으로 오는데, 단수
+      //   필드에 덮어쓰면 KRX 에만 등록된 세션에서 뒤에 온 NXT 프레임이 방금 읽은 설정을
+      //   지운다.
+      // ★ 거래소를 모르는 프레임(계약 밖 · 구 relay)은 **아무 거래소에도 귀속시키지
+      //   않는다.** 기본값 KRX 로 접으면 NXT 의 사실이 KRX 자리에 앉을 수 있고, 화면은
+      //   그것이 지어낸 값임을 말할 방법이 없다.
+      if (!VI_EXCHANGES.includes(frame.x)) return state;
+      return { ...state, viTriggers: { ...state.viTriggers, [frame.x]: frame.cfg } };
+    }
 
     case "vi.list":
       return {
@@ -1003,7 +1051,7 @@ export function useRelayConnection({
       messages: data.messages,
       isStale: data.isStale,
       limitChasers: data.limitChasers,
-      viTrigger: data.viTrigger,
+      viTriggers: data.viTriggers,
       viOrders: data.viOrders,
       viNotices: data.viNotices,
       strategiesDisabled: data.strategiesDisabled,

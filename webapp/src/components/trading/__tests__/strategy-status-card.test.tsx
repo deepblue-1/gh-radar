@@ -202,7 +202,7 @@ function populated(over: Partial<RelayShape> = {}): RelayShape {
       { accountNo: "37728502102", name: "위탁CMA" },
     ],
     limitChasers: [CHASER_A, CHASER_B, CHASER_C],
-    viTrigger: VI_RUNNING,
+    viTriggers: { KRX: VI_RUNNING },
     accountStates: accountStates(),
     ...over,
   });
@@ -305,14 +305,14 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
   });
 
   it("③ 전략 0 + VI 중지 → 「전체 비활성화」가 disabled 다 (C4)", () => {
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTrigger: null });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
     render(<StrategyStatusCard />);
 
     expect(disableButton()).toBeDisabled();
   });
 
   it("③-a 전략 0 이어도 VI 가 가동 중이면 열려 있다 (끌 것이 남아 있다)", () => {
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTrigger: VI_RUNNING });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: VI_RUNNING } });
     render(<StrategyStatusCard />);
 
     expect(disableButton()).toBeEnabled();
@@ -400,11 +400,11 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(rows()).toHaveLength(3);
     expect(screen.getByText("상따 3 · VI 가동")).toBeInTheDocument();
     expect(within(rows()[0] as HTMLElement).getByText("매수ON")).toBeInTheDocument();
-    expect(screen.getByText("1,000만원 · 22.0% 이상")).toBeInTheDocument();
+    expect(screen.getByText("KRX 1,000만원 · 22.0% 이상")).toBeInTheDocument();
   });
 
   it("⑦ 전략 0 이면 빈 상태 문구를 보여준다 (UI-SPEC §빈 상태)", () => {
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTrigger: null });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
     render(<StrategyStatusCard />);
 
     expect(screen.getByText("등록된 상따 전략이 없어요")).toBeInTheDocument();
@@ -420,7 +420,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
 
   it("⑦-a 스냅샷 수신 전에는 「없음」이 아니라 로딩이다 (C2 로딩)", () => {
     // `connecting` — 아직 `lc.snap` 을 받은 적이 없다.
-    mockRelay = relayState({ status: "connecting", limitChasers: [], viTrigger: undefined });
+    mockRelay = relayState({ status: "connecting", limitChasers: [], viTriggers: {} });
     const { rerender } = render(<StrategyStatusCard />);
 
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeInTheDocument();
@@ -429,7 +429,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(screen.queryByText("등록된 상따 전략이 없어요")).not.toBeInTheDocument();
 
     // `ready` 를 본 뒤의 빈 목록은 **확정된 0건**이다(relay 는 빈 스냅샷도 보낸다).
-    mockRelay = relayState({ status: "ready", limitChasers: [], viTrigger: null });
+    mockRelay = relayState({ status: "ready", limitChasers: [], viTriggers: { KRX: null } });
     rerender(<StrategyStatusCard />);
     expect(screen.getByText("등록된 상따 전략이 없어요")).toBeInTheDocument();
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeNull();
@@ -441,7 +441,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     const viRow = document.querySelector('[data-slot="vi-status-row"]') as HTMLAnchorElement;
     expect(viRow.getAttribute("href")).toBe("/trading/vi");
     expect(within(viRow).getByText("가동")).toBeInTheDocument();
-    expect(within(viRow).getByText("1,000만원 · 22.0% 이상")).toBeInTheDocument();
+    expect(within(viRow).getByText("KRX 1,000만원 · 22.0% 이상")).toBeInTheDocument();
   });
 });
 
@@ -524,19 +524,35 @@ describe("StrategyStatusCard — 킬 스위치의 침묵 방지 (gap 3 · T-16-1
   });
 });
 
-describe("viSummaryText — 단위 환산", () => {
-  it("원 → 만원 환산은 반올림하지 않는다 (없는 금액을 말하지 않는다)", () => {
-    expect(viSummaryText({ orderAmountKrw: 10_000_000, checkRate: 22 }, true)).toBe(
-      "1,000만원 · 22.0% 이상",
-    );
-    expect(viSummaryText({ orderAmountKrw: 15_000, checkRate: 25 }, true)).toBe(
-      "1.5만원 · 25.0% 이상",
-    );
+describe("viSummaryText — 거래소별 요약 · 단위 환산", () => {
+  it("원 → 만원 환산은 반올림하지 않고, 어느 거래소인지 함께 말한다", () => {
+    expect(viSummaryText({ KRX: VI_RUNNING })).toBe("KRX 1,000만원 · 22.0% 이상");
+    expect(
+      viSummaryText({ KRX: { ...VI_RUNNING, orderAmountKrw: 15_000, checkRate: 25 } }),
+    ).toBe("KRX 1.5만원 · 25.0% 이상");
+  });
+
+  it("★ 두 거래소가 함께 가동이면 둘 다 말한다 (한쪽만 말하면 화면이 거짓이 된다)", () => {
+    expect(
+      viSummaryText({
+        KRX: VI_RUNNING,
+        NXT: { ...VI_RUNNING, exchange: "NXT", orderAmountKrw: 5_000_000, checkRate: 18 },
+      }),
+    ).toBe("KRX 1,000만원 · 22.0% 이상 / NXT 500만원 · 18.0% 이상");
+  });
+
+  it("★ NXT 만 가동이면 **NXT 값**을 말한다 (KRX 숫자를 빌려 오지 않는다)", () => {
+    expect(
+      viSummaryText({
+        KRX: { ...VI_RUNNING, run: false },
+        NXT: { ...VI_RUNNING, exchange: "NXT", orderAmountKrw: 5_000_000, checkRate: 18 },
+      }),
+    ).toBe("NXT 500만원 · 18.0% 이상");
   });
 
   it("중지·미등록·미조회는 전부 `—` 다", () => {
-    expect(viSummaryText({ orderAmountKrw: 10_000_000, checkRate: 22 }, false)).toBe("—");
-    expect(viSummaryText(null, false)).toBe("—");
-    expect(viSummaryText(undefined, true)).toBe("—");
+    expect(viSummaryText({ KRX: { ...VI_RUNNING, run: false } })).toBe("—");
+    expect(viSummaryText({ KRX: null, NXT: null })).toBe("—");
+    expect(viSummaryText({})).toBe("—");
   });
 });

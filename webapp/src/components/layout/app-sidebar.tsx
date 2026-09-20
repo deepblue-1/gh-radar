@@ -20,6 +20,7 @@ import { StrategyBadge, viBadgeOf } from "@/components/trading/strategy-badge";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
+import { viAnyRunning } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 import type { RelayLimitChaser } from "@gh-radar/shared";
 
@@ -268,7 +269,7 @@ function useTradingVisible(): boolean {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { limitChasers, viTrigger } = useRelayContext();
+  const { limitChasers, viTriggers } = useRelayContext();
   const tradingVisible = useTradingVisible();
   const labels = useIsinLabels();
 
@@ -325,9 +326,13 @@ export function AppSidebar() {
                 </li>
                 <li>
                   <NavLink item={NAV_VI} active={isActive(NAV_VI.href)}>
-                    {/* N7 — VI 는 항목이 1개뿐이라 배지가 목록을 어지럽히지 않는다. */}
+                    {/*
+                      N7 — VI 는 항목이 1개뿐이라 배지가 목록을 어지럽히지 않는다.
+                      ★ 판정은 `viAnyRunning` **한 함수**다 (17-06 / D-18). 거래소별 전략을
+                        여기서 다시 합치면 My page·전략 현황과 갈린다.
+                    */}
                     <StrategyBadge
-                      badge={viBadgeOf(viTrigger?.run === true)}
+                      badge={viBadgeOf(viAnyRunning(viTriggers))}
                       className="ml-auto shrink-0"
                     />
                   </NavLink>

@@ -52,7 +52,7 @@ import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
 import { useRelayContext } from "@/lib/relay-provider";
-import type { RelayStatus } from "@/lib/use-relay-socket";
+import { viAnyRunning, type RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
 /** 점멸 도트를 쓰는 진행 상태 (C1 로딩) — `relay-status-bar` 와 같은 집합이다. */
@@ -152,7 +152,7 @@ function isNewerServerTime(a: ServerTimeKey, b: ServerTimeKey): boolean {
  *   지으면 호가주문 탭은 「실시간」, My page 는 다른 말이 되어 같은 상태가 두 이름을 갖는다.
  */
 function MeStatusBar() {
-  const { status, statusLabel, accounts, limitChasers, viTrigger, accountStates } =
+  const { status, statusLabel, accounts, limitChasers, viTriggers, accountStates } =
     useRelayContext();
   const label = statusLabel === "" ? RELAY_STATE_LABELS.connecting : statusLabel;
   const updatedAt = latestAccountTime(accountStates);
@@ -180,8 +180,9 @@ function MeStatusBar() {
       </span>
       <span>
         VI{" "}
+        {/* 거래소 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18). */}
         <b className="font-semibold text-[var(--fg)]">
-          {viTrigger?.run === true ? "가동" : "중지"}
+          {viAnyRunning(viTriggers) ? "가동" : "중지"}
         </b>
       </span>
       <span>

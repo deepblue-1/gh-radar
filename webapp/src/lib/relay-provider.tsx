@@ -62,6 +62,7 @@ import {
   useRelayConnection,
   type RelayConnectionState,
   type RelaySocketState,
+  type RelayViTriggers,
 } from "@/lib/use-relay-socket";
 import type {
   OrderSide,
@@ -178,6 +179,11 @@ const EMPTY_QUOTES: ReadonlyMap<string, RelayQuote> = new Map();
 /** 빈 계좌 상태 맵의 고정 참조 — Provider 밖 폴백이 매 호출 새 Map 을 만들지 않게 한다. */
 const EMPTY_ACCOUNT_STATES: ReadonlyMap<string, RelayAccountState> = new Map();
 const EMPTY_TAPES: ReadonlyMap<string, RelayTapeEntry[]> = new Map();
+/**
+ * 두 거래소 모두 「아직 모름」인 고정 참조 (17-06 / D-06). 매 렌더 새 객체를 만들면
+ * `viAnyRunning` 을 memo 로 감싼 소비처가 전부 무효화된다.
+ */
+const EMPTY_VI_TRIGGERS: RelayViTriggers = {};
 /** 빈 테이프의 고정 참조 — 매 렌더 새 배열을 만들면 소비자 memo 가 전부 무효화된다. */
 const EMPTY_TAPE: RelayTapeEntry[] = [];
 
@@ -198,8 +204,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   messages: [],
   isStale: false,
   limitChasers: [],
-  // 미조회다. Provider 밖에서는 아무것도 조회한 적이 없다.
-  viTrigger: undefined,
+  // 두 거래소 모두 미조회다. Provider 밖에서는 아무것도 조회한 적이 없다.
+  viTriggers: EMPTY_VI_TRIGGERS,
   viOrders: [],
   viNotices: [],
   strategiesDisabled: null,

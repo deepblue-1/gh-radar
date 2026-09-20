@@ -28,7 +28,7 @@
  *   세운다. 주기 재조회는 만들지 않는다(D-13) — 표시를 하나 더 두는 쪽이 싸다.
  *
  * ⑤ ★ 빈 61(미등록)은 입력을 지우지 않는다 (WinForms CR-01)
- *   판정은 `viTrigger` **3상태**(`undefined` 미조회 / `null` 미등록 / 객체)이고 뭉개지 않는다.
+ *   판정은 **거래소별 3상태**(키 부재 미조회 / `null` 미등록 / 객체)이고 뭉개지 않는다.
  *   뭉개면 「미조회」와 「미등록」이 같아져, 연결 중에 사용자가 친 값이 지워진다.
  *
  * ⑥ ★ 거래소 필터·「전체 취소」는 **이 화면이 소유한다**
@@ -115,14 +115,22 @@ export function ViClient() {
 
 function ViSurface() {
   const relay = useRelayContext();
-  const { accounts, accountStates, viTrigger, viOrders, messages, status, statusLabel, sendOrder } =
+  const { accounts, accountStates, viTriggers, viOrders, messages, status, statusLabel, sendOrder } =
     relay;
+
+  /*
+    ★ 이 화면이 **편집하는 거래소**의 전략 하나만 본다 (17-06 / D-18).
+      Phase 17 범위는 「KRX 편집 유지 + NXT 가시화」다 — NXT 값은 사이드바·My page 의
+      가동 배지(합집합)에만 쓰이고 이 화면의 폼·계좌 축·에코 상관에는 쓰이지 않는다.
+      섞으면 KRX 폼에 NXT 금액이 뜨고, 「수정」이 그 값을 KRX 로 등록한다.
+  */
+  const viTrigger = viTriggers.KRX;
 
   /* ── 계좌 축 ──────────────────────────────────────────────────────── */
 
   /**
-   * 표시 계좌 — 설정의 계좌를 따라간다. VI 는 세션당 1건이라 「그 전략의 계좌」가 곧
-   * 이 화면의 계좌다. 아직 모르면 첫 계좌를 쓴다.
+   * 표시 계좌 — 설정의 계좌를 따라간다. VI 는 **거래소별 1건**이고 이 화면이 편집하는
+   * 것은 KRX 이므로 「그 전략의 계좌」가 곧 이 화면의 계좌다. 아직 모르면 첫 계좌를 쓴다.
    */
   const accountNo = viTrigger?.accountNo ?? accounts[0]?.accountNo ?? '';
   const accountState = accountNo === '' ? null : (accountStates.get(accountNo) ?? null);

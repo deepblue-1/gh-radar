@@ -74,7 +74,12 @@ import {
 } from "@/components/ui/dialog";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
-import type { RelayStatus } from "@/lib/use-relay-socket";
+import {
+  viAnyRunning,
+  VI_EXCHANGES,
+  type RelayStatus,
+  type RelayViTriggers,
+} from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
 const KRW = new Intl.NumberFormat("ko-KR");
@@ -92,21 +97,26 @@ const DISABLE_ACK_TIMEOUT_MS = 8_000;
 // ---------------------------------------------------------------------------
 
 /**
- * VI 행 요약 `{금액}만원 · {상승률}% 이상`. **가동 중이 아니면 `—`** 다 —
- * 꺼진 전략의 조건을 현재 상태처럼 읽히게 두지 않는다.
+ * VI 행 요약 — **가동 중인 거래소마다** `{거래소} {금액}만원 · {상승률}% 이상` (17-06 / D-06).
+ * 가동 중인 거래소가 없으면 `—` 다 — 꺼진 전략의 조건을 현재 상태처럼 읽히게 두지 않는다.
+ *
+ * ★ 거래소를 붙이는 이유: 배지는 두 거래소의 **합집합**인데(D-18) 요약이 한쪽 값만 말하면
+ *   NXT 만 가동 중일 때 화면이 KRX 숫자를 보여 준다 — 그 숫자로 주문이 나가지 않는다.
  *
  * `orderAmountKrw` 는 **원 단위**이고 화면 단위는 만원이다. 만원으로 나누어떨어지지 않는
  * 값을 반올림하면 없는 금액을 말하게 되므로 소수 한 자리를 살린다.
  * `checkRate` 는 **정수 %** 다(`sweepMinRate` 의 BasisPoints 와 단위가 다르다 — Pitfall 5).
  */
-export function viSummaryText(
-  cfg: { orderAmountKrw: number; checkRate: number } | null | undefined,
-  run: boolean,
-): string {
-  if (!run || cfg == null) return "—";
-  const man = cfg.orderAmountKrw / 10_000;
-  const amount = Number.isInteger(man) ? KRW.format(man) : man.toFixed(1);
-  return `${amount}만원 · ${cfg.checkRate.toFixed(1)}% 이상`;
+export function viSummaryText(triggers: RelayViTriggers): string {
+  const parts: string[] = [];
+  for (const exchange of VI_EXCHANGES) {
+    const cfg = triggers[exchange];
+    if (cfg == null || cfg.run !== true) continue;
+    const man = cfg.orderAmountKrw / 10_000;
+    const amount = Number.isInteger(man) ? KRW.format(man) : man.toFixed(1);
+    parts.push(`${exchange} ${amount}만원 · ${cfg.checkRate.toFixed(1)}% 이상`);
+  }
+  return parts.length === 0 ? "—" : parts.join(" / ");
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +340,7 @@ export interface StrategyStatusCardProps {
 }
 
 export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
-  const { status, limitChasers, viTrigger, accounts, strategiesDisabled, send } =
+  const { status, limitChasers, viTriggers, accounts, strategiesDisabled, send } =
     useRelayContext();
   const labels = useIsinLabels();
   const snapshotSeen = useSnapshotSeen(status);
@@ -349,7 +359,8 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
    */
   const [sendError, setSendError] = useState("");
 
-  const viRunning = viTrigger?.run === true;
+  // 합집합 판정은 `viAnyRunning` 한 함수다 (17-06 / D-18) — 사이드바·My page 와 같은 답.
+  const viRunning = viAnyRunning(viTriggers);
   const chaserCount = limitChasers.length;
   /** 전략 0 + VI 중지 → 끌 것이 없다. 반드시 아무 일도 못 하는 버튼은 열어 두지 않는다. */
   const nothingToDisable = chaserCount === 0 && !viRunning;
@@ -468,7 +479,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
         </span>
         <StrategyBadge badge={viBadgeOf(viRunning)} className="shrink-0" />
         <span data-slot="vi-status-summary" className="mono text-[11px] text-[var(--muted-fg)]">
-          {viSummaryText(viTrigger, viRunning)}
+          {viSummaryText(viTriggers)}
         </span>
         <span aria-hidden="true" className="ml-auto shrink-0 text-[12px] text-[var(--muted-fg)]">
           ›
