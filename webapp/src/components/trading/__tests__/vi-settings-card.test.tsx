@@ -86,7 +86,15 @@ describe('설정 4행 · 고정 캡션', () => {
     expect(amountInput()).toHaveValue('1,000');
     expect(rateInput()).toHaveValue('22');
     expect(screen.getByRole('switch', { name: 'VI 마감 알림' })).toBeInTheDocument();
-    expect(screen.getByText('세션당 1건 · KRX · 주문가 = 상한가')).toBeInTheDocument();
+    /*
+      ★ 캡션은 **사실**이어야 한다 (17-06 / D-18). 「세션당 1건」은 서버가 VI 전략을
+        거래소별 1건으로 관리하게 된 순간 틀린 말이 됐고, 「KRX」만 적힌 캡션은 NXT 전략이
+        존재한다는 사실을 숨긴다. 세 사실 — 거래소별 1건 · 이 카드가 편집하는 것은 KRX ·
+        NXT 는 다음 단계 — 이 모두 담겨야 한다.
+    */
+    expect(
+      screen.getByText('거래소별 1건 · KRX 설정 편집 · NXT 는 다음 단계 · 주문가 = 상한가'),
+    ).toBeInTheDocument();
     expect(screen.getByText('주문수량 = 금액 ÷ 상한가')).toBeInTheDocument();
     expect(screen.getByText('이상 VI 발동 시 자동 매수')).toBeInTheDocument();
   });
@@ -121,6 +129,9 @@ describe('① 값 변경 → 「수정」 — run 은 유지된다 (D-07)', () =
     expect(sendMock.mock.calls[0][0]).toEqual({
       t: 'vi.set',
       accountNo: ACCOUNT,
+      // ★ 어느 거래소에 등록하는지 **명시**한다 (17-06 / D-18). 생략하면 relay 가 KRX 로
+      //   접는데, 그 기본값은 화면이 한 약속이 아니라 서버 구현의 부산물이다.
+      exchange: 'KRX',
       // ⑥ 만원 → 원. 한 자리가 어긋나면 1만 배 주문이다.
       orderAmountKrw: 15_000_000,
       checkRate: 22,
@@ -244,6 +255,39 @@ describe('② 시작/중지 확인 다이얼로그 (S-7)', () => {
     const dialog = await screen.findByTestId('vi-stop-dialog');
     fireEvent.click(dialog.querySelector('button:last-of-type') as HTMLButtonElement);
     expect(sendMock.mock.calls[0][0]).toMatchObject({ run: false });
+  });
+
+  /*
+    ★ **세 경로 전부**가 거래소를 실어야 한다 (17-06 / D-18). 한 경로만 빠뜨리면
+      「수정은 KRX 로 가는데 시작은 relay 기본값으로 간다」가 되고, 그 차이는 화면 어디에도
+      드러나지 않는다 — 다른 시장에 무인 주문이 걸릴 때까지.
+  */
+  it('★ 수정·시작·중지 세 경로가 모두 `exchange` 를 싣는다', async () => {
+    // (1) 수정
+    const view = renderCard({ server: trigger({ run: true }) });
+    fireEvent.change(amountInput(), { target: { value: '1500' } });
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ t: 'vi.set', exchange: 'KRX' });
+    view.unmount();
+
+    // (2) 시작
+    sendMock.mockReset();
+    sendMock.mockReturnValue(true);
+    const start = renderCard({ server: trigger({ run: false }) });
+    fireEvent.click(screen.getByRole('button', { name: '시작' }));
+    const startDialog = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(startDialog.querySelector('button:last-of-type') as HTMLButtonElement);
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ run: true, exchange: 'KRX' });
+    start.unmount();
+
+    // (3) 중지
+    sendMock.mockReset();
+    sendMock.mockReturnValue(true);
+    renderCard({ server: trigger({ run: true }) });
+    fireEvent.click(screen.getByRole('button', { name: '중지' }));
+    const stopDialog = await screen.findByTestId('vi-stop-dialog');
+    fireEvent.click(stopDialog.querySelector('button:last-of-type') as HTMLButtonElement);
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ run: false, exchange: 'KRX' });
   });
 });
 
