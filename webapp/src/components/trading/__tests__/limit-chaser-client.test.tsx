@@ -718,6 +718,59 @@ describe('⑲ 상태줄 래치 LED 3종 + 클릭 → `lc.arm` (17-11 Task 1)', (
 });
 
 /*
+  Phase 17 Plan 11 Task 2 — 상따 화면의 서버 통지 **출처 배지** (D-17).
+
+  ★ 판정은 `serverMsgBadge` **하나**만 쓴다 — 이 파일 안에서 `src` 를 직접 비교하면 서버
+    어휘가 늘 때마다 두 곳이 갈린다(17-06 · 17-08 이 세운 같은 규율).
+  ★ 배지는 **텍스트 접두**다. 색만으로 출처를 가르면 WCAG 1.4.1 위반이고, 이 줄은 이미
+    전부 `--destructive` 라 쓸 색도 없다.
+*/
+describe('⑳ 상따 화면 서버 통지 출처 배지 (17-11 Task 2 · D-17)', () => {
+  it('⑳-1 `LimitChaser` 런타임 사유 줄이 상태줄·로그 **양쪽**에 뜨고 `[상따]` 가 붙는다', async () => {
+    setRelay({
+      limitChasers: [echo()],
+      messages: [
+        msg({
+          lv: 'ERROR',
+          src: 'LimitChaser',
+          i: ISIN,
+          m: '매도 무장이 꺼져 있습니다 — 매도 감시를 먼저 켜세요',
+        }),
+      ],
+    });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    const bar = await waitFor(() => {
+      const el = document.querySelector('[data-slot="lc-server-error"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(bar.querySelector('[data-slot="lc-server-error-src"]')?.textContent).toBe('[상따]');
+    expect(bar.textContent).toContain('매도 무장이 꺼져 있습니다');
+
+    const rows = Array.from(logRows());
+    expect(rows.some((r) => r.textContent?.startsWith('[상따]'))).toBe(true);
+  });
+
+  it('⑳-2 등록 거부(`SetLimitChaser`)는 `[서버]` 다 — 어휘를 모르면 모른다고 말한다', async () => {
+    setRelay({
+      limitChasers: [echo()],
+      messages: [
+        msg({ lv: 'ERROR', src: 'SetLimitChaser', i: ISIN, m: '허용되지 않은 거래소입니다' }),
+      ],
+    });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    const bar = await waitFor(() => {
+      const el = document.querySelector('[data-slot="lc-server-error"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(bar.querySelector('[data-slot="lc-server-error-src"]')?.textContent).toBe('[서버]');
+  });
+});
+
+/*
   WR-03 / D-28 — 시장 구분의 정본은 relay 다.
 
   옛 코드는 검색 행의 `market` 을 `row.market === 'KOSDAQ' ? 'Q' : 'K'` 로 접어 `lc.set.cfg`
