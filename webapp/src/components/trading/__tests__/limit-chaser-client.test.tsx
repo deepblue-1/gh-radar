@@ -748,8 +748,11 @@ describe('⑳ 상따 화면 서버 통지 출처 배지 (17-11 Task 2 · D-17)',
     expect(bar.querySelector('[data-slot="lc-server-error-src"]')?.textContent).toBe('[상따]');
     expect(bar.textContent).toContain('매도 무장이 꺼져 있습니다');
 
-    const rows = Array.from(logRows());
-    expect(rows.some((r) => r.textContent?.startsWith('[상따]'))).toBe(true);
+    // 로그 줄은 `시각 + 문장` 두 span 이라 배지는 **문장 span 의 맨 앞**에 있다.
+    const sentences = Array.from(logRows()).map(
+      (r) => r.querySelectorAll('span')[1]?.textContent ?? '',
+    );
+    expect(sentences.some((s) => s.startsWith('[상따] 서버가 거부했어요 —'))).toBe(true);
   });
 
   it('⑳-2 등록 거부(`SetLimitChaser`)는 `[서버]` 다 — 어휘를 모르면 모른다고 말한다', async () => {

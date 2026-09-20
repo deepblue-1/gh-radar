@@ -31,6 +31,7 @@
  *   문장이 되고, 무엇보다 **테스트할 수 없다**.
  */
 
+import { serverMsgBadge } from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
 
 import { cn } from '@/lib/utils';
@@ -57,16 +58,25 @@ export type StrategyTransition =
   | 'buyArmed'
   | 'buyFired'
   | 'buyDisarmed'
+  | 'buyLatched'
+  | 'buyUnlatched'
   | 'sellArmed'
   | 'sellDisarmed'
   | 'sellLatched'
   | 'sellUnlatched'
   | 'cancelArmed'
   | 'cancelDisarmed'
+  | 'cancelLatched'
+  | 'cancelUnlatched'
   | 'valuesApplied';
 
-/** 전이 → 문장 조각. 순서는 아래 `TRANSITION_ORDER` 가 정한다. */
-const TRANSITION_TEXT: Record<StrategyTransition, string> = {
+/**
+ * 전이 → 문장 조각. 순서는 아래 `TRANSITION_ORDER` 가 정한다.
+ *
+ * ★ **공개 상수다** — 테스트가 두 표의 원소 집합이 정확히 같은지 직접 단언한다
+ *   (`DIRTY_COMPARED_FIELDS` 와 같은 규율). 한쪽만 늘어나는 것이 이 파일의 대표 결함이다.
+ */
+export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   registered: '전략이 등록됐어요',
   deleted: '전략이 삭제됐어요 (매수·매도·자동취소가 모두 꺼졌어요)',
   buyArmed: '매수 무장',
@@ -74,28 +84,43 @@ const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   //   직전 발주 이력을 아는 호출부가 `hadOrder` 로 알려줄 때만 「발주」라고 쓴다.
   buyFired: '매수 발주 — 무장 해제',
   buyDisarmed: '매수 무장 해제',
+  // 매수 래치는 **매수잔량 기준(`buyWatchSide "1"`) 갈래에만 존재한다**(BL-01). 매도잔량
+  // 기준에서는 서버가 켜지도 보지도 않아 값이 언제나 false 라 전이가 나지 않는다.
+  buyLatched: '매수 진입 래치 ON — 잔량 항 판정 시작',
+  buyUnlatched: '매수 진입 래치 해제',
   sellArmed: '매도 무장 — 대기 (지지벽 미관측)',
   sellDisarmed: '매도 무장 해제',
   sellLatched: '매도 진입 래치 ON — 감시 시작',
   sellUnlatched: '매도 진입 래치 해제',
   cancelArmed: '매수 미체결 자동취소 무장',
   cancelDisarmed: '매수 미체결 자동취소 해제',
+  cancelLatched: '취소 진입 래치 ON — 취소 판정 시작',
+  cancelUnlatched: '취소 진입 래치 해제',
   valuesApplied: '서버 반영 완료',
 };
 
-/** 한 줄 안에서의 조각 순서 — 매수 → 매도 → 취소 → 값. 배지 순서와 같은 축이다. */
-const TRANSITION_ORDER: readonly StrategyTransition[] = [
+/**
+ * 한 줄 안에서의 조각 순서 — 매수 → 매도 → 취소 → 값. 배지 순서와 같은 축이다.
+ *
+ * 래치 2종은 각 축의 **무장·해제 뒤**에 놓는다(매도가 이미 그 배치다) — 세 축이 같은
+ * 내부 순서를 쓰면 사용자가 줄을 읽는 방식이 축마다 달라지지 않는다.
+ */
+export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'registered',
   'deleted',
   'buyArmed',
   'buyFired',
   'buyDisarmed',
+  'buyLatched',
+  'buyUnlatched',
   'sellArmed',
   'sellDisarmed',
   'sellLatched',
   'sellUnlatched',
   'cancelArmed',
   'cancelDisarmed',
+  'cancelLatched',
+  'cancelUnlatched',
   'valuesApplied',
 ];
 
@@ -117,6 +142,13 @@ function valuesChanged(prev: RelayLimitChaser, next: RelayLimitChaser): boolean 
     'sellEntryLatched',
     'cancelQtyEnabled',
     'cancelTradeEnabled',
+    /*
+      ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
+        래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
+        래치 자체는 바로 위 전이 4종이 각자의 문장으로 말한다.
+    */
+    'cancelEntryLatched',
+    'buyEntryLatched',
     'crud',
     'key',
   ]);
@@ -145,20 +177,33 @@ export function strategyLogLine(
     hit.add('deleted');
   } else if (prev === null) {
     hit.add('registered');
-    if (next.buyEnabled) hit.add('buyArmed');
+    /*
+      ★ 첫 스냅샷의 규율은 **세 축이 같다** (17-11 / 계획 ④ 「실측해서 같은 규율을 쓴다」).
+        기존 매도가 하던 그대로 — 래치가 켜져 있으면 래치 문장을, 아니면 무장 문장을 쓴다.
+        한 축만 다르게 두면 같은 상태가 축마다 다르게 보고되고, 그 차이를 사용자는
+        「취소는 아직 안 켜졌나 보다」로 읽는다.
+    */
+    if (next.buyEntryLatched) hit.add('buyLatched');
+    else if (next.buyEnabled) hit.add('buyArmed');
     if (next.sellEntryLatched) hit.add('sellLatched');
     else if (next.sellEnabled) hit.add('sellArmed');
+    if (next.cancelEntryLatched) hit.add('cancelLatched');
+    else if (cancelArmedOf(next)) hit.add('cancelArmed');
   } else {
     if (!prev.buyEnabled && next.buyEnabled) hit.add('buyArmed');
     if (prev.buyEnabled && !next.buyEnabled) {
       hit.add(opts.hadOrder === true ? 'buyFired' : 'buyDisarmed');
     }
+    if (!prev.buyEntryLatched && next.buyEntryLatched) hit.add('buyLatched');
+    if (prev.buyEntryLatched && !next.buyEntryLatched) hit.add('buyUnlatched');
     if (!prev.sellEnabled && next.sellEnabled) hit.add('sellArmed');
     if (prev.sellEnabled && !next.sellEnabled) hit.add('sellDisarmed');
     if (!prev.sellEntryLatched && next.sellEntryLatched) hit.add('sellLatched');
     if (prev.sellEntryLatched && !next.sellEntryLatched) hit.add('sellUnlatched');
     if (!cancelArmedOf(prev) && cancelArmedOf(next)) hit.add('cancelArmed');
     if (cancelArmedOf(prev) && !cancelArmedOf(next)) hit.add('cancelDisarmed');
+    if (!prev.cancelEntryLatched && next.cancelEntryLatched) hit.add('cancelLatched');
+    if (prev.cancelEntryLatched && !next.cancelEntryLatched) hit.add('cancelUnlatched');
     if (valuesChanged(prev, next)) hit.add('valuesApplied');
   }
 
@@ -174,6 +219,9 @@ export function strategyLogLine(
  * ★ 레벨·발신 맥락을 **해석하지 않고 그대로** 실어 보낸다(D-36). 서버가 보낸 거부 사유가
  *   정적 문구표보다 언제나 더 유용하고, 우리가 모르는 사유를 「알 수 없는 오류」로 뭉개면
  *   사용자는 원인을 영원히 못 본다.
+ * ★ 17-11 — 출처 **배지**가 접두로 붙는다(D-17). 판정은 shared 의 `serverMsgBadge`
+ *   하나뿐이고 이 파일에서 `src` 를 직접 비교하지 않는다 — 비교를 여기 다시 쓰면 서버
+ *   어휘가 늘 때마다 상태바·VI 화면과 갈린다.
  */
 export function serverMessageLogLine(msg: RelayServerMsg): {
   text: string;
@@ -181,8 +229,16 @@ export function serverMessageLogLine(msg: RelayServerMsg): {
 } {
   const isError = msg.lv === 'ERROR';
   const prefix = isError ? '서버가 거부했어요' : '서버 통지';
-  const source = msg.src !== '' ? ` (${msg.src})` : '';
-  return { text: `${prefix}${source} — ${msg.m}`, level: isError ? 'error' : 'info' };
+  const badge = serverMsgBadge(msg.src);
+  /*
+    ★ 배지가 출처를 **이름으로** 말하는 어휘(`[상따]`·`[VI]`)면 원문 `src` 를 덧붙이지
+      않는다 — 같은 말을 두 번 하는 줄이 된다. 배지가 `[서버]`(모르는 출처) 로 떨어질 때만
+      원문이 유일한 단서이므로 남긴다. 판정 입력은 **배지의 반환값**이지 `src` 문자열이
+      아니다 — 어휘가 늘어도 이 줄은 고칠 것이 없다.
+  */
+  const named = badge !== serverMsgBadge('');
+  const source = !named && msg.src !== '' ? ` (${msg.src})` : '';
+  return { text: `${badge} ${prefix}${source} — ${msg.m}`, level: isError ? 'error' : 'info' };
 }
 
 /** 15:40 서버 자동 비활성화 (65) — UI-SPEC §동기화 문구 verbatim. */

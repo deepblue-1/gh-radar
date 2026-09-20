@@ -69,7 +69,7 @@ import {
   useState,
 } from "react";
 import { ChevronDown } from "lucide-react";
-import { RELAY_STATE_LABELS } from "@gh-radar/shared";
+import { RELAY_STATE_LABELS, serverMsgBadge } from "@gh-radar/shared";
 import type {
   RelayExchange,
   RelayLimitChaser,
@@ -402,7 +402,16 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   /* ── ServerMessage(54) — 상따 몫만 (④) ────────────────────────────────── */
 
   const lastMsgRef = useRef<RelayServerMessageEntry | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
+  /**
+   * 상태줄에 세우는 최신 거부 1건 — **원문과 출처를 따로** 들고 있는다(17-11 / D-17).
+   *
+   * 배지 판정은 렌더 자리에서 `serverMsgBadge(src)` 한 번만 한다. 여기서 이미 배지가 붙은
+   * 문장을 넣어 두면 로그 줄과 상태줄이 **같은 배지를 두 번** 말하게 된다
+   * (`vi-client` 가 세운 같은 모양이다).
+   */
+  const [lastError, setLastError] = useState<{ text: string; src: string } | null>(
+    null,
+  );
   useEffect(() => {
     if (messages.length === 0) return;
     const seen = lastMsgRef.current;
@@ -415,7 +424,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       const { text, level } = serverMessageLogLine(msg);
       pushLog(text, level);
       // ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
-      if (level === "error") setLastError(text);
+      if (level === "error") setLastError({ text: msg.m, src: msg.src });
     }
   }, [messages, pushLog]);
 
@@ -1066,7 +1075,8 @@ function StatusBar({
   onArm: (kind: LatchLedKind) => void;
   trackBaseline: number | null;
   unacked: boolean;
-  error: string | null;
+  /** 최신 거부 1건 — 원문과 출처를 따로 들고 있는다(배지 판정은 렌더 자리에서 한 번). */
+  error: { text: string; src: string } | null;
   appliedAt: string | null;
 }) {
   // ⑥ 연결 상태 문구는 계약 한 곳(`RELAY_STATE_LABELS`)에서만 온다(D-36).
@@ -1122,7 +1132,17 @@ function StatusBar({
           data-slot="lc-server-error"
           className="min-w-0 text-[var(--destructive)]"
         >
-          {error}
+          {/*
+            출처 배지 (17-11 / D-09 · D-17). 판정은 `serverMsgBadge` **하나**만 쓴다 —
+            이 파일 안에서 `src` 를 직접 비교하면 서버 어휘가 늘 때마다 두 곳이 갈린다
+            (`vi-client`·`relay-status-bar` 와 같은 규율).
+            배지는 **텍스트 접두**다: 색만으로 출처를 가르면 WCAG 1.4.1 위반이고, 이 줄은
+            이미 전부 `--destructive` 라 쓸 색도 없다.
+          */}
+          <span data-slot="lc-server-error-src" className="font-semibold">
+            {serverMsgBadge(error.src)}
+          </span>{" "}
+          {error.text}
         </span>
       )}
       {appliedAt !== null && (

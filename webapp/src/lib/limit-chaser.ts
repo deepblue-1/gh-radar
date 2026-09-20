@@ -298,8 +298,17 @@ export function formFromServer(
  *
  * 가르는 기준은 **발신 맥락 + 종목 유무** 둘뿐이다:
  *   - `src === "SetLimitChaser"`            → 상따 등록·수정 거부. 명백히 상따 몫.
+ *   - `src === "LimitChaser"`               → 상따 **런타임 사유 줄**(래치 거부 등). 상따 몫.
  *   - `src === "Account"` ∧ `i` 가 **비지 않음** → 종목이 붙은 계좌 통지 = 상따 몫.
  *   - `src === "Account"` ∧ `i` 가 **빔**      → 종목 축이 없는 계좌 통지 = **VI 몫**(여기서 안 쓴다).
+ *
+ * ★ `"LimitChaser"` 는 17-01 이 `src` 어휘에 더했지만 **받아 주는 판정이 없어 한 글자도
+ *   그려지지 않고 있었다**(17-06 이 VI 쪽에서 같은 결손을 `VITrigger` 로 닫았다). 그 어휘는
+ *   `lc.arm` 실패 사유가 사용자에게 도달하는 **유일한 경로**다 — 서버는 36/37/38 거부를
+ *   응답 코드로 주지 않고 이 통지 한 줄로만 말한다(D-04 · D-20).
+ * ★ **대응하는 `"VITrigger"` 를 여기에 더하지 않는다** — 그것이 Pitfall 9 그 자체다.
+ *   `isViServerMessage` 는 이 함수를 재사용하므로 여기가 넓어지면 그쪽도 함께 흔들린다:
+ *   `"LimitChaser"` 는 `src === "Account"` 갈래를 타지 않으므로 VI 판정은 무변경이다.
  *
  * 판정을 두 곳에 두지 않는다. 갈리는 순간 한 화면은 남의 거부를 그리고 다른 화면은
  * 자기 거부를 놓치는데, 둘 다 사용자가 알아챌 수 없는 방식으로 조용히 일어난다.
@@ -308,6 +317,6 @@ export function isLimitChaserServerMessage(msg: {
   src: string;
   i: string;
 }): boolean {
-  if (msg.src === 'SetLimitChaser') return true;
+  if (msg.src === 'SetLimitChaser' || msg.src === 'LimitChaser') return true;
   return msg.src === 'Account' && msg.i !== '';
 }
