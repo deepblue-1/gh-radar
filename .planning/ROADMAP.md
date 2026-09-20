@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 14: AI 애널리스트 챗봇** - 팀장(Sonnet)+전문가 5명(Haiku) 멀티에이전트, SSE 스트리밍, 종목 컨텍스트 대화 (completed 2026-07-03)
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
 - [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 Complete (2026-09-10 재판정 · `quick-260910-ogq`)** — 잔여였던 「WinForms ↔ 웹 한 세션 동기화」를 사용자가 장중 실계좌에서 **양방향 직접 관찰**했다. 2026-09-11 에 마지막 단서(웹 철거 시 WinForms 종목창 매수주문 체크박스 미반영)까지 해소 — **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **요구사항 5종 전부 Complete**. 열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건)
-- [ ] **Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED** - gh-trade 서버 스키마(291a953→HEAD, append-only) 를 relay 에 재동기화하고 신규 MsgType 36~38·76~78 을 등록. 기존 화면에 새 필드 반영(체결테이프 bs_code 실값 색·호가 10칸 '종가'·미체결 Q/P/종가 표식+취소보관 제외·주문통보 request_kind/requester/board·서버메시지 [상따]/[VI] 배지·VI exchange 축). 상따 3단계 래치 LED 3종(매수·매도·취소) + 클릭 토글 수동 점등(36/37/38)
+- [ ] **Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED** - gh-trade 서버 스키마(291a953→HEAD, append-only) 를 relay 에 재동기화하고 신규 MsgType 36~38·76~78 을 등록. 기존 화면에 새 필드 반영(체결테이프 bs_code 실값 색·호가 10칸 '종가'·미체결 Q/P/종가 표식+취소보관 제외·주문통보 request_kind/requester/board·서버메시지 [상따]/[VI] 배지·VI exchange 축). 상따 3단계 래치 LED 3종(매수·매도·취소) + 클릭 토글 수동 점등(36/37/38). (**12/12 plan 실행 · 2026-09-20 코드 층위 종결** — 전량 게이트 green: 루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 9 skip · 0 fail** · 재동기화 `--check` 차이 0. Phase 16 기준선 대비 relay +66 · webapp +132 · e2e +9, 회귀 0. **미완 2건이라 체크박스는 열어 둔다:** ① **D-25 mock 게이트웨이 실기 검증 미수행** — HEAD 재빌드가 **Xcode 27.0 라이선스 미동의**(`sudo xcodebuild -license`) 로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·`krx_close_price`·`request_kind` 가 없어 돌리면 거짓 「드롭 0」이 된다(T-17-46). ② **D-26 배포 미실행** — 17-12 가 배포 승인 checkpoint 에서 정지했다(장 마감 후 + 사용자 확인 필요). **TRADE-04 · TRADE-05 는 Pending 유지**)
 - [ ] **Phase 18: gh-trade 신규 기능 UI** - 돌파감지 목록(RateCrossAlert 76/RateCrossSnapshot 78) · 예약주문/시간외종가 발주 UI(QueuedWindowState 77 + DirectOrderReq.piece_count/krx_session) · NXT VI 전략 설정 카드(거래소별 1건). 새 화면 3개라 HTML 목업 검토 게이트 필수
 
 ## Phase Details
@@ -772,7 +772,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 **Requirements**: TRADE-04 (프로토콜 재동기화·기존 화면 보정), TRADE-05 (상따 래치 LED 3종 + 수동 점등)
 **Depends on:** Phase 16
 **Scope notes:** gh-trade 정본 = `server/src/protocol/StockDMA.fbs`·`server/docs/protocol.md`·`docs/strategy/limit-chaser.md` §10. 생성은 gh-trade 의 `server/scripts/sync-relay-schema.sh`(flatc 25.12.19). 서버 진실은 클라가 판정하지 않는다(pending_cancel_sent bool 이 유일한 취소 제외 근거, queued/pending 문구는 표시만, OrderResp.message 파싱 금지). 매도잔량 기준(buy_watch_side "0") 매수 LED 는 2단계 유지·클릭 불가.
-**Plans:** 11/12 plans executed (8 waves)
+**Plans:** 12/12 plans executed (8 waves) — 17-12 는 배포 승인 checkpoint 에서 정지(`status: halted`)
+**잔여 (phase 를 닫으려면 이 둘):** ① D-25 mock 게이트웨이 실기 검증 — `sudo xcodebuild -license` 동의 후 `cd /Users/alex/repos/gh-trade/server && ./scripts/build.sh --server-only` 로 HEAD 재빌드해야 76/77/78 드롭 0 과 36/37/38 래치 왕복을 볼 수 있다. ② D-26 배포(relay → webapp → smoke) — 20:00 KST 이후 + 사용자 승인.
 
 Plans:
 **Wave 1**
@@ -809,7 +810,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 17-12-PLAN.md — mock 게이트웨이 실기 검증 · 전량 게이트 · 문서 갱신 · 배포(20:00 KST 이후) (wave 8)
+- [x] 17-12-PLAN.md — 전량 게이트 green · Playwright 135 pass · D-22 LED 스크린샷 8장 · 요구사항·로드맵·상태 갱신 (wave 8) — **배포 승인 checkpoint 에서 정지**, D-25 mock 실기 검증은 Xcode 라이선스 게이트로 미수행
 
 ### Phase 18: gh-trade 신규 기능 UI — 돌파감지·예약/시간외종가 발주·NXT VI
 
