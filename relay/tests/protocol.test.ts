@@ -202,6 +202,24 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(msg).not.toHaveProperty("priceType");
   });
 
+  it("①-vi `vi.set` 은 거래소를 optional 로 받고 미지 값은 거부한다 (17-05 / D-06 / T-17-19)", () => {
+    // ① NXT 를 실으면 그대로 좁혀진다 — 거래소가 발주 시장을 가르므로 값이 살아야 한다.
+    const nxt = parseInbound(viSet({ exchange: "NXT" }));
+    if (nxt?.t !== "vi.set") throw new Error("vi.set 으로 좁혀지지 않았습니다");
+    expect(nxt.exchange).toBe("NXT");
+
+    // ② 생략은 정상이다(기존 브라우저가 싣지 않던 값). 기본값은 **조립기가 아니라 호출부**가
+    //    채운다 — 스키마 단계에서는 `undefined` 그대로여야 그 구분이 유지된다.
+    const omitted = parseInbound(viSet());
+    if (omitted?.t !== "vi.set") throw new Error("vi.set 으로 좁혀지지 않았습니다");
+    expect(omitted.exchange).toBeUndefined();
+
+    // ③ 미지 값은 끊는다. 새 enum 을 만들지 않고 기존 `ExchangeSchema` 를 재사용하므로
+    //    `sub`/`order.new` 와 어휘가 갈릴 수 없다.
+    expect(parseInbound(viSet({ exchange: "KOSPI" }))).toBeNull();
+    expect(parseInbound(viSet({ exchange: "" }))).toBeNull();
+  });
+
   it("① `vi.confirm` 이 파싱된다", () => {
     const msg = parseInbound(
       JSON.stringify({ t: "vi.confirm", orderNo: "ORD0000001", confirmed: true }),

@@ -47,7 +47,11 @@ import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
-import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
+import {
+  readViSetRequest,
+  startFakeGateway,
+  type FakeGateway,
+} from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import {
   SAMPLE_ACCOUNT_NO,
@@ -713,6 +717,56 @@ describe("WsFanout", () => {
     // 서버가 12자 버퍼에 담으므로 relay 가 같은 폭으로 먼저 자른다 — 자른 값이 전략 키의 정본이다.
     expect((lc?.accountNo() ?? "").length).toBeLessThanOrEqual(12);
     expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+  });
+
+  /*
+    17-05 / D-06 / T-17-17 — `vi.set` 의 거래소는 **호출부(이 분기)가** 채운다.
+
+    조립기(`buildSetVITriggerReq`)에는 기본값이 없다. 기본값을 조립기에 두면 호출 경로마다
+    다른 기본값이 생기고, `buildSetLimitChaserReq` 의 `market` 기본값 `"K"` 가 코스닥 전략을
+    코스피로 등록시킨 선례가 정확히 그 실패다. 그래서 「생략 = KRX」는 여기 한 곳에서만
+    일어나야 하고, 그 사실은 **게이트웨이가 읽은 바이트**로만 확인할 수 있다.
+  */
+  it("⑰-c vi.set 의 거래소가 그대로 나간다 — 생략하면 호출부가 KRX 를 채운다 (17-05 / D-06)", async () => {
+    const a = await authed("token-a");
+    const viSetBase = {
+      t: "vi.set" as const,
+      accountNo: SAMPLE_ACCOUNT_NO,
+      orderAmountKrw: 3_000_000,
+      checkRate: 25,
+      run: true,
+    };
+
+    // ① 명시한 NXT 가 와이어까지 살아 간다.
+    a.ws.sendRaw({ ...viSetBase, exchange: "NXT" });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetVITriggerReq),
+      "11 수신(NXT)",
+    );
+    const first = gateway
+      .strategyRequests()
+      .find((r) => r.msgType === STRATEGY_MSG.SetVITriggerReq);
+    expect(readViSetRequest(first!.msgType, first!.payload)?.exchange).toBe("NXT");
+
+    // ② 생략하면 **명시로 "KRX" 가 실려 나간다** — 슬롯을 비워 서버 기본값에 기대지 않는다.
+    a.ws.sendRaw({ ...viSetBase });
+    await waitFor(
+      () =>
+        gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetVITriggerReq)
+          .length === 2,
+      "11 수신(생략)",
+    );
+    const second = gateway
+      .strategyRequests()
+      .filter((r) => r.msgType === STRATEGY_MSG.SetVITriggerReq)[1];
+    expect(readViSetRequest(second!.msgType, second!.payload)?.exchange).toBe("KRX");
+
+    // ③ 미지 거래소는 zod 가 끊는다 — 게이트웨이로 **한 바이트도 더 나가지 않는다**.
+    a.ws.sendRaw({ ...viSetBase, exchange: "KOSPI" });
+    await flushIo(40);
+    expect(
+      gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetVITriggerReq),
+    ).toHaveLength(2);
   });
 
   /*

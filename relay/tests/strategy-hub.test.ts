@@ -323,6 +323,61 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     });
   });
 
+  it("⑦-x 접수 전 VI 주문의 상관 키에 거래소가 들어간다 — 양쪽 발동은 **2행**이다 (17-05 / D-06)", () => {
+    // R8 해제·연장 전문 매칭이 ISIN+거래소라 같은 종목이 KRX·NXT 양쪽에서 발동할 수 있다.
+    // 주문번호가 아직 없는(접수 전) 두 행은 ISIN·계좌·발동가가 같아 옛 대체 키로는 겹쳤다.
+    session.pushFrame(
+      buildViOrderListFrame(
+        [
+          { orderNo: "", state: "Pending", exchange: "KRX" },
+          { orderNo: "", state: "Pending", exchange: "NXT" },
+        ],
+        true,
+      ),
+    );
+
+    const cached = hub.getViOrders(USER_A);
+    expect(cached).toHaveLength(2);
+    expect(cached.map((i) => i.exchange).sort()).toEqual(["KRX", "NXT"]);
+  });
+
+  it("⑦-y 주문번호가 있는 행의 키는 **바뀌지 않는다** — 72 스냅샷과 73 델타가 갈리지 않는다 (T-17-18)", () => {
+    // 주문번호는 이미 유일하다. 거기에 거래소를 덧붙이면 72 와 73 의 키가 갈려 같은 주문이
+    // 두 줄로 남는다 — 거래소를 더하는 것은 **접수 전 대체 키뿐**이다.
+    session.pushFrame(
+      buildViOrderListFrame([{ orderNo: "0000000001", state: "Accepted", exchange: "NXT" }], true),
+    );
+    expect(hub.getViOrders(USER_A)).toHaveLength(1);
+
+    // 델타가 거래소 슬롯 없이(= KRX 로 정규화) 같은 주문번호를 갱신해도 행은 하나다.
+    session.pushFrame(
+      buildViOrderListFrame([{ orderNo: "0000000001", state: "Filled", filledQty: 51 }], false),
+    );
+
+    const cached = hub.getViOrders(USER_A);
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatchObject({ orderNo: "0000000001", state: "Filled", filledQty: 51 });
+  });
+
+  it("⑦-z 접수되며 주문번호가 붙으면 자리표시 행이 걷힌다 — 거래소가 같아야 걷힌다", () => {
+    session.pushFrame(
+      buildViOrderListFrame([{ orderNo: "", state: "Pending", exchange: "NXT" }], true),
+    );
+    expect(hub.getViOrders(USER_A)).toHaveLength(1);
+
+    // 같은 발동(ISIN·계좌·발동가·**거래소**)에 주문번호가 붙었다 → 두 줄이 되지 않는다.
+    session.pushFrame(
+      buildViOrderListFrame(
+        [{ orderNo: "0000000009", state: "Accepted", exchange: "NXT" }],
+        false,
+      ),
+    );
+
+    const cached = hub.getViOrders(USER_A);
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatchObject({ orderNo: "0000000009", exchange: "NXT" });
+  });
+
   it("⑦ 72 는 전량 교체, 73 은 항목 upsert 다 — 중복 누적 0", () => {
     session.pushFrame(
       buildViOrderListFrame(
