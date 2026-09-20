@@ -189,6 +189,18 @@ export const RelayViSetSchema = z.object({
   /** 발동 판정 상승률 — 정수 %. 하락 감시를 막지 않으려고 음수를 허용한다. */
   checkRate: z.number().int(),
   run: z.boolean(),
+  /**
+   * 발주 거래소 (17-05 / D-06). VI 전략은 서버가 **거래소별 1건**으로 관리한다.
+   *
+   * `optional` 인 이유는 기존 브라우저가 이 값을 싣지 않기 때문이다 — **기본값을 여기 두지
+   * 않는다.** 「생략 = KRX」는 `fanout.ts` 의 `vi.set` 분기 한 곳에서만 채운다(조립기에 두면
+   * 호출 경로마다 다른 기본값이 생긴다 — T-17-17).
+   *
+   * ★ 기존 `ExchangeSchema` 를 **재사용한다**. 새 enum 을 만들면 `sub`/`order.new` 와 어휘가
+   *   갈려 한쪽만 넓혀지는 날이 온다 (T-17-19). 거래소가 발주 시장을 가르므로 미지 값은
+   *   접지 않고 **거부한다** — 조회(21)와 달리 이 요청은 실제로 주문을 낸다.
+   */
+  exchange: ExchangeSchema.optional(),
 });
 
 /**

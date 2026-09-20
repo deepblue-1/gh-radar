@@ -219,9 +219,12 @@ function rateCrossKey(userId: string, isin: string, exchange: RelayExchange): st
  * VI 주문 캐시 키. 정본은 `orderNo` 지만 **접수 전에는 그 값이 `""`** 라 키가 되지 못한다
  * (파서가 `""` 를 보존하는 이유 — 빈 주문번호로는 확인 체크를 열 수 없다).
  *
- * 그 한 경우에만 `@ISIN:계좌:발동가` 복합키로 대신한다. 같은 종목·계좌의 한 VI 발동은
- * 1건이므로 이 조합이 유일하고, 접수 전 항목이 73 푸시마다 새 행으로 쌓이지 않는다.
- * `@` 접두어는 주문번호와 섞이지 않게 하는 표식이다.
+ * 그 한 경우에만 `viPendingKey` 복합키로 대신한다.
+ *
+ * ⚠️ **주문번호가 있는 행의 키에는 거래소를 덧붙이지 않는다** (17-05 / T-17-18). 주문번호는
+ *    이미 유일하고, 여기에 거래소를 더하면 72 스냅샷과 73 델타가 서로 다른 거래소 표기를
+ *    실어 올 때 키가 갈려 **같은 주문이 두 줄로** 남는다. 거래소가 필요한 곳은 주문번호가
+ *    아직 없는 대체 키뿐이다.
  */
 function viOrderKey(userId: string, item: RelayViOrderItem): string {
   if (item.orderNo !== "") return `${userId}|${item.orderNo}`;
@@ -231,9 +234,13 @@ function viOrderKey(userId: string, item: RelayViOrderItem): string {
 /**
  * 접수 전 항목의 자리표시 키. 주문번호가 붙는 순간 이 키를 **지우고** 주문번호 키로 옮긴다 —
  * 지우지 않으면 같은 주문이 「접수 전」과 「접수됨」 두 줄로 남는다.
+ *
+ * **거래소가 키의 일부다** (17-05 / D-06). R8 해제·연장 전문 매칭이 ISIN+거래소라 같은 종목이
+ * KRX·NXT 양쪽에서 발동할 수 있고, 그 두 발동은 ISIN·계좌·발동가가 모두 같을 수 있다.
+ * 거래소를 빼면 두 행이 한 줄로 겹쳐 **한쪽 주문이 화면에서 사라진다**.
  */
 function viPendingKey(userId: string, item: RelayViOrderItem): string {
-  return `${userId}|@${item.isin}:${item.accountNo}:${item.triggerPrice}`;
+  return `${userId}|@${item.isin}:${item.accountNo}:${item.triggerPrice}:${item.exchange}`;
 }
 
 /**
