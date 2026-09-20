@@ -220,8 +220,14 @@ export function notifyViEnd(stockLabel: string): void {
  *
  * 규칙:
  *   - `src === "SetVITrigger"`                → VI 등록·수정 거부. 명백히 VI 몫.
+ *   - `src === "VITrigger"`                   → VI **런타임 사유 줄**. 명백히 VI 몫 (D-09).
  *   - `src === "Account"` ∧ **종목이 없음**    → 종목 축이 없는 계좌 통지 = VI 몫.
  *   - `src === "Account"` ∧ 종목이 있음        → 상따 몫(16-13 판정이 참).
+ *
+ * ★ `"VITrigger"` 는 17-01 이 `src` 어휘에 더한 값이다 (D-09). 이 판정에 넣지 않으면 서버가
+ *   VI 런타임 사유(조건 미달·클램프 등)를 보내도 **VI 화면이 한 글자도 그리지 않는다** —
+ *   어휘만 늘고 소비처가 없는 상태였다(17-06 실측). 대응하는 상따 값 `"LimitChaser"` 는
+ *   여기 넣지 않는다: 그것을 VI 몫으로 읽는 순간 Pitfall 9 가 정확히 되살아난다.
  *
  * ★ 그 밖의 `src` 는 **VI 몫이 아니다.** 특히 relay 자신이 요청 단위로 거부할 때 쓰는
  *   `src === "Relay"` 를 VI 통지로 읽으면, 상따 요청이 형식 오류로 튕긴 것을 VI 화면이
@@ -230,6 +236,6 @@ export function notifyViEnd(stockLabel: string): void {
  *   `Account` 라는 발신 맥락을 함께 본다.
  */
 export function isViServerMessage(msg: { src: string; i: string }): boolean {
-  if (msg.src === "SetVITrigger") return true;
+  if (msg.src === "SetVITrigger" || msg.src === "VITrigger") return true;
   return msg.src === "Account" && !isLimitChaserServerMessage(msg);
 }

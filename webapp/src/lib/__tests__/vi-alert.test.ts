@@ -213,6 +213,20 @@ describe('isViServerMessage — 통지 몫 판정 (Pitfall 9)', () => {
     expect(isViServerMessage(msg('SetVITrigger', 'KR7005930003'))).toBe(true);
   });
 
+  it('★ `VITrigger` 런타임 사유 줄도 VI 몫이다 (17-06 / D-09)', () => {
+    /*
+      17-01 이 `src` 어휘에 더한 값이다. 여기 없으면 서버가 VI 런타임 사유를 보내도
+      **VI 화면이 한 글자도 그리지 않는다** — 어휘만 늘고 소비처가 없는 상태였다.
+    */
+    expect(isViServerMessage(msg('VITrigger', ''))).toBe(true);
+    expect(isViServerMessage(msg('VITrigger', 'KR7005930003'))).toBe(true);
+  });
+
+  it('★ 대응하는 상따 값 `LimitChaser` 는 **여전히** VI 몫이 아니다 (Pitfall 9)', () => {
+    // 배지 어휘가 늘었다고 남의 거부를 끌어오면 사용자는 멀쩡한 VI 를 껐다 켠다.
+    expect(isViServerMessage(msg('LimitChaser', ''))).toBe(false);
+  });
+
   it('종목 없는 `Account` 통지는 VI 몫이다', () => {
     expect(isViServerMessage(msg('Account', ''))).toBe(true);
   });

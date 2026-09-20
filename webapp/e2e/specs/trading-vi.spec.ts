@@ -441,10 +441,15 @@ test.describe('Phase 16 Plan 14 — VI 자동매수 화면 (로컬 relay + 스�
     const clock = await rows.nth(0).locator('td').nth(1).innerText();
     expect(clock).toMatch(/^\d{2}:\d{2}:\d{2}$/);
 
-    // 9열 표의 `110초` 열 — 살아 있는 행만 숫자, 나머지는 `—`(빈 칸으로 두지 않는다).
-    await expect(rows.nth(0).locator('td').nth(8)).toHaveText(/^\d+초$/);
+    /*
+      10열 표의 `110초` 열 — 살아 있는 행만 숫자, 나머지는 `—`(빈 칸으로 두지 않는다).
+      ★ 17-06 이 **거래소 열**을 「종목」 오른쪽(index 3)에 넣으면서 뒤 열이 한 칸씩 밀렸다.
+        시각(1)·확인(0)은 그대로이고 `110초` 가 8 → **9** 다.
+    */
+    await expect(rows.nth(0).locator('td').nth(3)).toHaveText(/^(KRX|NXT)$/);
+    await expect(rows.nth(0).locator('td').nth(9)).toHaveText(/^\d+초$/);
     for (const i of [2, 3, 4, 5]) {
-      await expect(rows.nth(i).locator('td').nth(8)).toHaveText('—');
+      await expect(rows.nth(i).locator('td').nth(9)).toHaveText('—');
     }
 
     // 캡션·하단 고지가 UI-SPEC 원문 그대로다.

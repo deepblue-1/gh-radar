@@ -580,8 +580,13 @@ function upsertLimitChaser(
  * 갈리면 새 탭(72 스냅샷)과 기존 탭(73 델타 누적)이 다른 목록을 본다.
  *
  * **접수 전(Pending)은 `orderNo` 가 `""`** 라 주문번호로 키를 만들 수 없다. 그대로 `""` 를
- * 키로 쓰면 서로 다른 종목의 접수 전 항목이 한 줄로 겹쳐 사라진다. 같은 종목·계좌의 한 VI
- * 발동은 1건이므로 `@ISIN:계좌:발동가` 가 유일하다. `@` 는 주문번호와 섞이지 않게 하는 표식이다.
+ * 키로 쓰면 서로 다른 종목의 접수 전 항목이 한 줄로 겹쳐 사라진다. 같은 종목·계좌·**거래소**의
+ * 한 VI 발동은 1건이므로 `@ISIN:계좌:발동가:거래소` 가 유일하다. `@` 는 주문번호와 섞이지 않게
+ * 하는 표식이다.
+ *
+ * ★ **거래소는 접수 전 키에만 더한다** (17-06 / D-06, 17-05 규율 승계). 주문번호는 이미
+ *   유일하므로 거기에 축을 더하면 접수 전 → 접수 전이에서 자리표시 행을 걷어내는 경로가
+ *   두 벌로 갈린다 — 「유일하지 않은 키에만 축을 더한다」.
  *
  * ★ **내보낸다** (16-14). VI 주문내역이 React key·낙관 반영 키로 같은 규칙을 써야 한다 —
  *   화면이 `orderNo` 를 그냥 키로 쓰면 접수 전 행끼리 `""` 로 겹쳐 **서로 다른 종목이 한 줄로
@@ -591,9 +596,15 @@ export function viOrderKey(item: RelayViOrderItem): string {
   return item.orderNo !== "" ? item.orderNo : viPendingKey(item);
 }
 
-/** 접수 전 항목의 자리표시 키. 주문번호가 붙는 순간 이 키를 지우고 주문번호 키로 옮긴다. */
+/**
+ * 접수 전 항목의 자리표시 키. 주문번호가 붙는 순간 이 키를 지우고 주문번호 키로 옮긴다.
+ *
+ * ⚠️ relay `hub/subscription-hub.ts` 의 `viPendingKey` 와 **한 글자도 다르면 안 된다**(앞의
+ *    `userId|` 접두만 relay 몫이다). 갈리면 새 탭(72 스냅샷 재생)과 기존 탭(73 델타 누적)이
+ *    서로 다른 목록을 본다 — 17-05 가 relay 쪽에 거래소를 더했으므로 여기도 같이 더한다.
+ */
 function viPendingKey(item: RelayViOrderItem): string {
-  return `@${item.isin}:${item.accountNo}:${item.triggerPrice}`;
+  return `@${item.isin}:${item.accountNo}:${item.triggerPrice}:${item.exchange}`;
 }
 
 /** 73 델타 병합 — 키 upsert. `snap` 은 호출부에서 전량 교체로 처리한다. */

@@ -42,7 +42,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RELAY_STATE_LABELS } from '@gh-radar/shared';
+import { RELAY_STATE_LABELS, serverMsgBadge } from '@gh-radar/shared';
 import type { RelayAccountState, RelayUnfilled, RelayViSetMsg } from '@gh-radar/shared';
 
 import { AccountPanel } from '@/components/orderbook/account-panel';
@@ -62,6 +62,9 @@ import { useRelayContext } from '@/lib/relay-provider';
 import { isViServerMessage, notifyViEnd, readViAlertEnabled, scheduleViAlert } from '@/lib/vi-alert';
 import { viOrderKey, type RelayServerMessageEntry, type RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
+
+/** 발동 통보 금액 포맷 — 상태줄의 `.mono` 고정폭 계약과 같은 축이다. */
+const NOTICE_NUM = new Intl.NumberFormat('ko-KR');
 
 /** 에코 배너 자동 소멸(ms) — UI-SPEC A3 「6초 배너」와 같은 값이다. */
 export const VI_ECHO_BANNER_MS = 6_000;
@@ -115,8 +118,17 @@ export function ViClient() {
 
 function ViSurface() {
   const relay = useRelayContext();
-  const { accounts, accountStates, viTriggers, viOrders, messages, status, statusLabel, sendOrder } =
-    relay;
+  const {
+    accounts,
+    accountStates,
+    viTriggers,
+    viOrders,
+    viNotices,
+    messages,
+    status,
+    statusLabel,
+    sendOrder,
+  } = relay;
 
   /*
     ★ 이 화면이 **편집하는 거래소**의 전략 하나만 본다 (17-06 / D-18).
@@ -254,7 +266,11 @@ function ViSurface() {
   /* ── ServerMessage(54) — VI 몫만 (②) ────────────────────────────── */
 
   const lastMsgRef = useRef<RelayServerMessageEntry | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
+  /**
+   * 마지막 VI 몫 오류 — **문구와 출처를 함께** 보관한다 (17-06 / D-09 · D-17).
+   * 문구만 남기면 배지를 그릴 근거가 사라져 화면이 `src` 를 다시 추측하게 된다.
+   */
+  const [lastError, setLastError] = useState<{ text: string; src: string } | null>(null);
   useEffect(() => {
     if (messages.length === 0) return;
     const seen = lastMsgRef.current;
@@ -264,9 +280,21 @@ function ViSurface() {
     lastMsgRef.current = messages[0];
     for (const msg of [...fresh].reverse()) {
       if (!isViServerMessage(msg)) continue; // 상따 몫·relay 자기 거부는 여기서 안 그린다
-      if (msg.lv === 'ERROR') setLastError(msg.m);
+      if (msg.lv === 'ERROR') setLastError({ text: msg.m, src: msg.src });
     }
   }, [messages]);
+
+  /* ── VI 발동 통보(56) — 최신 1건 (D-06) ─────────────────────────── */
+
+  /**
+   * ★ 이 줄이 생기기 전까지 `viNotices` 는 **어디에도 그려지지 않았다**(17-06 실측: 저장소
+   *   전역 grep 결과 소비처 0곳). 발동 통보는 72/73 주문 행보다 먼저 도착하는 유일한 신호라
+   *   「지금 뭔가 잡혔다」를 가장 빨리 말할 수 있는 값이다.
+   * ★ **거래소를 함께** 말한다. 같은 종목이 KRX·NXT 양쪽에서 발동하면 서로 다른 주문이고,
+   *   거래소를 지우면 사용자는 어느 쪽이 잡혔는지 알 수 없다.
+   * ★ 목록을 만들지 않는다 — 주문내역 표가 이미 전수를 그린다. 여기는 **최신 1건**이다.
+   */
+  const lastNotice = viNotices[0] ?? null;
 
   /* ── 장 마감 표시 (④) ────────────────────────────────────────────── */
 
@@ -332,9 +360,30 @@ function ViSurface() {
             미반영 · 서버 응답을 기다리고 있어요
           </span>
         )}
+        {lastNotice !== null && (
+          <span data-slot="vi-last-notice" className="min-w-0">
+            최근 발동{' '}
+            <b className="font-semibold text-[var(--fg)]">
+              {lastNotice.name !== undefined && lastNotice.name !== ''
+                ? lastNotice.name
+                : lastNotice.isin}
+            </b>{' '}
+            · {lastNotice.exchange} ·{' '}
+            <span className="mono">{NOTICE_NUM.format(lastNotice.triggerPrice)}</span>원
+          </span>
+        )}
         {lastError !== null && (
           <span role="alert" data-slot="vi-server-error" className="min-w-0 text-[var(--destructive)]">
-            {lastError}
+            {/*
+              출처 배지 (17-06 / D-09 · D-17). 판정은 `serverMsgBadge` **하나**만 쓴다 —
+              이 파일 안에서 `src` 를 직접 비교하면 서버 어휘가 늘 때마다 두 곳이 갈린다.
+              배지는 **텍스트 접두**다: 색만으로 출처를 가르면 WCAG 1.4.1 위반이고, 이 줄은
+              이미 전부 `--destructive` 라 쓸 색도 없다.
+            */}
+            <span data-slot="vi-server-error-src" className="font-semibold">
+              {serverMsgBadge(lastError.src)}
+            </span>{' '}
+            {lastError.text}
           </span>
         )}
         <span className="mono ml-auto">{appliedAt ?? '—'}</span>

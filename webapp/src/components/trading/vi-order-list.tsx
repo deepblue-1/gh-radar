@@ -4,7 +4,7 @@
  * ViOrderList — VI 주문내역 (UI-SPEC B5·B6 · §VI 주문 상태 배지, TRADE-02 · D-10).
  *
  * ① 무엇을 그리는가
- *   데스크톱(≥1280) **9열 표**(확인·시각·종목·발동가·상승률·주문가·수량·상태·110초) /
+ *   데스크톱(≥1280) **10열 표**(확인·시각·종목·거래소·발동가·상승률·주문가·수량·상태·110초) /
  *   그 아래 폭에서는 **카드 행**. 두 트리는 항상 DOM 에 있고 폭 판정은 전부 CSS 다 —
  *   `account-panel.tsx` ⑧ 과 같은 규율이라 조회할 때는 트리를 좁혀야 한다.
  *
@@ -43,6 +43,12 @@
  *   `orderNo` 가 `""` 라 그대로 키로 쓰면 **서로 다른 종목의 접수 전 행이 한 줄로 겹친다.**
  *   병합기(`use-relay-socket.ts`)가 쓰는 `viOrderKey` 를 그대로 가져다 쓴다 — 규칙을 여기
  *   다시 적으면 목록이 두 모양이 된다.
+ *   ★ 그 키는 **거래소까지** 본다 (17-06 / D-06). 같은 종목이 KRX·NXT 양쪽에서 발동하면
+ *     주문은 둘이고, 거래소가 없는 키는 그 둘을 한 줄로 접어 **한 주문을 화면에서 지운다**
+ *     (지워진 주문도 110초 뒤 서버가 취소한다 — 사용자는 이유를 알 수 없다).
+ *   ★ 반면 낙관 확인 Map(`optimistic`/`sending`)의 키는 **주문번호 그대로**다. 접수 전 행은
+ *     확인이 비활성이라 그 Map 에 들어올 일이 없고, 키 축을 바꾸면 `vi.confirm` 이 싣는
+ *     주문번호와 Map 키가 갈린다.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -354,6 +360,8 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
                   <TableHead scope="col">확인</TableHead>
                   <TableHead scope="col">시각</TableHead>
                   <TableHead scope="col">종목</TableHead>
+                  {/* 거래소 — 같은 종목이 양쪽에서 발동하면 이 열만이 두 행을 가른다(D-06). */}
+                  <TableHead scope="col">거래소</TableHead>
                   <TableHead scope="col" className="num">발동가</TableHead>
                   <TableHead scope="col" className="num">상승률</TableHead>
                   <TableHead scope="col" className="num">주문가</TableHead>
@@ -375,6 +383,9 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
                       <span className="block min-w-0 truncate font-semibold text-[var(--fg)]">
                         {row.label}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                      {row.item.exchange}
                     </TableCell>
                     <TableCell className="num mono text-[length:var(--t-caption)]">
                       {NUM.format(row.item.triggerPrice)}
@@ -427,8 +438,15 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
                   <b className="block min-w-0 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
                     {row.label}
                   </b>
-                  <small className="mono block text-[11px] font-normal text-[var(--muted-fg)]">
-                    {acceptedClock(row.item.deadline110Ms) ?? '—'}
+                  {/*
+                    ★ 폰(<1280)에서는 열을 더하지 않는다 — 9열도 390px 에서 잘려 카드로 내린
+                      표면이다(R6). 거래소는 시각 옆 보조 텍스트로 붙인다. 신축 항목은 여전히
+                      종목명 하나뿐이라(C7) 이 줄이 늘어나 잘림을 만들지 않는다.
+                  */}
+                  <small className="block min-w-0 truncate text-[11px] font-normal text-[var(--muted-fg)]">
+                    <span className="mono">{acceptedClock(row.item.deadline110Ms) ?? '—'}</span>
+                    <span aria-hidden="true">{' · '}</span>
+                    <span>{row.item.exchange}</span>
                   </small>
                 </span>
                 <span className="flex-none">
