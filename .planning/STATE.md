@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-10-PLAN.md
-last_updated: "2026-09-20T09:51:34.907Z"
+stopped_at: Completed 17-11-PLAN.md
+last_updated: "2026-09-20T10:15:02.635Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: 8fc00956e11361461f3727d0c88da8b838f5f451
+state_head: 6f0856bbf672894ea9d02b3cf71b1f483513edc7
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 180
+  completed_plans: 181
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 11 of 12
+Plan: 12 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -447,6 +447,7 @@ Progress: [█████████░] 92%
 | Phase 17 P06 | 15 min | 3 tasks | 17 files |
 | Phase 17 P09 | 11 min | 3 tasks | 4 files |
 | Phase 17 P10 | 15 min | 3 tasks | 4 files |
+| Phase 17 P11 | 14 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -698,6 +699,9 @@ Recent decisions affecting current work:
 - [Phase 17]: 3초 창 묶기 기준을 정본 C# 의 슬라이딩(마지막 갱신)이 아니라 묶음의 첫 통보 시각 고정으로 했다 — 매 렌더마다 목록을 다시 접는 순수함수에서 슬라이딩은 한 행을 무한히 키운다 (T-17-36)
 - [Phase 17]: 묶인 행의 가격은 합계가 아니라 min~max 범위다 — 이 표의 칸은 단가라 더하면 3천원짜리 3건이 9천원으로 보인다
 - [Phase 17]: 판정 함수가 읽으면 안 되는 값(OrderResp.message)은 주석이 아니라 시그니처에서 제거해 막는다 — 받을 수 없으면 읽을 수 없다 (T-17-33)
+- [Phase 17]: 17-11: 상따 상태줄 무장 표기를 래치 LED 3종으로 단일화 — 옛 매수/매도 도트 세그먼트와 그것만 먹이던 StrategyStatus 상태줄 값 4종·Dot 톤 3종까지 같은 커밋에서 제거 — 같은 무장을 두 표기가 서로 다르게 말하는 순간이 반드시 생기고, 파생 필드를 남기면 다음 화면이 두 번째 표기를 되살린다 (D-22)
+- [Phase 17]: 17-11: isLimitChaserServerMessage 가 src === "LimitChaser" 를 상따 몫으로 받는다 (VI 는 여전히 받지 않는다) — 17-01 이 더한 어휘를 받아 주는 판정이 없어 상따 런타임 사유 줄이 한 글자도 그려지지 않았다 — 그것이 lc.arm 거부 사유가 사용자에게 도달하는 유일한 경로다 (Rule 2 auto-fix)
+- [Phase 17]: 17-11: 전략 로그 첫 스냅샷 규율을 매수·매도·취소 세 축에서 동일하게 정렬 (취소 축이 무장 문장을 아예 만들지 않던 선재 비대칭 해소) — 계획 behavior 의 추정이 아니라 실측한 매도 규율을 따랐다 — 축마다 다르게 보고되면 사용자는 취소 게이트가 꺼진 줄 안다 (Rule 1 auto-fix)
 
 ### Pending Todos
 
@@ -782,8 +786,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-20T09:51:34.579Z
-Stopped at: Completed 17-10-PLAN.md
+Last session: 2026-09-20T10:15:02.315Z
+Stopped at: Completed 17-11-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
