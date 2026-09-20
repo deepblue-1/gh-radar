@@ -38,6 +38,7 @@ import {
   remainingSeconds,
   stateFaceOf,
 } from '../vi-order-list';
+import { viOrderKey } from '@/lib/use-relay-socket';
 
 const ACCOUNT = '37728502101';
 /** 고정 기준 시각 — 데드라인을 초 단위로 정확히 지어낸다. */
@@ -128,6 +129,83 @@ describe('순수 함수', () => {
     expect(isConfirmable({ orderNo: '', confirmLocked: false })).toBe(false);
     expect(isConfirmable({ orderNo: '0031245', confirmLocked: true })).toBe(false);
     expect(isConfirmable({ orderNo: '0031245', confirmLocked: false }, true)).toBe(false);
+  });
+});
+
+/*
+  17-06 Task 3 — 거래소 축 (D-06 · T-17-22).
+
+  같은 종목이 KRX·NXT 양쪽에서 VI 발동하면 **주문은 둘**이다. 접수 전에는 주문번호가
+  없어 대체 키로 행을 가르는데, 그 키에 거래소가 없으면 두 발동이 한 줄로 겹쳐 **한
+  주문이 화면에서 사라진다**(그리고 그 주문은 110초 뒤 서버가 취소한다).
+*/
+describe('★ 거래소 축 (17-06 / D-06)', () => {
+  it('접수 전 행의 대체 키가 거래소를 포함한다 — relay `viPendingKey` 와 같은 규칙이다', () => {
+    const krx = item({ orderNo: '', state: 'Pending', exchange: 'KRX' });
+    const nxt = item({ orderNo: '', state: 'Pending', exchange: 'NXT' });
+    /*
+      ★ 이 한 줄이 목록 병합(`mergeViOrders`)까지 함께 잠근다 — 그 병합기가 쓰는 키가
+        바로 이 함수다. 키가 같으면 72 스냅샷(relay 가 거래소로 가른 2건)과 73 델타 누적
+        (브라우저가 1건으로 접은 결과)이 **다른 목록**이 된다.
+    */
+    expect(viOrderKey(krx)).not.toBe(viOrderKey(nxt));
+    expect(viOrderKey(krx)).toContain('KRX');
+    expect(viOrderKey(nxt)).toContain('NXT');
+  });
+
+  it('주문번호가 붙은 행의 키는 **종전대로 주문번호**다 (이미 유일한 키에 축을 더하지 않는다)', () => {
+    // 17-05 규율: 유일하지 않은 키에만 축을 더한다. 주문번호에 거래소를 붙이면
+    // 접수 전 → 접수 전이 때 자리표시 행을 걷어내는 경로가 갈린다.
+    expect(viOrderKey(item({ orderNo: '0031245', exchange: 'NXT' }))).toBe('0031245');
+  });
+
+  it('같은 ISIN 의 KRX·NXT 접수 전 행 2건이 **2행**으로 그려지고 각자 거래소를 보여 준다', () => {
+    renderList([
+      item({ orderNo: '', state: 'Pending', exchange: 'KRX' }),
+      item({ orderNo: '', state: 'Pending', exchange: 'NXT' }),
+    ]);
+
+    const rows = table().querySelectorAll('[data-slot="vi-order-row"]');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0] as HTMLElement).getByText('KRX')).toBeInTheDocument();
+    expect(within(rows[1] as HTMLElement).getByText('NXT')).toBeInTheDocument();
+
+    // 카드 트리도 같은 사실을 말한다 — 폰에서만 두 발동이 한 줄로 보이면 안 된다.
+    const cardRows = cards().querySelectorAll('[data-slot="vi-order-row"]');
+    expect(cardRows).toHaveLength(2);
+    expect(within(cardRows[1] as HTMLElement).getByText('NXT')).toBeInTheDocument();
+  });
+
+  it('표 헤더에 거래소 열이 **종목 오른쪽**으로 있다', () => {
+    renderList([item()]);
+    const heads = Array.from(table().querySelectorAll('th')).map((th) => th.textContent);
+    expect(heads).toEqual([
+      '확인',
+      '시각',
+      '종목',
+      '거래소',
+      '발동가',
+      '상승률',
+      '주문가',
+      '수량',
+      '상태',
+      '110초',
+    ]);
+    // 헤더는 전부 `scope="col"` 이다 — 스크린리더가 셀과 열을 잇는 유일한 단서다.
+    expect(
+      Array.from(table().querySelectorAll('th')).every((th) => th.getAttribute('scope') === 'col'),
+    ).toBe(true);
+  });
+
+  it('★ 낙관 확인 Map 의 키는 **여전히 주문번호**다 (두 Map 의 키 축이 갈리지 않는다)', () => {
+    renderList([item({ orderNo: '0031245', exchange: 'NXT' })]);
+    fireEvent.click(within(table()).getByRole('checkbox'));
+    // 확인 요청에 실리는 것은 주문번호 하나다 — 거래소를 섞으면 서버가 못 알아본다.
+    expect(sendMock.mock.calls[0][0]).toEqual({
+      t: 'vi.confirm',
+      orderNo: '0031245',
+      confirmed: true,
+    });
   });
 });
 
