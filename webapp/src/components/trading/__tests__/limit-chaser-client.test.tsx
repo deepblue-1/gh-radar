@@ -559,6 +559,155 @@ describe('LimitChaserClient — 결선', () => {
 });
 
 /*
+  Phase 17 Plan 11 Task 1 — 상태줄 래치 LED 3종 결선 (TRADE-05 · D-19~D-22).
+
+  17-07 이 만든 `LatchLed`/`latchLedStateOf` 가 **어느 화면에도 붙어 있지 않았다.** 여기서
+  잠그는 것은 색 규칙이 아니라(그건 `latch-led.test.tsx` 19케이스가 이미 잠갔다) **결선**이다:
+    ① 3개가 상태줄에 매수·매도·취소 순서로 있는가 (D-22)
+    ② 같은 무장 상태를 **두 표기가 서로 다르게 말하지 않는가** — 옛 매수/매도 도트 세그먼트가
+       LED 옆에 남으면 사용자는 어느 쪽을 믿을지 모른다
+    ③ 클릭이 `{t:"lc.arm"}` **1건**으로 나가고 확인 다이얼로그가 없는가 (D-20)
+    ④ ★ **무반응 조건에서 아무것도 나가지 않는가** (T-17-37) — 회색 LED · 매도잔량 기준 매수
+    ⑤ ★ **`send` 실패에 재시도가 없는가** (T-17-40) — 사용자가 누르지 않은 두 번째 요청 금지
+    ⑥ `hadOrder` 가 실제로 넘어가는가 — 안 넘기면 「(발주됨)」이 영영 안 뜬다(17-07 인계 ①)
+*/
+describe('⑲ 상태줄 래치 LED 3종 + 클릭 → `lc.arm` (17-11 Task 1)', () => {
+  const bar = (): HTMLElement =>
+    document.querySelector('[data-slot="lc-status-bar"]') as HTMLElement;
+  const leds = (): HTMLElement[] =>
+    Array.from(bar().querySelectorAll('[data-slot="latch-led"]'));
+  const led = (kind: 'buy' | 'sell' | 'cancel'): HTMLElement =>
+    bar().querySelector(`[data-slot="latch-led"][data-kind="${kind}"]`) as HTMLElement;
+
+  it('⑲-1 LED 3개가 상태줄에 **매수 · 매도 · 취소** 순서로 있다 (D-22)', () => {
+    setRelay({ limitChasers: [echo()] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    expect(leds()).toHaveLength(3);
+    expect(leds().map((el) => el.dataset.kind)).toEqual(['buy', 'sell', 'cancel']);
+  });
+
+  it('⑲-2 ★ 옛 매수/매도 도트 세그먼트가 사라졌다 — 무장 상태를 두 표기가 말하지 않는다', () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    // 옛 세그먼트의 값 문구는 `ON`/`감시`/`대기`/`OFF` 였다. `ON` 은 LED 어휘에 없으므로
+    // 상태줄에 남아 있다면 그것은 걷어내지 못한 옛 표기다.
+    expect(bar().textContent).not.toContain('ON');
+    // 매수·매도 표기는 이제 **각 1개**다(LED 칩).
+    expect(bar().querySelectorAll('[data-slot="latch-led"][data-kind="buy"]')).toHaveLength(1);
+    expect(bar().querySelectorAll('[data-slot="latch-led"][data-kind="sell"]')).toHaveLength(1);
+  });
+
+  it('⑲-3 ★ 서버 전략이 없으면 세 LED 가 전부 회색이고 클릭해도 아무것도 나가지 않는다', () => {
+    // 편집 키로 들어왔지만 그 전략이 스냅샷에 없다 = `server === null`.
+    setRelay({ limitChasers: [] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    expect(leds()).toHaveLength(3);
+    for (const el of leds()) {
+      expect(el.dataset.tone).toBe('off');
+      // 클릭 불가는 `<button disabled>` 가 아니라 비상호작용 `<span>` 이다(17-07 결정 2).
+      expect(el.tagName).toBe('SPAN');
+      fireEvent.click(el);
+    }
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('⑲-4 매도 LED 클릭 → `{t:"lc.arm", key, latch:"sell"}` 1건 · 확인 다이얼로그 없음 (D-20)', () => {
+    setRelay({ limitChasers: [echo({ sellEnabled: true })] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    fireEvent.click(led('sell'));
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock).toHaveBeenCalledWith({ t: 'lc.arm', key: KEY, latch: 'sell' });
+    // 실계좌 판정을 시작시키는 클릭이지만 **그 자리에서 바로** 나간다(D-20 · 스위치와 같은 규율).
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('⑲-5 취소 LED → `latch:"cancel"` · 매수 LED(매수잔량 기준) → `latch:"buy"`', () => {
+    setRelay({
+      limitChasers: [echo({ cancelQtyEnabled: true, buyEnabled: true, buyWatchSide: '1' })],
+    });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    fireEvent.click(led('cancel'));
+    expect(sendMock).toHaveBeenLastCalledWith({ t: 'lc.arm', key: KEY, latch: 'cancel' });
+
+    fireEvent.click(led('buy'));
+    expect(sendMock).toHaveBeenLastCalledWith({ t: 'lc.arm', key: KEY, latch: 'buy' });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('⑲-6 ★ 회색 LED 클릭 → `send` 미호출 (T-17-37)', () => {
+    // 매도 무장 OFF · 취소 무장 OFF · 매수 무장 OFF = 세 LED 전부 회색.
+    setRelay({
+      limitChasers: [
+        echo({
+          buyEnabled: false,
+          sellEnabled: false,
+          cancelQtyEnabled: false,
+          cancelTradeEnabled: false,
+        }),
+      ],
+    });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    for (const el of leds()) {
+      expect(el.dataset.tone).toBe('off');
+      fireEvent.click(el);
+    }
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('⑲-7 ★ 매도잔량 기준(`buyWatchSide "0"`) 매수 LED 클릭 → `send` 미호출 (BL-01 · T-17-37)', () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, buyWatchSide: '0' })] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    const buy = led('buy');
+    // 무장이라 **초록**이지만 눌리지 않는다 — 그 갈래에 래치라는 상태가 없기 때문이다.
+    expect(buy.dataset.tone).toBe('armed');
+    expect(buy.tagName).toBe('SPAN');
+    fireEvent.click(buy);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('⑲-8 ★ 연타는 클릭 수만큼 나가고, `send` 가 false 를 돌려줘도 재시도하지 않는다 (T-17-40)', () => {
+    setRelay({ limitChasers: [echo({ sellEnabled: true })] });
+    render(<LimitChaserClient strategyKey={KEY} />);
+
+    // 토글이라 큐잉·중복 억제를 하지 않는다 — 3번 누르면 3건이다.
+    fireEvent.click(led('sell'));
+    fireEvent.click(led('sell'));
+    fireEvent.click(led('sell'));
+    expect(sendMock).toHaveBeenCalledTimes(3);
+
+    // 실패 반환 → **자동 재전송 경로가 없다.** 사용자가 누르지 않은 두 번째 요청을 만들지 않는다.
+    sendMock.mockReset();
+    sendMock.mockReturnValue(false);
+    fireEvent.click(led('sell'));
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('⑲-9 ★ `hadOrder` 가 LED 로 넘어간다 — 무장 해제가 발주였으면 「(발주됨)」 (17-07 인계 ①)', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, buyWatchSide: '1' })] });
+    const { rerender } = render(<LimitChaserClient strategyKey={KEY} />);
+
+    // 보낸 적 없는데 무장이 풀렸다 = 발주로 게이트가 소진된 것이다(Pitfall 10).
+    setRelay({ limitChasers: [echo({ buyEnabled: false, buyWatchSide: '1' })] });
+    rerender(<LimitChaserClient strategyKey={KEY} />);
+
+    await waitFor(() => expect(led('buy').dataset.tone).toBe('off'));
+    expect(led('buy').textContent).toContain('(발주됨)');
+  });
+});
+
+/*
   WR-03 / D-28 — 시장 구분의 정본은 relay 다.
 
   옛 코드는 검색 행의 `market` 을 `row.market === 'KOSDAQ' ? 'Q' : 'K'` 로 접어 `lc.set.cfg`
