@@ -539,7 +539,7 @@ export function AccountPanel({
                         </TableCell>
                         <TableCell className="text-[length:var(--t-caption)]">
                           {view.label ?? <span className="mono">{view.row.isin}</span>}
-                          <StatusNote text={view.row.pendingStatus} />
+                          <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
                         </TableCell>
                         <TableCell className="num mono text-[length:var(--t-caption)]">
                           {KRW.format(view.row.price)}
@@ -637,7 +637,7 @@ export function AccountPanel({
                       <span className="ml-auto flex-none">{cancelButton(view)}</span>
                     </div>
                     {/* r3 — 서버 상태 문구(있는 행에만). 표에서는 종목 셀 아래 자리다. */}
-                    <StatusNote text={view.row.pendingStatus} />
+                    <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
                   </div>
                   );
                 })}
@@ -868,10 +868,15 @@ function SideTag({
 }
 
 /**
- * 미체결 행의 **서버 상태 문구** — 접수대기(`pendingStatus`) 보조 줄 (17-09 / D-14 · ⑨).
+ * 미체결 행의 **서버 상태 문구** 보조 줄 — 예약(`queuedStatus`) · 접수대기(`pendingStatus`)
+ * (17-09 / D-07 · D-14 · ⑨). 예약이 먼저다(주문의 형태가 먼저, 처리 상태가 다음).
  *
  * ★ 가공하지 않는다. 자르기·치환·상태 분류 없이 **서버 문자열 그대로** 그린다 — 화면이
- *   문구를 손대는 순간 사용자가 보는 말과 서버가 한 말이 갈린다.
+ *   문구를 손대는 순간 사용자가 보는 말과 서버가 한 말이 갈린다. 「대기」·「발사중」·
+ *   「완료」 같은 상태 단어를 클라가 만들어 내지 않는다는 뜻이기도 하다 (D-07).
+ * ★ 새 **열**이 아니라 종목 아래 보조 줄이다 — 미체결 표는 이미 7열이라 폰 폭에 새 열을
+ *   넣을 여유가 없다. 이 패널은 §2.2b 의 컨테이너 쿼리 대상이 아니라 **뷰포트 브레이크
+ *   포인트**를 쓰므로, 여기에 컨테이너 쿼리를 새로 들이지 않는다.
  * ★ 값이 없으면 **요소 자체를 만들지 않는다.** 빈 줄을 그리면 상태가 없는 대다수 행에도
  *   높이가 붙어 표가 두꺼워진다.
  * ★ 이 컴포넌트는 **어느 필드의 문구인지 모른다.** 문자열 하나만 받으므로 필드 이름으로
@@ -879,16 +884,22 @@ function SideTag({
  * ★ 좁은 폭에서 조용히 잘리지 않게 `min-w-0` + 줄바꿈 허용이고, 전문은 `title` 에 둔다
  *   (플렉스/그리드 자식의 `min-w-0` 누락은 `tasks/lessons.md` 에 등재된 함정이다).
  */
-function StatusNote({ text }: { text: string }) {
-  if (text === '') return null;
+function StatusNotes({ texts }: { texts: readonly string[] }) {
+  const shown = texts.filter((text) => text !== '');
+  if (shown.length === 0) return null;
   return (
-    <p
-      data-slot="account-unfilled-note"
-      title={text}
-      className="mt-0.5 min-w-0 text-[11px] break-words text-[var(--muted-fg)]"
-    >
-      {text}
-    </p>
+    <>
+      {shown.map((text, i) => (
+        <p
+          key={i}
+          data-slot="account-unfilled-note"
+          title={text}
+          className="mt-0.5 min-w-0 text-[11px] break-words text-[var(--muted-fg)]"
+        >
+          {text}
+        </p>
+      ))}
+    </>
   );
 }
 
