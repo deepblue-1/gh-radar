@@ -2,9 +2,9 @@
 schema_version: 1
 open_count: 5
 waived_count: 0
-fixed_count: 8
-total_count: 13
-last_updated: 2026-09-20T08:44:22.645Z
+fixed_count: 9
+total_count: 14
+last_updated: 2026-09-20T09:08:20.938Z
 ---
 
 # Broken Windows Ledger
@@ -27,7 +27,8 @@ last_updated: 2026-09-20T08:44:22.645Z
 | 10 | quick-260912-u58 | unrun-verify | webapp/src/components/orderbook/orderbook-ladder.tsx |  | 3단 호가표 체결 셀의 체결가 예산은 7자(127,400)까지다 — 백만원대 7자리(1,234,000)는 56px 이 필요한데 와이드 48(넘침 8) · 데스크톱 49(넘침 7)로 잘린다. 이번 변경이 만든 것이 아니라 데스크톱에도 있던 선재 한계이고, 글꼴을 10px 밑으로 줄이는 것은 §2.2b 의 10px 예외 규칙을 깨므로 하지 않았다. 고가주에서 체결가가 잘린 채 표시될 수 있다 | open |  | 2026-09-12T13:36:06.444Z |  |
 | 11 | quick-260912-u58 | unrun-verify | webapp/e2e/specs/trading-limit-chaser.spec.ts |  | 밴드 **전이점** 자동 단언은 아직 없다 — 테스트 12·13 이 컨테이너 344/374/736/991/832/880/960/1100 을 실브라우저로 재지만, 829↔830 과 991↔992 에서 실제로 밴드가 바뀌는지는(1px 차이로 3단 호가표 ↔ 2단 호가 / 10칸 ↔ 5단 2행) 단언하지 않는다. 경계값 자체가 틀어져도 그 사이 지점들이 초록이면 지난다 | open |  | 2026-09-12T13:36:06.535Z |  |
 | 12 | 17 | deviation | relay/src/ws/fanout.ts |  | lc.arm 인바운드는 17-01 에서 계약만 놓였고 라우팅은 17-04 다 — 도달 시 error 로그로만 드러난다 | open |  | 2026-09-18T01:31:37.356Z |  |
-| 13 | 17 | deviation | relay/src/ws/fanout.ts |  | 17-05 가 vi 스냅샷을 KRX·NXT 2프레임으로 넓혔으나 webapp 리듀서는 아직 x 를 무시하고 마지막 프레임으로 덮는다 — 17-06 이 거래소별 상태로 받는다 | open |  | 2026-09-20T08:44:22.645Z |  |
+| 13 | 17 | deviation | relay/src/ws/fanout.ts |  | 17-05 가 vi 스냅샷을 KRX·NXT 2프레임으로 넓혔으나 webapp 리듀서는 아직 x 를 무시하고 마지막 프레임으로 덮는다 — 17-06 이 거래소별 상태로 받는다 | fixed |  | 2026-09-20T08:44:22.645Z | 2026-09-20T09:08:20.819Z |
+| 14 | 17 | unrun-verify | webapp/e2e/specs/trading-vi.spec.ts |  | 거래소 열 추가로 110초 열 인덱스를 8→9 로 옮기고 거래소 열(index 3) 단언을 더했으나 Playwright 미실행 — tsconfig.e2e.json 타입 통과로만 확인했다 | open |  | 2026-09-20T09:08:20.938Z |  |
 
 ````json
 [
@@ -182,9 +183,21 @@ last_updated: 2026-09-20T08:44:22.645Z
     "file": "relay/src/ws/fanout.ts",
     "line": null,
     "description": "17-05 가 vi 스냅샷을 KRX·NXT 2프레임으로 넓혔으나 webapp 리듀서는 아직 x 를 무시하고 마지막 프레임으로 덮는다 — 17-06 이 거래소별 상태로 받는다",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-09-20T08:44:22.645Z",
+    "resolved_at": "2026-09-20T09:08:20.819Z"
+  },
+  {
+    "id": 14,
+    "kind": "unrun-verify",
+    "phase": "17",
+    "file": "webapp/e2e/specs/trading-vi.spec.ts",
+    "line": null,
+    "description": "거래소 열 추가로 110초 열 인덱스를 8→9 로 옮기고 거래소 열(index 3) 단언을 더했으나 Playwright 미실행 — tsconfig.e2e.json 타입 통과로만 확인했다",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-20T09:08:20.938Z",
     "resolved_at": null
   }
 ]

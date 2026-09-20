@@ -772,7 +772,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 **Requirements**: TRADE-04 (프로토콜 재동기화·기존 화면 보정), TRADE-05 (상따 래치 LED 3종 + 수동 점등)
 **Depends on:** Phase 16
 **Scope notes:** gh-trade 정본 = `server/src/protocol/StockDMA.fbs`·`server/docs/protocol.md`·`docs/strategy/limit-chaser.md` §10. 생성은 gh-trade 의 `server/scripts/sync-relay-schema.sh`(flatc 25.12.19). 서버 진실은 클라가 판정하지 않는다(pending_cancel_sent bool 이 유일한 취소 제외 근거, queued/pending 문구는 표시만, OrderResp.message 파싱 금지). 매도잔량 기준(buy_watch_side "0") 매수 LED 는 2단계 유지·클릭 불가.
-**Plans:** 7/12 plans executed (8 waves)
+**Plans:** 8/12 plans executed (8 waves)
 
 Plans:
 **Wave 1**
@@ -799,7 +799,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 17-06-PLAN.md — VI 웹 표면: 거래소별 리듀서·가동 배지 합집합·캡션 정정·거래소 열 (wave 6)
+- [x] 17-06-PLAN.md — VI 웹 표면: 거래소별 리듀서·가동 배지 합집합·캡션 정정·거래소 열 (wave 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 

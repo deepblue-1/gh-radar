@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-05-PLAN.md
-last_updated: "2026-09-20T08:47:30.532Z"
+stopped_at: Completed 17-06-PLAN.md
+last_updated: "2026-09-20T09:11:42.325Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: 52f1a469df3335ccd37f0c19e84ab6eecd609844
+state_head: ef2b4f078a56978bdede6c35c9fd479a27ce6493
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 177
+  completed_plans: 178
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 8 of 12
+Plan: 9 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -444,6 +444,7 @@ Progress: [█████████░] 92%
 | Phase 17 P08 | 17 min | 3 tasks | 6 files |
 | Phase 17 P04 | 14 min | 3 tasks | 5 files |
 | Phase 17 P05 | 1h 9m | 3 tasks | 12 files |
+| Phase 17 P06 | 15 min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -688,6 +689,9 @@ Recent decisions affecting current work:
 - [Phase 17]: 본문 있는 61 은 본문이 정본이고 FIFO head 와 일치할 때만 큐를 소비한다 — 팬아웃 에코가 큐를 밀지 않는다 (C# 규칙 (b)/(c))
 - [Phase 17]: 21 은 더 이상 본문 없는 요청이 아니다 — get_strategy_req.key 슬롯에 거래소를 싣는다 (서버 ProcessGetVITrigger 정본)
 - [Phase 17]: VI 상관 키는 접수 전 행에만 거래소를 더한다 — 주문번호가 있는 행에 더하면 72 스냅샷과 73 델타의 키가 갈린다 (T-17-18)
+- [Phase 17]: VI 전략 상태를 거래소별 3상태(viTriggers)로 바꾸고 단수 viTrigger 를 별칭 없이 제거 — 소비처 6곳을 typecheck 가 강제 노출하게 했다 (17-06)
+- [Phase 17]: VI 가동 배지는 viAnyRunning 한 함수로만 판정(사이드바·My page·전략 현황 인라인 0건)하고, 요약 문구도 가동 중인 거래소별 값을 말한다 (17-06 / D-18)
+- [Phase 17]: vi.notice 는 렌더 소비처가 0곳이었다(grep 실측) — VI 상태줄에 최신 1건(종목·거래소·발동가) 줄을 새로 만들었다. isViServerMessage 는 VITrigger 를 받되 LimitChaser 는 받지 않는다(Pitfall 9 유지)
 
 ### Pending Todos
 
@@ -771,8 +775,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-20T08:47:18.867Z
-Stopped at: Completed 17-05-PLAN.md
+Last session: 2026-09-20T09:11:31.500Z
+Stopped at: Completed 17-06-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
