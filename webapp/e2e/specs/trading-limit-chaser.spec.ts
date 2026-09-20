@@ -292,7 +292,14 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
 
     await relay.pushLimitChaserEcho({ buyEnabled: true });
 
-    await expect(statusBar(page)).toContainText('매수 ON', { timeout: 15_000 });
+    /*
+      ★ 17-11 — 옛 `매수 ON` 세그먼트는 걷어냈다. 무장 표기는 이제 **래치 LED 하나**다
+        (D-22). 스텁 게이트웨이의 기본 `buyWatchSide` 는 `"0"`(매도잔량 기준)이라 그 갈래의
+        매수 LED 는 **초록이되 눌리지 않는다**(BL-01) — 여기서 그 실제 색을 단언한다.
+    */
+    await expect(
+      statusBar(page).locator('[data-slot="latch-led"][data-kind="buy"]'),
+    ).toHaveAttribute('data-tone', 'armed', { timeout: 15_000 });
     await expect(logRows(page).first()).toContainText('매수 무장');
     // 사이드바 3단에 항목이 서고 원 아이콘이 매수만 채워진다.
     await expect(strategyItems(page)).toHaveCount(1);
@@ -300,6 +307,41 @@ test.describe('Phase 16 Plan 13 — 상따 전략 화면 (로컬 relay + 스텁 
       'aria-label',
       '매수 켜짐 · 매도 꺼짐',
     );
+  });
+
+  /*
+    17-11 Task 1 — 상태줄 래치 LED 3종 **가시성**.
+
+    ★ 여기서 보는 것은 「실제 브라우저에서 세 칩이 상태줄에 보이고 순서가 맞는가」뿐이다.
+      색 규칙 19케이스는 `latch-led.test.tsx` 가, 클릭 → `lc.arm` 전송은
+      `limit-chaser-client.test.tsx` 가 이미 잠갔다. **클릭 왕복(36/37/38 이 게이트웨이에
+      실제로 도달하는가)은 17-12 의 mock 게이트웨이 검증이 본다** — 같은 왕복을 두 층에서
+      흉내 내면 둘 다 느려지고, 실패해도 어느 층의 사실인지 갈린다.
+  */
+  test('3b. 상태줄에 래치 LED 3개가 매수·매도·취소 순서로 보인다 (17-11 / D-22)', async ({
+    page,
+  }) => {
+    relay.seedLimitChasers([
+      { buyEnabled: true, sellEnabled: true, cancelQtyEnabled: true },
+    ]);
+    await page.goto(EDIT_URL);
+    await waitForReady(page);
+
+    const leds = statusBar(page).locator('[data-slot="latch-led"]');
+    await expect(leds).toHaveCount(3, { timeout: 15_000 });
+    await expect(leds.nth(0)).toHaveAttribute('data-kind', 'buy');
+    await expect(leds.nth(1)).toHaveAttribute('data-kind', 'sell');
+    await expect(leds.nth(2)).toHaveAttribute('data-kind', 'cancel');
+    for (const i of [0, 1, 2]) await expect(leds.nth(i)).toBeVisible();
+
+    // 색만이 아니라 **보이는 라벨**이 상태를 말한다 (D-21 · WCAG 1.4.1).
+    await expect(leds.nth(1)).toContainText('대기'); // 매도 무장 · 래치 OFF = 잠복
+    await expect(leds.nth(2)).toContainText('대기'); // 취소 무장 · 래치 OFF = 잠복
+    // 매도잔량 기준(스텁 기본 side "0") 매수 LED 는 2단계 유지 + 이유를 말한다 (BL-01).
+    await expect(leds.nth(0)).toContainText('(매도잔량 기준)');
+
+    // 무장을 말하는 표기는 LED 하나뿐이다 — 옛 매수/매도 도트 세그먼트는 DOM 에 없다.
+    await expect(statusBar(page)).not.toContainText('매수 ON');
   });
 
   test('4. 값 변경 → 액션 바 「1개」 → 「수정」 → 10 재전송 → 에코 후 액션 바 소멸', async ({

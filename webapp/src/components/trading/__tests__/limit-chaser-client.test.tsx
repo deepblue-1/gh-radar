@@ -187,18 +187,28 @@ describe('parseStrategyKey', () => {
 });
 
 describe('strategyStatusOf', () => {
-  it('② 배지 매핑(16-11)을 그대로 문구로 옮긴다 — 판정을 다시 쓰지 않는다', () => {
-    expect(strategyStatusOf(null, false).buyLabel).toBe('OFF');
-    expect(strategyStatusOf(echo({ buyEnabled: true }), false)).toMatchObject({
+  /*
+    ★ 17-11 — 상태줄 값 4종(`buyLabel`·`sellLabel`·`buyTone`·`sellTone`)이 **사라졌다.**
+      상태줄의 무장 표기는 래치 LED 가 소유하고(D-22), 이 함수는 **폼 그룹 헤더 문구**만
+      만든다. 단언을 지운 것이 아니라 남은 계약(`buyText`/`sellText`)으로 다시 썼고,
+      「걷어낸 필드가 정말 없다」를 함께 잠근다 — 남아 있으면 두 번째 무장 표기가 되살아난다.
+  */
+  it('② 배지 매핑(16-11)을 그대로 **그룹 헤더 문구**로 옮긴다 — 판정을 다시 쓰지 않는다', () => {
+    expect(strategyStatusOf(null, false)).toEqual({ buyText: '', sellText: '' });
+    expect(strategyStatusOf(echo({ buyEnabled: true }), false)).toEqual({
       buyText: '무장',
-      buyLabel: 'ON',
+      sellText: '',
     });
     expect(
       strategyStatusOf(echo({ buyEnabled: false, sellEnabled: true }), false),
-    ).toMatchObject({ sellText: '대기 (지지벽 미관측)', sellLabel: '대기' });
+    ).toMatchObject({ sellText: '대기 (지지벽 미관측)' });
     expect(
       strategyStatusOf(echo({ buyEnabled: false, sellEnabled: true, sellEntryLatched: true }), false),
-    ).toMatchObject({ sellText: '감시 중', sellLabel: '감시' });
+    ).toMatchObject({ sellText: '감시 중' });
+    // 상태줄 값 4종은 계약에서 **빠졌다**.
+    for (const gone of ['buyLabel', 'sellLabel', 'buyTone', 'sellTone']) {
+      expect(strategyStatusOf(echo(), true)).not.toHaveProperty(gone);
+    }
   });
 
   it('③ ★ `hadOrder` 없이는 「발주됨」을 만들지 않는다 (Pitfall 10)', () => {

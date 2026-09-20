@@ -81,6 +81,12 @@ import { AccountPanel } from "@/components/orderbook/account-panel";
 import { OrderbookLadder } from "@/components/orderbook/orderbook-ladder";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { LimitChaserForm } from "@/components/trading/limit-chaser-form";
+import {
+  LatchLed,
+  latchLedStateOf,
+  type LatchLedKind,
+  type LatchLedServer,
+} from "@/components/trading/latch-led";
 import { strategyBadgesOf } from "@/components/trading/strategy-badge";
 import {
   formatMarketCap,
@@ -199,6 +205,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     limitChasers,
     accountStates,
     messages,
+    send,
     status,
     statusLabel,
     strategiesDisabled,
@@ -458,6 +465,42 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     if (live > 0) setLiveSeed(live);
   }, [server, quote, liveSeed]);
   const badges = strategyStatusOf(server, fired);
+
+  /*
+    ── 래치 LED 3종 (17-11 / D-19~D-22) ──────────────────────────────────────
+
+    ★ LED 가 읽는 것은 **마지막 서버 에코 스냅샷 하나**다 (D-20). 폼 더티값도, 이미 칠해진
+      색도 되읽지 않는다 — 판정 규칙 자체는 `latchLedStateOf`(17-07) 가 소유하고 이 화면은
+      그 함수에 무엇을 넘길지만 정한다.
+    ★ `hadOrder` 는 **와이어 필드가 아니라 이 화면이 아는 사실**이다(Pitfall 10 · 위 `fired`).
+      넘기지 않으면 「(발주됨)」 문구가 영영 뜨지 않고 그냥 `OFF` 로 보인다(17-07 인계 ①).
+  */
+  const ledServer = useMemo<LatchLedServer>(
+    () => (server === null ? null : { ...server, hadOrder: fired }),
+    [server, fired],
+  );
+
+  /**
+   * LED 클릭 → `{t:"lc.arm"}` 1건 (D-20).
+   *
+   * ★ **확인 다이얼로그가 없다** — 스위치 즉시 전송(D-05)과 같은 규율이다.
+   * ★ **낙관적 색 변경을 하지 않는다.** 색의 근거는 60 에코뿐이라, 여기서 미리 칠하면
+   *   「켜졌다」는 거짓이 만들어진다(T-17-38).
+   * ★ `clickable` 을 **판정 함수에 다시 물어본 뒤에만** 보낸다. `LatchLed` 가 클릭 불가
+   *   갈래를 비상호작용 `<span>` 으로 그리지만, 전송 여부를 표시 컴포넌트의 렌더 결과에
+   *   맡기면 표시를 바꾸는 순간 전송 조건이 따라 바뀐다(T-17-37).
+   * ★ **재전송 경로를 만들지 않는다.** `send` 가 false 를 돌려줘도 다시 보내지 않는다 —
+   *   사용자가 누르지 않은 두 번째 요청이 곧 두 번째 발주다(T-17-40 · T-16-10).
+   * ★ 전략 키는 relay 파서가 넣어 준 `server.key` 가 정본이다 — 화면에서 조립하지 않는다.
+   */
+  const handleArm = useCallback(
+    (kind: LatchLedKind) => {
+      if (ledServer === null) return;
+      if (!latchLedStateOf(kind, ledServer).clickable) return;
+      send({ t: "lc.arm", key: ledServer.key, latch: kind });
+    },
+    [ledServer, send],
+  );
 
   /** 스냅샷 도착 전 — 편집 진입인데 아직 그 전략을 못 받았다(UI-SPEC §동기화). */
   const awaitingSnapshot =
@@ -774,7 +817,8 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       <StatusBar
         status={status}
         statusLabel={statusLabel}
-        badges={badges}
+        ledServer={ledServer}
+        onArm={handleArm}
         trackBaseline={
           server?.sellEntryLatched === true ? server.sellQtyTrackBaseline : null
         }
@@ -952,29 +996,23 @@ export interface StrategyStatus {
   buyText: string;
   /** 매도 그룹 헤더 문구 (A7a). */
   sellText: string;
-  /** 상태줄 값 — `ON`/`OFF`, `감시`/`대기`/`OFF`. */
-  buyLabel: string;
-  sellLabel: string;
-  buyTone: "on" | "off";
-  sellTone: "watch" | "wait" | "off";
 }
 
 const EMPTY_STATUS: StrategyStatus = {
   buyText: "",
   sellText: "",
-  buyLabel: "OFF",
-  sellLabel: "OFF",
-  buyTone: "off",
-  sellTone: "off",
 };
 
 /**
- * 에코 → 상태줄·그룹 헤더 문구 (**순수 함수**).
+ * 에코 → **폼 그룹 헤더 문구** (**순수 함수**).
  *
  * ★ 배지 **종류 판정**은 `strategyBadgesOf`(16-11) 한 곳이고 여기서는 그 결과를 문구로
  *   옮기기만 한다. 판정을 다시 쓰면 사이드바·My page·상태줄이 같은 전략을 다르게 읽는다.
  * ★ `hadOrder` 가 false 면 「발주됨」을 만들지 않는다 — 한 번도 발주된 적 없는 전략을
  *   「발주 완료」로 쓰면 사용자가 나가지도 않은 주문을 찾아 미체결을 뒤진다(Pitfall 10).
+ * ★ 17-11 에서 **상태줄 값 4종(`buyLabel`·`sellLabel`·`buyTone`·`sellTone`)을 걷어냈다.**
+ *   상태줄의 무장 표기는 이제 래치 LED 가 소유한다(D-22). 남겨 두면 같은 무장을 말하는
+ *   두 번째 표기 경로가 열린 채로 남고, 그 둘은 언젠가 갈린다.
  */
 export function strategyStatusOf(
   item: RelayLimitChaser | null,
@@ -995,25 +1033,27 @@ export function strategyStatusOf(
       : kinds.has("sellWait")
         ? "대기 (지지벽 미관측)"
         : "",
-    buyLabel: kinds.has("buyOn") ? "ON" : "OFF",
-    sellLabel: kinds.has("sellWatch")
-      ? "감시"
-      : kinds.has("sellWait")
-        ? "대기"
-        : "OFF",
-    buyTone: kinds.has("buyOn") ? "on" : "off",
-    sellTone: kinds.has("sellWatch")
-      ? "watch"
-      : kinds.has("sellWait")
-        ? "wait"
-        : "off",
   };
 }
 
+/**
+ * 상태줄 (A2).
+ *
+ * ★ 무장 상태를 말하는 표기는 **래치 LED 3개뿐**이다 (D-22). 옛 매수/매도 도트 세그먼트
+ *   (`Dot` + `ON`/`감시`/`대기`)는 걷어냈다 — LED 가 같은 사실을 더 정확하게(3단계 · 클릭
+ *   가능 여부 · 매도잔량 기준 예외까지) 말하므로 둘을 함께 두면 같은 무장을 두 표기가 서로
+ *   다르게 말하는 순간이 반드시 생기고, 그때 사용자는 어느 쪽을 믿을지 알 수 없다.
+ *   `strategyStatusOf` 가 만드는 `buyText`/`sellText` 는 **폼 그룹 헤더 문구**로 계속 산다.
+ * ★ 반응형은 §2.2b 4밴드 컨테이너 쿼리 안에서만 일어난다 — 이 줄은 이미 `flex-wrap` 이라
+ *   폰 밴드에서 두 줄로 접힌다. 여기에 **뷰포트 브레이크포인트 유틸을 새로 만들지 않는다** —
+ *   상따 본문의 폭 판정은 `@container/lc` 하나이고, 뷰포트 분기를 섞으면 사이드바가 열릴 때
+ *   본문 폭과 뷰포트 폭이 어긋나 같은 화면이 두 밴드를 동시에 산다.
+ */
 function StatusBar({
   status,
   statusLabel,
-  badges: s,
+  ledServer,
+  onArm,
   trackBaseline,
   unacked,
   error,
@@ -1021,7 +1061,9 @@ function StatusBar({
 }: {
   status: RelayStatus;
   statusLabel: string;
-  badges: StrategyStatus;
+  /** 마지막 서버 에코 스냅샷(+ `hadOrder`). LED 3개의 **유일한** 판정 입력이다(D-20). */
+  ledServer: LatchLedServer;
+  onArm: (kind: LatchLedKind) => void;
   trackBaseline: number | null;
   unacked: boolean;
   error: string | null;
@@ -1045,23 +1087,15 @@ function StatusBar({
         />
         DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
       </span>
-      <span className="inline-flex items-center gap-1.5">
-        <Dot tone={s.buyTone === "on" ? "up" : "off"} />
-        매수 <b className="font-semibold text-[var(--fg)]">{s.buyLabel}</b>
-        {s.buyText === "발주 완료 · 무장 해제" && <small>(발주됨)</small>}
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <Dot
-          tone={
-            s.sellTone === "watch"
-              ? "down"
-              : s.sellTone === "wait"
-                ? "hollow"
-                : "off"
-          }
-        />
-        매도 <b className="font-semibold text-[var(--fg)]">{s.sellLabel}</b>
-      </span>
+      {/*
+        래치 LED 3종 — 순서는 **매수 · 매도 · 취소**다 (D-22). 폼의 세로 축(매수 → 매도 →
+        취소)과 같은 순서라 사용자가 두 영역을 오가며 자리를 다시 찾지 않는다.
+        ★ 라벨을 짧게 둔다(`OFF`/`대기`/`감시`) — 폰 밴드에서 상태줄이 두 줄로 접히는 것까지
+          목업으로 사용자가 확인한 형태다(D-21 채택안).
+      */}
+      {(["buy", "sell", "cancel"] as const).map((kind) => (
+        <LatchLed key={kind} kind={kind} server={ledServer} onArm={onArm} />
+      ))}
       {trackBaseline !== null && (
         <span>
           잔량추적 기준선{" "}
@@ -1106,12 +1140,18 @@ const PROGRESS_STATES: ReadonlySet<RelayStatus> = new Set<RelayStatus>([
   "declaring",
 ]);
 
-/** 상태 도트. **형태(채움/속빔)가 색과 함께 상태를 말한다**(WCAG 1.4.1). */
+/**
+ * 연결 상태 도트.
+ *
+ * ★ 17-11 에서 톤이 `ok`/`off` **둘로 줄었다.** 무장 3단계를 그리던 `up`/`down`/`hollow`
+ *   는 래치 LED 가 가져갔다(D-22) — 쓰이지 않는 갈래를 남겨 두면 언젠가 두 번째 무장
+ *   표기가 이 도트로 되살아난다. 접근성은 LED 쪽이 **보이는 라벨**로 잇는다(WCAG 1.4.1).
+ */
 function Dot({
   tone,
   pulse = false,
 }: {
-  tone: "ok" | "up" | "down" | "hollow" | "off";
+  tone: "ok" | "off";
   pulse?: boolean;
 }) {
   return (
@@ -1121,10 +1161,6 @@ function Dot({
       className={cn(
         "block size-[7px] shrink-0 rounded-full",
         tone === "ok" && "bg-[oklch(0.72_0.19_150)]",
-        tone === "up" && "bg-[var(--up)]",
-        tone === "down" && "bg-[var(--down)]",
-        tone === "hollow" &&
-          "border-[1.5px] border-[var(--muted-fg)] bg-transparent",
         tone === "off" && "bg-[var(--flat)]",
         pulse && "animate-pulse motion-reduce:animate-none",
       )}
