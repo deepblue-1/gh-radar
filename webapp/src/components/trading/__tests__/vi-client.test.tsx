@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import type { RelayAccountState, RelayUnfilled, RelayViNoticeMsg } from '@gh-radar/shared';
 
@@ -206,5 +207,88 @@ describe('③ 미체결 표식 — 두 표면이 같은 문자열이다 (17-09 /
       <AccountPanel selectedAccountNo={ACCOUNT} account={acct([ROW])} status="ready" />,
     );
     expect(sideTextOf(document)).toBe(viText);
+  });
+});
+
+/**
+ * Phase 17 Plan 09 Task 2 — 「전체 취소」도 취소보관 행을 건너뛴다 (D-14).
+ *
+ * ★ 개별 취소(계좌 패널)만 막고 전체 취소를 그대로 두면, 서버가 이미 취소를 보낸 주문에
+ *   두 번째 취소가 **일괄 경로로** 나간다. 두 경로가 같은 규칙을 써야 하는 이유다.
+ */
+describe('④ 전체 취소 — 취소보관 행은 대상에서 빠진다 (17-09 / D-14)', () => {
+  const sendOrderMock = vi.fn();
+
+  function row(over: Partial<RelayUnfilled>): RelayUnfilled {
+    return {
+      orderNo: '0000135742',
+      orgOrderNo: '',
+      isin: 'KR7005930003',
+      side: 'B',
+      price: 41_250,
+      orderQty: 100,
+      filledQty: 0,
+      unfilledQty: 100,
+      exchange: 'KRX',
+      orderTime: '091533',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
+      ...over,
+    };
+  }
+
+  function withRows(rows: RelayUnfilled[]) {
+    const state: RelayAccountState = {
+      t: 'acct',
+      a: ACCOUNT,
+      snap: true,
+      hold: [],
+      unf: rows,
+      rm: [],
+      st: '09:15:33',
+    };
+    mockRelay = relayState({
+      accountStates: new Map([[ACCOUNT, state]]),
+      sendOrder: sendOrderMock,
+    });
+  }
+
+  beforeEach(() => {
+    sendOrderMock.mockReset();
+    sendOrderMock.mockResolvedValue({
+      t: 'order.result',
+      rid: 'rid-1',
+      orderNo: '0000135742',
+      resultCode: 0,
+      message: '정상처리',
+      status: 'accepted',
+    });
+  });
+
+  it('취소보관 행은 건수에서 빠지고 취소가 나가지 않는다', async () => {
+    const user = userEvent.setup();
+    withRows([
+      row({ orderNo: '0000135742' }),
+      row({ orderNo: 'Q091533123', pendingStatus: '취소 보관 · 09:00 확정', pendingCancelSent: true }),
+    ]);
+    render(<ViClient />);
+
+    await user.click(screen.getByRole('button', { name: '전체 취소' }));
+    expect(screen.getByTestId('vi-cancel-all-dialog')).toHaveTextContent('1건이 한 번에 취소돼요.');
+
+    await user.click(screen.getByRole('button', { name: '✕ 전체 취소' }));
+    await waitFor(() => expect(sendOrderMock).toHaveBeenCalledTimes(1));
+    expect(sendOrderMock.mock.calls[0]![0]).toMatchObject({
+      kind: 'cancel',
+      orgOrderNo: '0000135742',
+    });
+  });
+
+  it('전부 취소보관이면 「전체 취소」 버튼 자체가 눌리지 않는다', () => {
+    withRows([row({ pendingCancelSent: true, pendingStatus: '취소 보관 · 09:00 확정' })]);
+    render(<ViClient />);
+    expect(screen.getByRole('button', { name: '전체 취소' })).toBeDisabled();
   });
 });

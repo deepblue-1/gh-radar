@@ -852,3 +852,65 @@ describe('AccountPanel — 미체결 표식 (17-09 / D-13)', () => {
     expect(sideTexts()).toEqual(['▲ 매수QP/종가']);
   });
 });
+
+/**
+ * Phase 17 Plan 09 Task 2 — 취소보관 행 (TRADE-04 · D-14).
+ *
+ * 서버가 **이미 취소를 보낸** 행(원장 `'X'`)에 취소 버튼을 남겨 두면, 사용자는 그것을 눌러
+ * 서버의 `R` 응답을 받고 **첫 취소의 성패를 오해한다**. 그래서 버튼을 감춘다.
+ *
+ * ★ 판정 근거는 `pendingCancelSent` **bool 하나**다. `pendingStatus` 문구를 비교하면
+ *   서버가 문구를 바꾸는 순간 조용히 틀어진다 (gh-trade 교훈 24 · Pitfall 6).
+ * ★ 버튼이 그냥 사라지면 사용자는 버그로 읽는다 — 서버 문구를 **그대로** 보조 줄에 남겨
+ *   왜 취소할 수 없는지가 보이게 한다.
+ */
+describe('AccountPanel — 취소보관 행 (17-09 / D-14)', () => {
+  const HELD = '취소 보관 · 09:00 확정';
+
+  it('㉓ 취소보관 행은 글자가 회색이다 (표·카드 두 벌 모두)', () => {
+    renderPanel({
+      account: withUnfilled([unf({ pendingStatus: HELD, pendingCancelSent: true })]),
+    });
+    expect(unfilledRows()[0]!.className).toContain('text-[var(--muted-fg)]');
+    expect(unfilledCards()[0]!.className).toContain('text-[var(--muted-fg)]');
+    // 방향색도 함께 죽는다 — 매수/매도 색만 살아 있으면 그 행은 회색으로 읽히지 않는다.
+    const side = unfilledRows()[0]!.querySelector('[data-slot="account-unfilled-side"]')!;
+    expect(side.className).toContain('text-[var(--muted-fg)]');
+    expect(side.className).not.toContain('text-[var(--up)]');
+  });
+
+  it('㉔ 미체결 잔량이 남아 있어도 취소보관 행에는 취소 버튼이 없다', () => {
+    renderPanel({
+      account: withUnfilled([
+        unf({ orderNo: 'Q091533123', unfilledQty: 30, pendingStatus: HELD, pendingCancelSent: true }),
+      ]),
+    });
+    expect(cancelButtons('Q091533123')).toHaveLength(0);
+  });
+
+  it('㉕ 취소보관이 아니고 잔량이 있으면 종전대로 취소할 수 있다', () => {
+    renderPanel({
+      account: withUnfilled([unf({ unfilledQty: 30, pendingCancelSent: false })]),
+    });
+    expect(cancelButtons('0000135742').length).toBeGreaterThan(0);
+  });
+
+  it('㉖ 같은 접수대기 문구라도 bool 이 다르면 판정이 갈린다 — 문구를 보지 않는다', () => {
+    renderPanel({
+      account: withUnfilled([
+        unf({ orderNo: '0000135742', pendingStatus: HELD, pendingCancelSent: true }),
+        unf({ orderNo: '0000135801', pendingStatus: HELD, pendingCancelSent: false }),
+      ]),
+    });
+    expect(cancelButtons('0000135742')).toHaveLength(0);
+    expect(cancelButtons('0000135801').length).toBeGreaterThan(0);
+  });
+
+  it('㉗ 회색 행에 서버 접수대기 문구가 **그대로** 보인다 (버튼이 사라진 이유)', () => {
+    renderPanel({
+      account: withUnfilled([unf({ pendingStatus: HELD, pendingCancelSent: true })]),
+    });
+    expect(unfilledRows()[0]!).toHaveTextContent(HELD);
+    expect(unfilledCards()[0]!).toHaveTextContent(HELD);
+  });
+});
