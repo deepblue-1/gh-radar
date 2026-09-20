@@ -59,10 +59,17 @@ import {
 } from "@/components/ui/table";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import {
+  orderActionWord,
+  orderNoticeLabel,
+  type OrderNoticeFacts,
+  type OrderNoticeLabel,
+} from "@/lib/order-notices";
+import {
   fetchTodayOrders,
   mergeTodayOrders,
   orderDisplayStatus,
   type OrderDisplayStatus,
+  type TodayOrderRow,
 } from "@/lib/orders-api";
 import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
@@ -104,6 +111,28 @@ function stockLabel(
 ): { name: string; code: string | null } {
   const code = row.stockCode ?? label?.code ?? row.isin;
   return label?.name !== undefined ? { name: label.name, code } : { name: code, code: null };
+}
+
+/**
+ * 통보 판정에 쓸 **서버 사실**만 모은다 (17-10 / D-08 · D-15).
+ *
+ * ★ 라이브 통보가 이긴다. 없으면 복원 행에 기록된 통보 원문 1자(`noticeType`)가 말하고,
+ *   그마저 없으면 **우리가 보낸 주문 종류**(`orderType === "C"` = 취소주문)가 유일한 근거다.
+ *   어느 경로에도 `message` 가 없다 — 804 거부에서 서버가 문구를 교체하기 때문이다(T-17-33).
+ *
+ * ★ `side` 원천은 **복원 행 하나**다. `RelayOrderMsg` 에는 side 가 없고(Pitfall 8), 이 표의
+ *   행은 전부 복원 스냅샷에서 나오므로(`mergeTodayOrders` 가 프레임으로 행을 만들지 않는다)
+ *   side 를 모르는 행은 이 표면에 존재하지 않는다. 순수함수는 그래도 `null` 을 받는다.
+ */
+function noticeFactsOf(row: TodayOrderRow): OrderNoticeFacts {
+  const live = row.live;
+  return {
+    noticeType: live?.nt ?? row.noticeType ?? "",
+    requestKind: live?.rk ?? (row.orderType === "C" ? "Cancel" : ""),
+    side: row.side,
+    requester: live?.rq ?? "",
+    board: live?.bd ?? "",
+  };
 }
 
 export function TodayOrdersCard() {
@@ -218,6 +247,8 @@ export function TodayOrdersCard() {
               <TableBody>
                 {rows.map((row) => {
                   const stock = stockLabel(row, labels.get(row.isin));
+                  const facts = noticeFactsOf(row);
+                  const label = orderNoticeLabel(facts);
                   return (
                     <TableRow key={row.id} data-slot="today-order-table-row">
                       <TableCell className="mono text-[length:var(--t-caption)]">
@@ -246,7 +277,7 @@ export function TodayOrdersCard() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <SideTag side={row.side} cancel={row.orderType === "C"} />
+                        <SideTag label={label} srAction={orderActionWord(facts)} />
                       </TableCell>
                       <TableCell className="num mono text-[length:var(--t-caption)]">
                         {KRW.format(row.qty)}
@@ -274,6 +305,8 @@ export function TodayOrdersCard() {
           >
             {rows.map((row) => {
               const stock = stockLabel(row, labels.get(row.isin));
+              const facts = noticeFactsOf(row);
+              const label = orderNoticeLabel(facts);
               return (
                 <div
                   key={row.id}
@@ -298,7 +331,7 @@ export function TodayOrdersCard() {
                       </span>
                     )}
                     <span className="flex flex-none items-center gap-1">
-                      <SideTag side={row.side} cancel={row.orderType === "C"} />
+                      <SideTag label={label} srAction={orderActionWord(facts)} />
                     </span>
                     <span className="ml-auto flex flex-none items-center gap-1">
                       <StatusTag shown={orderDisplayStatus(row)} />
@@ -347,26 +380,40 @@ function RowValue({ children }: { children: ReactNode }) {
 }
 
 /**
- * 매매 구분 — **부호 + 라벨 병기**로 색에 의존하지 않는다(WCAG 1.4.1, account-panel 과 동형).
- * 취소 주문은 방향색을 쓰지 않는다 — 「매수 취소」를 빨강으로 그리면 신규 매수와 헷갈린다.
+ * 행위 표기 — **부호 + 라벨 병기**로 색에 의존하지 않는다(WCAG 1.4.1, account-panel 과 동형).
+ *
+ * ★ 문자열을 **조립하지 않고 받아 그린다**(17-09 가 미체결 표식에서 세운 규율과 같다).
+ *   판정도 접두도 `order-notices.ts` 한 곳에서 나온다.
+ *
+ * ★ 취소·정정 행은 방향색을 쓰지 않는다 — 서버는 취소·정정에 side 를 쓰지 않고 그대로
+ *   에코하므로 **매도 주문의 취소도 「매수」** 로 보인다. 색으로 그리면 신규 매수와 헷갈린다.
+ *
+ * ★ `srAction` — 시간외종가 취소·정정은 보이는 문구가 「시간외종가」 뿐이라(D-15 사용자
+ *   결정) 행위 단어가 눈에서 사라진다. 상태 칸이 그 자리를 대신하지만, 스크린리더가 이
+ *   칸만 읽을 때도 무엇을 한 통보인지 들리도록 `orderActionWord` 의 **맨몸 단어**를
+ *   숨김 텍스트로 같이 둔다. 보이는 문자열은 바뀌지 않는다.
  */
-function SideTag({ side, cancel }: { side: DmaOrderRow["side"]; cancel: boolean }) {
-  const buy = side === "B";
-  if (cancel) {
-    return (
-      <span className="whitespace-nowrap text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
-        {buy ? "매수 취소" : "매도 취소"}
-      </span>
-    );
-  }
+function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: string }) {
+  const arrow = label.side === "B" ? "▲ " : label.side === "S" ? "▼ " : "";
   return (
     <span
+      data-slot="today-order-side"
+      data-side={label.side ?? "none"}
       className={cn(
         "whitespace-nowrap text-[length:var(--t-caption)] font-semibold",
-        buy ? "text-[var(--up)]" : "text-[var(--down)]",
+        label.side === "B" && "text-[var(--up)]",
+        label.side === "S" && "text-[var(--down)]",
+        label.side === null && "text-[var(--muted-fg)]",
       )}
     >
-      {buy ? "▲ 매수" : "▼ 매도"}
+      {arrow}
+      {label.text}
+      {srAction !== "" && srAction !== label.text && (
+        <span className="sr-only"> {srAction}</span>
+      )}
+      {label.meta !== "" && (
+        <span className="ml-1 font-normal text-[var(--muted-fg)]">· {label.meta}</span>
+      )}
     </span>
   );
 }
