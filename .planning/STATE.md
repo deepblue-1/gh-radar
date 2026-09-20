@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: executing
-stopped_at: Completed 17-04-PLAN.md
-last_updated: "2026-09-18T03:19:41.147Z"
+stopped_at: Completed 17-05-PLAN.md
+last_updated: "2026-09-20T08:47:30.532Z"
 last_activity: 2026-09-18
 last_activity_desc: Phase 17 execution started
-state_head: 8b75294dd55ea380280d16c74b8e801dc197a850
+state_head: 52f1a469df3335ccd37f0c19e84ab6eecd609844
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 197
-  completed_plans: 176
+  completed_plans: 177
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 17 (gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED) — EXECUTING
-Plan: 7 of 12
+Plan: 8 of 12
 Plans completed: 171 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -443,6 +443,7 @@ Progress: [█████████░] 92%
 | Phase 17 P03 | 16 min | 3 tasks | 11 files |
 | Phase 17 P08 | 17 min | 3 tasks | 6 files |
 | Phase 17 P04 | 14 min | 3 tasks | 5 files |
+| Phase 17 P05 | 1h 9m | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -683,6 +684,10 @@ Recent decisions affecting current work:
 - [Phase 17]: 호가 종목정보의 KRX 종가 표기는 quote.kc 하나로만 판정 — 벽시계·스냅샷 폴백 금지 — kc=0 은 「모른다」가 아니라 「오늘 종가가 아니다」라는 서버의 답이다. 시각 기반 판정 grep 카운트 0 을 게이트로 잠그고, 장 마감 뒤 시각을 박아도 표기가 안 바뀌는 행동 증명을 함께 뒀다 (T-17-28).
 - [Phase 17]: lc.arm 의 무장 전제는 relay 가 재판정하지 않는다 — 서버가 한글 사유(54)로 거부하고 relay 는 그 문구를 그대로 나른다 — relay 의 에코 캐시로 서버 전제를 다시 판정하면 판정이 두 벌이 되고, 캐시가 한 틱 낡은 순간 「서버는 켤 수 있는데 relay 가 막는」 상태가 된다
 - [Phase 17]: 전략 키 조각 판정(ISIN·계좌·거래소)은 protocol.ts zod 스키마를 재사용하는 술어 3종이 정본이다 — fanout 에 정규식을 다시 적지 않는다 — 가드가 두 벌이 되면 한쪽만 고쳐져 lc.set 경로와 lc.arm 경로 사이에 조용한 비대칭이 생긴다
+- [Phase 17]: 빈 61 은 요청 거래소 FIFO 로만 귀속한다 — 귀속할 근거가 없으면 캐시를 고치지 않고 팬아웃도 하지 않는다 (T-17-16)
+- [Phase 17]: 본문 있는 61 은 본문이 정본이고 FIFO head 와 일치할 때만 큐를 소비한다 — 팬아웃 에코가 큐를 밀지 않는다 (C# 규칙 (b)/(c))
+- [Phase 17]: 21 은 더 이상 본문 없는 요청이 아니다 — get_strategy_req.key 슬롯에 거래소를 싣는다 (서버 ProcessGetVITrigger 정본)
+- [Phase 17]: VI 상관 키는 접수 전 행에만 거래소를 더한다 — 주문번호가 있는 행에 더하면 72 스냅샷과 73 델타의 키가 갈린다 (T-17-18)
 
 ### Pending Todos
 
@@ -766,8 +771,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-18T03:19:15.065Z
-Stopped at: Completed 17-04-PLAN.md
+Last session: 2026-09-20T08:47:18.867Z
+Stopped at: Completed 17-05-PLAN.md
 Next: **Phase 16 은 완결됐다 — plan 46/46 + 요구사항 5종 전부 Complete.** phase goal 의 핵심 문장(「같은 DMA 세션으로 WinForms 와 전략·체결·미체결이 즉시 공유된다」)이 2026-09-10 장중 실계좌에서 **사용자의 양방향 직접 관찰**로 확인됐고, 2026-09-11 에 철거 방향까지 닫혔다. **다음 행동은 Phase 17 착수다.**
 
 - **남은 것은 phase 16 의 결손이 아니라 별개 항목 3건이다.**
