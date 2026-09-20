@@ -510,7 +510,11 @@ describe("WsFanout", () => {
     // 첫 탭이 Ready 를 만들면 Hub 가 24/21/34 를 프리페치해 캐시를 채운다 (16-06).
     await authed("token-a");
     await waitFor(() => h.hub.getLimitChasers(USER_A).length === 2, "상따 캐시 2건");
-    await waitFor(() => h.hub.getViTrigger(USER_A) != null, "VI 설정 캐시");
+    // 스텁 게이트웨이는 21 두 건 모두에 같은 61 로 답하고 그 본문에는 거래소 슬롯이 없다
+    // (= KRX). **본문이 정본**이므로 둘 다 KRX 칸에 들어가고 NXT 는 「모름」으로 남는다
+    // (17-05 / D-06) — KRX 전략만 있는 세션의 정확한 모습이다.
+    await waitFor(() => h.hub.getViTrigger(USER_A, "KRX") != null, "VI 설정 캐시(KRX)");
+    expect(h.hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
     await waitFor(() => h.hub.getViOrders(USER_A).length === 3, "VI 주문 캐시 3건");
 
     // 새 탭은 **구독을 한 건도 보내지 않고** 캐시에서 3프레임을 받는다.
@@ -523,7 +527,11 @@ describe("WsFanout", () => {
     expect(lcSnap?.items).toHaveLength(2);
     expect(lcSnap?.items.map((i) => i.isin).sort()).toEqual([OTHER_ISIN, SAMPLE_ISIN].sort());
 
-    const [vi] = framesOf(second.inbox, "vi");
+    // NXT 는 「모름」이므로 프레임이 **1건**이다 — 지어낸 NXT 미등록을 내리지 않는다.
+    const viFrames = framesOf(second.inbox, "vi");
+    expect(viFrames).toHaveLength(1);
+    const [vi] = viFrames;
+    expect(vi?.x).toBe("KRX");
     expect(vi?.cfg).toMatchObject({ run: true, orderAmountKrw: 3_000_000, checkRate: 25 });
 
     const [viList] = framesOf(second.inbox, "vi.list");
@@ -538,7 +546,9 @@ describe("WsFanout", () => {
     // (A) 조회 결과 **미등록**(`null`) — 확정 정보이므로 `cfg:null` 을 보낸다.
     gateway.respondViTrigger(null);
     await authed("token-a");
-    await waitFor(() => h.hub.getViTrigger(USER_A) === null, "미등록 확정");
+    // 빈 61 두 건이 요청 거래소 FIFO 로 **각각** 귀속된다 (17-05 / Pitfall 3).
+    await waitFor(() => h.hub.getViTrigger(USER_A, "KRX") === null, "KRX 미등록 확정");
+    await waitFor(() => h.hub.getViTrigger(USER_A, "NXT") === null, "NXT 미등록 확정");
 
     const tabA = await open();
     tabA.ws.sendAuth("token-a");
@@ -546,9 +556,12 @@ describe("WsFanout", () => {
     await flushIo(20);
 
     expect(framesOf(tabA.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
-    // `x` 는 거래소별 프레임의 축이다 (D-06 / 17-01). 미등록(`cfg: null`)의 거래소 귀속은
-    // 17-05 의 21 요청 FIFO 가 정하고, 지금은 KRX 하나만 조회하므로 "KRX" 다.
-    expect(framesOf(tabA.inbox, "vi")[0]).toEqual({ t: "vi", x: "KRX", cfg: null });
+    // `x` 는 거래소별 프레임의 축이다 (D-06). 미등록(`cfg: null`)의 거래소는 **21 요청 FIFO**
+    // 가 정한다 (17-05) — 두 거래소를 다 조회했으므로 **두 칸 모두** 확정이고 프레임도 2건이다.
+    expect(framesOf(tabA.inbox, "vi")).toEqual([
+      { t: "vi", x: "KRX", cfg: null },
+      { t: "vi", x: "NXT", cfg: null },
+    ]);
     expect(framesOf(tabA.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
 
     // (B) **아직 모른다**(`undefined`) — 로그인이 끝나지 않아 61 을 받은 적이 없다.
@@ -559,7 +572,8 @@ describe("WsFanout", () => {
     await waitFor(() => framesOf(tabB.inbox, "vi.list").length === 1, "B 스냅샷");
     await flushIo(20);
 
-    expect(h.hub.getViTrigger(USER_B)).toBeUndefined();
+    expect(h.hub.getViTrigger(USER_B, "KRX")).toBeUndefined();
+    expect(h.hub.getViTrigger(USER_B, "NXT")).toBeUndefined();
     expect(framesOf(tabB.inbox, "vi")).toHaveLength(0);
     expect(framesOf(tabB.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
     expect(framesOf(tabB.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });

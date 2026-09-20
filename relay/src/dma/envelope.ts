@@ -1368,10 +1368,10 @@ export function buildArmLatchReq(msgType: ArmLatchMsgType, key: string): Uint8Ar
 }
 
 /**
- * 본문 없는 요청 Envelope. 24/34 는 **요청 테이블 자체가 없고**, 21 은 `get_strategy_req` 를
- * 서버가 파싱하되 무시한다 — 셋 다 `msg_type` 만 실어 보내면 된다.
+ * 본문 없는 요청 Envelope. 24/34 는 **요청 테이블 자체가 없어** `msg_type` 만 실어 보낸다.
  *
- * ⚠️ **36/37/38 에 쓰지 않는다** — 그 셋은 같은 슬롯을 실제로 읽는다 (`buildArmLatchReq`).
+ * ⚠️ **21·36/37/38 에 쓰지 않는다** — 넷 다 `get_strategy_req` 슬롯을 실제로 읽는다
+ *    (`buildGetVITriggerReq` 는 거래소를, `buildArmLatchReq` 는 전략 키를 싣는다).
  */
 function buildBareRequest(msgType: number, capacity = 64): Uint8Array {
   const b = new flatbuffers.Builder(capacity);
@@ -1387,13 +1387,36 @@ export function buildGetLimitChaserListReq(): Uint8Array {
 }
 
 /**
- * VI 전략 조회 (MsgType 21). 응답은 61 이다.
+ * VI 전략 조회 (MsgType 21, 17-05 / D-06). 응답은 61 이다.
  *
- * 전략이 없으면 서버는 **테이블 없는 빈 61** 을 보낸다(무응답 금지). 웹은 그것을 「미등록」으로
- * 읽고 입력값은 그대로 둔 채 `run` 만 내린다.
+ * VI 전략은 서버가 **거래소별 1건**으로 관리하므로 조회도 거래소별이다. 거래소는 새 필드가
+ * 아니라 `get_strategy_req.key` 슬롯의 **의미 확장**으로 실린다 — 서버
+ * `Gateway::ProcessGetVITrigger` 가 그 문자열로 슬롯을 고르고, 빈 키·미상 값은 KRX 로 접는다
+ * (`StockDMA.fbs:642-648`). 스키마도 vtable 도 바뀌지 않는다.
+ *
+ * ⚠️ **`buildBareRequest` 를 쓰지 않는다.** 비워 보내면 서버가 KRX 로 접으므로 NXT 슬롯은
+ *    영원히 조회되지 않는다 — 그런데 msg_type 카운터는 정상으로 보인다 (36/37/38 이
+ *    `buildArmLatchReq` 를 따로 두는 것과 같은 이유다).
+ *
+ * ★ 조립기에 **기본 거래소를 두지 않는다** — 호출부가 두 거래소를 명시로 순회한다.
+ *
+ * 전략이 없으면 서버는 **테이블 없는 빈 61** 을 보낸다(무응답 금지). 그 빈 응답에는 거래소가
+ * 없으므로 Hub 가 **요청 거래소 FIFO** 로 귀속한다 (Pitfall 3).
  */
-export function buildGetVITriggerReq(): Uint8Array {
-  return buildBareRequest(MSG.GetVITriggerReq);
+export function buildGetVITriggerReq(exchange: RelayExchange): Uint8Array {
+  const b = new flatbuffers.Builder(128);
+  // 문자열은 테이블을 열기 전에 만든다. 이름 있는 start/add/end 를 쓰는 것도 규율이다 (T-16-05).
+  const keyOff = b.createString(exchange);
+
+  GetStrategyReq.startGetStrategyReq(b);
+  GetStrategyReq.addKey(b, keyOff);
+  const table = GetStrategyReq.endGetStrategyReq(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.GetVITriggerReq);
+  Envelope.addGetStrategyReq(b, table);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
 }
 
 /** VI 주문 목록 조회 (MsgType 34). 응답 72 는 스냅샷이고 이후 73 이 편승 푸시된다. */

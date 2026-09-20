@@ -162,6 +162,15 @@ const ARM_LATCH_MSG_TYPE: Record<RelayLcArmMsg["latch"], ArmLatchMsgType> = {
 };
 
 /**
+ * 인증 직후 VI 설정 스냅샷을 내리는 거래소 (17-05 / D-06).
+ *
+ * VI 전략은 서버가 **거래소별 1건**으로 관리하므로 브라우저도 두 칸을 받아야 한다. Hub 의
+ * Ready 프리페치가 조회하는 거래소 집합과 같아야 한다 — 조회하지 않는 거래소는 영원히
+ * `undefined`(모름)라 여기서도 나가지 않는다.
+ */
+const VI_SNAPSHOT_EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
+
+/**
  * **전략 철거(삭제) 요청의 최종 시장 폴백** (GC-WR-04 / T-16-55).
  *
  * 등록·수정에서는 이 값을 절대 쓰지 않는다 — 기본값 `"K"` 로 메우면 코스닥 전략이 코스피로
@@ -588,11 +597,12 @@ export class WsFanout {
     //    면 **보내지 않는다** — 지어낸 「미등록」을 내리면 브라우저가 사용자가 입력 중인
     //    금액을 지운다 (16-06 결정 2). `null`(조회 결과 미등록)은 확정이므로 보낸다.
     this.#send(conn, { t: "lc.snap", items: this.#hub.getLimitChasers(userId) });
-    const viTrigger = this.#hub.getViTrigger(userId);
-    // `x` 는 거래소별 프레임의 축이다 (D-06). 미등록(`null`)의 거래소 귀속은 17-05 소관 —
-    // 지금은 KRX 하나만 조회하므로 `"KRX"` 가 사실과 어긋나지 않는다.
-    if (viTrigger !== undefined) {
-      this.#send(conn, { t: "vi", x: viTrigger?.exchange ?? "KRX", cfg: viTrigger });
+    // VI 설정은 **거래소별 1건**이라 두 거래소를 모두 내린다 (17-05 / D-06). 3상태 규율은
+    // 거래소마다 **독립**이다 — KRX 는 알고 NXT 는 아직 모르는 상태가 정상이고, 그때
+    // NXT 프레임을 지어내면 브라우저가 NXT 칸의 입력값을 지운다.
+    for (const exchange of VI_SNAPSHOT_EXCHANGES) {
+      const viTrigger = this.#hub.getViTrigger(userId, exchange);
+      if (viTrigger !== undefined) this.#send(conn, { t: "vi", x: exchange, cfg: viTrigger });
     }
     this.#send(conn, { t: "vi.list", snap: true, items: this.#hub.getViOrders(userId) });
 

@@ -1,16 +1,17 @@
 /**
  * Phase 16 Plan 06 — TRADE-03. `SubscriptionHub` 전략 캐시 단위 테스트.
  *
- * 검증 대상은 **전략 회계**다 — Ready 프리페치 24/21/34 각 1회(D-12)와 그 이후의 재조회
- * 0건(D-13), 60 의 `crud:"D"` 삭제(Pitfall 7), 64/72 전량 교체 vs 73 항목 upsert,
- * 65 가 캐시를 고치지 않는다는 것, 세션 교체 시 3맵 폐기, 그리고 사용자 간 누출 0(T-16-02).
+ * 검증 대상은 **전략 회계**다 — Ready 프리페치 24/34 각 1회 + 21 거래소별 2회(D-12 / 17-05
+ * D-06)와 그 이후의 재조회 0건(D-13), 60 의 `crud:"D"` 삭제(Pitfall 7), 64/72 전량 교체 vs
+ * 73 항목 upsert, 65 가 캐시를 고치지 않는다는 것, 빈 61 의 **요청 거래소 FIFO 귀속**,
+ * 세션 교체 시 3맵 + FIFO 폐기, 그리고 사용자 간 누출 0(T-16-02).
  *
  * `hub.test.ts` 의 규율을 그대로 승계한다:
  *   - 세션은 **가짜 객체**다. 세션 상태기계는 15-03 이 소켓까지 붙여 이미 증명했다.
  *   - 게이트웨이로 나간 바이트를 **실제 FlatBuffers 로 되읽어** 단언한다 — "보냈다고
- *     주장하는 것"이 아니라 "무엇을 보냈는가"를 본다. 전략 조회 3종(24/21/34)은 본문이
- *     없는 빈 Envelope 라 `msg_type` 이 검증할 수 있는 전부이고, 그래서 더더욱 문자열
- *     매칭이 아니라 디코드로 확인해야 한다.
+ *     주장하는 것"이 아니라 "무엇을 보냈는가"를 본다. 24/34 는 본문이 없는 빈 Envelope 라
+ *     `msg_type` 이 검증할 수 있는 전부이고, **21 은 `get_strategy_req.key` 슬롯에 거래소를
+ *     싣는다** — 그래서 더더욱 문자열 매칭이 아니라 디코드로 확인해야 한다.
  *
  * ⚠️ 나가는 프레임은 요청 대역(21/24/34)이라 `tryParseEnvelope` 로 읽을 수 없다
  *    (그 함수는 **수신** 화이트리스트다). `Envelope.getRootAsEnvelope` 를 직접 쓴다.
@@ -147,20 +148,21 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     vi.useRealTimers();
   });
 
-  it("① Ready 직후 24·21·34 를 각각 1회 보낸다 (D-12 프리페치)", () => {
+  it("① Ready 직후 전략 조회가 **4건** 나간다 — 24·34 각 1회 + 21 거래소별 2회 (D-12 / 17-05)", () => {
     session.emitReady();
 
-    // 디코드한 msg_type 으로 단언한다 — 요청 본문이 없어 이것이 계약의 전부다.
+    // 디코드한 msg_type 으로 단언한다 — 24·34 는 요청 본문이 없어 이것이 계약의 전부다.
     expect(session.strategyReqCount(MSG.GetLimitChaserListReq)).toBe(1);
-    expect(session.strategyReqCount(MSG.GetVITriggerReq)).toBe(1);
     expect(session.strategyReqCount(MSG.GetVIOrderListReq)).toBe(1);
-    // 순서는 계약이 아니지만 3종이 **연속으로** 나간다(중간에 다른 왕복이 끼지 않는다).
+    // 21 은 2회다. **어느 거래소인가**는 ①-2 가 페이로드를 디코드해 본다.
+    expect(session.strategyReqCount(MSG.GetVITriggerReq)).toBe(2);
+    // 순서는 계약이 아니지만 네 요청이 **연속으로** 나간다(중간에 다른 왕복이 끼지 않는다).
     const strategyOnly = session.sentMsgTypes.filter((m) =>
       [MSG.GetLimitChaserListReq, MSG.GetVITriggerReq, MSG.GetVIOrderListReq].includes(
         m as (typeof MSG)["GetLimitChaserListReq"],
       ),
     );
-    expect(strategyOnly).toHaveLength(3);
+    expect(strategyOnly).toHaveLength(4);
   });
 
   it("①-2 21 은 KRX·NXT 2회다 — 24·34 는 각 1회 그대로 (17-05 / D-06)", () => {
@@ -249,7 +251,9 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     hub.attach(next);
     next.emitReady();
     expect(next.strategyReqCount(MSG.GetLimitChaserListReq)).toBe(1);
-    expect(next.strategyReqCount(MSG.GetVITriggerReq)).toBe(1);
+    // 재접속에서도 21 은 거래소별 2회다 — 한 쪽만 다시 조회하면 그 칸만 최신이 된다.
+    expect(next.strategyReqCount(MSG.GetVITriggerReq)).toBe(2);
+    expect(next.viGetExchanges()).toEqual(["KRX", "NXT"]);
     expect(next.strategyReqCount(MSG.GetVIOrderListReq)).toBe(1);
   });
 
@@ -298,18 +302,25 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
 
   it("⑥ 빈 61 은 파손이 아니라 미등록이다 — cfg:null 을 저장하고 그대로 내린다", () => {
     // 조회 전에는 「모른다」(undefined) 이고, 이때는 프레임을 지어내지 않는다.
-    expect(hub.getViTrigger(USER_A)).toBeUndefined();
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
 
+    // 21 을 보내야 빈 61 을 귀속할 FIFO 가 생긴다 (17-05) — Ready 가 KRX·NXT 순으로 보낸다.
+    session.emitReady();
     session.pushFrame(buildSetVITriggerRespFrame(null));
 
-    expect(hub.getViTrigger(USER_A)).toBeNull();
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeNull();
     const vi = msgsOf(fanout, "vi") as RelayViTriggerMsg[];
     expect(vi).toHaveLength(1);
     expect(vi[0]?.cfg).toBeNull();
+    expect(vi[0]?.x).toBe("KRX");
 
-    // 등록본이 오면 덮인다.
+    // 등록본이 오면 **그 거래소 칸이** 덮인다.
     session.pushFrame(buildSetVITriggerRespFrame({ run: true, checkRate: 25 }));
-    expect(hub.getViTrigger(USER_A)).toMatchObject({ run: true, checkRate: 25, priceType: "U" });
+    expect(hub.getViTrigger(USER_A, "KRX")).toMatchObject({
+      run: true,
+      checkRate: 25,
+      priceType: "U",
+    });
   });
 
   it("⑦ 72 는 전량 교체, 73 은 항목 upsert 다 — 중복 누적 0", () => {
@@ -375,7 +386,8 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     session.pushFrame(buildSetVITriggerRespFrame({ run: true }));
     session.pushFrame(buildViOrderListFrame([{ orderNo: "0001" }], true));
     expect(hub.getLimitChasers(USER_A)).toHaveLength(1);
-    expect(hub.getViTrigger(USER_A)).not.toBeNull();
+    // 등록본(61)은 본문의 거래소가 정본이다 — 픽스처 기본값은 슬롯 부재 = KRX.
+    expect(hub.getViTrigger(USER_A, "KRX")).not.toBeNull();
     expect(hub.getViOrders(USER_A)).toHaveLength(1);
 
     hub.attach(new FakeSession(USER_A));
@@ -383,8 +395,9 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     expect(hub.getLimitChasers(USER_A)).toHaveLength(0);
     expect(hub.getViOrders(USER_A)).toHaveLength(0);
     // 「미등록(null)」이 아니라 「모름(undefined)」으로 돌아가야 한다 —
-    // null 로 남으면 새 세션의 61 이 오기 전에 사용자 입력이 지워진다.
-    expect(hub.getViTrigger(USER_A)).toBeUndefined();
+    // null 로 남으면 새 세션의 61 이 오기 전에 사용자 입력이 지워진다. 두 칸 모두다.
+    expect(hub.getViTrigger(USER_A, "KRX")).toBeUndefined();
+    expect(hub.getViTrigger(USER_A, "NXT")).toBeUndefined();
   });
 
   it("⑩ 전략 팬아웃·캐시는 사용자 간 교차하지 않는다 (T-16-02)", () => {

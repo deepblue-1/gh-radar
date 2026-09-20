@@ -237,6 +237,24 @@ function viPendingKey(userId: string, item: RelayViOrderItem): string {
 }
 
 /**
+ * VI 전략 캐시 키 (17-05 / D-06). 서버가 **거래소별 1건**으로 관리하므로 캐시도 거래소별이다.
+ *
+ * `userId` 만으로 키를 잡으면 NXT 응답이 KRX 행을 덮어 「KRX 에 등록했는데 NXT 설정이 보인다」가
+ * 된다. 앞에 `userId` 를 붙이는 규율은 `subKey` 와 같다 (T-16-02).
+ */
+function viTriggerKey(userId: string, exchange: RelayExchange): string {
+  return `${userId}|${exchange}`;
+}
+
+/**
+ * Ready 프리페치가 VI 전략을 조회하는 거래소 (17-05 / D-06).
+ *
+ * **순서가 곧 FIFO 귀속 순서**다 — 빈 61 에는 거래소가 없어 요청 순서가 유일한 근거이므로,
+ * 여기 순서와 `#pendingViGets` 에 넣는 순서가 어긋나면 두 칸이 통째로 바뀐다.
+ */
+const VI_PREFETCH_EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
+
+/**
  * 구독 참조계수 + 스냅샷 캐시의 단일 정본.
  *
  * 사용법: 세션을 얻은 직후 `attach(session)` → 브라우저 `sub`/`unsub` 마다
@@ -274,13 +292,31 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #limitChasers = new Map<string, RelayLimitChaser>();
   /**
-   * `userId` → VI 전략 (계좌당 1건이 아니라 **세션당 1건**이다 — 서버가 그렇게 준다).
+   * `${userId}|${exchange}` → VI 전략 (17-05 / D-06).
+   *
+   * 서버는 VI 전략을 **세션당 거래소별 1건**(KRX 1 + NXT 1)으로 관리한다. 한 칸으로 두면
+   * 나중에 온 거래소의 답이 앞 칸을 덮어, KRX 에 등록한 사용자가 NXT 의 「미등록」을 본다.
    *
    * **`null` 을 명시로 저장한다.** 「조회했더니 미등록」(`null`)과 「아직 조회한 적 없음」
    * (키 부재 = `getViTrigger` 가 `undefined`)은 다른 상태다. 둘을 뭉개면 인증 직후
    * 팬아웃이 「미등록」을 지어내 보내고, 브라우저가 사용자가 입력한 금액을 지운다.
+   * **거래소마다 독립으로** 이 3상태를 판정한다.
    */
   readonly #viTriggers = new Map<string, RelayViTrigger | null>();
+  /**
+   * `userId` → **보낸 21 요청의 거래소 FIFO** (17-05 / D-06 / Pitfall 3 — C# `_pendingViGets`).
+   *
+   * 미등록 응답(빈 61)에는 본문이 없어 **거래소가 실리지 않는다**. 요청 순서가 그 응답을
+   * 귀속할 유일한 근거다. 규약 4개(C# `Client.cs:2187-2214`, `:3038`):
+   *   (a) 본문 없음 → head 를 **꺼내** 귀속한다. 큐가 비면 귀속 실패 — 캐시를 고치지 않는다.
+   *   (b) 본문 있고 거래소 == head → 내 요청의 답이므로 head 를 버린다.
+   *   (c) 본문 있고 거래소 != head → 팬아웃 에코(Set/Disable/푸시)다 — 큐를 건드리지 않는다.
+   *   (d) 세션 교체·재로그인 → **비운다**. 남기면 다음 세션의 빈 응답이 옛 거래소로 귀속된다.
+   *
+   * ⚠️ 상따 `lc.arm`·`lc.set` 은 이 큐에 넣지 않는다 — 그 응답은 본문에 키가 있는 60 에코라
+   *    귀속이 필요 없고, 넣으면 head 를 아무도 꺼내지 않아 다음 빈 61 이 옛 값으로 귀속된다.
+   */
+  readonly #pendingViGets = new Map<string, RelayExchange[]>();
   /**
    * `${userId}|${orderNo}` (접수 전은 `viPendingKey`) → VI 주문 추적 1건.
    *
@@ -462,10 +498,16 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 전략 스냅샷 3종을 1회 요청한다 (D-12) — 24(상따 목록) · 21(VI 설정) · 34(VI 주문 목록).
+   * 전략 스냅샷 3종을 요청한다 (D-12) — 24(상따 목록) · 21(VI 설정) · 34(VI 주문 목록).
    *
-   * 셋 다 요청 본문이 없는 빈 Envelope 다. 순서는 계약이 아니지만 목록 → 설정 → 추적 순으로
-   * 두면 로그가 화면 구성 순서와 같이 읽힌다.
+   * **21 만 2회다** (17-05 / D-06): VI 전략은 서버가 거래소별 1건으로 관리하므로 KRX·NXT
+   * 각각을 조회해야 한다. 24·34 는 거래소 축이 없어 1회 그대로다.
+   *
+   * 보낸 거래소를 **보낸 순서대로** `#pendingViGets` 에 넣는다 — 거래소를 담지 않는 빈 61 을
+   * 귀속할 유일한 근거다. 넣기 전에 옛 큐를 비운다: 새 Ready 는 새 연결이고, 옛 요청의
+   * 응답은 영영 오지 않는다 (규칙 (d)).
+   *
+   * 순서는 계약이 아니지만 목록 → 설정 → 추적 순으로 두면 로그가 화면 구성 순서와 같이 읽힌다.
    *
    * **트리거는 `ready` 하나뿐이다** (`requestAccountState` 와 같은 자리 — Pitfall 4).
    * D-13 에 따라 주기 재조회 타이머도, 브라우저가 부를 수 있는 수동 재조회 진입점도
@@ -482,9 +524,21 @@ export class SubscriptionHub extends EventEmitter {
       return;
     }
     session.send(buildGetLimitChaserListReq());
-    session.send(buildGetVITriggerReq());
+
+    // 옛 큐는 여기서 끝난다 — 이 Ready 이전에 보낸 21 의 응답은 이제 오지 않는다.
+    const queue: RelayExchange[] = [];
+    this.#pendingViGets.set(userId, queue);
+    for (const exchange of VI_PREFETCH_EXCHANGES) {
+      // 보내지 못한 요청은 큐에 넣지 않는다 — 넣으면 오지 않을 응답이 head 를 영원히 막고,
+      // 그 뒤의 빈 61 이 한 칸씩 밀려 엉뚱한 거래소로 귀속된다 (C# `SendGetVITrigger` 동형).
+      if (session.send(buildGetVITriggerReq(exchange))) queue.push(exchange);
+    }
+
     session.send(buildGetVIOrderListReq());
-    logger.info({ userId }, "[HUB] Ready — 전략 스냅샷 3종 요청");
+    logger.info(
+      { userId, viExchanges: [...queue] },
+      "[HUB] Ready — 전략 스냅샷 요청 (21 은 거래소별 2회)",
+    );
   }
 
   // ----------------------------------------------------------
@@ -522,14 +576,15 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
-   * 그 사용자의 VI 전략.
+   * 그 사용자의 **그 거래소** VI 전략 (17-05 / D-06).
    *
    * **반환값 3종을 구분해야 한다**: `RelayViTrigger` = 등록됨, `null` = 조회 결과 미등록,
-   * `undefined` = **아직 모른다**(61 을 한 번도 못 받았다). `undefined` 일 때는 프레임을
-   * 내리지 않는다 — 지어낸 「미등록」을 보내면 브라우저가 사용자가 입력 중인 금액을 지운다.
+   * `undefined` = **아직 모른다**(그 거래소의 61 을 한 번도 못 받았다). `undefined` 일 때는
+   * 프레임을 내리지 않는다 — 지어낸 「미등록」을 보내면 브라우저가 사용자가 입력 중인 금액을
+   * 지운다. 판정은 **거래소마다 독립**이다(KRX 는 알고 NXT 는 모르는 상태가 정상이다).
    */
-  getViTrigger(userId: string): RelayViTrigger | null | undefined {
-    return this.#viTriggers.get(userId);
+  getViTrigger(userId: string, exchange: RelayExchange): RelayViTrigger | null | undefined {
+    return this.#viTriggers.get(viTriggerKey(userId, exchange));
   }
 
   /** 그 사용자의 VI 주문 추적 전량 복사본. `{t:"vi.list", snap:true}` 재생에 쓴다. */
@@ -625,6 +680,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#accountStates.clear();
     this.#limitChasers.clear();
     this.#viTriggers.clear();
+    this.#pendingViGets.clear();
     this.#viOrders.clear();
     this.#rateCrossItems.clear();
     this.#queuedWindows.clear();
@@ -980,18 +1036,49 @@ export class SubscriptionHub extends EventEmitter {
    * VI 전략 에코 (61). `cfg === null` 은 **미등록**이며 그 사실도 캐시에 명시로 남긴다 —
    * 「조회했더니 없다」와 「아직 조회한 적 없다」를 구분하기 위해서다.
    *
+   * **귀속(어느 거래소의 답인가)이 이 함수의 핵심이다** (17-05 / D-06 / Pitfall 3).
+   * 등록본은 **본문의 `cfg.exchange` 가 정본**이고(서버 `BuildVITriggerEcho` 가 반드시 싣는다),
+   * 미등록은 본문 자체가 없어 `#pendingViGets` FIFO 의 head 로만 귀속된다. FIFO 가 비어
+   * 귀속할 수 없으면 **캐시를 고치지 않는다** — 지어낸 거래소로 귀속하면 사용자가 입력 중인
+   * 금액이 엉뚱한 칸에서 지워진다 (T-17-16). 서버 진실을 relay 가 재계산하지 않는 규율이다.
+   *
    * ⚠️ 15:40 서버 자동 비활성화의 `run=false` 는 Broadcast 라 유실될 수 있다 (Pitfall 19).
    *    D-13 이 주기 재조회를 금지하므로 여기서 메우지 않는다 — 브라우저가 장 마감 표시로
    *    오해를 막는다.
    */
   #onViTrigger(userId: string, cfg: RelayViTrigger | null): void {
-    this.#viTriggers.set(userId, cfg);
-    logger.info({ userId, registered: cfg !== null, run: cfg?.run ?? false }, "[HUB] VI 전략 수신");
-    // 프레임은 **거래소별**이다 (D-06). 등록분은 파싱된 `cfg.exchange` 가 원천이고,
-    // 미등록(`cfg === null`)은 본문에 거래소가 없어 지금은 `"KRX"` 로만 말할 수 있다 —
-    // 21 을 KRX 만 보내는 현재 동작과 정확히 같다. 21 을 두 거래소로 넓히고 빈 61 을
-    // 요청 거래소 FIFO 로 귀속하는 것은 17-05 다.
-    this.#fanout(userId, { t: "vi", x: cfg?.exchange ?? "KRX", cfg });
+    const queue = this.#pendingViGets.get(userId);
+    let exchange: RelayExchange;
+
+    if (cfg === null) {
+      // (a) 본문 없음 → head 를 꺼내 귀속한다.
+      const head = queue?.shift();
+      if (head === undefined) {
+        // 귀속 실패. 어느 칸의 답인지 모르는 「미등록」은 **아무 칸에도 쓰지 않는다** —
+        // 팬아웃도 하지 않는다(거래소 없는 `vi` 프레임은 계약에 없다).
+        logger.warn(
+          { userId },
+          "[HUB] 거래소를 담지 않은 빈 61 인데 요청 FIFO 가 비었다 — 귀속 불가, 캐시 무변경",
+        );
+        return;
+      }
+      exchange = head;
+    } else {
+      exchange = cfg.exchange;
+      // (b) 본문의 거래소 == head → 내 21 의 답이므로 head 를 버린다.
+      // (c) 다르면 팬아웃 에코(Set/Disable/푸시)다 — 큐를 건드리지 않는다. 꺼내면 뒤이어 올
+      //     빈 61 이 한 칸 밀려 엉뚱한 거래소로 귀속된다.
+      if (queue !== undefined && queue[0] === exchange) queue.shift();
+    }
+
+    this.#viTriggers.set(viTriggerKey(userId, exchange), cfg);
+    logger.info(
+      { userId, exchange, registered: cfg !== null, run: cfg?.run ?? false },
+      "[HUB] VI 전략 수신",
+    );
+    // 프레임은 **거래소별**이다 (D-06). `cfg === null`(미등록)일 때도 `x` 가 실린다 —
+    // 어느 거래소가 미등록인지 말해야 브라우저가 두 칸을 구분한다.
+    this.#fanout(userId, { t: "vi", x: exchange, cfg });
   }
 
   /**
@@ -1238,9 +1325,15 @@ export class SubscriptionHub extends EventEmitter {
     for (const key of [...this.#limitChasers.keys()]) {
       if (key.startsWith(prefix)) this.#limitChasers.delete(key);
     }
-    // VI 설정은 키가 userId 자체다 — 지우면 `getViTrigger` 가 다시 `undefined`(모름)가 되고,
-    // 새 세션의 61 이 도착할 때까지 아무 프레임도 내리지 않는다.
-    this.#viTriggers.delete(userId);
+    // VI 설정은 **거래소별**이라 두 칸을 다 지운다 (17-05 / D-06) — 지우면 `getViTrigger` 가
+    // 다시 `undefined`(모름)가 되고, 새 세션의 61 이 도착할 때까지 아무 프레임도 내리지 않는다.
+    for (const key of [...this.#viTriggers.keys()]) {
+      if (key.startsWith(prefix)) this.#viTriggers.delete(key);
+    }
+    // 21 요청 FIFO 도 **반드시** 비운다 (규칙 (d) — C# `Client.cs:3038` 동형). 끊기면 아직
+    // 답을 못 받은 조회는 영영 오지 않는다. 남겨 두면 다음 세션의 빈 61 이 옛 거래소로
+    // 귀속돼 엉뚱한 칸이 「미등록」으로 내려간다.
+    this.#pendingViGets.delete(userId);
     for (const key of [...this.#viOrders.keys()]) {
       if (key.startsWith(prefix)) this.#viOrders.delete(key);
     }

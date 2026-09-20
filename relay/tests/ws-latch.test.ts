@@ -503,18 +503,37 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
   });
 
   /*
-    Pitfall 3 / T-17-14 — 래치 요청은 pending-key FIFO 에 들어가지 않는다.
+    Pitfall 3 / T-17-14 / T-17-16 — 래치 요청은 **어떤 FIFO 에도** 들어가지 않는다.
 
     60 에코는 본문에 키가 있어 귀속이 필요 없다. 그런데도 요청을 큐에 넣으면 그 head 를
     아무도 꺼내지 않아, **다음 빈 응답**이 옛 키로 귀속된다(C# VI Get 의 같은 함정).
 
-    지금 relay 의 빈 61 귀속은 「거래소 정보가 없으므로 `"KRX"`」다 — 21 을 KRX 한 번만
-    보내는 현행 동작과 같다(`subscription-hub.ts` `#onViTrigger`). 21 을 두 거래소로 넓히고
-    요청 거래소 FIFO 를 세우는 것은 17-05 이므로, 여기서는 **17-05 이전의 현행 동작**을
-    기준선으로 박는다: 래치를 몇 번 보내든 빈 61 의 귀속이 달라지지 않는다.
+    ★ 17-04 는 여기에 「빈 61 은 언제나 `x:"KRX"`」를 기준선으로 박아 두고 17-05 에 판단을
+      넘겼다. 17-05 가 21 을 거래소별 2회로 넓히고 요청 거래소 FIFO 를 세우면서 그 기준선은
+      **의도적으로 바뀐다** — 그리고 더 강해진다:
+
+        (이전) 귀속할 근거가 없으면 `"KRX"` 라고 말한다.
+        (지금) 귀속할 근거가 없으면 **아무 말도 하지 않는다** (캐시 무변경 · 팬아웃 0).
+
+      Ready 프리페치가 보낸 21 두 건의 답은 이 시점에 이미 소비돼 FIFO 가 비어 있다. 그
+      상태에서 온 빈 61 은 어느 칸의 답인지 알 수 없고, 지어낸 거래소로 귀속하면 사용자가
+      입력 중인 금액이 엉뚱한 칸에서 지워진다. 「서버 진실을 클라이언트가 재계산하지
+      않는다」가 여기서도 같은 답을 준다.
+
+      래치 3연타가 FIFO 를 오염시키지 않는다는 **원래의 검증 의도는 그대로**다 — 오히려
+      래치 키가 쓰이지 않는다는 것을 "KRX 로 폴백했다" 가 아니라 "아무 칸도 건드리지
+      않았다" 로 확인하므로 더 좁다.
   */
-  it("③-3 lc.arm 3연타 뒤 빈 61 은 여전히 미등록으로 귀속된다 — FIFO 가 오염되지 않았다", async () => {
+  it("③-3 lc.arm 3연타 뒤 귀속 근거 없는 빈 61 은 어느 칸도 건드리지 않는다 (17-05 / T-17-16)", async () => {
     const { ws, inbox } = await authed("token-a");
+    await flushIo(30);
+
+    // Ready 프리페치가 21 을 KRX·NXT 로 보냈고 스텁이 둘 다 빈 61 로 답했다 — 두 칸 모두
+    // 「미등록」으로 확정돼 프레임이 2건이다. 여기까지가 FIFO 가 정상 소비된 모습이다.
+    expect(framesOf(inbox, "vi")).toEqual([
+      { t: "vi", x: "KRX", cfg: null },
+      { t: "vi", x: "NXT", cfg: null },
+    ]);
     const viBefore = framesOf(inbox, "vi").length;
 
     for (const latch of ["sell", "cancel", "buy"] as const) {
@@ -522,13 +541,12 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     }
     await waitFor(() => armReqs().length === 3, "36·37·38 3연타 송신");
 
-    // VI 미등록 = 테이블 없는 빈 61. 본문에 거래소도 키도 없다.
+    // VI 미등록 = 테이블 없는 빈 61. 본문에 거래소도 키도 없고, 짝지을 21 도 남아 있지 않다.
     gateway.sendFrame(gatewaySocket(), buildSetVITriggerRespFrame(null));
-    await waitFor(() => framesOf(inbox, "vi").length === viBefore + 1, "빈 61 귀속");
-    await flushIo(30);
+    await flushIo(50);
 
-    // 옛 키(래치 요청의 전략 키)로 귀속되지 않는다 — 미등록 그대로다.
-    expect(framesOf(inbox, "vi").at(-1)).toEqual({ t: "vi", x: "KRX", cfg: null });
+    // 래치 키로도, 지어낸 "KRX" 로도 귀속되지 않는다 — 새 `vi` 프레임이 없다.
+    expect(framesOf(inbox, "vi")).toHaveLength(viBefore);
     // 빈 61 이 상따 에코로 새지도 않는다.
     expect(framesOf(inbox, "lc")).toHaveLength(0);
   });

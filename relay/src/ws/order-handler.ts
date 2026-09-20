@@ -52,6 +52,7 @@ import type {
   OrderMarket,
   OrderSide,
   RelayAccount,
+  RelayExchange,
   RelayLimitChaser,
   RelayOrderCancelMsg,
   RelayOrderNewMsg,
@@ -104,8 +105,11 @@ export interface OrderNoticeSource {
   on(event: "order", listener: (e: HubOrderEvent) => void): unknown;
   /** 상따 전략 캐시. 자동주문 통보의 계좌·시장 출처다. */
   getLimitChasers(userId: string): RelayLimitChaser[];
-  /** VI 전략 캐시. `undefined` = 아직 조회 못 함, `null` = 미등록 (16-06 3상태). */
-  getViTrigger(userId: string): RelayViTrigger | null | undefined;
+  /**
+   * VI 전략 캐시 — **거래소별**이다 (17-05 / D-06).
+   * `undefined` = 그 거래소를 아직 조회 못 함, `null` = 미등록 (16-06 3상태).
+   */
+  getViTrigger(userId: string, exchange: RelayExchange): RelayViTrigger | null | undefined;
 }
 
 /** `dma_orders` 쓰기 창구 중 이 모듈이 쓰는 부분만 (D-03). */
@@ -726,7 +730,9 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       const hit = deps.hub.getLimitChasers(userId).find((lc) => lc.isin === notice.isin);
       return hit === undefined ? null : { accountNo: hit.accountNo, market: hit.market };
     }
-    const vi = deps.hub.getViTrigger(userId);
+    // VI 전략은 거래소별 1건이다 (17-05 / D-06) — 통보가 실어 온 **그 거래소의** 전략에서
+    // 계좌를 읽는다. 거래소를 지어내 고르면 NXT 발주의 감사 행에 KRX 계좌가 남는다.
+    const vi = deps.hub.getViTrigger(userId, notice.exchange);
     // `undefined`(아직 조회 못 함)와 `null`(미등록) 둘 다 「계좌를 모른다」로 수렴한다.
     return vi === null || vi === undefined ? null : { accountNo: vi.accountNo, market: null };
   }

@@ -1206,19 +1206,27 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
     expect(() => buildDisableStrategiesReq("가".repeat(22))).toThrow(/64B/);
   });
 
-  it("⑨ 본문 없는 요청 3종(24/21/34)은 msg_type 만 싣는다", () => {
+  it("⑨ 본문 없는 요청은 **2종(24/34)** 이다 — 21 은 거래소를 싣는다 (17-05 / D-06)", () => {
     const list = readBack(buildGetLimitChaserListReq());
     expect(list.msgType()).toBe(MSG.GetLimitChaserListReq);
     expect(list.setLimitChaser()).toBeNull();
     expect(list.limitChaserList()).toBeNull();
-
-    const vi = readBack(buildGetVITriggerReq());
-    expect(vi.msgType()).toBe(MSG.GetVITriggerReq);
-    expect(vi.getStrategyReq()).toBeNull();
+    expect(list.getStrategyReq()).toBeNull();
 
     const orders = readBack(buildGetVIOrderListReq());
     expect(orders.msgType()).toBe(MSG.GetVIOrderListReq);
     expect(orders.viOrderList()).toBeNull();
+    expect(orders.getStrategyReq()).toBeNull();
+
+    // ★ 21 은 더 이상 빈 Envelope 가 아니다 (17-05 가 바꾼 불변식).
+    //   서버 `Gateway::ProcessGetVITrigger` 는 `get_strategy_req.key` **문자열로 거래소 슬롯을
+    //   고른다** — 빈 키는 KRX 로 접히므로, 본문을 비우면 NXT 슬롯은 영원히 조회되지 않는다
+    //   (`StockDMA.fbs:642-648` 「GetVITriggerReq(21) 에서는 거래소 문자열」).
+    for (const exchange of ["KRX", "NXT"] as const) {
+      const vi = readBack(buildGetVITriggerReq(exchange));
+      expect(vi.msgType()).toBe(MSG.GetVITriggerReq);
+      expect(vi.getStrategyReq()!.key()).toBe(exchange);
+    }
   });
 
   it("⑩ 요청 7종은 수신 화이트리스트를 통과하지 못한다 (반사 프레임 방어)", () => {
@@ -1234,7 +1242,7 @@ describe("전략 요청 조립 (16-04 / T-16-05·T-16-06)", () => {
       buildDisableStrategiesReq(),
       buildConfirmVIOrderReq({ orderNo: "0001234567", confirmed: false }),
       buildGetLimitChaserListReq(),
-      buildGetVITriggerReq(),
+      buildGetVITriggerReq("KRX"),
       buildGetVIOrderListReq(),
     ]) {
       expect(tryParseEnvelope(Buffer.from(bytes))).toBeNull();
