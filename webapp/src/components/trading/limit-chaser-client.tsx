@@ -1276,6 +1276,14 @@ function StockSearchField({
    * Enter 가 엉뚱한 종목을 고르는 상태다(실계좌 발주 설정이므로 조용한 오발주다).
    * 코드로 들고 있으면 그 종목이 새 목록에 없을 때 아래 `activeRow` 파생이 **스스로 null** 이
    * 된다 — 초기화를 잊는 경로가 아예 없다.
+   *
+   * ★ 결과가 도착하면 **새 목록의 첫 번째 고를 수 있는 행**이 활성으로 들어온다(헤더 ⌘K
+   *   검색과 같은 감각 — 입력하고 Enter 한 번으로 고른다). 이전 T-u58-01 은 「첫 항목 자동
+   *   선택 금지」였는데, 그 위험의 실체는 **활성이 화면과 갈라지는 것**이었다: 인덱스로 들고
+   *   있으면 목록이 갱신될 때 같은 숫자가 다른 종목을 가리켰다. 코드로 들고 있고 활성 행에
+   *   배경·`aria-selected`·`aria-activedescendant` 가 함께 따라붙는 지금은, Enter 가 고르는
+   *   종목이 **사용자가 보고 있는 그 행**이다. 갱신 때마다 새 목록의 첫 행으로 다시 계산하는
+   *   것이 그 계약을 지키는 지점이다(오래된 코드를 이어받지 않는다).
    */
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1335,8 +1343,12 @@ function StockSearchField({
         .then((rows) => {
           if (controller.signal.aborted) return;
           setResults(rows);
-          // 새 목록에는 활성 항목이 없다 — 다른 종목을 가리킨 채로 Enter 를 받지 않는다.
-          setActiveCode(null);
+          /*
+            새 목록의 **첫 번째 고를 수 있는 행**을 활성으로 세운다 — 이전 질의의 코드를
+            이어받지 않으므로 「다른 종목을 가리킨 채로 Enter 를 받는」 상태는 여전히 없다.
+            고를 수 있는 행이 없으면 null 이다(Enter 는 조용하다).
+          */
+          setActiveCode(rows.find(isPickable)?.code ?? null);
           setLoading(false);
         })
         .catch(() => {
@@ -1480,8 +1492,10 @@ function StockSearchField({
           if (e.key === "Enter") {
             /*
               ★ 활성 항목이 없어도 `preventDefault` 는 한다 — `type="search"` 의 Enter 가
-                조상 폼 제출로 새는 경로를 여기서 끊는다. 다만 **`onPick` 은 부르지 않는다**:
-                첫 항목 자동 선택은 「엉뚱한 종목이 실계좌 발주 설정이 되는」 문이다(T-u58-01).
+                조상 폼 제출로 새는 경로를 여기서 끊는다. 고를 수 있는 행이 하나도 없으면
+                `activeRow` 가 null 이라 `onPick` 은 불리지 않는다(조용하다).
+              ★ 결과가 오면 첫 행이 이미 활성이므로 보통은 여기서 바로 골라진다 — 그 활성은
+                배경·`aria-selected` 로 화면에 보이는 그 행이다(위 `activeCode` 주석).
             */
             e.preventDefault();
             if (activeRow) pick(activeRow);

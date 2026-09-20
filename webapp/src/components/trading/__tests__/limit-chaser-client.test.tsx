@@ -1548,10 +1548,7 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
   it('↓ 가 활성 항목을 내리고, `aria-activedescendant` 가 그 옵션의 `id` 와 정확히 맞는다', async () => {
     const input = await open([row(), row({ code: '000660', name: 'SK하이닉스' })]);
 
-    // 열린 직후에는 활성 항목이 없다 — 첫 항목을 자동으로 고르지 않는다.
-    expect(input.getAttribute('aria-activedescendant')).toBeNull();
-
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    // 결과가 뜨는 순간 첫 항목이 이미 활성이다 — Enter 한 번으로 고를 수 있다.
     expect(activeOption(input)).toBe(options()[0]);
     expect(options()[0]).toHaveAttribute('aria-selected', 'true');
     expect(options()[1]).toHaveAttribute('aria-selected', 'false');
@@ -1572,8 +1569,7 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
       row({ code: '000660', name: 'SK하이닉스' }),
     ]);
 
-    // 0 번(KONEX)은 건너뛰고 1 번이 첫 활성이다.
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    // 0 번(KONEX)은 건너뛰고 1 번이 첫 활성이다 — 자동 활성도 `isPickable` 을 지난다.
     expect(activeOption(input)).toBe(options()[1]);
 
     // 2 번(ISIN null)도 건너뛰고 3 번으로 간다.
@@ -1590,7 +1586,6 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
   it('Enter 가 활성 항목을 고른다 — `onPick` 이 정확히 1회, 기본 동작은 막힌다', async () => {
     const input = await open([row({ code: '000660', name: 'SK하이닉스', isin: 'KR7000660001' })]);
 
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
     const enter = createEvent.keyDown(input, { key: 'Enter', bubbles: true, cancelable: true });
     fireEvent(input, enter);
 
@@ -1606,14 +1601,21 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
     expect(screen.queryByLabelText('종목 검색')).toBeNull();
   });
 
-  it('활성 항목이 없으면 Enter 는 **아무 일도 하지 않는다** — 첫 항목 자동 선택 금지 (T-u58-01)', async () => {
-    const input = await open([row(), row({ code: '000660', name: 'SK하이닉스' })]);
+  it('↓ 없이 Enter 만 쳐도 **첫 항목**이 골라진다 — 헤더 검색과 같은 감각', async () => {
+    const input = await open([
+      row({ code: '000660', name: 'SK하이닉스', isin: 'KR7000660001' }),
+      row({ code: '005930', name: '삼성전자', isin: 'KR7005930003' }),
+    ]);
 
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    // 검색은 열린 채로 남고, 종목이 정해지지 않는다.
-    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="lc-stock-trigger"]')).not.toBeNull(),
+    );
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toHaveTextContent(
+      'SK하이닉스',
+    );
+    expect(screen.queryByLabelText('종목 검색')).toBeNull();
   });
 
   it('고를 수 있는 행이 하나도 없으면 ↓ 로도 활성이 생기지 않고 Enter 가 조용하다', async () => {
@@ -1622,6 +1624,9 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
       row({ code: '000002', name: '시장미상', isin: null }),
     ]);
 
+    // 자동 활성도 고를 수 있는 행이 없으면 생기지 않는다.
+    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     expect(input.getAttribute('aria-activedescendant')).toBeNull();
 
@@ -1630,26 +1635,31 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
     expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
   });
 
-  it('★ 목록이 갱신되면 활성 인덱스가 초기화된다 — 다른 종목을 가리킨 채로 Enter 를 받지 않는다', async () => {
+  it('★ 목록이 갱신되면 활성이 **새 목록의 첫 행**으로 다시 계산된다 — 이전 종목을 이어받지 않는다', async () => {
     const input = await open([row(), row({ code: '000660', name: 'SK하이닉스' })]);
 
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     expect(activeOption(input)).toBe(options()[1]);
 
     // 질의가 바뀌어 **다른 결과**가 온다.
     await search([row({ code: '005930', name: '삼성전자', isin: 'KR7005930003' })], '삼성');
 
-    expect(input.getAttribute('aria-activedescendant')).toBeNull();
+    // 이전 활성(000660)이 아니라 새 목록의 첫 행이다 — Enter 가 보이는 그 행을 고른다.
+    expect(activeOption(input)).toBe(options()[0]);
+    expect(options()[0]).toHaveTextContent('삼성전자');
+
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(screen.getByLabelText('종목 검색')).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="lc-stock-trigger"]')).not.toBeNull(),
+    );
+    expect(document.querySelector('[data-slot="lc-stock-trigger"]')).toHaveTextContent(
+      '삼성전자',
+    );
   });
 
   it('Esc 는 여전히 `onCancel` 을 부른다 — ↓/↑/Enter 를 얹어도 기존 계약이 살아 있다', async () => {
     // 이미 종목을 고른 상태에서 검색을 다시 연다(취소할 대상이 있어야 계약이 보인다).
     let input = await open([row({ code: '000660', name: 'SK하이닉스', isin: 'KR7000660001' })]);
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() =>
       expect(document.querySelector('[data-slot="lc-stock-trigger"]')).not.toBeNull(),
@@ -1657,7 +1667,6 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
     fireEvent.click(document.querySelector('[data-slot="lc-stock-trigger"]') as HTMLButtonElement);
 
     input = await search([row()]);
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'Escape' });
 
     expect(screen.queryByLabelText('종목 검색')).toBeNull();
