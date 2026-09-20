@@ -914,3 +914,54 @@ describe('AccountPanel — 취소보관 행 (17-09 / D-14)', () => {
     expect(unfilledCards()[0]!).toHaveTextContent(HELD);
   });
 });
+
+/**
+ * Phase 17 Plan 09 Task 3 — 예약·접수대기 서버 문구 표시 (TRADE-04 · D-07).
+ *
+ * ★ **표시만** 한다. 「대기」·「발사중」·「완료」 같은 상태 단어를 클라가 지어내면 서버가
+ *   아는 사실과 화면이 갈리고, 사용자는 갈린 쪽을 보고 주문을 낸다. 서버 문자열이
+ *   **한 글자도 달라지지 않고** 닿는지만 본다.
+ * ★ 두 값이 모두 빈 행(대다수)에는 아무 자리도 만들지 않는다 — 빈 보조 줄을 붙이면
+ *   표가 통째로 두꺼워진다.
+ */
+describe('AccountPanel — 예약·접수대기 서버 문구 (17-09 / D-07)', () => {
+  const QUEUED = '발사완료 미발주 3주';
+  const PENDING = '증권사 보관 · 09:00 처리';
+
+  function noteTexts(): string[] {
+    return Array.from(
+      unfilledRows()[0]!.querySelectorAll('[data-slot="account-unfilled-note"]'),
+    ).map((el) => el.textContent ?? '');
+  }
+
+  it('㉘ 예약 상태 문구가 **그대로** 보인다 (가공 없음)', () => {
+    renderPanel({
+      account: withUnfilled([unf({ orderNo: 'Q091533123', queuedStatus: QUEUED })]),
+    });
+    expect(noteTexts()).toEqual([QUEUED]);
+  });
+
+  it('㉙ 접수대기 문구가 **그대로** 보인다', () => {
+    renderPanel({ account: withUnfilled([unf({ pendingStatus: PENDING })]) });
+    expect(noteTexts()).toEqual([PENDING]);
+  });
+
+  it('㉚ 둘 다 있으면 둘 다 보인다 — 예약 먼저, 접수대기 다음', () => {
+    renderPanel({
+      account: withUnfilled([
+        unf({ orderNo: 'Q091533123', queuedStatus: QUEUED, pendingStatus: PENDING }),
+      ]),
+    });
+    expect(noteTexts()).toEqual([QUEUED, PENDING]);
+  });
+
+  it('㉛ 두 값이 모두 빈 행에는 보조 표시가 붙지 않는다 (표가 두꺼워지지 않는다)', () => {
+    renderPanel({ account: withUnfilled([unf()]) });
+    expect(document.querySelectorAll('[data-slot="account-unfilled-note"]')).toHaveLength(0);
+  });
+
+  it('㉜ 픽스처 3행(전부 빈 값)에도 보조 줄이 하나도 없다 — 어제의 표 그대로다', () => {
+    renderPanel();
+    expect(document.querySelectorAll('[data-slot="account-unfilled-note"]')).toHaveLength(0);
+  });
+});
