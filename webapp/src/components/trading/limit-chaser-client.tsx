@@ -466,6 +466,16 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   const basePrice = quote?.base ?? picked?.basePrice ?? 0;
   const currentPrice = quote?.p ?? picked?.price ?? 0;
   const changeRate = quote?.cr ?? picked?.changeRate ?? 0;
+  /**
+   * KRX 정규장 종가(`QuoteState.krx_close_price`). **오늘 종가가 아니면 `0`** 이다 (D-11).
+   *
+   * ★ 스냅샷 props 로 폴백하지 않는다 — `0` 은 「아직 안 왔다」가 아니라 「오늘 종가가
+   *   아니다」라는 **서버의 답**이라, 다른 출처로 메우면 없는 사실을 지어내는 것이 된다.
+   * ★ **벽시계로 판정하지 않는다.** 「지금이 장 마감 뒤인가」를 클라가 계산해 라벨을 바꾸면
+   *   서버 진실과 갈린다 — 이 갈래에 현재 시각·장 시간 상수를 들이지 말 것.
+   *   (`stock-orderbook-section` 이 17-08 에서 같은 규칙을 먼저 적용했다.)
+   */
+  const closePrice = quote?.kc ?? 0;
 
   // 실시간 상한가가 처음 도착하면 그 값으로 **한 번만** 다시 시딩한다(위 `liveSeed` 주석).
   useEffect(() => {
@@ -789,10 +799,26 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
               tone="text-[var(--up)]"
               order="@min-[700px]/lc:order-[6] @min-[992px]/lc:order-[0]"
             />
+            {/*
+              ★ `하한` 칸은 KRX 정규장 종가에 자리를 내준다 (17-11 / D-11 개정 · 사용자 결정
+                2026-09-18 「헤더 배치 유지하고, 종가가 있을땐 하한가 대신에 종가를 보여줘」).
+                판정 입력은 `quote.kc` **하나**이고 `kc > 0` 이 「종가가 확정됐다」의 유일한
+                신호다 — `0` 도 **권위값**이라 같은 값이면 no-op 이다.
+              ★ 갈리는 것은 **이 한 칸뿐**이다. 아래 `order` 배치 번호도, 칸 수(10)도, 다른
+                9칸도 손대지 않는다 — §2.2b 밴드 실측값이라 바꾸면 밴드 배치가 통째로 밀린다.
+              ★ 종가의 색은 다른 칸과 **같은 규칙**(기준가 대비 방향색)이다. 하한가의
+                `--down` 고정색을 그대로 쓰면 기준가보다 오른 종가가 빨갛게 보인다.
+              ★ NXT 프레임에도 **KRX 값**이 실려 온다(C# 동일). 거래소로 라벨을 갈라
+                「NXT 종가」 같은 없는 사실을 지어내지 않는다.
+            */}
             <QuoteCell
-              label="하한"
-              value={priceText(lowerLimit)}
-              tone="text-[var(--down)]"
+              label={closePrice > 0 ? "종가" : "하한"}
+              value={priceText(closePrice > 0 ? closePrice : lowerLimit)}
+              tone={
+                closePrice > 0
+                  ? priceTone(closePrice, basePrice)
+                  : "text-[var(--down)]"
+              }
               order="@min-[700px]/lc:order-[7] @min-[992px]/lc:order-[0]"
             />
             {/* 상승VI 는 발동가라 언제나 위쪽 사건이다 — 기준가 대비가 아니라 항상 `--up`. */}

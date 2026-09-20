@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   act,
+  cleanup,
   createEvent,
   fireEvent,
   render,
@@ -1068,6 +1069,43 @@ describe('⑰ 헤더 카드 — 계좌 칩 · 거래소 콤보 · 종목 트리�
     expect(tone(7)).toContain('text-[var(--fg)]'); // 거래 — 방향이 없다
     expect(tone(8)).toContain('text-[var(--fg)]'); // 시총 — 방향이 없다
     expect(tone(9)).toContain('text-[var(--fg)]'); // 발행1%
+  });
+
+  /*
+    ★ 17-11 Task 3 — `하한` 칸이 **KRX 정규장 종가**에 자리를 내준다 (D-11 개정 · 사용자
+      결정 2026-09-18). 갈리는 것은 이 한 칸뿐이고 칸 수·배치 번호는 그대로다.
+      판정 입력은 `quote.kc` 하나이며 `0` 도 **권위값**이다 — 벽시계로 판정하지 않는다.
+  */
+  it('⑳-a `kc === 0` 이면 종전 그대로 `하한` 이다 — 0 은 「모른다」가 아니라 서버의 답이다', () => {
+    renderEdit({ quote: quote({ kc: 0 }) });
+
+    expect(cellText()[5]).toEqual(['하한', '81,200']);
+    expect(cells()[5]!.children[1]!.className).toContain('text-[var(--down)]');
+    // 라벨 순서·칸 수는 한 글자도 바뀌지 않았다.
+    expect(cells()).toHaveLength(10);
+  });
+
+  it('⑳-b `kc > 0` 이면 라벨이 `종가` 이고 값·색이 기준가 대비 방향색이다', () => {
+    // base = 116,000 → 종가 118,500 은 기준가 위다.
+    renderEdit({ quote: quote({ kc: 118_500 }) });
+
+    expect(cellText()[5]).toEqual(['종가', '118,500']);
+    expect(cells()[5]!.children[1]!.className).toContain('text-[var(--up)]');
+    // 하한가 고정색(`--down`)을 그대로 쓰면 오른 종가가 빨갛게 보인다 — 그 회귀를 잠근다.
+    expect(cells()[5]!.children[1]!.className).not.toContain('text-[var(--down)]');
+    expect(cells()).toHaveLength(10);
+    // 배치 번호는 손대지 않는다 (§2.2b 실측값).
+    expect(cells()[5]!.className).toContain('@min-[700px]/lc:order-[7]');
+  });
+
+  it('⑳-c 기준가 아래 종가는 `--down`, 같으면 보합 — 다른 9칸과 같은 규칙이다', () => {
+    renderEdit({ quote: quote({ kc: 110_000 }) });
+    expect(cells()[5]!.children[1]!.className).toContain('text-[var(--down)]');
+
+    cleanup();
+    renderEdit({ quote: quote({ kc: 116_000 }) });
+    expect(cellText()[5]).toEqual(['종가', '116,000']);
+    expect(cells()[5]!.children[1]!.className).toContain('text-[var(--flat)]');
   });
 
   /*
