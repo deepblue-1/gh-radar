@@ -83,3 +83,72 @@ describe("parseInbound — order.modify (Phase 18 D-21)", () => {
     expect(msg).not.toHaveProperty("krxSession");
   });
 });
+
+function newFrame(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    t: "order.new",
+    rid: "r-new-1",
+    isin: ISIN,
+    exchange: "KRX",
+    side: "B",
+    qty: 10,
+    price: 70_000,
+    accountNo: ACCOUNT_NO,
+    ...overrides,
+  });
+}
+
+describe("parseInbound — order.new pieceCount (Phase 18 D-22 / T-18-05)", () => {
+  it("① 부재는 통과하고 필드도 없다 — 기존 프레임(smoke 프로브·구 클라이언트)은 그대로다", () => {
+    const msg = parseInbound(newFrame());
+    if (msg?.t !== "order.new") throw new Error("order.new 로 좁혀지지 않았습니다");
+    expect(msg).not.toHaveProperty("pieceCount");
+    expect(msg).not.toHaveProperty("krxSession");
+  });
+
+  it("② 경계 1·2·64 는 통과한다 (fbs 허용 1..64)", () => {
+    for (const pieceCount of [1, 2, 64]) {
+      const msg = parseInbound(newFrame({ pieceCount }));
+      if (msg?.t !== "order.new") throw new Error(`pieceCount ${pieceCount} 가 거부됐습니다`);
+      expect(msg.pieceCount).toBe(pieceCount);
+    }
+  });
+
+  it("③ 65·0·음수·0.5 는 거부된다", () => {
+    for (const pieceCount of [65, 0, -1, 0.5]) {
+      expect(parseInbound(newFrame({ pieceCount }))).toBeNull();
+    }
+  });
+});
+
+describe("parseInbound — order.new krxSession · price 0 (Phase 18 D-23 / T-18-04)", () => {
+  it("① G2·G3 는 통과한다", () => {
+    for (const krxSession of ["G2", "G3"]) {
+      const msg = parseInbound(newFrame({ krxSession }));
+      if (msg?.t !== "order.new") throw new Error(`krxSession ${krxSession} 가 거부됐습니다`);
+      expect(msg.krxSession).toBe(krxSession);
+    }
+  });
+
+  it("② G1·빈 문자열·소문자는 거부된다", () => {
+    for (const krxSession of ["G1", "", "g2"]) {
+      expect(parseInbound(newFrame({ krxSession }))).toBeNull();
+    }
+  });
+
+  it("③ price 0 은 krxSession G2/G3 일 때만 통과한다", () => {
+    for (const krxSession of ["G2", "G3"]) {
+      const msg = parseInbound(newFrame({ price: 0, krxSession }));
+      if (msg?.t !== "order.new") throw new Error(`price 0 + ${krxSession} 가 거부됐습니다`);
+      expect(msg.price).toBe(0);
+    }
+    expect(parseInbound(newFrame({ price: 0 }))).toBeNull();
+  });
+
+  it("④ 음수·비정수 가격은 세션과 무관하게 거부된다", () => {
+    for (const krxSession of [undefined, "G2", "G3"]) {
+      expect(parseInbound(newFrame({ price: -1, krxSession }))).toBeNull();
+      expect(parseInbound(newFrame({ price: 70_000.5, krxSession }))).toBeNull();
+    }
+  });
+});

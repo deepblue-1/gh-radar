@@ -1011,6 +1011,92 @@ describe('RelayProvider — sendOrder 번역 (D-02)', () => {
     spy.mockRestore();
   });
 
+  it('⑨-g 조각 수·세션은 값이 있을 때만 싣는다 — 부재면 필드 자체가 없다 (Phase 18 D-22/D-23)', async () => {
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    act(() => {
+      void sendOrderRef?.(NEW_ORDER);
+      void sendOrderRef?.({ ...NEW_ORDER, price: 70_100, pieceCount: 3 });
+      void sendOrderRef?.({ ...NEW_ORDER, price: 70_200, pieceCount: 1 });
+      void sendOrderRef?.({ ...NEW_ORDER, price: 70_300, krxSession: 'G3' });
+    });
+
+    const sent = ws.parsedSent().filter((m) => String(m.t).startsWith('order.'));
+    expect(sent).toHaveLength(4);
+    // 기존 수동주문 프레임은 한 글자도 바뀌지 않는다.
+    expect(sent[0]).not.toHaveProperty('pieceCount');
+    expect(sent[0]).not.toHaveProperty('krxSession');
+    expect(sent[1]).toMatchObject({ t: 'order.new', pieceCount: 3 });
+    // 1 은 기본값(= 부재)이다 — 싣지 않는다.
+    expect(sent[2]).not.toHaveProperty('pieceCount');
+    expect(sent[3]).toMatchObject({ t: 'order.new', krxSession: 'G3' });
+    expect(sent[3]).not.toHaveProperty('pieceCount');
+  });
+
+  it('⑨-h price 0 은 krxSession G2/G3 일 때만 보낸다 — 그 밖은 「주문 가격을 확인해 주세요.」 (D-23)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    act(() => {
+      void sendOrderRef?.({ ...NEW_ORDER, price: 0, krxSession: 'G2' });
+    });
+    const sent = ws.parsedSent().filter((m) => String(m.t).startsWith('order.'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ t: 'order.new', price: 0, krxSession: 'G2' });
+
+    const results: Array<{ status?: string; message?: string }> = [];
+    await act(async () => {
+      results.push(
+        (await sendOrderRef?.({ ...NEW_ORDER, price: 0 })) as { status?: string; message?: string },
+        (await sendOrderRef?.({ ...NEW_ORDER, price: -1, krxSession: 'G2' })) as {
+          status?: string;
+          message?: string;
+        },
+      );
+    });
+    for (const r of results) {
+      expect(r.status).toBe('rejected');
+      expect(r.message).toBe('주문 가격을 확인해 주세요.');
+    }
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it('⑨-i 조각 수가 정수 1..64 밖이면 보내지 않는다 — relay 스키마 위반으로 소켓이 닫히지 않게', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    const results: Array<{ status?: string; message?: string }> = [];
+    await act(async () => {
+      for (const pieceCount of [65, 0, 2.5]) {
+        results.push(
+          (await sendOrderRef?.({ ...NEW_ORDER, pieceCount })) as { status?: string; message?: string },
+        );
+      }
+    });
+    for (const r of results) {
+      expect(r.status).toBe('rejected');
+      expect(r.message).toBe('조각 수를 확인해 주세요.');
+    }
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(0);
+    spy.mockRestore();
+  });
+
   it('⑨-c 미연결은 rejected, 무응답은 timeout — 둘을 뭉개지 않는다 (Pitfall 9)', async () => {
     signedOut();
     const view = render(

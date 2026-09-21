@@ -732,6 +732,115 @@ describe("주문 조립·파싱 (D-21 / Pitfall 7·8)", () => {
     expect(() => buildDirectOrderReq({ ...ORDER, orderType: "C" })).toThrow(/취소 주문에는 원주문번호/);
   });
 
+  // ----------------------------------------------------------
+  // Phase 18 D-22 / D-23 — 조각 수 · 시간외종가 세션 조건부 송신, price 0 조건부 완화
+  // ----------------------------------------------------------
+
+  /**
+   * 슬롯이 와이어에 **실렸는가**. 접근자(`pieceCount()`/`krxSession()`)는 부재에도 기본값(0/null)을
+   * 돌려주므로 「안 실었다」와 「0 을 실었다」를 가르지 못한다 — vtable 오프셋으로 본다.
+   * `piece_count` 는 필드 10(vtable 24), `krx_session` 은 필드 11(vtable 26)이다.
+   */
+  function slotPresent(env: Envelope, vtableOffset: 24 | 26): boolean {
+    const req = env.directOrderReq();
+    if (req === null || req.bb === null) throw new Error("DirectOrderReq 슬롯이 비었습니다");
+    return req.bb.__offset(req.bb_pos, vtableOffset) !== 0;
+  }
+
+  it("조각 수 미지정·0·1 은 piece_count 슬롯을 싣지 않는다 — 기존 수동주문 바이트가 한 글자도 안 바뀐다 (D-22)", () => {
+    const baseline = buildDirectOrderReq(ORDER);
+    for (const pieceCount of [undefined, 0, 1]) {
+      const bytes = buildDirectOrderReq({ ...ORDER, pieceCount });
+      expect(slotPresent(readBack(bytes), 24)).toBe(false);
+      expect(Buffer.from(bytes).equals(Buffer.from(baseline))).toBe(true);
+    }
+  });
+
+  it("조각 수 2·64 는 piece_count 슬롯에 그 값을 싣는다 (D-22)", () => {
+    for (const pieceCount of [2, 64]) {
+      const env = readBack(buildDirectOrderReq({ ...ORDER, pieceCount }));
+      expect(slotPresent(env, 24)).toBe(true);
+      expect(env.directOrderReq()?.pieceCount()).toBe(pieceCount);
+    }
+  });
+
+  it("조각 수 65 는 조립기가 범위 정책으로 막지 않는다 — 1..64 정책의 정본은 zod 한 곳이다", () => {
+    // 범위 정책을 두 곳에 적으면 갈라진다(`toWireUint` 주석). 65 는 wss 경계(zod)에서 끝난다 —
+    // `relay/src/ws/__tests__/protocol.test.ts` 가 그 거부를 잠근다. 조립기는 표현 범위만 본다.
+    const env = readBack(buildDirectOrderReq({ ...ORDER, pieceCount: 65 }));
+    expect(env.directOrderReq()?.pieceCount()).toBe(65);
+  });
+
+  it("조각 수 비정수·음수는 OrderBuildError 다 — 반올림·절사하지 않는다", () => {
+    for (const pieceCount of [0.5, 2.5, -1]) {
+      let caught: unknown;
+      try {
+        buildDirectOrderReq({ ...ORDER, pieceCount });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(OrderBuildError);
+      expect((caught as OrderBuildError).code).toBe("BAD_PIECE_COUNT");
+    }
+  });
+
+  it("세션 부재·빈 문자열은 krx_session 슬롯을 싣지 않는다 — 서버 자동 판정 (D-23)", () => {
+    const baseline = buildDirectOrderReq(ORDER);
+    for (const krxSession of [undefined, ""] as const) {
+      const bytes = buildDirectOrderReq({ ...ORDER, krxSession });
+      expect(slotPresent(readBack(bytes), 26)).toBe(false);
+      expect(Buffer.from(bytes).equals(Buffer.from(baseline))).toBe(true);
+    }
+  });
+
+  it("세션 G2·G3 은 krx_session 슬롯에 그 값을 싣는다 (D-23)", () => {
+    for (const krxSession of ["G2", "G3"] as const) {
+      const env = readBack(buildDirectOrderReq({ ...ORDER, krxSession }));
+      expect(slotPresent(env, 26)).toBe(true);
+      expect(env.directOrderReq()?.krxSession()).toBe(krxSession);
+    }
+  });
+
+  it("세션 화이트리스트 밖(G1 등)은 OrderBuildError 다 — 서버 거부에 기대지 않는다", () => {
+    for (const krxSession of ["G1", "g2", "G22"]) {
+      let caught: unknown;
+      try {
+        buildDirectOrderReq({ ...ORDER, krxSession: krxSession as never });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(OrderBuildError);
+      expect((caught as OrderBuildError).code).toBe("BAD_KRX_SESSION");
+    }
+  });
+
+  it("price 0 은 세션 G2/G3 일 때만 통과한다 — 4조합 (D-23)", () => {
+    // 통과: 시간외종가는 서버가 결정가를 정한다.
+    for (const krxSession of ["G2", "G3"] as const) {
+      const env = readBack(buildDirectOrderReq({ ...ORDER, price: 0, krxSession }));
+      expect(env.directOrderReq()?.price()).toBe(0);
+      expect(env.directOrderReq()?.krxSession()).toBe(krxSession);
+    }
+    // 거부: 세션 없는 가격 0 은 지정가 0원이다 — 게이트웨이 거부 왕복 5초를 태우지 않는다.
+    for (const krxSession of [undefined, ""] as const) {
+      let caught: unknown;
+      try {
+        buildDirectOrderReq({ ...ORDER, price: 0, krxSession });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(OrderBuildError);
+      expect((caught as OrderBuildError).code).toBe("BAD_PRICE");
+    }
+  });
+
+  it("음수·비정수 가격은 세션과 무관하게 거부다 — 0 만 열렸다", () => {
+    for (const krxSession of [undefined, "G2", "G3"] as const) {
+      expect(() => buildDirectOrderReq({ ...ORDER, price: -1, krxSession })).toThrow(OrderBuildError);
+      expect(() => buildDirectOrderReq({ ...ORDER, price: 70_000.5, krxSession })).toThrow(OrderBuildError);
+    }
+  });
+
   it("parseOrderResp — 접수 통보는 side 를 신뢰한다", () => {
     const parsed = tryParseEnvelope(
       Buffer.from(buildOrderRespFrame({ noticeType: "A", side: "S", orderNo: "0000099999" })),
