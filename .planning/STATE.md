@@ -4,10 +4,10 @@ milestone: v1.0
 current_phase: 17
 current_phase_name: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
 status: awaiting-user
-stopped_at: Phase 18 context gathered
-last_updated: "2026-09-21T05:31:28.011Z"
+stopped_at: Phase 18 UI-SPEC approved
+last_updated: "2026-09-21T08:57:18.983Z"
 last_activity: "2026-09-20 20:31 — relay ef1499a 배포 완결 · smoke 12 PASS · healthz 정상"
-state_head: 7453c1b1205fb2005c181798d7b27ac7b368a706
+state_head: b31435bad319d0fe1cc6589d5cab75e3a695d94d
 progress:
   total_phases: 27
   completed_phases: 4
@@ -818,10 +818,10 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/18-gh-trade-ui-nxt-vi/18-CONTEXT.md
+**Resume file:** .planning/phases/18-gh-trade-ui-nxt-vi/18-UI-SPEC.md
 
-Last session: 2026-09-21T05:31:27.539Z
-Stopped at: Phase 18 context gathered
+Last session: 2026-09-21T08:57:18.478Z
+Stopped at: Phase 18 UI-SPEC approved
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

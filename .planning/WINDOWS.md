@@ -31,7 +31,7 @@ last_updated: 2026-09-20T11:03:39.970Z
 | 14 | 17 | unrun-verify | webapp/e2e/specs/trading-vi.spec.ts |  | 거래소 열 추가로 110초 열 인덱스를 8→9 로 옮기고 거래소 열(index 3) 단언을 더했으나 Playwright 미실행 — tsconfig.e2e.json 타입 통과로만 확인했다 | fixed |  | 2026-09-20T09:08:20.938Z | 2026-09-20T10:35:09.874Z |
 | 15 | 17 | unrun-verify | webapp/e2e/specs/trading-limit-chaser.spec.ts |  | 17-11 이 더한 LED 가시성 케이스(3b)와 옛 「매수 ON」 → LED data-tone 로 바꾼 케이스 3 의 단언을 Playwright 로 실행하지 않았다 — tsconfig.e2e.json 타입 통과로만 확인 | fixed |  | 2026-09-20T10:11:21.196Z | 2026-09-20T10:35:09.962Z |
 | 16 | 17 | unrun-verify | webapp/src/components/trading/limit-chaser-client.tsx |  | D-22 가 약속한 dev 서버 화면 확인(상태줄 LED 3칩 · 폰 밴드 두 줄 접힘 · 잘림 0)을 수행하지 않았다 — jsdom 에는 레이아웃이 없어 유닛으로 증명 불가. 17-07 이 17-11 의 몫으로 넘긴 항목 | fixed |  | 2026-09-20T10:11:27.743Z | 2026-09-20T11:03:39.970Z |
-| 17 | 17 | unrun-verify | .planning/phases/17-gh-trade-led/17-12-PLAN.md |  | D-25 mock 게이트웨이 실기 검증 미수행 — gh-trade HEAD 재빌드가 Xcode 27.0 라이선스 미동의(sudo xcodebuild -license)로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·krx_close_price·request_kind 가 없어 돌리면 거짓 「드롭 0」이 된다. 76/77/78 드롭 0 과 36/37/38 래치 왕복은 서버 HEAD 로만 증명된다 | open |  | 2026-09-20T10:35:10.140Z |  |
+| 17 | 17 | unrun-verify | .planning/phases/17-gh-trade-led/17-12-PLAN.md |  | D-25 mock 게이트웨이 실기 검증 미수행 — gh-trade HEAD 재빌드가 Xcode 27.0 라이선스 미동의(sudo xcodebuild -license)로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·krx_close_price·request_kind 가 없어 돌리면 거짓 「드롭 0」이 된다. 76/77/78 드롭 0 과 36/37/38 래치 왕복은 서버 HEAD 로만 증명된다 | fixed | 2026-09-21 장중 프로덕션 실기 관측으로 닫힘 — mock 이 아니라 실서버로. 사용자 확인 래치 LED 왕복 정상 + relay 로그 `상따 에코` 36건 · `돌파 집합 스냅샷 수신`(MsgType 78) 6건 · `unknown-msg-type` 0건(6시간 527행). 76·77 은 이 구간 미발화라 실수신 미관측(정직 기록) | 2026-09-20T10:35:10.140Z | 2026-09-21T09:10:00.000Z |
 
 ````json
 [
@@ -234,10 +234,10 @@ last_updated: 2026-09-20T11:03:39.970Z
     "file": ".planning/phases/17-gh-trade-led/17-12-PLAN.md",
     "line": null,
     "description": "D-25 mock 게이트웨이 실기 검증 미수행 — gh-trade HEAD 재빌드가 Xcode 27.0 라이선스 미동의(sudo xcodebuild -license)로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·krx_close_price·request_kind 가 없어 돌리면 거짓 「드롭 0」이 된다. 76/77/78 드롭 0 과 36/37/38 래치 왕복은 서버 HEAD 로만 증명된다",
-    "status": "open",
-    "reason": "",
+    "status": "fixed",
+    "reason": "2026-09-21 장중 프로덕션 실기 관측으로 닫힘 — mock 이 아니라 실서버로. 사용자 확인 래치 LED 왕복 정상 + relay 로그 '상따 에코' 36건 · '돌파 집합 스냅샷 수신'(MsgType 78) 6건 · unknown-msg-type 0건(6시간 527행). 76·77 은 이 구간 미발화라 실수신 미관측(정직 기록)",
     "recorded_at": "2026-09-20T10:35:10.140Z",
-    "resolved_at": null
+    "resolved_at": "2026-09-21T09:10:00.000Z"
   }
 ]
 ````
