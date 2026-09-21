@@ -198,6 +198,22 @@ function orderNew(overrides: Record<string, unknown> = {}): Record<string, unkno
   };
 }
 
+/** 정상 정정 인바운드 (Phase 18 D-21). 원주문번호 + 정정 후 방향·수량·가격. */
+function orderModify(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    t: "order.modify",
+    rid: "rid-m",
+    isin: SAMPLE_ISIN,
+    exchange: "KRX",
+    orgOrderNo: "0000012345",
+    side: "B",
+    qty: 10,
+    price: 71_000,
+    accountNo: SAMPLE_ACCOUNT_NO,
+    ...overrides,
+  };
+}
+
 /** 정상 취소 인바운드. 미체결 1행의 취소를 그대로 흉내 낸다 (UI D-21 — 잔량 전부). */
 function orderCancel(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -1348,6 +1364,92 @@ describe("wss 주문 경로 (D-02)", () => {
     const warned = JSON.stringify(warnSpy.mock.calls);
     expect(warned).toContain("매매구분을 해석하지 못했다");
     expect(warned).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
+  // ----------------------------------------------------------
+  // 정정 (Phase 18 D-21 / T-18-01 · T-18-02)
+  // ----------------------------------------------------------
+
+  it("㉟ 정정은 orderType \"M\" + 원주문번호 + 요청 방향으로 기록·송신되고 정정확인으로 정산된다", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw(orderModify());
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+
+    const req = orderReqsOf(gatewayPayloads)[0]?.directOrderReq();
+    expect(req?.orderType()).toBe("M");
+    expect(req?.orgOrderNo()).toBe("0000012345");
+    expect(req?.side()).toBe("B");
+    expect(req?.price()).toBe(71_000);
+    // 감사 기록이 송신 **전에** 남고, 정정은 방향을 안다 — 취소처럼 "S" 로 적지 않는다.
+    expect(orders.inserts[0]).toMatchObject({
+      orderType: "M",
+      orgOrderNo: "0000012345",
+      side: "B",
+      price: 71_000,
+      origin: "manual",
+    });
+
+    // 정정확인("M")은 원주문번호를 실어 온다 — 정정 대기가 원주문 참조 대기로 등록돼 있어야
+    // 원주문번호 하드 필터를 통과한다(신규처럼 등록되면 여기서 5초 timeout 이 된다).
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "M",
+      orderNo: "0000012400",
+      orgOrderNo: "0000012345",
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({ rid: "rid-m", status: "accepted" });
+  });
+
+  it("㊱ 같은 값의 정정 연타는 거부, 가격을 바꾼 재정정은 통과한다 — 정정 키는 원주문번호+가격+수량 (T-18-02)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw(orderModify({ rid: "rid-m1", price: 71_000 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "첫 정정 송신");
+
+    // 같은 원주문·같은 값 = 같은 정정이다. rid 가 달라도 거부한다.
+    ws.sendRaw(orderModify({ rid: "rid-m2", price: 71_000 }));
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "중복 정정 거부");
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-m2",
+      status: "rejected",
+      message: "같은 주문이 이미 처리 중입니다. 결과를 기다려 주세요.",
+    });
+
+    // 가격 추적 — 같은 원주문을 다른 가격으로 곧바로 재정정하는 것은 정상 조작이다.
+    ws.sendRaw(orderModify({ rid: "rid-m3", price: 71_500 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "재정정 송신");
+    const prices = orderReqsOf(gatewayPayloads).map((e) => e.directOrderReq()?.price());
+    expect(prices).toEqual([71_000, 71_500]);
+    expect(orders.inserts).toHaveLength(2);
+  });
+
+  it("㊲ 정정도 계좌 화이트리스트 게이트를 지난다 — 우회 분기 없음 (T-18-01)", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw(orderModify({ accountNo: FOREIGN_ACCOUNT_NO }));
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "거부 order.result");
+
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-m",
+      status: "rejected",
+      message: "이 세션에서 사용할 수 없는 계좌입니다.",
+    });
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
+    expect(orders.inserts).toHaveLength(0);
+  });
+
+  it("㊳ 원주문번호 없는 정정은 스키마에서 끊긴다 — 게이트웨이로 0바이트", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { ws } = await authed("token-a");
+
+    ws.sendRaw(orderModify({ orgOrderNo: "" }));
+    await waitFor(() => ws.closeInfo !== null, "스키마 위반 close");
+
+    expect(ws.closeInfo?.code).toBe(4400);
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
+    expect(orders.inserts).toHaveLength(0);
   });
 });
 

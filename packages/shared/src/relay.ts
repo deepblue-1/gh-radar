@@ -32,7 +32,8 @@
  * 하지 않는 것:
  *   - `RELAY_MAX_FRAME_SIZE` 같은 relay 내부 상수는 여기 두지 않는다 — 코덱 모듈이
  *     단일 정본이다. 여기에는 **3자가 실제로 주고받는 것**만 둔다.
- *   - 정정(order_type "M") · 시장가 · IOC/FOK 는 v1 범위 밖이다 (D-21).
+ *   - 시장가 · IOC/FOK 는 v1 범위 밖이다 (D-21). 정정(order_type "M")은 Phase 18 D-21 에서
+ *     열렸다 — `RelayOrderModifyMsg`.
  */
 
 // ============================================================
@@ -509,6 +510,39 @@ export type RelayOrderCancelMsg = {
   accountNo: string;
 };
 
+/**
+ * 정정 주문 (`DirectOrderReq(2)` 정정 — `order_type "M"` + `org_order_no`, Phase 18 D-21).
+ *
+ * 와이어 근거: 게이트웨이 `DirectOrderReq` 는 신규·정정·취소를 **한 테이블**로 받고
+ * `order_type` 1자로 가른다. 정정은 취소처럼 `org_order_no` 가 필수이고, 신규처럼
+ * `side`·`qty`·`price` 를 싣는다 — 정정 후 가격·수량이 그 값이다.
+ *
+ * ⚠️ **거래소는 원주문을 승계한다.** `exchange` 는 원주문의 것을 그대로 싣는다 — 정정으로
+ *    거래소를 바꿀 수 없다(바꾸려면 취소 후 재주문이다).
+ * ⚠️ **예약(Q-ID)·시간외종가(G2/G3) 원주문은 서버가 정정을 거부한다.** 그 판정은 UI 가
+ *    `RelayUnfilled.queuedStatus`/`board` 로 **잠그는** 것이고 relay 는 판정하지 않는다 —
+ *    relay 가 두 번째 판정을 들면 서버 규칙과 갈린다. 잠금이 빠져도 서버 거부로 끝난다.
+ * ⚠️ `side` 는 **요청 값을 그대로** 기록한다. 취소가 `"S"` 로 적는 이유(원주문 방향을 모른다)가
+ *    정정에는 없다 — 정정 요청은 방향을 실어 온다.
+ *
+ * `pieceCount`/`krxSession` 을 싣지 않는다 — 정정은 조각 수·세션을 바꾸지 않는다.
+ * `market` 을 싣지 않는 이유와 `accountNo` 의 책임 경계는 `RelayOrderNewMsg` 와 같다.
+ */
+export type RelayOrderModifyMsg = {
+  t: "order.modify";
+  rid: string;
+  isin: string;
+  exchange: RelayExchange;
+  /** 원주문번호 — 정정은 필수다. 빈 문자열은 zod · 조립기 두 층에서 거부된다. */
+  orgOrderNo: string;
+  side: OrderSide;
+  /** 정정 후 수량. */
+  qty: number;
+  /** 정정 후 가격(원). */
+  price: number;
+  accountNo: string;
+};
+
 /** 브라우저가 보내는 모든 메시지. `t` 로 분기하는 discriminated union. */
 export type RelayInbound =
   | RelayAuthMsg
@@ -520,6 +554,7 @@ export type RelayInbound =
   | RelayViConfirmMsg
   | RelayStrategiesDisableMsg
   | RelayOrderNewMsg
+  | RelayOrderModifyMsg
   | RelayOrderCancelMsg;
 
 // ============================================================
@@ -1028,8 +1063,11 @@ export type RelayOutbound =
 /** 매매 구분 ("B"=매수, "S"=매도). */
 export type OrderSide = "B" | "S";
 
-/** 주문 유형 ("N"=신규, "C"=취소). 정정("M")은 v1 범위 밖 (D-21). */
-export type OrderType = "N" | "C";
+/**
+ * 주문 유형 ("N"=신규, "M"=정정, "C"=취소). 정정("M")은 Phase 18 D-21 에서 열림 —
+ * `dma_orders.order_type` CHECK 도 `20260921120000_dma_orders_modify_offhours.sql` 에서 함께 넓혔다.
+ */
+export type OrderType = "N" | "M" | "C";
 
 /** 시장 구분 ("K"=KOSPI, "Q"=KOSDAQ). server 가 `stocks.market` 으로 채운다 (D-21). */
 export type OrderMarket = "K" | "Q";

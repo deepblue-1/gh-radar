@@ -6,12 +6,12 @@
  * 여기를 통과하지 않은 값은 어떤 핸들러에도 닿지 않는다.
  *
  * 결정 근거:
- *   D-11  브라우저가 보낼 수 있는 것은 아래 판별 유니온에 실린 **10종뿐**이다 — 시세 3종
- *         (`auth`/`sub`/`unsub`) + 전략 5종 + 주문 2종. 그 외 형태는 프로토콜 위반이고
+ *   D-11  브라우저가 보낼 수 있는 것은 아래 판별 유니온에 실린 **11종뿐**이다 — 시세 3종
+ *         (`auth`/`sub`/`unsub`) + 전략 5종 + 주문 3종(신규·정정·취소 — 정정은 Phase 18 D-21). 그 외 형태는 프로토콜 위반이고
  *         close(4400) 로 끝난다 — 관대하게 무시하면 공격 표면이 늘어난다.
  *   D-01  전략 메시지(`lc.set`/`vi.set`/`vi.confirm`/`strategies.disable`)를 **이 소켓으로
  *         받는다**. relay 가 FlatBuffer 로 바꿔 그 사용자의 DMA 세션으로 보낸다.
- *   D-02  주문(`order.new`/`order.cancel`)도 **이 소켓으로 받는다**. Phase 15 의
+ *   D-02  주문(`order.new`/`order.modify`/`order.cancel`)도 **이 소켓으로 받는다**. Phase 15 의
  *         `POST /api/orders` 는 16-16 에서 제거되고 `GET /api/orders` 만 남는다.
  *   D-33  구독 키는 `isin + exchange` 다. ISIN 은 12자 고정이라 길이·형식을 여기서 굳힌다.
  *   D-34  **와이어 계약은 전부 number** 다. 64비트 정수가 직렬화 경로까지 흘러오면 즉시
@@ -249,6 +249,9 @@ export const RelayStrategiesDisableSchema = z.object({
   key: z.string().max(64).optional(),
 });
 
+/** 매매구분. 신규·정정이 **같은 스키마**를 쓴다 — 어휘가 둘로 갈리면 한쪽만 넓어진다. */
+const OrderSideSchema = z.enum(["B", "S"]);
+
 /**
  * 신규 주문 (`order.new`, D-02).
  *
@@ -263,7 +266,7 @@ export const RelayOrderNewSchema = z.object({
   rid: RidSchema,
   isin: IsinSchema,
   exchange: ExchangeSchema,
-  side: z.enum(["B", "S"]),
+  side: OrderSideSchema,
   qty: z.number().int().positive(),
   price: z.number().int().positive(),
   accountNo: AccountNoSchema,
@@ -286,6 +289,29 @@ export const RelayOrderCancelSchema = z.object({
   accountNo: AccountNoSchema,
 });
 
+/**
+ * 정정 주문 (`order.modify`, Phase 18 D-21).
+ *
+ * `RelayOrderCancelSchema` 와 같은 모양에 `side` 를 더한 것이다 — 정정은 원주문번호로
+ * 대상을 가리키고(취소와 같다), 정정 후 방향·수량·가격을 싣는다(신규와 같다).
+ * `orgOrderNo` 빈 값은 여기서 거부한다. 조립기(`buildDirectOrderReq`)도 같은 조건으로
+ * 한 번 더 막는다 — 원주문번호 없는 정정은 어느 층도 통과하지 못한다.
+ *
+ * `pieceCount`/`krxSession` 을 받지 않는다 — 정정은 조각 수·세션을 바꾸지 않는다.
+ * 실려 오더라도 zod 기본 strip 으로 버려진다(`.strict()` 로 만들지 않는 이유는 신규와 같다).
+ */
+export const RelayOrderModifySchema = z.object({
+  t: z.literal("order.modify"),
+  rid: RidSchema,
+  isin: IsinSchema,
+  exchange: ExchangeSchema,
+  orgOrderNo: z.string().min(1),
+  side: OrderSideSchema,
+  qty: z.number().int().positive(),
+  price: z.number().int().positive(),
+  accountNo: AccountNoSchema,
+});
+
 /** 브라우저가 보낼 수 있는 전부. `t` 로 분기하는 discriminated union 이다. */
 export const RelayInboundSchema = z.discriminatedUnion("t", [
   RelayAuthSchema,
@@ -297,6 +323,7 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
   RelayViConfirmSchema,
   RelayStrategiesDisableSchema,
   RelayOrderNewSchema,
+  RelayOrderModifySchema,
   RelayOrderCancelSchema,
 ]);
 

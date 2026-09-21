@@ -50,6 +50,7 @@ import {
   type RelayInbound,
   type RelayLimitChaser,
   type RelayOrderCancelMsg,
+  type RelayOrderModifyMsg,
   type RelayOrderMsg,
   type RelayOrderNewMsg,
   type RelayOrderResultMsg,
@@ -308,7 +309,7 @@ export interface RelayConnectionState {
    *  - 응답 미도달 : `status:"timeout"` (**결과를 모름** — 주문이 이미 나갔을 수 있다)
    * 둘을 같은 값으로 뭉개면 UI 가 "재주문해도 안전한가"를 판단할 수 없다(Pitfall 9).
    */
-  sendOrder: (msg: RelayOrderNewMsg | RelayOrderCancelMsg) => Promise<RelayOrderResultMsg>;
+  sendOrder: (msg: RelayOrderNewMsg | RelayOrderModifyMsg | RelayOrderCancelMsg) => Promise<RelayOrderResultMsg>;
 }
 
 /**
@@ -1036,7 +1037,7 @@ export function useRelayConnection({
   }, []);
 
   const sendOrder = useCallback(
-    (msg: RelayOrderNewMsg | RelayOrderCancelMsg): Promise<RelayOrderResultMsg> =>
+    (msg: RelayOrderNewMsg | RelayOrderModifyMsg | RelayOrderCancelMsg): Promise<RelayOrderResultMsg> =>
       new Promise<RelayOrderResultMsg>((resolve) => {
         const ws = socketRef.current;
         if (!ws || ws.readyState !== WS_READY_OPEN) {

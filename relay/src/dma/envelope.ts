@@ -849,13 +849,14 @@ export function toWireMarket(market: OrderMarket): "K" | "Q" {
 }
 
 /**
- * 주문유형 → 와이어 1자 ("N"=신규, "C"=취소). 정정("M")은 **여기서 막는다** (D-21).
+ * 주문유형 → 와이어 1자 ("N"=신규, "M"=정정, "C"=취소).
  *
- * 스키마는 "M" 을 알지만 relay 는 만들지 않는다. 타입(`OrderType`)이 1차 방어이고
- * 이 런타임 검사가 2차다 — 입력이 HTTP JSON 이라 타입만으로는 부족하다.
+ * 정정("M")은 Phase 18 D-21 에서 열렸다 — Phase 15 D-21 이 여기서 막아 두었던 것을 푼다.
+ * 세 값 밖은 여전히 던진다. 타입(`OrderType`)이 1차 방어이고 이 런타임 검사가 2차다 —
+ * 입력이 wss JSON 이라 타입만으로는 부족하다.
  */
-export function toWireOrderType(orderType: OrderType): "N" | "C" {
-  if (orderType !== "N" && orderType !== "C") {
+export function toWireOrderType(orderType: OrderType): "N" | "M" | "C" {
+  if (orderType !== "N" && orderType !== "M" && orderType !== "C") {
     throw new OrderBuildError("BAD_ORDER_TYPE", `알 수 없는 주문유형: ${String(orderType)}`);
   }
   return orderType;
@@ -896,7 +897,7 @@ export type DirectOrderInput = {
   market: OrderMarket;
   side: OrderSide;
   orderType: OrderType;
-  /** `orderType:"C"` 일 때 필수. 신규는 생략하거나 빈 문자열. */
+  /** `orderType:"C"`/`"M"` 일 때 필수. 신규는 생략하거나 빈 문자열. */
   orgOrderNo?: string;
   /** 주문수량. 취소는 미체결 잔량이며 **0 은 즉시 거부**다 (Pitfall 7). */
   qty: number;
@@ -904,7 +905,7 @@ export type DirectOrderInput = {
 };
 
 /**
- * 직접 주문 (MsgType 2). 신규("N")·취소("C") 둘뿐이다 (D-21).
+ * 직접 주문 (MsgType 2). 신규("N")·정정("M")·취소("C") 셋이다 (D-21 — 정정은 Phase 18 에서 열림).
  *
  * **수량 0 은 전량취소가 아니라 즉시 거부**다 (fbs `DirectOrderReq.quantity` 주석 / D-44).
  * 게이트웨이까지 보내서 거부를 받아 오는 대신 여기서 던진다 — 왕복 5초를 태우고 사용자에게
@@ -938,8 +939,13 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
   }
 
   const orgOrderNo = req.orgOrderNo ?? "";
-  if (orderType === "C" && orgOrderNo === "") {
-    throw new OrderBuildError("ORG_ORDER_NO_REQUIRED", "취소 주문에는 원주문번호가 필요합니다");
+  // 정정·취소는 원주문번호로 대상을 가리킨다. 빈 값이면 게이트웨이가 무엇을 고칠지/지울지
+  // 모른다 — 보내지 않는다. 스키마가 이미 막지만 조립기가 **마지막 관문**이다.
+  if ((orderType === "C" || orderType === "M") && orgOrderNo === "") {
+    throw new OrderBuildError(
+      "ORG_ORDER_NO_REQUIRED",
+      orderType === "M" ? "정정 주문에는 원주문번호가 필요합니다" : "취소 주문에는 원주문번호가 필요합니다",
+    );
   }
 
   const b = new flatbuffers.Builder(256);

@@ -40,8 +40,8 @@
  *   난다(T-15-40).
  *
  * ⑦ ★ 주문은 여기서 **와이어 모양으로 번역된다** (16-10, D-02)
- *   패널은 `{kind:"new"|"cancel", ...}` 라는 사람 말로 주문을 낸다. `rid` 생성과
- *   `{t:"order.new"}`/`{t:"order.cancel"}` 조립은 **이 파일 한 곳**이다 — 패널마다
+ *   패널은 `{kind:"new"|"modify"|"cancel", ...}` 라는 사람 말로 주문을 낸다. `rid` 생성과
+ *   `{t:"order.new"}`/`{t:"order.modify"}`/`{t:"order.cancel"}` 조립은 **이 파일 한 곳**이다 — 패널마다
  *   프레임을 조립하면 필드 하나가 어긋난 순간 그 화면에서만 주문이 조용히 거부된다.
  *   `market` 은 싣지 않는다: relay 가 ISIN 으로 푼다(D-28 — 단축코드·시장 산술 유도 금지).
  */
@@ -69,6 +69,7 @@ import type {
   RelayAccountState,
   RelayExchange,
   RelayOrderCancelMsg,
+  RelayOrderModifyMsg,
   RelayOrderNewMsg,
   RelayOrderResultMsg,
   RelayQuote,
@@ -83,8 +84,8 @@ import type {
  * 생성처를 하나로 묶어 그 사고를 구조적으로 없앤다.
  */
 export interface RelayOrderRequest {
-  /** `"new"` = 신규(지정가·보통), `"cancel"` = 미체결 취소. */
-  kind: "new" | "cancel";
+  /** `"new"` = 신규(지정가·보통), `"modify"` = 미체결 정정(Phase 18 D-21), `"cancel"` = 미체결 취소. */
+  kind: "new" | "modify" | "cancel";
   /** 12자 ISIN — 게이트웨이 주문 키(D-28). 6자 단축코드가 아니다. */
   isin: string;
   exchange: RelayExchange;
@@ -93,9 +94,9 @@ export interface RelayOrderRequest {
   /** 취소는 **미체결 잔량 전부**다(D-21 — 0 은 즉시 거부). */
   qty: number;
   price: number;
-  /** `kind:"new"` 필수. */
+  /** `kind:"new"`/`"modify"` 필수. 정정은 원주문의 방향을 그대로 싣는다. */
   side?: OrderSide;
-  /** `kind:"cancel"` 필수 — 원주문번호. */
+  /** `kind:"cancel"`/`"modify"` 필수 — 원주문번호. */
   orgOrderNo?: string;
 }
 
@@ -147,7 +148,9 @@ function newRid(): string {
 function buildOrderFrame(
   req: RelayOrderRequest,
   rid: string,
-): { ok: true; frame: RelayOrderNewMsg | RelayOrderCancelMsg } | { ok: false; reason: string } {
+):
+  | { ok: true; frame: RelayOrderNewMsg | RelayOrderModifyMsg | RelayOrderCancelMsg }
+  | { ok: false; reason: string } {
   if (req.isin.length === 0) return { ok: false, reason: "주문 종목을 확인하지 못했어요." };
   if (req.accountNo.length === 0) return { ok: false, reason: "주문 계좌를 선택해 주세요." };
   // 취소 수량 0 은 게이트웨이가 즉시 거부한다(D-21). 왕복시키지 않는다.
@@ -168,6 +171,19 @@ function buildOrderFrame(
       return { ok: false, reason: "취소할 원주문번호를 확인하지 못했어요." };
     }
     return { ok: true, frame: { t: "order.cancel", ...common, orgOrderNo: req.orgOrderNo } };
+  }
+
+  if (req.kind === "modify") {
+    // 정정 = 원주문번호(취소처럼) + 방향(신규처럼). 어느 하나라도 없으면 relay 가 거부하므로
+    // 보내기 전에 여기서 확실한 실패로 만든다.
+    if (req.orgOrderNo == null || req.orgOrderNo.length === 0) {
+      return { ok: false, reason: "정정할 원주문번호를 확인하지 못했어요." };
+    }
+    if (req.side == null) return { ok: false, reason: "매수·매도 구분을 확인하지 못했어요." };
+    return {
+      ok: true,
+      frame: { t: "order.modify", ...common, orgOrderNo: req.orgOrderNo, side: req.side },
+    };
   }
 
   if (req.side == null) return { ok: false, reason: "매수·매도 구분을 확인하지 못했어요." };

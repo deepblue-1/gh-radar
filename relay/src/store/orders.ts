@@ -217,6 +217,16 @@ export type OrderInsertRow = {
   price: number;
   origin: OrderOriginKind;
   /**
+   * 예약구간 조각 수 감사 기록 (`dma_orders.piece_count`, Phase 18 D-22). **와이어에 실은 값만**
+   * 적는다 — 1 이하는 와이어 미송신(= 서버 기본값 1)이라 생략하고, 컬럼은 NULL 이 된다.
+   */
+  pieceCount?: number;
+  /**
+   * 시간외종가 세션 감사 기록 (`dma_orders.krx_session`, Phase 18 D-23). 생략 = 서버 자동 판정.
+   * DB CHECK 가 `price = 0` 을 이 값이 G2/G3 일 때만 받는다 — 둘은 같은 행에 함께 실려야 한다.
+   */
+  krxSession?: "G2" | "G3";
+  /**
    * 생략하면 DB 기본값 `'requested'` 다. 자동주문 통보로 만드는 행은 이미 접수·체결
    * 이후이므로 `accepted`/`filled` 등으로 시작한다 — CHECK 는 7종을 모두 허용하므로
    * `'requested'` 로 시작하지 않아도 통과한다.
@@ -439,6 +449,13 @@ export function supabaseOrderInsertSink(supabase: SupabaseClient): OrderInsertSi
         qty: row.qty,
         price: row.price,
         origin: row.origin,
+        // 감사 컬럼 2종 (Phase 18). 미송신은 NULL 이 사실이다 — 0/"" 을 지어 넣지 않는다.
+        // 값이 없으면 **키 자체를 싣지 않는다**(컬럼 기본값 NULL 과 같은 결과). `?? null` 로 늘
+        // 실으면 마이그레이션 20260921120000 이 적용되기 전의 DB 에서 PostgREST 가 「모르는 컬럼」
+        // 으로 insert 를 거부해 **모든 수동주문**이 「주문 기록에 실패했습니다」로 막힌다.
+        // 이렇게 두면 그 창에서도 기존 신규·취소는 그대로 기록되고, 새 값을 싣는 주문만 실패한다.
+        ...(row.pieceCount === undefined ? {} : { piece_count: row.pieceCount }),
+        ...(row.krxSession === undefined ? {} : { krx_session: row.krxSession }),
         // 생략 시 DB 기본값(`requested`)이 이긴다 — `undefined` 를 실어 덮지 않는다.
         ...(row.status === undefined ? {} : { status: row.status }),
         ...(row.orderNo === undefined || row.orderNo === "" ? {} : { order_no: row.orderNo }),

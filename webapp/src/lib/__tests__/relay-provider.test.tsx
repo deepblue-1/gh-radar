@@ -938,6 +938,79 @@ describe('RelayProvider — sendOrder 번역 (D-02)', () => {
     spy.mockRestore();
   });
 
+  it('⑨-e 정정은 order.modify 로 조립한다 — 원주문번호 + 방향을 함께 싣는다 (Phase 18 D-21)', async () => {
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    act(() => {
+      void sendOrderRef?.({
+        kind: 'modify',
+        isin: ISIN_A,
+        exchange: 'KRX',
+        accountNo: '12345678-01',
+        orgOrderNo: '0000135742',
+        side: 'S',
+        qty: 5,
+        price: 71_500,
+      });
+    });
+
+    const sent = ws.parsedSent().filter((m) => String(m.t).startsWith('order.'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      t: 'order.modify',
+      isin: ISIN_A,
+      exchange: 'KRX',
+      orgOrderNo: '0000135742',
+      side: 'S',
+      qty: 5,
+      price: 71_500,
+      accountNo: '12345678-01',
+    });
+    expect(typeof sent[0].rid).toBe('string');
+    expect(sent[0]).not.toHaveProperty('market');
+  });
+
+  it('⑨-f 정정인데 원주문번호·방향이 없으면 보내지 않고 사유와 함께 rejected (throw 하지 않는다)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    const MODIFY: RelayOrderRequest = {
+      kind: 'modify',
+      isin: ISIN_A,
+      exchange: 'KRX',
+      accountNo: '12345678-01',
+      orgOrderNo: '0000135742',
+      side: 'B',
+      qty: 5,
+      price: 71_500,
+    };
+    const results: Array<{ status?: string; message?: string }> = [];
+    await act(async () => {
+      results.push(
+        (await sendOrderRef?.({ ...MODIFY, orgOrderNo: undefined })) as { status?: string; message?: string },
+        (await sendOrderRef?.({ ...MODIFY, orgOrderNo: '' })) as { status?: string; message?: string },
+        (await sendOrderRef?.({ ...MODIFY, side: undefined })) as { status?: string; message?: string },
+      );
+    });
+
+    for (const r of results) expect(r.status).toBe('rejected');
+    expect(results[0].message).toBe('정정할 원주문번호를 확인하지 못했어요.');
+    expect(results[1].message).toBe('정정할 원주문번호를 확인하지 못했어요.');
+    expect(results[2].message).toBe('매수·매도 구분을 확인하지 못했어요.');
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(0);
+    spy.mockRestore();
+  });
+
   it('⑨-c 미연결은 rejected, 무응답은 timeout — 둘을 뭉개지 않는다 (Pitfall 9)', async () => {
     signedOut();
     const view = render(

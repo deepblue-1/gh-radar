@@ -58,6 +58,7 @@ export type {
   RelayStrategiesDisableMsg,
   RelayOrderNewMsg,
   RelayOrderCancelMsg,
+  RelayOrderModifyMsg,
   RelayLimitChaserMsg,
   RelayLimitChaserSnapMsg,
   RelayViTriggerMsg,

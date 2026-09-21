@@ -689,8 +689,47 @@ describe("주문 조립·파싱 (D-21 / Pitfall 7·8)", () => {
     expect(toWireOrderType("C")).toBe("C");
     expect(() => toWireSide("BUY" as never)).toThrow(OrderBuildError);
     expect(() => toWireMarket("KOSDAQ" as never)).toThrow(OrderBuildError);
-    // 정정("M")은 v1 범위 밖이라 런타임에서도 막는다 (D-21).
-    expect(() => toWireOrderType("M" as never)).toThrow(OrderBuildError);
+    // 정정("M")은 Phase 18 D-21 에서 열렸다. 세 값 밖은 여전히 런타임에서 막는다.
+    expect(toWireOrderType("M")).toBe("M");
+    expect(() => toWireOrderType("X" as never)).toThrow(OrderBuildError);
+  });
+
+  it("정정(\"M\") 왕복 — order_type \"M\" + org_order_no + 요청 side 그대로 (Phase 18 D-21)", () => {
+    const env = readBack(
+      buildDirectOrderReq({
+        ...ORDER,
+        side: "S",
+        orderType: "M",
+        orgOrderNo: "0000135742",
+        qty: 7,
+        price: 71_500,
+      }),
+    );
+    const req = env.directOrderReq();
+    expect(env.msgType()).toBe(MSG.DirectOrderReq);
+    expect(req?.orderType()).toBe("M");
+    expect(req?.orgOrderNo()).toBe("0000135742");
+    // 정정은 방향을 실어 온다 — 취소처럼 "S" 로 덮어쓰는 것이 아니라 요청 값이다.
+    expect(req?.side()).toBe("S");
+    expect(req?.quantity()).toBe(7);
+    expect(req?.price()).toBe(71_500);
+    expect(req?.orderCondition()).toBe("0");
+  });
+
+  it("정정인데 원주문번호가 없으면 ORG_ORDER_NO_REQUIRED — 정정 전용 문구로 거부한다", () => {
+    for (const orgOrderNo of [undefined, ""]) {
+      let caught: unknown;
+      try {
+        buildDirectOrderReq({ ...ORDER, orderType: "M", orgOrderNo });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(OrderBuildError);
+      expect((caught as OrderBuildError).code).toBe("ORG_ORDER_NO_REQUIRED");
+      expect((caught as OrderBuildError).message).toMatch(/정정 주문에는 원주문번호/);
+    }
+    // 취소 문구는 그대로다 — 두 갈래가 섞이지 않는다.
+    expect(() => buildDirectOrderReq({ ...ORDER, orderType: "C" })).toThrow(/취소 주문에는 원주문번호/);
   });
 
   it("parseOrderResp — 접수 통보는 side 를 신뢰한다", () => {

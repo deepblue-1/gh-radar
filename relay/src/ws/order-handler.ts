@@ -51,10 +51,12 @@ import type {
   DmaOrderStatus,
   OrderMarket,
   OrderSide,
+  OrderType,
   RelayAccount,
   RelayExchange,
   RelayLimitChaser,
   RelayOrderCancelMsg,
+  RelayOrderModifyMsg,
   RelayOrderNewMsg,
   RelayOrderResultMsg,
   RelayViTrigger,
@@ -77,6 +79,9 @@ import type { SymbolLookup } from "../store/symbols.js";
 // ============================================================
 // 계약 (전부 **최소 표면**이다 — 테스트가 스텁을 넣을 수 있게 좁힌다)
 // ============================================================
+
+/** 이 핸들러가 받는 인바운드 주문 3종 (신규·정정·취소). 정정은 Phase 18 D-21 에서 열렸다. */
+export type InboundOrderMsg = RelayOrderNewMsg | RelayOrderModifyMsg | RelayOrderCancelMsg;
 
 /** 주문 핸들러가 세션에 요구하는 것. `DmaSession` 이 그대로 만족한다. */
 export interface OrderHandlerSession {
@@ -141,8 +146,8 @@ export type OrderHandlerDeps<C> = {
 };
 
 export interface OrderHandler<C> {
-  /** 인바운드 주문 2종을 처리한다. 실패해도 throw 하지 않는다(거부 프레임으로 드러난다). */
-  handle(conn: C, userId: string, msg: RelayOrderNewMsg | RelayOrderCancelMsg): Promise<void>;
+  /** 인바운드 주문 3종을 처리한다. 실패해도 throw 하지 않는다(거부 프레임으로 드러난다). */
+  handle(conn: C, userId: string, msg: InboundOrderMsg): Promise<void>;
   /** 연결 종료 정리. **타이머 누수 0** — 남기면 프로세스가 안 내려간다. */
   closeConn(conn: C): void;
   /** 전 연결 정리. 종료 절차가 부른다. */
@@ -182,9 +187,15 @@ export type PendingOrder = {
    * `!p.isCancel` 인 후보에만 적용한다.
    */
   side: OrderSide | "";
-  /** 이 대기가 취소 주문인가. 통보의 `noticeType`("C"/"M") 과 맞춘다. */
+  /**
+   * 이 대기가 **원주문을 참조하는 주문**(취소·정정)인가. 통보의 `noticeType`("C"/"M") 과 맞춘다.
+   *
+   * 이름은 Phase 16 의 것(취소만 있던 시절)을 유지한다 — `narrowPending` 과 테스트 전반이 이
+   * 축을 쓰고, 의미는 「원주문번호 축으로 매칭되는 대기」 하나로 같다. 정정(Phase 18 D-21)도
+   * 원주문번호를 실어 오는 통보(정정확인 "M")로 정산되므로 여기에 `true` 로 합류한다.
+   */
   isCancel: boolean;
-  /** 취소 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
+  /** 취소·정정 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
   orgOrderNo: string;
   timer: NodeJS.Timeout;
   settle: (notice: ParsedOrderResp | null) => void;
@@ -220,7 +231,7 @@ type ClaimKeys = { rid: string; dup: string };
  * `rid` 는 브라우저가 그 탭에서 만드는 값이라 탭 간 충돌이 없다. 사용자 축으로 올리면
  * 다른 탭이 우연히 같은 `rid` 를 만들었을 때 정상 주문이 거부된다.
  */
-function ridKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
+function ridKey(msg: InboundOrderMsg): string {
   return `rid:${msg.rid}`;
 }
 
@@ -241,19 +252,27 @@ function ridKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
  *     잔여·자동주문으로 흔히 생긴다)에서 **두 번째 취소가 최대 5초 거부**된다. 급락
  *     국면에서 미체결 일괄 취소가 막히는 것은 자산 위험이고, 그 가드는 사고를 막는 것이
  *     아니라 사고를 만든다.
+ *   · 정정: `(accountNo, isin, "M", orgOrderNo, price, qty)` (Phase 18 D-21). 대상은
+ *     원주문번호로 가리키지만(취소와 같다) **정정 후 값이 정체성의 일부**다 — 같은 원주문을
+ *     서로 다른 가격으로 연달아 정정하는 것이 상따 화면의 정상 조작(가격 추적)이다.
+ *     원주문번호만으로 묶으면 두 번째 정정이 첫 정정의 결과를 기다리며 최대 5초 거부된다.
+ *     같은 값의 더블클릭은 키가 같으므로 여전히 거부다.
  *
  * 이 분기는 중복 가드를 **없애지 않는다.** 같은 `orgOrderNo` 로 두 번 누르면 키가 같으므로
  * 두 번째는 그대로 거부다 — 좁아진 것은 「무엇이 같은 취소인가」의 정의뿐이다.
  */
-function dupKey(msg: RelayOrderNewMsg | RelayOrderCancelMsg): string {
+function dupKey(msg: InboundOrderMsg): string {
   if (msg.t === "order.cancel") {
     return `dup:${msg.accountNo}|${msg.isin}|C|${msg.orgOrderNo}`;
+  }
+  if (msg.t === "order.modify") {
+    return `dup:${msg.accountNo}|${msg.isin}|M|${msg.orgOrderNo}|${msg.price}|${msg.qty}`;
   }
   return `dup:${msg.accountNo}|${msg.isin}|${msg.side}|${msg.price}|${msg.qty}`;
 }
 
 /** 두 키를 함께 만든다. 잡고 놓는 자리에서 한 쌍으로 다뤄야 누락이 없다. */
-function claimKeys(msg: RelayOrderNewMsg | RelayOrderCancelMsg): ClaimKeys {
+function claimKeys(msg: InboundOrderMsg): ClaimKeys {
   return { rid: ridKey(msg), dup: dupKey(msg) };
 }
 
@@ -753,9 +772,14 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   async function handle(
     conn: C,
     userId: string,
-    msg: RelayOrderNewMsg | RelayOrderCancelMsg,
+    msg: InboundOrderMsg,
   ): Promise<void> {
-    const isCancel = msg.t === "order.cancel";
+    // 3분기 (Phase 18 D-21). 게이트 ⓪~③-3 은 **세 종류 전부가 같은 순서로** 지난다 —
+    // 정정용 우회 분기를 만들지 않는다(T-18-01: 계좌 대조 ② 를 건너뛰는 경로가 생기면 IDOR).
+    const kind: OrderType =
+      msg.t === "order.cancel" ? "C" : msg.t === "order.modify" ? "M" : "N";
+    // 원주문번호로 대상을 가리키는 요청 — 취소·정정.
+    const needsOrg = kind === "C" || kind === "M";
     const logCtx = {
       userId,
       t: msg.t,
@@ -800,13 +824,18 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    // ③ 취소는 원주문번호가 필수다. 스키마(`RelayOrderCancelSchema`)가 이미 강제하지만
-    //    조립 단계가 **모든** 호출 경로의 마지막 관문이어야 하므로 방어적으로 재확인한다.
-    const orgOrderNo = isCancel ? msg.orgOrderNo : "";
-    if (isCancel && orgOrderNo === "") {
-      logger.warn(logCtx, "[WS-order] 원주문번호 없는 취소 — 거부");
+    // ③ 취소·정정은 원주문번호가 필수다. 스키마(`RelayOrderCancelSchema`/`RelayOrderModifySchema`)
+    //    가 이미 강제하지만 조립 단계가 **모든** 호출 경로의 마지막 관문이어야 하므로 방어적으로
+    //    재확인한다.
+    const orgOrderNo = msg.t === "order.new" ? "" : msg.orgOrderNo;
+    if (needsOrg && orgOrderNo === "") {
+      logger.warn(logCtx, "[WS-order] 원주문번호 없는 취소·정정 — 거부");
       release(state, keys);
-      reject(conn, msg.rid, "취소 주문에는 원주문번호가 필요합니다.");
+      reject(
+        conn,
+        msg.rid,
+        kind === "M" ? "정정 주문에는 원주문번호가 필요합니다." : "취소 주문에는 원주문번호가 필요합니다.",
+      );
       return;
     }
 
@@ -823,7 +852,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    const side = isCancel ? "S" : msg.side;
+    // 취소만 "S" 로 적는다 — 취소 요청에는 매매구분이 실리지 않아 원주문 방향을 모르기 때문이다
+    // (아래 insert 주석). 정정은 요청이 방향을 실어 오므로 그 값을 쓴다 — 방향을 알면서 "S" 로
+    // 적으면 매수 정정이 감사 기록에 매도로 남는다.
+    const side: OrderSide = msg.t === "order.cancel" ? "S" : msg.side;
     // ③-2 **`dma_orders` insert** (D-03). 게이트웨이 송신 **전에** 남긴다 (T-15-32) —
     //     나중에 남기면 그 사이에 죽었을 때 「나갔는지 모르는 주문」이 흔적 없이 사라진다.
     let orderRowId: string;
@@ -839,7 +871,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         // 둘만 받으므로 취소 행은 "S" 로 적고, 방향의 정본은 `org_order_no` 가 가리키는
         // 원주문 행이다 — 취소 행의 side 를 표시에 쓰지 말 것.
         side,
-        orderType: isCancel ? "C" : "N",
+        orderType: kind,
         orgOrderNo: orgOrderNo === "" ? undefined : orgOrderNo,
         qty: msg.qty,
         price: msg.price,
@@ -889,7 +921,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         exchange: msg.exchange,
         market: info.market,
         side,
-        orderType: isCancel ? "C" : "N",
+        orderType: kind,
         orgOrderNo,
         qty: msg.qty,
         price: msg.price,
@@ -977,8 +1009,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       price: msg.price,
       // 취소 요청에는 매매구분이 없다 — 위 `const side` 의 "S" 는 DB CHECK 용 표기라
       // 여기로 가져오면 안 된다 (`PendingOrder.side` 주석 / GC-WR-03).
-      side: isCancel ? "" : msg.side,
-      isCancel,
+      side: msg.t === "order.cancel" ? "" : msg.side,
+      // 정정도 **원주문 참조 대기**로 싣는다 (`PendingOrder.isCancel` 주석). 정정확인("M")·정정
+      // 접수 통보는 원주문번호를 실어 오고, `narrowPending` 의 원주문번호 하드 필터는 이 플래그가
+      // 선 대기만 남긴다 — 신규처럼 `false` 로 두면 정정 통보가 후보를 0건으로 만들어 실제로
+      // 접수된 정정이 5초 뒤 `timeout` 으로 기록된다.
+      isCancel: needsOrg,
       orgOrderNo,
       timer,
       settle: finish,
