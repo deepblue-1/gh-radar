@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 15: DMA 중계 서버(relay)** - KB gh-trade-server 호가 10단 시세 wss 팬아웃 + 주문 릴레이 + 종목상세 4탭 재구성 (completed 2026-09-06, 20/20 plans)
 - [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 Complete (2026-09-10 재판정 · `quick-260910-ogq`)** — 잔여였던 「WinForms ↔ 웹 한 세션 동기화」를 사용자가 장중 실계좌에서 **양방향 직접 관찰**했다. 2026-09-11 에 마지막 단서(웹 철거 시 WinForms 종목창 매수주문 체크박스 미반영)까지 해소 — **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **요구사항 5종 전부 Complete**. 열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건)
 - [ ] **Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED** - gh-trade 서버 스키마(291a953→HEAD, append-only) 를 relay 에 재동기화하고 신규 MsgType 36~38·76~78 을 등록. 기존 화면에 새 필드 반영(체결테이프 bs_code 실값 색·호가 10칸 '종가'·미체결 Q/P/종가 표식+취소보관 제외·주문통보 request_kind/requester/board·서버메시지 [상따]/[VI] 배지·VI exchange 축). 상따 3단계 래치 LED 3종(매수·매도·취소) + 클릭 토글 수동 점등(36/37/38). (**12/12 plan 실행 · 2026-09-20 코드 층위 종결** — 전량 게이트 green: 루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 9 skip · 0 fail** · 재동기화 `--check` 차이 0. Phase 16 기준선 대비 relay +66 · webapp +132 · e2e +9, 회귀 0. **미완 2건이라 체크박스는 열어 둔다:** ① **D-25 mock 게이트웨이 실기 검증 미수행** — HEAD 재빌드가 **Xcode 27.0 라이선스 미동의**(`sudo xcodebuild -license`) 로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·`krx_close_price`·`request_kind` 가 없어 돌리면 거짓 「드롭 0」이 된다(T-17-46). ② **D-26 배포는 완결됐다** — 2026-09-20 사용자 `deploy-now` 승인 뒤 webapp·relay 모두 **`ef1499a`** 로 프로덕션 반영(`smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**, `/healthz` `version ef1499a · dma true · stalledCount 0`, `DMA_HOST=10.41.1.120` 보존). 도중 25분간 「신규 webapp + 구 relay」 반쪽 상태를 거쳤다(일요일 장 마감 중, 거래 영향 없음) — 원인은 **이 저장소에서 `git push` 가 곧 webapp 배포**라는 점이고, 배포 순서는 **relay 먼저 → 검증 → push** 로 교훈을 남겼다. **TRADE-04 · TRADE-05 는 Pending 유지** — 래치 실기 왕복이 아직 미관측이라 ① 이 닫혀야 재판정한다)
-- [ ] **Phase 18: gh-trade 신규 기능 UI** - 돌파감지 목록(RateCrossAlert 76/RateCrossSnapshot 78) · 예약주문/시간외종가 발주 UI(QueuedWindowState 77 + DirectOrderReq.piece_count/krx_session) · NXT VI 전략 설정 카드(거래소별 1건). 새 화면 3개라 HTML 목업 검토 게이트 필수
+- [ ] **Phase 18: gh-trade 신규 기능 UI — 통합 트레이딩 작업대** - 상따+VI 를 `/trading` 한 페이지로 합친 다종목 작업대(돌파감지 76/78 스트립 · VI 설정 2줄+발동 스트립 · 카드 격자 · 공용 패널) · 예약/장전/시간외종가 발주 + 수동주문 신규/정정/취소(77 힌트·piece_count/krx_session·정정 M 해제) · 종목상세 호가 탭 통일 · 종목정보 팝업. 목업 게이트 통과(2026-09-21, 워크벤치 7차·호가 탭 6차)
 
 ## Phase Details
 
@@ -812,12 +812,12 @@ Plans:
 
 - [x] 17-12-PLAN.md — 전량 게이트 green · Playwright 135 pass · D-22 LED 스크린샷 8장(사용자 승인) · 요구사항·로드맵·상태 갱신 (wave 8) — **배포 완결**: webapp·relay 모두 `ef1499a`, smoke 12 PASS, healthz 정상. D-25 mock 실기 검증은 Xcode 라이선스 게이트로 미수행(WINDOWS #17 open)
 
-### Phase 18: gh-trade 신규 기능 UI — 돌파감지·예약/시간외종가 발주·NXT VI
+### Phase 18: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 
-**Goal:** 서버가 새로 제공하는 세 기능을 웹에서 쓸 수 있다 — (1) 등락률 돌파 감지 목록(76 푸시 + 78 로그인 스냅샷, 하루 1회 규칙·임계−2%p 이탈 삭제는 클라 몫), (2) 예약구간·장전·시간외종가 발주(77 표시 힌트로 라벨/조각 입력 전환, piece_count·krx_session 송신, 벽시계 판정 금지), (3) NXT VI 전략 설정(거래소별 1건, key="KRX"/"NXT" 조회·에코 거래소별 귀속).
-**Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주), TRADE-08 (NXT VI 설정)
+**Goal:** 서버가 새로 제공하는 세 기능(돌파감지 76/78 · 예약/장전/시간외종가 창 힌트 77 · 거래소별 VI)을 웹에서 쓸 수 있되, **상따와 VI 를 `/trading` 한 페이지로 합친 다종목 트레이딩 작업대**로 만든다 — 상태줄(1·2·3단) → VI 설정 2줄(KRX/NXT on/off·상승률·금액) → VI 발동 스트립(확인 체크) → 돌파감지 스트립(클릭 → 카드 추가) → 종목 추가 → 상따 카드 격자(펼친 카드 우선·접힌 카드 스택, 카드 = 헤더·종목정보 10칸·좌 호가+체결 | 우 옵션 4그룹·적응형 수동주문 신규/정정/취소) → 하단 공용 미체결·잔고·로그. 종목상세 호가 탭은 같은 카드 본문 문법(+시간외종가 콤보), 카드 ⓘ 는 종목정보 팝업. 기존 `/trading/limit-chaser/*`·`/trading/vi` 는 제거·리다이렉트.
+**Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
-**Scope notes:** 화면 3개 신설 — globals.css 토큰 인라인 standalone HTML 목업(변형+다크/라이트) 을 먼저 열어 사용자 검토 후 UI-SPEC 확정. 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`.
+**Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 셋뿐: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독. 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
 **Plans:** 0 plans
 
 Plans:

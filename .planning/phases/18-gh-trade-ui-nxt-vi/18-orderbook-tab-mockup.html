@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="ko" data-theme="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 18 — 종목상세 호가 탭 목업 (상따 카드와 같은 본문 · 수동주문 적응형 · 시간외종가 · 77 구간)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* 토큰·베이스·카드 본문 규칙은 18-workbench-mockup.html 과 같은 원문이다(빌드 시 복사). 호가 탭 전용 규칙은 맨 아래. */
+/* ═══════════════════════════════════════════════════════════════
+   토큰 — webapp/src/styles/globals.css §9 그대로 (:root 라이트 / 다크)
+   다크는 globals.css 의 `.dark` 클래스 + 이 목업의 수동 토글 `html[data-theme="dark"]`
+   + 시스템 설정(prefers-color-scheme, `data-theme="light"` 가 아닐 때) 세 경로로 켠다.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg: #FFFFFF;
+  --fg: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-fg: oklch(0.50 0 0);
+  --border: oklch(0.92 0 0);
+  --border-subtle: oklch(0.18 0 0 / 0.06);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.63 0.18 250);
+  --card: #FFFFFF;
+  --card-fg: oklch(0.18 0 0);
+  --popover: #FFFFFF;
+  --popover-fg: oklch(0.18 0 0);
+  --primary: oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+  --secondary: oklch(0.96 0 0);
+  --secondary-fg: oklch(0.18 0 0);
+  --accent: oklch(0.95 0.03 250);
+  --accent-fg: oklch(0.35 0.12 250);
+  --destructive: oklch(0.66 0.20 22);
+  --destructive-fg: #FFFFFF;
+  --up: oklch(0.66 0.20 22);
+  --down: oklch(0.63 0.18 250);
+  --flat: oklch(0.55 0 0);
+  --up-bg: oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+
+  /* 상따 래치 LED (Phase 17 · D-21) — 「무장 단계」 축이다. 주황 `--led-latent` = 잠복
+     (무장돼 있으나 진입 확인 래치가 아직 서지 않아 발주 판정을 시작하지 않음), 초록
+     `--led-armed` = 래치 ON(판정 중). 회색 단계는 새 토큰을 만들지 않고 기존
+     `--flat`(도트) · `--muted-fg`(라벨)을 쓴다. */
+  --led-latent: oklch(0.74 0.17 62);
+  --led-armed: oklch(0.68 0.19 150);
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+  --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px;
+
+  --t-caption: 12px; --t-sm: 14px; --t-base: 16px; --t-lg: 18px;
+  --t-h4: 18px; --t-h3: 20px; --t-h2: 24px; --t-h1: 30px;
+  --lh-tight: 1.2; --lh-normal: 1.5;
+
+  --row-h: 36px; --cell-pad-x: 12px; --cell-pad-y: 8px;
+
+  --font-sans: var(--font-sans-loaded, 'Pretendard Variable'), 'Pretendard Variable',
+               Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+               system-ui, sans-serif;
+  --font-mono: var(--font-mono-loaded, 'Geist Mono'), 'Geist Mono',
+               ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card-foreground: var(--card-fg);
+  --popover-foreground: var(--popover-fg);
+  --primary-foreground: var(--primary-fg);
+  --secondary-foreground: var(--secondary-fg);
+  --muted-foreground: var(--muted-fg);
+  --accent-foreground: var(--accent-fg);
+  --destructive-foreground: var(--destructive-fg);
+
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ★ 이 목업 전용 신규 제안 토큰 — 돌파 목록 「신규 도착」 행의 연노랑. 채택 시 globals.css 로 승격. */
+  --new-bg: oklch(0.97 0.08 95);
+  --new-bd: oklch(0.86 0.14 92);
+  --ctl-h: 60px;
+}
+
+/* 다크 — globals.css `.dark` 블록 그대로. 수동 토글(html[data-theme="dark"]) 경로. */
+.dark, :root[data-theme="dark"] {
+  --bg: oklch(0.08 0 0);
+  --fg: oklch(0.96 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-fg: oklch(0.65 0 0);
+  --border: oklch(0.24 0 0);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.72 0.16 250);
+  --card: oklch(0.12 0 0);
+  --card-fg: oklch(0.96 0 0);
+  --popover: oklch(0.14 0 0);
+  --popover-fg: oklch(0.96 0 0);
+  --primary: oklch(0.72 0.16 250);
+  --primary-fg: oklch(0.10 0 0);
+  --secondary: oklch(0.18 0 0);
+  --secondary-fg: oklch(0.96 0 0);
+  --accent: oklch(0.22 0.05 250);
+  --accent-fg: oklch(0.85 0.10 250);
+  --destructive: oklch(0.72 0.19 22);
+  --destructive-fg: oklch(0.10 0 0);
+  --up: oklch(0.72 0.19 22);
+  --down: oklch(0.72 0.16 250);
+  --flat: oklch(0.65 0 0);
+  --up-bg: oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+  --led-latent: oklch(0.80 0.16 70);
+  --led-armed: oklch(0.76 0.18 150);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+  --new-bg: oklch(0.28 0.06 95);
+  --new-bd: oklch(0.45 0.10 92);
+}
+/* 다크 — 시스템 설정 경로. 수동으로 라이트를 고정하지 않았을 때만 따른다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.08 0 0);
+    --fg: oklch(0.96 0 0);
+    --muted: oklch(0.18 0 0);
+    --muted-fg: oklch(0.65 0 0);
+    --border: oklch(0.24 0 0);
+    --border-subtle: oklch(1 0 0 / 0.06);
+    --input: oklch(0.24 0 0);
+    --ring: oklch(0.72 0.16 250);
+    --card: oklch(0.12 0 0);
+    --card-fg: oklch(0.96 0 0);
+    --popover: oklch(0.14 0 0);
+    --popover-fg: oklch(0.96 0 0);
+    --primary: oklch(0.72 0.16 250);
+    --primary-fg: oklch(0.10 0 0);
+    --secondary: oklch(0.18 0 0);
+    --secondary-fg: oklch(0.96 0 0);
+    --accent: oklch(0.22 0.05 250);
+    --accent-fg: oklch(0.85 0.10 250);
+    --destructive: oklch(0.72 0.19 22);
+    --destructive-fg: oklch(0.10 0 0);
+    --up: oklch(0.72 0.19 22);
+    --down: oklch(0.72 0.16 250);
+    --flat: oklch(0.65 0 0);
+    --up-bg: oklch(0.22 0.06 22);
+    --down-bg: oklch(0.22 0.05 250);
+    --led-latent: oklch(0.80 0.16 70);
+    --led-armed: oklch(0.76 0.18 150);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+    --new-bg: oklch(0.28 0.06 95);
+    --new-bd: oklch(0.45 0.10 92);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   베이스라인 (globals.css §2.3 / §8.5.2 / §2.2)
+   ═══════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum' 1, 'ss01' 1; letter-spacing: -0.01em; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+*:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent); }
+[hidden] { display: none !important; }
+.up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--flat); }
+
+/* ═══════════════════════════════════════════════════════════════
+   목업 컨트롤 바 (고정 · 테마 / 뷰포트만) · 범례 · 프레임
+   ═══════════════════════════════════════════════════════════════ */
+.ctl { position: fixed; inset: 0 0 auto 0; z-index: 500; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 16px; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); font-size: 12px; }
+.ctl h1 { font-size: 13px; font-weight: 700; margin: 0 8px 0 0; }
+.ctl .g { display: inline-flex; align-items: center; gap: 4px; }
+.ctl .g > span { color: var(--muted-fg); margin-right: 2px; font-size: 11px; }
+.tb { height: 26px; padding: 0 9px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--secondary); color: var(--secondary-fg); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tb[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.ctl input[type="range"] { width: 110px; accent-color: var(--primary); }
+.stage { padding: calc(var(--ctl-h) + 16px) 16px 48px; }
+.legend { max-width: 1440px; margin: 0 auto 14px; border: 1px solid var(--border); border-left: 3px solid var(--fg); border-radius: var(--r-md); background: var(--muted); padding: 10px 14px; font-size: 13px; }
+.legend b { font-weight: 700; }
+.legend ul { margin: 4px 0 0; padding-left: 18px; }
+.legend li + li { margin-top: 2px; }
+.legend code { font-family: var(--font-mono); font-size: 11px; }
+.fcap { max-width: 1440px; margin: 0 auto 6px; font-size: 11px; color: var(--muted-fg); display: flex; gap: 12px; flex-wrap: wrap; }
+.fcap b { color: var(--fg); font-weight: 600; }
+.frame { --vw: 1440px; width: var(--vw); max-width: 100%; min-width: 320px; margin: 0 auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg); container: vp / inline-size; resize: horizontal; overflow: clip; }
+.frame.full { width: 100%; resize: none; }
+
+/* 앱 셸 흉내 — 헤더 + (1024px 이상) 사이드바 240px. 여백 램프 16/24 는 실제 app-shell 과 같다
+   (폰은 이 목업의 요구대로 좌우 16px 거터 · 실제 셸은 8px). */
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); }
+.ahdr { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.ahdr b { font-size: 16px; font-weight: 700; }
+.ahdr .srch { margin-left: auto; height: 32px; width: min(380px, 50%); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--muted); color: var(--muted-fg); font-size: 12px; display: flex; align-items: center; padding: 0 10px; gap: 6px; }
+.asb { display: none; border-right: 1px solid var(--border); background: var(--sidebar); padding: 12px 10px; font-size: 13px; color: var(--sidebar-foreground); }
+.asb div { padding: 7px 10px; border-radius: var(--r); color: var(--muted-fg); }
+.asb div.sub { padding-left: 26px; font-size: 12px; }
+.asb div.on { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.amain { padding: 16px; min-width: 0; }
+@container vp (min-width: 1024px) {
+  .shell { grid-template-columns: 240px minmax(0, 1fr); }
+  .asb { display: block; }
+  .amain { padding: 24px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   상따 본문 — 컨테이너 `page` (폰 ~699 / 컴팩트 700–829 / 와이드 830–991 / 데스크톱 992+)
+   ═══════════════════════════════════════════════════════════════ */
+.page { container: page / inline-size; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.ttl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 -4px 0 0; }
+.ttl h2 { font-size: var(--t-h3); font-weight: 700; margin: 0; }
+.acct { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); font-size: 11px; color: var(--muted-fg); }
+.acct b { color: var(--fg); font-weight: 600; }
+
+/* 상태줄 — 「DMA · 돌파 · 거래 종목 · 임계 · 반영」 + 오른쪽 끝 단 수 세그먼트(페이지 옵션) */
+.stat { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--muted); padding: 6px 12px; font-size: var(--t-caption); color: var(--muted-fg); }
+.stat b { color: var(--fg); font-weight: 600; }
+.stat .si { display: inline-flex; align-items: center; gap: 6px; }
+.stat .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--led-armed); }
+.stat .right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
+.stat .applied { font-family: var(--font-mono); }
+.colseg { display: inline-flex; height: 24px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--card); }
+.colseg button { border: 0; background: transparent; color: var(--muted-fg); font-size: 11px; font-weight: 600; padding: 0 9px; }
+.colseg button + button { border-left: 1px solid var(--border); }
+.colseg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+@container page (max-width: 699px) { .colseg { display: none; } }
+
+/* 거래소 태그 (strategy-badge.tsx: KRX 테두리형 / NXT 채움) */
+.tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--r-sm); font-size: 10px; font-weight: 700; letter-spacing: .02em; flex: none; }
+.tag.krx { border: 1px solid var(--border); color: var(--muted-fg); background: transparent; }
+.tag.nxt { border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); }
+
+.btn { height: 26px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--border); background: var(--card); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.btn.pri { background: var(--primary); color: var(--destructive-fg); border-color: transparent; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted-fg); }
+.state { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.state::before { content: '●'; color: var(--led-armed); margin-right: 4px; font-size: 9px; }
+.newpill { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; background: var(--new-bg); border: 1px solid var(--new-bd); font-size: 10px; font-weight: 700; color: var(--fg); }
+
+/* ── ① 돌파감지 목록 : 상단 스트립 (A안 확정) ── */
+.rc-strip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); padding: 8px 10px; min-width: 0; }
+.rc-strip .lab { flex: none; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.rc-strip .lab small { font-weight: 600; color: var(--muted-fg); }
+.rc-strip .chips { display: flex; gap: 6px; overflow-x: auto; min-width: 0; flex: 1; scrollbar-width: thin; padding-bottom: 2px; }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); font-size: 12px; }
+.chip.new { background: var(--new-bg); border-color: var(--new-bd); }
+.chip.trading { border-style: dashed; color: var(--muted-fg); cursor: default; }
+.chip b { font-weight: 600; }
+.chip .r { font-weight: 700; }
+.chip .t { color: var(--muted-fg); font-size: 11px; font-family: var(--font-mono); }
+.chip .st { font-size: 10px; color: var(--muted-fg); }
+.rc-strip .more { flex: none; }
+
+/* ── ① 돌파감지 목록 : 「더보기」 전체 표 ── */
+.rc-tw { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); overflow: hidden; }
+.page:not([data-more="1"]) .rc-tw { display: none; }
+.rc-tw .hd { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; font-weight: 700; }
+.rc-tw .hd .cnt { color: var(--muted-fg); font-weight: 500; font-size: 12px; }
+.rc-tw .hd .btn { margin-left: auto; }
+.tblx { overflow-x: auto; }
+table.rc { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rc th { background: var(--muted); color: var(--muted-fg); font-size: 11px; font-weight: 600; text-align: left; padding: 6px 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rc th.num, .rc td.num { text-align: right; }
+.rc th .sort { color: var(--muted-fg); font-size: 9px; margin-left: 3px; }
+.rc td { height: 36px; padding: 0 10px; white-space: nowrap; }
+.rc tr + tr td { border-top: 1px solid var(--border-subtle); }
+.rc tr.new td { background: var(--new-bg); }
+.rc tr.trading td { color: var(--muted-fg); }
+.rc td .n { font-weight: 600; color: var(--fg); }
+.rc td .c { font-size: 11px; color: var(--muted-fg); margin-left: 4px; }
+.rc td .subl { display: none; font-size: 10px; color: var(--muted-fg); }
+.rc tr:hover td { background: color-mix(in oklch, var(--muted) 60%, transparent); }
+.rc tr.new:hover td { background: var(--new-bg); }
+.rc .r { font-weight: 700; }
+@container page (max-width: 699px) {
+  .rc .col-thr, .rc .col-at, .rc .col-base { display: none; }
+  .rc td .subl { display: block; }
+  .rc td { padding: 0 8px; }
+  .rc th { padding: 6px 8px; }
+}
+@container page (max-width: 829px) { .rc .col-base { display: none; } }
+
+/* ── 종목 추가(검색) — 스트립 바로 아래 · 카드 격자 위 ── */
+.addbar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.addbar .srch { flex: 1; min-width: 0; display: flex; align-items: center; height: 36px; border: 1px solid var(--input); border-radius: var(--r-md); background: var(--card); padding: 0 10px; font-size: 13px; color: var(--muted-fg); gap: 8px; }
+.addbar .srch input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 13px; color: var(--fg); }
+.addbar .srch kbd { font-size: 10px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-family: var(--font-mono); color: var(--muted-fg); flex: none; }
+.addbar .btn { height: 36px; flex: none; }
+
+/* ── ② 내 거래 종목 카드 격자 — 1단 기본, 700 이상에서 상태줄 세그먼트(1·2·3단) 적용 ── */
+.cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+@container page (min-width: 700px) {
+  .cards[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* 접힌 카드 스택 — 격자 아이템 1개(flex column · gap 8px). 펼친 카드가 먼저, 접힌 카드는 여기 모인다 */
+.stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stack-lab { font-size: 11px; font-weight: 600; color: var(--muted-fg); padding: 0 2px; }
+.card { container: card / inline-size; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); min-width: 0; overflow: clip; }
+.card.open { box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.04); }
+.ch { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 10px; cursor: pointer; user-select: none; }
+.ch .l1 { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; min-width: 0; }
+.ch .l2 { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
+@container card (min-width: 760px) { .ch .l1 { flex: 1 1 auto; } .ch .l2 { flex: 0 0 auto; } }
+.ch .caret { width: 18px; text-align: center; color: var(--muted-fg); font-size: 11px; transition: transform .15s; flex: none; }
+.card.open .ch .caret { transform: rotate(90deg); }
+.ch .id { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.ch .id b { min-width: 0; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch .id .c { font-size: 11px; color: var(--muted-fg); }
+@container card (max-width: 699px) { .ch .id { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.15; } .ch .id .c { font-size: 10px; } }
+/* 거래소 KRX | NXT 세그먼트 — 카드 안에서 바꾼다(전략 키의 일부라 실제로는 전략 등록 뒤 잠김) */
+.exseg { display: inline-flex; height: 20px; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; flex: none; }
+.exseg button { border: 0; background: var(--card); color: var(--muted-fg); font-size: 10px; font-weight: 700; padding: 0 6px; letter-spacing: .02em; }
+.exseg button + button { border-left: 1px solid var(--border); }
+.exseg button.on { background: var(--accent); color: var(--accent-fg); }
+.ch .px { display: flex; align-items: baseline; gap: 6px; margin-left: auto; white-space: nowrap; }
+.ch .px b { font-size: 15px; font-weight: 700; }
+.ch .px span { font-size: 12px; font-weight: 600; }
+.ch .leds { display: flex; gap: 6px; flex-wrap: wrap; }
+.ch .sws { display: flex; gap: 10px; margin-left: auto; }
+.ch .rm { margin-left: 4px; }
+
+/* LED 칩 — Phase 17 채택안 A (테두리 칩 · 라벨 OFF/대기/감시) */
+.led { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px 0 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); font-size: 11px; color: var(--fg); }
+.led .d { width: 8px; height: 8px; border-radius: 999px; background: var(--flat); flex: none; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--fg) 12%, transparent); }
+.led .k { color: var(--muted-fg); }
+.led .v { font-weight: 700; }
+.led small { color: var(--muted-fg); font-size: 10px; }
+.led[data-tone="off"] { border-style: dashed; background: transparent; cursor: default; }
+.led[data-tone="off"] .d { background: transparent; border: 1.5px solid var(--muted-fg); box-shadow: none; }
+.led[data-tone="off"] .v { color: var(--muted-fg); font-weight: 500; }
+.led[data-tone="latent"] .d { background: var(--led-latent); box-shadow: 0 0 0 2px color-mix(in oklch, var(--led-latent) 28%, transparent); }
+.led[data-tone="armed"] .d { background: var(--led-armed); box-shadow: 0 0 0 2px color-mix(in oklch, var(--led-armed) 28%, transparent); }
+.led:not([data-tone="off"]):hover { border-color: var(--muted-fg); }
+
+/* 「~ 켜기」 스위치 — limit-chaser-form.tsx 그룹 헤더 패턴 그대로(44×26 · 우측 끝 ml-auto · 간격 8px). 카드 헤더에는 없다. */
+.sw { display: inline-flex; align-items: center; margin-left: auto; cursor: pointer; background: transparent; border: 0; padding: 0; flex: none; }
+.sw i { width: 44px; height: 26px; border-radius: 999px; background: var(--border); position: relative; display: inline-block; transition: background .15s; flex: none; }
+.sw i::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 999px; background: #fff; box-shadow: 0 1px 2px oklch(0 0 0 / .3); transition: left .15s; }
+.sw.on i::after { left: 21px; }
+.sw.on[data-sw="buy"] i { background: var(--up); }
+.sw.on[data-sw="sell"] i { background: var(--down); }
+.sw.on[data-sw="sweep"] i { background: var(--led-armed); }
+
+/* ═══════════════════════════════════════════════════════════════
+   카드 본문 — globals.css §2.2b 4밴드를 **카드 컨테이너 폭**으로 옮김.
+   어느 밴드에서도 「좌 호가(+체결) | 우 옵션」 나란히. 세로 스택 없음.
+   ┌──────────┬────────────┬──────────────────────────┬──────────────────┐
+   │ 카드 폭  │ ~699       │ 700–829                  │ 830–991 / 992+   │
+   ├──────────┼────────────┼──────────────────────────┼──────────────────┤
+   │ 호가     │ 42% 1단    │ 2단 호가 260px           │ 3단 표 400/460px │
+   │          │ (가격+등락 │ (가격 | 잔량)            │ (매도잔량|가격|  │
+   │          │  세로, 잔량│                          │  매수잔량)       │
+   │          │  우측)     │                          │                  │
+   │ 옵션     │ 탭(매수/매 │ 2열 (매수+한방 | 매도+   │ 2열              │
+   │          │ 도) 1열 · │ 취소) · 라벨 좌 76px     │                  │
+   │          │ 라벨 위/  │                          │                  │
+   │          │ 입력 아래 │                          │                  │
+   └──────────┴────────────┴──────────────────────────┴──────────────────┘
+   ═══════════════════════════════════════════════════════════════ */
+.qi { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--border-subtle); padding: 4px 2px; }
+.card.open .qi { display: grid; }
+.qc { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; padding: 2px 8px; font-size: 11px; min-width: 0; }
+.qc .k { color: var(--muted-fg); white-space: nowrap; }
+.qc .v { font-weight: 600; white-space: nowrap; }
+@container card (min-width: 700px) { .qi { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@container card (min-width: 992px) { .card.open .qi { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 20px; row-gap: 0; padding: 8px 14px; } .qc { padding: 0; } }
+.cb { display: none; border-top: 1px solid var(--border); }
+.card.open .cb { display: grid; grid-template-columns: 42% minmax(0, 1fr); }
+@container card (min-width: 700px) { .card.open .cb { grid-template-columns: 260px minmax(0, 1fr); } }
+@container card (min-width: 830px) { .card.open .cb { grid-template-columns: 400px minmax(0, 1fr); } }
+@container card (min-width: 992px) { .card.open .cb { grid-template-columns: 460px minmax(0, 1fr); } }
+.pane { min-width: 0; padding: 8px; }
+.pane.ob { border-right: 1px solid var(--border); }
+@container card (min-width: 700px) { .pane { padding: 10px; } }
+.ph { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--muted-fg); margin-bottom: 4px; min-width: 0; }
+.ph b { font-size: 12px; color: var(--fg); font-weight: 600; white-space: nowrap; }
+.ph span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@container card (max-width: 699px) { .ph span { display: none; } }
+
+/* 호가 사다리 — 2단(폰·컴팩트) / 3단(와이드·데스크톱) 두 표를 두고 밴드로 하나만 보인다 */
+.ladbox { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.ladbox.v3 { display: none; }
+@container card (max-width: 699px) { .ladbox.v2 { max-height: 330px; overflow-y: auto; scrollbar-width: thin; } }
+@container card (min-width: 830px) { .ladbox.v2 { display: none; } .ladbox.v3 { display: block; } }
+table.lad { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+.lad.t3 col:nth-child(1), .lad.t3 col:nth-child(3) { width: 33%; } .lad.t3 col:nth-child(2) { width: 34%; }
+.lad.t2 col:nth-child(1) { width: 58%; } .lad.t2 col:nth-child(2) { width: 42%; }
+/* ★ 헤더 sticky: z-index 2 + 불투명 배경(카드색 위에 muted 겹칩) — 스크롤 시 행이 비치지 않게 (유지) */
+.lad th { background-color: var(--card); background-image: linear-gradient(var(--muted), var(--muted)); color: var(--muted-fg); font-size: 10px; font-weight: 600; padding: 3px 6px; text-align: center; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+.lad td { height: 22px; padding: 0 6px; position: relative; white-space: nowrap; }
+.lad tr + tr td { border-top: 1px solid var(--border-subtle); }
+.lad td .bar { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; z-index: 0; }
+.lad td.a .bar { right: 0; background: color-mix(in oklch, var(--down) 16%, transparent); }
+.lad td.b .bar { left: 0; background: color-mix(in oklch, var(--up) 16%, transparent); }
+.lad td.q span { position: relative; z-index: 1; display: block; }
+.lad td.a span { text-align: left; } .lad td.b span { text-align: right; }
+.lad td.p { text-align: center; font-weight: 600; }
+.lad td.p em { font-style: normal; font-size: 9px; color: var(--muted-fg); margin-left: 3px; font-weight: 400; }
+.lad tr.mid td { border-top: 1px solid var(--border); }
+.lad tr.last td.p { box-shadow: inset 3px 0 0 var(--fg); }
+/* 2단: 가격 좌측 정렬 · 잔량 바는 왼쪽(가격 축)에서 자란다. 폰 밴드에서는 등락률을 가격 아래 줄로(34px 행) */
+.lad.t2 td.p { text-align: left; padding-left: 8px; }
+.lad.t2 td.p em { display: none; }
+.lad.t2 td.q .bar { left: 0; }
+.lad.t2 td.q span { text-align: right; font-size: 10px; }
+@container card (max-width: 699px) {
+  .lad.t2 td { height: 34px; padding: 0 4px; }
+  .lad.t2 td.p { line-height: 1.15; padding-left: 6px; font-size: 12px; }
+  .lad.t2 td.p em { display: block; margin: 0; font-size: 9px; }
+  .lad.t2 td.q span { font-size: 9px; }
+}
+
+/* 최근 체결 테이프 (trade-tape.tsx compact) */
+table.tape { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; margin-top: 10px; }
+.tape td { height: 20px; padding: 0 4px; white-space: nowrap; text-align: right; overflow: hidden; }
+.tape td:first-child { text-align: left; color: var(--muted-fg); }
+.tape tr + tr td { border-top: 1px solid var(--border-subtle); }
+.tape-note { font-size: 10px; color: var(--muted-fg); margin: 4px 0 0; }
+@container card (max-width: 699px) { .tape col.tt { width: 34%; } .tape-note { display: none; } .tape td { padding: 0 2px; font-size: 9px; } .tape .hh { display: none; } /* 폰 밴드는 trade-tape compact 처럼 MM:SS */ }
+
+/* 옵션 세팅 4그룹 — 폰: 매수/매도 탭 + 1열 + 라벨 위/입력 아래 · 700 이상: 2열(매수+한방 | 매도+취소) + 라벨 좌 76px */
+.otabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; }
+.otabs button { height: 30px; border-radius: var(--r); border: 1px solid var(--border); background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 700; }
+.otabs button.on[data-ot="buy"] { border-color: var(--up); background: var(--up-bg); color: var(--up); }
+.otabs button.on[data-ot="sell"] { border-color: var(--down); background: var(--down-bg); color: var(--down); }
+.opt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; }
+.opt[data-tab="buy"] .col[data-col="sell"], .opt[data-tab="sell"] .col[data-col="buy"] { display: none; }
+@container card (min-width: 700px) {
+  .otabs { display: none; }
+  .opt { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .opt .col { display: block !important; }
+}
+.col { min-width: 0; }
+.grp { padding: 6px 0; border-top: 1px solid var(--border-subtle); }
+.col .grp:first-child { border-top: 0; padding-top: 0; }
+.gh { display: flex; align-items: center; gap: 8px; min-height: 30px; min-width: 0; }
+.gh .gs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh .gt { font-size: 12px; font-weight: 700; }
+.gh .gt.buy::before, .gh .gt.sell::before { content: '●'; font-size: 8px; margin-right: 5px; vertical-align: 1px; }
+.gh .gt.buy::before { color: var(--up); } .gh .gt.sell::before { color: var(--down); }
+.gh .gs { font-size: 11px; color: var(--muted-fg); }
+.fr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 6px; align-items: center; margin-top: 6px; }
+@container card (min-width: 700px) { .fr { grid-template-columns: 76px minmax(0, 1fr); margin-top: 4px; } }
+.fr .lb { font-size: 11px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+.fr .lb input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--primary); flex: none; }
+.fr .lb.dirty { color: var(--primary); font-weight: 600; }
+.inp { display: flex; align-items: center; height: 30px; border: 1px solid var(--input); border-radius: var(--r); background: var(--bg); padding: 0 6px; gap: 4px; min-width: 0; }
+.inp input { flex: 1; min-width: 0; width: 0; border: 0; outline: 0; background: transparent; text-align: right; font-family: var(--font-mono); font-size: 13px; padding: 0; }
+.inp .u { font-size: 10px; color: var(--muted-fg); flex: none; }
+.inp.dirty { border-color: var(--primary); }
+.inp:focus-within { border-color: var(--ring); }
+.seg { display: flex; height: 28px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; min-width: 0; }
+.seg button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--muted-fg); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg button.on { background: var(--up-bg); color: var(--up); }
+.fr.more { grid-template-columns: 1fr; text-align: center; color: var(--muted-fg); font-size: 11px; letter-spacing: .25em; margin-top: 2px; }
+.derived { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted-fg); padding: 3px 0 0; min-width: 0; }
+.derived span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.derived b { color: var(--fg); font-family: var(--font-mono); font-weight: 600; flex: none; }
+.dbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px -8px -8px; padding: 8px 10px; border-top: 1px solid var(--primary); background: color-mix(in oklch, var(--card) 96%, transparent); font-size: 11px; color: var(--muted-fg); }
+@container card (min-width: 700px) { .dbar { margin: 10px -10px -10px; } }
+.dbar b { color: var(--fg); }
+.dbar .act { margin-left: auto; display: flex; gap: 6px; }
+
+/* ── ③ 하단 공용 패널 (미체결 · 잔고 · 전략 로그) — 폰(<700)은 하단 고정 접이식, 그 위는 격자 아래 섹션 ── */
+.shared { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); min-width: 0; }
+.shared .tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); align-items: center; }
+.tabs button.t { height: 28px; padding: 0 10px; border-radius: var(--r); border: 1px solid transparent; background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tabs button.t[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+.tabs .tg { display: none; margin-left: auto; }
+.shared .body { overflow: auto; }
+table.sh { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sh th { background: var(--muted); color: var(--muted-fg); font-size: 11px; font-weight: 600; text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.sh td { height: 32px; padding: 0 10px; white-space: nowrap; }
+.sh tr + tr td { border-top: 1px solid var(--border-subtle); }
+.sh .num { text-align: right; }
+.sh td .nm { font-weight: 600; }
+.sh td .src { font-size: 10px; color: var(--muted-fg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.log { list-style: none; margin: 0; padding: 6px 12px; font-size: 11px; line-height: 1.7; }
+.log li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.log li .at { color: var(--muted-fg); flex: none; }
+.log li .who { font-weight: 600; flex: none; }
+.log li .msg { min-width: 0; }
+@container page (max-width: 699px) {
+  .page .shared { position: sticky; bottom: 0; z-index: 20; border-radius: var(--r-lg) var(--r-lg) 0 0; border-bottom: 0; box-shadow: 0 -8px 24px oklch(0 0 0 / .10); }
+  .page .shared .tabs .tg { display: inline-flex; }
+  .page .shared .body { max-height: 40vh; }
+  .page .shared.fold .body { display: none; }
+  .page .shared .tabs { gap: 2px; padding: 6px; }
+  .tabs button.t { padding: 0 8px; font-size: 11px; }
+}
+
+/* ── 수동주문 — 적응형 한 규칙(카드·호가 탭 공통): 컨테이너 <700(매수/매도가 탭인 밴드) → 「매수 | 매도 | 수동」 3탭 ·
+   ≥700(옵션 2열 밴드) → 옵션 우상단 「수동주문」 버튼 → 옵션 영역 덮기 + ✕(옵션 값 보존). 두 상태(data-tabman · data-cover)를 함께 들고 밴드가 하나만 쓴다 ── */
+.otabs { grid-template-columns: 1fr 1fr 1fr; }
+.otabs button.on[data-ot="manual"] { border-color: var(--fg); background: var(--muted); color: var(--fg); }
+.mbar { display: none; align-items: center; gap: 8px; min-height: 26px; margin-bottom: 4px; min-width: 0; }
+.mbar b { font-size: 12px; }
+.mbar .hint { flex: 1; min-width: 0; }
+.mbar .manbtn, .mbar .mclose { margin-left: auto; height: 24px; }
+.mbar .mclose { padding: 0 6px; }
+.manual { display: none; }
+@container card (max-width: 699px) {
+  .opt-pane[data-tabman="1"] .opt, .opt-pane[data-tabman="1"] .dbar { display: none; }
+  .opt-pane[data-tabman="1"] .manual { display: block; }
+}
+@container card (min-width: 700px) {
+  .mbar { display: flex; }
+  .opt-pane[data-cover="1"] .opt, .opt-pane[data-cover="1"] .dbar { display: none; }
+  .opt-pane[data-cover="1"] .manual { display: block; }
+}
+/* 버튼 줄 = 매수 · 매도 · 정정 · 취소 4개 한 줄 — 정정/취소는 미체결 행 선택 시에만 켜진다 */
+.obtns.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.obtn.amend, .obtn.cancel { background: var(--card); color: var(--fg); border-color: var(--border); }
+.obtn[disabled] { opacity: .45; cursor: default; }
+.obtns.four .obtn { font-size: 11px; letter-spacing: -0.02em; padding: 0 2px; }
+@container card (max-width: 699px) { .obtns.four .obtn { font-size: 10px; line-height: 1.15; white-space: normal; padding: 0 1px; } .obtns.four .obtn .pre { display: block; } }
+.selchip { display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid var(--accent-fg); background: var(--accent); color: var(--accent-fg); border-radius: var(--r); padding: 4px 6px 4px 8px; font-size: 11px; margin-bottom: 6px; }
+.selchip span { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.selchip em { font-style: normal; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selchip b { font-weight: 700; }
+.selchip button { margin-left: auto; flex: none; border: 0; background: transparent; color: inherit; font-size: 12px; padding: 0 2px; }
+.sh tr[data-unf] { cursor: pointer; }
+.sh tr.sel td { background: var(--accent); color: var(--accent-fg); }
+.sh tr.sel td .nm, .sh tr.sel td .up, .sh tr.sel td .down { color: var(--accent-fg); }
+.manual .fixed { display: flex; align-items: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.manual .fixed small { font-size: 10px; color: var(--muted-fg); font-weight: 500; }
+.stp { display: flex; gap: 4px; min-width: 0; }
+.stp .inp { flex: 1; min-width: 0; }
+.stp .st { width: 30px; height: 30px; flex: none; border: 1px solid var(--border); border-radius: var(--r); background: var(--card); font-size: 14px; line-height: 1; padding: 0; }
+.hint { font-size: 10px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ratio { display: flex; gap: 4px; min-width: 0; }
+.ratio button { flex: 1; min-width: 0; height: 26px; border: 1px solid var(--border); border-radius: var(--r); background: var(--card); font-size: 10px; font-weight: 600; padding: 0; }
+.obtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.obtn { height: 36px; border-radius: var(--r); border: 1px solid transparent; font-size: 13px; font-weight: 700; color: var(--destructive-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+.obtn.buy { background: var(--up); } .obtn.sell { background: var(--down); }
+.onote { margin: 6px 0 0; font-size: 10px; color: var(--muted-fg); text-align: center; }
+.winpill { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; font-size: 10px; font-weight: 700; border: 1px solid var(--border); color: var(--fg); background: var(--card); }
+.winpill.queued, .winpill.preopen { background: var(--new-bg); border-color: var(--new-bd); }
+.winpill.g2, .winpill.g3 { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.ib { padding: 0 6px; font-size: 13px; }
+
+/* ── 종목정보 팝업 — 뷰포트 기준(모달은 포털). <700 전체화면 시트 · ≥700 최대 960px 중앙 ── */
+.modal { position: fixed; inset: 0; z-index: 700; display: flex; align-items: center; justify-content: center; }
+.mback { position: absolute; inset: 0; background: oklch(0 0 0 / .45); }
+.sheet { position: relative; width: min(960px, calc(100% - 32px)); max-height: calc(100vh - 48px); background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 64px oklch(0 0 0 / .3); }
+@media (max-width: 699px) { .sheet { width: 100%; max-height: 100vh; height: 100vh; border-radius: 0; border: 0; } }
+.mhd { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.mhd b { font-size: 16px; font-weight: 700; }
+.mhd .mcode { font-size: 12px; color: var(--muted-fg); }
+.mhd .btn { margin-left: auto; }
+.mtabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.mtabs .t, .mper .t { height: 28px; padding: 0 12px; border-radius: var(--r); border: 1px solid transparent; background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 600; }
+.mtabs .t[aria-selected="true"], .mper .t.on { background: var(--accent); color: var(--accent-fg); }
+.mbody { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+.mper { display: flex; gap: 4px; align-items: center; }
+.cs { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); }
+.idl { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.idl div { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.idl dt { font-size: 11px; color: var(--muted-fg); } .idl dd { margin: 0; font-size: 15px; font-weight: 700; }
+.qi.mq { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-md); padding: 6px 4px; }
+@media (min-width: 700px) { .qi.mq { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.msec h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--muted-fg); text-transform: uppercase; letter-spacing: .04em; }
+.msec p { margin: 0; font-size: 13px; }
+.nl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.nl li { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.nl li b { font-size: 13px; font-weight: 600; } .nl li span { font-size: 11px; color: var(--muted-fg); }
+.dsum { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.dsum p { font-size: 12px; color: var(--fg); }
+
+/* ── 설계 메모 ── */
+.memo { max-width: 1440px; margin: 20px auto 0; border: 1px solid var(--border); border-left: 3px solid var(--fg); border-radius: var(--r-md); padding: 10px 14px; font-size: 12px; background: var(--card); }
+.memo h3 { margin: 0 0 4px; font-size: 13px; }
+.memo p { margin: 2px 0; color: var(--muted-fg); }
+.memo p b { color: var(--fg); }
+/* ═══════════════════════════════════════════════════════════════
+   호가 탭 전용 — 종목상세 히어로 · 4탭 바 · 본문 = 상따 카드와 같은 본문(옵션 세팅 4그룹 + 수동주문 적응형)
+   `.page` 에 컨테이너 이름을 `page card` 둘 다 줘서 위 카드 본문 규칙(@container card …)이 본문 폭에 그대로 걸린다.
+   ═══════════════════════════════════════════════════════════════ */
+.page { container-name: page card; }
+.hero { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero .nm { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.hero .nm b { font-size: 22px; font-weight: 800; white-space: nowrap; }
+.hero .nm .c { font-size: 12px; color: var(--muted-fg); }
+.hero .mk { font-size: 11px; color: var(--muted-fg); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; height: 18px; display: inline-flex; align-items: center; }
+.hero .px { margin-left: auto; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.hero .px b { font-size: 22px; font-weight: 800; } .hero .px span { font-size: 13px; font-weight: 700; }
+.upd { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted-fg); }
+.upd .btn { margin-left: auto; }
+.dtabs { position: sticky; top: var(--ctl-h); z-index: 30; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--bg); padding: 6px 0; border-bottom: 1px solid var(--border); }
+.dtabs button { height: 34px; border: 0; border-radius: var(--r); background: transparent; color: var(--muted-fg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.dtabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+.stat .exseg { height: 20px; }
+.obody { display: grid; grid-template-columns: 42% minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); overflow: clip; }
+@container card (min-width: 700px) { .obody { grid-template-columns: 260px minmax(0, 1fr); } }
+@container card (min-width: 830px) { .obody { grid-template-columns: 400px minmax(0, 1fr); } }
+@container card (min-width: 992px) { .obody { grid-template-columns: 460px minmax(0, 1fr); } }
+.qi.pg { display: grid; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); }
+@container card (min-width: 992px) { .qi.pg { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 20px; row-gap: 0; padding: 8px 14px; } .qi.pg .qc { padding: 0; } }
+.lhd { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted-fg); margin-bottom: 4px; min-width: 0; }
+.lhd b { font-size: 12px; color: var(--fg); }
+@container card (max-width: 699px) { .lhd span { display: none; } }
+/* 주문유형 콤보(호가 탭 수동주문 폼 전용) */
+.osel { display: flex; align-items: center; height: 30px; border: 1px solid var(--input); border-radius: var(--r); background: var(--bg); padding: 0 6px; font-size: 12px; min-width: 0; }
+.osel select { width: 100%; min-width: 0; border: 0; background: transparent; font-size: 12px; font-weight: 600; outline: 0; height: 28px; color: inherit; }
+.osel.dis { opacity: .55; }
+.inp.lock { background: var(--muted); } .inp.lock input { color: var(--muted-fg); }
+.ref { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted-fg); padding: 2px 0; min-width: 0; }
+.ref b { color: var(--fg); font-family: var(--font-mono); font-weight: 600; flex: none; }
+.ref span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fine { margin: 8px 0 0; font-size: 10px; color: var(--muted-fg); }
+/* 확인 다이얼로그 */
+.sheet.dlg { width: min(440px, calc(100% - 32px)); }
+@media (max-width: 699px) { .sheet.dlg { width: calc(100% - 32px); height: auto; max-height: calc(100vh - 32px); border-radius: var(--r-lg); border: 1px solid var(--border); } }
+.dlg .mhd b { font-size: 15px; }
+.dlg .mbody { gap: 8px; }
+.sum { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; font-size: 13px; margin: 0; }
+.sum dt { color: var(--muted-fg); } .sum dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.warn { border: 1px solid var(--destructive); background: color-mix(in oklch, var(--destructive) 8%, transparent); border-radius: var(--r-md); padding: 8px 12px; font-size: 12px; }
+.resv { border: 1px solid var(--new-bd); background: var(--new-bg); border-radius: var(--r-md); padding: 6px 10px; font-size: 12px; font-weight: 600; }
+.dact { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid var(--border); }
+.dact .btn { height: 34px; padding: 0 16px; font-size: 13px; }
+.dact .btn.buy { background: var(--up); color: var(--destructive-fg); border-color: transparent; }
+.dact .btn.sell { background: var(--down); color: var(--destructive-fg); border-color: transparent; }
+.dact .btn.amend, .dact .btn.cancel { background: var(--primary); color: var(--destructive-fg); border-color: transparent; }
+</style>
+</head>
+<body>
+
+<div class="ctl" id="ctl">
+  <h1>Phase 18 · 종목상세 호가 탭 (상따 카드와 같은 본문)</h1>
+  <div class="g"><span>테마</span><button class="tb" data-t="">시스템</button><button class="tb" data-t="light">라이트</button><button class="tb" data-t="dark">다크</button></div>
+  <div class="g"><span>뷰포트</span><button class="tb" data-w="390">폰 390</button><button class="tb" data-w="820">태블릿 820</button><button class="tb" data-w="1440">와이드 1440</button><button class="tb" data-w="full">전체폭</button><input type="range" id="wrange" min="320" max="1800" step="10" title="프레임 폭 직접 조정" /></div>
+  <div class="g"><span>구간(77)</span>
+    <button class="tb" data-win="regular">정규</button><button class="tb" data-win="queued">예약구간(open)</button><button class="tb" data-win="preopen">장전(preopen)</button><button class="tb" data-win="g2">시간외종가 G2</button><button class="tb" data-win="g3">시간외종가 G3</button><button class="tb" data-win="unknown">모름</button>
+  </div>
+</div>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="dTitle" hidden>
+  <div class="mback" data-close></div>
+  <div class="sheet dlg">
+    <div class="mhd"><b id="dTitle">매수 주문을 넣을까요?</b><button class="btn ghost" data-close aria-label="닫기">✕</button></div>
+    <div class="mbody" id="dBody"></div>
+    <div class="dact"><button class="btn" data-close>취소</button><button class="btn" id="dOk" data-close>매수 주문</button></div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="legend">
+    <b>무엇을 보는가.</b> 종목상세 <code>/stocks/[code]</code> 의 <b>호가주문 탭</b> = <b>상따 카드와 같은 본문</b>: 종목정보 10칸 줄 → 좌 호가(+체결) | 우 <b>옵션 세팅 4그룹(카드와 동일)</b> → 아래 미체결/잔고. 반응형은 §2.2b 4밴드를 본문 폭 기준으로. 종합주문창 전용 요소는 자리를 옮겼다 — 거래소 KRX|NXT → 상태줄 계좌 옆 · 주문유형 콤보 → 수동주문 폼.
+    <ul>
+      <li><b>수동주문 적응형 한 규칙</b>(카드와 공통): 본문 <700 → 「매수 | 매도 | 수동」 3탭 · ≥700 → 옵션 우상단 「수동주문」 버튼 → 옵션 영역 덮기 + ✕(옵션 값 보존). 폼 = <b>주문유형 「지정가 | 시간외종가」</b>(이 탭에만 · KRX ∧ G2/G3 창일 때만 활성, 닫히면 지정가 복귀 · 선택 시 가격 잠금 + 「참고 종가」 + <code>price 0 · krx_session</code> 안내, 버튼은 창과 무관하게 매수/매도) · 가격 · 수량 · (예약구간 ∧ KRX) 조각 수 · 주문금액 · <b>「매수 · 매도 · 정정 · 취소」 4버튼 한 줄</b>.</li>
+      <li><b>정정·취소</b>는 아래 미체결 행을 누르면 켜진다(폼 위 「원주문 …」 칩, 가격·수량이 원주문 값으로). 이 목업은 <b>예약대기 행 Q154041001 이 선택된 상태</b>로 시작한다.</li>
+      <li><b>77 라벨 규칙</b>(컨트롤 바 「구간」): 예약구간(open) ∧ KRX → 「예약매수/예약매도」 + 조각 수(기본 5 · 상한 10) · 장전 → 예약 라벨 + 조각 숨김 + 확인 다이얼로그 「예약: 증권사 보관 후 09:00 처리」(NXT 08:00) · 모름 = 전부 false. 벽시계 판정 없음 · 주문을 막지 않음. 버튼을 누르면 확인 다이얼로그 예시가 뜬다.</li>
+    </ul>
+  </div>
+  <div class="fcap"><span>프레임 <b id="capW">—</b></span><span>본문(컨테이너) <b id="capP">—</b></span><span>밴드 <b id="capB">—</b></span></div>
+
+  <div class="frame" id="frame">
+    <div class="shell">
+      <div class="ahdr"><b>gh-radar</b><div class="srch">🔍 종목명 또는 코드 검색</div></div>
+      <nav class="asb"><div>홈</div><div class="on">종목검색</div><div class="sub">상승률 상위</div><div class="sub">테마</div><div class="sub">관심종목</div><div>트레이딩</div><div class="sub">상따</div><div class="sub">VI</div><div>My page</div><div>AI 애널리스트</div></nav>
+      <div class="amain">
+        <div class="page" id="page">
+          <div class="hero">
+            <span class="nm"><b>한미반도체</b><span class="c mono">042700</span></span><span class="mk">KOSPI · 반도체</span>
+            <span class="px"><b class="mono up">128,700</b><span class="mono up">+20.33%</span></span>
+          </div>
+          <div class="upd">갱신 09:41:52 · 실시간(DMA)<button class="btn ghost">↻ 새로고침</button></div>
+          <div class="dtabs" role="tablist" aria-label="종목 정보 탭"><button role="tab">차트</button><button role="tab" aria-selected="true">호가주문</button><button role="tab">종목정보</button><button role="tab">뉴스토론</button></div>
+          <div class="stat">
+            <span class="si"><span class="dot"></span>DMA <b>실시간</b></span>
+            <span class="si">계좌 <b class="mono">1234567801</b></span>
+            <span class="si"><span class="exseg" id="exseg" role="group" aria-label="거래소"><button data-ex="KRX">KRX</button><button data-ex="NXT">NXT</button></span></span>
+            <span class="si" id="stLeds"></span>
+            <span class="si" id="stWin"></span>
+            <span class="right"><span class="applied">반영 09:41:52</span></span>
+          </div>
+          <div id="quote"></div>
+          <div class="obody" id="obody"></div>
+          <section class="shared" id="shared"></section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="memo"><h3>설계 메모 · 호가 탭 (6차)</h3>
+    <p><b>카드와 같은 본문</b>: 종목정보 10칸 · 좌 호가(+체결) · 우 옵션 세팅 4그룹 · 수동주문 적응형이 상따 카드 본문과 같은 컴포넌트라, 여기서 배운 조작이 카드에서 그대로 통한다. 다른 것은 셋뿐 — 거래소가 상태줄에 있고(전략 키의 일부라 카드에선 헤더), 수동주문 폼에 주문유형 콤보가 있고, 미체결이 이 종목만이다.</p>
+    <p><b>시간외종가</b>는 이 탭(종합주문창 역할)에만 있다 — 상따 카드·VI 창에는 없다. 콤보는 KRX ∧ G2/G3 에서만 열리고, 창이 닫히면(77 갱신) 지정가로 되돌린다. 선택 중에는 정정이 없다(시간외종가 정정 불가 — 취소 후 재등록).</p>
+    <p><b>매수 비율 버튼 없음</b>(order-panel.tsx ⑥)은 그대로 — 주문가능금액이 없어 비율을 만들지 않는다.</p>
+  </div>
+</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const fmt = n => n.toLocaleString('ko-KR');
+const tick = p => p < 2000 ? 1 : p < 5000 ? 5 : p < 20000 ? 10 : p < 50000 ? 50 : p < 200000 ? 100 : p < 500000 ? 500 : 1000;
+const qty = k => ((k * 2654435761) >>> 0) % 3800 + 120;
+const rateCls = r => r > 0 ? 'up' : r < 0 ? 'down' : 'flat';
+const tag = ex => `<span class="tag ${ex.toLowerCase()}">${ex}</span>`;
+/* 이 종목 = 상따 카드 1장과 같은 데이터 모양(전략 상태 · 스위치 · 탭 · 수동주문 상태) */
+const X = { n: '한미반도체', c: '042700', ex: 'KRX', p: 128700, r: 20.33, ls: 97_100_000, sellable: 60, led: { buy: 'armed', sell: 'latent', cancel: 'latent' }, sw: { buy: 1, sell: 1, sweep: 1 }, tab: 'buy', manual: false, type: 'limit', mp: 128700, mq: 100, pieces: 5, dirty: 0 };
+const base = x => Math.round(x.p / (1 + x.r / 100));
+
+/* ── 77 시뮬레이터 + 라벨 규칙 (워크벤치 목업과 같은 함수) ── */
+const WIN = {
+  regular: { open: false, preopenOpen: false, g2Open: false, g3Open: false, nxtPreopenOpen: false, maxPieces: 10 },
+  queued:  { open: true,  preopenOpen: false, g2Open: false, g3Open: false, nxtPreopenOpen: false, maxPieces: 10 },
+  preopen: { open: false, preopenOpen: true,  g2Open: false, g3Open: false, nxtPreopenOpen: true,  maxPieces: 10 },
+  g2:      { open: false, preopenOpen: false, g2Open: true,  g3Open: false, nxtPreopenOpen: false, maxPieces: 10 },
+  g3:      { open: false, preopenOpen: false, g2Open: false, g3Open: true,  nxtPreopenOpen: false, maxPieces: 10 },
+  unknown: undefined,
+};
+const WIN_BADGE = { regular: '정규', queued: h => `예약구간 · 조각 최대 ${h.maxPieces}`, preopen: '장전 · 예약매수/매도', g2: '시간외종가 G2 창', g3: '시간외종가 G3 창', unknown: '' };
+const winOf = () => WIN[st.win];
+function orderLabels(ex, offhours = false) {
+  const h = winOf() || {};
+  if (offhours) return { buy: '매수', sell: '매도', pieces: false, note: '' };
+  if (h.open && ex === 'KRX') return { buy: '예약매수', sell: '예약매도', pieces: true, max: h.maxPieces, note: '' };
+  if ((h.preopenOpen && ex === 'KRX') || (h.nxtPreopenOpen && ex === 'NXT')) return { buy: '예약매수', sell: '예약매도', pieces: false, note: `예약: 증권사 보관 후 ${ex === 'NXT' ? '08:00' : '09:00'} 처리` };
+  return { buy: '매수', sell: '매도', pieces: false, note: '' };
+}
+/* 시간외종가 콤보 활성 조건 — KRX ∧ (G2 ∨ G3). 닫히면 지정가 복귀 */
+const offhoursAllowed = () => { const h = winOf() || {}; return X.ex === 'KRX' && !!(h.g2Open || h.g3Open); };
+
+/* ── 종목정보 10칸 / 호가 / 체결 (카드와 동일) ── */
+const won = (v, b) => `<span class="v mono ${rateCls(v - b)}">${fmt(v)}</span>`;
+const bigKo = v => v >= 1e12 ? `${Math.floor(v / 1e12)}조 ${fmt(Math.round((v % 1e12) / 1e8))}억` : `${fmt(Math.round(v / 1e8))}억`;
+function quoteHtml(x) {
+  const t = tick(x.p), b = base(x), rt = v => Math.round(v / t) * t;
+  const cells = [['기준', won(b, b)], ['시가', won(rt(b * 1.04), b)], ['고가', won(x.p + 2 * t, b)], ['저가', won(rt(b * 0.99), b)],
+    ['상한', `<span class="v mono up">${fmt(rt(b * 1.3))}</span>`], ['하한', `<span class="v mono down">${fmt(rt(b * 0.7))}</span>`], ['상승VI', `<span class="v mono up">${fmt(rt(x.p * 1.1))}</span>`],
+    ['거래', `<span class="v mono">${bigKo(x.p * x.ls * 0.018)}</span>`], ['시총', `<span class="v mono">${bigKo(x.p * x.ls)}</span>`], ['발행1%', `<span class="v mono">${fmt(Math.round(x.ls / 100))}주</span>`]];
+  return `<div class="qi pg" data-slot="lc-quote-grid">${cells.map(([k, v]) => `<div class="qc"><span class="k">${k}</span>${v}</div>`).join('')}</div>`;
+}
+function ladderRows(x) { const t = tick(x.p), b = base(x), rows = []; for (let i = 10; i >= 1; i--) rows.push({ side: 'a', p: x.p + t * i, q: qty(i + 3), n: i }); for (let i = 1; i <= 10; i++) rows.push({ side: 'b', p: x.p - t * (i - 1), q: qty(i + 17), n: i }); return { rows, mx: Math.max(...rows.map(r => r.q)), rt: p => ((p / b - 1) * 100).toFixed(1) + '%', b }; }
+function ladder3(x) { const { rows, mx, rt, b } = ladderRows(x); return `<table class="lad t3" aria-label="호가 10단"><colgroup><col><col><col></colgroup><thead><tr><th>매도잔량</th><th>가격</th><th>매수잔량</th></tr></thead><tbody>${rows.map(r => `<tr class="${r.side === 'b' && r.n === 1 ? 'mid last' : ''}"><td class="q a">${r.side === 'a' ? `<span class="bar" style="width:${Math.max(6, r.q / mx * 100)}%"></span><span class="mono">${fmt(r.q)}</span>` : ''}</td><td class="p mono ${rateCls(r.p - b)}">${fmt(r.p)}<em>${rt(r.p)}</em></td><td class="q b">${r.side === 'b' ? `<span class="bar" style="width:${Math.max(6, r.q / mx * 100)}%"></span><span class="mono">${fmt(r.q)}</span>` : ''}</td></tr>`).join('')}</tbody></table>`; }
+function ladder2(x) { const { rows, mx, rt, b } = ladderRows(x); return `<table class="lad t2" aria-label="호가 10단"><colgroup><col><col></colgroup><thead><tr><th>가격</th><th>잔량</th></tr></thead><tbody>${rows.map(r => `<tr class="${r.side === 'b' && r.n === 1 ? 'mid last' : ''}"><td class="p mono ${rateCls(r.p - b)}">${fmt(r.p)}<em>${rt(r.p)}</em></td><td class="q ${r.side}"><span class="bar" style="width:${Math.max(6, r.q / mx * 100)}%"></span><span class="mono">${fmt(r.q)}</span></td></tr>`).join('')}</tbody></table>`; }
+function tapeHtml(x) { const t = tick(x.p), b = base(x); const rows = [[52, x.p + t, 120, 1], [51, x.p, 40, 0], [49, x.p, 1200, 0], [48, x.p + t, 85, 1], [45, x.p - t, 300, 0]]; return `<table class="tape" aria-label="체결 테이프"><colgroup><col class="tt"><col><col></colgroup><tbody>${rows.map(([s, p, q, buy]) => `<tr><td class="mono"><span class="hh">09:</span>41:${s}</td><td class="mono ${rateCls(p - b)}" style="font-weight:600">${fmt(p)}</td><td class="mono ${buy ? 'up' : 'down'}">${fmt(q)}</td></tr>`).join('')}</tbody></table><p class="tape-note">수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요</p>`; }
+function alignLadders() { $$('.ladbox').forEach(b => { const m = $('tr.mid', b); if (!m || b.scrollHeight <= b.clientHeight) return; const th = $('th', b)?.offsetHeight ?? 0, rh = m.offsetHeight || 22; const want = m.offsetTop - th - Math.floor((b.clientHeight - th) / 2 / rh) * rh; b.scrollTop = Math.max(0, Math.round(want / rh) * rh); }); }
+
+/* ── 옵션 세팅 4그룹 (카드와 동일) ── */
+const LEDN = { buy: '매수', sell: '매도', cancel: '취소' }, LEDL = { off: 'OFF', latent: '대기', armed: '감시' };
+const ledHtml = (k, tone) => `<button class="led" data-led="${k}" data-tone="${tone}" aria-label="${LEDN[k]} 래치 ${LEDL[tone]}"><span class="d"></span><span class="k">${LEDN[k]}</span><span class="v">${LEDL[tone]}</span></button>`;
+const swHtml = (k, on, label) => `<button class="sw ${on ? 'on' : ''}" data-sw="${k}" role="switch" aria-checked="${!!on}" aria-label="${label}" title="${label}"><i></i></button>`;
+const F = (lb, v, u, o = {}) => `<div class="fr"><span class="lb ${o.dirty ? 'dirty' : ''}">${o.ck ? `<input type="checkbox" ${o.on ? 'checked' : ''}>` : ''}${o.dirty ? '● ' : ''}${lb}</span><div class="inp ${o.dirty ? 'dirty' : ''}"><input value="${v}" inputmode="numeric"><span class="u">${u}</span></div></div>`;
+function optHtml(x) {
+  const t = tick(x.p);
+  const gs = { buy: x.sw.buy ? (x.led.buy === 'armed' ? '감시 중' : '무장 · 대기') : '꺼짐', sweep: x.sw.sweep ? '켜짐' : '꺼짐', sell: x.sw.sell ? (x.led.sell === 'armed' ? '감시 중' : '무장 · 대기') : '꺼짐', cancel: x.led.cancel === 'off' ? '꺼짐' : (x.led.cancel === 'armed' ? '감시 중' : '무장 · 대기') };
+  return `
+  <div class="otabs"><button class="${x.tab === 'buy' ? 'on' : ''}" data-ot="buy">매수</button><button class="${x.tab === 'sell' ? 'on' : ''}" data-ot="sell">매도</button><button class="${x.tab === 'manual' ? 'on' : ''}" data-ot="manual">수동</button></div>
+  <div class="opt" data-tab="${x.tab === 'manual' ? 'buy' : x.tab}">
+    <div class="col" data-col="buy">
+      <div class="grp"><div class="gh"><span class="gt buy">매수주문</span><span class="gs">${gs.buy}</span>${swHtml('buy', x.sw.buy, '매수주문 켜기')}</div>
+        ${F('비교가격', fmt(x.p), '원')}
+        <div class="fr"><span class="lb">감시 대상</span><div class="seg"><button>매도잔량</button><button class="on">매수잔량</button></div></div>
+        ${F('잔량', '10,000', '주')}${F('체결', '30,000', '주', { ck: 1 })}${F('매수가격', fmt(x.p - t), '원')}${F('주문금액', '100', '만원')}
+      </div>
+      <div class="grp"><div class="gh"><span class="gt">한방체결</span><span class="gs">${gs.sweep}</span>${swHtml('sweep', x.sw.sweep, '한방체결 켜기')}</div>
+        ${F('호가변경', '3', '건')}${F('한방가격', fmt(x.p + 3 * t), '원')}
+      </div>
+    </div>
+    <div class="col" data-col="sell">
+      <div class="grp"><div class="gh"><span class="gt sell">매도주문</span><span class="gs">${gs.sell}</span>${swHtml('sell', x.sw.sell, '매도주문 켜기')}</div>
+        ${F('비교가격', fmt(x.p + 2 * t), '원')}${F('호가잔량', '10', '주')}${F('잔량추적', '50', '%', { ck: 1 })}${F('체결', '30,500', '주', { ck: 1 })}
+        <div class="derived"><span>잔량추적 기준선</span><b>120주</b></div>
+        ${F('매도가격', fmt(x.p + t), '원')}<div class="fr more">···</div>
+      </div>
+      <div class="grp"><div class="gh"><span class="gt">매수취소</span><span class="gs">${gs.cancel}</span></div>
+        ${F('취소잔량', '25', '주', { ck: 1, on: x.led.cancel !== 'off' })}${F('체결', '5,000', '주', { ck: 1 })}${F('잔량추적', '30', '%', { ck: 1 })}<div class="fr more">···</div>
+      </div>
+    </div>
+  </div>
+  ${manualHtml(x)}`;
+}
+/* ── 수동주문 폼 — 카드 폼 + 주문유형 콤보(이 탭 전용) ── */
+const UNF = [
+  { id: '3407000064', name: '한미반도체', src: '상따', ex: 'NXT', side: '매수',  price: 128500, qty: 100, left: 40,  status: '접수' },
+  { id: 'Q154041001', name: '한미반도체', src: '수동', ex: 'KRX', side: '매수Q', price: 128000, qty: 500, left: 500, status: '예약대기' },
+];
+let SEL = { ...UNF[1] };
+const selChip = () => SEL ? `<div class="selchip"><span><em>원주문 <b class="mono">${SEL.id}</b></em><em>${SEL.side} <b class="mono">${fmt(SEL.price)} × ${fmt(SEL.qty)}</b></em></span><button data-unsel aria-label="선택 해제">✕</button></div>` : '';
+const btnLabel = l => l.startsWith('예약') ? `<span class="pre">예약</span>${l.slice(2)}` : l;
+function manualHtml(x) {
+  const off = x.type === 'offhours', L = orderLabels(x.ex, off), can = offhoursAllowed(), mp = SEL ? SEL.price : x.mp, mq = SEL ? SEL.qty : x.mq, dis = SEL ? '' : 'disabled';
+  return `<div class="manual">
+    ${selChip()}
+    <div class="fr"><span class="lb">주문유형</span><div class="osel ${can ? '' : 'dis'}" title="${can ? '' : '시간외종가는 KRX · 시간외종가 창(G2/G3)에서만 고를 수 있어요'}"><select id="otype" aria-label="주문유형" ${can ? '' : 'disabled'}><option value="limit" ${off ? '' : 'selected'}>지정가</option><option value="offhours" ${off ? 'selected' : ''}>시간외종가</option></select></div></div>
+    ${off ? `<div class="fr"><span class="lb">가격</span><div class="inp lock"><input value="—" disabled aria-label="가격(시간외종가 · 잠김)"><span class="u">원</span></div></div>
+             <div class="fr"><span class="lb"></span><div class="ref"><span>참고 종가</span><b>${fmt(X.p)}</b></div></div>
+             <div class="fr"><span class="lb"></span><span class="hint">가격 0 · krx_session 으로 전송 · 정정 불가(취소 후 재등록)</span></div>`
+         : `<div class="fr"><span class="lb">가격</span><div class="inp"><input value="${fmt(mp)}" inputmode="numeric"><span class="u">원</span></div></div>`}
+    <div class="fr"><span class="lb">수량</span><div class="inp"><input value="${fmt(mq)}" inputmode="numeric"><span class="u">주</span></div></div>
+    ${L.pieces ? `<div class="fr"><span class="lb">조각 수</span><div class="stp"><button class="st" data-pc="-1" aria-label="조각 줄이기">−</button><div class="inp"><input value="${x.pieces}" inputmode="numeric"><span class="u">/ 최대 ${L.max}</span></div><button class="st" data-pc="1" aria-label="조각 늘리기">+</button></div></div>` : ''}
+    <div class="derived"><span>주문금액</span><b>${off ? '종가 확정 후' : fmt(mp * mq) + '원'}</b></div>
+    <div class="obtns four"><button class="obtn buy" data-order="buy">${btnLabel(L.buy)}</button><button class="obtn sell" data-order="sell">${btnLabel(L.sell)}</button><button class="obtn amend" data-order="amend" ${dis || (off ? 'disabled' : '')}>정정</button><button class="obtn cancel" data-order="cancel" ${dis}>취소</button></div>
+    ${L.note ? `<p class="onote">${L.note}</p>` : ''}
+    <p class="fine">신규 매수/매도와 정정·취소 · 시간외종가는 정정 불가(취소 후 재등록)</p>
+  </div>`;
+}
+function renderBody() {
+  $('#quote').innerHTML = quoteHtml(X);
+  $('#obody').innerHTML = `
+    <div class="pane ob">
+      <div class="ladbox v2">${ladder2(X)}</div><div class="ladbox v3">${ladder3(X)}</div>
+      ${tapeHtml(X)}
+    </div>
+    <div class="pane opt-pane" data-tabman="${X.tab === 'manual' ? 1 : 0}" data-cover="${X.manual ? 1 : 0}">
+      <div class="mbar">${X.manual ? `<b>수동주문</b><span class="hint mono">키 KR7${X.c}00:1234567801:${X.ex}</span><button class="btn ghost mclose" data-mclose aria-label="수동주문 닫기">✕</button>` : `<button class="btn manbtn" data-mopen>수동주문</button>`}</div>
+      ${optHtml(X)}
+    </div>`;
+  $('#stLeds').innerHTML = `<span class="leds" style="display:inline-flex;gap:6px">${ledHtml('buy', X.led.buy)}${ledHtml('sell', X.led.sell)}${ledHtml('cancel', X.led.cancel)}</span>`;
+  $$('#exseg button').forEach(b => b.classList.toggle('on', b.dataset.ex === X.ex));
+  alignLadders();
+}
+function renderShared() {
+  $('#shared').innerHTML = `
+    <div class="tabs" role="tablist"><button class="t" role="tab" data-tab="unf" aria-selected="true">미체결 (${UNF.length})</button><button class="t" role="tab" data-tab="bal" aria-selected="false">잔고 (1)</button><button class="btn ghost tg" id="shTg">접기 ▾</button></div>
+    <div class="body">
+      <div class="pane-s" data-pane="unf"><div class="tblx"><table class="sh"><thead><tr><th>종목</th><th>거래소</th><th>매매</th><th class="num">단가</th><th class="num">주문/미체결</th><th>주문No</th><th>상태</th><th></th></tr></thead><tbody>
+        ${UNF.map((u, i) => `<tr data-unf="${i}" class="${SEL && SEL.id === u.id ? 'sel' : ''}" title="행을 누르면 수동주문 폼에서 정정·취소할 수 있어요"><td><span class="nm">${u.name}</span><span class="src">${u.src}</span></td><td>${tag(u.ex)}</td><td class="up">${u.side}</td><td class="num mono">${fmt(u.price)}</td><td class="num mono">${fmt(u.qty)} / ${fmt(u.left)}</td><td class="mono">${u.id}</td><td class="hint">${u.status}</td><td class="num"><button class="btn">취소</button></td></tr>`).join('')}
+      </tbody></table></div></div>
+      <div class="pane-s" data-pane="bal" hidden><div class="tblx"><table class="sh"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">매도가능</th><th class="num">평단</th><th class="num">현재가</th><th class="num">평가손익</th><th class="num">손익률</th></tr></thead><tbody>
+        <tr><td class="nm">한미반도체</td><td class="num mono">60</td><td class="num mono">60</td><td class="num mono">126,900</td><td class="num mono">128,700</td><td class="num mono up">+108,000</td><td class="num mono up">+1.42%</td></tr>
+      </tbody></table></div></div>
+    </div>`;
+}
+/* 확인 다이얼로그 — order-confirm-dialog.tsx 요약 행 + D-20 고지 + 77 예약 줄 · 정정/취소는 원주문 행 포함 */
+function openConfirm(k) {
+  const off = X.type === 'offhours', L = orderLabels(X.ex, off), mp = SEL ? SEL.price : X.mp, mq = SEL ? SEL.qty : X.mq;
+  const label = k === 'amend' ? '정정' : k === 'cancel' ? '취소' : L[k];
+  $('#dTitle').textContent = k === 'cancel' ? '미체결 주문을 취소할까요?' : `${label} 주문을 넣을까요?`;
+  const ok = $('#dOk'); ok.textContent = k === 'cancel' ? '취소 주문' : `${label} 주문`; ok.className = `btn ${k}`;
+  const rows = [['종목', `한미반도체 <span class="mono" style="color:var(--muted-fg)">042700</span>`], ['계좌', '<span class="mono">1234567801</span>'], ['거래소', `<span class="mono">${X.ex}</span>`]];
+  if (SEL && k !== 'buy' && k !== 'sell') rows.push(['원주문', `<span class="mono">${SEL.id}</span> · ${SEL.side} ${fmt(SEL.price)} × ${fmt(SEL.qty)}`]);
+  if (k !== 'cancel') { rows.push(['주문유형', off ? '시간외종가 · 가격 0 (KRX 세션)' : '지정가 · 보통'], ['가격', off ? `<span class="mono">참고 종가 ${fmt(X.p)}원</span>` : `<span class="mono">${fmt(mp)}원</span>`], ['수량', `<span class="mono">${fmt(mq)}주</span>`]); if (L.pieces && k !== 'amend') rows.push(['조각 수', `<span class="mono">${X.pieces}</span> (서버 상한 ${L.max})`]); rows.push(['주문금액', off ? '종가 확정 후' : `<span class="mono" style="font-weight:600">${fmt(mp * mq)}원</span>`]); }
+  else rows.push(['취소 수량', `<span class="mono">${fmt(SEL.left)}주</span> (미체결 잔량 전부)`]);
+  $('#dBody').innerHTML = `<dl class="sum">${rows.map(([a, v]) => `<dt>${a}</dt><dd>${v}</dd>`).join('')}</dl>${L.note && k !== 'cancel' ? `<div class="resv">${L.note}</div>` : ''}<p class="warn">${k === 'cancel' ? '취소 수량은 미체결 잔량 전부예요.' : '가격·수량을 다시 확인해 주세요. 서버에는 금액·수량 한도가 없어요.'}</p>`;
+  $('#modal').hidden = false; $('.mhd [data-close]')?.focus();
+}
+const closeConfirm = () => { $('#modal').hidden = true; };
+
+/* ── 상태 ── */
+const KEY = 'ob18r6'; const DEF = { t: '', w: '1440', win: 'regular', fold: '1' }; let st = { ...DEF };
+try { Object.assign(st, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+function apply() {
+  document.documentElement.dataset.theme = st.t;
+  const fr = $('#frame'); fr.classList.toggle('full', st.w === 'full');
+  if (st.w !== 'full') { fr.style.setProperty('--vw', st.w + 'px'); fr.style.width = ''; $('#wrange').value = st.w; }
+  $$('[data-t]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === st.t)));
+  $$('[data-w]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.w === st.w)));
+  $$('[data-win]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.win === st.win)));
+  const wb = WIN_BADGE[st.win], h = winOf(); const txt = typeof wb === 'function' ? wb(h) : wb;
+  $('#stWin').innerHTML = txt ? `<span class="winpill ${st.win}">${txt}</span>` : '';
+  if (X.type === 'offhours' && !offhoursAllowed()) X.type = 'limit'; // 창이 닫히면 지정가 복귀
+  $('#shared').classList.toggle('fold', st.fold === '1'); const tg = $('#shTg'); if (tg) tg.textContent = st.fold === '1' ? '펼치기 ▴' : '접기 ▾';
+  save(); renderBody();
+}
+document.addEventListener('click', e => {
+  const lp = e.target.closest('.lad td.p');
+  if (lp && X.type !== 'offhours') { X.mp = parseInt(lp.childNodes[0].textContent.replace(/,/g, ''), 10); if (SEL) SEL.price = X.mp; renderBody(); return; }
+  const ur = e.target.closest('tr[data-unf]');
+  if (ur && !e.target.closest('button')) { const u = UNF[Number(ur.dataset.unf)]; SEL = SEL && SEL.id === u.id ? null : { ...u }; renderShared(); apply(); return; }
+  const b = e.target.closest('button, [data-close]'); if (!b) return;
+  if (b.hasAttribute('data-unsel')) { SEL = null; renderShared(); apply(); return; }
+  if (b.dataset.t !== undefined && b.closest('#ctl')) { st.t = b.dataset.t; apply(); return; }
+  if (b.dataset.w) { st.w = b.dataset.w; apply(); return; }
+  if (b.dataset.win) { st.win = b.dataset.win; apply(); return; }
+  if (b.dataset.ex) { X.ex = b.dataset.ex; apply(); return; }
+  if (b.dataset.ot) { X.tab = b.dataset.ot; renderBody(); return; }
+  if (b.hasAttribute('data-mopen')) { X.manual = true; renderBody(); return; }
+  if (b.hasAttribute('data-mclose')) { X.manual = false; renderBody(); return; }
+  if (b.dataset.sw) { const k = b.dataset.sw; X.sw[k] = X.sw[k] ? 0 : 1; if (k !== 'sweep') X.led[k] = X.sw[k] ? 'latent' : 'off'; renderBody(); return; }
+  if (b.dataset.led) { const k = b.dataset.led; if (X.led[k] === 'off') return; X.led[k] = X.led[k] === 'armed' ? 'latent' : 'armed'; renderBody(); return; }
+  if (b.dataset.pc) { const L = orderLabels(X.ex); X.pieces = Math.min(L.max || 10, Math.max(1, X.pieces + Number(b.dataset.pc))); renderBody(); return; }
+  if (b.dataset.order) { if (b.disabled) return; openConfirm(b.dataset.order); return; }
+  if (b.hasAttribute('data-close')) { closeConfirm(); return; }
+  if (b.id === 'shTg') { st.fold = st.fold === '1' ? '0' : '1'; apply(); return; }
+  if (b.dataset.tab) { $$('[data-tab]').forEach(t => t.setAttribute('aria-selected', String(t === b))); $$('.pane-s').forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab); return; }
+});
+document.addEventListener('change', e => { if (e.target.id === 'otype') { X.type = e.target.value; renderBody(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) closeConfirm(); });
+$('#wrange').addEventListener('input', e => { st.w = e.target.value; apply(); });
+const bandOf = w => w < 700 ? '폰 (~699)' : w < 830 ? '컴팩트 (700–829)' : w < 992 ? '와이드 (830–991)' : '데스크톱 (992+)';
+new ResizeObserver(() => { const fw = Math.round($('#frame').getBoundingClientRect().width), pw = Math.round($('#page').getBoundingClientRect().width); $('#capW').textContent = fw + 'px'; $('#capP').textContent = pw + 'px'; $('#capB').textContent = bandOf(pw); alignLadders(); }).observe($('#page'));
+new ResizeObserver(() => document.documentElement.style.setProperty('--ctl-h', $('#ctl').offsetHeight + 'px')).observe($('#ctl'));
+renderShared(); apply();
+</script>
+</body>
+</html>
