@@ -26,6 +26,7 @@ import {
   formFromServer,
   isDeleteIntent,
   isLimitChaserSetRejection,
+  parseStrategyKey,
   seedFromUpperLimit,
   strategyKey,
   type LimitChaserFormValues,
@@ -102,6 +103,35 @@ describe('strategyKey — 전략 키 조립 (유일 지점)', () => {
     expect(strategyKey(`${ISIN}XXXX`, '123456789012345', 'NXT')).toBe(
       'KR7005930003:123456789012:NXT',
     );
+  });
+});
+
+describe('parseStrategyKey — 전략 키 분해 (strategyKey 의 짝)', () => {
+  it('세 조각 + 화이트리스트 거래소만 통과한다 — 반쪽 파싱은 다른 계좌를 편집하게 만든다', () => {
+    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}:KRX`)).toEqual({
+      isin: ISIN,
+      accountNo: ACCOUNT,
+      exchange: 'KRX',
+    });
+    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}:NXT`)?.exchange).toBe('NXT');
+  });
+
+  it('형식이 어긋나면 null — 구분자 부족·초과, 빈 조각, 미지 거래소', () => {
+    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}`)).toBeNull();
+    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}:KRX:X`)).toBeNull();
+    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}:KOSPI`)).toBeNull();
+    expect(parseStrategyKey(`:${ACCOUNT}:KRX`)).toBeNull();
+    expect(parseStrategyKey(`${ISIN}::KRX`)).toBeNull();
+    expect(parseStrategyKey('')).toBeNull();
+  });
+
+  it('왕복 — 조립 → 파싱 → 조립이 원래 키와 같다', () => {
+    for (const exchange of ['KRX', 'NXT'] as const) {
+      const key = strategyKey(ISIN, ACCOUNT, exchange);
+      const parsed = parseStrategyKey(key);
+      expect(parsed).not.toBeNull();
+      expect(strategyKey(parsed!.isin, parsed!.accountNo, parsed!.exchange)).toBe(key);
+    }
   });
 });
 
