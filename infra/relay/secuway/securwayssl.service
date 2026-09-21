@@ -1,0 +1,34 @@
+# Kyobo SecuwaySSL VPN — persistent DMA tunnel on radar-gw.
+# Split-route only (server pushes host routes 10.16.207.112/.119 via 10.212.0.1
+# on tun1); no redirect-gateway, so the default route (ens4), KB tun0 and wg0
+# are untouched. Credentials come from Secret Manager via ExecStartPre; the
+# value never lands in the unit, args, or logs.
+#
+# PROCESS MODEL: SecuwaySSLU_client is a launcher that spawns the sbin/sslvpn
+# tunnel daemon and returns. secuway-connect (ExecStart) backgrounds it and
+# then blocks on sslvpn, so this Type=simple service's MainPID lives exactly as
+# long as the tunnel — sslvpn death exits ExecStart and Restart=always
+# reconnects. KillMode=control-group tears down launcher + sslvpn on stop.
+#
+# ⚠ Same registered device MAC as the desktop client. Do NOT run both at once —
+# Kyobo may drop one session or lock the account. See infra/relay/README.md.
+[Unit]
+Description=Kyobo SecuwaySSL VPN client (DMA split-route tunnel)
+Documentation=file:///opt/SecurwaySSL
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/sbin/secuway-fetch-secret
+ExecStart=/usr/local/sbin/secuway-connect
+ExecStopPost=-/bin/rm -f /run/secuway.cred
+Restart=always
+RestartSec=30
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+#!/bin/bash
+# ExecStart for securwayssl.service (Type=simple).
+# SecuwaySSLU_client is a LAUNCHER: it authenticates (User ID + Password from
+# the cred file on stdin), spawns the long-lived tunnel daemon sbin/sslvpn, and
+# then returns. To give systemd a deterministic main process, this wrapper
+# backgrounds the launcher, waits for sslvpn to appear, then BLOCKS on it — so
+# this script stays alive exactly as long as the tunnel does. When sslvpn dies
+# (e.g. the ~4h --inactive timeout, or a server drop), the wrapper exits non-
+# zero and systemd's Restart=always reconnects. KillMode=control-group tears
+# the whole group (launcher + sslvpn) down on stop/restart.
+# cwd MUST be /opt/SecurwaySSL: the client reads conf/client.info relative to
+# cwd and spawns sbin/sslvpn from there.
+CRED=/run/secuway.cred
+cd /opt/SecurwaySSL || exit 1
+[ -r "$CRED" ] || { echo "secuway-connect: missing $CRED" >&2; exit 1; }
+./SecuwaySSLU_client < "$CRED" &
+pid=""
+for i in $(seq 1 30); do
+  pid=$(pgrep -x sslvpn | head -1)
+  if [ -n "$pid" ]; then break; fi
+  sleep 1
+done
+if [ -z "$pid" ]; then
+  echo "secuway-connect: sslvpn did not come up within 30s" >&2
+  exit 1
+fi
+echo "secuway-connect: tunnel up, tracking sslvpn pid $pid" >&2
+while kill -0 "$pid" 2>/dev/null; do sleep 5; done
+echo "secuway-connect: sslvpn ($pid) exited — exiting so systemd restarts" >&2
+exit 1

@@ -1,0 +1,5 @@
+[Unit]
+Description=Kyobo SecuwaySSL tunnel keepalive + liveness watchdog
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/secuway-watchdog

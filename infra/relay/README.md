@@ -64,6 +64,8 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | `caddy` | `active` | `systemctl is-active caddy` |
 | `wg-probe` | `active` + `enabled` — wg0 터널 1초 주기 읽기 전용 측정기 (2026-09-16 신설, §터널 정지 판정 절차) | `systemctl is-active wg-probe` / `journalctl -t wg-probe -n 5` |
 | `netcut-daily.timer` | `enabled` — 평일 `Mon-Fri 08:00 KST` 예약 기동, 외부 경로 단절 5축 측정기 (§외부 경로 단절 판정 — netcut). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-enabled netcut-daily.timer` / `systemctl list-timers 'netcut-*' --all` |
+| `securwayssl.service` | `active` + **`enabled`** — 교보 SecuwaySSL VPN 상시 DMA 터널 (2026-09-21 신설, §교보 SecuwaySSL VPN). `MainPID` 은 `secuway-connect` 래퍼(sslvpn 추적). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-active securwayssl.service` |
+| `securwayssl-watchdog.timer` | `active` + `enabled` — 3분 주기 교보 터널 keepalive + 도달성 복구 | `systemctl is-active securwayssl-watchdog.timer` |
 
 > 이 표의 값은 2026-09-08 19:0x KST 에 읽기 명령만으로 수집했다(quick-260908-py9).
 > 라이브 전환 경위는 §실서버 라이브 상태, VPN 정책은 §VPN 조작 을 보라.
@@ -1125,6 +1127,64 @@ sudo systemctl restart openconnect@kb    # KB 계정 인증 시도 예산을 1�
 
 부팅 180초 뒤 `kbvpn-route-guard` 가 1회 실행되어, 기본 경로가 `tun*` 로 넘어가 있으면
 `openconnect@*` 를 자동으로 중지한다. 로그는 `journalctl -t kbvpn-route-guard`.
+
+---
+
+## 교보 SecuwaySSL VPN — 상시 DMA 터널
+
+교보증권 SSL VPN(SecuwaySSL U V2.1) 리눅스 클라이언트를 radar-gw 에 상시화한 경로다.
+KB AnyConnect(`openconnect@kb`)와 **별개의 독립 터널**이며 서로 간섭하지 않는다.
+
+| 항목 | 값 |
+|------|-----|
+| 게이트웨이 | `211.47.36.250:443`(로그인) · 데이터채널 `:20001` (LEA-128-CBC) |
+| 클라이언트 | `/opt/SecurwaySSL/SecuwaySSLU_client` (secuway.tar.gz, 2026-09-21 설치) |
+| 인터페이스 | `tun1` (`10.212.8.x/16`) |
+| 도달 대상 | 서버 푸시 호스트 라우트 `10.16.207.112` · `10.16.207.119` via `10.212.0.1` (둘 다 `:22` 확인) |
+| 라우팅 격리 | **redirect-gateway 없음.** 기본 경로(`ens4`) · KB `tun0` · `wg0` 무영향 |
+| 시크릿 | Secret Manager `kyobo-vpn-cred` (2줄: User ID, Password). VM SA `gh-radar-relay-sa` 가 `secretAccessor` |
+
+### systemd 구성 (부팅 자동기동)
+
+정본은 repo `infra/relay/secuway/` (버전관리). VM 설치 경로:
+
+- `/usr/local/sbin/secuway-fetch-secret` — `ExecStartPre`. 시크릿을 `/run/secuway.cred`(0600) 로 받는다. 값은 로그에 남기지 않는다.
+- `/usr/local/sbin/secuway-connect` — `ExecStart`. cred 를 클라이언트 stdin 으로 주입.
+- `/usr/local/sbin/secuway-watchdog` — 3분 주기 keepalive + 도달성 복구.
+- `/etc/systemd/system/securwayssl.service` · `securwayssl-watchdog.{service,timer}`
+
+**프로세스 모델 (Type=simple 인 이유).** `SecuwaySSLU_client` 는 런처다 — 인증 후 터널 데몬 `sbin/sslvpn` 을 띄우고 스스로 종료한다. 그래서 `secuway-connect` 가 런처를 백그라운드로 돌린 뒤 `sslvpn` 을 찾아 그 PID 에 blocking 한다. 이 래퍼가 곧 `MainPID` 이고, 터널이 죽으면(약 4시간 `--inactive` 만료·서버 드롭) 래퍼가 종료돼 `Restart=always` 가 재연결한다. `KillMode=control-group` 이 중지·재시작 시 런처+sslvpn 을 함께 정리한다. (Type=forking 은 sh·sslvpn·client 3프로세스 때문에 `MainPID` 추정이 실패해 죽음 감지가 watchdog 에만 의존하게 되어 폐기했다.) 2026-09-21 `pkill -x sslvpn` 실증: `NRestarts` 0→1, 새 PID 재기동, 55초 내 도달성 복구.
+
+### ⚠ 데스크톱과 동시접속 금지 (상호배제)
+
+이 VM 세션과 데스크톱 클라이언트는 **교보에 등록된 단말 MAC 이 동일**하다(VM `42:01:0a:0a:00:05` 를 등록). 동시에 접속하면 교보가 한쪽 세션을 끊거나 계정을 잠글 수 있다. **VM 상시 터널을 켜 둔 동안 데스크톱 SecuwaySSL 을 띄우지 말 것**(반대도 마찬가지). VM 을 잠시 내리려면 `sudo systemctl stop securwayssl.service`.
+
+### 조작
+
+```bash
+# 상태
+systemctl status securwayssl.service
+systemctl list-timers securwayssl-watchdog.timer
+journalctl -u securwayssl.service -n 30
+
+# 도달성 (읽기)
+gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
+  --command='for h in 10.16.207.112 10.16.207.119; do timeout 3 bash -c "</dev/tcp/$h/22" && echo "$h:22 open"; done'
+
+# 수동 중지 / 재기동 (데스크톱 접속 전엔 반드시 중지)
+sudo systemctl stop securwayssl.service
+sudo systemctl start securwayssl.service
+
+# 재설치 (repo infra/relay/secuway/ 갱신 후, 저장소 루트에서)
+tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-through-iap \
+  --zone=asia-northeast3-a --command='mkdir -p /tmp/sd && tar xzf - -C /tmp/sd && sudo /tmp/sd/install.sh'
+
+# 비밀번호·계정 교체: 새 버전을 Secret Manager 에 넣고 재기동 (값은 화면에 출력하지 않는다)
+#   printf '%s\n%s\n' <ID> <PW> | gcloud secrets versions add kyobo-vpn-cred --data-file=-
+#   sudo systemctl restart securwayssl.service
+```
+
+> **MAC 바인딩.** 교보 계정은 단말 MAC 에 묶인다. VM MAC(`42:01:0a:0a:00:05`)이 교보에 등록돼 있어야 접속된다 — 미등록이면 `Error: 등록된 MAC값이 일치하지 않습니다` 로 거부된다. VM 재생성으로 MAC 이 바뀌면 재등록이 필요하다.
 
 ---
 

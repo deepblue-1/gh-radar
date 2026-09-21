@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
-status: planning
+status: executing
 stopped_at: Phase 17 complete, ready to plan Phase 18
-last_updated: "2026-09-21T09:05:15.405Z"
+last_updated: "2026-09-21T10:04:13.602Z"
 last_activity: 2026-09-21
 last_activity_desc: Phase 17 complete, transitioned to Phase 18
-state_head: ee5e3a03dca1a85b7e80c6ab69eea84c4f83ac81
+state_head: beb61c4b202582f4a80d5378c8897aa07f45b2f1
 progress:
   total_phases: 27
   completed_phases: 5
-  total_plans: 197
+  total_plans: 210
   completed_plans: 182
 milestone_name: milestone
 ---
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — READY TO EXECUTE
 Plan: Not started
 Plans completed: 172 / 185
-Status: Ready to plan
+Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-21 — Phase 17 complete, transitioned to Phase 18
+Last activity: 2026-09-21 — Quick 260921-or9: 교보 SecuwaySSL VPN radar-gw 상시화 (Phase 18 진행 중)
 
 Progress: [█████████░] 93%
 
@@ -755,6 +755,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260921-or9 | **교보 SecuwaySSL VPN radar-gw 상시화** — secuway.tar.gz(SecuwaySSL U V2.1)를 `/opt/SecurwaySSL` 에 설치, KB VPN 패턴을 본떠 systemd 상시화. Secret Manager `kyobo-vpn-cred`(2줄, 값 미기록) + VM SA `gh-radar-relay-sa` `secretAccessor`. repo `infra/relay/secuway/`: `secuway-fetch-secret`·`secuway-connect`·`secuway-watchdog`·`securwayssl.service`(Type=simple·Restart=always·KillMode=control-group)·`securwayssl-watchdog.{service,timer}`·`install.sh`. **프로세스 모델**: client 는 런처(인증 후 `sbin/sslvpn` 띄우고 종료)라 connect 래퍼가 sslvpn PID 에 blocking → `MainPID`=래퍼로 결정적 재연결(Type=forking 은 프로세스 3개로 `MainPID=0` → 폐기). 부팅 자동기동+enable. 검증: active+enabled, 교보 `10.16.207.112`/`.119`:22 open, `tun1` up, 기본경로 `ens4` 유지·KB `tun0`/`wg0` 무영향, `pkill -x sslvpn`→`NRestarts` 0→1·55초 내 도달성 복구. README 운영표+전용 섹션(**데스크톱 동시접속 금지**: 동일 등록 MAC `42:01:0a:0a:00:05`). 평문 자격증명 흔적 정리. MAC 바인딩·유닛 메타데이터 미등록(VM 재생성 시 소멸) 주의 | 2026-09-21 | 본 커밋 | [260921-or9-secuwayssl-vpn-secret-manager-systemd-re](./quick/260921-or9-secuwayssl-vpn-secret-manager-systemd-re/) |
 | 260913-v2e | **종목상세 탭 전환 지연 해소 — 네이티브 pushState + Vercel 함수 리전 icn1** — 원인 실측: 탭 활성값이 `useSearchParams` 에서만 파생되는데 `router.push('?tab=')` 가 RSC 서버 왕복을 일으켜 응답 전까지 탭이 안 바뀜, 함수 리전이 기본 iad1(`/auth/callback` `x-vercel-id: icn1::iad1::` TTFB 0.34~1.16s). `window.history.pushState` 로 교체(Next 15 가 검색 파라미터 훅에 동기화) + Radix mousedown·focus 이중 `onValueChange` 로 기록 2개가 쌓이는 것을 실시간 URL 가드로 차단(가드 제거 시 단위 테스트 RED 확인). `vercel.json` `regions: ["icn1"]`. 게이트: webapp vitest 842 통과·1 skip · 타입 검사·린트 통과. 미실행: Playwright e2e(test 8 뒤로가기 1회·test 10 RSC 요청 0건), 배포 후 `icn1::icn1::` 확인. 범위 밖: 탭 패널 재마운트마다 재조회, 미들웨어 매 요청 `getUser()` | 2026-09-13 | 58c2919 | [260913-v2e-pushstate-vercel-icn1](./quick/260913-v2e-pushstate-vercel-icn1/) |
 | 260914-jtj | **홈 주도 테마 요약 복사 — 섹션 '전체 복사' + 카드별 복사 아이콘** — `home-format.ts` 로 등락%·평균·정렬·KST 시각 헬퍼를 단일화하고 복사 포매터 추가(화면과 복사 텍스트가 같은 함수). `CopyTextButton`: `navigator.clipboard.writeText` 일반 텍스트, '복사됨'/'복사 실패' 1.8초, sr-only status 안내, 토스트 라이브러리 미도입. 형식: `[주도 테마] {날짜} {KST HH:MM}` + `N. 테마 (평균 +x.x%)`/이유/`- 종목 +x.x%`(전 종목 desc), 뉴스 제외. 390px 에서 말풍선이 '평균 등락' 을 가려 아이콘 위로 이동. 게이트: webapp vitest 866 통과·1 skip · 타입 검사·린트 통과 · e2e home.spec 10 통과 · 실제 Chromium 클립보드 확인 | 2026-09-14 | 본 커밋 | [260914-jtj-copy-rising-theme-summary-text-on-themes](./quick/260914-jtj-copy-rising-theme-summary-text-on-themes/) |
 | 260915-boq | **아침장 주도 테마 품질 — 뉴스 수집 08:00~10:30 3분 주기·뉴스창 직전 거래일 마감 기준·전 거래일 테마 이월** — 원인 실측: 09:05~09:15 뉴스 없는 개별 급등이 몰리는데 기사 부재가 아니라 수집 지연(9/14 09:05 뉴스없음 6종목 중 5종목이 09:05 전 발행·09:15 이후 수집), 월요일엔 48h 창이 금요일 저녁 기사 누락. (A) news-sync 스케줄러 분리 `*/3 8-9`·`0-30/3,45 10`·`*/15 11-15`(offhours 불변) 라이브 적용 — 1회 18~43초·Naver 약 9.9K/일. (B) 뉴스 창 = min(now−48h, 직전 거래일 15:30 KST), 공유 KRX 캘린더 재사용, 기준 시각 주입 now 통일. (C) 오늘 테마가 비면 전 거래일 마지막 non-empty 테마를 prevThemes 로 이월(프롬프트 라벨 '전 거래일 마지막'), carry·해시 불변. 게이트: home-sync typecheck·vitest 167 통과, home-sync:b93f8a6 배포 후 슬롯 정상. 미관측: C 이월 경로 라이브 첫 실행(다음 거래일 08시대). 범위 밖: offhours `0 */2` 가 평일 08·10·12·14시 장중 잡과 동시 발화 | 2026-09-15 | b93f8a6 | [260915-boq-morning-theme-news-coverage](./quick/260915-boq-morning-theme-news-coverage/) |

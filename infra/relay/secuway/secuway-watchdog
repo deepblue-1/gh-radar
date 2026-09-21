@@ -1,0 +1,16 @@
+#!/bin/bash
+# Periodic keepalive + liveness probe for securwayssl.service.
+#   keepalive : a TCP touch to a Kyobo DMA host resets the tunnel's ~4h
+#               --inactive timer so an idle gateway does not silently drop.
+#   liveness  : if the DMA host is unreachable while systemd still thinks the
+#               service is active (client alive but tunnel died), restart it.
+set -uo pipefail
+HOST=10.16.207.112
+PORT=22
+if timeout 3 bash -c "</dev/tcp/$HOST/$PORT" 2>/dev/null; then
+  exit 0
+fi
+if systemctl is-active --quiet securwayssl.service; then
+  logger -t secuway-watchdog "DMA $HOST:$PORT unreachable while service active — restarting securwayssl"
+  systemctl restart securwayssl.service
+fi
