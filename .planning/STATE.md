@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Phase 17 complete, ready to plan Phase 18
-last_updated: "2026-09-21T10:04:13.602Z"
-last_activity: 2026-09-21
-last_activity_desc: Phase 17 complete, transitioned to Phase 18
-state_head: beb61c4b202582f4a80d5378c8897aa07f45b2f1
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-09-21T23:45:53.946Z"
+last_activity: 2026-09-22
+last_activity_desc: Phase 18 execution started
+state_head: 9cc20b9428f75885bca16e52e38a865fb9a3a5f4
 progress:
   total_phases: 27
-  completed_phases: 5
+  completed_phases: 4
   total_plans: 210
-  completed_plans: 182
+  completed_plans: 183
 milestone_name: milestone
 ---
 
@@ -24,16 +24,16 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 17 — gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED
+**Current focus:** Phase 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 
 ## Current Position
 
-Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — READY TO EXECUTE
-Plan: Not started
+Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
+Plan: 2 of 13
 Plans completed: 172 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-21 — Quick 260921-or9: 교보 SecuwaySSL VPN radar-gw 상시화 (Phase 18 진행 중)
+Last activity: 2026-09-22 — Phase 18 execution started
 
 Progress: [█████████░] 93%
 
@@ -468,6 +468,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 17 P10 | 15 min | 3 tasks | 4 files |
 | Phase 17 P11 | 14 min | 3 tasks | 6 files |
 | Phase 17 P12 | 14 min | 3 tasks | 11 files |
+| Phase 18 P01 | 15min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -735,6 +736,11 @@ Recent decisions affecting current work:
 - [Phase 17]: 17-11: 상따 상태줄 무장 표기를 래치 LED 3종으로 단일화 — 옛 매수/매도 도트 세그먼트와 그것만 먹이던 StrategyStatus 상태줄 값 4종·Dot 톤 3종까지 같은 커밋에서 제거 — 같은 무장을 두 표기가 서로 다르게 말하는 순간이 반드시 생기고, 파생 필드를 남기면 다음 화면이 두 번째 표기를 되살린다 (D-22)
 - [Phase 17]: 17-11: isLimitChaserServerMessage 가 src === "LimitChaser" 를 상따 몫으로 받는다 (VI 는 여전히 받지 않는다) — 17-01 이 더한 어휘를 받아 주는 판정이 없어 상따 런타임 사유 줄이 한 글자도 그려지지 않았다 — 그것이 lc.arm 거부 사유가 사용자에게 도달하는 유일한 경로다 (Rule 2 auto-fix)
 - [Phase 17]: 17-11: 전략 로그 첫 스냅샷 규율을 매수·매도·취소 세 축에서 동일하게 정렬 (취소 축이 무장 문장을 아예 만들지 않던 선재 비대칭 해소) — 계획 behavior 의 추정이 아니라 실측한 매도 규율을 따랐다 — 축마다 다르게 보고되면 사용자는 취소 게이트가 꺼진 줄 안다 (Rule 1 auto-fix)
+- [Phase 18]: 18-01: 정정 대기는 원주문 참조 대기(isCancel:true)로 등록 — 정정확인(M) 통보가 원주문번호 하드 필터를 통과해야 timeout 으로 오기록되지 않는다
+- [Phase 18]: 18-01: dma_orders price CHECK 는 price>0 OR (price=0 AND krx_session IN (G2,G3)) — 음수는 세션과 무관하게 거부
+- [Phase 18]: 18-01: pieceCount 1..64 정책 정본은 relay zod 한 곳, 조립기는 정수·표현 범위만 / 1 이하·빈 세션은 슬롯 미송신(바이트 동일)
+- [Phase 18]: 18-01: 감사 컬럼 piece_count/krx_session 은 값 있을 때만 insert 키에 싣는다 — 마이그레이션 미적용 창에서도 기존 주문 기록 유지
+- [Phase 18]: 18-01: 돌파 name/code 보강은 76·78 팬아웃과 인증 직후 스냅샷(getRateCrossItems) 사본에만, 캐시는 서버 원본
 
 ### Pending Todos
 
@@ -819,10 +825,10 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/18-gh-trade-ui-nxt-vi/18-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-09-21T08:57:18.478Z
-Stopped at: Phase 17 complete, ready to plan Phase 18
+Last session: 2026-09-21T23:45:53.564Z
+Stopped at: Completed 18-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
