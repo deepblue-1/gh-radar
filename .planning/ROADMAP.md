@@ -817,7 +817,7 @@ Plans:
 **Goal:** 서버가 새로 제공하는 세 기능(돌파감지 76/78 · 예약/장전/시간외종가 창 힌트 77 · 거래소별 VI)을 웹에서 쓸 수 있되, **상따와 VI 를 `/trading` 한 페이지로 합친 다종목 트레이딩 작업대**로 만든다 — 상태줄(1·2·3단) → VI 설정 2줄(KRX/NXT on/off·상승률·금액) → VI 발동 스트립(확인 체크) → 돌파감지 스트립(클릭 → 카드 추가) → 종목 추가 → 상따 카드 격자(펼친 카드 우선·접힌 카드 스택, 카드 = 헤더·종목정보 10칸·좌 호가+체결 | 우 옵션 4그룹·적응형 수동주문 신규/정정/취소) → 하단 공용 미체결·잔고·로그. 종목상세 호가 탭은 같은 카드 본문 문법(+시간외종가 콤보), 카드 ⓘ 는 종목정보 팝업. 기존 `/trading/limit-chaser/*`·`/trading/vi` 는 제거·리다이렉트.
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
-**Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 셋뿐: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독. 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
+**Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
 **Plans:** 0 plans
 
 Plans:

@@ -8,7 +8,7 @@
 
 서버(gh-trade)가 Phase 17 에서 이미 relay 로 흘려보내는 세 가지 진실 — 등락률 돌파 알림(76/78) · 예약/장전/시간외종가 창 힌트(77) · 거래소별 VI 전략(KRX/NXT) — 을 **웹에서 쓸 수 있게** 한다. 사용자 결정(D-01)으로 범위가 「화면 3개 신설」에서 **「상따와 VI 를 한 페이지 `/trading` 으로 합친 다종목 트레이딩 작업대 재설계」** 로 넓어졌다. 이 페이지 하나에서 탐색(돌파감지·VI 발동) → 추가 → 전략 설정 → 수동주문(신규·정정·취소) → 미체결/잔고/로그 확인이 끝난다. 종목상세 `/stocks/[code]` 호가 탭은 이 작업대의 카드 본문과 같은 문법으로 맞춘다.
 
-데이터 배관(relay 파서·세션 캐시·인증 스냅샷·`useRelay().rateCrossItems / queuedWindow / viTriggers{KRX,NXT}`)은 Phase 17 이 끝냈다. 이 phase 가 새로 만드는 계약은 **셋뿐**이다: ① 주문 프레임에 `pieceCount`·`krxSession` 추가, ② 정정(`order_type "M"`) 허용(relay D-21 게이트 해제), ③ 돌파 목록 종목의 시세 구독 경로.
+데이터 배관(relay 파서·세션 캐시·인증 스냅샷·`useRelay().rateCrossItems / queuedWindow / viTriggers{KRX,NXT}`)은 Phase 17 이 끝냈다. 이 phase 가 새로 만드는 계약은 **넷**이다: ① 주문 프레임에 `pieceCount`·`krxSession` 추가, ② 정정(`order_type "M"`) 허용(relay D-21 게이트 해제), ③ 돌파 목록 종목의 시세 구독 경로, ④ 돌파 항목 `name`/`code` relay 보강(D-30, 2026-09-21 리서치 후 사용자 결정으로 추가).
 
 **범위 밖:** My page(`/me`) 구조 변경, 서버(gh-trade) 변경, 알림 푸시, 실주문 검증 절차(D-27 계열).
 
@@ -55,6 +55,9 @@
 - **D-27:** 서버 진실을 클라가 재계산·재해석하지 않는다(Phase 16 D-11·Phase 17 D-04 계열): 에코가 항상 이기고(더티도 덮음 + 「다른 단말에서 변경됨」 status), queued/pending 문구는 표시만, `OrderResp.message` 파싱 금지, 77 벽시계 판정 금지, 76/78 집합 가공 금지(D-14). 토스트 라이브러리 없음 — 인라인 `role="status"`.
 - **D-28:** 반응형은 **컨테이너 쿼리 두 단위** — 페이지 본문(`page`, 상태줄·스트립·격자 열 수)과 카드(`card`, 본문 배치). 뷰포트 분기 신설 금지. `container-type` 의 layout containment 때문에 **더티 액션 바는 `document.body` 포털**로 띄운다(§2.2b 주석) — 카드가 여럿이므로 바 문구에 종목명을 쓴다.
 - **D-29:** 자동 게이트는 config `build_command`/`test_command` 그대로 + Playwright. 카드 폭 4밴드 × 격자 1/2/3단 × 폰/와이드 잘림 0 을 실브라우저로 단언한다(Phase 17 `trading-limit-chaser.spec.ts` 케이스 9·11·12·13 패턴).
+
+### 리서치 후 확정 (2026-09-21, `18-RESEARCH.md` O-1)
+- **D-30:** **돌파 항목에 종목명·단축코드를 relay 가 보강한다.** `RelayRateCrossItem` 은 ISIN 8필드뿐이고 웹앱에 ISIN→코드 조회 원천이 없으므로(`useIsinLabels` 3원천에 돌파 없음), relay 가 76/78 팬아웃 직전 `symbols.lookup(isin)` 으로 optional `name`/`code` 2필드를 채운다 — `#enrichNames`(미체결)·`RelayViOrderItem.name`·`RelayLimitChaser.name/code` 와 같은 선례. 변경은 shared optional 2필드 + hub `#onRateCrossAlert`/`#onRateCrossSnapshot` decorate 한 줄씩. lookup 실패 시 필드 부재 → 웹은 ISIN 을 그대로 표시하고 ⓘ 팝업은 비활성. 대안(웹앱이 검색 API 를 ISIN 으로 O(N) 호출)은 기각. **이로써 D-11 계열의 「새 계약은 셋뿐」이 넷이 된다**(domain 문단 갱신됨).
 
 ### Claude's Discretion
 - 알림음 파형·길이(파일 없이 Web Audio 합성), 자동재생 차단 감지 방식.
