@@ -40,6 +40,7 @@ import {
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import { logger } from "../src/logger.js";
+import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import {
   SAMPLE_ISIN,
   buildQueuedWindowStateFrame,
@@ -365,5 +366,95 @@ describe("78 RateCrossSnapshot · 77 QueuedWindowState — 캐시 교체 규약 
 
     expect(dropCallsWithReason(warn, "unknown-msg-type")).toBe(0);
     expect(dropCallsWithReason(warn, "out-of-scope-msg-type")).toBe(0);
+  });
+});
+
+// ============================================================
+// 돌파 항목 종목명·단축코드 보강 (Phase 18 D-30 / TRADE-06)
+// ============================================================
+
+describe("76/78 돌파 항목 name/code 보강 — relay 가 SymbolMap 으로 채운다 (18-01 / D-30)", () => {
+  /** 종목마스터 스텁. SAMPLE_ISIN 만 안다 — OTHER_ISIN 은 「모르는 종목」이다. */
+  const SYMBOLS: SymbolLookup = {
+    lookup: (isin: string): SymbolInfo | undefined =>
+      isin === SAMPLE_ISIN ? { code: "005930", name: "삼성전자", market: "K" } : undefined,
+  };
+
+  let hub: SubscriptionHub;
+  let session: FakeSession;
+  let fanout: HubFanoutEvent[];
+
+  beforeEach(() => {
+    resetDroppedEnvelopeCount();
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.spyOn(logger, "debug").mockImplementation(() => undefined);
+    hub = new SubscriptionHub({ symbols: SYMBOLS });
+    fanout = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    session = new FakeSession(USER_A);
+    hub.attach(session);
+  });
+
+  afterEach(() => {
+    hub.closeAll();
+    vi.restoreAllMocks();
+  });
+
+  it("① lookup 성공 — 76 팬아웃 항목에 name/code 가 채워진다", () => {
+    session.pushFrame(buildRateCrossAlertFrame({ isin: SAMPLE_ISIN }));
+
+    const alerts = msgsOf(fanout, "rate.cross") as RelayRateCrossMsg[];
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.item).toMatchObject({ isin: SAMPLE_ISIN, name: "삼성전자", code: "005930" });
+  });
+
+  it("② lookup 실패 — name/code 필드가 **없다** (ISIN 을 이름 자리에 넣지 않는다)", () => {
+    session.pushFrame(buildRateCrossAlertFrame({ isin: OTHER_ISIN }));
+
+    const item = (msgsOf(fanout, "rate.cross") as RelayRateCrossMsg[])[0]?.item;
+    expect(item?.isin).toBe(OTHER_ISIN);
+    expect(item).not.toHaveProperty("name");
+    expect(item).not.toHaveProperty("code");
+  });
+
+  it("③ 78 스냅샷 팬아웃에도 같은 보강 — 아는 종목만 채우고 모르는 종목은 비워 둔다", () => {
+    session.pushFrame(
+      buildRateCrossSnapshotFrame([
+        { isin: SAMPLE_ISIN, exchange: "KRX", exchangeTime: "090100000001" },
+        { isin: OTHER_ISIN, exchange: "KRX", exchangeTime: "090200000002" },
+      ]),
+    );
+
+    const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
+    expect(snaps).toHaveLength(1);
+    const [known, unknown] = snaps[0]?.items ?? [];
+    expect(known).toMatchObject({ isin: SAMPLE_ISIN, name: "삼성전자", code: "005930" });
+    expect(unknown?.isin).toBe(OTHER_ISIN);
+    expect(unknown).not.toHaveProperty("name");
+    expect(unknown).not.toHaveProperty("code");
+  });
+
+  it("④ 인증 직후 스냅샷 원천(getRateCrossItems)도 보강된 사본이다 — 새로고침에서 이름이 사라지지 않는다", () => {
+    // Ready 이전 76 은 캐시만 된다. 브라우저는 인증 직후 `getRateCrossItems` 로 이 집합을 받는다.
+    session.isReady = false;
+    session.pushFrame(buildRateCrossAlertFrame({ isin: SAMPLE_ISIN }));
+
+    const cached = hub.getRateCrossItems(USER_A);
+    expect(cached).toHaveLength(1);
+    expect(cached[0]).toMatchObject({ name: "삼성전자", code: "005930" });
+  });
+
+  it("⑤ 보강은 캐시 규율을 바꾸지 않는다 — 78 전량 교체가 그대로이고 서버 필드는 원문 그대로다", () => {
+    session.pushFrame(buildRateCrossAlertFrame({ isin: SAMPLE_ISIN, lastPrice: 84_100n }));
+    session.pushFrame(buildRateCrossSnapshotFrame([{ isin: OTHER_ISIN, exchangeTime: "090300000003" }]));
+
+    const cached = hub.getRateCrossItems(USER_A);
+    // 전량 교체 — 76 으로 들어온 SAMPLE_ISIN 은 남지 않는다.
+    expect(cached.map((i) => i.isin)).toEqual([OTHER_ISIN]);
+    expect(cached[0]?.exchangeTime).toBe("090300000003");
+
+    // 보강한 팬아웃 사본이 서버 필드를 바꾸지 않았다.
+    const alert = (msgsOf(fanout, "rate.cross") as RelayRateCrossMsg[])[0]?.item;
+    expect(alert?.lastPrice).toBe(84_100);
   });
 });
