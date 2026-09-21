@@ -1697,3 +1697,224 @@ describe('⑱ 종목 검색 결과 — ↓/↑/Enter 탐색 (quick-260912-u58 �
     expect(options()[0]!.closest('li')).toHaveAttribute('role', 'presentation');
   });
 });
+
+/**
+ * ㉑ **미등록 전략의 철거 에코 = 서버의 답**
+ * (debug `lc-unacked-stuck-new-route` — 2026-09-21 프로덕션 장중 차단 사고).
+ *
+ * 사고: 상따 화면에서 매수를 켰다 끈 뒤부터 상태줄이 「미반영 · 서버 응답을 기다리고 있어요」에
+ * 영구히 걸려 사용자가 전략을 설정하지 못했다.
+ *
+ * 뿌리는 **「서버가 답했는가」를 파생 목록 `limitChasers` 의 변화로 물었던 것**이다. 그 목록은
+ * 계약상 `crud:"D"` 를 담지 않으므로, **등록된 적 없는 전략에 대한 철거 에코**는 목록을 한
+ * 글자도 바꾸지 못한다 → `server` 가 `null → null` → `Object.is` 로 이펙트가 재실행조차 되지
+ * 않는다. 그런데 서버는 분명히 답했다(`Gateway.cpp` 의 `crud='D'` 갈래는 미등록 키여도 에코를
+ * 낸다) 그리고 relay 도 그대로 내려보냈다(`subscription-hub.ts` 는 `crud` 를 가리지 않는다).
+ *
+ * ★ 여기서 잠그는 규율: **「무엇이 등록돼 있는가」와 「서버가 답했는가」는 다른 질문이고 다른
+ *   값이 답한다.** 앞은 `limitChasers`, 뒤는 60 에코 스트림(`lastLimitChaserEcho`)이다.
+ * ★ 재전송을 만들지 않는다(T-16-10) — 전송 건수가 늘지 않는 것을 함께 단언한다.
+ * ★ `ACK_TIMEOUT_MS` 를 만지지 않는다. 답을 받았으면 **타이머가 꺼져야** 하는 것이지
+ *   기다리는 시간이 문제였던 적이 없다 — 그래서 에코 뒤에 시간을 **더 흘려보내고** 단언한다.
+ */
+describe('㉑ 미등록 전략 철거 에코 = 서버의 답 (debug lc-unacked-stuck-new-route)', () => {
+  /** 구독으로 오는 호가 1프레임 — 가격 5칸이 상한가로 시딩되어야 스위치를 켤 수 있다. */
+  function quote(over: Record<string, unknown> = {}) {
+    return {
+      t: 'quote' as const,
+      i: ISIN,
+      p: 130_000,
+      base: 116_000,
+      ul: 150_800,
+      ll: 81_200,
+      // 사다리가 같은 프레임을 읽는다 — 10단 배열이 없으면 `buildLadderRows` 가 터진다.
+      ap: Array.from({ length: 10 }, (_, i) => 130_500 + i * 500),
+      aq: Array.from({ length: 10 }, () => 100),
+      bp: Array.from({ length: 10 }, (_, i) => 130_000 - i * 500),
+      bq: Array.from({ length: 10 }, () => 100),
+      ...over,
+    };
+  }
+
+  const unacked = () => document.querySelector('[data-slot="lc-unacked"]');
+  const buySwitch = () => screen.getByRole('switch', { name: '매수주문 켜기' });
+  const cfgOf = (nth: number) =>
+    (sendMock.mock.calls[nth]![0] as { cfg: Record<string, unknown> }).cfg;
+
+  /**
+   * 사고 재현의 앞 절반 — **매수를 켰다 끈다**.
+   *
+   * 기본 주문금액 10만원으로는 150,800원 종목을 1주도 못 사므로(`켤 수 없는 이유`) 금액을
+   * 먼저 올려야 스위치가 열린다. 사용자 화면에서 실제로 일어난 순서 그대로다.
+   * 켠 요청에는 서버가 답하지 않는다(거부에는 60 에코가 없다) — 그래서 3초 뒤 「미반영」이 선다.
+   */
+  function armThenDisarm(): void {
+    fireEvent.change(document.querySelector('#lc-buy-order-amount') as HTMLInputElement, {
+      target: { value: '100' },
+    });
+    act(() => {
+      buySwitch().click();
+    });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(cfgOf(0).buyEnabled).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()).not.toBeNull();
+
+    // 다시 끈다. 게이트 4종이 전부 꺼졌으므로 이 요청은 **철거**(`crud:"D"`)다.
+    act(() => {
+      buySwitch().click();
+    });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(cfgOf(1).crud).toBe('D');
+  }
+
+  it('㉑-a ★ 목록을 바꾸지 못하는 철거 에코도 「미반영」을 거둔다 — 서버는 답했다', () => {
+    // 등록된 전략이 **없다**. `/new` 도, 이미 지워진 전략의 편집 URL 도 같은 상태다.
+    setRelay({ limitChasers: [], quote: quote() });
+    const { rerender } = render(<LimitChaserClient strategyKey={KEY} />);
+
+    armThenDisarm();
+
+    // 서버의 답이 도착한다. **`limitChasers` 는 비어 있는 그대로다** — 지울 것이 애초에
+    // 없었으므로 이 에코는 목록을 한 글자도 바꾸지 않는다. 그것이 이 버그의 핵심이다.
+    setRelay({ limitChasers: [], quote: quote(), lastLimitChaserEcho: echo({ crud: 'D' }) });
+    rerender(<LimitChaserClient strategyKey={KEY} />);
+
+    // 답을 받았으므로 타이머가 꺼져야 한다 — 시간을 더 흘려보내도 다시 서지 않는다.
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+    // 그리고 **아무것도 다시 보내지 않는다** (T-16-10).
+    expect(sendMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('㉑-b 다른 전략 키의 철거 에코는 이 화면의 「미반영」을 거두지 않는다 — 남의 답은 내 답이 아니다', () => {
+    setRelay({ limitChasers: [], quote: quote() });
+    const { rerender } = render(<LimitChaserClient strategyKey={KEY} />);
+
+    armThenDisarm();
+
+    const otherKey = `KR7005930003:${ACCOUNT}:KRX`;
+    setRelay({
+      limitChasers: [],
+      quote: quote(),
+      lastLimitChaserEcho: echo({ crud: 'D', isin: 'KR7005930003', key: otherKey }),
+    });
+    rerender(<LimitChaserClient strategyKey={KEY} />);
+
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).not.toBeNull();
+  });
+
+  it('㉑-c ★ 서버가 **거부**로 답해도 「미반영」은 거둬진다 — 「모른다」와 사유가 같이 설 수 없다', async () => {
+    setRelay({ limitChasers: [], quote: quote() });
+    const { rerender } = render(<LimitChaserClient strategyKey={KEY} />);
+
+    armThenDisarm();
+
+    // 거부에는 60 에코가 없다 — 서버는 `SetLimitChaser` 통지 한 줄로만 말한다(Gateway.cpp).
+    setRelay({
+      limitChasers: [],
+      quote: quote(),
+      messages: [
+        msg({
+          lv: 'ERROR',
+          src: 'SetLimitChaser',
+          m: '매수 설정이 불완전합니다(주문가/수량/감시가 0) — 매수를 켜지 않았습니다',
+          i: ISIN,
+          a: ACCOUNT,
+        }),
+      ],
+    });
+    rerender(<LimitChaserClient strategyKey={KEY} />);
+
+    // 사유는 **서버 원문 그대로** 선다 — 화면이 사유를 지어내지 않는다.
+    const bar = await waitFor(() => {
+      const el = document.querySelector('[data-slot="lc-server-error"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(bar.textContent).toContain('매수 설정이 불완전합니다');
+    // 그리고 「모른다」는 거둬진다 — 한 줄이 두 말을 하지 않는다.
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+  });
+
+  it('㉑-d 다른 계좌의 상따 거부는 「미반영」을 거두지 않는다 — 전략 키는 두 축이다', async () => {
+    setRelay({ limitChasers: [], quote: quote() });
+    const { rerender } = render(<LimitChaserClient strategyKey={KEY} />);
+
+    armThenDisarm();
+
+    setRelay({
+      limitChasers: [],
+      quote: quote(),
+      messages: [
+        msg({ lv: 'ERROR', src: 'SetLimitChaser', m: '다른 계좌의 거부', i: ISIN, a: '99999999999' }),
+      ],
+    });
+    rerender(<LimitChaserClient strategyKey={KEY} />);
+
+    // 표시 몫 판정(`isLimitChaserServerMessage`)은 넓으므로 문구 자체는 화면에 선다 —
+    // 그러나 그것이 **내 요청의 답**이라는 뜻은 아니다. 둘을 같은 판정으로 접지 않는다.
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="lc-server-error"]')).not.toBeNull(),
+    );
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).not.toBeNull();
+  });
+
+  it('㉑-e ★ 그 답이 「수정」 버튼 잠금도 푼다 — 안 풀면 1차 CTA 가 영구히 죽는다', async () => {
+    /*
+      잠금은 「수정」 을 눌러야 걸리고, 그 버튼은 **더티가 있어야** 렌더된다(= 서버 전략 존재).
+      ★ `buyOrderAmount` 를 100만원으로 세운다 — 기본 10만원이면 130,000원 종목의 주문수량이
+        0주라 「수정」이 **무장 가드에 먼저 막혀** 전송 자체가 없다(그게 사고 화면의
+        「켤 수 없는 이유」다). 여기서 보려는 것은 그 뒤의 잠금이다.
+    */
+    /*
+      ★ 두 `setRelay` 가 **같은 배열·같은 객체**를 넘긴다. 새로 만들면 `server` prop 이 바뀌어
+        폼이 서버값으로 덮이고(다른 단말 변경 취급) 잠금이 그 경로로 풀려 버린다 — 그러면
+        이 테스트는 고치려는 결함을 **건드리지도 못한 채** 통과한다. 결함의 조건이 바로
+        「답이 왔는데 `server` 는 그대로」이므로 그 조건을 테스트가 유지해야 한다.
+    */
+    const chasers = [echo({ buyOrderAmount: 100 })];
+    const q = quote();
+    setRelay({ limitChasers: chasers, quote: q });
+    const { rerender } = render(<LimitChaserClient strategyKey={KEY} />);
+
+    fireEvent.change(watchQtyInput(), { target: { value: '8000' } });
+    const submit = () => screen.getByRole('button', { name: /수정|반영 중…/ });
+    act(() => {
+      submit().click();
+    });
+    // 전송 직후에는 잠긴다 — 응답 전까지 두 번 보내지 않는 것이 규율이다.
+    expect(submit()).toBeDisabled();
+    expect(submit()).toHaveTextContent('반영 중…');
+
+    // 서버가 거부로 답한다. 60 에코가 없으므로 `server` prop 은 **한 글자도 바뀌지 않는다** —
+    // 옛 구현이 그 변화만 보고 잠금을 풀었기 때문에 버튼이 영구히 죽었다.
+    setRelay({
+      limitChasers: chasers,
+      quote: q,
+      messages: [
+        msg({ lv: 'ERROR', src: 'SetLimitChaser', m: '매수 설정이 불완전합니다', i: ISIN, a: ACCOUNT }),
+      ],
+    });
+    rerender(<LimitChaserClient strategyKey={KEY} />);
+
+    await waitFor(() => expect(submit()).toBeEnabled());
+    expect(submit()).toHaveTextContent('수정');
+    // 사용자가 고치던 값은 **그대로 남는다** — 잠금을 푸는 것과 폼을 덮는 것은 다른 일이다.
+    expect(watchQtyInput()).toHaveValue('8,000');
+  });
+});

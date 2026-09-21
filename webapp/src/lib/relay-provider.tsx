@@ -204,6 +204,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   messages: [],
   isStale: false,
   limitChasers: [],
+  // 서버가 답한 적이 **없다**. Provider 밖에는 소켓이 없으므로 60 에코도 없다.
+  lastLimitChaserEcho: null,
   // 두 거래소 모두 미조회다. Provider 밖에서는 아무것도 조회한 적이 없다.
   viTriggers: EMPTY_VI_TRIGGERS,
   viOrders: [],

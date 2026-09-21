@@ -320,3 +320,36 @@ export function isLimitChaserServerMessage(msg: {
   if (msg.src === 'SetLimitChaser' || msg.src === 'LimitChaser') return true;
   return msg.src === 'Account' && msg.i !== '';
 }
+
+/**
+ * 이 통지가 **바로 이 전략의 `lc.set` 에 대한 서버의 거부 답**인가
+ * (debug `lc-unacked-stuck-new-route`).
+ *
+ * ★ 위 `isLimitChaserServerMessage` 와 **묻는 것이 다르다.** 저쪽은 「이 통지를 상따 화면이
+ *   그려도 되는가」(표시 몫)이고, 이쪽은 「이 통지가 **내가 방금 보낸 요청**에 대한 답인가」
+ *   (응답 유무)다. 표시 몫이 훨씬 넓으므로 — 다른 종목의 상따 거부도, 런타임 사유 줄도
+ *   그린다 — 그 넓은 판정으로 「서버가 답했다」를 결론내면 남의 답으로 내 「미반영」이
+ *   거둬진다. 그래서 두 함수가 따로 있다.
+ *
+ * 좁히는 축은 셋이고 전부 근거가 있다:
+ *   - `lv === "ERROR"`      : 거부만이 답이다. INFO 통지는 요청과 무관하게 흐른다.
+ *   - `src === "SetLimitChaser"` : 서버가 **등록·수정 요청의 답**에만 찍는 맥락이다
+ *     (`Gateway.cpp` `ProcessSetLimitChaser` 의 모든 거부 갈래가 이 값을 쓴다).
+ *     `"Account"`(계좌 가드)·`"LimitChaser"`(런타임 사유)는 **넣지 않는다** — 그 둘은 내
+ *     요청과 무관하게도 오므로 답으로 읽으면 거짓 안심이 된다.
+ *   - 종목 **그리고** 계좌가 둘 다 같을 것 : 전략 키의 두 축이다. 한 축만 보면 같은
+ *     종목의 다른 계좌 거부가 내 답으로 둔갑한다.
+ *
+ * ⚠️ **본문(`m`)을 읽지 않는다.** 사유는 서버가 쓴 문장 그대로 화면에 세우는 값이지
+ *    분기 근거가 아니다 — 파싱하는 순간 서버 문구를 고칠 때마다 이 판정이 조용히 깨진다.
+ */
+export function isLimitChaserSetRejection(
+  msg: { src: string; i: string; a: string; lv: string },
+  isin: string,
+  accountNo: string,
+): boolean {
+  // 전략 키가 반쪽이면 대조할 것이 없다 — 빈 축을 「같다」로 접으면 아무 통지나 통과한다.
+  if (isin === '' || accountNo === '') return false;
+  if (msg.lv !== 'ERROR' || msg.src !== 'SetLimitChaser') return false;
+  return msg.i === isin && msg.a === accountNo;
+}

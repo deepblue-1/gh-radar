@@ -101,7 +101,11 @@ import {
   type StrategyLogEntry,
 } from "@/components/trading/strategy-log";
 import { useIsinLabels } from "@/lib/isin-labels";
-import { isLimitChaserServerMessage, strategyKey } from "@/lib/limit-chaser";
+import {
+  isLimitChaserServerMessage,
+  isLimitChaserSetRejection,
+  strategyKey,
+} from "@/lib/limit-chaser";
 import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
 import { searchStocks } from "@/lib/stock-api";
 import type {
@@ -204,6 +208,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     accounts,
     limitChasers,
     accountStates,
+    lastLimitChaserEcho,
     messages,
     send,
     status,
@@ -279,6 +284,16 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
   const pendingRef = useRef<RelayLimitChaserInput | null>(null);
   const [unacked, setUnacked] = useState(false);
   const ackTimer = useRef<number | null>(null);
+  /**
+   * 서버가 이 전략에 답한 **횟수**. 숫자 자체에는 뜻이 없고 「바뀌었다」만 쓴다.
+   *
+   * 폼의 전송 잠금(`submitting` → 「수정」 버튼이 `반영 중…`)을 푸는 신호다. 폼은 그 잠금을
+   * `server` prop 의 변화로만 풀 수 있는데, **답이 왔는데도 `server` 가 그대로인 경우**가
+   * 둘 있다: (a) 미등록 키의 철거 에코(`crud:"D"` — 목록이 그대로다) (b) 거부(60 에코 자체가
+   * 없다). 그때 폼의 1차 CTA 가 영구히 잠긴다 — 상태줄 「미반영」과 **같은 뿌리**의 결함이라
+   * 같은 신호로 함께 푼다 (debug `lc-unacked-stuck-new-route`).
+   */
+  const [answerSeq, setAnswerSeq] = useState(0);
   /** 폼이 알려 준 「이번 에코가 덮은 더티 필드 수」. 소비 즉시 0 으로 되돌린다. */
   const overwrittenRef = useRef(0);
   const [banner, setBanner] = useState<string | null>(null);
@@ -317,6 +332,21 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     );
   }, []);
 
+  /**
+   * 「서버가 답했다」를 접수한다 — **이 화면에서 「모른다」를 거두는 유일한 함수**다.
+   *
+   * ★ 타이머를 **반드시 끈다.** 플래그만 내리면 이미 걸려 있던 3초 타이머가 그대로 발화해
+   *   답을 받은 뒤에 「미반영」이 다시 선다 — 답이 3초 안에 오는 정상 경로가 곧 그 경우다.
+   * ★ 되보내지 않는다(T-16-10). 여기는 「모른다」를 거두는 자리이지 「다시 시도한다」를
+   *   말하는 자리가 아니다.
+   */
+  const acceptAnswer = useCallback(() => {
+    if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
+    ackTimer.current = null;
+    setUnacked(false);
+    setAnswerSeq((n) => n + 1);
+  }, []);
+
   const handleServerEcho = useCallback((info: { overwrittenDirty: number }) => {
     overwrittenRef.current = info.overwrittenDirty;
   }, []);
@@ -333,6 +363,33 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     setLiveSeed(0);
   }, [key]);
 
+  /**
+   * ③-b **「서버가 답했다」의 정본은 60 에코 스트림이다** — 파생 목록이 아니다
+   * (debug `lc-unacked-stuck-new-route`, 2026-09-21 프로덕션 장중 차단 사고).
+   *
+   * 아래 에코 이펙트는 `limitChasers` 에서 뽑은 `server` **객체의 변화**를 본다. 그 파생은
+   * 「지금 무엇이 등록돼 있는가」의 정본이라 계약상 `crud:"D"` 를 떨어뜨린다. 그래서
+   * **등록된 적 없는 전략에 대한 철거 에코**는 `server` 를 `null → null` 로 두고,
+   * `Object.is(null, null)` 때문에 아래 이펙트는 **재실행조차 되지 않는다.**
+   *
+   * 그 상태는 `/limit-chaser/new` 의 기본값이고(전략을 켰다 끄면 되돌아온다), 그때 상태줄이
+   * 「미반영 · 서버 응답을 기다리고 있어요」에 영구히 걸렸다 — 서버(`Gateway.cpp` 가 `crud='D'`
+   * 에도 반드시 에코를 낸다)도 relay(`subscription-hub.ts` 가 `crud` 와 무관하게 팬아웃한다)도
+   * 제 몫을 했는데 브라우저만 그 답을 버린 것이다.
+   *
+   * ★ 그래서 **답의 유무를 묻는 곳과 등록 여부를 묻는 곳을 가른다.** 이 이펙트는 목록을
+   *   보지 않고 에코 스트림만 본다.
+   * ★ 키가 같은 에코만 받는다 — 남의 전략에 대한 답으로 내 「모른다」를 거둘 수 없다.
+   * ★ **폼도 로그도 건드리지 않는다.** 삭제 후처리(`setResetSeq` 로 폼 remount · 삭제 로그)는
+   *   아래 이펙트가 `prev !== null` 일 때만 하는 일이고 그대로 둔다 — 지울 전략이 애초에
+   *   없었던 철거에 폼을 비우면 사용자가 방금 입력한 값을 우리가 지우는 것이 된다.
+   */
+  useEffect(() => {
+    if (key === "" || lastLimitChaserEcho === null) return;
+    if (lastLimitChaserEcho.key !== key) return;
+    acceptAnswer();
+  }, [lastLimitChaserEcho, key, acceptAnswer]);
+
   useEffect(() => {
     const prev = prevServerRef.current;
 
@@ -341,7 +398,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       if (prev !== null) {
         prevServerRef.current = null;
         pendingRef.current = null;
-        setUnacked(false);
+        acceptAnswer();
         setResetSeq((n) => n + 1);
         pushLog(
           strategyLogLine(prev, { ...prev, crud: "D" }) ?? "전략이 삭제됐어요",
@@ -355,8 +412,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
 
     const sent = pendingRef.current;
     pendingRef.current = null;
-    if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
-    setUnacked(false);
+    acceptAnswer();
     setAppliedAt(clockNow());
 
     /*
@@ -389,7 +445,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
         ECHO_BANNER_MS,
       );
     }
-  }, [server, pushLog]);
+  }, [server, pushLog, acceptAnswer]);
 
   useEffect(
     () => () => {
@@ -424,9 +480,22 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
       const { text, level } = serverMessageLogLine(msg);
       pushLog(text, level);
       // ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
-      if (level === "error") setLastError({ text: msg.m, src: msg.src });
+      if (level !== "error") continue;
+      setLastError({ text: msg.m, src: msg.src });
+      /*
+        ★ **거부도 답이다.** 서버가 사유를 말한 순간 「모른다」는 거짓이 되므로 「미반영」을
+          함께 거둔다 — 안 거두면 상태줄 한 줄이 「응답을 기다리고 있어요」와 「이래서
+          거부됐습니다」를 **동시에** 말한다(debug `lc-unacked-stuck-new-route`).
+          거부에는 60 에코가 없다(`Gateway.cpp` 의 거부 갈래는 에코 앞에서 return 한다) —
+          이 통지가 그 요청에 대한 **유일한** 답이다.
+        ★ 판정은 `isLimitChaserSetRejection` **한 곳**이다. 위 표시 몫 판정
+          (`isLimitChaserServerMessage`)보다 좁다 — 근거는 그 함수 주석에 있다. 여기서
+          `src` 를 직접 비교하지 않는 이유는 이 파일의 다른 판정들과 같다.
+        ★ 사유 문구를 **다시 쓰지 않는다.** 화면에 서는 것은 `msg.m` 원문 그대로다.
+      */
+      if (isLimitChaserSetRejection(msg, isin, accountNo)) acceptAnswer();
     }
-  }, [messages, pushLog]);
+  }, [messages, pushLog, isin, accountNo, acceptAnswer]);
 
   /* ── 15:40 서버 자동 비활성화(65) ─────────────────────────────────────── */
 
@@ -932,6 +1001,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
           buyStatusText={badges.buyText}
           sellStatusText={badges.sellText}
           onDirtyCountChange={setDirtyCount}
+          serverAnswerSeq={answerSeq}
           onSent={handleSent}
           onServerEcho={handleServerEcho}
         />

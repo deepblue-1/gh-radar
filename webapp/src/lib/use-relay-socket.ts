@@ -230,6 +230,21 @@ export interface RelayConnectionState {
   /** 등록된 상따 전략 전수 (D-12 스냅샷 + 60 에코). `crud:"D"` 는 담기지 않는다. */
   limitChasers: RelayLimitChaser[];
   /**
+   * 마지막으로 도착한 **60 에코 1건 그대로** — `crud:"D"` 를 포함한다.
+   *
+   * ★ `limitChasers` 와 답하는 질문이 다르다. 저쪽은 「지금 무엇이 등록돼 있는가」이고
+   *   이쪽은 **「서버가 방금 답했는가」**다. 한 값으로 두 질문에 답하게 하면 안 된다:
+   *   `limitChasers` 는 계약상 `crud:"D"` 를 떨어뜨리므로, **등록된 적 없는 전략에 대한
+   *   철거 에코**는 저 목록을 한 글자도 바꾸지 못한다. 그때 「응답 유무」를 저 목록의
+   *   변화로 읽으면 서버가 분명히 답했는데도 화면이 영원히 「모른다」를 말한다
+   *   (debug `lc-unacked-stuck-new-route` — 2026-09-21 프로덕션 장중 차단 사고).
+   *
+   * ⚠️ 64 스냅샷(`lc.snap`)은 **여기에 담지 않는다.** 스냅샷은 재접속 복원이지 내 요청에
+   *    대한 답이 아니다 — 담으면 재접속만으로 「미반영」이 거둬져 거짓 안심이 된다.
+   * ⚠️ 이 값으로 **목록을 만들지 않는다.** 등록 여부의 정본은 위 `limitChasers` 하나다.
+   */
+  lastLimitChaserEcho: RelayLimitChaser | null;
+  /**
    * VI 전략 설정 — **거래소별 3상태**다 (17-06 / D-06).
    *
    * 서버가 VI 전략을 **거래소마다 1건**으로 관리하므로 relay 도 캐시·프레임을 거래소별로
@@ -350,6 +365,7 @@ interface RelayData {
   messages: RelayServerMessageEntry[];
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
+  lastLimitChaserEcho: RelayLimitChaser | null;
   viTriggers: RelayViTriggers;
   viOrders: RelayViOrderItem[];
   viNotices: RelayViNoticeMsg[];
@@ -370,6 +386,8 @@ const INITIAL_DATA: RelayData = {
   messages: [],
   isStale: false,
   limitChasers: [],
+  // 「아직 아무 답도 못 받았다」 — 이 값은 **응답 유무**만 말하고 목록을 만들지 않는다.
+  lastLimitChaserEcho: null,
   // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기값은 **두 거래소 모두 미조회**다.
   viTriggers: {},
   viOrders: [],
@@ -476,7 +494,16 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // 60 에코 단건. `crud:"D"` 가 「삭제됨」의 정본이다 — 스위치 조합으로 판정하지
       // 않는다(Pitfall 7). upsert 는 **자리를 지킨다**: 뒤로 밀면 에코가 올 때마다
       // 사이드바 목록 순서가 튄다.
-      return { ...state, limitChasers: upsertLimitChaser(state.limitChasers, frame.item) };
+      //
+      // ★ `lastLimitChaserEcho` 는 **crud 를 가리지 않고** 매 에코마다 갱신한다 — 그것이
+      //   「서버가 답했다」의 유일한 증거이기 때문이다. `crud:"D"` 를 여기서도 떨어뜨리면
+      //   미등록 키 철거 에코가 소켓 계약 어디에도 남지 않는다
+      //   (debug `lc-unacked-stuck-new-route`).
+      return {
+        ...state,
+        limitChasers: upsertLimitChaser(state.limitChasers, frame.item),
+        lastLimitChaserEcho: frame.item,
+      };
 
     case "lc.snap":
       // 64 전량 교체. `D` 행은 목록에 담지 않아 60 경로와 뜻을 맞춘다 —
@@ -1062,6 +1089,7 @@ export function useRelayConnection({
       messages: data.messages,
       isStale: data.isStale,
       limitChasers: data.limitChasers,
+      lastLimitChaserEcho: data.lastLimitChaserEcho,
       viTriggers: data.viTriggers,
       viOrders: data.viOrders,
       viNotices: data.viNotices,

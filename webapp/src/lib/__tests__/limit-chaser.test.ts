@@ -25,6 +25,7 @@ import {
   estimatedSellQty,
   formFromServer,
   isDeleteIntent,
+  isLimitChaserSetRejection,
   seedFromUpperLimit,
   strategyKey,
   type LimitChaserFormValues,
@@ -279,5 +280,53 @@ describe('formFromServer — 에코 → 폼 (D-11 서버값 우선)', () => {
     const prev: LimitChaserFormValues = { ...defaultLimitChaserForm(), buyOrderAmount: 150 };
     expect(formFromServer(serverEcho({ buyOrderAmount: 0 }), prev).buyOrderAmount).toBe(150);
     expect(formFromServer(serverEcho({ buyOrderAmount: 20 }), prev).buyOrderAmount).toBe(20);
+  });
+});
+
+/**
+ * `isLimitChaserSetRejection` — 「이 통지가 **내 `lc.set` 에 대한 서버의 답**인가」
+ * (debug `lc-unacked-stuck-new-route`).
+ *
+ * 이 판정이 넓어지면 남의 답으로 내 「미반영」이 거둬진다 — 서버가 아직 아무 말도 안 했는데
+ * 화면이 「답을 받았다」로 바뀌는 것이라, 사용자는 나가지도 않은 전략을 걸렸다고 믿는다.
+ * 좁아지면 원래 사고(영구 「미반영」)로 되돌아간다. **양쪽 경계를 같이 잠근다.**
+ */
+describe('isLimitChaserSetRejection — 내 요청의 답인가 (debug lc-unacked-stuck-new-route)', () => {
+  const ISIN = 'KR7005930003';
+  const ACCT = '37728502101';
+  const base = { src: 'SetLimitChaser', i: ISIN, a: ACCT, lv: 'ERROR' };
+
+  it('세 축이 모두 맞으면 답이다', () => {
+    expect(isLimitChaserSetRejection(base, ISIN, ACCT)).toBe(true);
+  });
+
+  it('`lv` 가 ERROR 가 아니면 답이 아니다 — INFO 통지는 요청과 무관하게 흐른다', () => {
+    expect(isLimitChaserSetRejection({ ...base, lv: 'INFO' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, lv: 'WARN' }, ISIN, ACCT)).toBe(false);
+  });
+
+  it('★ `src` 는 `SetLimitChaser` 뿐이다 — 인접 어휘를 답으로 읽지 않는다', () => {
+    // `LimitChaser`(런타임 사유)·`Account`(계좌 통지)는 표시 몫이지만 **내 요청의 답은 아니다**.
+    // 넓히면 체결 통지 한 줄에 「미반영」이 거둬져 거짓 안심이 된다.
+    expect(isLimitChaserSetRejection({ ...base, src: 'LimitChaser' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, src: 'Account' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, src: 'Relay' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, src: 'SetVITrigger' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, src: 'System' }, ISIN, ACCT)).toBe(false);
+    // 동등 비교만 한다 — 부분일치로 넓히면 아래가 통과해 버린다.
+    expect(isLimitChaserSetRejection({ ...base, src: 'SetLimitChaserX' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, src: 'setlimitchaser' }, ISIN, ACCT)).toBe(false);
+  });
+
+  it('★ 종목·계좌 **둘 다** 맞아야 한다 — 한 축만 보면 남의 전략 답이 내 답이 된다', () => {
+    expect(isLimitChaserSetRejection({ ...base, i: 'KR7000660001' }, ISIN, ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, a: '99999999999' }, ISIN, ACCT)).toBe(false);
+  });
+
+  it('★ 전략 키가 반쪽이면 답이 아니다 — 빈 축을 「같다」로 접으면 아무 통지나 통과한다', () => {
+    // 종목을 아직 안 고른 신규 화면이 정확히 이 상태다(`isin === ""`).
+    expect(isLimitChaserSetRejection({ ...base, i: '' }, '', ACCT)).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, a: '' }, ISIN, '')).toBe(false);
+    expect(isLimitChaserSetRejection({ ...base, i: '', a: '' }, '', '')).toBe(false);
   });
 });

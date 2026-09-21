@@ -280,6 +280,18 @@ export interface LimitChaserFormProps {
   /** 더티 수 통지 — 상위의 이탈 경고(라우터 가드 · `beforeunload`)가 이 값을 쓴다. */
   onDirtyCountChange?: (count: number) => void;
   /**
+   * 서버가 이 전략에 **답한 횟수** — 값이 아니라 **바뀌었다는 사실**만 쓴다.
+   *
+   * 전송 잠금(`submitting`)을 푸는 두 번째 신호다. `server` prop 만으로는 부족하다:
+   * 답이 왔는데도 `server` 가 그대로인 경우가 둘 있고, 그때 「수정」 버튼이 `반영 중…` 으로
+   * **영구히 잠긴다** (debug `lc-unacked-stuck-new-route`):
+   *   ① 미등록 키의 철거 에코 — `crud:"D"` 는 목록에 담기지 않아 `server` 가 안 바뀐다
+   *   ② 서버 거부 — 60 에코 자체가 오지 않는다(`Gateway.cpp` 의 거부 갈래)
+   * 판정은 상위가 소유한다(`limit-chaser-client.tsx` `acceptAnswer`) — 상태줄 「미반영」을
+   * 거두는 것과 **같은 신호**여야 두 표시가 서로 다른 말을 하지 않는다.
+   */
+  serverAnswerSeq?: number;
+  /**
    * `lc.set` 을 **보낸 직후** 통지 (16-13).
    *
    * ★ 상위가 이걸 알아야 하는 이유는 두 가지이고 둘 다 오해를 막는 장치다:
@@ -310,6 +322,7 @@ export function LimitChaserForm({
   buyStatusText = '',
   sellStatusText = '',
   onDirtyCountChange,
+  serverAnswerSeq = 0,
   onSent,
   onServerEcho,
   className,
@@ -601,12 +614,16 @@ export function LimitChaserForm({
     setForm((prev) => formFromServer(server, prev));
   }, [server]);
 
-  // 에코가 도착하면 전송 잠금을 푼다 — 응답(또는 상위의 타임아웃) 전까지 열지 않는다.
-  // 실패 문구도 같이 접는다: 에코가 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다.
+  // 답이 도착하면 전송 잠금을 푼다 — 응답 전까지 열지 않는다.
+  // 실패 문구도 같이 접는다: 답이 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다.
+  //
+  // ★ 신호가 **둘**인 이유는 `serverAnswerSeq` prop 주석에 있다 — `server` 변화만 보면
+  //   「미등록 키 철거 에코」와 「거부」 두 경우에 이 잠금이 영구히 풀리지 않는다.
+  //   두 신호 모두 같은 일(잠금 해제)만 하므로 겹쳐 발화해도 무해하다.
   useEffect(() => {
     setSubmitting(false);
     setSubmitError('');
-  }, [server]);
+  }, [server, serverAnswerSeq]);
 
   const shared = { dirty: dirtySet, flash, disabled };
 
