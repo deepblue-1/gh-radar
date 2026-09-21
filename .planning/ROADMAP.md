@@ -818,8 +818,39 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 0 plans
+**Plans:** 13 plans
 
 Plans:
+**Wave 1**
 
-- [ ] TBD (run /gsd-plan-phase 18 to break down)
+- [ ] 18-01-PLAN.md — 계약 수직 슬라이스(tracer): 정정 `order.modify` end-to-end · `pieceCount`/`krxSession` 조건부 송신 · `price 0` 4겹 조건부 완화 · 돌파 `name`/`code` relay 보강(D-30) (wave 1)
+- [ ] 18-02-PLAN.md — 디자인 토큰 `--new-bg`/`--new-bd` 승격 · globals.css §2.2b 컨테이너 문단 · `parseStrategyKey` 를 `lib/limit-chaser.ts` 로 이동 (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 18-03-PLAN.md — [BLOCKING] Supabase 스키마 푸시 + 실 DB 제약 조회 검증 (wave 2)
+- [ ] 18-04-PLAN.md — 순수 로직 4종: `queued-window.ts`(77 매핑) · `breakout-list.ts`(이탈·KST 집합) · `use-breakout-quotes.ts`(구독 diff) · `alert-tone.ts`(Web Audio) (wave 2)
+- [ ] 18-05-PLAN.md — VI 설정 2줄(KRX/NXT, 고정 거래소 상수 폐기) · VI 발동 스트립/표 (wave 2)
+- [ ] 18-06-PLAN.md — 카드 골격: `quote-grid-10` · `card-header` · `strategy-card`(`@container/lc` 선언 이동) (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 18-07-PLAN.md — 수동주문 폼(4버튼·적응형 진입·정정/취소 선택) + 주문확인 다이얼로그 확장 (wave 3)
+- [ ] 18-08-PLAN.md — 돌파감지 스트립/표(클릭 → 카드 추가) · 종목 추가 검색란 (wave 3)
+- [ ] 18-09-PLAN.md — 공용 패널(미체결·잔고·로그) · 종목정보 팝업 (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 18-10-PLAN.md — 카드 본문 조립 · 더티 힌트 prop 화 · 종목상세 호가 탭 통일 (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 18-11-PLAN.md — 작업대 셸 `/trading` · 상태줄 · 카드 격자(펼침 우선 + 접힘 스택) (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 18-12-PLAN.md — 리다이렉트 4경로 · 사이드바 재구성(제목 링크 + 3단) · 링크 지점 정리 (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 18-13-PLAN.md — e2e `trading-workbench.spec.ts` 신설 · 기존 spec 갱신 · 옛 컴포넌트 제거 · 전량 게이트 · UAT 인계 (wave 7)

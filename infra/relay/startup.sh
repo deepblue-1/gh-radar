@@ -415,6 +415,10 @@ log "✓ 라우팅 안전장치 예약 (부팅 후 180초 1회)"
 #    {9100, 22} 도). 인증은 피어 공개키다. 121 예외는 출발지 10.20.0.2 로 묶인다 —
 #    wg-peer-add 가 피어마다 /32 를 배정하고 중복 주소를 거부하므로, 그 출발지는
 #    alex-mac 키로 온 패킷만 가진다 (quick-260915-doz).
+#    quick-260921-or9: alex-mac(10.20.0.2) 는 교보 SecuwaySSL tun1 서버
+#    10.16.207.112/.119 의 {9100, 22} 에도 닿는다. 교보 규칙은 tun 번호가 아니라
+#    목적지 IP(daddr)로 매칭한다 — KB tun0 과의 기동 순서에 따라 교보 tun 번호가
+#    바뀔 수 있기 때문이다. Mac 쪽은 KB-DMA.conf AllowedIPs 에 두 /32 를 더해야 한다.
 #
 #    ⚠️ 이 섹션은 기본 경로·tun0 라우트·kbvpn-* 자산(연결·워치독·주간갱신·
 #       라우팅 안전장치)·Caddy·relay 컨테이너를 **한 줄도 건드리지 않는다.**
@@ -496,6 +500,16 @@ table inet wgfwd {
     # ③ 그 응답만 돌아온다.
     iifname "tun0" oifname "wg0" ct state established,related accept
 
+    # ③-b 교보 SecuwaySSL DMA 서버 — alex-mac(10.20.0.2) 전용, 10.16.207.112/.119 의
+    #     {9100, 22} (quick-260921-or9). ⚠️ tun0 규칙과 달리 oifname 을 걸지 않고
+    #     목적지 IP(daddr)로만 매칭한다 — 교보 터널의 tun 번호(현재 tun1)는 KB tun0 과의
+    #     기동 순서에 따라 바뀔 수 있어, IP 기준이라야 재번호에도 규칙이 살아남는다.
+    #     masquerade 도 마찬가지로 oifname 대신 daddr 로 매칭한다(postrouting).
+    iifname "wg0" ip daddr { 10.16.207.112, 10.16.207.119 } tcp flags syn tcp option maxseg size set rt mtu
+    oifname "wg0" ip saddr { 10.16.207.112, 10.16.207.119 } tcp flags syn tcp option maxseg size set rt mtu
+    iifname "wg0" ip saddr 10.20.0.2 ip daddr { 10.16.207.112, 10.16.207.119 } tcp dport { 9100, 22 } accept
+    oifname "wg0" ip saddr { 10.16.207.112, 10.16.207.119 } ct state established,related accept
+
     # ④ 나머지 wg0 출입은 전부 막는다 (사내망 횡이동 차단).
     iifname "wg0" drop
     oifname "wg0" drop
@@ -505,6 +519,8 @@ table inet wgfwd {
     type nat hook postrouting priority srcnat; policy accept;
     # 10.20.0.0/24 를 VM 의 tun0 주소로 바꿔 내보낸다 — 사내망은 이 대역을 모른다.
     oifname "tun0" ip saddr 10.20.0.0/24 masquerade
+    # 교보 대역으로 나가는 개발기 트래픽도 NAT (daddr 기준 — 교보 tun 번호 비의존).
+    ip saddr 10.20.0.0/24 ip daddr { 10.16.207.112, 10.16.207.119 } masquerade
   }
 }
 WGFWD_NFT_EOF
@@ -532,10 +548,24 @@ PostUp = iptables -D DOCKER-USER -i wg0 -o tun0 -s 10.20.0.2 -d 10.41.1.121 -p t
 PostUp = iptables -I DOCKER-USER -i wg0 -o tun0 -s 10.20.0.2 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT
 PostUp = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# 교보 SecuwaySSL DMA — alex-mac(10.20.0.2) 전용 10.16.207.112/.119 의 9100·22 (quick-260921-or9)
+# -o 를 걸지 않는다(교보 tun 번호 비의존). 되돌림은 출발지 교보 IP + -o wg0 established 로 받는다.
+PostUp = iptables -D DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.112 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.112 -p tcp -m multiport --dports 9100,22 -j ACCEPT
+PostUp = iptables -D DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.119 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.119 -p tcp -m multiport --dports 9100,22 -j ACCEPT
+PostUp = iptables -D DOCKER-USER -o wg0 -s 10.16.207.112 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+PostUp = iptables -I DOCKER-USER -o wg0 -s 10.16.207.112 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+PostUp = iptables -D DOCKER-USER -o wg0 -s 10.16.207.119 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+PostUp = iptables -I DOCKER-USER -o wg0 -s 10.16.207.119 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -s 10.20.0.2 -d 10.41.1.121 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
 PostDown = iptables -D DOCKER-USER -i tun0 -o wg0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.112 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.119 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -o wg0 -s 10.16.207.112 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
+PostDown = iptables -D DOCKER-USER -o wg0 -s 10.16.207.119 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostDown = nft delete table inet wgfwd || true
 WG0_CONF_EOF
 chmod 0600 /etc/wireguard/wg0.conf
