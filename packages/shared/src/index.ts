@@ -59,6 +59,7 @@ export type {
   RelayOrderNewMsg,
   RelayOrderCancelMsg,
   RelayOrderModifyMsg,
+  RelayKrxSession,
   RelayLimitChaserMsg,
   RelayLimitChaserSnapMsg,
   RelayViTriggerMsg,

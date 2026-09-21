@@ -258,19 +258,41 @@ const OrderSideSchema = z.enum(["B", "S"]);
  * ⚠️ **`market` 을 받지 않는다.** relay 가 `SymbolMap` 으로 ISIN → 시장을 채운다 —
  *    브라우저가 시장 구분을 정하게 두면 엉뚱한 시장으로 주문이 나갈 수 있다 (D-28).
  *
- * `qty`/`price` 는 `positive()` 다. 수량 0 은 전량취소가 아니라 즉시 거부이므로(D-44)
+ * `qty` 는 `positive()` 다. 수량 0 은 전량취소가 아니라 즉시 거부이므로(D-44)
  * 조립 단계까지 흘리지 않고 여기서 끝낸다.
+ *
+ * Phase 18 확장 (D-22 / D-23 / T-18-04 / T-18-05):
+ *   - `pieceCount` 정수 1..64(fbs 허용 범위), `krxSession` `"G2"`/`"G3"` 둘뿐. 둘 다 optional —
+ *     부재가 곧 기존 수동주문이다. 게이트웨이가 브로커 전에 거부한다는 사실에 기대지 않고 여기서 먼저 좁힌다.
+ *   - `price` 는 `nonnegative()` 이고 **0 은 `krxSession` G2/G3 일 때만** `superRefine` 이 통과시킨다.
+ *     무조건 열면 가격 0 인 지정가가 게이트웨이까지 가서 거부 왕복 5초를 태운다.
+ *
+ * ⚠️ **`.strict()` 로 만들지 않는다.** 미지의 키를 조용히 버리는 zod 기본 동작에 기존 smoke 프로브와
+ *    구 클라이언트가 기대고 있다 — strict 로 바꾸면 그쪽이 조용히 close(4400) 로 끊긴다(T-18-07).
+ *    그 대가로 필드 소실이 **무성**이므로 핸들러가 조립 직전에 두 값을 로그로 남긴다.
  */
-export const RelayOrderNewSchema = z.object({
-  t: z.literal("order.new"),
-  rid: RidSchema,
-  isin: IsinSchema,
-  exchange: ExchangeSchema,
-  side: OrderSideSchema,
-  qty: z.number().int().positive(),
-  price: z.number().int().positive(),
-  accountNo: AccountNoSchema,
-});
+export const RelayOrderNewSchema = z
+  .object({
+    t: z.literal("order.new"),
+    rid: RidSchema,
+    isin: IsinSchema,
+    exchange: ExchangeSchema,
+    side: OrderSideSchema,
+    qty: z.number().int().positive(),
+    price: z.number().int().nonnegative(),
+    accountNo: AccountNoSchema,
+    pieceCount: z.number().int().min(1).max(64).optional(),
+    krxSession: z.enum(["G2", "G3"]).optional(),
+  })
+  .superRefine((msg, ctx) => {
+    if (msg.price === 0 && msg.krxSession === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["price"],
+        message: "가격 0 은 시간외종가(krxSession G2/G3)에서만 허용된다",
+      });
+    }
+  });
 
 /**
  * 취소 주문 (`order.cancel`, D-02).

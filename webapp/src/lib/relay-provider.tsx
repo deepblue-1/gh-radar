@@ -98,6 +98,16 @@ export interface RelayOrderRequest {
   side?: OrderSide;
   /** `kind:"cancel"`/`"modify"` 필수 — 원주문번호. */
   orgOrderNo?: string;
+  /**
+   * `kind:"new"` 전용 — 예약구간 조각 수 (Phase 18 D-22). 부재·1 = 싣지 않는다(서버 기본값 1).
+   * 정수 1..64 밖이면 보내지 않는다 — relay 스키마 위반은 소켓 close(4400)로 끝나기 때문이다.
+   */
+  pieceCount?: number;
+  /**
+   * `kind:"new"` 전용 — 시간외종가 세션 (Phase 18 D-23). 부재 = 서버 자동 판정.
+   * 이 값이 있을 때만 `price: 0`(서버 결정가)이 허용된다.
+   */
+  krxSession?: "G2" | "G3";
 }
 
 /**
@@ -155,7 +165,12 @@ function buildOrderFrame(
   if (req.accountNo.length === 0) return { ok: false, reason: "주문 계좌를 선택해 주세요." };
   // 취소 수량 0 은 게이트웨이가 즉시 거부한다(D-21). 왕복시키지 않는다.
   if (!(req.qty > 0)) return { ok: false, reason: "주문 수량을 확인해 주세요." };
-  if (!(req.price > 0)) return { ok: false, reason: "주문 가격을 확인해 주세요." };
+  // 가격 0 은 시간외종가(G2/G3) 서버 결정가 한 경로만 연다 (Phase 18 D-23). 정정·취소에는 세션이
+  // 없으므로 여전히 양수만 통과한다. 음수·NaN 은 어느 경우에도 거부다.
+  const offHours = req.kind === "new" && (req.krxSession === "G2" || req.krxSession === "G3");
+  if (!(req.price > 0 || (offHours && req.price === 0))) {
+    return { ok: false, reason: "주문 가격을 확인해 주세요." };
+  }
 
   const common = {
     rid,
@@ -187,7 +202,24 @@ function buildOrderFrame(
   }
 
   if (req.side == null) return { ok: false, reason: "매수·매도 구분을 확인하지 못했어요." };
-  return { ok: true, frame: { t: "order.new", ...common, side: req.side } };
+  if (
+    req.pieceCount !== undefined &&
+    !(Number.isInteger(req.pieceCount) && req.pieceCount >= 1 && req.pieceCount <= 64)
+  ) {
+    return { ok: false, reason: "조각 수를 확인해 주세요." };
+  }
+  // 값이 있을 때만 싣는다 — 부재가 곧 기본값이라 기존 수동주문 프레임이 한 글자도 바뀌지 않는다.
+  // 조각 수 1 은 기본값과 같으므로 싣지 않는다.
+  return {
+    ok: true,
+    frame: {
+      t: "order.new",
+      ...common,
+      side: req.side,
+      ...(req.pieceCount !== undefined && req.pieceCount > 1 ? { pieceCount: req.pieceCount } : {}),
+      ...(req.krxSession !== undefined ? { krxSession: req.krxSession } : {}),
+    },
+  };
 }
 
 const NOOP = () => {};

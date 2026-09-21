@@ -1440,6 +1440,31 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(orders.inserts).toHaveLength(0);
   });
 
+  it("㊴ 조각 수·시간외종가 세션은 감사 기록과 와이어에 같은 값으로 실린다 — 1 이하는 둘 다 비운다 (D-22/D-23)", async () => {
+    const infoSpy = vi.spyOn(logger, "info");
+    const { ws } = await authed("token-a");
+
+    ws.sendRaw(orderNew({ rid: "rid-g3", price: 0, krxSession: "G3", pieceCount: 3 }));
+    ws.sendRaw(orderNew({ rid: "rid-p1", price: 70_100, pieceCount: 1 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "두 신규 송신");
+
+    const [g3, p1] = orderReqsOf(gatewayPayloads).map((e) => e.directOrderReq());
+    expect(g3?.price()).toBe(0);
+    expect(g3?.krxSession()).toBe("G3");
+    expect(g3?.pieceCount()).toBe(3);
+    expect(p1?.pieceCount()).toBe(0);
+    expect(p1?.krxSession()).toBeNull();
+
+    expect(orders.inserts[0]).toMatchObject({ price: 0, krxSession: "G3", pieceCount: 3 });
+    expect(orders.inserts[1]?.pieceCount).toBeUndefined();
+    expect(orders.inserts[1]?.krxSession).toBeUndefined();
+
+    // 무성 소실 방어 로그 — 조립 직전 두 값이 남고 계좌번호 원문은 없다 (T-18-06/07).
+    const logged = JSON.stringify(infoSpy.mock.calls);
+    expect(logged).toContain("조각 수·시간외종가 세션");
+    expect(logged).not.toContain(SAMPLE_ACCOUNT_NO);
+  });
+
   it("㊳ 원주문번호 없는 정정은 스키마에서 끊긴다 — 게이트웨이로 0바이트", async () => {
     vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     const { ws } = await authed("token-a");

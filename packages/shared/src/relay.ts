@@ -489,9 +489,31 @@ export type RelayOrderNewMsg = {
   exchange: RelayExchange;
   side: OrderSide;
   qty: number;
+  /**
+   * 주문가(원). **정수**다. `0` 은 `krxSession` 이 G2/G3 일 때만 허용된다 — 시간외종가는 서버가
+   * 결정가를 정한다(D-23). 그 밖의 0 은 webapp 번역기 · relay zod · 조립기 · DB CHECK 네 겹에서 거부다.
+   */
   price: number;
   accountNo: string;
+  /**
+   * 예약구간(15:20~16:00) 발사 조각 수 — `DirectOrderReq.piece_count` (Phase 18 D-22).
+   * **부재 = 1.** 1 이하는 와이어에 싣지 않으므로 기존 수동주문 바이트가 한 글자도 바뀌지 않는다.
+   * 정수 1..64 만 허용(fbs 허용 범위) — relay zod 가 먼저 좁힌다. Phase 17 이 미송신으로 두었던
+   * 슬롯이 Phase 18 에서 **조건부 송신**으로 열렸다.
+   */
+  pieceCount?: number;
+  /**
+   * KRX 시간외종가 세션 — `DirectOrderReq.krx_session` (Phase 18 D-23). **부재 = 서버 자동 판정.**
+   * 값이 있을 때만 와이어에 싣는다(Phase 17 미송신 → Phase 18 조건부 송신).
+   */
+  krxSession?: RelayKrxSession;
 };
+
+/**
+ * KRX 시간외종가 세션 지정 (Phase 18 D-23). `"G2"` = 장개시전 시간외종가 · `"G3"` = 장종료후 시간외종가.
+ * 게이트웨이는 그 밖의 값을 브로커 전에 거부하지만, relay 가 먼저 이 두 값으로 좁힌다 (T-18-05).
+ */
+export type RelayKrxSession = "G2" | "G3";
 
 /**
  * 취소 주문 (`DirectOrderReq(2)` 취소, D-02).

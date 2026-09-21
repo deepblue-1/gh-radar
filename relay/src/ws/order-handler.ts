@@ -856,6 +856,14 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     // (아래 insert 주석). 정정은 요청이 방향을 실어 오므로 그 값을 쓴다 — 방향을 알면서 "S" 로
     // 적으면 매수 정정이 감사 기록에 매도로 남는다.
     const side: OrderSide = msg.t === "order.cancel" ? "S" : msg.side;
+    // 예약 조각 수 · 시간외종가 세션 (Phase 18 D-22/D-23) — **신규에만** 있다. 정정·취소는 조각·
+    // 세션을 바꾸지 않는다. 감사 기록에는 **와이어에 실리는 값만** 적는다: 조각 수 1 이하는 와이어
+    // 미송신(= 서버 기본값 1)이라 기록도 비운다 — 기록과 와이어가 서로 다른 말을 하지 않게.
+    const pieceCount =
+      msg.t === "order.new" && msg.pieceCount !== undefined && msg.pieceCount > 1
+        ? msg.pieceCount
+        : undefined;
+    const krxSession = msg.t === "order.new" ? msg.krxSession : undefined;
     // ③-2 **`dma_orders` insert** (D-03). 게이트웨이 송신 **전에** 남긴다 (T-15-32) —
     //     나중에 남기면 그 사이에 죽었을 때 「나갔는지 모르는 주문」이 흔적 없이 사라진다.
     let orderRowId: string;
@@ -876,6 +884,8 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         qty: msg.qty,
         price: msg.price,
         origin: "manual",
+        pieceCount,
+        krxSession,
       });
     } catch (err) {
       // 기록에 실패했으면 **보내지 않는다.** 감사 기록 없는 실주문을 만드는 것보다,
@@ -913,6 +923,14 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
+    // 조립 직전 조각/세션 기록 (T-18-06 / T-18-07). zod 는 미지의 키를 조용히 버리므로(strict 금지)
+    // 구 webapp·오타 필드명으로 값이 사라져도 **어디에서도 에러가 나지 않는다** — 이 로그가 그 무성
+    // 소실을 잡는 유일한 자리다. 계좌번호는 `logCtx` 에서 이미 마스킹됐고 주문 금액은 싣지 않는다.
+    logger.info(
+      { ...logCtx, kind, pieceCount: pieceCount ?? null, krxSession: krxSession ?? null },
+      "[WS-order] 주문 조립 — 조각 수·시간외종가 세션",
+    );
+
     let payload: Uint8Array;
     try {
       payload = buildDirectOrderReq({
@@ -925,6 +943,8 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         orgOrderNo,
         qty: msg.qty,
         price: msg.price,
+        pieceCount,
+        krxSession,
       });
     } catch (err) {
       const code = err instanceof OrderBuildError ? err.code : "BUILD_FAILED";

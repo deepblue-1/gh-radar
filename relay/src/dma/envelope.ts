@@ -43,6 +43,7 @@ import type {
   RelayAccountState,
   RelayExchange,
   RelayHolding,
+  RelayKrxSession,
   RelayLcCrud,
   RelayLcWatchSide,
   RelayLimitChaser,
@@ -901,8 +902,30 @@ export type DirectOrderInput = {
   orgOrderNo?: string;
   /** 주문수량. 취소는 미체결 잔량이며 **0 은 즉시 거부**다 (Pitfall 7). */
   qty: number;
+  /** 주문가(원). `0` 은 `krxSession` 이 G2/G3 일 때만 허용된다 (Phase 18 D-23). */
   price: number;
+  /**
+   * 예약구간 조각 수 (Phase 18 D-22). 부재·0·1 은 **슬롯을 싣지 않는다**(부재 = 서버 기본값 1).
+   * 1..64 범위 정책은 zod 한 곳이 정본이다 — 여기서는 정수·표현 범위만 본다.
+   */
+  pieceCount?: number;
+  /** 시간외종가 세션 (Phase 18 D-23). 부재·`""` 는 **슬롯을 싣지 않는다**(서버 자동 판정). */
+  krxSession?: RelayKrxSession | "";
 };
+
+/**
+ * 시간외종가 세션 → 와이어 문자열. `toWireSide` 계열과 같은 **화이트리스트** 규율이다.
+ *
+ * `""`/부재는 `null`(= 슬롯 미송신)로 돌려준다. 그 밖의 값은 던진다 — 게이트웨이가 브로커 전에
+ * 거부한다는 사실에 기대지 않는다(T-18-05). 오타 하나가 다른 세션으로 읽히는 경로를 여기서 끊는다.
+ */
+export function toWireKrxSession(krxSession: RelayKrxSession | "" | undefined): "G2" | "G3" | null {
+  if (krxSession === undefined || krxSession === "") return null;
+  if (krxSession !== "G2" && krxSession !== "G3") {
+    throw new OrderBuildError("BAD_KRX_SESSION", `알 수 없는 시간외종가 세션: ${String(krxSession)}`);
+  }
+  return krxSession;
+}
 
 /**
  * 직접 주문 (MsgType 2). 신규("N")·정정("M")·취소("C") 셋이다 (D-21 — 정정은 Phase 18 에서 열림).
@@ -925,13 +948,31 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
   const side = toWireSide(req.side);
   const market = toWireMarket(req.market);
   const orderType = toWireOrderType(req.orderType);
+  const krxSession = toWireKrxSession(req.krxSession);
 
   if (!Number.isInteger(req.qty) || req.qty <= 0) {
     // 취소수량 0 을 전량취소로 오해하는 것이 이 phase 에서 가장 흔한 오주문 경로다.
     throw new OrderBuildError("BAD_QTY", "주문수량은 1 이상의 정수여야 합니다 (0 은 즉시 거부)");
   }
-  if (!Number.isInteger(req.price) || req.price <= 0) {
-    throw new OrderBuildError("BAD_PRICE", "주문가격은 1 이상의 정수여야 합니다");
+  // 가격 0 은 시간외종가(G2/G3) 서버 결정가 **한 경로**로만 연다 (Phase 18 D-23). 무조건 `>= 0`
+  // 으로 열면 가격 0 인 지정가가 게이트웨이까지 가서 거부 왕복 5초를 태운다. 음수·비정수는 여전히
+  // 거부다 — 반올림·절사하지 않는다.
+  const priceFloor = krxSession === null ? 1 : 0;
+  if (!Number.isInteger(req.price) || req.price < priceFloor) {
+    throw new OrderBuildError(
+      "BAD_PRICE",
+      krxSession === null
+        ? "주문가격은 1 이상의 정수여야 합니다"
+        : "시간외종가 주문가격은 0 이상의 정수여야 합니다",
+    );
+  }
+  // 조각 수: 비정수·음수는 거부(반올림 금지). 1 이하는 부재와 같다 — 슬롯을 싣지 않는다.
+  let pieceCount: number | null = null;
+  if (req.pieceCount !== undefined) {
+    if (!Number.isInteger(req.pieceCount) || req.pieceCount < 0) {
+      throw new OrderBuildError("BAD_PIECE_COUNT", `조각 수는 0 이상의 정수여야 합니다: ${req.pieceCount}`);
+    }
+    if (req.pieceCount > 1) pieceCount = toWireUint(req.pieceCount, "piece_count");
   }
   if (req.qty > MAX_INT32 || req.price > MAX_INT32) {
     // 한도가 아니라 int 표현 범위다 — 넘기면 조용히 감싸서 전혀 다른 주문이 나간다.
@@ -966,6 +1007,9 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
   const orderTypeOffset = b.createString(orderType);
   // 신규는 빈 문자열이 계약이다. 생략하면 슬롯이 비어 구 서버가 다르게 읽을 수 있다.
   const orgOrderNoOffset = b.createString(orgOrderNo);
+  // `krx_session` 도 테이블을 열기 **전에** 만든다. 값이 없으면 문자열 자체를 만들지 않는다 —
+  // 빈 문자열을 버퍼에 남기면 슬롯을 안 실어도 바이트가 달라진다.
+  const krxSessionOffset = krxSession === null ? null : b.createString(krxSession);
 
   DirectOrderReq.startDirectOrderReq(b);
   DirectOrderReq.addStockCode(b, stockCodeOffset);
@@ -978,8 +1022,15 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
   DirectOrderReq.addExchange(b, exchangeOffset);
   DirectOrderReq.addOrderType(b, orderTypeOffset);
   DirectOrderReq.addOrgOrderNo(b, orgOrderNoOffset);
-  // `piece_count`(24) · `krx_session`(26) 은 **싣지 않는다** (D-12). 미송신이 곧 기존 수동주문
-  // 경로의 바이트 무변경이다 — 예약/장전/시간외종가 발주 UI 는 Phase 18 소관이다.
+  // `piece_count`(24) · `krx_session`(26): **부재가 곧 기본값이다** (Phase 18 D-22/D-23) — 값이
+  // 없을 때 0/"" 을 명시적으로 실으면 구 서버 호환과 기존 수동주문의 「바이트 무변경」이 깨진다.
+  // 그래서 값이 있을 때만 호출하고, 없으면 호출 자체를 건너뛴다.
+  if (pieceCount !== null) {
+    DirectOrderReq.addPieceCount(b, pieceCount);
+  }
+  if (krxSessionOffset !== null) {
+    DirectOrderReq.addKrxSession(b, krxSessionOffset);
+  }
   const order = DirectOrderReq.endDirectOrderReq(b);
 
   Envelope.startEnvelope(b);
