@@ -615,7 +615,9 @@ export class SubscriptionHub extends EventEmitter {
     const prefix = userPrefix(userId);
     const out: RelayRateCrossItem[] = [];
     for (const [key, item] of this.#rateCrossItems) {
-      if (key.startsWith(prefix)) out.push(item);
+      // 인증 직후 스냅샷(`fanout.ts`)이 이 반환값을 그대로 내린다 — 76/78 팬아웃과 같은 보강을
+      // **사본에만** 얹는다(D-30). 캐시는 서버 원본 그대로다.
+      if (key.startsWith(prefix)) out.push(this.#enrichRateCross(item));
     }
     return out.sort((a, b) =>
       a.exchangeTime === b.exchangeTime
@@ -854,7 +856,9 @@ export class SubscriptionHub extends EventEmitter {
       );
       return;
     }
-    this.#fanout(userId, { t: "rate.cross", item });
+    // 보강은 **팬아웃 페이로드에만** 얹는다(D-30). 캐시(`#rateCrossItems`)에는 위에서 서버 원본을
+    // 넣었다 — 「서버 집합을 그대로 보관」 규율(D-03/D-14)을 보강이 바꾸지 않는다.
+    this.#fanout(userId, { t: "rate.cross", item: this.#enrichRateCross(item) });
   }
 
   /**
@@ -875,7 +879,23 @@ export class SubscriptionHub extends EventEmitter {
     }
     logger.info({ userId, count: items.length }, "[HUB] 돌파 집합 스냅샷 수신 — 전량 교체");
     if (!session.isReady) return;
-    this.#fanout(userId, { t: "rate.cross.snap", items });
+    // 전량 교체는 위에서 서버 원본으로 끝났다. 보강은 팬아웃 사본에만 (D-30 / D-27).
+    this.#fanout(userId, {
+      t: "rate.cross.snap",
+      items: items.map((item) => this.#enrichRateCross(item)),
+    });
+  }
+
+  /**
+   * 돌파 항목에 종목명·단축코드를 채운다 (Phase 18 D-30 — 게이트웨이는 주지 않는다).
+   *
+   * `#enrichViOrder` 와 같은 규율이다 — 맵에 없으면 **필드를 비워 둔 원본 객체를 그대로** 돌려준다.
+   * ISIN 을 이름 자리에 넣으면 UI 가 "이름이 없다"와 "이름이 ISIN 이다"를 구분하지 못한다.
+   * 원본을 변형하지 않고 사본을 만든다 — 캐시에 든 서버 원본이 보강으로 오염되지 않게.
+   */
+  #enrichRateCross(item: RelayRateCrossItem): RelayRateCrossItem {
+    const info = this.#symbols?.lookup(item.isin);
+    return info === undefined ? item : { ...item, name: info.name, code: info.code };
   }
 
   /**

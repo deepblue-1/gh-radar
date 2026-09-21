@@ -978,6 +978,17 @@ export type RelayRateCrossItem = {
   exchangeTime: string;
   /** 서버 시각 `"HH:MM:SS"`. 표시 전용이다. */
   serverTime: string;
+  /**
+   * 종목명 — relay 가 `SymbolMap`(`stocks.isin` 역매핑)으로 채운다 (Phase 18 D-30).
+   * lookup 실패 시 **필드 부재**이고, 그때 웹은 ISIN 을 그대로 표시하며 종목정보 팝업을 비활성한다.
+   * relay 는 ISIN 을 이 자리에 넣지 않는다 — 넣으면 UI 가 「이름이 없다」와 「이름이 ISIN 이다」를 가르지 못한다.
+   */
+  name?: string;
+  /**
+   * 6자 단축코드 — relay 가 `SymbolMap` 으로 채운다 (Phase 18 D-30). lookup 실패 시 **필드 부재**.
+   * 브라우저는 ISIN 에서 코드를 **만들지 않는다**(D-28 산술 유도 금지) — 이 필드가 없으면 코드도 없다.
+   */
+  code?: string;
 };
 
 /**
