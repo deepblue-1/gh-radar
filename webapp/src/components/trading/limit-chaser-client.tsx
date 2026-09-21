@@ -104,6 +104,7 @@ import { useIsinLabels } from "@/lib/isin-labels";
 import {
   isLimitChaserServerMessage,
   isLimitChaserSetRejection,
+  parseStrategyKey,
   strategyKey,
 } from "@/lib/limit-chaser";
 import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
@@ -167,23 +168,6 @@ interface SelectedStock {
   basePrice: number;
   price: number;
   changeRate: number;
-}
-
-/**
- * 전략 키 `{ISIN}:{accountNo}:{exchange}` 분해.
- *
- * 모양이 어긋나면 **null 이다** — 반쪽만 채우면 화면이 「다른 계좌의 전략」을 편집하게 된다.
- * 거래소는 화이트리스트 2종뿐이라 그 밖의 값은 키가 깨진 것으로 본다.
- */
-export function parseStrategyKey(
-  key: string,
-): { isin: string; accountNo: string; exchange: RelayExchange } | null {
-  const parts = key.split(":");
-  if (parts.length !== 3) return null;
-  const [isin, accountNo, exchange] = parts;
-  if (isin === "" || accountNo === "") return null;
-  if (exchange !== "KRX" && exchange !== "NXT") return null;
-  return { isin, accountNo, exchange };
 }
 
 export interface LimitChaserClientProps {

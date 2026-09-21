@@ -102,6 +102,23 @@ export function strategyKey(isin: string, accountNo: string, exchange: RelayExch
 }
 
 /**
+ * 전략 키 `{ISIN}:{accountNo}:{exchange}` 분해.
+ *
+ * 모양이 어긋나면 **null 이다** — 반쪽만 채우면 화면이 「다른 계좌의 전략」을 편집하게 된다.
+ * 거래소는 화이트리스트 2종뿐이라 그 밖의 값은 키가 깨진 것으로 본다.
+ */
+export function parseStrategyKey(
+  key: string,
+): { isin: string; accountNo: string; exchange: RelayExchange } | null {
+  const parts = key.split(":");
+  if (parts.length !== 3) return null;
+  const [isin, accountNo, exchange] = parts;
+  if (isin === "" || accountNo === "") return null;
+  if (exchange !== "KRX" && exchange !== "NXT") return null;
+  return { isin, accountNo, exchange };
+}
+
+/**
  * 더티 비교 대상 21종 — **공개 상수**다. 테스트가 「무엇이 비교되지 않는지」를 직접 단언한다.
  *
  * 폼 24종에서 뺀 것 = 스위치 3종(`buyEnabled`·`sellEnabled`·`sweepEnabled`). 즉시 전송이라

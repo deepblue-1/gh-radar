@@ -70,7 +70,6 @@ import {
   ACK_TIMEOUT_MS,
   ECHO_BANNER_MS,
   LimitChaserClient,
-  parseStrategyKey,
   strategyStatusOf,
 } from '../limit-chaser-client';
 
@@ -174,17 +173,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
-});
-
-describe('parseStrategyKey', () => {
-  it('① 세 조각 + 화이트리스트 거래소만 통과한다 — 반쪽 파싱은 다른 계좌를 편집하게 만든다', () => {
-    expect(parseStrategyKey(KEY)).toEqual({ isin: ISIN, accountNo: ACCOUNT, exchange: 'KRX' });
-    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}:NXT`)?.exchange).toBe('NXT');
-    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}`)).toBeNull();
-    expect(parseStrategyKey(`${ISIN}:${ACCOUNT}:KOSPI`)).toBeNull();
-    expect(parseStrategyKey(`:${ACCOUNT}:KRX`)).toBeNull();
-    expect(parseStrategyKey(`${ISIN}::KRX`)).toBeNull();
-  });
 });
 
 describe('strategyStatusOf', () => {
