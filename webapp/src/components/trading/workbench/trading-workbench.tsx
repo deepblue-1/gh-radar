@@ -54,6 +54,8 @@
  *   이미 이 화면 위에서 사이드바 전략을 누르면 URL 만 바뀌므로, 사이드바가 보내는 **포커스 요청
  *   이벤트**(`lib/trading-focus.ts`)를 따로 듣는다(18-12). 같은 해석(`parseStrategyKey` → 등록 키
  *   대조)을 거치고, 스냅샷 전이면 마운트 때와 같은 보류 슬롯에 넣는다.
+ *   ★ 보류는 **등록 목록을 알기 전에만** 허용한다(WR-07 · `knowsRegistered`) — 비어 있지 않은
+ *   64 스냅샷 이후의 미스는 버리고, 보류 중이던 요청도 그런 스냅샷이 그 키 없이 오면 버린다.
  *
  * ⑦ 이탈 경고 · 게이트 · 팝업은 **페이지 1곳**
  *   - `useLeaveWarning` 은 카드 더티 수 + VI 2줄 더티 수의 합으로 한 번만 건다.
@@ -221,6 +223,20 @@ export function cardForUnfilled(
   };
 }
 
+/**
+ * 「등록 전략 목록을 안다」 — 포커스 요청 보류를 버려도 되는가 (⑥ · 18-REVIEW WR-07). 64 스냅샷
+ * (`limitChaserSnapSeq > 0`)을 받았고 그 목록이 **비어 있지 않을** 때만 참이다.
+ *
+ * ★ 빈 스냅샷은 모호하다 — relay 는 인증 직후 자기 캐시를 `lc.snap` 으로 내리는데, 세션이 막
+ *   만들어져 게이트웨이 64 가 아직이면 그 캐시가 비어 있다(`relay/src/ws/fanout.ts` 인증 경로 →
+ *   곧 `subscription-hub.ts` 의 64 팬아웃이 진짜 목록을 한 번 더 내린다). 빈 배열을 「없음」 으로
+ *   읽으면 콜드 세션의 `?focus=` 가 진짜 목록 도착 전에 버려진다(D-02 회귀). 그래서 빈 목록일
+ *   때는 보류를 유지한다 — 남는 틈은 「등록 전략 0건 사용자의 오래된 키」 뿐이다.
+ */
+function knowsRegistered(snapSeq: number, limitChasers: readonly RelayLimitChaser[]): boolean {
+  return snapSeq > 0 && limitChasers.length > 0;
+}
+
 /** 지금 시각 `HH:MM:SS` — 로케일 포맷터를 쓰지 않는다(`strategy-card.tsx` `clockNow` 와 같은 이유). */
 function clockNow(now: Date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -244,6 +260,7 @@ function WorkbenchSurface() {
     accounts,
     accountStates,
     limitChasers,
+    limitChaserSnapSeq,
     viTriggers,
     viOrders,
     rateCrossItems,
@@ -329,7 +346,14 @@ function WorkbenchSurface() {
       f === null || f === undefined
         ? undefined
         : limitChasers.find((c) => c.key === strategyKey(f.isin, f.accountNo, f.exchange));
-    if (focusHit !== undefined) pendingFocus.current = null;
+    /*
+      ★ 보류는 **등록 목록을 알기 전에만** 산다(WR-07 · T-18-98). 찾았으면 소비하고, 목록을 아는데도
+        없으면 버린다 — 삭제된 전략·오래된 링크의 키가 남았다가 나중에 같은 키가 등록되는 순간
+        사용자 조작 없이 카드가 펼쳐지고 스크롤되면 안 된다. 판정은 `knowsRegistered` 한 곳이다.
+    */
+    if (focusHit !== undefined || knowsRegistered(limitChaserSnapSeq, limitChasers)) {
+      pendingFocus.current = null;
+    }
 
     if (fresh.length === 0 && focusHit === undefined) return;
     const freshIds = fresh.map(() => nextCardId());
@@ -359,11 +383,13 @@ function WorkbenchSurface() {
       return next;
     });
     if (focusHit !== undefined) setScrollTarget({ key: focusHit.key });
-  }, [limitChasers, nextCardId]);
+  }, [limitChasers, limitChaserSnapSeq, nextCardId]);
 
   /* ── ⑥ 사이드바 포커스 요청 — 이미 이 화면 위일 때 (18-12) ───────── */
   const limitChasersRef = useRef(limitChasers);
   limitChasersRef.current = limitChasers;
+  const snapSeqRef = useRef(limitChaserSnapSeq);
+  snapSeqRef.current = limitChaserSnapSeq;
   useTradingFocusRequest((raw) => {
     const f = parseStrategyKey(raw);
     if (f === null) return;
@@ -372,7 +398,8 @@ function WorkbenchSurface() {
     );
     if (hit === undefined) {
       // 스냅샷 전 — 마운트 때와 같은 보류 슬롯. 등록 전략이 보이는 순간 위 효과가 펼친다.
-      pendingFocus.current = f;
+      // 스냅샷 후 — 등록되지 않은 키다. 보류하지 않고 버린다(WR-07 · T-18-98).
+      pendingFocus.current = knowsRegistered(snapSeqRef.current, limitChasersRef.current) ? null : f;
       return;
     }
     const newId = nextCardId();

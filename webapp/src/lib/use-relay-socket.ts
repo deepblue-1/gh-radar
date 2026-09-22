@@ -289,6 +289,20 @@ export interface RelayConnectionState {
    */
   rateCrossSnapSeq: number;
   /**
+   * 64 스냅샷(`lc.snap`)을 적용한 횟수 (Phase 18 D-02 · 18-REVIEW WR-07 · 18-22).
+   *
+   * `limitChasers` 배열만으로는 「64 를 받았는가」를 알 수 없다 — 빈 배열은 「아직 모름」 도
+   * 「등록 전략 없음」 도 된다. 작업대는 이 값으로 포커스 요청(사이드바 · `?focus=`)의 보류를
+   * 판정한다: 0 이면 스냅샷 전이라 찾지 못한 키를 보류한다. 단 relay 는 콜드 세션에서 게이트웨이
+   * 64 전에 빈 캐시를 먼저 내리므로, 소비처는 「0 이 아니면 확정」 으로 읽지 말고 빈 목록을
+   * 모호하게 다룬다(작업대 `knowsRegistered`).
+   * 연결 전·리셋 후 0 이다. 값 자체에 의미는 없고 **바뀌었는가 / 0 인가**만 읽는다.
+   *
+   * ⚠️ `status` 로 추론하지 않는다 — 인증 ACK(state) 가 `lc.snap` 보다 먼저 오므로
+   *    `ready` 인데 스냅샷은 아직인 구간이 있다(relay `fanout.ts` 인증 직후 순서).
+   */
+  limitChaserSnapSeq: number;
+  /**
    * 예약·장전·시간외종가 발주 창 상태 — **2상태**다.
    *  - `undefined` : 서버가 77 을 아직 한 번도 안 줬다(연결 전·인증 전)
    *  - 객체        : 서버가 말한 마지막 창 상태
@@ -384,6 +398,7 @@ interface RelayData {
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
   rateCrossItems: RelayRateCrossItem[];
   rateCrossSnapSeq: number;
+  limitChaserSnapSeq: number;
   queuedWindow: RelayQueuedWindowMsg | undefined;
 }
 
@@ -408,6 +423,8 @@ const INITIAL_DATA: RelayData = {
   strategiesDisabled: null,
   rateCrossItems: [],
   rateCrossSnapSeq: 0,
+  // 64 스냅샷을 아직 못 받았다 — 빈 `limitChasers` 는 「전략 없음」 이 아니라 「모름」 이다.
+  limitChaserSnapSeq: 0,
   // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
   queuedWindow: undefined,
 };
@@ -522,7 +539,12 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "lc.snap":
       // 64 전량 교체. `D` 행은 목록에 담지 않아 60 경로와 뜻을 맞춘다 —
       // `limitChasers` 는 언제나 「등록된 전략」이다.
-      return { ...state, limitChasers: frame.items.filter((item) => item.crud !== "D") };
+      // 빈 배열도 1회로 센다 — 「전략 없음」 도 확정 정보다(작업대 포커스 보류 판정 · WR-07).
+      return {
+        ...state,
+        limitChasers: frame.items.filter((item) => item.crud !== "D"),
+        limitChaserSnapSeq: state.limitChaserSnapSeq + 1,
+      };
 
     case "vi": {
       // `cfg: null` 은 **미등록**이다(무응답이 아니다). 키를 지우지 않는다 —
@@ -1120,6 +1142,7 @@ export function useRelayConnection({
       strategiesDisabled: data.strategiesDisabled,
       rateCrossItems: data.rateCrossItems,
       rateCrossSnapSeq: data.rateCrossSnapSeq,
+      limitChaserSnapSeq: data.limitChaserSnapSeq,
       queuedWindow: data.queuedWindow,
       send,
       reconnect,

@@ -1094,3 +1094,70 @@ describe('rate.cross 순서 — 최신 돌파가 맨 위 (사용자 결정 2026-
     expect(isinsOf(hook)).toEqual([B, C, A]);
   });
 });
+
+describe('limitChaserSnapSeq — 64 스냅샷 적용 횟수 (WR-07 · 18-22)', () => {
+  const ISIN = 'KR7086520004';
+  function lcItem(over: Record<string, unknown> = {}) {
+    return {
+      isin: ISIN,
+      accountNo: '12345678-01',
+      exchange: 'KRX',
+      key: `${ISIN}:12345678-01:KRX`,
+      crud: 'C',
+      buyEnabled: true,
+      sellEnabled: false,
+      sweepEnabled: false,
+      ...over,
+    };
+  }
+
+  it('① lc.snap 을 적용할 때마다 +1 — 빈 배열(「전략 없음」)도 1회로 센다 · 인증 ACK 만으로는 0', async () => {
+    const hook = render();
+    await connected(hook);
+    const ws = FakeWebSocket.last();
+    expect(hook.result.current.status).toBe('ready');
+    expect(hook.result.current.limitChaserSnapSeq).toBe(0);
+
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(2);
+    expect(hook.result.current.limitChasers).toHaveLength(1);
+  });
+
+  it('② lc(60 에코) 는 값을 바꾸지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem() });
+    });
+    expect(hook.result.current.limitChasers).toHaveLength(1);
+    expect(hook.result.current.limitChaserSnapSeq).toBe(0);
+
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+  });
+
+  it('③ 리셋(로그아웃) 후 0 으로 돌아간다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(0);
+    expect(hook.result.current.limitChasers).toHaveLength(0);
+  });
+});

@@ -441,6 +441,79 @@ describe('TradingWorkbench — 사이드바 포커스 요청 (18-12 · 이미 /t
   });
 });
 
+describe('TradingWorkbench — WR-07 — 스냅샷 이후의 포커스 미스는 보류하지 않는다 (D-02 · T-18-98)', () => {
+  /*
+    「64 스냅샷을 받았는가」 는 relay 상태 `limitChaserSnapSeq`(lc.snap 적용 횟수 · 0 = 아직) 하나로
+    표현한다 — `status` 나 빈 배열로 추론하지 않는다(인증 ACK 가 lc.snap 보다 먼저 오고, 빈 배열은
+    「전략 없음」 일 수도 있다).
+  */
+  const A = 'KR7086520004';
+  const K = 'KR7247540008';
+  const kKey = `${K}:${ACCOUNT}:KRX`;
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+  const snapped = (limitChasers: RelayLimitChaser[], seq = 1) =>
+    relay({ limitChasers, limitChaserSnapSeq: seq } as Partial<RelayShape>);
+
+  it('(확인) 스냅샷 이후 사이드바 요청 K(없음) → 나중에 K 가 등록돼도 접힌 채 들어온다', () => {
+    mockRelay = snapped([lc(A)]);
+    const { rerender } = render(<TradingWorkbench />);
+    act(() => requestTradingFocus(kKey));
+    expect(cardsInDom()).toHaveLength(1);
+
+    mockRelay = snapped([lc(A), lc(K)]);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('false');
+  });
+
+  it('(확인) 스냅샷 이후 마운트 · ?focus=K(없음) → 나중에 K 가 등록돼도 접힌 채 들어온다', () => {
+    searchParams = new URLSearchParams(`focus=${encodeURIComponent(kKey)}`);
+    mockRelay = snapped([lc(A)]);
+    const { rerender } = render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+
+    mockRelay = snapped([lc(A), lc(K)]);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('false');
+  });
+
+  it('스냅샷 전 요청 K → 스냅샷에 K 가 있으면 펼친다', () => {
+    mockRelay = snapped([], 0);
+    const { rerender } = render(<TradingWorkbench />);
+    act(() => requestTradingFocus(kKey));
+    expect(cardsInDom()).toHaveLength(0);
+
+    mockRelay = snapped([lc(A), lc(K)]);
+    rerender(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [`${A}:${ACCOUNT}:KRX`]: 'false', [kKey]: 'true' });
+  });
+
+  it('콜드 세션 — 빈 스냅샷(relay 캐시가 아직 빔) 뒤 진짜 64 에 K 가 있으면 ?focus=K 를 펼친다 (D-02)', () => {
+    searchParams = new URLSearchParams(`focus=${encodeURIComponent(kKey)}`);
+    mockRelay = snapped([], 1);
+    const { rerender } = render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(0);
+
+    mockRelay = snapped([lc(A), lc(K)], 2);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('true');
+  });
+
+  it('스냅샷 전 요청 K → 스냅샷에 K 가 없으면 보류를 버린다 → 나중에 K 가 등록돼도 접힌 채', () => {
+    mockRelay = snapped([], 0);
+    const { rerender } = render(<TradingWorkbench />);
+    act(() => requestTradingFocus(kKey));
+
+    mockRelay = snapped([lc(A)]);
+    rerender(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [`${A}:${ACCOUNT}:KRX`]: 'false' });
+
+    mockRelay = snapped([lc(A), lc(K)]);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('false');
+  });
+});
+
 describe('TradingWorkbench — WR-05 — 같은 종목의 두 번째 전략 (D-03 · T-18-92 · T-18-93)', () => {
   /*
     ★ 이 describe 는 `cardProps` Map 을 쓰지 않는다 — 스텁 기록 축이 카드 1장 = 1 키가 아닐 수 있어
