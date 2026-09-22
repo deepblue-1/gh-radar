@@ -19,7 +19,7 @@
  *   pnpm --filter @gh-radar/relay exec tsx ../scripts/dma-credentials.ts \
  *     --email <대상 계정 이메일> --from-email <이미 등록된 원본 계정 이메일>
  *
- *   # 등록 현황 (비밀번호 제외)
+ *   # 등록 현황 (계정 이메일 포함, 비밀번호 제외)
  *   pnpm --filter @gh-radar/relay exec tsx ../scripts/dma-credentials.ts --list
  *
  *   env·gcloud 준비가 번거로우면 래퍼를 쓴다 — 어느 cwd 에서 실행해도 동작한다:
@@ -317,7 +317,12 @@ async function runList(admin: Admin): Promise<void> {
 
   console.log(`등록된 매핑 ${rows.length}건:`);
   for (const row of rows as Array<Record<string, string>>) {
-    console.log(`  user_id=${row.user_id}  dma_user_id=${row.dma_user_id}  updated=${row.updated_at}`);
+    // 링크 모드(`--from-email`)의 원본을 고르려면 이메일이 보여야 한다.
+    const { data: userData } = await admin.auth.admin.getUserById(row.user_id);
+    const email = userData?.user?.email ?? "(이메일 조회 실패)";
+    console.log(
+      `  email=${email}  user_id=${row.user_id}  dma_user_id=${row.dma_user_id}  updated=${row.updated_at}`,
+    );
   }
 }
 
