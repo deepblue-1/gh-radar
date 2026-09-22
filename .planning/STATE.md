@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
-Plan: 32 of 32 (R3 갭 클로징 18-24~18-31 전부 완료 — 남은 것은 R3 최종 게이트 18-32 하나)
+Plan: 32 of 32 (R3 갭 클로징 18-24~18-32 전부 완료 — 18-32 최종 게이트 green)
 Plans completed: 213 / 229
-Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일) · 18-29 완료(원격 dma_orders_price_check null-safe 적용 · 덤프 diff CHECK 1줄) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · 18-28 완료(중지 VI 상태줄 계좌로 옮겨 시작 · 확인 요약 B → A — webapp 만) · 18-30 완료(결과 모름 잠금 = 작업대 키 상태 · 잠긴 카드 ✕ 확인 — webapp 만) · 18-31 완료(계좌 채움 펼침 승계 · 더티 바 수 재측정 · 잔고 평가 KRX 우선 · NXT 꼬리 — webapp 만) · 남은 것 18-32 · relay 미배포
+Status: 라운드 3 실행 완료 · 재검증(-R3) 대기 · relay 미배포 — 18-32 전량 게이트 green(build_command error TS 0 · relay 523 · webapp 1454/1 skip · Playwright 142/0 fail/9 skip · GC1~GC5 · 로컬 DB 회귀 12/12 · migration list 20260922180000 Local=Remote) · 18-VALIDATION §Gap Closure R3 12행 전부 닫힘 · TRADE-06~09 Pending 유지 · 배포 순서 DB(완료) → relay(R2 18-14·17·19 + R3 18-25·18-26) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-22 — 18-31 GC-IN-05 fillAccountCards 펼침 승계 · forgetCardState 단일 정리 경로 / GC-IN-01 dirtyBarCount 재측정 · strategy-card 주석 분리 / GC-IN-04 holdingQuotePrice(KRX 우선·NXT 폴백) · exchangeLabeledName(로그 who · 사이드바)(RED→GREEN, webapp 1454 · e2e 40) / 이전: 18-29 GC-CR-01 원격 dma_orders_price_check null-safe 적용(위반 행 0 사전 확인 · 사용자 apply · 전후 덤프 diff CHECK 1줄 · 정책 0/0 · RLS·GRANT 불변) / 이전: 18-30 GC-WR-03 결과 모름 잠금을 TradingWorkbench 계좌|ISIN|거래소 키 집합으로(페이지 언마운트만 해제) · 잠긴 카드 ✕ 결과 모름 다이얼로그 · e2e GC5(webapp 1435 · e2e 45) / 이전: 18-27 GC-WR-02·GC-IN-06·GC-IN-03 취소 확정 현재 잔량 내림 · 재대조 문구 분리 · isOffhoursOrder(RED→GREEN, webapp 1399) / 이전: 18-26 GC-IN-02 relay 는 64 를 받았을 때만 인증 경로 lc.snap(⑭(B)·⑭-4·⑯ RED→GREEN) · 작업대 포커스 보류 = 이번 연결 확정 스냅샷(①②③ RED→GREEN)
 
