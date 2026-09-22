@@ -192,21 +192,25 @@ describe('WorkbenchStatusBar — 이 기기 전용 알림 2종 (D-17 · Q-1)', (
     expect(tone.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('켜면 저장되고 resumeToneContext 가 그 클릭 안에서 불린다', () => {
+  it('켜면 저장되고 resumeToneContext 가 그 클릭 안에서 불린다', async () => {
     render(<WorkbenchStatusBar {...props()} />);
-    fireEvent.click(screen.getByRole('button', { name: '돌파 알림음 켜기 (이 기기만)' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '돌파 알림음 켜기 (이 기기만)' }));
+    });
     expect(resumeToneContext).toHaveBeenCalledTimes(1);
     expect(window.localStorage.getItem(BREAKOUT_TONE_KEY)).toBe('on');
   });
 
-  it('차단 상태면 라벨이 「클릭해 활성화」 이고, 클릭은 끄지 않고 resume 만 부른다', () => {
+  it('차단 상태면 라벨이 「클릭해 활성화」 이고, 클릭은 끄지 않고 resume 만 부른다', async () => {
     window.localStorage.setItem(BREAKOUT_TONE_KEY, 'on');
     toneState.blocked = true;
     render(<WorkbenchStatusBar {...props()} />);
     const tone = screen.getByRole('button', { name: /클릭해 활성화/ });
     expect(tone.textContent).toContain('클릭해 활성화');
     vi.mocked(resumeToneContext).mockClear();
-    fireEvent.click(tone);
+    await act(async () => {
+      fireEvent.click(tone);
+    });
     expect(resumeToneContext).toHaveBeenCalledTimes(1);
     expect(window.localStorage.getItem(BREAKOUT_TONE_KEY)).toBe('on');
   });
