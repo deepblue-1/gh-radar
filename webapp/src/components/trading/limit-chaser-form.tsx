@@ -724,6 +724,10 @@ export function LimitChaserForm({
             규율이고 이 세그먼트는 그 대상이 아니다 — 두 규율은 충돌하지 않는다.
           ★ 시각 라벨만 없앤 것이지 **접근성 이름을 없앤 것이 아니다** — `role="group"` +
             `aria-label="감시 대상"` 은 그대로다.
+          ★ 데스크톱 밴드 진입 구간(카드 992~1030)에서는 `--lw` 가 104px 로 뛰어 이 칸이 94px
+            까지 좁아진다 — 버튼 46px 에 글자 44.3px + 좌우 4px 패딩이 안 들어가 「매도잔량」이
+            2px 잘렸다(18-13 Playwright 카드 폭 992 실측). 그 밴드에서만 좌우 패딩을 0 으로 둔다
+            (글자는 가운데 정렬이라 여백은 남는다). 칸을 넓히면 이웃 행과 정렬이 깨진다(Q-03).
           ★ 라벨이 사라지면서 더티 표현(라벨 `● ` + `--primary` 색)도 함께 사라진다. 그것을
             **세그먼트 테두리**로 옮긴다 — 더티가 조용히 사라지면 사용자는 바꾼 줄 모른다.
             `NumInput` 과 같은 규율로 **테두리 한 겹뿐**이고 링은 걸지 않는다.
@@ -748,7 +752,7 @@ export function LimitChaserForm({
                 disabled={disabled}
                 onClick={() => setField('buyWatchSide', side)}
                 className={cn(
-                  'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap',
+                  'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap @min-[992px]/lc:px-0',
                   form.buyWatchSide !== side
                     ? 'bg-transparent text-[var(--muted-fg)]'
                     : side === '0'
