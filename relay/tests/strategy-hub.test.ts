@@ -597,6 +597,43 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     named.closeAll();
   });
 
+  it("⑯ 64 를 받았는지 사용자별로 안다 — 60 에코·세션 교체·closeAll·사용자 교차 (18-26 / GC-IN-02)", () => {
+    const other = new FakeSession(USER_B);
+    hub.attach(other);
+
+    // 처음에는 모른다 — 인증 경로가 `lc.snap` 을 지어내지 않는 근거다.
+    expect(hub.hasLimitChaserList(USER_A)).toBe(false);
+
+    // 60 에코는 목록 **전체**를 말하지 않는다 — 캐시에 1건이 들어가도 「받았음」 이 아니다.
+    session.pushFrame(buildSetLimitChaserRespFrame({ isin: SAMPLE_ISIN }));
+    expect(hub.getLimitChasers(USER_A)).toHaveLength(1);
+    expect(hub.hasLimitChaserList(USER_A)).toBe(false);
+
+    // 빈 64 도 확정 목록이다(「등록 전략 없음」).
+    session.pushFrame(buildLimitChaserListRespFrame([]));
+    expect(hub.hasLimitChaserList(USER_A)).toBe(true);
+    // A 의 64 가 B 를 「받았음」 으로 만들지 않는다 (T-16-02 / T-18-110).
+    expect(hub.hasLimitChaserList(USER_B)).toBe(false);
+
+    other.pushFrame(buildLimitChaserListRespFrame([{ isin: OTHER_ISIN }]));
+    expect(hub.hasLimitChaserList(USER_B)).toBe(true);
+
+    // 세션 **객체** 교체는 A 의 기록만 지운다 — 새 세션의 64 가 다시 올 때까지 모른다.
+    const replaced = new FakeSession(USER_A);
+    hub.attach(replaced);
+    expect(hub.hasLimitChaserList(USER_A)).toBe(false);
+    expect(hub.hasLimitChaserList(USER_B)).toBe(true);
+
+    // 같은 세션으로 다시 붙는 것(탭 추가)은 기록을 건드리지 않는다.
+    replaced.pushFrame(buildLimitChaserListRespFrame([{ isin: SAMPLE_ISIN }]));
+    hub.attach(replaced);
+    expect(hub.hasLimitChaserList(USER_A)).toBe(true);
+
+    hub.closeAll();
+    expect(hub.hasLimitChaserList(USER_A)).toBe(false);
+    expect(hub.hasLimitChaserList(USER_B)).toBe(false);
+  });
+
   it("⑮ symbols 를 주입하지 않은 Hub 도 무해하다 — 60/64 가 흐르고 이름만 없다", () => {
     // `hub` 는 beforeEach 가 만든 **기본 구성**이다(`#symbols === undefined`).
     session.pushFrame(buildSetLimitChaserRespFrame({ isin: SAMPLE_ISIN }));

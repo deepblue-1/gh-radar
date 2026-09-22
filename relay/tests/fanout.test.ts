@@ -57,6 +57,7 @@ import {
   SAMPLE_ACCOUNT_NO,
   SAMPLE_ISIN,
   STRATEGY_MSG,
+  buildLoginRespFrame,
   buildQueuedWindowStateFrame,
 } from "./helpers/frames.js";
 
@@ -579,8 +580,43 @@ describe("WsFanout", () => {
     expect(h.hub.getViTrigger(USER_B, "KRX")).toBeUndefined();
     expect(h.hub.getViTrigger(USER_B, "NXT")).toBeUndefined();
     expect(framesOf(tabB.inbox, "vi")).toHaveLength(0);
-    expect(framesOf(tabB.inbox, "lc.snap")[0]).toEqual({ t: "lc.snap", items: [] });
+    // 상따 목록도 같은 규율이다 (18-26 / GC-IN-02). 64 를 받은 적 없는 사용자에게 `lc.snap []`
+    // 을 내리면 「모름」을 「전략 없음」으로 말하는 셈이다 — 옛 단언(`items: []` 1프레임)은
+    // 그 결함을 진실로 잠그고 있었다(18-22 deferred-items). 모르면 **프레임이 없다**.
+    expect(framesOf(tabB.inbox, "lc.snap")).toHaveLength(0);
+    expect(h.hub.hasLimitChaserList(USER_B)).toBe(false);
     expect(framesOf(tabB.inbox, "vi.list")[0]).toEqual({ t: "vi.list", snap: true, items: [] });
+  });
+
+  it("⑭-4 콜드 세션 — 64 전에 인증한 탭은 lc.snap 을 받지 않고, 첫 lc.snap 이 곧 64 다 (18-26 / GC-IN-02)", async () => {
+    // 로그인 응답을 붙잡아 두면 세션이 ready 에 못 가고 24 프리페치도 나가지 않는다 —
+    // 「탭이 게이트웨이 64 보다 먼저 인증했다」는 콜드 세션의 정확한 모습이다.
+    gateway.silenceLogin();
+    gateway.respondLimitChaserList([
+      { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO },
+      { isin: OTHER_ISIN, accountNo: SAMPLE_ACCOUNT_NO },
+    ]);
+    const tab = await open();
+    tab.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tab.inbox, "vi.list").length === 1, "콜드 탭 인증 스냅샷");
+    await waitFor(() => gatewayMsgTypes.includes(MSG.LoginReq), "게이트웨이 로그인 요청");
+    await flushIo(20);
+
+    // 인증 직후에는 상따 목록 프레임이 **없다** — 빈 캐시를 확정 목록으로 내리지 않는다.
+    expect(framesOf(tab.inbox, "lc.snap")).toHaveLength(0);
+    expect(h.hub.hasLimitChaserList(USER_A)).toBe(false);
+
+    // 이제 로그인이 끝나면 Ready 프리페치(24) → 64(2건) 팬아웃이 이 탭의 **첫** lc.snap 이다.
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+    gateway.sendFrame(sock, buildLoginRespFrame({ success: true }));
+    await waitFor(() => framesOf(tab.inbox, "lc.snap").length >= 1, "64 팬아웃");
+    await flushIo(20);
+
+    const snaps = framesOf(tab.inbox, "lc.snap");
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]?.items.map((i) => i.isin).sort()).toEqual([OTHER_ISIN, SAMPLE_ISIN].sort());
+    expect(h.hub.hasLimitChaserList(USER_A)).toBe(true);
   });
 
   it("⑭-2 인증 직후 rate.cross.snap 은 비어 있어도 1프레임 — queued.window 는 모르면 안 온다 (17-03)", async () => {
