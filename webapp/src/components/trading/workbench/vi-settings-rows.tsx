@@ -562,8 +562,9 @@ function ViSettingsRow({
       <ViConfirmDialog
         kind={confirmKind}
         exchange={exchange}
-        accountNo={accountNo}
-        accountName={accountName}
+        // ★ 요약의 「계좌」 = 실제로 나갈 계좌(⑨) — 확인하는 계좌와 송신 계좌가 갈라지지 않는다.
+        accountNo={rowAccountNo}
+        accountName={rowAccountName}
         amountManwon={form.amountManwon}
         checkRate={form.checkRate}
         todayOrderCount={todayOrderCount}
@@ -754,12 +755,13 @@ export function ViConfirmDialog({
           data-slot="vi-confirm-summary"
           className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]"
         >
+          {/* 「계좌」 는 시작·중지 모두 맨 앞이다 — 어느 계좌의 전략을 켜고 끄는지 말한다(CR-02). */}
+          <SummaryRow label="계좌">
+            {accountNo}
+            {accountName !== undefined && accountName !== '' ? ` · ${accountName}` : ''}
+          </SummaryRow>
           {isStart ? (
             <>
-              <SummaryRow label="계좌">
-                {accountNo}
-                {accountName !== undefined && accountName !== '' ? ` · ${accountName}` : ''}
-              </SummaryRow>
               {/* ★ 금액·상승률이 요약에 **반드시** 있어야 한다(T-16-10). */}
               <SummaryRow label="1건당 금액">
                 {amountManwon === null ? '—' : `${NUM.format(amountManwon)}만원`}
