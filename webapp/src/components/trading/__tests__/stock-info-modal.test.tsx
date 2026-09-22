@@ -178,7 +178,9 @@ describe('StockInfoModal', () => {
     const user = userEvent.setup();
     render(<Card code="196170" />);
     const { dialog } = await openFromCard(user);
-    const tabs = within(dialog).getAllByRole('tab').map((t) => t.textContent);
+    // 팝업 탭 목록으로 좁힌다 — 차트 섹션 안에도 자기 단위·기간 토글이 있다(재사용된 기존 UI).
+    const list = within(dialog).getByRole('tablist', { name: '종목정보 팝업 탭' });
+    const tabs = within(list).getAllByRole('tab').map((t) => t.textContent);
     expect(tabs).toEqual(['차트', '종목정보', '뉴스·토론']);
     expect(within(dialog).queryByRole('tab', { name: /호가/ })).toBeNull();
     expect(dialog.textContent).not.toContain('호가주문');
