@@ -384,3 +384,104 @@ describe('⑦ 금액 상한 (WR-07)', () => {
     expect(screen.getByText(VI_AMOUNT_LIMIT_MESSAGE)).toBeInTheDocument();
   });
 });
+
+/* ───────────── Task 3 — 옛 `vi-settings-card.test.tsx` 커버리지 이관 ───────────── */
+
+describe('이관 — 표면 규율 (옛 「설정 4행」 describe)', () => {
+  it('종목 축·주문유형·계좌 비밀번호 UI 가 없다', () => {
+    renderRows();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByText(/주문유형|종목 검색/)).toBeNull();
+  });
+
+  it('더티 0 이면 「수정」이 렌더 자체가 없다', () => {
+    renderRows();
+    expect(document.querySelectorAll('[data-slot="vi-row-fix"]')).toHaveLength(0);
+  });
+});
+
+describe('이관 — ② 확인 다이얼로그 나머지 경로', () => {
+  it('시작 확정 → 현재 폼 값(더티 포함) + run:true 로 나간다', async () => {
+    renderRows();
+    fireEvent.change(rateInput('KRX'), { target: { value: '28' } });
+    fireEvent.change(amountInput('KRX'), { target: { value: '1200' } });
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(within(dlg).getByText('1,200만원')).toBeInTheDocument();
+    expect(within(dlg).getByText('28% 이상')).toBeInTheDocument();
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()[0]).toEqual({
+      t: 'vi.set',
+      accountNo: ACCOUNT,
+      exchange: 'KRX',
+      orderAmountKrw: manwonToKrw(1_200),
+      checkRate: 28,
+      run: true,
+    });
+    expect(screen.queryByTestId('vi-start-dialog')).toBeNull();
+  });
+
+  it('가동 중에는 「중지」 다이얼로그이고 기본 포커스는 **닫기**, 요약에 거래소·오늘 주문·미체결', async () => {
+    renderRows({ viTriggers: { KRX: BOTH.KRX, NXT: trigger({ exchange: 'NXT', run: true }) } });
+    fireEvent.click(within(row('NXT')).getByRole('switch', { name: 'VI NXT 중지' }));
+    const dlg = await screen.findByTestId('vi-stop-dialog');
+    expect(within(dlg).getByRole('button', { name: '닫기' })).toHaveFocus();
+    expect(within(dlg).getByText('NXT')).toBeInTheDocument();
+    expect(within(dlg).getByText('0건')).toBeInTheDocument();
+    fireEvent.click(within(dlg).getByRole('button', { name: '닫기' }));
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('「시작」이 못 나가면 다이얼로그가 열린 채 사유를 보여 준다 — 닫힘 = 성공이 아니다', async () => {
+    sendMock.mockReturnValue(false);
+    renderRows();
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(screen.getByTestId('vi-start-dialog')).toBeInTheDocument();
+    expect(within(dlg).getByRole('alert')).toHaveTextContent(VI_SET_SEND_FAILED_TEXT);
+    // 스위치는 잠기지 않았다(기다릴 에코가 없다). 다이얼로그가 배경을 aria-hidden 으로 가리므로 DOM 으로 잡는다.
+    const sw = row('KRX').querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(sw).not.toHaveAttribute('data-pending');
+    expect(sw).not.toBeDisabled();
+  });
+});
+
+describe('이관 — ⑤ 미조회 · ⑦ 세션 가드', () => {
+  it('미조회(키 부재)면 그 줄이 잠긴다 — 서버 상태를 모르는 채로 시작하지 않는다', () => {
+    renderRows({ viTriggers: { KRX: trigger() } });
+    expect(within(row('NXT')).getByRole('switch', { name: 'VI NXT 시작' })).toBeDisabled();
+    expect(rateInput('NXT')).toBeDisabled();
+    expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' })).not.toBeDisabled();
+  });
+
+  it('계좌가 비어 있으면 잠긴다 — 계좌 없는 `vi.set` 을 만들지 않는다', () => {
+    renderRows({ accountNo: '' });
+    expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' })).toBeDisabled();
+  });
+
+  it('더티 상태에서 세션이 끊기면 「수정」을 눌러도 아무것도 나가지 않고, 돌아오면 같은 클릭이 나간다', () => {
+    const { rerender } = renderRows();
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    rerender(<ViSettingsRows viTriggers={BOTH} accountNo={ACCOUNT} disabled />);
+    expect(fixButton('KRX')).toBeDisabled();
+    fireEvent.click(fixButton('KRX')!);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(rateInput('KRX').value).toBe('30'); // 더티 값 보존
+
+    rerender(<ViSettingsRows viTriggers={BOTH} accountNo={ACCOUNT} />);
+    fireEvent.click(fixButton('KRX')!);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sentMsgs()[0]).toMatchObject({ exchange: 'KRX', checkRate: 30 });
+  });
+});
+
+describe('E2 loading — 스피너 없음', () => {
+  it('전송 중에도 스피너·스켈레톤이 없다 (문구 「반영 중…」 + disabled 만)', () => {
+    renderRows();
+    fireEvent.change(rateInput('NXT'), { target: { value: '30' } });
+    fireEvent.click(fixButton('NXT')!);
+    expect(document.querySelector('[data-slot*="spinner"], [data-slot*="skeleton"], .animate-spin')).toBeNull();
+  });
+});

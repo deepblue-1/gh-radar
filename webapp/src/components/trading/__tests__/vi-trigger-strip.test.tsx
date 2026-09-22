@@ -262,3 +262,59 @@ describe('110초 진행바 — 바 + `{N}s`', () => {
     expect(within(bodyRows()[0]).queryByRole('progressbar')).toBeNull();
   });
 });
+
+/* ───────────── Task 3 — E3 나머지 상태 ───────────── */
+
+describe('E3 long-text · 색만으로 말하지 않기', () => {
+  const LONG = '아주아주긴종목명을가진가상의바이오테크놀로지홀딩스우선주';
+
+  it('긴 종목명은 칩·셀에서 1줄 ellipsis(truncate) 이고 전체 문자열은 title 에 있다', () => {
+    renderStrip([item({ name: LONG })]);
+    const chipName = chips().querySelector('[data-slot="vi-chip-name"]') as HTMLElement;
+    expect(chipName.className).toContain('truncate');
+    expect(chipName).toHaveAttribute('title', LONG);
+    openTable();
+    const cell = bodyRows()[0].querySelector('[data-slot="vi-row-name"]') as HTMLElement;
+    expect(cell.className).toContain('truncate');
+    expect(cell).toHaveAttribute('title', LONG);
+  });
+
+  it('미확인은 연노랑 **+ 텍스트**(「미확인 N」 필 · 「접수」 배지)로 말한다', () => {
+    renderStrip([item()]);
+    expect(within(strip()).getByText('미확인 1')).toBeInTheDocument();
+    const chip = chips().querySelector('[data-slot="vi-chip"]') as HTMLElement;
+    expect(within(chip).getByText('접수')).toBeInTheDocument();
+    openTable();
+    const row = bodyRows()[0];
+    expect(row).toHaveAttribute('data-unconfirmed', 'true');
+    expect(row.className).toContain('bg-[var(--new-bg)]');
+    expect(within(row).getByText('접수')).toBeInTheDocument();
+  });
+
+  it('확인하면 그 행의 미확인 강조가 즉시 빠진다(낙관 반영)', () => {
+    renderStrip([item()]);
+    openTable();
+    fireEvent.click(within(tableBlock()!).getByRole('checkbox'));
+    expect(bodyRows()[0]).not.toHaveAttribute('data-unconfirmed');
+  });
+});
+
+describe('E3 zero-one-many', () => {
+  it('1건과 여러 건이 같은 문법이다 — 라벨은 숫자형 「VI {N}」', () => {
+    const { unmount } = renderStrip([item()]);
+    expect(within(strip()).getByTestId('vi-strip-label')).toHaveTextContent(/^VI\s*1$/);
+    expect(chips().querySelectorAll('[data-slot="vi-chip"]')).toHaveLength(1);
+    unmount();
+    renderStrip([item(), item({ orderNo: '2' }), item({ orderNo: '3' })]);
+    expect(within(strip()).getByTestId('vi-strip-label')).toHaveTextContent(/^VI\s*3$/);
+    expect(chips().querySelectorAll('[data-slot="vi-chip"]')).toHaveLength(3);
+  });
+});
+
+describe('세션 가드', () => {
+  it('세션이 준비되지 않으면 표의 확인 체크가 전부 잠긴다(isConfirmable 의 disabled 인자)', () => {
+    render(<ViTriggerStrip items={[item()]} nowMs={NOW} disabled />);
+    openTable();
+    expect(within(tableBlock()!).getByRole('checkbox')).toBeDisabled();
+  });
+});
