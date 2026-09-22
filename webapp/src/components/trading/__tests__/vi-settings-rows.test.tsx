@@ -28,6 +28,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import {
+  ViServerErrorLine,
   ViSettingsRows,
   VI_ACK_TIMEOUT_MS,
   VI_ACK_TIMEOUT_TEXT,
@@ -106,15 +107,31 @@ describe('줄 구성 (D-05)', () => {
     expect(screen.queryByText('계좌')).toBeNull();
   });
 
-  it('가동 중이면 「가동중」 + 「서버 반영 {시각}」, 아니면 「중지」', () => {
+  it('가동 상태는 스위치가 말한다 — 줄에 「가동중」·「서버 반영」·「중지」 글자가 없다', () => {
     renderRows({ viTriggers: { KRX: trigger({ run: true }), NXT: BOTH.NXT } });
-    const krx = within(row('KRX'));
-    expect(krx.getByText('가동중')).toBeInTheDocument();
-    expect(krx.getByText(/^서버 반영 \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
-    expect(krx.getByRole('switch', { name: 'VI KRX 중지' })).toHaveAttribute('aria-checked', 'true');
-    const nxt = within(row('NXT'));
-    expect(nxt.getByText('중지')).toBeInTheDocument();
-    expect(nxt.queryByText('가동중')).toBeNull();
+    expect(row('KRX')).toHaveAttribute('data-run', 'true');
+    expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 중지' })).toHaveAttribute('aria-checked', 'true');
+    expect(row('NXT')).toHaveAttribute('data-run', 'false');
+    expect(within(row('NXT')).getByRole('switch', { name: 'VI NXT 시작' })).toHaveAttribute('aria-checked', 'false');
+    for (const ex of ['KRX', 'NXT'] as const) {
+      expect(row(ex).textContent).not.toMatch(/가동중|서버 반영|중지/);
+    }
+  });
+
+  it('레이아웃 — 상승률 상자 64px · 금액 상자 92px · 머리 100% 줄 없음 · 1열 격자 / 본문 830 이상 2열', () => {
+    renderRows();
+    const section = document.querySelector('[data-slot="vi-settings-rows"]') as HTMLElement;
+    expect(section.className).toContain('grid-cols-1');
+    expect(section.className).toContain('@min-[830px]/wb:grid-cols-2');
+    for (const ex of ['KRX', 'NXT'] as const) {
+      expect(rateInput(ex).parentElement!.className).toContain('w-16');
+      expect(amountInput(ex).parentElement!.className).toContain('w-[92px]');
+      expect(row(ex).querySelector('[class*="flex-[1_1_100%]"]')).toBeNull();
+      // 태그 · 스위치는 줄의 직접 자식이다(한 줄 배치)
+      expect(within(row(ex)).getByRole('switch').parentElement).toBe(row(ex));
+    }
+    const blocks = document.querySelectorAll('[data-slot="vi-settings-block"]');
+    expect(blocks[1].className).toContain('@min-[830px]/wb:not-first:border-l');
   });
 
   it('서버 값이 줄마다 따로 보인다 (만원 변환은 krwToManwon)', () => {
@@ -208,12 +225,12 @@ describe('② 줄 독립 — 서로 다른 전략 슬롯', () => {
 });
 
 describe('③ 빈/부분 스냅샷 (E2 empty · partial)', () => {
-  it('viTriggers 가 비어 있어도 두 줄 · 스위치 OFF · 「중지」 · 기본값', () => {
+  it('viTriggers 가 비어 있어도 두 줄 · 스위치 OFF · 기본값', () => {
     renderRows({ viTriggers: {} });
     for (const ex of ['KRX', 'NXT'] as const) {
       const r = within(row(ex));
       expect(r.getByRole('switch', { name: `VI ${ex} 시작` })).toHaveAttribute('aria-checked', 'false');
-      expect(r.getByText('중지')).toBeInTheDocument();
+      expect(row(ex)).toHaveAttribute('data-run', 'false');
       expect(rateInput(ex).value).toBe(String(VI_DEFAULT_CHECK_RATE));
       expect(amountInput(ex).value).toBe(new Intl.NumberFormat('ko-KR').format(VI_DEFAULT_AMOUNT_MANWON));
     }
@@ -222,13 +239,15 @@ describe('③ 빈/부분 스냅샷 (E2 empty · partial)', () => {
     expect(document.querySelector('[data-slot="vi-settings-empty"]')).toBeNull();
   });
 
-  it('스냅샷에 KRX 만 있으면 NXT 줄은 기본값 · 「중지」, KRX 줄만 서버 값', () => {
+  it('스냅샷에 KRX 만 있으면 NXT 줄은 기본값 · 중지, KRX 줄만 서버 값', () => {
     renderRows({ viTriggers: { KRX: trigger({ run: true, checkRate: 27, orderAmountKrw: 30_000_000 }) } });
     expect(rateInput('KRX').value).toBe('27');
     expect(amountInput('KRX').value).toBe('3,000');
-    expect(within(row('KRX')).getByText('가동중')).toBeInTheDocument();
+    expect(row('KRX')).toHaveAttribute('data-run', 'true');
+    expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 중지' })).toHaveAttribute('aria-checked', 'true');
     expect(rateInput('NXT').value).toBe(String(VI_DEFAULT_CHECK_RATE));
-    expect(within(row('NXT')).getByText('중지')).toBeInTheDocument();
+    expect(row('NXT')).toHaveAttribute('data-run', 'false');
+    expect(within(row('NXT')).getByRole('switch', { name: 'VI NXT 시작' })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('빈 61(null · 미등록)은 입력값을 지우지 않는다 (CR-01)', () => {
@@ -497,12 +516,13 @@ describe('E2 loading — 스피너 없음', () => {
 });
 
 /*
-  18-13 이관 — 옛 VI 화면 상태줄의 VI 몫 서버 거부(`vi-server-error`)를 두 줄 아래 한 자리로 옮겼다.
-  판정(`isViServerMessage`)은 작업대의 `useViServerError` 가 하고 줄은 받은 1건을 그리기만 한다.
+  18-13 이관 — 옛 VI 화면 상태줄의 VI 몫 서버 거부(`vi-server-error`)는 한 자리 경보다.
+  판정(`isViServerMessage`)은 작업대의 `useViServerError` 가 하고 `ViServerErrorLine` 은 받은 1건을
+  그리기만 한다. 자리(VI 패널 스트립 줄 아래)는 작업대 테스트가 잠근다.
 */
-describe('VI 몫 서버 거부 — 두 줄 아래 인라인 경보 (옛 VI 화면 ② · T-16-07)', () => {
-  it('serverError 가 있으면 role="alert" 로 출처 배지 + 원문을 그린다', () => {
-    renderRows({ serverError: { text: '상승률 조건 미달로 건너뜀', src: 'VITrigger' } });
+describe('VI 몫 서버 거부 — 인라인 경보 (옛 VI 화면 ② · T-16-07)', () => {
+  it('error 가 있으면 role="alert" 로 출처 배지 + 원문을 그린다', () => {
+    render(<ViServerErrorLine error={{ text: '상승률 조건 미달로 건너뜀', src: 'VITrigger' }} />);
     const el = document.querySelector('[data-slot="vi-server-error"]') as HTMLElement;
     expect(el).not.toBeNull();
     expect(el).toHaveAttribute('role', 'alert');
@@ -511,12 +531,18 @@ describe('VI 몫 서버 거부 — 두 줄 아래 인라인 경보 (옛 VI 화�
   });
 
   it('`SetVITrigger`·`Account` 출처는 `[서버]` 다 — 배지 판정은 serverMsgBadge 하나다', () => {
-    renderRows({ serverError: { text: 'VI 주문금액이 0 입니다', src: 'SetVITrigger' } });
+    render(<ViServerErrorLine error={{ text: 'VI 주문금액이 0 입니다', src: 'SetVITrigger' }} />);
     expect(document.querySelector('[data-slot="vi-server-error-src"]')?.textContent).toBe('[서버]');
   });
 
-  it('serverError 가 없으면 그 줄 자체가 없다', () => {
-    renderRows({ serverError: null });
+  it('error 가 null 이면 아무것도 그리지 않는다', () => {
+    const { container } = render(<ViServerErrorLine error={null} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(document.querySelector('[data-slot="vi-server-error"]')).toBeNull();
+  });
+
+  it('설정 줄 섹션은 경보를 그리지 않는다 — 자리는 작업대가 정한다', () => {
+    renderRows();
     expect(document.querySelector('[data-slot="vi-server-error"]')).toBeNull();
   });
 });

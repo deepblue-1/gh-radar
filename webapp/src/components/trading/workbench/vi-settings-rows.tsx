@@ -2,11 +2,14 @@
 
 /**
  * ViSettingsRows — `/trading` 작업대의 **VI 설정 2줄** (UI-SPEC §레이아웃 계약 3 · E2,
- * TRADE-08 · D-05 · D-27). 정본은 채택 목업 `18-workbench-mockup.html` 의 `.virow` 다(D-26).
+ * TRADE-08 · D-05 · D-27). 정본은 상단 정리 목업 `260923-bjb-mockup.html` 의 `.visets` · `.virow`
+ * 다. VI 패널(`vi-trigger-strip.tsx`) 「더보기」 펼침 안에 선다.
  *
  * ① 무엇을 그리는가
- *   KRX 한 줄 · NXT 한 줄. 줄 = 거래소 태그 · on/off 스위치(`run`) · 「가동중」+「서버 반영
- *   {HH:MM:SS}」(또는 「중지」) · 「상승률」 % · 「금액」 만원 · 더티면 줄 끝 「수정」.
+ *   거래소당 한 줄 — 줄 = 거래소 태그 · on/off 스위치(`run`) · 「상승률」 % · 「금액」 만원 ·
+ *   더티면 줄 끝 「수정」. 본문(`@container/wb`) 830 미만은 KRX·NXT 가 위아래로 쌓이고, 830
+ *   이상은 한 줄에 나란히(2열 · 세로 구분선) 선다. 경계 정본은 `globals.css` §2.2b.
+ *   가동 상태는 스위치가 말한다 — 색·위치와 `aria-checked` · `aria-label` 「VI {EX} 중지|시작」.
  *   ★ **계좌 셀렉터는 줄에 없다** — 계좌는 상태줄이 고르고 prop 으로 내려온다(Q-1 채택값, 18-11).
  *
  * ② ★ 줄의 거래소가 곧 `vi.set` 의 거래소다 (Pitfall 8)
@@ -43,7 +46,7 @@
  *   이 파일에 만원 곱셈을 인라인으로 쓰지 않는다.
  *
  * ⑧ ★ LOCKED 색 규칙 (UI-SPEC §Color)
- *   「가동중」 빨강은 `--up`(가격 방향 축)이지 `--destructive` 가 아니다. 두 값이 같으므로
+ *   가동 스위치의 빨강 채움은 `--up`(가격 방향 축)이지 `--destructive` 가 아니다. 두 값이 같으므로
  *   다이얼로그의 「중지」는 테두리형, 「시작」만 `--up` 채움이다.
  *
  * ⑨ ★ 계좌 정본 (CR-02 · UI-SPEC Q-3 VI 판)
@@ -209,12 +212,6 @@ export function parseDigits(raw: string): number | null {
   return digits.length === 0 ? null : Number(digits);
 }
 
-/** `HH:MM:SS` — 로케일 포맷터를 쓰지 않는다(Chromium 이 「0시 57분」을 돌려준다). */
-function clockNow(now: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-}
-
 /** 중지 확인 요약용 — 아직 살아 있는(미체결) VI 주문인가. 중지해도 **유지**된다. */
 function isLiveViOrder(item: RelayViOrderItem): boolean {
   return item.state === 'Pending' || item.state === 'Accepted' || item.state === 'Cancelling';
@@ -242,11 +239,6 @@ export interface ViSettingsRowsProps {
   onSent?: (msg: RelayViSetMsg) => void;
   /** 두 줄 더티 개수의 **합** — 상위 이탈 경고 게이트. */
   onDirtyCountChange?: (count: number) => void;
-  /**
-   * 최신 VI 몫 서버 거부 1건 — 판정(`isViServerMessage`)은 작업대의 `useViServerError` 가 하고
-   * 여기서는 두 줄 아래에 `role="alert"` 로 그리기만 한다(18-13 · 옛 VI 상태줄 계약 승계).
-   */
-  serverError?: ViServerError | null;
   className?: string;
 }
 
@@ -258,7 +250,6 @@ export function ViSettingsRows({
   viOrders = [],
   onSent,
   onDirtyCountChange,
-  serverError = null,
   className,
 }: ViSettingsRowsProps) {
   const [dirtyByExchange, setDirtyByExchange] = useState<Partial<Record<RelayExchange, number>>>({});
@@ -273,7 +264,13 @@ export function ViSettingsRows({
   }, [total, onDirtyCountChange]);
 
   return (
-    <section data-slot="vi-settings-rows" className={cn('flex min-w-0 flex-col gap-1.5', className)}>
+    <section
+      data-slot="vi-settings-rows"
+      className={cn(
+        'grid min-w-0 grid-cols-1 gap-1.5 @min-[830px]/wb:grid-cols-2 @min-[830px]/wb:gap-x-4',
+        className,
+      )}
+    >
       {VI_EXCHANGES.map((exchange) => {
         const mine = viOrders.filter((o) => o.exchange === exchange);
         return (
@@ -291,20 +288,36 @@ export function ViSettingsRows({
           />
         );
       })}
-      {serverError !== null && (
-        /*
-          VI 몫 서버 거부 — 경보(`role="alert"`)다. 줄마다가 아니라 **두 줄 아래 한 자리**인 이유:
-          `Account`·`VITrigger` 통지에는 거래소 축이 없다(어느 줄의 거부인지 서버가 말하지 않는다).
-          출처 배지는 `serverMsgBadge` 하나로 판정하는 텍스트 접두다(색만으로 가르지 않는다).
-        */
-        <p role="alert" data-slot="vi-server-error" className="m-0 min-w-0 px-2.5 text-[11px] break-keep text-[var(--destructive)]">
-          <span data-slot="vi-server-error-src" className="font-semibold">
-            {serverMsgBadge(serverError.src)}
-          </span>{' '}
-          {serverError.text}
-        </p>
-      )}
     </section>
+  );
+}
+
+/**
+ * 최신 VI 몫 서버 거부 1건 — 경보(`role="alert"`). 판정(`isViServerMessage`)은 작업대의
+ * `useViServerError` 가 하고 여기서는 그리기만 한다(18-13 · 옛 VI 상태줄 계약 승계).
+ * 줄마다가 아니라 **한 자리**인 이유: `Account`·`VITrigger` 통지에는 거래소 축이 없다(어느 줄의
+ * 거부인지 서버가 말하지 않는다). 자리는 작업대가 정한다 — VI 패널이 접혀도 보이는 곳이다.
+ * 출처 배지는 `serverMsgBadge` 하나로 판정하는 텍스트 접두다(색만으로 가르지 않는다).
+ */
+export function ViServerErrorLine({
+  error,
+  className,
+}: {
+  error: ViServerError | null;
+  className?: string;
+}) {
+  if (error === null) return null;
+  return (
+    <p
+      role="alert"
+      data-slot="vi-server-error"
+      className={cn('m-0 min-w-0 text-[11px] break-keep text-[var(--destructive)]', className)}
+    >
+      <span data-slot="vi-server-error-src" className="font-semibold">
+        {serverMsgBadge(error.src)}
+      </span>{' '}
+      {error.text}
+    </p>
   );
 }
 
@@ -351,7 +364,6 @@ function ViSettingsRow({
   const [form, setForm] = useState<ViRowForm>(DEFAULT_FORM);
   /** 더티 기준선. 미등록이면 마지막 확정 표시값이다 — 비워 두면 첫 렌더부터 더티가 뜬다. */
   const [baseline, setBaseline] = useState<ViRowForm>(DEFAULT_FORM);
-  const [appliedAt, setAppliedAt] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rowError, setRowError] = useState('');
   const [amountClamped, setAmountClamped] = useState(false);
@@ -399,7 +411,6 @@ function ViSettingsRow({
     pendingRef.current = null;
     unlock();
     setRowError('');
-    setAppliedAt(clockNow());
     const hadSnapshot = seenSnapshotRef.current;
     seenSnapshotRef.current = true;
 
@@ -508,45 +519,36 @@ function ViSettingsRow({
   const fixDescId = `vi-${ex}-fix-desc`;
 
   return (
-    <div data-slot="vi-settings-block" data-exchange={exchange} className="flex min-w-0 flex-col gap-1">
+    <div
+      data-slot="vi-settings-block"
+      data-exchange={exchange}
+      className="flex min-w-0 flex-col gap-1 @min-[830px]/wb:not-first:border-l @min-[830px]/wb:not-first:border-[var(--border)] @min-[830px]/wb:not-first:pl-4"
+    >
+      {/* 한 줄 — 태그 · 스위치 · 상승률 · 금액 · (더티) 수정. 접히는 것은 「수정」 자리가 모자랄 때뿐. */}
       <div
         data-slot="vi-settings-row"
         data-exchange={exchange}
         data-run={run ? 'true' : 'false'}
-        className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5"
+        className="flex min-w-0 flex-wrap items-center gap-2"
       >
-        {/* 머리 — 폰 밴드에서는 한 줄을 통째로 쓴다(목업 `.virow .head`). */}
-        <span className="inline-flex min-w-0 flex-[1_1_100%] items-center gap-2.5 @min-[700px]/wb:flex-none">
-          <ExchangeTag exchange={exchange} size="md" />
-          <RowSwitch
-            exchange={exchange}
-            checked={run}
-            pending={submitting && pendingRef.current?.run !== run}
-            disabled={locked || submitting}
-            onClick={() => {
-              setDialogError('');
-              setMoveSnapshot(null);
-              setConfirmKind(run ? 'stop' : 'start');
-            }}
-          />
-          {run ? (
-            <>
-              <span className="text-[11px] font-bold whitespace-nowrap text-[var(--up)]">가동중</span>
-              {appliedAt !== null && (
-                <span className="mono text-[11px] whitespace-nowrap text-[var(--muted-fg)]">
-                  서버 반영 {appliedAt}
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-[11px] whitespace-nowrap text-[var(--muted-fg)]">중지</span>
-          )}
-        </span>
+        <ExchangeTag exchange={exchange} size="md" />
+        <RowSwitch
+          exchange={exchange}
+          checked={run}
+          pending={submitting && pendingRef.current?.run !== run}
+          disabled={locked || submitting}
+          onClick={() => {
+            setDialogError('');
+            setMoveSnapshot(null);
+            setConfirmKind(run ? 'stop' : 'start');
+          }}
+        />
 
         <RowField
           id={`vi-${ex}-rate`}
           label="상승률"
           unit="%"
+          boxClassName="w-16"
           value={form.checkRate === null ? '' : String(form.checkRate)}
           dirty={dirty.has('checkRate')}
           disabled={locked}
@@ -556,6 +558,7 @@ function ViSettingsRow({
           id={`vi-${ex}-amount`}
           label="금액"
           unit="만원"
+          boxClassName="w-[92px]"
           value={form.amountManwon === null ? '' : NUM.format(form.amountManwon)}
           dirty={dirty.has('amountManwon')}
           disabled={locked}
@@ -583,18 +586,18 @@ function ViSettingsRow({
       </div>
 
       {showAmountLimit && (
-        <p role="status" data-slot="vi-amount-limit" className="m-0 px-2.5 text-[11px] text-[var(--destructive)]">
+        <p role="status" data-slot="vi-amount-limit" className="m-0 text-[11px] text-[var(--destructive)]">
           {VI_AMOUNT_LIMIT_MESSAGE}
         </p>
       )}
       {rowError !== '' && (
-        <p role="status" data-slot="vi-row-error" className="m-0 px-2.5 text-[11px] text-[var(--destructive)]">
+        <p role="status" data-slot="vi-row-error" className="m-0 text-[11px] text-[var(--destructive)]">
           {rowError}
         </p>
       )}
       {accountDiffers && (
         /* 고지 + (중지일 때만) 옮기기 — 좁은 폭에서는 버튼이 고지 아래 줄로 내려간다(목업 1-a). */
-        <div data-slot="vi-row-account-box" className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 px-2.5">
+        <div data-slot="vi-row-account-box" className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
           <p
             role="status"
             data-slot="vi-row-account"
@@ -621,7 +624,7 @@ function ViSettingsRow({
         </div>
       )}
       {notice !== null && (
-        <p role="status" data-slot="vi-row-echo" className="m-0 px-2.5 text-[11px] text-[var(--fg)]">
+        <p role="status" data-slot="vi-row-echo" className="m-0 text-[11px] text-[var(--fg)]">
           {notice}
         </p>
       )}
@@ -685,6 +688,7 @@ function RowField({
   id,
   label,
   unit,
+  boxClassName,
   value,
   dirty,
   disabled,
@@ -693,6 +697,8 @@ function RowField({
   id: string;
   label: string;
   unit: string;
+  /** 입력 상자 폭 — 상승률 64px · 금액 92px(목업 `.box` · `.box.w`). */
+  boxClassName: string;
   value: string;
   dirty: boolean;
   disabled: boolean;
@@ -711,7 +717,8 @@ function RowField({
       </label>
       <span
         className={cn(
-          'flex h-7 w-20 flex-none items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5 @min-[700px]/wb:w-[92px]',
+          'flex h-7 flex-none items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5',
+          boxClassName,
           // 포커스는 테두리색 한 겹 — 안쪽 input 의 `data-focus-ring="seamless"` 와 짝이다.
           'focus-within:border-[var(--ring)]',
           dirty ? 'border-[var(--primary)]' : 'border-[var(--input)]',

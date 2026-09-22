@@ -91,10 +91,6 @@ export const VI_ORDER_LIST_TIP =
 export const VI_CONFIRM_SEND_FAILED_TEXT =
   '연결이 끊겨 확인을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
 
-/** 작업대 VI 발동 표 캡션 — UI-SPEC §VI 발동 스트립·표 원문 그대로 (Phase 18 D-06). */
-export const VI_WORKBENCH_TABLE_CAPTION =
-  '확인 체크 = 119초 미확인 취소 면제 · 110초 미도달 취소는 서버 규칙이라 면제되지 않아요 · 접수 전(주문번호 없음)은 확인할 수 없어요 · 확인은 즉시 전송(ConfirmVIOrderReq 33)이고 더티가 아니에요';
-
 /** 빈 목록 문구 — 옛 패널과 작업대 표·스트립이 같은 문장을 쓴다. */
 export const VI_ORDER_EMPTY_TEXT = '오늘 발동된 VI 주문이 없어요';
 
@@ -739,12 +735,6 @@ function WorkbenchViTable({
           </Table>
         </>
       )}
-      <p
-        data-slot="vi-order-caption"
-        className="m-0 border-t border-[var(--border-subtle)] px-3 py-1.5 text-[10px] text-[var(--muted-fg)]"
-      >
-        {VI_WORKBENCH_TABLE_CAPTION}
-      </p>
     </div>
   );
 }

@@ -5,8 +5,10 @@
  * D-27 · D-28, TRADE-09). 정본은 채택 목업 `18-workbench-mockup.html`(마크업 `:727-756`).
  *
  * ① 위 → 아래 고정 순서 (UI-SPEC §레이아웃 계약 표 10행)
- *   제목줄(「트레이딩」 + 계좌 필) → 상태줄 → VI 설정 2줄 → VI 발동 스트립/표 → 돌파 스트립/표 →
- *   종목 추가 → 카드 격자 → 공용 패널. 블록은 앞선 플랜(18-05 ~ 18-10)이 만든 것을 **조립만** 한다.
+ *   제목줄(「트레이딩」 + 계좌 필) → 상태줄 → VI 패널(스트립 줄 · 「더보기」 펼침 안 VI 설정 2줄 ·
+ *   발동 표) → 돌파 스트립/표 → 종목 추가 → 카드 격자 → 공용 패널. 블록은 앞선 플랜(18-05 ~
+ *   18-10)이 만든 것을 **조립만** 한다. VI 설정은 VI 패널의 `settings` 슬롯으로 넘긴다 — 접혀도
+ *   마운트가 유지되므로 아래 ⑦ 의 VI 더티 합이 그대로 산다.
  *
  * ② ★ 이 컴포넌트가 **카드 집합의 단일 소유자**다
  *   `{ id, isin, accountNo, exchange, open, name?, code? }` 목록 · 단 수 · 선택된 미체결 행 · 상태줄
@@ -123,7 +125,10 @@ import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
 import { SharedPanels } from "@/components/trading/workbench/shared-panels";
 import { StockAddBar } from "@/components/trading/workbench/stock-add-bar";
-import { ViSettingsRows } from "@/components/trading/workbench/vi-settings-rows";
+import {
+  ViServerErrorLine,
+  ViSettingsRows,
+} from "@/components/trading/workbench/vi-settings-rows";
 import { ViTriggerStrip } from "@/components/trading/workbench/vi-trigger-strip";
 import {
   AccountPill,
@@ -719,7 +724,7 @@ function WorkbenchSurface() {
   const [breakoutCounts, setBreakoutCounts] = useState({ total: 0, fresh: 0 });
   const viUnconfirmed = useMemo(() => viOrders.filter(isUnconfirmedViOrder).length, [viOrders]);
 
-  // VI 몫 서버 거부 — 옛 VI 화면 상태줄 자리를 VI 두 줄 아래로 옮겼다(18-13 · T-16-07).
+  // VI 몫 서버 거부 — VI 패널 스트립 줄 바로 아래(접혀도 보인다 · 18-13 · T-16-07).
   const viServerError = useViServerError(messages);
 
   const appliedAt = useAppliedAt({ limitChasers, rateCrossItems, viOrders, viTriggers, queuedWindow });
@@ -792,21 +797,24 @@ function WorkbenchSurface() {
         onReconnect={UNRECOVERABLE_STATES.has(status) ? reconnect : undefined}
       />
 
-      {/* 3 · VI 설정 2줄 */}
-      <ViSettingsRows
-        viTriggers={viTriggers}
-        accountNo={accountNo}
-        accountName={accountName}
+      {/* 3 · VI 패널 — 스트립 줄 · 경보 · 펼침 안 VI 설정 2줄 · 발동 표 */}
+      <ViTriggerStrip
+        items={viOrders}
         disabled={status !== "ready"}
-        viOrders={viOrders}
-        onDirtyCountChange={setViDirty}
-        serverError={viServerError}
+        settings={
+          <ViSettingsRows
+            viTriggers={viTriggers}
+            accountNo={accountNo}
+            accountName={accountName}
+            disabled={status !== "ready"}
+            viOrders={viOrders}
+            onDirtyCountChange={setViDirty}
+          />
+        }
+        alert={<ViServerErrorLine error={viServerError} className="px-2.5 pb-2" />}
       />
 
-      {/* 4·5 · VI 발동 스트립 / 표 */}
-      <ViTriggerStrip items={viOrders} disabled={status !== "ready"} />
-
-      {/* 6·7 · 돌파 스트립 / 표 */}
+      {/* 4 · 돌파 스트립 / 표 */}
       <BreakoutStrip
         items={rateCrossItems}
         snapSeq={rateCrossSnapSeq}
@@ -816,10 +824,10 @@ function WorkbenchSurface() {
         onCountsChange={setBreakoutCounts}
       />
 
-      {/* 8 · 종목 추가 */}
+      {/* 5 · 종목 추가 */}
       <StockAddBar cards={cardIsins} onAdd={addCard} onFocusCard={focusCard} />
 
-      {/* 9 · 카드 격자 */}
+      {/* 6 · 카드 격자 */}
       <CardGrid
         cards={cards}
         cols={cols}
@@ -850,7 +858,7 @@ function WorkbenchSurface() {
         )}
       />
 
-      {/* 10 · 공용 패널 */}
+      {/* 7 · 공용 패널 */}
       <SharedPanels
         accountNo={accountNo}
         account={account}

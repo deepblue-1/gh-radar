@@ -6,7 +6,8 @@ import type { RelayViOrderItem } from '@gh-radar/shared';
  * Phase 18 Plan 05 Task 2 — VI 발동 스트립 + 「더보기」 표 (TRADE-08 · D-06 · UI-SPEC E3).
  *
  * 여기서 잠그는 것:
- *   ① 접힌 줄 = 「VI N」 + 「미확인 M」 필 + 칩 가로 스크롤 + 「더보기」
+ *   ① 접힌 줄 = 「VI」 + 「미확인 M」 필 + 칩 가로 스크롤 + 「더보기」 (개수는 칩이 말한다)
+ *   ①' 한 패널 — settings 슬롯은 `hidden` 토글(마운트 유지) · alert 슬롯은 접혀도 보인다
  *   ② 확인 체크는 **표에서만** — 칩 영역에는 체크박스가 없다
  *   ③ 확인 활성 판정은 기존 `isConfirmable` 하나다(주문번호 有 ∧ !confirm_locked)
  *   ④ 체크 즉시 잠기고 `vi.confirm` 1회 · 더티 바 없음
@@ -26,7 +27,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { ViTriggerStrip, VI_STRIP_EMPTY_TEXT } from '../workbench/vi-trigger-strip';
-import { VI_CONFIRM_SEND_FAILED_TEXT, VI_WORKBENCH_TABLE_CAPTION } from '../vi-order-list';
+import { VI_CONFIRM_SEND_FAILED_TEXT } from '../vi-order-list';
 
 const ACCOUNT = '37728502101';
 const NOW = Date.UTC(2026, 8, 22, 0, 41, 31);
@@ -71,9 +72,9 @@ beforeEach(() => {
 });
 
 describe('E3 empty · loading — 0건', () => {
-  it('라벨 「VI 0」 유지 + 빈 문구 · 「미확인」 필 없음 · 스피너/스켈레톤 없음', () => {
+  it('라벨 「VI」 + 빈 문구 · 「미확인」 필 없음 · 스피너/스켈레톤 없음', () => {
     renderStrip([]);
-    expect(within(strip()).getByTestId('vi-strip-label')).toHaveTextContent(/^VI\s*0$/);
+    expect(within(strip()).getByTestId('vi-strip-label').textContent).toBe('VI');
     expect(within(strip()).getByText(VI_STRIP_EMPTY_TEXT)).toBeInTheDocument();
     expect(VI_STRIP_EMPTY_TEXT).toBe('오늘 발동된 VI 주문이 없어요');
     expect(strip().querySelector('[data-slot="vi-unconfirmed-pill"]')).toBeNull();
@@ -81,11 +82,16 @@ describe('E3 empty · loading — 0건', () => {
     expect(document.querySelector('[data-slot="vi-order-skeleton"]')).toBeNull();
   });
 
-  it('「더보기」 표도 같은 빈 문구다', () => {
+  it('0건 펼침 → 표도 빈 문구도 그리지 않는다(스트립 줄이 이미 말한다) · aria-controls 대상은 존재한다', () => {
     renderStrip([]);
     openTable();
-    expect(within(tableBlock()!).getByText('오늘 발동된 VI 주문이 없어요')).toBeInTheDocument();
-    expect(tableBlock()!.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(tableBlock()).toBeNull();
+    expect(document.querySelector('[data-slot="vi-order-table"]')).toBeNull();
+    expect(document.querySelector('[data-slot="vi-order-empty"]')).toBeNull();
+    expect(screen.getAllByText('오늘 발동된 VI 주문이 없어요')).toHaveLength(1);
+    const controls = within(strip()).getByRole('button', { name: '접기' }).getAttribute('aria-controls');
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls!)).not.toBeNull();
   });
 });
 
@@ -95,7 +101,8 @@ describe('E3 populated — 칩 · 미확인', () => {
       item(),
       item({ orderNo: '3407000070', name: '알테오젠', state: 'Filled', filledQty: 256, confirmed: true, confirmLocked: true }),
     ]);
-    expect(within(strip()).getByTestId('vi-strip-label')).toHaveTextContent(/^VI\s*2/);
+    expect(within(strip()).getByTestId('vi-strip-label').textContent).toBe('VI');
+    expect(chips().querySelectorAll('[data-slot="vi-chip"]')).toHaveLength(2);
     expect(within(strip()).getByText('미확인 1')).toBeInTheDocument();
     const [first, second] = Array.from(chips().querySelectorAll('[data-slot="vi-chip"]')) as HTMLElement[];
     expect(first.className).toContain('bg-[var(--new-bg)]');
@@ -124,18 +131,24 @@ describe('E3 populated — 칩 · 미확인', () => {
     expect(within(strip()).queryAllByRole('checkbox')).toHaveLength(0);
   });
 
-  it('「더보기」 → 헤더 「VI 발동 주문」 + 요약 + 「접기 ▴」 · 캡션 원문 · 접으면 사라진다', () => {
+  it('「더보기」 → 머리줄·요약·설명문 없이 표만 선다 · 스트립 「접기」 하나로 닫힌다', () => {
     renderStrip([item(), item({ orderNo: '3407000070', confirmed: true })]);
     expect(tableBlock()).toBeNull();
     const more = within(strip()).getByRole('button', { name: '더보기' });
     expect(more).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(more);
-    const t = within(tableBlock()!);
-    expect(t.getByText('VI 발동 주문')).toBeInTheDocument();
-    expect(t.getByText('VI 2 · 미확인 1 · 양 거래소 한 목록 · 최신 위')).toBeInTheDocument();
-    expect(t.getByText(VI_WORKBENCH_TABLE_CAPTION)).toBeInTheDocument();
-    expect(within(strip()).getByRole('button', { name: '접기' })).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.click(t.getByRole('button', { name: '접기 ▴' }));
+    const block = tableBlock()!;
+    expect(block.querySelector('[data-slot="vi-order-table"]')).not.toBeNull();
+    const t = within(block);
+    expect(t.queryByText('VI 발동 주문')).toBeNull();
+    expect(block.textContent).not.toContain('양 거래소 한 목록');
+    expect(block.textContent).not.toContain('ConfirmVIOrderReq');
+    expect(t.queryByRole('button', { name: /접기/ })).toBeNull();
+    // 체크박스 이름은 남는다 — 체크가 무엇을 면제하는지 말하는 유일한 자리다.
+    expect(t.getAllByRole('checkbox', { name: '씨젠 주문 확인 — 119초 미확인 취소 면제' }).length).toBeGreaterThan(0);
+    const fold = within(strip()).getByRole('button', { name: '접기' });
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(fold);
     expect(tableBlock()).toBeNull();
   });
 
@@ -300,13 +313,13 @@ describe('E3 long-text · 색만으로 말하지 않기', () => {
 });
 
 describe('E3 zero-one-many', () => {
-  it('1건과 여러 건이 같은 문법이다 — 라벨은 숫자형 「VI {N}」', () => {
+  it('1건과 여러 건이 같은 문법이다 — 라벨은 「VI」 그대로, 개수는 칩 수가 말한다', () => {
     const { unmount } = renderStrip([item()]);
-    expect(within(strip()).getByTestId('vi-strip-label')).toHaveTextContent(/^VI\s*1$/);
+    expect(within(strip()).getByTestId('vi-strip-label').textContent).toBe('VI');
     expect(chips().querySelectorAll('[data-slot="vi-chip"]')).toHaveLength(1);
     unmount();
     renderStrip([item(), item({ orderNo: '2' }), item({ orderNo: '3' })]);
-    expect(within(strip()).getByTestId('vi-strip-label')).toHaveTextContent(/^VI\s*3$/);
+    expect(within(strip()).getByTestId('vi-strip-label').textContent).toBe('VI');
     expect(chips().querySelectorAll('[data-slot="vi-chip"]')).toHaveLength(3);
   });
 });
@@ -326,5 +339,60 @@ describe('칩 줄 키보드 접근 (18-13 · WCAG 2.1.1)', () => {
     expect(chips).toHaveAttribute('tabindex', '0');
     expect(chips).toHaveAttribute('role', 'group');
     expect(chips).toHaveAttribute('aria-label', 'VI 발동 종목');
+  });
+});
+
+describe('한 패널 — settings · alert 슬롯', () => {
+  function renderWithSlots(items: RelayViOrderItem[] = []) {
+    return render(
+      <ViTriggerStrip
+        items={items}
+        nowMs={NOW}
+        settings={
+          <div data-testid="settings-probe">
+            <label htmlFor="probe-input">상승률</label>
+            <input id="probe-input" defaultValue="22" />
+          </div>
+        }
+        alert={
+          <p role="alert" data-testid="alert-probe">
+            [VI] 거부
+          </p>
+        }
+      />,
+    );
+  }
+  const probe = () => screen.getByTestId('settings-probe');
+
+  it('settings 는 접혀도 DOM 에 있고 hidden 조상 아래다 → 더보기로 드러나고 → 접어도 같은 노드 · 입력값 유지', () => {
+    renderWithSlots();
+    const node = probe();
+    expect(node.closest('[hidden]')).not.toBeNull();
+    openTable();
+    expect(probe()).toBe(node);
+    expect(node.closest('[hidden]')).toBeNull();
+    const input = node.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '25' } });
+    fireEvent.click(within(strip()).getByRole('button', { name: '접기' }));
+    expect(probe()).toBe(node);
+    expect(node.closest('[hidden]')).not.toBeNull();
+    fireEvent.click(within(strip()).getByRole('button', { name: '더보기' }));
+    expect((probe().querySelector('input') as HTMLInputElement).value).toBe('25');
+  });
+
+  it('settings 는 표보다 위다(스트립 줄 → 설정 → 표)', () => {
+    renderWithSlots([item()]);
+    openTable();
+    const settings = probe();
+    const table = tableBlock()!;
+    expect(strip().compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(settings.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('alert 는 접혀 있어도 보인다(hidden 조상 없음) · 스트립 줄 바로 다음이다', () => {
+    renderWithSlots();
+    const alert = screen.getByRole('alert');
+    expect(alert.closest('[hidden]')).toBeNull();
+    expect(strip().nextElementSibling).toBe(alert);
   });
 });

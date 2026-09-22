@@ -4,6 +4,7 @@ import type {
   RelayLimitChaser,
   RelayRateCrossItem,
   RelayUnfilled,
+  RelayViOrderItem,
 } from '@gh-radar/shared';
 
 /**
@@ -187,6 +188,30 @@ function rc(over: Partial<RelayRateCrossItem> = {}): RelayRateCrossItem {
   };
 }
 
+/** 완전한 VI 주문 1건 — 표·칩이 실제로 그려질 만큼 필드를 채운다(`vi-trigger-strip.test` 의 `item()` 모양). */
+function viOrder(over: Partial<RelayViOrderItem> = {}): RelayViOrderItem {
+  return {
+    isin: 'KR7000660001',
+    exchange: 'KRX',
+    market: 'Q',
+    accountNo: ACCOUNT,
+    orderNo: '1',
+    orderQty: 10,
+    orderPrice: 190_100,
+    triggerPrice: 190_000,
+    basePrice: 160_000,
+    viEndTime: '094331000',
+    deadline110Ms: Date.now() + 84_000,
+    deadline119Ms: Date.now() + 93_000,
+    confirmed: false,
+    confirmLocked: false,
+    state: 'Accepted',
+    filledQty: 0,
+    name: 'SK하이닉스',
+    ...over,
+  };
+}
+
 function lc(isin: string, over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
   const exchange = over.exchange ?? 'KRX';
   const accountNo = over.accountNo ?? ACCOUNT;
@@ -253,17 +278,23 @@ describe('TradingWorkbench — 게이트 (D-27 · T-18-54)', () => {
 });
 
 describe('TradingWorkbench — 조립 (D-04 · 레이아웃 계약)', () => {
-  it('섹션이 UI-SPEC 순서대로 선다 — 제목줄 → 상태줄 → VI 2줄 → VI 스트립/표 → 돌파 스트립/표 → 종목 추가 → 격자 → 공용 패널', () => {
+  it('섹션이 순서대로 선다 — 제목줄 → 상태줄 → VI 패널(스트립 · 설정 · 표) → 돌파 스트립/표 → 종목 추가 → 격자 → 공용 패널', () => {
+    // 표는 목록이 있을 때만 선다 — VI 주문 1건 · 돌파 1건을 넣는다.
+    mockRelay = relay({ rateCrossItems: [rc()], viOrders: [viOrder()] });
     render(<TradingWorkbench />);
+    // VI 설정은 VI 패널 안에 있고, 펼치기 전에는 hidden 조상 아래다.
+    expect(slot('vi-trigger')!.contains(slot('vi-settings-rows'))).toBe(true);
+    expect(slot('vi-settings-rows')!.closest('[hidden]')).not.toBeNull();
     // 표 2개는 「더보기」로 펼친다 — 펼친 표가 자기 스트립 바로 아래에 선다.
     fireEvent.click(slot('vi-trigger')!.querySelector('[data-slot="vi-strip-more"]')!);
     fireEvent.click(slot('breakout-more')!);
+    expect(slot('vi-settings-rows')!.closest('[hidden]')).toBeNull();
 
     const order = [
       slot('workbench-title'),
       slot('workbench-status-bar'),
-      slot('vi-settings-rows'),
       slot('vi-trigger-strip'),
+      slot('vi-settings-rows'),
       slot('vi-trigger-table'),
       slot('breakout-strip'),
       slot('breakout-table'),
@@ -736,6 +767,33 @@ describe('TradingWorkbench — 이탈 경고 (한 곳)', () => {
   });
 });
 
+describe('TradingWorkbench — VI 설정 더티는 패널을 접어도 남는다 (hidden 접힘)', () => {
+  it('VI 설정을 고친 뒤 VI 패널을 접어도 입력값과 이탈 경고가 유지된다', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    mockRelay = relay({ viTriggers: { KRX: null, NXT: null } });
+    render(<TradingWorkbench />);
+    const more = slot('vi-strip-more')!;
+    fireEvent.click(more);
+    const input = document.querySelector('#vi-krx-rate') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '25' } });
+    fireEvent.click(more); // 접기
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(slot('vi-settings-rows')!.closest('[hidden]')).not.toBeNull();
+
+    const link = document.createElement('a');
+    link.href = '/me';
+    link.addEventListener('click', (e) => e.preventDefault());
+    document.body.appendChild(link);
+    fireEvent.click(link);
+    expect(confirm).toHaveBeenCalledWith(LEAVE_WARNING);
+    link.remove();
+
+    fireEvent.click(more); // 다시 펼침
+    expect((document.querySelector('#vi-krx-rate') as HTMLInputElement).value).toBe('25');
+    expect(document.querySelector('#vi-krx-rate')).toBe(input);
+  });
+});
+
 describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitfall 9)', () => {
   it('카드에 전략 배열·라벨 Map 을 prop 으로 내리지 않는다 — 문자열·불리언·안정 콜백뿐', () => {
     const strategies = [lc('KR7086520004'), lc('KR7247540008')];
@@ -799,7 +857,7 @@ describe('TradingWorkbench — 상태줄 카운터 (TRADE-09 precision)', () => 
     expect(screen.getByTestId('stat-breakout').textContent).toBe('돌파 2');
     expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파 2');
     expect(screen.getByTestId('stat-vi').textContent).toBe('VI 발동 1');
-    expect(screen.getByTestId('vi-strip-label').textContent).toBe('VI 1');
+    expect(screen.getByTestId('vi-strip-label').textContent).toBe('VI');
   });
 });
 
@@ -989,7 +1047,7 @@ describe('TradingWorkbench — VI 몫 서버 거부 (18-13 · T-16-07 · Pitfall
   const msg = (src: string, m: string, i = '') =>
     ({ t: 'msg', lv: 'ERROR', i, a: ACCOUNT, src, kind: '', m, receivedAt: '13:42:05' }) as never;
 
-  it('VI 몫 ERROR 는 VI 두 줄 아래 role="alert" 로 서고, 상따 몫·relay 자기 거부는 서지 않는다', () => {
+  it('VI 몫 ERROR 는 VI 패널 스트립 줄 아래 role="alert" 로 서고(접혀도 보인다), 상따 몫·relay 자기 거부는 서지 않는다', () => {
     mockRelay = relay({
       messages: [
         msg('Relay', '요청 형식이 올바르지 않습니다'),
@@ -1013,8 +1071,10 @@ describe('TradingWorkbench — VI 몫 서버 거부 (18-13 · T-16-07 · Pitfall
     expect(el.textContent).toContain('VI 주문금액이 0 입니다');
     expect(el.textContent).not.toContain('주문 가능 금액이 부족합니다');
     expect(el.textContent).not.toContain('요청 형식이 올바르지 않습니다');
-    // VI 두 줄 섹션 안에 선다(폼 인라인 — UI-SPEC E1 error: 설정 오류는 해당 폼 자리).
-    expect(slot('vi-settings-rows')!.contains(el)).toBe(true);
+    // VI 패널 안에 서고, 패널이 접혀 있어도 숨지 않는다(안전 신호 가시성).
+    expect(slot('vi-trigger')!.contains(el)).toBe(true);
+    expect(slot('vi-strip-more')!.getAttribute('aria-expanded')).toBe('false');
+    expect(el.closest('[hidden]')).toBeNull();
   });
 });
 
