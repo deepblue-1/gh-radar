@@ -818,7 +818,7 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 23/23 plans executed
+**Plans:** 23/32 plans executed
 
 Plans:
 **Wave 1**
@@ -882,3 +882,24 @@ Plans:
 **Wave 13** *(blocked on Wave 12 completion)*
 
 - [x] 18-23-PLAN.md — 갭 클로징 전량 게이트 · 18-VALIDATION §Gap Closure · REQUIREMENTS TRADE-06~09 Pending(재검증 대기) · UAT 인계 2건 추가 (wave 13)
+
+**Wave 14** *(갭 클로징 R3 — 18-REVIEW-R2 11건: GC-CR-01 · GC-WR-01~04 · GC-IN-01~06 + deferred relay 콜드 세션 `lc.snap`)*
+
+- [ ] 18-24-PLAN.md — [GC-CR-01 tracer] `dma_orders_price_check` NULL 통과 로컬 pgTAP 재현(RED) → null-safe 후속 마이그레이션 파일(GREEN) · T-18-82 정정 기록 (wave 14)
+- [ ] 18-25-PLAN.md — [GC-WR-01 + GC-IN-01 relay] 통보 `requestKind` 정본(E+Modify 정정 정산) · 모순 통보 0건 · `refersOrg` 개명 · 옛 주석 정정 (wave 14)
+- [ ] 18-26-PLAN.md — [GC-IN-02 + deferred] relay `#limitChaserKnown`(64 받았을 때만 인증 `lc.snap`) · 작업대 `knowsRegistered = snapSeq > 0` · ready 전환 기준점 (wave 14)
+- [ ] 18-27-PLAN.md — [GC-WR-02 + GC-IN-06 + GC-IN-03] 취소 확정 = 현재 잔량으로 내림(폼·계좌 패널) · 재대조 문구 분리 · `isOffhoursOrder` 단일 판정 (wave 14)
+- [ ] 18-28-PLAN.md — [GC-WR-04 사용자 결정] 중지 VI 만 「상태줄 계좌({A})로 옮겨 시작」 · 요약 「계좌 B → A」 · 가동 중 계좌 고정 유지 (wave 14)
+
+**Wave 15** *(blocked on Wave 14 completion)*
+
+- [ ] 18-29-PLAN.md — [GC-CR-01 · BLOCKING db push · 운영 DB 체크포인트] 위반 행 읽기 전용 사전 확인 → null-safe CHECK 원격 반영 + 전후 덤프 diff (wave 15)
+- [ ] 18-30-PLAN.md — [GC-WR-03] 「결과 모름」 잠금을 작업대 키 상태로 · 잠긴 카드 ✕ 확인 다이얼로그 · 재추가 3경로 잠금 유지 + e2e GC5 (wave 15)
+
+**Wave 16** *(blocked on Wave 15 completion)*
+
+- [ ] 18-31-PLAN.md — [GC-IN-05 + GC-IN-04 + GC-IN-01 webapp] 계좌 채움 펼침 승계 · 더티 바 수 재측정 · 잔고 평가 KRX 우선 · NXT 로그/사이드바 꼬리 · 주석 분리 (wave 16)
+
+**Wave 17** *(blocked on Wave 16 completion)*
+
+- [ ] 18-32-PLAN.md — 갭 클로징 R3 전량 게이트 · 18-VALIDATION §Gap Closure R3(12행 · 대응표 · 정정 기록 · 배포 순서 R3) · REQUIREMENTS Pending 유지 · deferred 해소 (wave 17)

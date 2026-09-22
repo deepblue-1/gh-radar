@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="ko" data-theme="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 18 — 갭 클로징 R3 목업 (VI 계좌 옮기기 · 결과 모름 잠금)</title>
+<!-- Geist Mono 는 프로덕션이 next/font/google 로 싣는 폰트다. Pretendard 는 self-hosted 라 여기서는 시스템 스택으로 대체한다. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   토큰 — webapp/src/styles/globals.css §9 그대로 (:root 라이트 / 다크)
+   다크는 globals.css 의 `.dark` 클래스 + 이 목업의 수동 토글 `html[data-theme="dark"]`
+   + 시스템 설정(prefers-color-scheme, `data-theme="light"` 가 아닐 때) 세 경로로 켠다.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg: #FFFFFF;
+  --fg: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-fg: oklch(0.50 0 0);
+  --border: oklch(0.92 0 0);
+  --border-subtle: oklch(0.18 0 0 / 0.06);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.63 0.18 250);
+  --card: #FFFFFF;
+  --card-fg: oklch(0.18 0 0);
+  --popover: #FFFFFF;
+  --popover-fg: oklch(0.18 0 0);
+  --primary: oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+  --secondary: oklch(0.96 0 0);
+  --secondary-fg: oklch(0.18 0 0);
+  --accent: oklch(0.95 0.03 250);
+  --accent-fg: oklch(0.35 0.12 250);
+  --destructive: oklch(0.66 0.20 22);
+  --destructive-fg: #FFFFFF;
+  --up: oklch(0.66 0.20 22);
+  --down: oklch(0.63 0.18 250);
+  --flat: oklch(0.55 0 0);
+  --up-bg: oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+
+  /* 상따 래치 LED (Phase 17 · D-21) — 「무장 단계」 축이다. 주황 `--led-latent` = 잠복
+     (무장돼 있으나 진입 확인 래치가 아직 서지 않아 발주 판정을 시작하지 않음), 초록
+     `--led-armed` = 래치 ON(판정 중). 회색 단계는 새 토큰을 만들지 않고 기존
+     `--flat`(도트) · `--muted-fg`(라벨)을 쓴다. */
+  --led-latent: oklch(0.74 0.17 62);
+  --led-armed: oklch(0.68 0.19 150);
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+  --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px;
+
+  --t-caption: 12px; --t-sm: 14px; --t-base: 16px; --t-lg: 18px;
+  --t-h4: 18px; --t-h3: 20px; --t-h2: 24px; --t-h1: 30px;
+  --lh-tight: 1.2; --lh-normal: 1.5;
+
+  --row-h: 36px; --cell-pad-x: 12px; --cell-pad-y: 8px;
+
+  --font-sans: var(--font-sans-loaded, 'Pretendard Variable'), 'Pretendard Variable',
+               Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+               system-ui, sans-serif;
+  --font-mono: var(--font-mono-loaded, 'Geist Mono'), 'Geist Mono',
+               ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card-foreground: var(--card-fg);
+  --popover-foreground: var(--popover-fg);
+  --primary-foreground: var(--primary-fg);
+  --secondary-foreground: var(--secondary-fg);
+  --muted-foreground: var(--muted-fg);
+  --accent-foreground: var(--accent-fg);
+  --destructive-foreground: var(--destructive-fg);
+
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ★ 이 목업 전용 신규 제안 토큰 — 돌파 목록 「신규 도착」 행의 연노랑. 채택 시 globals.css 로 승격. */
+  --new-bg: oklch(0.97 0.08 95);
+  --new-bd: oklch(0.86 0.14 92);
+  --ctl-h: 60px;
+}
+
+/* 다크 — globals.css `.dark` 블록 그대로. 수동 토글(html[data-theme="dark"]) 경로. */
+.dark, :root[data-theme="dark"] {
+  --bg: oklch(0.08 0 0);
+  --fg: oklch(0.96 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-fg: oklch(0.65 0 0);
+  --border: oklch(0.24 0 0);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.72 0.16 250);
+  --card: oklch(0.12 0 0);
+  --card-fg: oklch(0.96 0 0);
+  --popover: oklch(0.14 0 0);
+  --popover-fg: oklch(0.96 0 0);
+  --primary: oklch(0.72 0.16 250);
+  --primary-fg: oklch(0.10 0 0);
+  --secondary: oklch(0.18 0 0);
+  --secondary-fg: oklch(0.96 0 0);
+  --accent: oklch(0.22 0.05 250);
+  --accent-fg: oklch(0.85 0.10 250);
+  --destructive: oklch(0.72 0.19 22);
+  --destructive-fg: oklch(0.10 0 0);
+  --up: oklch(0.72 0.19 22);
+  --down: oklch(0.72 0.16 250);
+  --flat: oklch(0.65 0 0);
+  --up-bg: oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+  --led-latent: oklch(0.80 0.16 70);
+  --led-armed: oklch(0.76 0.18 150);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+  --new-bg: oklch(0.28 0.06 95);
+  --new-bd: oklch(0.45 0.10 92);
+}
+/* 다크 — 시스템 설정 경로. 수동으로 라이트를 고정하지 않았을 때만 따른다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.08 0 0);
+    --fg: oklch(0.96 0 0);
+    --muted: oklch(0.18 0 0);
+    --muted-fg: oklch(0.65 0 0);
+    --border: oklch(0.24 0 0);
+    --border-subtle: oklch(1 0 0 / 0.06);
+    --input: oklch(0.24 0 0);
+    --ring: oklch(0.72 0.16 250);
+    --card: oklch(0.12 0 0);
+    --card-fg: oklch(0.96 0 0);
+    --popover: oklch(0.14 0 0);
+    --popover-fg: oklch(0.96 0 0);
+    --primary: oklch(0.72 0.16 250);
+    --primary-fg: oklch(0.10 0 0);
+    --secondary: oklch(0.18 0 0);
+    --secondary-fg: oklch(0.96 0 0);
+    --accent: oklch(0.22 0.05 250);
+    --accent-fg: oklch(0.85 0.10 250);
+    --destructive: oklch(0.72 0.19 22);
+    --destructive-fg: oklch(0.10 0 0);
+    --up: oklch(0.72 0.19 22);
+    --down: oklch(0.72 0.16 250);
+    --flat: oklch(0.65 0 0);
+    --up-bg: oklch(0.22 0.06 22);
+    --down-bg: oklch(0.22 0.05 250);
+    --led-latent: oklch(0.80 0.16 70);
+    --led-armed: oklch(0.76 0.18 150);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+    --new-bg: oklch(0.28 0.06 95);
+    --new-bd: oklch(0.45 0.10 92);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   베이스라인 (globals.css §2.3 / §8.5.2 / §2.2)
+   ═══════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum' 1, 'ss01' 1; letter-spacing: -0.01em; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+*:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; box-shadow: 0 0 0 4px color-mix(in oklch, var(--ring) 30%, transparent); }
+[hidden] { display: none !important; }
+.up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--flat); }
+
+/* ═══════════════════════════════════════════════════════════════
+   목업 컨트롤 바 (고정 · 테마 / 뷰포트만) · 범례 · 프레임
+   ═══════════════════════════════════════════════════════════════ */
+.ctl { position: fixed; inset: 0 0 auto 0; z-index: 500; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 16px; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); font-size: 12px; }
+.ctl h1 { font-size: 13px; font-weight: 700; margin: 0 8px 0 0; }
+.ctl .g { display: inline-flex; align-items: center; gap: 4px; }
+.ctl .g > span { color: var(--muted-fg); margin-right: 2px; font-size: 11px; }
+.tb { height: 26px; padding: 0 9px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--secondary); color: var(--secondary-fg); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tb[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.ctl input[type="range"] { width: 110px; accent-color: var(--primary); }
+.stage { padding: calc(var(--ctl-h) + 16px) 16px 48px; }
+.legend { max-width: 1440px; margin: 0 auto 14px; border: 1px solid var(--border); border-left: 3px solid var(--fg); border-radius: var(--r-md); background: var(--muted); padding: 10px 14px; font-size: 13px; }
+.legend b { font-weight: 700; }
+.legend ul { margin: 4px 0 0; padding-left: 18px; }
+.legend li + li { margin-top: 2px; }
+.legend code { font-family: var(--font-mono); font-size: 11px; }
+.fcap { max-width: 1440px; margin: 0 auto 6px; font-size: 11px; color: var(--muted-fg); display: flex; gap: 12px; flex-wrap: wrap; }
+.fcap b { color: var(--fg); font-weight: 600; }
+.frame { --vw: 1440px; width: var(--vw); max-width: 100%; min-width: 320px; margin: 0 auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg); container: vp / inline-size; resize: horizontal; overflow: clip; }
+.frame.full { width: 100%; resize: none; }
+
+/* 앱 셸 흉내 — 헤더 + (1024px 이상) 사이드바 240px. 여백 램프 16/24 는 실제 app-shell 과 같다
+   (폰은 이 목업의 요구대로 좌우 16px 거터 · 실제 셸은 8px). */
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); }
+.ahdr { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.ahdr b { font-size: 16px; font-weight: 700; }
+.ahdr .srch { margin-left: auto; height: 32px; width: min(380px, 50%); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--muted); color: var(--muted-fg); font-size: 12px; display: flex; align-items: center; padding: 0 10px; gap: 6px; }
+.asb { display: none; border-right: 1px solid var(--border); background: var(--sidebar); padding: 12px 10px; font-size: 13px; color: var(--sidebar-foreground); }
+.asb div { padding: 7px 10px; border-radius: var(--r); color: var(--muted-fg); }
+.asb div.sub { padding-left: 26px; font-size: 12px; }
+.asb div.on { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+/* 3단 목록 = 등록 전략들(VI 2 + 상따 N). 「트레이딩」 제목 자체가 /trading 링크라 개별 「상따」「VI」 메뉴가 없다 */
+.asb div.s3 { display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 26px; font-size: 12px; color: var(--fg); }
+.asb div.s3 .tag { height: 16px; font-size: 9px; padding: 0 5px; }
+.asb div.s3 .run { margin-left: auto; font-size: 10px; font-weight: 700; color: var(--up); }
+.asb div.s3 .ld { margin-left: auto; display: inline-flex; gap: 3px; }
+.asb div.s3 .ld i { width: 7px; height: 7px; border-radius: 999px; background: var(--flat); display: inline-block; }
+.asb div.s3 .ld i.latent { background: var(--led-latent); } .asb div.s3 .ld i.armed { background: var(--led-armed); }
+#sbStrats { display: contents; }
+.amain { padding: 16px; min-width: 0; }
+@container vp (min-width: 1024px) {
+  .shell { grid-template-columns: 240px minmax(0, 1fr); }
+  .asb { display: block; }
+  .amain { padding: 24px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   상따 본문 — 컨테이너 `page` (폰 ~699 / 컴팩트 700–829 / 와이드 830–991 / 데스크톱 992+)
+   ═══════════════════════════════════════════════════════════════ */
+.page { container: page / inline-size; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.ttl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 -4px 0 0; }
+.ttl h2 { font-size: var(--t-h3); font-weight: 700; margin: 0; }
+.acct { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); font-size: 11px; color: var(--muted-fg); }
+.acct b { color: var(--fg); font-weight: 600; }
+
+/* 상태줄 — 「DMA · 돌파 · 거래 종목 · 임계 · 반영」 + 오른쪽 끝 단 수 세그먼트(페이지 옵션) */
+.stat { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--muted); padding: 6px 12px; font-size: var(--t-caption); color: var(--muted-fg); }
+.stat b { color: var(--fg); font-weight: 600; }
+.stat .si { display: inline-flex; align-items: center; gap: 6px; }
+.stat .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--led-armed); }
+.stat .right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
+.stat .applied { font-family: var(--font-mono); }
+.colseg { display: inline-flex; height: 24px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--card); }
+.colseg button { border: 0; background: transparent; color: var(--muted-fg); font-size: 11px; font-weight: 600; padding: 0 9px; }
+.colseg button + button { border-left: 1px solid var(--border); }
+.colseg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+@container page (max-width: 699px) { .colseg { display: none; } }
+
+/* 거래소 태그 (strategy-badge.tsx: KRX 테두리형 / NXT 채움) */
+.tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--r-sm); font-size: 10px; font-weight: 700; letter-spacing: .02em; flex: none; }
+.tag.krx { border: 1px solid var(--border); color: var(--muted-fg); background: transparent; }
+.tag.nxt { border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); }
+
+.btn { height: 26px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--border); background: var(--card); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.btn.pri { background: var(--primary); color: var(--destructive-fg); border-color: transparent; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted-fg); }
+.state { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.state::before { content: '●'; color: var(--led-armed); margin-right: 4px; font-size: 9px; }
+.newpill { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; background: var(--new-bg); border: 1px solid var(--new-bd); font-size: 10px; font-weight: 700; color: var(--fg); }
+
+/* ── ① 돌파감지 목록 : 상단 스트립 (A안 확정) ── */
+.rc-strip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); padding: 8px 10px; min-width: 0; }
+.rc-strip .lab { flex: none; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.rc-strip .lab small { font-weight: 600; color: var(--muted-fg); }
+.rc-strip .chips { display: flex; gap: 6px; overflow-x: auto; min-width: 0; flex: 1; scrollbar-width: thin; padding-bottom: 2px; }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); font-size: 12px; }
+.chip.new { background: var(--new-bg); border-color: var(--new-bd); }
+.chip.trading { border-style: dashed; color: var(--muted-fg); cursor: default; }
+.chip b { font-weight: 600; }
+.chip .r { font-weight: 700; }
+.chip .t { color: var(--muted-fg); font-size: 11px; font-family: var(--font-mono); }
+.chip .st { font-size: 10px; color: var(--muted-fg); }
+.rc-strip .more { flex: none; }
+
+/* ── ① 돌파감지 목록 : 「더보기」 전체 표 ── */
+.rc-tw { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); overflow: hidden; }
+.page:not([data-more="1"]) .rc-tw:not(.vi-tw) { display: none; }
+.page:not([data-vimore="1"]) .vi-tw { display: none; }
+
+/* ── VI 설정 2줄 — KRX 한 줄 · NXT 한 줄 (vi-settings-card 의 금액(만원)·상승률(%) + 시작/중지 스위치). 계좌·마감알림은 여기 없다 ── */
+.vi-set { display: flex; flex-direction: column; gap: 6px; }
+.virow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); padding: 6px 10px; min-width: 0; }
+.virow .tag { height: 20px; font-size: 10px; }
+.virow .sw { margin-left: 0; }
+.virow .vlab { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.virow .inp { height: 28px; width: 92px; flex: none; }
+.virow .inp input { font-size: 12px; }
+.virow .runb { font-size: 11px; font-weight: 700; color: var(--up); white-space: nowrap; }
+.virow .stb { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.virow .fix { margin-left: auto; }
+.virow .fld { display: inline-flex; align-items: center; gap: 6px; }
+@container page (max-width: 699px) { .virow { row-gap: 6px; } .virow .head { flex: 1 1 100%; display: inline-flex; align-items: center; gap: 10px; } .virow .inp { width: 80px; } }
+.virow .head { display: inline-flex; align-items: center; gap: 10px; }
+
+/* ── VI 발동 스트립/표 — 돌파 스트립과 같은 문법. 미확인 행/칩 연노랑 · 확인 체크는 표에서 ── */
+.chip .sb { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 700; border: 1px solid transparent; background: var(--muted); color: var(--muted-fg); }
+.chip .sb.fill, .vst.fill { background: var(--up-bg); color: var(--up); }
+.chip .sb.rej, .vst.rej { background: color-mix(in oklch, var(--destructive) 10%, transparent); color: var(--destructive); }
+.chip .sb.acc, .vst.acc { background: var(--muted); color: var(--fg); }
+.vst { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: var(--muted); color: var(--muted-fg); white-space: nowrap; }
+.vst.part { background: var(--up-bg); color: var(--up); }
+.rc tr.unc td { background: var(--new-bg); }
+.rc tr.unc:hover td { background: var(--new-bg); }
+.rc td.ck input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary); }
+.rc td.ck input:disabled { opacity: .4; }
+.dl { display: inline-flex; align-items: center; gap: 6px; min-width: 96px; }
+.dl .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--muted); overflow: hidden; min-width: 48px; }
+.dl .bar i { display: block; height: 100%; background: var(--led-latent); }
+.dl .bar i.hot { background: var(--destructive); }
+.dl small { font-family: var(--font-mono); font-size: 10px; color: var(--muted-fg); width: 28px; text-align: right; }
+.rc-tw .cap { font-size: 10px; color: var(--muted-fg); padding: 6px 12px; border-top: 1px solid var(--border-subtle); }
+@container page (max-width: 699px) { .rc .col-vi { display: none; } .rc td .subl b { color: var(--fg); } }
+@container page (max-width: 829px) { .rc .col-vi2 { display: none; } }
+.rc-tw .hd { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; font-weight: 700; }
+.rc-tw .hd .cnt { color: var(--muted-fg); font-weight: 500; font-size: 12px; }
+.rc-tw .hd .btn { margin-left: auto; }
+.tblx { overflow-x: auto; }
+table.rc { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rc th { background: var(--muted); color: var(--muted-fg); font-size: 11px; font-weight: 600; text-align: left; padding: 6px 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rc th.num, .rc td.num { text-align: right; }
+.rc th .sort { color: var(--muted-fg); font-size: 9px; margin-left: 3px; }
+.rc td { height: 36px; padding: 0 10px; white-space: nowrap; }
+.rc tr + tr td { border-top: 1px solid var(--border-subtle); }
+.rc tr.new td { background: var(--new-bg); }
+.rc tr.trading td { color: var(--muted-fg); }
+.rc td .n { font-weight: 600; color: var(--fg); }
+.rc td .c { font-size: 11px; color: var(--muted-fg); margin-left: 4px; }
+.rc td .subl { display: none; font-size: 10px; color: var(--muted-fg); }
+.rc tr:hover td { background: color-mix(in oklch, var(--muted) 60%, transparent); }
+.rc tr.new:hover td { background: var(--new-bg); }
+.rc .r { font-weight: 700; }
+@container page (max-width: 699px) {
+  .rc .col-thr, .rc .col-at, .rc .col-base { display: none; }
+  .rc td .subl { display: block; }
+  .rc td { padding: 0 8px; }
+  .rc th { padding: 6px 8px; }
+}
+@container page (max-width: 829px) { .rc .col-base { display: none; } }
+
+/* ── 종목 추가(검색) — 스트립 바로 아래 · 카드 격자 위 ── */
+.addbar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.addbar .srch { flex: 1; min-width: 0; display: flex; align-items: center; height: 36px; border: 1px solid var(--input); border-radius: var(--r-md); background: var(--card); padding: 0 10px; font-size: 13px; color: var(--muted-fg); gap: 8px; }
+.addbar .srch input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 13px; color: var(--fg); }
+.addbar .srch kbd { font-size: 10px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-family: var(--font-mono); color: var(--muted-fg); flex: none; }
+.addbar .btn { height: 36px; flex: none; }
+
+/* ── ② 내 거래 종목 카드 격자 — 1단 기본, 700 이상에서 상태줄 세그먼트(1·2·3단) 적용 ── */
+.cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+@container page (min-width: 700px) {
+  .cards[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* 접힌 카드 스택 — 격자 아이템 1개(flex column · gap 8px). 펼친 카드가 먼저, 접힌 카드는 여기 모인다 */
+.stack { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stack-lab { font-size: 11px; font-weight: 600; color: var(--muted-fg); padding: 0 2px; }
+.card { container: card / inline-size; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); min-width: 0; overflow: clip; }
+.card.open { box-shadow: inset 0 1px 0 var(--border-subtle), 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px oklch(0 0 0 / 0.04); }
+.ch { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 10px; cursor: pointer; user-select: none; }
+.ch .l1 { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; min-width: 0; }
+.ch .l2 { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; min-width: 0; flex-wrap: wrap; }
+@container card (min-width: 760px) { .ch .l1 { flex: 1 1 auto; } .ch .l2 { flex: 0 0 auto; } }
+.ch .caret { width: 18px; text-align: center; color: var(--muted-fg); font-size: 11px; transition: transform .15s; flex: none; }
+.card.open .ch .caret { transform: rotate(90deg); }
+.ch .id { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.ch .id b { min-width: 0; font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch .id .c { font-size: 11px; color: var(--muted-fg); }
+@container card (max-width: 699px) { .ch .id { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.15; } .ch .id .c { font-size: 10px; } }
+/* 거래소 KRX | NXT 세그먼트 — 카드 안에서 바꾼다(전략 키의 일부라 실제로는 전략 등록 뒤 잠김) */
+.exseg { display: inline-flex; height: 20px; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; flex: none; }
+.exseg button { border: 0; background: var(--card); color: var(--muted-fg); font-size: 10px; font-weight: 700; padding: 0 6px; letter-spacing: .02em; }
+.exseg button + button { border-left: 1px solid var(--border); }
+.exseg button.on { background: var(--accent); color: var(--accent-fg); }
+.ch .px { display: flex; align-items: baseline; gap: 6px; margin-left: auto; white-space: nowrap; }
+.ch .px b { font-size: 15px; font-weight: 700; }
+.ch .px span { font-size: 12px; font-weight: 600; }
+.ch .leds { display: flex; gap: 6px; flex-wrap: wrap; }
+.ch .sws { display: flex; gap: 10px; margin-left: auto; }
+.ch .rm { margin-left: 4px; }
+
+/* LED 칩 — Phase 17 채택안 A (테두리 칩 · 라벨 OFF/대기/감시) */
+.led { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px 0 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); font-size: 11px; color: var(--fg); }
+.led .d { width: 8px; height: 8px; border-radius: 999px; background: var(--flat); flex: none; box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--fg) 12%, transparent); }
+.led .k { color: var(--muted-fg); }
+.led .v { font-weight: 700; }
+.led small { color: var(--muted-fg); font-size: 10px; }
+.led[data-tone="off"] { border-style: dashed; background: transparent; cursor: default; }
+.led[data-tone="off"] .d { background: transparent; border: 1.5px solid var(--muted-fg); box-shadow: none; }
+.led[data-tone="off"] .v { color: var(--muted-fg); font-weight: 500; }
+.led[data-tone="latent"] .d { background: var(--led-latent); box-shadow: 0 0 0 2px color-mix(in oklch, var(--led-latent) 28%, transparent); }
+.led[data-tone="armed"] .d { background: var(--led-armed); box-shadow: 0 0 0 2px color-mix(in oklch, var(--led-armed) 28%, transparent); }
+.led:not([data-tone="off"]):hover { border-color: var(--muted-fg); }
+
+/* 「~ 켜기」 스위치 — limit-chaser-form.tsx 그룹 헤더 패턴 그대로(44×26 · 우측 끝 ml-auto · 간격 8px). 카드 헤더에는 없다. */
+.sw { display: inline-flex; align-items: center; margin-left: auto; cursor: pointer; background: transparent; border: 0; padding: 0; flex: none; }
+.sw i { width: 44px; height: 26px; border-radius: 999px; background: var(--border); position: relative; display: inline-block; transition: background .15s; flex: none; }
+.sw i::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 999px; background: #fff; box-shadow: 0 1px 2px oklch(0 0 0 / .3); transition: left .15s; }
+.sw.on i::after { left: 21px; }
+.sw.on[data-sw="buy"] i { background: var(--up); }
+.sw.on[data-sw="sell"] i { background: var(--down); }
+.sw.on[data-sw="sweep"] i { background: var(--led-armed); }
+
+/* ═══════════════════════════════════════════════════════════════
+   카드 본문 — globals.css §2.2b 4밴드를 **카드 컨테이너 폭**으로 옮김.
+   어느 밴드에서도 「좌 호가(+체결) | 우 옵션」 나란히. 세로 스택 없음.
+   ┌──────────┬────────────┬──────────────────────────┬──────────────────┐
+   │ 카드 폭  │ ~699       │ 700–829                  │ 830–991 / 992+   │
+   ├──────────┼────────────┼──────────────────────────┼──────────────────┤
+   │ 호가     │ 42% 1단    │ 2단 호가 260px           │ 3단 표 400/460px │
+   │          │ (가격+등락 │ (가격 | 잔량)            │ (매도잔량|가격|  │
+   │          │  세로, 잔량│                          │  매수잔량)       │
+   │          │  우측)     │                          │                  │
+   │ 옵션     │ 탭(매수/매 │ 2열 (매수+한방 | 매도+   │ 2열              │
+   │          │ 도) 1열 · │ 취소) · 라벨 좌 76px     │                  │
+   │          │ 라벨 위/  │                          │                  │
+   │          │ 입력 아래 │                          │                  │
+   └──────────┴────────────┴──────────────────────────┴──────────────────┘
+   ═══════════════════════════════════════════════════════════════ */
+.qi { display: none; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--border-subtle); padding: 4px 2px; }
+.card.open .qi { display: grid; }
+.qc { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; padding: 2px 8px; font-size: 11px; min-width: 0; }
+.qc .k { color: var(--muted-fg); white-space: nowrap; }
+.qc .v { font-weight: 600; white-space: nowrap; }
+@container card (min-width: 700px) { .qi { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@container card (min-width: 992px) { .card.open .qi { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 20px; row-gap: 0; padding: 8px 14px; } .qc { padding: 0; } }
+.cb { display: none; border-top: 1px solid var(--border); }
+.card.open .cb { display: grid; grid-template-columns: 42% minmax(0, 1fr); }
+@container card (min-width: 700px) { .card.open .cb { grid-template-columns: 260px minmax(0, 1fr); } }
+@container card (min-width: 830px) { .card.open .cb { grid-template-columns: 400px minmax(0, 1fr); } }
+@container card (min-width: 992px) { .card.open .cb { grid-template-columns: 460px minmax(0, 1fr); } }
+.pane { min-width: 0; padding: 8px; }
+.pane.ob { border-right: 1px solid var(--border); }
+@container card (min-width: 700px) { .pane { padding: 10px; } }
+.ph { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--muted-fg); margin-bottom: 4px; min-width: 0; }
+.ph b { font-size: 12px; color: var(--fg); font-weight: 600; white-space: nowrap; }
+.ph span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@container card (max-width: 699px) { .ph span { display: none; } }
+
+/* 호가 사다리 — 2단(폰·컴팩트) / 3단(와이드·데스크톱) 두 표를 두고 밴드로 하나만 보인다 */
+.ladbox { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.ladbox.v3 { display: none; }
+@container card (max-width: 699px) { .ladbox.v2 { max-height: 330px; overflow-y: auto; scrollbar-width: thin; } }
+@container card (min-width: 830px) { .ladbox.v2 { display: none; } .ladbox.v3 { display: block; } }
+table.lad { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+.lad.t3 col:nth-child(1), .lad.t3 col:nth-child(3) { width: 33%; } .lad.t3 col:nth-child(2) { width: 34%; }
+.lad.t2 col:nth-child(1) { width: 58%; } .lad.t2 col:nth-child(2) { width: 42%; }
+/* ★ 헤더 sticky: z-index 2 + 불투명 배경(카드색 위에 muted 겹칩) — 스크롤 시 행이 비치지 않게 (유지) */
+.lad th { background-color: var(--card); background-image: linear-gradient(var(--muted), var(--muted)); color: var(--muted-fg); font-size: 10px; font-weight: 600; padding: 3px 6px; text-align: center; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+.lad td { height: 22px; padding: 0 6px; position: relative; white-space: nowrap; }
+.lad tr + tr td { border-top: 1px solid var(--border-subtle); }
+.lad td .bar { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; z-index: 0; }
+.lad td.a .bar { right: 0; background: color-mix(in oklch, var(--down) 16%, transparent); }
+.lad td.b .bar { left: 0; background: color-mix(in oklch, var(--up) 16%, transparent); }
+.lad td.q span { position: relative; z-index: 1; display: block; }
+.lad td.a span { text-align: left; } .lad td.b span { text-align: right; }
+.lad td.p { text-align: center; font-weight: 600; }
+.lad td.p em { font-style: normal; font-size: 9px; color: var(--muted-fg); margin-left: 3px; font-weight: 400; }
+.lad tr.mid td { border-top: 1px solid var(--border); }
+.lad tr.last td.p { box-shadow: inset 3px 0 0 var(--fg); }
+/* 2단: 가격 좌측 정렬 · 잔량 바는 왼쪽(가격 축)에서 자란다. 폰 밴드에서는 등락률을 가격 아래 줄로(34px 행) */
+.lad.t2 td.p { text-align: left; padding-left: 8px; }
+.lad.t2 td.p em { display: none; }
+.lad.t2 td.q .bar { left: 0; }
+.lad.t2 td.q span { text-align: right; font-size: 10px; }
+@container card (max-width: 699px) {
+  .lad.t2 td { height: 34px; padding: 0 4px; }
+  .lad.t2 td.p { line-height: 1.15; padding-left: 6px; font-size: 12px; }
+  .lad.t2 td.p em { display: block; margin: 0; font-size: 9px; }
+  .lad.t2 td.q span { font-size: 9px; }
+}
+
+/* 최근 체결 테이프 (trade-tape.tsx compact) */
+table.tape { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; margin-top: 10px; }
+.tape td { height: 20px; padding: 0 4px; white-space: nowrap; text-align: right; overflow: hidden; }
+.tape td:first-child { text-align: left; color: var(--muted-fg); }
+.tape tr + tr td { border-top: 1px solid var(--border-subtle); }
+.tape-note { font-size: 10px; color: var(--muted-fg); margin: 4px 0 0; }
+@container card (max-width: 699px) { .tape col.tt { width: 34%; } .tape-note { display: none; } .tape td { padding: 0 2px; font-size: 9px; } .tape .hh { display: none; } /* 폰 밴드는 trade-tape compact 처럼 MM:SS */ }
+
+/* 옵션 세팅 4그룹 — 폰: 매수/매도 탭 + 1열 + 라벨 위/입력 아래 · 700 이상: 2열(매수+한방 | 매도+취소) + 라벨 좌 76px */
+.otabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; }
+.otabs button { height: 30px; border-radius: var(--r); border: 1px solid var(--border); background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 700; }
+.otabs button.on[data-ot="buy"] { border-color: var(--up); background: var(--up-bg); color: var(--up); }
+.otabs button.on[data-ot="sell"] { border-color: var(--down); background: var(--down-bg); color: var(--down); }
+.opt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; }
+.opt[data-tab="buy"] .col[data-col="sell"], .opt[data-tab="sell"] .col[data-col="buy"] { display: none; }
+@container card (min-width: 700px) {
+  .otabs { display: none; }
+  .opt { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .opt .col { display: block !important; }
+}
+.col { min-width: 0; }
+.grp { padding: 6px 0; border-top: 1px solid var(--border-subtle); }
+.col .grp:first-child { border-top: 0; padding-top: 0; }
+.gh { display: flex; align-items: center; gap: 8px; min-height: 30px; min-width: 0; }
+.gh .gs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh .gt { font-size: 12px; font-weight: 700; }
+.gh .gt.buy::before, .gh .gt.sell::before { content: '●'; font-size: 8px; margin-right: 5px; vertical-align: 1px; }
+.gh .gt.buy::before { color: var(--up); } .gh .gt.sell::before { color: var(--down); }
+.gh .gs { font-size: 11px; color: var(--muted-fg); }
+.fr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 6px; align-items: center; margin-top: 6px; }
+@container card (min-width: 700px) { .fr { grid-template-columns: 76px minmax(0, 1fr); margin-top: 4px; } }
+.fr .lb { font-size: 11px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+.fr .lb input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--primary); flex: none; }
+.fr .lb.dirty { color: var(--primary); font-weight: 600; }
+.inp { display: flex; align-items: center; height: 30px; border: 1px solid var(--input); border-radius: var(--r); background: var(--bg); padding: 0 6px; gap: 4px; min-width: 0; }
+.inp input { flex: 1; min-width: 0; width: 0; border: 0; outline: 0; background: transparent; text-align: right; font-family: var(--font-mono); font-size: 13px; padding: 0; }
+.inp .u { font-size: 10px; color: var(--muted-fg); flex: none; }
+.inp.dirty { border-color: var(--primary); }
+.inp:focus-within { border-color: var(--ring); }
+.seg { display: flex; height: 28px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; min-width: 0; }
+.seg button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--muted-fg); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg button.on { background: var(--up-bg); color: var(--up); }
+.fr.more { grid-template-columns: 1fr; text-align: center; color: var(--muted-fg); font-size: 11px; letter-spacing: .25em; margin-top: 2px; }
+.derived { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted-fg); padding: 3px 0 0; min-width: 0; }
+.derived span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.derived b { color: var(--fg); font-family: var(--font-mono); font-weight: 600; flex: none; }
+.dbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px -8px -8px; padding: 8px 10px; border-top: 1px solid var(--primary); background: color-mix(in oklch, var(--card) 96%, transparent); font-size: 11px; color: var(--muted-fg); }
+@container card (min-width: 700px) { .dbar { margin: 10px -10px -10px; } }
+.dbar b { color: var(--fg); }
+.dbar .act { margin-left: auto; display: flex; gap: 6px; }
+
+/* ── ③ 하단 공용 패널 (미체결 · 잔고 · 전략 로그) — 폰(<700)은 하단 고정 접이식, 그 위는 격자 아래 섹션 ── */
+.shared { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); min-width: 0; }
+.shared .tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); align-items: center; }
+.tabs button.t { height: 28px; padding: 0 10px; border-radius: var(--r); border: 1px solid transparent; background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tabs button.t[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+.tabs .tg { display: none; margin-left: auto; }
+.shared .body { overflow: auto; }
+table.sh { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sh th { background: var(--muted); color: var(--muted-fg); font-size: 11px; font-weight: 600; text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.sh td { height: 32px; padding: 0 10px; white-space: nowrap; }
+.sh tr + tr td { border-top: 1px solid var(--border-subtle); }
+.sh .num { text-align: right; }
+.sh td .nm { font-weight: 600; }
+.sh td .src { font-size: 10px; color: var(--muted-fg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.log { list-style: none; margin: 0; padding: 6px 12px; font-size: 11px; line-height: 1.7; }
+.log li { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.log li .at { color: var(--muted-fg); flex: none; }
+.log li .who { font-weight: 600; flex: none; }
+.log li .msg { min-width: 0; }
+@container page (max-width: 699px) {
+  .page .shared { position: sticky; bottom: 0; z-index: 20; border-radius: var(--r-lg) var(--r-lg) 0 0; border-bottom: 0; box-shadow: 0 -8px 24px oklch(0 0 0 / .10); }
+  .page .shared .tabs .tg { display: inline-flex; }
+  .page .shared .body { max-height: 40vh; }
+  .page .shared.fold .body { display: none; }
+  .page .shared .tabs { gap: 2px; padding: 6px; }
+  .tabs button.t { padding: 0 8px; font-size: 11px; }
+}
+
+/* ── 수동주문 — 적응형 한 규칙(카드·호가 탭 공통): 컨테이너 <700(매수/매도가 탭인 밴드) → 「매수 | 매도 | 수동」 3탭 ·
+   ≥700(옵션 2열 밴드) → 옵션 우상단 「수동주문」 버튼 → 옵션 영역 덮기 + ✕(옵션 값 보존). 두 상태(data-tabman · data-cover)를 함께 들고 밴드가 하나만 쓴다 ── */
+.otabs { grid-template-columns: 1fr 1fr 1fr; }
+.otabs button.on[data-ot="manual"] { border-color: var(--fg); background: var(--muted); color: var(--fg); }
+.mbar { display: none; align-items: center; gap: 8px; min-height: 26px; margin-bottom: 4px; min-width: 0; }
+.mbar b { font-size: 12px; }
+.mbar .hint { flex: 1; min-width: 0; }
+.mbar .manbtn, .mbar .mclose { margin-left: auto; height: 24px; }
+.mbar .mclose { padding: 0 6px; }
+.manual { display: none; }
+@container card (max-width: 699px) {
+  .opt-pane[data-tabman="1"] .opt, .opt-pane[data-tabman="1"] .dbar { display: none; }
+  .opt-pane[data-tabman="1"] .manual { display: block; }
+}
+@container card (min-width: 700px) {
+  .mbar { display: flex; }
+  .opt-pane[data-cover="1"] .opt, .opt-pane[data-cover="1"] .dbar { display: none; }
+  .opt-pane[data-cover="1"] .manual { display: block; }
+}
+/* 버튼 줄 = 매수 · 매도 · 정정 · 취소 4개 한 줄 — 정정/취소는 미체결 행 선택 시에만 켜진다 */
+.obtns.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.obtn.amend, .obtn.cancel { background: var(--card); color: var(--fg); border-color: var(--border); }
+.obtn[disabled] { opacity: .45; cursor: default; }
+.obtns.four .obtn { font-size: 11px; letter-spacing: -0.02em; padding: 0 2px; }
+@container card (max-width: 699px) { .obtns.four .obtn { font-size: 10px; line-height: 1.15; white-space: normal; padding: 0 1px; } .obtns.four .obtn .pre { display: block; } }
+.selchip { display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid var(--accent-fg); background: var(--accent); color: var(--accent-fg); border-radius: var(--r); padding: 4px 6px 4px 8px; font-size: 11px; margin-bottom: 6px; }
+.selchip span { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.selchip em { font-style: normal; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selchip b { font-weight: 700; }
+.selchip button { margin-left: auto; flex: none; border: 0; background: transparent; color: inherit; font-size: 12px; padding: 0 2px; }
+.sh tr[data-unf] { cursor: pointer; }
+.sh tr.sel td { background: var(--accent); color: var(--accent-fg); }
+.sh tr.sel td .nm, .sh tr.sel td .up, .sh tr.sel td .down { color: var(--accent-fg); }
+.manual .fixed { display: flex; align-items: center; gap: 6px; height: 30px; font-size: 13px; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.manual .fixed small { font-size: 10px; color: var(--muted-fg); font-weight: 500; }
+.stp { display: flex; gap: 4px; min-width: 0; }
+.stp .inp { flex: 1; min-width: 0; }
+.stp .st { width: 30px; height: 30px; flex: none; border: 1px solid var(--border); border-radius: var(--r); background: var(--card); font-size: 14px; line-height: 1; padding: 0; }
+.hint { font-size: 10px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ratio { display: flex; gap: 4px; min-width: 0; }
+.ratio button { flex: 1; min-width: 0; height: 26px; border: 1px solid var(--border); border-radius: var(--r); background: var(--card); font-size: 10px; font-weight: 600; padding: 0; }
+.obtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.obtn { height: 36px; border-radius: var(--r); border: 1px solid transparent; font-size: 13px; font-weight: 700; color: var(--destructive-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+.obtn.buy { background: var(--up); } .obtn.sell { background: var(--down); }
+.onote { margin: 6px 0 0; font-size: 10px; color: var(--muted-fg); text-align: center; }
+.winpill { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; font-size: 10px; font-weight: 700; border: 1px solid var(--border); color: var(--fg); background: var(--card); }
+.winpill.queued, .winpill.preopen { background: var(--new-bg); border-color: var(--new-bd); }
+.winpill.g2, .winpill.g3 { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.ib { padding: 0 6px; font-size: 13px; }
+
+/* ── 종목정보 팝업 — 뷰포트 기준(모달은 포털). <700 전체화면 시트 · ≥700 최대 960px 중앙 ── */
+.modal { position: fixed; inset: 0; z-index: 700; display: flex; align-items: center; justify-content: center; }
+.mback { position: absolute; inset: 0; background: oklch(0 0 0 / .45); }
+.sheet { position: relative; width: min(960px, calc(100% - 32px)); max-height: calc(100vh - 48px); background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 64px oklch(0 0 0 / .3); }
+@media (max-width: 699px) { .sheet { width: 100%; max-height: 100vh; height: 100vh; border-radius: 0; border: 0; } }
+.mhd { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.mhd b { font-size: 16px; font-weight: 700; }
+.mhd .mcode { font-size: 12px; color: var(--muted-fg); }
+.mhd .btn { margin-left: auto; }
+.mtabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.mtabs .t, .mper .t { height: 28px; padding: 0 12px; border-radius: var(--r); border: 1px solid transparent; background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 600; }
+.mtabs .t[aria-selected="true"], .mper .t.on { background: var(--accent); color: var(--accent-fg); }
+.mbody { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+.mper { display: flex; gap: 4px; align-items: center; }
+.cs { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); }
+.idl { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.idl div { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.idl dt { font-size: 11px; color: var(--muted-fg); } .idl dd { margin: 0; font-size: 15px; font-weight: 700; }
+.qi.mq { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-md); padding: 6px 4px; }
+@media (min-width: 700px) { .qi.mq { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.msec h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--muted-fg); text-transform: uppercase; letter-spacing: .04em; }
+.msec p { margin: 0; font-size: 13px; }
+.nl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.nl li { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.nl li b { font-size: 13px; font-weight: 600; } .nl li span { font-size: 11px; color: var(--muted-fg); }
+.dsum { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
+.dsum p { font-size: 12px; color: var(--fg); }
+
+/* ── 설계 메모 ── */
+.memo { max-width: 1440px; margin: 20px auto 0; border: 1px solid var(--border); border-left: 3px solid var(--fg); border-radius: var(--r-md); padding: 10px 14px; font-size: 12px; background: var(--card); }
+.memo h3 { margin: 0 0 4px; font-size: 13px; }
+.memo p { margin: 2px 0; color: var(--muted-fg); }
+.memo p b { color: var(--fg); }
+
+/* ═══════════ R3 목업 전용 ═══════════ */
+.page { padding: 64px 16px 40px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+.frame2 { width: var(--vw, 820px); max-width: 100%; margin: 0 auto; container: page / inline-size; }
+.sec { display: flex; flex-direction: column; gap: 10px; }
+.sec > h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.sec > .lead { margin: 0; font-size: 12px; color: var(--muted-fg); }
+.case { border: 1px dashed var(--border); border-radius: var(--r-lg); padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.case > .cap { font-size: 11px; font-weight: 700; color: var(--muted-fg); letter-spacing: .02em; }
+.case > .cap em { font-style: normal; color: var(--fg); }
+.vwrap { display: flex; flex-direction: column; gap: 4px; }
+.vnote { margin: 0; padding: 0 10px; font-size: 11px; color: var(--muted-fg); word-break: keep-all; }
+.vnotebox { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 10px; min-width: 0; }
+.vnotebox .vnote { padding: 0; flex: 1 1 220px; min-width: 0; }
+.btn.moveb { flex: none; }
+.new { outline: 2px dashed color-mix(in oklch, var(--up) 55%, transparent); outline-offset: 2px; border-radius: var(--r); }
+/* 다이얼로그 — shadcn DialogContent sm:max-w-sm 을 정적으로 그린다 */
+.dstage { position: relative; border-radius: var(--r-lg); overflow: hidden; padding: 28px 12px; display: flex; justify-content: center; }
+.dstage::before { content: ''; position: absolute; inset: 0; background: oklch(0 0 0 / .45); }
+.dlg { position: relative; width: min(384px, 100%); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 24px 64px oklch(0 0 0 / .3); }
+.dlg.wide { width: min(512px, 100%); }
+.dlg h3 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; }
+.dlg .desc { margin: 6px 0 0; font-size: 14px; color: var(--muted-fg); }
+.dlg .desc + .desc { margin-top: 6px; }
+.dsm { margin: 0; display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; font-size: 12px; }
+.dsm > div { display: flex; gap: 10px; justify-content: space-between; }
+.dsm dt { color: var(--muted-fg); flex: none; }
+.dsm dd { margin: 0; font-family: var(--font-mono); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.dsm .mv { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 6px; }
+.dsm .mv .from { color: var(--muted-fg); text-decoration: line-through; text-decoration-thickness: 1px; }
+.dsm .mv .arr { color: var(--fg); font-weight: 700; }
+.dsm .mv .to { color: var(--fg); font-weight: 700; }
+.dwarn { margin: 0; border: 1px solid var(--destructive); border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; color: var(--destructive); }
+.derr { margin: 0; font-size: 12px; color: var(--destructive); }
+.dft { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.dbtn { height: 36px; padding: 0 16px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--bg); font-size: 14px; font-weight: 500; }
+.dbtn.start { background: var(--up); border-color: transparent; color: var(--destructive-fg); }
+.dbtn.pri { background: var(--primary); border-color: transparent; color: var(--primary-fg, var(--destructive-fg)); }
+.dbtn.focus { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* 수동주문 폼 (잠금) */
+.mform { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.mform .mh { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mform .mh b { font-size: 13px; }
+.mrow { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12px; }
+.mrow .l { color: var(--muted-fg); }
+.m4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.m4 button { height: 34px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--card); font-size: 13px; font-weight: 700; }
+.m4 .b { background: var(--up); color: var(--destructive-fg); border-color: transparent; }
+.m4 .s { background: var(--down); color: #fff; border-color: transparent; }
+.m4 button:disabled { opacity: .5; cursor: not-allowed; }
+.lockst { margin: 0; border: 1px solid var(--border); background: var(--muted); border-radius: var(--r-md); padding: 6px 10px; font-size: 11px; color: var(--fg); word-break: keep-all; }
+.banner { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); background: var(--muted); border-radius: var(--r-md); padding: 6px 10px; }
+.banner b { font-size: 12px; font-weight: 600; } .banner span { font-size: 11px; color: var(--muted-fg); }
+.q { margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--up); border-radius: var(--r-md); background: var(--card); font-size: 12px; }
+.q b { color: var(--fg); }
+.q ol { margin: 4px 0 0; padding-left: 18px; color: var(--muted-fg); }
+</style>
+</head>
+<body>
+
+<div class="ctl" id="ctl">
+  <h1>Phase 18 · 갭 클로징 R3 목업 — 새 화면 요소 3종</h1>
+  <div class="g"><span>테마</span>
+    <button class="tb" data-t="">시스템</button>
+    <button class="tb" data-t="light">라이트</button>
+    <button class="tb" data-t="dark">다크</button>
+  </div>
+  <div class="g"><span>폭</span>
+    <button class="tb" data-w="390">폰 390</button>
+    <button class="tb" data-w="820">태블릿 820</button>
+    <button class="tb" data-w="1100">와이드</button>
+  </div>
+</div>
+
+<div class="page">
+  <p class="q"><b>보는 법</b> — 초록 점선 테두리 = 이번에 새로 생기는 요소. 나머지는 지금 화면 그대로입니다. 계좌 예시: <b>B</b> = <span class="mono">1234567801 · 주식</span> (VI 가 등록된 계좌), <b>A</b> = <span class="mono">7654321001 · ISA</span> (상태줄에서 고른 계좌).</p>
+
+  <div class="frame2" id="frame">
+
+  <!-- ① VI 계좌 옮기기 -->
+  <section class="sec">
+    <h2>① VI 줄 — 중지 상태에서만 상태줄 계좌로 옮겨 시작 (GC-WR-04 · 18-28)</h2>
+    <p class="lead">등록 계좌(B)와 상태줄 계좌(A)가 다를 때만 줄 아래에 고지가 뜹니다. 중지 상태면 고지 옆에 옮기기 버튼이 붙고, 가동 중이면 버튼 없이 「먼저 중지하세요」라고만 말합니다.</p>
+
+    <div class="case">
+      <span class="cap"><em>1-a.</em> 중지 · B ≠ A → 고지 + 「상태줄 계좌(A)로 옮겨 시작」 버튼 (새)</span>
+      <div class="vwrap">
+        <div class="virow">
+          <span class="head"><span class="tag krx">KRX</span><button class="sw" aria-label="VI 시작"><i></i></button><span class="stb">중지</span></span>
+          <span class="fld"><span class="vlab">상승률</span><span class="inp"><input value="3" class="mono" style="width:100%;border:0;background:transparent" /><span class="vlab">%</span></span></span>
+          <span class="fld"><span class="vlab">금액</span><span class="inp"><input value="100" class="mono" style="width:100%;border:0;background:transparent" /><span class="vlab">만원</span></span></span>
+        </div>
+        <div class="vnotebox">
+          <p class="vnote new">계좌 1234567801 · 주식 에 등록된 VI 예요 — 수정·시작은 이 계좌로 나가요</p>
+          <button class="btn moveb new" data-open="dMove">상태줄 계좌(7654321001)로 옮겨 시작</button>
+        </div>
+      </div>
+      <span class="cap" style="font-weight:400">고지 문구는 「중지」 갈래로 바뀝니다(옛 문구: 「수정·시작·중지는 이 계좌로 나가요」). 버튼은 「수정」과 같은 26px · 11px, 채움 없는 테두리형입니다. 채움(빨강 `--up`)은 확인 창의 「시작」 하나뿐입니다. 폭이 좁으면 버튼이 고지 아래 줄로 내려갑니다.</span>
+    </div>
+
+    <div class="case">
+      <span class="cap"><em>1-b.</em> 가동 중 · B ≠ A → 버튼 없음, 고지만 (문구 갱신)</span>
+      <div class="vwrap">
+        <div class="virow">
+          <span class="head"><span class="tag nxt">NXT</span><button class="sw on" aria-label="VI 중지"><i style="background:var(--up)"></i></button><span class="runb">가동중</span><span class="stb mono">서버 반영 09:41:52</span></span>
+          <span class="fld"><span class="vlab">상승률</span><span class="inp"><input value="5" class="mono" style="width:100%;border:0;background:transparent" /><span class="vlab">%</span></span></span>
+          <span class="fld"><span class="vlab">금액</span><span class="inp"><input value="200" class="mono" style="width:100%;border:0;background:transparent" /><span class="vlab">만원</span></span></span>
+        </div>
+        <p class="vnote new">계좌 1234567801 · 주식 에 등록된 VI 예요 — 가동 중에는 이 계좌로만 나가요 · 옮기려면 먼저 중지하세요</p>
+      </div>
+    </div>
+
+    <div class="case">
+      <span class="cap"><em>1-c.</em> 옮기기 버튼 → 시작 확인 창 — 「계좌」 줄이 B → A (새). 제목·경고·버튼·기본 포커스(취소)는 일반 시작과 같음</span>
+      <div class="dstage">
+        <div class="dlg" id="dMove">
+          <div><h3>VI 자동매수를 시작할까요?</h3><p class="desc">조건에 맞는 VI 발동 종목을 자동으로 매수해요.</p></div>
+          <dl class="dsm">
+            <div class="new"><dt>계좌</dt><dd><span class="mv"><span class="from">1234567801 · 주식</span><span class="arr">→</span><span class="to">7654321001 · ISA</span></span></dd></div>
+            <div><dt>1건당 금액</dt><dd>100만원</dd></div>
+            <div><dt>상승률 조건</dt><dd>3% 이상</dd></div>
+            <div><dt>주문가</dt><dd>상한가 · KRX</dd></div>
+          </dl>
+          <p class="dwarn">시작하면 사람 확인 없이 주문이 나가요. 금액·상승률을 다시 확인해 주세요.</p>
+          <div class="dft"><button class="dbtn focus">취소</button><button class="dbtn start">시작</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="case">
+      <span class="cap"><em>1-d.</em> 창을 연 사이 상태가 바뀜(다른 단말이 시작 · 계좌 변경) → 「시작」을 눌러도 안 나가고 창 안에 사유 (새)</span>
+      <div class="dstage">
+        <div class="dlg">
+          <div><h3>VI 자동매수를 시작할까요?</h3><p class="desc">조건에 맞는 VI 발동 종목을 자동으로 매수해요.</p></div>
+          <dl class="dsm">
+            <div><dt>계좌</dt><dd><span class="mv"><span class="from">1234567801 · 주식</span><span class="arr">→</span><span class="to">7654321001 · ISA</span></span></dd></div>
+            <div><dt>1건당 금액</dt><dd>100만원</dd></div>
+            <div><dt>상승률 조건</dt><dd>3% 이상</dd></div>
+            <div><dt>주문가</dt><dd>상한가 · KRX</dd></div>
+          </dl>
+          <p class="dwarn">시작하면 사람 확인 없이 주문이 나가요. 금액·상승률을 다시 확인해 주세요.</p>
+          <p class="derr new" role="alert">계좌 상태가 바뀌었어요 — 다시 확인해 주세요</p>
+          <div class="dft"><button class="dbtn focus">취소</button><button class="dbtn start">시작</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 결과 모름 ✕ 확인 -->
+  <section class="sec" style="margin-top:28px">
+    <h2>② 「결과 모름」 카드의 ✕ → 확인 창 (GC-WR-03 · 18-30)</h2>
+    <p class="lead">주문 응답이 늦어진(결과 모름) 카드를 ✕ 로 닫으려 하면 바로 사라지지 않고 이 창이 뜹니다. 지금은 미등록 카드가 확인 없이 사라집니다. 버튼은 기존 「등록된 전략이 있는 카드예요」 창과 같습니다.</p>
+
+    <div class="case">
+      <span class="cap"><em>2-a.</em> 결과 모름 카드 (등록 전략 없음)</span>
+      <div class="dstage">
+        <div class="dlg wide new">
+          <div>
+            <h3>결과를 모르는 주문이 있어요</h3>
+            <p class="desc">미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.</p>
+          </div>
+          <div class="dft"><button class="dbtn">취소</button><button class="dbtn pri">카드 닫기</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="case">
+      <span class="cap"><em>2-b.</em> 결과 모름 + 등록 전략도 있는 카드 → 기존 등록 전략 문장이 한 줄 더</span>
+      <div class="dstage">
+        <div class="dlg wide new">
+          <div>
+            <h3>결과를 모르는 주문이 있어요</h3>
+            <p class="desc">미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.</p>
+            <p class="desc">카드를 닫아도 서버의 상따 전략은 그대로 동작해요. 전략을 멈추려면 카드에서 매수·매도 스위치를 끄세요.</p>
+          </div>
+          <div class="dft"><button class="dbtn">취소</button><button class="dbtn pri">카드 닫기</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 다시 연 카드의 잠금 문구 -->
+  <section class="sec" style="margin-top:28px">
+    <h2>③ 같은 종목을 다시 열었을 때 — 주문 버튼 잠금 + 사유 문구 (GC-WR-03 · 18-30)</h2>
+    <p class="lead">종목 추가·돌파 칩·미체결 선택 어느 경로로 다시 열어도 수동주문 4버튼이 잠긴 채입니다. 페이지를 떠나야 풀립니다. 원래 카드는 「접수 응답이 늦어지고 있어요」 배너를 보여 주고, 다시 연 카드는 배너 대신 아래 문구를 보여 줍니다. 「실패」라는 말은 쓰지 않습니다.</p>
+
+    <div class="case">
+      <span class="cap"><em>3-a.</em> 원래 카드 (지금과 같음 — 비교용)</span>
+      <div class="mform">
+        <div class="mh"><b>수동주문</b><span class="tag krx">KRX</span><span class="stb">삼성전자</span></div>
+        <div class="mrow"><span class="l">가격</span><span class="inp mono">71,200</span></div>
+        <div class="mrow"><span class="l">수량</span><span class="inp mono">10</span></div>
+        <div class="m4"><button class="b" disabled>매수</button><button class="s" disabled>매도</button><button disabled>정정</button><button disabled>취소</button></div>
+        <div class="banner"><b>접수 응답이 늦어지고 있어요</b><span>주문이 이미 나갔을 수 있어요. 미체결 목록에서 접수 여부를 확인한 뒤 다시 주문해 주세요.</span></div>
+      </div>
+    </div>
+
+    <div class="case">
+      <span class="cap"><em>3-b.</em> ✕ 뒤 다시 연 카드 — 버튼 잠금 유지 + 문구 (새)</span>
+      <div class="mform">
+        <div class="mh"><b>수동주문</b><span class="tag krx">KRX</span><span class="stb">삼성전자</span></div>
+        <div class="mrow"><span class="l">가격</span><span class="inp mono">71,200</span></div>
+        <div class="mrow"><span class="l">수량</span><span class="inp mono"></span></div>
+        <div class="m4"><button class="b" disabled>매수</button><button class="s" disabled>매도</button><button disabled>정정</button><button disabled>취소</button></div>
+        <p class="lockst new" role="status">결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요</p>
+      </div>
+    </div>
+  </section>
+
+  </div>
+</div>
+
+<script>
+const st = { t: '', w: '820' };
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+function apply() {
+  document.documentElement.setAttribute('data-theme', st.t);
+  document.getElementById('frame').style.setProperty('--vw', st.w + 'px');
+  $$('[data-t]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === st.t)));
+  $$('[data-w]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.w === st.w)));
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.t !== undefined && b.closest('#ctl')) { st.t = b.dataset.t; apply(); }
+  if (b.dataset.w) { st.w = b.dataset.w; apply(); }
+  if (b.dataset.open) { const d = document.getElementById(b.dataset.open); d.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+});
+apply();
+</script>
+</body>
+</html>
