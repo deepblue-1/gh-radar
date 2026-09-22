@@ -187,7 +187,9 @@ function props(over: Partial<CardBodyProps> = {}): CardBodyProps {
  */
 function Harness(over: Partial<CardBodyProps>) {
   const [dirtyCount, setDirtyCount] = useState(0);
-  const base = props(over);
+  // 더티는 **서버 기준선**이 있어야 생긴다 — 신규 폼(서버 전략 없음)에는 더티가 없다.
+  const [srv] = useState(() => server());
+  const base = props({ card: cardState({ server: srv }), ...over });
   return <CardBody {...base} card={{ ...base.card, dirtyCount, setDirtyCount }} />;
 }
 

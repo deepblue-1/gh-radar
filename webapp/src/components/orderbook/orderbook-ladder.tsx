@@ -130,6 +130,18 @@ export interface OrderbookLadderProps {
   recentTrades?: RelayTapeEntry[];
   /** 상한가. 그 가격 행의 마커 슬롯에 「상」 아이콘이 들어간다. */
   upperLimit?: number;
+  /**
+   * `variant="chaser"` **전용** 가격 선택 (Phase 18 D-19 · 18-10).
+   *
+   * 카드 본문 · 종목상세 호가 탭에는 수동주문 폼이 같은 화면에 있어, 호가 행을 누르면 그 가격이
+   * 폼의 가격 칸에 채워져야 한다. 옛 상따 화면(A11 — 「가격은 클릭 대상이 아니다」)은 이 prop 을
+   * 넘기지 않으므로 그 계약은 **이 prop 이 없을 때** 그대로다(`onPriceClick` 은 chaser 에서 계속
+   * 무시된다 — 두 계약을 한 prop 에 겹치지 않는다).
+   * ★ **가격 0(빈 단)인 행은 반응하지 않는다**(T-18-47) — 값 없는 셀로 주문 가격을 채울 수 없다.
+   * ★ roving tabindex 를 새로 두지 않는다 — 키보드 사용자는 폼의 가격 칸에 직접 입력한다.
+   *   스크롤 박스 tab stop 계약(`orderbook-ladder-chaser.test` ⑦)은 그대로다.
+   */
+  onPriceSelect?: (price: number) => void;
   className?: string;
 }
 
@@ -619,6 +631,9 @@ function markerOf(
  *
  * ★ 가격은 **클릭 대상이 아니다**(A11). 비교가격 자동 채움이 없어졌으므로 클릭 핸들러도
  *   roving tabindex 도 두지 않는다 — 눌러도 아무 일이 없는 커서는 「고장난 화면」이다.
+ *   ↳ 예외 하나(18-10): `onPriceSelect` 를 넘기는 표면(카드 본문 · 호가 탭)은 같은 화면에
+ *     수동주문 폼이 있어 누를 **이유가 있다** — 그때만 가격 있는 행이 커서와 클릭을 얻는다.
+ *     빈 단(가격 0)은 여전히 무반응이고, roving tabindex 는 여전히 없다.
  * ★ 트리가 **셋**이고 노출 조건이 배타적이다 (260912-k2x · 판정은 **본문 폭**):
  *     · 3단 표  (본문 830~)    — 마커 슬롯 · 등락률 열 · 매수 10단 왼쪽에 최근 체결 10건
  *     · 2단 호가(700~829)      — `가격 | 잔량` 2열 · 마커 슬롯 없음 · 아래 compact 테이프
@@ -642,8 +657,15 @@ function ChaserLadder({
   basePrice,
   recentTrades = [],
   upperLimit = 0,
+  onPriceSelect,
   className,
 }: OrderbookLadderProps) {
+  /**
+   * 행 클릭 → 가격 선택 (`onPriceSelect` 가 있을 때만 · 가격 0 인 빈 단은 무반응).
+   * 세 트리가 **같은 함수**를 쓴다 — 트리마다 조건을 다시 적으면 한 트리만 빈 단을 채운다.
+   */
+  const selectOf = (price: number) =>
+    onPriceSelect !== undefined && price > 0 ? () => onPriceSelect(price) : undefined;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   /** **매수 1호가 행**. 초기 스크롤이 맞추는 것은 이 행의 **위 경계**(= 매도1/매수1 사이)다. */
   const bidTopRef = useRef<HTMLLIElement | null>(null);
@@ -805,7 +827,9 @@ function ChaserLadder({
         ref={isBidTop ? bidTopTwoRef : undefined}
         data-side={row.side}
         data-slot="ladder-row-two"
+        onClick={selectOf(row.price)}
         className={cn(
+          selectOf(row.price) !== undefined && 'cursor-pointer',
           isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
           // 매도1/매수1 경계선. `<tr>` 에 테두리를 걸면 `border-collapse` 아래에서 살지
           // 않으므로 **셀**에 건다(3단 표의 「체결」 헤더 행과 같은 방식이다).
@@ -889,7 +913,13 @@ function ChaserLadder({
             {asks.map((row) => {
               const pct = barPct(row.qty, maxAsk);
               return (
-                <tr key={row.key} data-side="ask" data-slot="ladder-row">
+                <tr
+                  key={row.key}
+                  data-side="ask"
+                  data-slot="ladder-row"
+                  onClick={selectOf(row.price)}
+                  className={cn(selectOf(row.price) !== undefined && 'cursor-pointer')}
+                >
                   <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
                     {pct > 0 && (
                       <span
@@ -922,7 +952,13 @@ function ChaserLadder({
               const trade = i < RECENT_TRADE_ROWS ? recentTrades[i] : undefined;
               const buySide = tradeSides[i] === 'B';
               return (
-                <tr key={row.key} data-side="bid" data-slot="ladder-row">
+                <tr
+                  key={row.key}
+                  data-side="bid"
+                  data-slot="ladder-row"
+                  onClick={selectOf(row.price)}
+                  className={cn(selectOf(row.price) !== undefined && 'cursor-pointer')}
+                >
                   {/* 최근 체결 1건 — 시각(10px) · 체결가(중립) · 체결량(방향색). */}
                   <td
                     data-slot="ladder-fill-cell"
@@ -1118,8 +1154,10 @@ function ChaserLadder({
                   ref={isBidTop ? bidTopRef : undefined}
                   data-side={row.side}
                   data-slot="ladder-row-mobile"
+                  onClick={selectOf(row.price)}
                   className={cn(
                     'relative flex h-[34px] min-w-0 items-center gap-1 rounded-[4px] px-1',
+                    selectOf(row.price) !== undefined && 'cursor-pointer',
                     // 상한가는 **행 배경**이 말한다(마커 배지를 대신한다).
                     isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
                     /*
