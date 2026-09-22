@@ -223,7 +223,9 @@ export type OrderInsertRow = {
   pieceCount?: number;
   /**
    * 시간외종가 세션 감사 기록 (`dma_orders.krx_session`, Phase 18 D-23). 생략 = 서버 자동 판정.
-   * DB CHECK 가 `price = 0` 을 이 값이 G2/G3 일 때만 받는다 — 둘은 같은 행에 함께 실려야 한다.
+   * DB CHECK(20260922180000)는 가격 0 을 취소 행 또는 G2/G3 세션이 실린 **신규** 행에만 받는다.
+   * 세션 없는 가격 0 신규·가격 0 정정은 DB 가 거부한다 — 그래서 신규의 가격 0 과 이 값은 같은 행에
+   * 함께 실려야 한다.
    */
   krxSession?: "G2" | "G3";
   /**
