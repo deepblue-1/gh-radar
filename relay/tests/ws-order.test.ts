@@ -1538,6 +1538,41 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
     expect(orders.inserts).toHaveLength(0);
   });
+
+  it("㊷ 같은 원주문의 취소와 값이 다른 정정이 겹쳐도 취소확인은 **취소 대기만** 정산한다 (WR-03 f)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    // 정정을 내놓고 곧바로 마음을 바꿔 같은 원주문을 취소한다 — 두 대기의 원주문번호가 같다.
+    // 정정 가격(71,000)이 취소확인이 실어 올 값과 **우연히 맞게** 둔다: 수량·가격 축만으로
+    // 가르면 취소확인이 정정 대기를 「취소됨」으로 정산하는 교차 오정산이 정확히 이 조건이다.
+    ws.sendRaw(orderCancel({ rid: "rid-c", qty: 10, price: 70_000 }));
+    ws.sendRaw(orderModify({ rid: "rid-m", qty: 10, price: 71_000 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "취소·정정 2건 송신");
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "C",
+      orderNo: "0000012399",
+      orgOrderNo: "0000012345",
+      side: "B",
+      quantity: 10,
+      price: 71_000,
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length >= 1, "취소확인 order.result");
+    await flushIo(8);
+
+    const results = framesOf(inbox, "order.result");
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ rid: "rid-c", status: "cancelled", orderNo: "0000012399" });
+    // 정정 대기는 취소확인으로 정산되지 않는다 — 그 정정은 자기 통보(정정확인)를 기다린다.
+    expect(results.map((f) => f.rid)).not.toContain("rid-m");
+
+    // 감사 기록도 교차하지 않는다: `cancelled` 는 **취소 행**에만 붙는다.
+    const cancelRowNo = orders.inserts.findIndex((r) => r.orderType === "C") + 1;
+    expect(cancelRowNo).toBeGreaterThan(0);
+    expect(orders.updates.filter((u) => u.status === "cancelled").map((u) => u.orderRowId)).toEqual([
+      `row-${cancelRowNo}`,
+    ]);
+  });
 });
 
 // ============================================================
@@ -1757,5 +1792,75 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     // 아는 값은 그대로 축이다 — 화이트리스트가 기존 정산을 좁히지 않았다.
     expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "A" }))).toBe(fresh);
     expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "E", quantity: 3 }))).toBe(fresh);
+  });
+  // WR-03 — 취소·정정 대기의 요청 종류 (18-19). 같은 원주문번호로 취소 대기와 정정 대기가
+  // 동시에 있을 때, 원주문번호·수량·가격만으로는 둘을 가르지 못하거나 **교차해서** 가른다.
+  // 대기 픽스처는 요청 종류(`kind`)를 싣는다 — 통보 종류 C/M/E · `requestKind` 와 맞출 축이다.
+  describe("WR-03 — 취소·정정 대기의 요청 종류", () => {
+    const X = "0000012345";
+    const cancelAt = (price: number): PendingOrder =>
+      mkPending({ rid: "cancel", side: "", isCancel: true, orgOrderNo: X, kind: "C", qty: 10, price });
+    const modifyAt = (price: number): PendingOrder =>
+      mkPending({ rid: "modify", side: "B", isCancel: true, orgOrderNo: X, kind: "M", qty: 10, price });
+
+    it("(a) 같은 값의 취소·정정 대기 — 취소확인(C)은 취소 대기를 정산한다", () => {
+      const cancel = cancelAt(70_000);
+      const modify = modifyAt(70_000);
+      expect(
+        narrowPending(
+          [cancel, modify],
+          mkNotice({ noticeType: "C", orgOrderNo: X, quantity: 10, price: 70_000, sideTrusted: false }),
+        ),
+      ).toBe(cancel);
+    });
+
+    it("(b) 같은 값의 취소·정정 대기 — 정정확인(M)은 정정 대기를 정산한다", () => {
+      const cancel = cancelAt(70_000);
+      const modify = modifyAt(70_000);
+      expect(
+        narrowPending(
+          [cancel, modify],
+          mkNotice({ noticeType: "M", orgOrderNo: X, quantity: 10, price: 70_000, sideTrusted: false }),
+        ),
+      ).toBe(modify);
+    });
+
+    it("(c) 값이 교차해도 종류가 이긴다 — 정정 가격을 실어 온 취소확인도 취소 대기의 것이다", () => {
+      const cancel = cancelAt(70_000);
+      const modify = modifyAt(71_000);
+      expect(
+        narrowPending(
+          [cancel, modify],
+          mkNotice({ noticeType: "C", orgOrderNo: X, quantity: 10, price: 71_000, sideTrusted: false }),
+        ),
+      ).toBe(cancel);
+    });
+
+    it("(d) 원주문의 체결(E)은 정정 대기를 정산하지 않는다 — 후보가 1건이어도", () => {
+      const modify = modifyAt(71_000);
+      expect(
+        narrowPending(
+          [modify],
+          mkNotice({ noticeType: "E", orderNo: X, orgOrderNo: "", requestKind: "", quantity: 3 }),
+        ),
+      ).toBeNull();
+    });
+
+    it("(e) 통보가 실어 온 requestKind 는 하드 필터다 — Cancel → 취소 대기 · Modify → 정정 대기", () => {
+      const cancel = cancelAt(70_000);
+      const modify = modifyAt(70_000);
+      expect(
+        narrowPending(
+          [cancel, modify],
+          mkNotice({ noticeType: "A", orgOrderNo: X, requestKind: "Cancel" }),
+        ),
+      ).toBe(cancel);
+      expect(
+        narrowPending(
+          [cancel, modify],
+          mkNotice({ noticeType: "A", orgOrderNo: X, requestKind: "Modify" }),
+        ),
+      ).toBe(modify);
+    });
   });
 });
