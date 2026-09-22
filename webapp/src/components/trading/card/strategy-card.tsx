@@ -37,7 +37,8 @@
  *
  * ⑤ 본문(좌 호가 | 우 옵션 4그룹)은 18-10 `card-body.tsx` 가 채운다
  *   여기서는 헤더 + 종목정보 10칸까지만 조립하고, 본문 자리는 `body` 렌더 prop 이다 — 카드
- *   상태(서버 전략 · 시세 · 전송/에코 콜백)를 **카드 밖으로 끌어올리지 않고** 본문에 건넨다.
+ *   상태(서버 전략 · 시세 · 전송/에코 콜백)를 **카드 밖으로 끌어올리지 않고** 본문에 건넨다. *   접힌 카드는 헤더만 **보인다** — 한 번 펼친 본문은 숨김(`hidden`)으로 남아 더티 값·「결과
+ *   모름」 잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다.
  */
 
 import {
@@ -590,7 +591,10 @@ export interface StrategyCardProps {
    * 합친다. 로그 **판정·생성**은 여전히 카드 훅 한 곳이고, 작업대는 받은 줄을 합쳐 보여주기만 한다.
    */
   onLogChange?: (isin: string, log: readonly StrategyLogEntry[]) => void;
-  /** 본문 자리(⑤) — 18-10 `card-body.tsx` 가 채운다. `open` 일 때만 불린다. */
+  /**
+   * 본문 자리(⑤) — 18-10 `card-body.tsx` 가 채운다. 한 번이라도 펼친 뒤로 불린다(접히면 숨김 유지 ·
+   * WR-02). 한 번도 펼친 적 없는 카드에서는 불리지 않는다.
+   */
   body?: (card: StrategyCardState) => ReactNode;
 }
 
@@ -624,6 +628,13 @@ function StrategyCardImpl({
   useEffect(() => {
     onLogChange?.(isin, log);
   }, [onLogChange, isin, log]);
+
+  /*
+    한 번이라도 펼친 적 있는가(WR-02) — 렌더 중 파생 갱신. `open` 이 참이 되면 참이 되고 다시 거짓이
+    되지 않는다. 등록 전략이 접힌 채 N장 들어와도 펼치기 전까지 본문 비용이 없다.
+  */
+  const [everOpened, setEverOpened] = useState(open);
+  if (open && !everOpened) setEverOpened(true);
 
   const idBase = `strategy-card-${domSafe(isin)}`;
   const toggleId = `${idBase}-toggle`;
@@ -671,11 +682,14 @@ function StrategyCardImpl({
         onClose={handleClose}
       />
       {/*
-        ★ 접힌 카드는 **헤더만** 그린다 — 10칸도 본문도 DOM 에 없다(D-11). 영역 요소 자체는
-          남겨 헤더 토글의 `aria-controls` 가 가리킬 곳을 잃지 않게 한다(`hidden`).
+        ★ 접힌 카드는 헤더만 **보인다**(D-11) — 한 번 펼친 본문은 숨김으로 남아 더티 값·「결과 모름」
+          잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다. 영역
+          요소 자체는 늘 남겨 헤더 토글의 `aria-controls` 가 가리킬 곳을 잃지 않게 한다(`hidden`).
+        ★ 접힌 더티 카드의 더티 바(`document.body` 포털)가 계속 떠 있는 것은 **의도**다 — 미반영 값이
+          접기로 사라지지 않는다(D-12 · D-28).
       */}
       <div id={bodyId} data-slot="strategy-card-body" hidden={!open}>
-        {open && (
+        {everOpened && (
           <>
             <QuoteGrid10 quote={quote} />
             <CardNotices card={card} />

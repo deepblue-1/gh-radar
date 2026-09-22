@@ -236,7 +236,7 @@ describe('StrategyCard', () => {
     expect(cardOf(ISIN_A).querySelector('[data-slot="card-echo-banner"]')).toBeNull();
   });
 
-  it('open=false 면 헤더만 남고 10칸·본문이 렌더되지 않는다', () => {
+  it('한 번도 펼친 적 없이 open=false 면 헤더만 남고 10칸·본문이 렌더되지 않는다', () => {
     const body = vi.fn(probeBody);
     render(
       <RelayContext.Provider value={relay()}>
@@ -253,6 +253,54 @@ describe('StrategyCard', () => {
     // 헤더 토글이 그 영역을 가리킨다.
     const toggle = screen.getByRole('button', { expanded: false });
     expect(toggle).toHaveAttribute('aria-controls', region.id);
+  });
+
+  it('WR-02 — 한 번 펼친 본문은 접어도 상태를 지킨다(숨김으로 남는다)', () => {
+    function StatefulProbe() {
+      const [value, setValue] = useState('');
+      return (
+        <input
+          aria-label="프로브 값"
+          data-testid="stateful-probe"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      );
+    }
+    const body = () => <StatefulProbe />;
+    const value = relay();
+    const { rerender } = render(
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} isin={ISIN_A} open body={body} />
+      </RelayContext.Provider>,
+    );
+    const probe = screen.getByTestId('stateful-probe') as HTMLInputElement;
+    fireEvent.change(probe, { target: { value: '12345' } });
+    expect(probe.value).toBe('12345');
+
+    rerender(
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} isin={ISIN_A} open={false} body={body} />
+      </RelayContext.Provider>,
+    );
+    const card = cardOf(ISIN_A);
+    const region = card.querySelector('[data-slot="strategy-card-body"]') as HTMLElement;
+    // 접힌 카드는 헤더만 **보인다**(D-11) — 본문은 숨김으로 DOM 에 남는다.
+    expect(region).toHaveAttribute('hidden');
+    expect(screen.getByTestId('stateful-probe')).toBe(probe);
+    const grid = card.querySelector('[data-slot="lc-quote-grid"]') as HTMLElement;
+    expect(grid).not.toBeNull();
+    expect(region.contains(grid)).toBe(true);
+    expect(grid).not.toBeVisible();
+
+    rerender(
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} isin={ISIN_A} open body={body} />
+      </RelayContext.Provider>,
+    );
+    expect(region).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('stateful-probe')).toBe(probe);
+    expect((screen.getByTestId('stateful-probe') as HTMLInputElement).value).toBe('12345');
   });
 
   it('open=true 면 헤더 · 종목정보 10칸 · 본문 슬롯이 이 순서로 그려진다', () => {
