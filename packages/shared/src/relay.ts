@@ -519,6 +519,8 @@ export type RelayKrxSession = "G2" | "G3";
  * 취소 주문 (`DirectOrderReq(2)` 취소, D-02).
  * `qty` 는 미체결 잔량 전부다 — `0` 은 조립 단계에서 거부된다 (D-21).
  * `market` 을 싣지 않는 이유와 `accountNo` 의 책임 경계는 `RelayOrderNewMsg` 와 같다.
+ * `price` 는 원주문 가격 그대로다 — 시간외종가(G2/G3) `close_price_mode="zero"` 원주문은 0 이다.
+ * 네 층(webapp 번역기 · relay zod · 조립기 · DB CHECK)이 취소에 한해 0 이상 정수를 받는다 (CR-01).
  */
 export type RelayOrderCancelMsg = {
   t: "order.cancel";

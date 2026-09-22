@@ -1072,6 +1072,82 @@ describe('RelayProvider — sendOrder 번역 (D-02)', () => {
     spy.mockRestore();
   });
 
+  it('⑨-j 취소는 원주문 가격 그대로 — 0 이면 0 으로 싣고, 음수·비정수는 보내지 않는다 (CR-01)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+    const CANCEL: RelayOrderRequest = {
+      kind: 'cancel',
+      isin: ISIN_A,
+      exchange: 'KRX',
+      accountNo: '12345678-01',
+      orgOrderNo: '0000135742',
+      qty: 10,
+      price: 0,
+    };
+
+    // 시간외종가(close_price_mode="zero") 원주문은 가격 0 이다 — 취소는 그 사본을 그대로 싣는다.
+    act(() => {
+      void sendOrderRef?.(CANCEL);
+    });
+    const sent = ws.parsedSent().filter((m) => String(m.t).startsWith('order.'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ t: 'order.cancel', price: 0, orgOrderNo: '0000135742' });
+
+    const results: Array<{ status?: string; message?: string }> = [];
+    await act(async () => {
+      for (const price of [-1, Number.NaN, 1.5]) {
+        results.push(
+          (await sendOrderRef?.({ ...CANCEL, price })) as { status?: string; message?: string },
+        );
+      }
+    });
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(r.status).toBe('rejected');
+      expect(r.message).toBe('주문 가격을 확인해 주세요.');
+    }
+    // 보내지 않음이 확실한 실패 — 프레임이 하나도 더해지지 않았다.
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(1);
+    spy.mockRestore();
+  });
+
+  it('⑨-k 정정 가격 0 은 보내지 않는다 — 신규 전용 0 규칙이 정정으로 새지 않는다 (CR-01)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <RelayProvider>
+        <OrderProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+
+    const results: Array<{ status?: string; message?: string }> = [];
+    await act(async () => {
+      results.push(
+        (await sendOrderRef?.({
+          kind: 'modify',
+          isin: ISIN_A,
+          exchange: 'KRX',
+          accountNo: '12345678-01',
+          orgOrderNo: '0000135742',
+          side: 'B',
+          qty: 10,
+          price: 0,
+          // 세션을 실어도 정정에는 0 이 열리지 않는다.
+          krxSession: 'G3',
+        })) as { status?: string; message?: string },
+      );
+    });
+    expect(results[0]?.status).toBe('rejected');
+    expect(results[0]?.message).toBe('주문 가격을 확인해 주세요.');
+    expect(ws.parsedSent().filter((m) => String(m.t).startsWith('order.'))).toHaveLength(0);
+    spy.mockRestore();
+  });
+
   it('⑨-i 조각 수가 정수 1..64 밖이면 보내지 않는다 — relay 스키마 위반으로 소켓이 닫히지 않게', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(

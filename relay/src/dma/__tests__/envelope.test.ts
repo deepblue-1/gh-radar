@@ -841,6 +841,51 @@ describe("주문 조립·파싱 (D-21 / Pitfall 7·8)", () => {
     }
   });
 
+  // 취소 가격은 원주문 가격의 사본이다 — 시간외종가 원주문은 0 이다 (18-REVIEW CR-01).
+  // 0 은 「취소」·「G2/G3 신규」 두 갈래로만 열리고, 조립기는 모든 경로의 마지막 관문이다.
+  function priceErrorOf(input: Parameters<typeof buildDirectOrderReq>[0]): OrderBuildError | undefined {
+    try {
+      buildDirectOrderReq(input);
+    } catch (err) {
+      if (err instanceof OrderBuildError) return err;
+      throw err;
+    }
+    return undefined;
+  }
+
+  it("취소(\"C\") price 0 은 조립된다 — 바이트 price 0 · 원주문번호 그대로 (CR-01)", () => {
+    const env = readBack(
+      buildDirectOrderReq({ ...ORDER, orderType: "C", orgOrderNo: "0000135742", price: 0 }),
+    );
+    const req = env.directOrderReq();
+    expect(req?.orderType()).toBe("C");
+    expect(req?.orgOrderNo()).toBe("0000135742");
+    expect(req?.price()).toBe(0);
+    // 취소에 세션 슬롯이 생기지 않는다 — 0 은 세션이 아니라 취소 갈래로 열렸다.
+    expect(req?.krxSession()).toBeNull();
+  });
+
+  it("취소(\"C\") price −1 은 BAD_PRICE — 취소 전용 문구로 거부한다 (CR-01)", () => {
+    const err = priceErrorOf({ ...ORDER, orderType: "C", orgOrderNo: "0000135742", price: -1 });
+    expect(err?.code).toBe("BAD_PRICE");
+    expect(err?.message).toContain("취소 주문가격은 0 이상의 정수여야 합니다");
+    expect(priceErrorOf({ ...ORDER, orderType: "C", orgOrderNo: "0000135742", price: 1.5 })?.code).toBe(
+      "BAD_PRICE",
+    );
+  });
+
+  it("세션 없는 신규(\"N\") price 0 은 BAD_PRICE — 신규 규칙은 넓어지지 않았다 (CR-01 / D-23)", () => {
+    const err = priceErrorOf({ ...ORDER, orderType: "N", price: 0 });
+    expect(err?.code).toBe("BAD_PRICE");
+    expect(err?.message).toContain("주문가격은 1 이상의 정수여야 합니다");
+  });
+
+  it("정정(\"M\") price 0 은 BAD_PRICE — 취소 갈래가 정정으로 새지 않는다 (CR-01)", () => {
+    expect(priceErrorOf({ ...ORDER, orderType: "M", orgOrderNo: "0000135742", price: 0 })?.code).toBe(
+      "BAD_PRICE",
+    );
+  });
+
   it("parseOrderResp — 접수 통보는 side 를 신뢰한다", () => {
     const parsed = tryParseEnvelope(
       Buffer.from(buildOrderRespFrame({ noticeType: "A", side: "S", orderNo: "0000099999" })),

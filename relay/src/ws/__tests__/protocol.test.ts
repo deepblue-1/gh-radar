@@ -152,3 +152,40 @@ describe("parseInbound — order.new krxSession · price 0 (Phase 18 D-23 / T-18
     }
   });
 });
+
+function cancelFrame(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    t: "order.cancel",
+    rid: "r-cancel-1",
+    isin: ISIN,
+    exchange: "KRX",
+    orgOrderNo: "0000135742",
+    qty: 10,
+    price: 70_000,
+    accountNo: ACCOUNT_NO,
+    ...overrides,
+  });
+}
+
+// 취소의 가격은 주문 조건이 아니라 **원주문 가격의 사본**이다. 시간외종가(G2/G3)
+// `close_price_mode="zero"` 원주문은 가격 0 이므로 취소는 0 이상 정수를 받는다 — 양수만 받으면
+// 그 취소가 close(4400) 로 소켓째 끊긴다 (18-REVIEW CR-01). 신규·정정의 규칙은 넓어지지 않는다.
+describe("parseInbound — order.cancel price 0 (CR-01)", () => {
+  it("① 취소 price 0 은 통과하고 값이 그대로 나온다", () => {
+    const msg = parseInbound(cancelFrame({ price: 0 }));
+    if (msg?.t !== "order.cancel") throw new Error("가격 0 취소가 거부됐습니다");
+    expect(msg.price).toBe(0);
+    expect(msg.orgOrderNo).toBe("0000135742");
+  });
+
+  it("② 취소 price −1 · 1.5 는 거부된다 — 0 만 열렸다", () => {
+    for (const price of [-1, 1.5]) {
+      expect(parseInbound(cancelFrame({ price }))).toBeNull();
+    }
+  });
+
+  it("③ 정정 price 0 은 여전히 거부된다 — 취소 규칙이 정정으로 새지 않는다", () => {
+    expect(parseInbound(modifyFrame({ price: 0 }))).toBeNull();
+    expect(parseInbound(modifyFrame({ price: 0, krxSession: "G3" }))).toBeNull();
+  });
+});
