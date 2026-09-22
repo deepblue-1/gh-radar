@@ -818,7 +818,7 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 2/13 plans executed
+**Plans:** 3/13 plans executed
 
 Plans:
 **Wave 1**
@@ -829,7 +829,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 18-03-PLAN.md — [BLOCKING] Supabase 스키마 푸시 + 실 DB 제약 조회 검증 (wave 2)
-- [ ] 18-04-PLAN.md — 순수 로직 4종: `queued-window.ts`(77 매핑) · `breakout-list.ts`(이탈·KST 집합) · `use-breakout-quotes.ts`(구독 diff) · `alert-tone.ts`(Web Audio) (wave 2)
+- [x] 18-04-PLAN.md — 순수 로직 4종: `queued-window.ts`(77 매핑) · `breakout-list.ts`(이탈·KST 집합) · `use-breakout-quotes.ts`(구독 diff) · `alert-tone.ts`(Web Audio) (wave 2)
 - [ ] 18-05-PLAN.md — VI 설정 2줄(KRX/NXT, 고정 거래소 상수 폐기) · VI 발동 스트립/표 (wave 2)
 - [ ] 18-06-PLAN.md — 카드 골격: `quote-grid-10` · `card-header` · `strategy-card`(`@container/lc` 선언 이동) (wave 2)
 
