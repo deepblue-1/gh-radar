@@ -818,7 +818,7 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 18/23 plans executed
+**Plans:** 19/23 plans executed
 
 Plans:
 **Wave 1**
@@ -864,7 +864,7 @@ Plans:
 **Wave 9** *(blocked on Wave 8 completion)*
 
 - [x] 18-17-PLAN.md — [사용자 결정 2026-09-22] 돌파 목록 최신 돌파가 맨 위 — relay getter·78 팬아웃·웹 리듀서 한 축 + e2e GC1 (wave 9)
-- [ ] 18-18-PLAN.md — [CR-01 · BLOCKING db push · 한쪽 문 체크포인트] 원격 `dma_orders_price_check` 취소 가격 0 허용 + 전후 덤프 diff (wave 9)
+- [x] 18-18-PLAN.md — [CR-01 · BLOCKING db push · 한쪽 문 체크포인트] 원격 `dma_orders_price_check` 취소 가격 0 허용 + 전후 덤프 diff (wave 9)
 - [x] 18-19-PLAN.md — [WR-03 확인 우선] 취소·정정 대기 요청 종류 재현 → (재현 시) `PendingOrder.kind` 하드 필터 (wave 9)
 
 **Wave 10** *(blocked on Wave 9 completion)*
