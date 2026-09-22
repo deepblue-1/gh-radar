@@ -84,6 +84,7 @@ import {
   RESULT_UNKNOWN_LOCKED_TEXT,
   canModify,
   cancelQtyAtConfirm,
+  formOrderLockOf,
   modifyQtyClampedText,
   modifyQtyOverRemainingText,
   unfilledSelectBlockReason,
@@ -994,6 +995,65 @@ describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-0
       <ManualOrderForm {...baseProps({ variant: 'orderbook', accountNo: '99999999-01' })} />,
     );
     expect(btn('매수')).toBeEnabled();
+  });
+
+  it('선택 행 키 단독 — 다른 표면이 잠근 NXT 키의 원주문을 고르면 폼(KRX)이 잠긴다 · 선택 해제면 18-34 대로 열린다 (R4-WR-01)', () => {
+    const NXT_KEY = `${ISIN}:12345678-01:NXT`;
+    lockWith([[NXT_KEY, 'result-unknown']]);
+    const { rerender } = renderForm({ selectedUnfilled: unf() });
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
+
+    rerender(<ManualOrderForm {...baseProps({ selectedUnfilled: null })} />);
+    expect(btn('매수')).toBeEnabled();
+    expect(btn('매도')).toBeEnabled();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+
+    lockWith([[NXT_KEY, 'in-flight']]);
+    rerender(<ManualOrderForm {...baseProps({ selectedUnfilled: unf() })} />);
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.getByText('주문 전송 중…')).toBeInTheDocument();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+  });
+
+  it('formOrderLockOf — 결과 모름이 진행 중보다 우선 · null 은 건너뛴다 · 렌더도 잠금 문구가 이긴다', () => {
+    const k1 = `${ISIN}:12345678-01:KRX`;
+    const k2 = `${ISIN}:12345678-01:NXT`;
+    const map = new Map<string, 'in-flight' | 'result-unknown'>([
+      [k1, 'in-flight'],
+      [k2, 'result-unknown'],
+    ]);
+    expect(formOrderLockOf(map, [k1, k2])).toBe('result-unknown');
+    expect(formOrderLockOf(map, [k2, k1])).toBe('result-unknown');
+    expect(formOrderLockOf(map, [null, k1])).toBe('in-flight');
+    expect(formOrderLockOf(map, [])).toBeUndefined();
+    expect(formOrderLockOf(map, [null])).toBeUndefined();
+    expect(formOrderLockOf(map, ['KR7005930003:12345678-01:KRX'])).toBeUndefined();
+
+    lockWith([
+      [k1, 'in-flight'],
+      [k2, 'result-unknown'],
+    ]);
+    renderForm({ selectedUnfilled: unf() });
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
+    expect(screen.queryByText('주문 전송 중…')).toBeNull();
+  });
+
+  it('취소는 읽을 키로 남지 않는다 — 교차 거래소 취소 timeout 뒤 다른 표면이 NXT 를 잠가도 선택 해제면 열린다 (R4-WR-01)', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    const { rerender } = renderForm({ selectedUnfilled: unf() });
+    await user.click(btn('취소'));
+    await user.click(await screen.findByRole('button', { name: '취소 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(lockMock.locks).toBeNull();
+
+    // 다른 표면이 같은 원주문 키(NXT)를 결과 모름으로 잠갔다.
+    lockWith([[`${ISIN}:12345678-01:NXT`, 'result-unknown']]);
+    rerender(<ManualOrderForm {...baseProps({ selectedUnfilled: null })} />);
+    expect(btn('매수')).toBeEnabled();
+    expect(btn('매도')).toBeEnabled();
   });
 
   it('취소 timeout → 잠금 등록 0 · 배너만 · 버튼 잠기지 않음 (R3-IN-01 · 사용자 결정 2)', async () => {
