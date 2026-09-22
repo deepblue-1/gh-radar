@@ -1476,6 +1476,68 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
     expect(orders.inserts).toHaveLength(0);
   });
+
+  it("㊵ 가격 0 취소(시간외종가 원주문)가 orderType C · price 0 으로 기록·송신되고 취소확인으로 정산된다 (CR-01)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    // 브라우저 모양 그대로 — 호출부는 원주문 가격을 싣고, 시간외종가 원주문은 가격 0 이다.
+    ws.sendRaw({
+      t: "order.cancel",
+      rid: "rid-c0",
+      isin: SAMPLE_ISIN,
+      exchange: "KRX",
+      orgOrderNo: "0000012345",
+      qty: 10,
+      price: 0,
+      accountNo: SAMPLE_ACCOUNT_NO,
+    });
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "가격 0 취소 DirectOrderReq(2)");
+
+    // 스키마에서 끊기지 않았다 — 옛 규칙이면 여기서 close(4400) 로 소켓째 끊겼다.
+    expect(ws.closeInfo).toBeNull();
+    const req = orderReqsOf(gatewayPayloads)[0]?.directOrderReq();
+    expect(req?.orderType()).toBe("C");
+    expect(req?.orgOrderNo()).toBe("0000012345");
+    expect(req?.price()).toBe(0);
+    expect(orders.inserts).toHaveLength(1);
+    expect(orders.inserts[0]).toMatchObject({ orderType: "C", orgOrderNo: "0000012345", price: 0 });
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "C",
+      orderNo: "0000012399",
+      orgOrderNo: "0000012345",
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length === 1, "취소확인 order.result");
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({ rid: "rid-c0", status: "cancelled" });
+  });
+
+  it("㊶ 취소 가격 −1 과 정정 가격 0 은 스키마에서 끊긴다 — 게이트웨이로 0바이트 (CR-01)", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+    // 취소는 0 까지만 연다 — 음수는 여전히 스키마 위반이다.
+    const cancelConn = await authed("token-a");
+    cancelConn.ws.sendRaw({
+      t: "order.cancel",
+      rid: "rid-cneg",
+      isin: SAMPLE_ISIN,
+      exchange: "KRX",
+      orgOrderNo: "0000012345",
+      qty: 10,
+      price: -1,
+      accountNo: SAMPLE_ACCOUNT_NO,
+    });
+    await waitFor(() => cancelConn.ws.closeInfo !== null, "취소 −1 스키마 위반 close");
+    expect(cancelConn.ws.closeInfo?.code).toBe(4400);
+
+    // 신규 전용 0 규칙이 정정으로 새지 않는다 (D-23).
+    const modifyConn = await authed("token-a");
+    modifyConn.ws.sendRaw(orderModify({ rid: "rid-m0", price: 0 }));
+    await waitFor(() => modifyConn.ws.closeInfo !== null, "정정 0 스키마 위반 close");
+    expect(modifyConn.ws.closeInfo?.code).toBe(4400);
+
+    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
+    expect(orders.inserts).toHaveLength(0);
+  });
 });
 
 // ============================================================

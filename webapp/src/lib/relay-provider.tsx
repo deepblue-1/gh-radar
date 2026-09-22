@@ -93,6 +93,7 @@ export interface RelayOrderRequest {
   accountNo: string;
   /** 취소는 **미체결 잔량 전부**다(D-21 — 0 은 즉시 거부). */
   qty: number;
+  /** 주문가(원). 취소는 원주문 가격 그대로 — 시간외종가 원주문이면 0 (18-REVIEW CR-01). */
   price: number;
   /** `kind:"new"`/`"modify"` 필수. 정정은 원주문의 방향을 그대로 싣는다. */
   side?: OrderSide;
@@ -165,10 +166,21 @@ function buildOrderFrame(
   if (req.accountNo.length === 0) return { ok: false, reason: "주문 계좌를 선택해 주세요." };
   // 취소 수량 0 은 게이트웨이가 즉시 거부한다(D-21). 왕복시키지 않는다.
   if (!(req.qty > 0)) return { ok: false, reason: "주문 수량을 확인해 주세요." };
-  // 가격 0 은 시간외종가(G2/G3) 서버 결정가 한 경로만 연다 (Phase 18 D-23). 정정·취소에는 세션이
-  // 없으므로 여전히 양수만 통과한다. 음수·NaN 은 어느 경우에도 거부다.
-  const offHours = req.kind === "new" && (req.krxSession === "G2" || req.krxSession === "G3");
-  if (!(req.price > 0 || (offHours && req.price === 0))) {
+  // 가격 규칙은 **종류별**이다 (Phase 18 D-21 / D-23 / 18-REVIEW CR-01). 음수·NaN·비정수는 어느
+  // 종류에서도 거부다.
+  //   - 취소: 가격은 주문 조건이 아니라 **원주문 가격의 사본**이다 — 게이트웨이는 취소를 가격으로
+  //     판정하지 않는다. 시간외종가(`close_price_mode="zero"`) 원주문은 가격 0 으로 접수되므로,
+  //     취소는 「0 이상의 정수」면 통과한다. relay zod · 조립기 · DB CHECK 가 같은 규칙을 쓴다.
+  //   - 신규: 양수, 또는 `krxSession` G2/G3 일 때만 0 (서버 결정가).
+  //   - 정정: 양수만. 신규 전용 0 규칙을 정정으로 새게 하지 않는다.
+  const priceOk =
+    req.kind === "cancel"
+      ? Number.isInteger(req.price) && req.price >= 0
+      : req.kind === "modify"
+        ? req.price > 0
+        : req.price > 0 ||
+          ((req.krxSession === "G2" || req.krxSession === "G3") && req.price === 0);
+  if (!priceOk) {
     return { ok: false, reason: "주문 가격을 확인해 주세요." };
   }
 

@@ -299,6 +299,12 @@ export const RelayOrderNewSchema = z
  *
  * `orgOrderNo` 는 필수다 — 원주문번호 없는 취소는 조립 단계에서 어차피 실패한다.
  * `qty` 는 미체결 잔량 전부이고 `0` 은 거부다 (D-44).
+ *
+ * `price` 는 `nonnegative()` 다 (18-REVIEW CR-01). 취소의 가격은 주문 조건이 아니라 **원주문 가격의
+ * 사본**이고 게이트웨이는 취소를 가격으로 판정하지 않는다. 시간외종가(G2/G3) `close_price_mode="zero"`
+ * 원주문은 가격 0 으로 접수되므로, 양수만 받으면 그 취소가 close(4400) 로 소켓째 끊긴다 — D-21 이
+ * 정정을 잠그고 「취소 후 재등록」을 유일한 조치로 안내하는 바로 그 경로다. 음수·비정수는 여전히
+ * 위반이다. 신규·정정 스키마의 가격 규칙은 바꾸지 않는다(D-23). `.strict()` 로 만들지 않는다(T-18-07).
  */
 export const RelayOrderCancelSchema = z.object({
   t: z.literal("order.cancel"),
@@ -307,7 +313,7 @@ export const RelayOrderCancelSchema = z.object({
   exchange: ExchangeSchema,
   orgOrderNo: z.string().min(1),
   qty: z.number().int().positive(),
-  price: z.number().int().positive(),
+  price: z.number().int().nonnegative(),
   accountNo: AccountNoSchema,
 });
 

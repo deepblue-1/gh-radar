@@ -902,7 +902,10 @@ export type DirectOrderInput = {
   orgOrderNo?: string;
   /** 주문수량. 취소는 미체결 잔량이며 **0 은 즉시 거부**다 (Pitfall 7). */
   qty: number;
-  /** 주문가(원). `0` 은 `krxSession` 이 G2/G3 일 때만 허용된다 (Phase 18 D-23). */
+  /**
+   * 주문가(원). `0` 은 두 갈래만 허용된다 — 신규의 `krxSession` G2/G3 (Phase 18 D-23), 그리고
+   * 취소(`orderType:"C"`) — 취소 가격은 원주문 가격의 사본이라 시간외종가 원주문이면 0 이다 (CR-01).
+   */
   price: number;
   /**
    * 예약구간 조각 수 (Phase 18 D-22). 부재·0·1 은 **슬롯을 싣지 않는다**(부재 = 서버 기본값 1).
@@ -954,16 +957,21 @@ export function buildDirectOrderReq(req: DirectOrderInput): Uint8Array {
     // 취소수량 0 을 전량취소로 오해하는 것이 이 phase 에서 가장 흔한 오주문 경로다.
     throw new OrderBuildError("BAD_QTY", "주문수량은 1 이상의 정수여야 합니다 (0 은 즉시 거부)");
   }
-  // 가격 0 은 시간외종가(G2/G3) 서버 결정가 **한 경로**로만 연다 (Phase 18 D-23). 무조건 `>= 0`
-  // 으로 열면 가격 0 인 지정가가 게이트웨이까지 가서 거부 왕복 5초를 태운다. 음수·비정수는 여전히
-  // 거부다 — 반올림·절사하지 않는다.
-  const priceFloor = krxSession === null ? 1 : 0;
+  // 가격 0 은 **두 갈래**로만 연다. 조립기는 모든 호출 경로의 마지막 관문이라 0 을 무조건 열지 않는다
+  // — 무조건 `>= 0` 으로 열면 가격 0 인 지정가가 게이트웨이까지 가서 거부 왕복 5초를 태운다.
+  //   ① 시간외종가(G2/G3) 서버 결정가 (Phase 18 D-23).
+  //   ② 취소("C") — 취소 가격은 주문 조건이 아니라 원주문 가격의 사본이고, 게이트웨이는 취소를
+  //      가격으로 판정하지 않는다. 시간외종가 `close_price_mode="zero"` 원주문은 가격 0 이다 (CR-01).
+  // 정정("M")·세션 없는 신규는 여전히 1 이상이다. 음수·비정수는 어느 갈래에서도 거부다 — 반올림·절사하지 않는다.
+  const priceFloor = orderType === "C" || krxSession !== null ? 0 : 1;
   if (!Number.isInteger(req.price) || req.price < priceFloor) {
     throw new OrderBuildError(
       "BAD_PRICE",
-      krxSession === null
-        ? "주문가격은 1 이상의 정수여야 합니다"
-        : "시간외종가 주문가격은 0 이상의 정수여야 합니다",
+      orderType === "C"
+        ? "취소 주문가격은 0 이상의 정수여야 합니다"
+        : krxSession === null
+          ? "주문가격은 1 이상의 정수여야 합니다"
+          : "시간외종가 주문가격은 0 이상의 정수여야 합니다",
     );
   }
   // 조각 수: 비정수·음수는 거부(반올림 금지). 1 이하는 부재와 같다 — 슬롯을 싣지 않는다.
