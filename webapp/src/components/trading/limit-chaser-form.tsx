@@ -124,8 +124,13 @@ import {
 import { cn } from '@/lib/utils';
 import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
 
-/** 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다. */
-const DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
+/**
+ * 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다.
+ * 카드 본문(18-10)이 종목명 접두를 붙여 `dirtyHint` 로 되돌려 보내므로 **내보낸다** — 안내 문장을
+ * 두 곳에 다시 적지 않는다.
+ */
+export const LIMIT_CHASER_DIRTY_HINT =
+  '「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
 
 /**
  * 무장 판정을 지나는 게이트 3종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
@@ -277,6 +282,34 @@ export interface LimitChaserFormProps {
   /** 그룹 헤더 상태 문구(`무장` / `발주 완료 · 무장 해제` 등). 매핑은 상위 소관이다. */
   buyStatusText?: string;
   sellStatusText?: string;
+  /**
+   * 한방체결 · 매수취소 그룹 제목 옆 보조문(18-10 카드 본문 — 「켜짐」/「꺼짐」 · 「감시 중」 등).
+   * 없으면 그 자리에 아무것도 그리지 않는다 — 옛 상따 화면은 넘기지 않으므로 DOM 이 그대로다.
+   */
+  sweepStatusText?: string;
+  cancelStatusText?: string;
+  /**
+   * 더티 액션 바 보조문 (18-10). 없으면 `LIMIT_CHASER_DIRTY_HINT` 그대로다.
+   * ★ 카드가 여럿인 작업대에서 바는 전부 화면 하단 같은 자리에 뜬다 — **어느 카드의 바인지는
+   *   이 문구만이 말한다**(종목명 접두). 시각·스크린리더(`role="status"`) 양쪽에서 그렇다.
+   */
+  dirtyHint?: string;
+  /**
+   * 더티 액션 바에 덧붙일 클래스 (18-10). 기본 경로는 넘기지 않는다 — 우측 여백 예약이 없는 것이
+   * 기본 계약이다(`dirty-action-bar.tsx` ⑥). 종목상세 호가 탭처럼 AI FAB 이 같은 화면에 뜨는
+   * 표면만 이 prop 으로 FAB 을 비켜 간다(그 파일 ⑥ⓒⓙ 가 지목한 경로 — 공유 컴포넌트는 무수정).
+   */
+  dirtyBarClassName?: string;
+  /**
+   * 폰 밴드 pane 탭 — **제어형** (18-10). 넘기면 이 값이 보이는 pane 을 정하고, 넘기지 않으면
+   * 폼이 자체 상태로 든다(옛 화면 경로).
+   */
+  tab?: 'buy' | 'sell';
+  /**
+   * 폼 자신의 「매수 | 매도」 탭 줄을 그리지 않는다 (18-10). 카드 본문은 「매수 | 매도 | 수동」
+   * 3탭을 **바깥에서** 그리므로(`ManualOrderEntry`), 이 줄이 함께 서면 탭 줄이 두 줄이 된다.
+   */
+  hideTabs?: boolean;
   /** 더티 수 통지 — 상위의 이탈 경고(라우터 가드 · `beforeunload`)가 이 값을 쓴다. */
   onDirtyCountChange?: (count: number) => void;
   /**
@@ -321,6 +354,12 @@ export function LimitChaserForm({
   disabled = false,
   buyStatusText = '',
   sellStatusText = '',
+  sweepStatusText,
+  cancelStatusText,
+  dirtyHint,
+  dirtyBarClassName,
+  tab: controlledTab,
+  hideTabs = false,
   onDirtyCountChange,
   serverAnswerSeq = 0,
   onSent,
@@ -328,7 +367,9 @@ export function LimitChaserForm({
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
-  const [tab, setTab] = useState<'buy' | 'sell'>('buy');
+  const [ownTab, setTab] = useState<'buy' | 'sell'>('buy');
+  // 제어형이면 바깥 값이 이긴다(카드 본문의 3탭) — 자체 상태는 옛 화면 경로에서만 쓰인다.
+  const tab = controlledTab ?? ownTab;
   /**
    * 하단 액션 바 포털의 SSR 가드 — 서버 렌더에는 `document` 가 없다.
    * 마운트 뒤 한 번만 true 가 되고 다시 false 로 돌아가지 않는다.
@@ -777,6 +818,7 @@ export function LimitChaserForm({
         slot="sweep"
         tone="buy"
         title="한방체결"
+        status={sweepStatusText}
         switchProps={{
           label: '한방체결 켜기',
           checked: form.sweepEnabled,
@@ -919,7 +961,7 @@ export function LimitChaserForm({
           그 줄은 다른 표면이고 문장으로서 여전히 정확하다. 여기 라벨을 줄였다고 로그까지
           따라가면 안 된다.
       */}
-      <Group slot="cancel" tone="neutral" title="매수취소">
+      <Group slot="cancel" tone="neutral" title="매수취소" status={cancelStatusText}>
         <CheckRow
           id="lc-cancel-qty"
           label="취소잔량"
@@ -993,30 +1035,35 @@ export function LimitChaserForm({
       {/*
         모바일 세그먼트 탭 — `order-panel.tsx:426~449` 마크업 승계.
         Radix `ToggleGroup` 을 쓰지 않는 근거는 파일 상단 ⑧.
+        ★ `hideTabs` (18-10) — 카드 본문이 「매수 | 매도 | 수동」 3탭을 바깥에서 그릴 때는 이 줄을
+          렌더하지 않는다. 숨김이 아니라 부재다 — `display:none` 으로 남기면 같은 이름의 tablist 가
+          둘이 되고, 3탭과 이 줄이 서로 다른 pane 을 가리키는 순간이 생긴다.
       */}
-      <div
-        role="tablist"
-        aria-label="주문 설정"
-        className="mb-[var(--s-2)] grid grid-cols-2 gap-[var(--s-1)] @min-[700px]/lc:hidden"
-      >
-        {(['buy', 'sell'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={cn(
-              'h-9 min-w-0 rounded-[var(--r)] border text-[length:var(--t-sm)] font-semibold',
-              tab === t && t === 'buy' && 'border-[var(--up)] bg-[var(--up-bg)] text-[var(--up)]',
-              tab === t && t === 'sell' && 'border-[var(--down)] bg-[var(--down-bg)] text-[var(--down)]',
-              tab !== t && 'border-[var(--border)] bg-transparent text-[var(--muted-fg)]',
-            )}
-          >
-            {t === 'buy' ? '매수' : '매도'}
-          </button>
-        ))}
-      </div>
+      {hideTabs ? null : (
+        <div
+          role="tablist"
+          aria-label="주문 설정"
+          className="mb-[var(--s-2)] grid grid-cols-2 gap-[var(--s-1)] @min-[700px]/lc:hidden"
+        >
+          {(['buy', 'sell'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={cn(
+                'h-9 min-w-0 rounded-[var(--r)] border text-[length:var(--t-sm)] font-semibold',
+                tab === t && t === 'buy' && 'border-[var(--up)] bg-[var(--up-bg)] text-[var(--up)]',
+                tab === t && t === 'sell' && 'border-[var(--down)] bg-[var(--down-bg)] text-[var(--down)]',
+                tab !== t && 'border-[var(--border)] bg-transparent text-[var(--muted-fg)]',
+              )}
+            >
+              {t === 'buy' ? '매수' : '매도'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* 매수·매도 두 컬럼(본문 700~). **그리드 자식 전부 `min-w-0`**(lessons.md). */}
       <div className="grid min-w-0 grid-cols-1 gap-[var(--s-2)] @min-[700px]/lc:grid-cols-2 @min-[992px]/lc:gap-[var(--s-4)] [&>*]:min-w-0">
@@ -1059,6 +1106,8 @@ export function LimitChaserForm({
         ★ SSR 가드 — 서버 렌더에는 `document` 가 없다. 마운트된 뒤에만 포털을 만든다.
         ★ 더티 0 이면 렌더하지 않는 규율은 **바 자신**이 이미 지킨다(`dirtyCount <= 0 → null`).
           여기서 다시 판정하면 그 규율이 두 곳이 되고, 언젠가 한쪽만 고쳐진다.
+        ★ 카드가 여럿이므로 바 문구에 종목명을 쓴다(`dirtyHint`, 18-10). 바가 어느 카드의 것인지
+          말하는 유일한 채널이고, 시각·스크린리더 양쪽에서 그렇다.
       */}
       {mounted &&
         createPortal(
@@ -1067,7 +1116,8 @@ export function LimitChaserForm({
             submitting={submitting}
             onSubmit={handleSubmit}
             onRevert={handleRevert}
-            hint={DIRTY_HINT}
+            hint={dirtyHint ?? LIMIT_CHASER_DIRTY_HINT}
+            className={dirtyBarClassName}
           />,
           document.body,
         )}

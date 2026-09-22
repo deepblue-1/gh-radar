@@ -1655,12 +1655,16 @@ describe('18-10 — 더티 힌트 prop · body 포털 · 제어형 탭 (D-28 · 
 
   it('거부(에코 없이 답만 옴) 뒤에도 바가 남고 더티 값이 보존된다 (E15 error)', async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
+    // ★ 서버 객체 신원을 유지한다 — 새 객체를 넘기면 그것 자체가 「에코 도착」이라 폼이 덮인다.
+    const server = echo();
+    const { rerender } = render(<LimitChaserForm {...props({ server, dirtyHint: CARD_HINT })} />);
     setNumber(screen.getByLabelText(/매수가격/), '150000');
     await user.click(screen.getByRole('button', { name: '수정' }));
 
     // 거부 = 60 에코가 없고 「답했다」 신호만 온다(`serverAnswerSeq`).
-    rerender(<LimitChaserForm {...props({ dirtyHint: CARD_HINT, serverAnswerSeq: 1 })} />);
+    rerender(
+      <LimitChaserForm {...props({ server, dirtyHint: CARD_HINT, serverAnswerSeq: 1 })} />,
+    );
 
     const bar = actionBar() as HTMLElement;
     expect(bar).not.toBeNull();
