@@ -23,6 +23,7 @@ import {
 import { StrategyBadge, viBadgeOf } from "@/components/trading/strategy-badge";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
+import { exchangeLabeledName } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { requestTradingFocus } from "@/lib/trading-focus";
 import { cn } from "@/lib/utils";
@@ -126,10 +127,12 @@ export function strategyLedLabel(item: RelayLimitChaser): string {
 
 /**
  * 3단 전략 항목의 표시 이름 (E16 partial) — 전략의 `name` → 계좌 역매핑 이름 → 단축코드 → ISIN.
- * 빈 문자열은 없는 것으로 본다.
+ * 빈 문자열은 없는 것으로 본다. 폴백 체인 뒤에 NXT 전략이면 「· NXT」 꼬리가 붙는다 — 같은 종목
+ * KRX·NXT 두 전략을 가른다(`exchangeLabeledName` · 18-REVIEW-R2 GC-IN-04 · D-03). KRX 는 이름만이다.
  */
 function strategyDisplayName(item: RelayLimitChaser, labelName: string | undefined): string {
-  return [item.name, labelName, item.code].find((s) => s != null && s !== "") ?? item.isin;
+  const base = [item.name, labelName, item.code].find((s) => s != null && s !== "") ?? item.isin;
+  return exchangeLabeledName(base, item.exchange);
 }
 
 /**

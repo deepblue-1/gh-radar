@@ -51,7 +51,7 @@ vi.mock("../user-section", () => ({
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 import { TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
 
-import { AppSidebar } from "../app-sidebar";
+import { AppSidebar, strategyLedLabel } from "../app-sidebar";
 
 // ---------------------------------------------------------------------------
 // 픽스처
@@ -458,9 +458,11 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     expect(leds).toHaveAttribute("aria-label", "매수 감시 · 매도 OFF · 취소 OFF");
     expect(leds).toHaveAttribute("title", "매수 감시 · 매도 OFF · 취소 OFF");
 
-    // N3a — 3단 전략 항목에 거래소 태그·상태 배지를 두지 않는다.
+    // N3a — 3단 전략 항목에 거래소 태그·상태 배지를 두지 않는다. NXT 전략은 이름 꼬리 「· NXT」
+    // 하나로만 가른다(GC-IN-04 · 18-31) — 별도 태그 요소는 없다.
     const b = screen.getByRole("link", { name: /이수페타시스/ });
-    expect(b.textContent).not.toContain("NXT");
+    expect(b.querySelector("span[title]")!.textContent).toBe("이수페타시스 · NXT");
+    expect(b.textContent?.match(/NXT/g)).toHaveLength(1);
     expect(a.querySelector('[data-slot="strategy-badge"]')).toBeNull();
     expect(b.querySelector('[data-slot="strategy-badge"]')).toBeNull();
   });
@@ -504,6 +506,33 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     expect(screen.getByRole("link", { name: /와이어이름/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^000222/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^KR7000003333/ })).toBeInTheDocument();
+  });
+
+  it("GC-IN-04 · D-03 — NXT 전략 이름은 「{종목명} · NXT」, KRX 전략은 이름만 · data-strategy-key · 링크 불변", () => {
+    setupReady();
+    render(<AppSidebar />);
+
+    const nxt = screen.getByRole("link", { name: /이수페타시스/ });
+    const nxtName = nxt.querySelector("span[title]")!;
+    expect(nxtName.textContent).toBe("이수페타시스 · NXT");
+    expect(nxtName).toHaveAttribute("title", "이수페타시스 · NXT");
+    expect(nxt).toHaveAttribute("data-strategy-key", CHASER_B.key);
+    expect(nxt).toHaveAttribute("href", `/trading?focus=${encodeURIComponent(CHASER_B.key)}`);
+    expect(within(nxt).getByRole("img")).toHaveAttribute("aria-label", strategyLedLabel(CHASER_B));
+
+    const krx = screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ });
+    expect(krx.querySelector("span[title]")!.textContent).toBe("에코프로머티리얼즈우선주");
+    expect(krx).toHaveAttribute("data-strategy-key", CHASER_A.key);
+  });
+
+  it("GC-IN-04 — 이름 폴백 체인(ISIN 까지) 뒤에 꼬리가 붙는다 — ISIN 폴백이어도 NXT 면 꼬리", () => {
+    const bareNxt = makeChaser({ isin: "KR7000004444", exchange: "NXT" });
+    const codedNxt = makeChaser({ isin: "KR7000005555", code: "000555", exchange: "NXT" });
+    setupReady({ accountStates: new Map(), limitChasers: [bareNxt, codedNxt] });
+    render(<AppSidebar />);
+
+    expect(screen.getByRole("link", { name: /^KR7000004444 · NXT/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^000555 · NXT/ })).toBeInTheDocument();
   });
 
   it("long-text — 종목명은 1줄 ellipsis 이고 전체는 `title` 에 담긴다", () => {
