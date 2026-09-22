@@ -177,3 +177,54 @@ describe('StockAddBar — 긴 텍스트 (E5 long-text)', () => {
     expect(name.className).toContain('min-w-0');
   });
 });
+
+/* ── Task 3 — E5 상태 커버리지 마감 ─────────────────────────────────── */
+
+describe('StockAddBar — E5 empty/loading/error: Phase 16 기존 처리 그대로', () => {
+  it('검색 결과 0건은 기존 컴포넌트 문구 「검색 결과가 없어요」 이고 「추가」 는 비활성이다', async () => {
+    setup();
+    searchMock.mockResolvedValue([]);
+    fireEvent.change(input(), { target: { value: '없는종목' } });
+    await waitFor(() => expect(screen.getByText('검색 결과가 없어요')).toBeInTheDocument());
+    expect(options()).toHaveLength(0);
+    expect(addBtn()).toBeDisabled();
+  });
+
+  it('검색 중에는 기존 문구 「검색 중이에요…」 뿐이다 — 새 로딩 표면(스피너·스켈레톤)이 없다', async () => {
+    setup();
+    searchMock.mockReturnValue(new Promise(() => {}));
+    fireEvent.change(input(), { target: { value: '에코' } });
+    await waitFor(() => expect(screen.getByText('검색 중이에요…')).toBeInTheDocument());
+    const bar = document.querySelector('[data-slot="stock-add-bar"]')!;
+    expect(bar.querySelector('[role="progressbar"], [class*="animate-"], [class*="skeleton"]')).toBeNull();
+    expect(addBtn()).toBeDisabled();
+  });
+
+  it('검색 API 실패는 기존 처리 그대로 — 결과 0건 문구로 수렴하고 throw 하지 않는다', async () => {
+    setup();
+    searchMock.mockRejectedValue(new Error('500'));
+    fireEvent.change(input(), { target: { value: '에코' } });
+    await waitFor(() => expect(screen.getByText('검색 결과가 없어요')).toBeInTheDocument());
+    expect(addBtn()).toBeDisabled();
+  });
+
+  it('Esc 는 질의를 비워 결과 목록을 닫는다(상시 입력 — 필드 자체는 남는다)', async () => {
+    setup();
+    await search([ECOPRO]);
+    fireEvent.keyDown(input(), { key: 'Escape' });
+    expect(input().value).toBe('');
+    expect(document.querySelector('[data-slot="lc-search-results"]')).toBeNull();
+    expect(input()).toBeInTheDocument();
+  });
+});
+
+describe('StockAddBar — E5 long-text: 입력값은 네이티브 가로 스크롤', () => {
+  it('입력은 줄바꿈하지 않는 네이티브 input 이고 폭이 줄어들 수 있다(min-w-0)', () => {
+    setup();
+    const el = input();
+    expect(el.tagName).toBe('INPUT');
+    expect(el.className).toContain('min-w-0');
+    fireEvent.change(el, { target: { value: '가'.repeat(80) } });
+    expect(el.value).toHaveLength(80);
+  });
+});

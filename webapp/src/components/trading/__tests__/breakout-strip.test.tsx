@@ -410,3 +410,157 @@ describe('BreakoutStrip — 이탈 삭제 (D-16)', () => {
     expect(within(row).getByText('+26.00%')).toBeInTheDocument();
   });
 });
+
+/* ── Task 3 — E4 상태 커버리지 마감 ─────────────────────────────────── */
+
+describe('BreakoutStrip — E4 loading: 78 전에도 빈 상태를 그리고 위장하지 않는다', () => {
+  it('스피너·스켈레톤·「불러오는 중」 이 없다 — 빈 문구가 사실 그대로다', () => {
+    setup({ items: [], snapSeq: 0 });
+    const root = document.querySelector('[data-slot="breakout"]')!;
+    expect(root.querySelector('[role="progressbar"], [role="status"], [aria-busy="true"]')).toBeNull();
+    expect(root.querySelector('[class*="animate-"], [class*="skeleton"], [data-slot="skeleton"]')).toBeNull();
+    expect(root.textContent).not.toMatch(/불러오는|로딩|loading/i);
+    expect(screen.getByText(BREAKOUT_EMPTY_TEXT)).toBeInTheDocument();
+  });
+
+  it('펼친 표도 행 0개면 같은 빈 문구다', () => {
+    setup({ items: [] });
+    openTable();
+    const table = document.querySelector('[data-slot="breakout-table"]')!;
+    expect(within(table as HTMLElement).getByText(BREAKOUT_EMPTY_TEXT)).toBeInTheDocument();
+    expect(table.querySelector('[data-slot="breakout-row"]')).toBeNull();
+  });
+
+  it('인증 직후 78 이 오면 전량 교체된 그대로 그린다(무음)', () => {
+    const { update } = setup({ items: [], snapSeq: 0 });
+    update({ items: [B, A], snapSeq: 1 });
+    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 2');
+    expect(screen.queryByText(BREAKOUT_EMPTY_TEXT)).toBeNull();
+    expect(playBreakoutTone).not.toHaveBeenCalled();
+  });
+});
+
+describe('BreakoutStrip — E4 zero-one-many · 「신규」 필', () => {
+  it('M=0 이면 「신규」 필이 DOM·접근성 트리 어디에도 없다', () => {
+    setup({ items: [A, B] }); // 첫 채움 = 무음·무강조 → M=0
+    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 2');
+    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toBeNull();
+    expect(screen.queryByText(/^신규/)).toBeNull();
+    openTable();
+    // 표 요약줄은 숫자형 그대로 「신규 0」 이다(단/복수 분기 없음)
+    expect(document.querySelector('[data-slot="breakout-table-summary"]')).toHaveTextContent(
+      '돌파 2 · 신규 0 · 임계 20% · 최신 위',
+    );
+  });
+
+  it('1개와 여러 개는 같은 문법이다 — 「돌파 1」 · 「돌파 3」', () => {
+    const { update } = setup({ items: [A] });
+    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 1');
+    update({ items: [A, B, C] });
+    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 3');
+    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toHaveTextContent('신규 2');
+  });
+});
+
+describe('BreakoutStrip — E4 populated: 「신규」 는 색 + 배지 텍스트로 말한다', () => {
+  it('신규 칩·행은 --new-bg 와 「신규」 텍스트를 함께 갖고, 신규 행의 「거래 추가」 는 --primary 채움이다', () => {
+    const { update } = setup({ items: [A] });
+    update({ items: [A, B] });
+    const newChip = chips()[1]!;
+    expect(newChip.className).toContain('bg-[var(--new-bg)]');
+    expect(within(newChip).getByText('신규')).toBeInTheDocument();
+    // 기본(비신규) 칩은 색도 텍스트도 없다
+    expect(chips()[0]!.className).not.toContain('bg-[var(--new-bg)]');
+    expect(within(chips()[0]!).queryByText('신규')).toBeNull();
+
+    openTable();
+    const [oldRow, newRow] = rowEls();
+    expect(newRow!.className).toContain('bg-[var(--new-bg)]');
+    expect(within(newRow!).getByText('신규')).toBeInTheDocument();
+    expect(within(newRow!).getByRole('button', { name: '거래 추가' }).className).toContain('bg-[var(--primary)]');
+    expect(within(oldRow!).getByRole('button', { name: '거래 추가' }).className).not.toContain('bg-[var(--primary)]');
+  });
+
+  it('깜박임이 없다 — 강조 요소에 animate 클래스가 없다', () => {
+    const { update } = setup({ items: [] });
+    update({ items: [A] });
+    openTable();
+    const root = document.querySelector('[data-slot="breakout"]')!;
+    expect(root.querySelector('[class*="animate-"]')).toBeNull();
+  });
+});
+
+describe('BreakoutStrip — E4 overflow (200행)', () => {
+  const many = Array.from({ length: 200 }, (_, i) =>
+    item({
+      isin: `KR7${String(i).padStart(6, '0')}000`,
+      code: String(i).padStart(6, '0'),
+      name: `종목${i}`,
+      exchangeTime: `09${String(10 + Math.floor(i / 60)).padStart(2, '0')}${String(i % 60).padStart(2, '0')}000000`,
+    }),
+  );
+
+  it('200행이면 칩 줄은 한 줄 가로 스크롤이고 표는 세로로 자연 확장한다(자르지 않는다)', () => {
+    setup({ items: many });
+    expect(chips()).toHaveLength(200);
+    const chipRow = document.querySelector('[data-slot="breakout-chips"]')!;
+    expect(chipRow.className).toContain('overflow-x-auto');
+    expect(chipRow.className).toContain('flex-nowrap');
+    for (const c of chips().slice(0, 3)) expect(c.className).toContain('flex-none');
+
+    openTable();
+    expect(rowEls()).toHaveLength(200);
+    const table = document.querySelector('[data-slot="breakout-table"]')!;
+    expect(table.className).not.toMatch(/max-h-|overflow-y-/);
+  });
+
+  it('폰 밴드 열 접기 구조가 있다 — 임계·돌파시각 <700 · 기준가 <830 숨김 + 보조줄 「{HH:MM:SS} 돌파」', () => {
+    // 실제 잘림 0 은 컨테이너 쿼리라 jsdom 이 재지 못한다 — 18-13 Playwright 가 맡는다.
+    setup({ items: [A] });
+    openTable();
+    const th = (col: string) => document.querySelector(`th[data-col="${col}"]`)!;
+    expect(th('thr').className).toContain('hidden @min-[700px]/wb:table-cell');
+    expect(th('at').className).toContain('hidden @min-[700px]/wb:table-cell');
+    expect(th('base').className).toContain('hidden @min-[830px]/wb:table-cell');
+    const sub = rowEls()[0]!.querySelector('[data-slot="breakout-row-subline"]')!;
+    expect(sub).toHaveTextContent('09:41:31 돌파');
+    expect(sub.className).toContain('@min-[700px]/wb:hidden');
+    // 7열 헤더
+    expect([...document.querySelectorAll('th')].map((t) => t.textContent)).toEqual([
+      '종목',
+      '현재가',
+      '등락률',
+      '임계',
+      '기준가',
+      '돌파시각',
+      '액션',
+    ]);
+  });
+});
+
+describe('BreakoutStrip — E4 long-text · partial', () => {
+  it('긴 종목명은 1줄 ellipsis 이고 칩 title 에 UI-SPEC 템플릿 전문이 담긴다', () => {
+    const long = item({ name: '아주아주긴이름을가진가상의종목주식회사우선주', code: '123450' });
+    setup({ items: [long] });
+    const chip = chips()[0]!;
+    expect(chip).toHaveAttribute(
+      'title',
+      '아주아주긴이름을가진가상의종목주식회사우선주 123450 · 임계 20% · 기준가 10,000 · 돌파 09:41:31',
+    );
+    const name = chip.querySelector('[data-slot="breakout-chip-name"]')!;
+    expect(name.className).toContain('truncate');
+    expect(name.className).toMatch(/max-w-/);
+    openTable();
+    const rowName = rowEls()[0]!.querySelector('[data-slot="breakout-row-name"]')!;
+    expect(rowName.className).toContain('truncate');
+    expect(rowName).toHaveAttribute('title', '아주아주긴이름을가진가상의종목주식회사우선주');
+  });
+
+  it('name/code 없는 행의 칩 title 은 ISIN 으로 시작하고 코드를 지어내지 않는다', () => {
+    const bare = item({ name: undefined, code: undefined });
+    setup({ items: [bare] });
+    expect(chips()[0]).toHaveAttribute('title', `${bare.isin} · 임계 20% · 기준가 10,000 · 돌파 09:41:31`);
+    // 칩 이름 자리는 ISIN 원문 그대로다(ISIN 에서 단축코드를 잘라 만들지 않는다 — D-28)
+    expect(chips()[0]!.querySelector('[data-slot="breakout-chip-name"]')!.textContent).toBe(bare.isin);
+  });
+});
