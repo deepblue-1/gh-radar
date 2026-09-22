@@ -307,8 +307,8 @@ export function StockSearchField({
             판정이 조금이라도 어긋나면 고르기 직전에 목록이 사라진다.
           ★ 목록이 **없을 때는 `aria-controls` 를 걸지 않는다.** `<ul>` 은 질의가 비면 아예
             렌더되지 않으므로, 상수 id 를 늘 걸어 두면 존재하지 않는 요소를 가리켜 axe
-            `aria-valid-attr-value`(critical)에 걸린다 — `/trading/limit-chaser/new` 는 a11y
-            스캔 대상이고 그 화면은 **검색이 열린 채로** 진입한다. `aria-activedescendant` 도
+            `aria-valid-attr-value`(critical)에 걸린다 — 옛 상따 새 전략 화면(지금은 `/trading`
+            작업대)은 a11y 스캔 대상이었고 **검색이 열린 채로** 진입했다. `aria-activedescendant` 도
             같은 이유로 활성 항목이 있을 때만 건다.
           ★ `role="combobox"` 를 거는 순간 `getByRole('searchbox')` 가 죽는다 —
             `trading-limit-chaser.spec.ts` 의 조회 3곳을 **같은 커밋에서** 함께 고쳤다.

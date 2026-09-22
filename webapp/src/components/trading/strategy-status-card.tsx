@@ -467,7 +467,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
 
       {/* VI 행 (C3) — 계좌당 1건이라 목록이 아니라 한 줄이다. */}
       <Link
-        href="/trading/vi"
+        href="/trading"
         data-slot="vi-status-row"
         className={cn(
           "mt-1 flex min-h-11 flex-wrap items-center gap-2 rounded-[var(--r)] border-t border-[var(--border)] px-2 py-2.5",

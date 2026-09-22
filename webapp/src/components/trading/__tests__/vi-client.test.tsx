@@ -30,7 +30,7 @@ vi.mock('@/lib/auth-context', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/trading/vi',
+  usePathname: () => '/trading',
 }));
 
 import { AccountPanel } from '@/components/orderbook/account-panel';

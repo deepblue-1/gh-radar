@@ -92,8 +92,8 @@ describe('ChatFab', () => {
   // 비렌더는 라벨 부재 **와** 컨테이너가 통째로 비어 있음 둘 다로 잠근다 —
   // 라벨만 보면 다이얼로그 잔재 같은 잔여 DOM 을 놓친다.
   // -------------------------------------------------------------------------
-  it('Test 5 — 상따(/trading/limit-chaser)에서는 FAB 이 렌더되지 않는다 (Q-01)', () => {
-    mockPathname = '/trading/limit-chaser';
+  it('Test 5 — 트레이딩 작업대(/trading)에서는 FAB 이 렌더되지 않는다 (Q-01)', () => {
+    mockPathname = '/trading';
     const { container } = render(<ChatFab />);
 
     expect(screen.queryByRole('button', { name: /AI/ })).toBeNull();

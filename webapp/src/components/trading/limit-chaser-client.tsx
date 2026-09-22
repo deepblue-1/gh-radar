@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * LimitChaserClient — 상따 전략 화면 본문 (`/trading/limit-chaser/{new,[key]}`, TRADE-01).
+ * LimitChaserClient — 옛 상따 전략 화면 본문 (TRADE-01). 18-12 부터 그 라우트는 `/trading` 으로
+ * 리다이렉트만 하므로 이 컴포넌트를 렌더하는 화면이 없다 — 파일 삭제는 18-13 몫이다.
  *
  * ① 무엇을 조립하는가 (16-UI-SPEC A1~A14 · 260911-w5h)
  *   제목 줄(「상따」 + 계좌 칩) → 헤더 카드(거래소 콤보 | 종목명 버튼 = 검색 트리거 |

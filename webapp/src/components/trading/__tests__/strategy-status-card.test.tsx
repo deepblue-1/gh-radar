@@ -435,11 +435,11 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
     expect(document.querySelector('[data-slot="strategy-list-loading"]')).toBeNull();
   });
 
-  it("⑧ VI 행 요약은 가동 중일 때만 조건을 보여주고 `/trading/vi` 로 간다 (C3)", () => {
+  it("⑧ VI 행 요약은 가동 중일 때만 조건을 보여주고 `/trading` 작업대로 간다 (C3 · Phase 18 D-02)", () => {
     render(<StrategyStatusCard />);
 
     const viRow = document.querySelector('[data-slot="vi-status-row"]') as HTMLAnchorElement;
-    expect(viRow.getAttribute("href")).toBe("/trading/vi");
+    expect(viRow.getAttribute("href")).toBe("/trading");
     expect(within(viRow).getByText("가동")).toBeInTheDocument();
     expect(within(viRow).getByText("KRX 1,000만원 · 22.0% 이상")).toBeInTheDocument();
   });

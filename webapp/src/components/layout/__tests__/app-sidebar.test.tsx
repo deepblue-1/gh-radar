@@ -380,8 +380,8 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     expect(screen.queryByRole("link", { name: /^VI$/ })).toBeNull();
     for (const a of document.querySelectorAll("nav a")) {
       const href = a.getAttribute("href") ?? "";
-      expect(href.startsWith("/trading/limit-chaser")).toBe(false);
-      expect(href.startsWith("/trading/vi")).toBe(false);
+      // 옛 상따·VI 화면 경로(이제 리다이렉트만 남았다)를 가리키는 링크가 없다.
+      expect(href).not.toMatch(/^\/trading\/(limit-chaser|vi)(\/|$)/);
     }
   });
 
