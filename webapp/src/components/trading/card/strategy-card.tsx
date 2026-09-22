@@ -49,6 +49,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { serverMsgBadge } from "@gh-radar/shared";
 import type {
   RelayExchange,
   RelayLimitChaser,
@@ -687,16 +688,32 @@ function StrategyCardImpl({
 }
 
 /**
- * 카드 인라인 고지 — 토스트 없이 `role="status"` 로만 말한다(D-27 · UI-SPEC 접근성).
+ * 카드 인라인 고지 — 토스트 없이 인라인으로만 말한다(D-27 · UI-SPEC 접근성).
  *
- * ★ 이 카드 **자기** 상태만 그린다 — 다른 카드의 배너·미반영이 여기 설 수 없다(②).
+ * ★ 이 카드 **자기** 상태만 그린다 — 다른 카드의 배너·미반영·거부가 여기 설 수 없다(②).
  * ★ 문구는 옛 상따 화면의 원문 그대로다(「미반영 · 서버 응답을 기다리고 있어요」 등).
+ * ★ 서버 거부(`lastError`)는 `role="alert"` 다 — 상태가 아니라 경보다(T-16-07 · 옛 상태줄 계약 승계).
+ *   18-13 에서 되살렸다: 훅은 계산하고 있었지만 카드가 그리지 않아, 거부가 기본으로 닫힌 공용 패널
+ *   「전략 로그」 탭에만 조용히 쌓였다(로그만 있으면 스크롤 밖에서 지나간다). 출처 배지는
+ *   `serverMsgBadge` **하나**로 판정하는 텍스트 접두다 — 색만으로 가르면 WCAG 1.4.1 위반이다.
  */
 function CardNotices({ card }: { card: StrategyCardState }) {
-  const { banner, unacked } = card;
-  if (banner === null && !unacked) return null;
+  const { banner, unacked, lastError } = card;
+  if (banner === null && !unacked && lastError === null) return null;
   return (
     <div className="flex flex-col gap-1 border-t border-[var(--border-subtle)] px-2.5 py-1.5 text-[length:var(--t-caption)]">
+      {lastError !== null && (
+        <p
+          role="alert"
+          data-slot="card-server-error"
+          className="m-0 min-w-0 break-keep text-[var(--destructive)]"
+        >
+          <span data-slot="card-server-error-src" className="font-semibold">
+            {serverMsgBadge(lastError.src)}
+          </span>{" "}
+          {lastError.text}
+        </p>
+      )}
       {banner !== null && (
         <p role="status" data-slot="card-echo-banner" className="m-0 text-[var(--fg)]">
           {banner}
