@@ -325,6 +325,16 @@ describe('AccountPanel — 미체결 표', () => {
     });
   });
 
+  it('⑤-b 옛 취소 경로 — board G3 · 가격 > 0 행의 요약 「주문가」 는 「시간외종가」 다 (GC-IN-03)', async () => {
+    const user = userEvent.setup();
+    renderPanel({ account: withUnfilled([unf({ board: 'G3', price: 98_000 })]) });
+
+    await user.click(cancelButtons('0000135742')[0]);
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    const dt = Array.from(dialog.querySelectorAll('dt')).find((el) => el.textContent === '주문가');
+    expect(dt?.nextElementSibling?.textContent).toBe('시간외종가');
+  });
+
   it('⑥ 취소 버튼은 테두리형이고 보이는 글자가 「취소」 한 단어다 (--destructive == --up 충돌)', () => {
     renderPanel();
     const buttons = cancelButtons('0000135742');

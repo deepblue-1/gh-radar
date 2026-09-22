@@ -809,6 +809,18 @@ describe('ManualOrderForm — 가격 0 원주문 선택 칩 표기 (CR-01 표시
     expect(chip).not.toHaveTextContent(/매수 0 ×/);
   });
 
+  it('board 빈 값(구 서버) · price 0 행 → 칩 「시간외종가」 · 정정 disabled + 사유 title · 취소 활성 (GC-IN-03)', () => {
+    const row = unf({ board: '', price: 0, exchange: 'KRX' });
+    expect(canModify(row)).toBe(false);
+    renderForm({ selectedUnfilled: row });
+    expect(screen.getByTestId('manual-order-selchip')).toHaveTextContent(
+      `매수 ${OFFHOURS_PRICE_LABEL} × 100`,
+    );
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('정정')).toHaveAttribute('title', '시간외종가 주문은 정정할 수 없어요 · 취소 후 재등록');
+    expect(btn('취소')).toBeEnabled();
+  });
+
   it('가격 > 0 행은 칩이 기존 숫자 표기 그대로다', () => {
     renderForm({ selectedUnfilled: unf() });
     const chip = screen.getByTestId('manual-order-selchip');

@@ -16,6 +16,7 @@ import userEvent from '@testing-library/user-event';
 import {
   OFFHOURS_PRICE_LABEL,
   OrderConfirmDialog,
+  isOffhoursOrder,
   type NewOrderConfirmDetail,
   type OrderConfirmDetail,
 } from '../order-confirm-dialog';
@@ -261,5 +262,33 @@ describe('OrderConfirmDialog — 가격 0 원주문 표기 (CR-01 표시 정합)
       unfilledQty: 40,
     });
     expect(summaryValue(dialog, '주문가')).toBe(OFFHOURS_PRICE_LABEL);
+  });
+});
+
+describe('OrderConfirmDialog — isOffhoursOrder 한 판정 (GC-IN-03 · D-21 · D-23)', () => {
+  it('board G2/G3 이거나 가격 0 이면 시간외종가 원주문이다', () => {
+    expect(isOffhoursOrder({ board: 'G2', price: 5000 })).toBe(true);
+    expect(isOffhoursOrder({ board: 'G3', price: 0 })).toBe(true);
+    // 구 서버(board 빈 값) — 가격 0 이 보완한다.
+    expect(isOffhoursOrder({ board: '', price: 0 })).toBe(true);
+    expect(isOffhoursOrder({ board: '', price: 70_000 })).toBe(false);
+  });
+
+  it('정정 확인 — board G2 · 가격 > 0 원주문(서버가 가격을 실어 옴)의 「원주문」 줄은 「시간외종가」 다', () => {
+    const { dialog } = open({
+      mode: 'modify',
+      side: 'B',
+      stockName: '한미반도체',
+      code: '042700',
+      accountNo: '12345678-01',
+      exchange: 'KRX',
+      orgOrderNo: '3407000077',
+      orgPrice: 128_700,
+      orgQty: 100,
+      board: 'G2',
+      price: 129_000,
+      qty: 10,
+    });
+    expect(summaryValue(dialog, '원주문')).toBe(`3407000077 · 매수 ${OFFHOURS_PRICE_LABEL} × 100`);
   });
 });
