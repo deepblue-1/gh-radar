@@ -68,3 +68,47 @@ export function statusOf(
 export function filledQtyOf(notice: ParsedOrderResp): number | undefined {
   return notice.noticeType === "E" ? notice.quantity : undefined;
 }
+
+/**
+ * `dma_orders.status` 순위 (Phase 18 Plan 33 / R3-WR-01 · D-27). **7종 전부를 화이트리스트로
+ * 적는다** — 모르는 값을 지어내지 않는 이 모듈의 규율이다. `Record<DmaOrderStatus, …>` 라 상태가
+ * 늘면 여기서 컴파일이 깨진다.
+ *
+ *   - `requested`·`timeout` 0 — `timeout` 은 실패가 아니라 **「결과 모름」** 이다(Pitfall 9).
+ *     그래서 늦게 온 접수가 그것을 풀 수 있어야 한다(`timeout → accepted`).
+ *   - `accepted` 1 < `partially_filled` 2 < 종결 3(`filled`·`cancelled`·`rejected`).
+ */
+const STATUS_RANK: Readonly<Record<DmaOrderStatus, number>> = {
+  requested: 0,
+  timeout: 0,
+  accepted: 1,
+  partially_filled: 2,
+  filled: 3,
+  cancelled: 3,
+  rejected: 3,
+};
+
+/** 종결 상태. 종결 사이의 이동(`cancelled → filled` 등)은 금지 — 같은 값 재기록만 허용한다. */
+const TERMINAL: ReadonlySet<DmaOrderStatus> = new Set<DmaOrderStatus>(["filled", "cancelled", "rejected"]);
+
+/**
+ * 「이 상태(`next`)로 갱신해도 되는 **기존** 상태 집합」 — 상태 단조성 판정의 **유일 지점**이다
+ * (Phase 18 Plan 33 / R3-WR-01).
+ *
+ * = `next` 자신 ∪ (종결이 아니고 순위가 `next` 이하인 상태).
+ *
+ * 왜 필요한가: 18-25(GC-WR-01)가 「체결 E(Modify)가 정정 대기를 **먼저** 정산」 하는 경로를
+ * 열었다. 그 뒤 지연된 정정확인 M 은 대기가 없어 `recordUnmatched` 수동 분기로 가고, 방금
+ * 체결로 채운 행을 찾아 `statusOf(M) = "accepted"` 로 덮는다 — 전량 체결된 정정이 감사 기록에
+ * 영구히 「접수」 로 남는다. 통보 순서는 게이트웨이 타이밍이 정하므로 relay 가 도착 순서로
+ * 막을 수 없다. 그래서 **행이 이미 더 진행됐으면 되돌리지 않는다** 를 쓰기 경로의 규칙으로 둔다.
+ *
+ * 이 집합은 `supabaseOrderSink` 가 UPDATE 의 조건부 `status IN (…)` 필터로 쓴다 — 판정은
+ * Postgres 가 UPDATE 한 문장 안에서 원자적으로 한다(읽고 판정하면 큐에 먼저 들어간 갱신과 경합).
+ */
+export function replaceableStatusesOf(next: DmaOrderStatus): readonly DmaOrderStatus[] {
+  const rank = STATUS_RANK[next];
+  return (Object.keys(STATUS_RANK) as DmaOrderStatus[]).filter(
+    (cur) => cur === next || (!TERMINAL.has(cur) && STATUS_RANK[cur] <= rank),
+  );
+}

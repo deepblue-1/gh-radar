@@ -51,6 +51,7 @@ import type {
 
 import type { OrderOriginKind } from "../dma/envelope.js";
 import { logger } from "../logger.js";
+import { replaceableStatusesOf } from "../order/notice-status.js";
 import { safePgError } from "./pg-error.js";
 
 // ============================================================
@@ -324,6 +325,19 @@ export type OrderStoreStats = {
  * `id` 셀렉터는 한 축으로 충분하다(PK). **`order_no` 셀렉터는 사용자·당일까지 세 축으로
  * 좁힌다 — 한 축만으로는 전역 쓰기다** (gap 1 / T-16-14). 브로커 주문번호는 일별 재사용
  * 시퀀스라 `order_no` 단독 `.eq()` 는 다른 사용자·어제 행까지 덮는다.
+ *
+ * ★ **상태 단조성 (Phase 18 Plan 33 / R3-WR-01 · D-27).** 값에 `status` 가 있으면 UPDATE 에
+ *   조건부 필터 `status IN (replaceableStatusesOf(목표))` 를 건다 — 이미 더 진행된 행(예:
+ *   체결로 끝난 정정 행)을 늦게 도착한 확인 통보(정정확인 M → `accepted`)가 되돌리지 못한다.
+ *   통보 순서는 게이트웨이 타이밍이 정하므로 도착 순서로는 막을 수 없다.
+ *   · **왜 relay 필터인가.** 판정은 Postgres 가 UPDATE 한 문장 안에서 원자적으로 한다 —
+ *     마이그레이션·트리거가 필요 없고(원격 반영 사람 게이트 없음), `recordUnmatched` 에서 행을
+ *     먼저 읽고 판정하는 안처럼 **큐(200ms)에 먼저 들어간 갱신과 경합하지** 않는다.
+ *   · **막힌 갱신은 통째로 반영되지 않는다.** `status` 만 빼고 나머지를 싣지 않는 이유는, 늦은
+ *     확인이 `notice_type`·`message` 까지 덮으면 행이 「체결 상태 + 정정확인 통보」 라는 서로
+ *     모순된 기록이 되기 때문이다. 막힘은 warn 로그 1줄 + `{applied:false}`(`flushedNoop`)로
+ *     드러난다 — 드롭·재시도가 아니다(이유를 아는 무동작 · S-5).
+ *   · `status` 가 없는 값(체결수량만·주문번호만)은 쿼리 모양이 이전과 같다.
  */
 export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
   return async (sel, patch) => {
@@ -332,19 +346,52 @@ export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
      * 두 자리에 손으로 적으면 언젠가 한쪽이 3축(`order_no`+`user_id`+당일)을 잃고, 그것이
      * 곧 전역 쓰기다 (gap 1 / T-16-14).
      */
-    const runUpdate = async (values: OrderRowPatch): Promise<{ error: unknown }> => {
+    //
+    // 상태 단조성 필터(R3-WR-01)도 여기서만 붙는다 — 최초 시도와 `23505` 재시도가 같은 필터를
+    // 받는다. 반환 `blocked` 는 「이 쿼리에 가드가 걸렸고, 오류 없이 **0행**이었다」 이다.
+    const runUpdate = async (
+      values: OrderRowPatch,
+    ): Promise<{ error: unknown; blocked: boolean }> => {
       const table = supabase.from("dma_orders");
-      if (sel.column === "id") return await table.update(values).eq("id", sel.value);
-      const { from, to } = kstDayRangeUtc();
-      return await table
-        .update(values)
-        .eq("order_no", sel.value)
-        .eq("user_id", sel.userId)
-        .gte("created_at", from)
-        .lt("created_at", to);
+      let query =
+        sel.column === "id"
+          ? table.update(values).eq("id", sel.value)
+          : (() => {
+              const { from, to } = kstDayRangeUtc();
+              return table
+                .update(values)
+                .eq("order_no", sel.value)
+                .eq("user_id", sel.userId)
+                .gte("created_at", from)
+                .lt("created_at", to);
+            })();
+      const next = typeof values.status === "string" ? (values.status as DmaOrderStatus) : undefined;
+      if (next === undefined) {
+        const { error } = await query;
+        return { error, blocked: false };
+      }
+      query = query.in("status", [...replaceableStatusesOf(next)]);
+      const { data, error } = await query.select("id");
+      return { error, blocked: !error && Array.isArray(data) && data.length === 0 };
     };
 
-    const { error } = await runUpdate(patch);
+    /** 가드에 막힌 갱신 1건의 로그. 주문번호·계좌 원문을 싣지 않는다 (T-16-45). */
+    const logBlocked = (values: OrderRowPatch): void => {
+      logger.warn(
+        {
+          column: sel.column,
+          status: values.status,
+          noticeType: typeof values.notice_type === "string" ? values.notice_type : null,
+        },
+        "[orders] 상태 단조성 — 더 진행된 행을 되돌리는 갱신이라 반영하지 않았다(또는 대상 행 없음)",
+      );
+    };
+
+    const { error, blocked } = await runUpdate(patch);
+    if (blocked) {
+      logBlocked(patch);
+      return { applied: false };
+    }
     if (error) {
       // ★ `order_no` 를 채우는 갱신의 `23505`(부분 UNIQUE 위반) 만 예외다
       //   (16-28 / GC-WR-08 · T-16-53, 포기 단위는 16-39 / R2-WR-01 이 좁혔다).
@@ -389,7 +436,13 @@ export function supabaseOrderSink(supabase: SupabaseClient): OrderUpdateSink {
           //   같은 형태다.
           return { applied: false };
         }
-        const { error: retryError } = await runUpdate(rest);
+        const { error: retryError, blocked: retryBlocked } = await runUpdate(rest);
+        if (retryBlocked) {
+          // 주문번호는 충돌로 포기했고, 나머지는 상태 단조성 가드에 막혔다 — 반영된 것이 없다.
+          // 「order_no 만 포기하고 나머지는 반영했다」 로그는 실제로 반영했을 때만 남긴다.
+          logBlocked(rest);
+          return { applied: false };
+        }
         if (retryError) {
           // 이것은 「이유를 아는 실패」가 아니다 — 던져서 `#drain` 의 재시도·드롭 규율을 타야
           // 한다. 여기서 삼키면 결손이 카운터에도 남지 않는다 (S-5).

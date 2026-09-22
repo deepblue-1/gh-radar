@@ -44,8 +44,15 @@ import { ORDER_RESP_TIMEOUT_MS } from "../src/order/notice-status.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
-import type { OrderInsertRow, OrderUpdate } from "../src/store/orders.js";
+import {
+  OrderStore,
+  kstDayRangeUtc,
+  supabaseOrderSinks,
+  type OrderInsertRow,
+  type OrderUpdate,
+} from "../src/store/orders.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
+import { fakeDmaOrders, type FakeRow } from "./helpers/fake-dma-orders.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN } from "./helpers/frames.js";
@@ -1608,6 +1615,131 @@ describe("wss 주문 경로 (D-02)", () => {
       status: "partially_filled",
       filledQty: 4,
     });
+  });
+
+  // ----------------------------------------------------------
+  // 상태 단조성 — 늦은 확인 통보 (18-33 / R3-WR-01)
+  // ----------------------------------------------------------
+
+  /**
+   * 진짜 `OrderStore(supabaseOrderSinks(가짜 PostgREST))` 로 하네스를 다시 세운다.
+   *
+   * 위 케이스들의 `mkOrderStore` 스텁은 「어떤 갱신이 큐에 들어가는가」만 본다. R3-WR-01 은
+   * 「그 갱신이 **행에** 무엇을 남기는가」의 결함이라 스텁으로는 재현되지 않는다 — 조건부
+   * UPDATE 를 실제로 거르는 공용 가짜가 필요하다. `start()` 는 부르지 않는다(가짜 타이머
+   * 환경이다) — 대신 `flushNow()` 를 명시 호출한다.
+   */
+  async function restartWithRealStore(seed: FakeRow[] = []): Promise<{
+    store: OrderStore;
+    fake: ReturnType<typeof fakeDmaOrders>;
+  }> {
+    const fake = fakeDmaOrders(seed);
+    const store = new OrderStore(supabaseOrderSinks(fake.supabase));
+    await fanout.close();
+    await sessions.closeAll();
+    hub.closeAll();
+    await new Promise<void>((r) => server.close(() => r()));
+    await startHarness({ orderStore: store });
+    return { store, fake };
+  }
+
+  /** 정정 → 전량 체결 E(org X · Modify · Y · 10주) 가 정정 대기를 먼저 정산한다 (㊸ 의 전량 판). */
+  async function modifySettledByFill(
+    store: OrderStore,
+    fake: ReturnType<typeof fakeDmaOrders>,
+  ): Promise<{ inbox: RelayOutbound[]; modifyRow: FakeRow }> {
+    const { ws, inbox } = await authed("token-a");
+    ws.sendRaw(orderModify({ rid: "rid-m", qty: 10, price: 71_000 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "E",
+      orderNo: "0000012400",
+      orgOrderNo: "0000012345",
+      requestKind: "Modify",
+      side: "B",
+      quantity: 10,
+      price: 71_000,
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length >= 1, "정정 체결 order.result");
+    expect(framesOf(inbox, "order.result")[0]).toMatchObject({ rid: "rid-m", status: "filled" });
+    await store.flushNow();
+
+    const modifyRow = fake.rows.find((r) => r.order_no === "0000012400");
+    expect(modifyRow).toMatchObject({ status: "filled", notice_type: "E", filled_qty: 10 });
+    return { inbox, modifyRow: modifyRow as FakeRow };
+  }
+
+  /** 늦은 정정확인 M 을 밀어 넣고, 기록 경로의 조회가 끝난 뒤 큐를 비운다. */
+  async function pushLateModifyConfirm(
+    store: OrderStore,
+    fake: ReturnType<typeof fakeDmaOrders>,
+    orderNo: string,
+  ): Promise<void> {
+    const selectsBefore = fake.queries.filter((q) => q.verb === "select").length;
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "M",
+      orderNo,
+      orgOrderNo: "0000012345",
+      requestKind: "Modify",
+      side: "B",
+      quantity: 10,
+      price: 71_000,
+    });
+    await waitFor(
+      () => fake.queries.filter((q) => q.verb === "select").length > selectsBefore,
+      "늦은 M 의 기존 행 조회",
+    );
+    await flushIo(8);
+    await store.flushNow();
+  }
+
+  it("㊹ 전량 체결 E 가 정정을 정산한 뒤 도착한 늦은 정정확인 M 은 정정 행을 filled → accepted 로 되돌리지 않는다 (R3-WR-01)", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { store, fake } = await restartWithRealStore();
+
+    const { modifyRow } = await modifySettledByFill(store, fake);
+    const noopBefore = store.stats().flushedNoop;
+
+    // M 의 주문번호 = 정정 주문번호 Y — `findIdByOrderNo(Y)` 가 방금 체결로 채운 정정 행을 찾는다.
+    await pushLateModifyConfirm(store, fake, "0000012400");
+
+    expect({
+      status: modifyRow.status,
+      notice_type: modifyRow.notice_type,
+      filled_qty: modifyRow.filled_qty,
+    }).toEqual({ status: "filled", notice_type: "E", filled_qty: 10 });
+    // 막힌 갱신은 조용히 사라지지 않는다 — 「이유를 아는 무동작」으로 센다 (S-5).
+    expect(store.stats().flushedNoop).toBeGreaterThanOrEqual(noopBefore + 1);
+    expect(store.stats().dropped).toBe(0);
+  });
+
+  it("㊺ 늦은 M 의 주문번호가 원주문 X 면 부분체결된 원주문 행을 덮지 않는다 — 정정 행도 filled 그대로다 (R3-WR-01)", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { from } = kstDayRangeUtc();
+    const original: FakeRow = {
+      id: "row-original-x",
+      user_id: USER_A,
+      order_no: "0000012345",
+      created_at: new Date(new Date(from).getTime() + 3600_000).toISOString(),
+      status: "partially_filled",
+      notice_type: "E",
+      filled_qty: 6,
+    };
+    const { store, fake } = await restartWithRealStore([original]);
+
+    const { modifyRow } = await modifySettledByFill(store, fake);
+    await pushLateModifyConfirm(store, fake, "0000012345");
+
+    expect({
+      status: original.status,
+      notice_type: original.notice_type,
+      filled_qty: original.filled_qty,
+    }).toEqual({ status: "partially_filled", notice_type: "E", filled_qty: 6 });
+    expect(modifyRow.status).toBe("filled");
+    expect(store.stats().dropped).toBe(0);
   });
 });
 
