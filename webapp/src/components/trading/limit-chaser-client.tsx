@@ -85,6 +85,7 @@ import {
   type SelectedStock,
 } from "@/components/trading/workbench/stock-add-bar";
 import { useIsinLabels } from "@/lib/isin-labels";
+import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { parseStrategyKey } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import type { RelayStatus } from "@/lib/use-relay-socket";
@@ -100,10 +101,6 @@ export {
   strategyStatusOf,
   type StrategyStatus,
 } from "@/components/trading/card/strategy-card";
-
-/** 이탈 경고 문구 — UI-SPEC §CTA verbatim. `beforeunload` 와 라우터 가드가 **같은 말**을 쓴다. */
-const LEAVE_WARNING =
-  "수정하지 않은 값이 있어요. 이 페이지를 벗어나면 사라져요.";
 
 const KRW = new Intl.NumberFormat("ko-KR");
 
@@ -184,7 +181,7 @@ function LimitChaserSurface({ routeKey }: { routeKey?: string }) {
     handleServerEcho,
   } = card;
 
-  /* ── 이탈 경고 (조작 규율 7) ──────────────────────────────────────────── */
+  /* ── 이탈 경고 (조작 규율 7) — 정의는 `lib/use-leave-warning.ts`(18-11 이동) ── */
   useLeaveWarning(dirtyCount > 0);
 
   /* ── 파생 표시값 ──────────────────────────────────────────────────────── */
@@ -696,49 +693,4 @@ function Dot({
       )}
     />
   );
-}
-
-/**
- * 이탈 경고 — 더티일 때**만** 건다 (조작 규율 7).
- *
- * ★ 확인 창을 **브라우저 것**으로 쓴다. UI-SPEC D6 이 앱 다이얼로그를 4개로 못박았고
- *   (VI 시작 · VI 중지 · 전체 비활성화 · 미체결 취소), 이탈 경고는 그 목록에 없다.
- *   `beforeunload`(새로고침·탭 닫기)와 라우터 가드(링크 클릭)가 **같은 문구**를 쓴다.
- * ★ 더티가 0 이면 리스너를 아예 걸지 않는다 — 항상 걸어 두고 안에서 분기하면 「저장할 게
- *   없는데 나갈 때마다 물어보는 화면」이 되고, 사용자는 곧 경고를 읽지 않게 된다.
- */
-function useLeaveWarning(dirty: boolean): void {
-  useEffect(() => {
-    if (!dirty) return;
-
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = LEAVE_WARNING;
-    };
-
-    const onClick = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-        return;
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const anchor = target.closest("a[href]");
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank")
-        return;
-      const url = new URL(anchor.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname) return;
-      if (window.confirm(LEAVE_WARNING)) return; // 나가겠다고 했다
-      event.preventDefault();
-      event.stopPropagation();
-    };
-
-    window.addEventListener("beforeunload", onBeforeUnload);
-    // capture 단계에서 잡아야 Next `<Link>` 의 핸들러보다 먼저 막을 수 있다.
-    document.addEventListener("click", onClick, true);
-    return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      document.removeEventListener("click", onClick, true);
-    };
-  }, [dirty]);
 }

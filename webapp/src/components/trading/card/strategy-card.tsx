@@ -584,6 +584,11 @@ export interface StrategyCardProps {
   onInfo?: (isin: string) => void;
   /** 더티 필드 수 보고 — 작업대가 합산해 이탈 경고를 **한 곳에서** 건다(카드마다 걸지 않는다). */
   onDirtyCountChange?: (isin: string, count: number) => void;
+  /**
+   * 이 카드의 전략 로그 보고(18-11) — 작업대 공용 패널 「전략 로그」 탭이 전 종목 로그를 한 목록으로
+   * 합친다. 로그 **판정·생성**은 여전히 카드 훅 한 곳이고, 작업대는 받은 줄을 합쳐 보여주기만 한다.
+   */
+  onLogChange?: (isin: string, log: readonly StrategyLogEntry[]) => void;
   /** 본문 자리(⑤) — 18-10 `card-body.tsx` 가 채운다. `open` 일 때만 불린다. */
   body?: (card: StrategyCardState) => ReactNode;
 }
@@ -605,14 +610,19 @@ function StrategyCardImpl({
   onExchangeChange,
   onInfo,
   onDirtyCountChange,
+  onLogChange,
   body,
 }: StrategyCardProps) {
   const card = useStrategyCardState({ isin, accountNo, exchange });
-  const { key, server, quote, ledServer, handleArm, dirtyCount } = card;
+  const { key, server, quote, ledServer, handleArm, dirtyCount, log } = card;
 
   useEffect(() => {
     onDirtyCountChange?.(isin, dirtyCount);
   }, [onDirtyCountChange, isin, dirtyCount]);
+
+  useEffect(() => {
+    onLogChange?.(isin, log);
+  }, [onLogChange, isin, log]);
 
   const idBase = `strategy-card-${domSafe(isin)}`;
   const toggleId = `${idBase}-toggle`;

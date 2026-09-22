@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 export type DmaGateReason = "unauthenticated" | "unmapped";
 
 /** 막힌 표면 이름. 본문 문장에 그대로 들어간다(UI-SPEC 표의 `{...}` 자리). */
-export type DmaGateSurface = "상따 전략" | "VI 자동매수" | "전략·잔고·미체결";
+export type DmaGateSurface = "상따 전략" | "VI 자동매수" | "전략·잔고·미체결" | "트레이딩";
 
 export interface DmaGateProps {
   reason: DmaGateReason;

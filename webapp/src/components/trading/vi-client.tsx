@@ -59,8 +59,9 @@ import { DmaGate, useDmaGateReason } from '@/components/trading/dma-gate';
 import { ViOrderList } from '@/components/trading/vi-order-list';
 import { VI_ACK_TIMEOUT_MS, ViSettingsCard } from '@/components/trading/vi-settings-card';
 import { useRelayContext } from '@/lib/relay-provider';
-import { isViServerMessage, notifyViEnd, readViAlertEnabled, scheduleViAlert } from '@/lib/vi-alert';
-import { viOrderKey, type RelayServerMessageEntry, type RelayStatus } from '@/lib/use-relay-socket';
+import { useViEndAlerts } from '@/lib/use-vi-end-alerts';
+import { isViServerMessage, readViAlertEnabled } from '@/lib/vi-alert';
+import type { RelayServerMessageEntry, RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
 /** 발동 통보 금액 포맷 — 상태줄의 `.mono` 고정폭 계약과 같은 축이다. */
@@ -627,44 +628,4 @@ function LeaveWarning({ dirty }: { dirty: boolean }) {
     };
   }, [dirty]);
   return null;
-}
-
-/**
- * VI 마감 알림 타이머 (⑦).
- *
- * 주문 1건당 타이머 하나. 73 델타는 **같은 주문을 여러 번** 실어 오므로 키로 중복을 막지
- * 않으면 한 종목이 여러 번 울린다. 스위치가 꺼져 있으면 타이머 자체를 걸지 않는다 —
- * 걸어 두고 발화 시점에 판단하면, 끄고 나서도 이미 걸린 알림이 울린다.
- */
-function useViEndAlerts(items: readonly { viEndTime: string; isin: string; name?: string; orderNo: string; accountNo: string; triggerPrice: number }[], enabled: boolean): void {
-  const timers = useRef(new Map<string, number>());
-
-  useEffect(() => {
-    const map = timers.current;
-    if (!enabled) return;
-    for (const item of items) {
-      const key = viOrderKey(item as Parameters<typeof viOrderKey>[0]);
-      if (map.has(key)) continue;
-      const { at } = scheduleViAlert(item);
-      const delay = at.getTime() - Date.now();
-      if (delay <= 0) continue; // 이미 지난 알림은 만들지 않는다(뒤늦은 알림은 소음이다)
-      const label = item.name !== undefined && item.name !== '' ? item.name : item.isin;
-      map.set(
-        key,
-        window.setTimeout(() => {
-          map.delete(key);
-          notifyViEnd(label);
-        }, delay),
-      );
-    }
-  }, [items, enabled]);
-
-  // 언마운트 시 전부 정리 — 화면을 떠난 뒤 울리는 알림은 사용자가 원인을 찾을 수 없다.
-  useEffect(() => {
-    const map = timers.current;
-    return () => {
-      for (const id of map.values()) window.clearTimeout(id);
-      map.clear();
-    };
-  }, []);
 }

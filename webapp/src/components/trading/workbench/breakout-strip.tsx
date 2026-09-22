@@ -90,6 +90,11 @@ export interface BreakoutStripProps {
   onFocusCard: (isin: string) => void;
   /** 행 ✕ 로 지웠다. 「지운 종목」 기록은 이 컴포넌트가 이미 했다 — 알림용 콜백이다. */
   onDismiss?: (isin: string) => void;
+  /**
+   * 그린 행 수 · 30초 강조(신규) 행 수 보고(18-11) — 작업대 상태줄 「돌파 N · 신규 M」 이 스트립과
+   * **같은 값**을 말하게 한다. 상태줄이 원본 배열을 따로 세면 지운·이탈 행 때문에 두 숫자가 갈린다.
+   */
+  onCountsChange?: (counts: { total: number; fresh: number }) => void;
   className?: string;
 }
 
@@ -114,6 +119,7 @@ export function BreakoutStrip({
   onAddCard,
   onFocusCard,
   onDismiss,
+  onCountsChange,
   className,
 }: BreakoutStripProps) {
   const [open, setOpen] = useState(false);
@@ -227,6 +233,10 @@ export function BreakoutStrip({
     }),
   );
   const newCount = views.filter((v) => v.highlighted).length;
+
+  useEffect(() => {
+    onCountsChange?.({ total: rows.length, fresh: newCount });
+  }, [onCountsChange, rows.length, newCount]);
 
   return (
     <div data-slot="breakout" className={cn('flex min-w-0 flex-col gap-1.5', className)}>
