@@ -23,9 +23,8 @@
  *   원문**(`RelayTapeEntry.bs` — `"2"` 매수 · `"1"` 매도 · `""` 미상)을 실어 온다.
  *   `tapeSidesOf` 가 그 값을 먼저 쓰고, **`""` 인 원소만** 국내 HTS 관례대로
  *   `deriveTapeSides`(최우선호가 비교 → 직전 체결가 틱 규칙)로 추정한다.
- *   ★ 하단 고지는 **실제로 쓴 근거**를 말한다 — 폴백을 한 건도 안 썼으면 「추정」이라고
- *     하지 않는다. 서버가 준 값을 추정이라 하는 것도, 추정을 확정 사실처럼 그리는 것도
- *     똑같이 화면이 거짓말하는 것이다(오주문 유발 차단).
+ *   이력: 수량 색 근거를 밝히던 하단 설명 문구는 사용자 요청으로 제거했다(quick-260922-tqr) —
+ *   판정(서버값 우선 · 미상만 추정)과 수량 색 · sr-only 는 그대로다.
  *
  * ★ 갱신 피드백 규율 (UI-SPEC §실시간 갱신 시각 피드백, T-15-45):
  *   - 200ms 배치 단위로 **1회** 플래시. **행마다 개별 애니메이션 금지.**
@@ -59,15 +58,6 @@ const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklch,var(--fg)_14%,transparent)]
 const FLASH_FADE =
   'motion-safe:transition-[background-color] motion-safe:duration-150 motion-reduce:transition-none';
 
-/**
- * 하단 고지 — 표시된 모든 체결이 **거래소 체결구분 원문**을 따랐을 때 (D-10).
- * 추정을 한 건도 쓰지 않았으므로 「추정」이라고 말하지 않는다.
- */
-const SIDE_NOTE_SERVER = '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요';
-/** 하단 고지 — 체결구분이 없는 체결이 하나라도 섞여 추정으로 채웠을 때 (D-10). */
-const SIDE_NOTE_FALLBACK =
-  '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요';
-
 export interface TradeTapeProps {
   /** 훅의 `tape`. **최신이 index 0** 이다. */
   entries: RelayTapeEntry[];
@@ -86,7 +76,7 @@ export interface TradeTapeProps {
    *   렌더 결과 불변이 이 옵션의 계약이다.
    * 켜면: `<thead>` 없음 · 시각 `MM:SS` · 셀 10px · 행 24px · `max-h-[200px]` ·
    * 셀 패딩 `px-1` · 스크롤 영역에 `tabIndex={0}`.
-   * 그대로 남는 것: 핀 버튼 · 배치 플래시 · 수량 색 · `sr-only` 매수/매도 · 하단 고지 라벨.
+   * 그대로 남는 것: 핀 버튼 · 배치 플래시 · 수량 색 · `sr-only` 매수/매도.
    */
   compact?: boolean;
   className?: string;
@@ -167,12 +157,10 @@ export function deriveTapeSides(
   return sides;
 }
 
-/** `tapeSidesOf` 결과. `usedFallback` 이 하단 고지 문구의 **유일한** 입력이다. */
+/** `tapeSidesOf` 결과. */
 export interface TapeSidesResult {
   /** 입력과 같은 순서(최신이 index 0)의 체결 구분. */
   sides: TapeSide[];
-  /** 한 원소라도 추정으로 채웠으면 true. */
-  usedFallback: boolean;
 }
 
 /**
@@ -180,7 +168,7 @@ export interface TapeSidesResult {
  *
  * `bs` 는 거래소 원문(`"2"` 매수 · `"1"` 매도 · `""` 미상)이라 추정할 이유가 없다.
  * `""` 인 원소가 하나도 없으면 `deriveTapeSides` 를 **호출조차 하지 않는다** — 매 배치마다
- * O(n) 추정을 돌릴 이유가 없고, 「추정을 쓰지 않았다」가 고지 문구의 근거이기도 하다.
+ * O(n) 추정을 돌릴 이유가 없다.
  *
  * ★ `derive` 는 **테스트 이음매**다. 기본값이 `deriveTapeSides` 라 호출부 계약은
  *   `tapeSidesOf(entries, bestAsk, bestBid)` 3인자 그대로다. 「전부 서버값이면 추정을
@@ -193,18 +181,18 @@ export function tapeSidesOf(
   bestBid?: number,
   derive: typeof deriveTapeSides = deriveTapeSides,
 ): TapeSidesResult {
-  const usedFallback = entries.some((e) => e.bs !== '1' && e.bs !== '2');
+  const needsFallback = entries.some((e) => e.bs !== '1' && e.bs !== '2');
   /*
     추정은 **배열 전체를 한 번에** 돈다(원소마다 부르지 않는다) — zero-tick 상속이
     이웃 원소를 보는 규칙이라 조각내면 뜻이 달라진다. 폴백이 필요 없으면 아예 부르지 않는다.
   */
-  const derived = usedFallback ? derive(entries, bestAsk, bestBid) : null;
+  const derived = needsFallback ? derive(entries, bestAsk, bestBid) : null;
   const sides = entries.map((e, i) => {
     if (e.bs === '2') return 'B' as TapeSide;
     if (e.bs === '1') return 'S' as TapeSide;
     return derived![i];
   });
-  return { sides, usedFallback };
+  return { sides };
 }
 
 /** 배치 경계 판정용 콘텐츠 키 — 스냅샷 교체(객체 신원 변경)에도 견딘다. */
@@ -234,7 +222,7 @@ export function TradeTape({
 
   // 링버퍼 상한을 컴포넌트에서도 강제한다 — 훅이 이미 자르지만 이 표면의 계약이기도 하다.
   const rows = useMemo(() => entries.slice(0, MAX_TAPE), [entries]);
-  const { sides, usedFallback } = useMemo(
+  const { sides } = useMemo(
     () => tapeSidesOf(rows, bestAsk, bestBid),
     [rows, bestAsk, bestBid],
   );
@@ -459,15 +447,6 @@ export function TradeTape({
           </tbody>
         </table>
       </div>
-
-      {/*
-        근거를 밝히는 마이크로 라벨(11px). ★ **실제로 쓴 근거만** 말한다 — 서버 체결구분이
-        전부 왔는데 「추정」이라고 하면 그 고지 자체가 거짓이 된다(D-10). 판정 입력은
-        `usedFallback` 하나뿐이고, 분기 인라인 문구를 두지 않는다.
-      */}
-      <p className="border-t border-[var(--border-subtle)] px-[var(--s-2)] pt-1 text-[11px] text-[var(--muted-fg)]">
-        {usedFallback ? SIDE_NOTE_FALLBACK : SIDE_NOTE_SERVER}
-      </p>
     </div>
   );
 }

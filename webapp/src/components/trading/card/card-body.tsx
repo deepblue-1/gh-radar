@@ -323,14 +323,6 @@ export function CardBody({
           recentTrades={tape}
           onPriceSelect={handlePriceSelect}
         />
-        {/*
-          체결 수량 색의 근거(UI-SPEC §호가·체결). **3단 표 밴드에서만** 이 줄을 둔다 — 2단·1단
-          트리는 사다리 아래 compact 체결 테이프가 같은 근거 문장을 이미 달고 있어, 여기서도
-          그리면 같은 말이 두 줄로 선다(브라우저 실측).
-        */}
-        <p className="m-0 mt-1 hidden text-[11px] leading-snug text-[var(--muted-fg)] @min-[830px]/lc:block">
-          수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요
-        </p>
       </div>
       <div data-slot="card-body-options" className="min-w-0 p-2 @min-[700px]/lc:p-2.5">
         <ManualOrderEntry

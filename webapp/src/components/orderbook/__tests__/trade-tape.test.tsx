@@ -82,7 +82,6 @@ describe('tapeSidesOf (17-08 / D-10)', () => {
 
     const result = tapeSidesOf(entries, ASK1, BID1, derive);
     expect(result.sides).toEqual(['S', 'B']);
-    expect(result.usedFallback).toBe(false);
     // 「결과만 같고 추정은 돌려놓고 버렸다」와 구분하는 유일한 단언이다.
     expect(derive).not.toHaveBeenCalled();
   });
@@ -102,7 +101,6 @@ describe('tapeSidesOf (17-08 / D-10)', () => {
 
     const result = tapeSidesOf(entries, ASK1, BID1, derive);
     expect(result.sides).toEqual(['S', 'B']);
-    expect(result.usedFallback).toBe(true);
     // 추정은 **원소마다가 아니라 한 번**만 돈다 — zero-tick 상속이 배열 전체를 봐야 한다.
     expect(derive).toHaveBeenCalledTimes(1);
   });
@@ -121,7 +119,7 @@ describe('tapeSidesOf (17-08 / D-10)', () => {
 });
 
 describe('TradeTape', () => {
-  it('⑫ 서버 체결구분이 전부 오면 수량 색·sr-only 가 그 값을 따르고 고지가 「서버 기준」이라 말한다 (D-10)', () => {
+  it('⑫ 서버 체결구분이 전부 오면 수량 색·sr-only 가 서버값을 따르고, 하단 설명 문구는 없다 (D-10)', () => {
     const { container } = render(
       <TradeTape
         entries={[
@@ -144,15 +142,13 @@ describe('TradeTape', () => {
     expect(qty[0].querySelector('.sr-only')?.textContent?.trim()).toBe('매도');
     expect(qty[1].querySelector('.sr-only')?.textContent?.trim()).toBe('매수');
 
-    // 폴백 0건 → 근거를 사실대로 말한다. 「추정」이라고 하지 않는다.
-    expect(
-      screen.getByText('수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요'),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/추정했어요/)).toBeNull();
+    // 하단 설명 문구는 제거됐다(quick-260922-tqr) — 판정은 색·sr-only 로만 드러난다.
+    expect(screen.queryByText(/체결구분/)).toBeNull();
+    expect(screen.queryByText(/추정/)).toBeNull();
   });
 
-  it('⑬ 체결구분이 없는 체결이 하나라도 섞이면 고지가 **일부 추정**임을 함께 말한다 (D-10)', () => {
-    render(
+  it('⑬ 체결구분 없는 체결이 섞이면 그 행만 추정으로 칠하고, 설명 문구는 없다 (D-10)', () => {
+    const { container } = render(
       <TradeTape
         entries={[
           entry({ p: ASK1, bs: '1', t: '093017000000' }),
@@ -165,13 +161,18 @@ describe('TradeTape', () => {
       />,
     );
 
-    expect(
-      screen.getByText(
-        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
-      ),
-    ).toBeInTheDocument();
-  });
+    const qty = Array.from(container.querySelectorAll('tbody tr')).map(
+      (r) => r.children[2] as HTMLElement,
+    );
+    // 0행 = 서버 매도("1") 그대로 · 1행 = 미상 → 98,200 ≥ 매도1 이라 추정 매수.
+    expect(qty[0].className).toContain('text-[var(--down)]');
+    expect(qty[0].querySelector('.sr-only')?.textContent?.trim()).toBe('매도');
+    expect(qty[1].className).toContain('text-[var(--up)]');
+    expect(qty[1].querySelector('.sr-only')?.textContent?.trim()).toBe('매수');
 
+    expect(screen.queryByText(/체결구분/)).toBeNull();
+    expect(screen.queryByText(/추정/)).toBeNull();
+  });
 
   it('③ 최신이 맨 위이고 매수/매도를 **수량 색 + sr-only 라벨**로 병기한다 (WCAG 1.4.1)', () => {
     const { container } = render(
@@ -274,14 +275,19 @@ describe('TradeTape', () => {
     expect(row.className).toContain('[&>td]:whitespace-nowrap');
   });
 
-  it('⑧ 구분이 추정임을 화면에 밝힌다 (서버가 `bs` 를 주지 않은 체결만 추정이다)', () => {
-    // `tape()` 픽스처는 `bs: ''`(구 서버) — 전 원소가 폴백이라 「일부 추정」 고지가 뜬다.
-    render(<TradeTape entries={tape([98_200])} isStale={false} basePrice={BASE} />);
-    expect(
-      screen.getByText(
-        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
-      ),
-    ).toBeInTheDocument();
+  it('⑧ 서버가 `bs` 를 주지 않은 체결은 추정으로 칠하고, 설명 문구는 없다', () => {
+    // `tape()` 픽스처는 `bs: ''`(구 서버) — 전 원소가 추정 갈래다.
+    const entries = tape([98_200]);
+    const { container } = render(<TradeTape entries={entries} isStale={false} basePrice={BASE} />);
+
+    const expected = deriveTapeSides(entries).map((side) => (side === 'B' ? '매수' : '매도'));
+    const srOnly = Array.from(container.querySelectorAll('tbody tr')).map((r) =>
+      (r.children[2] as HTMLElement).querySelector('.sr-only')?.textContent?.trim(),
+    );
+    expect(srOnly).toEqual(expected);
+
+    expect(screen.queryByText(/체결구분/)).toBeNull();
+    expect(screen.queryByText(/추정/)).toBeNull();
   });
 });
 
@@ -375,19 +381,16 @@ describe('⑩ TradeTape compact (260911-w5h)', () => {
     expect(cols[2]!.className).toContain('w-[32%]');
   });
 
-  it('compact 에서도 핀 버튼 · 수량 sr-only · 하단 고지 라벨이 전부 남는다', () => {
+  it('compact 에서도 핀 버튼 · 수량 sr-only 가 남는다 (하단 설명 문구는 없다)', () => {
     const { container, rerender } = render(
       <TradeTape compact entries={rows()} isStale={false} basePrice={BASE} />,
     );
 
     // 수량 색의 비색 경로.
     expect(screen.getAllByText(/매수|매도/, { selector: '.sr-only' }).length).toBeGreaterThan(0);
-    // 하단 고지(이 픽스처는 `bs: ''` 라 폴백 갈래다).
-    expect(
-      screen.getByText(
-        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
-      ),
-    ).toBeInTheDocument();
+    // 하단 설명 문구는 제거됐다(quick-260922-tqr).
+    expect(screen.queryByText(/체결구분/)).toBeNull();
+    expect(screen.queryByText(/추정/)).toBeNull();
 
     // 스크롤을 내린 뒤 새 체결이 들어오면 핀 버튼이 뜬다.
     fireEvent.scroll(scroller(container), { target: { scrollTop: 120 } });
