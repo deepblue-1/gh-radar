@@ -427,6 +427,55 @@ describe('TradingWorkbench — 사이드바 포커스 요청 (18-12 · 이미 /t
   });
 });
 
+describe('TradingWorkbench — WR-05 — 같은 종목의 두 번째 전략 (D-03 · T-18-92 · T-18-93)', () => {
+  /*
+    ★ 이 describe 는 `cardProps` Map 을 쓰지 않는다 — 스텁 기록 축이 카드 1장 = 1 키가 아닐 수 있어
+      두 카드를 구분하지 못한다. 단언은 DOM 의 `data-key` · `data-open` 만 본다.
+  */
+  const X = 'KR7086520004';
+  const OTHER = '99999999901';
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+
+  it('같은 ISIN · 같은 계좌의 KRX · NXT 두 전략 → 카드 2장, 각자 자기 키', () => {
+    mockRelay = relay({ limitChasers: [lc(X), lc(X, { exchange: 'NXT' })] });
+    render(<TradingWorkbench />);
+    expect(cardsInDom().map((c) => c.getAttribute('data-key'))).toEqual([
+      `${X}:${ACCOUNT}:KRX`,
+      `${X}:${ACCOUNT}:NXT`,
+    ]);
+  });
+
+  it('같은 ISIN 의 계좌 A · B 두 전략 → 카드 2장', () => {
+    mockRelay = relay({ limitChasers: [lc(X), lc(X, { accountNo: OTHER })] });
+    render(<TradingWorkbench />);
+    expect(cardsInDom().map((c) => c.getAttribute('data-key'))).toEqual([
+      `${X}:${ACCOUNT}:KRX`,
+      `${X}:${OTHER}:KRX`,
+    ]);
+  });
+
+  it('사이드바 요청 X:A:NXT → NXT 카드만 펼쳐지고 KRX 카드는 접힌 그대로', () => {
+    mockRelay = relay({ limitChasers: [lc(X), lc(X, { exchange: 'NXT' })] });
+    render(<TradingWorkbench />);
+    act(() => requestTradingFocus(`${X}:${ACCOUNT}:NXT`));
+    expect(byKey()).toEqual({
+      [`${X}:${ACCOUNT}:KRX`]: 'false',
+      [`${X}:${ACCOUNT}:NXT`]: 'true',
+    });
+  });
+
+  it('?focus=X:A:NXT 로 마운트 → 그 키의 카드만 펼쳐진다', () => {
+    searchParams = new URLSearchParams(`focus=${encodeURIComponent(`${X}:${ACCOUNT}:NXT`)}`);
+    mockRelay = relay({ limitChasers: [lc(X), lc(X, { exchange: 'NXT' })] });
+    render(<TradingWorkbench />);
+    expect(byKey()).toEqual({
+      [`${X}:${ACCOUNT}:KRX`]: 'false',
+      [`${X}:${ACCOUNT}:NXT`]: 'true',
+    });
+  });
+});
+
 describe('TradingWorkbench — 이탈 경고 (한 곳)', () => {
   it('더티 카드가 있으면 다른 경로 링크 클릭에 경고가 뜬다', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
