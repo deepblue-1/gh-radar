@@ -103,6 +103,7 @@ import { useTradingFocusRequest } from "@/lib/trading-focus";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
 import { useViEndAlerts } from "@/lib/use-vi-end-alerts";
+import { useViServerError } from "@/lib/use-vi-server-error";
 import { readViAlertEnabled } from "@/lib/vi-alert";
 import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
 
@@ -184,6 +185,7 @@ function WorkbenchSurface() {
     rateCrossSnapSeq,
     queuedWindow,
     quotes,
+    messages,
     reconnect,
   } = relay;
   const labels = useIsinLabels();
@@ -439,6 +441,9 @@ function WorkbenchSurface() {
   const [breakoutCounts, setBreakoutCounts] = useState({ total: 0, fresh: 0 });
   const viUnconfirmed = useMemo(() => viOrders.filter(isUnconfirmedViOrder).length, [viOrders]);
 
+  // VI 몫 서버 거부 — 옛 VI 화면 상태줄 자리를 VI 두 줄 아래로 옮겼다(18-13 · T-16-07).
+  const viServerError = useViServerError(messages);
+
   const [viAlertOn, setViAlertOn] = useState(false);
   useEffect(() => setViAlertOn(readViAlertEnabled()), []);
   useViEndAlerts(viOrders, viAlertOn);
@@ -505,6 +510,7 @@ function WorkbenchSurface() {
         disabled={status !== "ready"}
         viOrders={viOrders}
         onDirtyCountChange={setViDirty}
+        serverError={viServerError}
       />
 
       {/* 4·5 · VI 발동 스트립 / 표 */}

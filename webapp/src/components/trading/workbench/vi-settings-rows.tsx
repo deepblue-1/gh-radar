@@ -49,6 +49,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { serverMsgBadge } from '@gh-radar/shared';
 import type {
   RelayExchange,
   RelayViOrderItem,
@@ -69,6 +70,7 @@ import { ExchangeTag } from '@/components/trading/vi-order-list';
 import { MAX_VI_ORDER_AMOUNT_MANWON, krwToManwon, manwonToKrw } from '@/lib/vi-alert';
 import { useRelayContext } from '@/lib/relay-provider';
 import { VI_EXCHANGES, type RelayViTriggers } from '@/lib/use-relay-socket';
+import type { ViServerError } from '@/lib/use-vi-server-error';
 import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -176,6 +178,11 @@ export interface ViSettingsRowsProps {
   onSent?: (msg: RelayViSetMsg) => void;
   /** 두 줄 더티 개수의 **합** — 상위 이탈 경고 게이트. */
   onDirtyCountChange?: (count: number) => void;
+  /**
+   * 최신 VI 몫 서버 거부 1건 — 판정(`isViServerMessage`)은 작업대의 `useViServerError` 가 하고
+   * 여기서는 두 줄 아래에 `role="alert"` 로 그리기만 한다(18-13 · 옛 VI 상태줄 계약 승계).
+   */
+  serverError?: ViServerError | null;
   className?: string;
 }
 
@@ -187,6 +194,7 @@ export function ViSettingsRows({
   viOrders = [],
   onSent,
   onDirtyCountChange,
+  serverError = null,
   className,
 }: ViSettingsRowsProps) {
   const [dirtyByExchange, setDirtyByExchange] = useState<Partial<Record<RelayExchange, number>>>({});
@@ -219,6 +227,19 @@ export function ViSettingsRows({
           />
         );
       })}
+      {serverError !== null && (
+        /*
+          VI 몫 서버 거부 — 경보(`role="alert"`)다. 줄마다가 아니라 **두 줄 아래 한 자리**인 이유:
+          `Account`·`VITrigger` 통지에는 거래소 축이 없다(어느 줄의 거부인지 서버가 말하지 않는다).
+          출처 배지는 `serverMsgBadge` 하나로 판정하는 텍스트 접두다(색만으로 가르지 않는다).
+        */
+        <p role="alert" data-slot="vi-server-error" className="m-0 min-w-0 px-2.5 text-[11px] break-keep text-[var(--destructive)]">
+          <span data-slot="vi-server-error-src" className="font-semibold">
+            {serverMsgBadge(serverError.src)}
+          </span>{' '}
+          {serverError.text}
+        </p>
+      )}
     </section>
   );
 }
