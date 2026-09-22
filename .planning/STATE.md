@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Completed 18-27-PLAN.md
-last_updated: "2026-09-22T09:57:20.618Z"
+stopped_at: Completed 18-28-PLAN.md
+last_updated: "2026-09-22T10:05:07.486Z"
 last_activity: 2026-09-22
 last_activity_desc: 18-27 GC-WR-02·GC-IN-06·GC-IN-03 완료 — 취소 확정 현재 잔량 내림(cancelQtyAtConfirm) · 정정 재대조 문구 3갈래 · isOffhoursOrder 단일 판정
-state_head: 3e5122c3014390bcb1732f6352f595433b4245e7
+state_head: f30f83110d78e0dbb4ea4689ddeb6e7142fb36d2
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 229
-  completed_plans: 209
+  completed_plans: 210
 milestone_name: milestone
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
-Plan: 28 of 32 (R3 갭 클로징 18-27 완료 — 다음 18-28)
+Plan: 29 of 32 (R3 갭 클로징 18-28 완료 — 다음 18-29)
 Plans completed: 209 / 229
-Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일만, 원격 반영은 18-29) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · relay 미배포
+Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일만, 원격 반영은 18-29) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · 18-28 완료(중지 VI 상태줄 계좌로 옮겨 시작 · 확인 요약 B → A — webapp 만) · relay 미배포
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-22 — 18-27 GC-WR-02·GC-IN-06·GC-IN-03 취소 확정 현재 잔량 내림 · 재대조 문구 분리 · isOffhoursOrder(RED→GREEN, webapp 1399) / 이전: 18-26 GC-IN-02 relay 는 64 를 받았을 때만 인증 경로 lc.snap(⑭(B)·⑭-4·⑯ RED→GREEN) · 작업대 포커스 보류 = 이번 연결 확정 스냅샷(①②③ RED→GREEN)
 
@@ -495,6 +495,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 18 P25 | 8min | 2 tasks | 4 files |
 | Phase 18 P26 | 12min | 2 tasks | 9 files |
 | Phase 18 P27 | 5min | 2 tasks | 6 files |
+| Phase 18 P28 | 12min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -821,6 +822,9 @@ Recent decisions affecting current work:
 - [Phase 18]: 18-26: relay 는 게이트웨이 64 를 받았을 때만 인증 경로 lc.snap 을 내린다(hasLimitChaserList) — lc.snap 은 언제나 확정 목록, 작업대 knowsRegistered = snapSeq > 0, 리듀서는 ready 전환마다 기준점 0. 배포는 relay 먼저 → webapp
 - [Phase 18]: 18-27: 취소 확정 수량은 cancelQtyAtConfirm 으로 현재 잔량까지 내리기만(막지 않음·올리지 않음) — 폼·계좌 패널 공용 (GC-WR-02)
 - [Phase 18]: 18-27: 시간외종가 원주문 판정은 order-confirm-dialog 의 isOffhoursOrder(board G2/G3 또는 가격 0) 하나 — 칩·다이얼로그·정정 잠금 공용 (GC-IN-03)
+- [Phase 18]: 18-28: VI 계좌 이동은 중지 ∧ 등록 계좌≠상태줄 계좌일 때만 명시 동작 「상태줄 계좌({A})로 옮겨 시작」 하나 — 확정은 vi.set{accountNo:A, run:true} 1회, 일반 시작·수정은 계속 B (GC-WR-04)
+- [Phase 18]: 18-28: 옮기기 확정 직전 viMoveTargetOf 재판정 · 스냅샷 from·to 전체 일치일 때만 송신, 아니면 VI_MOVE_STALE_TEXT · 창 유지 (T-18-118)
+- [Phase 18]: 18-28: 가동 중 VI 불일치 고지는 「옮기려면 먼저 중지하세요」 — 버튼 DOM 부재 + submit 계좌 지정 가드 두 겹 (T-18-117)
 
 ### Pending Todos
 
@@ -907,8 +911,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-22T09:57:20.098Z
-Stopped at: Completed 18-27-PLAN.md
+Last session: 2026-09-22T10:05:06.977Z
+Stopped at: Completed 18-28-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
