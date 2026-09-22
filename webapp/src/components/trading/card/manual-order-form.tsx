@@ -48,6 +48,12 @@
  *   주문을 막지 않는다. 종목 키는 12자 **ISIN** 이다(D-28).
  *
  * ⑥ 토스트를 쓰지 않는다 — 결과는 폼 하단 인라인 `role="status"` 하나로만 알린다.
+ *
+ * ⑦ 정정·취소는 **미체결 행 선택**으로만 열린다 (D-21)
+ *   선택은 상위(미체결 표)가 소유하고 `selectedUnfilled` 로 내려준다. 선택이 없으면 두 버튼
+ *   `disabled` — 선택 없이 정정·취소가 나갈 경로가 없다. 정정 잠금은 `canModify` 한 함수이고
+ *   버튼 `disabled` 와 제출 가드가 **같은 함수**를 부른다. 정정은 원주문의 **방향·거래소·ISIN**
+ *   을 승계하고(사용자가 고르지 않는다), 취소는 **미체결 잔량 전부**다(부분 취소 경로 없음).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -58,6 +64,7 @@ import type {
   RelayKrxSession,
   RelayOrderResultMsg,
   RelayQueuedWindowMsg,
+  RelayUnfilled,
 } from '@gh-radar/shared';
 
 import {
@@ -86,6 +93,60 @@ type OrderResult =
   | { kind: 'rejected'; message: string; resultCode: number }
   | { kind: 'unknown' };
 
+/** 선택 차단 사유 — UI-SPEC E13 「접수 전 … 행 선택 disabled + `title` 사유」. */
+const SELECT_BLOCK_NO_ORDER_NO = '접수 전(주문번호 없음)은 선택할 수 없어요';
+const SELECT_BLOCK_CANCEL_SENT = '취소가 이미 나간 주문이에요';
+/** 정정 잠금 사유 — 서버 거부 문구(「취소 후 재등록」)와 같은 방향으로 먼저 알린다. */
+const MODIFY_LOCK_OFFHOURS_ORDER = '시간외종가 주문은 정정할 수 없어요 · 취소 후 재등록';
+const MODIFY_LOCK_QUEUED = '예약 주문은 정정할 수 없어요 · 취소 후 재등록';
+const MODIFY_LOCK_OFFHOURS_TYPE = '시간외종가는 정정할 수 없어요 · 취소 후 재등록';
+
+/**
+ * 미체결 행을 **선택할 수 없는** 사유. `null` = 선택 가능.
+ * 미체결 표(18-09)가 행 선택 `disabled` + `title` 로 쓰고, 폼도 같은 함수로 방어한다 —
+ * 막혀야 할 행이 prop 으로 들어와도 칩을 띄우지 않고 정정·취소를 열지 않는다.
+ *  - `orderNo` 빈 행: 접수 전이라 원주문번호가 없다 — 정정·취소 프레임을 만들 수 없다.
+ *  - `pendingCancelSent`: 취소가 이미 증권사에 보관됐다(D-14 — 회색 판정의 유일한 근거).
+ */
+export function unfilledSelectBlockReason(
+  row: Pick<RelayUnfilled, 'orderNo' | 'pendingCancelSent'>,
+): string | null {
+  if (row.orderNo.length === 0) return SELECT_BLOCK_NO_ORDER_NO;
+  if (row.pendingCancelSent) return SELECT_BLOCK_CANCEL_SENT;
+  return null;
+}
+
+/** 정정을 잠그는 사유. `null` = 정정 가능. `canModify` 의 사유판이다(버튼 `title`). */
+export function modifyLockReason(
+  row: Pick<RelayUnfilled, 'board' | 'queuedStatus' | 'pendingCancelSent' | 'orderNo'>,
+): string | null {
+  const blocked = unfilledSelectBlockReason(row);
+  if (blocked) return blocked;
+  if (row.board === 'G2' || row.board === 'G3') return MODIFY_LOCK_OFFHOURS_ORDER;
+  if (row.queuedStatus.length > 0) return MODIFY_LOCK_QUEUED;
+  return null;
+}
+
+/**
+ * 이 원주문을 **정정할 수 있는가** — UI 의 1차 판정 (T-18-32).
+ *
+ * 잠그는 근거 셋(+ 주문번호 없음):
+ *  1. **시간외종가 원주문**(`board` G2/G3) — 서버가 「시간외종가 정정 불가 — 취소 후 재등록」으로
+ *     거부한다(gh-trade `preopen-offhours-order.md`).
+ *  2. **예약 Q-ID 행**(`queuedStatus` 비어 있지 않음) — 같은 이유로 거부된다(취소 후 재등록,
+ *     gh-trade `queued-order.md` D-12).
+ *  3. **취소 보관 행**(`pendingCancelSent`) — 이미 취소가 나갔다. 정정할 대상이 곧 사라진다.
+ *
+ * ★ **relay 는 이 판정을 하지 않는다.** relay 가 두 번째 판정을 들면 서버 규칙과 갈린다.
+ *   UI 가 먼저 막고, 서버가 최종 판정이다 — 이 잠금이 빠져도 서버 거부로 끝난다.
+ * ★ 버튼 `disabled` 와 제출 가드(`handleAction`)가 **이 함수 하나**를 부른다.
+ */
+export function canModify(
+  row: Pick<RelayUnfilled, 'board' | 'queuedStatus' | 'pendingCancelSent' | 'orderNo'>,
+): boolean {
+  return modifyLockReason(row) === null;
+}
+
 /** 폼의 네 동작. */
 type OrderAction = 'buy' | 'sell' | 'modify' | 'cancel';
 
@@ -110,6 +171,13 @@ export interface ManualOrderFormProps {
   selectedPrice?: PriceSelection | null;
   /** 시간외종가 「참고 종가」(표시 전용). */
   referenceClose?: number | null;
+  /**
+   * 미체결 표에서 선택된 원주문 (D-21). 들어오면 가격·수량이 원주문 값(가격 · 미체결 잔량)으로
+   * 채워지고 폼 위에 칩이 뜬다. `null`/부재 = 선택 없음 → 정정·취소 `disabled`.
+   */
+  selectedUnfilled?: RelayUnfilled | null;
+  /** 칩 ✕(「선택 해제」). 선택은 상위가 소유한다 — 해제해도 입력값은 남는다. */
+  onClearSelection?: () => void;
   /** 제출이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
   onSubmitted?: (res: RelayOrderResultMsg) => void;
   className?: string;
@@ -136,6 +204,8 @@ export function ManualOrderForm({
   status,
   selectedPrice,
   referenceClose,
+  selectedUnfilled,
+  onClearSelection,
   onSubmitted,
   className,
 }: ManualOrderFormProps) {
@@ -161,6 +231,12 @@ export function ManualOrderForm({
   const price = digitsToNumber(priceText);
   const qty = digitsToNumber(qtyText);
   const pieces = clampPieces(digitsToNumber(pieceText), aff.maxPieces);
+
+  // 선택 차단 행은 선택이 없는 것과 같다(칩 없음 · 정정·취소 닫힘).
+  const selected =
+    selectedUnfilled && unfilledSelectBlockReason(selectedUnfilled) === null
+      ? selectedUnfilled
+      : null;
 
   /*
     종목 전환 방어 — 호가 탭은 remount 없이 props 만 바뀐다. 리셋하지 않으면 다른 종목의
@@ -199,6 +275,22 @@ export function ManualOrderForm({
     setValidation(null);
   }, [selectedPriceValue, selectedPriceSeq]);
 
+  /*
+    원주문 선택 → 가격·수량 채움. 수량은 **미체결 잔량**이다 — 정정·취소가 다루는 것이 그 잔량이다.
+    키는 주문번호 하나다: 같은 행이 부분체결로 갱신될 때마다 사용자가 고친 값을 덮지 않는다.
+    해제(null)는 아무것도 지우지 않는다 — 값은 남는다.
+  */
+  const selectedOrderNo = selected?.orderNo ?? null;
+  const selectedFillPrice = selected?.price ?? 0;
+  const selectedFillQty = selected?.unfilledQty ?? 0;
+  useEffect(() => {
+    if (selectedOrderNo === null) return;
+    if (selectedFillPrice > 0) setPriceText(KRW.format(selectedFillPrice));
+    if (selectedFillQty > 0) setQtyText(KRW.format(selectedFillQty));
+    setValidation(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 주문번호가 바뀔 때만 채운다(위 주석).
+  }, [selectedOrderNo]);
+
   const busy = submitting || blocked;
   const gateDisabled = status !== 'ready';
 
@@ -218,7 +310,75 @@ export function ManualOrderForm({
   const handleAction = (action: OrderAction) => {
     if (busy || gateDisabled) return; // 중복 제출 가드 ①
     setResult(null);
-    if (action === 'modify' || action === 'cancel') return; // Task 2 에서 원주문 선택과 함께 연다.
+
+    if (action === 'cancel') {
+      if (!selected) return; // 선택 없이 취소가 나갈 경로는 없다.
+      if (accountNo.length === 0) {
+        setValidation('주문 계좌를 선택해 주세요.');
+        return;
+      }
+      setValidation(null);
+      pendingReqRef.current = {
+        kind: 'cancel',
+        // ★ 그 **행의** ISIN·거래소다(T-16-01 승계) — 열린 종목의 값을 쓰지 않는다.
+        isin: selected.isin,
+        accountNo,
+        exchange: selected.exchange,
+        orgOrderNo: selected.orderNo,
+        // 취소 수량은 **미체결 잔량 전부**다 — 폼의 수량 입력을 쓰지 않는다(부분 취소 경로 없음).
+        qty: selected.unfilledQty,
+        price: selected.price,
+      };
+      setConfirm({
+        mode: 'cancel',
+        orderNo: selected.orderNo,
+        side: selected.side,
+        stockName: selected.name ?? name,
+        price: selected.price,
+        unfilledQty: selected.unfilledQty,
+        code: selected.code ?? code,
+        accountNo,
+        exchange: selected.exchange,
+        orderQty: selected.orderQty,
+      });
+      return;
+    }
+
+    if (action === 'modify') {
+      // 버튼 `disabled` 와 같은 함수(`canModify`)로 한 번 더 막는다.
+      if (!selected || offHours || !canModify(selected)) return;
+      const problem = validateNew({ isin: selected.isin, accountNo, qty, price, offHours: false });
+      if (problem) {
+        setValidation(problem);
+        return;
+      }
+      setValidation(null);
+      pendingReqRef.current = {
+        kind: 'modify',
+        isin: selected.isin,
+        accountNo,
+        // 거래소·방향은 원주문 승계 — 정정으로 바꿀 수 없다(바꾸려면 취소 후 재주문).
+        exchange: selected.exchange,
+        orgOrderNo: selected.orderNo,
+        side: selected.side,
+        qty,
+        price,
+      };
+      setConfirm({
+        mode: 'modify',
+        side: selected.side,
+        stockName: selected.name ?? name,
+        code: selected.code ?? code,
+        accountNo,
+        exchange: selected.exchange,
+        orgOrderNo: selected.orderNo,
+        orgPrice: selected.price,
+        orgQty: selected.orderQty,
+        price,
+        qty,
+      });
+      return;
+    }
 
     const side: OrderSide = action === 'buy' ? 'B' : 'S';
     const session = offHours ? offHoursSessionOf(queuedWindow) : null;
@@ -289,8 +449,14 @@ export function ManualOrderForm({
   const buyLabel = aff.buttonMode === 'queued' ? '예약매수' : '매수';
   const sellLabel = aff.buttonMode === 'queued' ? '예약매도' : '매도';
   const sideDisabled = gateDisabled || busy;
-  const modifyDisabled = true;
-  const cancelDisabled = true;
+  const modifyLock = selected
+    ? offHours
+      ? MODIFY_LOCK_OFFHOURS_TYPE
+      : modifyLockReason(selected)
+    : null;
+  const modifyDisabled =
+    gateDisabled || busy || !selected || offHours || !canModify(selected);
+  const cancelDisabled = gateDisabled || busy || !selected;
 
   return (
     <div
@@ -300,6 +466,33 @@ export function ManualOrderForm({
         className,
       )}
     >
+      {selected && (
+        <div
+          data-testid="manual-order-selchip"
+          className="flex min-w-0 items-center gap-1.5 rounded-[var(--r)] border border-[var(--fg)] bg-[var(--muted)] py-1 pr-1.5 pl-2 text-[11px] text-[var(--fg)]"
+        >
+          <span className="flex min-w-0 flex-col leading-[1.3]">
+            <span className="truncate">
+              원주문 <b className="mono font-bold">{selected.orderNo}</b>
+            </span>
+            <span className="truncate">
+              {selected.side === 'B' ? '매수' : '매도'}{' '}
+              <b className="mono font-bold">
+                {KRW.format(selected.price)} × {KRW.format(selected.orderQty)}
+              </b>
+            </span>
+          </span>
+          <button
+            type="button"
+            aria-label="선택 해제"
+            onClick={onClearSelection}
+            className="ml-auto flex-none px-0.5 text-[12px] text-[var(--fg)]"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {variant === 'orderbook' && (
         <Row label="주문유형" htmlFor={`mo-type-${isin}`}>
           <select
@@ -429,7 +622,12 @@ export function ManualOrderForm({
         <OrderButton tone="sell" disabled={sideDisabled} onClick={() => handleAction('sell')}>
           <SideLabel label={sellLabel} />
         </OrderButton>
-        <OrderButton tone="plain" disabled={modifyDisabled} onClick={() => handleAction('modify')}>
+        <OrderButton
+          tone="plain"
+          disabled={modifyDisabled}
+          title={modifyLock ?? undefined}
+          onClick={() => handleAction('modify')}
+        >
           정정
         </OrderButton>
         <OrderButton tone="plain" disabled={cancelDisabled} onClick={() => handleAction('cancel')}>
@@ -765,11 +963,14 @@ function StepButton({
 function OrderButton({
   tone,
   disabled,
+  title,
   onClick,
   children,
 }: {
   tone: 'buy' | 'sell' | 'plain';
   disabled: boolean;
+  /** 비활성 사유(정정 잠금). */
+  title?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -777,6 +978,7 @@ function OrderButton({
     <button
       type="button"
       disabled={disabled}
+      title={title}
       onClick={onClick}
       className={cn(
         'h-9 min-w-0 overflow-hidden rounded-[var(--r)] border px-px text-[10px] leading-[1.15] font-bold tracking-[-0.02em] whitespace-normal',
