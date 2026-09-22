@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { TradingCols } from '@/lib/breakout-list';
 import {
@@ -226,5 +226,95 @@ describe('CardGrid — ✕ 뒤 포커스 (UI-SPEC §접근성)', () => {
       fireEvent.click(closeC);
     });
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '종목 추가 검색' }));
+  });
+});
+
+/* ── WR-02 — 접기/펴기·단 수 변경에 마운트 유지 ───────────────────────────── */
+
+const mounts = new Map<string, number>();
+
+/** 내부 상태(카운터)와 마운트 횟수를 가진 스텁 카드 — 재마운트되면 카운터가 0 으로 돌아간다. */
+function StatefulCard({ isin, onToggle }: { isin: string; onToggle: (isin: string) => void }) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    mounts.set(isin, (mounts.get(isin) ?? 0) + 1);
+  }, [isin]);
+  return (
+    <article data-testid="stateful" data-isin={isin}>
+      <button type="button" id={`strategy-card-${isin}-toggle`} onClick={() => onToggle(isin)}>
+        {`${isin} 토글`}
+      </button>
+      <button type="button" onClick={() => setCount((n) => n + 1)}>
+        {`${isin} 올리기`}
+      </button>
+      <span data-part="count">{count}</span>
+    </article>
+  );
+}
+
+function StatefulHarness({ initial }: { initial: Item[] }) {
+  const [cards, setCards] = useState(initial);
+  const [cols, setCols] = useState<TradingCols>(1);
+  const toggle = (isin: string) =>
+    setCards((prev) => prev.map((p) => (p.isin === isin ? { ...p, open: !p.open } : p)));
+  return (
+    <>
+      <button type="button" onClick={() => setCols((c) => ((c % 3) + 1) as TradingCols)}>
+        단 수
+      </button>
+      <CardGrid
+        cards={cards}
+        cols={cols}
+        renderCard={(c) => <StatefulCard isin={c.isin} onToggle={toggle} />}
+      />
+    </>
+  );
+}
+
+const statefulOf = (isin: string) =>
+  document.querySelector(`[data-testid="stateful"][data-isin="${isin}"]`) as HTMLElement;
+const countOf = (isin: string) => statefulOf(isin).querySelector('[data-part="count"]')?.textContent;
+
+describe('CardGrid — WR-02 — 접기/펴기·단 수 변경에 마운트 유지', () => {
+  beforeEach(() => mounts.clear());
+
+  it('펼친 카드의 상태를 올리고 접어도 같은 인스턴스 · 상태 유지 · 마운트 1회 (스택으로 이동)', () => {
+    render(<StatefulHarness initial={[card('A', true), card('B', true)]} />);
+    const before = statefulOf('A');
+    for (let i = 0; i < 3; i += 1) fireEvent.click(screen.getByRole('button', { name: 'A 올리기' }));
+    expect(countOf('A')).toBe('3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'A 토글' }));
+    // 레이아웃은 D-09 그대로 — A 가 스택으로 갔다.
+    const s = stack()!;
+    expect(s).not.toBeNull();
+    expect(s.contains(statefulOf('A'))).toBe(true);
+    expect(statefulOf('A')).toBe(before);
+    expect(countOf('A')).toBe('3');
+    expect(mounts.get('A')).toBe(1);
+  });
+
+  it('다시 펼쳐도 같은 인스턴스 · 상태 유지 · 마운트 1회 (격자 칸으로 복귀)', () => {
+    render(<StatefulHarness initial={[card('A', true), card('B', true)]} />);
+    const before = statefulOf('A');
+    for (let i = 0; i < 3; i += 1) fireEvent.click(screen.getByRole('button', { name: 'A 올리기' }));
+    fireEvent.click(screen.getByRole('button', { name: 'A 토글' }));
+    fireEvent.click(screen.getByRole('button', { name: 'A 토글' }));
+    expect(stack()).toBeNull();
+    const cell = statefulOf('A').closest('[data-slot="card-cell"]') as HTMLElement;
+    expect(cell.parentElement).toBe(grid());
+    expect(statefulOf('A')).toBe(before);
+    expect(countOf('A')).toBe('3');
+    expect(mounts.get('A')).toBe(1);
+    expect(mounts.get('B')).toBe(1);
+  });
+
+  it('cols 1 → 2 → 3 재렌더에도 모든 카드가 마운트 1회', () => {
+    render(<StatefulHarness initial={[card('A', true), card('B', false), card('C', true)]} />);
+    fireEvent.click(screen.getByRole('button', { name: '단 수' }));
+    expect(grid()!.getAttribute('data-cols')).toBe('2');
+    fireEvent.click(screen.getByRole('button', { name: '단 수' }));
+    expect(grid()!.getAttribute('data-cols')).toBe('3');
+    for (const isin of ['A', 'B', 'C']) expect(mounts.get(isin)).toBe(1);
   });
 });
