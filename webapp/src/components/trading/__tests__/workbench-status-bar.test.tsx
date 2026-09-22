@@ -12,7 +12,7 @@ import type { RelayQueuedWindowMsg } from '@gh-radar/shared';
  *   - 신규/미확인 0 이면 그 필이 접근성 트리에도 없다.
  *   - 단 수 세그먼트: 클릭 → localStorage 저장 + `onColsChange`. 폰 밴드면 DOM 에서 빠진다.
  *   - 알림음 토글: 기본 꺼짐 · 차단이면 「클릭해 활성화」 · `resumeToneContext` 는 클릭 안에서.
- *   - VI 마감알림 토글이 알림음 옆에 있다(기능 제거 0 · Q-1).
+ *   - 알림 묶음에는 돌파 알림음 하나뿐이다 — VI 브라우저 알림 토글은 기능째 제거(quick-260922-tqr).
  *   - DMA 필에 재시도 버튼이 없다(자동 재연결).
  */
 
@@ -23,17 +23,8 @@ vi.mock('@/lib/alert-tone', () => ({
   playBreakoutTone: vi.fn(() => false),
 }));
 
-vi.mock('@/lib/vi-alert', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/vi-alert')>();
-  return {
-    ...actual,
-    requestViAlertPermission: vi.fn(async () => ({ ok: true as const })),
-  };
-});
-
 import { isTonePlaybackBlocked, resumeToneContext } from '@/lib/alert-tone';
 import { BREAKOUT_TONE_KEY, TRADING_COLS_KEY } from '@/lib/breakout-list';
-import { VI_ALERT_STORAGE_KEY, requestViAlertPermission } from '@/lib/vi-alert';
 import {
   AccountPill,
   WorkbenchStatusBar,
@@ -78,7 +69,6 @@ beforeEach(() => {
   toneState.blocked = false;
   vi.mocked(resumeToneContext).mockClear();
   vi.mocked(isTonePlaybackBlocked).mockClear();
-  vi.mocked(requestViAlertPermission).mockClear();
 });
 
 afterEach(() => {
@@ -185,7 +175,7 @@ describe('WorkbenchStatusBar — 단 수 세그먼트 (D-04)', () => {
   });
 });
 
-describe('WorkbenchStatusBar — 이 기기 전용 알림 2종 (D-17 · Q-1)', () => {
+describe('WorkbenchStatusBar — 돌파 알림음 (D-17)', () => {
   it('알림음 토글은 기본 꺼짐이다', () => {
     render(<WorkbenchStatusBar {...props()} />);
     const tone = screen.getByRole('button', { name: '돌파 알림음 켜기 (이 기기만)' });
@@ -215,32 +205,17 @@ describe('WorkbenchStatusBar — 이 기기 전용 알림 2종 (D-17 · Q-1)', (
     expect(window.localStorage.getItem(BREAKOUT_TONE_KEY)).toBe('on');
   });
 
-  it('VI 마감알림 토글이 알림음 토글 옆에 있고, 켜면 권한을 요청해 저장한다', async () => {
-    const onViAlertChange = vi.fn();
-    render(<WorkbenchStatusBar {...props({ onViAlertChange })} />);
-    const alerts = slot('workbench-alerts') as HTMLElement;
-    const vi1 = within(alerts).getByRole('button', { name: /VI 마감 알림/ });
-    within(alerts).getByRole('button', { name: /돌파 알림음/ });
-    expect(vi1.getAttribute('aria-pressed')).toBe('false');
-    await act(async () => {
-      fireEvent.click(vi1);
-    });
-    expect(requestViAlertPermission).toHaveBeenCalledTimes(1);
-    expect(window.localStorage.getItem(VI_ALERT_STORAGE_KEY)).toBe('on');
-    expect(onViAlertChange).toHaveBeenCalledWith(true);
-  });
-
-  it('권한이 거부되면 꺼진 채로 사유를 인라인 role="status" 로 말한다', async () => {
-    vi.mocked(requestViAlertPermission).mockResolvedValueOnce({
-      ok: false,
-      reason: '브라우저에서 알림이 차단돼 있어요 · 주소창 자물쇠에서 허용해 주세요',
-    });
+  it('알림 묶음에는 돌파 알림음 토글 하나뿐이다 — VI 브라우저 알림 토글은 기능째 제거됐다 (quick-260922-tqr)', () => {
     render(<WorkbenchStatusBar {...props()} />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /VI 마감 알림/ }));
-    });
-    expect(screen.getByRole('status').textContent).toContain('브라우저에서 알림이 차단돼 있어요');
-    expect(window.localStorage.getItem(VI_ALERT_STORAGE_KEY)).toBe('off');
+    const alerts = slot('workbench-alerts') as HTMLElement;
+    expect(alerts).not.toBeNull();
+    const buttons = within(alerts).getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].getAttribute('aria-label') ?? buttons[0].textContent).toMatch(/돌파 알림음/);
+    expect(slot('workbench-vi-alert-toggle')).toBeNull();
+    expect(slot('workbench-vi-alert-reason')).toBeNull();
+    expect(screen.queryByRole('button', { name: /VI 마감/ })).toBeNull();
+    expect(window.localStorage.getItem('gh-radar:vi-alert')).toBeNull();
   });
 });
 

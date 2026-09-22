@@ -136,9 +136,7 @@ import { useRelayContext } from "@/lib/relay-provider";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
-import { useViEndAlerts } from "@/lib/use-vi-end-alerts";
 import { useViServerError } from "@/lib/use-vi-server-error";
-import { readViAlertEnabled } from "@/lib/vi-alert";
 import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
 
 /** 페이지(`wb`) 폰 밴드 상한(미만) — `globals.css` §2.2b 의 첫 경계(본문 700)와 같은 값이다. */
@@ -724,10 +722,6 @@ function WorkbenchSurface() {
   // VI 몫 서버 거부 — 옛 VI 화면 상태줄 자리를 VI 두 줄 아래로 옮겼다(18-13 · T-16-07).
   const viServerError = useViServerError(messages);
 
-  const [viAlertOn, setViAlertOn] = useState(false);
-  useEffect(() => setViAlertOn(readViAlertEnabled()), []);
-  useViEndAlerts(viOrders, viAlertOn);
-
   const appliedAt = useAppliedAt({ limitChasers, rateCrossItems, viOrders, viTriggers, queuedWindow });
 
   /* ── ⑤ `wb` 폭 → 폰 밴드 ─────────────────────────────────────────── */
@@ -795,7 +789,6 @@ function WorkbenchSurface() {
         cols={cols}
         onColsChange={setCols}
         phoneBand={phoneBand}
-        onViAlertChange={setViAlertOn}
         onReconnect={UNRECOVERABLE_STATES.has(status) ? reconnect : undefined}
       />
 

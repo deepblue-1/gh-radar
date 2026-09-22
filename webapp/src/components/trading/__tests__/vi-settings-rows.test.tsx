@@ -84,7 +84,7 @@ beforeEach(() => {
 });
 
 describe('줄 구성 (D-05)', () => {
-  it('KRX 한 줄 · NXT 한 줄 — 태그 · 스위치 · 상승률 · 금액. 계좌·마감알림은 줄에 없다', () => {
+  it('KRX 한 줄 · NXT 한 줄 — 태그 · 스위치 · 상승률 · 금액. 계좌는 줄에 없다', () => {
     renderRows();
     const rows = document.querySelectorAll('[data-slot="vi-settings-row"]');
     expect(rows).toHaveLength(2);
@@ -100,7 +100,7 @@ describe('줄 구성 (D-05)', () => {
       expect(r.getByText('%')).toBeInTheDocument();
       expect(r.getByText('만원')).toBeInTheDocument();
     }
-    // ★ 계좌 셀렉터·마감알림 스위치는 상태줄 몫이다(Q-1).
+    // ★ 계좌 셀렉터는 상태줄 몫이다(Q-1). VI 브라우저 알림 스위치는 기능째 제거됐다 — 줄에 되살아나지 않는다(quick-260922-tqr).
     expect(document.querySelector('select')).toBeNull();
     expect(screen.queryByRole('switch', { name: 'VI 마감 알림' })).toBeNull();
     expect(screen.queryByText('계좌')).toBeNull();

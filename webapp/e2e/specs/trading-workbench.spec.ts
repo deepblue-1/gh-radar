@@ -1402,7 +1402,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   // 이관 — 옛 trading-vi.spec (VI 화면 → 작업대 VI 두 줄 · VI 발동 표)
   // =========================================================================
 
-  test('20. VI 중지 상태 진입 — KRX 줄 서버값(1,000만원 · 22%) · 스위치 OFF · 「중지」 · 마감알림은 상태줄 · 발동 0건 (옛 VI 1 · D-05)', async ({
+  test('20. VI 중지 상태 진입 — KRX 줄 서버값(1,000만원 · 22%) · 스위치 OFF · 「중지」 · 발동 0건 (옛 VI 1 · D-05)', async ({
     page,
   }) => {
     relay.seedViTrigger(VI_CFG);
@@ -1421,8 +1421,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
     // 더티 0 이면 「수정」이 렌더 자체가 없다(B4).
     await expect(viRow(page).locator('[data-slot="vi-row-fix"]')).toHaveCount(0);
-    // 마감알림은 상태줄의 이 기기 전용 토글로 옮겨 왔다(Q-1).
-    await expect(statusBar(page).locator('[data-slot="workbench-vi-alert-toggle"]')).toBeVisible();
+    // VI 브라우저 알림 토글은 기능째 제거됐다(quick-260922-tqr).
+    await expect(statusBar(page).locator('[data-slot="workbench-vi-alert-toggle"]')).toHaveCount(0);
     await expect(statusBar(page).getByTestId('stat-vi')).toHaveText('VI 발동 0');
     // 사이드바 KRX VI 는 가동이 아니라 배지가 없다.
     await expect(desktopNav(page).locator('[data-sidebar-item="vi-KRX"] [data-slot="strategy-badge"]')).toHaveCount(0);

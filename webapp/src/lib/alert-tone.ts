@@ -1,7 +1,7 @@
 /**
  * 돌파 알림음 — Web Audio 단음 합성 (Phase 18 D-17, TRADE-06).
  *
- * ① 코드베이스 최초의 `AudioContext` 사용처다. 구조·가드는 `vi-alert.ts` 를 따른다
+ * ① 코드베이스 최초의 `AudioContext` 사용처다. 로컬 설정·SSR 가드 규율은 아래와 같다
  *   - 기본은 **꺼짐**(`readTonePref()` — `gh-radar:breakout-tone`). 이 기기 전용이다.
  *   - SSR·미지원 브라우저에서 throw 하지 않고 조용한 무동작으로 수렴한다.
  *   - 파일 자산이 없다 — sine 880Hz · 총 160ms · gain 0 → 0.18(ramp 10ms) → 0(exponential ramp).

@@ -22,12 +22,10 @@
  *   (`hidden @min-[700px]/wb:inline-flex`)이 받친다. 폰 밴드 격자는 저장값과 무관하게 1단이다
  *   (격자 쪽 CSS 가 `data-cols` 를 700 이상에서만 적용한다).
  *
- * ④ 이 기기 전용 알림 2종이 나란히 선다 (Q-1 채택값)
- *   - 돌파 알림음(D-17) — 기본 꺼짐. 자동재생이 막혀 있으면 「클릭해 활성화」. `resumeToneContext`
- *     는 **클릭 핸들러 안에서만** 부른다(제스처 밖 `resume()` 은 브라우저가 무시한다).
- *   - VI 마감알림 — 옛 VI 카드의 스위치를 **옮긴 것**이다(기능 제거 0). 읽기/쓰기·권한 요청·거부
- *     사유 문구는 `vi-alert.ts` 경로 그대로이고, 거부되면 꺼진 채 사유를 인라인 `role="status"`
- *     로 말한다(조용한 실패 금지).
+ * ④ 이 기기 전용 알림 — 돌파 알림음(D-17)
+ *   기본 꺼짐. 자동재생이 막혀 있으면 「클릭해 활성화」. `resumeToneContext` 는 **클릭 핸들러
+ *   안에서만** 부른다(제스처 밖 `resume()` 은 브라우저가 무시한다).
+ *   이력: VI 브라우저 알림 토글은 사용자 요청으로 기능째 제거했다(quick-260922-tqr).
  *
  * ⑤ 오류 채널 (E1 error)
  *   relay 끊김/재연결은 DMA 필 **하나**가 말한다(● 색 + 라벨). 자동 재연결 중에는 버튼이 없다.
@@ -36,7 +34,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, BellOff, Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX } from "lucide-react";
 import type { RelayAccount, RelayQueuedWindowMsg } from "@gh-radar/shared";
 import { RELAY_STATE_LABELS } from "@gh-radar/shared";
 
@@ -51,11 +49,6 @@ import {
 } from "@/lib/breakout-list";
 import { queuedWindowBadgeOf } from "@/lib/queued-window";
 import type { RelayStatus } from "@/lib/use-relay-socket";
-import {
-  readViAlertEnabled,
-  requestViAlertPermission,
-  writeViAlertEnabled,
-} from "@/lib/vi-alert";
 import { cn } from "@/lib/utils";
 
 /** 임계·재무장 — UI-SPEC §상태줄 문구표 원문(서버 상수 `ThresholdPct 20` · 재무장 −2%p). */
@@ -94,8 +87,6 @@ export interface WorkbenchStatusBarProps {
   onColsChange: (cols: TradingCols) => void;
   /** 페이지(`wb`) 폭이 폰 밴드인가. `true` 면 세그먼트를 DOM 에서 뺀다. `null` = 아직 모름(③). */
   phoneBand: boolean | null;
-  /** VI 마감알림 토글이 바뀌었다(작업대가 마감 타이머를 건다/푼다). */
-  onViAlertChange?: (on: boolean) => void;
   /** 자동 복구를 포기한 상태에서만 넘긴다 — 있으면 「다시 연결」(⑤). */
   onReconnect?: () => void;
   className?: string;
@@ -114,7 +105,6 @@ export function WorkbenchStatusBar({
   cols,
   onColsChange,
   phoneBand,
-  onViAlertChange,
   onReconnect,
   className,
 }: WorkbenchStatusBarProps) {
@@ -189,7 +179,6 @@ export function WorkbenchStatusBar({
 
       <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         <span data-slot="workbench-alerts" className="inline-flex items-center gap-1">
-          <ViAlertToggle onChange={onViAlertChange} />
           <ToneToggle />
         </span>
         {onReconnect !== undefined && (
@@ -296,62 +285,6 @@ function ToneToggle() {
       {on ? <Volume2 aria-hidden="true" className="size-3.5" /> : <VolumeX aria-hidden="true" className="size-3.5" />}
       {needsGesture ? "클릭해 활성화" : "알림음"}
     </button>
-  );
-}
-
-/**
- * VI 마감알림 토글 (Q-1 · ④) — 옛 VI 카드 `AlertSwitch` 의 동작을 그대로 옮겼다.
- * 권한 요청은 **사용자가 켤 때만**. 거부되면 되돌리고 사유를 남긴다.
- */
-function ViAlertToggle({ onChange }: { onChange?: (on: boolean) => void }) {
-  const [on, setOn] = useState(false);
-  const [reason, setReason] = useState<string | null>(null);
-  useEffect(() => setOn(readViAlertEnabled()), []);
-
-  const onClick = async () => {
-    if (on) {
-      setOn(false);
-      setReason(null);
-      writeViAlertEnabled(false);
-      onChange?.(false);
-      return;
-    }
-    const result = await requestViAlertPermission();
-    if (!result.ok) {
-      setOn(false);
-      setReason(result.reason);
-      writeViAlertEnabled(false);
-      onChange?.(false);
-      return;
-    }
-    setOn(true);
-    setReason(null);
-    writeViAlertEnabled(true);
-    onChange?.(true);
-  };
-
-  const ariaLabel = on ? "VI 마감 알림 끄기 (이 기기만)" : "VI 마감 알림 켜기 (이 기기만)";
-
-  return (
-    <>
-      <button
-        type="button"
-        data-slot="workbench-vi-alert-toggle"
-        aria-pressed={on}
-        aria-label={ariaLabel}
-        title="VI 해제 10초 전 브라우저 알림 (이 기기만)"
-        onClick={() => void onClick()}
-        className={ALERT_BTN}
-      >
-        {on ? <Bell aria-hidden="true" className="size-3.5" /> : <BellOff aria-hidden="true" className="size-3.5" />}
-        마감알림
-      </button>
-      {reason !== null && (
-        <span role="status" data-slot="workbench-vi-alert-reason" className="min-w-0 text-[11px] text-[var(--destructive)]">
-          {reason}
-        </span>
-      )}
-    </>
   );
 }
 
