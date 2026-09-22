@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Completed 18-28-PLAN.md
-last_updated: "2026-09-22T10:05:07.486Z"
+stopped_at: Completed 18-30-PLAN.md
+last_updated: "2026-09-22T10:18:22.791Z"
 last_activity: 2026-09-22
-last_activity_desc: 18-27 GC-WR-02·GC-IN-06·GC-IN-03 완료 — 취소 확정 현재 잔량 내림(cancelQtyAtConfirm) · 정정 재대조 문구 3갈래 · isOffhoursOrder 단일 판정
-state_head: f30f83110d78e0dbb4ea4689ddeb6e7142fb36d2
+last_activity_desc: 18-30 GC-WR-03 완료 — 결과 모름 잠금을 작업대 키 상태로(페이지 언마운트만 해제) · 잠긴 카드 ✕ 결과 모름 다이얼로그 · e2e GC5
+state_head: 93fec555851c31c664fa6471ad76092af104bdb5
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 229
-  completed_plans: 210
+  completed_plans: 211
 milestone_name: milestone
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
-Plan: 29 of 32 (R3 갭 클로징 18-28 완료 — 다음 18-29)
-Plans completed: 209 / 229
-Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일만, 원격 반영은 18-29) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · 18-28 완료(중지 VI 상태줄 계좌로 옮겨 시작 · 확인 요약 B → A — webapp 만) · relay 미배포
+Plan: 29 of 32 (R3 갭 클로징 18-30 완료 — 다음 18-29 원격 DB 마이그레이션(사람 게이트), 그 뒤 18-31 · 18-32)
+Plans completed: 211 / 229
+Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일만, 원격 반영은 18-29) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · 18-28 완료(중지 VI 상태줄 계좌로 옮겨 시작 · 확인 요약 B → A — webapp 만) · 18-30 완료(결과 모름 잠금 = 작업대 키 상태 · 잠긴 카드 ✕ 확인 — webapp 만) · relay 미배포
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-22 — 18-27 GC-WR-02·GC-IN-06·GC-IN-03 취소 확정 현재 잔량 내림 · 재대조 문구 분리 · isOffhoursOrder(RED→GREEN, webapp 1399) / 이전: 18-26 GC-IN-02 relay 는 64 를 받았을 때만 인증 경로 lc.snap(⑭(B)·⑭-4·⑯ RED→GREEN) · 작업대 포커스 보류 = 이번 연결 확정 스냅샷(①②③ RED→GREEN)
+Last activity: 2026-09-22 — 18-30 GC-WR-03 결과 모름 잠금을 TradingWorkbench 계좌|ISIN|거래소 키 집합으로(페이지 언마운트만 해제) · 잠긴 카드 ✕ 결과 모름 다이얼로그 · e2e GC5(webapp 1435 · e2e 45) / 이전: 18-27 GC-WR-02·GC-IN-06·GC-IN-03 취소 확정 현재 잔량 내림 · 재대조 문구 분리 · isOffhoursOrder(RED→GREEN, webapp 1399) / 이전: 18-26 GC-IN-02 relay 는 64 를 받았을 때만 인증 경로 lc.snap(⑭(B)·⑭-4·⑯ RED→GREEN) · 작업대 포커스 보류 = 이번 연결 확정 스냅샷(①②③ RED→GREEN)
 
 Progress: [█████████░] 93%
 
@@ -496,6 +496,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 18 P26 | 12min | 2 tasks | 9 files |
 | Phase 18 P27 | 5min | 2 tasks | 6 files |
 | Phase 18 P28 | 12min | 2 tasks | 2 files |
+| Phase 18 P30 | 12min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -825,6 +826,7 @@ Recent decisions affecting current work:
 - [Phase 18]: 18-28: VI 계좌 이동은 중지 ∧ 등록 계좌≠상태줄 계좌일 때만 명시 동작 「상태줄 계좌({A})로 옮겨 시작」 하나 — 확정은 vi.set{accountNo:A, run:true} 1회, 일반 시작·수정은 계속 B (GC-WR-04)
 - [Phase 18]: 18-28: 옮기기 확정 직전 viMoveTargetOf 재판정 · 스냅샷 from·to 전체 일치일 때만 송신, 아니면 VI_MOVE_STALE_TEXT · 창 유지 (T-18-118)
 - [Phase 18]: 18-28: 가동 중 VI 불일치 고지는 「옮기려면 먼저 중지하세요」 — 버튼 DOM 부재 + submit 계좌 지정 가드 두 겹 (T-18-117)
+- [Phase 18]: 18-30: 결과 모름(timeout) 잠금은 TradingWorkbench 가 계좌|ISIN|거래소 키로 들고 /trading 페이지를 떠날 때만 푼다 — ✕·접기·재추가·계좌 전환·DMA 게이트 전환으로 풀리지 않음. 잠긴 카드 ✕ 는 결과 모름 확인 다이얼로그(data-reason=unknown). 호가 탭은 폼 로컬 잠금 그대로 (GC-WR-03)
 
 ### Pending Todos
 
@@ -911,8 +913,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-22T10:05:06.977Z
-Stopped at: Completed 18-28-PLAN.md
+Last session: 2026-09-22T10:18:22.281Z
+Stopped at: Completed 18-30-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
