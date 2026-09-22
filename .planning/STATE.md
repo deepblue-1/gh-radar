@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Completed 18-03-PLAN.md
-last_updated: "2026-09-22T05:29:39.473Z"
+stopped_at: Completed 18-14-PLAN.md
+last_updated: "2026-09-22T06:46:41.714Z"
 last_activity: 2026-09-22
 last_activity_desc: Phase 18 execution started
-state_head: 5602683c5e512f664f9dd1011d6ae705fab00f04
+state_head: a97f193fee2f5bdb1c870ed5d35f46c300dce5e0
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 220
-  completed_plans: 195
+  completed_plans: 196
 milestone_name: milestone
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — READY TO EXECUTE
-Plan: 13 of 13
+Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
+Plan: 2 of 23
 Plans completed: 172 / 185
 Status: Ready to execute
 Production URL: https://gh-radar-webapp.vercel.app
@@ -481,6 +481,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 18 P12 | 12min | 3 tasks | 17 files |
 | Phase 18 P13 | 48min | 3 tasks | 30 files |
 | Phase 18 P03 | 10min | 2 tasks | 1 files |
+| Phase 18 P14 | 3 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -788,6 +789,7 @@ Recent decisions affecting current work:
 - [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 등록 전략이 있는 카드의 ✕ 는 카드만 닫는다 — 서버 상따 전략은 유지(현 동작 확정)
 - [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 옛 화면 전용 기능 4개(VI 최근 발동 줄·장 마감 표시·VI 미체결 거래소 필터/전체 취소·미체결 출처 태그) 작업대 미이관 승인
 - [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 호가 탭 총잔량 줄 제거 승인
+- [Phase 18]: 18-14: 취소 가격 = 원주문 가격 사본 — webapp·zod·조립기·DB CHECK 가 취소에 한해 0 이상 정수 한 규칙 (CR-01). 신규·정정 규칙 무변경, 마이그레이션 20260922120000 은 18-18 에서 원격 반영
 
 ### Pending Todos
 
@@ -874,8 +876,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-22T03:41:08.693Z
-Stopped at: Completed 18-03-PLAN.md
+Last session: 2026-09-22T06:46:41.202Z
+Stopped at: Completed 18-14-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
