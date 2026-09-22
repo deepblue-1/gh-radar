@@ -5,7 +5,7 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
 /**
  * 작업대 전략 카드 1장의 **흐름** — 전송 ↔ 에코 상관 · 서버 통지 · LED 전송 규율 · 철거 에코 (18-13 이관).
  *
- * ★ 이 파일은 옛 `limit-chaser-client.test.tsx`(18-13 에서 옛 화면과 함께 삭제)가 덮던 단언 중
+ * ★ 이 파일은 옛 상따 화면 단위 테스트(18-13 에서 옛 화면과 함께 삭제)가 덮던 단언 중
  *   **카드 상태 훅(`useStrategyCardState`)의 규율**을 그대로 옮긴 것이다. 옛 화면과 카드는 18-06
  *   부터 같은 훅을 썼으므로 규율 자체는 바뀌지 않았고, 바뀐 것은 **그 결과가 서는 자리**다:
  *     · 상태줄의 에코 배너·「미반영」 → 카드 인라인 고지(`card-echo-banner` · `card-unacked`)

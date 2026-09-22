@@ -385,7 +385,7 @@ describe('⑦ 금액 상한 (WR-07)', () => {
   });
 });
 
-/* ───────────── Task 3 — 옛 `vi-settings-card.test.tsx` 커버리지 이관 ───────────── */
+/* ───────────── Task 3 — 옛 VI 설정 카드 단위 테스트(18-13 삭제) 커버리지 이관 ───────────── */
 
 describe('이관 — 표면 규율 (옛 「설정 4행」 describe)', () => {
   it('종목 축·주문유형·계좌 비밀번호 UI 가 없다', () => {
@@ -490,7 +490,7 @@ describe('E2 loading — 스피너 없음', () => {
   18-13 이관 — 옛 VI 화면 상태줄의 VI 몫 서버 거부(`vi-server-error`)를 두 줄 아래 한 자리로 옮겼다.
   판정(`isViServerMessage`)은 작업대의 `useViServerError` 가 하고 줄은 받은 1건을 그리기만 한다.
 */
-describe('VI 몫 서버 거부 — 두 줄 아래 인라인 경보 (옛 vi-client ② · T-16-07)', () => {
+describe('VI 몫 서버 거부 — 두 줄 아래 인라인 경보 (옛 VI 화면 ② · T-16-07)', () => {
   it('serverError 가 있으면 role="alert" 로 출처 배지 + 원문을 그린다', () => {
     renderRows({ serverError: { text: '상승률 조건 미달로 건너뜀', src: 'VITrigger' } });
     const el = document.querySelector('[data-slot="vi-server-error"]') as HTMLElement;

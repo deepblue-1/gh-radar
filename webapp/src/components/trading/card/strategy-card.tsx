@@ -3,7 +3,7 @@
 /**
  * StrategyCard — 작업대의 **전략 카드 1장** (D-09 ~ D-12 · D-27 · D-28 · TRADE-09).
  *
- * 옛 상따 화면의 `LimitChaserSurface`(`limit-chaser-client.tsx`) 가 이미 「한 전략」 단위였다.
+ * 옛 상따 화면의 `LimitChaserSurface`(18-13 삭제) 가 이미 「한 전략」 단위였다.
  * 이 파일은 그 몸통을 **컴포넌트로 승격**한 것이다 — relay 구독 · 전송↔에코 상관 · 자기 키
  * `find` · 전략 로그 · 더티 연결이 전부 `useStrategyCardState` 한 훅으로 옮겨 왔고, 옛 화면도
  * 18-12 에서 사라지기 전까지 **같은 훅**을 쓴다(정의 1벌).
@@ -98,8 +98,8 @@ const MAX_LOG = 100;
 /**
  * `@container/lc` — §2.2b 4밴드를 재는 컨테이너 선언(①). **이 파일이 유일한 출처**다.
  *
- * 18-12 까지 살아 있는 옛 `/trading/limit-chaser/*` 화면은 카드가 아니라 페이지 루트가 이
- * 선언을 달아야 하므로 이 상수를 import 해 쓴다 — 문자열을 그 파일에 다시 적지 않는다.
+ * 종목상세 호가 탭(`stock-orderbook-section.tsx`)은 카드가 아니라 탭 본문 래퍼가 이 선언을 달아야
+ * 하므로 이 상수를 import 해 쓴다 — 문자열을 그 파일에 다시 적지 않는다. (옛 상따 화면도 그랬다 · 18-13 삭제)
  * ★ 문자열 리터럴 그대로 둔다 — Tailwind 가 소스를 스캔해 이 클래스를 만든다.
  */
 export const LC_CONTAINER_CLASS = "@container/lc";
@@ -446,7 +446,7 @@ export function useStrategyCardState({
    *
    * 배지 판정은 렌더 자리에서 `serverMsgBadge(src)` 한 번만 한다. 여기서 이미 배지가 붙은
    * 문장을 넣어 두면 로그 줄과 상태줄이 **같은 배지를 두 번** 말하게 된다
-   * (`vi-client` 가 세운 같은 모양이다).
+   * (옛 VI 화면이 세운 같은 모양이다).
    */
   const [lastError, setLastError] = useState<{ text: string; src: string } | null>(
     null,

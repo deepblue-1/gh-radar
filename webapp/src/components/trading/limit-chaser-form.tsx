@@ -63,7 +63,7 @@
  * ④ ★ 에코가 도착하면 서버가 이긴다 (D-11)
  *   더티 필드도 **덮어쓴다.** 편집 중 보호·보류가 없다 — 「내가 치던 값이 남아 있다」는
  *   착각이 실제 서버 상태와 갈리는 순간이 이 화면에서 가장 비싼 오해다. 덮어쓴 필드는
- *   ≤150ms 배경 플래시로 한 번 알리고, 배너·로그는 상위(`limit-chaser-client`) 소관이다.
+ *   ≤150ms 배경 플래시로 한 번 알리고, 배너·로그는 상위(옛 상따 화면) 소관이다.
  *   유일한 예외가 `buyOrderAmount === 0`(=「서버가 모른다」)이고 그 판단은 `formFromServer`
  *   한 곳에 있다.
  *
@@ -320,7 +320,7 @@ export interface LimitChaserFormProps {
    * **영구히 잠긴다** (debug `lc-unacked-stuck-new-route`):
    *   ① 미등록 키의 철거 에코 — `crud:"D"` 는 목록에 담기지 않아 `server` 가 안 바뀐다
    *   ② 서버 거부 — 60 에코 자체가 오지 않는다(`Gateway.cpp` 의 거부 갈래)
-   * 판정은 상위가 소유한다(`limit-chaser-client.tsx` `acceptAnswer`) — 상태줄 「미반영」을
+   * 판정은 상위가 소유한다(카드 상태 훅 `acceptAnswer` · `card/strategy-card.tsx`) — 상태줄 「미반영」을
    * 거두는 것과 **같은 신호**여야 두 표시가 서로 다른 말을 하지 않는다.
    */
   serverAnswerSeq?: number;
@@ -572,7 +572,7 @@ export function LimitChaserForm({
   const toggleGate = useCallback(
     (key: GateKey, next: boolean) => {
       // 세션 가드(`disabled`)와 무장 가드가 **같은 함수** 안에 있다 — `disabled` ←
-      // `limit-chaser-client.tsx` 의 `LimitChaserSurface`(`status !== 'ready'`, 16-19 감사).
+      // 옛 상따 화면(18-13 삭제)의 `LimitChaserSurface`(`status !== 'ready'`, 16-19 감사).
       if (gateBlocked(key, next)) return;
       const values: LimitChaserFormValues = { ...formRef.current, [key]: next };
       const cfg = buildCfg(values);
@@ -634,7 +634,7 @@ export function LimitChaserForm({
     setSubmitting(true);
     const cfg = buildCfg(values);
     // ★ `DirtyActionBar` 의 「수정」 버튼은 `submitting` 으로만 잠긴다 — 세션 판정은
-    //   **여기**서 한다. `disabled` ← `limit-chaser-client.tsx` `LimitChaserSurface`
+    //   **여기**서 한다. `disabled` ← 카드 본문(`card/card-body.tsx`)
     //   (`status !== 'ready'`). 이 줄을 지우면 단절 중 클릭이 0바이트가 된다(16-19 감사).
     if (!send({ t: 'lc.set', cfg })) {
       /*

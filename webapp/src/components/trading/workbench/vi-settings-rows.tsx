@@ -75,7 +75,7 @@ import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
 
-/* ───────────────────────── 승계 상수 (Phase 16 `vi-settings-card.tsx`) ───────────────────────── */
+/* ───────────────────────── 승계 상수 (Phase 16 옛 VI 설정 카드 · 18-13 삭제) ───────────────────────── */
 
 /**
  * 전송 후 잠금을 푸는 상한(ms). WinForms `RespTimeoutMs` 와 **같은 값**이다.

@@ -4,7 +4,7 @@
  * 종목 검색 + 작업대 종목 추가란 (Phase 18 D-08 · UI-SPEC §레이아웃 계약 8 · E5, TRADE-06).
  *
  * ① ★ 승격이지 재구현이 아니다
- *   `StockSearchField` · `isPickable` 은 `limit-chaser-client.tsx` 안에 비공개로 있던 Phase 16 종목검색
+ *   `StockSearchField` · `isPickable` 은 옛 상따 화면(18-13 삭제) 안에 비공개로 있던 Phase 16 종목검색
  *   (quick 60 — 첫 항목 자동 활성화 · ↓/Enter 키보드 왕복)을 **그대로 옮긴 것**이다. 상따 화면과 작업대가
  *   같은 정의 1벌을 쓴다 — 두 벌이 되면 「고를 수 없는 종목」 규율이 한쪽에서만 고쳐진다(T-18-41).
  *

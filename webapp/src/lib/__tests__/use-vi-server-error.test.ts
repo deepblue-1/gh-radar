@@ -5,7 +5,7 @@ import { useViServerError } from '../use-vi-server-error';
 import type { RelayServerMessageEntry } from '../use-relay-socket';
 
 /**
- * 작업대의 VI 몫 서버 거부 1건 (18-13 이관 — 옛 `vi-client.test.tsx` ② · e2e `trading-vi` 10).
+ * 작업대의 VI 몫 서버 거부 1건 (18-13 이관 — 옛 VI 화면 단위 테스트 ② · 옛 VI e2e 10 — 둘 다 18-13 삭제).
  *
  * 옛 VI 화면은 상태줄에 VI 몫 거부를 `role="alert"` 로 세웠다. 18-11 작업대는 그 자리를 만들지 않아
  * VI 설정 거부(예: 「VI 주문금액이 0 입니다」)가 화면 어디에도 서지 않았다 — 18-05 가 「서버 메시지 원문

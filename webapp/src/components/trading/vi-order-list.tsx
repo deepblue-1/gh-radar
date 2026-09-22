@@ -341,7 +341,7 @@ export function ViOrderList({
       if (!isConfirmable(item, disabled)) return;
       if (sending.has(item.orderNo)) return; // 연타 1회화
       // 세션 가드는 위 `isConfirmable(item, disabled)` 안에 있다 — `disabled` ←
-      // `vi-client.tsx` `ViSurface` 의 `<ViOrderList disabled={!sessionReady}>`,
+      // 옛 VI 화면(18-13 삭제) `ViSurface` 의 `<ViOrderList disabled={!sessionReady}>`,
       // `sessionReady = status === 'ready'`(16-19 감사).
       /*
         ★ 반환값을 **반드시** 읽는다 — 16-19 가 `send` 를 `boolean` 으로 바꾼 이유가 이 분기다
