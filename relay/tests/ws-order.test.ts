@@ -1573,6 +1573,42 @@ describe("wss 주문 경로 (D-02)", () => {
       `row-${cancelRowNo}`,
     ]);
   });
+
+  it("㊸ 정정 대기 + 체결 E(org X, requestKind Modify) 가 첫 통보여도 정정이 정산된다 — timeout 이 아니다 (GC-WR-01)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw(orderModify({ rid: "rid-m", qty: 10, price: 71_000 }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+
+    // 정정확인(M)이 유실·지연되고, 정정된 주문의 체결이 **첫 통보**로 온다. 통보는 원주문번호와
+    // `requestKind:"Modify"` 를 둘 다 명시한다 — 가장 모호하지 않은 통보다. wire 값이 요청 종류의
+    // 정본이므로(D-21 · D-27) 통보 종류 휴리스틱(E→신규)이 이것을 버리면 안 된다.
+    gateway.pushOrderResp(gatewaySocket(), {
+      noticeType: "E",
+      orderNo: "0000012400",
+      orgOrderNo: "0000012345",
+      requestKind: "Modify",
+      side: "B",
+      quantity: 4,
+      price: 71_000,
+    });
+    await waitFor(() => framesOf(inbox, "order.result").length >= 1, "정정 체결 order.result");
+    await flushIo(8);
+
+    const results = framesOf(inbox, "order.result");
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ rid: "rid-m", status: "partially_filled", orderNo: "0000012400" });
+    expect(results[0]?.status).not.toBe("timeout");
+
+    // 정정 감사 행이 체결 결과로 갱신된다 — `timeout` 으로 남지 않는다.
+    expect(orders.updates).toHaveLength(1);
+    expect(orders.updates[0]).toMatchObject({
+      orderRowId: "row-1",
+      orderNo: "0000012400",
+      status: "partially_filled",
+      filledQty: 4,
+    });
+  });
 });
 
 // ============================================================
@@ -1913,6 +1949,51 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
           mkNotice({ noticeType: "A", orgOrderNo: X, requestKind: "Modify" }),
         ),
       ).toBe(modify);
+    });
+
+    // GC-WR-01 — wire `requestKind` 가 화이트리스트 값이면 그것이 요청 종류의 **정본**이다.
+    // 통보 종류 → 요청 종류 휴리스틱(E→신규)은 wire 가 비었을 때(구 서버)만 쓴다. 통보 종류는
+    // 「답일 수 있는 요청 종류 집합」으로만 읽고, 그 밖의 wire 값은 모순이라 0건이다.
+    it("(f) 정정된 주문의 체결 — E(org X, Modify) 는 정정 대기를 정산한다", () => {
+      const modify = modifyAt(71_000);
+      expect(
+        narrowPending(
+          [modify],
+          mkNotice({ noticeType: "E", orderNo: "0000012400", orgOrderNo: X, requestKind: "Modify", quantity: 4 }),
+        ),
+      ).toBe(modify);
+    });
+
+    it("(g) 모순 — 취소확인 C 가 requestKind Modify 를 실어 오면 아무것도 정산하지 않는다", () => {
+      const cancel = cancelAt(70_000);
+      const modify = modifyAt(70_000);
+      expect(
+        narrowPending(
+          [cancel, modify],
+          mkNotice({ noticeType: "C", orgOrderNo: X, requestKind: "Modify", sideTrusted: false }),
+        ),
+      ).toBeNull();
+    });
+
+    it("(h) 모순 — 체결 E 는 취소 요청의 답이 될 수 없다 (E + Cancel → 0건)", () => {
+      const cancel = cancelAt(70_000);
+      expect(
+        narrowPending(
+          [cancel],
+          mkNotice({ noticeType: "E", orgOrderNo: X, requestKind: "Cancel", quantity: 3 }),
+        ),
+      ).toBeNull();
+    });
+
+    it("(i) wire 가 정본 — 접수 A(org 없음, New) 는 신규 대기를 정산한다", () => {
+      const fresh = mkPending({ rid: "new" });
+      const modify = modifyAt(71_000);
+      expect(
+        narrowPending(
+          [fresh, modify],
+          mkNotice({ noticeType: "A", orgOrderNo: "", requestKind: "New" }),
+        ),
+      ).toBe(fresh);
     });
   });
 });
