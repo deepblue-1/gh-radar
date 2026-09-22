@@ -1,19 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
 
 /**
- * Phase 16 Plan 11 Task 1 — AppSidebar 트리 계약 (NAV-01 · D-15~D-19 · UI-SPEC N1~N7).
+ * AppSidebar 트리 계약 — Phase 16 Plan 11 (NAV-01 · D-15~D-19) 위에 Phase 18 Plan 12 (D-03 · E16) 가
+ * 「트레이딩」 그룹을 다시 짰다.
  *
  * 이 파일이 잠그는 것은 **구조와 조건**이지 픽셀이 아니다:
- *  ① 그룹 소제목이 링크·버튼이 **아니다** (drawer 자동 닫힘 회귀 방지)
+ *  ① 「종목검색」 소제목은 링크·버튼이 **아니다** (drawer 자동 닫힘 회귀 방지)
+ *  ①' 「트레이딩」 제목은 `/trading` **링크**이고 `?focus=` 가 붙어도 활성이다 (D-03)
  *  ② 로그인 + `ready` 일 때만 트레이딩·My page 가 **DOM 에 존재**한다
  *  ③ 비로그인 / `unauthorized` / 연결 중에는 **렌더되지 않는다**(숨김 아님)
- *  ④ 3단 항목 = 종목명 + 원 아이콘 묶음 1개, 라벨은 「매수 켜짐 · 매도 꺼짐」
- *  ⑤ `aria-current` 는 `/trading/limit-chaser/new` 에서 「상따」에만
+ *  ④ 3단 = 「KRX VI」 · 「NXT VI」 · 등록 전략(종목명 + LED 3점). 개별 「상따」·「VI」 메뉴 없음
+ *  ⑤ VI 「가동」 배지는 거래소별 **독립** 판정
  *  ⑥ 모든 링크에 `data-nav-item`
- *  ⑦ 전략 0건이면 「등록된 전략 없음」(링크 아님)
+ *  ⑦ 전략 0건이면 VI 2항목만 — 빈 문구 없음 (E16 empty/loading)
  *  ⑧ 하단 줄에 유저 섹션과 **테마 토글**이 나란히 산다 (토글이 탑바를 떠나 여기로 왔다)
  */
 
@@ -47,6 +49,7 @@ vi.mock("../user-section", () => ({
 }));
 
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
+import { TRADING_FOCUS_EVENT } from "@/lib/trading-focus";
 
 import { AppSidebar } from "../app-sidebar";
 
@@ -240,26 +243,54 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------------------
 
-describe("AppSidebar — 트리 구조 (N1/N2)", () => {
-  it("① 그룹 소제목 2개는 <li> 이고 링크·버튼이 아니다", () => {
+/** 3단 목록(트레이딩 그룹 제목 바로 아래 `ul`)의 링크들. */
+function tradingSubLinks(): HTMLAnchorElement[] {
+  const title = screen.getByRole("link", { name: "트레이딩" });
+  const list = title.closest("li")?.nextElementSibling?.querySelector("ul");
+  if (!list) throw new Error("트레이딩 3단 목록이 없다");
+  return Array.from(list.querySelectorAll("a")) as HTMLAnchorElement[];
+}
+
+describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
+  it("① 「종목검색」 소제목은 <li> 이고 링크·버튼이 아니다", () => {
     setupReady();
     render(<AppSidebar />);
 
-    for (const title of ["종목검색", "트레이딩"]) {
-      const heading = screen.getByText(title);
-      expect(heading.tagName).toBe("LI");
-      // 소제목 자체도, 그 안쪽 어디에도 클릭 대상이 없어야 한다 —
-      // drawer 자동 닫힘 순회가 A / BUTTON[data-nav-item] 을 잡기 때문이다.
-      expect(heading.closest("a")).toBeNull();
-      expect(heading.closest("button")).toBeNull();
-      expect(heading.querySelector("a")).toBeNull();
-      expect(heading.querySelector("button")).toBeNull();
-      expect(heading.hasAttribute("data-nav-item")).toBe(false);
-    }
-
-    // 소제목 문구가 링크로 잡히지 않는다.
+    const heading = screen.getByText("종목검색");
+    expect(heading.tagName).toBe("LI");
+    // drawer 자동 닫힘 순회가 A / BUTTON[data-nav-item] 을 잡기 때문이다.
+    expect(heading.closest("a")).toBeNull();
+    expect(heading.closest("button")).toBeNull();
+    expect(heading.querySelector("a")).toBeNull();
+    expect(heading.querySelector("button")).toBeNull();
+    expect(heading.hasAttribute("data-nav-item")).toBe(false);
     expect(screen.queryByRole("link", { name: "종목검색" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "트레이딩" })).toBeNull();
+  });
+
+  it("①' 「트레이딩」 제목은 `/trading` 링크이고 `/trading` 에서 활성이다", () => {
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+
+    const title = screen.getByRole("link", { name: "트레이딩" });
+    expect(title).toHaveAttribute("href", "/trading");
+    expect(title).toHaveAttribute("aria-current", "page");
+    expect(title.hasAttribute("data-nav-item")).toBe(true);
+  });
+
+  it("①' `/trading?focus=…` 에서도 제목이 활성이다 — 쿼리는 활성 판정에 끼지 않는다", () => {
+    // `usePathname()` 은 쿼리를 싣지 않는다. 경로만 같으면 활성이다.
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+    expect(screen.getByRole("link", { name: "트레이딩" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("①' 다른 경로에서는 제목이 활성이 아니다", () => {
+    mockPathname = "/me";
+    setupReady();
+    render(<AppSidebar />);
+    expect(screen.getByRole("link", { name: "트레이딩" })).not.toHaveAttribute("aria-current");
   });
 
   it("`/scanner` 항목 라벨이 「상승률 상위」이고 URL 은 그대로다 (D-15)", () => {
@@ -279,13 +310,10 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
     setupReady();
     render(<AppSidebar />);
 
-    expect(screen.getByText("트레이딩")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /상따/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /VI/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "My page" })).toHaveAttribute(
-      "href",
-      "/me",
-    );
+    expect(screen.getByRole("link", { name: "트레이딩" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^KRX VI/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^NXT VI/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My page" })).toHaveAttribute("href", "/me");
   });
 
   it("③-a 비로그인이면 트레이딩·My page 가 DOM 에 없다 (숨김이 아니라 미렌더)", () => {
@@ -295,7 +323,7 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
 
     expect(screen.queryByText("트레이딩")).toBeNull();
     expect(screen.queryByRole("link", { name: "My page" })).toBeNull();
-    expect(screen.queryByRole("link", { name: /상따/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /VI/ })).toBeNull();
     // 공개 항목은 그대로 보인다.
     expect(screen.getByRole("link", { name: "홈" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "상승률 상위" })).toBeInTheDocument();
@@ -340,137 +368,193 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
   });
 });
 
-describe("AppSidebar — 전략 3단 목록 (N3/N3a/N5)", () => {
-  it("④ 전략 2건이 종목명 + 원 아이콘 묶음으로 렌더되고 aria-label 이 「매수 켜짐 · 매도 꺼짐」 형태다", () => {
+describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
+  it("④ 3단 = KRX VI · NXT VI · 등록 전략 순서이고, 개별 「상따」·「VI」 메뉴가 없다", () => {
     setupReady();
     render(<AppSidebar />);
 
-    // A: 매수 ON · 매도 OFF
+    const names = tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"));
+    expect(names).toEqual(["vi-KRX", "vi-NXT", "strategy", "strategy"]);
+
+    expect(screen.queryByRole("link", { name: /^상따/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^VI$/ })).toBeNull();
+    for (const a of document.querySelectorAll("nav a")) {
+      const href = a.getAttribute("href") ?? "";
+      expect(href.startsWith("/trading/limit-chaser")).toBe(false);
+      expect(href.startsWith("/trading/vi")).toBe(false);
+    }
+  });
+
+  it("④ VI 두 항목은 작업대(`/trading`)로 가고 활성 표시를 받지 않는다 — 활성은 제목 하나", () => {
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+
+    for (const ex of ["KRX", "NXT"]) {
+      const a = screen.getByRole("link", { name: new RegExp(`^${ex} VI`) });
+      expect(a).toHaveAttribute("href", "/trading");
+      expect(a).not.toHaveAttribute("aria-current");
+    }
+  });
+
+  it("⑤ 「가동」 배지는 거래소별로 독립 판정된다 (줄마다 viTriggers.{거래소})", () => {
+    const krx = () => screen.getByRole("link", { name: /^KRX VI/ });
+    const nxt = () => screen.getByRole("link", { name: /^NXT VI/ });
+
+    // KRX 가동 · NXT 중지 → KRX 에만 배지
+    setupReady({
+      viTriggers: { KRX: viCfg("KRX", { run: true }), NXT: viCfg("NXT", { run: false }) },
+    });
+    const view = render(<AppSidebar />);
+    expect(krx()).toHaveTextContent("가동");
+    expect(nxt()).not.toHaveTextContent("가동");
+
+    // NXT 만 가동 → NXT 에만 배지 (합집합을 줄마다 쓰면 KRX 에도 뜬다)
+    setupReady({ viTriggers: { NXT: viCfg("NXT", { run: true }) } });
+    view.rerender(<AppSidebar />);
+    expect(krx()).not.toHaveTextContent("가동");
+    expect(nxt()).toHaveTextContent("가동");
+
+    // 모름(키 부재)·미등록(null) 은 가동이 아니다.
+    setupReady({ viTriggers: { KRX: null } });
+    view.rerender(<AppSidebar />);
+    expect(krx()).not.toHaveTextContent("가동");
+    expect(nxt()).not.toHaveTextContent("가동");
+  });
+
+  it("⑦ 등록 전략 0 → VI 2항목만, 빈 문구 없음 (E16 empty)", () => {
+    setupReady({ limitChasers: [] });
+    render(<AppSidebar />);
+
+    expect(tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"))).toEqual([
+      "vi-KRX",
+      "vi-NXT",
+    ]);
+    expect(screen.queryByText("등록된 전략 없음")).toBeNull();
+    // 스피너 없음 — 로딩(스냅샷 전)은 빈 상태와 같은 모양이다 (E16 loading).
+    expect(document.querySelector('nav [role="progressbar"], nav .animate-spin')).toBeNull();
+  });
+
+  it("④ 등록 전략 N개가 종목명 + LED 3점(7px)으로 붙고 링크는 `/trading?focus=` 다", () => {
+    setupReady();
+    render(<AppSidebar />);
+
     const a = screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ });
-    expect(a).toHaveAttribute(
-      "href",
-      `/trading/limit-chaser/${encodeURIComponent(CHASER_A.key)}`,
-    );
+    expect(a).toHaveAttribute("href", `/trading?focus=${encodeURIComponent(CHASER_A.key)}`);
     // 키에 `:` 가 들어가므로 인코딩된 형태여야 한다.
     expect(a.getAttribute("href")).toContain("%3A");
-    expect(a.getAttribute("href")).not.toContain(":");
+    expect(a.getAttribute("href")?.slice("/trading?focus=".length)).not.toContain(":");
 
-    const ioA = within(a).getByRole("img");
-    expect(ioA).toHaveAttribute("aria-label", "매수 켜짐 · 매도 꺼짐");
-    expect(ioA).toHaveAttribute("title", "매수 켜짐 · 매도 꺼짐");
-    // 묶음은 **1개**, 개별 원에는 라벨이 없다(중복 낭독 방지).
+    const leds = within(a).getByRole("img");
     expect(within(a).getAllByRole("img")).toHaveLength(1);
-    expect(ioA.querySelectorAll("[aria-label]")).toHaveLength(0);
-    expect(ioA.querySelectorAll("[data-io]")).toHaveLength(2);
+    const dots = leds.querySelectorAll("[data-led]");
+    expect(Array.from(dots).map((d) => d.getAttribute("data-led"))).toEqual(["buy", "sell", "cancel"]);
+    for (const d of dots) {
+      expect(d.className).toContain("size-[7px]");
+      expect(d.hasAttribute("aria-label")).toBe(false);
+    }
+    // CHASER_A: 매수 무장(매도잔량 기준 → 감시) · 매도 OFF · 취소 OFF — `latchLedStateOf` 판정 그대로.
+    expect(Array.from(dots).map((d) => d.getAttribute("data-tone"))).toEqual(["armed", "off", "off"]);
+    expect(leds).toHaveAttribute("aria-label", "매수 감시 · 매도 OFF · 취소 OFF");
+    expect(leds).toHaveAttribute("title", "매수 감시 · 매도 OFF · 취소 OFF");
 
-    // B: 매수 OFF · 매도 ON
+    // N3a — 3단 전략 항목에 거래소 태그·상태 배지를 두지 않는다.
     const b = screen.getByRole("link", { name: /이수페타시스/ });
-    expect(within(b).getByRole("img")).toHaveAttribute(
-      "aria-label",
-      "매수 꺼짐 · 매도 켜짐",
-    );
-
-    // N3a — 3단 항목에 거래소 태그·상태 배지를 두지 않는다.
     expect(b.textContent).not.toContain("NXT");
-    expect(a.textContent).not.toContain("KRX");
     expect(a.querySelector('[data-slot="strategy-badge"]')).toBeNull();
     expect(b.querySelector('[data-slot="strategy-badge"]')).toBeNull();
   });
 
+  it("LED 3점은 잠복(대기)·래치(감시)를 구분한다", () => {
+    const latent = makeChaser({
+      isin: "KR7000660001",
+      buyEnabled: true,
+      buyWatchSide: "1",
+      buyEntryLatched: false,
+      sellEnabled: true,
+      sellEntryLatched: true,
+      cancelQtyEnabled: true,
+      cancelEntryLatched: false,
+      name: "SK하이닉스",
+    });
+    setupReady({ limitChasers: [latent] });
+    render(<AppSidebar />);
+
+    const dots = within(screen.getByRole("link", { name: /SK하이닉스/ })).getByRole("img").querySelectorAll("[data-led]");
+    expect(Array.from(dots).map((d) => d.getAttribute("data-tone"))).toEqual(["latent", "armed", "latent"]);
+  });
+
   it("WR-08 — 계좌가 둘이면 **두 계좌 모두**에서 이름을 얻는다 (마지막 수신 계좌 하나가 아니다)", () => {
-    // 픽스처: A 의 종목은 계좌 A 잔고에만, B 의 종목은 계좌 B 미체결에만 있다.
     setupReady();
     render(<AppSidebar />);
 
-    expect(
-      screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /이수페타시스/ })).toBeInTheDocument();
-    // 어느 쪽도 ISIN 원문으로 남지 않는다 — 「마지막 수신 계좌」만 보면 하나는 반드시 남는다.
     expect(screen.queryByText(new RegExp(CHASER_A.isin))).toBeNull();
     expect(screen.queryByText(new RegExp(CHASER_B.isin))).toBeNull();
   });
 
-  it("종목명을 모르면 ISIN 을 그대로 보여준다", () => {
-    setupReady({ accountStates: new Map(), limitChasers: [CHASER_A] });
+  it("partial — 이름 폴백: 전략의 `name` → 계좌 역매핑 이름 → `code` → ISIN (E16)", () => {
+    const named = makeChaser({ isin: "KR7000001111", name: "와이어이름", code: "000111" });
+    const coded = makeChaser({ isin: "KR7000002222", code: "000222" });
+    const bare = makeChaser({ isin: "KR7000003333" });
+    setupReady({ accountStates: new Map(), limitChasers: [named, coded, bare] });
     render(<AppSidebar />);
 
-    expect(
-      screen.getByRole("link", { name: new RegExp(CHASER_A.isin) }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /와이어이름/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^000222/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^KR7000003333/ })).toBeInTheDocument();
   });
 
-  it("⑦ 전략 0건이면 「등록된 전략 없음」이 링크가 아닌 채로 나온다", () => {
-    setupReady({ limitChasers: [] });
+  it("long-text — 종목명은 1줄 ellipsis 이고 전체는 `title` 에 담긴다", () => {
+    setupReady();
     render(<AppSidebar />);
 
-    const empty = screen.getByText("등록된 전략 없음");
-    expect(empty.closest("a")).toBeNull();
-    expect(screen.queryByRole("link", { name: "등록된 전략 없음" })).toBeNull();
+    const nameEl = within(screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ })).getByText(
+      "에코프로머티리얼즈우선주",
+    );
+    expect(nameEl.className).toContain("truncate");
+    expect(nameEl.className).toContain("min-w-0");
+    expect(nameEl).toHaveAttribute("title", "에코프로머티리얼즈우선주");
   });
 
-  it("N7 — VI 항목 배지는 KRX·NXT **합집합**이다 (17-06 / D-18)", () => {
-    // ① NXT 에만 등록돼 가동 중이어도 가동이다 — 이 화면이 KRX 만 보면 NXT 전략이 없는 셈이 된다.
-    setupReady({ viTriggers: { NXT: viCfg("NXT", { run: true }) } });
-    const view = render(<AppSidebar />);
-    expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("가동");
+  it("전략 항목 클릭은 작업대에 포커스 요청을 보낸다 — 이미 `/trading` 위여도 카드가 펼쳐진다", () => {
+    setupReady();
+    render(<AppSidebar />);
+    const seen: string[] = [];
+    const onFocus = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener(TRADING_FOCUS_EVENT, onFocus);
+    try {
+      const a = screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ });
+      // jsdom 은 문서 이동을 구현하지 않는다 — 대상 단계에서 이동만 막는다.
+      a.addEventListener("click", (e) => e.preventDefault(), { once: true });
+      fireEvent.click(a);
+      expect(seen).toEqual([CHASER_A.key]);
 
-    // ② KRX 만 조회했고 미등록 — NXT 는 아직 모른다. 모르는 것을 가동으로 읽지 않는다.
-    setupReady({ viTriggers: { KRX: null } });
-    view.rerender(<AppSidebar />);
-    expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("중지");
+      // 새 탭 열기(수식 키)는 지금 탭의 카드를 건드리지 않는다.
+      a.addEventListener("click", (e) => e.preventDefault(), { once: true });
+      fireEvent.click(a, { metaKey: true });
+      expect(seen).toEqual([CHASER_A.key]);
+    } finally {
+      window.removeEventListener(TRADING_FOCUS_EVENT, onFocus);
+    }
+  });
 
-    // ③ KRX 중지 + NXT 가동 → 가동 (합집합 판정)
-    setupReady({
-      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: true }) },
-    });
-    view.rerender(<AppSidebar />);
-    expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("가동");
-
-    // ④ 둘 다 중지 → 중지
-    setupReady({
-      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: false }) },
-    });
-    view.rerender(<AppSidebar />);
-    expect(screen.getByRole("link", { name: /VI/ })).toHaveTextContent("중지");
+  it("전략 항목은 활성 표시를 받지 않는다 — `/trading` 의 활성은 제목 하나다", () => {
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+    expect(screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ })).not.toHaveAttribute("aria-current");
   });
 });
 
 describe("AppSidebar — 활성 표시 · drawer 계약", () => {
-  it("⑤ `/trading/limit-chaser/new` 에서만 「상따」가 aria-current=page 다", () => {
-    mockPathname = "/trading/limit-chaser/new";
-    setupReady();
-    const view = render(<AppSidebar />);
-
-    expect(screen.getByRole("link", { name: /상따/ })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-
-    // 편집 경로에서는 「상따」가 꺼지고 해당 3단 항목만 켜진다.
-    mockPathname = `/trading/limit-chaser/${encodeURIComponent(CHASER_A.key)}`;
-    setupReady();
-    view.rerender(<AppSidebar />);
-
-    expect(screen.getByRole("link", { name: /상따/ })).not.toHaveAttribute(
-      "aria-current",
-    );
-    expect(
-      screen.getByRole("link", { name: /에코프로머티리얼즈우선주/ }),
-    ).toHaveAttribute("aria-current", "page");
-    expect(
-      screen.getByRole("link", { name: /이수페타시스/ }),
-    ).not.toHaveAttribute("aria-current");
-  });
-
   it("기존 정확 일치 동작이 유지된다 — `/scanner` 하위 경로가 「상승률 상위」를 켜지 않는다", () => {
     mockPathname = "/scanner/detail";
     setupReady();
     render(<AppSidebar />);
 
-    expect(screen.getByRole("link", { name: "상승률 상위" })).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(screen.getByRole("link", { name: "상승률 상위" })).not.toHaveAttribute("aria-current");
   });
 
   it("⑥ 모든 링크에 data-nav-item 이 붙어 있다 (drawer 자동 닫힘 계약)", () => {
