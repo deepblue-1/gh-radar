@@ -102,6 +102,16 @@ export function strategyKey(isin: string, accountNo: string, exchange: RelayExch
 }
 
 /**
+ * 거래소 꼬리를 붙인 표시 이름 (18-REVIEW-R2 GC-IN-04 · D-03) — NXT 면 「{name} · NXT」, KRX 면 `name`
+ * 그대로다. KRX 는 기본 거래소라 꼬리를 붙이지 않는다 — 같은 종목 KRX·NXT 두 전략을 가르는 최소
+ * 표기다. 카드 헤더 `title` 의 「· {거래소}」 표기와 같은 구분자다. 합친 전략 로그 `who` 와 사이드바
+ * 전략 이름이 함께 쓴다.
+ */
+export function exchangeLabeledName(name: string, exchange: RelayExchange): string {
+  return exchange === "NXT" ? `${name} · NXT` : name;
+}
+
+/**
  * 전략 키 `{ISIN}:{accountNo}:{exchange}` 분해.
  *
  * 모양이 어긋나면 **null 이다** — 반쪽만 채우면 화면이 「다른 계좌의 전략」을 편집하게 된다.

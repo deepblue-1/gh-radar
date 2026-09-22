@@ -156,6 +156,7 @@ import { LEAVE_WARNING } from '@/lib/use-leave-warning';
 import {
   cardForUnfilled,
   fillAccountCards,
+  holdingQuotePrice,
   TradingWorkbench,
   type WorkbenchCard,
 } from '../workbench/trading-workbench';
@@ -1374,5 +1375,73 @@ describe('TradingWorkbench — GC-IN-01 — 공용 패널에 더티 카드 수�
     expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
     expect(sharedPanelsProps.last?.dirtyBarCount).toBe(2);
+  });
+});
+
+describe('holdingQuotePrice — 잔고 평가 가격 (GC-IN-04 · KRX 우선 · NXT 폴백)', () => {
+  const X = 'KR7005930003';
+  const q = (isin: string, x: 'KRX' | 'NXT', p: number) =>
+    [`${isin}|${x}`, { t: 'q', i: isin, x, snap: true, p, o: p, h: p, l: p }] as const;
+  const quotes = (...entries: ReturnType<typeof q>[]) =>
+    new Map(entries) as unknown as RelayShape['quotes'];
+
+  it('KRX 100 · NXT 110 → 100 (KRX 우선)', () => {
+    expect(holdingQuotePrice(quotes(q(X, 'KRX', 100), q(X, 'NXT', 110)), X)).toBe(100);
+  });
+  it('NXT 만 110 → 110 (NXT 카드만 있는 종목의 평가를 비우지 않는다)', () => {
+    expect(holdingQuotePrice(quotes(q(X, 'NXT', 110)), X)).toBe(110);
+  });
+  it('KRX 0 · NaN 이면 NXT 110 으로 폴백한다', () => {
+    expect(holdingQuotePrice(quotes(q(X, 'KRX', 0), q(X, 'NXT', 110)), X)).toBe(110);
+    expect(holdingQuotePrice(quotes(q(X, 'KRX', Number.NaN), q(X, 'NXT', 110)), X)).toBe(110);
+  });
+  it('둘 다 없으면 undefined(「—」)', () => {
+    expect(holdingQuotePrice(quotes(), X)).toBeUndefined();
+  });
+});
+
+describe('TradingWorkbench — GC-IN-04 — 같은 종목 KRX·NXT 카드 둘의 평가 가격 · 로그 귀속', () => {
+  const S = 'KR7005930003';
+  const q = (x: 'KRX' | 'NXT', p: number) =>
+    [`${S}|${x}`, { t: 'q', i: S, x, snap: true, p, o: p, h: p, l: p }] as const;
+  const quotes = new Map([q('KRX', 100), q('NXT', 110)]) as unknown as RelayShape['quotes'];
+  const priceOf = () =>
+    (sharedPanelsProps.last?.priceOf as (isin: string) => number | undefined)(S);
+
+  it('카드 순서 [NXT, KRX] 와 [KRX, NXT] 에서 공용 패널 priceOf 가 같은 값(KRX)이다', () => {
+    mockRelay = relay({ quotes, limitChasers: [lc(S, { exchange: 'NXT' }), lc(S)] });
+    const first = render(<TradingWorkbench />);
+    expect(cardsInDom().map((c) => c.getAttribute('data-exchange'))).toEqual(['NXT', 'KRX']);
+    expect(priceOf()).toBe(100);
+    first.unmount();
+
+    mockRelay = relay({ quotes, limitChasers: [lc(S), lc(S, { exchange: 'NXT' })] });
+    render(<TradingWorkbench />);
+    expect(cardsInDom().map((c) => c.getAttribute('data-exchange'))).toEqual(['KRX', 'NXT']);
+    expect(priceOf()).toBe(100);
+  });
+
+  it('합친 로그 who — NXT 카드 줄은 「삼성전자 · NXT」, KRX 카드 줄은 「삼성전자」', () => {
+    mockRelay = relay({
+      limitChasers: [
+        lc(S, { name: '삼성전자' } as Partial<RelayLimitChaser>),
+        lc(S, { exchange: 'NXT', name: '삼성전자' } as Partial<RelayLimitChaser>),
+      ],
+    });
+    render(<TradingWorkbench />);
+    const idOf = (x: 'KRX' | 'NXT') =>
+      [...cardProps.entries()].find(([, p]) => p.exchange === x)![0];
+    const report = (x: 'KRX' | 'NXT', text: string) => {
+      const id = idOf(x);
+      const onLog = cardProps.get(id)!.onLogChange as (
+        id: string,
+        log: readonly { id: string; at: string; text: string }[],
+      ) => void;
+      act(() => onLog(id, [{ id: `${x}-1`, at: '09:41:00', text }]));
+    };
+    report('KRX', '매수 주문을 냈어요');
+    report('NXT', '매수 주문을 냈어요');
+    const log = sharedPanelsProps.last?.logEntries as { who?: string; text: string }[];
+    expect(log.map((e) => e.who)).toEqual(['삼성전자 · NXT', '삼성전자']);
   });
 });

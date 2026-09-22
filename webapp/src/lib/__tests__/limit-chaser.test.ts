@@ -23,6 +23,7 @@ import {
   defaultLimitChaserForm,
   dirtyFieldsOf,
   estimatedSellQty,
+  exchangeLabeledName,
   formFromServer,
   isDeleteIntent,
   isLimitChaserSetRejection,
@@ -103,6 +104,20 @@ describe('strategyKey — 전략 키 조립 (유일 지점)', () => {
     expect(strategyKey(`${ISIN}XXXX`, '123456789012345', 'NXT')).toBe(
       'KR7005930003:123456789012:NXT',
     );
+  });
+});
+
+describe('exchangeLabeledName — 거래소 꼬리 (GC-IN-04 · D-03)', () => {
+  it('NXT 면 「{종목명} · NXT」 — 같은 종목 KRX·NXT 두 전략을 가른다', () => {
+    expect(exchangeLabeledName('삼성전자', 'NXT')).toBe('삼성전자 · NXT');
+  });
+
+  it('KRX(기본 거래소)는 꼬리를 붙이지 않는다 — 기존 표면 문구 불변', () => {
+    expect(exchangeLabeledName('삼성전자', 'KRX')).toBe('삼성전자');
+  });
+
+  it('이름이 ISIN 폴백이어도 NXT 면 꼬리가 붙는다', () => {
+    expect(exchangeLabeledName(ISIN, 'NXT')).toBe(`${ISIN} · NXT`);
   });
 });
 

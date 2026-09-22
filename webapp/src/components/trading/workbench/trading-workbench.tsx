@@ -91,7 +91,12 @@ import {
   useState,
 } from "react";
 import { useSearchParams } from "next/navigation";
-import type { RelayExchange, RelayLimitChaser, RelayUnfilled } from "@gh-radar/shared";
+import type {
+  RelayExchange,
+  RelayLimitChaser,
+  RelayQuote,
+  RelayUnfilled,
+} from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -124,7 +129,7 @@ import {
 } from "@/components/trading/workbench/workbench-status-bar";
 import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { useIsinLabels } from "@/lib/isin-labels";
-import { parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
+import { exchangeLabeledName, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
@@ -242,6 +247,26 @@ export function cardForUnfilled(
       code: row.code,
     },
   };
+}
+
+/**
+ * 잔고 평가 가격 (**순수 함수** · 18-REVIEW-R2 GC-IN-04) — KRX 시세가 유한·양수면 그 값, 아니면 NXT
+ * 시세가 같은 조건이면 그 값, 아니면 `undefined`(평가손익 「—」).
+ *
+ * 근거: 잔고 행에는 거래소 축이 없다(게이트웨이 `HoldingState` · `RelayHolding` 은 ISIN · 수량 ·
+ * 매도가능 · 평단뿐이다). KRX 는 기본 거래소이자 돌파 가격 축(`breakoutQuotePrice`)과 같다. NXT
+ * 폴백은 NXT 카드만 있는 종목의 평가를 비우지 않기 위해서다. 카드 집합을 읽지 않는다 — 예전에는
+ * 그 ISIN 의 **첫 카드** 거래소를 골라 같은 종목 KRX·NXT 카드의 순서에 따라 평가 가격이 바뀌었다.
+ */
+export function holdingQuotePrice(
+  quotes: ReadonlyMap<string, RelayQuote>,
+  isin: string,
+): number | undefined {
+  for (const exchange of ["KRX", "NXT"] as const) {
+    const p = quotes.get(relayQuoteKey(isin, exchange))?.p;
+    if (p !== undefined && Number.isFinite(p) && p > 0) return p;
+  }
+  return undefined;
 }
 
 /**
@@ -649,14 +674,8 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
   );
   const clearSelection = useCallback(() => setSelected(null), []);
 
-  const priceOf = useCallback(
-    (isin: string) => {
-      const exchange = cardsRef.current.find((c) => c.isin === isin)?.exchange ?? "KRX";
-      const p = quotes.get(relayQuoteKey(isin, exchange))?.p;
-      return p !== undefined && p > 0 ? p : undefined;
-    },
-    [quotes],
-  );
+  // 잔고 평가 가격 — 카드 순서와 무관한 고정 축(KRX 우선 · NXT 폴백 · GC-IN-04).
+  const priceOf = useCallback((isin: string) => holdingQuotePrice(quotes, isin), [quotes]);
 
   /* ── 전략 로그 합치기 (공용 패널 「전략 로그」) ───────────────────── */
   const [mergedLog, setMergedLog] = useState<StrategyLogEntry[]>([]);
@@ -668,10 +687,14 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
       if (fresh.length === 0) return;
       for (const e of fresh) seenLog.current.add(e);
       const card = cardsRef.current.find((c) => c.id === id);
+      // NXT 전략 줄은 「{종목명} · NXT」 — 같은 종목 KRX·NXT 두 카드의 줄을 가른다(GC-IN-04 · D-03).
       const who =
         card === undefined
           ? id
-          : (card.name ?? labelsRef.current.get(card.isin)?.name ?? card.isin);
+          : exchangeLabeledName(
+              card.name ?? labelsRef.current.get(card.isin)?.name ?? card.isin,
+              card.exchange,
+            );
       /*
         ★ 같은 카드의 **직전 줄과 같은 문장**은 합친 목록에 두 번 쌓지 않는다 — 재접속 스냅샷이 같은
           문장(「전략이 등록됐어요 · …」)을 다시 쓰는 경우의 방어다(18-20 이후 카드는 접기/펴기로 다시
