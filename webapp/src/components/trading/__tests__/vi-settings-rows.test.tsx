@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { RelayViSetMsg, RelayViTrigger } from '@gh-radar/shared';
+import type { RelayAccount, RelayViSetMsg, RelayViTrigger } from '@gh-radar/shared';
 
 /**
  * Phase 18 Plan 05 Task 1 — VI 설정 2줄 (TRADE-08 · D-05 · D-27 · UI-SPEC E2).
@@ -16,12 +16,14 @@ import type { RelayViSetMsg, RelayViTrigger } from '@gh-radar/shared';
  */
 
 const sendMock = vi.fn();
+/** 세션 계좌 목록 — CR-02 describe 만 채운다(정본 계좌의 이름 조회). 나머지는 빈 배열 그대로다. */
+let accountsMock: RelayAccount[] = [];
 
 vi.mock('@/lib/relay-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
   return {
     ...actual,
-    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock }),
+    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock, accounts: accountsMock }),
   };
 });
 
@@ -34,6 +36,8 @@ import {
   VI_DEFAULT_CHECK_RATE,
   VI_ECHO_OVERWRITTEN_TEXT,
   VI_SET_SEND_FAILED_TEXT,
+  viRegisteredAccountText,
+  viRowAccountOf,
 } from '../workbench/vi-settings-rows';
 import { MAX_VI_ORDER_AMOUNT_MANWON, manwonToKrw } from '@/lib/vi-alert';
 import type { RelayViTriggers } from '@/lib/use-relay-socket';
@@ -74,6 +78,7 @@ const sentMsgs = () => sendMock.mock.calls.map((c) => c[0] as RelayViSetMsg);
 beforeEach(() => {
   sendMock.mockReset();
   sendMock.mockReturnValue(true);
+  accountsMock = [];
 });
 
 describe('줄 구성 (D-05)', () => {
@@ -508,5 +513,82 @@ describe('VI 몫 서버 거부 — 두 줄 아래 인라인 경보 (옛 VI 화�
   it('serverError 가 없으면 그 줄 자체가 없다', () => {
     renderRows({ serverError: null });
     expect(document.querySelector('[data-slot="vi-server-error"]')).toBeNull();
+  });
+});
+
+/*
+  18-15 (CR-02) — 등록된 VI 전략의 계좌가 정본이다 (UI-SPEC Q-3 VI 판).
+  상태줄 계좌는 **미등록 줄의 기본 계좌**일 뿐이다. 가동 중인 무인 매수가 상태줄 조작으로
+  다른 계좌로 옮겨 가는 경로(「수정」 한 번)를 닫는다. 잠그지 않는다 — 중지는 언제나 열려 있다.
+*/
+describe('CR-02 — 등록 전략의 계좌가 정본', () => {
+  const STATUS = 'A-111';
+  const REGISTERED = 'B-222';
+  const block = (ex: 'KRX' | 'NXT') =>
+    document.querySelector(`[data-slot="vi-settings-block"][data-exchange="${ex}"]`) as HTMLElement;
+  const accountNotice = (ex: 'KRX' | 'NXT') => block(ex).querySelector('[data-slot="vi-row-account"]');
+
+  it('viRowAccountOf — 미조회 · 미등록이면 상태줄 계좌, differs:false', () => {
+    expect(viRowAccountOf(undefined, STATUS)).toEqual({ accountNo: STATUS, differs: false });
+    expect(viRowAccountOf(null, STATUS)).toEqual({ accountNo: STATUS, differs: false });
+  });
+
+  it('viRowAccountOf — 등록 계좌가 다르면 그 계좌 · differs:true', () => {
+    expect(viRowAccountOf(trigger({ accountNo: REGISTERED }), STATUS)).toEqual({
+      accountNo: REGISTERED,
+      differs: true,
+    });
+  });
+
+  it('viRowAccountOf — 등록 계좌가 같으면 differs:false', () => {
+    expect(viRowAccountOf(trigger({ accountNo: STATUS }), STATUS)).toEqual({ accountNo: STATUS, differs: false });
+  });
+
+  it('viRowAccountOf — 등록 계좌가 공란이면 등록 계좌가 아니다 (상태줄 계좌)', () => {
+    expect(viRowAccountOf(trigger({ accountNo: '' }), STATUS)).toEqual({ accountNo: STATUS, differs: false });
+  });
+
+  it('★ 서버 KRX 계좌 B · 상태줄 A → 「수정」 은 B 로 나간다 (run 현재값)', () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: true }), NXT: null },
+      accountNo: STATUS,
+    });
+    fireEvent.change(rateInput('KRX'), { target: { value: '31' } });
+    fireEvent.click(fixButton('KRX')!);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sentMsgs()[0]).toEqual({
+      t: 'vi.set',
+      accountNo: REGISTERED,
+      exchange: 'KRX',
+      orderAmountKrw: manwonToKrw(1_000),
+      checkRate: 31,
+      run: true,
+    });
+  });
+
+  it('불일치면 그 줄 아래에만 role=status 고지 — 계좌번호 · 이름을 말한다', () => {
+    accountsMock = [
+      { accountNo: STATUS, name: '상태줄계좌' },
+      { accountNo: REGISTERED, name: '등록계좌' },
+    ];
+    renderRows({ viTriggers: { KRX: trigger({ accountNo: REGISTERED }), NXT: null }, accountNo: STATUS });
+    const notice = accountNotice('KRX') as HTMLElement;
+    expect(notice).not.toBeNull();
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent(REGISTERED);
+    expect(notice.textContent).toBe(viRegisteredAccountText(REGISTERED, '등록계좌'));
+    expect(accountNotice('NXT')).toBeNull();
+  });
+
+  it('등록 계좌 = 상태줄 계좌면 고지가 DOM 에 없다 (D-05 평상시 유지)', () => {
+    renderRows({ viTriggers: { KRX: trigger({ accountNo: STATUS }), NXT: trigger({ exchange: 'NXT', accountNo: STATUS }) }, accountNo: STATUS });
+    expect(document.querySelector('[data-slot="vi-row-account"]')).toBeNull();
+  });
+
+  it('미등록(null) · 상태줄 A → 「수정」 은 A 로 나간다', () => {
+    renderRows({ viTriggers: { KRX: null, NXT: null }, accountNo: STATUS });
+    fireEvent.change(rateInput('NXT'), { target: { value: '33' } });
+    fireEvent.click(fixButton('NXT')!);
+    expect(sentMsgs()[0]).toMatchObject({ accountNo: STATUS, exchange: 'NXT', checkRate: 33 });
   });
 });
