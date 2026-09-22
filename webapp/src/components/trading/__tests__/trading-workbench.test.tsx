@@ -1448,6 +1448,105 @@ describe('TradingWorkbench — GC-IN-01 — 공용 패널에 더티 카드 수�
   });
 });
 
+describe('TradingWorkbench — R3-IN-03 — 카드 정리는 커밋된 cards 에서 파생한다 (불변식 회귀)', () => {
+  const S = 'KR7005930003';
+  /** 이탈 경고가 걸려 있는가 — 다른 경로 링크 클릭에 confirm 이 불리는지로 본다. */
+  function leaveWarned(): boolean {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const link = document.createElement('a');
+    link.href = '/me';
+    link.addEventListener('click', (e) => e.preventDefault());
+    document.body.appendChild(link);
+    fireEvent.click(link);
+    link.remove();
+    const warned = confirm.mock.calls.length > 0;
+    confirm.mockRestore();
+    return warned;
+  }
+  const report = (id: string, text: string, entryId: string) => {
+    const onLog = cardProps.get(id)!.onLogChange as (
+      id: string,
+      log: readonly { id: string; at: string; text: string }[],
+    ) => void;
+    act(() => onLog(id, [{ id: entryId, at: '09:41:00', text }]));
+  };
+  const liveId = () =>
+    cardsInDom()[0].querySelector('button[aria-expanded]')!.id.replace(/^strategy-card-/, '').replace(/-toggle$/, '');
+
+  it('계좌 도착과 같은 키 등록 전략 유입이 같은 렌더에 와도 — 카드 1장 · 등록 키 · 펼침 승계 · 더티 바 0 · 이탈 경고 없음', () => {
+    mockRelay = relay({ accounts: [] });
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
+    expect(leaveWarned()).toBe(true);
+
+    // 한 렌더에 계좌와 등록 전략이 함께 들어온다(두 효과가 같은 배치에서 setCards 를 부른다).
+    act(() => {
+      mockRelay = relay({ limitChasers: [lc(S)] });
+      rerender(<TradingWorkbench />);
+    });
+    const after = cardsInDom();
+    expect(after).toHaveLength(1);
+    expect(after[0].getAttribute('data-key')).toBe(`${S}:${ACCOUNT}:KRX`);
+    expect(after[0].getAttribute('data-open')).toBe('true');
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
+    expect(leaveWarned()).toBe(false);
+  });
+
+  it('더티 2 인 사용자 카드가 계좌 채움으로 치워진 뒤 → 더티 바 0 · 이탈 경고 해제 · 같은 키로 다시 만든 카드의 더티 0(새 id)', () => {
+    mockRelay = relay({ accounts: [] });
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    const userId = liveId();
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' })); // 더티 2
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
+
+    mockRelay = relay({ accounts: [], limitChasers: [lc(S)] });
+    rerender(<TradingWorkbench />);
+    mockRelay = relay({ limitChasers: [lc(S)] }); // 계좌 도착 → 사용자 카드 치움
+    rerender(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(liveId()).not.toBe(userId);
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
+    expect(leaveWarned()).toBe(false);
+
+    // 등록 카드를 닫고(「카드 닫기」) 같은 키로 다시 만든다 → 새 id · 더티 0.
+    fireEvent.click(screen.getByRole('button', { name: /카드 닫기$/ }));
+    fireEvent.click(
+      within(screen.getByTestId('workbench-close-confirm')).getByRole('button', { name: '카드 닫기' }),
+    );
+    expect(cardsInDom()).toHaveLength(0);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    expect(cardsInDom()[0].getAttribute('data-key')).toBe(`${S}:${ACCOUNT}:KRX`);
+    expect(liveId()).not.toBe(userId);
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
+    expect(leaveWarned()).toBe(false);
+  });
+
+  it('✕ 로 치운 카드의 직전 로그 문장이 새 카드(다른 id)의 같은 문장을 막지 않는다 · 합친 로그 귀속은 그대로', () => {
+    render(<TradingWorkbench />);
+    const add = within(slot('stock-add-bar')!).getByRole('button', { name: '추가' });
+    fireEvent.click(add);
+    const first = liveId();
+    report(first, '매수 주문을 냈어요', 'a-1');
+    // 같은 카드의 직전 줄과 같은 문장은 두 번 쌓이지 않는다(기존 규칙).
+    report(first, '매수 주문을 냈어요', 'a-2');
+    expect((sharedPanelsProps.last?.logEntries as unknown[]).length).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 카드 닫기' }));
+    expect(cardsInDom()).toHaveLength(0);
+    fireEvent.click(add);
+    const second = liveId();
+    expect(second).not.toBe(first);
+    report(second, '매수 주문을 냈어요', 'b-1');
+
+    const log = sharedPanelsProps.last?.logEntries as { who?: string; text: string }[];
+    expect(log.map((e) => e.text)).toEqual(['매수 주문을 냈어요', '매수 주문을 냈어요']);
+    expect(log.map((e) => e.who)).toEqual(['삼성전자', '삼성전자']);
+  });
+});
+
 describe('holdingQuotePrice — 잔고 평가 가격 (GC-IN-04 · KRX 우선 · NXT 폴백)', () => {
   const X = 'KR7005930003';
   const q = (isin: string, x: 'KRX' | 'NXT', p: number) =>

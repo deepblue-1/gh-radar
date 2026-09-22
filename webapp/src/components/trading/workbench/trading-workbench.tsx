@@ -277,7 +277,9 @@ export function holdingQuotePrice(
  * 치우고(`dropped`) — 두 카드가 같은 전략 키를 가질 수 없다(② · T-18-94) — 치운 카드가 펼쳐져
  * 있었으면 **그 키의 카드를 펼친다**(사용자가 연 카드의 맥락을 등록 카드가 잇는다 · 접혀 있었으면
  * 건드리지 않는다). 빈 계좌 카드가 없으면 입력 배열을 그대로 돌려준다(효과 무한 루프 방지).
- * 치운 카드의 정리(더티 · 직전 로그)는 호출자가 `removeCard` 와 같은 경로로 한다.
+ * 치운 카드의 정리(더티 · 직전 로그)는 여기서도 호출자도 하지 않는다 — 커밋된 `cards` 에서 파생한다
+ * (R3-IN-03 · `WorkbenchSurface` 의 정리 효과). `dropped` 는 순수 함수 테스트가 치운 카드를 단언하려고
+ * 남긴 반환이다 — 작업대는 `next` 만 쓴다.
  */
 export function fillAccountCards(
   cards: WorkbenchCard[],
@@ -555,37 +557,41 @@ function WorkbenchSurface() {
   /* ── 카드 제거 (⑧) ────────────────────────────────────────────────── */
   /** 카드별 합친 로그의 직전 문장 — 전략 로그 합치기의 중복 판정(아래). */
   const lastLogText = useRef(new Map<string, string>());
-  /** 카드를 치울 때의 정리 몫 — 카드 더티 키 · 직전 로그 문장. `removeCard` 와 계좌 채움이 함께 쓴다. */
-  const forgetCardState = useCallback((ids: readonly string[]) => {
-    if (ids.length === 0) return;
+  /*
+    ★ 정리는 `cards` 커밋에서 파생한다 — 치운 id 를 계산하지 않는다(R3-IN-03). 카드를 치우는 경로
+      (✕ · 계좌 채움 · 앞으로 생길 경로)가 몇 개든 커밋된 카드 집합에 없는 id 의 더티 키 · 직전 로그
+      문장을 여기 한 곳이 지운다. 카드 id 는 재사용되지 않고(`nextCardId`) 더티 합산은 `cards` 를
+      순회하므로, 커밋과 이 효과 사이의 한 렌더에도 합산 · 더티 바 수 · 이탈 경고는 이미 맞다.
+      바뀐 것이 없으면 상태를 그대로 돌려 재렌더를 만들지 않는다.
+  */
+  useEffect(() => {
+    const live = new Set(cards.map((c) => c.id));
     setCardDirty((prev) => {
-      if (!ids.some((id) => id in prev)) return prev;
+      const gone = Object.keys(prev).filter((id) => !live.has(id));
+      if (gone.length === 0) return prev;
       const next = { ...prev };
-      for (const id of ids) delete next[id];
+      for (const id of gone) delete next[id];
       return next;
     });
-    for (const id of ids) lastLogText.current.delete(id);
+    for (const id of [...lastLogText.current.keys()]) {
+      if (!live.has(id)) lastLogText.current.delete(id);
+    }
+  }, [cards]);
+  const removeCard = useCallback((id: string) => {
+    setCards((prev) => prev.filter((c) => c.id !== id));
   }, []);
-  const removeCard = useCallback(
-    (id: string) => {
-      setCards((prev) => prev.filter((c) => c.id !== id));
-      forgetCardState([id]);
-    },
-    [forgetCardState],
-  );
 
   /*
     계좌 도착 전에 만든 카드는 계좌가 비어 있다 — 계좌가 정해지면 그 카드들만 채운다(`fillAccountCards`).
     채운 키가 이미 다른 카드의 키면(그 사이 같은 키의 등록 전략이 들어왔다) 빈 계좌 카드를 치운다 — 두
     카드가 같은 전략 키를 가질 수 없다(② · T-18-94). ★ 사용자가 연 카드의 맥락(펼침)을 등록 카드가
-    잇는다 · 정리는 `removeCard` 와 같은 경로(`forgetCardState`)다(GC-IN-05). 업데이터는 순수하게 두고
-    치운 id 는 효과 본문에서 같은 함수로 다시 읽는다.
+    잇는다(GC-IN-05). 업데이터 한 번만 부른다 — 같은 배치의 다른 효과가 넣은 카드도 `prev` 로 본다.
+    치운 카드의 정리는 위 `cards` 파생 효과가 한다(치운 id 를 계산하지 않는다 · R3-IN-03).
   */
   useEffect(() => {
     if (accountNo === "") return;
-    forgetCardState(fillAccountCards(cardsRef.current, accountNo).dropped);
     setCards((prev) => fillAccountCards(prev, accountNo).next);
-  }, [accountNo, forgetCardState]);
+  }, [accountNo]);
 
   /** ✕ 확인 — 카드 id 와 이유(⑧). `unknown` 이 `registered` 보다 먼저다(잠금 지속을 먼저 말한다). */
   const [closeAsk, setCloseAsk] = useState<{ id: string; reason: "unknown" | "registered" } | null>(
