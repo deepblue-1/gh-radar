@@ -63,7 +63,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 | 기본 경로 | `default via 10.10.0.1 dev ens4` — 터널이 기본 경로를 탈취하지 않았다 | `ip route show default` |
 | `caddy` | `active` | `systemctl is-active caddy` |
 | `wg-probe` | `active` + `enabled` — wg0 터널 1초 주기 읽기 전용 측정기 (2026-09-16 신설, §터널 정지 판정 절차) | `systemctl is-active wg-probe` / `journalctl -t wg-probe -n 5` |
-| `netcut-daily.timer` | `enabled` — 평일 `Mon-Fri 08:00 KST` 예약 기동, 외부 경로 단절 5축 측정기 (§외부 경로 단절 판정 — netcut). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-enabled netcut-daily.timer` / `systemctl list-timers 'netcut-*' --all` |
+| `netcut-daily.timer` | **`disabled`** (2026-09-22 15:41 KST~) — 4일 무재발로 중지, 재발 감지는 wg-probe 가 맡는다. 재가동은 `sudo systemctl enable --now netcut-daily.timer` (§외부 경로 단절 판정 — netcut). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-enabled netcut-daily.timer` / `systemctl list-timers 'netcut-*' --all` |
 | `securwayssl.service` | `active` + **`enabled`** — 교보 SecuwaySSL VPN 상시 DMA 터널 (2026-09-21 신설, §교보 SecuwaySSL VPN). `MainPID` 은 `secuway-connect` 래퍼(sslvpn 추적). **메타데이터 미등록이라 VM 재생성 시 소멸** | `systemctl is-active securwayssl.service` |
 | `securwayssl-watchdog.timer` | `active` + `enabled` — 3분 주기 교보 터널 keepalive + 도달성 복구 | `systemctl is-active securwayssl-watchdog.timer` |
 
@@ -790,6 +790,20 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 > **wg0 터널**을 재는 반면 netcut 은 **터널을 타지 않는 경로**(국내 ISP·`tun0`·Google 망·호스트
 > 내부)를 잰다. 그래서 「wg0 가 문제인가, 그 바깥이 문제인가」를 두 측정기가 서로 독립으로 답한다.
 > **읽기와 핑만 한다** — 데이터패스를 건드리지 않고, 아무것도 예방하거나 고치지 않는다.
+
+> **현재 상태: 비활성 (2026-09-22 15:41 KST~).** `systemctl disable --now netcut-daily.timer` 로 타이머를 끄고
+> 그날 진행 중이던 측정을 중지했다(`reset-failed` 후 실패 유닛 0). 스크립트·유닛 파일은 VM 에 그대로 있다.
+>
+> - **왜 껐나.** 9/18 17:11 이후 4일간 재발이 없었고, 재발 **감지**는 상시 가동 중인 wg-probe 가 한다
+>   (9/17~18 사건도 다피어 동시 `rx_stall` + KT·LG U+ `rtt_loss` 로 전부 잡혔다). netcut 의 몫은 「어느 층인가」를
+>   가르는 것인데 그 판정은 아래 §사건 기록 으로 끝났다.
+> - **부하 실측 (9/22 08:00~15:40).** CPU 평균 ≈0.024코어 — e2-micro 보장 0.25코어의 ≈10%, wg-probe 의 ≈10배
+>   (초마다 프로세스를 새로 띄우는 구조 탓). 메모리 11MB · 디스크 하루 ≈17MB.
+> - **다시 켤 조건.** wg-probe 에 **여러 피어의 `rx_stall` 과 KT·LG U+ `rtt_loss` 가 같은 초에** 뜨면 켠다:
+>   `sudo systemctl enable --now netcut-daily.timer` (다음 평일 08:00 부터 돈다 — 당장 필요하면 아래 §어떻게 도는가 의
+>   스크립트를 직접 실행).
+> - **증거 폴더는 남아 있다** — `/var/tmp/netcut-260917-*` · `-260918-am` · `-260921` · `-260922`.
+>   **14일 자동 삭제는 타이머 기동 때(`ExecStartPre`)만 돌기 때문에 비활성 동안에는 지워지지 않는다.**
 
 ### 무엇을 재는가 — 5축
 
