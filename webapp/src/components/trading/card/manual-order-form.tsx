@@ -129,13 +129,6 @@ export const MODIFY_TARGET_CHANGED_TEXT = '선택한 원주문이 바뀌었어�
 export const RESULT_UNKNOWN_LOCKED_TEXT =
   '결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요';
 
-/** 「결과 모름」 잠금 키 — **보낸 요청의** 계좌·ISIN·거래소(정정·취소는 원주문 행의 값). */
-export interface ResultUnknownKey {
-  accountNo: string;
-  isin: string;
-  exchange: RelayExchange;
-}
-
 /**
  * 취소 확정 순간의 수량 — 확인한 수량(`confirmedQty`)을 **지금의 잔량으로 내리기만** 한다
  * (GC-WR-02 · D-21, 18-REVIEW-R2).
@@ -259,13 +252,6 @@ export interface ManualOrderFormProps {
   onClearSelection?: () => void;
   /** 제출이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
   onSubmitted?: (res: RelayOrderResultMsg) => void;
-  /**
-   * 상위가 든 「결과 모름」 잠금(GC-WR-03) — true 면 4버튼이 잠긴다. 잠금의 원천은 이제
-   * `RelayProvider` 이고(②-4) 이 prop 은 18-35 에서 걷어낸다. 이 폼은 이 값을 풀지 않는다.
-   */
-  resultUnknownLocked?: boolean;
-  /** 신규 · 정정 결과 모름(timeout) 이 난 순간 **보낸 요청의** 키로 부른다(취소는 부르지 않는다). */
-  onResultUnknown?: (key: ResultUnknownKey) => void;
   className?: string;
 }
 
@@ -300,8 +286,6 @@ export function ManualOrderForm({
   selectedUnfilled,
   onClearSelection,
   onSubmitted,
-  resultUnknownLocked = false,
-  onResultUnknown,
   className,
 }: ManualOrderFormProps) {
   const [priceText, setPriceText] = useState('');
@@ -316,8 +300,8 @@ export function ManualOrderForm({
   const [validation, setValidation] = useState<string | null>(null);
   const { sendOrder, orderLocks } = useRelayContext();
   /*
-    이 폼 키의 주문 잠금(②-4) — 원천은 `RelayProvider` 하나다(앱 수명). 계좌가 빈 폼은 보낼 수
-    없으므로 잠금도 없다.
+    이 폼 키의 주문 잠금(②-4) — 원천은 `RelayProvider` 하나다(앱 수명). 상위(작업대 · 카드 본문 ·
+    호가 탭)는 잠금을 prop 으로 내리지 않는다. 계좌가 빈 폼은 보낼 수 없으므로 잠금도 없다.
   */
   const lock =
     accountNo.length > 0 ? orderLocks.get(strategyKey(isin, accountNo, exchange)) : undefined;
@@ -409,8 +393,8 @@ export function ManualOrderForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 잔량이 바뀔 때만 본다(입력 변경엔 반응하지 않는다).
   }, [selectedOrderNo, selectedFillQty]);
 
-  /** 잠금 = `RelayProvider` 키 잠금(진행 중 · 결과 모름) ∨ 상위 prop(②-4). */
-  const locked = lock !== undefined || resultUnknownLocked;
+  /** 잠금 = `RelayProvider` 키 잠금(진행 중 · 결과 모름) 하나(②-4). */
+  const locked = lock !== undefined;
   /** 「주문 전송 중…」 — 이 폼이 보내는 중이거나, 같은 키의 신규 · 정정이 다른 폼에서 전송 중이다. */
   const sending = submitting || lock === 'in-flight';
   const busy = submitting || locked;
@@ -605,9 +589,6 @@ export function ManualOrderForm({
       // ★ 결과를 모른다 — 신규 · 정정이면 `RelayProvider` 가 이미 이 요청의 키를 잠갔다(②-4).
       //   폼은 배너만 세운다. 취소 timeout 은 잠그지 않는다(사용자 결정 2 · 취소 재시도는 무해).
       setResult({ kind: 'unknown' });
-      if (req.kind !== 'cancel') {
-        onResultUnknown?.({ accountNo: req.accountNo, isin: req.isin, exchange: req.exchange });
-      }
     } else if (res.status === 'rejected' || res.resultCode !== 0) {
       setResult({ kind: 'rejected', message: res.message, resultCode: res.resultCode });
     } else {
@@ -844,7 +825,7 @@ export function ManualOrderForm({
       {result && <ResultBanner result={result} />}
       {/* 결과 모름 잠금인데 이 폼에 결과 배너가 없다 = ✕ 뒤 다시 연 카드 · 다른 화면에서 돌아온 폼 ·
           같은 키의 호가 탭(R3 목업 ③ 3-b — 같은 요소 · 같은 원문). */}
-      {(lock === 'result-unknown' || resultUnknownLocked) && result?.kind !== 'unknown' && (
+      {lock === 'result-unknown' && result?.kind !== 'unknown' && (
         <p
           role="status"
           aria-live="polite"

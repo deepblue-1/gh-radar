@@ -55,7 +55,6 @@ import {
 import {
   ManualOrderEntry,
   ManualOrderForm,
-  type ResultUnknownKey,
 } from '@/components/trading/card/manual-order-form';
 import type { StrategyCardState } from '@/components/trading/card/strategy-card';
 import type { RelayStatus } from '@/lib/use-relay-socket';
@@ -189,12 +188,6 @@ export interface CardBodyProps {
   /** 미체결 표에서 선택된 원주문(D-21) — 선택은 상위가 소유한다. */
   selectedUnfilled?: RelayUnfilled | null;
   onClearSelection?: () => void;
-  /**
-   * 작업대가 든 「결과 모름」 잠금(GC-WR-03) — 폼에 그대로 넘긴다. 호가 탭은 넘기지 않는다(폼 로컬
-   * 잠금 규칙 그대로). 카드별 불리언 + 안정 콜백뿐이다(③ · T-18-52).
-   */
-  resultUnknownLocked?: boolean;
-  onResultUnknown?: (key: ResultUnknownKey) => void;
   className?: string;
 }
 
@@ -213,8 +206,6 @@ export function CardBody({
   referenceClose,
   selectedUnfilled,
   onClearSelection,
-  resultUnknownLocked,
-  onResultUnknown,
   className,
 }: CardBodyProps) {
   const {
@@ -298,8 +289,6 @@ export function CardBody({
       referenceClose={referenceClose}
       selectedUnfilled={selectedUnfilled}
       onClearSelection={onClearSelection}
-      resultUnknownLocked={resultUnknownLocked}
-      onResultUnknown={onResultUnknown}
     />
   );
 

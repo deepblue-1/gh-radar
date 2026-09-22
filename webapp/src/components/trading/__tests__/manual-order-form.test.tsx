@@ -88,7 +88,6 @@ import {
   modifyQtyOverRemainingText,
   unfilledSelectBlockReason,
   type ManualOrderFormProps,
-  type ResultUnknownKey,
 } from '../card/manual-order-form';
 
 const ISIN = 'KR7042700005';
@@ -860,148 +859,6 @@ describe('ManualOrderForm — 가격 0 원주문 선택 칩 표기 (CR-01 표시
   });
 });
 
-describe('ManualOrderForm — 제어형 결과 모름 잠금 (GC-WR-03)', () => {
-  const TIMEOUT = () => accepted({ status: 'timeout', orderNo: '', resultCode: -1, message: '' });
-
-  /** 작업대처럼 잠금을 **상위가** 든다 — 콜백이 오면 잠근다(풀지 않는다). */
-  function Harness({
-    spy,
-    over = {},
-  }: {
-    spy: (k: ResultUnknownKey) => void;
-    over?: Partial<ManualOrderFormProps>;
-  }) {
-    const [locked, setLocked] = useState(false);
-    return (
-      <ManualOrderForm
-        {...baseProps(over)}
-        resultUnknownLocked={locked}
-        onResultUnknown={(k) => {
-          spy(k);
-          setLocked(true);
-        }}
-      />
-    );
-  }
-
-  it('resultUnknownLocked → 4버튼 disabled · 잠금 문구(role=status) · 「매수」 눌러도 다이얼로그 없음 · 전송 0', async () => {
-    const user = userEvent.setup();
-    // 선택 행이 있어도(정정·취소가 원래 열릴 조건) 잠긴다.
-    renderForm({ resultUnknownLocked: true, selectedUnfilled: unf() });
-    for (const name of ['매수', '매도', '정정', '취소']) expect(btn(name)).toBeDisabled();
-    const lock = screen.getByTestId('manual-order-locked');
-    expect(lock).toHaveAttribute('role', 'status');
-    expect(lock).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
-    expect(RESULT_UNKNOWN_LOCKED_TEXT).not.toMatch(/실패/);
-    expect(screen.getByTestId('manual-order-form').textContent).not.toMatch(/실패/);
-
-    await user.click(btn('매수'));
-    fireEvent.click(btn('취소'));
-    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
-    expect(sendOrderMock).not.toHaveBeenCalled();
-  });
-
-  it('신규 timeout → onResultUnknown 이 보낸 요청의 {accountNo, isin, exchange} 로 1회 · 배너가 있으면 잠금 문구는 겹치지 않는다', async () => {
-    const user = userEvent.setup();
-    const spy = vi.fn();
-    sendOrderMock.mockResolvedValue(TIMEOUT());
-    render(<Harness spy={spy} />);
-    await fill(user, '128500', '10');
-    await user.click(btn('매수'));
-    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
-
-    await screen.findByTestId('manual-order-result');
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith({ accountNo: '12345678-01', isin: ISIN, exchange: 'KRX' });
-    expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'unknown');
-    // 원래 카드는 배너 하나로 말한다(R3 목업 ③ 3-a) — 잠금 문구는 다시 연 카드의 몫이다.
-    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
-    for (const name of ['매수', '매도', '정정', '취소']) expect(btn(name)).toBeDisabled();
-  });
-
-  it('정정 timeout → 원주문 **행의** 키(NXT)로 1회', async () => {
-    const user = userEvent.setup();
-    const spy = vi.fn();
-    sendOrderMock.mockResolvedValue(TIMEOUT());
-    render(<Harness spy={spy} over={{ selectedUnfilled: unf() }} />);
-    await user.clear(qtyInput());
-    await user.type(qtyInput(), '30');
-    await user.click(btn('정정'));
-    await user.click(await screen.findByRole('button', { name: '정정 주문' }));
-    await screen.findByTestId('manual-order-result');
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith({ accountNo: '12345678-01', isin: ISIN, exchange: 'NXT' });
-  });
-
-  it('취소 timeout → 콜백 0회 · 배너만 · 버튼 잠기지 않음 (R3-IN-01 · 사용자 결정 2)', async () => {
-    const user = userEvent.setup();
-    const spy = vi.fn();
-    sendOrderMock.mockResolvedValue(TIMEOUT());
-    render(<Harness spy={spy} over={{ selectedUnfilled: unf() }} />);
-    await user.click(btn('취소'));
-    await user.click(await screen.findByRole('button', { name: '취소 주문' }));
-    const banner = await screen.findByTestId('manual-order-result');
-    expect(banner).toHaveAttribute('data-kind', 'unknown');
-    expect(banner).toHaveTextContent('접수 응답이 늦어지고 있어요');
-    // 취소 재시도는 무해하다 — 어느 표면의 버튼도 잠그지 않는다.
-    expect(spy).not.toHaveBeenCalled();
-    expect(lockMock.locks).toBeNull();
-    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
-    for (const name of ['매수', '매도', '취소']) expect(btn(name)).toBeEnabled();
-  });
-
-  it('접수·거부는 onResultUnknown 을 부르지 않는다', async () => {
-    const user = userEvent.setup();
-    const spy = vi.fn();
-    sendOrderMock.mockResolvedValueOnce(accepted());
-    sendOrderMock.mockResolvedValueOnce(
-      accepted({ status: 'rejected', orderNo: '', resultCode: 7, message: '주문가능수량 초과' }),
-    );
-    render(<Harness spy={spy} />);
-    await fill(user, '128500', '10');
-    await user.click(btn('매수'));
-    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
-    await screen.findByTestId('manual-order-result');
-    await user.click(btn('매도'));
-    await user.click(await screen.findByRole('button', { name: '매도 주문' }));
-    await waitFor(() =>
-      expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'rejected'),
-    );
-    expect(spy).not.toHaveBeenCalled();
-    expect(btn('매수')).toBeEnabled();
-  });
-
-  it('상위 잠금은 종목 전환으로 풀리지 않는다(상위 소유) — 폼은 로컬 잠금만 리셋한다', () => {
-    const { rerender } = renderForm({ resultUnknownLocked: true });
-    rerender(<ManualOrderForm {...baseProps({ resultUnknownLocked: true, isin: 'KR7005930003' })} />);
-    expect(btn('매수')).toBeDisabled();
-    expect(screen.getByTestId('manual-order-locked')).toBeInTheDocument();
-  });
-
-  it('컨텍스트 키 잠금(호가 탭) — 다른 종목으로 바꾸면 그 키는 잠기지 않고, 원래 종목으로 돌아오면 다시 잠겨 있다', async () => {
-    const user = userEvent.setup();
-    sendOrderMock.mockResolvedValue(TIMEOUT());
-    const { rerender } = renderForm({ variant: 'orderbook' });
-    await fill(user, '128500', '10');
-    await user.click(btn('매수'));
-    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
-    await screen.findByTestId('manual-order-result');
-    expect(btn('매수')).toBeDisabled();
-    // 배너가 있는 폼은 잠금 문구를 겹쳐 보이지 않는다.
-    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
-
-    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook', isin: 'KR7005930003' })} />);
-    expect(btn('매수')).toBeEnabled();
-    expect(screen.queryByTestId('manual-order-result')).toBeNull();
-    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
-
-    // 원래 종목으로 돌아오면 Provider 키 잠금을 다시 읽는다 — 배너는 없고 잠금 문구가 선다.
-    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook' })} />);
-    expect(btn('매수')).toBeDisabled();
-    expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
-  });
-});
-
 describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-02)', () => {
   const KEY = `${ISIN}:12345678-01:KRX`;
   const lockWith = (entries: Array<[string, 'in-flight' | 'result-unknown']>) => {
@@ -1076,5 +933,85 @@ describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-0
     expect(screen.queryByTestId('manual-order-locked')).toBeNull();
     expect(screen.getByTestId('manual-order-form').textContent).not.toMatch(/실패/);
     expect(RESULT_UNKNOWN_LOCKED_TEXT).not.toMatch(/실패/);
+  });
+
+  /*
+    아래는 18-35 에서 옛 제어형(상위 prop) describe 가 지키던 성질을 옮긴 것이다 — 요청 키 · 취소
+    제외 · 접수/거부 무잠금 · 종목 전환. 잠금의 유일한 원천은 컨텍스트다.
+  */
+  const TIMEOUT = () => accepted({ status: 'timeout', orderNo: '', resultCode: -1, message: '' });
+
+  it('정정 timeout → 원주문 **행의** 키(NXT)가 잠긴다 — 폼 키(KRX)가 아니다', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    renderForm({ selectedUnfilled: unf() });
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '30');
+    await user.click(btn('정정'));
+    await user.click(await screen.findByRole('button', { name: '정정 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect([...(lockMock.locks ?? new Map()).entries()]).toEqual([
+      [`${ISIN}:12345678-01:NXT`, 'result-unknown'],
+    ]);
+  });
+
+  it('취소 timeout → 잠금 등록 0 · 배너만 · 버튼 잠기지 않음 (R3-IN-01 · 사용자 결정 2)', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    renderForm({ selectedUnfilled: unf() });
+    await user.click(btn('취소'));
+    await user.click(await screen.findByRole('button', { name: '취소 주문' }));
+    const banner = await screen.findByTestId('manual-order-result');
+    expect(banner).toHaveAttribute('data-kind', 'unknown');
+    expect(banner).toHaveTextContent('접수 응답이 늦어지고 있어요');
+    // 취소 재시도는 무해하다 — 어느 표면의 버튼도 잠그지 않는다.
+    expect(lockMock.locks).toBeNull();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+    for (const name of ['매수', '매도', '취소']) expect(btn(name)).toBeEnabled();
+  });
+
+  it('접수 · 거부는 잠금을 등록하지 않는다 — 버튼이 다시 열린다', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValueOnce(accepted());
+    sendOrderMock.mockResolvedValueOnce(
+      accepted({ status: 'rejected', orderNo: '', resultCode: 7, message: '주문가능수량 초과' }),
+    );
+    renderForm();
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
+    await screen.findByTestId('manual-order-result');
+    await user.click(btn('매도'));
+    await user.click(await screen.findByRole('button', { name: '매도 주문' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'rejected'),
+    );
+    expect(lockMock.locks).toBeNull();
+    expect(btn('매수')).toBeEnabled();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+  });
+
+  it('컨텍스트 키 잠금(호가 탭) — 다른 종목으로 바꾸면 그 키는 잠기지 않고, 원래 종목으로 돌아오면 다시 잠겨 있다', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    const { rerender } = renderForm({ variant: 'orderbook' });
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(btn('매수')).toBeDisabled();
+    // 배너가 있는 폼은 잠금 문구를 겹쳐 보이지 않는다.
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+
+    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook', isin: 'KR7005930003' })} />);
+    expect(btn('매수')).toBeEnabled();
+    expect(screen.queryByTestId('manual-order-result')).toBeNull();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+
+    // 원래 종목으로 돌아오면 Provider 키 잠금을 다시 읽는다 — 배너는 없고 잠금 문구가 선다.
+    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook' })} />);
+    expect(btn('매수')).toBeDisabled();
+    expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
   });
 });

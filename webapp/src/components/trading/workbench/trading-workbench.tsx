@@ -64,7 +64,7 @@
  *     렌더되지 않는다(T-18-54). 연결 중에는 게이트를 세우지 않는다(`useDmaGateReason` 규율).
  *   - 종목정보 팝업(`StockInfoModal`)은 한 번에 하나 — 상태를 여기 둔다.
  *
- * ⑧ 카드 ✕ (UI-SPEC E7 error · E7 확장 GC-WR-03)
+ * ⑧ 카드 ✕ (UI-SPEC E7 error · E7 확장 · R3 목업 ②)
  *   등록 전 카드는 즉시 사라진다. 두 경우만 확인 다이얼로그(`workbench-close-confirm`, `data-reason`)
  *   를 거친다 — 판정은 `closeCard` 한 곳이다.
  *   - `unknown` — 카드 키가 `RelayProvider` 주문 잠금(진행 중 · 결과 모름)에 있다(⑨). 제목 「결과를
@@ -75,11 +75,13 @@
  *   작업대가 `lc.set` 을 직접 보내는 두 번째 송신 경로를 만들지 않는다 — 전략을 끄는 경로는 카드의
  *   스위치 하나다. 다이얼로그·잠금은 화면 상태다(서버 송신 0).
  *
- * ⑨ 잠금의 원천은 `RelayProvider`(앱 수명)다 — 해제는 로그아웃 · 새로고침 (R3-WR-02 · D-27 R4 보강)
+ * ⑨ 잠금은 작업대가 들지 않는다 — `RelayProvider.orderLocks`(앱 수명)를 ✕ 판정에만 읽는다 ·
+ *   카드 폼은 같은 컨텍스트를 스스로 읽는다 (R3-WR-02 · D-27 R4 보강 · 사용자 결정 1)
  *   신규 · 정정 요청이 전송 중이거나 결과 모름(timeout)이면 `RelayProvider` 가 **보낸 요청의**
- *   `계좌|ISIN|거래소`(`strategyKey`) 키를 잠그고, 그 키를 가진 카드 폼 · 종목상세 호가 탭 폼이 모두
- *   4버튼을 잠근다. ✕ 뒤 종목 추가 · 돌파 칩 · 미체결 선택 · 다른 화면에 다녀오기 어느 경로로 다시
- *   열어도 잠긴 채다. 작업대는 ✕ 판정에서 이 잠금을 **읽기만** 한다. 취소 timeout 은 잠그지 않는다.
+ *   `계좌|ISIN|거래소`(`strategyKey`) 키를 잠근다(해제는 로그아웃 · 새로고침 · 취소 timeout 은 잠그지
+ *   않는다). 작업대는 잠금을 상태로 두지도, 카드 본문에 prop 으로 내리지도 않는다 — 원천은 하나다.
+ *   그래서 ✕ 뒤 종목 추가 · 돌파 칩 · 미체결 선택 · 다른 화면에 다녀오기 어느 경로로 다시 열어도 새
+ *   카드의 폼이 같은 키로 잠긴 채 선다.
  */
 
 import {
@@ -109,7 +111,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CardBody } from "@/components/trading/card/card-body";
-import type { ResultUnknownKey } from "@/components/trading/card/manual-order-form";
 import { StockInfoModal } from "@/components/trading/card/stock-info-modal";
 import {
   StrategyCard,
@@ -331,39 +332,14 @@ function clockNow(now: Date = new Date()): string {
 
 export function TradingWorkbench() {
   const gateReason = useDmaGateReason();
-  /*
-    ⑨ 「결과 모름」 키 집합(GC-WR-03 잔재 — 18-35 에서 걷어낸다) — 키 = 보낸 요청의
-    `strategyKey(isin, accountNo, exchange)`. 잠금의 원천은 이제 `RelayProvider` 의 주문 잠금이고
-    (앱 수명 · 로그아웃 · 새로고침에만 해제), 이 집합은 같은 규칙(신규 · 정정만)으로 잠그기만 한다.
-    해제 버튼·타이머·에코 기반 자동 해제는 두지 않는다(D-27 · Pitfall 9).
-  */
-  const [resultUnknownKeys, setResultUnknownKeys] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
-  const markResultUnknown = useCallback((k: ResultUnknownKey) => {
-    const key = strategyKey(k.isin, k.accountNo, k.exchange);
-    setResultUnknownKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
-  }, []);
   // 게이트는 페이지를 **대체**한다(⑦). 아래 본문의 훅이 돌지 않도록 컴포넌트를 가른다.
   if (gateReason !== null) {
     return <DmaGate reason={gateReason} surface="트레이딩" />;
   }
-  return (
-    <WorkbenchSurface
-      resultUnknownKeys={resultUnknownKeys}
-      onResultUnknown={markResultUnknown}
-    />
-  );
+  return <WorkbenchSurface />;
 }
 
-interface WorkbenchSurfaceProps {
-  /** ⑨ 「결과 모름」 잠금 키 집합(소유자는 `TradingWorkbench`). */
-  resultUnknownKeys: ReadonlySet<string>;
-  /** ⑨ 안정 콜백 — 폼이 timeout 을 본 순간 보낸 요청의 키로 부른다. */
-  onResultUnknown: (key: ResultUnknownKey) => void;
-}
-
-function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfaceProps) {
+function WorkbenchSurface() {
   const relay = useRelayContext();
   const {
     status,
@@ -618,9 +594,7 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
   const registeredKeys = useMemo(() => new Set(limitChasers.map((c) => c.key)), [limitChasers]);
   const registeredRef = useRef(registeredKeys);
   registeredRef.current = registeredKeys;
-  const resultUnknownRef = useRef(resultUnknownKeys);
-  resultUnknownRef.current = resultUnknownKeys;
-  /* ⑧ `RelayProvider` 주문 잠금(진행 중 · 결과 모름) — 최신 값을 ref 로(안정 `closeCard`). */
+  /* ⑧ ⑨ `RelayProvider` 주문 잠금(진행 중 · 결과 모름) — 유일한 원천. 최신 값을 ref 로(안정 `closeCard`). */
   const orderLocksRef = useRef(relay.orderLocks);
   orderLocksRef.current = relay.orderLocks;
 
@@ -628,10 +602,7 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
     (id: string) => {
       const card = cardsRef.current.find((c) => c.id === id);
       if (card === undefined) return;
-      if (
-        card.accountNo !== "" &&
-        (orderLocksRef.current.has(keyOf(card)) || resultUnknownRef.current.has(keyOf(card)))
-      ) {
+      if (card.accountNo !== "" && orderLocksRef.current.has(keyOf(card))) {
         setCloseAsk({ id, reason: "unknown" });
         return;
       }
@@ -870,8 +841,6 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
                 : null
             }
             onClearSelection={clearSelection}
-            resultUnknownLocked={resultUnknownKeys.has(keyOf(c))}
-            onResultUnknown={onResultUnknown}
             onToggle={toggleCard}
             onClose={closeCard}
             onExchangeChange={changeExchange}
@@ -992,10 +961,6 @@ interface WorkbenchCardItemProps {
   queuedWindow: RelayQueuedWindowMsg | undefined;
   selectedUnfilled: RelayUnfilled | null;
   onClearSelection: () => void;
-  /** ⑨ 이 카드의 현재 키가 「결과 모름」 잠금 집합에 있는가 — 불리언만 내린다(③). */
-  resultUnknownLocked: boolean;
-  /** ⑨ 안정 콜백(`TradingWorkbench` 의 `markResultUnknown`). */
-  onResultUnknown: (key: ResultUnknownKey) => void;
   onToggle: (cardId: string) => void;
   onClose: (cardId: string) => void;
   onExchangeChange: (cardId: string, exchange: RelayExchange) => void;
@@ -1007,7 +972,7 @@ interface WorkbenchCardItemProps {
 /**
  * 카드 1장 = `StrategyCard` + `CardBody` 본문(18-10). 본문 렌더 함수를 카드마다 **안정적으로** 만들어
  * `StrategyCard` 의 `memo` 가 살게 한다(④). 전략 배열·라벨 Map 은 여기에도 없다 — 문자열과 이 카드의
- * 선택 행만 온다(③ · T-18-52).
+ * 선택 행만 온다(③ · T-18-52). 주문 잠금도 내리지 않는다 — 폼이 `RelayProvider` 에서 스스로 읽는다(⑨).
  */
 const WorkbenchCardItem = memo(function WorkbenchCardItem({
   card,
@@ -1017,8 +982,6 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
   queuedWindow,
   selectedUnfilled,
   onClearSelection,
-  resultUnknownLocked,
-  onResultUnknown,
   onToggle,
   onClose,
   onExchangeChange,
@@ -1041,8 +1004,6 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
         queuedWindow={queuedWindow}
         selectedUnfilled={selectedUnfilled}
         onClearSelection={onClearSelection}
-        resultUnknownLocked={resultUnknownLocked}
-        onResultUnknown={onResultUnknown}
       />
     ),
     [
@@ -1055,8 +1016,6 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
       queuedWindow,
       selectedUnfilled,
       onClearSelection,
-      resultUnknownLocked,
-      onResultUnknown,
     ],
   );
 
