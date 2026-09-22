@@ -443,9 +443,9 @@ describe('TradingWorkbench — 사이드바 포커스 요청 (18-12 · 이미 /t
 
 describe('TradingWorkbench — WR-07 — 스냅샷 이후의 포커스 미스는 보류하지 않는다 (D-02 · T-18-98)', () => {
   /*
-    「64 스냅샷을 받았는가」 는 relay 상태 `limitChaserSnapSeq`(lc.snap 적용 횟수 · 0 = 아직) 하나로
-    표현한다 — `status` 나 빈 배열로 추론하지 않는다(인증 ACK 가 lc.snap 보다 먼저 오고, 빈 배열은
-    「전략 없음」 일 수도 있다).
+    「64 스냅샷을 받았는가」 는 relay 상태 `limitChaserSnapSeq`(이번 ready 구간에서 받은 확정 lc.snap
+    수 · 0 = 아직) 하나로 표현한다 — `status` 나 목록 길이로 추론하지 않는다(인증 ACK 가 lc.snap 보다
+    먼저 온다). relay 는 64 전에 lc.snap 을 보내지 않으므로(18-26) 받은 스냅샷은 빈 배열도 확정이다.
   */
   const A = 'KR7086520004';
   const K = 'KR7247540008';
@@ -488,13 +488,56 @@ describe('TradingWorkbench — WR-07 — 스냅샷 이후의 포커스 미스는
     expect(byKey()).toEqual({ [`${A}:${ACCOUNT}:KRX`]: 'false', [kKey]: 'true' });
   });
 
-  it('콜드 세션 — 빈 스냅샷(relay 캐시가 아직 빔) 뒤 진짜 64 에 K 가 있으면 ?focus=K 를 펼친다 (D-02)', () => {
+  it('콜드 세션 — relay 는 64 전에 lc.snap 을 보내지 않는다(snapSeq 0) → 첫 스냅샷에 K 가 있으면 ?focus=K 를 펼친다 (D-02 · 18-26)', () => {
+    /*
+      18-26 이전 relay 는 콜드 세션에서 빈 캐시를 `lc.snap []` 으로 먼저 내렸고, 이 케이스는 그
+      우회(빈 첫 스냅샷 = snapSeq 1 을 모호하게 다룸)를 잠그고 있었다. 이제 relay 는 64 를 받은
+      뒤에만 `lc.snap` 을 내리므로 콜드 세션은 첫 64 까지 snapSeq 0 이다.
+    */
     searchParams = new URLSearchParams(`focus=${encodeURIComponent(kKey)}`);
-    mockRelay = snapped([], 1);
+    mockRelay = snapped([], 0);
     const { rerender } = render(<TradingWorkbench />);
     expect(cardsInDom()).toHaveLength(0);
 
-    mockRelay = snapped([lc(A), lc(K)], 2);
+    mockRelay = snapped([lc(A), lc(K)], 1);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('true');
+  });
+
+  it('① 등록 전략 0건 사용자 — 확정 빈 스냅샷 뒤 요청 K 는 버려진다 → 나중에 K 가 등록돼도 접힌 채 (GC-IN-02 · 18-26)', () => {
+    mockRelay = snapped([], 1);
+    const { rerender } = render(<TradingWorkbench />);
+    act(() => requestTradingFocus(kKey));
+    expect(cardsInDom()).toHaveLength(0);
+
+    // 60 에코로 K 가 등록된다 — 64 가 아니므로 snapSeq 는 그대로다.
+    mockRelay = snapped([lc(K)], 1);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('false');
+  });
+
+  it('② 목록이 있다가 모두 지워진 뒤(snapSeq 2 · 빈 목록) 요청 K 는 버려진다 (GC-IN-02 · 18-26)', () => {
+    mockRelay = snapped([lc(A)], 1);
+    const { rerender } = render(<TradingWorkbench />);
+    mockRelay = snapped([], 2);
+    rerender(<TradingWorkbench />);
+    act(() => requestTradingFocus(kKey));
+
+    mockRelay = snapped([lc(K)], 2);
+    rerender(<TradingWorkbench />);
+    expect(byKey()[kKey]).toBe('false');
+  });
+
+  it('③ 재연결 — 기준점 0 · 옛 목록 [J] 이 남은 동안의 요청 K 는 보류 → 새 확정 스냅샷 [K] 에서 펼친다 (GC-IN-02 · 18-26)', () => {
+    mockRelay = snapped([lc(A)], 1);
+    const { rerender } = render(<TradingWorkbench />);
+    // 재연결 · 인증 ACK(ready 전환) — 리듀서가 기준점을 0 으로 되돌리고 옛 목록은 남는다.
+    mockRelay = snapped([lc(A)], 0);
+    rerender(<TradingWorkbench />);
+    act(() => requestTradingFocus(kKey));
+    expect(byKey()[kKey]).toBeUndefined();
+
+    mockRelay = snapped([lc(K)], 1);
     rerender(<TradingWorkbench />);
     expect(byKey()[kKey]).toBe('true');
   });

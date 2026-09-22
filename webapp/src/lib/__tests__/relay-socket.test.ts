@@ -1160,4 +1160,64 @@ describe('limitChaserSnapSeq — 64 스냅샷 적용 횟수 (WR-07 · 18-22)', (
     expect(hook.result.current.limitChaserSnapSeq).toBe(0);
     expect(hook.result.current.limitChasers).toHaveLength(0);
   });
+
+  it('④ ready → ready 반복 프레임은 기준점을 건드리지 않는다 (GC-IN-02 ③ · 18-26)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+
+    await act(async () => {
+      ws.push({ t: 'state', s: 'ready' });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+  });
+
+  it('⑤ 세션이 reconnecting → ready 로 **전환**되면 0 으로 돌아간다 — 옛 목록은 남는다 (GC-IN-02 ③ · 18-26)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+
+    await act(async () => {
+      ws.push({ t: 'state', s: 'reconnecting', attempt: 1 });
+    });
+    // 전환 전(ready 아님)에는 그대로다 — 기준점은 ready 에 들어설 때 선다.
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+    await act(async () => {
+      ws.push({ t: 'state', s: 'ready' });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(0);
+    expect(hook.result.current.limitChasers).toHaveLength(1);
+
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+  });
+
+  it('⑥ 소켓 재연결 뒤 새 연결의 인증 ACK(ready) 도 전환이다 — 0 으로 돌아간다 (GC-IN-02 ③ · 18-26)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    expect(hook.result.current.limitChaserSnapSeq).toBe(1);
+
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const ws2 = await connected(hook);
+    expect(ws2).not.toBe(ws);
+    expect(hook.result.current.status).toBe('ready');
+    expect(hook.result.current.limitChaserSnapSeq).toBe(0);
+    expect(hook.result.current.limitChasers).toHaveLength(1);
+  });
 });
