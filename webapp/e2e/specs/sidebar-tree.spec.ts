@@ -25,6 +25,11 @@ import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
  *   ⚠️ 그래도 이것은 **권한 장치가 아니다** — 실제 차단은 relay `unauthorized` 와 라우트
  *   게이트다(T-16-04). 여기서 세는 것은 오진입 표면의 크기다.
  *
+ * ⑤ Phase 18 (18-12 · 18-13) — 트리 모양이 바뀌었다
+ *   「트레이딩」 소제목이 `/trading` **링크**가 됐고, 그 아래 3단이 「KRX VI」·「NXT VI」·등록 전략 N개다.
+ *   개별 「상따」·「VI」 메뉴와 원 아이콘 2개는 사라지고 전략 항목은 종목명 + LED 3점이다(D-03).
+ *   전략 항목은 `/trading?focus={키}` 로 간다(D-02). 활성 표시는 제목 하나다(3단은 aria-current 없음).
+ *
  * ④ 데스크톱 aside 와 모바일 drawer 는 **다른 노드**다
  *   `AppShell` 은 사이드바를 `aside`(lg 이상) 와 `Sheet`(열렸을 때만) 두 곳에 렌더한다.
  *   조회할 때 트리를 좁히지 않으면 drawer 가 열린 순간 `nav[aria-label="주 메뉴"]` 가
@@ -39,7 +44,7 @@ test.describe.configure({ mode: 'serial' });
 
 /**
  * 상따 전략 3건. **긴 종목명이 붙을 수 있는 ISIN** 을 쓰고 매수/매도 무장 조합을 셋 다
- * 다르게 둔다 — 원 아이콘이 항목마다 같은 그림이면 라벨이 잘못 붙어도 눈치채지 못한다.
+ * 다르게 둔다 — LED 가 항목마다 같은 색이면 판정이 잘못 붙어도 눈치채지 못한다.
  */
 const CHASERS = [
   { isin: 'KR7086520004', accountNo: '1234567801', exchange: 'KRX', buyEnabled: true, sellEnabled: false },
@@ -51,14 +56,29 @@ const CHASERS = [
 const keyOf = (c: (typeof CHASERS)[number]) =>
   `${c.isin}:${c.accountNo}:${c.exchange}`;
 
-/** 1단·2단 항목 8개(3단 전략 목록 제외). 순서까지 계약이다. */
-const TREE_LABELS = [
+/**
+ * 전략 항목의 LED 3점(매수·매도·취소) 기대 톤 — `latchLedStateOf` 규칙 그대로다.
+ * 스텁 기본 `buyWatchSide` 는 「0」(매도잔량 기준)이라 무장 매수는 `armed`, 래치 전 매도 무장은
+ * `latent`(대기), 꺼진 게이트는 `off` 다.
+ */
+const LED_TONES: readonly (readonly string[])[] = [
+  ['armed', 'off', 'off'],
+  ['off', 'latent', 'off'],
+  ['armed', 'latent', 'off'],
+];
+
+/**
+ * 전략 항목을 뺀 링크 9개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
+ * 전략 3건은 「NXT VI」와 「My page」 사이에 선다.
+ */
+const TREE_LINKS = [
   '홈',
   '상승률 상위',
   '테마',
   '관심종목',
-  '상따',
-  'VI',
+  '트레이딩',
+  'KRX VI',
+  'NXT VI',
   'My page',
   'AI 애널리스트',
 ];
@@ -78,17 +98,28 @@ const strategyItems = (nav: Locator): Locator => nav.locator('[data-strategy-key
 
 /**
  * 트레이딩 그룹이 뜰 때까지 기다린다 = **relay 가 `ready` 를 줬다**는 뜻이다.
- * 사이드바에는 상태 배지가 없으므로 이 등장 자체가 동기화 지점이다.
+ * 사이드바에는 상태 배지가 없으므로 「트레이딩」 제목 링크의 등장 자체가 동기화 지점이다.
  */
 async function waitForTradingGroup(nav: Locator): Promise<void> {
-  await expect(nav.getByText('트레이딩', { exact: true })).toBeVisible({
+  await expect(nav.getByRole('link', { name: '트레이딩', exact: true })).toBeVisible({
     timeout: 30_000,
   });
 }
 
+/** 트리의 링크를 DOM 순서로 — 전략 항목은 `strategy` 로 접는다(종목명은 라벨 역매핑이 정한다). */
+async function linkOrder(nav: Locator): Promise<string[]> {
+  return nav.locator('a[href]').evaluateAll((els) =>
+    els.map((el) =>
+      el.getAttribute('data-sidebar-item') === 'strategy'
+        ? 'strategy'
+        : (el.textContent ?? '').replace(/가동$/, '').trim(),
+    ),
+  );
+}
+
 // ===========================================================================
 
-test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
+test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 relay)', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
@@ -108,79 +139,77 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
     await mockHomeApi(page, { response: HOME_POPULATED });
   });
 
-  test('1. 매핑 있음 — 트리 8항목 + 3단 전략 3건, 항목 클릭 시 인코딩된 키로 이동', async ({
+  test('1. 매핑 있음 — 「트레이딩」 제목 링크 + 3단(KRX VI · NXT VI · 등록 전략 3건·LED 3점), 전략 클릭 → /trading?focus= 로 그 카드가 펼쳐진다 (D-02 · D-03)', async ({
     page,
   }) => {
-    await page.goto('/trading/vi');
+    await page.goto('/trading');
     const nav = desktopNav(page);
     await waitForTradingGroup(nav);
+    await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
 
-    // 1·2단 8항목이 **순서까지** 계약대로다.
-    for (const label of TREE_LABELS) {
-      await expect(
-        nav.getByRole('link', { name: label, exact: false }).first(),
-      ).toBeVisible();
+    // 링크 순서가 계약대로다 — 전략 3건은 NXT VI 와 My page 사이.
+    expect(await linkOrder(nav)).toEqual([
+      ...TREE_LINKS.slice(0, 7),
+      'strategy',
+      'strategy',
+      'strategy',
+      ...TREE_LINKS.slice(7),
+    ]);
+    // 개별 「상따」·「VI」 메뉴는 사라졌다(D-03 · D-08).
+    await expect(nav.getByRole('link', { name: '상따', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'VI', exact: true })).toHaveCount(0);
+    // 3단 VI 두 항목은 작업대로 간다.
+    for (const ex of ['KRX', 'NXT']) {
+      await expect(nav.locator(`[data-sidebar-item="vi-${ex}"]`)).toHaveAttribute('href', '/trading');
     }
-    // 그룹 소제목 2개는 링크가 아니다 — 링크 총수가 8 + 전략 3 이어야 한다.
-    await expect(nav.getByRole('link')).toHaveCount(TREE_LABELS.length + CHASERS.length);
-
-    // 3단 전략 3건.
-    await expect(strategyItems(nav)).toHaveCount(3);
-
-    // 원 아이콘 묶음의 라벨이 항목마다 무장 조합을 따라간다.
-    await expect(
-      strategyItems(nav).nth(0).getByRole('img'),
-    ).toHaveAttribute('aria-label', '매수 켜짐 · 매도 꺼짐');
-    await expect(
-      strategyItems(nav).nth(1).getByRole('img'),
-    ).toHaveAttribute('aria-label', '매수 꺼짐 · 매도 켜짐');
-    await expect(
-      strategyItems(nav).nth(2).getByRole('img'),
-    ).toHaveAttribute('aria-label', '매수 켜짐 · 매도 켜짐');
-
-    // 클릭 → 인코딩된 키 경로. `:` 가 `%3A` 로 나가야 세그먼트가 깨지지 않는다.
-    const expected = `/trading/limit-chaser/${encodeURIComponent(keyOf(CHASERS[1]))}`;
-    await strategyItems(nav).nth(1).click();
-    await expect(page).toHaveURL(new RegExp(`${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
-    /*
-      편집 화면이 실제로 그 키를 **풀어서** 보여준다(디코드 왕복).
-
-      ★ 260912-ok2 — 여기서 깨져 있던 것은 **코드가 아니라 단언**이었다. 근거:
-        ⓐ `limit-chaser-client.tsx` 가 옛 편집 제목(`{종목명} · {거래소}`)과 전략키 mono
-           부제를 의도적으로 걷었다 — 「종목·거래소는 바로 아래 헤더 카드가 더 많은 맥락과
-           함께 보여주므로 같은 말을 세 번 하고 있었다」가 그 자리 주석이다.
-        ⓑ 유닛 `limit-chaser-client.test.tsx` ⑤ 가 **「전략키는 화면에 없다」를 이미
-           단언하고 있다**(`expect(screen.queryByText(KEY)).toBeNull()`). 즉 화면에서 키가
-           사라진 것은 회귀가 아니라 **현재 계약**이고, 두 단언이 정반대를 요구하고 있었다.
-        전략키는 내부 식별자라 화면에 그리지 않는 쪽이 맞다 — 되살리지 않는다.
-      ★ 그래서 증거를 **살아 있는 채널**로 옮긴다. 키 세 조각이 전부 풀렸다는 것은:
-        · 거래소(3번째 조각) = 콤보의 값
-        · 계좌(2번째 조각)   = 계좌 칩의 값
-        · 종목(1번째 조각)   = **그 ISIN 의 전략이 실제로 로드됐다** — 이 전략만 매도가
-          켜져 있으므로(CHASERS[1]), 스위치가 켜져 있다는 것은 신규 폼이 아니라 바로 그
-          전략을 찾아 열었다는 뜻이다. 세 조각 중 하나라도 안 풀리면 `parseStrategyKey` 가
-          `null` 을 내고 화면은 **잠기지 않은 신규 폼**이 된다 — 그래서 잠금도 함께 본다.
-    */
-    const card = page.locator('[data-slot="lc-stock-card"]');
-    await expect(card.locator('select[aria-label="거래소"]')).toHaveValue(
-      CHASERS[1].exchange,
-      { timeout: 15_000 },
+    // 활성 표시는 제목 하나다.
+    await expect(nav.getByRole('link', { name: '트레이딩', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
     );
-    await expect(page.locator('select[aria-label="계좌"]')).toHaveValue(CHASERS[1].accountNo);
-    await expect(page.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
+    await expect(nav.locator('[data-nav-item][aria-current="page"]')).toHaveCount(1);
+
+    // LED 3점이 항목마다 무장 조합을 따라간다(원 아이콘 2개는 사라졌다).
+    for (const [i, tones] of LED_TONES.entries()) {
+      const dots = strategyItems(nav).nth(i).locator('[data-led]');
+      await expect(dots).toHaveCount(3);
+      expect(await dots.evaluateAll((els) => els.map((e) => e.getAttribute('data-tone')))).toEqual([
+        ...tones,
+      ]);
+    }
+    await expect(strategyItems(nav).locator('[data-io]')).toHaveCount(0);
+
+    // 클릭 → `/trading?focus={인코딩된 키}`. `:` 가 `%3A` 로 나가야 한다.
+    const target = CHASERS[1];
+    await expect(strategyItems(nav).nth(1)).toHaveAttribute(
+      'href',
+      `/trading?focus=${encodeURIComponent(keyOf(target))}`,
+    );
+    await strategyItems(nav).nth(1).click();
+    await expect(page).toHaveURL(
+      (url) => url.pathname === '/trading' && url.searchParams.get('focus') === keyOf(target),
+    );
+    /*
+      키 세 조각이 전부 풀렸다는 증거 — 그 키의 **등록 카드**가 펼쳐지고(종목·계좌·거래소가 다 맞아야
+      등록 키와 대조된다), 카드의 거래소 세그먼트가 NXT 에 잠겨 있고(등록 = 거래소 잠김, D-10),
+      이 전략만 켜져 있는 매도 스위치가 켜져 있다(신규 폼이 아니라 바로 그 전략이다).
+    */
+    const card = page.locator(`[data-slot="strategy-card"][data-key="${keyOf(target)}"]`);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    const segment = card.locator('[data-slot="card-exchange-segment"]');
+    await expect(segment.getByRole('radio', { name: 'NXT' })).toHaveAttribute('aria-checked', 'true');
+    await expect(segment).toHaveAttribute('aria-disabled', 'true');
+    await expect(card.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
       'aria-checked',
       'true',
       { timeout: 15_000 },
     );
-    // 키의 일부인 거래소·계좌·종목은 편집 화면에서 바꿀 수 없다 — 바꾸면 다른 전략이 된다.
-    await expect(card.locator('select[aria-label="거래소"]')).toBeDisabled();
-    await expect(page.locator('[data-slot="lc-stock-trigger"]')).toBeDisabled();
   });
 
   test('2. 매핑 없음 — 트레이딩 그룹·My page 가 DOM 에 없다 (미렌더)', async ({ page }) => {
     relay.clearDmaCredentials();
 
-    await page.goto('/trading/vi');
+    await page.goto('/trading');
     const nav = desktopNav(page);
 
     // 게이트 등장 = relay 가 `unauthorized` 를 확정했다는 동기화 지점이다.
@@ -188,7 +217,7 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
 
     await expect(nav.getByText('트레이딩', { exact: true })).toHaveCount(0);
     await expect(nav.getByRole('link', { name: 'My page' })).toHaveCount(0);
-    await expect(nav.getByRole('link', { name: '상따' })).toHaveCount(0);
+    await expect(nav.locator('[data-sidebar-item]')).toHaveCount(0);
     await expect(strategyItems(nav)).toHaveCount(0);
 
     // 공개 항목은 그대로다.
@@ -196,7 +225,7 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
     await expect(nav.getByRole('link', { name: '상승률 상위' })).toBeVisible();
   });
 
-  test('2b. 매핑 없음 — 3라우트 직접 진입이 전부 게이트로 막힌다 (T-16-04)', async ({
+  test('2b. 매핑 없음 — /trading · 옛 경로(리다이렉트) · /me 직접 진입이 전부 게이트로 막힌다 (T-16-04)', async ({
     page,
   }) => {
     relay.clearDmaCredentials();
@@ -207,7 +236,8 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
       여기 있는 이유는, 「매핑 없음」이 relay wss 왕복의 결과라 로컬 relay 가 필요하고
       그 파일은 쿠키 없는 context 를 파일 전체에 강제하기 때문이다.
     */
-    for (const path of ['/trading/limit-chaser/new', '/trading/vi', '/me']) {
+    // 옛 경로는 서버에서 `/trading` 으로 리다이렉트된다 — 도착한 곳에서도 게이트가 서야 한다.
+    for (const path of ['/trading', '/trading/limit-chaser/new', '/trading/vi', '/me']) {
       await page.goto(path);
       const gate = page.locator('[data-slot="dma-gate"]');
       await expect(gate).toBeVisible({ timeout: 30_000 });
@@ -255,51 +285,42 @@ test.describe('Phase 16 Plan 11 — 사이드바 트리 (로컬 relay)', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/trading/vi');
+    await page.goto('/trading');
 
     // 데스크톱 aside 는 `hidden` 이라 이 폭에서는 보이지 않는다.
     await expect(desktopNav(page)).toBeHidden();
 
-    const openDrawer = async () => {
-      await page.getByRole('button', { name: '사이드바 열기' }).click();
-      await expect(drawerNav(page)).toBeVisible();
-    };
-
-    await openDrawer();
+    await page.getByRole('button', { name: '사이드바 열기' }).click();
+    await expect(drawerNav(page)).toBeVisible();
     const nav = drawerNav(page);
     await waitForTradingGroup(nav);
 
-    // 같은 트리다 — 1·2단 8항목 + 전략 3건.
-    await expect(nav.getByRole('link')).toHaveCount(TREE_LABELS.length + CHASERS.length);
-    await expect(strategyItems(nav)).toHaveCount(3);
+    // 같은 트리다 — 링크 9개 + 전략 3건.
+    await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
+    await expect(nav.getByRole('link')).toHaveCount(TREE_LINKS.length + CHASERS.length);
 
     /*
-      그룹 소제목 클릭으로는 닫히지 않는다(링크가 아니므로 자동 닫힘 순회에 걸리지 않는다).
-
-      ★ `toBeVisible()` 로 단언하지 않는다 — Radix 는 닫힐 때 **exit 애니메이션 동안**
-        노드를 남기므로, 닫혔는데도 잠깐 「보이는」 상태가 되어 단언이 헛통과한다
-        (소제목을 버튼으로 바꾼 변이 실험에서 실제로 이 지점이 통과하고 **다음 줄이
-        30초 타임아웃**으로 터졌다). `data-state` 는 클릭 즉시 `closed` 로 바뀌므로
-        애니메이션과 무관하게 정확하다.
+      「종목검색」 소제목 클릭으로는 닫히지 않는다(링크가 아니므로 자동 닫힘 순회에 걸리지 않는다).
+      ★ 「트레이딩」은 이제 **링크**라 이 대조에 쓰지 않는다 — 누르면 이동하고 닫히는 것이 맞다.
+      ★ `toBeVisible()` 로 단언하지 않는다 — Radix 는 닫힐 때 exit 애니메이션 동안 노드를 남긴다.
+        `data-state` 는 클릭 즉시 바뀌므로 애니메이션과 무관하게 정확하다.
     */
     const sheet = page.locator('[data-slot="sheet-content"]');
-    await nav.getByText('트레이딩', { exact: true }).click();
-    await expect(sheet).toHaveAttribute('data-state', 'open');
     await nav.getByText('종목검색', { exact: true }).click();
     await expect(sheet).toHaveAttribute('data-state', 'open');
 
-    // 3단 링크 클릭 → drawer 가 닫히고 이동한다.
+    // 3단 전략 링크 클릭 → drawer 가 닫히고 `?focus=` 로 이동한다.
     await strategyItems(nav).nth(0).click();
     await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0);
     await expect(page).toHaveURL(
-      new RegExp(encodeURIComponent(keyOf(CHASERS[0])).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      (url) => url.pathname === '/trading' && url.searchParams.get('focus') === keyOf(CHASERS[0]),
     );
   });
 
   test('5. `/scanner` 링크 라벨은 「상승률 상위」이고 URL 은 그대로다 (D-15)', async ({
     page,
   }) => {
-    await page.goto('/trading/vi');
+    await page.goto('/trading');
     const nav = desktopNav(page);
     const link = nav.getByRole('link', { name: '상승률 상위' });
 

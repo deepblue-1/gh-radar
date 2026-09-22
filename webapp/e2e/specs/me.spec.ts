@@ -400,28 +400,39 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(ys[3]).toBeLessThan(ys[4]);
   });
 
-  test('2. 전략 행 클릭 → 인코딩된 키로 편집 화면으로 이동한다', async ({ page }) => {
+  test('2. 전략 행 클릭 → 인코딩된 키로 /trading?focus= 로 이동하고 그 카드가 펼쳐진다 (Phase 18 D-02)', async ({
+    page,
+  }) => {
     await page.goto('/me');
     await waitForStrategies(page, 3);
 
     const target = CHASERS[1];
-    const expected = `/trading/limit-chaser/${encodeURIComponent(keyOf(target))}`;
     await strategyRows(page).nth(1).click();
 
+    /*
+      ★ Phase 18 — 옛 편집 화면(`/trading/limit-chaser/{key}`)은 작업대로 합쳐졌다. 링크 헬퍼
+        (`limitChaserHref`)는 이름 그대로 본문만 `/trading?focus=` 가 됐고, 카드 구조 단언(1번)은
+        그대로다 — 바뀐 것은 **링크 대상**뿐이다.
+    */
     await expect(page).toHaveURL(
-      new RegExp(`${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
+      (url) => url.pathname === '/trading' && url.searchParams.get('focus') === keyOf(target),
     );
+    expect(page.url()).toContain(`focus=${encodeURIComponent(keyOf(target))}`);
     // My page 본문은 사라진다 — 같은 탭에서 라우팅이 실제로 일어났다.
     await expect(page$(page)).toHaveCount(0);
 
     /*
-      키가 왕복했다는 **화면 밖 증거**: 사이드바 3단에서 그 전략만 활성 표시가 된다.
-      편집 폼의 내용은 16-13 소관이라 여기서 단언하지 않는다 — 그 문구를 잠그면 폼이
-      들어오는 순간 이 spec 이 애먼 이유로 깨진다.
+      키가 왕복했다는 증거: 작업대에서 **그 키의 카드**가 펼쳐진다(세 조각이 전부 풀려야 등록 키와
+      맞는다). 활성 표시는 사이드바 「트레이딩」 제목 하나다(18-12 — 3단 항목은 aria-current 없음).
     */
     await expect(
-      desktopNav(page).locator(`[data-strategy-key="${keyOf(target)}"]`),
-    ).toHaveAttribute('aria-current', 'page', { timeout: 15_000 });
+      page.locator(`[data-slot="strategy-card"][data-key="${keyOf(target)}"]`),
+    ).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(desktopNav(page).getByRole('link', { name: '트레이딩' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(desktopNav(page).locator('[data-strategy-key][aria-current]')).toHaveCount(0);
   });
 
   test('3. 전략 0 · VI 중지 — 빈 문구 + 「전체 비활성화」 disabled', async ({ page }) => {
@@ -449,10 +460,14 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await waitForStrategies(page, 3);
     await waitForAccounts(page, 2);
 
-    // 사이드바 원 아이콘이 켜져 있는 상태에서 출발한다 (매수 ON 2건).
-    const buyDots = desktopNav(page).locator('[data-strategy-key] [data-io="buy"]');
+    /*
+      사이드바 3단 매수 LED 가 켜져 있는 상태에서 출발한다.
+      ★ Phase 18(18-12) — 원 아이콘 2개(`data-io`)는 LED 3점(`data-led` · `latchLedStateOf` 판정)으로
+        바뀌었다. 「같은 상태의 다른 표면」이라는 단언의 의도는 그대로이고 조회구만 옮긴다.
+    */
+    const buyDots = desktopNav(page).locator('[data-strategy-key] [data-led="buy"]');
     await expect(buyDots).toHaveCount(3);
-    await expect(buyDots.nth(0)).toHaveAttribute('data-on', 'true');
+    await expect(buyDots.nth(0)).not.toHaveAttribute('data-tone', 'off');
 
     await disableAllButton(page).click();
     const dialog = page.getByTestId('strategy-disable-dialog');
@@ -490,9 +505,9 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(strategyRows(page).nth(1)).not.toContainText('매도대기');
     await expect(page.locator('[data-slot="vi-status-summary"]')).toHaveText('—');
 
-    // 사이드바 3단 원 아이콘도 속빔으로 바뀐다(같은 상태의 다른 표면).
+    // 사이드바 3단 매수 LED 도 꺼진다(같은 상태의 다른 표면).
     for (let i = 0; i < 3; i += 1) {
-      await expect(buyDots.nth(i)).toHaveAttribute('data-on', 'false');
+      await expect(buyDots.nth(i)).toHaveAttribute('data-tone', 'off');
     }
 
     // 목록 자체는 남는다 — 전체 비활성화는 **삭제가 아니다**.

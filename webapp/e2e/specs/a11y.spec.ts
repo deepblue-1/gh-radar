@@ -298,7 +298,7 @@ async function tabbablesIn(page: Page, selector: string): Promise<string[]> {
   }, selector);
 }
 
-test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My page)', () => {
+test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My page 접근성', () => {
   let relay: LocalRelay;
 
   test.beforeAll(async () => {
@@ -319,20 +319,26 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
     await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
   });
 
+  /*
+    ★ Phase 18 (18-13) — 옛 3표면 중 상따·VI 두 화면은 `/trading` 작업대 하나로 합쳐졌다(D-01).
+      옛 세 케이스(상따 신규 · 상따 모바일 · VI)가 잠그던 계약을 작업대의 새 자리로 옮긴다 —
+      사이드바 LED 묶음 라벨 1개 · 스위치 3종 이름 · 호가 비포커스 · 검색 결선 · 폰 탭/pane · 더티 바
+      status · VI 확인 체크 탭 제외 · 데드라인 progressbar · 거부 경보. 판정(axe 위반 0)은 그대로다.
+  */
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading/limit-chaser/new — 위반 0 + 사이드바 트리 · 스위치 3종 · 호가 비포커스', async ({
+  test('/trading — 위반 0 + 사이드바 제목 활성 · LED 묶음 라벨 1개 · 스위치 3종 · 호가 비포커스 · 검색 결선', async ({
     page,
   }) => {
-    await page.goto('/trading/limit-chaser/new');
-    await expect(page.locator('[data-slot="lc-status-bar"]')).toHaveAttribute(
+    await page.goto(`/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`);
+    await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute(
       'data-status',
       'ready',
       { timeout: 30_000 },
     );
     // 사이드바 3단이 설 때까지 기다린다 = `lc.snap` 이 도착했다는 동기화 지점이다.
-    await expect(navTree(page).locator('[data-strategy-key]')).toHaveCount(2, {
-      timeout: 15_000,
-    });
+    await expect(navTree(page).locator('[data-strategy-key]')).toHaveCount(2, { timeout: 15_000 });
+    const openCard = page.locator('[data-slot="strategy-card"][data-open="true"]');
+    await expect(openCard).toHaveCount(1, { timeout: 15_000 });
 
     const blocking = await scanSurface(page);
     expect(
@@ -340,74 +346,58 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
       `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
     ).toEqual([]);
 
-    // ① 사이드바 = `<nav aria-label="주 메뉴">` 하나 + 현재 경로만 `aria-current="page"`.
+    // ① 사이드바 = `<nav aria-label="주 메뉴">` 하나 + 활성은 「트레이딩」 제목 하나(18-12).
     await expect(navTree(page)).toHaveCount(1);
     const current = navTree(page).locator('[data-nav-item][aria-current="page"]');
     await expect(current).toHaveCount(1);
-    await expect(current).toContainText('상따');
+    await expect(current).toContainText('트레이딩');
 
-    // ② 원 아이콘 묶음 — 라벨은 **묶음에만** 1개. 개별 원은 `aria-hidden` 이다.
+    // ② LED 3점 묶음 — 라벨은 **묶음에만** 1개(`role="img"`), 개별 점은 `aria-hidden`.
     const item = navTree(page).locator('[data-strategy-key]').first();
     const group = item.locator('[role="img"]');
     await expect(group).toHaveCount(1);
-    await expect(group).toHaveAttribute('aria-label', '매수 켜짐 · 매도 꺼짐');
-    await expect(group).toHaveAttribute('title', '매수 켜짐 · 매도 꺼짐');
-    // 항목 안에서 이름을 만드는 요소는 그 묶음 하나뿐이다(중복 낭독 방지).
+    const label = await group.getAttribute('aria-label');
+    expect(label).toMatch(/^매수 .+ · 매도 .+ · 취소 .+$/);
+    await expect(group).toHaveAttribute('title', label!);
     await expect(item.locator('[aria-label]')).toHaveCount(1);
-    await expect(item.locator('[data-io]')).toHaveCount(2);
-    await expect(item.locator('[data-io][aria-hidden="true"]')).toHaveCount(2);
+    await expect(item.locator('[data-led]')).toHaveCount(3);
+    await expect(item.locator('[data-led][aria-hidden="true"]')).toHaveCount(3);
     // 두 번째 항목은 조합이 반대다 — 라벨이 고정 문자열이 아니라 값에서 온다는 증거다.
-    await expect(
-      navTree(page).locator('[data-strategy-key]').nth(1).locator('[role="img"]'),
-    ).toHaveAttribute('aria-label', '매수 꺼짐 · 매도 켜짐');
+    const second = await navTree(page)
+      .locator('[data-strategy-key]')
+      .nth(1)
+      .locator('[role="img"]')
+      .getAttribute('aria-label');
+    expect(second).not.toBe(label);
 
-    // ③ 스위치 3종 — 시각 라벨이 없으므로 `aria-label` 이 유일한 이름이다.
+    // ③ 스위치 3종 — 시각 라벨이 없으므로 `aria-label` 이 유일한 이름이다(펼친 카드 1장).
     for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기']) {
-      await expect(page.getByRole('switch', { name, exact: true })).toHaveCount(1);
+      await expect(openCard.getByRole('switch', { name, exact: true })).toHaveCount(1);
     }
 
-    // ④ 상태줄은 `aria-live="polite"` — 포커스를 뺏지 않고 갱신을 알린다.
-    await expect(page.locator('[data-slot="lc-status-bar"]')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
+    // ④ 상태줄 DMA 필은 `aria-live="polite"` — 포커스를 뺏지 않고 갱신을 알린다.
+    await expect(page.locator('[data-slot="workbench-dma"]')).toHaveAttribute('aria-live', 'polite');
 
-    // ⑤ ★ 호가 사다리는 **포커스 대상이 아니다**(§키보드 접근성). 가격 클릭·비교가격 자동
-    //    채움이 없어졌으므로 roving tabindex 도 두지 않는다 — 탭 순서에 호가 셀이 0개다.
-    await expect(
-      page.locator('[data-slot="orderbook-ladder"][data-variant="chaser"]'),
-    ).toHaveCount(1);
-    expect(
-      await tabbablesIn(page, '[data-slot="orderbook-ladder"][data-variant="chaser"]'),
-    ).toEqual([]);
+    // ⑤ ★ 호가 사다리는 **포커스 대상이 아니다** — 데스크톱 밴드 카드에서 탭 순서에 호가 셀 0개.
+    const ladderSel =
+      '[data-slot="strategy-card"][data-open="true"] [data-slot="orderbook-ladder"][data-variant="chaser"]';
+    await expect(page.locator(ladderSel)).toHaveCount(1);
+    expect(await tabbablesIn(page, ladderSel)).toEqual([]);
 
     /*
-      ⑥ ★ quick-260912-u58 ① — **검색 결과가 뜬 상태**를 따로 한 번 더 스캔한다.
-
-      위 스캔은 질의를 넣기 전 상태다 — 그때는 `listbox`·`option` 이 DOM 에 아예 없어서
-      새 ARIA 조합을 **한 번도 보지 못한다.** 이 화면(`/new`)은 검색이 열린 채로 진입하므로
-      질의 한 번이면 그 상태에 닿는다. 여기서 잡으려는 것은 셋이다:
-        · `aria-controls`/`aria-activedescendant` 가 **존재하는 id** 를 가리키는가
-          (`aria-valid-attr-value`, critical — 없는 id 를 가리키면 스크린리더가 조용해진다)
-        · `<li role="option">` 안에 `<button>` 이 들어 있지 않은가 (`nested-interactive`, serious)
-        · listbox 가 옵션 아닌 자식을 소유하지 않는가 (`aria-required-children`)
+      ⑥ ★ 검색 결과가 뜬 상태를 따로 스캔한다 — 질의 전에는 `listbox`·`option` 이 DOM 에 없어서
+        새 ARIA 조합을 한 번도 보지 못한다. 옛 헤더 검색과 같은 `StockSearchField` 가 종목 추가란에 있다.
     */
     const searchBox = page
-      .locator('[data-slot="lc-stock-card"]')
-      .getByRole('combobox', { name: '종목 검색' });
+      .locator('[data-slot="stock-add-bar"]')
+      .getByPlaceholder('종목 추가 — 종목명 또는 코드');
     await expect(searchBox).toHaveAttribute('aria-expanded', 'false');
     await searchBox.fill('삼성');
-    const option = page.locator('[data-slot="lc-search-option"]').first();
-    await expect(option).toBeVisible({ timeout: 15_000 });
-
-    // 결선이 실제로 서 있는지 먼저 본다 — axe 가 통과해도 결선이 없으면 기능이 없는 것이다.
+    await expect(page.locator('[data-slot="lc-search-option"]').first()).toBeVisible({ timeout: 15_000 });
     await expect(searchBox).toHaveAttribute('aria-expanded', 'true');
     const listId = await searchBox.getAttribute('aria-controls');
     expect(listId).not.toBeNull();
     await expect(page.locator(`#${listId}`)).toHaveAttribute('role', 'listbox');
-
-    // ↓ 로 활성 항목을 만든 **그 상태**를 스캔한다(`aria-activedescendant` 가 걸린 상태다).
-    await searchBox.press('ArrowDown');
     const activeId = await searchBox.getAttribute('aria-activedescendant');
     expect(activeId).not.toBeNull();
     await expect(page.locator(`#${activeId}`)).toHaveAttribute('role', 'option');
@@ -420,14 +410,12 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading/limit-chaser (모바일 390) — 탭 2종 · 비활성 pane 비가시 · 액션 바 `role="status"`', async ({
+  test('/trading (모바일 390) — 카드 탭 3종 · 비활성 pane 비가시·탭 제외 · 사다리 스크롤 영역 · 더티 바 `role="status"`', async ({
     page,
   }) => {
     await page.setViewportSize(A11Y_MOBILE_VIEWPORT);
-    await page.goto(
-      `/trading/limit-chaser/${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`,
-    );
-    await expect(page.locator('[data-slot="lc-status-bar"]')).toHaveAttribute(
+    await page.goto(`/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`);
+    await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute(
       'data-status',
       'ready',
       { timeout: 30_000 },
@@ -440,89 +428,62 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
       `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
     ).toEqual([]);
 
-    // ⑥ 모바일 탭 — `role="tablist"` + `aria-selected` + 비활성 pane 은 보이지 않는다.
-    const tablist = page.locator('[data-slot="limit-chaser-form"] [role="tablist"]');
-    await expect(tablist).toHaveAttribute('aria-label', '주문 설정');
-    await expect(tablist.getByRole('tab')).toHaveCount(2);
-    await expect(page.getByRole('tab', { name: '매수' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('tab', { name: '매도' })).toHaveAttribute(
-      'aria-selected',
-      'false',
-    );
-    /*
-      ★ 260912-k2x — 숨김이 DOM **속성**에서 **CSS 클래스**로 옮겨졌으므로 단언도
-        가시성으로 옮긴다. **성질은 같다** — `toBeHidden()` 은 `display:none` 을 그대로
-        잡고(Playwright 의 가시성 판정이 계산된 스타일을 본다), `display:none` 은 접근성
-        트리에서도 빠지므로 「안 보이는 폼을 스크린리더가 읽지 않는다」는 계약이 그대로다.
-        판정 기준이 뷰포트가 아니라 본문 폭이 된 이유는 `styles/globals.css` §2.2b 에 있다.
-      ★ 여기서 `hidden` **속성**으로 되돌리면 같은 파일의 `[hidden]{display:none!important}`
-        (globals.css) 가 `@min-[700px]/lc:block` 을 이겨, 컴팩트 이상에서 두 pane 을 나란히
-        세울 수 없게 된다. 단언을 맞추려고 화면을 되돌리는 자리가 정확히 여기다.
-      ★ 두 pane 은 각각 **한 요소**로 해석돼야 한다(폼이 여러 벌 렌더되면 `toBeHidden()` 이
-        개수 단언과 다른 방식으로 실패한다). 그 사실을 먼저 센다.
-    */
+    // ⑥ 폰 밴드 탭 — 「매수 | 매도 | 수동」 `role="tablist"` + `aria-selected`.
+    const card = page.locator('[data-slot="strategy-card"][data-open="true"]');
+    const tablist = card.getByRole('tablist', { name: '주문 진입' });
+    await expect(tablist.getByRole('tab')).toHaveCount(3);
+    await expect(tablist.getByRole('tab', { name: '매수' })).toHaveAttribute('aria-selected', 'true');
+    await expect(tablist.getByRole('tab', { name: '매도' })).toHaveAttribute('aria-selected', 'false');
+    // 두 pane 은 각각 한 요소이고, 숨김은 곧 탭 순서 제외다.
     await expect(page.locator('[data-pane="buy"]')).toHaveCount(1);
     await expect(page.locator('[data-pane="sell"]')).toHaveCount(1);
     await expect(page.locator('[data-pane="buy"]')).toBeVisible();
     await expect(page.locator('[data-pane="sell"]')).toBeHidden();
-    // 숨김은 곧 **탭 순서 제외**다. 숨김이 시각 효과로만 남으면 여기서 깨진다.
     expect(await tabbablesIn(page, '[data-pane="sell"]')).toEqual([]);
     expect((await tabbablesIn(page, '[data-pane="buy"]')).length).toBeGreaterThan(0);
-
-    // 탭을 바꾸면 가시성도 반대로 간다 — 한쪽만 거는 구현을 잡는다.
-    await page.getByRole('tab', { name: '매도' }).click();
+    await tablist.getByRole('tab', { name: '매도' }).click();
     await expect(page.locator('[data-pane="buy"]')).toBeHidden();
     await expect(page.locator('[data-pane="sell"]')).toBeVisible();
-    // 탭 순서도 함께 뒤집힌다 — 가시성만 뒤집히고 포커스가 남는 구현을 잡는다.
     expect(await tabbablesIn(page, '[data-pane="buy"]')).toEqual([]);
     expect((await tabbablesIn(page, '[data-pane="sell"]')).length).toBeGreaterThan(0);
 
     /*
-      ⑤-b ★ 모바일 호가는 **340px** 안에서 20행을 스크롤한다. 「사다리는 포커스 대상이
-        아니다」가 금지한 것은 **호가 셀(행)의 roving tabindex** 이지 스크롤 영역이
-        아니다 — 영역이 포커스를 못 받으면 키보드만 쓰는 사용자는 매수 10단에 영원히
-        닿지 못한다(WCAG 2.1.1 · axe `scrollable-region-focusable`).
-
-        ★ 260911-w5h — 사다리 아래 **compact 체결 테이프**가 들어오면서 같은 조건의 스크롤
-          영역이 하나 더 생겼다(`tape-scroll`, 200px 상한). 둘 다 안에 상시 포커스 가능한
-          자식이 없다. 그래서 탭으로 닿는 것은 **그 두 스크롤 영역뿐**이다 — 0 도 아니고
-          행 수만큼도 아니다. 순서는 DOM 순서(사다리 → 테이프)를 따른다.
+      ⑤-b 좁은 폭 호가는 박스 안에서 20행을 스크롤한다 — 금지된 것은 행의 roving tabindex 이지 스크롤
+        영역이 아니다(WCAG 2.1.1 · axe `scrollable-region-focusable`). 탭으로 닿는 것은 사다리 스크롤과
+        compact 체결 테이프 스크롤 두 영역뿐이다.
     */
-    const ladderTabbables = await tabbablesIn(
-      page,
-      '[data-slot="orderbook-ladder"][data-variant="chaser"]',
-    );
-    expect(ladderTabbables).toEqual(['div[ladder-scroll]', 'div[tape-scroll]']);
-    await expect(
-      page.locator('[data-slot="ladder-scroll"]:visible'),
-    ).toHaveAttribute('tabindex', '0');
-    // 행에는 tabindex 가 없다 — 여기 하나라도 붙으면 위 목록이 늘어난다.
-    await expect(
-      page.locator('[data-slot="orderbook-ladder"][data-variant="chaser"] li[tabindex]'),
-    ).toHaveCount(0);
+    const ladderSel =
+      '[data-slot="strategy-card"][data-open="true"] [data-slot="orderbook-ladder"][data-variant="chaser"]';
+    expect(await tabbablesIn(page, ladderSel)).toEqual(['div[ladder-scroll]', 'div[tape-scroll]']);
+    await expect(page.locator(`${ladderSel} li[tabindex]`)).toHaveCount(0);
 
-    // ⑦ 더티 액션 바 — `role="status"` + `aria-live="polite"`. **포커스를 빼앗지 않는다.**
-    await page.getByRole('tab', { name: '매수' }).click();
+    // ⑦ 더티 액션 바 — `role="status"` + `aria-live="polite"`. 포커스를 빼앗지 않는다.
+    await tablist.getByRole('tab', { name: '매수' }).click();
     await page.locator('#lc-buy-watch-qty').fill('8000');
     const bar = page.locator('[data-slot="dirty-action-bar"]');
     await expect(bar).toHaveAttribute('role', 'status');
     await expect(bar).toHaveAttribute('aria-live', 'polite');
     await expect(page.locator('#lc-buy-watch-qty')).toBeFocused();
+
+    // 더티 바가 뜬 상태(공용 패널이 바 위로 비킨 상태)도 위반 0.
+    const dirty = await scanSurface(page);
+    expect(dirty, `더티 상태 위반 ${dirty.length}건\n${JSON.stringify(dirty, null, 2)}`).toEqual([]);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading/vi — 위반 0 + 데드라인 `progressbar` · `confirm_locked` 탭 제외 · 실패 `role="alert"`', async ({
+  test('/trading VI — 위반 0 + 발동 표 `confirm_locked` 탭 제외 · 데드라인 `progressbar` · 거부 `role="alert"`', async ({
     page,
   }) => {
-    await page.goto('/trading/vi');
-    await expect(page.locator('[data-slot="vi-status-bar"]')).toHaveAttribute(
+    await page.goto('/trading');
+    await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute(
       'data-status',
       'ready',
       { timeout: 30_000 },
     );
-    await expect(
-      page.locator('[data-slot="vi-order-table"] [data-slot="vi-order-row"]'),
-    ).toHaveCount(3, { timeout: 15_000 });
+    await expect(page.locator('[data-slot="vi-chip"]')).toHaveCount(3, { timeout: 15_000 });
+    await page.locator('[data-slot="vi-strip-more"]').click();
+    const tableSel = '[data-slot="vi-trigger-table"] [data-slot="vi-order-table"]';
+    await expect(page.locator(`${tableSel} [data-slot="vi-order-row"]`)).toHaveCount(3);
 
     const blocking = await scanSurface(page);
     expect(
@@ -530,27 +491,20 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
       `critical/serious 위반 ${blocking.length}건\n${JSON.stringify(blocking, null, 2)}`,
     ).toEqual([]);
 
-    // ⑧ 상태줄 `aria-live="polite"`.
-    await expect(page.locator('[data-slot="vi-status-bar"]')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
-
-    // ⑨ ★ `confirm_locked` · 접수 전(주문번호 없음) 행의 확인 체크는 **탭에서 빠진다**.
-    //    3행 중 열리는 것은 1행뿐이다. 이 체크는 119초 자동취소 면제라 되돌릴 수 없다.
-    const checks = page.locator('[data-slot="vi-order-table"]').getByRole('checkbox');
+    // ⑨ ★ `confirm_locked` · 접수 전 행의 확인 체크는 **탭에서 빠진다** — 3행 중 열리는 것은 1행.
+    const checks = page.locator(`${tableSel} [data-slot="vi-confirm-check"]`);
     await expect(checks).toHaveCount(3);
     await expect(checks.nth(0)).toBeEnabled();
     await expect(checks.nth(1)).toBeDisabled();
-    await expect(checks.nth(1)).toHaveAttribute('aria-disabled', 'true');
     await expect(checks.nth(2)).toBeDisabled();
-    const tabbableChecks = (await tabbablesIn(page, '[data-slot="vi-order-table"]')).filter((d) =>
-      d.startsWith('button[checkbox]'),
+    // 잠긴 사유는 title 과 aria-describedby 두 길로 말한다(마우스 없는 사용자에게 title 은 안 읽힌다).
+    await expect(checks.nth(1)).toHaveAttribute('aria-describedby', /.+/);
+    const tabbableChecks = (await tabbablesIn(page, tableSel)).filter((d) =>
+      d.startsWith('input[vi-confirm-check]'),
     );
     expect(tabbableChecks).toHaveLength(1);
 
     // ⑩ 데드라인 진행바 — `role="progressbar"` + `aria-valuenow/min/max`.
-    //    (카드 트리는 ≥1280 에서 숨지만 속성을 만드는 조각은 표와 공유한다.)
     await relay.pushViOrderList(
       [
         {
@@ -561,7 +515,7 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
       ],
       true,
     );
-    const progress = page.locator('[data-slot="vi-order-cards"] [role="progressbar"]').first();
+    const progress = page.locator(`${tableSel} [role="progressbar"]`).first();
     await expect(progress).toHaveAttribute('aria-label', '110초 자동취소까지 남은 시간', {
       timeout: 15_000,
     });
@@ -571,7 +525,7 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
     expect(valueNow).toBeGreaterThan(0);
     expect(valueNow).toBeLessThanOrEqual(110);
 
-    // ⑪ 반영 실패는 `role="alert"` — 상태(`status`)가 아니라 경보다.
+    // ⑪ 반영 실패는 `role="alert"` — 상태가 아니라 경보다(VI 두 줄 아래).
     await relay.pushServerMessage({
       level: 'ERROR',
       source: 'Account',
@@ -584,7 +538,7 @@ test.describe('Phase 16 Plan 17 — 신규 3표면 접근성 (상따 · VI · My
     await expect(alert).toContainText('VI 주문금액이 0 입니다', { timeout: 15_000 });
     await expect(alert).toHaveAttribute('role', 'alert');
 
-    // 경보가 뜬 상태도 위반 0 이어야 한다 — 실패 표시는 대비비가 깨지는 대표 자리다.
+    // 경보가 뜬 상태도 위반 0 — 실패 표시는 대비비가 깨지는 대표 자리다.
     const afterAlert = await scanSurface(page);
     expect(
       afterAlert,
