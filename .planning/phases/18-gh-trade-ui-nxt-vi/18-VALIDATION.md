@@ -99,10 +99,13 @@ validated: "2026-09-22"
 | 2계좌 환경 VI **중지 상태 이동** (R3 · GC-WR-04, 18-VERIFICATION-R2 #7 확장) | TRADE-08 | 계좌 2개와 한 계좌로 등록된 중지 VI 가 필요하다. 자동 게이트는 `viMoveTargetOf` 판정 · 확인 요약 「B → A」 · `vi.set{accountNo:A, run:true}` 1회 · 가동 중 버튼 부재·`submit` 가드를 단위로 단언했다(18-28) | 계좌 B 로 등록된 **중지** KRX VI → 상태줄 계좌 A → 줄 옆 「상태줄 계좌(A)로 옮겨 시작」 → 확인 요약 「계좌 B → A」 → 확정 → 서버 에코 `accountNo` 가 A 인지 관측. 같은 줄을 **가동 중**으로 두면 버튼이 없는지도 확인 |
 | relay 배포 뒤 콜드 세션 `?focus=` · 0건 사용자 오래된 포커스 키 (R3 · GC-IN-02) | TRADE-09 | relay 18-26(64 수신 게이트) 이 배포돼야 실 게이트웨이 콜드 세션의 첫 `lc.snap` 이 확정 목록이 된다. 자동 게이트는 relay fanout/hub 단위 + 작업대 `knowsRegistered = snapSeq > 0` 단위·e2e 로 단언했다 | **relay 배포 뒤** 새 브라우저(콜드 세션)로 `/trading?focus=<등록 전략 키>` 진입 → 해당 카드가 펼쳐지는지, 등록 전략 0건 계정으로 오래된 `?focus=` 진입 → 보류되지 않고 버려지는지(무한 대기 0) 관측 |
 | 실 게이트웨이 정정 뒤 체결(E) 이 정정확인보다 먼저 오는 경우의 정산 (R3 · GC-WR-01) | TRADE-07 | 통보 순서는 실 게이트웨이 타이밍에 달려 있어 스텁으로 강제할 수 없다. 자동 게이트는 relay ws ㊸ · `narrowPending` (f)~(i) 로 「E + 원주문번호 + `requestKind:"Modify"`」 가 정정 대기를 정산함을 단언했다(18-25) | **관측 기회가 있을 때** — relay 배포 뒤 장중 정정 직후 체결된 주문에서 `order.result` 가 정정 요청에 붙고 `dma_orders` 정정 행이 `timeout` 이 아니라 체결 상태로 남는지 확인 |
+| relay 배포 뒤 정정 → 체결(E) 선착 → 정정확인(M) 지연 순서에서 `dma_orders` 정정 행이 체결 상태로 남고 relay 로그에 상태 단조성 warn 이 서는지 (R4 · R3-WR-01 · UAT-R3 #11) | TRADE-07 | 통보 순서는 실 게이트웨이 타이밍이라 스텁으로 강제할 수 없다. 자동 게이트는 relay ws ㊹ ㊺ 와 order-store 「상태 단조성 (R3-WR-01)」 49칸 전이표로 늦은 M 이 `filled` · `partially_filled` 행을 `accepted` 로 되돌리지 못함을 단언했다(18-33) | **관측 기회가 있을 때** — relay(18-33 포함) 배포 뒤 장중 정정 직후 전량 체결된 주문에서 E 가 M 보다 먼저 온 경우, `dma_orders` 정정 행이 `filled`(원주문 행은 `partially_filled`) 로 남고 relay 로그에 막힌 갱신 warn(`column` · `status` · `noticeType`) 1줄이 서는지 확인 |
 
 > 위 6항목(18-13 인계 4 + 2026-09-22 갭 클로징 인계 2)은 **UAT 로 인계**했다. 자동 게이트가 green 이라는 사실이 이 항목들을 대신하지 않는다(Phase 17 D-25 와 같은 성격의 실기 관측 이연).
 
 > **R3 추가 (2026-09-22, 18-32):** 위 표 끝 3행(GC-WR-04 중지 VI 이동 · GC-IN-02 콜드 세션 `?focus=` · GC-WR-01 정정 뒤 체결 선착)을 더해 UAT 인계는 **9항목**이다. R3 가 더한 새 화면 요소 — VI 줄 「상태줄 계좌({A})로 옮겨 시작」 버튼(18-28) · 결과 모름 ✕ 확인 다이얼로그(`workbench-close-confirm[data-reason=unknown]`, 18-30) · 재추가 카드의 잠금 문구(`RESULT_UNKNOWN_LOCKED_TEXT`, 18-30) — 는 **UAT #5(목업 육안 대조)** 의 대상에 들어간다.
+
+> **R4 추가 (2026-09-22, 18-36):** 위 표 끝 1행(R3-WR-01 늦은 정정확인 M 의 상태 단조성 실기 관측 · UAT-R3 #11)을 더해 UAT 인계는 **10항목**이다. R4 가 바꾼 화면 요소 — 결과 모름 ✕ 확인 다이얼로그의 새 본문(`CLOSE_UNKNOWN_BODY` 「… 로그아웃하거나 새로고침하면 풀려요.」, 18-34) · 종목상세 호가 탭 수동주문 폼의 잠금 문구(작업대 카드와 같은 `RESULT_UNKNOWN_LOCKED_TEXT` 요소 재사용, 18-34) — 는 **UAT #5(목업 육안 대조)** 의 대상에 들어간다. 대조 목업은 18-34 Task 3 이 문구를 맞춘 `18-R3-gap-mockup.html` ② · ③ 이다.
 
 ---
 
@@ -126,6 +129,10 @@ validated: "2026-09-22"
 **갭 클로징 R3 재판정 (2026-09-22, 18-32):** 18-REVIEW-R2 11건(GC-CR-01 · GC-WR-01~04 · GC-IN-01~06)과 deferred-items 의 relay 콜드 세션 수정을 18-24~18-31 이 처리했고, 18-32 가 전량 게이트를 다시 돌렸다 — build_command 전문 exit 0 · `error TS` 0 · relay `Tests  523 passed (523)` · webapp `Tests  1454 passed | 1 skipped (1455)` · Playwright `142 passed (4.6m)` / 0 failed / `9 skipped`(서비스키 부재 선재, 18-13 · 18-23 과 같은 9건) — GC1~GC5 전부 pass · 로컬 DB 회귀 `bash scripts/verify-dma-orders-price-check.sh` `1..12` 전부 ok · `# RESULT: PASS` · `supabase migration list --linked` 의 `20260922180000 | 20260922180000`(Local=Remote, 18-29 `apply` 와 일치). 12행 판정 = **닫힘 12 · 재현 안 됨 0 · 보류 0**. 12행 모두 자동 명령이 있고 green 이라 `nyquist_compliant: true` 를 유지한다. Manual-Only 는 6 → **9항목**. 판정(Complete)은 재검증(gsd-verifier `-R3`) 몫이다 — 근거는 아래 §Gap Closure R3.
 
 **배포 순서 (R3 반영):** **DB(18-18 완료 · 18-29 `apply` 완료) → relay 배포(R2 18-14 · 18-17 · 18-19 + R3 18-25 · 18-26) → 검증 → webapp push.** **relay 는 아직 미배포다.** R3 는 relay↔webapp 결합을 하나 더 만든다: **18-26 의 webapp 변경(`knowsRegistered = snapSeq > 0` — 빈 `lc.snap` 도 확정 목록으로 읽음)은 relay 18-26(64 를 받았을 때만 인증 경로 `lc.snap`)이 배포된 뒤에만 안전하다.** 순서가 뒤집히면 옛 relay 가 콜드 세션에서 빈 hub 캐시를 `lc.snap []` 로 먼저 내리고, 새 webapp 은 그것을 확정으로 읽어 진짜 목록(64 팬아웃)이 오기 전에 `?focus=` 를 버린다(D-02 회귀). 18-25(E+Modify 정정 정산)도 relay 쪽 변경이다. DB 는 두 번의 반영 모두 끝났으므로 남은 순서는 relay → 검증 → push 이며, 이 저장소에서 `git push` 는 곧 webapp 프로덕션 배포다.
+
+**갭 클로징 R4 재판정 (2026-09-22, 18-36):** 18-REVIEW-R3 7건(R3-WR-01 · R3-WR-02 · R3-IN-01~05)과 18-VERIFICATION-R3 [ESCALATION] 2건(= UAT-R3 #11 · #12)을 18-33~18-35 가 처리했고, 18-36 이 전량 게이트를 다시 돌렸다 — build_command 전문 `BUILD_EXIT=0` · `error TS` 0 · relay `Tests  534 passed (534)` · webapp `Tests  1472 passed | 1 skipped (1473)` · Playwright `Running 152 tests using 1 worker` · `143 passed (3.4m)` / 0 failed / `9 skipped`(서비스키 부재 선재, 18-13 · 18-23 · 18-32 와 같은 9건) — GC1~GC6 전부 pass. **R4 DB 변경 0** — `git diff --quiet fa95489..HEAD -- supabase/ scripts/verify-dma-orders-price-check.sh` exit 0 이라 pgTAP 러너(`scripts/verify-dma-orders-price-check.sh`)와 `supabase migration list --linked` 는 돌리지 않았다(18-33 은 마이그레이션이 아니라 relay 쿼리 필터다 · 원격 변경 없음). 7행 판정 = **닫힘 7 · 재현 안 됨 0 · 보류 0**(R3-IN-04 의 중립 표기 부분과 R3-IN-05 의 코드 handshake 는 `deferred-items.md` 로 이연했다는 사실을 각 행에 적었다). 7행 모두 자동 명령이 있고 green 이라 `nyquist_compliant: true` 를 유지한다. Manual-Only 는 9 → **10항목**. 판정(Complete)은 재검증(gsd-verifier `-R4`) 몫이다 — 근거는 아래 §Gap Closure R4.
+
+**배포 순서 (R4 반영):** **DB(18-18 완료 · 18-29 `apply` 완료 · R4 DB 변경 0) → relay 배포(R2 18-14 · 18-17 · 18-19 + R3 18-25 · 18-26 + R4 18-33) → 검증 → webapp push.** **relay 는 아직 미배포다.** 검증은 relay 인증 경로 로그의 `hasLimitChaserList` 판정(18-26)과, 막힌 갱신이 있었다면 상태 단조성 warn 1줄(18-33 · `column` · `status` · `noticeType`)을 본다. **18-26 결합은 그대로 push 를 막는다** — 18-26 의 webapp 변경(`knowsRegistered = snapSeq > 0`, 빈 `lc.snap` 을 확정으로 읽음)은 relay 18-26 배포 뒤에만 안전하고, 순서가 뒤집히면 콜드 세션 `?focus=` 가 버려진다(D-02 회귀). R4 의 webapp 변경(18-34 · 18-35 — 잠금을 `RelayProvider` 로, 18-30 배선 제거)은 relay 계약을 바꾸지 않아 **새 결합이 없다**. 다만 같은 push 에 실려 나가므로 순서는 위와 같다. 이 저장소에서 `git push` 는 곧 webapp 프로덕션 배포다. 계약 버전 handshake(코드로 순서를 보강하는 방법)는 이번 라운드에서 하지 않고 `deferred-items.md` 「18-36 기록」 에 남겼다.
 
 ---
 
@@ -208,3 +215,49 @@ validated: "2026-09-22"
 - `supabase migration list --linked` → `20260922180000 | 20260922180000 | 2026-09-22 18:00:00` (Local=Remote — 18-29 `apply` 와 일치)
 
 **보류(defer) 0건 · 재현 안 됨 0건.** deferred-items 의 18-22 relay 항목은 18-26 으로 해소됐다(코드 기준 · relay 배포 전까지 운영 효과 없음). 새로 이연한 항목은 없다. 실기로만 볼 수 있는 3항목은 위 Manual-Only 표 끝 3행으로 인계했다.
+
+---
+
+## Gap Closure R4 (2026-09-22 · 18-33~18-36)
+
+> 원천: `18-REVIEW-R3.md` 7건(Warning R3-WR-01 · R3-WR-02 · Info R3-IN-01~05) + `18-VERIFICATION-R3.md` `human_verification` [ESCALATION] 2건(= `18-UAT-R3.md` #11 R3-WR-01 · #12 R3-WR-02). 판정 값은 **닫힘 / 재현 안 됨(회귀 가드) / 보류(defer)** 셋 중 하나이며 각 플랜 SUMMARY 원문을 따른다. 사용자 결정 2건(2026-09-22)이 이 라운드의 범위를 정했다 — **① 결과 모름 잠금은 앱 수명**(`RelayProvider` · 해제는 로그아웃 · 새로고침뿐 · 종목상세 호가 탭도 같은 잠금을 읽는다) **② 잠금 등록은 신규 · 정정만**(취소 timeout 은 결과 배너만). 상태 열의 수치는 18-36 전량 게이트(2026-09-22) 기준이다. 위 §Gap Closure(18-14~18-23) · §Gap Closure R3 절과 그 Sign-Off 줄은 그대로 두고 이 절을 더했다.
+
+| # | 발견 | 플랜-태스크 | 요구사항 | 판정 | 근거 (SUMMARY 원문 요지 — RED 재현 여부 포함) | 자동 명령 | 상태 |
+|---|------|-------------|----------|------|-----------------------------------------------|-----------|------|
+| 1 | R3-WR-01 — 체결 E(Modify)가 정정을 정산한 뒤 늦게 온 정정확인 M 이 감사 행 상태를 `filled`/`partially_filled` → `accepted` 로 되돌림 | 18-33-T1/T2 | TRADE-07 | 닫힘 | 수정 전 코드 **RED 2건 재현**: ws ㊹ `expected { status: 'accepted', … } to deeply equal { status: 'filled', … }` · ㊺ 원주문 행 `partially_filled` → `accepted`, 같은 실행 `Tests 2 failed \| 63 passed (65)`. `supabaseOrderSink.runUpdate` 에 조건부 `status IN replaceableStatusesOf(목표)` + `select("id")` — 0행이면 warn 1줄(`column` · `status` · `noticeType`) + `{applied:false}`(23505 재시도 공통). 마이그레이션 · 트리거 · RPC 0. 49칸 전이표 · 변이(종결 조건 제거 → ⓾ · ⓾-b 실패). 실 게이트웨이 통보 순서 관측은 Manual-Only | `cd relay && npx vitest run ws-order order-store` | ✅ green (110 passed · relay 534) |
+| 2 | R3-WR-02 — 결과 모름 잠금이 `/trading` 페이지 수명이라 `/me` 이동 → 복귀 · 호가 탭에서 같은 주문을 다시 낼 수 있음 (GC-WR-03 부분 종결) | 18-34-T1/T2/T3 · 18-35-T1 | TRADE-07 · TRADE-09 | 닫힘 | 사용자 결정 ①. 수정 전 코드(18-34 src 3파일을 `a1dd26f` 로 되돌림)에서 **e2e GC6 RED** — 「/me 복귀 뒤 재추가 카드 「매수」 enabled」(`toBeDisabled` · Received: enabled). 잠금을 `RelayProvider.orderLocks`(`strategyKey` → `in-flight` \| `result-unknown`)로 올림 · 로그아웃(사용자 id 변경 + 세대) · 새로고침만 해제 · 작업대 카드와 호가 탭 폼이 같은 키를 읽음. 18-35 가 18-30 페이지 잠금 배선을 걷어 단일 원천으로(18-30 식별자 grep 0) — `closeCard` 판정 변이 시 새 describe 12건 중 8건 실패 | `cd webapp && npx vitest run relay-provider manual-order-form trading-workbench` · `cd webapp && pnpm exec playwright test trading-workbench -g "GC5\|GC6"` | ✅ green (GC5 · GC6 pass · webapp 1472) |
+| 3 | R3-IN-01 — 취소 timeout 도 그 키의 신규 매수 · 매도를 잠금 | 18-34-T1/T2 | TRADE-07 | 닫힘 | 사용자 결정 ②. 번역기 등록 규칙에서 취소는 미등록. 변이(취소 제외 제거) → relay-provider ⑩-d · ⑩-f 실패. 폼 케이스 「취소 timeout → 잠금 등록 0 · 배너만 · 버튼 잠기지 않음」 (18-34 에서 옛 「취소 timeout → 원주문 행의 키로 1회」 를 이 케이스로 교체) | `cd webapp && npx vitest run relay-provider manual-order-form` | ✅ green |
+| 4 | R3-IN-02 — 전송 중(≤5초) ✕ → 재추가가 잠기지 않은 새 폼을 줌 | 18-34-T1/T2(Provider 진행 중) · 18-35-T1(작업대 회귀) | TRADE-07 · TRADE-09 | 닫힘 | 전송 중 신규 · 정정은 같은 키를 `in-flight` 로 잠금(같은 키 진행 중은 참조 계수) · timeout 이면 한 리듀서 액션으로 `result-unknown` 으로 옮긴 뒤 결과 반환(⑩-b 가 렌더 이력으로 틈 없음을 단언). 변이: 참조 계수 → 불리언이면 ⑩-g 실패 · 정산을 다음 tick 으로 쪼개면 ⑩-b 포함 5건 실패. 수정 전 RED 는 같은 슬라이스의 tracer(GC6)로 확인했다. 18-35 작업대 ② 진행 중 키 ✕ → `unknown` 다이얼로그 · ③ 재추가 3경로 `in-flight` 변형 | `cd webapp && npx vitest run relay-provider trading-workbench` | ✅ green |
+| 5 | R3-IN-03 — 계좌 채움 효과가 치운 카드를 `cardsRef` 로, 남길 카드를 업데이터 `prev` 로 따로 계산 | 18-35-T2 | TRADE-09 | 닫힘 | **RED 없음 — 관찰 결과가 없는 정합성 결함(리뷰 판정), 불변식 회귀로 고정.** 수정 전 · 후 모두 `vitest run trading-workbench shared-panels` **93 passed**. 정리(더티 키 · 직전 로그 문장)를 커밋된 `cards` 의존 효과 한 곳으로 · `fillAccountCards(cardsRef.current` 0 · `cardDirtySum` · `dirtyCardCount` 줄 diff 0 | `cd webapp && npx vitest run trading-workbench shared-panels` | ✅ green (93 passed) |
+| 6 | R3-IN-04 — `isOffhoursOrder` 의 「가격 0 ⇒ 시간외종가」 전제는 relay 발 주문에만 성립 | 18-35-T3 | TRADE-07 | 닫힘 | **주석 닫힘 · 중립 표기는 서버 필드 필요로 deferred(18-35 발견).** 근거 2 주석을 「relay 발 주문 한정 · 다른 단말 시장가도 가격 0」 으로 좁힘 · `order-confirm-dialog.tsx` 8 추가 / 0 삭제(모두 주석) · 동작 변경 0(판정식 유지 — 잠그는 방향은 보수적). 「가격 없음」 중립 표기는 gh-trade 미체결 주문유형 필드가 있어야 해서 `deferred-items.md` 「18-35 발견」 | `cd webapp && npx vitest run order-confirm-dialog manual-order-form account-panel` | ✅ green (3 files · 134 passed, 18-35 기록) |
+| 7 | R3-IN-05 — 18-26 webapp 변경은 relay 배포 뒤에만 나가야 함 (배포 순서 게이트) | 18-36-T2 | TRADE-09 | 닫힘 | **Sign-Off 배포 순서(R4)로 기록 · 코드 handshake 는 deferred(18-36 기록).** 코드 결함이 아니다(리뷰 판정). 위 Sign-Off 「배포 순서 (R4 반영)」 가 18-26 결합과 R4 relay 18-33 을 적고 push 를 막는다. 계약 버전 handshake(인증 ACK 버전 필드 → 옛 relay 면 `knowsRegistered` 옛 규칙)는 3층 · 배포 결합이라 `deferred-items.md` 「18-36 기록」. 18-26 계약 자체는 relay 단위 회귀가 지킨다 | `cd relay && npx vitest run fanout strategy-hub` · `grep -c "^\*\*배포 순서 (R4 반영):\*\*" .planning/phases/18-gh-trade-ui-nxt-vi/18-VALIDATION.md` (= 1) | ✅ green (relay 534) |
+
+> 명령 표기: `pnpm --filter … test -- <필터>` 는 필터를 무시하고 전량을 돈다(18-28 · 18-31 에서 확인). 그래서 좁은 실행은 워크스페이스 디렉터리의 `npx vitest run <필터>` · `pnpm exec playwright test <spec> -g <이름>` 으로 적었다. 전량은 config `test_command` 전문과 `pnpm --filter @gh-radar/webapp run test:e2e` 다.
+
+**발견 → 플랜-태스크 대응표 (실행 결과로 확정):**
+
+| 발견 | 플랜-태스크 | 실행 결과 |
+|------|-------------|-----------|
+| R3-WR-01 (늦은 M 이 감사 행 상태를 되돌림) | 18-33-T1/T2 | `8d8791e` (tracer · RED 2 → GREEN) · `52d6a21` (49칸 전이표 · 로그 · 재시도 회귀) |
+| R3-WR-02 (결과 모름 잠금 페이지 수명 · 호가 탭 미적용 · 사용자 결정 ①) | 18-34-T1/T2/T3 · 18-35-T1 | `3e59a73` (tracer · e2e GC6) · `208b276` (⑩ 계열) · `0cdd06f` (CONTEXT D-27 R4 보강 · 목업 문구) · `fd6f6ef` (18-30 배선 제거 · 단일 원천) |
+| R3-IN-01 (취소 timeout 도 잠금 · 사용자 결정 ②) | 18-34-T1/T2 | `3e59a73` · `208b276` |
+| R3-IN-02 (전송 중 ✕ → 재추가 탈출) | 18-34-T1/T2(Provider 진행 중) · 18-35-T1(작업대 회귀) | `3e59a73` · `208b276` · `fd6f6ef` |
+| R3-IN-03 (계좌 채움 정리 이중 계산) | 18-35-T2 | `3107a49` (RED 없음 · 불변식 회귀) |
+| R3-IN-04 (`isOffhoursOrder` 전제 범위) | 18-35-T3 | `9fa1b14` (주석 · 중립 표기 deferred) |
+| R3-IN-05 (배포 순서 게이트) | 18-36-T2 | 이 절 + Sign-Off 배포 순서(R4) · handshake deferred |
+
+**escalation 응답 (18-VERIFICATION-R3 `human_verification` [ESCALATION] 2건 · 원본 파일은 고치지 않음):**
+
+- **advisory 1 · UAT-R3 #11 (R3-WR-01)** — 「재현되면 Round 4 항목으로 등록하거나 위험 수용을 기록」 에 대한 응답: Round 4 항목으로 등록해 **고쳤다.** 18-33 이 수정 전 코드에서 ws ㊹ ㊺ 로 되돌림을 재현한 뒤 조건부 UPDATE(상태 단조성)로 코드를 닫았다. 실 게이트웨이의 통보 순서(E 먼저 · M 지연)를 실제로 관측하는 일만 Manual-Only(위 표 끝 행)로 남는다.
+- **advisory 2 · UAT-R3 #12 (R3-WR-02)** — 「잠금을 앱 수명으로 올리는 후속 플랜 또는 현재 설계 승인」 에 대한 응답: 사용자 결정 ①②(2026-09-22)에 따라 **앱 수명으로 올렸다**(18-34 · 18-35). e2e **GC6** 이 실사용 동선 — `/me` 다녀온 뒤 재추가 카드 잠김 · 종목상세 호가 탭 폼 잠김 · 새로고침에만 해제 — 을 자동으로 단언한다.
+- 18-30 의 prohibition 「잠금을 relay 컨텍스트로 올려 호가 탭까지 바꾸지 않는다」 는 사용자 결정 ① 로 대체됐다(CONTEXT D-27 R4 보강 · 18-34 SUMMARY). 위 §Gap Closure R3 5행(GC-WR-03)은 기록 보존을 위해 고치지 않았다.
+
+**전량 게이트 원문 요약줄 (18-36 Task 1, 2026-09-22):**
+
+- build_command 전문(`pnpm --filter @gh-radar/shared build && … relay typecheck && … typecheck:tests && … webapp typecheck`) → `BUILD_EXIT=0` · `error TS` 0
+- `pnpm --filter @gh-radar/relay run test` → `Test Files  20 passed (20)` · `Tests  534 passed (534)` (18-32 기준선 523)
+- `pnpm --filter @gh-radar/webapp run test` → `Test Files  92 passed (92)` · `Tests  1472 passed | 1 skipped (1473)` (18-32 기준선 1454)
+- `pnpm --filter @gh-radar/webapp run test:e2e` → `Running 152 tests using 1 worker` · `143 passed (3.4m)` · `9 skipped` · failed 0 (18-32 기준선 142) — GC1 · GC2 · GC3 · GC4 · GC5 · GC6 모두 pass. 9 skip 은 서비스키 부재로 선재하던 `user-themes` 4 · `watchlist` 5 (18-13 · 18-23 · 18-32 와 같은 9건)
+- `git diff --quiet fa95489..HEAD -- supabase/ scripts/verify-dma-orders-price-check.sh` → exit 0 (R4 DB 변경 0) — 그래서 `bash scripts/verify-dma-orders-price-check.sh` 와 `supabase migration list --linked` 는 돌리지 않았다
+
+**보류(defer) 0건 · 재현 안 됨 0건.** 이연한 것은 발견 항목 전체가 아니라 두 행의 일부다 — R3-IN-04 의 「가격 없음」 중립 표기(서버 주문유형 필드 필요 · `deferred-items.md` 「18-35 발견」)와 R3-IN-05 의 계약 버전 handshake(`deferred-items.md` 「18-36 기록」). 실기로만 볼 수 있는 1항목은 위 Manual-Only 표 끝 행으로 인계했다.
