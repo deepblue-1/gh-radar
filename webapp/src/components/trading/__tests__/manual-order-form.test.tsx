@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import type { RelayOrderResultMsg, RelayQueuedWindowMsg } from '@gh-radar/shared';
+import type { RelayOrderResultMsg, RelayQueuedWindowMsg, RelayUnfilled } from '@gh-radar/shared';
 
 /**
  * Phase 18 Plan 07 — 수동주문 폼 계약 (TRADE-07, D-19~D-23 · D-27, E11).
@@ -31,6 +31,8 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 import {
   ManualOrderEntry,
   ManualOrderForm,
+  canModify,
+  unfilledSelectBlockReason,
   type ManualOrderFormProps,
 } from '../card/manual-order-form';
 
@@ -388,5 +390,167 @@ describe('ManualOrderEntry — 적응형 진입 (D-19)', () => {
     expect(screen.getByTestId('manual-entry-options').className).toContain('@min-[700px]/lc:block');
     await waitFor(() => expect(btn('수동주문')).toHaveFocus());
     expect((screen.getByLabelText('옵션 값') as HTMLInputElement).value).toBe('120');
+  });
+});
+
+function unf(over: Partial<RelayUnfilled> = {}): RelayUnfilled {
+  return {
+    orderNo: '3407000064',
+    orgOrderNo: '',
+    isin: ISIN,
+    side: 'B',
+    price: 128_500,
+    orderQty: 100,
+    filledQty: 60,
+    unfilledQty: 40,
+    exchange: 'NXT',
+    orderTime: '093012',
+    queuedStatus: '',
+    pendingStatus: '',
+    board: '',
+    pendingCancelSent: false,
+    name: '한미반도체',
+    code: '042700',
+    ...over,
+  };
+}
+
+describe('ManualOrderForm — 미체결 행 선택 → 정정/취소 (D-21)', () => {
+  it('선택하면 칩 「원주문 {No}」 + 「{매수|매도} {가격} × {수량}」 이 뜨고 가격·수량이 채워진다', () => {
+    renderForm({ selectedUnfilled: unf(), onClearSelection: vi.fn() });
+    const chip = screen.getByTestId('manual-order-selchip');
+    expect(chip).toHaveTextContent('원주문 3407000064');
+    expect(chip).toHaveTextContent('매수 128,500 × 100');
+    expect(priceInput().value).toBe('128,500');
+    // 정정·취소 대상은 미체결 잔량이다.
+    expect(qtyInput().value).toBe('40');
+    expect(btn('정정')).toBeEnabled();
+    expect(btn('취소')).toBeEnabled();
+  });
+
+  it('칩 ✕(선택 해제)로 해제하면 칩이 사라지고 값은 유지된다', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [sel, setSel] = useState<RelayUnfilled | null>(unf());
+      return (
+        <ManualOrderForm
+          {...baseProps()}
+          selectedUnfilled={sel}
+          onClearSelection={() => setSel(null)}
+        />
+      );
+    }
+    render(<Harness />);
+    await user.click(btn('선택 해제'));
+    expect(screen.queryByTestId('manual-order-selchip')).toBeNull();
+    expect(priceInput().value).toBe('128,500');
+    expect(qtyInput().value).toBe('40');
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('취소')).toBeDisabled();
+  });
+
+  it('선택 없음 → 정정·취소 disabled', () => {
+    renderForm({ selectedUnfilled: null });
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('취소')).toBeDisabled();
+  });
+
+  it.each(['G2', 'G3'])('board %s(시간외종가 원주문) → 정정 disabled + 사유 title, 취소는 활성', (board) => {
+    renderForm({ selectedUnfilled: unf({ board }) });
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('정정')).toHaveAttribute('title', '시간외종가 주문은 정정할 수 없어요 · 취소 후 재등록');
+    expect(btn('취소')).toBeEnabled();
+  });
+
+  it('queuedStatus 가 있는 예약 Q-ID 행 → 정정 disabled, 취소 활성', () => {
+    renderForm({ selectedUnfilled: unf({ orderNo: 'Q154041001', queuedStatus: '예약대기' }) });
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('정정')).toHaveAttribute('title', '예약 주문은 정정할 수 없어요 · 취소 후 재등록');
+    expect(btn('취소')).toBeEnabled();
+  });
+
+  it('pendingCancelSent 행은 선택 자체가 막힌다 — 칩 없음 · 정정·취소 disabled', () => {
+    const row = unf({ pendingCancelSent: true });
+    expect(unfilledSelectBlockReason(row)).toBe('취소가 이미 나간 주문이에요');
+    renderForm({ selectedUnfilled: row });
+    expect(screen.queryByTestId('manual-order-selchip')).toBeNull();
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('취소')).toBeDisabled();
+  });
+
+  it('orderNo 가 빈 행(접수 전)은 선택 불가 + 사유', () => {
+    const row = unf({ orderNo: '' });
+    expect(unfilledSelectBlockReason(row)).toBe('접수 전(주문번호 없음)은 선택할 수 없어요');
+    expect(unfilledSelectBlockReason(unf())).toBeNull();
+    renderForm({ selectedUnfilled: row });
+    expect(screen.queryByTestId('manual-order-selchip')).toBeNull();
+    expect(btn('취소')).toBeDisabled();
+  });
+
+  it('canModify — 잠금 3조건 + 주문번호 없음을 한 함수가 판정한다', () => {
+    expect(canModify(unf())).toBe(true);
+    expect(canModify(unf({ board: 'G2' }))).toBe(false);
+    expect(canModify(unf({ board: 'G3' }))).toBe(false);
+    expect(canModify(unf({ queuedStatus: '예약대기' }))).toBe(false);
+    expect(canModify(unf({ pendingCancelSent: true }))).toBe(false);
+    expect(canModify(unf({ orderNo: '' }))).toBe(false);
+  });
+
+  it('「취소」 → 확인 다이얼로그(제목·경고·「취소 주문」) → 확정 시 qty = 미체결 잔량 전부', async () => {
+    const user = userEvent.setup();
+    renderForm({ selectedUnfilled: unf() });
+    // 사용자가 수량을 줄여도 취소는 잔량 전부다 — 부분 취소 경로는 없다.
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '5');
+    await user.click(btn('취소'));
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    expect(within(dialog).getByRole('heading', { name: '미체결 주문을 취소할까요?' })).toBeInTheDocument();
+    expect(within(dialog).getByText('취소 수량은 미체결 잔량 전부예요.')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: '취소 주문' }));
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith({
+      kind: 'cancel',
+      isin: ISIN,
+      accountNo: '12345678-01',
+      exchange: 'NXT',
+      orgOrderNo: '3407000064',
+      qty: 40,
+      price: 128_500,
+    });
+  });
+
+  it('「정정」 → 확인 다이얼로그 → sendOrder({kind:"modify"}) 1회 · side 는 원주문 승계', async () => {
+    const user = userEvent.setup();
+    renderForm({ selectedUnfilled: unf({ side: 'S' }) });
+    await user.clear(priceInput());
+    await user.type(priceInput(), '129000');
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '30');
+    await user.click(btn('정정'));
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    expect(within(dialog).getByRole('heading', { name: '정정 주문을 넣을까요?' })).toBeInTheDocument();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: '정정 주문' }));
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith({
+      kind: 'modify',
+      isin: ISIN,
+      accountNo: '12345678-01',
+      // 거래소·방향은 원주문을 승계한다(카드의 거래소 KRX 가 아니다).
+      exchange: 'NXT',
+      orgOrderNo: '3407000064',
+      side: 'S',
+      qty: 30,
+      price: 129_000,
+    });
+  });
+
+  it('시간외종가 선택 중에는 원주문이 있어도 정정이 비활성이다', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g2Open: true }), selectedUnfilled: unf() });
+    expect(btn('정정')).toBeEnabled();
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    expect(btn('정정')).toBeDisabled();
+    expect(btn('취소')).toBeEnabled();
   });
 });
