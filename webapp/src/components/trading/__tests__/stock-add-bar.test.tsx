@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 /**
  * Phase 18 Plan 08 Task 2 — 작업대 종목 추가란 (TRADE-06 · D-08 · UI-SPEC E5).
@@ -226,5 +226,103 @@ describe('StockAddBar — E5 long-text: 입력값은 네이티브 가로 스크�
     expect(el.className).toContain('min-w-0');
     fireEvent.change(el, { target: { value: '가'.repeat(80) } });
     expect(el.value).toHaveLength(80);
+  });
+});
+
+/*
+  18-13 이관 — 옛 상따 화면 헤더 검색(`limit-chaser-client.test.tsx` ⑯ · ⑱)이 잠그던 키보드·ARIA·
+  고를 수 없는 행 규율. 그 검색 필드(`StockSearchField`)는 18-08 부터 이 종목 추가란과 **같은 컴포넌트**
+  였고, 옛 화면이 사라지면서 이 파일이 유일한 소비처 테스트가 됐다. 트리거 왕복(종목명 버튼 → 검색 →
+  재선택)은 옛 헤더 카드 고유 UI 라 함께 사라졌다(D-08 — 종목 선택은 이 추가란 하나).
+*/
+describe('StockAddBar — 옛 헤더 검색 규율 이관 (⑯ · ⑱)', () => {
+  const activeOption = () => {
+    const id = input().getAttribute('aria-activedescendant');
+    return id ? (document.getElementById(id) as HTMLButtonElement | null) : null;
+  };
+
+  it('↓/↑ 가 활성 항목을 오르내리고 `aria-activedescendant` 가 그 옵션 id 와 정확히 맞는다', async () => {
+    setup();
+    await search([ECOPRO, ECOPRO_BM]);
+    await waitFor(() => expect(activeOption()).toBe(options()[0]));
+    expect(options()[1]).toHaveAttribute('aria-selected', 'false');
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
+    expect(activeOption()).toBe(options()[1]);
+    fireEvent.keyDown(input(), { key: 'ArrowUp' });
+    expect(activeOption()).toBe(options()[0]);
+  });
+
+  it('↓ 는 목록 **중간의** 고를 수 없는 행도 건너뛴다 — 활성인데 Enter 가 먹통인 행이 없다 (T-u58-01)', async () => {
+    setup();
+    await search([KONEX, ECOPRO, ETP, ECOPRO_BM]);
+    await waitFor(() => expect(activeOption()).toBe(options()[1]));
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
+    expect(activeOption()).toBe(options()[3]);
+    for (const i of [0, 2]) {
+      expect(options()[i]).toHaveAttribute('aria-disabled', 'true');
+      expect(options()[i]).toHaveAttribute('aria-selected', 'false');
+    }
+  });
+
+  it('KONEX·시장 미상·ISIN 없음 행에는 「주문 불가」 사유 배지가 붙는다 — 회색으로만 두지 않는다 (WR-03)', async () => {
+    setup();
+    await search([ECOPRO, KONEX, row({ code: '000002', name: '시장미상', market: null }), ETP]);
+    const [ok, konex, unknown, etp] = options();
+    expect(ok!.querySelector('[data-slot="lc-search-unorderable"]')).toBeNull();
+    for (const el of [konex, unknown, etp]) {
+      expect(el).toBeDisabled();
+      expect(el!.querySelector('[data-slot="lc-search-unorderable"]')?.textContent).toBe('주문 불가');
+    }
+  });
+
+  it('고를 수 있는 행이 하나도 없으면 ↓ 로도 활성이 생기지 않고 Enter 가 조용하다', async () => {
+    const { onAdd } = setup();
+    await search([KONEX, ETP]);
+    expect(input().getAttribute('aria-activedescendant')).toBeNull();
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
+    expect(input().getAttribute('aria-activedescendant')).toBeNull();
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('★ 목록이 갱신되면 활성이 새 목록의 첫 행으로 다시 계산된다 — 이전 종목을 이어받지 않는다', async () => {
+    const { onAdd } = setup();
+    await search([ECOPRO, ECOPRO_BM]);
+    await waitFor(() => expect(activeOption()).toBe(options()[0]));
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
+    expect(activeOption()).toBe(options()[1]);
+
+    await search([row({ code: '005930', name: '삼성전자', isin: 'KR7005930003', market: 'KOSPI' })], '삼성');
+    await waitFor(() => expect(activeOption()).toBe(options()[0]));
+    expect(options()[0]).toHaveTextContent('삼성전자');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onAdd).toHaveBeenCalledWith('KR7005930003', '삼성전자', '005930');
+  });
+
+  it('Enter 는 활성 항목을 정확히 1회 고르고 기본 동작(폼 제출)을 막는다', async () => {
+    const { onAdd } = setup();
+    await search([ECOPRO_BM]);
+    await waitFor(() => expect(activeOption()).toBe(options()[0]));
+    const enter = createEvent.keyDown(input(), { key: 'Enter', bubbles: true, cancelable: true });
+    fireEvent(input(), enter);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it('ARIA 조합 — 목록이 없을 때는 `aria-controls` 를 걸지 않고, 뜨면 listbox id 를 가리킨다 (T-u58-06)', async () => {
+    setup();
+    expect(input()).toHaveAttribute('role', 'combobox');
+    expect(input()).toHaveAttribute('aria-expanded', 'false');
+    expect(input().getAttribute('aria-controls')).toBeNull();
+
+    await search([ECOPRO]);
+    const list = document.querySelector('[data-slot="lc-search-results"]')!;
+    expect(list).toHaveAttribute('role', 'listbox');
+    expect(input()).toHaveAttribute('aria-expanded', 'true');
+    expect(list.id).not.toBe('');
+    expect(input().getAttribute('aria-controls')).toBe(list.id);
+    // 옵션 role 은 `<li>` 가 아니라 버튼이 갖는다 — axe `nested-interactive` 회피.
+    expect(options()[0]).toHaveAttribute('role', 'option');
+    expect(options()[0]!.closest('li')).toHaveAttribute('role', 'presentation');
   });
 });
