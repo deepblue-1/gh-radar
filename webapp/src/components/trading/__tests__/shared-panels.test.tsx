@@ -301,6 +301,51 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
     expect(panel().className).not.toMatch(/\bz-(4[1-9]|[5-9]\d)\b|z-\[/);
   });
 
+  /*
+    ⑩ ★ 18-13 Playwright 실측 — 폰 밴드의 `sticky bottom-0` 은 **한 번도 붙지 않았다.**
+      앱 셸 `main` 이 `overflow-auto` 라 sticky 의 스크롤 컨테이너가 되는데, 정작 스크롤하는 것은
+      창(window)이고 `main` 은 높이 제한이 없어 스크롤하지 않는다. 그래서 패널은 페이지 끝 일반
+      흐름에 놓였고, 펼친 채 중간에서 더티를 만들면 더티 바가 패널을 82px 덮었다(E13 · E15).
+      `wb` 컨테이너는 layout containment 라 그 안의 `fixed` 는 뷰포트가 아니라 `wb` 에 붙는다 —
+      더티 바와 같은 이유로 **`document.body` 포털 + `fixed`** 로 붙이고, 일반 흐름에는 같은 높이의
+      자리(spacer)를 남겨 페이지 끝 콘텐츠가 패널 밑에 묻히지 않게 한다.
+  */
+  it('⑩ 폰 밴드(phoneBand)면 패널이 body 포털 `fixed bottom-0 z-20` 이고 흐름에는 자리(spacer)만 남는다', () => {
+    const { container } = render(<SharedPanels {...props({ phoneBand: true })} />);
+    const root = panel();
+    expect(root.parentElement).toBe(document.body);
+    expect(container.contains(root)).toBe(false);
+    expect(root.className).toMatch(/\bfixed\b/);
+    expect(root.className).toContain('bottom-0');
+    expect(root.className).toContain('z-20');
+    expect(root.className).not.toMatch(/\bsticky\b/);
+    const spacer = container.querySelector('[data-slot="shared-panels-spacer"]');
+    expect(spacer).not.toBeNull();
+    expect(spacer).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('⑩-a 폰 밴드 + 더티 바 — 패널은 바 높이만큼 위에 서고, 자리(spacer)도 그만큼 늘어난다(z-index 아님)', () => {
+    const { container } = render(
+      <SharedPanels {...props({ phoneBand: true, dirtyBarVisible: true })} />,
+    );
+    expect(panel().style.bottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
+    expect(panel()).toHaveAttribute('data-dirty-reserve', 'true');
+    expect(panel().className).not.toMatch(/\bz-(4[1-9]|[5-9]\d)\b|z-\[/);
+    const spacer = container.querySelector<HTMLElement>('[data-slot="shared-panels-spacer"]');
+    // jsdom 의 패널 실측 높이는 0 — 자리 = 패널 높이 + 바 예약.
+    expect(spacer!.style.height).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
+  });
+
+  it('⑩-b 폰 밴드가 아니면(≥700 · 판정 전) 포털·자리 없이 흐름 안의 일반 섹션이다', () => {
+    for (const phoneBand of [false, null, undefined]) {
+      const { container, unmount } = render(<SharedPanels {...props({ phoneBand })} />);
+      expect(container.contains(panel())).toBe(true);
+      expect(container.querySelector('[data-slot="shared-panels-spacer"]')).toBeNull();
+      expect(panel().className).toContain('@min-[700px]/wb:static');
+      unmount();
+    }
+  });
+
   it('⑨-a 실제 더티 바가 DOM 에 있으면 그 실측 높이만큼 비킨다', () => {
     const bar = document.createElement('div');
     bar.setAttribute('data-slot', 'dirty-action-bar');
