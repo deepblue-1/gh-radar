@@ -169,9 +169,19 @@ async function pushViEcho(relay: LocalRelay, run: boolean, over: Record<string, 
   relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...VI_CFG, ...over, run }));
 }
 
-/** VI 발동 표(「더보기」)를 연다. */
+/**
+ * VI 패널(「더보기」)을 연다 — VI 설정 두 줄은 펼침 안에만 보인다. 멱등이다: 이미 열려 있으면 다시
+ * 눌러 닫지 않는다.
+ */
+async function openViPanel(page: Page): Promise<void> {
+  const more = page.locator('[data-slot="vi-strip-more"]');
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+  await expect(page.locator('[data-slot="vi-settings-rows"]')).toBeVisible();
+}
+
+/** VI 발동 표를 연다(패널을 펼치면 주문이 있을 때 표가 선다). */
 async function openViTable(page: Page): Promise<void> {
-  await page.locator('[data-slot="vi-strip-more"]').click();
+  await openViPanel(page);
   await expect(page.locator('[data-slot="vi-trigger-table"]')).toBeVisible();
 }
 
@@ -373,7 +383,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const chip = page.locator('[data-slot="breakout-chip"]').filter({ hasText: '삼성전자' });
     await expect(chip).toHaveCount(1, { timeout: 15_000 });
     await expect(chip).not.toHaveAttribute('data-trading', 'true');
-    await expect(statusBar(page).getByTestId('stat-breakout')).toContainText('1');
 
     const setBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
     await chip.click();
@@ -401,10 +410,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 그 행이 「거래중」으로 바뀐다 — 칩을 다시 눌러도 카드가 늘지 않는다.
     await expect(chip).toHaveAttribute('data-trading', 'true');
     await expect(chip.locator('[data-slot="breakout-chip-trading"]')).toHaveText('거래중');
-    await expect(statusBar(page).getByTestId('stat-cards')).toContainText('1');
 
     // ★ 카드 추가는 서버에 아무것도 보내지 않는다 — 등록은 사용자가 스위치를 켤 때뿐이다(D-07).
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(setBefore);
+
+    // 상태줄은 핵심만 말한다 — 개수는 칩 · 카드 수가 이미 증명했다.
+    for (const word of ['돌파', '거래 종목', '임계']) {
+      await expect(statusBar(page)).not.toContainText(word);
+    }
   });
 
   test('GC1 돌파 목록은 가장 최신 돌파가 맨 위 — 칩 줄 첫 칩과 표 첫 행이 가장 늦은 돌파 (사용자 결정 2026-09-22 · TRADE-06)', async ({
@@ -1075,6 +1088,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 반영의 유일한 증거는 에코다 — 바가 사라지고 상태줄에 시각이 찍힌다.
     await expect(dirtyBar(page)).toHaveCount(0, { timeout: 15_000 });
     await expect(statusBar(page).getByTestId('stat-applied')).toHaveText(/^반영 \d{2}:\d{2}:\d{2}$/);
+    await expect(statusBar(page).getByTestId('stat-applied')).toHaveAttribute('title', '서버 반영 시각');
     await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
   });
 
@@ -1405,17 +1419,17 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   // 이관 — 옛 trading-vi.spec (VI 화면 → 작업대 VI 두 줄 · VI 발동 표)
   // =========================================================================
 
-  test('20. VI 중지 상태 진입 — KRX 줄 서버값(1,000만원 · 22%) · 스위치 OFF · 「중지」 · 발동 0건 (옛 VI 1 · D-05)', async ({
+  test('20. VI 중지 상태 진입 — KRX 줄 서버값(1,000만원 · 22%) · 스위치 OFF · 발동 0건 (옛 VI 1 · D-05)', async ({
     page,
   }) => {
     relay.seedViTrigger(VI_CFG);
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
+    await openViPanel(page);
 
     await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000', { timeout: 15_000 });
     await expect(field(page, 'vi-krx-rate')).toHaveValue('22');
     await expect(viRow(page)).toHaveAttribute('data-run', 'false');
-    await expect(viRow(page)).toContainText('중지');
     await expect(viRow(page).getByRole('switch', { name: 'VI KRX 시작' })).toHaveAttribute(
       'aria-checked',
       'false',
@@ -1426,7 +1440,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(viRow(page).locator('[data-slot="vi-row-fix"]')).toHaveCount(0);
     // VI 브라우저 알림 토글은 기능째 제거됐다(quick-260922-tqr).
     await expect(statusBar(page).locator('[data-slot="workbench-vi-alert-toggle"]')).toHaveCount(0);
-    await expect(statusBar(page).getByTestId('stat-vi')).toHaveText('VI 발동 0');
+    await expect(page.locator('[data-slot="vi-chip"]')).toHaveCount(0);
     // 사이드바 KRX VI 는 가동이 아니라 배지가 없다.
     await expect(desktopNav(page).locator('[data-sidebar-item="vi-KRX"] [data-slot="strategy-badge"]')).toHaveCount(0);
     await expect(page.locator('[data-slot="vi-trigger-strip"]')).toContainText('오늘 발동된 VI 주문이 없어요');
@@ -1438,6 +1452,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     relay.seedViTrigger({ ...VI_CFG, run: true });
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
+    await openViPanel(page);
     await expect(viRow(page)).toHaveAttribute('data-run', 'true', { timeout: 15_000 });
 
     await field(page, 'vi-krx-amount').fill('1500');
@@ -1459,8 +1474,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await pushViEcho(relay, true, { orderAmountKrw: 15_000_000n });
     await expect(fix).toHaveCount(0, { timeout: 15_000 });
     await expect(field(page, 'vi-krx-amount')).toHaveValue('1,500');
-    // 반영 시각은 `HH:MM:SS` 고정폭이다(로케일 포맷터면 Chromium 에서 「0시 57분」).
-    await expect(viRow(page)).toContainText(/서버 반영 \d{2}:\d{2}:\d{2}/);
+    // 에코 뒤에도 가동이 유지된다 — 「수정」이 run 을 눕히지 않았다.
+    await expect(viRow(page)).toHaveAttribute('data-run', 'true');
   });
 
   test('22. VI 「시작」 확인 — 요약에 현재 폼 금액·상승률 · 기본 포커스 취소 · 확정 시 run=true → 에코로 줄·사이드바가 함께 (옛 VI 3 · S-7 · T-16-10)', async ({
@@ -1469,6 +1484,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     relay.seedViTrigger(VI_CFG);
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
+    await openViPanel(page);
     await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000', { timeout: 15_000 });
 
     await field(page, 'vi-krx-amount').fill('1500');
@@ -1503,7 +1519,6 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 반영의 증거는 에코다 — 줄과 사이드바가 같은 프레임으로 함께 움직인다.
     await pushViEcho(relay, true, { orderAmountKrw: 15_000_000n, checkRate: 25 });
     await expect(viRow(page)).toHaveAttribute('data-run', 'true', { timeout: 15_000 });
-    await expect(viRow(page)).toContainText('가동중');
     await expect(viRow(page).getByRole('switch', { name: 'VI KRX 중지' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -1520,9 +1535,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     relay.seedViOrders([...VI_ORDERS]);
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
+    await openViPanel(page);
     const sw = viRow(page).getByRole('switch', { name: 'VI KRX 중지' });
     await expect(sw).toBeVisible({ timeout: 15_000 });
-    await expect(statusBar(page).getByTestId('stat-vi')).toHaveText(`VI 발동 ${VI_ORDERS.length}`, {
+    await expect(page.locator('[data-slot="vi-chip"]')).toHaveCount(VI_ORDERS.length, {
       timeout: 15_000,
     });
 
@@ -1544,7 +1560,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(viSetRequests(relay).at(-1)).toMatchObject({ run: false, exchange: 'KRX' });
   });
 
-  test('24. VI 발동 표 6건 — 상태 배지 6종 · 부분체결 파생 · 종목명 역매핑 · 잠긴 행 체크 비활성 · 110초 · 캡션 (옛 VI 5 · E3)', async ({
+  test('24. VI 발동 표 6건 — 상태 배지 6종 · 부분체결 파생 · 종목명 역매핑 · 잠긴 행 체크 비활성 · 110초 (옛 VI 5 · E3)', async ({
     page,
   }) => {
     relay.seedViTrigger(VI_CFG);
@@ -1576,12 +1592,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(rows.nth(0).locator('td').nth(3)).toHaveText(/^(KRX|NXT)$/);
     for (const i of [2, 3, 4, 5]) await expect(rows.nth(i).locator('td').nth(10)).toHaveText('—');
 
-    await expect(page.locator('[data-slot="vi-order-caption"]')).toContainText(
-      '확인 체크 = 119초 미확인 취소 면제',
-    );
-    await expect(page.locator('[data-slot="vi-order-caption"]')).toContainText(
-      '110초 미도달 취소는 서버 규칙이라 면제되지 않아요 · 접수 전(주문번호 없음)은 확인할 수 없어요',
-    );
+    // 펼친 VI 패널에 머리줄 요약·긴 설명문이 없다 — 체크의 의미는 체크박스 이름이 말한다.
+    const panel = page.locator('[data-slot="vi-trigger"]');
+    await expect(panel).not.toContainText('양 거래소 한 목록');
+    await expect(panel).not.toContainText('ConfirmVIOrderReq');
   });
 
   test('25. VI 확인 체크 → 33 수신(다이얼로그 없이 즉시) → 73 이 정정하면 다시 끌 수 있다 (옛 VI 6 · D-10)', async ({
@@ -1619,7 +1633,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     relay.seedViTrigger(VI_CFG);
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
-    await openViTable(page);
+    // 주문이 아직 없으므로 표는 없다 — 패널만 펼쳐 두면 아래 72 가 오는 순간 표가 선다.
+    await openViPanel(page);
 
     // 마감을 23초 뒤로 — 1초 틱이 실제로 돌아야만 약 4초 뒤 임박(<20초)으로 넘어간다.
     await relay.pushViOrderList(
@@ -1702,6 +1717,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await waitForReady(page);
     await expect(page.locator('[data-slot="vi-chip"]')).toHaveCount(VI_ORDERS.length, { timeout: 15_000 });
     await openViTable(page);
+    await expect(viRow(page)).toHaveAttribute('data-run', 'true', { timeout: 15_000 });
     await pushBreakout(relay, E2E_LONG_NAME_ISIN);
     await expect(page.locator('[data-slot="breakout-chip"]')).toHaveCount(1, { timeout: 15_000 });
     await page.locator('[data-slot="breakout-more"]').click();
@@ -1714,6 +1730,15 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(
       await leavesOverflowing(page.locator('[data-slot="vi-settings-rows"]'), rowsBox!.x + rowsBox!.width),
     ).toEqual([]);
+    // 거래소당 한 줄 — 입력 28 · 스위치 26 이라 한 줄이면 40 미만, 두 줄로 접히면 56 이상이다.
+    const krxBox = await viRow(page, 'KRX').boundingBox();
+    const nxtBox = await viRow(page, 'NXT').boundingBox();
+    expect(krxBox).not.toBeNull();
+    expect(nxtBox).not.toBeNull();
+    expect(krxBox!.height, 'KRX 줄 높이(한 줄)').toBeLessThan(40);
+    expect(nxtBox!.height, 'NXT 줄 높이(한 줄)').toBeLessThan(40);
+    // 폰 밴드(본문 <830)는 위아래로 쌓인다.
+    expect(nxtBox!.y).toBeGreaterThanOrEqual(krxBox!.y + krxBox!.height);
 
     /*
       발동 스트립·표 — 칩 줄은 가로 스크롤 한 줄, 표는 가로 스크롤 컨테이너(목업 정본 · E3 overflow),
@@ -1748,6 +1773,40 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       page.locator('[data-slot="vi-chip"] [data-slot="vi-chip-name"]').filter({ hasText: longName }).first(),
     ).toHaveAttribute('title', longName);
     await expect(viTable(page).locator('[data-slot="vi-row-name"]').nth(1)).toHaveAttribute('title', longName);
+
+    // 더티 「수정」 이 붙어도 설정 줄은 넘치지 않는다(자리가 모자라면 줄 안에서 접힌다 — D2).
+    await field(page, 'vi-krx-rate').fill('25');
+    await expect(viRow(page).locator('[data-slot="vi-row-fix"]')).toBeVisible();
+    expect(await scrollOverflowing(page, '[data-slot="vi-settings-rows"]')).toEqual([]);
+  });
+
+  test('28b. 와이드 본문(뷰포트 1000 · 본문 ≈968) — VI KRX | NXT 한 줄 나란히 · 상태줄 핵심만 · 펼친 목록 머리줄 없음', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1000, height: 800 });
+    relay.seedViTrigger(VI_CFG);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await openViPanel(page);
+    await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000', { timeout: 15_000 });
+
+    // 본문 830 이상 — KRX 와 NXT 가 한 줄에 나란히(2열) 선다.
+    const krxBox = await viRow(page, 'KRX').boundingBox();
+    const nxtBox = await viRow(page, 'NXT').boundingBox();
+    expect(krxBox).not.toBeNull();
+    expect(nxtBox).not.toBeNull();
+    expect(Math.abs(krxBox!.y - nxtBox!.y), 'KRX · NXT 줄 top 차이').toBeLessThanOrEqual(2);
+    expect(krxBox!.height, 'KRX 줄 높이(한 줄)').toBeLessThan(40);
+    expect(nxtBox!.height, 'NXT 줄 높이(한 줄)').toBeLessThan(40);
+    expect(nxtBox!.x).toBeGreaterThan(krxBox!.x);
+    expect(await scrollOverflowing(page, '[data-slot="vi-settings-rows"]')).toEqual([]);
+
+    // 접힌 줄 라벨은 이름뿐이고, 상태줄은 핵심만 말한다.
+    await expect(page.getByTestId('vi-strip-label')).toHaveText('VI');
+    await expect(page.getByTestId('breakout-strip-label')).toHaveText('돌파');
+    for (const word of ['VI 발동', '거래 종목', '임계']) {
+      await expect(statusBar(page)).not.toContainText(word);
+    }
   });
 
   /*
