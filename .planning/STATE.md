@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Completed 18-35-PLAN.md
-last_updated: "2026-09-22T12:09:00.046Z"
+stopped_at: Completed 18-36-PLAN.md
+last_updated: "2026-09-22T12:16:00.468Z"
 last_activity: 2026-09-22
-last_activity_desc: 18-33 R3-WR-01 상태 단조성(조건부 status UPDATE) · ws ㊹ ㊺ RED→GREEN · 49칸 전이표 · relay 534 green · relay 미배포
-state_head: 9fa1b1465f00aa129a66b0739e7bc1edf574d32e
+last_activity_desc: 18-36 R4 최종 게이트 green(relay 534 · webapp 1472/1 skip · Playwright 143/0 fail/9 skip · GC1~GC6) · 18-VALIDATION §Gap Closure R4 7행 닫힘 · TRADE-06~09 Pending 유지 · relay 미배포
+state_head: 984c7a1394d1ebb07f443d5495a05a16d94dcda5
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 233
-  completed_plans: 217
+  completed_plans: 218
 milestone_name: milestone
 ---
 
@@ -502,6 +502,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 18 P33 | 5min | 2 tasks | 6 files |
 | Phase 18 P34 | 10min | 3 tasks | 9 files |
 | Phase 18 P35 | 8min | 3 tasks | 7 files |
+| Phase 18 P36 | 7min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -925,8 +926,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-22T12:08:59.475Z
-Stopped at: Completed 18-35-PLAN.md
+Last session: 2026-09-22T12:15:59.924Z
+Stopped at: Completed 18-36-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
