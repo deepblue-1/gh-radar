@@ -39,6 +39,9 @@
  *   `parseStrategyKey` 로만 해석하고, 모양이 어긋나면 무시한다. 그 키가 **등록된 전략**으로 보이면
  *   (스냅샷 도착 후) 그 카드를 펼친다 — 카드를 새로 **등록**하지 않는다. 뒤로가기로 URL 이 바뀌어도
  *   로컬 상태가 정본이다.
+ *   이미 이 화면 위에서 사이드바 전략을 누르면 URL 만 바뀌므로, 사이드바가 보내는 **포커스 요청
+ *   이벤트**(`lib/trading-focus.ts`)를 따로 듣는다(18-12). 같은 해석(`parseStrategyKey` → 등록 키
+ *   대조)을 거치고, 스냅샷 전이면 마운트 때와 같은 보류 슬롯에 넣는다.
  *
  * ⑦ 이탈 경고 · 게이트 · 팝업은 **페이지 1곳**
  *   - `useLeaveWarning` 은 카드 더티 수 + VI 2줄 더티 수의 합으로 한 번만 건다.
@@ -62,7 +65,7 @@ import {
   useState,
 } from "react";
 import { useSearchParams } from "next/navigation";
-import type { RelayExchange, RelayUnfilled } from "@gh-radar/shared";
+import type { RelayExchange, RelayLimitChaser, RelayUnfilled } from "@gh-radar/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -96,6 +99,7 @@ import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
+import { useTradingFocusRequest } from "@/lib/trading-focus";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
 import { useViEndAlerts } from "@/lib/use-vi-end-alerts";
@@ -128,6 +132,27 @@ export interface WorkbenchCard {
   /** 추가 시점에 알던 종목명·코드(돌파 항목·검색 결과). 없으면 라벨 역매핑을 쓴다. */
   name?: string;
   code?: string;
+}
+
+/**
+ * 등록된 전략 1건의 카드를 펼친 카드 집합 (**순수 함수** · ⑥). 같은 ISIN 카드가 있으면 펼치고,
+ * 없으면 그 전략의 키(계좌·거래소)로 펼친 카드를 붙인다. `?focus=` 마운트 소비와 사이드바 포커스
+ * 요청이 같은 규칙을 쓴다.
+ */
+function withFocusedCard(prev: WorkbenchCard[], hit: RelayLimitChaser): WorkbenchCard[] {
+  return prev.some((x) => x.isin === hit.isin)
+    ? prev.map((x) => (x.isin === hit.isin ? { ...x, open: true } : x))
+    : [
+        ...prev,
+        {
+          isin: hit.isin,
+          accountNo: hit.accountNo,
+          exchange: hit.exchange,
+          open: true,
+          name: hit.name,
+          code: hit.code,
+        },
+      ];
 }
 
 /** 지금 시각 `HH:MM:SS` — 로케일 포맷터를 쓰지 않는다(`strategy-card.tsx` `clockNow` 와 같은 이유). */
@@ -231,25 +256,29 @@ function WorkbenchSurface() {
           },
         ];
       }
-      if (focusHit !== undefined) {
-        next = next.some((x) => x.isin === focusHit.isin)
-          ? next.map((x) => (x.isin === focusHit.isin ? { ...x, open: true } : x))
-          : [
-              ...next,
-              {
-                isin: focusHit.isin,
-                accountNo: focusHit.accountNo,
-                exchange: focusHit.exchange,
-                open: true,
-                name: focusHit.name,
-                code: focusHit.code,
-              },
-            ];
-      }
+      if (focusHit !== undefined) next = withFocusedCard(next, focusHit);
       return next;
     });
     if (focusHit !== undefined) setScrollTarget(focusHit.isin);
   }, [limitChasers]);
+
+  /* ── ⑥ 사이드바 포커스 요청 — 이미 이 화면 위일 때 (18-12) ───────── */
+  const limitChasersRef = useRef(limitChasers);
+  limitChasersRef.current = limitChasers;
+  useTradingFocusRequest((raw) => {
+    const f = parseStrategyKey(raw);
+    if (f === null) return;
+    const hit = limitChasersRef.current.find(
+      (c) => c.key === strategyKey(f.isin, f.accountNo, f.exchange),
+    );
+    if (hit === undefined) {
+      // 스냅샷 전 — 마운트 때와 같은 보류 슬롯. 등록 전략이 보이는 순간 위 효과가 펼친다.
+      pendingFocus.current = f;
+      return;
+    }
+    setCards((prev) => withFocusedCard(prev, hit));
+    setScrollTarget(hit.isin);
+  });
 
   /* ── 펼치고 스크롤 ────────────────────────────────────────────────── */
   useLayoutEffect(() => {
