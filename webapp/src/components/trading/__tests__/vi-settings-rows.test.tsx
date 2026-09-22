@@ -581,7 +581,7 @@ describe('CR-02 — 등록 전략의 계좌가 정본', () => {
     expect(notice).not.toBeNull();
     expect(notice).toHaveAttribute('role', 'status');
     expect(notice).toHaveTextContent(REGISTERED);
-    expect(notice.textContent).toBe(viRegisteredAccountText(REGISTERED, '등록계좌'));
+    expect(notice.textContent).toBe(viRegisteredAccountText(REGISTERED, '등록계좌', false));
     expect(accountNotice('NXT')).toBeNull();
   });
 
@@ -808,5 +808,84 @@ describe('GC-WR-04 — 중지 상태에서만 상태줄 계좌로 옮겨 시작'
     expect(moveButton('KRX')).toBeDisabled();
   });
 
-  void VI_MOVE_STALE_TEXT;
+  /* ── Task 2 — 상태별 고지 · 확인 뒤 상태 변화 (T-18-118) · 가동 중 계좌 불변 (T-18-117) ── */
+
+  const noticeOf = (ex: 'KRX' | 'NXT') =>
+    block(ex).querySelector('[data-slot="vi-row-account"]') as HTMLElement | null;
+
+  it('고지 문구 — 가동 중: 「가동 중에는 이 계좌로만 나가요 · 옮기려면 먼저 중지하세요」', () => {
+    expect(viRegisteredAccountText(REGISTERED, '등록계좌', true)).toBe(
+      `계좌 ${REGISTERED} · 등록계좌 에 등록된 VI 예요 — 가동 중에는 이 계좌로만 나가요 · 옮기려면 먼저 중지하세요`,
+    );
+    accountsMock = NAMES;
+    renderRows({ viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: true }), NXT: null }, accountNo: STATUS });
+    expect(noticeOf('KRX')).toHaveTextContent('옮기려면 먼저 중지하세요');
+    expect(noticeOf('KRX')).toHaveAttribute('role', 'status');
+    expect(moveButton('KRX')).toBeNull();
+  });
+
+  it('고지 문구 — 중지: 「수정·시작은 이 계좌로 나가요」 + 옮기기 버튼', () => {
+    expect(viRegisteredAccountText(REGISTERED, undefined, false)).toBe(
+      `계좌 ${REGISTERED} 에 등록된 VI 예요 — 수정·시작은 이 계좌로 나가요`,
+    );
+    renderRows({ viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: false }), NXT: null }, accountNo: STATUS });
+    expect(noticeOf('KRX')!.textContent).toBe(viRegisteredAccountText(REGISTERED, undefined, false));
+    expect(noticeOf('KRX')).not.toHaveTextContent('중지하세요');
+    expect(moveButton('KRX')).not.toBeNull();
+  });
+
+  /** 옮기기 창을 연 뒤 rerender 로 상태를 바꾸고 확정 — 전송 0 · 창 안 사유 · 창 유지. */
+  async function expectStaleAfter(next: { KRX: RelayViTrigger; accountNo: string }) {
+    const { rerender } = renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: false }), NXT: null },
+      accountNo: STATUS,
+    });
+    fireEvent.click(moveButton('KRX')!);
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(summaryRow(dlg, '계좌')).toHaveTextContent(`${REGISTERED} → ${STATUS}`);
+    rerender(<ViSettingsRows viTriggers={{ KRX: next.KRX, NXT: null }} accountNo={next.accountNo} />);
+    const still = screen.getByTestId('vi-start-dialog');
+    // 요약은 창을 연 순간의 B → A 그대로다 — 보인 것과 다른 이동은 나가지 않는다.
+    expect(summaryRow(still, '계좌')).toHaveTextContent(`${REGISTERED} → ${STATUS}`);
+    fireEvent.click(within(still).getByRole('button', { name: '시작' }));
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('vi-start-dialog')).toBeInTheDocument();
+    expect(within(still).getByRole('alert')).toHaveTextContent(VI_MOVE_STALE_TEXT);
+    expect(still.querySelector('[data-slot="vi-confirm-error"]')).toHaveTextContent(VI_MOVE_STALE_TEXT);
+  }
+
+  it('★ 창을 연 뒤 다른 단말이 시작(run:true 에코) → 확정해도 0회 · 창 안 사유 (submit 가동 중 가드도 같은 길)', async () => {
+    await expectStaleAfter({ KRX: trigger({ accountNo: REGISTERED, run: true }), accountNo: STATUS });
+  });
+
+  it('★ 창을 연 뒤 상태줄 계좌가 C 로 바뀜 → 0회 (요약의 A 가 아닌 C 로 나가지 않는다)', async () => {
+    await expectStaleAfter({ KRX: trigger({ accountNo: REGISTERED, run: false }), accountNo: 'C-333' });
+  });
+
+  it('★ 창을 연 뒤 등록 계좌가 에코로 D 로 바뀜 → 0회', async () => {
+    await expectStaleAfter({ KRX: trigger({ accountNo: 'D-444', run: false }), accountNo: STATUS });
+  });
+
+  it('★ 가동 B · 상태줄 A — 「수정」 과 중지 스위치 모두 B 로만 나간다 (A 송신 0)', async () => {
+    const { rerender } = renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: true }), NXT: null },
+      accountNo: STATUS,
+    });
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    fireEvent.click(fixButton('KRX')!);
+    // 에코(수정 반영 · 가동 유지)로 잠금이 풀린 뒤 중지
+    rerender(
+      <ViSettingsRows
+        viTriggers={{ KRX: trigger({ accountNo: REGISTERED, run: true, checkRate: 30 }), NXT: null }}
+        accountNo={STATUS}
+      />,
+    );
+    expect(moveButton('KRX')).toBeNull();
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 중지' }));
+    const dlg = await screen.findByTestId('vi-stop-dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: '중지' }));
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sentMsgs().map((m) => m.accountNo)).toEqual([REGISTERED, REGISTERED]);
+    expect(sentMsgs().map((m) => m.run)).toEqual([true, false]);
+  });
 });
