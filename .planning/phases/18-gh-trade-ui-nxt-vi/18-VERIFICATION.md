@@ -1,7 +1,9 @@
 ---
 phase: 18-gh-trade-ui-nxt-vi
 verified: 2026-09-22T13:10:00Z
-status: gaps_found
+status: passed
+previous_status: gaps_found
+closed_by: "갭 클로징 R2·R3·R4 (18-VERIFICATION-R2/R3/R4.md) + 18-UAT-R4.md 11/11 pass (2026-09-23)"
 score: 13/15 must-haves verified
 covered_files:
   - .planning/REQUIREMENTS.md
@@ -31,110 +33,98 @@ covered_files:
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-12-SUMMARY.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-13-PLAN.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-13-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-14-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-14-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-15-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-15-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-16-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-16-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-17-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-17-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-18-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-18-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-19-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-19-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-20-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-20-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-21-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-21-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-22-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-22-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-23-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-23-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-24-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-24-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-25-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-25-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-26-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-26-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-27-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-27-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-28-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-28-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-29-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-29-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-30-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-30-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-31-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-31-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-32-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-32-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-33-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-33-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-34-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-34-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-35-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-35-SUMMARY.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-36-PLAN.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-36-SUMMARY.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-CONTEXT.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-DISCUSSION-LOG.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-PATTERNS.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-R3-gap-mockup.html
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-RESEARCH.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW-R2.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW-R3.md
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW-R4.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-REVIEW.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-UI-SPEC.md
   - .planning/phases/18-gh-trade-ui-nxt-vi/18-VALIDATION.md
-  - packages/shared/src/index.ts
-  - packages/shared/src/relay.ts
-  - relay/src/dma/__tests__/envelope.test.ts
-  - relay/src/dma/envelope.ts
-  - relay/src/hub/subscription-hub.ts
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-orderbook-tab-mockup.html
+  - .planning/phases/18-gh-trade-ui-nxt-vi/18-workbench-mockup.html
+  - .planning/phases/18-gh-trade-ui-nxt-vi/deferred-items.md
+  - relay/src/order/notice-status.ts
   - relay/src/store/orders.ts
-  - relay/src/ws/__tests__/protocol.test.ts
-  - relay/src/ws/fanout.ts
   - relay/src/ws/order-handler.ts
-  - relay/src/ws/protocol.ts
-  - relay/tests/rate-cross.test.ts
+  - relay/tests/helpers/fake-dma-orders.ts
+  - relay/tests/order-store.test.ts
   - relay/tests/ws-order.test.ts
-  - supabase/migrations/20260921120000_dma_orders_modify_offhours.sql
-  - webapp/e2e/overflow.ts
-  - webapp/e2e/specs/a11y.spec.ts
-  - webapp/e2e/specs/me.spec.ts
-  - webapp/e2e/specs/orderbook.spec.ts
-  - webapp/e2e/specs/sidebar-tree.spec.ts
+  - webapp/e2e/specs/search.spec.ts
   - webapp/e2e/specs/trading-workbench.spec.ts
-  - webapp/src/app/trading/limit-chaser/[key]/page.tsx
-  - webapp/src/app/trading/limit-chaser/new/page.tsx
-  - webapp/src/app/trading/limit-chaser/page.tsx
-  - webapp/src/app/trading/page.tsx
-  - webapp/src/app/trading/vi/page.tsx
-  - webapp/src/components/chat/__tests__/chat-fab.test.tsx
-  - webapp/src/components/chat/chat-fab.tsx
-  - webapp/src/components/chat/fab-clearance.ts
-  - webapp/src/components/layout/__tests__/app-sidebar.test.tsx
-  - webapp/src/components/layout/app-sidebar.tsx
-  - webapp/src/components/orderbook/__tests__/account-panel.test.tsx
-  - webapp/src/components/orderbook/__tests__/order-confirm-dialog.test.tsx
-  - webapp/src/components/orderbook/account-panel.tsx
+  - webapp/src/components/orderbook/__tests__/trade-tape.test.tsx
   - webapp/src/components/orderbook/order-confirm-dialog.tsx
-  - webapp/src/components/orderbook/order-panel.tsx
-  - webapp/src/components/orderbook/orderbook-ladder.tsx
-  - webapp/src/components/stock/__tests__/orderbook.test.tsx
-  - webapp/src/components/stock/__tests__/stock-detail-client.test.tsx
-  - webapp/src/components/stock/__tests__/stock-orderbook-section.test.tsx
+  - webapp/src/components/orderbook/trade-tape.tsx
   - webapp/src/components/stock/stock-orderbook-section.tsx
-  - webapp/src/components/trading/__tests__/breakout-strip.test.tsx
-  - webapp/src/components/trading/__tests__/card-body.test.tsx
-  - webapp/src/components/trading/__tests__/card-grid.test.tsx
-  - webapp/src/components/trading/__tests__/card-header.test.tsx
-  - webapp/src/components/trading/__tests__/limit-chaser-form.test.tsx
   - webapp/src/components/trading/__tests__/manual-order-form.test.tsx
-  - webapp/src/components/trading/__tests__/quote-grid-10.test.tsx
-  - webapp/src/components/trading/__tests__/shared-panels.test.tsx
-  - webapp/src/components/trading/__tests__/stock-add-bar.test.tsx
-  - webapp/src/components/trading/__tests__/stock-info-modal.test.tsx
-  - webapp/src/components/trading/__tests__/strategy-card-flow.test.tsx
-  - webapp/src/components/trading/__tests__/strategy-card.test.tsx
-  - webapp/src/components/trading/__tests__/strategy-status-card.test.tsx
   - webapp/src/components/trading/__tests__/trading-workbench.test.tsx
   - webapp/src/components/trading/__tests__/vi-settings-rows.test.tsx
-  - webapp/src/components/trading/__tests__/vi-trigger-strip.test.tsx
   - webapp/src/components/trading/__tests__/workbench-status-bar.test.tsx
   - webapp/src/components/trading/card/card-body.tsx
-  - webapp/src/components/trading/card/card-header.tsx
   - webapp/src/components/trading/card/manual-order-form.tsx
-  - webapp/src/components/trading/card/quote-grid-10.tsx
-  - webapp/src/components/trading/card/stock-info-modal.tsx
-  - webapp/src/components/trading/card/strategy-card.tsx
-  - webapp/src/components/trading/dirty-action-bar.tsx
-  - webapp/src/components/trading/dma-gate.tsx
-  - webapp/src/components/trading/limit-chaser-form.tsx
-  - webapp/src/components/trading/strategy-log.tsx
-  - webapp/src/components/trading/strategy-status-card.tsx
-  - webapp/src/components/trading/vi-order-list.tsx
-  - webapp/src/components/trading/workbench/breakout-strip.tsx
-  - webapp/src/components/trading/workbench/card-grid.tsx
-  - webapp/src/components/trading/workbench/shared-panels.tsx
   - webapp/src/components/trading/workbench/stock-add-bar.tsx
   - webapp/src/components/trading/workbench/trading-workbench.tsx
   - webapp/src/components/trading/workbench/vi-settings-rows.tsx
-  - webapp/src/components/trading/workbench/vi-trigger-strip.tsx
   - webapp/src/components/trading/workbench/workbench-status-bar.tsx
-  - webapp/src/lib/__tests__/alert-tone.test.ts
-  - webapp/src/lib/__tests__/breakout-list.test.ts
-  - webapp/src/lib/__tests__/limit-chaser.test.ts
-  - webapp/src/lib/__tests__/queued-window.test.ts
+  - webapp/src/components/ui/command.tsx
   - webapp/src/lib/__tests__/relay-provider.test.tsx
-  - webapp/src/lib/__tests__/use-breakout-quotes.test.tsx
-  - webapp/src/lib/__tests__/use-vi-server-error.test.ts
+  - webapp/src/lib/__tests__/vi-alert.test.ts
   - webapp/src/lib/alert-tone.ts
   - webapp/src/lib/breakout-list.ts
-  - webapp/src/lib/isin-labels.ts
-  - webapp/src/lib/limit-chaser.ts
-  - webapp/src/lib/queued-window.ts
   - webapp/src/lib/relay-provider.tsx
-  - webapp/src/lib/trading-focus.ts
-  - webapp/src/lib/use-breakout-quotes.ts
-  - webapp/src/lib/use-leave-warning.ts
-  - webapp/src/lib/use-relay-socket.ts
-  - webapp/src/lib/use-vi-end-alerts.ts
-  - webapp/src/lib/use-vi-server-error.ts
-  - webapp/src/styles/globals.css
-covered_digest: "v1:sha256:56b8eba6e325fe856cacd00895e529f2e9d205f9e6ef14986e2e2d72331cd749"
+  - webapp/src/lib/vi-alert.ts
+covered_digest: "v1:sha256:d9d6ddb621cae0a73831060819f89925d09c80179635c06011d8c9842513b234"
+previous_covered_digest: "v1:sha256:56b8eba6e325fe856cacd00895e529f2e9d205f9e6ef14986e2e2d72331cd749"
+refingerprinted: "2026-09-23 — 18-VERIFICATION-R4 covered_files(UAT/VERIFICATION 문서 제외) + quick-260922-tqr·uhw 변경 파일로 재지문. 근거: HEAD 에서 relay 534 · webapp 1460/1 skip green, 18-UAT-R4 11/11 pass(배포된 HEAD 대상)"
 behavior_unverified: 0
 overrides_applied: 0
 gaps:

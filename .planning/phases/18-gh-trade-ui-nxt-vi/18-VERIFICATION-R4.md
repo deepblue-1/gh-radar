@@ -2,7 +2,9 @@
 phase: 18-gh-trade-ui-nxt-vi
 verified: 2026-09-22T21:30:00Z
 round: R4
-status: human_needed
+status: passed
+human_verified: "18-UAT-R4.md — 11/11 pass (2026-09-23)"
+previous_status: human_needed
 score: 7/7 R4 갭 클로징 must-have 검증됨 (18-REVIEW-R3 7건: R3-WR-01·R3-WR-02·R3-IN-01~05, 원 12개 R3 갭 클로징 항목 + 원 15개 truth 재확인 회귀 0)
 covered_files:
   - .planning/REQUIREMENTS.md
