@@ -818,7 +818,7 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 13/13 plans executed
+**Plans:** 13/23 plans executed
 
 Plans:
 **Wave 1**
@@ -854,3 +854,31 @@ Plans:
 **Wave 7** *(blocked on Wave 6 completion)*
 
 - [x] 18-13-PLAN.md — e2e `trading-workbench.spec.ts` 신설 · 기존 spec 갱신 · 옛 컴포넌트 제거 · 전량 게이트 · UAT 인계 (wave 7)
+
+**Wave 8** *(갭 클로징 — 18-VERIFICATION gaps_found 13/15 · CR-01·CR-02 + 사용자 결정 돌파 최신순 + 18-REVIEW WR-01~07)*
+
+- [ ] 18-14-PLAN.md — [CR-01 tracer] 시간외종가(가격 0) 원주문 취소 — webapp 번역기·relay zod·조립기 한 규칙 + 마이그레이션 파일 + 층별 회귀 (wave 8)
+- [ ] 18-15-PLAN.md — [CR-02] VI 줄 계좌 정본 = 등록 전략 계좌(`viRowAccountOf`) + 불일치 고지 + 확인 요약 정본 계좌 (wave 8)
+- [ ] 18-16-PLAN.md — [WR-01 + WR-06] 시간외종가 세션 없음 → 주문 안 만듦 · 정정 수량 잔량 추종/검증/재대조 · 가격 0 원주문 「시간외종가」 표기 (wave 8)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 18-17-PLAN.md — [사용자 결정 2026-09-22] 돌파 목록 최신 돌파가 맨 위 — relay getter·78 팬아웃·웹 리듀서 한 축 + e2e GC1 (wave 9)
+- [ ] 18-18-PLAN.md — [CR-01 · BLOCKING db push · 한쪽 문 체크포인트] 원격 `dma_orders_price_check` 취소 가격 0 허용 + 전후 덤프 diff (wave 9)
+- [ ] 18-19-PLAN.md — [WR-03 확인 우선] 취소·정정 대기 요청 종류 재현 → (재현 시) `PendingOrder.kind` 하드 필터 (wave 9)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 18-20-PLAN.md — [WR-02] 카드 접기/펴기 재마운트 제거 — 카드별 고정 호스트 노드 + 한 번 펼친 본문 유지 + e2e GC2 (wave 10)
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 18-21-PLAN.md — [WR-05 확인 우선] 같은 종목 두 번째 전략 은닉 재현 → (재현 시) 카드 정체성 ISIN → 카드 id · 전략 키 기준 유입/포커스 + e2e GC3 (wave 11)
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 18-22-PLAN.md — [WR-04 + WR-07 확인 우선] 미체결 선택 → 받을 카드 보장 + e2e GC4 · 포커스 보류는 첫 64 스냅샷 전에만(`limitChaserSnapSeq`) (wave 12)
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 18-23-PLAN.md — 갭 클로징 전량 게이트 · 18-VALIDATION §Gap Closure · REQUIREMENTS TRADE-06~09 Pending(재검증 대기) · UAT 인계 2건 추가 (wave 13)
