@@ -202,8 +202,9 @@ export type PendingOrder = {
   /**
    * 이 대기의 **요청 종류** — `handle` 의 `kind` 그대로다 ("N" 신규 · "M" 정정 · "C" 취소, WR-03).
    *
-   * `narrowPending` 의 요청 종류 하드 필터가 읽는다: 취소확인("C")→`"C"` · 정정확인("M")→`"M"` ·
-   * 체결("E")→`"N"` · 통보의 `requestKind`("New"/"Modify"/"Cancel") → 대응 종류.
+   * `narrowPending` 의 요청 종류 하드 필터가 읽는다: 통보의 `requestKind`("New"/"Modify"/"Cancel")
+   * 가 정본이고(GC-WR-01), 비었을 때(구 서버)만 취소확인("C")→`"C"` · 정정확인("M")→`"M"` ·
+   * 체결("E")→`"N"` 휴리스틱이 대신한다.
    */
   kind: OrderType;
   /** 취소·정정 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
@@ -1192,15 +1193,32 @@ export function normalizeOrderNo(raw: string): string {
 const NEW_ORDER_NOTICE_TYPES: ReadonlySet<string> = new Set(["A", "E"]);
 
 /**
- * 통보 종류 → 그 통보가 **답일 수 있는 요청 종류** (WR-03 / D-21·D-27). **화이트리스트**다.
+ * 통보의 `requestKind`(gh-trade `OrderResp.request_kind`) → 요청 종류 (WR-03 · GC-WR-01).
+ * **화이트리스트**다 — 빈 값(구 서버)과 모르는 값은 여기 없고, 그때만 아래 휴리스틱으로 내려간다.
  *
- *   · "C" 취소확인 → 취소 요청 · "M" 정정확인 → 정정 요청 — 같은 원주문의 취소·정정 대기가
- *     겹쳐도, 수량·가격이 같거나 **교차해도** 서로의 통보로 정산되지 않는다.
- *   · "E" 체결 → 신규 요청 — 체결은 원주문의 사건이지 정정·취소 요청의 답이 아니다.
- *     후보가 1건이어도(정정 대기 1건 앞의 원주문 체결) 정산하지 않는다.
+ * **이 값이 요청 종류의 정본이다** (D-21 · D-27). 원천은 fbs `OrderResp.request_kind`(브로커
+ * ExecutionReport 의 정정취소구분)다 — 게이트웨이가 **그 통보가 어느 요청의 결과인지**를 직접
+ * 말한 값이라, 통보 종류에서 짐작한 값보다 강하다. 18-19 는 둘을 AND 로 걸어, 정정된 주문의
+ * 체결(E + `Modify`)이 원주문번호까지 명시해도 「E→신규」 짐작이 그것을 버렸다(GC-WR-01).
+ */
+const REQUEST_KIND_BY_WIRE: ReadonlyMap<string, OrderType> = new Map<string, OrderType>([
+  ["New", "N"],
+  ["Modify", "M"],
+  ["Cancel", "C"],
+]);
+
+/**
+ * 통보 종류 → 요청 종류 **휴리스틱** (WR-03). **wire `requestKind` 가 비었거나 모르는 값일 때만**
+ * 축이 된다(구 서버 호환). **화이트리스트**다.
  *
- * 접수("A")·거부("R")·빈 값(구 서버)·모르는 값은 **어느 요청에도** 올 수 있으므로 여기 없다 —
- * 축을 적용하지 않는다(`NEW_ORDER_NOTICE_TYPES` 와 같은 규율, 부정 조건 금지).
+ *   · "C" 취소확인 → 취소 요청 · "M" 정정확인 → 정정 요청.
+ *   · "E" 체결 → 신규 요청 — 18-19 가 「알고 받아들인 경계」로 적은 짐작이다. 구 서버는 정정된
+ *     주문의 체결을 원주문의 체결과 가를 값을 싣지 않으므로, 그때는 정정 대기를 정산하지 않는
+ *     쪽(5초 timeout = 「결과 모름」)이 오귀속보다 낫다. wire 가 `Modify` 를 실어 오면 이 짐작은
+ *     쓰이지 않는다.
+ *
+ * 접수("A")·거부("R")·빈 값·모르는 값은 **어느 요청에도** 올 수 있으므로 여기 없다 — 축을
+ * 적용하지 않는다(`NEW_ORDER_NOTICE_TYPES` 와 같은 규율, 부정 조건 금지).
  */
 const REQUEST_KIND_BY_NOTICE_TYPE: ReadonlyMap<string, OrderType> = new Map<string, OrderType>([
   ["C", "C"],
@@ -1209,13 +1227,24 @@ const REQUEST_KIND_BY_NOTICE_TYPE: ReadonlyMap<string, OrderType> = new Map<stri
 ]);
 
 /**
- * 통보의 `requestKind`(gh-trade `OrderResp.request_kind`) → 요청 종류 (WR-03). **화이트리스트**다.
- * 빈 값(구 서버)과 모르는 값은 축을 적용하지 않는다.
+ * 통보 종류 → 그 통보가 **답일 수 있는 요청 종류 집합** (GC-WR-01 · D-21 · D-27). **화이트리스트**다.
+ * wire `requestKind` 가 이 집합 밖이면 그 통보는 **모순**이고 아무것도 정산하지 않는다(GC-CR-01).
+ *
+ *   · "C" 취소확인 → {취소} — `Modify` 를 실어 온 취소확인은 모순이다.
+ *   · "M" 정정확인 → {정정} — `Cancel` 을 실어 온 정정확인은 모순이다.
+ *   · "E" 체결 → {신규, 정정} — 정정된 주문의 체결은 정정 요청의 결과로 온다. 체결은 취소
+ *     요청의 답이 될 수 없다(E + `Cancel` = 모순).
+ *
+ * 접수("A")·거부("R")·빈 값·모르는 값은 제한이 없다 — 여기 없고, 모순 판정을 하지 않는다.
+ * 모순 판정은 **이 맵만** 읽는다 — 통보 종류마다 리터럴을 흩어 두면 한쪽만 갱신된다.
  */
-const REQUEST_KIND_BY_WIRE: ReadonlyMap<string, OrderType> = new Map<string, OrderType>([
-  ["New", "N"],
-  ["Modify", "M"],
-  ["Cancel", "C"],
+const ANSWERABLE_KINDS_BY_NOTICE_TYPE: ReadonlyMap<string, ReadonlySet<OrderType>> = new Map<
+  string,
+  ReadonlySet<OrderType>
+>([
+  ["C", new Set<OrderType>(["C"])],
+  ["M", new Set<OrderType>(["M"])],
+  ["E", new Set<OrderType>(["N", "M"])],
 ]);
 
 /**
@@ -1234,9 +1263,17 @@ const REQUEST_KIND_BY_WIRE: ReadonlyMap<string, OrderType> = new Map<string, Ord
  * 가능성이 후보를 전부 지우는 것보다 낫다.
  *
  * **그러나 그 근거의 유효 범위는 「비어 있는 축」까지다** (GC-CR-01). 통보가 **실제로 실어
- * 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` "C"/"M" · 통보 종류·
- * `requestKind` 가 가리키는 요청 종류(WR-03))은 후보 수와 무관한 **하드 필터**다 — 구 서버 호환은 「비어 있는 축을 건너뛴다」였지 「실어 온 축을
+ * 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` "C"/"M" · 요청 종류)은 후보
+ * 수와 무관한 **하드 필터**다 — 구 서버 호환은 「비어 있는 축을 건너뛴다」였지 「실어 온 축을
  * 무시한다」가 아니었다. 후보가 1건이어도 그 축과 어긋나면 정산하지 않는다.
+ *
+ * 요청 종류 축의 규칙 (WR-03 · GC-WR-01 / D-21·D-27):
+ *   ① wire `requestKind` 가 화이트리스트 값이면 **그것이 정본**이다. 비었거나 모르는 값(구
+ *      서버)이면 통보 종류 휴리스틱(C→취소 · M→정정 · E→신규)이 축이고, 둘 다 없으면 축 없음.
+ *   ② 통보 종류마다 답일 수 있는 요청 종류 집합(`ANSWERABLE_KINDS_BY_NOTICE_TYPE`)이 있고,
+ *      wire 값이 그 밖이면 **모순** — 후보 0건이다(C + Modify · M + Cancel · E + Cancel).
+ *   ③ 하드 필터는 「축이 있으면 `p.kind === 축`」 하나다. 그래서 정정된 주문의 체결
+ *      (E + 원주문번호 + `Modify`)은 정정확인보다 먼저 와도 정정 대기를 정산한다.
  *
  * 그 하드 필터의 비교는 **정규화 뒤에** 한다 (R2-WR-03① / `normalizeOrderNo`). 표기 차이는
  * 「축이 어긋난 것」이 아니라 **같은 값의 다른 표기**이고, 둘을 구분하지 못하면 실제로
@@ -1267,26 +1304,32 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   // 취소확인·정정확인은 **취소 대기**의 것이다. 신규 대기를 정산하면 살아 있는 주문이
   // 화면에 「취소됨」으로 뜨고, 사용자가 그것을 믿고 재주문하면 중복 체결이다.
   const byCancelNotice = isCancelNotice ? byOrgOrderNo.filter((p) => p.isCancel) : byOrgOrderNo;
-  // 요청 종류 축 (WR-03 / D-21·D-27). `isCancel` 은 취소·정정이 같은 값이라 위 필터만으로는
-  // 같은 원주문의 취소·정정 대기가 한 묶음으로 남는다 — 그러면 수량·가격이 같을 때 둘 다
-  // timeout, 값이 교차하면 **취소확인이 정정 요청을 「취소됨」으로** 정산한다. 통보 종류와
-  // `requestKind` 가 **실어 온** 요청 종류만 하드 필터로 쓴다(둘 다 화이트리스트 — 비어 있거나
-  // 모르는 값은 축을 적용하지 않는다). 둘이 서로 다른 종류를 말하면 후보가 0건이 된다 — 모순된
-  // 통보로는 정산하지 않는 것이 GC-CR-01 이다.
+  // 요청 종류 축 (WR-03 · GC-WR-01 / D-21·D-27). `isCancel` 은 취소·정정이 같은 값이라 위
+  // 필터만으로는 같은 원주문의 취소·정정 대기가 한 묶음으로 남는다 — 그러면 수량·가격이 같을 때
+  // 둘 다 timeout, 값이 교차하면 **취소확인이 정정 요청을 「취소됨」으로** 정산한다.
+  //
+  // 축은 **정본 한 값**이다: wire `requestKind` 가 화이트리스트 값이면 그것, 비었거나 모르는
+  // 값이면(구 서버) 통보 종류 휴리스틱, 둘 다 없으면 축을 적용하지 않는다. 통보 종류는 그 위에
+  // 「답일 수 있는 요청 종류 집합」으로만 걸린다 — wire 값이 그 밖이면 **모순**이고 0건이다
+  // (C + Modify · M + Cancel · E + Cancel). 모순된 통보로는 정산하지 않는 것이 GC-CR-01 이다.
   const noticeTypeKind = REQUEST_KIND_BY_NOTICE_TYPE.get(n.noticeType) ?? null;
   const wireRequestKind = REQUEST_KIND_BY_WIRE.get(n.requestKind) ?? null;
-  const hard = byCancelNotice.filter(
-    (p) =>
-      (noticeTypeKind === null || p.kind === noticeTypeKind) &&
-      (wireRequestKind === null || p.kind === wireRequestKind),
-  );
+  const answerableKinds = ANSWERABLE_KINDS_BY_NOTICE_TYPE.get(n.noticeType) ?? null;
+  const kindConflict =
+    wireRequestKind !== null && answerableKinds !== null && !answerableKinds.has(wireRequestKind);
+  const kindAxis: OrderType | null = wireRequestKind ?? noticeTypeKind;
+  const hard = kindConflict
+    ? []
+    : byCancelNotice.filter((p) => kindAxis === null || p.kind === kindAxis);
   // 아무것도 정산하지 않는다 — 5초 타임아웃이 이 상황의 진실이다 (Pitfall 9).
   if (hard.length === 0) {
     // 이 침묵은 일반 미매칭과 **다르다.** 바깥 통보 루프의 warn(「좁히지 못했다」)은 후보 수만
     // 말할 뿐 원인 축을 구분하지 못하는데, 여기서는 원인이 셋 중 하나로 특정된다 —
     // `afterOrgOrderNo === 0` 이면 **원주문번호 축**이, `afterCancelNotice === 0` 이면 **취소성
-    // 통보 축**이, 그 이상인데 최종 0건이면 **요청 종류 축**(WR-03)이 지운 것이다. 표기 어긋남으로 취소가 통째로 타임아웃되는 상황이 정확히
-    // 앞의 갈래이고, 그것을 로그에서 갈라내지 못하면 실계좌에서 원인을 짚을 수 없다.
+    // 통보 축**이, 그 이상인데 최종 0건이면 **요청 종류 축**(WR-03)이 지운 것이다 — 그 안에서도
+    // `kindConflict` 가 참이면 통보 자체가 모순(GC-WR-01), 거짓이면 `kindAxis` 와 맞는 대기가
+    // 없던 것이다. 표기 어긋남으로 취소가 통째로 타임아웃되는 상황이 정확히 원주문번호 축
+    // 갈래이고, 그것을 로그에서 갈라내지 못하면 실계좌에서 원인을 짚을 수 없다.
     //
     // 주문번호 **원문은 싣지 않는다** (T-16-45 — ㉑ 이 같은 규율을 잠그고 있다). 길이·적용
     // 여부·축별 잔존 수만으로 진단된다.
@@ -1301,9 +1344,12 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
         cancelNoticeApplied: isCancelNotice,
         afterCancelNotice: byCancelNotice.length,
         // 요청 종류 축 (WR-03). 종류 기호(N/M/C)만 싣는다 — 주문번호·계좌 원문은 없다.
-        kindAxisApplied: noticeTypeKind !== null || wireRequestKind !== null,
+        kindAxisApplied: kindAxis !== null || kindConflict,
         noticeTypeKind,
         requestKind: wireRequestKind,
+        // GC-WR-01 — 최종 축 기호(wire 정본 → 없으면 통보 종류 휴리스틱)와 모순 여부.
+        kindAxis,
+        kindConflict,
       },
       "[WS-order] 강한 축이 후보를 전부 지웠다 — 아무것도 정산하지 않는다",
     );
