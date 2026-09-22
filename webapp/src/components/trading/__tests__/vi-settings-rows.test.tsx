@@ -35,7 +35,9 @@ import {
   VI_DEFAULT_AMOUNT_MANWON,
   VI_DEFAULT_CHECK_RATE,
   VI_ECHO_OVERWRITTEN_TEXT,
+  VI_MOVE_STALE_TEXT,
   VI_SET_SEND_FAILED_TEXT,
+  viMoveTargetOf,
   viRegisteredAccountText,
   viRowAccountOf,
 } from '../workbench/vi-settings-rows';
@@ -648,4 +650,163 @@ describe('CR-02 — 등록 전략의 계좌가 정본', () => {
     const stop = await screen.findByTestId('vi-stop-dialog');
     expect(summaryRow(stop, '계좌')).toHaveTextContent(`${STATUS} · 상태줄계좌`);
   });
+});
+
+/*
+  18-28 (GC-WR-04) — 중지 상태에서만 상태줄 계좌로 옮겨 시작 (사용자 결정 2026-09-22).
+  CR-02 는 그대로다 — 가동 중에는 등록 계좌가 고정이고, 일반 스위치 시작·「수정」 도 등록 계좌로
+  나간다. 계좌 이동은 명시 동작 「상태줄 계좌({A})로 옮겨 시작」 하나뿐이고, 확인 요약이 B → A 를 말한다.
+*/
+describe('GC-WR-04 — 중지 상태에서만 상태줄 계좌로 옮겨 시작', () => {
+  const STATUS = 'A-111';
+  const REGISTERED = 'B-222';
+  const block = (ex: 'KRX' | 'NXT') =>
+    document.querySelector(`[data-slot="vi-settings-block"][data-exchange="${ex}"]`) as HTMLElement;
+  const moveButton = (ex: 'KRX' | 'NXT') =>
+    block(ex).querySelector('[data-slot="vi-row-move"]') as HTMLButtonElement | null;
+  const summaryRow = (dlg: HTMLElement, label: string) =>
+    within(dlg).getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
+  const NAMES: RelayAccount[] = [
+    { accountNo: STATUS, name: '상태줄계좌' },
+    { accountNo: REGISTERED, name: '등록계좌' },
+  ];
+
+  it('viMoveTargetOf — 중지 · 등록 계좌 B ≠ 상태줄 A 일 때만 {from:B, to:A}', () => {
+    expect(viMoveTargetOf(trigger({ accountNo: REGISTERED, run: false }), STATUS)).toEqual({
+      from: REGISTERED,
+      to: STATUS,
+    });
+  });
+
+  it('viMoveTargetOf — 가동 중이면 null (가동 중에는 절대 옮기지 않는다)', () => {
+    expect(viMoveTargetOf(trigger({ accountNo: REGISTERED, run: true }), STATUS)).toBeNull();
+  });
+
+  it('viMoveTargetOf — 같은 계좌면 null', () => {
+    expect(viMoveTargetOf(trigger({ accountNo: STATUS }), STATUS)).toBeNull();
+  });
+
+  it('viMoveTargetOf — 미등록(null) · 미조회(undefined) 면 null', () => {
+    expect(viMoveTargetOf(null, STATUS)).toBeNull();
+    expect(viMoveTargetOf(undefined, STATUS)).toBeNull();
+  });
+
+  it('viMoveTargetOf — 상태줄 계좌가 공란이면 null', () => {
+    expect(viMoveTargetOf(trigger({ accountNo: REGISTERED }), '')).toBeNull();
+  });
+
+  it('viMoveTargetOf — 서버 계좌가 공란이면 null (등록 계좌가 아니다)', () => {
+    expect(viMoveTargetOf(trigger({ accountNo: '' }), STATUS)).toBeNull();
+  });
+
+  it('★ 중지 B · 상태줄 A → 옮기기 → 요약 「B → A」 → 확정은 vi.set{accountNo:A, run:true} 1회', async () => {
+    accountsMock = NAMES;
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: false }), NXT: null },
+      accountNo: STATUS,
+      accountName: '상태줄계좌',
+    });
+    const btn = moveButton('KRX')!;
+    expect(btn).not.toBeNull();
+    expect(btn).toHaveTextContent(`상태줄 계좌(${STATUS})로 옮겨 시작`);
+    expect(moveButton('NXT')).toBeNull();
+    fireEvent.click(btn);
+    expect(sendMock).not.toHaveBeenCalled();
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(dlg).toHaveAttribute('data-move', 'true');
+    expect(within(dlg).getByRole('button', { name: '취소' })).toHaveFocus();
+    expect(summaryRow(dlg, '계좌')).toHaveTextContent(`${REGISTERED} · 등록계좌 → ${STATUS} · 상태줄계좌`);
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sentMsgs()[0]).toEqual({
+      t: 'vi.set',
+      accountNo: STATUS,
+      exchange: 'KRX',
+      orderAmountKrw: manwonToKrw(1_000),
+      checkRate: 22,
+      run: true,
+    });
+    expect(screen.queryByTestId('vi-start-dialog')).toBeNull();
+  });
+
+  it('옮기기는 줄의 거래소 · 폼 값 그대로 — NXT 줄 · 더티 상승률', async () => {
+    renderRows({
+      viTriggers: { KRX: null, NXT: trigger({ exchange: 'NXT', accountNo: REGISTERED, orderAmountKrw: 5_000_000 }) },
+      accountNo: STATUS,
+    });
+    fireEvent.change(rateInput('NXT'), { target: { value: '27' } });
+    fireEvent.click(moveButton('NXT')!);
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(summaryRow(dlg, '계좌')).toHaveTextContent(`${REGISTERED} → ${STATUS}`);
+    expect(within(dlg).getByText('27% 이상')).toBeInTheDocument();
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()).toEqual([
+      { t: 'vi.set', accountNo: STATUS, exchange: 'NXT', orderAmountKrw: manwonToKrw(500), checkRate: 27, run: true },
+    ]);
+  });
+
+  it('같은 조건의 일반 스위치 시작은 여전히 B 로 나간다 — 요약도 이동 표기가 없다', async () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: false }), NXT: null },
+      accountNo: STATUS,
+    });
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(dlg).not.toHaveAttribute('data-move');
+    expect(summaryRow(dlg, '계좌')).not.toHaveTextContent('→');
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()).toEqual([expect.objectContaining({ accountNo: REGISTERED, run: true })]);
+  });
+
+  it('옮기기 창을 취소하고 일반 스위치로 다시 열면 이동이 남지 않는다 (B 로 나간다)', async () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: false }), NXT: null },
+      accountNo: STATUS,
+    });
+    fireEvent.click(moveButton('KRX')!);
+    const first = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(first).getByRole('button', { name: '취소' }));
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(dlg).not.toHaveAttribute('data-move');
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()).toEqual([expect.objectContaining({ accountNo: REGISTERED })]);
+  });
+
+  it('가동 B · 상태줄 A → 옮기기 버튼이 DOM 에 없고 「수정」 은 B 로 나간다', () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: true }), NXT: null },
+      accountNo: STATUS,
+    });
+    expect(moveButton('KRX')).toBeNull();
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    fireEvent.click(fixButton('KRX')!);
+    expect(sentMsgs()).toEqual([expect.objectContaining({ accountNo: REGISTERED, run: true })]);
+  });
+
+  it('중지 B · 상태줄 B → 옮기기 버튼도 고지도 없다', () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: false }), NXT: null },
+      accountNo: REGISTERED,
+    });
+    expect(moveButton('KRX')).toBeNull();
+    expect(block('KRX').querySelector('[data-slot="vi-row-account"]')).toBeNull();
+  });
+
+  it('세션 미준비(disabled) · 공란 폼이면 옮기기 버튼이 잠긴다', () => {
+    const { rerender } = renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED }), NXT: null },
+      accountNo: STATUS,
+      disabled: true,
+    });
+    expect(moveButton('KRX')).toBeDisabled();
+    rerender(
+      <ViSettingsRows viTriggers={{ KRX: trigger({ accountNo: REGISTERED }), NXT: null }} accountNo={STATUS} />,
+    );
+    expect(moveButton('KRX')).not.toBeDisabled();
+    fireEvent.change(rateInput('KRX'), { target: { value: '' } });
+    expect(moveButton('KRX')).toBeDisabled();
+  });
+
+  void VI_MOVE_STALE_TEXT;
 });
