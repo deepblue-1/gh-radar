@@ -1,6 +1,9 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
+import { buildDiscussionList, mockDiscussionsApi } from '../fixtures/discussions';
 import { mockStockApi } from '../fixtures/mock-api';
+import { buildNewsList, mockNewsApi } from '../fixtures/news';
+import { mockThemeChips } from '../fixtures/themes';
 import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
 import {
   DMA_MSG,
@@ -883,9 +886,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(ask).toBeVisible();
     await expect(ask).toHaveAttribute('data-reason', 'unknown');
     await expect(ask).toContainText('결과를 모르는 주문이 있어요');
-    await expect(ask).toContainText(
-      '카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.',
-    );
+    // 본문은 해제 규칙을 사실대로 말한다(18-34 · R3-WR-02 · 사용자 결정 1).
+    await expect(ask).toContainText('다른 화면에 다녀와도');
+    await expect(ask).toContainText('로그아웃하거나 새로고침하면 풀려요.');
     await expect(ask).not.toContainText('실패');
     await expect(cards(page)).toHaveCount(1);
     await ask.getByRole('button', { name: '카드 닫기', exact: true }).click();
@@ -909,6 +912,121 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · 감사 기록 1건.
     expect(directOrders()).toBe(1);
     expect(relay.orderInserts()).toHaveLength(1);
+  });
+
+  test('GC6 결과 모름 잠금은 앱 수명이다 — 다른 화면에 다녀와도 · 호가 탭에서도 잠긴 채, 새로고침에만 풀린다 (R3-WR-02 · 사용자 결정 1)', async ({
+    page,
+  }) => {
+    const LOCKED_TEXT =
+      '결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요';
+    const directOrders = () => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length;
+    // 이동 전에 relay(:8090) 소켓을 세기 시작한다 — 수가 1 이면 새로고침이 아니었다(Provider 가 산다).
+    const relaySockets: string[] = [];
+    page.on('websocket', (ws) => {
+      if (ws.url().includes(':8090')) relaySockets.push(ws.url());
+    });
+    // 작업대 이탈 경고(더티 카드)는 브라우저 confirm 이다 — 수락해도 client-side 이동 그대로다.
+    page.on('dialog', (d) => void d.accept());
+    // 종목상세가 붙는 API — 오류 상태여도 단언은 성립하지만 소음을 줄인다(orderbook.spec 형식).
+    await mockNewsApi(page, { code: '005930', list: buildNewsList('005930', 3) });
+    await mockDiscussionsApi(page, { code: '005930', list: buildDiscussionList('005930', 3) });
+    await mockThemeChips(page, []);
+
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(0);
+
+    // 종목 추가로 카드 → 수동주문 → 매수 → 확인 → 무응답 → 「결과 모름」.
+    await addStockByKeyboard(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    let card = cardOf(page, E2E_ISIN);
+    await card.getByRole('button', { name: '수동주문', exact: true }).click();
+    let form = card.getByTestId('manual-order-form');
+    await expect(form).toBeVisible();
+    await form.locator(`#mo-price-${E2E_ISIN}`).fill('98000');
+    await form.locator(`#mo-qty-${E2E_ISIN}`).fill('10');
+    const buy = form.getByTestId('manual-order-buttons').getByRole('button', { name: '매수' });
+    await expect(buy).toBeEnabled();
+    await buy.click();
+    const confirm = page.getByTestId('order-confirm-dialog');
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole('button', { name: /매수/ }).click();
+    await expect.poll(directOrders, { timeout: 15_000 }).toBe(1);
+    await expect(form.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'unknown', {
+      timeout: 15_000,
+    });
+
+    // 사이드바 「My page」 → /me (client-side — relay 소켓은 여전히 1개).
+    const nav = page.locator('aside nav[aria-label="주 메뉴"]');
+    await nav.getByRole('link', { name: 'My page', exact: true }).click();
+    await expect(page).toHaveURL(/\/me(?:\?.*)?$/);
+    expect(relaySockets).toHaveLength(1);
+
+    // 사이드바 「트레이딩」 → /trading → 카드 0 → 같은 종목 다시 추가 → 잠긴 채.
+    await nav.getByRole('link', { name: '트레이딩', exact: true }).click();
+    await expect(page).toHaveURL(/\/trading(?:\?.*)?$/);
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(0);
+    await addStockByKeyboard(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    card = cardOf(page, E2E_ISIN);
+    await card.getByRole('button', { name: '수동주문', exact: true }).click();
+    form = card.getByTestId('manual-order-form');
+    await expect(form).toBeVisible();
+    const cardButtons = form.getByTestId('manual-order-buttons').getByRole('button');
+    await expect(cardButtons).toHaveCount(4);
+    for (let i = 0; i < 4; i += 1) await expect(cardButtons.nth(i)).toBeDisabled();
+    await expect(form.getByTestId('manual-order-locked')).toHaveText(LOCKED_TEXT);
+    await expect(form).not.toContainText('실패');
+
+    // ✕ → 결과 모름 다이얼로그 · 새 본문 → 「취소」(카드는 남는다).
+    await card.getByRole('button', { name: /카드 닫기$/ }).click();
+    const ask = page.getByTestId('workbench-close-confirm');
+    await expect(ask).toHaveAttribute('data-reason', 'unknown');
+    await expect(ask).toContainText('다른 화면에 다녀와도');
+    await expect(ask).toContainText('로그아웃하거나 새로고침하면 풀려요.');
+    await ask.getByRole('button', { name: '취소', exact: true }).click();
+    await expect(ask).toBeHidden();
+
+    // 헤더 「종목 검색 열기」 → 삼성전자 → /stocks/005930 (client-side) → 「호가주문」 탭.
+    await page.getByLabel('종목 검색 열기').first().click();
+    const search = page.getByRole('dialog').getByPlaceholder('종목명 또는 종목코드를 입력하세요');
+    await search.fill('삼성');
+    await page.getByRole('option', { name: /삼성전자/ }).click();
+    await expect(page).toHaveURL(/\/stocks\/005930(?:\?.*)?$/);
+    await page.getByRole('tab', { name: '호가주문' }).click();
+    const obStatus = page.locator('[data-slot="orderbook-status-bar"]');
+    await expect(obStatus).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+    const obForm = page.getByTestId('manual-order-form');
+    if (!(await obForm.isVisible())) {
+      await page.locator('[data-slot="manual-entry"]').getByRole('button', { name: '수동주문' }).click();
+    }
+    await expect(obForm).toBeVisible();
+    const obButtons = obForm.getByTestId('manual-order-buttons').getByRole('button');
+    await expect(obButtons).toHaveCount(4);
+    for (let i = 0; i < 4; i += 1) await expect(obButtons.nth(i)).toBeDisabled();
+    await expect(obForm.getByTestId('manual-order-locked')).toHaveText(LOCKED_TEXT);
+    await expect(obForm).not.toContainText('실패');
+    expect(relaySockets).toHaveLength(1);
+
+    // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · 감사 기록 1건.
+    expect(directOrders()).toBe(1);
+    expect(relay.orderInserts()).toHaveLength(1);
+
+    // 새로고침 = Provider 재생성 → 잠금 해제(사용자 결정 1 의 해제 규칙). 소켓이 새로 열린다.
+    await page.reload();
+    await expect(obStatus).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
+    const reloadedForm = page.getByTestId('manual-order-form');
+    if (!(await reloadedForm.isVisible())) {
+      await page.locator('[data-slot="manual-entry"]').getByRole('button', { name: '수동주문' }).click();
+    }
+    await expect(reloadedForm).toBeVisible();
+    await expect(reloadedForm.getByTestId('manual-order-locked')).toHaveCount(0);
+    await expect(
+      reloadedForm.getByTestId('manual-order-buttons').getByRole('button', { name: '매수' }),
+    ).toBeEnabled();
+    expect(relaySockets).toHaveLength(2);
+    expect(directOrders()).toBe(1);
   });
 
   test('11. 카드 헤더에 래치 LED 3개가 매수·매도·취소 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22)', async ({

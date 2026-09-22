@@ -67,18 +67,19 @@
  * ⑧ 카드 ✕ (UI-SPEC E7 error · E7 확장 GC-WR-03)
  *   등록 전 카드는 즉시 사라진다. 두 경우만 확인 다이얼로그(`workbench-close-confirm`, `data-reason`)
  *   를 거친다 — 판정은 `closeCard` 한 곳이다.
- *   - `unknown` — 카드 키가 「결과 모름」 잠금 집합에 있다(⑨). 제목 「결과를 모르는 주문이 있어요」.
+ *   - `unknown` — 카드 키가 `RelayProvider` 주문 잠금(진행 중 · 결과 모름)에 있다(⑨). 제목 「결과를
+ *     모르는 주문이 있어요」. 본문은 해제 규칙(로그아웃 · 새로고침)을 사실대로 말한다.
  *     등록 전략도 있으면 아래 등록 전략 문장이 한 줄 더 붙는다(R3 목업 ② 2-b).
  *   - `registered` — **등록된 전략이 있는 카드**. 카드를 닫는 것은 서버 전략 삭제가 아니다(전략은
  *     계속 동작하고 사이드바·My page 에 남는다).
  *   작업대가 `lc.set` 을 직접 보내는 두 번째 송신 경로를 만들지 않는다 — 전략을 끄는 경로는 카드의
  *   스위치 하나다. 다이얼로그·잠금은 화면 상태다(서버 송신 0).
  *
- * ⑨ 「결과 모름」 잠금은 **작업대의 키 상태**다 (GC-WR-03 · D-20 · D-27)
- *   카드 수동주문이 timeout(결과 모름) 이면 폼이 **보낸 요청의** `계좌|ISIN|거래소`(전략 키 형식)로
- *   `markResultUnknown` 을 부르고, 그 키를 현재 키로 가진 카드는 전부 수동주문 4버튼이 잠긴다.
- *   집합은 `TradingWorkbench`(게이트 분기 위)가 든다 — 카드·게이트 수명과 분리돼, ✕ 뒤 종목 추가 ·
- *   돌파 칩 · 미체결 선택 어느 경로로 다시 열어도 잠긴 채다. 카드에는 불리언 + 안정 콜백만 내린다(③).
+ * ⑨ 잠금의 원천은 `RelayProvider`(앱 수명)다 — 해제는 로그아웃 · 새로고침 (R3-WR-02 · D-27 R4 보강)
+ *   신규 · 정정 요청이 전송 중이거나 결과 모름(timeout)이면 `RelayProvider` 가 **보낸 요청의**
+ *   `계좌|ISIN|거래소`(`strategyKey`) 키를 잠그고, 그 키를 가진 카드 폼 · 종목상세 호가 탭 폼이 모두
+ *   4버튼을 잠근다. ✕ 뒤 종목 추가 · 돌파 칩 · 미체결 선택 · 다른 화면에 다녀오기 어느 경로로 다시
+ *   열어도 잠긴 채다. 작업대는 ✕ 판정에서 이 잠금을 **읽기만** 한다. 취소 timeout 은 잠그지 않는다.
  */
 
 import {
@@ -158,7 +159,7 @@ const CLOSE_REGISTERED_BODY =
   "카드를 닫아도 서버의 상따 전략은 그대로 동작해요. 전략을 멈추려면 카드에서 매수·매도 스위치를 끄세요.";
 export const CLOSE_UNKNOWN_TITLE = "결과를 모르는 주문이 있어요";
 export const CLOSE_UNKNOWN_BODY =
-  "미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.";
+  "미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열거나 다른 화면에 다녀와도 이 종목의 주문 버튼은 잠긴 채로 남아요. 로그아웃하거나 새로고침하면 풀려요.";
 
 /** 종목 추가 검색란 — ✕ 로 마지막 카드가 사라졌을 때 포커스를 받는다. */
 const ADD_SEARCH_SELECTOR = '[data-slot="stock-add-bar"] input';
@@ -331,12 +332,10 @@ function clockNow(now: Date = new Date()): string {
 export function TradingWorkbench() {
   const gateReason = useDmaGateReason();
   /*
-    ⑨ 「결과 모름」 잠금 집합 — 키 = 보낸 요청의 `strategyKey(isin, accountNo, exchange)`.
-    ★ 해제 규칙은 한 문장이다: **`/trading` 페이지(이 컴포넌트)를 떠날 때(언마운트)만 풀린다.**
-      옛 카드 로컬 규칙(「언마운트」)을 페이지 단위로 옮긴 것이다 — ✕ · 접기/펴기 · 재추가 · 상태줄
-      계좌 전환 · DMA 게이트 전환으로는 풀리지 않는다. 그래서 게이트 분기 **위**에서 든다(게이트가
-      서서 `WorkbenchSurface` 가 언마운트돼도 잠금이 산다). 해제 버튼·타이머·에코 기반 자동 해제는
-      두지 않는다 — 결과를 모르는 주문에 재주문 경로를 주면 중복 체결이 난다(D-27 · Pitfall 9).
+    ⑨ 「결과 모름」 키 집합(GC-WR-03 잔재 — 18-35 에서 걷어낸다) — 키 = 보낸 요청의
+    `strategyKey(isin, accountNo, exchange)`. 잠금의 원천은 이제 `RelayProvider` 의 주문 잠금이고
+    (앱 수명 · 로그아웃 · 새로고침에만 해제), 이 집합은 같은 규칙(신규 · 정정만)으로 잠그기만 한다.
+    해제 버튼·타이머·에코 기반 자동 해제는 두지 않는다(D-27 · Pitfall 9).
   */
   const [resultUnknownKeys, setResultUnknownKeys] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
@@ -621,12 +620,18 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
   registeredRef.current = registeredKeys;
   const resultUnknownRef = useRef(resultUnknownKeys);
   resultUnknownRef.current = resultUnknownKeys;
+  /* ⑧ `RelayProvider` 주문 잠금(진행 중 · 결과 모름) — 최신 값을 ref 로(안정 `closeCard`). */
+  const orderLocksRef = useRef(relay.orderLocks);
+  orderLocksRef.current = relay.orderLocks;
 
   const closeCard = useCallback(
     (id: string) => {
       const card = cardsRef.current.find((c) => c.id === id);
       if (card === undefined) return;
-      if (card.accountNo !== "" && resultUnknownRef.current.has(keyOf(card))) {
+      if (
+        card.accountNo !== "" &&
+        (orderLocksRef.current.has(keyOf(card)) || resultUnknownRef.current.has(keyOf(card)))
+      ) {
         setCloseAsk({ id, reason: "unknown" });
         return;
       }

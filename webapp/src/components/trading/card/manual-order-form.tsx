@@ -21,11 +21,14 @@
  *      중복 제출 가드(클릭 단계 · 확정 단계 두 겹).
  *   4. **결과는 셋이다** — 접수 / **결과 모름** / 거부. `status:"timeout"` 은 **실패가 아니다.**
  *      「실패」라는 단어를 쓰지 않고, 미체결에서 접수 여부를 확인하도록 안내하며, **버튼을
- *      다시 열지 않는다**(`blocked`). 잠금을 **누가 들고 언제 푸는가**는 표면이 가른다(GC-WR-03):
- *      - **작업대 카드** — 작업대(`TradingWorkbench`)가 `계좌|ISIN|거래소` 키별로 들고, `/trading`
- *        페이지를 떠날 때(언마운트)만 푼다. 폼은 `onResultUnknown` 으로 알리고 `resultUnknownLocked`
- *        로 받는다 — 카드를 ✕ 로 닫았다 다시 열어도 새 폼이 잠긴 채 선다.
- *      - **호가 탭** — 이 폼의 로컬 잠금(`blocked`)뿐이다. 종목 전환(언마운트 포함)에 풀린다.
+ *      다시 열지 않는다**. 잠금은 **한 규칙**이다(18-34 · R3-WR-02 · R3-IN-01 · R3-IN-02 · D-27 R4 보강):
+ *      - 잠금은 `RelayProvider`(루트 레이아웃 · 앱 수명)가 `계좌|ISIN|거래소` 키
+ *        (`strategyKey`)로 들고, 이 폼은 `orderLocks` 에서 자기 키를 **읽기만** 한다 — 작업대 카드와
+ *        호가 탭이 같은 키로 같은 잠금을 본다. 카드를 닫았다 다시 열어도 · 다른 화면에 다녀와도
+ *        잠긴 채이고, **로그아웃 · 새로고침에만** 풀린다.
+ *      - **신규 · 정정만** 잠근다. 취소 timeout 은 결과 배너만 남긴다(취소 재시도는 무해하다).
+ *      - **전송 중(응답 전)** 인 신규 · 정정도 같은 키를 잠근다(「주문 전송 중…」) — 전송 중 카드를
+ *        닫고 다시 열어 두 번째 주문을 내는 경로가 없다. timeout 이면 틈 없이 결과 모름으로 옮겨 간다.
  *      잠금 해제 버튼·타이머·에코 기반 자동 해제는 없다 — 결과를 모르는 주문에 재주문 경로를 주면
  *      그 자리에서 중복 체결이 난다.
  *   5. **LOCKED 색 규칙** — shadcn 의 파랑 강조 토큰들은 값이 `--down`(매도 파랑)과 같다. 그래서
@@ -80,6 +83,7 @@ import {
   type OrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
 import { DISABLED_LABEL, type PriceSelection } from '@/components/orderbook/order-panel';
+import { strategyKey } from '@/lib/limit-chaser';
 import { affordanceOf } from '@/lib/queued-window';
 import { useRelayContext, type RelayOrderRequest } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
@@ -118,8 +122,9 @@ export const MODIFY_TARGET_GONE_TEXT = '원주문이 더 이상 미체결이 아
  */
 export const MODIFY_TARGET_CHANGED_TEXT = '선택한 원주문이 바뀌었어요 — 다시 확인해 주세요';
 /**
- * 상위(작업대)가 든 「결과 모름」 잠금으로 버튼이 잠겼는데 **이 폼 인스턴스에는 결과 배너가 없을
- * 때**(✕ 뒤 다시 연 카드) 보이는 문구 — GC-WR-03 · R3 목업 ③ 3-b 원문. 「실패」 를 쓰지 않는다.
+ * 「결과 모름」 잠금(`RelayProvider` 키 잠금 · ②-4)으로 버튼이 잠겼는데 **이 폼 인스턴스에는 결과
+ * 배너가 없을 때**(✕ 뒤 다시 연 카드 · 다른 화면에서 돌아온 폼 · 같은 키의 호가 탭) 보이는 문구 —
+ * GC-WR-03 · R3 목업 ③ 3-b 원문. 「실패」 를 쓰지 않는다.
  */
 export const RESULT_UNKNOWN_LOCKED_TEXT =
   '결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요';
@@ -255,11 +260,11 @@ export interface ManualOrderFormProps {
   /** 제출이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
   onSubmitted?: (res: RelayOrderResultMsg) => void;
   /**
-   * 상위가 든 「결과 모름」 잠금(GC-WR-03 · ②-4) — true 면 4버튼이 잠긴다. 작업대 카드만 넘긴다
-   * (호가 탭은 넘기지 않는다 — 로컬 잠금 규칙 그대로). 이 폼은 이 값을 풀지 않는다(상위 소유).
+   * 상위가 든 「결과 모름」 잠금(GC-WR-03) — true 면 4버튼이 잠긴다. 잠금의 원천은 이제
+   * `RelayProvider` 이고(②-4) 이 prop 은 18-35 에서 걷어낸다. 이 폼은 이 값을 풀지 않는다.
    */
   resultUnknownLocked?: boolean;
-  /** 결과 모름(timeout) 이 난 순간 **보낸 요청의** 키로 부른다 — 상위가 키별 잠금을 건다. */
+  /** 신규 · 정정 결과 모름(timeout) 이 난 순간 **보낸 요청의** 키로 부른다(취소는 부르지 않는다). */
   onResultUnknown?: (key: ResultUnknownKey) => void;
   className?: string;
 }
@@ -307,11 +312,15 @@ export function ManualOrderForm({
   /** 확인 다이얼로그가 보여 준 **바로 그 요청** — 확정은 이 스냅샷만 보낸다. */
   const pendingReqRef = useRef<RelayOrderRequest | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  /** 결과를 모르는 주문이 하나라도 나가면 잠근다(중복 체결 방지). */
-  const [blocked, setBlocked] = useState(false);
   const [result, setResult] = useState<OrderResult | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
-  const { sendOrder } = useRelayContext();
+  const { sendOrder, orderLocks } = useRelayContext();
+  /*
+    이 폼 키의 주문 잠금(②-4) — 원천은 `RelayProvider` 하나다(앱 수명). 계좌가 빈 폼은 보낼 수
+    없으므로 잠금도 없다.
+  */
+  const lock =
+    accountNo.length > 0 ? orderLocks.get(strategyKey(isin, accountNo, exchange)) : undefined;
 
   // 카드에는 주문유형이 없다(D-23) — 항상 지정가.
   const orderType = variant === 'orderbook' ? orderTypeState : 'limit';
@@ -330,14 +339,13 @@ export function ManualOrderForm({
 
   /*
     종목 전환 방어 — 호가 탭은 remount 없이 props 만 바뀐다. 리셋하지 않으면 다른 종목의
-    가격·수량·결과·잠금이 그대로 남는다(T-15-40 승계). 푸는 것은 **로컬** 잠금뿐이다 —
-    상위 잠금(`resultUnknownLocked`)은 상위 소유다(②-4).
+    가격·수량·결과가 그대로 남는다(T-15-40 승계). 잠금은 여기서 풀지 않는다 — 원천이
+    `RelayProvider` 의 키별 잠금이라 새 종목의 키를 읽으면 그뿐이다(②-4).
   */
   useEffect(() => {
     setPriceText('');
     setQtyText('');
     setResult(null);
-    setBlocked(false);
     setConfirm(null);
     setValidation(null);
     pendingReqRef.current = null;
@@ -401,8 +409,10 @@ export function ManualOrderForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 잔량이 바뀔 때만 본다(입력 변경엔 반응하지 않는다).
   }, [selectedOrderNo, selectedFillQty]);
 
-  /** 잠금 = 로컬 결과 모름 ∨ 상위(작업대 키) 결과 모름(②-4 · GC-WR-03). */
-  const locked = blocked || resultUnknownLocked;
+  /** 잠금 = `RelayProvider` 키 잠금(진행 중 · 결과 모름) ∨ 상위 prop(②-4). */
+  const locked = lock !== undefined || resultUnknownLocked;
+  /** 「주문 전송 중…」 — 이 폼이 보내는 중이거나, 같은 키의 신규 · 정정이 다른 폼에서 전송 중이다. */
+  const sending = submitting || lock === 'in-flight';
   const busy = submitting || locked;
   const gateDisabled = status !== 'ready';
 
@@ -592,11 +602,12 @@ export function ManualOrderForm({
     // catch 없음(③) — sendOrder 는 reject 하지 않는다.
     const res = await sendOrder(req);
     if (res.status === 'timeout') {
-      // ★ 결과를 모르면 잠근다 — 재주문 경로를 주면 그 자리에서 중복 체결이 난다.
+      // ★ 결과를 모른다 — 신규 · 정정이면 `RelayProvider` 가 이미 이 요청의 키를 잠갔다(②-4).
+      //   폼은 배너만 세운다. 취소 timeout 은 잠그지 않는다(사용자 결정 2 · 취소 재시도는 무해).
       setResult({ kind: 'unknown' });
-      setBlocked(true);
-      // 상위(작업대)에 **보낸 요청의** 키로 알린다 — 카드를 닫았다 다시 열어도 잠금이 산다.
-      onResultUnknown?.({ accountNo: req.accountNo, isin: req.isin, exchange: req.exchange });
+      if (req.kind !== 'cancel') {
+        onResultUnknown?.({ accountNo: req.accountNo, isin: req.isin, exchange: req.exchange });
+      }
     } else if (res.status === 'rejected' || res.resultCode !== 0) {
       setResult({ kind: 'rejected', message: res.message, resultCode: res.resultCode });
     } else {
@@ -802,12 +813,12 @@ export function ManualOrderForm({
         </OrderButton>
       </div>
 
-      {submitting && (
+      {sending && (
         <p role="status" aria-live="polite" className="m-0 text-[11px] text-[var(--muted-fg)]">
           주문 전송 중…
         </p>
       )}
-      {!submitting && gateDisabled && DISABLED_LABEL[status] && (
+      {!sending && gateDisabled && DISABLED_LABEL[status] && (
         <p role="status" aria-live="polite" className="m-0 text-[11px] text-[var(--muted-fg)]">
           {DISABLED_LABEL[status]}
         </p>
@@ -831,8 +842,9 @@ export function ManualOrderForm({
       )}
 
       {result && <ResultBanner result={result} />}
-      {/* 상위 잠금인데 이 폼에 결과 배너가 없다 = ✕ 뒤 다시 연 카드(R3 목업 ③ 3-b). */}
-      {resultUnknownLocked && result?.kind !== 'unknown' && (
+      {/* 결과 모름 잠금인데 이 폼에 결과 배너가 없다 = ✕ 뒤 다시 연 카드 · 다른 화면에서 돌아온 폼 ·
+          같은 키의 호가 탭(R3 목업 ③ 3-b — 같은 요소 · 같은 원문). */}
+      {(lock === 'result-unknown' || resultUnknownLocked) && result?.kind !== 'unknown' && (
         <p
           role="status"
           aria-live="polite"

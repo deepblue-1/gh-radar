@@ -1105,7 +1105,7 @@ describe('TradingWorkbench — GC-WR-03 — 결과 모름 잠금은 작업대 �
     expect(dialog.getAttribute('data-reason')).toBe('unknown');
     expect(within(dialog).getByRole('heading', { name: '결과를 모르는 주문이 있어요' })).toBeInTheDocument();
     expect(dialog.textContent).toContain(
-      '미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.',
+      '미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열거나 다른 화면에 다녀와도 이 종목의 주문 버튼은 잠긴 채로 남아요. 로그아웃하거나 새로고침하면 풀려요.',
     );
     // 등록 전략이 없으면 등록 전략 문장은 붙지 않는다 · 「실패」 없음.
     expect(dialog.textContent).not.toContain('서버의 상따 전략은 그대로 동작해요');
@@ -1245,7 +1245,7 @@ describe('TradingWorkbench — GC-WR-03 — 결과 모름 잠금은 작업대 �
     const dialog = screen.getByTestId('workbench-close-confirm');
     expect(dialog.getAttribute('data-reason')).toBe('unknown');
     expect(within(dialog).getByRole('heading', { name: '결과를 모르는 주문이 있어요' })).toBeInTheDocument();
-    expect(dialog.textContent).toContain('카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.');
+    expect(dialog.textContent).toContain('로그아웃하거나 새로고침하면 풀려요.');
     expect(dialog.textContent).toContain(
       '카드를 닫아도 서버의 상따 전략은 그대로 동작해요. 전략을 멈추려면 카드에서 매수·매도 스위치를 끄세요.',
     );

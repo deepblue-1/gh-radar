@@ -44,6 +44,24 @@
  *   `{t:"order.new"}`/`{t:"order.modify"}`/`{t:"order.cancel"}` 조립은 **이 파일 한 곳**이다 — 패널마다
  *   프레임을 조립하면 필드 하나가 어긋난 순간 그 화면에서만 주문이 조용히 거부된다.
  *   `market` 은 싣지 않는다: relay 가 ISIN 으로 푼다(D-28 — 단축코드·시장 산술 유도 금지).
+ *
+ * ⑧ ★ 주문 잠금은 **앱 수명**이다 (18-34 · R3-WR-02 · R3-IN-01 · R3-IN-02 · 사용자 결정 2026-09-22)
+ *   소유: 이 Provider(루트 레이아웃). 화면을 옮겨도 · 카드를 닫아도 살아 있다 — 결과를 모르는
+ *   주문 뒤의 같은 주문은 중복 체결이 되므로(D-27 · Pitfall 9) 페이지 · 카드에 두면 이동 한 번에
+ *   풀려 버린다. 작업대 카드 폼과 종목상세 호가 탭 폼이 **같은 키**로 이 한 잠금을 읽는다.
+ *   키: `strategyKey(isin, accountNo, exchange)` — 새 키 형식을 만들지 않는다.
+ *   등록: 형식을 통과해 **실제로 보내는** 신규 · 정정만. 취소는 어느 쪽에도 등록하지 않는다 —
+ *     취소 재시도는 무해하고 relay 가 같은 원주문의 중복 취소 대기를 거부한다(T-16-10). 취소
+ *     timeout 이 4버튼을 잠그면 위험 축소 동작까지 막힌다(사용자 결정 2).
+ *   상태: 보내기 직전 「진행 중」 +1 → 결과가 오면 **한 액션**으로 진행 중 −1 과 (timeout 이면)
+ *     「결과 모름」 을 함께 반영한다 — 두 상태 사이에 풀린 틈이 없다. 같은 키 진행 중이 둘이면
+ *     둘 다 끝나야 풀린다(참조 계수). 결과 모름이 진행 중보다 우선한다.
+ *   해제: 둘뿐이다 — 로그아웃 · 다른 사용자(사용자 id 변경 → 초기화 + 세대 증가)와 새로고침
+ *     (Provider 재생성). 해제 버튼 · 타이머 · 에코 기반 해제는 없다. 요청은 시작 때 세대를 잡아
+ *     두고, 결과가 왔을 때 세대가 바뀌었으면 정산하지 않는다 — 로그아웃 순간의 단절 정산(timeout)
+ *     이 다음 사용자의 잠금이 되지 않게(T-18-141).
+ *   저장: 브라우저 메모리뿐이다. 키에 계좌번호가 들어 있어 브라우저 저장소에 쓰지 않는다.
+ *   이 규칙은 18-30 의 작업대 페이지 단위 잠금 배선을 대체한다(R3-WR-02 · 사용자 결정 1).
  */
 
 import {
@@ -52,10 +70,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
+  useRef,
   type ReactNode,
 } from "react";
 
 import { useAuth } from "@/lib/auth-context";
+import { strategyKey } from "@/lib/limit-chaser";
 import {
   localOrderResult,
   relayQuoteKey,
@@ -129,7 +150,52 @@ export type RelayContextValue = Omit<RelayConnectionState, "sendOrder"> & {
    *  - `status:"timeout"`  : **결과를 모른다** → 미체결 목록 확인, 재주문 금지
    */
   sendOrder: (req: RelayOrderRequest) => Promise<RelayOrderResultMsg>;
+  /**
+   * 주문 잠금 — `strategyKey(isin, accountNo, exchange)` → 종류 (파일 상단 ⑧).
+   * 키가 없으면 잠기지 않았다. 앱 수명이며 로그아웃 · 새로고침에만 비워진다.
+   */
+  orderLocks: ReadonlyMap<string, OrderLockKind>;
 };
+
+/**
+ * 주문 잠금 종류 (⑧).
+ *  - `"in-flight"`      : 신규 · 정정 요청이 전송 중(응답 전)이다
+ *  - `"result-unknown"` : 신규 · 정정 요청의 결과를 모른다(timeout) — 로그아웃 · 새로고침 전까지 유지
+ */
+export type OrderLockKind = "in-flight" | "result-unknown";
+
+/** 키 하나의 잠금 원자료. 두 값이 모두 비면 키를 지운다. */
+interface OrderLockEntry {
+  inFlight: number;
+  resultUnknown: boolean;
+}
+
+type OrderLockAction =
+  | { type: "start"; key: string }
+  /** 진행 중 −1 과 (timeout 이면) 결과 모름을 **한 액션**으로 — 두 상태 사이에 틈이 없다. */
+  | { type: "settle"; key: string; timedOut: boolean }
+  | { type: "reset" };
+
+const EMPTY_LOCK_STATE: ReadonlyMap<string, OrderLockEntry> = new Map();
+
+function orderLockReducer(
+  state: ReadonlyMap<string, OrderLockEntry>,
+  action: OrderLockAction,
+): ReadonlyMap<string, OrderLockEntry> {
+  if (action.type === "reset") return state.size === 0 ? state : EMPTY_LOCK_STATE;
+  const prev = state.get(action.key) ?? { inFlight: 0, resultUnknown: false };
+  const entry: OrderLockEntry =
+    action.type === "start"
+      ? { inFlight: prev.inFlight + 1, resultUnknown: prev.resultUnknown }
+      : {
+          inFlight: Math.max(0, prev.inFlight - 1),
+          resultUnknown: prev.resultUnknown || action.timedOut,
+        };
+  const next = new Map(state);
+  if (entry.inFlight === 0 && !entry.resultUnknown) next.delete(action.key);
+  else next.set(action.key, entry);
+  return next;
+}
 
 /** `crypto.randomUUID` 폴백의 단조 카운터. 같은 ms 안의 두 주문을 가른다. */
 let ridFallbackSeq = 0;
@@ -246,6 +312,8 @@ const EMPTY_TAPES: ReadonlyMap<string, RelayTapeEntry[]> = new Map();
 const EMPTY_VI_TRIGGERS: RelayViTriggers = {};
 /** 빈 테이프의 고정 참조 — 매 렌더 새 배열을 만들면 소비자 memo 가 전부 무효화된다. */
 const EMPTY_TAPE: RelayTapeEntry[] = [];
+/** 빈 주문 잠금의 고정 참조 (⑤ · ⑧) — Provider 밖 폴백이 매 호출 새 Map 을 만들지 않게 한다. */
+const EMPTY_ORDER_LOCKS: ReadonlyMap<string, OrderLockKind> = new Map();
 
 /**
  * Provider 밖 폴백 값. **연결하지 않은 것과 구분되지 않는 모양**이어야 한다 —
@@ -289,6 +357,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // `rid` 가 빈 문자열인 것도 사실 그대로다 — 요청을 만든 적이 없다.
   sendOrder: async (): Promise<RelayOrderResultMsg> =>
     localOrderResult("", "rejected", "시세 서버에 연결돼 있지 않아 주문을 보내지 못했어요."),
+  // 보낸 주문이 없으므로 잠글 키도 없다.
+  orderLocks: EMPTY_ORDER_LOCKS,
 };
 
 const RelayContext = createContext<RelayContextValue | null>(null);
@@ -303,6 +373,32 @@ export function RelayProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const connection = useRelayConnection({ enabled: user != null });
   const { sendOrder: sendOrderFrame } = connection;
+
+  /*
+    주문 잠금 (⑧). 상태는 리듀서 하나 — 시작 · 정산 · 초기화 세 액션뿐이다.
+    세대 ref 는 사용자 경계다: 로그아웃 · 다른 사용자로 바뀌면 올리고, 그 전에 시작한 요청의
+    늦은 정산은 버린다.
+  */
+  const [lockState, dispatchLock] = useReducer(orderLockReducer, EMPTY_LOCK_STATE);
+  const lockGenerationRef = useRef(0);
+  const userId = user?.id ?? null;
+  const lockUserIdRef = useRef(userId);
+  useEffect(() => {
+    if (lockUserIdRef.current === userId) return;
+    lockUserIdRef.current = userId;
+    lockGenerationRef.current += 1;
+    dispatchLock({ type: "reset" });
+  }, [userId]);
+
+  const orderLocks = useMemo<ReadonlyMap<string, OrderLockKind>>(() => {
+    if (lockState.size === 0) return EMPTY_ORDER_LOCKS;
+    const out = new Map<string, OrderLockKind>();
+    for (const [key, entry] of lockState) {
+      if (entry.resultUnknown) out.set(key, "result-unknown");
+      else if (entry.inFlight > 0) out.set(key, "in-flight");
+    }
+    return out;
+  }, [lockState]);
 
   /*
     요청 → 프레임 번역기. 대기 맵·타임아웃·단절 정산은 **연결 훅이 소유한다** —
@@ -320,14 +416,27 @@ export function RelayProvider({ children }: { children: ReactNode }) {
         );
         return Promise.resolve(localOrderResult(rid, "rejected", built.reason));
       }
-      return sendOrderFrame(built.frame);
+      // 취소는 잠그지 않는다(⑧ · 사용자 결정 2). 형식 오류로 보내지 않은 요청은 위에서 이미 돌아갔다.
+      if (req.kind === "cancel") return sendOrderFrame(built.frame);
+
+      const key = strategyKey(req.isin, req.accountNo, req.exchange);
+      const generation = lockGenerationRef.current;
+      dispatchLock({ type: "start", key });
+      // `sendOrderFrame` 은 reject 하지 않는다(연결 훅 계약). 정산을 반영한 **뒤에** 결과를
+      // 돌려준다 — 호출자의 `await` 뒤 렌더가 이미 새 잠금을 본다.
+      return sendOrderFrame(built.frame).then((result) => {
+        if (lockGenerationRef.current === generation) {
+          dispatchLock({ type: "settle", key, timedOut: result.status === "timeout" });
+        }
+        return result;
+      });
     },
     [sendOrderFrame],
   );
 
   const value = useMemo<RelayContextValue>(
-    () => ({ ...connection, sendOrder }),
-    [connection, sendOrder],
+    () => ({ ...connection, sendOrder, orderLocks }),
+    [connection, sendOrder, orderLocks],
   );
 
   return <RelayContext value={value}>{children}</RelayContext>;
