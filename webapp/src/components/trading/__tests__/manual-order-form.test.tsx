@@ -28,9 +28,29 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
+/*
+  WR-01 경합 창 재현용 — `affordanceOf` 만 케이스가 켤 때 덮는다(기본은 실제 구현).
+  복귀 효과가 돌기 전 한 렌더(시간외종가 선택 가능인데 `g2Open`·`g3Open` 은 둘 다 false)는
+  RTL `act` 가 효과를 먼저 흘려 `rerender` 로는 재현되지 않는다 — 그래서 판정 원천을 고정한다.
+*/
+const affMock = vi.hoisted(() => ({
+  override: null as null | Partial<import('@/lib/queued-window').ManualOrderAffordance>,
+}));
+vi.mock('@/lib/queued-window', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/queued-window')>();
+  return {
+    ...actual,
+    affordanceOf: (...args: Parameters<typeof actual.affordanceOf>) => {
+      const real = actual.affordanceOf(...args);
+      return affMock.override ? { ...real, ...affMock.override } : real;
+    },
+  };
+});
+
 import {
   ManualOrderEntry,
   ManualOrderForm,
+  OFFHOURS_WINDOW_CLOSED_TEXT,
   canModify,
   unfilledSelectBlockReason,
   type ManualOrderFormProps,
@@ -95,6 +115,7 @@ async function fill(user: ReturnType<typeof userEvent.setup>, price: string, qty
 beforeEach(() => {
   sendOrderMock.mockReset();
   sendOrderMock.mockResolvedValue(accepted());
+  affMock.override = null;
 });
 
 describe('ManualOrderForm — 4버튼 · 빈 폼 (D-20/D-21, E11 empty)', () => {
@@ -552,5 +573,74 @@ describe('ManualOrderForm — 미체결 행 선택 → 정정/취소 (D-21)', ()
     await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
     expect(btn('정정')).toBeDisabled();
     expect(btn('취소')).toBeEnabled();
+  });
+});
+
+/** 확인 다이얼로그 요약의 dt 라벨 → 바로 뒤 dd 텍스트. */
+function summaryValue(dialog: HTMLElement, label: string): string | null {
+  const dt = Array.from(dialog.querySelectorAll('dt')).find((el) => el.textContent === label);
+  return dt?.nextElementSibling?.textContent ?? null;
+}
+
+describe('ManualOrderForm — 시간외종가 세션 가드 · 다이얼로그 = 요청 (WR-01 · D-23 · D-20)', () => {
+  it('시간외종가 선택 · 창(g2/g3) 둘 다 닫힌 렌더에서 「매수」 → 다이얼로그 없음 · 문구 · 전송 0 (지정가로 떨어지지 않는다)', async () => {
+    const user = userEvent.setup();
+    // 복귀 효과가 돌기 전 한 렌더 — 콤보는 아직 시간외종가 선택 가능인데 서버 플래그는 닫혔다.
+    affMock.override = { offHoursSelectable: true };
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g2Open: false, g3Open: false }) });
+    // 숨겨질 옛 지정가 — 수정 전 코드는 이 값으로 지정가 주문을 만들었다.
+    await user.type(priceInput(), '128500');
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    await user.type(qtyInput(), '10');
+    await user.click(btn('매수'));
+
+    const status = screen.getByTestId('manual-order-validation');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveTextContent(OFFHOURS_WINDOW_CLOSED_TEXT);
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('시간외종가 선택 · 거래소 NXT 렌더에서 「매수」 → 같은 문구 · 전송 0 (NXT 에 krxSession 이 실리지 않는다)', async () => {
+    const user = userEvent.setup();
+    affMock.override = { offHoursSelectable: true };
+    renderForm({ variant: 'orderbook', exchange: 'NXT', queuedWindow: win({ g3Open: true }) });
+    await user.type(priceInput(), '128500');
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    await user.type(qtyInput(), '10');
+    await user.click(btn('매수'));
+
+    expect(screen.getByTestId('manual-order-validation')).toHaveTextContent(OFFHOURS_WINDOW_CLOSED_TEXT);
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('창 열림(g3Open) · KRX 에서 「매수」 → 다이얼로그 주문유형 시간외종가 · 확정 요청 price 0 + krxSession G3', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g3Open: true }) });
+    await user.type(priceInput(), '128500');
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    await user.type(qtyInput(), '10');
+    await user.click(btn('매수'));
+
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    expect(summaryValue(dialog, '주문유형')).toBe('시간외종가 · 가격 0 (KRX 세션)');
+    await user.click(within(dialog).getByRole('button', { name: '매수 주문' }));
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock.mock.calls[0][0]).toMatchObject({ kind: 'new', price: 0, krxSession: 'G3' });
+  });
+
+  it('지정가에서 「매수」 → 다이얼로그 주문유형 지정가 · 요청에 krxSession 없음', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g3Open: true }) });
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    expect(summaryValue(dialog, '주문유형')).toBe('지정가 · 보통');
+    await user.click(within(dialog).getByRole('button', { name: '매수 주문' }));
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock.mock.calls[0][0]).toMatchObject({ kind: 'new', price: 128_500 });
+    expect(sendOrderMock.mock.calls[0][0]).not.toHaveProperty('krxSession');
   });
 });
