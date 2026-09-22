@@ -48,7 +48,7 @@ export function statusOf(
     case "C":
       return "cancelled";
     case "M":
-      // 정정은 v1 이 만들지 않지만(D-21) 세션 합류로 남의 통보가 올 수 있다. 접수로 읽는다.
+      // 정정확인은 자기 정정(Phase 18 D-21) 또는 세션에 합류한 다른 단말 정정의 결과다 — 접수로 읽는다.
       return "accepted";
     case "E":
       // 체결 통보의 `quantity` 는 체결수량이다 (서버 `useExecuted` 분기).

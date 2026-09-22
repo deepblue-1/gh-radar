@@ -1625,10 +1625,10 @@ function mkPending(over: Partial<PendingOrder> = {}): PendingOrder {
     isin: SAMPLE_ISIN,
     qty: 10,
     price: 70_000,
-    // 신규 대기의 기본은 매수다. 취소 대기(`isCancel: true`)를 만들 때는 `side: ""` 를
+    // 신규 대기의 기본은 매수다. 취소 대기(`refersOrg: true`)를 만들 때는 `side: ""` 를
     // 함께 넘긴다 — 취소 요청에는 매매구분이 없다 (GC-WR-03).
     side: "B",
-    isCancel: false,
+    refersOrg: false,
     // 요청 종류 (WR-03). 취소 대기는 `kind: "C"`, 정정 대기는 `kind: "M"` 을 함께 넘긴다.
     kind: "N",
     orgOrderNo: "",
@@ -1687,7 +1687,7 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const cancel = mkPending({
       rid: "cancel",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "C",
     });
@@ -1701,7 +1701,7 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const cancel = mkPending({
       rid: "cancel",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "C",
     });
@@ -1718,7 +1718,7 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const cancel = mkPending({
       rid: "cancel",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "C",
     });
@@ -1752,14 +1752,14 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const cancel = mkPending({
       rid: "cancel",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "C",
     });
     const buy = mkPending({ rid: "buy", side: "B" });
 
     // 취소확인의 매매구분은 브로커가 채울 값이 없다(MockBroker 는 "B" 를 남긴다). 축을
-    // 걸면 `!p.isCancel` 이 취소 대기를 지워 정상 매칭이 깨진다 — `sideTrusted` 가 그 경계다.
+    // 걸면 `!p.refersOrg` 이 취소 대기를 지워 정상 매칭이 깨진다 — `sideTrusted` 가 그 경계다.
     expect(
       narrowPending([buy, cancel], mkNotice({ noticeType: "C", side: "B", sideTrusted: false })),
     ).toBe(cancel);
@@ -1768,7 +1768,7 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const modify = mkPending({
       rid: "modify",
       side: "B",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "M",
     });
@@ -1827,7 +1827,7 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const padded = mkPending({
       rid: "padded",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "C",
     });
@@ -1841,7 +1841,7 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const bare = mkPending({
       rid: "bare",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "12345",
       kind: "C",
     });
@@ -1866,12 +1866,12 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
     const cancel = mkPending({
       rid: "cancel",
       side: "",
-      isCancel: true,
+      refersOrg: true,
       orgOrderNo: "0000012345",
       kind: "C",
     });
 
-    // 블랙리스트(`noticeType !== "" && !== "R"`)였을 때 이 통보들은 `p.isCancel === false`
+    // 블랙리스트(`noticeType !== "" && !== "R"`)였을 때 이 통보들은 `p.refersOrg === false`
     // 로 좁혀져 **신규 대기를 정산**했다. 장래에 추가될 종류(부분취소·예약확인 등)가 전부
     // 그 경로로 떨어진다 — 확장될 때마다 조용히 오분류하는 형태다.
     expect(narrowPending([fresh, cancel], mkNotice({ noticeType: "P" }))).toBeNull();
@@ -1887,9 +1887,9 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
   describe("WR-03 — 취소·정정 대기의 요청 종류", () => {
     const X = "0000012345";
     const cancelAt = (price: number): PendingOrder =>
-      mkPending({ rid: "cancel", side: "", isCancel: true, orgOrderNo: X, kind: "C", qty: 10, price });
+      mkPending({ rid: "cancel", side: "", refersOrg: true, orgOrderNo: X, kind: "C", qty: 10, price });
     const modifyAt = (price: number): PendingOrder =>
-      mkPending({ rid: "modify", side: "B", isCancel: true, orgOrderNo: X, kind: "M", qty: 10, price });
+      mkPending({ rid: "modify", side: "B", refersOrg: true, orgOrderNo: X, kind: "M", qty: 10, price });
 
     it("(a) 같은 값의 취소·정정 대기 — 취소확인(C)은 취소 대기를 정산한다", () => {
       const cancel = cancelAt(70_000);

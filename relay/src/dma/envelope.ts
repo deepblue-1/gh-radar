@@ -30,8 +30,9 @@
  *     막는 것은 게이트웨이가 반드시 거부하는 형식 위반뿐이다(수량 0·ISIN 길이 등).
  *   - 계좌 상태(66/67)를 **병합하지 않는다**. 스냅샷/델타 합성은 Hub 의 일이고 여기는
  *     프레임 1건을 계약 타입으로 좁힐 뿐이다.
- *   - 정정(`order_type` "M")·시장가·IOC/FOK 를 만들지 않는다 (D-21). 스키마에는 있지만
- *     v1 범위 밖이라 리터럴 유니온으로 봉쇄한다 — `AccountDeclareMode` 와 같은 규율이다.
+ *   - 시장가·IOC/FOK 를 만들지 않는다. 스키마에는 있지만 범위 밖이라 리터럴 유니온으로
+ *     봉쇄한다 — `AccountDeclareMode` 와 같은 규율이다. (정정은 Phase 18 D-21 로 열렸다 —
+ *     `order.modify` → `order_type` "M" + 원주문번호. 이 봉쇄 목록에 들지 않는다.)
  */
 import * as flatbuffers from "flatbuffers";
 import { MAX_VI_ORDER_AMOUNT_KRW, ORDER_CONDITION_NORMAL } from "@gh-radar/shared";

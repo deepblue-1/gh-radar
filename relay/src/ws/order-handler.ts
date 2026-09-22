@@ -169,7 +169,7 @@ export type PendingOrder = {
   orderRowId: string;
   isin: string;
   /**
-   * 아래 다섯(`isin`·`qty`·`price`·`side`·`isCancel`/`orgOrderNo`)은 **통보 매칭 축**이다
+   * 아래 다섯(`isin`·`qty`·`price`·`side`·`refersOrg`/`orgOrderNo`)은 **통보 매칭 축**이다
    * (`narrowPending`). 저장만 하고 읽지 않으면 gap 2 가 재발한다 — ISIN 하나로만 고르던
    * 시절에는 「취소하고 다시 걸기」에서 살아 있는 매수 주문이 「취소됨」으로 표시됐다.
    * (IN-01 은 `qty` 가 실린 채 어디서도 읽히지 않던 그 상태의 이름이다.)
@@ -179,26 +179,23 @@ export type PendingOrder = {
   /**
    * 이 대기의 매매구분 — **요청 원문**이다 (GC-WR-03).
    *
-   * 취소 대기는 `""` 다. `handle` 이 계산하는 `const side = isCancel ? "S" : msg.side` 는
+   * 취소 대기는 `""` 다. `handle` 이 계산하는 `const side = msg.t === "order.cancel" ? "S" : msg.side` 는
    * `dma_orders.side` CHECK(B/S 둘뿐)를 통과시키기 위한 **표기**이지 방향의 정본이 아니다
    * — 취소 요청 자체에 매매구분이 실리지 않는다(방향의 정본은 `orgOrderNo` 가 가리키는
    * 원주문 행이다). 그 표기를 여기로 가져오면 매도 취소가 아니라 **모든** 취소 대기가
    * 「매도」로 보여 ②-1 축이 남의 통보를 정산한다. 그래서 값을 비우고, ②-1 축은
-   * `!p.isCancel` 인 후보에만 적용한다.
+   * `!p.refersOrg` 인 후보에만 적용한다.
    */
   side: OrderSide | "";
   /**
-   * 이 대기가 **원주문을 참조하는 주문**(취소·정정)인가. 통보의 `noticeType`("C"/"M") 과 맞춘다.
+   * 이 대기가 **원주문을 참조하는 주문**(취소·정정)인가 — 원주문번호 축으로 매칭된다.
+   * 요청 종류의 정본은 `kind` 다.
    *
-   * 이름은 Phase 16 의 것(취소만 있던 시절)을 유지한다 — `narrowPending` 과 테스트 전반이 이
-   * 축을 쓰고, 의미는 「원주문번호 축으로 매칭되는 대기」 하나로 같다. 정정(Phase 18 D-21)도
-   * 원주문번호를 실어 오는 통보(정정확인 "M")로 정산되므로 여기에 `true` 로 합류한다.
-   *
-   * ⚠️ **요청 종류는 `kind` 가 정본이다** (WR-03). 이 플래그는 「원주문 참조 여부」만 말한다 —
+   * ⚠️ 이 플래그는 「원주문 참조 여부」만 말한다 (WR-03) —
    * 취소와 정정이 둘 다 `true` 라, 이것만으로 가르면 같은 원주문의 취소·정정 대기가 한 묶음이
    * 되어 서로의 통보로 정산된다.
    */
-  isCancel: boolean;
+  refersOrg: boolean;
   /**
    * 이 대기의 **요청 종류** — `handle` 의 `kind` 그대로다 ("N" 신규 · "M" 정정 · "C" 취소, WR-03).
    *
@@ -716,7 +713,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 세 갈래다:
    *   · `sideTrusted === false`(취소·정정 통보) → `"S"`. 취소·정정 요청에는 매매구분이 실리지
    *     않아 브로커가 채울 값이 없다(Pitfall 8). 위 행 조립 주석과 `handle` 의
-   *     `const side = isCancel ? "S" : msg.side` 가 같은 규율이고, **방향의 정본은
+   *     `const side = msg.t === "order.cancel" ? "S" : msg.side` 가 같은 규율이고, **방향의 정본은
    *     `org_order_no` 가 가리키는 원주문 행**이라는 뜻의 표기다.
    *   · 신뢰할 수 있고 해석되면 → 그 값. `startsWith("S") ? "S" : "B"` 는 쓰지 않는다 —
    *     빈 값(구 게이트웨이)·`"X"`·소문자 `"b"` 가 전부 `"B"` 가 되어 **매도 자동주문이 감사
@@ -1042,12 +1039,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 취소 요청에는 매매구분이 없다 — 위 `const side` 의 "S" 는 DB CHECK 용 표기라
       // 여기로 가져오면 안 된다 (`PendingOrder.side` 주석 / GC-WR-03).
       side: msg.t === "order.cancel" ? "" : msg.side,
-      // 정정도 **원주문 참조 대기**로 싣는다 (`PendingOrder.isCancel` 주석). 정정확인("M")·정정
+      // 정정도 **원주문 참조 대기**로 싣는다 (`PendingOrder.refersOrg` 주석). 정정확인("M")·정정
       // 접수 통보는 원주문번호를 실어 오고, `narrowPending` 의 원주문번호 하드 필터는 이 플래그가
       // 선 대기만 남긴다 — 신규처럼 `false` 로 두면 정정 통보가 후보를 0건으로 만들어 실제로
       // 접수된 정정이 5초 뒤 `timeout` 으로 기록된다.
-      isCancel: needsOrg,
-      // 요청 종류 원문 (WR-03). `isCancel` 은 취소·정정이 같은 값이라 둘을 가르지 못한다.
+      refersOrg: needsOrg,
+      // 요청 종류 원문 (WR-03). `refersOrg` 는 취소·정정이 같은 값이라 둘을 가르지 못한다.
       kind,
       orgOrderNo,
       timer,
@@ -1140,7 +1137,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
  * 기록에 「결과를 확인하지 못했습니다」로 남는다.**
  *
  * ⚠️ **부작용**: 선행 0 을 지우면 `"0000012345"` 와 `"12345"` 가 같아진다. 이 축은 언제나
- *    `p.isCancel` 과 함께 걸리므로 오귀속이 성립하려면 **같은 종목의 취소 대기 2건**이 동시에
+ *    `p.refersOrg` 와 함께 걸리므로 오귀속이 성립하려면 **같은 종목의 취소 대기 2건**이 동시에
  *    살아 있고 그 둘의 주문번호가 **선행 0 만** 다른 값이어야 한다. KB 주문번호 대역은
  *    3,406,000,000 부터라 10자리를 꽉 채워 선행 0 이 없다(`KRXOrderProtocol.h:240-242`,
  *    그리고 `AccountManager.cpp:614` 이 같은 사실을 「현 주문번호 대역(3404~)은 선행 0 이
@@ -1288,7 +1285,7 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //   돌려주고, `refine` 은 0건이면 그 축을 건너뛴다. 두 규율이 갈리는 지점은 오직
   //   「통보가 그 축을 **실어 왔는가**」다. 비어 있는 축은 여기서도 적용하지 않으므로
   //   구 게이트웨이 호환은 그대로다 (GC-CR-01).
-  const isCancelNotice = n.noticeType === "C" || n.noticeType === "M";
+  const refersOrgNotice = n.noticeType === "C" || n.noticeType === "M";
   // 비교는 **정규화 뒤에** 한다 (R2-WR-03① / `normalizeOrderNo` 의 근거 참조). 요청 문자열과
   // 통보 문자열은 서로 다른 단말이 만든 표기라, 선행 0 하나가 달라도 완전일치는 깨지고 그
   // 취소는 영영 정산되지 않는다.
@@ -1300,11 +1297,11 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   const byOrgOrderNo =
     noticeOrgNo === ""
       ? candidates
-      : candidates.filter((p) => p.isCancel && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
+      : candidates.filter((p) => p.refersOrg && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
   // 취소확인·정정확인은 **취소 대기**의 것이다. 신규 대기를 정산하면 살아 있는 주문이
   // 화면에 「취소됨」으로 뜨고, 사용자가 그것을 믿고 재주문하면 중복 체결이다.
-  const byCancelNotice = isCancelNotice ? byOrgOrderNo.filter((p) => p.isCancel) : byOrgOrderNo;
-  // 요청 종류 축 (WR-03 · GC-WR-01 / D-21·D-27). `isCancel` 은 취소·정정이 같은 값이라 위
+  const byCancelNotice = refersOrgNotice ? byOrgOrderNo.filter((p) => p.refersOrg) : byOrgOrderNo;
+  // 요청 종류 축 (WR-03 · GC-WR-01 / D-21·D-27). `refersOrg` 는 취소·정정이 같은 값이라 위
   // 필터만으로는 같은 원주문의 취소·정정 대기가 한 묶음으로 남는다 — 그러면 수량·가격이 같을 때
   // 둘 다 timeout, 값이 교차하면 **취소확인이 정정 요청을 「취소됨」으로** 정산한다.
   //
@@ -1341,7 +1338,7 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
         afterOrgOrderNo: byOrgOrderNo.length,
         orgOrderNoApplied: noticeOrgNo !== "",
         orgOrderNoLen: noticeOrgNo.length,
-        cancelNoticeApplied: isCancelNotice,
+        cancelNoticeApplied: refersOrgNotice,
         afterCancelNotice: byCancelNotice.length,
         // 요청 종류 축 (WR-03). 종류 기호(N/M/C)만 싣는다 — 주문번호·계좌 원문은 없다.
         kindAxisApplied: kindAxis !== null || kindConflict,
@@ -1368,7 +1365,7 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //    위 하드 필터와 조건이 같아 여기까지 온 후보는 이미 통과했다. 무해한 중복이므로
   //    남겨 둔다 — 축 순서 ①~④ 의 문서적 대응을 깨지 않는 편이 읽기에 낫다.
   if (noticeOrgNo !== "") {
-    refine((p) => p.isCancel && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
+    refine((p) => p.refersOrg && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
   }
 
   // ② 통보 종류 축. **화이트리스트**다 (R2-IN-03) — 채택 근거와 잔여 위험은
@@ -1377,7 +1374,7 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   //    거부("R")·빈 값(구 서버)·**모르는 종류**는 축을 건너뛴다 — 「신규」로 단정할 근거가
   //    그 값에 없다. 부정 조건(`!== "R"`)으로 적으면 장래에 추가될 종류가 자동으로 신규가 된다.
   if (NEW_ORDER_NOTICE_TYPES.has(n.noticeType)) {
-    refine((p) => !p.isCancel);
+    refine((p) => !p.refersOrg);
   }
 
   // ②-1 매매구분 축 (GC-WR-03). 매수 10@70000 과 매도 10@70000 이 동시에 대기하면
@@ -1403,7 +1400,7 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
   if (n.sideTrusted && NEW_ORDER_NOTICE_TYPES.has(n.noticeType)) {
     const noticeSide = fromWireSide(n.side);
     if (noticeSide !== null) {
-      refine((p) => !p.isCancel && p.side === noticeSide);
+      refine((p) => !p.refersOrg && p.side === noticeSide);
     }
   }
 
