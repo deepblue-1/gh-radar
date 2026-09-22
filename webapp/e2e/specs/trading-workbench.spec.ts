@@ -847,6 +847,70 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(setBefore);
   });
 
+  test('GC5 결과 모름 잠금은 카드를 닫았다 다시 열어도 풀리지 않는다 — ✕ 는 확인을 거친다 (GC-WR-03 · D-20)', async ({
+    page,
+  }) => {
+    const directOrders = () => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length;
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(0);
+
+    // 종목 추가로 카드 → 수동주문 → 매수 → 확인.
+    await addStockByKeyboard(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    let card = cardOf(page, E2E_ISIN);
+    await card.getByRole('button', { name: '수동주문', exact: true }).click();
+    let form = card.getByTestId('manual-order-form');
+    await expect(form).toBeVisible();
+    await form.locator(`#mo-price-${E2E_ISIN}`).fill('98000');
+    await form.locator(`#mo-qty-${E2E_ISIN}`).fill('10');
+    const buy = form.getByTestId('manual-order-buttons').getByRole('button', { name: '매수' });
+    await expect(buy).toBeEnabled();
+    await buy.click();
+    const confirm = page.getByTestId('order-confirm-dialog');
+    await expect(confirm).toBeVisible();
+    await confirm.getByRole('button', { name: /매수/ }).click();
+
+    // 스텁 게이트웨이는 주문에 응답하지 않는다 — relay 5초 상한 뒤 「결과 모름」.
+    await expect.poll(directOrders, { timeout: 15_000 }).toBe(1);
+    await expect(form.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'unknown', {
+      timeout: 15_000,
+    });
+
+    // ✕ → 결과 모름 확인 다이얼로그(카드는 아직 남아 있다).
+    await card.getByRole('button', { name: /카드 닫기$/ }).click();
+    const ask = page.getByTestId('workbench-close-confirm');
+    await expect(ask).toBeVisible();
+    await expect(ask).toHaveAttribute('data-reason', 'unknown');
+    await expect(ask).toContainText('결과를 모르는 주문이 있어요');
+    await expect(ask).toContainText(
+      '카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.',
+    );
+    await expect(ask).not.toContainText('실패');
+    await expect(cards(page)).toHaveCount(1);
+    await ask.getByRole('button', { name: '카드 닫기', exact: true }).click();
+    await expect(cards(page)).toHaveCount(0);
+
+    // 같은 종목을 다시 추가 → 새 카드의 수동주문 4버튼이 잠긴 채 · 잠금 문구.
+    await addStockByKeyboard(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    card = cardOf(page, E2E_ISIN);
+    await card.getByRole('button', { name: '수동주문', exact: true }).click();
+    form = card.getByTestId('manual-order-form');
+    await expect(form).toBeVisible();
+    const buttons = form.getByTestId('manual-order-buttons').getByRole('button');
+    await expect(buttons).toHaveCount(4);
+    for (let i = 0; i < 4; i += 1) await expect(buttons.nth(i)).toBeDisabled();
+    await expect(form.getByTestId('manual-order-locked')).toHaveText(
+      '결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요',
+    );
+    await expect(form).not.toContainText('실패');
+
+    // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · 감사 기록 1건.
+    expect(directOrders()).toBe(1);
+    expect(relay.orderInserts()).toHaveLength(1);
+  });
+
   test('11. 카드 헤더에 래치 LED 3개가 매수·매도·취소 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22)', async ({
     page,
   }) => {

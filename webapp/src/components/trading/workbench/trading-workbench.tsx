@@ -64,10 +64,21 @@
  *     렌더되지 않는다(T-18-54). 연결 중에는 게이트를 세우지 않는다(`useDmaGateReason` 규율).
  *   - 종목정보 팝업(`StockInfoModal`)은 한 번에 하나 — 상태를 여기 둔다.
  *
- * ⑧ 카드 ✕ (UI-SPEC E7 error)
- *   등록 전 카드는 즉시 사라진다. **등록된 전략이 있는 카드**는 확인 다이얼로그를 거친다 — 카드를
- *   닫는 것은 서버 전략 삭제가 아니다(전략은 계속 동작하고 사이드바·My page 에 남는다). 작업대가
- *   `lc.set` 을 직접 보내는 두 번째 송신 경로를 만들지 않는다 — 전략을 끄는 경로는 카드의 스위치 하나다.
+ * ⑧ 카드 ✕ (UI-SPEC E7 error · E7 확장 GC-WR-03)
+ *   등록 전 카드는 즉시 사라진다. 두 경우만 확인 다이얼로그(`workbench-close-confirm`, `data-reason`)
+ *   를 거친다 — 판정은 `closeCard` 한 곳이다.
+ *   - `unknown` — 카드 키가 「결과 모름」 잠금 집합에 있다(⑨). 제목 「결과를 모르는 주문이 있어요」.
+ *     등록 전략도 있으면 아래 등록 전략 문장이 한 줄 더 붙는다(R3 목업 ② 2-b).
+ *   - `registered` — **등록된 전략이 있는 카드**. 카드를 닫는 것은 서버 전략 삭제가 아니다(전략은
+ *     계속 동작하고 사이드바·My page 에 남는다).
+ *   작업대가 `lc.set` 을 직접 보내는 두 번째 송신 경로를 만들지 않는다 — 전략을 끄는 경로는 카드의
+ *   스위치 하나다. 다이얼로그·잠금은 화면 상태다(서버 송신 0).
+ *
+ * ⑨ 「결과 모름」 잠금은 **작업대의 키 상태**다 (GC-WR-03 · D-20 · D-27)
+ *   카드 수동주문이 timeout(결과 모름) 이면 폼이 **보낸 요청의** `계좌|ISIN|거래소`(전략 키 형식)로
+ *   `markResultUnknown` 을 부르고, 그 키를 현재 키로 가진 카드는 전부 수동주문 4버튼이 잠긴다.
+ *   집합은 `TradingWorkbench`(게이트 분기 위)가 든다 — 카드·게이트 수명과 분리돼, ✕ 뒤 종목 추가 ·
+ *   돌파 칩 · 미체결 선택 어느 경로로 다시 열어도 잠긴 채다. 카드에는 불리언 + 안정 콜백만 내린다(③).
  */
 
 import {
@@ -92,6 +103,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CardBody } from "@/components/trading/card/card-body";
+import type { ResultUnknownKey } from "@/components/trading/card/manual-order-form";
 import { StockInfoModal } from "@/components/trading/card/stock-info-modal";
 import {
   StrategyCard,
@@ -134,6 +146,14 @@ const UNRECOVERABLE_STATES: ReadonlySet<string> = new Set([
   "manual_required",
   "session_rejected",
 ]);
+
+/** ⑧ ✕ 확인 다이얼로그 원문 — UI-SPEC E7 · R3 목업 ②. */
+const CLOSE_REGISTERED_TITLE = "등록된 전략이 있는 카드예요";
+const CLOSE_REGISTERED_BODY =
+  "카드를 닫아도 서버의 상따 전략은 그대로 동작해요. 전략을 멈추려면 카드에서 매수·매도 스위치를 끄세요.";
+export const CLOSE_UNKNOWN_TITLE = "결과를 모르는 주문이 있어요";
+export const CLOSE_UNKNOWN_BODY =
+  "미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.";
 
 /** 종목 추가 검색란 — ✕ 로 마지막 카드가 사라졌을 때 포커스를 받는다. */
 const ADD_SEARCH_SELECTOR = '[data-slot="stock-add-bar"] input';
@@ -246,14 +266,41 @@ function clockNow(now: Date = new Date()): string {
 
 export function TradingWorkbench() {
   const gateReason = useDmaGateReason();
+  /*
+    ⑨ 「결과 모름」 잠금 집합 — 키 = 보낸 요청의 `strategyKey(isin, accountNo, exchange)`.
+    ★ 해제 규칙은 한 문장이다: **`/trading` 페이지(이 컴포넌트)를 떠날 때(언마운트)만 풀린다.**
+      옛 카드 로컬 규칙(「언마운트」)을 페이지 단위로 옮긴 것이다 — ✕ · 접기/펴기 · 재추가 · 상태줄
+      계좌 전환 · DMA 게이트 전환으로는 풀리지 않는다. 그래서 게이트 분기 **위**에서 든다(게이트가
+      서서 `WorkbenchSurface` 가 언마운트돼도 잠금이 산다). 해제 버튼·타이머·에코 기반 자동 해제는
+      두지 않는다 — 결과를 모르는 주문에 재주문 경로를 주면 중복 체결이 난다(D-27 · Pitfall 9).
+  */
+  const [resultUnknownKeys, setResultUnknownKeys] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const markResultUnknown = useCallback((k: ResultUnknownKey) => {
+    const key = strategyKey(k.isin, k.accountNo, k.exchange);
+    setResultUnknownKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+  }, []);
   // 게이트는 페이지를 **대체**한다(⑦). 아래 본문의 훅이 돌지 않도록 컴포넌트를 가른다.
   if (gateReason !== null) {
     return <DmaGate reason={gateReason} surface="트레이딩" />;
   }
-  return <WorkbenchSurface />;
+  return (
+    <WorkbenchSurface
+      resultUnknownKeys={resultUnknownKeys}
+      onResultUnknown={markResultUnknown}
+    />
+  );
 }
 
-function WorkbenchSurface() {
+interface WorkbenchSurfaceProps {
+  /** ⑨ 「결과 모름」 잠금 키 집합(소유자는 `TradingWorkbench`). */
+  resultUnknownKeys: ReadonlySet<string>;
+  /** ⑨ 안정 콜백 — 폼이 timeout 을 본 순간 보낸 요청의 키로 부른다. */
+  onResultUnknown: (key: ResultUnknownKey) => void;
+}
+
+function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfaceProps) {
   const relay = useRelayContext();
   const {
     status,
@@ -503,17 +550,26 @@ function WorkbenchSurface() {
     lastLogText.current.delete(id);
   }, []);
 
-  const [closeAsk, setCloseAsk] = useState<string | null>(null);
+  /** ✕ 확인 — 카드 id 와 이유(⑧). `unknown` 이 `registered` 보다 먼저다(잠금 지속을 먼저 말한다). */
+  const [closeAsk, setCloseAsk] = useState<{ id: string; reason: "unknown" | "registered" } | null>(
+    null,
+  );
   const registeredKeys = useMemo(() => new Set(limitChasers.map((c) => c.key)), [limitChasers]);
   const registeredRef = useRef(registeredKeys);
   registeredRef.current = registeredKeys;
+  const resultUnknownRef = useRef(resultUnknownKeys);
+  resultUnknownRef.current = resultUnknownKeys;
 
   const closeCard = useCallback(
     (id: string) => {
       const card = cardsRef.current.find((c) => c.id === id);
       if (card === undefined) return;
+      if (card.accountNo !== "" && resultUnknownRef.current.has(keyOf(card))) {
+        setCloseAsk({ id, reason: "unknown" });
+        return;
+      }
       if (card.accountNo !== "" && registeredRef.current.has(keyOf(card))) {
-        setCloseAsk(id);
+        setCloseAsk({ id, reason: "registered" });
         return;
       }
       removeCard(id);
@@ -650,7 +706,24 @@ function WorkbenchSurface() {
   /* ── 파생 ─────────────────────────────────────────────────────────── */
   const cardIsins = useMemo(() => new Set(cards.map((c) => c.isin)), [cards]);
   const accountName = accounts.find((a) => a.accountNo === accountNo)?.name;
-  const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.id === closeAsk) ?? null;
+  const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.id === closeAsk.id) ?? null;
+  /*
+    다이얼로그 문구 — 닫히는 애니메이션 동안(`closeAsk` 가 이미 null) 다른 이유의 문구로 뒤집히지
+    않게 마지막으로 연 값을 붙든다. 결과 모름 다이얼로그에 등록 전략 문장을 붙일지(R3 목업 ② 2-b)도
+    같이 든다.
+  */
+  const closeCopyRef = useRef<{ reason: "unknown" | "registered"; alsoRegistered: boolean }>({
+    reason: "registered",
+    alsoRegistered: false,
+  });
+  if (closeAsk !== null && closeCardInfo !== null) {
+    closeCopyRef.current = {
+      reason: closeAsk.reason,
+      alsoRegistered:
+        closeCardInfo.accountNo !== "" && registeredKeys.has(keyOf(closeCardInfo)),
+    };
+  }
+  const { reason: closeReason, alsoRegistered: closeAlsoRegistered } = closeCopyRef.current;
 
   return (
     <div
@@ -732,6 +805,8 @@ function WorkbenchSurface() {
                 : null
             }
             onClearSelection={clearSelection}
+            resultUnknownLocked={resultUnknownKeys.has(keyOf(c))}
+            onResultUnknown={onResultUnknown}
             onToggle={toggleCard}
             onClose={closeCard}
             onExchangeChange={changeExchange}
@@ -772,6 +847,7 @@ function WorkbenchSurface() {
       >
         <DialogContent
           data-testid="workbench-close-confirm"
+          data-reason={closeReason}
           onCloseAutoFocus={(e) => {
             // 카드를 닫았으면 ✕ 버튼이 사라졌다 — 포커스는 격자가 다음 카드 헤더로 옮긴다.
             if (closeCardInfo !== null && !cards.some((c) => c.id === closeCardInfo.id)) {
@@ -779,13 +855,22 @@ function WorkbenchSurface() {
             }
           }}
         >
-          <DialogHeader>
-            <DialogTitle>등록된 전략이 있는 카드예요</DialogTitle>
-            <DialogDescription>
-              카드를 닫아도 서버의 상따 전략은 그대로 동작해요. 전략을 멈추려면 카드에서 매수·매도
-              스위치를 끄세요.
-            </DialogDescription>
-          </DialogHeader>
+          {closeReason === "unknown" ? (
+            <DialogHeader>
+              <DialogTitle>{CLOSE_UNKNOWN_TITLE}</DialogTitle>
+              <DialogDescription asChild>
+                <div className="flex flex-col gap-1.5">
+                  <p className="m-0">{CLOSE_UNKNOWN_BODY}</p>
+                  {closeAlsoRegistered && <p className="m-0">{CLOSE_REGISTERED_BODY}</p>}
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+          ) : (
+            <DialogHeader>
+              <DialogTitle>{CLOSE_REGISTERED_TITLE}</DialogTitle>
+              <DialogDescription>{CLOSE_REGISTERED_BODY}</DialogDescription>
+            </DialogHeader>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCloseAsk(null)}>
               취소
@@ -842,6 +927,10 @@ interface WorkbenchCardItemProps {
   queuedWindow: RelayQueuedWindowMsg | undefined;
   selectedUnfilled: RelayUnfilled | null;
   onClearSelection: () => void;
+  /** ⑨ 이 카드의 현재 키가 「결과 모름」 잠금 집합에 있는가 — 불리언만 내린다(③). */
+  resultUnknownLocked: boolean;
+  /** ⑨ 안정 콜백(`TradingWorkbench` 의 `markResultUnknown`). */
+  onResultUnknown: (key: ResultUnknownKey) => void;
   onToggle: (cardId: string) => void;
   onClose: (cardId: string) => void;
   onExchangeChange: (cardId: string, exchange: RelayExchange) => void;
@@ -863,6 +952,8 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
   queuedWindow,
   selectedUnfilled,
   onClearSelection,
+  resultUnknownLocked,
+  onResultUnknown,
   onToggle,
   onClose,
   onExchangeChange,
@@ -885,9 +976,23 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
         queuedWindow={queuedWindow}
         selectedUnfilled={selectedUnfilled}
         onClearSelection={onClearSelection}
+        resultUnknownLocked={resultUnknownLocked}
+        onResultUnknown={onResultUnknown}
       />
     ),
-    [isin, accountNo, exchange, name, code, status, queuedWindow, selectedUnfilled, onClearSelection],
+    [
+      isin,
+      accountNo,
+      exchange,
+      name,
+      code,
+      status,
+      queuedWindow,
+      selectedUnfilled,
+      onClearSelection,
+      resultUnknownLocked,
+      onResultUnknown,
+    ],
   );
 
   return (

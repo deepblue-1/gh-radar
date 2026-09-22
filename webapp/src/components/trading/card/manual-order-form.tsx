@@ -21,7 +21,13 @@
  *      중복 제출 가드(클릭 단계 · 확정 단계 두 겹).
  *   4. **결과는 셋이다** — 접수 / **결과 모름** / 거부. `status:"timeout"` 은 **실패가 아니다.**
  *      「실패」라는 단어를 쓰지 않고, 미체결에서 접수 여부를 확인하도록 안내하며, **버튼을
- *      다시 열지 않는다**(`blocked`). 잠금 해제는 종목 전환(언마운트 포함)뿐이다.
+ *      다시 열지 않는다**(`blocked`). 잠금을 **누가 들고 언제 푸는가**는 표면이 가른다(GC-WR-03):
+ *      - **작업대 카드** — 작업대(`TradingWorkbench`)가 `계좌|ISIN|거래소` 키별로 들고, `/trading`
+ *        페이지를 떠날 때(언마운트)만 푼다. 폼은 `onResultUnknown` 으로 알리고 `resultUnknownLocked`
+ *        로 받는다 — 카드를 ✕ 로 닫았다 다시 열어도 새 폼이 잠긴 채 선다.
+ *      - **호가 탭** — 이 폼의 로컬 잠금(`blocked`)뿐이다. 종목 전환(언마운트 포함)에 풀린다.
+ *      잠금 해제 버튼·타이머·에코 기반 자동 해제는 없다 — 결과를 모르는 주문에 재주문 경로를 주면
+ *      그 자리에서 중복 체결이 난다.
  *   5. **LOCKED 색 규칙** — shadcn 의 파랑 강조 토큰들은 값이 `--down`(매도 파랑)과 같다. 그래서
  *      그 토큰 이름은 이 파일에 등장하지 않는다. 채움 버튼 글자색은 값이 동일한
  *      `--destructive-fg` 하나다. 원주문 선택 칩도 같은 이유로 중립 표면(`--muted`)을 쓴다.
@@ -111,6 +117,19 @@ export const MODIFY_TARGET_GONE_TEXT = '원주문이 더 이상 미체결이 아
  * 끝났다는 뜻이 아니므로 「미체결 아님」 과 다른 말로 한다.
  */
 export const MODIFY_TARGET_CHANGED_TEXT = '선택한 원주문이 바뀌었어요 — 다시 확인해 주세요';
+/**
+ * 상위(작업대)가 든 「결과 모름」 잠금으로 버튼이 잠겼는데 **이 폼 인스턴스에는 결과 배너가 없을
+ * 때**(✕ 뒤 다시 연 카드) 보이는 문구 — GC-WR-03 · R3 목업 ③ 3-b 원문. 「실패」 를 쓰지 않는다.
+ */
+export const RESULT_UNKNOWN_LOCKED_TEXT =
+  '결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요';
+
+/** 「결과 모름」 잠금 키 — **보낸 요청의** 계좌·ISIN·거래소(정정·취소는 원주문 행의 값). */
+export interface ResultUnknownKey {
+  accountNo: string;
+  isin: string;
+  exchange: RelayExchange;
+}
 
 /**
  * 취소 확정 순간의 수량 — 확인한 수량(`confirmedQty`)을 **지금의 잔량으로 내리기만** 한다
@@ -235,6 +254,13 @@ export interface ManualOrderFormProps {
   onClearSelection?: () => void;
   /** 제출이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
   onSubmitted?: (res: RelayOrderResultMsg) => void;
+  /**
+   * 상위가 든 「결과 모름」 잠금(GC-WR-03 · ②-4) — true 면 4버튼이 잠긴다. 작업대 카드만 넘긴다
+   * (호가 탭은 넘기지 않는다 — 로컬 잠금 규칙 그대로). 이 폼은 이 값을 풀지 않는다(상위 소유).
+   */
+  resultUnknownLocked?: boolean;
+  /** 결과 모름(timeout) 이 난 순간 **보낸 요청의** 키로 부른다 — 상위가 키별 잠금을 건다. */
+  onResultUnknown?: (key: ResultUnknownKey) => void;
   className?: string;
 }
 
@@ -269,6 +295,8 @@ export function ManualOrderForm({
   selectedUnfilled,
   onClearSelection,
   onSubmitted,
+  resultUnknownLocked = false,
+  onResultUnknown,
   className,
 }: ManualOrderFormProps) {
   const [priceText, setPriceText] = useState('');
@@ -302,7 +330,8 @@ export function ManualOrderForm({
 
   /*
     종목 전환 방어 — 호가 탭은 remount 없이 props 만 바뀐다. 리셋하지 않으면 다른 종목의
-    가격·수량·결과·잠금이 그대로 남는다(T-15-40 승계).
+    가격·수량·결과·잠금이 그대로 남는다(T-15-40 승계). 푸는 것은 **로컬** 잠금뿐이다 —
+    상위 잠금(`resultUnknownLocked`)은 상위 소유다(②-4).
   */
   useEffect(() => {
     setPriceText('');
@@ -372,7 +401,9 @@ export function ManualOrderForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 잔량이 바뀔 때만 본다(입력 변경엔 반응하지 않는다).
   }, [selectedOrderNo, selectedFillQty]);
 
-  const busy = submitting || blocked;
+  /** 잠금 = 로컬 결과 모름 ∨ 상위(작업대 키) 결과 모름(②-4 · GC-WR-03). */
+  const locked = blocked || resultUnknownLocked;
+  const busy = submitting || locked;
   const gateDisabled = status !== 'ready';
 
   const stepPieces = useCallback(
@@ -523,7 +554,7 @@ export function ManualOrderForm({
 
   const handleConfirmed = async () => {
     const snap = pendingReqRef.current;
-    if (!snap || submitting || blocked) return; // 중복 제출 가드 ②
+    if (!snap || submitting || locked) return; // 중복 제출 가드 ②
     pendingReqRef.current = null;
     /*
       WR-06 ③ 확정 직전 재대조 — 정정 스냅샷을 **지금 렌더의** 선택 행과 맞춘다. 다이얼로그가 열린
@@ -564,6 +595,8 @@ export function ManualOrderForm({
       // ★ 결과를 모르면 잠근다 — 재주문 경로를 주면 그 자리에서 중복 체결이 난다.
       setResult({ kind: 'unknown' });
       setBlocked(true);
+      // 상위(작업대)에 **보낸 요청의** 키로 알린다 — 카드를 닫았다 다시 열어도 잠금이 산다.
+      onResultUnknown?.({ accountNo: req.accountNo, isin: req.isin, exchange: req.exchange });
     } else if (res.status === 'rejected' || res.resultCode !== 0) {
       setResult({ kind: 'rejected', message: res.message, resultCode: res.resultCode });
     } else {
@@ -798,6 +831,17 @@ export function ManualOrderForm({
       )}
 
       {result && <ResultBanner result={result} />}
+      {/* 상위 잠금인데 이 폼에 결과 배너가 없다 = ✕ 뒤 다시 연 카드(R3 목업 ③ 3-b). */}
+      {resultUnknownLocked && result?.kind !== 'unknown' && (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="manual-order-locked"
+          className="m-0 break-keep rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-2.5 py-1.5 text-[11px] leading-snug text-[var(--fg)]"
+        >
+          {RESULT_UNKNOWN_LOCKED_TEXT}
+        </p>
+      )}
 
       {variant === 'orderbook' && (
         <p className="m-0 break-words text-[11px] leading-snug text-[var(--muted-fg)]">
