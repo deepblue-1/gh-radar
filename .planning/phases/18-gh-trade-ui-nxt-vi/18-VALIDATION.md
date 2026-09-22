@@ -4,9 +4,9 @@ slug: "gh-trade-ui-nxt-vi"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: validated
-# nyquist_compliant: false — 18-03(DB 마이그레이션 실 반영 · 반영 결과 조회)이 사용자 승인 대기로 미실행이라
-# TRADE-07 의 「실 DB CHECK 제약」 샘플이 비어 있다. 자동 게이트(단위·e2e)는 전부 green 이다. 아래 Sign-Off 참조.
-nyquist_compliant: false
+# nyquist_compliant: true — 유일한 차단 사유였던 18-03(DB 마이그레이션 실 반영 · 반영 결과 조회)이 2026-09-22
+# 완료돼 TRADE-07 의 「실 DB CHECK 제약」 샘플이 채워졌다. 자동 게이트(단위·e2e)는 전부 green 이다. 아래 Sign-Off 참조.
+nyquist_compliant: true
 wave_0_complete: true
 created: "2026-09-21"
 validated: "2026-09-22"
@@ -47,7 +47,7 @@ validated: "2026-09-22"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 18-01-T1 · 18-03-T1/T2 | 18-01 · 18-03 | 1 · 2 | TRADE-07 | T-18-01 / — | `dma_orders` CHECK 가 `M` 과 G2/G3 `price 0` 을 조건부로만 허용 | migration + relay unit | `pnpm --filter @gh-radar/relay run test -- envelope` | ✅ (`supabase/migrations/20260921120000_dma_orders_modify_offhours.sql`) | ⚠️ 파일·relay 단위 green · **실 DB 반영(18-03) 미실행 — 사용자 승인 대기** |
+| 18-01-T1 · 18-03-T1/T2 | 18-01 · 18-03 | 1 · 2 | TRADE-07 | T-18-01 / — | `dma_orders` CHECK 가 `M` 과 G2/G3 `price 0` 을 조건부로만 허용 | migration + relay unit | `pnpm --filter @gh-radar/relay run test -- envelope` | ✅ (`supabase/migrations/20260921120000_dma_orders_modify_offhours.sql`) | ✅ green — 파일·relay 단위 green · **실 DB 반영(18-03) 완료 2026-09-22**: `migration list --linked` Remote 적용 · 원격 스키마 덤프 전후 diff 가 컬럼 2 · CHECK 3 · COMMENT 2 뿐 |
 | 18-01-T1 | 18-01 | 1 | TRADE-07 | T-18-02 / — | `order.modify` 는 `orgOrderNo` 없으면 zod 거부, 세션 계좌 외 주문번호 거부(IDOR) | unit(relay) | `pnpm --filter @gh-radar/relay run test -- protocol` | ✅ (`relay/src/ws/__tests__/protocol.test.ts`) | ✅ green |
 | 18-01-T1 | 18-01 | 1 | TRADE-07 | — | `order.modify` → `DirectOrderReq(order_type "M", org_order_no)` 왕복 | unit(relay) | `pnpm --filter @gh-radar/relay run test -- envelope` | ✅ 확장 (`relay/src/dma/__tests__/envelope.test.ts`) | ✅ green |
 | 18-01-T2 | 18-01 | 1 | TRADE-07 | — | `pieceCount>1` 일 때만 슬롯 송신 / `krxSession` 빈 값이면 미송신 | unit(relay) | `pnpm --filter @gh-radar/relay run test -- envelope` | ✅ 확장 | ✅ green |
@@ -74,7 +74,7 @@ validated: "2026-09-22"
 
 ## Wave 0 Requirements
 
-- [x] `supabase/migrations/20260921120000_dma_orders_modify_offhours.sql` — `order_type IN ('N','C','M')` + G2/G3 조건부 `price >= 0` (18-01). ⚠️ **파일은 있고 원격 DB 반영(18-03)은 사용자 승인 대기** — 배포 순서의 첫 단계다
+- [x] `supabase/migrations/20260921120000_dma_orders_modify_offhours.sql` — `order_type IN ('N','M','C')` + `price > 0 OR (price = 0 AND krx_session IN ('G2','G3'))` (18-01). ✅ **원격 DB 반영 완료(18-03, 2026-09-22)** — 배포 순서의 첫 단계(DB)는 끝났고 relay→검증→push 가 남았다
 - [x] `relay/src/ws/__tests__/protocol.test.ts` — 디렉터리 신설, `order.modify` zod 검증 (18-01)
 - [x] `webapp/src/lib/__tests__/breakout-list.test.ts` — 이탈/집합/KST 날짜 키 (18-04)
 - [x] `webapp/src/lib/__tests__/queued-window.test.ts` — 77 매핑 5경우 (18-04)
@@ -100,11 +100,13 @@ validated: "2026-09-22"
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies — **18-03 은 미실행**(원격 DB `supabase db push` · 사용자 승인 대기). 나머지 12개 플랜의 모든 태스크는 자동 검증이 있고 green 이다
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — 18-03 실행 완료(원격 DB `supabase db push` · `migration list --linked` 로 적용 확인, 2026-09-22). 13개 플랜의 모든 태스크가 자동 검증이 있고 green 이다
 - [x] Sampling continuity: no 3 consecutive tasks without automated verify (실행된 태스크 기준)
 - [x] Wave 0 covers all MISSING references
 - [x] No watch-mode flags (`vitest --run` · `playwright test`)
 - [x] Feedback latency < 60s (단위: webapp 28s · relay 수 초) / 180s (e2e 전량 2.9분 = 174s)
-- [ ] `nyquist_compliant: true` set in frontmatter — **false 유지.** 사유: 18-03 미실행으로 TRADE-07 의 실 DB CHECK 제약(`order_type 'M'` · G2/G3 `price 0` 조건부) 샘플이 없다. relay 단위 테스트는 **스텁 dma_orders** 로만 insert 바디를 본다. 18-03 이 반영·조회 검증되면 true 로 올린다
+- [x] `nyquist_compliant: true` set in frontmatter — 18-03 에서 실 DB CHECK 제약(`order_type 'M'` · G2/G3 `price 0` 조건부)과 감사 컬럼 2개를 원격 스키마 덤프로 확인했다. 정책 0개(default-deny)·`GRANT ALL … TO service_role` 은 전후 동일. 증거 원문은 `18-03-SUMMARY.md`
 
 **Approval:** 자동 게이트 green · Manual-Only 4항목 UAT 인계 · 18-03 반영 후 nyquist 재판정 (2026-09-22, 18-13)
+
+**재판정 (2026-09-22, 18-03):** 실 DB 제약 조회 검증 완료 → `nyquist_compliant: true`. Manual-Only 4항목(실 게이트웨이 정정 왕복 등)은 여전히 UAT 인계 상태다
