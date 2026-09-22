@@ -94,7 +94,10 @@ validated: "2026-09-22"
 | 알림음 자동재생 차단 상태 표시 | TRADE-06 | 브라우저 autoplay 정책은 실브라우저 사용자 제스처 의존 | 새 탭에서 `/trading` 진입 → 스피커 아이콘 「클릭해 활성화」 → 클릭 후 첫 돌파 시 단음 재생 확인 |
 | VI 확인 체크 전송 거부/타임아웃 왕복 (UI-SPEC backstop E3 error) | TRADE-08 | 스텁 게이트웨이는 33 에 거부·무응답을 흉내 내지 않는다 — 실 서버의 거부 사유와 잠금 해제 시점은 실기에서만 관측된다 | 장중 VI 발동 주문 1건에서 확인 체크 → 거부/지연 시 체크 잠김이 풀리고 행 아래 `role="status"` 문구가 서는지 관측 |
 
-> 위 4항목은 18-13 에서 **UAT 로 인계**했다. 자동 게이트가 green 이라는 사실이 이 항목들을 대신하지 않는다(Phase 17 D-25 와 같은 성격의 실기 관측 이연).
+| `close_price_mode="zero"` 실계좌 시간외종가(G2/G3) 원주문 **취소** 왕복 | TRADE-07 | 실 계좌·실 서버 설정 변경(`close_price_mode` "close"→"zero")이 필요하다. 자동 게이트는 webapp 번역기 · relay zod · 조립기 · 원격 CHECK 4층이 가격 0 취소를 통과시킴을 확인했을 뿐, 실 게이트웨이가 그 취소를 받는지는 보지 못한다 (18-VERIFICATION human_verification #6) | **relay 배포 뒤** 장중 실계좌에서 서버 설정을 "zero" 로 바꾸고 G2/G3 원주문 1건 → 미체결 행 선택 → 취소 → 소켓 유지 · 취소확인 통보 · 미체결 소멸 · `dma_orders` 취소 행(price 0) 기록 관측 |
+| 2계좌 환경 VI 「수정」 계좌 불변 | TRADE-08 | 계좌 2개 · 한 계좌로 가동 중인 실 VI 전략이 필요하다. 자동 게이트는 `vi.set.accountNo = server.accountNo` 를 단위·e2e 로 단언했다 (18-VERIFICATION human_verification #7) | 계좌 B 로 KRX VI 가동 → 상태줄을 계좌 A 로 → 줄 아래 「계좌 B · … 에 등록된 VI 예요」 고지 확인 → 「수정」 → 서버 에코의 `accountNo` 가 B 그대로인지 관측 |
+
+> 위 6항목(18-13 인계 4 + 2026-09-22 갭 클로징 인계 2)은 **UAT 로 인계**했다. 자동 게이트가 green 이라는 사실이 이 항목들을 대신하지 않는다(Phase 17 D-25 와 같은 성격의 실기 관측 이연).
 
 ---
 
@@ -110,3 +113,36 @@ validated: "2026-09-22"
 **Approval:** 자동 게이트 green · Manual-Only 4항목 UAT 인계 · 18-03 반영 후 nyquist 재판정 (2026-09-22, 18-13)
 
 **재판정 (2026-09-22, 18-03):** 실 DB 제약 조회 검증 완료 → `nyquist_compliant: true`. Manual-Only 4항목(실 게이트웨이 정정 왕복 등)은 여전히 UAT 인계 상태다
+
+**갭 클로징 재판정 (2026-09-22, 18-23):** 18-VERIFICATION `gaps_found`(13/15) 가 되돌린 10건(CR-01 · CR-02 · 돌파 최신순 · WR-01~07)을 18-14~18-22 가 닫았고, 18-23 이 전량 게이트를 다시 돌렸다 — build_command 전문 `error TS` 0 · relay **516** passed · webapp **1383** passed / 1 skipped · Playwright **141** passed / 0 failed / 9 skipped(서비스키 부재 선재, 18-13 과 같은 9건). 11행 모두 자동 명령이 있고 green 이라 `nyquist_compliant: true` 를 유지한다. Manual-Only 는 4 → **6항목**(18-VERIFICATION #6 · #7 추가). 판정(Complete)은 재검증(gsd-verifier) 몫이다 — 근거는 아래 §Gap Closure.
+
+**배포 순서 (갭 클로징분):** **DB(18-18 · 완료) → relay 배포 → 검증 → webapp push.** **relay 는 아직 미배포다.** 18-14 의 `RelayOrderCancelSchema.price` `nonnegative()` 완화가 relay 에 없으면 브라우저의 가격 0 취소는 여전히 zod 에서 close(4400) 로 끊긴다. 18-17(돌파 최신순 getter · 78 팬아웃)과 18-19(WR-03 요청 종류 축)도 relay 쪽 변경이다. 이 저장소에서 `git push` 는 곧 webapp 프로덕션 배포이므로 relay 배포·검증 전에는 push 하지 않는다.
+
+---
+
+## Gap Closure (2026-09-22 · 18-14~18-23)
+
+> 원천: 18-VERIFICATION `gaps`(CR-01 · CR-02) + advisory(WR-01~07) + 사용자 결정(돌파 최신순). 판정 값은 **닫힘 / 재현 안 됨(회귀 가드) / 보류(defer)** 셋 중 하나이며 각 플랜 SUMMARY 원문을 따른다. 상태 열의 수치는 18-23 전량 게이트(2026-09-22) 기준이다.
+
+| # | 갭 | 플랜-태스크 | 요구사항 | 판정 | 근거 (SUMMARY 원문 요지) | 자동 명령 | 상태 |
+|---|----|-------------|----------|------|--------------------------|-----------|------|
+| 1 | CR-01 코드 3겹 — 시간외종가(G2/G3) 원주문 가격 0 취소 | 18-14-T1/T2 | TRADE-07 | 닫힘 | webapp `buildOrderFrame` 취소 = 0 이상 정수 · relay `RelayOrderCancelSchema.price` `nonnegative()` · 조립기 `priceFloor` 취소 0. 신규·정정 규칙은 넓어지지 않음. 변이 검사로 수정 전 코드 4건 RED 확인 | `pnpm --filter @gh-radar/relay run test -- ws-order protocol envelope` · `pnpm --filter @gh-radar/webapp run test -- relay-provider` | ✅ green (relay 516 · webapp 1383) |
+| 2 | CR-01 원격 DB — `dma_orders_price_check` 취소 가격 0 | 18-14-T1(파일) · 18-18-T1~T3 | TRADE-07 | 닫힘 | 사용자 선택 **`apply`**(2026-09-22). `supabase db push` 로 `20260922120000_dma_orders_cancel_price_zero.sql` 1건 반영, 전후 public 덤프 diff 는 CHECK 1줄 교체뿐 · 정책 0 · RLS · service_role GRANT 불변 | `supabase migration list --linked` (20260922120000 Local=Remote) · `supabase db dump --linked -s public \| grep dma_orders_price_check \| grep -c order_type` = 1 | ✅ green (18-18 조회 검증) |
+| 3 | CR-02 — VI 「수정」이 가동 중 전략의 계좌를 옮김 | 18-15-T1/T2 | TRADE-08 | 닫힘 | `viRowAccountOf` 정본 계좌 → `vi.set.accountNo` · 불일치 고지(`vi-row-account`) · 확인 요약 「계좌」 줄. RED 커밋 `db0af86`·`09ee8a7` 에서 수정 전 실패 확인 | `pnpm --filter @gh-radar/webapp run test -- vi-settings-rows` · e2e `trading-workbench -g "VI"` | ✅ green |
+| 4 | 돌파 목록 최신 위 (사용자 결정) | 18-17-T1/T2 | TRADE-06 | 닫힘 | relay `sortRateCrossNewestFirst`(getter · 78 팬아웃) + 웹 `sortRateCross` 를 `exchangeTime` 내림차순 한 축으로. RED `2c52844` | `pnpm --filter @gh-radar/relay run test -- rate-cross` · e2e `trading-workbench` **GC1** | ✅ green (GC1 pass) |
+| 5 | WR-01 — 시간외종가 창 닫힘 경합 시 지정가 폴백 | 18-16-T1 | TRADE-07 | 닫힘 | 세션 `null` 이면 주문을 만들지 않고 `OFFHOURS_WINDOW_CLOSED_TEXT`, 확인 상세 주문유형은 요청과 같은 `session` 에서 파생. RED `ed54ecf` | `pnpm --filter @gh-radar/webapp run test -- manual-order-form` | ✅ green |
+| 6 | WR-02 — 카드 접기/펴기 재마운트로 더티·잠금·에코 상관 소실 | 18-20-T1~T3 | TRADE-09 | 닫힘 | 카드별 고정 호스트 노드 `createPortal` + 한 번 펼친 본문은 `hidden` 유지. 수정 전 코드에서 인스턴스 보존 2케이스·본문 보존 1케이스 RED | `pnpm --filter @gh-radar/webapp run test -- card-grid strategy-card` · e2e `trading-workbench` **GC2** · 케이스 6 | ✅ green (GC2 pass) |
+| 7 | WR-03 — relay 취소·정정 대기 교차 정산 | 18-19-T1/T2 | TRADE-07 | 닫힘 | 수정 전 코드로 **6/6 재현**(ws ㊷ 에서 정정이 `cancelled` 로 감) → `PendingOrder.kind` + 통보 종류·`requestKind` 하드 필터. 알고 받아들인 경계: 원주문번호를 실은 체결 「E」가 첫 통보인 정정은 timeout 으로 남음(warn `noticeTypeKind:"N"` 으로 식별) | `pnpm --filter @gh-radar/relay run test -- ws-order` | ✅ green (relay 516) |
+| 8 | WR-04 — 받을 카드가 없는 미체결 선택 | 18-22-T1 | TRADE-09 | 닫힘 | `cardForUnfilled` 가 정확 일치 카드를 펼치거나 행의 종목·거래소·상태줄 계좌로 카드를 붙임. 새 7케이스 수정 전 RED(같은 ISIN 첫 카드를 펼치던 경로 포함) | `pnpm --filter @gh-radar/webapp run test -- trading-workbench` · e2e `trading-workbench` **GC4** | ✅ green (GC4 pass) |
+| 9 | WR-05 — 같은 종목 두 번째 전략 은닉 | 18-21-T1~T3 | TRADE-09 | 닫힘 | 수정 전 코드 **4/4 재현** → 카드 정체성을 ISIN 에서 카드 id(`wb-card-{n}`)로, 등록 전략 유입·포커스는 전략 키 대조 | `pnpm --filter @gh-radar/webapp run test -- trading-workbench card-grid` · e2e `trading-workbench` **GC3** · `sidebar-tree` | ✅ green (GC3 pass) |
+| 10 | WR-06 — 정정 수량이 부분체결 잔량을 따르지 않음 | 18-16-T2 | TRADE-07 | 닫힘 | 같은 주문번호 잔량 감소 시 입력을 잔량으로 내림 · 제출 때 잔량 초과 거부 · 확정 직전 재대조. RED `3e294e3` 4건 | `pnpm --filter @gh-radar/webapp run test -- manual-order-form` | ✅ green |
+| 11 | WR-07 — 스냅샷 이후 포커스 요청 무기한 보류 | 18-22-T2 | TRADE-09 | 닫힘 | 수정 전 코드 **2/2 재현** → `limitChaserSnapSeq` + `knowsRegistered(snapSeq, list)`. **플랜과 다르게** 빈 `lc.snap` 은 「아직 모름」으로 다룸(콜드 세션의 빈 첫 스냅샷이 `?focus=` 를 버리던 D-02 회귀 회피). 남는 좁은 틈(등록 전략 0건 사용자의 오래된 키 보류)의 근본 수정은 relay 쪽이라 `deferred-items.md` 로 이연 | `pnpm --filter @gh-radar/webapp run test -- trading-workbench use-relay-socket` · e2e `trading-workbench` · `sidebar-tree` | ✅ green |
+
+**전량 게이트 원문 요약줄 (18-23 Task 1, 2026-09-22):**
+
+- build_command 전문 → exit 0 · `error TS` 0
+- `pnpm --filter @gh-radar/relay run test` → `Test Files  20 passed (20)` · `Tests  516 passed (516)` (기준선 500)
+- `pnpm --filter @gh-radar/webapp run test` → `Test Files  92 passed (92)` · `Tests  1383 passed | 1 skipped (1384)` (기준선 1323)
+- `pnpm --filter @gh-radar/webapp run test:e2e` → `Running 150 tests using 1 worker` · `141 passed (3.4m)` · `9 skipped` · failed 0 (기준선 137) — GC1 · GC2 · GC3 · GC4 모두 pass
+
+**보류(defer) 0건 · 재현 안 됨 0건.** 이연된 것은 갭 항목이 아니라 WR-07 을 닫는 과정에서 드러난 relay 측 개선 1건(`deferred-items.md` — 콜드 세션 인증 경로가 빈 hub 캐시를 `lc.snap []` 로 내림)이다. 18-VERIFICATION human_verification #6 · #7 은 위 Manual-Only 표로 인계했다.
