@@ -86,6 +86,11 @@ const DEFAULT_PIECES = 5;
 const OFFHOURS_DISABLED_TITLE = '시간외종가는 KRX · 시간외종가 창(G2/G3)에서만 고를 수 있어요';
 const OFFHOURS_HINT = '가격 0 · krx_session 으로 전송 · 정정 불가(취소 후 재등록)';
 const ORDERBOOK_FOOTNOTE = '신규 매수/매도와 정정·취소 · 시간외종가는 정정 불가(취소 후 재등록)';
+/**
+ * 시간외종가를 골랐는데 보낼 세션이 없다(창이 방금 닫혔거나 거래소가 KRX 가 아님) — WR-01.
+ * 이때는 주문을 **만들지 않는다**. 숨겨진 옛 지정가로 떨어지면 사용자가 고른 것과 다른 주문이 나간다.
+ */
+export const OFFHOURS_WINDOW_CLOSED_TEXT = '시간외종가 창이 닫혔어요. 주문유형을 다시 확인해 주세요.';
 
 /** 주문 결과. `unknown` 은 **거부가 아니다**. */
 type OrderResult =
@@ -184,10 +189,17 @@ export interface ManualOrderFormProps {
 }
 
 /**
- * 시간외종가로 보낼 세션 — 열린 창을 **서버 플래그**에서 고른다(벽시계 아님).
- * `affordanceOf(...).offHoursSelectable` 이 참일 때만 불리므로 둘 중 하나는 열려 있다.
+ * 시간외종가로 보낼 세션 — 열린 창을 **서버 플래그**에서 고른다(벽시계 아님, D-22).
+ * 시간외종가는 KRX 전용이다(D-23) — KRX 가 아니면 창과 무관하게 `null`.
+ * `null` 은 「보낼 세션이 없다」이고, 호출부는 그때 주문을 만들지 않는다(WR-01).
+ * 창 판정 원천(`affordanceOf`)과 한 렌더 어긋날 수 있다(복귀 효과가 돌기 전) — 그래서
+ * `offHoursSelectable` 을 믿지 않고 여기서 다시 `null` 을 본다.
  */
-function offHoursSessionOf(w: RelayQueuedWindowMsg | undefined): RelayKrxSession | null {
+function offHoursSessionOf(
+  w: RelayQueuedWindowMsg | undefined,
+  exchange: RelayExchange,
+): RelayKrxSession | null {
+  if (exchange !== 'KRX') return null;
   if (w?.g3Open) return 'G3';
   if (w?.g2Open) return 'G2';
   return null;
@@ -381,7 +393,13 @@ export function ManualOrderForm({
     }
 
     const side: OrderSide = action === 'buy' ? 'B' : 'S';
-    const session = offHours ? offHoursSessionOf(queuedWindow) : null;
+    const session = offHours ? offHoursSessionOf(queuedWindow, exchange) : null;
+    // ★ WR-01: 시간외종가를 골랐는데 보낼 세션이 없으면 **아무것도 만들지 않는다.**
+    //   지정가로 떨어지면(숨겨진 옛 가격) 사용자가 고른 것과 다른 주문이 나간다.
+    if (offHours && session === null) {
+      setValidation(OFFHOURS_WINDOW_CLOSED_TEXT);
+      return;
+    }
     const problem = validateNew({ isin, accountNo, qty, price, offHours: session !== null });
     if (problem) {
       setValidation(problem);
@@ -404,6 +422,12 @@ export function ManualOrderForm({
       ...(session !== null ? { krxSession: session } : {}),
     };
     pendingReqRef.current = req;
+    /*
+      ★ 다이얼로그 = 요청 (WR-01 · D-20). 확인 상세의 주문유형·가격은 폼 상태가 아니라 **요청을
+        만든 같은 `session` 값**에서 파생한다 — 세션 있음 ⇔ 시간외종가 · 가격 0. 사용자가 확인한
+        것과 확정 시 나가는 스냅샷이 한 값에서 나오므로 둘이 갈릴 수 없다.
+        다이얼로그가 열린 뒤 창이 닫혀도 확정은 이 스냅샷 그대로 보낸다 — 창 판정은 서버다(D-22).
+    */
     setConfirm({
       mode: 'new',
       side,
@@ -414,7 +438,7 @@ export function ManualOrderForm({
       price: sendPrice,
       qty,
       buttonMode: aff.buttonMode,
-      orderType,
+      orderType: session !== null ? 'offhours' : 'limit',
       referencePrice: referenceClose ?? null,
       confirmNote: aff.confirmNote,
       ...(aff.showPieceInput ? { pieceCount: pieces, maxPieces: aff.maxPieces } : {}),
