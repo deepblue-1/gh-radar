@@ -136,10 +136,29 @@ vi.mock('@/components/trading/workbench/stock-add-bar', () => ({
   ),
 }));
 
+/**
+ * 공용 패널은 **실물 그대로** 렌더하고 마지막 prop 만 기록한다 — 작업대가 무엇을 내려주는가
+ * (`priceOf` · `logEntries` · 더티 바 수)를 본다(18-31). 미체결 행 클릭 등 기존 케이스는 실물이 받는다.
+ */
+const sharedPanelsProps: { last: Record<string, unknown> | null } = { last: null };
+vi.mock('@/components/trading/workbench/shared-panels', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/trading/workbench/shared-panels')>();
+  function SpySharedPanels(props: import('@/components/trading/workbench/shared-panels').SharedPanelsProps) {
+    sharedPanelsProps.last = props as unknown as Record<string, unknown>;
+    return <actual.SharedPanels {...props} />;
+  }
+  return { ...actual, SharedPanels: SpySharedPanels };
+});
+
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { requestTradingFocus } from '@/lib/trading-focus';
 import { LEAVE_WARNING } from '@/lib/use-leave-warning';
-import { cardForUnfilled, TradingWorkbench, type WorkbenchCard } from '../workbench/trading-workbench';
+import {
+  cardForUnfilled,
+  fillAccountCards,
+  TradingWorkbench,
+  type WorkbenchCard,
+} from '../workbench/trading-workbench';
 
 const ACCOUNT = '37728502101';
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`) as HTMLElement | null;
@@ -202,6 +221,7 @@ beforeEach(() => {
   authState.isLoading = false;
   searchParams = new URLSearchParams();
   cardProps.clear();
+  sharedPanelsProps.last = null;
   mockRelay = relay();
 });
 
@@ -1250,5 +1270,109 @@ describe('TradingWorkbench — GC-WR-03 — 결과 모름 잠금은 작업대 �
     const b = bodyOfKey(keyOf(SEEGENE))!;
     expect(typeof a.resultUnknownLocked).toBe('boolean');
     expect(a.onResultUnknown).toBe(b.onResultUnknown);
+  });
+});
+
+describe('fillAccountCards — 계좌 채움 (GC-IN-05 · D-07 · 순수 함수)', () => {
+  const X = 'KR7005930003';
+  const A = ACCOUNT;
+  const card = (over: Partial<WorkbenchCard>): WorkbenchCard => ({
+    id: 'wb-card-1',
+    isin: X,
+    accountNo: '',
+    exchange: 'KRX',
+    open: true,
+    ...over,
+  });
+
+  it('사용자 카드(X::KRX · 펼침)와 같은 키의 등록 카드(X:A:KRX · 접힘) → 사용자 카드는 치우고 등록 카드가 펼침을 잇는다', () => {
+    const user = card({ id: 'wb-card-1', open: true, name: '삼성전자' });
+    const reg = card({ id: 'wb-card-2', accountNo: A, open: false });
+    const { next, dropped } = fillAccountCards([user, reg], A);
+    expect(next).toEqual([{ ...reg, open: true }]);
+    expect(dropped).toEqual(['wb-card-1']);
+  });
+
+  it('사용자 카드가 접혀 있었으면 등록 카드는 접힌 채다', () => {
+    const user = card({ id: 'wb-card-1', open: false });
+    const reg = card({ id: 'wb-card-2', accountNo: A, open: false });
+    const { next, dropped } = fillAccountCards([user, reg], A);
+    expect(next).toEqual([reg]);
+    expect(dropped).toEqual(['wb-card-1']);
+  });
+
+  it('충돌이 없으면 빈 계좌 카드를 그 계좌로 채워 남긴다(치운 카드 없음)', () => {
+    const user = card({ id: 'wb-card-1' });
+    const other = card({ id: 'wb-card-2', isin: 'KR7096530001', accountNo: A, open: false });
+    const { next, dropped } = fillAccountCards([user, other], A);
+    expect(next).toEqual([{ ...user, accountNo: A }, other]);
+    expect(dropped).toEqual([]);
+  });
+
+  it('빈 계좌 카드가 없으면 같은 배열 참조를 돌려준다(효과 무한 루프 방지)', () => {
+    const cards = [card({ accountNo: A })];
+    const { next, dropped } = fillAccountCards(cards, A);
+    expect(next).toBe(cards);
+    expect(dropped).toEqual([]);
+  });
+});
+
+describe('TradingWorkbench — GC-IN-05 — 계좌가 늦게 와도 사용자가 연 카드의 맥락이 잇는다', () => {
+  const S = 'KR7005930003';
+
+  it('계좌 없음 → 종목 추가(펼침) → 같은 키 등록 전략 유입(접힘) → 계좌 도착 → 카드 1장 · 등록 키 · 펼침', () => {
+    mockRelay = relay({ accounts: [] });
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    expect(cardsInDom().map((c) => c.getAttribute('data-key'))).toEqual([`${S}::KRX`]);
+
+    mockRelay = relay({ accounts: [], limitChasers: [lc(S)] });
+    rerender(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(2);
+
+    mockRelay = relay({ limitChasers: [lc(S)] }); // 계좌 도착
+    rerender(<TradingWorkbench />);
+    const after = cardsInDom();
+    expect(after).toHaveLength(1);
+    expect(after[0].getAttribute('data-key')).toBe(`${S}:${ACCOUNT}:KRX`);
+    expect(after[0].getAttribute('data-open')).toBe('true');
+  });
+
+  it('치운 카드가 보고한 더티는 치운 뒤 더티 바 수·이탈 경고 합산에 남지 않는다', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    mockRelay = relay({ accounts: [] });
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
+
+    mockRelay = relay({ accounts: [], limitChasers: [lc(S)] });
+    rerender(<TradingWorkbench />);
+    mockRelay = relay({ limitChasers: [lc(S)] });
+    rerender(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
+
+    const link = document.createElement('a');
+    link.href = '/me';
+    link.addEventListener('click', (e) => e.preventDefault());
+    document.body.appendChild(link);
+    fireEvent.click(link);
+    expect(confirm).not.toHaveBeenCalled();
+    link.remove();
+  });
+});
+
+describe('TradingWorkbench — GC-IN-01 — 공용 패널에 더티 카드 수를 내린다 (R1 IN-03)', () => {
+  it('더티가 있는 카드 수가 dirtyBarCount 로 내려간다 — 0 → 1 → 2', () => {
+    mockRelay = relay({ rateCrossItems: [rc()] });
+    render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
+    fireEvent.click(screen.getByRole('button', { name: '씨젠 더티' }));
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(2);
   });
 });

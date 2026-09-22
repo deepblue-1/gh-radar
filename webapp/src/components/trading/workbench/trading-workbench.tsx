@@ -245,6 +245,45 @@ export function cardForUnfilled(
 }
 
 /**
+ * 계좌 채움 (**순수 함수** · GC-IN-05 · D-07). 계좌 도착 전에 만든 카드(계좌 `""`)를 `accountNo` 로
+ * 채운다. 채운 키가 이미 다른 카드의 키면(그 사이 같은 키의 등록 전략이 들어왔다) 그 빈 계좌 카드는
+ * 치우고(`dropped`) — 두 카드가 같은 전략 키를 가질 수 없다(② · T-18-94) — 치운 카드가 펼쳐져
+ * 있었으면 **그 키의 카드를 펼친다**(사용자가 연 카드의 맥락을 등록 카드가 잇는다 · 접혀 있었으면
+ * 건드리지 않는다). 빈 계좌 카드가 없으면 입력 배열을 그대로 돌려준다(효과 무한 루프 방지).
+ * 치운 카드의 정리(더티 · 직전 로그)는 호출자가 `removeCard` 와 같은 경로로 한다.
+ */
+export function fillAccountCards(
+  cards: WorkbenchCard[],
+  accountNo: string,
+): { next: WorkbenchCard[]; dropped: string[] } {
+  if (!cards.some((c) => c.accountNo === "")) return { next: cards, dropped: [] };
+  const taken = new Set(cards.filter((c) => c.accountNo !== "").map(keyOf));
+  const openKeys = new Set<string>();
+  const dropped: string[] = [];
+  const kept: WorkbenchCard[] = [];
+  for (const c of cards) {
+    if (c.accountNo !== "") {
+      kept.push(c);
+      continue;
+    }
+    const filled = { ...c, accountNo };
+    const key = keyOf(filled);
+    if (taken.has(key)) {
+      dropped.push(c.id);
+      if (c.open) openKeys.add(key);
+      continue;
+    }
+    taken.add(key);
+    kept.push(filled);
+  }
+  const next =
+    openKeys.size === 0
+      ? kept
+      : kept.map((c) => (openKeys.has(keyOf(c)) && !c.open ? { ...c, open: true } : c));
+  return { next, dropped };
+}
+
+/**
  * 「등록 전략 목록을 안다」 — 포커스 요청 보류를 버려도 되는가 (⑥ · WR-07 · 18-26 GC-IN-02).
  * **이번 연결에서 확정 64 스냅샷을 받았는가**(`limitChaserSnapSeq > 0`) 하나다 — 목록이 비어
  * 있는지는 보지 않는다.
@@ -346,31 +385,6 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
     cardSeq.current += 1;
     return `wb-card-${cardSeq.current}`;
   }, []);
-
-  /*
-    계좌 도착 전에 만든 카드는 계좌가 비어 있다 — 계좌가 정해지면 그 카드들만 채운다. 채운 키가 이미
-    다른 카드의 키면(그 사이 같은 키의 등록 전략이 들어왔다) 빈 계좌 카드를 채우지 않고 치운다 — 두
-    카드가 같은 전략 키를 가질 수 없다(② · T-18-94).
-  */
-  useEffect(() => {
-    if (accountNo === "") return;
-    setCards((prev) => {
-      if (!prev.some((c) => c.accountNo === "")) return prev;
-      const taken = new Set(prev.filter((c) => c.accountNo !== "").map(keyOf));
-      const next: WorkbenchCard[] = [];
-      for (const c of prev) {
-        if (c.accountNo !== "") {
-          next.push(c);
-          continue;
-        }
-        const filled = { ...c, accountNo };
-        if (taken.has(keyOf(filled))) continue;
-        taken.add(keyOf(filled));
-        next.push(filled);
-      }
-      return next;
-    });
-  }, [accountNo]);
 
   /** 펼친 뒤 화면에 들여올 카드. 레이아웃 효과가 한 번 스크롤하고 비운다. */
   const [scrollTarget, setScrollTarget] = useState<ScrollTarget | null>(null);
@@ -534,21 +548,44 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
     setCardDirty((prev) => (prev[id] === count ? prev : { ...prev, [id]: count }));
   }, []);
   const cardDirtySum = cards.reduce((sum, c) => sum + (cardDirty[c.id] ?? 0), 0);
+  /** 더티가 있는 카드 수 = 떠 있는 더티 바 수 — 공용 패널이 수가 바뀔 때마다 비킴을 다시 잰다. */
+  const dirtyCardCount = cards.reduce((n, c) => n + ((cardDirty[c.id] ?? 0) > 0 ? 1 : 0), 0);
   useLeaveWarning(cardDirtySum + viDirty > 0);
 
   /* ── 카드 제거 (⑧) ────────────────────────────────────────────────── */
   /** 카드별 합친 로그의 직전 문장 — 전략 로그 합치기의 중복 판정(아래). */
   const lastLogText = useRef(new Map<string, string>());
-  const removeCard = useCallback((id: string) => {
-    setCards((prev) => prev.filter((c) => c.id !== id));
+  /** 카드를 치울 때의 정리 몫 — 카드 더티 키 · 직전 로그 문장. `removeCard` 와 계좌 채움이 함께 쓴다. */
+  const forgetCardState = useCallback((ids: readonly string[]) => {
+    if (ids.length === 0) return;
     setCardDirty((prev) => {
-      if (!(id in prev)) return prev;
+      if (!ids.some((id) => id in prev)) return prev;
       const next = { ...prev };
-      delete next[id];
+      for (const id of ids) delete next[id];
       return next;
     });
-    lastLogText.current.delete(id);
+    for (const id of ids) lastLogText.current.delete(id);
   }, []);
+  const removeCard = useCallback(
+    (id: string) => {
+      setCards((prev) => prev.filter((c) => c.id !== id));
+      forgetCardState([id]);
+    },
+    [forgetCardState],
+  );
+
+  /*
+    계좌 도착 전에 만든 카드는 계좌가 비어 있다 — 계좌가 정해지면 그 카드들만 채운다(`fillAccountCards`).
+    채운 키가 이미 다른 카드의 키면(그 사이 같은 키의 등록 전략이 들어왔다) 빈 계좌 카드를 치운다 — 두
+    카드가 같은 전략 키를 가질 수 없다(② · T-18-94). ★ 사용자가 연 카드의 맥락(펼침)을 등록 카드가
+    잇는다 · 정리는 `removeCard` 와 같은 경로(`forgetCardState`)다(GC-IN-05). 업데이터는 순수하게 두고
+    치운 id 는 효과 본문에서 같은 함수로 다시 읽는다.
+  */
+  useEffect(() => {
+    if (accountNo === "") return;
+    forgetCardState(fillAccountCards(cardsRef.current, accountNo).dropped);
+    setCards((prev) => fillAccountCards(prev, accountNo).next);
+  }, [accountNo, forgetCardState]);
 
   /** ✕ 확인 — 카드 id 와 이유(⑧). `unknown` 이 `registered` 보다 먼저다(잠금 지속을 먼저 말한다). */
   const [closeAsk, setCloseAsk] = useState<{ id: string; reason: "unknown" | "registered" } | null>(
@@ -825,7 +862,7 @@ function WorkbenchSurface({ resultUnknownKeys, onResultUnknown }: WorkbenchSurfa
         logEntries={mergedLog}
         selectedOrderNo={liveSelected?.orderNo ?? null}
         onSelectUnfilled={selectUnfilled}
-        dirtyBarVisible={cardDirtySum > 0}
+        dirtyBarCount={dirtyCardCount}
         priceOf={priceOf}
         phoneBand={phoneBand}
       />

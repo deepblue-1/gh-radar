@@ -87,7 +87,7 @@ function props(over: Partial<SharedPanelsProps> = {}): SharedPanelsProps {
     logEntries: [],
     selectedOrderNo: null,
     onSelectUnfilled: vi.fn(),
-    dirtyBarVisible: false,
+    dirtyBarCount: 0,
     ...over,
   };
 }
@@ -289,11 +289,11 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
   });
 
   it('⑨ 더티 바가 떠 있으면 그 높이만큼 비킨다 — z-index 가 아니라 bottom·margin 여백이다', () => {
-    const { rerender } = render(<SharedPanels {...props({ dirtyBarVisible: false })} />);
+    const { rerender } = render(<SharedPanels {...props({ dirtyBarCount: 0 })} />);
     expect(panel().style.bottom).toBe('');
     expect(panel().style.marginBottom).toBe('');
 
-    rerender(<SharedPanels {...props({ dirtyBarVisible: true })} />);
+    rerender(<SharedPanels {...props({ dirtyBarCount: 1 })} />);
     // jsdom 에는 실제 바가 없으므로 보수적 기본값으로 비킨다.
     expect(panel().style.bottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
     expect(panel().style.marginBottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
@@ -326,7 +326,7 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
 
   it('⑩-a 폰 밴드 + 더티 바 — 패널은 바 높이만큼 위에 서고, 자리(spacer)도 그만큼 늘어난다(z-index 아님)', () => {
     const { container } = render(
-      <SharedPanels {...props({ phoneBand: true, dirtyBarVisible: true })} />,
+      <SharedPanels {...props({ phoneBand: true, dirtyBarCount: 1 })} />,
     );
     expect(panel().style.bottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
     expect(panel()).toHaveAttribute('data-dirty-reserve', 'true');
@@ -352,10 +352,45 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
     Object.defineProperty(bar, 'offsetHeight', { value: 96, configurable: true });
     document.body.appendChild(bar);
     try {
-      render(<SharedPanels {...props({ dirtyBarVisible: true })} />);
+      render(<SharedPanels {...props({ dirtyBarCount: 1 })} />);
       expect(panel().style.bottom).toBe('96px');
     } finally {
       bar.remove();
+    }
+  });
+
+  /*
+    ⑨-b ★ GC-IN-01 · R1 IN-03 — 바 **수**가 바뀌면 다시 잰다. 효과가 「떠 있는가」 불리언만 보면 바
+      하나가 떠 있는 동안 나타난 더 높은 두 번째 바를 모른 채 첫 바 높이로 비켜서, 공용 패널(미체결
+      취소 버튼)이 새 바에 가린다.
+  */
+  it('⑨-b 더티 바 수가 늘면 다시 잰다 — 더 높은 두 번째 바(140)가 뜨면 140 으로 비킨다 · 0 이면 비킴 없음', () => {
+    const mk = (h: number) => {
+      const el = document.createElement('div');
+      el.setAttribute('data-slot', 'dirty-action-bar');
+      Object.defineProperty(el, 'offsetHeight', { value: h, configurable: true });
+      document.body.appendChild(el);
+      return el;
+    };
+    const first = mk(96);
+    let second: HTMLElement | null = null;
+    try {
+      const { rerender } = render(<SharedPanels {...props({ dirtyBarCount: 1 })} />);
+      expect(panel().style.bottom).toBe('96px');
+
+      second = mk(140);
+      rerender(<SharedPanels {...props({ dirtyBarCount: 2 })} />);
+      expect(panel().style.bottom).toBe('140px');
+      expect(panel().style.marginBottom).toBe('140px');
+
+      first.remove();
+      second.remove();
+      rerender(<SharedPanels {...props({ dirtyBarCount: 0 })} />);
+      expect(panel().style.bottom).toBe('');
+      expect(panel()).not.toHaveAttribute('data-dirty-reserve', 'true');
+    } finally {
+      first.remove();
+      second?.remove();
     }
   });
 });

@@ -30,10 +30,12 @@
  *   이 패널은 `z-20` 이다. 카드가 N개라 폰에서 이 충돌은 **상시** 일어난다.
  *   z-index 로 이 패널을 올리면 이번에는 더티 바의 「수정」이 조용히 가려진다 — 선례:
  *   「z-index 로 FAB 을 덮는 것은 해법이 아니다 — 덮으면 채팅 진입점이 조용히 사라진다」
- *   (`dirty-action-bar.tsx` ⑥ⓒ). 그래서 바가 떠 있으면 그 **실측 높이**만큼
+ *   (`dirty-action-bar.tsx` ⑥ⓒ). 그래서 바가 떠 있으면(더티 카드 수 > 0) 그 **실측 높이**만큼
  *     · `bottom` — 폰 sticky 가 바 위에서 멈춘다(펼침/접힘 모두),
  *     · `margin-bottom` — 페이지 끝까지 스크롤해도 패널 끝이 바 위에 온다(≥700 포함)
  *   를 준다. 바가 DOM 에 아직 없거나 잴 수 없으면 보수적 기본값(`DIRTY_BAR_FALLBACK_PX`)이다.
+  ★ 바 **수**가 바뀌면 다시 잰다(`dirtyBarCount` · 18-REVIEW-R2 GC-IN-01 · R1 IN-03) — effect 시점의
+    바만 관찰하면, 바 하나가 떠 있는 동안 새로 뜬 더 높은 바를 모른 채 첫 바 높이로 비켜 그 바에 가린다.
  *   ★ 겹침 0 의 **실측**은 18-13 Playwright `boundingBox()` 가 맡는다 — jsdom 은 레이아웃이 없다.
  *
  * ⑤-b ★ 폰 밴드는 `sticky` 가 아니라 **`document.body` 포털 + `fixed`** 다 (18-13 실측)
@@ -83,8 +85,11 @@ export interface SharedPanelsProps {
   selectedOrderNo: string | null;
   /** 행 선택 · 해제(`null`). 수동주문 폼 `selectedUnfilled` 의 원천이다(D-21). */
   onSelectUnfilled: (row: RelayUnfilled | null) => void;
-  /** 더티 바가 떠 있는가 — 떠 있으면 그 높이만큼 비킨다(파일 상단 ⑤). */
-  dirtyBarVisible: boolean;
+  /**
+   * 더티가 있는 카드 수 = 떠 있는 더티 바 수. 0 보다 크면 가장 높은 바만큼 비키고, 수가 바뀔 때마다
+   * 다시 잰다(파일 상단 ⑤).
+   */
+  dirtyBarCount: number;
   /** 미체결 행 출처 배지(「상따」/「수동」). 모르는 행은 `undefined` — 배지를 지어내지 않는다. */
   originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
   /** 종목별 현재가 — 모르는 종목은 `undefined`(평가손익 「—」). */
@@ -100,10 +105,15 @@ export interface SharedPanelsProps {
 
 /**
  * 떠 있는 더티 바의 실측 높이. 여러 장이면(카드 N개) 가장 큰 값이다.
- * 바가 없거나 높이가 0 이면 `DIRTY_BAR_FALLBACK_PX` — `visible` 은 상위가 아는 사실이므로
+ * 바가 없거나 높이가 0 이면 `DIRTY_BAR_FALLBACK_PX` — 바 수(`count`)는 상위가 아는 사실이므로
  * 「보인다는데 못 잰다」는 겹침 쪽으로 틀리지 않게 기본값으로 비킨다.
+ *
+ * ★ 바 수가 바뀌면 다시 잰다 — 효과 의존성이 `count` 라 수가 바뀔 때마다 바 목록을 다시 모아 재고
+ *   `ResizeObserver` 를 다시 건다. effect 시점의 바만 관찰하면 새로 뜬 더 높은 바에 가린다
+ *   (18-REVIEW-R2 GC-IN-01 · R1 IN-03).
  */
-function useDirtyBarReserve(visible: boolean): number | null {
+function useDirtyBarReserve(count: number): number | null {
+  const visible = count > 0;
   const [measured, setMeasured] = useState<number | null>(null);
 
   useLayoutEffect(() => {
@@ -122,7 +132,7 @@ function useDirtyBarReserve(visible: boolean): number | null {
     const ro = new ResizeObserver(measure);
     for (const el of bars()) ro.observe(el);
     return () => ro.disconnect();
-  }, [visible]);
+  }, [visible, count]);
 
   if (!visible) return null;
   return measured ?? DIRTY_BAR_FALLBACK_PX;
@@ -140,7 +150,7 @@ export function SharedPanels({
   logEntries,
   selectedOrderNo,
   onSelectUnfilled,
-  dirtyBarVisible,
+  dirtyBarCount,
   originOf,
   priceOf,
   onCancelSubmitted,
@@ -151,7 +161,7 @@ export function SharedPanels({
   /** 폰 밴드 접힘 — 기본 접힘(파일 상단 ④). ≥700 에서는 이 값이 보이지 않는다. */
   const [folded, setFolded] = useState(true);
   const bodyId = useId();
-  const reserve = useDirtyBarReserve(dirtyBarVisible);
+  const reserve = useDirtyBarReserve(dirtyBarCount);
 
   const unfilledCount = account?.unf.length ?? 0;
   const holdingCount = account?.hold.length ?? 0;
