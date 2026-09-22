@@ -5,10 +5,10 @@ current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: verifying
 stopped_at: Completed 18-03-PLAN.md
-last_updated: "2026-09-22T03:41:09.134Z"
+last_updated: "2026-09-22T04:11:54.383Z"
 last_activity: 2026-09-22
 last_activity_desc: Phase 18 execution started
-state_head: 417e018798160fab04a8323d5a76888816dcad43
+state_head: "0b252be83234a386da85a49eeeb36f26b78ef205"
 progress:
   total_phases: 27
   completed_phases: 4
@@ -784,6 +784,10 @@ Recent decisions affecting current work:
 - [Phase 18]: 옛 상따·VI e2e 는 흡수 후 삭제, 옛 화면 고유 기능 4건(VI 최근 발동 줄·장 마감·VI 거래소 필터/전체 취소·미체결 출처 태그)은 사용자 결정으로 올림(18-13)
 - [Phase 18]: TRADE-07 완료 표시 보류 — 18-03(마이그레이션 원격 반영) 미실행(18-13)
 - [Phase 18]: 18-03: 실 DB 검증은 원격 public 스키마 덤프(supabase db dump --linked) 전후 diff 로 수행 — dma_orders 정책 0개·service_role GRANT 불변 확인
+- [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 돌파 목록은 가장 최신 돌파가 맨 위 — 리듀서/relay 정렬을 최신순으로 바꾼다(UI-SPEC 「최신 위」 채택, 갭 클로징에서 반영)
+- [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 등록 전략이 있는 카드의 ✕ 는 카드만 닫는다 — 서버 상따 전략은 유지(현 동작 확정)
+- [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 옛 화면 전용 기능 4개(VI 최근 발동 줄·장 마감 표시·VI 미체결 거래소 필터/전체 취소·미체결 출처 태그) 작업대 미이관 승인
+- [Phase 18]: [Phase 18 사용자 결정 2026-09-22] 호가 탭 총잔량 줄 제거 승인
 
 ### Pending Todos
 
