@@ -14,6 +14,7 @@ import userEvent from '@testing-library/user-event';
  */
 
 import {
+  OFFHOURS_PRICE_LABEL,
   OrderConfirmDialog,
   type NewOrderConfirmDetail,
   type OrderConfirmDetail,
@@ -227,5 +228,26 @@ describe('OrderConfirmDialog — 오조작 방어 (한 글자도 완화하지 �
       .nextElementSibling as HTMLElement;
     expect(dd.className).not.toMatch(/truncate|text-ellipsis/);
     expect(dd.className).toMatch(/break-/);
+  });
+});
+
+describe('OrderConfirmDialog — 가격 0 원주문 표기 (CR-01 표시 정합)', () => {
+  it('가격 0(시간외종가) 원주문 취소 요약의 「원주문」 줄은 숫자 0 이 아니라 「시간외종가」 · 취소 수량은 잔량 그대로', () => {
+    const { dialog } = open({
+      mode: 'cancel',
+      orderNo: '3407000077',
+      side: 'B',
+      stockName: '한미반도체',
+      price: 0,
+      unfilledQty: 40,
+      code: '042700',
+      accountNo: '12345678-01',
+      exchange: 'KRX',
+      orderQty: 100,
+    });
+    expect(OFFHOURS_PRICE_LABEL).toBe('시간외종가');
+    expect(summaryValue(dialog, '원주문')).toBe(`3407000077 · 매수 ${OFFHOURS_PRICE_LABEL} × 100`);
+    expect(summaryValue(dialog, '원주문')).not.toMatch(/(^|\s)0 ×/);
+    expect(summaryValue(dialog, '취소 수량')).toBe('40주 (미체결 잔량 전부)');
   });
 });

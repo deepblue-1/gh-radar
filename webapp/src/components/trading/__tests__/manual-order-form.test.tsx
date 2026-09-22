@@ -47,6 +47,7 @@ vi.mock('@/lib/queued-window', async (importOriginal) => {
   };
 });
 
+import { OFFHOURS_PRICE_LABEL } from '@/components/orderbook/order-confirm-dialog';
 import {
   ManualOrderEntry,
   ManualOrderForm,
@@ -716,5 +717,21 @@ describe('ManualOrderForm — 정정 수량 ≤ 미체결 잔량 (WR-06 · D-21)
     await waitFor(() => expect(screen.queryByTestId('order-confirm-dialog')).toBeNull());
     expect(screen.getByTestId('manual-order-validation')).toHaveTextContent(MODIFY_TARGET_GONE_TEXT);
     expect(MODIFY_TARGET_GONE_TEXT).toBe('원주문이 더 이상 미체결이 아니에요');
+  });
+});
+
+describe('ManualOrderForm — 가격 0 원주문 선택 칩 표기 (CR-01 표시 정합)', () => {
+  it('board G3 · price 0 행 선택 → 칩 둘째 줄이 「매수 시간외종가 × {수량}」 이고 「0」 이 없다', () => {
+    renderForm({ selectedUnfilled: unf({ board: 'G3', price: 0, exchange: 'KRX' }) });
+    const chip = screen.getByTestId('manual-order-selchip');
+    expect(chip).toHaveTextContent(`매수 ${OFFHOURS_PRICE_LABEL} × 100`);
+    expect(chip).not.toHaveTextContent(/매수 0 ×/);
+  });
+
+  it('가격 > 0 행은 칩이 기존 숫자 표기 그대로다', () => {
+    renderForm({ selectedUnfilled: unf() });
+    const chip = screen.getByTestId('manual-order-selchip');
+    expect(chip).toHaveTextContent('매수 128,500 × 100');
+    expect(chip).not.toHaveTextContent(OFFHOURS_PRICE_LABEL);
   });
 });
