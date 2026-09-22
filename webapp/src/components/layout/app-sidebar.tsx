@@ -4,25 +4,29 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import {
-  Gauge,
   Home,
   Layers,
   MessageSquare,
   Search,
   Star,
-  Target,
   TrendingUp,
   User,
   Zap,
 } from "lucide-react";
 
+import {
+  LATCH_LED_NAMES,
+  latchLedStateOf,
+  type LatchLedKind,
+  type LatchLedTone,
+} from "@/components/trading/latch-led";
 import { StrategyBadge, viBadgeOf } from "@/components/trading/strategy-badge";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
-import { viAnyRunning } from "@/lib/use-relay-socket";
+import { requestTradingFocus } from "@/lib/trading-focus";
 import { cn } from "@/lib/utils";
-import type { RelayLimitChaser } from "@gh-radar/shared";
+import type { RelayExchange, RelayLimitChaser } from "@gh-radar/shared";
 
 import { ThemeToggle } from "./theme-toggle";
 import { UserSection } from "./user-section";
@@ -31,24 +35,28 @@ import { UserSection } from "./user-section";
  * AppSidebar — 16-UI-SPEC §Component Inventory N1~N7 (Phase 16 NAV-01 · D-15~D-19).
  * 시각 정본은 사용자 승인 목업 `16-mypage-sidebar-mockup.html` 이다 (D-24).
  *
- * 트리 (2단 + 전략 3단):
- *   홈 · [종목검색] 상승률 상위 / 테마 / 관심종목 · [트레이딩] 상따(+전략 3단) / VI
+ * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
+ *   홈 · [종목검색] 상승률 상위 / 테마 / 관심종목
+ *   · [트레이딩 = `/trading` 링크] KRX VI / NXT VI / 등록된 상따 전략 N개
  *   · My page · AI 애널리스트
  *
- * ① 그룹 소제목은 `<li>` 다 — **링크도 버튼도 아니다**
+ * ① 「종목검색」 소제목은 `<li>` 다 — **링크도 버튼도 아니다**
  *    D-16 이 「클릭 불가 · 항상 펼침 · 접기 상태 저장 없음」을 못박은 것도 있지만, 더
  *    직접적인 이유는 `app-shell.tsx` 의 모바일 drawer 자동 닫힘이다. 그 훅은 클릭 지점에서
  *    조상을 거슬러 올라가며 `A` 또는 `BUTTON[data-nav-item]` 을 만나면 닫는다. 소제목을
  *    버튼으로 만드는 순간 **그룹명을 눌렀을 뿐인데 drawer 가 닫힌다**.
+ *    「트레이딩」 제목만 예외로 **링크**다(D-03) — 누르면 실제로 `/trading` 으로 이동하므로
+ *    drawer 가 닫히는 것이 맞는 동작이다. 그룹은 여전히 항상 펼침이다(D-16).
  *
  * ② 활성 판정은 **정확 일치**다 (접두 일치가 아니다)
- *    `/trading/limit-chaser/{key}` 를 보고 있을 때 2단 「상따」가 같이 켜지면 3단 항목과
- *    활성 표시가 겹쳐 「지금 어디」가 사라진다. 그래서 「상따」는 `/trading/limit-chaser/new`
- *    일 때만 `aria-current` 를 받는다(UI-SPEC §사이드바·라우팅).
+ *    `/trading` 의 활성 표시는 제목 **하나**가 받는다. 3단 항목(VI 2 · 전략 N)은 모두 같은
+ *    작업대를 가리키므로 활성 표시를 받지 않는다 — 여러 줄이 함께 켜지면 「지금 어디」가
+ *    사라진다. `usePathname()` 은 쿼리를 싣지 않으므로 `/trading?focus=…` 에서도 제목이 켜진다.
  *
  * ③ 전략 키는 `encodeURIComponent` 로 인코딩한다
- *    키가 `{ISIN}:{accountNo}:{exchange}` 라 `:` 를 품는다. 인코딩하지 않으면 경로 세그먼트가
- *    깨진다. 비교할 때는 양쪽을 디코드해서 본다 — `usePathname()` 이 브라우저·서버에서
+ *    키가 `{ISIN}:{accountNo}:{exchange}` 라 `:` 를 품는다. `?focus=` 쿼리 값으로 옮길 때도
+ *    인코딩한다 — 옛 `/trading/limit-chaser/{key}` 리다이렉트가 같은 규율로 재인코드한다.
+ *    경로 비교(`samePath`)는 양쪽을 디코드해서 본다 — `usePathname()` 이 브라우저·서버에서
  *    인코딩 상태가 갈릴 수 있어 문자열 동일성만으로는 활성 표시가 조용히 죽는다.
  *
  * ④ 조건부 숨김 (N4 / D-19) — **UI 숨김은 권한이 아니다**
@@ -84,25 +92,44 @@ const NAV_SEARCH_GROUP: NavLeaf[] = [
   { href: "/watchlist", label: "관심종목", icon: Star },
 ];
 
-/** 「상따」 2단 항목 = **새 전략 빈 폼**. 목록 항목과 활성 표시가 겹치지 않는다(위 ②). */
-const NAV_LIMIT_CHASER: NavLeaf = {
-  href: "/trading/limit-chaser/new",
-  label: "상따",
-  icon: Target,
-};
+/** 「트레이딩」 그룹 제목 = `/trading` 작업대 링크 (D-03). 개별 「상따」·「VI」 메뉴는 없다. */
+const NAV_TRADING: NavLeaf = { href: "/trading", label: "트레이딩", icon: Zap };
 
-const NAV_VI: NavLeaf = { href: "/trading/vi", label: "VI", icon: Gauge };
+/** 3단 VI 항목의 거래소 순서 — 목업 `.asb` 그대로 KRX 먼저. */
+const VI_ROWS: readonly RelayExchange[] = ["KRX", "NXT"];
+
 const NAV_ME: NavLeaf = { href: "/me", label: "My page", icon: User };
 const NAV_CHAT: NavLeaf = { href: "/chat", label: "AI 애널리스트", icon: MessageSquare };
 
-/** 전략 3단 항목의 경로. 키의 `:` 때문에 인코딩이 **필수**다(위 ③). */
+/**
+ * 전략 1건의 경로 — `/trading` 작업대에서 그 카드를 펼친다. 키의 `:` 때문에 인코딩이 **필수**다(위 ③).
+ *
+ * ★ 이름은 옛 상따 편집 화면 시절 그대로다(Phase 18 D-03). 본문만 바꿔 호출부 2곳(사이드바 전략
+ *   항목 · My page 전략 현황 카드)이 무수정으로 산다.
+ */
 export function limitChaserHref(key: string): string {
-  return `/trading/limit-chaser/${encodeURIComponent(key)}`;
+  return `/trading?focus=${encodeURIComponent(key)}`;
 }
 
-/** 원 아이콘 묶음의 텍스트 대체물. 색·형태 없이도 상태가 읽히는 유일한 축이다. */
-export function strategyIoLabel(buyOn: boolean, sellOn: boolean): string {
-  return `매수 ${buyOn ? "켜짐" : "꺼짐"} · 매도 ${sellOn ? "켜짐" : "꺼짐"}`;
+/** LED 3점 순서 — 카드 헤더의 LED 칩과 같은 순서다. */
+const LED_KINDS: readonly LatchLedKind[] = ["buy", "sell", "cancel"];
+
+/**
+ * LED 3점 묶음의 텍스트 대체물 — 「매수 감시 · 매도 OFF · 취소 대기」. 색 없이도 상태가 읽히는
+ * 유일한 축이다. 판정은 `latchLedStateOf` 그대로 부른다(다시 쓰지 않는다).
+ */
+export function strategyLedLabel(item: RelayLimitChaser): string {
+  return LED_KINDS.map(
+    (kind) => `${LATCH_LED_NAMES[kind]} ${latchLedStateOf(kind, item).label}`,
+  ).join(" · ");
+}
+
+/**
+ * 3단 전략 항목의 표시 이름 (E16 partial) — 전략의 `name` → 계좌 역매핑 이름 → 단축코드 → ISIN.
+ * 빈 문자열은 없는 것으로 본다.
+ */
+function strategyDisplayName(item: RelayLimitChaser, labelName: string | undefined): string {
+  return [item.name, labelName, item.code].find((s) => s != null && s !== "") ?? item.isin;
 }
 
 /**
@@ -153,14 +180,44 @@ function NavLink({
 }
 
 /**
- * 그룹 소제목. `<li>` + 시각 스타일만 — 링크·버튼으로 만들지 않는다(위 ①).
+ * 그룹 소제목. 기본은 `<li>` + 시각 스타일만 — 링크·버튼으로 만들지 않는다(위 ①).
+ * `item` 을 주면 **링크로 승격**한다(「트레이딩」 → `/trading`, D-03).
  *
  * ★ 글꼴은 다른 메뉴와 **같은 14px**(`--t-sm`)이다 (260912-k2x). 11px 하드코딩이던 시절에는
  *   「종목검색」·「트레이딩」만 메뉴보다 작아 사이드바 안에서 혼자 다른 축을 썼다.
- * ★ `font-semibold` + `--muted-fg` 구분은 **그대로 둔다** — 소제목은 링크가 아니고, 그
- *   구분까지 지우면 소제목과 메뉴가 같아 보인다.
+ * ★ `font-semibold` 는 링크일 때도 **그대로 둔다** — 제목이 링크가 돼도 그룹 제목이라는 위계는
+ *   남아야 한다. 링크 쪽 색·활성 표시는 `NavLink` 와 같은 `LINK_ACTIVE`/`LINK_IDLE` 조합이다.
  */
-function GroupHeading({ label, icon: Icon }: { label: string; icon: NavIcon }) {
+function GroupHeading({
+  label,
+  icon: Icon,
+  item,
+  active = false,
+}: {
+  label: string;
+  icon: NavIcon;
+  item?: NavLeaf;
+  active?: boolean;
+}) {
+  if (item !== undefined) {
+    return (
+      <li>
+        <Link
+          href={item.href}
+          aria-current={active ? "page" : undefined}
+          data-nav-item
+          className={cn(
+            LINK_BASE,
+            "font-semibold tracking-[0.02em]",
+            active ? LINK_ACTIVE : LINK_IDLE,
+          )}
+        >
+          <Icon className="size-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </Link>
+      </li>
+    );
+  }
   return (
     <li className="flex items-center gap-2 px-3 pt-2 pb-1 text-[length:var(--t-sm)] font-semibold tracking-[0.02em] text-[var(--muted-fg)]">
       <Icon className="size-4 shrink-0" aria-hidden="true" />
@@ -169,76 +226,94 @@ function GroupHeading({ label, icon: Icon }: { label: string; icon: NavIcon }) {
   );
 }
 
+/** 3단 항목 공통 모양 — 목업 `.asb div.s3`. 활성 표시는 받지 않는다(위 ②). */
+const SUB_ITEM =
+  "flex items-center gap-2 rounded-[var(--r)] p-2 text-[length:var(--t-sm)] font-semibold";
+
 /**
- * 전략 3단 항목 — **종목명 + 우측 원 아이콘 2개뿐**이다 (N3 / N3a).
+ * 3단 VI 항목 — 「KRX VI」 / 「NXT VI」 (D-03). 누르면 작업대(VI 설정 2줄이 있는 곳)로 간다.
+ *
+ * ★ 「가동」 배지는 **줄마다 자기 거래소**를 본다(`viTriggers.KRX`/`.NXT`). 합집합 판정
+ *   (`viAnyRunning`)을 줄마다 쓰면 NXT 만 가동일 때 KRX 줄에도 배지가 뜬다. 합집합은
+ *   「어느 하나라도」가 필요한 표면(My page)에서만 쓴다 — 이 목록에는 그런 자리가 없다.
+ * ★ 중지면 배지를 그리지 않는다 — 목업은 가동일 때만 표시한다. 모름(키 부재)도 가동이 아니다.
+ */
+function ViItem({ exchange, run }: { exchange: RelayExchange; run: boolean }) {
+  return (
+    <Link
+      href={NAV_TRADING.href}
+      data-nav-item
+      data-sidebar-item={`vi-${exchange}`}
+      className={cn(SUB_ITEM, LINK_IDLE)}
+    >
+      <span className="min-w-0 flex-1 truncate">{exchange} VI</span>
+      {run && <StrategyBadge badge={viBadgeOf(run)} className="ml-auto shrink-0" />}
+    </Link>
+  );
+}
+
+/** LED 점 색 — 목업 `.asb div.s3 .ld i`. 토큰은 클래스로만 쓴다(JS 로 값을 읽지 않는다). */
+const LED_DOT_CLASS: Record<LatchLedTone, string> = {
+  off: "bg-[var(--flat)]",
+  latent: "bg-[var(--led-latent)]",
+  armed: "bg-[var(--led-armed)]",
+};
+
+/**
+ * 전략 3단 항목 — **종목명 + 우측 LED 3점(7px)뿐**이다 (N3 / N3a · Phase 18 D-03).
  *
  * 거래소 태그와 상태 배지 6종을 여기 두지 않는다. 240px 폭에서 종목명 + 태그 + 배지 2개는
  * 종목명을 3~4글자로 잘라먹었고, 사용자가 목업 리뷰에서 이 단순화를 확정했다. 상세 상태는
- * My page 전략 현황 행이 전부 보여준다.
+ * My page 전략 현황 행과 작업대 카드가 전부 보여준다.
+ * LED 3점(7px × 3 + 간격 3px × 2 = 27px)은 옛 원 아이콘 2개(10px × 2 + 6px = 26px)와 같은 폭 예산
+ * 안에 들어간다 — 종목명 몫을 더 빼앗지 않는다.
+ *
+ * ★ 누르면 링크는 `/trading?focus=` 로 가고, **동시에** 작업대에 포커스 요청을 보낸다. 작업대는
+ *   `?focus=` 를 마운트 1회만 소비하므로, 이미 `/trading` 위라면 URL 만 바뀌고 카드가 펼쳐지지
+ *   않는다 — 그 빈자리를 요청 이벤트가 채운다(`lib/trading-focus.ts`). 수식 키 클릭(새 탭)은
+ *   지금 탭의 카드를 건드리지 않는다.
  */
-function StrategyItem({
-  item,
-  name,
-  active,
-}: {
-  item: RelayLimitChaser;
-  name: string | null;
-  active: boolean;
-}) {
-  const ioLabel = strategyIoLabel(item.buyEnabled, item.sellEnabled);
+function StrategyItem({ item, name }: { item: RelayLimitChaser; name: string }) {
+  const ledLabel = strategyLedLabel(item);
 
   return (
     <Link
       href={limitChaserHref(item.key)}
-      aria-current={active ? "page" : undefined}
       data-nav-item
+      data-sidebar-item="strategy"
       data-strategy-key={item.key}
-      className={cn(
-        "flex items-center gap-2 rounded-[var(--r)] p-2",
-        active ? LINK_ACTIVE : LINK_IDLE,
-      )}
+      onClick={(event) => {
+        if (event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        requestTradingFocus(item.key);
+      }}
+      className={cn(SUB_ITEM, LINK_IDLE)}
     >
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold",
-          active ? "text-[var(--accent-fg)]" : "text-[var(--fg)]",
-        )}
-      >
-        {/* 종목명이 없으면 ISIN 을 그대로 보여준다 — relay 역매핑의 명시 폴백 계약이다. */}
-        {name ?? item.isin}
+      <span title={name} className="min-w-0 flex-1 truncate text-[var(--fg)]">
+        {name}
       </span>
       {/*
-        원 아이콘 묶음. 라벨은 **묶음에만** 단다 — 개별 원에 달면 스크린리더가
-        「매수 켜짐 · 매도 꺼짐」을 두 번 읽는다.
+        LED 3점 묶음. 라벨은 **묶음에만** 단다 — 개별 점에 달면 스크린리더가 세 번 읽는다.
+        판정은 `latchLedStateOf` 그대로다(카드 헤더 LED 칩과 같은 함수 — 둘이 갈리지 않는다).
       */}
       <span
         role="img"
-        aria-label={ioLabel}
-        title={ioLabel}
-        className="ml-auto inline-flex shrink-0 items-center gap-[6px]"
+        aria-label={ledLabel}
+        title={ledLabel}
+        className="ml-auto inline-flex shrink-0 items-center gap-[3px]"
       >
-        <span
-          aria-hidden="true"
-          data-io="buy"
-          data-on={item.buyEnabled ? "true" : "false"}
-          className="block size-[10px] shrink-0 rounded-full border-[1.5px]"
-          style={
-            item.buyEnabled
-              ? { background: "var(--up)", borderColor: "var(--up)" }
-              : { background: "transparent", borderColor: "var(--muted-fg)" }
-          }
-        />
-        <span
-          aria-hidden="true"
-          data-io="sell"
-          data-on={item.sellEnabled ? "true" : "false"}
-          className="block size-[10px] shrink-0 rounded-full border-[1.5px]"
-          style={
-            item.sellEnabled
-              ? { background: "var(--down)", borderColor: "var(--down)" }
-              : { background: "transparent", borderColor: "var(--muted-fg)" }
-          }
-        />
+        {LED_KINDS.map((kind) => {
+          const tone = latchLedStateOf(kind, item).tone;
+          return (
+            <span
+              key={kind}
+              aria-hidden="true"
+              data-led={kind}
+              data-tone={tone}
+              className={cn("block size-[7px] shrink-0 rounded-full", LED_DOT_CLASS[tone])}
+            />
+          );
+        })}
       </span>
     </Link>
   );
@@ -295,48 +370,33 @@ export function AppSidebar() {
 
         {tradingVisible && (
           <>
-            <GroupHeading label="트레이딩" icon={Zap} />
+            <GroupHeading
+              label={NAV_TRADING.label}
+              icon={NAV_TRADING.icon}
+              item={NAV_TRADING}
+              active={isActive(NAV_TRADING.href)}
+            />
             <li>
+              {/*
+                3단 = VI 2항목 + 등록 전략 N개 (D-03 · E16). 전략 0 이면 VI 2항목만 남고 빈 문구는
+                없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가 없다. 전략 수 상한이 없으므로
+                목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
+                `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
+              */}
               <ul className={SUB_LIST}>
-                <li>
-                  <NavLink
-                    item={NAV_LIMIT_CHASER}
-                    active={isActive(NAV_LIMIT_CHASER.href)}
-                  />
-                  <ul className={SUB_LIST}>
-                    {limitChasers.length === 0 ? (
-                      <li>
-                        {/* 링크가 아니다 — 누를 곳이 없다는 사실 자체가 정보다(N5). */}
-                        <span className="block px-2 py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                          등록된 전략 없음
-                        </span>
-                      </li>
-                    ) : (
-                      limitChasers.map((item) => (
-                        <li key={item.key}>
-                          <StrategyItem
-                            item={item}
-                            name={labels.get(item.isin)?.name ?? null}
-                            active={isActive(limitChaserHref(item.key))}
-                          />
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                </li>
-                <li>
-                  <NavLink item={NAV_VI} active={isActive(NAV_VI.href)}>
-                    {/*
-                      N7 — VI 는 항목이 1개뿐이라 배지가 목록을 어지럽히지 않는다.
-                      ★ 판정은 `viAnyRunning` **한 함수**다 (17-06 / D-18). 거래소별 전략을
-                        여기서 다시 합치면 My page·전략 현황과 갈린다.
-                    */}
-                    <StrategyBadge
-                      badge={viBadgeOf(viAnyRunning(viTriggers))}
-                      className="ml-auto shrink-0"
+                {VI_ROWS.map((exchange) => (
+                  <li key={exchange}>
+                    <ViItem exchange={exchange} run={viTriggers[exchange]?.run === true} />
+                  </li>
+                ))}
+                {limitChasers.map((item) => (
+                  <li key={item.key}>
+                    <StrategyItem
+                      item={item}
+                      name={strategyDisplayName(item, labels.get(item.isin)?.name)}
                     />
-                  </NavLink>
-                </li>
+                  </li>
+                ))}
               </ul>
             </li>
             <li>

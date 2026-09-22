@@ -297,7 +297,7 @@ describe("StrategyStatusCard — 전략 현황 (UI-SPEC C2~C4)", () => {
 
     const first = rows()[0] as HTMLAnchorElement;
     expect(first.getAttribute("href")).toBe(
-      `/trading/limit-chaser/${encodeURIComponent(CHASER_A.key)}`,
+      `/trading?focus=${encodeURIComponent(CHASER_A.key)}`,
     );
     // 인코딩이 실제로 일어났는지 — 원문 `:` 가 남아 있으면 세그먼트가 깨진다.
     expect(first.getAttribute("href")).toContain("%3A");
