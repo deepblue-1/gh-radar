@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Completed 18-23-PLAN.md
-last_updated: "2026-09-22T09:17:36.035Z"
+stopped_at: Completed 18-24-PLAN.md
+last_updated: "2026-09-22T09:35:04.396Z"
 last_activity: 2026-09-22
-last_activity_desc: 갭 클로징 R3 플랜 9개(18-24~18-32) 계획 — 실행 대기
-state_head: 74c7f4403e82623b95383074dddcf2ba4f4cdd18
+last_activity_desc: 18-24 GC-CR-01 완료 — null-safe CHECK 마이그레이션 파일 · pgTAP 회귀
+state_head: af4fd6840ef0ddd656cb232ee5f291f20038b51d
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 229
-  completed_plans: 205
+  completed_plans: 206
 milestone_name: milestone
 ---
 
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — READY TO EXECUTE
-Plan: 23 of 32 (R3 갭 클로징 18-24~18-32 계획됨 — REVIEW-R2 11건 + deferred relay lc.snap)
+Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
+Plan: 24 of 32 (R3 갭 클로징 18-24 완료 — 다음 18-25)
 Plans completed: 205 / 229
-Status: R3 갭 클로징 계획 완료(plan-checker 통과) — 실행 대기 · relay 미배포(배포 순서 DB → relay → 검증 → push)
+Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일만, 원격 반영은 18-29) · relay 미배포
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-22 — R3 갭 클로징 플랜 9개 계획(18-24~18-32) · TRADE-06~09 Pending
+Last activity: 2026-09-22 — 18-24 GC-CR-01 dma_orders_price_check NULL-safe 마이그레이션(로컬 pgTAP RED→GREEN)
 
 Progress: [█████████░] 93%
 
@@ -491,6 +491,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 18 P21 | 13min | 3 tasks | 9 files |
 | Phase 18 P22 | 10 min | 2 tasks | 7 files |
 | Phase 18 P23 | 5 min | 2 tasks | 2 files |
+| Phase 18 P24 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -811,6 +812,8 @@ Recent decisions affecting current work:
 - [Phase 18]: [Phase 18 Plan 22]: 미체결 선택은 받을 카드를 보장한다 — 전달 조건(ISIN ∧ 거래소 ∧ 상태줄 계좌)을 느슨하게 하지 않고, 정확 일치 카드가 없으면 상태줄 계좌로 카드를 붙인다(cardForUnfilled · 송신 0)
 - [Phase 18]: [Phase 18 Plan 22]: 포커스 요청 보류는 등록 목록을 알기 전에만 산다(knowsRegistered = limitChaserSnapSeq>0 ∧ 목록 비어 있지 않음). relay 는 콜드 세션에서 게이트웨이 64 전에 빈 lc.snap 을 먼저 내리므로 빈 스냅샷은 모호하게 다룬다 — 근본 수정(relay 인증 경로 3상태)은 deferred
 - [Phase 18]: 18-23: 갭 클로징 10건(11행) 전부 닫힘으로 18-VALIDATION §Gap Closure 기록, TRADE-06~09 는 Gaps Found → Pending(재검증 대기) — Complete 는 재검증 몫. relay 미배포, 배포 순서 DB(완료) → relay → 검증 → webapp push
+- [Phase 18]: 18-24: dma_orders_price_check 는 COALESCE(krx_session IN (G2,G3), false) 로 NULL 을 접고 G2/G3 가격 0 은 order_type=N 에만 연다 (20260922180000, 원격 반영은 18-29)
+- [Phase 18]: 18-24: 18-18 T-18-82(세션 없는 가격 0 신규·정정 거부)는 사실이 아니었다 — 3값 논리로 CHECK 가 NULL 을 통과시켰다. 정정은 18-24 SUMMARY 에 기록
 
 ### Pending Todos
 
@@ -897,8 +900,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-22T08:01:50.985Z
-Stopped at: Completed 18-23-PLAN.md
+Last session: 2026-09-22T09:35:03.870Z
+Stopped at: Completed 18-24-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

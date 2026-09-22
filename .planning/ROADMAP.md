@@ -818,7 +818,7 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 23/32 plans executed
+**Plans:** 24/32 plans executed
 
 Plans:
 **Wave 1**
@@ -885,7 +885,7 @@ Plans:
 
 **Wave 14** *(갭 클로징 R3 — 18-REVIEW-R2 11건: GC-CR-01 · GC-WR-01~04 · GC-IN-01~06 + deferred relay 콜드 세션 `lc.snap`)*
 
-- [ ] 18-24-PLAN.md — [GC-CR-01 tracer] `dma_orders_price_check` NULL 통과 로컬 pgTAP 재현(RED) → null-safe 후속 마이그레이션 파일(GREEN) · T-18-82 정정 기록 (wave 14)
+- [x] 18-24-PLAN.md — [GC-CR-01 tracer] `dma_orders_price_check` NULL 통과 로컬 pgTAP 재현(RED) → null-safe 후속 마이그레이션 파일(GREEN) · T-18-82 정정 기록 (wave 14)
 - [ ] 18-25-PLAN.md — [GC-WR-01 + GC-IN-01 relay] 통보 `requestKind` 정본(E+Modify 정정 정산) · 모순 통보 0건 · `refersOrg` 개명 · 옛 주석 정정 (wave 14)
 - [ ] 18-26-PLAN.md — [GC-IN-02 + deferred] relay `#limitChaserKnown`(64 받았을 때만 인증 `lc.snap`) · 작업대 `knowsRegistered = snapSeq > 0` · ready 전환 기준점 (wave 14)
 - [ ] 18-27-PLAN.md — [GC-WR-02 + GC-IN-06 + GC-IN-03] 취소 확정 = 현재 잔량으로 내림(폼·계좌 패널) · 재대조 문구 분리 · `isOffhoursOrder` 단일 판정 (wave 14)
