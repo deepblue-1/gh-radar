@@ -98,9 +98,22 @@
  *     `pendingStatus` 문구를 읽지 않는다(⑨ 와 같은 규율).
  *   - 토글(재선택 = 해제)은 선택을 소유한 상위의 몫이다. 이 패널은 「이 행을 눌렀다」만 올린다.
  *   - 주문번호가 빈 행은 취소도 막는다 — 원주문번호 없는 취소는 반드시 거부되는 버튼이다(③).
+ *
+ * ⑪ ★ 탭 임베드 모드(`section`) — 작업대 공용 패널 전용 (18-09 / D-13)
+ *   공용 패널은 「미체결 (N) / 잔고 (N) / 전략 로그」 탭을 **바깥에서** 소유한다. 그래서
+ *   `section` 을 받으면 이 패널은 그 한 섹션만, 계좌 머리·섹션 제목 없이 그린다(계좌는
+ *   상태줄이 이미 말한다). 계좌 축은 여전히 **단일 계좌**다 — 다계좌 합산은 `/me` 담당이다.
+ *   - 열 구성은 UI-SPEC §공용 패널 원문이다(미체결: 종목 · 거래소 · 구분 · 주문가 ·
+ *     주문/미체결 · 주문No · 취소 / 잔고: 종목 · 수량 · 매도가능 · 평단 · 현재가 · 평가손익 ·
+ *     손익률). 뷰포트 표/카드 전환(⑧)을 쓰지 않고 **언제나 표**이며 좁으면 가로 스크롤이다
+ *     (목업 `.tblx`) — 이 패널은 작업대 컨테이너(`wb`) 안에 놓이므로 뷰포트 분기가 맞지 않는다.
+ *   - 취소 결과는 **그 행 바로 아래** 인라인 줄이다(E13 error). 행이 이미 사라졌으면(접수 후
+ *     미체결에서 빠짐) 표 아래로 떨어진다.
+ *   - 취소 규율(③④⑥⑨)과 선택 규율(⑩)은 **기본 모드와 같은 코드**를 쓴다 — 두 벌이 아니다.
+ *   - `section` 을 넘기지 않는 기존 호출부의 DOM 은 그대로다(이 분기는 별도 return 이다).
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
   RelayAccount,
@@ -126,6 +139,7 @@ import {
   type CancelOrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
 import { unfilledSelectBlockReason } from '@/components/trading/card/manual-order-form';
+import { ExchangeTag } from '@/components/trading/vi-order-list';
 import { useRelayContext } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
@@ -152,6 +166,9 @@ type CancelResult =
  * (호가주문 탭·My page)은 태그를 붙이지 않는다.
  */
 export type AccountOriginTag = '상따' | 'VI';
+
+/** 공용 패널(⑪) 미체결 행의 출처 배지 — UI-SPEC §공용 패널 「상따」/「수동」. */
+export type AccountRowOrigin = '상따' | '수동';
 
 export interface AccountPanelProps {
   /**
@@ -213,6 +230,21 @@ export interface AccountPanelProps {
   onSelectUnfilled?: (row: RelayUnfilled) => void;
   /** 선택된 원주문번호 — 그 행에 accent 강조 + `aria-pressed="true"`. 콜백이 없으면 무시된다. */
   selectedOrderNo?: string | null;
+  /**
+   * 탭 임베드 모드(⑪) — 그 한 섹션만 그린다. **계좌 전용 모드(`code` 없음)와 함께만** 쓴다.
+   * 넘기지 않으면 기존 배치 그대로다.
+   */
+  section?: 'unfilled' | 'holdings';
+  /**
+   * 미체결 행의 출처 배지(「상따」/「수동」, ⑪ 임베드 모드 전용). 값의 원천은 호출부가
+   * 아는 사실이다 — 모르면 `undefined` 를 돌려 배지를 그리지 않는다(지어내지 않는다).
+   */
+  originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
+  /**
+   * 종목별 현재가(⑪ 임베드 모드의 현재가·평가손익·손익률 칸). 모르는 종목은 `undefined` —
+   * 그 행은 「—」다(⑤). 지금 보는 종목의 `currentPrice` 가 있으면 그것이 우선한다.
+   */
+  priceOf?: (isin: string) => number | undefined;
   className?: string;
 }
 
@@ -264,6 +296,9 @@ export function AccountPanel({
   onCancelSubmitted,
   onSelectUnfilled,
   selectedOrderNo = null,
+  section,
+  originOf,
+  priceOf,
   className,
 }: AccountPanelProps) {
   const [tab, setTab] = useState<AccountTab>('unfilled');
@@ -271,6 +306,8 @@ export function AccountPanel({
     (CancelOrderConfirmDetail & { row: RelayUnfilled }) | null
   >(null);
   const [cancelResult, setCancelResult] = useState<CancelResult | null>(null);
+  /** 결과 배너가 가리키는 원주문번호 — 임베드 모드(⑪)가 그 행 바로 아래에 배너를 둔다. */
+  const [cancelResultOrderNo, setCancelResultOrderNo] = useState<string | null>(null);
   /** 결과를 모르는 취소가 나간 주문번호 — 다시 누를 수 없게 잠근다. */
   const [lockedOrderNos, setLockedOrderNos] = useState<ReadonlySet<string>>(new Set());
   const { sendOrder } = useRelayContext();
@@ -305,7 +342,8 @@ export function AccountPanel({
     () =>
       (account?.hold ?? []).map((row) => {
         const sameStock = isin != null && row.isin === isin;
-        const price = sameStock && currentPrice != null ? currentPrice : null;
+        const price =
+          sameStock && currentPrice != null ? currentPrice : (priceOf?.(row.isin) ?? null);
         const priced = price != null && price > 0 && row.avgPrice > 0;
         return {
           row,
@@ -317,7 +355,7 @@ export function AccountPanel({
           cost: row.qty * row.avgPrice,
         };
       }),
-    [account, isin, name, currentPrice],
+    [account, isin, name, currentPrice, priceOf],
   );
 
   const handleCancelConfirmed = useCallback(async () => {
@@ -325,6 +363,7 @@ export function AccountPanel({
     const row = cancelTarget.row;
     setCancelTarget(null);
     setCancelResult(null);
+    setCancelResultOrderNo(row.orderNo);
 
     /*
       `catch` 가 없는 것이 의도다 — `sendOrder` 는 실패도 결과 프레임으로 돌려준다(16-10).
@@ -458,6 +497,35 @@ export function AccountPanel({
     ) : (
       content
     );
+
+  if (section !== undefined) {
+    return (
+      <EmbeddedSection
+        section={section}
+        unfilled={unfilled}
+        holdings={holdings}
+        sessionReady={sessionReady}
+        originOf={originOf}
+        cancelResult={cancelResult}
+        cancelResultOrderNo={cancelResultOrderNo}
+        cancelButton={cancelButton}
+        rowSelectProps={rowSelectProps}
+        rowSelectClass={rowSelectClass}
+        selectHandle={selectHandle}
+        isSelected={isSelected}
+        className={className}
+        dialog={
+          <OrderConfirmDialog
+            detail={cancelTarget}
+            onOpenChange={(open) => {
+              if (!open) setCancelTarget(null);
+            }}
+            onConfirm={handleCancelConfirmed}
+          />
+        }
+      />
+    );
+  }
 
   return (
     <div
@@ -940,6 +1008,235 @@ export function AccountPanel({
   );
 }
 
+/** 임베드 표 셀 공통 — 목업 `.sh` (행 32px · 좌우 10px · 한 줄). */
+const EMB_TH =
+  'h-auto bg-[var(--muted)] px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)]';
+const EMB_TD = 'h-8 px-2.5 py-0 whitespace-nowrap text-[length:var(--t-caption)]';
+
+/**
+ * 탭 임베드 모드(⑪)의 한 섹션. 상태·취소·선택은 **부모 AccountPanel 의 것**을 받아 쓴다 —
+ * 이 컴포넌트는 배치만 다르다(두 벌의 규율이 생기지 않게).
+ */
+function EmbeddedSection({
+  section,
+  unfilled,
+  holdings,
+  sessionReady,
+  originOf,
+  cancelResult,
+  cancelResultOrderNo,
+  cancelButton,
+  rowSelectProps,
+  rowSelectClass,
+  selectHandle,
+  isSelected,
+  className,
+  dialog,
+}: {
+  section: 'unfilled' | 'holdings';
+  unfilled: UnfilledView[];
+  holdings: HoldingView[];
+  sessionReady: boolean;
+  originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
+  cancelResult: CancelResult | null;
+  cancelResultOrderNo: string | null;
+  cancelButton: (view: UnfilledView, className?: string) => ReactNode;
+  rowSelectProps: (view: UnfilledView) => Record<string, unknown>;
+  rowSelectClass: (view: UnfilledView) => string | false;
+  selectHandle: (view: UnfilledView, content: ReactNode, className?: string) => ReactNode;
+  isSelected: (view: UnfilledView) => boolean;
+  className?: string;
+  dialog: ReactNode;
+}) {
+  if (section === 'holdings') {
+    return (
+      <div
+        data-testid="account-panel"
+        data-mode="embed"
+        data-section="holdings"
+        className={cn('min-w-0', !sessionReady && 'opacity-[.55]', className)}
+      >
+        {holdings.length === 0 ? (
+          <EmptyState title="보유 종목이 없어요" body="체결된 주문이 있으면 잔고에 반영돼요." />
+        ) : (
+          <div data-slot="account-embed-scroll" className="min-w-0 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col" className={EMB_TH}>종목</TableHead>
+                  <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>수량</TableHead>
+                  <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>매도가능</TableHead>
+                  <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>평단</TableHead>
+                  <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>현재가</TableHead>
+                  <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>평가손익</TableHead>
+                  <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>손익률</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {holdings.map((view) => (
+                  <TableRow key={view.row.isin} data-slot="account-embed-holding-row">
+                    <TableCell className={cn(EMB_TD, 'max-w-[180px]')}>
+                      <span
+                        data-slot="account-embed-name"
+                        title={view.label ?? view.row.isin}
+                        className="block min-w-0 truncate font-semibold"
+                      >
+                        {view.label ?? <span className="mono">{view.row.isin}</span>}
+                      </span>
+                    </TableCell>
+                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                      {KRW.format(view.row.qty)}
+                    </TableCell>
+                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                      {KRW.format(view.row.sellableQty)}
+                    </TableCell>
+                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                      {KRW.format(Math.round(view.row.avgPrice))}
+                    </TableCell>
+                    {/* ⑤ — 현재가를 모르는 행은 셋 다 「—」다. 지어내지 않는다. */}
+                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                      {view.price == null ? '—' : KRW.format(view.price)}
+                    </TableCell>
+                    <TableCell data-slot="account-embed-pnl" className={cn(EMB_TD, 'text-right')}>
+                      {view.pnl == null ? (
+                        '—'
+                      ) : (
+                        <UiNumber value={Math.round(view.pnl)} format="price" showSign withColor />
+                      )}
+                    </TableCell>
+                    <TableCell className={cn(EMB_TD, 'text-right')}>
+                      {view.rate == null ? (
+                        '—'
+                      ) : (
+                        <UiNumber value={view.rate} format="percent" showSign withColor />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const resultRowPresent =
+    cancelResultOrderNo !== null && unfilled.some((v) => v.row.orderNo === cancelResultOrderNo);
+
+  return (
+    <div
+      data-testid="account-panel"
+      data-mode="embed"
+      data-section="unfilled"
+      className={cn('min-w-0', !sessionReady && 'opacity-[.55]', className)}
+    >
+      {unfilled.length === 0 ? (
+        <EmptyState
+          title="미체결 주문이 없어요"
+          body="주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요."
+        />
+      ) : (
+        <div data-slot="account-embed-scroll" className="min-w-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col" className={EMB_TH}>종목</TableHead>
+                <TableHead scope="col" className={EMB_TH}>거래소</TableHead>
+                <TableHead scope="col" className={EMB_TH}>구분</TableHead>
+                <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>주문가</TableHead>
+                <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>주문/미체결</TableHead>
+                <TableHead scope="col" className={EMB_TH}>주문No</TableHead>
+                <TableHead scope="col" className={EMB_TH}>
+                  <span className="sr-only">취소</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {unfilled.map((view) => {
+                const origin = originOf?.(view.row);
+                return (
+                  <Fragment key={view.row.orderNo || `nono-${view.row.isin}-${view.row.orderTime}`}>
+                    <TableRow
+                      data-slot="account-embed-unfilled-row"
+                      data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
+                      {...rowSelectProps(view)}
+                      className={cn(
+                        view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
+                        rowSelectClass(view),
+                      )}
+                    >
+                      <TableCell className={cn(EMB_TD, 'max-w-[200px]')}>
+                        <span className="flex min-w-0 items-center gap-1">
+                          {selectHandle(
+                            view,
+                            <span
+                              data-slot="account-embed-name"
+                              title={view.label ?? view.row.isin}
+                              className="block min-w-0 truncate font-semibold"
+                            >
+                              {view.label ?? <span className="mono">{view.row.isin}</span>}
+                            </span>,
+                            'flex min-w-0',
+                          )}
+                          {origin !== undefined && (
+                            <span
+                              data-slot="account-origin-badge"
+                              className="flex-none rounded-[4px] border border-[var(--border)] px-1 text-[10px] text-[var(--muted-fg)]"
+                            >
+                              {origin}
+                            </span>
+                          )}
+                        </span>
+                        <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
+                      </TableCell>
+                      <TableCell className={EMB_TD}>
+                        <ExchangeTag exchange={view.row.exchange} />
+                      </TableCell>
+                      <TableCell className={EMB_TD}>
+                        <SideTag
+                          side={view.row.side}
+                          text={view.sideText}
+                          muted={view.row.pendingCancelSent}
+                          selected={isSelected(view)}
+                        />
+                      </TableCell>
+                      <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                        {KRW.format(view.row.price)}
+                      </TableCell>
+                      <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                        {KRW.format(view.row.orderQty)} / {KRW.format(view.row.unfilledQty)}
+                      </TableCell>
+                      <TableCell className={cn(EMB_TD, 'mono')}>
+                        {view.row.orderNo === '' ? '—' : view.row.orderNo}
+                      </TableCell>
+                      <TableCell className={cn(EMB_TD, 'text-right')}>{cancelButton(view)}</TableCell>
+                    </TableRow>
+                    {cancelResult && cancelResultOrderNo === view.row.orderNo && (
+                      <TableRow data-slot="account-embed-cancel-result">
+                        <TableCell colSpan={7} className="px-2.5 py-1.5 whitespace-normal">
+                          <CancelBanner result={cancelResult} polite />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      {/* 대상 행이 이미 목록에서 빠졌으면(접수 후 사라짐) 표 아래로 떨어진다. */}
+      {cancelResult && !resultRowPresent && (
+        <div className="px-2.5 py-1.5">
+          <CancelBanner result={cancelResult} polite />
+        </div>
+      )}
+      {dialog}
+    </div>
+  );
+}
+
 /**
  * 매수/매도 구분 — **부호 + 라벨 병기**로 색에 의존하지 않는다(WCAG 1.4.1).
  *
@@ -1034,8 +1331,13 @@ function OriginTag({ tag }: { tag?: AccountOriginTag }) {
   );
 }
 
-/** 취소 결과 배너 — 주문 패널과 동일한 3분류 규율. */
-function CancelBanner({ result }: { result: CancelResult }) {
+/**
+ * 취소 결과 배너 — 주문 패널과 동일한 3분류 규율.
+ *
+ * `polite` = 임베드 모드(⑪)의 행 인라인 고지 — 거부도 `role="status"` 다(UI-SPEC E13 error ·
+ * 「모든 일시 안내는 인라인 status」). 기본 모드의 거부 `alert` 는 기존 계약 그대로다.
+ */
+function CancelBanner({ result, polite = false }: { result: CancelResult; polite?: boolean }) {
   if (result.kind === 'unknown') {
     return (
       <div
@@ -1055,7 +1357,8 @@ function CancelBanner({ result }: { result: CancelResult }) {
   if (result.kind === 'rejected') {
     return (
       <div
-        role="alert"
+        role={polite ? 'status' : 'alert'}
+        aria-live={polite ? 'polite' : undefined}
         data-testid="cancel-result-rejected"
         className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--destructive)] px-[var(--s-3)] py-[var(--s-2)]"
       >

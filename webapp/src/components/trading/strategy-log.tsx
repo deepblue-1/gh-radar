@@ -44,6 +44,11 @@ export interface StrategyLogEntry {
   at: string;
   text: string;
   level?: 'info' | 'error';
+  /**
+   * 종목명(선택) — 작업대 공용 패널처럼 **여러 종목의 로그가 한 목록에 섞이는** 표면에서만
+   * 채운다(18-09 · 목업 `.log .who`). 종목 하나만 보는 옛 화면은 넘기지 않는다.
+   */
+  who?: string;
 }
 
 /**
@@ -249,10 +254,61 @@ export function strategiesDisabledLogLine(): string {
 export interface StrategyLogProps {
   /** 최신이 index 0. 상위가 누적을 소유한다(새로고침하면 사라지는 브라우저 메모리다). */
   entries: readonly StrategyLogEntry[];
+  /**
+   * `'embed'` = 작업대 공용 패널의 「전략 로그」 탭 (18-09 / D-13).
+   *   탭 라벨이 제목을 대신하므로 카드 테두리·제목이 없고, 목록 높이 상한도 없다(패널 본문이
+   *   스크롤을 소유한다). 빈 문구는 UI-SPEC §공용 패널 「아직 기록이 없어요」.
+   *   메시지는 **clamp 없이 줄바꿈**한다(`min-w-0` + `word-break:keep-all`, Q-4) — 로그는
+   *   읽히는 것이 목적이다.
+   * 기본 `'card'` 는 기존 화면 그대로다.
+   */
+  variant?: 'card' | 'embed';
   className?: string;
 }
 
-export function StrategyLog({ entries, className }: StrategyLogProps) {
+export function StrategyLog({ entries, variant = 'card', className }: StrategyLogProps) {
+  if (variant === 'embed') {
+    return (
+      <section data-slot="strategy-log" data-variant="embed" className={cn('min-w-0', className)}>
+        {entries.length === 0 ? (
+          <div className="m-[var(--s-3)] rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+            <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+              아직 기록이 없어요
+            </b>
+          </div>
+        ) : (
+          <ol
+            data-slot="strategy-log-list"
+            className="m-0 flex list-none flex-col gap-0.5 px-[var(--s-3)] py-1.5 text-[11px] leading-[1.7]"
+          >
+            {entries.map((entry) => (
+              <li
+                key={entry.id}
+                data-slot="strategy-log-row"
+                data-level={entry.level ?? 'info'}
+                className="flex min-w-0 items-baseline gap-[var(--s-2)]"
+              >
+                <span className="mono flex-none text-[var(--muted-fg)]">{entry.at}</span>
+                {entry.who !== undefined && entry.who !== '' && (
+                  <span className="flex-none font-semibold text-[var(--fg)]">{entry.who}</span>
+                )}
+                <span
+                  data-slot="strategy-log-msg"
+                  className={cn(
+                    'min-w-0 [word-break:keep-all] [overflow-wrap:anywhere]',
+                    entry.level === 'error' ? 'text-[var(--destructive)]' : 'text-[var(--fg)]',
+                  )}
+                >
+                  {entry.text}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section
       data-slot="strategy-log"
