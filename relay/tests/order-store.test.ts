@@ -958,3 +958,223 @@ describe("PostgREST 오류 원문 유출 (R2-CR-03)", () => {
     expect(dumped).toContain("23514");
   });
 });
+
+// ============================================================
+// 상태 단조성 (18-33 / R3-WR-01)
+// ============================================================
+
+/**
+ * `supabaseOrderSink` 의 조건부 `status` UPDATE 를 행 단위로 고정한다.
+ *
+ * 기대값은 **손으로 쓴 49칸 표**다 — `replaceableStatusesOf` 로 기대값을 만들면 구현이 틀려도
+ * 표가 같이 틀려 초록이 된다(순환). 규칙은 둘뿐이다: ① 순위가 내려가지 않는다
+ * (`requested`·`timeout` 0 < `accepted` 1 < `partially_filled` 2 < 종결 3) ② 종결 상태
+ * (`filled`·`cancelled`·`rejected`)는 같은 값으로만 갱신된다.
+ */
+describe("상태 단조성 (R3-WR-01)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const STATUSES = [
+    "requested",
+    "timeout",
+    "accepted",
+    "partially_filled",
+    "filled",
+    "cancelled",
+    "rejected",
+  ] as const;
+  type Status = (typeof STATUSES)[number];
+
+  /**
+   * 행 = 기존 상태, 열 = 갱신 상태(위 `STATUSES` 순서). `O` 반영 · `X` 막힘.
+   *
+   *                    req tmo acc pf  fil can rej
+   */
+  const TRANSITIONS: Readonly<Record<Status, string>> = {
+    requested:        " O   O   O   O   O   O   O",
+    timeout:          " O   O   O   O   O   O   O",
+    accepted:         " X   X   O   O   O   O   O",
+    partially_filled: " X   X   X   O   O   O   O",
+    filled:           " X   X   X   X   O   X   X",
+    cancelled:        " X   X   X   X   X   O   X",
+    rejected:         " X   X   X   X   X   X   O",
+  };
+
+  function allowed(cur: Status, next: Status): boolean {
+    const cells = TRANSITIONS[cur].trim().split(/\s+/);
+    expect(cells).toHaveLength(7);
+    return cells[STATUSES.indexOf(next)] === "O";
+  }
+
+  function todayIso(): string {
+    return new Date(new Date(kstDayRangeUtc().from).getTime() + 3600_000).toISOString();
+  }
+
+  function rowWith(status: Status, extra: Record<string, unknown> = {}): FakeRow {
+    return { id: "row-x", user_id: USER_A, order_no: ORDER_NO, created_at: todayIso(), status, ...extra };
+  }
+
+  it("⓾ 49칸 전이표 — 허용 칸은 반영되고, 금지 칸은 행이 그대로이며 {applied:false} 다", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    let cellsChecked = 0;
+    for (const cur of STATUSES) {
+      for (const next of STATUSES) {
+        const row = rowWith(cur);
+        const { supabase } = fakeDmaOrders([row]);
+        const result = await supabaseOrderSink(supabase)(
+          { column: "id", value: "row-x" },
+          { status: next, updated_at: new Date().toISOString() },
+        );
+        const label = `${cur} → ${next}`;
+        if (allowed(cur, next)) {
+          expect(row.status, label).toBe(next);
+          expect(result?.applied ?? true, label).toBe(true);
+        } else {
+          expect(row.status, label).toBe(cur);
+          expect(result, label).toEqual({ applied: false });
+        }
+        cellsChecked += 1;
+      }
+    }
+    expect(cellsChecked).toBe(49);
+  });
+
+  it("⓾-b 금지 칸 대표 — filled→accepted · partially_filled→accepted · cancelled→filled · filled→partially_filled · rejected→accepted", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const blocked: [Status, Status][] = [
+      ["filled", "accepted"],
+      ["partially_filled", "accepted"],
+      ["cancelled", "filled"],
+      ["filled", "partially_filled"],
+      ["rejected", "accepted"],
+    ];
+    for (const [cur, next] of blocked) {
+      const row = rowWith(cur, { notice_type: "E", filled_qty: 6 });
+      const { supabase } = fakeDmaOrders([row]);
+      const result = await supabaseOrderSink(supabase)(
+        { column: "id", value: "row-x" },
+        { status: next, notice_type: "M", message: "정정확인", updated_at: new Date().toISOString() },
+      );
+      expect(result, `${cur} → ${next}`).toEqual({ applied: false });
+      // 통째로 반영되지 않는다 — 늦은 확인이 `notice_type`·`message` 도 덮지 않는다.
+      expect(row).toMatchObject({ status: cur, notice_type: "E", filled_qty: 6 });
+      expect(row).not.toHaveProperty("message");
+    }
+  });
+
+  it("⓾-c 허용 칸 대표 — timeout→accepted(늦은 접수가 결과 모름을 푼다) · accepted→accepted · requested→timeout", async () => {
+    const cases: [Status, Status][] = [
+      ["timeout", "accepted"],
+      ["accepted", "accepted"],
+      ["requested", "timeout"],
+    ];
+    for (const [cur, next] of cases) {
+      const row = rowWith(cur);
+      const { supabase } = fakeDmaOrders([row]);
+      await supabaseOrderSink(supabase)({ column: "id", value: "row-x" }, { status: next });
+      expect(row.status, `${cur} → ${next}`).toBe(next);
+    }
+  });
+
+  it("⓫ 막힌 갱신은 warn 1회 — 필드는 column·status·noticeType 뿐, 주문번호·계좌 원문 없음 (T-16-45)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const LEAKED_ACCOUNT = "9876543210";
+    const row = rowWith("filled", { notice_type: "E", account_no: LEAKED_ACCOUNT });
+    const { supabase } = fakeDmaOrders([row]);
+
+    const result = await supabaseOrderSink(supabase)(
+      { column: "order_no", value: ORDER_NO, userId: USER_A },
+      { status: "accepted", notice_type: "M", message: "정정확인", updated_at: new Date().toISOString() },
+    );
+
+    expect(result).toEqual({ applied: false });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+    const fields = warnSpy.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.keys(fields).sort()).toEqual(["column", "noticeType", "status"]);
+    expect(fields).toEqual({ column: "order_no", status: "accepted", noticeType: "M" });
+    const dumped = JSON.stringify(warnSpy.mock.calls);
+    expect(dumped).not.toContain(ORDER_NO);
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+    expect(dumped).not.toContain(USER_A);
+  });
+
+  it("⓬ OrderStore 로 막힌 갱신 1건 → flushedNoop +1 · dropped 0 · retried 0", async () => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const row = rowWith("filled", { notice_type: "E" });
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSink(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-x", status: "accepted", noticeType: "M" });
+    await store.flushNow();
+
+    expect(store.stats()).toMatchObject({ flushed: 0, flushedNoop: 1, dropped: 0, retried: 0, queued: 0 });
+    expect(row).toMatchObject({ status: "filled", notice_type: "E" });
+  });
+
+  it("⓭ status 없는 갱신(filled_qty 만)은 쿼리 모양이 이전과 같다 — in 필터도 select 도 없고 행에 반영된다", async () => {
+    const row = rowWith("filled");
+    const { supabase, queries } = fakeDmaOrders([row]);
+
+    const result = await supabaseOrderSink(supabase)(
+      { column: "id", value: "row-x" },
+      { filled_qty: 10, updated_at: new Date().toISOString() },
+    );
+
+    expect(result).toBeUndefined();
+    expect(queries[0]?.filters).toEqual([{ op: "eq", column: "id", value: "row-x" }]);
+    expect(queries[0]?.selected).toBeUndefined();
+    expect(row.filled_qty).toBe(10);
+  });
+
+  it("⓮ 23505 재시도에도 같은 status in 필터가 걸린다 — 나머지 필드는 반영된다", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const manual: FakeRow = { id: "row-manual", user_id: USER_A, order_no: "", created_at: todayIso(), status: "requested" };
+    const { supabase, queries } = fakeDmaOrders([...fixtureRows(), manual]);
+
+    await supabaseOrderSink(supabase)(
+      { column: "id", value: "row-manual" },
+      { order_no: ORDER_NO, status: "accepted", notice_type: "A", updated_at: new Date().toISOString() },
+    );
+
+    expect(queries.map((q) => q.verb)).toEqual(["update", "update"]);
+    const statusFilterOf = (i: number) => queries[i]?.filters.find((f) => f.op === "in");
+    expect(statusFilterOf(0)).toEqual({ op: "in", column: "status", value: ["requested", "timeout", "accepted"] });
+    expect(statusFilterOf(1)).toEqual(statusFilterOf(0));
+    expect(manual).toMatchObject({ status: "accepted", notice_type: "A", order_no: "" });
+  });
+
+  it("⓮-b 23505 재시도가 가드에 막히면 {applied:false} — 「나머지 반영」 로그를 남기지 않는다", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const manual: FakeRow = { id: "row-manual", user_id: USER_A, order_no: "", created_at: todayIso(), status: "filled" };
+    const { supabase } = fakeDmaOrders([...fixtureRows(), manual]);
+
+    const result = await supabaseOrderSink(supabase)(
+      { column: "id", value: "row-manual" },
+      { order_no: ORDER_NO, status: "accepted", notice_type: "M", updated_at: new Date().toISOString() },
+    );
+
+    expect(result).toEqual({ applied: false });
+    expect(manual).toMatchObject({ status: "filled", order_no: "" });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("나머지 필드는 반영했다");
+  });
+
+  it("⓯ 과차단 대조군 — 접수 A 로 accepted 인 행에 정정확인 M(accepted) 은 반영되어 notice_type 이 M 이 된다", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const row = rowWith("accepted", { notice_type: "A" });
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSink(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-x", status: "accepted", noticeType: "M" });
+    await store.flushNow();
+
+    expect(row).toMatchObject({ status: "accepted", notice_type: "M" });
+    expect(store.stats()).toMatchObject({ flushed: 1, flushedNoop: 0 });
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});

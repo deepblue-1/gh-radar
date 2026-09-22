@@ -482,6 +482,13 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 구 게이트웨이가 `origin` 을 비워 보내면 `toOrderOrigin` 이 `"manual"` 로 좁히므로 자동주문도
    * 이 길로 온다 — 그것은 와이어에 정보가 없는 것이라 relay 가 메울 수 없다(envelope.ts 가
    * 같은 이유를 적어 둔다).
+   *
+   * **늦은 확인 통보도 이 분기로 온다 (Phase 18 Plan 33 / R3-WR-01).** 예: 체결 E(Modify)가
+   * 정정 대기를 먼저 정산한 뒤 도착한 정정확인 M 은 대기가 없어 여기로 떨어지고, 조회가 이미
+   * 체결로 진행된 행(정정 행 또는 원주문 행)을 찾는다. 그 행을 「접수」 로 되돌리지 않는 규칙은
+   * 여기가 아니라 갱신 sink 의 **상태 단조성**(`replaceableStatusesOf` → `supabaseOrderSink` 의
+   * 조건부 `status` 필터)이 UPDATE 한 문장 안에서 원자적으로 지킨다. 그래서 이 함수는 기존 행의
+   * 상태를 읽지 않는다 — 읽고 판정하면 큐(200ms)에 먼저 들어가 아직 반영되지 않은 갱신과 경합한다.
    */
   async function recordUnmatched(userId: string, notice: ParsedOrderResp): Promise<void> {
     const patch = patchOf(notice);
