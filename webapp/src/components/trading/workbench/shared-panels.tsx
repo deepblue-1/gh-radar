@@ -36,12 +36,23 @@
  *   를 준다. 바가 DOM 에 아직 없거나 잴 수 없으면 보수적 기본값(`DIRTY_BAR_FALLBACK_PX`)이다.
  *   ★ 겹침 0 의 **실측**은 18-13 Playwright `boundingBox()` 가 맡는다 — jsdom 은 레이아웃이 없다.
  *
+ * ⑤-b ★ 폰 밴드는 `sticky` 가 아니라 **`document.body` 포털 + `fixed`** 다 (18-13 실측)
+ *   `sticky bottom-0` 은 한 번도 붙지 않았다 — 앱 셸 `main` 이 `overflow-auto` 라 sticky 의 스크롤
+ *   컨테이너가 되는데, 정작 스크롤하는 것은 창이고 `main` 은 높이 제한이 없어 스크롤하지 않는다.
+ *   패널은 페이지 끝 일반 흐름에 놓였고, 펼친 채 중간에서 더티를 만들면 바가 패널을 덮었다.
+ *   앱 셸을 고치면 종목상세 탭 바 같은 다른 sticky 가 한꺼번에 살아나므로 여기서 푼다.
+ *   `wb` 컨테이너는 layout containment 라 그 안의 `fixed` 는 뷰포트가 아니라 `wb` 에 붙는다 —
+ *   더티 바와 같은 이유로 body 로 포털한다. 일반 흐름에는 **같은 높이의 자리(spacer)** 를 남겨
+ *   페이지 끝 콘텐츠가 패널 밑에 묻히지 않게 한다(sticky 가 페이지 끝에서 하던 일).
+ *   폰 밴드 판정은 작업대가 `wb` 폭으로 내려 준다(`phoneBand`). 판정 전(`null`)은 흐름 안이다.
+ *
  * ⑥ 로딩 스피너가 없다 (E13 loading)
  *   미체결·잔고는 인증 직후 relay 스냅샷으로 채워진다(push). 스냅샷 전은 빈 문구이고, 목록 자체의
  *   로드 실패 경로는 없다.
  */
 
 import { useCallback, useId, useLayoutEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CSSProperties } from 'react';
 import type { RelayAccountState, RelayOrderResultMsg, RelayUnfilled } from '@gh-radar/shared';
 
@@ -79,6 +90,11 @@ export interface SharedPanelsProps {
   /** 종목별 현재가 — 모르는 종목은 `undefined`(평가손익 「—」). */
   priceOf?: (isin: string) => number | undefined;
   onCancelSubmitted?: (res: RelayOrderResultMsg) => void;
+  /**
+   * 페이지(`wb`)가 폰 밴드인가 — 작업대의 `wb` 폭 판정을 그대로 받는다(⑤-b).
+   * `true` 면 body 포털 `fixed` 바 + 흐름 안 자리, `false`/`null`(판정 전)/생략이면 흐름 안 섹션이다.
+   */
+  phoneBand?: boolean | null;
   className?: string;
 }
 
@@ -128,6 +144,7 @@ export function SharedPanels({
   originOf,
   priceOf,
   onCancelSubmitted,
+  phoneBand,
   className,
 }: SharedPanelsProps) {
   const [tab, setTab] = useState<SharedTab>('unfilled');
@@ -147,8 +164,15 @@ export function SharedPanels({
     [onSelectUnfilled, selectedOrderNo],
   );
 
+  const pinned = phoneBand === true;
+  const panelHeight = usePanelHeight(pinned);
+
+  /*
+    흐름 안(≥700 · 판정 전): `bottom`(폰 sticky 잔재 — 판정 전 첫 페인트) + `margin-bottom`(페이지
+    끝 여백). 포털(폰): `bottom` 만 — 여백은 흐름 안 자리가 대신 갖는다(⑤-b).
+  */
   const reserveStyle: CSSProperties | undefined =
-    reserve === null ? undefined : { bottom: reserve, marginBottom: reserve };
+    reserve === null ? undefined : pinned ? { bottom: reserve } : { bottom: reserve, marginBottom: reserve };
 
   const embedProps = {
     selectedAccountNo: accountNo,
@@ -158,18 +182,24 @@ export function SharedPanels({
     onCancelSubmitted,
   } as const;
 
-  return (
+  const section = (
     <section
+      ref={panelHeight.ref}
       data-testid="shared-panels"
       aria-label="미체결 · 잔고 · 전략 로그"
       data-dirty-reserve={reserve === null ? undefined : 'true'}
       style={reserveStyle}
       className={cn(
         'min-w-0 border border-[var(--border)] bg-[var(--card)]',
-        // 폰 밴드(<700) — 하단 sticky 접이식 바. 레이어는 z-20 이 상한이다(⑤).
-        'sticky bottom-0 z-20 rounded-t-[var(--r-lg)] border-b-0 shadow-[0_-8px_24px_oklch(0_0_0/0.10)]',
-        // wb ≥700 — 격자 아래 일반 섹션.
-        '@min-[700px]/wb:static @min-[700px]/wb:z-auto @min-[700px]/wb:rounded-[var(--r-lg)] @min-[700px]/wb:border-b @min-[700px]/wb:shadow-none',
+        pinned
+          ? // 폰 밴드(<700) — 뷰포트 하단에 붙는 접이식 바(⑤-b). 레이어는 z-20 이 상한이다(⑤).
+            'fixed inset-x-0 bottom-0 z-20 rounded-t-[var(--r-lg)] border-b-0 shadow-[0_-8px_24px_oklch(0_0_0/0.10)]'
+          : cn(
+              // 판정 전 첫 페인트 — 폰 모양(sticky)을 CSS 가 받친다. 판정이 나면 위 갈래가 정본이다.
+              'sticky bottom-0 z-20 rounded-t-[var(--r-lg)] border-b-0 shadow-[0_-8px_24px_oklch(0_0_0/0.10)]',
+              // wb ≥700 — 격자 아래 일반 섹션.
+              '@min-[700px]/wb:static @min-[700px]/wb:z-auto @min-[700px]/wb:rounded-[var(--r-lg)] @min-[700px]/wb:border-b @min-[700px]/wb:shadow-none',
+            ),
         className,
       )}
     >
@@ -234,4 +264,39 @@ export function SharedPanels({
       </Tabs>
     </section>
   );
+
+  if (!pinned || typeof document === 'undefined') return section;
+  return (
+    <>
+      {/* 흐름 안 자리 — 패널 실측 높이 + 더티 바 예약. 페이지 끝이 패널 밑에 묻히지 않게(⑤-b). */}
+      <div
+        aria-hidden="true"
+        data-slot="shared-panels-spacer"
+        style={{ height: panelHeight.value + (reserve ?? 0) }}
+      />
+      {createPortal(section, document.body)}
+    </>
+  );
+}
+
+/** 포털된 패널의 실측 높이(펼침/접힘·탭 전환마다 바뀐다). 포털이 아닐 때는 재지 않는다. */
+function usePanelHeight(active: boolean): { ref: (el: HTMLElement | null) => void; value: number } {
+  const [value, setValue] = useState(0);
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const ref = useCallback((node: HTMLElement | null) => setEl(node), []);
+
+  useLayoutEffect(() => {
+    if (!active || el === null) {
+      setValue(0);
+      return;
+    }
+    const measure = () => setValue(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [active, el]);
+
+  return { ref, value };
 }

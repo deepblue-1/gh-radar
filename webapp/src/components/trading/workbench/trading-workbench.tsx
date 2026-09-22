@@ -564,6 +564,7 @@ function WorkbenchSurface() {
         onSelectUnfilled={selectUnfilled}
         dirtyBarVisible={cardDirtySum > 0}
         priceOf={priceOf}
+        phoneBand={phoneBand}
       />
 
       <StockInfoModal
