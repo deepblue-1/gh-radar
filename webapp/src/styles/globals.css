@@ -363,10 +363,17 @@ html[lang="ko"] {
 /* ─────────────────────────────────────────────────────────────
    §3.3 Table — hairline row divider, thead bg, row-h
    ───────────────────────────────────────────────────────────── */
+/*
+  ★ `overflow-x: auto` 다 — `hidden` 이 아니다 (18-13 Playwright 실측).
+    이 규칙은 레이어 밖이라 `Table` 컨테이너의 Tailwind `overflow-x-auto`(utilities 레이어)를 **이긴다**.
+    `hidden` 이던 시절에는 좁은 폭에서 표가 스크롤이 아니라 **조용히 잘렸다** — 작업대 폰 밴드 VI 발동 표가
+    132px 잘린 채 「가로 스크롤이 있다」는 주석만 믿고 지나갔다. `auto` 도 모서리 둥글림 안으로 자르므로
+    thead 배경이 모서리를 넘지 않는 원래 목적은 그대로다.
+*/
 .tbl-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  overflow: hidden;
+  overflow-x: auto;
 }
 .tbl-wrap thead th {
   background: var(--muted);
