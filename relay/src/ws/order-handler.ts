@@ -193,8 +193,19 @@ export type PendingOrder = {
    * 이름은 Phase 16 의 것(취소만 있던 시절)을 유지한다 — `narrowPending` 과 테스트 전반이 이
    * 축을 쓰고, 의미는 「원주문번호 축으로 매칭되는 대기」 하나로 같다. 정정(Phase 18 D-21)도
    * 원주문번호를 실어 오는 통보(정정확인 "M")로 정산되므로 여기에 `true` 로 합류한다.
+   *
+   * ⚠️ **요청 종류는 `kind` 가 정본이다** (WR-03). 이 플래그는 「원주문 참조 여부」만 말한다 —
+   * 취소와 정정이 둘 다 `true` 라, 이것만으로 가르면 같은 원주문의 취소·정정 대기가 한 묶음이
+   * 되어 서로의 통보로 정산된다.
    */
   isCancel: boolean;
+  /**
+   * 이 대기의 **요청 종류** — `handle` 의 `kind` 그대로다 ("N" 신규 · "M" 정정 · "C" 취소, WR-03).
+   *
+   * `narrowPending` 의 요청 종류 하드 필터가 읽는다: 취소확인("C")→`"C"` · 정정확인("M")→`"M"` ·
+   * 체결("E")→`"N"` · 통보의 `requestKind`("New"/"Modify"/"Cancel") → 대응 종류.
+   */
+  kind: OrderType;
   /** 취소·정정 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
   orgOrderNo: string;
   timer: NodeJS.Timeout;
@@ -1035,6 +1046,8 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 선 대기만 남긴다 — 신규처럼 `false` 로 두면 정정 통보가 후보를 0건으로 만들어 실제로
       // 접수된 정정이 5초 뒤 `timeout` 으로 기록된다.
       isCancel: needsOrg,
+      // 요청 종류 원문 (WR-03). `isCancel` 은 취소·정정이 같은 값이라 둘을 가르지 못한다.
+      kind,
       orgOrderNo,
       timer,
       settle: finish,
@@ -1179,6 +1192,33 @@ export function normalizeOrderNo(raw: string): string {
 const NEW_ORDER_NOTICE_TYPES: ReadonlySet<string> = new Set(["A", "E"]);
 
 /**
+ * 통보 종류 → 그 통보가 **답일 수 있는 요청 종류** (WR-03 / D-21·D-27). **화이트리스트**다.
+ *
+ *   · "C" 취소확인 → 취소 요청 · "M" 정정확인 → 정정 요청 — 같은 원주문의 취소·정정 대기가
+ *     겹쳐도, 수량·가격이 같거나 **교차해도** 서로의 통보로 정산되지 않는다.
+ *   · "E" 체결 → 신규 요청 — 체결은 원주문의 사건이지 정정·취소 요청의 답이 아니다.
+ *     후보가 1건이어도(정정 대기 1건 앞의 원주문 체결) 정산하지 않는다.
+ *
+ * 접수("A")·거부("R")·빈 값(구 서버)·모르는 값은 **어느 요청에도** 올 수 있으므로 여기 없다 —
+ * 축을 적용하지 않는다(`NEW_ORDER_NOTICE_TYPES` 와 같은 규율, 부정 조건 금지).
+ */
+const REQUEST_KIND_BY_NOTICE_TYPE: ReadonlyMap<string, OrderType> = new Map<string, OrderType>([
+  ["C", "C"],
+  ["M", "M"],
+  ["E", "N"],
+]);
+
+/**
+ * 통보의 `requestKind`(gh-trade `OrderResp.request_kind`) → 요청 종류 (WR-03). **화이트리스트**다.
+ * 빈 값(구 서버)과 모르는 값은 축을 적용하지 않는다.
+ */
+const REQUEST_KIND_BY_WIRE: ReadonlyMap<string, OrderType> = new Map<string, OrderType>([
+  ["New", "N"],
+  ["Modify", "M"],
+  ["Cancel", "C"],
+]);
+
+/**
  * ISIN 이 일치하는 대기 후보들을 **통보가 실어 온 축으로 하나까지 좁힌다** (gap 2 / T-16-29).
  *
  * 하나로 좁히지 못하면 `null` 이다. 「가장 오래된 것」 폴백을 두지 않는 이유가 이 함수의
@@ -1194,8 +1234,8 @@ const NEW_ORDER_NOTICE_TYPES: ReadonlySet<string> = new Set(["A", "E"]);
  * 가능성이 후보를 전부 지우는 것보다 낫다.
  *
  * **그러나 그 근거의 유효 범위는 「비어 있는 축」까지다** (GC-CR-01). 통보가 **실제로 실어
- * 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` "C"/"M")은 후보 수와
- * 무관한 **하드 필터**다 — 구 서버 호환은 「비어 있는 축을 건너뛴다」였지 「실어 온 축을
+ * 온** 강한 축(비어 있지 않은 `orgOrderNo` · 취소성 `noticeType` "C"/"M" · 통보 종류·
+ * `requestKind` 가 가리키는 요청 종류(WR-03))은 후보 수와 무관한 **하드 필터**다 — 구 서버 호환은 「비어 있는 축을 건너뛴다」였지 「실어 온 축을
  * 무시한다」가 아니었다. 후보가 1건이어도 그 축과 어긋나면 정산하지 않는다.
  *
  * 그 하드 필터의 비교는 **정규화 뒤에** 한다 (R2-WR-03① / `normalizeOrderNo`). 표기 차이는
@@ -1226,13 +1266,26 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
       : candidates.filter((p) => p.isCancel && normalizeOrderNo(p.orgOrderNo) === noticeOrgNo);
   // 취소확인·정정확인은 **취소 대기**의 것이다. 신규 대기를 정산하면 살아 있는 주문이
   // 화면에 「취소됨」으로 뜨고, 사용자가 그것을 믿고 재주문하면 중복 체결이다.
-  const hard = isCancelNotice ? byOrgOrderNo.filter((p) => p.isCancel) : byOrgOrderNo;
+  const byCancelNotice = isCancelNotice ? byOrgOrderNo.filter((p) => p.isCancel) : byOrgOrderNo;
+  // 요청 종류 축 (WR-03 / D-21·D-27). `isCancel` 은 취소·정정이 같은 값이라 위 필터만으로는
+  // 같은 원주문의 취소·정정 대기가 한 묶음으로 남는다 — 그러면 수량·가격이 같을 때 둘 다
+  // timeout, 값이 교차하면 **취소확인이 정정 요청을 「취소됨」으로** 정산한다. 통보 종류와
+  // `requestKind` 가 **실어 온** 요청 종류만 하드 필터로 쓴다(둘 다 화이트리스트 — 비어 있거나
+  // 모르는 값은 축을 적용하지 않는다). 둘이 서로 다른 종류를 말하면 후보가 0건이 된다 — 모순된
+  // 통보로는 정산하지 않는 것이 GC-CR-01 이다.
+  const noticeTypeKind = REQUEST_KIND_BY_NOTICE_TYPE.get(n.noticeType) ?? null;
+  const wireRequestKind = REQUEST_KIND_BY_WIRE.get(n.requestKind) ?? null;
+  const hard = byCancelNotice.filter(
+    (p) =>
+      (noticeTypeKind === null || p.kind === noticeTypeKind) &&
+      (wireRequestKind === null || p.kind === wireRequestKind),
+  );
   // 아무것도 정산하지 않는다 — 5초 타임아웃이 이 상황의 진실이다 (Pitfall 9).
   if (hard.length === 0) {
     // 이 침묵은 일반 미매칭과 **다르다.** 바깥 통보 루프의 warn(「좁히지 못했다」)은 후보 수만
-    // 말할 뿐 원인 축을 구분하지 못하는데, 여기서는 원인이 둘 중 하나로 특정된다 —
-    // `afterOrgOrderNo === 0` 이면 **원주문번호 축**이, 그 이상인데 최종 0건이면 **취소성
-    // 통보 축**이 지운 것이다. 표기 어긋남으로 취소가 통째로 타임아웃되는 상황이 정확히
+    // 말할 뿐 원인 축을 구분하지 못하는데, 여기서는 원인이 셋 중 하나로 특정된다 —
+    // `afterOrgOrderNo === 0` 이면 **원주문번호 축**이, `afterCancelNotice === 0` 이면 **취소성
+    // 통보 축**이, 그 이상인데 최종 0건이면 **요청 종류 축**(WR-03)이 지운 것이다. 표기 어긋남으로 취소가 통째로 타임아웃되는 상황이 정확히
     // 앞의 갈래이고, 그것을 로그에서 갈라내지 못하면 실계좌에서 원인을 짚을 수 없다.
     //
     // 주문번호 **원문은 싣지 않는다** (T-16-45 — ㉑ 이 같은 규율을 잠그고 있다). 길이·적용
@@ -1246,6 +1299,11 @@ export function narrowPending(candidates: PendingOrder[], n: ParsedOrderResp): P
         orgOrderNoApplied: noticeOrgNo !== "",
         orgOrderNoLen: noticeOrgNo.length,
         cancelNoticeApplied: isCancelNotice,
+        afterCancelNotice: byCancelNotice.length,
+        // 요청 종류 축 (WR-03). 종류 기호(N/M/C)만 싣는다 — 주문번호·계좌 원문은 없다.
+        kindAxisApplied: noticeTypeKind !== null || wireRequestKind !== null,
+        noticeTypeKind,
+        requestKind: wireRequestKind,
       },
       "[WS-order] 강한 축이 후보를 전부 지웠다 — 아무것도 정산하지 않는다",
     );
