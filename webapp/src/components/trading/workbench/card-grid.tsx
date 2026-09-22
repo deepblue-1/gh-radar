@@ -63,6 +63,12 @@ export const CARD_GRID_EMPTY_BODY =
   "위 검색란에서 종목을 추가하거나, 돌파 목록의 종목을 눌러 시작하세요.";
 
 export interface CardGridItem {
+  /**
+   * 카드 정체성(18-REVIEW WR-05) — 작업대가 만든 단조 증가 식별자. key · 호스트 노드 · 토글 id ·
+   * ✕ 뒤 포커스 순서가 전부 이 값을 쓴다. 같은 종목(ISIN) 카드가 둘일 수 있어(전략 키가 다른
+   * 등록 전략 둘) ISIN 은 정체성이 아니다.
+   */
+  id: string;
   isin: string;
   open: boolean;
 }
@@ -86,9 +92,9 @@ const COLS_CLASS: Record<TradingCols, string> = {
   3: "@min-[700px]/wb:grid-cols-[repeat(3,minmax(0,1fr))]",
 };
 
-/** 헤더 토글 id — `strategy-card.tsx` 의 `strategy-card-{ISIN}-toggle` 과 같은 규약. */
-function toggleIdOf(isin: string): string {
-  return `strategy-card-${isin.replace(/[^A-Za-z0-9_-]/g, "_")}-toggle`;
+/** 헤더 토글 id — `strategy-card.tsx` 의 `strategy-card-{카드 id}-toggle` 과 같은 규약. */
+function toggleIdOf(id: string): string {
+  return `strategy-card-${id.replace(/[^A-Za-z0-9_-]/g, "_")}-toggle`;
 }
 
 /** 렌더 순서(①) — 펼친 카드들 → 접힌 카드들. 같은 무리 안의 순서는 입력 순서다. */
@@ -121,36 +127,36 @@ export function CardGrid<T extends CardGridItem>({
   className,
 }: CardGridProps<T>) {
   const { open, folded } = renderOrderOf(cards);
-  const order = [...open, ...folded].map((c) => c.isin);
+  const order = [...open, ...folded].map((c) => c.id);
 
   /* ── ⑤ 카드별 고정 호스트 노드 + 자리표 ref 콜백 ──────────────────────── */
   const isClient = useIsClient();
   const hosts = useRef(new Map<string, HTMLDivElement>());
   /** 키의 호스트 — 렌더 중 생성이지만 Map 조회라 멱등이다. SSR 에서는 만들지 않는다. */
-  const hostOf = (isin: string): HTMLDivElement | null => {
+  const hostOf = (id: string): HTMLDivElement | null => {
     if (!isClient || typeof document === "undefined") return null;
-    let host = hosts.current.get(isin);
+    let host = hosts.current.get(id);
     if (host === undefined) {
       host = document.createElement("div");
       host.setAttribute("data-slot", "card-host");
       // Tailwind 스캔에 기대지 않는다 — 카드 `article` 이 칸의 직접 레이아웃 자식처럼 동작한다.
       host.style.display = "contents";
-      hosts.current.set(isin, host);
+      hosts.current.set(id, host);
     }
     return host;
   };
   /** 키별 **안정** ref 콜백 — 같은 자리표가 유지되는 동안 다시 불리지 않는다. */
   const placeRefs = useRef(new Map<string, (el: HTMLDivElement | null) => void>());
-  const placeRefOf = useCallback((isin: string) => {
-    let ref = placeRefs.current.get(isin);
+  const placeRefOf = useCallback((id: string) => {
+    let ref = placeRefs.current.get(id);
     if (ref === undefined) {
       ref = (el: HTMLDivElement | null) => {
         // null(자리표가 사라짐)에는 아무것도 하지 않는다 — 다음 자리표가 붙인다.
         if (el === null) return;
-        const host = hosts.current.get(isin);
+        const host = hosts.current.get(id);
         if (host !== undefined && host.parentNode !== el) el.appendChild(host);
       };
-      placeRefs.current.set(isin, ref);
+      placeRefs.current.set(id, ref);
     }
     return ref;
   }, []);
@@ -158,11 +164,11 @@ export function CardGrid<T extends CardGridItem>({
   // 사라진 키의 호스트를 치운다(✕ · 빈 상태). 카드 내용은 포털 언마운트로 이미 비었다.
   useLayoutEffect(() => {
     const present = new Set(cards.length === 0 ? [] : order);
-    for (const [isin, host] of hosts.current) {
-      if (present.has(isin)) continue;
+    for (const [id, host] of hosts.current) {
+      if (present.has(id)) continue;
       host.remove();
-      hosts.current.delete(isin);
-      placeRefs.current.delete(isin);
+      hosts.current.delete(id);
+      placeRefs.current.delete(id);
     }
   });
   /*
@@ -176,12 +182,12 @@ export function CardGrid<T extends CardGridItem>({
     const before = prevOrder.current;
     prevOrder.current = order;
     const present = new Set(order);
-    const removedAt = before.findIndex((isin) => !present.has(isin));
+    const removedAt = before.findIndex((id) => !present.has(id));
     if (removedAt < 0) return;
     // 사용자가 이미 다른 곳에 포커스를 두었다면 건드리지 않는다.
     const active = document.activeElement;
     if (active !== null && active !== document.body && active.isConnected) return;
-    const next = before.slice(removedAt + 1).find((isin) => present.has(isin));
+    const next = before.slice(removedAt + 1).find((id) => present.has(id));
     const target =
       next !== undefined
         ? document.getElementById(toggleIdOf(next))
@@ -226,19 +232,19 @@ export function CardGrid<T extends CardGridItem>({
         )}
       >
         {open.map((c) => (
-          <div key={c.isin} ref={placeRefOf(c.isin)} data-slot="card-cell" className="min-w-0" />
+          <div key={c.id} ref={placeRefOf(c.id)} data-slot="card-cell" className="min-w-0" />
         ))}
         {folded.length > 0 && (
           <div data-slot="card-stack" className="flex min-w-0 flex-col gap-2">
             {folded.map((c) => (
-              <div key={c.isin} ref={placeRefOf(c.isin)} data-slot="card-cell" className="min-w-0" />
+              <div key={c.id} ref={placeRefOf(c.id)} data-slot="card-cell" className="min-w-0" />
             ))}
           </div>
         )}
       </div>
       {cards.map((c) => {
-        const host = hostOf(c.isin);
-        return host === null ? null : createPortal(renderCard(c), host, c.isin);
+        const host = hostOf(c.id);
+        return host === null ? null : createPortal(renderCard(c), host, c.id);
       })}
     </>
   );

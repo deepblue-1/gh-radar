@@ -25,12 +25,13 @@ import {
 
 type Item = CardGridItem & { name: string };
 
-const card = (isin: string, open: boolean): Item => ({ isin, open, name: isin });
+/** 카드 id 는 기본으로 ISIN 과 같다 — 같은 ISIN 두 장은 `id` 를 따로 준다(WR-05). */
+const card = (isin: string, open: boolean, id: string = isin): Item => ({ id, isin, open, name: id });
 
 function renderCard(c: Item) {
   return (
-    <article data-testid="card" data-isin={c.isin} data-open={c.open ? 'true' : 'false'}>
-      <button type="button" id={`strategy-card-${c.isin}-toggle`}>
+    <article data-testid="card" data-isin={c.id} data-open={c.open ? 'true' : 'false'}>
+      <button type="button" id={`strategy-card-${c.id}-toggle`}>
         {c.name}
       </button>
     </article>
@@ -67,12 +68,12 @@ function Harness({ initial, cols = 2 }: { initial: Item[]; cols?: TradingCols })
         cols={cols}
         fallbackFocusSelector='[data-slot="stock-add-bar"] input'
         renderCard={(c) => (
-          <article data-testid="card" data-isin={c.isin}>
+          <article data-testid="card" data-isin={c.id}>
             <button
               type="button"
-              id={`strategy-card-${c.isin}-toggle`}
+              id={`strategy-card-${c.id}-toggle`}
               onClick={() =>
-                setCards((prev) => prev.map((p) => (p.isin === c.isin ? { ...p, open: !p.open } : p)))
+                setCards((prev) => prev.map((p) => (p.id === c.id ? { ...p, open: !p.open } : p)))
               }
             >
               {c.name}
@@ -80,7 +81,7 @@ function Harness({ initial, cols = 2 }: { initial: Item[]; cols?: TradingCols })
             <button
               type="button"
               aria-label={`${c.name} 카드 닫기`}
-              onClick={() => setCards((prev) => prev.filter((p) => p.isin !== c.isin))}
+              onClick={() => setCards((prev) => prev.filter((p) => p.id !== c.id))}
             >
               ✕
             </button>
@@ -255,8 +256,8 @@ function StatefulCard({ isin, onToggle }: { isin: string; onToggle: (isin: strin
 function StatefulHarness({ initial }: { initial: Item[] }) {
   const [cards, setCards] = useState(initial);
   const [cols, setCols] = useState<TradingCols>(1);
-  const toggle = (isin: string) =>
-    setCards((prev) => prev.map((p) => (p.isin === isin ? { ...p, open: !p.open } : p)));
+  const toggle = (id: string) =>
+    setCards((prev) => prev.map((p) => (p.id === id ? { ...p, open: !p.open } : p)));
   return (
     <>
       <button type="button" onClick={() => setCols((c) => ((c % 3) + 1) as TradingCols)}>
@@ -265,7 +266,7 @@ function StatefulHarness({ initial }: { initial: Item[] }) {
       <CardGrid
         cards={cards}
         cols={cols}
-        renderCard={(c) => <StatefulCard isin={c.isin} onToggle={toggle} />}
+        renderCard={(c) => <StatefulCard isin={c.id} onToggle={toggle} />}
       />
     </>
   );
@@ -316,5 +317,30 @@ describe('CardGrid — WR-02 — 접기/펴기·단 수 변경에 마운트 유�
     fireEvent.click(screen.getByRole('button', { name: '단 수' }));
     expect(grid()!.getAttribute('data-cols')).toBe('3');
     for (const isin of ['A', 'B', 'C']) expect(mounts.get(isin)).toBe(1);
+  });
+
+  it('같은 isin 두 장(id 다름)이 둘 다 그려지고 호스트를 공유하지 않는다 — 한쪽을 접어도 다른 쪽은 그대로 (WR-05)', () => {
+    render(
+      <StatefulHarness
+        initial={[card('KR7086520004', true, 'wb-card-1'), card('KR7086520004', true, 'wb-card-2')]}
+      />,
+    );
+    const hosts = document.querySelectorAll('[data-slot="card-host"]');
+    expect(hosts).toHaveLength(2);
+    const a = statefulOf('wb-card-1');
+    const b = statefulOf('wb-card-2');
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a.parentElement).not.toBe(b.parentElement);
+
+    fireEvent.click(screen.getByRole('button', { name: 'wb-card-1 올리기' }));
+    fireEvent.click(screen.getByRole('button', { name: 'wb-card-1 토글' }));
+    expect(stack()!.contains(statefulOf('wb-card-1'))).toBe(true);
+    expect(stack()!.contains(statefulOf('wb-card-2'))).toBe(false);
+    expect(statefulOf('wb-card-1')).toBe(a);
+    expect(countOf('wb-card-1')).toBe('1');
+    expect(countOf('wb-card-2')).toBe('0');
+    expect(mounts.get('wb-card-1')).toBe(1);
+    expect(mounts.get('wb-card-2')).toBe(1);
   });
 });

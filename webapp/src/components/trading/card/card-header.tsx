@@ -55,6 +55,11 @@ const KRW = new Intl.NumberFormat("ko-KR");
 export interface CardHeaderProps {
   /** 표시 종목명. 모르면 호출부가 ISIN 을 넣는다(파일 밖 규약 — `app-sidebar` 와 같다). */
   name: string;
+  /**
+   * 종목명 요소의 `title`(UI-SPEC Q-3) — 같은 종목 카드가 둘일 때 「{종목명} · 계좌 {계좌} · {거래소}」
+   * 로 어느 전략인지 말한다. 미지정이면 `name`.
+   */
+  nameTitle?: string;
   /** 6자 단축코드. 모르면 `null` — 그때는 코드 조각을 그리지 않고 ⓘ 가 비활성이다(D-30). */
   code: string | null;
   exchange: RelayExchange;
@@ -90,6 +95,7 @@ function toneOf(rate: number | null): string {
 
 export function CardHeader({
   name,
+  nameTitle,
   code,
   exchange,
   onExchangeChange,
@@ -165,7 +171,7 @@ export function CardHeader({
           <span className="flex min-w-0 flex-col items-start gap-0 leading-[1.15] @min-[700px]/lc:flex-row @min-[700px]/lc:items-baseline @min-[700px]/lc:gap-1.5 @min-[700px]/lc:leading-normal">
             <b
               data-part="name"
-              title={name}
+              title={nameTitle ?? name}
               className="max-w-full min-w-0 truncate text-[15px] font-bold text-[var(--fg)]"
             >
               {name}

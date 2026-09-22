@@ -158,6 +158,7 @@ const noop = () => {};
 function Card() {
   return (
     <StrategyCard
+      cardId="wb-card-1"
       isin={ISIN}
       accountNo={ACCOUNT}
       exchange="KRX"

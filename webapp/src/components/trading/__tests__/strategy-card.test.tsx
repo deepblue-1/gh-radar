@@ -100,6 +100,7 @@ function relay(over: Partial<RelayContextValue> = {}): RelayContextValue {
 
 const noop = () => {};
 const baseProps: Omit<StrategyCardProps, 'isin'> = {
+  cardId: 'wb-card-1',
   accountNo: ACCOUNT,
   exchange: 'KRX',
   name: '에코프로비엠',
@@ -180,7 +181,7 @@ describe('StrategyCard', () => {
       return (
         <RelayContext.Provider value={value}>
           <StrategyCard {...baseProps} isin={ISIN_A} body={probeBody} />
-          <StrategyCard {...baseProps} isin={ISIN_B} name="다른종목" body={probeBody} />
+          <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_B} name="다른종목" body={probeBody} />
         </RelayContext.Provider>
       );
     }
@@ -220,7 +221,7 @@ describe('StrategyCard', () => {
       return (
         <RelayContext.Provider value={value}>
           <StrategyCard {...baseProps} isin={ISIN_A} body={probeBody} />
-          <StrategyCard {...baseProps} isin={ISIN_B} name="다른종목" body={probeBody} />
+          <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_B} name="다른종목" body={probeBody} />
         </RelayContext.Provider>
       );
     }
@@ -383,7 +384,7 @@ describe('StrategyCard', () => {
     expect(screen.getByRole('button', { name: '에코프로비엠우 카드 닫기' })).toBeInTheDocument();
   });
 
-  it('헤더 캐럿·✕·거래소 콜백은 자기 isin 을 실어 부모에게 알린다', () => {
+  it('헤더 캐럿·✕·거래소 콜백은 자기 cardId 를 실어 부모에게 알린다 (WR-05 — ISIN 이 아니다)', () => {
     const onToggle = vi.fn();
     const onClose = vi.fn();
     const onExchangeChange = vi.fn();
@@ -391,6 +392,7 @@ describe('StrategyCard', () => {
       <RelayContext.Provider value={relay()}>
         <StrategyCard
           {...baseProps}
+          cardId="wb-card-7"
           isin={ISIN_A}
           onToggle={onToggle}
           onClose={onClose}
@@ -401,8 +403,22 @@ describe('StrategyCard', () => {
     fireEvent.click(screen.getByRole('button', { expanded: true }));
     fireEvent.click(screen.getByRole('button', { name: '에코프로비엠 카드 닫기' }));
     fireEvent.click(screen.getByRole('radio', { name: 'NXT' }));
-    expect(onToggle).toHaveBeenCalledWith(ISIN_A);
-    expect(onClose).toHaveBeenCalledWith(ISIN_A);
-    expect(onExchangeChange).toHaveBeenCalledWith(ISIN_A, 'NXT');
+    expect(onToggle).toHaveBeenCalledWith('wb-card-7');
+    expect(onClose).toHaveBeenCalledWith('wb-card-7');
+    expect(onExchangeChange).toHaveBeenCalledWith('wb-card-7', 'NXT');
+    // DOM id 접두도 카드 id 에서 나온다 — 같은 종목 카드 둘이 id 를 공유하지 않는다.
+    expect(document.getElementById('strategy-card-wb-card-7-toggle')).not.toBeNull();
+    expect(document.getElementById('strategy-card-wb-card-7-body')).not.toBeNull();
+  });
+
+  it('종목명 title 이 「{종목명} · 계좌 {계좌} · {거래소}」 를 말한다 (UI-SPEC Q-3 · 보이는 글자는 종목명뿐)', () => {
+    render(
+      <RelayContext.Provider value={relay()}>
+        <StrategyCard {...baseProps} isin={ISIN_A} exchange="NXT" />
+      </RelayContext.Provider>,
+    );
+    const nameEl = document.querySelector('[data-part="name"]') as HTMLElement;
+    expect(nameEl.getAttribute('title')).toBe(`에코프로비엠 · 계좌 ${ACCOUNT} · NXT`);
+    expect(nameEl.textContent).toBe('에코프로비엠');
   });
 });

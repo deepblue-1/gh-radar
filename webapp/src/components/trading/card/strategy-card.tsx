@@ -33,7 +33,8 @@
  *   카드는 `useIsinLabels()` 의 Map 을 구독하지 않는다 — 계좌 델타가 100ms 마다 오면 Map 이
  *   매번 새로 만들어져 카드 N개가 전부 재렌더된다. 부모가 `labels.get(isin)` 결과 **문자열**만
  *   `name`/`code` 로 내리고, 카드는 `memo` 라 문자열이 같으면 다시 그리지 않는다. 콜백 prop 은
- *   `isin` 을 인자로 받으므로 부모가 카드마다 새 클로저를 만들 필요가 없다.
+ *   `cardId`(작업대 카드 정체성 · WR-05) 를 인자로 받으므로 부모가 카드마다 새 클로저를 만들 필요가
+ *   없다.
  *
  * ⑤ 본문(좌 호가 | 우 옵션 4그룹)은 18-10 `card-body.tsx` 가 채운다
  *   여기서는 헤더 + 종목정보 10칸까지만 조립하고, 본문 자리는 `body` 렌더 prop 이다 — 카드
@@ -566,6 +567,12 @@ export function useStrategyCardState({
 }
 
 export interface StrategyCardProps {
+  /**
+   * 카드 정체성(18-REVIEW WR-05) — 작업대가 만든 식별자. 콜백 첫 인자와 DOM id 접두가 이 값이다.
+   * 같은 종목 카드가 둘(전략 키가 다른 등록 전략 둘)일 수 있어 ISIN 은 정체성이 아니다. 구독·에코
+   * 필터는 여전히 `isin`/전략 키다(③).
+   */
+  cardId: string;
   isin: string;
   /** 위(작업대 상태줄)에서 내려받은 계좌. */
   accountNo: string;
@@ -579,18 +586,18 @@ export interface StrategyCardProps {
   /** 6자 단축코드. 모르면 `null`(ⓘ 비활성 · D-30). */
   code: string | null;
   open: boolean;
-  /** 콜백은 전부 `isin` 을 받는다 — 부모가 카드마다 새 클로저를 만들지 않게(④). */
-  onToggle: (isin: string) => void;
-  onClose: (isin: string) => void;
-  onExchangeChange: (isin: string, exchange: RelayExchange) => void;
-  onInfo?: (isin: string) => void;
+  /** 콜백은 전부 `cardId` 를 받는다 — 부모가 카드마다 새 클로저를 만들지 않게(④). */
+  onToggle: (cardId: string) => void;
+  onClose: (cardId: string) => void;
+  onExchangeChange: (cardId: string, exchange: RelayExchange) => void;
+  onInfo?: (cardId: string) => void;
   /** 더티 필드 수 보고 — 작업대가 합산해 이탈 경고를 **한 곳에서** 건다(카드마다 걸지 않는다). */
-  onDirtyCountChange?: (isin: string, count: number) => void;
+  onDirtyCountChange?: (cardId: string, count: number) => void;
   /**
    * 이 카드의 전략 로그 보고(18-11) — 작업대 공용 패널 「전략 로그」 탭이 전 종목 로그를 한 목록으로
    * 합친다. 로그 **판정·생성**은 여전히 카드 훅 한 곳이고, 작업대는 받은 줄을 합쳐 보여주기만 한다.
    */
-  onLogChange?: (isin: string, log: readonly StrategyLogEntry[]) => void;
+  onLogChange?: (cardId: string, log: readonly StrategyLogEntry[]) => void;
   /**
    * 본문 자리(⑤) — 18-10 `card-body.tsx` 가 채운다. 한 번이라도 펼친 뒤로 불린다(접히면 숨김 유지 ·
    * WR-02). 한 번도 펼친 적 없는 카드에서는 불리지 않는다.
@@ -598,12 +605,13 @@ export interface StrategyCardProps {
   body?: (card: StrategyCardState) => ReactNode;
 }
 
-/** DOM id 에 쓸 수 있는 조각만 남긴다(ISIN 은 영숫자라 사실상 그대로다). */
+/** DOM id 에 쓸 수 있는 조각만 남긴다(카드 id 는 영숫자·하이픈이라 사실상 그대로다). */
 function domSafe(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 function StrategyCardImpl({
+  cardId,
   isin,
   accountNo,
   exchange,
@@ -622,12 +630,12 @@ function StrategyCardImpl({
   const { key, server, quote, ledServer, handleArm, dirtyCount, log } = card;
 
   useEffect(() => {
-    onDirtyCountChange?.(isin, dirtyCount);
-  }, [onDirtyCountChange, isin, dirtyCount]);
+    onDirtyCountChange?.(cardId, dirtyCount);
+  }, [onDirtyCountChange, cardId, dirtyCount]);
 
   useEffect(() => {
-    onLogChange?.(isin, log);
-  }, [onLogChange, isin, log]);
+    onLogChange?.(cardId, log);
+  }, [onLogChange, cardId, log]);
 
   /*
     한 번이라도 펼친 적 있는가(WR-02) — 렌더 중 파생 갱신. `open` 이 참이 되면 참이 되고 다시 거짓이
@@ -636,18 +644,26 @@ function StrategyCardImpl({
   const [everOpened, setEverOpened] = useState(open);
   if (open && !everOpened) setEverOpened(true);
 
-  const idBase = `strategy-card-${domSafe(isin)}`;
+  const idBase = `strategy-card-${domSafe(cardId)}`;
   const toggleId = `${idBase}-toggle`;
   const bodyId = `${idBase}-body`;
   const displayName = name === "" ? isin : name;
+  /*
+    UI-SPEC Q-3 — 같은 종목 카드가 둘일 때 어느 전략인지 종목명 `title` 이 말한다. 보이는 요소는
+    더하지 않는다(거래소는 이미 세그먼트로 보인다). 계좌가 아직 없으면 계좌 조각을 뺀다.
+  */
+  const nameTitle =
+    accountNo === ""
+      ? `${displayName} · ${exchange}`
+      : `${displayName} · 계좌 ${accountNo} · ${exchange}`;
 
-  const handleToggle = useCallback(() => onToggle(isin), [onToggle, isin]);
-  const handleClose = useCallback(() => onClose(isin), [onClose, isin]);
+  const handleToggle = useCallback(() => onToggle(cardId), [onToggle, cardId]);
+  const handleClose = useCallback(() => onClose(cardId), [onClose, cardId]);
   const handleExchange = useCallback(
-    (ex: RelayExchange) => onExchangeChange(isin, ex),
-    [onExchangeChange, isin],
+    (ex: RelayExchange) => onExchangeChange(cardId, ex),
+    [onExchangeChange, cardId],
   );
-  const handleInfo = useCallback(() => onInfo?.(isin), [onInfo, isin]);
+  const handleInfo = useCallback(() => onInfo?.(cardId), [onInfo, cardId]);
 
   return (
     <article
@@ -665,6 +681,7 @@ function StrategyCardImpl({
     >
       <CardHeader
         name={displayName}
+        nameTitle={nameTitle}
         code={code}
         exchange={exchange}
         onExchangeChange={handleExchange}
@@ -747,7 +764,7 @@ function CardNotices({ card }: { card: StrategyCardState }) {
 }
 
 /**
- * ④ `memo` — 부모가 넘기는 것은 문자열·불리언·`isin` 을 받는 안정 콜백뿐이라 얕은 비교로
+ * ④ `memo` — 부모가 넘기는 것은 문자열·불리언·`cardId` 를 받는 안정 콜백뿐이라 얕은 비교로
  * 충분하다. 라벨 Map 이 새 인스턴스가 돼도 `name`/`code` 문자열이 같으면 다시 그리지 않는다.
  * (relay 컨텍스트가 바뀌면 훅이 구독하므로 그때는 당연히 다시 그린다.)
  */
