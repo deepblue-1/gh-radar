@@ -55,6 +55,13 @@
  *   ★ 잠그지 않는다 — 계좌가 다를 때 줄을 잠그면 **중지**도 막혀 무인 매수를 끄려면 상태줄부터
  *     바꿔야 한다. 정본 계좌로 보내면 옮겨지는 것 자체가 없고, 줄 아래 `role="status"` 한 줄이
  *     「어느 계좌의 VI 인지」를 말한다. 같으면 아무것도 그리지 않는다(D-05 평상시 그대로).
+ *   ★ 중지 상태에서만 명시 동작으로 옮긴다 (GC-WR-04 · 사용자 결정 2026-09-22). 등록 줄이
+ *     **중지**(`run:false`)이고 등록 계좌 B 가 상태줄 계좌 A 와 다를 때만, 고지 옆에 「상태줄
+ *     계좌({A})로 옮겨 시작」 이 붙는다. 누르면 시작 확인 창의 「계좌」 줄이 「B → A」 를 말하고,
+ *     확정하면 같은 거래소 슬롯에 `vi.set{accountNo:A, run:true}` 가 **한 번** 나간다(삭제·재등록
+ *     경로는 없다). 가동 중에는 버튼이 없고(DOM 부재) `submit` 도 계좌 지정 송신을 막는다 — 두 겹.
+ *     확정 직전 `viMoveTargetOf` 를 다시 계산해 창을 연 때의 B → A 와 다르면 아무것도 보내지 않는다.
+ *     일반 스위치 시작·「수정」 은 여전히 B 다 — 계좌 이동은 이 동작 하나뿐이다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -136,6 +143,26 @@ export function viRowAccountOf(
   if (registered === null) return { accountNo: statusAccountNo, differs: false };
   return { accountNo: registered, differs: registered !== statusAccountNo };
 }
+
+/**
+ * 옮기기 대상 판정 (GC-WR-04 · 사용자 결정 2026-09-22). 등록 전략(객체 ∧ `accountNo` 공란 아님)
+ * ∧ **중지**(`run === false`) ∧ 상태줄 계좌 공란 아님 ∧ 등록 계좌 ≠ 상태줄 계좌일 때만
+ * `{from: 등록 계좌, to: 상태줄 계좌}`, 아니면 `null`.
+ *   ★ 가동 중에는 절대 옮기지 않는다 — 무인 매수가 도는 중에 계좌가 바뀌면 실돈 오계좌다(CR-02).
+ *   ★ 옮기기는 명시 동작 하나다 — 「수정」·일반 스위치 시작은 이 판정을 읽지 않는다.
+ */
+export function viMoveTargetOf(
+  server: RelayViTrigger | null | undefined,
+  statusAccountNo: string,
+): { from: string; to: string } | null {
+  if (server == null || server.accountNo === '') return null;
+  if (server.run !== false) return null;
+  if (statusAccountNo === '' || server.accountNo === statusAccountNo) return null;
+  return { from: server.accountNo, to: statusAccountNo };
+}
+
+/** 옮기기 창을 연 뒤 상태(가동·등록 계좌·상태줄 계좌)가 바뀌어 보내지 않았을 때 (T-18-118). */
+export const VI_MOVE_STALE_TEXT = '계좌 상태가 바뀌었어요 — 다시 확인해 주세요';
 
 /** 「다른 단말에서 변경됨」 고지를 두는 시간(ms). 기존 VI 화면 에코 배너와 같은 6초다. */
 const VI_ECHO_NOTICE_MS = 6_000;
@@ -311,10 +338,12 @@ function ViSettingsRow({
 
   /* ── 계좌 정본 (⑨) — 잠금·송신·확인 요약·고지가 이 한 값을 읽는다 ── */
   const { accountNo: rowAccountNo, differs: accountDiffers } = viRowAccountOf(server, accountNo);
-  /** 정본 계좌의 이름 — 상태줄 이름(prop)을 다른 계좌 번호 옆에 붙이지 않는다. */
-  const rowAccountName =
-    accounts.find((a) => a.accountNo === rowAccountNo)?.name ??
-    (rowAccountNo === accountNo ? accountName : undefined);
+  /** 계좌 이름 — 세션 목록에서 찾고, 상태줄 이름(prop)은 상태줄 계좌 번호 옆에만 붙인다. */
+  const accountNameOf = (no: string) =>
+    accounts.find((a) => a.accountNo === no)?.name ?? (no === accountNo ? accountName : undefined);
+  const rowAccountName = accountNameOf(rowAccountNo);
+  /** 옮기기 대상(GC-WR-04) — 중지 ∧ 계좌 다름일 때만 null 이 아니다. */
+  const moveTarget = viMoveTargetOf(server, accountNo);
 
   const [form, setForm] = useState<ViRowForm>(DEFAULT_FORM);
   /** 더티 기준선. 미등록이면 마지막 확정 표시값이다 — 비워 두면 첫 렌더부터 더티가 뜬다. */
@@ -417,8 +446,13 @@ function ViSettingsRow({
 
   /* ── 전송 ── */
   const submit = useCallback(
-    (nextRun: boolean): ViSubmitResult => {
+    /**
+     * `accountOverride` 는 옮기기 확정(GC-WR-04)만 넘긴다. 그 순간 가동 중이면 보내지 않는다 —
+     * 버튼 부재에 이은 **두 번째 겹**이다(가동 중 계좌 이전 금지 · CR-02).
+     */
+    (nextRun: boolean, accountOverride?: string): ViSubmitResult => {
       if (locked) return 'blocked';
+      if (accountOverride !== undefined && (server?.run === true || accountOverride === '')) return 'blocked';
       if (submittingRef.current) return 'blocked'; // 두 번째 등록을 만들지 않는다
       if (form.checkRate === null || form.amountManwon === null) return 'blocked';
       // 금액 상한 가드 (WR-07 / T-16-41) — 에코발 상한 초과 값을 그대로 보내지 않는다.
@@ -429,7 +463,8 @@ function ViSettingsRow({
       const msg: RelayViSetMsg = {
         t: 'vi.set',
         // ★ 정본 계좌(⑨) — 등록된 전략을 상태줄 계좌로 옮기지 않는다(CR-02).
-        accountNo: rowAccountNo,
+        //   예외는 옮기기 확정의 `accountOverride` 하나다(GC-WR-04 · 중지 상태만).
+        accountNo: accountOverride ?? rowAccountNo,
         // ★ 줄의 거래소를 **명시**한다(②). 생략하면 relay 가 KRX 로 접는다.
         exchange,
         orderAmountKrw: manwonToKrw(form.amountManwon),
@@ -455,12 +490,17 @@ function ViSettingsRow({
       }, VI_ACK_TIMEOUT_MS);
       return 'sent';
     },
-    [rowAccountNo, exchange, form, locked, onSent, send, unlock],
+    [rowAccountNo, exchange, form, locked, onSent, send, unlock, server],
   );
 
   /* ── 확인 다이얼로그 (④) ── */
   const [confirmKind, setConfirmKind] = useState<'start' | 'stop' | null>(null);
   const [dialogError, setDialogError] = useState('');
+  /**
+   * 옮기기 확인 스냅샷(GC-WR-04) — 창을 연 순간의 B → A. 요약과 송신 계좌가 이 한 값에서 나온다.
+   * `null` 이면 일반 시작/중지다.
+   */
+  const [moveSnapshot, setMoveSnapshot] = useState<{ from: string; to: string } | null>(null);
 
   const fixDescId = `vi-${ex}-fix-desc`;
 
@@ -482,6 +522,7 @@ function ViSettingsRow({
             disabled={locked || submitting}
             onClick={() => {
               setDialogError('');
+              setMoveSnapshot(null);
               setConfirmKind(run ? 'stop' : 'start');
             }}
           />
@@ -549,9 +590,32 @@ function ViSettingsRow({
         </p>
       )}
       {accountDiffers && (
-        <p role="status" data-slot="vi-row-account" className="m-0 px-2.5 text-[11px] break-keep text-[var(--muted-fg)]">
-          {viRegisteredAccountText(rowAccountNo, rowAccountName)}
-        </p>
+        /* 고지 + (중지일 때만) 옮기기 — 좁은 폭에서는 버튼이 고지 아래 줄로 내려간다(목업 1-a). */
+        <div data-slot="vi-row-account-box" className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 px-2.5">
+          <p
+            role="status"
+            data-slot="vi-row-account"
+            className="m-0 min-w-0 flex-[1_1_220px] text-[11px] break-keep text-[var(--muted-fg)]"
+          >
+            {viRegisteredAccountText(rowAccountNo, rowAccountName)}
+          </p>
+          {moveTarget !== null && (
+            /* 테두리형 — 채움(`--up`)은 확인 창의 「시작」 하나다(⑧). 크기 축은 「수정」 과 같다. */
+            <button
+              type="button"
+              data-slot="vi-row-move"
+              disabled={locked || submitting || blank || amountOverLimit}
+              onClick={() => {
+                setDialogError('');
+                setMoveSnapshot(moveTarget);
+                setConfirmKind('start');
+              }}
+              className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              상태줄 계좌({moveTarget.to})로 옮겨 시작
+            </button>
+          )}
+        </div>
       )}
       {notice !== null && (
         <p role="status" data-slot="vi-row-echo" className="m-0 px-2.5 text-[11px] text-[var(--fg)]">
@@ -563,8 +627,14 @@ function ViSettingsRow({
         kind={confirmKind}
         exchange={exchange}
         // ★ 요약의 「계좌」 = 실제로 나갈 계좌(⑨) — 확인하는 계좌와 송신 계좌가 갈라지지 않는다.
-        accountNo={rowAccountNo}
-        accountName={rowAccountName}
+        //   옮기기면 스냅샷의 B → A 다(GC-WR-04) — 확정도 같은 스냅샷의 `to` 로 나간다.
+        accountNo={moveSnapshot?.to ?? rowAccountNo}
+        accountName={moveSnapshot !== null ? accountNameOf(moveSnapshot.to) : rowAccountName}
+        moveFrom={
+          moveSnapshot !== null
+            ? { accountNo: moveSnapshot.from, name: accountNameOf(moveSnapshot.from) }
+            : undefined
+        }
         amountManwon={form.amountManwon}
         checkRate={form.checkRate}
         todayOrderCount={todayOrderCount}
@@ -574,17 +644,31 @@ function ViSettingsRow({
           if (!open) {
             setConfirmKind(null);
             setDialogError('');
+            setMoveSnapshot(null);
           }
         }}
         onConfirm={() => {
           if (confirmKind === null) return;
-          const result = submit(confirmKind === 'start');
+          let result: ViSubmitResult;
+          if (moveSnapshot !== null) {
+            // ★ 확정 직전 재판정(T-18-118) — 창을 연 뒤 다른 단말이 시작했거나 등록 계좌·상태줄
+            //   계좌가 바뀌었으면, 요약에 보인 B → A 와 다른 이동이 나가지 않게 아무것도 보내지 않는다.
+            const now = viMoveTargetOf(server, accountNo);
+            if (now === null || now.from !== moveSnapshot.from || now.to !== moveSnapshot.to) {
+              setDialogError(VI_MOVE_STALE_TEXT);
+              return;
+            }
+            result = submit(true, moveSnapshot.to);
+          } else {
+            result = submit(confirmKind === 'start');
+          }
           // 못 나갔으면 닫지 않는다 — 「창이 닫혔다」가 성공 신호로 읽힌다(GC-WR-06).
           if (result === 'failed') {
             setDialogError(VI_SET_SEND_FAILED_TEXT);
             return;
           }
           setConfirmKind(null);
+          setMoveSnapshot(null);
         }}
       />
     </div>
@@ -703,6 +787,7 @@ export function ViConfirmDialog({
   exchange,
   accountNo,
   accountName,
+  moveFrom,
   amountManwon,
   checkRate,
   todayOrderCount,
@@ -716,6 +801,11 @@ export function ViConfirmDialog({
   exchange: RelayExchange;
   accountNo: string;
   accountName?: string;
+  /**
+   * 옮기기 시작(GC-WR-04)이면 옮겨 가기 **전** 계좌. 있으면 「계좌」 줄이 「{from} → {to}」 이고
+   * `data-move="true"` 다. 제목·경고·버튼·기본 포커스는 일반 시작과 같다.
+   */
+  moveFrom?: { accountNo: string; name?: string };
   amountManwon: number | null;
   checkRate: number | null;
   todayOrderCount: number;
@@ -735,6 +825,7 @@ export function ViConfirmDialog({
         showCloseButton={false}
         className="sm:max-w-sm"
         data-testid={isStart ? 'vi-start-dialog' : 'vi-stop-dialog'}
+        data-move={moveFrom !== undefined ? 'true' : undefined}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           dismissRef.current?.focus();
@@ -757,8 +848,18 @@ export function ViConfirmDialog({
         >
           {/* 「계좌」 는 시작·중지 모두 맨 앞이다 — 어느 계좌의 전략을 켜고 끄는지 말한다(CR-02). */}
           <SummaryRow label="계좌">
-            {accountNo}
-            {accountName !== undefined && accountName !== '' ? ` · ${accountName}` : ''}
+            {moveFrom !== undefined ? (
+              /* 옮기기 — 옛 계좌는 흐리게 취소선, 새 계좌는 굵게(목업 1-c `.mv`). */
+              <span data-slot="vi-confirm-move" className="inline-flex flex-wrap justify-end gap-x-1.5 gap-y-0.5">
+                <span data-slot="vi-confirm-move-from" className="font-normal text-[var(--muted-fg)] line-through decoration-1">
+                  {accountLabel(moveFrom.accountNo, moveFrom.name)}
+                </span>{' '}
+                <span>→</span>{' '}
+                <span data-slot="vi-confirm-move-to">{accountLabel(accountNo, accountName)}</span>
+              </span>
+            ) : (
+              accountLabel(accountNo, accountName)
+            )}
           </SummaryRow>
           {isStart ? (
             <>
@@ -824,6 +925,11 @@ export function ViConfirmDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** 「번호 · 이름」 — 이름이 없으면 번호만. */
+function accountLabel(accountNo: string, name?: string): string {
+  return name !== undefined && name !== '' ? `${accountNo} · ${name}` : accountNo;
 }
 
 /** 요약 한 줄. 라벨은 `--muted-fg`, 값은 mono `--fg`. */
