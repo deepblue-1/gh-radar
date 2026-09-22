@@ -246,7 +246,8 @@ function ViItem({ exchange, run }: { exchange: RelayExchange; run: boolean }) {
       data-sidebar-item={`vi-${exchange}`}
       className={cn(SUB_ITEM, LINK_IDLE)}
     >
-      <span className="min-w-0 flex-1 truncate">{exchange} VI</span>
+      {/* 글자색은 전략 항목과 같은 `--fg` — 목업 `.s3` 는 3단 항목을 한 색으로 쓴다. */}
+      <span className="min-w-0 flex-1 truncate text-[var(--fg)]">{exchange} VI</span>
       {run && <StrategyBadge badge={viBadgeOf(run)} className="ml-auto shrink-0" />}
     </Link>
   );
