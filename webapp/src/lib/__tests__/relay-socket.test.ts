@@ -41,6 +41,7 @@ import type {
   RelayAccountState,
   RelayOrderNewMsg,
   RelayQuote,
+  RelayRateCrossItem,
   RelayTape,
   RelayTapeEntry,
   RelayUnfilled,
@@ -994,5 +995,102 @@ describe('useRelayConnection — 프레임 견고성', () => {
     const messages = hook.result.current.messages;
     expect(messages[0]?.m).toBe('알림 4');
     expect(messages).toHaveLength(4);
+  });
+});
+
+describe('rate.cross 순서 — 최신 돌파가 맨 위 (사용자 결정 2026-09-22)', () => {
+  // 축은 relay `sortRateCrossNewestFirst` 와 같다: exchangeTime ↓ · 동률이면 isin ↑.
+  function crossItem(isin: string, exchangeTime: string, lastPrice = 10_000): RelayRateCrossItem {
+    return {
+      isin,
+      exchange: 'KRX',
+      lastPrice,
+      changeRate: 12.5,
+      thresholdPct: 10,
+      basePrice: 8_900,
+      exchangeTime,
+      serverTime: '09:00:00',
+    };
+  }
+  const A = 'KR7005930003';
+  const B = 'KR7000660001';
+  const C = 'KR7035720002';
+
+  function isinsOf(hook: ReturnType<typeof render>): string[] {
+    return hook.result.current.rateCrossItems.map((i) => i.isin);
+  }
+
+  it('① 78 은 서버 원순서(오름차순)와 무관하게 최신 위로 놓이고, 새 76 종목은 맨 위에 온다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({
+        t: 'rate.cross.snap',
+        items: [crossItem(A, '090100000001'), crossItem(B, '090300000003')],
+      });
+    });
+    expect(isinsOf(hook)).toEqual([B, A]);
+
+    await act(async () => {
+      ws.push({ t: 'rate.cross', item: crossItem(C, '090500000005') });
+    });
+    expect(isinsOf(hook)).toEqual([C, B, A]);
+  });
+
+  it('② 같은 isin+exchange · 같은 exchangeTime 의 76(구간 안 갱신)은 자리를 지키고 값만 바뀐다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({
+        t: 'rate.cross.snap',
+        items: [
+          crossItem(A, '090100000001'),
+          crossItem(B, '090300000003'),
+          crossItem(C, '090500000005'),
+        ],
+      });
+    });
+    expect(isinsOf(hook)).toEqual([C, B, A]);
+
+    // 가운데 원소 B 의 구간 안 갱신 — exchangeTime 은 구간을 연 시각이라 그대로다.
+    await act(async () => {
+      ws.push({ t: 'rate.cross', item: crossItem(B, '090300000003', 11_500) });
+    });
+    expect(isinsOf(hook)).toEqual([C, B, A]);
+    expect(hook.result.current.rateCrossItems[1]?.lastPrice).toBe(11_500);
+  });
+
+  it('③ 같은 종목의 더 늦은 exchangeTime(이탈 후 재돌파 = 새 구간)은 맨 위로 오른다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({
+        t: 'rate.cross.snap',
+        items: [crossItem(A, '090100000001'), crossItem(B, '090300000003')],
+      });
+    });
+    expect(isinsOf(hook)).toEqual([B, A]);
+
+    await act(async () => {
+      ws.push({ t: 'rate.cross', item: crossItem(A, '091000000010') });
+    });
+    expect(isinsOf(hook)).toEqual([A, B]);
+    expect(hook.result.current.rateCrossItems).toHaveLength(2);
+  });
+
+  it('④ exchangeTime 동률이면 isin 오름차순', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({
+        t: 'rate.cross.snap',
+        items: [crossItem(C, '090500000005'), crossItem(A, '090100000001'), crossItem(B, '090500000005')],
+      });
+    });
+    expect(isinsOf(hook)).toEqual([B, C, A]);
   });
 });

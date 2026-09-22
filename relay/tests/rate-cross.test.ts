@@ -264,16 +264,39 @@ describe("78 RateCrossSnapshot · 77 QueuedWindowState — 캐시 교체 규약 
     expect(cached).toHaveLength(3);
     // 병합(upsert)이면 OTHER_ISIN 이 남는다 — 전량 교체의 증거다.
     expect(cached.map((i) => i.isin)).not.toContain(OTHER_ISIN);
-    // 정렬 축은 exchangeTime ↑ · 동률이면 isin ↑.
+    // 정렬 축은 exchangeTime ↓ · 동률이면 isin ↑ — 최신 돌파가 맨 위 (사용자 결정 2026-09-22).
+    // 서버 78 원순서(오름차순)와 무관하게 relay 가 내리는 순서다.
     expect(cached.map((i) => i.exchangeTime)).toEqual([
-      "090100000001",
-      "090200000002",
       "090300000003",
+      "090200000002",
+      "090100000001",
     ]);
 
     const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
     expect(snaps).toHaveLength(1);
     expect(snaps[0]?.items).toHaveLength(3);
+    // 78 팬아웃도 캐시 getter 와 **같은 축**이다 — 브라우저가 받는 첫 순서가 최신 위.
+    expect(snaps[0]?.items.map((i) => i.exchangeTime)).toEqual([
+      "090300000003",
+      "090200000002",
+      "090100000001",
+    ]);
+  });
+
+  it("⑤-2b exchangeTime 동률 두 원소는 isin 오름차순 — getter · 78 팬아웃 같은 축", () => {
+    session.pushFrame(
+      buildRateCrossSnapshotFrame([
+        { isin: SAMPLE_ISIN, exchange: "KRX", exchangeTime: "090100000001" },
+        { isin: OTHER_ISIN, exchange: "KRX", exchangeTime: "090500000005" },
+        { isin: "KR7035720002", exchange: "KRX", exchangeTime: "090500000005" },
+      ]),
+    );
+
+    // 0905 동률 두 원소(KR7000660001 < KR7035720002) 가 먼저, 0901 이 마지막.
+    const expected = [OTHER_ISIN, "KR7035720002", SAMPLE_ISIN];
+    expect(hub.getRateCrossItems(USER_A).map((i) => i.isin)).toEqual(expected);
+    const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
+    expect(snaps[0]?.items.map((i) => i.isin)).toEqual(expected);
   });
 
   it("⑤-3 빈 벡터 78 은 캐시를 비운다 — 무시하지 않는다(「돌파 없음」의 확정 정보)", () => {
@@ -427,7 +450,10 @@ describe("76/78 돌파 항목 name/code 보강 — relay 가 SymbolMap 으로 �
 
     const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
     expect(snaps).toHaveLength(1);
-    const [known, unknown] = snaps[0]?.items ?? [];
+    // 순서는 최신 위(⑤-2)라 위치가 아니라 isin 으로 찾는다 — 이 케이스는 보강만 본다.
+    const items = snaps[0]?.items ?? [];
+    const known = items.find((i) => i.isin === SAMPLE_ISIN);
+    const unknown = items.find((i) => i.isin === OTHER_ISIN);
     expect(known).toMatchObject({ isin: SAMPLE_ISIN, name: "삼성전자", code: "005930" });
     expect(unknown?.isin).toBe(OTHER_ISIN);
     expect(unknown).not.toHaveProperty("name");
