@@ -21,6 +21,8 @@
  *     훅이 소유하면 에코 상관이 갈라진다 · T-18-94).
  *   - 사용자 트리거 추가(돌파 칩 · 종목 추가)는 **종목 단위**다(D-07 · D-08) — 그 ISIN 의 카드가
  *     있으면 첫 카드를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
+ *   - 공용 패널 미체결 행 선택은 그 행을 받을 카드(같은 ISIN ∧ 행의 거래소 ∧ 상태줄 계좌)를
+ *     보장한다 — 없으면 그 키로 펼친 카드를 붙인다(`cardForUnfilled` · WR-04). 역시 송신 0 이다.
  *   - 새 카드는 **거래소 KRX · 스위치 전부 OFF · 펼침**으로 시작한다(D-07). 서버에 아무것도 보내지
  *     않는다 — 등록은 사용자가 카드에서 스위치를 켤 때뿐이다.
  *   - 등록된 전략(64 스냅샷 · 60 에코)은 처음 보이는 키일 때, 그 키를 **현재 키로 가진 카드가
@@ -184,6 +186,39 @@ function withFocusedCard(
           code: hit.code,
         },
       ];
+}
+
+/**
+ * 공용 패널 미체결 행을 **받을 카드** 판정 (**순수 함수** · D-13 · D-21 · 18-REVIEW WR-04). 판정의
+ * 유일 지점이다 — 선택 전달 조건(`renderCard` 의 `selectedUnfilled`: 같은 ISIN ∧ 행의 거래소 ∧ 카드
+ * 계좌 = 상태줄 계좌)을 만족하는 카드가 있으면 그 id, 없으면 그 조건을 만족하도록 붙일 카드 모양
+ * (행의 ISIN · 행의 거래소 · **상태줄 계좌** · 펼침)을 돌려준다. 전달 조건을 느슨하게 하지 않고
+ * 카드를 붙이는 쪽으로 「선택됨인데 정정·취소 폼이 없음」 을 없앤다(T-18-96 · T-18-97).
+ */
+export type UnfilledTarget =
+  | { kind: "existing"; id: string }
+  | { kind: "new"; card: Omit<WorkbenchCard, "id"> };
+
+export function cardForUnfilled(
+  cards: readonly WorkbenchCard[],
+  row: RelayUnfilled,
+  accountNo: string,
+): UnfilledTarget {
+  const hit = cards.find(
+    (c) => c.isin === row.isin && c.exchange === row.exchange && c.accountNo === accountNo,
+  );
+  if (hit !== undefined) return { kind: "existing", id: hit.id };
+  return {
+    kind: "new",
+    card: {
+      isin: row.isin,
+      accountNo,
+      exchange: row.exchange,
+      open: true,
+      name: row.name,
+      code: row.code,
+    },
+  };
 }
 
 /** 지금 시각 `HH:MM:SS` — 로케일 포맷터를 쓰지 않는다(`strategy-card.tsx` `clockNow` 와 같은 이유). */
@@ -469,12 +504,27 @@ function WorkbenchSurface() {
     return account.unf.find((u) => u.orderNo === selected.orderNo) ?? null;
   }, [selected, account]);
 
+  /*
+    ★ 선택하면 그 행을 받을 카드가 **언제나** 격자에 있고 펼쳐져 화면에 들어온다(WR-04) — 정확 일치
+      카드가 없으면(카드 없는 종목 · NXT 미체결인데 카드는 KRX · 카드 계좌가 상태줄과 다름) 행의
+      ISIN · 거래소와 상태줄 계좌로 카드를 붙인다. 카드 추가는 화면 상태다 — 서버에 아무것도 보내지
+      않는다(D-07 과 같은 규율 · T-18-99). 정확 일치가 없을 때만 붙이므로 그 전략 키를 쓰는 카드가
+      없다(키 충돌 규칙 T-18-94 와 부딪치지 않는다). 판정은 `cardForUnfilled` 한 곳이다.
+  */
   const selectUnfilled = useCallback(
     (row: RelayUnfilled | null) => {
       setSelected(row);
-      if (row !== null && cardsRef.current.some((c) => c.isin === row.isin)) focusCard(row.isin);
+      if (row === null) return;
+      const newId = nextCardId();
+      setCards((prev) => {
+        const target = cardForUnfilled(prev, row, accountNo);
+        return target.kind === "existing"
+          ? prev.map((c) => (c.id === target.id ? { ...c, open: true } : c))
+          : [...prev, { id: newId, ...target.card }];
+      });
+      setScrollTarget({ key: strategyKey(row.isin, accountNo, row.exchange) });
     },
-    [focusCard],
+    [accountNo, nextCardId],
   );
   const clearSelection = useCallback(() => setSelected(null), []);
 

@@ -139,7 +139,7 @@ vi.mock('@/components/trading/workbench/stock-add-bar', () => ({
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
 import { requestTradingFocus } from '@/lib/trading-focus';
 import { LEAVE_WARNING } from '@/lib/use-leave-warning';
-import { TradingWorkbench } from '../workbench/trading-workbench';
+import { cardForUnfilled, TradingWorkbench, type WorkbenchCard } from '../workbench/trading-workbench';
 
 const ACCOUNT = '37728502101';
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`) as HTMLElement | null;
@@ -716,6 +716,135 @@ describe('TradingWorkbench — 미체결 행 선택 (D-21)', () => {
     expect(selectedOf('KR7247540008')).toBeNull();
     const card = cardsInDom().find((c) => c.getAttribute('data-key')?.startsWith('KR7086520004'))!;
     expect(card.getAttribute('data-open')).toBe('true');
+  });
+
+  /*
+    ── WR-04 · D-13 · D-21 — 받을 카드 보장 ─────────────────────────────────────────────
+    선택 전달 조건(같은 ISIN ∧ 행의 거래소 ∧ 카드 계좌 = 상태줄 계좌)은 그대로 두고, 그 조건을
+    만족하는 카드가 없으면 **붙인다**(서버 송신 0 · T-18-99). 같은 ISIN 카드가 둘일 수 있어(WR-05)
+    선택 전달은 전략 키로 찾은 카드 prop 으로 단언한다.
+  */
+  /** 전략 키로 찾은 카드의 본문 `selectedUnfilled`. */
+  function selectedOfKey(key: string): unknown {
+    const props = [...cardProps.values()].find(
+      (p) => `${p.isin}:${p.accountNo}:${p.exchange}` === key,
+    );
+    const body = props?.body as (s: unknown) => { props: { selectedUnfilled: unknown } };
+    return body({}).props.selectedUnfilled;
+  }
+  const rowEl = (orderNo: string) =>
+    Array.from(
+      screen.getByTestId('shared-panels').querySelectorAll('[data-slot="account-embed-unfilled-row"]'),
+    ).find((tr) => tr.textContent?.includes(orderNo)) as HTMLElement | undefined;
+  function acctWith(rows: RelayUnfilled[]): RelayShape['accountStates'] {
+    return new Map([
+      [ACCOUNT, { t: 'acct', a: ACCOUNT, snap: true, rm: [], st: '09:41:52', hold: [], unf: rows }],
+    ]) as RelayShape['accountStates'];
+  }
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+
+  it('WR-04 — 카드가 없는 종목의 미체결을 누르면 그 종목 카드가 붙어 펼쳐지고 선택이 그 카드에만 내려간다 · 송신 0', () => {
+    const Y = 'KR7247540008';
+    const row = unf({ orderNo: '3407000077', isin: Y, name: '에코프로비엠', code: '247540' });
+    mockRelay = relay({ limitChasers: [lc('KR7086520004')], accountStates: acctWith([row]) });
+    render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+
+    fireEvent.click(rowEl('3407000077')!.querySelectorAll('td')[3]!);
+
+    expect(cardsInDom()).toHaveLength(2);
+    expect(byKey()[`${Y}:${ACCOUNT}:KRX`]).toBe('true');
+    expect(byKey()[`KR7086520004:${ACCOUNT}:KRX`]).toBe('false');
+    expect(selectedOfKey(`${Y}:${ACCOUNT}:KRX`)).toMatchObject({ orderNo: '3407000077' });
+    expect(selectedOfKey(`KR7086520004:${ACCOUNT}:KRX`)).toBeNull();
+    expect(propsOf(Y)?.name).toBe('에코프로비엠');
+    expect(propsOf(Y)?.code).toBe('247540');
+    expect((mockRelay.send as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it('WR-04 — KRX 카드만 있는 종목의 NXT 미체결을 누르면 NXT 카드가 붙고 선택은 그 카드에만 간다', () => {
+    const X = 'KR7086520004';
+    const row = unf({ orderNo: '3407000088', exchange: 'NXT' });
+    mockRelay = relay({ limitChasers: [lc(X)], accountStates: acctWith([row]) });
+    render(<TradingWorkbench />);
+
+    fireEvent.click(rowEl('3407000088')!.querySelectorAll('td')[3]!);
+
+    expect(byKey()).toEqual({ [`${X}:${ACCOUNT}:KRX`]: 'false', [`${X}:${ACCOUNT}:NXT`]: 'true' });
+    expect(selectedOfKey(`${X}:${ACCOUNT}:NXT`)).toMatchObject({ orderNo: '3407000088' });
+    expect(selectedOfKey(`${X}:${ACCOUNT}:KRX`)).toBeNull();
+    expect((mockRelay.send as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it('WR-04 — 정확 일치 카드가 있으면 카드가 늘지 않고 그 카드가 펼쳐진다', () => {
+    const X = 'KR7086520004';
+    const row = unf({ orderNo: '3407000099', exchange: 'NXT' });
+    mockRelay = relay({ limitChasers: [lc(X), lc(X, { exchange: 'NXT' })], accountStates: acctWith([row]) });
+    render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(2);
+
+    fireEvent.click(rowEl('3407000099')!.querySelectorAll('td')[3]!);
+
+    expect(cardsInDom()).toHaveLength(2);
+    expect(byKey()).toEqual({ [`${X}:${ACCOUNT}:KRX`]: 'false', [`${X}:${ACCOUNT}:NXT`]: 'true' });
+    expect(selectedOfKey(`${X}:${ACCOUNT}:NXT`)).toMatchObject({ orderNo: '3407000099' });
+  });
+
+  it('WR-04 — 같은 행을 다시 누르면(해제) 붙은 카드는 남고 선택만 풀린다', () => {
+    const Y = 'KR7247540008';
+    const row = unf({ orderNo: '3407000077', isin: Y });
+    mockRelay = relay({ accountStates: acctWith([row]) });
+    render(<TradingWorkbench />);
+
+    fireEvent.click(rowEl('3407000077')!.querySelectorAll('td')[3]!);
+    expect(selectedOfKey(`${Y}:${ACCOUNT}:KRX`)).toMatchObject({ orderNo: '3407000077' });
+
+    fireEvent.click(rowEl('3407000077')!.querySelectorAll('td')[3]!);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(byKey()).toEqual({ [`${Y}:${ACCOUNT}:KRX`]: 'true' });
+    expect(selectedOfKey(`${Y}:${ACCOUNT}:KRX`)).toBeNull();
+  });
+});
+
+describe('cardForUnfilled — 미체결 행을 받을 카드 판정 (WR-04 · 판정의 유일 지점)', () => {
+  const X = 'KR7086520004';
+  const OTHER = '99999999901';
+  const card = (over: Partial<WorkbenchCard>): WorkbenchCard => ({
+    id: 'wb-card-1',
+    isin: X,
+    accountNo: ACCOUNT,
+    exchange: 'KRX',
+    open: false,
+    ...over,
+  });
+  const row = (over: Partial<RelayUnfilled> = {}) =>
+    ({ orderNo: '1', isin: X, exchange: 'KRX', name: '에코프로', code: '086520', ...over }) as RelayUnfilled;
+
+  it('정확 일치(ISIN ∧ 거래소 ∧ 상태줄 계좌) 카드가 있으면 그 카드 id', () => {
+    const cards = [
+      card({ id: 'wb-card-1', exchange: 'KRX' }),
+      card({ id: 'wb-card-2', exchange: 'NXT' }),
+    ];
+    expect(cardForUnfilled(cards, row({ exchange: 'NXT' }), ACCOUNT)).toEqual({
+      kind: 'existing',
+      id: 'wb-card-2',
+    });
+  });
+
+  it('거래소 · 계좌가 어긋난 카드뿐이면 행의 ISIN · 거래소 · 상태줄 계좌로 펼친 새 카드 모양', () => {
+    const cards = [card({ exchange: 'KRX' }), card({ id: 'wb-card-2', exchange: 'NXT', accountNo: OTHER })];
+    expect(cardForUnfilled(cards, row({ exchange: 'NXT' }), ACCOUNT)).toEqual({
+      kind: 'new',
+      card: { isin: X, accountNo: ACCOUNT, exchange: 'NXT', open: true, name: '에코프로', code: '086520' },
+    });
+  });
+
+  it('카드가 없으면 새 카드 모양', () => {
+    expect(cardForUnfilled([], row(), ACCOUNT)).toMatchObject({
+      kind: 'new',
+      card: { isin: X, accountNo: ACCOUNT, exchange: 'KRX', open: true },
+    });
   });
 });
 

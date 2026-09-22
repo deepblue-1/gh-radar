@@ -798,6 +798,55 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     );
   });
 
+  test('GC4 카드 없는 종목의 미체결을 누르면 그 종목 카드가 붙어 펼쳐지고 수동주문에 원주문 칩이 선다 (WR-04 · D-21)', async ({
+    page,
+  }) => {
+    const orderNo = '0000135802';
+    const key = `${E2E_LONG_NAME_ISIN}:${E2E_ACCOUNT_NO}:KRX`;
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(0);
+
+    await relay.pushAccountState({
+      unfilled: [
+        {
+          orderNo,
+          isin: E2E_LONG_NAME_ISIN,
+          side: 'B',
+          price: 10_150,
+          orderQty: 30,
+          filledQty: 0,
+          unfilledQty: 30,
+          exchange: 'KRX',
+        },
+      ],
+    });
+
+    const unfilledTab = sharedPanels(page).getByRole('tab', { name: /미체결/ });
+    if ((await unfilledTab.getAttribute('aria-selected')) !== 'true') await unfilledTab.click();
+    const row = sharedPanels(page)
+      .locator('[data-slot="account-embed-unfilled-row"]')
+      .filter({ hasText: orderNo });
+    await expect(row).toHaveCount(1, { timeout: 15_000 });
+
+    const setBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await row.locator('td').nth(3).click();
+
+    // 받을 카드가 붙는다 — 행의 ISIN · 행의 거래소 · 상태줄 계좌 · 펼침.
+    await expect(cards(page)).toHaveCount(1);
+    const card = cardByKey(page, key);
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAttribute('data-open', 'true');
+
+    // 카드의 「수동주문」 을 열면 원주문 칩이 그 주문번호를 말한다.
+    await card.getByRole('button', { name: '수동주문', exact: true }).click();
+    await expect(card.getByTestId('manual-order-selchip')).toBeVisible();
+    await expect(card.getByTestId('manual-order-selchip')).toContainText(orderNo);
+
+    // ★ 카드 추가는 화면 상태다 — 서버 전략 생성 송신 0 (T-18-99).
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(setBefore);
+  });
+
   test('11. 카드 헤더에 래치 LED 3개가 매수·매도·취소 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22)', async ({
     page,
   }) => {
