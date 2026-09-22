@@ -9,14 +9,23 @@
  *   종목 추가 → 카드 격자 → 공용 패널. 블록은 앞선 플랜(18-05 ~ 18-10)이 만든 것을 **조립만** 한다.
  *
  * ② ★ 이 컴포넌트가 **카드 집합의 단일 소유자**다
- *   `{ isin, accountNo, exchange, open, name?, code? }` 목록 · 단 수 · 선택된 미체결 행 · 상태줄 계좌 ·
- *   팝업 상태를 여기 한 곳이 갖는다. 돌파 스트립·종목 추가란의 `onAddCard`/`onFocusCard`, 카드 헤더의
- *   ✕·캐럿·거래소 세그먼트가 전부 이 상태를 바꾼다. 카드는 ISIN 당 한 장이다(콜백·DOM id 가 ISIN 축).
+ *   `{ id, isin, accountNo, exchange, open, name?, code? }` 목록 · 단 수 · 선택된 미체결 행 · 상태줄
+ *   계좌 · 팝업 상태를 여기 한 곳이 갖는다. 돌파 스트립·종목 추가란의 `onAddCard`/`onFocusCard`, 카드
+ *   헤더의 ✕·캐럿·거래소 세그먼트가 전부 이 상태를 바꾼다.
+ *   - ★ 카드 정체성은 **카드 id**(`wb-card-{n}`, 이 컴포넌트가 단조 증가로 만든다)다 — 격자 key ·
+ *     DOM id · 콜백 인자 · 더티/로그 합산이 전부 이 축이다(18-REVIEW WR-05). 전략 키
+ *     (`ISIN:계좌:거래소`)는 카드의 **현재 값**이다 — 등록 전 카드는 거래소 토글로 키가 바뀌므로
+ *     정체성으로 쓰면 토글마다 다시 마운트된다(WR-02 사고의 재발).
+ *   - 등록 전략 하나에 카드 하나다(D-03 「카드와 동기」) — 같은 ISIN 에 전략이 둘(KRX·NXT 또는
+ *     계좌 A·B)이면 카드도 둘이다. 두 카드가 **같은 전략 키**를 가질 수는 없다(한 서버 전략을 두
+ *     훅이 소유하면 에코 상관이 갈라진다 · T-18-94).
+ *   - 사용자 트리거 추가(돌파 칩 · 종목 추가)는 **종목 단위**다(D-07 · D-08) — 그 ISIN 의 카드가
+ *     있으면 첫 카드를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
  *   - 새 카드는 **거래소 KRX · 스위치 전부 OFF · 펼침**으로 시작한다(D-07). 서버에 아무것도 보내지
  *     않는다 — 등록은 사용자가 카드에서 스위치를 켤 때뿐이다.
- *   - 등록된 전략(64 스냅샷 · 60 에코)은 처음 보이는 키일 때 **접힌 카드**로 한 번 들어온다(카드
- *     집합 멤버십만 읽는다 — 값은 카드가 스스로 읽는다, ③). 그래서 64 스냅샷 전의 짧은 구간은 빈
- *     문구다(E6 loading).
+ *   - 등록된 전략(64 스냅샷 · 60 에코)은 처음 보이는 키일 때, 그 키를 **현재 키로 가진 카드가
+ *     없으면** 접힌 카드로 한 번 들어온다(카드 집합 멤버십만 읽는다 — 값은 카드가 스스로 읽는다,
+ *     ③). 그래서 64 스냅샷 전의 짧은 구간은 빈 문구다(E6 loading).
  *
  * ③ ★ 에코를 **분배하지 않는다** (Pitfall 9 · T-18-52)
  *   `limitChasers` 배열을 카드에 prop 으로 내리지 않는다. 카드는 `useRelayContext()` 에서 직접 읽고
@@ -26,7 +35,7 @@
  *
  * ④ 재렌더 예산 (Pitfall 10 · T-18-56)
  *   `useIsinLabels()` Map 을 카드에 통째로 내리지 않는다 — `labels.get(isin)` 결과 **문자열**만 내린다.
- *   카드 콜백은 전부 `isin` 을 받는 안정 콜백이다(`strategy-card.tsx` ④).
+ *   카드 콜백은 전부 카드 id 를 받는 안정 콜백이다(`strategy-card.tsx` ④).
  *
  * ⑤ 컨테이너 두 개 (D-28)
  *   이 루트가 `@container/wb`(페이지 본문 폭)이고, 카드 래퍼가 `@container/lc`(카드 폭)다.
@@ -37,7 +46,8 @@
  *
  * ⑥ `?focus={전략키}` 는 **마운트 1회만** 소비한다 (D-02 · RESEARCH Pattern 6 · T-18-53)
  *   `parseStrategyKey` 로만 해석하고, 모양이 어긋나면 무시한다. 그 키가 **등록된 전략**으로 보이면
- *   (스냅샷 도착 후) 그 카드를 펼친다 — 카드를 새로 **등록**하지 않는다. 뒤로가기로 URL 이 바뀌어도
+ *   (스냅샷 도착 후) **그 키의 카드**를 펼친다(같은 ISIN 의 다른 키 카드가 아니다 · WR-05) — 카드를
+ *   새로 **등록**하지 않는다. 뒤로가기로 URL 이 바뀌어도
  *   로컬 상태가 정본이다.
  *   이미 이 화면 위에서 사이드바 전략을 누르면 URL 만 바뀌므로, 사이드바가 보내는 **포커스 요청
  *   이벤트**(`lib/trading-focus.ts`)를 따로 듣는다(18-12). 같은 해석(`parseStrategyKey` → 등록 키
@@ -125,6 +135,8 @@ const ADD_SEARCH_SELECTOR = '[data-slot="stock-add-bar"] input';
 
 /** 카드 1장의 작업대 측 상태(②). 값(전략·시세)은 없다 — 카드가 스스로 읽는다(③). */
 export interface WorkbenchCard {
+  /** 카드 정체성(②) — `wb-card-{n}`. 전략 키가 아니다(등록 전 카드는 키가 바뀐다). */
+  id: string;
   isin: string;
   /** 카드 키의 계좌 — 만들 때의 상태줄 계좌(또는 등록된 전략 키의 계좌)로 고정된다(Q-3). */
   accountNo: string;
@@ -135,17 +147,35 @@ export interface WorkbenchCard {
   code?: string;
 }
 
+/** 카드의 **현재** 전략 키(②) — 정체성이 아니라 값이다. */
+function keyOf(c: WorkbenchCard): string {
+  return strategyKey(c.isin, c.accountNo, c.exchange);
+}
+
+/** 카드 헤더 토글 id — `strategy-card.tsx` 의 `strategy-card-{카드 id}-toggle` 규약. */
+function toggleIdOf(id: string): string {
+  return `strategy-card-${id.replace(/[^A-Za-z0-9_-]/g, "_")}-toggle`;
+}
+
+/** 펼친 뒤 화면에 들여올 카드 — 전략 키(포커스 · 키 충돌) 또는 ISIN 의 첫 카드(D-07 · D-08). */
+type ScrollTarget = { key: string } | { isin: string };
+
 /**
- * 등록된 전략 1건의 카드를 펼친 카드 집합 (**순수 함수** · ⑥). 같은 ISIN 카드가 있으면 펼치고,
- * 없으면 그 전략의 키(계좌·거래소)로 펼친 카드를 붙인다. `?focus=` 마운트 소비와 사이드바 포커스
- * 요청이 같은 규칙을 쓴다.
+ * 등록된 전략 1건의 카드를 펼친 카드 집합 (**순수 함수** · ⑥). **현재 키가 그 전략 키인 카드**를
+ * 펼치고(같은 ISIN 의 다른 키 카드는 건드리지 않는다 · WR-05), 없으면 그 전략의 키(계좌·거래소)로
+ * 펼친 카드를 `newId` 로 붙인다. `?focus=` 마운트 소비와 사이드바 포커스 요청이 같은 규칙을 쓴다.
  */
-function withFocusedCard(prev: WorkbenchCard[], hit: RelayLimitChaser): WorkbenchCard[] {
-  return prev.some((x) => x.isin === hit.isin)
-    ? prev.map((x) => (x.isin === hit.isin ? { ...x, open: true } : x))
+function withFocusedCard(
+  prev: WorkbenchCard[],
+  hit: RelayLimitChaser,
+  newId: string,
+): WorkbenchCard[] {
+  return prev.some((x) => keyOf(x) === hit.key)
+    ? prev.map((x) => (keyOf(x) === hit.key ? { ...x, open: true } : x))
     : [
         ...prev,
         {
+          id: newId,
           isin: hit.isin,
           accountNo: hit.accountNo,
           exchange: hit.exchange,
@@ -206,19 +236,44 @@ function WorkbenchSurface() {
 
   /* ── 카드 집합 (②) ────────────────────────────────────────────────── */
   const [cards, setCards] = useState<WorkbenchCard[]>([]);
+  /*
+    카드 id 발급 — 업데이터 **밖**에서 뽑아 업데이터에 넘긴다. 업데이터 안에서 뽑으면 StrictMode ·
+    재처리 때 같은 카드가 다른 id 를 받아 다시 마운트될 수 있다. 쓰지 않고 버린 번호는 재사용하지
+    않는다(유일성만 보장한다).
+  */
+  const cardSeq = useRef(0);
+  const nextCardId = useCallback(() => {
+    cardSeq.current += 1;
+    return `wb-card-${cardSeq.current}`;
+  }, []);
 
-  // 계좌 도착 전에 만든 카드는 계좌가 비어 있다 — 계좌가 정해지면 그 카드들만 채운다.
+  /*
+    계좌 도착 전에 만든 카드는 계좌가 비어 있다 — 계좌가 정해지면 그 카드들만 채운다. 채운 키가 이미
+    다른 카드의 키면(그 사이 같은 키의 등록 전략이 들어왔다) 빈 계좌 카드를 채우지 않고 치운다 — 두
+    카드가 같은 전략 키를 가질 수 없다(② · T-18-94).
+  */
   useEffect(() => {
     if (accountNo === "") return;
-    setCards((prev) =>
-      prev.some((c) => c.accountNo === "")
-        ? prev.map((c) => (c.accountNo === "" ? { ...c, accountNo } : c))
-        : prev,
-    );
+    setCards((prev) => {
+      if (!prev.some((c) => c.accountNo === "")) return prev;
+      const taken = new Set(prev.filter((c) => c.accountNo !== "").map(keyOf));
+      const next: WorkbenchCard[] = [];
+      for (const c of prev) {
+        if (c.accountNo !== "") {
+          next.push(c);
+          continue;
+        }
+        const filled = { ...c, accountNo };
+        if (taken.has(keyOf(filled))) continue;
+        taken.add(keyOf(filled));
+        next.push(filled);
+      }
+      return next;
+    });
   }, [accountNo]);
 
-  /** 펼친 뒤 화면에 들여올 카드(ISIN). 레이아웃 효과가 한 번 스크롤하고 비운다. */
-  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  /** 펼친 뒤 화면에 들여올 카드. 레이아웃 효과가 한 번 스크롤하고 비운다. */
+  const [scrollTarget, setScrollTarget] = useState<ScrollTarget | null>(null);
 
   /* ── ⑥ `?focus=` — 마운트 1회 소비 ───────────────────────────────── */
   const searchParams = useSearchParams();
@@ -242,13 +297,20 @@ function WorkbenchSurface() {
     if (focusHit !== undefined) pendingFocus.current = null;
 
     if (fresh.length === 0 && focusHit === undefined) return;
+    const freshIds = fresh.map(() => nextCardId());
+    const focusId = nextCardId();
     setCards((prev) => {
       let next = prev;
-      for (const c of fresh) {
-        if (next.some((x) => x.isin === c.isin)) continue;
+      fresh.forEach((c, i) => {
+        /*
+          ★ 전략 키 대조(WR-05) — 같은 ISIN 이라도 키가 다르면 다른 전략이라 카드를 따로 둔다(D-03).
+            현재 키가 같은 카드(= 사용자가 방금 스위치를 켠 등록 전 카드의 60 에코)가 있으면 건너뛴다.
+        */
+        if (next.some((x) => keyOf(x) === c.key)) return;
         next = [
           ...next,
           {
+            id: freshIds[i],
             isin: c.isin,
             accountNo: c.accountNo,
             exchange: c.exchange,
@@ -257,12 +319,12 @@ function WorkbenchSurface() {
             code: c.code,
           },
         ];
-      }
-      if (focusHit !== undefined) next = withFocusedCard(next, focusHit);
+      });
+      if (focusHit !== undefined) next = withFocusedCard(next, focusHit, focusId);
       return next;
     });
-    if (focusHit !== undefined) setScrollTarget(focusHit.isin);
-  }, [limitChasers]);
+    if (focusHit !== undefined) setScrollTarget({ key: focusHit.key });
+  }, [limitChasers, nextCardId]);
 
   /* ── ⑥ 사이드바 포커스 요청 — 이미 이 화면 위일 때 (18-12) ───────── */
   const limitChasersRef = useRef(limitChasers);
@@ -278,82 +340,120 @@ function WorkbenchSurface() {
       pendingFocus.current = f;
       return;
     }
-    setCards((prev) => withFocusedCard(prev, hit));
-    setScrollTarget(hit.isin);
+    const newId = nextCardId();
+    setCards((prev) => withFocusedCard(prev, hit, newId));
+    setScrollTarget({ key: hit.key });
   });
 
   /* ── 펼치고 스크롤 ────────────────────────────────────────────────── */
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+
+  // 대상은 이번 렌더의 카드 집합으로 푼다 — 업데이터가 고른 카드와 어긋나지 않는다.
   useLayoutEffect(() => {
     if (scrollTarget === null) return;
-    const el = document.querySelector(
-      `[data-slot="strategy-card"][data-key^="${scrollTarget}:"]`,
-    );
+    const hit =
+      "key" in scrollTarget
+        ? cards.find((c) => keyOf(c) === scrollTarget.key)
+        : cards.find((c) => c.isin === scrollTarget.isin);
+    const el =
+      hit === undefined
+        ? null
+        : document.getElementById(toggleIdOf(hit.id))?.closest('[data-slot="strategy-card"]');
     el?.scrollIntoView?.({ block: "nearest" });
     setScrollTarget(null);
-  }, [scrollTarget]);
+  }, [scrollTarget, cards]);
 
+  /** 그 ISIN 의 **첫 카드**를 펼친다(D-07 · D-08 — 종목 단위). */
   const focusCard = useCallback((isin: string) => {
-    setCards((prev) => prev.map((c) => (c.isin === isin ? { ...c, open: true } : c)));
-    setScrollTarget(isin);
+    setCards((prev) => {
+      const first = prev.find((c) => c.isin === isin);
+      return first === undefined
+        ? prev
+        : prev.map((c) => (c.id === first.id ? { ...c, open: true } : c));
+    });
+    setScrollTarget({ isin });
   }, []);
 
+  /** 사용자 트리거 추가 — 그 ISIN 의 카드가 있으면 첫 카드를 펼칠 뿐 새 카드를 만들지 않는다(D-07). */
   const addCard = useCallback(
     (isin: string, name?: string, code?: string) => {
-      setCards((prev) =>
-        prev.some((c) => c.isin === isin)
-          ? prev.map((c) => (c.isin === isin ? { ...c, open: true } : c))
-          : [...prev, { isin, accountNo, exchange: "KRX", open: true, name, code }],
-      );
-      setScrollTarget(isin);
+      const newId = nextCardId();
+      setCards((prev) => {
+        const first = prev.find((c) => c.isin === isin);
+        return first !== undefined
+          ? prev.map((c) => (c.id === first.id ? { ...c, open: true } : c))
+          : [...prev, { id: newId, isin, accountNo, exchange: "KRX", open: true, name, code }];
+      });
+      setScrollTarget({ isin });
     },
-    [accountNo],
+    [accountNo, nextCardId],
   );
 
-  const toggleCard = useCallback((isin: string) => {
-    setCards((prev) => prev.map((c) => (c.isin === isin ? { ...c, open: !c.open } : c)));
+  const toggleCard = useCallback((id: string) => {
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, open: !c.open } : c)));
   }, []);
 
-  const changeExchange = useCallback((isin: string, exchange: RelayExchange) => {
-    setCards((prev) => prev.map((c) => (c.isin === isin ? { ...c, exchange } : c)));
+  /*
+    거래소 토글(등록 전 카드만 — 등록 카드는 세그먼트가 잠긴다, D-10). ★ 바꾼 뒤의 키를 **다른 카드가
+    이미 쓰면** 바꾸지 않고 그 카드를 펼쳐 스크롤한다 — 두 카드가 같은 키 = 한 서버 전략을 두 카드
+    훅이 소유하게 돼 에코 상관·더티 판정이 갈라진다(T-18-94).
+  */
+  const changeExchange = useCallback((id: string, exchange: RelayExchange) => {
+    const cur = cardsRef.current;
+    const card = cur.find((c) => c.id === id);
+    if (card === undefined) return;
+    const nextKey = strategyKey(card.isin, card.accountNo, exchange);
+    const clash = cur.find((c) => c.id !== id && keyOf(c) === nextKey);
+    if (clash !== undefined) {
+      setCards((prev) => prev.map((c) => (c.id === clash.id ? { ...c, open: true } : c)));
+      setScrollTarget({ key: nextKey });
+      return;
+    }
+    setCards((prev) =>
+      prev.some((c) => c.id !== id && keyOf(c) === nextKey)
+        ? prev
+        : prev.map((c) => (c.id === id ? { ...c, exchange } : c)),
+    );
   }, []);
 
   /* ── 더티 합산 · 이탈 경고 (⑦) ────────────────────────────────────── */
   const [cardDirty, setCardDirty] = useState<Readonly<Record<string, number>>>({});
   const [viDirty, setViDirty] = useState(0);
-  const reportDirty = useCallback((isin: string, count: number) => {
-    setCardDirty((prev) => (prev[isin] === count ? prev : { ...prev, [isin]: count }));
+  const reportDirty = useCallback((id: string, count: number) => {
+    setCardDirty((prev) => (prev[id] === count ? prev : { ...prev, [id]: count }));
   }, []);
-  const cardDirtySum = cards.reduce((sum, c) => sum + (cardDirty[c.isin] ?? 0), 0);
+  const cardDirtySum = cards.reduce((sum, c) => sum + (cardDirty[c.id] ?? 0), 0);
   useLeaveWarning(cardDirtySum + viDirty > 0);
 
   /* ── 카드 제거 (⑧) ────────────────────────────────────────────────── */
-  const removeCard = useCallback((isin: string) => {
-    setCards((prev) => prev.filter((c) => c.isin !== isin));
+  /** 카드별 합친 로그의 직전 문장 — 전략 로그 합치기의 중복 판정(아래). */
+  const lastLogText = useRef(new Map<string, string>());
+  const removeCard = useCallback((id: string) => {
+    setCards((prev) => prev.filter((c) => c.id !== id));
     setCardDirty((prev) => {
-      if (!(isin in prev)) return prev;
+      if (!(id in prev)) return prev;
       const next = { ...prev };
-      delete next[isin];
+      delete next[id];
       return next;
     });
+    lastLogText.current.delete(id);
   }, []);
 
   const [closeAsk, setCloseAsk] = useState<string | null>(null);
   const registeredKeys = useMemo(() => new Set(limitChasers.map((c) => c.key)), [limitChasers]);
-  const cardsRef = useRef(cards);
-  cardsRef.current = cards;
   const registeredRef = useRef(registeredKeys);
   registeredRef.current = registeredKeys;
 
   const closeCard = useCallback(
-    (isin: string) => {
-      const card = cardsRef.current.find((c) => c.isin === isin);
+    (id: string) => {
+      const card = cardsRef.current.find((c) => c.id === id);
       if (card === undefined) return;
-      const key = strategyKey(card.isin, card.accountNo, card.exchange);
-      if (card.accountNo !== "" && registeredRef.current.has(key)) {
-        setCloseAsk(isin);
+      if (card.accountNo !== "" && registeredRef.current.has(keyOf(card))) {
+        setCloseAsk(id);
         return;
       }
-      removeCard(isin);
+      removeCard(id);
     },
     [removeCard],
   );
@@ -392,29 +492,32 @@ function WorkbenchSurface() {
   const seenLog = useRef(new WeakSet<StrategyLogEntry>());
   const logSeq = useRef(0);
   const reportLog = useCallback(
-    (isin: string, log: readonly StrategyLogEntry[]) => {
+    (id: string, log: readonly StrategyLogEntry[]) => {
       const fresh = log.filter((e) => !seenLog.current.has(e));
       if (fresh.length === 0) return;
       for (const e of fresh) seenLog.current.add(e);
-      const card = cardsRef.current.find((c) => c.isin === isin);
-      const who = card?.name ?? labelsRef.current.get(isin)?.name ?? isin;
-      setMergedLog((prev) => {
-        const add: StrategyLogEntry[] = [];
-        // `log` 는 최신이 index 0 — 오래된 것부터 쌓아 최신이 맨 위에 오게 한다.
-        for (let i = fresh.length - 1; i >= 0; i -= 1) {
-          const e = fresh[i];
-          const last = add[0] ?? prev.find((p) => p.who === who);
-          /*
-            ★ 카드는 펼침/접힘으로 스택 ↔ 격자를 옮기며 다시 마운트되고(D-09 재렌더), 그때 첫 에코
-              문장(「전략이 등록됐어요 · …」)을 다시 쓴다. 같은 종목의 **직전 줄과 같은 문장**은 합친
-              목록에 두 번 쌓지 않는다.
-          */
-          if (last !== undefined && last.who === who && last.text === e.text) continue;
-          logSeq.current += 1;
-          add.unshift({ ...e, id: `wb-log-${logSeq.current}`, who });
-        }
-        return add.length === 0 ? prev : [...add, ...prev].slice(0, MAX_MERGED_LOG);
-      });
+      const card = cardsRef.current.find((c) => c.id === id);
+      const who =
+        card === undefined
+          ? id
+          : (card.name ?? labelsRef.current.get(card.isin)?.name ?? card.isin);
+      /*
+        ★ 같은 카드의 **직전 줄과 같은 문장**은 합친 목록에 두 번 쌓지 않는다 — 재접속 스냅샷이 같은
+          문장(「전략이 등록됐어요 · …」)을 다시 쓰는 경우의 방어다(18-20 이후 카드는 접기/펴기로 다시
+          마운트되지 않는다). 판정 축은 카드 id 다 — 같은 종목 카드 둘(WR-05)의 줄이 서로를 지우지
+          않는다. 판정은 업데이터 밖에서 한다(업데이터는 순수하게).
+      */
+      const add: StrategyLogEntry[] = [];
+      // `log` 는 최신이 index 0 — 오래된 것부터 쌓아 최신이 맨 위에 오게 한다.
+      for (let i = fresh.length - 1; i >= 0; i -= 1) {
+        const e = fresh[i];
+        if (lastLogText.current.get(id) === e.text) continue;
+        lastLogText.current.set(id, e.text);
+        logSeq.current += 1;
+        add.unshift({ ...e, id: `wb-log-${logSeq.current}`, who });
+      }
+      if (add.length === 0) return;
+      setMergedLog((prev) => [...add, ...prev].slice(0, MAX_MERGED_LOG));
     },
     [],
   );
@@ -422,12 +525,13 @@ function WorkbenchSurface() {
   /* ── 종목정보 팝업 (⑦) ────────────────────────────────────────────── */
   const [info, setInfo] = useState<{ code: string | null; name: string } | null>(null);
   const openInfo = useCallback(
-    (isin: string) => {
-      const card = cardsRef.current.find((c) => c.isin === isin);
-      const label = labelsRef.current.get(isin);
+    (id: string) => {
+      const card = cardsRef.current.find((c) => c.id === id);
+      if (card === undefined) return;
+      const label = labelsRef.current.get(card.isin);
       setInfo({
-        code: card?.code ?? label?.code ?? null,
-        name: card?.name ?? label?.name ?? isin,
+        code: card.code ?? label?.code ?? null,
+        name: card.name ?? label?.name ?? card.isin,
       });
     },
     [],
@@ -468,7 +572,7 @@ function WorkbenchSurface() {
   /* ── 파생 ─────────────────────────────────────────────────────────── */
   const cardIsins = useMemo(() => new Set(cards.map((c) => c.isin)), [cards]);
   const accountName = accounts.find((a) => a.accountNo === accountNo)?.name;
-  const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.isin === closeAsk) ?? null;
+  const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.id === closeAsk) ?? null;
 
   return (
     <div
@@ -592,7 +696,9 @@ function WorkbenchSurface() {
           data-testid="workbench-close-confirm"
           onCloseAutoFocus={(e) => {
             // 카드를 닫았으면 ✕ 버튼이 사라졌다 — 포커스는 격자가 다음 카드 헤더로 옮긴다.
-            if (closeCardInfo !== null && !cardIsins.has(closeCardInfo.isin)) e.preventDefault();
+            if (closeCardInfo !== null && !cards.some((c) => c.id === closeCardInfo.id)) {
+              e.preventDefault();
+            }
           }}
         >
           <DialogHeader>
@@ -608,7 +714,7 @@ function WorkbenchSurface() {
             </Button>
             <Button
               onClick={() => {
-                if (closeCardInfo !== null) removeCard(closeCardInfo.isin);
+                if (closeCardInfo !== null) removeCard(closeCardInfo.id);
                 setCloseAsk(null);
               }}
             >
@@ -658,12 +764,12 @@ interface WorkbenchCardItemProps {
   queuedWindow: RelayQueuedWindowMsg | undefined;
   selectedUnfilled: RelayUnfilled | null;
   onClearSelection: () => void;
-  onToggle: (isin: string) => void;
-  onClose: (isin: string) => void;
-  onExchangeChange: (isin: string, exchange: RelayExchange) => void;
-  onInfo: (isin: string) => void;
-  onDirtyCountChange: (isin: string, count: number) => void;
-  onLogChange: (isin: string, log: readonly StrategyLogEntry[]) => void;
+  onToggle: (cardId: string) => void;
+  onClose: (cardId: string) => void;
+  onExchangeChange: (cardId: string, exchange: RelayExchange) => void;
+  onInfo: (cardId: string) => void;
+  onDirtyCountChange: (cardId: string, count: number) => void;
+  onLogChange: (cardId: string, log: readonly StrategyLogEntry[]) => void;
 }
 
 /**
@@ -686,7 +792,7 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
   onDirtyCountChange,
   onLogChange,
 }: WorkbenchCardItemProps) {
-  const { isin, accountNo, exchange, open } = card;
+  const { id, isin, accountNo, exchange, open } = card;
   const body = useCallback(
     (state: StrategyCardState) => (
       <CardBody
@@ -708,6 +814,7 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
 
   return (
     <StrategyCard
+      cardId={id}
       isin={isin}
       accountNo={accountNo}
       exchange={exchange}

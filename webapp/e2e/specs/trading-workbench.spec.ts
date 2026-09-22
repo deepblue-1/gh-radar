@@ -101,6 +101,15 @@ const grid = (page: Page) => page.locator('[data-slot="card-grid"]');
 const cards = (page: Page) => page.locator('[data-slot="strategy-card"]');
 const cardSelector = (isin: string) => `[data-slot="strategy-card"][data-key^="${isin}:"]`;
 const cardOf = (page: Page, isin: string) => page.locator(cardSelector(isin));
+/** 전략 키가 정확히 같은 카드 — 같은 종목 카드가 둘일 때(WR-05) 가른다. */
+const cardByKey = (page: Page, key: string) =>
+  page.locator(`[data-slot="strategy-card"][data-key="${key}"]`);
+/**
+ * 그 종목 (첫) 카드의 헤더 토글 — DOM id 는 카드 id(`wb-card-{n}`) 축이라 ISIN 으로 만들 수 없다
+ * (WR-05). 헤더 안 `aria-expanded` 를 가진 버튼이 토글 하나뿐이다.
+ */
+const toggleOf = (page: Page, isin: string) =>
+  cardOf(page, isin).first().locator('[data-slot="card-header"] button[aria-expanded]');
 const colsSegment = (page: Page) => page.locator('[data-slot="workbench-cols-segment"]');
 const dirtyBar = (page: Page) => page.locator('[data-slot="dirty-action-bar"]');
 const sharedPanels = (page: Page) => page.getByTestId('shared-panels');
@@ -531,7 +540,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
           return card?.getAttribute('data-open') === 'true' ? 'open' : `?${slot}`;
         }),
       );
-    const toggle = (isin: string) => page.locator(`#strategy-card-${isin}-toggle`);
+    const toggle = (isin: string) => toggleOf(page, isin);
 
     // 펼침 0 · 접힘 N — 스택 하나가 격자 한 칸을 차지한다.
     expect(await layout()).toEqual(['stack(3)']);
@@ -757,6 +766,38 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     );
   });
 
+  test('GC3 같은 종목의 KRX·NXT 두 전략 = 카드 두 장, 사이드바 NXT 항목은 NXT 카드를 펼친다 (WR-05 · D-03)', async ({
+    page,
+  }) => {
+    const nxtKey = `${E2E_ISIN}:${E2E_ACCOUNT_NO}:NXT`;
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(0);
+
+    // 같은 종목 · 같은 계좌 · 거래소만 다른 등록 전략 두 건(60 에코).
+    await relay.pushLimitChaserEcho({ buyEnabled: true, exchange: 'KRX' });
+    await relay.pushLimitChaserEcho({ buyEnabled: true, exchange: 'NXT' });
+
+    // D-03 「카드와 동기」 — 사이드바 두 줄 = 카드 두 장, 각자 자기 키.
+    await expect(strategyItems(page)).toHaveCount(2, { timeout: 15_000 });
+    await expect(cards(page)).toHaveCount(2);
+    await expect(cardByKey(page, STRATEGY_KEY)).toHaveCount(1);
+    await expect(cardByKey(page, nxtKey)).toHaveCount(1);
+    await expect(cardByKey(page, STRATEGY_KEY)).toHaveAttribute('data-open', 'false');
+    await expect(cardByKey(page, nxtKey)).toHaveAttribute('data-open', 'false');
+
+    // 사이드바 NXT 항목 → NXT 카드만 펼쳐진다(같은 종목 KRX 카드가 아니다).
+    await desktopNav(page).locator(`[data-strategy-key="${nxtKey}"]`).click();
+    await expect(cardByKey(page, nxtKey)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(cardByKey(page, STRATEGY_KEY)).toHaveAttribute('data-open', 'false');
+
+    // UI-SPEC Q-3 — 두 카드는 헤더 종목명 title 로 구분된다(보이는 요소 추가 없음).
+    await expect(cardByKey(page, nxtKey).locator('[data-part="name"]')).toHaveAttribute(
+      'title',
+      `삼성전자 · 계좌 ${E2E_ACCOUNT_NO} · NXT`,
+    );
+  });
+
   test('11. 카드 헤더에 래치 LED 3개가 매수·매도·취소 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22)', async ({
     page,
   }) => {
@@ -814,7 +855,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await openFocusedCard(page);
     await expect(cards(page)).toHaveCount(1);
 
-    const toggle = page.locator(`#strategy-card-${E2E_ISIN}-toggle`);
+    const toggle = toggleOf(page, E2E_ISIN);
     const card = cardOf(page, E2E_ISIN);
     const stackCard = grid(page).locator(`[data-slot="card-stack"] ${cardSelector(E2E_ISIN)}`);
 

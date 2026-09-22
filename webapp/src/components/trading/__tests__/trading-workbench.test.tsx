@@ -59,12 +59,14 @@ vi.mock('@/lib/alert-tone', () => ({
   resumeToneContext: vi.fn(async () => {}),
 }));
 
-/** 카드 스텁 — 작업대가 내려주는 prop 을 ISIN 별로 기록한다. */
+/** 카드 스텁 — 작업대가 내려주는 prop 을 **카드 id** 별로 기록한다(WR-05 — 같은 ISIN 카드가 둘일 수 있다). */
 const cardProps = new Map<string, Record<string, unknown>>();
+/** 그 ISIN 의 첫 카드 prop — 종목당 카드 1장인 케이스용. */
+const propsOf = (isin: string) => [...cardProps.values()].find((p) => p.isin === isin);
 vi.mock('@/components/trading/card/strategy-card', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/trading/card/strategy-card')>();
   function StubCard(props: import('@/components/trading/card/strategy-card').StrategyCardProps) {
-    cardProps.set(props.isin, props as unknown as Record<string, unknown>);
+    cardProps.set(props.cardId, props as unknown as Record<string, unknown>);
     const label = props.name === '' ? props.isin : props.name;
     return (
       <article
@@ -75,21 +77,28 @@ vi.mock('@/components/trading/card/strategy-card', async (importOriginal) => {
       >
         <button
           type="button"
-          id={`strategy-card-${props.isin}-toggle`}
+          id={`strategy-card-${props.cardId}-toggle`}
           aria-expanded={props.open}
-          onClick={() => props.onToggle(props.isin)}
+          onClick={() => props.onToggle(props.cardId)}
         >
           {label}
         </button>
-        <button type="button" aria-label={`${label} 카드 닫기`} onClick={() => props.onClose(props.isin)}>
+        <button type="button" aria-label={`${label} 카드 닫기`} onClick={() => props.onClose(props.cardId)}>
           ✕
         </button>
         <button
           type="button"
           aria-label={`${label} 더티`}
-          onClick={() => props.onDirtyCountChange?.(props.isin, 2)}
+          onClick={() => props.onDirtyCountChange?.(props.cardId, 2)}
         >
           dirty
+        </button>
+        <button
+          type="button"
+          aria-label={`${label} NXT`}
+          onClick={() => props.onExchangeChange(props.cardId, 'NXT')}
+        >
+          nxt
         </button>
       </article>
     );
@@ -136,6 +145,11 @@ const ACCOUNT = '37728502101';
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`) as HTMLElement | null;
 const cardsInDom = () =>
   Array.from(document.querySelectorAll('[data-slot="strategy-card"]')) as HTMLElement[];
+/** 그 ISIN 의 첫 카드 헤더 토글(`aria-expanded` 를 가진 버튼) — DOM id 는 카드 id 축이다. */
+const toggleOf = (isin: string) =>
+  cardsInDom()
+    .find((c) => c.getAttribute('data-key')?.startsWith(`${isin}:`))!
+    .querySelector('button[aria-expanded]') as HTMLElement;
 
 function rc(over: Partial<RelayRateCrossItem> = {}): RelayRateCrossItem {
   return {
@@ -266,8 +280,8 @@ describe('TradingWorkbench — 카드 추가 (D-07 · D-08)', () => {
     expect(cards).toHaveLength(1);
     expect(cards[0].getAttribute('data-key')).toBe(`KR7096530001:${ACCOUNT}:KRX`);
     expect(cards[0].getAttribute('data-open')).toBe('true');
-    expect(cardProps.get('KR7096530001')?.name).toBe('씨젠');
-    expect(cardProps.get('KR7096530001')?.code).toBe('096530');
+    expect(propsOf('KR7096530001')?.name).toBe('씨젠');
+    expect(propsOf('KR7096530001')?.code).toBe('096530');
     expect(screen.getByTestId('stat-cards').textContent).toBe('거래 종목 1');
   });
 
@@ -308,7 +322,7 @@ describe('TradingWorkbench — 카드 제거 (UI-SPEC E7 · 접근성)', () => {
       fireEvent.click(close);
     });
     expect(cardsInDom()).toHaveLength(1);
-    expect(document.activeElement?.id).toBe('strategy-card-KR7005930003-toggle');
+    expect(document.activeElement).toBe(toggleOf('KR7005930003'));
 
     const close2 = screen.getByRole('button', { name: '삼성전자 카드 닫기' });
     close2.focus();
@@ -360,7 +374,7 @@ describe('TradingWorkbench — 등록된 전략과 ?focus= (D-02 · T-18-53)', (
     expect(byKey()[`KR7086520004:${ACCOUNT}:KRX`]).toBe('false');
 
     // 사용자가 접는다 → 로컬 상태가 정본.
-    fireEvent.click(document.getElementById('strategy-card-KR7247540008-toggle')!);
+    fireEvent.click(toggleOf('KR7247540008'));
     expect(byKey()[focusKey]).toBe('false');
 
     // URL 이 바뀌어도(뒤로가기 · 다른 focus) 카드를 다시 펼치지 않는다.
@@ -398,7 +412,7 @@ describe('TradingWorkbench — 사이드바 포커스 요청 (18-12 · 이미 /t
     expect(byKey()[key]).toBe('true');
     expect(byKey()[`KR7086520004:${ACCOUNT}:KRX`]).toBe('false');
 
-    fireEvent.click(document.getElementById('strategy-card-KR7247540008-toggle')!);
+    fireEvent.click(toggleOf('KR7247540008'));
     expect(byKey()[key]).toBe('false');
     act(() => requestTradingFocus(key));
     expect(byKey()[key]).toBe('true');
@@ -476,6 +490,91 @@ describe('TradingWorkbench — WR-05 — 같은 종목의 두 번째 전략 (D-0
   });
 });
 
+describe('TradingWorkbench — 카드 키 규칙 (WR-05 · D-07 · D-08 · T-18-94)', () => {
+  const S = 'KR7005930003'; // 종목 추가 스텁 · 돌파 칩이 쓰는 종목
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+
+  it('카드가 둘인 ISIN 의 돌파 칩 · 종목 추가는 카드를 늘리지 않고 첫 카드를 펼친다', () => {
+    mockRelay = relay({
+      limitChasers: [lc(S), lc(S, { exchange: 'NXT' })],
+      rateCrossItems: [rc({ isin: S, name: '삼성전자', code: '005930' })],
+    });
+    render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(2);
+
+    fireEvent.click(slot('breakout-chip')!);
+    expect(cardsInDom()).toHaveLength(2);
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
+
+    fireEvent.click(toggleOf(S)); // 첫 카드를 다시 접는다
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    expect(cardsInDom()).toHaveLength(2);
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
+  });
+
+  it('등록 전 카드의 거래소 토글이 다른 카드의 키와 같아지면 토글하지 않고 그 카드를 펼친다', () => {
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' })); // S KRX · 등록 전 · 펼침
+    mockRelay = relay({ limitChasers: [lc(S, { exchange: 'NXT' })] }); // 같은 종목 NXT 전략 유입
+    rerender(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
+
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 NXT' })); // 등록 전 카드의 NXT 토글
+    expect(cardsInDom()).toHaveLength(2);
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'true' });
+  });
+
+  it('충돌이 없으면 등록 전 카드의 거래소 토글은 그대로 키를 바꾼다(카드는 다시 마운트되지 않는다)', () => {
+    render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    const idBefore = [...cardProps.keys()];
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 NXT' }));
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:NXT`]: 'true' });
+    expect(propsOf(S)?.cardId).toBe(idBefore[0]);
+  });
+
+  it('같은 키의 60 에코가 다시 와도 카드가 늘지 않는다 — 등록 전 카드가 그 키면 그 카드가 곧 전략 카드다', () => {
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' })); // S KRX · 등록 전
+    expect(cardsInDom()).toHaveLength(1);
+
+    mockRelay = relay({ limitChasers: [lc(S)] });
+    rerender(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true' });
+
+    mockRelay = relay({ limitChasers: [lc(S, { buyEnabled: false })] }); // 같은 키 · 새 에코
+    rerender(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+  });
+
+  it('카드 id 축 — 같은 ISIN 두 카드는 id 가 다르고, 한 장을 닫아도 다른 장은 남는다', () => {
+    const OTHER = '99999999901';
+    mockRelay = relay({
+      accounts: [
+        { accountNo: ACCOUNT, name: '위탁종합' },
+        { accountNo: OTHER, name: '위탁2' },
+      ],
+      limitChasers: [
+        lc(S, { name: '삼성전자' } as Partial<RelayLimitChaser>),
+        lc(S, { accountNo: OTHER, name: '삼성전자우' } as Partial<RelayLimitChaser>),
+      ],
+    });
+    render(<TradingWorkbench />);
+    const ids = [...cardProps.keys()];
+    expect(new Set(ids).size).toBe(2);
+    expect(new Set([...cardProps.values()].map((p) => p.isin))).toEqual(new Set([S]));
+
+    // 등록 전략 카드 ✕ → 확인 → 그 카드만 사라진다(다른 계좌 카드는 남는다).
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 카드 닫기' }));
+    fireEvent.click(
+      within(screen.getByTestId('workbench-close-confirm')).getByRole('button', { name: '카드 닫기' }),
+    );
+    expect(cardsInDom().map((c) => c.getAttribute('data-key'))).toEqual([`${S}:${OTHER}:KRX`]);
+  });
+});
+
 describe('TradingWorkbench — 이탈 경고 (한 곳)', () => {
   it('더티 카드가 있으면 다른 경로 링크 클릭에 경고가 뜬다', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
@@ -507,6 +606,7 @@ describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitf
     render(<TradingWorkbench />);
     expect(cardProps.size).toBe(2);
     const allowed = new Set([
+      'cardId',
       'isin',
       'accountNo',
       'exchange',
@@ -591,7 +691,7 @@ describe('TradingWorkbench — 미체결 행 선택 (D-21)', () => {
 
   /** 카드 본문 렌더 prop 이 만든 `CardBody` 요소의 `selectedUnfilled`. */
   function selectedOf(isin: string): unknown {
-    const body = cardProps.get(isin)?.body as (s: unknown) => { props: { selectedUnfilled: unknown } };
+    const body = propsOf(isin)?.body as (s: unknown) => { props: { selectedUnfilled: unknown } };
     return body({}).props.selectedUnfilled;
   }
 
