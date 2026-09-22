@@ -23,9 +23,13 @@
  *      「실패」라는 단어를 쓰지 않고, 미체결에서 접수 여부를 확인하도록 안내하며, **버튼을
  *      다시 열지 않는다**. 잠금은 **한 규칙**이다(18-34 · R3-WR-02 · R3-IN-01 · R3-IN-02 · D-27 R4 보강):
  *      - 잠금은 `RelayProvider`(루트 레이아웃 · 앱 수명)가 `계좌|ISIN|거래소` 키
- *        (`strategyKey`)로 들고, 이 폼은 `orderLocks` 에서 자기 키를 **읽기만** 한다 — 작업대 카드와
- *        호가 탭이 같은 키로 같은 잠금을 본다. 카드를 닫았다 다시 열어도 · 다른 화면에 다녀와도
- *        잠긴 채이고, **로그아웃 · 새로고침에만** 풀린다.
+ *        (`strategyKey`)로 들고, 이 폼은 `orderLocks` 에서 **자기 요청이 등록하는(할) 키** —
+ *        (a) 폼 키 · (b) 선택한 원주문 행 키 · (c) 이 폼이 보낸 마지막 신규 · 정정 요청 키(같은
+ *        종목 · 계좌일 때) — 를 **읽기만** 한다(`formOrderLockOf`). 작업대 카드와 호가 탭이 같은 키로
+ *        같은 잠금을 본다. 카드를 닫았다 다시 열어도 · 다른 화면에 다녀와도 잠긴 채이고,
+ *        **로그아웃 · 새로고침에만** 풀린다.
+ *        이력: 정정은 원주문 행의 거래소로 나가므로 폼 키만 읽으면 호가 탭의 교차 거래소 정정
+ *        timeout 뒤 버튼이 다시 열렸다 — quick-260922-uhw · R4-WR-01.
  *      - **신규 · 정정만** 잠근다. 취소 timeout 은 결과 배너만 남긴다(취소 재시도는 무해하다).
  *      - **전송 중(응답 전)** 인 신규 · 정정도 같은 키를 잠근다(「주문 전송 중…」) — 전송 중 카드를
  *        닫고 다시 열어 두 번째 주문을 내는 경로가 없다. timeout 이면 틈 없이 결과 모름으로 옮겨 간다.
@@ -85,7 +89,11 @@ import {
 import { DISABLED_LABEL, type PriceSelection } from '@/components/orderbook/order-panel';
 import { strategyKey } from '@/lib/limit-chaser';
 import { affordanceOf } from '@/lib/queued-window';
-import { useRelayContext, type RelayOrderRequest } from '@/lib/relay-provider';
+import {
+  useRelayContext,
+  type OrderLockKind,
+  type RelayOrderRequest,
+} from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
@@ -123,11 +131,33 @@ export const MODIFY_TARGET_GONE_TEXT = '원주문이 더 이상 미체결이 아
 export const MODIFY_TARGET_CHANGED_TEXT = '선택한 원주문이 바뀌었어요 — 다시 확인해 주세요';
 /**
  * 「결과 모름」 잠금(`RelayProvider` 키 잠금 · ②-4)으로 버튼이 잠겼는데 **이 폼 인스턴스에는 결과
- * 배너가 없을 때**(✕ 뒤 다시 연 카드 · 다른 화면에서 돌아온 폼 · 같은 키의 호가 탭) 보이는 문구 —
+ * 배너가 없을 때**(✕ 뒤 다시 연 카드 · 다른 화면에서 돌아온 폼 · 같은 키의 호가 탭 · 잠긴 키의
+ * 원주문 행을 선택한 폼) 보이는 문구 —
  * GC-WR-03 · R3 목업 ③ 3-b 원문. 「실패」 를 쓰지 않는다.
  */
 export const RESULT_UNKNOWN_LOCKED_TEXT =
   '결과를 모르는 주문이 있어 주문 버튼을 잠갔어요 — 미체결 목록에서 접수 여부를 확인하세요';
+
+/**
+ * 폼이 읽는 키들의 잠금을 하나로 합친다(②-4 · R4-WR-01). `null` 키는 건너뛴다.
+ *
+ * 하나라도 `"result-unknown"` 이면 그것, 아니면 하나라도 `"in-flight"` 이면 그것, 아니면 `undefined`.
+ * **결과 모름이 우선이다** — 결과 모름은 풀리지 않는 잠금이고, 사용자가 확인할 것(미체결)을
+ * 알려야 한다. 잠금 여부는 늘 `orderLocks`(RelayProvider) 가 답하고, 폼은 어느 키를 읽을지만 고른다.
+ */
+export function formOrderLockOf(
+  orderLocks: ReadonlyMap<string, OrderLockKind>,
+  keys: ReadonlyArray<string | null>,
+): OrderLockKind | undefined {
+  let found: OrderLockKind | undefined;
+  for (const key of keys) {
+    if (key === null) continue;
+    const kind = orderLocks.get(key);
+    if (kind === 'result-unknown') return kind;
+    if (kind === 'in-flight') found = kind;
+  }
+  return found;
+}
 
 /**
  * 취소 확정 순간의 수량 — 확인한 수량(`confirmedQty`)을 **지금의 잔량으로 내리기만** 한다
@@ -299,12 +329,14 @@ export function ManualOrderForm({
   const [result, setResult] = useState<OrderResult | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
   const { sendOrder, orderLocks } = useRelayContext();
-  /*
-    이 폼 키의 주문 잠금(②-4) — 원천은 `RelayProvider` 하나다(앱 수명). 상위(작업대 · 카드 본문 ·
-    호가 탭)는 잠금을 prop 으로 내리지 않는다. 계좌가 빈 폼은 보낼 수 없으므로 잠금도 없다.
-  */
-  const lock =
-    accountNo.length > 0 ? orderLocks.get(strategyKey(isin, accountNo, exchange)) : undefined;
+  /**
+   * 이 폼이 실제로 보낸 마지막 신규 · 정정 요청의 대상 — **잠금 여부가 아니라 「어느 키를 읽을지」**
+   * 다(②-4 (c)). 잠금 여부는 늘 Provider 가 답한다. 취소는 기억하지 않는다(취소는 잠그지 않는다).
+   */
+  const [sentTarget, setSentTarget] = useState<Pick<
+    RelayOrderRequest,
+    'isin' | 'accountNo' | 'exchange'
+  > | null>(null);
 
   // 카드에는 주문유형이 없다(D-23) — 항상 지정가.
   const orderType = variant === 'orderbook' ? orderTypeState : 'limit';
@@ -320,6 +352,25 @@ export function ManualOrderForm({
     selectedUnfilled && unfilledSelectBlockReason(selectedUnfilled) === null
       ? selectedUnfilled
       : null;
+
+  /*
+    주문 잠금(②-4) — 원천은 `RelayProvider` 하나다(앱 수명). 상위(작업대 · 카드 본문 · 호가 탭)는
+    잠금을 prop 으로 내리지 않는다. 계좌가 빈 폼은 보낼 수 없으므로 잠금도 없다. 폼은 자기 요청이
+    등록하는(할) 키를 전부 읽는다 — (a) 폼 키 · (b) 선택 원주문 행 키(정정이 등록할 키) · (c) 이 폼이
+    보낸 신규 · 정정 요청 키(같은 종목 · 계좌일 때만). 정정은 원주문 행의 거래소로 나가므로 폼 키만
+    읽으면 교차 거래소 정정 timeout 뒤 버튼이 다시 열렸다(R4-WR-01).
+  */
+  const lockKeys: Array<string | null> =
+    accountNo.length === 0
+      ? []
+      : [
+          strategyKey(isin, accountNo, exchange),
+          selected ? strategyKey(selected.isin, accountNo, selected.exchange) : null,
+          sentTarget && sentTarget.isin === isin && sentTarget.accountNo === accountNo
+            ? strategyKey(isin, accountNo, sentTarget.exchange)
+            : null,
+        ];
+  const lock = formOrderLockOf(orderLocks, lockKeys);
 
   /*
     종목 전환 방어 — 호가 탭은 remount 없이 props 만 바뀐다. 리셋하지 않으면 다른 종목의
@@ -581,6 +632,10 @@ export function ManualOrderForm({
         ? { ...snap, qty: cancelQtyAtConfirm(snap.qty, snap.orgOrderNo ?? '', selected) }
         : snap;
     setSubmitting(true);
+    // ②-4 (c) — 이 요청이 Provider 에 등록할 키를 기억한다(취소는 잠그지 않으므로 기억하지 않는다).
+    if (req.kind !== 'cancel') {
+      setSentTarget({ isin: req.isin, accountNo: req.accountNo, exchange: req.exchange });
+    }
     setConfirm(null);
     setResult(null);
     // catch 없음(③) — sendOrder 는 reject 하지 않는다.

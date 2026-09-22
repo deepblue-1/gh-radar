@@ -941,7 +941,7 @@ describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-0
   */
   const TIMEOUT = () => accepted({ status: 'timeout', orderNo: '', resultCode: -1, message: '' });
 
-  it('정정 timeout → 원주문 **행의** 키(NXT)가 잠긴다 — 폼 키(KRX)가 아니다', async () => {
+  it('정정 timeout → 원주문 **행의** 키(NXT)가 잠긴다 — 폼 키(KRX)가 아니다 · 폼(KRX)의 4버튼도 잠긴다 — 같은 원주문을 곧바로 다시 정정할 수 없다 (R4-WR-01)', async () => {
     const user = userEvent.setup();
     sendOrderMock.mockResolvedValue(TIMEOUT());
     renderForm({ selectedUnfilled: unf() });
@@ -954,6 +954,46 @@ describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-0
     expect([...(lockMock.locks ?? new Map()).entries()]).toEqual([
       [`${ISIN}:12345678-01:NXT`, 'result-unknown'],
     ]);
+    // R4-WR-01 — 폼 키(KRX)만 읽으면 여기서 4버튼이 다시 열렸다.
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'unknown');
+    // 배너가 있으면 잠금 문구를 겹쳐 보이지 않는다.
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+    fireEvent.click(btn('정정'));
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('교차 거래소 정정 timeout 뒤 선택이 풀려도 매수 · 매도는 잠긴 채다 — 다른 종목 · 다른 계좌는 독립 (R4-WR-01)', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    const { rerender } = renderForm({ variant: 'orderbook', selectedUnfilled: unf() });
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '30');
+    await user.click(btn('정정'));
+    await user.click(await screen.findByRole('button', { name: '정정 주문' }));
+    await screen.findByTestId('manual-order-result');
+
+    // 칩 ✕ · 원주문이 미체결에서 사라짐 — 선택 해제.
+    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook', selectedUnfilled: null })} />);
+    expect(btn('매수')).toBeDisabled();
+    expect(btn('매도')).toBeDisabled();
+    expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'unknown');
+
+    // 다른 종목 — 18-34 종목 전환 의미 그대로(독립 키).
+    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook', isin: 'KR7005930003' })} />);
+    expect(btn('매수')).toBeEnabled();
+
+    // 원래 종목(선택 없음) — 배너는 종목 전환에서 리셋됐고 잠금 문구가 선다.
+    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook' })} />);
+    expect(btn('매수')).toBeDisabled();
+    expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
+
+    // 다른 계좌 — 교차 거래소 방향으로만 넓힌다.
+    rerender(
+      <ManualOrderForm {...baseProps({ variant: 'orderbook', accountNo: '99999999-01' })} />,
+    );
+    expect(btn('매수')).toBeEnabled();
   });
 
   it('취소 timeout → 잠금 등록 0 · 배너만 · 버튼 잠기지 않음 (R3-IN-01 · 사용자 결정 2)', async () => {
