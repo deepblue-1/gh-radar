@@ -569,3 +569,36 @@ describe('TradingWorkbench — 미체결 행 선택 (D-21)', () => {
     expect(card.getAttribute('data-open')).toBe('true');
   });
 });
+
+describe('TradingWorkbench — VI 몫 서버 거부 (18-13 · T-16-07 · Pitfall 9)', () => {
+  const msg = (src: string, m: string, i = '') =>
+    ({ t: 'msg', lv: 'ERROR', i, a: ACCOUNT, src, kind: '', m, receivedAt: '13:42:05' }) as never;
+
+  it('VI 몫 ERROR 는 VI 두 줄 아래 role="alert" 로 서고, 상따 몫·relay 자기 거부는 서지 않는다', () => {
+    mockRelay = relay({
+      messages: [
+        msg('Relay', '요청 형식이 올바르지 않습니다'),
+        msg('Account', '주문 가능 금액이 부족합니다', 'KR7005930003'),
+      ],
+    });
+    const { rerender } = render(<TradingWorkbench />);
+    expect(slot('vi-server-error')).toBeNull();
+
+    mockRelay = relay({
+      messages: [
+        msg('Account', 'VI 주문금액이 0 입니다'),
+        msg('Relay', '요청 형식이 올바르지 않습니다'),
+        msg('Account', '주문 가능 금액이 부족합니다', 'KR7005930003'),
+      ],
+    });
+    rerender(<TradingWorkbench />);
+    const el = slot('vi-server-error')!;
+    expect(el).not.toBeNull();
+    expect(el.getAttribute('role')).toBe('alert');
+    expect(el.textContent).toContain('VI 주문금액이 0 입니다');
+    expect(el.textContent).not.toContain('주문 가능 금액이 부족합니다');
+    expect(el.textContent).not.toContain('요청 형식이 올바르지 않습니다');
+    // VI 두 줄 섹션 안에 선다(폼 인라인 — UI-SPEC E1 error: 설정 오류는 해당 폼 자리).
+    expect(slot('vi-settings-rows')!.contains(el)).toBe(true);
+  });
+});

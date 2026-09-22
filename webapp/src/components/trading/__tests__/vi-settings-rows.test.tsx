@@ -485,3 +485,28 @@ describe('E2 loading — 스피너 없음', () => {
     expect(document.querySelector('[data-slot*="spinner"], [data-slot*="skeleton"], .animate-spin')).toBeNull();
   });
 });
+
+/*
+  18-13 이관 — 옛 VI 화면 상태줄의 VI 몫 서버 거부(`vi-server-error`)를 두 줄 아래 한 자리로 옮겼다.
+  판정(`isViServerMessage`)은 작업대의 `useViServerError` 가 하고 줄은 받은 1건을 그리기만 한다.
+*/
+describe('VI 몫 서버 거부 — 두 줄 아래 인라인 경보 (옛 vi-client ② · T-16-07)', () => {
+  it('serverError 가 있으면 role="alert" 로 출처 배지 + 원문을 그린다', () => {
+    renderRows({ serverError: { text: '상승률 조건 미달로 건너뜀', src: 'VITrigger' } });
+    const el = document.querySelector('[data-slot="vi-server-error"]') as HTMLElement;
+    expect(el).not.toBeNull();
+    expect(el).toHaveAttribute('role', 'alert');
+    expect(el.querySelector('[data-slot="vi-server-error-src"]')?.textContent).toBe('[VI]');
+    expect(el).toHaveTextContent('상승률 조건 미달로 건너뜀');
+  });
+
+  it('`SetVITrigger`·`Account` 출처는 `[서버]` 다 — 배지 판정은 serverMsgBadge 하나다', () => {
+    renderRows({ serverError: { text: 'VI 주문금액이 0 입니다', src: 'SetVITrigger' } });
+    expect(document.querySelector('[data-slot="vi-server-error-src"]')?.textContent).toBe('[서버]');
+  });
+
+  it('serverError 가 없으면 그 줄 자체가 없다', () => {
+    renderRows({ serverError: null });
+    expect(document.querySelector('[data-slot="vi-server-error"]')).toBeNull();
+  });
+});
