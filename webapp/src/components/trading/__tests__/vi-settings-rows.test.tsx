@@ -1,0 +1,386 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import type { RelayViSetMsg, RelayViTrigger } from '@gh-radar/shared';
+
+/**
+ * Phase 18 Plan 05 Task 1 — VI 설정 2줄 (TRADE-08 · D-05 · D-27 · UI-SPEC E2).
+ *
+ * 여기서 잠그는 것:
+ *   ① 줄의 거래소가 `vi.set` 페이로드의 `exchange` 로 나간다 (Pitfall 8 — 고정 상수 금지)
+ *   ② 두 줄은 서로 다른 전략 슬롯이다 — 더티·에코·전송이 다른 줄을 건드리지 않는다
+ *   ③ 스냅샷이 없거나 한 거래소만 있어도 두 줄은 항상 그려진다 (E2 empty/partial)
+ *   ④ 「수정」은 `run` 을 현재값 그대로 싣고, 시작/중지만 확인 다이얼로그를 거친다 (Phase 16 D-07)
+ *   ⑤ 3초 ack 타임아웃은 잠금을 풀고 문구를 띄울 뿐 **아무것도 다시 보내지 않는다**
+ *   ⑥ 더티 중 에코는 값을 덮고 「다른 단말에서 변경됨」 을 인라인으로 띄운다 (D-27)
+ *   ⑦ 금액 상한 가드(WR-07)가 줄에서도 그대로다
+ */
+
+const sendMock = vi.fn();
+
+vi.mock('@/lib/relay-provider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
+  return {
+    ...actual,
+    useRelayContext: () => ({ ...actual.EMPTY_RELAY_VALUE, send: sendMock }),
+  };
+});
+
+import {
+  ViSettingsRows,
+  VI_ACK_TIMEOUT_MS,
+  VI_ACK_TIMEOUT_TEXT,
+  VI_AMOUNT_LIMIT_MESSAGE,
+  VI_DEFAULT_AMOUNT_MANWON,
+  VI_DEFAULT_CHECK_RATE,
+  VI_ECHO_OVERWRITTEN_TEXT,
+  VI_SET_SEND_FAILED_TEXT,
+} from '../workbench/vi-settings-rows';
+import { MAX_VI_ORDER_AMOUNT_MANWON, manwonToKrw } from '@/lib/vi-alert';
+import type { RelayViTriggers } from '@/lib/use-relay-socket';
+
+const ACCOUNT = '37728502101';
+
+function trigger(over: Partial<RelayViTrigger> = {}): RelayViTrigger {
+  return {
+    accountNo: ACCOUNT,
+    exchange: 'KRX',
+    orderAmountKrw: 10_000_000, // 1,000만원
+    checkRate: 22,
+    priceType: 'U',
+    run: false,
+    ...over,
+  };
+}
+
+const BOTH: RelayViTriggers = {
+  KRX: trigger(),
+  NXT: trigger({ exchange: 'NXT', orderAmountKrw: 5_000_000, checkRate: 25 }),
+};
+
+function renderRows(props: Partial<React.ComponentProps<typeof ViSettingsRows>> = {}) {
+  return render(<ViSettingsRows viTriggers={BOTH} accountNo={ACCOUNT} {...props} />);
+}
+
+const row = (ex: 'KRX' | 'NXT') =>
+  document.querySelector(`[data-slot="vi-settings-row"][data-exchange="${ex}"]`) as HTMLElement;
+const rateInput = (ex: 'KRX' | 'NXT') =>
+  document.querySelector(`#vi-${ex.toLowerCase()}-rate`) as HTMLInputElement;
+const amountInput = (ex: 'KRX' | 'NXT') =>
+  document.querySelector(`#vi-${ex.toLowerCase()}-amount`) as HTMLInputElement;
+const fixButton = (ex: 'KRX' | 'NXT') =>
+  row(ex).querySelector('[data-slot="vi-row-fix"]') as HTMLButtonElement | null;
+const sentMsgs = () => sendMock.mock.calls.map((c) => c[0] as RelayViSetMsg);
+
+beforeEach(() => {
+  sendMock.mockReset();
+  sendMock.mockReturnValue(true);
+});
+
+describe('줄 구성 (D-05)', () => {
+  it('KRX 한 줄 · NXT 한 줄 — 태그 · 스위치 · 상승률 · 금액. 계좌·마감알림은 줄에 없다', () => {
+    renderRows();
+    const rows = document.querySelectorAll('[data-slot="vi-settings-row"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].getAttribute('data-exchange')).toBe('KRX');
+    expect(rows[1].getAttribute('data-exchange')).toBe('NXT');
+
+    for (const ex of ['KRX', 'NXT'] as const) {
+      const r = within(row(ex));
+      expect(r.getByText(ex)).toBeInTheDocument();
+      expect(r.getByRole('switch', { name: `VI ${ex} 시작` })).toBeInTheDocument();
+      expect(r.getByText('상승률')).toBeInTheDocument();
+      expect(r.getByText('금액')).toBeInTheDocument();
+      expect(r.getByText('%')).toBeInTheDocument();
+      expect(r.getByText('만원')).toBeInTheDocument();
+    }
+    // ★ 계좌 셀렉터·마감알림 스위치는 상태줄 몫이다(Q-1).
+    expect(document.querySelector('select')).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'VI 마감 알림' })).toBeNull();
+    expect(screen.queryByText('계좌')).toBeNull();
+  });
+
+  it('가동 중이면 「가동중」 + 「서버 반영 {시각}」, 아니면 「중지」', () => {
+    renderRows({ viTriggers: { KRX: trigger({ run: true }), NXT: BOTH.NXT } });
+    const krx = within(row('KRX'));
+    expect(krx.getByText('가동중')).toBeInTheDocument();
+    expect(krx.getByText(/^서버 반영 \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    expect(krx.getByRole('switch', { name: 'VI KRX 중지' })).toHaveAttribute('aria-checked', 'true');
+    const nxt = within(row('NXT'));
+    expect(nxt.getByText('중지')).toBeInTheDocument();
+    expect(nxt.queryByText('가동중')).toBeNull();
+  });
+
+  it('서버 값이 줄마다 따로 보인다 (만원 변환은 krwToManwon)', () => {
+    renderRows();
+    expect(rateInput('KRX').value).toBe('22');
+    expect(amountInput('KRX').value).toBe('1,000');
+    expect(rateInput('NXT').value).toBe('25');
+    expect(amountInput('NXT').value).toBe('500');
+  });
+});
+
+describe('① 줄의 거래소를 실어 보낸다 (Pitfall 8)', () => {
+  it('KRX 줄의 「수정」 → exchange:"KRX", NXT 줄의 「수정」 → exchange:"NXT"', () => {
+    renderRows();
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    fireEvent.click(fixButton('KRX')!);
+    fireEvent.change(amountInput('NXT'), { target: { value: '700' } });
+    fireEvent.click(fixButton('NXT')!);
+
+    const [krx, nxt] = sentMsgs();
+    expect(krx).toEqual({
+      t: 'vi.set',
+      accountNo: ACCOUNT,
+      exchange: 'KRX',
+      orderAmountKrw: manwonToKrw(1_000),
+      checkRate: 30,
+      run: false,
+    });
+    expect(nxt).toEqual({
+      t: 'vi.set',
+      accountNo: ACCOUNT,
+      exchange: 'NXT',
+      orderAmountKrw: manwonToKrw(700),
+      checkRate: 25,
+      run: false,
+    });
+  });
+
+  it('「수정」은 run 을 현재값 그대로 싣는다 (가동 중 줄은 run:true)', () => {
+    renderRows({ viTriggers: { KRX: trigger({ run: true }), NXT: BOTH.NXT } });
+    fireEvent.change(rateInput('KRX'), { target: { value: '24' } });
+    fireEvent.click(fixButton('KRX')!);
+    expect(sentMsgs()[0]).toMatchObject({ exchange: 'KRX', run: true, checkRate: 24 });
+  });
+
+  it('시작/중지 확인 경로도 줄의 거래소를 싣는다', async () => {
+    renderRows({ viTriggers: { KRX: trigger({ run: true }), NXT: BOTH.NXT } });
+    fireEvent.click(within(row('NXT')).getByRole('switch', { name: 'VI NXT 시작' }));
+    const start = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(start).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()[0]).toMatchObject({ exchange: 'NXT', run: true });
+
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 중지' }));
+    const stop = await screen.findByTestId('vi-stop-dialog');
+    fireEvent.click(within(stop).getByRole('button', { name: '중지' }));
+    expect(sentMsgs()[1]).toMatchObject({ exchange: 'KRX', run: false });
+  });
+});
+
+describe('② 줄 독립 — 서로 다른 전략 슬롯', () => {
+  it('값이 완전히 같아도 KRX 편집이 NXT 를 더티로 만들지 않는다', () => {
+    const same: RelayViTriggers = { KRX: trigger(), NXT: trigger({ exchange: 'NXT' }) };
+    renderRows({ viTriggers: same });
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    expect(fixButton('KRX')).not.toBeNull();
+    expect(fixButton('NXT')).toBeNull();
+    expect(rateInput('NXT').value).toBe('22');
+  });
+
+  it('한 줄의 에코가 다른 줄의 더티를 지우지 않는다', () => {
+    const { rerender } = renderRows();
+    fireEvent.change(rateInput('NXT'), { target: { value: '40' } });
+    rerender(
+      <ViSettingsRows
+        viTriggers={{ KRX: trigger({ checkRate: 23 }), NXT: BOTH.NXT }}
+        accountNo={ACCOUNT}
+      />,
+    );
+    expect(rateInput('KRX').value).toBe('23');
+    expect(rateInput('NXT').value).toBe('40');
+    expect(fixButton('NXT')).not.toBeNull();
+  });
+
+  it('더티 개수는 두 줄의 합으로 보고된다', () => {
+    const onDirtyCountChange = vi.fn();
+    renderRows({ onDirtyCountChange });
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    fireEvent.change(amountInput('NXT'), { target: { value: '800' } });
+    expect(onDirtyCountChange).toHaveBeenLastCalledWith(2);
+  });
+});
+
+describe('③ 빈/부분 스냅샷 (E2 empty · partial)', () => {
+  it('viTriggers 가 비어 있어도 두 줄 · 스위치 OFF · 「중지」 · 기본값', () => {
+    renderRows({ viTriggers: {} });
+    for (const ex of ['KRX', 'NXT'] as const) {
+      const r = within(row(ex));
+      expect(r.getByRole('switch', { name: `VI ${ex} 시작` })).toHaveAttribute('aria-checked', 'false');
+      expect(r.getByText('중지')).toBeInTheDocument();
+      expect(rateInput(ex).value).toBe(String(VI_DEFAULT_CHECK_RATE));
+      expect(amountInput(ex).value).toBe(new Intl.NumberFormat('ko-KR').format(VI_DEFAULT_AMOUNT_MANWON));
+    }
+    // 별도 빈 상태 문구 · 스피너 없음
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(document.querySelector('[data-slot="vi-settings-empty"]')).toBeNull();
+  });
+
+  it('스냅샷에 KRX 만 있으면 NXT 줄은 기본값 · 「중지」, KRX 줄만 서버 값', () => {
+    renderRows({ viTriggers: { KRX: trigger({ run: true, checkRate: 27, orderAmountKrw: 30_000_000 }) } });
+    expect(rateInput('KRX').value).toBe('27');
+    expect(amountInput('KRX').value).toBe('3,000');
+    expect(within(row('KRX')).getByText('가동중')).toBeInTheDocument();
+    expect(rateInput('NXT').value).toBe(String(VI_DEFAULT_CHECK_RATE));
+    expect(within(row('NXT')).getByText('중지')).toBeInTheDocument();
+  });
+
+  it('빈 61(null · 미등록)은 입력값을 지우지 않는다 (CR-01)', () => {
+    const { rerender } = renderRows({ viTriggers: { KRX: trigger(), NXT: null } });
+    fireEvent.change(rateInput('NXT'), { target: { value: '31' } });
+    rerender(<ViSettingsRows viTriggers={{ KRX: trigger(), NXT: null }} accountNo={ACCOUNT} />);
+    expect(rateInput('NXT').value).toBe('31');
+  });
+});
+
+describe('E2 partial — 줄 단위 더티', () => {
+  it('상승률만 바꾸면 「수정」 1개 · 바뀐 라벨만 `● ` 접두', () => {
+    renderRows();
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    const r = row('KRX');
+    expect(r.querySelectorAll('[data-slot="vi-row-fix"]')).toHaveLength(1);
+    expect(within(r).getByText('● 상승률')).toBeInTheDocument();
+    expect(within(r).getByText('금액')).toBeInTheDocument();
+    expect(within(r).queryByText('● 금액')).toBeNull();
+  });
+
+  it('공란 입력이면 「수정」이 disabled 이고 눌러도 나가지 않는다', () => {
+    renderRows();
+    fireEvent.change(amountInput('KRX'), { target: { value: '' } });
+    expect(amountInput('KRX').value).toBe('');
+    expect(fixButton('KRX')).toBeDisabled();
+    fireEvent.click(fixButton('KRX')!);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('E2 loading · error — 반영 중 · 타임아웃 · 전송 실패', () => {
+  it('전송 후 에코 전에는 「반영 중…」 + disabled, 에코가 오면 풀리고 더티가 사라진다', () => {
+    const { rerender } = renderRows();
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    fireEvent.click(fixButton('KRX')!);
+    expect(fixButton('KRX')).toHaveTextContent('반영 중…');
+    expect(fixButton('KRX')).toBeDisabled();
+    fireEvent.click(fixButton('KRX')!);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ViSettingsRows viTriggers={{ KRX: trigger({ checkRate: 30 }), NXT: BOTH.NXT }} accountNo={ACCOUNT} />,
+    );
+    expect(fixButton('KRX')).toBeNull();
+    // 내 에코는 「다른 단말」이 아니다
+    expect(screen.queryByText(VI_ECHO_OVERWRITTEN_TEXT)).toBeNull();
+  });
+
+  it('★ 3초 타임아웃 — 잠금을 풀고 문구를 띄우며 더티 값을 보존하고, 아무것도 다시 보내지 않는다', () => {
+    vi.useFakeTimers();
+    try {
+      renderRows();
+      fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+      fireEvent.click(fixButton('KRX')!);
+      expect(sendMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        vi.advanceTimersByTime(VI_ACK_TIMEOUT_MS * 5);
+      });
+      expect(sendMock).toHaveBeenCalledTimes(1); // 재전송 0
+      const status = within(row('KRX').parentElement!).getByRole('status');
+      expect(status).toHaveTextContent(VI_ACK_TIMEOUT_TEXT);
+      expect(rateInput('KRX').value).toBe('30');
+      expect(fixButton('KRX')).toHaveTextContent('수정');
+      expect(fixButton('KRX')).not.toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('보내지 못하면(send=false) 잠그지 않고 줄 아래 role=status 로 사유를 남긴다', () => {
+    sendMock.mockReturnValue(false);
+    renderRows();
+    fireEvent.change(rateInput('NXT'), { target: { value: '30' } });
+    fireEvent.click(fixButton('NXT')!);
+    expect(fixButton('NXT')).toHaveTextContent('수정');
+    expect(fixButton('NXT')).not.toBeDisabled();
+    const block = document.querySelector('[data-slot="vi-settings-block"][data-exchange="NXT"]')!;
+    expect(within(block as HTMLElement).getByRole('status')).toHaveTextContent(VI_SET_SEND_FAILED_TEXT);
+    expect(rateInput('NXT').value).toBe('30');
+  });
+
+  it('세션이 준비되지 않으면(disabled) 입력·스위치가 잠기고 아무것도 나가지 않는다', () => {
+    renderRows({ disabled: true });
+    expect(rateInput('KRX')).toBeDisabled();
+    expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' })).toBeDisabled();
+  });
+});
+
+describe('D-27 — 다른 단말의 에코', () => {
+  it('더티 중 에코가 오면 값을 덮고 「다른 단말에서 변경됨」 role=status 를 띄운다', () => {
+    const { rerender } = renderRows();
+    fireEvent.change(rateInput('KRX'), { target: { value: '30' } });
+    rerender(
+      <ViSettingsRows viTriggers={{ KRX: trigger({ checkRate: 26 }), NXT: BOTH.NXT }} accountNo={ACCOUNT} />,
+    );
+    expect(rateInput('KRX').value).toBe('26');
+    expect(fixButton('KRX')).toBeNull();
+    const block = document.querySelector('[data-slot="vi-settings-block"][data-exchange="KRX"]') as HTMLElement;
+    expect(within(block).getByRole('status')).toHaveTextContent(VI_ECHO_OVERWRITTEN_TEXT);
+    // 다른 줄에는 고지가 없다
+    const nxt = document.querySelector('[data-slot="vi-settings-block"][data-exchange="NXT"]') as HTMLElement;
+    expect(within(nxt).queryByRole('status')).toBeNull();
+  });
+});
+
+describe('시작/중지 확인 다이얼로그 (Phase 16 D-07 승계)', () => {
+  it('스위치 토글은 확인 다이얼로그를 거치고 기본 포커스는 취소다', async () => {
+    renderRows();
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    expect(sendMock).not.toHaveBeenCalled();
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(within(dlg).getByRole('button', { name: '취소' })).toHaveFocus();
+    // 요약에 계좌·금액·상승률·거래소가 있다
+    expect(within(dlg).getByText(ACCOUNT)).toBeInTheDocument();
+    expect(within(dlg).getByText('1,000만원')).toBeInTheDocument();
+    expect(within(dlg).getByText('22% 이상')).toBeInTheDocument();
+    expect(within(dlg).getByText('상한가 · KRX')).toBeInTheDocument();
+  });
+
+  it('취소하면 아무것도 나가지 않는다', async () => {
+    renderRows();
+    fireEvent.click(within(row('NXT')).getByRole('switch', { name: 'VI NXT 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: '취소' }));
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('vi-start-dialog')).toBeNull();
+  });
+
+  it('확정 후 에코 전까지 스위치는 pending 이고 다시 눌리지 않는다', async () => {
+    renderRows();
+    const sw = within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' });
+    fireEvent.click(sw);
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sw).toHaveAttribute('data-pending', 'true');
+    expect(sw).toBeDisabled();
+  });
+});
+
+describe('⑦ 금액 상한 (WR-07)', () => {
+  it('상한을 넘는 입력은 상한으로 잘리고 이유를 말하며, 잘린 값 그대로 나간다', () => {
+    renderRows();
+    fireEvent.change(amountInput('KRX'), { target: { value: String(MAX_VI_ORDER_AMOUNT_MANWON + 1) } });
+    expect(amountInput('KRX').value).toBe(new Intl.NumberFormat('ko-KR').format(MAX_VI_ORDER_AMOUNT_MANWON));
+    expect(screen.getByText(VI_AMOUNT_LIMIT_MESSAGE)).toBeInTheDocument();
+    fireEvent.click(fixButton('KRX')!);
+    expect(sentMsgs()[0].orderAmountKrw).toBe(manwonToKrw(MAX_VI_ORDER_AMOUNT_MANWON));
+  });
+
+  it('서버 에코가 상한 밖 금액이면 `vi.set` 이 아예 나가지 않는다', async () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ orderAmountKrw: manwonToKrw(MAX_VI_ORDER_AMOUNT_MANWON + 10) }), NXT: BOTH.NXT },
+    });
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(screen.getByText(VI_AMOUNT_LIMIT_MESSAGE)).toBeInTheDocument();
+  });
+});
