@@ -10,6 +10,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { leavesOverflowing, scrollOverflowing } from '../overflow';
 
 /**
  * Phase 16 Plan 13 Task 3 — 상따 전략 화면 E2E (TRADE-01 · UI-SPEC A1~A14).
@@ -70,75 +71,10 @@ async function waitForReady(page: Page): Promise<void> {
   await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
 }
 
-/**
- * 잘림 진단 — **행 안의 잎 요소 좌표**다 (260912-ok2 가 지역 헬퍼로 뽑았다).
- *
- * 행은 블록이라 넘쳐도 폭이 컨테이너와 같고 `overflow-hidden` 이 넘침을 삼킨다.
- * `getBoundingClientRect` 는 ancestor 클리핑에 영향받지 않아 밀려난 진짜 좌표가 나온다.
- * 실패 메시지에 **무엇이 얼마나** 밀려났는지 남는다 — 「어딘가 잘렸다」로 끝나지 않게.
- *
- * ★ 판정식은 뽑기 전 두 호출부(미체결 행 루프 · 폼 컬럼)와 **한 글자도 다르지 않다** —
- *   `slice(0, 24)` · `Math.round` · `over > 1`(1px 반올림 여유) 전부 그대로다.
- */
-async function leavesOverflowing(
-  scope: Locator,
-  right: number,
-): Promise<{ text: string; over: number }[]> {
-  return scope.evaluate(
-    (el, r) =>
-      Array.from(el.querySelectorAll<HTMLElement>('*'))
-        .map((child) => ({
-          text: (child.textContent ?? '').slice(0, 24),
-          over: Math.round(child.getBoundingClientRect().right - r), // 1px = 반올림 여유
-        }))
-        .filter((item) => item.over > 1),
-    right,
-  );
-}
-
-/**
- * 잘림 진단 ② — **스크롤 판정식**이다 (quick-260912-u58 ⑤, 브리프가 정한 그대로).
- *
- * 위 `leavesOverflowing` 은 잎 요소의 **좌표**가 컨테이너 오른쪽 밖으로 밀렸는지 본다.
- * 이쪽은 요소 **자신의 내용이 자기 상자보다 넓은지**(`scrollWidth - clientWidth > 1`) 본다.
- * 둘은 **서로 다른 실패를 본다** — `truncate`(`overflow:hidden`) 가 걸린 요소는 좌표가
- * 밀리지 않아 ①이 못 보고, 부모를 밀어내며 넘치는 요소는 자기 `scrollWidth` 가 멀쩡해
- * ②가 못 본다. 그래서 **대체하지 않고 나란히** 쓴다(케이스 11 이 같은 이유로 두 판정을
- * 나란히 둔 것을 읽어라).
- *
- * 제외 두 가지:
- *   · `sr-only` — 1px 상자에 글자를 숨기는 장치라 **항상** 넘친다(설계다).
- *   · overflow 가 `auto`/`scroll` 인 조상 안 — 스크롤하라고 만든 영역이다(호가 사다리 등).
- *
- * 실패 메시지에 **무엇이 얼마나** 넘쳤는지 남는다 — 「어딘가 잘렸다」로 끝나지 않게.
- */
-async function scrollOverflowing(
-  page: Page,
-  rootSelector: string,
-): Promise<{ tag: string; text: string; over: number }[]> {
-  return page.evaluate((sel) => {
-    const root = document.querySelector(sel);
-    if (root === null) return [{ tag: '<ROOT_MISSING>', text: sel, over: -1 }];
-    const inScroller = (el: Element): boolean => {
-      let p = el.parentElement;
-      while (p !== null && p !== root) {
-        const o = getComputedStyle(p);
-        if (/(auto|scroll)/.test(o.overflowX) || /(auto|scroll)/.test(o.overflow)) return true;
-        p = p.parentElement;
-      }
-      return false;
-    };
-    return Array.from(root.querySelectorAll<HTMLElement>('*'))
-      .filter((el) => !el.classList.contains('sr-only') && el.closest('.sr-only') === null)
-      .filter((el) => el.scrollWidth - el.clientWidth > 1)
-      .filter((el) => !inScroller(el))
-      .map((el) => ({
-        tag: `${el.tagName.toLowerCase()}${el.dataset.slot ? `[${el.dataset.slot}]` : ''}`,
-        text: (el.textContent ?? '').slice(0, 24),
-        over: el.scrollWidth - el.clientWidth,
-      }));
-  }, rootSelector);
-}
+/*
+  잘림 판정 두 가지(`leavesOverflowing` · `scrollOverflowing`)는 18-13 에서 `e2e/overflow.ts` 로
+  **옮겼다** — `/trading` 작업대 spec 과 같은 판정 하나를 쓴다(판정식이 둘이면 한쪽만 고쳐진다).
+*/
 
 /** 게이트웨이가 `SetLimitChaserReq(10)` 을 n건 받을 때까지 기다린다 — 에코 주입 전 경주 방지. */
 async function waitForSetAtGateway(relay: LocalRelay, count: number): Promise<void> {
