@@ -116,3 +116,19 @@ describe('ChatFab', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe('ChatFab — 하단 고정 바용 실측 폭 변수 (18-10)', () => {
+  it('종목상세에서 뜨면 `--chat-fab-w` 를 문서 루트에 싣고, 사라지면 지운다', () => {
+    const { unmount } = render(<ChatFab />);
+    // jsdom 은 레이아웃이 없어 폭이 0 이지만 **변수가 실린다는 계약**은 그대로 관측된다.
+    expect(document.documentElement.style.getPropertyValue('--chat-fab-w')).toMatch(/^\d+px$/);
+    unmount();
+    expect(document.documentElement.style.getPropertyValue('--chat-fab-w')).toBe('');
+  });
+
+  it('FAB 이 뜨지 않는 경로에서는 변수를 싣지 않는다 — 바가 없는 FAB 자리를 비우지 않는다', () => {
+    mockPathname = '/trading';
+    render(<ChatFab />);
+    expect(document.documentElement.style.getPropertyValue('--chat-fab-w')).toBe('');
+  });
+});

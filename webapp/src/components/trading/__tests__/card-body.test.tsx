@@ -34,6 +34,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
+import { CHAT_FAB_CLEARANCE_CLASS } from '@/components/chat/fab-clearance';
 import type { StrategyCardState } from '../card/strategy-card';
 import {
   CardBody,
@@ -377,18 +378,21 @@ describe('⑥ 더티 바 — body 포털 · 종목명 (D-28 · E15)', () => {
     expect(bar.textContent).toContain(`${NAME} · 1개 미반영`);
   });
 
-  it('호가 탭(`variant="orderbook"`)만 바가 AI FAB 을 비켜 가는 오른쪽 여백을 갖는다', () => {
+  it('호가 탭(`variant="orderbook"`)만 바의 오른쪽 끝이 AI FAB 자리 앞에서 멈춘다 (실측 폭 변수)', () => {
     render(<Harness variant="orderbook" />);
     fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
     const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
-    expect(bar.className.split(/\s+/).some((c) => /^pr-/.test(c))).toBe(true);
+    expect(bar.className.split(/\s+/)).toContain(CHAT_FAB_CLEARANCE_CLASS);
+    expect(CHAT_FAB_CLEARANCE_CLASS).toContain('var(--chat-fab-w');
   });
 
-  it('작업대 카드(`variant="card"`)의 바에는 오른쪽 여백 예약이 없다 — FAB 이 없는 표면이다', () => {
+  it('작업대 카드(`variant="card"`)의 바는 전폭이고 오른쪽 예약이 없다 — FAB 이 없는 표면이다', () => {
     render(<Harness variant="card" />);
     fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
     const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
-    expect(bar.className.split(/\s+/).some((c) => /^pr-/.test(c))).toBe(false);
+    const utils = bar.className.split(/\s+/);
+    expect(utils.some((c) => /^(pr|right)-/.test(c))).toBe(false);
+    expect(utils).toContain('inset-x-0');
   });
 
   it('긴 종목명은 한 줄 말줄임(…)으로 잘리고 안내 문장은 그대로다 (E15 long-text)', () => {

@@ -44,6 +44,7 @@ import type {
   RelayUnfilled,
 } from '@gh-radar/shared';
 
+import { CHAT_FAB_CLEARANCE_CLASS } from '@/components/chat/fab-clearance';
 import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
 import type { PriceSelection } from '@/components/orderbook/order-panel';
 import { latchLedStateOf } from '@/components/trading/latch-led';
@@ -99,13 +100,13 @@ const EMPTY_LADDER_QUOTE: RelayQuote = {
 };
 
 /**
- * 호가 탭 더티 바의 오른쪽 여백 — 종목상세(`/stocks/{code}`)에는 AI FAB(`fixed right-6 bottom-6`)
- * 이 떠 있어 바의 「수정」 버튼을 덮는다. 128 = 우측 24 + FAB 실측 폭 83 + 여유 21
- * (`dirty-action-bar.tsx` ⑥ⓐ 의 같은 실측). 그 파일 ⑥ⓒⓙ 가 지목한 대로 **이 표면에서만**
- * `className` 으로 감싼다 — 공유 컴포넌트와 작업대 카드(FAB 없음)는 여백이 없다.
- * z-index 로 FAB 을 덮지 않는다 — 덮으면 채팅 진입점이 조용히 사라진다.
+ * 호가 탭 더티 바의 오른쪽 끝 — 종목상세(`/stocks/{code}`)에는 AI FAB(`fixed right-6 bottom-6`)
+ * 이 떠 있어 바의 「수정」 버튼을 덮는다. FAB 폭은 종목명 라벨 길이로 달라지므로(실측 134px ·
+ * 「삼성전자」) 고정 숫자가 아니라 FAB 이 싣는 실측 폭 변수만큼 바를 줄인다(`chat/fab-clearance.ts`).
+ * `dirty-action-bar.tsx` ⑥ⓒⓙ 가 지목한 대로 **이 표면에서만** `className` 으로 감싼다 — 공유
+ * 컴포넌트와 작업대 카드(FAB 없음)는 전폭 그대로다. z-index 로 FAB 을 덮지 않는다.
  */
-const ORDERBOOK_DIRTY_BAR_CLASS = 'pr-[128px]';
+const ORDERBOOK_DIRTY_BAR_CLASS = CHAT_FAB_CLEARANCE_CLASS;
 
 /** 더티 바 문구에서 종목명이 차지할 최대 글자 수 — 넘치면 한 줄 말줄임(…)이다(E15 long-text). */
 const DIRTY_NAME_MAX = 16;
@@ -322,8 +323,12 @@ export function CardBody({
           recentTrades={tape}
           onPriceSelect={handlePriceSelect}
         />
-        {/* 체결 수량 색의 근거 — 폰 밴드에서는 숨긴다(UI-SPEC §호가·체결). */}
-        <p className="m-0 mt-1 hidden text-[11px] leading-snug text-[var(--muted-fg)] @min-[700px]/lc:block">
+        {/*
+          체결 수량 색의 근거(UI-SPEC §호가·체결). **3단 표 밴드에서만** 이 줄을 둔다 — 2단·1단
+          트리는 사다리 아래 compact 체결 테이프가 같은 근거 문장을 이미 달고 있어, 여기서도
+          그리면 같은 말이 두 줄로 선다(브라우저 실측).
+        */}
+        <p className="m-0 mt-1 hidden text-[11px] leading-snug text-[var(--muted-fg)] @min-[830px]/lc:block">
           수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이에요
         </p>
       </div>

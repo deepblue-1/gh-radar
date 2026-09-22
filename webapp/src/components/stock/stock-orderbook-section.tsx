@@ -301,12 +301,17 @@ export function StockOrderbookSection({
             className="overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
           />
 
-          {/* ③ 다른 점 — 미체결/잔고는 **이 종목만**(종목 축 모드). 행 선택 → 수동주문 정정/취소. */}
+          {/*
+            ③ 다른 점 — 미체결/잔고는 **이 종목만**(위 `stockAccount`). 행 선택 → 수동주문 정정/취소.
+            ★ `code` 를 넘기지 않는다 — 넘기면 패널이 「종목 축 모드」가 되어 **자기 계좌 셀렉터**를
+              그린다. 계좌는 상태줄 하나가 소유하므로(파일 상단 ⑤) 패널은 그 계좌번호를 글자로만
+              되읽는 계좌 전용 머리를 쓴다(옛 상따 화면과 같은 배선). 셀렉터가 둘이면 어느 쪽이
+              주문 계좌인지 흐려진다.
+          */}
           <AccountPanel
             selectedAccountNo={selectedAccountNo}
             accountName={accounts.find((a) => a.accountNo === selectedAccountNo)?.name}
             account={stockAccount}
-            code={code}
             name={name}
             isin={subscriptionIsin}
             currentPrice={quote?.p}

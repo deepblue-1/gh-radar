@@ -427,8 +427,10 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     // 상태줄 계좌 = 목록의 첫 항목(A)이 자동 선택된다.
     expect(within(statusBar()).getByRole('combobox', { name: '계좌' })).toHaveValue(ACCOUNT_A);
 
+    // 패널 머리는 셀렉터가 아니라 상태줄 계좌를 **글자로 되읽는다**(계좌 셀렉터는 하나뿐이다).
     const panel = screen.getByTestId('account-panel');
-    expect(within(panel).getByRole('tab', { name: '미체결 (1)' })).toBeInTheDocument();
+    expect(within(panel).getByTestId('account-panel-account-no')).toHaveTextContent(ACCOUNT_A);
+    expect(within(panel).queryByRole('combobox')).toBeNull();
     expect(within(panel).getAllByText('A-0001').length).toBeGreaterThan(0);
     // ★ B 의 주문번호는 화면 어디에도 없다 — 있으면 그 행의 취소가 A 계좌로 나간다.
     expect(screen.queryAllByText('B-9999')).toHaveLength(0);

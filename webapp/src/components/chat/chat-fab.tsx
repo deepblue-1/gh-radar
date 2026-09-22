@@ -30,7 +30,7 @@
  * 있으면 `AI · {종목명} 분석`, 없으면 `AI`.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { MessageSquare } from "lucide-react";
 
@@ -42,6 +42,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+import { CHAT_FAB_WIDTH_VAR } from "./fab-clearance";
 import { useChat } from "./chat-provider";
 import { LoginRequiredState } from "./chat-states";
 
@@ -63,6 +64,34 @@ export function ChatFab() {
     ? `${BASE_LABEL} · ${stockContext.name} 분석`
     : BASE_LABEL;
 
+  /*
+    18-10 — 자기 실측 폭을 문서 루트의 CSS 변수로 싣는다(`fab-clearance.ts`). 같은 화면의 하단
+    고정 바(호가 탭 더티 바)가 이 값만큼 오른쪽을 비워 「수정」 버튼이 FAB 아래로 들어가지 않는다.
+    폭은 종목명 라벨에 따라 바뀌므로 한 번 재지 않고 크기 변화를 따라간다. 사라지면 변수도 지운다.
+  */
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const measureRef = useCallback((el: HTMLButtonElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    const root = document.documentElement;
+    if (el === null) {
+      root.style.removeProperty(CHAT_FAB_WIDTH_VAR);
+      return;
+    }
+    const publish = () => root.style.setProperty(CHAT_FAB_WIDTH_VAR, `${el.offsetWidth}px`);
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    observerRef.current = new ResizeObserver(publish);
+    observerRef.current.observe(el);
+  }, []);
+  useEffect(
+    () => () => {
+      observerRef.current?.disconnect();
+      document.documentElement.style.removeProperty(CHAT_FAB_WIDTH_VAR);
+    },
+    [],
+  );
+
   const handleClick = () => {
     if (!user) {
       // D-01 — 로그인 유도. 챗 시트는 열지 않는다.
@@ -81,6 +110,7 @@ export function ChatFab() {
   return (
     <>
       <button
+        ref={measureRef}
         type="button"
         aria-label={label}
         onClick={handleClick}
