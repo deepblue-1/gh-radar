@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
-stopped_at: Completed 18-29-PLAN.md
-last_updated: "2026-09-22T10:22:57.725Z"
+stopped_at: Completed 18-31-PLAN.md
+last_updated: "2026-09-22T10:32:12.968Z"
 last_activity: 2026-09-22
-last_activity_desc: 18-29 GC-CR-01 원격 몫 완료 — 사용자 apply, 원격 dma_orders_price_check null-safe(db push 20260922180000) · 전후 덤프 diff CHECK 1줄
-state_head: d9b934e42bee9fbefe75f7ba9fdcb9a6d1b65114
+last_activity_desc: 18-31 GC-IN-05·GC-IN-01·GC-IN-04 완료 — 계좌 채움 펼침 승계 · 더티 바 수 재측정 · 잔고 평가 KRX 우선 · NXT 로그/사이드바 꼬리 (webapp 만)
+state_head: f67fc9209b30d929634fb4d7988a284eb0784779
 progress:
   total_phases: 27
   completed_phases: 4
   total_plans: 229
-  completed_plans: 212
+  completed_plans: 213
 milestone_name: milestone
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
-Plan: 31 of 32 (R3 갭 클로징 18-29 완료(원격 null-safe CHECK 적용) — 다음 18-31, 그 뒤 18-32)
-Plans completed: 212 / 229
-Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일) · 18-29 완료(원격 dma_orders_price_check null-safe 적용 · 덤프 diff CHECK 1줄) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · 18-28 완료(중지 VI 상태줄 계좌로 옮겨 시작 · 확인 요약 B → A — webapp 만) · 18-30 완료(결과 모름 잠금 = 작업대 키 상태 · 잠긴 카드 ✕ 확인 — webapp 만) · relay 미배포
+Plan: 32 of 32 (R3 갭 클로징 18-24~18-31 전부 완료 — 남은 것은 R3 최종 게이트 18-32 하나)
+Plans completed: 213 / 229
+Status: R3 갭 클로징 실행 중 — 18-24 완료(20260922180000 파일) · 18-29 완료(원격 dma_orders_price_check null-safe 적용 · 덤프 diff CHECK 1줄) · 18-25 완료(relay 통보 요청 종류 축 wire 정본화) · 18-26 완료(relay 64 수신 게이트 · knowsRegistered(snapSeq) — relay 먼저 배포 후 webapp) · 18-27 완료(취소 확정 수량 내림 · isOffhoursOrder — webapp 만) · 18-28 완료(중지 VI 상태줄 계좌로 옮겨 시작 · 확인 요약 B → A — webapp 만) · 18-30 완료(결과 모름 잠금 = 작업대 키 상태 · 잠긴 카드 ✕ 확인 — webapp 만) · 18-31 완료(계좌 채움 펼침 승계 · 더티 바 수 재측정 · 잔고 평가 KRX 우선 · NXT 꼬리 — webapp 만) · 남은 것 18-32 · relay 미배포
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-22 — 18-29 GC-CR-01 원격 dma_orders_price_check null-safe 적용(위반 행 0 사전 확인 · 사용자 apply · 전후 덤프 diff CHECK 1줄 · 정책 0/0 · RLS·GRANT 불변) / 이전: 18-30 GC-WR-03 결과 모름 잠금을 TradingWorkbench 계좌|ISIN|거래소 키 집합으로(페이지 언마운트만 해제) · 잠긴 카드 ✕ 결과 모름 다이얼로그 · e2e GC5(webapp 1435 · e2e 45) / 이전: 18-27 GC-WR-02·GC-IN-06·GC-IN-03 취소 확정 현재 잔량 내림 · 재대조 문구 분리 · isOffhoursOrder(RED→GREEN, webapp 1399) / 이전: 18-26 GC-IN-02 relay 는 64 를 받았을 때만 인증 경로 lc.snap(⑭(B)·⑭-4·⑯ RED→GREEN) · 작업대 포커스 보류 = 이번 연결 확정 스냅샷(①②③ RED→GREEN)
+Last activity: 2026-09-22 — 18-31 GC-IN-05 fillAccountCards 펼침 승계 · forgetCardState 단일 정리 경로 / GC-IN-01 dirtyBarCount 재측정 · strategy-card 주석 분리 / GC-IN-04 holdingQuotePrice(KRX 우선·NXT 폴백) · exchangeLabeledName(로그 who · 사이드바)(RED→GREEN, webapp 1454 · e2e 40) / 이전: 18-29 GC-CR-01 원격 dma_orders_price_check null-safe 적용(위반 행 0 사전 확인 · 사용자 apply · 전후 덤프 diff CHECK 1줄 · 정책 0/0 · RLS·GRANT 불변) / 이전: 18-30 GC-WR-03 결과 모름 잠금을 TradingWorkbench 계좌|ISIN|거래소 키 집합으로(페이지 언마운트만 해제) · 잠긴 카드 ✕ 결과 모름 다이얼로그 · e2e GC5(webapp 1435 · e2e 45) / 이전: 18-27 GC-WR-02·GC-IN-06·GC-IN-03 취소 확정 현재 잔량 내림 · 재대조 문구 분리 · isOffhoursOrder(RED→GREEN, webapp 1399) / 이전: 18-26 GC-IN-02 relay 는 64 를 받았을 때만 인증 경로 lc.snap(⑭(B)·⑭-4·⑯ RED→GREEN) · 작업대 포커스 보류 = 이번 연결 확정 스냅샷(①②③ RED→GREEN)
 
 Progress: [█████████░] 93%
 
@@ -497,6 +497,7 @@ webapp = ef1499a   relay = ef1499a   ← 같은 커밋
 | Phase 18 P27 | 5min | 2 tasks | 6 files |
 | Phase 18 P28 | 12min | 2 tasks | 2 files |
 | Phase 18 P30 | 12min | 2 tasks | 6 files |
+| Phase 18 P31 | 7min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -828,6 +829,8 @@ Recent decisions affecting current work:
 - [Phase 18]: 18-28: 가동 중 VI 불일치 고지는 「옮기려면 먼저 중지하세요」 — 버튼 DOM 부재 + submit 계좌 지정 가드 두 겹 (T-18-117)
 - [Phase 18]: 18-30: 결과 모름(timeout) 잠금은 TradingWorkbench 가 계좌|ISIN|거래소 키로 들고 /trading 페이지를 떠날 때만 푼다 — ✕·접기·재추가·계좌 전환·DMA 게이트 전환으로 풀리지 않음. 잠긴 카드 ✕ 는 결과 모름 확인 다이얼로그(data-reason=unknown). 호가 탭은 폼 로컬 잠금 그대로 (GC-WR-03)
 - [Phase 18]: 18-29: 사용자 apply 선택(위반 행 a=0·b=0) — 원격 dma_orders_price_check null-safe 적용, 전후 덤프 diff CHECK 1줄뿐(GC-CR-01 원격 닫힘)
+- [Phase 18]: 18-31: 계좌 늦게 도착 시 사용자 카드의 펼침을 같은 키 등록 카드가 잇고 정리는 removeCard 와 같은 forgetCardState (GC-IN-05)
+- [Phase 18]: 18-31: 잔고 평가 가격 = KRX 우선 · NXT 폴백(holdingQuotePrice, 카드 순서 무관) · NXT 전략만 「{종목명} · NXT」 꼬리(로그 who · 사이드바) (GC-IN-04)
 
 ### Pending Todos
 
@@ -914,8 +917,8 @@ Recent decisions affecting current work:
 
 **Resume file:** None
 
-Last session: 2026-09-22T10:22:57.190Z
-Stopped at: Completed 18-29-PLAN.md
+Last session: 2026-09-22T10:32:12.435Z
+Stopped at: Completed 18-31-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

@@ -818,7 +818,7 @@ Plans:
 **Requirements**: TRADE-06 (돌파감지 목록), TRADE-07 (예약/시간외종가 발주 + 수동주문 정정/취소), TRADE-08 (NXT VI 설정), TRADE-09 (통합 트레이딩 작업대)
 **Depends on:** Phase 17
 **Scope notes:** 2026-09-21 discuss-phase 에서 사용자 결정으로 범위 확장(「화면 3개 신설」 → 통합 작업대 재설계). **목업 게이트 통과** — 정본 `18-workbench-mockup.html`(7차) · `18-orderbook-tab-mockup.html`(6차), 실행 중 레이아웃 재검토 없음. 기능 정본 `docs/features/rate-cross-alert.md`·`queued-order.md`·`preopen-offhours-order.md`·`docs/strategy/vi-trigger.md`(gh-trade). 새 계약 넷: 주문 프레임 `pieceCount`/`krxSession`, 정정(`order_type "M"`) relay D-21 게이트 해제, 돌파 목록 종목 시세 구독, 돌파 항목 `name`/`code` relay 보강(D-30, 리서치 후 추가). 클라 몫 규칙(하루 1회 알림·임계−2%p 이탈 삭제·77 벽시계 판정 금지)은 `18-CONTEXT.md` D-14~D-23.
-**Plans:** 30/32 plans executed
+**Plans:** 31/32 plans executed
 
 Plans:
 **Wave 1**
@@ -898,7 +898,7 @@ Plans:
 
 **Wave 16** *(blocked on Wave 15 completion)*
 
-- [ ] 18-31-PLAN.md — [GC-IN-05 + GC-IN-04 + GC-IN-01 webapp] 계좌 채움 펼침 승계 · 더티 바 수 재측정 · 잔고 평가 KRX 우선 · NXT 로그/사이드바 꼬리 · 주석 분리 (wave 16)
+- [x] 18-31-PLAN.md — [GC-IN-05 + GC-IN-04 + GC-IN-01 webapp] 계좌 채움 펼침 승계 · 더티 바 수 재측정 · 잔고 평가 KRX 우선 · NXT 로그/사이드바 꼬리 · 주석 분리 (wave 16)
 
 **Wave 17** *(blocked on Wave 16 completion)*
 
