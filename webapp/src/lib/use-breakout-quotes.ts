@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { RelayQuote } from "@gh-radar/shared";
 
 import { useRelayContext } from "@/lib/relay-provider";
+import { relayQuoteKey } from "@/lib/use-relay-socket";
 
 /**
  * 돌파 목록이 스스로 잡는 구독의 상한.
@@ -40,6 +41,21 @@ export const MAX_BREAKOUT_SUBS = 40;
 
 /** 돌파 거래소 — 서버 정본상 KRX 에서만 발화한다(②). */
 const BREAKOUT_EXCHANGE = "KRX" as const;
+
+/**
+ * 돌파 행의 현재가 — 구독 거래소(②)의 시세 맵에서 고른다. **모르면 `undefined`** 이다.
+ *
+ * 소비자(돌파 스트립)가 거래소 상수를 직접 들지 않게 하려고 여기 둔다 — 칩/행에 거래소 문자열이
+ * 들어가지 않는 것(D-07)을 소스 수준에서도 지킨다. `undefined` 는 「0원」이 아니라 「모름」이고,
+ * `shouldRemoveBreakout` 은 그 값으로 행을 지우지 않는다.
+ */
+export function breakoutQuotePrice(
+  quotes: ReadonlyMap<string, RelayQuote>,
+  isin: string,
+): number | undefined {
+  const q = quotes.get(relayQuoteKey(isin, BREAKOUT_EXCHANGE));
+  return q !== undefined && Number.isFinite(q.p) && q.p > 0 ? q.p : undefined;
+}
 
 /** 구독 후보. `addedAt` 이 클수록 최근 돌파다. */
 export interface BreakoutQuoteCandidate {

@@ -261,6 +261,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   strategiesDisabled: null,
   // relay 가 above 집합을 아직 준 적이 없다 — 「돌파 없음」이 아니라 「연결 전」이다.
   rateCrossItems: [],
+  // 78 을 적용한 적이 없다.
+  rateCrossSnapSeq: 0,
   // 예약창도 미수신이다. `open:false`(닫힘)로 위장하지 않는다.
   queuedWindow: undefined,
   // 보내지 **않았음**이 확실하다 — Provider 밖에는 소켓이 없다. 호출부가 반환값으로

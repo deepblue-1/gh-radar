@@ -193,6 +193,8 @@ describe('BreakoutStrip — 76 신규 강조 (D-18)', () => {
     });
     expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 });
 

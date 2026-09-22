@@ -278,6 +278,15 @@ export interface RelayConnectionState {
    */
   rateCrossItems: RelayRateCrossItem[];
   /**
+   * 78(전량 교체)을 적용한 횟수 (Phase 18 D-17 · 18-08).
+   *
+   * `rateCrossItems` 배열만으로는 76(upsert)과 78(스냅샷)을 가를 수 없다 — 둘 다 새 배열이다.
+   * 그런데 화면 규칙은 둘을 다르게 다룬다: 78 로 들어온 종목은 **무음·무강조**, 76 은 알림음 +
+   * 30초 강조. 돌파 스트립은 이 값이 바뀐 렌더의 새 종목을 스냅샷 유래(`silent`)로 기록한다.
+   * 연결 전·리셋 후 0 이다. 값 자체에 의미는 없고 **바뀌었는가**만 읽는다.
+   */
+  rateCrossSnapSeq: number;
+  /**
    * 예약·장전·시간외종가 발주 창 상태 — **2상태**다.
    *  - `undefined` : 서버가 77 을 아직 한 번도 안 줬다(연결 전·인증 전)
    *  - 객체        : 서버가 말한 마지막 창 상태
@@ -372,6 +381,7 @@ interface RelayData {
   viNotices: RelayViNoticeMsg[];
   strategiesDisabled: RelayStrategiesDisabledMsg | null;
   rateCrossItems: RelayRateCrossItem[];
+  rateCrossSnapSeq: number;
   queuedWindow: RelayQueuedWindowMsg | undefined;
 }
 
@@ -395,6 +405,7 @@ const INITIAL_DATA: RelayData = {
   viNotices: [],
   strategiesDisabled: null,
   rateCrossItems: [],
+  rateCrossSnapSeq: 0,
   // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
   queuedWindow: undefined,
 };
@@ -543,7 +554,12 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "rate.cross.snap":
       // **전량 교체**다. 병합하면 서버가 이미 뺀 종목(임계−2%p 이탈)이 영원히 남는다.
       // 빈 배열도 그대로 적용한다 — 「돌파 없음」은 확정 정보다.
-      return { ...state, rateCrossItems: sortRateCross(frame.items).slice(0, MAX_RATE_CROSS) };
+      return {
+        ...state,
+        rateCrossItems: sortRateCross(frame.items).slice(0, MAX_RATE_CROSS),
+        // 76 과 가르는 유일한 신호 — 화면은 이 렌더의 새 종목을 무음·무강조로 기록한다(D-17).
+        rateCrossSnapSeq: state.rateCrossSnapSeq + 1,
+      };
 
     case "queued.window":
       // 최신 1건 보관. 상태 보관만 하고 UI 는 만들지 않는다(Phase 18).
@@ -1096,6 +1112,7 @@ export function useRelayConnection({
       viNotices: data.viNotices,
       strategiesDisabled: data.strategiesDisabled,
       rateCrossItems: data.rateCrossItems,
+      rateCrossSnapSeq: data.rateCrossSnapSeq,
       queuedWindow: data.queuedWindow,
       send,
       reconnect,
