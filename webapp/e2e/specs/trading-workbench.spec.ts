@@ -546,9 +546,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(stackBox).not.toBeNull();
     expect(Math.abs(openBox!.y - stackBox!.y)).toBeLessThan(2);
     expect(stackBox!.x).toBeGreaterThan(openBox!.x + openBox!.width - 2);
-    // 스택 안 카드는 헤더만 — 본문이 DOM 에 없다(D-11).
+    // 스택 안 카드의 본문은 **보이지 않는다**(D-11 · WR-02 — 한 번 펼친 본문은 숨김으로 남는다).
     await expect(
-      grid(page).locator('[data-slot="card-stack"] [data-slot="card-body"]'),
+      grid(page).locator('[data-slot="card-stack"] [data-slot="card-body"]:visible'),
     ).toHaveCount(0);
 
     // 펼침 2 · 접힘 1.
@@ -563,6 +563,10 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 다시 하나 접으면 스택이 **맨 뒤** 칸으로 돌아온다.
     await toggle(E2E_LONG_NAME_ISIN).click();
     expect(await layout()).toEqual(['open', 'open', 'stack(1)']);
+    // 한 번 펼쳤다 접은 카드도 본문은 보이지 않는다(숨김으로 DOM 에 남아 있을 뿐 · WR-02).
+    await expect(
+      grid(page).locator('[data-slot="card-stack"] [data-slot="card-body"]:visible'),
+    ).toHaveCount(0);
   });
 
   test('7. 폰 밴드 더티 바(z-40)와 하단 고정 공용 패널(z-20)의 boundingBox 가 겹치지 않는다 — 접힘·펼침·맨 아래 (E15 · E13 overflow · D-28)', async ({
@@ -797,6 +801,49 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(dirtyBar(page)).toHaveCount(0, { timeout: 15_000 });
     await expect(statusBar(page).getByTestId('stat-applied')).toHaveText(/^반영 \d{2}:\d{2}:\d{2}$/);
     await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
+  });
+
+  test('GC2 카드를 접었다 펴도 미전송 값과 더티 바가 남는다 — 재마운트 없음 (WR-02 · D-09 · D-12)', async ({
+    page,
+  }) => {
+    /*
+      등록된 전략 카드 1장 — 더티(미반영)는 **서버값 대비**라 등록 전 카드(종목 추가 직후)에는
+      더티 바가 서지 않는다. 케이스 12 와 같은 진입으로 서버 전략이 있는 카드를 연다.
+    */
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await openFocusedCard(page);
+    await expect(cards(page)).toHaveCount(1);
+
+    const toggle = page.locator(`#strategy-card-${E2E_ISIN}-toggle`);
+    const card = cardOf(page, E2E_ISIN);
+    const stackCard = grid(page).locator(`[data-slot="card-stack"] ${cardSelector(E2E_ISIN)}`);
+
+    await field(page, 'lc-buy-watch-qty').fill('8000');
+    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+
+    // 접기 — 카드는 스택으로 가고, 미반영 값이 있다는 사실(더티 바)은 그대로 떠 있다(D-12 · D-28).
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'false');
+    await expect(stackCard).toHaveCount(1);
+    await expect(field(page, 'lc-buy-watch-qty')).toBeHidden();
+    await expect(dirtyBar(page)).toBeVisible();
+    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+    // 포커스는 누른 헤더 토글로 돌아온다(UI-SPEC §접근성).
+    await expect(toggle).toBeFocused();
+
+    // 다시 펼치기 — 바꾼 값이 그대로다(재마운트 없음 · WR-02).
+    await toggle.click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(stackCard).toHaveCount(0);
+    await expect(field(page, 'lc-buy-watch-qty')).toBeVisible();
+    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
+    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+    await expect(toggle).toBeFocused();
+
+    // 정리 — 다음 케이스(직렬)에 더티 상태를 남기지 않는다.
+    await dirtyBar(page).getByRole('button', { name: '되돌리기' }).click();
+    await expect(dirtyBar(page)).toHaveCount(0);
+    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000');
   });
 
   test('13. 다른 단말 변경 — 더티를 덮고 카드 6초 배너(role=status) + 공용 로그 1줄 (옛 LC 5 · D-11)', async ({
