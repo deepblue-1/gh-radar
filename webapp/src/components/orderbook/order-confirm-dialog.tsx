@@ -71,6 +71,23 @@ const KRW = new Intl.NumberFormat('ko-KR');
  */
 export const OFFHOURS_PRICE_LABEL = '시간외종가';
 
+/**
+ * 이 원주문은 **시간외종가 원주문**인가 (GC-IN-03 · D-21 · D-23). `board` 가 `'G2'`/`'G3'` 이거나
+ * `price === 0` 이면 그렇다.
+ *
+ * 근거 둘:
+ *  1. 서버 `board` 가 정본이다 — G2/G3 이면 가격이 실려 와도(> 0) 시간외종가 원주문이다.
+ *  2. 가격 0 은 DB·zod 불변식상 G2/G3 원주문에서만 나온다(지정가 원주문은 price > 0). 그래서
+ *     `board` 를 빈 값으로 내리는 구 서버의 행도 가격 0 으로 보완한다.
+ *
+ * ★ **판정의 유일 지점**이다 — 수동주문 폼의 선택 칩 표기 · 이 다이얼로그의 원주문 줄/옛 취소 요약
+ *   주문가 · 수동주문 폼의 정정 잠금이 모두 이 함수를 부른다. 표시와 잠금이 두 벌이면 같은 행에서
+ *   칩과 버튼이 서로 다른 말을 한다. `board` 부재는 빈 값과 같다(가격 규칙만 남는다).
+ */
+export function isOffhoursOrder(row: { board?: string; price: number }): boolean {
+  return row.board === 'G2' || row.board === 'G3' || row.price === 0;
+}
+
 /** 신규 주문 확인 요약 (UI-SPEC §주문확인 다이얼로그). Phase 18 필드는 전부 optional. */
 export interface NewOrderConfirmDetail {
   mode: 'new';
@@ -107,6 +124,8 @@ export interface ModifyOrderConfirmDetail {
   orgOrderNo: string;
   orgPrice: number;
   orgQty: number;
+  /** 원주문의 보드(`RelayUnfilled.board`). 부재 = 가격 규칙만으로 시간외종가를 판정한다. */
+  board?: string;
   /** 정정 후 가격·수량. */
   price: number;
   qty: number;
@@ -125,6 +144,8 @@ export interface CancelOrderConfirmDetail {
   exchange?: RelayExchange;
   /** 원주문 수량(원주문 행 표기용). 부재 = 미체결 잔량으로 표기. */
   orderQty?: number;
+  /** 원주문의 보드(`RelayUnfilled.board`). 부재 = 가격 규칙만으로 시간외종가를 판정한다. */
+  board?: string;
 }
 
 export type OrderConfirmDetail =
@@ -155,15 +176,22 @@ const sideWord = (side: OrderSide) => (side === 'B' ? '매수' : '매도');
 
 /**
  * 「{No} · {매수|매도} {가격} × {수량}」 — 원주문 행 값.
- * 가격 0 은 「시간외종가」 로 쓴다 — 가격 0 은 DB·zod 불변식상 G2/G3(시간외종가) 원주문에서만
- * 나오므로(지정가 원주문은 price > 0) 보드 인자 없이도 판정이 닫힌다. 「0원」 으로 읽히면 안 된다.
+ * 시간외종가 원주문(`isOffhoursOrder` — board G2/G3 또는 가격 0)은 가격 자리에 「시간외종가」 를
+ * 쓴다. 「0원」 이나 서버가 실어 온 참고 가격으로 읽히면 안 된다.
  */
-function orgLine(orderNo: string, side: OrderSide, price: number, qty: number): ReactNode {
+function orgLine(
+  orderNo: string,
+  side: OrderSide,
+  price: number,
+  qty: number,
+  board: string | undefined,
+): ReactNode {
   return (
     <span>
       <span className="mono">{orderNo}</span> · {sideWord(side)}{' '}
       <span className="mono">
-        {price === 0 ? OFFHOURS_PRICE_LABEL : KRW.format(price)} × {KRW.format(qty)}
+        {isOffhoursOrder({ board, price }) ? OFFHOURS_PRICE_LABEL : KRW.format(price)} ×{' '}
+        {KRW.format(qty)}
       </span>
     </span>
   );
@@ -307,7 +335,13 @@ function DialogBodyFor({ detail }: { detail: OrderConfirmDetail }) {
             ['거래소', <span key="e" className="mono">{detail.exchange ?? '—'}</span>],
             [
               '원주문',
-              orgLine(detail.orderNo, detail.side, detail.price, detail.orderQty ?? detail.unfilledQty),
+              orgLine(
+                detail.orderNo,
+                detail.side,
+                detail.price,
+                detail.orderQty ?? detail.unfilledQty,
+                detail.board,
+              ),
             ],
             [
               '취소 수량',
@@ -335,7 +369,10 @@ function DialogBodyFor({ detail }: { detail: OrderConfirmDetail }) {
     ['거래소', <span key="e" className="mono">{detail.exchange}</span>],
   ];
   if (isModify) {
-    rows.push(['원주문', orgLine(detail.orgOrderNo, detail.side, detail.orgPrice, detail.orgQty)]);
+    rows.push([
+      '원주문',
+      orgLine(detail.orgOrderNo, detail.side, detail.orgPrice, detail.orgQty, detail.board),
+    ]);
   }
   rows.push([
     '주문유형',
@@ -428,8 +465,8 @@ function LegacyCancelBody({ detail }: { detail: CancelOrderConfirmDetail }) {
           [
             '주문가',
             <span key="px" className="mono">
-              {/* 가격 0 = 시간외종가 원주문(orgLine 주석과 같은 불변식) — 「0원」 으로 쓰지 않는다. */}
-              {detail.price === 0 ? OFFHOURS_PRICE_LABEL : `${KRW.format(detail.price)}원`}
+              {/* 시간외종가 원주문(`isOffhoursOrder` — 판정의 유일 지점)은 「0원」·숫자로 쓰지 않는다. */}
+              {isOffhoursOrder(detail) ? OFFHOURS_PRICE_LABEL : `${KRW.format(detail.price)}원`}
             </span>,
           ],
           [

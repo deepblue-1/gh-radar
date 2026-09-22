@@ -70,6 +70,7 @@ import type {
 import {
   OFFHOURS_PRICE_LABEL,
   OrderConfirmDialog,
+  isOffhoursOrder,
   type OrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
 import { DISABLED_LABEL, type PriceSelection } from '@/components/orderbook/order-panel';
@@ -171,11 +172,12 @@ export function unfilledSelectBlockReason(
 
 /** 정정을 잠그는 사유. `null` = 정정 가능. `canModify` 의 사유판이다(버튼 `title`). */
 export function modifyLockReason(
-  row: Pick<RelayUnfilled, 'board' | 'queuedStatus' | 'pendingCancelSent' | 'orderNo'>,
+  row: Pick<RelayUnfilled, 'board' | 'price' | 'queuedStatus' | 'pendingCancelSent' | 'orderNo'>,
 ): string | null {
   const blocked = unfilledSelectBlockReason(row);
   if (blocked) return blocked;
-  if (row.board === 'G2' || row.board === 'G3') return MODIFY_LOCK_OFFHOURS_ORDER;
+  // 칩 표기와 **같은 판정**(`isOffhoursOrder` — board G2/G3 또는 가격 0, GC-IN-03).
+  if (isOffhoursOrder(row)) return MODIFY_LOCK_OFFHOURS_ORDER;
   if (row.queuedStatus.length > 0) return MODIFY_LOCK_QUEUED;
   return null;
 }
@@ -184,8 +186,8 @@ export function modifyLockReason(
  * 이 원주문을 **정정할 수 있는가** — UI 의 1차 판정 (T-18-32).
  *
  * 잠그는 근거 셋(+ 주문번호 없음):
- *  1. **시간외종가 원주문**(`board` G2/G3) — 서버가 「시간외종가 정정 불가 — 취소 후 재등록」으로
- *     거부한다(gh-trade `preopen-offhours-order.md`).
+ *  1. **시간외종가 원주문**(`isOffhoursOrder` — `board` G2/G3 또는 가격 0) — 서버가
+ *     「시간외종가 정정 불가 — 취소 후 재등록」으로 거부한다(gh-trade `preopen-offhours-order.md`).
  *  2. **예약 Q-ID 행**(`queuedStatus` 비어 있지 않음) — 같은 이유로 거부된다(취소 후 재등록,
  *     gh-trade `queued-order.md` D-12).
  *  3. **취소 보관 행**(`pendingCancelSent`) — 이미 취소가 나갔다. 정정할 대상이 곧 사라진다.
@@ -195,7 +197,7 @@ export function modifyLockReason(
  * ★ 버튼 `disabled` 와 제출 가드(`handleAction`)가 **이 함수 하나**를 부른다.
  */
 export function canModify(
-  row: Pick<RelayUnfilled, 'board' | 'queuedStatus' | 'pendingCancelSent' | 'orderNo'>,
+  row: Pick<RelayUnfilled, 'board' | 'price' | 'queuedStatus' | 'pendingCancelSent' | 'orderNo'>,
 ): boolean {
   return modifyLockReason(row) === null;
 }
@@ -419,6 +421,7 @@ export function ManualOrderForm({
         accountNo,
         exchange: selected.exchange,
         orderQty: selected.orderQty,
+        board: selected.board,
       });
       return;
     }
@@ -458,6 +461,7 @@ export function ManualOrderForm({
         orgOrderNo: selected.orderNo,
         orgPrice: selected.price,
         orgQty: selected.orderQty,
+        board: selected.board,
         price,
         qty,
       });
@@ -604,8 +608,8 @@ export function ManualOrderForm({
             <span className="truncate">
               {selected.side === 'B' ? '매수' : '매도'}{' '}
               <b className="mono font-bold">
-                {/* 시간외종가 원주문(G2/G3 · 가격 0)은 「0」 이 아니라 「시간외종가」 다(CR-01 표시 정합). */}
-                {selected.board === 'G2' || selected.board === 'G3' || selected.price === 0
+                {/* 시간외종가 원주문은 「0」 이 아니라 「시간외종가」 다 — 정정 잠금과 같은 판정(GC-IN-03). */}
+                {isOffhoursOrder(selected)
                   ? OFFHOURS_PRICE_LABEL
                   : KRW.format(selected.price)}{' '}
                 × {KRW.format(selected.orderQty)}

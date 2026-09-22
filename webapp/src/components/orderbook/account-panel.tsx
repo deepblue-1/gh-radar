@@ -421,6 +421,8 @@ export function AccountPanel({
       stockName: displayName,
       price: row.price,
       unfilledQty: row.unfilledQty,
+      // 시간외종가 원주문 판정(`isOffhoursOrder`)의 정본 — 요약 주문가 표기가 읽는다.
+      board: row.board,
       row,
     });
   }, []);
