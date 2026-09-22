@@ -68,6 +68,7 @@ import type {
 } from '@gh-radar/shared';
 
 import {
+  OFFHOURS_PRICE_LABEL,
   OrderConfirmDialog,
   type OrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
@@ -558,7 +559,11 @@ export function ManualOrderForm({
             <span className="truncate">
               {selected.side === 'B' ? '매수' : '매도'}{' '}
               <b className="mono font-bold">
-                {KRW.format(selected.price)} × {KRW.format(selected.orderQty)}
+                {/* 시간외종가 원주문(G2/G3 · 가격 0)은 「0」 이 아니라 「시간외종가」 다(CR-01 표시 정합). */}
+                {selected.board === 'G2' || selected.board === 'G3' || selected.price === 0
+                  ? OFFHOURS_PRICE_LABEL
+                  : KRW.format(selected.price)}{' '}
+                × {KRW.format(selected.orderQty)}
               </b>
             </span>
           </span>

@@ -65,6 +65,12 @@ import { cn } from '@/lib/utils';
 
 const KRW = new Intl.NumberFormat('ko-KR');
 
+/**
+ * 시간외종가 가격 표기 — 가격 0 원주문(시간외종가)을 「0」 대신 이 말로 쓴다(CR-01 표시 정합).
+ * 이 문자열의 **유일한 정의**다. 수동주문 폼의 선택 칩도 이것을 import 한다(두 벌 금지).
+ */
+export const OFFHOURS_PRICE_LABEL = '시간외종가';
+
 /** 신규 주문 확인 요약 (UI-SPEC §주문확인 다이얼로그). Phase 18 필드는 전부 optional. */
 export interface NewOrderConfirmDetail {
   mode: 'new';
@@ -147,13 +153,17 @@ function sideFill(side: OrderSide): string {
 
 const sideWord = (side: OrderSide) => (side === 'B' ? '매수' : '매도');
 
-/** 「{No} · {매수|매도} {가격} × {수량}」 — 원주문 행 값. */
+/**
+ * 「{No} · {매수|매도} {가격} × {수량}」 — 원주문 행 값.
+ * 가격 0 은 「시간외종가」 로 쓴다 — 가격 0 은 DB·zod 불변식상 G2/G3(시간외종가) 원주문에서만
+ * 나오므로(지정가 원주문은 price > 0) 보드 인자 없이도 판정이 닫힌다. 「0원」 으로 읽히면 안 된다.
+ */
 function orgLine(orderNo: string, side: OrderSide, price: number, qty: number): ReactNode {
   return (
     <span>
       <span className="mono">{orderNo}</span> · {sideWord(side)}{' '}
       <span className="mono">
-        {KRW.format(price)} × {KRW.format(qty)}
+        {price === 0 ? OFFHOURS_PRICE_LABEL : KRW.format(price)} × {KRW.format(qty)}
       </span>
     </span>
   );
@@ -329,7 +339,7 @@ function DialogBodyFor({ detail }: { detail: OrderConfirmDetail }) {
   }
   rows.push([
     '주문유형',
-    <span key="t">{offHours ? '시간외종가 · 가격 0 (KRX 세션)' : '지정가 · 보통'}</span>,
+    <span key="t">{offHours ? `${OFFHOURS_PRICE_LABEL} · 가격 0 (KRX 세션)` : '지정가 · 보통'}</span>,
   ]);
   if (offHours && detail.mode === 'new') {
     const ref = detail.referencePrice;
@@ -415,7 +425,13 @@ function LegacyCancelBody({ detail }: { detail: CancelOrderConfirmDetail }) {
               {detail.stockName}
             </span>,
           ],
-          ['주문가', <span key="px" className="mono">{KRW.format(detail.price)}원</span>],
+          [
+            '주문가',
+            <span key="px" className="mono">
+              {/* 가격 0 = 시간외종가 원주문(orgLine 주석과 같은 불변식) — 「0원」 으로 쓰지 않는다. */}
+              {detail.price === 0 ? OFFHOURS_PRICE_LABEL : `${KRW.format(detail.price)}원`}
+            </span>,
+          ],
           [
             '미체결 수량',
             <span key="qty" className="mono">{KRW.format(detail.unfilledQty)}주</span>,

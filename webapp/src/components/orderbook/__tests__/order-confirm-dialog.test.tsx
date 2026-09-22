@@ -250,4 +250,16 @@ describe('OrderConfirmDialog — 가격 0 원주문 표기 (CR-01 표시 정합)
     expect(summaryValue(dialog, '원주문')).not.toMatch(/(^|\s)0 ×/);
     expect(summaryValue(dialog, '취소 수량')).toBe('40주 (미체결 잔량 전부)');
   });
+
+  it('계좌가 실리지 않는 옛 취소 경로도 가격 0 의 「주문가」 를 「시간외종가」 로 쓴다', () => {
+    const { dialog } = open({
+      mode: 'cancel',
+      orderNo: '3407000077',
+      side: 'B',
+      stockName: '한미반도체',
+      price: 0,
+      unfilledQty: 40,
+    });
+    expect(summaryValue(dialog, '주문가')).toBe(OFFHOURS_PRICE_LABEL);
+  });
 });
