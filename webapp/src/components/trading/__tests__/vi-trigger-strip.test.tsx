@@ -318,3 +318,13 @@ describe('세션 가드', () => {
     expect(within(tableBlock()!).getByRole('checkbox')).toBeDisabled();
   });
 });
+
+describe('칩 줄 키보드 접근 (18-13 · WCAG 2.1.1)', () => {
+  it('칩 줄은 포커스 받을 것이 없으므로 영역 자체가 탭으로 닿고 이름을 가진다(axe scrollable-region-focusable)', () => {
+    render(<ViTriggerStrip items={[]} />);
+    const chips = document.querySelector('[data-slot="vi-chips"]') as HTMLElement;
+    expect(chips).toHaveAttribute('tabindex', '0');
+    expect(chips).toHaveAttribute('role', 'group');
+    expect(chips).toHaveAttribute('aria-label', 'VI 발동 종목');
+  });
+});

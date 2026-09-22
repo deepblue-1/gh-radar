@@ -80,8 +80,17 @@ export function ViTriggerStrip({ items, disabled = false, nowMs, className }: Vi
           )}
         </div>
 
+        {/*
+          ★ 칩은 버튼이 아니라(확인 체크는 표에만 — ②) 이 스크롤 줄 안에 포커스 받을 것이 없다.
+            그러면 키보드만 쓰는 사용자는 넘친 칩에 영영 닿지 못한다(WCAG 2.1.1 · axe
+            `scrollable-region-focusable`, 18-13 실측). 호가 사다리 스크롤 영역과 같은 해법 —
+            영역 자체가 탭으로 닿고(←/→ 로 스크롤), 이름을 가진다.
+        */}
         <div
           data-slot="vi-chips"
+          role="group"
+          aria-label="VI 발동 종목"
+          tabIndex={0}
           className="flex min-w-0 flex-1 flex-nowrap gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
         >
           {items.length === 0 ? (
