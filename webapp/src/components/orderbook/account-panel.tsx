@@ -85,6 +85,19 @@
  *     왜 취소할 수 없는지가 보이게 한다.
  *   ★ 이 규칙은 **개별 취소와 전체 취소 두 경로가 함께** 쓴다. 한쪽만 고치면 개별은 막히는데
  *     일괄 경로로 두 번째 취소가 나간다 (`vi-client.tsx` 의 `cancellable` 이 짝이다).
+ *
+ * ⑩ ★ 미체결 행 선택 = 정정/취소의 **유일한 진입** (18-09 / D-21)
+ *   `onSelectUnfilled` 를 넘긴 표면(작업대 공용 패널)에서만 행이 선택 대상이 된다. 넘기지
+ *   않으면 **DOM 이 한 글자도 다르지 않다** — 기존 호출부(호가 탭 · VI · My page)는 무수정.
+ *   - 시맨틱은 `<tr aria-selected>` 가 아니라 **첫 셀의 `<button aria-pressed>`** 다. 행
+ *     자체에 `role="button"` 을 주면 그 안의 취소 버튼이 「버튼 안의 버튼」(nested-interactive)
+ *     이 된다. 행 `onClick` 은 마우스 편의이고, 키보드 Enter/Space 는 그 버튼의 네이티브
+ *     click 이 행으로 버블해 **같은 한 경로**를 탄다(호출 1회).
+ *   - 선택 불가 판정은 수동주문 폼과 **같은 함수**(`unfilledSelectBlockReason`)다 — 주문번호
+ *     없음(접수 전) · `pendingCancelSent`(취소 보관). 둘 다 **bool/빈 문자열 필드**로만 보고
+ *     `pendingStatus` 문구를 읽지 않는다(⑨ 와 같은 규율).
+ *   - 토글(재선택 = 해제)은 선택을 소유한 상위의 몫이다. 이 패널은 「이 행을 눌렀다」만 올린다.
+ *   - 주문번호가 빈 행은 취소도 막는다 — 원주문번호 없는 취소는 반드시 거부되는 버튼이다(③).
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -112,11 +125,18 @@ import {
   OrderConfirmDialog,
   type CancelOrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
+import { unfilledSelectBlockReason } from '@/components/trading/card/manual-order-form';
 import { useRelayContext } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
 const KRW = new Intl.NumberFormat('ko-KR');
+
+/** 선택 가능한 미체결 행의 `title` (UI-SPEC §공용 패널 · 원문). */
+export const UNFILLED_ROW_SELECT_TITLE = '행을 누르면 수동주문 폼에서 정정·취소할 수 있어요';
+
+/** 주문번호가 빈 행(접수 전)의 취소 버튼 `title`. 원주문번호 없는 취소는 반드시 거부된다. */
+const CANCEL_BLOCK_NO_ORDER_NO = '접수 전(주문번호 없음)은 취소할 수 없어요';
 
 type AccountTab = 'unfilled' | 'holdings';
 
@@ -185,6 +205,14 @@ export interface AccountPanelProps {
   status: RelayStatus;
   /** 취소 요청이 끝났을 때(접수·거부·결과 모름 무관) 부모에게 알린다. */
   onCancelSubmitted?: (res: RelayOrderResultMsg) => void;
+  /**
+   * 미체결 행 선택 창구 (18-09 / D-21 — 파일 상단 ⑩). **넘기지 않으면 선택 UI 가 없다**
+   * (기존 호출부와 DOM 동일). 페이로드는 그 행 **전체**다 — 폼이 `orgOrderNo`·`side` 를
+   * 그 행에서만 읽는다(T-18-43).
+   */
+  onSelectUnfilled?: (row: RelayUnfilled) => void;
+  /** 선택된 원주문번호 — 그 행에 accent 강조 + `aria-pressed="true"`. 콜백이 없으면 무시된다. */
+  selectedOrderNo?: string | null;
   className?: string;
 }
 
@@ -201,6 +229,10 @@ interface UnfilledView {
    */
   sideText: string;
   cancellable: boolean;
+  /** 취소 버튼을 그리되 **누를 수 없게** 하는 사유(주문번호 없음). `null` = 누를 수 있다. */
+  cancelBlock: string | null;
+  /** 행 선택 불가 사유(`unfilledSelectBlockReason`). `null` = 선택 가능. */
+  selectBlock: string | null;
 }
 
 /** 잔고 한 행의 표시 파생값. 현재가를 모르면 `value`/`pnl`/`rate` 가 전부 null 이다(⑤). */
@@ -230,6 +262,8 @@ export function AccountPanel({
   unfilledHeaderActions,
   status,
   onCancelSubmitted,
+  onSelectUnfilled,
+  selectedOrderNo = null,
   className,
 }: AccountPanelProps) {
   const [tab, setTab] = useState<AccountTab>('unfilled');
@@ -260,6 +294,8 @@ export function AccountPanel({
           // ★ 서버가 **이미 취소를 보낸** 행은 뺀다(⑨) — 근거는 그 bool 하나다.
           cancellable:
             row.unfilledQty > 0 && !row.pendingCancelSent && !lockedOrderNos.has(row.orderNo),
+          cancelBlock: row.orderNo === '' ? CANCEL_BLOCK_NO_ORDER_NO : null,
+          selectBlock: unfilledSelectBlockReason(row),
         };
       }),
     [account, isin, name, lockedOrderNos],
@@ -353,9 +389,14 @@ export function AccountPanel({
         type="button"
         variant="outline"
         size="sm"
-        disabled={!sessionReady}
+        disabled={!sessionReady || view.cancelBlock !== null}
+        title={view.cancelBlock ?? undefined}
         aria-label={`주문번호 ${view.row.orderNo} 취소`}
-        onClick={() => openCancel(view.row, view.label ?? view.row.isin)}
+        onClick={(e) => {
+          // 행 선택(⑩)으로 버블하지 않는다 — 취소를 누른 것이 정정 대상 선택이 되면 안 된다.
+          e.stopPropagation();
+          openCancel(view.row, view.label ?? view.row.isin);
+        }}
         className={cn(
           'h-[26px] border-[var(--destructive)] px-2 text-[11px] text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)] max-[899px]:h-8',
           className,
@@ -365,6 +406,57 @@ export function AccountPanel({
       </Button>
     ) : (
       <span className="text-[11px] text-[var(--muted-fg)]">—</span>
+    );
+
+  /** 선택 UI 스위치 — 콜백이 곧 스위치다(⑩). */
+  const selectable = onSelectUnfilled !== undefined;
+  const isSelected = (view: UnfilledView) =>
+    selectable && selectedOrderNo !== null && view.row.orderNo === selectedOrderNo;
+
+  /**
+   * 선택 가능한 행의 속성(표 행 · 카드 행 공용). 콜백이 없으면 **빈 객체** — DOM 이 그대로다.
+   * 선택 불가 행은 `onClick` 이 없고 `title` 이 그 사유다.
+   */
+  const rowSelectProps = (view: UnfilledView) => {
+    if (!selectable) return {};
+    return {
+      title: view.selectBlock ?? UNFILLED_ROW_SELECT_TITLE,
+      'data-selected': isSelected(view) ? 'true' : undefined,
+      onClick:
+        view.selectBlock === null ? () => onSelectUnfilled?.(view.row) : undefined,
+    };
+  };
+
+  /** 선택된 행 강조 — UI-SPEC §Color Accent 6번(「미체결 표에서 선택된 행」). 새 색이 아니다. */
+  const rowSelectClass = (view: UnfilledView) =>
+    selectable &&
+    cn(
+      view.selectBlock === null && 'cursor-pointer',
+      isSelected(view) && 'bg-[var(--accent)] text-[var(--accent-fg)] hover:bg-[var(--accent)]',
+    );
+
+  /**
+   * 선택 핸들 — 첫 셀 콘텐츠를 `<button aria-pressed>` 로 감싼다(⑩). 클릭은 행으로 버블해
+   * 행 `onClick` 한 경로가 받는다(여기에 `onClick` 을 두면 두 번 불린다).
+   * 콜백이 없으면 콘텐츠를 **그대로** 돌려준다.
+   */
+  const selectHandle = (view: UnfilledView, content: ReactNode, className?: string) =>
+    selectable ? (
+      <button
+        type="button"
+        data-slot="account-unfilled-select"
+        aria-pressed={isSelected(view)}
+        aria-label={`주문번호 ${view.row.orderNo || '없음'} 선택`}
+        disabled={view.selectBlock !== null}
+        className={cn(
+          'min-w-0 cursor-pointer bg-transparent p-0 text-left text-inherit disabled:cursor-not-allowed',
+          className,
+        )}
+      >
+        {content}
+      </button>
+    ) : (
+      content
     );
 
   return (
@@ -522,10 +614,14 @@ export function AccountPanel({
                       <TableRow
                         key={view.row.orderNo}
                         data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
-                        className={cn(view.row.pendingCancelSent && 'text-[var(--muted-fg)]')}
+                        {...rowSelectProps(view)}
+                        className={cn(
+                          view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
+                          rowSelectClass(view),
+                        )}
                       >
                         <TableCell className="mono text-[length:var(--t-caption)]">
-                          {view.row.orderNo}
+                          {selectHandle(view, view.row.orderNo)}
                         </TableCell>
                         <TableCell>
                           <span className="inline-flex items-center gap-1">
@@ -533,6 +629,7 @@ export function AccountPanel({
                               side={view.row.side}
                               text={view.sideText}
                               muted={view.row.pendingCancelSent}
+                              selected={isSelected(view)}
                             />
                             <OriginTag tag={originTag} />
                           </span>
@@ -571,15 +668,19 @@ export function AccountPanel({
                   */
                   const fg = view.row.pendingCancelSent
                     ? 'text-[var(--muted-fg)]'
-                    : 'text-[var(--fg)]';
+                    : isSelected(view)
+                      ? 'text-[var(--accent-fg)]'
+                      : 'text-[var(--fg)]';
                   return (
                   <div
                     key={view.row.orderNo}
                     data-slot="account-unfilled-row"
                     data-pending-cancel={view.row.pendingCancelSent ? 'true' : undefined}
+                    {...rowSelectProps(view)}
                     className={cn(
                       'min-w-0 px-[var(--s-3)] py-[var(--s-2)]',
                       view.row.pendingCancelSent && 'text-[var(--muted-fg)]',
+                      rowSelectClass(view),
                     )}
                   >
                     {/*
@@ -594,19 +695,24 @@ export function AccountPanel({
                       data-slot="account-unfilled-r1"
                       className="flex min-w-0 items-center gap-[var(--s-2)]"
                     >
-                      <span
-                        className={cn(
-                          'min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold',
-                          fg,
-                        )}
-                      >
-                        {view.label ?? <span className="mono">{view.row.isin}</span>}
-                      </span>
+                      {selectHandle(
+                        view,
+                        <span
+                          className={cn(
+                            'min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold',
+                            fg,
+                          )}
+                        >
+                          {view.label ?? <span className="mono">{view.row.isin}</span>}
+                        </span>,
+                        'flex min-w-0 flex-1',
+                      )}
                       <span className="flex flex-none items-center gap-1">
                         <SideTag
                           side={view.row.side}
                           text={view.sideText}
                           muted={view.row.pendingCancelSent}
+                          selected={isSelected(view)}
                         />
                       </span>
                       <span
@@ -845,10 +951,13 @@ function SideTag({
   side,
   text,
   muted = false,
+  selected = false,
 }: {
   side: RelayUnfilled['side'];
   text: string;
   muted?: boolean;
+  /** 선택된 행(⑩) — accent 배경 위에서 방향색 대신 `--accent-fg`. 부호·라벨이 방향을 계속 말한다. */
+  selected?: boolean;
 }) {
   const buy = side === 'B';
   return (
@@ -858,7 +967,13 @@ function SideTag({
         'whitespace-nowrap text-[length:var(--t-caption)] font-semibold',
         // 취소보관 행은 방향색도 함께 죽인다(⑨) — 이 칸만 색이 살아 있으면 행이 회색으로
         // 읽히지 않는다 (C# 도 Side 셀 ForeColor 를 따로 회색으로 덮는다).
-        muted ? 'text-[var(--muted-fg)]' : buy ? 'text-[var(--up)]' : 'text-[var(--down)]',
+        muted
+          ? 'text-[var(--muted-fg)]'
+          : selected
+            ? 'text-[var(--accent-fg)]'
+            : buy
+              ? 'text-[var(--up)]'
+              : 'text-[var(--down)]',
       )}
     >
       {buy ? '▲ ' : '▼ '}
