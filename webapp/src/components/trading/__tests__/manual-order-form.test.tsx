@@ -52,9 +52,11 @@ import {
   ManualOrderEntry,
   ManualOrderForm,
   MODIFY_REMAINING_CHANGED_TEXT,
+  MODIFY_TARGET_CHANGED_TEXT,
   MODIFY_TARGET_GONE_TEXT,
   OFFHOURS_WINDOW_CLOSED_TEXT,
   canModify,
+  cancelQtyAtConfirm,
   modifyQtyClampedText,
   modifyQtyOverRemainingText,
   unfilledSelectBlockReason,
@@ -717,6 +719,85 @@ describe('ManualOrderForm — 정정 수량 ≤ 미체결 잔량 (WR-06 · D-21)
     await waitFor(() => expect(screen.queryByTestId('order-confirm-dialog')).toBeNull());
     expect(screen.getByTestId('manual-order-validation')).toHaveTextContent(MODIFY_TARGET_GONE_TEXT);
     expect(MODIFY_TARGET_GONE_TEXT).toBe('원주문이 더 이상 미체결이 아니에요');
+  });
+
+  it('다이얼로그를 연 뒤 다른 주문번호 행이 선택됨 → 확정 → 전송 0 · 「선택한 원주문이 바뀌었어요」 (GC-IN-06)', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.click(btn('정정'));
+    await screen.findByTestId('order-confirm-dialog');
+    rerender(
+      <ManualOrderForm {...props} selectedUnfilled={unf({ orderNo: '3407000099', unfilledQty: 10 })} />,
+    );
+    await user.click(screen.getByRole('button', { name: '정정 주문' }));
+
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('order-confirm-dialog')).toBeNull());
+    const status = screen.getByTestId('manual-order-validation');
+    expect(status).toHaveTextContent(MODIFY_TARGET_CHANGED_TEXT);
+    expect(status).not.toHaveTextContent(MODIFY_TARGET_GONE_TEXT);
+    expect(MODIFY_TARGET_CHANGED_TEXT).toBe('선택한 원주문이 바뀌었어요 — 다시 확인해 주세요');
+  });
+});
+
+describe('ManualOrderForm — 취소 확정 수량 = 현재 잔량으로 내림 (GC-WR-02 · D-21)', () => {
+  const row10 = () => unf({ unfilledQty: 10, filledQty: 90 });
+  const cancelReq = (qty: number) => ({
+    kind: 'cancel',
+    isin: ISIN,
+    accountNo: '12345678-01',
+    exchange: 'NXT',
+    orgOrderNo: '3407000064',
+    qty,
+    price: 128_500,
+  });
+
+  it('cancelQtyAtConfirm — 같은 주문번호의 0 < 잔량 < 확인 수량일 때만 내린다', () => {
+    const no = '3407000064';
+    expect(cancelQtyAtConfirm(10, no, unf({ unfilledQty: 4 }))).toBe(4);
+    // 올리지 않는다.
+    expect(cancelQtyAtConfirm(10, no, unf({ unfilledQty: 12 }))).toBe(10);
+    expect(cancelQtyAtConfirm(10, no, unf({ unfilledQty: 10 }))).toBe(10);
+    // 막지 않는다 — 원주문이 사라졌거나 다른 행이면 확인한 수량 그대로.
+    expect(cancelQtyAtConfirm(10, no, null)).toBe(10);
+    expect(cancelQtyAtConfirm(10, no, unf({ orderNo: '3407000099', unfilledQty: 4 }))).toBe(10);
+    expect(cancelQtyAtConfirm(10, no, unf({ unfilledQty: 0 }))).toBe(10);
+  });
+
+  it('잔량 10 · 「취소」 다이얼로그 → 같은 주문번호 잔량 4 로 갱신 → 확정 → qty 4 로 1회 전송', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.click(btn('취소'));
+    await screen.findByTestId('order-confirm-dialog');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={unf({ unfilledQty: 4, filledQty: 96 })} />);
+    await user.click(screen.getByRole('button', { name: '취소 주문' }));
+
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith(cancelReq(4));
+  });
+
+  it('잔량 10 · 「취소」 다이얼로그 → 잔량 12 로 늘어남 → 확정 → qty 10 (올리지 않는다)', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.click(btn('취소'));
+    await screen.findByTestId('order-confirm-dialog');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={unf({ unfilledQty: 12, filledQty: 88 })} />);
+    await user.click(screen.getByRole('button', { name: '취소 주문' }));
+
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith(cancelReq(10));
+  });
+
+  it('잔량 10 · 「취소」 다이얼로그 → 선택 해제(null) → 확정 → qty 10 으로 보낸다 (막지 않는다)', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.click(btn('취소'));
+    await screen.findByTestId('order-confirm-dialog');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={null} />);
+    await user.click(screen.getByRole('button', { name: '취소 주문' }));
+
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith(cancelReq(10));
   });
 });
 

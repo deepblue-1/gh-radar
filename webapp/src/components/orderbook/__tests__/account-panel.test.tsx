@@ -300,6 +300,31 @@ describe('AccountPanel — 미체결 표', () => {
     expect(sendOrderMock.mock.calls[0][0]).not.toHaveProperty('code');
   });
 
+  it('⑤-a 다이얼로그가 열린 사이 같은 주문번호 잔량이 30 → 4 로 줄면 확정 수량은 현재 잔량 4 다 (GC-WR-02)', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<AccountPanel {...baseProps()} />);
+
+    await user.click(cancelButtons('0000135742')[0]);
+    await screen.findByRole('button', { name: '✕ 주문 취소' });
+    rerender(
+      <AccountPanel
+        {...baseProps({ account: withUnfilled([unf({ unfilledQty: 4, filledQty: 46 })]) })}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '✕ 주문 취소' }));
+
+    await waitFor(() => expect(sendOrderMock).toHaveBeenCalledTimes(1));
+    expect(sendOrderMock).toHaveBeenCalledWith({
+      kind: 'cancel',
+      isin: ISIN,
+      accountNo: '12345678-01',
+      exchange: 'KRX',
+      orgOrderNo: '0000135742',
+      qty: 4,
+      price: 98_000,
+    });
+  });
+
   it('⑥ 취소 버튼은 테두리형이고 보이는 글자가 「취소」 한 단어다 (--destructive == --up 충돌)', () => {
     renderPanel();
     const buttons = cancelButtons('0000135742');
