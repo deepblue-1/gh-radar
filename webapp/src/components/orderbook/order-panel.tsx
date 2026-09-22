@@ -144,7 +144,7 @@ export function deriveTickSize(
 }
 
 /** 상태별 제출 버튼 문구 (UI-SPEC §연결 상태 배지 표의 "주문 버튼" 열). */
-const DISABLED_LABEL: Partial<Record<RelayStatus, string>> = {
+export const DISABLED_LABEL: Partial<Record<RelayStatus, string>> = {
   idle: '연결 중…',
   connecting: '연결 중…',
   logging_in: '연결 중…',
