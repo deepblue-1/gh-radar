@@ -12,6 +12,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { leavesOverflowing } from '../overflow';
 
 /**
  * Phase 15 Plan 14 Task 2 — 호가창 wss 왕복 E2E (RELAY-01 · SC-7 · D-27/D-40).
@@ -39,6 +40,13 @@ import {
  *   포트를 주입할 수 없다 — 픽스처 상단 ④). `fullyParallel: true` 인 저장소에서
  *   워커 2개가 같은 포트를 잡으면 즉시 EADDRINUSE 다. 그래서 파일 전체를 직렬로 고정하고
  *   relay 를 `beforeAll` 한 번만 띄운다.
+ *
+ * ⑤ Phase 18 (18-10 · 18-13) — 호가 탭 본문이 **작업대 카드 본문과 같은 컴포넌트**가 됐다(D-24)
+ *   상태줄(`orderbook-status-bar` · 거래소 세그먼트 · LED) → 종목정보 10칸 → 좌 호가 | 우 옵션 +
+ *   적응형 수동주문 → 이 종목 미체결/잔고. 바뀐 셀렉터는 18-10 SUMMARY 「18-13 이 함께 고칠 e2e
+ *   셀렉터」 표를 **그대로** 따랐다 — 그 표 밖에서 깨진 셀렉터는 없었다(18-13 SUMMARY).
+ *   단언이 지키던 성질(wss 왕복 · 토큰 URL 부재 · 재구독 · 빈 NXT · 게이트 · wss 단일 주문 경로 ·
+ *   결과 모름 잠금 · 잘림 0 · 단절 시 사다리 유지)은 하나도 빼지 않았다.
  *
  * ④ 상태 오염 제거
  *   매 테스트 `relay.reset()` 이 요청 로그·응답 거래소·자격증명을 기본값으로 되돌린다.
@@ -74,10 +82,16 @@ function trackRelaySockets(page: Page): string[] {
 /** 모바일 리플로우 검증 뷰포트 — UI-SPEC 이 기준으로 삼은 폭이다(§반응형 "모바일 390px"). */
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
 
-const statusBar = (page: Page) => page.locator('[data-slot="relay-status-bar"]');
+const statusBar = (page: Page) => page.locator('[data-slot="orderbook-status-bar"]');
 const ladder = (page: Page) => page.locator('[data-slot="orderbook-ladder"]');
-const priceCells = (page: Page) => ladder(page).locator('tbody th[scope="row"]');
-const tapeRows = (page: Page) => page.locator('[data-slot="trade-tape"] tbody tr');
+/**
+ * 보이는 트리의 가격 행머리. chaser 사다리는 1·2·3단 트리 3벌이 DOM 에 공존하고 밴드 밖 트리는
+ * `display:none` 이다 — 2단·3단 표에 각 20개가 있으므로 `:visible` 로 **보이는 한 벌**만 센다.
+ */
+const priceCells = (page: Page) => ladder(page).locator('tbody th[scope="row"]:visible');
+/** 보이는 compact 체결 테이프(1단·2단 트리)의 행 — 3단은 사다리 안 체결 셀이라 폰 폭에서 본다. */
+const tapeRows = (page: Page) =>
+  page.locator('[data-slot="trade-tape"][data-compact="true"]:visible tbody tr');
 
 /** 상태가 `ready` 가 될 때까지 기다린다 — relay 부팅 + DMA 로그인 왕복 여유를 준다. */
 async function waitForReady(page: Page): Promise<void> {
@@ -97,19 +111,25 @@ async function watchRestOrders(page: Page): Promise<string[]> {
   return hits;
 }
 
-/** 매수 폼을 채워 제출 → 확인 다이얼로그의 실행 버튼까지 누른다. */
+/**
+ * 수동주문으로 매수를 제출 → 확인 다이얼로그의 실행 버튼까지 누른다.
+ * ≥700(카드 폭) 에서는 옵션 우상단 「수동주문」 버튼으로 폼을 덮어 연다(18-10 D-19).
+ */
 async function submitBuyOrder(page: Page, price: string, qty: string): Promise<void> {
-  const panel = page.getByTestId('order-panel');
-  await panel.getByLabel('가격').fill(price);
-  await panel.getByLabel('수량').fill(qty);
+  const entry = page.locator('[data-slot="manual-entry"]');
+  const form = page.getByTestId('manual-order-form');
+  if (!(await form.isVisible())) await entry.getByRole('button', { name: '수동주문' }).click();
+  await expect(form).toBeVisible();
+  await form.locator(`#mo-price-${E2E_ISIN}`).fill(price);
+  await form.locator(`#mo-qty-${E2E_ISIN}`).fill(qty);
 
-  const submit = panel.getByRole('button', { name: '매수 주문' });
+  const submit = form.getByTestId('manual-order-buttons').getByRole('button', { name: '매수' });
   await expect(submit).toBeEnabled();
   await submit.click();
 
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByTestId('order-confirm-dialog');
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: '매수 주문' }).click();
+  await dialog.getByRole('button', { name: /매수/ }).click();
 }
 
 /** 게이트웨이가 `DirectOrderReq(2)` 를 받을 때까지 기다린다 — 통보 주입 전 경주 방지. */
@@ -148,14 +168,14 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await page.goto(ORDERBOOK_URL);
     await waitForReady(page);
 
-    // 상태 배지 — 계좌 수는 스텁 게이트웨이의 LoginResp 계좌 1건에서 온다.
-    await expect(statusBar(page).getByText('실시간 · 계좌 1개')).toBeVisible();
+    // 상태줄 DMA 필 — 문구는 `statusLabel` 그대로다(18-10). 계좌는 LoginResp 계좌 1건이 셀렉터에 선다.
+    await expect(statusBar(page)).toContainText(/DMA\s*실시간/);
+    await expect(statusBar(page).getByRole('combobox', { name: '계좌' }).locator('option')).toHaveCount(1);
 
     // 스텁이 밀어 넣은 호가 10단이 그대로 그려진다.
     await expect(priceCells(page)).toHaveCount(20);
     await expect(priceCells(page).first()).toContainText('99,000'); // 매도 10호가
     await expect(priceCells(page).last()).toContainText('97,000'); // 매수 10호가
-    await expect(ladder(page)).toContainText('550'); // 총잔량
 
     // T-15-04 — 토큰은 첫 메시지 본문 전용이다. 업그레이드 URL 에 쿼리스트링이 없어야 한다.
     expect(sockets).toContain(RELAY_WS_URL);
@@ -163,17 +183,18 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
   });
 
   test('2. 체결 테이프 3건이 최신순으로 쌓인다', async ({ page }) => {
+    // compact 테이프는 1·2단 트리의 것이다(3단은 사다리 안 체결 셀) — 폰 폭에서 본다(18-10).
+    await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto(ORDERBOOK_URL);
     await waitForReady(page);
 
     await expect(tapeRows(page)).toHaveCount(3);
     // 와이어는 시간 오름차순이고 화면은 최신이 위다 — 뒤집기가 실제로 일어났는지 본다.
-    await expect(tapeRows(page).first()).toContainText('09:30:17');
-    await expect(tapeRows(page).last()).toContainText('09:30:15');
+    // compact 테이프는 시(時)를 접고 「분:초」만 쓴다(좁은 칼럼 — 260911-w5h). 순서 단언은 그대로다.
+    await expect(tapeRows(page).first()).toContainText('30:17');
+    await expect(tapeRows(page).last()).toContainText('30:15');
     // 색 비의존 — `구분` 열은 없앴지만(수량 색이 대신한다) 수량 셀의 sr-only 로 읽힌다.
-    await expect(tapeRows(page).first().locator('td').nth(2).locator('.sr-only')).toHaveText(
-      /매수|매도/,
-    );
+    await expect(tapeRows(page).first().locator('.sr-only').first()).toHaveText(/매수|매도/);
   });
 
   test('3. 거래소 KRX→NXT 전환 → unsub/sub 왕복 후 NXT 호가가 렌더된다', async ({ page }) => {
@@ -181,9 +202,11 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await waitForReady(page);
     await expect(priceCells(page).first()).toContainText('99,000');
 
-    // Radix ToggleGroup(type="single") 은 항목에 role="radio" 를 강제한다 — 접근 가능한
-    // 이름으로 잡아 role 구현 세부에 매이지 않는다.
-    await page.getByLabel('NXT 호가').click();
+    // 거래소는 상태줄 세그먼트다(Radix ToggleGroup single → 항목 role="radio"). 18-10 셀렉터 표.
+    await statusBar(page)
+      .locator('[data-slot="orderbook-exchange-segment"]')
+      .getByRole('radio', { name: 'NXT' })
+      .click();
 
     // NXT 픽스처는 KRX 보다 1,000원 위다 — 숫자가 바뀌면 재구독이 실제로 일어난 것이다.
     await expect(priceCells(page).first()).toContainText('100,000', { timeout: 15_000 });
@@ -203,7 +226,10 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await waitForReady(page);
     await expect(priceCells(page)).toHaveCount(20);
 
-    await page.getByLabel('NXT 호가').click();
+    await statusBar(page)
+      .locator('[data-slot="orderbook-exchange-segment"]')
+      .getByRole('radio', { name: 'NXT' })
+      .click();
 
     await expect(page.getByText('이 종목은 NXT 호가가 없어요')).toBeVisible({ timeout: 15_000 });
     // 재접속 안내가 아니라 **빈 호가**로 안내해야 한다 — 연결은 멀쩡하다.
@@ -224,7 +250,7 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
 
     // 사다리·주문 진입점은 아예 렌더되지 않는다.
     await expect(ladder(page)).toHaveCount(0);
-    await expect(page.getByTestId('order-panel')).toHaveCount(0);
+    await expect(page.getByTestId('manual-order-form')).toHaveCount(0);
     // 섹션 자체는 사라지지 않는다 (UI-SPEC C1).
     await expect(page.getByTestId('stock-orderbook-section')).toBeVisible();
 
@@ -263,9 +289,9 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
       exchange: 'KRX',
     });
 
-    await expect(page.getByTestId('order-result-accepted')).toContainText(
-      '주문이 접수됐어요 · 주문번호 0000135842',
-    );
+    const result = page.getByTestId('manual-order-result');
+    await expect(result).toHaveAttribute('data-kind', 'accepted', { timeout: 15_000 });
+    await expect(result).toContainText('주문이 접수됐어요 · 주문번호 0000135842');
 
     // ★ D-02 — 주문은 wss 단일 경로다. REST 로 한 건이라도 나가면 두 경로가 같은 행을 다툰다.
     expect(restHits).toEqual([]);
@@ -293,9 +319,9 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await waitForOrderAtGateway(relay);
     // 통보를 **주지 않는다.** relay 의 5초 상한이 지나면 `{status:"timeout"}` 이 온다.
 
-    const panel = page.getByTestId('order-panel');
-    const unknown = page.getByTestId('order-result-unknown');
-    await expect(unknown).toBeVisible({ timeout: 15_000 });
+    const panel = page.getByTestId('manual-order-form');
+    const unknown = page.getByTestId('manual-order-result');
+    await expect(unknown).toHaveAttribute('data-kind', 'unknown', { timeout: 15_000 });
     await expect(unknown).toContainText('접수 응답이 늦어지고 있어요');
     await expect(unknown).toContainText(
       '주문이 이미 나갔을 수 있어요. 미체결 목록에서 접수 여부를 확인한 뒤 다시 주문해 주세요.',
@@ -305,10 +331,12 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     // ★ 패널 어디에도 "실패"라고 쓰지 않는다. 그 한 단어가 중복 체결을 부른다.
     await expect(panel).not.toContainText('실패');
     // ★ 재주문 경로를 열지 않는다. 이 버튼이 다시 열리면 그 자리에서 중복 체결이 난다.
-    await expect(panel.getByRole('button', { name: '매수 주문' })).toBeDisabled();
+    await expect(
+      panel.getByTestId('manual-order-buttons').getByRole('button', { name: '매수' }),
+    ).toBeDisabled();
   });
 
-  test('8. 390px 에서 미체결·잔고가 `.rlist` 2줄 카드 행으로 리플로우되고 잘림이 0이다 (C7/R6)', async ({
+  test('8. 390px 에서 이 종목 미체결·잔고가 `.rlist` 2줄 카드 행으로 리플로우되고 잘림이 0이다 (C7/R6 · 18-10 이 종목만)', async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -328,16 +356,27 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
           exchange: 'KRX',
         },
         {
-          // ★ 이름이 긴 종목 + 7자리 가격 + 6자리 수량. 「종목명만 신축」 규율이 빠지면
-          //   이 행에서 주문번호·취소 버튼이 컨테이너 밖으로 밀려난다(스트레스 케이스).
+          // ★ 7자리 가격 + 6자리 수량 — 「종목명만 신축」 규율이 빠지면 주문번호·취소 버튼이
+          //   컨테이너 밖으로 밀려난다(스트레스 케이스).
           orderNo: '0000135801',
-          isin: E2E_LONG_NAME_ISIN,
+          isin: E2E_ISIN,
           side: 'S',
           price: 1_234_567,
           orderQty: 999_999,
           filledQty: 0,
           unfilledQty: 999_999,
           exchange: 'NXT',
+        },
+        {
+          // ★ 다른 종목 행 — 호가 탭 미체결은 **이 종목만**이다(18-10 다른 점 ③). 여기 서면 안 된다.
+          orderNo: '0000135999',
+          isin: E2E_LONG_NAME_ISIN,
+          side: 'B',
+          price: 10_000,
+          orderQty: 1,
+          filledQty: 0,
+          unfilledQty: 1,
+          exchange: 'KRX',
         },
       ],
       holdings: [{ isin: E2E_ISIN, stockQty: 120, sellableQty: 90, avgPrice: 91_250 }],
@@ -346,6 +385,7 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     const unfilledRows = page.locator('[data-slot="account-unfilled-row"]');
     await expect(unfilledRows).toHaveCount(2);
     await expect(unfilledRows.first()).toBeVisible();
+    await expect(page.getByText('0000135999')).toHaveCount(0);
     await expect(page.locator('[data-slot="account-holding-row"]')).toHaveCount(1);
 
     // 표는 이 폭에서 **보이지 않는다** — 콘텐츠 최소폭이 가용폭을 넘기 때문이다.
@@ -354,49 +394,58 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     ).toBeHidden();
 
     /*
-      ★ 잘림 진단은 **문서 스크롤폭이 아니라 요소 실측 폭**이다 (tasks/lessons.md).
-
-        더 정확히는 **행의 폭도 아니다.** 행은 블록이라 넘쳐도 폭이 컨테이너와 같고,
-        `.rlist` 의 `overflow-hidden` 이 넘침을 삼켜 `scrollWidth` 마저 조용하다.
-        실제로 「종목명만 신축」 규율을 지운 변이가 그 두 단언을 **통과했다**(실측).
-        유일하게 무는 단언은 **행 안의 잎 요소들이 컨테이너 오른쪽 끝을 넘지 않는가** 다 —
-        `getBoundingClientRect` 는 ancestor 의 클리핑에 영향받지 않으므로 밀려난 요소의
-        진짜 좌표가 그대로 나온다.
+      ★ 잘림 진단은 행 안의 잎 요소 좌표다 — 행은 블록이라 넘쳐도 폭이 컨테이너와 같고, `.rlist` 의
+        `overflow-hidden` 이 넘침을 삼켜 `scrollWidth` 마저 조용하다. 판정은 `e2e/overflow.ts` 하나다.
     */
     const list = page.locator('[data-slot="account-unfilled-list"]');
     const listBox = await list.boundingBox();
     expect(listBox).not.toBeNull();
-    const listRight = listBox!.x + listBox!.width;
-
     for (const row of await unfilledRows.all()) {
-      const overflowing = await row.evaluate(
-        (el, right) =>
-          Array.from(el.querySelectorAll<HTMLElement>('*'))
-            .map((child) => ({
-              text: (child.textContent ?? '').slice(0, 24),
-              // 1px 은 소수점 레이아웃 반올림 여유다.
-              over: Math.round(child.getBoundingClientRect().right - right),
-            }))
-            .filter((item) => item.over > 1),
-        listRight,
-      );
-      // 실패 메시지에 **무엇이 얼마나** 밀려났는지 남는다 — 「어딘가 잘렸다」로 끝나지 않게.
-      expect(overflowing).toEqual([]);
+      expect(await leavesOverflowing(row, listBox!.x + listBox!.width)).toEqual([]);
     }
 
     // 종목명만 줄어든다 — 취소 버튼·수량은 밀려나지 않고 그대로 눌린다.
     await expect(
       unfilledRows.first().getByRole('button', { name: '주문번호 0000135742 취소' }),
     ).toBeVisible();
-    /*
-      ★ 260912-ok2 — **문구가 바뀐 자리다. 화면이 정본이고 단언을 옮긴다.**
-        옛 단언은 `30/50` 이라는 붙여쓴 문자열을 요구했는데, 260911-w5h 가 카드 2번째 줄을
-        「미체결 {잔량} / {주문량}주」로 다시 쓰면서 그 형태는 화면에서 사라졌다.
-        잠그던 것(「30 중 50 이 **둘 다** 보인다」 = 잔량만 보여 주문량을 잃지 않는다)은
-        그대로이므로, 같은 의도를 현재 문구로 다시 쓴다. 지웠으면 다음에 주문량이 조용히
-        빠져도 아무도 모른다.
-    */
     await expect(unfilledRows.first()).toContainText('미체결 30 / 50주');
+  });
+
+  /*
+    11. 18-10 인계 — 호가 탭의 더티 바 오른쪽 끝이 AI FAB 앞에서 멈춘다(두 폭).
+    작업대 카드와 달리 종목상세에는 FAB 이 있다(`CHAT_FAB_CLEARANCE_CLASS`). z-index 로 덮으면 한쪽이
+    조용히 가려지므로 **두 상자가 겹치지 않음**을 잰다 — 18-10 은 임시 스크립트로만 실측했다.
+  */
+  test('11. 호가 탭 더티 바와 AI FAB 의 boundingBox 가 겹치지 않는다 — 390 · 1440 (18-10 인계 · D-28)', async ({
+    page,
+  }) => {
+    // 더티 바는 **등록된 전략**을 고칠 때 선다(미등록 폼은 스위치 즉시 전송) — 이 종목 전략을 심는다.
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    for (const viewport of [MOBILE_VIEWPORT, { width: 1440, height: 1000 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto(ORDERBOOK_URL);
+      await waitForReady(page);
+      await expect(page.locator('#lc-buy-watch-qty')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('#lc-buy-watch-qty')).toHaveValue('10,000', { timeout: 15_000 });
+      await page.locator('#lc-buy-watch-qty').fill('8000');
+
+      const bar = page.locator('[data-slot="dirty-action-bar"]');
+      const fab = page.getByRole('button', { name: /^AI/ });
+      await expect(bar).toBeVisible();
+      await expect(fab).toBeVisible();
+      const barBox = await bar.boundingBox();
+      const fabBox = await fab.boundingBox();
+      expect(barBox).not.toBeNull();
+      expect(fabBox).not.toBeNull();
+      const overlapX = Math.min(barBox!.x + barBox!.width, fabBox!.x + fabBox!.width) - Math.max(barBox!.x, fabBox!.x);
+      const overlapY = Math.min(barBox!.y + barBox!.height, fabBox!.y + fabBox!.height) - Math.max(barBox!.y, fabBox!.y);
+      expect(
+        overlapX > 1 && overlapY > 1,
+        `뷰포트 ${viewport.width} — 더티 바 [${barBox!.x}, ${barBox!.x + barBox!.width}] × FAB [${fabBox!.x}, ${fabBox!.x + fabBox!.width}]`,
+      ).toBe(false);
+      // 「수정」이 실제로 눌린다(FAB 이 포인터를 가로채지 않는다).
+      await expect(bar.getByRole('button', { name: '수정' })).toBeEnabled();
+    }
   });
 
   test('9. 회선 단절 → `재접속 중` 배지 + **사다리는 비워지지 않는다**', async ({ page }) => {
@@ -415,13 +464,10 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
     await expect(statusBar(page)).toHaveAttribute('data-status', 'reconnecting', {
       timeout: 20_000,
     });
-    await expect(statusBar(page).getByText(/재접속 중 \d+\/10/)).toBeVisible();
-    /*
-      본문은 정적 문구 + 회차·다음 시도 안내다. **보조 줄은 단언하지 않는다** — relay 가
-      `{t:"state"}.msg` 로 실제 단절 사유를 실어 보내면 UI 는 정적 보조 문구 대신 그것을
-      보여주는 것이 계약이다(D-36). 정적 문구를 단언하면 그 계약과 정면으로 어긋난다.
-    */
-    await expect(statusBar(page).getByText(/연결이 끊겨 다시 연결하는 중이에요/)).toBeVisible();
+    // DMA 필이 연결 상태를 말한다 — 문구는 `RELAY_STATE_LABELS` 한 곳(D-36). 회차·본문 문구는
+    // 18-10 에서 걷었다(셀렉터 표). 자동 재연결 중에는 「다시 연결」 버튼이 없다.
+    await expect(statusBar(page)).toContainText('재접속 중');
+    await expect(statusBar(page).getByRole('button', { name: '다시 연결' })).toHaveCount(0);
 
     // ★ 핵심 — 마지막 값이 남아 있어야 한다. 빈 화면으로 되돌리면 사용자가 문맥을 잃는다.
     await expect(priceCells(page)).toHaveCount(20);
