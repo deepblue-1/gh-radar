@@ -88,6 +88,41 @@ test.describe('Phase 6 — 전역 검색 (SRCH-01/02)', () => {
       page.getByText(/"xyz" 에 해당하는 종목이 없습니다/),
     ).toBeVisible({ timeout: 3000 });
   });
+
+  /*
+    ★ quick-260922-tqr — iOS Safari 는 글꼴 16px 미만 입력에 포커스하면 화면을 확대하고
+      되돌리지 않는다. 입력은 기본 16px · 마우스 기기(`pointer: fine`)만 14px 다.
+      터치 쪽은 iPhone **가로** 폭(844)으로 잰다 — `sm`·`md` 폭 브레이크포인트를 넘는 폭에서도
+      16px 여야 가로 모드에서 다시 확대되지 않는다.
+  */
+  test.describe('입력 글꼴 — iOS 포커스 확대 방지 (quick-260922-tqr)', () => {
+    const openSearchInput = async (page: import('@playwright/test').Page) => {
+      await page.goto('/scanner');
+      const dialog = page.getByRole('dialog');
+      // 하이드레이션 전 클릭은 조용히 사라질 수 있다 — 열릴 때까지 다시 누른다.
+      await expect(async () => {
+        if (!(await dialog.isVisible())) {
+          await page.getByLabel('종목 검색 열기').filter({ visible: true }).first().click();
+        }
+        await expect(dialog).toBeVisible({ timeout: 3_000 });
+      }).toPass({ timeout: 20_000 });
+      return dialog.getByPlaceholder('종목명 또는 종목코드를 입력하세요');
+    };
+
+    test('마우스 기기(Desktop Chrome)에서는 기존 14px 그대로다', async ({ page }) => {
+      const input = await openSearchInput(page);
+      await expect(input).toHaveCSS('font-size', '14px');
+    });
+
+    test.describe('터치 기기 · iPhone 가로 폭 844', () => {
+      test.use({ hasTouch: true, viewport: { width: 844, height: 390 } });
+
+      test('터치 기기에서는 16px 라 포커스해도 확대되지 않는다', async ({ page }) => {
+        const input = await openSearchInput(page);
+        await expect(input).toHaveCSS('font-size', '16px');
+      });
+    });
+  });
 });
 
 /**

@@ -71,11 +71,19 @@ function CommandInput({
       className="flex h-11 items-center gap-2 border-b border-border/60 px-3"
     >
       <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+      {/*
+        ★ 글꼴은 기본 16px · 마우스 기기(`pointer-fine:`)만 14px 다 (quick-260922-tqr).
+          iOS Safari 는 16px 미만 입력에 포커스하면 화면을 확대하고 되돌리지 않는다. viewport 확대
+          금지 설정은 핀치줌을 죽이므로 쓰지 않는다 — 정책 정본은 limit-chaser-form.tsx 의
+          모바일 16px 주석. 폭 브레이크포인트(`sm:`·`md:`)가 아니라 포인터로 가르는 이유: iPhone
+          가로 모드(844~932px)는 폭 기준으로 데스크톱 쪽에 떨어져 다시 14px → 다시 확대된다.
+          확대 여부는 폭이 아니라 터치 기기라는 사실에 달렸고, 포인터를 모르면 16px(안전) 쪽이다.
+      */}
       <CommandPrimitive.Input
         data-slot="command-input"
         data-focus-ring="seamless"
         className={cn(
-          "flex h-full w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-full w-full bg-transparent text-base pointer-fine:text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
         {...props}

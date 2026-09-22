@@ -360,9 +360,12 @@ export function StockSearchField({
             포커스가 아무 표시 없이 사라진다(WCAG 2.4.7).
           ★ 높이 `h-9` 는 아래 결과 목록의 `top-10` 과 **한 쌍**이다. 한쪽만 고치면 목록이
             입력에서 떠서, 마우스가 그 틈을 지나는 순간 닫힌 것처럼 보인다.
+          ★ 글꼴은 기본 16px · 마우스 기기(`pointer-fine:`)만 14px 다 (quick-260922-tqr) — iOS
+            Safari 포커스 확대 방지. 폭 브레이크포인트가 아니라 포인터로 가르는 이유(iPhone 가로 폭)는
+            `components/ui/command.tsx` CommandInput 주석. 16px 도 `h-9` 안에 들어가 위 한 쌍은 그대로다.
         */
         data-focus-ring="seamless"
-        className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
+        className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
       />
       {trailing?.({
         canCommit: activeRow !== null,

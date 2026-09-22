@@ -700,6 +700,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
 
+    // 마우스 기기(Desktop Chrome)에서는 입력 글꼴이 기존 14px 그대로다(quick-260922-tqr — 터치만 16px).
+    await expect(addBox(page)).toHaveCSS('font-size', '14px');
+
     await addStockByKeyboard(page);
 
     // 결과 — 카드가 그 종목으로 선다. 여기까지 와야 「고른 것」이다.
@@ -1745,5 +1748,23 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       page.locator('[data-slot="vi-chip"] [data-slot="vi-chip-name"]').filter({ hasText: longName }).first(),
     ).toHaveAttribute('title', longName);
     await expect(viTable(page).locator('[data-slot="vi-row-name"]').nth(1)).toHaveAttribute('title', longName);
+  });
+
+  /*
+    ★ quick-260922-tqr — iOS Safari 는 16px 미만 입력에 포커스하면 확대하고 되돌리지 않는다.
+      종목 추가란은 터치 기기에서 16px 다. iPhone **가로** 폭(844)으로 재는 이유: 폭 브레이크포인트
+      (`sm`·`md`)를 넘는 폭에서도 16px 여야 가로 모드에서 다시 확대되지 않는다.
+      relay 픽스처가 이 describe 의 beforeAll/beforeEach 에 있어 반드시 안쪽에 둔다.
+  */
+  test.describe('종목 추가란 글꼴 — 터치 기기 (quick-260922-tqr)', () => {
+    test.use({ hasTouch: true, viewport: { width: 844, height: 390 } });
+
+    test('터치 기기 · iPhone 가로 폭 844 에서 종목 추가 입력이 16px 다', async ({ page }) => {
+      // 바깥 beforeEach 가 WIDE_VIEWPORT 로 덮으므로 여기서 iPhone 가로 폭으로 되돌린다.
+      await page.setViewportSize({ width: 844, height: 390 });
+      await page.goto(WORKBENCH_URL);
+      await waitForReady(page);
+      await expect(addBox(page)).toHaveCSS('font-size', '16px');
+    });
   });
 });
