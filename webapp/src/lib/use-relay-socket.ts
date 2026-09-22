@@ -274,7 +274,9 @@ export interface RelayConnectionState {
    * ⚠️ 하루 1회 알림 규칙과 임계−2%p 이탈 삭제는 **이 목록에 반영돼 있지 않다** — 그 표시
    *    규칙은 화면(Phase 18)의 몫이고, relay 는 서버 집합을 가공하지 않는다 (D-03).
    *
-   * 정렬은 `exchangeTime` 오름차순 · 동률이면 `isin` 오름차순 — relay getter 와 같은 축이다.
+   * 정렬은 `exchangeTime` **내림차순**(최신 돌파가 맨 위 — 사용자 결정 2026-09-22) · 동률이면
+   * `isin` 오름차순 — relay `sortRateCrossNewestFirst` 와 같은 축이다. 표시 컴포넌트는 이 순서를
+   * 그대로 쓰고 다시 정렬하지 않는다 (D-14).
    */
   rateCrossItems: RelayRateCrossItem[];
   /**
@@ -580,12 +582,14 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
 /**
  * 등락률 돌파 above 집합 upsert — 키는 `isin`+`exchange` 다 (17-03 / D-03).
  *
- * 정렬은 **`exchangeTime` 오름차순 · 동률이면 `isin` 오름차순**으로 relay getter 와 같은
- * 축을 쓴다. 자리 보존(상따 `upsertLimitChaser`)과 다른 이유: 상따 목록은 사용자가 만든
+ * 정렬은 **`exchangeTime` 내림차순(최신 돌파가 맨 위 — 사용자 결정 2026-09-22) · 동률이면
+ * `isin` 오름차순**으로 relay `sortRateCrossNewestFirst` 와 같은 축을 쓴다. `exchangeTime` 은
+ * above 구간을 연 시각이라 구간 안 갱신은 자리를 지키고, 재돌파(새 구간)만 맨 위로 오른다. 자리 보존(상따 `upsertLimitChaser`)과 다른 이유: 상따 목록은 사용자가 만든
  * 순서가 뜻을 갖지만 above 집합은 **서버가 정한 순서**가 뜻을 갖고, 78 전량 교체가 그
  * 순서로 오므로 76 upsert 만 자리 보존을 하면 두 경로의 순서가 갈린다.
  *
- * `slice` 상한은 **정렬 뒤**에 건다 — 자르고 정렬하면 남길 원소를 먼저 버린다.
+ * `slice` 상한은 **정렬 뒤**에 건다 — 자르고 정렬하면 남길 원소를 먼저 버린다. 내림차순이라
+ * 상한을 넘으면 **가장 오래된** 돌파가 잘려 나간다(최신 유지).
  */
 function upsertRateCross(
   list: RelayRateCrossItem[],
@@ -595,12 +599,15 @@ function upsertRateCross(
   return sortRateCross([...rest, item]).slice(0, MAX_RATE_CROSS);
 }
 
-/** above 집합 정렬 축 — `exchangeTime` ↑ · 동률이면 `isin` ↑ (relay getter 와 같다). */
+/**
+ * above 집합 정렬 축 — `exchangeTime` ↓ · 동률이면 `isin` ↑ (최신 돌파가 맨 위).
+ * relay `sortRateCrossNewestFirst`(`relay/src/hub/subscription-hub.ts`)와 같은 축이다.
+ */
 function sortRateCross(list: RelayRateCrossItem[]): RelayRateCrossItem[] {
   return [...list].sort((a, b) =>
     a.exchangeTime === b.exchangeTime
       ? a.isin.localeCompare(b.isin)
-      : a.exchangeTime.localeCompare(b.exchangeTime),
+      : b.exchangeTime.localeCompare(a.exchangeTime),
   );
 }
 

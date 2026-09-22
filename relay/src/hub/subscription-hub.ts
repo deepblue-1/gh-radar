@@ -216,6 +216,25 @@ function rateCrossKey(userId: string, isin: string, exchange: RelayExchange): st
 }
 
 /**
+ * 등락률 돌파 목록 정렬 — **`exchangeTime` 내림차순 · 동률이면 `isin` 오름차순** (사본 정렬).
+ *
+ * 사용자 결정 2026-09-22 — 최신 돌파가 맨 위. 서버 78 원순서(오름차순)와 무관하게 relay 가
+ * 내리는 순서는 이 헬퍼 한 곳이 정한다 (인증 직후 스냅샷 `getRateCrossItems` · 78 팬아웃).
+ * 웹 리듀서 `sortRateCross`(webapp `use-relay-socket.ts`)가 같은 축이다 — 한쪽만 바꾸면 76/78
+ * 경로의 순서가 갈린다 (D-14).
+ *
+ * `exchangeTime` 은 above 구간을 **연** 시각이라, 같은 구간 안의 76 갱신은 자리를 지키고
+ * 이탈 후 재돌파(새 구간)만 맨 위로 오른다. 캐시(`#rateCrossItems`)는 정렬하지 않는다.
+ */
+function sortRateCrossNewestFirst(items: readonly RelayRateCrossItem[]): RelayRateCrossItem[] {
+  return [...items].sort((a, b) =>
+    a.exchangeTime === b.exchangeTime
+      ? a.isin.localeCompare(b.isin)
+      : b.exchangeTime.localeCompare(a.exchangeTime),
+  );
+}
+
+/**
  * VI 주문 캐시 키. 정본은 `orderNo` 지만 **접수 전에는 그 값이 `""`** 라 키가 되지 못한다
  * (파서가 `""` 를 보존하는 이유 — 빈 주문번호로는 확인 체크를 열 수 없다).
  *
@@ -607,9 +626,9 @@ export class SubscriptionHub extends EventEmitter {
   /**
    * 그 사용자의 등락률 돌파 above 집합 복사본 (17-03 / D-03).
    *
-   * 정렬은 **`exchangeTime` 오름차순 · 동률이면 `isin` 오름차순**이다 — 78 스냅샷이 서버에서
-   * 오는 순서와 같게 맞춰 두면, 76 upsert 로 흐트러진 순서와 78 전량 교체 후의 순서가
-   * 갈리지 않는다.
+   * 정렬은 `sortRateCrossNewestFirst`(**`exchangeTime` 내림차순 · 동률이면 `isin` 오름차순**)다 —
+   * 사용자 결정 2026-09-22 — 최신 돌파가 맨 위. 서버 78 원순서(오름차순)와 무관하게 relay 가
+   * 내리는 순서는 이 헬퍼 한 곳이 정한다(78 팬아웃도 같은 헬퍼).
    */
   getRateCrossItems(userId: string): RelayRateCrossItem[] {
     const prefix = userPrefix(userId);
@@ -619,11 +638,7 @@ export class SubscriptionHub extends EventEmitter {
       // **사본에만** 얹는다(D-30). 캐시는 서버 원본 그대로다.
       if (key.startsWith(prefix)) out.push(this.#enrichRateCross(item));
     }
-    return out.sort((a, b) =>
-      a.exchangeTime === b.exchangeTime
-        ? a.isin.localeCompare(b.isin)
-        : a.exchangeTime.localeCompare(b.exchangeTime),
-    );
+    return sortRateCrossNewestFirst(out);
   }
 
   /**
@@ -880,9 +895,11 @@ export class SubscriptionHub extends EventEmitter {
     logger.info({ userId, count: items.length }, "[HUB] 돌파 집합 스냅샷 수신 — 전량 교체");
     if (!session.isReady) return;
     // 전량 교체는 위에서 서버 원본으로 끝났다. 보강은 팬아웃 사본에만 (D-30 / D-27).
+    // 순서는 사용자 결정 2026-09-22 — 최신 돌파가 맨 위. 서버 78 원순서(오름차순)와 무관하게
+    // relay 가 내리는 순서는 `sortRateCrossNewestFirst` 한 곳이 정한다(getter 와 같은 축).
     this.#fanout(userId, {
       t: "rate.cross.snap",
-      items: items.map((item) => this.#enrichRateCross(item)),
+      items: sortRateCrossNewestFirst(items.map((item) => this.#enrichRateCross(item))),
     });
   }
 
