@@ -289,14 +289,17 @@ export interface RelayConnectionState {
    */
   rateCrossSnapSeq: number;
   /**
-   * 64 스냅샷(`lc.snap`)을 적용한 횟수 (Phase 18 D-02 · 18-REVIEW WR-07 · 18-22).
+   * **이번 `ready` 구간에서** 받은 확정 64 스냅샷(`lc.snap`) 수 (Phase 18 D-02 · WR-07 · 18-22 ·
+   * 18-26 GC-IN-02). 0 = 아직 못 받았다.
    *
-   * `limitChasers` 배열만으로는 「64 를 받았는가」를 알 수 없다 — 빈 배열은 「아직 모름」 도
-   * 「등록 전략 없음」 도 된다. 작업대는 이 값으로 포커스 요청(사이드바 · `?focus=`)의 보류를
-   * 판정한다: 0 이면 스냅샷 전이라 찾지 못한 키를 보류한다. 단 relay 는 콜드 세션에서 게이트웨이
-   * 64 전에 빈 캐시를 먼저 내리므로, 소비처는 「0 이 아니면 확정」 으로 읽지 말고 빈 목록을
-   * 모호하게 다룬다(작업대 `knowsRegistered`).
-   * 연결 전·리셋 후 0 이다. 값 자체에 의미는 없고 **바뀌었는가 / 0 인가**만 읽는다.
+   * `limitChasers` 배열만으로는 「64 를 받았는가」를 알 수 없다 — 60 에코로 채워진 목록도, 옛
+   * 연결에서 남은 목록도 같은 배열이다. relay 는 게이트웨이 64 를 받은 뒤에만 `lc.snap` 을
+   * 내리므로(18-26) **받은 스냅샷은 빈 배열도 확정**(「등록 전략 없음」)이다. 작업대는 이 값
+   * 하나로 포커스 요청(사이드바 · `?focus=`)의 보류를 판정한다(`knowsRegistered = snapSeq > 0`).
+   *
+   * 세션이 `ready` 로 **전환**될 때(새 연결의 인증 ACK 포함) 0 으로 돌아간다 — relay 는 세션이
+   * ready 가 될 때마다 24 를 다시 보내 새 64 가 오므로, 그 전의 미스를 옛 연결의 목록으로 버리지
+   * 않고 보류한다. `ready → ready` 반복 프레임은 건드리지 않는다. 리셋 후에도 0 이다.
    *
    * ⚠️ `status` 로 추론하지 않는다 — 인증 ACK(state) 가 `lc.snap` 보다 먼저 오므로
    *    `ready` 인데 스냅샷은 아직인 구간이 있다(relay `fanout.ts` 인증 직후 순서).
@@ -476,6 +479,11 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         // 계좌 목록은 프레임이 실어 보낼 때만 갱신한다(생략 = 변경 없음).
         accounts: frame.accounts ?? state.accounts,
         isStale: frame.s === "ready" ? false : state.isStale,
+        // 확정 스냅샷 기준점 (18-26 / GC-IN-02 ③) — ready 로 **들어설 때만** 0. 새 연결의 인증
+        // ACK 도 직전 `local-status` 가 connecting/reconnecting 이라 전환이다. relay 가 이 전환
+        // 뒤에 새 64 를 반드시 한 번 더 내리므로, 그때까지는 옛 목록 기준으로 판정하지 않는다.
+        limitChaserSnapSeq:
+          frame.s === "ready" && state.status !== "ready" ? 0 : state.limitChaserSnapSeq,
       };
 
     case "q": {
@@ -539,7 +547,8 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "lc.snap":
       // 64 전량 교체. `D` 행은 목록에 담지 않아 60 경로와 뜻을 맞춘다 —
       // `limitChasers` 는 언제나 「등록된 전략」이다.
-      // 빈 배열도 1회로 센다 — 「전략 없음」 도 확정 정보다(작업대 포커스 보류 판정 · WR-07).
+      // 빈 배열도 1회로 센다 — relay 는 64 를 받은 뒤에만 이 프레임을 내리므로(18-26) 「전략
+      // 없음」 도 확정 정보다(작업대 포커스 보류 판정 · WR-07 · GC-IN-02).
       return {
         ...state,
         limitChasers: frame.items.filter((item) => item.crud !== "D"),
