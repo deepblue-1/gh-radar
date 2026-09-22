@@ -54,6 +54,7 @@ function trigger(over: Partial<RelayViTrigger> = {}): RelayViTrigger {
 function renderCard(props: Partial<React.ComponentProps<typeof ViSettingsCard>> = {}) {
   return render(
     <ViSettingsCard
+      exchange="KRX"
       accounts={ACCOUNTS}
       server={trigger()}
       todayOrderCount={5}
@@ -79,22 +80,19 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('설정 4행 · 고정 캡션', () => {
-  it('계좌·금액·상승률·마감알림 4행과 헤더 캡션이 있다', () => {
+describe('설정 4행 · 거래소 제목', () => {
+  it('계좌·금액·상승률·마감알림 4행과 거래소 제목이 있다', () => {
     renderCard();
     expect(screen.getByLabelText('계좌')).toBeInTheDocument();
     expect(amountInput()).toHaveValue('1,000');
     expect(rateInput()).toHaveValue('22');
     expect(screen.getByRole('switch', { name: 'VI 마감 알림' })).toBeInTheDocument();
     /*
-      ★ 캡션은 **사실**이어야 한다 (17-06 / D-18). 「세션당 1건」은 서버가 VI 전략을
-        거래소별 1건으로 관리하게 된 순간 틀린 말이 됐고, 「KRX」만 적힌 캡션은 NXT 전략이
-        존재한다는 사실을 숨긴다. 세 사실 — 거래소별 1건 · 이 카드가 편집하는 것은 KRX ·
-        NXT 는 다음 단계 — 이 모두 담겨야 한다.
+      ★ 고정 캡션(「KRX 설정 편집 · NXT 는 다음 단계」)은 Phase 18 에서 사라졌다 (TRADE-08) —
+        편집 거래소가 prop 이 됐고, 제목이 그 prop 을 말한다. 고정 문구가 남으면 prop 과 갈린다.
     */
-    expect(
-      screen.getByText('거래소별 1건 · KRX 설정 편집 · NXT 는 다음 단계 · 주문가 = 상한가'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('설정 · KRX')).toBeInTheDocument();
+    expect(screen.queryByText(/NXT 는 다음 단계/)).toBeNull();
     expect(screen.getByText('주문수량 = 금액 ÷ 상한가')).toBeInTheDocument();
     expect(screen.getByText('이상 VI 발동 시 자동 매수')).toBeInTheDocument();
   });
@@ -289,6 +287,13 @@ describe('② 시작/중지 확인 다이얼로그 (S-7)', () => {
     fireEvent.click(stopDialog.querySelector('button:last-of-type') as HTMLButtonElement);
     expect(sendMock.mock.calls[0][0]).toMatchObject({ run: false, exchange: 'KRX' });
   });
+
+  it('★ `exchange` prop 이 NXT 면 세 경로 모두 NXT 로 나간다 — 고정 거래소가 없다 (Pitfall 8)', async () => {
+    renderCard({ exchange: 'NXT', server: trigger({ exchange: 'NXT', run: false }) });
+    fireEvent.change(amountInput(), { target: { value: '1500' } });
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ t: 'vi.set', exchange: 'NXT' });
+  });
 });
 
 describe('④ 제출 후 즉시 재활성 금지 (T-16-10)', () => {
@@ -300,6 +305,7 @@ describe('④ 제출 후 즉시 재활성 금지 (T-16-10)', () => {
     try {
       const { rerender } = render(
         <ViSettingsCard
+      exchange="KRX"
           accounts={ACCOUNTS}
           server={trigger({ run: false })}
           todayOrderCount={0}
@@ -331,6 +337,7 @@ describe('④ 제출 후 즉시 재활성 금지 (T-16-10)', () => {
       // 에코가 오면 가동 상태가 바뀐다.
       rerender(
         <ViSettingsCard
+      exchange="KRX"
           accounts={ACCOUNTS}
           server={trigger({ run: true })}
           todayOrderCount={0}
@@ -352,6 +359,7 @@ describe('⑤ 에코 규율', () => {
     const onServerEcho = vi.fn();
     const { rerender } = render(
       <ViSettingsCard
+      exchange="KRX"
         accounts={ACCOUNTS}
         server={trigger()}
         todayOrderCount={0}
@@ -364,6 +372,7 @@ describe('⑤ 에코 규율', () => {
 
     rerender(
       <ViSettingsCard
+      exchange="KRX"
         accounts={ACCOUNTS}
         server={trigger({ orderAmountKrw: 20_000_000 })}
         todayOrderCount={0}
@@ -380,6 +389,7 @@ describe('⑤ 에코 규율', () => {
   it('빈 61(미등록)은 입력값을 지우지 않고 가동만 내린다 (CR-01)', () => {
     const { rerender } = render(
       <ViSettingsCard
+      exchange="KRX"
         accounts={ACCOUNTS}
         server={trigger({ run: true })}
         todayOrderCount={0}
@@ -390,6 +400,7 @@ describe('⑤ 에코 규율', () => {
 
     rerender(
       <ViSettingsCard
+      exchange="KRX"
         accounts={ACCOUNTS}
         server={null}
         todayOrderCount={0}
@@ -417,6 +428,7 @@ describe('⑦ 세션 가드 — 단절 중에는 `vi.set` 이 나가지 않는�
   function card(server: RelayViTrigger, disabled: boolean) {
     return (
       <ViSettingsCard
+      exchange="KRX"
         accounts={ACCOUNTS}
         server={server}
         disabled={disabled}

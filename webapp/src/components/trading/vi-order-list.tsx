@@ -52,7 +52,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { RelayViOrderItem, RelayViOrderState } from '@gh-radar/shared';
+import type { RelayExchange, RelayViOrderItem, RelayViOrderState } from '@gh-radar/shared';
 
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -90,6 +90,37 @@ export const VI_ORDER_LIST_TIP =
  */
 export const VI_CONFIRM_SEND_FAILED_TEXT =
   '연결이 끊겨 확인을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
+
+/**
+ * 거래소 태그 (목업 `.tag.krx` / `.tag.nxt`, Phase 18 D-05·D-06).
+ *
+ * KRX 는 **테두리형**, NXT 는 **채움형 accent** 다 — 색이 아니라 형태로도 두 시장이 갈린다.
+ * VI 설정 2줄·VI 발동 표가 같은 조각을 쓴다(두 벌이면 한쪽만 모양이 바뀐다).
+ */
+export function ExchangeTag({
+  exchange,
+  size = 'sm',
+}: {
+  exchange: RelayExchange;
+  /** `md` = VI 설정 줄(20px) · `sm` = 표 셀(18px). */
+  size?: 'sm' | 'md';
+}) {
+  return (
+    <span
+      data-slot="exchange-tag"
+      data-exchange={exchange}
+      className={cn(
+        'inline-flex flex-none items-center rounded-[var(--r-sm)] border px-1.5 text-[10px] font-bold tracking-[.02em]',
+        size === 'md' ? 'h-5' : 'h-[18px]',
+        exchange === 'NXT'
+          ? 'border-transparent bg-[var(--accent)] text-[var(--accent-fg)]'
+          : 'border-[var(--border)] bg-transparent text-[var(--muted-fg)]',
+      )}
+    >
+      {exchange}
+    </span>
+  );
+}
 
 /** 상태 배지 1건의 표시 계약. 색·형태·텍스트 **3중**이라 색맹·흑백에서도 읽힌다. */
 interface StateFace {

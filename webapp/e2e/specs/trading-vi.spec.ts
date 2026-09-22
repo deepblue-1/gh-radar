@@ -240,10 +240,8 @@ test.describe('Phase 16 Plan 14 — VI 자동매수 화면 (로컬 relay + 스�
     await expect(field(page, 'vi-amount')).toHaveValue('1,000');
     await expect(field(page, 'vi-check-rate')).toHaveValue('22');
     await expect(page.getByRole('switch', { name: 'VI 마감 알림' })).toBeVisible();
-    // 캡션은 거래소별 1건 · KRX 편집 · NXT 는 다음 단계를 사실대로 말한다 (17-06 / D-18).
-    await expect(
-      page.getByText('거래소별 1건 · KRX 설정 편집 · NXT 는 다음 단계 · 주문가 = 상한가'),
-    ).toBeVisible();
+    // 고정 캡션은 Phase 18 에서 사라졌다 — 편집 거래소는 prop 이고 제목이 그것을 말한다 (TRADE-08).
+    await expect(page.getByText('설정 · KRX')).toBeVisible();
 
     // ★ 계좌 비밀번호·종목 검색·주문유형 UI 가 없다(B2).
     await expect(page.locator('input[type="password"]')).toHaveCount(0);

@@ -69,6 +69,13 @@ const NOTICE_NUM = new Intl.NumberFormat('ko-KR');
 /** 에코 배너 자동 소멸(ms) — UI-SPEC A3 「6초 배너」와 같은 값이다. */
 export const VI_ECHO_BANNER_MS = 6_000;
 
+/**
+ * 옛 `/trading/vi` 화면이 읽고 편집하는 거래소 (Phase 18 에서 18-13 제거 예정).
+ * 서버값 선택(`viTriggers[...]`)과 카드의 `exchange` prop 이 **같은 값**을 보도록 한 자리에 둔다 —
+ * 둘이 갈리면 화면은 KRX 를 보여 주면서 다른 시장 전략을 고친다. NXT 편집은 작업대 2줄 몫이다.
+ */
+const VI_SURFACE_EXCHANGE = 'KRX' as const;
+
 /** 장 마감(서버 전략 자동 비활성화) 시각 — 15:40 (④). */
 export const MARKET_CLOSE_HOUR = 15;
 export const MARKET_CLOSE_MINUTE = 40;
@@ -136,7 +143,7 @@ function ViSurface() {
       가동 배지(합집합)에만 쓰이고 이 화면의 폼·계좌 축·에코 상관에는 쓰이지 않는다.
       섞으면 KRX 폼에 NXT 금액이 뜨고, 「수정」이 그 값을 KRX 로 등록한다.
   */
-  const viTrigger = viTriggers.KRX;
+  const viTrigger = viTriggers[VI_SURFACE_EXCHANGE];
 
   /* ── 계좌 축 ──────────────────────────────────────────────────────── */
 
@@ -419,6 +426,7 @@ function ViSurface() {
       >
         <div className="order-1 flex min-w-0 flex-col">
           <ViSettingsCard
+            exchange={VI_SURFACE_EXCHANGE}
             accounts={accounts}
             server={viTrigger}
             disabled={!sessionReady}

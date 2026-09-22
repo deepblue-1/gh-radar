@@ -9,10 +9,10 @@
  *   `마감알림`(스위치). 그 아래 시작/중지 바. 정본은 채택 목업 `16-vi-trigger-mockup.html` 이다.
  *   ★ **종목 축이 없다.** VI 설정은 **거래소별 1건**이고 주문가는 상한가 고정이라 종목
  *     선택·주문유형 UI 를 만들지 않는다. 계좌 비밀번호 입력도 없다(relay 자격증명).
- *   ★ 이 카드가 편집하는 것은 **`VI_EDIT_EXCHANGE`(KRX) 하나**다 (17-06 / D-18). NXT 전략은
- *     서버에 따로 존재하고 사이드바·My page 의 가동 배지가 합집합으로 보여 주지만, **여기서
- *     편집하지는 않는다** — NXT 설정 카드는 Phase 18 이다. 「KRX 전용」이라고 적으면 NXT
- *     전략이 존재한다는 사실을 화면이 부정하는 셈이라 그렇게 쓰지 않는다.
+ *   ★ 편집하는 거래소는 **`exchange` prop** 이다 (Phase 18 · TRADE-08). 고정 거래소 상수를
+ *     없앴다 — 상수가 한 곳이라도 남으면 NXT 편집이 KRX 전략을 덮는다(Pitfall 8). 이 카드는
+ *     옛 `/trading/vi` 화면 전용이고(18-13 에서 제거), 작업대는 `workbench/vi-settings-rows.tsx`
+ *     의 거래소별 2줄을 쓴다. 승계 상수·확인 다이얼로그는 그 파일이 정본이고 여기서는 가져다 쓴다.
  *
  * ② ★ 값은 자동 반영되지 않는다 (D-07)
  *   계좌·금액·상승률을 바꾸면 더티가 되고 하단 `DirtyActionBar` 의 「수정」을 눌러야
@@ -60,16 +60,16 @@ import type {
   RelayViTrigger,
 } from '@gh-radar/shared';
 
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
+import {
+  VI_ACK_TIMEOUT_MS,
+  VI_AMOUNT_LIMIT_MESSAGE,
+  VI_DEFAULT_AMOUNT_MANWON,
+  VI_DEFAULT_CHECK_RATE,
+  VI_DIRTY_HINT,
+  VI_SET_SEND_FAILED_TEXT,
+  ViConfirmDialog,
+} from '@/components/trading/workbench/vi-settings-rows';
 import {
   MAX_VI_ORDER_AMOUNT_MANWON,
   krwToManwon,
@@ -83,59 +83,14 @@ import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
 
-/** 액션 바 보조문 — VI 정본(UI-SPEC §CTA). 「수정」이 `run` 을 건드리지 않는다는 상시 고지. */
-const DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 가동 상태(run)는 그대로 유지돼요';
-
-/**
- * 이 카드가 편집하는 거래소 (17-06 / D-18) — **리터럴을 흩뿌리지 않는 단 하나의 자리**다.
- *
- * 캡션·`vi.set` 송신·요약 행이 모두 이 상수를 읽는다. 세 곳에 `'KRX'` 를 따로 적으면
- * 언젠가 한 곳만 고쳐지고, 그때 화면은 KRX 라고 말하면서 다른 시장에 주문을 건다.
- * Phase 18 이 NXT 편집을 열 때는 **이 상수를 상태로 바꾸면 끝나게** 두었다.
- */
-export const VI_EDIT_EXCHANGE: RelayExchange = 'KRX';
-
-/**
- * 카드 헤더 우측 고정 캡션 — 이 화면의 범위를 문장 하나로 못박는다(UI-SPEC §VI 라벨).
- *
- * ★ 세 사실을 **전부** 담는다: ① 서버는 전략을 거래소별 1건으로 관리한다(그래서 옛 문구
- *   「세션당 1건」은 틀렸다) ② 이 카드가 편집하는 것은 KRX 다 ③ NXT 설정은 다음 단계다.
- *   ②만 적으면 「KRX 전용」으로 읽혀 NXT 전략의 존재가 지워진다.
- */
-export const VI_SETTINGS_CAPTION = `거래소별 1건 · ${VI_EDIT_EXCHANGE} 설정 편집 · NXT 는 다음 단계 · 주문가 = 상한가`;
-
-/**
- * 전송 후 잠금을 푸는 상한(ms). WinForms `RespTimeoutMs` 와 **같은 값**이다 —
- * 두 클라이언트가 다른 시각에 다른 말을 하면 사용자가 어느 쪽을 믿을지 알 수 없다.
- * ★ 이 타이머는 잠금을 풀 뿐 **아무것도 다시 보내지 않는다**(④).
- */
-export const VI_ACK_TIMEOUT_MS = 3_000;
-
-/** WinForms `VITrigger` 초기 상태값 이식 — 금액 1,000만원 · 상승률 22%. */
-export const VI_DEFAULT_AMOUNT_MANWON = 1_000;
-export const VI_DEFAULT_CHECK_RATE = 22;
-
-/**
- * 금액 상한 안내 문구 — **잘린 이유**를 말한다 (WR-07).
- *
- * 입력을 조용히 삼키면 사용자는 왜 안 써지는지 알 수 없다. 상한으로 자르고 이 한 줄이
- * 이유를 대는 편이 낫다(PC-7 무로그 fail-safe 금지의 UI 판).
- *
- * ★ 상한값은 이 파일에 없다. `@gh-radar/shared` 의 `MAX_VI_ORDER_AMOUNT_KRW`(**원 단위**
- *   정본, relay 의 zod 스키마·envelope 조립기가 같은 값을 본다)를 `vi-alert.ts` 가
- *   `krwToManwon` 으로 만원 단위로 유도한 것이 `MAX_VI_ORDER_AMOUNT_MANWON` 이다.
- *   여기에 숫자를 다시 적으면 세 층의 상한이 갈린다 (WR-07).
- */
-export const VI_AMOUNT_LIMIT_MESSAGE = `주문금액은 최대 ${NUM.format(MAX_VI_ORDER_AMOUNT_MANWON)}만원까지 넣을 수 있어요`;
-
-/**
- * ★ `vi.set` 이 **나가지 못했을 때**의 문구 (GC-WR-06).
- *
- * 어조는 `strategy-status-card.tsx` 의 전송 실패 문구를 그대로 승계한다 — 같은 사실
- * (「연결이 끊겨 보내지 못했다」)을 화면마다 다른 말로 하면 같은 상태가 두 이름을 갖는다.
- */
-export const VI_SET_SEND_FAILED_TEXT =
-  '연결이 끊겨 설정을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
+// 승계 상수의 정본은 `workbench/vi-settings-rows.tsx` 다 — 옛 테스트·화면의 import 경로를 지킨다.
+export {
+  VI_ACK_TIMEOUT_MS,
+  VI_AMOUNT_LIMIT_MESSAGE,
+  VI_DEFAULT_AMOUNT_MANWON,
+  VI_DEFAULT_CHECK_RATE,
+  VI_SET_SEND_FAILED_TEXT,
+};
 
 /**
  * `submit` 한 번의 결과. **세 갈래를 구분하는 이유는 다이얼로그의 거취가 다르기 때문**이다.
@@ -160,6 +115,8 @@ interface ViFormValues {
 type ViDirtyField = keyof ViFormValues;
 
 export interface ViSettingsCardProps {
+  /** ★ 편집 대상 거래소 — `vi.set` 의 `exchange` 로 **그대로** 나간다(Pitfall 8). */
+  exchange: RelayExchange;
   /** 허용 계좌 목록. 비면 셀렉터가 「계좌 확인 중…」으로 잠긴다. */
   accounts: readonly RelayAccount[];
   /**
@@ -205,6 +162,7 @@ function dirtyFieldsOf(form: ViFormValues, base: ViFormValues): ReadonlySet<ViDi
 }
 
 export function ViSettingsCard({
+  exchange,
   accounts,
   server,
   disabled = false,
@@ -373,7 +331,7 @@ export function ViSettingsCard({
             그 기본값은 서버 구현의 부산물이지 이 화면이 한 약속이 아니다 — 서버가 기본값을
             바꾸는 날 이 카드는 조용히 다른 시장에 무인 매수를 등록한다.
         */
-        exchange: VI_EDIT_EXCHANGE,
+        exchange,
         // ★ 만원 → 원 변환은 `manwonToKrw` 한 곳뿐이다(단위가 갈리면 1만 배 주문이 나간다).
         orderAmountKrw: manwonToKrw(form.amountManwon),
         checkRate: form.checkRate,
@@ -399,7 +357,7 @@ export function ViSettingsCard({
       ackTimer.current = window.setTimeout(unlock, VI_ACK_TIMEOUT_MS);
       return 'sent';
     },
-    [form, locked, onSent, send, unlock],
+    [exchange, form, locked, onSent, send, unlock],
   );
 
   /** 「수정」 — `run` 은 **현재값 그대로**다(②). */
@@ -457,13 +415,7 @@ export function ViSettingsCard({
         )}
       >
         <h3 className="m-0 mb-[var(--s-2)] flex flex-wrap items-center gap-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-          설정
-          <span
-            data-slot="vi-settings-caption"
-            className="ml-auto text-[length:var(--t-caption)] font-normal text-[var(--muted-fg)]"
-          >
-            {VI_SETTINGS_CAPTION}
-          </span>
+          설정 · {exchange}
         </h3>
 
         {/* 계좌 — 네이티브 `<select>`. 계좌번호는 **전체 표시**한다(D2 · S-5). */}
@@ -632,7 +584,7 @@ export function ViSettingsCard({
         submitting={submitting}
         onSubmit={handleModify}
         onRevert={handleRevert}
-        hint={DIRTY_HINT}
+        hint={VI_DIRTY_HINT}
       />
 
       {/*
@@ -642,6 +594,7 @@ export function ViSettingsCard({
       */}
       <ViConfirmDialog
         kind={confirmKind}
+        exchange={exchange}
         accountNo={form.accountNo}
         accountName={accountName}
         amountManwon={form.amountManwon}
@@ -787,159 +740,6 @@ function AlertSwitch({
         )}
       />
     </button>
-  );
-}
-
-/**
- * 시작/중지 확인 다이얼로그 (UI-SPEC §되돌릴 수 없는 액션 1·2).
- *
- * 두 다이얼로그를 한 컴포넌트에 둔 이유: **기본 포커스·`showCloseButton={false}`·중복 제출
- * 가드**가 셋 다 같아야 하기 때문이다. 파일을 나누면 한쪽만 고쳐지고, 그때 뚫리는 것이
- * 「Enter 한 번에 자동매수 시작」이다.
- */
-function ViConfirmDialog({
-  kind,
-  accountNo,
-  accountName,
-  amountManwon,
-  checkRate,
-  todayOrderCount,
-  unfilledCount,
-  error,
-  onOpenChange,
-  onConfirm,
-}: {
-  kind: 'start' | 'stop' | null;
-  accountNo: string;
-  accountName?: string;
-  amountManwon: number;
-  checkRate: number;
-  todayOrderCount: number;
-  unfilledCount: number;
-  /** 보내지 못한 사유(GC-WR-06). 빈 문자열이면 아무것도 그리지 않는다. */
-  error: string;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  /** 기본 포커스 대상(취소/닫기). 실행 버튼에 포커스가 가면 Enter 한 번에 주문이 시작된다. */
-  const dismissRef = useRef<HTMLButtonElement>(null);
-  const isStart = kind === 'start';
-
-  return (
-    <Dialog open={kind !== null} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="sm:max-w-sm"
-        data-testid={isStart ? 'vi-start-dialog' : 'vi-stop-dialog'}
-        onOpenAutoFocus={(event) => {
-          event.preventDefault();
-          dismissRef.current?.focus();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>
-            {isStart ? 'VI 자동매수를 시작할까요?' : 'VI 자동매수를 중지할까요?'}
-          </DialogTitle>
-          <DialogDescription>
-            {isStart
-              ? '조건에 맞는 VI 발동 종목을 자동으로 매수해요.'
-              : '새 VI 발동에 더 이상 주문하지 않아요.'}
-          </DialogDescription>
-        </DialogHeader>
-
-        <dl
-          data-slot="vi-confirm-summary"
-          className="flex flex-col gap-1.5 rounded-[var(--r-md)] border border-[var(--border)] px-3 py-2.5 text-[length:var(--t-caption)]"
-        >
-          {isStart ? (
-            <>
-              <SummaryRow label="계좌">
-                {accountNo}
-                {accountName !== undefined && accountName !== '' ? ` · ${accountName}` : ''}
-              </SummaryRow>
-              {/* ★ 금액·상승률이 요약에 **반드시** 있어야 한다(T-16-10). */}
-              <SummaryRow label="1건당 금액">{NUM.format(amountManwon)}만원</SummaryRow>
-              <SummaryRow label="상승률 조건">{NUM.format(checkRate)}% 이상</SummaryRow>
-              <SummaryRow label="주문가">상한가 · {VI_EDIT_EXCHANGE}</SummaryRow>
-            </>
-          ) : (
-            <>
-              <SummaryRow label="오늘 VI 주문">{NUM.format(todayOrderCount)}건</SummaryRow>
-              <SummaryRow label="미체결">{NUM.format(unfilledCount)}건 (유지)</SummaryRow>
-            </>
-          )}
-        </dl>
-
-        <p
-          data-slot="vi-confirm-warning"
-          className="m-0 rounded-[var(--r-md)] border border-[var(--destructive)] px-2.5 py-2 text-[length:var(--t-caption)] text-[var(--destructive)]"
-        >
-          {isStart
-            ? '시작하면 사람 확인 없이 주문이 나가요. 금액·상승률을 다시 확인해 주세요.'
-            : '이미 접수된 주문은 취소되지 않아요. 미체결은 아래 표에서 개별 취소해 주세요.'}
-        </p>
-
-        {error === '' ? null : (
-          /*
-            눌렀는데 못 나갔다 — 창이 그대로 열려 있는 이유가 여기 있다(GC-WR-06).
-            카드 안의 같은 문구는 오버레이에 가려 보이지 않으므로, 사용자가 보고 있는
-            **이 창 안**에 사유를 둔다. 상태는 카드의 `sendError` 하나뿐이다.
-          */
-          <p
-            data-slot="vi-confirm-error"
-            role="alert"
-            className="m-0 text-[length:var(--t-caption)] text-[var(--destructive)]"
-          >
-            {error}
-          </p>
-        )}
-
-        <DialogFooter>
-          {/* 기본 포커스 대상 — 실행 버튼보다 **앞**에 둔다(탭 순서·오클릭 방어). */}
-          <Button
-            type="button"
-            variant="outline"
-            autoFocus
-            ref={dismissRef}
-            onClick={() => onOpenChange(false)}
-          >
-            {isStart ? '취소' : '닫기'}
-          </Button>
-          {isStart ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onConfirm}
-              className="border-transparent bg-[var(--up)] text-[var(--destructive-fg)] hover:bg-[color-mix(in_oklch,var(--up)_88%,black)]"
-            >
-              시작
-            </Button>
-          ) : (
-            /* 채움 금지 — `--destructive` 는 `--up`(매수)과 같은 색이다(⑦). */
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onConfirm}
-              className="border-[var(--destructive)] bg-transparent text-[var(--destructive)] hover:bg-[color-mix(in_oklch,var(--destructive)_10%,transparent)]"
-            >
-              중지
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** 요약 한 줄. 라벨은 `--muted-fg`, 값은 mono `--fg`. */
-function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="shrink-0 text-[var(--muted-fg)]">{label}</dt>
-      <dd className="mono min-w-0 text-right font-semibold break-all text-[var(--fg)]">
-        {children}
-      </dd>
-    </div>
   );
 }
 
