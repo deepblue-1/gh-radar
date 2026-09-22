@@ -138,7 +138,10 @@ import {
   OrderConfirmDialog,
   type CancelOrderConfirmDetail,
 } from '@/components/orderbook/order-confirm-dialog';
-import { unfilledSelectBlockReason } from '@/components/trading/card/manual-order-form';
+import {
+  cancelQtyAtConfirm,
+  unfilledSelectBlockReason,
+} from '@/components/trading/card/manual-order-form';
 import { ExchangeTag } from '@/components/trading/vi-order-list';
 import { useRelayContext } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
@@ -358,9 +361,18 @@ export function AccountPanel({
     [account, isin, name, currentPrice, priceOf],
   );
 
+  /**
+   * 취소 확정. 수량은 **지금 렌더의 같은 주문번호 행**(`account` — 병합된 현재 상태)으로 다시
+   * 정한다(`cancelQtyAtConfirm`, GC-WR-02): 다이얼로그가 열린 사이 부분체결로 잔량이 줄었으면
+   * 그 잔량으로 **내리고**, 늘었거나 행이 사라졌으면 확인한 수량 그대로 보낸다 — 막지 않는다.
+   * 그래서 다이얼로그에 보였던 수량과 실제로 나간 수량이 다를 수 있다(작아지는 쪽으로만).
+   * 새 화면 문구는 만들지 않는다 — 의미(「잔량 전부」)가 사용자가 확인한 뜻과 같기 때문이다.
+   */
   const handleCancelConfirmed = useCallback(async () => {
     if (!cancelTarget) return;
     const row = cancelTarget.row;
+    const live = account?.unf.find((r) => r.orderNo === row.orderNo) ?? null;
+    const qty = cancelQtyAtConfirm(row.unfilledQty, row.orderNo, live);
     setCancelTarget(null);
     setCancelResult(null);
     setCancelResultOrderNo(row.orderNo);
@@ -379,7 +391,8 @@ export function AccountPanel({
       exchange: row.exchange,
       orgOrderNo: row.orderNo,
       // 취소 수량은 **미체결 잔량 전부**다 (D-21). 부분 취소 경로는 만들지 않는다.
-      qty: row.unfilledQty,
+      // 확정 순간의 잔량으로 내린 값이다(위 JSDoc · GC-WR-02).
+      qty,
       price: row.price,
     });
 
@@ -396,7 +409,7 @@ export function AccountPanel({
       setCancelResult({ kind: 'accepted', orderNo: res.orderNo || row.orderNo });
     }
     onCancelSubmitted?.(res);
-  }, [cancelTarget, sendOrder, selectedAccountNo, onCancelSubmitted]);
+  }, [cancelTarget, account, sendOrder, selectedAccountNo, onCancelSubmitted]);
 
   const openCancel = useCallback((row: RelayUnfilled, displayName: string) => {
     setCancelTarget({

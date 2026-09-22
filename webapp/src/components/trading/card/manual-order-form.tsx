@@ -103,8 +103,42 @@ export const modifyQtyClampedText = (n: number) =>
 /** 확정 직전 재대조 — 다이얼로그가 열린 사이 잔량이 확인한 수량 아래로 줄었다. */
 export const MODIFY_REMAINING_CHANGED_TEXT =
   '미체결 잔량이 바뀌었어요 — 정정 수량을 다시 확인해 주세요';
-/** 확정 직전 재대조 — 원주문이 미체결에서 사라졌다(체결·취소). */
+/** 확정 직전 재대조 — 원주문이 미체결에서 사라졌다(체결·취소 · 선택 해제). */
 export const MODIFY_TARGET_GONE_TEXT = '원주문이 더 이상 미체결이 아니에요';
+/**
+ * 확정 직전 재대조 — 다이얼로그가 열린 사이 **다른 원주문**이 선택됐다(GC-IN-06). 확인한 원주문이
+ * 끝났다는 뜻이 아니므로 「미체결 아님」 과 다른 말로 한다.
+ */
+export const MODIFY_TARGET_CHANGED_TEXT = '선택한 원주문이 바뀌었어요 — 다시 확인해 주세요';
+
+/**
+ * 취소 확정 순간의 수량 — 확인한 수량(`confirmedQty`)을 **지금의 잔량으로 내리기만** 한다
+ * (GC-WR-02 · D-21, 18-REVIEW-R2).
+ *
+ * 규칙: `live` 가 있고 `live.orderNo === orgOrderNo` 이고 `0 < live.unfilledQty < confirmedQty`
+ * 일 때만 `live.unfilledQty`, 그 밖에는 `confirmedQty`.
+ *  - **내리기만 한다** — 확인한 수량보다 큰 값은 절대 나가지 않는다(잔량이 늘거나 같으면 그대로).
+ *  - **막지 않는다** — 원주문이 미체결에서 사라졌거나(`null`) 다른 행이 선택됐거나 잔량 0 이어도
+ *    확인한 요청을 그대로 보낸다. 급락 국면의 취소 지연은 자산 위험이고, 최종 판정은 서버다.
+ *
+ * 근거: 취소의 의미는 「미체결 잔량 전부」 라서 잔량이 줄어든 만큼 내려 보내는 것이 사용자가
+ * 확인한 뜻과 같다. 반대로 옛 수량 그대로 보내면 브로커가 「취소가능수량 초과」 로 거부하고,
+ * relay `dupKey` 는 취소에서 수량을 보지 않으므로 거부 뒤의 재시도가 앞선 대기 정산까지 막힌다 —
+ * 사용자는 급락 중에 다시 선택·확인해야 한다. 그래서 다이얼로그에 보였던 수량과 실제로 나간
+ * 수량이 다를 수 있다(작아지는 쪽으로만). 이 사실은 화면 문구가 아니라 이 주석이 말한다.
+ *
+ * 수동주문 폼(`handleConfirmed`)과 계좌 패널 옛 취소 경로(`handleCancelConfirmed`)가 **이 함수
+ * 하나**로 판정한다.
+ */
+export function cancelQtyAtConfirm(
+  confirmedQty: number,
+  orgOrderNo: string,
+  live: Pick<RelayUnfilled, 'orderNo' | 'unfilledQty'> | null,
+): number {
+  if (live === null || live.orderNo !== orgOrderNo) return confirmedQty;
+  if (live.unfilledQty > 0 && live.unfilledQty < confirmedQty) return live.unfilledQty;
+  return confirmedQty;
+}
 
 /** 주문 결과. `unknown` 은 **거부가 아니다**. */
 type OrderResult =
@@ -484,28 +518,39 @@ export function ManualOrderForm({
   };
 
   const handleConfirmed = async () => {
-    const req = pendingReqRef.current;
-    if (!req || submitting || blocked) return; // 중복 제출 가드 ②
+    const snap = pendingReqRef.current;
+    if (!snap || submitting || blocked) return; // 중복 제출 가드 ②
     pendingReqRef.current = null;
     /*
       WR-06 ③ 확정 직전 재대조 — 정정 스냅샷을 **지금 렌더의** 선택 행과 맞춘다. 다이얼로그가 열린
-      사이 원주문이 사라졌거나 잔량이 확인한 수량 아래로 줄었으면 **보내지 않는다**(다이얼로그를
-      닫고 스냅샷은 버린다). 고쳐서 보내지도 않는다 — 사용자가 확인한 값과 다른 정정이 된다.
-      취소는 재대조하지 않는다 — 취소는 「잔량 전부」 이고 급락 국면의 취소 지연은 자산 위험이다.
+      사이 원주문이 사라졌거나(선택 없음) 다른 원주문이 선택됐거나 잔량이 확인한 수량 아래로
+      줄었으면 **보내지 않는다**(다이얼로그를 닫고 스냅샷은 버린다) — 무엇이 바뀌었는지는 문구가
+      가른다(GC-IN-06). 고쳐서 보내지도 않는다 — 사용자가 확인한 값과 다른 정정이 된다.
     */
-    if (req.kind === 'modify') {
-      const gone = selected === null || selected.orderNo !== req.orgOrderNo;
-      const reason = gone
-        ? MODIFY_TARGET_GONE_TEXT
-        : req.qty > selected.unfilledQty
-          ? MODIFY_REMAINING_CHANGED_TEXT
-          : null;
+    if (snap.kind === 'modify') {
+      const reason =
+        selected === null
+          ? MODIFY_TARGET_GONE_TEXT
+          : selected.orderNo !== snap.orgOrderNo
+            ? MODIFY_TARGET_CHANGED_TEXT
+            : snap.qty > selected.unfilledQty
+              ? MODIFY_REMAINING_CHANGED_TEXT
+              : null;
       if (reason !== null) {
         setConfirm(null);
         setValidation(reason);
         return;
       }
     }
+    /*
+      취소는 **막지 않고** 수량만 지금의 잔량으로 내린다(GC-WR-02 · `cancelQtyAtConfirm`). 취소는
+      「잔량 전부」 이고 급락 국면의 취소 지연은 자산 위험이다 — 원주문이 사라졌어도 확인한 요청을
+      보낸다(서버가 최종 판정).
+    */
+    const req: RelayOrderRequest =
+      snap.kind === 'cancel'
+        ? { ...snap, qty: cancelQtyAtConfirm(snap.qty, snap.orgOrderNo ?? '', selected) }
+        : snap;
     setSubmitting(true);
     setConfirm(null);
     setResult(null);
