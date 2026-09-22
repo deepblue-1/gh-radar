@@ -50,8 +50,12 @@ vi.mock('@/lib/queued-window', async (importOriginal) => {
 import {
   ManualOrderEntry,
   ManualOrderForm,
+  MODIFY_REMAINING_CHANGED_TEXT,
+  MODIFY_TARGET_GONE_TEXT,
   OFFHOURS_WINDOW_CLOSED_TEXT,
   canModify,
+  modifyQtyClampedText,
+  modifyQtyOverRemainingText,
   unfilledSelectBlockReason,
   type ManualOrderFormProps,
 } from '../card/manual-order-form';
@@ -642,5 +646,75 @@ describe('ManualOrderForm — 시간외종가 세션 가드 · 다이얼로그 =
     expect(sendOrderMock).toHaveBeenCalledTimes(1);
     expect(sendOrderMock.mock.calls[0][0]).toMatchObject({ kind: 'new', price: 128_500 });
     expect(sendOrderMock.mock.calls[0][0]).not.toHaveProperty('krxSession');
+  });
+});
+
+describe('ManualOrderForm — 정정 수량 ≤ 미체결 잔량 (WR-06 · D-21)', () => {
+  const row10 = () => unf({ unfilledQty: 10, filledQty: 90 });
+  const row6 = () => unf({ unfilledQty: 6, filledQty: 94 });
+
+  it('잔량 10 · 수량 12 로 「정정」 → 다이얼로그 없음 · 잔량 초과 문구 · 전송 0', async () => {
+    const user = userEvent.setup();
+    renderForm({ selectedUnfilled: row10() });
+    expect(qtyInput().value).toBe('10');
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '12');
+    await user.click(btn('정정'));
+
+    const status = screen.getByTestId('manual-order-validation');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveTextContent(modifyQtyOverRemainingText(10));
+    expect(modifyQtyOverRemainingText(10)).toBe('정정 수량은 미체결 잔량(10주) 이하여야 해요');
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('잔량 10 → 같은 주문번호 잔량 6 으로 갱신 → 수량 칸이 6 으로 내려가고 고지가 뜬다', () => {
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    expect(qtyInput().value).toBe('10');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={row6()} />);
+    expect(qtyInput().value).toBe('6');
+    const status = screen.getByTestId('manual-order-validation');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveTextContent(modifyQtyClampedText(6));
+    expect(modifyQtyClampedText(6)).toBe('미체결 잔량이 6주로 줄어 정정 수량을 맞췄어요');
+  });
+
+  it('잔량 10 · 수량 4 입력 → 잔량 6 으로 갱신 → 수량 4 그대로 · 고지 없음(올리지도 않는다)', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '4');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={row6()} />);
+    expect(qtyInput().value).toBe('4');
+    expect(screen.queryByTestId('manual-order-validation')).toBeNull();
+  });
+
+  it('수량 10 정정 다이얼로그를 연 뒤 잔량 6 으로 갱신 → 확정 → 전송 0 · 재확인 문구', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.click(btn('정정'));
+    await screen.findByTestId('order-confirm-dialog');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={row6()} />);
+    await user.click(screen.getByRole('button', { name: '정정 주문' }));
+
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('order-confirm-dialog')).toBeNull());
+    expect(screen.getByTestId('manual-order-validation')).toHaveTextContent(MODIFY_REMAINING_CHANGED_TEXT);
+    expect(MODIFY_REMAINING_CHANGED_TEXT).toBe('미체결 잔량이 바뀌었어요 — 정정 수량을 다시 확인해 주세요');
+  });
+
+  it('다이얼로그를 연 뒤 선택 행이 사라짐(null) → 확정 → 전송 0 · 「원주문이 더 이상 미체결이 아니에요」', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ selectedUnfilled: row10() });
+    await user.click(btn('정정'));
+    await screen.findByTestId('order-confirm-dialog');
+    rerender(<ManualOrderForm {...props} selectedUnfilled={null} />);
+    await user.click(screen.getByRole('button', { name: '정정 주문' }));
+
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('order-confirm-dialog')).toBeNull());
+    expect(screen.getByTestId('manual-order-validation')).toHaveTextContent(MODIFY_TARGET_GONE_TEXT);
+    expect(MODIFY_TARGET_GONE_TEXT).toBe('원주문이 더 이상 미체결이 아니에요');
   });
 });
