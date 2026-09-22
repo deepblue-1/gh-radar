@@ -594,4 +594,58 @@ describe('CR-02 — 등록 전략의 계좌가 정본', () => {
     fireEvent.click(fixButton('NXT')!);
     expect(sentMsgs()[0]).toMatchObject({ accountNo: STATUS, exchange: 'NXT', checkRate: 33 });
   });
+
+  const summaryRow = (dlg: HTMLElement, label: string) =>
+    within(dlg).getByText(label, { selector: 'dt' }).nextElementSibling as HTMLElement;
+
+  it('서버 계좌 B(중지) · 상태줄 A → 시작 요약 「계좌」 가 B · B 의 이름, 확정은 B · run:true', async () => {
+    accountsMock = [
+      { accountNo: STATUS, name: '상태줄계좌' },
+      { accountNo: REGISTERED, name: '등록계좌' },
+    ];
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED }), NXT: null },
+      accountNo: STATUS,
+      accountName: '상태줄계좌',
+    });
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const dlg = await screen.findByTestId('vi-start-dialog');
+    expect(summaryRow(dlg, '계좌')).toHaveTextContent(`${REGISTERED} · 등록계좌`);
+    expect(within(dlg).queryByText(/상태줄계좌/)).toBeNull();
+    fireEvent.click(within(dlg).getByRole('button', { name: '시작' }));
+    expect(sentMsgs()[0]).toMatchObject({ accountNo: REGISTERED, exchange: 'KRX', run: true });
+  });
+
+  it('서버 계좌 B(가동) · 상태줄 A → 중지 스위치는 열려 있고, 요약 첫 줄이 「계좌」 B, 확정은 B · run:false', async () => {
+    accountsMock = [{ accountNo: REGISTERED, name: '등록계좌' }];
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: REGISTERED, run: true }), NXT: null },
+      accountNo: STATUS,
+    });
+    const sw = within(row('KRX')).getByRole('switch', { name: 'VI KRX 중지' });
+    expect(sw).not.toBeDisabled();
+    fireEvent.click(sw);
+    const dlg = await screen.findByTestId('vi-stop-dialog');
+    const first = dlg.querySelector('[data-slot="vi-confirm-summary"] dt');
+    expect(first).toHaveTextContent('계좌');
+    expect(summaryRow(dlg, '계좌')).toHaveTextContent(`${REGISTERED} · 등록계좌`);
+    fireEvent.click(within(dlg).getByRole('button', { name: '중지' }));
+    expect(sentMsgs()[0]).toMatchObject({ accountNo: REGISTERED, exchange: 'KRX', run: false });
+  });
+
+  it('계좌가 같으면 두 요약의 「계좌」 는 상태줄 계좌 + 상태줄 이름 그대로', async () => {
+    renderRows({
+      viTriggers: { KRX: trigger({ accountNo: STATUS }), NXT: trigger({ exchange: 'NXT', accountNo: STATUS, run: true }) },
+      accountNo: STATUS,
+      accountName: '상태줄계좌',
+    });
+    fireEvent.click(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' }));
+    const start = await screen.findByTestId('vi-start-dialog');
+    expect(summaryRow(start, '계좌')).toHaveTextContent(`${STATUS} · 상태줄계좌`);
+    fireEvent.click(within(start).getByRole('button', { name: '취소' }));
+
+    fireEvent.click(within(row('NXT')).getByRole('switch', { name: 'VI NXT 중지' }));
+    const stop = await screen.findByTestId('vi-stop-dialog');
+    expect(summaryRow(stop, '계좌')).toHaveTextContent(`${STATUS} · 상태줄계좌`);
+  });
 });
