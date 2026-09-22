@@ -462,8 +462,11 @@ describe('이관 — ⑤ 미조회 · ⑦ 세션 가드', () => {
   });
 
   it('계좌가 비어 있으면 잠긴다 — 계좌 없는 `vi.set` 을 만들지 않는다', () => {
-    renderRows({ accountNo: '' });
+    // 18-15 (CR-02): 잠금은 **정본 계좌** 기준이다. 미등록 줄은 상태줄 계좌가 정본이라 공란이면 잠기고,
+    // 등록된 줄은 자기 계좌가 있으므로 잠기지 않는다(중지를 막지 않는다).
+    renderRows({ viTriggers: { KRX: null, NXT: trigger({ exchange: 'NXT', run: true }) }, accountNo: '' });
     expect(within(row('KRX')).getByRole('switch', { name: 'VI KRX 시작' })).toBeDisabled();
+    expect(within(row('NXT')).getByRole('switch', { name: 'VI NXT 중지' })).not.toBeDisabled();
   });
 
   it('더티 상태에서 세션이 끊기면 「수정」을 눌러도 아무것도 나가지 않고, 돌아오면 같은 클릭이 나간다', () => {

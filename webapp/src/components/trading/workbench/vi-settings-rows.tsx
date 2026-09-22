@@ -46,6 +46,15 @@
  * ⑧ ★ LOCKED 색 규칙 (UI-SPEC §Color)
  *   「가동중」 빨강은 `--up`(가격 방향 축)이지 `--destructive` 가 아니다. 두 값이 같으므로
  *   다이얼로그의 「중지」는 테두리형, 「시작」만 `--up` 채움이다.
+ *
+ * ⑨ ★ 계좌 정본 (CR-02 · UI-SPEC Q-3 VI 판)
+ *   등록된 전략(서버 61 에코의 `accountNo` 가 공란 아님)은 **자기 계좌를 유지한다** — 상태줄
+ *   계좌는 미등록 줄의 기본값일 뿐이다. 그 줄이 보내는 모든 `vi.set`(「수정」·시작·중지)과 잠금·
+ *   확인 요약·고지가 `viRowAccountOf` 한 값을 읽는다. 상태줄 계좌로 보내면 계좌 B 로 가동 중인
+ *   무인 매수가 「수정」 한 번에 조용히 A 로 옮겨 간다(실돈 오계좌 주문).
+ *   ★ 잠그지 않는다 — 계좌가 다를 때 줄을 잠그면 **중지**도 막혀 무인 매수를 끄려면 상태줄부터
+ *     바꿔야 한다. 정본 계좌로 보내면 옮겨지는 것 자체가 없고, 줄 아래 `role="status"` 한 줄이
+ *     「어느 계좌의 VI 인지」를 말한다. 같으면 아무것도 그리지 않는다(D-05 평상시 그대로).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -105,6 +114,28 @@ export const VI_ECHO_OVERWRITTEN_TEXT = '다른 단말에서 변경됨';
 
 /** 「수정」 보조 설명 — VI 줄 더티 바 기존 문구 유지(UI-SPEC §Copywriting). */
 export const VI_DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 가동 상태(run)는 그대로 유지돼요';
+
+/**
+ * 등록 계좌 ≠ 상태줄 계좌일 때 줄 아래 고지 (⑨ · UI-SPEC Q-3 「그 사실을 UI 가 말해야 한다」).
+ * 이름은 세션 계좌 목록에서 **정본 계좌로** 찾은 값이다 — 없으면 번호만.
+ */
+export function viRegisteredAccountText(accountNo: string, name?: string): string {
+  const label = name !== undefined && name !== '' ? `${accountNo} · ${name}` : accountNo;
+  return `계좌 ${label} 에 등록된 VI 예요 — 수정·시작·중지는 이 계좌로 나가요`;
+}
+
+/**
+ * 줄 계좌 판정의 **유일 지점** (⑨). 등록 전략(객체 ∧ `accountNo` 공란 아님)이면 그 계좌,
+ * 아니면 상태줄 계좌. `differs` 는 등록 계좌가 상태줄 계좌와 다를 때만 참이다.
+ */
+export function viRowAccountOf(
+  server: RelayViTrigger | null | undefined,
+  statusAccountNo: string,
+): { accountNo: string; differs: boolean } {
+  const registered = server != null && server.accountNo !== '' ? server.accountNo : null;
+  if (registered === null) return { accountNo: statusAccountNo, differs: false };
+  return { accountNo: registered, differs: registered !== statusAccountNo };
+}
 
 /** 「다른 단말에서 변경됨」 고지를 두는 시간(ms). 기존 VI 화면 에코 배너와 같은 6초다. */
 const VI_ECHO_NOTICE_MS = 6_000;
@@ -166,9 +197,12 @@ type ViSubmitResult = 'sent' | 'blocked' | 'failed';
 export interface ViSettingsRowsProps {
   /** 거래소별 서버 에코. 키 부재 = 미조회 / `null` = 미등록 / 객체 = 등록됨(3상태를 뭉개지 않는다). */
   viTriggers: RelayViTriggers;
-  /** 상태줄에서 고른 계좌. 비어 있으면 줄이 잠긴다(계좌 없는 `vi.set` 은 서버가 버린다). */
+  /**
+   * 상태줄에서 고른 계좌 — **미등록 줄의 기본 계좌**다. 등록된 줄은 서버 에코의 계좌가 정본이다(⑨).
+   * 정본 계좌가 비어 있으면 줄이 잠긴다(계좌 없는 `vi.set` 은 서버가 버린다).
+   */
   accountNo: string;
-  /** 확인 다이얼로그 요약의 계좌명. */
+  /** 상태줄 계좌의 이름 — 정본 계좌가 상태줄 계좌와 같을 때만 요약에 붙는다. */
   accountName?: string;
   /** 세션이 준비되지 않았다(`status !== 'ready'`). */
   disabled?: boolean;
@@ -250,7 +284,9 @@ interface ViSettingsRowProps {
   /** ★ 이 줄의 거래소 — `vi.set` 페이로드의 `exchange` 로 **그대로** 나간다(②). */
   exchange: RelayExchange;
   server: RelayViTrigger | null | undefined;
+  /** 상태줄 계좌 — 미등록 줄의 기본 계좌(⑨). 송신에는 `viRowAccountOf` 결과만 쓴다. */
   accountNo: string;
+  /** 상태줄 계좌의 이름. */
   accountName?: string;
   disabled: boolean;
   todayOrderCount: number;
@@ -270,8 +306,15 @@ function ViSettingsRow({
   onSent,
   onDirtyCountChange,
 }: ViSettingsRowProps) {
-  const { send } = useRelayContext();
+  const { send, accounts } = useRelayContext();
   const ex = exchange.toLowerCase();
+
+  /* ── 계좌 정본 (⑨) — 잠금·송신·확인 요약·고지가 이 한 값을 읽는다 ── */
+  const { accountNo: rowAccountNo, differs: accountDiffers } = viRowAccountOf(server, accountNo);
+  /** 정본 계좌의 이름 — 상태줄 이름(prop)을 다른 계좌 번호 옆에 붙이지 않는다. */
+  const rowAccountName =
+    accounts.find((a) => a.accountNo === rowAccountNo)?.name ??
+    (rowAccountNo === accountNo ? accountName : undefined);
 
   const [form, setForm] = useState<ViRowForm>(DEFAULT_FORM);
   /** 더티 기준선. 미등록이면 마지막 확정 표시값이다 — 비워 두면 첫 렌더부터 더티가 뜬다. */
@@ -355,7 +398,7 @@ function ViSettingsRow({
   const showAmountLimit = amountClamped || amountOverLimit;
 
   /** 잠금 판정의 유일 지점 — 입력·스위치·`submit` 이 같은 값을 본다. */
-  const locked = disabled || server === undefined || accountNo === '';
+  const locked = disabled || server === undefined || rowAccountNo === '';
 
   /* ── 입력 ── */
   const handleRate = useCallback((raw: string) => {
@@ -385,7 +428,8 @@ function ViSettingsRow({
       }
       const msg: RelayViSetMsg = {
         t: 'vi.set',
-        accountNo,
+        // ★ 정본 계좌(⑨) — 등록된 전략을 상태줄 계좌로 옮기지 않는다(CR-02).
+        accountNo: rowAccountNo,
         // ★ 줄의 거래소를 **명시**한다(②). 생략하면 relay 가 KRX 로 접는다.
         exchange,
         orderAmountKrw: manwonToKrw(form.amountManwon),
@@ -411,7 +455,7 @@ function ViSettingsRow({
       }, VI_ACK_TIMEOUT_MS);
       return 'sent';
     },
-    [accountNo, exchange, form, locked, onSent, send, unlock],
+    [rowAccountNo, exchange, form, locked, onSent, send, unlock],
   );
 
   /* ── 확인 다이얼로그 (④) ── */
@@ -502,6 +546,11 @@ function ViSettingsRow({
       {rowError !== '' && (
         <p role="status" data-slot="vi-row-error" className="m-0 px-2.5 text-[11px] text-[var(--destructive)]">
           {rowError}
+        </p>
+      )}
+      {accountDiffers && (
+        <p role="status" data-slot="vi-row-account" className="m-0 px-2.5 text-[11px] break-keep text-[var(--muted-fg)]">
+          {viRegisteredAccountText(rowAccountNo, rowAccountName)}
         </p>
       )}
       {notice !== null && (
