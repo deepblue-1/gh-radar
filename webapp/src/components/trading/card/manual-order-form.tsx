@@ -92,6 +92,19 @@ const ORDERBOOK_FOOTNOTE = '신규 매수/매도와 정정·취소 · 시간외�
  */
 export const OFFHOURS_WINDOW_CLOSED_TEXT = '시간외종가 창이 닫혔어요. 주문유형을 다시 확인해 주세요.';
 
+/* 정정 수량 ≤ 미체결 잔량 (WR-06 · D-21) — 정정이 다루는 것은 그 순간의 잔량이다. */
+/** 제출 검증 — 정정 수량이 잔량을 넘는다. */
+export const modifyQtyOverRemainingText = (n: number) =>
+  `정정 수량은 미체결 잔량(${KRW.format(n)}주) 이하여야 해요`;
+/** 추종 — 부분체결로 잔량이 입력값 아래로 줄어 입력을 내렸다. */
+export const modifyQtyClampedText = (n: number) =>
+  `미체결 잔량이 ${KRW.format(n)}주로 줄어 정정 수량을 맞췄어요`;
+/** 확정 직전 재대조 — 다이얼로그가 열린 사이 잔량이 확인한 수량 아래로 줄었다. */
+export const MODIFY_REMAINING_CHANGED_TEXT =
+  '미체결 잔량이 바뀌었어요 — 정정 수량을 다시 확인해 주세요';
+/** 확정 직전 재대조 — 원주문이 미체결에서 사라졌다(체결·취소). */
+export const MODIFY_TARGET_GONE_TEXT = '원주문이 더 이상 미체결이 아니에요';
+
 /** 주문 결과. `unknown` 은 **거부가 아니다**. */
 type OrderResult =
   | { kind: 'accepted'; orderNo: string }
@@ -303,6 +316,25 @@ export function ManualOrderForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 주문번호가 바뀔 때만 채운다(위 주석).
   }, [selectedOrderNo]);
 
+  /*
+    잔량 추종 (WR-06 ①) — **같은 주문번호**의 잔량이 바뀌면(부분체결 때 작업대가 새 행을 내려준다)
+    현재 수량이 새 잔량보다 클 때만 잔량으로 **내리고** 인라인으로 말한다. 작거나 같으면 건드리지
+    않는다 — 사용자 입력을 올리지 않는다. 주문번호가 바뀐 경우는 위 채움 효과의 몫이다.
+  */
+  const prevSelRef = useRef<{ orderNo: string; unfilledQty: number } | null>(null);
+  useEffect(() => {
+    const prev = prevSelRef.current;
+    prevSelRef.current =
+      selectedOrderNo === null ? null : { orderNo: selectedOrderNo, unfilledQty: selectedFillQty };
+    if (selectedOrderNo === null || prev === null || prev.orderNo !== selectedOrderNo) return;
+    if (prev.unfilledQty === selectedFillQty || !(selectedFillQty > 0)) return;
+    if (qty > selectedFillQty) {
+      setQtyText(KRW.format(selectedFillQty));
+      setValidation(modifyQtyClampedText(selectedFillQty));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 잔량이 바뀔 때만 본다(입력 변경엔 반응하지 않는다).
+  }, [selectedOrderNo, selectedFillQty]);
+
   const busy = submitting || blocked;
   const gateDisabled = status !== 'ready';
 
@@ -362,6 +394,11 @@ export function ManualOrderForm({
       const problem = validateNew({ isin: selected.isin, accountNo, qty, price, offHours: false });
       if (problem) {
         setValidation(problem);
+        return;
+      }
+      // WR-06 ②: 정정이 다루는 것은 미체결 잔량이다 — 넘으면 막는다.
+      if (qty > selected.unfilledQty) {
+        setValidation(modifyQtyOverRemainingText(selected.unfilledQty));
         return;
       }
       setValidation(null);
@@ -449,6 +486,25 @@ export function ManualOrderForm({
     const req = pendingReqRef.current;
     if (!req || submitting || blocked) return; // 중복 제출 가드 ②
     pendingReqRef.current = null;
+    /*
+      WR-06 ③ 확정 직전 재대조 — 정정 스냅샷을 **지금 렌더의** 선택 행과 맞춘다. 다이얼로그가 열린
+      사이 원주문이 사라졌거나 잔량이 확인한 수량 아래로 줄었으면 **보내지 않는다**(다이얼로그를
+      닫고 스냅샷은 버린다). 고쳐서 보내지도 않는다 — 사용자가 확인한 값과 다른 정정이 된다.
+      취소는 재대조하지 않는다 — 취소는 「잔량 전부」 이고 급락 국면의 취소 지연은 자산 위험이다.
+    */
+    if (req.kind === 'modify') {
+      const gone = selected === null || selected.orderNo !== req.orgOrderNo;
+      const reason = gone
+        ? MODIFY_TARGET_GONE_TEXT
+        : req.qty > selected.unfilledQty
+          ? MODIFY_REMAINING_CHANGED_TEXT
+          : null;
+      if (reason !== null) {
+        setConfirm(null);
+        setValidation(reason);
+        return;
+      }
+    }
     setSubmitting(true);
     setConfirm(null);
     setResult(null);
