@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -15,10 +15,11 @@ import userEvent from '@testing-library/user-event';
 
 import {
   OrderConfirmDialog,
+  type NewOrderConfirmDetail,
   type OrderConfirmDetail,
 } from '../order-confirm-dialog';
 
-const NEW_BUY: OrderConfirmDetail = {
+const NEW_BUY: NewOrderConfirmDetail = {
   mode: 'new',
   side: 'B',
   stockName: '한미반도체',
@@ -115,7 +116,7 @@ describe('OrderConfirmDialog — 예약 · 시간외종가 요약', () => {
   it('예약구간이면 「조각 수 {N} (서버 상한 {max})」 행과 예약 안내 줄이 붙는다', () => {
     const { dialog } = open({
       ...NEW_BUY,
-      buttonMode: 'queued',
+      buttonMode: 'queued' as const,
       pieceCount: 5,
       maxPieces: 10,
       confirmNote: '예약: 증권사 보관 후 09:00 처리',
@@ -138,7 +139,7 @@ describe('OrderConfirmDialog — 예약 · 시간외종가 요약', () => {
     const { dialog } = open({
       ...NEW_BUY,
       price: 0,
-      orderType: 'offhours',
+      orderType: 'offhours' as const,
       referencePrice: 128_700,
     });
     expect(summaryValue(dialog, '주문유형')).toBe('시간외종가 · 가격 0 (KRX 세션)');
@@ -151,7 +152,7 @@ describe('OrderConfirmDialog — 예약 · 시간외종가 요약', () => {
 
 describe('OrderConfirmDialog — 오조작 방어 (한 글자도 완화하지 않는다)', () => {
   it('초기 포커스가 취소 버튼이다', async () => {
-    open({ ...NEW_BUY, buttonMode: 'queued', pieceCount: 5, maxPieces: 10 });
+    open({ ...NEW_BUY, buttonMode: 'queued' as const, pieceCount: 5, maxPieces: 10 });
     await waitFor(() => expect(screen.getByRole('button', { name: '취소' })).toHaveFocus());
   });
 
@@ -180,12 +181,12 @@ describe('OrderConfirmDialog — 오조작 방어 (한 글자도 완화하지 �
     await user.click(ok);
     await user.click(ok);
     expect(onConfirm).toHaveBeenCalledTimes(1);
-    resolve();
+    await act(async () => resolve());
   });
 
-  it.each<OrderConfirmDetail>([
+  const A11Y_CASES: OrderConfirmDetail[] = [
     NEW_BUY,
-    { ...NEW_BUY, orderType: 'offhours', price: 0 },
+    { ...NEW_BUY, orderType: 'offhours' as const, price: 0 },
     {
       mode: 'modify',
       side: 'S',
@@ -210,7 +211,8 @@ describe('OrderConfirmDialog — 오조작 방어 (한 글자도 완화하지 �
       accountNo: '1',
       exchange: 'KRX',
     },
-  ])('DialogTitle·DialogDescription 이 항상 있다 (%#)', (detail) => {
+  ];
+  it.each(A11Y_CASES.map((d) => [d] as const))('DialogTitle·DialogDescription 이 항상 있다 (%#)', (detail) => {
     open(detail);
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-labelledby');
