@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 
 /**
  * Phase 16 Plan 09 Task 3 — `RelayProvider` / `useRelaySubscription` 회귀면.
@@ -50,8 +51,10 @@ import {
   RelayProvider,
   useRelayContext,
   useRelaySubscription,
+  type OrderLockKind,
   type RelayOrderRequest,
 } from '../relay-provider';
+import { strategyKey } from '../limit-chaser';
 
 const ISIN_A = 'KR7005930003';
 const ISIN_B = 'KR7000660001';
@@ -1240,5 +1243,309 @@ describe('RelayProvider — sendOrder 번역 (D-02)', () => {
       rejected 로 닫으면 사용자가 재주문한다. 둘 다 사고다.
     */
     expect(settledStatuses).toEqual(['timeout', 'timeout']);
+  });
+});
+
+// ============================================================
+// 주문 잠금 수명 (18-34 · R3-WR-02 · R3-IN-01 · R3-IN-02 · 파일 상단 ⑧ 의 Provider 쪽)
+//
+// 잠그는 것: 결과를 모르는 신규 · 정정 뒤의 같은 주문(중복 체결) · 전송 중 탈출 · 로그아웃 뒤
+// 이전 사용자 계좌 키의 잔존. 단언은 컨텍스트 `orderLocks` 의 **실제 값**으로 한다.
+// ============================================================
+
+describe('RelayProvider — 주문 잠금 수명 (R3-WR-02 · R3-IN-01 · R3-IN-02)', () => {
+  const ACCOUNT = '12345678-01';
+  const NEW_A: RelayOrderRequest = {
+    kind: 'new',
+    isin: ISIN_A,
+    exchange: 'KRX',
+    accountNo: ACCOUNT,
+    side: 'B',
+    qty: 10,
+    price: 70_000,
+  };
+  const MODIFY_B_NXT: RelayOrderRequest = {
+    kind: 'modify',
+    isin: ISIN_B,
+    exchange: 'NXT',
+    accountNo: ACCOUNT,
+    orgOrderNo: '0000135742',
+    side: 'S',
+    qty: 5,
+    price: 71_500,
+  };
+  const CANCEL_A: RelayOrderRequest = {
+    kind: 'cancel',
+    isin: ISIN_A,
+    exchange: 'KRX',
+    accountNo: ACCOUNT,
+    orgOrderNo: '0000135742',
+    qty: 30,
+    price: 70_000,
+  };
+  const KEY_A = strategyKey(ISIN_A, ACCOUNT, 'KRX');
+  const KEY_B_NXT = strategyKey(ISIN_B, ACCOUNT, 'NXT');
+
+  /** 최신 컨텍스트 `orderLocks` — 렌더마다 갱신된다. */
+  let locksRef: ReadonlyMap<string, OrderLockKind> = new Map();
+  function LockProbe() {
+    const { sendOrder, orderLocks } = useRelayContext();
+    sendOrderRef = sendOrder;
+    locksRef = orderLocks;
+    return null;
+  }
+
+  const orderFrames = (ws: FakeWebSocket) =>
+    ws.parsedSent().filter((m) => String(m.t).startsWith('order.'));
+
+  async function mount(): Promise<{ ws: FakeWebSocket; view: ReturnType<typeof render> }> {
+    const view = render(
+      <RelayProvider>
+        <LockProbe />
+      </RelayProvider>,
+    );
+    const ws = await acceptAndAuth();
+    return { ws, view };
+  }
+
+  async function reply(ws: FakeWebSocket, rid: unknown, status: 'accepted' | 'rejected') {
+    await act(async () => {
+      ws.push({
+        t: 'order.result',
+        rid: String(rid),
+        orderNo: status === 'accepted' ? 'A100' : '',
+        resultCode: status === 'accepted' ? 0 : 7,
+        message: status === 'accepted' ? '정상처리' : '주문가능수량 초과',
+        status,
+      });
+    });
+  }
+
+  /** relay 5초 상한을 넘겨 대기 주문을 timeout 으로 푼다(⑨-c 와 같은 경로). */
+  async function expire() {
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+  }
+
+  beforeEach(() => {
+    locksRef = new Map();
+  });
+
+  it('⑩-a 신규 전송 직후(응답 전) 그 키가 in-flight → 접수면 사라지고, 거부여도 사라진다', async () => {
+    const { ws } = await mount();
+
+    act(() => {
+      void sendOrderRef?.(NEW_A);
+    });
+    expect(locksRef.get(KEY_A)).toBe('in-flight');
+    await reply(ws, orderFrames(ws).at(-1)?.rid, 'accepted');
+    expect(locksRef.has(KEY_A)).toBe(false);
+
+    act(() => {
+      void sendOrderRef?.(NEW_A);
+    });
+    expect(locksRef.get(KEY_A)).toBe('in-flight');
+    await reply(ws, orderFrames(ws).at(-1)?.rid, 'rejected');
+    expect(locksRef.has(KEY_A)).toBe(false);
+    expect(locksRef.size).toBe(0);
+    // 잠금은 송신을 만들지 않는다 — 요청 2건 = 주문 프레임 2개, 그 밖의 프레임(전략 · lc.set) 0.
+    expect(orderFrames(ws)).toHaveLength(2);
+    expect(ws.sentOfType('lc.set')).toHaveLength(0);
+  });
+
+  it('⑩-b 신규 무응답 timeout → result-unknown, 그리고 호출자의 await 뒤 렌더는 틈 없이 이미 잠겨 있다', async () => {
+    /*
+      폼처럼 결과를 받아 자기 상태를 세우는 소비자. 렌더마다 「결과|잠금」 을 적는다 — 결과가 보이는
+      렌더에서 잠금이 비어 있으면(틈) 그 한 프레임 동안 버튼이 열린다.
+    */
+    const history: string[] = [];
+    function FormLike() {
+      const { sendOrder, orderLocks } = useRelayContext();
+      const [status, setStatus] = useState<string | null>(null);
+      sendOrderRef = async (req) => {
+        const r = await sendOrder(req);
+        setStatus(r.status);
+        return r;
+      };
+      history.push(`${status ?? '-'}|${orderLocks.get(KEY_A) ?? 'none'}`);
+      return null;
+    }
+    render(
+      <RelayProvider>
+        <FormLike />
+      </RelayProvider>,
+    );
+    await acceptAndAuth();
+
+    let awaited: string | null = null;
+    act(() => {
+      void sendOrderRef?.(NEW_A).then((r) => {
+        awaited = (r as { status: string }).status;
+      });
+    });
+    await expire();
+
+    expect(awaited).toBe('timeout');
+    expect(history.at(-1)).toBe('timeout|result-unknown');
+    // 결과가 보이는 어느 렌더에서도 잠금이 빈 적이 없다.
+    expect(history.filter((h) => h.startsWith('timeout|') && !h.endsWith('result-unknown'))).toEqual(
+      [],
+    );
+    // 진행 중이 보인 뒤로는 풀린 렌더가 없다(진행 중 → 결과 모름 한 액션).
+    const firstInFlight = history.indexOf('-|in-flight');
+    expect(firstInFlight).toBeGreaterThanOrEqual(0);
+    expect(history.slice(firstInFlight).some((h) => h.endsWith('|none'))).toBe(false);
+  });
+
+  it('⑩-c 정정 timeout → **요청의** 키(요청 ISIN · 계좌 · 거래소)로 result-unknown', async () => {
+    const { ws } = await mount();
+    act(() => {
+      void sendOrderRef?.(MODIFY_B_NXT);
+    });
+    expect(locksRef.get(KEY_B_NXT)).toBe('in-flight');
+    await expire();
+    expect(locksRef.get(KEY_B_NXT)).toBe('result-unknown');
+    expect(locksRef.has(strategyKey(ISIN_B, ACCOUNT, 'KRX'))).toBe(false);
+    expect(locksRef.size).toBe(1);
+    expect(orderFrames(ws)).toHaveLength(1);
+  });
+
+  it('⑩-d 취소는 전송 중에도 · timeout 뒤에도 잠금 항목이 없다 (사용자 결정 2)', async () => {
+    const { ws } = await mount();
+    let res: { status?: string } | null = null;
+    act(() => {
+      void sendOrderRef?.(CANCEL_A).then((r) => {
+        res = r as { status?: string };
+      });
+    });
+    expect(orderFrames(ws)).toHaveLength(1);
+    expect(locksRef.size).toBe(0);
+    await expire();
+    expect(res!.status).toBe('timeout');
+    expect(locksRef.size).toBe(0);
+  });
+
+  it('⑩-e 형식 오류로 보내지 않은 신규(계좌 빈 값)는 진행 중조차 생기지 않는다', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { ws } = await mount();
+    let res: { status?: string } | null = null;
+    await act(async () => {
+      res = (await sendOrderRef?.({ ...NEW_A, accountNo: '' })) as { status?: string };
+    });
+    expect(res!.status).toBe('rejected');
+    expect(orderFrames(ws)).toHaveLength(0);
+    expect(locksRef.size).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('⑩-f 단절 정산(소켓 close → 대기 전부 timeout) → 신규 · 정정 키가 result-unknown, 취소는 없음', async () => {
+    const { ws } = await mount();
+    act(() => {
+      void sendOrderRef?.(NEW_A);
+      void sendOrderRef?.(MODIFY_B_NXT);
+      void sendOrderRef?.({ ...CANCEL_A, isin: ISIN_B, exchange: 'KRX' });
+    });
+    expect(orderFrames(ws)).toHaveLength(3);
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    expect(locksRef.get(KEY_A)).toBe('result-unknown');
+    expect(locksRef.get(KEY_B_NXT)).toBe('result-unknown');
+    expect(locksRef.has(strategyKey(ISIN_B, ACCOUNT, 'KRX'))).toBe(false);
+    expect(locksRef.size).toBe(2);
+  });
+
+  it('⑩-g 같은 키 신규 진행 중 2건 → 하나 접수돼도 in-flight 유지 → 둘 다 끝나야 사라진다', async () => {
+    const { ws } = await mount();
+    act(() => {
+      void sendOrderRef?.(NEW_A);
+    });
+    const rid1 = orderFrames(ws).at(-1)?.rid;
+    act(() => {
+      void sendOrderRef?.({ ...NEW_A, qty: 20 });
+    });
+    const rid2 = orderFrames(ws).at(-1)?.rid;
+    expect(rid1).not.toEqual(rid2);
+    expect(locksRef.get(KEY_A)).toBe('in-flight');
+
+    await reply(ws, rid1, 'accepted');
+    expect(locksRef.get(KEY_A)).toBe('in-flight');
+    await reply(ws, rid2, 'rejected');
+    expect(locksRef.has(KEY_A)).toBe(false);
+  });
+
+  it('⑩-h 다른 계좌 · 다른 거래소 · 다른 종목 키는 잠기지 않는다', async () => {
+    await mount();
+    act(() => {
+      void sendOrderRef?.(NEW_A);
+    });
+    await expire();
+    expect(locksRef.get(KEY_A)).toBe('result-unknown');
+    expect(locksRef.has(strategyKey(ISIN_A, '99999999-01', 'KRX'))).toBe(false);
+    expect(locksRef.has(strategyKey(ISIN_A, ACCOUNT, 'NXT'))).toBe(false);
+    expect(locksRef.has(strategyKey(ISIN_B, ACCOUNT, 'KRX'))).toBe(false);
+    expect(locksRef.size).toBe(1);
+  });
+
+  it('⑩-i 로그아웃 → orderLocks 비워짐 · 로그아웃 순간 진행 중이던 요청의 정산은 재로그인 뒤 항목을 만들지 않는다(세대)', async () => {
+    const { view } = await mount();
+    // 결과 모름 1건(ISIN_A) + 진행 중 1건(ISIN_B NXT 정정 — 응답 전).
+    act(() => {
+      void sendOrderRef?.(NEW_A);
+    });
+    await expire();
+    let late: { status?: string } | null = null;
+    act(() => {
+      void sendOrderRef?.(MODIFY_B_NXT).then((r) => {
+        late = r as { status?: string };
+      });
+    });
+    expect(locksRef.get(KEY_A)).toBe('result-unknown');
+    expect(locksRef.get(KEY_B_NXT)).toBe('in-flight');
+
+    signedOut();
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <LockProbe />
+        </RelayProvider>,
+      );
+    });
+    await settle();
+    expect(locksRef.size).toBe(0);
+
+    // 다른 사용자로 다시 로그인 — 이전 세대의 늦은 정산이 새 사용자 잠금이 되지 않는다.
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u-2' },
+      displayName: '다른 사용자',
+      isLoading: false,
+      signOut: async () => {},
+    });
+    await act(async () => {
+      view.rerender(
+        <RelayProvider>
+          <LockProbe />
+        </RelayProvider>,
+      );
+    });
+    await acceptAndAuth();
+    await expire();
+    // 로그아웃 때 대기 주문은 결과 모름으로 정산됐다(단절 정산) — 그래도 잠금은 없다.
+    expect(late!.status).toBe('timeout');
+    expect(locksRef.size).toBe(0);
+  });
+
+  it('⑧ 확장 — Provider 밖 orderLocks 는 비어 있고 두 번 읽어도 같은 참조다', () => {
+    const seen: Array<ReadonlyMap<string, OrderLockKind>> = [];
+    function Outside() {
+      seen.push(useRelayContext().orderLocks);
+      return null;
+    }
+    const view = render(<Outside />);
+    view.rerender(<Outside />);
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen[0].size).toBe(0);
+    expect(seen[1]).toBe(seen[0]);
   });
 });

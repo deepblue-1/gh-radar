@@ -1001,3 +1001,80 @@ describe('ManualOrderForm — 제어형 결과 모름 잠금 (GC-WR-03)', () => 
     expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
   });
 });
+
+describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-02)', () => {
+  const KEY = `${ISIN}:12345678-01:KRX`;
+  const lockWith = (entries: Array<[string, 'in-flight' | 'result-unknown']>) => {
+    lockMock.locks = new Map(entries);
+  };
+  const allButtons = () => within(screen.getByTestId('manual-order-buttons')).getAllByRole('button');
+
+  it('컨텍스트 result-unknown → 4버튼 disabled · 잠금 문구 · 「매수」 눌러도 다이얼로그 없음 · sendOrder 0', async () => {
+    const user = userEvent.setup();
+    lockWith([[KEY, 'result-unknown']]);
+    renderForm({ selectedUnfilled: unf({ exchange: 'KRX' }) });
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
+    expect(screen.queryByText('주문 전송 중…')).toBeNull();
+
+    await user.click(btn('매수'));
+    fireEvent.click(btn('매도'));
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('manual-order-form').textContent).not.toMatch(/실패/);
+  });
+
+  it('컨텍스트 in-flight(다른 표면이 전송 중) → 4버튼 disabled · 「주문 전송 중…」 · 잠금 문구 없음', () => {
+    lockWith([[KEY, 'in-flight']]);
+    renderForm();
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.getByText('주문 전송 중…')).toBeInTheDocument();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+    expect(screen.getByTestId('manual-order-form').textContent).not.toMatch(/실패/);
+  });
+
+  it('다른 키(다른 계좌 · 다른 거래소 · 다른 종목)의 잠금 → 이 폼은 열려 있다', () => {
+    lockWith([
+      [`${ISIN}:99999999-01:KRX`, 'result-unknown'],
+      [`${ISIN}:12345678-01:NXT`, 'result-unknown'],
+      ['KR7005930003:12345678-01:KRX', 'in-flight'],
+    ]);
+    renderForm();
+    expect(btn('매수')).toBeEnabled();
+    expect(btn('매도')).toBeEnabled();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+    expect(screen.queryByText('주문 전송 중…')).toBeNull();
+  });
+
+  it('계좌가 빈 폼은 잠금을 읽지 않는다', () => {
+    lockWith([[`${ISIN}::KRX`, 'result-unknown']]);
+    renderForm({ accountNo: '' });
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+  });
+
+  it('variant="orderbook"(호가 탭)도 같은 판정 · 같은 요소(manual-order-locked · 원문)', () => {
+    lockWith([[KEY, 'result-unknown']]);
+    renderForm({ variant: 'orderbook' });
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    const lock = screen.getByTestId('manual-order-locked');
+    expect(lock).toHaveAttribute('role', 'status');
+    expect(lock.textContent).toBe(RESULT_UNKNOWN_LOCKED_TEXT);
+  });
+
+  it('신규 timeout 은 배너가 있으면 잠금 문구를 겹쳐 보이지 않는다 · 어떤 문구에도 「실패」 없음', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(
+      accepted({ status: 'timeout', orderNo: '', resultCode: -1, message: '' }),
+    );
+    renderForm();
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(lockMock.locks?.get(KEY)).toBe('result-unknown');
+    for (const b of allButtons()) expect(b).toBeDisabled();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+    expect(screen.getByTestId('manual-order-form').textContent).not.toMatch(/실패/);
+    expect(RESULT_UNKNOWN_LOCKED_TEXT).not.toMatch(/실패/);
+  });
+});
