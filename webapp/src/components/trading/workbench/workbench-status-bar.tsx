@@ -7,14 +7,17 @@
  *
  * ① 옛 상따 상태줄(18-13 삭제 · `StatusBar`)의 **페이지 축 부분**만 왔다
  *   DMA 필 · 반영 시각이 여기로 오고, 래치 LED 3칩은 18-06 이 **카드 헤더**로 가져갔다(판정 함수
- *   `latchLedStateOf` 는 하나 그대로다). 이 줄은 특정 전략을 말하지 않는다 — 페이지 전체
- *   (돌파 · VI 발동 · 거래 종목 · 77 구간 · 알림 · 단 수)를 말한다.
+ *   `latchLedStateOf` 는 하나 그대로다). 이 줄은 특정 전략을 말하지 않는다 — 페이지의 **핵심만**
+ *   말한다: DMA 연결 · 77 구간 배지(알 때만) · 알림음 아이콘 · 반영 시각 · 단 수(목업
+ *   `260923-bjb-mockup.html` `.stat`). 목록 개수는 각 스트립의 칩이 이미 말하므로 여기 두 번 적지
+ *   않는다.
  *
  * ② ★ 이 파일은 **벽시계를 읽지 않는다** (D-22 · D-27)
  *   77 구간 배지는 `queuedWindowBadgeOf`(카드·호가 탭의 `affordanceOf` 와 같은 원천 `queuedWindow`)
  *   한 함수가 판정한다. `queuedWindow === undefined` = 「모름」 = **배지 없음** — 「정규」로
  *   위장하지 않는다. 「반영 시각」은 작업대가 서버 push 를 받은 시각을 문자열로 내려주고 여기서는
- *   그대로 쓴다(첫 push 전이면 「반영 —」).
+ *   그대로 쓴다. 보이는 글자는 맨 `HH:MM:SS`(첫 push 전이면 「—」)이고, 「반영」 접두는 `sr-only` ·
+ *   `title` 이 말한다.
  *
  * ③ ★ 단 수 세그먼트는 폰 밴드(page <700)에서 **DOM 에서 뺀다** (UI-SPEC §접근성 계약)
  *   `display:none` 만으로 숨기지 않는다 — 작업대가 `wb` 컨테이너 폭으로 판정한 `phoneBand` 가
@@ -23,7 +26,8 @@
  *   (격자 쪽 CSS 가 `data-cols` 를 700 이상에서만 적용한다).
  *
  * ④ 이 기기 전용 알림 — 돌파 알림음(D-17)
- *   기본 꺼짐. 자동재생이 막혀 있으면 「클릭해 활성화」. `resumeToneContext` 는 **클릭 핸들러
+ *   기본 꺼짐. 아이콘 전용 버튼이고 이름은 `aria-label` · `title` 이 말한다. 자동재생이 막혀 있을
+ *   때만 아이콘 옆에 「클릭해 활성화」 글자가 선다(실행 가능한 안내). `resumeToneContext` 는 **클릭 핸들러
  *   안에서만** 부른다(제스처 밖 `resume()` 은 브라우저가 무시한다).
  *   이력: VI 브라우저 알림 토글은 사용자 요청으로 기능째 제거했다(quick-260922-tqr).
  *
@@ -51,9 +55,6 @@ import { queuedWindowBadgeOf } from "@/lib/queued-window";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
 
-/** 임계·재무장 — UI-SPEC §상태줄 문구표 원문(서버 상수 `ThresholdPct 20` · 재무장 −2%p). */
-export const WORKBENCH_THRESHOLD_TEXT = "임계 20% · 재무장 −2%p";
-
 /** 계좌 필 `title` — 상태줄 계좌는 **신규 카드의 기본값**일 뿐이다(Q-3 채택값). */
 export const ACCOUNT_PILL_TITLE =
   "새로 추가하는 카드의 기본 계좌예요 · 이미 있는 카드는 자기 계좌를 유지해요";
@@ -71,17 +72,9 @@ const PROGRESS_STATES: ReadonlySet<RelayStatus> = new Set<RelayStatus>([
 export interface WorkbenchStatusBarProps {
   status: RelayStatus;
   statusLabel: string;
-  /** 돌파 스트립이 **실제로 그린** 행 수(지운·이탈 행 제외) — 스트립과 같은 값이어야 한다. */
-  breakoutCount: number;
-  /** 30초 강조 중인 신규 돌파 수. 0 이면 「신규」 필이 없다. */
-  breakoutNewCount: number;
-  viCount: number;
-  /** 미확인(접수 ∧ 미체크) VI 주문 수. 0 이면 「미확인」 필이 없다. */
-  viUnconfirmedCount: number;
-  cardCount: number;
   /** 77 창 힌트. `undefined` = 모름 → 배지 없음(②). */
   queuedWindow: RelayQueuedWindowMsg | undefined;
-  /** 서버 push 반영 시각 `HH:MM:SS`. `null` = 아직 없음 → 「반영 —」. */
+  /** 서버 push 반영 시각 `HH:MM:SS`. `null` = 아직 없음 → 「—」. */
   appliedAt: string | null;
   cols: TradingCols;
   onColsChange: (cols: TradingCols) => void;
@@ -95,11 +88,6 @@ export interface WorkbenchStatusBarProps {
 export function WorkbenchStatusBar({
   status,
   statusLabel,
-  breakoutCount,
-  breakoutNewCount,
-  viCount,
-  viUnconfirmedCount,
-  cardCount,
   queuedWindow,
   appliedAt,
   cols,
@@ -141,26 +129,6 @@ export function WorkbenchStatusBar({
         DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
       </span>
 
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        <span data-testid="stat-breakout">
-          돌파 <b className="font-semibold text-[var(--fg)]">{breakoutCount}</b>
-        </span>
-        {breakoutNewCount > 0 && <NewPill>신규 {breakoutNewCount}</NewPill>}
-      </span>
-
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        <span data-testid="stat-vi">
-          VI 발동 <b className="font-semibold text-[var(--fg)]">{viCount}</b>
-        </span>
-        {viUnconfirmedCount > 0 && <NewPill>미확인 {viUnconfirmedCount}</NewPill>}
-      </span>
-
-      <span data-testid="stat-cards" className="whitespace-nowrap">
-        거래 종목 <b className="font-semibold text-[var(--fg)]">{cardCount}</b>
-      </span>
-
-      <span className="whitespace-nowrap">{WORKBENCH_THRESHOLD_TEXT}</span>
-
       {badge !== null && (
         <span
           data-slot="workbench-window-badge"
@@ -177,7 +145,7 @@ export function WorkbenchStatusBar({
         </span>
       )}
 
-      <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+      <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
         <span data-slot="workbench-alerts" className="inline-flex items-center gap-1">
           <ToneToggle />
         </span>
@@ -186,8 +154,9 @@ export function WorkbenchStatusBar({
             다시 연결
           </Button>
         )}
-        <span data-testid="stat-applied" className="mono whitespace-nowrap">
-          반영 {appliedAt ?? "—"}
+        <span data-testid="stat-applied" title="서버 반영 시각" className="mono whitespace-nowrap">
+          <span className="sr-only">반영 </span>
+          {appliedAt ?? "—"}
         </span>
         {phoneBand !== true && (
           <ToggleGroup
@@ -218,17 +187,9 @@ export function WorkbenchStatusBar({
   );
 }
 
-/** 「신규 M」·「미확인 M」 필 — 목업 `.newpill`. 색만이 아니라 **텍스트**가 말한다. */
-function NewPill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex h-[18px] items-center rounded-full border border-[var(--new-bd)] bg-[var(--new-bg)] px-[7px] text-[10px] font-bold whitespace-nowrap text-[var(--fg)]">
-      {children}
-    </span>
-  );
-}
-
+/** 아이콘 버튼 — 목업 `.iconbtn`(26×24). 차단 안내 글자가 붙으면 옆으로 늘어난다. */
 const ALERT_BTN =
-  "inline-flex h-6 items-center gap-1 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--muted)] aria-pressed:border-[var(--primary)] aria-pressed:text-[var(--fg)]";
+  "inline-flex h-6 min-w-[26px] items-center justify-center gap-1 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--muted)] aria-pressed:border-[var(--primary)] aria-pressed:text-[var(--fg)]";
 
 /**
  * 돌파 알림음 토글 (D-17 · ④). 기본 꺼짐.
@@ -283,7 +244,7 @@ function ToneToggle() {
       className={ALERT_BTN}
     >
       {on ? <Volume2 aria-hidden="true" className="size-3.5" /> : <VolumeX aria-hidden="true" className="size-3.5" />}
-      {needsGesture ? "클릭해 활성화" : "알림음"}
+      {needsGesture && "클릭해 활성화"}
     </button>
   );
 }

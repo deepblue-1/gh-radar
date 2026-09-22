@@ -120,7 +120,6 @@ import {
 } from "@/components/trading/card/strategy-card";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import type { StrategyLogEntry } from "@/components/trading/strategy-log";
-import { isUnconfirmedViOrder } from "@/components/trading/vi-order-list";
 import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
 import { SharedPanels } from "@/components/trading/workbench/shared-panels";
@@ -721,9 +720,6 @@ function WorkbenchSurface() {
   // 저장값은 마운트 후에 읽는다 — SSR HTML 과 첫 클라 렌더가 갈리면 하이드레이션이 깨진다.
   useEffect(() => setCols(readColsPref()), []);
 
-  const [breakoutCounts, setBreakoutCounts] = useState({ total: 0, fresh: 0 });
-  const viUnconfirmed = useMemo(() => viOrders.filter(isUnconfirmedViOrder).length, [viOrders]);
-
   // VI 몫 서버 거부 — VI 패널 스트립 줄 바로 아래(접혀도 보인다 · 18-13 · T-16-07).
   const viServerError = useViServerError(messages);
 
@@ -784,11 +780,6 @@ function WorkbenchSurface() {
       <WorkbenchStatusBar
         status={status}
         statusLabel={statusLabel}
-        breakoutCount={breakoutCounts.total}
-        breakoutNewCount={breakoutCounts.fresh}
-        viCount={viOrders.length}
-        viUnconfirmedCount={viUnconfirmed}
-        cardCount={cards.length}
         queuedWindow={queuedWindow}
         appliedAt={appliedAt}
         cols={cols}
@@ -821,7 +812,6 @@ function WorkbenchSurface() {
         cards={cardIsins}
         onAddCard={addCard}
         onFocusCard={focusCard}
-        onCountsChange={setBreakoutCounts}
       />
 
       {/* 5 · 종목 추가 */}

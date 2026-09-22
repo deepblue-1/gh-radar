@@ -125,6 +125,8 @@ function openTable() {
 
 const chips = () => [...document.querySelectorAll<HTMLElement>('[data-slot="breakout-chip"]')];
 const rowEls = () => [...document.querySelectorAll<HTMLElement>('[data-slot="breakout-row"]')];
+/** 30초 강조 중인 칩 — 신규 개수는 라벨 필이 아니라 칩이 말한다. */
+const newChips = () => [...document.querySelectorAll<HTMLElement>('[data-slot="breakout-chip"][data-new="true"]')];
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
@@ -143,10 +145,11 @@ afterEach(() => {
 });
 
 describe('BreakoutStrip — 빈 상태 (E4 empty/loading)', () => {
-  it('행 0개면 「돌파 0」 + 빈 문구이고 「신규」 필은 DOM 에 없다', () => {
+  it('행 0개면 라벨 「돌파」 + 빈 문구이고 칩·「신규」 필은 DOM 에 없다', () => {
     setup();
-    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 0');
+    expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파');
     expect(screen.getByText(BREAKOUT_EMPTY_TEXT)).toBeInTheDocument();
+    expect(chips()).toHaveLength(0);
     expect(document.querySelector('[data-slot="breakout-new-pill"]')).toBeNull();
   });
 });
@@ -160,7 +163,8 @@ describe('BreakoutStrip — 76 신규 강조 (D-18)', () => {
     expect(chip).toHaveAttribute('data-new', 'true');
     expect(chip.className).toContain('bg-[var(--new-bg)]');
     expect(within(chip).getByText('신규')).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toHaveTextContent('신규 1');
+    expect(newChips()).toHaveLength(1);
+    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(HIGHLIGHT_MS - 1_000);
@@ -173,7 +177,7 @@ describe('BreakoutStrip — 76 신규 강조 (D-18)', () => {
     expect(chips()[0]).not.toHaveAttribute('data-new');
     expect(chips()[0]!.className).not.toContain('bg-[var(--new-bg)]');
     expect(within(chips()[0]!).queryByText('신규')).toBeNull();
-    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toBeNull();
+    expect(newChips()).toHaveLength(0);
   });
 
   it('강조 타이머는 행 수와 무관하게 목록 전체에 1개이고, 강조 행이 없어지면 멈춘다', () => {
@@ -332,7 +336,7 @@ describe('BreakoutStrip — ✕ 수동 삭제 (D-18)', () => {
     expect(onDismiss).toHaveBeenCalledWith(A.isin);
     expect(onAddCard).not.toHaveBeenCalled();
     expect(rowEls()).toHaveLength(1);
-    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 1');
+    expect(chips()).toHaveLength(1);
     const stored = JSON.parse(window.localStorage.getItem(BREAKOUT_DISMISSED_KEY) ?? '{}');
     expect(stored.ids).toEqual([A.isin]);
   });
@@ -423,42 +427,62 @@ describe('BreakoutStrip — E4 loading: 78 전에도 빈 상태를 그리고 위
     expect(screen.getByText(BREAKOUT_EMPTY_TEXT)).toBeInTheDocument();
   });
 
-  it('펼친 표도 행 0개면 같은 빈 문구다', () => {
+  it('행 0개 펼침 → 펼친 영역이 없다(스트립 줄 빈 문구가 이미 말한다) · 더보기에 aria-controls 가 없다', () => {
     setup({ items: [] });
     openTable();
+    const more = document.querySelector('[data-slot="breakout-more"]')!;
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(document.querySelector('[data-slot="breakout-table"]')).toBeNull();
+    expect(screen.getAllByText(BREAKOUT_EMPTY_TEXT)).toHaveLength(1);
+    expect(more).not.toHaveAttribute('aria-controls');
+  });
+
+  it('행이 있고 펼쳤을 때만 aria-controls 가 표 id 를 가리킨다', () => {
+    setup({ items: [A] });
+    const more = document.querySelector('[data-slot="breakout-more"]')!;
+    expect(more).not.toHaveAttribute('aria-controls');
+    openTable();
     const table = document.querySelector('[data-slot="breakout-table"]')!;
-    expect(within(table as HTMLElement).getByText(BREAKOUT_EMPTY_TEXT)).toBeInTheDocument();
-    expect(table.querySelector('[data-slot="breakout-row"]')).toBeNull();
+    expect(more.getAttribute('aria-controls')).toBe(table.id);
   });
 
   it('인증 직후 78 이 오면 전량 교체된 그대로 그린다(무음)', () => {
     const { update } = setup({ items: [], snapSeq: 0 });
     update({ items: [B, A], snapSeq: 1 });
-    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 2');
+    expect(chips()).toHaveLength(2);
     expect(screen.queryByText(BREAKOUT_EMPTY_TEXT)).toBeNull();
     expect(playBreakoutTone).not.toHaveBeenCalled();
   });
 });
 
-describe('BreakoutStrip — E4 zero-one-many · 「신규」 필', () => {
-  it('M=0 이면 「신규」 필이 DOM·접근성 트리 어디에도 없다', () => {
-    setup({ items: [A, B] }); // 첫 채움 = 무음·무강조 → M=0
-    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 2');
-    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toBeNull();
+describe('BreakoutStrip — E4 zero-one-many · 라벨 「돌파」', () => {
+  it('신규 0 이면 「신규」 글자가 어디에도 없다 · 펼친 표에 머리줄·요약·「접기 ▴」 가 없다', () => {
+    setup({ items: [A, B] }); // 첫 채움 = 무음·무강조 → 신규 0
+    expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파');
+    expect(chips()).toHaveLength(2);
+    expect(newChips()).toHaveLength(0);
     expect(screen.queryByText(/^신규/)).toBeNull();
     openTable();
-    // 표 요약줄은 숫자형 그대로 「신규 0」 이다(단/복수 분기 없음)
-    expect(document.querySelector('[data-slot="breakout-table-summary"]')).toHaveTextContent(
-      '돌파 2 · 신규 0 · 임계 20% · 최신 위',
-    );
+    const table = document.querySelector('[data-slot="breakout-table"]') as HTMLElement;
+    expect(table.querySelector('[data-slot="breakout-rows"]')).not.toBeNull();
+    expect(rowEls()).toHaveLength(2);
+    expect(document.querySelector('[data-slot="breakout-table-summary"]')).toBeNull();
+    expect(table.textContent).not.toContain('임계 20% · 최신 위');
+    expect(within(table).queryByRole('button', { name: '접기 ▴' })).toBeNull();
+    // 토글은 스트립 줄 버튼 하나다
+    fireEvent.click(screen.getByRole('button', { name: '접기' }));
+    expect(document.querySelector('[data-slot="breakout-table"]')).toBeNull();
   });
 
-  it('1개와 여러 개는 같은 문법이다 — 「돌파 1」 · 「돌파 3」', () => {
+  it('1개와 여러 개는 같은 문법이다 — 라벨은 「돌파」 그대로, 개수는 칩이 말한다', () => {
     const { update } = setup({ items: [A] });
-    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 1');
+    expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파');
+    expect(chips()).toHaveLength(1);
     update({ items: [A, B, C] });
-    expect(screen.getByTestId('breakout-strip-label')).toHaveTextContent('돌파 3');
-    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toHaveTextContent('신규 2');
+    expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파');
+    expect(chips()).toHaveLength(3);
+    expect(newChips()).toHaveLength(2);
+    expect(document.querySelector('[data-slot="breakout-new-pill"]')).toBeNull();
   });
 });
 

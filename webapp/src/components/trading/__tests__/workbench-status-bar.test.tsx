@@ -6,12 +6,12 @@ import type { RelayQueuedWindowMsg } from '@gh-radar/shared';
  * Phase 18 Plan 11 Task 1 — 작업대 상태줄 (D-04 · D-05 · D-17 · D-22 · E1, TRADE-09).
  *
  * 잠그는 것:
- *   - 첫 스냅샷 전: 카운터 0 · 구간 배지 없음 · 「반영 —」 · 스켈레톤/「불러오는 중」 없음.
+ *   - 핵심만: DMA · 구간 배지(알 때만) · 알림음 아이콘 · 반영 시각 · 단 수. 목록 개수·임계 문구 없음.
+ *   - 첫 스냅샷 전: 구간 배지 없음 · 반영 시각 「—」 · 스켈레톤/「불러오는 중」 없음.
  *   - 77 모름(`undefined`)이면 구간 배지가 DOM 에 없다 — 「정규」로 위장하지 않는다(D-22).
  *   - 구간 배지 문구는 UI-SPEC 원문 그대로다(판정은 `queuedWindowBadgeOf` 한 곳).
- *   - 신규/미확인 0 이면 그 필이 접근성 트리에도 없다.
  *   - 단 수 세그먼트: 클릭 → localStorage 저장 + `onColsChange`. 폰 밴드면 DOM 에서 빠진다.
- *   - 알림음 토글: 기본 꺼짐 · 차단이면 「클릭해 활성화」 · `resumeToneContext` 는 클릭 안에서.
+ *   - 알림음 토글: 아이콘 전용 · 기본 꺼짐 · 차단이면 「클릭해 활성화」 · `resumeToneContext` 는 클릭 안에서.
  *   - 알림 묶음에는 돌파 알림음 하나뿐이다 — VI 브라우저 알림 토글은 기능째 제거(quick-260922-tqr).
  *   - DMA 필에 재시도 버튼이 없다(자동 재연결).
  */
@@ -32,6 +32,12 @@ import {
 } from '../workbench/workbench-status-bar';
 
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`);
+/** 눈에 보이는 글자 — `sr-only` 조각을 뺀 textContent. */
+function visibleText(el: Element): string {
+  const clone = el.cloneNode(true) as Element;
+  clone.querySelectorAll('.sr-only').forEach((n) => n.remove());
+  return clone.textContent ?? '';
+}
 
 function win(over: Partial<RelayQueuedWindowMsg> = {}): RelayQueuedWindowMsg {
   return {
@@ -50,11 +56,6 @@ function props(over: Partial<WorkbenchStatusBarProps> = {}): WorkbenchStatusBarP
   return {
     status: 'ready',
     statusLabel: '실시간',
-    breakoutCount: 0,
-    breakoutNewCount: 0,
-    viCount: 0,
-    viUnconfirmedCount: 0,
-    cardCount: 0,
     queuedWindow: undefined,
     appliedAt: null,
     cols: 1,
@@ -76,25 +77,26 @@ afterEach(() => {
 });
 
 describe('WorkbenchStatusBar — 첫 스냅샷 전 (E1 loading)', () => {
-  it('카운터가 전부 0 이고 구간 배지가 없으며 「반영 —」 이다 — 스켈레톤·「불러오는 중」 없음', () => {
+  it('구간 배지가 없고 반영 시각은 「—」 이다 — 스켈레톤·「불러오는 중」 없음', () => {
     render(<WorkbenchStatusBar {...props()} />);
     const bar = slot('workbench-status-bar') as HTMLElement;
     expect(bar).not.toBeNull();
-    expect(within(bar).getByTestId('stat-breakout').textContent).toBe('돌파 0');
-    expect(within(bar).getByTestId('stat-vi').textContent).toBe('VI 발동 0');
-    expect(within(bar).getByTestId('stat-cards').textContent).toBe('거래 종목 0');
     expect(slot('workbench-window-badge')).toBeNull();
-    expect(within(bar).getByTestId('stat-applied').textContent).toBe('반영 —');
+    const applied = within(bar).getByTestId('stat-applied');
+    expect(applied.textContent).toBe('반영 —');
+    expect(visibleText(applied)).toBe('—');
+    expect(applied).toHaveAttribute('title', '서버 반영 시각');
     expect(bar.textContent).not.toMatch(/불러오는 중/);
     expect(bar.querySelector('[aria-busy="true"]')).toBeNull();
     expect(bar.querySelector('[data-slot="skeleton"]')).toBeNull();
-    expect(bar.textContent).toContain('임계 20% · 재무장 −2%p');
   });
 
-  it('반영 시각은 받은 문자열을 그대로 mono 로 쓴다', () => {
+  it('반영 시각은 받은 문자열을 그대로 mono 로 쓴다 — 보이는 글자는 맨 시각, 「반영」 은 sr-only · title', () => {
     render(<WorkbenchStatusBar {...props({ appliedAt: '09:41:52' })} />);
     const applied = screen.getByTestId('stat-applied');
     expect(applied.textContent).toBe('반영 09:41:52');
+    expect(visibleText(applied)).toBe('09:41:52');
+    expect(applied).toHaveAttribute('title', '서버 반영 시각');
     expect(applied.className).toContain('mono');
   });
 });
@@ -118,34 +120,28 @@ describe('WorkbenchStatusBar — 77 구간 배지 (D-22)', () => {
   });
 });
 
-describe('WorkbenchStatusBar — 카운터 필', () => {
-  it('신규 0 · 미확인 0 이면 그 필이 접근성 트리에도 없다', () => {
-    render(
-      <WorkbenchStatusBar
-        {...props({ breakoutCount: 5, breakoutNewCount: 0, viCount: 3, viUnconfirmedCount: 0 })}
-      />,
-    );
-    expect(screen.queryByText(/신규/)).toBeNull();
-    expect(screen.queryByText(/미확인/)).toBeNull();
-    expect(screen.getByTestId('stat-breakout').textContent).toBe('돌파 5');
-    expect(screen.getByTestId('stat-vi').textContent).toBe('VI 발동 3');
+describe('WorkbenchStatusBar — 핵심만 (목록 개수·임계 문구 없음)', () => {
+  it('돌파·VI 발동·거래 종목·임계·재무장·신규·미확인 글자가 없다 — 개수는 각 스트립 칩이 말한다', () => {
+    render(<WorkbenchStatusBar {...props({ queuedWindow: win({ preopenOpen: true }), appliedAt: '09:41:52' })} />);
+    const text = (slot('workbench-status-bar') as HTMLElement).textContent ?? '';
+    for (const word of ['돌파', 'VI 발동', '거래 종목', '임계', '재무장', '신규', '미확인']) {
+      expect(text).not.toContain(word);
+    }
+    expect(screen.queryByTestId('stat-breakout')).toBeNull();
+    expect(screen.queryByTestId('stat-vi')).toBeNull();
+    expect(screen.queryByTestId('stat-cards')).toBeNull();
+    // 남는 것: DMA · 구간 배지 · 반영 시각 · 단 수
+    expect(slot('workbench-dma')?.textContent).toBe('DMA 실시간');
+    expect(slot('workbench-window-badge')?.textContent).toBe('장전 · 예약매수/매도');
+    expect(screen.getByTestId('stat-applied').textContent).toBe('반영 09:41:52');
+    expect(screen.getByRole('group', { name: '카드 단 수' })).toBeTruthy();
   });
 
-  it('신규 M · 미확인 M 이 있으면 원문 필로 선다', () => {
-    render(
-      <WorkbenchStatusBar
-        {...props({
-          breakoutCount: 8,
-          breakoutNewCount: 1,
-          viCount: 6,
-          viUnconfirmedCount: 2,
-          cardCount: 4,
-        })}
-      />,
-    );
-    expect(screen.getByText('신규 1')).toBeTruthy();
-    expect(screen.getByText('미확인 2')).toBeTruthy();
-    expect(screen.getByTestId('stat-cards').textContent).toBe('거래 종목 4');
+  it('자동 복구 포기 시에만 「다시 연결」 이 선다', () => {
+    const onReconnect = vi.fn();
+    render(<WorkbenchStatusBar {...props({ status: 'failed', statusLabel: '연결 실패', onReconnect })} />);
+    fireEvent.click(screen.getByRole('button', { name: '다시 연결' }));
+    expect(onReconnect).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -176,10 +172,13 @@ describe('WorkbenchStatusBar — 단 수 세그먼트 (D-04)', () => {
 });
 
 describe('WorkbenchStatusBar — 돌파 알림음 (D-17)', () => {
-  it('알림음 토글은 기본 꺼짐이다', () => {
+  it('알림음 토글은 기본 꺼짐이고 아이콘 전용이다 — 이름은 aria-label · title 이 말한다', () => {
     render(<WorkbenchStatusBar {...props()} />);
     const tone = screen.getByRole('button', { name: '돌파 알림음 켜기 (이 기기만)' });
     expect(tone.getAttribute('aria-pressed')).toBe('false');
+    expect(tone.textContent).toBe('');
+    expect(tone).toHaveAttribute('title', '돌파 알림음 켜기 (이 기기만)');
+    expect(tone.querySelector('svg')).not.toBeNull();
   });
 
   it('켜면 저장되고 resumeToneContext 가 그 클릭 안에서 불린다', async () => {

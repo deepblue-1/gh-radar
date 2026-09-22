@@ -316,10 +316,10 @@ describe('TradingWorkbench — 조립 (D-04 · 레이아웃 계약)', () => {
     expect(slot('trading-workbench')!.className).toContain('@container/wb');
   });
 
-  it('카드 0장이면 격자 자리에 빈 문구가 서고, 상태줄 거래 종목은 0 이다', () => {
+  it('카드 0장이면 격자 자리에 빈 문구가 선다', () => {
     render(<TradingWorkbench />);
     expect(slot('card-grid-empty')!.textContent).toContain('거래할 종목이 없어요');
-    expect(screen.getByTestId('stat-cards').textContent).toBe('거래 종목 0');
+    expect(cardsInDom()).toHaveLength(0);
   });
 });
 
@@ -334,7 +334,6 @@ describe('TradingWorkbench — 카드 추가 (D-07 · D-08)', () => {
     expect(cards[0].getAttribute('data-open')).toBe('true');
     expect(propsOf('KR7096530001')?.name).toBe('씨젠');
     expect(propsOf('KR7096530001')?.code).toBe('096530');
-    expect(screen.getByTestId('stat-cards').textContent).toBe('거래 종목 1');
   });
 
   it('이미 카드가 있는 ISIN 을 다시 누르면 카드가 늘지 않고 그 카드가 펼쳐진다', () => {
@@ -838,26 +837,25 @@ describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitf
   });
 });
 
-describe('TradingWorkbench — 상태줄 카운터 (TRADE-09 precision)', () => {
-  it('상태줄 돌파·VI 카운터가 스트립과 같은 값을 말한다', () => {
+describe('TradingWorkbench — 개수는 스트립 칩이 말한다 (상태줄은 핵심만)', () => {
+  it('상태줄에 개수가 없고, 스트립 라벨은 「돌파」·「VI」 · 돌파 칩 2 · VI 칩 1 · 「미확인 1」 필', () => {
     mockRelay = relay({
       rateCrossItems: [rc(), rc({ isin: 'KR7005930003', name: '삼성전자', code: '005930' })],
-      viOrders: [
-        {
-          isin: 'KR7000660001',
-          exchange: 'KRX',
-          accountNo: ACCOUNT,
-          orderNo: '1',
-          state: 'Accepted',
-          confirmed: false,
-        },
-      ] as unknown as RelayShape['viOrders'],
+      viOrders: [viOrder()],
     });
     render(<TradingWorkbench />);
-    expect(screen.getByTestId('stat-breakout').textContent).toBe('돌파 2');
-    expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파 2');
-    expect(screen.getByTestId('stat-vi').textContent).toBe('VI 발동 1');
+    const bar = slot('workbench-status-bar')!;
+    for (const word of ['돌파', 'VI 발동', '거래 종목', '임계', '미확인', '신규']) {
+      expect(bar.textContent).not.toContain(word);
+    }
+    expect(screen.queryByTestId('stat-breakout')).toBeNull();
+    expect(screen.queryByTestId('stat-vi')).toBeNull();
+    expect(screen.queryByTestId('stat-cards')).toBeNull();
+    expect(screen.getByTestId('breakout-strip-label').textContent).toBe('돌파');
     expect(screen.getByTestId('vi-strip-label').textContent).toBe('VI');
+    expect(document.querySelectorAll('[data-slot="breakout-chip"]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-slot="vi-chip"]')).toHaveLength(1);
+    expect(slot('vi-unconfirmed-pill')!.textContent).toBe('미확인 1');
   });
 });
 

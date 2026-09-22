@@ -4,7 +4,10 @@
  * BreakoutStrip — `/trading` 작업대의 **돌파감지 스트립 + 「더보기」 7열 표** (UI-SPEC §레이아웃
  * 계약 6·7 · E4, TRADE-06 · D-07 / D-14 ~ D-18). 정본은 채택 목업 `18-workbench-mockup.html` 의
  * `.rc-strip` · `.rc-tw`(마크업 `:745-746` · 렌더 `:859-884` · CSS `:282-300`, `:330-358`).
- * `vi-trigger-strip.tsx` 와 **같은 문법**이다.
+ * `vi-trigger-strip.tsx` 와 **같은 문법**이다 — 한 테두리 패널(목업 `260923-bjb-mockup.html` `.panel`)
+ * 안에 스트립 줄(라벨 「돌파」 · 칩 · 「더보기/접기」) → 펼친 표. 토글은 스트립 줄 버튼 하나이고,
+ * 펼친 영역에 머리줄이 없다. 행이 없으면 펼친 영역을 그리지 않는다(스트립 줄의 빈 문구가 말한다).
+ * 개수는 칩이 말한다 — 라벨·상태줄에 숫자를 두 번 적지 않는다.
  *
  * ① ★ 서버 집합을 재해석하지 않는다 (D-14)
  *   76 upsert · 78 전량 교체 · 정렬 · 상한 200 은 relay 리듀서가 이미 했다. 이 파일에는 정렬도
@@ -90,11 +93,6 @@ export interface BreakoutStripProps {
   onFocusCard: (isin: string) => void;
   /** 행 ✕ 로 지웠다. 「지운 종목」 기록은 이 컴포넌트가 이미 했다 — 알림용 콜백이다. */
   onDismiss?: (isin: string) => void;
-  /**
-   * 그린 행 수 · 30초 강조(신규) 행 수 보고(18-11) — 작업대 상태줄 「돌파 N · 신규 M」 이 스트립과
-   * **같은 값**을 말하게 한다. 상태줄이 원본 배열을 따로 세면 지운·이탈 행 때문에 두 숫자가 갈린다.
-   */
-  onCountsChange?: (counts: { total: number; fresh: number }) => void;
   className?: string;
 }
 
@@ -119,7 +117,6 @@ export function BreakoutStrip({
   onAddCard,
   onFocusCard,
   onDismiss,
-  onCountsChange,
   className,
 }: BreakoutStripProps) {
   const [open, setOpen] = useState(false);
@@ -232,32 +229,24 @@ export function BreakoutStrip({
       highlighted: isHighlighted(row, now) && !row.trading,
     }),
   );
-  const newCount = views.filter((v) => v.highlighted).length;
-
-  useEffect(() => {
-    onCountsChange?.({ total: rows.length, fresh: newCount });
-  }, [onCountsChange, rows.length, newCount]);
+  const showTable = open && views.length > 0;
 
   return (
-    <div data-slot="breakout" className={cn('flex min-w-0 flex-col gap-1.5', className)}>
-      {/* ── 접힌 줄 ── */}
+    <div
+      data-slot="breakout"
+      className={cn(
+        'min-w-0 overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)]',
+        className,
+      )}
+    >
+      {/* ── 스트립 줄 ── */}
       <section
         data-slot="breakout-strip"
         aria-label="돌파감지"
-        className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] px-2.5 py-2"
+        className="flex min-w-0 items-center gap-2 px-2.5 py-2"
       >
         <div className="flex flex-none items-center gap-1.5 text-[12px] font-bold text-[var(--fg)]">
-          <span data-testid="breakout-strip-label">
-            돌파 <small className="font-semibold text-[var(--muted-fg)]">{rows.length}</small>
-          </span>
-          {newCount > 0 && (
-            <span
-              data-slot="breakout-new-pill"
-              className="inline-flex h-[18px] items-center rounded-full border border-[var(--new-bd)] bg-[var(--new-bg)] px-[7px] text-[10px] font-bold whitespace-nowrap text-[var(--fg)]"
-            >
-              신규 {newCount}
-            </span>
-          )}
+          <span data-testid="breakout-strip-label">돌파</span>
         </div>
 
         <div
@@ -280,7 +269,8 @@ export function BreakoutStrip({
           type="button"
           data-slot="breakout-more"
           aria-expanded={open}
-          aria-controls={tableId}
+          // 가리킬 표가 있을 때만 — 없는 id 를 가리키지 않는다(axe aria-valid-attr-value).
+          aria-controls={showTable ? tableId : undefined}
           onClick={() => setOpen((o) => !o)}
           className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
         >
@@ -288,34 +278,15 @@ export function BreakoutStrip({
         </button>
       </section>
 
-      {/* ── 펼친 표 ── */}
-      {open && (
+      {/* ── 펼친 표 — 행이 있을 때만 ── */}
+      {showTable && (
         <section
           id={tableId}
           data-slot="breakout-table"
           aria-label="돌파감지 목록"
-          className="min-w-0 overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)]"
+          className="min-w-0 border-t border-[var(--border)]"
         >
-          <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2 text-[13px] font-bold text-[var(--fg)]">
-            <span className="whitespace-nowrap">돌파감지</span>
-            <span data-slot="breakout-table-summary" className="min-w-0 text-[12px] font-medium text-[var(--muted-fg)]">
-              돌파 {rows.length} · 신규 {newCount} · 임계 20% · 최신 위
-            </span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="ml-auto h-[26px] flex-none rounded-[var(--r)] border border-transparent bg-transparent px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)]"
-            >
-              접기 ▴
-            </button>
-          </div>
-          {views.length === 0 ? (
-            <p className="m-0 border-t border-[var(--border)] px-3 py-4 text-center text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-              {BREAKOUT_EMPTY_TEXT}
-            </p>
-          ) : (
-            <BreakoutTable views={views} onActivate={activate} onDismiss={dismiss} />
-          )}
+          <BreakoutTable views={views} onActivate={activate} onDismiss={dismiss} />
         </section>
       )}
     </div>
