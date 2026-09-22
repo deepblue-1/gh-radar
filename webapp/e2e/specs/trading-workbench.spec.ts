@@ -395,6 +395,51 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(setBefore);
   });
 
+  test('GC1 돌파 목록은 가장 최신 돌파가 맨 위 — 칩 줄 첫 칩과 표 첫 행이 가장 늦은 돌파 (사용자 결정 2026-09-22 · TRADE-06)', async ({
+    page,
+  }) => {
+    /*
+      순서의 정본은 relay `sortRateCrossNewestFirst` 와 웹 리듀서 `sortRateCross` 한 벌이다 — 스트립·표는
+      받은 순서를 그대로 그린다(D-14). 여기서는 그 결과가 실브라우저에서 「최신 위」로 보이는지만 본다.
+      케이스 3 과 같은 이유로 시세 자동 응답을 끈다(이탈 판정으로 행이 지워지지 않게).
+      `pushBreakout` 은 원소 1개 모양이라 쓰지 않고, 같은 `waitForConnection` 규율로 소켓을 직접 기다린다.
+    */
+    relay.setRespondingExchanges([]);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+
+    const base = { exchange: 'KRX', lastPrice: 118_000n, changeRate: 20.41, thresholdPct: 20, basePrice: 98_000n };
+    const sock = await relay.gateway.waitForConnection(15_000);
+    // 게이트웨이 78 원순서는 오름차순(오래된 것이 먼저)이다 — 화면은 그 반대여야 한다.
+    relay.gateway.sendRateCrossSnapshot(sock, [
+      { ...base, isin: E2E_ISIN, exchangeTime: '090100000001' },
+      { ...base, isin: E2E_LONG_NAME_ISIN, exchangeTime: '090300000003' },
+    ]);
+
+    const chips = page.locator('[data-slot="breakout-chip"]');
+    await expect(chips).toHaveCount(2, { timeout: 15_000 });
+    await expect(chips.first()).toContainText('한국제7호기업인수목적우선주식회사');
+    await expect(chips.nth(1)).toContainText('삼성전자');
+
+    // 「더보기」 표도 같은 순서 — 표 첫 데이터 행이 가장 늦은 돌파다.
+    await page.locator('[data-slot="breakout-more"]').click();
+    const table = page.locator('[data-slot="breakout-table"]');
+    await expect(table).toBeVisible();
+    const rows = table.locator('[data-slot="breakout-row"]');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText('한국제7호기업인수목적우선주식회사');
+    await expect(rows.nth(1)).toContainText('삼성전자');
+
+    // 76 으로 더 늦은(0905) 세 번째 종목 — 맨 위(첫 칩 · 표 첫 행)로 들어온다.
+    // SymbolMap 에 없는 ISIN 이라 라벨은 ISIN 원문이다.
+    const THIRD_ISIN = 'KR7035720002';
+    relay.gateway.sendRateCrossAlert(sock, { ...base, isin: THIRD_ISIN, exchangeTime: '090500000005' });
+    await expect(chips).toHaveCount(3, { timeout: 15_000 });
+    await expect(chips.first()).toContainText(THIRD_ISIN);
+    await expect(rows.first()).toContainText(THIRD_ISIN);
+    await expect(chips.nth(1)).toContainText('한국제7호기업인수목적우선주식회사');
+  });
+
   test('4. 카드 컨테이너 699/700 · 829/830 · 991/992 — 밴드가 경계에서 바뀌고 각 폭에서 잘림 0 (E6 overflow · §2.2b 이관)', async ({
     page,
   }) => {

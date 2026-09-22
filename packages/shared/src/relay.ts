@@ -1005,7 +1005,9 @@ export type RelayRateCrossMsg = { t: "rate.cross"; item: RelayRateCrossItem };
  * 등락률 돌파 above 집합 **전량 교체** (78 — `RateCrossSnapshot`).
  *
  * 로그인 성공 직후 그 연결에만 1프레임 오고(빈 벡터도 온다), 재로그인마다 다시 온다.
- * 원소 순서는 `exchangeTime` 오름차순 · 동률이면 `isin` 오름차순이다.
+ * 게이트웨이 78 원순서는 오름차순이지만 **relay 가 내리는 순서는 `exchangeTime` 내림차순(최신
+ * 돌파가 맨 위) · 동률이면 `isin` 오름차순**이다 — 사용자 결정 2026-09-22. 브라우저 리듀서도
+ * 같은 축으로 다시 정렬한다.
  *
  * ⚠️ relay 는 **서버 above 집합을 그대로 보관**한다. 하루 1회 알림 규칙과 임계−2%p 이탈
  *    삭제는 클라(Phase 18) 몫이다 — relay 가 집합을 가공하면 서버 재무장 폭과 갈린다.
