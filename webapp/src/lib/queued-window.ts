@@ -98,3 +98,29 @@ export function affordanceOf(
   // 5. 그 외.
   return normal;
 }
+
+/** 구간 배지 한 개 — 문구와 색 갈래. 갈래는 UI-SPEC §Color(`.winpill`)의 세 표면이다. */
+export interface QueuedWindowBadge {
+  /** UI-SPEC §상태줄 「구간 배지」 원문. */
+  text: string;
+  /** `regular` = 중립 · `queued` = 예약구간/장전(`--new-bg`) · `offhours` = 시간외종가 창(accent). */
+  tone: "regular" | "queued" | "offhours";
+}
+
+/**
+ * 77 창 힌트 → 상태줄 구간 배지 (Phase 18 · 작업대 상태줄 · 호가 탭 상태줄 공유).
+ *
+ * ★ **모름(`undefined`)이면 `null`** — 배지를 그리지 않는다. 「정규」로 위장하지 않는다(②).
+ * ★ 벽시계를 읽지 않는다(③). 창이 여럿 열려 있으면 시간외종가 → 예약구간 → 장전 순으로
+ *   **더 좁은 창**이 이긴다 — 수동주문 폼이 실제로 바뀌는(라벨·콤보) 쪽을 먼저 말한다.
+ */
+export function queuedWindowBadgeOf(
+  w: RelayQueuedWindowMsg | undefined,
+): QueuedWindowBadge | null {
+  if (w === undefined) return null;
+  if (w.g3Open) return { text: "시간외종가 G3 창", tone: "offhours" };
+  if (w.g2Open) return { text: "시간외종가 G2 창", tone: "offhours" };
+  if (w.open) return { text: `예약구간 · 조각 최대 ${w.maxPieces}`, tone: "queued" };
+  if (w.preopenOpen || w.nxtPreopenOpen) return { text: "장전 · 예약매수/매도", tone: "queued" };
+  return { text: "정규", tone: "regular" };
+}

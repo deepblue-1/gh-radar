@@ -6,6 +6,7 @@ import {
   affordanceOf,
   NXT_PREOPEN_CONFIRM_NOTE,
   PREOPEN_CONFIRM_NOTE,
+  queuedWindowBadgeOf,
 } from "../queued-window";
 
 /**
@@ -118,5 +119,32 @@ describe("affordanceOf — 77 → 라벨·입력 매핑 (판정의 유일 지점
     expect(late).toEqual(early);
     expect(early.buttonMode).toBe("queued");
     expect(early.maxPieces).toBe(7);
+  });
+});
+
+describe("queuedWindowBadgeOf — 상태줄 구간 배지 (18-10)", () => {
+  it("모름(undefined)이면 배지가 없다 — 「정규」로 위장하지 않는다", () => {
+    expect(queuedWindowBadgeOf(undefined)).toBeNull();
+  });
+
+  it("창이 전부 닫혀 있으면 「정규」(중립)다", () => {
+    expect(queuedWindowBadgeOf(win({}))).toEqual({ text: "정규", tone: "regular" });
+  });
+
+  it("예약구간은 서버 maxPieces 를 문구에 싣는다 · 장전은 KRX/NXT 공통 문구다", () => {
+    expect(queuedWindowBadgeOf(win({ open: true, maxPieces: 7 }))).toEqual({
+      text: "예약구간 · 조각 최대 7",
+      tone: "queued",
+    });
+    expect(queuedWindowBadgeOf(win({ nxtPreopenOpen: true }))?.text).toBe("장전 · 예약매수/매도");
+    expect(queuedWindowBadgeOf(win({ preopenOpen: true }))?.tone).toBe("queued");
+  });
+
+  it("시간외종가 창이 다른 창보다 이긴다 (G3 → G2 순)", () => {
+    expect(queuedWindowBadgeOf(win({ g2Open: true, open: true }))).toEqual({
+      text: "시간외종가 G2 창",
+      tone: "offhours",
+    });
+    expect(queuedWindowBadgeOf(win({ g3Open: true, g2Open: true }))?.text).toBe("시간외종가 G3 창");
   });
 });

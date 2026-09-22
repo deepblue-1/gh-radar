@@ -168,8 +168,12 @@ describe('StockDetailClient', () => {
     await waitFor(() =>
       expect(screen.getByTestId('stock-orderbook-section')).toBeInTheDocument(),
     );
-    // 실시간 현재가와 스냅샷 히어로가 다를 수 있음을 설명하는 출처 라벨(D1).
-    expect(screen.getByText(/실시간\(DMA\)/)).toBeInTheDocument();
+    /*
+      18-10 — 호가 탭 본문이 카드 본문(`CardBody`)으로 바뀌면서 섹션 헤더의 20px 실시간 현재가와
+      그 출처 라벨(D1 「실시간(DMA)」)이 사라졌다 — 이중 가격 자체가 없어졌다. Provider 밖(이
+      테스트)에는 세션이 없고 픽스처에 ISIN 이 없어 섹션은 권한 없음 게이트를 그린다(Test 2e).
+    */
+    expect(screen.getByTestId('orderbook-access-gate')).toBeInTheDocument();
   });
 
   it('Test 2e — 권한 없는 사용자에게도 섹션이 사라지지 않고 게이트 카드가 뜬다 (UI-SPEC C13)', async () => {

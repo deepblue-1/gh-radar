@@ -228,9 +228,9 @@ describe('StockOrderbookSection — 호가 탭 = 카드 본문 (D-24)', () => {
     const seg = within(bar).getByRole('group', { name: '거래소' });
     expect(within(seg).getByRole('radio', { name: 'KRX' })).toHaveAttribute('aria-checked', 'true');
     expect(within(seg).getByRole('radio', { name: 'NXT' })).toBeInTheDocument();
-    for (const kind of ['매수', '매도', '취소']) {
-      expect(within(bar).getByLabelText(new RegExp(`^${kind} 래치`))).toBeInTheDocument();
-    }
+    const leds = Array.from(bar.querySelectorAll('[data-slot="latch-led"]'));
+    expect(leds.map((el) => el.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel']);
+    expect(leds[0].textContent).toMatch(/매수\s*래치\s*OFF/);
     expect(within(bar).getByText('정규')).toBeInTheDocument();
     expect(within(bar).getByText('반영 —')).toBeInTheDocument();
   });

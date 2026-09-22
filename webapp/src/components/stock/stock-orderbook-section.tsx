@@ -1,108 +1,94 @@
 'use client';
 
 /**
- * StockOrderbookSection — 호가주문 탭 섹션 셸 (UI-SPEC C1, 확정 L1=B · L6 · M1).
+ * StockOrderbookSection — 종목상세 호가주문 탭 (Phase 18 D-24 · D-23 · D-28, TRADE-07/09).
  *
- * ① 무엇을 하는가
- *   `useRelaySubscription` 으로 **전역 relay 연결**(16-09 `RelayProvider`, D-22) 위에 이
- *   종목 구독만 얹어 연결 상태·호가·체결을 받고, 헤더 / 전폭 상태 바 / 본문(게이트·
- *   스켈레톤·에러·정상 4분기)을 조립한다. 거래소 KRX/NXT 토글과 사다리에서 고른
- *   가격(`selectedPrice`)도 이 셸이 소유한다 — 주문 패널(15-18)이 소비한다.
- *   ★ 소켓은 이 섹션이 소유하지 않는다. 여기서 하는 일은 구독 참조계수 +1/-1 뿐이다.
+ * ① 무엇을 조립하는가 (레이아웃 정본 `18-orderbook-tab-mockup.html` — 목업이 코드와 다르면 목업이 이긴다)
+ *   히어로 · 갱신줄 · 4탭 바는 상위(`stock-detail-client` · `stock-detail-tabs`)가 그린다. 이 섹션은
+ *   **상태줄 → 종목정보 10칸 → 본문(좌 호가 | 우 옵션 4그룹 + 적응형 수동주문) → 미체결/잔고** 순서다.
+ *   ★ 본문은 작업대 전략 카드와 **같은 컴포넌트**(`CardBody variant="orderbook"`)다 — 여기서 배운
+ *     조작이 카드에서 그대로 통한다. 이 파일은 사다리·체결·옵션 4그룹을 **다시 조립하지 않는다.**
+ *   ★ 카드와 다른 점은 셋뿐이다:
+ *     ① 거래소가 헤더가 아니라 **상태줄**에 있다(아래 `OrderbookStatusBar`)
+ *     ② 수동주문 폼에 **주문유형 콤보**가 있다(`variant="orderbook"` 이 가른다)
+ *     ③ 미체결이 **이 종목만**이다(계좌 상태를 이 종목으로 걸러 넘긴다 — T-18-51)
  *
- * ② 어디에 마운트되는가
- *   `stock-detail-client.tsx` 의 `호가주문` 탭 패널 **전체**. 패널 폭은 15-11 이 이미
- *   넓은 컨테이너(`w-full`)로 잡아 뒀고, 좌우 여백(모바일 8px · >=lg 24px)은 AppShell `main`
- *   의 `p-2 lg:p-6` 이 준다.
- *   탭이 Radix Tabs 라 비활성 시 **언마운트**되며, 구독 훅의 cleanup 이 `unsub`(참조계수
- *   1→0)을 처리한다. 소켓 자체는 앱이 열려 있는 한 유지되므로 탭을 껐다 켜도 DMA 세션이
- *   재수립되지 않는다. 그래서 `enabled` 에 탭 활성 여부를 넘기지 않는다.
+ * ② ★ 이 섹션 루트가 `@container/lc` 컨테이너다 (D-28)
+ *   카드와 **같은 이름**을 선언해야 본문·10칸·폼의 `@min-[Npx]/lc:` 유틸리티가 이 탭의 폭을 잰다
+ *   (선언의 출처는 `card/strategy-card.tsx` 의 `LC_CONTAINER_CLASS` 한 곳 — 문자열을 다시 적지 않는다).
+ *   이 래퍼가 빠지거나 이름이 어긋나면 안쪽 모든 밴드 분기가 **에러 없이** 폰 밴드로 떨어진다.
+ *   밴드 수치의 정본은 `webapp/src/styles/globals.css` §2.2b 다. 뷰포트 브레이크포인트를 섞지 않는다
+ *   (`AccountPanel` 은 자기 파일의 뷰포트 규칙을 그대로 쓴다 — 이 파일의 판정이 아니다).
+ *   ★ 컨테이너는 layout containment 를 걸어 `position:fixed` 자손의 컨테이닝 블록이 된다 — 그래서
+ *     옵션 폼의 더티 바는 `document.body` 로 포털된다(`limit-chaser-form`).
  *
- * ③ ★ LOCKED 색 규칙 (UI-SPEC §Color 열거표 · 금지 목록 · 토큰 충돌)
- *   - 섹션 헤더의 등락액·등락률만 방향색(`ui/number.tsx` `withColor`). 나머지 헤더 수치
- *     (기준·상한·하한·VI)는 전부 중립 `--fg` / `--muted-fg` 다.
- *   - 연결 상태 배지·안내 문구·스켈레톤·빈 상태·권한 없음 게이트에는 방향색을 쓰지 않는다.
- *   - 거래소 토글 활성만 accent(`--accent`) — UI-SPEC 이 accent 사용처로 명시한 3곳 중 하나다.
+ * ③ 구독과 언마운트
+ *   `useRelaySubscription` 으로 **전역 relay 연결** 위에 이 종목 구독만 얹는다(참조계수 +1/-1).
+ *   탭이 Radix Tabs 라 `호가주문` 을 떠나면 **언마운트**되고(`stock-detail-tabs` T8), 구독 훅의
+ *   cleanup 이 해제한다 — 보이지 않는 탭에서 실시간 호가를 유지하지 않는다. 카드 상태 훅
+ *   (`useStrategyCardState`)도 같은 키를 구독하지만 참조계수라 업스트림 구독은 하나다.
  *
- * ④ 빈 · 에러 · 게이트 상태
- *   - `unauthorized` 또는 `isin === null` → C13 권한 없음 게이트가 **본문을 대체**한다.
- *     **섹션 자체를 숨기지 않는다**(UI-SPEC C1). 그래서 이 파일에는 null 을 돌려주는
- *     경로가 없다 — `stock-comovement-section.tsx` 의 quiet fallback 관례를 따르지 않는다.
- *   - 초기 로딩(호가 없음 + 연결 진행 중) → `orderbook-skeleton.tsx`.
- *   - 복구 불가 실패(`failed` / `manual_required` / `session_rejected`) + 호가 없음 →
- *     `호가를 불러오지 못했어요` + `다시 연결` 버튼(`reconnect()`).
- *   - NXT 호가가 비면 전용 빈 상태로 알린다(D3 — 토글 비활성화는 `GetSymbolMasterReq`
- *     가 필요해 deferred). 문구 정본은 아래 JSX 한 곳뿐이다.
- *   - 재접속 중에는 **본문을 비우지 않는다**. 사다리·테이프가 마지막 값 + `opacity:.55` 다.
+ * ④ 빈 · 에러 · 게이트
+ *   - `unauthorized` 또는 `isin === null` → 권한 없음 게이트가 본문을 **대체**한다. 섹션은 숨기지 않는다.
+ *   - 연결 중 · 복구 불가 실패 → 본문은 그대로 두고 가격이 「—」다(E9 loading/error — 스피너·
+ *     안내 카드로 바꾸지 않는다). 연결 상태는 상태줄 DMA 필이 말하고, 복구 불가면 그 줄에
+ *     「다시 연결」이 선다.
+ *   - NXT 호가가 비면 본문 위 한 줄로 알린다(D3). 문구 정본은 아래 JSX 한 곳뿐이다.
  *
- * ⑤ 이중 가격 (D1)
- *   히어로(30px·스냅샷 API·`갱신 HH:MM:SS`)와 이 헤더(20px·실시간 DMA·`체결 HH:MM:SS`)는
- *   **다른 값을 보일 수 있다.** 크기 위계와 `실시간(DMA)` 출처 라벨 상시 노출로 설명한다.
- *   **히어로는 수정하지 않는다**(Phase 6 표면 비침범).
- *
- * ⑥ 레이아웃 — 데스크톱과 모바일이 **일부러 다른 순서**다 (2026-09-07 확정)
- *   ≥900px  `grid-template-columns: 200px 380px minmax(380px,1fr)` / `gap: 1px`
- *           좌 체결 테이프 · 중앙 사다리 10단 · 우측 내 계좌 축.
- *           체결 200px 은 `구분` 열을 없애고(수량 색이 대신한다) 남은 3열 최소폭이다.
- *           세 열 합은 960px 로 유지 — 900~960px 구간 가로 넘침을 더 키우지 않는다.
- *   <900px  호가 → 주문 → 체결 → 잔고 → 미체결.
- *           손이 닿는 순서(호가를 눌러 주문)를 위로 올리고, 참고용인 체결을 뒤로 뺀다.
- *           데스크톱은 좌→우로 훑으니 체결이 먼저여도 시선 비용이 없지만, 모바일은
- *           세로 스크롤이라 체결이 위에 있으면 주문까지 매번 지나가야 한다.
- *   ★ 그래서 `order-*`(모바일)와 소스 순서(데스크톱)가 **의도적으로 어긋나 있다**.
- *     둘 중 하나만 고치면 반대쪽이 조용히 깨지므로, 섹션 테스트가 두 순서를 함께 잠근다.
- *
- * ⑦ ★ `min-w-0` 를 그리드 자식 전부에 건다 — 없으면 호가창이 **잘린다**
- *   그리드 아이템 기본값은 `min-width: auto` 라 콘텐츠 최소폭 아래로 줄지 않는다.
- *   폭이 모자라면 아이템이 그리드 밖으로 삐져나가고, 섹션의 `overflow-hidden` 이 그걸
- *   그대로 **잘라낸다**(스크롤바도 안 생겨 사용자는 잘린 줄만 안다). 실제로 잔량·계좌명이
- *   길어지면 사다리 우측 `매수잔량` 열이 화면 밖으로 밀려나 사라졌다.
- *   `display: contents` 인 계좌 축의 자식(주문·계좌 패널)도 좁은 폭에서는 직접 그리드
- *   아이템이 되므로 **그 둘에도 걸어야 한다** — 래퍼에만 걸면 모바일에서 무효다.
+ * ⑤ ★ 계좌는 섹션이 소유한다
+ *   상태줄의 계좌 선택이 옵션 폼(전략 키) · 수동주문 · 미체결/잔고가 보는 **단일 계좌**다. 각자 들면
+ *   「주문한 계좌」와 「미체결을 보고 있는 계좌」가 어긋나고, 그것이 곧 엉뚱한 계좌의 주문을
+ *   취소하는 사고다(CR-01).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
+import { RELAY_STATE_LABELS, serverMsgBadge } from '@gh-radar/shared';
+import type { RelayAccount, RelayExchange } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Number as UiNumber } from '@/components/ui/number';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AccountPanel } from '@/components/orderbook/account-panel';
-import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
-import { OrderbookSkeleton } from '@/components/orderbook/orderbook-skeleton';
+import { CardBody } from '@/components/trading/card/card-body';
+import { QuoteGrid10 } from '@/components/trading/card/quote-grid-10';
 import {
-  OrderPanel,
-  deriveTickSize,
-  type PriceSelection,
-} from '@/components/orderbook/order-panel';
-import { RelayStatusBar } from '@/components/orderbook/relay-status-bar';
-import { TradeTape, formatTapeTime } from '@/components/orderbook/trade-tape';
-import { useRelaySubscription } from '@/lib/relay-provider';
+  LC_CONTAINER_CLASS,
+  useStrategyCardState,
+  type StrategyCardState,
+} from '@/components/trading/card/strategy-card';
+import { LatchLed } from '@/components/trading/latch-led';
+import { queuedWindowBadgeOf } from '@/lib/queued-window';
+import { useRelayContext, useRelaySubscription } from '@/lib/relay-provider';
+import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
-import type { RelayExchange } from '@gh-radar/shared';
 
 /** 거래소 전환 후 이 시간까지 스냅샷이 없으면 "빈 호가"로 판정한다(D3). */
 const EXCHANGE_SWITCH_GRACE_MS = 3_000;
 
-/** 아직 아무 프레임도 못 받은 진행 상태들 — 이때만 스켈레톤을 그린다. */
-const CONNECTING_STATES = new Set(['idle', 'connecting', 'logging_in', 'declaring']);
-/** 자동 복구를 기대할 수 없는 상태들 — 사용자에게 `다시 연결` 을 준다. */
-const UNRECOVERABLE_STATES = new Set(['failed', 'manual_required', 'session_rejected']);
+/** 아직 아무 프레임도 못 받은 진행 상태들. */
+const CONNECTING_STATES: ReadonlySet<string> = new Set([
+  'idle',
+  'connecting',
+  'logging_in',
+  'declaring',
+]);
+/** 자동 복구를 기대할 수 없는 상태들 — 상태줄에 「다시 연결」을 준다. */
+const UNRECOVERABLE_STATES: ReadonlySet<string> = new Set([
+  'failed',
+  'manual_required',
+  'session_rejected',
+]);
 
-const KRW = new Intl.NumberFormat('ko-KR');
-
-function fmt(n: number | null | undefined): string {
-  return n == null || !Number.isFinite(n) ? '—' : KRW.format(n);
-}
+const EXCHANGES: readonly RelayExchange[] = ['KRX', 'NXT'];
 
 export interface StockOrderbookSectionProps {
-  /** 6자 단축코드. 표시·주문 요청 키다. */
+  /** 6자 단축코드. 표시·확인 다이얼로그용. */
   code: string;
-  /** 종목명. 헤더 표기용. */
+  /** 종목명. */
   name: string;
   /**
-   * 12자 KRX 표준코드. **게이트웨이 구독 키**(D-28).
+   * 12자 KRX 표준코드. **게이트웨이 구독 키 · 주문 키**(D-28).
    * null 이면 이 종목은 DMA 구독·주문 대상이 아니므로 게이트 카드를 띄운다.
    */
   isin: string | null;
@@ -125,76 +111,84 @@ export function StockOrderbookSection({
   className,
 }: StockOrderbookSectionProps) {
   /*
-    ISIN 정규화 — 빈 문자열·undefined 를 전부 null 로 좁힌다.
-    `isin === null` 만 게이트 조건으로 쓰면, 필드가 아예 빠진 응답(구 서버·E2E 픽스처)에서
-    `undefined !== null` 이라 게이트를 통과한 뒤 `enabled:false` 로 연결도 하지 않아
-    **스켈레톤에서 영원히 멈춘다**. 구독 키가 없다는 사실 하나로 판정을 통일한다.
+    ISIN 정규화 — 빈 문자열·undefined 를 전부 null 로 좁힌다. 필드가 아예 빠진 응답(구 서버·
+    E2E 픽스처)에서 `undefined !== null` 이라 게이트를 통과한 뒤 연결도 하지 않는 경로를 막는다.
   */
   const subscriptionIsin = isin != null && isin.length > 0 ? isin : null;
 
   const [exchange, setExchange] = useState<RelayExchange>('KRX');
-  const [selectedPrice, setSelectedPrice] = useState<PriceSelection | null>(null);
   const [switching, setSwitching] = useState(false);
-  /*
-    계좌 선택은 **섹션이 소유**하고 주문 패널·계좌 패널이 같은 값을 본다.
-    두 패널이 각자 상태를 들면 "주문한 계좌"와 "미체결을 보고 있는 계좌"가 어긋난다 —
-    그 어긋남이 곧 엉뚱한 계좌의 주문을 취소하는 사고다.
-  */
   const [selectedAccountNo, setSelectedAccountNo] = useState('');
+  /** 미체결 행 선택(D-21) — 주문번호만 든다. 행 값은 매 렌더 최신 계좌 상태에서 다시 찾는다. */
+  const [selectedOrderNo, setSelectedOrderNo] = useState<string | null>(null);
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** 가격 클릭 일련번호 — 같은 호가를 다시 눌러도 주문 패널이 다시 반영하게 한다. */
-  const priceSeqRef = useRef(0);
 
-  const {
-    status,
-    statusMessage,
-    attempt,
-    accounts,
-    quote,
-    tape,
-    accountStates,
-    messages,
-    isStale,
-    reconnect,
-  } = useRelaySubscription({
+  const { status, statusLabel, accounts, quote, accountStates, reconnect } = useRelaySubscription({
     isin: subscriptionIsin ?? '',
     exchange,
     enabled: subscriptionIsin !== null,
   });
+  const { queuedWindow } = useRelayContext();
 
   /*
-    **선택 계좌**의 상태다. 「마지막으로 받은 계좌」를 쓰면 머리는 A 인데 행은 B 가 되고,
-    그 행의 `✕ 취소` 가 A 계좌로 B 의 주문번호를 보낸다(CR-01). 주문번호는 계좌별
-    시퀀스라 A 에 같은 번호의 주문이 살아 있으면 **엉뚱한 주문이 취소된다.**
-    계좌 축 선택은 이렇게 **소비자가** 한다 — 구독 훅은 어느 계좌를 골랐는지 모른다.
+    ★ 옵션 4그룹의 상태는 작업대 카드와 **같은 훅**이다 — 전략 키(ISIN:계좌:거래소) 필터 ·
+      전송↔에코 상관 · 로그 · LED 가 한 벌이다. 이 탭에서 따로 조립하지 않는다.
   */
+  const card = useStrategyCardState({
+    isin: subscriptionIsin ?? '',
+    accountNo: selectedAccountNo,
+    exchange,
+  });
+
   const selectedAccount =
     selectedAccountNo === '' ? null : (accountStates.get(selectedAccountNo) ?? null);
+  /*
+    ★ 다른 점 ③ — 미체결/잔고는 **이 종목만**이다(T-18-51). `AccountPanel` 은 받은 계좌 상태를
+      전부 그리므로(My page · 상따 화면이 그 동작에 기대고 있다) 걸러서 넘긴다 — 공용 패널을
+      고치지 않는다. 다른 종목의 주문번호가 이 화면에 노출되지 않고, 그 행으로 정정·취소가
+      시작될 경로도 없다. 잔고도 같은 축으로 거른다(목업 정본 — 「잔고 (1)」 = 이 종목).
+  */
+  const stockAccount = useMemo(
+    () =>
+      selectedAccount === null || subscriptionIsin === null
+        ? null
+        : {
+            ...selectedAccount,
+            unf: selectedAccount.unf.filter((u) => u.isin === subscriptionIsin),
+            hold: selectedAccount.hold.filter((h) => h.isin === subscriptionIsin),
+          },
+    [selectedAccount, subscriptionIsin],
+  );
+  /*
+    선택된 원주문은 **지금의** 미체결에서 다시 찾는다 — 부분체결로 잔량이 바뀌면 그 값이 폼으로
+    가고, 전량 체결·취소로 행이 사라지면 선택도 저절로 풀린다(없는 주문을 정정하는 경로가 없다).
+    이 종목·이 계좌의 행만 대상이다(T-18-51).
+  */
+  const selectedUnfilled =
+    selectedOrderNo === null || subscriptionIsin === null
+      ? null
+      : (stockAccount?.unf.find((u) => u.orderNo === selectedOrderNo) ?? null);
 
   /*
-   * 종목 전환 state sticky 방어 (WR-04 관례 · T-15-40).
-   * 종목 상세는 같은 동적 라우트라 종목 간 이동에서 **remount 없이 props 만 갱신**된다.
-   *   - 거래소 리셋 없으면 NXT 를 보던 사용자가 새 종목에서도 NXT 에 갇힌다.
-   *   - selectedPrice 리셋 없으면 **다른 종목의 호가 가격이 주문 입력에 남는다** —
-   *     이것이 곧 "리셋 누락 = 다른 종목 호가로 주문하는 사고"다.
-   *   - 전환 중 인라인 표식(switching) 리셋 없으면 새 종목에서 유령 로딩 문구가 뜬다.
-   * 구독 해제(unsub)는 구독 훅이 이미 한다. quote/tape 는 전역 맵에서 **키로** 골라 오므로
-   * 종목이 바뀌면 새 키에 값이 없어 자연히 비고, 이전 종목 값이 새어 나올 여지가 없다
-   * (16-09 T-16-02 — 승격 전 `wantedKeyRef` 필터가 하던 일을 키 선택이 대신한다).
-   * ★ 계좌 축은 **리셋하지 않는다** — 사용자가 고른 `selectedAccountNo` 도, 거기서
-   *   파생되는 `selectedAccount`(잔고·미체결)도 그대로 둔다. 계좌 상태는 종목 축이 없어서
-   *   종목을 옮길 때마다 비우면 다음 델타가 올 때까지 계좌 패널이 빈 채로 남고, 계좌
-   *   선택까지 되돌리면 종목을 옮길 때마다 사용자가 고른 계좌가 첫 계좌로 튕긴다.
-   */
+    종목 전환 state sticky 방어 (WR-04 관례 · T-15-40). 종목 상세는 같은 동적 라우트라 종목 간
+    이동에서 remount 없이 props 만 갱신된다 — 거래소·원주문 선택을 되돌리지 않으면 새 종목에서도
+    NXT 에 갇히거나 다른 종목의 원주문이 폼에 남는다. 호가 클릭 가격은 본문(`CardBody`)이 같은
+    이유로 스스로 버린다. ★ 계좌는 리셋하지 않는다 — 종목을 옮길 때마다 고른 계좌가 튕긴다.
+  */
   useEffect(() => {
     setExchange('KRX');
-    setSelectedPrice(null);
     setSwitching(false);
+    setSelectedOrderNo(null);
     if (switchTimerRef.current !== null) {
       clearTimeout(switchTimerRef.current);
       switchTimerRef.current = null;
     }
   }, [code, isin]);
+
+  // 계좌를 바꾸면 선택한 원주문을 버린다 — 주문번호는 계좌별 시퀀스다(CR-01).
+  useEffect(() => {
+    setSelectedOrderNo(null);
+  }, [selectedAccountNo]);
 
   /*
     계좌 목록 동기화. 재접속·계좌 재선언으로 목록이 바뀌면 **선택값이 목록에 없을 때만**
@@ -225,10 +219,10 @@ export function StockOrderbookSection({
   );
 
   const handleExchangeChange = useCallback(
-    (next: string) => {
-      // ToggleGroup single 은 같은 항목 재클릭 시 빈 문자열을 준다 — 해제를 허용하지 않는다.
-      if (!next || next === exchange) return;
-      setExchange(next as RelayExchange);
+    (next: RelayExchange) => {
+      if (next === exchange) return;
+      setExchange(next);
+      setSelectedOrderNo(null);
       setSwitching(true);
       if (switchTimerRef.current !== null) clearTimeout(switchTimerRef.current);
       switchTimerRef.current = setTimeout(() => {
@@ -239,284 +233,307 @@ export function StockOrderbookSection({
     [exchange],
   );
 
-  const handlePriceClick = useCallback((price: number) => {
-    // T-15-14 — 가격만 채운다. 매수/매도 구분은 **절대 자동 전환하지 않는다**.
-    // 제출도 하지 않는다. 반영 피드백(입력칸 테두리 플래시)은 15-18 주문 패널 소관.
-    // `seq` 를 올려 보내는 이유는 `PriceSelection` 주석 참고 — 같은 호가 재클릭도 반영이다.
-    priceSeqRef.current += 1;
-    setSelectedPrice({ price, seq: priceSeqRef.current });
+  // 선택 토글 — 같은 행을 다시 누르면 해제(작업대 공용 패널과 같은 계약).
+  const handleSelectUnfilled = useCallback((row: { orderNo: string }) => {
+    setSelectedOrderNo((prev) => (prev === row.orderNo ? null : row.orderNo));
   }, []);
-
-  const effectiveBase = quote?.base && quote.base > 0 ? quote.base : basePrice;
-  /**
-   * KRX 정규장 종가(`QuoteState.krx_close_price`). **오늘 종가가 아니면 `0`** 이다 (D-11).
-   *
-   * 스냅샷 props 로 폴백하지 않는다 — `0` 은 「아직 안 왔다」가 아니라 「오늘 종가가
-   * 아니다」라는 **서버의 답**이라, 다른 출처로 메우면 없는 사실을 지어내는 것이 된다.
-   */
-  const closePrice = quote?.kc ?? 0;
-  const lastTradeAt = useMemo(
-    () => (quote?.et ? formatTapeTime(quote.et) : undefined),
-    [quote?.et],
-  );
-
-  /*
-    호가 단위 — 실호가의 인접 단계 간격이 1순위이고 표는 폴백이다(`deriveTickSize` 주석).
-    스텝퍼 증감폭과 blur 스냅의 기준이므로 값이 틀리면 게이트웨이가 주문을 거부한다.
-  */
-  const tick = useMemo(
-    () => deriveTickSize(quote?.ap, quote?.bp, quote?.p && quote.p > 0 ? quote.p : effectiveBase),
-    [quote?.ap, quote?.bp, quote?.p, effectiveBase],
-  );
-
-  /** 이 종목의 매도가능수량 — 매도 비율 버튼의 기준. 잔고에 없으면 0. */
-  const sellableQty = useMemo(() => {
-    if (subscriptionIsin === null || !selectedAccount) return 0;
-    return selectedAccount.hold.find((h) => h.isin === subscriptionIsin)?.sellableQty ?? 0;
-  }, [selectedAccount, subscriptionIsin]);
+  const handleClearSelection = useCallback(() => setSelectedOrderNo(null), []);
 
   const isGated = subscriptionIsin === null || status === 'unauthorized';
-  const isLoading = !isGated && !quote && CONNECTING_STATES.has(status);
-  const isBroken = !isGated && !quote && UNRECOVERABLE_STATES.has(status);
+  const isLoading = !quote && CONNECTING_STATES.has(status);
+  const isBroken = UNRECOVERABLE_STATES.has(status);
   // 전환 유예가 끝났는데도 호가가 없으면 그 거래소에 호가가 없는 것이다(D3).
-  const isNxtEmpty = !isGated && !quote && exchange === 'NXT' && !switching && !isBroken && !isLoading;
+  const isNxtEmpty =
+    !isGated && !quote && exchange === 'NXT' && !switching && !isBroken && !isLoading;
 
   return (
     <section
       aria-label="실시간 호가·주문"
       data-slot="stock-orderbook-section"
       data-testid="stock-orderbook-section"
-      className={cn(
-        'card-shadow overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]',
-        className,
-      )}
+      /* ② — 카드와 같은 컨테이너 이름. 선언의 출처는 `LC_CONTAINER_CLASS` 한 곳이다. */
+      className={cn(LC_CONTAINER_CLASS, 'flex min-w-0 flex-col gap-[var(--s-3)]', className)}
     >
-      {/* ── 헤더 ─────────────────────────────────────────────── */}
-      <header className="flex flex-wrap items-end justify-between gap-[var(--s-3)] px-[var(--s-4)] py-[var(--s-3)]">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="flex items-baseline gap-[var(--s-2)] text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
-            <span className="text-[length:var(--t-sm)] text-[var(--fg)]">{name}</span>
-            <span className="mono">{code}</span>
-          </p>
-          <p className="flex flex-wrap items-baseline gap-[var(--s-2)]">
-            {/* 실시간 체결가 20px — 히어로(30px 스냅샷)보다 한 단계 낮은 위계(D1). */}
-            <span className="mono text-[length:var(--t-h3)] font-semibold leading-tight">
-              {fmt(quote?.p)}
-            </span>
-            {quote && (
-              <>
-                <UiNumber
-                  value={quote.c}
-                  format="price"
-                  showSign
-                  withColor
-                  className="text-[length:var(--t-sm)] font-semibold"
-                />
-                <UiNumber
-                  value={quote.cr / 100}
-                  format="percent"
-                  showSign
-                  withColor
-                  className="text-[length:var(--t-sm)] font-semibold"
-                />
-              </>
-            )}
-          </p>
-          {/* 출처 라벨 — 히어로와 값이 다를 수 있는 이유를 상시 설명한다(D1). */}
-          <p className="text-[11px] text-[var(--muted-fg)]">
-            실시간(DMA) · 체결 {lastTradeAt ?? '—'}
-          </p>
-        </div>
-
-        <div className="flex flex-col items-end gap-[var(--s-2)]">
-          <ToggleGroup
-            type="single"
-            value={exchange}
-            onValueChange={handleExchangeChange}
-            aria-label="거래소 선택"
-            size="sm"
-            variant="outline"
-            disabled={status !== 'ready'}
-          >
-            {(['KRX', 'NXT'] as const).map((ex) => (
-              <ToggleGroupItem
-                key={ex}
-                value={ex}
-                aria-label={`${ex} 호가`}
-                className="h-6 px-2.5 text-[11px] font-semibold data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
-              >
-                {ex}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-
-          <dl className="flex flex-wrap justify-end gap-x-[var(--s-3)] gap-y-0.5 text-[11px] text-[var(--muted-fg)]">
-            <div className="flex gap-1">
-              <dt>기준</dt>
-              <dd className="mono text-[var(--fg)]">{fmt(effectiveBase)}</dd>
-            </div>
-            <div className="flex gap-1">
-              <dt>상한</dt>
-              <dd className="mono text-[var(--fg)]">{fmt(quote?.ul ?? upperLimit)}</dd>
-            </div>
-            <div className="flex gap-1">
-              <dt>하한</dt>
-              <dd className="mono text-[var(--fg)]">{fmt(quote?.ll ?? lowerLimit)}</dd>
-            </div>
-            {/*
-              ★ 하락VI 자리는 KRX 정규장 종가에 내준다 (17-08 / D-11).
-                판정 입력은 `quote.kc` **하나**다 — `kc > 0` 이 「종가가 확정됐다」의 유일한
-                신호이고, `0` 은 「모른다」가 아니라 **권위값**이다(같은 값이면 no-op).
-              ⚠️ 벽시계로 판정하지 않는다. "지금이 장 마감 뒤인가"를 클라가 계산해 라벨을
-                 바꾸면 서버 진실과 갈린다 — 이 분기에 현재 시각·장 시간 상수를 들이지 말 것.
-                 (이 파일의 시각 기반 판정 건수 0 은 17-08 이 grep 게이트로 잠근 값이다.)
-              ⚠️ NXT 프레임에도 **KRX 값**이 실려 온다(C# 동일). 거래소로 라벨을 갈라
-                 「NXT 종가」 같은 없는 사실을 지어내지 않는다.
-              ★ 상승VI 는 어느 갈래에서도 사라지지 않는다.
-            */}
-            {closePrice > 0 ? (
-              <>
-                <div className="flex gap-1">
-                  <dt>VI</dt>
-                  <dd className="mono text-[var(--fg)]">{fmt(quote?.viu)}</dd>
-                </div>
-                <div className="flex gap-1">
-                  <dt>종가</dt>
-                  <dd className="mono text-[var(--fg)]">{fmt(closePrice)}</dd>
-                </div>
-              </>
-            ) : (
-              <div className="flex gap-1">
-                <dt>VI</dt>
-                <dd className="mono text-[var(--fg)]">
-                  {fmt(quote?.viu)} / {fmt(quote?.vid)}
-                </dd>
-              </div>
-            )}
-          </dl>
-        </div>
-      </header>
-
-      {/* ── 상태 바 (L6 · 섹션 상단 전폭) ─────────────────────── */}
-      <RelayStatusBar
-        status={status}
-        statusMessage={statusMessage}
-        attempt={attempt}
-        accounts={accounts}
-        messages={messages}
-        lastTradeAt={lastTradeAt}
-        exchange={exchange}
-        className="border-t"
-      />
-
-      {/* ── 본문 ─────────────────────────────────────────────── */}
       {isGated ? (
         <OrderbookAccessGate />
-      ) : isLoading ? (
-        <OrderbookSkeleton className="p-[var(--s-3)]" />
-      ) : isBroken ? (
-        <OrderbookLoadError onRetry={reconnect} />
       ) : (
-        <div className="grid gap-px bg-[var(--border-subtle)] min-[900px]:grid-cols-[200px_380px_minmax(380px,1fr)]">
-          {/* 체결 테이프 — 데스크톱 첫 컬럼, 모바일은 주문 아래 3번째 */}
-          <div className="order-3 min-w-0 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
-            <TradeTape
-              entries={tape}
-              isStale={isStale}
-              basePrice={effectiveBase}
-              bestAsk={quote?.ap[0]}
-              bestBid={quote?.bp[0]}
+        <>
+          <OrderbookStatusBar
+            status={status}
+            statusLabel={statusLabel}
+            accounts={accounts}
+            accountNo={selectedAccountNo}
+            onAccountChange={setSelectedAccountNo}
+            exchange={exchange}
+            onExchangeChange={handleExchangeChange}
+            card={card}
+            windowBadge={queuedWindowBadgeOf(queuedWindow)}
+            onReconnect={isBroken ? reconnect : undefined}
+          />
+
+          <TabNotices card={card} exchange={exchange} switching={switching} nxtEmpty={isNxtEmpty} />
+
+          <div className="min-w-0 overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]">
+            <QuoteGrid10
+              quote={quote}
+              basePrice={quote !== null && quote.base > 0 ? quote.base : basePrice}
+              upperLimit={quote !== null && quote.ul > 0 ? quote.ul : (upperLimit ?? 0)}
+              lowerLimit={quote !== null && quote.ll > 0 ? quote.ll : (lowerLimit ?? 0)}
+              currentPrice={quote?.p ?? 0}
             />
           </div>
 
-          {/* 호가 사다리 — 데스크톱 가운데 컬럼, 모바일은 맨 위 */}
-          <div className="order-1 min-w-0 bg-[var(--card)] p-[var(--s-2)] min-[900px]:order-none">
-            {switching && (
-              <p
-                aria-live="polite"
-                className="pb-1 text-[11px] text-[var(--muted-fg)]"
-              >
-                {exchange} 호가 불러오는 중
-              </p>
-            )}
-            {isNxtEmpty ? (
-              <div className="flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
-                <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-                  이 종목은 NXT 호가가 없어요
-                </p>
-                <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                  KRX 로 전환하면 실시간 호가를 볼 수 있어요.
-                </p>
-              </div>
-            ) : (
-              <OrderbookLadder
-                quote={quote}
-                depth={5}
-                isStale={isStale}
-                basePrice={effectiveBase}
-                onPriceClick={handlePriceClick}
-              />
-            )}
-          </div>
+          <CardBody
+            variant="orderbook"
+            card={card}
+            isin={subscriptionIsin}
+            accountNo={selectedAccountNo}
+            exchange={exchange}
+            name={name}
+            code={code}
+            status={status}
+            queuedWindow={queuedWindow}
+            basePrice={basePrice}
+            upperLimit={upperLimit}
+            referenceClose={quote !== null && quote.kc > 0 ? quote.kc : null}
+            selectedUnfilled={selectedUnfilled}
+            onClearSelection={handleClearSelection}
+            className="overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
+          />
 
-          {/*
-            우측 "내 계좌 축" 컬럼 (L1=B). 좁은 폭에서는 `display: contents` 로 그리드
-            자식이 흩어져 모바일 순서(호가 → 주문 → 체결 → 잔고 → 미체결)를 만든다.
-            주문 패널(order-2)과 계좌 패널(order-4, 내부에서 잔고 → 미체결 순)이 자식이다.
-          */}
-          <div
-            data-testid="orderbook-account-column"
-            className="contents min-[900px]:flex min-[900px]:flex-col min-[900px]:gap-px"
-          >
-            <OrderPanel
-              className="order-2 min-w-0 min-[900px]:order-none"
-              code={code}
-              /*
-                주문 키는 **ISIN** 이다(D-02/D-28). 여기까지 왔다는 것은 `isGated` 가 false
-                라는 뜻이고 그 조건에 `subscriptionIsin === null` 이 포함돼 있으므로
-                이 값은 null 이 아니다.
-              */
-              isin={subscriptionIsin}
-              name={name}
-              accounts={accounts}
-              selectedAccountNo={selectedAccountNo}
-              onAccountChange={setSelectedAccountNo}
-              exchange={exchange}
-              selectedPrice={selectedPrice}
-              tick={tick}
-              sellableQty={sellableQty}
-              status={status}
-            />
-            <AccountPanel
-              className="order-4 min-w-0 min-[900px]:order-none"
-              accounts={accounts}
-              selectedAccountNo={selectedAccountNo}
-              onAccountChange={setSelectedAccountNo}
-              account={selectedAccount}
-              code={code}
-              name={name}
-              isin={subscriptionIsin}
-              currentPrice={quote?.p}
-              status={status}
-            />
-          </div>
-        </div>
+          {/* ③ 다른 점 — 미체결/잔고는 **이 종목만**(종목 축 모드). 행 선택 → 수동주문 정정/취소. */}
+          <AccountPanel
+            selectedAccountNo={selectedAccountNo}
+            accountName={accounts.find((a) => a.accountNo === selectedAccountNo)?.name}
+            account={stockAccount}
+            code={code}
+            name={name}
+            isin={subscriptionIsin}
+            currentPrice={quote?.p}
+            status={status}
+            onSelectUnfilled={handleSelectUnfilled}
+            selectedOrderNo={selectedUnfilled?.orderNo ?? null}
+            className="rounded-[var(--r-lg)] border border-[var(--border)]"
+          />
+        </>
       )}
     </section>
   );
 }
 
 /**
- * C13 권한 없음 게이트. **행동 버튼이 없다** — v1 은 관리자 수기 등록이라 셀프서비스
- * 경로 자체가 존재하지 않는다. 없는 경로로 안내하는 버튼은 사용자를 막다른 길로 보낸다.
- * 문구는 UI-SPEC §Copywriting verbatim. 색은 전부 중립(방향색 금지).
+ * 호가 탭 상태줄 — DMA · 계좌 · 거래소 KRX|NXT · LED 3칩 · 구간 배지 · (거부) · 반영 시각.
+ *
+ * ★ 거래소 세그먼트가 **여기** 있다(카드는 헤더) — 다른 점 ①. 이 탭에서 거래소를 바꾸면 다른
+ *   전략 키(ISIN:계좌:거래소)를 보는 것이지 등록된 전략의 거래소를 바꾸는 것이 아니므로 잠그지 않는다.
+ * ★ 무장 상태를 말하는 표기는 래치 LED 3개뿐이다(D-22) — 판정은 `latchLedStateOf` 한 곳.
+ * ★ 연결 상태 문구는 `RELAY_STATE_LABELS` 한 곳에서 온다(D-36). 방향색을 쓰지 않는다.
+ * ★ `flex-wrap` 이라 좁은 폭에서 두 줄로 접힌다 — 뷰포트 분기를 두지 않는다.
+ */
+function OrderbookStatusBar({
+  status,
+  statusLabel,
+  accounts,
+  accountNo,
+  onAccountChange,
+  exchange,
+  onExchangeChange,
+  card,
+  windowBadge,
+  onReconnect,
+}: {
+  status: RelayStatus;
+  statusLabel: string;
+  accounts: RelayAccount[];
+  accountNo: string;
+  onAccountChange: (accountNo: string) => void;
+  exchange: RelayExchange;
+  onExchangeChange: (exchange: RelayExchange) => void;
+  card: StrategyCardState;
+  windowBadge: ReturnType<typeof queuedWindowBadgeOf>;
+  onReconnect?: () => void;
+}) {
+  const label = statusLabel === '' ? RELAY_STATE_LABELS.connecting : statusLabel;
+  const { ledServer, handleArm, lastError, appliedAt } = card;
+
+  return (
+    <div
+      data-slot="orderbook-status-bar"
+      data-status={status}
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+    >
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          data-tone={status === 'ready' ? 'ok' : 'off'}
+          className={cn(
+            'block size-[7px] shrink-0 rounded-full',
+            status === 'ready' ? 'bg-[var(--led-armed)]' : 'bg-[var(--flat)]',
+            CONNECTING_STATES.has(status) && 'animate-pulse motion-reduce:animate-none',
+          )}
+        />
+        DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
+      </span>
+
+      {/*
+        계좌 — 옵션 폼(전략 키) · 수동주문 · 미체결/잔고가 **이 값 하나**를 본다(파일 상단 ⑤).
+        ★ `appearance-none` 을 쓰지 않는다 — 네이티브 캐럿과 OS 선택 UI 를 잃는다.
+        ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
+      */}
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        계좌
+        <select
+          aria-label="계좌"
+          value={accountNo}
+          onChange={(e) => onAccountChange(e.target.value)}
+          disabled={accounts.length === 0}
+          className="mono h-6 max-w-full min-w-0 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--card)] px-1.5 text-[11px] font-semibold text-[var(--fg)] disabled:opacity-50"
+        >
+          {accounts.length === 0 ? (
+            <option value="">계좌 확인 중…</option>
+          ) : (
+            accounts.map((a) => (
+              <option key={a.accountNo} value={a.accountNo}>
+                {a.accountNo} · {a.name}
+              </option>
+            ))
+          )}
+        </select>
+      </span>
+
+      {/*
+        거래소 세그먼트 — 카드 헤더와 같은 `ToggleGroup type="single"`(라디오형 · ←/→ 로빙 포커스).
+        빈 값(`""`)은 무시한다 — single 그룹은 선택된 항목을 다시 누르면 해제를 알린다.
+        연결 전에는 잠근다 — 구독할 소켓이 없는데 전환하면 「불러오는 중」만 남는다.
+      */}
+      <ToggleGroup
+        type="single"
+        value={exchange}
+        onValueChange={(v) => {
+          if (v === 'KRX' || v === 'NXT') onExchangeChange(v);
+        }}
+        disabled={status !== 'ready'}
+        aria-label="거래소"
+        data-slot="orderbook-exchange-segment"
+        className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+      >
+        {EXCHANGES.map((ex) => (
+          <ToggleGroupItem
+            key={ex}
+            value={ex}
+            className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
+          >
+            {ex}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        {(['buy', 'sell', 'cancel'] as const).map((kind) => (
+          <LatchLed key={kind} kind={kind} server={ledServer} onArm={handleArm} />
+        ))}
+      </span>
+
+      {/* 구간 배지 — 모름이면 **없음**(「정규」로 위장하지 않는다 · `queuedWindowBadgeOf`). */}
+      {windowBadge !== null && (
+        <span
+          data-slot="orderbook-window-badge"
+          data-tone={windowBadge.tone}
+          className={cn(
+            'inline-flex h-[18px] items-center rounded-full border px-[7px] text-[10px] font-bold',
+            windowBadge.tone === 'regular' &&
+              'border-[var(--border)] bg-[var(--card)] text-[var(--fg)]',
+            windowBadge.tone === 'queued' &&
+              'border-[var(--new-bd)] bg-[var(--new-bg)] text-[var(--fg)]',
+            windowBadge.tone === 'offhours' &&
+              'border-transparent bg-[var(--accent)] text-[var(--accent-fg)]',
+          )}
+        >
+          {windowBadge.text}
+        </span>
+      )}
+
+      {lastError !== null && (
+        <span
+          role="alert"
+          data-slot="orderbook-server-error"
+          className="min-w-0 text-[var(--destructive)]"
+        >
+          {/* 출처 배지 판정은 `serverMsgBadge` 하나 — 텍스트 접두라 색 단독 전달이 아니다(WCAG 1.4.1). */}
+          <span className="font-semibold">{serverMsgBadge(lastError.src)}</span> {lastError.text}
+        </span>
+      )}
+
+      <span className="ml-auto inline-flex items-center gap-3">
+        {onReconnect !== undefined && (
+          <Button variant="outline" size="sm" className="h-6 px-2" onClick={onReconnect}>
+            다시 연결
+          </Button>
+        )}
+        <span className="mono">반영 {appliedAt ?? '—'}</span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * 본문 위 인라인 고지 — 토스트 없이 `role="status"` 로만 말한다(카드 `CardNotices` 와 같은 원문).
+ * 거래소 전환 중 · NXT 빈 호가 · 다른 단말 변경 배너 · 3초 미반영.
+ */
+function TabNotices({
+  card,
+  exchange,
+  switching,
+  nxtEmpty,
+}: {
+  card: StrategyCardState;
+  exchange: RelayExchange;
+  switching: boolean;
+  nxtEmpty: boolean;
+}) {
+  const { banner, unacked } = card;
+  if (!switching && !nxtEmpty && banner === null && !unacked) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-1 text-[length:var(--t-caption)]">
+      {switching && (
+        <p role="status" className="m-0 text-[var(--muted-fg)]">
+          {exchange} 호가 불러오는 중
+        </p>
+      )}
+      {nxtEmpty && (
+        <p role="status" data-slot="orderbook-nxt-empty" className="m-0 text-[var(--muted-fg)]">
+          <b className="font-semibold text-[var(--fg)]">이 종목은 NXT 호가가 없어요</b> · KRX 로
+          전환하면 실시간 호가를 볼 수 있어요.
+        </p>
+      )}
+      {banner !== null && (
+        <p role="status" data-slot="orderbook-echo-banner" className="m-0 text-[var(--fg)]">
+          {banner}
+        </p>
+      )}
+      {unacked && (
+        <p
+          role="status"
+          data-slot="orderbook-unacked"
+          className="m-0 font-semibold text-[var(--destructive)]"
+        >
+          미반영 · 서버 응답을 기다리고 있어요
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 권한 없음 게이트. **행동 버튼이 없다** — v1 은 관리자 수기 등록이라 셀프서비스 경로 자체가
+ * 존재하지 않는다. 문구는 UI-SPEC §Copywriting verbatim. 색은 전부 중립(방향색 금지).
  */
 function OrderbookAccessGate() {
   return (
     <Card
       variant="plain"
       data-testid="orderbook-access-gate"
-      className="m-[var(--s-3)] items-center gap-[var(--s-2)] px-[var(--s-5)] py-[var(--s-6)] text-center"
+      className="items-center gap-[var(--s-2)] px-[var(--s-5)] py-[var(--s-6)] text-center"
     >
       <Lock aria-hidden="true" className="size-6 text-[var(--muted-fg)]" />
       <p className="text-[length:var(--t-base)] font-semibold text-[var(--fg)]">
@@ -530,26 +547,5 @@ function OrderbookAccessGate() {
         이 종목의 차트·뉴스·종목토론방은 그대로 이용할 수 있어요.
       </p>
     </Card>
-  );
-}
-
-/** 섹션 로드 실패 — UI-SPEC §Copywriting verbatim + `다시 연결` 버튼. */
-function OrderbookLoadError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div
-      role="alert"
-      data-testid="orderbook-load-error"
-      className="flex flex-col items-center gap-[var(--s-2)] px-[var(--s-5)] py-[var(--s-6)] text-center"
-    >
-      <p className="text-[length:var(--t-base)] font-semibold text-[var(--fg)]">
-        호가를 불러오지 못했어요
-      </p>
-      <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-        연결에 실패했어요. 페이지를 새로고침해 주세요.
-      </p>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        다시 연결
-      </Button>
-    </div>
   );
 }

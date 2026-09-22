@@ -271,24 +271,9 @@ function ladder(): HTMLElement {
   return el;
 }
 
-function priceCells(): HTMLElement[] {
-  return Array.from(ladder().querySelectorAll<HTMLElement>('tbody th[scope="row"]'));
-}
-
-/** 잔량 바의 인라인 폭(%) — `td` 안 절대배치 레이어의 style.width 다. */
-function barWidths(side: 'ask' | 'bid'): string[] {
-  const cellIndex = side === 'ask' ? 0 : 2;
-  return Array.from(ladder().querySelectorAll<HTMLElement>(`tr[data-side="${side}"]`)).map(
-    (row) => {
-      const bar = row.children[cellIndex].querySelector<HTMLElement>('span[aria-hidden="true"]');
-      return bar?.style.width ?? '';
-    },
-  );
-}
-
 function statusBar(): HTMLElement {
-  const el = document.querySelector<HTMLElement>('[data-slot="relay-status-bar"]');
-  if (el === null) throw new Error('상태 바가 렌더되지 않았습니다');
+  const el = document.querySelector<HTMLElement>('[data-slot="orderbook-status-bar"]');
+  if (el === null) throw new Error('상태줄이 렌더되지 않았습니다');
   return el;
 }
 
@@ -301,114 +286,36 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/*
+  ★ 18-10 — 호가 탭 본문이 작업대 카드 본문(`CardBody variant="orderbook"`)으로 교체됐다.
+    Phase 15 표준 사다리(5단 접힘 · roving tabindex · 잔량 바 정규화) · 주문 패널 · 전폭 상태 바 ·
+    헤더 종목정보 `dl` 을 잠그던 케이스는 **그 표면이 사라져** 지웠다. 같은 규칙이 지금 사는 곳:
+      · 사다리 행·바 정규화·색 — `orderbook-ladder-chaser.test.tsx`(공유 chaser 트리)
+      · 호가 탭 레이아웃·상태줄·이 종목 미체결 — `stock-orderbook-section.test.tsx`
+      · 종가(`kc`) 칸 규칙 — `quote-grid-10.test.tsx`
+      · 수동주문 4버튼·비율 버튼 부재 — `manual-order-form.test.tsx`
+    남은 케이스는 이 섹션이 **훅 상태를 부품에 배분하는** 계약(파일 상단 ①)이다.
+*/
 describe('StockOrderbookSection (호가창 섹션)', () => {
-  it('① ready + 10단 호가 → 매도 10행 + 매수 10행 = 20행, 가격은 .mono 로 렌더된다', () => {
+  it('③ 호가 행 클릭 → 수동주문 가격에 그 값이 채워지고 **아무것도 전송되지 않는다** (T-15-14)', () => {
     renderSection();
 
-    const cells = priceCells();
-    expect(cells).toHaveLength(20);
-    expect(ladder().querySelectorAll('tr[data-side="ask"]')).toHaveLength(10);
-    expect(ladder().querySelectorAll('tr[data-side="bid"]')).toHaveLength(10);
+    // 매도 1호가(98,100) — 세 트리 중 어느 것을 눌러도 같은 함수(`onPriceSelect`)다.
+    const target = within(ladder()).getAllByText('98,100')[0];
+    fireEvent.click(target);
 
-    // 첫 행은 매도 10호가(가격 내림차순), 마지막 행은 매수 10호가.
-    expect(cells[0]).toHaveTextContent('99,000');
-    expect(cells[19]).toHaveTextContent('97,000');
-    // 고정폭 숫자 — 자릿수가 흔들리면 "벽"의 위치가 눈으로 어긋난다.
-    for (const cell of cells) expect(cell.className).toContain('mono');
+    const price = document.querySelector<HTMLInputElement>(`#mo-price-${ISIN}`);
+    expect(price?.value).toBe('98,100');
+    // 가격만 채운다 — 확인 다이얼로그도 전송도 없다(클릭 = 주문이 아니다).
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('② 잔량 바 폭은 **단계 최대값 정규화**다 — 최대 행 100%, 절반 행 50% (누적이 아니다)', () => {
-    renderSection();
-
-    // 매도 행은 10호가 → 1호가 순서라 잔량은 100, 90, …, 10 이다.
-    const asks = barWidths('ask');
-    expect(asks[0]).toBe('100%');
-    expect(asks[5]).toBe('50%');
-    // 누적 정규화였다면 최소 잔량 행도 100% 근처가 된다 — 반례까지 못 박는다.
-    expect(asks[9]).toBe('10%');
-    expect(asks[9]).not.toBe('100%');
-
-    // 매수 행은 1호가 → 10호가 순서라 잔량은 10, 20, …, 100 이다.
-    const bids = barWidths('bid');
-    expect(bids[0]).toBe('10%');
-    expect(bids[9]).toBe('100%');
-  });
-
-  it('②-b 데스크톱 열은 체결 → 호가 → 계좌축, 모바일은 호가 → 주문 → 체결 → 잔고 다', () => {
-    renderSection();
-
-    // 데스크톱은 `min-[900px]:order-none` 으로 소스 순서를 쓰므로 DOM 순서가 열 순서다.
-    const grid = ladder().closest('.grid') as HTMLElement;
-    const blocks = Array.from(grid.children) as HTMLElement[];
-    expect(blocks[0].querySelector('[data-slot="trade-tape"]')).not.toBeNull();
-    expect(blocks[1].querySelector('[data-slot="orderbook-ladder"]')).not.toBeNull();
-
-    // 세 번째는 `display: contents` 인 계좌 축 — 그 안에서 주문이 잔고보다 앞이다.
-    const column = blocks[2];
-    expect(column).toHaveAttribute('data-testid', 'orderbook-account-column');
-    const inner = Array.from(column.children) as HTMLElement[];
-    expect(inner[0]).toHaveAttribute('data-testid', 'order-panel');
-
-    // 모바일 세로 순서는 **일부러 다르다** — 손이 닿는 순서(호가 → 주문)를 위로 올린다.
-    expect(blocks[1].className).toContain('order-1'); // 호가
-    expect(inner[0].className).toContain('order-2'); // 주문
-    expect(blocks[0].className).toContain('order-3'); // 체결
-    expect(inner[1].className).toContain('order-4'); // 잔고·미체결
-
-    // ★ 잘림 방지 — 그리드 자식은 전부 min-w-0 이어야 한다(`display:contents` 자식 포함).
-    for (const el of [blocks[0], blocks[1], inner[0], inner[1]]) {
-      expect(el.className).toContain('min-w-0');
-    }
-  });
-
-  it('③ 가격 셀 클릭 → 주문 가격에 그 값이 채워지고 **매매 구분은 바뀌지 않는다** (T-15-14)', async () => {
-    const user = userEvent.setup();
-    renderSection();
-
-    // 먼저 매도로 바꿔 둔다 — 클릭이 구분을 매수로 되돌리면 그 자체가 오주문 사고다.
-    const sellTab = screen.getByRole('tab', { name: '매도' });
-    await user.click(sellTab);
-    expect(sellTab).toHaveAttribute('aria-selected', 'true');
-
-    // 매도 1호가(98,100) 셀 클릭.
-    const target = priceCells().find((c) => c.textContent?.includes('98,100'));
-    expect(target).toBeDefined();
-    await user.click(target as HTMLElement);
-
-    expect(screen.getByLabelText('가격')).toHaveValue('98,100');
-    expect(screen.getByRole('tab', { name: '매도' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: '매수' })).toHaveAttribute('aria-selected', 'false');
-  });
-
-  it('④ roving tabindex — 사다리는 tab stop 1개이고 ↓ 로 행 포커스가 이동한다', () => {
-    renderSection();
-
-    const focusables = ladder().querySelectorAll('[tabindex]');
-    expect(focusables).toHaveLength(1);
-
-    const table = ladder().querySelector('table') as HTMLTableElement;
-    expect(table).toHaveAttribute('tabindex', '0');
-    expect(table).toHaveAttribute('aria-activedescendant', 'ladder-row-a9');
-    expect(ladder().querySelectorAll('tr[data-active="true"]')).toHaveLength(1);
-
-    fireEvent.keyDown(table, { key: 'ArrowDown' });
-
-    expect(table).toHaveAttribute('aria-activedescendant', 'ladder-row-a8');
-    expect(ladder().querySelector('tr[data-active="true"]')).toHaveAttribute(
-      'id',
-      'ladder-row-a8',
-    );
-  });
-
-  it('⑤ 거래소 토글 KRX→NXT → 훅에 새 exchange 가 전달된다 (D-04)', async () => {
+  it('⑤ 상태줄 거래소 세그먼트 KRX→NXT → 훅에 새 exchange 가 전달된다 (D-04)', async () => {
     const user = userEvent.setup();
     renderSection();
 
     expect(mockLastOptions?.exchange).toBe('KRX');
-
-    // Radix ToggleGroup(type="single") 은 항목에 `role="radio"` 를 강제한다 —
-    // 접근 가능한 이름(`aria-label`)으로 잡아 role 구현 세부에 매이지 않는다.
-    await user.click(screen.getByLabelText('NXT 호가'));
+    await user.click(within(statusBar()).getByRole('radio', { name: 'NXT' }));
 
     expect(mockLastOptions?.exchange).toBe('NXT');
     expect(mockLastOptions?.isin).toBe(ISIN);
@@ -418,9 +325,10 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     vi.useFakeTimers();
     const { setRelay } = renderSection();
 
-    fireEvent.click(screen.getByLabelText('NXT 호가'));
+    fireEvent.click(within(statusBar()).getByRole('radio', { name: 'NXT' }));
     // 전환 직후에는 아직 "불러오는 중" 이다 — 빈 상태로 단정하지 않는다.
     expect(screen.queryByText('이 종목은 NXT 호가가 없어요')).not.toBeInTheDocument();
+    expect(screen.getByText('NXT 호가 불러오는 중')).toBeInTheDocument();
 
     // 훅이 구독 키 전환으로 호가를 비운 상태를 흉내낸다.
     setRelay({ quote: null });
@@ -449,7 +357,7 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
 
     // 사다리·주문 진입점은 렌더되지 않는다.
     expect(document.querySelector('[data-slot="orderbook-ladder"]')).toBeNull();
-    expect(screen.queryByTestId('order-panel')).toBeNull();
+    expect(screen.queryByTestId('manual-order-form')).toBeNull();
   });
 
   it('⑧ isin === null → 같은 게이트 + 훅은 enabled:false 로 연결조차 하지 않는다', () => {
@@ -463,36 +371,34 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(mockLastOptions?.isin).toBe('');
   });
 
-  it('⑨ quote === null (연결은 됐으나 호가 없음) → `호가 정보가 없어요`', () => {
-    mockRelay = makeRelay({ quote: null });
+  it('⑨ quote === null (연결은 됐으나 호가 없음) → 10단 행은 그대로 「—」 · 안내 카드 없음 (E9 empty)', () => {
+    mockRelay = makeRelay({ quote: null, tape: [] });
     renderSection();
 
-    expect(screen.getByText('호가 정보가 없어요')).toBeInTheDocument();
-    expect(document.querySelectorAll('tbody th[scope="row"]')).toHaveLength(0);
+    const rows = ladder().querySelectorAll('[data-slot="ladder-row-mobile"]');
+    expect(rows).toHaveLength(20);
+    for (const row of Array.from(rows)) expect(row.textContent).toContain('—');
+    expect(screen.queryByText('호가 정보가 없어요')).toBeNull();
   });
 
-  it('⑩ tape 가 빈 배열 → `아직 체결이 없어요`', () => {
-    mockRelay = makeRelay({ tape: [] });
-    renderSection();
-
-    expect(screen.getByText('아직 체결이 없어요')).toBeInTheDocument();
-  });
-
-  it('⑪ isStale:true → 사다리·테이프가 마지막 값을 유지하고 감쇠 스타일이 붙는다 (빈 화면 복귀 금지)', () => {
+  it('⑪ isStale:true → 사다리가 마지막 값을 유지하고 감쇠 스타일이 붙는다 (빈 화면 복귀 금지)', () => {
     mockRelay = makeRelay({ isStale: true, status: 'reconnecting', attempt: 2 });
     renderSection();
 
     // 값이 남아 있어야 한다 — 재접속마다 화면이 비면 사용자가 문맥을 잃는다.
-    expect(priceCells().length).toBe(20);
+    expect(within(ladder()).getAllByText('98,100').length).toBeGreaterThan(0);
     expect(ladder()).toHaveAttribute('data-stale', 'true');
     expect(ladder().className).toContain('opacity-[.55]');
 
-    const tape = document.querySelector('[data-slot="trade-tape"]') as HTMLElement;
-    expect(tape).toHaveAttribute('data-stale', 'true');
-    expect(tape.querySelectorAll('tbody tr').length).toBe(3);
+    const tapes = document.querySelectorAll<HTMLElement>('[data-slot="trade-tape"]');
+    expect(tapes.length).toBeGreaterThan(0);
+    for (const tape of Array.from(tapes)) {
+      expect(tape).toHaveAttribute('data-stale', 'true');
+      expect(tape.querySelectorAll('tbody tr').length).toBe(3);
+    }
   });
 
-  it('⑫ 체결 행의 매수/매도는 수량 색 + sr-only 라벨로 간다 (색 단독 금지 · WCAG 1.4.1)', () => {
+  it('⑫ 체결 수량의 매수/매도는 수량 색 + sr-only 라벨로 간다 (색 단독 금지 · WCAG 1.4.1)', () => {
     renderSection();
 
     const tape = document.querySelector('[data-slot="trade-tape"]') as HTMLElement;
@@ -503,154 +409,74 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     // 최우선호가(매도1 98,100 / 매수1 97,900) 기준 — 98,100 체결은 매수, 97,900 체결은 매도.
     expect(qty[0].className).toContain('text-[var(--up)]');
     expect(qty[1].className).toContain('text-[var(--down)]');
-    // 색만 남기면 WCAG 1.4.1 위반 — 비색 경로가 반드시 함께 있어야 한다.
     const labels = qty.map((c) => c.querySelector('.sr-only')?.textContent?.trim() ?? '');
-    for (const label of labels) expect(['매수', '매도']).toContain(label);
     expect(labels[0]).toBe('매수');
     expect(labels[1]).toBe('매도');
-
-    // 추정임을 화면에 밝힌다 — 서버가 주지 않는 값을 확정 사실로 그리지 않는다.
-    // (`makeTape()` 는 `bs: ''` 구 서버 픽스처라 전 원소가 폴백 갈래다.)
-    expect(
-      within(tape).getByText(
-        '수량 색(빨강 매수 · 파랑 매도)은 거래소 체결구분 기준이고, 구분이 없는 체결만 최우선호가·직전 체결가로 추정했어요',
-      ),
-    ).toBeInTheDocument();
   });
 
   it('⑭ ★ 계좌 A 를 고른 상태에서 계좌 패널은 **A 의 미체결만** 그린다 (CR-01)', () => {
     /*
       실패 경로: 계좌 A 선택 → 계좌 B 체결로 67 델타 도착 → 「마지막 수신 계좌」가 B 가
-      된다 → 머리는 A 인데 행은 B → 그 행의 `✕ 취소` 가 `accountNo: A` + `orgOrderNo:
-      B의 주문번호` 로 나간다. relay 화이트리스트는 둘 다 그 사용자 계좌라 막지 못한다.
-      계좌 패널의 입력이 `accountStates.get(selectedAccountNo)` 하나로 통일돼 있으면
-      머리와 행의 출처가 같아져 이 경로 자체가 사라진다.
+      된다 → 머리는 A 인데 행은 B → 그 행의 취소가 `accountNo: A` + `orgOrderNo: B의
+      주문번호` 로 나간다. 계좌 패널의 입력이 `accountStates.get(selectedAccountNo)` 하나로
+      통일돼 있으면 머리와 행의 출처가 같아져 이 경로 자체가 사라진다.
     */
     mockRelay = makeRelay({ accounts: ACCOUNTS_AB, accountStates: accountStatesAB() });
     renderSection();
 
-    // 머리 = 선택 계좌 A. 계좌 목록의 첫 항목이 자동 선택된다.
+    // 상태줄 계좌 = 목록의 첫 항목(A)이 자동 선택된다.
+    expect(within(statusBar()).getByRole('combobox', { name: '계좌' })).toHaveValue(ACCOUNT_A);
+
     const panel = screen.getByTestId('account-panel');
     expect(within(panel).getByRole('tab', { name: '미체결 (1)' })).toBeInTheDocument();
-    expect(within(panel).getByRole('tab', { name: '잔고 (1)' })).toBeInTheDocument();
-
-    // 행 = A 의 것. 표(≥1280)와 카드(<1280)가 둘 다 렌더되므로 2벌이다.
     expect(within(panel).getAllByText('A-0001').length).toBeGreaterThan(0);
     // ★ B 의 주문번호는 화면 어디에도 없다 — 있으면 그 행의 취소가 A 계좌로 나간다.
-    expect(within(panel).queryAllByText('B-9999')).toHaveLength(0);
+    expect(screen.queryAllByText('B-9999')).toHaveLength(0);
   });
 
-  it('⑮ 매도가능수량은 **선택 계좌 A** 의 보유에서 온다 — B 에만 있는 보유는 0 이다 (CR-01)', async () => {
-    const user = userEvent.setup();
-
-    // (1) A·B 모두 보유 — 100% 는 A 의 76주여야 한다(B 의 500주가 아니다).
+  it('⑭-b 상태줄에서 계좌를 B 로 바꾸면 패널이 B 의 미체결로 바뀐다 — 계좌는 섹션 하나가 소유한다', () => {
     mockRelay = makeRelay({ accounts: ACCOUNTS_AB, accountStates: accountStatesAB() });
-    const first = renderSection();
-    await user.click(screen.getByRole('tab', { name: '매도' }));
-    await user.click(screen.getByRole('button', { name: '100%' }));
-    expect(screen.getByLabelText('수량')).toHaveValue('76');
-    first.unmount();
-
-    // (2) B 에만 보유 — 선택 계좌 A 의 매도가능수량은 0 이라 비율 버튼이 채우지 않는다.
-    const bOnly = new Map(accountStatesAB());
-    bOnly.set(ACCOUNT_A, { ...accountStatesAB().get(ACCOUNT_A)!, hold: [] });
-    mockRelay = makeRelay({ accounts: ACCOUNTS_AB, accountStates: bOnly });
     renderSection();
-    await user.click(screen.getByRole('tab', { name: '매도' }));
-    await user.click(screen.getByRole('button', { name: '100%' }));
-    expect(screen.getByLabelText('수량')).toHaveValue('');
+
+    fireEvent.change(within(statusBar()).getByRole('combobox', { name: '계좌' }), {
+      target: { value: ACCOUNT_B },
+    });
+
+    expect(screen.getAllByText('B-9999').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('A-0001')).toHaveLength(0);
   });
 
-  it('⑬ 상태 배지 4종 문구가 UI-SPEC verbatim 이다 (connecting/ready/reconnecting/failed)', () => {
-    // ready — 계좌 수를 덧붙인다.
-    const { setRelay, unmount } = renderSection();
-    expect(within(statusBar()).getByText('실시간 · 계좌 1개')).toBeInTheDocument();
+  it('⑬ DMA 필 문구는 훅의 연결 상태 문구(`RELAY_STATE_LABELS` 정본) 그대로다 (D-36)', () => {
+    const { setRelay } = renderSection();
+    expect(within(statusBar()).getByText('실시간')).toBeInTheDocument();
 
-    // reconnecting — 시도 회차 k/10.
-    setRelay({ status: 'reconnecting', attempt: 2, isStale: true });
-    expect(within(statusBar()).getByText('재접속 중 2/10')).toBeInTheDocument();
-    expect(
-      within(statusBar()).getByText('표시된 호가는 마지막으로 받은 값이에요.'),
-    ).toBeInTheDocument();
-
-    // failed — 회선 단절.
-    setRelay({ status: 'failed', attempt: 0, quote: null });
+    setRelay({ status: 'failed', statusLabel: '회선 단절', quote: null });
     expect(within(statusBar()).getByText('회선 단절')).toBeInTheDocument();
-    unmount();
-
-    // connecting — 첫 연결.
-    mockRelay = makeRelay({ status: 'connecting', quote: null, tape: [] });
-    renderSection();
-    expect(within(statusBar()).getByText('시세 서버 연결 중…')).toBeInTheDocument();
+    // 복구 불가 상태에서만 「다시 연결」이 상태줄에 선다 — 누르면 훅의 reconnect 다.
+    fireEvent.click(within(statusBar()).getByRole('button', { name: '다시 연결' }));
+    expect(mockRelay.reconnect).toHaveBeenCalledTimes(1);
   });
 });
 
 /*
-  17-08 Task 2 — 호가 종목정보의 KRX 정규장 종가 표기 (D-11).
-
-  ★ 판정 입력은 `quote.kc` **하나**다. 벽시계로 「지금이 장 마감 뒤인가」를 계산해 라벨을
-    바꾸면 서버 진실과 갈린다. `kc > 0` 이 「종가가 확정됐다」의 유일한 신호이고,
-    `0` 도 「모른다」가 아니라 **권위값**이다(같은 값이면 no-op).
-  ★ NXT 프레임에도 KRX 종가가 실린다 — 거래소로 라벨을 바꾸지 않는다(C# 동일).
+  17-08 — KRX 정규장 종가 표기 (D-11). 18-10 부터 호가 탭의 종목정보는 카드와 같은 10칸
+  (`QuoteGrid10`)이고, 규칙(종가가 **하한 칸**을 대신한다 · 판정 입력은 `quote.kc` 하나 ·
+  벽시계 금지 · NXT 프레임에도 KRX 값)은 `quote-grid-10.test.tsx` 가 잠근다. 여기서는 이 섹션이
+  **실시간 `quote` 를 10칸에 그대로 넘기는가**만 확인한다.
 */
-describe('StockOrderbookSection 종목정보 — KRX 정규장 종가 (17-08 / D-11)', () => {
-  /** 헤더 종목정보 `dl`. 기준·상한·하한·VI(·종가)가 사는 유일한 자리다. */
-  const meta = (): HTMLElement => {
-    const el = document.querySelector<HTMLElement>('header dl');
-    if (el === null) throw new Error('종목정보 dl 이 렌더되지 않았습니다');
-    return el;
-  };
+describe('StockOrderbookSection 종목정보 — KRX 정규장 종가 배선 (17-08 / D-11)', () => {
+  const grid = () => document.querySelector('[data-slot="lc-quote-grid"]') as HTMLElement;
 
-  it('㉠ `kc > 0` 이면 하락VI 자리가 라벨 `종가` + 값으로 바뀌고 하락VI 값은 사라진다', () => {
-    mockRelay = makeRelay({ quote: makeQuote({ kc: 12_625 }) });
+  it('㉠ `kc > 0` 이면 10칸에 「종가」가 뜬다', () => {
+    mockRelay = makeRelay({ quote: makeQuote({ kc: 98_300 }) });
     renderSection();
-
-    expect(within(meta()).getByText('종가')).toBeInTheDocument();
-    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
-    // 상승VI 는 어느 갈래에서도 사라지지 않는다.
-    expect(within(meta()).getByText('108,000')).toBeInTheDocument();
-    // 하락VI 값이 놓였던 자리를 종가가 차지한다.
-    expect(within(meta()).queryByText(/88,000/)).toBeNull();
+    expect(within(grid()).getByText('종가')).toBeInTheDocument();
+    expect(within(grid()).getByText('98,300')).toBeInTheDocument();
   });
 
-  it('㉡ `kc === 0` 이면 종전 표기(VI 상승 / 하락 두 값) 그대로다', () => {
-    renderSection(); // 기본 픽스처의 kc 는 0 이다.
-
-    expect(within(meta()).queryByText('종가')).toBeNull();
-    expect(within(meta()).getByText('108,000 / 88,000')).toBeInTheDocument();
-  });
-
-  it('㉢ **NXT** 프레임에도 라벨은 `종가` 다 — KRX 값이 실려 오므로 거래소로 갈라지지 않는다', () => {
-    mockRelay = makeRelay({ quote: makeQuote({ x: 'NXT', kc: 12_625 }) });
+  it('㉡ `kc === 0` 이면 종전 표기(하한) 그대로다', () => {
     renderSection();
-
-    expect(within(meta()).getByText('종가')).toBeInTheDocument();
-    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
-    // 「NXT 종가」 같은 파생 라벨을 지어내지 않는다.
-    expect(within(meta()).queryByText(/NXT 종가|KRX 종가/)).toBeNull();
-  });
-
-  it('㉣ 같은 종가가 다시 와도 표시가 바뀌지 않는다 (no-op)', () => {
-    mockRelay = makeRelay({ quote: makeQuote({ kc: 12_625 }) });
-    const { setRelay } = renderSection();
-
-    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
-    // 새 프레임(다른 객체 신원)이지만 kc 는 같다.
-    setRelay({ quote: makeQuote({ kc: 12_625, et: '153015123456' }) });
-    expect(within(meta()).getByText('12,625')).toBeInTheDocument();
-    expect(within(meta()).getByText('종가')).toBeInTheDocument();
-  });
-
-  it('㉤ 벽시계로 판정하지 않는다 — 장 마감 한참 뒤에도 `kc === 0` 이면 종전 표기다', () => {
-    vi.useFakeTimers();
-    // 20:00 KST 이후. 시각으로 판정하는 구현이라면 여기서 `종가` 로 바뀐다.
-    vi.setSystemTime(new Date('2026-09-18T12:30:00Z'));
-    try {
-      renderSection();
-      expect(within(meta()).queryByText('종가')).toBeNull();
-      expect(within(meta()).getByText('108,000 / 88,000')).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(within(grid()).queryByText('종가')).toBeNull();
+    expect(within(grid()).getByText('하한')).toBeInTheDocument();
   });
 });
