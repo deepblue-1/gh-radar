@@ -318,6 +318,19 @@ export class SubscriptionHub extends EventEmitter {
    */
   readonly #limitChasers = new Map<string, RelayLimitChaser>();
   /**
+   * `userId` 집합 — **게이트웨이 64(목록 전량)를 이 세션에서 받았는가** (18-26 / GC-IN-02).
+   *
+   * `#viTriggers` 의 3상태와 같은 규율이다. 캐시가 비어 있다는 것만으로는 「등록 전략 없음」
+   * (64 가 빈 목록으로 왔다)과 「아직 모름」(콜드 세션 · 세션 교체 직후 64 전)을 가를 수
+   * 없다. 둘을 뭉개면 인증 경로가 빈 캐시를 `lc.snap []` 으로 내려 「모름」을 「없음」으로
+   * 말하고, 브라우저는 그 거짓 확정 위에서 포커스 보류를 판정한다.
+   *
+   * **60 에코는 기록하지 않는다** — 에코는 1건만 말할 뿐 목록 전체를 말하지 않는다. 모르면
+   * `lc.snap` 을 지어내지 않고, 곧 오는 64 팬아웃이 그 연결의 첫 `lc.snap` 이 된다.
+   * 세션 교체(`#clearCaches`)·`closeAll` 이 캐시와 **같이** 지운다.
+   */
+  readonly #limitChaserKnown = new Set<string>();
+  /**
    * `${userId}|${exchange}` → VI 전략 (17-05 / D-06).
    *
    * 서버는 VI 전략을 **세션당 거래소별 1건**(KRX 1 + NXT 1)으로 관리한다. 한 칸으로 두면
@@ -602,6 +615,17 @@ export class SubscriptionHub extends EventEmitter {
   }
 
   /**
+   * 이 세션에서 게이트웨이 64(상따 목록 전량)를 받았는가 (18-26 / GC-IN-02).
+   *
+   * `true` 면 `getLimitChasers` 가 **확정 목록**이다(빈 배열 = 등록 전략 없음). `false` 면
+   * 캐시는 「모름」이고 — 60 에코로 몇 건 들어 있어도 전체가 아니다 — 인증 경로는
+   * `lc.snap` 을 보내지 않는다. `getViTrigger` 의 `undefined` 와 같은 자리다.
+   */
+  hasLimitChaserList(userId: string): boolean {
+    return this.#limitChaserKnown.has(userId);
+  }
+
+  /**
    * 그 사용자의 **그 거래소** VI 전략 (17-05 / D-06).
    *
    * **반환값 3종을 구분해야 한다**: `RelayViTrigger` = 등록됨, `null` = 조회 결과 미등록,
@@ -703,6 +727,7 @@ export class SubscriptionHub extends EventEmitter {
     this.#tapes.clear();
     this.#accountStates.clear();
     this.#limitChasers.clear();
+    this.#limitChaserKnown.clear();
     this.#viTriggers.clear();
     this.#pendingViGets.clear();
     this.#viOrders.clear();
@@ -1072,6 +1097,9 @@ export class SubscriptionHub extends EventEmitter {
       if (key.startsWith(prefix)) this.#limitChasers.delete(key);
     }
     for (const item of items) this.#limitChasers.set(lcKey(userId, item), item);
+    // 「받았음」 은 캐시 교체와 **같은 자리**에서, 팬아웃 **전에** 기록한다 — 팬아웃 도중
+    // 인증하는 연결이 「모름」 을 보고 스냅샷을 빠뜨리는 틈을 두지 않는다 (18-26).
+    this.#limitChaserKnown.add(userId);
     logger.info({ userId, count: items.length }, "[HUB] 상따 목록 스냅샷 수신 — 전량 교체");
     this.#fanout(userId, { t: "lc.snap", items });
   }
@@ -1369,6 +1397,9 @@ export class SubscriptionHub extends EventEmitter {
     for (const key of [...this.#limitChasers.keys()]) {
       if (key.startsWith(prefix)) this.#limitChasers.delete(key);
     }
+    // 「64 받았음」 도 같이 지운다 (18-26) — 남기면 새 세션의 64 가 오기 전 인증한 연결이
+    // 방금 비운 캐시를 확정 목록(`lc.snap []`)으로 받는다. 이 사용자 것만 지운다(T-18-110).
+    this.#limitChaserKnown.delete(userId);
     // VI 설정은 **거래소별**이라 두 칸을 다 지운다 (17-05 / D-06) — 지우면 `getViTrigger` 가
     // 다시 `undefined`(모름)가 되고, 새 세션의 61 이 도착할 때까지 아무 프레임도 내리지 않는다.
     for (const key of [...this.#viTriggers.keys()]) {

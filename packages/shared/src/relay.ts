@@ -895,6 +895,10 @@ export type RelayLimitChaserMsg = { t: "lc"; item: RelayLimitChaser };
  * 상따 전략 전량 스냅샷 (`LimitChaserList(64)`).
  * 원소는 60 에코와 **같은 바이트**라 두 경로가 갈리지 않는다. 새 탭이 붙었을 때 이 1프레임으로
  * 목록을 복원한다 — `RelayAccountState.snap === true` 와 같은 「전량 교체」 규약이다.
+ *
+ * **relay 는 게이트웨이 64 를 받은 뒤에만 이 프레임을 내린다** (18-26 / GC-IN-02) — 받은
+ * `lc.snap` 은 언제나 확정 목록이다(빈 배열 = 등록 전략 없음). 64 전(콜드 세션 · 세션 교체
+ * 직후)에는 인증 직후에도 프레임이 없고, 곧 오는 64 팬아웃이 그 연결의 첫 `lc.snap` 이 된다.
  */
 export type RelayLimitChaserSnapMsg = { t: "lc.snap"; items: RelayLimitChaser[] };
 
