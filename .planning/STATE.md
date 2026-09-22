@@ -5,14 +5,14 @@ current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
 stopped_at: Completed 18-32-PLAN.md
-last_updated: "2026-09-22T10:43:17.383Z"
+last_updated: "2026-09-22T11:39:04.772Z"
 last_activity: 2026-09-22
 last_activity_desc: 18-32 갭 클로징 R3 최종 게이트 green · 18-VALIDATION §Gap Closure R3 12행 닫힘 · TRADE-06~09 Pending 유지 · 재검증(-R3) 대기 · relay 미배포
-state_head: 9cfaedc12f971842f1df9e3edc0f6ec952410999
+state_head: fa95489a9d7ee3e63e20c991335dfd1a4def3697
 progress:
   total_phases: 27
   completed_phases: 4
-  total_plans: 229
+  total_plans: 233
   completed_plans: 214
 milestone_name: milestone
 ---
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — EXECUTING
+Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — READY TO EXECUTE
 Plan: 32 of 32 (R3 갭 클로징 18-24~18-32 전부 완료 — 18-32 최종 게이트 green)
 Plans completed: 214 / 229
 Status: 라운드 3 실행 완료 · 재검증(-R3) 대기 · relay 미배포 — 18-32 전량 게이트 green(build_command error TS 0 · relay 523 · webapp 1454/1 skip · Playwright 142/0 fail/9 skip · GC1~GC5 · 로컬 DB 회귀 12/12 · migration list 20260922180000 Local=Remote) · 18-VALIDATION §Gap Closure R3 12행 전부 닫힘 · TRADE-06~09 Pending 유지 · 배포 순서 DB(완료) → relay(R2 18-14·17·19 + R3 18-25·18-26) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만)
