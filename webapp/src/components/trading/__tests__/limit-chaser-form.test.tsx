@@ -1586,3 +1586,119 @@ describe('quick-260912-ok2 — 액션 바 여백 · 체크박스 행', () => {
     expect(checkbox.className).toContain('flex-none');
   });
 });
+
+/*
+  Phase 18 Plan 10 — 카드가 **여럿**인 작업대와 종목상세 호가 탭이 같은 폼을 쓴다.
+
+  ★ 더티 바는 여전히 `document.body` 포털이다(D-28). 카드 N개의 바가 전부 화면 하단 같은 자리에
+    뜨므로, **어느 카드의 바인지는 문구만이 말한다** — 그래서 보조문을 prop 으로 받는다.
+    공유 컴포넌트(`dirty-action-bar.tsx`)는 한 줄도 고치지 않는다(`hint`·`className` 이 이미 열려 있다).
+  ★ 폰 밴드 「매수 | 매도 | 수동」 3탭은 카드 본문(`ManualOrderEntry`)이 소유한다. 폼 자신의
+    「매수 | 매도」 탭 줄이 함께 서면 탭 줄이 두 줄이 된다 — 그래서 탭을 제어형으로 열고 자체 줄을 숨긴다.
+*/
+describe('18-10 — 더티 힌트 prop · body 포털 · 제어형 탭 (D-28 · D-19)', () => {
+  const CARD_HINT =
+    '한미반도체 · 1개 미반영 · 「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
+
+  it('`dirtyHint` 를 주면 바 보조문이 그 값이다 — 카드마다 종목명이 바에 선다', () => {
+    render(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+
+    const bar = actionBar() as HTMLElement;
+    expect(within(bar).getByText(CARD_HINT)).toBeInTheDocument();
+    // 기본 문구가 **따로 또** 서지 않는다 — 한 바에 보조문은 하나다.
+    expect(
+      within(bar).queryByText('「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요'),
+    ).toBeNull();
+  });
+
+  it('`dirtyHint` 가 없으면 기존 상따 보조문 그대로다 — 기존 호출부 무영향', () => {
+    render(<LimitChaserForm {...props()} />);
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+
+    const bar = actionBar() as HTMLElement;
+    expect(
+      within(bar).getByText('「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요'),
+    ).toBeInTheDocument();
+  });
+
+  it('★ 더티 바는 `document.body` 의 자손이고 폼 래퍼의 자손이 아니다 (포털 규율)', () => {
+    const { container } = render(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+
+    const bar = actionBar() as HTMLElement;
+    const form = container.querySelector('[data-slot="limit-chaser-form"]') as HTMLElement;
+    expect(document.body.contains(bar)).toBe(true);
+    expect(form.contains(bar)).toBe(false);
+    // RTL 컨테이너(렌더 루트) 밖이다 — 포털이 걷히면 이 단언이 먼저 깨진다.
+    expect(container.contains(bar)).toBe(false);
+  });
+
+  it('SSR(서버 렌더)에서는 포털을 만들지 않는다 — `document` 가 없어도 렌더가 성립한다', async () => {
+    const { renderToString } = await import('react-dom/server');
+    const html = renderToString(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
+    expect(html).toContain('data-slot="limit-chaser-form"');
+    expect(html).not.toContain('dirty-action-bar');
+  });
+
+  it('전송 중에는 「반영 중…」 이고 「되돌리기」·「수정」이 둘 다 disabled 다 (E15 loading)', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    const bar = actionBar() as HTMLElement;
+    expect(within(bar).getByRole('button', { name: '반영 중…' })).toBeDisabled();
+    expect(within(bar).getByRole('button', { name: '되돌리기' })).toBeDisabled();
+    expect(within(bar).getByText(CARD_HINT)).toBeInTheDocument();
+  });
+
+  it('거부(에코 없이 답만 옴) 뒤에도 바가 남고 더티 값이 보존된다 (E15 error)', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+    await user.click(screen.getByRole('button', { name: '수정' }));
+
+    // 거부 = 60 에코가 없고 「답했다」 신호만 온다(`serverAnswerSeq`).
+    rerender(<LimitChaserForm {...props({ dirtyHint: CARD_HINT, serverAnswerSeq: 1 })} />);
+
+    const bar = actionBar() as HTMLElement;
+    expect(bar).not.toBeNull();
+    expect(within(bar).getByRole('button', { name: '수정' })).toBeEnabled();
+    expect(screen.getByLabelText(/매수가격/)).toHaveValue('150,000');
+  });
+
+  it('`dirtyBarClassName` 은 바에 그대로 전달된다 — 호가 탭(FAB 표면)만 쓰는 opt-in', () => {
+    render(<LimitChaserForm {...props({ dirtyBarClassName: 'pr-[128px]' })} />);
+    setNumber(screen.getByLabelText(/매수가격/), '150000');
+
+    expect((actionBar() as HTMLElement).className.split(/\s+/)).toContain('pr-[128px]');
+  });
+
+  it('`hideTabs` 면 폼 자체의 「매수 | 매도」 탭 줄이 없다 — 3탭은 카드 본문이 소유한다', () => {
+    render(<LimitChaserForm {...props({ hideTabs: true })} />);
+    expect(screen.queryByRole('tablist', { name: '주문 설정' })).toBeNull();
+  });
+
+  it('제어형 `tab="sell"` 이면 매수 pane 이 폰에서 숨는 클래스를 갖고 매도 pane 은 보인다', () => {
+    const { container, rerender } = render(<LimitChaserForm {...props({ tab: 'sell', hideTabs: true })} />);
+    const buy = () => container.querySelector('[data-pane="buy"]') as HTMLElement;
+    const sell = () => container.querySelector('[data-pane="sell"]') as HTMLElement;
+    expect(buy().className).toContain('hidden');
+    expect(sell().className).not.toContain('hidden');
+
+    rerender(<LimitChaserForm {...props({ tab: 'buy', hideTabs: true })} />);
+    expect(buy().className).not.toContain('hidden');
+    expect(sell().className).toContain('hidden');
+  });
+
+  it('한방체결·매수취소 그룹도 제목 옆 상태 보조문을 받는다 (「켜짐」/「꺼짐」)', () => {
+    const { container } = render(
+      <LimitChaserForm {...props({ sweepStatusText: '켜짐', cancelStatusText: '꺼짐' })} />,
+    );
+    const sweep = container.querySelector('[data-slot="lc-group-sweep"]') as HTMLElement;
+    const cancel = container.querySelector('[data-slot="lc-group-cancel"]') as HTMLElement;
+    expect(within(sweep).getByText('켜짐')).toBeInTheDocument();
+    expect(within(cancel).getByText('꺼짐')).toBeInTheDocument();
+  });
+});
