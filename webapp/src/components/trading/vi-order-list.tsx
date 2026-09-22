@@ -51,7 +51,7 @@
  *     주문번호와 Map 키가 갈린다.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useState } from 'react';
 import type { RelayExchange, RelayViOrderItem, RelayViOrderState } from '@gh-radar/shared';
 
 import { Checkbox } from '@/components/ui/checkbox';
@@ -90,6 +90,32 @@ export const VI_ORDER_LIST_TIP =
  */
 export const VI_CONFIRM_SEND_FAILED_TEXT =
   '연결이 끊겨 확인을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
+
+/** 작업대 VI 발동 표 캡션 — UI-SPEC §VI 발동 스트립·표 원문 그대로 (Phase 18 D-06). */
+export const VI_WORKBENCH_TABLE_CAPTION =
+  '확인 체크 = 119초 미확인 취소 면제 · 110초 미도달 취소는 서버 규칙이라 면제되지 않아요 · 접수 전(주문번호 없음)은 확인할 수 없어요 · 확인은 즉시 전송(ConfirmVIOrderReq 33)이고 더티가 아니에요';
+
+/** 빈 목록 문구 — 옛 패널과 작업대 표·스트립이 같은 문장을 쓴다. */
+export const VI_ORDER_EMPTY_TEXT = '오늘 발동된 VI 주문이 없어요';
+
+/** 확인 체크 비활성 사유 (UI-SPEC 원문). `title` 과 `aria-describedby` 가 같은 문장을 말한다. */
+export const VI_CONFIRM_LOCKED_TITLE = '서버가 잠근 확인(confirm_locked)';
+export const VI_CONFIRM_NO_ORDER_TITLE = '접수 전(주문번호 없음)은 확인할 수 없어요';
+
+/**
+ * 비활성 사유 문장 (**표시 전용**). 활성 판정은 `isConfirmable` 이 한다 — 이 함수는 이미 잠긴
+ * 행에 **이유를 붙일 뿐**이고, 여기서 `null` 이 나와도 체크를 열지 않는다.
+ */
+function lockReasonOf(item: Pick<RelayViOrderItem, 'orderNo' | 'confirmLocked'>): string | null {
+  if (item.orderNo === '') return VI_CONFIRM_NO_ORDER_TITLE;
+  if (item.confirmLocked) return VI_CONFIRM_LOCKED_TITLE;
+  return null;
+}
+
+/** 미확인 = 살아 있는 접수 주문 ∧ 확인 안 됨 (D-06). 칩·행 `--new-bg` 강조의 유일 판정이다. */
+export function isUnconfirmedViOrder(item: Pick<RelayViOrderItem, 'state' | 'confirmed'>): boolean {
+  return item.state === 'Accepted' && !item.confirmed;
+}
 
 /**
  * 거래소 태그 (목업 `.tag.krx` / `.tag.nxt`, Phase 18 D-05·D-06).
@@ -233,10 +259,24 @@ export interface ViOrderListProps {
    * 넘기면 내부 타이머를 아예 걸지 않는다 — 두 시계가 겹치면 단언이 흔들린다.
    */
   nowMs?: number;
+  /**
+   * `panel` = 옛 `/trading/vi` 카드(표+카드 두 트리) · `workbench` = `/trading` 「더보기」 표
+   * (Phase 18 D-06 — 목업 `:837-855` 11열, 폰 밴드 열 접기, 미확인 행 `--new-bg`).
+   * ★ 두 모양이 **같은** `isConfirmable`·`toggle`·낙관 Map·`useNow()` 를 쓴다 — 판정을 두 벌로
+   *   만들지 않으려고 표면만 갈랐다.
+   */
+  variant?: 'panel' | 'workbench';
   className?: string;
 }
 
-export function ViOrderList({ items, disabled = false, loading = false, nowMs, className }: ViOrderListProps) {
+export function ViOrderList({
+  items,
+  disabled = false,
+  loading = false,
+  nowMs,
+  variant = 'panel',
+  className,
+}: ViOrderListProps) {
   const { send } = useRelayContext();
   const now = useNow(nowMs);
 
@@ -251,6 +291,8 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
    * (영구 경고가 아니다 — R2-IN-01).
    */
   const [sendError, setSendError] = useState('');
+  /** 보내지 못한 확인의 주문번호 — 작업대 표가 **그 행 바로 아래**에 사유를 붙인다(E3 error). */
+  const [failedOrderNo, setFailedOrderNo] = useState<string | null>(null);
 
   /*
     ★ **서버가 말을 걸면 지난 실패 문구는 물러난다** (R2-IN-01 / T-16-86).
@@ -267,6 +309,7 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
   */
   useEffect(() => {
     setSendError('');
+    setFailedOrderNo(null);
   }, [items]);
 
   useEffect(() => {
@@ -309,9 +352,11 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
       */
       if (!send({ t: 'vi.confirm', orderNo: item.orderNo, confirmed: next })) {
         setSendError(VI_CONFIRM_SEND_FAILED_TEXT);
+        setFailedOrderNo(item.orderNo);
         return;
       }
       setSendError('');
+      setFailedOrderNo(null);
       setOptimistic((prev) => new Map(prev).set(item.orderNo, next));
       setSending((prev) => new Set(prev).add(item.orderNo));
     },
@@ -323,19 +368,34 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
       items.map((item) => {
         const key = viOrderKey(item);
         const locked = !isConfirmable(item, disabled);
+        const checked = optimistic.get(item.orderNo) ?? item.confirmed;
         return {
           key,
           item,
           face: stateFaceOf(item),
-          checked: optimistic.get(item.orderNo) ?? item.confirmed,
+          checked,
           locked,
+          pending: sending.has(item.orderNo),
+          unconfirmed: isUnconfirmedViOrder({ state: item.state, confirmed: checked }),
           remaining: remainingSeconds(item.deadline110Ms, now),
           live: hasDeadline(item, now),
           label: item.name !== undefined && item.name !== '' ? item.name : item.isin,
         };
       }),
-    [items, optimistic, disabled, now],
+    [items, optimistic, sending, disabled, now],
   );
+
+  if (variant === 'workbench') {
+    return (
+      <WorkbenchViTable
+        rows={rows}
+        failedOrderNo={failedOrderNo}
+        sendError={sendError}
+        onToggle={toggle}
+        className={className}
+      />
+    );
+  }
 
   return (
     <section
@@ -375,7 +435,7 @@ export function ViOrderList({ items, disabled = false, loading = false, nowMs, c
           className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center"
         >
           <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-            오늘 발동된 VI 주문이 없어요
+            {VI_ORDER_EMPTY_TEXT}
           </b>
           <span className="block text-[length:var(--t-caption)] text-[var(--muted-fg)]">
             가동 중이면 조건에 맞는 VI 발동 종목이 여기에 쌓여요.
@@ -529,9 +589,233 @@ interface RowView {
   face: StateFace;
   checked: boolean;
   locked: boolean;
+  /** 확인 전송 중(73 정정 전) — 작업대 표는 이 동안 체크를 잠근다(「체크 즉시 잠긴다」). */
+  pending: boolean;
+  /** `Accepted ∧ !checked` — 칩·행 `--new-bg` 강조. */
+  unconfirmed: boolean;
   remaining: number;
   live: boolean;
   label: string;
+}
+
+/**
+ * 작업대 「더보기」 표 (Phase 18 D-06 · 목업 `:837-855` 정본).
+ *
+ * ★ 11열 — 확인 · 주문시간 · 종목 · 거래소 · 발동가 · 전일대비 · 주문가 · 수량 · 체결 · 상태 · 110초.
+ *   작업대 페이지 컨테이너(`@container/wb`) 폭으로 접는다: 본문 <700 에서 `col-vi`(거래소·전일대비·
+ *   수량·110초)를, <830 에서 `col-vi2`(주문시간·체결)를 숨기고 종목 셀 아래 보조 줄(시각·거래소·수량)
+ *   을 세운다. 경계 수치는 globals.css §2.2b 정본이다.
+ * ★ 확인 체크는 **네이티브 체크박스**다(UI-SPEC §접근성 — Space). 비활성은 `isConfirmable` 이 정하고
+ *   (`row.locked`), 전송 중에도 잠근다(`row.pending`). 사유는 `title` 과 `aria-describedby` 두 길로
+ *   말한다 — 마우스 없는 사용자에게 `title` 은 읽히지 않는다.
+ * ★ 행 순서는 `rows` 그대로다 — relay 가 준 순서를 재정렬하지 않는다(「최신 위」는 서버 몫).
+ */
+function WorkbenchViTable({
+  rows,
+  failedOrderNo,
+  sendError,
+  onToggle,
+  className,
+}: {
+  rows: readonly RowView[];
+  failedOrderNo: string | null;
+  sendError: string;
+  onToggle: (item: RelayViOrderItem, next: boolean) => void;
+  className?: string;
+}) {
+  const colVi = 'hidden @min-[700px]/wb:table-cell';
+  const colVi2 = 'hidden @min-[830px]/wb:table-cell';
+  const th = 'h-auto bg-[var(--muted)] px-2 py-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] @min-[700px]/wb:px-2.5';
+  const td = 'h-9 px-2 py-0 whitespace-nowrap @min-[700px]/wb:px-2.5';
+
+  return (
+    <div data-slot="vi-order-list" data-variant="workbench" className={cn('min-w-0', className)}>
+      {rows.length === 0 ? (
+        <p
+          data-slot="vi-order-empty"
+          className="m-0 border-t border-[var(--border)] px-3 py-4 text-center text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+        >
+          {VI_ORDER_EMPTY_TEXT}
+        </p>
+      ) : (
+        <>
+          {/* `Table` 의 컨테이너가 이미 가로 스크롤이다 — 좁은 폭에서 조용히 잘리지 않는다. */}
+          <Table data-slot="vi-order-table" className="text-[12px]">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead scope="col" className={th}>확인</TableHead>
+                <TableHead scope="col" className={cn(th, colVi2)}>주문시간</TableHead>
+                <TableHead scope="col" className={th}>종목</TableHead>
+                <TableHead scope="col" className={cn(th, colVi)}>거래소</TableHead>
+                <TableHead scope="col" className={cn(th, 'text-right')}>발동가</TableHead>
+                <TableHead scope="col" className={cn(th, colVi, 'text-right')}>전일대비</TableHead>
+                <TableHead scope="col" className={cn(th, 'text-right')}>주문가</TableHead>
+                <TableHead scope="col" className={cn(th, colVi, 'text-right')}>수량</TableHead>
+                <TableHead scope="col" className={cn(th, colVi2, 'text-right')}>체결</TableHead>
+                <TableHead scope="col" className={th}>상태</TableHead>
+                <TableHead scope="col" className={cn(th, colVi)}>110초</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => {
+                const clock = acceptedClock(row.item.deadline110Ms) ?? '—';
+                const code = stockCodeOf(row.item.isin);
+                const failed = failedOrderNo !== null && failedOrderNo === row.item.orderNo;
+                return (
+                  <Fragment key={row.key}>
+                    <TableRow
+                      data-slot="vi-order-row"
+                      data-state={row.item.state}
+                      data-unconfirmed={row.unconfirmed ? 'true' : undefined}
+                      className={cn(
+                        row.unconfirmed && 'bg-[var(--new-bg)] hover:bg-[var(--new-bg)]',
+                      )}
+                    >
+                      <TableCell className={td}>
+                        <NativeConfirmCheck row={row} onToggle={onToggle} />
+                      </TableCell>
+                      <TableCell className={cn(td, colVi2, 'mono')}>{clock}</TableCell>
+                      <TableCell className={cn(td, 'max-w-[180px]')}>
+                        <span className="flex min-w-0 items-baseline gap-1">
+                          <span
+                            data-slot="vi-row-name"
+                            title={row.label}
+                            className="min-w-0 truncate font-semibold text-[var(--fg)]"
+                          >
+                            {row.label}
+                          </span>
+                          {code !== null && (
+                            <span className="mono flex-none text-[11px] text-[var(--muted-fg)]">{code}</span>
+                          )}
+                        </span>
+                        {/* 폰 밴드 보조 줄 — 숨긴 열(시각·거래소·수량)의 사실을 여기서 말한다. */}
+                        <span className="mono block truncate text-[10px] text-[var(--muted-fg)] @min-[700px]/wb:hidden">
+                          {clock} · {row.item.exchange} · {NUM.format(row.item.orderQty)}주
+                        </span>
+                      </TableCell>
+                      <TableCell className={cn(td, colVi)}>
+                        <ExchangeTag exchange={row.item.exchange} />
+                      </TableCell>
+                      <TableCell className={cn(td, 'mono text-right')}>{NUM.format(row.item.triggerPrice)}</TableCell>
+                      <TableCell className={cn(td, colVi, 'mono text-right font-bold')}>
+                        <ChangeRate triggerPrice={row.item.triggerPrice} basePrice={row.item.basePrice} />
+                      </TableCell>
+                      <TableCell className={cn(td, 'mono text-right')}>{NUM.format(row.item.orderPrice)}</TableCell>
+                      <TableCell className={cn(td, colVi, 'mono text-right')}>
+                        {row.item.orderQty > 0 ? NUM.format(row.item.orderQty) : '—'}
+                      </TableCell>
+                      <TableCell className={cn(td, colVi2, 'mono text-right')}>
+                        {row.item.filledQty > 0 ? NUM.format(row.item.filledQty) : '—'}
+                      </TableCell>
+                      <TableCell className={td}>
+                        <StateBadge face={row.face} />
+                      </TableCell>
+                      <TableCell className={cn(td, colVi)}>
+                        {row.live ? (
+                          <DeadlineBar remaining={row.remaining} />
+                        ) : (
+                          <span className="text-[11px] text-[var(--muted-fg)]">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {failed && sendError !== '' && (
+                      /* 보내지 못한 확인 — 그 행 **바로 아래**에서 말한다(E3 error). 잠금은 걸리지 않았다. */
+                      <TableRow data-slot="vi-confirm-error-row" className="hover:bg-transparent">
+                        <TableCell colSpan={11} className="px-2.5 py-1 whitespace-normal">
+                          <p
+                            role="status"
+                            data-slot="vi-confirm-error"
+                            className="m-0 text-[11px] text-[var(--destructive)]"
+                          >
+                            {sendError}
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </>
+      )}
+      <p
+        data-slot="vi-order-caption"
+        className="m-0 border-t border-[var(--border-subtle)] px-3 py-1.5 text-[10px] text-[var(--muted-fg)]"
+      >
+        {VI_WORKBENCH_TABLE_CAPTION}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 네이티브 확인 체크 (작업대 표 전용). 활성 판정은 `row.locked`(= `!isConfirmable`) 와
+ * `row.pending` 뿐이다 — 새 조건식을 여기 쓰지 않는다. `onToggle` 안에서도 같은 함수가 다시 막는다.
+ */
+function NativeConfirmCheck({
+  row,
+  onToggle,
+}: {
+  row: RowView;
+  onToggle: (item: RelayViOrderItem, next: boolean) => void;
+}) {
+  const reason = row.locked ? lockReasonOf(row.item) : null;
+  const reasonId = useId();
+  return (
+    <>
+      <input
+        type="checkbox"
+        data-slot="vi-confirm-check"
+        checked={row.checked}
+        disabled={row.locked || row.pending}
+        aria-label={`${row.label} 주문 확인 — 119초 미확인 취소 면제`}
+        title={reason ?? undefined}
+        aria-describedby={reason === null ? undefined : reasonId}
+        onChange={(e) => onToggle(row.item, e.target.checked)}
+        className="block size-[15px] accent-[var(--primary)] disabled:opacity-40"
+      />
+      {reason !== null && (
+        <span id={reasonId} className="sr-only">
+          {reason}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * 110초 진행바 (작업대 표) — 바 **+ `{N}s` 숫자**(색만으로 말하지 않는다). 전이 없음(⑤).
+ * 20초 미만이면 `--destructive`. 진행바 role 은 옛 `DeadlineMeter` 와 같은 접근 이름을 쓴다.
+ */
+function DeadlineBar({ remaining }: { remaining: number }) {
+  const hot = remaining < VI_DEADLINE_HOT_SECONDS;
+  const percent = Math.max(0, Math.min(100, Math.round((remaining / VI_DEADLINE_SECONDS) * 100)));
+  return (
+    <span data-slot="vi-deadline" data-hot={hot ? 'true' : 'false'} className="inline-flex min-w-24 items-center gap-1.5">
+      <span
+        role="progressbar"
+        aria-label="110초 자동취소까지 남은 시간"
+        aria-valuenow={remaining}
+        aria-valuemin={0}
+        aria-valuemax={VI_DEADLINE_SECONDS}
+        className="block h-1.5 min-w-12 flex-1 overflow-hidden rounded-full bg-[var(--muted)]"
+      >
+        <span
+          aria-hidden="true"
+          data-slot="vi-deadline-fill"
+          className={cn('block h-full', hot ? 'bg-[var(--destructive)]' : 'bg-[var(--led-latent)]')}
+          style={{ width: `${percent}%` }}
+        />
+      </span>
+      <small className="mono w-7 text-right text-[10px] text-[var(--muted-fg)]">{remaining}s</small>
+    </span>
+  );
+}
+
+/** 12자 KR ISIN → 6자리 종목코드(`KR7` + 코드 + 3자). 형식이 다르면 null — 지어내지 않는다. */
+export function stockCodeOf(isin: string): string | null {
+  return /^KR[0-9A-Z]{10}$/.test(isin) ? isin.slice(3, 9) : null;
 }
 
 /**
