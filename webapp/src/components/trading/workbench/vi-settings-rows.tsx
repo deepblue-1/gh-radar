@@ -125,10 +125,14 @@ export const VI_DIRTY_HINT = '「수정」을 눌러야 반영돼요 · 가동 �
 /**
  * 등록 계좌 ≠ 상태줄 계좌일 때 줄 아래 고지 (⑨ · UI-SPEC Q-3 「그 사실을 UI 가 말해야 한다」).
  * 이름은 세션 계좌 목록에서 **정본 계좌로** 찾은 값이다 — 없으면 번호만.
+ * `run` 으로 두 갈래(GC-WR-04): 가동 중이면 옮길 수 없다는 것과 방법(먼저 중지)을 말하고, 중지면
+ * 사실만 말한다 — 옮기는 길은 바로 옆 버튼이 말한다(위치를 가리키는 말은 폭마다 틀려진다).
  */
-export function viRegisteredAccountText(accountNo: string, name?: string): string {
+export function viRegisteredAccountText(accountNo: string, name: string | undefined, run: boolean): string {
   const label = name !== undefined && name !== '' ? `${accountNo} · ${name}` : accountNo;
-  return `계좌 ${label} 에 등록된 VI 예요 — 수정·시작·중지는 이 계좌로 나가요`;
+  return run
+    ? `계좌 ${label} 에 등록된 VI 예요 — 가동 중에는 이 계좌로만 나가요 · 옮기려면 먼저 중지하세요`
+    : `계좌 ${label} 에 등록된 VI 예요 — 수정·시작은 이 계좌로 나가요`;
 }
 
 /**
@@ -597,7 +601,7 @@ function ViSettingsRow({
             data-slot="vi-row-account"
             className="m-0 min-w-0 flex-[1_1_220px] text-[11px] break-keep text-[var(--muted-fg)]"
           >
-            {viRegisteredAccountText(rowAccountNo, rowAccountName)}
+            {viRegisteredAccountText(rowAccountNo, rowAccountName, run)}
           </p>
           {moveTarget !== null && (
             /* 테두리형 — 채움(`--up`)은 확인 창의 「시작」 하나다(⑧). 크기 축은 「수정」 과 같다. */
