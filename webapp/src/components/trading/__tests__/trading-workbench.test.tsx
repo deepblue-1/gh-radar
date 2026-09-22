@@ -128,6 +128,7 @@ vi.mock('@/components/trading/workbench/stock-add-bar', () => ({
 }));
 
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
+import { requestTradingFocus } from '@/lib/trading-focus';
 import { LEAVE_WARNING } from '@/lib/use-leave-warning';
 import { TradingWorkbench } from '../workbench/trading-workbench';
 
@@ -380,6 +381,49 @@ describe('TradingWorkbench — 등록된 전략과 ?focus= (D-02 · T-18-53)', (
     searchParams = new URLSearchParams('focus=garbage');
     render(<TradingWorkbench />);
     expect(cardsInDom()).toHaveLength(0);
+  });
+});
+
+describe('TradingWorkbench — 사이드바 포커스 요청 (18-12 · 이미 /trading 위일 때)', () => {
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+
+  it('요청 이벤트가 오면 그 키의 카드를 펼친다 — 같은 항목을 다시 눌러도(URL 불변) 다시 펼친다', () => {
+    const key = `KR7247540008:${ACCOUNT}:KRX`;
+    mockRelay = relay({ limitChasers: [lc('KR7086520004'), lc('KR7247540008')] });
+    render(<TradingWorkbench />);
+    expect(byKey()[key]).toBe('false');
+
+    act(() => requestTradingFocus(key));
+    expect(byKey()[key]).toBe('true');
+    expect(byKey()[`KR7086520004:${ACCOUNT}:KRX`]).toBe('false');
+
+    fireEvent.click(document.getElementById('strategy-card-KR7247540008-toggle')!);
+    expect(byKey()[key]).toBe('false');
+    act(() => requestTradingFocus(key));
+    expect(byKey()[key]).toBe('true');
+  });
+
+  it('스냅샷 전에 온 요청은 등록 전략이 보이는 순간 펼친다', () => {
+    const key = `KR7247540008:${ACCOUNT}:KRX`;
+    mockRelay = relay({ limitChasers: [] });
+    const { rerender } = render(<TradingWorkbench />);
+    act(() => requestTradingFocus(key));
+    expect(cardsInDom()).toHaveLength(0);
+
+    mockRelay = relay({ limitChasers: [lc('KR7247540008')] });
+    rerender(<TradingWorkbench />);
+    expect(byKey()[key]).toBe('true');
+  });
+
+  it('형식이 어긋나거나 등록되지 않은 키의 요청은 카드를 만들지 않고 아무것도 보내지 않는다', () => {
+    mockRelay = relay({ limitChasers: [lc('KR7086520004')] });
+    render(<TradingWorkbench />);
+    act(() => requestTradingFocus('garbage'));
+    act(() => requestTradingFocus(`KR7000000000:${ACCOUNT}:KRX`));
+    expect(cardsInDom()).toHaveLength(1);
+    expect(byKey()[`KR7086520004:${ACCOUNT}:KRX`]).toBe('false');
+    expect((mockRelay.send as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
   });
 });
 
