@@ -55,12 +55,14 @@ import {
   MODIFY_TARGET_CHANGED_TEXT,
   MODIFY_TARGET_GONE_TEXT,
   OFFHOURS_WINDOW_CLOSED_TEXT,
+  RESULT_UNKNOWN_LOCKED_TEXT,
   canModify,
   cancelQtyAtConfirm,
   modifyQtyClampedText,
   modifyQtyOverRemainingText,
   unfilledSelectBlockReason,
   type ManualOrderFormProps,
+  type ResultUnknownKey,
 } from '../card/manual-order-form';
 
 const ISIN = 'KR7042700005';
@@ -826,5 +828,136 @@ describe('ManualOrderForm — 가격 0 원주문 선택 칩 표기 (CR-01 표시
     const chip = screen.getByTestId('manual-order-selchip');
     expect(chip).toHaveTextContent('매수 128,500 × 100');
     expect(chip).not.toHaveTextContent(OFFHOURS_PRICE_LABEL);
+  });
+});
+
+describe('ManualOrderForm — 제어형 결과 모름 잠금 (GC-WR-03)', () => {
+  const TIMEOUT = () => accepted({ status: 'timeout', orderNo: '', resultCode: -1, message: '' });
+
+  /** 작업대처럼 잠금을 **상위가** 든다 — 콜백이 오면 잠근다(풀지 않는다). */
+  function Harness({
+    spy,
+    over = {},
+  }: {
+    spy: (k: ResultUnknownKey) => void;
+    over?: Partial<ManualOrderFormProps>;
+  }) {
+    const [locked, setLocked] = useState(false);
+    return (
+      <ManualOrderForm
+        {...baseProps(over)}
+        resultUnknownLocked={locked}
+        onResultUnknown={(k) => {
+          spy(k);
+          setLocked(true);
+        }}
+      />
+    );
+  }
+
+  it('resultUnknownLocked → 4버튼 disabled · 잠금 문구(role=status) · 「매수」 눌러도 다이얼로그 없음 · 전송 0', async () => {
+    const user = userEvent.setup();
+    // 선택 행이 있어도(정정·취소가 원래 열릴 조건) 잠긴다.
+    renderForm({ resultUnknownLocked: true, selectedUnfilled: unf() });
+    for (const name of ['매수', '매도', '정정', '취소']) expect(btn(name)).toBeDisabled();
+    const lock = screen.getByTestId('manual-order-locked');
+    expect(lock).toHaveAttribute('role', 'status');
+    expect(lock).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
+    expect(RESULT_UNKNOWN_LOCKED_TEXT).not.toMatch(/실패/);
+    expect(screen.getByTestId('manual-order-form').textContent).not.toMatch(/실패/);
+
+    await user.click(btn('매수'));
+    fireEvent.click(btn('취소'));
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('신규 timeout → onResultUnknown 이 보낸 요청의 {accountNo, isin, exchange} 로 1회 · 배너가 있으면 잠금 문구는 겹치지 않는다', async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    render(<Harness spy={spy} />);
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
+
+    await screen.findByTestId('manual-order-result');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ accountNo: '12345678-01', isin: ISIN, exchange: 'KRX' });
+    expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'unknown');
+    // 원래 카드는 배너 하나로 말한다(R3 목업 ③ 3-a) — 잠금 문구는 다시 연 카드의 몫이다.
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+    for (const name of ['매수', '매도', '정정', '취소']) expect(btn(name)).toBeDisabled();
+  });
+
+  it('정정 timeout → 원주문 **행의** 키(NXT)로 1회', async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    render(<Harness spy={spy} over={{ selectedUnfilled: unf() }} />);
+    await user.clear(qtyInput());
+    await user.type(qtyInput(), '30');
+    await user.click(btn('정정'));
+    await user.click(await screen.findByRole('button', { name: '정정 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ accountNo: '12345678-01', isin: ISIN, exchange: 'NXT' });
+  });
+
+  it('취소 timeout → 원주문 **행의** 키(NXT)로 1회', async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    render(<Harness spy={spy} over={{ selectedUnfilled: unf() }} />);
+    await user.click(btn('취소'));
+    await user.click(await screen.findByRole('button', { name: '취소 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ accountNo: '12345678-01', isin: ISIN, exchange: 'NXT' });
+  });
+
+  it('접수·거부는 onResultUnknown 을 부르지 않는다', async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn();
+    sendOrderMock.mockResolvedValueOnce(accepted());
+    sendOrderMock.mockResolvedValueOnce(
+      accepted({ status: 'rejected', orderNo: '', resultCode: 7, message: '주문가능수량 초과' }),
+    );
+    render(<Harness spy={spy} />);
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
+    await screen.findByTestId('manual-order-result');
+    await user.click(btn('매도'));
+    await user.click(await screen.findByRole('button', { name: '매도 주문' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('manual-order-result')).toHaveAttribute('data-kind', 'rejected'),
+    );
+    expect(spy).not.toHaveBeenCalled();
+    expect(btn('매수')).toBeEnabled();
+  });
+
+  it('상위 잠금은 종목 전환으로 풀리지 않는다(상위 소유) — 폼은 로컬 잠금만 리셋한다', () => {
+    const { rerender } = renderForm({ resultUnknownLocked: true });
+    rerender(<ManualOrderForm {...baseProps({ resultUnknownLocked: true, isin: 'KR7005930003' })} />);
+    expect(btn('매수')).toBeDisabled();
+    expect(screen.getByTestId('manual-order-locked')).toBeInTheDocument();
+  });
+
+  it('prop 없음(호가 탭) → 기존 로컬 잠금 · 종목 전환 시 해제 그대로 · 잠금 문구 없음', async () => {
+    const user = userEvent.setup();
+    sendOrderMock.mockResolvedValue(TIMEOUT());
+    const { rerender } = renderForm({ variant: 'orderbook' });
+    await fill(user, '128500', '10');
+    await user.click(btn('매수'));
+    await user.click(await screen.findByRole('button', { name: '매수 주문' }));
+    await screen.findByTestId('manual-order-result');
+    expect(btn('매수')).toBeDisabled();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
+
+    rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook', isin: 'KR7005930003' })} />);
+    expect(btn('매수')).toBeEnabled();
+    expect(screen.queryByTestId('manual-order-result')).toBeNull();
+    expect(screen.queryByTestId('manual-order-locked')).toBeNull();
   });
 });

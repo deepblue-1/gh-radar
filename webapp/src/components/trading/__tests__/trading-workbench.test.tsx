@@ -996,3 +996,259 @@ describe('TradingWorkbench — VI 몫 서버 거부 (18-13 · T-16-07 · Pitfall
     expect(slot('vi-settings-rows')!.contains(el)).toBe(true);
   });
 });
+
+describe('TradingWorkbench — GC-WR-03 — 결과 모름 잠금은 작업대 키 상태다', () => {
+  type ResultUnknownKey = { accountNo: string; isin: string; exchange: 'KRX' | 'NXT' };
+  type BodyProps = {
+    resultUnknownLocked?: boolean;
+    onResultUnknown?: (k: ResultUnknownKey) => void;
+  };
+  const SAMSUNG = 'KR7005930003';
+  const SEEGENE = 'KR7096530001';
+  const OTHER_ACCOUNT = '99999999901';
+
+  /** 지금 격자에 있는 카드 id — 스텁 토글 id(`strategy-card-{id}-toggle`)에서 읽는다(지운 카드 기록 제외). */
+  const liveIds = () =>
+    cardsInDom().map((c) =>
+      c.querySelector('button[aria-expanded]')!.id.replace(/^strategy-card-/, '').replace(/-toggle$/, ''),
+    );
+  /** 전략 키로 찾은 **살아 있는** 카드의 본문 `CardBody` prop(렌더 함수가 만든 요소의 props). */
+  function bodyOfKey(key: string): BodyProps | undefined {
+    const live = new Set(liveIds());
+    const hit = [...cardProps.entries()].find(
+      ([id, p]) => live.has(id) && `${p.isin}:${p.accountNo}:${p.exchange}` === key,
+    );
+    if (hit === undefined) return undefined;
+    const body = hit[1].body as (s: unknown) => { props: BodyProps };
+    return body({}).props;
+  }
+  /** 카드 폼이 timeout 을 본 순간 — 보낸 요청의 키로 콜백을 부른다(폼 동작은 폼 테스트 몫). */
+  function timeoutOn(key: string, req: ResultUnknownKey) {
+    act(() => bodyOfKey(key)!.onResultUnknown!(req));
+  }
+  const keyOf = (isin: string, exchange: 'KRX' | 'NXT' = 'KRX', account = ACCOUNT) =>
+    `${isin}:${account}:${exchange}`;
+  const sendCalls = () => (mockRelay.send as ReturnType<typeof vi.fn>).mock.calls.length;
+  const sendOrderSpy = () => mockRelay.sendOrder as unknown as ReturnType<typeof vi.fn>;
+
+  function acctWith(rows: RelayUnfilled[]): RelayShape['accountStates'] {
+    return new Map([
+      [ACCOUNT, { t: 'acct', a: ACCOUNT, snap: true, rm: [], st: '09:41:52', hold: [], unf: rows }],
+    ]) as RelayShape['accountStates'];
+  }
+  function unfRow(over: Partial<RelayUnfilled> = {}): RelayUnfilled {
+    return {
+      orderNo: '3407000111',
+      orgOrderNo: '',
+      isin: SAMSUNG,
+      side: 'B',
+      price: 70_000,
+      orderQty: 10,
+      filledQty: 0,
+      unfilledQty: 10,
+      exchange: 'KRX',
+      orderTime: '094100',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
+      name: '삼성전자',
+      code: '005930',
+      ...over,
+    } as RelayUnfilled;
+  }
+  const clickRow = (orderNo: string) => {
+    const tr = Array.from(
+      screen.getByTestId('shared-panels').querySelectorAll('[data-slot="account-embed-unfilled-row"]'),
+    ).find((el) => el.textContent?.includes(orderNo)) as HTMLElement;
+    fireEvent.click(tr.querySelectorAll('td')[3]!);
+  };
+  const closeBtn = (label: string) => screen.getByRole('button', { name: `${label} 카드 닫기` });
+
+  beforeEach(() => {
+    mockRelay = relay({ sendOrder: vi.fn() } as Partial<RelayShape>);
+  });
+
+  it('잠긴 카드 ✕ → data-reason="unknown" 다이얼로그 · 취소면 남고 「카드 닫기」 면 사라진다 → 돌파 칩으로 재추가해도 잠긴 채 · 송신 0', () => {
+    mockRelay = relay({ rateCrossItems: [rc()], sendOrder: vi.fn() } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    const key = keyOf(SEEGENE);
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(false);
+
+    timeoutOn(key, { accountNo: ACCOUNT, isin: SEEGENE, exchange: 'KRX' });
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+
+    fireEvent.click(closeBtn('씨젠'));
+    const dialog = screen.getByTestId('workbench-close-confirm');
+    expect(dialog.getAttribute('data-reason')).toBe('unknown');
+    expect(within(dialog).getByRole('heading', { name: '결과를 모르는 주문이 있어요' })).toBeInTheDocument();
+    expect(dialog.textContent).toContain(
+      '미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.',
+    );
+    // 등록 전략이 없으면 등록 전략 문장은 붙지 않는다 · 「실패」 없음.
+    expect(dialog.textContent).not.toContain('서버의 상따 전략은 그대로 동작해요');
+    expect(dialog.textContent).not.toMatch(/실패/);
+    fireEvent.click(within(dialog).getByRole('button', { name: '취소' }));
+    expect(cardsInDom()).toHaveLength(1);
+
+    fireEvent.click(closeBtn('씨젠'));
+    fireEvent.click(
+      within(screen.getByTestId('workbench-close-confirm')).getByRole('button', { name: '카드 닫기' }),
+    );
+    expect(cardsInDom()).toHaveLength(0);
+
+    fireEvent.click(slot('breakout-chip')!);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+    expect(sendCalls()).toBe(0);
+    expect(sendOrderSpy()).not.toHaveBeenCalled();
+  });
+
+  it('종목 추가로 재추가해도 잠긴 채다', () => {
+    render(<TradingWorkbench />);
+    const add = within(slot('stock-add-bar')!).getByRole('button', { name: '추가' });
+    fireEvent.click(add);
+    const key = keyOf(SAMSUNG);
+    timeoutOn(key, { accountNo: ACCOUNT, isin: SAMSUNG, exchange: 'KRX' });
+    fireEvent.click(closeBtn('삼성전자'));
+    fireEvent.click(
+      within(screen.getByTestId('workbench-close-confirm')).getByRole('button', { name: '카드 닫기' }),
+    );
+    expect(cardsInDom()).toHaveLength(0);
+
+    fireEvent.click(add);
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+    expect(sendCalls()).toBe(0);
+  });
+
+  it('미체결 행 선택(cardForUnfilled 새 카드)으로 재추가해도 잠긴 채다', () => {
+    mockRelay = relay({ accountStates: acctWith([unfRow()]), sendOrder: vi.fn() } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    const key = keyOf(SAMSUNG);
+    timeoutOn(key, { accountNo: ACCOUNT, isin: SAMSUNG, exchange: 'KRX' });
+    fireEvent.click(closeBtn('삼성전자'));
+    fireEvent.click(
+      within(screen.getByTestId('workbench-close-confirm')).getByRole('button', { name: '카드 닫기' }),
+    );
+    expect(cardsInDom()).toHaveLength(0);
+
+    clickRow('3407000111');
+    expect(cardsInDom()).toHaveLength(1);
+    expect(cardsInDom()[0].getAttribute('data-key')).toBe(key);
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+    expect(sendCalls()).toBe(0);
+    expect(sendOrderSpy()).not.toHaveBeenCalled();
+  });
+
+  it('키 범위 — 같은 ISIN 다른 거래소(NXT) · 다른 계좌 카드는 잠기지 않는다', () => {
+    mockRelay = relay({
+      limitChasers: [
+        lc(SAMSUNG),
+        lc(SAMSUNG, { exchange: 'NXT' }),
+        lc(SAMSUNG, { accountNo: OTHER_ACCOUNT }),
+      ],
+      sendOrder: vi.fn(),
+    } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(3);
+    timeoutOn(keyOf(SAMSUNG), { accountNo: ACCOUNT, isin: SAMSUNG, exchange: 'KRX' });
+    expect(bodyOfKey(keyOf(SAMSUNG))?.resultUnknownLocked).toBe(true);
+    expect(bodyOfKey(keyOf(SAMSUNG, 'NXT'))?.resultUnknownLocked).toBe(false);
+    expect(bodyOfKey(keyOf(SAMSUNG, 'KRX', OTHER_ACCOUNT))?.resultUnknownLocked).toBe(false);
+  });
+
+  it('잠금은 요청의 키를 따른다 — KRX 카드에서 NXT 원주문 정정이 timeout 이면 NXT 키가 잠긴다', () => {
+    mockRelay = relay({
+      limitChasers: [lc(SAMSUNG), lc(SAMSUNG, { exchange: 'NXT' })],
+      sendOrder: vi.fn(),
+    } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    timeoutOn(keyOf(SAMSUNG), { accountNo: ACCOUNT, isin: SAMSUNG, exchange: 'NXT' });
+    expect(bodyOfKey(keyOf(SAMSUNG))?.resultUnknownLocked).toBe(false);
+    expect(bodyOfKey(keyOf(SAMSUNG, 'NXT'))?.resultUnknownLocked).toBe(true);
+  });
+
+  it('접기/펴기 · 상태줄 계좌 A→B→A 전환 뒤에도 A 키 잠금이 남는다', () => {
+    mockRelay = relay({
+      accounts: [
+        { accountNo: ACCOUNT, name: '위탁종합' },
+        { accountNo: OTHER_ACCOUNT, name: 'ISA' },
+      ],
+      sendOrder: vi.fn(),
+    } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    const key = keyOf(SAMSUNG);
+    timeoutOn(key, { accountNo: ACCOUNT, isin: SAMSUNG, exchange: 'KRX' });
+
+    fireEvent.click(toggleOf(SAMSUNG));
+    fireEvent.click(toggleOf(SAMSUNG));
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+
+    const pill = screen.getByRole('combobox', { name: '계좌' });
+    fireEvent.change(pill, { target: { value: OTHER_ACCOUNT } });
+    fireEvent.change(pill, { target: { value: ACCOUNT } });
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+    expect(sendCalls()).toBe(0);
+  });
+
+  it('DMA 게이트가 섰다 걷혀도(작업대 본문 언마운트) 잠금이 남는다 — 페이지를 떠날 때만 풀린다', () => {
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    const key = keyOf(SAMSUNG);
+    timeoutOn(key, { accountNo: ACCOUNT, isin: SAMSUNG, exchange: 'KRX' });
+
+    mockRelay = relay({ status: 'unauthorized', sendOrder: vi.fn() } as Partial<RelayShape>);
+    rerender(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(0);
+    expect(slot('stock-add-bar')).toBeNull();
+
+    mockRelay = relay({ sendOrder: vi.fn() } as Partial<RelayShape>);
+    rerender(<TradingWorkbench />);
+    fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
+    expect(bodyOfKey(key)?.resultUnknownLocked).toBe(true);
+  });
+
+  it('잠김 + 등록 전략 카드 ✕ → 결과 모름 다이얼로그에 등록 전략 문장이 한 줄 더 붙는다', () => {
+    mockRelay = relay({
+      limitChasers: [lc('KR7086520004', { name: '에코프로' } as Partial<RelayLimitChaser>)],
+      sendOrder: vi.fn(),
+    } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    const key = keyOf('KR7086520004');
+    timeoutOn(key, { accountNo: ACCOUNT, isin: 'KR7086520004', exchange: 'KRX' });
+
+    fireEvent.click(screen.getByRole('button', { name: /카드 닫기$/ }));
+    const dialog = screen.getByTestId('workbench-close-confirm');
+    expect(dialog.getAttribute('data-reason')).toBe('unknown');
+    expect(within(dialog).getByRole('heading', { name: '결과를 모르는 주문이 있어요' })).toBeInTheDocument();
+    expect(dialog.textContent).toContain('카드를 닫았다 다시 열어도 이 종목의 주문 버튼은 잠긴 채로 남아요.');
+    expect(dialog.textContent).toContain(
+      '카드를 닫아도 서버의 상따 전략은 그대로 동작해요. 전략을 멈추려면 카드에서 매수·매도 스위치를 끄세요.',
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: '카드 닫기' }));
+    expect(cardsInDom()).toHaveLength(0);
+    expect(sendCalls()).toBe(0);
+  });
+
+  it('잠기지 않은 등록 전략 카드는 기존 data-reason="registered" 다이얼로그 그대로다', () => {
+    mockRelay = relay({ limitChasers: [lc('KR7086520004')], sendOrder: vi.fn() } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    fireEvent.click(screen.getByRole('button', { name: /카드 닫기$/ }));
+    const dialog = screen.getByTestId('workbench-close-confirm');
+    expect(dialog.getAttribute('data-reason')).toBe('registered');
+    expect(within(dialog).getByRole('heading', { name: '등록된 전략이 있는 카드예요' })).toBeInTheDocument();
+    expect(dialog.textContent).not.toContain('결과를 모르는 주문');
+  });
+
+  it('카드 본문 콜백은 모든 카드에 같은 참조(안정 콜백)다 — 불리언 + 안정 콜백만 (③)', () => {
+    mockRelay = relay({ limitChasers: [lc(SAMSUNG), lc(SEEGENE)], sendOrder: vi.fn() } as Partial<RelayShape>);
+    render(<TradingWorkbench />);
+    const a = bodyOfKey(keyOf(SAMSUNG))!;
+    const b = bodyOfKey(keyOf(SEEGENE))!;
+    expect(typeof a.resultUnknownLocked).toBe('boolean');
+    expect(a.onResultUnknown).toBe(b.onResultUnknown);
+  });
+});
