@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import * as React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -963,5 +964,136 @@ describe('AccountPanel — 예약·접수대기 서버 문구 (17-09 / D-07)', (
   it('㉜ 픽스처 3행(전부 빈 값)에도 보조 줄이 하나도 없다 — 어제의 표 그대로다', () => {
     renderPanel();
     expect(document.querySelectorAll('[data-slot="account-unfilled-note"]')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18-09 — 미체결 행 선택 (D-21 · TRADE-09)
+// ---------------------------------------------------------------------------
+
+describe('AccountPanel — 미체결 행 선택 (18-09 / D-21)', () => {
+  const ROW_TITLE = '행을 누르면 수동주문 폼에서 정정·취소할 수 있어요';
+
+  /** 표 트리의 n번째 행의 선택 버튼(첫 셀). 카드 트리에도 같은 버튼이 있으므로 표로 좁힌다. */
+  function selectButtonOf(row: HTMLElement): HTMLElement {
+    const btn = row.querySelector<HTMLElement>('[data-slot="account-unfilled-select"]');
+    if (btn === null) throw new Error('선택 버튼이 없습니다');
+    return btn;
+  }
+
+  /** 선택을 소유하는 상위 — 재선택이면 해제한다(토글은 소유자의 몫). */
+  function Owner({ onSelect }: { onSelect: (row: RelayUnfilled) => void }) {
+    const [sel, setSel] = React.useState<string | null>(null);
+    return (
+      <AccountPanel
+        {...baseProps({ code: undefined, name: undefined, isin: undefined, currentPrice: undefined })}
+        selectedOrderNo={sel}
+        onSelectUnfilled={(row) => {
+          onSelect(row);
+          setSel((prev) => (prev === row.orderNo ? null : row.orderNo));
+        }}
+      />
+    );
+  }
+
+  it('㉝ onSelectUnfilled 가 없으면 기존과 DOM 이 같다 — 선택 시맨틱·행 title 이 하나도 없다', () => {
+    const a = renderPanel();
+    const html = a.container.innerHTML;
+    a.unmount();
+    // selectedOrderNo 만 주고 콜백이 없으면 선택 UI 는 켜지지 않는다(콜백이 스위치다).
+    const b = renderPanel({ selectedOrderNo: '0000135742' });
+    expect(b.container.innerHTML).toBe(html);
+    expect(document.querySelectorAll('[aria-pressed]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-slot="account-unfilled-select"]')).toHaveLength(0);
+    for (const row of unfilledRows()) {
+      expect(row).not.toHaveAttribute('title');
+      expect(row).not.toHaveAttribute('tabindex');
+    }
+  });
+
+  it('㉞ 행을 클릭하면 onSelectUnfilled(그 행) 이 1회 불린다', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderPanel({ onSelectUnfilled: onSelect });
+    await user.click(unfilledRows()[1]!.querySelectorAll('td')[3]!);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect.mock.calls[0]![0]).toMatchObject({ orderNo: '0000135801', isin: ISIN });
+  });
+
+  it('㉞-a 행 안의 취소 버튼을 눌러도 행 선택은 일어나지 않는다', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderPanel({ onSelectUnfilled: onSelect });
+    await user.click(within(unfilledRows()[0]!).getByRole('button', { name: '주문번호 0000135742 취소' }));
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('㉟ 선택된 행은 accent 강조 + aria-pressed="true" 다 (나머지는 false)', () => {
+    renderPanel({ onSelectUnfilled: vi.fn(), selectedOrderNo: '0000135801' });
+    const [r0, r1] = unfilledRows();
+    expect(selectButtonOf(r1!)).toHaveAttribute('aria-pressed', 'true');
+    expect(selectButtonOf(r0!)).toHaveAttribute('aria-pressed', 'false');
+    expect(r1!.className).toContain('bg-[var(--accent)]');
+    expect(r0!.className).not.toContain('bg-[var(--accent)]');
+    expect(r1).toHaveAttribute('data-selected', 'true');
+  });
+
+  it('㊱ 주문번호가 빈 행(접수 전)은 선택·취소 모두 disabled 이고 title 이 사유를 말한다', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderPanel({
+      onSelectUnfilled: onSelect,
+      account: withUnfilled([unf({ orderNo: '', unfilledQty: 30 })]),
+    });
+    const row = unfilledRows()[0]!;
+    const sel = selectButtonOf(row);
+    expect(sel).toBeDisabled();
+    expect(row).toHaveAttribute('title', '접수 전(주문번호 없음)은 선택할 수 없어요');
+    const cancel = within(row).getByRole('button', { name: /취소$/ });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveAttribute('title', '접수 전(주문번호 없음)은 취소할 수 없어요');
+    await user.click(row.querySelectorAll('td')[3]!);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('㊲ 취소보관 행은 회색 + 취소 버튼 없음 + 선택 disabled 다 (판정은 bool 하나)', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderPanel({
+      onSelectUnfilled: onSelect,
+      account: withUnfilled([
+        unf({ orderNo: '0000200001', pendingStatus: '취소 보관', pendingCancelSent: true }),
+      ]),
+    });
+    const row = unfilledRows()[0]!;
+    expect(row.className).toContain('text-[var(--muted-fg)]');
+    expect(cancelButtons('0000200001')).toHaveLength(0);
+    expect(selectButtonOf(row)).toBeDisabled();
+    expect(row).toHaveAttribute('title', '취소가 이미 나간 주문이에요');
+    await user.click(row.querySelectorAll('td')[3]!);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('㊳ Enter / Space 로 선택이 토글된다', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<Owner onSelect={onSelect} />);
+    const btn = selectButtonOf(unfilledRows()[0]!);
+    btn.focus();
+    await user.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(selectButtonOf(unfilledRows()[0]!)).toHaveAttribute('aria-pressed', 'true');
+    await user.keyboard(' ');
+    expect(onSelect).toHaveBeenCalledTimes(2);
+    expect(selectButtonOf(unfilledRows()[0]!)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('㊴ 선택 가능한 행의 title 은 「행을 누르면 수동주문 폼에서 정정·취소할 수 있어요」 다', () => {
+    renderPanel({ onSelectUnfilled: vi.fn() });
+    const rows = unfilledRows();
+    expect(rows[0]).toHaveAttribute('title', ROW_TITLE);
+    expect(rows[1]).toHaveAttribute('title', ROW_TITLE);
+    // 카드 행도 같은 문법이다 — 두 트리가 갈리지 않는다.
+    expect(unfilledCards()[0]).toHaveAttribute('title', ROW_TITLE);
   });
 });
