@@ -977,7 +977,12 @@ export function ManualOrderEntry({
       <div
         role="tablist"
         aria-label="주문 진입"
-        className="mb-[var(--s-2)] grid grid-cols-3 gap-[var(--s-1)] @min-[700px]/lc:hidden"
+        className={cn(
+          'grid grid-cols-3 gap-[var(--s-1)] @min-[700px]/lc:hidden',
+          // 매수·매도 탭은 아래 옵션 카드의 방향색이 그림자 8px 로 위까지 번진다(limit-chaser-form
+          // `Card` ⓐ) — 탭 아래 여백을 16px 로 두어 색면과 탭 사이에 8px 흰 여백을 남긴다.
+          manualTab ? 'mb-[var(--s-2)]' : 'mb-[var(--s-4)]',
+        )}
       >
         {(['buy', 'sell', 'manual'] as const).map((t) => {
           const active = tab === t;

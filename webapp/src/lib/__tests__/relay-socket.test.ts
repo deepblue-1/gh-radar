@@ -593,6 +593,66 @@ describe('useRelayConnection — 구독 level (quick-260923-ge2)', () => {
   });
 });
 
+describe('useRelayConnection — 구독 제어 속도 (quick-260923-kq1)', () => {
+  const isinOf = (i: number) => `KR7${String(i).padStart(6, '0')}000`;
+  const subs = (ws: FakeWebSocket) => ws.parsedSent().filter((m) => m.t === 'sub');
+  const unsubs = (ws: FakeWebSocket) => ws.parsedSent().filter((m) => m.t === 'unsub');
+
+  it('P1 한꺼번에 몰린 구독은 초당 6건으로 나가고, 카드(full)가 돌파 칩(price)보다 먼저다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    // 재접속 직후처럼 칩 20 건이 먼저 등록되고 카드 2 건이 뒤에 온다 — 인증 전이라 한 번에 흘러간다.
+    act(() => {
+      for (let i = 0; i < 20; i += 1) hook.result.current.subscribe(isinOf(i), 'KRX', 'price');
+    });
+    // 칩이 버킷 6 을 먼저 썼다. 카드는 다음 토큰에서 칩보다 먼저 나가야 한다.
+    expect(subs(ws)).toHaveLength(6);
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+      hook.result.current.subscribe(ISIN_B, 'KRX');
+    });
+    expect(subs(ws)).toHaveLength(6);
+
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    const afterFirstRefill = subs(ws).slice(6);
+    expect(afterFirstRefill.slice(0, 2)).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+      { t: 'sub', isin: ISIN_B, ex: 'KRX' },
+    ]);
+
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    // 전부 결국 나간다 — 누락 없이 22 건, 키 중복 없이.
+    const all = subs(ws);
+    expect(all).toHaveLength(22);
+    expect(new Set(all.map((f) => (f as { isin: string }).isin)).size).toBe(22);
+  });
+
+  it('P2 버킷이 빈 동안 해제된 키를 다시 구독하면 unsub·sub 을 보내지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      for (let i = 0; i < 6; i += 1) hook.result.current.subscribe(isinOf(i), 'KRX');
+    });
+    expect(subs(ws)).toHaveLength(6);
+
+    act(() => {
+      hook.result.current.unsubscribe(isinOf(0), 'KRX');
+      hook.result.current.subscribe(isinOf(0), 'KRX');
+    });
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(unsubs(ws)).toEqual([]);
+    expect(subs(ws)).toHaveLength(6);
+  });
+});
+
 describe('useRelayConnection — 재접속 규율 (D-16 / T-15-10)', () => {
   it('⑧ 서버가 닫으면 백오프 재접속하고, 데이터를 지우지 않고 isStale 만 세운다', async () => {
     const hook = render();

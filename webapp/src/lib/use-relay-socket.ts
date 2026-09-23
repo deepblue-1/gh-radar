@@ -143,6 +143,19 @@ const ORDER_RESULT_BACKSTOP_MS = 10_000;
 const WS_READY_OPEN = 1;
 
 /**
+ * 구독 제어 프레임(`sub`/`unsub`) 송신 속도 — 초당 6건 · 버스트 6 (quick-260923-kq1).
+ *
+ * relay 는 연결당 인바운드를 **초당 10건 · 버스트 10** 토큰 버킷으로 막고, 넘친 프레임은
+ * **조용히 버린다**(`fanout.ts` `INBOUND_RATE_LIMIT_PER_SEC` · 응답 없음). 재접속·새로고침 때
+ * 돌파 칩(≤40)과 카드 구독을 한 번에 흘리면 앞 10건만 살고 나머지 카드 구독이 사라져 호가·체결이
+ * 영영 비었다(2026-09-23 13:39 relay 로그 「인바운드 상한 초과」). 그래서 구독 제어는 이 버킷으로
+ * 나눠 보내고, 남는 초당 4건은 전략·주문 프레임 몫으로 비워 둔다 — 구독 폭주가 주문을 밀어내면 안 된다.
+ * 값을 올릴 때는 relay 상한과 **합계**로 따져라.
+ */
+const SUB_FRAME_RATE_PER_SEC = 6;
+const SUB_FRAME_BURST = 6;
+
+/**
  * 백오프 지연 계산. attempt 는 1-based.
  * 상태 바의 `(다음 n초)` 안내도 이 함수를 통과시킨다(단일 정본).
  */
@@ -967,6 +980,18 @@ export function useRelayConnection({
   const wireSubsRef = useRef<
     Map<string, { isin: string; ex: RelayExchange; lv: RelaySubLevel }>
   >(new Map());
+  /**
+   * 와이어에서 내려야 하는데 아직 `unsub` 을 못 보낸 키와 그 와이어 level (구독 제어 버킷 대기).
+   * 보내기 전에 다시 구독되면 `wireSubs` 로 되돌린다 — relay 는 아직 그 구독을 들고 있다.
+   */
+  const pendingUnsubsRef = useRef<
+    Map<string, { isin: string; ex: RelayExchange; lv: RelaySubLevel }>
+  >(new Map());
+  /** 구독 제어 토큰 버킷 (`SUB_FRAME_RATE_PER_SEC`). 소켓마다 가득 찬 상태로 시작한다. */
+  const subTokensRef = useRef(SUB_FRAME_BURST);
+  const subRefilledAtRef = useRef(0);
+  /** 토큰이 모자라 남은 구독 제어를 다시 흘릴 타이머. */
+  const subFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** `rid` → 대기 중인 주문 Promise. */
   const pendingOrdersRef = useRef<Map<string, PendingOrder>>(new Map());
   /**
@@ -999,13 +1024,73 @@ export function useRelayConnection({
     // 권한 없음은 relay 가 구독을 무시하는 상태다 — 보내지 않는다.
     if (statusRef.current === "unauthorized") return;
 
+    // 보낼 것 — 우선순위: full(카드·호가 탭) → 해제 → price(돌파 칩). 버킷이 모자라면 칩이 늦는다.
+    const fullSubs: SubRefEntry[] = [];
+    const priceSubs: SubRefEntry[] = [];
     for (const [key, entry] of subRefsRef.current) {
       if (entry.full + entry.price < 1) continue;
       const lv = effectiveSubLevel(entry);
       const wire = wireSubsRef.current.get(key);
       if (wire !== undefined && wire.lv === lv) continue;
+      (lv === "full" ? fullSubs : priceSubs).push(entry);
+    }
+    const unsubs = [...pendingUnsubsRef.current];
+    if (fullSubs.length + priceSubs.length + unsubs.length === 0) return;
+
+    const now = Date.now();
+    subTokensRef.current = Math.min(
+      SUB_FRAME_BURST,
+      subTokensRef.current + ((now - subRefilledAtRef.current) * SUB_FRAME_RATE_PER_SEC) / 1000,
+    );
+    subRefilledAtRef.current = now;
+
+    const take = (): boolean => {
+      if (subTokensRef.current < 1) return false;
+      subTokensRef.current -= 1;
+      return true;
+    };
+    const sendSub = (entry: SubRefEntry): boolean => {
+      if (!take()) return false;
       ws.send(JSON.stringify(subFrameOf(entry)));
-      wireSubsRef.current.set(key, { isin: entry.isin, ex: entry.ex, lv });
+      wireSubsRef.current.set(relayQuoteKey(entry.isin, entry.ex), {
+        isin: entry.isin,
+        ex: entry.ex,
+        lv: effectiveSubLevel(entry),
+      });
+      return true;
+    };
+
+    let drained = fullSubs.every(sendSub);
+    if (drained) {
+      drained = unsubs.every(([key, wire]) => {
+        if (!take()) return false;
+        ws.send(JSON.stringify({ t: "unsub", isin: wire.isin, ex: wire.ex }));
+        pendingUnsubsRef.current.delete(key);
+        return true;
+      });
+    }
+    if (drained) drained = priceSubs.every(sendSub);
+
+    if (!drained && subFlushTimerRef.current === null) {
+      const waitMs = Math.ceil(((1 - subTokensRef.current) * 1000) / SUB_FRAME_RATE_PER_SEC);
+      subFlushTimerRef.current = setTimeout(() => {
+        subFlushTimerRef.current = null;
+        flushSubscriptionsRef.current();
+      }, Math.max(waitMs, 1));
+    }
+  }, []);
+  /** 타이머가 최신 `flushSubscriptions` 를 부르게 하는 거울 (useCallback 의존성 0 이라 사실상 고정). */
+  const flushSubscriptionsRef = useRef(flushSubscriptions);
+  flushSubscriptionsRef.current = flushSubscriptions;
+
+  /** 소켓이 바뀔 때 구독 제어 대기열·버킷을 초기화한다 — 새 소켓에는 relay 쪽 구독이 없다. */
+  const resetSubPacing = useCallback(() => {
+    pendingUnsubsRef.current.clear();
+    subTokensRef.current = SUB_FRAME_BURST;
+    subRefilledAtRef.current = Date.now();
+    if (subFlushTimerRef.current !== null) {
+      clearTimeout(subFlushTimerRef.current);
+      subFlushTimerRef.current = null;
     }
   }, []);
 
@@ -1116,6 +1201,7 @@ export function useRelayConnection({
       socketRef.current = ws;
       authAckedRef.current = false;
       wireSubsRef.current.clear();
+      resetSubPacing();
 
       ws.onopen = () => {
         // D-11 — 업그레이드 후 **첫 메시지**가 인증이다. 5초 안에 못 보내면 relay 가
@@ -1179,6 +1265,7 @@ export function useRelayConnection({
         if (socketRef.current === ws) socketRef.current = null;
         authAckedRef.current = false;
         wireSubsRef.current.clear();
+        resetSubPacing();
         abandonPendingOrders(
           "연결이 끊겨 주문 결과를 받지 못했어요. 미체결 목록을 확인해 주세요.",
         );
@@ -1251,11 +1338,12 @@ export function useRelayConnection({
 
       authAckedRef.current = false;
       wireSubsRef.current.clear();
+      resetSubPacing();
       abandonPendingOrders(
         "연결이 정리돼 주문 결과를 받지 못했어요. 미체결 목록을 확인해 주세요.",
       );
     };
-  }, [enabled, reconnectNonce, abandonPendingOrders]);
+  }, [enabled, reconnectNonce, abandonPendingOrders, resetSubPacing]);
 
   // ---------------------------------------------------------
   // 구독 반영 — 인증 ACK(재접속 포함)와 권한 상태 변화에서 밀린 구독을 흘려보낸다
@@ -1274,6 +1362,12 @@ export function useRelayConnection({
         subRefsRef.current.set(key, entry);
       }
       entry[level] += 1;
+      // 해제를 아직 못 보낸 키면 relay 는 그 구독을 들고 있다 — 와이어로 되돌리고 level 만 맞춘다.
+      const pendingUnsub = pendingUnsubsRef.current.get(key);
+      if (pendingUnsub !== undefined) {
+        pendingUnsubsRef.current.delete(key);
+        wireSubsRef.current.set(key, pendingUnsub);
+      }
       // 0→1 과 실효 level 변경에서만 와이어가 움직인다 — `flushSubscriptions` 가 wireSubs 로
       // 중복을 막는다.
       flushSubscriptions();
@@ -1302,7 +1396,9 @@ export function useRelayConnection({
 
       const ws = socketRef.current;
       if (!ws || ws.readyState !== WS_READY_OPEN) return;
-      ws.send(JSON.stringify({ t: "unsub", isin: wire.isin, ex: wire.ex }));
+      // 구독 제어 버킷을 탄다 — 버킷이 비면 다음 흘림에서 나간다.
+      pendingUnsubsRef.current.set(key, wire);
+      flushSubscriptions();
     },
     [flushSubscriptions],
   );
