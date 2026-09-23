@@ -28,12 +28,18 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { RelayOutbound } from "@gh-radar/shared";
+import type {
+  RelayAccountState,
+  RelayLimitChaser,
+  RelayOutbound,
+  RelayUnfilled,
+} from "@gh-radar/shared";
 
 import { WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
 import {
   createOrderHandler,
   isCancelLikeNotice,
+  modifyMovedQty,
   narrowPending,
   type PendingOrder,
 } from "../src/ws/order-handler.js";
@@ -755,7 +761,7 @@ describe("wss 주문 경로 (D-02)", () => {
           send: () => true,
         }),
       },
-      hub: { on: () => undefined, getLimitChasers: () => [], getViTrigger: () => null },
+      hub: { on: () => undefined, getLimitChasers: () => [], getViTrigger: () => null, getAccountStates: () => [] },
       orderStore: store.store,
       symbols: SYMBOLS,
       send: (_conn, msg) => sent.push(msg),
@@ -1804,6 +1810,292 @@ describe("wss 주문 경로 (D-02)", () => {
   });
 
   // ----------------------------------------------------------
+  // quick-260923-m23 — 정정확인 M 의 수량 캡 · 원주문 이동 기록
+  // gh-trade a940b25f · a70f6ab7: M 의 quantity 는 요청 에코, 이동 수량 = min(요청, 원주문 잔량).
+  // ----------------------------------------------------------
+
+  describe("quick-260923-m23 — 정정확인 M 수량", () => {
+    const X = "0000012345";
+    const Y = "0000012400";
+
+    function todayIso(): string {
+      return new Date(new Date(kstDayRangeUtc().from).getTime() + 3600_000).toISOString();
+    }
+
+    function originalRow(extra: Record<string, unknown> = {}): FakeRow {
+      return {
+        id: "row-x",
+        user_id: USER_A,
+        order_no: X,
+        created_at: todayIso(),
+        status: "accepted",
+        side: "S",
+        qty: 100,
+        filled_qty: 0,
+        modified_qty: 0,
+        notice_type: "A",
+        ...extra,
+      };
+    }
+
+    /** hub 66/67 누적 상태 — 원주문 X 잔량만 있는 계좌 1개. 계좌번호는 로그 누출 탐지용이다. */
+    function hubWithUnfilled(rows: Partial<RelayUnfilled>[]): RelayAccountState[] {
+      return [acctState(rows)];
+    }
+
+    /** 통보를 밀고, 기록 경로의 조회(select)가 시작될 때까지 기다린 뒤 큐를 비운다. */
+    async function pushAndFlush(
+      store: OrderStore,
+      fake: ReturnType<typeof fakeDmaOrders>,
+      input: Parameters<FakeGateway["pushOrderResp"]>[1],
+    ): Promise<void> {
+      const selectsBefore = fake.queries.filter((q) => q.verb === "select").length;
+      gateway.pushOrderResp(gatewaySocket(), input);
+      await waitFor(
+        () => fake.queries.filter((q) => q.verb === "select").length > selectsBefore,
+        "통보 기록 경로의 조회",
+      );
+      await flushIo(8);
+      await store.flushNow();
+      await flushIo(8);
+      await store.flushNow();
+    }
+
+    it("사고 재현: 18,249 중 7,432 체결 → 13,827 정정 → 이동 10,817 — 정정 행 qty 10,817 뒤 체결 10,817 이면 filled, 원주문 modified", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const x = originalRow({ qty: 18249, filled_qty: 7432, status: "partially_filled", notice_type: "E" });
+      const { store, fake } = await restartWithRealStore([x]);
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, side: "S", orderQty: 18249, filledQty: 7432, unfilledQty: 10817 }]),
+      );
+
+      const { ws, inbox } = await authed("token-a");
+      ws.sendRaw(orderModify({ side: "S", qty: 13827, price: 71_000, orgOrderNo: X }));
+      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "M",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        side: "S",
+        quantity: 13827,
+        price: 71_000,
+      });
+      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
+      await waitFor(() => fake.queries.some((q) => q.verb === "select"), "원주문 조회");
+      await flushIo(8);
+      await store.flushNow();
+
+      const modifyRow = fake.rows.find((r) => r.order_no === Y);
+      expect(modifyRow).toMatchObject({ qty: 10817, status: "accepted", order_no: Y });
+      expect(x).toMatchObject({ modified_qty: 10817, status: "modified", filled_qty: 7432, qty: 18249 });
+
+      // 대기 밖 체결 E — 정정 주문번호 Y 의 전량 10,817.
+      await pushAndFlush(store, fake, {
+        noticeType: "E",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        side: "S",
+        quantity: 10817,
+        price: 71_000,
+      });
+      expect(modifyRow).toMatchObject({ filled_qty: 10817, status: "filled", qty: 10817 });
+      expect(store.stats().dropped).toBe(0);
+    });
+
+    it("일부정정: 원주문 100 → M 30 — 정정 행 qty 30, 원주문 modified_qty 30 · accepted, 이후 원주문 체결 70 이면 filled", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const x = originalRow();
+      const { store, fake } = await restartWithRealStore([x]);
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 0, unfilledQty: 100 }]),
+      );
+
+      const { ws, inbox } = await authed("token-a");
+      ws.sendRaw(orderModify({ side: "S", qty: 30, orgOrderNo: X }));
+      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "M",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        quantity: 30,
+        price: 71_000,
+      });
+      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
+      await waitFor(() => fake.queries.some((q) => q.verb === "select"), "원주문 조회");
+      await flushIo(8);
+      await store.flushNow();
+
+      expect(fake.rows.find((r) => r.order_no === Y)).toMatchObject({ qty: 30, status: "accepted" });
+      expect(x).toMatchObject({ modified_qty: 30, status: "accepted" });
+
+      await pushAndFlush(store, fake, { noticeType: "E", orderNo: X, requestKind: "New", side: "S", quantity: 70 });
+      expect(x).toMatchObject({ filled_qty: 70, modified_qty: 30, status: "filled" });
+    });
+
+    it("전량 정정 + 선체결: 원주문 100 에 체결 40 뒤 정정 130 — 정정 행 qty 60, 원주문 filled 40 + modified 60 · 'modified'", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const x = originalRow();
+      const { store, fake } = await restartWithRealStore([x]);
+
+      await authed("token-a");
+      await pushAndFlush(store, fake, { noticeType: "E", orderNo: X, requestKind: "New", side: "S", quantity: 40 });
+      expect(x).toMatchObject({ filled_qty: 40, status: "partially_filled" });
+
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 40, unfilledQty: 60 }]),
+      );
+      const { ws, inbox } = await authed("token-a");
+      ws.sendRaw(orderModify({ side: "S", qty: 130, orgOrderNo: X }));
+      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+      await pushAndFlush(store, fake, {
+        noticeType: "M",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        quantity: 130,
+        price: 71_000,
+      });
+      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
+
+      expect(fake.rows.find((r) => r.order_no === Y)).toMatchObject({ qty: 60, status: "accepted" });
+      expect(x).toMatchObject({ filled_qty: 40, modified_qty: 60, status: "modified" });
+    });
+
+    it("순서 역전: E(Modify · Y · 60) 가 정정 대기를 먼저 정산한 뒤 늦은 M(130) — 정정 행 qty 60 · filled", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      const x = originalRow({ filled_qty: 40, status: "partially_filled", notice_type: "E" });
+      const { store, fake } = await restartWithRealStore([x]);
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 40, unfilledQty: 60 }]),
+      );
+
+      const { ws, inbox } = await authed("token-a");
+      ws.sendRaw(orderModify({ side: "S", qty: 130, orgOrderNo: X }));
+      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "E",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        side: "S",
+        quantity: 60,
+        price: 71_000,
+      });
+      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정 체결 order.result");
+      await store.flushNow();
+      const modifyRow = fake.rows.find((r) => r.order_no === Y);
+      expect(modifyRow).toMatchObject({ qty: 130, filled_qty: 60, status: "partially_filled" });
+
+      await pushAndFlush(store, fake, {
+        noticeType: "M",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        quantity: 130,
+        price: 71_000,
+      });
+
+      expect(modifyRow).toMatchObject({ qty: 60, filled_qty: 60, status: "filled" });
+      expect(x).toMatchObject({ filled_qty: 40, modified_qty: 60, status: "modified" });
+      expect(store.stats().dropped).toBe(0);
+    });
+
+    it("이중 적용 방지: 같은 M 이 두 번 와도 원주문 이동(modifiedQtyDelta) 갱신은 1건, 두 번째는 info 1줄", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const infoSpy = vi.spyOn(logger, "info");
+      orders = mkOrderStore({ existingIds: { [X]: "row-x" } });
+      await fanout.close();
+      await sessions.closeAll();
+      hub.closeAll();
+      await new Promise<void>((r) => server.close(() => r()));
+      await startHarness();
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 0, unfilledQty: 100 }]),
+      );
+
+      const { ws, inbox } = await authed("token-a");
+      ws.sendRaw(orderModify({ side: "S", qty: 30, orgOrderNo: X }));
+      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
+      const m = { noticeType: "M", orderNo: Y, orgOrderNo: X, requestKind: "Modify", quantity: 30, price: 71_000 };
+      gateway.pushOrderResp(gatewaySocket(), m);
+      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
+      gateway.pushOrderResp(gatewaySocket(), m);
+      await waitFor(
+        () => JSON.stringify(infoSpy.mock.calls).includes("같은 정정확인이 두 번 왔다"),
+        "두 번째 M 의 중복 info",
+      );
+      await flushIo(8);
+
+      const moves = orders.updates.filter((u) => u.modifiedQtyDelta !== undefined);
+      expect(moves).toEqual([{ orderRowId: "row-x", modifiedQtyDelta: 30 }]);
+      const dupInfos = infoSpy.mock.calls.filter((c) => JSON.stringify(c).includes("같은 정정확인이 두 번 왔다"));
+      expect(dupInfos).toHaveLength(1);
+    });
+
+    it("자동주문 M: 상따 M(Y · X · 130) 에 원주문 잔량 60 — 새 행은 order_type M · qty 60 · orgOrderNo X · orderNo Y", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      await authed("token-a");
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 40, unfilledQty: 60 }]),
+      );
+      vi.spyOn(hub, "getLimitChasers").mockReturnValue([
+        { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, market: "K" } as unknown as RelayLimitChaser,
+      ]);
+
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "M",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        origin: "LimitChaser",
+        quantity: 130,
+        price: 71_000,
+      });
+      await waitFor(() => orders.inserts.length === 1, "자동 정정 행 insert");
+      await flushIo(8);
+
+      expect(orders.inserts[0]).toMatchObject({ orderType: "M", qty: 60, orgOrderNo: X, orderNo: Y, origin: "limit_chaser" });
+      // 새 행의 캡도 같은 이동 수량이다(이미 60 이라 store 에서 무동작).
+      expect(orders.updates).toContainEqual(expect.objectContaining({ orderRowId: "row-1", qtyCap: 60 }));
+    });
+
+    it("원주문 행이 없으면(WinForms 원주문) 이동 갱신·새 행 없음 · info 1줄 · 로그에 계좌번호 없음", async () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+      await authed("token-a");
+      vi.spyOn(hub, "getAccountStates").mockReturnValue(
+        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 0, unfilledQty: 100 }]),
+      );
+
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "M",
+        orderNo: Y,
+        orgOrderNo: X,
+        requestKind: "Modify",
+        quantity: 30,
+        price: 71_000,
+      });
+      await waitFor(
+        () => JSON.stringify(infoSpy.mock.calls).includes("원주문 행 없음"),
+        "원주문 행 없음 info",
+      );
+      await flushIo(8);
+
+      expect(orders.updates.filter((u) => u.modifiedQtyDelta !== undefined)).toHaveLength(0);
+      expect(orders.inserts).toHaveLength(0);
+      const noRowInfos = infoSpy.mock.calls.filter((c) => JSON.stringify(c).includes("원주문 행 없음"));
+      expect(noRowInfos).toHaveLength(1);
+      const dumped = JSON.stringify([...infoSpy.mock.calls, ...warnSpy.mock.calls]);
+      expect(dumped).not.toContain(SAMPLE_ACCOUNT_NO);
+    });
+  });
+
+  // ----------------------------------------------------------
   // quick-260923-e1m — 통보 기록 경로 (S1 · B1/B3 · A1)
   // `.planning/debug/relay-ws-order-unmatched-notice.md` 의 Evidence · Resolution 이 근거다.
   // ----------------------------------------------------------
@@ -2502,5 +2794,90 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
         ),
       ).toBe(fresh);
     });
+  });
+});
+
+// ===========================================================================
+// quick-260923-m23 — modifyMovedQty (정정확인 이동 수량 순수함수)
+// ===========================================================================
+
+/** 미체결 1행 — 테스트가 필요한 필드만 덮어쓴다. */
+function unfilledRow(over: Partial<RelayUnfilled> = {}): RelayUnfilled {
+  return {
+    orderNo: "0000012345",
+    orgOrderNo: "",
+    isin: SAMPLE_ISIN,
+    side: "S",
+    price: 70_000,
+    orderQty: 100,
+    filledQty: 0,
+    unfilledQty: 100,
+    exchange: "KRX",
+    orderTime: "093000",
+    queuedStatus: "",
+    pendingStatus: "",
+    board: "",
+    pendingCancelSent: false,
+    ...over,
+  };
+}
+
+/** hub 66/67 누적 계좌 상태 1개. 계좌번호 `a` 는 로그 누출 탐지에 쓴다. */
+function acctState(rows: Partial<RelayUnfilled>[], account = SAMPLE_ACCOUNT_NO): RelayAccountState {
+  return { t: "acct", a: account, snap: true, hold: [], unf: rows.map((r) => unfilledRow(r)), rm: [], st: "" };
+}
+
+describe("modifyMovedQty — 정정확인 이동 수량 (quick-260923-m23)", () => {
+  const X = "0000012345";
+  const Y = "0000012400";
+  const m = (over: Partial<ParsedOrderResp> = {}): ParsedOrderResp =>
+    mkNotice({ noticeType: "M", orderNo: Y, orgOrderNo: X, requestKind: "Modify", quantity: 13827, ...over });
+
+  it("67 먼저: 새 주문번호 Y 행(orderQty 10817)이 있으면 그 값 — source new", () => {
+    const states = [
+      acctState([
+        { orderNo: X, orderQty: 18249, filledQty: 7432, unfilledQty: 0 },
+        { orderNo: Y, orgOrderNo: X, orderQty: 10817, unfilledQty: 10817 },
+      ]),
+    ];
+    expect(modifyMovedQty(states, m())).toEqual({ movedQty: 10817, source: "new" });
+  });
+
+  it("51 먼저: Y 없고 원주문 X 잔량 10817 이면 min(13827, 10817) — source org, 67 먼저와 같은 값", () => {
+    const states = [acctState([{ orderNo: X, orderQty: 18249, filledQty: 7432, unfilledQty: 10817 }])];
+    expect(modifyMovedQty(states, m())).toEqual({ movedQty: 10817, source: "org" });
+  });
+
+  it("둘 다 없으면 통보 수량 폴백 — source fallback", () => {
+    expect(modifyMovedQty([], m())).toEqual({ movedQty: 13827, source: "fallback" });
+    expect(modifyMovedQty([acctState([])], m())).toEqual({ movedQty: 13827, source: "fallback" });
+  });
+
+  it("M 이 아니거나 주문번호가 비었거나 주문번호 == 원주문번호(정규화)면 null", () => {
+    const states = [acctState([{ orderNo: X, unfilledQty: 10 }])];
+    expect(modifyMovedQty(states, m({ noticeType: "A" }))).toBeNull();
+    expect(modifyMovedQty(states, m({ noticeType: "E" }))).toBeNull();
+    expect(modifyMovedQty(states, m({ orderNo: "" }))).toBeNull();
+    expect(modifyMovedQty(states, m({ orderNo: "   " }))).toBeNull();
+    expect(modifyMovedQty(states, m({ orderNo: "12345", orgOrderNo: X }))).toBeNull();
+  });
+
+  it("주문번호 표기 차이(선행 0)는 같게 보고, ISIN 이 다른 행은 매칭하지 않으며, 계좌가 여럿이어도 전 계좌를 본다", () => {
+    // 선행 0 없는 표기의 원주문 행.
+    expect(modifyMovedQty([acctState([{ orderNo: "12345", unfilledQty: 500 }])], m())).toEqual({
+      movedQty: 500,
+      source: "org",
+    });
+    // 다른 종목의 같은 번호 — 매칭하지 않는다.
+    expect(modifyMovedQty([acctState([{ orderNo: X, isin: "KR7035720002", unfilledQty: 500 }])], m())).toEqual({
+      movedQty: 13827,
+      source: "fallback",
+    });
+    // 두 번째 계좌에 새 행이 있다.
+    const states = [
+      acctState([{ orderNo: "0000099999", unfilledQty: 1 }], "1111111101"),
+      acctState([{ orderNo: "12400", orderQty: 700, unfilledQty: 700 }], "2222222201"),
+    ];
+    expect(modifyMovedQty(states, m())).toEqual({ movedQty: 700, source: "new" });
   });
 });

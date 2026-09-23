@@ -55,6 +55,7 @@ import type {
   OrderSide,
   OrderType,
   RelayAccount,
+  RelayAccountState,
   RelayExchange,
   RelayLimitChaser,
   RelayOrderCancelMsg,
@@ -117,6 +118,14 @@ export interface OrderNoticeSource {
    * `undefined` = 그 거래소를 아직 조회 못 함, `null` = 미등록 (16-06 3상태).
    */
   getViTrigger(userId: string, exchange: RelayExchange): RelayViTrigger | null | undefined;
+  /**
+   * 그 사용자의 계좌 상태(66/67 누적) — **동기**다 (quick-260923-m23).
+   *
+   * 정정확인 M 의 이동 수량 정본이다. M 통보의 `quantity` 는 요청 에코라 거래소가 실제로 옮긴
+   * min(요청, 원주문 잔량)과 다를 수 있다 — 서버가 캡한 값은 여기(미체결 목록)에 있다.
+   * 로그에 이 상태의 계좌 필드(`a`)를 싣지 않는다 (T-16-45).
+   */
+  getAccountStates(userId: string): RelayAccountState[];
 }
 
 /** `dma_orders` 쓰기 창구 중 이 모듈이 쓰는 부분만 (D-03). */
@@ -209,7 +218,11 @@ export type PendingOrder = {
   /** 취소·정정 대기의 원주문번호. 신규는 `""` — 가장 강한 매칭 축이다. */
   orgOrderNo: string;
   timer: NodeJS.Timeout;
-  settle: (notice: ParsedOrderResp | null) => void;
+  /**
+   * 정산. `movedQty` 는 정정확인 M 일 때만 온다 — 리스너가 수신 틱에 hub 66/67 로 한 번 계산한
+   * 이동 수량이고, 새 정정 행의 `qty` 캡이다 (quick-260923-m23).
+   */
+  settle: (notice: ParsedOrderResp | null, movedQty?: number) => void;
 };
 
 /**
@@ -350,18 +363,27 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    *                  전에 온 같은 번호의 통보, 그리고 그 번호를 원주문번호로 가리키는 취소·정정 통보가
    *                  relay 자기 주문의 것임을 말해 준다.
    *
+   *   · `modifyMoves` — 원주문 이동(`modified_qty`)을 이미 반영한 정정확인 M 의 주문번호(정규화값,
+   *                  quick-260923-m23). 같은 M 이 두 번 와도 원주문 이동은 1회만이다.
+   *
    * 사용자당 1항목이고 KST 날짜(`day`)가 바뀌면 비운다 — 크기는 하루 relay 주문 수로 묶인다
    * (T-16-33, 무한 성장 없음). relay 재시작 시 사라진다. 재시작은 20:00 이후뿐이라 당일 흔적
-   * 손실은 수용 범위다.
+   * 손실은 수용 범위다(재시작 뒤의 중복 M 은 store CAS clamp 가 2선으로 막는다).
    */
-  const relayTrail = new Map<string, { day: string; isins: Set<string>; orderNos: Set<string> }>();
+  type RelayTrail = { day: string; isins: Set<string>; orderNos: Set<string>; modifyMoves: Set<string> };
+  const relayTrail = new Map<string, RelayTrail>();
 
   /** 그 사용자의 오늘 흔적. 없거나 날짜가 바뀌었으면 비운 새 항목이다. */
-  function trailOf(userId: string): { day: string; isins: Set<string>; orderNos: Set<string> } {
+  function trailOf(userId: string): RelayTrail {
     const today = kstDayRangeUtc().from;
     const existing = relayTrail.get(userId);
     if (existing !== undefined && existing.day === today) return existing;
-    const fresh = { day: today, isins: new Set<string>(), orderNos: new Set<string>() };
+    const fresh: RelayTrail = {
+      day: today,
+      isins: new Set<string>(),
+      orderNos: new Set<string>(),
+      modifyMoves: new Set<string>(),
+    };
     relayTrail.set(userId, fresh);
     return fresh;
   }
@@ -449,6 +471,25 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   // ----------------------------------------------------------
 
   deps.hub.on("order", ({ userId, notice }: HubOrderEvent) => {
+    // (m23) 정정확인 M 의 이동 수량 — **이 틱에 동기 1회** 계산하고, 아래 세 경로(원주문 이동 ·
+    // 대기 정산 · 기록 경로)에 **같은 값**을 넘긴다. 비동기 조회 뒤에 hub 를 다시 읽지 않는다 —
+    // 그 사이 67 이 오면 원주문 잔량이 이미 줄어 min 이 틀린 값을 낸다.
+    //
+    // 이중 적용 점검: 한 통보는 `settle` 과 `recordUnmatched` 중 **정확히 하나**만 탄다(hit 이면
+    // return). 그래서 새 정정 행의 qty 캡은 각 경로에 두고, 원주문 이동만 여기 한 곳 +
+    // `modifyMoves` Set 으로 M 1건당 1회를 보장한다. store CAS clamp(남은 잔량 이하)가 2선이다.
+    const movedQty = modifyMoveOf(userId, notice);
+    if (movedQty !== undefined && normalizeOrderNo(notice.orgOrderNo) !== "") {
+      void recordModifyMove(userId, notice, movedQty).catch((err: unknown) => {
+        // `recordUnmatched` 최후 그물과 같은 규율 — 안쪽 Supabase 왕복은 각자 catch 로 종결되므로
+        // 여기 오는 것은 조립·프로그래밍 예외뿐이다.
+        logger.error(
+          { err, orderNo: notice.orderNo },
+          "[WS-order] 정정 원주문 이동 기록 예외 — 이 이동은 기록되지 않았다 (stdout 이 두 번째 사본이다)",
+        );
+      });
+    }
+
     // **그 사용자의 연결만** 훑는다. 통보는 그 사용자의 세션에서 왔으므로 다른 사용자의
     // 대기 주문과 섞일 수 없다 (T-15-02). 그 안에서 ISIN 으로 **후보를 모으고**,
     // `narrowPending` 이 통보가 실어 온 축(`orgOrderNo`→`noticeType`→`side`→`quantity`→`price`)
@@ -474,7 +515,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     if (hit !== undefined) {
       const at = hit.state.pending.indexOf(hit.entry);
       if (at >= 0) hit.state.pending.splice(at, 1);
-      hit.entry.settle(notice);
+      hit.entry.settle(notice, movedQty);
       return;
     }
 
@@ -496,7 +537,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     // 파손이 그 순간 접속한 **모든 사용자의 DMA 세션**을 끊는다. 그렇게 두지 않는다
     // (GC-WR-01). 원인 쪽(`ensureRow` 의 try 범위)도 함께 막았다 — 한 겹만 두면 원인은
     // 남고 증상만 가려진다.
-    void recordUnmatched(userId, notice, candidates.length > 0).catch((err: unknown) => {
+    void recordUnmatched(userId, notice, candidates.length > 0, movedQty).catch((err: unknown) => {
       // 여기 `err` 는 PostgREST 가 아니다 — `recordUnmatched` 안의 Supabase 왕복 세 곳
       // (`findIdByOrderNo` ×2 · `insertRequest`)이 **각각** catch 로 종결되므로, 이 최후
       // 그물까지 오는 것은 조립·프로그래밍 예외뿐이고 그때는 스택이 유일한 단서다.
@@ -507,6 +548,122 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       );
     });
   });
+
+  /**
+   * 정정확인 M 의 이동 수량 (m23). M 이 아니거나 계산할 수 없으면 `undefined`.
+   *
+   * 예외는 삼킨다 — 통보 1건의 파손이 리스너를 던져 프로세스를 내리지 않게(GC-WR-01). 로그에는
+   * 주문번호·통보 종류만 싣는다. 폴백(hub 에 새 행도 원주문 잔량도 없음)은 warn 1줄이고,
+   * 계좌번호(hub 상태의 `a`)는 싣지 않는다 (T-16-45).
+   */
+  function modifyMoveOf(userId: string, notice: ParsedOrderResp): number | undefined {
+    if (notice.noticeType !== "M") return undefined;
+    let move: ModifyMove | null;
+    try {
+      move = modifyMovedQty(deps.hub.getAccountStates(userId), notice);
+    } catch (err) {
+      logger.error(
+        { err, orderNo: notice.orderNo, noticeType: notice.noticeType },
+        "[WS-order] 정정확인 이동 수량 계산 예외 — 캡·이동 없이 진행",
+      );
+      return undefined;
+    }
+    if (move === null) return undefined;
+    if (move.source === "fallback") {
+      logger.warn(
+        {
+          orderNo: notice.orderNo,
+          orgOrderNo: notice.orgOrderNo,
+          noticeType: notice.noticeType,
+          quantity: notice.quantity,
+        },
+        "[WS-order] 정정확인 이동 수량을 계좌 상태에서 찾지 못했다 — 통보 수량(요청 에코)으로 폴백",
+      );
+    }
+    return move.movedQty;
+  }
+
+  /**
+   * 원주문 행 조회 결과 (m23 — `settleOriginal` 과 `recordModifyMove` 공용).
+   * `lookup-failed` 는 조회 sink 가 던진 원문을 싣는다 — 로그는 호출자가 `safePgError` 로 남긴다.
+   */
+  type OriginalLookup = { kind: "row"; id: string } | { kind: "none" } | { kind: "lookup-failed"; err: unknown };
+
+  /**
+   * 원주문번호 조회 키(`orderNoLookupKeys`)로 원주문 행을 찾는다 — 진행 중인 insert 왕복을 먼저
+   * 재사용하고(접수 A 직후의 취소·정정이 그 A 의 insert 와 겹치는 경주 방어), 없으면
+   * `findIdByOrderNo` 를 키 순서대로 돈다. 사용자·주문번호·당일 3축은 조회 sink 가 건다.
+   */
+  async function findOriginalRowId(userId: string, keys: readonly string[]): Promise<OriginalLookup> {
+    for (const key of keys) {
+      const running = inflight.get(`${userId}|${key}`);
+      if (running === undefined) continue;
+      const settled = await running;
+      if (settled.kind === "row") return { kind: "row", id: settled.id };
+    }
+    try {
+      for (const key of keys) {
+        const id = await deps.orderStore.findIdByOrderNo(userId, key);
+        if (id !== null) return { kind: "row", id };
+      }
+    } catch (err) {
+      return { kind: "lookup-failed", err };
+    }
+    return { kind: "none" };
+  }
+
+  /**
+   * 정정확인 M → **원주문 행**의 이동 기록 (quick-260923-m23). M 통보 1건당 1회다.
+   *
+   *   · `modifyMoves` Set(사용자·KST 당일)에 M 주문번호가 이미 있으면 info 1줄 후 반환 — 같은 M 이
+   *     두 번 와도 이동은 1회다. 없으면 **먼저 등록**한 뒤 진행한다(조회 await 사이에 두 번째가
+   *     와도 막힌다).
+   *   · 찾은 행에는 `{orderRowId, modifiedQtyDelta}` 만 싣는다 — `notice_type`·`message`·`orderNo`
+   *     는 싣지 않는다. M 은 **새 주문**의 통보이고 원주문 행의 통보 필드는 그 행 자신의 것이다.
+   *     store 가 남은 잔량으로 clamp 하고 `filled_qty + modified_qty >= qty` 면 `modified` 로 닫는다.
+   *   · 행이 없으면 info 1줄 — WinForms 등 relay 밖 원주문이다. 새 행을 만들지 않는다(e1m A1 과
+   *     같은 판단 · T-m23-06).
+   *   · 조회가 실패하면 통보를 버리지 않는다(S-5) — 원주문번호 셀렉터(사용자·당일 3축)로 열화 갱신.
+   *
+   * 로그 필드는 주문번호·원주문번호·통보 종류·이동 수량뿐이다 — 계좌번호 없음 (T-16-45).
+   */
+  async function recordModifyMove(userId: string, notice: ParsedOrderResp, movedQty: number): Promise<void> {
+    const ctx = {
+      orderNo: notice.orderNo,
+      orgOrderNo: notice.orgOrderNo,
+      noticeType: notice.noticeType,
+      movedQty,
+    };
+    const own = normalizeOrderNo(notice.orderNo);
+    const moves = trailOf(userId).modifyMoves;
+    if (moves.has(own)) {
+      logger.info(ctx, "[WS-order] 같은 정정확인이 두 번 왔다 — 원주문 이동은 1회만 반영한다");
+      return;
+    }
+    moves.add(own);
+
+    const keys = orderNoLookupKeys(notice.orgOrderNo);
+    if (keys.length === 0) return;
+
+    const found = await findOriginalRowId(userId, keys);
+    if (found.kind === "lookup-failed") {
+      logger.error(
+        { pgError: safePgError(found.err), ...ctx },
+        "[WS-order] 정정 원주문 이동 — 원주문 조회 실패, 원주문번호 셀렉터로 열화 갱신",
+      );
+      deps.orderStore.enqueueUpdate({ orderNo: keys[0], userId, modifiedQtyDelta: movedQty });
+      return;
+    }
+    if (found.kind === "none") {
+      logger.info(
+        ctx,
+        "[WS-order] 정정 원주문 이동 — 원주문 행 없음 (WinForms 등 relay 밖 원주문), 새 행을 만들지 않는다",
+      );
+      return;
+    }
+    deps.orderStore.enqueueUpdate({ orderRowId: found.id, modifiedQtyDelta: movedQty });
+    logger.info(ctx, "[WS-order] 정정 원주문 이동 — 원주문 행에 이동 수량 기록");
+  }
 
   /**
    * 통보에서 뽑은 수명주기 갱신값. insert 든 update 든 같은 값을 쓴다.
@@ -577,8 +734,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     userId: string,
     notice: ParsedOrderResp,
     hadCandidates: boolean,
+    movedQty?: number,
   ): Promise<void> {
     const patch = patchOf(notice);
+    // (m23) 아래 갱신 네 곳의 `qtyCap: movedQty` 는 정정확인 M 의 새 정정 행 qty 캡이다 — 리스너가
+    // 계산한 이동 수량이고, M 이 아니면 `undefined` 라 store 가 없는 것으로 친다. 캡이 실리면 store 가
+    // CAS 경로로 보내 qty 를 내리고 filled 를 재판정한다(E(Modify) 선정산 뒤의 늦은 M).
 
     if (notice.originKind === "manual") {
       // 자동 분기와 **같은 조회**를 거친다. 「행이 있는가」는 조회해야만 알 수 있고, 모르는
@@ -598,7 +759,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
           { pgError: safePgError(err), orderNo: notice.orderNo, noticeType: notice.noticeType },
           "[WS-order] 수동 통보 — 기존 행 조회 실패, 열화 갱신만 시도",
         );
-        deps.orderStore.enqueueUpdate({ ...patch, userId });
+        deps.orderStore.enqueueUpdate({ ...patch, qtyCap: movedQty, userId });
         return;
       }
 
@@ -606,7 +767,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         // 행이 있음이 **확인된** 경우다. 이때만 갱신을 보낸다 — `order_no` 셀렉터는 확인
         // 없이 쓰지 않는다는 것이 이 분기의 규율이고, 확인했으므로 A10 1순위인
         // `orderRowId` 로 좁히는 것이 더 정확하다.
-        deps.orderStore.enqueueUpdate({ ...patch, orderRowId: existingId });
+        deps.orderStore.enqueueUpdate({ ...patch, qtyCap: movedQty, orderRowId: existingId });
         return;
       }
 
@@ -644,12 +805,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    const result = await ensureRow(userId, notice);
+    const result = await ensureRow(userId, notice, movedQty);
 
     if (result.kind === "row") {
       // 수명주기 필드(결과코드·통보종류·메시지·체결수량)는 큐로 넘긴다 — insert 는 「요청」
       // 모양이고 그 뒤의 상태는 update 경로가 소유한다는 경계를 유지한다.
-      deps.orderStore.enqueueUpdate({ ...patch, orderRowId: result.id });
+      deps.orderStore.enqueueUpdate({ ...patch, qtyCap: movedQty, orderRowId: result.id });
       return;
     }
 
@@ -657,7 +818,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 조회가 실패했다고 통보를 버리지 않는다. 행이 있을 수도 있으니 갱신은 시도한다 —
       // 셀렉터가 사용자·당일로 좁혀져 있으므로 없으면 0행이고 있으면 **내 행**이다.
       // 조용히 넘기지는 않는다 (S-5).
-      deps.orderStore.enqueueUpdate({ ...patch, userId });
+      deps.orderStore.enqueueUpdate({ ...patch, qtyCap: movedQty, userId });
     }
     // `unavailable` 은 드롭이다 — 사유는 `ensureRow`/`autoInsertRow` 가 이미 남겼다.
   }
@@ -703,48 +864,32 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       return;
     }
 
-    let rowId: string | null = null;
-    // 접수 A 직후의 취소가 그 A 의 insert 왕복과 겹치는 경주 방어 — 진행 중인 왕복을 재사용한다.
-    for (const key of keys) {
-      const running = inflight.get(`${userId}|${key}`);
-      if (running === undefined) continue;
-      const settled = await running;
-      if (settled.kind === "row") {
-        rowId = settled.id;
-        break;
-      }
+    // 접수 A 직후의 취소가 그 A 의 insert 왕복과 겹치는 경주 방어 — 진행 중인 왕복을 재사용한다
+    // (`findOriginalRowId` — m23 에서 정정 원주문 이동과 공유하려고 뽑았다. 동작은 그대로다).
+    const found = await findOriginalRowId(userId, keys);
+    if (found.kind === "lookup-failed") {
+      logger.error(
+        { pgError: safePgError(found.err), origin: notice.originKind, orderNo: notice.orderNo, noticeType: notice.noticeType },
+        "[WS-order] 자동주문 취소확인 — 원주문 조회 실패, 원주문번호 셀렉터로 열화 갱신",
+      );
+      deps.orderStore.enqueueUpdate({
+        orderNo: keys[0],
+        userId,
+        status: "cancelled",
+        noticeType: notice.noticeType,
+        resultCode: notice.resultCode,
+        message: notice.message,
+      });
+      return;
     }
 
-    if (rowId === null) {
-      try {
-        for (const key of keys) {
-          rowId = await deps.orderStore.findIdByOrderNo(userId, key);
-          if (rowId !== null) break;
-        }
-      } catch (err) {
-        logger.error(
-          { pgError: safePgError(err), origin: notice.originKind, orderNo: notice.orderNo, noticeType: notice.noticeType },
-          "[WS-order] 자동주문 취소확인 — 원주문 조회 실패, 원주문번호 셀렉터로 열화 갱신",
-        );
-        deps.orderStore.enqueueUpdate({
-          orderNo: keys[0],
-          userId,
-          status: "cancelled",
-          noticeType: notice.noticeType,
-          resultCode: notice.resultCode,
-          message: notice.message,
-        });
-        return;
-      }
-    }
-
-    if (rowId === null) {
+    if (found.kind === "none") {
       logger.warn(ctx, "[WS-order] 자동주문 취소확인 — 원주문 행을 찾지 못했다. 새 행을 만들지 않는다");
       return;
     }
 
     deps.orderStore.enqueueUpdate({
-      orderRowId: rowId,
+      orderRowId: found.id,
       status: "cancelled",
       noticeType: notice.noticeType,
       resultCode: notice.resultCode,
@@ -763,13 +908,13 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 키는 `${userId}|${orderNo}` 다. 사용자를 키에 넣는 이유는 gap 1 과 같다 — 브로커
    * 주문번호는 일별 재사용 시퀀스라 그 자체로는 사용자를 가르지 않는다.
    */
-  async function ensureRow(userId: string, notice: ParsedOrderResp): Promise<EnsureResult> {
+  async function ensureRow(userId: string, notice: ParsedOrderResp, movedQty?: number): Promise<EnsureResult> {
     // 빈 주문번호는 상관 키가 아니다 — 합치면 서로 다른 거부가 한 행에 겹친다 (GC-WR-02).
     // 접수 전 거부("R")는 `orderNo === ""` 로 오므로, 키를 만들면 그 사용자의 **모든** 빈
     // 주문번호 통보가 `"user|"` 하나를 공유하고 동시 도착한 서로 다른 거부가 같은 `row.id`
     // 를 받아 차례로 덮어쓴다. 게다가 `findIdByOrderNo` 는 이 값에서 **항상 `null`** 이라
     // (`store/orders.ts` 의 빈 값 방어) 이 키에는 dedup 의 의미가 애초에 없다.
-    if (notice.orderNo === "") return insertOnly(userId, notice);
+    if (notice.orderNo === "") return insertOnly(userId, notice, movedQty);
 
     const key = `${userId}|${notice.orderNo}`;
     const running = inflight.get(key);
@@ -790,7 +935,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 이 자동주문의 첫 통보에서 이미 행을 만들었다. 이후 통보는 그 행의 갱신이다.
       if (existingId !== null) return { kind: "row", id: existingId };
 
-      return insertOnly(userId, notice);
+      return insertOnly(userId, notice, movedQty);
     })();
 
     inflight.set(key, task);
@@ -815,9 +960,9 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 어느 경로로 실패하든 **행을 지어내지 않고** `unavailable` 로 끝낸다 — 사유는 stdout 에
    * 남으므로 기록이 0 이 되지는 않는다 (D-24).
    */
-  async function insertOnly(userId: string, notice: ParsedOrderResp): Promise<EnsureResult> {
+  async function insertOnly(userId: string, notice: ParsedOrderResp, movedQty?: number): Promise<EnsureResult> {
     try {
-      const row = autoInsertRow(userId, notice);
+      const row = autoInsertRow(userId, notice, movedQty);
       if (row === null) return { kind: "unavailable" }; // 사유는 `autoInsertRow` 가 남겼다.
 
       const orderRowId = await deps.orderStore.insertRequest(row);
@@ -848,7 +993,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 더 어려워진다. 그래서 못 만들면 error 로그로 남긴다 — relay stdout 이 D-24 의 두 번째
    * 감사 사본이므로 기록이 0 이 되지는 않는다.
    */
-  function autoInsertRow(userId: string, notice: ParsedOrderResp): OrderInsertRow | null {
+  function autoInsertRow(userId: string, notice: ParsedOrderResp, movedQty?: number): OrderInsertRow | null {
     const ctx = { userId, origin: notice.originKind, orderNo: notice.orderNo, isin: notice.isin };
 
     // (e1m B3) 취소성 통보는 어떤 경로로도 새 행이 되지 않는다. `recordUnmatched` 가 이미
@@ -862,7 +1007,11 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     // SUMMARY 가 원격 적용을 확인)가 0 을 취소 행(order_type C)과 G2/G3 세션 신규에만 허용한다.
     // 이 경로는 취소성 통보를 insert 하지 않고(위 B3 가드) 자동주문 행은 세션을 싣지 않으므로,
     // 여기 온 price ≤ 0 은 파손 프레임이다 — 밀어 넣어 행을 잃는 것보다 멈추고 사유를 남긴다.
-    if (!Number.isInteger(notice.quantity) || notice.quantity <= 0) {
+    // (m23) 정정확인 M 의 새 행은 요청 에코가 아니라 **이동 수량**이 주문수량이다. 가드도 그 실제
+    // 값으로 건다.
+    const isModify = notice.noticeType === "M";
+    const qty = isModify && movedQty !== undefined ? movedQty : notice.quantity;
+    if (!Number.isInteger(qty) || qty <= 0) {
       logger.error({ ...ctx }, "[WS-order] 자동주문 통보의 수량이 0 이하 — 행을 만들 수 없다");
       return null;
     }
@@ -901,13 +1050,14 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 받으므로 취소 행은 "S" 로 적되, **방향의 정본은 `org_order_no` 가 가리키는 원주문
       // 행**이다 — 취소 행의 side 를 표시에 쓰지 말 것 (수동 취소 경로와 같은 규율).
       side: sideOf(notice),
-      // 취소확인 C 는 위 B3 가드 때문에 여기 도달할 수 없다 — 이 경로의 행은 언제나 신규다.
-      orderType: "N",
+      // 취소확인 C 는 위 B3 가드 때문에 여기 도달할 수 없다. 정정확인 M 은 정정 행("M")이고
+      // (quick-260923-m23), 그 밖은 신규("N")다.
+      orderType: isModify ? "M" : "N",
       orgOrderNo: notice.orgOrderNo === "" ? undefined : notice.orgOrderNo,
-      qty: notice.quantity,
+      qty,
       price: notice.price,
       origin: notice.originKind,
-      // `status` 는 `'requested'` 로 시작하지 않아도 CHECK 를 통과한다(7종 전부 허용).
+      // `status` 는 `'requested'` 로 시작하지 않아도 CHECK 를 통과한다(8종 전부 허용).
       // 이 행은 이미 접수·체결 이후이므로 통보에서 파생한 상태로 시작하는 것이 진실이다.
       status: statusOf(notice, null) ?? "accepted",
       orderNo: notice.orderNo,
@@ -1196,7 +1346,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       release(state, keys);
     };
 
-    const finish = (notice: ParsedOrderResp | null): void => {
+    const finish = (notice: ParsedOrderResp | null, movedQty?: number): void => {
       if (settled) return;
       settled = true;
       clearTimeout(entry.timer);
@@ -1237,6 +1387,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         filledQty: filledQtyOf(notice),
         origin: notice.originKind,
       });
+      // (m23) 정정확인 M 이면 새 정정 행 qty 를 이동 수량으로 캡한다 — **별도 항목**이다. 위 항목은
+      // `order_no` 를 채워야 해서 일반 update sink 로 가야 하고, CAS sink 는 `order_no` 를 싣지 않는다.
+      // 큐는 직렬이라 순서(주문번호 채움 → 캡)가 보장된다.
+      if (notice.noticeType === "M" && movedQty !== undefined) {
+        deps.orderStore.enqueueUpdate({ orderRowId, qtyCap: movedQty });
+      }
       logger.info({ ...logCtx, status, noticeType: notice.noticeType }, "[WS-order] 주문 통보 수신");
       deps.send(conn, {
         t: "order.result",
@@ -1392,8 +1548,10 @@ export function normalizeOrderNo(raw: string): string {
  *   · 취소확인 "C" 는 언제나 참이다.
  *   · 거부 "R" 은 원주문번호(정규화 후 비어 있지 않음)를 실어 왔거나 `requestKind` 가
  *     `Cancel`·`Modify` 일 때만 참이다 — 정정·취소 요청의 거부다.
- *   · 그 밖(접수 A · 체결 E · 정정확인 M · 모르는 값)은 거짓이다. 정정확인 M 의 자동 insert 동작은
- *     이 quick 의 범위가 아니라 그대로 둔다.
+ *   · 그 밖(접수 A · 체결 E · 정정확인 M · 모르는 값)은 거짓이다. 정정확인 M 은 원주문 갱신이 아니라
+ *     **새 정정 행**이다 — 자동주문 M 은 `order_type` "M" · `qty` = 이동 수량으로 insert 되고,
+ *     원주문 행의 이동분(`modified_qty`)은 리스너의 `recordModifyMove` 가 따로 기록한다
+ *     (quick-260923-m23).
  *
  * 근거: 자동주문의 취소확인·거부는 `orderNo` 에 **취소 전문 자신의 번호**를, `orgOrderNo` 에
  * 원주문을 싣는다(gh-trade `broker/kb/KBBroker.cpp:1660-1661`, `app/Server.cpp:392-394` 「KBBroker
@@ -1419,6 +1577,57 @@ function orderNoLookupKeys(raw: string): string[] {
   if (normalized === "") return [];
   const keys = [raw.trim(), normalized.padStart(10, "0")];
   return keys.filter((k, i) => k !== "" && keys.indexOf(k) === i);
+}
+
+/** 정정확인 M 의 이동 수량과 그 출처 (quick-260923-m23). */
+export type ModifyMove = { movedQty: number; source: "new" | "org" | "fallback" };
+
+/**
+ * 정정확인 M 의 **이동 수량** — 원주문에서 새 주문번호로 실제로 옮겨간 수량 (quick-260923-m23).
+ *
+ * 51(M)의 `quantity` 는 **요청 수량 에코**다. 거래소는 min(요청, 원주문 잔량) 만 옮긴다 — gh-trade
+ * 서버 규칙(a940b25f · a70f6ab7): 새 미체결 행 수량 = min(정정확인 orderQty, 원주문 잔량). 일부정정은
+ * 원주문 행이 잔량 감소로 살아 있고, 전량 정정은 원주문번호가 목록에서 제거된다. 그 서버 캡이
+ * 반영된 정본이 hub 66/67 누적 계좌 상태(`states`)다.
+ *
+ * 순서:
+ *   1. **새 행 먼저** — 전 계좌 미체결에서 같은 ISIN · 정규화 주문번호가 M 의 주문번호인 행이
+ *      있고 `orderQty ≥ 1` 이면 그 값(`"new"` — 서버가 캡한 값, 67 이 51 보다 먼저 온 경우).
+ *      새 행을 먼저 보는 이유: 67 이 먼저 왔으면 원주문 잔량은 **이미 줄어 있어** min 이 틀린다.
+ *   2. **원주문 잔량** — 같은 ISIN · 정규화 주문번호가 원주문번호인 행이 있으면
+ *      min(통보 수량, 그 행 `unfilledQty`) 가 1 이상일 때 그 값(`"org"` — 서버와 같은 계산, 51 먼저).
+ *   3. **폴백** — 둘 다 없으면 통보 수량이 1 이상일 때 그 값(`"fallback"`). 호출자가 warn 한다.
+ *
+ * `null` = 캡·이동 모두 하지 않는다: M 이 아니다 · M 의 주문번호가 비었다 · 정규화한 주문번호가
+ * 원주문번호와 같다(정정 대상 번호를 식별할 수 없다 — ㊺ 같은 에코 방어) · 폴백 수량도 0 이하.
+ *
+ * 순수함수다 — 같은 입력이면 67 먼저(새 행 있음)와 51 먼저(원주문 잔량만) 두 순서에서 같은 값을 낸다.
+ */
+export function modifyMovedQty(
+  states: readonly RelayAccountState[],
+  notice: ParsedOrderResp,
+): ModifyMove | null {
+  if (notice.noticeType !== "M") return null;
+  const own = normalizeOrderNo(notice.orderNo);
+  const org = normalizeOrderNo(notice.orgOrderNo);
+  if (own === "" || own === org) return null;
+
+  const rows = states.flatMap((s) => s.unf).filter((u) => u.isin === notice.isin);
+  const fresh = rows.find((u) => normalizeOrderNo(u.orderNo) === own);
+  if (fresh !== undefined && Number.isInteger(fresh.orderQty) && fresh.orderQty >= 1) {
+    return { movedQty: fresh.orderQty, source: "new" };
+  }
+  if (org !== "") {
+    const original = rows.find((u) => normalizeOrderNo(u.orderNo) === org);
+    if (original !== undefined) {
+      const moved = Math.min(notice.quantity, original.unfilledQty);
+      if (Number.isInteger(moved) && moved >= 1) return { movedQty: moved, source: "org" };
+    }
+  }
+  if (Number.isInteger(notice.quantity) && notice.quantity >= 1) {
+    return { movedQty: notice.quantity, source: "fallback" };
+  }
+  return null;
 }
 
 /**
