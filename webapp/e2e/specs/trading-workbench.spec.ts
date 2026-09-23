@@ -1123,6 +1123,73 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(directOrders()).toBe(1);
   });
 
+  test('GC8 주문 체결 통보 → 우하단 토스트 → 클릭 → 카드 펼침 + 「미체결」 탭 + 헤더 표시 해제 (quick-260923-pgu · 목업 ③A)', async ({
+    page,
+  }) => {
+    const orderNo = '0000000777';
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+    // 알림 live 영역은 알림이 없어도 먼저 서 있어야 낭독된다.
+    const toastBox = page.locator('[data-slot="alert-toasts"]');
+    await expect(toastBox).toHaveAttribute('role', 'status');
+    await expect(toastBox).toHaveAttribute('aria-live', 'polite');
+
+    // 주문번호 색인의 원천 — 계좌 상태의 미체결 행(relay 리듀서가 원시 프레임에서 색인한다).
+    await relay.pushAccountState({
+      unfilled: [
+        {
+          orderNo,
+          isin: E2E_ISIN,
+          side: 'B',
+          price: 98_000,
+          orderQty: 500,
+          filledQty: 0,
+          unfilledQty: 500,
+          exchange: 'KRX',
+        },
+      ],
+    });
+
+    // 그 종목 카드를 세우고 접는다 — 다른 카드를 보고 있어도 이벤트를 놓치지 않는 상황.
+    await addStockByKeyboard(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await toggleOf(page, E2E_ISIN).click();
+    await expect(card).toHaveAttribute('data-open', 'false');
+    await expect(card).toHaveAttribute('data-alert', 'false');
+
+    await relay.pushOrderResp({
+      orderNo,
+      noticeType: 'E',
+      isin: E2E_ISIN,
+      side: 'B',
+      price: 98_000,
+      quantity: 100,
+      exchange: 'KRX',
+      requestKind: 'New',
+    });
+
+    const toast = page.locator('[data-slot="alert-toast"][data-kind="fill"]');
+    await expect(toast).toBeVisible({ timeout: 15_000 });
+    await expect(toast).toContainText('체결');
+    await expect(toast).toContainText('100/500주');
+    await expect(card).toHaveAttribute('data-alert', 'true');
+    // 뷰포트 오버레이 — 데스크톱은 우하단.
+    const box = await toast.boundingBox();
+    const vp = page.viewportSize()!;
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeGreaterThan(vp.width - 40);
+    expect(box!.y + box!.height).toBeGreaterThan(vp.height - 40);
+
+    await toast.locator('[data-part="text"]').click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(
+      card.locator('[data-slot="card-tabs"] [role="tab"][data-state="active"]'),
+    ).toContainText('미체결');
+    await expect(card).toHaveAttribute('data-alert', 'false');
+    await expect(page.locator('[data-slot="alert-toast"]')).toHaveCount(0);
+  });
+
   test('11. 카드 헤더에 래치 LED 3개가 매수·매도·취소 순서로 보이고 라벨이 상태를 말한다 (옛 LC 3b · 17-11 D-22)', async ({
     page,
   }) => {

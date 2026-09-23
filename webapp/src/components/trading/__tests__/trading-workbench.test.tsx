@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type {
+  RelayAccountState,
   RelayLimitChaser,
+  RelayOrderMsg,
   RelayRateCrossItem,
   RelayUnfilled,
+  RelayViNoticeMsg,
   RelayViOrderItem,
 } from '@gh-radar/shared';
 
@@ -75,6 +78,7 @@ vi.mock('@/components/trading/card/strategy-card', async (importOriginal) => {
         data-key={`${props.isin}:${props.accountNo}:${props.exchange}`}
         data-open={props.open ? 'true' : 'false'}
         data-exchange={props.exchange}
+        data-alert={props.alerted ? 'true' : 'false'}
       >
         <button
           type="button"
@@ -152,9 +156,11 @@ vi.mock('@/components/trading/workbench/shared-panels', async (importOriginal) =
 });
 
 import { EMPTY_RELAY_VALUE } from '@/lib/relay-provider';
+import { indexUnfilled } from '@/lib/trading-alerts';
 import { requestTradingFocus } from '@/lib/trading-focus';
 import { LEAVE_WARNING } from '@/lib/use-leave-warning';
 import {
+  cardForAlert,
   cardForUnfilled,
   fillAccountCards,
   holdingQuotePrice,
@@ -1939,5 +1945,207 @@ describe('TradingWorkbench — 카드 순서: 가장 최근에 바뀐 카드가 
     } finally {
       Element.prototype.scrollIntoView = original;
     }
+  });
+});
+
+describe('TradingWorkbench — 이벤트 알림 (quick-260923-pgu · 목업 ③A)', () => {
+  const SEEGENE = 'KR7096530001';
+  const ALTEO = 'KR7196170005';
+
+  function unfRow(orderNo: string, isin: string, over: Partial<RelayUnfilled> = {}): RelayUnfilled {
+    return {
+      orderNo,
+      orgOrderNo: '',
+      isin,
+      side: 'B',
+      price: 12_100,
+      orderQty: 500,
+      filledQty: 0,
+      unfilledQty: 500,
+      exchange: 'KRX',
+      orderTime: '094131',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
+      name: '씨젠',
+      code: '096530',
+      ...over,
+    };
+  }
+
+  function orderMsg(over: Partial<RelayOrderMsg> = {}): RelayOrderMsg {
+    return { t: 'order', no: '123', nt: 'E', rc: 0, msg: '', org: '', p: 12_100, q: 100, x: 'KRX', ...over };
+  }
+
+  function viNotice(over: Partial<RelayViNoticeMsg> = {}): RelayViNoticeMsg {
+    return {
+      t: 'vi.notice',
+      isin: ALTEO,
+      exchange: 'NXT',
+      accountNo: ACCOUNT,
+      triggerPrice: 453_200,
+      basePrice: 412_000,
+      changeRate: 10,
+      orderPrice: 535_500,
+      orderQty: 3,
+      market: 'Q',
+      orderSeq: 1,
+      viEndTime: '094412000',
+      name: '알테오젠',
+      ...over,
+    } as RelayViNoticeMsg;
+  }
+
+  const row = unfRow('123', SEEGENE);
+  const accountStates = new Map<string, RelayAccountState>([
+    [ACCOUNT, { t: 'acct', a: ACCOUNT, snap: true, hold: [], unf: [row], rm: [], st: '09:41:31' }],
+  ]);
+  const orderIndex = indexUnfilled(new Map(), ACCOUNT, [row]);
+  const base = { rateCrossItems: [rc()], accountStates, orderIndex };
+
+  const toastEls = () => Array.from(document.querySelectorAll('[data-slot="alert-toast"]')) as HTMLElement[];
+  const cardOf = (isin: string) =>
+    cardsInDom().find((c) => c.getAttribute('data-key')?.startsWith(`${isin}:`)) as HTMLElement;
+  const idOf = (isin: string) => [...cardProps.entries()].find(([, p]) => p.isin === isin)![0];
+
+  /** 돌파 칩으로 씨젠 카드를 세우고 접는다 — 체결 통보가 올 접힌 카드. */
+  function mountWithCollapsedCard() {
+    mockRelay = relay(base);
+    const view = render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    fireEvent.click(toggleOf(SEEGENE));
+    expect(cardOf(SEEGENE).getAttribute('data-open')).toBe('false');
+    return view;
+  }
+
+  it('① 새 체결 통보 → 토스트 1 · 색인 조인 문구 · 접힌 카드에 data-alert', () => {
+    const view = mountWithCollapsedCard();
+    expect(toastEls()).toHaveLength(0);
+    expect(slot('alert-toasts')).toHaveAttribute('role', 'status');
+    // 앱 셸이 아니라 작업대 루트 안에만 산다(게이트 화면에는 없다).
+    expect(document.querySelector('[data-slot="trading-workbench"] [data-slot="alert-toasts"]')).not.toBeNull();
+
+    mockRelay = relay({ ...base, orders: [orderMsg()] });
+    view.rerender(<TradingWorkbench />);
+
+    expect(toastEls()).toHaveLength(1);
+    const text = toastEls()[0].textContent ?? '';
+    expect(text).toContain('씨젠');
+    expect(text).toContain('체결');
+    expect(text).toContain('매수 100/500주');
+    expect(toastEls()[0]).toHaveAttribute('data-kind', 'fill');
+    expect(cardOf(SEEGENE).getAttribute('data-alert')).toBe('true');
+    expect(cardOf(SEEGENE).getAttribute('data-open')).toBe('false');
+  });
+
+  it('② 토스트 클릭 → 카드 펼침 · 미체결 탭 요청 · 표시 해제 · 토스트 닫힘', () => {
+    const view = mountWithCollapsedCard();
+    mockRelay = relay({ ...base, orders: [orderMsg()] });
+    view.rerender(<TradingWorkbench />);
+
+    fireEvent.click(toastEls()[0]);
+    expect(cardOf(SEEGENE).getAttribute('data-open')).toBe('true');
+    expect(cardProps.get(idOf(SEEGENE))?.requestedTab).toEqual({ tab: 'unfilled', seq: 1 });
+    expect(cardOf(SEEGENE).getAttribute('data-alert')).toBe('false');
+    expect(toastEls()).toHaveLength(0);
+  });
+
+  it('③ 마운트 시점의 통보는 알리지 않는다 · 같은 주문 체결 두 번은 한 토스트 「2건」', () => {
+    const old = orderMsg({ nt: 'A', q: 500 });
+    mockRelay = relay({ ...base, orders: [old] });
+    const view = render(<TradingWorkbench />);
+    expect(toastEls()).toHaveLength(0);
+
+    const f1 = orderMsg();
+    mockRelay = relay({ ...base, orders: [f1, old] });
+    view.rerender(<TradingWorkbench />);
+    mockRelay = relay({ ...base, orders: [orderMsg(), f1, old] });
+    view.rerender(<TradingWorkbench />);
+
+    expect(toastEls()).toHaveLength(1);
+    expect(within(toastEls()[0]).getByText('2건')).toBeInTheDocument();
+    expect(toastEls()[0].textContent).toContain('매수 200/500주');
+  });
+
+  it('④ 카드 없는 종목의 VI → 토스트만(카드 표시 없음) · 클릭하면 그 종목·계좌·거래소 카드가 붙고 정보 탭', () => {
+    mockRelay = relay(base);
+    const view = render(<TradingWorkbench />);
+    mockRelay = relay({ ...base, viNotices: [viNotice()] });
+    view.rerender(<TradingWorkbench />);
+
+    expect(toastEls()).toHaveLength(1);
+    expect(toastEls()[0]).toHaveAttribute('data-kind', 'vi');
+    expect(toastEls()[0].textContent).toContain('알테오젠 VI 발동');
+    expect(cardsInDom()).toHaveLength(0);
+
+    fireEvent.click(toastEls()[0]);
+    const card = cardOf(ALTEO);
+    expect(card.getAttribute('data-key')).toBe(`${ALTEO}:${ACCOUNT}:NXT`);
+    expect(card.getAttribute('data-open')).toBe('true');
+    expect(card.getAttribute('data-alert')).toBe('false');
+    expect((cardProps.get(idOf(ALTEO))?.requestedTab as { tab: string }).tab).toBe('info');
+    expect(toastEls()).toHaveLength(0);
+  });
+
+  it('⑤ 헤더 토글로도 표시가 풀린다', () => {
+    const view = mountWithCollapsedCard();
+    mockRelay = relay({ ...base, orders: [orderMsg()] });
+    view.rerender(<TradingWorkbench />);
+    expect(cardOf(SEEGENE).getAttribute('data-alert')).toBe('true');
+
+    fireEvent.click(toggleOf(SEEGENE));
+    expect(cardOf(SEEGENE).getAttribute('data-alert')).toBe('false');
+    expect(cardOf(SEEGENE).getAttribute('data-open')).toBe('true');
+    // 토스트는 제 수명대로 남는다 — 헤더 토글은 카드 표시만 지운다.
+    expect(toastEls()).toHaveLength(1);
+  });
+
+  it('⑥ 색인에 없는 주문(조인 실패)은 1.5초 뒤 「주문 {No}」 토스트 · 클릭해도 카드를 만들지 않는다', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      mockRelay = relay(base);
+      const view = render(<TradingWorkbench />);
+      mockRelay = relay({ ...base, orders: [orderMsg({ no: '999' })] });
+      view.rerender(<TradingWorkbench />);
+      expect(toastEls()).toHaveLength(0);
+      act(() => {
+        vi.advanceTimersByTime(1_500);
+      });
+      expect(toastEls()).toHaveLength(1);
+      expect(toastEls()[0].textContent).toContain('주문 999 체결');
+      fireEvent.click(toastEls()[0]);
+      expect(cardsInDom()).toHaveLength(0);
+      expect(toastEls()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('cardForAlert — 알림을 받을 카드 판정 (quick-260923-pgu · 판정의 유일 지점)', () => {
+  const card = (id: string, over: Partial<WorkbenchCard> = {}): WorkbenchCard => ({
+    id,
+    isin: 'KR7096530001',
+    accountNo: ACCOUNT,
+    exchange: 'KRX',
+    open: false,
+    ...over,
+  });
+
+  it('ISIN 을 모르면 undefined', () => {
+    expect(cardForAlert([card('a')], { isin: undefined, accountNo: ACCOUNT, exchange: 'KRX' })).toBeUndefined();
+  });
+
+  it('(ISIN · 계좌 · 거래소) 정확 일치가 먼저', () => {
+    const cards = [card('a', { accountNo: 'other', open: true }), card('b')];
+    expect(cardForAlert(cards, { isin: 'KR7096530001', accountNo: ACCOUNT, exchange: 'KRX' })?.id).toBe('b');
+  });
+
+  it('계좌를 모르면(돌파) 같은 거래소의 펼친 카드 우선 · 거래소가 없으면 ISIN 의 펼친 카드', () => {
+    const cards = [card('a'), card('b', { open: true }), card('c', { exchange: 'NXT', open: true })];
+    expect(cardForAlert(cards, { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('b');
+    expect(cardForAlert([card('a'), card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('a');
+    expect(cardForAlert([card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('c');
   });
 });
