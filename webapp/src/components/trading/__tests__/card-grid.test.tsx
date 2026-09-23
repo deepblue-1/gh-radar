@@ -17,7 +17,7 @@ import {
  *   - DOM 순서 = 펼친 카드들 → 스택 한 칸(접힌 카드 전부). 포커스 순서가 곧 DOM 순서다.
  *   - 접힌 카드 0장이면 스택 칸이 없다 · 카드 0장이면 빈 문구 2줄(원문).
  *   - 스택 위 라벨이 없다 · 전환 애니메이션 클래스가 없다(재렌더).
- *   - `cols` 는 `data-cols` + page(`wb`) 컨테이너 클래스로만 반영되고, 700 미만(기본)은 1단이다.
+ *   - `cols` 는 `data-cols` + page(`wb`) 컨테이너 클래스로만 반영되고, 680 미만(기본)은 1단이다.
  *   - ✕ 로 카드가 사라지면 포커스가 다음 카드 헤더로, 없으면 검색란으로 간다.
  * ★ 실제 폭 기반 단 수 전환은 jsdom 이 평가하지 않는다 — 클래스/속성까지만 단언하고 18-13
  *   Playwright 로 넘긴다.
@@ -191,11 +191,11 @@ describe('CardGrid — 단 수 (D-04 · D-28)', () => {
     render(<CardGrid cards={[card('A', true)]} cols={cols} renderCard={renderCard} />);
     const g = grid()!;
     expect(g.getAttribute('data-cols')).toBe(String(cols));
-    // 700 미만(폰 밴드)은 저장값과 무관하게 1단 — 기본 클래스가 1열이다.
+    // 680 미만(격자 1열 고정)은 저장값과 무관하게 1단 — 기본 클래스가 1열이다.
     expect(g.className).toContain('grid-cols-[minmax(0,1fr)]');
-    if (cols === 1) expect(g.className).not.toMatch(/@min-\[700px\]\/wb:grid-cols/);
-    if (cols === 2) expect(g.className).toContain('@min-[700px]/wb:grid-cols-[repeat(2,minmax(0,1fr))]');
-    if (cols === 3) expect(g.className).toContain('@min-[700px]/wb:grid-cols-[repeat(3,minmax(0,1fr))]');
+    if (cols === 1) expect(g.className).not.toMatch(/@min-\[680px\]\/wb:grid-cols/);
+    if (cols === 2) expect(g.className).toContain('@min-[680px]/wb:grid-cols-[repeat(2,minmax(0,1fr))]');
+    if (cols === 3) expect(g.className).toContain('@min-[680px]/wb:grid-cols-[repeat(3,minmax(0,1fr))]');
     // 뷰포트 브레이크포인트가 섞이지 않는다.
     expect(g.className).not.toMatch(/(^|\s)(sm|md|lg|xl):/);
   });

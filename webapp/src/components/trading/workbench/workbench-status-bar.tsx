@@ -19,11 +19,12 @@
  *   그대로 쓴다. 보이는 글자는 맨 `HH:MM:SS`(첫 push 전이면 「—」)이고, 「반영」 접두는 `sr-only` ·
  *   `title` 이 말한다.
  *
- * ③ ★ 단 수 세그먼트는 폰 밴드(page <700)에서 **DOM 에서 뺀다** (UI-SPEC §접근성 계약)
- *   `display:none` 만으로 숨기지 않는다 — 작업대가 `wb` 컨테이너 폭으로 판정한 `phoneBand` 가
+ * ③ ★ 단 수 세그먼트는 격자 1열 고정 폭(page <680)에서 **DOM 에서 뺀다** (UI-SPEC §접근성 계약)
+ *   `display:none` 만으로 숨기지 않는다 — 작업대가 `wb` 컨테이너 폭으로 판정한 값(prop 이름은
+ *   `phoneBand` 지만 뜻은 「격자 1열 고정」, §2.2b 「격자 열 수 경계」 680 — 카드 밴드 700 과 다르다)이
  *   `true` 면 조건부 렌더로 빠진다. 폭을 아직 모르는 첫 페인트(`null`)에만 CSS 폴백
- *   (`hidden @min-[700px]/wb:inline-flex`)이 받친다. 폰 밴드 격자는 저장값과 무관하게 1단이다
- *   (격자 쪽 CSS 가 `data-cols` 를 700 이상에서만 적용한다).
+ *   (`hidden @min-[680px]/wb:inline-flex`)이 받친다. 그 아래 격자는 저장값과 무관하게 1단이다
+ *   (격자 쪽 CSS 가 `data-cols` 를 680 이상에서만 적용한다).
  *
  * ④ 이 기기 전용 알림 — 돌파 알림음(D-17)
  *   기본 꺼짐. 아이콘 전용 버튼이고 이름은 `aria-label` · `title` 이 말한다. 자동재생이 막혀 있을
@@ -168,7 +169,7 @@ export function WorkbenchStatusBar({
             className={cn(
               "h-6 gap-0 overflow-hidden rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)]",
               // 폭을 아직 모르는 첫 페인트만 CSS 가 받친다(③). 판정이 나면 위 조건부 렌더가 정본이다.
-              phoneBand === null && "hidden @min-[700px]/wb:inline-flex",
+              phoneBand === null && "hidden @min-[680px]/wb:inline-flex",
             )}
           >
             {COLS.map((c) => (

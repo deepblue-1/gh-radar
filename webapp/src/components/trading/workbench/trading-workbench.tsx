@@ -45,8 +45,8 @@
  *   이 루트가 `@container/wb`(페이지 본문 폭)이고, 카드 래퍼가 `@container/lc`(카드 폭)다.
  *   **뷰포트 분기를 신설하지 않는다** — 앱 셸·사이드바만 기존 뷰포트 브레이크포인트를 쓴다. 단 수
  *   세그먼트를 폰 밴드에서 DOM 에서 빼려면 `wb` 폭을 알아야 해서, 루트 폭을 `ResizeObserver` 로
- *   읽어 상태줄에 `phoneBand` 로 내린다(격자 열 수는 CSS 가 정한다). 경계 700 의 정본은
- *   `globals.css` §2.2b 다.
+ *   읽어 공용 패널에는 `phoneBand`(<700), 상태줄에는 `singleColumnOnly`(<680, 격자 1열 고정)로
+ *   내린다(격자 열 수는 CSS 가 정한다). 두 경계의 정본은 `globals.css` §2.2b 다.
  *
  * ⑥ `?focus={전략키}` 는 **마운트 1회만** 소비한다 (D-02 · RESEARCH Pattern 6 · T-18-53)
  *   `parseStrategyKey` 로만 해석하고, 모양이 어긋나면 무시한다. 그 키가 **등록된 전략**으로 보이면
@@ -145,6 +145,13 @@ import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
 
 /** 페이지(`wb`) 폰 밴드 상한(미만) — `globals.css` §2.2b 의 첫 경계(본문 700)와 같은 값이다. */
 const WB_PHONE_BAND_BELOW = 700;
+/**
+ * 격자 1열 고정 상한(미만) — 이 폭 아래에서만 단 수 세그먼트가 빠진다. 카드 밴드 경계가 아니라
+ * 「2열 격자가 서는 최소 wb 폭」이다(§2.2b 「격자 열 수 경계」). 700 이면 갤럭시 폴드 안쪽 화면
+ * (wb ≈ 691)이 9px 차이로 1열에 갇힌다(quick-260923-hfk). `card-grid.tsx` `COLS_CLASS` ·
+ * 상태줄 CSS 폴백의 `@min-[680px]/wb` 리터럴과 같은 값이어야 한다.
+ */
+const WB_SINGLE_COLUMN_BELOW = 680;
 
 /** 합친 전략 로그 보관 상한(브라우저 메모리). 카드 1장의 상한(100)과 같은 자릿수다. */
 const MAX_MERGED_LOG = 200;
@@ -728,6 +735,7 @@ function WorkbenchSurface() {
   /* ── ⑤ `wb` 폭 → 폰 밴드 ─────────────────────────────────────────── */
   const rootRef = useRef<HTMLDivElement>(null);
   const [phoneBand, setPhoneBand] = useState<boolean | null>(null);
+  const [singleColumnOnly, setSingleColumnOnly] = useState<boolean | null>(null);
   useEffect(() => {
     const el = rootRef.current;
     if (el === null || typeof ResizeObserver === "undefined") return;
@@ -735,6 +743,7 @@ function WorkbenchSurface() {
       const width = entries[0]?.contentRect.width;
       if (width === undefined || width === 0) return;
       setPhoneBand(width < WB_PHONE_BAND_BELOW);
+      setSingleColumnOnly(width < WB_SINGLE_COLUMN_BELOW);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -784,7 +793,7 @@ function WorkbenchSurface() {
         appliedAt={appliedAt}
         cols={cols}
         onColsChange={setCols}
-        phoneBand={phoneBand}
+        phoneBand={singleColumnOnly}
         onReconnect={UNRECOVERABLE_STATES.has(status) ? reconnect : undefined}
       />
 

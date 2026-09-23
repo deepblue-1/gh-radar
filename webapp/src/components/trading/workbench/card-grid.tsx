@@ -15,7 +15,7 @@
  *     유지된다(⑤).
  *
  * ② 열 수는 page 컨테이너(`@container/wb`, 작업대 루트가 선언) 쿼리로만 바뀐다 (D-04 · D-28)
- *   기본(폰 밴드, page <700)은 언제나 1열이고, `cols` 2/3 의 열 지정은 700 이상에서만 걸린다 —
+ *   기본(page <680)은 언제나 1열이고, `cols` 2/3 의 열 지정은 680 이상에서만 걸린다 —
  *   목업 `@container page (min-width:700px) { .cards[data-cols="2"] … }` 과 같은 뜻이다.
  *   이 파일은 폭을 JS 로 재지 않고, 뷰포트 브레이크포인트를 쓰지 않는다. 밴드 수치의 정본은
  *   `globals.css` §2.2b 다.
@@ -83,13 +83,15 @@ export interface CardGridProps<T extends CardGridItem> {
 }
 
 /**
- * page(`wb`) 700 이상에서만 걸리는 열 지정 — Tailwind 가 소스를 스캔하므로 **리터럴 그대로** 둔다.
+ * page(`wb`) 680 이상에서만 걸리는 열 지정(§2.2b 「격자 열 수 경계」 — 카드 밴드 700 과 다른 값이다.
+ * 갤럭시 폴드 안쪽 화면 wb ≈ 691 을 들이기 위해 700 → 680, quick-260923-hfk) — Tailwind 가 소스를
+ * 스캔하므로 **리터럴 그대로** 둔다.
  * 1단은 기본 1열 그대로라 추가 클래스가 없다.
  */
 const COLS_CLASS: Record<TradingCols, string> = {
   1: "",
-  2: "@min-[700px]/wb:grid-cols-[repeat(2,minmax(0,1fr))]",
-  3: "@min-[700px]/wb:grid-cols-[repeat(3,minmax(0,1fr))]",
+  2: "@min-[680px]/wb:grid-cols-[repeat(2,minmax(0,1fr))]",
+  3: "@min-[680px]/wb:grid-cols-[repeat(3,minmax(0,1fr))]",
 };
 
 /** 헤더 토글 id — `strategy-card.tsx` 의 `strategy-card-{카드 id}-toggle` 과 같은 규약. */
