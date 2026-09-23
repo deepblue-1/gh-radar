@@ -223,4 +223,20 @@ describe('orderDisplayStatus', () => {
   it('모르는 nt 는 라이브가 없는 것과 같게 다뤄 복원 status 로 수렴한다', () => {
     expect(orderDisplayStatus(view({ status: 'accepted' }, frame({ nt: 'Z' }))).label).toBe('접수');
   });
+
+  // quick-260923-m23 — 정정으로 닫힌 원주문 행은 정정 전 라이브(A/E)보다 「정정」이 먼저다.
+  it("status 'modified' 는 라이브 A 보다 우선해 「정정」(muted) 이다", () => {
+    expect(orderDisplayStatus(view({ status: 'modified' }, frame({ nt: 'A' })))).toEqual({
+      label: '정정',
+      tone: 'muted',
+    });
+  });
+
+  it("status 'modified' 는 라이브 E 가 있어도 「정정」 이다", () => {
+    expect(orderDisplayStatus(view({ status: 'modified' }, frame({ nt: 'E' }))).label).toBe('정정');
+  });
+
+  it("status 'modified' 는 라이브가 없어도 「정정」 이다", () => {
+    expect(orderDisplayStatus(view({ status: 'modified' }, null)).label).toBe('정정');
+  });
 });

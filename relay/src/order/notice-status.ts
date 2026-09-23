@@ -9,7 +9,7 @@
  * 하지 않는 것:
  *   - 여기서 프레임을 만들지 않는다. 판정만 하고 전송·기록은 호출자가 한다.
  *   - `noticeType` 을 해석해 새 상태를 발명하지 않는다. `dma_orders.status` CHECK 에
- *     있는 7종 밖으로 나가면 그 행의 갱신이 통째로 사라진다.
+ *     있는 8종 밖으로 나가면 그 행의 갱신이 통째로 사라진다.
  */
 import type { DmaOrderStatus } from "@gh-radar/shared";
 
@@ -49,6 +49,7 @@ export function statusOf(
       return "cancelled";
     case "M":
       // 정정확인은 자기 정정(Phase 18 D-21) 또는 세션에 합류한 다른 단말 정정의 결과다 — 접수로 읽는다.
+      // (m23) 원주문 행의 'modified' 는 여기서 나오지 않는다 — store 가 수량(filled+modified>=qty)으로만 파생한다.
       return "accepted";
     case "E":
       // 체결 통보의 `quantity` 는 체결수량이다 (서버 `useExecuted` 분기).
@@ -70,13 +71,14 @@ export function filledQtyOf(notice: ParsedOrderResp): number | undefined {
 }
 
 /**
- * `dma_orders.status` 순위 (Phase 18 Plan 33 / R3-WR-01 · D-27). **7종 전부를 화이트리스트로
+ * `dma_orders.status` 순위 (Phase 18 Plan 33 / R3-WR-01 · D-27). **8종 전부를 화이트리스트로
  * 적는다** — 모르는 값을 지어내지 않는 이 모듈의 규율이다. `Record<DmaOrderStatus, …>` 라 상태가
  * 늘면 여기서 컴파일이 깨진다.
  *
  *   - `requested`·`timeout` 0 — `timeout` 은 실패가 아니라 **「결과 모름」** 이다(Pitfall 9).
  *     그래서 늦게 온 접수가 그것을 풀 수 있어야 한다(`timeout → accepted`).
- *   - `accepted` 1 < `partially_filled` 2 < 종결 3(`filled`·`cancelled`·`rejected`).
+ *   - `accepted` 1 < `partially_filled` 2 < 종결 3(`filled`·`cancelled`·`rejected`·`modified`).
+ *     `modified` 는 원주문 잔량이 정정으로 옮겨가 닫힌 행이다(quick-260923-m23).
  */
 const STATUS_RANK: Readonly<Record<DmaOrderStatus, number>> = {
   requested: 0,
@@ -86,10 +88,11 @@ const STATUS_RANK: Readonly<Record<DmaOrderStatus, number>> = {
   filled: 3,
   cancelled: 3,
   rejected: 3,
+  modified: 3,
 };
 
 /** 종결 상태. 종결 사이의 이동(`cancelled → filled` 등)은 금지 — 같은 값 재기록만 허용한다. */
-const TERMINAL: ReadonlySet<DmaOrderStatus> = new Set<DmaOrderStatus>(["filled", "cancelled", "rejected"]);
+const TERMINAL: ReadonlySet<DmaOrderStatus> = new Set<DmaOrderStatus>(["filled", "cancelled", "rejected", "modified"]);
 
 /**
  * 「이 상태(`next`)로 갱신해도 되는 **기존** 상태 집합」 — 상태 단조성 판정의 **유일 지점**이다

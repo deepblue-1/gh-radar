@@ -1171,7 +1171,13 @@ export type CreateOrderRequest = {
   price: number;
 };
 
-/** DMA 주문의 수명주기 상태 (`dma_orders.status`). */
+/**
+ * DMA 주문의 수명주기 상태 (`dma_orders.status`).
+ *
+ * `"modified"` 는 **원주문 행 전용 종결 상태**다 — 잔량이 정정확인(M)으로 새 주문번호에 옮겨가
+ * 마지막 이동으로 닫힌 행(quick-260923-m23). 새 정정 행은 쓰지 않는다. 통보에서 직접 오지 않고
+ * relay store 가 `filled_qty + modified_qty >= qty` 에서 파생한다.
+ */
 export type DmaOrderStatus =
   | "requested"
   | "accepted"
@@ -1179,7 +1185,8 @@ export type DmaOrderStatus =
   | "filled"
   | "partially_filled"
   | "cancelled"
-  | "timeout";
+  | "timeout"
+  | "modified";
 
 /**
  * Phase 15 의 `POST /api/orders` 응답 (server → webapp).

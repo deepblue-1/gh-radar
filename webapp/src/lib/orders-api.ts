@@ -109,7 +109,7 @@ const NOTICE_LABELS: Readonly<Record<string, OrderDisplayStatus>> = {
   R: { label: "거부", tone: "danger" },
 };
 
-/** 복원 행 status → 표시. `dma_orders.status` 7종을 전부 덮는다. */
+/** 복원 행 status → 표시. `dma_orders.status` 8종을 전부 덮는다. */
 const STATUS_LABELS: Readonly<Record<DmaOrderStatus, OrderDisplayStatus>> = {
   requested: { label: "요청", tone: "muted" },
   accepted: { label: "접수", tone: "normal" },
@@ -119,6 +119,8 @@ const STATUS_LABELS: Readonly<Record<DmaOrderStatus, OrderDisplayStatus>> = {
   cancelled: { label: "취소", tone: "muted" },
   // ★ timeout 은 "실패"가 아니라 **"결과를 모름"** 이다 (Pitfall 9) — 재주문을 유도하지 않는다.
   timeout: { label: "결과 확인 중", tone: "muted" },
+  // 원주문 잔량이 정정으로 새 주문번호에 옮겨가 닫힌 행 (quick-260923-m23). 기존 단어·톤 재사용.
+  modified: { label: "정정", tone: "muted" },
 };
 
 /**
@@ -128,6 +130,10 @@ const STATUS_LABELS: Readonly<Record<DmaOrderStatus, OrderDisplayStatus>> = {
  * 상태값 자체는 서버가 같은 행에 쓰고, 다음 조회에서 정본으로 다시 온다.
  */
 export function orderDisplayStatus(row: TodayOrderRow): OrderDisplayStatus {
+  // ★ 'modified' 는 라이브보다 먼저다. 원주문 행의 최신 라이브 프레임은 정정 **전의** A/E 라
+  //   그대로 두면 「접수」·「체결」로 남는다 — 정정확인 M 은 새 주문번호로 오므로 원주문 행의
+  //   라이브를 갱신하지 않는다 (quick-260923-m23). 다른 status 는 종전대로 라이브가 이긴다.
+  if (row.status === "modified") return STATUS_LABELS.modified;
   const byNotice = row.live === null ? undefined : NOTICE_LABELS[row.live.nt];
   return byNotice ?? STATUS_LABELS[row.status] ?? { label: row.status, tone: "muted" };
 }
