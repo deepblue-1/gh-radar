@@ -115,18 +115,17 @@ beforeEach(() => {
 });
 
 describe('CardTabs — 탭 줄', () => {
-  it('탭 4개 [정보, 미체결 2, 잔고, 로그 3] · 배지는 미체결·로그 2개뿐 · 기본 정보 = 10칸', () => {
+  it('탭 4개 [정보, 미체결(2), 잔고(1), 로그(3)] · 건수는 제목 괄호 · 정보엔 없음 · 기본 정보 = 10칸', () => {
     render(<CardTabs {...props()} />);
-    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결 2', '잔고', '로그 3']);
-    expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(2);
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '로그(3)']);
+    expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(3);
     expect(tabNamed('정보').querySelector('[data-slot="card-tab-count"]')).toBeNull();
-    expect(tabNamed('잔고').querySelector('[data-slot="card-tab-count"]')).toBeNull();
     expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
     expect(root().querySelector('[data-slot="lc-quote-grid"]')).not.toBeNull();
   });
 
-  it('미체결 0 · 로그 0 이면 배지 0개', () => {
-    render(<CardTabs {...props({ account: acct({ unf: [] }), log: [] })} />);
+  it('미체결 0 · 잔고 0 · 로그 0 이면 괄호 0개', () => {
+    render(<CardTabs {...props({ account: acct({ unf: [], hold: [] }), log: [] })} />);
     expect(root().querySelectorAll('[data-slot="card-tab-count"]')).toHaveLength(0);
     expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결', '잔고', '로그']);
   });
@@ -225,7 +224,7 @@ describe('CardTabs — 반응형 · 상태', () => {
     await user.click(tabNamed('잔고'));
     view.rerender(<CardTabs {...props({ log: LOG.slice(0, 1), selectedOrderNo: '3407000064' })} />);
     expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
-    expect(tabNamed('로그').textContent).toBe('로그 1');
+    expect(tabNamed('로그').textContent).toBe('로그(1)');
   });
 });
 

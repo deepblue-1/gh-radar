@@ -686,11 +686,11 @@ describe('TradingWorkbench — 카드 키 규칙 (WR-05 · D-07 · D-08 · T-18-
     expect(cardsInDom()).toHaveLength(2);
     expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
 
-    fireEvent.click(toggleOf(S)); // 펼친 KRX 를 다시 접는다 → 스택 맨 끝(quick-260923-p3k) · 스택 [NXT, KRX]
+    fireEvent.click(toggleOf(S)); // 펼친 KRX 를 다시 접는다 → 스택 맨 앞(2026-09-23 개정) · 스택 [KRX, NXT]
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
     expect(cardsInDom()).toHaveLength(2);
-    // 펼친 카드가 없으면 배열(= 표시) 첫 카드를 편다 — 방금 접은 KRX 는 스택 끝이라 NXT 가 첫 카드다.
-    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'false', [`${S}:${ACCOUNT}:NXT`]: 'true' });
+    // 펼친 카드가 없으면 배열(= 표시) 첫 카드를 편다 — 방금 접은 KRX 가 스택 맨 앞이라 KRX 가 첫 카드다.
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
   });
 
   it('등록 전 카드의 거래소 토글이 다른 카드의 키와 같아지면 토글하지 않고 그 카드를 펼친다', () => {
@@ -1958,16 +1958,16 @@ describe('withCardOpen — 카드 순서 규칙 (quick-260923-p3k · 순수 함�
     expect(withCardOpen(prev, 'Z', false)).toBe(prev);
   });
 
-  it('접으면 그 카드가 배열 맨 끝 = 접힘 스택 맨 끝으로 간다 · 입력은 변하지 않는다', () => {
+  it('접으면 그 카드가 배열 맨 앞 = 접힘 스택 맨 앞으로 간다(2026-09-23 개정) · 입력은 변하지 않는다', () => {
     const prev = [wc('A', true), wc('B', true), wc('C', false)];
-    const next = withCardOpen(prev, 'A', false);
-    expect(ids(next)).toEqual(['B', 'C', 'A']);
-    expect(next.map((c) => c.open)).toEqual([true, false, false]);
+    const next = withCardOpen(prev, 'B', false);
+    expect(ids(next)).toEqual(['B', 'A', 'C']);
+    expect(next.map((c) => c.open)).toEqual([false, true, false]);
     const { open, folded } = renderOrderOf(next);
-    expect(ids(open)).toEqual(['B']);
-    expect(ids(folded)).toEqual(['C', 'A']);
+    expect(ids(open)).toEqual(['A']);
+    expect(ids(folded)).toEqual(['B', 'C']);
     expect(ids(prev)).toEqual(['A', 'B', 'C']);
-    expect(prev[0].open).toBe(true);
+    expect(prev[1].open).toBe(true);
   });
 
   it('펼치면 그 카드가 배열 맨 끝 = 펼친 카드들 맨 끝으로 간다', () => {
@@ -1980,7 +1980,7 @@ describe('withCardOpen — 카드 순서 규칙 (quick-260923-p3k · 순수 함�
   });
 });
 
-describe('TradingWorkbench — 카드 순서: 가장 최근에 바뀐 카드가 무리의 끝 (quick-260923-p3k)', () => {
+describe('TradingWorkbench — 카드 순서: 접으면 접힘 맨 앞 · 펼치면 펼친 맨 끝 (quick-260923-p3k · 2026-09-23 개정)', () => {
   const X = 'KR7086520004';
   const Y = 'KR7247540008';
   const Z = 'KR7000660001';
@@ -1988,15 +1988,15 @@ describe('TradingWorkbench — 카드 순서: 가장 최근에 바뀐 카드가 
   const k = (isin: string, open: boolean) => [`${isin}:${ACCOUNT}:KRX`, String(open)];
   const keys = () => cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]);
 
-  it('토글 — 접으면 접힘 스택 맨 끝, 펼치면 펼친 카드 맨 끝', () => {
+  it('토글 — 접으면 접힘 스택 맨 앞, 펼치면 펼친 카드 맨 끝', () => {
     mockRelay = relay({ limitChasers: [lc(X), lc(Y), lc(Z)] });
     render(<TradingWorkbench />);
     fireEvent.click(toggleOf(X));
     fireEvent.click(toggleOf(Y));
     expect(keys()).toEqual([k(X, true), k(Y, true), k(Z, false)]);
 
-    fireEvent.click(toggleOf(X)); // 접기 → 스택 맨 끝
-    expect(keys()).toEqual([k(Y, true), k(Z, false), k(X, false)]);
+    fireEvent.click(toggleOf(X)); // 접기 → 스택 맨 앞
+    expect(keys()).toEqual([k(Y, true), k(X, false), k(Z, false)]);
 
     fireEvent.click(toggleOf(Z)); // 펼치기 → 펼친 무리 맨 끝
     expect(keys()).toEqual([k(Y, true), k(Z, true), k(X, false)]);

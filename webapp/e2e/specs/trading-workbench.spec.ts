@@ -660,12 +660,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       grid(page).locator('[data-slot="card-stack"] [data-slot="card-body"]:visible'),
     ).toHaveCount(0);
 
-    // quick-260923-p3k — 방금 접은 카드는 스택의 **맨 끝**이다(스택 안 순서 LONG → E2E).
+    // 2026-09-23 개정 — 방금 접은 카드는 스택의 **맨 앞**이다(스택 안 순서 E2E → LONG).
     await toggle(E2E_ISIN).click();
     expect(await layout()).toEqual(['open', 'stack(2)']);
     const stacked = grid(page).locator('[data-slot="card-stack"] [data-slot="strategy-card"]');
-    await expect(stacked.nth(0)).toHaveAttribute('data-key', new RegExp(`^${E2E_LONG_NAME_ISIN}:`));
-    await expect(stacked.nth(1)).toHaveAttribute('data-key', new RegExp(`^${E2E_ISIN}:`));
+    await expect(stacked.nth(0)).toHaveAttribute('data-key', new RegExp(`^${E2E_ISIN}:`));
+    await expect(stacked.nth(1)).toHaveAttribute('data-key', new RegExp(`^${E2E_LONG_NAME_ISIN}:`));
     // 직렬 공유 페이지 — 끝 상태 모양(펼침 2 · 접힘 1)을 이전과 같게 되돌린다.
     await toggle(E2E_ISIN).click();
     expect(await layout()).toEqual(['open', 'open', 'stack(1)']);

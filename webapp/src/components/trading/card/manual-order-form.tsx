@@ -715,7 +715,7 @@ export function ManualOrderForm({
             value={orderType}
             onChange={(e) => setOrderType(e.target.value === 'offhours' ? 'offhours' : 'limit')}
             title={aff.offHoursSelectable ? undefined : OFFHOURS_DISABLED_TITLE}
-            className="h-8 w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--bg)] px-2 text-[length:var(--t-caption)] text-[var(--fg)]"
+            className="h-8 w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--bg)] px-2 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)]"
           >
             <option value="limit">지정가</option>
             <option
@@ -737,7 +737,7 @@ export function ManualOrderForm({
                 value="—"
                 disabled
                 aria-label="가격(시간외종가 · 잠김)"
-                className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--muted-fg)] outline-none"
+                className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--muted-fg)] outline-none"
               />
             </UnitBox>
           </Row>
@@ -768,7 +768,7 @@ export function ManualOrderForm({
                 setPriceText(formatDigits(e.target.value));
               }}
               data-focus-ring="seamless"
-              className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--fg)] outline-none"
+              className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)] outline-none"
             />
           </UnitBox>
         </Row>
@@ -786,7 +786,7 @@ export function ManualOrderForm({
               setQtyText(formatDigits(e.target.value));
             }}
             data-focus-ring="seamless"
-            className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--fg)] outline-none"
+            className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)] outline-none"
           />
         </UnitBox>
       </Row>
@@ -806,7 +806,7 @@ export function ManualOrderForm({
                 onChange={(e) => setPieceText(e.target.value.replace(/[^0-9]/g, ''))}
                 onBlur={() => setPieceText(String(pieces))}
                 data-focus-ring="seamless"
-                className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--fg)] outline-none"
+                className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)] outline-none"
               />
             </UnitBox>
             <StepButton label="조각 늘리기" onClick={() => stepPieces(1)}>

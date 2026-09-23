@@ -51,7 +51,7 @@ import {
   type LatchLedServer,
 } from "@/components/trading/latch-led";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { EXCHANGE_CHOICES_ALL, KRX_ONLY_TITLE } from "@/lib/exchange-choices";
+import { EXCHANGE_CHOICES_ALL } from "@/lib/exchange-choices";
 import { cn } from "@/lib/utils";
 
 /** 세그먼트 그룹 `title` — 잠금 사유가 아니라 전환 설명(quick-260923-pgv). 테스트가 같은 상수를 읽는다. */
@@ -213,19 +213,9 @@ export function CardHeader({
             거래소가 「없음」인 카드는 존재하지 않는다.
         */}
         <span onClick={stop} className="flex flex-none">
-          {exchangeChoices.length === 1 ? (
-            // ②-b NXT 미거래 종목 — 상호작용 없는 라벨(role·aria-label 없음). 톤 = 항목 off 색.
-            <span
-              data-slot="card-exchange-segment"
-              data-single="true"
-              title={KRX_ONLY_TITLE}
-              className="inline-flex h-5 items-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
-            >
-              <span className="flex h-5 items-center bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)]">
-                {exchangeChoices[0]}
-              </span>
-            </span>
-          ) : (
+          {/* ②-b NXT 미거래 종목(선택지 1개)은 세그먼트를 아예 그리지 않는다 — KRX 뿐이라 말할 것이 없다
+              (2026-09-23 사용자 요청 · 종전 quick-260923-pq2 는 KRX 라벨 하나). */}
+          {exchangeChoices.length === 1 ? null : (
             <ToggleGroup
               type="single"
               value={exchange}

@@ -85,18 +85,13 @@ const CARD_TAB_TRIGGER =
 /** 미체결·잔고·로그 본문 래퍼 — 목업 `.tb`(높이 상한 210 · 넘치면 스크롤). */
 const TAB_BODY = "max-h-[210px] min-w-0 overflow-auto";
 
+/** 탭 제목 뒤 건수 「미체결(2)」 — 0 이면 생략(2026-09-23 사용자 요청: 배지 대신 제목 괄호). */
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <>
-      {" "}
-      <span
-        data-slot="card-tab-count"
-        className="mono rounded-full bg-[color-mix(in_oklch,var(--fg)_8%,transparent)] px-1.5 text-[10px]"
-      >
-        {count}
-      </span>
-    </>
+    <span data-slot="card-tab-count" className="mono">
+      ({count})
+    </span>
   );
 }
 
@@ -121,6 +116,7 @@ export function CardTabs({
     if (reqTab !== undefined) setTab(reqTab);
   }, [reqSeq, reqTab]);
   const unfilledCount = account?.unf.length ?? 0;
+  const holdingCount = account?.hold.length ?? 0;
   const logCount = log.length;
 
   /** ③ — 토글 판정은 공용 패널과 같은 헬퍼 하나. */
@@ -149,6 +145,7 @@ export function CardTabs({
         </TabsTrigger>
         <TabsTrigger value="holdings" className={CARD_TAB_TRIGGER}>
           잔고
+          <CountBadge count={holdingCount} />
         </TabsTrigger>
         <TabsTrigger value="log" className={CARD_TAB_TRIGGER}>
           로그

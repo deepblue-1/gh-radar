@@ -506,7 +506,7 @@ describe('StrategyCard', () => {
     expect(nameEl.textContent).toBe('에코프로비엠');
   });
 
-  it('quick-260923-pq2 — 컨텍스트 nxtTradable 집합에 이 카드 ISIN 이 없으면 헤더 세그먼트가 KRX 라벨 하나, 있으면/모르면 둘 다', () => {
+  it('quick-260923-pq2 — 컨텍스트 nxtTradable 집합에 이 카드 ISIN 이 없으면 헤더 세그먼트가 세그먼트 없음, 있으면/모르면 둘 다', () => {
     const headerOf = () =>
       cardOf(ISIN_A).querySelector('[data-slot="card-header"]') as HTMLElement;
     const radios = () => headerOf().querySelectorAll('[role="radio"]');
@@ -518,8 +518,9 @@ describe('StrategyCard', () => {
       </RelayContext.Provider>,
     );
     expect(radios()).toHaveLength(0);
-    expect(singles()).toHaveLength(1);
-    expect(singles()[0]!.textContent).toBe('KRX');
+    // 2026-09-23 — NXT 미거래 종목은 세그먼트 자체를 그리지 않는다(라벨도 없음).
+    expect(singles()).toHaveLength(0);
+    expect(headerOf().querySelector('[data-slot="card-exchange-segment"]')).toBeNull();
 
     rerender(
       <RelayContext.Provider value={relay({ nxtTradable: new Set([ISIN_A]) })}>

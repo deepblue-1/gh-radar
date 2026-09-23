@@ -278,7 +278,7 @@ function toggleIdOf(id: string): string {
 type ScrollTarget = { key: string } | { isin: string };
 
 /**
- * 카드 순서 규칙(quick-260923-p3k) — 접으면 접힘 스택 맨 끝, 펼치면 펼친 카드 맨 끝(**순수 함수**).
+ * 카드 순서 규칙(quick-260923-p3k · 2026-09-23 개정) — 접으면 접힘 스택 **맨 앞**, 펼치면 펼친 카드 맨 끝(**순수 함수**).
  * `open` 을 바꾸는 모든 경로가 이 함수 하나를 지난다. 무리 안 순서는 배열 순서다(card-grid ①) —
  * `renderOrderOf` 는 손대지 않는다. 대상이 없거나 이미 같은 상태면 입력 배열을 그대로 돌려준다
  * (참조 유지 · `setCards` 베일아웃 · 저장 효과 재실행 없음). 입력은 변형하지 않는다.
@@ -290,7 +290,10 @@ export function withCardOpen(
 ): WorkbenchCard[] {
   const i = prev.findIndex((c) => c.id === id);
   if (i < 0 || prev[i].open === open) return prev;
-  return [...prev.slice(0, i), ...prev.slice(i + 1), { ...prev[i], open }];
+  const rest = [...prev.slice(0, i), ...prev.slice(i + 1)];
+  // 펼치면 펼친 무리의 끝, 접으면 접힘 무리의 **맨 앞**(2026-09-23 사용자 요청) — `renderOrderOf` 가
+  // 무리 안에서 배열 순서를 지키므로 배열 앞/끝이 곧 무리 앞/끝이다.
+  return open ? [...rest, { ...prev[i], open }] : [{ ...prev[i], open }, ...rest];
 }
 
 /**
