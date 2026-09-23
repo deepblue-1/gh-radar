@@ -81,6 +81,7 @@ import { LoginReq } from "../generated/stock-dma/login-req.js";
 import { RateCrossAlert } from "../generated/stock-dma/rate-cross-alert.js";
 import type { LoginResp } from "../generated/stock-dma/login-resp.js";
 import { SubscribeQuoteReq } from "../generated/stock-dma/subscribe-quote-req.js";
+import { SymbolMasterItem } from "../generated/stock-dma/symbol-master-item.js";
 import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
 import { VIOrderItem } from "../generated/stock-dma/viorder-item.js";
 import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req.js";
@@ -146,6 +147,7 @@ export function resetDroppedEnvelopeCount(): void {
   skippedAccountEntries = 0;
   skippedAccountStateItems = 0;
   skippedStrategyItems = 0;
+  skippedSymbolMasterItems = 0;
 }
 
 /**
@@ -1490,6 +1492,16 @@ export function buildGetVIOrderListReq(): Uint8Array {
   return buildBareRequest(MSG.GetVIOrderListReq);
 }
 
+/**
+ * 종목마스터 전량 조회 (MsgType 27, quick-260923-cqj). **요청 테이블이 없다 — 빈 Envelope**.
+ *
+ * 응답 57 은 **요청 연결에만** 분할 Notice 로 온다(24 와 같은 규약). 게이트웨이는 같은 연결의
+ * 60초 안 재요청을 응답 없이 흡수하므로, 재시도 간격은 호출부(`GatewaySymbolMaster`)가 쥔다.
+ */
+export function buildGetSymbolMasterReq(): Uint8Array {
+  return buildBareRequest(MSG.GetSymbolMasterReq);
+}
+
 /** 주문 통보 (51) 파싱 결과. 값은 전부 **게이트웨이 원문**이고 해석하지 않는다. */
 export type ParsedOrderResp = {
   orderNo: string;
@@ -2288,4 +2300,175 @@ export function parseDisableStrategiesResp(
     return dropField("slot-null", MSG.DisableStrategiesResp, { slot: "disable_strategies_resp" });
   }
   return { count: r.disabledCount(), viDisabled: r.viDisabled() };
+}
+
+// ============================================================
+// 종목마스터 (57) — quick-260923-cqj
+// ============================================================
+//
+// Supabase `stocks` 에 아직 없는 당일 신규상장 종목의 이름·단축코드·시장을 채우는 **보조 원천**.
+// 정본은 여전히 `stocks` 다(`store/symbols.ts`). 여기서는 프레임 1건을 좁히기만 하고, 분할
+// 프레임의 조립·검증·교체는 `store/gateway-symbols.ts` 의 일이다.
+
+/**
+ * 57 한 프레임의 원소 상한 = 1,000. 서버 청크(`QuoteWire.h:64` `kSymbolMasterChunk` = 500)의
+ * 2배다. 넘으면 **절단하지 않고 프레임째 버린다** — 부분 마스터는 total 검증을 깨뜨린다.
+ */
+export const MAX_SYMBOL_MASTER_FRAME_ITEMS = 1000;
+
+/**
+ * 57 `total_items` 상한 = 20,000. 서버 전수(약 4,500종목)의 4배 여유다. 깨진 버퍼가 만든
+ * 거대한 값으로 조립 버퍼가 무한정 자라는 것을 막는다 (T-cqj-03).
+ */
+export const MAX_SYMBOL_MASTER_TOTAL_ITEMS = 20000;
+
+/** 종목명 길이 상한(trim 후). 실제 최장 종목명은 수십 자다 — 넘으면 깨진 문자열로 본다. */
+export const MAX_SYMBOL_NAME_LEN = 100;
+
+/** 6자 단축코드 — 대문자 영숫자(신규 체계 `0010S0` 처럼 영문이 섞인다). */
+const SYMBOL_CODE_PATTERN = /^[0-9A-Z]{6}$/;
+
+/** 이름 속 제어문자(U+0000~U+001F, U+007F). 로그·렌더 오염을 막는다 (T-cqj-01). */
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
+
+/**
+ * 게이트웨이 마스터의 `market_type` → 주문 시장 구분. **"0"→"K", "1"→"Q", 그 밖은 `null`.**
+ *
+ * 근거(gh-trade 서버 소스, 읽기 전용):
+ *   - `QuoteWire.h:234` — 마스터 원소의 시장구분 어휘가 "0"/"1" 이다.
+ *   - `MarketPublisher.cpp:948-949` — 시드 `{KOSPI,"0"},{KOSDAQ,"1"}`.
+ *   - `MarketPublisher.cpp:636` — 당일 신규상장 행은 `(market == 'Q') ? "1" : "0"` 로 접는다.
+ *
+ * 잔여 위험(OQ-1): 게이트웨이가 'Q' 가 아닌 시장 문자를 전부 "0"(코스피)으로 접는다. 현재 피드는
+ * 01S/01Q 두 채널뿐이라 수용한다. 그 밖의 값은 **지어내지 않고 `null`** 이고, `null` 은 주문·전략
+ * 조립 게이트가 거부한다 (T-16-05) — 기본값으로 메우면 코스닥 주문이 코스피로 나간다.
+ */
+export function fromWireMasterMarketType(raw: string): OrderMarket | null {
+  if (raw === "0") return "K";
+  if (raw === "1") return "Q";
+  return null;
+}
+
+/** 57 원소 1건을 좁힌 결과. 표시·주문에 필요한 최소 필드만 담는다(sec_group_id·nxt_tradable 제외). */
+export type GatewaySymbolRow = {
+  isin: string;
+  code: string;
+  name: string;
+  market: OrderMarket | null;
+};
+
+/** 57 프레임 1건을 좁힌 결과. */
+export type ParsedSymbolMasterFrame = {
+  seq: number;
+  totalItems: number;
+  isLast: boolean;
+  /** 이 프레임에 실린 **원소 수(스킵 포함)**. 누적이 `total_items` 와 같아야 조립이 끝난다. */
+  rawCount: number;
+  rows: GatewaySymbolRow[];
+  /** 형식 가드로 건너뛴 원소 수. */
+  skipped: number;
+};
+
+/**
+ * 형식 위반으로 건너뛴 **종목마스터 원소** 누적 수 (S-5). 계좌·전략 카운터와 따로 센다.
+ */
+let skippedSymbolMasterItems = 0;
+
+/** 형식 위반으로 건너뛴 종목마스터 원소 누적 수. */
+export function skippedSymbolMasterItemCount(): number {
+  return skippedSymbolMasterItems;
+}
+
+/**
+ * 종목마스터 분할 응답 1프레임 (57 — `symbol_master` 슬롯). total 하다 — throw 하지 않는다.
+ *
+ * 프레임 수준 위반(슬롯 없음·음수 seq/total·상한 초과)은 `dropField` 후 `null` 이다.
+ * 원소 수준 위반은 그 원소만 건너뛰고 `rawCount` 에는 센다 — 누적 원소 수 검증이 서버의
+ * `total_items` 와 맞아야 하기 때문이다. 원소마다 로그를 남기지 않는다(한 프레임 500건이
+ * 쏟아질 수 있다). 프레임당 한 줄로 사유별 건수와 첫 샘플 ISIN 하나만 남긴다.
+ */
+export function parseSymbolMasterFrame(env: Envelope): ParsedSymbolMasterFrame | null {
+  const msgType = MSG.SymbolMasterResp;
+  try {
+    const m = env.symbolMaster();
+    if (m === null) return dropField("slot-null", msgType, { slot: "symbol_master" });
+
+    const seq = m.seq();
+    const totalItems = m.totalItems();
+    const isLast = m.isLast();
+    const length = m.itemsLength();
+    if (seq < 0) return dropField("bad-seq", msgType, { seq });
+    if (totalItems < 0 || totalItems > MAX_SYMBOL_MASTER_TOTAL_ITEMS) {
+      return dropField("bad-total-items", msgType, {
+        totalItems,
+        max: MAX_SYMBOL_MASTER_TOTAL_ITEMS,
+      });
+    }
+    if (length < 0 || length > MAX_SYMBOL_MASTER_FRAME_ITEMS) {
+      return dropField("too-many-items", msgType, {
+        seq,
+        length,
+        max: MAX_SYMBOL_MASTER_FRAME_ITEMS,
+      });
+    }
+
+    const rows: GatewaySymbolRow[] = [];
+    const reasons: Record<string, number> = {};
+    let firstSkippedIsin: string | null = null;
+    let skipped = 0;
+    const skip = (reason: string, isin: string): void => {
+      skipped += 1;
+      reasons[reason] = (reasons[reason] ?? 0) + 1;
+      if (firstSkippedIsin === null) firstSkippedIsin = isin;
+    };
+
+    const scratch = new SymbolMasterItem();
+    for (let i = 0; i < length; i += 1) {
+      const item = m.items(i, scratch);
+      if (item === null) {
+        skip("item-null", "");
+        continue;
+      }
+      const isin = item.isin() ?? "";
+      if (!isValidIsin(isin)) {
+        skip("bad-isin", isin);
+        continue;
+      }
+      const code = item.code() ?? "";
+      if (!SYMBOL_CODE_PATTERN.test(code)) {
+        skip("bad-code", isin);
+        continue;
+      }
+      const rawName = item.name() ?? "";
+      if (CONTROL_CHAR_PATTERN.test(rawName)) {
+        skip("name-control-char", isin);
+        continue;
+      }
+      const name = rawName.trim();
+      if (name.length === 0 || name.length > MAX_SYMBOL_NAME_LEN) {
+        skip("bad-name-length", isin);
+        continue;
+      }
+      rows.push({ isin, code, name, market: fromWireMasterMarketType(item.marketType() ?? "") });
+    }
+
+    if (skipped > 0) {
+      skippedSymbolMasterItems += skipped;
+      logger.warn(
+        {
+          seq,
+          skipped,
+          reasons,
+          sampleIsin: firstSkippedIsin,
+          skippedSymbolMasterItemCount: skippedSymbolMasterItems,
+        },
+        "[DMA] 종목마스터 원소 스킵 (형식 가드)",
+      );
+    }
+
+    return { seq, totalItems, isLast, rawCount: length, rows, skipped };
+  } catch (err) {
+    // Verifier 가 없어 깨진 버퍼가 접근자에서 RangeError 를 낼 수 있다 — 프레임만 버린다.
+    return dropField("parse-throw", msgType, { error: err instanceof Error ? err.message : String(err) });
+  }
 }

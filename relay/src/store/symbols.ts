@@ -7,12 +7,22 @@
  * 로컬 맵에 두고 `StockDataManager.GetStockName(code)` 으로 푼다. 즉 **"와이어는 ISIN 만,
  * 이름은 소비자가 마스터로 푼다"** 가 이 게이트웨이의 규약이다.
  *
- * relay 는 그 마스터를 게이트웨이(27/57)가 아니라 **Supabase `stocks` 에서** 얻는다:
+ * relay 의 **정본은 Supabase `stocks`** 다:
  *   - `stocks.isin` 은 D-28 이 정확히 이 목적으로 만든 컬럼이고 이미 채워져 있다.
- *   - 게이트웨이 27/57 을 쓰려면 수신 화이트리스트를 넓히고 수 MB 분할 응답을 조립해야
- *     하는데, 그 프레임은 **사용자 세션에 실려 온다** — 누구의 세션에 편승할지부터
- *     문제가 된다. 이름 표시 하나에 세션 수명을 얽을 이유가 없다.
  *   - relay 는 이미 서비스롤 Supabase 클라를 들고 있다(`store/supabase.ts`).
+ *
+ * 그러나 `stocks` 는 master-sync 가 KRX OpenAPI 로 채우고, KRX 는 전 영업일 데이터를 다음
+ * 영업일 08:00 에 공개한다 — **상장 당일 종목은 `stocks` 에 없다**(2026-09-23 KR70010S0000).
+ * 그 **미스만** 게이트웨이 종목마스터(27/57)가 보조 원천으로 채운다(quick-260923-cqj,
+ * `store/gateway-symbols.ts`). 우선순위는 **행 단위**다 — `stocks` 에 ISIN 행이 있으면 그 행이
+ * 통째로 이기고(market 이 null 이어도), 필드별 합성은 하지 않는다(D-01). `stocks` 에 code 로는
+ * 있지만 `isin` 이 null 인 행(intraday-sync 부트스트랩 행)은 이 맵에 ISIN 으로 색인되지 않으므로
+ * 그 ISIN 은 게이트웨이 원소가 푼다.
+ *
+ * 예전에 게이트웨이를 쓰지 않은 세 이유는 이렇게 풀었다:
+ *   - 「누구의 세션에 편승할지」 → relay 전체 **단일 in-flight** 요청 1건, 사용자 수와 무관(D-02).
+ *   - 「수 MB 분할 응답 조립」 → 약 10프레임(500종목/프레임)을 seq/total 검증 뒤 원자 교체(D-04).
+ *   - 「수신 화이트리스트 확장」 → 57 에 hub 명시 case 를 같은 커밋에 두었다(D-07, PC-12).
  *
  * **하루 1회만 읽는다.** 원천(`stocks`)은 `master-sync` 가 평일 08:10 KST 에 한 번
  * 갱신하므로 그보다 자주 읽을 이유가 없다. 조회마다 DB 를 때리는 설계는 더더욱 안 된다 —
@@ -64,7 +74,24 @@ export type SymbolInfo = {
    * 주문 조립 단계가 `null` 을 명시 거부한다 — `"K"` 로 메우면 코스닥 주문이 코스피로 나간다.
    */
   market: OrderMarket | null;
+  /**
+   * 원천 표식. **없으면 Supabase `stocks` 정본**이고, `"gateway"` 면 게이트웨이 종목마스터(57)
+   * 보조 원천이다(quick-260923-cqj). `dma_orders.stock_code` 가 FK → `stocks(code)` 라서 이
+   * 구분이 필요하다 — 게이트웨이 코드는 `stocks` 에 없을 수 있다(`stocksCodeOf`).
+   */
+  source?: "gateway";
 };
+
+/**
+ * `dma_orders.stock_code` 에 쓸 코드 (D-06). FK → `stocks(code)`
+ * (`supabase/migrations/20260905120200_dma_orders.sql:53`) 라서 **Supabase 원천일 때만** 코드를
+ * 돌려준다. 게이트웨이 원천이면 `null` 이다 — 그 코드를 그대로 쓰면 insert 가 FK 위반으로
+ * 실패해 수동 주문은 거부되고 자동주문 감사 행은 사라진다. 표시용 보강에는 이 함수를 쓰지 않는다.
+ */
+export function stocksCodeOf(info: SymbolInfo | undefined): string | null {
+  if (info === undefined || info.source === "gateway") return null;
+  return info.code;
+}
 
 /** Hub 가 요구하는 최소 표면. 테스트가 DB 없이 주입할 수 있게 좁게 잡는다. */
 export interface SymbolLookup {
@@ -122,9 +149,12 @@ export class SymbolMap implements SymbolLookup {
   #byIsin = new Map<string, SymbolInfo>();
   #timer: NodeJS.Timeout | null = null;
   #loadedAt: Date | null = null;
+  /** `stocks` 미스일 때만 보는 보조 원천(게이트웨이 종목마스터). 없으면 미스는 미스다. */
+  readonly #fallback: SymbolLookup | undefined;
 
-  constructor(supabase: SupabaseClient) {
+  constructor(supabase: SupabaseClient, opts?: { fallback?: SymbolLookup }) {
     this.#supabase = supabase;
+    this.#fallback = opts?.fallback;
   }
 
   /** 즉시 1회 적재하고 다음 08:30 KST 갱신을 예약한다. 적재 실패해도 예약은 건다. */
@@ -190,9 +220,12 @@ export class SymbolMap implements SymbolLookup {
     return next.size;
   }
 
-  /** 모르면 `undefined`. 호출부는 ISIN 원문으로 폴백한다. */
+  /**
+   * `stocks` 맵이 먼저이고, **미스일 때만** 보조 원천을 본다 (D-01 — 행 단위 우선순위).
+   * 둘 다 모르면 `undefined`. 호출부는 ISIN 원문으로 폴백한다.
+   */
   lookup(isin: string): SymbolInfo | undefined {
-    return this.#byIsin.get(isin);
+    return this.#byIsin.get(isin) ?? this.#fallback?.lookup(isin);
   }
 
   /** `/healthz` 요약. 식별자를 담지 않는다. */

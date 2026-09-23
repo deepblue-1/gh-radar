@@ -233,9 +233,10 @@ describe("MSG 상수", () => {
   });
 
   it("INBOUND_MSG_TYPES 는 응답 대역(50~78)만 담는다", () => {
-    // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 = 22종. 개수를 못박아 두면
-    // 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간) 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(22);
+    // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57 = 23종.
+    // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
+    // 여기서 먼저 깨진다 (PC-12).
+    expect(INBOUND_MSG_TYPES.size).toBe(23);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
       expect(v).toBeLessThanOrEqual(78);
@@ -280,8 +281,16 @@ describe("MSG 상수", () => {
     ]) {
       expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(false);
     }
-    // 20(단건 조회) · 27/57(종목마스터) · 30/31/70(NXT 상따) 도 제외 상태여야 한다.
-    expect(INBOUND_MSG_TYPES.has(MsgType.SymbolMasterResp)).toBe(false);
+    // 20(단건 조회) · 27(종목마스터 요청) · 30/31/70(NXT 상따) 은 제외 상태여야 한다.
+    expect(INBOUND_MSG_TYPES.has(MsgType.GetSymbolMasterReq)).toBe(false);
     expect(INBOUND_MSG_TYPES.has(MsgType.SetLimitChaserNXTResp)).toBe(false);
+  });
+
+  it("57 SymbolMasterResp 는 화이트리스트에 있고 27 요청은 없다 — hub 명시 case 와 한 커밋 (quick-260923-cqj)", () => {
+    expect(MSG.GetSymbolMasterReq).toBe(MsgType.GetSymbolMasterReq);
+    expect(MSG.SymbolMasterResp).toBe(MsgType.SymbolMasterResp);
+    expect([MSG.GetSymbolMasterReq, MSG.SymbolMasterResp]).toEqual([27, 57]);
+    expect(INBOUND_MSG_TYPES.has(MSG.SymbolMasterResp)).toBe(true);
+    expect(INBOUND_MSG_TYPES.has(MSG.GetSymbolMasterReq)).toBe(false);
   });
 });

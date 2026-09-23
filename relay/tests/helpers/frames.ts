@@ -35,6 +35,8 @@ import { VIOrderNotice } from "../../src/generated/stock-dma/viorder-notice.js";
 import { RateCrossAlert } from "../../src/generated/stock-dma/rate-cross-alert.js";
 import { RateCrossSnapshot } from "../../src/generated/stock-dma/rate-cross-snapshot.js";
 import { QueuedWindowState } from "../../src/generated/stock-dma/queued-window-state.js";
+import { SymbolMaster } from "../../src/generated/stock-dma/symbol-master.js";
+import { SymbolMasterItem } from "../../src/generated/stock-dma/symbol-master-item.js";
 import { MSG } from "../../src/dma/msg-type.js";
 
 /** 테스트 전반이 쓰는 정상 ISIN (삼성전자). */
@@ -1135,4 +1137,92 @@ export function buildQueuedWindowStateFrame(input: FakeQueuedWindowInput = {}): 
   Envelope.addQueuedWindowState(b, state);
   b.finish(Envelope.endEnvelope(b));
   return b.asUint8Array();
+}
+
+// ============================================================
+// 종목마스터 (57) — quick-260923-cqj
+// ============================================================
+
+/** 57 원소 1건. 모든 필드를 덮어쓸 수 있다 — 형식 가드를 시험하려면 깨진 원소가 필요하다. */
+export type FakeSymbolMasterItem = {
+  isin?: string;
+  code?: string;
+  name?: string;
+  /** 게이트웨이 어휘 "0"(코스피) / "1"(코스닥). */
+  marketType?: string;
+  secGroupId?: string;
+  nxtTradable?: boolean;
+};
+
+export type FakeSymbolMasterFrameInput = {
+  items?: FakeSymbolMasterItem[];
+  seq?: number;
+  totalItems?: number;
+  isLast?: boolean;
+};
+
+/**
+ * 종목마스터 분할 응답 1프레임 (57 — `symbol_master` 슬롯).
+ *
+ * ⚠️ 문자열은 원소 테이블을 **열기 전에** 만들고, 원소 테이블은 각각 끝낸 뒤 `createItemsVector`
+ *    로 묶는다 (Pitfall 2).
+ */
+export function buildSymbolMasterFrame(input: FakeSymbolMasterFrameInput = {}): Uint8Array {
+  const items = input.items ?? [];
+  const b = new flatbuffers.Builder(1024);
+
+  const offsets = items.map((item) => {
+    const code = b.createString(item.code ?? "005930");
+    const name = b.createString(item.name ?? "삼성전자");
+    const isin = b.createString(item.isin ?? SAMPLE_ISIN);
+    const marketType = b.createString(item.marketType ?? "0");
+    const secGroupId = b.createString(item.secGroupId ?? "ST");
+    SymbolMasterItem.startSymbolMasterItem(b);
+    SymbolMasterItem.addCode(b, code);
+    SymbolMasterItem.addName(b, name);
+    SymbolMasterItem.addIsin(b, isin);
+    SymbolMasterItem.addMarketType(b, marketType);
+    SymbolMasterItem.addSecGroupId(b, secGroupId);
+    SymbolMasterItem.addNxtTradable(b, item.nxtTradable ?? false);
+    return SymbolMasterItem.endSymbolMasterItem(b);
+  });
+  const vector = SymbolMaster.createItemsVector(b, offsets);
+
+  SymbolMaster.startSymbolMaster(b);
+  SymbolMaster.addItems(b, vector);
+  SymbolMaster.addSeq(b, input.seq ?? 0);
+  SymbolMaster.addTotalItems(b, input.totalItems ?? items.length);
+  SymbolMaster.addIsLast(b, input.isLast ?? true);
+  const master = SymbolMaster.endSymbolMaster(b);
+
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.SymbolMasterResp);
+  Envelope.addSymbolMaster(b, master);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 서버 규약대로 분할한 57 프레임 배열 — seq 0부터, total_items 는 전 프레임 동일, is_last 는
+ * 마지막 프레임만 true. 0건이면 is_last 프레임 1건이다 (`QuoteWire.cpp:463-537`).
+ */
+export function buildSymbolMasterFrames(
+  items: FakeSymbolMasterItem[],
+  chunkSize = 500,
+): Uint8Array[] {
+  if (items.length === 0) {
+    return [buildSymbolMasterFrame({ items: [], seq: 0, totalItems: 0, isLast: true })];
+  }
+  const frames: Uint8Array[] = [];
+  for (let from = 0, seq = 0; from < items.length; from += chunkSize, seq += 1) {
+    frames.push(
+      buildSymbolMasterFrame({
+        items: items.slice(from, from + chunkSize),
+        seq,
+        totalItems: items.length,
+        isLast: from + chunkSize >= items.length,
+      }),
+    );
+  }
+  return frames;
 }

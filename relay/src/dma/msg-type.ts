@@ -31,11 +31,19 @@
  *   요청 짝 없는 Broadcast 라 **로그인 전 연결에도** 오므로 Ready 이전 프레임은 캐시만 하고
  *   팬아웃하지 않는다(T-17-07). 화이트리스트와 명시 case 는 **언제나 같은 커밋**에서 자란다.
  *
+ *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
+ *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
+ *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
+ *   의 `parseSymbolMasterFrame` 이고, `SubscriptionHub.#onFrame` 에 **명시 `case`** 가 있다. 그 case
+ *   는 파싱 결과를 `GatewaySymbolMaster`(`store/gateway-symbols.ts`)에 넘기고, 조립은 **요청 세션
+ *   userId 의 프레임만** 한다. 57 은 **브라우저로 흘리지 않는다** — 공개 마스터이고 relay 가 이름을
+ *   푸는 데만 쓴다.
+ *
  * 하지 않는 것:  ← **이 목록이 `OUT_OF_SCOPE_INBOUND_MSG_TYPES` 의 정본이다.**
  *   - 74/75 (MemberStatsResp/Push — 거래원) 는 본 phase 범위 밖이라 넣지 않는다.
  *     화이트리스트에 없으면 수신 시 드롭되며, 그것이 의도된 동작이다.
- *   - 27/57 (GetSymbolMasterReq/SymbolMasterResp — 종목마스터) 도 같은 이유로 제외한다.
- *     종목 메타는 Supabase `stocks` 가 정본이라 게이트웨이에서 받아올 이유가 없다.
+ *   - 27/57 은 quick-260923-cqj 부터 **보조 이름 원천**으로 받는다 — 정본은 여전히 Supabase
+ *     `stocks` 다. 그래서 이 목록에서 빠졌다(위 「유입 집합」 참조).
  *   - 20 (`GetLimitChaserReq` 단건 조회) 은 24 목록 조회로 갈음한다 — 왕복이 하나면 충분하다.
  *   - 26/68 (Reconcile) · 30/31/70 (NXT 전용 상따) 도 v1 범위 밖이다.
  *
@@ -43,10 +51,11 @@
  *     어긋나면 로그 레벨이 조용히 틀어지고, 그 틀어짐은 「경고가 안 뜬다」로만 드러나
  *     아무도 눈치채지 못한다. 서로를 가리키게 두는 것이 유일한 방어다.
  *
- *   ★ 그 상수에는 **응답 대역(S→C)만** 담는다. 위 목록의 요청 번호(20 · 26 · 27 · 30 · 31)는
+ *   ★ 그 상수에는 **응답 대역(S→C)만** 담는다. 위 목록의 요청 번호(20 · 26 · 30 · 31)는
  *     **C→S** 라, 수신 경로로 들어오는 것 자체가 이상 신호다 — 아래 `INBOUND_MSG_TYPES`
  *     주석이 이미 못박아 둔 규율이고, 그 번호까지 debug 로 내리면 이번 강등이 없애려던
- *     실명(失明)을 새로 만든다.
+ *     실명(失明)을 새로 만든다. 27 은 relay 가 **보내는** C→S 요청이라 역시 수신 대역에 넣지
+ *     않는다(수신 경로로 되돌아오면 정체불명과 같은 warn 이다).
  */
 
 /**
@@ -76,6 +85,8 @@ export const MSG = {
   GetLimitChaserListReq: 24,
   /** 계좌 상태 조회. D-25 게이트 뒤 plan 소관. */
   GetAccountStateReq: 25,
+  /** 종목마스터 전량 요청 — 요청 테이블 없음, 로그인 세션 필수, 같은 연결 60초 내 재요청은 게이트웨이가 응답 없이 흡수. */
+  GetSymbolMasterReq: 27,
   /** 호가 스냅샷 조회. */
   GetQuoteReq: 28,
   /** 호가 구독/해제. */
@@ -108,6 +119,8 @@ export const MSG = {
   UpdateAccountNoResp: 55,
   /** VI 발주 통보 (`vi_order_notice` 슬롯). **Notice** — 발주 세션의 전 연결. */
   VIOrderNotice: 56,
+  /** 종목마스터 분할 응답 (`symbol_master` 슬롯) — 요청 연결에만 Notice, 500종목/프레임, is_last 로 완료. */
+  SymbolMasterResp: 57,
   /** 호가 스냅샷 응답 (`quote_state` 슬롯, is_snapshot=true). */
   GetQuoteResp: 58,
   /** 호가 증분 푸시 (`quote_state` 슬롯, is_snapshot=false). */
@@ -165,7 +178,7 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * 16-04 에서 56/60/61/64/65/72/73 을 더해 **19종**이 됐다. 파일 상단 「유입 집합」 주석이
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
  *
- * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. 이 집합은
+ * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -178,6 +191,7 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.ServerMessage,
   MSG.UpdateAccountNoResp,
   MSG.VIOrderNotice,
+  MSG.SymbolMasterResp,
   MSG.GetQuoteResp,
   MSG.QuoteUpdate,
   MSG.SetLimitChaserResp,
@@ -203,16 +217,16 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
  * 25~55초마다 밀어 넣으므로, 이것을 정체불명과 같은 WARNING 으로 쌓으면 진짜 이상 신호가
  * 그 사이에 묻힌다. 드롭 자체는 설계대로 옳다 — 틀린 것은 로그 레벨 하나였다.
  *
- * 원소는 **응답 대역 5종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
- * 리터럴을 지어내지 않는다):
- *   - `SymbolMasterResp` = 57
+ * 원소는 **응답 대역 4종뿐**이다(생성 코드 `stock-dma/msg-type.ts` 의 enum 이름을 인용한다.
+ * 리터럴을 지어내지 않는다). 57 `SymbolMasterResp` 는 quick-260923-cqj 에서 `INBOUND_MSG_TYPES`
+ * 로 옮겨 갔다:
  *   - `ReconcileAccountStateResp` = 68
  *   - `SetLimitChaserNXTResp` = 70
  *   - `MemberStatsResp` = 74
  *   - `MemberStatsPush` = 75
  *
- * 요청 대역(20 · 26 · 27 · 30 · 31)은 **의도적으로 뺐다** — 위 주석의 ★ 참조.
+ * 요청 대역(20 · 26 · 30 · 31)은 **의도적으로 뺐다** — 위 주석의 ★ 참조.
  */
 export const OUT_OF_SCOPE_INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
-  57, 68, 70, 74, 75,
+  68, 70, 74, 75,
 ]);

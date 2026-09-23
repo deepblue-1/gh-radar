@@ -43,6 +43,7 @@ import { loadConfig } from "./config.js";
 import { logger } from "./logger.js";
 import { createRelaySupabase } from "./store/supabase.js";
 import { SymbolMap } from "./store/symbols.js";
+import { GatewaySymbolMaster } from "./store/gateway-symbols.js";
 import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
@@ -78,11 +79,15 @@ const sessionManager = new SessionManager({
  *
  * `await` 하지 않는다 — 이름은 표시용이라 이것 때문에 listen 이 늦으면 안 된다.
  * 적재 전에 도착한 프레임은 이름 없이 나가고, UI 가 ISIN 으로 폴백한다.
+ *
+ * 보조 원천: `stocks` 미스(당일 신규상장)는 게이트웨이 종목마스터(27/57)가 채운다
+ * (quick-260923-cqj). hub·fanout 이 같은 `symbols.lookup` 을 쓰고, 27 요청은 hub Ready 가 건다.
  */
-const symbols = new SymbolMap(supabase);
+const gatewaySymbols = new GatewaySymbolMaster();
+const symbols = new SymbolMap(supabase, { fallback: gatewaySymbols });
 void symbols.start();
 
-const hub = new SubscriptionHub({ symbols });
+const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols });
 
 /**
  * 브라우저 wss 포트(8090)의 HTTP 서버.

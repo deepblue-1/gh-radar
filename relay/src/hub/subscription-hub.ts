@@ -84,11 +84,13 @@ import {
   parseRateCrossAlert,
   parseRateCrossSnapshot,
   parseServerMessage,
+  parseSymbolMasterFrame,
   parseTradeTape,
   parseViOrderList,
   parseViOrderNotice,
   parseViTrigger,
   type ParsedOrderResp,
+  type ParsedSymbolMasterFrame,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 import type { SymbolLookup } from "../store/symbols.js";
@@ -132,6 +134,17 @@ export interface HubSession {
   send(payload: Uint8Array): boolean;
   on(event: "frame", listener: (e: TransportFrameEvent) => void): unknown;
   on(event: "ready", listener: (e: SessionReadyEvent) => void): unknown;
+}
+
+/**
+ * 게이트웨이 종목마스터 보조 원천(quick-260923-cqj)이 hub 에 요구하는 표면.
+ * `GatewaySymbolMaster` 가 구조적으로 만족한다 — 테스트는 스텁을 넣을 수 있다.
+ */
+export interface HubSymbolMasterFeed {
+  /** 세션 Ready. relay 전체 1일 1회 게이팅은 피드가 쥔다(사용자별 재조회가 아니다). */
+  onSessionReady(session: HubSession): void;
+  /** 57 한 프레임(파싱 실패는 `null`)과 그 프레임이 온 세션의 userId. */
+  onFrame(userId: string, frame: ParsedSymbolMasterFrame | null): void;
 }
 
 /** 팬아웃 1건. **대상은 언제나 특정 userId 하나**다 (T-15-02). */
@@ -394,10 +407,13 @@ export class SubscriptionHub extends EventEmitter {
    * 없으면(주입 안 함/미스) 필드를 비워 두고 UI 가 ISIN 원문으로 폴백한다.
    */
   readonly #symbols: SymbolLookup | undefined;
+  /** 게이트웨이 종목마스터 보조 원천(27/57). 없으면 57 은 명시 case 에서 버려진다. */
+  readonly #symbolMaster: HubSymbolMasterFeed | undefined;
 
-  constructor(opts?: { symbols?: SymbolLookup }) {
+  constructor(opts?: { symbols?: SymbolLookup; symbolMaster?: HubSymbolMasterFeed }) {
     super();
     this.#symbols = opts?.symbols;
+    this.#symbolMaster = opts?.symbolMaster;
   }
 
   // ----------------------------------------------------------
@@ -853,6 +869,12 @@ export class SubscriptionHub extends EventEmitter {
         if (notice !== null) this.#fanout(userId, this.#enrichViNotice(notice));
         return;
       }
+      case MSG.SymbolMasterResp:
+        // 브라우저로 흘리지 않는다 — 공개 마스터이고 relay 이름 해석의 보조 원천이다(D-07).
+        // 화이트리스트와 **같은 커밋**의 명시 case 다(PC-12). 피드가 주입되지 않아도 여기서
+        // 끝나므로 `default:` 계수는 오르지 않는다. 요청 세션 판정은 피드가 userId 로 한다.
+        this.#symbolMaster?.onFrame(userId, parseSymbolMasterFrame(e.env));
+        return;
       case MSG.LoginResp:
       case MSG.UpdateAccountNoResp:
         // **세션(`DmaSession`)이 처리하는 프레임이다.** Hub 는 아무것도 하지 않는 것이 맞다 —
@@ -1369,11 +1391,14 @@ export class SubscriptionHub extends EventEmitter {
     if (this.#sessions.get(userId) !== session) return;
     // 재구독·계좌 재요청·전략 재요청은 **같은 트리거 한 자리**에서만 일어난다 (Pitfall 4).
     // 경로를 두 벌 만들면 "재접속 후 잔고만 안 나온다"·"재접속 후 전략만 안 나온다"가 생긴다.
-    // D-13: 이 세 줄 말고 재조회를 거는 곳은 없다 — 주기 타이머도, 브라우저가 부를 수 있는
-    // 수동 새로고침 진입점도 만들지 않는다.
+    // D-13: 이 세 줄 말고 사용자별 재조회를 거는 곳은 없다 — 주기 타이머도, 브라우저가 부를 수
+    // 있는 수동 새로고침 진입점도 만들지 않는다.
     this.resubscribeAll(userId);
     this.requestAccountState(userId);
     this.requestStrategySnapshot(userId);
+    // 4번째 줄은 사용자별 재조회가 **아니다** — 게이트웨이 종목마스터(27)의 relay 전체 1일 1회
+    // 요청이고, 게이팅(이번 master-day 에 성공했는가·진행 중인가)은 피드가 쥔다(quick-260923-cqj D-02).
+    this.#symbolMaster?.onSessionReady(session);
   }
 
   /** **대상은 언제나 userId 하나**다. 전역 브로드캐스트 경로를 만들지 않는다 (T-15-02). */

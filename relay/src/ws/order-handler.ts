@@ -74,7 +74,7 @@ import { ORDER_RESP_TIMEOUT_MS, filledQtyOf, statusOf } from "../order/notice-st
 import type { HubOrderEvent } from "../hub/subscription-hub.js";
 import type { OrderInsertRow, OrderUpdate } from "../store/orders.js";
 import { safePgError } from "../store/pg-error.js";
-import type { SymbolLookup } from "../store/symbols.js";
+import { stocksCodeOf, type SymbolLookup } from "../store/symbols.js";
 
 // ============================================================
 // 계약 (전부 **최소 표면**이다 — 테스트가 스텁을 넣을 수 있게 좁힌다)
@@ -689,7 +689,9 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       userId,
       accountNo,
       isin: notice.isin,
-      code: info?.code ?? null,
+      // FK → stocks(code) (`20260905120200_dma_orders.sql:53`). 게이트웨이 보조 원천(당일
+      // 신규상장)의 코드는 `stocks` 에 없어 FK 위반으로 감사 행이 사라지므로 null 로 남긴다 (D-06).
+      code: stocksCodeOf(info),
       exchange: notice.exchange,
       market,
       // 취소·정정 통보의 매매구분은 브로커가 채울 값이 없다 (Pitfall 8). CHECK 가 B/S 둘만
@@ -888,7 +890,10 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
         userId,
         accountNo: msg.accountNo,
         isin: msg.isin,
-        code: info.code,
+        // FK → stocks(code) (`20260905120200_dma_orders.sql:53`). 게이트웨이 보조 원천 코드는
+        // null 로 남긴다 — 그대로 쓰면 insert 가 FK 위반으로 실패해 주문이 거부된다 (D-06).
+        // 게이트웨이로 나가는 주문은 ISIN·시장으로 조립되므로 영향이 없다.
+        code: stocksCodeOf(info),
         exchange: msg.exchange,
         market: info.market,
         // 취소 통보에는 매매구분이 없어(Pitfall 8) 원주문 방향을 알 수 없다. CHECK 가 B/S

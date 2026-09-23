@@ -33,6 +33,7 @@ import {
   buildGetTradeTapeReq,
   tryParseEnvelope,
   parseQuoteState,
+  parseSymbolMasterFrame,
   parseTradeTape,
   parseServerMessage,
   parseLoginResp,
@@ -248,11 +249,22 @@ describe("tryParseEnvelope — total 파서", () => {
     expect(fields.reason).toBe("unknown-msg-type");
   });
 
-  it("⑤-a4 강등 집합은 **응답 대역 5종뿐**이고 요청 번호는 하나도 없다", () => {
-    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([
-      57, 68, 70, 74, 75,
-    ]);
+  it("⑤-a4 강등 집합은 **응답 대역 4종뿐**이고 요청 번호는 하나도 없다", () => {
+    // 57 은 quick-260923-cqj 에서 INBOUND 로 옮겨 갔다(보조 이름 원천).
+    expect([...OUT_OF_SCOPE_INBOUND_MSG_TYPES].sort((a, b) => a - b)).toEqual([68, 70, 74, 75]);
     for (const n of OUT_OF_SCOPE_INBOUND_MSG_TYPES) expect(n).toBeGreaterThanOrEqual(50);
+  });
+
+  it("⑤-a5 맨 envelope 57 은 화이트리스트를 통과하고, 파서는 slot-null 로 null 을 돌려준다 (quick-260923-cqj)", () => {
+    const parsed = tryParseEnvelope(Buffer.from(buildBareEnvelope(MSG.SymbolMasterResp)));
+    expect(parsed).not.toBeNull();
+    expect(droppedEnvelopeCount()).toBe(0);
+
+    expect(parseSymbolMasterFrame(parsed!.env)).toBeNull();
+    expect(droppedEnvelopeCount()).toBe(1);
+    const [fields] = warn.mock.calls[0] as [Record<string, unknown>];
+    expect(fields.reason).toBe("slot-null");
+    expect(fields.slot).toBe("symbol_master");
   });
 
   it("⑤-b 요청 계열(LivePing=4)이 수신 경로로 들어오면 드롭한다", () => {
