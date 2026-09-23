@@ -247,6 +247,25 @@ describe('StockOrderbookSection — 호가 탭 = 카드 본문 (D-24)', () => {
     expect(subscribeMock).toHaveBeenCalledWith(ISIN, 'NXT');
   });
 
+  it('③-d quick-260923-pq2 — nxtTradable 집합에 이 종목이 없으면 상태줄 세그먼트가 KRX 라벨 하나(NXT radio 없음), 있으면 둘 다', () => {
+    ctx = { ...ctx, nxtTradable: new Set(['KR7000000000']) };
+    const { unmount } = renderSection();
+    expect(within(statusBar()).queryByRole('radio', { name: 'NXT' })).toBeNull();
+    const single = statusBar().querySelector(
+      '[data-slot="orderbook-exchange-segment"][data-single="true"]',
+    ) as HTMLElement | null;
+    expect(single).not.toBeNull();
+    expect(single!.textContent).toBe('KRX');
+    unmount();
+
+    ctx = { ...ctx, nxtTradable: new Set([ISIN]) };
+    renderSection();
+    expect(within(statusBar()).getByRole('radio', { name: 'NXT' })).toBeInTheDocument();
+    expect(
+      statusBar().querySelector('[data-slot="orderbook-exchange-segment"][data-single="true"]'),
+    ).toBeNull();
+  });
+
   it('④ 수동주문 폼에 주문유형 콤보가 있다 (호가 탭 전용 · D-23)', () => {
     renderSection();
     expect(screen.getByRole('combobox', { name: '주문유형' })).toBeInTheDocument();

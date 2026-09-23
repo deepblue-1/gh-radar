@@ -58,6 +58,7 @@ import {
   type StrategyCardState,
 } from '@/components/trading/card/strategy-card';
 import { LatchLed } from '@/components/trading/latch-led';
+import { exchangeChoicesOf, KRX_ONLY_TITLE } from '@/lib/exchange-choices';
 import { queuedWindowBadgeOf } from '@/lib/queued-window';
 import { useRelayContext, useRelaySubscription } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
@@ -79,8 +80,6 @@ const UNRECOVERABLE_STATES: ReadonlySet<string> = new Set([
   'manual_required',
   'session_rejected',
 ]);
-
-const EXCHANGES: readonly RelayExchange[] = ['KRX', 'NXT'];
 
 export interface StockOrderbookSectionProps {
   /** 6자 단축코드. 표시·확인 다이얼로그용. */
@@ -128,7 +127,9 @@ export function StockOrderbookSection({
     exchange,
     enabled: subscriptionIsin !== null,
   });
-  const { queuedWindow } = useRelayContext();
+  const { queuedWindow, nxtTradable } = useRelayContext();
+  // NXT 미거래 종목은 상태줄 세그먼트가 「KRX」 라벨 하나(quick-260923-pq2 · 카드 헤더와 같은 순수 함수).
+  const exchangeChoices = exchangeChoicesOf(subscriptionIsin ?? '', exchange, nxtTradable);
 
   /*
     ★ 옵션 4그룹의 상태는 작업대 카드와 **같은 훅**이다 — 전략 키(ISIN:계좌:거래소) 필터 ·
@@ -265,6 +266,7 @@ export function StockOrderbookSection({
             accountNo={selectedAccountNo}
             onAccountChange={setSelectedAccountNo}
             exchange={exchange}
+            exchangeChoices={exchangeChoices}
             onExchangeChange={handleExchangeChange}
             card={card}
             windowBadge={queuedWindowBadgeOf(queuedWindow)}
@@ -342,6 +344,7 @@ function OrderbookStatusBar({
   accountNo,
   onAccountChange,
   exchange,
+  exchangeChoices,
   onExchangeChange,
   card,
   windowBadge,
@@ -353,6 +356,8 @@ function OrderbookStatusBar({
   accountNo: string;
   onAccountChange: (accountNo: string) => void;
   exchange: RelayExchange;
+  /** `exchangeChoicesOf` 결과 — 길이 1 이면 토글 대신 라벨 하나(quick-260923-pq2). */
+  exchangeChoices: readonly RelayExchange[];
   onExchangeChange: (exchange: RelayExchange) => void;
   card: StrategyCardState;
   windowBadge: ReturnType<typeof queuedWindowBadgeOf>;
@@ -410,28 +415,43 @@ function OrderbookStatusBar({
         거래소 세그먼트 — 카드 헤더와 같은 `ToggleGroup type="single"`(라디오형 · ←/→ 로빙 포커스).
         빈 값(`""`)은 무시한다 — single 그룹은 선택된 항목을 다시 누르면 해제를 알린다.
         연결 전에는 잠근다 — 구독할 소켓이 없는데 전환하면 「불러오는 중」만 남는다.
+        NXT 미거래 종목은 라벨 하나(quick-260923-pq2 · 카드 헤더와 같은 순수 함수) · `isNxtEmpty` 는
+        플래그를 모를 때의 안전망으로 유지한다.
       */}
-      <ToggleGroup
-        type="single"
-        value={exchange}
-        onValueChange={(v) => {
-          if (v === 'KRX' || v === 'NXT') onExchangeChange(v);
-        }}
-        disabled={status !== 'ready'}
-        aria-label="거래소"
-        data-slot="orderbook-exchange-segment"
-        className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
-      >
-        {EXCHANGES.map((ex) => (
-          <ToggleGroupItem
-            key={ex}
-            value={ex}
-            className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
-          >
-            {ex}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      {exchangeChoices.length === 1 ? (
+        <span
+          data-slot="orderbook-exchange-segment"
+          data-single="true"
+          title={KRX_ONLY_TITLE}
+          className="inline-flex h-5 items-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+        >
+          <span className="flex h-5 items-center bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)]">
+            {exchangeChoices[0]}
+          </span>
+        </span>
+      ) : (
+        <ToggleGroup
+          type="single"
+          value={exchange}
+          onValueChange={(v) => {
+            if (v === 'KRX' || v === 'NXT') onExchangeChange(v);
+          }}
+          disabled={status !== 'ready'}
+          aria-label="거래소"
+          data-slot="orderbook-exchange-segment"
+          className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+        >
+          {exchangeChoices.map((ex) => (
+            <ToggleGroupItem
+              key={ex}
+              value={ex}
+              className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
+            >
+              {ex}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      )}
 
       <span className="inline-flex flex-wrap items-center gap-1.5">
         {(['buy', 'sell', 'cancel'] as const).map((kind) => (

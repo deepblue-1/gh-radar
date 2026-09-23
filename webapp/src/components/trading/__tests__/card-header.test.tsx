@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
 import { CardHeader, EXCHANGE_SEGMENT_TITLE, type CardHeaderProps } from '../card/card-header';
+import { KRX_ONLY_TITLE } from '@/lib/exchange-choices';
 
 /**
  * Phase 18 Plan 06 Task 2 — 카드 헤더 (D-09 · D-10 · E7 · TRADE-09).
@@ -292,5 +293,37 @@ describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)'
     renderHeader({ open: false, ledServer: echo({ sellEnabled: true }), unfilledCount: 3, holdingQty: 10 });
     const all = Array.from(header().querySelectorAll('*')).map((el) => el.getAttribute('class') ?? '');
     for (const cls of [header().className, ...all]) expect(cls).not.toMatch(/(^|\s)(sm|md|lg|xl|2xl):/);
+  });
+});
+
+describe('CardHeader — 거래소 선택지 (quick-260923-pq2)', () => {
+  const singleLabel = () =>
+    document.querySelector('[data-slot="card-exchange-segment"][data-single="true"]') as HTMLElement | null;
+
+  it('① exchangeChoices 미지정(모름) → radio 2개', () => {
+    renderHeader();
+    expect(exchangeButtons()).toHaveLength(2);
+    expect(singleLabel()).toBeNull();
+  });
+
+  it("② exchangeChoices ['KRX','NXT'] → radio 2개", () => {
+    renderHeader({ exchangeChoices: ['KRX', 'NXT'] });
+    expect(exchangeButtons().map((b) => b.textContent)).toEqual(['KRX', 'NXT']);
+    expect(singleLabel()).toBeNull();
+  });
+
+  it("③ exchangeChoices ['KRX'] → 토글 대신 「KRX」 라벨 하나(같은 높이 · title · 전파 차단)", () => {
+    const { props } = renderHeader({ exchangeChoices: ['KRX'] });
+    expect(screen.queryByRole('group', { name: '거래소' })).toBeNull();
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    const label = singleLabel();
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toBe('KRX');
+    expect(label!).toHaveAttribute('title', KRX_ONLY_TITLE);
+    expect(label!.className).toContain('h-5');
+
+    fireEvent.click(label!);
+    expect(props.onToggle).not.toHaveBeenCalled();
+    expect(props.onExchangeChange).not.toHaveBeenCalled();
   });
 });

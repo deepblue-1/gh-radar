@@ -1811,3 +1811,58 @@ describe('limitChaserSnapSeq — 64 스냅샷 적용 횟수 (WR-07 · 18-22)', (
     expect(hook.result.current.limitChasers).toHaveLength(1);
   });
 });
+
+describe('nxt.snap — NXT 거래가능 집합 (quick-260923-pq2)', () => {
+  const A = 'KR7005930003';
+  const B = 'KR7000660001';
+  const C = 'KR7035720002';
+
+  it('초기 null(모름) → 프레임마다 Set 통째 교체 → 재접속은 유지 → enabled false(reset) 뒤 null', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.nxtTradable).toBeNull();
+    const ws = await connected(hook);
+    expect(hook.result.current.nxtTradable).toBeNull();
+
+    await act(async () => {
+      ws.push({ t: 'nxt.snap', isins: [A, B] });
+    });
+    const first = hook.result.current.nxtTradable;
+    expect(first).toBeInstanceOf(Set);
+    expect(first?.has(A)).toBe(true);
+    expect(first?.has(B)).toBe(true);
+
+    // 두 번째 프레임은 병합이 아니라 전량 교체다.
+    await act(async () => {
+      ws.push({ t: 'nxt.snap', isins: [C] });
+    });
+    const second = hook.result.current.nxtTradable;
+    expect(second?.has(C)).toBe(true);
+    expect(second?.has(A)).toBe(false);
+    expect(second?.size).toBe(1);
+
+    // 재접속 — 다른 스냅샷처럼 지우지 않는다(relay 가 재인증마다 다시 내린다).
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(hook.result.current.nxtTradable?.has(C)).toBe(true);
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+    const ws2 = FakeWebSocket.last();
+    await act(async () => {
+      ws2.accept();
+    });
+    await act(async () => {
+      ws2.push({ t: 'state', s: 'ready', accounts: [] });
+    });
+    expect(hook.result.current.nxtTradable?.has(C)).toBe(true);
+
+    // 로그아웃·비활성화 = reset → 모름으로 되돌린다.
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.nxtTradable).toBeNull();
+  });
+});

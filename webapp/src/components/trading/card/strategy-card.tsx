@@ -90,6 +90,7 @@ import {
   isLimitChaserSetRejection,
   strategyKey,
 } from "@/lib/limit-chaser";
+import { exchangeChoicesOf } from "@/lib/exchange-choices";
 import { useRelayContext, useRelaySubscription } from "@/lib/relay-provider";
 import type { RelayServerMessageEntry } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
@@ -670,8 +671,11 @@ function StrategyCardImpl({
     ④ 카드 계좌 슬라이스(quick-260923-onn) — 이 카드 계좌 상태를 이 종목·거래소로 1회 자른다.
     접힌 헤더 요약 칩 숫자와 카드 탭(배지·본문)이 **같은 이 값**을 읽는다. 새 조회 경로 0(T-16-02).
   */
-  const { accountStates, status } = useRelayContext();
+  const { accountStates, status, nxtTradable } = useRelayContext();
   const accountState = accountNo === "" ? null : (accountStates.get(accountNo) ?? null);
+  // NXT 미거래 종목은 헤더 세그먼트가 「KRX」 라벨 하나(quick-260923-pq2). 순수 함수가 상수 참조를
+  // 돌려주므로 memo 가 필요 없다. 모르면(`null`) 둘 다.
+  const exchangeChoices = exchangeChoicesOf(isin, exchange, nxtTradable);
   const slice = useMemo(
     () => cardAccountSliceOf(accountState, isin, exchange),
     [accountState, isin, exchange],
@@ -733,6 +737,7 @@ function StrategyCardImpl({
         nameTitle={nameTitle}
         code={code}
         exchange={exchange}
+        exchangeChoices={exchangeChoices}
         onExchangeChange={handleExchange}
         price={quote === null ? null : quote.p}
         changeRate={quote === null ? null : quote.cr}

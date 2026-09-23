@@ -352,6 +352,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   limitChaserSnapSeq: 0,
   // 예약창도 미수신이다. `open:false`(닫힘)로 위장하지 않는다.
   queuedWindow: undefined,
+  // Provider 밖에는 소켓이 없다 — 모름(둘 다 그린다 · quick-260923-pq2).
+  nxtTradable: null,
   // 보내지 **않았음**이 확실하다 — Provider 밖에는 소켓이 없다. 호출부가 반환값으로
   // 그 사실을 알 수 있어야 한다(PC-7 무로그 fail-safe 금지).
   send: () => false,

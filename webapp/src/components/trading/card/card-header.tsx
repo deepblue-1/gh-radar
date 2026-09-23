@@ -22,6 +22,11 @@
  *   `changeExchange` 의 몫이다 — 헤더는 고른 값을 알리기만 한다. 그룹 `title` 은 전환 설명
  *   한 줄이다.
  *
+ * ②-b NXT 미거래 종목(quick-260923-pq2)은 세그먼트가 「KRX」 라벨 하나다 — 판정은
+ *   `exchangeChoicesOf`(호출부 `strategy-card`)이고 헤더는 받은 선택지만 그린다. 모르면 둘 다.
+ *   현재 거래소가 NXT 면 둘 다(순수 함수 예외). 라벨은 토글이 아니다(role 없음) — 같은 높이·
+ *   패딩·글자라 헤더 배치가 바뀌지 않는다.
+ *
  * ③ ★ 헤더 전체가 펼침 토글의 클릭 영역이다 — 단, 그 안의 컨트롤은 제외 (D-09)
  *   세그먼트·LED·ⓘ·✕ 는 자기 일을 하고 `stopPropagation` 으로 전파를 막는다. 막지 않으면
  *   LED 를 눌러 래치를 켜는 순간 카드가 함께 접힌다.
@@ -46,12 +51,12 @@ import {
   type LatchLedServer,
 } from "@/components/trading/latch-led";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { EXCHANGE_CHOICES_ALL, KRX_ONLY_TITLE } from "@/lib/exchange-choices";
 import { cn } from "@/lib/utils";
 
 /** 세그먼트 그룹 `title` — 잠금 사유가 아니라 전환 설명(quick-260923-pgv). 테스트가 같은 상수를 읽는다. */
 export const EXCHANGE_SEGMENT_TITLE = "거래소 전환 — 이 종목의 KRX·NXT 전략을 오가며 봐요";
 
-const EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
 const LED_KINDS: readonly LatchLedKind[] = ["buy", "sell", "cancel"];
 const KRW = new Intl.NumberFormat("ko-KR");
 
@@ -66,6 +71,11 @@ export interface CardHeaderProps {
   /** 6자 단축코드. 모르면 `null` — 그때는 코드 조각을 그리지 않고 ⓘ 가 비활성이다(D-30). */
   code: string | null;
   exchange: RelayExchange;
+  /**
+   * 거래소 선택지 — `exchangeChoicesOf` 결과. 미지정 = 모름 = 둘 다. 길이 1 이면 토글이 아니라
+   * 라벨 하나를 그린다(quick-260923-pq2).
+   */
+  exchangeChoices?: readonly RelayExchange[];
   onExchangeChange: (exchange: RelayExchange) => void;
   /** 현재가. 시세 미수신이면 `null` → 「—」. */
   price: number | null;
@@ -103,6 +113,7 @@ export function CardHeader({
   nameTitle,
   code,
   exchange,
+  exchangeChoices = EXCHANGE_CHOICES_ALL,
   onExchangeChange,
   price,
   changeRate,
@@ -202,27 +213,41 @@ export function CardHeader({
             거래소가 「없음」인 카드는 존재하지 않는다.
         */}
         <span onClick={stop} className="flex flex-none">
-          <ToggleGroup
-            type="single"
-            value={exchange}
-            onValueChange={(v) => {
-              if (v === "KRX" || v === "NXT") onExchangeChange(v);
-            }}
-            aria-label="거래소"
-            title={EXCHANGE_SEGMENT_TITLE}
-            data-slot="card-exchange-segment"
-            className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
-          >
-            {EXCHANGES.map((ex) => (
-              <ToggleGroupItem
-                key={ex}
-                value={ex}
-                className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
-              >
-                {ex}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          {exchangeChoices.length === 1 ? (
+            // ②-b NXT 미거래 종목 — 상호작용 없는 라벨(role·aria-label 없음). 톤 = 항목 off 색.
+            <span
+              data-slot="card-exchange-segment"
+              data-single="true"
+              title={KRX_ONLY_TITLE}
+              className="inline-flex h-5 items-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+            >
+              <span className="flex h-5 items-center bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)]">
+                {exchangeChoices[0]}
+              </span>
+            </span>
+          ) : (
+            <ToggleGroup
+              type="single"
+              value={exchange}
+              onValueChange={(v) => {
+                if (v === "KRX" || v === "NXT") onExchangeChange(v);
+              }}
+              aria-label="거래소"
+              title={EXCHANGE_SEGMENT_TITLE}
+              data-slot="card-exchange-segment"
+              className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+            >
+              {exchangeChoices.map((ex) => (
+                <ToggleGroupItem
+                  key={ex}
+                  value={ex}
+                  className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
+                >
+                  {ex}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
         </span>
 
         <span

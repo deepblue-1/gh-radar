@@ -400,6 +400,14 @@ export interface RelayConnectionState {
    */
   queuedWindow: RelayQueuedWindowMsg | undefined;
   /**
+   * NXT 거래가능 ISIN 집합 — **2상태**(quick-260923-pq2).
+   *  - `null` : relay 가 `nxt.snap` 을 아직 안 줬다(연결 전 · 구 relay · relay 가 57 을 못 받음)
+   *             → 화면은 KRX|NXT 둘 다 그린다
+   *  - Set    : 확정 집합(빈 Set 도 확정)
+   * 프레임마다 **통째 교체**다. 원천은 게이트웨이 57 `nxt_tradable` 하나다.
+   */
+  nxtTradable: ReadonlySet<string> | null;
+  /**
    * 송신구. 구독 제어(`sub`/`unsub`)와 **전략 설정**(`lc.set`/`vi.set`/`vi.confirm`/
    * `strategies.disable`)이 여기로 나간다. 주문은 상관 응답이 필요하므로 `sendOrder` 를 쓴다.
    *
@@ -500,6 +508,7 @@ interface RelayData {
   rateCrossSnapSeq: number;
   limitChaserSnapSeq: number;
   queuedWindow: RelayQueuedWindowMsg | undefined;
+  nxtTradable: ReadonlySet<string> | null;
 }
 
 const INITIAL_DATA: RelayData = {
@@ -528,6 +537,8 @@ const INITIAL_DATA: RelayData = {
   limitChaserSnapSeq: 0,
   // 미수신(undefined) 과 「닫힘」(open:false) 은 다른 화면이다 — 초기값은 미수신이다.
   queuedWindow: undefined,
+  // 아직 모른다 — 빈 Set 으로 위장하면 모든 종목의 NXT 가 사라진다(quick-260923-pq2).
+  nxtTradable: null,
 };
 
 /** 배치 대상 프레임 — 시세·체결 두 종류뿐이다 (파일 상단 규율 8). */
@@ -701,6 +712,11 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "queued.window":
       // 최신 1건 보관. 상태 보관만 하고 UI 는 만들지 않는다(Phase 18).
       return { ...state, queuedWindow: frame };
+
+    case "nxt.snap":
+      // 전량 교체 · 재접속에서는 지우지 않는다 — relay 가 재인증마다 다시 내린다
+      // (`rateCrossItems` 와 같은 규율). `reset` 만 `INITIAL_DATA` 로 되돌린다(quick-260923-pq2).
+      return { ...state, nxtTradable: new Set(frame.isins) };
 
     case "strategies.disabled":
       // **완료 신호로만** 보관한다. 이 프레임이 온 시점에는 60/61 에코가 이미 모든 행을
@@ -1500,6 +1516,7 @@ export function useRelayConnection({
       rateCrossSnapSeq: data.rateCrossSnapSeq,
       limitChaserSnapSeq: data.limitChaserSnapSeq,
       queuedWindow: data.queuedWindow,
+      nxtTradable: data.nxtTradable,
       send,
       reconnect,
       subscribe,

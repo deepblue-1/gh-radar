@@ -505,4 +505,35 @@ describe('StrategyCard', () => {
     expect(nameEl.getAttribute('title')).toBe(`에코프로비엠 · 계좌 ${ACCOUNT} · NXT`);
     expect(nameEl.textContent).toBe('에코프로비엠');
   });
+
+  it('quick-260923-pq2 — 컨텍스트 nxtTradable 집합에 이 카드 ISIN 이 없으면 헤더 세그먼트가 KRX 라벨 하나, 있으면/모르면 둘 다', () => {
+    const headerOf = () =>
+      cardOf(ISIN_A).querySelector('[data-slot="card-header"]') as HTMLElement;
+    const radios = () => headerOf().querySelectorAll('[role="radio"]');
+    const singles = () => headerOf().querySelectorAll('[data-single="true"]');
+
+    const { rerender } = render(
+      <RelayContext.Provider value={relay({ nxtTradable: new Set(['KR7000000000']) })}>
+        <StrategyCard {...baseProps} isin={ISIN_A} />
+      </RelayContext.Provider>,
+    );
+    expect(radios()).toHaveLength(0);
+    expect(singles()).toHaveLength(1);
+    expect(singles()[0]!.textContent).toBe('KRX');
+
+    rerender(
+      <RelayContext.Provider value={relay({ nxtTradable: new Set([ISIN_A]) })}>
+        <StrategyCard {...baseProps} isin={ISIN_A} />
+      </RelayContext.Provider>,
+    );
+    expect(radios()).toHaveLength(2);
+    expect(singles()).toHaveLength(0);
+
+    rerender(
+      <RelayContext.Provider value={relay()}>
+        <StrategyCard {...baseProps} isin={ISIN_A} />
+      </RelayContext.Provider>,
+    );
+    expect(radios()).toHaveLength(2);
+  });
 });
