@@ -671,18 +671,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await layout()).toEqual(['open', 'open', 'stack(1)']);
   });
 
-  test('7. 폰 밴드 더티 바(z-40)와 하단 고정 공용 패널(z-20)의 boundingBox 가 겹치지 않는다 — 접힘·펼침·맨 아래 (E15 · E13 overflow · D-28)', async ({
+  test('7. 폰 밴드 — 더티 바는 카드 하단에 붙고(목업 B · 2026-09-23) 하단 고정 공용 패널과 겹치지 않는다 — 접힘·펼침·맨 아래 (E15 · E13 overflow · D-28)', async ({
     page,
   }) => {
     await page.setViewportSize(PHONE_VIEWPORT);
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
 
-    /*
-      ★ 먼저 패널이 **정말 화면 하단에 붙어 있는지** 본다. 겹침 0 만 보면, 패널이 화면 밖(페이지 끝
-        일반 흐름)에 있어도 초록이 된다 — 18-13 이 처음 돌렸을 때 실제로 그랬다(앱 셸 `main` 이
-        sticky 컨테이너라 sticky 가 한 번도 붙지 않았다 · shared-panels.tsx ⑤-b).
-    */
+    // 먼저 패널이 **정말 화면 하단에 붙어 있는지** 본다(겹침 0 만 보면 화면 밖 패널도 초록이 된다).
     const viewportH = PHONE_VIEWPORT.height;
     await field(page, 'lc-buy-watch-qty').scrollIntoViewIfNeeded();
     const pinned = await sharedPanels(page).boundingBox();
@@ -691,12 +687,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     await field(page, 'lc-buy-watch-qty').fill('8000');
     await expect(dirtyBar(page)).toBeVisible();
-    await expect(sharedPanels(page)).toHaveAttribute('data-dirty-reserve', 'true');
+    // 바는 카드 안(카드 하단 자리)이고, 패널은 비켜 서지 않고 화면 하단 그대로다.
+    await expect(cardOf(page, E2E_ISIN).locator('[data-slot="card-dirty-host"] [data-slot="dirty-action-bar"]')).toHaveCount(1);
+    await expect(sharedPanels(page)).not.toHaveAttribute('data-dirty-reserve', 'true');
 
-    /**
-     * 두 상자가 세로로 겹치지 않는다 — 패널은 바 **위**에서 멈춰야 한다(여백으로 비킴).
-     * ★ z-index 로 덮는 해법이면 두 상자는 여전히 겹친다 — 그래서 겹침 자체를 잰다.
-     */
+    /** 두 상자가 세로로 겹치지 않는다 — 바가 패널 **위**에 선다(z-index 로 덮는 해법이면 겹친다). */
     const expectNoOverlap = async (label: string) => {
       const bar = await dirtyBar(page).boundingBox();
       const panel = await sharedPanels(page).boundingBox();
@@ -706,39 +701,41 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       const barBottom = bar!.y + bar!.height;
       const overlap = Math.min(panelBottom, barBottom) - Math.max(panel!.y, bar!.y);
       expect(overlap, `${label} — 패널 [${panel!.y}, ${panelBottom}] ∩ 바 [${bar!.y}, ${barBottom}]`).toBeLessThanOrEqual(1);
+      expect(Math.abs(panelBottom - viewportH), `${label} — 패널은 화면 하단 그대로`).toBeLessThanOrEqual(1);
     };
 
-    /** 패널이 바 **바로 위**에 붙어 있다(화면 밖으로 밀려나 겹침을 피한 것이 아니다). */
-    const expectPinnedAboveBar = async (label: string) => {
-      const bar = await dirtyBar(page).boundingBox();
-      const panel = await sharedPanels(page).boundingBox();
-      expect(Math.abs(panel!.y + panel!.height - bar!.y), `${label} — 패널 끝 = 바 위`).toBeLessThanOrEqual(1);
-      expect(panel!.y, `${label} — 패널이 화면 안`).toBeGreaterThanOrEqual(0);
+    /** 카드가 화면 아래로 이어지는 동안 바는 **보이고** 패널 바로 위에 붙어 있다(화면 밖으로 숨은 게 아니다). */
+    const expectBarOnPanel = async (label: string) => {
+      await expect
+        .poll(async () => {
+          const bar = await dirtyBar(page).boundingBox();
+          const panel = await sharedPanels(page).boundingBox();
+          return Math.round(Math.abs(bar!.y + bar!.height - panel!.y));
+        }, { message: `${label} — 바 끝 = 패널 위` })
+        .toBeLessThanOrEqual(1);
     };
 
-    // ① 접힘(기본) — 화면 하단 바 위에 붙어 있다.
+    // ① 접힘(기본) — 카드가 화면 아래로 이어지는 동안 바는 패널 바로 위에 붙어 따라온다.
     await field(page, 'lc-buy-watch-qty').scrollIntoViewIfNeeded();
+    await expectBarOnPanel('접힘');
     await expectNoOverlap('접힘');
-    await expectPinnedAboveBar('접힘');
 
-    // ② 펼침 — 본문(최대 40vh)이 올라와도 바 위에서 멈춘다.
+    // ② 펼침 — 패널이 올라오면 바도 그 위로 올라간다(`--wb-bottom-inset`).
     await sharedPanels(page).getByRole('button', { name: '펼치기 ▴' }).click();
     await expect(sharedPanels(page).getByRole('button', { name: '접기 ▾' })).toBeVisible();
+    await field(page, 'lc-buy-watch-qty').scrollIntoViewIfNeeded();
+    await expectBarOnPanel('펼침');
     await expectNoOverlap('펼침');
-    await expectPinnedAboveBar('펼침');
 
-    // ③ 페이지 맨 아래까지 스크롤 — 흐름 안 자리(spacer) 덕에 마지막 콘텐츠도 패널 위에 온다.
+    // ③ 페이지 맨 아래 — 흐름 안 자리(spacer) 덕에 카드 끝(바 포함)이 패널에 묻히지 않는다.
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expectNoOverlap('맨 아래');
-    await expectPinnedAboveBar('맨 아래');
     const lastCard = await cardOf(page, E2E_ISIN).boundingBox();
     const panelAtEnd = await sharedPanels(page).boundingBox();
     expect(lastCard!.y + lastCard!.height, '맨 아래 — 카드 끝이 패널에 묻히지 않는다').toBeLessThanOrEqual(panelAtEnd!.y + 1);
 
-    // 더티가 사라지면 예약도 사라진다(패널이 원래 자리로).
     await dirtyBar(page).getByRole('button', { name: '되돌리기' }).click();
     await expect(dirtyBar(page)).toHaveCount(0);
-    await expect(sharedPanels(page)).not.toHaveAttribute('data-dirty-reserve', 'true');
   });
 
   test('8. 상태줄 — 폰 밴드에서 필이 2줄 이상으로 wrap 하고 어느 필도 잘리지 않는다, 와이드도 잘림 0 (E1 overflow)', async ({
@@ -1233,7 +1230,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
     await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
 
     // 작업대에는 AI FAB 이 없다 — 「수정」을 가로챌 것이 없다는 전제 + 바가 실제로 올라와 있다.
     await expect(page.getByRole('button', { name: 'AI' })).toHaveCount(0);
@@ -1268,7 +1265,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const stackCard = grid(page).locator(`[data-slot="card-stack"] ${cardSelector(E2E_ISIN)}`);
 
     await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
 
     // 접기 — 카드는 스택으로 가고, 미반영 값이 있다는 사실(더티 바)은 그대로 떠 있다(D-12 · D-28).
     await toggle.click();
@@ -1276,7 +1273,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(stackCard).toHaveCount(1);
     await expect(field(page, 'lc-buy-watch-qty')).toBeHidden();
     await expect(dirtyBar(page)).toBeVisible();
-    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
     // 포커스는 누른 헤더 토글로 돌아온다(UI-SPEC §접근성).
     await expect(toggle).toBeFocused();
 
@@ -1286,7 +1283,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(stackCard).toHaveCount(0);
     await expect(field(page, 'lc-buy-watch-qty')).toBeVisible();
     await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
-    await expect(dirtyBar(page)).toContainText('삼성전자 · 1개 미반영');
+    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
     await expect(toggle).toBeFocused();
 
     // 정리 — 다음 케이스(직렬)에 더티 상태를 남기지 않는다.

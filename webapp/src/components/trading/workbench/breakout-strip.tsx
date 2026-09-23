@@ -456,7 +456,10 @@ const BreakoutChip = memo(function BreakoutChip({
         {v.label}
       </b>
       <span className={cn('mono font-bold', rateClass(v.rate))}>{signedRate(v.rate)}</span>
-      <span className="mono text-[11px] text-[var(--muted-fg)]">{v.clock.slice(0, 5)}</span>
+      {/* 폰 밴드(본문 <700)에서는 시각을 빼 칩을 줄인다 — 펼친 표에 있다(2026-09-23). */}
+      <span className="mono hidden text-[11px] text-[var(--muted-fg)] @min-[700px]/wb:inline">
+        {v.clock.slice(0, 5)}
+      </span>
       {v.highlighted && (
         <span data-slot="breakout-new-badge" className="text-[10px] font-bold text-[var(--fg)]">
           신규
@@ -476,7 +479,7 @@ const BreakoutChip = memo(function BreakoutChip({
 /**
  * 7열 — 종목 · 현재가 · 등락률 · 임계 · 기준가 · 돌파시각 · 액션.
  * 작업대 페이지 컨테이너(`@container/wb`) 폭으로 접는다(목업 정본): 본문 <700 에서 임계·돌파시각을,
- * <830 에서 기준가를 숨기고, <700 에서 종목 셀 아래 보조 줄 「{HH:MM:SS} 돌파」를 세운다.
+ * <830 에서 기준가를 숨기고, <700 에서 종목 셀 아래 보조 줄 「{HH:MM:SS}」를 세우고 코드를 숨긴다.
  * 경계 수치는 globals.css §2.2b 정본이다.
  */
 const BreakoutTable = memo(function BreakoutTable({
@@ -525,7 +528,8 @@ const BreakoutTable = memo(function BreakoutTable({
                 )}
               >
                 <TableCell className={cn(td, 'max-w-[200px]')}>
-                  <span className="flex min-w-0 items-baseline gap-1">
+                  {/* 폰 밴드는 이름 폭을 7rem 으로 묶어 표가 좌우로 넘치지 않게 한다(말줄임 · 2026-09-23). */}
+                  <span className="flex max-w-[7rem] min-w-0 items-baseline gap-1 @min-[700px]/wb:max-w-none">
                     <span
                       data-slot="breakout-row-name"
                       data-unnamed={v.named ? undefined : 'true'}
@@ -538,7 +542,7 @@ const BreakoutTable = memo(function BreakoutTable({
                       {v.label}
                     </span>
                     {v.named && v.row.code && (
-                      <span data-slot="breakout-row-code" className="mono flex-none text-[11px] text-[var(--muted-fg)]">
+                      <span data-slot="breakout-row-code" className="mono hidden flex-none text-[11px] text-[var(--muted-fg)] @min-[700px]/wb:inline">
                         {v.row.code}
                       </span>
                     )}
@@ -556,7 +560,7 @@ const BreakoutTable = memo(function BreakoutTable({
                     data-slot="breakout-row-subline"
                     className="mono block truncate text-[10px] text-[var(--muted-fg)] @min-[700px]/wb:hidden"
                   >
-                    {v.clock} 돌파
+                    {v.clock}
                   </span>
                 </TableCell>
                 <TableCell className={cn(td, 'mono text-right', rateClass(v.rate))}>{NUM.format(v.price)}</TableCell>
@@ -590,7 +594,7 @@ const BreakoutTable = memo(function BreakoutTable({
                             : 'border-[var(--border)] bg-[var(--card)] text-[var(--fg)]',
                         )}
                       >
-                        거래 추가
+                        추가
                       </button>
                     )}
                     <button

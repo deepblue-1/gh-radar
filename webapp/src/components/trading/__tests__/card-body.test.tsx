@@ -367,8 +367,8 @@ describe('⑤ variant — 주문유형 콤보 (D-23)', () => {
 });
 
 describe('⑥ 더티 바 — body 포털 · 종목명 (D-28 · E15)', () => {
-  it('더티가 생기면 바가 `document.body` 에 포털되고 보조문에 종목명과 개수가 선다', () => {
-    const { container } = render(<Harness />);
+  it('더티가 생기면 바가 `document.body` 에 포털되고 보조문에 종목명과 개수가 선다(호가 탭 — 작업대 카드는 카드 하단 자리 · 종목명 없음)', () => {
+    const { container } = render(<Harness variant="orderbook" />);
     fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
 
     const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;

@@ -295,7 +295,7 @@ describe('BreakoutStrip — 클릭 → 카드 (D-07)', () => {
     openTable();
     fireEvent.click(rowEls()[0]!);
     expect(onAddCard).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: '거래 추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '추가' }));
     expect(onAddCard).toHaveBeenCalledTimes(2);
   });
 
@@ -321,8 +321,8 @@ describe('BreakoutStrip — 클릭 → 카드 (D-07)', () => {
     const [rowA, rowB] = rowEls();
     expect(rowA).toHaveAttribute('data-trading', 'true');
     expect(within(rowA!).getByText('거래중')).toBeInTheDocument();
-    expect(within(rowA!).queryByRole('button', { name: '거래 추가' })).toBeNull();
-    expect(within(rowB!).getByRole('button', { name: '거래 추가' })).toBeInTheDocument();
+    expect(within(rowA!).queryByRole('button', { name: '추가' })).toBeNull();
+    expect(within(rowB!).getByRole('button', { name: '추가' })).toBeInTheDocument();
   });
 });
 
@@ -526,8 +526,8 @@ describe('BreakoutStrip — E4 populated: 「신규」 는 색 + 배지 텍스�
     const [oldRow, newRow] = rowEls();
     expect(newRow!.className).toContain('bg-[var(--new-bg)]');
     expect(within(newRow!).getByText('신규')).toBeInTheDocument();
-    expect(within(newRow!).getByRole('button', { name: '거래 추가' }).className).toContain('bg-[var(--primary)]');
-    expect(within(oldRow!).getByRole('button', { name: '거래 추가' }).className).not.toContain('bg-[var(--primary)]');
+    expect(within(newRow!).getByRole('button', { name: '추가' }).className).toContain('bg-[var(--primary)]');
+    expect(within(oldRow!).getByRole('button', { name: '추가' }).className).not.toContain('bg-[var(--primary)]');
   });
 
   it('깜박임이 없다 — 강조 요소에 animate 클래스가 없다', () => {
@@ -563,7 +563,7 @@ describe('BreakoutStrip — E4 overflow (200행)', () => {
     expect(table.className).not.toMatch(/max-h-|overflow-y-/);
   });
 
-  it('폰 밴드 열 접기 구조가 있다 — 임계·돌파시각 <700 · 기준가 <830 숨김 + 보조줄 「{HH:MM:SS} 돌파」', () => {
+  it('폰 밴드 열 접기 구조가 있다 — 임계·돌파시각 <700 · 기준가 <830 숨김 + 보조줄 「{HH:MM:SS}」', () => {
     // 실제 잘림 0 은 컨테이너 쿼리라 jsdom 이 재지 못한다 — 18-13 Playwright 가 맡는다.
     setup({ items: [A] });
     openTable();
@@ -572,7 +572,7 @@ describe('BreakoutStrip — E4 overflow (200행)', () => {
     expect(th('at').className).toContain('hidden @min-[700px]/wb:table-cell');
     expect(th('base').className).toContain('hidden @min-[830px]/wb:table-cell');
     const sub = rowEls()[0]!.querySelector('[data-slot="breakout-row-subline"]')!;
-    expect(sub).toHaveTextContent('09:41:31 돌파');
+    expect(sub.textContent).toBe('09:41:31');
     expect(sub.className).toContain('@min-[700px]/wb:hidden');
     // 7열 헤더
     expect([...document.querySelectorAll('th')].map((t) => t.textContent)).toEqual([

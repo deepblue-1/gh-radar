@@ -92,6 +92,21 @@ export function buyOrderQtyFromAmount(amountManwon: number, price: number): numb
 }
 
 /**
+ * 「켜진 전략」 — 작업대가 기본으로 카드를 만들고 사이드바가 싣는 기준(2026-09-23 사용자 결정).
+ * 매수주문 스위치 · 매도주문 스위치 · 매수취소의 취소잔량 체크 중 하나라도 켜져 있어야 한다.
+ * 매수 그룹의 잔량/체결 조건 · 한방체결 · 취소의 체결/잔량추적 체크만 켜진 것은 **켜진 것이 아니다**
+ * (취소는 취소잔량이 꺼져 있으면 무장하지 않는다 — 아래 게이트 규칙과 같은 뜻).
+ * 에코의 `buyEnabled`/`sellEnabled` 는 무장 상태라 발주가 나가면 false 로 온다.
+ */
+export function isActiveStrategy(c: {
+  buyEnabled: boolean;
+  sellEnabled: boolean;
+  cancelQtyEnabled: boolean;
+}): boolean {
+  return c.buyEnabled || c.sellEnabled || c.cancelQtyEnabled;
+}
+
+/**
  * 전략 키 조립 — **유일 지점**. 서버 `LimitChaser::MakeKey` 와 동형.
  *
  * `isin`·`accountNo` 를 12자로 절단하는 것이 계약이다 — 서버가 `strncpy(..., 12)` 로 자르므로

@@ -52,7 +52,19 @@
  *      언급하는 순간 grep 게이트는 스스로 무효가 되기 때문이다.
  */
 
+import { createContext } from 'react';
+
 import { cn } from '@/lib/utils';
+
+/**
+ * 더티 바를 붙일 자리(2026-09-23 · 목업 B 「카드 하단 붙임」). 작업대 전략 카드가 카드 맨 아래 sticky
+ * 자리를 제공하면 폼은 바를 그 안에 그린다(`undefined` = 제공자 없음 → 종전처럼 화면 하단 고정 ·
+ * `null` = 자리가 아직 마운트 전 → 그리지 않음).
+ */
+export const DirtyBarHostContext = createContext<HTMLElement | null | undefined>(undefined);
+
+/** 카드 안 자리에 그릴 때 바의 모양 — 화면 고정을 풀고 카드 모서리를 따른다. */
+export const IN_CARD_DIRTY_BAR_CLASS = 'static z-auto';
 
 export interface DirtyActionBarProps {
   /** 미반영 필드 수. **0 이면 렌더하지 않는다.** */

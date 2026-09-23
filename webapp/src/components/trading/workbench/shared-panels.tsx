@@ -196,6 +196,18 @@ export function SharedPanels({
 
   const pinned = phoneBand === true;
   const panelHeight = usePanelHeight(pinned);
+  /*
+    폰 밴드에서 하단에 고정된 이 패널의 높이를 `--wb-bottom-inset` 으로 알린다 — 카드 하단 더티 바
+    (sticky)가 패널 밑에 묻히지 않고 그 위에 붙는다(2026-09-23 · 목업 B). 패널이 흐름 안이면 0.
+  */
+  const bottomInset = pinned ? panelHeight.value : 0;
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--wb-bottom-inset', `${bottomInset}px`);
+    return () => {
+      root.style.removeProperty('--wb-bottom-inset');
+    };
+  }, [bottomInset]);
 
   /*
     흐름 안(≥700 · 판정 전): `bottom`(폰 sticky 잔재 — 판정 전 첫 페인트) + `margin-bottom`(페이지

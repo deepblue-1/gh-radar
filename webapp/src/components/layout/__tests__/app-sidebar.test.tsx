@@ -480,22 +480,17 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     expect(screen.queryByText("등록된 전략 없음")).toBeNull();
   });
 
-  it("⑨ 매수·매도가 둘 다 OFF 인 전략은 싣지 않는다 — 취소만 켜져 있어도 (사용자 결정 2026-09-23)", () => {
-    const idle = makeChaser({
-      isin: "KR7446540000",
-      accountNo: "37728502101",
-      exchange: "KRX",
-      buyEnabled: false,
-      sellEnabled: false,
-      cancelQtyEnabled: true,
-    });
-    setupReady({ limitChasers: [CHASER_A, idle, CHASER_B] });
+  it("⑨ 켜진 전략만 싣는다 — 매수·매도 스위치 또는 취소잔량. 취소 체결·잔량추적·한방만 켜진 전략은 뺀다 (사용자 결정 2026-09-23 개정)", () => {
+    const base = { accountNo: "37728502101", exchange: "KRX" as const, buyEnabled: false, sellEnabled: false };
+    const cancelQty = makeChaser({ ...base, isin: "KR7446540000", cancelQtyEnabled: true });
+    const cancelTradeOnly = makeChaser({ ...base, isin: "KR7005930003", cancelQtyEnabled: false, cancelTradeEnabled: true, cancelQtyTrackEnabled: true, sweepEnabled: true });
+    setupReady({ limitChasers: [CHASER_A, cancelQty, cancelTradeOnly, CHASER_B] });
     render(<AppSidebar />);
 
     const keys = tradingSubLinks()
       .map((a) => a.getAttribute("data-strategy-key"))
       .filter((k) => k !== null);
-    expect(keys).toEqual([CHASER_A.key, CHASER_B.key]);
+    expect(keys).toEqual([CHASER_A.key, cancelQty.key, CHASER_B.key]);
   });
 
   it("⑨ 남는 전략이 없고 VI 도 꺼져 있으면 3단 목록 자체가 없다", () => {

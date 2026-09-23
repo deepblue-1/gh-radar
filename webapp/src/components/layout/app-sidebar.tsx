@@ -23,7 +23,7 @@ import {
 } from "@/components/trading/latch-led";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
-import { exchangeLabeledName } from "@/lib/limit-chaser";
+import { exchangeLabeledName, isActiveStrategy } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { requestTradingFocus } from "@/lib/trading-focus";
 import { cn } from "@/lib/utils";
@@ -365,12 +365,11 @@ export function AppSidebar() {
   // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
   const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
   /*
-    사이드바에는 **매수 또는 매도가 무장된** 전략만 싣는다 (사용자 결정 2026-09-23). 에코의
-    `buyEnabled`/`sellEnabled` 는 설정값이 아니라 무장 상태라 발주가 나가면 false 로 온다 — 서버는
-    그 전략을 지우지 않으므로(삭제는 crud "D"·장 마감 정리뿐) 둘 다 OFF 인 전략이 목록에 쌓였다.
-    취소만 켜져 있어도 숨긴다. 작업대 카드는 그대로 `limitChasers` 전체를 본다.
+    사이드바에는 **켜진 전략**(`isActiveStrategy` — 매수·매도 스위치 또는 취소잔량)만 싣는다
+    (사용자 결정 2026-09-23 개정 — 취소잔량만 켜진 전략도 싣는다). 서버는 무장이 풀린 전략을 지우지
+    않으므로(삭제는 crud "D"·장 마감 정리뿐) 거르지 않으면 꺼진 전략이 쌓인다. 작업대와 같은 기준이다.
   */
-  const sidebarChasers = limitChasers.filter((c) => c.buyEnabled || c.sellEnabled);
+  const sidebarChasers = limitChasers.filter(isActiveStrategy);
 
   return (
     <nav aria-label="주 메뉴" className="flex h-full flex-col justify-between">

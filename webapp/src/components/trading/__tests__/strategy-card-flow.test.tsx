@@ -352,7 +352,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     ).toBeInTheDocument();
   });
 
-  it('⑭b ★ 더티 액션 바가 카드(@container/lc) 밖 — body 직속에 렌더된다 (T-k2x-03)', () => {
+  it('⑭b ★ 더티 액션 바는 카드 맨 아래 sticky 자리에 붙고 화면 고정을 푼다 · 카드 테두리가 파래진다 (2026-09-23 · 목업 B — T-k2x-03 대체 · 화면 아래 붙임은 JS 핀 — main 스크롤 컨테이너라 CSS sticky 불가)', () => {
     setRelay({ limitChasers: [echo()] });
     render(<Card />);
     const card = document.querySelector('[data-slot="strategy-card"]') as HTMLElement;
@@ -363,8 +363,14 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
 
     const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
     expect(bar).not.toBeNull();
-    expect(card.contains(bar)).toBe(false);
-    expect(bar.parentElement).toBe(document.body);
+    expect(card.contains(bar)).toBe(true);
+    const host = bar.parentElement as HTMLElement;
+    expect(host.getAttribute('data-slot')).toBe('card-dirty-host');
+    expect(host.className).toContain('relative');
+    expect(host.parentElement).toBe(card); // 카드 본문(숨김 가능) 밖 — 접혀도 바가 보인다
+    expect(bar.className.split(/\s+/)).toContain('static');
+    expect(bar.className.split(/\s+/)).not.toContain('fixed');
+    expect(card.className).toContain('var(--primary)_55%');
   });
 });
 

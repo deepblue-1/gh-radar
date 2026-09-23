@@ -71,6 +71,7 @@ import type {
 
 import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice";
 import { CardHeader } from "@/components/trading/card/card-header";
+import { DirtyBarHostContext } from "@/components/trading/dirty-action-bar";
 import { CardTabs, type CardTabRequest } from "@/components/trading/card/card-tabs";
 import type { AccountRowOrigin } from "@/components/orderbook/account-panel";
 import {
@@ -641,6 +642,45 @@ function domSafe(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
+/**
+ * 카드 하단 더티 바를 화면 아래에 붙인다(목업 B 의 sticky 흉내 · 2026-09-23). 바 자리는 카드 마지막 자식이라
+ * 제자리 = 카드 끝이다. 카드 끝이 화면 아래(폰은 공용 패널 위 `--wb-bottom-inset`)보다 밑에 있고 카드 머리가
+ * 그 위에 보이는 동안만 그 차이만큼 위로 올린다(`translateY`) — 카드를 지나가면 제자리로 돌아가 함께 사라진다.
+ * 카드는 `overflow: clip` 이라 올린 바가 카드 밖으로 나가지 않는다.
+ */
+function usePinnedToViewportBottom(host: HTMLElement | null, active: boolean): void {
+  useEffect(() => {
+    if (host === null || !active) return;
+    const card = host.parentElement;
+    if (card === null) return;
+    let frame = 0;
+    const place = () => {
+      frame = 0;
+      const inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--wb-bottom-inset")) || 0;
+      const limit = window.innerHeight - inset;
+      const r = card.getBoundingClientRect();
+      const lift = r.bottom > limit && r.top + host.offsetHeight < limit ? limit - r.bottom : 0;
+      host.style.transform = lift === 0 ? "" : `translateY(${lift}px)`;
+    };
+    const schedule = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(place);
+    };
+    place();
+    window.addEventListener("scroll", schedule, { passive: true, capture: true });
+    window.addEventListener("resize", schedule);
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    ro?.observe(card);
+    ro?.observe(document.documentElement);
+    return () => {
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      ro?.disconnect();
+      host.style.transform = "";
+    };
+  }, [host, active]);
+}
+
 function StrategyCardImpl({
   cardId,
   isin,
@@ -665,6 +705,8 @@ function StrategyCardImpl({
   requestedTab,
 }: StrategyCardProps) {
   const card = useStrategyCardState({ isin, accountNo, exchange });
+  const [dirtyHost, setDirtyHost] = useState<HTMLDivElement | null>(null);
+  usePinnedToViewportBottom(dirtyHost, card.dirtyCount > 0);
   const { key, quote, ledServer, handleArm, dirtyCount, log } = card;
 
   /*
@@ -730,6 +772,8 @@ function StrategyCardImpl({
         "min-w-0 overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]",
         open &&
           "shadow-[inset_0_1px_0_var(--border-subtle),0_1px_2px_oklch(0_0_0/0.04),0_8px_24px_oklch(0_0_0/0.04)]",
+        // 미반영 값이 있으면 카드 테두리가 파랗다 — 바가 어느 카드 것인지 모양으로 말한다(목업 B).
+        card.dirtyCount > 0 && "border-[color-mix(in_oklch,var(--primary)_55%,var(--border))]",
       )}
     >
       <CardHeader
@@ -756,9 +800,10 @@ function StrategyCardImpl({
         ★ 접힌 카드는 헤더만 **보인다**(D-11) — 한 번 펼친 본문은 숨김으로 남아 더티 값·「결과 모름」
           잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다. 영역
           요소 자체는 늘 남겨 헤더 토글의 `aria-controls` 가 가리킬 곳을 잃지 않게 한다(`hidden`).
-        ★ 접힌 더티 카드의 더티 바(`document.body` 포털)가 계속 떠 있는 것은 **의도**다 — 미반영 값이
-          접기로 사라지지 않는다(D-12 · D-28).
+        ★ 더티 바는 카드 맨 아래 sticky 자리(`card-dirty-host`)에 붙는다(2026-09-23 · 목업 B). 접힌 더티
+          카드도 헤더 아래에 바가 남는 것은 **의도**다 — 미반영 값이 접기로 사라지지 않는다(D-12).
       */}
+      <DirtyBarHostContext.Provider value={dirtyHost}>
       <div id={bodyId} data-slot="strategy-card-body" hidden={!open}>
         {everOpened && (
           <>
@@ -780,6 +825,18 @@ function StrategyCardImpl({
           </>
         )}
       </div>
+      </DirtyBarHostContext.Provider>
+      {/*
+        카드 하단 더티 바 자리 — 카드가 화면보다 길면 카드가 보이는 동안 화면 아래(폰은 공용 패널 위 ·
+        `--wb-bottom-inset`)에 붙어 따라오고, 카드를 지나가면 함께 사라진다(`usePinnedToViewportBottom`).
+        ★ CSS sticky 를 쓰지 않는다 — 앱 셸 `main` 이 `overflow-auto` 스크롤 컨테이너(높이 무제한이라 스크롤은
+          창이 한다)라 sticky 가 영영 붙지 않는다(shared-panels ⑤-b 와 같은 함정). 비면 자리도 없다(`empty:hidden`).
+      */}
+      <div
+        ref={setDirtyHost}
+        data-slot="card-dirty-host"
+        className="relative z-10 empty:hidden"
+      />
     </article>
   );
 }

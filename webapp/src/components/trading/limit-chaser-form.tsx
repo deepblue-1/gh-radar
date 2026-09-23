@@ -96,6 +96,7 @@
 
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -122,7 +123,11 @@ import {
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
 import { cn } from '@/lib/utils';
-import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
+import {
+  DirtyActionBar,
+  DirtyBarHostContext,
+  IN_CARD_DIRTY_BAR_CLASS,
+} from '@/components/trading/dirty-action-bar';
 
 /**
  * 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다.
@@ -375,6 +380,7 @@ export function LimitChaserForm({
    * 마운트 뒤 한 번만 true 가 되고 다시 false 로 돌아가지 않는다.
    */
   const [mounted, setMounted] = useState(false);
+  const barHost = useContext(DirtyBarHostContext);
   useEffect(() => setMounted(true), []);
   const [submitting, setSubmitting] = useState(false);
   /**
@@ -879,14 +885,6 @@ export function LimitChaserForm({
             flash={flash.has('cancelWatchQty')}
           />
         </CheckRow>
-        <CheckRow
-          id="lc-cancel-trade"
-          label="체결"
-          checked={form.cancelTradeEnabled}
-          onCheckedChange={(v) => setField('cancelTradeEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('cancelTradeEnabled')}
-        />
         {/*
           ★ quick-260912-u58 ④ — ~~취소 잔량추적은 **취소잔량과 함께만** 동작한다 —
             미체크면 비활성(A9).~~ **UI-SPEC A9 의 결합을 사용자가 명시적으로 풀었다**
@@ -899,14 +897,27 @@ export function LimitChaserForm({
             두 문장이 함께 있어야 다음 사람이 「그럼 무장도 풀자」로 넘어가지 않는다 —
             섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 도는 상태가 된다.
         */}
-        <CheckRow
-          id="lc-cancel-qty-track"
-          label="잔량추적"
-          checked={form.cancelQtyTrackEnabled}
-          onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('cancelQtyTrackEnabled')}
-        />
+        {/* 체결 · 잔량추적은 입력 없는 체크 둘이라 한 줄에 둔다 — 매수 카드 세로 길이 절약(2026-09-23). */}
+        <div className="mt-[var(--s-1)] flex min-h-[38px] min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+          <CheckRow
+            id="lc-cancel-trade"
+            label="체결"
+            inline
+            checked={form.cancelTradeEnabled}
+            onCheckedChange={(v) => setField('cancelTradeEnabled', v)}
+            disabled={disabled}
+            dirty={dirtySet.has('cancelTradeEnabled')}
+          />
+          <CheckRow
+            id="lc-cancel-qty-track"
+            label="잔량추적"
+            inline
+            checked={form.cancelQtyTrackEnabled}
+            onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
+            disabled={disabled}
+            dirty={dirtySet.has('cancelQtyTrackEnabled')}
+          />
+        </div>
       </Group>
       <ArmBlockedPanel groups={buyReasons} />
     </Card>
@@ -1112,7 +1123,12 @@ export function LimitChaserForm({
         ★ 카드가 여럿이므로 바 문구에 종목명을 쓴다(`dirtyHint`, 18-10). 바가 어느 카드의 것인지
           말하는 유일한 채널이고, 시각·스크린리더 양쪽에서 그렇다.
       */}
+      {/*
+        ★ 2026-09-23 — 작업대 카드는 `DirtyBarHostContext` 로 카드 맨 아래 sticky 자리를 준다(목업 B).
+          그때 바는 그 자리로 포털하고 화면 고정을 푼다. 자리가 없으면(종목상세 호가 탭) 위 규율대로 body.
+      */}
       {mounted &&
+        barHost !== null &&
         createPortal(
           <DirtyActionBar
             dirtyCount={dirty.length}
@@ -1120,9 +1136,9 @@ export function LimitChaserForm({
             onSubmit={handleSubmit}
             onRevert={handleRevert}
             hint={dirtyHint ?? LIMIT_CHASER_DIRTY_HINT}
-            className={dirtyBarClassName}
+            className={barHost === undefined ? dirtyBarClassName : IN_CARD_DIRTY_BAR_CLASS}
           />,
-          document.body,
+          barHost ?? document.body,
         )}
     </div>
   );
@@ -1509,10 +1525,13 @@ function CheckRow({
   onCheckedChange,
   disabled,
   dirty = false,
+  inline = false,
   children,
 }: {
   id: string;
   label: string;
+  /** 한 줄에 여럿 두는 입력 없는 체크 — 격자·행 높이 없이 체크+라벨만(매수취소 체결·잔량추적). */
+  inline?: boolean;
   checked: boolean;
   onCheckedChange: (next: boolean) => void;
   disabled?: boolean;
@@ -1531,7 +1550,9 @@ function CheckRow({
     <div
       className={cn(
         // 행 최소 높이가 입력 높이(38px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
-        'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
+        inline
+          ? 'min-w-0'
+          : 'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
       )}
     >
       <span className="flex min-w-0 items-center gap-[3px] @min-[992px]/lc:gap-[var(--s-1)]">

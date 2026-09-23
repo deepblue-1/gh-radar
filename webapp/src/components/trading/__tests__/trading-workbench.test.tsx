@@ -170,6 +170,7 @@ import {
   restoreSavedCards,
   TradingWorkbench,
   withCardOpen,
+  pruneInactiveCards,
   type WorkbenchCard,
 } from '../workbench/trading-workbench';
 import { renderOrderOf } from '../workbench/card-grid';
@@ -1647,14 +1648,12 @@ describe('TradingWorkbench — GC-IN-05 — 계좌가 늦게 와도 사용자가
     const { rerender } = render(<TradingWorkbench />);
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
     fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
 
     mockRelay = relay({ accounts: [], limitChasers: [lc(S)] });
     rerender(<TradingWorkbench />);
     mockRelay = relay({ limitChasers: [lc(S)] });
     rerender(<TradingWorkbench />);
     expect(cardsInDom()).toHaveLength(1);
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
 
     const link = document.createElement('a');
     link.href = '/me';
@@ -1666,17 +1665,15 @@ describe('TradingWorkbench — GC-IN-05 — 계좌가 늦게 와도 사용자가
   });
 });
 
-describe('TradingWorkbench — GC-IN-01 — 공용 패널에 더티 카드 수를 내린다 (R1 IN-03)', () => {
-  it('더티가 있는 카드 수가 dirtyBarCount 로 내려간다 — 0 → 1 → 2', () => {
+describe('TradingWorkbench — 더티 바는 카드 하단(2026-09-23 · 목업 B) — 공용 패널은 화면 하단 바를 비켜 서지 않는다', () => {
+  it('더티 카드가 늘어도 dirtyBarCount 는 0 이다(비켜 설 화면 하단 바가 없다)', () => {
     mockRelay = relay({ rateCrossItems: [rc()] });
     render(<TradingWorkbench />);
     fireEvent.click(slot('breakout-chip')!);
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
     fireEvent.click(screen.getByRole('button', { name: '씨젠 더티' }));
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
     fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(2);
+    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
   });
 });
 
@@ -1710,7 +1707,6 @@ describe('TradingWorkbench — R3-IN-03 — 카드 정리는 커밋된 cards 에
     const { rerender } = render(<TradingWorkbench />);
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
     fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
     expect(leaveWarned()).toBe(true);
 
     // 한 렌더에 계좌와 등록 전략이 함께 들어온다(두 효과가 같은 배치에서 setCards 를 부른다).
@@ -1722,7 +1718,6 @@ describe('TradingWorkbench — R3-IN-03 — 카드 정리는 커밋된 cards 에
     expect(after).toHaveLength(1);
     expect(after[0].getAttribute('data-key')).toBe(`${S}:${ACCOUNT}:KRX`);
     expect(after[0].getAttribute('data-open')).toBe('true');
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
     expect(leaveWarned()).toBe(false);
   });
 
@@ -1732,7 +1727,6 @@ describe('TradingWorkbench — R3-IN-03 — 카드 정리는 커밋된 cards 에
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
     const userId = liveId();
     fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' })); // 더티 2
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(1);
 
     mockRelay = relay({ accounts: [], limitChasers: [lc(S)] });
     rerender(<TradingWorkbench />);
@@ -1740,7 +1734,6 @@ describe('TradingWorkbench — R3-IN-03 — 카드 정리는 커밋된 cards 에
     rerender(<TradingWorkbench />);
     expect(cardsInDom()).toHaveLength(1);
     expect(liveId()).not.toBe(userId);
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
     expect(leaveWarned()).toBe(false);
 
     // 등록 카드를 닫고(「카드 닫기」) 같은 키로 다시 만든다 → 새 id · 더티 0.
@@ -1752,7 +1745,6 @@ describe('TradingWorkbench — R3-IN-03 — 카드 정리는 커밋된 cards 에
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
     expect(cardsInDom()[0].getAttribute('data-key')).toBe(`${S}:${ACCOUNT}:KRX`);
     expect(liveId()).not.toBe(userId);
-    expect(sharedPanelsProps.last?.dirtyBarCount).toBe(0);
     expect(leaveWarned()).toBe(false);
   });
 
@@ -2353,5 +2345,49 @@ describe('TradingWorkbench — 거래소 전환: 등록 후 잠금 해제 (quick
     });
     expect(byKey()).toEqual({ [KRX]: 'false' });
     expect(propsOf(S)?.cardId).toBe(id);
+  });
+});
+
+describe('꺼진 전략 — 기본 카드 없음 · 복원 카드 걷기 (2026-09-23 사용자 결정)', () => {
+  const X = 'KR7086520004';
+  const Y = 'KR7247540008';
+  const card = (id: string, isin: string, open = false): WorkbenchCard => ({
+    id,
+    isin,
+    accountNo: ACCOUNT,
+    exchange: 'KRX',
+    open,
+  });
+
+  it('매수·매도·취소잔량이 모두 꺼진 등록 전략은 카드를 만들지 않는다(한방·취소 체결만 켜져도 마찬가지)', () => {
+    mockRelay = relay({
+      limitChasers: [
+        lc(X),
+        lc(Y, { buyEnabled: false, sweepEnabled: true, cancelTradeEnabled: true } as Partial<RelayLimitChaser>),
+      ],
+    });
+    render(<TradingWorkbench />);
+    expect(cardsInDom().map((c) => c.getAttribute('data-key'))).toEqual([`${X}:${ACCOUNT}:KRX`]);
+  });
+
+  it('취소잔량만 켜진 전략은 켜진 전략이다', () => {
+    mockRelay = relay({
+      limitChasers: [lc(Y, { buyEnabled: false, cancelQtyEnabled: true } as Partial<RelayLimitChaser>)],
+    });
+    render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(1);
+  });
+
+  it('pruneInactiveCards — 꺼진 등록 전략 카드만 뺀다 · 미등록 카드와 잠긴 카드는 남긴다 · 뺄 것이 없으면 참조 유지', () => {
+    const Z = 'KR7000660001';
+    const W = 'KR7005930003';
+    const chasers = [lc(X), lc(Y, { buyEnabled: false }), lc(W, { buyEnabled: false })];
+    const cards = [card('a', X), card('b', Y, true), card('c', Z), card('d', W)];
+    const locks = new Map([[`${W}:${ACCOUNT}:KRX`, 'result-unknown']]);
+    const { next, dropped } = pruneInactiveCards(cards, chasers, locks);
+    expect(next.map((c) => c.id)).toEqual(['a', 'c', 'd']);
+    expect(dropped).toEqual([`${Y}:${ACCOUNT}:KRX`]);
+    const same = [card('a', X)];
+    expect(pruneInactiveCards(same, chasers, new Map()).next).toBe(same);
   });
 });

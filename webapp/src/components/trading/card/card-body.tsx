@@ -268,7 +268,8 @@ export function CardBody({
       serverAnswerSeq={answerSeq}
       onSent={handleSent}
       onServerEcho={handleServerEcho}
-      dirtyHint={cardDirtyHint(displayName, dirtyCount)}
+      // 작업대 카드는 바가 카드 안에 붙어 종목명이 필요 없다(목업 B). 호가 탭은 화면 하단 바라 종목명을 쓴다.
+      dirtyHint={variant === 'orderbook' ? cardDirtyHint(displayName, dirtyCount) : LIMIT_CHASER_DIRTY_HINT}
       dirtyBarClassName={variant === 'orderbook' ? ORDERBOOK_DIRTY_BAR_CLASS : undefined}
       tab={optionsTab}
       hideTabs

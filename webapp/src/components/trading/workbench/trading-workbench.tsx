@@ -165,7 +165,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { useIsinLabels } from "@/lib/isin-labels";
-import { exchangeLabeledName, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
+import { exchangeLabeledName, isActiveStrategy, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
@@ -491,6 +491,29 @@ export function restoreSavedCards(
 }
 
 /**
+ * 꺼진 등록 전략 카드 걷기 (**순수 함수** · 2026-09-23 사용자 결정). 작업대에 들어온 뒤 등록 목록을 처음
+ * 확정으로 알 때 **한 번** 부른다 — 저장 배치로 되살아난 카드 중 등록 전략이 있는데 켜져 있지 않은
+ * (`isActiveStrategy` 거짓) 카드를 뺀다. 등록 전략이 없는 카드(사용자가 추가한 빈 카드)와 주문
+ * 잠금(진행 중 · 결과 모름)이 걸린 카드는 남긴다. 세션 도중 체결로 무장이 풀린 카드는 걷지 않는다.
+ */
+export function pruneInactiveCards(
+  cards: WorkbenchCard[],
+  chasers: readonly RelayLimitChaser[],
+  locks: ReadonlyMap<string, unknown>,
+): { next: WorkbenchCard[]; dropped: string[] } {
+  const inactive = new Set(chasers.filter((c) => !isActiveStrategy(c)).map((c) => c.key));
+  if (inactive.size === 0) return { next: cards, dropped: [] };
+  const dropped: string[] = [];
+  const next = cards.filter((c) => {
+    const key = keyOf(c);
+    if (!inactive.has(key) || locks.has(key)) return true;
+    dropped.push(key);
+    return false;
+  });
+  return dropped.length === 0 ? { next: cards, dropped } : { next, dropped };
+}
+
+/**
  * 「등록 전략 목록을 안다」 — 포커스 요청 보류를 버려도 되는가 (⑥ · WR-07 · 18-26 GC-IN-02).
  * **이번 연결에서 확정 64 스냅샷을 받았는가**(`limitChaserSnapSeq > 0`) 하나다 — 목록이 비어
  * 있는지는 보지 않는다.
@@ -606,8 +629,24 @@ function WorkbenchSurface() {
     }
     setLayoutRestored(true);
   }, [userId, nextCardId]);
+  /*
+    꺼진 등록 전략 카드 걷기 — 배치 복원 뒤 등록 목록을 확정으로 처음 알 때 **한 번**(`pruneInactiveCards`).
+    걷은 키는 seen 에서도 빼 그 전략이 다시 켜지면 새 카드로 뜨게 한다.
+  */
+  const inactivePruned = useRef(false);
   useEffect(() => {
-    const fresh = limitChasers.filter((c) => !seenKeys.current.has(c.key));
+    if (inactivePruned.current || !layoutRestored || !knowsRegistered(limitChaserSnapSeq)) return;
+    inactivePruned.current = true;
+    const locks = relay.orderLocks;
+    setCards((prev) => {
+      const { next, dropped } = pruneInactiveCards(prev, limitChasers, locks);
+      for (const k of dropped) seenKeys.current.delete(k); // 멱등 — StrictMode 이중 호출에도 같다
+      return next;
+    });
+  }, [layoutRestored, limitChaserSnapSeq, limitChasers, relay.orderLocks]);
+  useEffect(() => {
+    // 꺼진 전략은 기본 카드를 만들지 않는다(2026-09-23) — seen 에도 넣지 않아 나중에 켜지면 그때 카드가 뜬다.
+    const fresh = limitChasers.filter((c) => isActiveStrategy(c) && !seenKeys.current.has(c.key));
     for (const c of fresh) seenKeys.current.add(c.key);
 
     const f = pendingFocus.current;
@@ -1214,7 +1253,8 @@ function WorkbenchSurface() {
         logEntries={mergedLog}
         selectedOrderNo={liveSelected?.orderNo ?? null}
         onSelectUnfilled={selectUnfilled}
-        dirtyBarCount={dirtyCardCount}
+        // 더티 바가 카드 하단으로 옮겨(2026-09-23 · 목업 B) 공용 패널이 화면 하단 바를 비켜 설 일이 없다.
+        dirtyBarCount={0}
         priceOf={priceOf}
         phoneBand={phoneBand}
       />
