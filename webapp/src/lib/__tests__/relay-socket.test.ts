@@ -45,6 +45,7 @@ import type {
   RelayTape,
   RelayTapeEntry,
   RelayUnfilled,
+  RelayViOrderItem,
 } from '@gh-radar/shared';
 import { relayQuoteKey, useRelayConnection } from '../use-relay-socket';
 
@@ -1092,6 +1093,119 @@ describe('rate.cross 순서 — 최신 돌파가 맨 위 (사용자 결정 2026-
       });
     });
     expect(isinsOf(hook)).toEqual([B, C, A]);
+  });
+});
+
+describe('vi.list 순서 — 최신 발동이 맨 앞 (quick-260923-dmb)', () => {
+  // 축: deadline110Ms ↓ · 동률이면 주문번호 있는 행 먼저(주문번호 ↓) · 시각 모름(≤0)은 맨 뒤.
+  // 게이트웨이 72 는 생성 순(오래된 것 먼저)으로 오고 relay 는 그대로 팬아웃한다 — 정렬은
+  // 리듀서 `sortViOrdersNewestFirst` 한 곳이다.
+  const T = Date.UTC(2026, 8, 23, 0, 30, 0);
+  function viItem(over: Partial<RelayViOrderItem> = {}): RelayViOrderItem {
+    return {
+      isin: 'KR7096530001',
+      exchange: 'KRX',
+      market: 'Q',
+      accountNo: ACCOUNT_NO,
+      orderNo: '3407000071',
+      orderQty: 256,
+      orderPrice: 38_950,
+      triggerPrice: 38_550,
+      basePrice: 30_000,
+      viEndTime: '094331000',
+      deadline110Ms: T + 84_000,
+      deadline119Ms: T + 93_000,
+      confirmed: false,
+      confirmLocked: false,
+      state: 'Accepted',
+      filledQty: 0,
+      name: '씨젠',
+      ...over,
+    };
+  }
+  const A = viItem({ orderNo: '0000000001', isin: 'KR7005930003', deadline110Ms: T + 10_000 });
+  const B = viItem({ orderNo: '0000000002', isin: 'KR7000660001', deadline110Ms: T + 50_000 });
+  const C = viItem({ orderNo: '0000000003', isin: 'KR7035720002', deadline110Ms: T + 90_000 });
+
+  function orderNosOf(hook: ReturnType<typeof render>): string[] {
+    return hook.result.current.viOrders.map((i) => i.orderNo);
+  }
+
+  it('① 72 가 오래된 순으로 와도 최신 발동이 맨 앞이다 — frame.items 는 제자리에서 바뀌지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const items = [A, B, C];
+
+    await act(async () => {
+      ws.push({ t: 'vi.list', snap: true, items });
+    });
+    expect(orderNosOf(hook)).toEqual(['0000000003', '0000000002', '0000000001']);
+    // 입력 배열 불변(T-dmb-01) — 복사 후 정렬.
+    expect(items.map((i) => i.orderNo)).toEqual(['0000000001', '0000000002', '0000000003']);
+  });
+
+  it('② 73 신규(더 늦은 발동)는 맨 앞으로, 73 갱신(같은 deadline)은 자리를 지킨다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({ t: 'vi.list', snap: true, items: [A, B, C] });
+    });
+    const D = viItem({ orderNo: '0000000004', isin: 'KR7068270008', deadline110Ms: T + 100_000 });
+    await act(async () => {
+      ws.push({ t: 'vi.list', snap: false, items: [D] });
+    });
+    expect(orderNosOf(hook)).toEqual(['0000000004', '0000000003', '0000000002', '0000000001']);
+
+    // 가장 오래된 A 의 갱신 — 도착은 가장 늦지만 시각이 자리를 정한다.
+    await act(async () => {
+      ws.push({ t: 'vi.list', snap: false, items: [{ ...A, confirmed: true }] });
+    });
+    expect(orderNosOf(hook)).toEqual(['0000000004', '0000000003', '0000000002', '0000000001']);
+    expect(hook.result.current.viOrders[3]?.confirmed).toBe(true);
+  });
+
+  it('③ 접수 전 → 접수(주문번호 부여) 전이는 행 1개이고 끝으로 밀리지 않고 시각 순 자리에 있다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const P = viItem({
+      orderNo: '',
+      state: 'Pending',
+      isin: 'KR7086520004',
+      triggerPrice: 71_000,
+      deadline110Ms: T + 70_000,
+    });
+
+    await act(async () => {
+      ws.push({ t: 'vi.list', snap: true, items: [A, B, P, C] });
+    });
+    expect(orderNosOf(hook)).toEqual(['0000000003', '', '0000000002', '0000000001']);
+
+    await act(async () => {
+      ws.push({
+        t: 'vi.list',
+        snap: false,
+        items: [{ ...P, orderNo: '0000000009', state: 'Accepted' }],
+      });
+    });
+    expect(orderNosOf(hook)).toEqual(['0000000003', '0000000009', '0000000002', '0000000001']);
+    expect(hook.result.current.viOrders).toHaveLength(4);
+  });
+
+  it('④ 동률: 주문번호 있는 행 먼저(주문번호 ↓) · 접수 전은 그 뒤 · 시각 모름(≤0)은 맨 뒤', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const same = T + 60_000;
+    const lo = viItem({ orderNo: '0000000011', isin: 'KR7005930003', deadline110Ms: same });
+    const hi = viItem({ orderNo: '0000000012', isin: 'KR7000660001', deadline110Ms: same });
+    const pend = viItem({ orderNo: '', state: 'Pending', isin: 'KR7035720002', deadline110Ms: same });
+    const unknown = viItem({ orderNo: '0000000099', isin: 'KR7068270008', deadline110Ms: 0 });
+    const old = viItem({ orderNo: '0000000001', isin: 'KR7086520004', deadline110Ms: T + 1_000 });
+
+    await act(async () => {
+      ws.push({ t: 'vi.list', snap: true, items: [unknown, pend, lo, old, hi] });
+    });
+    expect(orderNosOf(hook)).toEqual(['0000000012', '0000000011', '', '0000000001', '0000000099']);
   });
 });
 

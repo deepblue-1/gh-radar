@@ -12,7 +12,7 @@ import type { RelayViOrderItem } from '@gh-radar/shared';
  *   ③ 확인 활성 판정은 기존 `isConfirmable` 하나다(주문번호 有 ∧ !confirm_locked)
  *   ④ 체크 즉시 잠기고 `vi.confirm` 1회 · 더티 바 없음
  *   ⑤ 미확인(`Accepted ∧ !confirmed`) 칩·행은 `--new-bg` + 텍스트로 말한다
- *   ⑥ relay 배열 순서를 그대로 쓴다(클라 재정렬 0회)
+ *   ⑥ 받은 배열 순서를 그대로 쓴다(정렬은 리듀서 한 곳 — 컴포넌트 재정렬 0회)
  *   ⑦ 110초 진행바는 바 + `{N}s` 숫자
  */
 
@@ -226,8 +226,8 @@ describe('E3 partial · 배지', () => {
   });
 });
 
-describe('E3 ordering — relay 배열 순서 그대로', () => {
-  it('KRX·NXT 가 섞이고 시각이 뒤집혀 있어도 표·칩은 받은 순서다(재정렬 0회)', () => {
+describe('E3 ordering — 받은 배열 순서 그대로(정렬은 리듀서 한 곳 — 컴포넌트 재정렬 0회)', () => {
+  it('KRX·NXT 가 섞이고 시각이 뒤집혀 있어도 표·칩은 받은 순서다(컴포넌트 재정렬 0회)', () => {
     const items = [
       item({ orderNo: 'A', name: '가', exchange: 'NXT', deadline110Ms: NOW + 10_000 }),
       item({ orderNo: 'B', name: '나', exchange: 'KRX', deadline110Ms: NOW + 90_000 }),

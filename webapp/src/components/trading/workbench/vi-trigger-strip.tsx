@@ -25,8 +25,10 @@
  * ③ `alert` 슬롯(VI 몫 서버 거부)은 펼침 여부와 무관하게 스트립 줄 바로 아래에 선다 — 안전
  *   신호가 접힌 패널 속에 숨지 않는다.
  *
- * ④ ★ 순서는 relay 가 준 배열 그대로다 — 이 파일에는 정렬도 역순도 없다. 「최신 위」는 서버
- *   병합기(72 스냅샷 / 73 델타)의 몫이고, 같은 시각 두 행의 상대 순서도 그대로 둔다.
+ * ④ ★ 순서는 받은 배열 그대로다 — 이 파일에는 정렬도 역순도 없다. 받은 배열이 **이미 최신순**
+ *   이다(최신 발동이 칩 맨 왼쪽 · 표 맨 위). 그 정렬은 `use-relay-socket` 리듀서의
+ *   `sortViOrdersNewestFirst` 한 곳(72 교체 · 73 병합 두 갈래)이 정한다(quick-260923-dmb).
+ *   여기서 다시 정렬하면 칩과 표가 두 규칙으로 갈릴 수 있다.
  *
  * ⑤ 「더보기/접기」 상태는 컴포넌트 로컬이다 — localStorage 키를 새로 만들지 않는다(D-15 는 4개뿐).
  *   73 스냅샷 전에도 빈 상태를 그린다 — 별도 fetch 가 없으므로 스피너·스켈레톤이 없다.
@@ -52,7 +54,7 @@ const NUM = new Intl.NumberFormat('ko-KR');
 export const VI_STRIP_EMPTY_TEXT = VI_ORDER_EMPTY_TEXT;
 
 export interface ViTriggerStripProps {
-  /** `viOrders` — 72/73 병합 결과. **받은 순서 그대로** 그린다(③). */
+  /** `viOrders` — 리듀서가 최신순으로 정렬한 배열. **받은 순서 그대로** 그린다(④). */
   items: readonly RelayViOrderItem[];
   /** 세션이 준비되지 않았다 — 표의 확인 체크를 열지 않는다. */
   disabled?: boolean;

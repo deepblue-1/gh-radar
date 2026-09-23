@@ -604,7 +604,8 @@ interface RowView {
  * ★ 확인 체크는 **네이티브 체크박스**다(UI-SPEC §접근성 — Space). 비활성은 `isConfirmable` 이 정하고
  *   (`row.locked`), 전송 중에도 잠근다(`row.pending`). 사유는 `title` 과 `aria-describedby` 두 길로
  *   말한다 — 마우스 없는 사용자에게 `title` 은 읽히지 않는다.
- * ★ 행 순서는 `rows` 그대로다 — relay 가 준 순서를 재정렬하지 않는다(「최신 위」는 서버 몫).
+ * ★ 행 순서는 `rows` 그대로다 — 최신순 정렬은 `use-relay-socket` 리듀서
+ *   (`sortViOrdersNewestFirst`)의 몫이고 여기서 재정렬하지 않는다(quick-260923-dmb).
  */
 function WorkbenchViTable({
   rows,

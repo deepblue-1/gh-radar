@@ -259,7 +259,15 @@ export interface RelayConnectionState {
    *    KRX 설정을 덮는다(17-05 가 스냅샷을 2프레임으로 넓히며 남긴 결함).
    */
   viTriggers: RelayViTriggers;
-  /** VI 주문 추적 목록 (72 스냅샷 / 73 델타 병합 결과). */
+  /**
+   * VI 주문 추적 목록 (72 스냅샷 / 73 델타 병합 결과).
+   *
+   * 정렬은 `deadline110Ms` **내림차순**(최신 발동이 맨 앞 — 사용자 결정 2026-09-23 ·
+   * quick-260923-dmb) · 동률이면 주문번호 있는 행 먼저(주문번호 ↓) · 시각 모름(≤0)은 맨 뒤 —
+   * 리듀서 `sortViOrdersNewestFirst` 한 곳이 72·73 두 갈래 모두에 건다. `deadline110Ms` 는
+   * 발동마다 고정이라 73 갱신은 자리를 지키고 새 발동만 맨 앞으로 들어온다. 표시 컴포넌트
+   * (VI 칩 줄 · 작업대 VI 표)는 이 순서를 그대로 쓰고 다시 정렬하지 않는다.
+   */
   viOrders: RelayViOrderItem[];
   /** VI 발동 통지 누적(최신 우선, 상한 50). */
   viNotices: RelayViNoticeMsg[];
@@ -571,9 +579,13 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     }
 
     case "vi.list":
+      // 72 교체 · 73 병합 **두 갈래 모두** 최신순 정렬을 지난다 — 정렬은 이 한 곳뿐이다
+      // (quick-260923-dmb). 72 의 원순서는 게이트웨이 생성 순(오래된 것 먼저)이다.
       return {
         ...state,
-        viOrders: frame.snap ? frame.items : mergeViOrders(state.viOrders, frame.items),
+        viOrders: sortViOrdersNewestFirst(
+          frame.snap ? frame.items : mergeViOrders(state.viOrders, frame.items),
+        ),
       };
 
     case "vi.notice":
@@ -689,7 +701,13 @@ function viPendingKey(item: RelayViOrderItem): string {
   return `@${item.isin}:${item.accountNo}:${item.triggerPrice}:${item.exchange}`;
 }
 
-/** 73 델타 병합 — 키 upsert. `snap` 은 호출부에서 전량 교체로 처리한다. */
+/**
+ * 73 델타 병합 — 키 upsert. `snap` 은 호출부에서 전량 교체로 처리한다.
+ *
+ * **자리는 신경 쓰지 않는다 — 순서는 호출부 정렬(`sortViOrdersNewestFirst`)이 정한다.**
+ * Map 은 새 키를 끝에 붙이고, 접수 전→접수 전이도 자리표시 키를 지운 뒤 다시 넣으므로
+ * 이 함수의 출력 순서에는 뜻이 없다.
+ */
 function mergeViOrders(
   prev: RelayViOrderItem[],
   incoming: RelayViOrderItem[],
@@ -703,6 +721,50 @@ function mergeViOrders(
     merged.set(key, item);
   }
   return [...merged.values()];
+}
+
+/**
+ * VI 주문 추적 목록 정렬 — **최신 발동이 맨 앞** (quick-260923-dmb · 사용자 결정 2026-09-23).
+ *
+ * 근본 원인: 최신순 정렬을 하는 층이 하나도 없었다.
+ *  (a) 게이트웨이 72 스냅샷은 `VIOrderWatch::Snapshot` 이 `m_items` 를 **생성 순**으로 담는다 —
+ *      오래된 것이 먼저다.
+ *  (b) relay `#onViOrderList` 는 72·73 을 **받은 그대로** 팬아웃하고, 캐시 Map 도 삽입 순이다.
+ *  (c) 여기 `mergeViOrders` 는 Map upsert 라 새 키(와 접수 전→접수 재삽입)가 **끝에** 붙는다.
+ *  결과 화면은 「오래된 것 먼저 + 새로 온 것은 끝」이었다.
+ *
+ * 왜 relay 가 아니라 여기인가: 73 은 **바뀐 행만** 싣고 오므로 전체 순서는 목록을 병합하는
+ * 쪽만 안다. 72 교체와 73 병합이 모두 리듀서 `case "vi.list"` 하나를 지나므로 그 한 곳에서
+ * 정렬한다. 돌파 목록의 `sortRateCross` 와 짝이다.
+ *
+ * 키 = `deadline110Ms`: 와이어에 수신 시각 필드가 없다. gh-trade 는 이 값을 발동(접수 전 생성)
+ * 시점에 VI 해제 예정시각에서 **한 번** 계산하고 미루지 않으므로(연장 시에도 그대로) 행마다
+ * 고정이다 → 73 갱신은 자리를 지킨다. 화면 시각 `acceptedClock` 도 같은 필드에서 역산하므로
+ * 정렬 결과와 사용자가 보는 시각이 어긋나지 않는다.
+ *
+ * 비교 규칙:
+ *  (1) `deadline110Ms` ↓. 0 이하는 「시각 모름」 — 시각을 아는 모든 행 뒤다(모르는 행을 맨 위에
+ *      두면 최신이라고 거짓말하게 된다).
+ *  (2) 동률이면 주문번호 있는 행 먼저 · 둘 다 있으면 주문번호 ↓(늦게 접수된 것 앞) · 접수 전
+ *      (주문번호 `""`) 행은 뒤 — (1)과 같은 「모르는 값은 최신이라 주장하지 않는다」 원칙.
+ *  (3) 그래도 같으면 `viOrderKey` ↓ — 병합 뒤 키는 유일하므로 전순서가 완성된다.
+ *  문자열 비교는 **코드 단위**(`<`/`>`)다 — `localeCompare` 금지(로케일 비의존).
+ *
+ * 입력 배열은 바꾸지 않는다(복사 후 정렬) — 72 `frame.items` 를 제자리에서 뒤집지 않는다.
+ */
+function sortViOrdersNewestFirst(list: readonly RelayViOrderItem[]): RelayViOrderItem[] {
+  const desc = (a: string, b: string): number => (a > b ? -1 : a < b ? 1 : 0);
+  return [...list].sort((a, b) => {
+    const aKnown = a.deadline110Ms > 0;
+    const bKnown = b.deadline110Ms > 0;
+    if (aKnown !== bKnown) return aKnown ? -1 : 1;
+    if (aKnown && a.deadline110Ms !== b.deadline110Ms) return b.deadline110Ms - a.deadline110Ms;
+    const aHasNo = a.orderNo !== "";
+    const bHasNo = b.orderNo !== "";
+    if (aHasNo !== bHasNo) return aHasNo ? -1 : 1;
+    if (aHasNo && a.orderNo !== b.orderNo) return desc(a.orderNo, b.orderNo);
+    return desc(viOrderKey(a), viOrderKey(b));
+  });
 }
 
 /**

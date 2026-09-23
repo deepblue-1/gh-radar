@@ -675,10 +675,11 @@ describe('RelayProvider — 전략 프레임 반영 (D-12)', () => {
       ws.push({
         t: 'vi.list',
         snap: false,
-        items: [viOrder({ orderNo: 'A2', state: 'Pending' })],
+        items: [viOrder({ orderNo: 'A2', state: 'Pending', deadline110Ms: 1_700_000_150_000 })],
       });
     });
-    expect(screen.getByTestId('vi-orders')).toHaveTextContent('Accepted,Pending');
+    // 두 행이 모두 남는다 — 순서는 최신 발동 먼저(A2 가 더 늦은 deadline · quick-260923-dmb 최신순)
+    expect(screen.getByTestId('vi-orders')).toHaveTextContent('Pending,Accepted');
   });
 
   it('⑥-d 접수 전(orderNo "") 행은 주문번호가 붙어도 두 줄로 남지 않는다', async () => {

@@ -465,6 +465,76 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(chips.nth(1)).toContainText('한국제7호기업인수목적우선주식회사');
   });
 
+  test('GC7 VI 발동 목록은 가장 최신 발동이 맨 앞(칩)·맨 위(표) — 73 신규는 맨 앞, 73 갱신은 자리 유지 (quick-260923-dmb)', async ({
+    page,
+  }) => {
+    /*
+      순서의 정본은 웹 리듀서 `sortViOrdersNewestFirst` 한 곳이다(72 교체 · 73 병합 두 갈래). 게이트웨이
+      72 는 생성 순(오래된 것 먼저)으로 오고 relay 는 받은 그대로 팬아웃한다 — 화면은 그 반대여야 한다.
+      정렬 키는 행마다 고정인 deadline110Ms 라 시각을 명시한다(픽스처 기본값은 한 프레임 안에서 동률).
+    */
+    relay.seedViTrigger(VI_CFG);
+    const t0 = Date.now();
+    const A = {
+      isin: E2E_ISIN,
+      accountNo: E2E_ACCOUNT_NO,
+      orderNo: '0032001',
+      state: 'Accepted',
+      triggerPrice: 41_250,
+      basePrice: 33_510,
+      deadline110Ms: BigInt(t0 + 50_000),
+      deadline119Ms: BigInt(t0 + 59_000),
+    } as const;
+    const B = {
+      isin: E2E_LONG_NAME_ISIN,
+      accountNo: E2E_ACCOUNT_NO,
+      orderNo: '0032002',
+      state: 'Accepted',
+      triggerPrice: 98_400,
+      basePrice: 80_000,
+      deadline110Ms: BigInt(t0 + 80_000),
+      deadline119Ms: BigInt(t0 + 89_000),
+    } as const;
+    // 오래된 순(게이트웨이 원순서)으로 시드한다.
+    relay.seedViOrders([A, B]);
+    await page.goto(WORKBENCH_URL);
+    await waitForReady(page);
+
+    const chips = page.locator('[data-slot="vi-chip"]');
+    await expect(chips).toHaveCount(2, { timeout: 15_000 });
+    await expect(chips.first()).toContainText('한국제7호기업인수목적우선주식회사');
+    await expect(chips.nth(1)).toContainText('삼성전자');
+
+    await openViTable(page);
+    const rows = viTable(page).locator('[data-slot="vi-order-row"]');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText('한국제7호기업인수목적우선주식회사');
+    await expect(rows.nth(1)).toContainText('삼성전자');
+
+    // 73 신규 — 가장 늦은 발동이라 첫 칩 · 표 첫 행으로 들어온다.
+    const C = {
+      isin: E2E_ISIN,
+      accountNo: E2E_ACCOUNT_NO,
+      orderNo: '0032003',
+      state: 'Accepted',
+      triggerPrice: 55_500,
+      basePrice: 45_000,
+      deadline110Ms: BigInt(t0 + 105_000),
+      deadline119Ms: BigInt(t0 + 114_000),
+    } as const;
+    await relay.pushViOrderList([C], false);
+    await expect(chips).toHaveCount(3, { timeout: 15_000 });
+    await expect(chips.first()).toContainText('55,500');
+    await expect(rows.first()).toContainText('55,500');
+
+    // 73 갱신(가장 오래된 A 의 확인) — 도착은 가장 늦지만 자리는 끝 그대로다.
+    await relay.pushViOrderList([{ ...A, confirmed: true }], false);
+    await expect(rows.last().locator('[data-slot="vi-confirm-check"]')).toBeChecked({ timeout: 15_000 });
+    await expect(chips.last()).toContainText('41,250');
+    await expect(rows.last()).toContainText('41,250');
+    await expect(chips.first()).toContainText('55,500');
+  });
+
   test('4. 카드 컨테이너 699/700 · 829/830 · 991/992 — 밴드가 경계에서 바뀌고 각 폭에서 잘림 0 (E6 overflow · §2.2b 이관)', async ({
     page,
   }) => {
