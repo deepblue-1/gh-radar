@@ -346,3 +346,76 @@ describe("LatchLed — 클릭 (D-20 · 확인 다이얼로그 없음)", () => {
     expect(onArm).not.toHaveBeenCalled();
   });
 });
+
+describe("LatchLed — 점 변형 (quick-260923-onn)", () => {
+  it("⑧-1 클릭 가능한 점은 button[data-variant=dot] · 보이는 텍스트 없이 sr-only 이름 · 누르면 onArm 1회", async () => {
+    const onArm = vi.fn();
+    render(
+      <LatchLed
+        kind="sell"
+        variant="dot"
+        server={chaser({ sellEnabled: true, sellEntryLatched: false })}
+        onArm={onArm}
+      />,
+    );
+    const el = ledEl("sell");
+    expect(el.tagName).toBe("BUTTON");
+    expect(el).toHaveAttribute("data-variant", "dot");
+    expect(el).toHaveAttribute("data-tone", "latent");
+    expect(el).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "매도 래치 대기" })).toBe(el);
+    // 보이는 텍스트는 sr-only 뿐이다 — 이름·라벨을 화면에 그리지 않는다.
+    const visible = Array.from(el.querySelectorAll("span")).filter(
+      (s) => !s.classList.contains("sr-only") && (s.textContent ?? "") !== "",
+    );
+    expect(visible).toHaveLength(0);
+    await userEvent.click(el);
+    expect(onArm).toHaveBeenCalledTimes(1);
+    expect(onArm).toHaveBeenCalledWith("sell");
+  });
+
+  it("⑧-2 클릭 불가 점(전략 없음 · 매도잔량 기준 매수)은 span 이고 눌러도 onArm 을 부르지 않는다", async () => {
+    const onArm = vi.fn();
+    const { unmount } = render(<LatchLed kind="cancel" variant="dot" server={null} onArm={onArm} />);
+    expect(ledEl("cancel").tagName).toBe("SPAN");
+    expect(ledEl("cancel")).toHaveAttribute("data-variant", "dot");
+    await userEvent.click(ledEl("cancel"));
+    unmount();
+
+    render(
+      <LatchLed
+        kind="buy"
+        variant="dot"
+        server={chaser({ buyEnabled: true, buyWatchSide: "0" })}
+        onArm={onArm}
+      />,
+    );
+    const buy = ledEl("buy");
+    expect(buy.tagName).toBe("SPAN");
+    expect(buy).not.toHaveAttribute("aria-pressed");
+    expect(screen.queryByRole("button")).toBeNull();
+    await userEvent.click(buy);
+    expect(onArm).not.toHaveBeenCalled();
+  });
+
+  it("⑧-3 점 툴팁은 「{이름} · {라벨}」 줄과 C# 원문을 함께 말한다", async () => {
+    render(
+      <LatchLed
+        kind="buy"
+        variant="dot"
+        server={chaser({ buyEnabled: true, buyWatchSide: "0" })}
+      />,
+    );
+    await userEvent.hover(ledEl("buy"));
+    const tip = await screen.findByRole("tooltip", {}, { timeout: 2000 });
+    expect(tip.textContent).toContain("매수 · 감시");
+    expect(tip.textContent).toContain(TIP_BUY_ASK_SIDE);
+  });
+
+  it("⑧-4 variant 를 넘기지 않은 칩은 종전 DOM 그대로다(data-variant 없음 · 라벨 텍스트)", () => {
+    render(<LatchLed kind="cancel" server={null} />);
+    const el = ledEl("cancel");
+    expect(el).not.toHaveAttribute("data-variant");
+    expect(el.textContent).toContain("OFF");
+  });
+});

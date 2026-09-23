@@ -256,6 +256,53 @@ describe('StrategyCard', () => {
     expect(toggle).toHaveAttribute('aria-controls', region.id);
   });
 
+  it('quick-260923-onn — 접힌 헤더 요약 칩은 이 카드 종목·거래소·계좌 슬라이스 숫자다', () => {
+    const row = (orderNo: string, isin: string, exchange: RelayExchange) => ({
+      orderNo,
+      orgOrderNo: '',
+      isin,
+      side: 'B' as const,
+      price: 1000,
+      orderQty: 10,
+      filledQty: 0,
+      unfilledQty: 10,
+      exchange,
+      orderTime: '090000',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
+    });
+    const value = relay({
+      accountStates: new Map([
+        [
+          ACCOUNT,
+          {
+            t: 'acct' as const,
+            a: ACCOUNT,
+            snap: true,
+            rm: [],
+            st: '',
+            unf: [row('1', ISIN_A, 'KRX'), row('2', ISIN_A, 'NXT'), row('3', ISIN_B, 'KRX')],
+            hold: [{ isin: ISIN_A, qty: 100, sellableQty: 100, avgPrice: 1000 }],
+          },
+        ],
+      ]),
+    });
+    render(
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} isin={ISIN_A} open={false} />
+        <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_B} open={false} />
+      </RelayContext.Provider>,
+    );
+    const a = cardOf(ISIN_A);
+    expect(a.querySelector('[data-slot="card-summary-unfilled"]')?.textContent).toBe('미체결 1');
+    expect(a.querySelector('[data-slot="card-summary-holding"]')?.textContent).toBe('잔고 100주');
+    const b = cardOf(ISIN_B);
+    expect(b.querySelector('[data-slot="card-summary-unfilled"]')?.textContent).toBe('미체결 1');
+    expect(b.querySelector('[data-slot="card-summary-holding"]')).toBeNull();
+  });
+
   it('WR-02 — 한 번 펼친 본문은 접어도 상태를 지킨다(숨김으로 남는다)', () => {
     function StatefulProbe() {
       const [value, setValue] = useState('');

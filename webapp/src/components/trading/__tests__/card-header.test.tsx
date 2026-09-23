@@ -235,3 +235,65 @@ describe('CardHeader', () => {
     for (const cls of [header().className, ...all]) expect(cls).not.toMatch(/(^|\s)(sm|md|lg|xl):/);
   });
 });
+
+describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)', () => {
+  const l2 = () => header().querySelector('[data-slot="card-header-l2"]') as HTMLElement;
+
+  it('접힘: l2 = 점 3개(매수·매도·취소) + 「미체결 N」 + 「잔고 N주」 + ⓘ·✕', () => {
+    renderHeader({
+      open: false,
+      ledServer: echo({ sellEnabled: true }),
+      unfilledCount: 2,
+      holdingQty: 1200,
+    });
+    const groups = l2().querySelectorAll('[data-slot="latch-led-dots"]');
+    expect(groups).toHaveLength(1);
+    const dots = Array.from(groups[0].querySelectorAll('[data-slot="latch-led"][data-variant="dot"]'));
+    expect(dots.map((d) => d.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel']);
+    expect(l2().querySelector('[data-slot="card-summary-unfilled"]')?.textContent).toBe('미체결 2');
+    expect(l2().querySelector('[data-slot="card-summary-holding"]')?.textContent).toBe('잔고 1,200주');
+    expect(screen.getByRole('button', { name: '종목정보' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '에코프로비엠 카드 닫기' })).toBeInTheDocument();
+  });
+
+  it('접힘: 미체결 0 · 보유 없음(null/0)이면 요약 칩을 그리지 않는다', () => {
+    const { view } = renderHeader({ open: false, unfilledCount: 0, holdingQty: null });
+    expect(header().querySelector('[data-slot="card-summary-unfilled"]')).toBeNull();
+    expect(header().querySelector('[data-slot="card-summary-holding"]')).toBeNull();
+    view.unmount();
+    renderHeader({ open: false, unfilledCount: 0, holdingQty: 0 });
+    expect(header().querySelector('[data-slot="card-summary-unfilled"]')).toBeNull();
+    expect(header().querySelector('[data-slot="card-summary-holding"]')).toBeNull();
+  });
+
+  it('접힘: 매도 점 클릭 → onArm("sell") 1회 · onToggle 미호출(전파 차단)', () => {
+    const { props } = renderHeader({ open: false, ledServer: echo({ sellEnabled: true }) });
+    fireEvent.click(header().querySelector('[data-slot="latch-led"][data-kind="sell"]') as HTMLElement);
+    expect(props.onArm).toHaveBeenCalledTimes(1);
+    expect(props.onArm).toHaveBeenCalledWith('sell');
+    expect(props.onToggle).not.toHaveBeenCalled();
+  });
+
+  it('펼침: 칩 3개 풀 라벨 그대로 · 점·요약 칩 없음', () => {
+    renderHeader({
+      open: true,
+      ledServer: echo({ sellEnabled: true, buyEnabled: false }),
+      unfilledCount: 2,
+      holdingQty: 1200,
+    });
+    expect(header().querySelectorAll('[data-variant="dot"]')).toHaveLength(0);
+    expect(header().querySelector('[data-slot="latch-led-dots"]')).toBeNull();
+    expect(header().querySelector('[data-slot="card-summary-unfilled"]')).toBeNull();
+    expect(header().querySelector('[data-slot="card-summary-holding"]')).toBeNull();
+    const leds = Array.from(header().querySelectorAll('[data-slot="latch-led"]'));
+    expect(leds).toHaveLength(3);
+    expect(leds[0].textContent).toContain('OFF');
+    expect(leds[1].textContent).toContain('대기');
+  });
+
+  it('접힘 헤더에도 뷰포트 브레이크포인트 클래스가 없다(D-28)', () => {
+    renderHeader({ open: false, ledServer: echo({ sellEnabled: true }), unfilledCount: 3, holdingQty: 10 });
+    const all = Array.from(header().querySelectorAll('*')).map((el) => el.getAttribute('class') ?? '');
+    for (const cls of [header().className, ...all]) expect(cls).not.toMatch(/(^|\s)(sm|md|lg|xl|2xl):/);
+  });
+});

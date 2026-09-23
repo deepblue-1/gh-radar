@@ -35,6 +35,9 @@
  *   `name`/`code` 로 내리고, 카드는 `memo` 라 문자열이 같으면 다시 그리지 않는다. 콜백 prop 은
  *   `cardId`(작업대 카드 정체성 · WR-05) 를 인자로 받으므로 부모가 카드마다 새 클로저를 만들 필요가
  *   없다.
+ *   계좌 상태 슬라이스(이 카드 종목·거래소의 미체결·잔고 · quick-260923-onn)는 이 컴포넌트가 1회
+ *   파생한다 — 카드는 이미 relay 컨텍스트 소비자라 재렌더 예산이 늘지 않는다(T-18-29). 접힌 헤더
+ *   요약 칩과 카드 탭이 같은 슬라이스를 읽는다(두 진실 금지).
  *
  * ⑤ 본문(좌 호가 | 우 옵션 4그룹)은 18-10 `card-body.tsx` 가 채운다
  *   여기서는 헤더 + 종목정보 10칸까지만 조립하고, 본문 자리는 `body` 렌더 prop 이다 — 카드
@@ -61,6 +64,7 @@ import type {
   RelayTapeEntry,
 } from "@gh-radar/shared";
 
+import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice";
 import { CardHeader } from "@/components/trading/card/card-header";
 import { QuoteGrid10 } from "@/components/trading/card/quote-grid-10";
 import {
@@ -627,6 +631,17 @@ function StrategyCardImpl({
   const card = useStrategyCardState({ isin, accountNo, exchange });
   const { key, server, quote, ledServer, handleArm, dirtyCount, log } = card;
 
+  /*
+    ④ 카드 계좌 슬라이스(quick-260923-onn) — 이 카드 계좌 상태를 이 종목·거래소로 1회 자른다.
+    접힌 헤더 요약 칩 숫자와 카드 탭(배지·본문)이 **같은 이 값**을 읽는다. 새 조회 경로 0(T-16-02).
+  */
+  const { accountStates } = useRelayContext();
+  const accountState = accountNo === "" ? null : (accountStates.get(accountNo) ?? null);
+  const slice = useMemo(
+    () => cardAccountSliceOf(accountState, isin, exchange),
+    [accountState, isin, exchange],
+  );
+
   useEffect(() => {
     onDirtyCountChange?.(cardId, dirtyCount);
   }, [onDirtyCountChange, cardId, dirtyCount]);
@@ -695,6 +710,8 @@ function StrategyCardImpl({
         controlsId={bodyId}
         onInfo={onInfo === undefined ? undefined : handleInfo}
         onClose={handleClose}
+        unfilledCount={slice.unfilled.length}
+        holdingQty={slice.holding?.qty ?? null}
       />
       {/*
         ★ 접힌 카드는 헤더만 **보인다**(D-11) — 한 번 펼친 본문은 숨김으로 남아 더티 값·「결과 모름」

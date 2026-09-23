@@ -29,6 +29,9 @@ import { cn } from "@/lib/utils";
  * ⚠️ **취소 무장에 `cancelQtyTrackEnabled` 를 넣지 않는다** (Pitfall 5). 잔량추적은 무장 축이
  *    아니라 계산 옵션이라, 넣는 순간 「취소 감시 중」이라는 거짓 초록이 뜬다.
  *
+ * 점 변형(`variant="dot"`)은 **접힌 카드 헤더 전용**이다(quick-260923-onn · 목업 ①A) — 칩과
+ * 같은 `latchLedStateOf` 판정 결과 하나를 읽고 모양만 바꾼다(판정 지점은 여전히 하나).
+ *
  * 이 파일의 표면 범위는 **컴포넌트와 판정 함수까지**다. 상따 상태줄 결선과 `lc.arm` 전송은
  * 17-11 이 맡는다 — `onArm` 은 그 결선 지점이다. 래치 3종의 표면은 LED 이고 배지
  * (`strategy-badge.tsx`)에 섞지 않는다 (D-23).
@@ -164,6 +167,11 @@ export interface LatchLedProps {
   server: LatchLedServer;
   /** 클릭 토글. 17-11 이 `lc.arm` 전송으로 잇는다. 클릭 불가 LED 는 절대 부르지 않는다. */
   onArm?: (kind: LatchLedKind) => void;
+  /**
+   * `'chip'`(기본) = 도트 + 이름 + 라벨 칩. `'dot'` = 접힌 카드 헤더용 점(24px 히트 · 10px 도트) —
+   * 보이는 텍스트가 없어서 sr-only 「{이름} 래치 {라벨}」과 **항상 뜨는 툴팁**이 이름·상태를 말한다.
+   */
+  variant?: "chip" | "dot";
   className?: string;
 }
 
@@ -179,9 +187,13 @@ export interface LatchLedProps {
  * 기준 매수 LED 는 **클릭은 못 하지만 툴팁은 떠야 한다** — `disabled` 버튼은 포인터
  * 이벤트를 받지 않아 「왜 안 눌리는지」를 말할 기회가 사라진다.
  */
-export function LatchLed({ kind, server, onArm, className }: LatchLedProps) {
+export function LatchLed({ kind, server, onArm, variant = "chip", className }: LatchLedProps) {
   const state = latchLedStateOf(kind, server);
   const name = LATCH_LED_NAMES[kind];
+
+  if (variant === "dot") {
+    return <LatchLedDot kind={kind} name={name} state={state} onArm={onArm} className={className} />;
+  }
 
   const chipBase = cn(
     "inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2 pl-1.5",
@@ -239,6 +251,88 @@ export function LatchLed({ kind, server, onArm, className }: LatchLedProps) {
         {/* 한국어 원문 툴팁은 길다 — 기본 `whitespace-nowrap` 을 풀지 않으면 `max-w-xs`
             안에서 한 줄로 삐져나간다. 잘린 툴팁을 남기지 않는다 (T-17-26). */}
         <TooltipContent className="max-w-xs whitespace-normal">{state.tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/**
+ * 점 변형 (quick-260923-onn · 목업 ①A) — 접힌 카드 헤더 2줄째에서 칩 3개 대신 쓴다.
+ *
+ * **판정은 호출부(`LatchLed`)가 넘긴 `latchLedStateOf` 결과 객체 하나다** — 색·클릭 가능·라벨·
+ * 툴팁을 여기서 다시 짓지 않는다(T-18-28). 클릭 불가는 칩과 같은 이유로 비상호작용 `<span>`
+ * 이다(탭 순서 제외 + 툴팁은 뜬다).
+ *
+ * 보이는 텍스트가 없으므로 ① 접근성 이름은 sr-only 「{이름} 래치 {라벨}」(WCAG 1.4.1 텍스트
+ * 경로) ② 툴팁은 **항상** 뜬다 — 첫 줄 「{이름} · {라벨}」, 있으면 둘째 줄에 C# 원문.
+ */
+function LatchLedDot({
+  kind,
+  name,
+  state,
+  onArm,
+  className,
+}: {
+  kind: LatchLedKind;
+  name: string;
+  state: LatchLedState;
+  onArm?: (kind: LatchLedKind) => void;
+  className?: string;
+}) {
+  const inner = (
+    <>
+      <span
+        aria-hidden="true"
+        className={cn("size-[10px] shrink-0 rounded-full", DOT_CLASS[state.tone])}
+      />
+      <span className="sr-only">
+        {name} 래치 {state.label}
+      </span>
+    </>
+  );
+
+  const base = cn(
+    "inline-flex size-6 flex-none items-center justify-center rounded-full",
+    className,
+  );
+
+  const dot = state.clickable ? (
+    <button
+      type="button"
+      data-slot="latch-led"
+      data-variant="dot"
+      data-kind={kind}
+      data-tone={state.tone}
+      aria-pressed={state.tone === "armed"}
+      onClick={() => onArm?.(kind)}
+      className={cn(base, "cursor-pointer hover:bg-[var(--muted)]")}
+    >
+      {inner}
+    </button>
+  ) : (
+    <span
+      data-slot="latch-led"
+      data-variant="dot"
+      data-kind={kind}
+      data-tone={state.tone}
+      className={base}
+    >
+      {inner}
+    </span>
+  );
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{dot}</TooltipTrigger>
+        <TooltipContent className="max-w-xs whitespace-normal">
+          <div>
+            <b>
+              {name} · {state.label}
+            </b>
+            {state.tooltip !== null && <p className="m-0 mt-1">{state.tooltip}</p>}
+          </div>
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

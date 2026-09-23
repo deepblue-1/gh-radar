@@ -6,6 +6,9 @@
  * ① 무엇을 그리는가 — 펼침·접힘 **공통**
  *   `l1` = 캐럿 ▶ · 종목명 · 코드 · KRX|NXT 세그먼트 · 우측 현재가+등락률
  *   `l2` = LED 3칩(매수 · 매도 · 취소) · ⓘ 종목정보 · ✕ 카드 제거
+ *   ★ 접힘 = 점 3개 + 요약 칩(「미체결 N」 · 「잔고 N주」) · 펼침 = 칩 3개 (quick-260923-onn ·
+ *     2026-09-23 목업 ①A). 접힌 카드에서 미체결·잔고 유무를 펼치지 않고 본다. 손익은 그리지
+ *     않는다. 점도 칩과 같은 `latchLedStateOf` 판정 하나를 읽는다(색·클릭·툴팁 재판정 0).
  *   ★ **매수/매도/한방 스위치는 헤더에 없다** (D-12). 스위치는 본문 각 그룹 제목줄 우측에
  *     산다. 접힌 카드의 무장 상태는 LED 가 말한다 — 헤더에 스위치까지 두면 같은 무장을 두
  *     표기가 서로 다르게 말하는 순간이 생긴다(Phase 17 D-22 와 같은 이유).
@@ -81,6 +84,10 @@ export interface CardHeaderProps {
   controlsId: string;
   onInfo?: () => void;
   onClose: () => void;
+  /** 이 카드 종목·거래소·계좌의 미체결 건수(접힌 헤더 요약 칩). 0 이면 칩을 그리지 않는다. */
+  unfilledCount?: number;
+  /** 이 카드 종목의 보유 수량(접힌 헤더 요약 칩). `null`/0 이면 칩을 그리지 않는다. */
+  holdingQty?: number | null;
 }
 
 /** 헤더 안 컨트롤의 클릭이 헤더 토글로 번지지 않게 한다(③). */
@@ -110,6 +117,8 @@ export function CardHeader({
   controlsId,
   onInfo,
   onClose,
+  unfilledCount = 0,
+  holdingQty = null,
 }: CardHeaderProps) {
   const toggle = (event: MouseEvent) => {
     event.stopPropagation();
@@ -248,11 +257,45 @@ export function CardHeader({
           `latchLedStateOf` 규칙표 **한 곳**이다(T-18-28) — 여기서 톤·라벨을 다시 짓지 않는다.
           ★ `onArm` 의 전송 가드(클릭 가능 여부 재확인)는 호출부(`strategy-card`)의 것이다.
         */}
-        <span onClick={stop} className="flex flex-wrap gap-1.5">
-          {LED_KINDS.map((kind) => (
-            <LatchLed key={kind} kind={kind} server={ledServer} onArm={onArm} />
-          ))}
-        </span>
+        {open ? (
+          <span onClick={stop} className="flex flex-wrap gap-1.5">
+            {LED_KINDS.map((kind) => (
+              <LatchLed key={kind} kind={kind} server={ledServer} onArm={onArm} />
+            ))}
+          </span>
+        ) : (
+          <>
+            {/*
+              접힘 — LED 는 점 3개(목업 ①A `.dots`). 순서·판정·전파 차단은 칩과 같다. 요약 칩은
+              컨트롤이 아니다 — 누르면 헤더 토글(펼침)이 되는 것이 맞아 전파를 막지 않는다.
+            */}
+            <span
+              onClick={stop}
+              data-slot="latch-led-dots"
+              className="inline-flex h-6 flex-none items-center gap-0.5 rounded-full border border-[var(--border)] px-0.5"
+            >
+              {LED_KINDS.map((kind) => (
+                <LatchLed key={kind} kind={kind} server={ledServer} onArm={onArm} variant="dot" />
+              ))}
+            </span>
+            {unfilledCount > 0 && (
+              <span
+                data-slot="card-summary-unfilled"
+                className="inline-flex h-[22px] flex-none items-center gap-1 rounded-full border border-[color-mix(in_oklch,var(--primary)_40%,transparent)] bg-[var(--accent)] px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--accent-fg)]"
+              >
+                미체결 <span className="mono">{KRW.format(unfilledCount)}</span>
+              </span>
+            )}
+            {holdingQty !== null && holdingQty > 0 && (
+              <span
+                data-slot="card-summary-holding"
+                className="inline-flex h-[22px] flex-none items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
+              >
+                잔고 <span className="mono">{KRW.format(holdingQty)}주</span>
+              </span>
+            )}
+          </>
+        )}
         <span className="ml-auto flex flex-none items-center gap-1">
           {/*
             ⓘ — 코드가 없으면 비활성이다(D-30). 종목정보 팝업은 단축코드로 여는데, relay
