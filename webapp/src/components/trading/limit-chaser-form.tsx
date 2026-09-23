@@ -684,7 +684,6 @@ export function LimitChaserForm({
         tone="buy"
         title="매수주문"
         status={buyStatusText}
-        led={form.buyEnabled ? 'on' : 'off'}
         hint="비교가격의 감시잔량이 위 값 이하로 줄면 매수 발주"
         switchProps={{
           label: '매수주문 켜기',
@@ -860,7 +859,6 @@ export function LimitChaserForm({
         tone="sell"
         title="매도주문"
         status={sellStatusText}
-        led={form.sellEnabled ? 'watch' : 'off'}
         switchProps={{
           label: '매도주문 켜기',
           checked: form.sellEnabled,
@@ -1150,16 +1148,19 @@ export function LimitChaserForm({
  *
  * ## 방향색 틴트 (quick-260912-mvo Q-06, 사용자 채택 C안)
  * ⓐ **모든 밴드에서** 칠한다. 처음엔 2열부터만(`@min-[700px]/lc:`) 칠했지만 — 폰은 탭이 방향을
- *    말한다는 이유 — 사용자가 탭 화면도 펼친 화면처럼 색을 원했다(2026-09-23).
+ *    말한다는 이유 — 사용자가 탭 화면도 펼친 화면처럼 색을 원했다(2026-09-23, 목업 승인).
+ *    폰은 **탭 아래 영역을 옵션 pane 가장자리까지 채운다** — 배경과 같은 색의 `box-shadow`
+ *    spread 8px(= pane 의 `p-2`)로 그린다. 음수 마진(`-mx-2`)으로 하면 pane 과 카드 사이 래퍼들의
+ *    `scrollWidth` 가 8px 늘어 e2e 잘림 검사(test 4)에 걸리고, 안쪽 여백을 넣으면 폰 카드(342px)에서
+ *    입력·세그먼트가 8px 넘친다(test 5 실측). 그림자는 잉크 오버플로라 레이아웃·scrollWidth 에 없다.
+ *    2열부터는 그림자 없이 pane 여백 안에 둥근 모서리(`--r-md`) + 8px 여백, 데스크톱은 카드 테두리.
  * ⓑ 배경 선언은 **한 줄뿐**이어야 한다(방향 카드는 틴트 한 줄, 그 밖은 `bg-[var(--card-base)]` 한 줄). 예전에는 `@min-[992px]/lc:bg-[var(--card)]` 가 있어
  *    ≥992 에서 두 배경이 캐스케이드로 다퉜다(어느 쪽이 이기는지 클래스 문자열 순서로
  *    정해지지 않는다). 그래서 카드색을 **변수 스위치**(`--card-base`)로 바꿨다 —
  *    기본 `transparent`, ≥992 에서 `var(--card)`. 틴트는 그 위에 5% 를 섞는다.
  *    결과: 폰/컴팩트/와이드 = 투명 위 5% · 데스크톱 = `--card` 위 5%.
  *    **배경만** 틴트가 되고 테두리는 `--border` 그대로라 더티 테두리(`--primary`)와 다투지 않는다.
- * ⓒ 가로 패딩은 **2열부터만**(`@min-[700px]/lc:px-2`)이다. 폰 카드(342px)에서 8px×2 를 넣으니 입력·
- *    감시잔량 세그먼트가 최대 8px 넘쳤다(e2e test 5 실측, 2026-09-23) — 폰은 배경만 칠하고 여백은 0.
- *    2열에서 가로 패딩 8px×2 가 카드 **안쪽 폼 폭을 16px 줄인다.** 본문 700px 경계의 잘림 여유를
+ * ⓒ 2열부터 가로 패딩 8px×2 가 카드 **안쪽 폼 폭을 16px 줄인다**(폰은 ⓐ 의 bleed 라 0). 본문 700px 경계의 잘림 여유를
  *    그만큼 갉아먹는다 — jsdom 에 레이아웃이 없어 유닛으로 증명할 수 없다(WINDOWS 등재).
  * ⓓ 5% 는 목업(`260912-buysell-ladder.html` `.vC .fcard`)에서 검증된 값이다. **올리지 마라** —
  *    그 위에 흰 입력칸이 얹힌다. 그리고 색은 유일 채널이 아니다: 그룹 제목(「매수주문」/
@@ -1181,10 +1182,12 @@ function Card({
         '@min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
         // 배경 선언은 요소당 **하나뿐**이다(ⓑ) — 방향 카드는 틴트가, 그 밖은 카드색이 그 한 줄이다.
         side === undefined && 'bg-[var(--card-base)]',
+        side !== undefined &&
+          'py-1.5 @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2 @min-[700px]/lc:shadow-none',
         side === 'buy' &&
-          'rounded-[var(--r-md)] bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] py-1.5 @min-[700px]/lc:px-2',
+          'bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] shadow-[0_0_0_8px_color-mix(in_oklch,var(--up)_5%,var(--card-base))]',
         side === 'sell' &&
-          'rounded-[var(--r-md)] bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))] py-1.5 @min-[700px]/lc:px-2',
+          'bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))] shadow-[0_0_0_8px_color-mix(in_oklch,var(--down)_5%,var(--card-base))]',
       )}
     >
       {children}
@@ -1234,7 +1237,7 @@ interface GroupSwitchProps {
 }
 
 /**
- * `.grp` — 헤더(LED · 제목 · 상태문구 · 우측 끝 스위치) + 행들.
+ * `.grp` — 헤더(게이트 체크박스 · 제목 · 상태문구) + 행들.
  *
  * ★ 좌측 3px 세로 액센트 바는 260911-w5h 에서 사라졌다. 매수/매도 축을 카드 안에서 잇는
  *   일은 이제 **상단 세그먼트 탭**(선택 시 매수 `--up` / 매도 `--down`) + **게이트 스위치
@@ -1245,7 +1248,6 @@ function Group({
   tone,
   title,
   status,
-  led,
   hint,
   switchProps,
   children,
@@ -1265,14 +1267,13 @@ function Group({
       0 이 됐다(편집 후 재확인: 호출부 0건). 쓰는 곳이 없는 표현 장치를 남겨 두면 다음
       사람이 「자리가 있으니 채우자」로 다시 건다.
   */
-  led?: 'on' | 'off' | 'watch';
   /** 그룹 전체 툴팁(`<section title>`). **화면에는 렌더하지 않는다** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
   hint?: string;
   switchProps?: GroupSwitchProps;
   children: ReactNode;
 }) {
   // 헤더 줄에 보여 줄 것이 하나라도 있어야 줄을 만든다 — 없으면 빈 24px 줄만 남는다.
-  const hasHeader = title != null || status != null || led != null || switchProps != null;
+  const hasHeader = title != null || status != null || switchProps != null;
   return (
     <section
       data-slot={`lc-group-${slot}`}
@@ -1281,18 +1282,12 @@ function Group({
     >
       {hasHeader ? (
       <div className="flex min-h-6 min-w-0 items-center gap-[var(--s-2)]">
-        {led != null ? (
-          <span
-            aria-hidden="true"
-            className={cn(
-              'size-2 flex-none rounded-full',
-              led === 'on' && 'bg-[var(--up)] shadow-[0_0_0_3px_color-mix(in_oklch,var(--up)_25%,transparent)]',
-              led === 'watch' &&
-                'bg-[var(--down)] shadow-[0_0_0_3px_color-mix(in_oklch,var(--down)_25%,transparent)]',
-              led === 'off' && 'border-[1.5px] border-[var(--muted-fg)] bg-transparent opacity-60',
-            )}
-          />
-        ) : null}
+        {/*
+          ★ 게이트 체크박스는 제목 **왼쪽**이다(2026-09-23 목업 승인) — 아래 `CheckRow` 의 체크박스와
+            같은 x 에 선다. 옛 상태 점(LED)은 뺐다: 체크 여부와 상태문구(「감시 중」/「꺼짐」)가 이미
+            같은 말을 해서 셋이 겹쳤다.
+        */}
+        {switchProps != null ? <GateSwitch tone={tone} {...switchProps} /> : null}
         <span className="min-w-0 flex-1 leading-normal">
           {title ? (
             <span className="text-[13px] font-semibold tracking-[0.06em] text-[var(--muted-fg)]">
@@ -1301,11 +1296,6 @@ function Group({
           ) : null}
           {status ? <span className="ml-1 text-[11px] text-[var(--muted-fg)]">{status}</span> : null}
         </span>
-        {/*
-          ★ 스위치는 그룹 헤더 **우측 끝 고정**(`ml-auto`)이다 — 크기(44×26)·간격(gap 8px)과
-            함께 이 화면의 유일한 오터치 방어다(파일 상단 ② 3).
-        */}
-        {switchProps != null ? <GateSwitch tone={tone} {...switchProps} /> : null}
       </div>
       ) : null}
       {children}
@@ -1318,8 +1308,7 @@ function Group({
  *
  * 옛 44×26 토글 스위치를 사용자 요청(2026-09-23)으로 폼의 다른 체크박스(`CheckRow`)와 같은
  * 네이티브 체크박스로 통일했다. 색은 방향(`tone`)을 따른다 — 매수 `--up` · 매도 `--down`.
- * 헤더 **우측 끝 고정**(`ml-auto`)은 그대로다(오터치 방어 — 파일 상단 ② 3). 크기도 다른 체크박스와
- * 같은 17px 이다.
+ * 자리는 그룹 제목 **왼쪽**(`Group` 헤더 주석), 크기는 다른 체크박스와 같은 17px 이다.
  */
 function GateSwitch({
   tone,
@@ -1336,7 +1325,7 @@ function GateSwitch({
       checked={checked}
       disabled={disabled}
       onChange={(e) => onChange(e.target.checked)}
-      className="ml-auto size-[17px] flex-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+      className="size-[17px] flex-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
       style={{ accentColor: on }}
     />
   );

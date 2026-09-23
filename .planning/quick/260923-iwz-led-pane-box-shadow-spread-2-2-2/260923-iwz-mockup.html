@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ko" data-theme="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>상따 폼 — 체크박스 왼쪽 정렬 · 방향색 배경 · 수동주문 2×2 목업</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #FFFFFF;
+  --fg: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-fg: oklch(0.50 0 0);
+  --border: oklch(0.92 0 0);
+  --border-subtle: oklch(0.18 0 0 / 0.06);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.63 0.18 250);
+  --card: #FFFFFF;
+  --card-fg: oklch(0.18 0 0);
+  --popover: #FFFFFF;
+  --popover-fg: oklch(0.18 0 0);
+  --primary: oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+  --secondary: oklch(0.96 0 0);
+  --secondary-fg: oklch(0.18 0 0);
+  --accent: oklch(0.95 0.03 250);
+  --accent-fg: oklch(0.35 0.12 250);
+  --destructive: oklch(0.66 0.20 22);
+  --destructive-fg: #FFFFFF;
+  --up: oklch(0.66 0.20 22);
+  --down: oklch(0.63 0.18 250);
+  --flat: oklch(0.55 0 0);
+  --up-bg: oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+
+  /* 상따 래치 LED (Phase 17 · D-21) — 「무장 단계」 축이다. 주황 `--led-latent` = 잠복
+     (무장돼 있으나 진입 확인 래치가 아직 서지 않아 발주 판정을 시작하지 않음), 초록
+     `--led-armed` = 래치 ON(판정 중). 회색 단계는 새 토큰을 만들지 않고 기존
+     `--flat`(도트) · `--muted-fg`(라벨)을 쓴다. */
+  --led-latent: oklch(0.74 0.17 62);
+  --led-armed: oklch(0.68 0.19 150);
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+  --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px;
+
+  --t-caption: 12px; --t-sm: 14px; --t-base: 16px; --t-lg: 18px;
+  --t-h4: 18px; --t-h3: 20px; --t-h2: 24px; --t-h1: 30px;
+  --lh-tight: 1.2; --lh-normal: 1.5;
+
+  --row-h: 36px; --cell-pad-x: 12px; --cell-pad-y: 8px;
+
+  --font-sans: var(--font-sans-loaded, 'Pretendard Variable'), 'Pretendard Variable',
+               Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+               system-ui, sans-serif;
+  --font-mono: var(--font-mono-loaded, 'Geist Mono'), 'Geist Mono',
+               ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card-foreground: var(--card-fg);
+  --popover-foreground: var(--popover-fg);
+  --primary-foreground: var(--primary-fg);
+  --secondary-foreground: var(--secondary-fg);
+  --muted-foreground: var(--muted-fg);
+  --accent-foreground: var(--accent-fg);
+  --destructive-foreground: var(--destructive-fg);
+
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ★ 이 목업 전용 신규 제안 토큰 — 돌파 목록 「신규 도착」 행의 연노랑. 채택 시 globals.css 로 승격. */
+  --new-bg: oklch(0.97 0.08 95);
+  --new-bd: oklch(0.86 0.14 92);
+  --ctl-h: 60px;
+}
+
+/* 다크 — globals.css `.dark` 블록 그대로. 수동 토글(html[data-theme="dark"]) 경로. */
+.dark, :root[data-theme="dark"] {
+  --bg: oklch(0.08 0 0);
+  --fg: oklch(0.96 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-fg: oklch(0.65 0 0);
+  --border: oklch(0.24 0 0);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.72 0.16 250);
+  --card: oklch(0.12 0 0);
+  --card-fg: oklch(0.96 0 0);
+  --popover: oklch(0.14 0 0);
+  --popover-fg: oklch(0.96 0 0);
+  --primary: oklch(0.72 0.16 250);
+  --primary-fg: oklch(0.10 0 0);
+  --secondary: oklch(0.18 0 0);
+  --secondary-fg: oklch(0.96 0 0);
+  --accent: oklch(0.22 0.05 250);
+  --accent-fg: oklch(0.85 0.10 250);
+  --destructive: oklch(0.72 0.19 22);
+  --destructive-fg: oklch(0.10 0 0);
+  --up: oklch(0.72 0.19 22);
+  --down: oklch(0.72 0.16 250);
+  --flat: oklch(0.65 0 0);
+  --up-bg: oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+  --led-latent: oklch(0.80 0.16 70);
+  --led-armed: oklch(0.76 0.18 150);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+  --new-bg: oklch(0.28 0.06 95);
+  --new-bd: oklch(0.45 0.10 92);
+}
+/* 다크 — 시스템 설정 경로. 수동으로 라이트를 고정하지 않았을 때만 따른다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.08 0 0);
+    --fg: oklch(0.96 0 0);
+    --muted: oklch(0.18 0 0);
+    --muted-fg: oklch(0.65 0 0);
+    --border: oklch(0.24 0 0);
+    --border-subtle: oklch(1 0 0 / 0.06);
+    --input: oklch(0.24 0 0);
+    --ring: oklch(0.72 0.16 250);
+    --card: oklch(0.12 0 0);
+    --card-fg: oklch(0.96 0 0);
+    --popover: oklch(0.14 0 0);
+    --popover-fg: oklch(0.96 0 0);
+    --primary: oklch(0.72 0.16 250);
+    --primary-fg: oklch(0.10 0 0);
+    --secondary: oklch(0.18 0 0);
+    --secondary-fg: oklch(0.96 0 0);
+    --accent: oklch(0.22 0.05 250);
+    --accent-fg: oklch(0.85 0.10 250);
+    --destructive: oklch(0.72 0.19 22);
+    --destructive-fg: oklch(0.10 0 0);
+    --up: oklch(0.72 0.19 22);
+    --down: oklch(0.72 0.16 250);
+    --flat: oklch(0.65 0 0);
+    --up-bg: oklch(0.22 0.06 22);
+    --down-bg: oklch(0.22 0.05 250);
+    --led-latent: oklch(0.80 0.16 70);
+    --led-armed: oklch(0.76 0.18 150);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.488 0.243 264.376);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+    --new-bg: oklch(0.28 0.06 95);
+    --new-bd: oklch(0.45 0.10 92);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   베이스라인 (globals.css §2.3 / §8.5.2 / §2.2)
+   ═══════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+
+
+/* ── 목업 셸 ── */
+.shell { padding: 16px; display: flex; flex-direction: column; gap: 12px; background: var(--muted); min-height: 100vh; }
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--muted-fg); }
+.ctl button { height: 28px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--border); background: var(--card); font-size: 12px; font-weight: 600; }
+.ctl button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--primary); }
+.frames { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.frame { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; flex: none; }
+.frame > .cap { font-size: 11px; font-weight: 700; color: var(--muted-fg); padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--card); }
+.note { font-size: 12px; color: var(--muted-fg); max-width: 1000px; line-height: 1.6; }
+.note b { color: var(--fg); }
+
+/* ── 옵션 pane (card-body-options: p-2 / ≥700 p-2.5) ── */
+.pane { padding: 8px; background: var(--card); }
+.pane.w { padding: 10px; }
+/* 3탭 (매수 | 매도 | 수동) — 카드 본문이 그리는 줄 */
+.tabs { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px; margin-bottom: 8px; }
+.tabs button { height: 36px; border-radius: var(--r); border: 1px solid var(--border); background: transparent; color: var(--muted-fg); font-size: 14px; font-weight: 600; }
+.tabs button.on-buy { border-color: var(--up); background: var(--up-bg); color: var(--up); }
+.tabs button.on-sell { border-color: var(--down); background: var(--down-bg); color: var(--down); }
+.tabs button.on-manual { border-color: var(--fg); background: var(--muted); color: var(--fg); }
+/* 넓은 폭: 「수동주문」 팝오버 버튼 한 개(우측 끝) */
+.manualbtn { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.manualbtn button { height: 26px; padding: 0 8px; border-radius: var(--r); border: 1px solid var(--border); background: var(--card); font-size: 12px; font-weight: 600; }
+
+/* ── 방향색 카드 ── */
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.two.w { gap: 16px; }
+.card { --lw: 76px; --card-base: transparent; min-width: 0; padding: 8px; border-radius: var(--r-md); }
+.card.buy  { background: color-mix(in oklch, var(--up)   5%, var(--card-base)); }
+.card.sell { background: color-mix(in oklch, var(--down) 5%, var(--card-base)); }
+/* 폰: 탭 아래 pane 가장자리까지 채운다(bleed) — 안쪽 여백은 pane 여백(8px) 그대로라 폭을 잃지 않는다 */
+.card.bleed { margin: 0 -8px -8px; padding: 8px; border-radius: 0; }
+/* 데스크톱(≥992 카드): 카드 크롬 + 라벨칸 104 */
+.card.desk { --lw: 104px; --card-base: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); }
+
+/* 그룹 */
+.grp { padding: 6px 0; border-top: 1px solid var(--border); }
+.grp:first-child { border-top: 0; }
+.card.desk .grp { padding: 8px 12px; }
+.gh { display: flex; align-items: center; gap: 6px; min-height: 24px; }
+.gh input[type=checkbox] { width: 17px; height: 17px; margin: 0; flex: none; }
+.gh input.buy { accent-color: var(--up); }
+.gh input.sell { accent-color: var(--down); }
+.gh .t { font-size: 13px; font-weight: 600; letter-spacing: .06em; color: var(--muted-fg); }
+.gh .s { font-size: 11px; color: var(--muted-fg); }
+.gh.plain { padding-left: 0; }
+/* 행 */
+.row { display: grid; grid-template-columns: var(--lw) minmax(0,1fr); align-items: center; gap: 6px; min-height: 38px; margin-top: 4px; }
+.card.desk .row { gap: 8px; }
+.row label { font-size: 13px; color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .ck { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.row .ck input { width: 17px; height: 17px; margin: 0; flex: none; accent-color: var(--primary); }
+.in { display: flex; align-items: center; gap: 4px; height: 38px; min-width: 0; padding: 0 6px; border: 1px solid var(--input); border-radius: var(--r); background: var(--bg); }
+.in .v { flex: 1; min-width: 0; text-align: right; font-size: 16px; }
+.card.desk .in .v { font-size: 15px; }
+.in .u { font-size: 12px; color: var(--muted-fg); flex: none; }
+.seg { display: flex; height: 38px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.seg button { flex: 1; min-width: 0; padding: 0 4px; border: 0; background: transparent; color: var(--muted-fg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.seg button.on { background: var(--down-bg); color: var(--down); }
+
+/* 수동주문 */
+.mo { display: flex; flex-direction: column; gap: 8px; }
+.mo .amt { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 12px; border-radius: var(--r-md); background: var(--muted); }
+.mo .amt span { font-size: 12px; font-weight: 600; color: var(--muted-fg); }
+.mo .amt b { font-size: 14px; font-weight: 600; }
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.btns button { height: 36px; border-radius: var(--r); border: 1px solid var(--border); background: var(--card); font-size: 11px; font-weight: 700; }
+.btns .b { background: var(--up); border-color: transparent; color: #fff; }
+.btns .s { background: var(--down); border-color: transparent; color: #fff; }
+.btns .p { opacity: .45; }
+
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="ctl">
+    <b style="color:var(--fg)">상따 폼 — 게이트 체크박스 왼쪽 정렬 · 방향색 배경 · 수동주문 2×2</b>
+    <span>테마</span>
+    <button data-theme-set="light">라이트</button><button data-theme-set="dark">다크</button>
+  </div>
+  <p class="note">
+    <b>①</b> 켜기/끄기 체크박스를 그룹 제목 <b>왼쪽</b>에 둔다(다른 체크박스 행과 같은 x). 상태 점(LED)은 뺀다 — 체크 여부와 「감시 중/꺼짐」 글자가 같은 말을 한다. 색은 매수 빨강 · 매도 파랑.
+    <b>②</b> 방향색 배경(5%)은 모든 폭에서. <b>폰(탭 화면)은 탭 아래 영역을 가장자리까지 채운다</b> — 안쪽 여백은 지금 여백(8px) 그대로라 입력칸 폭이 줄지 않는다. 2열부터는 지금처럼 둥근 모서리 + 8px 여백, 데스크톱은 카드 테두리.
+    <b>③</b> 수동주문 버튼은 2×2 — 윗줄 매수 | 매도, 아랫줄 정정 | 취소.
+  </p>
+  <div class="frames">
+    <div class="frame" style="width:198px"><div class="cap">폰 · 카드 342 · 옵션 pane 198 · 매수 탭</div>
+      <div class="pane">
+        <div class="tabs"><button class="on-buy">매수</button><button>매도</button><button>수동</button></div>
+        <div class="card buy bleed" data-buy></div>
+      </div>
+    </div>
+    <div class="frame" style="width:198px"><div class="cap">폰 · 매도 탭</div>
+      <div class="pane">
+        <div class="tabs"><button>매수</button><button class="on-sell">매도</button><button>수동</button></div>
+        <div class="card sell bleed" data-sell></div>
+      </div>
+    </div>
+    <div class="frame" style="width:198px"><div class="cap">폰 · 수동 탭 (2×2)</div>
+      <div class="pane">
+        <div class="tabs"><button>매수</button><button>매도</button><button class="on-manual">수동</button></div>
+        <div class="mo">
+          <div class="in"><span class="v mono" style="color:var(--muted-fg)"></span><span class="u">원</span></div>
+          <div class="in"><span class="v mono" style="color:var(--muted-fg)"></span><span class="u">주</span></div>
+          <div class="amt"><span>주문금액</span><b class="mono">0원</b></div>
+          <div class="btns"><button class="b">매수</button><button class="s">매도</button><button class="p">정정</button><button class="p">취소</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="frames">
+    <div class="frame" style="width:500px"><div class="cap">컴팩트 · 카드 760 · 옵션 pane 500 · 2열</div>
+      <div class="pane w">
+        <div class="manualbtn"><button>수동주문</button></div>
+        <div class="two"><div class="card buy" data-buy></div><div class="card sell" data-sell></div></div>
+      </div>
+    </div>
+    <div class="frame" style="width:640px"><div class="cap">데스크톱 · 카드 1100 · 옵션 pane 640 · 카드 크롬</div>
+      <div class="pane w">
+        <div class="manualbtn"><button>수동주문</button></div>
+        <div class="two w"><div class="card buy desk" data-buy></div><div class="card sell desk" data-sell></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<template id="buy">
+  <div class="grp">
+    <div class="gh"><input type="checkbox" class="buy" checked aria-label="매수주문 켜기"><span class="t">매수주문</span><span class="s">감시 중</span></div>
+    <div class="row"><label>비교가격</label><div class="in"><span class="v mono">71,100</span><span class="u">원</span></div></div>
+    <div class="row"><span></span><div class="seg"><button class="on">매도잔량</button><button>매수잔량</button></div></div>
+    <div class="row"><label>잔량</label><div class="in"><span class="v mono">10,000</span><span class="u">주</span></div></div>
+    <div class="row"><span class="ck"><input type="checkbox"><label>체결</label></span><div class="in"><span class="v mono">30,000</span><span class="u">주</span></div></div>
+  </div>
+  <div class="grp">
+    <div class="row"><label>매수가격</label><div class="in"><span class="v mono">71,000</span><span class="u">원</span></div></div>
+    <div class="row"><label>주문금액</label><div class="in"><span class="v mono">100</span><span class="u">만원</span></div></div>
+  </div>
+  <div class="grp">
+    <div class="gh"><input type="checkbox" class="buy" aria-label="한방체결 켜기"><span class="t">한방체결</span><span class="s">꺼짐</span></div>
+    <div class="row"><label>호가변경</label><div class="in"><span class="v mono">3</span><span class="u">건</span></div></div>
+    <div class="row"><label>한방가격</label><div class="in"><span class="v mono">71,400</span><span class="u">원</span></div></div>
+  </div>
+</template>
+<template id="sell">
+  <div class="grp">
+    <div class="gh"><input type="checkbox" class="sell" aria-label="매도주문 켜기"><span class="t">매도주문</span><span class="s">꺼짐</span></div>
+    <div class="row"><label>비교가격</label><div class="in"><span class="v mono">71,300</span><span class="u">원</span></div></div>
+    <div class="row"><label>호가잔량</label><div class="in"><span class="v mono">10</span><span class="u">주</span></div></div>
+    <div class="row"><span class="ck"><input type="checkbox"><label>잔량추적</label></span><div class="in"><span class="v mono">50</span><span class="u">%</span></div></div>
+    <div class="row"><span class="ck"><input type="checkbox"><label>체결</label></span><div class="in"><span class="v mono">30,500</span><span class="u">주</span></div></div>
+  </div>
+  <div class="grp">
+    <div class="row"><label>매도가격</label><div class="in"><span class="v mono">71,200</span><span class="u">원</span></div></div>
+    <div class="row"><label>매도비율</label><div class="in"><span class="v mono">60</span><span class="u">%</span></div></div>
+  </div>
+  <div class="grp">
+    <div class="gh plain"><span class="t">매수취소</span><span class="s">꺼짐</span></div>
+    <div class="row"><span class="ck"><input type="checkbox"><label>취소잔량</label></span><div class="in"><span class="v mono">25</span><span class="u">주</span></div></div>
+    <div class="row"><span class="ck"><input type="checkbox"><label>체결</label></span><span></span></div>
+    <div class="row"><span class="ck"><input type="checkbox"><label>잔량추적</label></span><span></span></div>
+  </div>
+</template>
+
+<script>
+for (const id of ['buy','sell']) {
+  const t = document.getElementById(id);
+  document.querySelectorAll('[data-'+id+']').forEach(el => el.appendChild(t.content.cloneNode(true)));
+}
+const root = document.documentElement;
+function setTheme(t){ root.setAttribute('data-theme', t); document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.themeSet===t))); }
+document.querySelectorAll('[data-theme-set]').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.themeSet)));
+setTheme(new URLSearchParams(location.search).get('theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+</script>
+</body>
+</html>
