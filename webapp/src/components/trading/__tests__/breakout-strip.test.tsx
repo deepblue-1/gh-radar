@@ -402,7 +402,7 @@ describe('BreakoutStrip — 이탈 삭제 (D-16)', () => {
     });
     setPrice(A.isin, 10_900);
     update({});
-    // 가격 갱신은 ≤2Hz 로 묶인다(quick-260923-elb 2a) — 창이 닫힌 뒤 판정한다.
+    // 가격 갱신은 ≤5Hz 로 묶인다(quick-260923-elb 2a) — 창이 닫힌 뒤 판정한다.
     act(() => {
       vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS);
     });
@@ -410,7 +410,7 @@ describe('BreakoutStrip — 이탈 삭제 (D-16)', () => {
     expect(chips()[0]).toHaveTextContent('삼성전자');
   });
 
-  it('현재가·등락률은 초당 2회로 묶이고 창이 닫히면 마지막 값이 반드시 도착한다 (quick-260923-elb 2a)', () => {
+  it('현재가·등락률은 초당 5회로 묶이고 창이 닫히면 마지막 값이 반드시 도착한다 (quick-260923-elb 2a)', () => {
     setPrice(A.isin, 12_600);
     const { update } = setup({ items: [A] });
     openTable();

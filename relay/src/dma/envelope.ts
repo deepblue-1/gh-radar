@@ -391,7 +391,7 @@ export function buildGetQuoteReq(isin: string, exchange: RelayExchange): Uint8Ar
 
 /**
  * `SubscribeQuoteReq.level` 바이트 (quick-260923-ge2 · gh-trade 회신 quick-260923-exo).
- * 0 = FULL(59+71+75 종전 그대로) · 1 = PRICE(59 만 · 가격 섹션 갱신 때만 · 키당 ≥200ms).
+ * 0 = FULL(59+71+75 종전 그대로) · 1 = PRICE(59 만 · 가격 섹션 갱신 때만 · 키당 ≥100ms).
  * 서버는 1 만 PRICE 로 보고 그 밖 값은 FULL 로 접는다 — relay 도 1 외의 값을 만들지 않는다.
  */
 export const QUOTE_LEVEL = { FULL: 0, PRICE: 1 } as const;

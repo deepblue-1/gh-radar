@@ -14,7 +14,7 @@ import type { RelayQuote } from "@gh-radar/shared";
  *  ② 구독 diff — 빈 집합 무호출 · 초기 구독 · 같은 집합 재렌더 무호출 · 교체(남는 키 무변경) · 언마운트 전량 해제
  *  ③ 거래소 `"KRX"` 고정
  *  ④ 자율 상한 `MAX_BREAKOUT_SUBS` — 카드 종목은 예산 제외, 남은 예산은 최근 돌파 순, 넘친 키는 반환
- *  ⑤ 가격 스로틀 `BREAKOUT_PRICE_THROTTLE_MS` — 후보 전체의 KRX 가격만 ≤2Hz 로 내보낸다 (quick-260923-elb 2a)
+ *  ⑤ 가격 스로틀 `BREAKOUT_PRICE_THROTTLE_MS` — 후보 전체의 KRX 가격만 ≤5Hz 로 내보낸다 (quick-260923-elb 2a)
  */
 
 type RelayShape = ReturnType<typeof import("@/lib/relay-provider").useRelayContext>;

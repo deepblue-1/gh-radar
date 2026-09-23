@@ -24,15 +24,15 @@
  *
  * ⑤ 가격 갱신 스로틀 `BREAKOUT_PRICE_THROTTLE_MS` (quick-260923-elb 2a)
  *   스트립은 relay 컨텍스트 소비자라서 컨텍스트 분리(1b) 전까지는 커밋마다 다시 그려진다. 그런데
- *   칩에 필요한 것은 **가격 하나**이고 초당 2회면 충분하다(debug `trading-cpu-260923` #2 — 돌파 40
+ *   칩에 필요한 것은 **가격 하나**이고 초당 5회면 충분하다(debug `trading-cpu-260923` #2 — 돌파 40
  *   종목의 풀 스트림이 프레임을 10배로 키웠고, 스트립은 가격 서명이 바뀔 때마다 두 번 렌더했다).
- *   그래서 원시 시세 맵을 내보내지 않고 **후보 ISIN 전체의 KRX 현재가(`prices`)** 만 ≤2Hz 로
+ *   그래서 원시 시세 맵을 내보내지 않고 **후보 ISIN 전체의 KRX 현재가(`prices`)** 만 ≤5Hz 로
  *   내보낸다. 원시 맵을 계속 내보내면 소비처가 스로틀을 우회할 수 있다. 마감은 절대 시각이라
  *   연속 틱이 갱신을 굶기지 않고, 마지막 값은 반드시 도착한다. 구독 diff 규칙(③)은 그대로다.
  *
  * ⑥ 가격 전용 구독 `BREAKOUT_SUB_LEVEL` (quick-260923-ge2 · 2b)
  *   칩은 현재가·등락률만 읽으므로 price level 로 잡는다 — 게이트웨이는 59 를 가격 섹션 갱신 때만
- *   (종목당 ≤5Hz) 보내고 71·75 는 보내지 않는다(PRICE 59 에도 호가 배열은 실려 오지만 읽지 않는다).
+ *   (종목당 ≤10Hz) 보내고 71·75 는 보내지 않는다(PRICE 59 에도 호가 배열은 실려 오지만 읽지 않는다).
  *   같은 종목을 다른 소비자가 full 로 보면 relay·webapp 참조계수가 full 로 합성하고, 그 소비자가
  *   빠지면 price 로 강등된다. relay 는 게이트웨이 가동본이 구버전이어도 price 로 잡은 키에 tape 를
  *   흘리지 않는다. 호가창 카드가 연 종목은 ④ 의 `excludeIsins` 로 애초에 이 훅이 잡지 않는다.
@@ -57,10 +57,12 @@ export const MAX_BREAKOUT_SUBS = 40;
 /**
  * 돌파 칩·표의 가격 갱신 간격 — 초당 최대 2회 (⑤ · quick-260923-elb 2a).
  *
- * 결정 범위 1~2Hz 의 상단이다. 칩은 등락률을 소수 2자리로 보이고, 이탈 판정에는 이미 3초 유예
- * (`ARM_GRACE_MS`)가 있어 ≤500ms 추가 지연은 판정의 뜻을 바꾸지 않는다(T-elb-06).
+ * 처음엔 500ms(2Hz)였다. 게이트웨이 PRICE 구독 간격이 100ms 로 줄어(gh-trade quick-260923-hp5)
+ * 칩도 더 빨리 따라가게 200ms(5Hz)로 올렸다 — 사용자 요청. PRICE 구독이라 돌파 종목의 프레임 자체가
+ * 가격 변화 때만 오므로 1단계 측정 때보다 렌더 입력이 적다. 이탈 판정에는 이미 3초 유예
+ * (`ARM_GRACE_MS`)가 있어 ≤200ms 추가 지연은 판정의 뜻을 바꾸지 않는다(T-elb-06).
  */
-export const BREAKOUT_PRICE_THROTTLE_MS = 500;
+export const BREAKOUT_PRICE_THROTTLE_MS = 200;
 
 /** 돌파 거래소 — 서버 정본상 KRX 에서만 발화한다(②). */
 const BREAKOUT_EXCHANGE = "KRX" as const;
@@ -91,7 +93,7 @@ export interface BreakoutQuoteCandidate {
 
 export interface BreakoutQuotesResult {
   /**
-   * ISIN → KRX 현재가 — **후보 ISIN 전체**(구독 여부 무관)의 **알려진 값만**, ≤2Hz 로 갱신된다(⑤).
+   * ISIN → KRX 현재가 — **후보 ISIN 전체**(구독 여부 무관)의 **알려진 값만**, ≤5Hz 로 갱신된다(⑤).
    *
    * 카드 종목은 구독 예산에서만 빠진다 — 그 가격은 카드 자신의 구독으로 전역 맵에 있으므로 여기에도
    * 있다(오늘 `breakoutQuotePrice(quotes, isin)` 과 같은 뜻). 키가 없으면 「모름」이지 0원이 아니다.
