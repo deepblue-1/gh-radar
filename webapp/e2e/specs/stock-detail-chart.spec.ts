@@ -50,8 +50,8 @@ test.describe('Phase 09.2 — 차트 섹션 (DATA-03)', () => {
       await expect(page.getByRole('tab', { name: range })).toBeVisible();
     }
 
-    // 3Y 이 기본 active (2026-05-16 사용자 요청 — 충분한 과거 데이터, 화면엔 최근 60개)
-    await expect(page.getByRole('tab', { name: '3Y' })).toHaveAttribute(
+    // 1Y 가 기본 active (2026-09-23 사용자 요청 — 기존 3Y, 화면엔 최근 60개)
+    await expect(page.getByRole('tab', { name: '1Y' })).toHaveAttribute(
       'aria-selected',
       'true',
     );

@@ -16,6 +16,8 @@
  *   - range 토글 = 1Y / 2Y / 3Y / 5Y
  *   - timeframe 토글 = 일봉(D) / 주봉(W) / 월봉(M) — 클라이언트 aggregate 로 W/M 파생
  *   - 장중 라벨은 timeframe='D' + 마지막 일봉 row 가 today (KST) 일 때만 표시
+ *
+ * 2026-09-23 사용자 요청: 기본 fetch range 3Y → 1Y (종목상세 · 트레이딩 종목정보 모달 공용)
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -61,8 +63,8 @@ export function StockDailyChartSection({
   code,
   refreshSignal,
 }: StockDailyChartSectionProps) {
-  // 2026-05-16 사용자 요청: 기본 3Y fetch 로 충분한 과거 데이터 확보, 화면엔 최근 60개만 표시 (StockDailyChart 가 처리).
-  const [range, setRange] = useState<DailyOhlcvRangeKey>('3Y');
+  // 2026-09-23 사용자 요청: 기본 1Y fetch (기존 3Y). 더 긴 과거는 기간 토글로. 화면엔 최근 60개만 표시 (StockDailyChart 가 처리).
+  const [range, setRange] = useState<DailyOhlcvRangeKey>('1Y');
   const [timeframe, setTimeframe] = useState<DailyOhlcvTimeframe>('D');
   const [rows, setRows] = useState<DailyOhlcvRow[] | null>(null);
   const [error, setError] = useState<Error | null>(null);

@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe('StockDailyChartSection', () => {
-  it('마운트 시 3Y 로 fetch + Skeleton 표시 → 데이터 도착 후 차트 컨테이너 노출', async () => {
+  it('마운트 시 1Y 로 fetch + Skeleton 표시 → 데이터 도착 후 차트 컨테이너 노출', async () => {
     let resolveFetch!: (rows: DailyOhlcvRow[]) => void;
     fetchDailyOhlcvMock.mockReturnValueOnce(
       new Promise<DailyOhlcvRow[]>((res) => {
@@ -91,11 +91,11 @@ describe('StockDailyChartSection', () => {
     );
     render(<StockDailyChartSection code="005930" />);
 
-    // 2026-05-16 사용자 요청 갱신: 기본 fetch range '3Y' (충분한 과거 데이터 확보)
+    // 2026-09-23 사용자 요청 갱신: 기본 fetch range '1Y' (기존 3Y)
     expect(fetchDailyOhlcvMock).toHaveBeenCalledTimes(1);
     expect(fetchDailyOhlcvMock).toHaveBeenCalledWith(
       '005930',
-      '3Y',
+      '1Y',
       expect.any(AbortSignal),
     );
 
@@ -147,7 +147,7 @@ describe('StockDailyChartSection', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('range 토글 클릭 시 fetch 가 새 range 로 재호출 (3Y → 5Y)', async () => {
+  it('range 토글 클릭 시 fetch 가 새 range 로 재호출 (1Y → 5Y)', async () => {
     fetchDailyOhlcvMock.mockResolvedValue(SAMPLE_ROWS);
     const user = userEvent.setup();
     render(<StockDailyChartSection code="005930" />);
@@ -235,7 +235,7 @@ describe('StockDailyChartSection', () => {
     });
     expect(fetchDailyOhlcvMock).toHaveBeenLastCalledWith(
       '005930',
-      '3Y',
+      '1Y',
       expect.any(AbortSignal),
     );
   });

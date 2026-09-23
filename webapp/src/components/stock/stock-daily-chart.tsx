@@ -308,7 +308,7 @@ export function StockDailyChart({
       }));
     markersPluginRef.current?.setMarkers(markers);
 
-    // 2026-05-16 사용자 요청: 3Y 데이터를 fetch 하되 화면에는 최근 60개 영업일만 표시.
+    // 선택 range(기본 1Y) 데이터를 fetch 하되 화면에는 최근 60개 영업일만 표시.
     // 사용자는 마우스 휠/드래그로 자유롭게 과거 영역 탐색 가능 (lightweight-charts 기본 동작).
     const last = rows.length - 1;
     const visibleCount = Math.min(60, rows.length);
