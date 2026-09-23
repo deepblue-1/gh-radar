@@ -39,7 +39,7 @@ import {
   WsFanout,
   type WsFanoutDeps,
 } from "../src/ws/fanout.js";
-import { SubscriptionHub } from "../src/hub/subscription-hub.js";
+import { SubscriptionHub, TAPE_BATCH_MS } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
@@ -494,6 +494,158 @@ describe("WsFanout", () => {
 
   it("⑫ 계약 밖 경로로는 업그레이드하지 않는다", async () => {
     await expect(connectWs(h.port, "/not-ws")).rejects.toThrow();
+  });
+
+  // ============================================================
+  // quick-260923-ge2 — 가격 전용 구독 lv (full|price)
+  // ============================================================
+  describe("가격 전용 구독 lv (quick-260923-ge2)", () => {
+    const countOf = (msgType: number): number =>
+      gatewayMsgTypes.filter((t) => t === msgType).length;
+
+    function gatewaySock() {
+      const sock = gateway.sockets[0];
+      if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+      return sock;
+    }
+
+    /** 체결 1건을 hub 링버퍼까지 들이고 200ms 배치 창을 닫는다. */
+    async function pushTapeAndFlush(tradeTime: string): Promise<void> {
+      const before = h.hub.getTape(USER_A, SAMPLE_ISIN, "KRX")?.length ?? 0;
+      gateway.pushTape(gatewaySock(), { snapshot: false, entries: [{ tradeTime }] });
+      await waitFor(
+        () => (h.hub.getTape(USER_A, SAMPLE_ISIN, "KRX")?.length ?? 0) > before,
+        "hub 링버퍼에 체결 도착",
+      );
+      vi.advanceTimersByTime(TAPE_BATCH_MS);
+    }
+
+    /**
+     * 시세 1건을 밀어 넣고 `inboxes` 전부에 도착할 때까지 기다린다. 소켓 전송은 순서 보존이라
+     * q 가 왔는데 그 앞의 tape 가 없으면 tape 는 오지 않은 것이다.
+     */
+    async function pushQuoteAndAwait(inboxes: RelayOutbound[][], lastPrice: bigint): Promise<void> {
+      const before = inboxes.map((inbox) => framesOf(inbox, "q").length);
+      gateway.pushQuote(gatewaySock(), { snapshot: false, lastPrice });
+      await waitFor(
+        () => inboxes.every((inbox, i) => framesOf(inbox, "q").length > (before[i] ?? 0)),
+        "시세 도착",
+      );
+    }
+
+    it("F1 price 단독 구독은 28·29 만 보내고 tape 를 받지 않으며 q 는 호가 배열까지 그대로 온다", async () => {
+      const b = await authed("token-a");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 1, "게이트웨이 구독 요청");
+
+      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("price");
+      expect(countOf(MSG.GetQuoteReq)).toBe(1);
+
+      await pushTapeAndFlush("090000000001");
+      await pushQuoteAndAwait([b.inbox], 71_000n);
+      await flushIo(20);
+
+      expect(countOf(MSG.GetTradeTapeReq)).toBe(0);
+      expect(framesOf(b.inbox, "tape")).toHaveLength(0);
+      const quote = framesOf(b.inbox, "q").at(-1);
+      expect(quote).toMatchObject({ i: SAMPLE_ISIN, x: "KRX", p: 71_000 });
+      expect(quote).toHaveProperty("ap");
+      expect(quote).toHaveProperty("bp");
+    });
+
+    it("F2 같은 사용자 full 탭과 price 탭 — 업스트림은 full 1건, tape 는 full 탭에만 간다", async () => {
+      const a = await authed("token-a");
+      const b = await authed("token-a");
+      a.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "A 구독");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 2, "B 구독");
+      await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "게이트웨이 체결 요청");
+
+      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("full");
+      // 실효 level 이 그대로라 price 추가는 재송신이 없다.
+      expect(countOf(MSG.SubscribeQuoteReq)).toBe(1);
+
+      await pushTapeAndFlush("090000000002");
+      await pushQuoteAndAwait([a.inbox, b.inbox], 71_100n);
+
+      expect(framesOf(a.inbox, "tape")).toHaveLength(1);
+      expect(framesOf(b.inbox, "tape")).toHaveLength(0);
+    });
+
+    it("F3 같은 소켓 price→full 재 sub 은 참조계수를 늘리지 않고 28·29·32 재송신 + 링버퍼 tape 스냅샷을 준다", async () => {
+      const b = await authed("token-a");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 1, "price 구독");
+      expect(countOf(MSG.GetTradeTapeReq)).toBe(0);
+
+      // B 는 받지 못하지만 hub 링버퍼에는 쌓인다.
+      await pushTapeAndFlush("090000000003");
+      await pushQuoteAndAwait([b.inbox], 71_200n);
+      expect(framesOf(b.inbox, "tape")).toHaveLength(0);
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "full");
+      await waitFor(() => framesOf(b.inbox, "tape").length === 1, "승격 tape 스냅샷");
+      await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "승격 재송신");
+
+      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(countOf(MSG.GetQuoteReq)).toBe(2);
+      expect(countOf(MSG.SubscribeQuoteReq)).toBe(2);
+      expect(framesOf(b.inbox, "tape")[0]).toMatchObject({ i: SAMPLE_ISIN, x: "KRX", snap: true });
+    });
+
+    it("F4 같은 소켓 full→price 재 sub 은 29 1건만 더 보낸다", async () => {
+      const b = await authed("token-a");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX");
+      await waitFor(() => countOf(MSG.GetTradeTapeReq) === 1, "full 구독");
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "강등 29");
+      await flushIo(20);
+
+      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBe("price");
+      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(countOf(MSG.GetTradeTapeReq)).toBe(1);
+      expect(countOf(MSG.GetQuoteReq)).toBe(1);
+    });
+
+    it("F5 같은 소켓 같은 level 재 sub 은 무시한다", async () => {
+      const b = await authed("token-a");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 1, "price 구독");
+
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      // 뒤따르는 프레임이 처리됐음을 보장하는 표식 — 다른 키 구독.
+      b.ws.sendSub(OTHER_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(USER_A, OTHER_ISIN, "KRX") === 1, "표식 구독");
+      await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "표식 29");
+      await flushIo(20);
+
+      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(countOf(MSG.SubscribeQuoteReq)).toBe(2);
+    });
+
+    it("F6 price 소켓이 닫히면 그 level 로 해제돼 참조계수 0 · 29 가 구독+해제 2건이다", async () => {
+      const b = await authed("token-a");
+      b.ws.sendSub(SAMPLE_ISIN, "KRX", "price");
+      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 1, "price 구독");
+
+      await b.ws.close();
+      await waitFor(() => h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX") === 0, "참조계수 0");
+      await waitFor(() => countOf(MSG.SubscribeQuoteReq) === 2, "업스트림 해제");
+      expect(h.hub.subscriptionLevel(USER_A, SAMPLE_ISIN, "KRX")).toBeUndefined();
+    });
+
+    it("F7 열거 밖 lv 는 close(4400) 이다", async () => {
+      const { ws } = await authed("token-a");
+
+      ws.sendRaw({ t: "sub", isin: SAMPLE_ISIN, ex: "KRX", lv: "turbo" });
+      await waitFor(() => ws.closeInfo !== null, "스키마 위반 close");
+
+      expect(ws.closeInfo?.code).toBe(4400);
+      expect(h.hub.refCount(USER_A, SAMPLE_ISIN, "KRX")).toBe(0);
+    });
   });
 
   // ============================================================

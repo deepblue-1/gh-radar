@@ -287,6 +287,34 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
   });
 });
 
+describe("parseInbound — sub 의 lv (quick-260923-ge2)", () => {
+  beforeEach(() => {
+    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("`lv:\"price\"` 는 그대로 통과한다", () => {
+    const msg = parseInbound(JSON.stringify({ t: "sub", isin: ISIN, ex: "KRX", lv: "price" }));
+    if (msg?.t !== "sub") throw new Error("sub 가 파싱되지 않았습니다");
+    expect(msg.lv).toBe("price");
+  });
+
+  it("`lv` 생략은 undefined 다 — 기본 full 은 fanout 이 접는다", () => {
+    const msg = parseInbound(JSON.stringify({ t: "sub", isin: ISIN, ex: "KRX" }));
+    if (msg?.t !== "sub") throw new Error("sub 가 파싱되지 않았습니다");
+    expect(msg.lv).toBeUndefined();
+  });
+
+  it("열거 밖 `lv` 는 스키마 위반(null)이다", () => {
+    expect(
+      parseInbound(JSON.stringify({ t: "sub", isin: ISIN, ex: "KRX", lv: "turbo" })),
+    ).toBeNull();
+  });
+});
+
 describe("parseInbound — 경계값 거부 (T-16-05)", () => {
   beforeEach(() => {
     vi.spyOn(logger, "warn").mockImplementation(() => undefined);

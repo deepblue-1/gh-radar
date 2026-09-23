@@ -45,6 +45,15 @@ const IsinSchema = z
 const ExchangeSchema = z.enum(["KRX", "NXT"]);
 
 /**
+ * 구독 수준 (quick-260923-ge2). 계약(`RelaySubLevel`)과 같은 집합이다.
+ *
+ * 열거 밖 문자열은 `ex` 와 같은 규율로 **스키마 위반(close 4400)** 이다. 「모르는 값은 FULL 로
+ * 접는다」 는 hub 가 업스트림 바이트를 만들 때의 규칙이고, 브라우저 표면에서는 유일한
+ * 클라이언트(webapp) 가 어휘를 공유하므로 관대함이 곧 공격 표면이다.
+ */
+const SubLevelSchema = z.enum(["full", "price"]);
+
+/**
  * 첫 메시지 (D-11). 상한 4096자는 Supabase 액세스 토큰(JWT)의 넉넉한 상한이다 —
  * 상한이 없으면 `maxPayload` 64KB 까지 통째로 검증 경로에 실린다.
  */
@@ -57,6 +66,8 @@ export const RelaySubSchema = z.object({
   t: z.literal("sub"),
   isin: IsinSchema,
   ex: ExchangeSchema,
+  /** 생략 = full. 기본값은 fanout 이 접는다(스키마는 생략을 그대로 둔다). */
+  lv: SubLevelSchema.optional(),
 });
 
 export const RelayUnsubSchema = z.object({

@@ -19,7 +19,10 @@
  *   6. 인증 직후 **계좌 스냅샷 + 전략 스냅샷 3프레임**을 그 연결로 내린다 (D-12/D-23/D-37).
  *      브라우저는 이것을 요청하지 않는다 — 구독을 기다리면 아무 종목도 열지 않은 탭이
  *      영원히 빈 잔고·빈 전략 목록을 본다
- *   7. sub → 참조계수 +1, 스냅샷 캐시가 있으면 그 소켓에 즉시 전송 (D-37)
+ *   7. sub(lv full|price · 기본 full) → 참조계수 +1(level 별), q 스냅샷 캐시가 있으면 그 소켓에
+ *      즉시 전송 (D-37). tape 캐시는 full 만 보낸다. 같은 소켓 재 sub 은 level 갱신(같으면 무시).
+ *      price 키의 tape 는 `#deliver` 가 그 소켓에서 걸러낸다 (quick-260923-ge2 — 정본은 gh-trade
+ *      회신 quick-260923-exo · hub 헤더 D-33 아래 level 블록)
  *   8. close → authTimer 정리, **그 소켓이 잡은 키만** 해제, `sessions.release`
  *
  * 결정 근거:
@@ -70,6 +73,7 @@ import type {
   RelayOutbound,
   RelayServerMsg,
   RelayStateMsg,
+  RelaySubLevel,
 } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
@@ -275,7 +279,7 @@ type Conn = {
   isAlive: boolean;
   authTimer: NodeJS.Timeout | null;
   /** **이 소켓이** 잡은 구독 키. 다른 탭의 구독을 끊지 않기 위한 소유권 기록이다. */
-  keys: Map<string, { isin: string; ex: RelayExchange }>;
+  keys: Map<string, { isin: string; ex: RelayExchange; lv: RelaySubLevel }>;
   /** 백프레셔 연속 초과 횟수. 정상 전송이 성공하면 0 으로 되돌린다. */
   overflows: number;
   /** 인바운드 토큰 버킷 잔량. 경과 시간에 비례해 차므로 소수를 허용한다 (T-16-06). */
@@ -814,21 +818,42 @@ export class WsFanout {
       // `keyOf` 는 **분기 안에서** 계산한다. 가드 직후 무조건 부르면 `isin`/`ex` 가 없는
       // 전략·주문 메시지가 `undefined|undefined` 키를 만든다 (16-RESEARCH Pitfall 14).
       const key = keyOf(msg.isin, msg.ex);
-      if (conn.keys.has(key)) {
+      const lv: RelaySubLevel = msg.lv ?? "full";
+      const held = conn.keys.get(key);
+      if (held !== undefined && held.lv === lv) {
         // 같은 소켓의 중복 구독을 참조계수에 반영하면 close 때 하나가 남아 샌다.
-        logger.info({ userId, isin: msg.isin, ex: msg.ex }, "[WS] 이 소켓의 중복 구독 — 무시");
+        logger.info(
+          { userId, isin: msg.isin, ex: msg.ex, lv },
+          "[WS] 이 소켓의 중복 구독 — 무시",
+        );
         return;
       }
-      conn.keys.set(key, { isin: msg.isin, ex: msg.ex });
-      this.#hub.subscribe(userId, msg.isin, msg.ex);
+      if (held !== undefined) {
+        // 같은 소켓·같은 키의 level 갱신 (quick-260923-ge2). **새 level 을 먼저 올리고 옛 level 을
+        // 내린다** — 반대 순서면 합계가 0 을 지나 29(false) 뒤 재구독이 나간다.
+        const prev = held.lv;
+        held.lv = lv;
+        this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
+        this.#hub.unsubscribe(userId, msg.isin, msg.ex, prev);
+        logger.info(
+          { userId, isin: msg.isin, ex: msg.ex, prev, lv },
+          "[WS] 같은 소켓 재구독 — level 갱신",
+        );
+        if (lv === "full") {
+          // 이 소켓은 price 동안 tape 를 받은 적이 없다 — 링버퍼를 스냅샷으로 준다.
+          // q 는 이미 받고 있으므로 다시 보내지 않는다.
+          this.#sendTapeSnapshot(conn, userId, msg.isin, msg.ex);
+        }
+        return;
+      }
+      conn.keys.set(key, { isin: msg.isin, ex: msg.ex, lv });
+      this.#hub.subscribe(userId, msg.isin, msg.ex, lv);
 
       // 캐시가 있으면 게이트웨이 응답을 기다리지 않고 즉시 그린다 (D-37).
       const snapshot = this.#hub.getSnapshot(userId, msg.isin, msg.ex);
       if (snapshot !== undefined) this.#send(conn, snapshot);
-      const tape = this.#hub.getTape(userId, msg.isin, msg.ex);
-      if (tape !== undefined && tape.length > 0) {
-        this.#send(conn, { t: "tape", i: msg.isin, x: msg.ex, snap: true, e: tape });
-      }
+      // tape 캐시는 full 만 — price 소켓은 tape 를 받지 않는다 (quick-260923-ge2).
+      if (lv === "full") this.#sendTapeSnapshot(conn, userId, msg.isin, msg.ex);
       return;
     }
 
@@ -837,8 +862,17 @@ export class WsFanout {
       logger.warn({ userId, isin: msg.isin, ex: msg.ex }, "[WS] 잡지 않은 키 해제 요청 — 무시");
       return;
     }
+    const held = conn.keys.get(key);
     conn.keys.delete(key);
-    this.#hub.unsubscribe(userId, msg.isin, msg.ex);
+    this.#hub.unsubscribe(userId, msg.isin, msg.ex, held?.lv ?? "full");
+  }
+
+  /** hub 링버퍼 캐시가 있으면 그 소켓에 tape 스냅샷 1프레임을 보낸다 (D-37). */
+  #sendTapeSnapshot(conn: Conn, userId: string, isin: string, ex: RelayExchange): void {
+    const tape = this.#hub.getTape(userId, isin, ex);
+    if (tape !== undefined && tape.length > 0) {
+      this.#send(conn, { t: "tape", i: isin, x: ex, snap: true, e: tape });
+    }
   }
 
   // ----------------------------------------------------------
@@ -1200,8 +1234,8 @@ export class WsFanout {
     }
 
     // **이 소켓이 잡은 키만** 해제한다 — 다른 탭의 구독을 끊으면 안 된다.
-    for (const { isin, ex } of conn.keys.values()) {
-      this.#hub.unsubscribe(userId, isin, ex);
+    for (const { isin, ex, lv } of conn.keys.values()) {
+      this.#hub.unsubscribe(userId, isin, ex, lv);
     }
     conn.keys.clear();
 
@@ -1295,7 +1329,14 @@ export class WsFanout {
   #deliver(userId: string, msg: RelayOutbound): void {
     const entry = this.#users.get(userId);
     if (entry === undefined) return;
-    for (const conn of entry.conns) this.#send(conn, msg);
+    for (const conn of entry.conns) {
+      // price 로 잡은 키에는 tape 를 보내지 않는다 (quick-260923-ge2). 게이트웨이 가동본이 level 을
+      // 모르는 구버전이거나 같은 키를 다른 탭이 FULL 로 봐서 71 이 흘러와도 relay 가 자체 보장한다.
+      // 그 소켓이 **잡지 않은 키**의 tape 는 종전대로 간다(브라우저가 키로 거른다 — use-relay-socket
+      // 규율 7). 사용자 격리는 그대로다 — 이 사용자의 소켓 집합 안에서 건너뛰기만 한다 (T-15-02).
+      if (msg.t === "tape" && conn.keys.get(keyOf(msg.i, msg.x))?.lv === "price") continue;
+      this.#send(conn, msg);
+    }
   }
 
   /**

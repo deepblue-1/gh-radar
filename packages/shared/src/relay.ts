@@ -405,10 +405,20 @@ export type RelayAuthMsg = { t: "auth"; token: string };
  */
 export type RelaySubLevel = "full" | "price";
 
-/** 시세+체결 구독. 키는 `isin + ex` (D-33). */
-export type RelaySubMsg = { t: "sub"; isin: string; ex: RelayExchange };
+/**
+ * 시세+체결 구독. 키는 `isin + ex` (D-33).
+ *
+ * `lv` (quick-260923-ge2) — 생략하면 `full`. 같은 소켓·같은 키로 다시 보내면 level 갱신이다
+ * (같은 level 이면 무시 · 참조계수는 늘지 않는다). `price` 로 잡은 키에는 `tape` 프레임이 오지
+ * 않고, `q` 는 호가 배열까지 그대로 온다. 옛 relay 는 zod strip 으로 `lv` 를 버려 full 로
+ * 동작한다 — 배포 순서에 안전하다.
+ */
+export type RelaySubMsg = { t: "sub"; isin: string; ex: RelayExchange; lv?: RelaySubLevel };
 
-/** 구독 해제. 마지막 구독자가 빠지면 relay 가 업스트림 `subscribe:false` 를 보낸다. */
+/**
+ * 구독 해제. 마지막 구독자가 빠지면 relay 가 업스트림 `subscribe:false` 를 보낸다.
+ * level 무관 — 그 소켓이 잡은 키를 놓는다.
+ */
 export type RelayUnsubMsg = { t: "unsub"; isin: string; ex: RelayExchange };
 
 /**

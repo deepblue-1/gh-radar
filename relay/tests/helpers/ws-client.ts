@@ -17,7 +17,7 @@
  *   - 메시지를 소비하지 않고 쌓아 두기만 한다 — 순서 단언이 테스트의 책임이다.
  */
 import { WebSocket } from "ws";
-import type { RelayExchange, RelayOutbound } from "@gh-radar/shared";
+import type { RelayExchange, RelayOutbound, RelaySubLevel } from "@gh-radar/shared";
 
 export type CloseInfo = { code: number; reason: string };
 
@@ -64,9 +64,12 @@ export class TestWs {
     this.sendRaw({ t: "auth", token });
   }
 
-  /** 시세+체결 구독. 키는 `isin + ex` (D-33). */
-  sendSub(isin: string, ex: RelayExchange): void {
-    this.sendRaw({ t: "sub", isin, ex });
+  /**
+   * 시세+체결 구독. 키는 `isin + ex` (D-33). `lv` 는 있을 때만 싣는다 — 생략하면 종전 프레임
+   * 그대로(relay 가 full 로 접는다, quick-260923-ge2).
+   */
+  sendSub(isin: string, ex: RelayExchange, lv?: RelaySubLevel): void {
+    this.sendRaw(lv === undefined ? { t: "sub", isin, ex } : { t: "sub", isin, ex, lv });
   }
 
   /** 구독 해제. */
