@@ -88,6 +88,8 @@
  *     줄. 본문은 해제 규칙(로그아웃 · 새로고침)을 사실대로 말한다. ★ 현재 키만 보지 않는다
  *     (quick-260923-pgv) — 거래소 토글이 등록 후에도 자유로워져, KRX 키가 잠긴 카드를 NXT 로 바꾼 뒤
  *     ✕ 를 누르면 현재 키만 보는 판정은 경고 없이 닫는다. 잠금 자체(요청의 키 · 앱 수명)는 그대로다.
+ *     단 같은 계좌·ISIN 의 **다른 카드가 지금 보여주는** 거래소 키는 뺀다 — 다른 카드가 보여주는
+ *     잠금은 시야에서 사라지지 않는다(quick-260923-que). 빼고 남은 게 없으면 아래 `registered` → 즉시 제거.
  *     등록 전략도 있으면 아래 등록 전략 문장이 한 줄 더 붙는다(R3 목업 ② 2-b).
  *   - `registered` — **등록된 전략이 있는 카드**. 카드를 닫는 것은 서버 전략 삭제가 아니다(전략은
  *     계속 동작하고 사이드바·My page 에 남는다).
@@ -251,14 +253,20 @@ function keyOf(c: WorkbenchCard): string {
 
 /**
  * ⑧ ✕ 판정 — 카드의 계좌·ISIN 에 대해 잠긴 거래소(KRX·NXT 순). 현재 거래소만 보지 않는다
- * (quick-260923-pgv). 계좌가 비었으면 잠금 키가 없다.
+ * (quick-260923-pgv). 단 **다른 카드가 지금 그 키를 보여주는** 거래소는 뺀다 — 이 카드를 닫아도
+ * 잠긴 주문이 시야에서 사라지지 않는다(quick-260923-que). 카드 키는 유일하므로(T-18-94) 자기 현재
+ * 키는 이 제외에 걸리지 않는다. 계좌가 비었으면 잠금 키가 없다.
  */
 function lockedExchangesOf(
   locks: ReadonlyMap<string, unknown>,
   c: WorkbenchCard,
+  cards: readonly WorkbenchCard[],
 ): RelayExchange[] {
   if (c.accountNo === "") return [];
-  return EXCHANGES.filter((ex) => locks.has(strategyKey(c.isin, c.accountNo, ex)));
+  return EXCHANGES.filter((ex) => {
+    const key = strategyKey(c.isin, c.accountNo, ex);
+    return locks.has(key) && !cards.some((o) => o.id !== c.id && keyOf(o) === key);
+  });
 }
 
 /** 카드 헤더 토글 id — `strategy-card.tsx` 의 `strategy-card-{카드 id}-toggle` 규약. */
@@ -847,7 +855,7 @@ function WorkbenchSurface() {
     (id: string) => {
       const card = cardsRef.current.find((c) => c.id === id);
       if (card === undefined) return;
-      const lockedExchanges = lockedExchangesOf(orderLocksRef.current, card);
+      const lockedExchanges = lockedExchangesOf(orderLocksRef.current, card, cardsRef.current);
       if (lockedExchanges.length > 0) {
         setCloseAsk({ id, reason: "unknown", lockedExchanges });
         return;

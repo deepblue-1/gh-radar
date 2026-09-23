@@ -1379,7 +1379,7 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
     expect(dialog.textContent).not.toContain('결과를 모르는 주문');
   });
 
-  it('⑦ 키 범위 — 다른 계좌 키 잠금은 이 카드 ✕ 에 영향이 없고, 같은 계좌·ISIN 의 다른 거래소(NXT) 잠금은 거래소를 밝혀 경고한다 (quick-260923-pgv)', () => {
+  it('⑦ 키 범위 — 다른 계좌 키 잠금은 이 카드 ✕ 에 영향이 없고, 같은 계좌·ISIN 의 NXT 잠금은 NXT 카드가 옆에서 보여주므로 KRX 카드 ✕ 는 등록 전략 다이얼로그 · NXT 카드 ✕ 는 「NXT」 경고 (quick-260923-pgv · quick-260923-que)', () => {
     mockRelay = relay({
       limitChasers: [lc(SAMSUNG), lc(SAMSUNG, { exchange: 'NXT' }), lc(SAMSUNG, { accountNo: OTHER_ACCOUNT })],
       sendOrder: vi.fn(),
@@ -1390,13 +1390,12 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
       [keyOf(SAMSUNG, 'NXT'), 'result-unknown'],
       [keyOf(SAMSUNG, 'KRX', OTHER_ACCOUNT), 'in-flight'],
     ]);
-    // KRX · 이 계좌 카드(첫 카드) — 자기 키는 안 잠겼지만 같은 계좌·ISIN 의 NXT 키가 잠겼다 → unknown ·
-    // 잠긴 거래소는 NXT 만(다른 계좌 KRX 잠금은 섞이지 않는다) · 등록 전략 문장도 붙는다
-    // (quick-260923-pgv — 거래소 토글이 자유로워져 ✕ 판정을 두 거래소 키로 넓혔다).
+    // KRX · 이 계좌 카드(첫 카드) — 자기 키는 안 잠겼고, 같은 계좌·ISIN 의 NXT 키 잠금은 옆의 NXT
+    // 카드가 지금 보여주고 있다 → 이 카드를 닫아도 잠긴 주문이 시야에서 사라지지 않으니 unknown 이
+    // 아니다(quick-260923-que). 다른 계좌 KRX 잠금도 섞이지 않는다 → 등록 전략 다이얼로그만.
     fireEvent.click(screen.getAllByRole('button', { name: /카드 닫기$/ })[0]);
-    expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
-    expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('NXT');
-    expect(dialogEl().textContent).toContain(closeLockedExchangesLine(['NXT']));
+    expect(dialogEl().getAttribute('data-reason')).toBe('registered');
+    expect(dialogEl().textContent).not.toContain(closeLockedExchangesLine(['NXT']));
     expect(dialogEl().textContent).toContain(REGISTERED_BODY);
     fireEvent.click(within(dialogEl()).getByRole('button', { name: '취소' }));
     // NXT 카드는 자기 키가 잠겼다 → unknown.
@@ -1456,6 +1455,60 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
     fireEvent.click(closeBtn('삼성전자'));
     expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('KRX NXT');
     expect(dialogEl().textContent).toContain('잠긴 거래소: KRX · NXT');
+  });
+
+  /** 미등록 KRX 카드 + 같은 종목 NXT 카드(NXT 미체결 행으로 붙인다 · WR-04) · NXT 키 잠금. */
+  function krxAndNxtCardsWithNxtLock() {
+    mockRelay = relay({
+      accountStates: acctWith([unfRow({ orderNo: '3407000222', exchange: 'NXT' })]),
+      sendOrder: vi.fn(),
+    } as Partial<RelayShape>);
+    const view = render(<TradingWorkbench />);
+    fireEvent.click(addBtn()); // KRX 카드 · 미등록
+    clickRow('3407000222'); // 같은 종목 NXT 카드가 붙는다 · 미등록
+    expect(cardsInDom().map((c) => c.getAttribute('data-key')).sort()).toEqual(
+      [keyOf(SAMSUNG), keyOf(SAMSUNG, 'NXT')].sort(),
+    );
+    const locks = withLocks(view.rerender, [[keyOf(SAMSUNG, 'NXT'), 'result-unknown']]);
+    return { locks };
+  }
+  const closeOfKey = (key: string) =>
+    within(cardsInDom().find((c) => c.getAttribute('data-key') === key)!).getByRole('button', {
+      name: /카드 닫기$/,
+    });
+
+  it('⑦-g 다른 카드가 그 거래소 키를 보여주면 ✕ 경고에서 뺀다 — KRX 카드는 즉시 닫히고, 남은 NXT 카드는 자기 키로 「NXT」 경고 (quick-260923-que)', () => {
+    const { locks } = krxAndNxtCardsWithNxtLock();
+    // (a) KRX 카드 ✕ — NXT 잠금은 옆 NXT 카드가 보여준다 · 미등록 → 다이얼로그 없이 즉시 닫힘.
+    fireEvent.click(closeOfKey(keyOf(SAMSUNG)));
+    expect(screen.queryByTestId('workbench-close-confirm')).toBeNull();
+    expect(cardsInDom()).toHaveLength(1);
+    expect(cardsInDom()[0].getAttribute('data-key')).toBe(keyOf(SAMSUNG, 'NXT'));
+    // (b) 남은 NXT 카드 ✕ — 자기 키 잠금은 언제나 포함.
+    fireEvent.click(closeOfKey(keyOf(SAMSUNG, 'NXT')));
+    expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
+    expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('NXT');
+    expect(dialogEl().textContent).toContain(closeLockedExchangesLine(['NXT']));
+    // 잠금은 그대로 · 송신 0.
+    expect(mockRelay.orderLocks).toBe(locks);
+    expect(sendCalls()).toBe(0);
+    expect(sendOrderSpy()).not.toHaveBeenCalled();
+  });
+
+  it('⑦-g 반대 순서 — 잠금을 보여주던 NXT 카드를 먼저 닫으면 KRX 카드 ✕ 는 다시 「잠긴 거래소: NXT」 로 경고한다 (quick-260923-que)', () => {
+    const { locks } = krxAndNxtCardsWithNxtLock();
+    fireEvent.click(closeOfKey(keyOf(SAMSUNG, 'NXT')));
+    expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
+    confirmClose();
+    expect(cardsInDom()).toHaveLength(1);
+    expect(cardsInDom()[0].getAttribute('data-key')).toBe(keyOf(SAMSUNG));
+
+    fireEvent.click(closeOfKey(keyOf(SAMSUNG)));
+    expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
+    expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('NXT');
+    expect(dialogEl().textContent).toContain(closeLockedExchangesLine(['NXT']));
+    expect(mockRelay.orderLocks).toBe(locks);
+    expect(sendCalls()).toBe(0);
   });
 
   it('⑦-c 접기/펴기 · 상태줄 계좌 A→B→A 전환 뒤에도 ✕ 는 같은 컨텍스트 잠금을 읽는다', () => {
