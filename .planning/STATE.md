@@ -5,10 +5,10 @@ current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
 stopped_at: Completed 18-36-PLAN.md
-last_updated: "2026-09-23T11:00:12.965Z"
+last_updated: "2026-09-23T11:43:08.054Z"
 last_activity: 2026-09-23
 last_activity_desc: 18-36 R4 최종 게이트 green(relay 534 · webapp 1472/1 skip · Playwright 143/0 fail/9 skip · GC1~GC6) · 18-VALIDATION §Gap Closure R4 7행 닫힘 · TRADE-06~09 Pending 유지 · relay 미배포
-state_head: 0ae774a42dbb026f953112743c0f3b1ea2df1239
+state_head: 797d46879d5f69ce8784f3b56855d4048ee0b0fa
 progress:
   total_phases: 27
   completed_phases: 4
@@ -945,6 +945,7 @@ Recent decisions affecting current work:
 | 54 | install-vpn-menubar.sh 재실행 시 기존 KB-DMA.conf AllowedIPs 보존(10.41.1.x/32 만·게이트웨이 포함 조건, 그 밖은 게이트웨이 /32 로 복귀) — 개인 파일(.gitignore)이라 저장소 밖 수정, bash 3.2 모의 9/9 통과; README 의 '재실행하면 121 이 빠진다' 주의를 '유지된다' 로 정정 | 2026-09-15 | 21b3318 | — |
 | 60 | 상따 종목검색 — 검색 결과 **첫 항목을 자동 활성화**해 ↓ 없이 Enter 로 바로 고르게(헤더 ⌘K 검색과 같은 감각). quick-260912-u58 의 T-u58-01 「첫 항목 자동 선택 금지」 계약을 뒤집었다 — 당시 위험의 실체는 활성을 인덱스로 들고 있어 목록 갱신 때 화면과 갈라지는 것이었고, 지금은 `activeCode` 가 종목코드라 갱신 시 **새 목록의 첫 고를 수 있는 행**으로 재계산되며 배경·`aria-selected`·`aria-activedescendant` 가 그 행을 함께 가리킨다(고를 수 있는 행 0개면 활성 null, Enter 는 `preventDefault` 만). 유닛 65 passed · tsc 0 · eslint 0 | 2026-09-20 | b5816d2 | — |
 | 85 | 작업대 소소 4건(fast) — 카드 탭 제목 괄호 건수 · 수동주문 입력 16px · 접으면 접힘 맨 앞 · NXT 미거래 종목 카드 세그먼트 숨김. webapp 1657/1 skip · Playwright 39/0 | 2026-09-23 | 0ae774a | — |
+| 86 | 작업대 5건(fast) — 더티 바 카드 하단(JS 핀 · main 스크롤 컨테이너라 sticky 불가) · 꺼진 전략 기본 숨김(isActiveStrategy · 진입 시 1회 걷기) · 돌파 표/칩 폰 정리 · 매수취소 체크 한 줄. webapp 1660/1 skip · Playwright 39/0 | 2026-09-23 | 797d468 | — |
 
 ## Session Continuity
 
