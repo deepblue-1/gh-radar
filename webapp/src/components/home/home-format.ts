@@ -77,6 +77,14 @@ export function formatSingleBlock(single: HomeSurgeSingle, order?: number): stri
   return lines.join('\n');
 }
 
+/** 섹션 복사 헤더 `[{title}] {tradeDate} {KST HH:MM}` — 날짜는 tradeDate(capturedAt 의 KST 날짜 아님). */
+function snapshotHeader(
+  title: string,
+  snapshot: Pick<HomeThemeSnapshot, 'tradeDate' | 'capturedAt'>,
+): string {
+  return `[${title}] ${snapshot.tradeDate} ${toKstHhmm(snapshot.capturedAt)}`;
+}
+
 /**
  * 주도 테마 전체 복사 텍스트 (D-02).
  *   `[주도 테마] {tradeDate} {capturedAt 의 KST HH:MM}` + 빈 줄 + 번호 블록들(빈 줄 1개 구분).
@@ -86,7 +94,19 @@ export function formatThemesSummary(
   snapshot: Pick<HomeThemeSnapshot, 'tradeDate' | 'capturedAt'>,
   themes: HomeSurgeTheme[],
 ): string {
-  const header = `[주도 테마] ${snapshot.tradeDate} ${toKstHhmm(snapshot.capturedAt)}`;
   const blocks = themes.map((theme, i) => formatThemeBlock(theme, i + 1));
-  return [header, ...blocks].join('\n\n');
+  return [snapshotHeader('주도 테마', snapshot), ...blocks].join('\n\n');
+}
+
+/**
+ * 개별 급등 전체 복사 텍스트 (quick-260923-cre D-02).
+ *   `[개별 급등] {tradeDate} {capturedAt 의 KST HH:MM}` + 빈 줄 + 번호 블록들(빈 줄 1개 구분).
+ * 순서는 입력(payload = 화면 카드) 순서 그대로 — 다시 정렬하지 않는다. 끝 개행 없음.
+ */
+export function formatSinglesSummary(
+  snapshot: Pick<HomeThemeSnapshot, 'tradeDate' | 'capturedAt'>,
+  singles: HomeSurgeSingle[],
+): string {
+  const blocks = singles.map((single, i) => formatSingleBlock(single, i + 1));
+  return [snapshotHeader('개별 급등', snapshot), ...blocks].join('\n\n');
 }

@@ -164,3 +164,95 @@ describe('주도 테마 전체 복사 (quick-260914-jtj)', () => {
     expect(await screen.findByText('복사됨')).toBeInTheDocument();
   });
 });
+
+/**
+ * quick-260923-cre — "개별 급등 N" 제목 행 '전체 복사' → 보고 있는 스냅샷의 개별 급등 전체.
+ * 주도 테마 복사와 섹션별로 독립(D-07). 실제 타이머.
+ */
+const S1 = {
+  code: '042700',
+  name: '한미반도체',
+  changeRate: 29.9,
+  reason: 'HBM 장비 수주 공시',
+  news: [{ title: '한미반도체 수주 기사', url: 'https://example.com/hm', source: '연합뉴스' }],
+};
+const S2 = { code: '035720', name: '카카오', changeRate: 22.8, reason: null, news: [] };
+
+const SINGLES_TEXT =
+  '[개별 급등] 2026-09-14 10:00\n\n1. 한미반도체 +29.9%\nHBM 장비 수주 공시\n\n2. 카카오 +22.8%';
+
+const SINGLES_ONLY_RESPONSE: HomeSnapshotResponse = {
+  snapshot: {
+    ...THEMED_RESPONSE.snapshot!,
+    themeCount: 0,
+    stockCount: 2,
+    payload: { ...THEMED_RESPONSE.snapshot!.payload, themes: [], singles: [S1, S2] },
+  },
+  index: [
+    { tradeDate: DATE, capturedAt: SLOT_B, themeCount: 0, stockCount: 2, isCarried: false },
+  ],
+};
+
+const BOTH_RESPONSE: HomeSnapshotResponse = {
+  snapshot: {
+    ...THEMED_RESPONSE.snapshot!,
+    themeCount: 2,
+    stockCount: 6,
+    payload: { ...THEMED_RESPONSE.snapshot!.payload, singles: [S1, S2] },
+  },
+  index: [
+    { tradeDate: DATE, capturedAt: SLOT_B, themeCount: 2, stockCount: 6, isCarried: false },
+  ],
+};
+
+describe('개별 급등 전체 복사 (quick-260923-cre)', () => {
+  let writeText: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    fetchHomeMock.mockReset();
+  });
+
+  afterEach(() => {
+    delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    vi.restoreAllMocks();
+  });
+
+  it('주도 테마가 없어도 제목 행 버튼이 개별 급등 전체를 복사한다', async () => {
+    fetchHomeMock.mockResolvedValue(SINGLES_ONLY_RESPONSE);
+    render(<HomeClient />);
+
+    const button = await screen.findByRole('button', { name: '개별 급등 전체 복사' });
+    expect(screen.queryByRole('button', { name: '주도 테마 전체 복사' })).toBeNull();
+    expect(button).toHaveTextContent('전체 복사');
+    fireEvent.click(button);
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(SINGLES_TEXT);
+    expect(await screen.findByText('복사됨')).toBeInTheDocument();
+  });
+
+  it('두 섹션 버튼은 각자 자기 섹션만 복사한다 (D-07)', async () => {
+    fetchHomeMock.mockResolvedValue(BOTH_RESPONSE);
+    render(<HomeClient />);
+
+    const singlesBtn = await screen.findByRole('button', { name: '개별 급등 전체 복사' });
+    expect(screen.getByRole('button', { name: '한미반도체 급등이유 복사' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '카카오 급등이유 복사' })).toBeInTheDocument();
+
+    fireEvent.click(singlesBtn);
+    expect(writeText).toHaveBeenNthCalledWith(1, SINGLES_TEXT);
+    expect(writeText.mock.calls[0][0]).not.toContain('[주도 테마]');
+
+    fireEvent.click(screen.getByRole('button', { name: '주도 테마 전체 복사' }));
+    expect(writeText).toHaveBeenNthCalledWith(
+      2,
+      '[주도 테마] 2026-09-14 10:00\n\n1. 2차전지 (평균 +26.1%)\n리튬 가격 반등·수주 공시\n- 에코프로 +29.9%\n- 포스코퓨처엠 +22.3%\n\n2. 원전 (평균 +21.5%)\n- 두산에너빌리티 +23.0%\n- 한전기술 +20.0%',
+    );
+    expect(writeText.mock.calls[1][0]).not.toContain('[개별 급등]');
+  });
+});

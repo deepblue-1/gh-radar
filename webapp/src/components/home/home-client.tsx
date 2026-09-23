@@ -8,7 +8,7 @@ import { useHomeQuery } from '@/hooks/use-home-query';
 
 import { CopyTextButton } from './copy-text-button';
 import { HomeEmpty } from './home-empty';
-import { formatThemesSummary } from './home-format';
+import { formatSinglesSummary, formatThemesSummary } from './home-format';
 import { HomeHeader, type HomeSelection } from './home-header';
 import { HomeSkeleton } from './home-skeleton';
 import { SoloCard } from './solo-card';
@@ -24,7 +24,8 @@ import { ThemeCard } from './theme-card';
  *   empty (snapshot null 또는 themes+singles 모두 비어있음) → HomeEmpty
  *   populated → HomeHeader + "주도 테마"(count-badge + 우측 '전체 복사' 버튼 — 보고 있는 스냅샷의
  *               모든 테마 요약을 일반 텍스트로 복사, quick-260914-jtj) ThemeCard
- *               + "개별 급등"(count-badge) SoloCard
+ *               + "개별 급등"(count-badge + 우측 '전체 복사' — 보고 있는 스냅샷의 개별 급등 전체,
+ *                 quick-260923-cre) SoloCard(카드별 급등이유 복사 아이콘)
  *
  * 네비: selected {date, capturedAt} state. onSelectDate/onSelectSlot/onToday → useHomeQuery 재조회.
  * error.message 미노출 (T-13-09) — 고정 문구 + console.error 는 훅에서 분리.
@@ -126,7 +127,8 @@ export function HomeClient() {
             </>
           )}
 
-          {singles.length > 0 && (
+          {/* snapshot null 이면 singles 도 비어 런타임 동일 — snapshot 타입 narrowing 용. */}
+          {snapshot && singles.length > 0 && (
             <>
               <div className="mt-[var(--s-2)] flex items-center gap-2">
                 <h2 className="text-[length:var(--t-h4)] font-extrabold text-[var(--fg)]">
@@ -135,6 +137,13 @@ export function HomeClient() {
                 <span className="mono rounded-full bg-[var(--muted)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                   {singles.length}
                 </span>
+                {/* getText lazy — 과거 슬롯을 보고 있으면 그 스냅샷을 복사. */}
+                <CopyTextButton
+                  label="전체 복사"
+                  ariaLabel="개별 급등 전체 복사"
+                  getText={() => formatSinglesSummary(snapshot, singles)}
+                  className="ml-auto"
+                />
               </div>
               {singles.map((single) => (
                 <SoloCard key={single.code} single={single} />

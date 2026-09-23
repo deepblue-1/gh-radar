@@ -8,6 +8,7 @@ import {
   avgChange,
   formatChange,
   formatSingleBlock,
+  formatSinglesSummary,
   formatThemeBlock,
   formatThemesSummary,
   sortStocksByChangeDesc,
@@ -147,5 +148,33 @@ describe('formatSingleBlock', () => {
     expect(text).not.toContain('042700');
     expect(text).not.toContain('https://');
     expect(text).not.toContain('한미반도체 수주 기사');
+  });
+});
+
+describe('formatSinglesSummary', () => {
+  const SNAP = { tradeDate: '2026-09-23', capturedAt: '2026-09-23T01:32:00.000Z' };
+
+  it('헤더 + 빈 줄 + 번호 블록을 빈 줄로 구분, 끝 개행·코드·뉴스 없음', () => {
+    const text = formatSinglesSummary(SNAP, [S1, S2]);
+    expect(text).toBe(
+      '[개별 급등] 2026-09-23 10:32\n\n1. 한미반도체 +29.9%\nHBM 장비 수주 공시\n\n2. 카카오 +22.8%',
+    );
+    expect(text).not.toContain('https://');
+    expect(text).not.toContain('042700');
+    expect(text).not.toContain('한미반도체 수주 기사');
+  });
+
+  it('입력 순서(화면 카드 순서)를 유지하고 다시 정렬하지 않는다', () => {
+    expect(formatSinglesSummary(SNAP, [S2, S1])).toBe(
+      '[개별 급등] 2026-09-23 10:32\n\n1. 카카오 +22.8%\n\n2. 한미반도체 +29.9%\nHBM 장비 수주 공시',
+    );
+  });
+
+  it('날짜는 tradeDate, 시각은 capturedAt 의 KST', () => {
+    const text = formatSinglesSummary(
+      { tradeDate: '2026-09-23', capturedAt: '2026-09-22T23:05:00.000Z' },
+      [S2],
+    );
+    expect(text.startsWith('[개별 급등] 2026-09-23 08:05')).toBe(true);
   });
 });
