@@ -121,8 +121,13 @@ viReleased():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+createdMs():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 38);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startVIOrderItem(builder:flatbuffers.Builder) {
-  builder.startObject(17);
+  builder.startObject(18);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -193,12 +198,16 @@ static addViReleased(builder:flatbuffers.Builder, viReleased:boolean) {
   builder.addFieldInt8(16, +viReleased, +false);
 }
 
+static addCreatedMs(builder:flatbuffers.Builder, createdMs:bigint) {
+  builder.addFieldInt64(17, createdMs, BigInt('0'));
+}
+
 static endVIOrderItem(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createVIOrderItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, orderQty:number, orderPrice:number, triggerPrice:number, basePrice:number, viEndTimeOffset:flatbuffers.Offset, deadline110Ms:bigint, deadline119Ms:bigint, confirmed:boolean, confirmLocked:boolean, stateOffset:flatbuffers.Offset, filledQty:number, exchangeOffset:flatbuffers.Offset, viReleased:boolean):flatbuffers.Offset {
+static createVIOrderItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, marketOffset:flatbuffers.Offset, accountNoOffset:flatbuffers.Offset, orderNoOffset:flatbuffers.Offset, orderQty:number, orderPrice:number, triggerPrice:number, basePrice:number, viEndTimeOffset:flatbuffers.Offset, deadline110Ms:bigint, deadline119Ms:bigint, confirmed:boolean, confirmLocked:boolean, stateOffset:flatbuffers.Offset, filledQty:number, exchangeOffset:flatbuffers.Offset, viReleased:boolean, createdMs:bigint):flatbuffers.Offset {
   VIOrderItem.startVIOrderItem(builder);
   VIOrderItem.addIsin(builder, isinOffset);
   VIOrderItem.addMarket(builder, marketOffset);
@@ -217,6 +226,7 @@ static createVIOrderItem(builder:flatbuffers.Builder, isinOffset:flatbuffers.Off
   VIOrderItem.addFilledQty(builder, filledQty);
   VIOrderItem.addExchange(builder, exchangeOffset);
   VIOrderItem.addViReleased(builder, viReleased);
+  VIOrderItem.addCreatedMs(builder, createdMs);
   return VIOrderItem.endVIOrderItem(builder);
 }
 }
