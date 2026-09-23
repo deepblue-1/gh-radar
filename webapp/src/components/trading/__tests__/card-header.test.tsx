@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { RelayLimitChaser } from '@gh-radar/shared';
 
-import { CardHeader, EXCHANGE_LOCKED_TITLE, type CardHeaderProps } from '../card/card-header';
+import { CardHeader, EXCHANGE_SEGMENT_TITLE, type CardHeaderProps } from '../card/card-header';
 
 /**
  * Phase 18 Plan 06 Task 2 — 카드 헤더 (D-09 · D-10 · E7 · TRADE-09).
  *
  * 잠그는 것:
- *   - 등록된 카드의 거래소 세그먼트는 세 경로(`disabled`·`aria-disabled`·`title`)로 잠긴다.
- *     거래소는 전략 키의 일부라 바뀌면 **다른 전략**을 조작하게 된다(T-18-27).
+ *   - 거래소 세그먼트는 등록 여부와 무관하게 활성이다 — 토글은 카드가 보는 키의 거래소 축
+ *     전환(quick-260923-pgv · D-10 잠금 절 대체). 그룹 `title` 은 전환 설명 한 줄.
  *   - 헤더 안 컨트롤(세그먼트·LED·ⓘ·✕)은 펼침 토글을 일으키지 않는다(전파 차단).
  *   - LED 는 기존 `LatchLed`(= `latchLedStateOf` 규칙표) 그대로다(T-18-28).
  *   - 매수/매도/한방 스위치는 헤더에 없다(D-12).
@@ -70,7 +70,6 @@ function renderHeader(over: Partial<CardHeaderProps> = {}) {
     code: '247540',
     exchange: 'KRX',
     onExchangeChange: vi.fn(),
-    exchangeLocked: false,
     price: 130_000,
     changeRate: 12.5,
     ledServer: null,
@@ -93,33 +92,31 @@ const exchangeGroup = () => screen.getByRole('group', { name: '거래소' });
 const exchangeButtons = () => within(exchangeGroup()).getAllByRole('radio');
 
 describe('CardHeader', () => {
-  it('등록 전(서버 전략 없음) 카드 — 거래소 세그먼트가 활성이고 고르면 onExchangeChange 로 알린다', () => {
-    const { props } = renderHeader({ exchangeLocked: false });
+  it('거래소 세그먼트는 언제나 활성 — 고르면 onExchangeChange 로 알리고 그룹 title 은 전환 설명이다', () => {
+    const { props } = renderHeader();
     const [krx, nxt] = exchangeButtons();
     expect(krx.textContent).toBe('KRX');
     expect(nxt.textContent).toBe('NXT');
     expect(krx).not.toBeDisabled();
     expect(nxt).not.toBeDisabled();
     expect(exchangeGroup()).not.toHaveAttribute('aria-disabled');
+    expect(EXCHANGE_SEGMENT_TITLE).toBe('거래소 전환 — 이 종목의 KRX·NXT 전략을 오가며 봐요');
+    expect(exchangeGroup()).toHaveAttribute('title', EXCHANGE_SEGMENT_TITLE);
     expect(krx).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(nxt);
     expect(props.onExchangeChange).toHaveBeenCalledWith('NXT');
   });
 
-  it('등록된 카드 — 세그먼트가 disabled + aria-disabled="true" + 잠김 사유 title 로 잠긴다', () => {
-    const { props } = renderHeader({ exchangeLocked: true });
-    expect(EXCHANGE_LOCKED_TITLE).toBe('거래소는 전략 키의 일부라 등록 후에는 바꿀 수 없어요');
-    const group = exchangeGroup();
-    expect(group).toHaveAttribute('aria-disabled', 'true');
-    expect(group).toHaveAttribute('title', EXCHANGE_LOCKED_TITLE);
+  it('등록된 카드(ledServer 있음)에서도 세그먼트가 활성이다 (quick-260923-pgv)', () => {
+    const { props } = renderHeader({ ledServer: echo() });
     for (const btn of exchangeButtons()) {
-      expect(btn).toBeDisabled();
-      expect(btn).toHaveAttribute('aria-disabled', 'true');
-      expect(btn).toHaveAttribute('title', EXCHANGE_LOCKED_TITLE);
+      expect(btn).not.toBeDisabled();
+      expect(btn).not.toHaveAttribute('aria-disabled');
     }
     fireEvent.click(exchangeButtons()[1]);
-    expect(props.onExchangeChange).not.toHaveBeenCalled();
+    expect(props.onExchangeChange).toHaveBeenCalledTimes(1);
+    expect(props.onExchangeChange).toHaveBeenCalledWith('NXT');
   });
 
   it('E7 loading — 시세 미수신이면 현재가·등락률이 「—」다', () => {

@@ -15,11 +15,12 @@
  *   ★ 전략 배지(`StrategyBadge`)를 두지 않는다 — 목업 정본 헤더에 없고, 무장 상태는 LED 가,
  *     거래소는 세그먼트가 이미 말한다. 같은 사실을 세 번째 표기로 쓰지 않는다.
  *
- * ② ★ 거래소 세그먼트는 **등록 전 카드에서만** 바꿀 수 있다 (D-10 · T-18-27)
- *   거래소는 전략 키(`ISIN:계좌:거래소`)의 일부라, 등록된 뒤에 바꾸면 **다른 전략**을
- *   조작하게 된다. 잠김은 세 경로로 말한다 — `disabled`(마우스·키보드) · `aria-disabled`
- *   (스크린리더) · `title`(이유). 셋 중 하나만 빠져도 누군가에게는 「왜 안 눌리지」가 된다.
- *   등록된 전략의 거래소 변경 자체는 이 phase 범위 밖이다(이연).
+ * ② ★ 거래소 세그먼트는 **등록 여부와 무관하게 활성**이다 (quick-260923-pgv · D-10 잠금 절 대체)
+ *   토글은 전략 이동이 아니라 카드가 보는 키(`ISIN:계좌:거래소`)의 거래소 축 전환이다 — 새 키의
+ *   서버 전략이 있으면 그것을, 없으면 미설정 폼을 보인다. 원래 거래소의 전략은 서버에 그대로
+ *   남는다. 더티 값 보호(확인 다이얼로그)와 키 충돌(같은 키 카드로 이동)은 작업대
+ *   `changeExchange` 의 몫이다 — 헤더는 고른 값을 알리기만 한다. 그룹 `title` 은 전환 설명
+ *   한 줄이다.
  *
  * ③ ★ 헤더 전체가 펼침 토글의 클릭 영역이다 — 단, 그 안의 컨트롤은 제외 (D-09)
  *   세그먼트·LED·ⓘ·✕ 는 자기 일을 하고 `stopPropagation` 으로 전파를 막는다. 막지 않으면
@@ -47,9 +48,8 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
-/** 거래소 잠김 사유 — UI-SPEC §Copywriting 카드 표 원문. 테스트가 같은 상수를 읽는다. */
-export const EXCHANGE_LOCKED_TITLE =
-  "거래소는 전략 키의 일부라 등록 후에는 바꿀 수 없어요";
+/** 세그먼트 그룹 `title` — 잠금 사유가 아니라 전환 설명(quick-260923-pgv). 테스트가 같은 상수를 읽는다. */
+export const EXCHANGE_SEGMENT_TITLE = "거래소 전환 — 이 종목의 KRX·NXT 전략을 오가며 봐요";
 
 const EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
 const LED_KINDS: readonly LatchLedKind[] = ["buy", "sell", "cancel"];
@@ -67,8 +67,6 @@ export interface CardHeaderProps {
   code: string | null;
   exchange: RelayExchange;
   onExchangeChange: (exchange: RelayExchange) => void;
-  /** 서버 전략이 있다(= 등록됨) → 세그먼트 잠김. */
-  exchangeLocked: boolean;
   /** 현재가. 시세 미수신이면 `null` → 「—」. */
   price: number | null;
   /** 등락률(%). 시세 미수신이면 `null` → 「—」. */
@@ -106,7 +104,6 @@ export function CardHeader({
   code,
   exchange,
   onExchangeChange,
-  exchangeLocked,
   price,
   changeRate,
   ledServer,
@@ -199,8 +196,8 @@ export function CardHeader({
         {/*
           거래소 세그먼트 — `ToggleGroup type="single"`(Radix: 그룹 `role="group"`, 항목
           라디오형 `role="radio"` + `aria-checked`, ←/→ 로빙 포커스).
-          ★ 잠김 `title` 은 그룹과 항목 **양쪽**에 건다 — 비활성 항목은 포인터 이벤트를
-            받지 않아(`disabled:pointer-events-none`) 호버가 그룹으로 떨어진다.
+          ★ `title` 은 그룹에만 건다 — 항목은 활성이라 호버가 항목에서 그룹으로 버블링해 같은
+            설명을 보인다(항목마다 다시 적지 않는다).
           ★ 빈 값(`""`)은 무시한다 — single 그룹은 선택된 항목을 다시 누르면 해제를 알린다.
             거래소가 「없음」인 카드는 존재하지 않는다.
         */}
@@ -211,10 +208,8 @@ export function CardHeader({
             onValueChange={(v) => {
               if (v === "KRX" || v === "NXT") onExchangeChange(v);
             }}
-            disabled={exchangeLocked}
             aria-label="거래소"
-            aria-disabled={exchangeLocked ? "true" : undefined}
-            title={exchangeLocked ? EXCHANGE_LOCKED_TITLE : undefined}
+            title={EXCHANGE_SEGMENT_TITLE}
             data-slot="card-exchange-segment"
             className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
           >
@@ -222,8 +217,6 @@ export function CardHeader({
               <ToggleGroupItem
                 key={ex}
                 value={ex}
-                aria-disabled={exchangeLocked ? "true" : undefined}
-                title={exchangeLocked ? EXCHANGE_LOCKED_TITLE : undefined}
                 className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
               >
                 {ex}

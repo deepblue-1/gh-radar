@@ -172,8 +172,45 @@ describe('StrategyCard', () => {
     // 헤더 LED 도 자기 전략(매수 무장 OFF)을 읽는다 — 남의 무장(ON)이 새어 들지 않는다.
     const buyLed = cardOf(ISIN_A).querySelector('[data-slot="latch-led"][data-kind="buy"]');
     expect(buyLed?.getAttribute('data-tone')).toBe('off');
-    // 등록된 카드라 거래소가 잠긴다(서버 전략 = 자기 키의 것).
-    expect(screen.getByRole('group', { name: '거래소' })).toHaveAttribute('aria-disabled', 'true');
+    // 등록된 카드도 거래소 세그먼트는 활성이다(quick-260923-pgv — D-10 잠금 절 대체).
+    expect(screen.getByRole('group', { name: '거래소' })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('거래소 prop 이 바뀌면 카드는 새 키를 본다 — NXT 전략 없으면 미설정, 있으면 그 전략 · relay 전송 0 (quick-260923-pgv)', () => {
+    const krxOnly = relay({ limitChasers: [echo(ISIN_A)] });
+    const view = (value: RelayContextValue, exchange: RelayExchange) => (
+      <RelayContext.Provider value={value}>
+        <StrategyCard {...baseProps} open isin={ISIN_A} exchange={exchange} body={probeBody} />
+      </RelayContext.Provider>
+    );
+    const serverKey = (exchange: RelayExchange) =>
+      screen.getByTestId(`probe-${keyOf(ISIN_A, exchange)}`).querySelector('[data-part="server-key"]')
+        ?.textContent;
+    const card = () => document.querySelector('[data-slot="strategy-card"]') as HTMLElement;
+
+    const { rerender } = render(view(krxOnly, 'KRX'));
+    expect(serverKey('KRX')).toBe(keyOf(ISIN_A));
+    subscribe.mockClear();
+
+    // KRX → NXT: NXT 키에 서버 전략이 없으니 미설정. 구독도 새 거래소로 옮긴다.
+    rerender(view(krxOnly, 'NXT'));
+    expect(card().getAttribute('data-key')).toBe(keyOf(ISIN_A, 'NXT'));
+    expect(serverKey('NXT')).toBe('none');
+    expect(unsubscribe).toHaveBeenCalledWith(ISIN_A, 'KRX');
+    expect(subscribe).toHaveBeenCalledWith(ISIN_A, 'NXT');
+    expect(card().querySelector('[data-part="name"]')?.getAttribute('title')).toMatch(/ · NXT$/);
+
+    // NXT 전략이 생기면 그것을 읽는다.
+    const both = relay({ limitChasers: [echo(ISIN_A), echo(ISIN_A, { exchange: 'NXT' })] });
+    rerender(view(both, 'NXT'));
+    expect(serverKey('NXT')).toBe(keyOf(ISIN_A, 'NXT'));
+
+    // 되돌리면 KRX 전략을 다시 본다 — KRX 전략은 그대로 있었다.
+    rerender(view(both, 'KRX'));
+    expect(serverKey('KRX')).toBe(keyOf(ISIN_A));
+
+    // 전 과정에서 relay 로 아무것도 보내지 않는다(전략 삭제·재등록 없음).
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('카드 A 의 에코가 카드 B 의 pending·미반영을 건드리지 않는다(두 카드 동시 렌더)', () => {

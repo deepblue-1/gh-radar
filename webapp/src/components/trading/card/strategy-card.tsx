@@ -584,7 +584,10 @@ export interface StrategyCardProps {
   isin: string;
   /** 위(작업대 상태줄)에서 내려받은 계좌. */
   accountNo: string;
-  /** 카드의 거래소 — 작업대 카드 집합이 소유한다(등록 전에만 바뀐다). */
+  /**
+   * 카드의 거래소 — 작업대 카드 집합이 소유한다. 등록 여부와 무관하게 헤더 세그먼트로 바뀐다
+   * (quick-260923-pgv) — 바뀌면 이 카드의 키·구독·폼(remount 키에 포함)이 새 거래소를 본다.
+   */
   exchange: RelayExchange;
   /**
    * 표시 종목명 — 부모가 `labels.get(isin)?.name` 을 **문자열로** 내린다(④).
@@ -661,7 +664,7 @@ function StrategyCardImpl({
   requestedTab,
 }: StrategyCardProps) {
   const card = useStrategyCardState({ isin, accountNo, exchange });
-  const { key, server, quote, ledServer, handleArm, dirtyCount, log } = card;
+  const { key, quote, ledServer, handleArm, dirtyCount, log } = card;
 
   /*
     ④ 카드 계좌 슬라이스(quick-260923-onn) — 이 카드 계좌 상태를 이 종목·거래소로 1회 자른다.
@@ -731,8 +734,6 @@ function StrategyCardImpl({
         code={code}
         exchange={exchange}
         onExchangeChange={handleExchange}
-        /* D-10 — 등록됨(서버 전략 있음) = 거래소 잠김. 거래소는 키의 일부다(T-18-27). */
-        exchangeLocked={server !== null}
         price={quote === null ? null : quote.p}
         changeRate={quote === null ? null : quote.cr}
         ledServer={ledServer}

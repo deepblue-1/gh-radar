@@ -116,7 +116,6 @@ function Card({ code, name = '알테오젠' }: { code: string | null; name?: str
         code={code}
         exchange="KRX"
         onExchangeChange={vi.fn()}
-        exchangeLocked={false}
         price={412000}
         changeRate={1.2}
         ledServer={null}
