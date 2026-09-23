@@ -14,9 +14,9 @@
  * quick-260923-e1m (S1 — 체결 조각 누적) 이 더한 것 (기존 동작은 그대로):
  *   ④ `select(cols)` 컬럼 투영 — 받은 컬럼 문자열을 `FakeQuery.columns` 에 남기고 결과를 그
  *      컬럼만으로 돌려준다. `select("id")` 는 지금처럼 `{ id }` 만 돌려준다.
- *   ⑤ DB 기본값 거울 한 곳(`DB_DEFAULTS` — `status` 'requested' · `filled_qty` 0). 투영·`eq`·`in`
- *      이 행에 그 컬럼이 없을 때 이 값을 읽는다. 고정 픽스처 행이 컬럼을 생략했을 뿐 실제 DB
- *      에는 두 컬럼이 없는 행이 존재할 수 없다(`NOT NULL DEFAULT`).
+ *   ⑤ DB 기본값 거울 한 곳(`DB_DEFAULTS` — `status` 'requested' · `filled_qty` 0 · m23 에서
+ *      `modified_qty` 0). 투영·`eq`·`in` 이 행에 그 컬럼이 없을 때 이 값을 읽는다. 고정 픽스처 행이
+ *      컬럼을 생략했을 뿐 실제 DB 에는 세 컬럼이 없는 행이 존재할 수 없다(`NOT NULL DEFAULT`).
  *   ⑥ insert 가 만드는 행에 `qty`(값이 숫자면)와 `filled_qty: 0`.
  *   ⑦ `opts.onSelect` 훅 — select 결과를 **스냅숏한 직후**, 돌려주기 전에 부른다. 읽은 값과
  *      UPDATE 시점 값이 달라지는 compare-and-swap 경합을 결정론적으로 재현한다.
@@ -48,9 +48,10 @@ export type FakeQuery = {
 /**
  * DB 기본값 거울 — **이 파일의 유일한 자리**다 (e1m). `dma_orders` 의 `status text NOT NULL
  * DEFAULT 'requested'` · `filled_qty integer NOT NULL DEFAULT 0`
- * (`20260905120200_dma_orders.sql:62·66`). 픽스처 행이 컬럼을 생략하면 이 값으로 읽는다.
+ * (`20260905120200_dma_orders.sql:62·66`) · `modified_qty integer NOT NULL DEFAULT 0`
+ * (`20260923120000_dma_orders_modified.sql`, quick-260923-m23). 픽스처 행이 컬럼을 생략하면 이 값으로 읽는다.
  */
-const DB_DEFAULTS: Readonly<Record<string, unknown>> = { status: "requested", filled_qty: 0 };
+const DB_DEFAULTS: Readonly<Record<string, unknown>> = { status: "requested", filled_qty: 0, modified_qty: 0 };
 
 /** 행의 컬럼 값 — 없으면 DB 기본값 거울. */
 function valueOf(row: FakeRow, column: string): unknown {

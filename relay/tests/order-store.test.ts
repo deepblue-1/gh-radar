@@ -93,8 +93,13 @@ function recordingSinks(opts: { insertFails?: boolean; existingId?: string | nul
       },
       // 체결 조각 누적 (e1m S1). 이 기록 스텁은 조각도 `written` 에 남긴다 — 누적 계산 자체는
       // 진짜 sink + 가짜 PostgREST 로 「S1 — 체결 조각 누적」 describe 가 본다.
-      addFill: async (sel, delta, patch) => {
-        written.push({ sel, patch: { ...patch, filled_qty_delta: delta } });
+      // (m23) 두 번째 인자는 수량 변경 묶음이다 — 체결 조각은 종전 키 그대로, 캡·이동은 새 키로 남긴다.
+      addFill: async (sel, change, patch) => {
+        const extra: Record<string, number> = {};
+        if (change.fillDelta !== undefined) extra.filled_qty_delta = change.fillDelta;
+        if (change.qtyCap !== undefined) extra.qty_cap = change.qtyCap;
+        if (change.modifiedDelta !== undefined) extra.modified_qty_delta = change.modifiedDelta;
+        written.push({ sel, patch: { ...patch, ...extra } });
         await Promise.resolve();
       },
     },
@@ -1286,7 +1291,7 @@ describe("S1 — 체결 조각 누적 (quick-260923-e1m)", () => {
     });
 
     await expect(
-      supabaseOrderFillSink(supabase)({ column: "id", value: "row-fill" }, 3, {
+      supabaseOrderFillSink(supabase)({ column: "id", value: "row-fill" }, { fillDelta: 3 }, {
         notice_type: "E",
         updated_at: new Date().toISOString(),
       }),
@@ -1347,7 +1352,7 @@ describe("S1 — 체결 조각 누적 (quick-260923-e1m)", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     const { supabase, queries } = fakeDmaOrders([]);
 
-    const result = await supabaseOrderFillSink(supabase)({ column: "id", value: "row-none" }, 3, {
+    const result = await supabaseOrderFillSink(supabase)({ column: "id", value: "row-none" }, { fillDelta: 3 }, {
       updated_at: new Date().toISOString(),
     });
 
@@ -1362,7 +1367,7 @@ describe("S1 — 체결 조각 누적 (quick-260923-e1m)", () => {
     const row = fillRow({ filled_qty: 9, account_no: LEAKED_ACCOUNT });
     const { supabase } = fakeDmaOrders([row]);
 
-    await supabaseOrderFillSink(supabase)({ column: "order_no", value: ORDER_NO, userId: USER_A }, 3, {
+    await supabaseOrderFillSink(supabase)({ column: "order_no", value: ORDER_NO, userId: USER_A }, { fillDelta: 3 }, {
       notice_type: "E",
       updated_at: new Date().toISOString(),
     });
@@ -1403,5 +1408,217 @@ describe("S1 — 체결 조각 누적 (quick-260923-e1m)", () => {
     expect(written).toHaveLength(0);
     expect(store.stats()).toMatchObject({ retried: 1, dropped: 1, flushed: 0, queued: 0 });
     expect(JSON.stringify(errorSpy.mock.calls)).toContain("드롭");
+  });
+});
+
+/**
+ * quick-260923-m23 — 정정 수량 CAS. fill sink 가 체결 조각(`fillDelta`) · 수량 캡(`qtyCap`) ·
+ * 정정 이동(`modifiedDelta`)을 **한 CAS 경로**로 처리하고, `filled` / `modified` 를 수량으로 파생한다.
+ *
+ * 잠그는 것: ① 캡은 내리기만 한다 ② 늦은 캡이 filled 로 재판정한다 ③ 수량이 그대로면 일반 update
+ * sink 와 같은 단조성 판정(㊹) ④ 이동분은 남은 잔량으로 clamp(중복 통보 2선) ⑤ 종결 보호 ⑥ 큐 계약.
+ */
+describe("M23 — 정정 수량 CAS (quick-260923-m23)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function todayIso(): string {
+    return new Date(new Date(kstDayRangeUtc().from).getTime() + 3600_000).toISOString();
+  }
+
+  function modRow(extra: Record<string, unknown> = {}): FakeRow {
+    return {
+      id: "row-mod",
+      user_id: USER_A,
+      order_no: ORDER_NO,
+      created_at: todayIso(),
+      status: "accepted",
+      qty: 100,
+      filled_qty: 0,
+      modified_qty: 0,
+      notice_type: "A",
+      ...extra,
+    };
+  }
+
+  const SEL: OrderSelector = { column: "id", value: "row-mod" };
+  const now = (): OrderRowPatch => ({ updated_at: new Date().toISOString() });
+
+  it("qtyCap 만: qty 13827 · accepted 에 캡 10817 → qty 10817, status accepted 그대로, modified_qty 0", async () => {
+    const row = modRow({ qty: 13827 });
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSinks(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-mod", qtyCap: 10817 });
+    await store.flushNow();
+
+    expect(row).toMatchObject({ qty: 10817, status: "accepted", modified_qty: 0, filled_qty: 0 });
+    expect(store.stats()).toMatchObject({ flushed: 1, dropped: 0 });
+  });
+
+  it("qtyCap 이 행 qty 이상(qty 10 · 캡 20)이고 다른 입력 없음 → 쓰기 없음 · {applied:false} (올리지 않는다)", async () => {
+    const row = modRow({ qty: 10 });
+    const { supabase, queries } = fakeDmaOrders([row]);
+
+    const result = await supabaseOrderFillSink(supabase)(SEL, { qtyCap: 20 }, now());
+
+    expect(result).toEqual({ applied: false });
+    expect(queries.filter((q) => q.verb === "update")).toHaveLength(0);
+    expect(row.qty).toBe(10);
+  });
+
+  it("늦은 캡 재판정: qty 130 · filled 60 · partially_filled 에 {qtyCap 60, accepted, M} → qty 60 · filled", async () => {
+    const row = modRow({ qty: 130, filled_qty: 60, status: "partially_filled", notice_type: "E" });
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSinks(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-mod", qtyCap: 60, status: "accepted", noticeType: "M" });
+    await store.flushNow();
+
+    expect(row).toMatchObject({ qty: 60, filled_qty: 60, status: "filled" });
+  });
+
+  it("수량 불변 + 패치 status 되돌림: qty 10 · filled 10 · filled 에 {qtyCap 10, accepted, M} → 쓰기 없음 · notice_type 불변 (㊹)", async () => {
+    const row = modRow({ qty: 10, filled_qty: 10, status: "filled", notice_type: "E" });
+    const { supabase, queries } = fakeDmaOrders([row]);
+
+    const result = await supabaseOrderFillSink(supabase)(SEL, { qtyCap: 10 }, {
+      ...now(),
+      status: "accepted",
+      notice_type: "M",
+    });
+
+    expect(result).toEqual({ applied: false });
+    expect(queries.filter((q) => q.verb === "update")).toHaveLength(0);
+    expect(row).toMatchObject({ status: "filled", notice_type: "E", qty: 10 });
+  });
+
+  it("전량 이동: qty 100 · filled 40 · partially_filled 에 modifiedDelta 60 → modified_qty 60 · 'modified'", async () => {
+    const row = modRow({ filled_qty: 40, status: "partially_filled" });
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSinks(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-mod", modifiedQtyDelta: 60 });
+    await store.flushNow();
+
+    expect(row).toMatchObject({ qty: 100, filled_qty: 40, modified_qty: 60, status: "modified" });
+  });
+
+  it("일부 이동 후 체결: accepted 에 modifiedDelta 30 → modified_qty 30 · accepted, 이어 fillDelta 70 → filled", async () => {
+    const row = modRow();
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSinks(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-mod", modifiedQtyDelta: 30 });
+    await store.flushNow();
+    expect(row).toMatchObject({ modified_qty: 30, status: "accepted", filled_qty: 0 });
+
+    store.enqueueUpdate({ orderRowId: "row-mod", noticeType: "E", filledQtyDelta: 70 });
+    await store.flushNow();
+    expect(row).toMatchObject({ filled_qty: 70, modified_qty: 30, status: "filled" });
+  });
+
+  it("clamp: qty 100 · filled 40 · modified 60 · 'modified' 에 modifiedDelta 10 → 쓰기 없음 · warn 1줄(column·modifiedDelta·moved)", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const LEAKED_ACCOUNT = "9876543210";
+    const row = modRow({ filled_qty: 40, modified_qty: 60, status: "modified", account_no: LEAKED_ACCOUNT });
+    const { supabase, queries } = fakeDmaOrders([row]);
+
+    const result = await supabaseOrderFillSink(supabase)(SEL, { modifiedDelta: 10 }, now());
+
+    expect(result).toEqual({ applied: false });
+    expect(queries.filter((q) => q.verb === "update")).toHaveLength(0);
+    expect(row).toMatchObject({ modified_qty: 60, status: "modified" });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const fields = warnSpy.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.keys(fields).sort()).toEqual(["column", "modifiedDelta", "moved"]);
+    expect(fields).toMatchObject({ modifiedDelta: 10, moved: 0 });
+    const dumped = JSON.stringify(warnSpy.mock.calls);
+    expect(dumped).not.toContain(ORDER_NO);
+    expect(dumped).not.toContain(LEAKED_ACCOUNT);
+  });
+
+  it("종결 보호: 'modified' 행에 fillDelta 5 → filled_qty 만 +5, status 'modified' 유지", async () => {
+    const row = modRow({ filled_qty: 40, modified_qty: 60, status: "modified", notice_type: "A" });
+    const { supabase } = fakeDmaOrders([row]);
+    const store = new OrderStore(supabaseOrderSinks(supabase));
+
+    store.enqueueUpdate({ orderRowId: "row-mod", noticeType: "E", filledQtyDelta: 5 });
+    await store.flushNow();
+
+    expect(row).toMatchObject({ filled_qty: 45, modified_qty: 60, status: "modified", notice_type: "A" });
+  });
+
+  it("CAS UPDATE 필터에 id · filled_qty · status · qty · modified_qty 가 모두 걸린다", async () => {
+    const row = modRow({ qty: 130, filled_qty: 20, modified_qty: 0, status: "partially_filled" });
+    const { supabase, queries } = fakeDmaOrders([row]);
+
+    await supabaseOrderFillSink(supabase)(SEL, { qtyCap: 60, modifiedDelta: 5, fillDelta: 1 }, now());
+
+    const update = queries.find((q) => q.verb === "update");
+    expect(update?.filters).toEqual(
+      expect.arrayContaining([
+        { op: "eq", column: "id", value: "row-mod" },
+        { op: "eq", column: "filled_qty", value: 20 },
+        { op: "eq", column: "status", value: "partially_filled" },
+        { op: "eq", column: "qty", value: 130 },
+        { op: "eq", column: "modified_qty", value: 0 },
+      ]),
+    );
+    expect(queries.find((q) => q.verb === "select")?.columns).toContain("modified_qty");
+    expect(row).toMatchObject({ qty: 60, filled_qty: 21, modified_qty: 5 });
+  });
+
+  it("큐 계약: {qtyCap} · {modifiedQtyDelta} 는 update sink 가 아니라 addFill 로 간다", async () => {
+    const { sinks, written } = recordingSinks();
+    const updateSpy = vi.spyOn(sinks, "update");
+    const store = new OrderStore(sinks);
+
+    store.enqueueUpdate({ orderRowId: "row-1", qtyCap: 5 });
+    store.enqueueUpdate({ orderRowId: "row-2", modifiedQtyDelta: 5 });
+    await store.flushNow();
+
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(written.map((w) => w.patch)).toEqual([
+      expect.objectContaining({ qty_cap: 5 }),
+      expect.objectContaining({ modified_qty_delta: 5 }),
+    ]);
+  });
+
+  it("큐 계약: filledQty 절대값 + (filledQtyDelta | qtyCap | modifiedQtyDelta) → 드롭 + error 1줄", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const { sinks, written } = recordingSinks();
+    const store = new OrderStore(sinks);
+
+    store.enqueueUpdate({ orderRowId: "row-1", filledQty: 3, qtyCap: 3 });
+    store.enqueueUpdate({ orderRowId: "row-1", filledQty: 3, modifiedQtyDelta: 3 });
+    store.enqueueUpdate({ orderRowId: "row-1", filledQty: 3, filledQtyDelta: 3 });
+    await store.flushNow();
+
+    expect(written).toHaveLength(0);
+    expect(store.stats()).toMatchObject({ dropped: 3, queued: 0 });
+    expect(errorSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("큐 계약: qtyCap 0 · -1 · 1.5 → warn 후 없는 것으로 친다 — 남은 게 updated_at 뿐이면 무시", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    const { sinks, written } = recordingSinks();
+    const store = new OrderStore(sinks);
+
+    for (const bad of [0, -1, 1.5]) store.enqueueUpdate({ orderRowId: "row-1", qtyCap: bad });
+    expect(store.stats().queued).toBe(0);
+    await store.flushNow();
+
+    expect(written).toHaveLength(0);
+    const dumped = JSON.stringify(warnSpy.mock.calls);
+    expect(dumped).toContain("qtyCap");
+    expect(dumped).toContain("갱신할 필드가 없는 요청");
+  });
+
+  it("rowPatchOf 는 qtyCap · modifiedQtyDelta 로 컬럼을 만들지 않는다", () => {
+    expect(Object.keys(rowPatchOf({ orderRowId: "row-1", qtyCap: 5, modifiedQtyDelta: 5 }))).toEqual([
+      "updated_at",
+    ]);
   });
 });

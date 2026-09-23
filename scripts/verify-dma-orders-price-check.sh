@@ -7,11 +7,14 @@ set -euo pipefail
 #
 # 일회용 로컬 컨테이너에 저장소 마이그레이션을 파일명 순으로 재생한 뒤
 # supabase/tests/dma_orders_price_check.test.sql 을 돌려 TAP 출력을 그대로 내보낸다.
+# --test 로 다른 dma_orders 회귀도 돌린다 (quick-260923-m23 — dma_orders_modified.test.sql).
 #
 # Usage:
 #   bash scripts/verify-dma-orders-price-check.sh                     # 전 마이그레이션 재생 (수정 후 = GREEN 기대)
 #   bash scripts/verify-dma-orders-price-check.sh --until 20260922120000
 #                                                                     # 그 버전 **이하**만 재생 (수정 전 = RED 재현)
+#   bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_orders_modified.test.sql
+#                                                                     # 다른 회귀 파일 (기본 = dma_orders_price_check.test.sql)
 #
 # 종료 코드: TAP 에 `not ok` 가 1줄이라도 있거나 psql 이 실패하면 non-zero.
 #
@@ -36,12 +39,24 @@ while [ $# -gt 0 ]; do
     --until)
       [ $# -ge 2 ] || { echo "ERROR: --until 에 버전(예: 20260922120000)이 필요합니다" >&2; exit 2; }
       UNTIL="$2"; shift 2 ;;
+    --test)
+      [ $# -ge 2 ] || { echo "ERROR: --test 에 회귀 파일 경로가 필요합니다" >&2; exit 2; }
+      case "$2" in
+        /*) TEST_FILE="$2" ;;
+        *)  TEST_FILE="$ROOT/$2" ;;
+      esac
+      shift 2 ;;
     -h|--help)
-      sed -n '4,24p' "$0"; exit 0 ;;
+      sed -n '4,27p' "$0"; exit 0 ;;
     *)
       echo "ERROR: 알 수 없는 인자: $1" >&2; exit 2 ;;
   esac
 done
+
+if [ ! -f "$TEST_FILE" ]; then
+  echo "ERROR: 회귀 파일이 없습니다: $TEST_FILE" >&2
+  exit 2
+fi
 
 if [ -n "$UNTIL" ] && ! [[ "$UNTIL" =~ ^[0-9]{14}$ ]]; then
   echo "ERROR: --until 은 14자리 버전이어야 합니다: $UNTIL" >&2
