@@ -111,6 +111,13 @@
  *     미체결에서 빠짐) 표 아래로 떨어진다.
  *   - 취소 규율(③④⑥⑨)과 선택 규율(⑩)은 **기본 모드와 같은 코드**를 쓴다 — 두 벌이 아니다.
  *   - `section` 을 넘기지 않는 기존 호출부의 DOM 은 그대로다(이 분기는 별도 return 이다).
+ *   - `embedScope="stock"`(quick-260923-onn · 목업 ②A) — 종목이 이미 정해진 표면(작업대 전략
+ *     카드의 「미체결」·「잔고」 탭)이라 **종목·거래소 열을 뺀다**(미체결 5열: 구분 · 주문가 ·
+ *     주문/미체결 · 주문No · 취소 / 잔고 6열: 수량 · 매도가능 · 평단 · 현재가 · 평가손익 ·
+ *     손익률). 선택 핸들은 첫 셀(구분)을 감싸고 출처 배지·서버 문구도 그 셀로 온다. 행을
+ *     이 종목으로 자르는 것은 여전히 `account` 를 만들어 주는 호출부의 몫이다(필터 아님).
+ *     `embedEmptyTitle` 은 빈 상태 제목 override 다 — 넘기면 보조 문장 없이 제목만 그린다.
+ *     넘기지 않으면(`'account'`) 열·문구가 종전 그대로다.
  */
 
 import { Fragment, useCallback, useMemo, useState } from 'react';
@@ -239,6 +246,13 @@ export interface AccountPanelProps {
    */
   section?: 'unfilled' | 'holdings';
   /**
+   * 임베드 모드(⑪) 열 범위. `'account'`(기본) = 종전 7열. `'stock'` = 종목이 이미 정해진
+   * 표면(작업대 카드 탭)이라 종목·거래소 열을 생략한다. `section` 과 함께만 쓴다.
+   */
+  embedScope?: 'account' | 'stock';
+  /** 임베드 빈 상태 제목 override — 넘기면 보조 문장 없이 이 제목만 그린다(⑪). */
+  embedEmptyTitle?: string;
+  /**
    * 미체결 행의 출처 배지(「상따」/「수동」, ⑪ 임베드 모드 전용). 값의 원천은 호출부가
    * 아는 사실이다 — 모르면 `undefined` 를 돌려 배지를 그리지 않는다(지어내지 않는다).
    */
@@ -300,6 +314,8 @@ export function AccountPanel({
   onSelectUnfilled,
   selectedOrderNo = null,
   section,
+  embedScope = 'account',
+  embedEmptyTitle,
   originOf,
   priceOf,
   className,
@@ -517,6 +533,8 @@ export function AccountPanel({
     return (
       <EmbeddedSection
         section={section}
+        scope={embedScope}
+        emptyTitle={embedEmptyTitle}
         unfilled={unfilled}
         holdings={holdings}
         sessionReady={sessionReady}
@@ -1034,6 +1052,8 @@ const EMB_TD = 'h-8 px-2.5 py-0 whitespace-nowrap text-[length:var(--t-caption)]
  */
 function EmbeddedSection({
   section,
+  scope,
+  emptyTitle,
   unfilled,
   holdings,
   sessionReady,
@@ -1049,6 +1069,8 @@ function EmbeddedSection({
   dialog,
 }: {
   section: 'unfilled' | 'holdings';
+  scope: 'account' | 'stock';
+  emptyTitle?: string;
   unfilled: UnfilledView[];
   holdings: HoldingView[];
   sessionReady: boolean;
@@ -1063,22 +1085,30 @@ function EmbeddedSection({
   className?: string;
   dialog: ReactNode;
 }) {
+  /** 종목이 이미 정해진 표면(카드 탭) — 종목·거래소 열을 생략한다(⑪ stock 스코프). */
+  const stockScope = scope === 'stock';
   if (section === 'holdings') {
     return (
       <div
         data-testid="account-panel"
         data-mode="embed"
         data-section="holdings"
+        data-scope={scope}
         className={cn('min-w-0', !sessionReady && 'opacity-[.55]', className)}
       >
         {holdings.length === 0 ? (
-          <EmptyState title="보유 종목이 없어요" body="체결된 주문이 있으면 잔고에 반영돼요." />
+          <EmptyState
+            title={emptyTitle ?? '보유 종목이 없어요'}
+            body={emptyTitle === undefined ? '체결된 주문이 있으면 잔고에 반영돼요.' : undefined}
+          />
         ) : (
           <div data-slot="account-embed-scroll" className="min-w-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead scope="col" className={EMB_TH}>종목</TableHead>
+                  {!stockScope && (
+                    <TableHead scope="col" className={EMB_TH}>종목</TableHead>
+                  )}
                   <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>수량</TableHead>
                   <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>매도가능</TableHead>
                   <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>평단</TableHead>
@@ -1090,15 +1120,17 @@ function EmbeddedSection({
               <TableBody>
                 {holdings.map((view) => (
                   <TableRow key={view.row.isin} data-slot="account-embed-holding-row">
-                    <TableCell className={cn(EMB_TD, 'max-w-[180px]')}>
-                      <span
-                        data-slot="account-embed-name"
-                        title={view.label ?? view.row.isin}
-                        className="block min-w-0 truncate font-semibold"
-                      >
-                        {view.label ?? <span className="mono">{view.row.isin}</span>}
-                      </span>
-                    </TableCell>
+                    {!stockScope && (
+                      <TableCell className={cn(EMB_TD, 'max-w-[180px]')}>
+                        <span
+                          data-slot="account-embed-name"
+                          title={view.label ?? view.row.isin}
+                          className="block min-w-0 truncate font-semibold"
+                        >
+                          {view.label ?? <span className="mono">{view.row.isin}</span>}
+                        </span>
+                      </TableCell>
+                    )}
                     <TableCell className={cn(EMB_TD, 'mono text-right')}>
                       {KRW.format(view.row.qty)}
                     </TableCell>
@@ -1144,20 +1176,29 @@ function EmbeddedSection({
       data-testid="account-panel"
       data-mode="embed"
       data-section="unfilled"
+      data-scope={scope}
       className={cn('min-w-0', !sessionReady && 'opacity-[.55]', className)}
     >
       {unfilled.length === 0 ? (
         <EmptyState
-          title="미체결 주문이 없어요"
-          body="주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요."
+          title={emptyTitle ?? '미체결 주문이 없어요'}
+          body={
+            emptyTitle === undefined
+              ? '주문을 넣으면 여기에 표시되고, 여기서 바로 취소할 수 있어요.'
+              : undefined
+          }
         />
       ) : (
         <div data-slot="account-embed-scroll" className="min-w-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead scope="col" className={EMB_TH}>종목</TableHead>
-                <TableHead scope="col" className={EMB_TH}>거래소</TableHead>
+                {!stockScope && (
+                  <>
+                    <TableHead scope="col" className={EMB_TH}>종목</TableHead>
+                    <TableHead scope="col" className={EMB_TH}>거래소</TableHead>
+                  </>
+                )}
                 <TableHead scope="col" className={EMB_TH}>구분</TableHead>
                 <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>주문가</TableHead>
                 <TableHead scope="col" className={cn(EMB_TH, 'text-right')}>주문/미체결</TableHead>
@@ -1181,41 +1222,73 @@ function EmbeddedSection({
                         rowSelectClass(view),
                       )}
                     >
-                      <TableCell className={cn(EMB_TD, 'max-w-[200px]')}>
-                        <span className="flex min-w-0 items-center gap-1">
-                          {selectHandle(
-                            view,
-                            <span
-                              data-slot="account-embed-name"
-                              title={view.label ?? view.row.isin}
-                              className="block min-w-0 truncate font-semibold"
-                            >
-                              {view.label ?? <span className="mono">{view.row.isin}</span>}
-                            </span>,
-                            'flex min-w-0',
-                          )}
-                          {origin !== undefined && (
-                            <span
-                              data-slot="account-origin-badge"
-                              className="flex-none rounded-[4px] border border-[var(--border)] px-1 text-[10px] text-[var(--muted-fg)]"
-                            >
-                              {origin}
+                      {stockScope ? (
+                        /*
+                          stock 스코프 — 종목·거래소 셀이 없다. 선택 핸들(⑩)은 첫 셀인 구분을
+                          감싸고, 출처 배지·서버 문구(⑨)도 이 셀로 온다. 클로저는 같은 벌이다.
+                        */
+                        <TableCell className={EMB_TD}>
+                          <span className="flex min-w-0 items-center gap-1">
+                            {selectHandle(
+                              view,
+                              <SideTag
+                                side={view.row.side}
+                                text={view.sideText}
+                                muted={view.row.pendingCancelSent}
+                                selected={isSelected(view)}
+                              />,
+                              'flex min-w-0',
+                            )}
+                            {origin !== undefined && (
+                              <span
+                                data-slot="account-origin-badge"
+                                className="flex-none rounded-[4px] border border-[var(--border)] px-1 text-[10px] text-[var(--muted-fg)]"
+                              >
+                                {origin}
+                              </span>
+                            )}
+                          </span>
+                          <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
+                        </TableCell>
+                      ) : (
+                        <>
+                          <TableCell className={cn(EMB_TD, 'max-w-[200px]')}>
+                            <span className="flex min-w-0 items-center gap-1">
+                              {selectHandle(
+                                view,
+                                <span
+                                  data-slot="account-embed-name"
+                                  title={view.label ?? view.row.isin}
+                                  className="block min-w-0 truncate font-semibold"
+                                >
+                                  {view.label ?? <span className="mono">{view.row.isin}</span>}
+                                </span>,
+                                'flex min-w-0',
+                              )}
+                              {origin !== undefined && (
+                                <span
+                                  data-slot="account-origin-badge"
+                                  className="flex-none rounded-[4px] border border-[var(--border)] px-1 text-[10px] text-[var(--muted-fg)]"
+                                >
+                                  {origin}
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </span>
-                        <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
-                      </TableCell>
-                      <TableCell className={EMB_TD}>
-                        <ExchangeTag exchange={view.row.exchange} />
-                      </TableCell>
-                      <TableCell className={EMB_TD}>
-                        <SideTag
-                          side={view.row.side}
-                          text={view.sideText}
-                          muted={view.row.pendingCancelSent}
-                          selected={isSelected(view)}
-                        />
-                      </TableCell>
+                            <StatusNotes texts={[view.row.queuedStatus, view.row.pendingStatus]} />
+                          </TableCell>
+                          <TableCell className={EMB_TD}>
+                            <ExchangeTag exchange={view.row.exchange} />
+                          </TableCell>
+                          <TableCell className={EMB_TD}>
+                            <SideTag
+                              side={view.row.side}
+                              text={view.sideText}
+                              muted={view.row.pendingCancelSent}
+                              selected={isSelected(view)}
+                            />
+                          </TableCell>
+                        </>
+                      )}
                       <TableCell className={cn(EMB_TD, 'mono text-right')}>
                         {KRW.format(view.row.price)}
                       </TableCell>
@@ -1229,7 +1302,7 @@ function EmbeddedSection({
                     </TableRow>
                     {cancelResult && cancelResultOrderNo === view.row.orderNo && (
                       <TableRow data-slot="account-embed-cancel-result">
-                        <TableCell colSpan={7} className="px-2.5 py-1.5 whitespace-normal">
+                        <TableCell colSpan={stockScope ? 5 : 7} className="px-2.5 py-1.5 whitespace-normal">
                           <CancelBanner result={cancelResult} polite />
                         </TableCell>
                       </TableRow>
@@ -1401,11 +1474,13 @@ function CancelBanner({ result, polite = false }: { result: CancelResult; polite
 }
 
 /** 빈 상태 — 중립색만 쓴다(방향색 금지). */
-function EmptyState({ title, body }: { title: string; body: string }) {
+function EmptyState({ title, body }: { title: string; body?: string }) {
   return (
     <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
       <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">{title}</p>
-      <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">{body}</p>
+      {body !== undefined && (
+        <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">{body}</p>
+      )}
     </div>
   );
 }

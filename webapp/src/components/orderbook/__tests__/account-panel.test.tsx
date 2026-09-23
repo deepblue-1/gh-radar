@@ -1132,3 +1132,103 @@ describe('AccountPanel — 미체결 행 선택 (18-09 / D-21)', () => {
     expect(unfilledCards()[0]).toHaveAttribute('title', ROW_TITLE);
   });
 });
+
+describe('AccountPanel — 임베드 stock 스코프 (quick-260923-onn · 목업 ②A)', () => {
+  const embedBase = (over: Partial<AccountPanelProps> = {}): AccountPanelProps =>
+    baseProps({
+      accounts: undefined,
+      onAccountChange: undefined,
+      code: undefined,
+      name: undefined,
+      isin: undefined,
+      currentPrice: undefined,
+      ...over,
+    });
+
+  const root = () => screen.getByTestId('account-panel');
+  const headers = () =>
+    Array.from(root().querySelectorAll('th')).map((th) => th.textContent ?? '');
+  const rows = () =>
+    Array.from(root().querySelectorAll<HTMLElement>('[data-slot="account-embed-unfilled-row"]'));
+
+  it('미체결 stock: 5열(구분 · 주문가 · 주문/미체결 · 주문No · 취소) · 종목/거래소 셀 없음', () => {
+    render(<AccountPanel {...embedBase({ section: 'unfilled', embedScope: 'stock' })} />);
+    expect(root()).toHaveAttribute('data-mode', 'embed');
+    expect(root()).toHaveAttribute('data-section', 'unfilled');
+    expect(root()).toHaveAttribute('data-scope', 'stock');
+    expect(headers()).toEqual(['구분', '주문가', '주문/미체결', '주문No', '취소']);
+    const lastTh = root().querySelectorAll('th')[4]!;
+    expect(lastTh.querySelector('.sr-only')?.textContent).toBe('취소');
+    expect(root().querySelectorAll('[data-slot="account-embed-name"]')).toHaveLength(0);
+    for (const row of rows()) expect(row.querySelectorAll('td')).toHaveLength(5);
+  });
+
+  it('미체결 stock: 첫 셀 선택 핸들이 방향 태그를 감싸고 · 선택 행 aria-pressed · 접수대기 문구 · 출처 배지', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <AccountPanel
+        {...embedBase({
+          section: 'unfilled',
+          embedScope: 'stock',
+          account: withUnfilled([
+            unf({ orderNo: '0000000001' }),
+            unf({ orderNo: '0000000002', side: 'S', pendingStatus: '증권사 보관 · 09:00 처리' }),
+          ]),
+        })}
+        selectedOrderNo="0000000001"
+        onSelectUnfilled={onSelect}
+        originOf={() => '상따'}
+      />,
+    );
+    const [first, second] = rows();
+    const handle = first!.querySelector('td')!.querySelector('[data-slot="account-unfilled-select"]');
+    expect(handle).not.toBeNull();
+    expect(handle!.querySelector('[data-slot="account-unfilled-side"]')).not.toBeNull();
+    expect(handle).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      second!.querySelector('td')!.querySelector('[data-slot="account-unfilled-select"]'),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(second!.querySelector('td')!.querySelector('[data-slot="account-unfilled-note"]')?.textContent).toContain(
+      '증권사 보관',
+    );
+    expect(first!.querySelector('td')!.querySelector('[data-slot="account-origin-badge"]')?.textContent).toBe('상따');
+    await user.click(second!.querySelectorAll('td')[1]!);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect.mock.calls[0]![0]).toMatchObject({ orderNo: '0000000002' });
+  });
+
+  it('잔고 stock: 6열(수량 · 매도가능 · 평단 · 현재가 · 평가손익 · 손익률)', () => {
+    render(<AccountPanel {...embedBase({ section: 'holdings', embedScope: 'stock' })} />);
+    expect(root()).toHaveAttribute('data-scope', 'stock');
+    expect(headers()).toEqual(['수량', '매도가능', '평단', '현재가', '평가손익', '손익률']);
+    expect(root().querySelectorAll('[data-slot="account-embed-name"]')).toHaveLength(0);
+  });
+
+  it('embedEmptyTitle — 그 문구만, 보조 문장 없음', () => {
+    render(
+      <AccountPanel
+        {...embedBase({
+          section: 'unfilled',
+          embedScope: 'stock',
+          embedEmptyTitle: '이 종목의 미체결이 없어요',
+          account: withUnfilled([]),
+        })}
+      />,
+    );
+    expect(screen.getByText('이 종목의 미체결이 없어요')).toBeInTheDocument();
+    expect(root().querySelectorAll('p')).toHaveLength(1);
+    expect(screen.queryByText('미체결 주문이 없어요')).toBeNull();
+  });
+
+  it('기본(embedScope 미지정)은 종전 — 첫 th 가 「종목」 · data-scope="account" · 빈 상태 보조 문장 유지', () => {
+    const { unmount } = render(<AccountPanel {...embedBase({ section: 'unfilled' })} />);
+    expect(root()).toHaveAttribute('data-scope', 'account');
+    expect(headers()[0]).toBe('종목');
+    expect(headers()).toHaveLength(7);
+    unmount();
+    render(<AccountPanel {...embedBase({ section: 'unfilled', account: withUnfilled([]) })} />);
+    expect(screen.getByText('미체결 주문이 없어요')).toBeInTheDocument();
+    expect(root().querySelectorAll('p')).toHaveLength(2);
+  });
+});

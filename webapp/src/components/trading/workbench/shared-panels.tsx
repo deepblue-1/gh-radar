@@ -17,7 +17,8 @@
  * ③ ★ 미체결 행 선택 = 수동주문 폼 정정/취소의 **유일한 진입** (D-21)
  *   선택 상태는 작업대(상위)가 소유하고 수동주문 폼의 `selectedUnfilled` 로 내려간다.
  *   토글(선택된 행을 다시 누르면 해제)은 **여기 한 곳**에서 `null` 로 바꿔 올린다 —
- *   AccountPanel 은 「이 행을 눌렀다」만 알린다.
+ *   AccountPanel 은 「이 행을 눌렀다」만 알린다. 그 판정은 `nextUnfilledSelection` 순수
+ *   함수 하나이고, 작업대 카드의 「미체결」 탭(quick-260923-onn)도 같은 함수를 쓴다.
  *
  * ④ 반응형은 컨테이너 `wb` 기준이다 (D-28 — 뷰포트 브레이크포인트 금지)
  *   - `wb` 700 이상: 격자 아래 **일반 섹션**. 본문은 세로 자연 확장(높이 상한 없음).
@@ -73,6 +74,18 @@ import { cn } from '@/lib/utils';
 export const DIRTY_BAR_FALLBACK_PX = 128;
 
 type SharedTab = 'unfilled' | 'holdings' | 'log';
+
+/**
+ * 미체결 행 클릭 → 다음 선택 (③ · D-21). 재선택 = 해제 토글의 **유일 지점**이다 — 공용 패널과
+ * 작업대 카드 「미체결」 탭이 같이 쓴다. 두 표면이 각자 토글을 지으면 한쪽만 고쳐지는 순간
+ * 같은 행 클릭이 표면마다 다른 결과(선택/해제)를 낸다.
+ */
+export function nextUnfilledSelection(
+  selectedOrderNo: string | null,
+  row: RelayUnfilled,
+): RelayUnfilled | null {
+  return selectedOrderNo !== null && row.orderNo === selectedOrderNo ? null : row;
+}
 
 export interface SharedPanelsProps {
   /** 상태줄에서 고른 **단일 계좌**(D-13). 취소 요청의 계좌이기도 하다. */
@@ -176,7 +189,7 @@ export function SharedPanels({
   /** 토글은 여기 한 곳 — 선택된 행을 다시 누르면 해제(`null`)를 올린다(③). */
   const handleSelect = useCallback(
     (row: RelayUnfilled) => {
-      onSelectUnfilled(selectedOrderNo !== null && row.orderNo === selectedOrderNo ? null : row);
+      onSelectUnfilled(nextUnfilledSelection(selectedOrderNo, row));
     },
     [onSelectUnfilled, selectedOrderNo],
   );

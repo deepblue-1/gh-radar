@@ -40,8 +40,11 @@
  *   요약 칩과 카드 탭이 같은 슬라이스를 읽는다(두 진실 금지).
  *
  * ⑤ 본문(좌 호가 | 우 옵션 4그룹)은 18-10 `card-body.tsx` 가 채운다
- *   여기서는 헤더 + 종목정보 10칸까지만 조립하고, 본문 자리는 `body` 렌더 prop 이다 — 카드
- *   상태(서버 전략 · 시세 · 전송/에코 콜백)를 **카드 밖으로 끌어올리지 않고** 본문에 건넨다.
+ *   여기서는 헤더 + 카드 탭(`CardTabs` — 「정보 | 미체결 | 잔고 | 로그」, 2026-09-23 목업 ②A)까지만
+ *   조립한다. 본문 상단은 **정보 탭이 10칸을 그린다**(종전 `QuoteGrid10` 자리).
+ *   미체결 탭의 행 선택은 작업대 공용 패널과 **같은 선택 상태·같은 콜백**이다 — 카드가 자체 선택
+ *   상태를 갖지 않는다(D-21).
+ *   그 아래 본문 자리는 `body` 렌더 prop 이다 — 카드 상태(서버 전략 · 시세 · 전송/에코 콜백)를 **카드 밖으로 끌어올리지 않고** 본문에 건넨다.
  *   접힌 카드는 헤더만 **보인다** — 한 번 펼친 본문은 숨김(`hidden`)으로 남아 더티 값·「결과
  *   모름」 잠금·에코 상관을 지킨다(WR-02). 한 번도 펼친 적 없는 카드는 본문을 만들지 않는다.
  */
@@ -60,13 +63,16 @@ import type {
   RelayExchange,
   RelayLimitChaser,
   RelayLimitChaserInput,
+  RelayOrderResultMsg,
   RelayQuote,
   RelayTapeEntry,
+  RelayUnfilled,
 } from "@gh-radar/shared";
 
 import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice";
 import { CardHeader } from "@/components/trading/card/card-header";
-import { QuoteGrid10 } from "@/components/trading/card/quote-grid-10";
+import { CardTabs } from "@/components/trading/card/card-tabs";
+import type { AccountRowOrigin } from "@/components/orderbook/account-panel";
 import {
   latchLedStateOf,
   type LatchLedKind,
@@ -605,6 +611,18 @@ export interface StrategyCardProps {
    * WR-02). 한 번도 펼친 적 없는 카드에서는 불리지 않는다.
    */
   body?: (card: StrategyCardState) => ReactNode;
+  /**
+   * 카드 「미체결」 탭의 선택 행 원주문번호 — 작업대 공용 패널과 **같은 선택 상태·같은 콜백**이다.
+   * 카드가 자체 선택 상태를 갖지 않는다(D-21 · quick-260923-onn).
+   */
+  selectedOrderNo?: string | null;
+  /** 작업대 `selectUnfilled`. 없으면 카드 탭에 행 선택 UI 가 없다(취소는 된다). */
+  onSelectUnfilled?: (row: RelayUnfilled | null) => void;
+  /** 잔고 탭 현재가(작업대 `priceOf`). */
+  priceOf?: (isin: string) => number | undefined;
+  /** 미체결 출처 배지 — 작업대가 공용 패널에 넘기는 값과 같다(오늘은 미배선). */
+  originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
+  onCancelSubmitted?: (res: RelayOrderResultMsg) => void;
 }
 
 /** DOM id 에 쓸 수 있는 조각만 남긴다(카드 id 는 영숫자·하이픈이라 사실상 그대로다). */
@@ -627,6 +645,11 @@ function StrategyCardImpl({
   onDirtyCountChange,
   onLogChange,
   body,
+  selectedOrderNo,
+  onSelectUnfilled,
+  priceOf,
+  originOf,
+  onCancelSubmitted,
 }: StrategyCardProps) {
   const card = useStrategyCardState({ isin, accountNo, exchange });
   const { key, server, quote, ledServer, handleArm, dirtyCount, log } = card;
@@ -635,7 +658,7 @@ function StrategyCardImpl({
     ④ 카드 계좌 슬라이스(quick-260923-onn) — 이 카드 계좌 상태를 이 종목·거래소로 1회 자른다.
     접힌 헤더 요약 칩 숫자와 카드 탭(배지·본문)이 **같은 이 값**을 읽는다. 새 조회 경로 0(T-16-02).
   */
-  const { accountStates } = useRelayContext();
+  const { accountStates, status } = useRelayContext();
   const accountState = accountNo === "" ? null : (accountStates.get(accountNo) ?? null);
   const slice = useMemo(
     () => cardAccountSliceOf(accountState, isin, exchange),
@@ -723,7 +746,18 @@ function StrategyCardImpl({
       <div id={bodyId} data-slot="strategy-card-body" hidden={!open}>
         {everOpened && (
           <>
-            <QuoteGrid10 quote={quote} />
+            <CardTabs
+              quote={quote}
+              accountNo={accountNo}
+              account={slice.account}
+              log={log}
+              status={status}
+              selectedOrderNo={selectedOrderNo ?? null}
+              onSelectUnfilled={onSelectUnfilled}
+              priceOf={priceOf}
+              originOf={originOf}
+              onCancelSubmitted={onCancelSubmitted}
+            />
             <CardNotices card={card} />
             {body?.(card)}
           </>

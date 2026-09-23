@@ -35,7 +35,12 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
-import { SharedPanels, DIRTY_BAR_FALLBACK_PX, type SharedPanelsProps } from '../workbench/shared-panels';
+import {
+  SharedPanels,
+  DIRTY_BAR_FALLBACK_PX,
+  nextUnfilledSelection,
+  type SharedPanelsProps,
+} from '../workbench/shared-panels';
 
 const ISIN_A = 'KR7196170005';
 const ISIN_B = 'KR7042700005';
@@ -167,6 +172,13 @@ describe('SharedPanels — 미체결', () => {
     expect(row).toHaveAttribute('data-selected', 'true');
     await user.click(row.querySelectorAll('td')[3]!);
     expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it('③-a2 nextUnfilledSelection — 재선택=해제 토글의 유일 지점 (카드 탭과 공용 · quick-260923-onn)', () => {
+    const row = unf();
+    expect(nextUnfilledSelection(null, row)).toBe(row);
+    expect(nextUnfilledSelection(row.orderNo, row)).toBeNull();
+    expect(nextUnfilledSelection('다른번호', row)).toBe(row);
   });
 
   it('③-b 미체결 열은 종목 · 거래소 · 구분 · 주문가 · 주문/미체결 · 주문No · 취소 순서다', () => {

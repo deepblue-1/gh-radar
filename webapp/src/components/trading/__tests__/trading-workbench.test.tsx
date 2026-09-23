@@ -815,6 +815,10 @@ describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitf
       'onDirtyCountChange',
       'onLogChange',
       'body',
+      // quick-260923-onn — 카드 탭: 선택 원주문번호(문자열|null) · 작업대 안정 콜백 2개.
+      'selectedOrderNo',
+      'onSelectUnfilled',
+      'priceOf',
     ]);
     for (const props of cardProps.values()) {
       for (const [k, v] of Object.entries(props)) {
@@ -835,6 +839,9 @@ describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitf
     expect(a.onToggle).toBe(b.onToggle);
     expect(a.onClose).toBe(b.onClose);
     expect(a.onDirtyCountChange).toBe(b.onDirtyCountChange);
+    // quick-260923-onn — 카드 탭 선택·현재가 콜백도 작업대 한 벌(공용 패널과 같은 참조)이다.
+    expect(a.onSelectUnfilled).toBe(b.onSelectUnfilled);
+    expect(a.priceOf).toBe(b.priceOf);
   });
 });
 
@@ -983,6 +990,33 @@ describe('TradingWorkbench — 미체결 행 선택 (D-21)', () => {
     expect(cardsInDom()).toHaveLength(2);
     expect(byKey()).toEqual({ [`${X}:${ACCOUNT}:KRX`]: 'false', [`${X}:${ACCOUNT}:NXT`]: 'true' });
     expect(selectedOfKey(`${X}:${ACCOUNT}:NXT`)).toMatchObject({ orderNo: '3407000099' });
+  });
+
+  it('quick-260923-onn — 카드 탭 선택은 같은 selectUnfilled 를 탄다 · selectedOrderNo 파생 · 다른 계좌 카드엔 선택 콜백 없음', () => {
+    const X = 'KR7086520004';
+    const OTHER = '99999999901';
+    const row = unf({ orderNo: '3407000055' });
+    mockRelay = relay({
+      limitChasers: [lc(X), lc('KR7247540008', { accountNo: OTHER })],
+      accountStates: acctWith([row]),
+    });
+    render(<TradingWorkbench />);
+    const mine = () => [...cardProps.values()].find((p) => p.isin === X)!;
+    const other = [...cardProps.values()].find((p) => p.accountNo === OTHER)!;
+    // 카드 계좌 ≠ 상태줄 계좌 → 선택 UI 없음(T-onn-04). 현재가 콜백은 같은 한 벌.
+    expect(other.onSelectUnfilled).toBeUndefined();
+    expect(other.priceOf).toBe(mine().priceOf);
+    expect(mine().selectedOrderNo).toBeNull();
+
+    // 카드 탭이 올리는 것과 같은 호출 — 작업대 선택 상태 하나가 바뀐다(공용 패널과 두 진실 없음).
+    act(() => (mine().onSelectUnfilled as (r: RelayUnfilled | null) => void)(row));
+    expect(mine().selectedOrderNo).toBe('3407000055');
+    expect(selectedOfKey(`${X}:${ACCOUNT}:KRX`)).toMatchObject({ orderNo: '3407000055' });
+    expect(rowEl('3407000055')).toHaveAttribute('data-selected', 'true');
+
+    act(() => (mine().onSelectUnfilled as (r: RelayUnfilled | null) => void)(null));
+    expect(mine().selectedOrderNo).toBeNull();
+    expect(selectedOfKey(`${X}:${ACCOUNT}:KRX`)).toBeNull();
   });
 
   it('WR-04 — 같은 행을 다시 누르면(해제) 붙은 카드는 남고 선택만 풀린다', () => {

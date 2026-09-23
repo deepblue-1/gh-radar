@@ -263,17 +263,22 @@ export interface StrategyLogProps {
    * 기본 `'card'` 는 기존 화면 그대로다.
    */
   variant?: 'card' | 'embed';
+  /**
+   * `'embed'` 빈 상태 제목 override (quick-260923-onn — 작업대 카드 「로그」 탭은 「로그 없음」).
+   * 넘기지 않으면 종전 「아직 기록이 없어요」 그대로다.
+   */
+  emptyTitle?: string;
   className?: string;
 }
 
-export function StrategyLog({ entries, variant = 'card', className }: StrategyLogProps) {
+export function StrategyLog({ entries, variant = 'card', emptyTitle, className }: StrategyLogProps) {
   if (variant === 'embed') {
     return (
       <section data-slot="strategy-log" data-variant="embed" className={cn('min-w-0', className)}>
         {entries.length === 0 ? (
           <div className="m-[var(--s-3)] rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
             <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-              아직 기록이 없어요
+              {emptyTitle ?? '아직 기록이 없어요'}
             </b>
           </div>
         ) : (

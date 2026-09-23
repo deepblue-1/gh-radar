@@ -25,6 +25,8 @@
  *     있으면 첫 카드를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
  *   - 공용 패널 미체결 행 선택은 그 행을 받을 카드(같은 ISIN ∧ 행의 거래소 ∧ 상태줄 계좌)를
  *     보장한다 — 없으면 그 키로 펼친 카드를 붙인다(`cardForUnfilled` · WR-04). 역시 송신 0 이다.
+ *     카드 안 「미체결」 탭(quick-260923-onn)도 같은 `selectUnfilled` 를 탄다 — 선택은 여전히 이
+ *     컴포넌트 하나가 소유한다(카드는 `selectedUnfilled?.orderNo` 를 파생할 뿐).
  *   - 새 카드는 **거래소 KRX · 스위치 전부 OFF · 펼침**으로 시작한다(D-07). 서버에 아무것도 보내지
  *     않는다 — 등록은 사용자가 카드에서 스위치를 켤 때뿐이다.
  *   - 등록된 전략(64 스냅샷 · 60 에코)은 처음 보이는 키일 때, 그 키를 **현재 키로 가진 카드가
@@ -931,6 +933,12 @@ function WorkbenchSurface() {
             onInfo={openInfo}
             onDirtyCountChange={reportDirty}
             onLogChange={reportLog}
+            /*
+              카드 탭 행 선택 — `selectedUnfilled` 를 내리는 조건과 같은 술어(카드 계좌 = 상태줄 계좌).
+              다르면 폼도 선택을 못 받으므로 선택 UI 도 없다(취소는 카드 계좌로 여전히 된다 · T-onn-04).
+            */
+            onSelectUnfilled={c.accountNo === accountNo ? selectUnfilled : undefined}
+            priceOf={priceOf}
           />
         )}
       />
@@ -1051,6 +1059,10 @@ interface WorkbenchCardItemProps {
   onInfo: (cardId: string) => void;
   onDirtyCountChange: (cardId: string, count: number) => void;
   onLogChange: (cardId: string, log: readonly StrategyLogEntry[]) => void;
+  /** 카드 「미체결」 탭 행 선택 — 작업대 `selectUnfilled`(카드 계좌 = 상태줄 계좌일 때만). */
+  onSelectUnfilled?: (row: RelayUnfilled | null) => void;
+  /** 카드 「잔고」 탭 현재가 — 공용 패널과 같은 `priceOf`. */
+  priceOf: (isin: string) => number | undefined;
 }
 
 /**
@@ -1072,6 +1084,8 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
   onInfo,
   onDirtyCountChange,
   onLogChange,
+  onSelectUnfilled,
+  priceOf,
 }: WorkbenchCardItemProps) {
   const { id, isin, accountNo, exchange, open } = card;
   const body = useCallback(
@@ -1119,6 +1133,9 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
       onDirtyCountChange={onDirtyCountChange}
       onLogChange={onLogChange}
       body={body}
+      selectedOrderNo={selectedUnfilled?.orderNo ?? null}
+      onSelectUnfilled={onSelectUnfilled}
+      priceOf={priceOf}
     />
   );
 });

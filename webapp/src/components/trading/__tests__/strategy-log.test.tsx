@@ -366,3 +366,14 @@ describe('StrategyLog — 렌더', () => {
     expect(spans[1]!.className).not.toContain('mono'); // 문장은 본문 폰트
   });
 });
+
+describe('StrategyLog embed — 빈 문구 override (quick-260923-onn)', () => {
+  it('emptyTitle 을 넘기면 그 문구 · 없으면 종전 「아직 기록이 없어요」', () => {
+    const { unmount } = render(<StrategyLog entries={[]} variant="embed" emptyTitle="로그 없음" />);
+    expect(screen.getByText('로그 없음')).toBeInTheDocument();
+    expect(screen.queryByText('아직 기록이 없어요')).toBeNull();
+    unmount();
+    render(<StrategyLog entries={[]} variant="embed" />);
+    expect(screen.getByText('아직 기록이 없어요')).toBeInTheDocument();
+  });
+});
