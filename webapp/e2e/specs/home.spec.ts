@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 import { mockHomeApi, HOME_POPULATED, HOME_EMPTY } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
+import { leavesOverflowing } from '../overflow';
 
 /**
  * Phase 13 Plan 05 — 홈(`/`) 승격 E2E (HOME-01).
@@ -211,6 +212,78 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     // 클릭 시 상세로 이동.
     await hynixLink.click();
     await expect(page).toHaveURL(/\/stocks\/000660$/);
+  });
+
+  /*
+    quick-260923-cre — 개별 급등 급등이유 복사.
+    ★ 카드 버튼 클릭은 **force 없이** 한다 — 오버레이 Link(z-10)가 버튼을 덮으면 Playwright
+      actionability 가 "intercepts pointer events" 로 실패한다. 그 클릭이 곧 실제 hit-test 증명이다.
+    ★ 390px 에서 '복사됨' 말풍선이 등락% 도, 제목 행 '전체 복사' 도 가리지 않아야 한다
+      (260914-jtj 가 390px 에서 찾은 실패 모드).
+  */
+  test('개별 급등 복사 — 카드 버튼은 상세로 이동하지 않고 그 종목만, 제목 행은 섹션 전체 (quick-260923-cre)', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.setViewportSize({ width: 390, height: 900 });
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.goto('/');
+
+    await expect(page.getByRole('heading', { name: '개별 급등' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    const cardBtn = page.getByRole('button', { name: '카카오 급등이유 복사' });
+    const card = page.locator('article').filter({ has: cardBtn });
+    const pct = card.getByText('+22.8%');
+    const sectionBtn = page.getByRole('button', { name: '개별 급등 전체 복사' });
+
+    type Box = { x: number; y: number; width: number; height: number };
+    const intersects = (a: Box, b: Box) =>
+      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+    // 390px 레이아웃 — 클릭 전.
+    await cardBtn.scrollIntoViewIfNeeded();
+    const cardBox = (await card.boundingBox())!;
+    const pctBox = (await pct.boundingBox())!;
+    const btnBox = (await cardBtn.boundingBox())!;
+    expect(
+      Math.abs(pctBox.y + pctBox.height / 2 - (btnBox.y + btnBox.height / 2)),
+      '등락%와 복사 아이콘이 한 행이 아니다',
+    ).toBeLessThanOrEqual(8);
+    expect(
+      btnBox.x + btnBox.width,
+      '복사 아이콘이 카드 오른쪽 밖으로 밀렸다',
+    ).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+    expect(await leavesOverflowing(card, cardBox.x + cardBox.width)).toEqual([]);
+
+    // 카드 버튼 — force 없이 클릭(오버레이가 가로채면 여기서 실패).
+    await cardBtn.click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe('카카오 +22.8%\n신규 AI 서비스 출시 소식');
+
+    const bubble = card.getByText('복사됨');
+    await expect(bubble).toBeVisible();
+    const bubbleBox = (await bubble.boundingBox())!;
+    const pctBox2 = (await pct.boundingBox())!;
+    const sectionBox = (await sectionBtn.boundingBox())!;
+    expect(intersects(bubbleBox, pctBox2), "'복사됨' 말풍선이 등락%를 가린다").toBe(false);
+    expect(
+      intersects(bubbleBox, sectionBox),
+      "'복사됨' 말풍선이 제목 행 '전체 복사'를 가린다",
+    ).toBe(false);
+
+    // 상세로 이동하지 않았다.
+    expect(new URL(page.url()).pathname).toBe('/');
+    await expect(page.getByRole('heading', { name: '개별 급등' })).toBeVisible();
+
+    // 제목 행 — 섹션 전체.
+    await sectionBtn.click();
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe('[개별 급등] 2026-07-02 15:30\n\n1. 카카오 +22.8%\n신규 AI 서비스 출시 소식');
   });
 
   test('REGRESSION(T-13-12) — /scanner 직접 접근 시 상승률 상위 UI 정상 렌더', async ({
