@@ -131,9 +131,17 @@ export function toOrderMarket(market: string | null): OrderMarket | null {
  * "주말엔 안 읽는다" 같은 조건을 넣으면 그 조건이 틀렸을 때 조용히 옛 이름을 계속 쓴다.
  */
 export function msUntilNextRefresh(now: number = Date.now()): number {
+  return msUntilKst(REFRESH_HOUR_KST, REFRESH_MINUTE_KST, now);
+}
+
+/**
+ * 다음 KST `hour:minute` 까지 남은 ms. 오늘 그 시각이 아직 안 지났으면 오늘, 지났으면(같으면) 내일.
+ * `msUntilNextRefresh`(08:30)와 게이트웨이 종목마스터 경계(07:30, `gateway-symbols.ts`)가 같이 쓴다.
+ */
+export function msUntilKst(hour: number, minute: number, now: number = Date.now()): number {
   const kstNow = now + KST_OFFSET_MS;
   const dayStart = Math.floor(kstNow / DAY_MS) * DAY_MS;
-  const todayTarget = dayStart + (REFRESH_HOUR_KST * 60 + REFRESH_MINUTE_KST) * 60 * 1000;
+  const todayTarget = dayStart + (hour * 60 + minute) * 60 * 1000;
   const target = todayTarget > kstNow ? todayTarget : todayTarget + DAY_MS;
   return target - kstNow;
 }

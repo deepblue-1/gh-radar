@@ -398,4 +398,32 @@ describe("SessionManager", () => {
       await mgr.closeAll();
     }
   });
+  it("⑬ firstReady — Ready 세션이 없으면 undefined, 있으면 삽입 순서상 첫 Ready, avoid 는 다른 Ready 가 없을 때만 (quick-260923-cqj)", async () => {
+    // Ready 세션이 없다(아무도 acquire 하지 않았다).
+    expect(manager.firstReady()).toBeUndefined();
+    expect(manager.firstReady("user-1")).toBeUndefined();
+
+    // 로그인에 답하지 않는 게이트웨이 = 세션은 있지만 Ready 가 아니다 → 후보가 아니다.
+    const silent = await startFakeGateway({ autoLogin: false });
+    const mgr = new SessionManager({ host: "127.0.0.1", port: silent.port, broker: "KB" });
+    mgr.acquire("user-never", CREDS);
+    await waitFor(() => silent.sockets.length === 1, "침묵 게이트웨이 연결");
+    expect(mgr.firstReady()).toBeUndefined();
+    await mgr.closeAll();
+    await silent.close();
+
+    const a = manager.acquire("user-1", CREDS);
+    await waitFor(() => a.state === "ready", "user-1 ready");
+    // user-1 만 Ready — 피하고 싶어도 그것뿐이면 그것을 돌려준다.
+    expect(manager.firstReady()).toBe(a);
+    expect(manager.firstReady("user-1")).toBe(a);
+
+    const b = manager.acquire("user-2", { dmaUserId: "other-id", password: "other-secret" });
+    await waitFor(() => b.state === "ready", "user-2 ready");
+    expect(manager.firstReady()).toBe(a);
+    expect(manager.firstReady("user-1")).toBe(b);
+    expect(manager.firstReady("user-2")).toBe(a);
+    // 참조계수는 건드리지 않는다 — 조회만으로 세션 수가 늘거나 유예가 바뀌지 않는다.
+    expect(manager.stats().sessionCount).toBe(2);
+  });
 });

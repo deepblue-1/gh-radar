@@ -26,8 +26,9 @@
  *   D-03  master-day 경계는 07:30 KST(마지막 A0 배치 07:00 + 30분). 성공 키는 **완료 시각**으로
  *         매긴다 — 07:00~07:30 에 시작한 요청도 마지막 배치를 이미 포함한다.
  *   D-04  seq 연속·total 동일·is_last 도착·누적 원소 수 == total 네 조건을 모두 통과해야 새 Map 을
- *         **한 번에** 교체한다. 빈 결과로는 기존 맵을 지우지 않는다. 모든 실패 갈래는 사유를 담은
- *         `[SYM-GW]` 로그를 남긴다(무로그 fail-safe 금지).
+ *         **한 번에** 교체한다. 빈 결과로는 기존 맵을 지우지 않는다. 30초 안에 is_last 가 안 오면
+ *         실패다. 실패하면 5분 backoff(게이트웨이 60초 흡수 창 밖), 하루 시도 상한 5회. 모든 실패
+ *         갈래는 사유를 담은 `[SYM-GW]` 로그를 남긴다(무로그 fail-safe 금지).
  *
  * 하지 않는 것:
  *   - 57 을 브라우저로 흘리지 않는다(공개 마스터 — relay 이름 해석에만 쓴다).
@@ -38,7 +39,7 @@ import { EventEmitter } from "node:events";
 
 import { logger } from "../logger.js";
 import { buildGetSymbolMasterReq, type ParsedSymbolMasterFrame } from "../dma/envelope.js";
-import type { SymbolInfo, SymbolLookup } from "./symbols.js";
+import { msUntilKst, type SymbolInfo, type SymbolLookup } from "./symbols.js";
 
 /**
  * 27 을 실어 보낼 세션의 최소 표면. `HubSession` 과 `DmaSession` 이 둘 다 구조적으로 만족한다.
@@ -58,6 +59,19 @@ export const MASTER_DAY_START_MINUTE_KST = 30;
 
 /** 57 분할 프레임 수 상한. 서버 전수 약 4,500 / 500 = 약 10프레임의 10배다 (T-cqj-03). */
 export const MAX_MASTER_FRAMES = 100;
+
+/** 요청 뒤 is_last 까지의 상한(ms). 약 10프레임 · 수백 KB 라 정상이면 수 초 안에 끝난다. */
+export const MASTER_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * 실패 뒤 다음 시도까지의 간격(ms) = 5분. 게이트웨이는 같은 연결의 27 을 **60초 안에** 다시
+ * 받으면 응답 없이 흡수한다(`kMasterReqMinIntervalMs`) — 그 창 안에서 두드리면 응답 없는
+ * 요청이 타임아웃으로 또 실패할 뿐이다. 5분은 그 창 밖이고, 게이트웨이 부하도 무시할 만하다.
+ */
+export const MASTER_RETRY_BACKOFF_MS = 300_000;
+
+/** master-day 당 시도(송신) 상한. 넘으면 다음 07:30 경계까지 멈춘다 (T-cqj-04). */
+export const MAX_MASTER_ATTEMPTS_PER_DAY = 5;
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const MASTER_DAY_OFFSET_MS =
@@ -82,26 +96,71 @@ type Inflight = {
   rows: Map<string, SymbolInfo>;
 };
 
+type RequestReason = "ready" | "day-boundary" | "retry";
+
 export type GatewaySymbolMasterOptions = {
+  /**
+   * 경계·재시도 타이머가 27 을 실어 보낼 Ready 세션을 고른다(`SessionManager.firstReady`).
+   * 인자는 **피하고 싶은** userId(직전 실패 세션)다. 없으면 타이머 트리거는 아무것도 보내지 않는다.
+   */
+  pickSession?: (avoidUserId?: string) => MasterRequestSession | undefined;
   /** 벽시계 주입구. 미지정 시 `Date.now`. */
   now?: () => number;
+  /** 미지정 시 `MASTER_REQUEST_TIMEOUT_MS`. */
+  requestTimeoutMs?: number;
+  /** 미지정 시 `MASTER_RETRY_BACKOFF_MS`. */
+  retryBackoffMs?: number;
 };
 
 /**
  * 게이트웨이 종목마스터 보조 맵. `SymbolMap` 의 `fallback` 으로 결선된다.
  *
  * 이벤트: `"updated"` `{ count }` — 교체가 끝난 뒤 1회. hub 가 이름 없던 캐시 행을 재방송한다.
+ *
+ * 수명: `start()` 가 07:30 경계 타이머를 걸고, `close()` 가 경계·타임아웃·재시도 타이머를 모두
+ * 지운다. 모든 타이머는 `unref` — 이 모듈 때문에 프로세스 종료가 늦어지지 않는다.
  */
 export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
   #byIsin = new Map<string, SymbolInfo>();
   #loadedDayKey: string | null = null;
   #loadedAt: Date | null = null;
   #inflight: Inflight | null = null;
+  /** 이 시각 전에는 어떤 트리거도 27 을 보내지 않는다(실패 뒤 backoff). */
+  #retryNotBefore = 0;
+  #attempts: { dayKey: string; count: number } = { dayKey: "", count: 0 };
+  /** 상한 도달 error 로그를 그 master-day 에 한 번만 남기기 위한 표식. */
+  #capLoggedDayKey: string | null = null;
+  #lastFailedUserId: string | undefined = undefined;
+  #boundaryTimer: NodeJS.Timeout | null = null;
+  #timeoutTimer: NodeJS.Timeout | null = null;
+  #retryTimer: NodeJS.Timeout | null = null;
+  readonly #pickSession: (avoidUserId?: string) => MasterRequestSession | undefined;
   readonly #now: () => number;
+  readonly #requestTimeoutMs: number;
+  readonly #retryBackoffMs: number;
 
   constructor(opts: GatewaySymbolMasterOptions = {}) {
     super();
+    this.#pickSession = opts.pickSession ?? (() => undefined);
     this.#now = opts.now ?? (() => Date.now());
+    this.#requestTimeoutMs = opts.requestTimeoutMs ?? MASTER_REQUEST_TIMEOUT_MS;
+    this.#retryBackoffMs = opts.retryBackoffMs ?? MASTER_RETRY_BACKOFF_MS;
+  }
+
+  /** 다음 07:30 KST 경계 타이머를 건다. 이미 걸려 있으면 다시 건다. */
+  start(): void {
+    this.#armBoundary();
+  }
+
+  /** 경계·타임아웃·재시도 타이머를 모두 지우고 진행 중 요청을 버린다. 맵은 그대로 둔다. */
+  close(): void {
+    for (const timer of [this.#boundaryTimer, this.#timeoutTimer, this.#retryTimer]) {
+      if (timer !== null) clearTimeout(timer);
+    }
+    this.#boundaryTimer = null;
+    this.#timeoutTimer = null;
+    this.#retryTimer = null;
+    this.#inflight = null;
   }
 
   /** 보조 맵만 본다. Supabase 우선순위는 `SymbolMap.lookup` 이 쥔다(D-01). */
@@ -120,8 +179,9 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
   }
 
   /**
-   * 세션이 Ready 가 됐다(hub `#onReady` 의 4번째 줄). 이번 master-day 에 아직 성공한 적이 없고
-   * 진행 중인 요청도 없을 때만 이 세션으로 27 을 보낸다 — 사용자 N명이 Ready 가 돼도 1건이다.
+   * 세션이 Ready 가 됐다(hub `#onReady` 의 4번째 줄). 이번 master-day 에 아직 성공한 적이 없고,
+   * 진행 중인 요청도 backoff 도 없고, 오늘 시도 상한 전일 때만 이 세션으로 27 을 보낸다 —
+   * 사용자 N명이 Ready 가 돼도 1건이다.
    */
   onSessionReady(session: MasterRequestSession): void {
     this.#tryRequest(session, "ready");
@@ -184,7 +244,9 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
 
     // 원자 교체 — 새 Map 을 다 만든 뒤 한 번에 바꾼다. 조립 도중의 조회는 옛 맵을 본다.
     const now = this.#now();
+    this.#clearTimeoutTimer();
     this.#byIsin = inflight.rows;
+    // 성공 키는 **완료 시각**으로 매긴다(D-03).
     this.#loadedDayKey = masterDayKey(now);
     this.#loadedAt = new Date(now);
     this.#inflight = null;
@@ -202,18 +264,46 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
     this.emit("updated", { count });
   }
 
-  #tryRequest(session: MasterRequestSession | undefined, reason: "ready"): void {
-    if (session === undefined || !session.isReady) return;
+  /**
+   * 요청 경로는 이 함수 하나다 — Ready · 07:30 경계 · 재시도가 모두 여기로 온다.
+   * due = 진행 중 없음 ∧ 이번 master-day 미적재 ∧ backoff 지남 ∧ 오늘 시도 < 상한 ∧ Ready 세션.
+   */
+  #tryRequest(session: MasterRequestSession | undefined, reason: RequestReason): void {
     if (this.#inflight !== null) return;
     const now = this.#now();
     const dayKey = masterDayKey(now);
     if (this.#loadedDayKey === dayKey) return;
+    if (now < this.#retryNotBefore) return;
 
+    if (this.#attempts.dayKey !== dayKey) this.#attempts = { dayKey, count: 0 };
+    if (this.#attempts.count >= MAX_MASTER_ATTEMPTS_PER_DAY) {
+      if (this.#capLoggedDayKey !== dayKey) {
+        this.#capLoggedDayKey = dayKey;
+        logger.error(
+          { dayKey, attempts: this.#attempts.count, reason },
+          "[SYM-GW] 오늘 재시도 상한 도달 — 다음 07:30 경계까지 중단",
+        );
+      }
+      return;
+    }
+
+    if (session === undefined || !session.isReady) {
+      // Ready 이벤트는 언제나 Ready 세션을 싣는다 — 여기 오는 것은 타이머 트리거다.
+      if (reason !== "ready") {
+        logger.info(
+          { dayKey, reason },
+          reason === "day-boundary"
+            ? "[SYM-GW] 경계 도달 — Ready 세션 없음, 첫 Ready 에서 요청"
+            : "[SYM-GW] 재시도 — Ready 세션 없음, 첫 Ready 에서 요청",
+        );
+      }
+      return;
+    }
+
+    this.#attempts.count += 1;
+    const attempt = this.#attempts.count;
     if (!session.send(buildGetSymbolMasterReq())) {
-      logger.warn(
-        { userId: session.userId, dayKey, reason },
-        "[SYM-GW] 게이트웨이 종목마스터 요청 송신 실패 (send-false)",
-      );
+      this.#fail("send-false", { attempt }, session.userId);
       return;
     }
     this.#inflight = {
@@ -226,24 +316,66 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
       frames: 0,
       rows: new Map(),
     };
-    logger.info({ userId: session.userId, dayKey, reason }, "[SYM-GW] 게이트웨이 종목마스터 요청");
+    this.#clearTimeoutTimer();
+    this.#timeoutTimer = setTimeout(() => {
+      this.#timeoutTimer = null;
+      if (this.#inflight !== null) this.#fail("timeout", { timeoutMs: this.#requestTimeoutMs });
+    }, this.#requestTimeoutMs);
+    this.#timeoutTimer.unref?.();
+    logger.info(
+      { userId: session.userId, dayKey, reason, attempt },
+      "[SYM-GW] 게이트웨이 종목마스터 요청",
+    );
   }
 
-  /** 조립 실패. 옛 맵은 건드리지 않는다. */
-  #fail(reason: string, detail: Record<string, unknown> = {}): void {
+  /**
+   * 요청 실패. 옛 맵은 건드리지 않는다. backoff 를 세우고 재시도 타이머를 다시 건다 —
+   * 재시도는 가능하면 **다른** Ready 세션으로 간다(`pickSession(직전 실패 userId)`).
+   */
+  #fail(reason: string, detail: Record<string, unknown> = {}, failedUserId?: string): void {
     const inflight = this.#inflight;
     this.#inflight = null;
+    this.#clearTimeoutTimer();
+    const now = this.#now();
+    this.#retryNotBefore = now + this.#retryBackoffMs;
+    this.#lastFailedUserId = failedUserId ?? inflight?.userId;
     logger.warn(
       {
         reason,
-        userId: inflight?.userId,
-        dayKey: masterDayKey(this.#now()),
+        userId: this.#lastFailedUserId,
+        dayKey: masterDayKey(now),
         frames: inflight?.frames ?? 0,
         rawCount: inflight?.rawCount ?? 0,
         keptCount: this.#byIsin.size,
+        retryInMs: this.#retryBackoffMs,
         ...detail,
       },
-      "[SYM-GW] 게이트웨이 종목마스터 조립 실패 — 기존 맵 유지",
+      "[SYM-GW] 게이트웨이 종목마스터 요청 실패 — 기존 맵 유지",
     );
+
+    if (this.#retryTimer !== null) clearTimeout(this.#retryTimer);
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = null;
+      this.#tryRequest(this.#pickSession(this.#lastFailedUserId), "retry");
+    }, this.#retryBackoffMs);
+    this.#retryTimer.unref?.();
+  }
+
+  #armBoundary(): void {
+    if (this.#boundaryTimer !== null) clearTimeout(this.#boundaryTimer);
+    const delay = msUntilKst(MASTER_DAY_START_HOUR_KST, MASTER_DAY_START_MINUTE_KST, this.#now());
+    this.#boundaryTimer = setTimeout(() => {
+      this.#boundaryTimer = null;
+      this.#tryRequest(this.#pickSession(), "day-boundary");
+      this.#armBoundary();
+    }, delay);
+    this.#boundaryTimer.unref?.();
+  }
+
+  #clearTimeoutTimer(): void {
+    if (this.#timeoutTimer !== null) {
+      clearTimeout(this.#timeoutTimer);
+      this.#timeoutTimer = null;
+    }
   }
 }

@@ -10,6 +10,8 @@
  *   ⑤ Supabase 우선(행 단위)과 FK 헬퍼 `stocksCodeOf`.
  *   ⑥ 라우팅 — 요청 세션이 아닌 userId · 요청 없는 57 은 무시.
  *   ⑦ 빈 마스터는 기존 맵을 지우지 않는다.
+ *   ⑧~⑫ 스케줄 — 07:30 경계 타이머(재무장) · Ready 세션 없음 · 30초 타임아웃 → 5분 backoff →
+ *      다른 Ready 세션으로 재시도 · 하루 5회 상한 · 성공 시 타임아웃 해제 · close() 로 타이머 0.
  *
  * 세션은 가짜지만 **게이트웨이로 나간 바이트는 실제 FlatBuffers 로 되읽어** msg_type 을 센다.
  */
@@ -35,7 +37,14 @@ import {
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import type { TransportFrameEvent } from "../src/dma/dma-client.js";
 import { logger } from "../src/logger.js";
-import { GatewaySymbolMaster, masterDayKey } from "../src/store/gateway-symbols.js";
+import {
+  GatewaySymbolMaster,
+  MASTER_REQUEST_TIMEOUT_MS,
+  MASTER_RETRY_BACKOFF_MS,
+  MAX_MASTER_ATTEMPTS_PER_DAY,
+  masterDayKey,
+  type MasterRequestSession,
+} from "../src/store/gateway-symbols.js";
 import { SymbolMap, stocksCodeOf, type SymbolInfo } from "../src/store/symbols.js";
 import {
   SAMPLE_ISIN,
@@ -482,5 +491,185 @@ describe("GatewaySymbolMaster — 게이트웨이 종목마스터 보조 원천 
     expect(masterDayKey(Date.UTC(2026, 8, 22, 22, 29))).toBe("2026-09-22");
     expect(masterDayKey(Date.UTC(2026, 8, 22, 22, 30))).toBe("2026-09-23");
     expect(masterDayKey(T0)).toBe("2026-09-23");
+  });
+});
+
+describe("GatewaySymbolMaster — 스케줄 (07:30 경계 · 타임아웃 · 재시도 · 상한)", () => {
+  let nowMs: number;
+  const now = (): number => nowMs;
+  /**
+   * 주입 시계와 가짜 타이머를 같이 민다. ⚠️ 한 번에 여러 타이머를 지나가면 콜백이 **끝 시각**의
+   * now 를 읽는다 — 만료 시각이 중요한 구간은 타이머 하나씩 민다.
+   */
+  function advance(ms: number): void {
+    nowMs += ms;
+    vi.advanceTimersByTime(ms);
+  }
+  /** 2026-09-23 07:29 KST. */
+  const T_0729 = Date.UTC(2026, 8, 22, 22, 29);
+  const MIN = 60_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    resetDroppedEnvelopeCount();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function complete(gw: GatewaySymbolMaster, userId: string, items = mkItems(3)): void {
+    for (const f of buildSymbolMasterFrames(items, 2)) gw.onFrame(userId, parse57(f));
+  }
+
+  /** 전날 master-day 에 적재를 끝낸 gw. 요청 세션은 user-1. */
+  function loadedYesterday(pick: (avoid?: string) => MasterRequestSession | undefined) {
+    nowMs = T_0729 - 60 * MIN; // 06:29 KST — master-day 는 전날(2026-09-22)
+    const gw = new GatewaySymbolMaster({ now, pickSession: pick });
+    const first = new FakeSession("user-1");
+    gw.onSessionReady(first);
+    complete(gw, "user-1");
+    expect(gw.stats().dayKey).toBe("2026-09-22");
+    nowMs = T_0729;
+    return gw;
+  }
+
+  it("⑧ 07:30 경계 타이머 — pickSession 의 Ready 세션으로 27 1건(reason day-boundary), 다음 날 07:30 에 재무장", () => {
+    const session = new FakeSession("user-1");
+    const pick = vi.fn((_avoid?: string) => session as MasterRequestSession | undefined);
+    const gw = loadedYesterday(pick);
+    const info = vi.spyOn(logger, "info");
+    gw.start();
+
+    advance(MIN - 1);
+    expect(session.masterReqs()).toBe(0);
+    advance(1);
+    expect(session.masterReqs()).toBe(1);
+    expect(pick).toHaveBeenCalledWith();
+    const reqLog = info.mock.calls.find((c) => c[1] === "[SYM-GW] 게이트웨이 종목마스터 요청");
+    expect((reqLog?.[0] as { reason?: string }).reason).toBe("day-boundary");
+
+    complete(gw, "user-1");
+    expect(gw.stats().dayKey).toBe("2026-09-23");
+    // 타임아웃 타이머는 성공으로 지워졌고, 남은 것은 다음 날 경계 타이머 하나다.
+    expect(vi.getTimerCount()).toBe(1);
+
+    advance(24 * 60 * MIN);
+    expect(session.masterReqs()).toBe(2);
+    gw.close();
+  });
+
+  it("⑨ 경계에 Ready 세션이 없으면 27 은 0건 — 그 뒤 첫 Ready 가 1건을 보낸다", () => {
+    const pick = vi.fn((_avoid?: string) => undefined as MasterRequestSession | undefined);
+    const gw = loadedYesterday(pick);
+    const info = vi.spyOn(logger, "info");
+    gw.start();
+    advance(MIN);
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(info.mock.calls.some((c) => c[1] === "[SYM-GW] 경계 도달 — Ready 세션 없음, 첫 Ready 에서 요청")).toBe(true);
+
+    const late = new FakeSession("user-9");
+    advance(10 * MIN);
+    gw.onSessionReady(late);
+    expect(late.masterReqs()).toBe(1);
+    gw.close();
+  });
+
+  it("⑩ 30초 타임아웃 → 5분 backoff 안의 Ready 는 막힌다 → 재시도 타이머가 pickSession(실패 userId) 로 다른 세션에 보낸다", () => {
+    nowMs = T0;
+    const s1 = new FakeSession("user-1");
+    const s2 = new FakeSession("user-2");
+    const pick = vi.fn((avoid?: string) => (avoid === "user-1" ? s2 : s1) as MasterRequestSession);
+    const gw = new GatewaySymbolMaster({ now, pickSession: pick });
+    const warn = vi.spyOn(logger, "warn");
+
+    gw.onSessionReady(s1);
+    expect(s1.masterReqs()).toBe(1);
+    advance(MASTER_REQUEST_TIMEOUT_MS - 1);
+    expect(gw.stats().inflight).toBe(true);
+    advance(1);
+    expect(gw.stats().inflight).toBe(false);
+    const reasons = warn.mock.calls.map((c) => (c[0] as { reason?: string }).reason);
+    expect(reasons).toContain("timeout");
+
+    // backoff 안의 Ready 이벤트는 27 을 보내지 않는다.
+    advance(MIN);
+    gw.onSessionReady(s1);
+    gw.onSessionReady(s2);
+    expect(s1.masterReqs()).toBe(1);
+    expect(s2.masterReqs()).toBe(0);
+
+    advance(MASTER_RETRY_BACKOFF_MS - MIN);
+    expect(pick).toHaveBeenCalledWith("user-1");
+    expect(s2.masterReqs()).toBe(1);
+    expect(gw.stats().inflight).toBe(true);
+
+    complete(gw, "user-2");
+    expect(gw.stats()).toMatchObject({ symbolCount: 3, inflight: false, dayKey: "2026-09-23" });
+    gw.close();
+  });
+
+  it("⑪ 같은 master-day 5회 실패 뒤 6번째는 보내지 않고 error 1건 — 다음 07:30 경계에서 시도 수가 0으로", () => {
+    nowMs = T0; // 09:00 KST
+    const s1 = new FakeSession("user-1");
+    const gw = new GatewaySymbolMaster({ now, pickSession: () => s1 });
+    const error = vi.spyOn(logger, "error");
+    gw.start();
+
+    gw.onSessionReady(s1);
+    // 주입 시계가 타이머 만료 시각과 어긋나지 않게 타이머 하나씩 민다(타임아웃 → 재시도).
+    for (let i = 1; i < MAX_MASTER_ATTEMPTS_PER_DAY; i += 1) {
+      advance(MASTER_REQUEST_TIMEOUT_MS);
+      advance(MASTER_RETRY_BACKOFF_MS);
+    }
+    expect(s1.masterReqs()).toBe(MAX_MASTER_ATTEMPTS_PER_DAY);
+    expect(error).not.toHaveBeenCalled();
+
+    // 5번째 실패 → 재시도 타이머 만료 → 상한.
+    advance(MASTER_REQUEST_TIMEOUT_MS);
+    advance(MASTER_RETRY_BACKOFF_MS);
+    expect(s1.masterReqs()).toBe(MAX_MASTER_ATTEMPTS_PER_DAY);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]?.[1]).toBe("[SYM-GW] 오늘 재시도 상한 도달 — 다음 07:30 경계까지 중단");
+
+    // 같은 날 Ready 가 더 와도 보내지 않고, error 도 한 번뿐이다.
+    advance(10 * MIN);
+    gw.onSessionReady(s1);
+    expect(s1.masterReqs()).toBe(MAX_MASTER_ATTEMPTS_PER_DAY);
+    expect(error).toHaveBeenCalledTimes(1);
+
+    // 다음 날 07:30 경계 — 시도 수 초기화, 경계 타이머가 보낸다.
+    const untilBoundary = Date.UTC(2026, 8, 23, 22, 30) - nowMs;
+    advance(untilBoundary);
+    expect(s1.masterReqs()).toBe(MAX_MASTER_ATTEMPTS_PER_DAY + 1);
+    gw.close();
+  });
+
+  it("⑫ 성공한 완료는 타임아웃 타이머를 지우고, close() 는 경계·타임아웃·재시도 타이머를 모두 지운다", () => {
+    nowMs = T0;
+    const s1 = new FakeSession("user-1");
+    const gw = new GatewaySymbolMaster({ now, pickSession: () => s1 });
+    const warn = vi.spyOn(logger, "warn");
+    gw.start();
+    gw.onSessionReady(s1);
+    complete(gw, "user-1");
+    advance(MASTER_REQUEST_TIMEOUT_MS * 2);
+    expect(warn).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1); // 경계 타이머만
+    gw.close();
+    expect(vi.getTimerCount()).toBe(0);
+
+    // 실패 뒤(재시도 타이머 + 경계 타이머) 에도 close() 는 전부 지운다.
+    nowMs = T0;
+    const gw2 = new GatewaySymbolMaster({ now, pickSession: () => s1 });
+    gw2.start();
+    gw2.onSessionReady(s1);
+    expect(vi.getTimerCount()).toBe(2); // 경계 + 타임아웃
+    advance(MASTER_REQUEST_TIMEOUT_MS);
+    expect(vi.getTimerCount()).toBe(2); // 경계 + 재시도
+    gw2.close();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(gw2.stats().inflight).toBe(false);
   });
 });

@@ -269,6 +269,24 @@ export class SessionManager {
     return this.#sessions.get(userId)?.session;
   }
 
+  /**
+   * 지금 Ready 인 세션 하나를 고른다 — 참조계수·유예 타이머는 건드리지 않는다.
+   *
+   * 용도(quick-260923-cqj D-02): 게이트웨이 종목마스터 요청(27)을 실어 보낼 **운반 세션** 선택.
+   * 요청은 사용자 수와 무관한 relay 전체 1건이고, 07:30 경계 타이머와 실패 뒤 재시도 타이머가
+   * 이 함수를 부른다. 삽입 순서상 첫 Ready 세션 중 `avoidUserId` 가 아닌 것을 돌려주고(직전
+   * 실패 세션을 피한다), 그런 세션이 없으면 `avoidUserId` 세션이 Ready 일 때 그것을 돌려준다.
+   * 유예 중(마지막 wss 가 닫힌 뒤 5분)인 세션도 Ready 면 후보다 — 게이트웨이 로그인은 살아 있다.
+   */
+  firstReady(avoidUserId?: string): DmaSession | undefined {
+    for (const [userId, entry] of this.#sessions) {
+      if (userId !== avoidUserId && entry.session.isReady) return entry.session;
+    }
+    if (avoidUserId === undefined) return undefined;
+    const avoided = this.#sessions.get(avoidUserId)?.session;
+    return avoided?.isReady === true ? avoided : undefined;
+  }
+
   /** 프로세스 graceful shutdown 용. 15-05 의 `index.ts` 가 부른다. */
   async closeAll(): Promise<void> {
     const count = this.#sessions.size;

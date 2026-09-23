@@ -25,7 +25,7 @@
  *   1. HTTP 서버 2개 `close()`  — 새 연결을 받지 않는다
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
- *   4. `hub.closeAll()`         — 배치 타이머 정리(남기면 프로세스가 안 내려간다)
+ *   4. `hub.closeAll()`         — 배치·종목마스터 타이머 정리(남기면 프로세스가 안 내려간다)
  *   5. `orderStore.flushNow()`  — 남은 주문 기록을 밀어낸다. 여기를 건너뛰면 마지막
  *                                 체결 통보가 `dma_orders` 에 남지 않아 감사 기록에 구멍이 난다
  *   6. 5초 안에 안 끝나면 강제 exit — 종료가 소켓 사정에 매달리지 않게 한다
@@ -82,8 +82,12 @@ const sessionManager = new SessionManager({
  *
  * 보조 원천: `stocks` 미스(당일 신규상장)는 게이트웨이 종목마스터(27/57)가 채운다
  * (quick-260923-cqj). hub·fanout 이 같은 `symbols.lookup` 을 쓰고, 27 요청은 hub Ready 가 건다.
+ * 07:30 KST 경계·실패 재시도 타이머는 SessionManager 가 고른 Ready 세션 하나로 보낸다(relay 전체 1건).
  */
-const gatewaySymbols = new GatewaySymbolMaster();
+const gatewaySymbols = new GatewaySymbolMaster({
+  pickSession: (avoid) => sessionManager.firstReady(avoid),
+});
+gatewaySymbols.start();
 const symbols = new SymbolMap(supabase, { fallback: gatewaySymbols });
 void symbols.start();
 
@@ -200,6 +204,7 @@ async function shutdown(signal: string): Promise<void> {
     // 4) 배치 타이머 정리
     hub.closeAll();
     symbols.close();
+    gatewaySymbols.close();
     // 5) 주문 기록 잔여분 반영 후 tick 정지 (순서 중요 — close 를 먼저 하면 큐가 남는다)
     //    `flushNow()` 는 진행 중 배치를 **기다린 뒤** 재큐잉분까지 비운다 (16-24 / WR-09).
     //    그래서 `close()` 를 그 뒤에 부르는 이 순서가 여전히 유효하다 — 옛 구현은 진행 중이면
