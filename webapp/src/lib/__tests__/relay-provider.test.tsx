@@ -55,6 +55,7 @@ import {
   type RelayOrderRequest,
 } from '../relay-provider';
 import { strategyKey } from '../limit-chaser';
+import { RELAY_MARKET_BATCH_MS } from '../use-relay-socket';
 
 const ISIN_A = 'KR7005930003';
 const ISIN_B = 'KR7000660001';
@@ -342,6 +343,16 @@ function signedOut(): void {
   });
 }
 
+/**
+ * 대기 중인 시세·체결 배치를 흘려보낸다 (quick-260923-elb 1a) — q/tape 는 ≤ `RELAY_MARKET_BATCH_MS`
+ * 뒤 한 번에 반영된다. 시세만 push 하고 곧바로 읽는 단언은 이 호출을 앞에 둔다.
+ */
+function flushMarket(): void {
+  act(() => {
+    vi.advanceTimersByTime(RELAY_MARKET_BATCH_MS);
+  });
+}
+
 beforeEach(() => {
   FakeWebSocket.instances = [];
   vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -513,6 +524,7 @@ describe('useRelaySubscription — 키 격리 (T-16-02 / T-15-40)', () => {
     await act(async () => {
       ws.push(quoteFrame({ i: ISIN_A, p: 70_000 }));
     });
+    flushMarket();
 
     expect(screen.getByTestId('quote-a')).toHaveTextContent('70000');
     // 새면 사용자는 **다른 종목 호가로 주문**한다
@@ -521,6 +533,7 @@ describe('useRelaySubscription — 키 격리 (T-16-02 / T-15-40)', () => {
     await act(async () => {
       ws.push(quoteFrame({ i: ISIN_B, p: 51_000 }));
     });
+    flushMarket();
     expect(screen.getByTestId('quote-a')).toHaveTextContent('70000');
     expect(screen.getByTestId('quote-b')).toHaveTextContent('51000');
   });
@@ -537,6 +550,7 @@ describe('useRelaySubscription — 키 격리 (T-16-02 / T-15-40)', () => {
     await act(async () => {
       ws.push(quoteFrame({ x: 'KRX', p: 70_000 }));
     });
+    flushMarket();
 
     expect(screen.getByTestId('quote-krx')).toHaveTextContent('70000');
     expect(screen.getByTestId('quote-nxt')).toHaveTextContent('none');

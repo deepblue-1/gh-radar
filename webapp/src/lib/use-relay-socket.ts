@@ -32,6 +32,13 @@
  *  7. **시세·체결은 키별 맵에 담는다** — 전역 연결에는 여러 종목이 섞이므로 「내 키에
  *     해당하는 것만 고르기」는 **소비자 책임**이다(T-16-02). 승격 전의 `wantedKeyRef` 지연
  *     프레임 필터가 `useRelaySubscription` 으로 옮겨진 이유다.
+ *  8. **시세·체결(q/tape)은 `RELAY_MARKET_BATCH_MS` 모아 한 번에 적용한다** (quick-260923-elb).
+ *     컨텍스트가 1개라 상태가 프레임마다 바뀌면 `/trading` 트리 전체가 **어느 종목의 틱이든**
+ *     다시 그려진다 — 돌파 40종목이 붙으면 프레임 600/s 가 커밋 140/s 로 번져 팬리스 노트북
+ *     한 코어를 채웠다(debug `trading-cpu-260923`). 배치는 커밋 수에 상한(≈10/s)을 건다.
+ *     주문·통보·계좌·전략·VI·메시지·상태 프레임은 **지연하지 않는다** — 도착하면 대기 중인
+ *     시세·체결을 먼저 떼어 **같은 dispatch** 로 함께 적용해 도착 순서를 보존한다.
+ *     `order.result` 는 원래 dispatch 밖(rid 상관 Promise)이라 영향이 없다.
  *
  * 파싱 실패 프레임은 throw 하지 않고 **스킵**한다 — `chat-sse.ts` 파서 선례(T-15-41).
  */
@@ -58,6 +65,7 @@ import {
   type RelayQuote,
   type RelayServerMsg,
   type RelaySessionState,
+  type RelayTape,
   type RelayStrategiesDisabledMsg,
   type RelayQueuedWindowMsg,
   type RelayRateCrossItem,
@@ -74,6 +82,25 @@ import {
 
 /** 체결 테이프 링버퍼 상한. relay 캐시와 동일(UI-SPEC §체결 테이프 스크롤). */
 const MAX_TAPE = 200;
+/**
+ * 시세·체결(q/tape) 프레임 배치 창 (quick-260923-elb 1a · 파일 상단 규율 8).
+ *
+ * ★ 100 인 이유: 진단 어블레이션에서 최악 시나리오(3카드 + 돌파 40 · 도착 분산)의 메인스레드가
+ *   배치 없음 98.8% · 16ms 49.9% · **100ms 20.2%** 였다. 게이트웨이가 시세를 100ms 틱
+ *   (`TickOnce`)으로, relay 가 체결을 200ms(`TAPE_BATCH_MS`)로 이미 묶어 보내므로 표시 지연은
+ *   게이트웨이 1틱 이하다.
+ * ★ rAF 가 아니라 타이머인 이유: 백그라운드 탭에서 rAF 는 **멈춘다** — 탭을 오가면 시세가
+ *   통째로 굳는다. 타이머는 느려질 뿐 멈추지 않는다(아래 `RELAY_MARKET_BUFFER_MAX` 참조).
+ * ★ 합치는 것은 q/tape **뿐**이다. 주문·통보·VI·상따 같은 거래 신호는 지연 0 이다.
+ */
+export const RELAY_MARKET_BATCH_MS = 100;
+/**
+ * 시세·체결 대기 버퍼 상한. 이 수에 닿으면 창을 기다리지 않고 즉시 적용한다.
+ *
+ * 숨은 탭의 타이머는 ≥1s 로 늦춰지는데, 최악 600프레임/s 라도 대기 메모리를 묶어 두기 위한
+ * 안전판이다(T-elb-03). 정상 창(100ms)에서는 닿지 않는다.
+ */
+export const RELAY_MARKET_BUFFER_MAX = 1000;
 /** ServerMessage 누적 상한. 상태 바는 이 중 최근 3건만 렌더한다(C3). */
 const MAX_MESSAGES = 20;
 /** 주문 통보 누적 상한. */
@@ -150,7 +177,12 @@ export type RelayServerMessageEntry = RelayServerMsg & {
   receivedAt: string;
 };
 
-/** 알림 수신 시각 스탬프. 24시간제 `HH:MM:SS`. */
+/**
+ * 알림 수신 시각 스탬프. 24시간제 `HH:MM:SS`.
+ *
+ * **msg 프레임에서만 호출한다** — 매 프레임 호출이 포화 프로파일 단독 2.7% 였다
+ * (quick-260923-elb). 다른 프레임은 이 값을 쓰지 않는다.
+ */
 function clockStamp(now: Date): string {
   return now.toLocaleTimeString("ko-KR", { hour12: false });
 }
@@ -440,11 +472,30 @@ const INITIAL_DATA: RelayData = {
   queuedWindow: undefined,
 };
 
+/** 배치 대상 프레임 — 시세·체결 두 종류뿐이다 (파일 상단 규율 8). */
+type RelayMarketFrame = RelayQuote | RelayTape;
+
+function isMarketFrame(frame: RelayOutbound): frame is RelayMarketFrame {
+  return frame.t === "q" || frame.t === "tape";
+}
+
 type RelayAction =
   /** 브라우저가 스스로 만든 상태(연결 시도·백오프·게이트). 서버 프레임이 아니다. */
   | { type: "local-status"; status: RelayStatus; message?: string; attempt?: number }
-  /** 서버 프레임 1건. `at` 은 알림 스탬프용 수신 시각(`HH:MM:SS`). */
-  | { type: "frame"; frame: RelayOutbound; at: string }
+  /**
+   * 서버 프레임 적용의 **유일한 경로** (quick-260923-elb 1a).
+   *
+   * `market`(대기 중이던 시세·체결 · 도착 순)을 먼저 적용하고, 그 결과에 `frame`(비시장 프레임
+   * 1건 · 없으면 null)을 적용한다 — 비시장 프레임이 도착하면 그 앞에 쌓인 시세가 같은 커밋에서
+   * 먼저 반영돼 도착 순서가 보존된다. `at` 은 `frame.t === "msg"` 일 때만 뜻이 있다(수신 시각
+   * `HH:MM:SS`). 나머지는 빈 문자열이다.
+   */
+  | {
+      type: "frames";
+      market: readonly RelayMarketFrame[];
+      frame: RelayOutbound | null;
+      at: string;
+    }
   /** 소켓 단절/복구에 따른 신선도 표식. */
   | { type: "stale"; value: boolean }
   /** 세션 종료(로그아웃·비활성화). 이전 사용자의 계좌·전략을 메모리에 남기지 않는다. */
@@ -468,8 +519,10 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
       // 사용자가 **이전 사용자의 잔고와 전략 목록**을 잠깐이라도 보게 된다(T-16-04).
       return INITIAL_DATA;
 
-    case "frame":
-      return applyFrame(state, action.frame, action.at);
+    case "frames": {
+      const next = applyMarketFrames(state, action.market);
+      return action.frame == null ? next : applyFrame(next, action.frame, action.at);
+    }
 
     default:
       return state;
@@ -493,27 +546,6 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         limitChaserSnapSeq:
           frame.s === "ready" && state.status !== "ready" ? 0 : state.limitChaserSnapSeq,
       };
-
-    case "q": {
-      const key = relayQuoteKey(frame.i, frame.x);
-      const prev = state.quotes.get(key) ?? null;
-      // snap=true 는 전량 교체, false 는 같은 키 병합 (D-33).
-      // 키가 슬롯 동일성을 보장하므로 승격 전의 `sameSlot` 비교는 필요 없다.
-      const quote = frame.snap || prev == null ? frame : { ...prev, ...frame };
-      const quotes = new Map(state.quotes);
-      quotes.set(key, quote);
-      return { ...state, quotes, isStale: frame.snap ? false : state.isStale };
-    }
-
-    case "tape": {
-      const key = relayQuoteKey(frame.i, frame.x);
-      // 와이어는 시간 오름차순 배치 → 최신이 index 0 이 되도록 뒤집어 prepend 한다.
-      const batch = [...frame.e].reverse();
-      const prev = state.tapes.get(key) ?? [];
-      const tapes = new Map(state.tapes);
-      tapes.set(key, (frame.snap ? batch : [...batch, ...prev]).slice(0, MAX_TAPE));
-      return { ...state, tapes };
-    }
 
     case "acct": {
       /*
@@ -618,8 +650,51 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     default:
       // 알 수 없는 `t` 는 무시한다 — 서버가 앞서 나가도 브라우저가 터지지 않는다(T-15-41).
       // `order.result` 는 상태가 아니라 `rid` 상관 Promise 로 흘러가므로 여기 오지 않는다.
+      // q/tape 도 여기 오지 않는다 — 시세·체결 적용은 `applyMarketFrames` 한 곳뿐이다.
       return state;
   }
+}
+
+/**
+ * 대기 중이던 시세·체결을 **도착 순서대로** 적용한다 (quick-260923-elb 1a).
+ *
+ * ★ 같은 종목의 여러 q 를 버퍼에서 미리 뭉개지 않는다. 대신 **한 액션 안의 순차 병합**으로
+ *   적용하므로 결과가 1건씩 dispatch 한 것과 정확히 같다 — snap 뒤 delta 는 필드 병합, 마지막
+ *   값이 이기고, 체결은 도착 순으로 앞에 붙고 키당 200 상한이다. 달라지는 것은 커밋 수뿐이다.
+ * ★ Map 복사는 액션당 **최대 1번**(copy-on-write). 첫 q 에서 quotes 를, 첫 tape 에서 tapes 를
+ *   복사하고 같은 배치의 나머지는 그 작업용 Map 위에서 병합한다. 빈 배열이면 state 그대로다.
+ */
+function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]): RelayData {
+  if (market.length === 0) return state;
+
+  let quotes: Map<string, RelayQuote> | null = null;
+  let tapes: Map<string, RelayTapeEntry[]> | null = null;
+  let isStale = state.isStale;
+
+  for (const frame of market) {
+    const key = relayQuoteKey(frame.i, frame.x);
+    if (frame.t === "q") {
+      quotes ??= new Map(state.quotes);
+      const prev = quotes.get(key) ?? null;
+      // snap=true 는 전량 교체, false 는 같은 키 병합 (D-33).
+      // 키가 슬롯 동일성을 보장하므로 승격 전의 `sameSlot` 비교는 필요 없다.
+      quotes.set(key, frame.snap || prev == null ? frame : { ...prev, ...frame });
+      if (frame.snap) isStale = false;
+    } else {
+      tapes ??= new Map(state.tapes);
+      // 와이어는 시간 오름차순 배치 → 최신이 index 0 이 되도록 뒤집어 prepend 한다.
+      const batch = [...frame.e].reverse();
+      const prev = tapes.get(key) ?? [];
+      tapes.set(key, (frame.snap ? batch : [...batch, ...prev]).slice(0, MAX_TAPE));
+    }
+  }
+
+  return {
+    ...state,
+    quotes: quotes ?? state.quotes,
+    tapes: tapes ?? state.tapes,
+    isStale,
+  };
 }
 
 /**
@@ -920,6 +995,31 @@ export function useRelayConnection({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
 
+    /*
+      시세·체결 대기 버퍼 (파일 상단 규율 8 · quick-260923-elb 1a).
+      ref 가 아니라 **effect 범위**에 두는 이유: 버퍼 수명을 연결 수명과 같게 하려는 것이다.
+      재연결(nonce)·비활성화로 effect 가 다시 돌면 새 버퍼가 생기고, 옛 버퍼는 정리에서 비워진다.
+    */
+    let marketQueue: RelayMarketFrame[] = [];
+    let marketTimer: ReturnType<typeof setTimeout> | null = null;
+
+    /** 대기 중인 시세·체결을 떼어 낸다. 타이머도 함께 지운다. */
+    const takeMarket = (): RelayMarketFrame[] => {
+      if (marketTimer != null) {
+        clearTimeout(marketTimer);
+        marketTimer = null;
+      }
+      const taken = marketQueue;
+      marketQueue = [];
+      return taken;
+    };
+
+    /** 대기분만 적용한다(창 만료 · 상한 도달 · close · 정리). 비어 있으면 아무것도 하지 않는다. */
+    const flushMarket = () => {
+      const market = takeMarket();
+      if (market.length > 0) dispatch({ type: "frames", market, frame: null, at: "" });
+    };
+
     /**
      * `open()` 이 던지는 모든 예외를 상태로 바꾼다.
      *
@@ -1012,7 +1112,23 @@ export function useRelayConnection({
           return;
         }
 
-        dispatch({ type: "frame", frame, at: clockStamp(new Date()) });
+        if (isMarketFrame(frame)) {
+          marketQueue.push(frame);
+          if (marketQueue.length >= RELAY_MARKET_BUFFER_MAX) {
+            flushMarket();
+          } else if (marketTimer == null) {
+            marketTimer = setTimeout(flushMarket, RELAY_MARKET_BATCH_MS);
+          }
+          return;
+        }
+
+        // 비시장 프레임(알 수 없는 `t` 포함)은 지연하지 않는다 — 대기 시세를 먼저, 같은 dispatch 로.
+        dispatch({
+          type: "frames",
+          market: takeMarket(),
+          frame,
+          at: frame.t === "msg" ? clockStamp(new Date()) : "",
+        });
       };
 
       ws.onerror = () => {
@@ -1020,6 +1136,8 @@ export function useRelayConnection({
       };
 
       ws.onclose = (event: CloseEvent) => {
+        // 닫힌 소켓의 마지막 틱까지 반영한 뒤 stale 을 세운다 — 규율 5 「마지막 값 유지」.
+        flushMarket();
         if (socketRef.current === ws) socketRef.current = null;
         authAckedRef.current = false;
         wireSubsRef.current.clear();
@@ -1064,6 +1182,8 @@ export function useRelayConnection({
 
     return () => {
       disposed = true;
+      // 대기 시세를 버리지 않고 배치 타이머를 남기지 않는다. 비활성화면 다음 실행의 reset 이 비운다.
+      flushMarket();
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = null;

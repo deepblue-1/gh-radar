@@ -47,7 +47,13 @@ import type {
   RelayUnfilled,
   RelayViOrderItem,
 } from '@gh-radar/shared';
-import { relayQuoteKey, useRelayConnection } from '../use-relay-socket';
+import {
+  RELAY_MARKET_BATCH_MS,
+  RELAY_MARKET_BUFFER_MAX,
+  relayQuoteKey,
+  useRelayConnection,
+  type RelayConnectionState,
+} from '../use-relay-socket';
 
 const ISIN_A = 'KR7005930003';
 /** 로그에 **새면 안 되는** 값. 계좌번호가 콘솔에 찍히는지 단언에 쓴다(T-16-18). */
@@ -280,6 +286,18 @@ function tapeOf(
   return hook.result.current.tapes.get(relayQuoteKey(isin, ex)) ?? [];
 }
 
+/**
+ * 대기 중인 시세·체결 배치를 흘려보낸다 (quick-260923-elb 1a).
+ *
+ * q/tape 는 도착 즉시가 아니라 **≤ `RELAY_MARKET_BATCH_MS` 뒤** 한 번에 반영된다 — 관측 계약이
+ * 바뀐 것이지 값이 바뀐 것이 아니다. 시세만 push 하고 곧바로 읽는 단언은 이 호출을 앞에 둔다.
+ */
+function flushMarket(): void {
+  act(() => {
+    vi.advanceTimersByTime(RELAY_MARKET_BATCH_MS);
+  });
+}
+
 beforeEach(() => {
   FakeWebSocket.instances = [];
   vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -364,6 +382,7 @@ describe('useRelayConnection — 시세 키별 보관 (D-33 / D-37)', () => {
       ws.push(quoteFrame({ p: 70_000 }));
       ws.push(quoteFrame({ x: 'NXT', p: 69_800 }));
     });
+    flushMarket();
 
     // 승격 전에는 별도 `quoteCacheRef` 가 하던 일을 키가 대신한다 — 토글해도 값이 사라지지
     // 않으므로 스켈레톤으로 되돌아갈 여지 자체가 없다.
@@ -384,6 +403,7 @@ describe('useRelayConnection — 시세 키별 보관 (D-33 / D-37)', () => {
     await act(async () => {
       ws.push({ t: 'q', i: ISIN_A, x: 'KRX', snap: false, p: 70_500 });
     });
+    flushMarket();
 
     const krx = quoteOf(hook, ISIN_A, 'KRX');
     expect(krx?.p).toBe(70_500);
@@ -746,6 +766,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
       ws.push(tapeFrame(batch1));
       ws.push(tapeFrame(batch2));
     });
+    flushMarket();
 
     const tape = tapeOf(hook, ISIN_A, 'KRX');
     expect(tape).toHaveLength(200);
@@ -763,6 +784,7 @@ describe('useRelayConnection — 프레임 견고성', () => {
       ws.push(tapeFrame([tapeEntry(1), tapeEntry(2)], true));
       ws.push(tapeFrame([tapeEntry(9)], true, { i: ISIN_B }));
     });
+    flushMarket();
 
     expect(tapeOf(hook, ISIN_A, 'KRX')).toHaveLength(2);
     expect(tapeOf(hook, ISIN_B, 'KRX')).toHaveLength(1);
@@ -996,6 +1018,221 @@ describe('useRelayConnection — 프레임 견고성', () => {
     const messages = hook.result.current.messages;
     expect(messages[0]?.m).toBe('알림 4');
     expect(messages).toHaveLength(4);
+  });
+});
+
+describe('시세·체결 프레임 배치 (quick-260923-elb 1a)', () => {
+  /**
+   * 렌더 수를 세는 하네스. 배치의 계약은 「값」이 아니라 **커밋 수**다 — 창 안의 프레임이
+   * 몇 건이든 상태 갱신은 1번이어야 `/trading` 트리 전체가 프레임마다 다시 그려지지 않는다.
+   */
+  function renderCounted() {
+    const counter = { renders: 0 };
+    const hook = renderHook(
+      (props: HookProps) => {
+        counter.renders += 1;
+        return useRelayConnection(props);
+      },
+      { initialProps: { enabled: true } },
+    );
+    return { hook, counter };
+  }
+
+  it('ⓐ 창 안의 여러 시세는 창이 닫힐 때 한 번에 반영된다 — 종목별 순차 병합과 같은 결과 · 렌더 +1', async () => {
+    const { hook, counter } = renderCounted();
+    const ws = await connected(hook);
+    const before = counter.renders;
+
+    act(() => {
+      ws.push(quoteFrame({ p: 70_000 }));
+      ws.push({ t: 'q', i: ISIN_A, x: 'KRX', snap: false, p: 70_500 });
+      ws.push(quoteFrame({ i: ISIN_B, p: 51_000 }));
+      ws.push({ t: 'q', i: ISIN_A, x: 'KRX', snap: false, p: 70_700 });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(RELAY_MARKET_BATCH_MS - 1);
+    });
+    expect(quoteOf(hook, ISIN_A, 'KRX')).toBeNull();
+    expect(quoteOf(hook, ISIN_B, 'KRX')).toBeNull();
+    expect(counter.renders).toBe(before);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    const a = quoteOf(hook, ISIN_A, 'KRX');
+    // 마지막 값이 이긴다 + snap 뒤 delta 는 필드 병합(델타에 없던 상한가가 남는다)
+    expect(a?.p).toBe(70_700);
+    expect(a?.ul).toBe(89_700);
+    expect(quoteOf(hook, ISIN_B, 'KRX')?.p).toBe(51_000);
+    expect(counter.renders).toBe(before + 1);
+  });
+
+  const LC_KEY = `${ISIN_A}:12345678-01:KRX`;
+  const NON_MARKET: Array<[string, Record<string, unknown>, (s: RelayConnectionState) => void]> = [
+    ['acct', { ...acctFrame() }, (s) => expect(acctOf(s)).not.toBeNull()],
+    [
+      'order',
+      { t: 'order', no: 'A100', nt: 'A', rc: 0, msg: '', org: '', p: 69_900, q: 10, x: 'KRX' },
+      (s) => expect(s.orders[0]?.no).toBe('A100'),
+    ],
+    [
+      'lc',
+      {
+        t: 'lc',
+        item: {
+          isin: ISIN_A,
+          accountNo: '12345678-01',
+          exchange: 'KRX',
+          key: LC_KEY,
+          crud: 'C',
+          buyEnabled: true,
+          sellEnabled: false,
+          sweepEnabled: false,
+        },
+      },
+      (s) => expect(s.lastLimitChaserEcho?.key).toBe(LC_KEY),
+    ],
+    [
+      'vi.notice',
+      {
+        t: 'vi.notice',
+        isin: ISIN_A,
+        accountNo: '12345678-01',
+        triggerPrice: 86_000,
+        basePrice: 69_000,
+        changeRate: 24,
+        orderPrice: 89_700,
+        orderQty: 10,
+        market: 'K',
+        orderSeq: 1,
+        viEndTime: '093215000',
+      },
+      (s) => expect(s.viNotices).toHaveLength(1),
+    ],
+    [
+      'msg',
+      { t: 'msg', lv: 'INFO', m: '알림', i: '', a: '', src: 'System', kind: '' },
+      (s) => expect(s.messages[0]?.m).toBe('알림'),
+    ],
+    [
+      'state',
+      { t: 'state', s: 'ready', msg: '반복 프레임' },
+      (s) => expect(s.statusMessage).toBe('반복 프레임'),
+    ],
+  ];
+
+  it.each(NON_MARKET)(
+    'ⓑ 시세 대기 중 %s 프레임은 지연 없이 — 대기 시세와 **같은 렌더**에서 함께 보이고 버퍼는 빈다',
+    async (_name, frame, check) => {
+      const { hook, counter } = renderCounted();
+      const ws = await connected(hook);
+
+      act(() => {
+        ws.push(quoteFrame({ p: 70_000 }));
+      });
+      expect(quoteOf(hook, ISIN_A, 'KRX')).toBeNull();
+      const before = counter.renders;
+
+      act(() => {
+        ws.push(frame);
+      });
+      // 타이머를 진행하지 않았다 — 거래 신호는 배치 창을 기다리지 않는다(T-elb-02).
+      expect(counter.renders).toBe(before + 1);
+      expect(quoteOf(hook, ISIN_A, 'KRX')?.p).toBe(70_000);
+      check(hook.result.current);
+
+      // 대기분은 이미 같은 dispatch 로 나갔다 — 창이 닫혀도 더 그릴 것이 없다.
+      act(() => {
+        vi.advanceTimersByTime(RELAY_MARKET_BATCH_MS);
+      });
+      expect(counter.renders).toBe(before + 1);
+    },
+  );
+
+  it('ⓒ 대기 시세는 소켓이 닫혀도 버려지지 않는다 — 닫힌 소켓의 마지막 틱까지 유지하고 isStale', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      ws.push(quoteFrame({ p: 70_000 }));
+      ws.push({ t: 'q', i: ISIN_A, x: 'KRX', snap: false, p: 70_300 });
+    });
+    act(() => {
+      ws.serverClose(1006);
+    });
+
+    expect(quoteOf(hook, ISIN_A, 'KRX')?.p).toBe(70_300);
+    // snap q 가 isStale 을 내리므로 flush 가 stale 전이보다 먼저여야 이 값이 true 다.
+    expect(hook.result.current.isStale).toBe(true);
+  });
+
+  it('ⓓ 언마운트는 배치 타이머를 남기지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      ws.push(quoteFrame({ p: 70_000 }));
+    });
+    act(() => {
+      hook.unmount();
+    });
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('ⓓ-2 enabled:false 전환은 대기 시세까지 버리고 초기값으로 돌아간다 (T-16-04)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      ws.push(quoteFrame({ p: 70_000 }));
+    });
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+
+    expect(hook.result.current.status).toBe('idle');
+    expect(hook.result.current.quotes.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('ⓔ 알림 수신 시각(toLocaleTimeString)은 msg 프레임에서만 계산한다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const spy = vi.spyOn(Date.prototype, 'toLocaleTimeString');
+
+    act(() => {
+      for (let k = 0; k < 20; k += 1) {
+        ws.push({ t: 'q', i: ISIN_A, x: 'KRX', snap: false, p: 70_000 + k });
+        ws.push(tapeFrame([tapeEntry(k + 1)]));
+      }
+    });
+    flushMarket();
+    expect(tapeOf(hook, ISIN_A, 'KRX')).toHaveLength(20);
+    expect(spy).not.toHaveBeenCalled();
+
+    act(() => {
+      ws.push({ t: 'msg', lv: 'INFO', m: '알림', i: '', a: '', src: 'System', kind: '' });
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.messages[0]?.receivedAt).not.toBe('');
+
+    spy.mockRestore();
+  });
+
+  it('ⓕ 대기 버퍼가 RELAY_MARKET_BUFFER_MAX 에 닿으면 타이머 없이 바로 반영된다 (숨은 탭 안전판)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      for (let k = 0; k < RELAY_MARKET_BUFFER_MAX; k += 1) {
+        ws.push(quoteFrame({ p: 70_000 + k }));
+      }
+    });
+
+    expect(quoteOf(hook, ISIN_A, 'KRX')?.p).toBe(70_000 + RELAY_MARKET_BUFFER_MAX - 1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
