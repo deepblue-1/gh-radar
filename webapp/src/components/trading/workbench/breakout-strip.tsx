@@ -43,9 +43,24 @@
  *
  * ⑦ 78 스냅샷 전에도 빈 상태를 그린다 — 목록은 relay push 전용이라 로드 경로가 없고, 따라서
  *   스피너·스켈레톤도 없다. relay 끊김은 상태줄 DMA 필이 말한다.
+ *
+ * ⑧ 가격 2Hz · 렌더 중 상태 갱신 없음 (quick-260923-elb 2a)
+ *   칩·표의 현재가·등락률과 이탈 판정은 `useBreakoutQuotes` 의 `prices`(≤2Hz 스로틀)만 읽는다.
+ *   클라 기록(첫 등재 · 무장 · 첫 돌파시각 · 이탈 삭제)은 `advanceTracked` 순수 함수가 「마지막으로
+ *   커밋된 기록 + 현재 입력」으로 **렌더 안에서** 계산하고, 커밋 뒤 레이아웃 effect 가 기록 ref 를
+ *   옮긴다 — 렌더 중 setState 가 없다. 칩·표는 `memo` 라서 가격이 멈춘 커밋에서는 재조정을 건너뛴다.
  */
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { RelayRateCrossItem } from '@gh-radar/shared';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -64,7 +79,7 @@ import {
   type BreakoutMeta,
   type BreakoutRow,
 } from '@/lib/breakout-list';
-import { breakoutQuotePrice, useBreakoutQuotes } from '@/lib/use-breakout-quotes';
+import { useBreakoutQuotes } from '@/lib/use-breakout-quotes';
 import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -100,14 +115,52 @@ export interface BreakoutStripProps {
 interface Tracked {
   items: readonly RelayRateCrossItem[] | null;
   seq: number;
-  /** 보이는 종목들의 현재가 서명 — 시세 맵 **객체**가 아니라 값이 바뀌었을 때만 다시 판정한다. */
-  priceSig: string;
   now: number;
   meta: ReadonlyMap<string, BreakoutMeta>;
   /** 첫 등재 체결시각 — 76 이 다시 와도 돌파시각은 첫 값을 유지한다. */
   firstTime: ReadonlyMap<string, string>;
   /** 이탈로 지운 키 → 지울 때의 항목 객체. 객체가 바뀌면(= 서버의 새 프레임) 되살린다(③). */
   removed: ReadonlyMap<string, RelayRateCrossItem>;
+}
+
+/**
+ * 클라 기록 한 걸음 — **마지막으로 커밋된 기록 + 현재 입력**의 순수 함수 (⑧ · quick-260923-elb 2a).
+ *
+ * 본문은 옛 「렌더 중 상태 갱신」 블록 그대로다: 첫 채움·78 은 무음(④), 첫 등재 체결시각 유지,
+ * 이탈 삭제는 `shouldRemoveBreakout` 한 함수로만(③), 지운 행은 서버의 새 프레임(항목 객체 교체)이
+ * 올 때까지 지운 채로 둔다.
+ */
+function advanceTracked(
+  prev: Tracked,
+  input: {
+    items: readonly RelayRateCrossItem[];
+    snapSeq: number;
+    now: number;
+    priceOf: (isin: string) => number | undefined;
+    wallNow: number;
+  },
+): Tracked {
+  const { items, snapSeq, now, priceOf, wallNow } = input;
+  // 첫 채움(마운트 시 이미 있던 목록)과 78 스냅샷은 무음·무강조다(④).
+  const silent = prev.items === null || prev.seq !== snapSeq;
+  const meta = trackBreakoutMeta(prev.meta, items, { now: wallNow, silent, priceOf });
+
+  const firstTime = new Map<string, string>();
+  const removed = new Map<string, RelayRateCrossItem>();
+  for (const it of items) {
+    const key = breakoutKey(it);
+    firstTime.set(key, prev.firstTime.get(key) ?? it.exchangeTime);
+    const gone = prev.removed.get(key);
+    if (gone === it) {
+      removed.set(key, it);
+      continue;
+    }
+    const m = meta.get(key);
+    if (m !== undefined && shouldRemoveBreakout({ ...it, ...m }, priceOf(it.isin), wallNow)) {
+      removed.set(key, it);
+    }
+  }
+  return { items, seq: snapSeq, now, meta, firstTime, removed };
 }
 
 export function BreakoutStrip({
@@ -125,58 +178,49 @@ export function BreakoutStrip({
   /** 강조 판정 기준 시각 — tick 타이머 1개가 올린다(⑤). */
   const [now, setNow] = useState(() => Date.now());
 
-  const [tracked, setTracked] = useState<Tracked>(() => ({
+  /*
+    ★ 마지막으로 **커밋된** 클라 기록 (⑧). 초기값은 옛 useState 초기값과 같다.
+    ★ 렌더 중 상태 갱신을 쓰지 않는 이유: 가격 서명이 바뀔 때마다 본문을 두 번 돌렸다(실측
+      BreakoutStrip 279 렌더/s = 커밋 × 2 — debug `trading-cpu-260923`).
+    ★ 일반 effect 로 미루지 않는 이유: 그러면 새 76 행이 한 프레임 무음·무강조로 그려졌다가 바뀐다
+      (원래 작성자가 렌더 단계 패턴을 쓴 이유). 그래서 한 걸음은 렌더 안에서 계산하고(`useMemo`),
+      커밋 뒤 레이아웃 effect 가 기록만 옮긴다.
+    ★ 렌더 중 ref 읽기가 안전한 근거: 한 걸음은 「마지막 커밋 기록 + 현재 입력」의 순수 함수이고,
+      버려진 렌더(동시성·StrictMode 이중 호출)는 ref 를 쓰지 않는다 — 커밋된 렌더만 기록을 옮긴다.
+  */
+  const [initialTracked] = useState<Tracked>(() => ({
     items: null,
     seq: snapSeq,
-    priceSig: '',
     now,
     meta: new Map(),
     firstTime: new Map(),
     removed: new Map(),
   }));
+  const committedRef = useRef<Tracked>(initialTracked);
 
   // 구독 후보 = 지금 보이는 종목(최근 돌파 우선은 훅이 정한다). 카드 종목은 카드가 구독한다.
+  // 아직 기록 없는 키는 「가장 최근」(MAX_SAFE_INTEGER) — 추적 단계가 처음 보는 키에 현재 벽시계를
+  // 찍으므로 옛 수렴 상태와 같은 구독 순위다. 동률은 `pickWithinBudget` 의 ISIN 순서가 가른다.
+  const committedMeta = committedRef.current.meta;
   const candidates = useMemo(
     () =>
-      items.map((it) => ({ isin: it.isin, addedAt: tracked.meta.get(breakoutKey(it))?.addedAt ?? 0 })),
-    [items, tracked.meta],
+      items.map((it) => ({
+        isin: it.isin,
+        addedAt: committedMeta.get(breakoutKey(it))?.addedAt ?? Number.MAX_SAFE_INTEGER,
+      })),
+    [items, committedMeta],
   );
-  const { quotes } = useBreakoutQuotes(candidates, { excludeIsins: cards });
-  const priceOf = (isin: string) => breakoutQuotePrice(quotes, isin);
-  const priceSig = items.map((it) => priceOf(it.isin) ?? '').join(',');
+  const { prices } = useBreakoutQuotes(candidates, { excludeIsins: cards });
+  const priceOf = useCallback((isin: string) => prices.get(isin), [prices]);
 
-  /*
-    ★ 파생 상태를 렌더 중에 갱신한다(React 의 「이전 prop 저장」 패턴). 이펙트로 하면 한 프레임
-      동안 기록 없는 새 행이 무음 행으로 그려졌다가 바뀐다. 조건이 같으면 다시 부르지 않는다.
-  */
-  if (
-    tracked.items !== items ||
-    tracked.seq !== snapSeq ||
-    tracked.priceSig !== priceSig ||
-    tracked.now !== now
-  ) {
-    const wallNow = Date.now();
-    // 첫 채움(마운트 시 이미 있던 목록)과 78 스냅샷은 무음·무강조다(④).
-    const silent = tracked.items === null || tracked.seq !== snapSeq;
-    const meta = trackBreakoutMeta(tracked.meta, items, { now: wallNow, silent, priceOf });
-
-    const firstTime = new Map<string, string>();
-    const removed = new Map<string, RelayRateCrossItem>();
-    for (const it of items) {
-      const key = breakoutKey(it);
-      firstTime.set(key, tracked.firstTime.get(key) ?? it.exchangeTime);
-      const gone = tracked.removed.get(key);
-      if (gone === it) {
-        removed.set(key, it);
-        continue;
-      }
-      const m = meta.get(key);
-      if (m !== undefined && shouldRemoveBreakout({ ...it, ...m }, priceOf(it.isin), wallNow)) {
-        removed.set(key, it);
-      }
-    }
-    setTracked({ items, seq: snapSeq, priceSig, now, meta, firstTime, removed });
-  }
+  const tracked = useMemo(
+    () =>
+      advanceTracked(committedRef.current, { items, snapSeq, now, priceOf, wallNow: Date.now() }),
+    [items, snapSeq, now, priceOf],
+  );
+  useLayoutEffect(() => {
+    committedRef.current = tracked;
+  }, [tracked]);
 
   const rows = useMemo(
     () =>
@@ -207,27 +251,38 @@ export function BreakoutStrip({
     return () => window.clearInterval(id);
   }, [ticking]);
 
-  const activate = (row: BreakoutRow) => {
-    if (cards.has(row.isin)) {
-      onFocusCard(row.isin);
-      return;
-    }
-    onAddCard(row.isin, row.name, row.code);
-  };
+  const activate = useCallback(
+    (row: BreakoutRow) => {
+      if (cards.has(row.isin)) {
+        onFocusCard(row.isin);
+        return;
+      }
+      onAddCard(row.isin, row.name, row.code);
+    },
+    [cards, onFocusCard, onAddCard],
+  );
 
-  const dismiss = (row: BreakoutRow) => {
-    setDismissed(addDismissed([row.isin]));
-    onDismiss?.(row.isin);
-  };
+  const dismiss = useCallback(
+    (row: BreakoutRow) => {
+      setDismissed(addDismissed([row.isin]));
+      onDismiss?.(row.isin);
+    },
+    [onDismiss],
+  );
 
-  const views = rows.map((row) =>
-    viewOf(row, {
-      price: priceOf(row.isin),
-      at: tracked.firstTime.get(row.key) ?? row.exchangeTime,
-      serverTime: row.serverTime,
-      // 「거래중」 행은 신규로 칠하지 않는다 — 목업의 행 상태는 신규 | 거래중 | 기본 중 하나다.
-      highlighted: isHighlighted(row, now) && !row.trading,
-    }),
+  const firstTime = tracked.firstTime;
+  const views = useMemo(
+    () =>
+      rows.map((row) =>
+        viewOf(row, {
+          price: priceOf(row.isin),
+          at: firstTime.get(row.key) ?? row.exchangeTime,
+          serverTime: row.serverTime,
+          // 「거래중」 행은 신규로 칠하지 않는다 — 목업의 행 상태는 신규 | 거래중 | 기본 중 하나다.
+          highlighted: isHighlighted(row, now) && !row.trading,
+        }),
+      ),
+    [rows, priceOf, firstTime, now],
   );
   const showTable = open && views.length > 0;
 
@@ -359,7 +414,13 @@ function chipTitle(v: RowView): string {
 
 /* ── 칩 (목업 `.chip`) ───────────────────────────────────────────────── */
 
-function BreakoutChip({ view: v, onActivate }: { view: RowView; onActivate: (row: BreakoutRow) => void }) {
+const BreakoutChip = memo(function BreakoutChip({
+  view: v,
+  onActivate,
+}: {
+  view: RowView;
+  onActivate: (row: BreakoutRow) => void;
+}) {
   const trading = v.row.trading;
   return (
     <button
@@ -398,7 +459,7 @@ function BreakoutChip({ view: v, onActivate }: { view: RowView; onActivate: (row
       )}
     </button>
   );
-}
+});
 
 /* ── 표 (목업 `table.rc`) ────────────────────────────────────────────── */
 
@@ -408,7 +469,7 @@ function BreakoutChip({ view: v, onActivate }: { view: RowView; onActivate: (row
  * <830 에서 기준가를 숨기고, <700 에서 종목 셀 아래 보조 줄 「{HH:MM:SS} 돌파」를 세운다.
  * 경계 수치는 globals.css §2.2b 정본이다.
  */
-function BreakoutTable({
+const BreakoutTable = memo(function BreakoutTable({
   views,
   onActivate,
   onDismiss,
@@ -543,4 +604,4 @@ function BreakoutTable({
       </TableBody>
     </Table>
   );
-}
+});

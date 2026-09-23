@@ -21,9 +21,17 @@
  *   카드가 소유한 구독(`excludeIsins`)은 예산에서 빼고, 남은 예산을 최근 돌파 순으로 채운다.
  *   넘친 키는 `overflow` 로 돌려준다 — 그 행은 현재가를 모르므로 `shouldRemoveBreakout` 이
  *   `currentPrice === undefined` 로 읽어 **지우지 않는다**(76 의 마지막 가격을 그대로 보인다).
+ *
+ * ⑤ 가격 갱신 스로틀 `BREAKOUT_PRICE_THROTTLE_MS` (quick-260923-elb 2a)
+ *   스트립은 relay 컨텍스트 소비자라서 컨텍스트 분리(1b) 전까지는 커밋마다 다시 그려진다. 그런데
+ *   칩에 필요한 것은 **가격 하나**이고 초당 2회면 충분하다(debug `trading-cpu-260923` #2 — 돌파 40
+ *   종목의 풀 스트림이 프레임을 10배로 키웠고, 스트립은 가격 서명이 바뀔 때마다 두 번 렌더했다).
+ *   그래서 원시 시세 맵을 내보내지 않고 **후보 ISIN 전체의 KRX 현재가(`prices`)** 만 ≤2Hz 로
+ *   내보낸다. 원시 맵을 계속 내보내면 소비처가 스로틀을 우회할 수 있다. 마감은 절대 시각이라
+ *   연속 틱이 갱신을 굶기지 않고, 마지막 값은 반드시 도착한다. 구독 diff 규칙(③)은 그대로다.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { RelayQuote } from "@gh-radar/shared";
 
@@ -38,6 +46,14 @@ import { relayQuoteKey } from "@/lib/use-relay-socket";
  *    돌파 200 상한(D-14)을 전부 구독하지 않겠다는 선택이다(RESEARCH §Pattern 1).
  */
 export const MAX_BREAKOUT_SUBS = 40;
+
+/**
+ * 돌파 칩·표의 가격 갱신 간격 — 초당 최대 2회 (⑤ · quick-260923-elb 2a).
+ *
+ * 결정 범위 1~2Hz 의 상단이다. 칩은 등락률을 소수 2자리로 보이고, 이탈 판정에는 이미 3초 유예
+ * (`ARM_GRACE_MS`)가 있어 ≤500ms 추가 지연은 판정의 뜻을 바꾸지 않는다(T-elb-06).
+ */
+export const BREAKOUT_PRICE_THROTTLE_MS = 500;
 
 /** 돌파 거래소 — 서버 정본상 KRX 에서만 발화한다(②). */
 const BREAKOUT_EXCHANGE = "KRX" as const;
@@ -64,8 +80,14 @@ export interface BreakoutQuoteCandidate {
 }
 
 export interface BreakoutQuotesResult {
-  /** 컨텍스트 시세 맵 그대로 — 소비자가 `relayQuoteKey(isin, "KRX")` 로 골라 쓴다. */
-  quotes: ReadonlyMap<string, RelayQuote>;
+  /**
+   * ISIN → KRX 현재가 — **후보 ISIN 전체**(구독 여부 무관)의 **알려진 값만**, ≤2Hz 로 갱신된다(⑤).
+   *
+   * 카드 종목은 구독 예산에서만 빠진다 — 그 가격은 카드 자신의 구독으로 전역 맵에 있으므로 여기에도
+   * 있다(오늘 `breakoutQuotePrice(quotes, isin)` 과 같은 뜻). 키가 없으면 「모름」이지 0원이 아니다.
+   * 값이 같으면 신원이 유지된다.
+   */
+  prices: ReadonlyMap<string, number>;
   /** 이 훅이 구독한 ISIN. */
   subscribed: ReadonlySet<string>;
   /** 상한을 넘어 구독하지 못한 ISIN — 이 행은 이탈 판정을 하지 않는다. */
@@ -91,6 +113,31 @@ function pickWithinBudget(
   };
 }
 
+/** 후보 ISIN — 중복 제거 · 빈 값 제외 · 받은 순서. */
+function candidateIsins(candidates: readonly BreakoutQuoteCandidate[]): string[] {
+  const seen = new Set<string>();
+  for (const c of candidates) if (c.isin.length > 0) seen.add(c.isin);
+  return [...seen];
+}
+
+/** 표시 가격 서명 — 값이 바뀌었는지만 가른다(맵 **객체**가 바뀌어도 값이 같으면 같다). */
+function priceSigOf(quotes: ReadonlyMap<string, RelayQuote>, isins: readonly string[]): string {
+  return isins.map((isin) => `${isin}:${breakoutQuotePrice(quotes, isin) ?? ""}`).join("|");
+}
+
+/** 알려진 KRX 가격만 담은 맵. */
+function readPrices(
+  quotes: ReadonlyMap<string, RelayQuote>,
+  isins: readonly string[],
+): Map<string, number> {
+  const prices = new Map<string, number>();
+  for (const isin of isins) {
+    const p = breakoutQuotePrice(quotes, isin);
+    if (p !== undefined) prices.set(isin, p);
+  }
+  return prices;
+}
+
 export function useBreakoutQuotes(
   candidates: readonly BreakoutQuoteCandidate[],
   opts: { excludeIsins?: ReadonlySet<string> } = {},
@@ -98,7 +145,11 @@ export function useBreakoutQuotes(
   const { subscribe, unsubscribe, quotes } = useRelayContext();
   const { excludeIsins } = opts;
 
-  const { picked, overflow } = pickWithinBudget(candidates, excludeIsins);
+  // 최대 200개 정렬 — 매 렌더가 아니라 후보·카드 집합이 바뀔 때만 한다.
+  const { picked, overflow } = useMemo(
+    () => pickWithinBudget(candidates, excludeIsins),
+    [candidates, excludeIsins],
+  );
   // 안정 시그니처 — 같은 집합이면 같은 문자열이다(③).
   const sig = [...picked].sort().join("|");
   const overflowSig = [...overflow].sort().join("|");
@@ -141,5 +192,38 @@ export function useBreakoutQuotes(
     [overflowSig],
   );
 
-  return { quotes, subscribed, overflow: overflowList };
+  /* ── ⑤ 가격 스로틀 ─────────────────────────────────────────────────── */
+  const isins = useMemo(() => candidateIsins(candidates), [candidates]);
+  const currentSig = useMemo(() => priceSigOf(quotes, isins), [quotes, isins]);
+  // 첫 렌더 값으로 동기 초기화 — 빈 첫 화면이 없다.
+  const [shown, setShown] = useState(() => ({
+    sig: currentSig,
+    prices: readPrices(quotes, isins) as ReadonlyMap<string, number>,
+  }));
+  const [mountedAt] = useState(() => Date.now());
+  /** 마지막으로 표시 가격을 적용한 시각. 마운트 시각에서 시작한다. */
+  const appliedAtRef = useRef(mountedAt);
+  /** 타이머가 적용할 최신 입력. 창이 닫힐 때 그 시점의 값을 읽는다(마지막 값 도착). */
+  const latestRef = useRef({ quotes, isins });
+
+  useEffect(() => {
+    latestRef.current = { quotes, isins };
+  });
+
+  useEffect(() => {
+    if (currentSig === shown.sig) return;
+    // 마감은 **절대 시각**(마지막 적용 + 간격)이다 — 재예약돼도 연속 틱이 갱신을 굶기지 않는다.
+    const delay = Math.max(0, appliedAtRef.current + BREAKOUT_PRICE_THROTTLE_MS - Date.now());
+    const timer = setTimeout(() => {
+      const latest = latestRef.current;
+      appliedAtRef.current = Date.now();
+      setShown({
+        sig: priceSigOf(latest.quotes, latest.isins),
+        prices: readPrices(latest.quotes, latest.isins),
+      });
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [currentSig, shown.sig]);
+
+  return { prices: shown.prices, subscribed, overflow: overflowList };
 }

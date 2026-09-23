@@ -56,6 +56,7 @@ vi.mock('@/lib/breakout-list', async (importOriginal) => {
 
 import { playBreakoutTone } from '@/lib/alert-tone';
 import { addSounded, BREAKOUT_DISMISSED_KEY, HIGHLIGHT_MS } from '@/lib/breakout-list';
+import { BREAKOUT_PRICE_THROTTLE_MS } from '@/lib/use-breakout-quotes';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
 import {
   BREAKOUT_EMPTY_TEXT,
@@ -401,8 +402,32 @@ describe('BreakoutStrip — 이탈 삭제 (D-16)', () => {
     });
     setPrice(A.isin, 10_900);
     update({});
+    // 가격 갱신은 ≤2Hz 로 묶인다(quick-260923-elb 2a) — 창이 닫힌 뒤 판정한다.
+    act(() => {
+      vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS);
+    });
     expect(chips()).toHaveLength(1);
     expect(chips()[0]).toHaveTextContent('삼성전자');
+  });
+
+  it('현재가·등락률은 초당 2회로 묶이고 창이 닫히면 마지막 값이 반드시 도착한다 (quick-260923-elb 2a)', () => {
+    setPrice(A.isin, 12_600);
+    const { update } = setup({ items: [A] });
+    openTable();
+
+    setPrice(A.isin, 12_800);
+    update({});
+    act(() => {
+      vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS - 1);
+    });
+    expect(within(rowEls()[0]!).getByText('12,600')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    const row = rowEls()[0]!;
+    expect(within(row).getByText('12,800')).toBeInTheDocument();
+    expect(within(row).getByText('+28.00%')).toBeInTheDocument();
   });
 
   it('구독 현재가는 표의 현재가·등락률로 보인다', () => {
