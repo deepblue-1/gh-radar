@@ -1512,8 +1512,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // VI 브라우저 알림 토글은 기능째 제거됐다(quick-260922-tqr).
     await expect(statusBar(page).locator('[data-slot="workbench-vi-alert-toggle"]')).toHaveCount(0);
     await expect(page.locator('[data-slot="vi-chip"]')).toHaveCount(0);
-    // 사이드바 KRX VI 는 가동이 아니라 배지가 없다.
-    await expect(desktopNav(page).locator('[data-sidebar-item="vi-KRX"] [data-slot="strategy-badge"]')).toHaveCount(0);
+    // 사이드바 VI 줄은 가동 거래소가 없어 없다.
+    await expect(desktopNav(page).locator('[data-sidebar-item="vi"]')).toHaveCount(0);
     await expect(page.locator('[data-slot="vi-trigger-strip"]')).toContainText('오늘 발동된 VI 주문이 없어요');
   });
 
@@ -1594,9 +1594,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       'aria-checked',
       'true',
     );
-    await expect(
-      desktopNav(page).locator('[data-sidebar-item="vi-KRX"] [data-slot="strategy-badge"]'),
-    ).toHaveText('가동');
+    const sidebarVi = desktopNav(page).locator('[data-sidebar-item="vi"]');
+    await expect(sidebarVi.locator('[data-slot="exchange-tag"][data-exchange="KRX"]')).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await expect(sidebarVi.locator('[data-slot="exchange-tag"][data-exchange="NXT"]')).toHaveCount(0);
   });
 
   test('23. VI 「중지」 확인 — 오늘 주문·미체결(유지) 요약 + 경고 · 기본 포커스 닫기 · run=false (옛 VI 4)', async ({

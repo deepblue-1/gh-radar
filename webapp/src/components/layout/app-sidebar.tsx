@@ -14,13 +14,13 @@ import {
   Zap,
 } from "lucide-react";
 
+import { ExchangeTag } from "@/components/trading/exchange-tag";
 import {
   LATCH_LED_NAMES,
   latchLedStateOf,
   type LatchLedKind,
   type LatchLedTone,
 } from "@/components/trading/latch-led";
-import { StrategyBadge, viBadgeOf } from "@/components/trading/strategy-badge";
 import { useAuth } from "@/lib/auth-context";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName } from "@/lib/limit-chaser";
@@ -38,7 +38,7 @@ import { UserSection } from "./user-section";
  *
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
  *   홈 · [종목검색] 상승률 상위 / 테마 / 관심종목
- *   · [트레이딩 = `/trading` 링크] KRX VI / NXT VI / 등록된 상따 전략 N개
+ *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
  *   · My page · AI 애널리스트
  *
  * ① 「종목검색」 소제목은 `<li>` 다 — **링크도 버튼도 아니다**
@@ -50,7 +50,7 @@ import { UserSection } from "./user-section";
  *    drawer 가 닫히는 것이 맞는 동작이다. 그룹은 여전히 항상 펼침이다(D-16).
  *
  * ② 활성 판정은 **정확 일치**다 (접두 일치가 아니다)
- *    `/trading` 의 활성 표시는 제목 **하나**가 받는다. 3단 항목(VI 2 · 전략 N)은 모두 같은
+ *    `/trading` 의 활성 표시는 제목 **하나**가 받는다. 3단 항목(VI 0~1 · 전략 N)은 모두 같은
  *    작업대를 가리키므로 활성 표시를 받지 않는다 — 여러 줄이 함께 켜지면 「지금 어디」가
  *    사라진다. `usePathname()` 은 쿼리를 싣지 않으므로 `/trading?focus=…` 에서도 제목이 켜진다.
  *
@@ -96,8 +96,8 @@ const NAV_SEARCH_GROUP: NavLeaf[] = [
 /** 「트레이딩」 그룹 제목 = `/trading` 작업대 링크 (D-03). 개별 「상따」·「VI」 메뉴는 없다. */
 const NAV_TRADING: NavLeaf = { href: "/trading", label: "트레이딩", icon: Zap };
 
-/** 3단 VI 항목의 거래소 순서 — 목업 `.asb` 그대로 KRX 먼저. */
-const VI_ROWS: readonly RelayExchange[] = ["KRX", "NXT"];
+/** VI 줄 태그의 거래소 순서 — KRX 먼저(목업 `.asb` 순서 승계). */
+const VI_TAG_ORDER: readonly RelayExchange[] = ["KRX", "NXT"];
 
 const NAV_ME: NavLeaf = { href: "/me", label: "My page", icon: User };
 const NAV_CHAT: NavLeaf = { href: "/chat", label: "AI 애널리스트", icon: MessageSquare };
@@ -234,24 +234,33 @@ const SUB_ITEM =
   "flex items-center gap-2 rounded-[var(--r)] p-2 text-[length:var(--t-sm)] font-semibold";
 
 /**
- * 3단 VI 항목 — 「KRX VI」 / 「NXT VI」 (D-03). 누르면 작업대(VI 설정 2줄이 있는 곳)로 간다.
+ * 3단 VI 줄 — 「VI」 한 줄 + 오른쪽에 **가동 중인 거래소의 태그만** (quick-260923-dmb · D1).
+ * 누르면 작업대(VI 설정이 있는 곳)로 간다. 활성 표시는 받지 않는다(위 ②).
  *
- * ★ 「가동」 배지는 **줄마다 자기 거래소**를 본다(`viTriggers.KRX`/`.NXT`). 합집합 판정
- *   (`viAnyRunning`)을 줄마다 쓰면 NXT 만 가동일 때 KRX 줄에도 배지가 뜬다. 합집합은
- *   「어느 하나라도」가 필요한 표면(My page)에서만 쓴다 — 이 목록에는 그런 자리가 없다.
- * ★ 중지면 배지를 그리지 않는다 — 목업은 가동일 때만 표시한다. 모름(키 부재)도 가동이 아니다.
+ * ★ 판정은 **거래소별**이다(`viTriggers.KRX`/`.NXT` 각각의 `run === true`). 합집합 판정
+ *   (`viAnyRunning`)으로는 어느 거래소가 켜졌는지 말할 수 없다.
+ * ★ 태그 순서는 KRX → NXT(`VI_TAG_ORDER`). 모름(키 부재)·미등록(`null`)·중지는 태그가 없다.
+ * ★ 가동 거래소가 하나도 없으면 이 줄 자체를 그리지 않는다 — 호출부가 `running.length > 0`
+ *   일 때만 렌더한다(숨김이 아니라 미렌더).
+ * ★ 접근 이름은 「VI — KRX·NXT 가동」 꼴(`aria-label`)이다. 보이는 글자 「VI」가 이름 맨 앞에
+ *   있어 WCAG 2.5.3 Label-in-Name 을 충족하고, 태그 묶음은 이름이 이미 말하므로 `aria-hidden` 이다.
  */
-function ViItem({ exchange, run }: { exchange: RelayExchange; run: boolean }) {
+function ViItem({ running }: { running: readonly RelayExchange[] }) {
   return (
     <Link
       href={NAV_TRADING.href}
       data-nav-item
-      data-sidebar-item={`vi-${exchange}`}
+      data-sidebar-item="vi"
+      aria-label={`VI — ${running.join("·")} 가동`}
       className={cn(SUB_ITEM, LINK_IDLE)}
     >
       {/* 글자색은 전략 항목과 같은 `--fg` — 목업 `.s3` 는 3단 항목을 한 색으로 쓴다. */}
-      <span className="min-w-0 flex-1 truncate text-[var(--fg)]">{exchange} VI</span>
-      {run && <StrategyBadge badge={viBadgeOf(run)} className="ml-auto shrink-0" />}
+      <span className="min-w-0 flex-1 truncate text-[var(--fg)]">VI</span>
+      <span aria-hidden="true" className="ml-auto inline-flex shrink-0 items-center gap-1">
+        {running.map((ex) => (
+          <ExchangeTag key={ex} exchange={ex} />
+        ))}
+      </span>
     </Link>
   );
 }
@@ -353,6 +362,8 @@ export function AppSidebar() {
   const labels = useIsinLabels();
 
   const isActive = (href: string) => samePath(pathname, href);
+  // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
+  const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
 
   return (
     <nav aria-label="주 메뉴" className="flex h-full flex-col justify-between">
@@ -380,29 +391,32 @@ export function AppSidebar() {
               item={NAV_TRADING}
               active={isActive(NAV_TRADING.href)}
             />
-            <li>
-              {/*
-                3단 = VI 2항목 + 등록 전략 N개 (D-03 · E16). 전략 0 이면 VI 2항목만 남고 빈 문구는
-                없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가 없다. 전략 수 상한이 없으므로
-                목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
-                `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
-              */}
-              <ul className={SUB_LIST}>
-                {VI_ROWS.map((exchange) => (
-                  <li key={exchange}>
-                    <ViItem exchange={exchange} run={viTriggers[exchange]?.run === true} />
-                  </li>
-                ))}
-                {limitChasers.map((item) => (
-                  <li key={item.key}>
-                    <StrategyItem
-                      item={item}
-                      name={strategyDisplayName(item, labels.get(item.isin)?.name)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </li>
+            {/*
+              3단 = VI 0~1줄 + 등록 전략 N개 (D-03 · E16 · quick-260923-dmb). 둘 다 없으면 3단 목록
+              자체가 없다 — 빈 `ul` 은 스크린리더에 「목록 0개」로 읽히고 mt-1 빈 틈과 빈 hairline 을
+              남긴다. 빈 문구는 없다 — 스냅샷 전(로딩)도 같은 모양이라 스피너가 없다. 전략 수 상한이
+              없으므로 목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
+              `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
+            */}
+            {(viRunning.length > 0 || limitChasers.length > 0) && (
+              <li>
+                <ul className={SUB_LIST}>
+                  {viRunning.length > 0 && (
+                    <li>
+                      <ViItem running={viRunning} />
+                    </li>
+                  )}
+                  {limitChasers.map((item) => (
+                    <li key={item.key}>
+                      <StrategyItem
+                        item={item}
+                        name={strategyDisplayName(item, labels.get(item.isin)?.name)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            )}
             <li>
               <NavLink item={NAV_ME} active={isActive(NAV_ME.href)} />
             </li>

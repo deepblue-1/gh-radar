@@ -12,10 +12,12 @@ import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
  *  ①' 「트레이딩」 제목은 `/trading` **링크**이고 `?focus=` 가 붙어도 활성이다 (D-03)
  *  ② 로그인 + `ready` 일 때만 트레이딩·My page 가 **DOM 에 존재**한다
  *  ③ 비로그인 / `unauthorized` / 연결 중에는 **렌더되지 않는다**(숨김 아님)
- *  ④ 3단 = 「KRX VI」 · 「NXT VI」 · 등록 전략(종목명 + LED 3점). 개별 「상따」·「VI」 메뉴 없음
- *  ⑤ VI 「가동」 배지는 거래소별 **독립** 판정
+ *  ④ 3단 = 「VI」 한 줄(가동 거래소가 있을 때만) · 등록 전략(종목명 + LED 3점). 옛 `/trading/vi`
+ *     · 상따 개별 메뉴 없음 (quick-260923-dmb)
+ *  ⑤ VI 줄 오른쪽 태그는 가동 거래소만 — 거래소별 **독립** 판정, KRX → NXT 순. 둘 다 꺼지면 줄 미렌더
  *  ⑥ 모든 링크에 `data-nav-item`
- *  ⑦ 전략 0건이면 VI 2항목만 — 빈 문구 없음 (E16 empty/loading)
+ *  ⑦ 전략 0 + VI 꺼짐이면 3단 목록 자체가 없다 · 전략 0 + VI 가동이면 VI 한 줄만 — 빈 문구 없음
+ *     (E16 empty/loading)
  *  ⑧ 하단 줄에 유저 섹션과 **테마 토글**이 나란히 산다 (토글이 탑바를 떠나 여기로 왔다)
  */
 
@@ -243,12 +245,28 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------------------
 
-/** 3단 목록(트레이딩 그룹 제목 바로 아래 `ul`)의 링크들. */
-function tradingSubLinks(): HTMLAnchorElement[] {
+/** 3단 목록(트레이딩 그룹 제목 바로 다음 형제 `li` 안의 `ul`) — 없으면 `null`. */
+function tradingSubList(): HTMLUListElement | null {
   const title = screen.getByRole("link", { name: "트레이딩" });
-  const list = title.closest("li")?.nextElementSibling?.querySelector("ul");
+  return (title.closest("li")?.nextElementSibling?.querySelector("ul") ?? null) as HTMLUListElement | null;
+}
+
+/** 3단 목록의 링크들. */
+function tradingSubLinks(): HTMLAnchorElement[] {
+  const list = tradingSubList();
   if (!list) throw new Error("트레이딩 3단 목록이 없다");
   return Array.from(list.querySelectorAll("a")) as HTMLAnchorElement[];
+}
+
+/** 사이드바 VI 줄(있으면) — `data-sidebar-item="vi"`. */
+const viLinks = () => document.querySelectorAll('nav a[data-sidebar-item="vi"]');
+/** VI 줄 안 거래소 태그의 `data-exchange` 목록. */
+function viTagExchanges(): (string | null)[] {
+  const a = document.querySelector('nav a[data-sidebar-item="vi"]');
+  if (!a) throw new Error("VI 줄이 없다");
+  return Array.from(a.querySelectorAll('[data-slot="exchange-tag"]')).map((t) =>
+    t.getAttribute("data-exchange"),
+  );
 }
 
 describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
@@ -311,8 +329,6 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
     render(<AppSidebar />);
 
     expect(screen.getByRole("link", { name: "트레이딩" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^KRX VI/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /^NXT VI/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "My page" })).toHaveAttribute("href", "/me");
   });
 
@@ -369,14 +385,15 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
 });
 
 describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
-  it("④ 3단 = KRX VI · NXT VI · 등록 전략 순서이고, 개별 「상따」·「VI」 메뉴가 없다", () => {
-    setupReady();
+  it("④ 3단 = VI 한 줄 · 등록 전략 순서이고, 옛 `/trading/vi` · 상따 개별 메뉴가 없다", () => {
+    setupReady({ viTriggers: { KRX: viCfg("KRX", { run: true }) } });
     render(<AppSidebar />);
 
     const names = tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"));
-    expect(names).toEqual(["vi-KRX", "vi-NXT", "strategy", "strategy"]);
+    expect(names).toEqual(["vi", "strategy", "strategy"]);
 
     expect(screen.queryByRole("link", { name: /^상따/ })).toBeNull();
+    // 옛 개별 VI 메뉴(`/trading/vi` 화면) — 새 VI 줄의 이름은 「VI — …」라 여기 걸리지 않는다.
     expect(screen.queryByRole("link", { name: /^VI$/ })).toBeNull();
     for (const a of document.querySelectorAll("nav a")) {
       const href = a.getAttribute("href") ?? "";
@@ -385,51 +402,89 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     }
   });
 
-  it("④ VI 두 항목은 작업대(`/trading`)로 가고 활성 표시를 받지 않는다 — 활성은 제목 하나", () => {
+  it("④ VI 줄은 작업대(`/trading`)로 가고 활성 표시를 받지 않는다 — 활성은 제목 하나", () => {
     mockPathname = "/trading";
-    setupReady();
+    setupReady({ viTriggers: { KRX: viCfg("KRX", { run: true }) } });
     render(<AppSidebar />);
 
-    for (const ex of ["KRX", "NXT"]) {
-      const a = screen.getByRole("link", { name: new RegExp(`^${ex} VI`) });
-      expect(a).toHaveAttribute("href", "/trading");
-      expect(a).not.toHaveAttribute("aria-current");
+    const a = screen.getByRole("link", { name: "VI — KRX 가동" });
+    expect(a).toHaveAttribute("href", "/trading");
+    expect(a).not.toHaveAttribute("aria-current");
+    expect(a).toHaveAttribute("data-sidebar-item", "vi");
+    expect(viTagExchanges()).toEqual(["KRX"]);
+  });
+
+  it("⑤ NXT 만 가동 → 태그는 NXT 하나 · 이름 「VI — NXT 가동」 (합집합이 아니라 거래소별)", () => {
+    setupReady({
+      viTriggers: { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: true }) },
+    });
+    render(<AppSidebar />);
+
+    expect(viLinks()).toHaveLength(1);
+    expect(viTagExchanges()).toEqual(["NXT"]);
+    expect(screen.getByRole("link", { name: "VI — NXT 가동" })).toBeInTheDocument();
+  });
+
+  it("⑤ 둘 다 가동 → KRX · NXT 순 태그(객체 키를 NXT 먼저 넣어도) · 이름 「VI — KRX·NXT 가동」", () => {
+    setupReady({
+      viTriggers: { NXT: viCfg("NXT", { run: true }), KRX: viCfg("KRX", { run: true }) },
+    });
+    render(<AppSidebar />);
+
+    expect(viTagExchanges()).toEqual(["KRX", "NXT"]);
+    expect(screen.getByRole("link", { name: "VI — KRX·NXT 가동" })).toBeInTheDocument();
+  });
+
+  it("⑤ 둘 다 중지 · 미등록(null) · 모름(키 부재) → VI 줄이 DOM 에 없다(미렌더) · 전략은 그대로", () => {
+    const cases: RelayShape["viTriggers"][] = [
+      { KRX: viCfg("KRX", { run: false }), NXT: viCfg("NXT", { run: false }) },
+      { KRX: null, NXT: null },
+      {},
+      { KRX: null },
+    ];
+    for (const viTriggers of cases) {
+      setupReady({ viTriggers });
+      const view = render(<AppSidebar />);
+      expect(viLinks()).toHaveLength(0);
+      expect(screen.queryByRole("link", { name: /^VI/ })).toBeNull();
+      expect(tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"))).toEqual([
+        "strategy",
+        "strategy",
+      ]);
+      view.unmount();
     }
   });
 
-  it("⑤ 「가동」 배지는 거래소별로 독립 판정된다 (줄마다 viTriggers.{거래소})", () => {
-    const krx = () => screen.getByRole("link", { name: /^KRX VI/ });
-    const nxt = () => screen.getByRole("link", { name: /^NXT VI/ });
-
-    // KRX 가동 · NXT 중지 → KRX 에만 배지
+  it("⑤ VI 줄 텍스트는 「VI」 + 태그 글자뿐 — 옛 「가동」 배지 글자 · strategy-badge 슬롯이 없다", () => {
     setupReady({
-      viTriggers: { KRX: viCfg("KRX", { run: true }), NXT: viCfg("NXT", { run: false }) },
+      viTriggers: { KRX: viCfg("KRX", { run: true }), NXT: viCfg("NXT", { run: true }) },
     });
-    const view = render(<AppSidebar />);
-    expect(krx()).toHaveTextContent("가동");
-    expect(nxt()).not.toHaveTextContent("가동");
+    render(<AppSidebar />);
 
-    // NXT 만 가동 → NXT 에만 배지 (합집합을 줄마다 쓰면 KRX 에도 뜬다)
-    setupReady({ viTriggers: { NXT: viCfg("NXT", { run: true }) } });
-    view.rerender(<AppSidebar />);
-    expect(krx()).not.toHaveTextContent("가동");
-    expect(nxt()).toHaveTextContent("가동");
-
-    // 모름(키 부재)·미등록(null) 은 가동이 아니다.
-    setupReady({ viTriggers: { KRX: null } });
-    view.rerender(<AppSidebar />);
-    expect(krx()).not.toHaveTextContent("가동");
-    expect(nxt()).not.toHaveTextContent("가동");
+    const a = viLinks()[0] as HTMLElement;
+    expect(a.textContent).toBe("VIKRXNXT");
+    expect(within(a).queryByText(/가동/)).toBeNull();
+    expect(a.querySelector('[data-slot="strategy-badge"]')).toBeNull();
+    // 태그 묶음은 이름이 이미 말하므로 스크린리더에서 숨긴다.
+    expect(a.querySelector('[data-slot="exchange-tag"]')!.closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it("⑦ 등록 전략 0 → VI 2항목만, 빈 문구 없음 (E16 empty)", () => {
+  it("⑦ 등록 전략 0 + VI 꺼짐 → 3단 목록 자체가 없다(빈 `ul` 미렌더)", () => {
     setupReady({ limitChasers: [] });
     render(<AppSidebar />);
 
-    expect(tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"))).toEqual([
-      "vi-KRX",
-      "vi-NXT",
-    ]);
+    expect(tradingSubList()).toBeNull();
+    const title = screen.getByRole("link", { name: "트레이딩" });
+    // 제목 다음 형제는 곧바로 My page 다.
+    expect(title.closest("li")?.nextElementSibling?.querySelector("a")).toHaveAccessibleName("My page");
+    expect(screen.queryByText("등록된 전략 없음")).toBeNull();
+  });
+
+  it("⑦ 등록 전략 0 + KRX 가동 → VI 한 줄만, 빈 문구 · 스피너 없음 (E16 empty)", () => {
+    setupReady({ limitChasers: [], viTriggers: { KRX: viCfg("KRX", { run: true }) } });
+    render(<AppSidebar />);
+
+    expect(tradingSubLinks().map((a) => a.getAttribute("data-sidebar-item"))).toEqual(["vi"]);
     expect(screen.queryByText("등록된 전략 없음")).toBeNull();
     // 스피너 없음 — 로딩(스냅샷 전)은 빈 상태와 같은 모양이다 (E16 loading).
     expect(document.querySelector('nav [role="progressbar"], nav .animate-spin')).toBeNull();

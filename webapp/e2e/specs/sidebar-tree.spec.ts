@@ -2,7 +2,8 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
-import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
+import { E2E_ACCOUNT_NO, withLocalRelay, type LocalRelay } from '../fixtures/relay';
+import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
 /**
  * Phase 16 Plan 11 Task 3 — 사이드바 트리 E2E (NAV-01 · D-15~D-19 · UI-SPEC N1~N7).
@@ -26,9 +27,11 @@ import { withLocalRelay, type LocalRelay } from '../fixtures/relay';
  *   게이트다(T-16-04). 여기서 세는 것은 오진입 표면의 크기다.
  *
  * ⑤ Phase 18 (18-12 · 18-13) — 트리 모양이 바뀌었다
- *   「트레이딩」 소제목이 `/trading` **링크**가 됐고, 그 아래 3단이 「KRX VI」·「NXT VI」·등록 전략 N개다.
- *   개별 「상따」·「VI」 메뉴와 원 아이콘 2개는 사라지고 전략 항목은 종목명 + LED 3점이다(D-03).
+ *   「트레이딩」 소제목이 `/trading` **링크**가 됐고, 그 아래 3단이 「VI」 한 줄(가동 거래소 태그만 ·
+ *   둘 다 꺼지면 줄 없음 — quick-260923-dmb)·등록 전략 N개다. 개별 「상따」·옛 `/trading/vi` 메뉴와
+ *   원 아이콘 2개는 사라지고 전략 항목은 종목명 + LED 3점이다(D-03).
  *   전략 항목은 `/trading?focus={키}` 로 간다(D-02). 활성 표시는 제목 하나다(3단은 aria-current 없음).
+ *   beforeEach 는 VI 를 시드하지 않으므로 케이스 1·4 의 트리에는 VI 줄이 없다 — VI 줄은 1b 가 본다.
  *
  * ④ 데스크톱 aside 와 모바일 drawer 는 **다른 노드**다
  *   `AppShell` 은 사이드바를 `aside`(lg 이상) 와 `Sheet`(열렸을 때만) 두 곳에 렌더한다.
@@ -68,8 +71,8 @@ const LED_TONES: readonly (readonly string[])[] = [
 ];
 
 /**
- * 전략 항목을 뺀 링크 9개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
- * 전략 3건은 「NXT VI」와 「My page」 사이에 선다.
+ * 전략 항목을 뺀 링크 7개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
+ * 전략 3건은 「트레이딩」과 「My page」 사이에 선다(VI 미가동 — VI 줄 없음).
  */
 const TREE_LINKS = [
   '홈',
@@ -77,8 +80,6 @@ const TREE_LINKS = [
   '테마',
   '관심종목',
   '트레이딩',
-  'KRX VI',
-  'NXT VI',
   'My page',
   'AI 애널리스트',
 ];
@@ -106,16 +107,27 @@ async function waitForTradingGroup(nav: Locator): Promise<void> {
   });
 }
 
-/** 트리의 링크를 DOM 순서로 — 전략 항목은 `strategy` 로 접는다(종목명은 라벨 역매핑이 정한다). */
+/**
+ * 트리의 링크를 DOM 순서로 — 전략 항목은 `strategy`(종목명은 라벨 역매핑이 정한다), VI 줄은
+ * `VI`(태그 글자는 가동 상태를 따라 바뀐다)로 접는다.
+ */
 async function linkOrder(nav: Locator): Promise<string[]> {
   return nav.locator('a[href]').evaluateAll((els) =>
-    els.map((el) =>
-      el.getAttribute('data-sidebar-item') === 'strategy'
-        ? 'strategy'
-        : (el.textContent ?? '').replace(/가동$/, '').trim(),
-    ),
+    els.map((el) => {
+      const item = el.getAttribute('data-sidebar-item');
+      if (item === 'strategy') return 'strategy';
+      if (item === 'vi') return 'VI';
+      return (el.textContent ?? '').trim();
+    }),
   );
 }
+
+/** 사이드바 VI 줄 · 그 안 거래소 태그의 `data-exchange` 목록. */
+const viItem = (nav: Locator): Locator => nav.locator('[data-sidebar-item="vi"]');
+const viTagExchanges = (nav: Locator): Promise<(string | null)[]> =>
+  viItem(nav)
+    .locator('[data-slot="exchange-tag"]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-exchange')));
 
 // ===========================================================================
 
@@ -139,7 +151,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await mockHomeApi(page, { response: HOME_POPULATED });
   });
 
-  test('1. 매핑 있음 — 「트레이딩」 제목 링크 + 3단(KRX VI · NXT VI · 등록 전략 3건·LED 3점), 전략 클릭 → /trading?focus= 로 그 카드가 펼쳐진다 (D-02 · D-03)', async ({
+  test('1. 매핑 있음 — 「트레이딩」 제목 링크 + 3단(등록 전략 3건·LED 3점 · VI 미가동이라 VI 줄 없음), 전략 클릭 → /trading?focus= 로 그 카드가 펼쳐진다 (D-02 · D-03)', async ({
     page,
   }) => {
     await page.goto('/trading');
@@ -147,21 +159,19 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await waitForTradingGroup(nav);
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
 
-    // 링크 순서가 계약대로다 — 전략 3건은 NXT VI 와 My page 사이.
+    // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 My page 사이.
     expect(await linkOrder(nav)).toEqual([
-      ...TREE_LINKS.slice(0, 7),
+      ...TREE_LINKS.slice(0, 5),
       'strategy',
       'strategy',
       'strategy',
-      ...TREE_LINKS.slice(7),
+      ...TREE_LINKS.slice(5),
     ]);
-    // 개별 「상따」·「VI」 메뉴는 사라졌다(D-03 · D-08).
+    // 개별 「상따」·옛 `/trading/vi` 메뉴는 사라졌다(D-03 · D-08).
     await expect(nav.getByRole('link', { name: '상따', exact: true })).toHaveCount(0);
     await expect(nav.getByRole('link', { name: 'VI', exact: true })).toHaveCount(0);
-    // 3단 VI 두 항목은 작업대로 간다.
-    for (const ex of ['KRX', 'NXT']) {
-      await expect(nav.locator(`[data-sidebar-item="vi-${ex}"]`)).toHaveAttribute('href', '/trading');
-    }
+    // VI 를 시드하지 않았다(KRX·NXT 모름) — VI 줄은 DOM 에 없다(숨김이 아니라 미렌더).
+    await expect(viItem(nav)).toHaveCount(0);
     // 활성 표시는 제목 하나다.
     await expect(nav.getByRole('link', { name: '트레이딩', exact: true })).toHaveAttribute(
       'aria-current',
@@ -204,6 +214,44 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
       'true',
       { timeout: 15_000 },
     );
+  });
+
+  test('1b. VI 한 줄 — 가동 거래소 태그만, 둘 다 꺼지면 줄 없음 (quick-260923-dmb)', async ({ page }) => {
+    // KRX 만 가동 — 61 자동 응답은 거래소를 보지 않고 KRX 로 정규화되므로 NXT 는 모름으로 남는다.
+    const cfg = {
+      accountNo: E2E_ACCOUNT_NO,
+      orderAmountKrw: 10_000_000n,
+      checkRate: 22,
+      priceType: 'U',
+      run: true,
+    };
+    relay.seedViTrigger(cfg);
+
+    await page.goto('/trading');
+    const nav = desktopNav(page);
+    await waitForTradingGroup(nav);
+
+    await expect(viItem(nav)).toBeVisible({ timeout: 15_000 });
+    await expect(viItem(nav)).toHaveAttribute('href', '/trading');
+    await expect(viItem(nav)).not.toHaveAttribute('aria-current');
+    await expect.poll(() => viTagExchanges(nav), { timeout: 15_000 }).toEqual(['KRX']);
+    await expect(viItem(nav)).toHaveAccessibleName('VI — KRX 가동');
+    const order = await linkOrder(nav);
+    expect(order[order.indexOf('트레이딩') + 1]).toBe('VI');
+
+    // 61 에코를 거래소 지정으로 밀어 넣는다 — 태그 집합이 거래소별로 따라간다.
+    const sock = await relay.gateway.waitForConnection(10_000);
+    relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...cfg, exchange: 'NXT', run: true }));
+    await expect.poll(() => viTagExchanges(nav), { timeout: 15_000 }).toEqual(['KRX', 'NXT']);
+    await expect(viItem(nav)).toHaveAccessibleName('VI — KRX·NXT 가동');
+
+    relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...cfg, exchange: 'KRX', run: false }));
+    await expect.poll(() => viTagExchanges(nav), { timeout: 15_000 }).toEqual(['NXT']);
+    await expect(viItem(nav)).toHaveAccessibleName('VI — NXT 가동');
+
+    // 둘 다 꺼지면 줄 자체가 없다.
+    relay.gateway.sendFrame(sock, buildSetVITriggerRespFrame({ ...cfg, exchange: 'NXT', run: false }));
+    await expect(viItem(nav)).toHaveCount(0, { timeout: 15_000 });
   });
 
   test('2. 매핑 없음 — 트레이딩 그룹·My page 가 DOM 에 없다 (미렌더)', async ({ page }) => {
@@ -295,7 +343,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     const nav = drawerNav(page);
     await waitForTradingGroup(nav);
 
-    // 같은 트리다 — 링크 9개 + 전략 3건.
+    // 같은 트리다 — 링크 7개 + 전략 3건.
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
     await expect(nav.getByRole('link')).toHaveCount(TREE_LINKS.length + CHASERS.length);
 
