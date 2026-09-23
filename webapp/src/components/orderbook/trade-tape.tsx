@@ -52,8 +52,8 @@ const MAX_TAPE = 200;
 const FLASH_MS = 140;
 /** 이 값 이하면 "맨 위에 고정된 상태"로 본다(UI-SPEC 4px). */
 const PIN_THRESHOLD_PX = 4;
-/** 배치 플래시 배경 — 방향색이 아닌 중립 `--fg` 틴트. */
-const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklch,var(--fg)_14%,transparent)]';
+/** 배치 플래시 배경 — 방향색이 아닌 중립 `--fg` 틴트. 14% 는 너무 어두워 아주 옅은 5% 로 낮췄다(2026-09-23 사용자 요청). */
+const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklch,var(--fg)_5%,transparent)]';
 /** 배경만 부드럽게 사라지게 한다. */
 const FLASH_FADE =
   'motion-safe:transition-[background-color] motion-safe:duration-150 motion-reduce:transition-none';

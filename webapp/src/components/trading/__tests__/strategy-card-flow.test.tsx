@@ -526,13 +526,14 @@ describe('헤더 래치 LED → `lc.arm` 전송 규율 (옛 ⑲)', () => {
     expect(sendMock).toHaveBeenCalledTimes(1);
   });
 
-  it('⑲-9 ★ `hadOrder` 가 LED 로 넘어간다 — 무장 해제가 발주였으면 「(발주됨)」 (17-07 인계 ①)', async () => {
+  it('⑲-9 무장 해제가 발주였어도 매수 LED 는 「OFF」 만 — 「(발주됨)」 보조 문구 없음 (2026-09-23)', async () => {
     setRelay({ limitChasers: [echo({ buyEnabled: true, buyWatchSide: '1' })] });
     const { rerender } = render(<Card />);
     setRelay({ limitChasers: [echo({ buyEnabled: false, buyWatchSide: '1' })] });
     rerender(<Card />);
     await waitFor(() => expect(led('buy').dataset.tone).toBe('off'));
-    expect(led('buy').textContent).toContain('(발주됨)');
+    expect(led('buy').textContent).toContain('OFF');
+    expect(led('buy').textContent).not.toContain('발주됨');
   });
 });
 

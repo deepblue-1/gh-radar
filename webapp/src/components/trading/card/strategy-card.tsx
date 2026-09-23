@@ -512,13 +512,10 @@ export function useStrategyCardState({
     ★ LED 가 읽는 것은 **마지막 서버 에코 스냅샷 하나**다 (D-20). 폼 더티값도, 이미 칠해진
       색도 되읽지 않는다 — 판정 규칙 자체는 `latchLedStateOf`(17-07) 가 소유하고 이 카드는
       그 함수에 무엇을 넘길지만 정한다.
-    ★ `hadOrder` 는 **와이어 필드가 아니라 이 카드가 아는 사실**이다(Pitfall 10 · 위 `fired`).
-      넘기지 않으면 「(발주됨)」 문구가 영영 뜨지 않고 그냥 `OFF` 로 보인다(17-07 인계 ①).
+    ★ LED 칩은 발주 이력(`fired`)을 받지 않는다 — 「(발주됨)」 보조 문구는 헤더 한 줄을 지키려
+      2026-09-23 에 뺐다. 발주 뒤 매수 칩은 그냥 `OFF` 다.
   */
-  const ledServer = useMemo<LatchLedServer>(
-    () => (server === null ? null : { ...server, hadOrder: fired }),
-    [server, fired],
-  );
+  const ledServer: LatchLedServer = server;
 
   /**
    * LED 클릭 → `{t:"lc.arm"}` 1건 (D-20).

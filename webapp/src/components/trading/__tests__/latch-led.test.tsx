@@ -30,10 +30,9 @@ import {
  *   무장 축이 아니라 계산 옵션이라, 넣는 순간 「취소 감시 중」이라는 거짓 초록이 뜬다.
  */
 
-/** `hadOrder` 는 와이어 필드가 아니라 화면이 주문 통보로 아는 사실이다. */
-type ChaserOverrides = Partial<RelayLimitChaser> & { hadOrder?: boolean };
+type ChaserOverrides = Partial<RelayLimitChaser>;
 
-function chaser(over: ChaserOverrides = {}): RelayLimitChaser & { hadOrder?: boolean } {
+function chaser(over: ChaserOverrides = {}): RelayLimitChaser {
   return {
     isin: "KR7005930003",
     accountNo: "37728502101",
@@ -102,7 +101,6 @@ describe("latchLedStateOf — 전략 없음 (D-19)", () => {
       tone: "off",
       clickable: false,
       label: "OFF",
-      note: "",
       tooltip: null,
     };
     expect(latchLedStateOf("buy", null)).toEqual(expected);
@@ -117,7 +115,6 @@ describe("latchLedStateOf — 매도 LED (UpdateSellLatchLabel :4246)", () => {
       tone: "off",
       clickable: false,
       label: "OFF",
-      note: "",
       tooltip: null,
     });
   });
@@ -129,7 +126,6 @@ describe("latchLedStateOf — 매도 LED (UpdateSellLatchLabel :4246)", () => {
       tone: "latent",
       clickable: true,
       label: "대기",
-      note: "",
       tooltip: "클릭하면 매도 진입 확인 래치를 지금 켠다 (다음 호가부터 매도 판정)",
     });
   });
@@ -141,7 +137,6 @@ describe("latchLedStateOf — 매도 LED (UpdateSellLatchLabel :4246)", () => {
       tone: "armed",
       clickable: true,
       label: "감시",
-      note: "",
       tooltip: "클릭하면 매도 진입 확인 래치를 끈다 (다시 잠복 — 벽을 다시 관측해야 판정 시작)",
     });
   });
@@ -160,7 +155,7 @@ describe("latchLedStateOf — 취소 LED (UpdateCancelLatchLed :4342 · AnyCance
           cancelEntryLatched: true,
         }),
       ),
-    ).toEqual({ tone: "off", clickable: false, label: "OFF", note: "", tooltip: null });
+    ).toEqual({ tone: "off", clickable: false, label: "OFF", tooltip: null });
   });
 
   it("③-2 cancelQtyEnabled ∧ !cancelEntryLatched → 주황 대기 · 클릭 가능", () => {
@@ -170,7 +165,6 @@ describe("latchLedStateOf — 취소 LED (UpdateCancelLatchLed :4342 · AnyCance
       tone: "latent",
       clickable: true,
       label: "대기",
-      note: "",
       tooltip:
         "클릭하면 취소 진입 확인 래치를 지금 켠다 (다음 호가부터 취소 판정 — 조건이 이미 맞으면 바로 취소된다)",
     });
@@ -183,7 +177,6 @@ describe("latchLedStateOf — 취소 LED (UpdateCancelLatchLed :4342 · AnyCance
       tone: "armed",
       clickable: true,
       label: "감시",
-      note: "",
       tooltip: "클릭하면 취소 진입 확인 래치를 끈다 (다시 잠복 — 벽을 다시 관측해야 취소 판정 시작)",
     });
   });
@@ -198,19 +191,11 @@ describe("latchLedStateOf — 취소 LED (UpdateCancelLatchLed :4342 · AnyCance
 });
 
 describe("latchLedStateOf — 매수 LED (ShowBuyServerQty :1027)", () => {
-  it("④-1 buyEnabled=false → 회색 OFF, 발주 이력이 있으면 「(발주됨)」", () => {
+  it("④-1 buyEnabled=false → 회색 OFF — 발주 이력과 무관하게 보조 문구 없음 (2026-09-23)", () => {
     expect(latchLedStateOf("buy", chaser({ buyEnabled: false }))).toEqual({
       tone: "off",
       clickable: false,
       label: "OFF",
-      note: "",
-      tooltip: null,
-    });
-    expect(latchLedStateOf("buy", chaser({ buyEnabled: false, hadOrder: true }))).toEqual({
-      tone: "off",
-      clickable: false,
-      label: "OFF",
-      note: "(발주됨)",
       tooltip: null,
     });
   });
@@ -225,7 +210,6 @@ describe("latchLedStateOf — 매수 LED (ShowBuyServerQty :1027)", () => {
       tone: "armed",
       clickable: false,
       label: "감시",
-      note: "(매도잔량 기준)",
       tooltip: TIP_BUY_ASK_SIDE,
     });
   });
@@ -253,7 +237,6 @@ describe("latchLedStateOf — 매수 LED (ShowBuyServerQty :1027)", () => {
       tone: "latent",
       clickable: true,
       label: "대기",
-      note: "",
       tooltip: TIP_BUY_ON,
     });
   });
@@ -268,7 +251,6 @@ describe("latchLedStateOf — 매수 LED (ShowBuyServerQty :1027)", () => {
       tone: "armed",
       clickable: true,
       label: "감시",
-      note: "",
       tooltip: TIP_BUY_OFF,
     });
   });
@@ -326,7 +308,8 @@ describe("LatchLed — 접근성 (D-21 · WCAG 1.4.1)", () => {
       </>,
     );
     expect(ledEl("buy").textContent).toContain("감시");
-    expect(ledEl("buy").textContent).toContain("(매도잔량 기준)");
+    // 「(매도잔량 기준)」 보조 문구는 헤더 한 줄을 지키려 뺐다 — 사유는 툴팁이 말한다.
+    expect(ledEl("buy").textContent).not.toContain("매도잔량");
     expect(ledEl("sell").textContent).toContain("감시");
     expect(ledEl("cancel").textContent).toContain("OFF");
     // 색 단계는 data-tone 으로도 읽히지만, 텍스트가 없으면 색만 남는다.

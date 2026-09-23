@@ -1061,7 +1061,8 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 색만이 아니라 보이는 라벨이 상태를 말한다(D-21 · WCAG 1.4.1).
     await expect(leds.nth(1)).toContainText('대기');
     await expect(leds.nth(2)).toContainText('대기');
-    await expect(leds.nth(0)).toContainText('(매도잔량 기준)');
+    await expect(leds.nth(0)).toContainText('감시');
+    await expect(leds.nth(0)).not.toContainText('매도잔량');
     await expect(cardOf(page, E2E_ISIN)).not.toContainText('매수 ON');
   });
 

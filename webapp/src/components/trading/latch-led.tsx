@@ -43,22 +43,23 @@ export type LatchLedTone = "off" | "latent" | "armed";
 /** 보이는 상태 라벨 (D-21 채택안 — 목업 변형 A 칩). */
 export type LatchLedLabel = "OFF" | "대기" | "감시";
 
-/** 판정 결과 1건. 문구를 호출부가 짓지 않게 라벨·보조문구·툴팁을 값으로 들고 다닌다. */
+/**
+ * 판정 결과 1건. 문구를 호출부가 짓지 않게 라벨·툴팁을 값으로 들고 다닌다.
+ *
+ * 이력: 라벨 옆 보조 문구(「(매도잔량 기준)」·「(발주됨)」)는 카드 헤더 LED 줄이 넘쳐 ⓘ·✕ 가
+ * 다음 줄로 밀리던 문제로 사용자 요청에 따라 뺐다(2026-09-23). 칩은 「이름 + OFF/대기/감시」만
+ * 말하고, 클릭 불가 사유는 툴팁 원문이 말한다. 발주 사실은 공용 패널(미체결·로그)이 말한다.
+ */
 export interface LatchLedState {
   tone: LatchLedTone;
   clickable: boolean;
   label: LatchLedLabel;
-  /** 라벨 옆 보조 문구(`(매도잔량 기준)` · `(발주됨)`). 없으면 빈 문자열. */
-  note: string;
   /** C# 원문 툴팁. 전략이 없거나 회색이면 `null`(툴팁 없음). */
   tooltip: string | null;
 }
 
-/**
- * 판정 근거 — **마지막 서버 에코 스냅샷 하나**다 (D-20). `hadOrder` 는 와이어 필드가
- * 아니라 화면이 주문 통보(51)로 아는 사실이라 호출부가 얹어 준다(`strategyBadgesOf` 동형).
- */
-export type LatchLedServer = (RelayLimitChaser & { hadOrder?: boolean }) | null;
+/** 판정 근거 — **마지막 서버 에코 스냅샷 하나**다 (D-20). */
+export type LatchLedServer = RelayLimitChaser | null;
 
 /** LED 이름. 호출부가 문구를 다시 짓지 않게 하는 유일한 정의 지점이다. */
 export const LATCH_LED_NAMES: Record<LatchLedKind, string> = {
@@ -100,7 +101,6 @@ const OFF_STATE: LatchLedState = {
   tone: "off",
   clickable: false,
   label: "OFF",
-  note: "",
   tooltip: null,
 };
 
@@ -120,8 +120,8 @@ export function latchLedStateOf(
   if (kind === "sell") {
     if (!server.sellEnabled) return OFF_STATE;
     return server.sellEntryLatched
-      ? { tone: "armed", clickable: true, label: "감시", note: "", tooltip: TOOLTIPS.sell.off }
-      : { tone: "latent", clickable: true, label: "대기", note: "", tooltip: TOOLTIPS.sell.on };
+      ? { tone: "armed", clickable: true, label: "감시", tooltip: TOOLTIPS.sell.off }
+      : { tone: "latent", clickable: true, label: "대기", tooltip: TOOLTIPS.sell.on };
   }
 
   if (kind === "cancel") {
@@ -130,28 +130,25 @@ export function latchLedStateOf(
     const armed = server.cancelQtyEnabled || server.cancelTradeEnabled;
     if (!armed) return OFF_STATE;
     return server.cancelEntryLatched
-      ? { tone: "armed", clickable: true, label: "감시", note: "", tooltip: TOOLTIPS.cancel.off }
-      : { tone: "latent", clickable: true, label: "대기", note: "", tooltip: TOOLTIPS.cancel.on };
+      ? { tone: "armed", clickable: true, label: "감시", tooltip: TOOLTIPS.cancel.off }
+      : { tone: "latent", clickable: true, label: "대기", tooltip: TOOLTIPS.cancel.on };
   }
 
   // 매수. 에코의 `buyEnabled` 는 설정값이 아니라 **무장 상태**다 — 발주가 나가면 false 로
-  // 온다. 「사용자가 껐다」가 아니라 「발주됐다」이므로 이력이 있으면 문구를 갈라 준다.
-  if (!server.buyEnabled) {
-    return server.hadOrder === true ? { ...OFF_STATE, note: "(발주됨)" } : OFF_STATE;
-  }
+  // 온다. 칩은 무장 여부만 말한다(OFF) — 「(발주됨)」 보조 문구는 2026-09-23 에 뺐다.
+  if (!server.buyEnabled) return OFF_STATE;
   // 매수잔량 기준(와이어 "1")일 때만 래치라는 상태가 존재한다 (BL-01).
   if (server.buyWatchSide !== "1") {
     return {
       tone: "armed",
       clickable: false,
       label: "감시",
-      note: "(매도잔량 기준)",
-      tooltip: TOOLTIPS.buy.askSide,
+          tooltip: TOOLTIPS.buy.askSide,
     };
   }
   return server.buyEntryLatched
-    ? { tone: "armed", clickable: true, label: "감시", note: "", tooltip: TOOLTIPS.buy.off }
-    : { tone: "latent", clickable: true, label: "대기", note: "", tooltip: TOOLTIPS.buy.on };
+    ? { tone: "armed", clickable: true, label: "감시", tooltip: TOOLTIPS.buy.off }
+    : { tone: "latent", clickable: true, label: "대기", tooltip: TOOLTIPS.buy.on };
 }
 
 /** 도트 색 — CSS 토큰을 클래스로만 쓴다. 토큰 값을 JS 로 읽어 주입하지 않는다. */
@@ -175,7 +172,7 @@ export interface LatchLedProps {
  * 칩으로 그린다.
  *
  * **색 밖의 텍스트 경로가 반드시 있다** (WCAG 1.4.1) — 라벨 `OFF`/`대기`/`감시` 가 보이는
- * 텍스트이고, 접근성 이름은 그 내용에서 파생된다(「매수 래치 감시 (매도잔량 기준)」).
+ * 텍스트이고, 접근성 이름은 그 내용에서 파생된다(「매수 래치 감시」).
  *
  * 클릭 불가 LED 는 `<button disabled>` 가 아니라 **비상호작용 `<span>`** 으로 그린다. 두
  * 가지를 동시에 얻기 위해서다: ① 눌리지 않는 버튼이 탭 순서에 잡히지 않는다 ② 매도잔량
@@ -204,9 +201,6 @@ export function LatchLed({ kind, server, onArm, className }: LatchLedProps) {
       <span className={state.clickable ? "font-semibold text-[var(--fg)]" : "text-[var(--muted-fg)]"}>
         {state.label}
       </span>
-      {state.note === "" ? null : (
-        <small className="text-[11px] text-[var(--muted-fg)]">{state.note}</small>
-      )}
     </>
   );
 
