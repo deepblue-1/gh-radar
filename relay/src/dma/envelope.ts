@@ -2256,6 +2256,9 @@ export function parseViOrderList(
       confirmLocked: it.confirmLocked(),
       state,
       filledQty: it.filledQty(),
+      // VI 해제됨 (gh-trade quick-260923-jsv · 슬롯 36). 서버가 R8 해제 전문(또는 재기동 보정)으로 세운다 —
+      // 해제 예정시각으로 클라가 추정하지 않는다. 구 서버는 슬롯이 없어 `false` 로 읽힌다.
+      viReleased: it.viReleased(),
     });
   }
 

@@ -1745,3 +1745,21 @@ describe('restoreSavedCards (quick-260923-lyt)', () => {
     expect(restoreSavedCards([card('A')], saved, []).map((c) => c.isin)).toEqual([]);
   });
 });
+
+describe('TradingWorkbench — VI 해제된 발동 숨김 (quick-260923-nvr)', () => {
+  it('서버가 viReleased 를 세운 발동은 칩·표에서 빠지고, 없거나 false 면 그대로다', () => {
+    mockRelay = relay({
+      viOrders: [
+        viOrder({ isin: 'KR7000660001', orderNo: '0000000001' }),
+        viOrder({ isin: 'KR7005930003', orderNo: '0000000002', viReleased: true }),
+        viOrder({ isin: 'KR7086520004', orderNo: '0000000003', viReleased: false }),
+      ],
+    });
+    render(<TradingWorkbench />);
+    const chips = Array.from(document.querySelectorAll('[data-slot="vi-chip"]'));
+    expect(chips).toHaveLength(2);
+    fireEvent.click(slot('vi-trigger')!.querySelector('[data-slot="vi-strip-more"]')!);
+    const table = slot('vi-trigger-table')!;
+    expect(table.textContent).not.toContain('0000000002');
+  });
+});

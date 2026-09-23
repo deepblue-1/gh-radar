@@ -860,6 +860,7 @@ Recent decisions affecting current work:
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260923-nvr | **VI 해제된 발동 숨김** — gh-trade `VIOrderItem.vi_released`(슬롯 36, jsv) 동기화: relay 디코드 · shared `viReleased?` · 작업대 VI 칩·표·미확인 수에서 해제 항목 제외(설정 중지 요약은 전체). relay 605 · webapp 1094 · Playwright 54/0. gh-trade 실서버·relay 배포 뒤 동작 | 2026-09-23 | — | [260923-nvr-vi-released-hide](./quick/260923-nvr-vi-released-hide/) |
 | 260923-mrf | **사이드바에서 매수·매도 둘 다 OFF 인 전략 숨김** — 서버는 발주 뒤 disarm 된 전략을 지우지 않아 회색 전략이 쌓였다. 취소만 켜져 있어도 숨김(사용자 결정). 작업대·My page 는 전체 유지. e2e sidebar-tree 의 누락된 switch→checkbox 도 정정. vitest layout 36 · Playwright 61/0 | 2026-09-23 | — | [260923-mrf-sidebar-hide-idle-strategies](./quick/260923-mrf-sidebar-hide-idle-strategies/) |
 | 260923-lyt | **트레이딩 작업대 배치 기억** — 다른 메뉴에 갔다 오면 카드·패널이 초기화되던 문제. 카드 순서·펼침·등록 전 카드·닫아 둔 등록 카드를 사용자별 localStorage 에, VI·돌파 스트립 펼침과 하단 패널 탭·접힘을 기기 공용 키에 기억. tsc 0 · vitest 1057 · Playwright 57/0 | 2026-09-23 | — | [260923-lyt-trading-layout-memory](./quick/260923-lyt-trading-layout-memory/) |
 | 260923-kq1 | **카드 호가·체결이 비던 문제** — 재접속 때 돌파 칩+카드 구독을 한 번에 보내 relay 인바운드 상한(초당 10)에서 카드 full 구독이 조용히 버려졌다. 웹 구독 제어 프레임을 초당 6건으로 나눠 보내고 카드(full) 우선 · 폰 탭 아래 여백 16px(방향색 그림자와 8px 간격). tsc 0 · vitest 1051+2 · Playwright 57/0 | 2026-09-23 | efc4099 | [260923-kq1-sub-frame-pacing-tab-gap](./quick/260923-kq1-sub-frame-pacing-tab-gap/) |

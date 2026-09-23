@@ -859,6 +859,10 @@ export type FakeViOrderItemInput = {
    * R8 매칭 키가 ISIN+거래소라 같은 종목이 양쪽에서 발동하면 **행이 둘**이다.
    */
   exchange?: string;
+  /**
+   * VI 해제됨 (quick-260923-jsv 서버 · 슬롯 36). 생략하면 슬롯을 싣지 않는다(구 서버 와이어 = `false`).
+   */
+  viReleased?: boolean;
 };
 
 /**
@@ -898,6 +902,7 @@ function emitViOrderItem(
   VIOrderItem.addState(b, state);
   VIOrderItem.addFilledQty(b, input.filledQty ?? 0);
   if (exchange !== null) VIOrderItem.addExchange(b, exchange);
+  if (input.viReleased !== undefined) VIOrderItem.addViReleased(b, input.viReleased);
   return VIOrderItem.endVIOrderItem(b);
 }
 

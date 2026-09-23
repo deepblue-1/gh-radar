@@ -380,6 +380,12 @@ export type RelayViOrderItem = {
   /** 체결수량(주). `state === "Accepted" && filledQty > 0` 이 부분체결이다. */
   filledQty: number;
   /**
+   * VI 해제됨 — gh-trade 가 R8 해제 전문(viStatus '2')을 받으면 세운다(재기동 때는 해제예정 + 60초
+   * 보정). 해제 뒤에도 서버 목록에 남고 이 값만 켜진다. **옵셔널인 이유:** 옛 relay 는 싣지 않는다 —
+   * 없으면 `false`(해제 모름)로 읽는다. 클라가 `viEndTime` 으로 해제를 추정하지 않는다(임의종료·연장).
+   */
+  viReleased?: boolean;
+  /**
    * 종목명 — **게이트웨이가 주는 값이 아니다.** relay 가 `stocks.isin` 역매핑(SymbolMap)으로
    * 채운다. 마스터에 없으면 UI 가 `name ?? isin` 으로 폴백한다.
    */

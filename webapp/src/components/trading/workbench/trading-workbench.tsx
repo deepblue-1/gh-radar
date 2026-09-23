@@ -823,6 +823,12 @@ function WorkbenchSurface() {
 
   /* ── 파생 ─────────────────────────────────────────────────────────── */
   const cardIsins = useMemo(() => new Set(cards.map((c) => c.isin)), [cards]);
+  /*
+    VI 발동 칩·표에는 **해제되지 않은** 발동만 싣는다 (사용자 결정 2026-09-23 · quick-260923-nvr).
+    해제 판정은 서버의 `viReleased` 하나다 — `viEndTime` 으로 추정하지 않는다(임의종료·연장).
+    「미확인 n」 필도 이 목록으로 센다. VI 설정 「중지」 확인 요약(오늘 주문)은 전체 `viOrders` 그대로다.
+  */
+  const activeViOrders = useMemo(() => viOrders.filter((o) => o.viReleased !== true), [viOrders]);
   const accountName = accounts.find((a) => a.accountNo === accountNo)?.name;
   const closeCardInfo = closeAsk === null ? null : cards.find((c) => c.id === closeAsk.id) ?? null;
   /*
@@ -871,7 +877,7 @@ function WorkbenchSurface() {
 
       {/* 3 · VI 패널 — 스트립 줄 · 경보 · 펼침 안 VI 설정 2줄 · 발동 표 */}
       <ViTriggerStrip
-        items={viOrders}
+        items={activeViOrders}
         disabled={status !== "ready"}
         settings={
           <ViSettingsRows

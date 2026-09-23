@@ -359,6 +359,26 @@ describe("SubscriptionHub — 전략 캐시 (D-12/D-13)", () => {
     expect(cached[0]).toMatchObject({ orderNo: "0000000001", state: "Filled", filledQty: 51 });
   });
 
+  it("⑦-r VI 해제됨(슬롯 36)을 그대로 싣고, 슬롯이 없는 구 서버 항목은 false 다 (quick-260923-nvr)", () => {
+    session.pushFrame(
+      buildViOrderListFrame(
+        [
+          { orderNo: "0000000001", state: "Accepted" },
+          { orderNo: "0000000002", state: "Filled", filledQty: 51, viReleased: true },
+        ],
+        true,
+      ),
+    );
+    const byNo = Object.fromEntries(hub.getViOrders(USER_A).map((i) => [i.orderNo, i.viReleased]));
+    expect(byNo).toEqual({ "0000000001": false, "0000000002": true });
+
+    // 73 델타로 해제가 켜진다.
+    session.pushFrame(
+      buildViOrderListFrame([{ orderNo: "0000000001", state: "Accepted", viReleased: true }], false),
+    );
+    expect(hub.getViOrders(USER_A).find((i) => i.orderNo === "0000000001")?.viReleased).toBe(true);
+  });
+
   it("⑦-z 접수되며 주문번호가 붙으면 자리표시 행이 걷힌다 — 거래소가 같아야 걷힌다", () => {
     session.pushFrame(
       buildViOrderListFrame([{ orderNo: "", state: "Pending", exchange: "NXT" }], true),
