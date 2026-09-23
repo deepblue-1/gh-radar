@@ -22,11 +22,19 @@
  *     계좌 A·B)이면 카드도 둘이다. 두 카드가 **같은 전략 키**를 가질 수는 없다(한 서버 전략을 두
  *     훅이 소유하면 에코 상관이 갈라진다 · T-18-94).
  *   - 사용자 트리거 추가(돌파 칩 · 종목 추가)는 **종목 단위**다(D-07 · D-08) — 그 ISIN 의 카드가
- *     있으면 첫 카드를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
+ *     있으면 그 카드 하나(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
  *   - 공용 패널 미체결 행 선택은 그 행을 받을 카드(같은 ISIN ∧ 행의 거래소 ∧ 상태줄 계좌)를
  *     보장한다 — 없으면 그 키로 펼친 카드를 붙인다(`cardForUnfilled` · WR-04). 역시 송신 0 이다.
  *     카드 안 「미체결」 탭(quick-260923-onn)도 같은 `selectUnfilled` 를 탄다 — 선택은 여전히 이
  *     컴포넌트 하나가 소유한다(카드는 `selectedUnfilled?.orderNo` 를 파생할 뿐).
+ *   - ★ 카드 순서(quick-260923-p3k) — 배열 순서가 곧 무리 안 순서다(card-grid ①). `open` 을 바꾸는
+ *     모든 경로는 `withCardOpen` 하나를 지나 그 카드를 배열 **맨 끝**으로 옮긴다: 접으면 접힘 스택
+ *     맨 끝, 펼치면(토글 · 종목 추가/돌파 칩 · 미체결 선택 · `?focus=`/사이드바 · 거래소 충돌) 펼친
+ *     카드 맨 끝. 새 카드와 등록 전략 자동 카드는 append 라 이미 끝이다. 이미 같은 상태면 참조
+ *     그대로(순서 · 재렌더 불변). 배치 저장(quick-260923-lyt)은 이 배열 순서를 그대로 저장·복원한다.
+ *     종목 단위 포커스(돌파 칩 · 종목 추가)가 고르는 카드는 `isinFocusCardOf` 하나가 푼다 — 그 ISIN
+ *     의 펼친 카드가 있으면 그것(다시 눌러도 둘째 카드를 열지 않는다), 없으면 배열 첫 카드. 업데이터와
+ *     스크롤 효과가 같은 함수를 써서, 펼친 카드가 끝으로 옮겨도 둘이 다른 카드를 가리키지 않는다.
  *   - 새 카드는 **거래소 KRX · 스위치 전부 OFF · 펼침**으로 시작한다(D-07). 서버에 아무것도 보내지
  *     않는다 — 등록은 사용자가 카드에서 스위치를 켤 때뿐이다.
  *   - 등록된 전략(64 스냅샷 · 60 에코)은 처음 보이는 키일 때, 그 키를 **현재 키로 가진 카드가
@@ -210,6 +218,31 @@ function toggleIdOf(id: string): string {
 type ScrollTarget = { key: string } | { isin: string };
 
 /**
+ * 카드 순서 규칙(quick-260923-p3k) — 접으면 접힘 스택 맨 끝, 펼치면 펼친 카드 맨 끝(**순수 함수**).
+ * `open` 을 바꾸는 모든 경로가 이 함수 하나를 지난다. 무리 안 순서는 배열 순서다(card-grid ①) —
+ * `renderOrderOf` 는 손대지 않는다. 대상이 없거나 이미 같은 상태면 입력 배열을 그대로 돌려준다
+ * (참조 유지 · `setCards` 베일아웃 · 저장 효과 재실행 없음). 입력은 변형하지 않는다.
+ */
+export function withCardOpen(
+  prev: WorkbenchCard[],
+  id: string,
+  open: boolean,
+): WorkbenchCard[] {
+  const i = prev.findIndex((c) => c.id === id);
+  if (i < 0 || prev[i].open === open) return prev;
+  return [...prev.slice(0, i), ...prev.slice(i + 1), { ...prev[i], open }];
+}
+
+/**
+ * 종목 단위 포커스(D-07 · D-08)가 펼칠 카드 — 그 ISIN 의 **펼친 카드**가 있으면 그것, 없으면 배열(=
+ * 표시) 첫 카드. `focusCard` · `addCard` 업데이터와 스크롤 효과가 같은 규칙으로 푼다 — 펼친 카드가
+ * 배열 끝으로 옮겨도(`withCardOpen`) 둘이 같은 ISIN 의 다른 카드를 가리키지 않는다(quick-260923-p3k).
+ */
+function isinFocusCardOf(cards: readonly WorkbenchCard[], isin: string): WorkbenchCard | undefined {
+  return cards.find((c) => c.isin === isin && c.open) ?? cards.find((c) => c.isin === isin);
+}
+
+/**
  * 등록된 전략 1건의 카드를 펼친 카드 집합 (**순수 함수** · ⑥). **현재 키가 그 전략 키인 카드**를
  * 펼치고(같은 ISIN 의 다른 키 카드는 건드리지 않는다 · WR-05), 없으면 그 전략의 키(계좌·거래소)로
  * 펼친 카드를 `newId` 로 붙인다. `?focus=` 마운트 소비와 사이드바 포커스 요청이 같은 규칙을 쓴다.
@@ -219,8 +252,9 @@ function withFocusedCard(
   hit: RelayLimitChaser,
   newId: string,
 ): WorkbenchCard[] {
-  return prev.some((x) => keyOf(x) === hit.key)
-    ? prev.map((x) => (keyOf(x) === hit.key ? { ...x, open: true } : x))
+  const cur = prev.find((x) => keyOf(x) === hit.key);
+  return cur !== undefined
+    ? withCardOpen(prev, cur.id, true)
     : [
         ...prev,
         {
@@ -322,10 +356,11 @@ export function fillAccountCards(
     taken.add(key);
     kept.push(filled);
   }
-  const next =
-    openKeys.size === 0
-      ? kept
-      : kept.map((c) => (openKeys.has(keyOf(c)) && !c.open ? { ...c, open: true } : c));
+  // 펼침을 잇는 등록 카드도 「가장 최근에 바뀐 카드」 — 펼친 무리 끝으로(quick-260923-p3k).
+  let next = kept;
+  for (const c of kept) {
+    if (openKeys.has(keyOf(c)) && !c.open) next = withCardOpen(next, c.id, true);
+  }
   return { next, dropped };
 }
 
@@ -551,7 +586,7 @@ function WorkbenchSurface() {
     const hit =
       "key" in scrollTarget
         ? cards.find((c) => keyOf(c) === scrollTarget.key)
-        : cards.find((c) => c.isin === scrollTarget.isin);
+        : isinFocusCardOf(cards, scrollTarget.isin);
     const el =
       hit === undefined
         ? null
@@ -560,25 +595,23 @@ function WorkbenchSurface() {
     setScrollTarget(null);
   }, [scrollTarget, cards]);
 
-  /** 그 ISIN 의 **첫 카드**를 펼친다(D-07 · D-08 — 종목 단위). */
+  /** 그 ISIN 의 카드 하나(`isinFocusCardOf`)를 펼친다(D-07 · D-08 — 종목 단위). */
   const focusCard = useCallback((isin: string) => {
     setCards((prev) => {
-      const first = prev.find((c) => c.isin === isin);
-      return first === undefined
-        ? prev
-        : prev.map((c) => (c.id === first.id ? { ...c, open: true } : c));
+      const first = isinFocusCardOf(prev, isin);
+      return first === undefined ? prev : withCardOpen(prev, first.id, true);
     });
     setScrollTarget({ isin });
   }, []);
 
-  /** 사용자 트리거 추가 — 그 ISIN 의 카드가 있으면 첫 카드를 펼칠 뿐 새 카드를 만들지 않는다(D-07). */
+  /** 사용자 트리거 추가 — 그 ISIN 의 카드가 있으면 그 카드(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않는다(D-07). */
   const addCard = useCallback(
     (isin: string, name?: string, code?: string) => {
       const newId = nextCardId();
       setCards((prev) => {
-        const first = prev.find((c) => c.isin === isin);
+        const first = isinFocusCardOf(prev, isin);
         return first !== undefined
-          ? prev.map((c) => (c.id === first.id ? { ...c, open: true } : c))
+          ? withCardOpen(prev, first.id, true)
           : [...prev, { id: newId, isin, accountNo, exchange: "KRX", open: true, name, code }];
       });
       setScrollTarget({ isin });
@@ -587,7 +620,10 @@ function WorkbenchSurface() {
   );
 
   const toggleCard = useCallback((id: string) => {
-    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, open: !c.open } : c)));
+    setCards((prev) => {
+      const cur = prev.find((c) => c.id === id);
+      return cur === undefined ? prev : withCardOpen(prev, id, !cur.open);
+    });
   }, []);
 
   /*
@@ -602,7 +638,7 @@ function WorkbenchSurface() {
     const nextKey = strategyKey(card.isin, card.accountNo, exchange);
     const clash = cur.find((c) => c.id !== id && keyOf(c) === nextKey);
     if (clash !== undefined) {
-      setCards((prev) => prev.map((c) => (c.id === clash.id ? { ...c, open: true } : c)));
+      setCards((prev) => withCardOpen(prev, clash.id, true));
       setScrollTarget({ key: nextKey });
       return;
     }
@@ -730,7 +766,7 @@ function WorkbenchSurface() {
       setCards((prev) => {
         const target = cardForUnfilled(prev, row, accountNo);
         return target.kind === "existing"
-          ? prev.map((c) => (c.id === target.id ? { ...c, open: true } : c))
+          ? withCardOpen(prev, target.id, true)
           : [...prev, { id: newId, ...target.card }];
       });
       setScrollTarget({ key: strategyKey(row.isin, accountNo, row.exchange) });

@@ -160,8 +160,10 @@ import {
   holdingQuotePrice,
   restoreSavedCards,
   TradingWorkbench,
+  withCardOpen,
   type WorkbenchCard,
 } from '../workbench/trading-workbench';
+import { renderOrderOf } from '../workbench/card-grid';
 
 const ACCOUNT = '37728502101';
 const slot = (name: string) => document.querySelector(`[data-slot="${name}"]`) as HTMLElement | null;
@@ -675,10 +677,11 @@ describe('TradingWorkbench — 카드 키 규칙 (WR-05 · D-07 · D-08 · T-18-
     expect(cardsInDom()).toHaveLength(2);
     expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
 
-    fireEvent.click(toggleOf(S)); // 첫 카드를 다시 접는다
+    fireEvent.click(toggleOf(S)); // 펼친 KRX 를 다시 접는다 → 스택 맨 끝(quick-260923-p3k) · 스택 [NXT, KRX]
     fireEvent.click(within(slot('stock-add-bar')!).getByRole('button', { name: '추가' }));
     expect(cardsInDom()).toHaveLength(2);
-    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'true', [`${S}:${ACCOUNT}:NXT`]: 'false' });
+    // 펼친 카드가 없으면 배열(= 표시) 첫 카드를 편다 — 방금 접은 KRX 는 스택 끝이라 NXT 가 첫 카드다.
+    expect(byKey()).toEqual({ [`${S}:${ACCOUNT}:KRX`]: 'false', [`${S}:${ACCOUNT}:NXT`]: 'true' });
   });
 
   it('등록 전 카드의 거래소 토글이 다른 카드의 키와 같아지면 토글하지 않고 그 카드를 펼친다', () => {
@@ -990,6 +993,33 @@ describe('TradingWorkbench — 미체결 행 선택 (D-21)', () => {
     expect(cardsInDom()).toHaveLength(2);
     expect(byKey()).toEqual({ [`${X}:${ACCOUNT}:KRX`]: 'false', [`${X}:${ACCOUNT}:NXT`]: 'true' });
     expect(selectedOfKey(`${X}:${ACCOUNT}:NXT`)).toMatchObject({ orderNo: '3407000099' });
+  });
+
+  it('quick-260923-p3k — 접힌 정확 일치 카드를 행으로 펼치면 펼친 카드들의 맨 끝으로 온다', () => {
+    const X = 'KR7086520004';
+    const Y = 'KR7247540008';
+    const Z = 'KR7005930003';
+    const row = unf({ orderNo: '3407000111' });
+    mockRelay = relay({ limitChasers: [lc(X), lc(Y), lc(Z)], accountStates: acctWith([row]) });
+    render(<TradingWorkbench />);
+    fireEvent.click(toggleOf(Y));
+    fireEvent.click(toggleOf(Z));
+    const keys = () => cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]);
+    expect(keys()).toEqual([
+      [`${Y}:${ACCOUNT}:KRX`, 'true'],
+      [`${Z}:${ACCOUNT}:KRX`, 'true'],
+      [`${X}:${ACCOUNT}:KRX`, 'false'],
+    ]);
+
+    fireEvent.click(rowEl('3407000111')!.querySelectorAll('td')[3]!);
+
+    // 옛 규칙(생성 순서 고정)이면 X 가 펼친 무리의 맨 앞이었다.
+    expect(keys()).toEqual([
+      [`${Y}:${ACCOUNT}:KRX`, 'true'],
+      [`${Z}:${ACCOUNT}:KRX`, 'true'],
+      [`${X}:${ACCOUNT}:KRX`, 'true'],
+    ]);
+    expect(selectedOfKey(`${X}:${ACCOUNT}:KRX`)).toMatchObject({ orderNo: '3407000111' });
   });
 
   it('quick-260923-onn — 카드 탭 선택은 같은 selectUnfilled 를 탄다 · selectedOrderNo 파생 · 다른 계좌 카드엔 선택 콜백 없음', () => {
@@ -1795,5 +1825,116 @@ describe('TradingWorkbench — VI 해제된 발동 숨김 (quick-260923-nvr)', (
     fireEvent.click(slot('vi-trigger')!.querySelector('[data-slot="vi-strip-more"]')!);
     const table = slot('vi-trigger-table')!;
     expect(table.textContent).not.toContain('0000000002');
+  });
+});
+
+describe('withCardOpen — 카드 순서 규칙 (quick-260923-p3k · 순수 함수)', () => {
+  const wc = (id: string, open: boolean): WorkbenchCard => ({
+    id,
+    isin: `KR7${id}`,
+    accountNo: ACCOUNT,
+    exchange: 'KRX',
+    open,
+  });
+  const ids = (cards: readonly WorkbenchCard[]) => cards.map((c) => c.id);
+
+  it('대상이 이미 같은 상태면 같은 배열 참조를 돌려준다(베일아웃 · 순서 불변)', () => {
+    const prev = [wc('A', true), wc('B', false)];
+    expect(withCardOpen(prev, 'A', true)).toBe(prev);
+    expect(withCardOpen(prev, 'B', false)).toBe(prev);
+  });
+
+  it('없는 id 면 같은 배열 참조를 돌려준다', () => {
+    const prev = [wc('A', true)];
+    expect(withCardOpen(prev, 'Z', false)).toBe(prev);
+  });
+
+  it('접으면 그 카드가 배열 맨 끝 = 접힘 스택 맨 끝으로 간다 · 입력은 변하지 않는다', () => {
+    const prev = [wc('A', true), wc('B', true), wc('C', false)];
+    const next = withCardOpen(prev, 'A', false);
+    expect(ids(next)).toEqual(['B', 'C', 'A']);
+    expect(next.map((c) => c.open)).toEqual([true, false, false]);
+    const { open, folded } = renderOrderOf(next);
+    expect(ids(open)).toEqual(['B']);
+    expect(ids(folded)).toEqual(['C', 'A']);
+    expect(ids(prev)).toEqual(['A', 'B', 'C']);
+    expect(prev[0].open).toBe(true);
+  });
+
+  it('펼치면 그 카드가 배열 맨 끝 = 펼친 카드들 맨 끝으로 간다', () => {
+    const prev = [wc('A', false), wc('B', false), wc('C', true)];
+    const next = withCardOpen(prev, 'A', true);
+    expect(ids(next)).toEqual(['B', 'C', 'A']);
+    const { open, folded } = renderOrderOf(next);
+    expect(ids(open)).toEqual(['C', 'A']);
+    expect(ids(folded)).toEqual(['B']);
+  });
+});
+
+describe('TradingWorkbench — 카드 순서: 가장 최근에 바뀐 카드가 무리의 끝 (quick-260923-p3k)', () => {
+  const X = 'KR7086520004';
+  const Y = 'KR7247540008';
+  const Z = 'KR7000660001';
+  const S = 'KR7096530001';
+  const k = (isin: string, open: boolean) => [`${isin}:${ACCOUNT}:KRX`, String(open)];
+  const keys = () => cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]);
+
+  it('토글 — 접으면 접힘 스택 맨 끝, 펼치면 펼친 카드 맨 끝', () => {
+    mockRelay = relay({ limitChasers: [lc(X), lc(Y), lc(Z)] });
+    render(<TradingWorkbench />);
+    fireEvent.click(toggleOf(X));
+    fireEvent.click(toggleOf(Y));
+    expect(keys()).toEqual([k(X, true), k(Y, true), k(Z, false)]);
+
+    fireEvent.click(toggleOf(X)); // 접기 → 스택 맨 끝
+    expect(keys()).toEqual([k(Y, true), k(Z, false), k(X, false)]);
+
+    fireEvent.click(toggleOf(Z)); // 펼치기 → 펼친 무리 맨 끝
+    expect(keys()).toEqual([k(Y, true), k(Z, true), k(X, false)]);
+  });
+
+  it('돌파 칩 — 새 카드도, 접힌 카드를 다시 여는 「거래중」 칩도 펼친 카드 맨 끝 · 이미 펼친 카드는 순서 불변', () => {
+    mockRelay = relay({ limitChasers: [lc(X), lc(Y)], rateCrossItems: [rc()] });
+    render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!); // 추가 · 펼침 · 끝
+    expect(keys()).toEqual([k(S, true), k(X, false), k(Y, false)]);
+
+    fireEvent.click(toggleOf(S)); // 접기
+    fireEvent.click(toggleOf(Y)); // 펼치기
+    fireEvent.click(toggleOf(X)); // 펼치기
+    expect(keys()).toEqual([k(Y, true), k(X, true), k(S, false)]);
+
+    fireEvent.click(slot('breakout-chip')!); // 「거래중」 → focusCard
+    expect(keys()).toEqual([k(Y, true), k(X, true), k(S, true)]);
+
+    fireEvent.click(slot('breakout-chip')!); // 이미 펼침 → 참조 유지
+    expect(keys()).toEqual([k(Y, true), k(X, true), k(S, true)]);
+  });
+
+  it('카드가 둘인 ISIN — 펼친 카드가 끝으로 옮겨도 칩을 다시 누르면 둘째 카드를 열지 않고, 스크롤은 펼친 그 카드로 간다', () => {
+    const T = 'KR7005930003';
+    const scrolled: (string | null)[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute('data-key'));
+    };
+    try {
+      mockRelay = relay({
+        limitChasers: [lc(T), lc(T, { exchange: 'NXT' })],
+        rateCrossItems: [rc({ isin: T, name: '삼성전자', code: '005930' })],
+      });
+      render(<TradingWorkbench />);
+      const kt = (ex: string, open: boolean) => [`${T}:${ACCOUNT}:${ex}`, String(open)];
+
+      fireEvent.click(slot('breakout-chip')!); // KRX 펼침 → 배열 [NXT, KRX]
+      expect(keys()).toEqual([kt('KRX', true), kt('NXT', false)]);
+      expect(scrolled.at(-1)).toBe(`${T}:${ACCOUNT}:KRX`);
+
+      fireEvent.click(slot('breakout-chip')!); // 이미 펼친 KRX → 불변 · NXT 는 접힌 그대로
+      expect(keys()).toEqual([kt('KRX', true), kt('NXT', false)]);
+      expect(scrolled.at(-1)).toBe(`${T}:${ACCOUNT}:KRX`);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 });
