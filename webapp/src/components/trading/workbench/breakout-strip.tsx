@@ -79,6 +79,7 @@ import {
   type BreakoutMeta,
   type BreakoutRow,
 } from '@/lib/breakout-list';
+import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
 import { useBreakoutQuotes } from '@/lib/use-breakout-quotes';
 import { cn } from '@/lib/utils';
 
@@ -173,6 +174,11 @@ export function BreakoutStrip({
   className,
 }: BreakoutStripProps) {
   const [open, setOpen] = useState(false);
+  // 펼침은 기억한다(quick-260923-lyt) — 마운트 후에 읽는다(하이드레이션).
+  useEffect(() => {
+    const saved = readPanelsPref().breakout;
+    if (saved !== undefined) setOpen(saved);
+  }, []);
   const tableId = useId();
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => readDismissedSet());
   /** 강조 판정 기준 시각 — tick 타이머 1개가 올린다(⑤). */
@@ -326,7 +332,11 @@ export function BreakoutStrip({
           aria-expanded={open}
           // 가리킬 표가 있을 때만 — 없는 id 를 가리키지 않는다(axe aria-valid-attr-value).
           aria-controls={showTable ? tableId : undefined}
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => {
+            const next = !open;
+            setOpen(next);
+            writePanelsPref({ breakout: next });
+          }}
           className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
         >
           {open ? '접기' : '더보기'}

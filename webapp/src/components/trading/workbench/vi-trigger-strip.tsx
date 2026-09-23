@@ -30,11 +30,12 @@
  *   `sortViOrdersNewestFirst` 한 곳(72 교체 · 73 병합 두 갈래)이 정한다(quick-260923-dmb).
  *   여기서 다시 정렬하면 칩과 표가 두 규칙으로 갈릴 수 있다.
  *
- * ⑤ 「더보기/접기」 상태는 컴포넌트 로컬이다 — localStorage 키를 새로 만들지 않는다(D-15 는 4개뿐).
+ * ⑤ 「더보기/접기」 상태는 기억한다 — `gh-radar:trading-panels` 의 `vi` (quick-260923-lyt · 사용자 요청으로
+ *   D-15 「키 4개뿐」 을 넘었다). 다른 메뉴에 갔다 와도 펼친 채다.
  *   73 스냅샷 전에도 빈 상태를 그린다 — 별도 fetch 가 없으므로 스피너·스켈레톤이 없다.
  */
 
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { RelayViOrderItem } from '@gh-radar/shared';
 
 import {
@@ -45,6 +46,7 @@ import {
   isUnconfirmedViOrder,
   stateFaceOf,
 } from '@/components/trading/vi-order-list';
+import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
 import { viOrderKey } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
@@ -76,6 +78,11 @@ export function ViTriggerStrip({
   className,
 }: ViTriggerStripProps) {
   const [open, setOpen] = useState(false);
+  // 펼침은 기억한다(quick-260923-lyt) — 마운트 후에 읽는다(하이드레이션).
+  useEffect(() => {
+    const saved = readPanelsPref().vi;
+    if (saved !== undefined) setOpen(saved);
+  }, []);
   const bodyId = useId();
   const unconfirmed = items.filter(isUnconfirmedViOrder).length;
 
@@ -132,7 +139,11 @@ export function ViTriggerStrip({
           data-slot="vi-strip-more"
           aria-expanded={open}
           aria-controls={bodyId}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            const next = !open;
+            setOpen(next);
+            writePanelsPref({ vi: next });
+          }}
           className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
         >
           {open ? '접기' : '더보기'}

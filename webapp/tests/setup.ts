@@ -19,6 +19,18 @@ afterEach(() => {
   cleanup();
   // 훅 메모리 캐시가 테스트 사이로 새면 두 번째 테스트가 스켈레톤 없이 시작한다.
   clearQueryCache();
+  // 작업대 배치 기억(quick-260923-lyt)이 테스트 사이로 새면 다음 테스트가 펼친 채 시작한다.
+  if (typeof window !== 'undefined') {
+    try {
+      for (const k of Object.keys(window.localStorage)) {
+        if (k.startsWith('gh-radar:trading-layout:') || k === 'gh-radar:trading-panels') {
+          window.localStorage.removeItem(k);
+        }
+      }
+    } catch {
+      /* 저장소 없음 */
+    }
+  }
 });
 
 if (typeof window !== 'undefined') {

@@ -158,6 +158,7 @@ import {
   cardForUnfilled,
   fillAccountCards,
   holdingQuotePrice,
+  restoreSavedCards,
   TradingWorkbench,
   type WorkbenchCard,
 } from '../workbench/trading-workbench';
@@ -1641,6 +1642,10 @@ describe('TradingWorkbench — GC-IN-04 — 같은 종목 KRX·NXT 카드 둘의
     expect(cardsInDom().map((c) => c.getAttribute('data-exchange'))).toEqual(['NXT', 'KRX']);
     expect(priceOf()).toBe(100);
     first.unmount();
+    // 이 테스트는 등록 순서만 바꿔 보는 것이다 — 배치 기억(quick-260923-lyt)이 첫 순서를 복원하지 않게 지운다.
+    for (const k of Object.keys(window.localStorage)) {
+      if (k.startsWith('gh-radar:trading-layout:')) window.localStorage.removeItem(k);
+    }
 
     mockRelay = relay({ quotes, limitChasers: [lc(S), lc(S, { exchange: 'NXT' })] });
     render(<TradingWorkbench />);
@@ -1670,5 +1675,73 @@ describe('TradingWorkbench — GC-IN-04 — 같은 종목 KRX·NXT 카드 둘의
     report('NXT', '매수 주문을 냈어요');
     const log = sharedPanelsProps.last?.logEntries as { who?: string; text: string }[];
     expect(log.map((e) => e.who)).toEqual(['삼성전자 · NXT', '삼성전자']);
+  });
+});
+
+describe('TradingWorkbench — 배치 기억 (quick-260923-lyt)', () => {
+  const byKey = () =>
+    cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]);
+
+  it('L1 다른 메뉴에 갔다 오면(언마운트 → 마운트) 카드 순서·펼침·등록 전 카드가 그대로다', () => {
+    mockRelay = relay({ limitChasers: [lc('KR7086520004'), lc('KR7247540008')], rateCrossItems: [rc()] });
+    const first = render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!); // 등록 전 카드 추가(펼침)
+    fireEvent.click(toggleOf('KR7247540008')); // 등록 카드 하나 펼침
+    const before = byKey();
+    expect(before).toHaveLength(3);
+    first.unmount();
+
+    render(<TradingWorkbench />);
+    expect(byKey()).toEqual(before);
+  });
+
+  it('L2 다른 사용자로 들어오면 앞 사용자의 배치를 복원하지 않는다', () => {
+    mockRelay = relay({ rateCrossItems: [rc()] });
+    const first = render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    expect(cardsInDom()).toHaveLength(1);
+    first.unmount();
+
+    const prevUser = authState.user;
+    authState.user = { id: 'other-user' };
+    try {
+      render(<TradingWorkbench />);
+      expect(cardsInDom()).toHaveLength(0);
+    } finally {
+      authState.user = prevUser;
+    }
+  });
+});
+
+describe('restoreSavedCards (quick-260923-lyt)', () => {
+  const card = (isin: string, over: Partial<WorkbenchCard> = {}): WorkbenchCard => ({
+    id: `c-${isin}`,
+    isin,
+    accountNo: ACCOUNT,
+    exchange: 'KRX',
+    open: false,
+    ...over,
+  });
+  const keyOfIsin = (isin: string) => `${isin}:${ACCOUNT}:KRX`;
+
+  it('저장 카드가 저장 순서로 앞에 서고, 복원 전에 생긴 새 등록 카드는 뒤에 붙는다', () => {
+    const saved = {
+      cards: [
+        { isin: 'B', accountNo: ACCOUNT, exchange: 'KRX' as const, open: true },
+        { isin: 'A', accountNo: ACCOUNT, exchange: 'KRX' as const, open: false },
+      ],
+      seen: [keyOfIsin('A')],
+    };
+    const out = restoreSavedCards([card('A'), card('C')], saved, ['n1', 'n2']);
+    expect(out.map((c) => [c.isin, c.open, c.id])).toEqual([
+      ['B', true, 'n1'],
+      ['A', false, 'n2'],
+      ['C', false, 'c-C'],
+    ]);
+  });
+
+  it('사용자가 닫아 둔 등록 카드(seen 에 있고 저장 카드에 없음)는 되살리지 않는다', () => {
+    const saved = { cards: [], seen: [keyOfIsin('A')] };
+    expect(restoreSavedCards([card('A')], saved, []).map((c) => c.isin)).toEqual([]);
   });
 });

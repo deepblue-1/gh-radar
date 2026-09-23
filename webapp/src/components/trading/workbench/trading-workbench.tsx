@@ -133,11 +133,17 @@ import {
   AccountPill,
   WorkbenchStatusBar,
 } from "@/components/trading/workbench/workbench-status-bar";
+import { useAuth } from "@/lib/auth-context";
 import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
+import {
+  readTradingLayout,
+  writeTradingLayout,
+  type SavedLayout,
+} from "@/lib/trading-layout";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
 import { useViServerError } from "@/lib/use-vi-server-error";
@@ -322,6 +328,37 @@ export function fillAccountCards(
 }
 
 /**
+ * 저장된 배치 복원 (**순수 함수** · quick-260923-lyt). 저장된 카드가 저장 순서·펼침 그대로 앞에 서고,
+ * 복원 전에 이미 생긴 카드(`prev` — 등록 전략 자동 카드 등)는 뒤에 붙는다. 단 **사용자가 닫아 둔
+ * 등록 전략**(저장된 `seen` 에 있는데 저장된 카드에는 없는 키)은 붙이지 않는다 — 돌아왔을 때 닫은
+ * 카드가 다시 생기면 기억한 게 아니다. 같은 키는 하나만(② · T-18-94). `ids` 는 저장 카드 수만큼
+ * 호출자가 업데이터 **밖**에서 뽑아 넘긴다(`nextCardId` 규율).
+ */
+export function restoreSavedCards(
+  prev: WorkbenchCard[],
+  saved: SavedLayout,
+  ids: readonly string[],
+): WorkbenchCard[] {
+  const out: WorkbenchCard[] = [];
+  const keys = new Set<string>();
+  saved.cards.forEach((c, i) => {
+    const card: WorkbenchCard = { ...c, id: ids[i] };
+    const key = keyOf(card);
+    if (keys.has(key)) return;
+    keys.add(key);
+    out.push(card);
+  });
+  const closed = new Set(saved.seen);
+  for (const c of prev) {
+    const key = keyOf(c);
+    if (keys.has(key) || closed.has(key)) continue;
+    keys.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+/**
  * 「등록 전략 목록을 안다」 — 포커스 요청 보류를 버려도 되는가 (⑥ · WR-07 · 18-26 GC-IN-02).
  * **이번 연결에서 확정 64 스냅샷을 받았는가**(`limitChaserSnapSeq > 0`) 하나다 — 목록이 비어
  * 있는지는 보지 않는다.
@@ -410,6 +447,28 @@ function WorkbenchSurface() {
 
   /* ── 등록된 전략 → 처음 보는 키만 카드로 (② · 멤버십만) ─────────── */
   const seenKeys = useRef(new Set<string>());
+
+  /*
+    ── 배치 기억 (quick-260923-lyt) ── 다른 메뉴에 갔다 와도 카드 순서·펼침·닫은 등록 카드가 그대로다.
+    ★ 이 효과는 아래 「등록 전략 → 카드」 효과보다 **먼저 선언**한다 — 같은 커밋에서 `seenKeys` 를
+      먼저 채워야 닫아 둔 등록 전략이 새 카드로 되살아나지 않는다. 사용자 id 를 모르면 기다린다.
+    ★ 저장은 복원이 끝난 뒤부터다(`layoutRestored`) — 첫 렌더의 빈 카드 목록이 저장값을 덮으면 안 된다.
+  */
+  const { user } = useAuth();
+  const userId = user?.id ?? "";
+  const [layoutRestored, setLayoutRestored] = useState(false);
+  const restoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (userId === "" || restoredFor.current === userId) return;
+    restoredFor.current = userId;
+    const saved = readTradingLayout(userId);
+    if (saved !== null) {
+      for (const k of saved.seen) seenKeys.current.add(k);
+      const ids = saved.cards.map(() => nextCardId());
+      setCards((prev) => restoreSavedCards(prev, saved, ids));
+    }
+    setLayoutRestored(true);
+  }, [userId, nextCardId]);
   useEffect(() => {
     const fresh = limitChasers.filter((c) => !seenKeys.current.has(c.key));
     for (const c of fresh) seenKeys.current.add(c.key);
@@ -600,7 +659,20 @@ function WorkbenchSurface() {
   useEffect(() => {
     if (accountNo === "") return;
     setCards((prev) => fillAccountCards(prev, accountNo).next);
-  }, [accountNo]);
+  }, [accountNo, layoutRestored]);
+
+  /*
+    배치 저장 (quick-260923-lyt) — 카드가 바뀔 때마다. `seen` 은 등록 목록을 확정으로 안 뒤(64 스냅샷)에는
+    지금 등록된 키만 남긴다 — 지운 전략의 키가 쌓이지 않고, 나중에 같은 키가 다시 등록되면 새 카드로 뜬다.
+  */
+  useEffect(() => {
+    if (!layoutRestored || userId === "") return;
+    const registered = knowsRegistered(limitChaserSnapSeq)
+      ? new Set(limitChasers.map((c) => c.key))
+      : null;
+    const seen = [...seenKeys.current].filter((k) => registered === null || registered.has(k));
+    writeTradingLayout(userId, { cards, seen });
+  }, [cards, layoutRestored, userId, limitChasers, limitChaserSnapSeq]);
 
   /** ✕ 확인 — 카드 id 와 이유(⑧). `unknown` 이 `registered` 보다 먼저다(잠금 지속을 먼저 말한다). */
   const [closeAsk, setCloseAsk] = useState<{ id: string; reason: "unknown" | "registered" } | null>(

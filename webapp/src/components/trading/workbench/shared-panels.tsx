@@ -53,7 +53,7 @@
  *   로드 실패 경로는 없다.
  */
 
-import { useCallback, useId, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CSSProperties } from 'react';
 import type { RelayAccountState, RelayOrderResultMsg, RelayUnfilled } from '@gh-radar/shared';
@@ -61,6 +61,7 @@ import type { RelayAccountState, RelayOrderResultMsg, RelayUnfilled } from '@gh-
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AccountPanel, type AccountRowOrigin } from '@/components/orderbook/account-panel';
 import { StrategyLog, type StrategyLogEntry } from '@/components/trading/strategy-log';
+import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
 import type { RelayStatus } from '@/lib/use-relay-socket';
 import { cn } from '@/lib/utils';
 
@@ -160,6 +161,12 @@ export function SharedPanels({
   const [tab, setTab] = useState<SharedTab>('unfilled');
   /** 폰 밴드 접힘 — 기본 접힘(파일 상단 ④). ≥700 에서는 이 값이 보이지 않는다. */
   const [folded, setFolded] = useState(true);
+  // 탭·접힘은 기억한다(quick-260923-lyt) — 마운트 후에 읽는다(하이드레이션).
+  useEffect(() => {
+    const saved = readPanelsPref();
+    if (saved.sharedTab !== undefined) setTab(saved.sharedTab);
+    if (saved.sharedFolded !== undefined) setFolded(saved.sharedFolded);
+  }, []);
   const bodyId = useId();
   const reserve = useDirtyBarReserve(dirtyBarCount);
 
@@ -215,7 +222,10 @@ export function SharedPanels({
     >
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as SharedTab)}
+        onValueChange={(v) => {
+          setTab(v as SharedTab);
+          writePanelsPref({ sharedTab: v as SharedTab });
+        }}
         className="gap-0"
       >
         <div className="flex min-w-0 items-center gap-0.5 border-b border-[var(--border)] p-1.5 @min-[700px]/wb:gap-1 @min-[700px]/wb:px-2">
@@ -238,7 +248,11 @@ export function SharedPanels({
             type="button"
             aria-expanded={!folded}
             aria-controls={bodyId}
-            onClick={() => setFolded((f) => !f)}
+            onClick={() => {
+              const next = !folded;
+              setFolded(next);
+              writePanelsPref({ sharedFolded: next });
+            }}
             className="ml-auto h-7 flex-none rounded-[var(--r)] px-2 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--muted)] @min-[700px]/wb:hidden"
           >
             {folded ? '펼치기 ▴' : '접기 ▾'}

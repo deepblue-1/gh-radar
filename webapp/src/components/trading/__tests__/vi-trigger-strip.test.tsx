@@ -152,11 +152,13 @@ describe('E3 populated — 칩 · 미확인', () => {
     expect(tableBlock()).toBeNull();
   });
 
-  it('펼침 상태는 localStorage 에 남기지 않는다', () => {
-    const before = window.localStorage.length;
-    renderStrip([item()]);
+  it('펼침 상태를 기억한다 — 다시 마운트하면 펼친 채다 (quick-260923-lyt)', () => {
+    const first = renderStrip([item()]);
     openTable();
-    expect(window.localStorage.length).toBe(before);
+    expect(tableBlock()).not.toBeNull();
+    first.unmount();
+    renderStrip([item()]);
+    expect(tableBlock()).not.toBeNull();
   });
 });
 

@@ -1042,11 +1042,12 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(page).toHaveURL(/\/me(?:\?.*)?$/);
     expect(relaySockets).toHaveLength(1);
 
-    // 사이드바 「트레이딩」 → /trading → 카드 0 → 같은 종목 다시 추가 → 잠긴 채.
+    // 사이드바 「트레이딩」 → /trading → 배치 기억으로 카드가 그대로 있다(quick-260923-lyt) →
+    // 같은 종목 다시 추가해도 카드는 1장(펼침만) → 잠긴 채.
     await nav.getByRole('link', { name: '트레이딩', exact: true }).click();
     await expect(page).toHaveURL(/\/trading(?:\?.*)?$/);
     await waitForReady(page);
-    await expect(cards(page)).toHaveCount(0);
+    await expect(cards(page)).toHaveCount(1);
     await addStockByKeyboard(page);
     await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
     card = cardOf(page, E2E_ISIN);
