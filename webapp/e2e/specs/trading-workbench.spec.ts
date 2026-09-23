@@ -643,6 +643,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 펼침 2 · 접힘 1.
     await toggle(E2E_ISIN).click();
     expect(await layout()).toEqual(['open', 'open', 'stack(1)']);
+    // quick-260923-p3k — 방금 펼친 카드가 펼친 무리의 **맨 끝**이다(옛 규칙이면 시드 순서대로 E2E 가 앞).
+    await expect(cells.nth(0).locator(cardSelector(E2E_LONG_NAME_ISIN))).toHaveCount(1);
+    await expect(cells.nth(1).locator(cardSelector(E2E_ISIN))).toHaveCount(1);
 
     // 펼침 3(2+) · 접힘 0 — 스택 칸 자체가 없다.
     await toggle('KR7086520004').click();
@@ -656,6 +659,16 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(
       grid(page).locator('[data-slot="card-stack"] [data-slot="card-body"]:visible'),
     ).toHaveCount(0);
+
+    // quick-260923-p3k — 방금 접은 카드는 스택의 **맨 끝**이다(스택 안 순서 LONG → E2E).
+    await toggle(E2E_ISIN).click();
+    expect(await layout()).toEqual(['open', 'stack(2)']);
+    const stacked = grid(page).locator('[data-slot="card-stack"] [data-slot="strategy-card"]');
+    await expect(stacked.nth(0)).toHaveAttribute('data-key', new RegExp(`^${E2E_LONG_NAME_ISIN}:`));
+    await expect(stacked.nth(1)).toHaveAttribute('data-key', new RegExp(`^${E2E_ISIN}:`));
+    // 직렬 공유 페이지 — 끝 상태 모양(펼침 2 · 접힘 1)을 이전과 같게 되돌린다.
+    await toggle(E2E_ISIN).click();
+    expect(await layout()).toEqual(['open', 'open', 'stack(1)']);
   });
 
   test('7. 폰 밴드 더티 바(z-40)와 하단 고정 공용 패널(z-20)의 boundingBox 가 겹치지 않는다 — 접힘·펼침·맨 아래 (E15 · E13 overflow · D-28)', async ({
