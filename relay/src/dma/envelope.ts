@@ -389,11 +389,28 @@ export function buildGetQuoteReq(isin: string, exchange: RelayExchange): Uint8Ar
   return b.asUint8Array();
 }
 
-/** 호가 구독/해제 (MsgType 29). `subscribe:false` 가 해제다. */
+/**
+ * `SubscribeQuoteReq.level` 바이트 (quick-260923-ge2 · gh-trade 회신 quick-260923-exo).
+ * 0 = FULL(59+71+75 종전 그대로) · 1 = PRICE(59 만 · 가격 섹션 갱신 때만 · 키당 ≥200ms).
+ * 서버는 1 만 PRICE 로 보고 그 밖 값은 FULL 로 접는다 — relay 도 1 외의 값을 만들지 않는다.
+ */
+export const QUOTE_LEVEL = { FULL: 0, PRICE: 1 } as const;
+export type QuoteLevelByte = (typeof QUOTE_LEVEL)[keyof typeof QUOTE_LEVEL];
+
+/**
+ * 호가 구독/해제 (MsgType 29). `subscribe:false` 가 해제다.
+ *
+ * `level` 은 vtable 슬롯 10(말미 append · 기존 isin 4 / exchange 6 / subscribe 8 불변)이다.
+ * 기본값 0 이라 FULL 프레임은 종전과 바이트가 같다 — flatbuffers `addFieldInt8` 은 기본값과
+ * 같은 값을 싣지 않는다. 해제(`subscribe:false`) 는 level 과 무관하게 그 키를 놓으므로 호출부가
+ * level 을 넘기지 않는다. 같은 연결·같은 키 재구독은 서버가 level 덮어쓰기로 처리한다(승격·강등).
+ * 정본: fbs `SubscribeQuoteReq` 주석 · `tasks/gh-trade-price-only-quote-subscription-reply.md`.
+ */
 export function buildSubscribeQuoteReq(
   isin: string,
   exchange: RelayExchange,
   subscribe: boolean,
+  level: QuoteLevelByte = QUOTE_LEVEL.FULL,
 ): Uint8Array {
   const b = new flatbuffers.Builder(128);
   const req = SubscribeQuoteReq.createSubscribeQuoteReq(
@@ -401,6 +418,7 @@ export function buildSubscribeQuoteReq(
     b.createString(isin),
     b.createString(exchange),
     subscribe,
+    level,
   );
   Envelope.startEnvelope(b);
   Envelope.addMsgType(b, MSG.SubscribeQuoteReq);

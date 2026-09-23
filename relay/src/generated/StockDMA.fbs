@@ -1,7 +1,7 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: bcc011c4
-// synced-date:        2026-09-18
+// server-repo-commit: 228ea1f5
+// synced-date:        2026-09-23
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
 // ============================================================
@@ -826,10 +826,21 @@ table GetQuoteReq {
 // - **해제는 별도 MsgType 이 아니라 subscribe=false** 다. Un~ 메시지를 하나 더 두면
 //   구독/해제 두 경로에 같은 키 정규화가 두 벌 생긴다 (Phase 12 D-02 단일 빌더 관례 동형).
 // - 전략 미등록 종목도 구독할 수 있어야 한다 — 자동완성으로 임의 종목을 조회한다 (D-05).
+// - level (quick-260923-exo, 테이블 말미 append — vtable 슬롯 10, 기존 4/6/8 불변):
+//     0 = FULL  (종전 그대로 — 59 QuoteUpdate 를 어느 섹션이든 갱신된 틱마다 + 71 TradeTapePush + 75 MemberStatsPush)
+//     1 = PRICE (가벼운 시세 — 59 만. 가격 섹션(A3 체결·R8 VI·A6 종가) 갱신 때만, 키당 최소 200ms 간격.
+//               호가(B6)만 바뀐 틱에는 보내지 않는다. 본문은 FULL 과 같은 빌더라 호가 벡터도 그대로 실린다)
+//     그 밖 값은 0(FULL) 으로 취급한다 — 모르는 값을 더 가벼운 경로로 열화시키지 않는다.
+//   · 같은 (연결·종목·거래소) 재구독은 level 을 **덮어쓴다** (서버 refcount 없음, 연결당 상한을 두 번 세지 않는다).
+//   · subscribe=false 는 level 과 무관하게 그 키를 해제한다.
+//   · PRICE→FULL 승격에 서버 스냅샷 전송은 없다 — 스냅샷이 필요한 소비자는 28(GetQuoteReq) 을 보낸다
+//     (relay 도 0→1 구독과 같은 순서로).
+//   · 기본값 0 이라 level 을 싣지 않는 옛 클라·relay 는 종전(FULL)과 같다.
 table SubscribeQuoteReq {
     isin: string;
     exchange: string;
     subscribe: bool;          // true=구독, false=해제
+    level: ubyte = 0;         // 0=FULL(종전) / 1=PRICE(59 만·가격 섹션 갱신 때만·200ms) — quick-260923-exo, 말미 append
 }
 
 // 체결 테이프 스냅샷 조회 요청 (Client -> Server, D-02)
@@ -1007,8 +1018,8 @@ table MemberStats {
 // ============================================================================
 // Phase 19 — 등락률 임계 상향 돌파 알림 (RateCrossAlert 76, S→C 푸시 전용)
 //
-// 서버 MarketPublisher 가 KRX A3 마다 등락률(CalcChangeRateSignedBP)을 임계와 비교해
-// ISIN 당 엣지(임계 미만 → 이상)에서 접속 연결 전부에 Broadcast 로 보낸다 (D-01/D-06/D-10).
+// 서버 MarketPublisher 가 판정 대상 체결(KRX G1/G4 + KRX 접속매매 세션이 닫힌 시간의 NXT 접속매매 — 단일가 제외, quick-260923-cfo)마다
+// 등락률(CalcChangeRateSignedBP)을 임계와 비교해 ISIN 당 엣지(임계 미만 → 이상)에서 접속 연결 전부에 Broadcast 로 보낸다 (D-01/D-06/D-10).
 // 재무장은 등락률이 임계 − 2%p 미만일 때만이다(quick-260914-eqd — 임계 근처 반복 발송 방지).
 // 서버는 돌파할 때마다 보내고, "하루 1회 자동 열기" 규칙은 클라 몫이다 (D-07).
 // 푸시 전용이라 스냅샷 짝이 없다 — 스냅샷 플래그를 두지 않는다 (슬롯 하나·타입 하나, D-09).
@@ -1016,7 +1027,7 @@ table MemberStats {
 
 table RateCrossAlert {
     isin: string;             // 12자 (QuoteState.isin 과 같은 키)
-    exchange: string;         // "KRX" / "NXT" (QuoteState.exchange 와 같은 어휘 — ExchangeToStr; 감지 대상은 KRX 뿐 D-02)
+    exchange: string;         // "KRX" / "NXT" (QuoteState.exchange 와 같은 어휘 — ExchangeToStr; 발화한 판정 대상 체결의 거래소(76) / above 구간을 연 거래소(78), quick-260923-cfo)
     last_price: long;         // 돌파를 만든 A3 체결가
     change_rate: double;      // 등락률 % (부호 포함 = CalcChangeRateSignedBP / 100)
     threshold_pct: double;    // 서버 설정 임계 % ([market_data] rate_cross_alert_pct — 표시용, D-05)
@@ -1030,15 +1041,15 @@ table RateCrossAlert {
 //
 // 서버가 로그인 성공 직후 **그 연결에만** Notice 1프레임으로 보낸다(재로그인·재접속 로그인마다).
 // 클라를 늦게 켜거나 재접속해도 "지금 임계 이상인 종목" 으로 돌파 목록을 채우기 위해서다.
-// items = 서버가 지금 above 로 들고 있는 KRX 종목 전부. 빈 목록도 1프레임을 보낸다.
+// items = 서버가 지금 above 로 들고 있는 종목 전부(ISIN 당 1원소, 거래소 무관). 빈 목록도 1프레임을 보낸다.
 //
 // 원소는 76 의 RateCrossAlert 테이블을 재사용한다. 스냅샷 원소의 필드 의미:
-//   · last_price / change_rate / base_price = 그 종목의 **마지막 판정 대상 KRX A3** 값(스냅샷 시점 최신).
-//     Buy-in G7/G8 등 판정 제외 A3 는 반영하지 않는다. 76 과 같은 원천(CalcChangeRateSignedBP·A3 되돌림)이다.
+//   · last_price / change_rate / base_price = 그 종목의 **마지막 판정 대상 A3** 값(스냅샷 시점 최신, 거래소 무관).
+//     판정 제외 A3(판정 밖 보드·NXT 단일가·KRX 열린 시간의 NXT)는 반영하지 않는다. 76 과 같은 원천(CalcChangeRateSignedBP·A3 되돌림)이다.
 //   · exchange_time = **지금 above 구간을 연 A3 체결시각**(12자 원문) — 상향 돌파로 76 을 발화한 A3,
 //     또는 서버 장중 기동 시드 전용(WR-01)으로 발화 없이 above 가 된 첫 A3. 시드 종목의 실제 돌파는
 //     서버 기동 전 사건이라 서버가 모른다 — 시드 A3 시각은 서버가 "이상" 을 확인한 가장 이른 시각이다.
-//   · threshold_pct = 서버 임계 %, exchange = "KRX", server_time = 스냅샷 송신 시각(원소 공통).
+//   · threshold_pct = 서버 임계 %, exchange = above 구간을 연 거래소(quick-260923-cfo), server_time = 스냅샷 송신 시각(원소 공통).
 //   · 원소 순서 = exchange_time 오름차순, 같으면 isin 오름차순.
 // above 는 재무장 폭 2%p 때문에 임계 − 2%p 이상 ~ 임계 미만 원소를 포함할 수 있다 — 클라 목록 보관 구간과 같다.
 //
@@ -1048,7 +1059,7 @@ table RateCrossAlert {
 // ============================================================================
 
 table RateCrossSnapshot {
-    items: [RateCrossAlert];  // 지금 above 인 KRX 종목 전부 (돌파 시각 오름차순, 빈 벡터 가능)
+    items: [RateCrossAlert];  // 지금 above 인 종목 전부 — 원소 exchange = above 구간을 연 거래소 (돌파 시각 오름차순, 빈 벡터 가능)
 }
 
 // ============================================================================

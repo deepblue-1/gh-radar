@@ -11,6 +11,18 @@
  *   D-33  0→1 전이에서 `GetQuoteReq(28)` → `SubscribeQuoteReq(29, true)` →
  *         `GetTradeTapeReq(32)`. 1→0 에서 `SubscribeQuoteReq(29, false)`.
  *         체결 테이프는 **별도 구독이 없다**(시세 구독 편승) — 해제 프레임도 없다.
+ *   level (quick-260923-ge2) — `SubscribeQuoteReq.level` 은 FULL(0, 59+71+75) / PRICE(1, 59 만).
+ *         참조계수는 키당 `{full, price}` 두 칸이고 업스트림 level = full ≥1 ? FULL : PRICE 다.
+ *           · 0→1 PRICE            = 28 → 29(level=1). 32 없음(71 이 오지 않는다).
+ *           · 0→1 FULL             = 28 → 29(level=0) → 32 (종전 D-33 그대로).
+ *           · PRICE→FULL 승격      = 28 → 29(level=0) → 32 를 **다시** 보낸다 — 서버는 구독 직후
+ *                                    스냅샷이 없고 같은 키 재구독을 level 덮어쓰기로 처리한다.
+ *           · FULL→PRICE 강등      = 29(level=1) 1건.
+ *           · 마지막 소비자 이탈   = 29(subscribe=false) 1건 (level 무관 해제).
+ *           · `resubscribeAll`     = 키마다 실효 level 로 되건다.
+ *         모르는 level 은 FULL 로 접는다 — 더 가벼운 경로로 열화시키지 않는다(서버 규칙과 동형).
+ *         75 거래원도 FULL 전용이다. 출처: gh-trade 회신 `tasks/gh-trade-price-only-quote-subscription-reply.md`
+ *         (quick-260923-exo) · fbs `SubscribeQuoteReq` 주석.
  *   D-35  시세는 **추가 코얼레싱을 하지 않는다**(업스트림 100ms 를 그대로 통과).
  *         체결 테이프만 200ms 배치로 묶는다. 배치 타이머는 키마다가 아니라
  *         **사용자(세션) 단위 1개**다 — 종목 10개를 보면 타이머 10개가 도는 구조를 만들지 않는다.
@@ -54,6 +66,7 @@ import type {
   RelayQueuedWindowMsg,
   RelayQuote,
   RelayRateCrossItem,
+  RelaySubLevel,
   RelayTape,
   RelayTapeEntry,
   RelayViNoticeMsg,
@@ -66,6 +79,7 @@ import type { TransportFrameEvent } from "../dma/dma-client.js";
 import type { SessionReadyEvent } from "../dma/session.js";
 import {
   MAX_TAPE_ENTRY_COUNT,
+  QUOTE_LEVEL,
   buildGetAccountStateReq,
   buildGetLimitChaserListReq,
   buildGetQuoteReq,
@@ -91,6 +105,7 @@ import {
   parseViTrigger,
   type ParsedOrderResp,
   type ParsedSymbolMasterFrame,
+  type QuoteLevelByte,
 } from "../dma/envelope.js";
 import { MSG } from "../dma/msg-type.js";
 import type { SymbolLookup } from "../store/symbols.js";
@@ -196,6 +211,23 @@ type PendingTape = {
   snap: boolean;
   entries: RelayTapeEntry[];
 };
+
+/** 키당 level 별 참조계수 (quick-260923-ge2). */
+type SubRefs = { full: number; price: number };
+
+function totalRefs(refs: SubRefs): number {
+  return refs.full + refs.price;
+}
+
+/** 업스트림 실효 level — FULL 소비자가 하나라도 있으면 FULL. */
+function effectiveLevel(refs: SubRefs): RelaySubLevel {
+  return refs.full > 0 ? "full" : "price";
+}
+
+/** `"price"` 만 PRICE 바이트다. 그 밖은 전부 FULL — 모르는 값을 가벼운 경로로 열화시키지 않는다. */
+function levelByte(level: RelaySubLevel): QuoteLevelByte {
+  return level === "price" ? QUOTE_LEVEL.PRICE : QUOTE_LEVEL.FULL;
+}
 
 /** 구독 키. **userId 를 포함한다** — 사용자 간 구독 교차를 구조적으로 막는다 (D-13). */
 function subKey(userId: string, isin: string, exchange: RelayExchange): string {
@@ -320,8 +352,8 @@ function fillMissingName<T extends { isin: string; name?: string; code?: string 
 export class SubscriptionHub extends EventEmitter {
   /** userId → 세션. 세션이 교체되면 여기가 정본이고 옛 리스너는 침묵한다. */
   readonly #sessions = new Map<string, HubSession>();
-  /** `${userId}|${isin}|${exchange}` → 참조계수. */
-  readonly #refs = new Map<string, number>();
+  /** `${userId}|${isin}|${exchange}` → level 별 참조계수 (quick-260923-ge2). */
+  readonly #refs = new Map<string, SubRefs>();
   /** 스냅샷 캐시 — 이미 Number 로 좁혀진 wire JSON 이다 (D-34/D-37). */
   readonly #quotes = new Map<string, RelayQuote>();
   /** 체결 링버퍼 (키당 최근 `TAPE_RING_SIZE` 건). */
@@ -478,36 +510,89 @@ export class SubscriptionHub extends EventEmitter {
   // 구독 참조계수 (D-33)
   // ----------------------------------------------------------
 
-  /** 참조계수 +1. **0→1 에서만** 게이트웨이로 구독 프레임이 나간다. */
-  subscribe(userId: string, isin: string, exchange: RelayExchange): void {
+  /**
+   * 참조계수 +1 (level 별). **0→1** 과 **PRICE→FULL 승격**에서만 게이트웨이로 구독 프레임이 나간다.
+   * `level` 생략은 FULL — 기존 호출부는 종전과 같다.
+   */
+  subscribe(
+    userId: string,
+    isin: string,
+    exchange: RelayExchange,
+    level: RelaySubLevel = "full",
+  ): void {
     const key = subKey(userId, isin, exchange);
-    const next = (this.#refs.get(key) ?? 0) + 1;
-    this.#refs.set(key, next);
+    let refs = this.#refs.get(key);
+    if (refs === undefined) {
+      refs = { full: 0, price: 0 };
+      this.#refs.set(key, refs);
+    }
+    const prevTotal = totalRefs(refs);
+    const prevLevel = prevTotal > 0 ? effectiveLevel(refs) : undefined;
+    refs[level] += 1;
+    const nextLevel = effectiveLevel(refs);
 
-    if (next > 1) {
-      logger.info(
-        { userId, isin, exchange, refCount: next },
-        "[HUB] 이미 구독 중 — 게이트웨이로 다시 보내지 않는다 (탭 공유)",
-      );
+    if (prevTotal === 0) {
+      this.#sendSubscribe(userId, isin, exchange, nextLevel);
       return;
     }
-    this.#sendSubscribe(userId, isin, exchange);
+    if (prevLevel === "price" && nextLevel === "full") {
+      logger.info(
+        { userId, isin, exchange, level: nextLevel, refs: { ...refs } },
+        "[HUB] PRICE→FULL 승격 — 스냅샷+구독+체결 재송신",
+      );
+      this.#sendSubscribe(userId, isin, exchange, "full");
+      return;
+    }
+    logger.info(
+      { userId, isin, exchange, level: nextLevel, refs: { ...refs }, refCount: totalRefs(refs) },
+      "[HUB] 이미 구독 중 — 게이트웨이로 다시 보내지 않는다 (탭 공유)",
+    );
   }
 
-  /** 참조계수 -1. **1→0 에서만** `subscribe:false` 가 나간다. */
-  unsubscribe(userId: string, isin: string, exchange: RelayExchange): void {
+  /**
+   * 참조계수 -1 (level 별). **합계 1→0** 에서 `subscribe:false`, **FULL→PRICE 강등**에서
+   * 29(level=1) 1건이 나간다. 잡지 않은 level 의 해제는 무시한다.
+   */
+  unsubscribe(
+    userId: string,
+    isin: string,
+    exchange: RelayExchange,
+    level: RelaySubLevel = "full",
+  ): void {
     const key = subKey(userId, isin, exchange);
-    const current = this.#refs.get(key);
-    if (current === undefined || current <= 0) {
+    const refs = this.#refs.get(key);
+    if (refs === undefined || refs[level] <= 0) {
       // 조용히 넘기지 않는다 — 참조계수 누수·이중 해제는 여기서만 보인다 (S-5).
-      logger.warn({ userId, isin, exchange }, "[HUB] 참조계수 없는 해제 — 무시");
+      logger.warn({ userId, isin, exchange, level }, "[HUB] 참조계수 없는 해제 — 무시");
       return;
     }
 
-    const next = current - 1;
-    if (next > 0) {
-      this.#refs.set(key, next);
-      logger.info({ userId, isin, exchange, refCount: next }, "[HUB] 탭 1개 해제 — 구독 유지");
+    const prevLevel = effectiveLevel(refs);
+    refs[level] -= 1;
+    const total = totalRefs(refs);
+    if (total > 0) {
+      const nextLevel = effectiveLevel(refs);
+      if (nextLevel === prevLevel) {
+        logger.info(
+          { userId, isin, exchange, level: nextLevel, refs: { ...refs }, refCount: total },
+          "[HUB] 탭 1개 해제 — 구독 유지",
+        );
+        return;
+      }
+      // FULL→PRICE 강등 — 서버는 같은 키 재구독을 level 덮어쓰기로 처리한다.
+      const session = this.#sessions.get(userId);
+      if (session === undefined || !session.isReady) {
+        logger.info(
+          { userId, isin, exchange, level: nextLevel, hasSession: session !== undefined },
+          "[HUB] FULL→PRICE 강등 — 세션이 준비되지 않아 기록만 (ready 가 실효 level 로 복원)",
+        );
+        return;
+      }
+      session.send(buildSubscribeQuoteReq(isin, exchange, true, QUOTE_LEVEL.PRICE));
+      logger.info(
+        { userId, isin, exchange, level: nextLevel, refs: { ...refs } },
+        "[HUB] FULL→PRICE 강등 — 29(level=1) 1건",
+      );
       return;
     }
 
@@ -539,11 +624,12 @@ export class SubscriptionHub extends EventEmitter {
   resubscribeAll(userId: string): void {
     const prefix = userPrefix(userId);
     let count = 0;
-    for (const key of this.#refs.keys()) {
+    for (const [key, refs] of this.#refs.entries()) {
       if (!key.startsWith(prefix)) continue;
       const parts = this.#splitKey(key);
       if (parts === null) continue;
-      this.#sendSubscribe(userId, parts.isin, parts.exchange);
+      // 키마다 **실효 level** 로 되건다 (quick-260923-ge2).
+      this.#sendSubscribe(userId, parts.isin, parts.exchange, effectiveLevel(refs));
       count += 1;
     }
     logger.info({ userId, count }, "[HUB] Ready — 보유 구독 전량 재구독");
@@ -816,9 +902,20 @@ export class SubscriptionHub extends EventEmitter {
     return this.#unhandledFrames;
   }
 
-  /** 현재 참조계수(진단·테스트용). */
+  /** 현재 참조계수 — level 합계(진단·테스트용). */
   refCount(userId: string, isin: string, exchange: RelayExchange): number {
-    return this.#refs.get(subKey(userId, isin, exchange)) ?? 0;
+    const refs = this.#refs.get(subKey(userId, isin, exchange));
+    return refs === undefined ? 0 : totalRefs(refs);
+  }
+
+  /** 업스트림 실효 level(진단·테스트용). 구독이 없으면 undefined (quick-260923-ge2). */
+  subscriptionLevel(
+    userId: string,
+    isin: string,
+    exchange: RelayExchange,
+  ): RelaySubLevel | undefined {
+    const refs = this.#refs.get(subKey(userId, isin, exchange));
+    return refs === undefined || totalRefs(refs) === 0 ? undefined : effectiveLevel(refs);
   }
 
   /** `/healthz` 요약. 식별자를 담지 않는다. */
@@ -1468,27 +1565,47 @@ export class SubscriptionHub extends EventEmitter {
   // 내부 — 송신·정리
   // ----------------------------------------------------------
 
-  /** 0→1 전이의 3프레임 (D-33). 순서가 계약이다 — 스냅샷 → 구독 → 체결 테이프. */
-  #sendSubscribe(userId: string, isin: string, exchange: RelayExchange): void {
+  /**
+   * 0→1 전이(와 PRICE→FULL 승격·ready 재구독)의 프레임 (D-33 · quick-260923-ge2).
+   * FULL 3프레임 = 스냅샷 28 → 구독 29(level=0) → 체결 테이프 32.
+   * PRICE 2프레임 = 스냅샷 28 → 구독 29(level=1) — 71 이 오지 않으므로 69 스냅샷도 요청하지 않는다.
+   * 순서가 계약이다.
+   */
+  #sendSubscribe(
+    userId: string,
+    isin: string,
+    exchange: RelayExchange,
+    level: RelaySubLevel,
+  ): void {
     const session = this.#sessions.get(userId);
     if (session === undefined) {
       logger.warn(
-        { userId, isin, exchange },
+        { userId, isin, exchange, level },
         "[HUB] 세션 없이 구독 — 참조계수만 기록 (세션 결선 후 ready 가 복원한다)",
       );
       return;
     }
     if (!session.isReady) {
       logger.info(
-        { userId, isin, exchange },
+        { userId, isin, exchange, level },
         "[HUB] Ready 이전 구독 — 참조계수만 기록 (ready 에서 전량 재구독)",
       );
       return;
     }
     session.send(buildGetQuoteReq(isin, exchange));
-    session.send(buildSubscribeQuoteReq(isin, exchange, true));
-    session.send(buildGetTradeTapeReq(isin, exchange, TAPE_REQUEST_COUNT));
-    logger.info({ userId, isin, exchange }, "[HUB] 신규 구독 — 스냅샷+구독+체결 요청 송신");
+    session.send(buildSubscribeQuoteReq(isin, exchange, true, levelByte(level)));
+    if (level === "full") {
+      session.send(buildGetTradeTapeReq(isin, exchange, TAPE_REQUEST_COUNT));
+      logger.info(
+        { userId, isin, exchange, level },
+        "[HUB] 신규 구독 — 스냅샷+구독(FULL)+체결 요청 송신",
+      );
+      return;
+    }
+    logger.info(
+      { userId, isin, exchange, level },
+      "[HUB] 신규 구독 — 스냅샷+구독(PRICE) 요청 송신 (체결 테이프 없음)",
+    );
   }
 
   #onReady(userId: string, session: HubSession): void {

@@ -393,6 +393,18 @@ export type RelayViOrderItem = {
 /** 첫 메시지 필수 (D-11). Supabase 액세스 토큰. */
 export type RelayAuthMsg = { t: "auth"; token: string };
 
+/**
+ * 구독 수준 (quick-260923-ge2).
+ *
+ * - `full`  = 게이트웨이 59 호가 + 71 체결 + 75 거래원 — 종전 그대로.
+ * - `price` = 59 만. 가격 섹션(체결·VI·종가) 갱신 때만, 키당 ≥200ms 간격이다. 호가 배열은
+ *   그대로 실린다 — 개수 문제이지 크기 문제가 아니다.
+ *
+ * 정본은 gh-trade 회신 `tasks/gh-trade-price-only-quote-subscription-reply.md`
+ * (quick-260923-exo) 와 fbs `SubscribeQuoteReq.level` 주석이다.
+ */
+export type RelaySubLevel = "full" | "price";
+
 /** 시세+체결 구독. 키는 `isin + ex` (D-33). */
 export type RelaySubMsg = { t: "sub"; isin: string; ex: RelayExchange };
 

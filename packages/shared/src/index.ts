@@ -23,6 +23,7 @@ export type {
   RelaySessionState,
   RelayAuthMsg,
   RelaySubMsg,
+  RelaySubLevel,
   RelayUnsubMsg,
   RelayInbound,
   RelayAccount,

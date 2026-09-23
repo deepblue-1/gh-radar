@@ -49,6 +49,8 @@ type SentReq = {
   exchange: string;
   subscribe: boolean | null;
   count: number | null;
+  /** 29 의 `level` 바이트(quick-260923-ge2). 다른 요청은 null. */
+  level: number | null;
 };
 
 function decodeReq(payload: Uint8Array): SentReq {
@@ -64,6 +66,7 @@ function decodeReq(payload: Uint8Array): SentReq {
       exchange: req?.exchange() ?? "",
       subscribe: null,
       count: null,
+      level: null,
     };
   }
   if (msgType === MSG.SubscribeQuoteReq) {
@@ -74,6 +77,7 @@ function decodeReq(payload: Uint8Array): SentReq {
       exchange: req?.exchange() ?? "",
       subscribe: req?.subscribe() ?? null,
       count: null,
+      level: req?.level() ?? null,
     };
   }
   if (msgType === MSG.GetTradeTapeReq) {
@@ -84,9 +88,10 @@ function decodeReq(payload: Uint8Array): SentReq {
       exchange: req?.exchange() ?? "",
       subscribe: null,
       count: req?.count() ?? null,
+      level: null,
     };
   }
-  return { msgType, isin: "", exchange: "", subscribe: null, count: null };
+  return { msgType, isin: "", exchange: "", subscribe: null, count: null, level: null };
 }
 
 /** `HubSession` 최소 구현. 보낸 바이트를 그대로 쌓아 둔다. */
@@ -353,5 +358,115 @@ describe("SubscriptionHub", () => {
     expect(order).not.toHaveProperty("bd");
     expect(order).not.toHaveProperty("rk");
     expect(order).not.toHaveProperty("rq");
+  });
+  describe("SubscribeQuoteReq level (quick-260923-ge2)", () => {
+    const Q = MSG.GetQuoteReq;
+    const S = MSG.SubscribeQuoteReq;
+    const T = MSG.GetTradeTapeReq;
+
+    it("L1 PRICE 단독 0→1 은 28 → 29(level=1) 두 프레임이고 32 는 나가지 않는다", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+
+      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S]);
+      expect(session.sent[1]).toMatchObject({ subscribe: true, level: 1 });
+      expect(session.sent.filter((s) => s.msgType === T)).toHaveLength(0);
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("price");
+    });
+
+    it("L2 level 생략은 FULL — 28 → 29(level=0) → 32", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX");
+
+      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
+      expect(session.sent[1]).toMatchObject({ subscribe: true, level: 0 });
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+    });
+
+    it("L3 PRICE→FULL 승격은 28 → 29(level=0) → 32 를 다시 보낸다", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      session.sent.length = 0;
+
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+
+      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
+      expect(session.sent[1]).toMatchObject({ subscribe: true, level: 0 });
+      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(2);
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+    });
+
+    it("L4 FULL 이탈로 PRICE 만 남으면 29(level=1) 1건, 마지막 이탈은 29(false) 1건", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      // 실효 level 이 그대로 full 이라 price 추가는 프레임을 내지 않는다.
+      expect(session.sent.map((s) => s.msgType)).toEqual([Q, S, T]);
+
+      hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+      expect(session.sent).toHaveLength(4);
+      expect(session.sent[3]).toMatchObject({ msgType: S, subscribe: true, level: 1 });
+      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("price");
+
+      hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      expect(session.sent).toHaveLength(5);
+      expect(session.sent[4]).toMatchObject({ msgType: S, subscribe: false });
+      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(0);
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBeUndefined();
+    });
+
+    it("L5 FULL 이 남아 있으면 PRICE 이탈은 프레임을 내지 않는다", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      const before = session.sent.length;
+
+      hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+
+      expect(session.sent).toHaveLength(before);
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
+    });
+
+    it("L6 resubscribeAll 은 키마다 실효 level 로 되건다", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+      hub.subscribe("user-1", OTHER_ISIN, "NXT", "full");
+      session.sent.length = 0;
+
+      session.emitReady();
+
+      const sample = session.sent.filter((s) => s.isin === SAMPLE_ISIN);
+      const other = session.sent.filter((s) => s.isin === OTHER_ISIN);
+      expect(sample.map((s) => s.msgType)).toEqual([Q, S]);
+      expect(sample[1]).toMatchObject({ subscribe: true, level: 1 });
+      expect(other.map((s) => s.msgType)).toEqual([Q, S, T]);
+      expect(other[1]).toMatchObject({ subscribe: true, level: 0 });
+      expect(session.sent.filter((s) => s.msgType === T)).toHaveLength(1);
+    });
+
+    it("L7 잡지 않은 level 의 해제는 무시한다 (참조계수 불변)", () => {
+      hub.subscribe("user-1", SAMPLE_ISIN, "KRX", "full");
+      const before = session.sent.length;
+
+      hub.unsubscribe("user-1", SAMPLE_ISIN, "KRX", "price");
+
+      expect(session.sent).toHaveLength(before);
+      expect(hub.refCount("user-1", SAMPLE_ISIN, "KRX")).toBe(1);
+      expect(hub.subscriptionLevel("user-1", SAMPLE_ISIN, "KRX")).toBe("full");
+    });
+
+    it("L8 Ready 이전 승격·강등은 프레임 없이 기록만 하고 ready 가 실효 level 로 복원한다", () => {
+      const late = new FakeSession("user-3");
+      late.isReady = false;
+      hub.attach(late);
+
+      hub.subscribe("user-3", SAMPLE_ISIN, "KRX", "price");
+      hub.subscribe("user-3", SAMPLE_ISIN, "KRX", "full");
+      hub.unsubscribe("user-3", SAMPLE_ISIN, "KRX", "full");
+      expect(late.sent).toHaveLength(0);
+      expect(hub.subscriptionLevel("user-3", SAMPLE_ISIN, "KRX")).toBe("price");
+
+      late.emitReady();
+
+      const quoteReqs = late.sent.filter((s) => s.isin === SAMPLE_ISIN);
+      expect(quoteReqs.map((s) => s.msgType)).toEqual([Q, S]);
+      expect(quoteReqs[1]).toMatchObject({ subscribe: true, level: 1 });
+    });
   });
 });

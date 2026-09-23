@@ -41,8 +41,13 @@ subscribe():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+level():number {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
 static startSubscribeQuoteReq(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(4);
 }
 
 static addIsin(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset) {
@@ -57,16 +62,21 @@ static addSubscribe(builder:flatbuffers.Builder, subscribe:boolean) {
   builder.addFieldInt8(2, +subscribe, +false);
 }
 
+static addLevel(builder:flatbuffers.Builder, level:number) {
+  builder.addFieldInt8(3, level, 0);
+}
+
 static endSubscribeQuoteReq(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createSubscribeQuoteReq(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, subscribe:boolean):flatbuffers.Offset {
+static createSubscribeQuoteReq(builder:flatbuffers.Builder, isinOffset:flatbuffers.Offset, exchangeOffset:flatbuffers.Offset, subscribe:boolean, level:number):flatbuffers.Offset {
   SubscribeQuoteReq.startSubscribeQuoteReq(builder);
   SubscribeQuoteReq.addIsin(builder, isinOffset);
   SubscribeQuoteReq.addExchange(builder, exchangeOffset);
   SubscribeQuoteReq.addSubscribe(builder, subscribe);
+  SubscribeQuoteReq.addLevel(builder, level);
   return SubscribeQuoteReq.endSubscribeQuoteReq(builder);
 }
 }
