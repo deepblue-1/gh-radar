@@ -5,10 +5,10 @@ current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: executing
 stopped_at: Completed 18-36-PLAN.md
-last_updated: "2026-09-23T23:44:19.064Z"
-last_activity: 2026-09-23
+last_updated: "2026-09-23T23:57:29.993Z"
+last_activity: 2026-09-24
 last_activity_desc: 18-36 R4 최종 게이트 green(relay 534 · webapp 1472/1 skip · Playwright 143/0 fail/9 skip · GC1~GC6) · 18-VALIDATION §Gap Closure R4 7행 닫힘 · TRADE-06~09 Pending 유지 · relay 미배포
-state_head: 4d07ad5994a7cd3573daec2d1c6f2c429aca2980
+state_head: 966632d09cbbe08b2384ef916bc208d14df7055f
 progress:
   total_phases: 27
   completed_phases: 4
@@ -34,7 +34,7 @@ Plans completed: 218 / 233
 Status: 라운드 4 실행 완료 · 재검증(-R4) 대기 · relay 미배포 — 18-36 전량 게이트 green · 18-VALIDATION §Gap Closure R4 7행 전부 닫힘 · TRADE-06~09 Pending 유지
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-24 — Completed quick task 260924-blo: STATE.md 정리(966→216줄, 아카이브 4문서 분리)
+Last activity: 2026-09-24 — Per-Plan 메트릭 47행 STATE-ARCHIVE 이관(fast) / 이전: Completed quick task 260924-blo: STATE.md 정리(966→216줄, 아카이브 4문서 분리)
 
 Progress: [█████████░] 93%
 
@@ -150,6 +150,7 @@ None yet.
 | 85 | 작업대 소소 4건(fast) — 카드 탭 제목 괄호 건수 · 수동주문 입력 16px · 접으면 접힘 맨 앞 · NXT 미거래 종목 카드 세그먼트 숨김. webapp 1657/1 skip · Playwright 39/0 | 2026-09-23 | 0ae774a | — |
 | 86 | 작업대 5건(fast) — 더티 바 카드 하단(JS 핀 · main 스크롤 컨테이너라 sticky 불가) · 꺼진 전략 기본 숨김(isActiveStrategy · 진입 시 1회 걷기) · 돌파 표/칩 폰 정리 · 매수취소 체크 한 줄. webapp 1660/1 skip · Playwright 39/0 | 2026-09-23 | 797d468 | — |
 | 260924-blo | STATE.md 정리 — 966줄→216줄. 낡은 섹션·이전 quick/metrics 행은 STATE-ARCHIVE.md, 결정 290건은 DECISIONS-ARCHIVE.md, Phase 16 갭 클로징 로그는 16-GAP-CLOSURE-LOG.md, Phase 17 relay 운영 지식은 docs/relay-operations.md 로 이관·링크. 닫힌 Todo 3·Blocker 2 근거 기록. split/verify 스크립트로 무손실 검증 | 2026-09-24 | 4d07ad5 | [260924-blo-state-md-phase-16-decisions-phase-17](./quick/260924-blo-state-md-phase-16-decisions-phase-17/) |
+| 12 | Per-Plan 메트릭 표 Phase 17·18 행 47개 STATE-ARCHIVE.md 이관(fast) — STATE.md 는 헤더 스캐폴드만, 170줄 | 2026-09-23 | 966632d | — |
 
 ## Session Continuity
 
