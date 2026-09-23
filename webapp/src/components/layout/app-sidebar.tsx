@@ -364,6 +364,13 @@ export function AppSidebar() {
   const isActive = (href: string) => samePath(pathname, href);
   // 거래소별 진실 — 가동(run === true)인 거래소만, KRX → NXT 순.
   const viRunning = VI_TAG_ORDER.filter((ex) => viTriggers[ex]?.run === true);
+  /*
+    사이드바에는 **매수 또는 매도가 무장된** 전략만 싣는다 (사용자 결정 2026-09-23). 에코의
+    `buyEnabled`/`sellEnabled` 는 설정값이 아니라 무장 상태라 발주가 나가면 false 로 온다 — 서버는
+    그 전략을 지우지 않으므로(삭제는 crud "D"·장 마감 정리뿐) 둘 다 OFF 인 전략이 목록에 쌓였다.
+    취소만 켜져 있어도 숨긴다. 작업대 카드는 그대로 `limitChasers` 전체를 본다.
+  */
+  const sidebarChasers = limitChasers.filter((c) => c.buyEnabled || c.sellEnabled);
 
   return (
     <nav aria-label="주 메뉴" className="flex h-full flex-col justify-between">
@@ -398,7 +405,7 @@ export function AppSidebar() {
               없으므로 목록은 세로로 자연 확장하고 앱 셸이 스크롤한다. 작업대 카드 집합과 같은
               `limitChasers` 를 보므로 별도 동기화 없이 카드와 맞는다.
             */}
-            {(viRunning.length > 0 || limitChasers.length > 0) && (
+            {(viRunning.length > 0 || sidebarChasers.length > 0) && (
               <li>
                 <ul className={SUB_LIST}>
                   {viRunning.length > 0 && (
@@ -406,7 +413,7 @@ export function AppSidebar() {
                       <ViItem running={viRunning} />
                     </li>
                   )}
-                  {limitChasers.map((item) => (
+                  {sidebarChasers.map((item) => (
                     <li key={item.key}>
                       <StrategyItem
                         item={item}

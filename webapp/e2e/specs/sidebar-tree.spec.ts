@@ -209,11 +209,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     const segment = card.locator('[data-slot="card-exchange-segment"]');
     await expect(segment.getByRole('radio', { name: 'NXT' })).toHaveAttribute('aria-checked', 'true');
     await expect(segment).toHaveAttribute('aria-disabled', 'true');
-    await expect(card.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-      { timeout: 15_000 },
-    );
+    await expect(card.getByRole('checkbox', { name: '매도주문 켜기' })).toBeChecked({ timeout: 15_000 });
   });
 
   test('1b. VI 한 줄 — 가동 거래소 태그만, 둘 다 꺼지면 줄 없음 (quick-260923-dmb)', async ({ page }) => {

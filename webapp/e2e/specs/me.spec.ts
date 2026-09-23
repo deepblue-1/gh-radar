@@ -505,10 +505,9 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     await expect(strategyRows(page).nth(1)).not.toContainText('매도대기');
     await expect(page.locator('[data-slot="vi-status-summary"]')).toHaveText('—');
 
-    // 사이드바 3단 매수 LED 도 꺼진다(같은 상태의 다른 표면).
-    for (let i = 0; i < 3; i += 1) {
-      await expect(buyDots.nth(i)).toHaveAttribute('data-tone', 'off');
-    }
+    // 사이드바 3단에서는 빠진다 — 매수·매도가 둘 다 OFF 인 전략은 사이드바에 싣지 않는다
+    // (사용자 결정 2026-09-23). 목록(아래)·서버에는 남아 있다.
+    await expect(buyDots).toHaveCount(0);
 
     // 목록 자체는 남는다 — 전체 비활성화는 **삭제가 아니다**.
     await expect(strategyRows(page)).toHaveCount(3);

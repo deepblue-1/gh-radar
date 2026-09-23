@@ -480,6 +480,30 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
     expect(screen.queryByText("등록된 전략 없음")).toBeNull();
   });
 
+  it("⑨ 매수·매도가 둘 다 OFF 인 전략은 싣지 않는다 — 취소만 켜져 있어도 (사용자 결정 2026-09-23)", () => {
+    const idle = makeChaser({
+      isin: "KR7446540000",
+      accountNo: "37728502101",
+      exchange: "KRX",
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: true,
+    });
+    setupReady({ limitChasers: [CHASER_A, idle, CHASER_B] });
+    render(<AppSidebar />);
+
+    const keys = tradingSubLinks()
+      .map((a) => a.getAttribute("data-strategy-key"))
+      .filter((k) => k !== null);
+    expect(keys).toEqual([CHASER_A.key, CHASER_B.key]);
+  });
+
+  it("⑨ 남는 전략이 없고 VI 도 꺼져 있으면 3단 목록 자체가 없다", () => {
+    setupReady({ limitChasers: [makeChaser({ buyEnabled: false, sellEnabled: false })] });
+    render(<AppSidebar />);
+    expect(tradingSubList()).toBeNull();
+  });
+
   it("⑦ 등록 전략 0 + KRX 가동 → VI 한 줄만, 빈 문구 · 스피너 없음 (E16 empty)", () => {
     setupReady({ limitChasers: [], viTriggers: { KRX: viCfg("KRX", { run: true }) } });
     render(<AppSidebar />);
