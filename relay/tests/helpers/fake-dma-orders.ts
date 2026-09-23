@@ -10,6 +10,16 @@
  *   ① `in` 필터 — 조건부 `status` UPDATE(R3-WR-01)를 실제로 거른다.
  *   ② update 빌더의 `select(cols)` — 실제로 병합된 행의 `{ id }` 배열을 돌려준다.
  *   ③ insert 가 만드는 행에 `status` 기본값 `'requested'` (DB `NOT NULL DEFAULT` 의 거울).
+ *
+ * quick-260923-e1m (S1 — 체결 조각 누적) 이 더한 것 (기존 동작은 그대로):
+ *   ④ `select(cols)` 컬럼 투영 — 받은 컬럼 문자열을 `FakeQuery.columns` 에 남기고 결과를 그
+ *      컬럼만으로 돌려준다. `select("id")` 는 지금처럼 `{ id }` 만 돌려준다.
+ *   ⑤ DB 기본값 거울 한 곳(`DB_DEFAULTS` — `status` 'requested' · `filled_qty` 0). 투영·`eq`·`in`
+ *      이 행에 그 컬럼이 없을 때 이 값을 읽는다. 고정 픽스처 행이 컬럼을 생략했을 뿐 실제 DB
+ *      에는 두 컬럼이 없는 행이 존재할 수 없다(`NOT NULL DEFAULT`).
+ *   ⑥ insert 가 만드는 행에 `qty`(값이 숫자면)와 `filled_qty: 0`.
+ *   ⑦ `opts.onSelect` 훅 — select 결과를 **스냅숏한 직후**, 돌려주기 전에 부른다. 읽은 값과
+ *      UPDATE 시점 값이 달라지는 compare-and-swap 경합을 결정론적으로 재현한다.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -31,7 +41,34 @@ export type FakeQuery = {
   matched: FakeRow[];
   /** update 빌더에서 `select(cols)` 를 불렀는가 (18-33) — 불렀을 때만 결과 `data` 가 행 배열이다. */
   selected?: boolean;
+  /** `select(cols)` 로 받은 컬럼 문자열 원문 (e1m). 결과는 이 컬럼만으로 투영된다. */
+  columns?: string;
 };
+
+/**
+ * DB 기본값 거울 — **이 파일의 유일한 자리**다 (e1m). `dma_orders` 의 `status text NOT NULL
+ * DEFAULT 'requested'` · `filled_qty integer NOT NULL DEFAULT 0`
+ * (`20260905120200_dma_orders.sql:62·66`). 픽스처 행이 컬럼을 생략하면 이 값으로 읽는다.
+ */
+const DB_DEFAULTS: Readonly<Record<string, unknown>> = { status: "requested", filled_qty: 0 };
+
+/** 행의 컬럼 값 — 없으면 DB 기본값 거울. */
+function valueOf(row: FakeRow, column: string): unknown {
+  const v = (row as unknown as Record<string, unknown>)[column];
+  return v === undefined ? DB_DEFAULTS[column] : v;
+}
+
+/** `select(cols)` 투영. `"*"`·빈 문자열은 행 전체(기본값 거울 포함)다. */
+function project(row: FakeRow, columns: string | undefined): Record<string, unknown> {
+  const cols = (columns ?? "id")
+    .split(",")
+    .map((c) => c.trim())
+    .filter((c) => c !== "");
+  if (cols.length === 0 || cols.includes("*")) return { ...DB_DEFAULTS, ...row };
+  const out: Record<string, unknown> = {};
+  for (const c of cols) out[c] = valueOf(row, c);
+  return out;
+}
 
 /**
  * 가짜 테이블의 행 1건.
@@ -74,11 +111,19 @@ export function fakeDmaOrders(
      */
     updateError?: FakePgError | ((nth: number, patch?: OrderRowPatch) => FakePgError | undefined);
     selectError?: FakePgError;
+    /**
+     * select 결과를 스냅숏한 **직후**, 돌려주기 전에 불린다 (e1m — CAS 경합 재현). `nth` 는
+     * 1부터 세는 select 호출 순번이다. 여기서 행을 바꾸면 호출자는 **바뀌기 전** 값을 읽고,
+     * 뒤이은 조건부 UPDATE 는 바뀐 값을 본다.
+     */
+    onSelect?: (q: FakeQuery, nth: number) => void;
   } = {},
 ): { supabase: SupabaseClient; queries: FakeQuery[]; rows: FakeRow[] } {
   const queries: FakeQuery[] = [];
   /** update 호출 순번 — 주입 함수가 「최초 시도」와 「재시도」를 가르는 근거다. */
   let updateCalls = 0;
+  /** select 호출 순번 — `onSelect` 훅의 `nth` (e1m). */
+  let selectCalls = 0;
 
   /**
    * `idx_dma_orders_user_order_no_kst_day` 흉내 — `(user_id, order_no, KST일)` 3축.
@@ -102,18 +147,15 @@ export function fakeDmaOrders(
   function applyFilters(filters: FakeFilter[]): FakeRow[] {
     let out = [...rows];
     for (const f of filters) {
-      if (f.op === "eq") out = out.filter((r) => (r as unknown as Record<string, unknown>)[f.column] === f.value);
+      if (f.op === "eq") out = out.filter((r) => valueOf(r, f.column) === f.value);
       else if (f.op === "gte") out = out.filter((r) => r.created_at >= String(f.value));
       else if (f.op === "lt") out = out.filter((r) => r.created_at < String(f.value));
       else if (f.op === "in") {
-        // (18-33) 목록에 든 값인 행만 남긴다. `status` 가 없는 행은 `'requested'` 로 읽는다 —
-        // DB 의 `status text NOT NULL DEFAULT 'requested'` 의 거울이다. 실제 DB 에는 `status`
-        // 없는 행이 존재할 수 없고, 고정 픽스처 행이 그 컬럼을 생략했을 뿐이다.
+        // (18-33) 목록에 든 값인 행만 남긴다. 컬럼이 없는 행은 DB 기본값 거울(`DB_DEFAULTS`)로
+        // 읽는다 — `status` 는 `'requested'` 다. 실제 DB 에는 `status` 없는 행이 존재할 수 없고,
+        // 고정 픽스처 행이 그 컬럼을 생략했을 뿐이다.
         const allowed = f.value as readonly unknown[];
-        out = out.filter((r) => {
-          const v = (r as unknown as Record<string, unknown>)[f.column];
-          return allowed.includes(f.column === "status" && v === undefined ? "requested" : v);
-        });
+        out = out.filter((r) => allowed.includes(valueOf(r, f.column)));
       }
       else if (f.op === "order") {
         const desc = (f.value as { ascending?: boolean } | undefined)?.ascending === false;
@@ -140,8 +182,9 @@ export function fakeDmaOrders(
     };
     // update 빌더의 `.select(cols)` (18-33) — PostgREST `Prefer: return=representation`.
     // 호출되면 결과 `data` 가 **실제로 병합된** 행들의 `{ id }` 배열이 된다.
-    self.select = (_cols: string) => {
+    self.select = (cols: string) => {
       query.selected = true;
+      query.columns = cols;
       return self;
     };
     self.order = push("order");
@@ -162,6 +205,7 @@ export function fakeDmaOrders(
             ? opts.updateError(updateCalls, query.patch)
             : opts.updateError;
       } else if (query.verb === "select") {
+        selectCalls += 1;
         forced = opts.selectError;
       }
       if (forced !== undefined) return Promise.resolve({ data: null, error: forced }).then(resolve, reject);
@@ -181,12 +225,13 @@ export function fakeDmaOrders(
       if (query.verb === "update" && query.patch !== undefined) {
         for (const row of query.matched) Object.assign(row, query.patch);
       }
+      // 결과는 **여기서 스냅숏**한다(투영이 새 객체를 만든다). 아래 `onSelect` 훅이 행을 바꿔도
+      // 호출자가 받는 값은 바뀌기 전이다 — 실제 DB 의 「읽은 뒤 다른 쓰기가 끼어든다」 와 같다.
       const result =
-        query.verb === "select"
-          ? { data: query.matched.map((r) => ({ id: r.id })), error: null }
-          : query.verb === "update" && query.selected === true
-            ? { data: query.matched.map((r) => ({ id: r.id })), error: null }
-            : { data: null, error: null };
+        query.verb === "select" || (query.verb === "update" && query.selected === true)
+          ? { data: query.matched.map((r) => project(r, query.columns)), error: null }
+          : { data: null, error: null };
+      if (query.verb === "select") opts.onSelect?.(query, selectCalls);
       return Promise.resolve(result).then(resolve, reject);
     };
     return self;
@@ -196,8 +241,8 @@ export function fakeDmaOrders(
     from: (table: string) => {
       if (table !== "dma_orders") throw new Error(`예상 밖 테이블: ${table}`);
       return {
-        select: (_cols: string) => {
-          const q: FakeQuery = { verb: "select", filters: [], matched: [] };
+        select: (cols: string) => {
+          const q: FakeQuery = { verb: "select", filters: [], matched: [], columns: cols };
           queries.push(q);
           return builder(q);
         },
@@ -227,6 +272,10 @@ export function fakeDmaOrders(
               created_at: new Date().toISOString(),
               // (18-33) DB `status NOT NULL DEFAULT 'requested'` 의 거울.
               status: typeof values.status === "string" ? values.status : "requested",
+              // (e1m) 주문수량 원문과 DB `filled_qty NOT NULL DEFAULT 0` 의 거울 — 체결 누적 sink
+              // 가 이 둘로 filled / partially_filled 를 파생한다.
+              ...(typeof values.qty === "number" ? { qty: values.qty } : {}),
+              filled_qty: 0,
             };
             rows.push(created);
             q.matched = [created];

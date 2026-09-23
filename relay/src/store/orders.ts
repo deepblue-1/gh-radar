@@ -101,6 +101,16 @@ export const ORDER_FLUSH_MAX_ROUNDS = ORDER_MAX_RETRIES + 2;
 export const ORDER_QUEUE_LIMIT = 10_000;
 
 /**
+ * 체결 조각 누적 sink(`supabaseOrderFillSink`)의 compare-and-swap **시도 상한** = 3
+ * (quick-260923-e1m S1).
+ *
+ * relay 안에서는 `#drain` 이 항목을 직렬로 await 하므로 CAS 가 지는 일이 없다. 지는 것은
+ * 그 전제가 깨졌을 때(두 번째 writer — D-03 위반, 또는 사람이 SQL 로 행을 고친 순간)뿐이고,
+ * 그때 무한히 다시 읽지 않는다. 상한에 닿으면 throw 해 큐의 재시도 1회·드롭 규율(S-5)로 넘긴다.
+ */
+export const ORDER_FILL_CAS_MAX_ATTEMPTS = 3;
+
+/**
  * 「오늘」(KST) 의 UTC ISO 반열린 구간 `[from, to)` (Phase 16 Plan 18 — gap 1).
  *
  * 브로커 주문번호(`order_no`)는 **일별 재사용 시퀀스**다. 그래서 `order_no` 만으로 행을
@@ -141,7 +151,24 @@ export type OrderUpdate = {
   /** 게이트웨이 통보 원문 1자. 해석하지 않는다 (마이그레이션에 CHECK 가 없는 이유). */
   noticeType?: string;
   message?: string;
+  /**
+   * 체결수량 **절대값**. 대기에 붙은 첫 통보(`finish`) 전용이다 — 그 통보는 방금 insert 한
+   * 신선한 행(`filled_qty` 0)에 닿으므로 절대값이 곧 누적값이다.
+   */
   filledQty?: number;
+  /**
+   * 체결 **조각** 수량 (quick-260923-e1m S1). 행의 `filled_qty` 에 **더한다** — 덮어쓰지 않는다.
+   *
+   *   · 대기 밖 체결 E 통보 전용이다(`recordUnmatched` → `patchOf`). 그 통보의 `quantity` 는 이번
+   *     체결 1건의 수량이지 누적이 아니다. 옛 경로는 그것을 `filledQty` 로 실어 **덮어썼고**, 그래서
+   *     전량 체결된 상따 행이 마지막 조각 수량 · `accepted` 로 남았다(진단 조사 6 — LC 059/070).
+   *   · 누적과 `filled` / `partially_filled` 파생은 큐 뒤의 fill sink(`OrderFillSink`)가 행 `qty` 로
+   *     한다 — relay 는 대기 밖 통보의 주문수량을 모른다.
+   *   · `filledQty` 와 **함께 싣는 것은 계약 위반**이다(절대값과 증분 중 무엇이 참인지 모른다).
+   *     `enqueueUpdate` 가 드롭하고 error 로 남긴다.
+   *   · 1 이상의 정수만 유효하다. 그 밖의 값은 warn 후 없는 것으로 친다.
+   */
+  filledQtyDelta?: number;
   /**
    * 발주 주체 (D-03). 통보가 `origin` 을 들고 왔을 때 행을 정정하기 위한 것이다 —
    * REST 경로가 만든 행은 DB 기본값 `'manual'` 이라 자동주문이 수동으로 남을 수 있다.
@@ -270,11 +297,26 @@ export type OrderInsertSink = (row: OrderInsertRow) => Promise<OrderInsertResult
  */
 export type OrderLookupSink = (userId: string, orderNo: string) => Promise<string | null>;
 
-/** 세 경로를 한 벌로 묶은 것. 부팅 결선은 `supabaseOrderSinks(supabase)` 를 쓴다. */
+/**
+ * 체결 조각 누적 경로 (quick-260923-e1m S1). `delta` 를 행의 `filled_qty` 에 더하고, 행 `qty` 로
+ * `filled` / `partially_filled` 를 파생해 `patch` 와 함께 쓴다.
+ *
+ * 반환 규약은 `OrderUpdateSink` 와 같다 — 생략은 「반영했다」, `{applied:false}` 는 「반영할 행이
+ * 없었다」, 실패는 throw(큐 재시도 규율).
+ */
+export type OrderFillSink = (
+  sel: OrderSelector,
+  delta: number,
+  patch: OrderRowPatch,
+) => Promise<void | OrderUpdateResult>;
+
+/** 네 경로를 한 벌로 묶은 것. 부팅 결선은 `supabaseOrderSinks(supabase)` 를 쓴다. */
 export type OrderSinks = {
   update: OrderUpdateSink;
   insert: OrderInsertSink;
   findIdByOrderNo: OrderLookupSink;
+  /** 체결 조각 누적 (e1m S1). **필수**다 — 빠진 결선은 컴파일에서 깨진다. */
+  addFill: OrderFillSink;
 };
 
 /** 진단용 카운터. 식별자를 담지 않는다. */
@@ -612,12 +654,145 @@ export function supabaseOrderLookupSink(supabase: SupabaseClient): OrderLookupSi
   };
 }
 
-/** 부팅 결선이 쓰는 세 sink 한 벌. */
+/**
+ * `dma_orders` 서비스롤 **체결 조각 누적** sink (quick-260923-e1m S1).
+ *
+ * 대기에 붙지 않은 체결 E 는 `quantity` 가 조각이다. 이 sink 는 행을 읽고(`id, qty, filled_qty,
+ * status`) `filled_qty + delta` 를 계산해, **읽은 값이 그대로일 때만** 쓰는 조건부 UPDATE
+ * (compare-and-swap)로 반영한다. 다른 쓰기가 끼어들어 0행이면 다시 읽는다
+ * (`ORDER_FILL_CAS_MAX_ATTEMPTS` 까지).
+ *
+ * 상태 파생: 누적 ≥ 행 `qty` 이면 `filled`, 아니면 `partially_filled`. 그 전이가 상태 단조성
+ * (`replaceableStatusesOf` — 18-33 / R3-WR-01 과 같은 판정 지점)에 맞으면 들어온 `patch`
+ * (`order_no` 제외)와 함께 쓴다. 맞지 않으면(이미 `cancelled`·`rejected` 등 종결) **`filled_qty`
+ * 만** 쓴다 — 늦은 체결이 종결 행의 `notice_type`·`message` 를 덮지 않게 하는 것은 18-33 의
+ * 「막힌 갱신은 통째로」 규율과 같은 방향이고, 체결 사실 자체(수량)는 잃지 않는다.
+ *
+ * `order_no` 를 싣지 않는 이유: 이 행은 바로 그 번호로 찾았거나 `id` 로 찾았다. 주문번호를
+ * 채우는 것은 `finish` 의 몫이고, 싣지 않으면 `23505` 경로가 애초에 생기지 않는다.
+ *
+ * **왜 Supabase RPC 가 아니라 CAS 인가.** 코드베이스의 증분 패턴은 `incr_api_usage` RPC 하나
+ * (`20260417120000_api_usage.sql`)이고, 대기에 붙은 경로(`finish`)에도 누적 방식은 없다(첫
+ * 통보 1건의 절대값을 신선한 행에 쓸 뿐이다). 그래도 PostgREST 조건부 UPDATE 를 택한 근거는 셋이다.
+ *   1. **직렬 drain** — `OrderStore.#drain` 은 항목을 하나씩 await 한다. relay 안에서는 같은 행을
+ *      동시에 쓰는 일이 없다. CAS 는 그 전제가 깨질 때를 위한 원자성 보증이다.
+ *   2. **relay 단독 writer (D-03)** — server 는 `dma_orders` 를 읽기만 한다. 경합 상대가 구조적으로
+ *      없으므로 재시도 상한은 작아도 된다.
+ *   3. **18-33 (R3-WR-01) 과 같은 판단** — 「relay 필터로 UPDATE 한 문장 안에서 원자적으로.
+ *      마이그레이션·트리거가 필요 없고, 원격 반영 사람 게이트가 없다」(위 `supabaseOrderSink`).
+ *      마이그레이션이 없으면 배포 순서 제약(마이그레이션 → relay)도 없다 — relay 단독 배포다.
+ *   비용은 조각당 왕복 2회(select + update)이고, 큐가 비동기라 통보 수신 경로(D-32)를 막지 않는다.
+ *
+ * 로그에는 계좌번호·주문번호 원문을 싣지 않는다 — `column`·숫자뿐이다 (T-16-45). PostgREST
+ * 오류는 전부 `safePgError` 를 지난다.
+ */
+export function supabaseOrderFillSink(supabase: SupabaseClient): OrderFillSink {
+  type FillRead = { id: string; qty: unknown; filled_qty: unknown; status: unknown };
+
+  /**
+   * 대상 행 읽기 — 조립은 **이 함수 한 곳뿐이다.** `order_no` 셀렉터는 `supabaseOrderLookupSink`
+   * 와 같은 3축(사용자·주문번호·당일)에 최근 1행이다 (gap 1 / T-16-14).
+   */
+  const readTarget = async (sel: OrderSelector): Promise<FillRead | null> => {
+    const cols = "id, qty, filled_qty, status";
+    const table = supabase.from("dma_orders");
+    let result: { data: unknown; error: unknown };
+    if (sel.column === "id") {
+      result = await table.select(cols).eq("id", sel.value).limit(1);
+    } else {
+      const { from, to } = kstDayRangeUtc();
+      result = await table
+        .select(cols)
+        .eq("user_id", sel.userId)
+        .eq("order_no", sel.value)
+        .gte("created_at", from)
+        .lt("created_at", to)
+        .order("created_at", { ascending: false })
+        .limit(1);
+    }
+    if (result.error) {
+      logger.error(
+        { pgError: safePgError(result.error), column: sel.column },
+        "[orders] 체결 누적 — 대상 행 읽기 실패",
+      );
+      throw result.error;
+    }
+    const rows = (result.data ?? []) as FillRead[];
+    return rows[0] ?? null;
+  };
+
+  return async (sel, delta, patch) => {
+    for (let attempt = 1; attempt <= ORDER_FILL_CAS_MAX_ATTEMPTS; attempt += 1) {
+      const row = await readTarget(sel);
+      if (row === null) {
+        logger.warn(
+          { column: sel.column },
+          "[orders] 체결 누적 — 대상 행이 없다. 반영하지 않는다(새 행을 만들지 않는다)",
+        );
+        return { applied: false };
+      }
+
+      const cur = typeof row.filled_qty === "number" ? row.filled_qty : 0;
+      const next = cur + delta;
+      const qty = typeof row.qty === "number" ? row.qty : null;
+      const status = typeof row.status === "string" ? (row.status as DmaOrderStatus) : null;
+
+      let values: OrderRowPatch;
+      if (qty === null || qty <= 0) {
+        // 주문수량을 모르면 상태를 지어내지 않는다 — 수량만 누적한다. 실제 DB 는 `qty` 가
+        // NOT NULL CHECK > 0 이라 도달하지 않는 방어다.
+        values = { filled_qty: next, updated_at: patch.updated_at ?? new Date().toISOString() };
+      } else {
+        if (next > qty) {
+          logger.warn(
+            { column: sel.column, qty, filledQty: next },
+            "[orders] 누적 체결수량이 주문수량을 넘었다 — 값을 자르지 않는다(중복 통보 의심)",
+          );
+        }
+        const derived: DmaOrderStatus = next >= qty ? "filled" : "partially_filled";
+        const advance = status !== null && replaceableStatusesOf(derived).includes(status);
+        if (advance) {
+          const { order_no: _byLookup, ...rest } = patch;
+          values = { ...rest, filled_qty: next, status: derived };
+        } else {
+          // 종결 행(`cancelled`·`rejected`)에 온 늦은 체결 — 수량만 누적한다.
+          values = { filled_qty: next, updated_at: patch.updated_at ?? new Date().toISOString() };
+        }
+      }
+
+      let query = supabase
+        .from("dma_orders")
+        .update(values)
+        .eq("id", row.id)
+        .eq("filled_qty", cur);
+      if (status !== null) query = query.eq("status", status);
+      const { data, error } = await query.select("id");
+      if (error) {
+        logger.error(
+          { pgError: safePgError(error), column: sel.column },
+          "[orders] 체결 누적 UPDATE 실패 — 큐 재시도로 넘긴다",
+        );
+        throw error;
+      }
+      if (Array.isArray(data) && data.length > 0) return;
+      // 0행 = 읽은 뒤 다른 쓰기가 끼어들었다(CAS 패배). 다시 읽는다.
+    }
+
+    logger.error(
+      { column: sel.column, attempts: ORDER_FILL_CAS_MAX_ATTEMPTS },
+      "[orders] 체결 누적 CAS 경합 상한 — 큐 재시도로 넘긴다",
+    );
+    throw new Error("[orders] 체결 누적 CAS 경합 상한");
+  };
+}
+
+/** 부팅 결선이 쓰는 네 sink 한 벌. */
 export function supabaseOrderSinks(supabase: SupabaseClient): OrderSinks {
   return {
     update: supabaseOrderSink(supabase),
     insert: supabaseOrderInsertSink(supabase),
     findIdByOrderNo: supabaseOrderLookupSink(supabase),
+    addFill: supabaseOrderFillSink(supabase),
   };
 }
 
@@ -626,6 +801,8 @@ type QueueItem = {
   sel: OrderSelector;
   patch: OrderRowPatch;
   attempts: number;
+  /** 체결 조각 (e1m S1). 있으면 `#drain` 이 update sink 가 아니라 fill sink 로 보낸다. */
+  fillDelta?: number;
 };
 
 /**
@@ -639,6 +816,8 @@ export class OrderStore {
   readonly #sink: OrderUpdateSink;
   readonly #insert: OrderInsertSink | null;
   readonly #findId: OrderLookupSink | null;
+  /** 체결 조각 누적 sink (e1m S1). 갱신 전용 store 는 `null` — delta 항목은 드롭으로 드러난다. */
+  readonly #addFill: OrderFillSink | null;
   readonly #intervalMs: number;
   #queue: QueueItem[] = [];
   #timer: NodeJS.Timeout | null = null;
@@ -669,10 +848,12 @@ export class OrderStore {
       this.#sink = sinks;
       this.#insert = null;
       this.#findId = null;
+      this.#addFill = null;
     } else {
       this.#sink = sinks.update;
       this.#insert = sinks.insert;
       this.#findId = sinks.findIdByOrderNo;
+      this.#addFill = sinks.addFill;
     }
     this.#intervalMs = intervalMs;
   }
@@ -746,9 +927,27 @@ export class OrderStore {
       return;
     }
 
+    // (e1m S1) 절대값과 조각을 함께 실은 갱신은 무엇이 참인지 모른다 — 계약 위반이다.
+    if (update.filledQty !== undefined && update.filledQtyDelta !== undefined) {
+      this.#dropped += 1;
+      logger.error(
+        { column: sel.column, dropped: this.#dropped },
+        "[orders] filledQty 와 filledQtyDelta 를 함께 실은 갱신 — 계약 위반, 드롭",
+      );
+      return;
+    }
+    let fillDelta = update.filledQtyDelta;
+    if (fillDelta !== undefined && (!Number.isInteger(fillDelta) || fillDelta < 1)) {
+      logger.warn(
+        { column: sel.column, filledQtyDelta: fillDelta },
+        "[orders] 체결 조각 수량이 1 이상의 정수가 아니다 — 누적하지 않는다",
+      );
+      fillDelta = undefined;
+    }
+
     const patch = rowPatchOf(update);
-    if (Object.keys(patch).length === 1) {
-      // `updated_at` 하나만 남았다 = 실제로 바꿀 값이 없다.
+    if (Object.keys(patch).length === 1 && fillDelta === undefined) {
+      // `updated_at` 하나만 남았고 누적할 조각도 없다 = 실제로 바꿀 값이 없다.
       logger.warn({ column: sel.column }, "[orders] 갱신할 필드가 없는 요청 — 무시");
       return;
     }
@@ -761,7 +960,9 @@ export class OrderStore {
         "[orders] 큐 상한 초과 — 가장 오래된 항목 드롭",
       );
     }
-    this.#queue.push({ sel, patch, attempts: 0 });
+    this.#queue.push(
+      fillDelta === undefined ? { sel, patch, attempts: 0 } : { sel, patch, attempts: 0, fillDelta },
+    );
   }
 
   /**
@@ -861,7 +1062,12 @@ export class OrderStore {
     this.#queue = [];
     for (const item of batch) {
       try {
-        const outcome = await this.#sink(item.sel, item.patch);
+        // (e1m S1) 조각은 누적 sink 로 간다. 미결선이면 throw 해 아래 재시도·드롭 규율을
+        // 그대로 탄다 — 갱신 전용 store 가 조각을 조용히 삼키거나 update sink 로 새지 않는다.
+        const outcome =
+          item.fillDelta === undefined
+            ? await this.#sink(item.sel, item.patch)
+            : await this.#applyFill(item.sel, item.fillDelta, item.patch);
         // 반환 생략(`void`)은 「반영했다」다 — 예외를 말하는 sink 만 `{applied:false}` 를
         // 돌려준다 (16-40 / `OrderUpdateResult`).
         if (outcome !== undefined && !outcome.applied) this.#flushedNoop += 1;
@@ -887,6 +1093,14 @@ export class OrderStore {
         );
       }
     }
+  }
+
+  /** 조각 1건을 fill sink 로 보낸다. 미결선은 throw — `#drain` 의 재시도·드롭이 드러낸다. */
+  async #applyFill(sel: OrderSelector, delta: number, patch: OrderRowPatch): Promise<void | OrderUpdateResult> {
+    if (this.#addFill === null) {
+      throw new Error("[orders] fill sink 미결선 — 체결 조각을 누적할 수 없다(OrderStore 를 OrderSinks 로 만들어야 한다)");
+    }
+    return this.#addFill(sel, delta, patch);
   }
 
   /** tick 정지. 남은 큐는 비우지 않는다 — 종료 절차가 `flushNow()` 를 먼저 부른다. */
@@ -936,6 +1150,9 @@ export function selectorOf(update: OrderUpdate): OrderSelector | null {
  *
  * `filled_qty` 는 `>= 0` CHECK 가 걸려 있어 음수를 그대로 보내면 DB 가 거부하고 그 행의
  * 갱신이 통째로 사라진다. 파손 값 때문에 정상 필드까지 잃는 것은 손해라 0 으로 바닥을 친다.
+ *
+ * `filledQtyDelta` 는 **컬럼으로 만들지 않는다** (e1m S1) — 조각은 큐 항목의 `fillDelta` 로 따로
+ * 실려 fill sink 가 행을 읽고 더한다. 여기서 `filled_qty` 로 옮기면 다시 덮어쓰기가 된다.
  */
 export function rowPatchOf(update: OrderUpdate): OrderRowPatch {
   const patch: OrderRowPatch = { updated_at: new Date().toISOString() };

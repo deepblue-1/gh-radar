@@ -26,6 +26,8 @@
  *   T-16-07  대기열과 매칭되지 않는 통보(상따·VI 자동주문)는 **새 행으로 insert** 한다.
  *            PostgREST 의 update 는 0행이어도 에러가 아니므로, 조회 없이 갱신만 하면
  *            자동주문 기록이 조용히 사라진다 (Pitfall 18).
+ *            단 취소성 통보(C·정정/취소 거부 R)는 새 행이 아니라 원주문 행의 갱신이다
+ *            (quick-260923-e1m B1/B3 — `settleOriginal`).
  *   T-16-09  계좌번호는 **로그에서만** 마스킹한다(`maskAccountNo`). 화면·프레임에는 전체다.
  *   T-16-10  같은 `rid`(**연결 스코프**) 또는 같은 `(accountNo,isin,side,price,qty)`
  *            (**사용자 스코프** — WR-02)가 대기 중이면 거부한다. 더블클릭·재전송·두 번째
@@ -72,7 +74,7 @@ import {
 } from "../dma/envelope.js";
 import { ORDER_RESP_TIMEOUT_MS, filledQtyOf, statusOf } from "../order/notice-status.js";
 import type { HubOrderEvent } from "../hub/subscription-hub.js";
-import type { OrderInsertRow, OrderUpdate } from "../store/orders.js";
+import { kstDayRangeUtc, type OrderInsertRow, type OrderUpdate } from "../store/orders.js";
 import { safePgError } from "../store/pg-error.js";
 import { stocksCodeOf, type SymbolLookup } from "../store/symbols.js";
 
@@ -337,6 +339,66 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    */
   const inflight = new Map<string, Promise<EnsureResult>>();
 
+  /**
+   * userId → **relay 흔적** (quick-260923-e1m A1). 대기·행에 붙지 못한 수동 통보가 「relay 가 낸
+   * 주문」의 것인지(ERROR), 공유 세션의 다른 클라이언트(WinForms 등) 주문인지(info)를 가르는 근거다.
+   *
+   *   · `isins`    — relay 가 오늘 이 사용자 대신 낸 수동 주문 중 **행에 주문번호가 붙지 못했을 수
+   *                  있는 것**의 종목. 5초 timeout(`finish(null)`)과 연결 종료(`closeConn` 이 걷은
+   *                  대기)가 찍는다 — 그 주문의 통보는 이후 대기 없이 도착한다.
+   *   · `orderNos` — relay 가 정산(`finish`)으로 알게 된 주문번호(정규화값). 정산 직후 200ms 플러시
+   *                  전에 온 같은 번호의 통보, 그리고 그 번호를 원주문번호로 가리키는 취소·정정 통보가
+   *                  relay 자기 주문의 것임을 말해 준다.
+   *
+   * 사용자당 1항목이고 KST 날짜(`day`)가 바뀌면 비운다 — 크기는 하루 relay 주문 수로 묶인다
+   * (T-16-33, 무한 성장 없음). relay 재시작 시 사라진다. 재시작은 20:00 이후뿐이라 당일 흔적
+   * 손실은 수용 범위다.
+   */
+  const relayTrail = new Map<string, { day: string; isins: Set<string>; orderNos: Set<string> }>();
+
+  /** 그 사용자의 오늘 흔적. 없거나 날짜가 바뀌었으면 비운 새 항목이다. */
+  function trailOf(userId: string): { day: string; isins: Set<string>; orderNos: Set<string> } {
+    const today = kstDayRangeUtc().from;
+    const existing = relayTrail.get(userId);
+    if (existing !== undefined && existing.day === today) return existing;
+    const fresh = { day: today, isins: new Set<string>(), orderNos: new Set<string>() };
+    relayTrail.set(userId, fresh);
+    return fresh;
+  }
+
+  function markTrailIsin(userId: string, isin: string): void {
+    if (isin === "") return;
+    trailOf(userId).isins.add(isin);
+  }
+
+  function markTrailOrderNo(userId: string, orderNo: string): void {
+    const normalized = normalizeOrderNo(orderNo);
+    if (normalized === "") return;
+    trailOf(userId).orderNos.add(normalized);
+  }
+
+  /**
+   * 대기·행에 붙지 못한 수동 통보가 **relay 가 낸 주문**의 것일 수 있는가 (e1m A1).
+   *
+   * 참이면 기존 ERROR(「대기·행 어디에도 붙지 않는 수동 통보」)다. 아래 중 하나면 참이다:
+   *   · `hadCandidates` — 같은 종목의 relay 대기가 있었는데 좁히지 못했다 (GC-CR-02 ①).
+   *   · 흔적 `isins` 에 통보의 종목이 있다 — timeout·연결 종료로 대기가 걷힌 relay 주문 (GC-CR-02 ②).
+   *   · 흔적 `orderNos` 에 통보의 주문번호가 있다 — 정산 직후 플러시 전 경합.
+   *   · 흔적 `orderNos` 에 통보의 원주문번호가 있다 — relay 주문을 가리키는 취소·정정.
+   *
+   * 오판 방향: 같은 날 relay 주문이 걸렸던 종목의 WinForms 주문은 ERROR 로 남는다. 보수적이다 —
+   * relay 실패 신호를 잃는 쪽(info 로 묻힘)보다 소음이 조금 남는 쪽이 낫다.
+   */
+  function isRelayRelated(userId: string, notice: ParsedOrderResp, hadCandidates: boolean): boolean {
+    if (hadCandidates) return true;
+    const trail = trailOf(userId);
+    if (trail.isins.has(notice.isin)) return true;
+    const own = normalizeOrderNo(notice.orderNo);
+    if (own !== "" && trail.orderNos.has(own)) return true;
+    const org = normalizeOrderNo(notice.orgOrderNo);
+    return org !== "" && trail.orderNos.has(org);
+  }
+
   function stateOf(conn: C, userId: string): ConnState {
     const existing = conns.get(conn);
     if (existing !== undefined) return existing;
@@ -434,7 +496,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     // 파손이 그 순간 접속한 **모든 사용자의 DMA 세션**을 끊는다. 그렇게 두지 않는다
     // (GC-WR-01). 원인 쪽(`ensureRow` 의 try 범위)도 함께 막았다 — 한 겹만 두면 원인은
     // 남고 증상만 가려진다.
-    void recordUnmatched(userId, notice).catch((err: unknown) => {
+    void recordUnmatched(userId, notice, candidates.length > 0).catch((err: unknown) => {
       // 여기 `err` 는 PostgREST 가 아니다 — `recordUnmatched` 안의 Supabase 왕복 세 곳
       // (`findIdByOrderNo` ×2 · `insertRequest`)이 **각각** catch 로 종결되므로, 이 최후
       // 그물까지 오는 것은 조립·프로그래밍 예외뿐이고 그때는 스택이 유일한 단서다.
@@ -446,7 +508,14 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     });
   });
 
-  /** 통보에서 뽑은 수명주기 갱신값. insert 든 update 든 같은 값을 쓴다. */
+  /**
+   * 통보에서 뽑은 수명주기 갱신값. insert 든 update 든 같은 값을 쓴다.
+   *
+   * 체결수량은 **조각**(`filledQtyDelta`)으로 싣는다 (quick-260923-e1m S1). 대기 밖 E 의
+   * `quantity` 는 이번 체결 1건의 수량이지 누적이 아니다 — 누적과 filled / partially_filled
+   * 파생은 store 의 fill sink 가 행 `qty` 로 한다. 옛 코드는 이것을 절대값 `filledQty` 로 실어
+   * **덮어썼고**, 전량 체결된 상따 LC 059·070 이 `accepted` · 700/408 주로 남았다(진단 조사 6).
+   */
   function patchOf(notice: ParsedOrderResp): OrderUpdate {
     return {
       orderNo: notice.orderNo,
@@ -454,7 +523,7 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       resultCode: notice.resultCode,
       noticeType: notice.noticeType,
       message: notice.message,
-      filledQty: filledQtyOf(notice),
+      filledQtyDelta: filledQtyOf(notice),
       origin: notice.originKind,
     };
   }
@@ -473,6 +542,15 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    *      이 `null` 을 돌려준다 (테스트 ㉑ 이 그 상태를 고정한다).
    *   2. **연결 종료 후 도착** — `closeConn` 이 `state.pending` 을 비운 뒤 온 통보는 후보가
    *      0건이라 좁히기 경고조차 없이 여기로 떨어진다.
+   *   3. **공유 세션 팬아웃** — relay 는 D-17 철회로 WinForms 와 같은 DMA user_id 세션을 쓴다.
+   *      게이트웨이는 51 통보를 세션의 모든 연결로 보낸다(gh-trade Server.cpp:515-538 →
+   *      Gateway.cpp:1093-1112). 그래서 relay 가 내지 않은 WinForms 주문 통보가 온다. 붙을 행이
+   *      없는 것이 정상이라 info 다(진단 Resolution A · quick-260923-e1m A1).
+   *
+   * 판정 규칙 (e1m A1): 붙을 행이 없을 때 1·2 번과 relay 흔적 기반 경합(timeout 뒤 늦은 통보 ·
+   * 정산 직후 플러시 전 통보 · relay 주문번호를 원주문으로 가리키는 통보)만 ERROR 다
+   * (`isRelayRelated`). 나머지는 3 번 — relay 가 낸 주문이 아니다 — 이고 info 1줄이다. 어느 쪽도
+   * 갱신·insert 는 없다.
    *
    * 그리고 그 시점의 수동 행에는 **`order_no` 가 아직 없다** — insert 는 접수 전이라 주문번호를
    * 모르고(③-2), `finish` 가 정산할 때 비로소 채운다. 그래서 조회 없이 `order_no` 셀렉터로
@@ -489,8 +567,17 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
    * 여기가 아니라 갱신 sink 의 **상태 단조성**(`replaceableStatusesOf` → `supabaseOrderSink` 의
    * 조건부 `status` 필터)이 UPDATE 한 문장 안에서 원자적으로 지킨다. 그래서 이 함수는 기존 행의
    * 상태를 읽지 않는다 — 읽고 판정하면 큐(200ms)에 먼저 들어가 아직 반영되지 않은 갱신과 경합한다.
+   *
+   * **취소성 통보(C·정정/취소 거부 R)는 새 행이 아니라 원주문 행의 갱신이다** (quick-260923-e1m
+   * B1/B3). 자동주문의 취소확인·거부는 `orderNo` 에 취소 전문 자신의 새 번호를 싣는다 — 그 번호로
+   * 찾으면 행이 없고, 옛 코드는 insert 로 빠져 가격 0 가드에서 드롭됐다(원주문은 `accepted` 로
+   * 영구 고착). 그래서 수동 분기 뒤·`ensureRow` 앞에서 `settleOriginal` 로 가른다.
    */
-  async function recordUnmatched(userId: string, notice: ParsedOrderResp): Promise<void> {
+  async function recordUnmatched(
+    userId: string,
+    notice: ParsedOrderResp,
+    hadCandidates: boolean,
+  ): Promise<void> {
     const patch = patchOf(notice);
 
     if (notice.originKind === "manual") {
@@ -527,17 +614,33 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 하지 않으면서 성공으로 보이고, 그 침묵이 이 파일이 없애겠다고 선언한 Pitfall 18 이다.
       // 대신 통보 원문을 stdout 에 남긴다. relay stdout 이 D-24 의 두 번째 감사 사본이므로
       // 기록이 0 이 되지는 않는다 (S-5). 계좌번호는 51 통보에 실려 오지 않는다 (T-16-45).
-      logger.error(
-        {
-          orderNo: notice.orderNo,
-          noticeType: notice.noticeType,
-          resultCode: notice.resultCode,
-          isin: notice.isin,
-          quantity: notice.quantity,
-          price: notice.price,
-        },
-        "[WS-order] 대기·행 어디에도 붙지 않는 수동 통보 — stdout 이 유일한 기록이다",
+      const unmatched = {
+        orderNo: notice.orderNo,
+        noticeType: notice.noticeType,
+        resultCode: notice.resultCode,
+        isin: notice.isin,
+        quantity: notice.quantity,
+        price: notice.price,
+      };
+      if (isRelayRelated(userId, notice, hadCandidates)) {
+        // relay 가 낸 주문인데 행에 못 붙었다 — 감사 기록 결손이다. 등급·문구를 바꾸지 않는다
+        // (⑨ ㉑ ㉖ 과 e1m A1-② 가 이 문구를 잠근다).
+        logger.error(unmatched, "[WS-order] 대기·행 어디에도 붙지 않는 수동 통보 — stdout 이 유일한 기록이다");
+        return;
+      }
+      // (e1m A1) 공유 세션 팬아웃으로 온 다른 클라이언트의 주문 — relay 의 결손이 아니다.
+      logger.info(
+        unmatched,
+        "[WS-order] 같은 세션의 다른 클라이언트(WinForms 등) 주문 통보 — relay 가 낸 주문이 아니다 (공유 게이트웨이 세션 팬아웃 · D-17 철회), 기록 대상 아님",
       );
+      return;
+    }
+
+    // (e1m B1/B3) 자동주문의 취소성 통보는 원주문번호 축으로 **원주문 행**에 붙인다. 이 아래
+    // `ensureRow`·`insertOnly` 로는 절대 내려가지 않는다 — 취소 전문의 번호로는 행이 없고,
+    // 그 번호로 새 행을 만들면 원주문은 영영 닫히지 않는다.
+    if (isCancelLikeNotice(notice)) {
+      await settleOriginal(userId, notice);
       return;
     }
 
@@ -557,6 +660,97 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       deps.orderStore.enqueueUpdate({ ...patch, userId });
     }
     // `unavailable` 은 드롭이다 — 사유는 `ensureRow`/`autoInsertRow` 가 이미 남겼다.
+  }
+
+  /**
+   * 자동주문 취소성 통보 → **원주문 행** 갱신 (quick-260923-e1m B1/B3). insert 는 하지 않는다.
+   *
+   *   · 거부 R(정정·취소 거부, 예: rc 804)은 원주문을 바꾸지 않는다 — 거부됐다는 것은 원주문이
+   *     그대로 살아 있다는 뜻이다. 조회·갱신 없이 info 1줄만 남긴다.
+   *   · 취소확인 C 는 원주문번호(`orgOrderNo`)로 원주문 행을 찾아 `cancelled` 로 갱신한다.
+   *     `orgOrderNo` 가 비어 있으면(공백 10자 포함) 거래소 자동취소 예외다 — 그때는 `orderNo` 가
+   *     곧 원주문번호다(진단 조사 6 — 09-22 VI 3405000021, TTRODP11303).
+   *   · 찾은 행에는 `{orderRowId, status:"cancelled", noticeType, resultCode, message}` 만 싣는다.
+   *     **`orderNo`·`origin`·체결수량은 싣지 않는다** — `orderNo` 는 취소 전문의 새 번호라 원주문
+   *     행의 `order_no` 를 덮고, `origin` 은 원주문 행의 값이 정본이다. 이미 `filled` 인 원주문을
+   *     `cancelled` 로 되돌리는 것은 store 의 상태 단조성 필터(R3-WR-01)가 막는다.
+   *   · 조회가 실패하면 통보를 버리지 않는다(S-5) — 원주문번호 셀렉터(사용자·당일 3축)로 열화
+   *     갱신을 보낸다. 행을 못 찾으면 warn 만 남긴다(새 행을 만들지 않는다 — B3).
+   *
+   * 로그에 계좌번호는 없다 — 51 통보에는 애초에 계좌가 실리지 않는다 (T-16-45).
+   */
+  async function settleOriginal(userId: string, notice: ParsedOrderResp): Promise<void> {
+    const ctx = {
+      origin: notice.originKind,
+      orderNo: notice.orderNo,
+      noticeType: notice.noticeType,
+      resultCode: notice.resultCode,
+    };
+
+    if (notice.noticeType === "R") {
+      logger.info(
+        { ...ctx, requestKind: notice.requestKind },
+        "[WS-order] 자동주문 정정·취소 거부 — 원주문 상태 유지, 새 행을 만들지 않는다",
+      );
+      return;
+    }
+
+    // 원주문번호가 있으면 그것, 없으면(거래소 자동취소 예외) 통보 자신의 번호가 원주문이다.
+    const target = normalizeOrderNo(notice.orgOrderNo) !== "" ? notice.orgOrderNo : notice.orderNo;
+    const keys = orderNoLookupKeys(target);
+    if (keys.length === 0) {
+      logger.warn(ctx, "[WS-order] 자동주문 취소확인 — 원주문을 가리킬 번호가 없다. 새 행을 만들지 않는다");
+      return;
+    }
+
+    let rowId: string | null = null;
+    // 접수 A 직후의 취소가 그 A 의 insert 왕복과 겹치는 경주 방어 — 진행 중인 왕복을 재사용한다.
+    for (const key of keys) {
+      const running = inflight.get(`${userId}|${key}`);
+      if (running === undefined) continue;
+      const settled = await running;
+      if (settled.kind === "row") {
+        rowId = settled.id;
+        break;
+      }
+    }
+
+    if (rowId === null) {
+      try {
+        for (const key of keys) {
+          rowId = await deps.orderStore.findIdByOrderNo(userId, key);
+          if (rowId !== null) break;
+        }
+      } catch (err) {
+        logger.error(
+          { pgError: safePgError(err), origin: notice.originKind, orderNo: notice.orderNo, noticeType: notice.noticeType },
+          "[WS-order] 자동주문 취소확인 — 원주문 조회 실패, 원주문번호 셀렉터로 열화 갱신",
+        );
+        deps.orderStore.enqueueUpdate({
+          orderNo: keys[0],
+          userId,
+          status: "cancelled",
+          noticeType: notice.noticeType,
+          resultCode: notice.resultCode,
+          message: notice.message,
+        });
+        return;
+      }
+    }
+
+    if (rowId === null) {
+      logger.warn(ctx, "[WS-order] 자동주문 취소확인 — 원주문 행을 찾지 못했다. 새 행을 만들지 않는다");
+      return;
+    }
+
+    deps.orderStore.enqueueUpdate({
+      orderRowId: rowId,
+      status: "cancelled",
+      noticeType: notice.noticeType,
+      resultCode: notice.resultCode,
+      message: notice.message,
+    });
+    logger.info(ctx, "[WS-order] 자동주문 취소확인 — 원주문 행을 취소로 갱신");
   }
 
   /**
@@ -657,8 +851,17 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
   function autoInsertRow(userId: string, notice: ParsedOrderResp): OrderInsertRow | null {
     const ctx = { userId, origin: notice.originKind, orderNo: notice.orderNo, isin: notice.isin };
 
-    // `qty`/`price` 는 CHECK > 0 이다. 접수·체결 통보는 항상 양수를 싣지만, 파손 프레임을
-    // 그대로 밀어 넣어 행을 잃는 것보다 여기서 멈추고 사유를 남기는 편이 낫다.
+    // (e1m B3) 취소성 통보는 어떤 경로로도 새 행이 되지 않는다. `recordUnmatched` 가 이미
+    // `settleOriginal` 로 갈랐으므로 여기 오면 라우팅 누락이다 — 행을 만들지 않고 크게 남긴다.
+    if (isCancelLikeNotice(notice)) {
+      logger.error(ctx, "[WS-order] 취소성 통보가 insert 경로에 왔다 — 새 행을 만들지 않는다 (B3 라우팅 누락)");
+      return null;
+    }
+
+    // `qty` 는 CHECK > 0 이다. `price` 는 원격 CHECK(20260922120000 + 20260922180000 — 18-29
+    // SUMMARY 가 원격 적용을 확인)가 0 을 취소 행(order_type C)과 G2/G3 세션 신규에만 허용한다.
+    // 이 경로는 취소성 통보를 insert 하지 않고(위 B3 가드) 자동주문 행은 세션을 싣지 않으므로,
+    // 여기 온 price ≤ 0 은 파손 프레임이다 — 밀어 넣어 행을 잃는 것보다 멈추고 사유를 남긴다.
     if (!Number.isInteger(notice.quantity) || notice.quantity <= 0) {
       logger.error({ ...ctx }, "[WS-order] 자동주문 통보의 수량이 0 이하 — 행을 만들 수 없다");
       return null;
@@ -698,7 +901,8 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       // 받으므로 취소 행은 "S" 로 적되, **방향의 정본은 `org_order_no` 가 가리키는 원주문
       // 행**이다 — 취소 행의 side 를 표시에 쓰지 말 것 (수동 취소 경로와 같은 규율).
       side: sideOf(notice),
-      orderType: notice.noticeType === "C" ? "C" : "N",
+      // 취소확인 C 는 위 B3 가드 때문에 여기 도달할 수 없다 — 이 경로의 행은 언제나 신규다.
+      orderType: "N",
       orgOrderNo: notice.orgOrderNo === "" ? undefined : notice.orgOrderNo,
       qty: notice.quantity,
       price: notice.price,
@@ -1001,6 +1205,8 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       if (notice === null) {
         // 5초를 넘겼다 = **「보냈는지 안 보냈는지 모른다」** (Pitfall 9). "실패"로 단정하지
         // 않는다 — 주문이 이미 나갔을 수 있고, 실패라고 말하면 재주문으로 중복 체결이 난다.
+        // (e1m A1) 이 주문의 통보는 이제 대기 없이 온다 — relay 흔적에 종목을 남긴다.
+        markTrailIsin(userId, msg.isin);
         deps.orderStore.enqueueUpdate({ orderRowId, status: "timeout" });
         logger.error({ ...logCtx, timeoutMs }, "[WS-order] 첫 주문 통보 미수신 — 결과 확인 필요");
         deps.send(conn, {
@@ -1015,7 +1221,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
       }
 
       const status: DmaOrderStatus = statusOf(notice, msg.qty) ?? "accepted";
+      // (e1m A1) 정산으로 알게 된 주문번호 — 이후 같은 번호·그 번호를 원주문으로 가리키는 통보는
+      // relay 자기 주문의 것이다.
+      markTrailOrderNo(userId, notice.orderNo);
       // 상관 1순위 키(`orderRowId`)로 좁히고, 이번에 알게 된 주문번호를 같이 채운다.
+      // 체결수량은 **절대값**(`filledQty`)이다 — 첫 통보는 방금 insert 한 신선한 행(filled_qty 0)에
+      // 닿으므로 절대값이 곧 누적값이다. 이후 조각은 `recordUnmatched` 가 delta 로 보낸다 (e1m S1).
       deps.orderStore.enqueueUpdate({
         orderRowId,
         orderNo: notice.orderNo,
@@ -1096,7 +1307,12 @@ export function createOrderHandler<C>(deps: OrderHandlerDeps<C>): OrderHandler<C
     const state = conns.get(conn);
     if (state === undefined) return;
     // 타이머를 남기면 프로세스가 안 내려가고, 이미 닫힌 소켓으로 프레임을 쏘게 된다.
-    for (const p of state.pending) clearTimeout(p.timer);
+    // (e1m A1) 걷히는 대기는 relay 가 낸 주문이다 — 그 통보는 이후 대기 없이 오므로 비우기
+    // **전에** 종목을 relay 흔적에 남긴다.
+    for (const p of state.pending) {
+      markTrailIsin(state.userId, p.isin);
+      clearTimeout(p.timer);
+    }
     state.pending.length = 0;
     state.claims.clear();
     // 이 연결이 잡은 사용자 스코프 dup 키를 **반드시** 회수한다. 남기면 탭을 닫은 뒤
@@ -1168,6 +1384,41 @@ export function normalizeOrderNo(raw: string): string {
   let z = 0;
   while (z < t.length && t[z] === "0") z += 1;
   return t.slice(z);
+}
+
+/**
+ * 취소성 통보인가 — **원주문 행의 갱신**이지 새 행이 아니다 (quick-260923-e1m B1/B3).
+ *
+ *   · 취소확인 "C" 는 언제나 참이다.
+ *   · 거부 "R" 은 원주문번호(정규화 후 비어 있지 않음)를 실어 왔거나 `requestKind` 가
+ *     `Cancel`·`Modify` 일 때만 참이다 — 정정·취소 요청의 거부다.
+ *   · 그 밖(접수 A · 체결 E · 정정확인 M · 모르는 값)은 거짓이다. 정정확인 M 의 자동 insert 동작은
+ *     이 quick 의 범위가 아니라 그대로 둔다.
+ *
+ * 근거: 자동주문의 취소확인·거부는 `orderNo` 에 **취소 전문 자신의 번호**를, `orgOrderNo` 에
+ * 원주문을 싣는다(gh-trade `broker/kb/KBBroker.cpp:1660-1661`, `app/Server.cpp:392-394` 「KBBroker
+ * 가 orderNo 에는 취소 전문 자신의 번호를 싣는다」). 그 번호로는 행이 없어 옛 코드가 insert 로
+ * 빠졌다(진단 조사 5). **접수 전 거부 R**(`orderNo` "" · 원주문번호 없음 · `New`)은 신규 주문의
+ * 거부라 여기서 거짓이고 기존 insert 경로(㉘)에 남는다.
+ */
+export function isCancelLikeNotice(n: ParsedOrderResp): boolean {
+  if (n.noticeType === "C") return true;
+  if (n.noticeType !== "R") return false;
+  return normalizeOrderNo(n.orgOrderNo) !== "" || n.requestKind === "Cancel" || n.requestKind === "Modify";
+}
+
+/**
+ * 원주문 행 조회 키 — `[원문 trim, 정규화 후 10자리 0 좌패딩]` 에서 중복·빈 값을 뺀 것 (e1m B1).
+ *
+ * 와이어 주문번호는 10자리 0 좌패딩 고정폭이다(`normalizeOrderNo` docstring). 저장된 `order_no`
+ * 도 와이어 원문이므로 첫 키로 보통 끝나고, 두 번째 키는 표기가 갈린 경우의 보험이다.
+ * 정규화 결과가 `""`(공백·0 뿐)이면 빈 배열이다 — 존재하지 않는 주문을 찾지 않는다.
+ */
+function orderNoLookupKeys(raw: string): string[] {
+  const normalized = normalizeOrderNo(raw);
+  if (normalized === "") return [];
+  const keys = [raw.trim(), normalized.padStart(10, "0")];
+  return keys.filter((k, i) => k !== "" && keys.indexOf(k) === i);
 }
 
 /**

@@ -33,6 +33,7 @@ import type { RelayOutbound } from "@gh-radar/shared";
 import { WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
 import {
   createOrderHandler,
+  isCancelLikeNotice,
   narrowPending,
   type PendingOrder,
 } from "../src/ws/order-handler.js";
@@ -117,7 +118,15 @@ function fakeSupabase(): SupabaseClient {
  * 닿는가**다. insert 인지 update 인지, 그리고 그 인자가 무엇인지가 전부다.
  */
 function mkOrderStore(
-  opts: { existingId?: string | null; insertFails?: boolean; insertGate?: Promise<void> } = {},
+  opts: {
+    existingId?: string | null;
+    /** 주문번호별 조회 결과 (e1m B1). 없으면 `existingId` 로 떨어진다. */
+    existingIds?: Record<string, string>;
+    /** 조회가 throw 한다 (e1m B1 — 열화 갱신 경로). */
+    lookupFails?: boolean;
+    insertFails?: boolean;
+    insertGate?: Promise<void>;
+  } = {},
 ) {
   const inserts: OrderInsertRow[] = [];
   const updates: OrderUpdate[] = [];
@@ -147,7 +156,8 @@ function mkOrderStore(
       findIdByOrderNo: async (userId: string, orderNo: string): Promise<string | null> => {
         lookups.push({ userId, orderNo });
         await Promise.resolve();
-        return opts.existingId ?? null;
+        if (opts.lookupFails === true) throw new Error("supabase lookup down");
+        return opts.existingIds?.[orderNo] ?? opts.existingId ?? null;
       },
     },
   };
@@ -694,9 +704,12 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // 두 번째 행을 만들면 같은 주문이 감사 기록에 두 번 남는다.
     expect(orders.inserts).toHaveLength(0);
+    // 대기 밖 E 의 수량은 **조각**이다 — 절대값(`filledQty`)이 아니라 누적분(`filledQtyDelta`)으로
+    // 싣는다 (quick-260923-e1m S1). 덮어쓰기는 전량 체결 행을 마지막 조각 수량으로 남겼다.
     expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-existing", filledQty: 7 }),
+      expect.objectContaining({ orderRowId: "row-existing", filledQtyDelta: 7 }),
     );
+    expect(orders.updates.find((u) => u.orderRowId === "row-existing")?.filledQty).toBeUndefined();
   });
 
   it("⑭ 수동 통보는 조회를 거쳐 orderRowId 로 갱신한다 — insert 는 하지 않는다 (GC-CR-02)", async () => {
@@ -1789,6 +1802,296 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(modifyRow.status).toBe("filled");
     expect(store.stats().dropped).toBe(0);
   });
+
+  // ----------------------------------------------------------
+  // quick-260923-e1m — 통보 기록 경로 (S1 · B1/B3 · A1)
+  // `.planning/debug/relay-ws-order-unmatched-notice.md` 의 Evidence · Resolution 이 근거다.
+  // ----------------------------------------------------------
+
+  describe("quick-260923-e1m — 통보 기록 경로", () => {
+    function todayIso(): string {
+      return new Date(new Date(kstDayRangeUtc().from).getTime() + 3600_000).toISOString();
+    }
+
+    /** 자동주문 원주문 행 1건 (당일 · 사용자 A). */
+    function autoRow(id: string, orderNo: string, extra: Record<string, unknown> = {}): FakeRow {
+      return {
+        id,
+        user_id: USER_A,
+        order_no: orderNo,
+        created_at: todayIso(),
+        status: "accepted",
+        qty: 10,
+        filled_qty: 0,
+        origin: "limit_chaser",
+        notice_type: "A",
+        ...extra,
+      };
+    }
+
+    it("S1-① 대기 밖 LC 체결 조각 3·4 가 한 큐에 쌓였다 비워지면 filled_qty 7 · partially_filled, 조각 3 을 더하면 10 · filled", async () => {
+      const seed = autoRow("row-lc-059", "3405000059");
+      const { store, fake } = await restartWithRealStore([seed]);
+      await authed("token-a");
+      const rowsBefore = fake.rows.length;
+
+      const fill = (quantity: number): void =>
+        gateway.pushOrderResp(gatewaySocket(), {
+          noticeType: "E",
+          orderNo: "3405000059",
+          origin: "LimitChaser",
+          quantity,
+          price: 4_305,
+        });
+
+      fill(3);
+      fill(4);
+      // 두 조각이 **한 큐에 동시에** 있는 상황 — 옛 덮어쓰기는 여기서 뒤 조각(4)만 남겼다.
+      await waitFor(() => store.stats().queued >= 2, "두 조각 큐잉");
+      await store.flushNow();
+      expect(seed).toMatchObject({ filled_qty: 7, status: "partially_filled", order_no: "3405000059" });
+
+      fill(3);
+      await waitFor(() => store.stats().queued >= 1, "세 번째 조각 큐잉");
+      await store.flushNow();
+      expect(seed).toMatchObject({ filled_qty: 10, status: "filled", origin: "limit_chaser" });
+      // 행은 늘지 않는다 — 기존 행의 갱신이다.
+      expect(fake.rows).toHaveLength(rowsBefore);
+      expect(fake.queries.filter((q) => q.verb === "insert")).toHaveLength(0);
+      expect(store.stats().dropped).toBe(0);
+    });
+
+    // ---- B1 · B3 — 자동주문 취소성 통보는 원주문 행의 갱신이다 ----
+
+    /** 스텁 `orders` 를 갈아 끼우고 사용자 A 로 붙는다. */
+    async function withStub(opts: Parameters<typeof mkOrderStore>[0]): Promise<void> {
+      orders = mkOrderStore(opts);
+      await restartHarness();
+      await authed("token-a");
+    }
+
+    /** 상따 자동취소 C — orderNo 는 취소 전문 자신의 번호, 원주문은 orgOrderNo (KBBroker.cpp:1660-1661). */
+    function pushAutoCancel(over: Record<string, unknown> = {}): void {
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "C",
+        orderNo: "3405000076",
+        orgOrderNo: "3405000070",
+        origin: "LimitChaser",
+        quantity: 23_228,
+        price: 0,
+        side: "",
+        message: "취소확인",
+        ...over,
+      });
+    }
+
+    it("B1-① LC 자동 C(새 번호 076 · org 070 · price 0)는 원주문 행을 cancelled 로 갱신한다 — 번호·origin 불변, insert 0, 가격 0 ERROR 0", async () => {
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      await withStub({ existingIds: { "3405000070": "row-lc-070" } });
+
+      pushAutoCancel();
+      await waitFor(() => orders.updates.length >= 1, "원주문 행 갱신");
+      await flushIo(10);
+
+      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000070" }]);
+      expect(orders.inserts).toHaveLength(0);
+      expect(orders.updates).toHaveLength(1);
+      const u = orders.updates[0];
+      expect(u).toMatchObject({ orderRowId: "row-lc-070", status: "cancelled", noticeType: "C" });
+      // 취소 전문의 새 번호가 원주문 행의 order_no 를 덮지 않는다. origin 도 원주문 행이 정본이다.
+      expect(u?.orderNo).toBeUndefined();
+      expect(u?.origin).toBeUndefined();
+      expect(u?.filledQty).toBeUndefined();
+      expect(u?.filledQtyDelta).toBeUndefined();
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
+    });
+
+    it("B1-② VI 자동 C 도 같은 규칙으로 원주문 행을 cancelled 로 갱신한다", async () => {
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      await withStub({ existingIds: { "3405000012": "row-vi-012" } });
+
+      pushAutoCancel({ orderNo: "3405000014", orgOrderNo: "3405000012", origin: "VITrigger", quantity: 100 });
+      await waitFor(() => orders.updates.length >= 1, "VI 원주문 행 갱신");
+      await flushIo(10);
+
+      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000012" }]);
+      expect(orders.inserts).toHaveLength(0);
+      expect(orders.updates).toEqual([
+        expect.objectContaining({ orderRowId: "row-vi-012", status: "cancelled", noticeType: "C" }),
+      ]);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
+    });
+
+    it("B1-③ 자동 R(804 · Cancel · org 070)은 원주문 상태를 유지한다 — 조회·갱신·insert 0, info 1줄(계좌 없음)", async () => {
+      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      await withStub({ existingIds: { "3405000070": "row-lc-070" } });
+
+      pushAutoCancel({
+        noticeType: "R",
+        resultCode: 804,
+        orderNo: "3405000077",
+        requestKind: "Cancel",
+        message: "취소가능수량 부족",
+      });
+      await waitFor(() => JSON.stringify(infoSpy.mock.calls).includes("원주문 상태 유지"), "R info");
+      await flushIo(10);
+
+      expect(orders.lookups).toHaveLength(0);
+      expect(orders.updates).toHaveLength(0);
+      expect(orders.inserts).toHaveLength(0);
+      const kept = infoSpy.mock.calls.filter((c) => String(c[1]).includes("원주문 상태 유지"));
+      expect(kept).toHaveLength(1);
+      expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
+    });
+
+    it("B1-④ 원주문 행을 못 찾으면 warn 만 남긴다 — 갱신 0, insert 0, 가격 0 ERROR 0", async () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      await withStub({});
+
+      pushAutoCancel();
+      await waitFor(() => JSON.stringify(warnSpy.mock.calls).includes("원주문 행을 찾지 못했다"), "미발견 warn");
+      await flushIo(10);
+
+      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000070" }]);
+      expect(orders.updates).toHaveLength(0);
+      expect(orders.inserts).toHaveLength(0);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
+      expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
+    });
+
+    it("B1-⑤ 거래소 자동취소 예외 — org 가 공백 10자면 orderNo(=원주문 021)로 찾아 cancelled 로 갱신한다", async () => {
+      await withStub({ existingIds: { "3405000021": "row-vi-021" } });
+
+      pushAutoCancel({
+        orderNo: "3405000021",
+        orgOrderNo: "          ",
+        origin: "VITrigger",
+        quantity: 50,
+        message: "자동취소",
+      });
+      await waitFor(() => orders.updates.length >= 1, "자동취소 원주문 갱신");
+      await flushIo(10);
+
+      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000021" }]);
+      expect(orders.inserts).toHaveLength(0);
+      expect(orders.updates).toEqual([
+        expect.objectContaining({ orderRowId: "row-vi-021", status: "cancelled", message: "자동취소" }),
+      ]);
+    });
+
+    it("B1-⑥ 조회가 throw 하면 원주문번호 셀렉터로 cancelled 열화 갱신 + safePgError error (계좌 없음)", async () => {
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      await withStub({ lookupFails: true });
+
+      pushAutoCancel();
+      await waitFor(() => orders.updates.length >= 1, "열화 갱신");
+      await flushIo(10);
+
+      expect(orders.inserts).toHaveLength(0);
+      expect(orders.updates).toHaveLength(1);
+      expect(orders.updates[0]).toMatchObject({ orderNo: "3405000070", userId: USER_A, status: "cancelled" });
+      expect(orders.updates[0]?.orderRowId).toBeUndefined();
+      const failed = errorSpy.mock.calls.find((c) => String(c[1]).includes("원주문 조회 실패"));
+      expect(failed?.[0]).toHaveProperty("pgError");
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
+    });
+
+    it("B1-⑦ (진짜 store) LC 원주문 행 070 에 자동 C → status cancelled · order_no 070 그대로 · 행 수 불변", async () => {
+      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      const original = autoRow("row-lc-070", "3405000070");
+      const { store, fake } = await restartWithRealStore([original]);
+      await authed("token-a");
+      const rowsBefore = fake.rows.length;
+
+      pushAutoCancel();
+      await waitFor(() => store.stats().queued >= 1, "취소 갱신 큐잉");
+      await store.flushNow();
+
+      expect(original).toMatchObject({
+        status: "cancelled",
+        order_no: "3405000070",
+        notice_type: "C",
+        origin: "limit_chaser",
+      });
+      expect(fake.rows).toHaveLength(rowsBefore);
+      expect(fake.queries.filter((q) => q.verb === "insert")).toHaveLength(0);
+      expect(store.stats()).toMatchObject({ dropped: 0, flushed: 1 });
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
+    });
+
+    // ---- A1 — 공유 게이트웨이 세션의 WinForms 수동 통보 ----
+
+    /** 메시지(두 번째 인자)에 `needle` 이 든 호출 수. */
+    function countLogs(spy: { mock: { calls: unknown[][] } }, needle: string): number {
+      return spy.mock.calls.filter((c) => String(c[1]).includes(needle)).length;
+    }
+
+    it("A1-① relay 가 낸 주문이 없을 때 WinForms 수동 통보(A · E · C price 0)는 info 3줄 — ERROR 0, 갱신·insert 0, 계좌 없음", async () => {
+      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      await authed("token-a");
+
+      const sock = gatewaySocket();
+      // 진단 조사 1·2 의 실측 모양 그대로 — relay 주문 송신 로그 0건인 창에서 온 수동 통보들.
+      gateway.pushOrderResp(sock, { noticeType: "A", orderNo: "3405000065", quantity: 25_348, price: 3_945 });
+      gateway.pushOrderResp(sock, { noticeType: "E", orderNo: "3405000057", quantity: 329, price: 2_195 });
+      gateway.pushOrderResp(sock, {
+        noticeType: "C",
+        orderNo: "3405000066",
+        orgOrderNo: "3405000065",
+        quantity: 25_348,
+        price: 0,
+        side: "",
+      });
+      await waitFor(() => orders.lookups.length === 3, "수동 통보 3건 조회");
+      await flushIo(20);
+
+      expect(countLogs(infoSpy, "다른 클라이언트")).toBe(3);
+      expect(countLogs(infoSpy, "relay 가 낸 주문")).toBe(3);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("붙지 않는 수동 통보");
+      expect(orders.updates).toHaveLength(0);
+      expect(orders.inserts).toHaveLength(0);
+      expect(orders.lookups).toHaveLength(3);
+      expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
+    });
+
+    it("A1-② relay 가 낸 수동 주문의 정산 번호를 가리키는 미부착 통보(E 같은 번호 · C org=그 번호)는 ERROR 를 유지한다", async () => {
+      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+      const { ws, inbox } = await authed("token-a");
+
+      // relay 가 낸 수동 주문 — 접수 A 로 정산(finish)된다. 정산 번호가 relay 흔적에 남는다.
+      ws.sendRaw(orderNew());
+      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "주문 송신");
+      gateway.pushOrderResp(gatewaySocket(), { noticeType: "A", orderNo: "3405000090" });
+      await waitFor(() => framesOf(inbox, "order.result").length === 1, "접수 정산");
+
+      // 정산 직후 플러시 전 경합 — 행에 아직 주문번호가 없어 조회는 null 이다(relay 자기 주문).
+      gateway.pushOrderResp(gatewaySocket(), { noticeType: "E", orderNo: "3405000090", quantity: 3 });
+      await waitFor(() => orders.lookups.length === 1, "E 조회");
+      // 그 주문을 원주문번호로 가리키는 수동 취소확인(새 번호).
+      gateway.pushOrderResp(gatewaySocket(), {
+        noticeType: "C",
+        orderNo: "3405000091",
+        orgOrderNo: "3405000090",
+        quantity: 7,
+        price: 0,
+        side: "",
+      });
+      await waitFor(() => orders.lookups.length === 2, "C 조회");
+      await flushIo(20);
+
+      expect(countLogs(errorSpy, "붙지 않는 수동 통보")).toBe(2);
+      expect(countLogs(infoSpy, "다른 클라이언트")).toBe(0);
+      expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
+    });
+  });
 });
 
 // ============================================================
@@ -1842,6 +2145,30 @@ function mkNotice(over: Partial<ParsedOrderResp> = {}): ParsedOrderResp {
     ...over,
   };
 }
+
+describe("isCancelLikeNotice — 취소성 통보 판정 (quick-260923-e1m B1/B3)", () => {
+  it("취소확인 C 는 언제나 취소성이다", () => {
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "C" }))).toBe(true);
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "C", orgOrderNo: "0000012300" }))).toBe(true);
+  });
+
+  it("거부 R 은 원주문번호가 있거나 requestKind 가 Cancel·Modify 일 때만 취소성이다", () => {
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orgOrderNo: "3405000070" }))).toBe(true);
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", requestKind: "Cancel" }))).toBe(true);
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", requestKind: "Modify" }))).toBe(true);
+    // 접수 전 거부(신규의 거부)는 기존 insert 경로에 남는다 (㉘).
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orderNo: "", requestKind: "New" }))).toBe(false);
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orderNo: "", requestKind: "" }))).toBe(false);
+    // 공백·0 으로만 채운 원주문번호는 「값 없음」이다 (`normalizeOrderNo`).
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orgOrderNo: "          " }))).toBe(false);
+  });
+
+  it("접수 A · 체결 E · 정정확인 M 은 취소성이 아니다", () => {
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "A" }))).toBe(false);
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "E", orgOrderNo: "3405000070", requestKind: "Modify" }))).toBe(false);
+    expect(isCancelLikeNotice(mkNotice({ noticeType: "M", orgOrderNo: "3405000070", requestKind: "Modify" }))).toBe(false);
+  });
+});
 
 describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
   it("유일 후보라도 취소확인은 신규 대기를 정산하지 않는다 (GC-CR-01)", () => {
