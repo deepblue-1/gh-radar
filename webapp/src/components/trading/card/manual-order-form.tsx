@@ -42,7 +42,7 @@
  *   **뒤집혔다 — 단일 제출 버튼 규율** (옛 `order-panel` 규율 2)
  *   옛 패널은 매수·매도 버튼을 나란히 두지 않아 인접 오클릭을 구조적으로 막았다. D-20 에서
  *   사용자가 이것을 **명시적으로 뒤집었다** — 정본은 gh-trade WinForms 종합주문창이고, 거기서
- *   「매수 · 매도 · 정정 · 취소」가 한 줄에 선다. 트레이더가 탭 전환 없이 바로 누르는 것이
+ *   「매수 · 매도 · 정정 · 취소」가 한 화면에 선다(웹은 2×2 — 2026-09-23). 트레이더가 탭 전환 없이 바로 누르는 것이
  *   요구사항이다. 그 대가로 **확인 다이얼로그(기본 포커스 취소)가 인접 오클릭의 유일한
  *   방어선**이 됐다(T-18-30) — 그래서 규율 2·3 을 더 단단히 잠근다.
  *
@@ -823,12 +823,12 @@ export function ManualOrderForm({
       </div>
 
       {/*
-        4버튼 한 줄 — D-20 이 단일 제출 버튼 규율을 뒤집은 자리(②).
-        매수가 **왼쪽**, 매도가 그 오른쪽이다(3중 일치). 폰 밴드에서는 「예약」이 윗줄로 접힌다.
+        4버튼 2×2 — D-20 이 단일 제출 버튼 규율을 뒤집은 자리(②). 윗줄 매수 | 매도, 아랫줄 정정 | 취소
+        (사용자 요청 2026-09-23 — 한 줄 4개는 버튼이 좁았다). 매수가 **왼쪽**, 매도가 그 오른쪽이다(3중 일치).
       */}
       <div
         data-testid="manual-order-buttons"
-        className="grid grid-cols-[repeat(4,minmax(0,1fr))] gap-1"
+        className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-1"
       >
         <OrderButton tone="buy" disabled={sideDisabled} onClick={() => handleAction('buy')}>
           <SideLabel label={buyLabel} />

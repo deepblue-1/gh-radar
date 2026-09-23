@@ -130,7 +130,7 @@ import { DirtyActionBar } from '@/components/trading/dirty-action-bar';
  * 두 곳에 다시 적지 않는다.
  */
 export const LIMIT_CHASER_DIRTY_HINT =
-  '「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
+  '「수정」을 눌러야 반영돼요 · 체크하면 변경한 값까지 함께 반영돼요';
 
 /**
  * 무장 판정을 지나는 게이트 3종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
@@ -250,7 +250,7 @@ const SELL_CARD_GATES: readonly GateKey[] = ['sellEnabled'];
  * 같은 어조다. 두 화면이 같은 사건을 다른 말로 하면 사용자는 다른 사건으로 읽는다.
  */
 const SEND_FAILED_TEXT = {
-  gate: '연결이 끊겨 스위치를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
+  gate: '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
   submit: '연결이 끊겨 수정 내용을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
 } as const;
 
@@ -1149,15 +1149,17 @@ export function LimitChaserForm({
  *   자체이므로 테두리가 구분하는 「바깥」이 없다.
  *
  * ## 방향색 틴트 (quick-260912-mvo Q-06, 사용자 채택 C안)
- * ⓐ **2열부터만** 칠한다(`@min-[700px]/lc:`). 폰(≤699)은 매수/매도 **탭**이 이미 어느 쪽인지
- *    말하므로 틴트가 중복이고, 좁은 폭에서 배경색은 입력 대비만 깎는다.
- * ⓑ 배경 선언은 **한 줄뿐**이어야 한다. 예전에는 `@min-[992px]/lc:bg-[var(--card)]` 가 있어
+ * ⓐ **모든 밴드에서** 칠한다. 처음엔 2열부터만(`@min-[700px]/lc:`) 칠했지만 — 폰은 탭이 방향을
+ *    말한다는 이유 — 사용자가 탭 화면도 펼친 화면처럼 색을 원했다(2026-09-23).
+ * ⓑ 배경 선언은 **한 줄뿐**이어야 한다(방향 카드는 틴트 한 줄, 그 밖은 `bg-[var(--card-base)]` 한 줄). 예전에는 `@min-[992px]/lc:bg-[var(--card)]` 가 있어
  *    ≥992 에서 두 배경이 캐스케이드로 다퉜다(어느 쪽이 이기는지 클래스 문자열 순서로
  *    정해지지 않는다). 그래서 카드색을 **변수 스위치**(`--card-base`)로 바꿨다 —
  *    기본 `transparent`, ≥992 에서 `var(--card)`. 틴트는 그 위에 5% 를 섞는다.
- *    결과: 폰 = 틴트 없음 · 컴팩트/와이드 = 투명 위 5% · 데스크톱 = `--card` 위 5%.
+ *    결과: 폰/컴팩트/와이드 = 투명 위 5% · 데스크톱 = `--card` 위 5%.
  *    **배경만** 틴트가 되고 테두리는 `--border` 그대로라 더티 테두리(`--primary`)와 다투지 않는다.
- * ⓒ 가로 패딩 8px×2 가 카드 **안쪽 폼 폭을 16px 줄인다.** 본문 700px 경계의 잘림 여유를
+ * ⓒ 가로 패딩은 **2열부터만**(`@min-[700px]/lc:px-2`)이다. 폰 카드(342px)에서 8px×2 를 넣으니 입력·
+ *    감시잔량 세그먼트가 최대 8px 넘쳤다(e2e test 5 실측, 2026-09-23) — 폰은 배경만 칠하고 여백은 0.
+ *    2열에서 가로 패딩 8px×2 가 카드 **안쪽 폼 폭을 16px 줄인다.** 본문 700px 경계의 잘림 여유를
  *    그만큼 갉아먹는다 — jsdom 에 레이아웃이 없어 유닛으로 증명할 수 없다(WINDOWS 등재).
  * ⓓ 5% 는 목업(`260912-buysell-ladder.html` `.vC .fcard`)에서 검증된 값이다. **올리지 마라** —
  *    그 위에 흰 입력칸이 얹힌다. 그리고 색은 유일 채널이 아니다: 그룹 제목(「매수주문」/
@@ -1177,11 +1179,12 @@ function Card({
       className={cn(
         'min-w-0 overflow-hidden [--card-base:transparent] [--lw:76px]',
         '@min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
-        'bg-[var(--card-base)]',
+        // 배경 선언은 요소당 **하나뿐**이다(ⓑ) — 방향 카드는 틴트가, 그 밖은 카드색이 그 한 줄이다.
+        side === undefined && 'bg-[var(--card-base)]',
         side === 'buy' &&
-          '@min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] @min-[700px]/lc:px-2 @min-[700px]/lc:py-1.5',
+          'rounded-[var(--r-md)] bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] py-1.5 @min-[700px]/lc:px-2',
         side === 'sell' &&
-          '@min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))] @min-[700px]/lc:px-2 @min-[700px]/lc:py-1.5',
+          'rounded-[var(--r-md)] bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))] py-1.5 @min-[700px]/lc:px-2',
       )}
     >
       {children}
@@ -1311,10 +1314,12 @@ function Group({
 }
 
 /**
- * 게이트 스위치 — **44×26**. 누르면 확인 없이 즉시 전송된다(D-05).
+ * 게이트 체크박스 — 누르면 확인 없이 즉시 전송된다(D-05).
  *
- * 순수 버튼인 이유는 파일 상단 ⑧. `role="switch"` + `aria-checked` 로 Radix 와 같은
- * 접근성 계약을 그대로 만족한다.
+ * 옛 44×26 토글 스위치를 사용자 요청(2026-09-23)으로 폼의 다른 체크박스(`CheckRow`)와 같은
+ * 네이티브 체크박스로 통일했다. 색은 방향(`tone`)을 따른다 — 매수 `--up` · 매도 `--down`.
+ * 헤더 **우측 끝 고정**(`ml-auto`)은 그대로다(오터치 방어 — 파일 상단 ② 3). 크기도 다른 체크박스와
+ * 같은 17px 이다.
  */
 function GateSwitch({
   tone,
@@ -1325,24 +1330,15 @@ function GateSwitch({
 }: GroupSwitchProps & { tone: 'buy' | 'sell' | 'neutral' }) {
   const on = tone === 'buy' ? 'var(--up)' : tone === 'sell' ? 'var(--down)' : 'var(--primary)';
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
+    <input
+      type="checkbox"
       aria-label={label}
+      checked={checked}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className="relative ml-auto h-[26px] w-[44px] flex-none rounded-full border-0 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-      style={{ background: checked ? on : 'var(--border)' }}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'absolute top-[3px] size-5 rounded-full bg-white shadow-[0_1px_2px_oklch(0_0_0/.3)] transition-[left]',
-          checked ? 'left-[21px]' : 'left-[3px]',
-        )}
-      />
-    </button>
+      onChange={(e) => onChange(e.target.checked)}
+      className="ml-auto size-[17px] flex-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+      style={{ accentColor: on }}
+    />
   );
 }
 

@@ -150,7 +150,7 @@ describe('① 스위치는 확인 없이 즉시 전송된다 (D-05)', () => {
     // 무장할 수 있다(WR-06) — 시세를 못 받은 종목은 애초에 켤 수 없다.
     render(<LimitChaserForm {...props({ server: null, upperLimit: 30_000 })} />);
 
-    await user.click(screen.getByRole('switch', { name: '매수주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매수주문 켜기' }));
 
     expect(sentConfigs()).toHaveLength(1);
     expect(lastConfig().buyEnabled).toBe(true);
@@ -164,10 +164,10 @@ describe('① 스위치는 확인 없이 즉시 전송된다 (D-05)', () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
 
-    await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매도주문 켜기' }));
     expect(lastConfig().sellEnabled).toBe(true);
 
-    await user.click(screen.getByRole('switch', { name: '한방체결 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '한방체결 켜기' }));
     expect(lastConfig().sweepEnabled).toBe(true);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
@@ -186,7 +186,7 @@ describe('② 값 변경은 전송하지 않는다 (D-06)', () => {
       screen.getByText('변경한 값 1개가 아직 서버에 반영되지 않았어요'),
     ).toBeInTheDocument();
     expect(
-      screen.getByText('「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요'),
+      screen.getByText('「수정」을 눌러야 반영돼요 · 체크하면 변경한 값까지 함께 반영돼요'),
     ).toBeInTheDocument();
   });
 
@@ -255,7 +255,7 @@ describe('⑤ 스위치는 더티 값을 함께 밀어낸다 (D-06)', () => {
     setNumber(screen.getByLabelText(/매도비율/), '40');
     expect(sendMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매도주문 켜기' }));
 
     const cfg = lastConfig();
     expect(cfg.sellEnabled).toBe(true);
@@ -280,7 +280,7 @@ describe('⑥⑦ 삭제 판정은 취소 게이트를 포함한다 (D-08 / Pitfa
       />,
     );
 
-    await user.click(screen.getByRole('switch', { name: '매수주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매수주문 켜기' }));
 
     expect(lastConfig().buyEnabled).toBe(false);
     expect(lastConfig().crud).toBe('D');
@@ -304,7 +304,7 @@ describe('⑥⑦ 삭제 판정은 취소 게이트를 포함한다 (D-08 / Pitfa
       />,
     );
 
-    await user.click(screen.getByRole('switch', { name: '매수주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매수주문 켜기' }));
 
     expect(lastConfig().buyEnabled).toBe(false);
     expect(lastConfig().crud).toBe('C'); // 전략이 남는다
@@ -397,7 +397,7 @@ describe('⑨ S→C 전용 6필드를 보내지 않는다 (Pitfall 6)', () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props({ server: echo({ sellEntryLatched: true }) })} />);
 
-    await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매도주문 켜기' }));
     setNumber(screen.getByLabelText(/매수가격/), '150000');
     await user.click(screen.getByRole('button', { name: '수정' }));
 
@@ -418,7 +418,7 @@ describe('⑨ S→C 전용 6필드를 보내지 않는다 (Pitfall 6)', () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);
 
-    await user.click(screen.getByRole('switch', { name: '한방체결 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '한방체결 켜기' }));
 
     expect(lastConfig().sweepRecalcEnabled).toBe(true);
     expect(lastConfig().sweepMinCount).toBe(0);
@@ -481,18 +481,9 @@ describe('⑫ 접근성 · 모바일 탭', () => {
   it('스위치 3개에 aria-label 이 있고 상태가 aria-checked 로 읽힌다', () => {
     render(<LimitChaserForm {...props()} />);
 
-    expect(screen.getByRole('switch', { name: '매수주문 켜기' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
-    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
-    expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
+    expect(screen.getByRole('checkbox', { name: '매수주문 켜기' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '매도주문 켜기' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '한방체결 켜기' })).not.toBeChecked();
   });
 
   it('그룹 6개가 E2E 앵커(`data-slot`)를 갖는다', () => {
@@ -708,7 +699,7 @@ describe('⑫ 접근성 · 모바일 탭', () => {
   ★ 이 describe 가 잠그는 세 가지: **못 켠다 · 이유가 보인다 · 그래도 끌 수는 있다**.
 */
 describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', () => {
-  const buySwitch = () => screen.getByRole('switch', { name: '매수주문 켜기' });
+  const buySwitch = () => screen.getByRole('checkbox', { name: '매수주문 켜기' });
   /*
     ★ 260911-w5h — 사유는 카드 **맨 아래** 패널로 모였고 한 줄이 「게이트 이름 · 문장」이 됐다.
       문장만 뽑아야 기존 문구 단언이 그대로 유효하다(문구 계약은 바뀌지 않았다).
@@ -771,7 +762,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
     );
 
     const sw = buySwitch();
-    expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect(sw).toBeChecked();
     expect(sw).toBeEnabled(); // 끄는 방향은 언제나 열려 있다
 
     await user.click(sw);
@@ -781,7 +772,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
   it('한방체결은 매수 무장 조건까지 함께 본다 — 매수를 못 켜면 한방도 못 켠다', () => {
     render(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 1 }) })} />);
 
-    expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: '한방체결 켜기' })).toBeDisabled();
     // 한방가격(130,000)은 정상이고 막은 것은 매수 쪽이다 — 문장이 매수 사유 **그대로**다.
     // (옛 「한방은 매수 무장 조건을 함께 요구해요 — 」 접두는 폐기됐다. 그 맥락 고지는 이제
     //  게이트 이름 나열이 한다 — 여기서는 매수가 이미 켜져 있어 한방만 나열된다.)
@@ -794,7 +785,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
   it('매도는 감시 호가잔량 0 일 때 못 켠다 — 서버가 눕히는 조건과 같은 축이다', () => {
     render(<LimitChaserForm {...props({ server: echo({ sellWatchQty: 0 }) })} />);
 
-    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: '매도주문 켜기' })).toBeDisabled();
     expect(armBlockedTexts()).toContain(
       '매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
     );
@@ -806,7 +797,7 @@ describe('⑬ 발주할 수 없는 전략은 무장되지 않는다 (WR-06)', ()
     // 무장 판정은 `sellOrderPrice`·`sellWatchQty` 만 본다.
     render(<LimitChaserForm {...props()} />);
 
-    await user.click(screen.getByRole('switch', { name: '매도주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매도주문 켜기' }));
     expect(lastConfig().sellEnabled).toBe(true);
   });
 });
@@ -862,7 +853,7 @@ describe('⑭ 전송 직전 가드가 「수정」에도 걸리고, 못 보낸 �
     );
 
     // 스위치를 끄면(끄는 방향은 허용) 그 자리에서 나가고, 폼의 게이트도 내려간다.
-    await user.click(screen.getByRole('switch', { name: '매수주문 켜기' }));
+    await user.click(screen.getByRole('checkbox', { name: '매수주문 켜기' }));
     expect(lastConfig().buyEnabled).toBe(false);
 
     // 그 뒤의 「수정」은 켜진 게이트가 없으므로 가드를 지난다.
@@ -877,19 +868,16 @@ describe('⑭ 전송 직전 가드가 「수정」에도 걸리고, 못 보낸 �
     sendMock.mockReturnValue(false); // `ready` 표시와 소켓 readyState 가 어긋나는 창
     render(<LimitChaserForm {...props()} />);
 
-    const sellSwitch = screen.getByRole('switch', { name: '매도주문 켜기' });
-    expect(sellSwitch).toHaveAttribute('aria-checked', 'false');
+    const sellSwitch = screen.getByRole('checkbox', { name: '매도주문 켜기' });
+    expect(sellSwitch).not.toBeChecked();
 
     await user.click(sellSwitch);
 
     expect(sendMock).toHaveBeenCalledTimes(1); // 시도는 했다
     // ★ 그러나 켜진 것처럼 보이지 않는다 — 이 화면 최악의 결과를 막는 단언이다.
-    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
+    expect(screen.getByRole('checkbox', { name: '매도주문 켜기' })).not.toBeChecked();
     expect(submitError()).toHaveTextContent(
-      '연결이 끊겨 스위치를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
+      '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
     );
   });
 
@@ -1298,7 +1286,8 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     */
     expect(card.className).toContain('[--card-base:transparent]');
     expect(card.className).toContain('@min-[992px]/lc:[--card-base:var(--card)]');
-    expect(card.className).toContain('bg-[var(--card-base)]');
+    // 방향 카드(매수)의 배경 한 줄은 틴트다 — 틴트가 `--card-base` 위에 섞인다(2026-09-23 전 밴드 틴트).
+    expect(card.className).toContain('bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))]');
     // 옛 뷰포트 분기가 한 톨도 남지 않았다.
     expect(card.className).not.toContain('min-[1280px]:');
     // 맨몸 크롬 유틸이 남아 있지 않다(모바일에서 그대로 걸린다).
@@ -1462,7 +1451,7 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(segment().className).toContain('border-[var(--primary)]');
   });
 
-  it('Q-06 — 매수/매도 카드가 방향색 5% 틴트를 **2열부터만** 갖는다 (폰 틴트 금지)', () => {
+  it('Q-06 — 매수/매도 카드가 방향색 5% 틴트를 **모든 밴드에서** 갖는다 (탭 화면도 펼친 화면처럼 · 2026-09-23)', () => {
     render(<LimitChaserForm {...props()} />);
 
     const buy = document.querySelector<HTMLElement>('[data-side="buy"]')!;
@@ -1470,24 +1459,12 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(buy).not.toBeNull();
     expect(sell).not.toBeNull();
 
-    expect(buy.className).toContain(
-      '@min-[700px]/lc:bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))]',
-    );
-    expect(sell.className).toContain(
-      '@min-[700px]/lc:bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))]',
-    );
-
     /*
-      ★ 폰(≤699)에는 틴트가 없어야 한다 — 탭 문구가 이미 어느 쪽인지 말한다.
-        접두 없는 방향색 배경 유틸리티가 하나라도 있으면 폰에서 그대로 칠해진다.
-        배경 선언은 `bg-[var(--card-base)]` **하나뿐**이라는 사실까지 함께 잠근다.
+      ★ 배경 선언은 요소당 **하나뿐**이다 — 접두 없는 틴트 한 줄. 둘이면 캐스케이드로 다툰다(ⓑ).
     */
-    for (const card of [buy, sell]) {
-      const bare = card.className
-        .split(/\s+/)
-        .filter((c) => c.startsWith('bg-'));
-      expect(bare).toEqual(['bg-[var(--card-base)]']);
-    }
+    const bgOf = (el: HTMLElement) => el.className.split(/\s+/).filter((c) => /(^|:)bg-/.test(c));
+    expect(bgOf(buy)).toEqual(['bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))]']);
+    expect(bgOf(sell)).toEqual(['bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))]']);
   });
 });
 
@@ -1598,7 +1575,7 @@ describe('quick-260912-ok2 — 액션 바 여백 · 체크박스 행', () => {
 */
 describe('18-10 — 더티 힌트 prop · body 포털 · 제어형 탭 (D-28 · D-19)', () => {
   const CARD_HINT =
-    '한미반도체 · 1개 미반영 · 「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요';
+    '한미반도체 · 1개 미반영 · 「수정」을 눌러야 반영돼요 · 체크하면 변경한 값까지 함께 반영돼요';
 
   it('`dirtyHint` 를 주면 바 보조문이 그 값이다 — 카드마다 종목명이 바에 선다', () => {
     render(<LimitChaserForm {...props({ dirtyHint: CARD_HINT })} />);
@@ -1608,7 +1585,7 @@ describe('18-10 — 더티 힌트 prop · body 포털 · 제어형 탭 (D-28 · 
     expect(within(bar).getByText(CARD_HINT)).toBeInTheDocument();
     // 기본 문구가 **따로 또** 서지 않는다 — 한 바에 보조문은 하나다.
     expect(
-      within(bar).queryByText('「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요'),
+      within(bar).queryByText('「수정」을 눌러야 반영돼요 · 체크하면 변경한 값까지 함께 반영돼요'),
     ).toBeNull();
   });
 
@@ -1618,7 +1595,7 @@ describe('18-10 — 더티 힌트 prop · body 포털 · 제어형 탭 (D-28 · 
 
     const bar = actionBar() as HTMLElement;
     expect(
-      within(bar).getByText('「수정」을 눌러야 반영돼요 · 스위치를 켜면 변경한 값까지 함께 반영돼요'),
+      within(bar).getByText('「수정」을 눌러야 반영돼요 · 체크하면 변경한 값까지 함께 반영돼요'),
     ).toBeInTheDocument();
   });
 

@@ -372,7 +372,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
 
     // ③ 스위치 3종 — 시각 라벨이 없으므로 `aria-label` 이 유일한 이름이다(펼친 카드 1장).
     for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기']) {
-      await expect(openCard.getByRole('switch', { name, exact: true })).toHaveCount(1);
+      await expect(openCard.getByRole('checkbox', { name, exact: true })).toHaveCount(1);
     }
 
     // ④ 상태줄 DMA 필은 `aria-live="polite"` — 포커스를 뺏지 않고 갱신을 알린다.

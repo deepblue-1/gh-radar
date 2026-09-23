@@ -248,7 +248,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     const { rerender } = render(<Card />);
 
     act(() => {
-      screen.getByRole('switch', { name: '매수주문 켜기' }).click();
+      screen.getByRole('checkbox', { name: '매수주문 켜기' }).click();
     });
     expect(sendMock).toHaveBeenCalledTimes(1);
 
@@ -309,7 +309,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     render(<Card />);
 
     act(() => {
-      screen.getByRole('switch', { name: '매수주문 켜기' }).click();
+      screen.getByRole('checkbox', { name: '매수주문 켜기' }).click();
     });
     expect(sendMock).toHaveBeenCalledTimes(1);
     expect(unacked()).toBeNull();
@@ -543,7 +543,7 @@ describe('헤더 래치 LED → `lc.arm` 전송 규율 (옛 ⑲)', () => {
  * 질문이다. 재전송을 만들지 않는다(T-16-10) — 전송 건수가 늘지 않는 것을 함께 단언한다.
  */
 describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
-  const buySwitch = () => screen.getByRole('switch', { name: '매수주문 켜기' });
+  const buySwitch = () => screen.getByRole('checkbox', { name: '매수주문 켜기' });
   const cfgOf = (nth: number) => lcSets()[nth]!.cfg as Record<string, unknown>;
 
   /** 매수를 켰다 끈다 — 켠 요청에는 서버가 답하지 않아 3초 뒤 「미반영」이 선다. */

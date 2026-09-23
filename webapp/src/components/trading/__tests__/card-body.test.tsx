@@ -242,9 +242,9 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
 
   it('그룹 제목줄 스위치 3개의 접근성 이름이 계약 원문이다', () => {
     render(<CardBody {...props()} />);
-    expect(screen.getByRole('switch', { name: '매수주문 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '매수주문 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '한방체결 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '매도주문 켜기' })).toBeInTheDocument();
   });
 });
 

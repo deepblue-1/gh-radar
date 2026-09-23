@@ -164,7 +164,7 @@ describe('ManualOrderForm — 4버튼 · 빈 폼 (D-20/D-21, E11 empty)', () => 
       '정정',
       '취소',
     ]);
-    expect(row.className).toContain('grid-cols-[repeat(4,minmax(0,1fr))]');
+    expect(row.className).toContain('grid-cols-[repeat(2,minmax(0,1fr))]');
     expect(btn('매수')).toBeEnabled();
     expect(btn('매도')).toBeEnabled();
     expect(btn('정정')).toBeDisabled();

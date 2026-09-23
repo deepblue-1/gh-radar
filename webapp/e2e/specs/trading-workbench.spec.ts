@@ -349,10 +349,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(cards(page)).toHaveCount(2, { timeout: 15_000 });
     await expect(grid(page)).toHaveAttribute('data-cols', '3');
     expect(await gridColumnCount(page)).toBe(3);
-    await expect(colsSegment(page).getByRole('radio', { name: '3단' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    await expect(colsSegment(page).getByRole('radio', { name: '3단' })).toBeChecked();
 
     // 폰 밴드 — 세그먼트가 **DOM 에서** 빠진다(접근성 트리·탭 체인에도 없다). 저장값이 3단이어도 1단.
     await page.setViewportSize(PHONE_VIEWPORT);
@@ -394,14 +391,11 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(card).toHaveAttribute('data-open', 'true');
     await expect(
       card.locator('[data-slot="card-exchange-segment"]').getByRole('radio', { name: 'KRX' }),
-    ).toHaveAttribute('aria-checked', 'true');
+    ).toBeChecked();
 
     // 스위치 전부 OFF · WinForms 기본값(주문금액 10만원 · 감시잔량 10,000) · 더티 바 없음.
     for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기']) {
-      await expect(card.getByRole('switch', { name, exact: true })).toHaveAttribute(
-        'aria-checked',
-        'false',
-      );
+      await expect(card.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
     }
     await expect(field(page, 'lc-buy-order-amount')).toHaveValue('10');
     await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000');
@@ -829,7 +823,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     // ★ WR-06 — 발주할 수 없는 전략은 무장되지 않는다(10만원 / 12.74만 = 0주).
     const card = cardOf(page, E2E_ISIN);
-    const buySwitch = card.getByRole('switch', { name: '매수주문 켜기' });
+    const buySwitch = card.getByRole('checkbox', { name: '매수주문 켜기' });
     await expect(buySwitch).toBeDisabled();
     await expect(card.locator('[data-slot="lc-arm-blocked"]').first()).toBeVisible();
     await field(page, 'lc-buy-order-amount').fill('50'); // 50만원 → 3주
@@ -1239,7 +1233,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
     await expect(page.getByRole('button', { name: /삭제/ })).toHaveCount(0);
-    await cardOf(page, E2E_ISIN).getByRole('switch', { name: '매수주문 켜기' }).click();
+    await cardOf(page, E2E_ISIN).getByRole('checkbox', { name: '매수주문 켜기' }).click();
     await waitForSetAtGateway(relay, before + 1);
 
     // 삭제 판정은 스위치가 아니라 서버 에코의 `crud` 다(Pitfall 7).
@@ -1501,10 +1495,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(field(page, 'vi-krx-amount')).toHaveValue('1,000', { timeout: 15_000 });
     await expect(field(page, 'vi-krx-rate')).toHaveValue('22');
     await expect(viRow(page)).toHaveAttribute('data-run', 'false');
-    await expect(viRow(page).getByRole('switch', { name: 'VI KRX 시작' })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    );
+    await expect(viRow(page).getByRole('switch', { name: 'VI KRX 시작' })).not.toBeChecked();
     // 계좌 비밀번호·종목·주문유형 UI 가 없다(B2).
     await expect(page.locator('input[type="password"]')).toHaveCount(0);
     // 더티 0 이면 「수정」이 렌더 자체가 없다(B4).
@@ -1590,10 +1581,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     // 반영의 증거는 에코다 — 줄과 사이드바가 같은 프레임으로 함께 움직인다.
     await pushViEcho(relay, true, { orderAmountKrw: 15_000_000n, checkRate: 25 });
     await expect(viRow(page)).toHaveAttribute('data-run', 'true', { timeout: 15_000 });
-    await expect(viRow(page).getByRole('switch', { name: 'VI KRX 중지' })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    await expect(viRow(page).getByRole('switch', { name: 'VI KRX 중지' })).toBeChecked();
     const sidebarVi = desktopNav(page).locator('[data-sidebar-item="vi"]');
     await expect(sidebarVi.locator('[data-slot="exchange-tag"][data-exchange="KRX"]')).toHaveCount(1, {
       timeout: 15_000,
