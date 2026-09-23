@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko" data-theme="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>수정 바 위치 목업</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root { --bg:#FFFFFF; --fg:oklch(0.18 0 0); --muted:oklch(0.96 0 0); --muted-fg:oklch(0.50 0 0); --border:oklch(0.92 0 0); --border-subtle:oklch(0.18 0 0 / 0.06); --card:#FFFFFF; --primary:oklch(0.63 0.18 250); --accent:oklch(0.95 0.03 250); --accent-fg:oklch(0.35 0.12 250); --destructive-fg:#FFFFFF; --up:oklch(0.66 0.20 22); --down:oklch(0.63 0.18 250); --led-latent:oklch(0.74 0.17 62); --led-armed:oklch(0.68 0.19 150); --r:6px; --r-md:8px; --r-lg:12px; --font-sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',system-ui,sans-serif; --font-mono:'Geist Mono',ui-monospace,monospace; }
+:root[data-theme="dark"] { --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0); --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250); --destructive-fg:oklch(0.10 0 0); --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --led-latent:oklch(0.80 0.16 70); --led-armed:oklch(0.76 0.18 150); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:oklch(0.08 0 0); --fg:oklch(0.96 0 0); --muted:oklch(0.18 0 0); --muted-fg:oklch(0.65 0 0); --border:oklch(0.24 0 0); --border-subtle:oklch(1 0 0 / 0.06); --card:oklch(0.12 0 0); --primary:oklch(0.72 0.16 250); --accent:oklch(0.22 0.05 250); --accent-fg:oklch(0.85 0.10 250); --destructive-fg:oklch(0.10 0 0); --up:oklch(0.72 0.19 22); --down:oklch(0.72 0.16 250); --led-latent:oklch(0.80 0.16 70); --led-armed:oklch(0.76 0.18 150); } }
+* { box-sizing:border-box; }
+html,body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--font-sans); font-size:14px; line-height:1.5; }
+button { font:inherit; color:inherit; cursor:pointer; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+.up { color:var(--up); }
+.ctl { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:8px 14px; padding:8px 16px; background:color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); font-size:12px; align-items:center; }
+.ctl span { color:var(--muted-fg); }
+.ctl button { height:26px; padding:0 9px; border:1px solid var(--border); background:var(--card); border-radius:var(--r); font-size:11px; font-weight:600; }
+.ctl button[aria-pressed="true"] { background:var(--accent); color:var(--accent-fg); border-color:transparent; }
+.wrap { max-width:1200px; margin:0 auto; padding:18px 16px 60px; }
+h1 { font-size:18px; margin:0 0 4px; } p.note { margin:0 0 14px; color:var(--muted-fg); font-size:12px; } p.note b { color:var(--fg); }
+.vars { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; }
+.var { flex:none; }
+.var h3 { font-size:13px; margin:0 0 4px; display:flex; gap:6px; align-items:center; }
+.tag { font-size:10px; font-weight:700; padding:1px 6px; border-radius:999px; background:var(--accent); color:var(--accent-fg); }
+.rec { font-size:10px; font-weight:700; padding:1px 6px; border-radius:999px; background:var(--led-armed); color:#fff; }
+.var p { margin:0 0 8px; font-size:11px; color:var(--muted-fg); max-width:var(--vw); }
+/* 가짜 뷰포트 — 스크롤되는 화면 */
+.vp { width:var(--vw); height:560px; border:1px solid var(--border); border-radius:14px; overflow:auto; position:relative; background:var(--bg); }
+.vp .inner { padding:10px; display:flex; flex-direction:column; gap:10px; }
+.card { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--card); }
+.card.open { box-shadow:0 8px 24px oklch(0 0 0 / .05); }
+.card.dirty { border-color:color-mix(in oklch, var(--primary) 55%, var(--border)); }
+.ch { display:flex; align-items:center; gap:8px; padding:8px 10px; }
+.ch b { font-size:15px; } .ch .c { font-size:10px; color:var(--muted-fg); }
+.ch .px { margin-left:auto; font-weight:700; }
+.dots { display:inline-flex; gap:4px; padding:0 6px; height:22px; align-items:center; border:1px solid var(--border); border-radius:999px; }
+.dots i { width:9px; height:9px; border-radius:999px; border:1.5px solid var(--muted-fg); }
+.dots i.l { background:var(--led-latent); border:0; }
+.tabs { display:flex; gap:2px; padding:4px 8px 0; border-top:1px solid var(--border-subtle); font-size:11px; }
+.tabs span { padding:2px 9px; border-radius:var(--r); color:var(--muted-fg); font-weight:600; }
+.tabs span.on { background:var(--accent); color:var(--accent-fg); }
+.qi { display:grid; grid-template-columns:repeat(2,1fr); gap:0 12px; padding:4px 10px 8px; font-size:11px; }
+.qi div { display:flex; justify-content:space-between; } .qi .k { color:var(--muted-fg); }
+.cb { display:grid; grid-template-columns:42% 1fr; border-top:1px solid var(--border); }
+.pane { padding:8px; min-width:0; }
+.pane.ob { border-right:1px solid var(--border); }
+.gh { height:18px; border-radius:3px; background:var(--muted); margin:5px 0; }
+.grp { font-size:12px; font-weight:700; margin:4px 0; display:flex; justify-content:space-between; }
+.sw { width:36px; height:20px; border-radius:999px; background:var(--border); display:inline-block; }
+.fld { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted-fg); margin:4px 0; }
+.fld .in { width:58%; height:28px; border:1px solid var(--border); border-radius:var(--r); display:flex; align-items:center; justify-content:flex-end; padding:0 8px; color:var(--fg); font-family:var(--font-mono); }
+.fld.d .in { border-color:var(--primary); background:color-mix(in oklch, var(--primary) 6%, transparent); }
+/* 수정 바 공통 */
+.bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; border-top:1px solid var(--primary); background:color-mix(in oklch, var(--card) 96%, transparent); backdrop-filter:blur(8px); }
+.bar .t { flex:1 1 auto; min-width:0; }
+.bar .t b { display:block; font-size:12px; } .bar .t small { display:block; font-size:10px; color:var(--muted-fg); }
+.bar button { height:34px; padding:0 14px; border-radius:var(--r-md); font-size:12px; font-weight:600; border:1px solid var(--border); background:var(--bg); }
+.bar button.p { background:var(--primary); border-color:var(--primary); color:var(--destructive-fg); }
+/* A 현재: 화면 하단 고정 */
+.bar.fixed { position:sticky; bottom:0; z-index:5; margin-top:auto; }
+/* B 카드 하단 sticky */
+.bar.card-sticky { position:sticky; bottom:0; border-radius:0 0 var(--r-lg) var(--r-lg); z-index:3; }
+/* C 옵션 칸 하단 인라인 */
+.bar.inline { border:1px solid var(--primary); border-radius:var(--r-md); margin-top:8px; padding:6px 8px; }
+.bar.inline .t b { font-size:11px; } .bar.inline button { height:30px; padding:0 10px; flex:1; }
+.vp .fill { height:200px; }
+.sp { font-size:11px; color:var(--muted-fg); padding:4px 2px; }
+</style>
+</head>
+<body>
+<div class="ctl">
+  <span>테마</span><button data-t="" aria-pressed="true">시스템</button><button data-t="light">라이트</button><button data-t="dark">다크</button>
+  <span style="margin-left:10px">화면 폭</span><button data-w="390" aria-pressed="true">390 (폰)</button><button data-w="720">720</button>
+</div>
+<div class="wrap">
+  <h1>옵션 수정 시 「수정」 바 위치</h1>
+  <p class="note">한미반도체 카드에서 <b>매수 비교가격·감시잔량 2개</b>를 고친 상태다. 각 화면 안을 스크롤해 보면 바가 어떻게 따라오는지 보인다. 카드 아래에 삼성전자 카드가 하나 더 있다.</p>
+  <div class="vars" id="vars"></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+let VW = 390;
+const card = (bar) => `
+  <article class="card open ${bar ? 'dirty' : ''}">
+    <header class="ch"><span>▼</span><div><b>한미반도체</b><div class="c mono">042700</div></div><span class="px mono up">128,700 <small>+1.42%</small></span></header>
+    <div class="ch" style="padding-top:0"><span class="dots"><i class="l"></i><i></i><i></i></span><span style="margin-left:auto;color:var(--muted-fg);font-size:12px">ⓘ ✕</span></div>
+    <div class="tabs"><span class="on">정보</span><span>미체결(2)</span><span>잔고(1)</span><span>로그(3)</span></div>
+    <div class="qi"><div><span class="k">기준</span><span class="mono">126,900</span></div><div><span class="k">시가</span><span class="mono up">128,169</span></div><div><span class="k">고가</span><span class="mono up">129,000</span></div><div><span class="k">저가</span><span class="mono">125,631</span></div></div>
+    <div class="cb">
+      <div class="pane ob">${'<div class="gh"></div>'.repeat(14)}</div>
+      <div class="pane">
+        <div class="grp">매수주문 <i class="sw"></i></div>
+        <div class="fld d"><span>비교가격</span><span class="in">128,500</span></div>
+        <div class="fld d"><span>감시잔량</span><span class="in">12,000</span></div>
+        <div class="fld"><span>매수금액</span><span class="in">5,000,000</span></div>
+        <div class="fld"><span>호가</span><span class="in">상한가</span></div>
+        <div class="grp" style="margin-top:10px">매수취소</div>
+        <div class="fld"><span>취소잔량</span><span class="in">25</span></div>
+        <div class="fld"><span>체결대금</span><span class="in">—</span></div>
+        <div class="grp" style="margin-top:10px">매도주문 <i class="sw"></i></div>
+        <div class="fld"><span>비교가격</span><span class="in">—</span></div>
+        <div class="fld"><span>감시잔량</span><span class="in">—</span></div>
+        ${bar === 'inline' ? barHtml('inline') : ''}
+      </div>
+    </div>
+    ${bar === 'card-sticky' ? barHtml('card-sticky') : ''}
+  </article>`;
+const other = `<article class="card"><header class="ch"><span>▶</span><div><b>삼성전자</b><div class="c mono">005930</div></div><span class="px mono up">98,100 <small>+0.31%</small></span></header><div class="ch" style="padding-top:0"><span class="dots"><i></i><i></i><i></i></span></div></article>`;
+const barHtml = (kind) => `<div class="bar ${kind}"><div class="t"><b>${kind === 'fixed' ? '' : ''}변경한 값 2개가 아직 반영되지 않았어요</b>${kind === 'inline' ? '' : '<small>스위치를 켜면 이 값도 함께 반영돼요</small>'}</div><button>되돌리기</button><button class="p">수정</button></div>`;
+const barFixed = `<div class="bar fixed"><div class="t"><b>변경한 값 2개가 아직 서버에 반영되지 않았어요</b><small>한미반도체 · 스위치를 켜면 이 값도 함께 반영돼요</small></div><button>되돌리기</button><button class="p">수정</button></div>`;
+const V = [
+  { tag: 'A', title: '지금 — 화면 하단 고정', note: '어느 카드를 고쳤는지 바가 카드와 떨어져 있어 종목명 문구로만 안다. 카드를 스크롤해 지나가도 화면 아래에 남는다.', body: () => `<div class="inner" style="min-height:100%">${card('')}${other}<div class="fill"></div></div>${barFixed}` },
+  { tag: 'B', rec: 1, title: '카드 하단 붙임 (sticky)', note: '바가 카드의 마지막 줄로 붙고 카드 테두리가 파랗게 바뀐다. 카드가 화면보다 길면 카드가 보이는 동안 화면 아래에 붙어 따라오고, 카드를 지나가면 카드와 함께 사라진다. 종목명은 뺀다.', body: () => `<div class="inner">${card('card-sticky')}${other}<div class="fill"></div></div>` },
+  { tag: 'C', title: '옵션 칸 맨 아래 인라인', note: '옵션 입력 바로 아래 작은 상자. 가장 가깝지만 옵션이 길면 스크롤해 내려가야 보이고, 폰 폭에서는 버튼이 좁다.', body: () => `<div class="inner">${card('inline')}${other}<div class="fill"></div></div>` },
+];
+function render() {
+  $('#vars').innerHTML = V.map(v => `<div class="var" style="--vw:${VW}px"><h3><span class="tag">${v.tag}</span>${v.title}${v.rec ? ' <span class="rec">추천</span>' : ''}</h3><p>${v.note}</p><div class="vp" style="${v.tag === 'A' ? 'display:flex;flex-direction:column' : ''}">${v.body()}</div></div>`).join('');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('.ctl button'); if (!b) return;
+  if (b.dataset.t !== undefined) { document.documentElement.dataset.theme = b.dataset.t; document.querySelectorAll('[data-t]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }
+  if (b.dataset.w) { VW = +b.dataset.w; document.querySelectorAll('[data-w]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); render(); }
+});
+render();
+</script>
+</body>
+</html>
