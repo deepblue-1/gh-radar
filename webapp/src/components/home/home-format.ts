@@ -1,4 +1,5 @@
 import type {
+  HomeSurgeSingle,
   HomeSurgeStock,
   HomeSurgeTheme,
   HomeThemeSnapshot,
@@ -9,6 +10,7 @@ import type {
  *
  * 화면(ThemeCard·SoloCard)과 클립보드 복사 텍스트가 같은 함수를 써서 둘이 어긋나지 않는다.
  * 순수 함수만 — React·'use client' 없음.
+ * quick-260923-cre: 개별 급등 복사 포매터(formatSingleBlock·formatSinglesSummary) 추가.
  */
 
 /** KST(Asia/Seoul) HH:MM 라벨. */
@@ -59,6 +61,19 @@ export function formatThemeBlock(theme: HomeSurgeTheme, order?: number): string 
   for (const stock of sortStocksByChangeDesc(theme.stocks)) {
     lines.push(`- ${stock.name} ${formatChange(stock.changeRate)}`);
   }
+  return lines.join('\n');
+}
+
+/**
+ * 개별 급등 종목 1건 복사 블록 (quick-260923-cre D-02).
+ *   `{order}. {종목명} {+x.x%}` — order 없으면 번호 생략(카드별 복사)
+ *   `{reason}`                 — reason 이 truthy 일 때만 (카드 렌더 조건과 동일)
+ * 뉴스 제목·URL·종목코드는 넣지 않는다. 끝 개행 없음.
+ */
+export function formatSingleBlock(single: HomeSurgeSingle, order?: number): string {
+  const prefix = order === undefined ? '' : `${order}. `;
+  const lines = [`${prefix}${single.name} ${formatChange(single.changeRate)}`];
+  if (single.reason) lines.push(single.reason);
   return lines.join('\n');
 }
 
