@@ -96,6 +96,58 @@ Phase 17 이전 By Phase 표 행 전부(원문 순서).
 | Phase 16 P42 | ~40분 | 3 tasks | 5 files |
 | Phase 16 P44 | 18min | 2 tasks | 2 files |
 
+**Per-Plan Metrics (Phase 17·18, 2026-09-24 이관 — STATE.md 에는 헤더만 남김):**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 17 P01 | 24 min | 3 tasks | 46 files |
+| Phase 17 P02 | 8 min | 3 tasks | 7 files |
+| Phase 17 P07 | 8 min | 3 tasks | 3 files |
+| Phase 17 P03 | 16 min | 3 tasks | 11 files |
+| Phase 17 P08 | 17 min | 3 tasks | 6 files |
+| Phase 17 P04 | 14 min | 3 tasks | 5 files |
+| Phase 17 P05 | 1h 9m | 3 tasks | 12 files |
+| Phase 17 P06 | 15 min | 3 tasks | 17 files |
+| Phase 17 P09 | 11 min | 3 tasks | 4 files |
+| Phase 17 P10 | 15 min | 3 tasks | 4 files |
+| Phase 17 P11 | 14 min | 3 tasks | 6 files |
+| Phase 17 P12 | 14 min | 3 tasks | 11 files |
+| Phase 18 P01 | 15min | 3 tasks | 16 files |
+| Phase 18 P02 | 2 min | 2 tasks | 5 files |
+| Phase 18 P04 | 10min | 3 tasks | 8 files |
+| Phase 18 P05 | 17min | 3 tasks | 9 files |
+| Phase 18 P06 | 15min | 3 tasks | 7 files |
+| Phase 18 P07 | 12min | 3 tasks | 5 files |
+| Phase 18 P08 | 40min | 3 tasks | 8 files |
+| Phase 18 P09 | 16 min | 3 tasks | 7 files |
+| Phase 18 P10 | 24min | 3 tasks | 14 files |
+| Phase 18 P11 | 15min | 3 tasks | 14 files |
+| Phase 18 P12 | 12min | 3 tasks | 17 files |
+| Phase 18 P13 | 48min | 3 tasks | 30 files |
+| Phase 18 P03 | 10min | 2 tasks | 1 files |
+| Phase 18 P14 | 3 min | 2 tasks | 9 files |
+| Phase 18 P15 | 4 min | 2 tasks | 2 files |
+| Phase 18 P16 | 4 min | 3 tasks | 4 files |
+| Phase 18 P17 | 15 min | 2 tasks | 6 files |
+| Phase 18 P19 | 12 min | 2 tasks | 2 files |
+| Phase 18 P18 | 5min | 3 tasks | 0 files |
+| Phase 18 P20 | 12 min | 3 tasks | 5 files |
+| Phase 18 P21 | 13min | 3 tasks | 9 files |
+| Phase 18 P22 | 10 min | 2 tasks | 7 files |
+| Phase 18 P23 | 5 min | 2 tasks | 2 files |
+| Phase 18 P24 | 6min | 2 tasks | 4 files |
+| Phase 18 P25 | 8min | 2 tasks | 4 files |
+| Phase 18 P26 | 12min | 2 tasks | 9 files |
+| Phase 18 P27 | 5min | 2 tasks | 6 files |
+| Phase 18 P28 | 12min | 2 tasks | 2 files |
+| Phase 18 P30 | 12min | 2 tasks | 6 files |
+| Phase 18 P31 | 7min | 3 tasks | 9 files |
+| Phase 18 P32 | 9min | 2 tasks | 4 files |
+| Phase 18 P33 | 5min | 2 tasks | 6 files |
+| Phase 18 P34 | 10min | 3 tasks | 9 files |
+| Phase 18 P35 | 8min | 3 tasks | 7 files |
+| Phase 18 P36 | 7min | 2 tasks | 5 files |
+
 ## Quick Tasks Completed
 
 STATE.md 에 남긴 최근 10행을 뺀 quick 이력 전부(원문 표 순서).
