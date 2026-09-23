@@ -892,6 +892,20 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       'title',
       `삼성전자 · 계좌 ${E2E_ACCOUNT_NO} · NXT`,
     );
+
+    // quick-260923-pgv — 등록 카드도 세그먼트가 활성 · 충돌(NXT 카드 있음)이면 이 카드는 그대로, 그 카드가 펼쳐진다.
+    // NXT 카드를 먼저 접어 둔다 — 펼침이 이미 참이면 충돌 이동을 증명하지 못한다.
+    await cardByKey(page, nxtKey).locator('[data-slot="card-header"] button[aria-expanded]').click();
+    await expect(cardByKey(page, nxtKey)).toHaveAttribute('data-open', 'false');
+    const krxNxtRadio = cardByKey(page, STRATEGY_KEY)
+      .locator('[data-slot="card-exchange-segment"]')
+      .getByRole('radio', { name: 'NXT' });
+    await expect(krxNxtRadio).toBeEnabled();
+    await krxNxtRadio.click();
+    await expect(cardByKey(page, STRATEGY_KEY)).toHaveCount(1);
+    await expect(cardByKey(page, nxtKey)).toHaveAttribute('data-open', 'true');
+    await expect(cards(page)).toHaveCount(2);
+    await expect(page.getByTestId('workbench-exchange-confirm')).toHaveCount(0);
   });
 
   test('GC4 카드 없는 종목의 미체결을 누르면 그 종목 카드가 붙어 펼쳐지고 수동주문에 원주문 칩이 선다 (WR-04 · D-21)', async ({
