@@ -66,6 +66,11 @@ const NO_MARKET_ISIN = "KR7000660001";
 const SECOND_ISIN = "KR7035720002";
 /** 종목마스터에 아예 없는 종목. */
 const UNKNOWN_ISIN = "KR7999999999";
+/**
+ * 당일 신규상장 — Supabase `stocks` 에 없고 게이트웨이 종목마스터(57) 보조 원천에서만 풀린다
+ * (quick-260923-cqj). 그 코드는 `stocks` FK 를 만족하지 않을 수 있어 감사 행에는 null 이다 (D-06).
+ */
+const GATEWAY_ISIN = "KR70010S0000";
 
 const USER_A = "3f1c2b7a-9d40-4a11-8e55-00000000000a";
 const USER_B = "3f1c2b7a-9d40-4a11-8e55-00000000000b";
@@ -154,6 +159,9 @@ const SYMBOLS: SymbolLookup = {
     if (isin === SAMPLE_ISIN) return { code: "005930", name: "삼성전자", market: "K" };
     if (isin === SECOND_ISIN) return { code: "035720", name: "카카오", market: "Q" };
     if (isin === NO_MARKET_ISIN) return { code: "000660", name: "시장미상", market: null };
+    if (isin === GATEWAY_ISIN) {
+      return { code: "0010S0", name: "신규상장", market: "Q", source: "gateway" };
+    }
     return undefined;
   },
 };
@@ -356,6 +364,46 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(orders.updates).toContainEqual(
       expect.objectContaining({ orderRowId: "row-1", orderNo: "0000012345", status: "accepted" }),
     );
+  });
+
+  it("①-b 게이트웨이 보조 원천 종목(당일 신규상장)은 market Q 로 나가고 감사 행의 stock_code 는 null 이다 (quick-260923-cqj D-06)", async () => {
+    const { ws } = await authed("token-a");
+
+    ws.sendRaw(orderNew({ isin: GATEWAY_ISIN }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "DirectOrderReq(2) 송신");
+
+    // 주문 자체는 게이트웨이로 나간다 — ISIN 과 보조 원천의 시장으로 조립된다.
+    const req = orderReqsOf(gatewayPayloads)[0]?.directOrderReq();
+    expect(req?.stockCode()).toBe(GATEWAY_ISIN);
+    expect(req?.market()).toBe("Q");
+
+    // FK → stocks(code) — 게이트웨이 코드를 쓰면 insert 가 FK 위반으로 실패해 주문이 거부된다.
+    expect(orders.inserts).toHaveLength(1);
+    expect(orders.inserts[0]).toMatchObject({ isin: GATEWAY_ISIN, market: "Q", origin: "manual" });
+    expect(orders.inserts[0]?.code).toBeNull();
+  });
+
+  it("①-c 게이트웨이 보조 원천 종목의 자동주문(상따) 통보도 감사 행의 stock_code 는 null 이다 (quick-260923-cqj D-06)", async () => {
+    await authed("token-a");
+
+    gateway.pushOrderResp(gatewaySocket(), {
+      isin: GATEWAY_ISIN,
+      noticeType: "A",
+      orderNo: "0000077777",
+      origin: "LimitChaser",
+      quantity: 5,
+      price: 15_000,
+    });
+    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
+
+    expect(orders.inserts[0]).toMatchObject({
+      userId: USER_A,
+      origin: "limit_chaser",
+      isin: GATEWAY_ISIN,
+      market: "Q",
+      orderNo: "0000077777",
+    });
+    expect(orders.inserts[0]?.code).toBeNull();
   });
 
   it("② order.result 는 요청한 연결에만 간다 — 51 푸시는 두 연결 모두 받는다 (T-16-03)", async () => {

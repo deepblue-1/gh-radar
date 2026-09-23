@@ -92,6 +92,8 @@ const symbols = new SymbolMap(supabase, { fallback: gatewaySymbols });
 void symbols.start();
 
 const hub = new SubscriptionHub({ symbols, symbolMaster: gatewaySymbols });
+// 첫 Ready 에서 66/64/72 가 57 조립보다 먼저 와 이름 없이 캐시·팬아웃되므로, 교체 뒤 풀린 행만 재방송한다 (D-08).
+gatewaySymbols.on("updated", () => hub.refreshNames());
 
 /**
  * 브라우저 wss 포트(8090)의 HTTP 서버.

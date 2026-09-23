@@ -294,6 +294,24 @@ function viTriggerKey(userId: string, exchange: RelayExchange): string {
 const VI_PREFETCH_EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
 
 /**
+ * 이름 없는(`undefined`·`""`) 행에만 종목명(과 선택적으로 단축코드)을 채운다 (`refreshNames` 전용).
+ *
+ * 기존 보강(`#enrichNames` 등)을 재사용하지 않는 이유: 그쪽은 이미 이름이 있는 행도 덮어쓰고
+ * 미해석 로그를 남긴다. 여기서는 「이번에 새로 풀린 행」만 골라야 재방송 대상이 정확하다.
+ * 바뀌지 않으면 **같은 참조**를 돌려준다 — 호출부가 참조 비교로 변경을 판정한다.
+ */
+function fillMissingName<T extends { isin: string; name?: string; code?: string }>(
+  symbols: SymbolLookup,
+  row: T,
+  withCode: boolean,
+): T {
+  if (row.name !== undefined && row.name !== "") return row;
+  const info = symbols.lookup(row.isin);
+  if (info === undefined) return row;
+  return withCode ? { ...row, name: info.name, code: info.code } : { ...row, name: info.name };
+}
+
+/**
  * 구독 참조계수 + 스냅샷 캐시의 단일 정본.
  *
  * 사용법: 세션을 얻은 직후 `attach(session)` → 브라우저 `sub`/`unsub` 마다
@@ -700,6 +718,92 @@ export class SubscriptionHub extends EventEmitter {
   getTape(userId: string, isin: string, exchange: RelayExchange): RelayTapeEntry[] | undefined {
     const ring = this.#tapes.get(subKey(userId, isin, exchange));
     return ring === undefined ? undefined : [...ring];
+  }
+
+  /**
+   * 보조 종목마스터 교체 뒤 **이름 없던 캐시 행**을 풀어 영향받은 사용자에게만 다시 내린다
+   * (quick-260923-cqj D-08). `GatewaySymbolMaster` 의 `"updated"` 가 부른다(`index.ts`).
+   *
+   * 왜 필요한가: 상장 첫날 아침 첫 Ready 에서 relay 는 66(계좌)·64(상따)·72(VI)와 27 을 한꺼번에
+   * 요청하고, 27 은 publisher 명령 큐를 거쳐 약 10프레임으로 오므로 66/64 가 마스터 조립보다
+   * **먼저** 도착한다. 그때 캐시된 행은 이름 없이 팬아웃되고, 거래가 없는 잔고 행은 델타도 오지
+   * 않아 계속 ISIN 으로 남는다. 다음 푸시를 기다리는 것으로는 부족하다.
+   *
+   * 새 프레임 계약은 만들지 않는다 — 브라우저가 이미 부작용 없이 처리하는 기존 모양만 쓴다:
+   *   - 계좌: 캐시의 `snap:true` 전량 뷰(66 재수신과 같다).
+   *   - 상따: `lc.snap` — **64 를 이미 받은 사용자에게만**(18-26 — 「모름」을 「없음」으로 말하지
+   *     않는다). ⚠️ 합성 `{t:"lc"}` 단건은 보내지 않는다 — webapp 리듀서가 그 프레임마다
+   *     `lastLimitChaserEcho`(「서버가 답했다」의 유일한 증거)를 갱신하기 때문이다.
+   *   - VI 주문: `vi.list` `snap:false` 로 바뀐 항목만(73 과 같다).
+   *
+   * 대상이 아닌 것: 등락률 돌파(76/78)는 팬아웃 시점과 getter 에서 이미 보강하고, VI 발동
+   * 통보(56)·시세는 일회성이라 캐시가 없다.
+   *
+   * 멱등이다 — 이름 있는 행은 건드리지 않으므로 곧바로 다시 불러도 팬아웃 0건이고, 평소
+   * (Supabase 가 이미 다 풀었을 때)에는 재방송도 로그도 없다.
+   */
+  refreshNames(): void {
+    const symbols = this.#symbols;
+    if (symbols === undefined) return;
+    const userOf = (key: string): string => key.slice(0, key.indexOf("|"));
+
+    // (a) 계좌 — 잔고·미체결 행에 name+code (`#enrichNames` 와 같은 필드 구성).
+    let accounts = 0;
+    for (const [key, state] of this.#accountStates) {
+      let changed = false;
+      const fill = <T extends { isin: string; name?: string; code?: string }>(row: T): T => {
+        const next = fillMissingName(symbols, row, true);
+        if (next !== row) changed = true;
+        return next;
+      };
+      const hold = state.hold.map(fill);
+      const unf = state.unf.map(fill);
+      if (!changed) continue;
+      const next: RelayAccountState = { ...state, hold, unf };
+      this.#accountStates.set(key, next);
+      this.#fanout(userOf(key), next);
+      accounts += 1;
+    }
+
+    // (b) 상따 — name+code (`#enrichLimitChaser` 와 같다). 바뀐 사용자만 lc.snap.
+    const lcUsers = new Set<string>();
+    for (const [key, item] of this.#limitChasers) {
+      const next = fillMissingName(symbols, item, true);
+      if (next === item) continue;
+      this.#limitChasers.set(key, next);
+      lcUsers.add(userOf(key));
+    }
+    let limitChaserUsers = 0;
+    for (const userId of lcUsers) {
+      // 합성 `lc` 단건 금지 — webapp lastLimitChaserEcho 가 서버 응답 증거라서.
+      if (!this.hasLimitChaserList(userId)) continue;
+      this.#fanout(userId, { t: "lc.snap", items: this.getLimitChasers(userId) });
+      limitChaserUsers += 1;
+    }
+
+    // (c) VI 주문 — name 만 (`#enrichViOrder` 와 같다). 바뀐 항목만 snap:false.
+    const viByUser = new Map<string, RelayViOrderItem[]>();
+    for (const [key, item] of this.#viOrders) {
+      const next = fillMissingName(symbols, item, false);
+      if (next === item) continue;
+      this.#viOrders.set(key, next);
+      const userId = userOf(key);
+      const list = viByUser.get(userId) ?? [];
+      list.push(next);
+      viByUser.set(userId, list);
+    }
+    let viOrders = 0;
+    for (const [userId, items] of viByUser) {
+      this.#fanout(userId, { t: "vi.list", snap: false, items });
+      viOrders += items.length;
+    }
+
+    if (accounts + limitChaserUsers + viOrders > 0) {
+      logger.info(
+        { accounts, limitChaserUsers, viOrders },
+        "[HUB] 보조 종목마스터 반영 — 이름 없던 캐시 행 재방송",
+      );
+    }
   }
 
   /**
