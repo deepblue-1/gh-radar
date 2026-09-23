@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type {
   RelayAccountState,
   RelayLimitChaser,
@@ -162,6 +162,9 @@ import { LEAVE_WARNING } from '@/lib/use-leave-warning';
 import {
   cardForAlert,
   cardForUnfilled,
+  closeLockedExchangesLine,
+  EXCHANGE_SWITCH_TITLE,
+  exchangeSwitchBody,
   fillAccountCards,
   holdingQuotePrice,
   restoreSavedCards,
@@ -1376,7 +1379,7 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
     expect(dialog.textContent).not.toContain('결과를 모르는 주문');
   });
 
-  it('⑦ 키 범위 — 같은 ISIN 다른 거래소(NXT) · 다른 계좌 키 잠금은 이 카드 ✕ 에 영향이 없다', () => {
+  it('⑦ 키 범위 — 다른 계좌 키 잠금은 이 카드 ✕ 에 영향이 없고, 같은 계좌·ISIN 의 다른 거래소(NXT) 잠금은 거래소를 밝혀 경고한다 (quick-260923-pgv)', () => {
     mockRelay = relay({
       limitChasers: [lc(SAMSUNG), lc(SAMSUNG, { exchange: 'NXT' }), lc(SAMSUNG, { accountNo: OTHER_ACCOUNT })],
       sendOrder: vi.fn(),
@@ -1387,13 +1390,19 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
       [keyOf(SAMSUNG, 'NXT'), 'result-unknown'],
       [keyOf(SAMSUNG, 'KRX', OTHER_ACCOUNT), 'in-flight'],
     ]);
-    // KRX · 이 계좌 카드(첫 카드)는 등록 전략일 뿐이다 → registered.
+    // KRX · 이 계좌 카드(첫 카드) — 자기 키는 안 잠겼지만 같은 계좌·ISIN 의 NXT 키가 잠겼다 → unknown ·
+    // 잠긴 거래소는 NXT 만(다른 계좌 KRX 잠금은 섞이지 않는다) · 등록 전략 문장도 붙는다
+    // (quick-260923-pgv — 거래소 토글이 자유로워져 ✕ 판정을 두 거래소 키로 넓혔다).
     fireEvent.click(screen.getAllByRole('button', { name: /카드 닫기$/ })[0]);
-    expect(dialogEl().getAttribute('data-reason')).toBe('registered');
+    expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
+    expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('NXT');
+    expect(dialogEl().textContent).toContain(closeLockedExchangesLine(['NXT']));
+    expect(dialogEl().textContent).toContain(REGISTERED_BODY);
     fireEvent.click(within(dialogEl()).getByRole('button', { name: '취소' }));
     // NXT 카드는 자기 키가 잠겼다 → unknown.
     fireEvent.click(screen.getAllByRole('button', { name: /카드 닫기$/ })[1]);
     expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
+    expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('NXT');
     fireEvent.click(within(dialogEl()).getByRole('button', { name: '취소' }));
     expect(cardsInDom()).toHaveLength(3);
     // 본문은 어느 카드도 잠금을 모른다.
@@ -1402,13 +1411,51 @@ describe('TradingWorkbench — R3-WR-02 — 잠금은 RelayProvider 가 들고 �
     }
   });
 
-  it('⑦-b 잠금은 요청의 키를 따른다 — 같은 종목 KRX 카드 · NXT 카드 중 NXT 키만 잠기면 KRX 미등록 카드는 즉시 닫힌다', () => {
+  it('⑦-b 잠금은 요청의 키에 걸리지만 ✕ 는 두 거래소 키를 본다 — NXT 키만 잠겨도 KRX 미등록 카드 ✕ 는 「잠긴 거래소: NXT」 로 경고한다 (quick-260923-pgv)', () => {
     const { rerender } = render(<TradingWorkbench />);
     fireEvent.click(addBtn()); // KRX 카드
     withLocks(rerender, [[keyOf(SAMSUNG, 'NXT'), 'result-unknown']]);
     fireEvent.click(closeBtn('삼성전자'));
-    expect(screen.queryByTestId('workbench-close-confirm')).toBeNull();
+    expect(dialogEl().getAttribute('data-reason')).toBe('unknown');
+    expect(dialogEl().textContent).toContain(closeLockedExchangesLine(['NXT']));
+    // 등록 전략이 없으니 등록 전략 문장은 붙지 않는다.
+    expect(dialogEl().textContent).not.toContain(REGISTERED_BODY);
+    confirmClose();
     expect(cardsInDom()).toHaveLength(0);
+    expect(sendCalls()).toBe(0);
+  });
+
+  it('⑦-e KRX 키가 잠긴 카드를 NXT 로 바꾼 뒤 ✕ → 「잠긴 거래소: KRX」 unknown 다이얼로그 · 잠금은 그대로 (quick-260923-pgv)', () => {
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(addBtn()); // KRX 카드
+    const locks = withLocks(rerender, [[keyOf(SAMSUNG), 'result-unknown']]);
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 NXT' }));
+    expect(cardsInDom()[0].getAttribute('data-key')).toBe(keyOf(SAMSUNG, 'NXT'));
+
+    fireEvent.click(closeBtn('삼성전자'));
+    const dialog = dialogEl();
+    expect(dialog.getAttribute('data-reason')).toBe('unknown');
+    expect(dialog.getAttribute('data-locked-exchanges')).toBe('KRX');
+    expect(closeLockedExchangesLine(['KRX'])).toBe('잠긴 거래소: KRX');
+    expect(dialog.textContent).toContain('잠긴 거래소: KRX');
+    expect(dialog.textContent).toContain(UNKNOWN_BODY);
+    fireEvent.click(within(dialog).getByRole('button', { name: '취소' }));
+    expect(cardsInDom()).toHaveLength(1);
+    expect(mockRelay.orderLocks).toBe(locks);
+    expect(sendCalls()).toBe(0);
+    expect(sendOrderSpy()).not.toHaveBeenCalled();
+  });
+
+  it('⑦-f 두 거래소 키가 모두 잠겼으면 「잠긴 거래소: KRX · NXT」 (quick-260923-pgv)', () => {
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(addBtn());
+    withLocks(rerender, [
+      [keyOf(SAMSUNG, 'NXT'), 'in-flight'],
+      [keyOf(SAMSUNG), 'result-unknown'],
+    ]);
+    fireEvent.click(closeBtn('삼성전자'));
+    expect(dialogEl().getAttribute('data-locked-exchanges')).toBe('KRX NXT');
+    expect(dialogEl().textContent).toContain('잠긴 거래소: KRX · NXT');
   });
 
   it('⑦-c 접기/펴기 · 상태줄 계좌 A→B→A 전환 뒤에도 ✕ 는 같은 컨텍스트 잠금을 읽는다', () => {
@@ -2147,5 +2194,111 @@ describe('cardForAlert — 알림을 받을 카드 판정 (quick-260923-pgu · �
     expect(cardForAlert(cards, { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('b');
     expect(cardForAlert([card('a'), card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('a');
     expect(cardForAlert([card('c', { exchange: 'NXT', open: true })], { isin: 'KR7096530001', exchange: 'KRX' })?.id).toBe('c');
+  });
+});
+
+describe('TradingWorkbench — 거래소 전환: 등록 후 잠금 해제 (quick-260923-pgv)', () => {
+  const S = 'KR7005930003';
+  const OTHER = 'KR7086520004';
+  const KRX = `${S}:${ACCOUNT}:KRX`;
+  const NXT = `${S}:${ACCOUNT}:NXT`;
+  const named = (over: Partial<RelayLimitChaser> = {}) =>
+    lc(S, { name: '삼성전자', ...over } as Partial<RelayLimitChaser>);
+  const registered = (list: RelayLimitChaser[], seq = 1) =>
+    relay({ limitChasers: list, limitChaserSnapSeq: seq } as Partial<RelayShape>);
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+  const nxt = () => screen.getByRole('button', { name: /NXT$/ });
+  const confirmEl = () => screen.queryByTestId('workbench-exchange-confirm');
+
+  it('T1 더티 0 — 등록 KRX 카드의 NXT 토글은 즉시 키를 바꾸고 카드 id 는 그대로 · 다이얼로그 없음', () => {
+    mockRelay = registered([named()]);
+    render(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [KRX]: 'false' });
+    const id = propsOf(S)?.cardId;
+    fireEvent.click(nxt());
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+    expect(cardsInDom()).toHaveLength(1);
+    expect(propsOf(S)?.cardId).toBe(id);
+    expect(confirmEl()).toBeNull();
+    expect((mockRelay.send as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('T2 더티 >0 — 확인 다이얼로그: 취소면 유지, 바꾸기면 전환', async () => {
+    mockRelay = registered([named()]);
+    render(<TradingWorkbench />);
+    fireEvent.click(screen.getByRole('button', { name: '삼성전자 더티' }));
+    fireEvent.click(nxt());
+    const dialog = screen.getByTestId('workbench-exchange-confirm');
+    expect(EXCHANGE_SWITCH_TITLE).toBe('수정 중인 값이 사라져요');
+    expect(within(dialog).getByRole('heading', { name: EXCHANGE_SWITCH_TITLE })).toBeInTheDocument();
+    expect(exchangeSwitchBody('삼성전자', 2, 'KRX', 'NXT')).toBe(
+      '삼성전자 의 수정 중인 값 2개가 사라져요. KRX → NXT 로 바꿀까요?',
+    );
+    expect(dialog.textContent).toContain(exchangeSwitchBody('삼성전자', 2, 'KRX', 'NXT'));
+    expect(byKey()).toEqual({ [KRX]: 'false' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(confirmEl()).toBeNull());
+    expect(byKey()).toEqual({ [KRX]: 'false' });
+
+    fireEvent.click(nxt());
+    fireEvent.click(within(screen.getByTestId('workbench-exchange-confirm')).getByRole('button', { name: '바꾸기' }));
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+    await waitFor(() => expect(confirmEl()).toBeNull());
+  });
+
+  it('T3 자동 카드 — 전환으로 비워진 KRX 키를 다시 만들지 않는다(실측 2026-09-23)', () => {
+    mockRelay = registered([named()]);
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(nxt());
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+
+    // 같은 등록 목록이 새 배열 · 새 snapSeq 로 다시 온다.
+    mockRelay = registered([named()], 2);
+    rerender(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+
+    // 다른 종목 전략이 들어와 `fresh` 가 생겨도 S 의 KRX 카드는 되살아나지 않는다.
+    mockRelay = registered([named(), lc(OTHER)], 3);
+    rerender(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [NXT]: 'false', [`${OTHER}:${ACCOUNT}:KRX`]: 'false' });
+  });
+
+  it('T4 언마운트 → 마운트(배치 기억) — NXT 로 바꾼 카드가 그대로 복원되고 KRX 키 카드는 생기지 않는다', () => {
+    mockRelay = registered([named()]);
+    const first = render(<TradingWorkbench />);
+    fireEvent.click(nxt());
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+    first.unmount();
+
+    render(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+    expect(cardsInDom()).toHaveLength(1);
+  });
+
+  it('T5 충돌 — 같은 키 카드가 있으면 이 카드는 그대로, 그 카드를 펼친다 · 더티가 있어도 다이얼로그 없음', () => {
+    mockRelay = registered([named(), named({ exchange: 'NXT' })]);
+    render(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [KRX]: 'false', [NXT]: 'false' });
+    const krxCard = cardsInDom().find((c) => c.getAttribute('data-key') === KRX)!;
+    fireEvent.click(within(krxCard).getByRole('button', { name: '삼성전자 더티' }));
+    fireEvent.click(within(krxCard).getByRole('button', { name: /NXT$/ }));
+    expect(byKey()).toEqual({ [KRX]: 'false', [NXT]: 'true' });
+    expect(cardsInDom()).toHaveLength(2);
+    expect(confirmEl()).toBeNull();
+  });
+
+  it('T6 왕복 — NXT 로 갔다가 KRX 로 돌아오면 같은 카드 id 가 KRX 키를 본다', () => {
+    mockRelay = registered([named()]);
+    render(<TradingWorkbench />);
+    const id = propsOf(S)?.cardId as string;
+    fireEvent.click(nxt());
+    expect(byKey()).toEqual({ [NXT]: 'false' });
+    act(() => {
+      (cardProps.get(id)!.onExchangeChange as (id: string, ex: 'KRX' | 'NXT') => void)(id, 'KRX');
+    });
+    expect(byKey()).toEqual({ [KRX]: 'false' });
+    expect(propsOf(S)?.cardId).toBe(id);
   });
 });

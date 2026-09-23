@@ -16,8 +16,12 @@
  *   헤더의 ✕·캐럿·거래소 세그먼트가 전부 이 상태를 바꾼다.
  *   - ★ 카드 정체성은 **카드 id**(`wb-card-{n}`, 이 컴포넌트가 단조 증가로 만든다)다 — 격자 key ·
  *     DOM id · 콜백 인자 · 더티/로그 합산이 전부 이 축이다(18-REVIEW WR-05). 전략 키
- *     (`ISIN:계좌:거래소`)는 카드의 **현재 값**이다 — 등록 전 카드는 거래소 토글로 키가 바뀌므로
- *     정체성으로 쓰면 토글마다 다시 마운트된다(WR-02 사고의 재발).
+ *     (`ISIN:계좌:거래소`)는 카드의 **현재 값**이다 — 등록 여부와 무관하게 거래소 토글로 키가
+ *     바뀌므로(quick-260923-pgv) 정체성으로 쓰면 토글마다 다시 마운트된다(WR-02 사고의 재발).
+ *   - ★ 거래소 전환과 자동 카드(quick-260923-pgv) — 등록 KRX 카드를 NXT 로 바꾸면 KRX 키 카드가
+ *     사라지지만 `seenKeys` 가 멤버십 ref 라 그 키는 다시 `fresh` 가 되지 않고, 리마운트는 lyt
+ *     `restoreSavedCards` 의 `seen` 이 막는다 — 한 종목 카드 하나에서 거래소를 오간다. 배치 기억 없는
+ *     첫 방문은 등록 전략마다 카드가 생기는 기존 동작 그대로다.
  *   - 등록 전략 하나에 카드 하나다(D-03 「카드와 동기」) — 같은 ISIN 에 전략이 둘(KRX·NXT 또는
  *     계좌 A·B)이면 카드도 둘이다. 두 카드가 **같은 전략 키**를 가질 수는 없다(한 서버 전략을 두
  *     훅이 소유하면 에코 상관이 갈라진다 · T-18-94).
@@ -79,8 +83,11 @@
  * ⑧ 카드 ✕ (UI-SPEC E7 error · E7 확장 · R3 목업 ②)
  *   등록 전 카드는 즉시 사라진다. 두 경우만 확인 다이얼로그(`workbench-close-confirm`, `data-reason`)
  *   를 거친다 — 판정은 `closeCard` 한 곳이다.
- *   - `unknown` — 카드 키가 `RelayProvider` 주문 잠금(진행 중 · 결과 모름)에 있다(⑨). 제목 「결과를
- *     모르는 주문이 있어요」. 본문은 해제 규칙(로그아웃 · 새로고침)을 사실대로 말한다.
+ *   - `unknown` — 카드의 계좌·ISIN 에 대해 **KRX·NXT 두 키 중 하나라도** `RelayProvider` 주문
+ *     잠금(진행 중 · 결과 모름)에 있다(⑨). 제목 「결과를 모르는 주문이 있어요」 + 「잠긴 거래소: …」 한
+ *     줄. 본문은 해제 규칙(로그아웃 · 새로고침)을 사실대로 말한다. ★ 현재 키만 보지 않는다
+ *     (quick-260923-pgv) — 거래소 토글이 등록 후에도 자유로워져, KRX 키가 잠긴 카드를 NXT 로 바꾼 뒤
+ *     ✕ 를 누르면 현재 키만 보는 판정은 경고 없이 닫는다. 잠금 자체(요청의 키 · 앱 수명)는 그대로다.
  *     등록 전략도 있으면 아래 등록 전략 문장이 한 줄 더 붙는다(R3 목업 ② 2-b).
  *   - `registered` — **등록된 전략이 있는 카드**. 카드를 닫는 것은 서버 전략 삭제가 아니다(전략은
  *     계속 동작하고 사이드바·My page 에 남는다).
@@ -199,12 +206,33 @@ export const CLOSE_UNKNOWN_TITLE = "결과를 모르는 주문이 있어요";
 export const CLOSE_UNKNOWN_BODY =
   "미체결 목록에서 접수 여부를 확인하세요. 카드를 닫았다 다시 열거나 다른 화면에 다녀와도 이 종목의 주문 버튼은 잠긴 채로 남아요. 로그아웃하거나 새로고침하면 풀려요.";
 
+/** ⑧ 결과 모름 다이얼로그의 잠긴 거래소 한 줄(quick-260923-pgv) — 테스트가 같은 함수를 읽는다. */
+export function closeLockedExchangesLine(exchanges: readonly RelayExchange[]): string {
+  return `잠긴 거래소: ${exchanges.join(" · ")}`;
+}
+
+/**
+ * 거래소 전환 확인(quick-260923-pgv · 설계 항목 2) — 전환은 폼 remount 라 미전송 더티 값이 사라진다.
+ * 테스트가 같은 상수·함수를 읽는다.
+ */
+export const EXCHANGE_SWITCH_TITLE = "수정 중인 값이 사라져요";
+export function exchangeSwitchBody(
+  name: string,
+  count: number,
+  from: RelayExchange,
+  to: RelayExchange,
+): string {
+  return `${name} 의 수정 중인 값 ${count}개가 사라져요. ${from} → ${to} 로 바꿀까요?`;
+}
+
+const EXCHANGES: readonly RelayExchange[] = ["KRX", "NXT"];
+
 /** 종목 추가 검색란 — ✕ 로 마지막 카드가 사라졌을 때 포커스를 받는다. */
 const ADD_SEARCH_SELECTOR = '[data-slot="stock-add-bar"] input';
 
 /** 카드 1장의 작업대 측 상태(②). 값(전략·시세)은 없다 — 카드가 스스로 읽는다(③). */
 export interface WorkbenchCard {
-  /** 카드 정체성(②) — `wb-card-{n}`. 전략 키가 아니다(등록 전 카드는 키가 바뀐다). */
+  /** 카드 정체성(②) — `wb-card-{n}`. 전략 키가 아니다(등록 여부와 무관하게 거래소 토글로 키가 바뀐다 · quick-260923-pgv). */
   id: string;
   isin: string;
   /** 카드 키의 계좌 — 만들 때의 상태줄 계좌(또는 등록된 전략 키의 계좌)로 고정된다(Q-3). */
@@ -219,6 +247,18 @@ export interface WorkbenchCard {
 /** 카드의 **현재** 전략 키(②) — 정체성이 아니라 값이다. */
 function keyOf(c: WorkbenchCard): string {
   return strategyKey(c.isin, c.accountNo, c.exchange);
+}
+
+/**
+ * ⑧ ✕ 판정 — 카드의 계좌·ISIN 에 대해 잠긴 거래소(KRX·NXT 순). 현재 거래소만 보지 않는다
+ * (quick-260923-pgv). 계좌가 비었으면 잠금 키가 없다.
+ */
+function lockedExchangesOf(
+  locks: ReadonlyMap<string, unknown>,
+  c: WorkbenchCard,
+): RelayExchange[] {
+  if (c.accountNo === "") return [];
+  return EXCHANGES.filter((ex) => locks.has(strategyKey(c.isin, c.accountNo, ex)));
 }
 
 /** 카드 헤더 토글 id — `strategy-card.tsx` 의 `strategy-card-{카드 id}-toggle` 규약. */
@@ -677,31 +717,11 @@ function WorkbenchSurface() {
     setAlertedCardIds((prev) => withoutId(prev, id));
   }, []);
 
-  /*
-    거래소 토글(등록 전 카드만 — 등록 카드는 세그먼트가 잠긴다, D-10). ★ 바꾼 뒤의 키를 **다른 카드가
-    이미 쓰면** 바꾸지 않고 그 카드를 펼쳐 스크롤한다 — 두 카드가 같은 키 = 한 서버 전략을 두 카드
-    훅이 소유하게 돼 에코 상관·더티 판정이 갈라진다(T-18-94).
-  */
-  const changeExchange = useCallback((id: string, exchange: RelayExchange) => {
-    const cur = cardsRef.current;
-    const card = cur.find((c) => c.id === id);
-    if (card === undefined) return;
-    const nextKey = strategyKey(card.isin, card.accountNo, exchange);
-    const clash = cur.find((c) => c.id !== id && keyOf(c) === nextKey);
-    if (clash !== undefined) {
-      setCards((prev) => withCardOpen(prev, clash.id, true));
-      setScrollTarget({ key: nextKey });
-      return;
-    }
-    setCards((prev) =>
-      prev.some((c) => c.id !== id && keyOf(c) === nextKey)
-        ? prev
-        : prev.map((c) => (c.id === id ? { ...c, exchange } : c)),
-    );
-  }, []);
-
   /* ── 더티 합산 · 이탈 경고 (⑦) ────────────────────────────────────── */
   const [cardDirty, setCardDirty] = useState<Readonly<Record<string, number>>>({});
+  /* 최신 값을 ref 로(안정 `changeExchange`) — `registeredRef` 와 같은 패턴. */
+  const cardDirtyRef = useRef(cardDirty);
+  cardDirtyRef.current = cardDirty;
   const [viDirty, setViDirty] = useState(0);
   const reportDirty = useCallback((id: string, count: number) => {
     setCardDirty((prev) => (prev[id] === count ? prev : { ...prev, [id]: count }));
@@ -710,6 +730,45 @@ function WorkbenchSurface() {
   /** 더티가 있는 카드 수 = 떠 있는 더티 바 수 — 공용 패널이 수가 바뀔 때마다 비킴을 다시 잰다. */
   const dirtyCardCount = cards.reduce((n, c) => n + ((cardDirty[c.id] ?? 0) > 0 ? 1 : 0), 0);
   useLeaveWarning(cardDirtySum + viDirty > 0);
+
+  /*
+    거래소 토글(등록 여부 무관 · quick-260923-pgv · 설계 항목 1~3) — 전략 이동이 아니라 이 카드가 보는
+    키의 거래소 축 전환이다. ① 바꾼 뒤의 키를 **다른 카드가 이미 쓰면** 이 카드는 그대로 두고 그 카드를
+    펼쳐 스크롤한다(T-18-94 — 두 카드 한 키 금지: 한 서버 전략을 두 카드 훅이 소유하면 에코 상관·더티
+    판정이 갈라진다). 충돌이 먼저다: 이 카드 값이 사라지지 않으니 물을 것이 없다. ② 미전송 더티 값이
+    있으면 확인 뒤(폼 remount 로 값이 사라진다). ③ 더티 0 이면 즉시. relay 로는 아무것도 보내지 않는다.
+  */
+  const [exchangeAsk, setExchangeAsk] = useState<{ id: string; exchange: RelayExchange } | null>(null);
+  const applyExchange = useCallback((id: string, exchange: RelayExchange) => {
+    setCards((prev) => {
+      const card = prev.find((c) => c.id === id);
+      if (card === undefined) return prev;
+      const nextKey = strategyKey(card.isin, card.accountNo, exchange);
+      return prev.some((c) => c.id !== id && keyOf(c) === nextKey)
+        ? prev
+        : prev.map((c) => (c.id === id ? { ...c, exchange } : c));
+    });
+  }, []);
+  const changeExchange = useCallback(
+    (id: string, exchange: RelayExchange) => {
+      const cur = cardsRef.current;
+      const card = cur.find((c) => c.id === id);
+      if (card === undefined || card.exchange === exchange) return;
+      const nextKey = strategyKey(card.isin, card.accountNo, exchange);
+      const clash = cur.find((c) => c.id !== id && keyOf(c) === nextKey);
+      if (clash !== undefined) {
+        setCards((prev) => withCardOpen(prev, clash.id, true));
+        setScrollTarget({ key: nextKey });
+        return;
+      }
+      if ((cardDirtyRef.current[id] ?? 0) > 0) {
+        setExchangeAsk({ id, exchange });
+        return;
+      }
+      applyExchange(id, exchange);
+    },
+    [applyExchange],
+  );
 
   /* ── 카드 제거 (⑧) ────────────────────────────────────────────────── */
   /** 카드별 합친 로그의 직전 문장 — 전략 로그 합치기의 중복 판정(아래). */
@@ -771,9 +830,12 @@ function WorkbenchSurface() {
   }, [cards, layoutRestored, userId, limitChasers, limitChaserSnapSeq]);
 
   /** ✕ 확인 — 카드 id 와 이유(⑧). `unknown` 이 `registered` 보다 먼저다(잠금 지속을 먼저 말한다). */
-  const [closeAsk, setCloseAsk] = useState<{ id: string; reason: "unknown" | "registered" } | null>(
-    null,
-  );
+  const [closeAsk, setCloseAsk] = useState<{
+    id: string;
+    reason: "unknown" | "registered";
+    /** `unknown` 일 때 잠긴 거래소(KRX·NXT 순 · quick-260923-pgv). */
+    lockedExchanges: readonly RelayExchange[];
+  } | null>(null);
   const registeredKeys = useMemo(() => new Set(limitChasers.map((c) => c.key)), [limitChasers]);
   const registeredRef = useRef(registeredKeys);
   registeredRef.current = registeredKeys;
@@ -785,12 +847,13 @@ function WorkbenchSurface() {
     (id: string) => {
       const card = cardsRef.current.find((c) => c.id === id);
       if (card === undefined) return;
-      if (card.accountNo !== "" && orderLocksRef.current.has(keyOf(card))) {
-        setCloseAsk({ id, reason: "unknown" });
+      const lockedExchanges = lockedExchangesOf(orderLocksRef.current, card);
+      if (lockedExchanges.length > 0) {
+        setCloseAsk({ id, reason: "unknown", lockedExchanges });
         return;
       }
       if (card.accountNo !== "" && registeredRef.current.has(keyOf(card))) {
-        setCloseAsk({ id, reason: "registered" });
+        setCloseAsk({ id, reason: "registered", lockedExchanges: [] });
         return;
       }
       removeCard(id);
@@ -992,18 +1055,51 @@ function WorkbenchSurface() {
     않게 마지막으로 연 값을 붙든다. 결과 모름 다이얼로그에 등록 전략 문장을 붙일지(R3 목업 ② 2-b)도
     같이 든다.
   */
-  const closeCopyRef = useRef<{ reason: "unknown" | "registered"; alsoRegistered: boolean }>({
+  const closeCopyRef = useRef<{
+    reason: "unknown" | "registered";
+    alsoRegistered: boolean;
+    lockedExchanges: readonly RelayExchange[];
+  }>({
     reason: "registered",
     alsoRegistered: false,
+    lockedExchanges: [],
   });
   if (closeAsk !== null && closeCardInfo !== null) {
     closeCopyRef.current = {
       reason: closeAsk.reason,
       alsoRegistered:
         closeCardInfo.accountNo !== "" && registeredKeys.has(keyOf(closeCardInfo)),
+      lockedExchanges: closeAsk.lockedExchanges,
     };
   }
-  const { reason: closeReason, alsoRegistered: closeAlsoRegistered } = closeCopyRef.current;
+  const {
+    reason: closeReason,
+    alsoRegistered: closeAlsoRegistered,
+    lockedExchanges: closeLockedExchanges,
+  } = closeCopyRef.current;
+
+  /*
+    거래소 전환 확인 다이얼로그(quick-260923-pgv) — ✕ 다이얼로그와 같은 문법. 닫히는 애니메이션 동안
+    (`exchangeAsk` 가 이미 null) 문구가 비지 않게 마지막으로 연 값을 붙든다.
+  */
+  const exchangeAskCard =
+    exchangeAsk === null ? null : cards.find((c) => c.id === exchangeAsk.id) ?? null;
+  const exchangeCopyRef = useRef<{
+    name: string;
+    count: number;
+    from: RelayExchange;
+    to: RelayExchange;
+  }>({ name: "", count: 0, from: "KRX", to: "NXT" });
+  if (exchangeAsk !== null && exchangeAskCard !== null) {
+    const label = exchangeAskCard.name ?? labels.get(exchangeAskCard.isin)?.name ?? "";
+    exchangeCopyRef.current = {
+      name: label === "" ? exchangeAskCard.isin : label,
+      count: cardDirty[exchangeAskCard.id] ?? 0,
+      from: exchangeAskCard.exchange,
+      to: exchangeAsk.exchange,
+    };
+  }
+  const exchangeCopy = exchangeCopyRef.current;
 
   return (
     <div
@@ -1133,6 +1229,7 @@ function WorkbenchSurface() {
         <DialogContent
           data-testid="workbench-close-confirm"
           data-reason={closeReason}
+          data-locked-exchanges={closeReason === "unknown" ? closeLockedExchanges.join(" ") : undefined}
           onCloseAutoFocus={(e) => {
             // 카드를 닫았으면 ✕ 버튼이 사라졌다 — 포커스는 격자가 다음 카드 헤더로 옮긴다.
             if (closeCardInfo !== null && !cards.some((c) => c.id === closeCardInfo.id)) {
@@ -1145,6 +1242,9 @@ function WorkbenchSurface() {
               <DialogTitle>{CLOSE_UNKNOWN_TITLE}</DialogTitle>
               <DialogDescription asChild>
                 <div className="flex flex-col gap-1.5">
+                  <p className="m-0 font-semibold" data-slot="close-locked-exchanges">
+                    {closeLockedExchangesLine(closeLockedExchanges)}
+                  </p>
                   <p className="m-0">{CLOSE_UNKNOWN_BODY}</p>
                   {closeAlsoRegistered && <p className="m-0">{CLOSE_REGISTERED_BODY}</p>}
                 </div>
@@ -1167,6 +1267,37 @@ function WorkbenchSurface() {
               }}
             >
               카드 닫기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={exchangeAskCard !== null}
+        onOpenChange={(open) => {
+          if (!open) setExchangeAsk(null);
+        }}
+      >
+        <DialogContent data-testid="workbench-exchange-confirm">
+          <DialogHeader>
+            <DialogTitle>{EXCHANGE_SWITCH_TITLE}</DialogTitle>
+            <DialogDescription>
+              {exchangeSwitchBody(exchangeCopy.name, exchangeCopy.count, exchangeCopy.from, exchangeCopy.to)}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExchangeAsk(null)}>
+              취소
+            </Button>
+            <Button
+              onClick={() => {
+                if (exchangeAsk !== null && exchangeAskCard !== null) {
+                  applyExchange(exchangeAskCard.id, exchangeAsk.exchange);
+                }
+                setExchangeAsk(null);
+              }}
+            >
+              바꾸기
             </Button>
           </DialogFooter>
         </DialogContent>
