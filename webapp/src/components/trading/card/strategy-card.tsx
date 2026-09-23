@@ -71,7 +71,7 @@ import type {
 
 import { cardAccountSliceOf } from "@/components/trading/card/card-account-slice";
 import { CardHeader } from "@/components/trading/card/card-header";
-import { CardTabs } from "@/components/trading/card/card-tabs";
+import { CardTabs, type CardTabRequest } from "@/components/trading/card/card-tabs";
 import type { AccountRowOrigin } from "@/components/orderbook/account-panel";
 import {
   latchLedStateOf,
@@ -623,6 +623,13 @@ export interface StrategyCardProps {
   /** 미체결 출처 배지 — 작업대가 공용 패널에 넘기는 값과 같다(오늘은 미배선). */
   originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
   onCancelSubmitted?: (res: RelayOrderResultMsg) => void;
+  /**
+   * 이벤트 알림 표시(quick-260923-pgu · 목업 ③A) — 작업대가 소유하는 `alertedCardIds` 에서 온다.
+   * 카드는 `data-alert` 로 내보낼 뿐이고 헤더 펄스·빨간 점·링은 CSS(`globals.css` §3.8)다.
+   */
+  alerted?: boolean;
+  /** 알림 클릭의 탭 요청 — 카드 탭으로 그대로 넘긴다(`CardTabs` ⑦). */
+  requestedTab?: CardTabRequest;
 }
 
 /** DOM id 에 쓸 수 있는 조각만 남긴다(카드 id 는 영숫자·하이픈이라 사실상 그대로다). */
@@ -650,6 +657,8 @@ function StrategyCardImpl({
   priceOf,
   originOf,
   onCancelSubmitted,
+  alerted = false,
+  requestedTab,
 }: StrategyCardProps) {
   const card = useStrategyCardState({ isin, accountNo, exchange });
   const { key, server, quote, ledServer, handleArm, dirtyCount, log } = card;
@@ -706,6 +715,7 @@ function StrategyCardImpl({
       data-slot="strategy-card"
       data-key={key}
       data-open={open ? "true" : "false"}
+      data-alert={alerted ? "true" : "false"}
       aria-label={displayName}
       /* ① — 컨테이너 선언은 `LC_CONTAINER_CLASS`(이 파일 상단) 한 곳이다. */
       className={cn(
@@ -757,6 +767,7 @@ function StrategyCardImpl({
               priceOf={priceOf}
               originOf={originOf}
               onCancelSubmitted={onCancelSubmitted}
+              requestedTab={requestedTab}
             />
             <CardNotices card={card} />
             {body?.(card)}

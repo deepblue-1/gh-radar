@@ -94,6 +94,14 @@
  *   않는다). 작업대는 잠금을 상태로 두지도, 카드 본문에 prop 으로 내리지도 않는다 — 원천은 하나다.
  *   그래서 ✕ 뒤 종목 추가 · 돌파 칩 · 미체결 선택 · 다른 화면에 다녀오기 어느 경로로 다시 열어도 새
  *   카드의 폼이 같은 키로 잠긴 채 선다.
+ *
+ * ⑩ 이벤트 알림 (quick-260923-pgu · 목업 ③A · 결정 갱신 D-36/D-27)
+ *   접수 · 체결 · 정정/취소확인 · 거부 · VI 발동 · 돌파(76) 가 오면 `useTradingAlerts` 가 토스트를 세우고
+ *   (`AlertToasts` — 이 루트 안에만, 앱 셸 아님), 그 이벤트의 카드(`cardForAlert`)에 표시를 건다.
+ *   작업대가 `alertedCardIds`(헤더 펄스 → 빨간 점 · 링) 와 `tabRequest`(클릭 시 카드 탭) 를 **소유**하고
+ *   카드 상태(`WorkbenchCard`)에 섞지 않는다 — 배치 저장에 들어가지 않는다. 이벤트만으로 카드를 만들지
+ *   않는다(클릭 때만). 표시는 헤더 토글 · 토스트 클릭으로 지워진다. 카드 `open` 변경은 여기서도
+ *   `withCardOpen` 하나를 지난다(quick-260923-p3k).
  */
 
 import {
@@ -124,12 +132,14 @@ import {
 } from "@/components/ui/dialog";
 import { CardBody } from "@/components/trading/card/card-body";
 import { StockInfoModal } from "@/components/trading/card/stock-info-modal";
+import type { CardTabRequest } from "@/components/trading/card/card-tabs";
 import {
   StrategyCard,
   type StrategyCardState,
 } from "@/components/trading/card/strategy-card";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import type { StrategyLogEntry } from "@/components/trading/strategy-log";
+import { AlertToasts } from "@/components/trading/workbench/alert-toasts";
 import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
 import { SharedPanels } from "@/components/trading/workbench/shared-panels";
@@ -148,6 +158,7 @@ import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useRelayContext } from "@/lib/relay-provider";
+import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
 import {
   readTradingLayout,
@@ -155,6 +166,7 @@ import {
   type SavedLayout,
 } from "@/lib/trading-layout";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
+import { useTradingAlerts } from "@/lib/use-trading-alerts";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
 import { useViServerError } from "@/lib/use-vi-server-error";
 import type { RelayQueuedWindowMsg } from "@gh-radar/shared";
@@ -300,6 +312,38 @@ export function cardForUnfilled(
       code: row.code,
     },
   };
+}
+
+/**
+ * 이벤트 알림을 **받을 카드** 판정 (**순수 함수** · quick-260923-pgu ⑩). 판정의 유일 지점이다 —
+ * 토스트가 뜰 때의 헤더 표시(`markAlerted`)와 토스트 클릭(`openAlert`)이 같은 규칙으로 푼다.
+ *  ① (ISIN · 계좌 · 거래소) 정확 일치 — 주문 통보 · VI 는 계좌를 안다.
+ *  ② (ISIN · 거래소) — 펼친 카드 우선. 돌파는 계좌를 모른다.
+ *  ③ ISIN 만 — `isinFocusCardOf`(펼친 카드 우선 · 종목 단위 포커스와 같은 규칙).
+ * ISIN 을 모르면(색인 조인 실패 주문) `undefined` — 카드를 찾지도 만들지도 않는다.
+ */
+export function cardForAlert(
+  cards: readonly WorkbenchCard[],
+  a: Pick<TradingAlert, "isin" | "accountNo" | "exchange">,
+): WorkbenchCard | undefined {
+  const { isin, accountNo, exchange } = a;
+  if (isin === undefined || isin === "") return undefined;
+  if (accountNo !== undefined) {
+    const exact = cards.find(
+      (c) => c.isin === isin && c.accountNo === accountNo && c.exchange === exchange,
+    );
+    if (exact !== undefined) return exact;
+  }
+  const sameEx = cards.filter((c) => c.isin === isin && c.exchange === exchange);
+  return sameEx.find((c) => c.open) ?? sameEx[0] ?? isinFocusCardOf(cards, isin);
+}
+
+/** 집합에서 한 id 를 뺀다 — 없으면 같은 참조(상태 베일아웃). */
+function withoutId(prev: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  if (!prev.has(id)) return prev;
+  const next = new Set(prev);
+  next.delete(id);
+  return next;
 }
 
 /**
@@ -474,6 +518,11 @@ function WorkbenchSurface() {
   /** 펼친 뒤 화면에 들여올 카드. 레이아웃 효과가 한 번 스크롤하고 비운다. */
   const [scrollTarget, setScrollTarget] = useState<ScrollTarget | null>(null);
 
+  /* ── ⑩ 이벤트 알림 표시 · 탭 요청 — 작업대 소유(카드 상태에 섞지 않는다) ── */
+  const [alertedCardIds, setAlertedCardIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [tabRequest, setTabRequest] = useState<{ id: string; req: CardTabRequest } | null>(null);
+  const tabSeq = useRef(0);
+
   /* ── ⑥ `?focus=` — 마운트 1회 소비 ───────────────────────────────── */
   const searchParams = useSearchParams();
   const pendingFocus = useRef<ReturnType<typeof parseStrategyKey> | undefined>(undefined);
@@ -624,6 +673,8 @@ function WorkbenchSurface() {
       const cur = prev.find((c) => c.id === id);
       return cur === undefined ? prev : withCardOpen(prev, id, !cur.open);
     });
+    // ⑩ 헤더 토글은 그 카드의 알림 표시를 지운다(목업 ③A 「카드를 누르면 지워진다」).
+    setAlertedCardIds((prev) => withoutId(prev, id));
   }, []);
 
   /*
@@ -682,6 +733,13 @@ function WorkbenchSurface() {
     for (const id of [...lastLogText.current.keys()]) {
       if (!live.has(id)) lastLogText.current.delete(id);
     }
+    // ⑩ 알림 표시 · 탭 요청도 같은 파생 정리 — 치운 카드의 id 가 남지 않게.
+    setAlertedCardIds((prev) => {
+      const gone = [...prev].filter((id) => !live.has(id));
+      if (gone.length === 0) return prev;
+      return new Set([...prev].filter((id) => live.has(id)));
+    });
+    setTabRequest((prev) => (prev === null || live.has(prev.id) ? prev : null));
   }, [cards]);
   const removeCard = useCallback((id: string) => {
     setCards((prev) => prev.filter((c) => c.id !== id));
@@ -774,6 +832,66 @@ function WorkbenchSurface() {
     [accountNo, nextCardId],
   );
   const clearSelection = useCallback(() => setSelected(null), []);
+
+  /* ── ⑩ 이벤트 알림 ────────────────────────────────────────────────── */
+  /** 새 알림(병합 제외)이 오면 그 카드에 표시 — 이벤트만으로 카드를 만들지 않는다. */
+  const markAlerted = useCallback((a: TradingAlert) => {
+    const hit = cardForAlert(cardsRef.current, a);
+    if (hit === undefined) return;
+    setAlertedCardIds((prev) => (prev.has(hit.id) ? prev : new Set(prev).add(hit.id)));
+  }, []);
+  const { alerts, dismiss: dismissAlert } = useTradingAlerts({
+    orders: relay.orders,
+    viNotices: relay.viNotices,
+    rateCrossItems,
+    rateCrossSnapSeq,
+    orderIndex: relay.orderIndex,
+    onNew: markAlerted,
+  });
+  const accountStatesRef = useRef(accountStates);
+  accountStatesRef.current = accountStates;
+  /*
+    토스트 클릭 — 그 카드를 펼치고(없으면 알림의 종목·계좌·거래소로 붙이고) 스크롤 → 탭 요청 → 표시
+    해제 → 토스트 닫기. 카드 `open` 변경은 `withCardOpen` 하나를 지난다(p3k). 종목을 모르는 알림
+    (색인 조인 실패 주문 「주문 {No}」)은 카드 없이 닫기만 한다. 서버 송신 0.
+  */
+  const openAlert = useCallback(
+    (a: TradingAlert) => {
+      dismissAlert(a.id);
+      const isin = a.isin;
+      if (isin === undefined || isin === "") return;
+      const hit = cardForAlert(cardsRef.current, a);
+      const card: WorkbenchCard =
+        hit ?? {
+          id: nextCardId(),
+          isin,
+          accountNo: a.accountNo ?? accountNo,
+          exchange: a.exchange,
+          open: true,
+          name: a.name,
+          code: a.code,
+        };
+      if (hit !== undefined) {
+        setCards((prev) => withCardOpen(prev, hit.id, true));
+      } else {
+        // `cardForAlert` 가 못 찾았다 = 그 ISIN 의 카드가 없다 → 같은 전략 키의 카드도 없다(T-18-94).
+        setCards((prev) =>
+          prev.some((c) => keyOf(c) === keyOf(card)) ? prev : [...prev, card],
+        );
+      }
+      setScrollTarget({ key: keyOf(card) });
+      const hasHolding = (accountStatesRef.current.get(card.accountNo)?.hold ?? []).some(
+        (h) => h.isin === isin,
+      );
+      tabSeq.current += 1;
+      setTabRequest({
+        id: card.id,
+        req: { tab: alertTabFor(a, { hasHolding, cardIsNew: hit === undefined }), seq: tabSeq.current },
+      });
+      setAlertedCardIds((prev) => withoutId(prev, card.id));
+    },
+    [accountNo, nextCardId, dismissAlert],
+  );
 
   // 잔고 평가 가격 — 카드 순서와 무관한 고정 축(KRX 우선 · NXT 폴백 · GC-IN-04).
   const priceOf = useCallback((isin: string) => holdingQuotePrice(quotes, isin), [quotes]);
@@ -975,6 +1093,8 @@ function WorkbenchSurface() {
             */
             onSelectUnfilled={c.accountNo === accountNo ? selectUnfilled : undefined}
             priceOf={priceOf}
+            alerted={alertedCardIds.has(c.id)}
+            requestedTab={tabRequest !== null && tabRequest.id === c.id ? tabRequest.req : undefined}
           />
         )}
       />
@@ -991,6 +1111,9 @@ function WorkbenchSurface() {
         priceOf={priceOf}
         phoneBand={phoneBand}
       />
+
+      {/* 8 · 이벤트 알림 토스트(⑩) — 뷰포트 오버레이지만 이 작업대 루트 안에만 산다 */}
+      <AlertToasts alerts={alerts} onOpen={openAlert} onDismiss={dismissAlert} />
 
       <StockInfoModal
         code={info?.code ?? null}
@@ -1099,6 +1222,10 @@ interface WorkbenchCardItemProps {
   onSelectUnfilled?: (row: RelayUnfilled | null) => void;
   /** 카드 「잔고」 탭 현재가 — 공용 패널과 같은 `priceOf`. */
   priceOf: (isin: string) => number | undefined;
+  /** ⑩ 알림 표시(`data-alert`). */
+  alerted: boolean;
+  /** ⑩ 알림 클릭 탭 요청 — 대상 카드에만, 나머지는 `undefined`(memo 유지). */
+  requestedTab?: CardTabRequest;
 }
 
 /**
@@ -1122,6 +1249,8 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
   onLogChange,
   onSelectUnfilled,
   priceOf,
+  alerted,
+  requestedTab,
 }: WorkbenchCardItemProps) {
   const { id, isin, accountNo, exchange, open } = card;
   const body = useCallback(
@@ -1172,6 +1301,8 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
       selectedOrderNo={selectedUnfilled?.orderNo ?? null}
       onSelectUnfilled={onSelectUnfilled}
       priceOf={priceOf}
+      alerted={alerted}
+      requestedTab={requestedTab}
     />
   );
 });

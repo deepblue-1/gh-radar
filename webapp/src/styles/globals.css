@@ -444,6 +444,53 @@ html[lang="ko"] {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   §3.8 작업대 이벤트 알림 (quick-260923-pgu · 목업 ③A · 결정 갱신 D-36/D-27)
+   토스트(`alert-toasts.tsx`)의 등장·진행 바, 그리고 이벤트가 난 카드의 헤더 표시.
+   카드 표시는 작업대가 `<article data-slot="strategy-card" data-alert>` 로만 건다 —
+   `card-header.tsx` 는 모른다(마크업 무변경). 접힌 카드·펼친 카드 모두 같은 article 이다.
+   재량 — 이미 표시 중인 카드에 또 이벤트가 오면 펄스는 다시 돌지 않고 점·링만 유지된다
+   (CSS 애니메이션은 속성이 유지되는 동안 재시작하지 않는다).
+   ───────────────────────────────────────────────────────────── */
+@keyframes wb-toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes wb-toast-drain {
+  from { width: 100%; }
+  to   { width: 0; }
+}
+@keyframes wb-hdr-pulse {
+  0%, 100% { background: transparent; }
+  50%      { background: color-mix(in oklch, var(--primary) 16%, transparent); }
+}
+[data-slot="strategy-card"][data-alert="true"] {
+  outline: 1px solid color-mix(in oklch, var(--primary) 45%, transparent);
+  outline-offset: -1px;
+}
+[data-slot="strategy-card"][data-alert="true"] > [data-slot="card-header"] {
+  animation: wb-hdr-pulse 0.9s ease-in-out 3;
+}
+/*
+  빨간 점은 종목명 `<b data-part="name">` 이 아니라 **토글 버튼**(flex 행)의 마지막 항목으로 붙인다 —
+  종목명은 `truncate`(overflow:hidden)라 긴 이름에서 `::after` 점이 잘려 사라진다.
+*/
+[data-slot="strategy-card"][data-alert="true"] [data-slot="card-header-l1"] > button[aria-expanded]::after {
+  content: "";
+  flex: none;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--destructive);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 펄스만 끈다 — 점·링은 남는다. 토스트 등장·진행 바는 `motion-safe:` 유틸이 이미 가른다. */
+  [data-slot="strategy-card"][data-alert="true"] > [data-slot="card-header"] {
+    animation: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
    §3.3 Table .num utility — 숫자 셀 우측 정렬 + 고정폭
    ───────────────────────────────────────────────────────────── */
 .num {

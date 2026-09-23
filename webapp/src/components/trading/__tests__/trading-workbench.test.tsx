@@ -822,6 +822,9 @@ describe('TradingWorkbench — 에코를 분배하지 않는다 (T-18-52 · Pitf
       'selectedOrderNo',
       'onSelectUnfilled',
       'priceOf',
+      // quick-260923-pgu — 알림 표시(불리언) · 탭 요청(대상 카드에만 `{ tab, seq }`, 나머지 undefined).
+      'alerted',
+      'requestedTab',
     ]);
     for (const props of cardProps.values()) {
       for (const [k, v] of Object.entries(props)) {

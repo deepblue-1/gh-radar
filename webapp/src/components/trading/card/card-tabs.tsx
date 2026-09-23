@@ -27,9 +27,14 @@
  *
  * ⑥ 반응형은 카드의 `@container/lc` 가 잰다 — 뷰포트 브레이크포인트도, 새 `@container` 선언도
  *   두지 않는다(D-28).
+ *
+ * ⑦ 탭 요청 통로 (quick-260923-pgu · 목업 ③A) — 작업대 이벤트 알림을 누르면 그 카드의 맞는 탭으로
+ *   간다. 요청은 `{ tab, seq }` 이고 **`seq` 가 바뀔 때만** 이긴다 — 사용자 클릭은 그대로 로컬 state
+ *   다(⑤). 이 컴포넌트는 카드를 처음 펼칠 때 마운트되므로 새로 펼쳐지는 카드는 마운트 효과로 요청을
+ *   소비한다.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   RelayAccountState,
   RelayOrderResultMsg,
@@ -46,6 +51,12 @@ import type { RelayStatus } from "@/lib/use-relay-socket";
 
 export type CardTab = "info" | "unfilled" | "holdings" | "log";
 
+/** 탭 전환 요청(⑦) — `seq` 가 바뀔 때만 적용된다. */
+export interface CardTabRequest {
+  tab: CardTab;
+  seq: number;
+}
+
 export interface CardTabsProps {
   quote: RelayQuote | null;
   /** 카드 계좌 — 취소 요청의 계좌다(행이 이 계좌 상태에서 왔다). */
@@ -61,6 +72,8 @@ export interface CardTabsProps {
   priceOf?: (isin: string) => number | undefined;
   originOf?: (row: RelayUnfilled) => AccountRowOrigin | undefined;
   onCancelSubmitted?: (res: RelayOrderResultMsg) => void;
+  /** 작업대 알림 클릭의 탭 요청(⑦). */
+  requestedTab?: CardTabRequest;
 }
 
 /** 공용 패널 `TAB_TRIGGER` 와 같은 문법 — 카드 안이라 더 얇게 24px(h-6). */
@@ -98,8 +111,15 @@ export function CardTabs({
   priceOf,
   originOf,
   onCancelSubmitted,
+  requestedTab,
 }: CardTabsProps) {
-  const [tab, setTab] = useState<CardTab>("info");
+  const [tab, setTab] = useState<CardTab>(requestedTab?.tab ?? "info");
+  // ⑦ — seq 가 바뀔 때만 요청이 이긴다(같은 요청 재렌더는 사용자 선택을 덮지 않는다).
+  const reqSeq = requestedTab?.seq;
+  const reqTab = requestedTab?.tab;
+  useEffect(() => {
+    if (reqTab !== undefined) setTab(reqTab);
+  }, [reqSeq, reqTab]);
   const unfilledCount = account?.unf.length ?? 0;
   const logCount = log.length;
 

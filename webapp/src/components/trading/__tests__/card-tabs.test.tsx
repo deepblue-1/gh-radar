@@ -228,3 +228,23 @@ describe('CardTabs — 반응형 · 상태', () => {
     expect(tabNamed('로그').textContent).toBe('로그 1');
   });
 });
+
+describe('CardTabs — 탭 요청 통로 (quick-260923-pgu · 알림 클릭)', () => {
+  it('requestedTab 으로 탭이 바뀌고, 같은 seq 재렌더는 사용자 선택을 지키며, 새 seq 는 다시 이긴다', async () => {
+    const user = userEvent.setup();
+    const view = render(<CardTabs {...props({ requestedTab: { tab: 'log', seq: 1 } })} />);
+    expect(tabNamed('로그')).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(tabNamed('잔고'));
+    view.rerender(<CardTabs {...props({ requestedTab: { tab: 'log', seq: 1 } })} />);
+    expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
+
+    view.rerender(<CardTabs {...props({ requestedTab: { tab: 'unfilled', seq: 2 } })} />);
+    expect(tabNamed('미체결')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('요청이 없으면 기본 정보 탭', () => {
+    render(<CardTabs {...props()} />);
+    expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
+  });
+});
