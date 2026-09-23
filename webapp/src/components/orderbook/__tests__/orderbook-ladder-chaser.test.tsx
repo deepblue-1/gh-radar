@@ -334,19 +334,21 @@ describe('OrderbookLadder — 상따 변형', () => {
         단수를 자른 것이 **아니라** 박스 높이만 자른 것이므로, 이 박스도 앞의 둘과 **같은
         이유로** tab stop 이어야 한다 — 안에 포커스 가능한 자식이 없어서, 박스가 포커스를
         못 받으면 키보드 사용자는 매수 6~10단에 닿을 수 없다.
-        그래서 계약은 「**스크롤 영역 정확히 4개, 그리고 행에는 0개**」이고 DOM 순서까지
-        고정한다(늘어난 것은 숫자가 아니라 같은 규칙이 적용되는 영역의 개수다):
+      ★ quick-260923-elb 3a — 두 트리의 compact 테이프가 트리 밖 **1벌**로 합쳐졌다(본문 830
+        미만에서만 보인다). 테이프가 한 벌 줄었으니 스크롤 영역도 하나 준다.
+        계약은 「**스크롤 영역마다 tab stop 1개, 그리고 행에는 0개**」이고 DOM 순서까지
+        고정한다(바뀐 것은 규칙이 아니라 그 규칙이 적용되는 영역의 개수다):
           · 3단 트리 — 스크롤 영역 없음(표가 통째로 보인다)
-          · 2단 트리 — `ladder-scroll-two`(240px 박스 안의 호가 20행) + `tape-scroll`
-          · 1단 트리 — `ladder-scroll`(340px 박스 안의 호가 20행) + `tape-scroll`
+          · 2단 트리 — `ladder-scroll-two`(240px 박스 안의 호가 20행)
+          · 1단 트리 — `ladder-scroll`(340px 박스 안의 호가 20행)
+          · 트리 밖 공용 블록 — `tape-scroll`(compact 체결 테이프 1벌)
         전부 안에 상시 포커스 가능한 자식이 없다. 행에 하나라도 붙으면 마지막 단언이 깨진다.
         범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
     */
     const tabbables = Array.from(container.querySelectorAll('[tabindex]'));
-    expect(tabbables).toHaveLength(4);
+    expect(tabbables).toHaveLength(3);
     expect(tabbables.map((el) => el.getAttribute('data-slot'))).toEqual([
       'ladder-scroll-two',
-      'tape-scroll',
       'ladder-scroll',
       'tape-scroll',
     ]);
@@ -380,19 +382,27 @@ describe('OrderbookLadder — 상따 변형', () => {
         같은 `recentTrades` 하나이고 새 조회 경로가 없다.
     */
     /*
-      ★ 260912-k2x — compact 테이프는 **둘**이다: 1단 트리 아래 하나 + 2단 트리 아래 하나.
-        3단 표만 체결 10건을 매수 10단 왼쪽 칸에 품고, 그 칸이 없는 두 트리는 아래 테이프가
-        대신한다. 범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
+      ★ quick-260923-elb 3a — compact 테이프는 **1벌**이다(260912-k2x 의 두 벌을 합쳤다).
+        어느 트리에도 속하지 않고 1단 트리 **뒤**의 공용 블록(`ladder-tape`)에 있으며, 본문 830
+        미만에서만 보인다(컨테이너 쿼리 클래스 — JS 폭 판정 없음). 1단·2단 밴드에서 트리는
+        자기 밴드 밖이면 `display:none` 이라 공간을 차지하지 않으므로, 두 밴드 모두 사다리 바로
+        아래 같은 자리에 보인다. 830 이상에서는 3단 표의 최근 체결 10건이 대신한다.
+        범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
     */
     const tapes = container.querySelectorAll('[data-slot="trade-tape"][data-compact="true"]');
-    expect(tapes).toHaveLength(2);
-    for (const tape of Array.from(tapes)) {
-      expect(tape.querySelector('thead')).toBeNull(); // 컬럼헤더도 제목행도 없다
-    }
+    expect(tapes).toHaveLength(1);
+    const tape = tapes[0] as HTMLElement;
+    expect(tape.querySelector('thead')).toBeNull(); // 컬럼헤더도 제목행도 없다
+    expect(tape.closest('[data-slot="ladder-tree"]')).toBeNull();
+    const block = tape.closest<HTMLElement>('[data-slot="ladder-tape"]');
+    expect(block).not.toBeNull();
+    expect(block!.className).toContain('@min-[830px]/lc:hidden');
+    const one = container.querySelector<HTMLElement>('[data-tree="one"]')!;
+    expect(one.compareDocumentPosition(block!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // 데스크톱 트리에는 테이프가 없다 — 거기엔 체결 열이 이미 있다.
     expect(desktopTable().querySelector('[data-slot="trade-tape"]')).toBeNull();
-    // 가로선도 테이프 수와 같다 — 사다리와 테이프 사이 한 줄씩.
-    expect(container.querySelectorAll('hr')).toHaveLength(2);
+    // 가로선도 테이프 수와 같다 — 사다리와 테이프 사이 한 줄.
+    expect(container.querySelectorAll('hr')).toHaveLength(1);
   });
 
   /*
@@ -444,10 +454,11 @@ describe('OrderbookLadder — 상따 변형', () => {
       expect(isPct || isFillTime || isCompactTape).toBe(true);
     }
     /*
-      ★ 260912-k2x — 2단 트리가 들어오면서 총계가 다시 세어졌다:
-        등락률 60(3단 20 + 2단 20 + 1단 20) + 3단 체결 시각 10 + compact 테이프 2벌 × 10 = 90.
+      ★ 260912-k2x — 2단 트리가 들어오면서 총계가 다시 세어졌다.
+      ★ quick-260923-elb 3a — compact 테이프가 1벌로 합쳐져 다시 센다:
+        등락률 60(3단 20 + 2단 20 + 1단 20) + 3단 체결 시각 10 + compact 테이프 1벌 × 10 = 80.
     */
-    expect(tenPx).toHaveLength(90);
+    expect(tenPx).toHaveLength(80);
 
     /*
       ★ **9px 예외는 정확히 1곳**(좁은 폭 사다리의 잔량) — 20행이므로 20개다.
@@ -698,15 +709,19 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(box.querySelectorAll('[data-slot="ladder-row-two"]')).toHaveLength(20);
   });
 
-  it('⑰f 체결 테이프는 그 스크롤 박스 **밖**에 있다 — 체결 10건이 스크롤에 묻히지 않는다', () => {
+  it('⑰f 체결 테이프는 사다리 스크롤 박스 **밖**에 있다 — 체결 10건이 스크롤에 묻히지 않는다', () => {
     const { container } = renderChaser();
 
-    const two = container.querySelector<HTMLElement>('[data-tree="two"]')!;
-    const box = container.querySelector<HTMLElement>('[data-slot="ladder-scroll-two"]')!;
-    const tape = two.querySelector<HTMLElement>('[data-slot="tape-scroll"]')!;
+    const boxTwo = container.querySelector<HTMLElement>('[data-slot="ladder-scroll-two"]')!;
+    const boxOne = container.querySelector<HTMLElement>('[data-slot="ladder-scroll"]')!;
+    const tape = container.querySelector<HTMLElement>('[data-slot="tape-scroll"]')!;
     expect(tape).not.toBeNull();
-    expect(box.contains(tape)).toBe(false);
-    expect(two.contains(tape)).toBe(true);
+    expect(boxTwo.contains(tape)).toBe(false);
+    expect(boxOne.contains(tape)).toBe(false);
+    // quick-260923-elb 3a — 테이프는 어느 트리에도 속하지 않는 공용 블록 1벌이다.
+    for (const tree of Array.from(container.querySelectorAll('[data-slot="ladder-tree"]'))) {
+      expect(tree.contains(tape)).toBe(false);
+    }
   });
 
   it('⑰g 3단 표와 1단 사다리 트리는 구조가 변하지 않았다 (와이드·폰 불변 회귀 잠금)', () => {

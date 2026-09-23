@@ -36,11 +36,17 @@
  *   `scrollTop <= 4px` 일 때만 자동으로 맨 위 유지. 사용자가 내리면 자동 스크롤을 멈추고
  *   상단에 `새 체결 N건 · 맨 위로` 핀 버튼을 띄운다. 링버퍼 상한 200건(relay 캐시와 동일).
  *
+ * ★ 커밋 비용 규율 (quick-260923-elb 3a — debug `trading-cpu-260923` 프로파일 자기시간 10.2%):
+ *   - 행 키는 **체결 식별**(`tapeRowKeys`)이다. prepend 에도 기존 행 노드를 재사용한다.
+ *   - 행은 `memo` 컴포넌트(`TapeRow`)라 바뀌지 않은 행은 건너뛴다.
+ *   - 맨 위 고정 중에는 `TAPE_RENDER_WINDOW` 행만 그린다(스크롤을 내리면 전부).
+ *   - 행·셀 className 은 모듈 로드 시 1회 계산한 상수다(행마다 `cn()`/twMerge 를 부르지 않는다).
+ *
  * ★ 빈·stale 상태: 빈 배열이면 빈 상태 문구, 재접속 중이면 마지막 값 + `opacity:.55`.
  * ★ 밀도: `data-density="compact"`(32px) — 사다리와 시각적 baseline 을 맞춘다.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -48,6 +54,15 @@ import type { RelayTapeEntry } from '@gh-radar/shared';
 
 /** 링버퍼 상한 — relay 캐시와 같은 200건. 초과분은 하단부터 버린다. */
 const MAX_TAPE = 200;
+/**
+ * 맨 위 고정(pinned) 중에 그리는 행 수 (quick-260923-elb 3a).
+ *
+ * 비 compact 데스크톱 박스(664px)에 ≈20행, compact 박스(200px)에 ≈8행이 보이므로 2.5배 여유다.
+ * 고정이 풀리면(사용자가 스크롤을 내리면) 행 전부(≤200)를 그린다 — 오래된 체결도 스크롤로
+ * 닿는다(「스크롤 시 확장」). 링버퍼 200(relay 캐시 · 훅 · `MAX_TAPE`)은 바꾸지 않는다.
+ * 줄인 것은 **보이지 않는 행을 매 배치 재조정하는 비용**뿐이다.
+ */
+export const TAPE_RENDER_WINDOW = 50;
 /** 배치 플래시 지속 시간 — UI-SPEC 상한 150ms 이내. */
 const FLASH_MS = 140;
 /** 이 값 이하면 "맨 위에 고정된 상태"로 본다(UI-SPEC 4px). */
@@ -91,11 +106,55 @@ function fmt(n: number): string {
   return KRW.format(n);
 }
 
-/** 기준가 대비 방향색. 보합(=기준가)과 기준가 부재는 `--flat`. */
-function priceTone(price: number, basePrice: number): string {
-  if (!basePrice || price === basePrice) return 'text-[var(--flat)]';
-  return price > basePrice ? 'text-[var(--up)]' : 'text-[var(--down)]';
+/** 체결가의 기준가 대비 방향. 보합(=기준가)과 기준가 부재는 `flat`. */
+type PriceTone = 'up' | 'down' | 'flat';
+
+/** 기준가 대비 방향. 보합(=기준가)과 기준가 부재는 `--flat`. */
+function priceTone(price: number, basePrice: number): PriceTone {
+  if (!basePrice || price === basePrice) return 'flat';
+  return price > basePrice ? 'up' : 'down';
 }
+
+/*
+  ── 행·셀 className 상수 (quick-260923-elb 3a) ──
+  행마다 `cn()`(twMerge)를 2~3회 부르던 것이 포화 프로파일에서 4.3% 였다. **같은 인자로**
+  모듈 로드 시 1회만 부르므로 DOM class 문자열은 바이트 단위로 이전과 같다 — 인자를 손으로
+  합친 문자열로 바꾸면 twMerge 의 충돌 해소 결과와 갈릴 수 있어 그렇게 하지 않는다.
+*/
+const ROW_BASE = '[&>td]:whitespace-nowrap [&>td]:align-middle';
+/*
+  ★ compact 은 **세 셀 전부** 10px 이다(T3 허용처 ⓓ). 시각만 줄이면 9자리 체결가가 140px
+    칼럼에서 잘린다.
+*/
+const ROW_COMPACT = '[&>td]:h-6 [&>td]:px-1 [&>td]:text-[10px]';
+const ROW_FULL =
+  '[&>td]:h-[var(--row-h)] [&>td]:px-1.5 [&>td]:text-[length:var(--t-caption)]';
+const ROW_CLASS = {
+  compact: {
+    idle: cn(ROW_BASE, ROW_COMPACT, FLASH_FADE, false),
+    flashed: cn(ROW_BASE, ROW_COMPACT, FLASH_FADE, FLASH_BG),
+  },
+  full: {
+    idle: cn(ROW_BASE, ROW_FULL, FLASH_FADE, false),
+    flashed: cn(ROW_BASE, ROW_FULL, FLASH_FADE, FLASH_BG),
+  },
+} as const;
+/** 시각 셀 — compact 에서는 행 규칙의 10px 이 이긴다(개별 11px 을 걷는다). */
+const TIME_CELL_CLASS = {
+  compact: cn('mono text-left text-[var(--muted-fg)]', false),
+  full: cn('mono text-left text-[var(--muted-fg)]', 'text-[11px]'),
+} as const;
+/** 체결가 셀 — 기준가 대비 방향색. */
+const PRICE_CELL_CLASS: Record<PriceTone, string> = {
+  up: cn('mono num font-semibold', 'text-[var(--up)]'),
+  down: cn('mono num font-semibold', 'text-[var(--down)]'),
+  flat: cn('mono num font-semibold', 'text-[var(--flat)]'),
+};
+/** 수량 셀 — 색이 곧 매수/매도다. */
+const QTY_CELL_CLASS = {
+  buy: cn('mono num font-semibold', 'text-[var(--up)]'),
+  sell: cn('mono num font-semibold', 'text-[var(--down)]'),
+} as const;
 
 /**
  * 거래소 원문 체결시각 → `HH:MM:SS`.
@@ -200,7 +259,64 @@ function entryKey(e: RelayTapeEntry): string {
   return `${e.t}|${e.p}|${e.q}|${e.cv}`;
 }
 
-export function TradeTape({
+/**
+ * 체결 테이프 행 키 — **체결 식별** (quick-260923-elb 3a).
+ *
+ * 기본 키는 `entryKey`(시각|가격|수량|누적거래량)다. `cv` 는 누적거래량이라 체결마다 증가해
+ * 사실상 체결 순번이다. 같은 기본 키가 또 나오면 서수 접미사(`#1`, `#2`…)를 붙이는데, 서수는
+ * **배열 끝(가장 오래된 것)부터** 센다 — 앞(최신)에 새 체결이 붙어도 기존 키가 변하지 않는다.
+ *
+ * 수신 시 id 를 부여하지 않은 이유: 와이어에 체결 id 가 없다. 내용 키는 69 스냅샷 재전송
+ * (새 객체 · 같은 내용)에서도 전 행 재마운트 없이 유지되고, shared 타입·리듀서를 바꿀 필요도
+ * 없다. 링버퍼 200 상한에서 가장 오래된 **완전 중복** 체결이 잘려 나갈 때만 남은 중복의 서수가
+ * 한 칸씩 당겨진다(그 행들만 다시 마운트된다 — 값은 같다).
+ */
+export function tapeRowKeys(rows: readonly RelayTapeEntry[]): string[] {
+  const keys = new Array<string>(rows.length);
+  const seen = new Map<string, number>();
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const base = entryKey(rows[i]);
+    const ordinal = seen.get(base) ?? 0;
+    seen.set(base, ordinal + 1);
+    keys[i] = ordinal === 0 ? base : `${base}#${ordinal}`;
+  }
+  return keys;
+}
+
+interface TapeRowProps {
+  entry: RelayTapeEntry;
+  isBuy: boolean;
+  flashed: boolean;
+  compact: boolean;
+  basePrice: number;
+}
+
+/**
+ * 체결 1행. `memo` 라서 prepend 때 기존 행(같은 체결 객체 · 같은 구분 · 플래시 아님)은 건너뛴다 —
+ * 리듀서가 기존 체결 객체를 그대로 유지하므로 props 가 얕은 비교로 같다.
+ * ★ 마크업은 이전 인라인 `<tr>` 과 한 글자도 다르지 않다(className 은 위 상수).
+ */
+const TapeRow = memo(function TapeRow({ entry, isBuy, flashed, compact, basePrice }: TapeRowProps) {
+  const mode = compact ? 'compact' : 'full';
+  return (
+    <tr
+      data-side={isBuy ? 'B' : 'S'}
+      className={flashed ? ROW_CLASS[mode].flashed : ROW_CLASS[mode].idle}
+    >
+      <td className={TIME_CELL_CLASS[mode]}>
+        {compact ? formatTapeTimeShort(entry.t) : formatTapeTime(entry.t)}
+      </td>
+      <td className={PRICE_CELL_CLASS[priceTone(entry.p, basePrice)]}>{fmt(entry.p)}</td>
+      {/* 수량 색이 곧 매수/매도다. sr-only 라벨이 색 비의존 경로(WCAG 1.4.1). */}
+      <td className={isBuy ? QTY_CELL_CLASS.buy : QTY_CELL_CLASS.sell}>
+        <span className="sr-only">{isBuy ? '매수' : '매도'} </span>
+        {fmt(entry.q)}
+      </td>
+    </tr>
+  );
+});
+
+function TradeTapeImpl({
   entries,
   isStale,
   basePrice,
@@ -222,10 +338,13 @@ export function TradeTape({
 
   // 링버퍼 상한을 컴포넌트에서도 강제한다 — 훅이 이미 자르지만 이 표면의 계약이기도 하다.
   const rows = useMemo(() => entries.slice(0, MAX_TAPE), [entries]);
+  // 구분은 **전체 rows** 로 계산한다 — zero-tick 상속이 더 오래된 이웃을 보므로, 렌더 창으로
+  // 먼저 자르면 마지막 보이는 행들의 판정이 바뀐다.
   const { sides } = useMemo(
     () => tapeSidesOf(rows, bestAsk, bestBid),
     [rows, bestAsk, bestBid],
   );
+  const rowKeys = useMemo(() => tapeRowKeys(rows), [rows]);
 
   /**
    * 배치 도착 처리 — 신규 행 수 계산 → 배치 1회 플래시 → 핀 상태에 따라 스크롤/카운터.
@@ -250,6 +369,7 @@ export function TradeTape({
       // 큐잉 금지 — 진행 중이던 배치 플래시를 끊고 최신 배치만 남긴다.
       if (flashTimerRef.current !== null) clearTimeout(flashTimerRef.current);
       setFlashCount(added);
+      // 끄는 커밋은 TradeTape 와 플래시된 N행만 다시 그린다(나머지 행은 memo) — 싸다.
       flashTimerRef.current = setTimeout(() => {
         flashTimerRef.current = null;
         setFlashCount(0);
@@ -289,6 +409,9 @@ export function TradeTape({
     setPinned(true);
     setPendingCount(0);
   }, []);
+
+  // 맨 위 고정 중에는 렌더 창만, 사용자가 내리면 전부(≤200) — `TAPE_RENDER_WINDOW` 참조.
+  const renderCount = pinned ? Math.min(rows.length, TAPE_RENDER_WINDOW) : rows.length;
 
   if (rows.length === 0) {
     return (
@@ -397,56 +520,31 @@ export function TradeTape({
             </thead>
           )}
           <tbody className="[&>tr+tr>td]:border-t [&>tr+tr>td]:border-[var(--border-subtle)]">
-            {rows.map((entry, index) => {
-              const isBuy = sides[index] === 'B';
-              const flashed = index < flashCount;
-              return (
-                <tr
-                  // 행은 순수 텍스트라 index 키가 안전하다. prepend 마다 콘텐츠만 갈리고
-                  // 플래시 대상도 "상단 N행"이라 인덱스 기준이 정확하다.
-                  key={index}
-                  data-side={isBuy ? 'B' : 'S'}
-                  className={cn(
-                    '[&>td]:whitespace-nowrap [&>td]:align-middle',
-                    /*
-                      ★ compact 은 **세 셀 전부** 10px 이다(T3 허용처 ⓓ). 시각만 줄이면
-                        9자리 체결가가 140px 칼럼에서 잘린다.
-                    */
-                    compact
-                      ? '[&>td]:h-6 [&>td]:px-1 [&>td]:text-[10px]'
-                      : '[&>td]:h-[var(--row-h)] [&>td]:px-1.5 [&>td]:text-[length:var(--t-caption)]',
-                    FLASH_FADE,
-                    flashed && FLASH_BG,
-                  )}
-                >
-                  <td
-                    className={cn(
-                      'mono text-left text-[var(--muted-fg)]',
-                      // compact 에서는 행 규칙의 10px 이 이긴다 — 개별 11px 을 걷는다.
-                      !compact && 'text-[11px]',
-                    )}
-                  >
-                    {compact ? formatTapeTimeShort(entry.t) : formatTapeTime(entry.t)}
-                  </td>
-                  <td className={cn('mono num font-semibold', priceTone(entry.p, basePrice))}>
-                    {fmt(entry.p)}
-                  </td>
-                  {/* 수량 색이 곧 매수/매도다. sr-only 라벨이 색 비의존 경로(WCAG 1.4.1). */}
-                  <td
-                    className={cn(
-                      'mono num font-semibold',
-                      isBuy ? 'text-[var(--up)]' : 'text-[var(--down)]',
-                    )}
-                  >
-                    <span className="sr-only">{isBuy ? '매수' : '매도'} </span>
-                    {fmt(entry.q)}
-                  </td>
-                </tr>
-              );
-            })}
+            {rows.slice(0, renderCount).map((entry, index) => (
+              /*
+                행 키는 **체결 식별**이다(`tapeRowKeys`). React 가 기존 행 노드를 재사용하고
+                `memo` 가 바뀌지 않은 행을 건너뛴다. 옛 index 키는 prepend 마다 200행 텍스트를
+                전부 다시 썼다(프로파일 자기시간 trade-tape 10.2% — quick-260923-elb 3a).
+                플래시 대상은 여전히 「상단 N행」이라 인덱스로 판정한다.
+              */
+              <TapeRow
+                key={rowKeys[index]}
+                entry={entry}
+                isBuy={sides[index] === 'B'}
+                flashed={index < flashCount}
+                compact={compact}
+                basePrice={basePrice}
+              />
+            ))}
           </tbody>
         </table>
       </div>
     </div>
   );
 }
+
+/**
+ * 공개 표면 — `memo` (quick-260923-elb 3a). 카드가 다른 종목 틱으로 다시 그려질 때 이 테이프의
+ * props(entries 신원 · isStale · basePrice · 최우선호가)가 그대로면 통째로 건너뛴다.
+ */
+export const TradeTape = memo(TradeTapeImpl);

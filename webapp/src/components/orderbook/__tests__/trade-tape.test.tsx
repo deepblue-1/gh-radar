@@ -4,8 +4,10 @@ import userEvent from '@testing-library/user-event';
 import type { RelayTapeEntry } from '@gh-radar/shared';
 
 import {
+  TAPE_RENDER_WINDOW,
   TradeTape,
   deriveTapeSides,
+  tapeRowKeys,
   tapeSidesOf,
   formatTapeTime,
   formatTapeTimeShort,
@@ -213,11 +215,17 @@ describe('TradeTape', () => {
     ).toBeInTheDocument();
   });
 
-  it('⑤ 링버퍼 상한 200건 — 초과분은 하단부터 잘린다', () => {
+  it('⑤ 링버퍼 상한 200건 — 고정 중에는 렌더 창만 그리고, 스크롤을 내리면 200행 전부에 닿는다 (quick-260923-elb 3a)', () => {
     const many = tape(Array.from({ length: 260 }, (_, i) => 98_000 + i));
-    render(<TradeTape entries={many} isStale={false} basePrice={BASE} />);
+    const { container } = render(<TradeTape entries={many} isStale={false} basePrice={BASE} />);
 
-    // 헤더 1행 + 본문 200행.
+    // 맨 위 고정 중 — 헤더 1행 + 본문 TAPE_RENDER_WINDOW 행(보이는 행의 2.5배 여유).
+    expect(screen.getAllByRole('row')).toHaveLength(1 + TAPE_RENDER_WINDOW);
+
+    // 사용자가 스크롤을 내리면 링버퍼 200건 전부를 그린다 — 오래된 체결도 스크롤로 닿는다.
+    const scroller = container.querySelector('[data-slot="trade-tape"] > div');
+    fireEvent.scroll(scroller!, { target: { scrollTop: 120 } });
+    // 헤더 1행 + 본문 200행 — 초과분(260-200)은 여전히 하단부터 잘린다.
     expect(screen.getAllByRole('row')).toHaveLength(201);
   });
 
@@ -415,6 +423,55 @@ describe('⑩ TradeTape compact (260911-w5h)', () => {
       'true',
     );
     expect(screen.getByText('아직 체결이 없어요')).toBeInTheDocument();
+  });
+});
+
+describe('tapeRowKeys — 체결 식별 행 키 (quick-260923-elb 3a)', () => {
+  const a = entry({ p: 98_100, q: 11, cv: 10_001, t: '093011000000' });
+  const b = entry({ p: 98_000, q: 10, cv: 10_000, t: '093010000000' });
+  const c = entry({ p: 98_200, q: 12, cv: 10_002, t: '093012000000' });
+
+  it('결과 길이는 입력과 같고 키는 전부 유일하다 · 앞에 새 체결이 붙어도 기존 키는 그대로다', () => {
+    const before = tapeRowKeys([a, b]);
+    const after = tapeRowKeys([c, a, b]);
+
+    expect(before).toHaveLength(2);
+    expect(after).toHaveLength(3);
+    expect(new Set(after).size).toBe(3);
+    expect(after.slice(1)).toEqual(before);
+  });
+
+  it('내용이 완전히 같은 체결 2건은 다른 키 — 서수는 오래된 쪽(배열 끝)부터라 앞에 붙어도 유지된다', () => {
+    const d1 = entry();
+    const d2 = entry();
+    const before = tapeRowKeys([d1, d2]);
+    expect(before[0]).not.toBe(before[1]);
+
+    // 다른 체결이 앞에 붙어도, 같은 내용의 체결이 또 붙어도 기존 두 키는 움직이지 않는다.
+    expect(tapeRowKeys([c, d1, d2]).slice(1)).toEqual(before);
+    const triple = tapeRowKeys([entry(), d1, d2]);
+    expect(triple.slice(1)).toEqual(before);
+    expect(new Set(triple).size).toBe(3);
+  });
+
+  it('행 DOM 은 체결 식별로 재사용된다 — prepend·같은 내용 스냅샷(새 객체) 재전송에도 기존 행이 그대로다', () => {
+    const { container, rerender } = render(
+      <TradeTape entries={[a, b]} isStale={false} basePrice={BASE} />,
+    );
+    const rowsOf = () => Array.from(container.querySelectorAll('tbody tr'));
+    const bRow = rowsOf()[1];
+    const bText = bRow.textContent;
+
+    rerender(<TradeTape entries={[c, a, b]} isStale={false} basePrice={BASE} />);
+    expect(rowsOf()).toHaveLength(3);
+    expect(rowsOf()[2]).toBe(bRow);
+    expect(rowsOf()[2].textContent).toBe(bText);
+
+    // 69 스냅샷 재전송 — 새 객체 · 같은 내용. 재마운트가 없어야 한다.
+    rerender(
+      <TradeTape entries={[{ ...c }, { ...a }, { ...b }]} isStale={false} basePrice={BASE} />,
+    );
+    expect(rowsOf()[2]).toBe(bRow);
   });
 });
 
