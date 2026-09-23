@@ -1182,8 +1182,10 @@ function Card({
         '@min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
         // 배경 선언은 요소당 **하나뿐**이다(ⓑ) — 방향 카드는 틴트가, 그 밖은 카드색이 그 한 줄이다.
         side === undefined && 'bg-[var(--card-base)]',
+        // 폰 bleed 그림자는 **위쪽만 잘라낸다** — 위로 번지면 탭 줄 아래 여백을 덮어 색면이 탭에 붙는다
+        // (quick-260923-kq1). 좌·우·아래 8px 은 그대로 pane 가장자리까지 채운다.
         side !== undefined &&
-          'py-1.5 @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2 @min-[700px]/lc:shadow-none',
+          'py-1.5 [clip-path:inset(0_-8px_-8px_-8px)] @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2 @min-[700px]/lc:shadow-none @min-[700px]/lc:[clip-path:none]',
         side === 'buy' &&
           'bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] shadow-[0_0_0_8px_color-mix(in_oklch,var(--up)_5%,var(--card-base))]',
         side === 'sell' &&
