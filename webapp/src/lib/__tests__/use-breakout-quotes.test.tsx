@@ -9,7 +9,8 @@ import type { RelayQuote } from "@gh-radar/shared";
  * Phase 18 Plan 04 Task 3 — 돌파 종목 다중 시세 구독 훅 (D-16, TRADE-06).
  *
  * 잠그는 명제:
- *  ① `useRelayContext().subscribe/unsubscribe` 참조계수 API 만 쓴다 — 소켓 프레임을 직접 만들지 않는다
+ *  ① `useRelayContext().subscribe/unsubscribe` 참조계수 API 만 price level 로 쓴다 — 소켓 프레임을 직접 만들지 않는다
+ *     (quick-260923-ge2 — 3번째 인자 `"price"` 는 계약 변경이라 호출 단언을 함께 갱신했다)
  *  ② 구독 diff — 빈 집합 무호출 · 초기 구독 · 같은 집합 재렌더 무호출 · 교체(남는 키 무변경) · 언마운트 전량 해제
  *  ③ 거래소 `"KRX"` 고정
  *  ④ 자율 상한 `MAX_BREAKOUT_SUBS` — 카드 종목은 예산 제외, 남은 예산은 최근 돌파 순, 넘친 키는 반환
@@ -62,8 +63,8 @@ describe("useBreakoutQuotes — 구독 diff", () => {
   it("[A, B] 로 마운트하면 KRX 로 각 1회 구독한다", () => {
     renderHook(() => useBreakoutQuotes(cands(A, B)));
     expect(subscribe).toHaveBeenCalledTimes(2);
-    expect(subscribe).toHaveBeenCalledWith(A, "KRX");
-    expect(subscribe).toHaveBeenCalledWith(B, "KRX");
+    expect(subscribe).toHaveBeenCalledWith(A, "KRX", "price");
+    expect(subscribe).toHaveBeenCalledWith(B, "KRX", "price");
   });
 
   it("같은 집합으로 재렌더(새 배열 인스턴스)하면 추가 호출이 없다", () => {
@@ -84,17 +85,17 @@ describe("useBreakoutQuotes — 구독 diff", () => {
     subscribe.mockClear();
     rerender({ c: cands(B, C) });
     expect(unsubscribe).toHaveBeenCalledTimes(1);
-    expect(unsubscribe).toHaveBeenCalledWith(A, "KRX");
+    expect(unsubscribe).toHaveBeenCalledWith(A, "KRX", "price");
     expect(subscribe).toHaveBeenCalledTimes(1);
-    expect(subscribe).toHaveBeenCalledWith(C, "KRX");
+    expect(subscribe).toHaveBeenCalledWith(C, "KRX", "price");
   });
 
   it("언마운트하면 남은 키를 전부 해제한다", () => {
     const { unmount } = renderHook(() => useBreakoutQuotes(cands(A, B)));
     unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(2);
-    expect(unsubscribe).toHaveBeenCalledWith(A, "KRX");
-    expect(unsubscribe).toHaveBeenCalledWith(B, "KRX");
+    expect(unsubscribe).toHaveBeenCalledWith(A, "KRX", "price");
+    expect(unsubscribe).toHaveBeenCalledWith(B, "KRX", "price");
   });
 
   it("원시 시세 맵은 내보내지 않는다 — 소비자는 스로틀된 prices(ISIN → KRX 현재가)만 본다", () => {
@@ -129,6 +130,7 @@ describe("useBreakoutQuotes — 자율 상한과 우선순위", () => {
     expect([...result.current.overflow].sort()).toEqual(all.slice(0, 3).map((c) => c.isin).sort());
     expect(result.current.subscribed.size).toBe(MAX_BREAKOUT_SUBS);
     expect(subscribe.mock.calls.every((c) => c[1] === "KRX")).toBe(true);
+    expect(subscribe.mock.calls.every((c) => c[2] === "price")).toBe(true);
   });
 });
 
@@ -188,8 +190,9 @@ describe("useBreakoutQuotes — 가격 스로틀 (quick-260923-elb 2a)", () => {
       useBreakoutQuotes(cands(A, B), { excludeIsins: new Set([A]) }),
     );
 
-    expect(subscribe).not.toHaveBeenCalledWith(A, "KRX");
-    expect(subscribe).toHaveBeenCalledWith(B, "KRX");
+    // 인자 개수와 무관하게 A 를 한 번도 잡지 않았음을 본다(3번째 인자 추가로 약해지지 않게).
+    expect(subscribe.mock.calls.map((c) => c[0])).not.toContain(A);
+    expect(subscribe).toHaveBeenCalledWith(B, "KRX", "price");
     // 거래중 행의 표시·이탈 판정은 카드 자신의 구독으로 들어온 전역 시세를 읽는다.
     expect(result.current.prices.get(A)).toBe(70_000);
     expect(result.current.prices.get(B)).toBe(51_000);

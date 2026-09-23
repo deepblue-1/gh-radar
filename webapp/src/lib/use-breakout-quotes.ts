@@ -29,11 +29,18 @@
  *   그래서 원시 시세 맵을 내보내지 않고 **후보 ISIN 전체의 KRX 현재가(`prices`)** 만 ≤2Hz 로
  *   내보낸다. 원시 맵을 계속 내보내면 소비처가 스로틀을 우회할 수 있다. 마감은 절대 시각이라
  *   연속 틱이 갱신을 굶기지 않고, 마지막 값은 반드시 도착한다. 구독 diff 규칙(③)은 그대로다.
+ *
+ * ⑥ 가격 전용 구독 `BREAKOUT_SUB_LEVEL` (quick-260923-ge2 · 2b)
+ *   칩은 현재가·등락률만 읽으므로 price level 로 잡는다 — 게이트웨이는 59 를 가격 섹션 갱신 때만
+ *   (종목당 ≤5Hz) 보내고 71·75 는 보내지 않는다(PRICE 59 에도 호가 배열은 실려 오지만 읽지 않는다).
+ *   같은 종목을 다른 소비자가 full 로 보면 relay·webapp 참조계수가 full 로 합성하고, 그 소비자가
+ *   빠지면 price 로 강등된다. relay 는 게이트웨이 가동본이 구버전이어도 price 로 잡은 키에 tape 를
+ *   흘리지 않는다. 호가창 카드가 연 종목은 ④ 의 `excludeIsins` 로 애초에 이 훅이 잡지 않는다.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { RelayQuote } from "@gh-radar/shared";
+import type { RelayQuote, RelaySubLevel } from "@gh-radar/shared";
 
 import { useRelayContext } from "@/lib/relay-provider";
 import { relayQuoteKey } from "@/lib/use-relay-socket";
@@ -57,6 +64,9 @@ export const BREAKOUT_PRICE_THROTTLE_MS = 500;
 
 /** 돌파 거래소 — 서버 정본상 KRX 에서만 발화한다(②). */
 const BREAKOUT_EXCHANGE = "KRX" as const;
+
+/** 돌파 칩 구독 수준 — 가격 전용(⑥ · quick-260923-ge2). */
+const BREAKOUT_SUB_LEVEL: RelaySubLevel = "price";
 
 /**
  * 돌파 행의 현재가 — 구독 거래소(②)의 시세 맵에서 고른다. **모르면 `undefined`** 이다.
@@ -162,13 +172,13 @@ export function useBreakoutQuotes(
     const held = heldRef.current;
     for (const isin of [...held]) {
       if (!want.has(isin)) {
-        unsubscribe(isin, BREAKOUT_EXCHANGE);
+        unsubscribe(isin, BREAKOUT_EXCHANGE, BREAKOUT_SUB_LEVEL);
         held.delete(isin);
       }
     }
     for (const isin of want) {
       if (!held.has(isin)) {
-        subscribe(isin, BREAKOUT_EXCHANGE);
+        subscribe(isin, BREAKOUT_EXCHANGE, BREAKOUT_SUB_LEVEL);
         held.add(isin);
       }
     }
@@ -178,7 +188,7 @@ export function useBreakoutQuotes(
   useEffect(() => {
     const held = heldRef.current;
     return () => {
-      for (const isin of held) unsubscribe(isin, BREAKOUT_EXCHANGE);
+      for (const isin of held) unsubscribe(isin, BREAKOUT_EXCHANGE, BREAKOUT_SUB_LEVEL);
       held.clear();
     };
   }, [unsubscribe]);

@@ -21,6 +21,8 @@
  *  3. **구독 해제를 빠뜨리지 않는다** — relay 는 키별 참조계수로 업스트림 구독을 관리한다.
  *     해제를 빠뜨리면 참조계수가 샌다. 브라우저도 같은 규율을 재현한다: `Map<key, count>` 의
  *     **0→1 에서만 `sub`**, **1→0 에서만 `unsub`**. 소비자가 여럿이어도 와이어는 1벌이다.
+ *     카운트는 level 별 `{full, price}` 이고 와이어 level 은 그 합성(full 우선)이다 — 실효
+ *     level 이 바뀌면 같은 키로 `sub` 을 다시 보낸다(quick-260923-ge2).
  *  4. **재접속은 유한하다** — 1s→2s→4s→8s… 상한 30s, 시도 상한 10회. 소진하면
  *     `manual_required`. close 4401(인증 실패)은 재시도해도 결과가 같으므로 즉시 확정.
  *     무한 재시도는 우리 스스로에게 거는 DoS 다(T-15-10, D-16).
@@ -65,6 +67,7 @@ import {
   type RelayQuote,
   type RelayServerMsg,
   type RelaySessionState,
+  type RelaySubLevel,
   type RelayTape,
   type RelayStrategiesDisabledMsg,
   type RelayQueuedWindowMsg,
@@ -155,6 +158,21 @@ export function relayBackoffDelayMs(attempt: number): number {
  */
 export function relayQuoteKey(isin: string, exchange: RelayExchange): string {
   return `${isin}|${exchange}`;
+}
+
+/** 키당 level 별 구독 참조계수 (quick-260923-ge2). */
+type SubRefEntry = { isin: string; ex: RelayExchange; full: number; price: number };
+
+/** 와이어 실효 level — full 소비자가 하나라도 있으면 full. */
+function effectiveSubLevel(entry: SubRefEntry): RelaySubLevel {
+  return entry.full > 0 ? "full" : "price";
+}
+
+/** `sub` 프레임. `lv` 는 price 일 때만 싣는다 — full 은 종전 모양 그대로(옛 relay 호환). */
+function subFrameOf(entry: SubRefEntry): RelayInbound {
+  return effectiveSubLevel(entry) === "price"
+    ? { t: "sub", isin: entry.isin, ex: entry.ex, lv: "price" }
+    : { t: "sub", isin: entry.isin, ex: entry.ex };
 }
 
 // ============================================================
@@ -365,10 +383,21 @@ export interface RelayConnectionState {
   send: (msg: RelayInbound) => boolean;
   /** 수동 재연결. 백오프 카운터를 0 으로 되돌리고 새 소켓을 연다. */
   reconnect: () => void;
-  /** 구독 참조계수 +1. 0→1 에서만 와이어에 `sub` 이 나간다. */
-  subscribe: (isin: string, exchange: RelayExchange) => void;
-  /** 구독 참조계수 -1. 1→0 에서만 와이어에 `unsub` 이 나간다. */
-  unsubscribe: (isin: string, exchange: RelayExchange) => void;
+  /**
+   * 구독 참조계수 +1. 0→1 에서만 와이어에 `sub` 이 나간다.
+   *
+   * `level` (quick-260923-ge2) — 기본 `"full"` 이라 기존 호출부는 무변경이다. 키당 `{full, price}`
+   * 두 카운트를 세고 실효 level = full ≥1 ? full : price 다. 실효 level 이 바뀌면 같은 키로
+   * `sub` 을 다시 보낸다 — relay 가 같은 소켓 재구독을 level 갱신으로 처리한다(fanout 규칙 7).
+   * `lv` 는 price 일 때만 싣는다 — full 프레임은 종전과 같은 모양이라 옛 relay 에도 안전하다.
+   */
+  subscribe: (isin: string, exchange: RelayExchange, level?: RelaySubLevel) => void;
+  /**
+   * 구독 참조계수 -1 (그 level 의 카운트). 합계 1→0 에서만 와이어에 `unsub` 이 나가고,
+   * 실효 level 이 full→price 로 바뀌면 `lv:"price"` 로 `sub` 을 다시 보낸다.
+   * 잡지 않은 level 의 해제는 무시한다.
+   */
+  unsubscribe: (isin: string, exchange: RelayExchange, level?: RelaySubLevel) => void;
   /**
    * 주문 송신 + `rid` 상관 응답 대기 (D-02).
    *
@@ -929,12 +958,15 @@ export function useRelayConnection({
   const socketRef = useRef<WebSocket | null>(null);
   /** 인증 ACK(첫 상태 프레임) 수신 여부. 소켓마다 초기화된다. */
   const authAckedRef = useRef(false);
-  /** 구독 참조계수. 0→1 에서만 `sub`, 1→0 에서만 `unsub` (relay `SubscriptionHub#refs` 동형). */
-  const subRefsRef = useRef<Map<string, { isin: string; ex: RelayExchange; count: number }>>(
-    new Map(),
-  );
-  /** **와이어에 실제로 걸려 있는** 구독. 소켓이 바뀌면 비워지고 재접속 시 다시 채워진다. */
-  const wireSubsRef = useRef<Map<string, { isin: string; ex: RelayExchange }>>(new Map());
+  /**
+   * 구독 참조계수 — level 별 `{full, price}` (relay `SubscriptionHub#refs` 동형 · quick-260923-ge2).
+   * 합계 0→1 에서만 `sub`, 1→0 에서만 `unsub`. 실효 level 이 바뀌면 `sub` 재송신.
+   */
+  const subRefsRef = useRef<Map<string, SubRefEntry>>(new Map());
+  /** **와이어에 실제로 걸려 있는** 구독과 그 level. 소켓이 바뀌면 비워지고 재접속 시 다시 채워진다. */
+  const wireSubsRef = useRef<
+    Map<string, { isin: string; ex: RelayExchange; lv: RelaySubLevel }>
+  >(new Map());
   /** `rid` → 대기 중인 주문 Promise. */
   const pendingOrdersRef = useRef<Map<string, PendingOrder>>(new Map());
   /**
@@ -955,6 +987,9 @@ export function useRelayConnection({
    * 인증 전 구독 요청의 지연 반영과 **재접속 후 재구독**이 같은 한 함수를 탄다 —
    * 두 경로를 따로 만들면 한쪽만 고쳐져 조용히 갈린다. `wireSubs` 가 중복 송신을 막으므로
    * 참조계수가 2든 5든 와이어에는 `sub` 이 **1번만** 나간다.
+   *
+   * level 변경 재송신도 이 한 함수를 탄다(quick-260923-ge2) — 0→1 · 재접속 · 승격/강등 세 경로를
+   * 따로 두면 한쪽만 고쳐진다. 와이어 level 과 실효 level 이 다를 때만 다시 보낸다.
    */
   const flushSubscriptions = useCallback(() => {
     const ws = socketRef.current;
@@ -965,9 +1000,12 @@ export function useRelayConnection({
     if (statusRef.current === "unauthorized") return;
 
     for (const [key, entry] of subRefsRef.current) {
-      if (entry.count < 1 || wireSubsRef.current.has(key)) continue;
-      ws.send(JSON.stringify({ t: "sub", isin: entry.isin, ex: entry.ex }));
-      wireSubsRef.current.set(key, { isin: entry.isin, ex: entry.ex });
+      if (entry.full + entry.price < 1) continue;
+      const lv = effectiveSubLevel(entry);
+      const wire = wireSubsRef.current.get(key);
+      if (wire !== undefined && wire.lv === lv) continue;
+      ws.send(JSON.stringify(subFrameOf(entry)));
+      wireSubsRef.current.set(key, { isin: entry.isin, ex: entry.ex, lv });
     }
   }, []);
 
@@ -1227,35 +1265,47 @@ export function useRelayConnection({
   }, [authEpoch, data.status, flushSubscriptions]);
 
   const subscribe = useCallback(
-    (isin: string, exchange: RelayExchange) => {
+    (isin: string, exchange: RelayExchange, level: RelaySubLevel = "full") => {
       if (!isin) return;
       const key = relayQuoteKey(isin, exchange);
-      const entry = subRefsRef.current.get(key);
-      if (entry) entry.count += 1;
-      else subRefsRef.current.set(key, { isin, ex: exchange, count: 1 });
-      // 0→1 에서만 와이어가 움직인다 — `flushSubscriptions` 가 wireSubs 로 중복을 막는다.
+      let entry = subRefsRef.current.get(key);
+      if (!entry) {
+        entry = { isin, ex: exchange, full: 0, price: 0 };
+        subRefsRef.current.set(key, entry);
+      }
+      entry[level] += 1;
+      // 0→1 과 실효 level 변경에서만 와이어가 움직인다 — `flushSubscriptions` 가 wireSubs 로
+      // 중복을 막는다.
       flushSubscriptions();
     },
     [flushSubscriptions],
   );
 
-  const unsubscribe = useCallback((isin: string, exchange: RelayExchange) => {
-    if (!isin) return;
-    const key = relayQuoteKey(isin, exchange);
-    const entry = subRefsRef.current.get(key);
-    if (!entry) return;
-    entry.count -= 1;
-    if (entry.count > 0) return; // 아직 다른 소비자가 보고 있다
+  const unsubscribe = useCallback(
+    (isin: string, exchange: RelayExchange, level: RelaySubLevel = "full") => {
+      if (!isin) return;
+      const key = relayQuoteKey(isin, exchange);
+      const entry = subRefsRef.current.get(key);
+      // 잡지 않은 level 의 해제는 무시한다 — relay hub 「참조계수 없는 해제 — 무시」 와 동형.
+      if (!entry || entry[level] <= 0) return;
+      entry[level] -= 1;
+      if (entry.full + entry.price > 0) {
+        // 아직 다른 소비자가 보고 있다 — full→price 강등이면 `lv:"price"` 로 재송신, 아니면 무동작.
+        flushSubscriptions();
+        return;
+      }
 
-    subRefsRef.current.delete(key);
-    const wire = wireSubsRef.current.get(key);
-    if (!wire) return;
-    wireSubsRef.current.delete(key);
+      subRefsRef.current.delete(key);
+      const wire = wireSubsRef.current.get(key);
+      if (!wire) return;
+      wireSubsRef.current.delete(key);
 
-    const ws = socketRef.current;
-    if (!ws || ws.readyState !== WS_READY_OPEN) return;
-    ws.send(JSON.stringify({ t: "unsub", isin: wire.isin, ex: wire.ex }));
-  }, []);
+      const ws = socketRef.current;
+      if (!ws || ws.readyState !== WS_READY_OPEN) return;
+      ws.send(JSON.stringify({ t: "unsub", isin: wire.isin, ex: wire.ex }));
+    },
+    [flushSubscriptions],
+  );
 
   const send = useCallback((msg: RelayInbound): boolean => {
     const ws = socketRef.current;

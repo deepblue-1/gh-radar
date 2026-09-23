@@ -466,6 +466,133 @@ describe('useRelayConnection — 구독 참조계수', () => {
   });
 });
 
+describe('useRelayConnection — 구독 level (quick-260923-ge2)', () => {
+  const subs = (ws: FakeWebSocket) => ws.parsedSent().filter((m) => m.t === 'sub');
+  const unsubs = (ws: FakeWebSocket) => ws.parsedSent().filter((m) => m.t === 'unsub');
+
+  it('W1 price 구독은 lv:"price" 를 싣는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+    });
+
+    expect(ws.parsedSent().at(-1)).toEqual({ t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' });
+  });
+
+  it('W2 price 위에 full 이 붙으면 같은 키로 sub 을 다시 보내고 full 프레임은 종전 모양이다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+    });
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
+
+    expect(subs(ws)).toEqual([
+      { t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' },
+      { t: 'sub', isin: ISIN_A, ex: 'KRX' },
+    ]);
+    expect(unsubs(ws)).toHaveLength(0);
+  });
+
+  it('W3 full 이 빠지면 lv:"price" 로 강등 재송신하고, 마지막 price 이탈에서 unsub 한다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+    });
+    expect(subs(ws)).toHaveLength(1);
+
+    act(() => {
+      hook.result.current.unsubscribe(ISIN_A, 'KRX');
+    });
+    expect(subs(ws)).toHaveLength(2);
+    expect(ws.parsedSent().at(-1)).toEqual({ t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' });
+    expect(unsubs(ws)).toHaveLength(0);
+
+    act(() => {
+      hook.result.current.unsubscribe(ISIN_A, 'KRX', 'price');
+    });
+    expect(ws.parsedSent().at(-1)).toEqual({ t: 'unsub', isin: ISIN_A, ex: 'KRX' });
+  });
+
+  it('W4 인증 ACK 이전 price 구독은 보류됐다가 ACK 시점에 lv:"price" 로 나간다', async () => {
+    const hook = render();
+    await settle();
+    const ws = FakeWebSocket.last();
+    await act(async () => {
+      ws.accept();
+    });
+
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+    });
+    expect(ws.parsedSent()).toEqual([{ t: 'auth', token: 'tok-abc' }]);
+
+    await act(async () => {
+      ws.push({ t: 'state', s: 'ready', accounts: [] });
+    });
+
+    expect(ws.parsedSent().at(-1)).toEqual({ t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' });
+  });
+
+  it('W5 재접속 재구독도 실효 level 로 나간다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX', 'price');
+    });
+    expect(subs(ws)).toHaveLength(1);
+
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+
+    const ws2 = FakeWebSocket.last();
+    await act(async () => {
+      ws2.accept();
+    });
+    await act(async () => {
+      ws2.push({ t: 'state', s: 'ready', accounts: [] });
+    });
+
+    expect(subs(ws2)).toEqual([{ t: 'sub', isin: ISIN_A, ex: 'KRX', lv: 'price' }]);
+  });
+
+  it('W6 잡지 않은 level 의 해제는 무시한다 (카운트가 새지 않는다)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    act(() => {
+      hook.result.current.subscribe(ISIN_A, 'KRX');
+    });
+    const before = ws.parsedSent().length;
+
+    act(() => {
+      hook.result.current.unsubscribe(ISIN_A, 'KRX', 'price');
+    });
+    expect(ws.parsedSent()).toHaveLength(before);
+
+    act(() => {
+      hook.result.current.unsubscribe(ISIN_A, 'KRX');
+    });
+    expect(unsubs(ws)).toEqual([{ t: 'unsub', isin: ISIN_A, ex: 'KRX' }]);
+  });
+});
+
 describe('useRelayConnection — 재접속 규율 (D-16 / T-15-10)', () => {
   it('⑧ 서버가 닫으면 백오프 재접속하고, 데이터를 지우지 않고 isStale 만 세운다', async () => {
     const hook = render();
