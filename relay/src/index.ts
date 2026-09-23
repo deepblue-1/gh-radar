@@ -130,6 +130,8 @@ const fanout = new WsFanout({
   // 둘 다 있어야 주문 분기가 열린다.
   orderStore,
   symbols,
+  // NXT 거래가능 집합 → `nxt.snap`(quick-260923-pq2). 빠지면 프레임이 안 나가고 웹앱은 둘 다 그린다(조용한 퇴행) — 결선 grep 게이트가 잡는다.
+  nxtTradable: gatewaySymbols,
 });
 
 wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, head));

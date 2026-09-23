@@ -23,6 +23,7 @@
  *    그대로 넘기고 해석하지 않는다 — 스텁이 요청을 해석해 주면 그 해석이 곧 프로덕션 파서의
  *    정답지가 되어 검증이 순환한다.
  */
+import { EventEmitter } from "node:events";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
@@ -841,6 +842,73 @@ describe("WsFanout", () => {
     await waitFor(() => unknownWarns() === 1, "미등록 번호 경고 1건");
     // 화이트리스트 밖이라 hub 까지 오지 않는다 — `default:` 카운터는 여전히 0이다.
     expect(h.hub.unhandledFrameCount()).toBe(0);
+  });
+
+  it("⑭-5 nxt.snap — 적재 전엔 0프레임, 적재 뒤 인증하면 스냅샷 묶음 끝에 1프레임, updated 시 인증된 모든 연결에 재전송, 미인증 소켓엔 없음, close 가 리스너를 뗀다 (quick-260923-pq2)", async () => {
+    /** 게이트웨이 종목마스터의 최소 표면 스텁 — `GatewaySymbolMaster` 가 구조적으로 만족하는 모양. */
+    class StubNxtFeed extends EventEmitter {
+      isins: readonly string[] | null = null;
+      nxtTradableIsins(): readonly string[] | null {
+        return this.isins;
+      }
+    }
+    const feed = new StubNxtFeed();
+    // 기본 `h` 는 건드리지 않는다 — dep 를 주입한 별도 하네스(⑧ strict 선례).
+    const nx = await startHarness({ nxtTradable: feed });
+    expect(feed.listenerCount("updated")).toBe(1);
+
+    async function openNx(): Promise<{ ws: TestWs; inbox: RelayOutbound[] }> {
+      const ws = await connectWs(nx.port, WS_PATH);
+      sockets.push(ws);
+      const inbox: RelayOutbound[] = [];
+      ws.raw.on("message", (data) => inbox.push(JSON.parse(data.toString()) as RelayOutbound));
+      return { ws, inbox };
+    }
+
+    // (a) 모름(null) — 빈 배열로 위장하지 않고 아예 보내지 않는다. rate.cross.snap 은 1(다른 규율).
+    const tabA = await openNx();
+    tabA.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabA.inbox, "vi.list").length === 1, "A 스냅샷");
+    await flushIo(20);
+    expect(framesOf(tabA.inbox, "nxt.snap")).toHaveLength(0);
+    expect(framesOf(tabA.inbox, "rate.cross.snap")).toHaveLength(1);
+
+    // (b) 적재 뒤 인증 — 스냅샷 묶음 끝(rate.cross.snap 뒤)에 정확히 1프레임.
+    feed.isins = [SAMPLE_ISIN];
+    const tabB = await openNx();
+    tabB.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tabB.inbox, "vi.list").length === 1, "B 스냅샷");
+    await flushIo(20);
+    expect(framesOf(tabB.inbox, "nxt.snap")).toEqual([{ t: "nxt.snap", isins: [SAMPLE_ISIN] }]);
+    const nxtIdx = tabB.inbox.findIndex((m) => m.t === "nxt.snap");
+    const crossIdx = tabB.inbox.findIndex((m) => m.t === "rate.cross.snap");
+    expect(crossIdx).toBeGreaterThanOrEqual(0);
+    expect(nxtIdx).toBeGreaterThan(crossIdx);
+
+    // (c) 재적재(updated) — 인증된 두 탭 모두 1프레임씩 더, 미인증 소켓은 0.
+    const anon = await openNx();
+    await flushIo(4);
+    feed.isins = [SAMPLE_ISIN, OTHER_ISIN];
+    feed.emit("updated", { count: 2 });
+    await waitFor(
+      () =>
+        framesOf(tabA.inbox, "nxt.snap").length === 1 &&
+        framesOf(tabB.inbox, "nxt.snap").length === 2,
+      "updated 재전송",
+    );
+    await flushIo(20);
+    expect(framesOf(tabA.inbox, "nxt.snap")).toEqual([
+      { t: "nxt.snap", isins: [SAMPLE_ISIN, OTHER_ISIN] },
+    ]);
+    expect(framesOf(tabB.inbox, "nxt.snap")[1]).toEqual({
+      t: "nxt.snap",
+      isins: [SAMPLE_ISIN, OTHER_ISIN],
+    });
+    expect(framesOf(anon.inbox, "nxt.snap")).toHaveLength(0);
+
+    // (d) close 가 리스너를 뗀다.
+    await nx.close();
+    expect(feed.listenerCount("updated")).toBe(0);
   });
 
   it("⑮ dma_credentials 미등록은 전략 스냅샷도 전략 전송도 받지 못한다 (D-04)", async () => {

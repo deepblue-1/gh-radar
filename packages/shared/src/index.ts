@@ -74,6 +74,7 @@ export type {
   RelayRateCrossMsg,
   RelayRateCrossSnapMsg,
   RelayQueuedWindowMsg,
+  RelayNxtSnapMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,

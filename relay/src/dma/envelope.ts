@@ -2370,12 +2370,17 @@ export function fromWireMasterMarketType(raw: string): OrderMarket | null {
   return null;
 }
 
-/** 57 원소 1건을 좁힌 결과. 표시·주문에 필요한 최소 필드만 담는다(sec_group_id·nxt_tradable 제외). */
+/**
+ * 57 원소 1건을 좁힌 결과. 표시·주문에 필요한 최소 필드 + NXT 거래가능 플래그(quick-260923-pq2 —
+ * 웹앱 세그먼트 판정의 유일한 원천). `sec_group_id` 는 여전히 제외.
+ */
 export type GatewaySymbolRow = {
   isin: string;
   code: string;
   name: string;
   market: OrderMarket | null;
+  /** NXT 거래가능 여부(서버가 NXT A0 수신으로 판정 · fbs D-12). */
+  nxtTradable: boolean;
 };
 
 /** 57 프레임 1건을 좁힌 결과. */
@@ -2470,7 +2475,13 @@ export function parseSymbolMasterFrame(env: Envelope): ParsedSymbolMasterFrame |
         skip("bad-name-length", isin);
         continue;
       }
-      rows.push({ isin, code, name, market: fromWireMasterMarketType(item.marketType() ?? "") });
+      rows.push({
+        isin,
+        code,
+        name,
+        market: fromWireMasterMarketType(item.marketType() ?? ""),
+        nxtTradable: item.nxtTradable(),
+      });
     }
 
     if (skipped > 0) {

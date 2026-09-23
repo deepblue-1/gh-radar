@@ -31,7 +31,8 @@
  *         갈래는 사유를 담은 `[SYM-GW]` 로그를 남긴다(무로그 fail-safe 금지).
  *
  * 하지 않는 것:
- *   - 57 을 브라우저로 흘리지 않는다(공개 마스터 — relay 이름 해석에만 쓴다).
+ *   - 57 의 이름·코드는 브라우저로 흘리지 않는다. 예외는 NXT 거래가능 ISIN 집합(`nxt.snap`,
+ *     quick-260923-pq2) 하나 — fanout 이 `nxtTradableIsins()` 와 `updated` 로 읽는다.
  *   - 개별 ISIN 을 지연 조회하지 않는다. 요청 수는 사용자 수와 무관하다.
  *   - throw 하지 않는다. 이름은 표시용이라 relay 기동·주문 경로를 막을 이유가 없다.
  */
@@ -94,6 +95,8 @@ type Inflight = {
   skipped: number;
   frames: number;
   rows: Map<string, SymbolInfo>;
+  /** NXT 거래가능 ISIN — 57 원순서. */
+  nxt: string[];
 };
 
 type RequestReason = "ready" | "day-boundary" | "retry";
@@ -122,6 +125,11 @@ export type GatewaySymbolMasterOptions = {
  */
 export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
   #byIsin = new Map<string, SymbolInfo>();
+  /**
+   * NXT 거래가능 ISIN 집합(quick-260923-pq2). **적재 전엔 `null`(모름)** — `false` 로 지어내지
+   * 않는다(T-16-05). `#byIsin` 과 같은 적재 단위로 원자 교체된다.
+   */
+  #nxtTradableIsins: readonly string[] | null = null;
   #loadedDayKey: string | null = null;
   #loadedAt: Date | null = null;
   #inflight: Inflight | null = null;
@@ -168,10 +176,25 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
     return this.#byIsin.get(isin);
   }
 
+  /**
+   * NXT 거래가능 ISIN 집합(57 원순서). 적재 전엔 `null`(모름). 반환 배열은 보관 중인 참조다 —
+   * 호출부가 바꾸지 않는다(fanout 은 전송용으로 한 번 복사한다).
+   */
+  nxtTradableIsins(): readonly string[] | null {
+    return this.#nxtTradableIsins;
+  }
+
   /** 운영 요약. 식별자를 담지 않는다. */
-  stats(): { symbolCount: number; loadedAt: string | null; dayKey: string | null; inflight: boolean } {
+  stats(): {
+    symbolCount: number;
+    nxtTradableCount: number;
+    loadedAt: string | null;
+    dayKey: string | null;
+    inflight: boolean;
+  } {
     return {
       symbolCount: this.#byIsin.size,
+      nxtTradableCount: this.#nxtTradableIsins?.length ?? 0,
       loadedAt: this.#loadedAt === null ? null : this.#loadedAt.toISOString(),
       dayKey: this.#loadedDayKey,
       inflight: this.#inflight !== null,
@@ -232,6 +255,8 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
         market: row.market,
         source: "gateway",
       });
+      // NXT 플래그는 SymbolInfo 에 넣지 않는다(A-1) — 별도 ISIN 집합으로만 보관한다.
+      if (row.nxtTradable) inflight.nxt.push(row.isin);
     }
 
     if (!frame.isLast) return;
@@ -246,6 +271,7 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
     const now = this.#now();
     this.#clearTimeoutTimer();
     this.#byIsin = inflight.rows;
+    this.#nxtTradableIsins = inflight.nxt;
     // 성공 키는 **완료 시각**으로 매긴다(D-03).
     this.#loadedDayKey = masterDayKey(now);
     this.#loadedAt = new Date(now);
@@ -254,6 +280,7 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
     logger.info(
       {
         count,
+        nxtTradableCount: inflight.nxt.length,
         skipped: inflight.skipped,
         frames: inflight.frames,
         elapsedMs: now - inflight.startedAt,
@@ -315,6 +342,7 @@ export class GatewaySymbolMaster extends EventEmitter implements SymbolLookup {
       skipped: 0,
       frames: 0,
       rows: new Map(),
+      nxt: [],
     };
     this.#clearTimeoutTimer();
     this.#timeoutTimer = setTimeout(() => {

@@ -10,6 +10,7 @@
  *   ⑤ Supabase 우선(행 단위)과 FK 헬퍼 `stocksCodeOf`.
  *   ⑥ 라우팅 — 요청 세션이 아닌 userId · 요청 없는 57 은 무시.
  *   ⑦ 빈 마스터는 기존 맵을 지우지 않는다.
+ *   ⑬ nxt_tradable 보존(quick-260923-pq2) — 파싱 행 플래그 · ISIN 집합(적재 전 null) · 재적재 통째 교체.
  *   ⑧~⑫ 스케줄 — 07:30 경계 타이머(재무장) · Ready 세션 없음 · 30초 타임아웃 → 5분 backoff →
  *      다른 Ready 세션으로 재시도 · 하루 5회 상한 · 성공 시 타임아웃 해제 · close() 로 타이머 0.
  *
@@ -484,6 +485,62 @@ describe("GatewaySymbolMaster — 게이트웨이 종목마스터 보조 원천 
     expect(gw.stats()).toMatchObject({ symbolCount: 4, inflight: false, dayKey: "2026-09-23" });
     const reasons = warn.mock.calls.map((c) => (c[0] as { reason?: string }).reason);
     expect(reasons.some((r) => r?.startsWith("empty"))).toBe(true);
+  });
+
+  it("⑬ nxt_tradable 보존 (quick-260923-pq2) — 파싱 행 플래그 · 스토어 ISIN 집합 · 적재 전 null · 재적재 시 통째 교체 · SymbolInfo 에는 없음", () => {
+    const withNxt = (items: FakeSymbolMasterItem[], nxt: number[]): FakeSymbolMasterItem[] =>
+      items.map((it, i) => (nxt.includes(100 + i) ? { ...it, nxtTradable: true } : it));
+
+    // 파싱 행 — 101 · 103 만 true, 나머지 false.
+    const firstItems = withNxt(mkItems(5), [101, 103]);
+    const frame = parse57(buildSymbolMasterFrame({ items: firstItems, seq: 0, totalItems: 5 }));
+    expect(frame).not.toBeNull();
+    expect(frame!.rows.map((r) => [r.isin, r.nxtTradable])).toEqual([
+      [isinOf(100), false],
+      [isinOf(101), true],
+      [isinOf(102), false],
+      [isinOf(103), true],
+      [isinOf(104), false],
+    ]);
+
+    // 적재 전 — 모름(null). 빈 배열로 위장하지 않는다.
+    const gw = new GatewaySymbolMaster({ now });
+    expect(gw.nxtTradableIsins()).toBeNull();
+    expect(gw.stats().nxtTradableCount).toBe(0);
+
+    const updated = vi.fn();
+    gw.on("updated", updated);
+    const session = new FakeSession("user-1");
+    gw.onSessionReady(session);
+    gw.onFrame("user-1", frame);
+    expect(gw.nxtTradableIsins()).toEqual([isinOf(101), isinOf(103)]);
+    expect(gw.stats()).toMatchObject({ symbolCount: 5, nxtTradableCount: 2 });
+    // SymbolInfo 에는 플래그 키가 없다(A-1 · T-16-05).
+    expect(gw.lookup(isinOf(101))).toEqual({
+      code: codeOf(101),
+      name: "종목101",
+      market: "K",
+      source: "gateway",
+    });
+    expect(updated).toHaveBeenCalledTimes(1);
+
+    // 다음 master-day 재적재 — 104 만 true → 통째 교체.
+    nowMs = T0 + DAY_MS;
+    gw.onSessionReady(session);
+    for (const f of buildSymbolMasterFrames(withNxt(mkItems(5), [104]), 2)) {
+      gw.onFrame("user-1", parse57(f));
+    }
+    expect(gw.nxtTradableIsins()).toEqual([isinOf(104)]);
+    expect(gw.stats().nxtTradableCount).toBe(1);
+    expect(updated).toHaveBeenCalledTimes(2);
+
+    // 실패 갈래(빈 마스터)는 집합을 건드리지 않는다.
+    nowMs = T0 + 2 * DAY_MS;
+    gw.onSessionReady(session);
+    gw.onFrame("user-1", parse57(buildSymbolMasterFrames([])[0]!));
+    expect(gw.stats().inflight).toBe(false);
+    expect(gw.nxtTradableIsins()).toEqual([isinOf(104)]);
+    expect(updated).toHaveBeenCalledTimes(2);
   });
 
   it("masterDayKey — 07:30 KST 경계 (07:29 는 전날 키)", () => {

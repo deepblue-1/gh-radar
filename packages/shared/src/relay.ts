@@ -1070,6 +1070,15 @@ export type RelayQueuedWindowMsg = {
 };
 
 /**
+ * NXT 거래가능 종목 ISIN 집합 스냅샷(quick-260923-pq2). 원천은 게이트웨이 종목마스터 57 의
+ * `nxt_tradable`(서버가 NXT A0 수신으로 판정 · fbs D-12) 하나다 — Supabase `stocks` 에는 NXT
+ * 정보가 없다. relay 는 집합이 **적재돼 있을 때만** 인증 직후 1프레임을 내리고(적재 전엔 보내지
+ * 않는다 — 브라우저는 「모름」으로 둘 다 그린다), 일일 재적재가 끝나면 인증된 모든 연결에 다시
+ * 내린다. 전량 교체 의미다(병합 아님). 사용자 데이터가 없는 공개 마스터 파생값이다.
+ */
+export type RelayNxtSnapMsg = { t: "nxt.snap"; isins: string[] };
+
+/**
  * 전략 일괄 비활성화 집계 (`DisableStrategiesResp(65)`).
  *
  * ⚠️ **완료 신호로만 쓴다.** 서버가 키별 60/61 에코를 세션 전 연결에 먼저 보낸 뒤 이 집계를
@@ -1123,7 +1132,8 @@ export type RelayOutbound =
   | RelayOrderResultMsg
   | RelayRateCrossMsg
   | RelayRateCrossSnapMsg
-  | RelayQueuedWindowMsg;
+  | RelayQueuedWindowMsg
+  | RelayNxtSnapMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)

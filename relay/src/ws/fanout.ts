@@ -70,6 +70,7 @@ import type {
   RelayInbound,
   RelayLcArmMsg,
   RelayLimitChaserInput,
+  RelayNxtSnapMsg,
   RelayOutbound,
   RelayServerMsg,
   RelayStateMsg,
@@ -222,6 +223,17 @@ export interface FanoutSessions {
   get(userId: string): DmaSession | undefined;
 }
 
+/**
+ * NXT 거래가능 ISIN 집합 원천의 최소 표면(quick-260923-pq2). `HubSymbolMasterFeed` 선례처럼
+ * 구조적 타입이다 — `GatewaySymbolMaster` 가 그대로 만족하고, 테스트는 스텁을 넣는다.
+ * `nxtTradableIsins()` 의 `null` 은 「아직 모른다(57 미적재)」다.
+ */
+export type NxtTradableFeed = {
+  nxtTradableIsins(): readonly string[] | null;
+  on(event: "updated", listener: () => void): unknown;
+  off(event: "updated", listener: () => void): unknown;
+};
+
 export type WsFanoutDeps = {
   /**
    * HTTP 서버와 포트를 공유한다(`noServer` + `handleUpgrade`).
@@ -257,6 +269,11 @@ export type WsFanoutDeps = {
   symbols?: SymbolLookup;
   /** 첫 주문 통보 대기 상한(ms). 테스트가 줄여 쓴다. */
   orderTimeoutMs?: number;
+  /**
+   * NXT 거래가능 ISIN 집합 원천(quick-260923-pq2). 없으면 `nxt.snap` 을 내리지 않고
+   * 브라우저는 둘 다 그린다.
+   */
+  nxtTradable?: NxtTradableFeed;
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -354,6 +371,10 @@ export class WsFanout {
    * 그래서 조합 판정과 별개로 인스턴스에 따로 보관한다.
    */
   readonly #symbols: SymbolLookup | null;
+  /** NXT 거래가능 집합 원천(quick-260923-pq2). 없으면 `nxt.snap` 을 보내지 않는다. */
+  readonly #nxtTradable: NxtTradableFeed | null;
+  /** `updated` 리스너 — `closeAll` 이 같은 참조로 뗀다. */
+  readonly #onNxtUpdated: () => void;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -396,6 +417,11 @@ export class WsFanout {
     }
 
     this.#heartbeat = setInterval(() => this.#sweep(), deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS);
+
+    // 일일 재적재가 끝나면 인증된 모든 연결에 새 집합을 내린다 (quick-260923-pq2).
+    this.#nxtTradable = deps.nxtTradable ?? null;
+    this.#onNxtUpdated = (): void => this.#broadcastNxtSnap();
+    this.#nxtTradable?.on("updated", this.#onNxtUpdated);
   }
 
   /** `/healthz` 요약. */
@@ -433,6 +459,7 @@ export class WsFanout {
    */
   async closeAll(code?: number, reason = "server shutting down", graceMs = 250): Promise<void> {
     clearInterval(this.#heartbeat);
+    this.#nxtTradable?.off("updated", this.#onNxtUpdated);
     this.#server?.removeListener("upgrade", this.#onUpgrade);
 
     const conns = [...this.#conns];
@@ -630,6 +657,38 @@ export class WsFanout {
     this.#send(conn, { t: "rate.cross.snap", items: this.#hub.getRateCrossItems(userId) });
     const queuedWindow = this.#hub.getQueuedWindow(userId);
     if (queuedWindow !== undefined) this.#send(conn, queuedWindow);
+
+    // ⚠️ `nxt.snap` 은 `lc.snap` 과 같다 — 집합이 **적재돼 있을 때만** 보낸다 (quick-260923-pq2).
+    //    적재 전(콜드 부팅 · 57 미수신)의 「모름」을 빈 배열로 내리면 브라우저가 모든 종목에서
+    //    NXT 를 지우는 거짓 확정이 된다. `vi.list`·`rate.cross.snap` 의 「비어도 보낸다」와
+    //    **다르다** — 저쪽 빈 배열은 확정 정보다. 적재가 뒤에 끝나면 `updated` 재전송이 이
+    //    연결의 첫 `nxt.snap` 이 된다.
+    const nxtSnap = this.#nxtSnapFrame();
+    if (nxtSnap !== null) this.#send(conn, nxtSnap);
+  }
+
+  /** 현재 NXT 거래가능 집합 프레임. 원천이 없거나 아직 모르면 `null` (quick-260923-pq2). */
+  #nxtSnapFrame(): RelayNxtSnapMsg | null {
+    const isins = this.#nxtTradable?.nxtTradableIsins() ?? null;
+    if (isins === null) return null;
+    // 전송용 복사 1회 — 원천이 보관하는 배열 참조를 프레임에 싣지 않는다.
+    return { t: "nxt.snap", isins: [...isins] };
+  }
+
+  /**
+   * 재적재된 NXT 집합을 인증된 모든 연결에 내린다 (quick-260923-pq2).
+   *
+   * 전 사용자 순회는 여기뿐이다 — 내리는 값이 사용자 데이터가 아니라 공개 마스터 파생 집합이라
+   * T-15-02(사용자 격리)와 무관하다. `#users` 만 돌므로 미인증·자격증명 미등록 연결에는 가지
+   * 않는다. 크기 ≈ NXT 종목 수백~천 개 × 12자 ≈ 10~15KB, 연결당 하루 1회 — 백프레셔 규율은
+   * `#send` 가 쥔다.
+   */
+  #broadcastNxtSnap(): void {
+    const frame = this.#nxtSnapFrame();
+    if (frame === null) return;
+    for (const entry of this.#users.values()) {
+      for (const conn of entry.conns) this.#send(conn, frame);
+    }
   }
 
   #onAuthedMessage(conn: Conn, userId: string, msg: RelayInbound): void {
