@@ -767,6 +767,7 @@ export function ManualOrderForm({
                 setValidation(null);
                 setPriceText(formatDigits(e.target.value));
               }}
+              data-focus-ring="seamless"
               className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--fg)] outline-none"
             />
           </UnitBox>
@@ -784,6 +785,7 @@ export function ManualOrderForm({
               setValidation(null);
               setQtyText(formatDigits(e.target.value));
             }}
+            data-focus-ring="seamless"
             className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--fg)] outline-none"
           />
         </UnitBox>
@@ -803,6 +805,7 @@ export function ManualOrderForm({
                 value={pieceText}
                 onChange={(e) => setPieceText(e.target.value.replace(/[^0-9]/g, ''))}
                 onBlur={() => setPieceText(String(pieces))}
+                data-focus-ring="seamless"
                 className="mono min-w-0 flex-1 bg-transparent text-right text-[var(--fg)] outline-none"
               />
             </UnitBox>
@@ -1138,7 +1141,11 @@ function Row({
   );
 }
 
-/** 입력 + 단위 상자. `locked` = 시간외종가 가격 잠금(`--muted` 배경). */
+/**
+ * 입력 + 단위 상자. `locked` = 시간외종가 가격 잠금(`--muted` 배경).
+ * 포커스는 상따 폼 `NumInput` 과 같은 **테두리 한 겹**(`focus-within:border-[var(--ring)]`)이다 —
+ * 안의 입력이 `data-focus-ring="seamless"` 로 전역 이중 링을 걷는 것과 **한 쌍**이다(globals.css §8.5.5).
+ */
 function UnitBox({
   unit,
   locked = false,
@@ -1151,7 +1158,7 @@ function UnitBox({
   return (
     <div
       className={cn(
-        'flex h-8 min-w-0 flex-1 items-center gap-1 rounded-[var(--r)] border border-[var(--input)] px-2 text-[length:var(--t-caption)]',
+        'flex h-8 min-w-0 flex-1 items-center gap-1 rounded-[var(--r)] border border-[var(--input)] px-2 text-[length:var(--t-caption)] focus-within:border-[var(--ring)]',
         locked ? 'bg-[var(--muted)]' : 'bg-[var(--bg)]',
       )}
     >
@@ -1184,7 +1191,8 @@ function StepButton({
 
 /**
  * 주문 버튼. 매수 = `--up` 채움 · 매도 = `--down` 채움 · 정정/취소 = `--card` 중립.
- * 폰 밴드(<700)는 10px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로), 700 이상은 11px 한 줄.
+ * 폰 밴드(<700)는 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로), 700 이상은 14px 한 줄.
+ * (2×2 배치로 버튼 폭이 넓어져 옛 10/11px 는 너무 작았다 — 2026-09-23 사용자 지시.)
  */
 function OrderButton({
   tone,
@@ -1207,8 +1215,8 @@ function OrderButton({
       title={title}
       onClick={onClick}
       className={cn(
-        'h-9 min-w-0 overflow-hidden rounded-[var(--r)] border px-px text-[10px] leading-[1.15] font-bold tracking-[-0.02em] whitespace-normal',
-        '@min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[11px] @min-[700px]/lc:whitespace-nowrap',
+        'h-9 min-w-0 overflow-hidden rounded-[var(--r)] border px-px text-[13px] leading-[1.15] font-bold whitespace-normal',
+        '@min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[length:var(--t-sm)] @min-[700px]/lc:whitespace-nowrap',
         'disabled:cursor-default disabled:opacity-45',
         tone === 'buy' && 'border-transparent bg-[var(--up)] text-[var(--destructive-fg)]',
         tone === 'sell' && 'border-transparent bg-[var(--down)] text-[var(--destructive-fg)]',

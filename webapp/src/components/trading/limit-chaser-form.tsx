@@ -27,8 +27,8 @@
  *      ★ **「감시 대상」 세그먼트는 그 축의 예외**다 (260912-gyz) — 그룹색이 아니라 자기
  *        선택지의 호가 방향색(매도잔량 `--down` · 매수잔량 `--up`)을 따른다. 근거는 세그먼트
  *        블록 주석에 있다.
- *   2. **자동취소(가드) 그룹은 중립색**이다. 경고 전용 색 토큰은 이 저장소에 **없다**(UI-SPEC
- *      C1/FLAG-1) — 없는 토큰을 쓰면 색이 통째로 죽어 「경고인데 안 보이는 경고」가 된다.
+ *   2. **매수취소 그룹은 매수 카드 맨 아래**다(2026-09-23) — 매수 미체결을 취소하므로 매수 색을
+ *      따른다. 옛 「가드 = 중립색」 규율은 이때 사용자 지시로 걷혔다.
  *   3. ★ **규율 3(확인 다이얼로그)은 D-05 로 뒤집혔다.** `order-panel.tsx` 는 제출마다
  *      다이얼로그를 거치지만, 여기 **스위치 3개는 확인 없이 즉시 전송**한다. 상한가 직전에
  *      다이얼로그를 한 번 더 거치게 하면 그 1~2초가 체결을 놓치는 비용이다.
@@ -848,6 +848,66 @@ export function LimitChaserForm({
           {...shared}
         />
       </Group>
+      {/*
+        ★ 매수 카드의 **맨 아래**다 (2026-09-23 사용자 지시) — 이 그룹이 취소하는 것은 **매수**
+          미체결이므로 매도 카드에 있으면 방향이 어긋났다. 카드를 옮기면서 배경 틴트·체크박스
+          색도 매수 카드(`--up`)를 따른다 — 둘 다 `Card` 가 정한다.
+        ★ quick-260912-u58 ② — 「가드」를 **캡션으로 화면에 적던 것**을 걷었다(사용자 지시:
+          「매수 미체결 자동취소가드 → 매수취소」 — 캡션까지 포함한 덩어리가 대상이었다).
+          가드라는 성격은 위 중립색이 계속 말하고, 라벨은 짧아졌다.
+        ★ `strategy-log.tsx` 의 「매수 미체결 자동취소 무장/해제」 **로그 문구는 그대로다** —
+          그 줄은 다른 표면이고 문장으로서 여전히 정확하다. 여기 라벨을 줄였다고 로그까지
+          따라가면 안 된다.
+      */}
+      <Group slot="cancel" tone="buy" title="매수취소" status={cancelStatusText}>
+        <CheckRow
+          id="lc-cancel-qty"
+          label="취소잔량"
+          checked={form.cancelQtyEnabled}
+          onCheckedChange={(v) => setField('cancelQtyEnabled', v)}
+          disabled={disabled}
+          dirty={dirtySet.has('cancelQtyEnabled')}
+        >
+          <NumInput
+            id="lc-cancel-watch-qty"
+            aria-label="취소 감시 잔량"
+            unit="주"
+            value={form.cancelWatchQty}
+            onValueChange={(v) => setField('cancelWatchQty', v)}
+            disabled={disabled}
+            dirty={dirtySet.has('cancelWatchQty')}
+            flash={flash.has('cancelWatchQty')}
+          />
+        </CheckRow>
+        <CheckRow
+          id="lc-cancel-trade"
+          label="체결"
+          checked={form.cancelTradeEnabled}
+          onCheckedChange={(v) => setField('cancelTradeEnabled', v)}
+          disabled={disabled}
+          dirty={dirtySet.has('cancelTradeEnabled')}
+        />
+        {/*
+          ★ quick-260912-u58 ④ — ~~취소 잔량추적은 **취소잔량과 함께만** 동작한다 —
+            미체크면 비활성(A9).~~ **UI-SPEC A9 의 결합을 사용자가 명시적으로 풀었다**
+            (「취소옵션 안켜도 취소옵션의 체결, 잔량추적은 킬 수 있게 해줘」). 이제 취소잔량이
+            꺼져 있어도 이 체크박스를 켤 수 있고, 흐림(`dimmed`)도 함께 걷었다 — 비활성이
+            아닌데 흐리면 거짓말이다.
+          ★★ **그럼에도 무장 판정은 그대로다.** `lib/limit-chaser.ts` 의 게이트 4종은
+            「취소잔량이 꺼져 있으면 취소는 무장하지 않는다」를 계속 말한다(이번 변경에서
+            그 파일 diff 0줄). 바뀐 것은 **입력 가능 여부** 한 층뿐이다.
+            두 문장이 함께 있어야 다음 사람이 「그럼 무장도 풀자」로 넘어가지 않는다 —
+            섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 도는 상태가 된다.
+        */}
+        <CheckRow
+          id="lc-cancel-qty-track"
+          label="잔량추적"
+          checked={form.cancelQtyTrackEnabled}
+          onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
+          disabled={disabled}
+          dirty={dirtySet.has('cancelQtyTrackEnabled')}
+        />
+      </Group>
       <ArmBlockedPanel groups={buyReasons} />
     </Card>
   );
@@ -953,65 +1013,6 @@ export function LimitChaserForm({
         />
       </Group>
 
-      {/*
-        ★ 이 그룹은 **가드**다 — 중립색(좌측 3px `--border`)이고 방향색을 쓰지 않는다.
-        경고 전용 색 토큰은 이 저장소에 없다(UI-SPEC C1/FLAG-1). 이 근거는 그대로 유효하다.
-        ★ quick-260912-u58 ② — 「가드」를 **캡션으로 화면에 적던 것**을 걷었다(사용자 지시:
-          「매수 미체결 자동취소가드 → 매수취소」 — 캡션까지 포함한 덩어리가 대상이었다).
-          가드라는 성격은 위 중립색이 계속 말하고, 라벨은 짧아졌다.
-        ★ `strategy-log.tsx` 의 「매수 미체결 자동취소 무장/해제」 **로그 문구는 그대로다** —
-          그 줄은 다른 표면이고 문장으로서 여전히 정확하다. 여기 라벨을 줄였다고 로그까지
-          따라가면 안 된다.
-      */}
-      <Group slot="cancel" tone="neutral" title="매수취소" status={cancelStatusText}>
-        <CheckRow
-          id="lc-cancel-qty"
-          label="취소잔량"
-          checked={form.cancelQtyEnabled}
-          onCheckedChange={(v) => setField('cancelQtyEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('cancelQtyEnabled')}
-        >
-          <NumInput
-            id="lc-cancel-watch-qty"
-            aria-label="취소 감시 잔량"
-            unit="주"
-            value={form.cancelWatchQty}
-            onValueChange={(v) => setField('cancelWatchQty', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('cancelWatchQty')}
-            flash={flash.has('cancelWatchQty')}
-          />
-        </CheckRow>
-        <CheckRow
-          id="lc-cancel-trade"
-          label="체결"
-          checked={form.cancelTradeEnabled}
-          onCheckedChange={(v) => setField('cancelTradeEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('cancelTradeEnabled')}
-        />
-        {/*
-          ★ quick-260912-u58 ④ — ~~취소 잔량추적은 **취소잔량과 함께만** 동작한다 —
-            미체크면 비활성(A9).~~ **UI-SPEC A9 의 결합을 사용자가 명시적으로 풀었다**
-            (「취소옵션 안켜도 취소옵션의 체결, 잔량추적은 킬 수 있게 해줘」). 이제 취소잔량이
-            꺼져 있어도 이 체크박스를 켤 수 있고, 흐림(`dimmed`)도 함께 걷었다 — 비활성이
-            아닌데 흐리면 거짓말이다.
-          ★★ **그럼에도 무장 판정은 그대로다.** `lib/limit-chaser.ts` 의 게이트 4종은
-            「취소잔량이 꺼져 있으면 취소는 무장하지 않는다」를 계속 말한다(이번 변경에서
-            그 파일 diff 0줄). 바뀐 것은 **입력 가능 여부** 한 층뿐이다.
-            두 문장이 함께 있어야 다음 사람이 「그럼 무장도 풀자」로 넘어가지 않는다 —
-            섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 도는 상태가 된다.
-        */}
-        <CheckRow
-          id="lc-cancel-qty-track"
-          label="잔량추적"
-          checked={form.cancelQtyTrackEnabled}
-          onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('cancelQtyTrackEnabled')}
-        />
-      </Group>
       <ArmBlockedPanel groups={sellReasons} />
     </Card>
   );
@@ -1186,6 +1187,9 @@ function Card({
         // (quick-260923-kq1). 좌·우·아래 8px 은 그대로 pane 가장자리까지 채운다.
         side !== undefined &&
           'py-1.5 [clip-path:inset(0_-8px_-8px_-8px)] @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2 @min-[700px]/lc:shadow-none @min-[700px]/lc:[clip-path:none]',
+        // 체크박스 색(`CheckRow`)도 방향을 따른다 — 매수 카드에서 파란 체크가 섞이지 않게.
+        side === 'buy' && '[--lc-accent:var(--up)]',
+        side === 'sell' && '[--lc-accent:var(--down)]',
         side === 'buy' &&
           'bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] shadow-[0_0_0_8px_color-mix(in_oklch,var(--up)_5%,var(--card-base))]',
         side === 'sell' &&
@@ -1537,7 +1541,8 @@ function CheckRow({
           checked={checked}
           disabled={disabled}
           onChange={(e) => onCheckedChange(e.target.checked)}
-          className="size-[17px] flex-none accent-[var(--primary)] disabled:cursor-not-allowed"
+          // 색은 카드 방향을 따른다(`Card` 의 `--lc-accent`) — 게이트 체크박스와 같은 색이어야 한다.
+          className="size-[17px] flex-none accent-[var(--lc-accent,var(--primary))] disabled:cursor-not-allowed"
         />
         {/*
           ★ quick-260912-ok2 ⑤ — 비더티 색이 `Row` 와 **같은 `--muted-fg`** 다.

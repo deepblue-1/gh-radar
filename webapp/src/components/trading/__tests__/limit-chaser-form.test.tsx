@@ -1673,6 +1673,19 @@ describe('18-10 — 더티 힌트 prop · body 포털 · 제어형 탭 (D-28 · 
     expect(sell().className).toContain('hidden');
   });
 
+  it('매수취소 그룹은 매수 pane 맨 아래이고 체크박스 색이 카드 방향을 따른다 (2026-09-23)', () => {
+    const { container } = render(<LimitChaserForm {...props()} />);
+    const buyPane = container.querySelector('[data-pane="buy"]') as HTMLElement;
+    const sellPane = container.querySelector('[data-pane="sell"]') as HTMLElement;
+    const groups = buyPane.querySelectorAll('[data-slot^="lc-group-"]');
+    expect(groups[groups.length - 1]!.getAttribute('data-slot')).toBe('lc-group-cancel');
+    expect(sellPane.querySelector('[data-slot="lc-group-cancel"]')).toBeNull();
+    // 체크박스는 `--lc-accent` 를 읽고, 그 값은 카드가 방향색으로 정한다(매수 빨강 · 매도 파랑).
+    expect(container.querySelector('#lc-buy-trade')!.className).toContain('accent-[var(--lc-accent');
+    expect((buyPane.firstElementChild as HTMLElement).className).toContain('[--lc-accent:var(--up)]');
+    expect((sellPane.firstElementChild as HTMLElement).className).toContain('[--lc-accent:var(--down)]');
+  });
+
   it('한방체결·매수취소 그룹도 제목 옆 상태 보조문을 받는다 (「켜짐」/「꺼짐」)', () => {
     const { container } = render(
       <LimitChaserForm {...props({ sweepStatusText: '켜짐', cancelStatusText: '꺼짐' })} />,
