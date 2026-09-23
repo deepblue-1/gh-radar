@@ -1192,6 +1192,58 @@ describe('useRelayConnection — 프레임 견고성', () => {
     expect(acctOf(hook.result.current)?.unf).toEqual([]);
   });
 
+  it('⑮-e orderIndex 는 원시 acct 의 unf 행(0 행 포함)을 병합 필터 **전에** 추가만 한다 (quick-260923-pgu)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    const row = (orderNo: string, unfilledQty: number, over: Partial<RelayUnfilled> = {}): RelayUnfilled => ({
+      orderNo,
+      orgOrderNo: '',
+      isin: ISIN_A,
+      side: 'B',
+      price: 69_900,
+      orderQty: 10,
+      filledQty: 10 - unfilledQty,
+      unfilledQty,
+      orderTime: '093015',
+      queuedStatus: '',
+      pendingStatus: '',
+      board: '',
+      pendingCancelSent: false,
+      exchange: 'KRX',
+      name: '삼성전자',
+      ...over,
+    });
+
+    expect(hook.result.current.orderIndex.size).toBe(0);
+
+    await act(async () => {
+      ws.push(acctFrame({ snap: true, unf: [row('A1', 10)] }));
+    });
+    // 한 델타 안에서 접수+전량 체결된 주문 — 미체결 상태에는 없지만 색인에는 있다.
+    await act(async () => {
+      ws.push(acctFrame({ snap: false, hold: [], unf: [row('A2', 0, { isin: ISIN_B, side: 'S' })], rm: [] }));
+    });
+    expect(acctOf(hook.result.current)?.unf.map((u) => u.orderNo)).toEqual(['A1']);
+    expect(hook.result.current.orderIndex.get('A2')).toMatchObject({
+      isin: ISIN_B,
+      side: 'S',
+      exchange: 'KRX',
+      orderQty: 10,
+      accountNo: ACCT_NO,
+    });
+
+    // 전량 체결·rm 으로 미체결에서 빠져도 색인은 남는다(add-only).
+    const before = hook.result.current.orderIndex;
+    await act(async () => {
+      ws.push(acctFrame({ snap: false, hold: [], unf: [], rm: ['A1'] }));
+    });
+    expect(acctOf(hook.result.current)?.unf).toEqual([]);
+    expect(hook.result.current.orderIndex.get('A1')).toMatchObject({ isin: ISIN_A, name: '삼성전자' });
+    // 새 행이 없는 프레임은 색인 참조를 바꾸지 않는다.
+    expect(hook.result.current.orderIndex).toBe(before);
+  });
+
   it('⑯ msg 프레임은 최신 우선으로 누적된다 (상태 바 최근 3건의 원천)', async () => {
     const hook = render();
     const ws = await connected(hook);

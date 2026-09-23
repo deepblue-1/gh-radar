@@ -77,6 +77,7 @@ import {
 
 import { useAuth } from "@/lib/auth-context";
 import { strategyKey } from "@/lib/limit-chaser";
+import type { OrderIndexEntry } from "@/lib/trading-alerts";
 import {
   localOrderResult,
   relayQuoteKey,
@@ -304,6 +305,8 @@ const NOOP = () => {};
 const EMPTY_QUOTES: ReadonlyMap<string, RelayQuote> = new Map();
 /** 빈 계좌 상태 맵의 고정 참조 — Provider 밖 폴백이 매 호출 새 Map 을 만들지 않게 한다. */
 const EMPTY_ACCOUNT_STATES: ReadonlyMap<string, RelayAccountState> = new Map();
+/** 빈 주문번호 색인의 고정 참조 — 같은 이유(소비자 효과가 헛돌지 않게). */
+const EMPTY_ORDER_INDEX: ReadonlyMap<string, OrderIndexEntry> = new Map();
 const EMPTY_TAPES: ReadonlyMap<string, RelayTapeEntry[]> = new Map();
 /**
  * 두 거래소 모두 「아직 모름」인 고정 참조 (17-06 / D-06). 매 렌더 새 객체를 만들면
@@ -328,6 +331,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   quotes: EMPTY_QUOTES,
   tapes: EMPTY_TAPES,
   accountStates: EMPTY_ACCOUNT_STATES,
+  // 본 주문이 없다 — 알림 조인 색인도 비어 있다(quick-260923-pgu).
+  orderIndex: EMPTY_ORDER_INDEX,
   orders: [],
   messages: [],
   isStale: false,

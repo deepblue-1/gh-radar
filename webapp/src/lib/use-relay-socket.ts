@@ -49,6 +49,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import { createClient } from "@/lib/supabase/client";
 import { resolveRelayWsUrl } from "@/lib/relay-url";
+import { indexUnfilled, type OrderIndexEntry } from "@/lib/trading-alerts";
 import {
   RELAY_STATE_LABELS,
   RELAY_WS_CLOSE,
@@ -285,6 +286,19 @@ export interface RelayConnectionState {
    *    계좌 B 의 델타가 계좌 A 의 스냅샷을 통째로 밀어냈다.
    */
   accountStates: ReadonlyMap<string, RelayAccountState>;
+  /**
+   * **주문번호 → 그 주문의 종목·계좌 사실** — add-only 색인 (quick-260923-pgu).
+   *
+   * `RelayOrderMsg` 에는 종목·계좌·방향·이름이 없다(Pitfall 8). 작업대 이벤트 알림은 주문번호로
+   * 이 색인을 조인한다. 원천은 **원시 `acct` 프레임의 `unf` 행**이고, `mergeAccount` 가 `unfilledQty
+   * === 0` 행을 버리기 **전에** 채운다 — 한 델타 안에서 접수+전량 체결된 주문(상따 매수에 흔하다)은
+   * `accountStates` 에 한 번도 남지 않기 때문이다. 삭제·덮어쓰기 없음(먼저 본 값이 정본) · 새 행이
+   * 없는 프레임은 참조를 유지한다. 비우는 것은 `reset`(로그아웃 · 비활성화)뿐 — `accountStates` ·
+   * `orders` 와 같은 규칙이다(재접속 스냅샷은 그대로 두고 추가만 한다).
+   *
+   * ⚠️ 표시·카드 매칭 전용이다. 미체결 목록·취소 대상의 원천은 여전히 `accountStates` 하나다.
+   */
+  orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   /** 주문 통보 누적(최신 우선). */
   orders: RelayOrderMsg[];
   /** ServerMessage 누적(최신 우선, 상한 20). 각 항목에 수신 시각이 붙어 있다. */
@@ -472,6 +486,7 @@ interface RelayData {
   quotes: Map<string, RelayQuote>;
   tapes: Map<string, RelayTapeEntry[]>;
   accountStates: Map<string, RelayAccountState>;
+  orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   orders: RelayOrderMsg[];
   messages: RelayServerMessageEntry[];
   isStale: boolean;
@@ -495,6 +510,7 @@ const INITIAL_DATA: RelayData = {
   quotes: new Map(),
   tapes: new Map(),
   accountStates: new Map(),
+  orderIndex: new Map(),
   orders: [],
   messages: [],
   isStale: false,
@@ -599,7 +615,9 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       const merged = mergeAccount(state.accountStates.get(frame.a) ?? null, frame);
       const accountStates = new Map(state.accountStates);
       accountStates.set(frame.a, merged);
-      return { ...state, accountStates };
+      // 주문번호 색인은 **원시 프레임**에서 — 병합이 버리는 0 행(전량 체결)도 싣는다(quick-260923-pgu).
+      const orderIndex = indexUnfilled(state.orderIndex, frame.a, frame.unf);
+      return { ...state, accountStates, orderIndex };
     }
 
     case "order":
@@ -1468,6 +1486,7 @@ export function useRelayConnection({
       quotes: data.quotes,
       tapes: data.tapes,
       accountStates: data.accountStates,
+      orderIndex: data.orderIndex,
       orders: data.orders,
       messages: data.messages,
       isStale: data.isStale,
