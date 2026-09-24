@@ -34,6 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED** - gh-trade 서버 스키마(291a953→HEAD, append-only) 를 relay 에 재동기화하고 신규 MsgType 36~38·76~78 을 등록. 기존 화면에 새 필드 반영(체결테이프 bs_code 실값 색·호가 10칸 '종가'·미체결 Q/P/종가 표식+취소보관 제외·주문통보 request_kind/requester/board·서버메시지 [상따]/[VI] 배지·VI exchange 축). 상따 3단계 래치 LED 3종(매수·매도·취소) + 클릭 토글 수동 점등(36/37/38). (**12/12 plan 실행 · 2026-09-20 코드 층위 종결** — 전량 게이트 green: 루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 9 skip · 0 fail** · 재동기화 `--check` 차이 0. Phase 16 기준선 대비 relay +66 · webapp +132 · e2e +9, 회귀 0. **미완 2건이라 체크박스는 열어 둔다:** ① **D-25 mock 게이트웨이 실기 검증 미수행** — HEAD 재빌드가 **Xcode 27.0 라이선스 미동의**(`sudo xcodebuild -license`) 로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·`krx_close_price`·`request_kind` 가 없어 돌리면 거짓 「드롭 0」이 된다(T-17-46). ② **D-26 배포는 완결됐다** — 2026-09-20 사용자 `deploy-now` 승인 뒤 webapp·relay 모두 **`ef1499a`** 로 프로덕션 반영(`smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**, `/healthz` `version ef1499a · dma true · stalledCount 0`, `DMA_HOST=10.41.1.120` 보존). 도중 25분간 「신규 webapp + 구 relay」 반쪽 상태를 거쳤다(일요일 장 마감 중, 거래 영향 없음) — 원인은 **이 저장소에서 `git push` 가 곧 webapp 배포**라는 점이고, 배포 순서는 **relay 먼저 → 검증 → push** 로 교훈을 남겼다. **TRADE-04 · TRADE-05 는 Pending 유지** — 래치 실기 왕복이 아직 미관측이라 ① 이 닫혀야 재판정한다) (completed 2026-09-21)
 - [ ] **Phase 18: gh-trade 신규 기능 UI — 통합 트레이딩 작업대** - 상따+VI 를 `/trading` 한 페이지로 합친 다종목 작업대(돌파감지 76/78 스트립 · VI 설정 2줄+발동 스트립 · 카드 격자 · 공용 패널) · 예약/장전/시간외종가 발주 + 수동주문 신규/정정/취소(77 힌트·piece_count/krx_session·정정 M 해제) · 종목상세 호가 탭 통일 · 종목정보 팝업. 목업 게이트 통과(2026-09-21, 워크벤치 7차·호가 탭 6차)
 - [ ] **Phase 19: 계좌별 주문기록 전용 연결** - relay↔게이트웨이 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 주문기록 (브라우저 부재 중 dma_orders 누락 해소)
+- [ ] **Phase 20: 호가주문 토스식 재구성 (실험 브랜치)** - 스케치 002 채택안: 상따 설정 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 수동주문 토스 티켓 (theme/toss-b 전용 · 미병합)
 
 ## Phase Details
 
@@ -925,6 +926,7 @@ Plans:
 **배경 (debug `mobile-bg-resume-gaps` 1번, 2026-09-24 확정):** relay 의 DMA 세션은 wss 인증에서만 생기고(D-13) 마지막 탭이 떠난 뒤 5분(`SESSION_GRACE_MS`)이면 닫힌다. 게이트웨이는 연결 0 세션에서도 전략을 돌리지만 통보(51)는 붙은 연결에만 보내고 없으면 버린다(`Gateway.cpp` SendToSession D-05) — 재로그인 재전송·당일 주문 조회 MsgType 도 없다. 실측: 09-23 같은 계좌를 쓰는 두 사용자 자동주문 43건 vs 2건 기록. 누락 표면은 My page 「오늘 주문」 카드(`dma_orders`)뿐이고 잔고·미체결·전략은 재로그인 스냅샷으로 정확하다.
 
 **범위 초안:**
+
 - gh-trade: 관찰자 로그인 역할(주문 불가 · WireGuard 내부만) · 기록 통보 메시지(seq · DMA user · 계좌번호 · 종목 · 매수매도 · origin — 연결 0 세션에서도 발행) · 당일 보관 + since_seq 이어받기
 - relay/DB: 장중 상시 기록 연결 · 계좌+주문번호 멱등 upsert · 화면은 접근 가능 계좌로 필터
 
@@ -936,3 +938,18 @@ Plans:
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 19 to break down)
+
+### Phase 20: 호가주문 토스식 재구성 (실험 브랜치)
+
+**Goal:** 종목상세 호가주문 탭 = `/trading` 작업대 카드 본문(CardBody 공용)의 우측 패널을 토스 주문창 구조로 재구성한다. 스케치 002 채택안(2026-09-25): 상따 자동 설정(LimitChaserForm)은 「라벨 ─ 값 ›」 리스트 + 그룹 헤더 스위치 · 폰/태블릿은 바텀시트 + **자체 숫자 키패드**(단위별 단축 칩: ±1호가·현재가·상한가 / +100·+1,000·+10,000주 / %) · 데스크톱(`lc` ≥992)은 인라인 편집(Enter·Esc·↑↓ 한 호가) · 수동주문은 토스 주문 티켓(가격 상자·수량 상자·% 단축·총 주문 금액·56px 버튼) · 상단 상태줄 1줄 압축.
+
+**전제:** 실험 브랜치 `theme/toss-b` 전용(미병합, 싫으면 브랜치째 폐기). 토스 B 리스킨(quick 260924-vj1) + TDS 공식 값 정렬(quick 260925-0pf) 위에서 진행. 목업 정본 `.planning/sketches/002-toss-order-ticket/`.
+
+**불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
+**Requirements**: TBD
+**Depends on:** Phase 18
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 20 to break down)
