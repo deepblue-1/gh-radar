@@ -41,16 +41,16 @@ created: "2026-09-24"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| (planner fills) | | | D-01 | — | order.result rid 경로 불변 · DB 쓰기 0 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/ws-order.test.ts` | ✅ | ⬜ pending |
-| (planner fills) | | | D-02 | — | 로컬 거부 reject_seq 행 분리 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_apply.test.sql` | ❌ W0 | ⬜ pending |
-| (planner fills) | | | D-03 | T-15-02 | journal.rows 는 매핑 사용자에게만 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-push.test.ts` | ❌ W0 | ⬜ pending |
-| (planner fills) | | | D-04 | — | healthz 장중 180s 초과 → 503 | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/order-api.test.ts` | ✅ | ⬜ pending |
-| (planner fills) | | | D-05 | IDOR | RPC EXECUTE service_role 만 · REVOKE anon/authenticated | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_schema.test.sql` | ❌ W0 | ⬜ pending |
-| (planner fills) | | | D-06 | IDOR | 매핑 계좌 전 행 · 미매핑 사용자 0행 | pgTAP | 위 러너 | ❌ W0 | ⬜ pending |
-| (planner fills) | | | D-07/D-08 | — | 계좌별 묶음 · 칩(origin null 생략) · NXT 태그 · 390px wrap | unit + e2e | `pnpm --filter @gh-radar/webapp exec vitest run` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/me.spec.ts` | ✅ | ⬜ pending |
-| (planner fills) | | | D-09 | — | 관찰자 로그인 거부 → 재시도 0 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-observer.test.ts` | ❌ W0 | ⬜ pending |
-| (planner fills) | | | D-12 | — | since_seq · epoch resync · 재적용 멱등 | integration + pgTAP | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-writer.test.ts` | ❌ W0 | ⬜ pending |
-| (planner fills) | | | D-13 | — | 무한 백오프 · 종료 시 커서 미전진 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-observer.test.ts` | ❌ W0 | ⬜ pending |
+| 19-02-T1 · T2 | 19-02 | 1 | D-01 | — | order.result rid 경로 불변 · DB 쓰기 0 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/ws-order.test.ts` | ✅ | ⬜ pending |
+| 19-01-T1 · 19-03-T2 | 19-01 · 19-03 | 1 · 2 | D-02 | — | 로컬 거부 reject_seq 행 분리 | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_apply.test.sql` | ❌ W0 | ⬜ pending |
+| 19-05-T1 | 19-05 | 3 | D-03 | T-15-02 | journal.rows 는 매핑 사용자에게만 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-push.test.ts` | ❌ W0 | ⬜ pending |
+| 19-07-T3 | 19-07 | 4 | D-04 | — | healthz 장중 180s 초과 → 503 | unit | `pnpm --filter @gh-radar/relay exec vitest run tests/order-api.test.ts` | ✅ | ⬜ pending |
+| 19-01-T2 | 19-01 | 1 | D-05 | IDOR | RPC EXECUTE service_role 만 · REVOKE anon/authenticated | pgTAP | `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_schema.test.sql` | ❌ W0 | ⬜ pending |
+| 19-01-T1 · 19-04-T1 | 19-01 · 19-04 | 1 · 2 | D-06 | IDOR | 매핑 계좌 전 행 · 미매핑 사용자 0행 | pgTAP | 위 러너 | ❌ W0 | ⬜ pending |
+| 19-08-T1 · T2 · T3 | 19-08 | 4 | D-07/D-08 | — | 계좌별 묶음 · 칩(origin null 생략) · NXT 태그 · 390px wrap | unit + e2e | `pnpm --filter @gh-radar/webapp exec vitest run` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/me.spec.ts` | ✅ | ⬜ pending |
+| 19-07-T2 · 19-09-T3 | 19-07 · 19-09 | 4 · 5 | D-09 | — | 관찰자 로그인 거부 → 재시도 0 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-observer.test.ts` | ❌ W0 | ⬜ pending |
+| 19-05-T2 · 19-03-T1/T3 | 19-05 · 19-03 | 3 · 2 | D-12 | — | since_seq · epoch resync · 재적용 멱등 | integration + pgTAP | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-writer.test.ts` | ❌ W0 | ⬜ pending |
+| 19-07-T2 · 19-10-T1 | 19-07 · 19-10 | 4 · 6 | D-13 | — | 무한 백오프 · 종료 시 커서 미전진 | integration | `pnpm --filter @gh-radar/relay exec vitest run tests/journal-observer.test.ts` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

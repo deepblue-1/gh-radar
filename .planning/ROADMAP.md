@@ -929,10 +929,42 @@ Plans:
 - relay/DB: 장중 상시 기록 연결 · 계좌+주문번호 멱등 upsert · 화면은 접근 가능 계좌로 필터
 
 **쟁점 (discuss 에서 하나씩):** 기록 주체 단일화(사용자 세션 경로의 기존 `dma_orders` 기록·rid 상관과의 관계) · 기존 `dma_orders` 이관 vs 새 테이블 · 관찰자 자격 보안 경계 · gh-trade 스키마 동기화(`sync-relay-schema.sh` gh-trade 소유)·실서버 배포 순서(relay 먼저 → push)
-**Requirements**: TBD
-**Depends on:** Phase 18
-**Plans:** 0 plans
+**Requirements**: TBD (CONTEXT D-01~D-14 를 요구사항 집합으로 사용)
+**Depends on:** Phase 18 · gh-trade Phase 23(관찰자 계약 G1 · 배포 G2 — 별도 저장소)
+**Plans:** 13 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 19 to break down)
+**Wave 1**
+
+- [ ] 19-01-PLAN.md — [tracer] DB 저널 뼈대: 테이블 4(이벤트·계좌 주문·매핑·커서) + 적용/매핑/조회 RPC(A 투영 · 멱등 · 가시성) + 권한 pgTAP + gh-trade 인계서
+- [ ] 19-02-PLAN.md — [tracer] relay 기록부 제거(D-01): order-handler rid 즉시응답만 · OrderStore 삭제 · e2e DB 기록 0건
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 19-03-PLAN.md — [tracer] 투영 규칙 완성: E 누적 · C/M/R · 로컬 거부 reject_seq · Q-ID · epoch · 시각 정본
+- [ ] 19-04-PLAN.md — [tracer] shared JournalOrderRow·매퍼·journal.rows/state 계약 + server GET /api/orders RPC 1회
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 19-05-PLAN.md — [tracer] relay 기록기·매핑·계좌 권한 푸시(journal.rows) · 직렬 배치·재시도·갭·상한·epoch
+- [ ] 19-06-PLAN.md — [tracer] webapp 카드 원천 전환: REST + journal.rows 병합 · 옛 라이브 join 제거 · DmaOrderRow 삭제
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 19-07-PLAN.md — [tracer] relay 관찰자 상태기계(코덱 주입) · 거부 정지 · journal.state · healthz 장중 503 · 비밀 설정
+- [ ] 19-08-PLAN.md — [tracer] 카드 B′: 계좌별 묶음 · 출처 칩 · NXT 태그 · 기록 지연 표식 · 390 줄바꿈 · e2e
+
+**Wave 5** *(blocked on Wave 4 completion · [BLOCKING G1] gh-trade 계약 커밋)*
+
+- [ ] 19-09-PLAN.md — [G1] 스키마 동기화 · MSG/화이트리스트/hub case · 실 코덱 · 실 TCP 통합
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 19-10-PLAN.md — [tracer] relay 부팅 결선(실 프로세스 테스트) · 배포/IAM 스크립트 관찰자 비밀 · 알림·운영 문서
+
+**Wave 7~9** *(배포 창 — 20:00 KST 이후 · 사용자 승인)*
+
+- [ ] 19-11-PLAN.md — [BLOCKING] 전환 창 ①: 진입 승인 · 원격 db push · 비밀 주입 · gh-trade 배포(G2)
+- [ ] 19-12-PLAN.md — 전환 창 ②: relay 배포·검증 → go 결정 → server 배포 → webapp push → 공유 계정 대조
+- [ ] 19-13-PLAN.md — 첫 거래일 실장 대조(브로커 체결내역 · 게이트웨이 기록 · 새 테이블)

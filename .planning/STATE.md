@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 18
-current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+current_phase: 19
+current_phase_name: 계좌별 주문기록 전용 연결
 status: executing
 stopped_at: Phase 19 context gathered
-last_updated: "2026-09-24T13:21:42.381Z"
+last_updated: "2026-09-24T15:05:14.427Z"
 last_activity: 2026-09-24
 last_activity_desc: 18-36 R4 최종 게이트 green(relay 534 · webapp 1472/1 skip · Playwright 143/0 fail/9 skip · GC1~GC6) · 18-VALIDATION §Gap Closure R4 7행 닫힘 · TRADE-06~09 Pending 유지 · relay 미배포
-state_head: 18e789ebf85fd9c69e59934f6fbb9beb75937415
+state_head: d756385b6bf4fb8a2f2c540f85fe1873aa528cc5
 progress:
   total_phases: 28
   completed_phases: 4
-  total_plans: 233
+  total_plans: 246
   completed_plans: 218
 milestone_name: milestone
 ---
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 (gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI) — READY TO EXECUTE
+Phase: 19 (계좌별 주문기록 전용 연결) — READY TO EXECUTE
 Plan: 36 of 36 (R4 갭 클로징 18-33~18-36 전부 완료 — 18-36 최종 게이트 green)
 Plans completed: 218 / 233
 Status: 라운드 4 실행 완료 · 재검증(-R4) 대기 · relay 미배포 — 18-36 전량 게이트 green · 18-VALIDATION §Gap Closure R4 7행 전부 닫힘 · TRADE-06~09 Pending 유지
