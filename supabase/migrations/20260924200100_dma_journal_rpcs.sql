@@ -1,11 +1,13 @@
 -- ============================================================
 -- Phase 19 Plan 01 — 계좌별 주문기록 저널 RPC (D-06, D-11, D-12).
 --
--- 함수 6종 (전부 SECURITY INVOKER · SET search_path = public, pg_temp · service_role 전용 EXECUTE):
+-- 함수 7종 (전부 SECURITY INVOKER · SET search_path = public, pg_temp · service_role 전용 EXECUTE):
 --   ⑤ dma_journal_status_rank(text) / dma_journal_next_status(text, text)
 --        — 상태 단조 격자. relay `order/notice-status.ts` 의 STATUS_RANK·TERMINAL 과 같은 축이다
 --          (accepted 1 < partially_filled 2 < 종결 3). 상태는 뒤로 가지 않는다(CONTEXT 「행 모델」).
+--      dma_journal_origin(text) — origin 원문 → manual/limit_chaser/vi, 그 밖·빈 값 NULL (19-03).
 --   ⑥ dma_journal_project(text, text, jsonb) — 이벤트 1건 → dma_account_orders 투영. 건드린 행 id 배열.
+--        접수 A(19-01) · 체결 E · 취소 C · 정정 M · 거부 R · 로컬 거부(19-03) 전 갈래.
 --   ⑦ dma_journal_apply(text, text, jsonb)   — relay 기록기의 유일한 쓰기 진입점.
 --        advisory lock → 이벤트 적재(ON CONFLICT DO NOTHING) → 삽입된 경우에만 투영 → 커서 전진,
 --        전부 **한 트랜잭션(한 RPC 호출)**. 반환 rows 는 relay 가 추가 조회 없이 푸시한다.
@@ -38,9 +40,11 @@
 -- 함정:
 --   - 계좌번호를 재정규화하지 않는다(Pitfall 7). account_no 는 받은 문자열 그대로 적재·투영한다.
 --   - 시각은 게이트웨이 gw_time_ms 가 정본이다(Pitfall 5). `now()` 는 applied_at·synced_at·커서에만.
---   - ⑥ 은 19-01 이 접수(A), 19-03 이 체결(E)을 채웠다. 취소(C)·정정(M)·거부(R)·로컬 거부 갈래는
---     19-03 이 같은 함수에 채운다. 그 전까지 그 통보들은 RAISE EXCEPTION 으로 떨어져 ⑦ 의 포이즌
---     격리가 `apply_error` 에 사유를 남긴다 — 조용히 삼키지 않는다.
+--   - ⑥ 이 모르는 통보(알 수 없는 notice_type · request_kind · 빈 account_no · 주문번호 없는 A/E/C/M ·
+--     exec_qty 0 이하 체결)는 RAISE EXCEPTION 으로 떨어져 ⑦ 의 포이즌 격리가 `apply_error` 에 사유를
+--     남긴다 — 조용히 삼키지 않는다.
+--   - 원주문이 저널에 없으면(전일·예약 — Assumption A4) 정정 이동 수량은 M 수량 폴백이고 원주문 행을
+--     지어내지 않는다.
 --
 -- 하지 않는 것:
 --   - SECURITY DEFINER. 호출자(service_role)는 RLS 를 우회하므로 INVOKER 로 충분하고, DEFINER 는
@@ -86,16 +90,39 @@ AS $$
   END;
 $$;
 
+-- origin 원문 → 공개 3종. D-08 보충: 「수동」 과 「미상」 을 섞지 않는다 — 모르는 값·빈 값은 NULL(칩 생략).
+-- 갈래마다 사상 CASE 를 복제하지 않도록 한 곳에 둔다(투영의 모든 갈래가 이것만 부른다).
+CREATE OR REPLACE FUNCTION public.dma_journal_origin(p_raw text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  SELECT CASE p_raw
+    WHEN 'Manual'      THEN 'manual'
+    WHEN 'LimitChaser' THEN 'limit_chaser'
+    WHEN 'VITrigger'   THEN 'vi'
+    ELSE NULL
+  END;
+$$;
+
 -- ── ⑥ 이벤트 1건 투영 ────────────────────────────────────────────
 -- 「이 이벤트가 처음 적용될 때 무엇이 바뀌는가」 만 정의한다. 재생 안전성은 ⑦ 의 이벤트 PK 게이트가 쥔다.
 -- 분기는 notice_type · request_kind 동등 비교뿐이다 — `message` 는 저장만 하고 읽어 분기하지 않는다(T-19-13).
 --
--- 자기 행(주문번호 키) upsert 는 갈래마다 세 값만 다르다:
---   v_next      — 격자에 넣을 다음 상태(A accepted · E partially_filled)
---   v_ins_qty / v_ins_price — 행이 없을 때 넣을 수량·가격(있으면 빈 칸만 COALESCE)
---   v_add_filled — 체결 수량 누적분(E 만 > 0)
--- 그 뒤 체결 수량이 있고 qty 를 알면 `filled_qty + modified_qty >= qty` 로 filled/partially_filled 를
--- 격자 재판정한다 — E 의 판정과 「체결이 먼저 온 행에 A 가 qty 를 채우는」 재판정이 같은 식 하나다.
+-- 판정 순서가 곧 우선순위다(RESEARCH Pattern D 「투영 규칙」 표):
+--   ① 로컬 거부 · 주문번호 없는 R · 원주문 번호를 자기 번호로 실어 온 정정/취소 거부
+--        → 새 행 `reject_seq = seq`(서로 다른 거부가 한 행에 겹치지 않는다 — Pitfall 6 · D-02)
+--   ② 알 수 없는 notice_type → RAISE(⑦ 포이즌 격리가 apply_error 에 남긴다 — 조용히 무시하지 않는다)
+--   ③ 자기 행(주문번호 키) upsert — 갈래마다 세 값만 다르다:
+--        v_next(격자에 넣을 다음 상태) · v_ins_qty/v_ins_price(행이 없을 때 넣을 값, 있으면 빈 칸만
+--        COALESCE) · v_add_filled(체결 누적분, E 만 > 0). 그 뒤 체결 수량이 있고 qty 를 알면
+--        `filled_qty + modified_qty >= qty` 로 filled/partially_filled 를 격자 재판정한다 — E 의 판정과
+--        「체결이 먼저 온 행에 A 가 qty 를 채우는」 재판정이 같은 식 하나다.
+--   ④ 원주문 행 — C 는 cancelled(격자: filled 는 안 덮는다), M 은 `modified_qty += 이동 수량` 후
+--        합이 qty 이상이면 modified. R 은 원주문을 건드리지 않는다(거부 = 원주문 살아 있음).
+-- 방향(D-08): 원주문 행이 있으면 그 side 가 정본, 없으면 side_trusted 일 때만 레코드 값, 아니면 NULL.
 CREATE OR REPLACE FUNCTION public.dma_journal_project(p_gateway text, p_epoch text, p_ev jsonb)
 RETURNS uuid[]
 LANGUAGE plpgsql
@@ -116,7 +143,6 @@ DECLARE
   v_side_trusted boolean     := coalesce((p_ev->>'side_trusted')::boolean, false);
   v_side_raw     text        := coalesce(p_ev->>'side', '');
   v_request_kind text        := coalesce(p_ev->>'request_kind', '');
-  v_origin_raw   text        := coalesce(p_ev->>'origin', '');
   v_order_qty    integer     := coalesce((p_ev->>'order_qty')::integer, 0);
   v_order_price  integer     := coalesce((p_ev->>'order_price')::integer, 0);
   v_exec_qty     integer     := coalesce((p_ev->>'exec_qty')::integer, 0);
@@ -125,16 +151,22 @@ DECLARE
   v_requester    text        := NULLIF(coalesce(p_ev->>'requester', ''), '');
   v_board        text        := NULLIF(coalesce(p_ev->>'board', ''), '');
   v_dma_user     text        := NULLIF(coalesce(p_ev->>'dma_user_id', ''), '');
+  v_origin       text        := public.dma_journal_origin(coalesce(p_ev->>'origin', ''));
   v_exchange     text;
   v_side         text;
-  v_origin       text;
   v_order_type   text;
+  -- 원주문(org_order_no 행)
+  v_orig         public.dma_account_orders%ROWTYPE;
+  v_has_orig     boolean := false;
+  v_self_is_orig boolean := false;   -- C 의 원주문이 자기 번호(= 거래소 자동취소)
+  v_moved        integer;            -- M 이동 수량
   -- 자기 행 upsert 갈래 값
   v_next         text;
   v_ins_qty      integer;
   v_ins_price    integer;
   v_add_filled   integer := 0;
-  -- 자기 행 결과
+  -- 결과
+  v_ids          uuid[] := '{}';
   v_id           uuid;
   v_row          public.dma_account_orders%ROWTYPE;
   v_final_qty    integer;
@@ -145,26 +177,9 @@ BEGIN
     RAISE EXCEPTION 'dma_journal_project: account_no 없음 (seq=%)', v_seq;
   END IF;
 
-  -- 로컬 거부 · 주문번호 없는 통보(reject_seq 키 행)는 19-03 Task 2 가 채운다.
-  IF v_local_reject OR v_order_no IS NULL THEN
-    RAISE EXCEPTION 'dma_journal_project: 로컬 거부/주문번호 없는 통보 투영 미구현 — 19-03 (seq=%, notice_type=%)',
-      v_seq, v_notice;
-  END IF;
-
-  IF v_notice NOT IN ('A', 'E') THEN
-    RAISE EXCEPTION 'dma_journal_project: notice_type % 투영 미구현 — 19-03 (seq=%)', v_notice, v_seq;
-  END IF;
-
   -- ── 값 사상 ──
   v_exchange := CASE WHEN coalesce(p_ev->>'exchange', '') = 'NXT' THEN 'NXT' ELSE 'KRX' END;
   v_side := CASE WHEN v_side_trusted AND v_side_raw IN ('B','S') THEN v_side_raw ELSE NULL END;
-  -- D-08 보충: 「수동」 과 「미상」 을 섞지 않는다 — 모르는 값·빈 값은 NULL(칩 생략).
-  v_origin := CASE v_origin_raw
-    WHEN 'Manual'      THEN 'manual'
-    WHEN 'LimitChaser' THEN 'limit_chaser'
-    WHEN 'VITrigger'   THEN 'vi'
-    ELSE NULL
-  END;
   v_order_type := CASE v_request_kind
     WHEN 'New'    THEN 'N'
     WHEN 'Modify' THEN 'M'
@@ -176,27 +191,111 @@ BEGIN
     RAISE EXCEPTION 'dma_journal_project: 알 수 없는 request_kind % (seq=%)', v_request_kind, v_seq;
   END IF;
 
-  -- ── 갈래 값 ──
-  IF v_notice = 'A' THEN
-    -- 접수: 주문수량·주문가가 이 주문의 정본이다.
-    v_next      := 'accepted';
-    v_ins_qty   := NULLIF(v_order_qty, 0);
-    v_ins_price := v_order_price;
-  ELSE -- 'E'
-    -- 체결: exec_qty 만 사실로 누적한다. 체결가(exec_price)는 행 price 를 바꾸지 않는다 — 주문가가
-    -- 정본이다(51 의 useExecuted 혼용을 저널이 끊었다). qty 를 모르면(A 보다 먼저) NULL 로 두고
-    -- 뒤의 A 가 채워 재판정한다.
-    IF v_exec_qty <= 0 THEN
-      RAISE EXCEPTION 'dma_journal_project: 체결 통보의 exec_qty 가 0 이하 % (seq=%)', v_exec_qty, v_seq;
-    END IF;
-    v_next       := 'partially_filled';
-    v_ins_qty    := NULL;
-    v_ins_price  := NULL;
-    v_add_filled := v_exec_qty;
+  -- ── 원주문 행 ──
+  -- 호출자(dma_journal_apply)가 advisory lock 으로 직렬화하므로 SELECT … FOR UPDATE 뒤 분기가 안전하다.
+  IF v_org_order_no IS NOT NULL THEN
+    SELECT * INTO v_orig
+      FROM public.dma_account_orders
+     WHERE gateway = p_gateway
+       AND trade_date = v_trade_date
+       AND account_no = v_account
+       AND order_no = v_org_order_no
+     FOR UPDATE;
+    v_has_orig := FOUND;
+  END IF;
+  -- D-08: C/M/R 의 방향은 원주문 행이 정본이다(통보의 side 는 브로커 기본값일 수 있다 — side_trusted).
+  IF v_has_orig THEN
+    v_side := coalesce(v_orig.side, v_side);
   END IF;
 
-  -- ── 자기 행 · 주문번호 키 upsert ──
-  -- 호출자(dma_journal_apply)가 advisory lock 으로 직렬화하므로 SELECT … FOR UPDATE 뒤 분기가 안전하다.
+  -- ── ① 거부 행 · reject_seq 키 ──
+  -- 로컬 거부 · 주문번호 없는 R 은 주문번호로 식별할 수 없다. 정정/취소 거부가 원주문 번호를 자기 번호로
+  -- 실어 오면 그 번호의 행은 **원주문**이므로 rejected 로 덮지 않고 거부를 따로 적는다(원주문 살아 있음).
+  IF v_local_reject
+     OR (v_notice = 'R' AND (
+           v_order_no IS NULL
+           OR (v_request_kind IN ('Cancel','Modify') AND v_order_no = v_org_order_no)))
+  THEN
+    INSERT INTO public.dma_account_orders (
+      gateway, trade_date, account_no, order_no, journal_epoch, reject_seq, isin, exchange, board, side,
+      order_type, org_order_no, qty, price, status, result_code, notice_type, message, origin,
+      requester, request_kind, dma_user_id, first_seq, last_seq, created_at, updated_at
+    ) VALUES (
+      p_gateway, v_trade_date, v_account, NULL, p_epoch, v_seq, v_isin, v_exchange, v_board, v_side,
+      v_order_type, v_org_order_no, NULLIF(v_order_qty, 0), v_order_price, 'rejected', v_result_code, v_notice, v_message, v_origin,
+      v_requester, NULLIF(v_request_kind, ''), v_dma_user, v_seq, v_seq, v_gw_time, v_gw_time
+    )
+    ON CONFLICT (gateway, journal_epoch, reject_seq) WHERE reject_seq IS NOT NULL DO NOTHING
+    RETURNING id INTO v_id;
+    RETURN CASE WHEN v_id IS NULL THEN '{}'::uuid[] ELSE ARRAY[v_id] END;
+  END IF;
+
+  -- ── ② 통보 종류 · 키 검증 ──
+  IF v_notice NOT IN ('A', 'E', 'C', 'M', 'R') THEN
+    RAISE EXCEPTION 'dma_journal_project: 알 수 없는 notice_type % (seq=%)', v_notice, v_seq;
+  END IF;
+  IF v_order_no IS NULL THEN
+    RAISE EXCEPTION 'dma_journal_project: 주문번호 없는 % 통보 (seq=%)', v_notice, v_seq;
+  END IF;
+
+  -- ── ③ 갈래 값 ──
+  CASE v_notice
+    WHEN 'A' THEN
+      -- 접수: 주문수량·주문가가 이 주문의 정본이다.
+      v_next      := 'accepted';
+      v_ins_qty   := NULLIF(v_order_qty, 0);
+      v_ins_price := v_order_price;
+
+    WHEN 'E' THEN
+      -- 체결: exec_qty 만 사실로 누적한다. 체결가(exec_price)는 행 price 를 바꾸지 않는다 — 주문가가
+      -- 정본이다(51 의 useExecuted 혼용을 저널이 끊었다). qty 를 모르면(A 보다 먼저) NULL 로 두고
+      -- 뒤의 A 가 채워 재판정한다.
+      IF v_exec_qty <= 0 THEN
+        RAISE EXCEPTION 'dma_journal_project: 체결 통보의 exec_qty 가 0 이하 % (seq=%)', v_exec_qty, v_seq;
+      END IF;
+      v_next       := 'partially_filled';
+      v_ins_qty    := NULL;
+      v_ins_price  := NULL;
+      v_add_filled := v_exec_qty;
+
+    WHEN 'C' THEN
+      -- 취소확인: 원주문 번호 = COALESCE(org, 자기 번호). 비었거나 같으면 거래소 자동취소 — 그 행 하나가
+      -- 원주문 자신이므로 수량·가격·order_type 을 취소 통보 값으로 채우지 않는다.
+      v_next := 'cancelled';
+      v_self_is_orig := v_org_order_no IS NULL OR v_org_order_no = v_order_no;
+      IF v_self_is_orig THEN
+        v_ins_qty   := NULL;
+        v_ins_price := NULL;
+      ELSE
+        v_order_type := 'C';
+        v_ins_qty    := NULLIF(v_order_qty, 0);
+        v_ins_price  := v_order_price;
+      END IF;
+
+    WHEN 'M' THEN
+      -- 정정확인: 이동 수량 = LEAST(M 수량, 원주문 잔량). 원주문을 모르거나 qty 를 모르면 M 수량 폴백
+      -- (Assumption A4 — 전일·예약 원주문).
+      IF v_org_order_no IS NULL OR v_org_order_no = v_order_no THEN
+        RAISE EXCEPTION 'dma_journal_project: 정정확인에 별도 원주문번호가 없다 (seq=%)', v_seq;
+      END IF;
+      IF v_has_orig AND v_orig.qty IS NOT NULL THEN
+        v_moved := LEAST(v_order_qty, GREATEST(v_orig.qty - v_orig.filled_qty - v_orig.modified_qty, 0));
+      ELSE
+        v_moved := v_order_qty;
+      END IF;
+      v_order_type := 'M';
+      v_next       := 'accepted';
+      v_ins_qty    := NULLIF(v_moved, 0);
+      v_ins_price  := v_order_price;
+
+    ELSE -- 'R' · 주문번호 있음(자기 번호 ≠ 원주문 번호)
+      -- 거부는 자기 행만 rejected. request_kind 가 Cancel/Modify 여도 원주문은 건드리지 않는다.
+      v_next      := 'rejected';
+      v_ins_qty   := NULLIF(v_order_qty, 0);
+      v_ins_price := v_order_price;
+  END CASE;
+
+  -- ── ③ 자기 행 · 주문번호 키 upsert ──
   SELECT * INTO v_row
     FROM public.dma_account_orders
    WHERE gateway = p_gateway
@@ -212,48 +311,70 @@ BEGIN
       requester, request_kind, dma_user_id, first_seq, last_seq, created_at, updated_at
     ) VALUES (
       p_gateway, v_trade_date, v_account, v_order_no, v_isin, v_exchange, v_board, v_side, v_order_type,
-      v_org_order_no, v_ins_qty, v_ins_price, v_add_filled, v_next, v_result_code, v_notice, v_message, v_origin,
+      CASE WHEN v_self_is_orig THEN NULL ELSE v_org_order_no END, v_ins_qty, v_ins_price, v_add_filled, v_next,
+      v_result_code, v_notice, v_message, v_origin,
       v_requester, NULLIF(v_request_kind, ''), v_dma_user, v_seq, v_seq, v_gw_time, v_gw_time
     )
     RETURNING id INTO v_id;
-    RETURN ARRAY[v_id];
+  ELSE
+    -- 행이 이미 있다(같은 주문의 후속 통보 · 체결이 접수보다 먼저 온 경우 · 재접수 통보).
+    -- 비어 있는 칸만 채우고, 체결 수량은 상태와 무관하게 사실로 누적하며, 상태는 격자로만 올린다.
+    v_final_qty := coalesce(v_row.qty, v_ins_qty);
+    v_filled    := v_row.filled_qty + v_add_filled;
+    v_target    := public.dma_journal_next_status(v_row.status, v_next);
+    IF v_filled > 0 AND v_final_qty IS NOT NULL THEN
+      v_target := public.dma_journal_next_status(
+        v_target,
+        CASE WHEN v_filled + v_row.modified_qty >= v_final_qty THEN 'filled' ELSE 'partially_filled' END
+      );
+    END IF;
+
+    UPDATE public.dma_account_orders o SET
+      qty          = v_final_qty,
+      price        = coalesce(o.price, v_ins_price),
+      filled_qty   = o.filled_qty + v_add_filled,
+      org_order_no = coalesce(o.org_order_no, CASE WHEN v_self_is_orig THEN NULL ELSE v_org_order_no END),
+      origin       = coalesce(o.origin, v_origin),
+      side         = coalesce(o.side, v_side),
+      dma_user_id  = coalesce(o.dma_user_id, v_dma_user),
+      board        = coalesce(o.board, v_board),
+      requester    = coalesce(o.requester, v_requester),
+      request_kind = coalesce(o.request_kind, NULLIF(v_request_kind, '')),
+      status       = v_target,
+      -- 마지막 통보 칸은 더 새 seq 일 때만 갱신한다(적용은 seq 오름차순이지만 방어적으로).
+      notice_type  = CASE WHEN v_seq >= o.last_seq THEN v_notice      ELSE o.notice_type END,
+      result_code  = CASE WHEN v_seq >= o.last_seq THEN v_result_code ELSE o.result_code END,
+      message      = CASE WHEN v_seq >= o.last_seq THEN v_message     ELSE o.message     END,
+      first_seq    = LEAST(o.first_seq, v_seq),
+      last_seq     = GREATEST(o.last_seq, v_seq),
+      created_at   = LEAST(o.created_at, v_gw_time),
+      updated_at   = GREATEST(o.updated_at, v_gw_time)
+    WHERE o.id = v_row.id;
+    v_id := v_row.id;
+  END IF;
+  v_ids := ARRAY[v_id];
+
+  -- ── ④ 원주문 행 ──
+  IF v_notice = 'C' AND NOT v_self_is_orig AND v_has_orig THEN
+    UPDATE public.dma_account_orders o SET
+      status     = public.dma_journal_next_status(o.status, 'cancelled'),
+      last_seq   = GREATEST(o.last_seq, v_seq),
+      updated_at = GREATEST(o.updated_at, v_gw_time)
+    WHERE o.id = v_orig.id;
+    v_ids := v_ids || v_orig.id;
+  ELSIF v_notice = 'M' AND v_has_orig AND v_orig.qty IS NOT NULL AND v_moved > 0 THEN
+    UPDATE public.dma_account_orders o SET
+      modified_qty = o.modified_qty + v_moved,
+      status       = CASE WHEN o.filled_qty + o.modified_qty + v_moved >= o.qty
+                          THEN public.dma_journal_next_status(o.status, 'modified')
+                          ELSE o.status END,
+      last_seq     = GREATEST(o.last_seq, v_seq),
+      updated_at   = GREATEST(o.updated_at, v_gw_time)
+    WHERE o.id = v_orig.id;
+    v_ids := v_ids || v_orig.id;
   END IF;
 
-  -- 행이 이미 있다(같은 주문의 후속 통보 · 체결이 접수보다 먼저 온 경우 · 재접수 통보).
-  -- 비어 있는 칸만 채우고, 체결 수량은 상태와 무관하게 사실로 누적하며, 상태는 격자로만 올린다.
-  v_final_qty := coalesce(v_row.qty, v_ins_qty);
-  v_filled    := v_row.filled_qty + v_add_filled;
-  v_target    := public.dma_journal_next_status(v_row.status, v_next);
-  IF v_filled > 0 AND v_final_qty IS NOT NULL THEN
-    v_target := public.dma_journal_next_status(
-      v_target,
-      CASE WHEN v_filled + v_row.modified_qty >= v_final_qty THEN 'filled' ELSE 'partially_filled' END
-    );
-  END IF;
-
-  UPDATE public.dma_account_orders o SET
-    qty          = v_final_qty,
-    price        = coalesce(o.price, v_ins_price),
-    filled_qty   = o.filled_qty + v_add_filled,
-    org_order_no = coalesce(o.org_order_no, v_org_order_no),
-    origin       = coalesce(o.origin, v_origin),
-    side         = coalesce(o.side, v_side),
-    dma_user_id  = coalesce(o.dma_user_id, v_dma_user),
-    board        = coalesce(o.board, v_board),
-    requester    = coalesce(o.requester, v_requester),
-    request_kind = coalesce(o.request_kind, NULLIF(v_request_kind, '')),
-    status       = v_target,
-    -- 마지막 통보 칸은 더 새 seq 일 때만 갱신한다(적용은 seq 오름차순이지만 방어적으로).
-    notice_type  = CASE WHEN v_seq >= o.last_seq THEN v_notice      ELSE o.notice_type END,
-    result_code  = CASE WHEN v_seq >= o.last_seq THEN v_result_code ELSE o.result_code END,
-    message      = CASE WHEN v_seq >= o.last_seq THEN v_message     ELSE o.message     END,
-    first_seq    = LEAST(o.first_seq, v_seq),
-    last_seq     = GREATEST(o.last_seq, v_seq),
-    created_at   = LEAST(o.created_at, v_gw_time),
-    updated_at   = GREATEST(o.updated_at, v_gw_time)
-  WHERE o.id = v_row.id;
-
-  RETURN ARRAY[v_row.id];
+  RETURN v_ids;
 END;
 $$;
 
@@ -487,7 +608,7 @@ AS $$
    ORDER BY o.created_at DESC, o.last_seq DESC;
 $$;
 
--- ── 권한: 함수 6종 모두 service_role 전용 (시그니처 정확히 — Pitfall 10) ──
+-- ── 권한: 함수 7종 모두 service_role 전용 (시그니처 정확히 — Pitfall 10) ──
 REVOKE EXECUTE ON FUNCTION public.dma_journal_status_rank(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dma_journal_status_rank(text) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.dma_journal_status_rank(text) TO service_role;
@@ -495,6 +616,10 @@ GRANT EXECUTE ON FUNCTION public.dma_journal_status_rank(text) TO service_role;
 REVOKE EXECUTE ON FUNCTION public.dma_journal_next_status(text, text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dma_journal_next_status(text, text) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.dma_journal_next_status(text, text) TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.dma_journal_origin(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dma_journal_origin(text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dma_journal_origin(text) TO service_role;
 
 REVOKE EXECUTE ON FUNCTION public.dma_journal_project(text, text, jsonb) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dma_journal_project(text, text, jsonb) FROM anon, authenticated;

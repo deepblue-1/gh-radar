@@ -113,7 +113,7 @@ $$;
 
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(49);
+SELECT plan(67);
 
 -- ── 1. 매핑 동기화: dma-shared → …7801 ──────────────────────────
 SELECT is(
@@ -387,6 +387,149 @@ INSERT INTO t_apply SELECT 'a13', public.dma_journal_apply('KB', 'ep-3', jsonb_b
 SELECT is(
   (SELECT row(status, last_seq, filled_qty)::text FROM pg_temp.o('0000300010')),
   '(filled,13,10)', '(seq 13 늦은 A, …9003) (status, last_seq, filled_qty) = (filled, 13, 10) — filled 유지'
+);
+
+-- ── 12. 취소확인 C ────────────────────────────────────────────────
+-- 원주문 A(매도 · LimitChaser) → C(자기 번호 0000200002 · 원주문 0000200001 · side 미신뢰).
+INSERT INTO t_apply SELECT 'a40', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(40, '10:10:00', '{"order_no":"0000200001","side":"S","origin":"LimitChaser","requester":""}')));
+INSERT INTO t_apply SELECT 'c41', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(41, '10:10:03', '{"order_no":"0000200002","org_order_no":"0000200001","notice_type":"C",
+    "request_kind":"Cancel","side":"","side_trusted":false,"origin":"LimitChaser","requester":"","order_price":0}')));
+SELECT is(
+  (SELECT row(order_type, status, side, origin, org_order_no, qty, price)::text FROM pg_temp.o('0000200002')),
+  '(C,cancelled,S,limit_chaser,0000200001,10,0)',
+  '(seq 41 C, …9003) 취소 행 (order_type, status, side, origin, org, qty, price) = (C, cancelled, S ← 원주문, limit_chaser, 0000200001, 10, 0)'
+);
+SELECT is(
+  (SELECT row(status, last_seq)::text FROM pg_temp.o('0000200001')),
+  '(cancelled,41)', '(seq 41 C, …9003) 원주문 0000200001 (status, last_seq) = (cancelled, 41)'
+);
+SELECT is(
+  (SELECT jsonb_array_length(r->'rows') FROM t_apply WHERE label = 'c41'),
+  2, '(seq 41 C, …9003) apply rows = 2 (취소 행 + 원주문 행 — relay 가 둘 다 푸시)'
+);
+
+-- filled 원주문에 늦은 C — 종결은 덮지 않는다.
+INSERT INTO t_apply SELECT 'a42_e43_c44', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(42, '10:11:00', '{"order_no":"0000200003","order_qty":5}'),
+  pg_temp.ev(43, '10:11:01', '{"order_no":"0000200003","notice_type":"E","exec_qty":5}'),
+  pg_temp.ev(44, '10:11:02', '{"order_no":"0000200004","org_order_no":"0000200003","notice_type":"C","request_kind":"Cancel","order_qty":5}')));
+SELECT is(
+  (SELECT row((SELECT status FROM pg_temp.o('0000200003')), (SELECT status FROM pg_temp.o('0000200004')))::text),
+  '(filled,cancelled)', '(seq 42·43·44, …9003) (filled 원주문, 늦은 취소 행) = (filled 유지, cancelled)'
+);
+
+-- 원주문번호가 빈 C = 거래소 자동취소 — 자기 번호 행 자체가 cancelled, order_type 유지.
+INSERT INTO t_apply SELECT 'a45_c46', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(45, '10:12:00', '{"order_no":"0000200009"}'),
+  pg_temp.ev(46, '15:30:00', '{"order_no":"0000200009","notice_type":"C","request_kind":"","order_price":0}')));
+SELECT is(
+  (SELECT row(status, order_type, qty, price, last_seq)::text FROM pg_temp.o('0000200009')),
+  '(cancelled,N,10,1000,46)', '(seq 46 C org 빈 값, …9003) 자기 행 (status, order_type, qty, price, last_seq) = (cancelled, N 유지, 10, 1000, 46)'
+);
+
+-- ── 13. 정정확인 M ────────────────────────────────────────────────
+-- 원주문 A(qty 10) · E 3 → M(0000200011 · 10주 요청) → 이동 = LEAST(10, 잔량 7) = 7.
+INSERT INTO t_apply SELECT 'a50_e51_m52', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(50, '10:20:00', '{"order_no":"0000200010"}'),
+  pg_temp.ev(51, '10:20:01', '{"order_no":"0000200010","notice_type":"E","exec_qty":3}'),
+  pg_temp.ev(52, '10:20:05', '{"order_no":"0000200011","org_order_no":"0000200010","notice_type":"M",
+    "request_kind":"Modify","order_qty":10,"order_price":1100,"side":"","side_trusted":false}')));
+SELECT is(
+  (SELECT row(order_type, qty, status, price, org_order_no, side)::text FROM pg_temp.o('0000200011')),
+  '(M,7,accepted,1100,0000200010,B)', '(seq 52 M, …9003) 정정 행 (order_type, qty, status, price, org, side) = (M, 7 = LEAST(10, 잔량 7), accepted, 1100, 0000200010, B ← 원주문)'
+);
+SELECT is(
+  (SELECT row(filled_qty, modified_qty, status, last_seq)::text FROM pg_temp.o('0000200010')),
+  '(3,7,modified,52)', '(seq 52 M, …9003) 원주문 (filled, modified_qty, status, last_seq) = (3, 7, modified — 3+7 >= 10, 52)'
+);
+
+-- 원주문을 모른다(전일·예약 — Assumption A4) → M 수량 그대로 · 원주문 행을 만들지 않는다.
+INSERT INTO t_apply SELECT 'm53', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(53, '10:21:00', '{"order_no":"0000200013","org_order_no":"0000299999","notice_type":"M",
+    "request_kind":"Modify","order_qty":4,"side":"B","side_trusted":false}')));
+SELECT is(
+  (SELECT row(order_type, qty, status, side)::text FROM pg_temp.o('0000200013')),
+  '(M,4,accepted,)', '(seq 53 M 원주문 모름, …9003) 정정 행 (order_type, qty, status, side) = (M, 4 폴백, accepted, NULL — 미신뢰 side 를 쓰지 않는다)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM pg_temp.o('0000299999')),
+  0, '(seq 53 M 원주문 모름, …9003) 원주문 0000299999 행을 지어내지 않는다'
+);
+
+-- ── 14. 정정·취소 거부 R(주문번호 있음) — 원주문은 살아 있다 ──────────
+INSERT INTO t_apply SELECT 'a60_r61', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(60, '10:30:00', '{"order_no":"0000200020","side":"S"}'),
+  pg_temp.ev(61, '10:30:02', '{"order_no":"0000200021","org_order_no":"0000200020","notice_type":"R",
+    "request_kind":"Modify","side":"","side_trusted":false,"result_code":7,"message":"정정 거부"}')));
+SELECT is(
+  (SELECT row(order_type, status, side, org_order_no, result_code)::text FROM pg_temp.o('0000200021')),
+  '(M,rejected,S,0000200020,7)', '(seq 61 R Modify, …9003) 거부 행 (order_type, status, side, org, result_code) = (M, rejected, S ← 원주문, 0000200020, 7)'
+);
+SELECT is(
+  (SELECT row(status, modified_qty, last_seq)::text FROM pg_temp.o('0000200020')),
+  '(accepted,0,60)', '(seq 61 R Modify, …9003) 원주문 (status, modified_qty, last_seq) = (accepted, 0, 60) 불변'
+);
+
+-- 거부 통보가 원주문 번호를 자기 번호로 실어 와도(order_no = org) 원주문을 rejected 로 만들지 않는다.
+INSERT INTO t_apply SELECT 'r62', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(62, '10:30:05', '{"order_no":"0000200020","org_order_no":"0000200020","notice_type":"R",
+    "request_kind":"Cancel","result_code":8}')));
+SELECT is(
+  (SELECT row(
+     (SELECT status FROM pg_temp.o('0000200020')),
+     (SELECT row(order_type, status, org_order_no, order_no IS NULL)::text
+        FROM public.dma_account_orders WHERE gateway = 'KB' AND journal_epoch = 'ep-3' AND reject_seq = 62))::text),
+  '(accepted,"(C,rejected,0000200020,t)")', '(seq 62 R Cancel order_no = org, …9003) (원주문 status, 거부 행) = (accepted, (C, rejected, 0000200020, order_no NULL)) — reject_seq 행으로 분리'
+);
+
+-- ── 15. 로컬 거부 · 주문번호 없는 R — reject_seq 행 (D-02 · Pitfall 6) ─────
+INSERT INTO t_apply SELECT 'local', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(30, '10:40:00', '{"local_reject":true,"notice_type":"R","order_qty":5,"result_code":-1,"message":"한도 초과"}'),
+  pg_temp.ev(31, '10:40:00', '{"local_reject":true,"notice_type":"R","order_qty":0,"result_code":-1,"message":"한도 초과"}')));
+SELECT is(
+  (SELECT (r->>'applied')::int FROM t_apply WHERE label = 'local'),
+  2, '(seq 30·31 로컬 거부, …9003) applied = 2'
+);
+SELECT is(
+  (SELECT string_agg(row(reject_seq, order_no, status, journal_epoch, qty, price, order_type, side)::text, ';' ORDER BY reject_seq)
+     FROM public.dma_account_orders WHERE gateway = 'KB' AND journal_epoch = 'ep-3' AND reject_seq IN (30, 31)),
+  '(30,,rejected,ep-3,5,1000,N,B);(31,,rejected,ep-3,,1000,N,B)',
+  '(seq 30·31 로컬 거부, …9003) 서로 다른 두 행 (reject_seq, order_no NULL, rejected, epoch, qty 5 / 0→NULL, price, N, B) — 한 행에 겹치지 않는다'
+);
+
+INSERT INTO t_apply SELECT 'r32', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(32, '10:41:00', '{"notice_type":"R","request_kind":"Cancel","org_order_no":"0000200020","side":"","side_trusted":false,"result_code":9}')));
+SELECT is(
+  (SELECT row(order_type, status, org_order_no, side, order_no IS NULL)::text
+     FROM public.dma_account_orders WHERE gateway = 'KB' AND journal_epoch = 'ep-3' AND reject_seq = 32),
+  '(C,rejected,0000200020,S,t)', '(seq 32 브로커 R 주문번호 없음, …9003) reject_seq 행 (order_type, status, org, side ← 원주문, order_no NULL) = (C, rejected, 0000200020, S, t)'
+);
+
+-- ── 16. 예약 Q-ID — 일반 주문번호와 같은 규칙(오케스트레이터 Q3) ─────────
+INSERT INTO t_apply SELECT 'q70', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(70, '08:00:00', '{"order_no":"Q000000001"}')));
+SELECT is(
+  (SELECT status FROM pg_temp.o('Q000000001')),
+  'accepted', '(seq 70 A Q000000001, …9003) 예약 접수 행 status = accepted'
+);
+INSERT INTO t_apply SELECT 'q71', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(71, '08:01:00', '{"order_no":"Q000000001","notice_type":"C","request_kind":"Cancel","order_price":0}')));
+SELECT is(
+  (SELECT row(status, order_type)::text FROM pg_temp.o('Q000000001')),
+  '(cancelled,N)', '(seq 71 C Q000000001 org 빈 값, …9003) 예약 행 (status, order_type) = (cancelled, N)'
+);
+
+-- ── 17. origin 사상 — 모르는 값·빈 값은 NULL(D-08 보충) ────────────────
+INSERT INTO t_apply SELECT 'origin', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(80, '11:00:00', '{"order_no":"0000200080","origin":""}'),
+  pg_temp.ev(81, '11:00:01', '{"order_no":"0000200081","origin":"Unknown"}'),
+  pg_temp.ev(82, '11:00:02', '{"order_no":"0000200082","origin":"VITrigger"}')));
+SELECT is(
+  (SELECT string_agg(order_no || '=' || coalesce(origin, 'NULL'), ',' ORDER BY order_no)
+     FROM public.dma_account_orders WHERE gateway = 'KB' AND order_no IN ('0000200080','0000200081','0000200082')),
+  '0000200080=NULL,0000200081=NULL,0000200082=vi', '(seq 80·81·82, …9003) origin (빈 값, Unknown, VITrigger) → (NULL, NULL, vi)'
 );
 
 SELECT * FROM finish(true);

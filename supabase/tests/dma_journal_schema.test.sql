@@ -5,7 +5,7 @@
 --   - 테이블 4종 존재 · RLS 활성(pg_class.relrowsecurity) · 접근 규칙 0개(pg_policies)
 --   - anon · authenticated 는 네 테이블에 SELECT/INSERT/UPDATE/DELETE 권한이 없다(T-19-11),
 --     service_role 은 네 권한을 모두 가진다(relay·server 쓰기·읽기 경로)
---   - 함수 6종 EXECUTE: anon · authenticated false · service_role true (T-19-01 · Pitfall 10 —
+--   - 함수 7종 EXECUTE(19-03 dma_journal_origin 포함): anon · authenticated false · service_role true (T-19-01 · Pitfall 10 —
 --     조회 RPC 가 authenticated 에 열리면 PostgREST 로 남의 p_user_id 를 넣어 조회하는 IDOR)
 --   - dma_account_orders 행 모델 제약: 키 xor(order_no ↔ reject_seq) · reject_seq 의 epoch 필수 ·
 --     상태 6종 · 거래소 KRX/NXT · 방향 B/S · 출처 3종 · ISIN 12자 · qty > 0 · 두 부분 유니크
@@ -26,7 +26,7 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
 SET LOCAL search_path = public, extensions;
 
-SELECT plan(90);
+SELECT plan(93);
 
 -- ── 테이블 존재 ──────────────────────────────────────────────────
 SELECT has_table('public', 'dma_journal_events', 'public.dma_journal_events 테이블이 있다');
@@ -114,6 +114,9 @@ SELECT is(has_function_privilege('service_role', 'public.dma_journal_apply(text,
 SELECT is(has_function_privilege('anon', 'public.dma_journal_sync_access(text, jsonb)', 'EXECUTE'), false, 'anon 에게 public.dma_journal_sync_access(text, jsonb) EXECUTE 가 없다');
 SELECT is(has_function_privilege('authenticated', 'public.dma_journal_sync_access(text, jsonb)', 'EXECUTE'), false, 'authenticated 에게 public.dma_journal_sync_access(text, jsonb) EXECUTE 가 없다');
 SELECT is(has_function_privilege('service_role', 'public.dma_journal_sync_access(text, jsonb)', 'EXECUTE'), true, 'service_role 에게 public.dma_journal_sync_access(text, jsonb) EXECUTE 가 있다');
+SELECT is(has_function_privilege('anon', 'public.dma_journal_origin(text)', 'EXECUTE'), false, 'anon 에게 public.dma_journal_origin(text) EXECUTE 가 없다');
+SELECT is(has_function_privilege('authenticated', 'public.dma_journal_origin(text)', 'EXECUTE'), false, 'authenticated 에게 public.dma_journal_origin(text) EXECUTE 가 없다');
+SELECT is(has_function_privilege('service_role', 'public.dma_journal_origin(text)', 'EXECUTE'), true, 'service_role 에게 public.dma_journal_origin(text) EXECUTE 가 있다');
 SELECT is(has_function_privilege('anon', 'public.dma_journal_orders_for_user(uuid, date)', 'EXECUTE'), false, 'anon 에게 public.dma_journal_orders_for_user(uuid, date) EXECUTE 가 없다');
 SELECT is(has_function_privilege('authenticated', 'public.dma_journal_orders_for_user(uuid, date)', 'EXECUTE'), false, 'authenticated 에게 public.dma_journal_orders_for_user(uuid, date) EXECUTE 가 없다');
 SELECT is(has_function_privilege('service_role', 'public.dma_journal_orders_for_user(uuid, date)', 'EXECUTE'), true, 'service_role 에게 public.dma_journal_orders_for_user(uuid, date) EXECUTE 가 있다');
