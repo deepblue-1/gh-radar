@@ -1,24 +1,26 @@
 import { describe, it, expect } from "vitest";
 import request from "supertest";
+import { kstDateIso } from "@gh-radar/shared";
 import { createApp } from "../../src/app";
 
 /**
- * Phase 16 Plan 16 — `/api/orders` **조회 전용** 라우트 테스트 (D-02 / D-24).
+ * `/api/orders` **조회 전용** 라우트 테스트 (Phase 16 D-02 / D-24 → Phase 19 D-05 · D-06 · D-08).
  *
- * 15-17 이 두었던 POST 케이스 15종(관문·형식·allowlist·relay 응답 매핑)은 이 plan 에서
- * 라우트와 함께 제거했다. 주문 접수의 검증 정본은 이제 `relay/tests/ws-order.test.ts`
- * 17종이다 — 같은 규율을 두 하네스에서 절반씩 흉내 내면 어느 쪽도 진실이 아니게 된다.
+ * 15-17 이 두었던 POST 케이스 15종은 16-16 에서 라우트와 함께 제거했다. 주문 접수의 검증 정본은
+ * `relay/tests/ws-order.test.ts` 다. 케이스 ⓪ 이 「접수 경로가 정말 사라졌다」 를 잠근다.
  *
- * 남기는 것은 **조회**와 **접수 경로가 정말 사라졌다는 사실** 두 가지다.
- * 케이스 ⓪ 이 후자를 잠근다: `POST /api/orders` 가 라우터를 통과해 404 로 떨어져야 한다
- * (403·503·400 이면 라우트가 아직 살아 있다는 뜻이다).
+ * Phase 19 부터 조회 원천은 계좌 기준 저널 테이블이다 — server 는 `dma_journal_orders_for_user`
+ * RPC 를 **왕복 1회** 부르고 공유 매퍼 `toJournalOrderRow` 로 camelCase 행을 만든다. 가시성 필터는
+ * RPC 안의 조인이 정본이라(D-06) mock 은 필터를 흉내 내지 않고 **무엇을 넘겼는지**만 기록한다:
+ * 함수 이름·파라미터(p_user_id = 인증 사용자 · p_trade_date = KST 거래일), 그리고 `from()` 호출
+ * (구 `dma_orders` 조회가 0 임을 단언).
  *
- * supabase 는 `auth.getUser` + `dma_orders` 조회만 지원하는 최소 mock 이며, 조회 필터를
- * 기록해 소유권(T-15-01)·KST 하루 경계를 단언한다. relay 스텁은 더 이상 필요 없다 —
- * 이 라우트는 relay 를 부르지 않는다.
+ * ★ 이 파일의 응답 단언과 webapp 쪽 테스트는 **같은 shared 타입 `JournalOrderRow`** 를 계약으로 삼는다
+ *   (tasks/lessons.md 「프론트↔서버 응답 계약 드리프트」).
  */
 
 const ORDER_ROW_ID = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+const ORDER_ROW_ID_2 = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const KOSPI_ISIN = "KR7005930003";
 
 let userSeq = 0;
@@ -30,20 +32,23 @@ const nextUser = () => ({ id: `00000000-0000-4000-8000-${String(++userSeq).padSt
 
 type SupabaseOpts = {
   user?: { id: string } | null;
-  orders?: Record<string, unknown>[];
+  /** `dma_journal_orders_for_user` 가 돌려줄 행(snake_case 원문). */
+  rows?: Record<string, unknown>[];
+  /** 주면 rpc 가 이 오류를 돌려준다. */
+  rpcError?: { message: string };
 };
 
 type Recorder = {
-  /** `dma_orders` 조회에 실제로 걸린 필터 (소유권·날짜 경계 단언용). */
-  listFilters: Record<string, any>[];
-  /** `select(...)` 에 넘어간 컬럼 목록 원문 (화이트리스트 회귀 잠금용). */
-  selects: { table: string; cols: string }[];
+  /** rpc 호출 이름·파라미터 원문. */
+  rpcCalls: { fn: string; params: Record<string, unknown> }[];
+  /** `from(table)` 호출 기록 — 구 `dma_orders` 조회 0 단언용. */
+  fromTables: string[];
   /** 쓰기가 한 번도 일어나지 않음을 단언하기 위한 기록. */
   writes: { table: string; kind: "insert" | "update" }[];
 };
 
 function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
-  const rec: Recorder = { listFilters: [], selects: [], writes: [] };
+  const rec: Recorder = { rpcCalls: [], fromTables: [], writes: [] };
 
   const client = {
     auth: {
@@ -52,14 +57,16 @@ function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
           ? { data: { user: opts.user }, error: null }
           : { data: { user: null }, error: { message: "invalid token" } },
     },
+    async rpc(fn: string, params: Record<string, unknown>) {
+      rec.rpcCalls.push({ fn, params });
+      if (opts.rpcError) return { data: null, error: opts.rpcError };
+      if (fn === "dma_journal_orders_for_user") return { data: opts.rows ?? [], error: null };
+      return { data: null, error: { message: `unexpected rpc ${fn}` } };
+    },
     from(table: string) {
-      const filters: Record<string, any> = {};
-
+      rec.fromTables.push(table);
       const b: any = {
-        select: (cols?: string) => {
-          rec.selects.push({ table, cols: cols ?? "*" });
-          return b;
-        },
+        select: () => b,
         insert: () => {
           rec.writes.push({ table, kind: "insert" });
           return b;
@@ -68,29 +75,13 @@ function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
           rec.writes.push({ table, kind: "update" });
           return b;
         },
-        eq: (col: string, val: any) => {
-          filters[col] = val;
-          return b;
-        },
-        gte: (col: string, val: any) => {
-          filters[`gte:${col}`] = val;
-          return b;
-        },
-        lt: (col: string, val: any) => {
-          filters[`lt:${col}`] = val;
-          return b;
-        },
+        eq: () => b,
+        gte: () => b,
+        lt: () => b,
         order: () => b,
         maybeSingle: async () => ({ data: null, error: null }),
         single: async () => ({ data: null, error: null }),
-        then: (resolve: any) => {
-          if (table === "dma_orders") {
-            rec.listFilters.push({ ...filters });
-            const rows = (opts.orders ?? []).filter((r) => r.user_id === filters.user_id);
-            return resolve({ data: rows, error: null });
-          }
-          return resolve({ data: [], error: null });
-        },
+        then: (resolve: any) => resolve({ data: [], error: null }),
       };
       return b;
     },
@@ -99,30 +90,38 @@ function makeSupabase(opts: SupabaseOpts): { client: any; rec: Recorder } {
   return { client, rec };
 }
 
-const orderRow = (userId: string, id: string) => ({
-  id,
-  user_id: userId,
+/**
+ * RPC 반환 행 1건 — 공개 컬럼 25종 snake_case. `dma_user_id` 는 RPC 가 내지 않으므로 픽스처에도 없다.
+ * `last_seq` 는 bigint 직렬화 방어를 잠그려고 문자열로 둔다.
+ */
+const journalRow = (over: Record<string, unknown> = {}) => ({
+  id: ORDER_ROW_ID,
+  trade_date: "2026-09-28",
   account_no: "12345678901",
   isin: KOSPI_ISIN,
   stock_code: "005930",
   exchange: "KRX",
-  market: "K",
+  board: "G1",
   side: "B",
   order_type: "N",
   org_order_no: null,
   qty: 10,
   price: 70000,
   order_no: "0000123",
-  status: "accepted",
+  filled_qty: 4,
+  modified_qty: 0,
+  status: "partially_filled",
   result_code: 0,
-  notice_type: "A",
+  notice_type: "E",
   message: "정상처리",
-  filled_qty: 0,
-  // 자동주문 출처. 수동(manual)이 DEFAULT 라 픽스처를 manual 로 두면 "매핑이 빠져도
-  // 통과"하는 케이스가 된다 — 일부러 자동주문 값을 넣어 왕복을 잠근다 (WR-05).
+  // 자동주문 출처 — manual 로 두면 「매핑이 빠져도 통과」 하는 케이스가 된다 (WR-05).
   origin: "limit_chaser",
-  created_at: "2026-09-06T00:30:00Z",
-  updated_at: "2026-09-06T00:30:01Z",
+  requester: "hts",
+  request_kind: "new",
+  last_seq: "42",
+  created_at: "2026-09-28T00:30:00Z",
+  updated_at: "2026-09-28T00:30:05Z",
+  ...over,
 });
 
 // ============================================================
@@ -182,11 +181,22 @@ describe("GET /api/orders", () => {
     expect(r.status).toBe(401);
   });
 
-  it("⑯-b 정상 → bare array + camelCase 매핑", async () => {
+  it("⑯-b 정상 → RPC 1회 · bare array · camelCase 매핑(origin null 보존 · lastSeq number)", async () => {
     const user = nextUser();
-    const { client } = makeSupabase({
+    const { client, rec } = makeSupabase({
       user,
-      orders: [orderRow(user.id, ORDER_ROW_ID), orderRow("other-user", "bbbb")],
+      rows: [
+        journalRow(),
+        // 출처 미상 행 — null 이 「수동」 으로 채워지면 안 된다 (D-08 보충).
+        journalRow({
+          id: ORDER_ROW_ID_2,
+          origin: null,
+          side: null,
+          qty: null,
+          stock_code: null,
+          last_seq: 7,
+        }),
+      ],
     });
 
     const r = await request(createApp({ supabase: client }))
@@ -196,103 +206,160 @@ describe("GET /api/orders", () => {
     expect(r.status).toBe(200);
     // 코드베이스 규약: list 는 bare array (webapp 이 envelope 을 벗기지 않는다).
     expect(Array.isArray(r.body)).toBe(true);
-    expect(r.body).toHaveLength(1);
-    expect(r.body[0]).toMatchObject({
+    expect(r.body).toHaveLength(2);
+    // 새 테이블 RPC 왕복 1회 (D-05 · Cloud Run 왕복 비용).
+    expect(rec.rpcCalls).toHaveLength(1);
+    expect(rec.rpcCalls[0].fn).toBe("dma_journal_orders_for_user");
+
+    expect(r.body[0]).toEqual({
       id: ORDER_ROW_ID,
+      tradeDate: "2026-09-28",
       accountNo: "12345678901",
       isin: KOSPI_ISIN,
       stockCode: "005930",
+      exchange: "KRX",
+      board: "G1",
+      side: "B",
+      orderType: "N",
+      orgOrderNo: null,
+      qty: 10,
+      price: 70000,
       orderNo: "0000123",
-      status: "accepted",
-      filledQty: 0,
-      // 자동주문/수동주문 구분이 API 층까지 도달한다 (WR-05 / T-16-23).
-      // 표시 층(주문 이력 표)은 D-20 deferred 라 아직 없다 — 계약만 먼저 완성한 상태다.
+      filledQty: 4,
+      modifiedQty: 0,
+      status: "partially_filled",
+      resultCode: 0,
+      noticeType: "E",
+      message: "정상처리",
       origin: "limit_chaser",
+      requester: "hts",
+      requestKind: "new",
+      lastSeq: 42,
+      createdAt: "2026-09-28T00:30:00Z",
+      updatedAt: "2026-09-28T00:30:05Z",
     });
-    // 응답에 타 사용자 식별자를 싣지 않는다.
-    expect(r.body[0]).not.toHaveProperty("userId");
+    expect(typeof r.body[0].lastSeq).toBe("number");
+    expect(r.body[1]).toMatchObject({
+      id: ORDER_ROW_ID_2,
+      origin: null,
+      side: null,
+      qty: null,
+      stockCode: null,
+      lastSeq: 7,
+    });
   });
 
-  it("⑯-b2 조회 컬럼 목록에 origin 이 있고 user_id 는 없다 (T-16-22)", async () => {
+  it("⑯-b2 응답에 주문자 식별자가 없다 (D-08 · T-19-08)", async () => {
     const user = nextUser();
-    const { client, rec } = makeSupabase({ user, orders: [orderRow(user.id, ORDER_ROW_ID)] });
-
-    await request(createApp({ supabase: client }))
-      .get("/api/orders")
-      .set("Authorization", "Bearer tok");
-
-    const sel = rec.selects.find((s) => s.table === "dma_orders");
-    expect(sel).toBeDefined();
-    const cols = sel!.cols.split(",");
-    // 화이트리스트로 명시 조회한다 — `*` 면 컬럼이 늘 때마다 응답이 조용히 넓어진다.
-    expect(sel!.cols).not.toBe("*");
-    expect(cols).toContain("origin");
-    // ★ `user_id` 는 `WHERE` 로만 쓰고 응답에는 싣지 않는다. 컬럼 추가가 이 규율을
-    //   흐리지 않았음을 회귀 잠금한다.
-    expect(cols).not.toContain("user_id");
-  });
-
-  it("⑯-c WHERE user_id 필터가 요청자 id 로 걸린다 (T-15-01)", async () => {
-    const user = nextUser();
-    const { client, rec } = makeSupabase({ user, orders: [orderRow(user.id, ORDER_ROW_ID)] });
-
-    await request(createApp({ supabase: client }))
-      .get("/api/orders")
-      .set("Authorization", "Bearer tok");
-
-    expect(rec.listFilters).toHaveLength(1);
-    expect(rec.listFilters[0].user_id).toBe(user.id);
-    // KST 하루 경계가 함께 걸린다.
-    expect(rec.listFilters[0]["gte:created_at"]).toBeDefined();
-    expect(rec.listFilters[0]["lt:created_at"]).toBeDefined();
-  });
-
-  it("⑯-d date 는 KST 하루 반열린 구간으로 변환된다", async () => {
-    const user = nextUser();
-    const { client, rec } = makeSupabase({ user, orders: [] });
+    const { client } = makeSupabase({ user, rows: [journalRow()] });
 
     const r = await request(createApp({ supabase: client }))
-      .get("/api/orders?date=2026-09-06")
+      .get("/api/orders")
       .set("Authorization", "Bearer tok");
 
     expect(r.status).toBe(200);
-    // 2026-09-06 00:00 KST = 2026-09-05 15:00 UTC
-    expect(rec.listFilters[0]["gte:created_at"]).toBe("2026-09-05T15:00:00.000Z");
-    expect(rec.listFilters[0]["lt:created_at"]).toBe("2026-09-06T15:00:00.000Z");
+    expect(r.text).not.toContain("dma_user_id");
+    expect(r.text).not.toContain("dmaUserId");
+    expect(r.body[0]).not.toHaveProperty("userId");
   });
 
-  it("⑯-e 형식은 맞지만 존재하지 않는 날짜 → 400 (500 이 아니다)", async () => {
-    const { client } = makeSupabase({ user: nextUser(), orders: [] });
-
-    const r = await request(createApp({ supabase: client }))
-      .get("/api/orders?date=2026-13-45")
-      .set("Authorization", "Bearer tok");
-
-    expect(r.status).toBe(400);
-    expect(r.body.error.code).toBe("VALIDATION_FAILED");
-  });
-
-  it("⑯-f 형식 위반 date(2026-9-6) → 400 — zod 가 먼저 거른다", async () => {
-    const { client, rec } = makeSupabase({ user: nextUser(), orders: [] });
-
-    const r = await request(createApp({ supabase: client }))
-      .get("/api/orders?date=2026-9-6")
-      .set("Authorization", "Bearer tok");
-
-    expect(r.status).toBe(400);
-    expect(r.body.error.code).toBe("VALIDATION_FAILED");
-    // 형식이 틀리면 DB 를 두드리지 않는다.
-    expect(rec.listFilters).toHaveLength(0);
-  });
-
-  it("⑯-g 조회는 쓰기를 만들지 않는다 (insert/update 0회)", async () => {
+  it("⑯-c p_user_id = 인증 사용자 · p_trade_date = KST 오늘 (T-19-17)", async () => {
     const user = nextUser();
-    const { client, rec } = makeSupabase({ user, orders: [orderRow(user.id, ORDER_ROW_ID)] });
+    const { client, rec } = makeSupabase({ user, rows: [] });
+
+    const r = await request(createApp({ supabase: client }))
+      .get("/api/orders")
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([]);
+    expect(rec.rpcCalls).toEqual([
+      {
+        fn: "dma_journal_orders_for_user",
+        params: { p_user_id: user.id, p_trade_date: kstDateIso() },
+      },
+    ]);
+  });
+
+  it("⑯-c2 쿼리의 user_id 는 무시된다 — p_user_id 는 인증 사용자 (T-19-17)", async () => {
+    const user = nextUser();
+    const other = nextUser();
+    const { client, rec } = makeSupabase({ user, rows: [] });
+
+    const r = await request(createApp({ supabase: client }))
+      .get(`/api/orders?user_id=${other.id}&p_user_id=${other.id}`)
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls).toHaveLength(1);
+    expect(rec.rpcCalls[0].params.p_user_id).toBe(user.id);
+  });
+
+  it("⑯-d date 는 거래일 그대로 넘어간다", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, rows: [] });
+
+    const r = await request(createApp({ supabase: client }))
+      .get("/api/orders?date=2026-09-28")
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(200);
+    expect(rec.rpcCalls[0].params).toEqual({ p_user_id: user.id, p_trade_date: "2026-09-28" });
+  });
+
+  it("⑯-e 형식은 맞지만 존재하지 않는 날짜 → 400 (500 이 아니다) · RPC 0회", async () => {
+    for (const bad of ["2026-13-45", "2026-02-30"]) {
+      const { client, rec } = makeSupabase({ user: nextUser(), rows: [] });
+
+      const r = await request(createApp({ supabase: client }))
+        .get(`/api/orders?date=${bad}`)
+        .set("Authorization", "Bearer tok");
+
+      expect(r.status, bad).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("⑯-f 형식 위반 date(2026-9-6 · abc) → 400 — zod 가 먼저 거른다", async () => {
+    for (const bad of ["2026-9-6", "abc"]) {
+      const { client, rec } = makeSupabase({ user: nextUser(), rows: [] });
+
+      const r = await request(createApp({ supabase: client }))
+        .get(`/api/orders?date=${bad}`)
+        .set("Authorization", "Bearer tok");
+
+      expect(r.status, bad).toBe(400);
+      expect(r.body.error.code).toBe("VALIDATION_FAILED");
+      // 형식이 틀리면 DB 를 두드리지 않는다.
+      expect(rec.rpcCalls).toHaveLength(0);
+    }
+  });
+
+  it("⑯-g RPC 오류 → 500 DB_ERROR · 원문 비노출 (T-19-24)", async () => {
+    const { client } = makeSupabase({
+      user: nextUser(),
+      rpcError: { message: "permission denied for function dma_journal_orders_for_user" },
+    });
+
+    const r = await request(createApp({ supabase: client }))
+      .get("/api/orders")
+      .set("Authorization", "Bearer tok");
+
+    expect(r.status).toBe(500);
+    expect(r.body.error.code).toBe("DB_ERROR");
+    expect(r.text).not.toContain("permission denied");
+  });
+
+  it("⑯-h 구 dma_orders 를 조회하지 않고 쓰기도 없다 (D-05)", async () => {
+    const user = nextUser();
+    const { client, rec } = makeSupabase({ user, rows: [journalRow()] });
 
     await request(createApp({ supabase: client }))
       .get("/api/orders")
       .set("Authorization", "Bearer tok");
 
+    expect(rec.fromTables).not.toContain("dma_orders");
     expect(rec.writes).toHaveLength(0);
   });
 });

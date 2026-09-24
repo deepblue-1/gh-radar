@@ -1,6 +1,6 @@
 import { Router, type Router as RouterT } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DmaOrderRow } from "@gh-radar/shared";
+import type { JournalOrderRow } from "@gh-radar/shared";
 
 import { requireAuth } from "../middleware/require-auth.js";
 import { OrderListQuery } from "../schemas/orders.js";
@@ -9,8 +9,10 @@ import { listTodayOrders } from "../services/dma-orders.js";
 
 /**
  * Phase 16 Plan 16 — DMA 주문 **조회 전용** 라우트 (D-02 / D-24).
+ * Phase 19 D-05 — 원천이 계좌 기준 저널 테이블(`dma_account_orders`)로 바뀌었다. 경로·쿼리·
+ * bare array 규약은 그대로다.
  *
- * - GET / : 하루치 주문 목록 (새로고침 복원, bare array)
+ * - GET / : 하루치 주문 목록 (새로고침 복원, bare array — `JournalOrderRow[]`)
  *
  * ★ **주문 접수는 여기에 없다.** 신규·취소는 relay 의 wss(`order.new`/`order.cancel`)
  * 하나로만 나간다 (D-02 — 16-08 이 핸들러를, 16-10 이 브라우저 호출부를 옮겼다).
@@ -28,8 +30,10 @@ import { listTodayOrders } from "../services/dma-orders.js";
  *
  * ── 이 라우트에 남는 방어선 ──────────────────────────────────
  *   T-15-03  `requireAuth()` — 미인증 401
- *   T-15-01  `WHERE user_id` 명시 필터(서비스 계층). `dma_orders` 는 RLS 정책 0개라
- *            서버 경로의 실제 방어선이 그 필터다
+ *   T-19-01  조회 RPC(`dma_journal_orders_for_user`) EXECUTE 는 service_role 전용 — 브라우저가
+ *            PostgREST 로 직접 부를 수 없다. 가시성 필터는 RPC 안의 조인이 정본(D-06)
+ *   T-19-17  `p_user_id` = `req.userId`(requireAuth 확정값) 하나. 쿼리의 `user_id` 같은 값은
+ *            읽지 않는다
  *   T-15-07  에러는 전부 `next(e)` — `errorHandler` 가 프로덕션에서 원문을 감춘다
  */
 
@@ -44,8 +48,8 @@ ordersRouter.get("/", requireAuth(), async (req, res, next) => {
       throw ValidationFailed(`${issue.path.join(".")}: ${issue.message}`);
     }
     const supabase = req.app.locals.supabase as SupabaseClient;
-    // `WHERE user_id` 명시 필터는 서비스 계층이 건다 (T-15-01).
-    const data: DmaOrderRow[] = await listTodayOrders(
+    // 사용자 id 는 인증이 확정한 값 하나만 넘긴다 (T-19-17). 가시성 필터는 RPC 조인 (D-06).
+    const data: JournalOrderRow[] = await listTodayOrders(
       supabase,
       req.userId!,
       parsed.data.date,

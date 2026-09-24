@@ -82,6 +82,14 @@ export {
   ORDER_CONDITION_NORMAL,
   MAX_VI_ORDER_AMOUNT_KRW,
 } from "./relay";
+// --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
+export type {
+  JournalOrderRow,
+  JournalOrderDbRow,
+  JournalOrderStatus,
+  JournalOrderOrigin,
+} from "./journal";
+export { toJournalOrderRow, JOURNAL_ORDER_PUBLIC_COLUMNS } from "./journal";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";
