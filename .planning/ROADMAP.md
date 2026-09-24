@@ -925,19 +925,20 @@ Plans:
 **배경 (debug `mobile-bg-resume-gaps` 1번, 2026-09-24 확정):** relay 의 DMA 세션은 wss 인증에서만 생기고(D-13) 마지막 탭이 떠난 뒤 5분(`SESSION_GRACE_MS`)이면 닫힌다. 게이트웨이는 연결 0 세션에서도 전략을 돌리지만 통보(51)는 붙은 연결에만 보내고 없으면 버린다(`Gateway.cpp` SendToSession D-05) — 재로그인 재전송·당일 주문 조회 MsgType 도 없다. 실측: 09-23 같은 계좌를 쓰는 두 사용자 자동주문 43건 vs 2건 기록. 누락 표면은 My page 「오늘 주문」 카드(`dma_orders`)뿐이고 잔고·미체결·전략은 재로그인 스냅샷으로 정확하다.
 
 **범위 초안:**
+
 - gh-trade: 관찰자 로그인 역할(주문 불가 · WireGuard 내부만) · 기록 통보 메시지(seq · DMA user · 계좌번호 · 종목 · 매수매도 · origin — 연결 0 세션에서도 발행) · 당일 보관 + since_seq 이어받기
 - relay/DB: 장중 상시 기록 연결 · 계좌+주문번호 멱등 upsert · 화면은 접근 가능 계좌로 필터
 
 **쟁점 (discuss 에서 하나씩):** 기록 주체 단일화(사용자 세션 경로의 기존 `dma_orders` 기록·rid 상관과의 관계) · 기존 `dma_orders` 이관 vs 새 테이블 · 관찰자 자격 보안 경계 · gh-trade 스키마 동기화(`sync-relay-schema.sh` gh-trade 소유)·실서버 배포 순서(relay 먼저 → push)
 **Requirements**: TBD (CONTEXT D-01~D-14 를 요구사항 집합으로 사용)
 **Depends on:** Phase 18 · gh-trade Phase 23(관찰자 계약 G1 · 배포 G2 — 별도 저장소)
-**Plans:** 13 plans
+**Plans:** 1/13 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 19-01-PLAN.md — [tracer] DB 저널 뼈대: 테이블 4(이벤트·계좌 주문·매핑·커서) + 적용/매핑/조회 RPC(A 투영 · 멱등 · 가시성) + 권한 pgTAP + gh-trade 인계서
+- [x] 19-01-PLAN.md — [tracer] DB 저널 뼈대: 테이블 4(이벤트·계좌 주문·매핑·커서) + 적용/매핑/조회 RPC(A 투영 · 멱등 · 가시성) + 권한 pgTAP + gh-trade 인계서
 - [ ] 19-02-PLAN.md — [tracer] relay 기록부 제거(D-01): order-handler rid 즉시응답만 · OrderStore 삭제 · e2e DB 기록 0건
 
 **Wave 2** *(blocked on Wave 1 completion)*

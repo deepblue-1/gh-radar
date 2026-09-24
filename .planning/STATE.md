@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 19
 current_phase_name: 계좌별 주문기록 전용 연결
 status: executing
-stopped_at: Phase 19 context gathered
-last_updated: "2026-09-24T15:05:14.427Z"
-last_activity: 2026-09-24
-last_activity_desc: 18-36 R4 최종 게이트 green(relay 534 · webapp 1472/1 skip · Playwright 143/0 fail/9 skip · GC1~GC6) · 18-VALIDATION §Gap Closure R4 7행 닫힘 · TRADE-06~09 Pending 유지 · relay 미배포
-state_head: d756385b6bf4fb8a2f2c540f85fe1873aa528cc5
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-09-24T15:19:54.537Z"
+last_activity: 2026-09-25
+last_activity_desc: Phase 19 execution started
+state_head: 763b7b96da8ec313e72f402d5cdde2308f36164c
 progress:
   total_phases: 28
   completed_phases: 4
   total_plans: 246
-  completed_plans: 218
+  completed_plans: 219
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+**Current focus:** Phase 19 — 계좌별 주문기록 전용 연결
 
 ## Current Position
 
-Phase: 19 (계좌별 주문기록 전용 연결) — READY TO EXECUTE
-Plan: 36 of 36 (R4 갭 클로징 18-33~18-36 전부 완료 — 18-36 최종 게이트 green)
-Plans completed: 218 / 233
-Status: 라운드 4 실행 완료 · 재검증(-R4) 대기 · relay 미배포 — 18-36 전량 게이트 green · 18-VALIDATION §Gap Closure R4 7행 전부 닫힘 · TRADE-06~09 Pending 유지
+Phase: 19 (계좌별 주문기록 전용 연결) — EXECUTING
+Plan: 2 of 13
+Plans completed: 219 / 233
+Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-24 — Per-Plan 메트릭 47행 STATE-ARCHIVE 이관(fast) / 이전: Completed quick task 260924-blo: STATE.md 정리(966→216줄, 아카이브 4문서 분리)
+Last activity: 2026-09-25 — 19-01 완료(저널 DB 뼈대 · pgTAP 130 · gh-trade 인계서, 원격 미반영)
 
 Progress: [█████████░] 93%
 
@@ -72,6 +72,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
+| Phase 19 P01 | 10min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 18]: 18-34: 결과 모름 잠금 = RelayProvider 앱 수명(strategyKey) — 신규·정정만 · 진행 중 포함 · 로그아웃·새로고침에만 해제 (18-30 컨텍스트 승격 금지를 사용자 결정 1로 대체)
 - [Phase 18]: 18-35: 주문 잠금 원천은 RelayProvider.orderLocks 하나 — 작업대는 ✕ 판정에만 읽고 폼은 스스로 읽는다(18-30 배선 제거)
 - [Phase 18]: 18-35: 카드 정리(더티 키 · 직전 로그)는 커밋된 cards 에서 파생 — 치운 id 를 계산하지 않는다(R3-IN-03)
+- [Phase 19]: 19-01: dma_journal_apply 필수 키는 seq·trade_date·gw_time_ms — 형식 오류면 배치 전체 실패(계약 위반 비은폐), 나머지 키는 빈 문자열/0/false 로 적재
+- [Phase 19]: 19-01: 투영은 알 수 없는 request_kind·빈 account_no 를 RAISE(apply_error 로 드러남), sync_access 는 빈 키 행이 있으면 교체 전체 거부(기존 매핑 보존)
+- [Phase 19]: 19-01: 저널 테이블 4종·함수 6종은 서비스롤 전용 — 로컬 pgTAP 이미지의 기본 ACL 이 플랫폼 auto-grant 를 재현해 명시 REVOKE 누락을 잡는다
 
 ### Pending Todos
 
@@ -155,10 +159,10 @@ None yet.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/19-account-order-journal/19-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-09-24T13:21:41.438Z
-Stopped at: Phase 19 context gathered
+Last session: 2026-09-24T15:19:42.732Z
+Stopped at: Completed 19-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
