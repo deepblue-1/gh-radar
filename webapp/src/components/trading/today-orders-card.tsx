@@ -11,8 +11,8 @@
  * ② ★ 조회는 **페이지당 1회**다
  *   마운트 시 한 번 부른다. 계좌 카드(`AccountPanel`) 안에 넣지 않은 이유가 여기 있다 —
  *   그 컴포넌트는 4표면이 공유하고 My page 에서는 **계좌마다 한 벌씩** 렌더되므로, 계좌가
- *   2개면 계좌 축이 없는 같은 응답을 2번 부르게 된다(`listTodayOrders` 는 `user_id` 로만
- *   거른다). T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는 유지된다 — 늘어난
+ *   2개면 계좌 축이 없는 같은 응답을 2번 부르게 된다(`listTodayOrders` 는 내가 볼 수 있는
+ *   계좌 전부를 한 번에 준다). T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는 유지된다 — 늘어난
  *   조회 표면은 **하나**다.
  *
  * ③ ★ 원천은 REST 복원 + `journal.rows` 푸시 **둘뿐**이다 (Phase 19 D-03)
@@ -44,10 +44,15 @@
  *     흡수할 신축 항목이 없어, 항목을 더하면 truncate 가 아니라 조용한 잘림이 된다.
  *
  * ⑦ ★ relay 재인증 때 **한 번 더** 부른다 (debug mobile-bg-resume-gaps 4)
- *   소켓이 끊긴 동안 놓친 `{t:"order"}` 는 재생되지 않는다. 그 사이 relay 가 `dma_orders` 에
- *   기록한 체결·취소(DMA 세션 유예 5분 안)는 재조회로만 화면에 온다 — 기존 행의 번호라 ③ 의
- *   unmatched 재조회도 걸리지 않는다. 트리거는 ready **재진입**(끊겼다 붙음) 하나라 폴링이 아니고,
- *   끊기기 전 라이브 프레임이 재조회 결과를 덮지 않게 하는 판정은 `orderDisplayStatus` 에 있다.
+ *   소켓이 끊긴 동안 놓친 `journal.rows` 푸시는 재생되지 않는다. 그 사이 기록기가 저널에 투영한
+ *   행은 재조회로만 화면에 온다. 트리거는 ready **재진입**(끊겼다 붙음) 하나라 폴링이 아니다.
+ *   재조회 행과 끊기기 전 푸시 행이 겹치면 `lastSeq` 가 큰 쪽이 남는다(위 ③).
+ *
+ * ⑧ ★ journal.state 복구 재조회 (Phase 19 D-04)
+ *   relay 의 기록 연결이 끊겼다(`delayed`) 다시 붙으면(`live`) 기록기가 끊긴 구간을 이어받아
+ *   저널을 채운다 — 이어받기로 채워진 행을 가져오려고 `delayed → live` **전이에서만** 1회
+ *   다시 부른다. 마운트 뒤 첫 `live` 는 마운트 조회와 같은 시점이라 건너뛰고(⑦ 과 같은 판정),
+ *   `live → live` 반복 프레임은 전이가 아니다. 폴링이 아니다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -141,7 +146,7 @@ function noticeFactsOf(row: JournalOrderRow): OrderNoticeFacts {
 }
 
 export function TodayOrdersCard() {
-  const { journalRows, status } = useRelayContext();
+  const { journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
@@ -185,6 +190,19 @@ export function TodayOrdersCard() {
     }
     void load();
   }, [status, load]);
+
+  /*
+    ★ 기록 연결 복구(`delayed → live`)마다 1회 다시 부른다 (위 ⑧ · D-04).
+    직전 상태를 ref 로 들고 전이만 본다 — 마운트 시점에 이미 `live` 였거나 첫 프레임이 `live`
+    면 직전 값이 `delayed` 가 아니므로 부르지 않는다.
+  */
+  const journalLive = journalState?.s ?? null;
+  const prevJournalRef = useRef(journalLive);
+  useEffect(() => {
+    const prev = prevJournalRef.current;
+    prevJournalRef.current = journalLive;
+    if (prev === "delayed" && journalLive === "live") void load();
+  }, [journalLive, load]);
 
   /* 두 원천의 병합(위 ③). 푸시는 오늘(KST) 행만 받는다 — 자정을 넘긴 탭이 어제 행을 섞지 않게. */
   const rows = useMemo(
@@ -295,7 +313,7 @@ export function TodayOrdersCard() {
                         <SideTag label={label} srAction={orderActionWord(facts)} />
                       </TableCell>
                       <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {KRW.format(group.qty)}
+                        {qtyText(group)}
                       </TableCell>
                       <TableCell className="num mono text-[length:var(--t-caption)]">
                         {priceText(group)}
@@ -363,7 +381,7 @@ export function TodayOrdersCard() {
                     </span>
                     <span className="flex flex-none items-center gap-1">
                       <RowKey>수량</RowKey>
-                      <RowValue>{KRW.format(group.qty)}</RowValue>
+                      <RowValue>{qtyText(group)}</RowValue>
                     </span>
                     <span className="flex flex-none items-center gap-1">
                       <RowKey>가격</RowKey>
@@ -392,11 +410,17 @@ export function TodayOrdersCard() {
 /**
  * 묶인 행의 가격 — **범위**다. 단가를 더하면 없는 값이 생기고(3천원짜리 3건이 9천원으로
  * 보인다), 트레이더는 그 숫자로 판단한다. 정본 C# `RewriteMerged` 도 min~max 로 쓴다.
+ * 단가를 모르면(로컬 거부 · 취소 0) 지어내지 않고 「—」 다 (Phase 19 D-08).
  */
 function priceText(group: MergedOrderNotice): string {
-  return group.priceMin === group.priceMax
-    ? KRW.format(group.priceMin)
-    : `${KRW.format(group.priceMin)}~${KRW.format(group.priceMax)}`;
+  const { priceMin: min, priceMax: max } = group;
+  if (min === null || max === null) return "—";
+  return min === max ? KRW.format(min) : `${KRW.format(min)}~${KRW.format(max)}`;
+}
+
+/** 수량 — 모르면 「—」(체결이 접수보다 먼저 온 행 · 로컬 거부). 0 으로 지어내지 않는다. */
+function qtyText(group: MergedOrderNotice): string {
+  return group.qty === null ? "—" : KRW.format(group.qty);
 }
 
 /** 카드 행의 라벨(11px 중립). **`flex:none`** 이라 숫자를 밀어내지 않는다. */

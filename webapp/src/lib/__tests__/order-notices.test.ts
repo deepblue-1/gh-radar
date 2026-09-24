@@ -178,7 +178,7 @@ describe("mergeKeyOf — 무엇이 묶일 수 있는가 (D-16)", () => {
     expect(mergeKeyOf(autoFill({ orderNo: "0000100004", side: "B" }))).not.toBe(mergeKeyOf(base));
   });
 
-  it("⑤-3 수동 발주(requester Manual)·주체 미상(origin manual)은 주문번호가 키다", () => {
+  it("⑤-3 수동 발주(requester Manual · origin manual)는 주문번호가 키다", () => {
     const manualRequester = autoFill({ orderNo: "0000100002", requester: "Manual" });
     const unknownOrigin = autoFill({ orderNo: "0000100003", origin: "manual" });
     expect(mergeKeyOf(manualRequester)).not.toBe(mergeKeyOf(autoFill({ orderNo: "0000100001" })));
@@ -189,6 +189,75 @@ describe("mergeKeyOf — 무엇이 묶일 수 있는가 (D-16)", () => {
   it("⑤-4 통보 원문이 없는 행(noticeType null)은 묶이지 않는다", () => {
     const noNotice = autoFill({ orderNo: "0000100009", noticeType: null });
     expect(mergeKeyOf(noNotice)).toContain("0000100009");
+  });
+});
+
+describe("mergeKeyOf — 자동주문 판정은 행의 출처 사실로 (Phase 19 D-03 · D-08 보충)", () => {
+  it("⑤-5 출처 미상(origin null)은 자동주문의 증거가 없다 — 묶지 않는다", () => {
+    const a = autoFill({ orderNo: "0000100001", origin: null });
+    const b = autoFill({ orderNo: "0000100002", origin: null });
+    expect(mergeKeyOf(a)).not.toBe(mergeKeyOf(b));
+    expect(mergeKeyOf(a)).toBe("NO|0000100001");
+  });
+
+  it("⑤-6 VI 자동주문(origin vi)의 체결도 같은 축으로 묶인다 — 상따와는 섞이지 않는다", () => {
+    const v1 = autoFill({ orderNo: "0000100001", origin: "vi" });
+    const v2 = autoFill({ orderNo: "0000100002", origin: "vi" });
+    expect(mergeKeyOf(v1)).toBe(mergeKeyOf(v2));
+    expect(mergeKeyOf(v1)).not.toBe(mergeKeyOf(autoFill({ orderNo: "0000100003" })));
+  });
+
+  it("⑤-7 requester 빈 문자열은 수동이 아니다 — 자동주문 체결로 묶인다", () => {
+    const a = autoFill({ orderNo: "0000100001", requester: "" });
+    const b = autoFill({ orderNo: "0000100002", requester: "" });
+    expect(mergeKeyOf(a)).toBe(mergeKeyOf(b));
+  });
+
+  it("⑤-8 주문번호 없는 로컬 거부 행끼리는 행 id 로 떨어져 서로 묶이지 않는다", () => {
+    const a = autoFill({ id: "r1", orderNo: null, noticeType: "R", status: "rejected" });
+    const b = autoFill({ id: "r2", orderNo: null, noticeType: "R", status: "rejected" });
+    expect(mergeKeyOf(a)).toBe("NO|r1");
+    expect(mergeKeyOf(b)).toBe("NO|r2");
+  });
+});
+
+describe("mergeOrderNotices — 모르는 수량·가격 (Phase 19 D-08)", () => {
+  it("⑦-1 수량을 모르는 구성원(qty null)은 합계에 0 으로 더해진다", () => {
+    const merged = mergeOrderNotices([
+      autoFill({ orderNo: "0000100003", createdAt: at(2_000), qty: null }),
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000), qty: 5 }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0), qty: 10 }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.count).toBe(3);
+    expect(merged[0]?.qty).toBe(15);
+  });
+
+  it("⑦-2 단건 qty null 은 null 로 남는다(화면 「—」) — 0 을 지어내지 않는다", () => {
+    const merged = mergeOrderNotices([autoFill({ orderNo: null, qty: null, price: null })]);
+    expect(merged[0]?.qty).toBeNull();
+    expect(merged[0]?.priceMin).toBeNull();
+    expect(merged[0]?.priceMax).toBeNull();
+    expect(merged[0]?.orderNoText).toBeNull();
+  });
+
+  it("⑦-3 가격 null·0 은 범위에서 빠진다 — 남은 단가로만 min~max", () => {
+    const merged = mergeOrderNotices([
+      autoFill({ orderNo: "0000100003", createdAt: at(2_000), price: null }),
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000), price: 1_050 }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0), price: 0 }),
+    ]);
+    expect(merged[0]?.priceMin).toBe(1_050);
+    expect(merged[0]?.priceMax).toBe(1_050);
+  });
+
+  it("⑦-4 구성원 전부 수량을 모르면 합계도 null 이다", () => {
+    const merged = mergeOrderNotices([
+      autoFill({ orderNo: "0000100002", createdAt: at(1_000), qty: null }),
+      autoFill({ orderNo: "0000100001", createdAt: at(0), qty: null }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.qty).toBeNull();
   });
 });
 
