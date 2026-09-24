@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="ko" data-theme="">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase 19 — 오늘 주문 카드 목업 (계좌 기준 기록)</title>
+<!-- Geist Mono 는 프로덕션이 next/font/google 로 싣는 폰트다. Pretendard 는 self-hosted 라 여기서는 시스템 스택으로 대체한다. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   토큰 — webapp/src/styles/globals.css §9 그대로 (:root 라이트 / .dark 다크)
+   다크는 수동 토글(html[data-theme="dark"]) + 시스템 설정(data-theme="light" 가 아닐 때) 두 경로.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg: #FFFFFF;
+  --fg: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-fg: oklch(0.50 0 0);
+  --border: oklch(0.92 0 0);
+  --border-subtle: oklch(0.18 0 0 / 0.06);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.63 0.18 250);
+  --card: #FFFFFF;
+  --card-fg: oklch(0.18 0 0);
+  --primary: oklch(0.63 0.18 250);
+  --primary-fg: #FFFFFF;
+  --secondary: oklch(0.96 0 0);
+  --secondary-fg: oklch(0.18 0 0);
+  --accent: oklch(0.95 0.03 250);
+  --accent-fg: oklch(0.35 0.12 250);
+  --destructive: oklch(0.66 0.20 22);
+  --destructive-fg: #FFFFFF;
+  --up: oklch(0.66 0.20 22);
+  --down: oklch(0.63 0.18 250);
+  --flat: oklch(0.55 0 0);
+  --up-bg: oklch(0.97 0.03 22);
+  --down-bg: oklch(0.97 0.03 250);
+  --led-latent: oklch(0.74 0.17 62);
+  --led-armed: oklch(0.68 0.19 150);
+  --new-bg: oklch(0.97 0.08 95);
+  --new-bd: oklch(0.86 0.14 92);
+  --sidebar: oklch(0.985 0 0);
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
+  --r-sm: 4px; --r: 6px; --r-md: 8px; --r-lg: 12px;
+  --t-caption: 12px; --t-sm: 14px; --t-base: 16px; --t-lg: 18px;
+  --t-h4: 18px; --t-h3: 20px; --t-h2: 24px; --t-h1: 30px;
+  --lh-tight: 1.2; --lh-normal: 1.5;
+  --row-h: 36px; --cell-pad-x: 12px; --cell-pad-y: 8px;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 목업 전용 — 「이번에 새로 생기는 요소」 표시선. 제품 토큰이 아니다. */
+  --mk-new: oklch(0.68 0.19 150);
+  --ctl-h: 48px;
+}
+:root[data-theme="dark"] {
+  --bg: oklch(0.08 0 0);
+  --fg: oklch(0.96 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-fg: oklch(0.65 0 0);
+  --border: oklch(0.24 0 0);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.72 0.16 250);
+  --card: oklch(0.12 0 0);
+  --card-fg: oklch(0.96 0 0);
+  --primary: oklch(0.72 0.16 250);
+  --primary-fg: oklch(0.10 0 0);
+  --secondary: oklch(0.18 0 0);
+  --secondary-fg: oklch(0.96 0 0);
+  --accent: oklch(0.22 0.05 250);
+  --accent-fg: oklch(0.85 0.10 250);
+  --destructive: oklch(0.72 0.19 22);
+  --destructive-fg: oklch(0.10 0 0);
+  --up: oklch(0.72 0.19 22);
+  --down: oklch(0.72 0.16 250);
+  --flat: oklch(0.65 0 0);
+  --up-bg: oklch(0.22 0.06 22);
+  --down-bg: oklch(0.22 0.05 250);
+  --led-latent: oklch(0.80 0.16 70);
+  --led-armed: oklch(0.76 0.18 150);
+  --new-bg: oklch(0.28 0.06 95);
+  --new-bd: oklch(0.45 0.10 92);
+  --sidebar: oklch(0.205 0 0);
+  --mk-new: oklch(0.76 0.18 150);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.08 0 0);
+    --fg: oklch(0.96 0 0);
+    --muted: oklch(0.18 0 0);
+    --muted-fg: oklch(0.65 0 0);
+    --border: oklch(0.24 0 0);
+    --border-subtle: oklch(1 0 0 / 0.06);
+    --input: oklch(0.24 0 0);
+    --ring: oklch(0.72 0.16 250);
+    --card: oklch(0.12 0 0);
+    --card-fg: oklch(0.96 0 0);
+    --primary: oklch(0.72 0.16 250);
+    --primary-fg: oklch(0.10 0 0);
+    --secondary: oklch(0.18 0 0);
+    --secondary-fg: oklch(0.96 0 0);
+    --accent: oklch(0.22 0.05 250);
+    --accent-fg: oklch(0.85 0.10 250);
+    --destructive: oklch(0.72 0.19 22);
+    --destructive-fg: oklch(0.10 0 0);
+    --up: oklch(0.72 0.19 22);
+    --down: oklch(0.72 0.16 250);
+    --flat: oklch(0.65 0 0);
+    --up-bg: oklch(0.22 0.06 22);
+    --down-bg: oklch(0.22 0.05 250);
+    --led-latent: oklch(0.80 0.16 70);
+    --led-armed: oklch(0.76 0.18 150);
+    --new-bg: oklch(0.28 0.06 95);
+    --new-bd: oklch(0.45 0.10 92);
+    --sidebar: oklch(0.205 0 0);
+    --mk-new: oklch(0.76 0.18 150);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   베이스라인 (globals.css §2.3 / §8.5.2 / §2.2)
+   ═══════════════════════════════════════════════════════════════ */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--t-sm);
+  line-height: var(--lh-normal);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero; font-feature-settings: 'tnum' 1, 'ss01' 1; letter-spacing: -0.01em; }
+button { font: inherit; color: inherit; cursor: pointer; }
+*:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ═══════════════════════════════════════════════════════════════
+   목업 골격 — 컨트롤 바 · 안내 · 절 · 프레임 (18-R3 목업과 같은 문법)
+   ═══════════════════════════════════════════════════════════════ */
+.ctl { position: sticky; top: 0; z-index: 50; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; min-height: var(--ctl-h); padding: 8px 16px; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); font-size: 12px; }
+.ctl h1 { font-size: 13px; font-weight: 700; margin: 0 8px 0 0; }
+.ctl .g { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ctl .g > span { color: var(--muted-fg); margin-right: 2px; font-size: 11px; }
+.tb { height: 26px; padding: 0 9px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--secondary); color: var(--secondary-fg); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tb[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+
+.stage { padding: 20px 16px 64px; max-width: 1480px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+.intro { border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: var(--r-md); background: var(--card); padding: 12px 14px; font-size: 13px; }
+.intro h2 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+.intro ul { margin: 0; padding-left: 18px; }
+.intro li + li { margin-top: 3px; }
+.intro .foot { margin: 8px 0 0; font-size: 12px; color: var(--muted-fg); }
+.intro .mkn { outline: 1.5px dashed var(--mk-new); outline-offset: 1px; border-radius: 3px; padding: 0 3px; }
+
+.legend { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--muted); padding: 10px 14px; font-size: 12px; }
+.legend b { font-weight: 700; }
+.legend .lt { margin: 0 0 6px; font-size: 13px; }
+.dwrap { max-width: 100%; overflow-x: auto; }
+.legend table { border-collapse: collapse; font-size: 12px; min-width: 640px; }
+.legend th, .legend td { text-align: left; padding: 3px 12px 3px 0; white-space: nowrap; }
+.legend th { color: var(--muted-fg); font-weight: 600; }
+.legend tr.other td { color: var(--fg); font-weight: 600; }
+.legend .note { margin: 6px 0 0; color: var(--muted-fg); }
+
+.sec { display: flex; flex-direction: column; gap: 10px; }
+.sec > h2 { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sec > h2 .rec { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--accent-fg); font-size: 11px; font-weight: 700; }
+.sec > .lead { margin: 0; font-size: 13px; color: var(--muted-fg); max-width: 920px; }
+.sec > .lead b { color: var(--fg); }
+.sub { margin: 10px 0 0; font-size: 14px; font-weight: 700; }
+.pros { margin: 0; padding: 8px 12px 8px 30px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--card); font-size: 12px; color: var(--muted-fg); max-width: 920px; }
+.pros li + li { margin-top: 2px; }
+.pros b { color: var(--fg); }
+
+.pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.fcol { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 100%; }
+.fcap { font-size: 11px; color: var(--muted-fg); }
+.fcap b { color: var(--fg); font-weight: 600; }
+/* 폰 390 — 실제 앱 셸의 main 여백 8px(<768) → 본문 374px. */
+.frame { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg); overflow: hidden; }
+.frame.ph { width: 392px; max-width: 100%; padding: 8px; flex: none; }
+/* 데스크톱 — 뷰포트 1280 · 사이드바 240 · main 여백 24 → 본문 992px. 오늘 주문이 표로 바뀌는 첫 폭이다. */
+.frame.dk { width: 1018px; padding: 12px; }
+/* 실제 폰(≤480)에서 볼 때 — 프레임 여백을 걷어 본문 폭을 실제 앱(뷰포트 − 16)과 같게 맞춘다. */
+@media (max-width: 480px) { .stage { padding-left: 8px; padding-right: 8px; } .frame.ph { border: 0; padding: 0; border-radius: 0; } }
+.states { display: flex; flex-wrap: wrap; gap: 16px; }
+.warn { margin: 0; font-size: 11px; color: var(--destructive); max-width: 390px; }
+
+/* 이번에 새로 생기는 요소 표시선 — 컨트롤로 끈다. */
+html[data-mark="1"] .nw { outline: 1.5px dashed var(--mk-new); outline-offset: 1px; border-radius: 3px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   My page 맥락 스텁 (me-client.tsx 세로 순서) — 제목 · 상태줄 · 전략 현황 · 계좌 카드 × N · 오늘 주문
+   ═══════════════════════════════════════════════════════════════ */
+.me { display: flex; flex-direction: column; gap: 12px; }
+.me-h h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; }
+.me-h p { margin: 2px 0 0; font-size: 14px; color: var(--muted-fg); }
+.msb { display: flex; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--muted); padding: 8px 12px; font-size: 12px; color: var(--muted-fg); }
+.msb b { color: var(--fg); font-weight: 600; }
+.msb .dt { width: 7px; height: 7px; border-radius: 999px; background: currentColor; display: inline-block; margin-right: 6px; }
+.msb .r { margin-left: auto; }
+.stub { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); overflow: hidden; }
+.stub .sh { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0; font-size: 14px; font-weight: 600; }
+.stub .sh small { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--muted-fg); }
+.stub .bar { margin: 8px 12px; height: 10px; border-radius: 4px; background: var(--muted); }
+.stub .bar.s { width: 60%; margin-bottom: 12px; }
+.stub .omit { padding: 0 12px 10px; font-size: 11px; color: var(--muted-fg); }
+.ahead { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border-subtle); padding: 8px 12px; min-width: 0; }
+.ahead .k { font-size: 12px; font-weight: 600; color: var(--muted-fg); flex: none; }
+.ahead .no { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--fg); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ahead .nm { font-size: 12px; color: var(--muted-fg); flex: none; }
+.ahead .cnt { font-family: var(--font-mono); font-size: 12px; color: var(--muted-fg); flex: none; }
+.stub h4 { margin: 10px 12px 4px; font-size: 12px; font-weight: 600; }
+.here { position: relative; }
+.here::before { content: "여기 — 오늘 주문 (세로 순서의 마지막 칸)"; display: block; font-size: 11px; font-weight: 700; color: var(--primary); margin: 0 0 4px 2px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   TodayOrdersCard 재현 (today-orders-card.tsx 의 Tailwind 클래스를 1:1 로 옮김)
+   ═══════════════════════════════════════════════════════════════ */
+.toc { display: flex; flex-direction: column; gap: var(--s-2); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); padding: var(--s-3); min-width: 0; }
+.toc-h { display: flex; min-width: 0; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.toc-h h2 { margin: 0; font-size: var(--t-sm); font-weight: 600; color: var(--fg); line-height: 1.5; }
+.toc-h .cnt { font-family: var(--font-mono); font-size: var(--t-caption); color: var(--muted-fg); flex: none; }
+.ph-box { border: 1px dashed var(--border); border-radius: var(--r-md); padding: var(--s-4); text-align: center; font-size: var(--t-sm); color: var(--muted-fg); margin: 0; }
+.ph-box.empty { padding: var(--s-5) var(--s-4); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ph-box.empty p { margin: 0; }
+.ph-box.empty .t1 { font-weight: 600; color: var(--fg); }
+.ph-box.empty .t2 { font-size: var(--t-caption); }
+
+/* 모바일 카드 행 (<1280) */
+.olist { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+.orow { min-width: 0; padding: var(--s-2) var(--s-3); }
+.orow + .orow { border-top: 1px solid var(--border-subtle); }
+.l1, .l2, .l3 { display: flex; min-width: 0; align-items: center; gap: var(--s-2); }
+.l2, .l3 { margin-top: 4px; }
+/* 변형안 — ②줄 넘침은 줄바꿈으로 받는다(현재 코드는 nowrap 이라 묶음 행에서 잘린다). */
+.fix .l2, .fix .l3 { flex-wrap: wrap; row-gap: 2px; }
+.nm { min-width: 0; flex: 1 1 0%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); font-weight: 600; color: var(--fg); }
+.cd { font-family: var(--font-mono); flex: none; white-space: nowrap; font-size: 11px; color: var(--muted-fg); }
+.fn { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.ml { margin-left: auto; }
+.rk { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+.rv { font-family: var(--font-mono); white-space: nowrap; font-size: var(--t-caption); font-weight: 600; color: var(--fg); }
+.gc { font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+
+/* SideTag · StatusTag */
+.side { white-space: nowrap; font-size: var(--t-caption); font-weight: 600; }
+.side.b { color: var(--up); } .side.s { color: var(--down); } .side.n { color: var(--muted-fg); }
+.side .meta { margin-left: 4px; font-weight: 400; color: var(--muted-fg); }
+.stt { white-space: nowrap; border-radius: var(--r-sm); background: var(--muted); padding: 2px 6px; font-size: 11px; font-weight: 600; line-height: 1.5; }
+.stt.normal { color: var(--fg); } .stt.muted { color: var(--muted-fg); } .stt.danger { color: var(--destructive); }
+
+/* 데스크톱 표 (≥1280) — components/ui/table.tsx + globals.css .tbl-wrap */
+.tbl-wrap { position: relative; width: 100%; border: 1px solid var(--border); border-radius: var(--r-md); overflow-x: auto; }
+.tbl-wrap table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.tbl-wrap th { background: var(--muted); color: var(--muted-fg); font-size: var(--t-caption); font-weight: 600; text-align: left; padding: var(--cell-pad-y) var(--cell-pad-x); white-space: nowrap; }
+.tbl-wrap td { height: var(--row-h); padding: 0 var(--cell-pad-x); vertical-align: middle; white-space: nowrap; }
+.tbl-wrap tbody tr + tr > td { border-top: 1px solid var(--border-subtle); }
+.tbl-wrap tbody tr:hover td { background: color-mix(in oklch, var(--muted) 60%, transparent); }
+.num { text-align: right !important; font-variant-numeric: tabular-nums; }
+.cap { font-size: var(--t-caption); }
+.stk { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.stk .n { font-size: var(--t-caption); font-weight: 600; color: var(--fg); }
+.stk .c { font-family: var(--font-mono); font-size: 11px; color: var(--muted-fg); }
+
+/* ═══════════════════════════════════════════════════════════════
+   변형안 전용 신규 요소
+   ═══════════════════════════════════════════════════════════════ */
+/* 계좌 라벨 — 계좌번호는 앱 어디서나 전체 표시(D2). 보조 정보라 mono 11 · muted. */
+.acl { font-family: var(--font-mono); font-size: 11px; color: var(--muted-fg); white-space: nowrap; }
+td .acl { font-size: var(--t-caption); }
+/* 「다른 단말」 — Badge outline 문법(rounded-full · 11px · 테두리), 높이만 행 밀도에 맞춰 18px. */
+.oth { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted-fg); font-size: 10.5px; font-weight: 600; white-space: nowrap; flex: none; }
+/* B안 계좌 소제목 — AccountPanel 계좌 전용 모드 머리(계좌 · 번호 전체 · 상품명)와 같은 문법 */
+.grp { display: flex; flex-direction: column; gap: 6px; }
+.grp + .grp { margin-top: 6px; }
+.grp .ahead { border: 0; padding: 0 2px; }
+/* 기록 지연 — 종목토론방 stale 배지(Badge secondary + muted)와 My page 상태줄의 진행 점(currentColor · pulse) 조합 */
+.stale { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--muted); color: var(--muted-fg); font-size: 11px; font-weight: 600; white-space: nowrap; flex: none; }
+.stale i { width: 7px; height: 7px; border-radius: 999px; background: currentColor; animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+@keyframes pulse { 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .stale i { animation: none; } }
+.stale-note { margin: 0; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--muted); padding: 6px 12px; font-size: var(--t-caption); color: var(--muted-fg); }
+.stale-note b { color: var(--fg); font-weight: 600; }
+.ahead .nm { font-weight: 400; }
+
+/* ═══════════════════════════════════════════════════════════════
+   B′ 채택안 — 출처 칩 · NXT 태그
+   ═══════════════════════════════════════════════════════════════ */
+/* 출처 칩 — account-panel.tsx `OriginTag`(미체결 행 「상따」·「VI」) 클래스 그대로:
+   rounded-sm · bg muted · px-1.5 py-0.5 · 11px semibold · muted-fg. 새 토큰 없음. */
+.org { white-space: nowrap; border-radius: var(--r-sm); background: var(--muted); padding: 2px 6px; font-size: 11px; font-weight: 600; line-height: 1.5; color: var(--muted-fg); flex: none; }
+/* 거래소 태그 — exchange-tag.tsx `ExchangeTag` NXT(채움 accent) · sm 18px. KRX 는 기본값이라 그리지 않는다. */
+.xt { display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 6px; border-radius: var(--r-sm); border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+.sec > h2 .rev { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-fg); font-size: 11px; font-weight: 600; }
+.sec.adopt { border: 2px solid var(--primary); border-radius: var(--r-lg); padding: 14px; }
+.sec.adopt > h2 .rec { background: var(--primary); color: var(--primary-fg); }
+.divider { margin: 8px 0 -12px; font-size: 13px; font-weight: 700; color: var(--muted-fg); border-top: 1px dashed var(--border); padding-top: 16px; }
+/* 테마 고정 프레임 — 한 화면에서 라이트·다크를 나란히 보기 위해 토큰을 프레임 범위로 다시 정의한다. */
+.fl { --bg: #FFFFFF; --fg: oklch(0.18 0 0); --muted: oklch(0.96 0 0); --muted-fg: oklch(0.50 0 0); --border: oklch(0.92 0 0); --border-subtle: oklch(0.18 0 0 / 0.06); --card: #FFFFFF; --primary: oklch(0.63 0.18 250); --accent: oklch(0.95 0.03 250); --accent-fg: oklch(0.35 0.12 250); --destructive: oklch(0.66 0.20 22); --up: oklch(0.66 0.20 22); --down: oklch(0.63 0.18 250); --mk-new: oklch(0.68 0.19 150); color: var(--fg); }
+.fd { --bg: oklch(0.08 0 0); --fg: oklch(0.96 0 0); --muted: oklch(0.18 0 0); --muted-fg: oklch(0.65 0 0); --border: oklch(0.24 0 0); --border-subtle: oklch(1 0 0 / 0.06); --card: oklch(0.12 0 0); --primary: oklch(0.72 0.16 250); --accent: oklch(0.22 0.05 250); --accent-fg: oklch(0.85 0.10 250); --destructive: oklch(0.72 0.19 22); --up: oklch(0.72 0.19 22); --down: oklch(0.72 0.16 250); --mk-new: oklch(0.76 0.18 150); color: var(--fg); }
+</style>
+</head>
+<body>
+
+<div class="ctl" id="ctl">
+  <h1>Phase 19 · 오늘 주문 카드 — 계좌 기준 기록 목업</h1>
+  <div class="g"><span>테마</span>
+    <button class="tb" data-t="">시스템</button>
+    <button class="tb" data-t="light">라이트</button>
+    <button class="tb" data-t="dark">다크</button>
+  </div>
+  <div class="g"><span>새 요소 표시</span>
+    <button class="tb" data-m="1">켜기</button>
+    <button class="tb" data-m="0">끄기</button>
+  </div>
+</div>
+
+<main class="stage">
+
+  <section class="intro" aria-label="무엇이 바뀌나">
+    <h2>무엇이 바뀌나</h2>
+    <ul>
+      <li>앞으로 「오늘 주문」은 <b>브라우저 접속과 무관하게 계좌 기준으로 빠짐없이</b> 기록됩니다. 화면을 닫아 둔 사이에 난 체결·취소도 다시 열면 그대로 있습니다.</li>
+      <li>기준이 「로그인한 사람」에서 「계좌」로 바뀌므로 <b>같은 계좌에서 WinForms(gh-trade 클라이언트)로 낸 주문, 다른 DMA 사용자가 낸 주문도 함께</b> 목록에 섞입니다.</li>
+      <li>기록을 맡는 관찰자 연결이 끊기면 카드에 <b>「기록 지연」 표식</b>이 뜹니다(이미 결정됨). 복구되면 빠진 줄이 채워집니다.</li>
+      <li><b>채택: B′</b> — 계좌별 묶음(B)에 줄마다 출처 칩(상따·VI·수동)과 NXT 태그를 더한 안. 맨 위 절이 채택안이고, 0·A·B·C 는 검토 기록으로 아래에 남겨 둡니다.</li>
+    </ul>
+    <p class="foot"><span class="mkn">초록 점선</span> = 이번에 새로 생기는 요소(상단 「새 요소 표시」로 끌 수 있음). 나머지는 지금 코드 그대로입니다. 각 안은 <b>폰 390</b>(본문 374px)과 <b>데스크톱</b>(뷰포트 1280 · 본문 992px — 이 카드가 표로 바뀌는 첫 폭)을 같이 그립니다.</p>
+  </section>
+
+  <section class="legend" aria-label="예시 데이터">
+    <p class="lt"><b>예시 데이터</b> — 모든 안이 같은 8줄(통보 11건)을 씁니다. 계좌 <span class="mono">12345678-01</span> · 위탁종합, <span class="mono">12345678-02</span> · 위탁CMA.</p>
+    <div class="dwrap"><table id="legendTbl"></table></div>
+    <p class="note">굵은 2줄 = 같은 계좌(-01)를 쓰는 <b>WinForms 단말</b>에서 낸 주문 — 지금 카드에는 안 보이고, 바뀐 뒤에는 보입니다. 출처(상따·VI)와 거래소(KRX·NXT)는 <b>지금 카드에 표시되는 칸이 없어</b> 0·A·B·C 그림에는 나오지 않고(「· 수동」 꼬리표만 있음), <b>B′ 에서 새로 드러납니다.</b></p>
+  </section>
+
+  <!-- B′ 채택안 -->
+  <section class="sec adopt" id="sBp">
+    <h2>B′ — 채택안 (계좌별 묶음 + 출처 + NXT) <span class="rec">채택</span></h2>
+    <p class="lead">B 의 계좌별 묶음 위에 두 가지를 더합니다. ① <b>출처 칩</b> — 모든 줄에 상따 · VI · 수동 중 하나. 미체결 행의 출처 배지(account-panel <span class="mono">OriginTag</span>)와 같은 회색 칩이라 새 색이 없습니다. 칩이 「수동」을 말하므로 구분 칸의 「· 수동」 꼬리표는 뺍니다. ② <b>NXT 태그</b> — NXT 주문에만, 종목 코드 옆에 붙습니다(<span class="mono">ExchangeTag</span> 채움형). KRX 는 기본값이라 태그가 없습니다.</p>
+    <p class="lead">폰: ①줄 = 종목명 · 코드 · <b>NXT</b> · 구분 · <b>출처</b> · (우) 상태. 종목명만 줄어들 수 있고(말줄임) 나머지는 고정 폭입니다. ②줄이 넘치면 주문번호가 다음 줄로 내려갑니다. 데스크톱: 「출처」 칸이 구분 뒤에 새로 생기고, NXT 는 종목 칸 안에 붙습니다.</p>
+
+    <h3 class="sub">평상시</h3>
+    <div class="pair">
+      <div class="fcol"><span class="fcap"><b>폰 390</b> · 라이트 고정</span><div class="frame ph fl" id="fBpmL"></div></div>
+      <div class="fcol"><span class="fcap"><b>폰 390</b> · 다크 고정</span><div class="frame ph fd" id="fBpmD"></div></div>
+    </div>
+    <div class="fcol"><span class="fcap"><b>데스크톱</b> · 본문 992px (상단 테마 토글을 따름)</span><div class="dwrap"><div class="frame dk" id="fBpd"></div></div></div>
+
+    <h3 class="sub">「기록 지연」 — 관찰자 연결 끊김 · 13:52:10 이후 미기록</h3>
+    <p class="lead">카드 제목 옆 배지 + 한 줄 안내. 이미 기록된 줄은 맞는 값이라 흐리게 만들지 않습니다. 끊긴 뒤 줄(14:21 에코프로비엠 · 13:58 알테오젠)은 아직 없습니다.</p>
+    <div class="pair">
+      <div class="fcol"><span class="fcap"><b>폰 390</b> · 라이트 고정</span><div class="frame ph fl" id="fBpmSL"></div></div>
+      <div class="fcol"><span class="fcap"><b>폰 390</b> · 다크 고정</span><div class="frame ph fd" id="fBpmSD"></div></div>
+    </div>
+    <div class="fcol"><span class="fcap"><b>데스크톱</b> · 본문 992px · 기록 지연</span><div class="dwrap"><div class="frame dk" id="fBpdS"></div></div></div>
+  </section>
+
+  <p class="divider">아래는 검토 기록입니다 — 0 · A · B · C (미채택)</p>
+
+  <!-- 0. 현재 -->
+  <section class="sec" id="s0">
+    <h2>0. 현재 (as-is) <span class="rev">검토용(미채택)</span></h2>
+    <p class="lead">My page 세로 순서의 <b>마지막 칸</b>입니다: 제목 → 상태줄 → 전략 현황 → 계좌 카드(미체결·잔고) × 계좌 수 → <b>오늘 주문</b>. 계좌 축이 없는 「내가 낸 주문 전체」라 계좌 카드 밖에 따로 있습니다. 로그인 사용자 기준이라 <b>WinForms 2줄이 없어 6줄</b>(통보 9건)만 보입니다. 폭 1280 미만은 2줄 카드 행, 1280 이상은 표입니다.</p>
+    <div class="pair">
+      <div class="fcol">
+        <span class="fcap"><b>폰 390</b> · My page 전체 흐름</span>
+        <div class="frame ph" id="f0m"></div>
+        <p class="warn">⚠ 지금 코드 그대로의 결함 — 묶인 행(레인보우로보틱스 4건)의 ②줄은 줄바꿈이 없어(nowrap) 주문번호가 오른쪽에서 잘립니다. 아래 변형안에서는 줄바꿈으로 고쳐 그렸습니다.</p>
+      </div>
+      <div class="fcol">
+        <span class="fcap"><b>데스크톱</b> · 본문 992px (카드만)</span>
+        <div class="dwrap"><div class="frame dk" id="f0d"></div></div>
+      </div>
+    </div>
+    <h3 class="sub">현재 카드의 다른 상태 (코드 문구 그대로)</h3>
+    <div class="states">
+      <div class="fcol"><span class="fcap"><b>불러오는 중</b></span><div class="frame ph" id="f0load"></div></div>
+      <div class="fcol"><span class="fcap"><b>주문 없음</b></span><div class="frame ph" id="f0empty"></div></div>
+      <div class="fcol"><span class="fcap"><b>조회 실패</b></span><div class="frame ph" id="f0err"></div></div>
+    </div>
+  </section>
+
+  <!-- A -->
+  <section class="sec" id="sA">
+    <h2>A. 한 목록 + 줄마다 계좌 <span class="rev">검토용(미채택)</span></h2>
+    <p class="lead">지금 구조 그대로 한 목록(시간 역순)입니다. 내 계좌가 <b>2개 이상일 때만</b> 줄마다 계좌번호(전체)가 붙습니다 — 폰은 ③줄, 데스크톱은 「계좌」 칸. 계좌가 1개면 지금과 똑같습니다. 누가 냈는지는 표시하지 않습니다.</p>
+    <div class="pair">
+      <div class="fcol"><span class="fcap"><b>폰 390</b></span><div class="frame ph" id="fAm"></div></div>
+      <div class="fcol"><span class="fcap"><b>데스크톱</b> · 본문 992px</span><div class="dwrap"><div class="frame dk" id="fAd"></div></div></div>
+    </div>
+    <ul class="pros">
+      <li><b>좋은 점</b> — 「방금 무슨 일이 있었나」를 한 줄 시간순으로 읽습니다. 계좌 수가 늘어도 카드 높이가 늘지 않습니다.</li>
+      <li><b>아쉬운 점</b> — 폰에서 줄마다 한 줄(③)이 늘어납니다. 특정 계좌만 보려면 눈으로 골라야 합니다.</li>
+    </ul>
+
+    <h3 class="sub">A — 「기록 지연」 상태 (관찰자 연결 끊김 · 13:52:10 이후 미기록)</h3>
+    <p class="lead" style="margin:0;font-size:13px;color:var(--muted-fg)">제목 옆 배지는 종목토론방의 「N분 전」 배지(회색 채움 · 둥근 11px)와 My page 상태줄의 진행 점(깜빡임)을 합친 모양입니다. 이미 기록된 줄은 맞는 값이라 흐리게(.55) 만들지 않습니다. 끊긴 뒤의 줄(14:21 에코프로비엠 · 13:58 알테오젠)은 아직 없습니다.</p>
+    <div class="pair">
+      <div class="fcol"><span class="fcap"><b>폰 390</b> · 기록 지연</span><div class="frame ph" id="fAmS"></div></div>
+      <div class="fcol"><span class="fcap"><b>데스크톱</b> · 기록 지연</span><div class="dwrap"><div class="frame dk" id="fAdS"></div></div></div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="sec" id="sB">
+    <h2>B. 계좌별 묶음 <span class="rev">검토용(미채택) — B′ 의 바탕</span></h2>
+    <p class="lead">한 카드 안에서 계좌마다 소제목(<b>계좌 · 번호 전체 · 상품명 · 건수</b> — 위 계좌 카드 머리와 같은 모양)을 달고 목록을 나눕니다. 위쪽 미체결·잔고가 계좌마다 한 벌씩 반복되는 것과 같은 읽기 방식입니다. 줄 모양은 지금과 같습니다.</p>
+    <div class="pair">
+      <div class="fcol"><span class="fcap"><b>폰 390</b></span><div class="frame ph" id="fBm"></div></div>
+      <div class="fcol"><span class="fcap"><b>데스크톱</b> · 본문 992px</span><div class="dwrap"><div class="frame dk" id="fBd"></div></div></div>
+    </div>
+    <ul class="pros">
+      <li><b>좋은 점</b> — 계좌별로 무엇이 나갔는지 한눈에 셉니다. 줄마다 계좌를 반복하지 않아 폰 행이 2줄 그대로입니다.</li>
+      <li><b>아쉬운 점</b> — 두 계좌에 걸친 시간 흐름이 끊깁니다(13:58 알테오젠이 13:40 HLB 보다 아래로 내려감). 계좌가 늘면 소제목만큼 길어지고, 주문이 없는 계좌의 소제목을 둘지 말지도 정해야 합니다.</li>
+    </ul>
+  </section>
+
+  <!-- C -->
+  <section class="sec" id="sC">
+    <h2>C. A + 「다른 단말」 표식 <span class="rev">검토용(미채택)</span></h2>
+    <p class="lead">A 와 같고, <b>내 DMA 세션이 내지 않은 주문</b>(같은 계좌의 WinForms · 다른 DMA 사용자)에만 계좌번호 옆에 「다른 단말」 칩이 붙습니다. 내가 낸 줄에는 아무것도 붙지 않습니다. (이 절의 점선 = A 에 더해지는 것)</p>
+    <div class="pair">
+      <div class="fcol"><span class="fcap"><b>폰 390</b></span><div class="frame ph" id="fCm"></div></div>
+      <div class="fcol"><span class="fcap"><b>데스크톱</b> · 본문 992px</span><div class="dwrap"><div class="frame dk" id="fCd"></div></div></div>
+    </div>
+    <ul class="pros">
+      <li><b>좋은 점</b> — 「내가 안 낸 주문이 왜 여기 있지?」를 바로 풉니다. 공유 계좌에서 남의 취소를 내 실수로 오해하지 않습니다.</li>
+      <li><b>아쉬운 점</b> — 「다른 단말」을 판정할 값(주문한 세션/사용자)이 기록에 있어야 합니다. 「수동」이 「출처 불명」과 같은 값인 것처럼, 판정 원천이 흐리면 표식이 거짓말을 합니다.</li>
+    </ul>
+  </section>
+
+</main>
+
+<script>
+/* ── 예시 데이터 (created_at 내림차순 — 서버 정렬 그대로) ─────────────────────────── */
+const A1 = '12345678-01', A2 = '12345678-02';
+const ACCTS = [{ no: A1, name: '위탁종합' }, { no: A2, name: '위탁CMA' }];
+const ST = {
+  접수: 'normal', 체결: 'normal', 부분체결: 'normal', 취소: 'muted', 거부: 'danger',
+};
+/* side: 'B'|'S'|null(취소·정정 — 방향색 없음). manual = 라이브 통보 requester "Manual" → 「· 수동」.
+   origin/ex/who 는 범례용(카드에 칸이 없다). n = 묶인 통보 수. */
+const ROWS = [
+  { t: '14:21:07', a: A1, nm: '에코프로비엠', cd: '247540', side: 'S', act: '매도', manual: true,  qty: 30,  px: '182,400', st: '체결',   no: '3407004127', n: 1, origin: '수동', ex: 'KRX', who: '나(웹)' },
+  { t: '13:58:42', a: A2, nm: '알테오젠',     cd: '196170', side: 'B', act: '매수', manual: false, qty: 12,  px: '341,000', st: '부분체결', no: '3407003890', n: 1, origin: 'VI',   ex: 'NXT', who: '나(VI)' },
+  { t: '13:40:15', a: A1, nm: 'HLB',          cd: '028300', side: 'B', act: '매수', manual: true,  qty: 100, px: '58,700',  st: '접수',   no: '3407003512', n: 1, origin: '수동', ex: 'NXT', who: '나(웹)' },
+  { t: '11:32:09', a: A1, nm: '리노공업',     cd: '058470', side: 'B', act: '매수', manual: true,  qty: 5,   px: '214,500', st: '거부',   no: null,         n: 1, origin: '수동', ex: 'KRX', who: '나(웹) · 게이트웨이 거부(주문번호 없음)' },
+  { t: '10:47:33', a: A2, nm: '레인보우로보틱스', cd: '277810', side: 'S', act: '매도', manual: false, qty: 40, px: '158,000~158,300', st: '체결', no: '#3407002214~3407002217', n: 4, origin: '상따', ex: 'KRX', who: '나(상따) · 조각 체결 4건 묶음' },
+  { t: '10:14:40', a: A1, nm: '셀트리온제약', cd: '068760', side: null, act: '취소', manual: true,  qty: 50,  px: '68,900',  st: '취소',   no: '3407001873', n: 1, origin: '수동', ex: 'KRX', who: 'WinForms 단말', other: true },
+  { t: '10:12:03', a: A1, nm: '셀트리온제약', cd: '068760', side: 'B', act: '매수', manual: true,  qty: 50,  px: '68,900',  st: '취소',   no: '3407001790', n: 1, origin: '수동', ex: 'KRX', who: 'WinForms 단말', other: true },
+  { t: '09:04:18', a: A2, nm: '파두',         cd: '440110', side: 'B', act: '매수', manual: false, qty: 20,  px: '31,250',  st: '체결',   no: '3407000412', n: 1, origin: '상따', ex: 'KRX', who: '나(상따)' },
+];
+const MINE = ROWS.filter(r => !r.other);           // 현재 — user_id 기준
+const DELAYED = ROWS.filter(r => r.t < '13:52:10'); // 기록 지연 — 끊긴 뒤 줄은 아직 없다
+const acctName = (no) => ACCTS.find(a => a.no === no).name;
+/* 헤더 「N건」은 묶기 **전** 행 수(rows.length)다 — 현재 코드 그대로. */
+const raw = (rows) => rows.reduce((s, r) => s + r.n, 0);
+
+/* ── 조각 ─────────────────────────────────────────────────────────────── */
+/* noMeta — B′ 는 출처 칩이 「수동」을 말하므로 「· 수동」 꼬리표를 뺀다. */
+function sideTag(r, noMeta = false) {
+  const cls = r.side === 'B' ? 'b' : r.side === 'S' ? 's' : 'n';
+  const arrow = r.side === 'B' ? '▲ ' : r.side === 'S' ? '▼ ' : '';
+  return `<span class="side ${cls}">${arrow}${r.act}${r.manual && !noMeta ? '<span class="meta">· 수동</span>' : ''}</span>`;
+}
+const statusTag = (r) => `<span class="stt ${ST[r.st]}">${r.st}</span>`;
+const noText = (r) => `${r.no ?? '—'}`;
+/* 점선 표시: A 는 계좌 라벨이 새 요소, C 는 A 에 더해지는 「다른 단말」 칩만 표시한다. */
+const otherChip = (r, v) => (v === 'C' && r.other ? '<span class="oth nw">다른 단말</span>' : '');
+
+/* B′ — 출처 칩 · NXT 태그 (둘 다 B 대비 새 요소라 점선 표시) */
+const orgChip = (r) => `<span class="org nw">${r.origin}</span>`;
+const nxtTag = (r) => (r.ex === 'NXT' ? '<span class="xt nw">NXT</span>' : '');
+const bp = (v) => v === 'Bp';
+
+/* 모바일 2줄 카드 행 (today-orders-card.tsx ⑤) — v: 'asis' | 'A' | 'B' | 'Bp' | 'C' */
+function mRow(r, v) {
+  const acct = v === 'A' || v === 'C';
+  return `<div class="orow">
+    <div class="l1">
+      <span class="nm">${r.nm}</span><span class="cd">${r.cd}</span>${bp(v) ? nxtTag(r) : ''}
+      <span class="fn">${sideTag(r, bp(v))}${bp(v) ? orgChip(r) : ''}</span>
+      <span class="fn ml">${statusTag(r)}</span>
+    </div>
+    <div class="l2">
+      <span class="fn"><span class="rv">${r.t}</span></span>
+      <span class="fn"><span class="rk">수량</span><span class="rv">${r.qty.toLocaleString('ko-KR')}</span></span>
+      <span class="fn"><span class="rk">가격</span><span class="rv">${r.px}</span></span>
+      <span class="fn ml"><span class="rk">주문</span><span class="rv">${noText(r)}</span>${r.n > 1 ? `<span class="gc">(${r.n}건)</span>` : ''}</span>
+    </div>
+    ${acct ? `<div class="l3"><span class="fn${v === 'A' ? ' nw' : ''}"><span class="rk">계좌</span><span class="acl">${r.a}</span></span>${otherChip(r, v)}</div>` : ''}
+  </div>`;
+}
+function mList(rows, v) {
+  return `<div class="olist">${rows.map(r => mRow(r, v)).join('')}</div>`;
+}
+
+/* 데스크톱 표 */
+function dTable(rows, v) {
+  const acct = v === 'A' || v === 'C';
+  const head = `<tr><th>시각</th>${acct ? `<th${v === 'A' ? ' class="nw"' : ''}>계좌</th>` : ''}<th>종목</th><th>구분</th>${bp(v) ? '<th class="nw">출처</th>' : ''}<th class="num">수량</th><th class="num">가격</th><th>상태</th><th>주문번호</th></tr>`;
+  const body = rows.map(r => `<tr>
+    <td class="mono cap">${r.t}</td>
+    ${acct ? `<td><span class="stk"><span class="acl">${r.a}</span>${otherChip(r, v)}</span></td>` : ''}
+    <td><span class="stk"><span class="n">${r.nm}</span><span class="c">${r.cd}</span>${bp(v) ? nxtTag(r) : ''}</span></td>
+    <td>${sideTag(r, bp(v))}</td>
+    ${bp(v) ? `<td>${orgChip(r)}</td>` : ''}
+    <td class="num mono cap">${r.qty.toLocaleString('ko-KR')}</td>
+    <td class="num mono cap">${r.px}</td>
+    <td>${statusTag(r)}</td>
+    <td class="mono cap">${noText(r)}${r.n > 1 ? `<span style="margin-left:4px;color:var(--muted-fg)">(${r.n}건)</span>` : ''}</td>
+  </tr>`).join('');
+  return `<div class="tbl-wrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+function header(rows, stale) {
+  return `<div class="toc-h">
+    <h2>오늘 주문</h2>
+    ${rows.length ? `<span class="cnt">${raw(rows)}건</span>` : ''}
+    ${stale ? '<span class="stale nw" role="status"><i aria-hidden="true"></i>기록 지연</span>' : ''}
+  </div>
+  ${stale ? '<p class="stale-note nw"><b>기록 지연</b> — 복구되면 채워집니다. <span class="mono">13:52:10</span> 이후 주문이 아직 안 보일 수 있어요.</p>' : ''}`;
+}
+
+/* 카드 전체 — mode: 'm' | 'd' */
+function card(rows, v, mode, opts = {}) {
+  let body;
+  if (v === 'B' || v === 'Bp') {
+    body = ACCTS.map(a => {
+      const rs = rows.filter(r => r.a === a.no);
+      return `<div class="grp">
+        <div class="ahead nw"><span class="k">계좌</span><span class="no">${a.no}</span><span class="nm">${a.name}</span><span class="cnt">${raw(rs)}건</span></div>
+        ${mode === 'm' ? mList(rs, v) : dTable(rs, v)}
+      </div>`;
+    }).join('');
+  } else {
+    body = mode === 'm' ? mList(rows, v) : dTable(rows, v);
+  }
+  return `<section class="toc${v === 'asis' ? '' : ' fix'}" aria-label="오늘 주문">${header(rows, opts.stale)}<div>${body}</div></section>`;
+}
+
+/* My page 맥락 (me-client.tsx 세로 순서) */
+function mePage(inner) {
+  const acctStub = (a) => `<section class="stub">
+      <div class="ahead"><span class="k">계좌</span><span class="no">${a.no}</span><span class="nm">${a.name}</span></div>
+      <h4>미체결</h4><div class="bar"></div>
+      <h4>잔고</h4><div class="bar"></div><div class="bar s"></div>
+    </section>`;
+  return `<div class="me">
+    <header class="me-h"><h1>My page</h1><p>전략 현황 · 미체결 · 잔고</p></header>
+    <div class="msb"><span><span class="dt"></span>DMA <b>실시간</b></span><span>상따 <b>2건</b></span><span>VI <b>가동</b></span><span>계좌 <b>2개</b></span><span class="mono r">반영 14:21:30</span></div>
+    <section class="stub"><div class="sh">전략 현황<small class="mono">상따 2 · VI 가동</small></div><div class="bar"></div><div class="bar s"></div></section>
+    ${ACCTS.map(acctStub).join('')}
+    <div class="here">${inner}</div>
+  </div>`;
+}
+
+/* ── 렌더 ─────────────────────────────────────────────────────────────── */
+const $ = (id) => document.getElementById(id);
+$('f0m').innerHTML = mePage(card(MINE, 'asis', 'm'));
+$('f0d').innerHTML = card(MINE, 'asis', 'd');
+$('f0load').innerHTML = `<section class="toc">${header([], false)}<p class="ph-box" aria-busy="true">오늘 주문을 불러오는 중이에요…</p></section>`;
+$('f0empty').innerHTML = `<section class="toc">${header([], false)}<div class="ph-box empty"><p class="t1">오늘 낸 주문이 없어요</p><p class="t2">주문을 넣으면 접수·체결·취소가 여기에 모두 남아요.</p></div></section>`;
+$('f0err').innerHTML = `<section class="toc">${header([], false)}<p class="ph-box" role="status">오늘 주문 목록을 불러오지 못했어요. 잔고·미체결은 위 계좌 카드에서 그대로 볼 수 있어요.</p></section>`;
+$('fAm').innerHTML = card(ROWS, 'A', 'm');
+$('fAd').innerHTML = card(ROWS, 'A', 'd');
+$('fAmS').innerHTML = card(DELAYED, 'A', 'm', { stale: true });
+$('fAdS').innerHTML = card(DELAYED, 'A', 'd', { stale: true });
+$('fBm').innerHTML = card(ROWS, 'B', 'm');
+$('fBd').innerHTML = card(ROWS, 'B', 'd');
+$('fCm').innerHTML = card(ROWS, 'C', 'm');
+$('fCd').innerHTML = card(ROWS, 'C', 'd');
+$('fBpmL').innerHTML = card(ROWS, 'Bp', 'm');
+$('fBpmD').innerHTML = card(ROWS, 'Bp', 'm');
+$('fBpd').innerHTML = card(ROWS, 'Bp', 'd');
+$('fBpmSL').innerHTML = card(DELAYED, 'Bp', 'm', { stale: true });
+$('fBpmSD').innerHTML = card(DELAYED, 'Bp', 'm', { stale: true });
+$('fBpdS').innerHTML = card(DELAYED, 'Bp', 'd', { stale: true });
+
+$('legendTbl').innerHTML = `<thead><tr><th>시각</th><th>계좌</th><th>종목</th><th>주문</th><th>상태</th><th>출처</th><th>거래소</th><th>낸 곳</th></tr></thead><tbody>${
+  ROWS.map(r => `<tr class="${r.other ? 'other' : ''}"><td class="mono">${r.t}</td><td class="mono">${r.a}</td><td>${r.nm} <span class="mono" style="color:var(--muted-fg)">${r.cd}</span></td><td>${r.act}</td><td>${r.st}</td><td>${r.origin}</td><td>${r.ex}</td><td>${r.who}</td></tr>`).join('')
+}</tbody>`;
+
+/* ── 컨트롤 ───────────────────────────────────────────────────────────── */
+const st = { t: '', m: '1' };
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+function apply() {
+  document.documentElement.setAttribute('data-theme', st.t);
+  document.documentElement.setAttribute('data-mark', st.m);
+  $$('[data-t]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === st.t)));
+  $$('[data-m]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === st.m)));
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || !b.closest('#ctl')) return;
+  if (b.dataset.t !== undefined) st.t = b.dataset.t;
+  if (b.dataset.m !== undefined) st.m = b.dataset.m;
+  apply();
+});
+apply();
+</script>
+</body>
+</html>
