@@ -6,8 +6,8 @@ import type { OrderSide, OrderType, RelayExchange } from "./relay";
  * 원천: 관찰자 기록기(relay 19-05)가 게이트웨이 주문 저널을 `dma_journal_apply` 로 투영한 행이다.
  * 행은 **계좌 기준**이다 — 누가 냈든(웹앱·HTS·자동주문) 그 계좌의 주문이면 한 행이 된다.
  *
- * - D-05: 「오늘 주문」 카드는 이 새 테이블만 읽는다. 구 `dma_orders`(`DmaOrderRow`)는 동결 —
- *   webapp 이 19-06 에서 이 타입으로 옮겨 갈 때까지만 남는다.
+ * - D-05: 「오늘 주문」 카드는 이 새 테이블만 읽는다. 구 `dma_orders` 는 동결됐고, 그 행 계약은
+ *   19-06 에서 shared 에서 삭제됐다 — 옛 계약을 남기면 다음 소비자가 동결 테이블 모양을 다시 쓴다.
  * - D-06: 누가 어느 행을 보는지는 DB 조인(`user_id → dma_credentials.dma_user_id →
  *   dma_account_access → 계좌`)이 정본이다. 이 모듈은 가시성을 판정하지 않는다.
  * - D-08 · T-19-08: 주문자(`dma_user_id`)는 **싣지 않는다** — 주문자 표시를 하지 않기로 했고,

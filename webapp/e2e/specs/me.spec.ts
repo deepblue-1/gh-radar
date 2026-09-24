@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
@@ -144,15 +145,20 @@ const ACCOUNT_B_STATE = {
  * ★ 취소 1건이 이 픽스처의 존재 이유다. 「오늘 낸 주문 전체」를 미체결 목록으로는 담을 수
  *   없다는 것이 이 카드가 별도 표면인 이유인데(me-client 헤더 ⑤ ⓒ), 취소 행이 없으면
  *   그 구조적 결손을 spec 이 통과시켜 버린다.
+ * ★ 모양은 Phase 19 저널 행(`JournalOrderRow`) 이다 — server `GET /api/orders` 가 19-04 부터
+ *   이 모양을 돌려준다. 한 행은 출처 미상(`origin: null`)이다(D-08 보충: 칩 생략 대상).
  */
-const TODAY_ORDERS = [
+const TODAY = kstDateIso();
+
+const TODAY_ORDERS: JournalOrderRow[] = [
   {
     id: 'ord-a',
+    tradeDate: TODAY,
     accountNo: E2E_ACCOUNT_NO,
     isin: E2E_ISIN,
     stockCode: '005930',
     exchange: 'KRX',
-    market: 'K',
+    board: null,
     side: 'B',
     orderType: 'N',
     orgOrderNo: null,
@@ -164,17 +170,22 @@ const TODAY_ORDERS = [
     noticeType: 'A',
     message: null,
     filledQty: 0,
+    modifiedQty: 0,
     origin: 'manual',
+    requester: null,
+    requestKind: 'New',
+    lastSeq: 1,
     createdAt: '2026-09-10T00:10:00.000Z',
     updatedAt: '2026-09-10T00:10:00.000Z',
   },
   {
     id: 'ord-b',
+    tradeDate: TODAY,
     accountNo: ACCOUNT_B,
     isin: E2E_LONG_NAME_ISIN,
     stockCode: '000660',
     exchange: 'NXT',
-    market: 'K',
+    board: null,
     side: 'S',
     orderType: 'N',
     orgOrderNo: null,
@@ -186,17 +197,22 @@ const TODAY_ORDERS = [
     noticeType: 'A',
     message: null,
     filledQty: 0,
+    modifiedQty: 0,
     origin: 'limit_chaser',
+    requester: null,
+    requestKind: 'New',
+    lastSeq: 2,
     createdAt: '2026-09-10T00:20:00.000Z',
     updatedAt: '2026-09-10T00:20:00.000Z',
   },
   {
     id: 'ord-c',
+    tradeDate: TODAY,
     accountNo: E2E_ACCOUNT_NO,
     isin: E2E_ISIN,
     stockCode: '005930',
     exchange: 'KRX',
-    market: 'K',
+    board: null,
     side: 'B',
     orderType: 'C',
     orgOrderNo: '0000900001',
@@ -208,7 +224,11 @@ const TODAY_ORDERS = [
     noticeType: 'C',
     message: null,
     filledQty: 0,
-    origin: 'manual',
+    modifiedQty: 0,
+    origin: null,
+    requester: null,
+    requestKind: 'Cancel',
+    lastSeq: 3,
     createdAt: '2026-09-10T00:30:00.000Z',
     updatedAt: '2026-09-10T00:30:00.000Z',
   },

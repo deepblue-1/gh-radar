@@ -43,8 +43,6 @@ export type {
   CreateOrderRequest,
   CreateOrderResponse,
   DmaOrderStatus,
-  DmaOrderRow,
-  DmaOrderOrigin,
   // --- 16-03 전략·주문 wss 계약. 상태 3종 + 인바운드 6종 + 아웃바운드 7종 ---
   RelayLcCrud,
   RelayLcWatchSide,
