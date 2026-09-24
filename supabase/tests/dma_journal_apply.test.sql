@@ -1,0 +1,286 @@
+-- ============================================================
+-- Phase 19 Plan 01 — 저널 적용 추적 경로(tracer) pgTAP.
+--
+-- 한 경로: 게이트웨이 저널 레코드(접수 A) → dma_journal_apply → 원문 이벤트 적재 →
+--          dma_account_orders 투영 → 커서 전진 → 매핑된 사용자가 dma_journal_orders_for_user 로 조회.
+--
+-- 잠그는 것:
+--   - A 투영 값(status · qty · price · origin · created_at = gw_time · stocks 조인 stock_code)
+--   - D-06 가시성: 같은 dma_user_id 를 공유하는 두 사용자 = 같은 id 집합 · 매핑 없는 사용자 = 0행
+--   - D-12 재생 멱등: 같은 배치 두 번 → applied 0 · skipped N · 행·이벤트·커서 불변
+--   - D-11 전 계좌 기록: 매핑 없는 계좌도 행이 생기고, 뒤에 매핑이 생기면 바로 보인다
+--   - T-19-15 포이즌 격리: CHECK 위반 이벤트는 apply_error 에 남고 같은 배치의 다음 이벤트·커서는 진행
+--   - T-19-08: apply 반환 rows 에 dma_user_id 가 없고, 키 집합이 조회 RPC 반환 컬럼과 같다
+--
+-- 실행: `bash scripts/verify-dma-orders-price-check.sh --test supabase/tests/dma_journal_apply.test.sql`
+-- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유·원격 DB 접촉 0).
+-- 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
+--
+-- 19-03 이 체결(E) · 취소(C) · 정정(M) · 거부(R) · 로컬 거부 단언을 이 파일에 더한다.
+--
+-- 단언 설명에는 (seq, 계좌 말미, 기대값) 튜플을 적는다 — `not ok` 줄만 보고도 어느 경우인지 알 수 있어야 한다.
+-- 사용자: U1·U2 → dma-shared(계좌 …7801), U3 → dma-solo(처음엔 매핑 없음, 뒤에 …3201).
+-- ============================================================
+
+BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
+SET LOCAL search_path = public, extensions;
+
+-- ── 픽스처 ──────────────────────────────────────────────────────
+INSERT INTO auth.users (id, email) VALUES
+  ('00000000-0000-4000-8000-000000001901', 'journal-u1@example.invalid'),
+  ('00000000-0000-4000-8000-000000001902', 'journal-u2@example.invalid'),
+  ('00000000-0000-4000-8000-000000001903', 'journal-u3@example.invalid');
+
+INSERT INTO public.dma_credentials (user_id, dma_user_id, dma_password_enc) VALUES
+  ('00000000-0000-4000-8000-000000001901', 'dma-shared', 'test-enc-u1'),
+  ('00000000-0000-4000-8000-000000001902', 'dma-shared', 'test-enc-u2'),
+  ('00000000-0000-4000-8000-000000001903', 'dma-solo',   'test-enc-u3');
+
+INSERT INTO public.stocks (code, name, market, isin)
+VALUES ('005930', '삼성전자', 'KOSPI', 'KR7005930003');
+
+-- 접수(A) 레코드 1건 — 이벤트 JSON 키 23종 전부(relay 기록기 계약과 같은 모양).
+CREATE FUNCTION pg_temp.ev_a(
+  p_seq bigint, p_account text, p_order_no text, p_hms text,
+  p_isin text DEFAULT 'KR7005930003', p_qty integer DEFAULT 10
+) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'seq', p_seq,
+    'trade_date', '2026-09-28',
+    'gw_time_ms', (extract(epoch FROM ('2026-09-28 ' || p_hms || '+09')::timestamptz) * 1000)::bigint,
+    'dma_user_id', 'dma-shared',
+    'account_no', p_account,
+    'isin', p_isin,
+    'side', 'B',
+    'side_trusted', true,
+    'order_no', p_order_no,
+    'org_order_no', '',
+    'notice_type', 'A',
+    'request_kind', 'New',
+    'requester', 'Manual',
+    'origin', 'Manual',
+    'exchange', 'KRX',
+    'board', '',
+    'order_price', 1000,
+    'order_qty', p_qty,
+    'exec_price', 0,
+    'exec_qty', 0,
+    'result_code', 0,
+    'message', '접수',
+    'local_reject', false
+  )
+$$;
+
+CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
+
+SELECT plan(40);
+
+-- ── 1. 매핑 동기화: dma-shared → …7801 ──────────────────────────
+SELECT is(
+  public.dma_journal_sync_access('KB', '[{"dma_user_id":"dma-shared","account_no":"1234567801","name":"위탁종합","priority":1}]'::jsonb),
+  1,
+  'sync_access(KB, [dma-shared→…7801]) 반환 1'
+);
+
+-- ── 2. 접수 A seq 1 적용 ────────────────────────────────────────
+INSERT INTO t_apply
+SELECT 'first', public.dma_journal_apply('KB', 'ep-1',
+  jsonb_build_array(pg_temp.ev_a(1, '1234567801', '0000100001', '09:00:01')));
+
+SELECT is((SELECT (r->>'applied')::int FROM t_apply WHERE label = 'first'), 1, '(seq 1, …7801) applied = 1');
+SELECT is((SELECT (r->>'skipped')::int FROM t_apply WHERE label = 'first'), 0, '(seq 1, …7801) skipped = 0');
+SELECT is((SELECT r->'errors' FROM t_apply WHERE label = 'first'), '[]'::jsonb, '(seq 1, …7801) errors = []');
+
+-- ── 3. U1 조회: 투영 값 ──────────────────────────────────────────
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  1, '(seq 1, …7801) U1(dma-shared) 조회 1행'
+);
+SELECT is(
+  (SELECT status FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  'accepted', '(seq 1, …7801) status = accepted'
+);
+SELECT is(
+  (SELECT qty FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  10, '(seq 1, …7801) qty = 10'
+);
+SELECT is(
+  (SELECT price FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  1000, '(seq 1, …7801) price = 1000'
+);
+SELECT is(
+  (SELECT origin FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  'manual', '(seq 1, …7801) origin Manual → manual'
+);
+SELECT is(
+  (SELECT created_at FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  '2026-09-28 09:00:01+09'::timestamptz, '(seq 1, …7801) created_at = gw_time 09:00:01 KST (DEFAULT now() 아님)'
+);
+SELECT is(
+  (SELECT stock_code FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  '005930', '(seq 1, …7801) stock_code = 005930 (stocks.isin 조인)'
+);
+SELECT is(
+  (SELECT row(order_type, exchange, side, order_no)::text
+     FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  '(N,KRX,B,0000100001)', '(seq 1, …7801) (order_type, exchange, side, order_no) = (N, KRX, B, 0000100001)'
+);
+
+-- ── 4. D-06 가시성 ───────────────────────────────────────────────
+SELECT results_eq(
+  $$SELECT id FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001902', '2026-09-28') ORDER BY id$$,
+  $$SELECT id FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28') ORDER BY id$$,
+  '(seq 1, …7801) U2(같은 dma-shared) id 집합 = U1 id 집합 (D-06)'
+);
+SELECT is_empty(
+  $$SELECT id FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001903', '2026-09-28')$$,
+  '(seq 1, …7801) U3(dma-solo, 매핑 없음) 조회 0행'
+);
+
+-- ── 5. T-19-08: apply rows 공개 컬럼 ─────────────────────────────
+SELECT ok(
+  NOT ((SELECT r->'rows'->0 FROM t_apply WHERE label = 'first') ? 'dma_user_id'),
+  '(seq 1, …7801) apply rows 원소에 dma_user_id 키가 없다'
+);
+SELECT set_eq(
+  $$SELECT jsonb_object_keys(r->'rows'->0) FROM t_apply WHERE label = 'first'$$,
+  $$SELECT jsonb_object_keys(to_jsonb(x))
+      FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28') x$$,
+  '(seq 1, …7801) apply rows 키 집합 = dma_journal_orders_for_user 반환 컬럼 집합'
+);
+SELECT is(
+  (SELECT r->'rows'->0->>'stock_code' FROM t_apply WHERE label = 'first'),
+  '005930', '(seq 1, …7801) apply rows stock_code = 005930'
+);
+
+-- ── 6. D-12 재생 멱등: 같은 배치 재호출 ───────────────────────────
+INSERT INTO t_apply
+SELECT 'replay', public.dma_journal_apply('KB', 'ep-1',
+  jsonb_build_array(pg_temp.ev_a(1, '1234567801', '0000100001', '09:00:01')));
+
+SELECT is((SELECT (r->>'applied')::int FROM t_apply WHERE label = 'replay'), 0, '(seq 1 재생, …7801) applied = 0');
+SELECT is((SELECT (r->>'skipped')::int FROM t_apply WHERE label = 'replay'), 1, '(seq 1 재생, …7801) skipped = 1');
+SELECT is(
+  (SELECT row(last_seq, filled_qty, status, updated_at = '2026-09-28 09:00:01+09'::timestamptz)::text
+     FROM public.dma_account_orders WHERE account_no = '1234567801' AND order_no = '0000100001'),
+  '(1,0,accepted,t)', '(seq 1 재생, …7801) 행 (last_seq, filled_qty, status, updated_at 불변) = (1, 0, accepted, t)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_journal_events WHERE gateway = 'KB'),
+  1, '(seq 1 재생, …7801) events 1행 그대로'
+);
+SELECT is(
+  (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB'),
+  '(ep-1,1)', '(seq 1 재생, …7801) 커서 (ep-1, 1) 불변'
+);
+
+-- ── 7. D-11 전 계좌 기록: 매핑 없는 계좌 …3201 ─────────────────────
+INSERT INTO t_apply
+SELECT 'unmapped', public.dma_journal_apply('KB', 'ep-1',
+  jsonb_build_array(pg_temp.ev_a(2, '9876543201', '0000200002', '09:10:00')));
+
+SELECT is((SELECT (r->>'applied')::int FROM t_apply WHERE label = 'unmapped'), 1, '(seq 2, …3201) applied = 1');
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_account_orders WHERE account_no = '9876543201' AND order_no = '0000200002'),
+  1, '(seq 2, …3201) 매핑 없는 계좌도 dma_account_orders 행이 있다 (D-11)'
+);
+SELECT is(
+  (SELECT string_agg(account_no, ',' ORDER BY account_no)
+     FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001901', '2026-09-28')),
+  '1234567801', '(seq 2, …3201) U1 에게 안 보인다 — U1 은 …7801 만'
+);
+SELECT is_empty(
+  $$SELECT id FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001903', '2026-09-28')$$,
+  '(seq 2, …3201) 매핑 전 U3 조회 0행'
+);
+SELECT is(
+  public.dma_journal_sync_access('KB', '[
+    {"dma_user_id":"dma-shared","account_no":"1234567801","name":"위탁종합","priority":1},
+    {"dma_user_id":"dma-solo","account_no":"9876543201","name":"위탁","priority":1}
+  ]'::jsonb),
+  2, '(seq 2, …3201) sync_access 로 dma-solo→…3201 추가 — 반환 2 (원자 교체)'
+);
+SELECT is(
+  (SELECT string_agg(account_no || '/' || order_no, ',')
+     FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001903', '2026-09-28')),
+  '9876543201/0000200002', '(seq 2, …3201) 매핑 뒤 U3 에게 그날 앞선 행 1행이 바로 보인다'
+);
+SELECT is(
+  (SELECT string_agg(account_no, ',' ORDER BY account_no)
+     FROM public.dma_journal_orders_for_user('00000000-0000-4000-8000-000000001902', '2026-09-28')),
+  '1234567801', '(seq 2, …3201) U2 는 여전히 …7801 만'
+);
+
+-- ── 8. T-19-15 포이즌 격리: [seq 3 isin 5자 · seq 4 정상 A] ─────────
+INSERT INTO t_apply
+SELECT 'poison', public.dma_journal_apply('KB', 'ep-1', jsonb_build_array(
+  pg_temp.ev_a(3, '1234567801', '0000100003', '09:20:00', 'KR700'),
+  pg_temp.ev_a(4, '1234567801', '0000100004', '09:21:00')
+));
+
+SELECT is((SELECT (r->>'applied')::int FROM t_apply WHERE label = 'poison'), 1, '(seq 3·4, …7801) applied = 1 (seq 4 만)');
+SELECT is(
+  (SELECT r->'errors' @? '$[*] ? (@.seq == 3)' AND jsonb_array_length(r->'errors') = 1 FROM t_apply WHERE label = 'poison'),
+  true, '(seq 3, …7801) errors 에 seq 3 한 건'
+);
+SELECT isnt(
+  (SELECT apply_error FROM public.dma_journal_events WHERE gateway = 'KB' AND journal_epoch = 'ep-1' AND seq = 3),
+  NULL, '(seq 3, …7801, isin KR700) 이벤트 apply_error 에 사유가 남는다'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.dma_account_orders WHERE order_no = '0000100003'),
+  0, '(seq 3, …7801) 포이즌 이벤트는 투영 행이 없다'
+);
+SELECT is(
+  (SELECT status FROM public.dma_account_orders WHERE account_no = '1234567801' AND order_no = '0000100004'),
+  'accepted', '(seq 4, …7801) 같은 배치의 다음 이벤트는 투영된다 — accepted'
+);
+SELECT is(
+  (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB'),
+  '(ep-1,4)', '(seq 3·4, …7801) 커서 (ep-1, 4) — 포이즌이 커서를 막지 않는다'
+);
+SELECT is(
+  (SELECT (r->>'last_seq')::bigint FROM t_apply WHERE label = 'poison'),
+  4::bigint, '(seq 3·4, …7801) apply 반환 last_seq = 4'
+);
+
+-- ── 9. 체결이 먼저 온 행에 A 가 qty 를 채우면 격자로 재판정 ───────────
+-- (19-03 의 E 투영이 만들 모양을 직접 넣는다: qty NULL · filled 10 · partially_filled)
+INSERT INTO public.dma_account_orders (
+  gateway, trade_date, account_no, order_no, isin, exchange, order_type, qty, price,
+  filled_qty, status, first_seq, last_seq, created_at, updated_at
+) VALUES (
+  'KB', '2026-09-28', '1234567801', '0000100005', 'KR7005930003', 'KRX', 'N', NULL, 1000,
+  10, 'partially_filled', 5, 5, '2026-09-28 09:30:00+09', '2026-09-28 09:30:00+09'
+);
+INSERT INTO t_apply
+SELECT 'late_a', public.dma_journal_apply('KB', 'ep-1',
+  jsonb_build_array(pg_temp.ev_a(6, '1234567801', '0000100005', '09:29:59')));
+
+SELECT is(
+  (SELECT row(qty, filled_qty, status, first_seq, last_seq)::text
+     FROM public.dma_account_orders WHERE account_no = '1234567801' AND order_no = '0000100005'),
+  '(10,10,filled,5,6)', '(seq 6 A 늦게, …7801) (qty, filled, status, first_seq, last_seq) = (10, 10, filled, 5, 6)'
+);
+SELECT is(
+  (SELECT row(created_at = '2026-09-28 09:29:59+09'::timestamptz, updated_at = '2026-09-28 09:30:00+09'::timestamptz, side, origin)::text
+     FROM public.dma_account_orders WHERE account_no = '1234567801' AND order_no = '0000100005'),
+  '(t,t,B,manual)', '(seq 6 A 늦게, …7801) created_at = LEAST · updated_at = GREATEST · 빈 side/origin 만 채움'
+);
+
+-- ── 10. epoch 변경(resync)은 커서를 교체한다 ─────────────────────
+SELECT is(
+  (SELECT (public.dma_journal_apply('KB', 'ep-2',
+     jsonb_build_array(pg_temp.ev_a(1, '1234567801', '0000100007', '10:00:00')))->>'last_seq')::bigint),
+  1::bigint, '(ep-2 seq 1, …7801) 다른 epoch 적용 → 반환 last_seq 1'
+);
+SELECT is(
+  (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB'),
+  '(ep-2,1)', '(ep-2 seq 1, …7801) 커서 (ep-2, 1) 로 교체 — GREATEST 아님'
+);
+
+SELECT * FROM finish(true);
+
+ROLLBACK;
