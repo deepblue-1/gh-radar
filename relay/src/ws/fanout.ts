@@ -47,6 +47,11 @@
  *            상태 프레임의 계좌 사본이나 인바운드 바디를 믿으면 IDOR 이 그대로 열린다.
  *   T-16-06  전략·주문 인바운드는 server 의 `apiRateLimiter` 를 **우회하는 새 경로**다.
  *            연결당 초당 상한(토큰 버킷)을 relay 가 직접 갖는다.
+ *   D-03     저널 행(`journal.rows`)은 **계좌 권한 사용자별 부분집합으로만** 전달한다
+ *            (`deliverJournalRows` · T-19-02). `#broadcastNxtSnap` 과 달리 사용자 데이터라 전 사용자
+ *            순회는 하되 **사용자마다** `accountsOf(entry.dmaUserId)` 로 거른 부분집합을 `#deliver(userId)`
+ *            로만 보낸다 — 걸러지지 않은 원본 배열을 보내는 경로는 없다. 같은 DMA 계정을 공유하는
+ *            사용자는 모두 받고, 매핑 밖·자격증명 미등록 사용자는 0 프레임이다.
  *
  * 하지 않는 것:
  *   - 전략 요청의 결과를 기다리지 않는다. 반영은 60/61/64/65 에코로 오고 Hub 가
@@ -65,6 +70,7 @@ import type { RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RELAY_WS_CLOSE } from "@gh-radar/shared";
 import type {
+  JournalOrderRow,
   OrderMarket,
   RelayExchange,
   RelayInbound,
@@ -105,6 +111,7 @@ import {
 } from "./protocol.js";
 import { createOrderHandler, type OrderHandler } from "./order-handler.js";
 import type { SymbolLookup } from "../store/symbols.js";
+import type { JournalAccessView } from "../journal/types.js";
 
 // ============================================================
 // 상수 정본
@@ -269,6 +276,11 @@ export type WsFanoutDeps = {
    * 브라우저는 둘 다 그린다.
    */
   nxtTradable?: NxtTradableFeed;
+  /**
+   * 저널 계좌 매핑(Phase 19 D-06 — 관찰자 로그인 스냅샷). `deliverJournalRows` 의 라우팅 원천이다.
+   * 없으면 저널 행을 아무에게도 보내지 않는다(warn 1회).
+   */
+  journalAccess?: JournalAccessView;
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -326,6 +338,11 @@ type UserEntry = {
    * 그 수명을 소유한다.
    */
   onState: (frame: RelayStateMsg) => void;
+  /**
+   * 이 사용자의 `dma_credentials.dma_user_id` — 저널 행 계좌 권한 라우팅 키 (Phase 19 D-03).
+   * 인증마다 다시 조회한 값으로 덮는다. **로그·프레임에 싣지 않는다**(T-19-14 · T-19-08).
+   */
+  dmaUserId: string;
 };
 
 function keyOf(isin: string, ex: RelayExchange): string {
@@ -370,6 +387,10 @@ export class WsFanout {
   readonly #nxtTradable: NxtTradableFeed | null;
   /** `updated` 리스너 — `closeAll` 이 같은 참조로 뗀다. */
   readonly #onNxtUpdated: () => void;
+  /** 저널 계좌 매핑 (Phase 19 D-06). 없으면 `deliverJournalRows` 는 아무것도 보내지 않는다. */
+  readonly #journalAccess: JournalAccessView | null;
+  /** 매핑 미주입 경고를 이미 남겼는가 — 저널 배치마다 반복하지 않는다. */
+  #journalAccessWarned = false;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -381,6 +402,7 @@ export class WsFanout {
     this.#authTimeoutMs = deps.authTimeoutMs ?? AUTH_TIMEOUT_MS;
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
     this.#symbols = deps.symbols ?? null;
+    this.#journalAccess = deps.journalAccess ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -601,7 +623,7 @@ export class WsFanout {
     const session = this.#sessions.acquire(userId, creds);
     conn.acquired = true;
     this.#hub.attach(session);
-    this.#register(conn, userId, session);
+    this.#register(conn, userId, session, creds.dmaUserId);
 
     // 인증 ACK 겸 배지 초기값. **브라우저는 이 프레임을 받은 뒤에야 구독을 보낸다**
     // (15-12 `use-relay-socket` 계약) — 빠뜨리면 화면이 영원히 비어 있다.
@@ -1333,10 +1355,12 @@ export class WsFanout {
    *   반환이 실제로 걸리기 때문이다. 여기 `#users` 는 지워지므로 조기 반환만으로는
    *   부족하고, **entry 를 버리는 경로가 리스너도 함께 버려야** 한다.
    */
-  #register(conn: Conn, userId: string, session: DmaSession): void {
+  #register(conn: Conn, userId: string, session: DmaSession, dmaUserId: string): void {
     const existing = this.#users.get(userId);
     if (existing !== undefined && existing.session === session) {
       existing.conns.add(conn);
+      // 인증마다 다시 조회한 값이 정본이다 — 등록 변경이 저널 라우팅에 즉시 반영돼야 한다.
+      existing.dmaUserId = dmaUserId;
       return;
     }
 
@@ -1375,8 +1399,34 @@ export class WsFanout {
       this.#deliver(userId, frame);
     };
 
-    this.#users.set(userId, { session, conns, onState });
+    this.#users.set(userId, { session, conns, onState, dmaUserId });
     session.on("state", onState);
+  }
+
+  /**
+   * 저널 적용 행을 **그 계좌에 접근할 수 있는 사용자에게만** 보낸다 (Phase 19 D-03 · T-19-02).
+   *
+   * 사용자마다 `accountsOf(entry.dmaUserId)` 로 행을 걸러 부분집합이 비어 있지 않을 때만
+   * `#deliver(userId, …)` 한다. 같은 DMA 계정을 공유하는 사용자는 각자 같은 부분집합을 받는다.
+   * `#users` 에 없는 연결(미인증·자격증명 미등록)은 애초에 대상이 아니다.
+   */
+  deliverJournalRows(rows: readonly JournalOrderRow[]): void {
+    if (rows.length === 0) return;
+    const access = this.#journalAccess;
+    if (access === null) {
+      if (!this.#journalAccessWarned) {
+        this.#journalAccessWarned = true;
+        logger.warn({ rows: rows.length }, "[WS] 저널 매핑 미주입 — journal.rows 를 보내지 않는다");
+      }
+      return;
+    }
+    for (const [userId, entry] of this.#users) {
+      const accounts = access.accountsOf(entry.dmaUserId);
+      if (accounts === undefined || accounts.size === 0) continue;
+      const subset = rows.filter((row) => accounts.has(row.accountNo));
+      if (subset.length === 0) continue;
+      this.#deliver(userId, { t: "journal.rows", rows: subset });
+    }
   }
 
   /** **그 사용자의 소켓 집합에만** 보낸다. 전역 순회 경로를 만들지 않는다 (T-15-02). */
