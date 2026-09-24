@@ -57,7 +57,8 @@ export function fetchTodayOrders(): Promise<DmaOrderRow[]> {
  *   세 타입에만 있고 `{t:"order"}` 푸시에도 `dma_orders` 에도 없다.
  *
  * ★ 라이브가 이긴다. `{t:"order"}` 는 접수·체결·취소확인·거부가 전부 통과하는 단일 통보
- *   경로이고 REST 스냅샷보다 언제나 나중이다.
+ *   경로이고 소켓이 이어져 있는 한 REST 스냅샷보다 언제나 나중이다. 소켓 공백 뒤 재조회한
+ *   스냅샷이 더 진행된 경우만 예외다 — 판정은 `orderDisplayStatus` 한 곳에서 한다.
  */
 export function mergeTodayOrders(
   restored: readonly DmaOrderRow[],
@@ -124,16 +125,43 @@ const STATUS_LABELS: Readonly<Record<DmaOrderStatus, OrderDisplayStatus>> = {
 };
 
 /**
+ * 진행 단계 — 접수 1 < 부분체결 2 < 종결 3. relay `order/notice-status.ts` 의 단조 격자와 같은 축이다.
+ * 통보 1자는 E 를 2 로 둔다(체결수량이 없어 전량인지 모른다 — 「체결이 있었다」까지만 안다).
+ */
+const NOTICE_RANK: Readonly<Record<string, number>> = { A: 1, E: 2, C: 3, R: 3 };
+const STATUS_RANK: Readonly<Record<DmaOrderStatus, number>> = {
+  requested: 0,
+  timeout: 0,
+  accepted: 1,
+  partially_filled: 2,
+  filled: 3,
+  cancelled: 3,
+  rejected: 3,
+  modified: 3,
+};
+
+/**
  * 그 행에 무엇이라고 쓸지 고른다.
  *
  * 라이브가 이기지만 **`DmaOrderStatus` 값을 라이브로 덮어쓰지는 않는다** — 표시만 바꾼다.
  * 상태값 자체는 서버가 같은 행에 쓰고, 다음 조회에서 정본으로 다시 온다.
+ *
+ * ★ 단, 복원 행이 라이브보다 **더 진행됐으면** 복원이 이긴다 (debug mobile-bg-resume-gaps 4).
+ *   「라이브는 언제나 스냅샷보다 나중」은 소켓이 이어져 있을 때만 참이다. 소켓이 끊긴 사이에도
+ *   relay 는 체결을 `dma_orders` 에 기록하고, 재인증 뒤 재조회가 그것을 가져온다 — 그때 끊기기
+ *   **전의** 라이브 A 가 이기면 체결된 주문이 「접수」로 남는다. 진행 단계는 되돌아가지 않으므로
+ *   (relay 가 같은 격자로 기록한다) 두 사실 중 더 나아간 쪽이 최신이다. 같은 단계면 종전대로
+ *   라이브다 — 「체결」(E)을 「부분체결」로 바꿔 쓰는 등 라이브가 말한 단계를 되돌리지 않는다.
  */
 export function orderDisplayStatus(row: TodayOrderRow): OrderDisplayStatus {
   // ★ 'modified' 는 라이브보다 먼저다. 원주문 행의 최신 라이브 프레임은 정정 **전의** A/E 라
   //   그대로 두면 「접수」·「체결」로 남는다 — 정정확인 M 은 새 주문번호로 오므로 원주문 행의
-  //   라이브를 갱신하지 않는다 (quick-260923-m23). 다른 status 는 종전대로 라이브가 이긴다.
+  //   라이브를 갱신하지 않는다 (quick-260923-m23).
   if (row.status === "modified") return STATUS_LABELS.modified;
-  const byNotice = row.live === null ? undefined : NOTICE_LABELS[row.live.nt];
-  return byNotice ?? STATUS_LABELS[row.status] ?? { label: row.status, tone: "muted" };
+  const restored = STATUS_LABELS[row.status] ?? { label: row.status, tone: "muted" };
+  const live = row.live;
+  const byNotice = live === null ? undefined : NOTICE_LABELS[live.nt];
+  if (live === null || byNotice === undefined) return restored;
+  const restoredAhead = (STATUS_RANK[row.status] ?? 0) > (NOTICE_RANK[live.nt] ?? 0);
+  return restoredAhead ? restored : byNotice;
 }

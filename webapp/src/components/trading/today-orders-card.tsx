@@ -43,6 +43,12 @@
  *     span 은 `flex:none` 이다(위 ⑤). 긴 종목명은 말줄임으로 잘리되 **식별자인 코드는
  *     온전히 남는다.** 코드를 ②줄로 내리지 않는다: ②줄은 전부 `flex:none` 이라 넘침을
  *     흡수할 신축 항목이 없어, 항목을 더하면 truncate 가 아니라 조용한 잘림이 된다.
+ *
+ * ⑦ ★ relay 재인증 때 **한 번 더** 부른다 (debug mobile-bg-resume-gaps 4)
+ *   소켓이 끊긴 동안 놓친 `{t:"order"}` 는 재생되지 않는다. 그 사이 relay 가 `dma_orders` 에
+ *   기록한 체결·취소(DMA 세션 유예 5분 안)는 재조회로만 화면에 온다 — 기존 행의 번호라 ③ 의
+ *   unmatched 재조회도 걸리지 않는다. 트리거는 ready **재진입**(끊겼다 붙음) 하나라 폴링이 아니고,
+ *   끊기기 전 라이브 프레임이 재조회 결과를 덮지 않게 하는 판정은 `orderDisplayStatus` 에 있다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -138,7 +144,7 @@ function noticeFactsOf(row: TodayOrderRow): OrderNoticeFacts {
 }
 
 export function TodayOrdersCard() {
-  const { orders } = useRelayContext();
+  const { orders, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
@@ -167,6 +173,24 @@ export function TodayOrdersCard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+    ★ relay 재인증(ready **재진입**)마다 1회 다시 부른다 (위 ⑦ · debug mobile-bg-resume-gaps 4).
+    `wasReadyRef` 는 「이 카드가 ready 를 본 적 있는가」다. 마운트 뒤 **첫** ready 는 마운트
+    조회와 같은 시점이라 건너뛰고, ready 가 유지되는 동안의 리렌더는 전이가 아니라 건너뛴다.
+  */
+  const wasReadyRef = useRef(status === "ready");
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (status !== "ready" || prev === "ready") return;
+    if (!wasReadyRef.current) {
+      wasReadyRef.current = true;
+      return;
+    }
+    void load();
+  }, [status, load]);
 
   const { rows, unmatchedOrderNos } = useMemo(
     () => mergeTodayOrders(restored ?? [], orders),

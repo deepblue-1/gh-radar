@@ -26,6 +26,8 @@
  *  4. **재접속은 유한하다** — 1s→2s→4s→8s… 상한 30s, 시도 상한 10회. 소진하면
  *     `manual_required`. close 4401(인증 실패)은 재시도해도 결과가 같으므로 즉시 확정.
  *     무한 재시도는 우리 스스로에게 거는 DoS 다(T-15-10, D-16).
+ *     단, **화면 복귀·망 복구는 새 조건**이라 예산을 새로 주고 남은 백오프를 버린다 — 트리거가
+ *     사람·망 사건이라 폭주가 되지 않는다(debug mobile-bg-resume-gaps 3).
  *  5. **재접속 중 데이터를 지우지 않는다** — `isStale` 만 세우고 마지막 값을 유지한다.
  *     빈 화면으로 되돌리면 사용자가 문맥을 잃는다(UI-SPEC §재접속·거래소 전환).
  *  6. **주문도 이 소켓으로 보낸다** (D-02 — Phase 15 D-08 을 대체). `POST /api/orders` REST
@@ -41,6 +43,10 @@
  *     주문·통보·계좌·전략·VI·메시지·상태 프레임은 **지연하지 않는다** — 도착하면 대기 중인
  *     시세·체결을 먼저 떼어 **같은 dispatch** 로 함께 적용해 도착 순서를 보존한다.
  *     `order.result` 는 원래 dispatch 밖(rid 상관 Promise)이라 영향이 없다.
+ *  9. **복귀하면 소켓을 의심한다** (debug mobile-bg-resume-gaps 2). 오래 숨겼다 돌아오거나
+ *     (`RELAY_RESUME_MIN_HIDDEN_MS`) 망이 붙거나 bfcache 에서 살아나면, OPEN 소켓이라도 새
+ *     프레임이 건너오는지 `RELAY_RESUME_PROBE_MS` 동안 지켜보고 안 오면 새로 연다. relay 는
+ *     pong 없는 소켓을 terminate 하지만 그 FIN 이 이쪽에 닿는다는 보장이 없다(망 전환).
  *
  * 파싱 실패 프레임은 throw 하지 않고 **스킵**한다 — `chat-sse.ts` 파서 선례(T-15-41).
  */
@@ -124,6 +130,30 @@ const MAX_RATE_CROSS = 200;
  * 상태 바가 `재접속 중 k/10` 을 그릴 때도 이 값을 쓴다 — 상한을 두 곳에 복제하면 어긋난다.
  */
 export const RELAY_MAX_RECONNECT_ATTEMPTS = 10;
+/**
+ * 복귀 탐침을 거는 최소 숨김 시간 = relay 하트비트 1주기 (debug mobile-bg-resume-gaps 2).
+ *
+ * relay 는 30초마다 ping 을 보내고 **다음 주기까지** pong 이 없으면 소켓을 terminate 한다
+ * (`relay/src/ws/fanout.ts` `HEARTBEAT_INTERVAL_MS` · `#sweep`). 그러니 이보다 짧게 숨겼다면
+ * relay 가 이 소켓을 정리했을 수 없다 — 탭을 잠깐 오갈 때마다 탐침하지 않는다.
+ * relay 값을 바꾸면 이 값도 같이 본다.
+ */
+export const RELAY_RESUME_MIN_HIDDEN_MS = 30_000;
+/**
+ * 복귀 탐침 창. 이 안에 (아래 settle 이후) 프레임이 하나도 안 오면 **죽은 OPEN 소켓**으로 보고
+ * 새로 연다. 장중 구독이 하나라도 있으면 시세가 100ms 틱으로 흐르므로 살아 있는 소켓은 곧바로
+ * 판별된다. 조용한 소켓(장외·구독 0)을 다시 여는 것은 무해하다 — 유예 5분 안이라 relay 가
+ * 같은 DMA 세션을 재사용하고, 인증 직후 스냅샷이 다시 온다.
+ */
+export const RELAY_RESUME_PROBE_MS = 5_000;
+/**
+ * 복귀 직후 이 시간 안에 도착한 프레임은 탐침 판정에 **세지 않는다.**
+ *
+ * 얼어 있는 동안 브라우저 네트워크 계층에 쌓였던 프레임이 복귀 순간 한꺼번에 배달된다. 그
+ * 뒤 망이 바뀌어 TCP 가 죽었다면(Wi-Fi → LTE) 그 프레임들은 「살아 있다」의 증거가 아니다.
+ * 복귀 뒤에 **새로** 건너온 프레임만 경로가 살아 있음을 증명한다.
+ */
+export const RELAY_RESUME_PROBE_SETTLE_MS = 2_000;
 /** 지수 백오프 시작 지연. */
 const BACKOFF_BASE_MS = 1_000;
 /** 지수 백오프 상한. */
@@ -1151,6 +1181,26 @@ export function useRelayConnection({
     let socket: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    /**
+     * 이 브라우저가 **자기** 재접속 예산을 다 썼다(규율 4 → `manual_required`).
+     * relay 가 상태 프레임으로 보낸 `manual_required`(게이트웨이 회선)와 가르려고 따로 든다 —
+     * 복귀 시 자동 재개는 이쪽만 한다(아래 `onResume`).
+     */
+    let exhausted = false;
+
+    /*
+      복귀 탐침 (debug mobile-bg-resume-gaps 2).
+      모바일에서 앱을 내리면 OS 가 페이지를 얼리고 relay ping 에 pong 이 안 나가 relay 가 소켓을
+      terminate 한다(`pong 미수신 — 연결 정리`). 그 사이 망이 바뀌었으면 FIN 이 닿지 않아 이쪽
+      소켓은 **OPEN 인 채 죽어 있다** — onclose 가 영원히 안 오므로 재접속도 stale 표식도 없다.
+      relay 계약에 에코되는 인바운드가 없어 능동적으로 물을 수 없으니, 복귀 뒤 새 프레임이
+      건너오는지 **지켜보고**(passive) 안 오면 새로 연다.
+    */
+    let hiddenAt: number | null = document.visibilityState === "hidden" ? Date.now() : null;
+    let probeTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 이 시각 이후에 도착한 프레임만 탐침 판정에 센다 (`RELAY_RESUME_PROBE_SETTLE_MS`). */
+    let probeFrom = 0;
+    let probeAlive = false;
 
     /*
       시세·체결 대기 버퍼 (파일 상단 규율 8 · quick-260923-elb 1a).
@@ -1196,6 +1246,33 @@ export function useRelayConnection({
       });
     };
 
+    /**
+     * 일시 장애 뒤 백오프 재시도 1회를 건다 — 소진하면 `manual_required` 로 멈춘다(규율 4).
+     *
+     * 소켓 close 와 **세션 조회 실패**(토큰 갱신이 망에 막힘) 두 갈래가 같은 예산·같은 백오프를
+     * 탄다. 두 곳에 따로 두면 한쪽 상한만 고쳐져 조용히 갈린다.
+     */
+    const scheduleRetry = () => {
+      // 데이터를 지우지 않는다 — isStale 만 세운다(UI-SPEC 깜빡임 금지).
+      dispatch({ type: "stale", value: true });
+
+      attempt += 1;
+      if (attempt > RELAY_MAX_RECONNECT_ATTEMPTS) {
+        exhausted = true;
+        dispatch({
+          type: "local-status",
+          status: "manual_required",
+          attempt: RELAY_MAX_RECONNECT_ATTEMPTS,
+        });
+        return;
+      }
+      dispatch({ type: "local-status", status: "reconnecting", attempt });
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        openSafely();
+      }, relayBackoffDelayMs(attempt));
+    };
+
     const open = async () => {
       if (disposed) return;
 
@@ -1209,10 +1286,22 @@ export function useRelayConnection({
       // 않고 Supabase SDK 가 갱신까지 관리한다.
       const {
         data: { session },
+        error: sessionError,
       } = await createClient().auth.getSession();
       if (disposed) return;
 
       if (!session) {
+        if (sessionError) {
+          /*
+            ★ 「로그인 안 됨」이 아니라 **세션을 확인하지 못했다**다 (debug mobile-bg-resume-gaps 3b).
+              auth-js 는 만료 토큰 갱신이 망에 막히면 세션을 스토리지에 둔 채 `{session:null, error}`
+              를 돌려준다. 모바일에서 1시간 넘게 내렸다 돌아와 망이 붙기 전에 여기 오면, 로그인
+              상태인데 「권한 없음」에 고착됐다. 일시 장애이므로 같은 예산의 백오프를 탄다 —
+              정말 로그아웃이면 auth-js 가 SIGNED_OUT 을 내 `enabled` 가 먼저 내려간다.
+          */
+          scheduleRetry();
+          return;
+        }
         // 로그인 게이트. 재시도해도 결과가 같으므로 백오프에 들어가지 않는다.
         dispatch({ type: "local-status", status: "unauthorized" });
         return;
@@ -1244,6 +1333,10 @@ export function useRelayConnection({
       };
 
       ws.onmessage = (event: MessageEvent) => {
+        // 복귀 탐침 중이면 settle 이후 도착분만 「경로가 살아 있다」로 센다. 탐침 밖에서는 시계를
+        // 읽지 않는다 — 이 콜백은 초당 수백 번 돈다(quick-260923-elb).
+        if (probeTimer !== null && !probeAlive && Date.now() >= probeFrom) probeAlive = true;
+
         const frame = parseFrame(event.data);
         if (frame == null) return; // 깨진 프레임은 throw 하지 않고 스킵
 
@@ -1296,6 +1389,8 @@ export function useRelayConnection({
       ws.onclose = (event: CloseEvent) => {
         // 닫힌 소켓의 마지막 틱까지 반영한 뒤 stale 을 세운다 — 규율 5 「마지막 값 유지」.
         flushMarket();
+        // 탐침 대상이 사라졌다 — 판정은 아래 재시도 경로가 대신한다.
+        stopProbe();
         if (socketRef.current === ws) socketRef.current = null;
         authAckedRef.current = false;
         wireSubsRef.current.clear();
@@ -1317,30 +1412,91 @@ export function useRelayConnection({
           return;
         }
 
-        // 데이터를 지우지 않는다 — isStale 만 세운다(UI-SPEC 깜빡임 금지).
-        dispatch({ type: "stale", value: true });
-
-        attempt += 1;
-        if (attempt > RELAY_MAX_RECONNECT_ATTEMPTS) {
-          dispatch({
-            type: "local-status",
-            status: "manual_required",
-            attempt: RELAY_MAX_RECONNECT_ATTEMPTS,
-          });
-          return;
-        }
-        dispatch({ type: "local-status", status: "reconnecting", attempt });
-        retryTimer = setTimeout(() => {
-          retryTimer = null;
-          openSafely();
-        }, relayBackoffDelayMs(attempt));
+        scheduleRetry();
       };
     };
+
+    // ---------------------------------------------------------
+    // 복귀 — 모바일 백그라운드·탭 복귀·망 복구 (debug mobile-bg-resume-gaps 2·3)
+    // ---------------------------------------------------------
+
+    /**
+     * 처음부터 다시 연다. **수동 재연결 버튼과 같은 경로**(nonce)다 — effect 정리가 옛 소켓·
+     * 타이머·대기 주문을 한 번에 걷고, 새 실행이 예산 0 에서 시작한다. 옛 값은 지우지 않고
+     * 「마지막 값」 표식만 세운다(규율 5) — 새 인증 ACK(`ready`)가 걷는다.
+     */
+    const restart = () => {
+      if (disposed) return;
+      dispatch({ type: "stale", value: true });
+      setReconnectNonce((v) => v + 1);
+    };
+
+    const stopProbe = () => {
+      if (probeTimer !== null) {
+        clearTimeout(probeTimer);
+        probeTimer = null;
+      }
+    };
+
+    /** 지금 소켓이 살아 있는지 `RELAY_RESUME_PROBE_MS` 동안 지켜본다. 이미 지켜보는 중이면 무동작. */
+    const startProbe = () => {
+      const ws = socket;
+      // 연결 시도 중(인증 전 포함)이면 그 결과를 기다린다 — relay 의 5초 authTimer 가 판정한다.
+      if (ws === null || ws.readyState !== WS_READY_OPEN || !authAckedRef.current) return;
+      if (probeTimer !== null) return;
+      probeFrom = Date.now() + RELAY_RESUME_PROBE_SETTLE_MS;
+      probeAlive = false;
+      probeTimer = setTimeout(() => {
+        probeTimer = null;
+        if (disposed || socket !== ws) return;
+        if (!probeAlive) restart();
+      }, RELAY_RESUME_PROBE_MS);
+    };
+
+    /**
+     * @param probe OPEN 소켓까지 의심할 만한 복귀인가 — 오래 숨김·망 복구·bfcache 복원.
+     *
+     * ★ 예산 소진(`exhausted`)과 백오프 대기(`retryTimer`)는 복귀가 **곧바로** 푼다. 사용자가
+     *   화면으로 돌아왔거나 망이 붙었다는 것은 새 정보이고, 백오프는 「같은 조건에서 두드리지
+     *   않기」 위한 것이지 「새 조건을 무시하기」 위한 것이 아니다. 트리거가 사람·망 사건이라
+     *   재시도 폭주(T-15-10)가 되지 않는다.
+     */
+    const onResume = (probe: boolean) => {
+      if (disposed) return;
+      if (exhausted || retryTimer !== null) {
+        restart();
+        return;
+      }
+      if (probe) startProbe();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      const hiddenFor = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      onResume(hiddenFor >= RELAY_RESUME_MIN_HIDDEN_MS);
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) onResume(true);
+    };
+    // 망이 바뀌었으면 옛 TCP 는 숨김 시간과 무관하게 죽었을 수 있다.
+    const onOnline = () => onResume(true);
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("online", onOnline);
 
     openSafely();
 
     return () => {
       disposed = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("online", onOnline);
+      stopProbe();
       // 대기 시세를 버리지 않고 배치 타이머를 남기지 않는다. 비활성화면 다음 실행의 reset 이 비운다.
       flushMarket();
       if (retryTimer) {

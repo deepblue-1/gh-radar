@@ -390,3 +390,64 @@ describe("TodayOrdersCard — 통보 묶기 (17-10 / D-16)", () => {
     expect(document.querySelectorAll('[data-slot="today-orders-card"] button')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ⑧ relay 재인증 뒤 재조회 (debug mobile-bg-resume-gaps 4)
+// ---------------------------------------------------------------------------
+
+describe("TodayOrdersCard — relay 재인증 뒤 재조회 (debug mobile-bg-resume-gaps 4)", () => {
+  it("⑧-1 소켓이 끊겼다 다시 ready 가 되면 한 번 다시 불러와, 끊긴 사이 체결된 행을 고친다", async () => {
+    // 끊기기 전: 접수로 복원 + 접수 라이브 프레임을 받은 상태.
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "a", status: "accepted" })]);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      status: "ready",
+      orders: [frame({ no: "0000135742", nt: "A" })],
+    };
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(listRows()[0]?.textContent).toContain("접수");
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+
+    // 백그라운드 — 소켓이 죽었고, 그 사이 relay 가 체결을 dma_orders 에 기록했다.
+    mockRelay = { ...mockRelay, status: "reconnecting" };
+    view.rerender(<TodayOrdersCard />);
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "a", status: "filled", filledQty: 10, noticeType: "E" }),
+    ]);
+
+    // 복귀 — 재인증.
+    mockRelay = { ...mockRelay, status: "ready" };
+    view.rerender(<TodayOrdersCard />);
+
+    await waitFor(() => expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(2));
+    // 끊기기 전의 라이브 A 가 재조회한 「체결」을 덮으면 안 된다.
+    await waitFor(() => expect(listRows()[0]?.textContent).toContain("체결"));
+    expect(listRows()[0]?.textContent).not.toContain("접수");
+  });
+
+  it("⑧-2 마운트 뒤 **첫** ready 는 마운트 조회와 같은 시점이다 — 다시 부르지 않는다", async () => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: "connecting" };
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-empty")).toBeInTheDocument());
+
+    mockRelay = { ...mockRelay, status: "ready" };
+    view.rerender(<TodayOrdersCard />);
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("⑧-3 ready 가 유지되는 동안의 리렌더는 재조회하지 않는다 (폴링이 아니다)", async () => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: "ready" };
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-empty")).toBeInTheDocument());
+
+    mockRelay = { ...mockRelay, isStale: false };
+    view.rerender(<TodayOrdersCard />);
+    view.rerender(<TodayOrdersCard />);
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+  });
+});

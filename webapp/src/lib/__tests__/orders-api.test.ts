@@ -239,4 +239,24 @@ describe('orderDisplayStatus', () => {
   it("status 'modified' 는 라이브가 없어도 「정정」 이다", () => {
     expect(orderDisplayStatus(view({ status: 'modified' }, null)).label).toBe('정정');
   });
+
+  // debug mobile-bg-resume-gaps 4 — 소켓이 끊긴 사이 relay 가 기록한 진행을 재조회로 받았는데,
+  // 끊기기 **전의** 라이브 프레임이 그것을 덮으면 체결된 주문이 「접수」로 남는다.
+  it('복원 status 가 라이브 통보보다 더 진행됐으면 복원이 이긴다 (재접속 공백 뒤 재조회)', () => {
+    expect(orderDisplayStatus(view({ status: 'filled' }, frame({ nt: 'A' }))).label).toBe('체결');
+    expect(orderDisplayStatus(view({ status: 'partially_filled' }, frame({ nt: 'A' }))).label).toBe(
+      '부분체결',
+    );
+    expect(orderDisplayStatus(view({ status: 'cancelled' }, frame({ nt: 'A' }))).label).toBe('취소');
+    expect(orderDisplayStatus(view({ status: 'cancelled' }, frame({ nt: 'E' }))).label).toBe('취소');
+  });
+
+  it('같은 단계면 라이브가 이긴다 — 복원 스냅샷이 라이브보다 늦을 수 없는 평상시 규칙 유지', () => {
+    // partially_filled(2) ↔ E(2): 라이브 「체결」 — 전량/부분을 지어내지 않는 기존 표시.
+    expect(orderDisplayStatus(view({ status: 'partially_filled' }, frame({ nt: 'E' }))).label).toBe(
+      '체결',
+    );
+    // 종결 ↔ 종결: 라이브.
+    expect(orderDisplayStatus(view({ status: 'filled' }, frame({ nt: 'C' }))).label).toBe('취소');
+  });
 });

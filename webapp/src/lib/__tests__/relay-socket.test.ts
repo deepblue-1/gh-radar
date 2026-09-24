@@ -50,6 +50,10 @@ import type {
 import {
   RELAY_MARKET_BATCH_MS,
   RELAY_MARKET_BUFFER_MAX,
+  RELAY_MAX_RECONNECT_ATTEMPTS,
+  RELAY_RESUME_MIN_HIDDEN_MS,
+  RELAY_RESUME_PROBE_MS,
+  RELAY_RESUME_PROBE_SETTLE_MS,
   relayQuoteKey,
   useRelayConnection,
   type RelayConnectionState,
@@ -1864,5 +1868,328 @@ describe('nxt.snap — NXT 거래가능 집합 (quick-260923-pq2)', () => {
       hook.rerender({ enabled: false });
     });
     expect(hook.result.current.nxtTradable).toBeNull();
+  });
+});
+
+// ============================================================
+// 복귀(resume) — 모바일 백그라운드·탭 복귀·네트워크 복구 (debug mobile-bg-resume-gaps 2·3·3b)
+// ============================================================
+
+describe('useRelayConnection — 복귀 시 죽은 소켓·소진된 예산 복구 (debug mobile-bg-resume-gaps)', () => {
+  function setVisibility(v: 'visible' | 'hidden'): void {
+    Object.defineProperty(document, 'visibilityState', { value: v, configurable: true });
+  }
+
+  /** 페이지를 숨긴 채 `ms` 만큼 보낸 뒤 다시 보이게 한다 — 모바일에서 앱을 내렸다 돌아오는 모양. */
+  async function hideFor(ms: number): Promise<void> {
+    setVisibility('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(ms);
+    });
+    setVisibility('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  }
+
+  /** 재접속 예산(10회)을 전부 태워 `manual_required` 로 만든다 — ⑩ 과 같은 절차. */
+  async function exhaust(): Promise<void> {
+    await settle();
+    for (let i = 0; i < RELAY_MAX_RECONNECT_ATTEMPTS + 1; i += 1) {
+      const ws = FakeWebSocket.last();
+      await act(async () => {
+        ws.serverClose(1006);
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await settle();
+    }
+  }
+
+  beforeEach(() => {
+    setVisibility('visible');
+  });
+
+  afterEach(() => {
+    delete (document as unknown as { visibilityState?: string }).visibilityState;
+  });
+
+  it('R1 오래 숨겼다 돌아왔는데 소켓이 한 프레임도 안 주면(좀비 OPEN) 스스로 새 소켓을 연다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push(quoteFrame({ p: 70_000 }));
+    });
+    flushMarket();
+
+    await hideFor(RELAY_RESUME_MIN_HIDDEN_MS);
+    // 탐침 창 동안은 기다린다 — 살아 있는 소켓을 섣불리 끊지 않는다.
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS - 1);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(ws.closedWith).not.toBeNull();
+    // 옛 값은 지우지 않고 「마지막 값」 표식만 세운다 (규율 5).
+    expect(hook.result.current.isStale).toBe(true);
+    expect(quoteOf(hook, ISIN_A, 'KRX')?.p).toBe(70_000);
+    // 새 소켓은 백오프 없이 첫 시도로 연다 — 예산을 깎지 않는다.
+    expect(hook.result.current.status).toBe('connecting');
+    expect(hook.result.current.attempt).toBe(0);
+  });
+
+  it('R2 복귀 뒤 탐침 창 안에 새 프레임이 흐르면 살아 있는 소켓이다 — 끊지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await hideFor(RELAY_RESUME_MIN_HIDDEN_MS * 2);
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_SETTLE_MS);
+    });
+    await act(async () => {
+      ws.push(quoteFrame({ p: 71_000 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(ws.closedWith).toBeNull();
+    expect(hook.result.current.isStale).toBe(false);
+  });
+
+  it('R2-a 복귀 **직후** 쏟아진 프레임(얼기 전 버퍼)만으로는 살아 있다고 보지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await hideFor(RELAY_RESUME_MIN_HIDDEN_MS);
+    // 얼어 있는 동안 브라우저에 쌓였던 프레임이 복귀 순간 한꺼번에 배달되는 모양.
+    await act(async () => {
+      ws.push(quoteFrame({ p: 69_000 }));
+      ws.push(quoteFrame({ p: 69_100 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(hook.result.current.isStale).toBe(true);
+  });
+
+  it('R3 짧게 숨긴 복귀(하트비트 1주기 미만)는 탐침하지 않는다 — relay 가 이 소켓을 정리했을 수 없다', async () => {
+    const hook = render();
+    await connected(hook);
+
+    await hideFor(RELAY_RESUME_MIN_HIDDEN_MS - 1);
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS * 2);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(hook.result.current.status).toBe('ready');
+  });
+
+  it('R4 재접속 예산을 다 쓴 manual_required 도 화면으로 돌아오면 예산을 새로 받아 다시 붙는다', async () => {
+    const hook = render();
+    await exhaust();
+    expect(hook.result.current.status).toBe('manual_required');
+    expect(FakeWebSocket.instances).toHaveLength(11);
+
+    await hideFor(1_000);
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(12);
+    expect(hook.result.current.status).toBe('connecting');
+    expect(hook.result.current.attempt).toBe(0);
+  });
+
+  it('R5 manual_required 에서 네트워크가 돌아오면(online) 바로 다시 붙는다', async () => {
+    const hook = render();
+    await exhaust();
+    expect(hook.result.current.status).toBe('manual_required');
+
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(12);
+    expect(hook.result.current.status).toBe('connecting');
+  });
+
+  it('R6 백오프 대기 중에 돌아오면 남은 대기를 버리고 즉시 다시 붙는다', async () => {
+    const hook = render();
+    await settle();
+    // 5회 연속 실패 → 다음 시도까지 16초 대기 중.
+    for (let i = 0; i < 5; i += 1) {
+      const ws = FakeWebSocket.last();
+      await act(async () => {
+        ws.serverClose(1006);
+      });
+      if (i < 4) {
+        await act(async () => {
+          vi.advanceTimersByTime(30_000);
+        });
+        await settle();
+      }
+    }
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(hook.result.current.attempt).toBe(5);
+    expect(FakeWebSocket.instances).toHaveLength(5);
+
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(6);
+    expect(hook.result.current.attempt).toBe(0);
+  });
+
+  it('R7 네트워크 복구(online)는 숨김 시간과 무관하게 OPEN 소켓을 탐침한다 — 망이 바뀌면 옛 TCP 는 죽는다', async () => {
+    const hook = render();
+    await connected(hook);
+
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('R8 bfcache 복원(pageshow persisted)도 복귀로 본다', async () => {
+    const hook = render();
+    await connected(hook);
+
+    await act(async () => {
+      const ev = new Event('pageshow') as Event & { persisted?: boolean };
+      Object.defineProperty(ev, 'persisted', { value: true });
+      window.dispatchEvent(ev);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('R9 토큰 갱신이 네트워크로 실패한 getSession(error 동반)은 「권한 없음」이 아니라 재시도다', async () => {
+    getSessionMock.mockResolvedValueOnce({
+      data: { session: null },
+      error: new Error('Failed to fetch'),
+    } as never);
+    const hook = render();
+    await settle();
+
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(hook.result.current.attempt).toBe(1);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    // 망이 붙으면 다음 시도가 정상 세션으로 연결한다.
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('R10 언마운트 뒤에는 복귀 이벤트가 아무 소켓도 열지 않는다 (리스너 정리)', async () => {
+    const winAdd = vi.spyOn(window, 'addEventListener');
+    const winRemove = vi.spyOn(window, 'removeEventListener');
+    const docAdd = vi.spyOn(document, 'addEventListener');
+    const docRemove = vi.spyOn(document, 'removeEventListener');
+    const hook = render();
+    await connected(hook);
+    act(() => {
+      hook.unmount();
+    });
+
+    // 건 리스너는 전부 뗀다 — `disposed` 가드가 동작을 막아도 재연결(nonce)마다 클로저가 쌓이면 누수다.
+    const handlersOf = (spy: typeof winAdd | typeof docAdd, type: string) =>
+      spy.mock.calls.filter((c) => c[0] === type).map((c) => c[1]);
+    for (const type of ['online', 'pageshow']) {
+      expect(handlersOf(winAdd, type).length).toBeGreaterThan(0);
+      expect(handlersOf(winRemove, type)).toEqual(handlersOf(winAdd, type));
+    }
+    expect(handlersOf(docRemove, 'visibilitychange')).toEqual(
+      handlersOf(docAdd, 'visibilitychange'),
+    );
+    for (const spy of [winAdd, winRemove, docAdd, docRemove]) spy.mockRestore();
+
+    await hideFor(RELAY_RESUME_MIN_HIDDEN_MS * 2);
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS * 2);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  /** 복귀 이벤트 3종을 전부 흘려 보낸다 — 오래 숨김 · bfcache 복원 · 망 복구. */
+  async function resumeAll(): Promise<void> {
+    await hideFor(RELAY_RESUME_MIN_HIDDEN_MS * 2);
+    await act(async () => {
+      const ev = new Event('pageshow') as Event & { persisted?: boolean };
+      Object.defineProperty(ev, 'persisted', { value: true });
+      window.dispatchEvent(ev);
+      window.dispatchEvent(new Event('online'));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS * 2);
+    });
+    await settle();
+  }
+
+  /*
+    ★ 로컬 「권한 없음」(4401 · 세션 없음)은 재시도해도 결과가 같다(T-15-10). 복귀가 이를
+      풀면 안 된다 — 지키는 것은 `exhausted`/`retryTimer` 가 이 경로에서 서지 않는다는 것과
+      `startProbe` 의 `authAckedRef` 가드다. 상태(`unauthorized`)로 막지 않는 이유: relay 가
+      연결을 유지한 채 보내는 `{t:"state",s:"unauthorized"}`(자격증명 미등록, D-12)와 이름이
+      같아 둘을 한데 묶게 된다.
+  */
+  it('R11 close 4401 로 확정된 unauthorized 는 복귀 이벤트로 다시 붙지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.serverClose(4401);
+    });
+    expect(hook.result.current.status).toBe('unauthorized');
+
+    await resumeAll();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(hook.result.current.status).toBe('unauthorized');
+  });
+
+  it('R11-a 로그인 세션이 없는 unauthorized 도 복귀 이벤트로 연결을 시도하지 않는다', async () => {
+    getSessionMock.mockResolvedValueOnce({ data: { session: null } } as never);
+    const hook = render();
+    await settle();
+    expect(hook.result.current.status).toBe('unauthorized');
+
+    await resumeAll();
+
+    // 복귀가 연결을 다시 돌렸다면 다음 getSession 은 정상 세션이라 소켓이 생긴다.
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(hook.result.current.status).toBe('unauthorized');
   });
 });
