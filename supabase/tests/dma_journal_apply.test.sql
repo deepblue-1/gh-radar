@@ -73,9 +73,47 @@ CREATE FUNCTION pg_temp.ev_a(
   )
 $$;
 
+-- (19-03) 임의 통보 1건 — 키 23종 기본값(계좌 …9003 · 매수 · New · 1000원 × 10주 · 접수 A) 위에 p_over 를 덮는다.
+-- 투영 규칙 단언은 전부 이 빌더로 만든다: `pg_temp.ev(seq, 'HH:MM:SS', '{"notice_type":"E", …}')`.
+CREATE FUNCTION pg_temp.ev(p_seq bigint, p_hms text, p_over jsonb DEFAULT '{}'::jsonb)
+RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'seq', p_seq,
+    'trade_date', '2026-09-28',
+    'gw_time_ms', (extract(epoch FROM ('2026-09-28 ' || p_hms || '+09')::timestamptz) * 1000)::bigint,
+    'dma_user_id', 'dma-shared',
+    'account_no', '1111119003',
+    'isin', 'KR7005930003',
+    'side', 'B',
+    'side_trusted', true,
+    'order_no', '',
+    'org_order_no', '',
+    'notice_type', 'A',
+    'request_kind', 'New',
+    'requester', 'Manual',
+    'origin', 'Manual',
+    'exchange', 'KRX',
+    'board', '',
+    'order_price', 1000,
+    'order_qty', 10,
+    'exec_price', 0,
+    'exec_qty', 0,
+    'result_code', 0,
+    'message', '',
+    'local_reject', false
+  ) || p_over
+$$;
+
+-- (19-03) 계좌 …9003 의 주문번호 행 1개.
+CREATE FUNCTION pg_temp.o(p_order_no text)
+RETURNS SETOF public.dma_account_orders LANGUAGE sql AS $$
+  SELECT * FROM public.dma_account_orders
+   WHERE gateway = 'KB' AND trade_date = '2026-09-28' AND account_no = '1111119003' AND order_no = p_order_no
+$$;
+
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(40);
+SELECT plan(49);
 
 -- ── 1. 매핑 동기화: dma-shared → …7801 ──────────────────────────
 SELECT is(
@@ -279,6 +317,76 @@ SELECT is(
 SELECT is(
   (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB'),
   '(ep-2,1)', '(ep-2 seq 1, …7801) 커서 (ep-2, 1) 로 교체 — GREATEST 아님'
+);
+
+-- ============================================================
+-- 19-03 — 투영 규칙 표 전 행. 계좌 …9003 · epoch ep-3 (위 ep-1/ep-2 경로와 seq 가 섞이지 않게).
+-- ============================================================
+
+-- ── 11. [tracer] 체결 E — A 행 체결 누적 · 부분→전량 · 재생 무증가 ──────
+INSERT INTO t_apply SELECT 'a10', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(10, '10:00:00', '{"order_no":"0000300010","message":"접수"}')));
+INSERT INTO t_apply
+SELECT 'e11', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(11, '10:00:05', '{"order_no":"0000300010","notice_type":"E","exec_qty":4,"exec_price":1005}')));
+
+SELECT is(
+  (SELECT row((r->>'applied')::int, r->'errors')::text FROM t_apply WHERE label = 'e11'),
+  '(1,[])', '(seq 11 E 4주, …9003) (applied, errors) = (1, []) — E 가 apply_error 로 떨어지지 않는다'
+);
+SELECT is(
+  (SELECT row(qty, filled_qty, status)::text FROM pg_temp.o('0000300010')),
+  '(10,4,partially_filled)', '(seq 11 E 4주, …9003) (qty, filled_qty, status) = (10, 4, partially_filled)'
+);
+
+INSERT INTO t_apply SELECT 'e12', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(12, '10:00:09', '{"order_no":"0000300010","notice_type":"E","exec_qty":6,"exec_price":1005,"message":"체결"}')));
+SELECT is(
+  (SELECT row(qty, filled_qty, status, last_seq, notice_type)::text FROM pg_temp.o('0000300010')),
+  '(10,10,filled,12,E)', '(seq 12 E 6주, …9003) (qty, filled_qty, status, last_seq, notice_type) = (10, 10, filled, 12, E)'
+);
+SELECT is(
+  (SELECT price FROM pg_temp.o('0000300010')),
+  1000, '(seq 12 E exec_price 1005, …9003) price = 1000 — 체결가는 주문가를 바꾸지 않는다'
+);
+
+-- 같은 [seq 11, 12] 배치 재호출 — 이벤트 PK 게이트가 누적을 막는다(T-19-06).
+INSERT INTO t_apply
+SELECT 'e_replay', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(11, '10:00:05', '{"order_no":"0000300010","notice_type":"E","exec_qty":4,"exec_price":1005}'),
+  pg_temp.ev(12, '10:00:09', '{"order_no":"0000300010","notice_type":"E","exec_qty":6,"exec_price":1005,"message":"체결"}')));
+SELECT is(
+  (SELECT row((r->>'applied')::int, (r->>'skipped')::int)::text FROM t_apply WHERE label = 'e_replay'),
+  '(0,2)', '(seq 11·12 재생, …9003) (applied, skipped) = (0, 2)'
+);
+SELECT is(
+  (SELECT row(filled_qty, status, last_seq)::text FROM pg_temp.o('0000300010')),
+  '(10,filled,12)', '(seq 11·12 재생, …9003) (filled_qty, status, last_seq) = (10, filled, 12) — 두 배 아님'
+);
+
+-- E 가 A 보다 먼저 — qty 를 모르므로 partially_filled 로 만들고, 뒤의 A 가 qty 를 채워 재판정.
+INSERT INTO t_apply SELECT 'e20', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(20, '10:05:00', '{"order_no":"0000300020","notice_type":"E","exec_qty":3,"exec_price":1000,"order_qty":0}')));
+SELECT is(
+  (SELECT row(qty, filled_qty, status, price, order_type, side)::text FROM pg_temp.o('0000300020')),
+  '(,3,partially_filled,,N,B)', '(seq 20 E 3주 먼저, …9003) (qty, filled_qty, status, price, order_type, side) = (NULL, 3, partially_filled, NULL, N, B)'
+);
+INSERT INTO t_apply SELECT 'a21', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(21, '10:05:02', '{"order_no":"0000300020","order_qty":3}')));
+SELECT is(
+  (SELECT row(qty, filled_qty, status, first_seq, last_seq, price,
+              created_at = '2026-09-28 10:05:00+09'::timestamptz,
+              updated_at = '2026-09-28 10:05:02+09'::timestamptz)::text
+     FROM pg_temp.o('0000300020')),
+  '(3,3,filled,20,21,1000,t,t)', '(seq 21 A qty 3 늦게, …9003) (qty, filled, status, first/last_seq, price, created_at = E 시각, updated_at = A 시각) = (3, 3, filled, 20, 21, 1000, t, t)'
+);
+
+-- 종결(filled) 행에 늦은 A — 상태는 뒤로 가지 않는다(T-19-22).
+INSERT INTO t_apply SELECT 'a13', public.dma_journal_apply('KB', 'ep-3', jsonb_build_array(
+  pg_temp.ev(13, '10:00:10', '{"order_no":"0000300010"}')));
+SELECT is(
+  (SELECT row(status, last_seq, filled_qty)::text FROM pg_temp.o('0000300010')),
+  '(filled,13,10)', '(seq 13 늦은 A, …9003) (status, last_seq, filled_qty) = (filled, 13, 10) — filled 유지'
 );
 
 SELECT * FROM finish(true);

@@ -38,9 +38,9 @@
 -- 함정:
 --   - 계좌번호를 재정규화하지 않는다(Pitfall 7). account_no 는 받은 문자열 그대로 적재·투영한다.
 --   - 시각은 게이트웨이 gw_time_ms 가 정본이다(Pitfall 5). `now()` 는 applied_at·synced_at·커서에만.
---   - 이 plan 의 ⑥ 은 **접수(A) · 주문번호 있음** 갈래만 투영한다. 체결(E)·취소(C)·정정(M)·거부(R)·
---     로컬 거부 갈래는 19-03 이 같은 함수에 채운다. 그 전까지 그 통보들은 RAISE EXCEPTION 으로
---     떨어져 ⑦ 의 포이즌 격리가 `apply_error` 에 사유를 남긴다 — 조용히 삼키지 않는다.
+--   - ⑥ 은 19-01 이 접수(A), 19-03 이 체결(E)을 채웠다. 취소(C)·정정(M)·거부(R)·로컬 거부 갈래는
+--     19-03 이 같은 함수에 채운다. 그 전까지 그 통보들은 RAISE EXCEPTION 으로 떨어져 ⑦ 의 포이즌
+--     격리가 `apply_error` 에 사유를 남긴다 — 조용히 삼키지 않는다.
 --
 -- 하지 않는 것:
 --   - SECURITY DEFINER. 호출자(service_role)는 RLS 를 우회하므로 INVOKER 로 충분하고, DEFINER 는
@@ -87,6 +87,15 @@ AS $$
 $$;
 
 -- ── ⑥ 이벤트 1건 투영 ────────────────────────────────────────────
+-- 「이 이벤트가 처음 적용될 때 무엇이 바뀌는가」 만 정의한다. 재생 안전성은 ⑦ 의 이벤트 PK 게이트가 쥔다.
+-- 분기는 notice_type · request_kind 동등 비교뿐이다 — `message` 는 저장만 하고 읽어 분기하지 않는다(T-19-13).
+--
+-- 자기 행(주문번호 키) upsert 는 갈래마다 세 값만 다르다:
+--   v_next      — 격자에 넣을 다음 상태(A accepted · E partially_filled)
+--   v_ins_qty / v_ins_price — 행이 없을 때 넣을 수량·가격(있으면 빈 칸만 COALESCE)
+--   v_add_filled — 체결 수량 누적분(E 만 > 0)
+-- 그 뒤 체결 수량이 있고 qty 를 알면 `filled_qty + modified_qty >= qty` 로 filled/partially_filled 를
+-- 격자 재판정한다 — E 의 판정과 「체결이 먼저 온 행에 A 가 qty 를 채우는」 재판정이 같은 식 하나다.
 CREATE OR REPLACE FUNCTION public.dma_journal_project(p_gateway text, p_epoch text, p_ev jsonb)
 RETURNS uuid[]
 LANGUAGE plpgsql
@@ -110,6 +119,7 @@ DECLARE
   v_origin_raw   text        := coalesce(p_ev->>'origin', '');
   v_order_qty    integer     := coalesce((p_ev->>'order_qty')::integer, 0);
   v_order_price  integer     := coalesce((p_ev->>'order_price')::integer, 0);
+  v_exec_qty     integer     := coalesce((p_ev->>'exec_qty')::integer, 0);
   v_result_code  integer     := coalesce((p_ev->>'result_code')::integer, 0);
   v_message      text        := NULLIF(coalesce(p_ev->>'message', ''), '');
   v_requester    text        := NULLIF(coalesce(p_ev->>'requester', ''), '');
@@ -119,24 +129,29 @@ DECLARE
   v_side         text;
   v_origin       text;
   v_order_type   text;
-  v_qty          integer;
+  -- 자기 행 upsert 갈래 값
+  v_next         text;
+  v_ins_qty      integer;
+  v_ins_price    integer;
+  v_add_filled   integer := 0;
+  -- 자기 행 결과
   v_id           uuid;
   v_row          public.dma_account_orders%ROWTYPE;
   v_final_qty    integer;
+  v_filled       integer;
   v_target       text;
 BEGIN
   IF v_account = '' THEN
     RAISE EXCEPTION 'dma_journal_project: account_no 없음 (seq=%)', v_seq;
   END IF;
 
-  -- 로컬 거부 · 주문번호 없는 통보(reject_seq 키 행)는 19-03 이 채운다.
+  -- 로컬 거부 · 주문번호 없는 통보(reject_seq 키 행)는 19-03 Task 2 가 채운다.
   IF v_local_reject OR v_order_no IS NULL THEN
     RAISE EXCEPTION 'dma_journal_project: 로컬 거부/주문번호 없는 통보 투영 미구현 — 19-03 (seq=%, notice_type=%)',
       v_seq, v_notice;
   END IF;
 
-  -- 이 plan 은 접수(A) 갈래만 — E·C·M·R 은 19-03.
-  IF v_notice <> 'A' THEN
+  IF v_notice NOT IN ('A', 'E') THEN
     RAISE EXCEPTION 'dma_journal_project: notice_type % 투영 미구현 — 19-03 (seq=%)', v_notice, v_seq;
   END IF;
 
@@ -160,9 +175,27 @@ BEGIN
   IF v_order_type IS NULL THEN
     RAISE EXCEPTION 'dma_journal_project: 알 수 없는 request_kind % (seq=%)', v_request_kind, v_seq;
   END IF;
-  v_qty := NULLIF(v_order_qty, 0);
 
-  -- ── 접수(A) · 주문번호 키 upsert ──
+  -- ── 갈래 값 ──
+  IF v_notice = 'A' THEN
+    -- 접수: 주문수량·주문가가 이 주문의 정본이다.
+    v_next      := 'accepted';
+    v_ins_qty   := NULLIF(v_order_qty, 0);
+    v_ins_price := v_order_price;
+  ELSE -- 'E'
+    -- 체결: exec_qty 만 사실로 누적한다. 체결가(exec_price)는 행 price 를 바꾸지 않는다 — 주문가가
+    -- 정본이다(51 의 useExecuted 혼용을 저널이 끊었다). qty 를 모르면(A 보다 먼저) NULL 로 두고
+    -- 뒤의 A 가 채워 재판정한다.
+    IF v_exec_qty <= 0 THEN
+      RAISE EXCEPTION 'dma_journal_project: 체결 통보의 exec_qty 가 0 이하 % (seq=%)', v_exec_qty, v_seq;
+    END IF;
+    v_next       := 'partially_filled';
+    v_ins_qty    := NULL;
+    v_ins_price  := NULL;
+    v_add_filled := v_exec_qty;
+  END IF;
+
+  -- ── 자기 행 · 주문번호 키 upsert ──
   -- 호출자(dma_journal_apply)가 advisory lock 으로 직렬화하므로 SELECT … FOR UPDATE 뒤 분기가 안전하다.
   SELECT * INTO v_row
     FROM public.dma_account_orders
@@ -175,32 +208,33 @@ BEGIN
   IF NOT FOUND THEN
     INSERT INTO public.dma_account_orders (
       gateway, trade_date, account_no, order_no, isin, exchange, board, side, order_type,
-      org_order_no, qty, price, status, result_code, notice_type, message, origin,
+      org_order_no, qty, price, filled_qty, status, result_code, notice_type, message, origin,
       requester, request_kind, dma_user_id, first_seq, last_seq, created_at, updated_at
     ) VALUES (
       p_gateway, v_trade_date, v_account, v_order_no, v_isin, v_exchange, v_board, v_side, v_order_type,
-      v_org_order_no, v_qty, v_order_price, 'accepted', v_result_code, v_notice, v_message, v_origin,
+      v_org_order_no, v_ins_qty, v_ins_price, v_add_filled, v_next, v_result_code, v_notice, v_message, v_origin,
       v_requester, NULLIF(v_request_kind, ''), v_dma_user, v_seq, v_seq, v_gw_time, v_gw_time
     )
     RETURNING id INTO v_id;
     RETURN ARRAY[v_id];
   END IF;
 
-  -- 행이 이미 있다(체결이 접수보다 먼저 왔거나 같은 주문의 재접수 통보).
-  -- 비어 있는 칸만 채우고, 상태는 격자로만 올린다.
-  v_final_qty := coalesce(v_row.qty, v_qty);
-  v_target := public.dma_journal_next_status(v_row.status, 'accepted');
-  -- 체결이 먼저 와 filled_qty > 0 인 행에 A 가 qty 를 채우면 체결 상태를 격자로 재판정한다.
-  IF v_row.filled_qty > 0 AND v_final_qty IS NOT NULL THEN
+  -- 행이 이미 있다(같은 주문의 후속 통보 · 체결이 접수보다 먼저 온 경우 · 재접수 통보).
+  -- 비어 있는 칸만 채우고, 체결 수량은 상태와 무관하게 사실로 누적하며, 상태는 격자로만 올린다.
+  v_final_qty := coalesce(v_row.qty, v_ins_qty);
+  v_filled    := v_row.filled_qty + v_add_filled;
+  v_target    := public.dma_journal_next_status(v_row.status, v_next);
+  IF v_filled > 0 AND v_final_qty IS NOT NULL THEN
     v_target := public.dma_journal_next_status(
       v_target,
-      CASE WHEN v_row.filled_qty + v_row.modified_qty >= v_final_qty THEN 'filled' ELSE 'partially_filled' END
+      CASE WHEN v_filled + v_row.modified_qty >= v_final_qty THEN 'filled' ELSE 'partially_filled' END
     );
   END IF;
 
   UPDATE public.dma_account_orders o SET
     qty          = v_final_qty,
-    price        = coalesce(o.price, v_order_price),
+    price        = coalesce(o.price, v_ins_price),
+    filled_qty   = o.filled_qty + v_add_filled,
     org_order_no = coalesce(o.org_order_no, v_org_order_no),
     origin       = coalesce(o.origin, v_origin),
     side         = coalesce(o.side, v_side),
