@@ -261,8 +261,9 @@ describe("TodayOrdersCard", () => {
     }
   });
 
-  it("⑥-2 수동 발주 · 시간외종가 접수는 「시간외종가 매수」 + 「수동」 메타로 읽힌다", async () => {
-    // 저널 행이 통보 사실(board · requester)을 스스로 싣는다. 「수동」 꼬리 제거는 19-08(D-08).
+  it("⑥-2 수동 발주 · 시간외종가 접수는 「시간외종가 매수」 로 읽히고 「수동」 은 꼬리가 아니라 출처 칩이 말한다 (D-08)", async () => {
+    // 저널 행이 통보 사실(board · requester)을 스스로 싣는다. 19-08(D-08)로 구분 칸의 「· 수동」
+    // 꼬리는 없어졌다 — 출처 칩 하나가 수동을 말한다(옛 ⑥-2 는 꼬리 표시를 단언했다).
     fetchTodayOrdersMock.mockResolvedValue([
       row({ id: "a", orderNo: "0000135742", side: "B", board: "G2", requester: "Manual" }),
     ]);
@@ -270,9 +271,12 @@ describe("TodayOrdersCard", () => {
     render(<TodayOrdersCard />);
 
     await waitFor(() => expect(listRows()).toHaveLength(1));
-    const text = listRows()[0]?.textContent ?? "";
-    expect(text).toContain("시간외종가 매수");
-    expect(text).toContain("수동");
+    const side = listRows()[0]?.querySelector('[data-slot="today-order-side"]');
+    expect(side?.textContent).toContain("시간외종가 매수");
+    expect(side?.textContent).not.toContain("수동");
+    expect(listRows()[0]?.textContent).not.toContain("· 수동");
+    const chip = listRows()[0]?.querySelector('[data-slot="today-order-origin"]');
+    expect(chip?.textContent).toBe("수동");
   });
 
   it("⑥-3 통보가 없는 신규 매도 행은 종전대로 방향색 매도다 — 없는 행위를 지어내지 않는다", async () => {
@@ -704,5 +708,143 @@ describe("TodayOrdersCard — B′ 계좌별 묶음 · 출처 칩 · NXT (Phase 
     expect(groupEls()[0]?.textContent).toContain("(2건)");
     expect(groupEls()[1]?.querySelectorAll('[data-slot="today-order-row"]')).toHaveLength(1);
     expect(groupEls()[1]?.textContent).not.toContain("건)");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⑫ 기록 지연 표식 (D-04 (a)) · 390px ②줄 줄바꿈 · 로컬 거부 「—」 (D-07 · D-08)
+// ---------------------------------------------------------------------------
+
+describe("TodayOrdersCard — 기록 지연 표식 · ②줄 줄바꿈 (Phase 19 D-04 · D-07 · D-08)", () => {
+  /** 13:52:10 KST = 04:52:10Z. */
+  const SINCE = `${TODAY}T04:52:10.000Z`;
+  const badge = () => screen.queryByTestId("today-orders-delayed");
+  const note = () => screen.queryByTestId("today-orders-delayed-note");
+
+  it("⑫-1 delayed 면 제목 옆 「기록 지연」 배지(role=status)와 시각이 든 한 줄 안내가 뜨고 행은 흐려지지 않는다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "a1" })]);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      journalState: { t: "journal.state", s: "delayed", since: SINCE },
+    };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    expect(badge()).toHaveAttribute("role", "status");
+    expect(badge()?.textContent).toBe("기록 지연");
+    // 진행 점 — 장식이라 읽히지 않고, reduced-motion 이면 멈춘다.
+    const dot = badge()?.querySelector('[aria-hidden="true"]');
+    expect(dot?.className).toContain("animate-pulse");
+    expect(dot?.className).toContain("motion-reduce:animate-none");
+    // 제목 옆 — 같은 머리 줄 안이다.
+    expect(badge()?.parentElement?.querySelector("h2")?.textContent).toBe("오늘 주문");
+    expect(note()?.textContent).toContain("기록 지연 — 복구되면 채워집니다.");
+    expect(note()?.textContent).toContain("13:52:10 이후 주문이 아직 안 보일 수 있어요.");
+    // 이미 기록된 행은 맞는 값이다 — 흐리게 하지 않는다.
+    for (const el of listRows()) expect(el.className).not.toMatch(/opacity/);
+    for (const el of document.querySelectorAll('[data-slot="today-orders-group"]')) {
+      expect(el.className).not.toMatch(/opacity/);
+    }
+  });
+
+  it("⑫-2 since 가 없으면 시각 문장을 빼고, journalState 가 null 이거나 live 면 배지·안내가 없다", async () => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, journalState: { t: "journal.state", s: "delayed" } };
+    const view = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-empty")).toBeInTheDocument());
+    expect(badge()).toBeInTheDocument();
+    expect(note()?.textContent).toContain("기록 지연 — 복구되면 채워집니다.");
+    expect(note()?.textContent).not.toContain("이후 주문");
+
+    mockRelay = { ...mockRelay, journalState: { t: "journal.state", s: "live" } };
+    view.rerender(<TodayOrdersCard />);
+    expect(badge()).not.toBeInTheDocument();
+    expect(note()).not.toBeInTheDocument();
+
+    mockRelay = { ...mockRelay, journalState: null };
+    view.rerender(<TodayOrdersCard />);
+    expect(badge()).not.toBeInTheDocument();
+    expect(note()).not.toBeInTheDocument();
+  });
+
+  it("⑫-3 로딩 · 빈 상태 · 오류 상태에서도 delayed 면 배지가 제목 옆에 있다", async () => {
+    const delayed = { t: "journal.state" as const, s: "delayed" as const, since: SINCE };
+
+    // 로딩 — 조회가 아직 끝나지 않았다.
+    fetchTodayOrdersMock.mockReturnValue(new Promise(() => {}));
+    mockRelay = { ...EMPTY_RELAY_VALUE, journalState: delayed };
+    const loading = render(<TodayOrdersCard />);
+    expect(screen.getByTestId("today-orders-loading")).toBeInTheDocument();
+    expect(badge()).toBeInTheDocument();
+    loading.unmount();
+
+    // 빈 상태.
+    fetchTodayOrdersMock.mockResolvedValue([]);
+    const empty = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-empty")).toBeInTheDocument());
+    expect(badge()).toBeInTheDocument();
+    empty.unmount();
+
+    // 오류.
+    fetchTodayOrdersMock.mockRejectedValue(
+      new ApiClientError({ code: "HTTP_500", message: "boom", status: 500 }),
+    );
+    render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-error")).toBeInTheDocument());
+    expect(badge()).toBeInTheDocument();
+  });
+
+  it("⑫-4 requester Manual 행의 구분 칸에 「· 수동」 꼬리가 없다 — 출처 칩이 대신 말한다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "m", orderNo: "0000135742", requester: "Manual", origin: "manual" }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    for (const cell of document.querySelectorAll('[data-slot="today-order-side"]')) {
+      expect(cell.textContent).not.toContain("수동");
+    }
+    expect(document.body.textContent).not.toContain("· 수동");
+  });
+
+  it("⑫-5 로컬 거부 행(주문번호·수량·가격 모름)은 주문 · 수량 · 가격 칸이 모두 「—」 다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({
+        id: "rej",
+        orderNo: null,
+        qty: null,
+        price: null,
+        status: "rejected",
+        noticeType: "R",
+        resultCode: 804,
+        origin: "manual",
+      }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const line2 = listRows()[0]!.children[1]!;
+    const pairs = [...line2.children].map((el) => el.textContent);
+    expect(pairs).toEqual([expect.any(String), "수량—", "가격—", "주문—"]);
+    // 데스크톱 표 — 수량 · 가격 · 주문번호 셀.
+    const cells = [...document.querySelectorAll('[data-slot="today-order-table-row"] td')].map(
+      (td) => td.textContent,
+    );
+    expect(cells.slice(4)).toEqual(["—", "—", "거부", "—"]);
+  });
+
+  it("⑫-6 모바일 ②줄은 줄바꿈을 허용한다(flex-wrap · gap-y-0.5) — 390px 에서 주문번호가 잘리지 않고 내려간다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(AUTO_SELL_FILLS);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const [line1, line2] = [...listRows()[0]!.children];
+    expect(line2?.className).toContain("flex-wrap");
+    expect(line2?.className).toContain("gap-y-0.5");
+    // ①줄 규율은 그대로 — 줄바꿈 없이 종목명만 줄어든다.
+    expect(line1?.className).not.toContain("flex-wrap");
   });
 });

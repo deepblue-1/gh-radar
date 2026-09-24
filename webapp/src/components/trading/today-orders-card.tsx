@@ -69,7 +69,14 @@
  *   붙는다. origin 미상(null)은 칩이 없다 — 「수동」 으로 그리면 거짓일 수 있다(D-08 보충).
  *   NXT 행에만 `ExchangeTag`(채움형)가 종목 코드 옆에 붙는다 — KRX 는 기본값이라 없다.
  *   주문자(DMA 사용자)는 표시하지 않는다(계약에 필드가 없다 · T-19-08). 새 조각은 전부 `flex:none`
- *   이다(위 ⑤ — 신축 항목은 종목명 하나뿐).
+ *   이다(위 ⑤ — 신축 항목은 종목명 하나뿐). 출처 칩이 수동을 말하므로 구분 칸의 「· 수동」 꼬리는
+ *   없다. 주문번호가 없는 로컬 거부 행은 주문번호 · 수량 · 가격 자리에 「—」 를 쓴다.
+ *
+ * ⑪ ★ 기록 지연 표식 (Phase 19 D-04 (a))
+ *   relay 가 `journal.state` 를 `delayed` 로 보내면(관찰자 기록 연결 끊김 · 10초 디바운스) 제목 옆
+ *   「기록 지연」 배지(role=status · 진행 점 · reduced-motion 이면 정지)와 한 줄 안내가 뜬다 — 빈
+ *   목록을 「주문 없음」 으로 오해하지 않게(T-19-31). 이미 기록된 행은 흐리게 하지 않는다.
+ *   복구(`live`)되면 표식이 사라지고 위 ⑧ 이 한 번 재조회한다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -224,6 +231,15 @@ export function TodayOrdersCard() {
     if (prev === "delayed" && journalLive === "live") void load();
   }, [journalLive, load]);
 
+  /*
+    기록 지연 표식 (위 ⑪ · D-04 (a)). 시각은 카드의 `KST_TIME` 하나로 읽는다 — 모르는 모양이면
+    (`orderTime` 이 「—」) 시각 문장을 빼고 지어내지 않는다.
+  */
+  const delayed = journalState?.s === "delayed";
+  const sinceText =
+    delayed && journalState?.since !== undefined ? orderTime(journalState.since) : "—";
+  const delayedSince = sinceText === "—" ? null : sinceText;
+
   /* 두 원천의 병합(위 ③). 푸시는 오늘(KST) 행만 받는다 — 자정을 넘긴 탭이 어제 행을 섞지 않게. */
   const rows = useMemo(
     () => mergeJournalRows(restored ?? [], journalRows, kstDateIso()),
@@ -249,14 +265,45 @@ export function TodayOrdersCard() {
       aria-label="오늘 주문"
       className="flex flex-col gap-[var(--s-2)] rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-3)] py-[var(--s-3)]"
     >
-      <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+      <div className="flex min-w-0 flex-wrap items-center gap-[var(--s-2)]">
         <h2 className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">오늘 주문</h2>
         {rows.length > 0 && (
           <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
             {rows.length}건
           </span>
         )}
+        {delayed && (
+          <span
+            role="status"
+            data-testid="today-orders-delayed"
+            className="inline-flex h-5 flex-none items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 text-[11px] font-semibold text-[var(--muted-fg)]"
+          >
+            <span
+              aria-hidden="true"
+              className="size-[7px] rounded-full bg-current animate-pulse motion-reduce:animate-none"
+            />
+            기록 지연
+          </span>
+        )}
       </div>
+      {/*
+        기록 지연 안내 (위 ⑪) — 본문(로딩·빈·오류·목록)과 무관하게 머리 아래에 붙는다.
+        이미 그린 행은 흐리게 하지 않는다 — 기록된 줄은 맞는 값이다.
+      */}
+      {delayed && (
+        <p
+          data-testid="today-orders-delayed-note"
+          className="rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+        >
+          <b className="font-semibold text-[var(--fg)]">기록 지연</b> — 복구되면 채워집니다.
+          {delayedSince !== null && (
+            <>
+              {" "}
+              <span className="mono">{delayedSince}</span> 이후 주문이 아직 안 보일 수 있어요.
+            </>
+          )}
+        </p>
+      )}
 
       {failed ? (
         <p
@@ -468,8 +515,12 @@ function OrderCardRow({
           <StatusTag shown={orderDisplayStatus(row)} />
         </span>
       </div>
-      {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
-      <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
+      {/*
+        ②줄 — 시각 · 수량 · 가격 · (우) 주문번호. 전부 `flex:none` 이라 넘침을 흡수할 신축 항목이
+        없다 — 390px 에서 묶인 행(주문번호 범위 · (N건))이 넘치면 **줄을 바꿔** 주문번호가 다음 줄로
+        내려간다(Phase 19 D-07 · 목업 `.fix .l2`). 잘리지 않는다.
+      */}
+      <div className="mt-1 flex min-w-0 flex-wrap gap-y-0.5 items-center gap-x-[var(--s-2)]">
         <span className="flex flex-none items-center gap-1">
           <RowValue>{orderTime(notice.at)}</RowValue>
         </span>
@@ -536,6 +587,9 @@ function RowValue({ children }: { children: ReactNode }) {
  *   결정) 행위 단어가 눈에서 사라진다. 상태 칸이 그 자리를 대신하지만, 스크린리더가 이
  *   칸만 읽을 때도 무엇을 한 통보인지 들리도록 `orderActionWord` 의 **맨몸 단어**를
  *   숨김 텍스트로 같이 둔다. 보이는 문자열은 바뀌지 않는다.
+ *
+ * ★ D-08 — 출처 칩이 수동을 말한다. 그래서 이 칸은 「· 수동」 꼬리를 그리지 않는다
+ *   (`orderNoticeLabel` 의 메타 필드와 함수는 trading-alerts 가 쓰므로 그대로 둔다).
  */
 function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: string }) {
   const arrow = label.side === "B" ? "▲ " : label.side === "S" ? "▼ " : "";
@@ -554,9 +608,6 @@ function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: strin
       {label.text}
       {srAction !== "" && srAction !== label.text && (
         <span className="sr-only"> {srAction}</span>
-      )}
-      {label.meta !== "" && (
-        <span className="ml-1 font-normal text-[var(--muted-fg)]">· {label.meta}</span>
       )}
     </span>
   );
