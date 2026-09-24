@@ -932,14 +932,14 @@ Plans:
 **쟁점 (discuss 에서 하나씩):** 기록 주체 단일화(사용자 세션 경로의 기존 `dma_orders` 기록·rid 상관과의 관계) · 기존 `dma_orders` 이관 vs 새 테이블 · 관찰자 자격 보안 경계 · gh-trade 스키마 동기화(`sync-relay-schema.sh` gh-trade 소유)·실서버 배포 순서(relay 먼저 → push)
 **Requirements**: TBD (CONTEXT D-01~D-14 를 요구사항 집합으로 사용)
 **Depends on:** Phase 18 · gh-trade Phase 23(관찰자 계약 G1 · 배포 G2 — 별도 저장소)
-**Plans:** 1/13 plans executed
+**Plans:** 2/13 plans executed
 
 Plans:
 
 **Wave 1**
 
 - [x] 19-01-PLAN.md — [tracer] DB 저널 뼈대: 테이블 4(이벤트·계좌 주문·매핑·커서) + 적용/매핑/조회 RPC(A 투영 · 멱등 · 가시성) + 권한 pgTAP + gh-trade 인계서
-- [ ] 19-02-PLAN.md — [tracer] relay 기록부 제거(D-01): order-handler rid 즉시응답만 · OrderStore 삭제 · e2e DB 기록 0건
+- [x] 19-02-PLAN.md — [tracer] relay 기록부 제거(D-01): order-handler rid 즉시응답만 · OrderStore 삭제 · e2e DB 기록 0건
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
