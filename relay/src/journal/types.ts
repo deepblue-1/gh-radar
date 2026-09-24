@@ -147,3 +147,17 @@ export type JournalAccessView = {
  *   - `overflow` — 큐 상한 초과. 아무것도 적재하지 않았다 — 호출자는 연결을 끊는다(T-19-09)
  */
 export type JournalPushResult = "ok" | "gap" | "overflow";
+
+/** 기록기 관측값 (`/healthz` · `health` 이벤트). 식별자·계좌를 담지 않는다. */
+export type JournalWriterHealth = {
+  /** 큐에 남은 레코드 수(진행 중 배치 포함). */
+  queueDepth: number;
+  /** 연속 적용 실패 횟수. 성공하면 0. */
+  consecutiveFailures: number;
+  /** 연속 실패가 임계(`dbErrorAfter`) 이상인가 — 관찰자 상태 `db_error` 의 원천. */
+  dbError: boolean;
+  /** 마지막으로 DB 커서가 확인해 준 seq. 아직 모르면 null. */
+  lastAppliedSeq: number | null;
+  /** 마지막 적용 성공 시각(epoch ms). 아직 없으면 null. */
+  lastAppliedAtMs: number | null;
+};

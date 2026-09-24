@@ -19,6 +19,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { backoffDelayMs, RECONNECT_MAX_DELAY_MS } from "../dma/dma-client.js";
 import { logger } from "../logger.js";
 import { safePgError } from "../store/pg-error.js";
+import { journalRetryDelayMs } from "./writer.js";
 import type { JournalAccessView, ObserverAccountRow } from "./types.js";
 
 export type JournalAccessDeps = {
@@ -31,15 +32,6 @@ export type JournalAccessDeps = {
   /** 재시도 지연 상한(ms). 기본 `RECONNECT_MAX_DELAY_MS`. */
   retryMaxMs?: number;
 };
-
-/**
- * 실패 `attempt` 회차의 재시도 지연. dma-client `backoffDelayMs` 의 **배율**(1·2·4·…·30)을 그대로 쓰고
- * 기준값·상한만 주입받는다 — 값 복제 없이 테스트가 지연을 줄일 수 있게.
- */
-export function journalRetryDelayMs(attempt: number, baseMs: number, maxMs: number): number {
-  const factor = backoffDelayMs(attempt) / backoffDelayMs(1);
-  return Math.min(maxMs, Math.round(baseMs * factor));
-}
 
 type SyncRow = { dma_user_id: string; account_no: string; name: string; priority: number };
 
