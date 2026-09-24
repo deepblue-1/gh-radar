@@ -34,7 +34,7 @@ export interface SoloCardProps {
 
 export function SoloCard({ single }: SoloCardProps) {
   return (
-    <article className="group card-shadow relative isolate flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
+    <article className="group card-shadow relative isolate flex flex-col gap-2 rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
       {/* stretched-link: 카드 표면 전체를 덮는 투명 종목상세 링크. 뉴스 블록만 z-상향해 위로. */}
       <Link
         href={`/stocks/${single.code}`}
@@ -42,14 +42,14 @@ export function SoloCard({ single }: SoloCardProps) {
         className="absolute inset-0 z-10 rounded-[var(--r-lg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       />
       <div className="flex items-center justify-between gap-3">
-        <span className="min-w-0 truncate text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] group-hover:text-[var(--primary)]">
+        <span className="min-w-0 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)] group-hover:text-[var(--primary)]">
           {single.name}{' '}
           <span className="mono text-[length:var(--t-caption)] font-normal text-[var(--muted-fg)]">
             {single.code}
           </span>
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          <span className="mono text-[length:var(--t-lg)] font-extrabold text-[var(--up)]">
+          <span className="mono text-[length:var(--t-lg)] font-bold text-[var(--up)]">
             {formatChange(single.changeRate)}
           </span>
           {/* 오버레이 Link 의 형제 + z-20 → 클릭이 상세 이동으로 가지 않는다. -my-1 은 32px 박스가 행 높이를 키우지 않게. */}

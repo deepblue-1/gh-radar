@@ -133,7 +133,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)]',
+        'overflow-hidden rounded-[var(--r)] border border-transparent bg-[var(--card)]',
         'transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]',
       )}
     >
@@ -145,7 +145,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
         {/* 좌측: 종목명/코드 + 근거칩 + 후행형 배지 */}
         <span className="flex min-w-0 flex-col gap-[5px]">
           <span className="flex items-baseline gap-2">
-            <b className="truncate text-[length:var(--t-base)] font-bold text-[var(--fg)]">
+            <b className="truncate text-[length:var(--t-base)] font-semibold text-[var(--fg)]">
               {c.name}
             </b>
             <span className="mono shrink-0 text-[length:var(--t-caption)] text-[var(--muted-fg)]">
@@ -157,7 +157,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
             {c.sharedThemes.map((t) => (
               <span
                 key={t.id}
-                className="inline-flex items-center gap-[5px] rounded-full border border-[var(--border)] px-[9px] py-px text-[length:var(--t-caption)] text-[var(--fg)]"
+                className="inline-flex items-center gap-[5px] rounded-full border border-transparent bg-[var(--raised-2)] px-[9px] py-px text-[length:var(--t-caption)] text-[var(--fg)]"
               >
                 <span
                   aria-hidden="true"
@@ -183,7 +183,7 @@ function CandidateRow({ c }: { c: CoMovementCandidate }) {
 
         {/* 우측 메트릭: 동반율(중립) + 실시간(방향색) */}
         <span className="flex items-end gap-[var(--s-3)]">
-          <span className="mono text-right text-[length:var(--t-h3)] font-extrabold leading-none text-[var(--fg)]">
+          <span className="mono text-right text-[length:var(--t-h3)] font-bold leading-none text-[var(--fg)]">
             <small className="mb-[3px] block font-sans text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
               동반율
             </small>
@@ -323,16 +323,16 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
 
   return (
     <section aria-label="동반상승 후보" className="flex flex-col gap-[var(--s-3)]">
-      <h2 className="flex items-center gap-1.5 text-[length:var(--t-caption)] font-semibold uppercase tracking-wide text-[var(--muted-fg)]">
-        <Waypoints className="size-3.5" aria-hidden="true" />
+      <h2 className="flex items-center gap-1.5 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
+        <Waypoints className="size-[18px] text-[var(--muted-fg)]" aria-hidden="true" />
         동반상승 후보
-        <span className="ml-auto font-medium normal-case tracking-normal">
+        <span className="ml-auto text-[length:var(--t-caption)] font-medium tracking-normal text-[var(--muted-fg)]">
           급등 시 동반 ↑ · 실시간 등락률 순
         </span>
       </h2>
 
       {candidates.length === 0 ? (
-        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <CircleOff
             aria-hidden="true"
             className="mx-auto mb-2 size-[22px] text-[var(--muted-fg)]"
@@ -354,7 +354,7 @@ export function StockComovementSection({ stockCode }: StockComovementSectionProp
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="mt-[var(--s-2)] w-full rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+              className="mt-[var(--s-2)] w-full rounded-[var(--r)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
             >
               {expanded
                 ? '접기'

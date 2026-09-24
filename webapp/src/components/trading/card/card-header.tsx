@@ -150,7 +150,7 @@ export function CardHeader({
       data-slot="card-header"
       data-open={open ? "true" : "false"}
       onClick={toggle}
-      className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-3.5 gap-y-1.5 px-2.5 py-2 select-none"
+      className="flex min-w-0 cursor-pointer flex-wrap items-center gap-x-3.5 gap-y-1.5 px-2.5 py-3 select-none"
     >
       {/*
         ★ 헤더 한 줄 결합 경계 **카드 폭 760px** 는 **§2.2b 밴드 표와 무관** — 헤더 한 줄 배치
@@ -225,13 +225,13 @@ export function CardHeader({
               aria-label="거래소"
               title={EXCHANGE_SEGMENT_TITLE}
               data-slot="card-exchange-segment"
-              className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+              className="h-5 gap-0 overflow-hidden rounded-full border border-transparent bg-[var(--muted)]"
             >
               {exchangeChoices.map((ex) => (
                 <ToggleGroupItem
                   key={ex}
                   value={ex}
-                  className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
+                  className="h-5 min-w-0 rounded-full! bg-transparent px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
                 >
                   {ex}
                 </ToggleGroupItem>
@@ -280,7 +280,7 @@ export function CardHeader({
             <span
               onClick={stop}
               data-slot="latch-led-dots"
-              className="inline-flex h-6 flex-none items-center gap-0.5 rounded-full border border-[var(--border)] px-0.5"
+              className="inline-flex h-6 flex-none items-center gap-0.5 rounded-full border border-transparent bg-[var(--muted)] px-0.5"
             >
               {LED_KINDS.map((kind) => (
                 <LatchLed key={kind} kind={kind} server={ledServer} onArm={onArm} variant="dot" />
@@ -297,7 +297,7 @@ export function CardHeader({
             {holdingQty !== null && holdingQty > 0 && (
               <span
                 data-slot="card-summary-holding"
-                className="inline-flex h-[22px] flex-none items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
+                className="inline-flex h-[22px] flex-none items-center gap-1 rounded-full border border-transparent bg-[var(--muted)] px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
               >
                 잔고 <span className="mono">{KRW.format(holdingQty)}주</span>
               </span>

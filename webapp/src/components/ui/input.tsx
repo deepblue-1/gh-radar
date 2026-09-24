@@ -5,7 +5,9 @@ import { cn } from "@/lib/utils"
 
 /**
  * Input — UI-SPEC §3.5
- * - border: var(--input), rounded var(--r), bg var(--bg), color var(--fg)
+ * - border: var(--input), rounded var(--r), bg var(--muted), color var(--fg)
+ *   (B 260924-vj1: `--input` 은 투명 — 평소 테두리는 안 보이고 raised 채움으로 말한다.
+ *    포커스·invalid 테두리 채널은 그대로 살아 있다.)
  * - error: `aria-invalid="true"` 또는 `data-invalid="true"` → border `--destructive`
  * - disabled: opacity 0.5
  * - focus (quick-260912-mvo Q-02): `data-focus-ring="seamless"` 로 전역 Double-Ring 을
@@ -16,7 +18,7 @@ import { cn } from "@/lib/utils"
 const inputVariants = cva(
   [
     "w-full min-w-0 rounded-[var(--r)] border",
-    "border-[var(--input)] bg-[var(--bg)] text-[var(--fg)]",
+    "border-[var(--input)] bg-[var(--muted)] text-[var(--fg)]",
     "px-3 outline-none font-[inherit]",
     "focus-visible:border-[var(--ring)]",
     "transition-[border-color,box-shadow] duration-[120ms]",

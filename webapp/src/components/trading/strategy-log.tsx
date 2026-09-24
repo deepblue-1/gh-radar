@@ -276,7 +276,7 @@ export function StrategyLog({ entries, variant = 'card', emptyTitle, className }
     return (
       <section data-slot="strategy-log" data-variant="embed" className={cn('min-w-0', className)}>
         {entries.length === 0 ? (
-          <div className="m-[var(--s-3)] rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+          <div className="m-[var(--s-3)] rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
             <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
               {emptyTitle ?? '아직 기록이 없어요'}
             </b>
@@ -328,7 +328,7 @@ export function StrategyLog({ entries, variant = 'card', emptyTitle, className }
       </h3>
 
       {entries.length === 0 ? (
-        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
             아직 반영된 이벤트가 없어요
           </b>

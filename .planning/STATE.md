@@ -34,7 +34,7 @@ Plans completed: 218 / 233
 Status: 라운드 4 실행 완료 · 재검증(-R4) 대기 · relay 미배포 — 18-36 전량 게이트 green · 18-VALIDATION §Gap Closure R4 7행 전부 닫힘 · TRADE-06~09 Pending 유지
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-24 — Per-Plan 메트릭 47행 STATE-ARCHIVE 이관(fast) / 이전: Completed quick task 260924-blo: STATE.md 정리(966→216줄, 아카이브 4문서 분리)
+Last activity: 2026-09-25 - Completed quick task 260924-vj1: 토스 B 테마 실험 적용 (브랜치 theme/toss-b)
 
 Progress: [█████████░] 93%
 
@@ -140,6 +140,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260924-vj1 | **토스 B 테마 실험(브랜치 theme/toss-b · 미병합)** — 스케치 001 B안 전역 리스킨: TDS 다크/라이트 토큰 · 무테 면 · radius 상향 · Pretendard tabular 숫자 · 알약 세그먼트 · 종목상세 풀폭 띠+폰 주문하기 CTA · 사다리/폼/카드 표면. §2.2b 경계·`--lw` 불변. 스케치 002(호가주문 토스식: 리스트+바텀시트·자체 키패드·데스크톱 인라인) 채택안 기록. typecheck 0 · webapp 1681/1 skip · build 0 · 갤러리 132장 가로 넘침 0 · Vercel 프리뷰 확인 | 2026-09-24 | — | [260924-vj1-b-theme-toss-b](./quick/260924-vj1-b-theme-toss-b/) |
 | 260923-nvr | **VI 해제된 발동 숨김** — gh-trade `VIOrderItem.vi_released`(슬롯 36, jsv) 동기화: relay 디코드 · shared `viReleased?` · 작업대 VI 칩·표·미확인 수에서 해제 항목 제외(설정 중지 요약은 전체). relay 605 · webapp 1094 · Playwright 54/0. gh-trade 실서버·relay 배포 뒤 동작 | 2026-09-23 | — | [260923-nvr-vi-released-hide](./quick/260923-nvr-vi-released-hide/) |
 | 260923-m23 | **정정확인 수량 캡 대응(gh-trade a940b25f·a70f6ab7)** — relay `dma_orders` 정정 모델링: 정정 행 qty 를 hub 66/67 기준 이동 수량으로 캡(요청 에코 유령 잔량 제거) · 원주문 행 `modified_qty` 기록·전량 이동 시 종결 `modified` · CAS 수량 경로 일반화(E-before-M 재판정) · 자동 정정 행 order_type M · 웹앱 「정정」 표시. 새 마이그레이션 `20260923120000_dma_orders_modified.sql`(원격 미적용). relay 630 · webapp orders-api 16 · pgTAP 15 ok. 배포 순서: 마이그레이션 → relay → push | 2026-09-23 | 96b166d | [260923-m23-dma-orders](./quick/260923-m23-dma-orders/) |
 | 260923-onn | 작업대 카드 안 탭(정보\|미체결 N\|잔고\|로그 N 교체) + 접힌 카드 요약(LED 점 3개 · 미체결 N · 잔고 N주) — 2026-09-23 목업 채택안 ①A/②A. LatchLed variant=dot · card-account-slice 순수 함수 · card-tabs · AccountPanel stock 스코프 임베드 · 선택 토글 헬퍼 공유. build 0 · webapp 1561/1 skip · Playwright trading-workbench 38/0 | 2026-09-23 | 381dd52 | [260923-onn-wb-card-tabs-summary-led-3-n-n-2026-09-2](./quick/260923-onn-wb-card-tabs-summary-led-3-n-n-2026-09-2/) |

@@ -73,7 +73,7 @@ export function UserSection() {
         <button
           type="button"
           aria-haspopup="menu"
-          className="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-[var(--bg)]"
+          className="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-[var(--muted)]"
         >
           {renderAvatar("size-8")}
           <span className="max-w-[140px] truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">

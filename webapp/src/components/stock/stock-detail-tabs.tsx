@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 /**
  * StockDetailTabs — Phase 15 Plan 11 · RELAY-01.
@@ -23,6 +24,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
  *   T4 탭 바 sticky
  *   T5 shadcn 공식 `tabs`(Radix) — ←/→ · Home/End 키보드는 Radix 기본 동작 상속
  *   T6 `호가주문` 패널만 넓은 컨테이너, 나머지 3탭은 `max-w-4xl`
+ *   B(260924-vj1) 토스 스킨 — 16px/600 탭 바(2px fg 밑줄 + 옅은 1px 기준선), 폰(<768) 하단 고정
+ *      「주문하기」 CTA(호가주문 탭으로 전환, 그 탭에선 사라짐), 라이트 호가주문 탭 회색 면 + 흰 카드
  *   T8 한 번 연 `차트 · 종목정보 · 뉴스토론` 패널은 떠나도 언마운트하지 않고 숨긴다(forceMount +
  *      `data-[state=inactive]:hidden`). Radix 기본은 비활성 패널을 언마운트해 재방문마다 섹션이
  *      다시 마운트·재조회되고 스켈레톤이 떴다. 열지 않은 탭은 여전히 마운트하지 않는다(첫 진입 비용
@@ -61,7 +64,7 @@ function toTabValue(raw: string | null): TabValue {
  * T8 — 이 3탭은 한 번 열면 계속 마운트되므로 비활성일 때 display:none 으로 숨긴다.
  */
 const NARROW_PANEL =
-  'mx-auto w-full max-w-4xl pt-[var(--s-5)] data-[state=inactive]:hidden';
+  'mx-auto w-full max-w-4xl pt-0 data-[state=inactive]:hidden';
 
 export interface StockDetailTabsProps {
   code: string;
@@ -115,23 +118,28 @@ export function StockDetailTabs({
     [],
   );
 
+  // B — 폰 하단 고정 「주문하기」 CTA 는 호가주문 탭이 아닐 때만 그린다(그 탭에선 더티 액션 바와
+  // 겹치지 않게 언마운트). 보일 때는 Tabs 루트 아래 여백 84px 로 마지막 콘텐츠가 가려지지 않게 한다.
+  const showOrderCta = active !== 'orderbook';
+
   return (
     <Tabs
       value={active}
       onValueChange={handleValueChange}
       data-stock-code={code}
-      className="flex-col gap-0"
+      className={cn('flex-col gap-0', showOrderCta && 'max-md:pb-[84px]')}
     >
       {/*
-        T4 — sticky 탭 바. AppShell 의 `main` 이 스크롤 컨테이너(`overflow-auto p-2 lg:p-6`) 이므로
-        `top-0` 은 그 패딩 박스 상단에 고정된다. `-mx-2 px-2 lg:-mx-6 lg:px-6` 은 좌우 여백
-        (모바일 8px · >=lg 24px)을 가로질러 바가 스크롤 폭을 꽉 채우게 한다 — 없으면 스크롤된
+        T4 — sticky 탭 바. AppShell 의 `main` 이 스크롤 컨테이너(`overflow-auto p-2 md:p-4 lg:p-6`) 이므로
+        `top-0` 은 그 패딩 박스 상단에 고정된다. `-mx-2 px-2 md:-mx-4 md:px-4 lg:-mx-6 lg:px-6` 은 좌우 여백
+        (8px · 768↑ 16px · 1024↑ 24px)을 가로질러 바가 스크롤 폭을 꽉 채우게 한다 — 없으면 스크롤된
         콘텐츠가 바 좌우로 비쳐 보인다. ★ 상쇄 값이 본문 패딩과 **같은 브레이크포인트로 갈려야**
-        한다. 한쪽만 고치면 모바일에서 바가 좌우로 16px 씩 삐져나간다.
+        한다. 한쪽만 고치면 바가 좌우로 삐져나가거나 덜 퍼진다(260924-vj1 전에는 md 단계가 빠져
+        768~1023 에서 바가 8px 덜 퍼졌다).
       */}
       <div
         ref={tabBarRef}
-        className="sticky top-0 z-20 -mx-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 lg:-mx-6 lg:px-6"
+        className="sticky top-0 z-20 -mx-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 md:-mx-4 md:px-4 lg:-mx-6 lg:px-6"
       >
         <TabsList
           variant="line"
@@ -142,7 +150,7 @@ export function StockDetailTabs({
             <TabsTrigger
               key={t.v}
               value={t.v}
-              className="h-[46px] flex-none rounded-none border-b-2 border-transparent px-[14px] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--fg)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--fg)] data-[state=active]:shadow-none"
+              className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[16px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--fg)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--fg)] data-[state=active]:shadow-none"
             >
               {t.label}
             </TabsTrigger>
@@ -160,14 +168,16 @@ export function StockDetailTabs({
       </TabsContent>
 
       {/*
-        T6 — `호가주문` 만 `max-w` 해제. 좌우 여백(모바일 8px · >=lg 24px)은 AppShell `main` 의
-        `p-2 lg:p-6` 이 그대로 제공하므로 여기서 패딩을 더하지 않는다(더하면 두 배가 되어
-        계약을 벗어난다).
+        T6 — `호가주문` 만 `max-w` 해제. 좌우 여백은 AppShell `main` 의 `p-2 md:p-4 lg:p-6` 이 정한다.
+        B(260924-vj1) — 라이트에서 흰 바탕 위 흰 카드가 사라지므로 이 패널만 `--surface` 회색 면을
+        좌우·아래로 bleed 한다(`-mx-* px-*` · `-mb-*`, main 램프와 같은 값). 음수 마진과 같은 패딩이
+        상쇄되어 **콘텐츠 박스 폭(= `@container/lc` 폭)은 bleed 전과 같다** — `w-full` 을 남기면
+        박스가 거터×2 만큼 좁아져 §2.2b 밴드 전환 지점이 움직이므로 `w-auto` 여야 한다.
       */}
       <TabsContent
         value="orderbook"
         data-testid="stock-tab-panel-orderbook"
-        className="w-full pt-[var(--s-5)]"
+        className="-mx-2 -mb-2 w-auto bg-[var(--surface)] px-2 pt-3 pb-5 md:-mx-4 md:-mb-4 md:px-4 lg:-mx-6 lg:-mb-6 lg:px-6"
       >
         {orderbook}
       </TabsContent>
@@ -189,6 +199,29 @@ export function StockDetailTabs({
       >
         {news}
       </TabsContent>
+
+      {/*
+        B — 폰(<768) 하단 고정 「주문하기」 CTA. 기존 탭 전환 경로(`handleValueChange` — 한 클릭 = 기록 1개
+        가드 · pushState · scrollIntoView)를 그대로 재사용한다(새 내비게이션 경로 0).
+        ★ `position: fixed` 지만 조상에 `container-type` 이 없는 자리(탭 셸 루트)라 §2.2b 의 컨테이닝
+          블록 함정에 걸리지 않는다. 뷰포트 `md` 분기는 앱 셸 층이라 상따 본문 컨테이너 쿼리 규칙과
+          충돌하지 않는다. 챗 FAB 는 globals.css 가 이 바가 있을 때만 위로 들어 올린다.
+      */}
+      {showOrderCta && (
+        <div
+          data-slot="detail-order-cta-bar"
+          className="fixed inset-x-0 bottom-0 z-30 bg-[linear-gradient(to_bottom,transparent,var(--bg)_40%)] px-4 pt-2.5 pb-[calc(12px+env(safe-area-inset-bottom))] md:hidden"
+        >
+          <button
+            type="button"
+            data-slot="detail-order-cta"
+            onClick={() => handleValueChange('orderbook')}
+            className="h-[54px] w-full rounded-[16px] bg-[var(--up)] text-[16.5px] font-semibold text-white"
+          >
+            주문하기
+          </button>
+        </div>
+      )}
     </Tabs>
   );
 }

@@ -365,7 +365,7 @@ export function StockSearchField({
             `components/ui/command.tsx` CommandInput 주석. 16px 도 `h-9` 안에 들어가 위 한 쌍은 그대로다.
         */
         data-focus-ring="seamless"
-        className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-[var(--input)] bg-[var(--bg)] px-2.5 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
+        className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-2.5 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
       />
       {trailing?.({
         canCommit: activeRow !== null,
@@ -382,7 +382,7 @@ export function StockSearchField({
           aria-label="종목 검색 결과"
           /* 위 `onBlur` 주석 참조 — 클릭 도중 포커스가 입력에서 떠나지 않게 하는 절반이다. */
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute inset-x-0 top-10 z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] p-1 shadow-lg"
+          className="absolute inset-x-0 top-10 z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--popover)] p-1 shadow-lg"
         >
           {results.length === 0 ? (
             /*

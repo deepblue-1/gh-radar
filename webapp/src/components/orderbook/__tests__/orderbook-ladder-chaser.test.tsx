@@ -321,7 +321,7 @@ describe('OrderbookLadder — 상따 변형', () => {
       ★ 「tabindex 가 하나도 없다」가 **아니다**(16-17 정정).
 
       금지 대상은 **가격 행·셀의 roving tabindex** 다. 반면 좁은 폭 트리의 스크롤
-      박스(`ladder-scroll`)는 340px 안에 20행을 담고 그 안에 포커스 가능한 자식이
+      박스(`ladder-scroll`)는 440px 안에 20행을 담고 그 안에 포커스 가능한 자식이
       하나도 없으므로, 박스 자신이 tab stop 이 **아니면** 키보드만 쓰는 사용자가
       매수 10단에 닿을 방법이 사라진다 — WCAG 2.1.1 위반이고 axe
       `scrollable-region-focusable`(serious)이 실제로 잡았다(16-17 a11y 확장).
@@ -329,7 +329,7 @@ describe('OrderbookLadder — 상따 변형', () => {
       ★ 260911-w5h — 사다리 아래 **compact 체결 테이프**가 들어오면서 같은 조건의 스크롤
         영역이 하나 더 생겼다(`tape-scroll`, `max-h-[200px]`).
       ★ 260912-k2x — **2단 트리**가 신설되면서 그 테이프가 한 벌 더 생겼다.
-      ★ quick-260912-mvo Q-07 — 2단 트리의 호가표가 **240px 스크롤 박스**(`ladder-scroll-two`)
+      ★ quick-260912-mvo Q-07 — 2단 트리의 호가표가 **320px 스크롤 박스**(`ladder-scroll-two`)
         안으로 들어갔다. 20행을 통째로 펼치면 480px 이라 옆 폼과 높이가 크게 어긋났다.
         단수를 자른 것이 **아니라** 박스 높이만 자른 것이므로, 이 박스도 앞의 둘과 **같은
         이유로** tab stop 이어야 한다 — 안에 포커스 가능한 자식이 없어서, 박스가 포커스를
@@ -339,8 +339,8 @@ describe('OrderbookLadder — 상따 변형', () => {
         계약은 「**스크롤 영역마다 tab stop 1개, 그리고 행에는 0개**」이고 DOM 순서까지
         고정한다(바뀐 것은 규칙이 아니라 그 규칙이 적용되는 영역의 개수다):
           · 3단 트리 — 스크롤 영역 없음(표가 통째로 보인다)
-          · 2단 트리 — `ladder-scroll-two`(240px 박스 안의 호가 20행)
-          · 1단 트리 — `ladder-scroll`(340px 박스 안의 호가 20행)
+          · 2단 트리 — `ladder-scroll-two`(320px 박스 안의 호가 20행)
+          · 1단 트리 — `ladder-scroll`(440px 박스 안의 호가 20행)
           · 트리 밖 공용 블록 — `tape-scroll`(compact 체결 테이프 1벌)
         전부 안에 상시 포커스 가능한 자식이 없다. 행에 하나라도 붙으면 마지막 단언이 깨진다.
         범위 단언으로 무르게 두지 않는다 — 「하나 늘어도 통과」는 게이트가 아니다.
@@ -478,12 +478,12 @@ describe('OrderbookLadder — 상따 변형', () => {
     색으로만 말했으며, 체결내역이 아예 없었다. 마커를 걷는 대신 **상한가 = 행 배경 /
     최근 체결가 = 굵기**로 옮기고 둘 다 `sr-only` 로도 읽히게 했다.
   */
-  it('⑫ 좁은 폭 — 340px 박스 · 34px 행 · 20행 · outline 0', () => {
+  it('⑫ 좁은 폭 — 440px 박스 · 44px 행 · 20행 · outline 0 (토스 B 260924-vj1)', () => {
     const { container } = renderChaser();
 
     const box = container.querySelector<HTMLElement>('[data-slot="ladder-scroll"]')!;
-    // 340 = 34 × 10. 「10행 높이 박스 안에서 10단 전부 스크롤」이 확정 규칙이다.
-    expect(box.className).toContain('h-[340px]');
+    // 440 = 44 × 10. 「10행 높이 박스 안에서 10단 전부 스크롤」이 확정 규칙이다(260924-vj1 전 340 = 34 × 10).
+    expect(box.className).toContain('h-[440px]');
     expect(box.className).toContain('overflow-y-auto');
 
     const rows = Array.from(
@@ -491,7 +491,7 @@ describe('OrderbookLadder — 상따 변형', () => {
     );
     expect(rows).toHaveLength(20);
     for (const row of rows) {
-      expect(row.className).toContain('h-[34px]');
+      expect(row.className).toContain('h-[44px]');
       // 현재가 행 outline 을 걷었다 — 최근 체결가 굵기가 그 역할을 대신한다.
       expect(row.className).not.toContain('outline');
     }
@@ -511,11 +511,14 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(upperRows[0]!.querySelector('.sr-only ~ .sr-only')?.textContent).toContain('상한가');
 
     const boldRows = rows.filter(
-      (r) => r.querySelector('b')?.className.includes('font-extrabold') === true,
+      // 토스 B 타이포 — 최근 체결가 행만 700(`font-bold`), 나머지 500(`font-medium`).
+      (r) => r.querySelector('b')?.className.includes('font-bold') === true,
     );
     expect(boldRows).toHaveLength(1);
     expect(boldRows[0]!.textContent).toContain('99,900');
     expect(boldRows[0]!.textContent).toContain('최근 체결가');
+    // 토스 B — 최근 체결가 행은 raised 면(`--muted`)도 함께 받는다(굵기 채널은 그대로).
+    expect(boldRows[0]!.className).toContain('bg-[var(--muted)]');
     // 나머지 행은 전부 보통 굵기다 — 굵기가 「여기」를 말하는 유일한 축이기 때문이다.
     for (const r of rows) {
       if (r === boldRows[0]) continue;
@@ -643,18 +646,18 @@ describe('OrderbookLadder — 상따 변형', () => {
 
     // 최근 체결가 = 굵기 + 보조 텍스트.
     const boldRows = rows.filter(
-      (r) => r.querySelector('[data-slot="ladder-price-two"]')?.className.includes('font-extrabold') === true,
+      (r) => r.querySelector('[data-slot="ladder-price-two"]')?.className.includes('font-bold') === true,
     );
     expect(boldRows).toHaveLength(1);
     expect(boldRows[0]!.textContent).toContain('99,900');
     expect(boldRows[0]!.textContent).toContain('최근 체결가');
 
-    // 잔량 바 색은 방향을 따른다 — 매도 `--down` 16% / 매수 `--up` 16% 믹스.
+    // 잔량 바 색은 방향을 따른다 — 매도 `--ask-bar`(하락 파랑 틴트) / 매수 `--bid-bar`(상승 빨강 틴트).
     for (const row of rows) {
       const bar = row.querySelector<HTMLElement>('[data-slot="ladder-bar-two"]');
       if (bar === null) continue;
       expect(bar.className).toContain(
-        row.dataset.side === 'ask' ? 'var(--down)_16%' : 'var(--up)_16%',
+        row.dataset.side === 'ask' ? 'bg-[var(--ask-bar)]' : 'bg-[var(--bid-bar)]',
       );
     }
 
@@ -684,18 +687,23 @@ describe('OrderbookLadder — 상따 변형', () => {
   });
 
   /* ---------------------------------------------------------------------
-     quick-260912-mvo Q-07 — 2단 호가를 240px(=10행) 스크롤 박스에 넣는다.
+     quick-260912-mvo Q-07 — 2단 호가를 10행 높이 스크롤 박스에 넣는다(260924-vj1: 320px = 32 × 10).
      **단수를 자른 것이 아니라 박스 높이만 잘랐다** — 20행은 전부 살아 있다.
      --------------------------------------------------------------------- */
 
-  it('⑰e 2단 호가가 240px 스크롤 박스 안에 있고 그 안의 행이 **20개 그대로**다 (T-mvo-04)', () => {
+  it('⑰e 2단 호가가 320px 스크롤 박스 안에 있고 그 안의 행이 **20개 그대로**다 (T-mvo-04)', () => {
     const { container } = renderChaser();
 
     const box = container.querySelector<HTMLElement>('[data-slot="ladder-scroll-two"]')!;
     expect(box).not.toBeNull();
 
-    // 240 = 24 × 10 이고 24px 은 `twoRow` 가격 셀의 `h-6` 이다 — 둘은 한 쌍이다.
-    expect(box.className).toContain('h-[240px]');
+    // 320 = 32 × 10 이고 32px 은 `twoRow` 셀의 `LADDER_ROW_H`(h-8) 다 — 둘은 한 쌍이다.
+    expect(box.className).toContain('h-[320px]');
+    const twoCells = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="ladder-price-cell-two"]'),
+    );
+    expect(twoCells).toHaveLength(20);
+    for (const cell of twoCells) expect(cell.className).toContain('h-8');
     expect(box.className).toContain('overflow-y-auto');
     /*
       ★ 박스 안에 포커스 가능한 자식이 없다 — `tabIndex=0` 이 없으면 키보드만 쓰는 사용자가
@@ -735,10 +743,10 @@ describe('OrderbookLadder — 상따 변형', () => {
     expect(one.querySelector('[data-slot="ladder-scroll-two"]')).toBeNull();
     // 3단 표는 여전히 스크롤 박스가 없다(표가 통째로 보인다).
     expect(three.querySelector('[data-slot="ladder-scroll"]')).toBeNull();
-    // 1단 사다리의 340px 박스는 그대로다.
+    // 1단 사다리의 440px 박스는 그대로다.
     const oneBox = one.querySelector<HTMLElement>('[data-slot="ladder-scroll"]')!;
     expect(oneBox).not.toBeNull();
-    expect(oneBox.className).toContain('h-[340px]');
+    expect(oneBox.className).toContain('h-[440px]');
     expect(oneBox).toHaveAttribute('tabindex', '0');
   });
 });

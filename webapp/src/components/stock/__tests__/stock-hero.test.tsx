@@ -67,10 +67,12 @@ describe('StockHero', () => {
     expect(screen.getByText('+1,200')).toBeInTheDocument();
   });
 
-  it('Test 3 — Hero 현재가 요소에 반응형 타입 클래스 존재', () => {
+  it('Test 3 — Hero 현재가 요소에 토스 B 타입 클래스 존재 (30px/700, 폰·데스크톱 동일 — 260924-vj1)', () => {
     render(<StockHero stock={FIXTURE_SAMSUNG} />);
     const priceEl = screen.getByTestId('stock-hero-price');
-    expect(priceEl.className).toContain('text-[length:var(--t-h2)]');
-    expect(priceEl.className).toContain('md:text-[length:var(--t-h1)]');
+    expect(priceEl.className).toContain('text-[30px]');
+    expect(priceEl.className).toContain('font-bold');
+    // 타이포 교정 — extrabold(800) 금지
+    expect(priceEl.className).not.toContain('font-extrabold');
   });
 });

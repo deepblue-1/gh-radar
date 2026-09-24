@@ -412,7 +412,7 @@ export function OrderPanel({
         <span className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">주문</span>
         <span className="flex-1" />
         {/* 주문 유형 고정 칩 — 시장가·정정은 v1 범위 밖이다(D-21). 변경 경로 없음. */}
-        <span className="rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--muted-fg)]">
+        <span className="rounded-[var(--r-sm)] border border-transparent bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--muted-fg)]">
           지정가 · 보통
         </span>
       </div>
@@ -454,7 +454,7 @@ export function OrderPanel({
             value={selectedAccountNo}
             onChange={(e) => onAccountChange(e.target.value)}
             disabled={accountOptions.length === 0}
-            className="mono h-8 w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--bg)] px-2 text-[length:var(--t-caption)] text-[var(--fg)] disabled:opacity-50"
+            className="mono h-8 w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--muted)] px-2 text-[length:var(--t-caption)] text-[var(--fg)] disabled:opacity-50"
           >
             {accountOptions.length === 0 ? (
               <option value="">계좌 확인 중…</option>
@@ -605,7 +605,7 @@ function ResultBanner({ result }: { result: OrderResult }) {
       <div
         role="status"
         data-testid="order-result-unknown"
-        className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
+        className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
       >
         <span className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
           접수 응답이 늦어지고 있어요
@@ -636,7 +636,7 @@ function ResultBanner({ result }: { result: OrderResult }) {
     <div
       role="status"
       data-testid="order-result-accepted"
-      className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
+      className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
     >
       <span className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
         주문이 접수됐어요 · 주문번호 {result.orderNo}

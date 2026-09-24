@@ -90,7 +90,8 @@ export function ViTriggerStrip({
     <div
       data-slot="vi-trigger"
       className={cn(
-        'min-w-0 overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)]',
+        // 토스 B `.strip`(260924-vj1) — 무테 카드 면(테두리 색만 투명 · 1px 기하 유지).
+        'min-w-0 overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--card)]',
         className,
       )}
     >
@@ -98,7 +99,7 @@ export function ViTriggerStrip({
       <section
         data-slot="vi-trigger-strip"
         aria-label="VI 발동"
-        className="flex min-w-0 items-center gap-2 px-2.5 py-2"
+        className="flex min-w-0 items-center gap-2 px-2.5 py-2.5"
       >
         <div className="flex flex-none items-center gap-1.5 text-[12px] font-bold text-[var(--fg)]">
           <span data-testid="vi-strip-label">VI</span>
@@ -144,7 +145,7 @@ export function ViTriggerStrip({
             setOpen(next);
             writePanelsPref({ vi: next });
           }}
-          className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
+          className="h-[26px] flex-none rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--raised-2)]"
         >
           {open ? '접기' : '더보기'}
         </button>
@@ -192,7 +193,7 @@ function ViChip({ item }: { item: RelayViOrderItem }) {
         'inline-flex h-[30px] flex-none items-center gap-1.5 rounded-full border py-0 pr-2.5 pl-2 text-[12px] whitespace-nowrap',
         unconfirmed
           ? 'border-[var(--new-bd)] bg-[var(--new-bg)]'
-          : 'border-[var(--border)] bg-[var(--bg)]',
+          : 'border-transparent bg-[var(--muted)]',
       )}
     >
       <b

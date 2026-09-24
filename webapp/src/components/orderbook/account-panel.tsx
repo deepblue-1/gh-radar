@@ -581,7 +581,7 @@ export function AccountPanel({
             value={selectedAccountNo}
             onChange={(e) => onAccountChange?.(e.target.value)}
             disabled={(accounts?.length ?? 0) === 0}
-            className="mono h-8 min-w-0 flex-1 rounded-[var(--r)] border border-[var(--input)] bg-[var(--bg)] px-2 text-[length:var(--t-caption)] text-[var(--fg)] disabled:opacity-50"
+            className="mono h-8 min-w-0 flex-1 rounded-[var(--r)] border border-[var(--input)] bg-[var(--muted)] px-2 text-[length:var(--t-caption)] text-[var(--fg)] disabled:opacity-50"
           >
             {(accounts?.length ?? 0) === 0 ? (
               <option value="">계좌 확인 중…</option>
@@ -1242,7 +1242,7 @@ function EmbeddedSection({
                             {origin !== undefined && (
                               <span
                                 data-slot="account-origin-badge"
-                                className="flex-none rounded-[4px] border border-[var(--border)] px-1 text-[10px] text-[var(--muted-fg)]"
+                                className="flex-none rounded-[4px] border border-transparent bg-[var(--muted)] px-1 text-[10px] text-[var(--muted-fg)]"
                               >
                                 {origin}
                               </span>
@@ -1268,7 +1268,7 @@ function EmbeddedSection({
                               {origin !== undefined && (
                                 <span
                                   data-slot="account-origin-badge"
-                                  className="flex-none rounded-[4px] border border-[var(--border)] px-1 text-[10px] text-[var(--muted-fg)]"
+                                  className="flex-none rounded-[4px] border border-transparent bg-[var(--muted)] px-1 text-[10px] text-[var(--muted-fg)]"
                                 >
                                   {origin}
                                 </span>
@@ -1431,7 +1431,7 @@ function CancelBanner({ result, polite = false }: { result: CancelResult; polite
       <div
         role="status"
         data-testid="cancel-result-unknown"
-        className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
+        className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
       >
         <span className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
           취소 응답이 늦어지고 있어요
@@ -1461,7 +1461,7 @@ function CancelBanner({ result, polite = false }: { result: CancelResult; polite
     <div
       role="status"
       data-testid="cancel-result-accepted"
-      className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
+      className="flex flex-col gap-0.5 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
     >
       <span className="text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
         취소 주문이 접수됐어요 · 주문번호 {result.orderNo}
@@ -1476,7 +1476,7 @@ function CancelBanner({ result, polite = false }: { result: CancelResult; polite
 /** 빈 상태 — 중립색만 쓴다(방향색 금지). */
 function EmptyState({ title, body }: { title: string; body?: string }) {
   return (
-    <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+    <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
       <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">{title}</p>
       {body !== undefined && (
         <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">{body}</p>

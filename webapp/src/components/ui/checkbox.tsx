@@ -25,7 +25,8 @@ function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input shadow-sm outline-none transition-colors",
+        // B `.chk` (260924-vj1) — `--input` 이 투명이 되어 미체크 윤곽을 `--muted-fg` 1.5px 로 직접 세운다.
+        "peer flex size-4 shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-[var(--muted-fg)] shadow-sm outline-none transition-colors",
         "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20",

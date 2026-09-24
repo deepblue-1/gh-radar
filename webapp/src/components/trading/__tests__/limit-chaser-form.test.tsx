@@ -1198,8 +1198,8 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
   it('`buyWatchSide` 더티는 세그먼트 **테두리**로 읽힌다 — 링은 붙지 않는다', () => {
     render(<LimitChaserForm {...props()} />);
 
-    // 서버값과 같으면 더티가 아니다.
-    expect(segment().className).toContain('border-[var(--border)]');
+    // 서버값과 같으면 더티가 아니다 — 평소 테두리는 입력과 같은 `--input`(토스 B = 투명) 채널이다.
+    expect(segment().className).toContain('border-[var(--input)]');
     expect(segment().className).not.toContain('border-[var(--primary)]');
 
     // 값을 바꾸면 테두리가 `--primary` 로 간다(라벨이 사라지며 더티가 조용히 사라지지 않는다).
@@ -1224,35 +1224,38 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
   });
 
   /*
-    ★ ② 감시 대상 세그먼트 = **그 선택지의 방향색** (260912-gyz).
-      서버 기본값은 `buyWatchSide:'0'`(매도잔량)이므로 첫 렌더에서 파랑이어야 한다.
-      두 방향을 **둘 다** 단언한다 — 한쪽만 잠그면 반대쪽이 조용히 그룹색(빨강)으로 남는다.
+    ★ ② 감시 대상 세그먼트 — 토스 B(260924-vj1 실험 브랜치)는 선택 항목을 **중립 선택 면**
+      (`--seg-on-*`)으로 칠한다(260912-gyz 의 방향색 선택을 대체). 방향은 버튼 글자(「매도잔량」/
+      「매수잔량」)가 말한다. 두 방향을 **둘 다** 단언한다 — 선택이 한쪽에만 붙고, 그룹 방향색
+      (`--up`/`--down` 틴트)이 새어 들어오지 않아야 한다.
   */
-  it('② 매도잔량이 선택되면 파랑(`--down`)이고 매수잔량은 중립이다', () => {
+  it('② 매도잔량이 선택되면 선택 면(`--seg-on-*`)이고 매수잔량은 중립이다', () => {
     render(<LimitChaserForm {...props()} />);
 
     const ask = within(segment()).getByRole('button', { name: '매도잔량' });
     const bid = within(segment()).getByRole('button', { name: '매수잔량' });
 
-    expect(ask.className).toContain('bg-[var(--down-bg)]');
-    expect(ask.className).toContain('text-[var(--down)]');
-    // 그룹색(매수주문 = `--up`)이 새어 들어오지 않는다 — 그것이 이번에 고친 거짓말이다.
+    expect(ask.className).toContain('bg-[var(--seg-on-bg)]');
+    expect(ask.className).toContain('text-[var(--seg-on-fg)]');
     expect(ask.className).not.toContain('--up-bg');
+    expect(ask.className).not.toContain('--down-bg');
     expect(bid.className).toContain('bg-transparent');
     expect(bid.className).toContain('text-[var(--muted-fg)]');
+    expect(bid.className).not.toContain('--seg-on-bg');
   });
 
-  it('② 매수잔량을 고르면 빨강(`--up`)으로 갈리고 매도잔량이 중립으로 돌아온다', () => {
+  it('② 매수잔량을 고르면 선택 면이 옮겨 가고 매도잔량이 중립으로 돌아온다', () => {
     render(<LimitChaserForm {...props()} />);
 
     fireEvent.click(within(segment()).getByRole('button', { name: '매수잔량' }));
 
     const ask = within(segment()).getByRole('button', { name: '매도잔량' });
     const bid = within(segment()).getByRole('button', { name: '매수잔량' });
-    expect(bid.className).toContain('bg-[var(--up-bg)]');
-    expect(bid.className).toContain('text-[var(--up)]');
+    expect(bid.className).toContain('bg-[var(--seg-on-bg)]');
+    expect(bid.className).toContain('text-[var(--seg-on-fg)]');
+    expect(bid.className).not.toContain('--up-bg');
     expect(ask.className).toContain('bg-transparent');
-    expect(ask.className).not.toContain('--down-bg');
+    expect(ask.className).not.toContain('--seg-on-bg');
   });
 
   it('카드 크롬은 데스크톱에만 있고 `--lw` 가 76/104 로 갈린다 (13px 라벨 + 17px 체크박스)', () => {
@@ -1275,7 +1278,7 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(card.className).not.toContain('[--lw:88px]');
     // 테두리·배경·radius 는 전부 992 컨테이너 접두가 붙어 있다.
     expect(card.className).toContain('@min-[992px]/lc:border');
-    expect(card.className).toContain('@min-[992px]/lc:rounded-[var(--r-lg)]');
+    expect(card.className).toContain('@min-[992px]/lc:rounded-[var(--r-md)]');
     /*
       ★ quick-260912-mvo Q-06 — **같은 명제를 새 기계로 다시 쓴다.**
         「데스크톱에서만 카드 배경이 `--card` 다」는 그대로인데, 그 배경을 직접 거는 유틸리티
@@ -1286,8 +1289,9 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     */
     expect(card.className).toContain('[--card-base:transparent]');
     expect(card.className).toContain('@min-[992px]/lc:[--card-base:var(--card)]');
-    // 방향 카드(매수)의 배경 한 줄은 틴트다 — 틴트가 `--card-base` 위에 섞인다(2026-09-23 전 밴드 틴트).
-    expect(card.className).toContain('bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))]');
+    // 방향 카드(매수)의 배경 한 줄은 카드색이다 — 토스 B(260924-vj1)는 방향 틴트를 걷었다.
+    expect(card.className).toContain('bg-[var(--card-base)]');
+    expect(card.className).not.toContain('var(--up)_5%');
     // 옛 뷰포트 분기가 한 톨도 남지 않았다.
     expect(card.className).not.toContain('min-[1280px]:');
     // 맨몸 크롬 유틸이 남아 있지 않다(모바일에서 그대로 걸린다).
@@ -1295,12 +1299,15 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(card.className).not.toMatch(/(^|\s)bg-\[var\(--card\)\]/);
   });
 
-  it('입력 높이가 양쪽 폭 모두 38px 이고 글꼴이 모바일 16px · 데스크톱 15px 이다', () => {
+  it('입력 높이가 양쪽 폭 모두 46px(토스 B) 이고 글꼴이 모바일 16px · 데스크톱 15px 이다', () => {
     render(<LimitChaserForm {...props()} />);
 
     const input = screen.getByLabelText(/매수가격/) as HTMLInputElement;
     const wrap = input.parentElement!;
-    expect(wrap.className).toContain('h-[38px]');
+    expect(wrap.className).toContain('h-[46px]');
+    // 토스 B — raised 채움. 가로 패딩은 불변(본문 700 = 주문금액 잘림 여유 0).
+    expect(wrap.className).toContain('bg-[var(--muted)]');
+    expect(wrap.className).toContain('px-1.5');
     // 높이가 양쪽 폭에서 같아졌으므로 데스크톱 높이 override 가 남아 있으면 안 된다.
     expect(wrap.className).not.toMatch(/:h-\[/);
     /*
@@ -1446,12 +1453,12 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
     expect(group.getAttribute('role')).toBe('group');
     expect(group.getAttribute('aria-label')).toBe('감시 대상');
     expect(group.className).toContain('w-full');
-    expect(group.className).toContain('border-[var(--border)]');
+    expect(group.className).toContain('border-[var(--input)]');
     fireEvent.click(within(group).getByRole('button', { name: '매수잔량' }));
     expect(segment().className).toContain('border-[var(--primary)]');
   });
 
-  it('Q-06 — 매수/매도 카드가 방향색 5% 틴트를 **모든 밴드에서** 갖는다 (탭 화면도 펼친 화면처럼 · 2026-09-23)', () => {
+  it('Q-06 → 토스 B — 매수/매도 카드 배경은 카드색 한 줄이고 방향은 체크박스 색이 말한다 (260924-vj1)', () => {
     render(<LimitChaserForm {...props()} />);
 
     const buy = document.querySelector<HTMLElement>('[data-side="buy"]')!;
@@ -1463,8 +1470,14 @@ describe('⑰ 모바일 폼 표시 계약 (260911-w5h)', () => {
       ★ 배경 선언은 요소당 **하나뿐**이다 — 접두 없는 틴트 한 줄. 둘이면 캐스케이드로 다툰다(ⓑ).
     */
     const bgOf = (el: HTMLElement) => el.className.split(/\s+/).filter((c) => /(^|:)bg-/.test(c));
-    expect(bgOf(buy)).toEqual(['bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))]']);
-    expect(bgOf(sell)).toEqual(['bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))]']);
+    expect(bgOf(buy)).toEqual(['bg-[var(--card-base)]']);
+    expect(bgOf(sell)).toEqual(['bg-[var(--card-base)]']);
+    // 폰 bleed 그림자·clip-path 도 함께 걷혔다.
+    expect(buy.className).not.toContain('shadow-[0_0_0_8px');
+    expect(buy.className).not.toContain('clip-path');
+    // 방향 채널(체크박스 색)은 그대로다.
+    expect(buy.className).toContain('[--lc-accent:var(--up)]');
+    expect(sell.className).toContain('[--lc-accent:var(--down)]');
   });
 });
 

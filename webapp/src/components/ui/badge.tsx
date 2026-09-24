@@ -23,10 +23,11 @@ const badgeVariants = cva(
       variant: {
         default:
           "bg-[var(--primary)] text-[var(--primary-fg)]",
+        // B `.pill` — raised 채움 · 무테 (260924-vj1)
         secondary:
-          "bg-[var(--secondary)] text-[var(--secondary-fg)] border-[var(--border)]",
+          "bg-[var(--muted)] text-[var(--secondary-fg)] border-transparent",
         outline:
-          "bg-transparent text-[var(--fg)] border-[var(--border)]",
+          "bg-[var(--muted)] text-[var(--muted-fg)] border-transparent",
         up: "bg-[var(--up-bg)] text-[var(--up)]",
         down: "bg-[var(--down-bg)] text-[var(--down)]",
         flat: "bg-[var(--muted)] text-[var(--flat)]",

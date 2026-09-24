@@ -112,6 +112,7 @@ export function ChatFab() {
       <button
         ref={measureRef}
         type="button"
+        data-slot="chat-fab"
         aria-label={label}
         onClick={handleClick}
         className="fixed right-6 bottom-6 z-40 flex h-14 min-w-14 items-center gap-[var(--s-2)] rounded-full bg-[var(--primary)] px-5 text-[var(--primary-fg)] shadow-[0_8px_24px_oklch(0_0_0/0.16)] transition-[background,opacity] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)] active:opacity-90"

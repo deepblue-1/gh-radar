@@ -94,6 +94,16 @@ const FLASH_MS = 140;
 const BAR_MIN_PCT = 3;
 /** 플래시 배경 유틸 — 방향색이 아닌 중립 `--fg` 틴트다(색 의미 오염 방지). */
 const FLASH_BG = 'motion-safe:bg-[color-mix(in_oklch,var(--fg)_14%,transparent)]';
+/**
+ * 2단(본문 700~829)·3단(본문 830~) 사다리 **행 높이** — sketch B = 44 · 데스크톱 밀도 절충 32.
+ * 토스 B(260924-vj1)는 폰 1단 사다리만 44px 로 올리고, 넓은 밴드는 한 화면에 20행이 들어오도록
+ * 32px 로 절충했다. 44 로 바꾸려면 이 상수와 바로 아래 `LADDER_BOX_TWO_H`(= 행 × 10) 를
+ * **함께** 고친다(`h-11` · `h-[440px]`). 3단 표는 고정 박스가 없어 행만 커진다.
+ * ★ 세로만 바뀐다 — 3단 400px 표의 글자 크기·굵기·마커 슬롯·열 폭은 불변(§2.2b 400 하한).
+ */
+const LADDER_ROW_H = 'h-8';
+/** 2단 호가 10행 높이 스크롤 박스 — `LADDER_ROW_H`(32px) × 10. 두 값은 한 쌍이다. */
+const LADDER_BOX_TWO_H = 'h-[320px]';
 /** 배경만 부드럽게 사라지게 한다. 폭·위치는 절대 전환 대상이 아니다. */
 const FLASH_FADE =
   'motion-safe:transition-[background-color] motion-safe:duration-150 motion-reduce:transition-none';
@@ -323,7 +333,7 @@ function StandardLadder({
         data-density="compact"
         data-slot="orderbook-ladder"
         className={cn(
-          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center',
+          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center',
           className,
         )}
       >
@@ -382,7 +392,7 @@ function StandardLadder({
           {isAsk && pct > 0 && (
             <span
               aria-hidden="true"
-              className="absolute top-1 bottom-1 right-0 z-0 rounded-[2px] bg-[color-mix(in_oklch,var(--down)_16%,transparent)]"
+              className="absolute top-1 bottom-1 right-0 z-0 rounded-[6px] bg-[var(--ask-bar)]"
               style={{ width: `${pct}%` }}
             />
           )}
@@ -420,7 +430,7 @@ function StandardLadder({
           {!isAsk && pct > 0 && (
             <span
               aria-hidden="true"
-              className="absolute top-1 bottom-1 left-0 z-0 rounded-[2px] bg-[color-mix(in_oklch,var(--up)_16%,transparent)]"
+              className="absolute top-1 bottom-1 left-0 z-0 rounded-[6px] bg-[var(--bid-bar)]"
               style={{ width: `${pct}%` }}
             />
           )}
@@ -742,7 +752,7 @@ function ChaserLadder({
         data-slot="orderbook-ladder"
         data-variant="chaser"
         className={cn(
-          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center',
+          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center',
           className,
         )}
       >
@@ -765,7 +775,7 @@ function ChaserLadder({
     <th
       scope="row"
       data-slot="ladder-price-cell"
-      className="h-6 overflow-hidden px-1 align-middle font-normal"
+      className={cn(LADDER_ROW_H, 'overflow-hidden px-1 align-middle font-normal')}
     >
       <div
         className={cn(
@@ -780,7 +790,7 @@ function ChaserLadder({
         </span>
         <span
           className={cn(
-            'mono min-w-0 flex-1 truncate text-right text-[length:var(--t-caption)] font-semibold',
+            'mono min-w-0 flex-1 truncate text-right text-[length:var(--t-caption)] font-medium',
             priceTone(row.price, basePrice),
           )}
         >
@@ -844,7 +854,7 @@ function ChaserLadder({
         <th
           scope="row"
           data-slot="ladder-price-cell-two"
-          className="h-6 overflow-hidden px-1.5 align-middle font-normal"
+          className={cn(LADDER_ROW_H, 'overflow-hidden px-1.5 align-middle font-normal')}
         >
           <div className="flex min-w-0 items-center gap-1">
             {/* 색 비의존 — 스크린리더는 단계 라벨로 매도/매수를 안다(세 트리 공통 규약). */}
@@ -857,7 +867,8 @@ function ChaserLadder({
               data-slot="ladder-price-two"
               className={cn(
                 'mono min-w-0 flex-1 truncate text-right',
-                isLast ? 'font-extrabold' : 'font-semibold',
+                // 토스 B 타이포 — 사다리 가격 500, 최근 체결가 행만 700(굵기가 「여기」를 말하는 축).
+                isLast ? 'font-bold' : 'font-medium',
                 priceTone(row.price, basePrice),
               )}
             >
@@ -873,16 +884,14 @@ function ChaserLadder({
             </span>
           </div>
         </th>
-        <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
+        <td className={cn(LADDER_ROW_H, 'relative overflow-hidden px-1.5 py-0.5 align-middle')}>
           {pct > 0 && (
             <span
               aria-hidden="true"
               data-slot="ladder-bar-two"
               className={cn(
-                'absolute top-1 bottom-1 left-0 z-0 rounded-[2px]',
-                isAsk
-                  ? 'bg-[color-mix(in_oklch,var(--down)_16%,transparent)]'
-                  : 'bg-[color-mix(in_oklch,var(--up)_16%,transparent)]',
+                'absolute top-1 bottom-1 left-0 z-0 rounded-[6px]',
+                isAsk ? 'bg-[var(--ask-bar)]' : 'bg-[var(--bid-bar)]',
               )}
               style={{ width: `${pct}%` }}
             />
@@ -903,7 +912,7 @@ function ChaserLadder({
       data-stale={isStale ? 'true' : undefined}
       className={cn('flex min-w-0 flex-col', isStale && 'opacity-[.55]', className)}
     >
-      {/* ── 3단 표 (본문 830~) — 24px 행 · 최근 체결 10건 · 마커 슬롯 ── */}
+      {/* ── 3단 표 (본문 830~) — 32px 행(`LADDER_ROW_H`) · 최근 체결 10건 · 마커 슬롯 ── */}
       <div data-slot="ladder-tree" data-tree="three" className="hidden @min-[830px]/lc:block">
         <table
           aria-label="호가 10단 (매도 10단계 · 매수 10단계) 및 최근 체결 10건"
@@ -925,11 +934,11 @@ function ChaserLadder({
                   onClick={selectOf(row.price)}
                   className={cn(selectOf(row.price) !== undefined && 'cursor-pointer')}
                 >
-                  <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
+                  <td className={cn(LADDER_ROW_H, 'relative overflow-hidden px-1.5 py-0.5 align-middle')}>
                     {pct > 0 && (
                       <span
                         aria-hidden="true"
-                        className="absolute top-1 right-0 bottom-1 z-0 rounded-[2px] bg-[color-mix(in_oklch,var(--down)_16%,transparent)]"
+                        className="absolute top-1 right-0 bottom-1 z-0 rounded-[6px] bg-[var(--ask-bar)]"
                         style={{ width: `${pct}%` }}
                       />
                     )}
@@ -938,7 +947,7 @@ function ChaserLadder({
                     </span>
                   </td>
                   {priceCell(row)}
-                  <td className="h-6" />
+                  <td className={LADDER_ROW_H} />
                 </tr>
               );
             })}
@@ -967,7 +976,7 @@ function ChaserLadder({
                   {/* 최근 체결 1건 — 시각(10px) · 체결가(중립) · 체결량(방향색). */}
                   <td
                     data-slot="ladder-fill-cell"
-                    className="h-6 overflow-hidden p-1 align-middle text-[11px] tracking-[-0.03em]"
+                    className={cn(LADDER_ROW_H, 'overflow-hidden p-1 align-middle text-[11px] tracking-[-0.03em]')}
                   >
                     {trade !== undefined && (
                       <div className="flex min-w-0 items-center gap-1">
@@ -1022,11 +1031,11 @@ function ChaserLadder({
                     )}
                   </td>
                   {priceCell(row)}
-                  <td className="relative h-6 overflow-hidden px-1.5 py-0.5 align-middle">
+                  <td className={cn(LADDER_ROW_H, 'relative overflow-hidden px-1.5 py-0.5 align-middle')}>
                     {pct > 0 && (
                       <span
                         aria-hidden="true"
-                        className="absolute top-1 bottom-1 left-0 z-0 rounded-[2px] bg-[color-mix(in_oklch,var(--up)_16%,transparent)]"
+                        className="absolute top-1 bottom-1 left-0 z-0 rounded-[6px] bg-[var(--bid-bar)]"
                         style={{ width: `${pct}%` }}
                       />
                     )}
@@ -1048,7 +1057,7 @@ function ChaserLadder({
         */}
       </div>
 
-      {/* ── 2단 호가 (본문 700~829) — 260px 폭 · `가격 | 잔량` 2열 · 24px 행 · 240px(=10행) 스크롤 ── */}
+      {/* ── 2단 호가 (본문 700~829) — 260px 폭 · `가격 | 잔량` 2열 · 32px 행 · 320px(=10행) 스크롤 ── */}
       <div
         data-slot="ladder-tree"
         data-tree="two"
@@ -1067,8 +1076,9 @@ function ChaserLadder({
             펼치면 480px 을 먹어 옆 폼과 높이가 크게 어긋났다.
           ★ **단수를 자르지 않았다.** `asks`/`bids` 매핑은 그대로 20행 전부를 렌더하고, 자른
             것은 박스 높이뿐이다 — 5단만 그리면 매수 6~10단을 볼 방법이 사라진다(T-mvo-04).
-          ★ **240 = 24 × 10** 이고 24px 은 `twoRow` 가격 셀의 `h-6` 이다. 한쪽만 고치면
-            마지막 행이 반쯤 잘린다 — 두 숫자는 한 쌍으로 움직인다.
+          ★ **320 = 32 × 10** 이고 32px 은 `twoRow` 셀의 `LADDER_ROW_H`(h-8) 다. 한쪽만 고치면
+            마지막 행이 반쯤 잘린다 — 두 숫자는 한 쌍으로 움직인다(파일 상단 상수 두 개).
+            (260924-vj1 전에는 24 × 10 = 240 이었다.)
           ★ `tabIndex={0}` 은 장식이 아니다. 박스 안에 포커스 가능한 자식이 하나도 없어서,
             박스가 포커스를 못 받으면 **키보드만 쓰는 사용자는 매수 10단을 영영 볼 수 없다**
             (axe `scrollable-region-focusable`, impact serious — 1단 사다리가 같은 이유로
@@ -1081,7 +1091,7 @@ function ChaserLadder({
           ref={scrollTwoRef}
           tabIndex={0}
           data-slot="ladder-scroll-two"
-          className="relative h-[240px] overflow-x-hidden overflow-y-auto"
+          className={cn(LADDER_BOX_TWO_H, 'relative overflow-x-hidden overflow-y-auto')}
         >
           <table
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
@@ -1099,13 +1109,13 @@ function ChaserLadder({
         </div>
       </div>
 
-      {/* ── 1단 사다리 (본문 ~699) — 34px 2줄 행 · 340px(=10행) 스크롤 · 매도1/매수1 경계 중앙 ── */}
+      {/* ── 1단 사다리 (본문 ~699) — 44px 2줄 행 · 440px(=10행) 스크롤 · 매도1/매수1 경계 중앙 ── */}
       <div data-slot="ladder-tree" data-tree="one" className="@min-[700px]/lc:hidden">
         {/*
           ★ `tabIndex={0}` 은 장식이 아니라 **WCAG 2.1.1(키보드) 필수**다 (16-17 a11y 확장이
             실측으로 잡았다 — axe `scrollable-region-focusable`, impact serious).
 
-            이 박스는 **340px 안에서 20행**을 스크롤한다. 안에 포커스 가능한 자식이 하나도
+            이 박스는 **440px 안에서 20행**을 스크롤한다. 안에 포커스 가능한 자식이 하나도
             없으므로(가격 클릭이 없어졌다 — 그게 이 변형의 설계다) 박스 자신이 포커스를
             받지 못하면 **키보드만 쓰는 사용자는 매수 10단을 영원히 볼 수 없다.** 마우스
             휠·터치로만 닿는 정보가 생긴다.
@@ -1115,14 +1125,16 @@ function ChaserLadder({
             포커스를 받는 것은 셀이 아니라 스크롤 영역 하나다. 이름은 자식 `<ul>` 의
             `aria-label` 이 곧바로 읽어 주므로 중복 라벨을 달지 않는다.
 
-          ★ 340 = 34 × 10 이다. 「10행 높이 박스 안에서 10단 전부를 스크롤」이 확정 규칙이라
-            박스 높이는 행 높이에 매여 있다 — 한쪽만 고치면 마지막 행이 반쯤 잘려 보인다.
+          ★ 440 = 44 × 10 이다(토스 B 44px 행 · 260924-vj1, 이전 340 = 34 × 10). 「10행 높이 박스 안에서
+            10단 전부를 스크롤」이 확정 규칙이라 박스 높이는 행 높이에 매여 있다 — 한쪽만 고치면
+            마지막 행이 반쯤 잘려 보인다. 행을 키운 것은 **세로뿐**이다 — 글자 크기(13 · 10 · 9px)·
+            가로 패딩·gap 은 그대로다(42% 열에서 7자리 가격이 `truncate` 에 걸리면 오발주).
         */}
         <div
           ref={scrollRef}
           tabIndex={0}
           data-slot="ladder-scroll"
-          className="relative h-[340px] overflow-x-hidden overflow-y-auto"
+          className="relative h-[440px] overflow-x-hidden overflow-y-auto"
         >
           <ul
             aria-label="호가 10단 (매도 10단계 · 매수 10단계)"
@@ -1148,10 +1160,12 @@ function ChaserLadder({
                   data-slot="ladder-row-mobile"
                   onClick={selectOf(row.price)}
                   className={cn(
-                    'relative flex h-[34px] min-w-0 items-center gap-1 rounded-[4px] px-1',
+                    'relative flex h-[44px] min-w-0 items-center gap-1 rounded-[10px] px-1',
                     selectOf(row.price) !== undefined && 'cursor-pointer',
                     // 상한가는 **행 배경**이 말한다(마커 배지를 대신한다).
                     isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
+                    // 최근 체결가 행 = raised 면(B `.v-b .lr.cur`). 굵기 채널은 그대로 함께 말한다.
+                    isLast && 'bg-[var(--muted)]',
                     /*
                       ★ 매도1/매수1 경계선. `<ul>` 안에 `<hr>` 을 넣지 않는 이유는 axe 의
                         `list` 규칙이 「`ul` 의 직계 자식은 `li`/`script`/`template` 뿐」을
@@ -1165,10 +1179,8 @@ function ChaserLadder({
                     <span
                       aria-hidden="true"
                       className={cn(
-                        'absolute top-0.5 right-0 bottom-0.5 z-0 rounded-[3px]',
-                        isAsk
-                          ? 'bg-[color-mix(in_oklch,var(--down)_16%,transparent)]'
-                          : 'bg-[color-mix(in_oklch,var(--up)_16%,transparent)]',
+                        'absolute top-1 right-0 bottom-1 z-0 rounded-[8px]',
+                        isAsk ? 'bg-[var(--ask-bar)]' : 'bg-[var(--bid-bar)]',
                       )}
                       style={{ width: `${pct}%` }}
                     />
@@ -1188,7 +1200,8 @@ function ChaserLadder({
                       className={cn(
                         'mono truncate text-[13px] tracking-[-0.02em]',
                         // 최근 체결가는 **굵기**가 말한다(마커 도트를 대신한다).
-                        isLast ? 'font-extrabold' : 'font-medium',
+                        // 토스 B 타이포 — 사다리 가격 500, 최근 체결가 행만 700.
+                        isLast ? 'font-bold' : 'font-medium',
                         priceTone(row.price, basePrice),
                       )}
                     >

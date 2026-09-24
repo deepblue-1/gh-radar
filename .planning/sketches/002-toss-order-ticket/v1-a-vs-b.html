@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>토스식 호가주문</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="../themes/toss-dark.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.55; }
+#desc b { color: #eee; }
+#stage { display: flex; gap: 28px; justify-content: center; padding: 20px 12px 60px; flex-wrap: wrap; }
+.cap { color: #8a8a92; font-size: 12px; margin: 0 0 8px 4px; }
+
+/* ── TDS 토큰 (@toss/tds-colors 0.1.0 공식 값) ── */
+.phone {
+  --bg: #17171c; --layer: #202027; --float: #2c2c35; --grey200: #3c3c47; --grey300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #3c3c47; --red: #f04251; --blue: #3485fa; --red50: #3c2020; --blue50: #202c4d; --green: #2fca73; --amber: #ffb13d;
+  --red-box: rgba(240,66,81,.22); --blue-box: rgba(52,133,250,.22);
+}
+.phone.light {
+  --bg: #ffffff; --layer: #ffffff; --float: #f2f4f6; --grey200: #e5e8eb; --grey300: #d1d6db;
+  --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1;
+  --hair: #e5e8eb; --red: #f04452; --blue: #3182f6; --red50: #ffeeee; --blue50: #e8f3ff; --green: #03b26c; --amber: #ff9f1a;
+  --red-box: #ffeeee; --blue-box: #e8f3ff;
+}
+.phone { --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+.phone.sys { --font: -apple-system, BlinkMacSystemFont, 'SF Pro KR', 'SF Pro Display', 'Apple SD Gothic Neo', 'Segoe UI', 'Malgun Gothic', Roboto, 'Noto Sans KR', sans-serif; }
+
+.phone { width: 390px; height: 844px; border-radius: 30px; overflow: hidden; background: var(--bg); color: var(--t800); font-family: var(--font); box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; }
+.top { padding: 12px 16px 0; }
+.top .r1 { display: flex; align-items: center; gap: 10px; height: 40px; }
+.top .back { font-size: 24px; color: var(--t800); width: 24px; }
+.top .mid { flex: 1; text-align: center; line-height: 1.25; }
+.top .mid .n { font-size: 13px; color: var(--t600); }
+.top .mid .p { font-size: 15px; font-weight: 600; color: var(--red); }
+.top .ic { color: var(--red); font-size: 20px; }
+.tabs { display: flex; gap: 18px; padding: 8px 16px 0; border-bottom: 1px solid var(--hair); }
+.tabs span { font-size: 17px; font-weight: 600; color: var(--t500); padding: 8px 0 10px; border-bottom: 2px solid transparent; cursor: pointer; }
+.tabs span.on { color: var(--t900); border-bottom-color: var(--t900); }
+.strip { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 12px; color: var(--t600); }
+.strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.strip .led { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--float); font-size: 11.5px; color: var(--t600); }
+.strip .led i { width: 7px; height: 7px; border-radius: 50%; }
+.strip .led b { color: var(--t800); font-weight: 600; }
+.strip .sp { flex: 1; }
+.strip .x { font-size: 11px; font-weight: 600; background: var(--float); border-radius: 999px; padding: 2px 8px; color: var(--t800); }
+.body { flex: 1; display: grid; grid-template-columns: 42% 1fr; min-height: 0; }
+/* 호가 */
+.lad { overflow-y: auto; border-right: 1px solid var(--hair); scrollbar-width: none; }
+.lr { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 8px 0 14px; cursor: pointer; }
+.lr:hover { background: color-mix(in srgb, var(--t900) 4%, transparent); }
+.lr .p { line-height: 1.2; }
+.lr .p b { display: block; font-size: 15px; font-weight: 500; }
+.lr .p small { font-size: 11.5px; font-weight: 400; }
+.lr .q { min-width: 44px; text-align: right; font-size: 13px; padding: 5px 8px; border-radius: 8px; }
+.lr.ask .q { background: var(--blue-box); color: var(--blue); }
+.lr.bid .q { background: var(--red-box); color: var(--red); }
+.lr.cur { background: var(--float); }
+.lr.cur .p b { font-weight: 700; }
+.lr.sel { box-shadow: inset 2px 0 0 var(--t900); }
+.midline { height: 1px; background: var(--hair); margin: 2px 0; }
+.up { color: var(--red); } .dn { color: var(--blue); }
+/* 주문 패널 */
+.pan { padding: 10px 12px 0 10px; display: flex; flex-direction: column; min-height: 0; }
+.pan-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding-bottom: 12px; }
+.seg { display: flex; background: var(--float); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 15px; font-weight: 600; height: 34px; border-radius: 10px; cursor: pointer; }
+.seg button.on { background: var(--grey300); color: var(--t900); }
+.phone.light .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.box { background: var(--float); border-radius: 16px; padding: 12px 12px 12px 14px; margin-top: 8px; }
+.box .h { display: flex; gap: 8px; font-size: 13px; color: var(--t500); align-items: center; }
+.box .h .on { color: var(--t800); font-weight: 600; }
+.box .h .bar { width: 1px; height: 10px; background: var(--grey300); }
+.box .v { display: flex; align-items: center; margin-top: 6px; }
+.box .v input { flex: 0 1 auto; min-width: 1ch; width: auto; field-sizing: content; padding: 0; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.box .v input::placeholder { color: var(--t400); font-weight: 500; }
+.box .v .u { font-size: 17px; font-weight: 600; color: var(--t900); margin-left: 1px; }
+.box .v .st { margin-left: auto; }
+.st { display: flex; gap: 2px; }
+.st button { font: inherit; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--t600); font-size: 20px; cursor: pointer; }
+.st button:hover { background: var(--grey200); color: var(--t900); }
+.pct { display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; color: var(--t500); }
+.pct span { cursor: pointer; } .pct span:hover { color: var(--t900); }
+.pct i { width: 1px; background: var(--grey300); }
+.row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--t600); padding: 7px 2px; }
+.row b { color: var(--t800); font-weight: 500; }
+.sw { width: 40px; height: 24px; border-radius: 999px; background: var(--grey300); position: relative; cursor: pointer; transition: background .15s; flex: none; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--blue); } .sw.on::after { transform: translateX(16px); }
+.hr { height: 1px; background: var(--hair); margin: 8px 0; }
+.total { text-align: right; padding: 6px 2px 10px; }
+.total small { display: block; font-size: 14px; color: var(--t600); }
+.total b { font-size: 22px; font-weight: 700; color: var(--t900); }
+.cta { font: inherit; width: 100%; height: 56px; border: 0; border-radius: 16px; background: var(--red); color: #fff; font-size: 17px; font-weight: 600; cursor: pointer; margin-bottom: 14px; transition: transform .1s; }
+.cta:active { transform: scale(.96); }
+.cta.sell { background: var(--blue); }
+/* 자동(상따) — 그룹 */
+.grp { margin-top: 12px; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.grp-h .s { font-size: 12px; color: var(--t500); }
+.grp-h .s.live { color: var(--green); }
+.grp-h .sw { margin-left: auto; }
+.grp.off .box, .grp.off .lrow { opacity: .45; }
+.mini-seg { display: flex; margin-top: 8px; background: var(--grey200); border-radius: 10px; padding: 2px; }
+.mini-seg button { flex: 1; font: inherit; border: 0; background: none; color: var(--t600); font-size: 13px; font-weight: 600; height: 28px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.mini-seg button.on { background: var(--grey300); color: var(--t900); }
+.phone.light .mini-seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+/* B: 리스트 행 */
+.lrow { display: flex; align-items: center; justify-content: space-between; padding: 11px 2px; cursor: pointer; border-radius: 10px; }
+.lrow:hover { background: color-mix(in srgb, var(--t900) 4%, transparent); }
+.lrow .k { font-size: 14px; color: var(--t600); }
+.lrow .val { font-size: 15px; font-weight: 500; color: var(--t800); display: flex; align-items: center; gap: 4px; }
+.lrow .val::after { content: '›'; color: var(--t400); font-size: 16px; margin-left: 2px; }
+.card { background: var(--layer); }
+.phone:not(.light) .grp.cardish { background: var(--layer); border-radius: 16px; padding: 10px 10px 4px; }
+.phone.light .grp.cardish { background: #f9fafb; border-radius: 16px; padding: 10px 10px 4px; }
+/* 바텀시트 */
+.sheet-dim { position: absolute; inset: 0; background: rgba(0,0,0,.56); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--layer); border-radius: 28px; padding: 22px 20px 16px; transform: translateY(110%); transition: transform .25s ease; z-index: 11; }
+.phone.light .sheet { background: #fff; }
+.phone.sheet-open .sheet-dim { opacity: 1; pointer-events: auto; }
+.phone.sheet-open .sheet { transform: none; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--t900); }
+.sheet p { margin: 0 0 14px; font-size: 14px; color: var(--t600); }
+.sheet .box { margin: 0 0 14px; }
+.sheet .box .v input { font-size: 22px; font-weight: 700; }
+.sheet .btns { display: flex; gap: 8px; }
+.sheet .btns button { flex: 1; font: inherit; height: 56px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.sheet .b1 { background: var(--float); color: var(--t800); }
+.sheet .b2 { background: var(--blue); color: #fff; }
+.phone-wrap { position: relative; }
+.frame-inner { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">자동(상따) 설정 표현</span><button data-v="a" class="on">A: 박스형 입력</button><button data-v="b">B: 리스트 + 바텀시트</button></div>
+  <div class="g"><span class="l">서체</span><button data-f="pre" class="on">Pretendard</button><button data-f="sys">시스템 서체</button><button data-f="both">나란히 비교</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const BASE = 98000, CUR = 98100;
+const fmt = n => n.toLocaleString('ko-KR');
+const pct = p => { const x = (p - BASE) / BASE * 100; return (x > 0 ? '+' : '') + x.toFixed(2) + '%'; };
+const cls = p => p > BASE ? 'up' : p < BASE ? 'dn' : '';
+const S = { v: 'a', f: 'pre', t: 'dark' };
+
+function ladder() {
+  const asks = [[98600, 0], [98500, 8], [98400, 40], [98300, 30], [98200, 20]];
+  const bids = [[98100, 10], [98000, 10], [97900, 20], [97800, 30], [97700, 40], [97600, 50]];
+  let h = '';
+  asks.forEach(([p, q]) => h += `<div class="lr ask" data-p="${p}"><div class="p"><b class="${cls(p)}">${fmt(p)}</b><small class="${cls(p)}">${pct(p)}</small></div>${q ? `<div class="q">${fmt(q * 1000 + 213)}</div>` : ''}</div>`);
+  h += '<div class="midline"></div>';
+  bids.forEach(([p, q], i) => h += `<div class="lr bid ${i === 0 ? 'cur' : ''}" data-p="${p}"><div class="p"><b class="${cls(p)}">${fmt(p)}</b><small class="${cls(p)}">${pct(p)}</small></div><div class="q">${fmt(q * 1000 + 87)}</div></div>`);
+  return h;
+}
+
+const box = (label, val, unit, opts = {}) => `<div class="box"><div class="h">${label}</div><div class="v"><input value="${val}" ${opts.ph ? `placeholder="${opts.ph}"` : ''} inputmode="numeric"><span class="u">${unit}</span><div class="st"><button data-step="-1">−</button><button data-step="1">+</button></div></div>${opts.after || ''}</div>`;
+const lrow = (k, v, unit, title) => `<div class="lrow" data-sheet="${title || k}" data-val="${v}" data-unit="${unit}"><span class="k">${k}</span><span class="val">${v}${unit}</span></div>`;
+const grpH = (t, on, st) => `<div class="grp-h"><span class="t">${t}</span><span class="s ${on ? 'live' : ''}">${st}</span><span class="sw ${on ? 'on' : ''}"></span></div>`;
+
+function manual(side) {
+  const buy = side === 'buy';
+  return `
+    ${box(`<span class="on">${buy ? '매수' : '매도'}할 가격</span><span class="bar"></span><span class="js-cur">현재가</span><span class="bar"></span><span>${buy ? '상한가' : '하한가'}</span>`, fmt(CUR), '원', {})}
+    ${box('<span class="on">수량</span>', '', '주', { ph: '수량 입력', after: '<div class="pct"><span>10%</span><i></i><span>25%</span><i></i><span>50%</span><i></i><span>최대</span></div>' })}
+    <div class="row" style="margin-top:6px">조각 주문 <span class="sw"></span></div>
+    <div class="hr"></div>
+    <div class="row">${buy ? '주문가능 금액' : '매도가능 수량'} <b>${buy ? '1,583,000원' : '120주'}</b></div>
+    <div class="row">주문 유형 <b>지정가 ›</b></div>`;
+}
+
+function autoA(side) {
+  if (side === 'sell') return `
+    <div class="grp">${grpH('매도주문', true, '감시 중')}
+      ${box('비교가격', '127,400', '원')}${box('호가잔량', '5,000', '주')}${box('잔량추적', '30', '%')}${box('매도가격', '126,000', '원')}${box('매도비율', '100', '%')}
+    </div>`;
+  return `
+    <div class="grp">${grpH('매수주문', true, '감시 중')}
+      ${box('비교가격', '127,400', '원')}
+      <div class="mini-seg"><button class="on">매도잔량</button><button>매수잔량</button></div>
+      ${box('잔량', '10,000', '주')}
+      ${box('매수가격', '127,400', '원')}
+      ${box('주문금액', '100', '만원')}
+    </div>
+    <div class="grp off">${grpH('한방체결', false, '꺼짐')}
+      ${box('호가변경', '3', '건')}${box('한방가격', '127,400', '원')}
+    </div>
+    <div class="grp">${grpH('매수취소', true, '대기')}
+      ${box('취소잔량', '25', '주')}${box('잔량추적', '50', '%')}
+    </div>`;
+}
+
+function autoB(side) {
+  if (side === 'sell') return `
+    <div class="grp cardish">${grpH('매도주문', true, '감시 중')}
+      ${lrow('비교가격', '127,400', '원')}${lrow('호가잔량', '5,000', '주')}${lrow('잔량추적', '30', '%')}${lrow('매도가격', '126,000', '원')}${lrow('매도비율', '100', '%')}
+    </div>`;
+  return `
+    <div class="grp cardish">${grpH('매수주문', true, '감시 중')}
+      ${lrow('비교가격', '127,400', '원')}${lrow('감시대상', '매도잔량', '')}${lrow('잔량', '10,000', '주')}${lrow('매수가격', '127,400', '원')}${lrow('주문금액', '100', '만원')}
+    </div>
+    <div class="grp cardish off">${grpH('한방체결', false, '꺼짐')}
+      ${lrow('호가변경', '3', '건')}${lrow('한방가격', '127,400', '원')}
+    </div>
+    <div class="grp cardish">${grpH('매수취소', true, '대기')}
+      ${lrow('취소잔량', '25', '주')}${lrow('잔량추적', '50', '%')}
+    </div>`;
+}
+
+function panel(mode, side) {
+  // mode: auto | manual ; side: buy | sell
+  const body = mode === 'manual' ? manual(side) : (S.v === 'a' ? autoA(side) : autoB(side));
+  const foot = mode === 'manual'
+    ? `<div class="total"><small>총 주문 금액</small><b class="js-total">0원</b></div><button class="cta ${side === 'sell' ? 'sell' : ''}">${side === 'buy' ? '매수하기' : '매도하기'}</button>`
+    : `<button class="cta ${side === 'sell' ? 'sell' : ''}" style="margin-top:6px">${side === 'buy' ? '매수 전략 저장' : '매도 전략 저장'}</button>`;
+  return `
+    <div class="seg js-side"><button data-side="buy" class="${side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${side === 'sell' ? 'on' : ''}">매도</button></div>
+    <div class="mini-seg js-mode" style="margin-top:6px"><button data-mode="auto" class="${mode === 'auto' ? 'on' : ''}">자동 (상따)</button><button data-mode="manual" class="${mode === 'manual' ? 'on' : ''}">직접 주문</button></div>
+    <div class="pan-scroll">${body}</div>
+    ${foot}`;
+}
+
+function phone(font, id) {
+  return `<div><div class="cap">${font === 'sys' ? '시스템 서체 (이 기기: ' + (navigator.platform.includes('Mac') ? 'macOS → SF Pro / Apple SD 산돌고딕 Neo' : navigator.platform) + ')' : 'Pretendard (모든 기기 동일)'}</div>
+  <div class="phone ${font === 'sys' ? 'sys' : ''} ${S.t === 'light' ? 'light' : ''}" id="${id}" data-cmode="auto" data-cside="buy">
+    <div class="frame-inner">
+      <div class="top"><div class="r1"><span class="back">‹</span><div class="mid"><div class="n">삼성전자</div><div class="p">${fmt(CUR)}원 +0.1%</div></div><span class="ic">♥</span></div></div>
+      <div class="tabs"><span>차트</span><span class="on">호가주문</span><span>종목정보</span><span>뉴스토론</span></div>
+      <div class="strip"><span class="dot"></span>DMA 실시간<span class="led"><i style="background:var(--green)"></i>매수 <b>감시</b></span><span class="led"><i style="background:var(--amber)"></i>매도 <b>대기</b></span><span class="sp"></span><span class="x">KRX</span></div>
+      <div class="body"><div class="lad">${ladder()}</div><div class="pan js-pan">${panel('auto', 'buy')}</div></div>
+      <div class="sheet-dim js-close"></div>
+      <div class="sheet"><h3 class="js-st">잔량</h3><p>이 값보다 잔량이 줄면 매수를 넣어요</p>
+        <div class="box"><div class="v"><input class="js-sv" value=""><span class="u js-su"></span><div class="st"><button data-step="-1">−</button><button data-step="1">+</button></div></div></div>
+        <div class="btns"><button class="b1 js-close">닫기</button><button class="b2 js-close">확인</button></div></div>
+    </div>
+  </div></div>`;
+}
+
+const DESC = {
+  a: '<b>A · 박스형 입력</b> — 토스 주문창의 「구매할 가격」 상자를 그대로 가져와 상따 설정의 모든 값을 라벨 위·값 아래 상자 + −/+ 로. 체크박스 대신 스위치. 한 화면에서 바로 수정되지만 세로로 길어진다.',
+  b: '<b>B · 리스트 + 바텀시트</b> — 토스 설정 화면 방식. 값은 「라벨 ─ 값 ›」 한 줄로 읽고, 누르면 아래에서 시트가 올라와 수정. 짧고 깔끔하지만 수정에 탭이 한 번 더 든다.'
+};
+
+function render() {
+  const fonts = S.f === 'both' ? ['pre', 'sys'] : [S.f];
+  document.getElementById('stage').innerHTML = fonts.map((f, i) => phone(f, 'ph' + i)).join('');
+  document.getElementById('desc').innerHTML = DESC[S.v] + ' · 공통: 오른쪽 위 「매수/매도」 + 「자동(상따) / 직접 주문」 두 단 세그먼트. 「직접 주문」은 토스 주문창 구조(가격 상자·수량 상자·% 단축·총 주문 금액·56px 버튼). 색은 @toss/tds-colors 공식 값, 글자는 TDS t5 17 / t6 15 / t7 13 · 굵기 400~700.';
+  document.querySelectorAll('#nav [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === S.v));
+  document.querySelectorAll('#nav [data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === S.f));
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+}
+render();
+
+document.addEventListener('click', e => {
+  const t = e.target;
+  const nb = t.closest('#nav button');
+  if (nb) { if (nb.dataset.v) S.v = nb.dataset.v; if (nb.dataset.f) S.f = nb.dataset.f; if (nb.dataset.t) S.t = nb.dataset.t; return render(); }
+  const ph = t.closest('.phone'); if (!ph) return;
+  const pan = ph.querySelector('.js-pan');
+  const sb = t.closest('[data-side]'); if (sb) { ph.dataset.cside = sb.dataset.side; pan.innerHTML = panel(ph.dataset.cmode, ph.dataset.cside); return; }
+  const mb = t.closest('[data-mode]'); if (mb) { ph.dataset.cmode = mb.dataset.mode; pan.innerHTML = panel(ph.dataset.cmode, ph.dataset.cside); return; }
+  const ms = t.closest('.mini-seg button'); if (ms) { ms.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === ms)); return; }
+  const sw = t.closest('.sw'); if (sw) { sw.classList.toggle('on'); const g = sw.closest('.grp'); if (g) { g.classList.toggle('off', !sw.classList.contains('on')); const s = g.querySelector('.grp-h .s'); s.textContent = sw.classList.contains('on') ? '감시 중' : '꺼짐'; s.classList.toggle('live', sw.classList.contains('on')); } return; }
+  const st = t.closest('[data-step]'); if (st) { const inp = st.closest('.v').querySelector('input'); const n = parseInt((inp.value || '0').replace(/,/g, '')) || 0; const step = n >= 1000 ? 100 : 1; inp.value = fmt(Math.max(0, n + step * +st.dataset.step)); updTotal(ph); return; }
+  const lr = t.closest('.lr'); if (lr) { const inp = ph.querySelector('.pan .box input'); if (inp) inp.value = fmt(+lr.dataset.p); ph.querySelectorAll('.lr').forEach(r => r.classList.toggle('sel', r === lr)); updTotal(ph); return; }
+  const pc = t.closest('.pct span'); if (pc) { const q = ph.querySelectorAll('.pan .box input')[1]; const max = 16; q.value = pc.textContent === '최대' ? max : Math.floor(max * parseInt(pc.textContent) / 100); updTotal(ph); return; }
+  const row = t.closest('.lrow'); if (row) { ph.querySelector('.js-st').textContent = row.dataset.sheet; ph.querySelector('.js-sv').value = row.dataset.val; ph.querySelector('.js-su').textContent = row.dataset.unit; ph.classList.add('sheet-open'); return; }
+  if (t.closest('.js-close')) { ph.classList.remove('sheet-open'); return; }
+  if (t.closest('.cta')) { const c = t.closest('.cta'); const o = c.textContent; c.textContent = '전송 중…'; setTimeout(() => { c.textContent = '완료 ✓'; setTimeout(() => c.textContent = o, 800); }, 500); }
+});
+document.addEventListener('input', e => { const ph = e.target.closest('.phone'); if (ph) updTotal(ph); });
+function updTotal(ph) {
+  const tot = ph.querySelector('.js-total'); if (!tot) return;
+  const ins = ph.querySelectorAll('.pan .box input');
+  const p = parseInt((ins[0]?.value || '0').replace(/,/g, '')) || 0, q = parseInt((ins[1]?.value || '0').replace(/,/g, '')) || 0;
+  tot.textContent = fmt(p * q) + '원';
+}
+</script>
+</body>
+</html>

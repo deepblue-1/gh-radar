@@ -113,7 +113,9 @@ export function WorkbenchStatusBar({
       data-slot="workbench-status-bar"
       data-status={status}
       className={cn(
-        "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-3 py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]",
+        // 토스 B `.status-bar`(260924-vj1) — 카드 면 · 무테 · 16 radius · 10/16px 패딩. 작업대 폭이라 가로 16px 허용
+        // (flex-wrap 이라 잘리지 않고 줄바꿈된다).
+        "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-4 py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]",
         className,
       )}
     >
@@ -136,7 +138,7 @@ export function WorkbenchStatusBar({
           data-tone={badge.tone}
           className={cn(
             "inline-flex h-[18px] items-center rounded-full border px-[7px] text-[10px] font-bold whitespace-nowrap",
-            badge.tone === "regular" && "border-[var(--border)] bg-[var(--card)] text-[var(--fg)]",
+            badge.tone === "regular" && "border-transparent bg-[var(--muted)] text-[var(--fg)]",
             badge.tone === "queued" && "border-[var(--new-bd)] bg-[var(--new-bg)] text-[var(--fg)]",
             badge.tone === "offhours" &&
               "border-transparent bg-[var(--accent)] text-[var(--accent-fg)]",
@@ -167,7 +169,7 @@ export function WorkbenchStatusBar({
             aria-label="카드 단 수"
             data-slot="workbench-cols-segment"
             className={cn(
-              "h-6 gap-0 overflow-hidden rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)]",
+              "h-6 gap-0 overflow-hidden rounded-full border border-transparent bg-[var(--muted)]",
               // 폭을 아직 모르는 첫 페인트만 CSS 가 받친다(③). 판정이 나면 위 조건부 렌더가 정본이다.
               phoneBand === null && "hidden @min-[680px]/wb:inline-flex",
             )}
@@ -176,7 +178,7 @@ export function WorkbenchStatusBar({
               <ToggleGroupItem
                 key={c}
                 value={String(c)}
-                className="h-6 min-w-0 rounded-none bg-transparent px-[9px] text-[11px] font-semibold text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
+                className="h-6 min-w-0 rounded-full! bg-transparent px-[9px] text-[11px] font-semibold text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
               >
                 {c}단
               </ToggleGroupItem>
@@ -190,7 +192,7 @@ export function WorkbenchStatusBar({
 
 /** 아이콘 버튼 — 목업 `.iconbtn`(26×24). 차단 안내 글자가 붙으면 옆으로 늘어난다. */
 const ALERT_BTN =
-  "inline-flex h-6 min-w-[26px] items-center justify-center gap-1 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--muted)] aria-pressed:border-[var(--primary)] aria-pressed:text-[var(--fg)]";
+  "inline-flex h-6 min-w-[26px] items-center justify-center gap-1 rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] hover:bg-[var(--raised-2)] aria-pressed:border-[var(--primary)] aria-pressed:text-[var(--fg)]";
 
 /**
  * 돌파 알림음 토글 (D-17 · ④). 기본 꺼짐.
@@ -273,7 +275,7 @@ export function AccountPill({ accounts, accountNo, onChange }: AccountPillProps)
       value={accountNo}
       onChange={(e) => onChange(e.target.value)}
       disabled={accounts.length === 0}
-      className="mono h-[26px] max-w-full min-w-0 rounded-full border border-[var(--border)] bg-[var(--card)] px-2 text-[11px] text-[var(--fg)] disabled:opacity-50"
+      className="mono h-[26px] max-w-full min-w-0 rounded-full border border-transparent bg-[var(--muted)] px-2 text-[11px] text-[var(--fg)] disabled:opacity-50"
     >
       {accounts.length === 0 ? (
         <option value="">계좌 확인 중…</option>

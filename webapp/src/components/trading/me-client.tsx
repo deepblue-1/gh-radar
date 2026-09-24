@@ -225,7 +225,7 @@ export function MeClient() {
         <p
           data-slot="me-accounts-loading"
           aria-busy="true"
-          className="rounded-[var(--r-lg)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+          className="rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
         >
           계좌 정보를 불러오는 중이에요…
         </p>

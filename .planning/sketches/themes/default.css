@@ -1,0 +1,11 @@
+/* gh-radar sketch theme — 현재 프로덕션 다크 토큰 (webapp/src/styles/globals.css `.dark`) 을 oklch→sRGB 변환한 hex.
+   목업 비교 기준선(Before). 토스 다크 후보는 toss-dark.css. */
+:root {
+  --bg: #020202; --card: #060606; --muted: #121212; --border: #1f1f1f;
+  --fg: #f2f2f2; --muted-fg: #8f8f8f;
+  --primary: #49a9ff; --primary-fg: #030303;
+  --up: #ff696d; --down: #49a9ff; --up-bg: #310c0d; --down-bg: #061c31;
+  --accent: #061c31; --accent-fg: #9bd3ff;
+  --led-latent: #fea92f; --led-armed: #44d070; --new-bg: #322800; --new-bd: #695200;
+  --r: 6px; --r-md: 8px; --r-lg: 12px;
+}

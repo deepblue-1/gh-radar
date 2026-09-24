@@ -204,7 +204,7 @@ export function CardGrid<T extends CardGridItem>({
       <div
         data-slot="card-grid-empty"
         className={cn(
-          "flex min-w-0 flex-col items-center gap-1 rounded-[var(--r-lg)] border border-dashed border-[var(--border)] px-4 py-8 text-center",
+          "flex min-w-0 flex-col items-center gap-1 rounded-[var(--r-lg)] border border-dashed border-[var(--faint)] px-4 py-8 text-center",
           className,
         )}
       >

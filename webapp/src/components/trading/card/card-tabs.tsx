@@ -5,7 +5,7 @@
  * (quick-260923-onn · 2026-09-23 목업 ②A).
  *
  * ① 무엇을 그리는가
- *   종전 `QuoteGrid10` 자리에 탭 줄(24px · 선택 accent — 공용 패널 탭 문법의 얇은 판)이 서고,
+ *   종전 `QuoteGrid10` 자리에 탭 줄(24px · 선택 알약 `--pill-on-*` — 공용 패널 탭 문법의 얇은 판)이 서고,
  *   기본 탭 「정보」가 기존 10칸 그대로다. 「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로
  *   자른** 계좌 상태, 「로그」는 카드 훅의 전략 로그다. 배지는 미체결·로그만, 0 이면 생략.
  *
@@ -78,9 +78,9 @@ export interface CardTabsProps {
 
 /** 공용 패널 `TAB_TRIGGER` 와 같은 문법 — 카드 안이라 더 얇게 24px(h-6). */
 const CARD_TAB_TRIGGER =
-  "h-6 flex-none gap-1 rounded-[var(--r)] border border-transparent px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none " +
-  "data-[state=active]:bg-[var(--accent)] data-[state=active]:text-[var(--accent-fg)] data-[state=active]:shadow-none " +
-  "dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--accent)] dark:data-[state=active]:text-[var(--accent-fg)]";
+  "h-6 flex-none gap-1 rounded-full border border-transparent px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none " +
+  "data-[state=active]:bg-[var(--pill-on-bg)] data-[state=active]:text-[var(--pill-on-fg)] data-[state=active]:shadow-none " +
+  "dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--pill-on-bg)] dark:data-[state=active]:text-[var(--pill-on-fg)]";
 
 /** 미체결·잔고·로그 본문 래퍼 — 목업 `.tb`(높이 상한 210 · 넘치면 스크롤). */
 const TAB_BODY = "max-h-[210px] min-w-0 overflow-auto";

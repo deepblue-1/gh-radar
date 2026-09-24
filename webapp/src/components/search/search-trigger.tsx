@@ -20,11 +20,11 @@ export function SearchTrigger({ onClick }: SearchTriggerProps) {
         type="button"
         onClick={onClick}
         aria-label="종목 검색 열기"
-        className="hidden h-9 w-full max-w-sm items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--muted)] px-3 text-left text-[length:var(--t-sm)] text-[var(--muted-fg)] transition-colors hover:bg-[color-mix(in_oklch,var(--muted)_80%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] lg:flex"
+        className="hidden h-9 w-full max-w-sm items-center gap-2 rounded-md border border-transparent bg-[var(--muted)] px-3 text-left text-[length:var(--t-sm)] text-[var(--muted-fg)] transition-colors hover:bg-[var(--raised-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] lg:flex"
       >
         <Search className="h-4 w-4" aria-hidden="true" />
         <span className="flex-1">종목명 또는 코드 검색</span>
-        <kbd className="mono rounded border border-[var(--border)] bg-[var(--bg)] px-1.5 py-0.5 text-[11px] text-[var(--muted-fg)]">
+        <kbd className="mono rounded border border-transparent bg-[var(--raised-2)] px-1.5 py-0.5 text-[11px] text-[var(--muted-fg)]">
           ⌘K
         </kbd>
       </button>

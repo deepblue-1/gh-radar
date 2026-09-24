@@ -65,7 +65,7 @@ function DistributionBand({ hero }: { hero: LimitUpStockStats }) {
   const lossCount = (histogram[0] ?? 0) + (histogram[1] ?? 0);
   const winCount = (histogram[2] ?? 0) + (histogram[3] ?? 0) + (histogram[4] ?? 0);
   return (
-    <div className="rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)] p-[14px_16px]">
+    <div className="rounded-[var(--r-md)] border border-transparent bg-[var(--card)] p-[14px_16px]">
       {/* 헤더 */}
       <div className="mb-[10px] flex items-baseline justify-between gap-2">
         <span className="text-[13px] font-bold">다음날 시초가 수익률 분포</span>
@@ -85,7 +85,7 @@ function DistributionBand({ hero }: { hero: LimitUpStockStats }) {
                   'mono text-[13px] leading-none tabular-nums',
                   count === 0
                     ? 'font-semibold text-[var(--flat)]'
-                    : 'font-extrabold text-[var(--fg)]',
+                    : 'font-bold text-[var(--fg)]',
                 )}
               >
                 {count}
@@ -94,7 +94,7 @@ function DistributionBand({ hero }: { hero: LimitUpStockStats }) {
                 className={cn(
                   'w-full max-w-[34px] rounded-t-[3px]',
                   count === 0
-                    ? 'bg-[var(--muted)]'
+                    ? 'bg-[var(--raised-2)]'
                     : tone === 'up'
                       ? 'bg-[var(--up)]'
                       : 'bg-[var(--down)]',
@@ -144,13 +144,13 @@ function DistributionBand({ hero }: { hero: LimitUpStockStats }) {
 function KpiGrid({ hero }: { hero: LimitUpStockStats }) {
   const showWinRate = shouldShowWinRate(hero);
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--border)] sm:grid-cols-3">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--border)] sm:grid-cols-3">
       {/* ① 시초가 익절 — N≥3 이면 큰 %, 미만이면 카운트만 (D-09 게이팅) */}
       <div className="bg-[var(--card)] p-[13px_14px]">
         <div className="mb-[5px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
           시초가 익절
         </div>
-        <div className="text-[23px] font-extrabold leading-none text-[var(--up)]">
+        <div className="text-[20px] font-bold leading-none text-[var(--up)]">
           {showWinRate && hero.winRate != null ? (
             <>
               {Math.round(hero.winRate * 100)}%{' '}
@@ -176,7 +176,7 @@ function KpiGrid({ hero }: { hero: LimitUpStockStats }) {
         </div>
         <div
           className={cn(
-            'text-[23px] font-extrabold leading-none',
+            'text-[20px] font-bold leading-none',
             retColor(hero.avgOpenRet),
           )}
         >
@@ -191,7 +191,7 @@ function KpiGrid({ hero }: { hero: LimitUpStockStats }) {
         </div>
         <div
           className={cn(
-            'text-[23px] font-extrabold leading-none',
+            'text-[20px] font-bold leading-none',
             retColor(hero.worstLowRet),
           )}
         >
@@ -261,7 +261,7 @@ function ThemePoolBar({ theme }: { theme: LimitUpThemeStat }) {
         />
         <span className="truncate">{theme.themeName}</span>
       </div>
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--muted)]">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--raised-2)]">
         <span
           className="block h-full rounded-full bg-[var(--up)]"
           style={{ width: `${trackPct}%` }}
@@ -348,10 +348,10 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
         aria-label="상한가 다음날 이력"
         className="flex flex-col gap-[var(--s-3)]"
       >
-        <h2 className="text-[length:var(--t-caption)] font-semibold uppercase tracking-wide text-[var(--muted-fg)]">
+        <h2 className="text-[20px] font-bold tracking-[-0.02em]">
           상한가 다음날 이력
         </h2>
-        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+        <div className="rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <p className="text-[length:var(--t-base)] font-bold">
             아직 마감상한가 이력이 없습니다
           </p>
@@ -372,7 +372,7 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
       {/* 헤더 */}
       <div className="flex items-baseline justify-between gap-2">
         <div className="flex flex-col gap-[2px]">
-          <h2 className="text-[14px] font-bold">상한가 다음날 이력</h2>
+          <h2 className="text-[20px] font-bold tracking-[-0.02em]">상한가 다음날 이력</h2>
           <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
             상한가 종가에 매수 → 다음 영업일 수익률 · 출처 KRX
           </p>
@@ -394,7 +394,7 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
       </p>
 
       {/* OHLC 8컬럼 이벤트 표 */}
-      <div className="overflow-hidden rounded-[var(--r-md)] border border-[var(--border)]">
+      <div className="overflow-hidden rounded-[var(--r-md)] border border-transparent">
         <table className="w-full border-collapse">
           <thead>
             <tr>
@@ -439,7 +439,7 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
         <button
           type="button"
           onClick={() => setEventsExpanded((v) => !v)}
-          className="w-full rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+          className="w-full rounded-[var(--r)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
         >
           {eventsExpanded
             ? '접기'
@@ -458,12 +458,12 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
 
       {/* 테마 가로 풀링 바 (별도 카드) */}
       {themes.length > 0 && (
-        <div className="mt-[var(--s-2)] rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-4)]">
+        <div className="mt-[var(--s-2)] rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] p-[var(--s-4)]">
           <div className="mb-1 flex items-baseline justify-between gap-2">
             <h3 className="text-[14px] font-bold">
               소속 테마의 다음날 익절 경향
             </h3>
-            <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--muted)] px-2 py-[2px] text-[11px] font-semibold text-[var(--muted-fg)]">
+            <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--raised-2)] px-2 py-[2px] text-[11px] font-semibold text-[var(--muted-fg)]">
               테마 풀링
             </span>
           </div>
@@ -477,7 +477,7 @@ export function StockLimitUpSection({ stockCode }: StockLimitUpSectionProps) {
             <button
               type="button"
               onClick={() => setThemesExpanded((v) => !v)}
-              className="mt-[var(--s-3)] w-full rounded-[var(--r)] border border-[var(--border)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
+              className="mt-[var(--s-3)] w-full rounded-[var(--r)] border border-transparent bg-[var(--raised-2)] px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--t-sm)] font-semibold text-[var(--muted-fg)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))] hover:text-[var(--fg)]"
             >
               {themesExpanded
                 ? '접기'

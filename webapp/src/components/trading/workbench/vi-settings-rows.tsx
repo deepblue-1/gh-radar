@@ -616,7 +616,7 @@ function ViSettingsRow({
                 setMoveSnapshot(moveTarget);
                 setConfirmKind('start');
               }}
-              className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-[26px] flex-none rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               상태줄 계좌({moveTarget.to})로 옮겨 시작
             </button>
@@ -717,7 +717,7 @@ function RowField({
       </label>
       <span
         className={cn(
-          'flex h-7 flex-none items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5',
+          'flex h-7 flex-none items-center gap-1 rounded-[var(--r)] border bg-[var(--muted)] px-1.5',
           boxClassName,
           // 포커스는 테두리색 한 겹 — 안쪽 input 의 `data-focus-ring="seamless"` 와 짝이다.
           'focus-within:border-[var(--ring)]',

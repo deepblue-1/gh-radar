@@ -108,7 +108,7 @@ export function DmaGate({ reason, surface, className }: DmaGateProps) {
       data-slot="dma-gate"
       data-reason={reason}
       className={cn(
-        "mx-auto flex max-w-md flex-col items-center gap-3 rounded-[var(--r-lg)] border border-[var(--border)] px-6 py-10 text-center",
+        "mx-auto flex max-w-md flex-col items-center gap-3 rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-6 py-10 text-center",
         className,
       )}
     >

@@ -220,7 +220,7 @@ export function TodayOrdersCard() {
     <section
       data-slot="today-orders-card"
       aria-label="오늘 주문"
-      className="flex flex-col gap-[var(--s-2)] rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-3)] py-[var(--s-3)]"
+      className="flex flex-col gap-[var(--s-2)] rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-3)]"
     >
       <div className="flex min-w-0 items-center gap-[var(--s-2)]">
         <h2 className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">오늘 주문</h2>
@@ -235,7 +235,7 @@ export function TodayOrdersCard() {
         <p
           role="status"
           data-testid="today-orders-error"
-          className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-4)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+          className="rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-4)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
         >
           오늘 주문 목록을 불러오지 못했어요. 잔고·미체결은 위 계좌 카드에서 그대로 볼 수 있어요.
         </p>
@@ -243,14 +243,14 @@ export function TodayOrdersCard() {
         <p
           data-testid="today-orders-loading"
           aria-busy="true"
-          className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-4)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+          className="rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-4)] text-center text-[length:var(--t-sm)] text-[var(--muted-fg)]"
         >
           오늘 주문을 불러오는 중이에요…
         </p>
       ) : rows.length === 0 ? (
         <div
           data-testid="today-orders-empty"
-          className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center"
+          className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center"
         >
           <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
             오늘 낸 주문이 없어요

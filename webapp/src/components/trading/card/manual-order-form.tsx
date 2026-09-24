@@ -715,7 +715,7 @@ export function ManualOrderForm({
             value={orderType}
             onChange={(e) => setOrderType(e.target.value === 'offhours' ? 'offhours' : 'limit')}
             title={aff.offHoursSelectable ? undefined : OFFHOURS_DISABLED_TITLE}
-            className="h-8 w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--bg)] px-2 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)]"
+            className="h-[46px] w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--muted)] px-2 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)]"
           >
             <option value="limit">지정가</option>
             <option
@@ -888,7 +888,7 @@ export function ManualOrderForm({
           role="status"
           aria-live="polite"
           data-testid="manual-order-locked"
-          className="m-0 break-keep rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-2.5 py-1.5 text-[11px] leading-snug text-[var(--fg)]"
+          className="m-0 break-keep rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-2.5 py-1.5 text-[11px] leading-snug text-[var(--fg)]"
         >
           {RESULT_UNKNOWN_LOCKED_TEXT}
         </p>
@@ -995,11 +995,10 @@ export function ManualOrderEntry({
                 if (t !== 'manual') onOptionsTab?.(t);
               }}
               className={cn(
-                'h-9 min-w-0 rounded-[var(--r)] border text-[length:var(--t-sm)] font-semibold',
-                active && t === 'buy' && 'border-[var(--up)] bg-[var(--up-bg)] text-[var(--up)]',
-                active && t === 'sell' && 'border-[var(--down)] bg-[var(--down-bg)] text-[var(--down)]',
-                active && t === 'manual' && 'border-[var(--fg)] bg-[var(--muted)] text-[var(--fg)]',
-                !active && 'border-[var(--border)] bg-transparent text-[var(--muted-fg)]',
+                // 토스 B `.side-tabs`(260924-vj1) — 상따 폼 탭과 같은 규칙: 중립 선택 면, 글자가 방향을 말한다.
+                'h-[42px] min-w-0 rounded-[var(--r)] border border-transparent text-[length:var(--t-sm)] font-semibold',
+                active && 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]',
+                !active && 'bg-[var(--muted)] text-[var(--muted-fg)]',
               )}
             >
               {t === 'buy' ? '매수' : t === 'sell' ? '매도' : '수동'}
@@ -1030,7 +1029,7 @@ export function ManualOrderEntry({
             ref={openRef}
             type="button"
             onClick={() => setCover(true)}
-            className="ml-auto h-6 rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2 text-[length:var(--t-caption)] font-semibold text-[var(--fg)] hover:bg-[var(--muted)]"
+            className="ml-auto h-6 rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-2 text-[length:var(--t-caption)] font-semibold text-[var(--fg)] hover:bg-[var(--raised-2)]"
           >
             수동주문
           </button>
@@ -1104,7 +1103,7 @@ function ResultBanner({ result }: { result: OrderResult }) {
       aria-live="polite"
       data-testid="manual-order-result"
       data-kind={result.kind}
-      className="flex min-w-0 flex-col gap-0.5 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
+      className="flex min-w-0 flex-col gap-0.5 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
     >
       <span className="break-words text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
         {title}
@@ -1158,8 +1157,10 @@ function UnitBox({
   return (
     <div
       className={cn(
-        'flex h-8 min-w-0 flex-1 items-center gap-1 rounded-[var(--r)] border border-[var(--input)] px-2 text-[length:var(--t-caption)] focus-within:border-[var(--ring)]',
-        locked ? 'bg-[var(--muted)]' : 'bg-[var(--bg)]',
+        // 토스 B(260924-vj1) — 높이 46(세로만) · 편집 가능 = raised 채움, 잠김 = 투명 + 헤어라인 테두리로
+        // 편집 가능 필드와 구분한다. 가로 패딩 `px-2` 불변.
+        'flex h-[46px] min-w-0 flex-1 items-center gap-1 rounded-[var(--r)] border px-2 text-[length:var(--t-caption)] focus-within:border-[var(--ring)]',
+        locked ? 'border-[var(--border)] bg-transparent' : 'border-[var(--input)] bg-[var(--muted)]',
       )}
     >
       {children}
@@ -1182,7 +1183,7 @@ function StepButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="h-8 w-8 flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] text-[length:var(--t-sm)] text-[var(--fg)] hover:bg-[var(--muted)]"
+      className="h-[46px] w-8 flex-none rounded-[var(--r)] border border-transparent bg-[var(--muted)] text-[length:var(--t-sm)] text-[var(--fg)] hover:bg-[var(--raised-2)]"
     >
       {children}
     </button>
@@ -1190,7 +1191,8 @@ function StepButton({
 }
 
 /**
- * 주문 버튼. 매수 = `--up` 채움 · 매도 = `--down` 채움 · 정정/취소 = `--card` 중립.
+ * 주문 버튼. 매수 = `--up` 채움 · 매도 = `--down` 채움 · 정정/취소 = raised(`--muted`) 중립.
+ * 토스 B `.btn4`(260924-vj1) — 높이 52 · radius 14 · 600. `px-px` · `text-[13px]` · `whitespace-normal` 불변(가로 폭 0 증가).
  * 폰 밴드(<700)는 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로), 700 이상은 14px 한 줄.
  * (2×2 배치로 버튼 폭이 넓어져 옛 10/11px 는 너무 작았다 — 2026-09-23 사용자 지시.)
  */
@@ -1215,12 +1217,12 @@ function OrderButton({
       title={title}
       onClick={onClick}
       className={cn(
-        'h-9 min-w-0 overflow-hidden rounded-[var(--r)] border px-px text-[13px] leading-[1.15] font-bold whitespace-normal',
+        'h-[52px] min-w-0 overflow-hidden rounded-[14px] border px-px text-[13px] leading-[1.15] font-semibold whitespace-normal',
         '@min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[length:var(--t-sm)] @min-[700px]/lc:whitespace-nowrap',
         'disabled:cursor-default disabled:opacity-45',
         tone === 'buy' && 'border-transparent bg-[var(--up)] text-[var(--destructive-fg)]',
         tone === 'sell' && 'border-transparent bg-[var(--down)] text-[var(--destructive-fg)]',
-        tone === 'plain' && 'border-[var(--border)] bg-[var(--card)] text-[var(--fg)]',
+        tone === 'plain' && 'border-transparent bg-[var(--muted)] text-[var(--fg)]',
       )}
     >
       {children}

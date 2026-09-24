@@ -737,16 +737,19 @@ export function LimitChaserForm({
             **세그먼트 테두리**로 옮긴다 — 더티가 조용히 사라지면 사용자는 바꾼 줄 모른다.
             `NumInput` 과 같은 규율로 **테두리 한 겹뿐**이고 링은 걸지 않는다.
         */}
-        <div className="mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
+        <div className="mt-[var(--s-1)] grid min-h-[46px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
           <span aria-hidden="true" />
           <div
             role="group"
             aria-label="감시 대상"
             className={cn(
-              'flex h-[38px] w-full min-w-0 overflow-hidden rounded-[var(--r)] border',
+              // 토스 B(260924-vj1) — 알약 트랙(raised 채움) + 선택 항목 `--seg-on-*`. 높이 46 은 세로만.
+              // ★ 트랙 **안쪽 패딩은 넣지 않는다** — 항목 가로 폭이 줄어 「매도잔량」이 잘린다.
+              // 더티 채널은 그대로 테두리 한 겹이다(평소 `--input` = 투명 · 더티 `--primary`).
+              'flex h-[46px] w-full min-w-0 overflow-hidden rounded-[var(--r)] border bg-[var(--muted)]',
               dirtySet.has('buyWatchSide')
                 ? 'border-[var(--primary)]'
-                : 'border-[var(--border)]',
+                : 'border-[var(--input)]',
             )}
           >
             {(['0', '1'] as const).map((side) => (
@@ -760,9 +763,7 @@ export function LimitChaserForm({
                   'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap @min-[992px]/lc:px-0',
                   form.buyWatchSide !== side
                     ? 'bg-transparent text-[var(--muted-fg)]'
-                    : side === '0'
-                      ? 'bg-[var(--down-bg)] text-[var(--down)]'
-                      : 'bg-[var(--up-bg)] text-[var(--up)]',
+                    : 'rounded-[var(--r)] bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]',
                   'disabled:cursor-not-allowed disabled:opacity-50',
                 )}
               >
@@ -898,7 +899,7 @@ export function LimitChaserForm({
             섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 도는 상태가 된다.
         */}
         {/* 체결 · 잔량추적은 입력 없는 체크 둘이라 한 줄에 둔다 — 매수 카드 세로 길이 절약(2026-09-23). */}
-        <div className="mt-[var(--s-1)] flex min-h-[38px] min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+        <div className="mt-[var(--s-1)] flex min-h-[46px] min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
           <CheckRow
             id="lc-cancel-trade"
             label="체결"
@@ -1067,10 +1068,11 @@ export function LimitChaserForm({
               aria-selected={tab === t}
               onClick={() => setTab(t)}
               className={cn(
-                'h-9 min-w-0 rounded-[var(--r)] border text-[length:var(--t-sm)] font-semibold',
-                tab === t && t === 'buy' && 'border-[var(--up)] bg-[var(--up-bg)] text-[var(--up)]',
-                tab === t && t === 'sell' && 'border-[var(--down)] bg-[var(--down-bg)] text-[var(--down)]',
-                tab !== t && 'border-[var(--border)] bg-transparent text-[var(--muted-fg)]',
+                // 토스 B `.side-tabs` — 선택은 방향색이 아니라 중립 선택 면이다(라벨 「매수/매도」 글자가
+                // 방향을 말한다 · WCAG 1.4.1). 높이 42 는 세로만 — 글자·가로 폭 불변.
+                'h-[42px] min-w-0 rounded-[var(--r)] border border-transparent text-[length:var(--t-sm)] font-semibold',
+                tab === t && 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]',
+                tab !== t && 'bg-[var(--muted)] text-[var(--muted-fg)]',
               )}
             >
               {t === 'buy' ? '매수' : '매도'}
@@ -1163,7 +1165,11 @@ export function LimitChaserForm({
  *   카드 테두리와 그룹 패딩이 겹겹이 들어와 입력 폭을 먹었다 — 모바일에서는 카드가 화면
  *   자체이므로 테두리가 구분하는 「바깥」이 없다.
  *
- * ## 방향색 틴트 (quick-260912-mvo Q-06, 사용자 채택 C안)
+ * ## 방향색 틴트 — **토스 B(260924-vj1 실험 브랜치)에서 걷었다.** 아래는 옛 결정의 기록이다.
+ *    B 는 방향 카드 바탕이 카드색(`--buy-tint`/`--sell-tint` = `--card`)이라 틴트·폰 bleed 그림자·
+ *    `clip-path` 를 모두 걷고 `bg-[var(--card-base)]` 한 줄만 남겼다. 체크박스 방향색(`--lc-accent`)과
+ *    그룹 제목 글자는 그대로 방향을 말한다.
+ * ## (옛) 방향색 틴트 (quick-260912-mvo Q-06, 사용자 채택 C안)
  * ⓐ **모든 밴드에서** 칠한다. 처음엔 2열부터만(`@min-[700px]/lc:`) 칠했지만 — 폰은 탭이 방향을
  *    말한다는 이유 — 사용자가 탭 화면도 펼친 화면처럼 색을 원했다(2026-09-23, 목업 승인).
  *    폰은 **탭 아래 영역을 옵션 pane 가장자리까지 채운다** — 배경과 같은 색의 `box-shadow`
@@ -1196,20 +1202,15 @@ function Card({
       data-side={side}
       className={cn(
         'min-w-0 overflow-hidden [--card-base:transparent] [--lw:76px]',
-        '@min-[992px]/lc:rounded-[var(--r-lg)] @min-[992px]/lc:border @min-[992px]/lc:border-[var(--border)] @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
-        // 배경 선언은 요소당 **하나뿐**이다(ⓑ) — 방향 카드는 틴트가, 그 밖은 카드색이 그 한 줄이다.
-        side === undefined && 'bg-[var(--card-base)]',
-        // 폰 bleed 그림자는 **위쪽만 잘라낸다** — 위로 번지면 탭 줄 아래 여백을 덮어 색면이 탭에 붙는다
-        // (quick-260923-kq1). 좌·우·아래 8px 은 그대로 pane 가장자리까지 채운다.
-        side !== undefined &&
-          'py-1.5 [clip-path:inset(0_-8px_-8px_-8px)] @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2 @min-[700px]/lc:shadow-none @min-[700px]/lc:[clip-path:none]',
+        '@min-[992px]/lc:rounded-[var(--r-md)] @min-[992px]/lc:border @min-[992px]/lc:border-transparent @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
+        // 배경 선언은 요소당 **하나뿐**이다(ⓑ). 토스 B(260924-vj1) — 방향 카드도 카드색 한 줄이다
+        // (B `--buy-tint`/`--sell-tint` = 카드색). 방향은 그룹 제목 글자와 체크박스 색이 말한다.
+        'bg-[var(--card-base)]',
+        // 가로 `@min-[700px]/lc:px-2` 는 불변이다(본문 700 잘림 여유 — ⓒ).
+        side !== undefined && 'py-1.5 @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2',
         // 체크박스 색(`CheckRow`)도 방향을 따른다 — 매수 카드에서 파란 체크가 섞이지 않게.
         side === 'buy' && '[--lc-accent:var(--up)]',
         side === 'sell' && '[--lc-accent:var(--down)]',
-        side === 'buy' &&
-          'bg-[color-mix(in_oklch,var(--up)_5%,var(--card-base))] shadow-[0_0_0_8px_color-mix(in_oklch,var(--up)_5%,var(--card-base))]',
-        side === 'sell' &&
-          'bg-[color-mix(in_oklch,var(--down)_5%,var(--card-base))] shadow-[0_0_0_8px_color-mix(in_oklch,var(--down)_5%,var(--card-base))]',
       )}
     >
       {children}
@@ -1366,11 +1367,11 @@ function Row({
   children: ReactNode;
 }) {
   /*
-    ★ 행 최소 높이는 **입력 높이를 따른다** (260912-gyz). 입력이 38px 로 양쪽 폭에서
+    ★ 행 최소 높이는 **입력 높이를 따른다** (260912-gyz). 입력이 46px(토스 B · 260924-vj1, 이전 38px) 로 양쪽 폭에서
       같아졌으므로, 입력이 없는 행만 36/32px 로 남으면 그 행에서만 세로 리듬이 끊긴다.
   */
   return (
-    <div className="mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
+    <div className="mt-[var(--s-1)] grid min-h-[46px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
       <label
         htmlFor={htmlFor}
         className={cn(
@@ -1419,7 +1420,8 @@ function NumInput({
           ★ `focus-within:` 은 의사클래스가 붙어 특이도가 더 높으므로, 더티 테두리와 동시에
             걸려도 **포커스색 하나**가 이긴다 — 순서로 다투지 않는다.
         */
-        'flex h-[38px] min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--bg)] px-1.5 focus-within:border-[var(--ring)]',
+        // 토스 B — 높이 46(세로만) · raised 채움. **가로 패딩 `px-1.5` 불변**(본문 700 = 주문금액 잘림 여유 0).
+        'flex h-[46px] min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--muted)] px-1.5 focus-within:border-[var(--ring)]',
         dirty ? 'border-[var(--primary)]' : 'border-[var(--input)]',
         flash && 'motion-safe:bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]',
         disabled && 'opacity-45',
@@ -1549,10 +1551,10 @@ function CheckRow({
   return (
     <div
       className={cn(
-        // 행 최소 높이가 입력 높이(38px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
+        // 행 최소 높이가 입력 높이(46px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
         inline
           ? 'min-w-0'
-          : 'mt-[var(--s-1)] grid min-h-[38px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
+          : 'mt-[var(--s-1)] grid min-h-[46px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
       )}
     >
       <span className="flex min-w-0 items-center gap-[3px] @min-[992px]/lc:gap-[var(--s-1)]">

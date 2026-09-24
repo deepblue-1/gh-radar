@@ -40,7 +40,7 @@ function WatchlistTableBase({
     <div
       role="table"
       className={cn(
-        'hidden lg:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]',
+        'hidden lg:block overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--card)]',
         isRefreshing && 'opacity-90 transition-opacity',
       )}
     >
@@ -48,7 +48,7 @@ function WatchlistTableBase({
         role="row"
         className={cn(
           GRID_COLS,
-          'bg-[var(--muted)] py-2 text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)] uppercase tracking-wide',
+          'bg-transparent py-2 text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)] uppercase tracking-wide',
         )}
       >
         <span>종목명</span>

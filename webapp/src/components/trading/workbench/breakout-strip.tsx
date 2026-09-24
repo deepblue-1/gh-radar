@@ -296,7 +296,8 @@ export function BreakoutStrip({
     <div
       data-slot="breakout"
       className={cn(
-        'min-w-0 overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--card)]',
+        // 토스 B `.strip`(260924-vj1) — 무테 카드 면(테두리 색만 투명 · 1px 기하 유지).
+        'min-w-0 overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--card)]',
         className,
       )}
     >
@@ -304,7 +305,7 @@ export function BreakoutStrip({
       <section
         data-slot="breakout-strip"
         aria-label="돌파감지"
-        className="flex min-w-0 items-center gap-2 px-2.5 py-2"
+        className="flex min-w-0 items-center gap-2 px-2.5 py-2.5"
       >
         <div className="flex flex-none items-center gap-1.5 text-[12px] font-bold text-[var(--fg)]">
           <span data-testid="breakout-strip-label">돌파</span>
@@ -337,7 +338,7 @@ export function BreakoutStrip({
             setOpen(next);
             writePanelsPref({ breakout: next });
           }}
-          className="h-[26px] flex-none rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)]"
+          className="h-[26px] flex-none rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-2.5 text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] hover:bg-[var(--raised-2)]"
         >
           {open ? '접기' : '더보기'}
         </button>
@@ -443,10 +444,10 @@ const BreakoutChip = memo(function BreakoutChip({
       className={cn(
         'inline-flex h-[30px] max-w-[16rem] flex-none items-center gap-1.5 rounded-full border py-0 pr-2.5 pl-2 text-[12px] whitespace-nowrap',
         trading
-          ? 'cursor-default border-dashed border-[var(--border)] bg-[var(--bg)] text-[var(--muted-fg)]'
+          ? 'cursor-default border-dashed border-[var(--faint)] bg-transparent text-[var(--muted-fg)]'
           : v.highlighted
             ? 'border-[var(--new-bd)] bg-[var(--new-bg)]'
-            : 'border-[var(--border)] bg-[var(--bg)]',
+            : 'border-transparent bg-[var(--muted)]',
       )}
     >
       <b
@@ -494,7 +495,7 @@ const BreakoutTable = memo(function BreakoutTable({
   const colNarrow = 'hidden @min-[700px]/wb:table-cell';
   const colBase = 'hidden @min-[830px]/wb:table-cell';
   const th =
-    'h-auto bg-[var(--muted)] px-2 py-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] @min-[700px]/wb:px-2.5';
+    'h-auto bg-transparent px-2 py-1.5 text-[11px] font-semibold whitespace-nowrap text-[var(--muted-fg)] @min-[700px]/wb:px-2.5';
   const td = 'h-9 px-2 py-0 whitespace-nowrap @min-[700px]/wb:px-2.5';
 
   return (
@@ -591,7 +592,7 @@ const BreakoutTable = memo(function BreakoutTable({
                           'h-[26px] rounded-[var(--r)] border px-2.5 text-[11px] font-semibold whitespace-nowrap',
                           v.highlighted
                             ? 'border-transparent bg-[var(--primary)] text-[var(--primary-fg)]'
-                            : 'border-[var(--border)] bg-[var(--card)] text-[var(--fg)]',
+                            : 'border-transparent bg-[var(--muted)] text-[var(--fg)]',
                         )}
                       >
                         추가

@@ -28,25 +28,31 @@ describe('getChartPalette', () => {
     },
   );
 
-  it('다크/라이트 분기가 실제로 다른 hex 값을 반환한다 (up/down 기준)', () => {
+  it('다크/라이트 분기가 실제로 다른 hex 값을 반환한다 (down/text/grid 기준)', () => {
     const light = getChartPalette('light');
     const dark = getChartPalette('dark');
-    expect(light.up).not.toBe(dark.up);
+    // 상승색(up)은 토스 B 에서 두 테마가 같은 #f04452 — 의도된 동일값이라 분기 검증에서 뺀다.
+    expect(light.up).toBe(dark.up);
     expect(light.down).not.toBe(dark.down);
+    expect(light.text).not.toBe(dark.text);
+    expect(light.grid).not.toBe(dark.grid);
     // bg 는 양쪽 모두 transparent 라 동일 — 별도 검증 안 함
   });
 
-  it('한국식 색상 컨벤션 — up = 적색 계열, down = 청색 계열 (D-02)', () => {
-    const { up, down } = getChartPalette('light');
-    const upR = parseInt(up.slice(1, 3), 16);
-    const upG = parseInt(up.slice(3, 5), 16);
-    const upB = parseInt(up.slice(5, 7), 16);
-    expect(upR).toBeGreaterThan(upG);
-    expect(upR).toBeGreaterThan(upB);
-    const dnR = parseInt(down.slice(1, 3), 16);
-    const dnG = parseInt(down.slice(3, 5), 16);
-    const dnB = parseInt(down.slice(5, 7), 16);
-    expect(dnB).toBeGreaterThan(dnR);
-    expect(dnB).toBeGreaterThan(dnG);
-  });
+  it.each(['light', 'dark'] as const)(
+    '%s — 한국식 색상 컨벤션: up = 적색 계열, down = 청색 계열 (D-02)',
+    (theme) => {
+      const { up, down } = getChartPalette(theme);
+      const upR = parseInt(up.slice(1, 3), 16);
+      const upG = parseInt(up.slice(3, 5), 16);
+      const upB = parseInt(up.slice(5, 7), 16);
+      expect(upR).toBeGreaterThan(upG);
+      expect(upR).toBeGreaterThan(upB);
+      const dnR = parseInt(down.slice(1, 3), 16);
+      const dnG = parseInt(down.slice(3, 5), 16);
+      const dnB = parseInt(down.slice(5, 7), 16);
+      expect(dnB).toBeGreaterThan(dnR);
+      expect(dnB).toBeGreaterThan(dnG);
+    },
+  );
 });

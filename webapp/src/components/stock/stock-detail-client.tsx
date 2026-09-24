@@ -26,6 +26,7 @@ import { StockThemeChips } from '@/components/theme/theme-chips';
 import { StockComovementSection } from './stock-comovement-section';
 import { StockLimitUpSection } from './stock-limit-up-section';
 import { StockOrderbookSection } from './stock-orderbook-section';
+import { DetailBands } from './detail-bands';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
   timeZone: 'Asia/Seoul',
@@ -142,10 +143,17 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
   if (!stock) return <StockDetailSkeleton />;
 
   return (
-    <div className="space-y-6">
+    /*
+      토스 B(260924-vj1) — `data-page-surface="plain"` 이면 globals.css `main:has(...)` 가 라이트 본문면을
+      회색 `--surface` 대신 흰 `--bg` 로 되돌린다(종목상세 = 흰 바탕 + 회색 띠). 간격은 B 밀도:
+      히어로 위아래 14/6px, 갱신시각 행 아래 10px, 그 아래 탭은 간격 0.
+    */
+    <div data-page-surface="plain">
       {/* T1 — 히어로와 갱신시각·새로고침 행은 탭 밖 공통 영역. 어느 탭에서도 보인다. */}
-      <StockHero stock={stock} />
-      <div className="flex items-center justify-between gap-3">
+      <div className="pt-3.5 pb-1.5">
+        <StockHero stock={stock} />
+      </div>
+      <div className="flex items-center justify-between gap-3 pb-2.5">
         {updatedAtLabel && (
           <span className="text-[length:var(--t-caption)] text-[var(--muted-fg)] mono">
             {updatedAtLabel}
@@ -155,6 +163,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
           onClick={() => void load()}
           disabled={isRefreshing}
           variant="outline"
+          size="sm"
           aria-label="새로고침"
           aria-busy={isRefreshing}
         >
@@ -171,7 +180,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
         실패하면 사용자가 실패 사실을 볼 수 없게 된다.
       */}
       {error && (
-        <p className="text-[length:var(--t-caption)] text-[var(--destructive)]">
+        <p className="pb-2.5 text-[length:var(--t-caption)] text-[var(--destructive)]">
           최근 갱신 실패: {error.message}
         </p>
       )}
@@ -183,10 +192,12 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
         <StockDetailTabs
           code={stock.code}
           chart={
-            <StockDailyChartSection
-              code={stock.code}
-              refreshSignal={isRefreshing}
-            />
+            <DetailBands>
+              <StockDailyChartSection
+                code={stock.code}
+                refreshSignal={isRefreshing}
+              />
+            </DetailBands>
           }
           orderbook={
             /*
@@ -205,18 +216,19 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
             />
           }
           info={
-            <div className="space-y-8">
+            /* 토스 B — 섹션마다 풀폭 평면 블록 + 12px `--band` 띠 (detail-bands.tsx) */
+            <DetailBands>
               <StockStatsGrid stock={stock} />
               <StockThemeChips stockCode={stock.code} />
               <StockLimitUpSection stockCode={stock.code} />
               <StockComovementSection stockCode={stock.code} />
-            </div>
+            </DetailBands>
           }
           news={
-            <div className="space-y-6">
+            <DetailBands>
               <StockNewsSection stockCode={stock.code} />
               <StockDiscussionSection stockCode={stock.code} />
-            </div>
+            </DetailBands>
           }
         />
       </Suspense>

@@ -12,9 +12,9 @@ export function ScannerSkeleton() {
   return (
     <div aria-label="상승률 상위 로딩 중" aria-busy="true" role="status">
       {/* 데스크톱 Table skeleton */}
-      <div className="hidden lg:block overflow-hidden rounded-[var(--r)] border border-[var(--border)]">
+      <div className="hidden lg:block overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--card)]">
         <table className="w-full border-collapse">
-          <thead className="bg-[var(--muted)]">
+          <thead className="bg-transparent">
             <tr>
               {['종목명', '코드', '마켓', '현재가', '등락률', '거래대금'].map(
                 (h) => (
@@ -60,7 +60,7 @@ export function ScannerSkeleton() {
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-3 flex flex-col gap-2"
+            className="rounded-[var(--r)] border border-transparent bg-[var(--card)] p-3 flex flex-col gap-2"
           >
             <div className="flex items-center justify-between">
               <Skeleton className="h-4 w-28" />

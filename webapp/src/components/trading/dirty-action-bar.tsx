@@ -102,7 +102,8 @@ export function DirtyActionBar({
       aria-live="polite"
       className={cn(
         'fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center gap-[var(--s-2)]',
-        'border-t border-[var(--primary)] bg-[color-mix(in_oklch,var(--card)_96%,transparent)]',
+        // 토스 B(260924-vj1) — 바 면은 떠 있는 면(`--popover`) + 위 모서리 16px. 포털·문구·위치 로직 불변.
+        'rounded-t-[var(--r-md)] border-t border-[var(--primary)] bg-[color-mix(in_oklch,var(--popover)_96%,transparent)]',
         /*
           좌우가 **한 유틸리티**(`px-`)다 — 근거와 「되돌리기 전에 볼 것」은 파일 상단 ⑥.
           `pl-` + `pr-` 두 갈래로 두면 「오른쪽만 조금 더」가 다시 들어올 자리가 생기고,
@@ -126,8 +127,9 @@ export function DirtyActionBar({
         onClick={onRevert}
         disabled={submitting}
         className={cn(
-          'h-10 flex-1 shrink-0 rounded-[var(--r-md)] border border-[var(--border)] px-[var(--s-4)] sm:flex-none',
-          'bg-[var(--bg)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)]',
+          'h-10 flex-1 shrink-0 rounded-[var(--r-md)] border border-transparent px-[var(--s-4)] sm:flex-none',
+          // `--popover` 바 위의 중립 버튼 = 2단 raised(다크에서 `--muted` 는 `--popover` 와 같은 색이라 안 보인다).
+          'bg-[var(--raised-2)] text-[length:var(--t-sm)] font-semibold text-[var(--fg)]',
           'disabled:cursor-not-allowed disabled:opacity-50',
         )}
       >

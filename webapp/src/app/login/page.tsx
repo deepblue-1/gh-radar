@@ -61,7 +61,7 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-[var(--s-6)]">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--surface)] p-[var(--s-6)]">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="mt-4 text-xl">gh-radar에 로그인</CardTitle>

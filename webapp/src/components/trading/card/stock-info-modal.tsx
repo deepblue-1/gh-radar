@@ -80,9 +80,9 @@ const TABS = [
 type ModalTab = (typeof TABS)[number]['v'];
 
 const TAB_TRIGGER =
-  'h-7 flex-none rounded-[var(--r)] border border-transparent px-3 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
-  'data-[state=active]:bg-[var(--accent)] data-[state=active]:text-[var(--accent-fg)] data-[state=active]:shadow-none ' +
-  'dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--accent)] dark:data-[state=active]:text-[var(--accent-fg)]';
+  'h-7 flex-none rounded-full border border-transparent px-3 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
+  'data-[state=active]:bg-[var(--pill-on-bg)] data-[state=active]:text-[var(--pill-on-fg)] data-[state=active]:shadow-none ' +
+  'dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--pill-on-bg)] dark:data-[state=active]:text-[var(--pill-on-fg)]';
 
 export interface StockInfoModalProps {
   /** 6자 단축코드. **없으면 팝업이 열리지 않는다**(⑦). */

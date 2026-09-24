@@ -421,7 +421,7 @@ function TradeTapeImpl({
         // 상태와 무관하게 compact 를 짚을 수 있어야 한다 — 빈 상태에도 같이 건다.
         data-compact={compact ? 'true' : undefined}
         className={cn(
-          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center',
+          'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center',
           className,
         )}
       >

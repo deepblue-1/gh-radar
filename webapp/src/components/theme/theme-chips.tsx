@@ -150,7 +150,7 @@ export function StockThemeChips({ stockCode }: StockThemeChipsProps) {
                 <button
                   type="button"
                   aria-label={`테마 ${overflow.length}개 더 보기`}
-                  className="inline-flex h-5 items-center rounded-full border border-[var(--border)] px-2 text-[11px] font-semibold text-[var(--muted-fg)] hover:text-[var(--fg)]"
+                  className="inline-flex h-5 items-center rounded-full border border-transparent bg-[var(--muted)] px-2 text-[11px] font-semibold text-[var(--muted-fg)] hover:text-[var(--fg)]"
                 >
                   +{overflow.length}
                 </button>

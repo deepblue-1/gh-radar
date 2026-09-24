@@ -3,7 +3,8 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 /**
- * Textarea — 포커스는 **테두리색 변화 한 겹**이다 (quick-260912-mvo Q-02).
+ * Textarea — B(260924-vj1): raised 채움(`--muted`) · `--input` 투명 테두리.
+ * 포커스는 **테두리색 변화 한 겹**이다 (quick-260912-mvo Q-02).
  *
  * `data-focus-ring="seamless"` 가 globals.css §8.5.5 의 전역 Double-Ring 변수를 해제하고,
  * 이 컴포넌트가 원래 갖고 있던 Tailwind 자체 포커스 링 유틸리티는 **걷었다**.
@@ -19,7 +20,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
       data-slot="textarea"
       data-focus-ring="seamless"
       className={cn(
-        "flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        "flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-[var(--muted)] px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
         className
       )}
       {...props}

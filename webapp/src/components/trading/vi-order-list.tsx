@@ -404,7 +404,7 @@ export function ViOrderList({
       ) : rows.length === 0 ? (
         <div
           data-slot="vi-order-empty"
-          className="rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center"
+          className="rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center"
         >
           <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
             {VI_ORDER_EMPTY_TEXT}

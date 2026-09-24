@@ -60,7 +60,7 @@ export function AppShell({
       {/* ★ `overflow-hidden` 을 두지 않는다 — 스크롤 컨테이너가 되어 aside 의 sticky 를 죽인다. */}
       <div className="flex flex-1">
         {showSidebar && (
-          <aside className="hidden w-60 shrink-0 border-r border-[var(--border)] bg-[var(--muted)] p-3 lg:sticky lg:top-14 lg:block lg:h-[calc(100dvh-3.5rem)] lg:self-start lg:overflow-y-auto">
+          <aside className="hidden w-60 shrink-0 border-r border-transparent bg-[var(--side-bg)] p-3 lg:sticky lg:top-14 lg:block lg:h-[calc(100dvh-3.5rem)] lg:self-start lg:overflow-y-auto">
             {sidebar}
           </aside>
         )}
@@ -78,15 +78,17 @@ export function AppShell({
           ★ 이 램프가 `globals.css` §2.2b 밴드 경계의 **뷰포트 환산**을 정한다 — 표 자체는
             컨테이너 폭 기준이라 불변이지만, 「뷰포트 몇에서 그 밴드가 시작하는가」는 여기가
             정본이다. 값을 바꾸면 §2.2b 의 그 단락도 함께 고쳐야 한다.
+          ★ B(260924-vj1) 본문면 `--surface` — 라이트 #f2f4f6 회색 면 위 흰 카드(다크는 `--bg` 와 같다).
+            종목상세는 globals.css `main:has([data-page-surface="plain"])` 가 흰 `--bg` 로 되돌린다.
         */}
-        <main className="min-w-0 flex-1 overflow-auto p-2 md:p-4 lg:p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto bg-[var(--surface)] p-2 md:p-4 lg:p-6">{children}</main>
       </div>
 
       {showSidebar && (
         <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
           <SheetContent
             side="left"
-            className="w-[min(280px,85vw)] bg-[var(--muted)] p-3"
+            className="w-[min(280px,85vw)] bg-[var(--side-bg)] p-3"
           >
             {/*
               Radix Dialog 는 접근 이름(Title)이 없으면 콘솔 에러를, 설명(Description)이

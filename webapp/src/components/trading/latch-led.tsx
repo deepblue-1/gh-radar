@@ -226,7 +226,8 @@ export function LatchLed({ kind, server, onArm, variant = "chip", className }: L
       onClick={() => onArm?.(kind)}
       className={cn(
         chipBase,
-        "cursor-pointer border-[var(--border)] bg-[var(--bg)] hover:border-[var(--muted-fg)]",
+        // 토스 B `.led` 칩(260924-vj1) — 무테 raised 채움. OFF(비활성)는 아래 `--faint` 점선 윤곽.
+        "cursor-pointer border-transparent bg-[var(--muted)] hover:border-[var(--muted-fg)]",
       )}
     >
       {body}
@@ -236,7 +237,7 @@ export function LatchLed({ kind, server, onArm, variant = "chip", className }: L
       data-slot="latch-led"
       data-kind={kind}
       data-tone={state.tone}
-      className={cn(chipBase, "border-dashed border-[var(--border)] bg-transparent")}
+      className={cn(chipBase, "border-dashed border-[var(--faint)] bg-transparent")}
     >
       {body}
     </span>

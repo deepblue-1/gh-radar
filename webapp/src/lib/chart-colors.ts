@@ -32,19 +32,23 @@ export interface ChartPalette {
  * var(--card) 를 그대로 표시. light/dark 모두 카드 색과 완전 일치.
  * lightweight-charts 의 color parser 는 rgba() 정상 수용 (Pitfall 9 unaffected — oklch 만 거부).
  */
+/**
+ * 260924-vj1 — 토스 B 팔레트(sketch 001). 상승색은 두 테마 모두 #f04452 로 같다(B 의도 —
+ * 토스는 라이트·다크 상승 빨강을 공유). 하락·텍스트·grid 만 테마별로 갈린다.
+ */
 const PALETTES: Record<'light' | 'dark', ChartPalette> = {
   light: {
-    up: '#ef4444',
-    down: '#3b82f6',
-    text: '#737373',
-    grid: '#e7e7e7',
+    up: '#f04452',
+    down: '#3182f6',
+    text: '#8b95a1',
+    grid: '#f2f4f6',
     bg: 'rgba(0, 0, 0, 0)',
   },
   dark: {
-    up: '#f87171',
-    down: '#60a5fa',
-    text: '#a3a3a3',
-    grid: '#2e2e2e',
+    up: '#f04452',
+    down: '#3485fa',
+    text: '#9e9ea4',
+    grid: '#26262c',
     bg: 'rgba(0, 0, 0, 0)',
   },
 } as const;

@@ -297,6 +297,9 @@ describe('StockDetailClient', () => {
     const bar = list.closest('.sticky')!;
     expect(bar.className).toContain('-mx-2');
     expect(bar.className).toContain('px-2');
+    // 260924-vj1 — main 램프의 md 단계(16px)도 같은 축으로 상쇄한다.
+    expect(bar.className).toContain('md:-mx-4');
+    expect(bar.className).toContain('md:px-4');
     expect(bar.className).toContain('lg:-mx-6');
     expect(bar.className).toContain('lg:px-6');
     // 맨몸 24px 상쇄가 남아 있으면 모바일에서 그대로 걸린다.

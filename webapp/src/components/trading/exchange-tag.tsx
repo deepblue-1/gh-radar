@@ -30,8 +30,9 @@ export function ExchangeTag({
         'inline-flex flex-none items-center rounded-[var(--r-sm)] border px-1.5 text-[10px] font-bold tracking-[.02em]',
         size === 'md' ? 'h-5' : 'h-[18px]',
         exchange === 'NXT'
-          ? 'border-transparent bg-[var(--accent)] text-[var(--accent-fg)]'
-          : 'border-[var(--border)] bg-transparent text-[var(--muted-fg)]',
+          ? // 토스 B(260924-vj1) — 활성(NXT) = 작은 알약 선택 면 `--pill-on-*`, KRX = raised 칩.
+            'border-transparent bg-[var(--pill-on-bg)] text-[var(--pill-on-fg)]'
+          : 'border-transparent bg-[var(--muted)] text-[var(--muted-fg)]',
       )}
     >
       {exchange}

@@ -61,14 +61,14 @@ function StockRow({ stock }: { stock: HomeSurgeStock }) {
       className="group grid grid-cols-[1fr_auto] items-center gap-3 rounded-[var(--r-sm)] py-[7px] no-underline [&+&]:border-t [&+&]:border-[var(--border-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
     >
       <span className="min-w-0 truncate">
-        <b className="text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] group-hover:text-[var(--primary)]">
+        <b className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)] group-hover:text-[var(--primary)]">
           {stock.name}
         </b>
         <span className="mono ml-[6px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
           {stock.code}
         </span>
       </span>
-      <span className="mono text-right text-[length:var(--t-sm)] font-extrabold text-[var(--up)]">
+      <span className="mono text-right text-[length:var(--t-sm)] font-bold text-[var(--up)]">
         {formatChange(stock.changeRate)}
       </span>
     </Link>
@@ -97,7 +97,7 @@ export function ThemeCard({ theme }: ThemeCardProps) {
 
   return (
     <>
-      <article className="card-shadow flex flex-col gap-[var(--s-3)] rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-[var(--s-4)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
+      <article className="card-shadow flex flex-col gap-[var(--s-3)] rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] p-[var(--s-4)] transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]">
         {/* 헤더 */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-[3px]">
@@ -108,7 +108,7 @@ export function ThemeCard({ theme }: ThemeCardProps) {
               aria-haspopup="dialog"
               className="group -ml-1 flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
             >
-              <span className="min-w-0 truncate text-[length:var(--t-h4)] font-extrabold tracking-[-0.01em] text-[var(--fg)] group-hover:text-[var(--primary)]">
+              <span className="min-w-0 truncate text-[length:var(--t-h4)] font-bold tracking-[-0.01em] text-[var(--fg)] group-hover:text-[var(--primary)]">
                 {theme.name}
               </span>
             </button>
@@ -120,7 +120,7 @@ export function ThemeCard({ theme }: ThemeCardProps) {
           </div>
           <div className="flex shrink-0 items-start gap-1">
             <div className="text-right">
-              <div className="mono text-[length:var(--t-h4)] font-extrabold text-[var(--up)]">
+              <div className="mono text-[length:var(--t-h4)] font-bold text-[var(--up)]">
                 {avgLabel}
               </div>
               <div className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
@@ -177,7 +177,7 @@ export function ThemeCard({ theme }: ThemeCardProps) {
           className="max-h-[80vh] gap-0 rounded-t-[var(--r-lg)]"
         >
           <SheetHeader>
-            <SheetTitle className="text-[length:var(--t-h4)] font-extrabold tracking-[-0.01em]">
+            <SheetTitle className="text-[length:var(--t-h4)] font-bold tracking-[-0.01em]">
               {theme.name}
             </SheetTitle>
             <SheetDescription>{sheetDesc}</SheetDescription>

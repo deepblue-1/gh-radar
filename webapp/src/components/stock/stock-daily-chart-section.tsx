@@ -134,10 +134,10 @@ export function StockDailyChartSection({
     >
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-[length:var(--t-h3)] font-semibold">{title}</h2>
+          <h2 className="text-[20px] font-bold tracking-[-0.02em]">{title}</h2>
           {isIntraday && (
             <span
-              className="rounded-[var(--r-sm)] bg-[var(--muted)] px-2 py-0.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+              className="rounded-full bg-[var(--muted)] px-2 py-0.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
               data-testid="stock-daily-chart-intraday-badge"
             >
               장중
@@ -148,7 +148,7 @@ export function StockDailyChartSection({
           <div
             role="tablist"
             aria-label="차트 단위 선택"
-            className="inline-flex items-center gap-1 rounded-[var(--r)] border border-[var(--border)] p-1"
+            className="inline-flex items-center gap-0.5 rounded-[var(--r)] bg-[var(--muted)] p-[3px]"
           >
             {DAILY_OHLCV_TIMEFRAMES.map((tf) => {
               const active = tf === timeframe;
@@ -160,10 +160,10 @@ export function StockDailyChartSection({
                   aria-selected={active}
                   onClick={() => setTimeframe(tf)}
                   data-testid={`stock-daily-chart-timeframe-${tf}`}
-                  className={`rounded-[var(--r-sm)] px-3 py-1 text-[length:var(--t-caption)] transition-colors ${
+                  className={`h-8 rounded-[calc(var(--r)-3px)] px-3 text-[13px] font-semibold transition-colors ${
                     active
-                      ? 'bg-[var(--primary)] text-[var(--primary-fg)]'
-                      : 'text-[var(--muted-fg)] hover:bg-[var(--muted)]'
+                      ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
+                      : 'text-[var(--muted-fg)] hover:text-[var(--fg)]'
                   }`}
                 >
                   {TIMEFRAME_LABELS[tf]}
@@ -174,7 +174,7 @@ export function StockDailyChartSection({
           <div
             role="tablist"
             aria-label="기간 선택"
-            className="inline-flex items-center gap-1 rounded-[var(--r)] border border-[var(--border)] p-1"
+            className="inline-flex items-center gap-0.5 rounded-[var(--r)] bg-[var(--muted)] p-[3px]"
           >
             {DAILY_OHLCV_RANGES.map((r) => {
               const active = r === range;
@@ -185,10 +185,10 @@ export function StockDailyChartSection({
                   role="tab"
                   aria-selected={active}
                   onClick={() => setRange(r)}
-                  className={`rounded-[var(--r-sm)] px-3 py-1 text-[length:var(--t-caption)] transition-colors ${
+                  className={`h-8 rounded-[calc(var(--r)-3px)] px-3 text-[13px] font-semibold transition-colors ${
                     active
-                      ? 'bg-[var(--primary)] text-[var(--primary-fg)]'
-                      : 'text-[var(--muted-fg)] hover:bg-[var(--muted)]'
+                      ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
+                      : 'text-[var(--muted-fg)] hover:text-[var(--fg)]'
                   }`}
                 >
                   {r}
@@ -222,10 +222,11 @@ export function StockDailyChartSection({
 
       {/*
         Pitfall 5: container 항상 visible — Skeleton/Empty 는 absolute overlay.
-        2026-05-16 사용자 요청: 차트 영역 좌우 여백 제거. 카드 padding(p-5 = 1.25rem)
-        만큼 음의 마진으로 화면 좌우까지 차트 확장. 헤더/요약은 padding 유지.
+        B(260924-vj1 · sketch `.v-b .chart-wrap { margin: 12px 0 0 }`): 종목상세에서는 섹션이 풀폭 띠라
+        카드 padding 음의 마진 bleed 를 걷고, 카드색 칠도 걷는다 — 띠 안에서 `--card` 가 raised 로
+        재정의되므로 칠을 남기면 차트 바탕이 회색 박스가 된다. 모달에선 부모 카드색이 그대로 비친다.
       */}
-      <div className="relative -mx-5 h-[340px] bg-[var(--card)]">
+      <div className="relative mt-3 h-[340px] bg-transparent">
         {isLoading && (
           <div className="absolute inset-0">
             <StockDailyChartSkeleton height={340} />

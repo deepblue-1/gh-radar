@@ -125,7 +125,7 @@ export function ThemesClient() {
         {!user ? (
           <div
             role="status"
-            className="rounded-[var(--r)] border border-dashed border-[var(--border)] bg-[var(--card)] p-4 text-[length:var(--t-sm)] text-[var(--muted-fg)]"
+            className="rounded-[var(--r)] border border-dashed border-[var(--faint)] bg-[var(--card)] p-4 text-[length:var(--t-sm)] text-[var(--muted-fg)]"
           >
             로그인하면 나만의 테마를 만들고 종목을 묶을 수 있어요.{' '}
             <Link href="/login" className="text-[var(--primary)] hover:underline">

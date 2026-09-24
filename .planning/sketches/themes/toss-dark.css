@@ -1,0 +1,23 @@
+/* 토스증권 다크 후보 팔레트 — 사용자 제공 스크린샷(2026-09-24) 실측 근사.
+   원칙: 테두리 대신 명도 단계(bg < band < card < raised)로 면을 가른다. */
+:root {
+  --bg: #17171c;          /* 페이지 바탕 */
+  --band: #101013;        /* 섹션 사이 짙은 띠 */
+  --card: #202027;        /* 카드/그룹 면 */
+  --raised: #2c2c35;      /* 입력칸·세그먼트 트랙·칩 */
+  --raised-2: #3c3c47;    /* 세그먼트 선택/hover */
+  --fg: #ffffff;
+  --fg-2: #e4e4e5;
+  --muted-fg: #9e9ea4;
+  --faint-fg: #6b6b73;
+  --line: rgba(255,255,255,.07);
+  --up: #f04452;
+  --down: #3485fa;
+  --up-bg: rgba(240,68,82,.16);
+  --down-bg: rgba(52,133,250,.16);
+  --primary: #3485fa;
+  --cta: #f04452;
+  --r-md: 12px; --r-lg: 16px; --r-xl: 20px;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --font-num: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif;
+}

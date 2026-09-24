@@ -416,7 +416,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
     <section
       data-slot="strategy-status-card"
       className={cn(
-        "rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)] p-3",
+        "rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] p-3",
         className,
       )}
     >
@@ -446,7 +446,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
           </p>
         </div>
       ) : chaserCount === 0 ? (
-        <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+        <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
           <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
             등록된 상따 전략이 없어요
           </p>

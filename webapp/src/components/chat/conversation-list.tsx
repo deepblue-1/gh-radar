@@ -125,7 +125,7 @@ export function ConversationList({
           aria-label="종목 필터"
           value={stockFilter}
           onChange={(e) => setStockFilter(e.target.value)}
-          className="h-8 flex-1 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--bg)] px-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--fg)]"
+          className="h-8 flex-1 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-2)] text-[length:var(--t-caption)] text-[var(--fg)]"
         >
           {options.map((o) => (
             <option key={o.value} value={o.value}>

@@ -283,7 +283,7 @@ export function ChatSheet() {
             type="button"
             aria-label="새 대화"
             onClick={startNewConversation}
-            className="ml-auto rounded-[var(--r)] border border-[var(--border)] px-[var(--s-2)] py-1 text-[length:var(--t-caption)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)]"
+            className="ml-auto rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-[var(--s-2)] py-1 text-[length:var(--t-caption)] text-[var(--muted-fg)] hover:bg-[var(--raised-2)] hover:text-[var(--fg)]"
           >
             ＋ 새 대화
           </button>

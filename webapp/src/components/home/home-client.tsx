@@ -107,10 +107,10 @@ export function HomeClient() {
           {snapshot && themes.length > 0 && (
             <>
               <div className="mt-[var(--s-2)] flex items-center gap-2">
-                <h2 className="text-[length:var(--t-h4)] font-extrabold text-[var(--fg)]">
+                <h2 className="text-[length:var(--t-h4)] font-bold text-[var(--fg)]">
                   주도 테마
                 </h2>
-                <span className="mono rounded-full bg-[var(--muted)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                <span className="mono rounded-full bg-[var(--card)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                   {themes.length}
                 </span>
                 {/* getText lazy — 과거 슬롯을 보고 있으면 그 스냅샷을 복사. */}
@@ -131,10 +131,10 @@ export function HomeClient() {
           {snapshot && singles.length > 0 && (
             <>
               <div className="mt-[var(--s-2)] flex items-center gap-2">
-                <h2 className="text-[length:var(--t-h4)] font-extrabold text-[var(--fg)]">
+                <h2 className="text-[length:var(--t-h4)] font-bold text-[var(--fg)]">
                   개별 급등
                 </h2>
-                <span className="mono rounded-full bg-[var(--muted)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                <span className="mono rounded-full bg-[var(--card)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
                   {singles.length}
                 </span>
                 {/* getText lazy — 과거 슬롯을 보고 있으면 그 스냅샷을 복사. */}
@@ -183,7 +183,7 @@ function HomeErrorCard({
       }}
     >
       <div className="flex flex-col gap-1 text-[length:var(--t-sm)]">
-        <p className="font-extrabold text-[var(--fg)]">불러오지 못했습니다</p>
+        <p className="font-bold text-[var(--fg)]">불러오지 못했습니다</p>
         <p className="text-[var(--muted-fg)]">잠시 후 다시 시도해 주세요.</p>
       </div>
       <div>

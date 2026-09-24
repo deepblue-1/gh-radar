@@ -12,9 +12,9 @@ export interface StockHeroProps {
 
 /**
  * StockHero — Phase 6 D4 Hero 섹션 (UI-SPEC primary focal point).
- * - 종목명(Heading 24) · 코드 · 마켓배지
- * - 현재가(Display 30 → 모바일 24, 반응형 breakpoint)
- * - 등락액 + 등락률 (up/down/flat 색상)
+ * - 종목명(18px/600) · 코드(raised 칩) · 마켓배지 — 토스 B(260924-vj1 · 타이포 교정)
+ * - 현재가 30px/700 (폰·데스크톱 동일)
+ * - 등락액 + 등락률 15px/500 (up/down/flat 색상)
  * - price <= 0 → em-dash (정지/폐지 종목)
  *
  * 뒤로가기 버튼 (←): router.back() 으로 진입 경로 보존 (이전 페이지 = scanner 또는
@@ -39,8 +39,8 @@ export function StockHero({ stock }: StockHeroProps) {
   };
 
   return (
-    <section className="space-y-6" aria-label="종목 개요">
-      <div className="flex flex-wrap items-center gap-3">
+    <section className="space-y-1.5" aria-label="종목 개요">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={handleBack}
@@ -49,33 +49,33 @@ export function StockHero({ stock }: StockHeroProps) {
         >
           ←
         </button>
-        <h1 className="text-[length:var(--t-h2)] font-semibold tracking-[-0.01em] text-[var(--fg)]">
+        <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[var(--fg)]">
           {stock.name}
         </h1>
-        <span className="mono text-[length:var(--t-sm)] text-[var(--muted-fg)]">
+        <span className="mono rounded-[6px] bg-[var(--muted)] px-[7px] py-[2px] text-[12px] font-semibold text-[var(--muted-fg)]">
           {stock.code}
         </span>
         <Badge variant="outline">{stock.market}</Badge>
         <WatchlistToggle stockCode={stock.code} stockName={stock.name} />
       </div>
 
-      <div className="flex flex-wrap items-baseline gap-3">
+      <div className="flex flex-wrap items-baseline gap-2.5">
         {priceValid ? (
           <span
             data-testid="stock-hero-price"
-            className="mono text-[length:var(--t-h2)] md:text-[length:var(--t-h1)] font-semibold text-[var(--fg)]"
+            className="mono text-[30px] font-bold leading-tight tracking-[-0.02em] text-[var(--fg)]"
           >
             <NumberDisplay value={stock.price} format="price" />
           </span>
         ) : (
           <span
             data-testid="stock-hero-price"
-            className="mono text-[length:var(--t-h2)] md:text-[length:var(--t-h1)] font-semibold text-[var(--muted-fg)]"
+            className="mono text-[30px] font-bold leading-tight tracking-[-0.02em] text-[var(--muted-fg)]"
           >
             —
           </span>
         )}
-        <span className="text-[length:var(--t-sm)]">
+        <span className="text-[15px] font-medium">
           <NumberDisplay
             value={stock.changeAmount}
             format="price"
@@ -83,7 +83,7 @@ export function StockHero({ stock }: StockHeroProps) {
             withColor
           />
         </span>
-        <span className="text-[length:var(--t-sm)]">
+        <span className="text-[15px] font-medium">
           <NumberDisplay
             value={changeRateDecimal}
             format="percent"

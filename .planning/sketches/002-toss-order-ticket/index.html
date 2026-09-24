@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>토스식 호가주문 v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="../themes/toss-dark.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 50; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+#nav .g { display: flex; gap: 4px; align-items: center; }
+#nav .l { color: #777; font-size: 12px; margin-right: 4px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#nav button:disabled { opacity: .35; cursor: default; }
+#desc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.6; }
+#desc b { color: #eee; }
+#stage { display: flex; justify-content: center; padding: 20px 12px 60px; overflow-x: auto; }
+
+/* ── TDS 공식 토큰 (@toss/tds-colors 0.1.0) ── */
+.f {
+  --bg: #17171c; --band: #101013; --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59;
+  --t900: #ffffff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d;
+  --hair: #3c3c47; --red: #f04251; --blue: #3485fa; --green: #2fca73; --amber: #ffb13d;
+  --red-box: rgba(240,66,81,.22); --blue-box: rgba(52,133,250,.22); --dim: rgba(0,0,0,.56);
+  --kb-bg: #2b2b2e; --kb-key: #6b6b70;
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+}
+.f.light {
+  --bg: #ffffff; --band: #f2f4f6; --layer: #ffffff; --float: #f2f4f6; --g200: #e5e8eb; --g300: #d1d6db;
+  --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1;
+  --hair: #e5e8eb; --red: #f04452; --blue: #3182f6; --green: #03b26c; --amber: #ff9f1a;
+  --red-box: #ffeeee; --blue-box: #e8f3ff; --dim: rgba(0,0,0,.2);
+  --kb-bg: #d1d3d9; --kb-key: #ffffff;
+}
+.f { position: relative; flex: none; overflow: hidden; background: var(--bg); color: var(--t800); font-family: var(--font); -webkit-font-smoothing: antialiased; word-break: keep-all; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1px #2a2a30, 0 30px 80px rgba(0,0,0,.5); display: flex; }
+.f.phone { width: 390px; height: 844px; border-radius: 30px; --kbh: 244px; }
+.f.tablet { width: 768px; height: 1000px; border-radius: 24px; --kbh: 118px; }
+.f.desktop { width: 1280px; height: 860px; border-radius: 12px; }
+.side { display: none; }
+.f.desktop .side { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 18px 12px; background: var(--band); }
+.side .brand { font-weight: 700; font-size: 17px; padding: 4px 10px 16px; color: var(--t900); }
+.side a { padding: 9px 10px; border-radius: 10px; color: var(--t600); font-size: 15px; font-weight: 500; }
+.side a.on { background: var(--float); color: var(--t900); font-weight: 600; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hdr { display: flex; align-items: center; gap: 10px; padding: 12px 16px 0; }
+.f.desktop .hdr { padding: 20px 24px 0; }
+.hdr .back { font-size: 24px; color: var(--t800); }
+.hdr .nm { font-size: 17px; font-weight: 600; color: var(--t900); }
+.hdr .cd { font-size: 12px; color: var(--t600); background: var(--float); padding: 2px 7px; border-radius: 6px; }
+.hdr .px { font-size: 17px; font-weight: 600; color: var(--red); margin-left: 4px; }
+.hdr .sp { flex: 1; }
+.hdr .hr { color: var(--red); font-size: 20px; }
+.tabs { display: flex; gap: 18px; padding: 8px 16px 0; border-bottom: 1px solid var(--hair); }
+.f.desktop .tabs { padding: 8px 24px 0; }
+.tabs span { font-size: 17px; font-weight: 600; color: var(--t500); padding: 8px 0 10px; border-bottom: 2px solid transparent; }
+.tabs span.on { color: var(--t900); border-bottom-color: var(--t900); }
+.strip { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 12px; color: var(--t600); }
+.f.desktop .strip { padding: 10px 24px; }
+.strip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.strip .led { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--float); font-size: 11.5px; }
+.strip .led i { width: 7px; height: 7px; border-radius: 50%; }
+.strip .led b { color: var(--t800); font-weight: 600; }
+.strip .sp { flex: 1; }
+.strip .x { font-size: 11px; font-weight: 600; background: var(--float); border-radius: 999px; padding: 2px 8px; color: var(--t800); }
+.wrap { flex: 1; min-height: 0; container: ob / inline-size; }
+.f.desktop .wrap { padding: 0 24px; }
+.body { height: 100%; display: grid; grid-template-columns: 42% 1fr; }
+@container ob (min-width: 700px) { .body { grid-template-columns: 260px 1fr; } }
+@container ob (min-width: 992px) { .body { grid-template-columns: 440px 1fr; } }
+
+/* 호가 */
+.lad { overflow-y: auto; border-right: 1px solid var(--hair); scrollbar-width: none; }
+.lr { display: grid; grid-template-columns: 1fr auto; align-items: center; height: 48px; padding: 0 8px 0 14px; }
+.lr .p b { display: block; font-size: 15px; font-weight: 500; line-height: 1.2; }
+.lr .p small { font-size: 11.5px; }
+.q { min-width: 44px; text-align: right; font-size: 13px; padding: 5px 8px; border-radius: 8px; }
+.ask .q { background: var(--blue-box); color: var(--blue); }
+.bid .q { background: var(--red-box); color: var(--red); }
+.lr.cur { background: var(--float); }
+.lr.cur .p b { font-weight: 700; }
+.lr3 { display: none; }
+@container ob (min-width: 992px) {
+  .lr { display: none; }
+  .lr3 { display: grid; grid-template-columns: 1fr 1.1fr 1fr; align-items: center; height: 40px; padding: 0 8px; }
+  .lr3 .qa { justify-self: end; } .lr3 .qb { justify-self: start; }
+  .lr3 .pc { text-align: center; font-size: 15px; font-weight: 500; }
+  .lr3 .pc small { font-size: 11.5px; margin-left: 5px; }
+  .lr3.cur .pc { background: var(--float); border-radius: 10px; font-weight: 700; padding: 5px 0; }
+}
+.midline { height: 1px; background: var(--hair); margin: 2px 0; }
+.up { color: var(--red); } .dn { color: var(--blue); }
+
+/* 패널 */
+.pan { padding: 10px 12px 0 10px; display: flex; flex-direction: column; min-height: 0; }
+@container ob (min-width: 700px) { .pan { padding: 12px 0 0 16px; } }
+.pan-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding-bottom: 14px; }
+.seg { display: flex; background: var(--float); border-radius: 12px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; font: inherit; border: 0; background: transparent; color: var(--t600); font-size: 15px; font-weight: 600; height: 34px; border-radius: 10px; cursor: pointer; white-space: nowrap; }
+.seg button.on { background: var(--g300); color: var(--t900); }
+.f.light .seg button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.seg.sm button { font-size: 13px; height: 28px; border-radius: 8px; }
+.seg.sm { border-radius: 10px; padding: 2px; }
+@container ob (min-width: 700px) { .only-narrow { display: none !important; } .top-segs { max-width: 320px; } }
+.cols { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.cols > .c.hide-narrow { display: none; }
+.side-h { display: none; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; margin: 10px 2px 0; color: var(--t900); }
+.side-h i { width: 8px; height: 8px; border-radius: 50%; }
+@container ob (min-width: 700px) { .cols { grid-template-columns: 1fr 1fr; } .side-h { display: flex; } .cols > .c.hide-narrow { display: block; } }
+.grp { margin-top: 10px; border-radius: 16px; padding: 10px 10px 4px; background: var(--layer); }
+.f.light .grp { background: #f9fafb; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.grp-h .s { font-size: 12px; color: var(--t500); }
+.grp-h .s.live { color: var(--green); }
+.grp-h .sw { margin-left: auto; }
+.grp.off .lrow { opacity: .45; }
+.sw { width: 40px; height: 24px; border-radius: 999px; background: var(--g300); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.sw.on { background: var(--blue); } .sw.on::after { transform: translateX(16px); }
+.lrow { display: flex; align-items: center; justify-content: space-between; padding: 11px 4px; cursor: pointer; border-radius: 10px; }
+.lrow:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
+.lrow .k { font-size: 14px; color: var(--t600); }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); }
+.lrow .v::after { content: ' ›'; color: var(--t400); }
+.lrow.flash .v { color: var(--blue); }
+/* 데스크톱 인라인 편집 */
+.ied { background: var(--float); border-radius: 12px; padding: 10px 10px 8px 12px; margin: 4px 0; box-shadow: 0 0 0 1.5px var(--blue); }
+.ied .r { display: flex; align-items: center; gap: 6px; }
+.ied .k { font-size: 13px; color: var(--t600); width: 64px; flex: none; }
+.ied input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 17px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.ied .u { font-size: 15px; color: var(--t800); font-weight: 600; }
+.ied .st button { width: 26px; height: 26px; border: 0; border-radius: 7px; background: var(--g200); color: var(--t800); font-size: 17px; cursor: pointer; }
+.ied .hint { font-size: 11.5px; color: var(--t500); margin-top: 6px; display: flex; justify-content: space-between; }
+.ied .hint b { color: var(--t800); font-weight: 600; cursor: pointer; }
+/* 직접 주문 */
+.box { background: var(--float); border-radius: 16px; padding: 12px 12px 12px 14px; margin-top: 8px; }
+.box .h { display: flex; gap: 8px; font-size: 13px; color: var(--t500); align-items: center; }
+.box .h .on { color: var(--t800); font-weight: 600; }
+.box .h .bar { width: 1px; height: 10px; background: var(--g300); }
+.box .vv { display: flex; align-items: center; margin-top: 6px; font-size: 17px; font-weight: 600; color: var(--t900); }
+.box .vv .ph { color: var(--t400); font-weight: 500; }
+.box .vv .st { margin-left: auto; display: flex; gap: 2px; }
+.box .vv .st span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--t600); font-size: 20px; }
+.pct { display: flex; justify-content: space-between; margin-top: 10px; font-size: 13px; color: var(--t500); }
+.row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--t600); padding: 7px 2px; }
+.row b { color: var(--t800); font-weight: 500; }
+.total { text-align: right; padding: 6px 2px 10px; }
+.total small { display: block; font-size: 14px; color: var(--t600); }
+.total b { font-size: 22px; font-weight: 700; color: var(--t900); }
+.cta { font: inherit; width: 100%; height: 56px; border: 0; border-radius: 16px; background: var(--red); color: #fff; font-size: 17px; font-weight: 600; cursor: pointer; margin-bottom: 14px; }
+.ticket { max-width: 400px; }
+
+/* 시트 (폰·태블릿) */
+.dim { position: absolute; inset: 0; background: var(--dim); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; background: var(--layer); border-radius: 28px; padding: 22px 20px 16px; transform: translateY(120%); transition: transform .25s ease, bottom .25s ease; z-index: 21; }
+.f.light .sheet { background: #fff; }
+.f.tablet .sheet { left: 50%; right: auto; width: 440px; margin-left: -220px; }
+.f.open .dim { opacity: 1; pointer-events: auto; }
+.f.open .sheet { transform: none; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; color: var(--t900); }
+.sheet p { margin: 0 0 14px; font-size: 14px; color: var(--t600); }
+.sheet .disp { display: flex; align-items: baseline; gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--float); margin-bottom: 10px; }
+.sheet .disp .n { font-size: 26px; font-weight: 700; color: var(--t900); min-height: 32px; }
+.sheet .disp .n::after { content: ''; display: inline-block; width: 2px; height: 26px; background: var(--blue); margin-left: 2px; vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.sheet .disp .u { font-size: 18px; font-weight: 600; color: var(--t800); }
+.sheet .disp .was { margin-left: auto; font-size: 12.5px; color: var(--t500); }
+.chips { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.chips button { font: inherit; border: 0; background: var(--float); color: var(--t800); font-size: 13px; font-weight: 600; height: 32px; padding: 0 12px; border-radius: 999px; cursor: pointer; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 12px; }
+.pad button { font: inherit; border: 0; background: transparent; color: var(--t900); font-size: 24px; font-weight: 500; height: 56px; border-radius: 12px; cursor: pointer; }
+.pad button:active { background: var(--float); }
+.btns { display: flex; gap: 8px; }
+.btns button { flex: 1; font: inherit; height: 56px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btns .b1 { background: var(--float); color: var(--t800); }
+.btns .b2 { background: var(--blue); color: #fff; }
+/* 시스템 키보드 시뮬레이션 */
+.oskb { position: absolute; left: 0; right: 0; bottom: 0; background: var(--kb-bg); padding: 6px 6px 26px; transform: translateY(100%); transition: transform .25s ease; z-index: 22; }
+.f.open.native .oskb { transform: none; }
+.oskb .lbl { font-size: 10.5px; color: var(--t500); text-align: center; padding: 2px 0 5px; }
+.oskb .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.oskb .grid button { font: inherit; border: 0; height: 46px; border-radius: 6px; background: var(--kb-key); color: var(--t900); font-size: 23px; line-height: 1; cursor: pointer; box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.oskb .grid button small { display: block; font-size: 9px; letter-spacing: 2px; font-weight: 600; }
+.oskb .grid button.fn { background: transparent; box-shadow: none; }
+.f.tablet .oskb .grid { grid-template-columns: repeat(11, 1fr); }
+.f.tablet .oskb .grid button { height: 52px; font-size: 20px; }
+.f.open.native .sheet { bottom: calc(var(--kbh) + 10px); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="g"><span class="l">폭</span><button data-w="phone" class="on">폰 390</button><button data-w="tablet">태블릿 768</button><button data-w="desktop">데스크톱 1280</button></div>
+  <div class="g"><span class="l">입력 키보드</span><button data-k="custom" class="on">자체 키패드</button><button data-k="native">폰 시스템 키보드</button></div>
+  <div class="g"><span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const BASE = 98000, CUR = 98100, UPPER = 127400;
+const fmt = n => Number(n).toLocaleString('ko-KR');
+const tick = p => p < 2000 ? 1 : p < 5000 ? 5 : p < 20000 ? 10 : p < 50000 ? 50 : p < 200000 ? 100 : p < 500000 ? 500 : 1000;
+const pct = p => { const x = (p - BASE) / BASE * 100; return (x > 0 ? '+' : '') + x.toFixed(2) + '%'; };
+const cls = p => p > BASE ? 'up' : p < BASE ? 'dn' : '';
+const S = { w: 'phone', k: 'custom', t: 'dark', mode: 'auto', side: 'buy' };
+
+const FIELDS = {
+  buy: [
+    ['매수주문', true, '감시 중', [['비교가격', 127400, '원', '이 가격의 잔량을 지켜봐요'], ['감시대상', '매도잔량', '', '어느 쪽 잔량을 볼지 골라요'], ['잔량', 10000, '주', '잔량이 이 값보다 줄면 매수를 넣어요'], ['매수가격', 127400, '원', '넣을 매수 주문 가격이에요'], ['주문금액', 100, '만원', '한 번에 넣을 금액이에요']]],
+    ['한방체결', false, '꺼짐', [['호가변경', 3, '건', '호가가 이만큼 바뀌면 한 번에 체결해요'], ['한방가격', 127400, '원', '한방 체결 가격이에요']]],
+    ['매수취소', true, '대기', [['취소잔량', 25, '주', '잔량이 이 값보다 적으면 취소해요'], ['잔량추적', 50, '%', '처음 잔량 대비 비율로 추적해요']]],
+  ],
+  sell: [
+    ['매도주문', true, '감시 중', [['비교가격', 127400, '원', '이 가격의 잔량을 지켜봐요'], ['호가잔량', 5000, '주', '잔량이 이 값보다 줄면 매도를 넣어요'], ['잔량추적', 30, '%', '처음 잔량 대비 비율로 추적해요'], ['매도가격', 126000, '원', '넣을 매도 주문 가격이에요'], ['매도비율', 100, '%', '보유 수량 중 매도할 비율이에요']]],
+  ],
+};
+
+function ladder() {
+  const asks = [[98600, 0], [98500, 8213], [98400, 40213], [98300, 30213], [98200, 20213]];
+  const bids = [[98100, 10087], [98000, 10087], [97900, 20087], [97800, 30087], [97700, 40087], [97600, 50087]];
+  const pc = p => `<b class="${cls(p)}">${fmt(p)}</b><small class="${cls(p)}">${pct(p)}</small>`;
+  let h = '';
+  asks.forEach(([p, q]) => h += `<div class="lr ask"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div><div class="lr3 ask">${q ? `<div class="q qa">${fmt(q)}</div>` : '<div></div>'}<div class="pc ${cls(p)}">${fmt(p)}<small>${pct(p)}</small></div><div></div></div>`);
+  h += '<div class="midline"></div>';
+  bids.forEach(([p, q], i) => h += `<div class="lr bid ${i ? '' : 'cur'}"><div class="p">${pc(p)}</div><div class="q">${fmt(q)}</div></div><div class="lr3 bid ${i ? '' : 'cur'}"><div></div><div class="pc ${cls(p)}">${fmt(p)}<small>${pct(p)}</small></div><div class="q qb">${fmt(q)}</div></div>`);
+  return h;
+}
+
+const lrow = (side, gi, fi, [k, v, u]) => `<div class="lrow" data-side="${side}" data-gi="${gi}" data-fi="${fi}"><span class="k">${k}</span><span class="v">${typeof v === 'number' ? fmt(v) : v}${u}</span></div>`;
+function list(side) {
+  return FIELDS[side].map(([t, on, st, fs], gi) => `<div class="grp ${on ? '' : 'off'}"><div class="grp-h"><span class="t">${t}</span><span class="s ${on ? 'live' : ''}">${st}</span><span class="sw ${on ? 'on' : ''}"></span></div>${fs.map((f, fi) => lrow(side, gi, fi, f)).join('')}</div>`).join('');
+}
+function ticket() {
+  return `<div class="ticket">
+    <div class="seg sm" style="margin-top:8px"><button class="on">매수</button><button>매도</button></div>
+    <div class="box"><div class="h"><span class="on">매수할 가격</span><span class="bar"></span><span>현재가</span><span class="bar"></span><span>상한가</span></div><div class="vv">${fmt(CUR)}원<span class="st"><span>−</span><span>+</span></span></div></div>
+    <div class="box"><div class="h"><span class="on">수량</span></div><div class="vv"><span class="ph">수량 입력</span><span class="st"><span>−</span><span>+</span></span></div><div class="pct"><span>10%</span><span>25%</span><span>50%</span><span>최대</span></div></div>
+    <div class="row" style="margin-top:6px">주문가능 금액 <b>1,583,000원</b></div>
+    <div class="total"><small>총 주문 금액</small><b>0원</b></div>
+    <button class="cta">매수하기</button></div>`;
+}
+function panel() {
+  if (S.mode === 'manual') return `<div class="seg sm top-segs"><button data-mode="auto">자동 (상따)</button><button data-mode="manual" class="on">직접 주문</button></div><div class="pan-scroll">${ticket()}</div>`;
+  return `
+    <div class="seg only-narrow"><button data-side="buy" class="${S.side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${S.side === 'sell' ? 'on' : ''}">매도</button></div>
+    <div class="seg sm top-segs" style="margin-top:6px"><button data-mode="auto" class="on">자동 (상따)</button><button data-mode="manual">직접 주문</button></div>
+    <div class="pan-scroll"><div class="cols">
+      <div class="c ${S.side === 'buy' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--red)"></i>매수</div>${list('buy')}</div>
+      <div class="c ${S.side === 'sell' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--blue)"></i>매도</div>${list('sell')}</div>
+    </div></div>`;
+}
+
+function frame() {
+  const f = S.w;
+  const phoneKeys = [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'], ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'], ['', ''], ['0', ''], ['⌫', '']];
+  const kb = f === 'tablet'
+    ? ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '⌫'].map(k => `<button data-key="${k}">${k}</button>`).join('')
+    : phoneKeys.map(([k, s]) => `<button class="${k === '' || k === '⌫' ? 'fn' : ''}" data-key="${k}">${k}${s ? `<small>${s}</small>` : ''}</button>`).join('');
+  return `<div class="f ${f} ${S.t === 'light' ? 'light' : ''} ${S.k}" id="F">
+    <aside class="side"><div class="brand">gh-radar</div><a>홈</a><a>스캐너</a><a>테마</a><a>관심종목</a><a class="on">종목상세</a><a>트레이딩</a><a>AI 챗봇</a><a>마이</a></aside>
+    <div class="col">
+      <div class="hdr"><span class="back">‹</span><span class="nm">삼성전자</span><span class="cd">005930</span><span class="px">${fmt(CUR)}원 +0.1%</span><span class="sp"></span><span class="hr">♥</span></div>
+      <div class="tabs"><span>차트</span><span class="on">호가주문</span><span>종목정보</span><span>뉴스토론</span></div>
+      <div class="strip"><span class="dot"></span>DMA 실시간<span class="led"><i style="background:var(--green)"></i>매수 <b>감시</b></span><span class="led"><i style="background:var(--amber)"></i>매도 <b>대기</b></span><span class="sp"></span><span class="x">KRX</span></div>
+      <div class="wrap"><div class="body"><div class="lad">${ladder()}</div><div class="pan" id="PAN">${panel()}</div></div></div>
+    </div>
+    <div class="dim js-close"></div>
+    <div class="sheet"><h3 id="SH">잔량</h3><p id="SP"></p>
+      <div class="disp"><span class="n" id="SN"></span><span class="u" id="SU"></span><span class="was" id="SW"></span></div>
+      <div class="chips" id="SC"></div>
+      <div class="pad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫'].map(k => `<button data-key="${k}">${k}</button>`).join('')}</div>
+      <div class="btns"><button class="b1 js-close">닫기</button><button class="b2 js-ok">확인</button></div>
+    </div>
+    <div class="oskb"><div class="lbl">${f === 'tablet' ? 'iPad 키보드 — 숫자 입력 모드 (시뮬레이션)' : 'iPhone 숫자 키패드 — inputmode="numeric" (시뮬레이션)'}</div><div class="grid">${kb}</div></div>
+  </div>`;
+}
+
+const DESC = {
+  phone: '<b>폰</b> — 호가 42% | 패널. 매수/매도는 세그먼트로 한쪽씩. 행을 누르면 <b>바텀시트</b>가 올라와 수정.',
+  tablet: '<b>태블릿</b> (본문 736 → 컴팩트 밴드) — 호가 260px | 패널. 매수·매도 <b>두 목록이 나란히</b>. 터치 기기라 수정은 시트지만 가운데 440px 로 뜬다.',
+  desktop: '<b>데스크톱</b> (본문 992 → 데스크톱 밴드) — 3단 호가 440px | 매수·매도 두 목록. 마우스·물리 키보드라 시트 대신 <b>그 자리에서 바로 편집</b>(인라인): 클릭 → 입력칸, Enter 저장 · Esc 취소 · ↑/↓ 한 호가.',
+};
+const KDESC = {
+  custom: ' · <b>자체 키패드</b>: 토스 송금 화면처럼 시트 안에 숫자판을 그린다. 시스템 키보드가 안 떠서 화면이 덜 가려지고, 「+1호가 · 상한가 · +1,000주」 같은 단축 칩을 숫자판 바로 위에 둘 수 있다. 모든 폰에서 모양이 같다.',
+  native: ' · <b>시스템 키보드</b>: 입력칸에 inputmode="numeric" 을 주면 폰 기본 숫자 키패드가 뜬다. 익숙하지만 화면 아래 절반을 가리고, 기종·키보드 앱마다 모양이 다르며, 아이폰 숫자판엔 「완료」 키가 없어 확인 버튼을 키보드 위 시트에 둬야 한다.',
+};
+
+function render() {
+  document.getElementById('stage').innerHTML = frame();
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.querySelectorAll('#nav [data-k]').forEach(b => { b.classList.toggle('on', b.dataset.k === S.k); b.disabled = S.w === 'desktop'; });
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.getElementById('desc').innerHTML = DESC[S.w] + (S.w === 'desktop' ? ' · 데스크톱은 키패드 선택과 무관(물리 키보드).' : KDESC[S.k]) + ' — 필드 행을 눌러 보세요.';
+}
+render();
+
+let ED = null; // {side,gi,fi,buf,unit,orig}
+const field = (side, gi, fi) => FIELDS[side][gi][3][fi];
+function chipsFor(unit) {
+  if (unit === '원') return [['−1호가', 'tick-'], ['+1호가', 'tick+'], ['현재가', 'cur'], ['상한가', 'upper']];
+  if (unit === '주') return [['+100', 'add100'], ['+1,000', 'add1000'], ['+10,000', 'add10000'], ['지우기', 'clear']];
+  if (unit === '%') return [['10', 'set10'], ['30', 'set30'], ['50', 'set50'], ['100', 'set100']];
+  if (unit === '만원') return [['+10', 'add10'], ['+50', 'add50'], ['+100', 'add100'], ['지우기', 'clear']];
+  if (unit === '건') return [['1', 'set1'], ['3', 'set3'], ['5', 'set5'], ['지우기', 'clear']];
+  return [['매도잔량', 'opt매도잔량'], ['매수잔량', 'opt매수잔량']];
+}
+function showSheet() {
+  const F = document.getElementById('F'), [k, , u, d] = field(ED.side, ED.gi, ED.fi);
+  F.querySelector('#SH').textContent = k; F.querySelector('#SP').textContent = d;
+  F.querySelector('#SU').textContent = u; F.querySelector('#SW').textContent = '지금 ' + (typeof ED.orig === 'number' ? fmt(ED.orig) : ED.orig) + u;
+  F.querySelector('#SC').innerHTML = chipsFor(u).map(([l, a]) => `<button data-chip="${a}">${l}</button>`).join('');
+  F.querySelector('.pad').classList.toggle('hidden', S.k !== 'custom' || u === '');
+  F.classList.toggle('native', S.k === 'native' && u !== '');
+  paint(); F.classList.add('open');
+}
+function paint() {
+  const n = document.getElementById('SN');
+  n.textContent = ED.unit === '' ? ED.buf : (ED.buf === '' ? '' : fmt(+ED.buf));
+}
+function applyChip(a) {
+  const v = +ED.buf || 0;
+  if (a.startsWith('opt')) ED.buf = a.slice(3);
+  else if (a === 'tick+') ED.buf = String(v + tick(v));
+  else if (a === 'tick-') ED.buf = String(Math.max(0, v - tick(v - 1)));
+  else if (a === 'cur') ED.buf = String(CUR);
+  else if (a === 'upper') ED.buf = String(UPPER);
+  else if (a === 'clear') ED.buf = '';
+  else if (a.startsWith('add')) ED.buf = String(v + +a.slice(3));
+  else if (a.startsWith('set')) ED.buf = a.slice(3);
+}
+function flashRow(s, gi, fi) {
+  const r = document.querySelector(`.lrow[data-side="${s}"][data-gi="${gi}"][data-fi="${fi}"]`);
+  if (r) { r.classList.add('flash'); setTimeout(() => r.classList.remove('flash'), 900); }
+}
+function commit() {
+  const f = field(ED.side, ED.gi, ED.fi);
+  f[1] = ED.unit === '' ? ED.buf : (+ED.buf || 0);
+  const { side, gi, fi } = ED; ED = null;
+  document.getElementById('F').classList.remove('open');
+  document.getElementById('PAN').innerHTML = panel();
+  flashRow(side, gi, fi);
+}
+function inlineEdit(row) {
+  const side = row.dataset.side, gi = +row.dataset.gi, fi = +row.dataset.fi, [k, v, u] = field(side, gi, fi);
+  document.getElementById('PAN').innerHTML = panel();
+  const r2 = document.querySelector(`.lrow[data-side="${side}"][data-gi="${gi}"][data-fi="${fi}"]`);
+  const el = document.createElement('div'); el.className = 'ied';
+  el.innerHTML = `<div class="r"><span class="k">${k}</span><input value="${typeof v === 'number' ? fmt(v) : v}"><span class="u">${u}</span><span class="st"><button data-istep="-1">−</button> <button data-istep="1">+</button></span></div><div class="hint"><span>Enter 저장 · Esc 취소${u === '원' ? ' · ↑/↓ 한 호가' : ' · ↑/↓ 1씩'}</span><b class="js-isave">저장</b></div>`;
+  r2.replaceWith(el); const inp = el.querySelector('input'); inp.focus(); inp.select();
+  const save = () => { field(side, gi, fi)[1] = u === '' ? inp.value : (+inp.value.replace(/,/g, '') || 0); document.getElementById('PAN').innerHTML = panel(); flashRow(side, gi, fi); };
+  const step = d => { const n = +inp.value.replace(/,/g, '') || 0; const t = u === '원' ? tick(d > 0 ? n : n - 1) : 1; inp.value = fmt(Math.max(0, n + d * t)); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') document.getElementById('PAN').innerHTML = panel(); if (e.key === 'ArrowUp') { e.preventDefault(); step(1); } if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); } });
+  el.addEventListener('click', e => { const s = e.target.closest('[data-istep]'); if (s) { step(+s.dataset.istep); inp.focus(); } if (e.target.closest('.js-isave')) save(); });
+}
+
+document.addEventListener('click', e => {
+  const t = e.target;
+  const nb = t.closest('#nav button'); if (nb) { if (nb.dataset.w) S.w = nb.dataset.w; if (nb.dataset.k) S.k = nb.dataset.k; if (nb.dataset.t) S.t = nb.dataset.t; ED = null; return render(); }
+  if (!t.closest('#F')) return;
+  const sd = t.closest('.seg [data-side]'); if (sd) { S.side = sd.dataset.side; document.getElementById('PAN').innerHTML = panel(); return; }
+  const md = t.closest('[data-mode]'); if (md) { S.mode = md.dataset.mode; document.getElementById('PAN').innerHTML = panel(); return; }
+  const sw = t.closest('.sw'); if (sw) { const g = sw.closest('.grp'); sw.classList.toggle('on'); const on = sw.classList.contains('on'); g.classList.toggle('off', !on); const s = g.querySelector('.s'); s.textContent = on ? '감시 중' : '꺼짐'; s.classList.toggle('live', on); return; }
+  const row = t.closest('.lrow');
+  if (row) {
+    if (S.w === 'desktop') return inlineEdit(row);
+    const side = row.dataset.side, gi = +row.dataset.gi, fi = +row.dataset.fi, [, v, u] = field(side, gi, fi);
+    ED = { side, gi, fi, unit: u, orig: v, buf: String(v) };
+    return showSheet();
+  }
+  if (t.closest('.js-close')) { ED = null; document.getElementById('F').classList.remove('open'); return; }
+  if (t.closest('.js-ok') && ED) return commit();
+  const ch = t.closest('[data-chip]'); if (ch && ED) { applyChip(ch.dataset.chip); return paint(); }
+  const key = t.closest('[data-key]'); if (key && ED && ED.unit !== '') {
+    const k = key.dataset.key; if (!k) return;
+    ED.buf = k === '⌫' ? ED.buf.slice(0, -1) : (ED.buf === '0' ? '' : ED.buf) + k;
+    if (ED.buf.length > 9) ED.buf = ED.buf.slice(0, 9);
+    return paint();
+  }
+});
+</script>
+</body>
+</html>

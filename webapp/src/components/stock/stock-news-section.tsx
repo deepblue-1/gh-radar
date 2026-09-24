@@ -130,7 +130,7 @@ export function StockNewsSection({ stockCode }: StockNewsSectionProps) {
         role="alert"
         data-testid="stock-news-section-error"
       >
-        <h2 className="text-[length:var(--t-h3)] font-semibold text-[var(--destructive)]">
+        <h2 className="text-[20px] font-bold tracking-[-0.02em] text-[var(--destructive)]">
           뉴스를 불러오지 못했어요
         </h2>
         <p className="mt-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
@@ -150,7 +150,7 @@ export function StockNewsSection({ stockCode }: StockNewsSectionProps) {
         className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-4"
         data-testid="stock-news-section-loading"
       >
-        <h2 className="flex items-center gap-2 text-[length:var(--t-h3)] font-semibold text-[var(--fg)]">
+        <h2 className="flex items-center gap-2 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
           <Newspaper className="size-5" aria-hidden /> 관련 뉴스
         </h2>
         <NewsListSkeleton rows={5} />
@@ -177,7 +177,7 @@ export function StockNewsSection({ stockCode }: StockNewsSectionProps) {
       data-testid="stock-news-section"
     >
       <header className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="flex items-center gap-2 text-[length:var(--t-h3)] font-semibold text-[var(--fg)]">
+        <h2 className="flex items-center gap-2 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
           <Newspaper className="size-5" aria-hidden /> 관련 뉴스
         </h2>
         <NewsRefreshButton

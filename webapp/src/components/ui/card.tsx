@@ -4,13 +4,14 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 /**
- * Card — UI-SPEC §3.2 + §8.5.4 (Inner Highlight + Soft Shadow)
- * - border-radius: var(--r-lg) (12px)
- * - box-shadow: 3층 (inner highlight + near + far) — globals.css `.card-shadow` 에 정의
- * - `plain` variant: shadow 제거, border 만 유지 (밀집 레이아웃)
+ * Card — UI-SPEC §3.2 · 토스 B 스킨(260924-vj1)
+ * - border-radius: var(--r-lg) (20px)
+ * - 테두리는 색만 투명(1px 기하 유지) — 면 구분은 명도 단계(`--card` vs 본문면 `--surface`)가 한다.
+ * - `default` 의 `.card-shadow` 는 B 에서 `none` — 클래스는 소비처 호환으로 남긴다.
+ * - `plain` variant: 그림자 클래스 없음 (밀집 레이아웃)
  */
 const cardVariants = cva(
-  "flex flex-col gap-4 bg-[var(--card)] text-[var(--card-fg)] border border-[var(--border)] rounded-[var(--r-lg)] p-[var(--s-5)]",
+  "flex flex-col gap-4 bg-[var(--card)] text-[var(--card-fg)] border border-transparent rounded-[var(--r-lg)] p-[var(--s-5)]",
   {
     variants: {
       variant: {

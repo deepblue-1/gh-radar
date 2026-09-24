@@ -22,10 +22,11 @@ const buttonVariants = cva(
       variant: {
         default:
           "bg-[var(--primary)] text-[var(--primary-fg)] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)]",
+        // B `.btn` ghost = raised 채움 · 무테 (260924-vj1)
         secondary:
-          "bg-[var(--secondary)] text-[var(--secondary-fg)] border-[var(--border)] hover:bg-[color-mix(in_oklch,var(--secondary)_92%,black)]",
+          "bg-[var(--muted)] text-[var(--secondary-fg)] border-transparent hover:bg-[var(--raised-2)]",
         outline:
-          "bg-transparent text-[var(--fg)] border-[var(--border)] hover:bg-[var(--muted)]",
+          "bg-[var(--muted)] text-[var(--fg)] border-transparent hover:bg-[var(--raised-2)]",
         ghost:
           "bg-transparent text-[var(--fg)] hover:bg-[var(--muted)]",
         destructive:

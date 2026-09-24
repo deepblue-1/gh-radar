@@ -138,3 +138,30 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
     expect(scrollSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('StockDetailTabs — 폰 「주문하기」 CTA (260924-vj1)', () => {
+  it('Test 7 — 호가주문 외 탭에서 CTA 가 보이고, 누르면 기존 탭 전환 경로로 호가주문 1회 push', async () => {
+    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+    const user = userEvent.setup();
+    const { container } = renderTabs();
+
+    const bar = container.querySelector('[data-slot="detail-order-cta-bar"]');
+    expect(bar).not.toBeNull();
+    // 뷰포트 md 이상에서는 숨는다(앱 셸 층 분기).
+    expect(bar!.className).toContain('md:hidden');
+
+    await user.click(screen.getByRole('button', { name: '주문하기' }));
+
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledWith(null, '', '?tab=orderbook');
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'start' });
+  });
+
+  it('Test 8 — 호가주문 탭에서는 CTA 가 언마운트된다(더티 액션 바와 동시 노출 없음)', () => {
+    mockSearchParams = new URLSearchParams('tab=orderbook');
+    const { container } = renderTabs();
+
+    expect(container.querySelector('[data-slot="detail-order-cta-bar"]')).toBeNull();
+    expect(screen.queryByRole('button', { name: '주문하기' })).toBeNull();
+  });
+});

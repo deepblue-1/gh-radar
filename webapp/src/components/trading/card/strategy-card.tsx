@@ -769,9 +769,9 @@ function StrategyCardImpl({
       /* ① — 컨테이너 선언은 `LC_CONTAINER_CLASS`(이 파일 상단) 한 곳이다. */
       className={cn(
         LC_CONTAINER_CLASS,
-        "min-w-0 overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]",
-        open &&
-          "shadow-[inset_0_1px_0_var(--border-subtle),0_1px_2px_oklch(0_0_0/0.04),0_8px_24px_oklch(0_0_0/0.04)]",
+        // 토스 B(260924-vj1) — 무테 카드 면: 테두리는 색만 투명(1px 기하 유지 — `lc` 폭 불변),
+        // 열림 그림자 없음(B `--card-shadow-open: none`). 더티 테두리 채널은 아래 그대로다.
+        "min-w-0 overflow-clip rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]",
         // 미반영 값이 있으면 카드 테두리가 파랗다 — 바가 어느 카드 것인지 모양으로 말한다(목업 B).
         card.dirtyCount > 0 && "border-[color-mix(in_oklch,var(--primary)_55%,var(--border))]",
       )}

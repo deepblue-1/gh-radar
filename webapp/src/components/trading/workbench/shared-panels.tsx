@@ -153,9 +153,9 @@ function useDirtyBarReserve(count: number): number | null {
 }
 
 const TAB_TRIGGER =
-  'h-7 flex-none rounded-[var(--r)] border border-transparent px-2.5 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
-  'data-[state=active]:bg-[var(--accent)] data-[state=active]:text-[var(--accent-fg)] data-[state=active]:shadow-none ' +
-  'dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--accent)] dark:data-[state=active]:text-[var(--accent-fg)]';
+  'h-7 flex-none rounded-full border border-transparent px-2.5 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
+  'data-[state=active]:bg-[var(--pill-on-bg)] data-[state=active]:text-[var(--pill-on-fg)] data-[state=active]:shadow-none ' +
+  'dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--pill-on-bg)] dark:data-[state=active]:text-[var(--pill-on-fg)]';
 
 export function SharedPanels({
   accountNo,
@@ -232,7 +232,7 @@ export function SharedPanels({
       data-dirty-reserve={reserve === null ? undefined : 'true'}
       style={reserveStyle}
       className={cn(
-        'min-w-0 border border-[var(--border)] bg-[var(--card)]',
+        'min-w-0 border border-transparent bg-[var(--card)]',
         pinned
           ? // 폰 밴드(<700) — 뷰포트 하단에 붙는 접이식 바(⑤-b). 레이어는 z-20 이 상한이다(⑤).
             'fixed inset-x-0 bottom-0 z-20 rounded-t-[var(--r-lg)] border-b-0 shadow-[0_-8px_24px_oklch(0_0_0/0.10)]'

@@ -275,7 +275,7 @@ export function StockOrderbookSection({
 
           <TabNotices card={card} exchange={exchange} switching={switching} nxtEmpty={isNxtEmpty} />
 
-          <div className="min-w-0 overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]">
+          <div className="min-w-0 overflow-clip rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]">
             <QuoteGrid10
               quote={quote}
               basePrice={quote !== null && quote.base > 0 ? quote.base : basePrice}
@@ -300,7 +300,7 @@ export function StockOrderbookSection({
             referenceClose={quote !== null && quote.kc > 0 ? quote.kc : null}
             selectedUnfilled={selectedUnfilled}
             onClearSelection={handleClearSelection}
-            className="overflow-clip rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--card)]"
+            className="overflow-clip rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]"
           />
 
           {/*
@@ -320,7 +320,7 @@ export function StockOrderbookSection({
             status={status}
             onSelectUnfilled={handleSelectUnfilled}
             selectedOrderNo={selectedUnfilled?.orderNo ?? null}
-            className="rounded-[var(--r-lg)] border border-[var(--border)]"
+            className="rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]"
           />
         </>
       )}
@@ -370,7 +370,7 @@ function OrderbookStatusBar({
     <div
       data-slot="orderbook-status-bar"
       data-status={status}
-      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
     >
       <span className="inline-flex items-center gap-1.5">
         <span
@@ -397,7 +397,7 @@ function OrderbookStatusBar({
           value={accountNo}
           onChange={(e) => onAccountChange(e.target.value)}
           disabled={accounts.length === 0}
-          className="mono h-6 max-w-full min-w-0 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--card)] px-1.5 text-[11px] font-semibold text-[var(--fg)] disabled:opacity-50"
+          className="mono h-6 max-w-full min-w-0 rounded-[var(--r-sm)] border border-transparent bg-[var(--muted)] px-1.5 text-[11px] font-semibold text-[var(--fg)] disabled:opacity-50"
         >
           {accounts.length === 0 ? (
             <option value="">계좌 확인 중…</option>
@@ -423,9 +423,9 @@ function OrderbookStatusBar({
           data-slot="orderbook-exchange-segment"
           data-single="true"
           title={KRX_ONLY_TITLE}
-          className="inline-flex h-5 items-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+          className="inline-flex h-5 items-center overflow-hidden rounded-full border border-transparent"
         >
-          <span className="flex h-5 items-center bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)]">
+          <span className="flex h-5 items-center bg-[var(--muted)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)]">
             {exchangeChoices[0]}
           </span>
         </span>
@@ -439,13 +439,13 @@ function OrderbookStatusBar({
           disabled={status !== 'ready'}
           aria-label="거래소"
           data-slot="orderbook-exchange-segment"
-          className="h-5 gap-0 overflow-hidden rounded-[var(--r-sm)] border border-[var(--border)]"
+          className="h-5 gap-0 overflow-hidden rounded-full border border-transparent bg-[var(--muted)]"
         >
           {exchangeChoices.map((ex) => (
             <ToggleGroupItem
               key={ex}
               value={ex}
-              className="h-5 min-w-0 rounded-none bg-[var(--card)] px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] not-first:border-l not-first:border-[var(--border)] data-[state=on]:bg-[var(--accent)] data-[state=on]:text-[var(--accent-fg)]"
+              className="h-5 min-w-0 rounded-full! bg-transparent px-1.5 text-[10px] font-bold tracking-[0.02em] text-[var(--muted-fg)] data-[state=on]:bg-[var(--pill-on-bg)] data-[state=on]:text-[var(--pill-on-fg)]"
             >
               {ex}
             </ToggleGroupItem>
@@ -467,7 +467,7 @@ function OrderbookStatusBar({
           className={cn(
             'inline-flex h-[18px] items-center rounded-full border px-[7px] text-[10px] font-bold',
             windowBadge.tone === 'regular' &&
-              'border-[var(--border)] bg-[var(--card)] text-[var(--fg)]',
+              'border-transparent bg-[var(--muted)] text-[var(--fg)]',
             windowBadge.tone === 'queued' &&
               'border-[var(--new-bd)] bg-[var(--new-bg)] text-[var(--fg)]',
             windowBadge.tone === 'offhours' &&

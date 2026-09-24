@@ -37,6 +37,8 @@ function StatValue({ cell }: { cell: StatCell }) {
  * 를 겹쳐 "현재가가 변동폭 어디에 있는지 / 상한가까지 여력" 을 한눈에 보여준다.
  *
  * 종목명/현재가/등락 헤더는 상위 StockHero 가 담당하므로 여기서는 중복 렌더하지 않는다.
+ * 토스 B(260924-vj1 · sketch `.spec` · `.kv-grid`): 5px 무채색 트랙 · 불투명 `--faint` 당일 밴드 ·
+ * 테두리 없는 12px 점 + 옅은 링 · 현재가 태그는 알약 대신 `--fg-2` 굵은 텍스트 · 값 16px/500 · 구분선 없음.
  * 상·하한가 스케일이 무효(거래정지·결측 등)면 8필드 폴백 그리드로 분기한다.
  */
 export function StockStatsGrid({ stock }: { stock: Stock }) {
@@ -70,15 +72,6 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
         ? 'translateX(-9px)'
         : 'translateX(-50%)';
 
-  const dir =
-    stock.changeRate > 0 ? 'up' : stock.changeRate < 0 ? 'down' : 'flat';
-  const tagColor =
-    dir === 'up'
-      ? 'var(--up)'
-      : dir === 'down'
-        ? 'var(--down)'
-        : 'var(--flat)';
-
   const dayStrip: StatCell[] = [
     { label: '시가', value: stock.open, format: 'price', nullAsEmDash: true },
     { label: '저가', value: stock.low, format: 'price', nullAsEmDash: true },
@@ -109,16 +102,12 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
       {/* 스펙트럼 바 */}
       <div
         data-testid="price-spectrum"
-        className="relative h-[14px] rounded-[7px]"
-        style={{
-          background:
-            'linear-gradient(90deg, var(--down) 0%, var(--muted) 50%, var(--up) 100%)',
-        }}
+        className="relative h-[5px] rounded-full bg-[var(--muted)]"
       >
         {/* 당일 저가~고가 음영 밴드 */}
         {showBand && (
           <div
-            className="absolute top-0 bottom-0 rounded-[3px] bg-[var(--fg)] opacity-[0.14]"
+            className="absolute top-0 bottom-0 rounded-full bg-[var(--faint)]"
             style={{ left: `${bandL}%`, width: `${Math.max(bandR - bandL, 0)}%` }}
           />
         )}
@@ -141,21 +130,16 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
 
         {/* 현재가 마커 dot */}
         <div
-          className="absolute top-1/2 z-[2] h-[18px] w-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-[var(--fg)] bg-[var(--card)]"
-          style={{
-            left: `${curPos}%`,
-            boxShadow: '0 1px 4px oklch(0 0 0 / 0.3)',
-          }}
+          className="absolute top-1/2 z-[2] size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--muted-fg)] shadow-[0_0_0_4px_color-mix(in_oklch,var(--fg)_8%,transparent)]"
+          style={{ left: `${curPos}%` }}
         />
 
         {/* 현재가 태그 (엣지 앵커링) */}
         <div
-          className="absolute -top-[40px] whitespace-nowrap rounded-[var(--r-sm)] px-2 py-[3px] text-[length:var(--t-caption)] font-bold mono"
+          className="absolute bottom-[calc(100%+10px)] whitespace-nowrap text-[length:var(--t-caption)] font-bold text-[var(--fg-2)] mono"
           style={{
             left: `${curPos}%`,
             transform: tagTransform,
-            background: tagColor,
-            color: 'var(--bg)',
           }}
         >
           현재 <NumberDisplay value={stock.price} format="price" />
@@ -179,13 +163,13 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
       </div>
 
       {/* 당일 strip: 시가 · 저가 · 고가 */}
-      <div className="mt-6 grid grid-cols-3 gap-4 border-t border-[var(--border-subtle)] pt-4">
+      <div className="mt-6 grid grid-cols-3 gap-4">
         {dayStrip.map((c) => (
           <div key={c.label}>
-            <div className="text-[length:var(--t-caption)] text-[var(--muted-fg)] mb-0.5">
+            <div className="text-[13.5px] text-[var(--muted-fg)] mb-0.5">
               {c.label}
             </div>
-            <div className="text-[length:var(--t-base)] font-bold">
+            <div className="text-[16px] font-medium">
               <StatValue cell={c} />
             </div>
           </div>
@@ -193,13 +177,13 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
       </div>
 
       {/* trade row: 거래량 · 거래대금 · 시가총액 */}
-      <div className="mt-4 grid grid-cols-3 gap-4 border-t border-[var(--border-subtle)] pt-4">
+      <div className="mt-4 grid grid-cols-3 gap-4">
         {tradeRow.map((c) => (
           <div key={c.label}>
-            <div className="text-[length:var(--t-caption)] text-[var(--muted-fg)] mb-0.5">
+            <div className="text-[13.5px] text-[var(--muted-fg)] mb-0.5">
               {c.label}
             </div>
-            <div className="text-[length:var(--t-base)] font-bold">
+            <div className="text-[16px] font-medium">
               <StatValue cell={c} />
             </div>
           </div>

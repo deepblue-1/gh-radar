@@ -174,7 +174,7 @@ export function StockDiscussionSection({
         role="alert"
         data-testid="stock-discussion-section-error"
       >
-        <h2 className="text-[length:var(--t-h3)] font-semibold text-[var(--destructive)]">
+        <h2 className="text-[20px] font-bold tracking-[-0.02em] text-[var(--destructive)]">
           토론방을 불러올 수 없어요
         </h2>
         <p className="mt-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
@@ -194,7 +194,7 @@ export function StockDiscussionSection({
         className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-4"
         data-testid="stock-discussion-section-loading"
       >
-        <h2 className="flex items-center gap-2 text-[length:var(--t-h3)] font-semibold text-[var(--fg)]">
+        <h2 className="flex items-center gap-2 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
           <MessageSquare className="size-5" aria-hidden /> 종목토론방
         </h2>
         <DiscussionListSkeleton variant="card" rows={5} />
@@ -222,7 +222,7 @@ export function StockDiscussionSection({
     >
       <header className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2 min-w-0">
-          <h2 className="flex items-center gap-2 text-[length:var(--t-h3)] font-semibold text-[var(--fg)]">
+          <h2 className="flex items-center gap-2 text-[20px] font-bold tracking-[-0.02em] text-[var(--fg)]">
             <MessageSquare className="size-5" aria-hidden /> 종목토론방
           </h2>
           {staleMinutes != null ? (

@@ -183,12 +183,12 @@ export function RelayStatusBar({
     <div
       data-slot="relay-status-bar"
       data-status={status}
-      className={cn('border-b border-[var(--border)] bg-[var(--muted)]', className)}
+      className={cn('rounded-[var(--r-md)] border-b border-transparent bg-[var(--card)]', className)}
     >
       {/* 상태 줄 — UI-SPEC §접근성 라벨 "상태 바 aria-live=polite" */}
       <div
         aria-live="polite"
-        className="flex flex-wrap items-center gap-[var(--s-2)] px-[var(--s-4)] py-[var(--s-2)]"
+        className="flex flex-wrap items-center gap-[var(--s-2)] px-[var(--s-4)] py-2.5"
       >
         <Badge
           variant="outline"
