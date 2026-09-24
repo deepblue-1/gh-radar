@@ -36,6 +36,8 @@
  *     열렸다 — `RelayOrderModifyMsg`.
  */
 
+import type { JournalOrderRow } from "./journal";
+
 // ============================================================
 // 거래소 · 세션 상태
 // ============================================================
@@ -1115,6 +1117,39 @@ export type RelayOrderResultMsg = {
   status: DmaOrderStatus;
 };
 
+/**
+ * 계좌 기준 주문 저널 행 푸시 (Phase 19 D-03). 원천은 relay **관찰자 기록기**(19-05)가
+ * `dma_journal_apply` 적용 RPC 에서 돌려받은 행이다 — 세션 51 `{t:"order"}` 와 다른 원천이다.
+ *
+ * - **그 계좌에 접근할 수 있는 사용자의 연결에만** 보낸다(D-06 매핑 · T-15-02 사용자 스코프).
+ *   다른 사용자의 계좌 행은 절대 섞지 않는다.
+ * - 적용 배치마다 건드린 행을 모아 보낸다. 행 모양은 `GET /api/orders` 와 **같은 매퍼**
+ *   (`toJournalOrderRow`)를 거친 `JournalOrderRow` 다 — 카드는 `id` 로 병합하고 같은 id 면
+ *   `lastSeq` 큰 쪽을 남긴다.
+ * - 행이 **완전한 행**이라 카드가 이 프레임만으로 행을 **만들 수 있다.** 구 「라이브는 행을 못
+ *   만든다(REST 로 복원된 행에만 덧칠)」 규율은 이 프레임에서 폐기한다.
+ * - `{t:"order"}` 는 토스트·전략 로그 표면 전용으로 남고 카드 병합에서 빠진다(D-03).
+ */
+export type RelayJournalRowsMsg = { t: "journal.rows"; rows: JournalOrderRow[] };
+
+/** 기록 연결 상태 (D-04). `live` = 관찰자 저널 펌프가 따라잡은 상태 · `delayed` = 끊김/지연. */
+export type RelayJournalState = "live" | "delayed";
+
+/**
+ * 기록 연결 상태 표식 (Phase 19 D-04 (a)). 원천은 relay 관찰자 연결의 상태 기계다.
+ *
+ * - 인증 직후 그 연결에 **스냅샷 1프레임**, 이후 상태가 바뀔 때(전이) 해당 사용자 연결에 보낸다.
+ * - `since` 는 기록 연결이 `live` 를 벗어난 시각(ISO). `live` 이면 생략한다.
+ * - relay 가 상태를 **모르면**(관찰자 비활성·미설정) **보내지 않는다** — 브라우저는 프레임 부재를
+ *   「표식 없음」 으로 읽는다(지연 표식을 추측으로 띄우지 않는다).
+ */
+export type RelayJournalStateMsg = {
+  t: "journal.state";
+  s: RelayJournalState;
+  /** `live` 를 벗어난 시각(ISO). `live` 이면 없다. */
+  since?: string;
+};
+
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */
 export type RelayOutbound =
   | RelayStateMsg
@@ -1133,7 +1168,9 @@ export type RelayOutbound =
   | RelayRateCrossMsg
   | RelayRateCrossSnapMsg
   | RelayQueuedWindowMsg
-  | RelayNxtSnapMsg;
+  | RelayNxtSnapMsg
+  | RelayJournalRowsMsg
+  | RelayJournalStateMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)

@@ -75,6 +75,10 @@ export type {
   RelayRateCrossSnapMsg,
   RelayQueuedWindowMsg,
   RelayNxtSnapMsg,
+  // --- 19-04 계좌 기준 주문 저널 wss 프레임 2종 (D-03 · D-04) ---
+  RelayJournalRowsMsg,
+  RelayJournalState,
+  RelayJournalStateMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,
