@@ -23,7 +23,7 @@
  *   규약). envelope 을 언랩하지 않는다.
  */
 
-import type { JournalOrderRow, JournalOrderStatus } from "@gh-radar/shared";
+import type { JournalOrderRow, JournalOrderStatus, RelayAccount } from "@gh-radar/shared";
 
 import { authFetch } from "./auth-fetch";
 
@@ -80,6 +80,47 @@ export function mergeJournalRows(
     if (cur === undefined || row.lastSeq > cur.lastSeq) byId.set(row.id, row);
   }
   return [...byId.values()].sort(compareJournalNewestFirst);
+}
+
+/** 「오늘 주문」 카드의 계좌 묶음 1개 (B′ · Phase 19 D-07). */
+export interface JournalAccountGroup {
+  accountNo: string;
+  /** 상품명. relay 계좌 목록에 없는 계좌는 `""` — 소제목이 번호만 그린다. */
+  name: string;
+  rows: JournalOrderRow[];
+}
+
+/**
+ * 화면 행 → 계좌별 묶음 (B′ · Phase 19 D-07).
+ *
+ * - 순서는 **relay 계좌 목록 순**이다 — 위쪽 계좌 카드(미체결·잔고)와 같은 순서로 읽힌다.
+ * - 행이 없는 계좌는 묶음을 만들지 않는다(빈 소제목 금지).
+ * - 목록에 없는 계좌(권한은 있으나 이 세션 계좌 목록 밖 · 프레임 도착 전)는 버리지 않고 뒤에
+ *   붙인다 — rows 첫 등장 순 · `name` 은 `""`. 기록된 주문을 화면이 숨기지 않는다.
+ * - 각 묶음의 rows 는 **입력 순서를 유지**한다(`compareJournalNewestFirst` 결과 그대로).
+ */
+export function groupJournalRowsByAccount(
+  rows: readonly JournalOrderRow[],
+  accounts: readonly RelayAccount[],
+): JournalAccountGroup[] {
+  const byAccount = new Map<string, JournalOrderRow[]>();
+  for (const row of rows) {
+    const bucket = byAccount.get(row.accountNo);
+    if (bucket === undefined) byAccount.set(row.accountNo, [row]);
+    else bucket.push(row);
+  }
+  const groups: JournalAccountGroup[] = [];
+  for (const account of accounts) {
+    const bucket = byAccount.get(account.accountNo);
+    if (bucket === undefined) continue;
+    groups.push({ accountNo: account.accountNo, name: account.name, rows: bucket });
+    byAccount.delete(account.accountNo);
+  }
+  // Map 은 삽입 순서를 지킨다 = rows 첫 등장 순.
+  for (const [accountNo, bucket] of byAccount) {
+    groups.push({ accountNo, name: "", rows: bucket });
+  }
+  return groups;
 }
 
 /** 표시 라벨 + 톤. 톤은 account-panel 이 쓰는 색 토큰 집합과 같은 축이다. */

@@ -578,3 +578,131 @@ describe("TodayOrdersCard — journal.state 복구 재조회 (Phase 19 D-04)", (
     expect(listRows()[0]?.textContent).toContain("거부");
   });
 });
+
+// ---------------------------------------------------------------------------
+// ⑪ B′ — 계좌별 묶음 · 출처 칩 · NXT 태그 (Phase 19 D-07 · D-08)
+// ---------------------------------------------------------------------------
+
+describe("TodayOrdersCard — B′ 계좌별 묶음 · 출처 칩 · NXT (Phase 19 D-07 · D-08)", () => {
+  const ACCT_A = { accountNo: "1234567801", name: "위탁종합" };
+  const ACCT_B = { accountNo: "1234567802", name: "위탁CMA" };
+  const groupEls = () => [...document.querySelectorAll('[data-slot="today-orders-group"]')];
+
+  it("⑪-1 묶음 순서는 relay 계좌 목록 순 · 목록 밖 계좌는 번호만으로 뒤에 · 소제목 「N건」 은 그 계좌 행 수", async () => {
+    // 서버 정렬(최신 먼저) 그대로 — B 가 가장 최신이어도 묶음은 A 가 먼저다.
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "b1", accountNo: ACCT_B.accountNo, orderNo: "0000000001", createdAt: "2026-09-10T00:13:00.000Z" }),
+      row({ id: "a1", accountNo: ACCT_A.accountNo, orderNo: "0000000002", createdAt: "2026-09-10T00:12:00.000Z" }),
+      row({ id: "x1", accountNo: "9999999901", orderNo: "0000000003", createdAt: "2026-09-10T00:11:00.000Z" }),
+      row({ id: "a2", accountNo: ACCT_A.accountNo, orderNo: "0000000004", createdAt: "2026-09-10T00:10:00.000Z" }),
+    ]);
+    mockRelay = { ...EMPTY_RELAY_VALUE, accounts: [ACCT_A, ACCT_B] };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(groupEls()).toHaveLength(3));
+    expect(groupEls().map((el) => el.getAttribute("data-account"))).toEqual([
+      ACCT_A.accountNo,
+      ACCT_B.accountNo,
+      "9999999901",
+    ]);
+    const [a, b, x] = groupEls();
+    expect(a?.textContent).toContain("계좌");
+    expect(a?.textContent).toContain(ACCT_A.accountNo);
+    expect(a?.textContent).toContain("위탁종합");
+    expect(a?.textContent).toContain("2건");
+    expect(b?.textContent).toContain("위탁CMA");
+    expect(b?.textContent).toContain("1건");
+    // 목록 밖 계좌 — 상품명을 지어내지 않는다.
+    expect(x?.textContent).not.toContain("위탁");
+    expect(x?.querySelectorAll('[data-slot="today-order-row"]')).toHaveLength(1);
+    // 계좌 A 묶음 안의 순서는 입력(최신 먼저) 그대로다.
+    const aRows = [...(a?.querySelectorAll('[data-slot="today-order-row"]') ?? [])];
+    expect(aRows[0]?.textContent).toContain("0000000002");
+    expect(aRows[1]?.textContent).toContain("0000000004");
+  });
+
+  it("⑪-2 행이 없는 계좌는 묶음을 그리지 않는다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "a1", accountNo: ACCT_A.accountNo })]);
+    mockRelay = { ...EMPTY_RELAY_VALUE, accounts: [ACCT_A, ACCT_B] };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(groupEls()).toHaveLength(1));
+    expect(groupEls()[0]?.getAttribute("data-account")).toBe(ACCT_A.accountNo);
+    expect(document.body.textContent).not.toContain("위탁CMA");
+  });
+
+  it("⑪-3 출처 칩 — limit_chaser 「상따」 · vi 「VI」 · manual 「수동」 · null 은 칩 없음", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "lc", orderNo: "0000000011", origin: "limit_chaser", createdAt: "2026-09-10T00:14:00.000Z" }),
+      row({ id: "vi", orderNo: "0000000012", origin: "vi", createdAt: "2026-09-10T00:13:00.000Z" }),
+      row({ id: "mn", orderNo: "0000000013", origin: "manual", createdAt: "2026-09-10T00:12:00.000Z" }),
+      row({ id: "nu", orderNo: "0000000014", origin: null, createdAt: "2026-09-10T00:11:00.000Z" }),
+    ]);
+    mockRelay = { ...EMPTY_RELAY_VALUE, accounts: [ACCT_A] };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(4));
+    const chipOf = (el: Element | undefined) =>
+      [...(el?.querySelectorAll('[data-slot="today-order-origin"]') ?? [])].map((c) => c.textContent);
+    const rowsEls = [...listRows()];
+    expect(chipOf(rowsEls[0])).toEqual(["상따"]);
+    expect(chipOf(rowsEls[1])).toEqual(["VI"]);
+    expect(chipOf(rowsEls[2])).toEqual(["수동"]);
+    // 출처 미상 — 「수동」 으로 그리면 거짓일 수 있다(D-08 보충 · T-19-30).
+    expect(chipOf(rowsEls[3])).toEqual([]);
+    // 칩은 account-panel 출처 태그와 같은 클래스다(새 색 없음).
+    const chip = rowsEls[0]?.querySelector('[data-slot="today-order-origin"]');
+    expect(chip?.className).toContain("bg-[var(--muted)]");
+    expect(chip?.className).toContain("text-[var(--muted-fg)]");
+  });
+
+  it("⑪-4 NXT 행에만 거래소 태그가 붙고 KRX 행에는 없다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      row({ id: "nxt", orderNo: "0000000021", exchange: "NXT", createdAt: "2026-09-10T00:12:00.000Z" }),
+      row({ id: "krx", orderNo: "0000000022", exchange: "KRX", createdAt: "2026-09-10T00:11:00.000Z" }),
+    ]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(2));
+    const [nxt, krx] = [...listRows()];
+    const nxtTags = nxt?.querySelectorAll('[data-slot="exchange-tag"]') ?? [];
+    expect(nxtTags).toHaveLength(1);
+    expect(nxtTags[0]?.getAttribute("data-exchange")).toBe("NXT");
+    expect(krx?.querySelectorAll('[data-slot="exchange-tag"]')).toHaveLength(0);
+    // 데스크톱 표에도 같은 규칙 — NXT 행 1개에만.
+    const tableTags = document.querySelectorAll(
+      '[data-slot="today-order-table-row"] [data-slot="exchange-tag"]',
+    );
+    expect(tableTags).toHaveLength(1);
+  });
+
+  it("⑪-5 데스크톱 표 머리는 시각 · 종목 · 구분 · 출처 · 수량 · 가격 · 상태 · 주문번호 (출처가 구분 바로 뒤)", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "a1" })]);
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const heads = [...document.querySelectorAll("th")].map((th) => th.textContent?.trim());
+    expect(heads).toEqual(["시각", "종목", "구분", "출처", "수량", "가격", "상태", "주문번호"]);
+  });
+
+  it("⑪-6 통보 묶기는 계좌 경계를 넘지 않는다 — 두 계좌의 조각 체결은 따로 접힌다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([
+      ...AUTO_SELL_FILLS.slice(0, 2).map((r) => ({ ...r, accountNo: ACCT_A.accountNo })),
+      { ...AUTO_SELL_FILLS[2]!, accountNo: ACCT_B.accountNo },
+    ]);
+    mockRelay = { ...EMPTY_RELAY_VALUE, accounts: [ACCT_A, ACCT_B] };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(groupEls()).toHaveLength(2));
+    expect(groupEls()[0]?.querySelectorAll('[data-slot="today-order-row"]')).toHaveLength(1);
+    expect(groupEls()[0]?.textContent).toContain("(2건)");
+    expect(groupEls()[1]?.querySelectorAll('[data-slot="today-order-row"]')).toHaveLength(1);
+    expect(groupEls()[1]?.textContent).not.toContain("건)");
+  });
+});

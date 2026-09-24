@@ -149,6 +149,7 @@ import {
   cancelQtyAtConfirm,
   unfilledSelectBlockReason,
 } from '@/components/trading/card/manual-order-form';
+import { OriginTag, type OriginTagLabel } from '@/components/trading/origin-tag';
 import { ExchangeTag } from '@/components/trading/vi-order-list';
 import { useRelayContext } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
@@ -173,9 +174,10 @@ type CancelResult =
 /**
  * 미체결 행의 **출처 태그**(UI-SPEC C7). 값의 원천은 `dma_orders.origin` 이 아니라
  * **화면 컨텍스트**다 — 상따 페이지가 그린 목록은 상따, VI 페이지는 VI. 수동 주문 표면
- * (호가주문 탭·My page)은 태그를 붙이지 않는다.
+ * (호가주문 탭·My page)은 태그를 붙이지 않는다. 「수동」 은 이 패널에서는 넘기지 않는다 —
+ * 「오늘 주문」 카드만 쓰는 값이다(Phase 19 D-08 · 조각은 `components/trading/origin-tag.tsx`).
  */
-export type AccountOriginTag = '상따' | 'VI';
+export type AccountOriginTag = Exclude<OriginTagLabel, '수동'>;
 
 /** 공용 패널(⑪) 미체결 행의 출처 배지 — UI-SPEC §공용 패널 「상따」/「수동」. */
 export type AccountRowOrigin = '상따' | '수동';
@@ -1400,22 +1402,6 @@ function StatusNotes({ texts }: { texts: readonly string[] }) {
         </p>
       ))}
     </>
-  );
-}
-
-/**
- * 출처 태그 — 상따/VI 페이지가 내려 준 화면 컨텍스트다. 수동 주문은 태그가 **없다**
- * (「수동」이라는 태그를 붙이면 대부분의 행에 의미 없는 배지가 하나씩 붙는다).
- */
-function OriginTag({ tag }: { tag?: AccountOriginTag }) {
-  if (tag === undefined) return null;
-  return (
-    <span
-      data-slot="account-origin-tag"
-      className="whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--muted)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--muted-fg)]"
-    >
-      {tag}
-    </span>
   );
 }
 

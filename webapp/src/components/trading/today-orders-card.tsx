@@ -53,6 +53,23 @@
  *   저널을 채운다 — 이어받기로 채워진 행을 가져오려고 `delayed → live` **전이에서만** 1회
  *   다시 부른다. 마운트 뒤 첫 `live` 는 마운트 조회와 같은 시점이라 건너뛰고(⑦ 과 같은 판정),
  *   `live → live` 반복 프레임은 전이가 아니다. 폴링이 아니다.
+ *
+ * ⑨ ★ 계좌별 묶음 — 채택 목업 B′ (Phase 19 D-07)
+ *   기준이 「로그인한 사람」 에서 「계좌」 로 바뀌어(D-06) 같은 계좌의 WinForms · 다른 DMA 사용자
+ *   주문이 섞인다. 계좌마다 소제목(계좌 · 번호 전체 · 상품명 · N건)을 달고 목록을 반복한다 —
+ *   위쪽 계좌 카드(미체결·잔고)가 계좌마다 한 벌씩 반복되는 것과 같은 읽기 방식이다.
+ *   순서는 relay 계좌 목록 순 · 목록 밖 계좌는 번호만으로 뒤에 · 행 없는 계좌는 묶음이 없다
+ *   (`groupJournalRowsByAccount`). 통보 묶기(`mergeOrderNotices`)는 **묶음마다** 부른다 — 묶기가
+ *   계좌 경계를 넘지 않는다. 헤더 「N건」 은 묶기 전 전체 행 수, 소제목 「N건」 은 그 계좌의
+ *   묶기 전 행 수다. 조회는 여전히 페이지당 1회다(위 ② — 계좌 카드 안에 넣지 않는다).
+ *   좁은 폭 카드 행 ↔ 넓은 폭(≥1280) 표 전환은 **뷰포트** 규칙 그대로다(상따 컨테이너 쿼리 비적용).
+ *
+ * ⑩ ★ 출처 칩 · NXT 태그 (Phase 19 D-08)
+ *   출처를 아는 행마다 칩(상따 · VI · 수동 — account-panel 출처 태그와 같은 조각 `OriginTag`)이
+ *   붙는다. origin 미상(null)은 칩이 없다 — 「수동」 으로 그리면 거짓일 수 있다(D-08 보충).
+ *   NXT 행에만 `ExchangeTag`(채움형)가 종목 코드 옆에 붙는다 — KRX 는 기본값이라 없다.
+ *   주문자(DMA 사용자)는 표시하지 않는다(계약에 필드가 없다 · T-19-08). 새 조각은 전부 `flex:none`
+ *   이다(위 ⑤ — 신축 항목은 종목명 하나뿐).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -67,6 +84,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ExchangeTag } from "@/components/trading/exchange-tag";
+import { OriginTag, originTagOf } from "@/components/trading/origin-tag";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import {
   mergeOrderNotices,
@@ -78,6 +97,7 @@ import {
 } from "@/lib/order-notices";
 import {
   fetchTodayOrders,
+  groupJournalRowsByAccount,
   mergeJournalRows,
   orderDisplayStatus,
   type OrderDisplayStatus,
@@ -146,7 +166,7 @@ function noticeFactsOf(row: JournalOrderRow): OrderNoticeFacts {
 }
 
 export function TodayOrdersCard() {
-  const { journalRows, journalState, status } = useRelayContext();
+  const { accounts, journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
@@ -210,8 +230,18 @@ export function TodayOrdersCard() {
     [restored, journalRows],
   );
 
-  /* ★ 묶기는 **병합이 끝난 뒤**에 온다 (17-10 / D-16) — 병합과 표시 접기는 다른 일이다. */
-  const merged = useMemo(() => mergeOrderNotices(rows), [rows]);
+  /*
+    ★ 계좌별로 나눈 **뒤** 묶음마다 통보를 접는다 (위 ⑨ · 17-10 / D-16) — 병합 → 계좌 나누기 →
+    표시 접기 순서다. 접기가 계좌 경계를 넘지 않는다.
+  */
+  const groups = useMemo(
+    () =>
+      groupJournalRowsByAccount(rows, accounts).map((group) => ({
+        ...group,
+        merged: mergeOrderNotices(group.rows),
+      })),
+    [rows, accounts],
+  );
 
   return (
     <section
@@ -257,153 +287,209 @@ export function TodayOrdersCard() {
           </p>
         </div>
       ) : (
-        <>
-          {/* 데스크톱(≥1280) — 표 */}
-          <div className="max-[1279px]:hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope="col">시각</TableHead>
-                  <TableHead scope="col">종목</TableHead>
-                  <TableHead scope="col">구분</TableHead>
-                  <TableHead scope="col" className="num">
-                    수량
-                  </TableHead>
-                  <TableHead scope="col" className="num">
-                    가격
-                  </TableHead>
-                  <TableHead scope="col">상태</TableHead>
-                  <TableHead scope="col">주문번호</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {merged.map((group) => {
-                  const row = group.head;
-                  const stock = stockLabel(row, labels.get(row.isin));
-                  const facts = noticeFactsOf(row);
-                  const label = orderNoticeLabel(facts);
-                  return (
-                    <TableRow key={row.id} data-slot="today-order-table-row">
-                      <TableCell className="mono text-[length:var(--t-caption)]">
-                        {orderTime(group.at)}
-                      </TableCell>
-                      {/*
-                        표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
-                        감싸는 `.tbl-wrap overflow-x-auto` 가 가로 스크롤로 받는다(설계된 동작).
-                      */}
-                      <TableCell>
-                        <span className="flex items-center gap-1.5 whitespace-nowrap">
-                          <span
-                            className={cn(
-                              "text-[length:var(--t-caption)] font-semibold text-[var(--fg)]",
-                              // 이름 자리에 코드/ISIN 이 올라온 행만 mono — 한글 종목명에는 씌우지 않는다.
-                              stock.code === null && "mono",
-                            )}
-                          >
-                            {stock.name}
-                          </span>
-                          {stock.code !== null && (
-                            <span className="mono text-[11px] text-[var(--muted-fg)]">
-                              {stock.code}
-                            </span>
-                          )}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <SideTag label={label} srAction={orderActionWord(facts)} />
-                      </TableCell>
-                      <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {qtyText(group)}
-                      </TableCell>
-                      <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {priceText(group)}
-                      </TableCell>
-                      <TableCell>
-                        <StatusTag shown={orderDisplayStatus(row)} />
-                      </TableCell>
-                      <TableCell className="mono text-[length:var(--t-caption)]">
-                        {group.orderNoText ?? "—"}
-                        {group.count > 1 && (
-                          <span className="ml-1 text-[var(--muted-fg)]">({group.count}건)</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* 모바일(<1280) — 2줄 카드 행 (위 ⑤) */}
-          <div
-            data-slot="today-orders-list"
-            className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
-          >
-            {merged.map((group) => {
-              const row = group.head;
-              const stock = stockLabel(row, labels.get(row.isin));
-              const facts = noticeFactsOf(row);
-              const label = orderNoticeLabel(facts);
-              return (
-                <div
-                  key={row.id}
-                  data-slot="today-order-row"
-                  className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
+        <div data-slot="today-orders-groups" className="flex flex-col gap-1.5">
+          {groups.map((group) => (
+            <div
+              key={group.accountNo}
+              data-slot="today-orders-group"
+              data-account={group.accountNo}
+              className="flex min-w-0 flex-col gap-1.5"
+            >
+              {/* 계좌 소제목 — account-panel 계좌 전용 모드 머리와 같은 문법(위 ⑨). */}
+              <div className="flex min-w-0 items-center gap-[var(--s-2)] px-0.5">
+                <span className="flex-none text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
+                  계좌
+                </span>
+                <span
+                  data-slot="today-orders-group-account-no"
+                  className="mono min-w-0 flex-1 truncate text-[length:var(--t-caption)] font-semibold text-[var(--fg)]"
                 >
-                  {/* ①줄 — 종목명(유일한 신축 항목) · 코드 · 구분 · (우) 상태 */}
-                  <div className="flex min-w-0 items-center gap-[var(--s-2)]">
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]",
-                        // 이름 자리에 코드/ISIN 이 올라온 행만 mono (위 ⑥).
-                        stock.code === null && "mono",
-                      )}
-                    >
-                      {stock.name}
-                    </span>
-                    {/* 식별자 — 이름이 잘려도 이것은 온전히 남아야 하므로 `flex:none` 이다. */}
-                    {stock.code !== null && (
-                      <span className="mono flex-none whitespace-nowrap text-[11px] text-[var(--muted-fg)]">
-                        {stock.code}
-                      </span>
-                    )}
-                    <span className="flex flex-none items-center gap-1">
-                      <SideTag label={label} srAction={orderActionWord(facts)} />
-                    </span>
-                    <span className="ml-auto flex flex-none items-center gap-1">
-                      <StatusTag shown={orderDisplayStatus(row)} />
-                    </span>
-                  </div>
-                  {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
-                  <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
-                    <span className="flex flex-none items-center gap-1">
-                      <RowValue>{orderTime(group.at)}</RowValue>
-                    </span>
-                    <span className="flex flex-none items-center gap-1">
-                      <RowKey>수량</RowKey>
-                      <RowValue>{qtyText(group)}</RowValue>
-                    </span>
-                    <span className="flex flex-none items-center gap-1">
-                      <RowKey>가격</RowKey>
-                      <RowValue>{priceText(group)}</RowValue>
-                    </span>
-                    <span className="ml-auto flex flex-none items-center gap-1">
-                      <RowKey>주문</RowKey>
-                      <RowValue>{group.orderNoText ?? "—"}</RowValue>
-                      {group.count > 1 && (
-                        <span className="text-[11px] text-[var(--muted-fg)]">
-                          ({group.count}건)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
+                  {group.accountNo}
+                </span>
+                {/* 상품명은 **있을 때만** — 목록 밖 계좌는 번호만 그린다. */}
+                {group.name !== "" && (
+                  <span className="flex-none whitespace-nowrap text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                    {group.name}
+                  </span>
+                )}
+                <span className="mono flex-none whitespace-nowrap text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                  {group.rows.length}건
+                </span>
+              </div>
+
+              {/* 데스크톱(≥1280) — 표 */}
+              <div className="max-[1279px]:hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead scope="col">시각</TableHead>
+                      <TableHead scope="col">종목</TableHead>
+                      <TableHead scope="col">구분</TableHead>
+                      <TableHead scope="col">출처</TableHead>
+                      <TableHead scope="col" className="num">
+                        수량
+                      </TableHead>
+                      <TableHead scope="col" className="num">
+                        가격
+                      </TableHead>
+                      <TableHead scope="col">상태</TableHead>
+                      <TableHead scope="col">주문번호</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {group.merged.map((notice) => (
+                      <OrderTableRow
+                        key={notice.head.id}
+                        notice={notice}
+                        label={labels.get(notice.head.isin)}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* 모바일(<1280) — 2줄 카드 행 (위 ⑤) */}
+              <div
+                data-slot="today-orders-list"
+                className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
+              >
+                {group.merged.map((notice) => (
+                  <OrderCardRow
+                    key={notice.head.id}
+                    notice={notice}
+                    label={labels.get(notice.head.isin)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </section>
+  );
+}
+
+/** 데스크톱 표 1행. 출처 열은 구분 바로 뒤, NXT 태그는 종목 셀의 코드 뒤다(위 ⑩). */
+function OrderTableRow({
+  notice,
+  label: isinLabel,
+}: {
+  notice: MergedOrderNotice;
+  label: IsinLabel | undefined;
+}) {
+  const row = notice.head;
+  const stock = stockLabel(row, isinLabel);
+  const facts = noticeFactsOf(row);
+  const label = orderNoticeLabel(facts);
+  return (
+    <TableRow data-slot="today-order-table-row">
+      <TableCell className="mono text-[length:var(--t-caption)]">{orderTime(notice.at)}</TableCell>
+      {/*
+        표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
+        감싸는 `.tbl-wrap overflow-x-auto` 가 가로 스크롤로 받는다(설계된 동작).
+      */}
+      <TableCell>
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          <span
+            className={cn(
+              "text-[length:var(--t-caption)] font-semibold text-[var(--fg)]",
+              // 이름 자리에 코드/ISIN 이 올라온 행만 mono — 한글 종목명에는 씌우지 않는다.
+              stock.code === null && "mono",
+            )}
+          >
+            {stock.name}
+          </span>
+          {stock.code !== null && (
+            <span className="mono text-[11px] text-[var(--muted-fg)]">{stock.code}</span>
+          )}
+          {row.exchange === "NXT" && <ExchangeTag exchange="NXT" size="sm" />}
+        </span>
+      </TableCell>
+      <TableCell>
+        <SideTag label={label} srAction={orderActionWord(facts)} />
+      </TableCell>
+      <TableCell>
+        <OriginTag tag={originTagOf(row.origin)} slot="today-order-origin" />
+      </TableCell>
+      <TableCell className="num mono text-[length:var(--t-caption)]">{qtyText(notice)}</TableCell>
+      <TableCell className="num mono text-[length:var(--t-caption)]">{priceText(notice)}</TableCell>
+      <TableCell>
+        <StatusTag shown={orderDisplayStatus(row)} />
+      </TableCell>
+      <TableCell className="mono text-[length:var(--t-caption)]">
+        {notice.orderNoText ?? "—"}
+        {notice.count > 1 && (
+          <span className="ml-1 text-[var(--muted-fg)]">({notice.count}건)</span>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/**
+ * 모바일 2줄 카드 행 (위 ⑤ · ⑩).
+ * ①줄 = 종목명(유일한 신축 항목) · 코드 · NXT · 구분 · 출처 · (우) 상태.
+ */
+function OrderCardRow({
+  notice,
+  label: isinLabel,
+}: {
+  notice: MergedOrderNotice;
+  label: IsinLabel | undefined;
+}) {
+  const row = notice.head;
+  const stock = stockLabel(row, isinLabel);
+  const facts = noticeFactsOf(row);
+  const label = orderNoticeLabel(facts);
+  return (
+    <div data-slot="today-order-row" className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]">
+      <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]",
+            // 이름 자리에 코드/ISIN 이 올라온 행만 mono (위 ⑥).
+            stock.code === null && "mono",
+          )}
+        >
+          {stock.name}
+        </span>
+        {/* 식별자 — 이름이 잘려도 이것은 온전히 남아야 하므로 `flex:none` 이다. */}
+        {stock.code !== null && (
+          <span className="mono flex-none whitespace-nowrap text-[11px] text-[var(--muted-fg)]">
+            {stock.code}
+          </span>
+        )}
+        {row.exchange === "NXT" && <ExchangeTag exchange="NXT" size="sm" />}
+        <span className="flex flex-none items-center gap-1">
+          <SideTag label={label} srAction={orderActionWord(facts)} />
+          <OriginTag tag={originTagOf(row.origin)} slot="today-order-origin" />
+        </span>
+        <span className="ml-auto flex flex-none items-center gap-1">
+          <StatusTag shown={orderDisplayStatus(row)} />
+        </span>
+      </div>
+      {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
+      <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
+        <span className="flex flex-none items-center gap-1">
+          <RowValue>{orderTime(notice.at)}</RowValue>
+        </span>
+        <span className="flex flex-none items-center gap-1">
+          <RowKey>수량</RowKey>
+          <RowValue>{qtyText(notice)}</RowValue>
+        </span>
+        <span className="flex flex-none items-center gap-1">
+          <RowKey>가격</RowKey>
+          <RowValue>{priceText(notice)}</RowValue>
+        </span>
+        <span className="ml-auto flex flex-none items-center gap-1">
+          <RowKey>주문</RowKey>
+          <RowValue>{notice.orderNoText ?? "—"}</RowValue>
+          {notice.count > 1 && (
+            <span className="text-[11px] text-[var(--muted-fg)]">({notice.count}건)</span>
+          )}
+        </span>
+      </div>
+    </div>
   );
 }
 
