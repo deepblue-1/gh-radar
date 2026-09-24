@@ -16,7 +16,8 @@
 -- — 일회용 로컬 컨테이너에 저장소 마이그레이션을 재생한 뒤에만 돈다(공유·원격 DB 접촉 0).
 -- 전체가 한 트랜잭션이고 끝에서 ROLLBACK 한다.
 --
--- 19-03 이 체결(E) · 취소(C) · 정정(M) · 거부(R) · 로컬 거부 단언을 이 파일에 더한다.
+-- 19-03 이 체결(E) · 취소(C) · 정정(M) · 거부(R) · 로컬 거부 · 견고성(epoch · 순서 · 시각 · 미지 통보) 단언을
+-- 더했다(11~22절, 계좌 …9003 · 게이트웨이 KB ep-3 / KB2). 투영 규칙 표 ↔ 단언 번호 대응은 파일 끝 주석.
 --
 -- 단언 설명에는 (seq, 계좌 말미, 기대값) 튜플을 적는다 — `not ok` 줄만 보고도 어느 경우인지 알 수 있어야 한다.
 -- 사용자: U1·U2 → dma-shared(계좌 …7801), U3 → dma-solo(처음엔 매핑 없음, 뒤에 …3201).
@@ -104,16 +105,16 @@ RETURNS jsonb LANGUAGE sql AS $$
   ) || p_over
 $$;
 
--- (19-03) 계좌 …9003 의 주문번호 행 1개.
-CREATE FUNCTION pg_temp.o(p_order_no text)
+-- (19-03) 계좌 …9003 의 주문번호 행 1개(게이트웨이 기본 KB).
+CREATE FUNCTION pg_temp.o(p_order_no text, p_gateway text DEFAULT 'KB')
 RETURNS SETOF public.dma_account_orders LANGUAGE sql AS $$
   SELECT * FROM public.dma_account_orders
-   WHERE gateway = 'KB' AND trade_date = '2026-09-28' AND account_no = '1111119003' AND order_no = p_order_no
+   WHERE gateway = p_gateway AND trade_date = '2026-09-28' AND account_no = '1111119003' AND order_no = p_order_no
 $$;
 
 CREATE TEMP TABLE t_apply (label text PRIMARY KEY, r jsonb NOT NULL);
 
-SELECT plan(67);
+SELECT plan(79);
 
 -- ── 1. 매핑 동기화: dma-shared → …7801 ──────────────────────────
 SELECT is(
@@ -532,6 +533,121 @@ SELECT is(
   '0000200080=NULL,0000200081=NULL,0000200082=vi', '(seq 80·81·82, …9003) origin (빈 값, Unknown, VITrigger) → (NULL, NULL, vi)'
 );
 
+-- ============================================================
+-- 19-03 Task 3 — 견고성. 게이트웨이 KB2(커서·seq 가 위 KB 경로와 섞이지 않는 새 게이트웨이).
+-- ============================================================
+
+-- ── 18. epoch 교체(Pitfall 3 · T-19-23) ─────────────────────────────
+INSERT INTO t_apply SELECT 'kb2_ep1', public.dma_journal_apply('KB2', 'ep-1', jsonb_build_array(
+  pg_temp.ev(1, '09:00:00', '{"order_no":"0000400001"}'),
+  pg_temp.ev(2, '09:00:01', '{"order_no":"0000400002"}'),
+  pg_temp.ev(3, '09:00:02', '{"order_no":"0000400003"}')));
+SELECT is(
+  (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'),
+  '(ep-1,3)', '(KB2 ep-1 seq 1..3) 커서 (ep-1, 3)'
+);
+-- 저널 저장소 초기화 → 새 epoch 의 seq 1. 옛 epoch 의 seq 1 과 다른 이벤트다.
+INSERT INTO t_apply SELECT 'kb2_ep2', public.dma_journal_apply('KB2', 'ep-2', jsonb_build_array(
+  pg_temp.ev(1, '09:10:00', '{"order_no":"0000400009"}')));
+SELECT is(
+  (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'),
+  '(ep-2,1)', '(KB2 ep-2 seq 1) 커서 (ep-2, 1) 로 교체 — 옛 epoch 의 3 을 GREATEST 로 붙들지 않는다'
+);
+SELECT is(
+  (SELECT string_agg(journal_epoch || ':' || seq, ',' ORDER BY journal_epoch)
+     FROM public.dma_journal_events WHERE gateway = 'KB2' AND seq = 1),
+  'ep-1:1,ep-2:1', '(KB2 ep-2 seq 1) events 에 (ep-1, 1) 과 (ep-2, 1) 두 행 — 새 epoch 의 seq 1 은 재생으로 버려지지 않는다'
+);
+SELECT is(
+  (SELECT row((r->>'applied')::int, (SELECT status FROM pg_temp.o('0000400009', 'KB2')))::text FROM t_apply WHERE label = 'kb2_ep2'),
+  '(1,accepted)', '(KB2 ep-2 seq 1) (applied, 0000400009 status) = (1, accepted) — 새 epoch 이벤트가 투영된다'
+);
+
+-- 같은 epoch 에서 이미 적용된 더 작은 seq 재생 → 커서가 줄지 않는다.
+INSERT INTO t_apply SELECT 'kb2_ep2_23', public.dma_journal_apply('KB2', 'ep-2', jsonb_build_array(
+  pg_temp.ev(2, '09:10:01', '{"order_no":"0000400010"}'),
+  pg_temp.ev(3, '09:10:02', '{"order_no":"0000400011"}')));
+INSERT INTO t_apply SELECT 'kb2_ep2_replay1', public.dma_journal_apply('KB2', 'ep-2', jsonb_build_array(
+  pg_temp.ev(1, '09:10:00', '{"order_no":"0000400009"}')));
+SELECT is(
+  (SELECT row((r->>'skipped')::int, (r->>'last_seq')::bigint,
+              (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'))::text
+     FROM t_apply WHERE label = 'kb2_ep2_replay1'),
+  '(1,3,"(ep-2,3)")', '(KB2 ep-2 seq 1 재생 · 커서 3) (skipped, 반환 last_seq, 커서) = (1, 3, (ep-2, 3)) — 줄지 않는다'
+);
+
+-- ── 19. 배치 순서 — 배열이 뒤섞여도 seq 오름차순으로 투영된다 ─────────
+-- 배열 [C6 자동취소, E5 10주, A4 10주]. 오름차순(A4 → E5 → C6)이면 filled 가 된 뒤 C 가 종결을 못 덮어 filled,
+-- 배열 순서 그대로면 C6 이 먼저 행을 cancelled 로 만들어 뒤의 체결이 상태를 못 올린다 → cancelled.
+INSERT INTO t_apply SELECT 'kb2_order', public.dma_journal_apply('KB2', 'ep-2', jsonb_build_array(
+  pg_temp.ev(6, '09:20:02', '{"order_no":"0000400020","notice_type":"C","request_kind":"","order_price":0}'),
+  pg_temp.ev(5, '09:20:01', '{"order_no":"0000400020","notice_type":"E","exec_qty":10}'),
+  pg_temp.ev(4, '09:20:00', '{"order_no":"0000400020"}')));
+SELECT is(
+  (SELECT row(status, filled_qty, qty, first_seq, last_seq, notice_type)::text FROM pg_temp.o('0000400020', 'KB2')),
+  '(filled,10,10,4,6,C)', '(KB2 ep-2 배열 [6,5,4]) (status, filled, qty, first/last_seq, notice_type) = (filled, 10, 10, 4, 6, C) — A4 → E5 → C6 순으로 투영'
+);
+
+-- ── 20. 시각 정본 — 오전 게이트웨이 시각을 저녁(=지금) 트랜잭션에서 적용(Pitfall 5) ──
+INSERT INTO t_apply SELECT 'kb2_time', public.dma_journal_apply('KB2', 'ep-2', jsonb_build_array(
+  pg_temp.ev(7, '09:01:00', '{"order_no":"0000400030"}'),
+  pg_temp.ev(8, '09:02:30', '{"order_no":"0000400030","notice_type":"E","exec_qty":2}')));
+SELECT is(
+  (SELECT row(
+     o.created_at = to_timestamp((pg_temp.ev(7, '09:01:00')->>'gw_time_ms')::bigint / 1000.0),
+     o.updated_at = to_timestamp((pg_temp.ev(8, '09:02:30')->>'gw_time_ms')::bigint / 1000.0),
+     (SELECT e.applied_at = now() FROM public.dma_journal_events e
+       WHERE e.gateway = 'KB2' AND e.journal_epoch = 'ep-2' AND e.seq = 8))::text
+     FROM pg_temp.o('0000400030', 'KB2') o),
+  '(t,t,t)', '(KB2 ep-2 seq 7·8, 09:01·09:02:30) (created_at = A gw_time, updated_at = E gw_time, 이벤트 applied_at = now()) — 적용 시각이 주문 시각이 되지 않는다'
+);
+
+-- ── 21. 미지 통보 — 포이즌 격리가 배치 가운데서 받는다(T-19-15) ──────────
+INSERT INTO t_apply SELECT 'kb2_unknown', public.dma_journal_apply('KB2', 'ep-2', jsonb_build_array(
+  pg_temp.ev(9,  '09:30:00', '{"order_no":"0000400040","notice_type":"X"}'),
+  pg_temp.ev(10, '09:30:01', '{"order_no":"0000400041"}')));
+SELECT ok(
+  (SELECT apply_error LIKE '%알 수 없는 notice_type X%'
+     FROM public.dma_journal_events WHERE gateway = 'KB2' AND journal_epoch = 'ep-2' AND seq = 9),
+  '(KB2 ep-2 seq 9 notice_type X) apply_error 에 「알 수 없는 notice_type X」 사유'
+);
+SELECT is(
+  (SELECT row((r->>'applied')::int, jsonb_path_query_array(r->'errors', '$[*].seq'), (SELECT count(*) FROM pg_temp.o('0000400040', 'KB2')))::text
+     FROM t_apply WHERE label = 'kb2_unknown'),
+  '(1,[9],0)', '(KB2 ep-2 seq 9·10) (applied, errors 의 seq, X 투영 행 수) = (1, [9], 0)'
+);
+SELECT is(
+  (SELECT row((SELECT status FROM pg_temp.o('0000400041', 'KB2')),
+              (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'))::text),
+  '(accepted,"(ep-2,10)")', '(KB2 ep-2 seq 10) 같은 배치 뒤 이벤트 accepted · 커서 (ep-2, 10) — 미지 통보가 배치·커서를 막지 않는다'
+);
+
+-- ── 22. 빈 배열 — 커서를 건드리지 않는다 ─────────────────────────────
+INSERT INTO t_apply SELECT 'kb2_empty', public.dma_journal_apply('KB2', 'ep-2', '[]'::jsonb);
+SELECT is(
+  (SELECT row((r->>'applied')::int, (r->>'skipped')::int, r->'rows', (r->>'last_seq')::bigint)::text FROM t_apply WHERE label = 'kb2_empty'),
+  '(0,0,[],10)', '(KB2 ep-2 빈 배열) (applied, skipped, rows, last_seq) = (0, 0, [], 10)'
+);
+SELECT is(
+  (SELECT row(journal_epoch, last_seq)::text FROM public.dma_journal_cursor WHERE gateway = 'KB2'),
+  '(ep-2,10)', '(KB2 ep-2 빈 배열) 커서 (ep-2, 10) 불변'
+);
+
 SELECT * FROM finish(true);
 
 ROLLBACK;
+
+-- ============================================================
+-- 투영 규칙 표(RESEARCH §Pattern D 「투영 규칙」) ↔ 단언 번호.
+-- 규칙 하나를 바꾸면 여기 적힌 번호의 `not ok` 가 떠야 한다. 번호는 `ok N` 순번이다(단언을 끼워 넣으면 갱신).
+--
+-- | 규칙 행                                   | 단언 번호                                                     |
+-- |-------------------------------------------|---------------------------------------------------------------|
+-- | A (주문번호 upsert · accepted · 빈 칸만)  | 2-12 · 37-38(체결 먼저 온 행 재판정) · 48(E 먼저 → A 가 qty) · 49(filled 행 늦은 A) · 65(Q-ID) |
+-- | E (filled_qty 누적 · 격자 판정)           | 41-44(부분 → 전량 · 체결가 무시) · 45-46(재생 무증가) · 47-48(A 보다 먼저) · 73(순서) |
+-- | C (자기 행 cancelled + 원주문 격자)       | 50-52(원주문 cancelled · side ← 원주문) · 53(filled 원주문 불변) · 54(org 빈 값 = 자동취소) · 66(Q-ID) |
+-- | M (이동 = LEAST(M 수량, 잔량))            | 55-56(이동 7 · 원주문 modified) · 57-58(원주문 모름 → M 수량 폴백 · 지어내지 않음) |
+-- | R 주문번호 있음 (자기 행만 · 원주문 불변) | 59-60 · 61(order_no = org 거부 → reject_seq 행 분리) |
+-- | 로컬 거부 · 주문번호 없는 R (reject_seq)  | 62-63(두 거부가 두 행) · 64(브로커 R · side ← 원주문) |
+-- | 공통 (last_seq · notice 최신 · 시각 · side/origin · epoch · 격리) | 10 · 38 · 48 · 74(시각 = gw_time, applied_at = now) · 67(origin 사상) · 50·57·59(방향) · 18-22·45-46·72(재생·커서 불감소) · 39-40·68-71(epoch 교체) · 30-36·75-77(포이즌·미지 통보 격리) · 78-79(빈 배열) |
+-- ============================================================
