@@ -49,6 +49,11 @@ export const logger = pino(
           "*.relayOrderSecret",
           "*.token",
           "req.headers['x-relay-secret']",
+          // Phase 19 D-10 — 관찰자 기록 연결 비밀 (T-19-03). 실수 방어일 뿐이다 — 관찰자는 비밀을
+          // 로그 인자로 넘기지 않는 것이 설계다(코덱에만 넘긴다).
+          "*.secret",
+          "*.dmaObserverSecret",
+          "*.DMA_OBSERVER_SECRET",
         ],
         censor: "[REDACTED]",
       },

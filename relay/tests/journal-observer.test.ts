@@ -378,3 +378,261 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
     }
   });
 });
+
+// ============================================================
+// Task 2 — 실패 경로 · 비밀
+// ============================================================
+
+type LogCall = { level: string; args: unknown[] };
+
+/** logger 전 레벨 스파이 — 출력은 삼키고 인자를 모은다. */
+async function spyLogs(): Promise<LogCall[]> {
+  const { logger } = await import("../src/logger.js");
+  const calls: LogCall[] = [];
+  for (const level of ["debug", "info", "warn", "error"] as const) {
+    vi.spyOn(logger, level).mockImplementation(((...args: unknown[]) => {
+      calls.push({ level, args });
+    }) as never);
+  }
+  return calls;
+}
+
+function countLogs(calls: LogCall[], level: string, message: string): number {
+  return calls.filter((c) => c.level === level && c.args.some((a) => typeof a === "string" && a.includes(message))).length;
+}
+
+/** 전 시나리오 공통 — 관찰자 연결로 나간 페이로드는 전부 buildLoginReq 결과였다(D-09 relay 몫). */
+function expectOnlyLogins(r: Rig): void {
+  for (const payload of r.transport.sent) expect(r.codec.built.has(payload)).toBe(true);
+  expect(r.transport.sent).toHaveLength(r.codec.logins.length);
+}
+
+/** 로그에 비밀 문자열이 없다(T-19-03). */
+function expectNoSecret(calls: LogCall[]): void {
+  expect(JSON.stringify(calls.map((c) => c.args))).not.toContain(SECRET);
+}
+
+describe("관찰자 실패 경로 — 거부 정지 · 타임아웃 · 갭/상한 · resync · 방송 무시 · 커서 재시도 · 비밀", () => {
+  it("⑤ 로그인 거부 → stopReconnect 1회 · rejected · error 1줄 · 이후 down 에도 rejected · up 이 와도 로그인 0", async () => {
+    const logs = await spyLogs();
+    const r = rig();
+    await bootToLogin(r);
+
+    r.transport.frame(loginOk({ success: false, message: "거부" }));
+
+    expect(r.transport.stops).toEqual(["관찰자 로그인 거부"]);
+    expect(r.transport.stops[0]).not.toContain(SECRET);
+    expect(r.observer.state).toBe("rejected");
+    expect(countLogs(logs, "error", "[JOURNAL] 관찰자 로그인 거부")).toBe(1);
+    // 게이트웨이 문구 그대로 — 사유를 추측하지 않는다(D-09).
+    const rejectLog = logs.find((c) => c.level === "error" && String(c.args[1]).includes("관찰자 로그인 거부"));
+    expect(rejectLog?.args[0]).toMatchObject({ gatewayMessage: "거부" });
+    expect(r.access.replace).not.toHaveBeenCalled();
+
+    r.transport.down();
+    expect(r.observer.state).toBe("rejected");
+    r.transport.up();
+    expect(r.codec.logins).toHaveLength(1);
+    expect(r.transport.sent).toHaveLength(1);
+    expect(r.observer.state).toBe("rejected");
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("⑥ up 뒤 5초 무응답 → dropTransport(타임아웃) · connecting · 다음 up(gen 2) 에서 재송신 · 옛 세대(gen 1) 프레임 무시", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const logs = await spyLogs();
+    const r = rig();
+    await bootToLogin(r);
+    expect(r.transport.gen).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(r.transport.drops).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(r.transport.drops).toEqual(["관찰자 로그인 응답 타임아웃"]);
+    expect(r.observer.state).toBe("connecting");
+
+    r.transport.up();
+    expect(r.transport.gen).toBe(2);
+    expect(r.codec.logins).toHaveLength(2);
+    expect(r.observer.state).toBe("logging_in");
+
+    // gen 1 에 대한 늦은 로그인 응답 — 새 세대의 판정에 쓰지 않는다.
+    r.transport.frame(loginOk(), 1);
+    expect(r.observer.state).toBe("logging_in");
+    expect(r.access.replace).not.toHaveBeenCalled();
+
+    r.transport.frame(loginOk());
+    expect(r.observer.state).toBe("replaying");
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("⑦ push → gap → dropTransport(갭) · 재로그인 since = lastReceivedSeq · epoch = writer.epoch", async () => {
+    const logs = await spyLogs();
+    const r = rig();
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 5 }));
+    r.transport.frame(batch([1, 2], 5, false));
+    expect(r.observer.state).toBe("replaying");
+
+    r.transport.frame(batch([4], 5, false)); // 3 이 빠졌다
+    expect(r.transport.drops).toEqual(["저널 seq 갭"]);
+    expect(r.observer.state).toBe("connecting");
+
+    r.transport.down();
+    r.transport.up();
+    expect(r.codec.logins[1]).toEqual({ secret: SECRET, sinceSeq: 2, epoch: "ep-1", client: OBSERVER_CLIENT_NAME });
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("⑧ push → overflow → dropTransport(상한) · 재로그인 since 는 적재된 마지막 seq", async () => {
+    const logs = await spyLogs();
+    const r = rig({ maxQueue: 2 });
+    r.db.holdApplies(); // 적용이 멈춰 큐가 빠지지 않는다
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ headSeq: 9 }));
+    r.transport.frame(batch([1, 2], 9, false));
+
+    r.transport.frame(batch([3], 9, false));
+    expect(r.transport.drops).toEqual(["저널 큐 상한"]);
+    expect(r.observer.state).toBe("connecting");
+
+    r.transport.up();
+    expect(r.codec.logins[1]).toMatchObject({ sinceSeq: 2, epoch: "ep-1" });
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("⑨ 재접속 로그인 응답의 resync → 기록기 epoch 교체 · 새 epoch 첫 레코드 수용", async () => {
+    const logs = await spyLogs();
+    const r = rig({ cursor: { journal_epoch: "ep-old", last_seq: 5000 } });
+    const beginEpoch = vi.spyOn(r.writer, "beginEpoch");
+    await bootToLogin(r);
+    // 커서가 있으면 첫 로그인부터 그 since · epoch 로 이어받는다.
+    expect(r.codec.logins[0]).toMatchObject({ sinceSeq: 5000, epoch: "ep-old" });
+
+    r.transport.frame(loginOk({ epoch: "ep-new", headSeq: 3, resync: true }));
+    expect(beginEpoch).toHaveBeenCalledWith("ep-new", { resync: true });
+    expect(r.writer.epoch).toBe("ep-new");
+    expect(r.observer.state).toBe("replaying");
+
+    r.transport.frame(batch([1, 2, 3], 3, true));
+    expect(r.transport.drops).toEqual([]);
+    expect(r.observer.state).toBe("live");
+    expect(r.writer.lastReceivedSeq).toBe(3);
+    expect(countLogs(logs, "error", "저널 재동기화")).toBe(1);
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("⑩ ignore(76) → 로그·상태 변화 0 · unexpected(51) → warn 1회(두 번째 0) · malformed → error + dropTransport", async () => {
+    const logs = await spyLogs();
+    const r = rig();
+    await bootToLogin(r);
+    r.transport.frame(loginOk());
+    r.transport.frame(batch([1], 1, true));
+    expect(r.observer.state).toBe("live");
+
+    const before = logs.length;
+    r.transport.frame({ k: "ignore", msgType: 76 });
+    expect(logs.length).toBe(before);
+    expect(r.observer.state).toBe("live");
+
+    r.transport.frame({ k: "unexpected", msgType: 51 });
+    r.transport.frame({ k: "unexpected", msgType: 51 });
+    expect(countLogs(logs, "warn", "예상 밖 프레임")).toBe(1);
+    expect(r.observer.state).toBe("live");
+    expect(r.transport.drops).toEqual([]);
+
+    r.transport.frame({ k: "malformed", msgType: 80 });
+    expect(countLogs(logs, "error", "관찰자 프레임 파손")).toBe(1);
+    expect(r.transport.drops).toEqual(["관찰자 프레임 파손"]);
+    expect(r.observer.state).toBe("connecting");
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("⑪ readCursor throw → error 로그 · connect 0 · 백오프 뒤 재시도 성공 → connect 1", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const logs = await spyLogs();
+    const r = rig({ cursorErrors: 1 });
+
+    r.observer.start();
+    await flush(10);
+    expect(r.db.cursorReads()).toBe(1);
+    expect(r.transport.connects).toBe(0);
+    expect(countLogs(logs, "error", "커서 읽기 실패")).toBe(1);
+    expect(r.observer.state).toBe("connecting");
+
+    await vi.advanceTimersByTimeAsync(1_000); // backoffDelayMs(1)
+    await flush(10);
+    expect(r.db.cursorReads()).toBe(2);
+    expect(r.transport.connects).toBe(1);
+    expectNoSecret(logs);
+  });
+
+  it("⑫ secret 미설정 → disabled · connect 0 · readCursor 0 · warn 1 · status.frame() null · 프레임 0", async () => {
+    const logs = await spyLogs();
+    const r = rig({ secret: undefined });
+
+    r.observer.start();
+    await flush();
+    expect(r.observer.state).toBe("disabled");
+    expect(r.transport.connects).toBe(0);
+    expect(r.db.cursorReads()).toBe(0);
+    expect(countLogs(logs, "warn", "관찰자 비밀 미설정")).toBe(1);
+    expect(r.status.frame()).toBeNull();
+    expect(r.frames).toEqual([]);
+    expect(r.status.health(Date.now()).state).toBe("disabled");
+  });
+
+  it("⑬ stop → 이후 up·frame 에도 상태 불변 · destroy 1회 · 타이머 0", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const r = rig();
+    await bootToLogin(r);
+    r.observer.stop();
+    expect(r.transport.destroys).toBe(1);
+    const state = r.observer.state;
+
+    r.transport.up();
+    r.transport.frame(loginOk());
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(r.observer.state).toBe(state);
+    expect(r.codec.logins).toHaveLength(1);
+    expect(r.transport.drops).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("loadConfig — DMA_OBSERVER_SECRET (D-10 · T-19-03)", () => {
+  const saved = { NODE_ENV: process.env.NODE_ENV, DMA_OBSERVER_SECRET: process.env.DMA_OBSERVER_SECRET };
+
+  afterEach(() => {
+    process.env.NODE_ENV = saved.NODE_ENV;
+    if (saved.DMA_OBSERVER_SECRET === undefined) delete process.env.DMA_OBSERVER_SECRET;
+    else process.env.DMA_OBSERVER_SECRET = saved.DMA_OBSERVER_SECRET;
+  });
+
+  it("⑭ production + 비밀 없음 → throw (기동 실패)", async () => {
+    const { loadConfig } = await import("../src/config.js");
+    process.env.NODE_ENV = "production";
+    delete process.env.DMA_OBSERVER_SECRET;
+    expect(() => loadConfig()).toThrow(/DMA_OBSERVER_SECRET must be set in production/);
+    process.env.DMA_OBSERVER_SECRET = "";
+    expect(() => loadConfig()).toThrow(/DMA_OBSERVER_SECRET/);
+  });
+
+  it("⑮ test/development + 비밀 없음 → dmaObserverSecret undefined · 있으면 그 값", async () => {
+    const { loadConfig } = await import("../src/config.js");
+    delete process.env.DMA_OBSERVER_SECRET;
+    for (const env of ["test", "development"]) {
+      process.env.NODE_ENV = env;
+      expect(loadConfig().dmaObserverSecret).toBeUndefined();
+    }
+    process.env.NODE_ENV = "production";
+    process.env.DMA_OBSERVER_SECRET = SECRET;
+    expect(loadConfig().dmaObserverSecret).toBe(SECRET);
+  });
+});
