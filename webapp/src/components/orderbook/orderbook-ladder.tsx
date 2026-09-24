@@ -473,19 +473,19 @@ function StandardLadder({
           <tr>
             <th
               scope="col"
-              className="border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-center text-[11px] font-semibold text-[var(--muted-fg)]"
+              className="border-b border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-center text-[11px] font-semibold text-[var(--muted-fg)]"
             >
               매도잔량
             </th>
             <th
               scope="col"
-              className="border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-center text-[11px] font-semibold text-[var(--muted-fg)]"
+              className="border-b border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-center text-[11px] font-semibold text-[var(--muted-fg)]"
             >
               가격
             </th>
             <th
               scope="col"
-              className="border-b border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-center text-[11px] font-semibold text-[var(--muted-fg)]"
+              className="border-b border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] py-1.5 text-center text-[11px] font-semibold text-[var(--muted-fg)]"
             >
               매수잔량
             </th>
@@ -496,16 +496,16 @@ function StandardLadder({
         </tbody>
         <tfoot>
           <tr>
-            <td className="mono h-7 border-t border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] text-center text-[11px] font-semibold">
+            <td className="mono h-7 border-t border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] text-center text-[11px] font-semibold">
               {fmt(quote.ta)}
             </td>
             <th
               scope="row"
-              className="h-7 border-t border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] text-center text-[11px] font-semibold text-[var(--muted-fg)]"
+              className="h-7 border-t border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] text-center text-[11px] font-semibold text-[var(--muted-fg)]"
             >
               총잔량
             </th>
-            <td className="mono h-7 border-t border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] text-center text-[11px] font-semibold">
+            <td className="mono h-7 border-t border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] text-center text-[11px] font-semibold">
               {fmt(quote.tb)}
             </td>
           </tr>
@@ -517,7 +517,7 @@ function StandardLadder({
           type="button"
           aria-expanded={false}
           onClick={() => setExpanded(true)}
-          className="hidden h-8 w-full border-t border-[var(--border)] bg-[var(--card)] text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)] max-[899px]:block"
+          className="hidden h-8 w-full border-t border-[var(--border-subtle)] bg-[var(--card)] text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)] max-[899px]:block"
         >
           10단 전체 보기
         </button>
@@ -848,7 +848,7 @@ function ChaserLadder({
           isUpper && 'bg-[color-mix(in_oklch,var(--up)_8%,transparent)]',
           // 매도1/매수1 경계선. `<tr>` 에 테두리를 걸면 `border-collapse` 아래에서 살지
           // 않으므로 **셀**에 건다(3단 표의 「체결」 헤더 행과 같은 방식이다).
-          isBidTop && '[&>*]:border-t [&>*]:border-[var(--border)]',
+          isBidTop && '[&>*]:border-t [&>*]:border-[var(--border-subtle)]',
         )}
       >
         <th
@@ -954,11 +954,11 @@ function ChaserLadder({
 
             {/* 「체결」 헤더 행 — 20px, 상단 hairline. 최근 체결 열의 시작을 알린다. */}
             <tr data-slot="ladder-fill-head">
-              <td className="h-5 border-t border-[var(--border)] px-1.5 font-sans text-[11px] font-semibold text-[var(--muted-fg)]">
+              <td className="h-5 border-t border-[var(--border-subtle)] px-1.5 font-sans text-[11px] font-semibold text-[var(--muted-fg)]">
                 체결
               </td>
-              <td className="h-5 border-t border-[var(--border)]" />
-              <td className="h-5 border-t border-[var(--border)]" />
+              <td className="h-5 border-t border-[var(--border-subtle)]" />
+              <td className="h-5 border-t border-[var(--border-subtle)]" />
             </tr>
 
             {bids.map((row, i) => {
@@ -1172,7 +1172,7 @@ function ChaserLadder({
                         보기 때문이다. 행 테두리는 그 규칙을 건드리지 않으면서 같은 선을 그리고,
                         스크롤 내용의 일부라 스크롤과 함께 움직인다.
                     */
-                    isBidTop && 'border-t border-[var(--border)]',
+                    isBidTop && 'border-t border-[var(--border-subtle)]',
                   )}
                 >
                   {pct > 0 && (
@@ -1254,7 +1254,7 @@ function ChaserLadder({
           경로가 0개다.
       */}
       <div data-slot="ladder-tape" className="@min-[830px]/lc:hidden">
-        <hr className="my-[var(--s-2)] border-0 border-t border-[var(--border)]" />
+        <hr className="my-[var(--s-2)] border-0 border-t border-[var(--border-subtle)]" />
         <TradeTape
           compact
           entries={recentTrades}

@@ -166,7 +166,7 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
       <div className="mt-6 grid grid-cols-3 gap-4">
         {dayStrip.map((c) => (
           <div key={c.label}>
-            <div className="text-[13.5px] text-[var(--muted-fg)] mb-0.5">
+            <div className="text-[15px] text-[var(--muted-fg)] mb-0.5">
               {c.label}
             </div>
             <div className="text-[16px] font-medium">
@@ -180,7 +180,7 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
       <div className="mt-4 grid grid-cols-3 gap-4">
         {tradeRow.map((c) => (
           <div key={c.label}>
-            <div className="text-[13.5px] text-[var(--muted-fg)] mb-0.5">
+            <div className="text-[15px] text-[var(--muted-fg)] mb-0.5">
               {c.label}
             </div>
             <div className="text-[16px] font-medium">

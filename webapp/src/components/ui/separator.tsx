@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
  * Separator — UI-SPEC §3.8
  * - horizontal: height 1px, width 100%
  * - vertical: width 1px
- * - background: var(--border)
+ * - background: var(--border-subtle) — TDS hairlineBorder(행 구분선 토큰 · quick-260925-0pf)
  */
 function Separator({
   className,
@@ -23,7 +23,7 @@ function Separator({
       decorative={decorative}
       orientation={orientation}
       className={cn(
-        "shrink-0 bg-[var(--border)]",
+        "shrink-0 bg-[var(--border-subtle)]",
         "data-horizontal:h-px data-horizontal:w-full",
         "data-vertical:w-px data-vertical:self-stretch",
         className

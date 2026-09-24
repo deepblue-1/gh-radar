@@ -200,7 +200,7 @@ export function StockNewsSection({ stockCode }: StockNewsSectionProps) {
           <NewsItem key={article.id} article={article} variant="card" />
         ))}
       </ul>
-      <footer className="mt-3 border-t border-[var(--border)] pt-3 flex items-center justify-between">
+      <footer className="mt-3 border-t border-[var(--border-subtle)] pt-3 flex items-center justify-between">
         <Link
           href={`/stocks/${encodeURIComponent(stockCode)}/news`}
           className="text-[length:var(--t-sm)] text-[var(--primary)] hover:underline"

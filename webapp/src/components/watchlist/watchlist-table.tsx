@@ -78,7 +78,7 @@ function WatchlistTableBase({
               role="row"
               className={cn(
                 GRID_COLS,
-                'border-t border-[var(--border)] py-3 text-[length:var(--t-sm)] hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] transition-colors',
+                'border-t border-[var(--border-subtle)] py-3 text-[length:var(--t-sm)] hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] transition-colors',
               )}
             >
               <Link

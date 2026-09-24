@@ -129,7 +129,7 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
           'min-[700px]:inset-auto min-[700px]:top-1/2 min-[700px]:left-1/2 min-[700px]:h-auto min-[700px]:max-h-[calc(100dvh-48px)] min-[700px]:w-[min(960px,calc(100%-32px))] min-[700px]:-translate-x-1/2 min-[700px]:-translate-y-1/2 min-[700px]:rounded-[var(--r-lg)] min-[700px]:border min-[700px]:border-[var(--border)]',
         )}
       >
-        <DialogHeader className="flex-row items-start gap-[var(--s-2)] border-b border-[var(--border)] px-3.5 py-2.5">
+        <DialogHeader className="flex-row items-start gap-[var(--s-2)] border-b border-[var(--border-subtle)] px-3.5 py-2.5">
           <div className="min-w-0 flex-1">
             {/* 제목 종목명은 wrap 허용(E14 long-text) — 잘라 버리면 비슷한 종목명이 갈리지 않는다. */}
             <DialogTitle className="text-[16px] leading-snug font-bold break-words text-[var(--fg)]">
@@ -176,7 +176,7 @@ function StockInfoTabs({ code }: { code: string }) {
     >
       <TabsList
         aria-label="종목정보 팝업 탭"
-        className="h-auto w-full justify-start gap-1 rounded-none border-b border-[var(--border)] bg-transparent px-2 py-1.5"
+        className="h-auto w-full justify-start gap-1 rounded-none border-b border-[var(--border-subtle)] bg-transparent px-2 py-1.5"
       >
         {TABS.map((t) => (
           <TabsTrigger key={t.v} value={t.v} className={TAB_TRIGGER}>

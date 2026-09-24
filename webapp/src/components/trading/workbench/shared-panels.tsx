@@ -253,7 +253,7 @@ export function SharedPanels({
         }}
         className="gap-0"
       >
-        <div className="flex min-w-0 items-center gap-0.5 border-b border-[var(--border)] p-1.5 @min-[700px]/wb:gap-1 @min-[700px]/wb:px-2">
+        <div className="flex min-w-0 items-center gap-0.5 border-b border-[var(--border-subtle)] p-1.5 @min-[700px]/wb:gap-1 @min-[700px]/wb:px-2">
           <TabsList
             aria-label="공용 패널"
             className="h-auto min-w-0 gap-0.5 bg-transparent p-0 @min-[700px]/wb:gap-1"

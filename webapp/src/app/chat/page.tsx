@@ -247,7 +247,7 @@ export default function ChatPage() {
     <AppShell sidebar={<AppSidebar />}>
       <div className="flex h-full flex-col sm:grid sm:grid-cols-[280px_1fr] sm:gap-0">
         {/* 좌: 대화목록 (모바일 상단 스택) */}
-        <aside className="max-h-[40vh] shrink-0 overflow-hidden border-b border-[var(--border)] sm:max-h-none sm:border-b-0 sm:border-r">
+        <aside className="max-h-[40vh] shrink-0 overflow-hidden border-b border-[var(--border-subtle)] sm:max-h-none sm:border-b-0 sm:border-r">
           <ConversationList
             activeId={activeId}
             onSelect={(id) => void selectConversation(id)}

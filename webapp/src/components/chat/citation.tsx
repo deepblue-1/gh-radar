@@ -37,7 +37,7 @@ export function Citation({ title, source, url, kind }: CitationProps) {
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="my-[var(--s-1)] block rounded-[0_var(--r)_var(--r)_0] border-l-[3px] border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)] text-[var(--fg)] no-underline"
+      className="my-[var(--s-1)] block rounded-[0_var(--r)_var(--r)_0] border-l-[3px] border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)] text-[var(--fg)] no-underline"
     >
       <span className="block text-[length:var(--t-caption)] font-semibold">
         {title}

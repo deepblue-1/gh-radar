@@ -116,7 +116,7 @@ export function ConversationList({
   return (
     <div className="flex h-full flex-col">
       {/* 상단: 종목 필터 + 새 대화 */}
-      <div className="flex items-center gap-[var(--s-2)] border-b border-[var(--border)] p-[var(--s-3)]">
+      <div className="flex items-center gap-[var(--s-2)] border-b border-[var(--border-subtle)] p-[var(--s-3)]">
         <label className="sr-only" htmlFor="conversation-stock-filter">
           종목 필터
         </label>

@@ -279,7 +279,7 @@ export function DiscussionPageClient({ code }: DiscussionPageClientProps) {
           className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] p-4"
           data-testid="discussion-list"
         >
-          <div className="hidden md:grid grid-cols-[1fr_140px_120px] gap-3 px-2 pb-2 border-b border-[var(--border)] text-[length:var(--t-caption)] font-semibold uppercase tracking-[0.04em] text-[var(--muted-fg)]">
+          <div className="hidden md:grid grid-cols-[1fr_140px_120px] gap-3 px-2 pb-2 border-b border-[var(--border-subtle)] text-[length:var(--t-caption)] font-semibold uppercase tracking-[0.04em] text-[var(--muted-fg)]">
             <span>제목</span>
             <span>작성자</span>
             <span className="text-right">시간</span>

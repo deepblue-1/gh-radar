@@ -1160,7 +1160,7 @@ function UnitBox({
         // 토스 B(260924-vj1) — 높이 46(세로만) · 편집 가능 = raised 채움, 잠김 = 투명 + 헤어라인 테두리로
         // 편집 가능 필드와 구분한다. 가로 패딩 `px-2` 불변.
         'flex h-[46px] min-w-0 flex-1 items-center gap-1 rounded-[var(--r)] border px-2 text-[length:var(--t-caption)] focus-within:border-[var(--ring)]',
-        locked ? 'border-[var(--border)] bg-transparent' : 'border-[var(--input)] bg-[var(--muted)]',
+        locked ? 'border-[var(--border-subtle)] bg-transparent' : 'border-[var(--input)] bg-[var(--muted)]',
       )}
     >
       {children}
@@ -1192,7 +1192,7 @@ function StepButton({
 
 /**
  * 주문 버튼. 매수 = `--up` 채움 · 매도 = `--down` 채움 · 정정/취소 = raised(`--muted`) 중립.
- * 토스 B `.btn4`(260924-vj1) — 높이 52 · radius 14 · 600. `px-px` · `text-[13px]` · `whitespace-normal` 불변(가로 폭 0 증가).
+ * 토스 B `.btn4`(260924-vj1) — 높이 48(TDS 버튼 large · 260925-0pf) · radius 14 · 600. TDS large 글자 t5 17 은 `lc` 가로 증가 0 규칙으로 미적용. `px-px` · `text-[13px]` · `whitespace-normal` 불변(가로 폭 0 증가).
  * 폰 밴드(<700)는 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로), 700 이상은 14px 한 줄.
  * (2×2 배치로 버튼 폭이 넓어져 옛 10/11px 는 너무 작았다 — 2026-09-23 사용자 지시.)
  */
@@ -1217,7 +1217,7 @@ function OrderButton({
       title={title}
       onClick={onClick}
       className={cn(
-        'h-[52px] min-w-0 overflow-hidden rounded-[14px] border px-px text-[13px] leading-[1.15] font-semibold whitespace-normal',
+        'h-[48px] min-w-0 overflow-hidden rounded-[14px] border px-px text-[13px] leading-[1.15] font-semibold whitespace-normal',
         '@min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[length:var(--t-sm)] @min-[700px]/lc:whitespace-nowrap',
         'disabled:cursor-default disabled:opacity-45',
         tone === 'buy' && 'border-transparent bg-[var(--up)] text-[var(--destructive-fg)]',

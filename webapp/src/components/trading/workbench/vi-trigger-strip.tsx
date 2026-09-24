@@ -157,7 +157,7 @@ export function ViTriggerStrip({
       {/* ── ② 펼침 본문 — `hidden` 이 이기도록 display 유틸을 붙이지 않는다 ── */}
       <div id={bodyId} data-slot="vi-trigger-body" hidden={!open}>
         {settings != null && (
-          <div data-slot="vi-trigger-settings" className="border-t border-[var(--border)] px-2.5 py-2">
+          <div data-slot="vi-trigger-settings" className="border-t border-[var(--border-subtle)] px-2.5 py-2">
             {settings}
           </div>
         )}
@@ -165,7 +165,7 @@ export function ViTriggerStrip({
           <section
             data-slot="vi-trigger-table"
             aria-label="VI 발동 주문"
-            className="min-w-0 border-t border-[var(--border)]"
+            className="min-w-0 border-t border-[var(--border-subtle)]"
           >
             <ViOrderList items={items} disabled={disabled} nowMs={nowMs} variant="workbench" />
           </section>

@@ -157,7 +157,7 @@ const LINK_ACTIVE = "bg-[var(--muted)] text-[var(--fg)] font-semibold";
 
 /** 2·3단 들여쓰기 — 목업 `.side ul ul` (margin-left 12 + 좌측 hairline + padding-left 8). */
 const SUB_LIST =
-  "m-0 mt-1 ml-3 flex list-none flex-col gap-1 border-l border-[var(--border)] p-0 pl-2";
+  "m-0 mt-1 ml-3 flex list-none flex-col gap-1 border-l border-[var(--border-subtle)] p-0 pl-2";
 
 function NavLink({
   item,

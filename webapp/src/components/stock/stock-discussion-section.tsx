@@ -257,7 +257,7 @@ export function StockDiscussionSection({
           <DiscussionItem key={d.id} discussion={d} variant="card" />
         ))}
       </ul>
-      <footer className="mt-3 border-t border-[var(--border)] pt-3 flex items-center justify-between">
+      <footer className="mt-3 border-t border-[var(--border-subtle)] pt-3 flex items-center justify-between">
         <Link
           href={`/stocks/${encodeURIComponent(stockCode)}/discussions`}
           className="text-[length:var(--t-sm)] text-[var(--primary)] hover:underline"

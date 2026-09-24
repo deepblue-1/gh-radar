@@ -522,7 +522,7 @@ function ViSettingsRow({
     <div
       data-slot="vi-settings-block"
       data-exchange={exchange}
-      className="flex min-w-0 flex-col gap-1 @min-[830px]/wb:not-first:border-l @min-[830px]/wb:not-first:border-[var(--border)] @min-[830px]/wb:not-first:pl-4"
+      className="flex min-w-0 flex-col gap-1 @min-[830px]/wb:not-first:border-l @min-[830px]/wb:not-first:border-[var(--border-subtle)] @min-[830px]/wb:not-first:pl-4"
     >
       {/* 한 줄 — 태그 · 스위치 · 상승률 · 금액 · (더티) 수정. 접히는 것은 「수정」 자리가 모자랄 때뿐. */}
       <div

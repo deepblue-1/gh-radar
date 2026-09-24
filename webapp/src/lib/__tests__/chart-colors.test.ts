@@ -28,14 +28,27 @@ describe('getChartPalette', () => {
     },
   );
 
-  it('다크/라이트 분기가 실제로 다른 hex 값을 반환한다 (down/text/grid 기준)', () => {
+  it('TDS 공식값 고정 (@toss/tds-colors@0.1.0 — up/down 은 globals.css 와 같은 hex)', () => {
+    expect(getChartPalette('light')).toMatchObject({
+      up: '#f04452',
+      down: '#3182f6',
+      text: '#8b95a1',
+      grid: '#f2f4f6',
+    });
+    expect(getChartPalette('dark')).toMatchObject({
+      up: '#f04251',
+      down: '#3485fa',
+      text: '#7e7e87',
+      grid: '#2c2c35',
+    });
+  });
+
+  it('다크/라이트 분기가 실제로 다른 hex 값을 반환한다 (up/down/text/grid 네 키 모두)', () => {
     const light = getChartPalette('light');
     const dark = getChartPalette('dark');
-    // 상승색(up)은 토스 B 에서 두 테마가 같은 #f04452 — 의도된 동일값이라 분기 검증에서 뺀다.
-    expect(light.up).toBe(dark.up);
-    expect(light.down).not.toBe(dark.down);
-    expect(light.text).not.toBe(dark.text);
-    expect(light.grid).not.toBe(dark.grid);
+    for (const key of HEX_KEYS) {
+      expect(light[key]).not.toBe(dark[key]);
+    }
     // bg 는 양쪽 모두 transparent 라 동일 — 별도 검증 안 함
   });
 

@@ -350,7 +350,7 @@ export function BreakoutStrip({
           id={tableId}
           data-slot="breakout-table"
           aria-label="돌파감지 목록"
-          className="min-w-0 border-t border-[var(--border)]"
+          className="min-w-0 border-t border-[var(--border-subtle)]"
         >
           <BreakoutTable views={views} onActivate={activate} onDismiss={dismiss} />
         </section>

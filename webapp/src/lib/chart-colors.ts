@@ -33,8 +33,11 @@ export interface ChartPalette {
  * lightweight-charts 의 color parser 는 rgba() 정상 수용 (Pitfall 9 unaffected — oklch 만 거부).
  */
 /**
- * 260924-vj1 — 토스 B 팔레트(sketch 001). 상승색은 두 테마 모두 #f04452 로 같다(B 의도 —
- * 토스는 라이트·다크 상승 빨강을 공유). 하락·텍스트·grid 만 테마별로 갈린다.
+ * 260924-vj1 → 260925-0pf — 토스 B 팔레트를 공식 TDS 값(`@toss/tds-colors@0.1.0`)으로 고정.
+ * - up/down = 테마별 red500(라이트 #f04452 / 다크 #f04251) · blue500(라이트 #3182f6 / 다크 #3485fa).
+ *   globals.css 의 테마별 `--up`/`--down` 과 같은 hex 다 — styles/__tests__/tds-tokens.test.ts 가 교차 단언.
+ * - 축 글자 = grey500(3차 텍스트 — 라이트 #8b95a1 / 다크 #7e7e87), grid = grey100(라이트 #f2f4f6 /
+ *   다크 #2c2c35). 두 테마가 같은 역할의 공식 단계를 쓴다.
  */
 const PALETTES: Record<'light' | 'dark', ChartPalette> = {
   light: {
@@ -45,10 +48,10 @@ const PALETTES: Record<'light' | 'dark', ChartPalette> = {
     bg: 'rgba(0, 0, 0, 0)',
   },
   dark: {
-    up: '#f04452',
+    up: '#f04251',
     down: '#3485fa',
-    text: '#9e9ea4',
-    grid: '#26262c',
+    text: '#7e7e87',
+    grid: '#2c2c35',
     bg: 'rgba(0, 0, 0, 0)',
   },
 } as const;

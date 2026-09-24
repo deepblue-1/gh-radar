@@ -1231,7 +1231,7 @@ function ArmBlockedPanel({ groups }: { groups: ArmBlockedGroup[] }) {
   return (
     <div
       data-slot="lc-arm-blocked-panel"
-      className="mt-[var(--s-2)] border-t border-[var(--border)] bg-[var(--muted)] px-[var(--s-2)] py-1.5"
+      className="mt-[var(--s-2)] border-t border-[var(--border-subtle)] bg-[var(--muted)] px-[var(--s-2)] py-1.5"
     >
       <p className="m-0 mb-0.5 text-[10px] font-semibold tracking-[0.04em] text-[var(--muted-fg)]">
         켤 수 없는 이유
@@ -1301,7 +1301,7 @@ function Group({
     <section
       data-slot={`lc-group-${slot}`}
       title={hint}
-      className="min-w-0 border-t border-[var(--border)] px-0 py-1.5 first:border-t-0 @min-[992px]/lc:px-[var(--s-3)] @min-[992px]/lc:py-[var(--s-2)]"
+      className="min-w-0 border-t border-[var(--border-subtle)] px-0 py-1.5 first:border-t-0 @min-[992px]/lc:px-[var(--s-3)] @min-[992px]/lc:py-[var(--s-2)]"
     >
       {hasHeader ? (
       <div className="flex min-h-6 min-w-0 items-center gap-[var(--s-2)]">

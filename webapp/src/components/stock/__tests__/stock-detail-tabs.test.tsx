@@ -150,7 +150,13 @@ describe('StockDetailTabs — 폰 「주문하기」 CTA (260924-vj1)', () => {
     // 뷰포트 md 이상에서는 숨는다(앱 셸 층 분기).
     expect(bar!.className).toContain('md:hidden');
 
-    await user.click(screen.getByRole('button', { name: '주문하기' }));
+    // TDS BottomCTA = 버튼 xlarge(56 · radius 16) · 탭 트리거 = t5 17 (260925-0pf).
+    const cta = screen.getByRole('button', { name: '주문하기' });
+    expect(cta.className).toContain('h-[56px]');
+    expect(cta.className).toContain('rounded-[16px]');
+    expect(tab('차트').className).toContain('text-[17px]');
+
+    await user.click(cta);
 
     expect(pushSpy).toHaveBeenCalledTimes(1);
     expect(pushSpy).toHaveBeenCalledWith(null, '', '?tab=orderbook');

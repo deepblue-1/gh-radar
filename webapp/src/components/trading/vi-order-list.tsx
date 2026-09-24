@@ -606,7 +606,7 @@ function WorkbenchViTable({
       {rows.length === 0 ? (
         <p
           data-slot="vi-order-empty"
-          className="m-0 border-t border-[var(--border)] px-3 py-4 text-center text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+          className="m-0 border-t border-[var(--border-subtle)] px-3 py-4 text-center text-[length:var(--t-caption)] text-[var(--muted-fg)]"
         >
           {VI_ORDER_EMPTY_TEXT}
         </p>

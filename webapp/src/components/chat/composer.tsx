@@ -45,7 +45,7 @@ export function Composer({ onSend, isStreaming, onStop }: ComposerProps) {
   };
 
   return (
-    <div className="flex flex-col gap-[var(--s-2)] border-t border-[var(--border)] p-[var(--s-3)]">
+    <div className="flex flex-col gap-[var(--s-2)] border-t border-[var(--border-subtle)] p-[var(--s-3)]">
       <div className="flex items-end gap-[var(--s-2)]">
         <Textarea
           value={value}

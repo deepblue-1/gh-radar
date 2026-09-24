@@ -144,7 +144,7 @@ function DistributionBand({ hero }: { hero: LimitUpStockStats }) {
 function KpiGrid({ hero }: { hero: LimitUpStockStats }) {
   const showWinRate = shouldShowWinRate(hero);
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--border)] sm:grid-cols-3">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--r-md)] border border-transparent bg-[var(--border-subtle)] sm:grid-cols-3">
       {/* ① 시초가 익절 — N≥3 이면 큰 %, 미만이면 카운트만 (D-09 게이팅) */}
       <div className="bg-[var(--card)] p-[13px_14px]">
         <div className="mb-[5px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">

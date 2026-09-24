@@ -4,7 +4,7 @@ import { Children, type ReactNode } from 'react';
  * DetailBands — 토스 B 종목상세 섹션 띠 (quick-260924-vj1 · sketch 001 `.v-b .detail-stack > .card`).
  *
  * 자식 섹션마다 `<div data-detail-band>` 풀폭 평면 블록으로 감싸고, 블록 사이 flex gap 12px 이
- * 바깥 `--band` 색으로 비쳐 띠가 된다(다크 #0f0f12 · 라이트 #f2f4f6).
+ * 바깥 `--band` 색으로 비쳐 띠가 된다(다크 #101013 greyBackground · 라이트 #f2f4f6 — TDS 공식값).
  *
  * ★ 가로 bleed `-mx-2 md:-mx-4 lg:-mx-6` 와 띠 안 패딩 `px-2 md:px-4 lg:px-6` 은 AppShell `main` 의
  *   패딩 램프(`p-2 md:p-4 lg:p-6`)와 **같은 값**이다 — 한쪽만 고치면 좌우로 삐져나간다.

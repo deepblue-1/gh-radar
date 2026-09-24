@@ -74,7 +74,7 @@ function ScannerTableBase({ stocks, isRefreshing, aiCodes }: ScannerTableProps) 
               role="row"
               className={cn(
                 GRID_COLS,
-                'py-3 border-t border-[var(--border)] hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] transition-colors',
+                'py-3 border-t border-[var(--border-subtle)] hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] transition-colors',
               )}
             >
               <span className="flex min-w-0 items-center gap-1.5">

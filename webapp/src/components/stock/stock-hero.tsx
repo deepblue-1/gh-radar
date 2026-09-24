@@ -12,7 +12,7 @@ export interface StockHeroProps {
 
 /**
  * StockHero — Phase 6 D4 Hero 섹션 (UI-SPEC primary focal point).
- * - 종목명(18px/600) · 코드(raised 칩) · 마켓배지 — 토스 B(260924-vj1 · 타이포 교정)
+ * - 종목명(17px/600 — TDS t5 · 260925-0pf) · 코드(raised 칩) · 마켓배지 — 토스 B(260924-vj1 · 타이포 교정)
  * - 현재가 30px/700 (폰·데스크톱 동일)
  * - 등락액 + 등락률 15px/500 (up/down/flat 색상)
  * - price <= 0 → em-dash (정지/폐지 종목)
@@ -49,7 +49,7 @@ export function StockHero({ stock }: StockHeroProps) {
         >
           ←
         </button>
-        <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[var(--fg)]">
+        <h1 className="text-[17px] font-semibold tracking-[-0.02em] text-[var(--fg)]">
           {stock.name}
         </h1>
         <span className="mono rounded-[6px] bg-[var(--muted)] px-[7px] py-[2px] text-[12px] font-semibold text-[var(--muted-fg)]">

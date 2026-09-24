@@ -306,13 +306,13 @@ export function CardBody({
         '@min-[700px]/lc:grid-cols-[260px_minmax(0,1fr)]',
         '@min-[830px]/lc:grid-cols-[400px_minmax(0,1fr)]',
         '@min-[992px]/lc:grid-cols-[460px_minmax(0,1fr)]',
-        variant === 'card' && 'border-t border-[var(--border)]',
+        variant === 'card' && 'border-t border-[var(--border-subtle)]',
         className,
       )}
     >
       <div
         data-slot="card-body-orderbook"
-        className="min-w-0 border-r border-[var(--border)] p-2 @min-[700px]/lc:p-2.5"
+        className="min-w-0 border-r border-[var(--border-subtle)] p-2 @min-[700px]/lc:p-2.5"
       >
         <OrderbookLadder
           variant="chaser"

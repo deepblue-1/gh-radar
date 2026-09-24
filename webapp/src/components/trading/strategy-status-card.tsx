@@ -470,7 +470,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
         href="/trading"
         data-slot="vi-status-row"
         className={cn(
-          "mt-1 flex min-h-11 flex-wrap items-center gap-2 rounded-[var(--r)] border-t border-[var(--border)] px-2 py-2.5",
+          "mt-1 flex min-h-11 flex-wrap items-center gap-2 rounded-[var(--r)] border-t border-[var(--border-subtle)] px-2 py-2.5",
           "hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)]",
         )}
       >
@@ -489,7 +489,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
       {/* 전체 비활성화 (C4) — 카드 안에서 유일한 `--destructive` 면이다. */}
       <div
         data-slot="strategy-disable-all"
-        className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-[var(--border)] pt-3"
+        className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-[var(--border-subtle)] pt-3"
       >
         <span className="min-w-[160px] flex-1 text-[11px] text-[var(--muted-fg)]">
           모든 상따 전략과 VI 자동매수를 한 번에 끕니다. 이미 나간 주문은 취소되지 않아요.

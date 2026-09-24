@@ -33,7 +33,7 @@ export function WatchlistSkeleton() {
           {Array.from({ length: 8 }).map((_, i) => (
             <div
               key={i}
-              className="grid grid-cols-[1fr_100px_80px_120px_100px_140px_44px] items-center gap-3 px-3 border-t border-[var(--border)] py-3"
+              className="grid grid-cols-[1fr_100px_80px_120px_100px_140px_44px] items-center gap-3 px-3 border-t border-[var(--border-subtle)] py-3"
             >
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-4 w-16" />

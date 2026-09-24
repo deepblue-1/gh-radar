@@ -506,7 +506,7 @@ function TradeTapeImpl({
           {/* compact 에는 컬럼헤더를 두지 않는다(사용자 확정) — 140px 에서 3칸 헤더는 순 소음이다. */}
           {!compact && (
             <thead className="sticky top-0 z-[1]">
-              <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-[var(--border)] [&>th]:bg-[var(--muted)] [&>th]:px-1.5 [&>th]:py-1.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-[var(--muted-fg)]">
+              <tr className="[&>th]:whitespace-nowrap [&>th]:border-b [&>th]:border-[var(--border-subtle)] [&>th]:bg-[var(--muted)] [&>th]:px-1.5 [&>th]:py-1.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-[var(--muted-fg)]">
                 <th scope="col" className="text-left">
                   시각
                 </th>

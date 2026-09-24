@@ -119,7 +119,8 @@ export function StockDetailTabs({
   );
 
   // B — 폰 하단 고정 「주문하기」 CTA 는 호가주문 탭이 아닐 때만 그린다(그 탭에선 더티 액션 바와
-  // 겹치지 않게 언마운트). 보일 때는 Tabs 루트 아래 여백 84px 로 마지막 콘텐츠가 가려지지 않게 한다.
+  // 겹치지 않게 언마운트). 보일 때는 Tabs 루트 아래 여백을 CTA 바 높이 + 10 = 76 + max(20, safe-area)
+  // 로 두어 마지막 콘텐츠가 가려지지 않게 한다(바 높이 식은 아래 CTA 주석 · 노치 폰 safe-area 도 포함).
   const showOrderCta = active !== 'orderbook';
 
   return (
@@ -127,7 +128,7 @@ export function StockDetailTabs({
       value={active}
       onValueChange={handleValueChange}
       data-stock-code={code}
-      className={cn('flex-col gap-0', showOrderCta && 'max-md:pb-[84px]')}
+      className={cn('flex-col gap-0', showOrderCta && 'max-md:pb-[calc(76px+max(20px,env(safe-area-inset-bottom)))]')}
     >
       {/*
         T4 — sticky 탭 바. AppShell 의 `main` 이 스크롤 컨테이너(`overflow-auto p-2 md:p-4 lg:p-6`) 이므로
@@ -139,7 +140,7 @@ export function StockDetailTabs({
       */}
       <div
         ref={tabBarRef}
-        className="sticky top-0 z-20 -mx-2 border-b border-[var(--border)] bg-[var(--bg)] px-2 md:-mx-4 md:px-4 lg:-mx-6 lg:px-6"
+        className="sticky top-0 z-20 -mx-2 border-b border-[var(--border-subtle)] bg-[var(--bg)] px-2 md:-mx-4 md:px-4 lg:-mx-6 lg:px-6"
       >
         <TabsList
           variant="line"
@@ -150,7 +151,7 @@ export function StockDetailTabs({
             <TabsTrigger
               key={t.v}
               value={t.v}
-              className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[16px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--fg)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--fg)] data-[state=active]:shadow-none"
+              className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[17px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--fg)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--fg)] data-[state=active]:shadow-none"
             >
               {t.label}
             </TabsTrigger>
@@ -206,17 +207,22 @@ export function StockDetailTabs({
         ★ `position: fixed` 지만 조상에 `container-type` 이 없는 자리(탭 셸 루트)라 §2.2b 의 컨테이닝
           블록 함정에 걸리지 않는다. 뷰포트 `md` 분기는 앱 셸 층이라 상따 본문 컨테이너 쿼리 규칙과
           충돌하지 않는다. 챗 FAB 는 globals.css 가 이 바가 있을 때만 위로 들어 올린다.
+        ★ TDS BottomCTA(@toss/tds-mobile) = 버튼 xlarge 56 · radius 16 · 글자 t5 17/600 · 좌우 20 ·
+          하단 20/safe-area(→ `max(20px, safe-area)` 로 해석 — 노치 없는 폰 20, 노치 폰은 safe-area).
+          바 높이 = pt 10 + 버튼 56 + max(20, safe) = 66 + max(20, safe).
+          → 챗 FAB bottom = 70 + max(20, safe)(바 윗변 위 4px · globals.css) ·
+            Tabs 루트 예약 = 76 + max(20, safe)(바 + 10). 셋 중 하나를 바꾸면 나머지도 같이.
       */}
       {showOrderCta && (
         <div
           data-slot="detail-order-cta-bar"
-          className="fixed inset-x-0 bottom-0 z-30 bg-[linear-gradient(to_bottom,transparent,var(--bg)_40%)] px-4 pt-2.5 pb-[calc(12px+env(safe-area-inset-bottom))] md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 bg-[linear-gradient(to_bottom,transparent,var(--bg)_40%)] px-5 pt-2.5 pb-[max(20px,env(safe-area-inset-bottom))] md:hidden"
         >
           <button
             type="button"
             data-slot="detail-order-cta"
             onClick={() => handleValueChange('orderbook')}
-            className="h-[54px] w-full rounded-[16px] bg-[var(--up)] text-[16.5px] font-semibold text-white"
+            className="h-[56px] w-full rounded-[16px] bg-[var(--up)] text-[17px] font-semibold text-white"
           >
             주문하기
           </button>

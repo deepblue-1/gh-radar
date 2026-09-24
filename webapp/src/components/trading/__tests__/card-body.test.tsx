@@ -216,7 +216,7 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
     const right = optionsPane(container);
     expect(within(left).getAllByLabelText(/^호가 10단/).length).toBeGreaterThan(0);
     expect(left.className).toContain('border-r');
-    expect(left.className).toContain('border-[var(--border)]');
+    expect(left.className).toContain('border-[var(--border-subtle)]');
     for (const slot of ['buy', 'sweep', 'sell', 'cancel']) {
       expect(right.querySelector(`[data-slot="lc-group-${slot}"]`)).not.toBeNull();
     }

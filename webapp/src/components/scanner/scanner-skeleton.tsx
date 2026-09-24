@@ -30,7 +30,7 @@ export function ScannerSkeleton() {
           </thead>
           <tbody className="skeleton-list">
             {Array.from({ length: 10 }).map((_, i) => (
-              <tr key={i} className="border-t border-[var(--border)]">
+              <tr key={i} className="border-t border-[var(--border-subtle)]">
                 <td className="px-3 py-3">
                   <Skeleton className="h-4 w-32" />
                 </td>
