@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-import type { DmaOrderRow, RelayAccountState, RelayOrderMsg } from "@gh-radar/shared";
+import {
+  kstDateIso,
+  type JournalOrderRow,
+  type RelayAccountState,
+  type RelayOrderMsg,
+} from "@gh-radar/shared";
 
 /**
  * quick-260910-jce Task 2 — 「오늘 주문」 카드 계약 (RELAY-02 / D-24).
@@ -44,26 +49,34 @@ import { TodayOrdersCard } from "../today-orders-card";
 // 픽스처
 // ---------------------------------------------------------------------------
 
-function row(over: Partial<DmaOrderRow> = {}): DmaOrderRow {
+/** 스펙 실행 시각의 KST 오늘 — 카드가 푸시 행을 거르는 기준과 같은 shared 함수다. */
+const TODAY = kstDateIso();
+
+function row(over: Partial<JournalOrderRow> = {}): JournalOrderRow {
   return {
     id: "id-1",
+    tradeDate: TODAY,
     accountNo: "1234567801",
     isin: "KR7005930003",
     stockCode: "005930",
     exchange: "KRX",
-    market: "K",
+    board: null,
     side: "B",
     orderType: "N",
     orgOrderNo: null,
     qty: 10,
     price: 70_000,
     orderNo: "0000135742",
+    filledQty: 0,
+    modifiedQty: 0,
     status: "accepted",
     resultCode: 0,
     noticeType: "A",
     message: null,
-    filledQty: 0,
     origin: "manual",
+    requester: null,
+    requestKind: null,
+    lastSeq: 1,
     createdAt: "2026-09-10T00:10:00.000Z",
     updatedAt: "2026-09-10T00:10:00.000Z",
     ...over,
@@ -86,7 +99,7 @@ function frame(over: Partial<RelayOrderMsg> = {}): RelayOrderMsg {
 }
 
 /** 접수 2 · 취소 1 — 최종 검증 대상과 같은 모양이다. */
-const THREE_ORDERS: DmaOrderRow[] = [
+const THREE_ORDERS: JournalOrderRow[] = [
   row({ id: "a", orderNo: "0000135742", status: "accepted" }),
   row({ id: "b", orderNo: "0000135743", status: "accepted", side: "S" }),
   row({ id: "c", orderNo: "0000135744", status: "cancelled" }),
@@ -279,7 +292,7 @@ describe("TodayOrdersCard", () => {
 
   it("⑥-3 통보가 없는 신규 매도 행은 종전대로 방향색 매도다 — 없는 행위를 지어내지 않는다", async () => {
     fetchTodayOrdersMock.mockResolvedValue([
-      row({ id: "a", orderNo: "0000135742", side: "S", noticeType: null, status: "requested" }),
+      row({ id: "a", orderNo: "0000135742", side: "S", noticeType: null, status: "accepted" }),
     ]);
 
     render(<TodayOrdersCard />);
@@ -303,7 +316,7 @@ describe("TodayOrdersCard", () => {
  */
 
 /** 상따 자동주문의 조각 매도 체결 3건 — 1초 간격이라 3초 창 안이다. */
-const AUTO_SELL_FILLS: DmaOrderRow[] = [
+const AUTO_SELL_FILLS: JournalOrderRow[] = [
   row({
     id: "f3",
     orderNo: "0000200003",
@@ -337,7 +350,7 @@ const AUTO_SELL_FILLS: DmaOrderRow[] = [
 ];
 
 const AUTO_SELL_FRAMES: RelayOrderMsg[] = AUTO_SELL_FILLS.map((r) =>
-  frame({ no: r.orderNo ?? "", nt: "E", q: r.qty }),
+  frame({ no: r.orderNo ?? "", nt: "E", q: r.qty ?? 0 }),
 );
 
 describe("TodayOrdersCard — 통보 묶기 (17-10 / D-16)", () => {
@@ -448,6 +461,70 @@ describe("TodayOrdersCard — relay 재인증 뒤 재조회 (debug mobile-bg-res
     view.rerender(<TodayOrdersCard />);
     await new Promise((r) => setTimeout(r, 30));
 
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⑨ 원천 = REST 복원 + journal.rows 푸시 (Phase 19 D-03)
+// ---------------------------------------------------------------------------
+
+describe("TodayOrdersCard — journal 원천 (Phase 19 D-03)", () => {
+  it("⑨-1 journal: 같은 id 는 lastSeq 가 큰 푸시 행이 이겨 줄 수는 그대로 · 상태가 「체결」로 바뀐다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([row({ id: "x", lastSeq: 3, status: "accepted" })]);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      journalRows: [
+        row({ id: "x", lastSeq: 5, status: "filled", filledQty: 10, noticeType: "E" }),
+      ],
+    };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const status = listRows()[0]?.querySelector('[data-slot="today-order-status"]');
+    expect(status?.textContent).toBe("체결");
+  });
+
+  it("⑨-2 journal: 복원에 없는 오늘 푸시 행은 줄을 **만든다** — 푸시 행은 완전한 행이다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([]);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      journalRows: [row({ id: "y", orderNo: "0000177777", side: "S" })],
+    };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+    const text = listRows()[0]?.textContent ?? "";
+    expect(text).toContain("0000177777");
+    expect(text).toContain("매도");
+  });
+
+  it("⑨-3 journal: 어제 tradeDate 의 푸시 행은 「오늘 주문」 에 서지 않는다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue([]);
+    mockRelay = {
+      ...EMPTY_RELAY_VALUE,
+      journalRows: [row({ id: "old", orderNo: "0000166666", tradeDate: "2000-01-01" })],
+    };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("today-orders-empty")).toBeInTheDocument(),
+    );
+    expect(listRows()).toHaveLength(0);
+  });
+
+  it("⑨-4 journal: `{t:\"order\"}` 에만 있는 주문번호는 줄을 만들지 않고 재조회도 부르지 않는다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    mockRelay = { ...EMPTY_RELAY_VALUE, orders: [frame({ no: "0000199999", nt: "A" })] };
+
+    render(<TodayOrdersCard />);
+
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(listRows()).toHaveLength(3);
     expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1);
   });
 });

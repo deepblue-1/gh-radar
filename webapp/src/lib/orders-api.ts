@@ -1,95 +1,85 @@
 /**
- * orders-api — 「오늘 주문」 복원 조회 + 라이브 병합 (RELAY-02 / D-24, quick-260910-jce).
+ * orders-api — 「오늘 주문」 복원 조회 + 저널 푸시 병합 (RELAY-02 / D-24 → Phase 19 D-03).
  *
- * ① 무엇을 푸는가
- *   주문 **접수**는 16-16 에서 wss 단일 경로(D-02)로 옮겨졌지만 **복원**은 옮겨지지 않았다.
- *   서버 `GET /api/orders` 라우트는 살아 있는데 `webapp/src` 전체에 호출자가 0건이었다 —
- *   그래서 새로고침하면 오늘 낸 주문이 화면에서 사라졌다. 이 모듈이 그 호출자다.
+ * ① 원천은 두 가지뿐이다 (Phase 19 D-03)
+ *   REST `GET /api/orders` 복원(계좌 기준 저널 `dma_account_orders` 의 오늘 행)과 relay wss
+ *   `{t:"journal.rows"}` 푸시. 둘 다 shared `toJournalOrderRow` 한 매퍼를 지난 같은 모양
+ *   (`JournalOrderRow`)이라 `id` 하나로 맞춘다. 세션 51 기반 `{t:"order"}` 는 여기에 오지 않는다 —
+ *   그것은 토스트·전략 로그 표면 전용이다. (Phase 19 D-03 로 라이브 join 제거.)
  *
  * ② ★ `date` 쿼리를 붙이지 않는다
- *   서버가 공유 `kstDateIso()` 로 KST 오늘을 계산하고 **그것이 정본**이다(`services/dma-orders.ts`
- *   의 `kstDayRangeUtc`). 브라우저에서 KST 를 한 번 더 계산하면 두 벌이 되고, 두 벌이 되는
- *   순간 한쪽만 고쳐진다(자정·서머타임 없는 KST 라도 「어느 시계를 믿는가」가 갈린다).
- *   그래서 요청 URL 은 쿼리 문자열 없는 `/api/orders` 다.
+ *   서버가 공유 `kstDateIso()` 로 KST 오늘을 정하고(`services/dma-orders.ts` 의
+ *   `resolveTradeDate`) **그것이 조회의 정본**이다. 그래서 요청 URL 은 쿼리 문자열 없는
+ *   `/api/orders` 다. 푸시 행의 「오늘」 판정(`mergeJournalRows` 의 `today`)도 같은 shared
+ *   `kstDateIso` 를 쓴다 — 브라우저에 두 번째 KST 함수를 만들지 않는다.
  *
- * ③ ★ 라이브 프레임은 행을 **만들 수 없다**, 덮어쓸 수만 있다
- *   `RelayOrderMsg` 는 `side`·`isin`·`accountNo` 를 의도적으로 싣지 않는다
- *   (`relay/src/hub/subscription-hub.ts` — 취소·정정 통보의 매매구분은 믿을 수 없다).
- *   그 프레임으로 행을 합성하면 트레이더가 방향을 읽는 **매매구분 칸이 빈 줄**이 화면에 선다.
- *   그래서 짝을 못 찾은 라이브 주문번호는 행이 아니라 `unmatchedOrderNos` 로 **보고만** 한다.
+ * ③ ★ 같은 `id` 면 `lastSeq` 가 큰 쪽이 이긴다
+ *   `lastSeq` 는 그 행에 반영된 마지막 게이트웨이 저널 seq 다. 복원과 푸시 중 어느 쪽이 먼저
+ *   도착했든 더 나중 사실을 담은 쪽이 남는다(늦게 도착한 옛 행의 표시 역전 방지 · T-19-27).
+ *   푸시 행은 **완전한 행**(종목·계좌·방향 포함)이라 복원에 없던 행도 만든다.
  *
  * ④ 응답은 bare array 다
- *   `routes/orders.ts` 가 `DmaOrderRow[]` 를 그대로 반환한다(scanner/themes/news/chat 과 같은
+ *   `routes/orders.ts` 가 `JournalOrderRow[]` 를 그대로 반환한다(scanner/themes/news/chat 과 같은
  *   규약). envelope 을 언랩하지 않는다.
  */
 
-import type { DmaOrderRow, DmaOrderStatus, RelayOrderMsg } from "@gh-radar/shared";
+import type { JournalOrderRow, JournalOrderStatus } from "@gh-radar/shared";
 
 import { authFetch } from "./auth-fetch";
 
-/** 복원 행 + 그 주문의 **가장 최신** 라이브 통보(없으면 null). */
-export type TodayOrderRow = DmaOrderRow & { live: RelayOrderMsg | null };
-
-export interface MergeTodayOrdersResult {
-  rows: TodayOrderRow[];
-  /**
-   * 복원 스냅샷에 없는 라이브 주문번호(중복 제거, 라이브 배열 순서 보존).
-   *
-   * 순수 함수가 **판정만** 하고 처리(재조회)는 컴포넌트가 한다 — 「화면에 없는 주문이
-   * 생겼다」는 사실은 순수하게 판정할 수 있어서 타이머 없이 단위 테스트로 잠기고,
-   * 무엇을 할지는 표면마다 다르기 때문이다.
-   */
-  unmatchedOrderNos: string[];
-}
-
 /**
- * 오늘(KST) 내 주문 전체를 복원한다. `requireAuth` 라우트라 Bearer 가 필수다.
+ * 오늘(KST) 내가 볼 수 있는 계좌의 주문 전체를 복원한다. `requireAuth` 라우트라 Bearer 가 필수다.
  * 세션이 없으면 서버 왕복 없이 `ApiClientError`(UNAUTHENTICATED) 로 끝난다.
  */
-export function fetchTodayOrders(): Promise<DmaOrderRow[]> {
-  return authFetch<DmaOrderRow[]>("/api/orders");
+export function fetchTodayOrders(): Promise<JournalOrderRow[]> {
+  return authFetch<JournalOrderRow[]>("/api/orders");
+}
+
+/** 시각 파싱 실패는 가장 오래된 것으로 친다 — 모르는 시각을 목록 맨 위에 세우지 않는다. */
+function stampOf(iso: string): number {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 }
 
 /**
- * 복원 스냅샷 × 라이브 프레임 → 화면 행.
+ * 저널 행 정렬 — `createdAt` 내림차순(최신 먼저), 동률은 `lastSeq` 내림차순, 그래도 같으면 `id`.
  *
- * ★ 병합 키는 `orderNo` **하나뿐**이다. `rid` 는 `order.new`/`order.cancel`/`order.result`
- *   세 타입에만 있고 `{t:"order"}` 푸시에도 `dma_orders` 에도 없다.
- *
- * ★ 라이브가 이긴다. `{t:"order"}` 는 접수·체결·취소확인·거부가 전부 통과하는 단일 통보
- *   경로이고 소켓이 이어져 있는 한 REST 스냅샷보다 언제나 나중이다. 소켓 공백 뒤 재조회한
- *   스냅샷이 더 진행된 경우만 예외다 — 판정은 `orderDisplayStatus` 한 곳에서 한다.
+ * 리듀서(`use-relay-socket` 의 `journalRows` 보관)와 카드 병합이 **같은 비교 함수**를 쓴다.
+ * 시각은 문자열이 아니라 epoch 로 비교한다 — REST 와 푸시의 ISO 표기(`Z` · `+00:00`)가 달라도
+ * 순서가 갈리지 않게.
  */
-export function mergeTodayOrders(
-  restored: readonly DmaOrderRow[],
-  live: readonly RelayOrderMsg[],
-): MergeTodayOrdersResult {
-  /*
-    ★ `no` 당 **첫 등장만** 취한다.
-      `use-relay-socket.ts` 의 리듀서가 `[frame, ...state.orders]` 로 **앞에 붙이고 중복을
-      제거하지 않는다** — 같은 `no` 가 A → E → C 로 여러 번 들어 있고 **index 0 이 가장
-      최신**이다. 순회하며 무조건 `set` 하면 마지막 쓰기(=가장 오래된 프레임)가 남아
-      「이미 취소된 주문이 접수로 보이는」 역전이 난다.
-  */
-  const latestByNo = new Map<string, RelayOrderMsg>();
-  for (const frame of live) {
-    if (frame.no === "") continue;
-    if (!latestByNo.has(frame.no)) latestByNo.set(frame.no, frame);
+export function compareJournalNewestFirst(a: JournalOrderRow, b: JournalOrderRow): number {
+  const at = stampOf(a.createdAt);
+  const bt = stampOf(b.createdAt);
+  if (at !== bt) return at < bt ? 1 : -1;
+  if (a.lastSeq !== b.lastSeq) return b.lastSeq - a.lastSeq;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * 복원 스냅샷 × 푸시 행 → 화면 행 (Phase 19 D-03).
+ *
+ * - 병합 키는 `id` 하나다. 같은 `id` 는 `lastSeq` 가 **큰 쪽**이 남는다(같으면 복원 유지).
+ * - 푸시 행은 `tradeDate === today` 인 것만 받는다 — 자정을 넘겨 열려 있던 탭이 어제 행을
+ *   「오늘 주문」 에 섞지 않게. 복원 행은 서버가 이미 오늘로 걸렀으므로 거르지 않는다.
+ * - 정렬은 `compareJournalNewestFirst` 하나다.
+ */
+export function mergeJournalRows(
+  restored: readonly JournalOrderRow[],
+  pushed: readonly JournalOrderRow[],
+  today: string,
+): JournalOrderRow[] {
+  const byId = new Map<string, JournalOrderRow>();
+  for (const row of restored) {
+    const cur = byId.get(row.id);
+    if (cur === undefined || row.lastSeq > cur.lastSeq) byId.set(row.id, row);
   }
-
-  const rows: TodayOrderRow[] = restored.map((row) => ({
-    ...row,
-    // `orderNo` 가 null 인 행(접수 전 거부·타임아웃)은 키가 없어 어떤 프레임과도 만나지 않는다.
-    live: row.orderNo === null ? null : (latestByNo.get(row.orderNo) ?? null),
-  }));
-
-  const restoredNos = new Set(
-    restored.map((row) => row.orderNo).filter((no): no is string => no !== null),
-  );
-  const unmatchedOrderNos = [...latestByNo.keys()].filter((no) => !restoredNos.has(no));
-
-  // 정렬은 복원 순서(created_at DESC)를 그대로 보존한다 — 서버가 정본이다.
-  return { rows, unmatchedOrderNos };
+  for (const row of pushed) {
+    if (row.tradeDate !== today) continue;
+    const cur = byId.get(row.id);
+    if (cur === undefined || row.lastSeq > cur.lastSeq) byId.set(row.id, row);
+  }
+  return [...byId.values()].sort(compareJournalNewestFirst);
 }
 
 /** 표시 라벨 + 톤. 톤은 account-panel 이 쓰는 색 토큰 집합과 같은 축이다. */
@@ -98,70 +88,23 @@ export interface OrderDisplayStatus {
   tone: "normal" | "muted" | "danger";
 }
 
-/** 라이브 통보 1자(A/E/C/R) → 표시. 모르는 글자는 **해석하지 않는다**. */
-const NOTICE_LABELS: Readonly<Record<string, OrderDisplayStatus>> = {
-  A: { label: "접수", tone: "normal" },
-  /*
-    ★ "체결"까지만 말한다. `RelayOrderMsg` 에는 **체결수량이 없어** 전량인지 부분인지 알 수
-      없다. 모르는 것을 지어내면 그 숫자로 매도 판단이 난다(account-panel 헤더 ⑤ 와 같은 규율).
-  */
-  E: { label: "체결", tone: "normal" },
-  C: { label: "취소", tone: "muted" },
-  R: { label: "거부", tone: "danger" },
-};
-
-/** 복원 행 status → 표시. `dma_orders.status` 8종을 전부 덮는다. */
-const STATUS_LABELS: Readonly<Record<DmaOrderStatus, OrderDisplayStatus>> = {
-  requested: { label: "요청", tone: "muted" },
+/** 저널 행 status 6종 → 표시. `requested`·`timeout` 은 저널에 없다(relay 즉시응답 전용). */
+const STATUS_LABELS: Readonly<Record<JournalOrderStatus, OrderDisplayStatus>> = {
   accepted: { label: "접수", tone: "normal" },
-  rejected: { label: "거부", tone: "danger" },
-  filled: { label: "체결", tone: "normal" },
   partially_filled: { label: "부분체결", tone: "normal" },
+  filled: { label: "체결", tone: "normal" },
   cancelled: { label: "취소", tone: "muted" },
-  // ★ timeout 은 "실패"가 아니라 **"결과를 모름"** 이다 (Pitfall 9) — 재주문을 유도하지 않는다.
-  timeout: { label: "결과 확인 중", tone: "muted" },
+  rejected: { label: "거부", tone: "danger" },
   // 원주문 잔량이 정정으로 새 주문번호에 옮겨가 닫힌 행 (quick-260923-m23). 기존 단어·톤 재사용.
   modified: { label: "정정", tone: "muted" },
 };
 
 /**
- * 진행 단계 — 접수 1 < 부분체결 2 < 종결 3. relay `order/notice-status.ts` 의 단조 격자와 같은 축이다.
- * 통보 1자는 E 를 2 로 둔다(체결수량이 없어 전량인지 모른다 — 「체결이 있었다」까지만 안다).
- */
-const NOTICE_RANK: Readonly<Record<string, number>> = { A: 1, E: 2, C: 3, R: 3 };
-const STATUS_RANK: Readonly<Record<DmaOrderStatus, number>> = {
-  requested: 0,
-  timeout: 0,
-  accepted: 1,
-  partially_filled: 2,
-  filled: 3,
-  cancelled: 3,
-  rejected: 3,
-  modified: 3,
-};
-
-/**
- * 그 행에 무엇이라고 쓸지 고른다.
+ * 그 행에 무엇이라고 쓸지 고른다 — DB 투영의 `status` **하나**가 말한다 (Phase 19 D-03).
  *
- * 라이브가 이기지만 **`DmaOrderStatus` 값을 라이브로 덮어쓰지는 않는다** — 표시만 바꾼다.
- * 상태값 자체는 서버가 같은 행에 쓰고, 다음 조회에서 정본으로 다시 온다.
- *
- * ★ 단, 복원 행이 라이브보다 **더 진행됐으면** 복원이 이긴다 (debug mobile-bg-resume-gaps 4).
- *   「라이브는 언제나 스냅샷보다 나중」은 소켓이 이어져 있을 때만 참이다. 소켓이 끊긴 사이에도
- *   relay 는 체결을 `dma_orders` 에 기록하고, 재인증 뒤 재조회가 그것을 가져온다 — 그때 끊기기
- *   **전의** 라이브 A 가 이기면 체결된 주문이 「접수」로 남는다. 진행 단계는 되돌아가지 않으므로
- *   (relay 가 같은 격자로 기록한다) 두 사실 중 더 나아간 쪽이 최신이다. 같은 단계면 종전대로
- *   라이브다 — 「체결」(E)을 「부분체결」로 바꿔 쓰는 등 라이브가 말한 단계를 되돌리지 않는다.
+ * 진행 단계는 기록기가 적용 RPC 안에서 단조로 투영하므로 화면이 다시 판정하지 않는다.
+ * 모르는 값(계약 밖 · 새 서버)은 지어내지 않고 원문을 muted 로 보인다.
  */
-export function orderDisplayStatus(row: TodayOrderRow): OrderDisplayStatus {
-  // ★ 'modified' 는 라이브보다 먼저다. 원주문 행의 최신 라이브 프레임은 정정 **전의** A/E 라
-  //   그대로 두면 「접수」·「체결」로 남는다 — 정정확인 M 은 새 주문번호로 오므로 원주문 행의
-  //   라이브를 갱신하지 않는다 (quick-260923-m23).
-  if (row.status === "modified") return STATUS_LABELS.modified;
-  const restored = STATUS_LABELS[row.status] ?? { label: row.status, tone: "muted" };
-  const live = row.live;
-  const byNotice = live === null ? undefined : NOTICE_LABELS[live.nt];
-  if (live === null || byNotice === undefined) return restored;
-  const restoredAhead = (STATUS_RANK[row.status] ?? 0) > (NOTICE_RANK[live.nt] ?? 0);
-  return restoredAhead ? restored : byNotice;
+export function orderDisplayStatus(row: JournalOrderRow): OrderDisplayStatus {
+  return STATUS_LABELS[row.status] ?? { label: String(row.status), tone: "muted" };
 }

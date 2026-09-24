@@ -15,13 +15,12 @@
  *   거른다). T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는 유지된다 — 늘어난
  *   조회 표면은 **하나**다.
  *
- * ③ ★ 라이브 프레임으로 행을 **만들지 않는다**
- *   `RelayOrderMsg` 는 `side`·`isin`·`accountNo` 를 의도적으로 싣지 않는다(취소·정정 통보의
- *   매매구분은 믿을 수 없다). 합성하면 트레이더가 방향을 읽는 매매구분 칸이 빈 줄이 선다.
- *   대신 복원 목록에 없는 주문번호가 나오면 **그 번호당 최대 1회** 재조회한다 — 페이지 로드
- *   이후 낸 주문이 「오늘 주문」이라는 이름의 목록에서 빠지는 것을 막기 위해서다.
- *   ★ 루프가 될 수 없다: 이미 요청한 주문번호를 `requestedRef` 의 Set 에 **먼저 넣고** 부르므로,
- *     재조회 응답에 그 번호가 여전히 없어도 두 번째 재조회는 일어나지 않는다. 폴링이 아니다.
+ * ③ ★ 원천은 REST 복원 + `journal.rows` 푸시 **둘뿐**이다 (Phase 19 D-03)
+ *   푸시 행은 관찰자 기록기가 계좌 저널을 투영한 **완전한 행**(종목·계좌·방향 포함)이라 복원에
+ *   없던 행도 만든다 — 부재 중 자동주문(이어받기로 채워진 행)과 같은 계좌 다른 단말의 주문이
+ *   이 경로로 빠짐없이 선다. 같은 `id` 면 `lastSeq` 가 큰 쪽이 이긴다(`mergeJournalRows`).
+ *   세션 51 기반 `{t:"order"}` 는 카드 병합에 쓰지 않는다 — 토스트·전략 로그 표면 전용이다.
+ *   「오늘」 은 shared `kstDateIso` 하나로 정한다(브라우저에 두 번째 KST 함수를 두지 않는다).
  *
  * ④ ★ 실패는 **이 카드 안에서** 수렴한다
  *   조회가 깨져도 throw 하지 않는다. 이 카드가 터지면 같은 트리의 전략·계좌 카드까지
@@ -53,7 +52,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { DmaOrderRow } from "@gh-radar/shared";
+import { kstDateIso, type JournalOrderRow } from "@gh-radar/shared";
 
 import {
   Table,
@@ -74,10 +73,9 @@ import {
 } from "@/lib/order-notices";
 import {
   fetchTodayOrders,
-  mergeTodayOrders,
+  mergeJournalRows,
   orderDisplayStatus,
   type OrderDisplayStatus,
-  type TodayOrderRow,
 } from "@/lib/orders-api";
 import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
@@ -114,7 +112,7 @@ function orderTime(iso: string): string {
  * `strategy-status-card` 의 `StrategyRow` 와 같은 판단이다.
  */
 function stockLabel(
-  row: DmaOrderRow,
+  row: JournalOrderRow,
   label: IsinLabel | undefined,
 ): { name: string; code: string | null } {
   const code = row.stockCode ?? label?.code ?? row.isin;
@@ -122,38 +120,34 @@ function stockLabel(
 }
 
 /**
- * 통보 판정에 쓸 **서버 사실**만 모은다 (17-10 / D-08 · D-15).
+ * 통보 판정에 쓸 **서버 사실**만 모은다 (17-10 / D-08 · D-15 → Phase 19 D-03).
  *
- * ★ 라이브 통보가 이긴다. 없으면 복원 행에 기록된 통보 원문 1자(`noticeType`)가 말하고,
- *   그마저 없으면 **우리가 보낸 주문 종류**(`orderType === "C"` = 취소주문)가 유일한 근거다.
- *   어느 경로에도 `message` 가 없다 — 804 거부에서 서버가 문구를 교체하기 때문이다(T-17-33).
- *
- * ★ `side` 원천은 **복원 행 하나**다. `RelayOrderMsg` 에는 side 가 없고(Pitfall 8), 이 표의
- *   행은 전부 복원 스냅샷에서 나오므로(`mergeTodayOrders` 가 프레임으로 행을 만들지 않는다)
- *   side 를 모르는 행은 이 표면에 존재하지 않는다. 순수함수는 그래도 `null` 을 받는다.
+ * ★ 저널 행이 통보 사실(`noticeType`·`requestKind`·`requester`·`board`)을 **스스로 싣는다** —
+ *   복원 행과 푸시 행이 같은 규칙으로 읽힌다. `requestKind` 가 없으면 **우리가 아는 주문 종류**
+ *   (`orderType` C = 취소주문 · M = 정정주문)가 유일한 근거다. 어느 경로에도 `message` 가 없다
+ *   — 804 거부에서 서버가 문구를 교체하기 때문이다(T-17-33).
+ * ★ `side` 는 저널 행이 확실할 때만 싣는다(C/M 통보만 받은 행은 null). 순수함수는 `null` 을
+ *   「모른다」로 받아 행위를 지어내지 않는다.
  */
-function noticeFactsOf(row: TodayOrderRow): OrderNoticeFacts {
-  const live = row.live;
+function noticeFactsOf(row: JournalOrderRow): OrderNoticeFacts {
   return {
-    noticeType: live?.nt ?? row.noticeType ?? "",
-    requestKind: live?.rk ?? (row.orderType === "C" ? "Cancel" : ""),
+    noticeType: row.noticeType ?? "",
+    requestKind:
+      row.requestKind ?? (row.orderType === "C" ? "Cancel" : row.orderType === "M" ? "Modify" : ""),
     side: row.side,
-    requester: live?.rq ?? "",
-    board: live?.bd ?? "",
+    requester: row.requester ?? "",
+    board: row.board ?? "",
   };
 }
 
 export function TodayOrdersCard() {
-  const { orders, status } = useRelayContext();
+  const { journalRows, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
   /** `null` = 아직 한 번도 응답을 못 받음(로딩). `[]` = 오늘 주문이 정말 없음. */
-  const [restored, setRestored] = useState<DmaOrderRow[] | null>(null);
+  const [restored, setRestored] = useState<JournalOrderRow[] | null>(null);
   const [failed, setFailed] = useState(false);
-
-  /** 재조회를 이미 요청한 주문번호. 같은 번호로 두 번 부르지 않는다(위 ③). */
-  const requestedRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -192,29 +186,14 @@ export function TodayOrdersCard() {
     void load();
   }, [status, load]);
 
-  const { rows, unmatchedOrderNos } = useMemo(
-    () => mergeTodayOrders(restored ?? [], orders),
-    [restored, orders],
+  /* 두 원천의 병합(위 ③). 푸시는 오늘(KST) 행만 받는다 — 자정을 넘긴 탭이 어제 행을 섞지 않게. */
+  const rows = useMemo(
+    () => mergeJournalRows(restored ?? [], journalRows, kstDateIso()),
+    [restored, journalRows],
   );
 
-  /*
-    ★ 묶기는 **복원·병합이 끝난 뒤**에 온다 (17-10 / D-16). `mergeTodayOrders` 안으로
-      넣지 않는다 — 그 함수는 REST 복원과 라이브 프레임을 맞추는 다른 일을 하고, 그
-      결과(`unmatchedOrderNos`)가 아래 재조회 루프의 정본이다.
-    ★ 재조회 루프는 **묶기 전** 목록을 본다. 묶인 뒤 목록을 보면 합쳐진 주문번호가
-      사라져 그 주문의 종목명이 영원히 복원되지 않는다 (T-17-35).
-  */
+  /* ★ 묶기는 **병합이 끝난 뒤**에 온다 (17-10 / D-16) — 병합과 표시 접기는 다른 일이다. */
   const merged = useMemo(() => mergeOrderNotices(rows), [rows]);
-
-  useEffect(() => {
-    // 최초 응답 전에는 「없다」를 판정할 수 없다 — 전부 unmatched 로 보여 헛돈다.
-    if (restored === null || failed) return;
-    const fresh = unmatchedOrderNos.filter((no) => !requestedRef.current.has(no));
-    if (fresh.length === 0) return;
-    // ★ 부르기 **전에** 표시한다 — 응답에 여전히 없어도 재진입하지 않는다.
-    for (const no of fresh) requestedRef.current.add(no);
-    void load();
-  }, [restored, failed, unmatchedOrderNos, load]);
 
   return (
     <section

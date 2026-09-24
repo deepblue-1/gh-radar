@@ -19,7 +19,7 @@
  *   — `ActionWord`(:466) · `ActionSide`(:478) · `BuildOrderScreen`(:500 부근 board 접두).
  */
 
-import type { TodayOrderRow } from "./orders-api";
+import type { JournalOrderRow } from "@gh-radar/shared";
 
 /** 매매구분. `null` = 모른다(지어내지 않는다). */
 export type NoticeSide = "B" | "S" | null;
@@ -141,7 +141,7 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
 /** 묶인(또는 단건인) 한 줄. */
 export interface MergedOrderNotice {
   /** 대표 행 — 입력에서 **처음 만난** 행. 렌더 키·종목·행위의 정본. */
-  head: TodayOrderRow;
+  head: JournalOrderRow;
   /** 묶인 건수. `1` 이면 묶임 표기를 붙이지 않는다. */
   count: number;
   /** 수량 합계. */
@@ -165,19 +165,17 @@ export const MERGE_WINDOW_MS = 3000;
  * 묶이지 않는 행은 **자기 주문번호**(없으면 행 id)가 키다 — 주문번호는 행마다 고유하므로
  * 같은 키가 둘일 수 없고, 따라서 「안 묶임」이 별도 분기 없이 성립한다.
  */
-export function mergeKeyOf(row: TodayOrderRow): string {
+export function mergeKeyOf(row: JournalOrderRow): string {
   /* 번호가 없는 행(접수 전 거부·타임아웃)끼리 서로 묶이지 않도록 행 id 로 떨어진다. */
   const own = `NO|${row.orderNo ?? row.id}`;
-  const live = row.live;
-  if (live === null) return own;
 
-  const automated = row.origin !== "manual" && live.rq !== MANUAL_REQUESTER;
+  const automated = row.origin !== "manual" && row.requester !== MANUAL_REQUESTER;
   if (!automated) return own;
 
   const axis = `${row.origin}|${row.isin}|${row.exchange}|${row.side}`;
   // 체결은 접두 `FG`, 매도 접수는 `AG` — 접두가 달라 둘이 섞이지 않는다.
-  if (live.nt === "E") return `FG|${axis}`;
-  if (live.nt === "A" && row.side === "S") return `AG|${axis}`;
+  if (row.noticeType === "E") return `FG|${axis}`;
+  if (row.noticeType === "A" && row.side === "S") return `AG|${axis}`;
   return own;
 }
 
@@ -207,7 +205,7 @@ interface Group {
 }
 
 interface Item {
-  row: TodayOrderRow;
+  row: JournalOrderRow;
   index: number;
   stamp: number | null;
 }
@@ -222,7 +220,7 @@ interface Item {
  *   목록에서는 가장 최신) 자리에 선다. 서버가 준 정렬을 뒤집지 않는다.
  */
 export function mergeOrderNotices(
-  rows: readonly TodayOrderRow[],
+  rows: readonly JournalOrderRow[],
   windowMs: number = MERGE_WINDOW_MS,
 ): MergedOrderNotice[] {
   const items: Item[] = rows.map((row, index) => ({
@@ -259,9 +257,9 @@ export function mergeOrderNotices(
       out: {
         head: item.row,
         count: 1,
-        qty: item.row.qty,
-        priceMin: item.row.price,
-        priceMax: item.row.price,
+        qty: item.row.qty ?? 0,
+        priceMin: item.row.price ?? 0,
+        priceMax: item.row.price ?? 0,
         // 오름차순으로 접으므로 묶음의 **첫 통보**가 곧 이 행이다.
         at: item.row.createdAt,
         orderNoText: item.row.orderNo,
@@ -282,11 +280,11 @@ export function mergeOrderNotices(
 function absorb(group: Group, item: Item): void {
   const { row } = item;
   group.out.count += 1;
-  group.out.qty += row.qty;
-  if (row.price > 0) {
-    group.out.priceMin =
-      group.out.priceMin > 0 ? Math.min(group.out.priceMin, row.price) : row.price;
-    group.out.priceMax = Math.max(group.out.priceMax, row.price);
+  group.out.qty += row.qty ?? 0;
+  const price = row.price ?? 0;
+  if (price > 0) {
+    group.out.priceMin = group.out.priceMin > 0 ? Math.min(group.out.priceMin, price) : price;
+    group.out.priceMax = Math.max(group.out.priceMax, price);
   }
   if (item.index < group.headIndex) {
     group.headIndex = item.index;
