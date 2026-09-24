@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 19
 current_phase_name: 계좌별 주문기록 전용 연결
 status: executing
-stopped_at: Completed 19-05-PLAN.md
-last_updated: "2026-09-24T16:07:44.920Z"
+stopped_at: Completed 19-06-PLAN.md
+last_updated: "2026-09-24T16:21:15.570Z"
 last_activity: 2026-09-25
-last_activity_desc: 19-05 완료 — relay JournalWriter·JournalAccess·deliverJournalRows(계좌 권한 journal.rows 푸시, 미결선·미배포)
-state_head: ef3497a7f266796f53a5e2b1d60bce43cce33c89
+last_activity_desc: 19-06 완료 — webapp 오늘 주문 원천 전환(REST + journal.rows 병합 · journal.state 복구 재조회 · 옛 라이브 join·DmaOrderRow 삭제, 미push)
+state_head: d8db495c28c86ba72f148d70e53eb47c969ff518
 progress:
   total_phases: 28
   completed_phases: 4
   total_plans: 246
-  completed_plans: 223
+  completed_plans: 224
 milestone_name: milestone
 ---
 
@@ -29,8 +29,8 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 19 (계좌별 주문기록 전용 연결) — EXECUTING
-Plan: 6 of 13
-Plans completed: 223 / 233
+Plan: 7 of 13
+Plans completed: 224 / 233
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
@@ -77,6 +77,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 19 P03 | 10min | 3 tasks | 4 files |
 | Phase 19 P04 | 4min | 2 tasks | 7 files |
 | Phase 19 P05 | 8min | 2 tasks | 6 files |
+| Phase 19 P06 | 10min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 19]: 19-04: resolveTradeDate 는 NaN 검사 + KST 재변환 일치 검사 — 2026-02-30 같은 롤오버 날짜도 400
 - [Phase 19]: 19-05: relay JournalAccess 는 빈 식별자 매핑 행을 버린다 — DB sync RPC 가 한 행 때문에 교체 전체를 거부해 무한 재시도가 되는 것을 막는다
 - [Phase 19]: 19-05: JournalWriter.push 의 gap/overflow 는 호출자(19-07 관찰자)가 dropTransport 후 since_seq=lastReceivedSeq 로 재접속하라는 신호 — 커서는 적용 RPC 트랜잭션 안에서만 전진
+- [Phase 19]: 19-06: 카드 원천 = REST + journal.rows 두 가지, 같은 id 는 lastSeq 큰 쪽 — 정렬 비교 함수 하나(compareJournalNewestFirst)를 리듀서와 병합이 공유
+- [Phase 19]: 19-06: 자동주문 묶기는 origin limit_chaser|vi 이고 requester≠Manual 일 때만 — origin null 은 묶지 않음(D-08 보충)
 
 ### Pending Todos
 
@@ -173,8 +176,8 @@ None yet.
 
 **Resume file:** None
 
-Last session: 2026-09-24T16:07:44.310Z
-Stopped at: Completed 19-05-PLAN.md
+Last session: 2026-09-24T16:21:14.917Z
+Stopped at: Completed 19-06-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
