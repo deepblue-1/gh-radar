@@ -6,8 +6,11 @@
  * 통째로 지워진다 — 거기에 두면 삭제와 함께 wss 경로가 무너진다. 그래서 어느 표면에도
  * 속하지 않는 중립 모듈로 옮겼다. **이동일 뿐 로직 변경은 0 이다.**
  *
+ * 상태 단조 격자(순위·종결·「교체 가능 상태」)의 정본은 이제 DB 투영(`dma_journal_next_status` — 19-01)이다.
+ * relay 는 기록하지 않으므로(Phase 19 D-01) 여기에는 즉시응답 `order.result` 의 상태 판정만 남는다.
+ *
  * 하지 않는 것:
- *   - 여기서 프레임을 만들지 않는다. 판정만 하고 전송·기록은 호출자가 한다.
+ *   - 여기서 프레임을 만들지 않는다. 판정만 하고 전송은 호출자가 한다.
  *   - `noticeType` 을 해석해 새 상태를 발명하지 않는다. `dma_orders.status` CHECK 에
  *     있는 8종 밖으로 나가면 그 행의 갱신이 통째로 사라진다.
  */
@@ -49,7 +52,7 @@ export function statusOf(
       return "cancelled";
     case "M":
       // 정정확인은 자기 정정(Phase 18 D-21) 또는 세션에 합류한 다른 단말 정정의 결과다 — 접수로 읽는다.
-      // (m23) 원주문 행의 'modified' 는 여기서 나오지 않는다 — store 가 수량(filled+modified>=qty)으로만 파생한다.
+      // (m23) 원주문 행의 'modified' 는 여기서 나오지 않는다 — DB 투영이 수량으로만 파생한다(19-01).
       return "accepted";
     case "E":
       // 체결 통보의 `quantity` 는 체결수량이다 (서버 `useExecuted` 분기).
@@ -68,50 +71,4 @@ export function statusOf(
  */
 export function filledQtyOf(notice: ParsedOrderResp): number | undefined {
   return notice.noticeType === "E" ? notice.quantity : undefined;
-}
-
-/**
- * `dma_orders.status` 순위 (Phase 18 Plan 33 / R3-WR-01 · D-27). **8종 전부를 화이트리스트로
- * 적는다** — 모르는 값을 지어내지 않는 이 모듈의 규율이다. `Record<DmaOrderStatus, …>` 라 상태가
- * 늘면 여기서 컴파일이 깨진다.
- *
- *   - `requested`·`timeout` 0 — `timeout` 은 실패가 아니라 **「결과 모름」** 이다(Pitfall 9).
- *     그래서 늦게 온 접수가 그것을 풀 수 있어야 한다(`timeout → accepted`).
- *   - `accepted` 1 < `partially_filled` 2 < 종결 3(`filled`·`cancelled`·`rejected`·`modified`).
- *     `modified` 는 원주문 잔량이 정정으로 옮겨가 닫힌 행이다(quick-260923-m23).
- */
-const STATUS_RANK: Readonly<Record<DmaOrderStatus, number>> = {
-  requested: 0,
-  timeout: 0,
-  accepted: 1,
-  partially_filled: 2,
-  filled: 3,
-  cancelled: 3,
-  rejected: 3,
-  modified: 3,
-};
-
-/** 종결 상태. 종결 사이의 이동(`cancelled → filled` 등)은 금지 — 같은 값 재기록만 허용한다. */
-const TERMINAL: ReadonlySet<DmaOrderStatus> = new Set<DmaOrderStatus>(["filled", "cancelled", "rejected", "modified"]);
-
-/**
- * 「이 상태(`next`)로 갱신해도 되는 **기존** 상태 집합」 — 상태 단조성 판정의 **유일 지점**이다
- * (Phase 18 Plan 33 / R3-WR-01).
- *
- * = `next` 자신 ∪ (종결이 아니고 순위가 `next` 이하인 상태).
- *
- * 왜 필요한가: 18-25(GC-WR-01)가 「체결 E(Modify)가 정정 대기를 **먼저** 정산」 하는 경로를
- * 열었다. 그 뒤 지연된 정정확인 M 은 대기가 없어 `recordUnmatched` 수동 분기로 가고, 방금
- * 체결로 채운 행을 찾아 `statusOf(M) = "accepted"` 로 덮는다 — 전량 체결된 정정이 감사 기록에
- * 영구히 「접수」 로 남는다. 통보 순서는 게이트웨이 타이밍이 정하므로 relay 가 도착 순서로
- * 막을 수 없다. 그래서 **행이 이미 더 진행됐으면 되돌리지 않는다** 를 쓰기 경로의 규칙으로 둔다.
- *
- * 이 집합은 `supabaseOrderSink` 가 UPDATE 의 조건부 `status IN (…)` 필터로 쓴다 — 판정은
- * Postgres 가 UPDATE 한 문장 안에서 원자적으로 한다(읽고 판정하면 큐에 먼저 들어간 갱신과 경합).
- */
-export function replaceableStatusesOf(next: DmaOrderStatus): readonly DmaOrderStatus[] {
-  const rank = STATUS_RANK[next];
-  return (Object.keys(STATUS_RANK) as DmaOrderStatus[]).filter(
-    (cur) => cur === next || (!TERMINAL.has(cur) && STATUS_RANK[cur] <= rank),
-  );
 }
