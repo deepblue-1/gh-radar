@@ -932,7 +932,7 @@ Plans:
 **쟁점 (discuss 에서 하나씩):** 기록 주체 단일화(사용자 세션 경로의 기존 `dma_orders` 기록·rid 상관과의 관계) · 기존 `dma_orders` 이관 vs 새 테이블 · 관찰자 자격 보안 경계 · gh-trade 스키마 동기화(`sync-relay-schema.sh` gh-trade 소유)·실서버 배포 순서(relay 먼저 → push)
 **Requirements**: TBD (CONTEXT D-01~D-14 를 요구사항 집합으로 사용)
 **Depends on:** Phase 18 · gh-trade Phase 23(관찰자 계약 G1 · 배포 G2 — 별도 저장소)
-**Plans:** 2/13 plans executed
+**Plans:** 3/13 plans executed
 
 Plans:
 
@@ -943,7 +943,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 19-03-PLAN.md — [tracer] 투영 규칙 완성: E 누적 · C/M/R · 로컬 거부 reject_seq · Q-ID · epoch · 시각 정본
+- [x] 19-03-PLAN.md — [tracer] 투영 규칙 완성: E 누적 · C/M/R · 로컬 거부 reject_seq · Q-ID · epoch · 시각 정본
 - [ ] 19-04-PLAN.md — [tracer] shared JournalOrderRow·매퍼·journal.rows/state 계약 + server GET /api/orders RPC 1회
 
 **Wave 3** *(blocked on Wave 2 completion)*
