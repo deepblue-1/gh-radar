@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 19
 current_phase_name: 계좌별 주문기록 전용 연결
 status: executing
-stopped_at: Completed 19-03-PLAN.md
-last_updated: "2026-09-24T15:48:35.453Z"
+stopped_at: Completed 19-04-PLAN.md
+last_updated: "2026-09-24T15:55:14.631Z"
 last_activity: 2026-09-25
-last_activity_desc: 19-03 완료 — 저널 투영 전 갈래(E·C·M·R·로컬 거부) · pgTAP 79/93, 원격 미반영
-state_head: 9e8a0675a6dce825de68ac821a42b5a975006827
+last_activity_desc: 19-04 완료 — shared JournalOrderRow·매퍼·journal.rows/state 계약 + server GET /api/orders RPC 1회(미배포)
+state_head: 32ac7088931496640c19e309c2b09fc59ae053da
 progress:
   total_phases: 28
   completed_phases: 4
   total_plans: 246
-  completed_plans: 221
+  completed_plans: 222
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 19 (계좌별 주문기록 전용 연결) — EXECUTING
-Plan: 4 of 13
-Plans completed: 221 / 233
+Plan: 5 of 13
+Plans completed: 222 / 233
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 — 19-02 완료(relay 사용자 세션 dma_orders 기록부 제거 · 기록 모듈 삭제 · relay 527 · e2e 50 green, 미배포) / 이전: 19-01 완료(저널 DB 뼈대 · pgTAP 130 · gh-trade 인계서, 원격 미반영)
+Last activity: 2026-09-25 — 19-04 완료(shared 저널 행 계약·매퍼·wss 프레임 2종 + server GET /api/orders 저널 RPC 1회 · server 261 · shared 115 green, 미배포) / 이전: 19-02 완료(relay 사용자 세션 dma_orders 기록부 제거 · 기록 모듈 삭제 · relay 527 · e2e 50 green, 미배포)
 
 Progress: [█████████░] 93%
 
@@ -75,6 +75,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 19 P01 | 10min | 3 tasks | 5 files |
 | Phase 19 P02 | 12min | 3 tasks | 11 files |
 | Phase 19 P03 | 10min | 3 tasks | 4 files |
+| Phase 19 P04 | 4min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 19]: WsFanout 주문 분기는 종목맵(symbols) 하나로 열린다. Hub {t:"order"} 팬아웃·감사 사본 로그는 유지(D-03 · Open Q7)
 - [Phase 19]: 19-03: 원주문 번호로 온 정정/취소 거부는 reject_seq 행으로 분리 — 원주문 rejected 덮기 금지
 - [Phase 19]: 19-03: 방향은 원주문 side 정본, 없으면 side_trusted 일 때만 레코드 값(거부 행 포함)
+- [Phase 19]: 19-04: resolveTradeDate 는 NaN 검사 + KST 재변환 일치 검사 — 2026-02-30 같은 롤오버 날짜도 400
 
 ### Pending Todos
 
@@ -168,8 +170,8 @@ None yet.
 
 **Resume file:** None
 
-Last session: 2026-09-24T15:48:34.853Z
-Stopped at: Completed 19-03-PLAN.md
+Last session: 2026-09-24T15:55:13.944Z
+Stopped at: Completed 19-04-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
