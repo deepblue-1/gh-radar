@@ -53,8 +53,8 @@
  *     `#deliver(userId)` 로 그 사용자의 전 연결에 팬아웃한다 (D-11/D-12). 요청/응답
  *     상관(`rid`)은 주문만 한다.
  *   - 주문 상관을 **여기서** 하지 않는다. `order.new`/`order.cancel` 은 같은 자리에서 갈라
- *     `ws/order-handler.ts` 로 위임한다 (D-02) — 5초 상관·`dma_orders` 기록은 그쪽 몫이고
- *     이 파일은 전송(`#send`)만 빌려 준다.
+ *     `ws/order-handler.ts` 로 위임한다 (D-02) — 5초 상관은 그쪽 몫이고 이 파일은 전송(`#send`)만
+ *     빌려 준다. 기록은 관찰자 기록기(Phase 19 D-01)의 몫이다 — 사용자 세션 경로는 DB 에 쓰지 않는다.
  *   - 구독 상태를 소유하지 않는다. 참조계수·캐시의 정본은 `SubscriptionHub` 다.
  *   - 자격증명을 캐시하지 않는다. 매 인증마다 조회한다 — 등록 해제가 즉시 반영돼야 한다.
  */
@@ -103,11 +103,7 @@ import {
   isValidIsin,
   parseInbound,
 } from "./protocol.js";
-import {
-  createOrderHandler,
-  type OrderHandler,
-  type OrderRecorder,
-} from "./order-handler.js";
+import { createOrderHandler, type OrderHandler } from "./order-handler.js";
 import type { SymbolLookup } from "../store/symbols.js";
 
 // ============================================================
@@ -261,11 +257,10 @@ export type WsFanoutDeps = {
   /** 백프레셔 임계(byte). 기본 `BACKPRESSURE_LIMIT_BYTES`. */
   backpressureLimitBytes?: number;
   /**
-   * `dma_orders` 쓰기 창구 (D-03). `symbols` 와 **둘 다** 있어야 주문 분기가 열린다 —
-   * 하나만 있으면 「ISIN 은 푸는데 기록은 못 하는」 반쪽 경로가 조용히 생긴다.
+   * ISIN → 단축코드·시장 (D-28). 브라우저가 보내지 않는 두 값을 여기서 푼다.
+   * **이것 하나로 주문 분기가 열린다** — Phase 19 D-01 로 기록 창구가 사라져 주문 결선의 조건은
+   * 종목맵뿐이다.
    */
-  orderStore?: OrderRecorder;
-  /** ISIN → 단축코드·시장 (D-28). 브라우저가 보내지 않는 두 값을 여기서 푼다. */
   symbols?: SymbolLookup;
   /** 첫 주문 통보 대기 상한(ms). 테스트가 줄여 쓴다. */
   orderTimeoutMs?: number;
@@ -362,13 +357,13 @@ export class WsFanout {
 
   readonly #heartbeat: NodeJS.Timeout;
   readonly #onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
-  /** 주문 상관 핸들러 (D-02). 결선이 반쪽이면 `null` 이고 주문 분기가 사유를 돌려준다. */
+  /** 주문 상관 핸들러 (D-02). 종목맵이 없으면 `null` 이고 주문 분기가 사유를 돌려준다. */
   readonly #orders: OrderHandler<Conn> | null;
   /**
    * ISIN → 단축코드·시장 (D-28). `lc.set` 의 시장 구분을 **여기서** 푼다 (WR-03).
    *
-   * 주문 분기(`#orders`)는 `orderStore` 와 조합해야 열리지만 전략 분기는 종목맵 하나면 된다 —
-   * 그래서 조합 판정과 별개로 인스턴스에 따로 보관한다.
+   * 주문 분기(`#orders`)도 전략 분기도 종목맵 하나로 열린다 — 전략 분기가 직접 읽으므로
+   * 인스턴스에 따로 보관한다.
    */
   readonly #symbols: SymbolLookup | null;
   /** NXT 거래가능 집합 원천(quick-260923-pq2). 없으면 `nxt.snap` 을 보내지 않는다. */
@@ -401,19 +396,19 @@ export class WsFanout {
 
     // 주문 상관 (D-02). `send` 로 `#send` 를 넘기는 것이 핵심이다 — 핸들러가 소켓을 직접
     // 잡으면 전송 경로가 두 벌이 되고, 한쪽이 대상 선택을 틀리는 순간 타인의 체결이 샌다.
+    // Phase 19 D-01 — 기록 창구 없이 종목맵 하나로 열린다(기록은 관찰자 기록기 단독).
     this.#orders =
-      deps.orderStore !== undefined && deps.symbols !== undefined
+      deps.symbols !== undefined
         ? createOrderHandler<Conn>({
             sessions: deps.sessions,
             hub: deps.hub,
-            orderStore: deps.orderStore,
             symbols: deps.symbols,
             send: (conn, msg) => this.#send(conn, msg),
             timeoutMs: deps.orderTimeoutMs,
           })
         : null;
     if (this.#orders === null) {
-      logger.warn({}, "[WS] 주문 기록 큐·종목맵 미주입 — 주문 인바운드를 받지 않는다");
+      logger.warn({}, "[WS] 종목맵 미주입 — 주문 인바운드를 받지 않는다");
     }
 
     this.#heartbeat = setInterval(() => this.#sweep(), deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS);

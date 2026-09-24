@@ -16,8 +16,9 @@
  *         재시작마다 KB 게이트웨이에 고아 세션이 쌓이지 않도록 종료 절차가 필요하다.
  *   D-13  DMA 세션 정본은 `SessionManager` 다. 여기서는 만들어서 넘겨주기만 한다.
  *   D-02  주문 접수는 **wss 하나**다. 내부 HTTP 의 주문 라우트는 16-16 에서 제거했고
- *         남은 것은 `/healthz` 뿐이다. `OrderStore` 는 `WsFanout` 에만 주입한다 —
- *         `createOrderApi` 로 다시 넘기면 지운 경로가 되살아난다.
+ *         남은 것은 `/healthz` 뿐이다. 주문 결선은 `WsFanout` 에 넘기는 종목맵 하나다.
+ *   Phase 19 D-01  사용자 세션 경로는 DB 에 쓰지 않는다 — 주문 기록 경로는 제거됐고, 기록은
+ *         관찰자 기록기 단독이다(결선은 19-10 이 이 파일에 더한다).
  *   D-22  `RELAY_ORDER_SECRET` 은 그대로 required 다. `/healthz` 외의 모든 경로가
  *         비밀 없이는 404 조차 받지 못해야 한다 — 경로 존재 여부도 정보다.
  *
@@ -26,9 +27,7 @@
  *   2. `fanout.closeAll(1001)`  — 살아 있는 wss 에 정상 close 프레임(going away)
  *   3. `sessionManager.closeAll()` — 구독 해제 + DMA TCP 종료
  *   4. `hub.closeAll()`         — 배치·종목마스터 타이머 정리(남기면 프로세스가 안 내려간다)
- *   5. `orderStore.flushNow()`  — 남은 주문 기록을 밀어낸다. 여기를 건너뛰면 마지막
- *                                 체결 통보가 `dma_orders` 에 남지 않아 감사 기록에 구멍이 난다
- *   6. 5초 안에 안 끝나면 강제 exit — 종료가 소켓 사정에 매달리지 않게 한다
+ *   5. 5초 안에 안 끝나면 강제 exit — 종료가 소켓 사정에 매달리지 않게 한다
  *
  * 하지 않는 것:
  *   - 부팅 시 DMA 게이트웨이에 미리 접속하지 않는다. 세션은 **사용자의 wss 인증에서만**
@@ -48,7 +47,6 @@ import { SessionManager } from "./dma/session-manager.js";
 import { SubscriptionHub } from "./hub/subscription-hub.js";
 import { WsFanout } from "./ws/fanout.js";
 import { createOrderApi } from "./order/order-api.js";
-import { OrderStore, supabaseOrderSinks } from "./store/orders.js";
 
 /** 종료 절차 상한(ms). 이 시간을 넘기면 정리를 포기하고 강제로 내려간다. */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
@@ -108,27 +106,14 @@ const wsServer = http.createServer((_req, res) => {
   res.end(JSON.stringify({ error: { code: "NOT_FOUND", message: "Route not found" } }));
 });
 
-/**
- * `dma_orders` 쓰기 창구 (D-24 / D-32 / D-03).
- *
- * **DMA 수신 콜백은 `enqueueUpdate` 만 부른다** — Supabase 왕복을 그 자리에서 기다리면
- * 게이트웨이 송신 큐가 차서 서버가 연결을 끊는다. tick 이 실제 쓰기를 맡는다.
- * 반대로 요청 시점 insert 는 `await` 다 — 반환 id 가 상관 1순위 키라 큐에 넣을 수 없다 (A10).
- *
- * wss 주문 핸들러가 이 객체를 쓰므로 `WsFanout` **앞에서** 만든다.
- */
-const orderStore = new OrderStore(supabaseOrderSinks(supabase));
-orderStore.start();
-
 const fanout = new WsFanout({
   // `server` 를 넘기지 않는다 — 이 포트의 라우팅(업그레이드 vs 평문)은 부팅 결선이 쥔다.
   supabase,
   sessions: sessionManager,
   hub,
   credKey: config.dmaCredKey,
-  // 주문 2종(`order.new`/`order.cancel`)을 wss 로 받기 위한 결선이다 (D-02).
-  // 둘 다 있어야 주문 분기가 열린다.
-  orderStore,
+  // 주문 3종(`order.new`/`order.modify`/`order.cancel`)을 wss 로 받기 위한 결선이다 (D-02).
+  // 종목맵 하나로 주문 분기가 열린다 — 기록 창구는 없다 (Phase 19 D-01).
   symbols,
   // NXT 거래가능 집합 → `nxt.snap`(quick-260923-pq2). 빠지면 프레임이 안 나가고 웹앱은 둘 다 그린다(조용한 퇴행) — 결선 grep 게이트가 잡는다.
   nxtTradable: gatewaySymbols,
@@ -140,7 +125,7 @@ wsServer.on("upgrade", (req, socket, head) => fanout.handleUpgrade(req, socket, 
  * 내부 HTTP 표면 — **`/healthz` + 공유 비밀 관문뿐**이다 (D-02).
  *
  * REST 주문 라우트는 16-16 에서 제거했다. 주문 접수는 위 `WsFanout` 의 wss 분기 하나로
- * 나가고, `orderStore` 는 그쪽에만 주입된다 — 여기에 다시 넘기면 지운 경로가 되살아난다.
+ * 나간다 — 여기에 주문 의존성을 다시 넘기면 지운 경로가 되살아난다.
  * `relayOrderSecret` 은 관문이 계속 쓰므로 required 그대로다 (CONTEXT deferred).
  */
 const orderApi = createOrderApi({
@@ -209,12 +194,6 @@ async function shutdown(signal: string): Promise<void> {
     hub.closeAll();
     symbols.close();
     gatewaySymbols.close();
-    // 5) 주문 기록 잔여분 반영 후 tick 정지 (순서 중요 — close 를 먼저 하면 큐가 남는다)
-    //    `flushNow()` 는 진행 중 배치를 **기다린 뒤** 재큐잉분까지 비운다 (16-24 / WR-09).
-    //    그래서 `close()` 를 그 뒤에 부르는 이 순서가 여전히 유효하다 — 옛 구현은 진행 중이면
-    //    즉시 반환해서, SIGTERM 이 200ms tick 과 겹치면 마지막 체결 통보가 사라졌다.
-    await orderStore.flushNow();
-    orderStore.close();
     logger.info({ signal }, "[relay] 종료 절차 완료");
   } catch (err) {
     logger.error({ err }, "[relay] 종료 절차 실패 — 그대로 내려간다");
