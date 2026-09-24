@@ -81,6 +81,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 - Phase 17 added 2026-09-18: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED — 서버 291a953→HEAD(59f7513e 배포) append-only 변경 반영, MsgType 36~38·76~78, 래치 3종 LED + 수동 점등
 - Phase 18 added 2026-09-18: gh-trade 신규 기능 UI — 돌파감지 목록(76/78)·예약/시간외종가 발주(77)·NXT VI 설정. Phase 17 뒤, 목업 게이트 필수
+- Phase 19 added 2026-09-24: 계좌별 주문기록 전용 연결 — relay↔gh-trade 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 기록. 근거 debug mobile-bg-resume-gaps 1번(부재 5분 초과 시 통보 51 유실, 09-23 43 vs 2건)
 - Phase 05.1 inserted after Phase 5: Ingestion 운영 배포 — Cloud Run Job + Cloud Scheduler 자동 트리거 (URGENT, 2026-04-14 DB stale 발견)
 - Phase 06.2 inserted after Phase 6: Auth + Watchlist (URGENT, 2026-04-16 Phase 7 discuss 중 뉴스 배치 타겟에 사용자별 관심종목 필요 판명 → AUTH-01/02 + PERS-01 v2→v1 승격)
 - Phase 07.1 inserted after Phase 7: news content ingestion enhancement — description 저장 (URGENT, 2026-04-17 Phase 9 discuss 중 AI 요약 입력 데이터 부재 판명 → Naver API 실측 후 description 스니펫 저장 결정. URL 원문 scraping 은 Phase 9 POC 후 재검토)

@@ -33,6 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 16: 트레이딩 메뉴(상따·VI)** - gh-trade 상따/VI 전략창 웹 이식 + 종목검색 메뉴 재편 + My page(전략·잔고·미체결) + 동일 DMA 세션 실시간 공유 (**46/46 plans / 28 waves**: 실행 17 + 갭 클로징 1라운드 9 + 2라운드 9 + **3라운드 11**) (1차 완료 2026-09-08 · 갭 클로징 3라운드 종결 **2026-09-09** — 17건(Critical 3 · Warning 7 · Info 5 · 갭 4 사이드바 ISIN · 갭 5 배포 `DMA_HOST` 보존) 전부 닫힘 · 전량 게이트 green(2,044 pass · e2e 126/9/0) · relay `a1f4ed6` **무주입 배포로 갭 5 실증** · webapp 청크 내용 대조 확인 · server 는 「타입 전용 diff + 소비처 0건」 근거로 의도적 건너뜀. **TRADE-03 Complete (2026-09-10 재판정 · `quick-260910-ogq`)** — 잔여였던 「WinForms ↔ 웹 한 세션 동기화」를 사용자가 장중 실계좌에서 **양방향 직접 관찰**했다. 2026-09-11 에 마지막 단서(웹 철거 시 WinForms 종목창 매수주문 체크박스 미반영)까지 해소 — **gh-trade 클라이언트 측 결함**이었고 gh-trade 에서 수정·확인됐다. **요구사항 5종 전부 Complete**. 열린 항목은 smoke `INV-9` 프로덕션 첫 실행 미수행 1건)
 - [x] **Phase 17: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED** - gh-trade 서버 스키마(291a953→HEAD, append-only) 를 relay 에 재동기화하고 신규 MsgType 36~38·76~78 을 등록. 기존 화면에 새 필드 반영(체결테이프 bs_code 실값 색·호가 10칸 '종가'·미체결 Q/P/종가 표식+취소보관 제외·주문통보 request_kind/requester/board·서버메시지 [상따]/[VI] 배지·VI exchange 축). 상따 3단계 래치 LED 3종(매수·매도·취소) + 클릭 토글 수동 점등(36/37/38). (**12/12 plan 실행 · 2026-09-20 코드 층위 종결** — 전량 게이트 green: 루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 9 skip · 0 fail** · 재동기화 `--check` 차이 0. Phase 16 기준선 대비 relay +66 · webapp +132 · e2e +9, 회귀 0. **미완 2건이라 체크박스는 열어 둔다:** ① **D-25 mock 게이트웨이 실기 검증 미수행** — HEAD 재빌드가 **Xcode 27.0 라이선스 미동의**(`sudo xcodebuild -license`) 로 막혔고, 실행 가능한 2026-09-13 빌드에는 78·36·37·38·`krx_close_price`·`request_kind` 가 없어 돌리면 거짓 「드롭 0」이 된다(T-17-46). ② **D-26 배포는 완결됐다** — 2026-09-20 사용자 `deploy-now` 승인 뒤 webapp·relay 모두 **`ef1499a`** 로 프로덕션 반영(`smoke-relay.sh` **PASS 12 · FAIL 0 · SKIP 1**, `/healthz` `version ef1499a · dma true · stalledCount 0`, `DMA_HOST=10.41.1.120` 보존). 도중 25분간 「신규 webapp + 구 relay」 반쪽 상태를 거쳤다(일요일 장 마감 중, 거래 영향 없음) — 원인은 **이 저장소에서 `git push` 가 곧 webapp 배포**라는 점이고, 배포 순서는 **relay 먼저 → 검증 → push** 로 교훈을 남겼다. **TRADE-04 · TRADE-05 는 Pending 유지** — 래치 실기 왕복이 아직 미관측이라 ① 이 닫혀야 재판정한다) (completed 2026-09-21)
 - [ ] **Phase 18: gh-trade 신규 기능 UI — 통합 트레이딩 작업대** - 상따+VI 를 `/trading` 한 페이지로 합친 다종목 작업대(돌파감지 76/78 스트립 · VI 설정 2줄+발동 스트립 · 카드 격자 · 공용 패널) · 예약/장전/시간외종가 발주 + 수동주문 신규/정정/취소(77 힌트·piece_count/krx_session·정정 M 해제) · 종목상세 호가 탭 통일 · 종목정보 팝업. 목업 게이트 통과(2026-09-21, 워크벤치 7차·호가 탭 6차)
+- [ ] **Phase 19: 계좌별 주문기록 전용 연결** - relay↔게이트웨이 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 주문기록 (브라우저 부재 중 dma_orders 누락 해소)
 
 ## Phase Details
 
@@ -916,3 +917,22 @@ Plans:
 **Wave 20** *(blocked on Wave 19 completion)*
 
 - [x] 18-36-PLAN.md — 갭 클로징 R4 전량 게이트 · 18-VALIDATION §Gap Closure R4(7행 · 대응표 · escalation 응답 · 배포 순서 R4 = R3-IN-05) · REQUIREMENTS Pending 유지 · handshake deferred (wave 20)
+
+### Phase 19: 계좌별 주문기록 전용 연결
+
+**Goal:** relay↔gh-trade 게이트웨이 사이에 **관찰자(읽기 전용) 기록 연결 1개**를 장중 상시 유지해, 브라우저 접속 여부와 무관하게 모든 DMA 계정·계좌의 주문 통보(접수·체결·정정·취소·거부, 전략·수동 모두)를 **일련번호(seq)** 와 함께 받아 **계좌 기준** 테이블에 단독 기록한다. relay 가 끊겼다 붙으면 since_seq 이어받기로 공백을 메운다.
+
+**배경 (debug `mobile-bg-resume-gaps` 1번, 2026-09-24 확정):** relay 의 DMA 세션은 wss 인증에서만 생기고(D-13) 마지막 탭이 떠난 뒤 5분(`SESSION_GRACE_MS`)이면 닫힌다. 게이트웨이는 연결 0 세션에서도 전략을 돌리지만 통보(51)는 붙은 연결에만 보내고 없으면 버린다(`Gateway.cpp` SendToSession D-05) — 재로그인 재전송·당일 주문 조회 MsgType 도 없다. 실측: 09-23 같은 계좌를 쓰는 두 사용자 자동주문 43건 vs 2건 기록. 누락 표면은 My page 「오늘 주문」 카드(`dma_orders`)뿐이고 잔고·미체결·전략은 재로그인 스냅샷으로 정확하다.
+
+**범위 초안:**
+- gh-trade: 관찰자 로그인 역할(주문 불가 · WireGuard 내부만) · 기록 통보 메시지(seq · DMA user · 계좌번호 · 종목 · 매수매도 · origin — 연결 0 세션에서도 발행) · 당일 보관 + since_seq 이어받기
+- relay/DB: 장중 상시 기록 연결 · 계좌+주문번호 멱등 upsert · 화면은 접근 가능 계좌로 필터
+
+**쟁점 (discuss 에서 하나씩):** 기록 주체 단일화(사용자 세션 경로의 기존 `dma_orders` 기록·rid 상관과의 관계) · 기존 `dma_orders` 이관 vs 새 테이블 · 관찰자 자격 보안 경계 · gh-trade 스키마 동기화(`sync-relay-schema.sh` gh-trade 소유)·실서버 배포 순서(relay 먼저 → push)
+**Requirements**: TBD
+**Depends on:** Phase 18
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 19 to break down)
