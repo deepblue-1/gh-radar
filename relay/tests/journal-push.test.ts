@@ -17,7 +17,7 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toJournalOrderRow } from "@gh-radar/shared";
-import type { JournalOrderDbRow, JournalOrderRow, RelayOutbound } from "@gh-radar/shared";
+import type { JournalOrderDbRow, JournalOrderRow, RelayJournalStateMsg, RelayOutbound } from "@gh-radar/shared";
 
 import { WsFanout } from "../src/ws/fanout.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
@@ -229,7 +229,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
   let rpcCalls: RpcCall[];
   const sockets: TestWs[] = [];
 
-  async function start(opts: { failSync?: boolean } = {}): Promise<void> {
+  async function start(opts: { failSync?: boolean; journalFrame?: () => RelayJournalStateMsg | null } = {}): Promise<void> {
     rpcCalls = [];
     server = http.createServer();
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -248,6 +248,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
       credKey: CRED_KEY,
       path: WS_PATH,
       journalAccess: access,
+      ...(opts.journalFrame !== undefined ? { journalState: { frame: opts.journalFrame } } : {}),
     });
     // 부팅 결선과 같은 모양 — 기록기 적용 행 → fanout 계좌 권한 푸시.
     writer.on("applied", (rows) => fanout.deliverJournalRows(rows));
@@ -399,5 +400,32 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     expect(after[1]?.args.p_rows).toEqual([
       { dma_user_id: "dma-other", account_no: ACC2, name: "다른 계좌", priority: 0 },
     ]);
+  });
+
+  it("⑤ journal.state (Phase 19-07 D-04 (a)) — 스냅샷은 알 때만 · deliverJournalState 는 인증 사용자 전원 · 미인증 0", async () => {
+    let current: RelayJournalStateMsg | null = null;
+    await start({ journalFrame: () => current });
+    const stateFrames = (inbox: RelayOutbound[]): RelayOutbound[] => inbox.filter((m) => m.t === "journal.state");
+
+    // 모르면(판정 전) 스냅샷을 보내지 않는다.
+    const a1 = await open("token-a1", "ready");
+    await flushIo(8);
+    expect(stateFrames(a1)).toEqual([]);
+
+    // 알게 된 뒤 인증한 연결은 스냅샷 1프레임을 받는다.
+    current = { t: "journal.state", s: "live" };
+    const b = await open("token-b", "ready");
+    const u = await open("token-u", "unauthorized");
+    await flushIo(8);
+    expect(stateFrames(b)).toEqual([{ t: "journal.state", s: "live" }]);
+
+    // 전이 프레임은 인증된 모든 사용자에게 간다 — 자격증명 미등록 연결은 대상이 아니다.
+    const delayed: RelayJournalStateMsg = { t: "journal.state", s: "delayed", since: "2026-09-28T01:00:00.000Z" };
+    fanout.deliverJournalState(delayed);
+    await waitFor(() => stateFrames(a1).length === 1 && stateFrames(b).length === 2, "journal.state 전이");
+    await flushIo(8);
+    expect(stateFrames(a1)).toEqual([delayed]);
+    expect(stateFrames(b)).toEqual([{ t: "journal.state", s: "live" }, delayed]);
+    expect(stateFrames(u)).toEqual([]);
   });
 });

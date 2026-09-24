@@ -77,6 +77,7 @@ import type {
   RelayLcArmMsg,
   RelayLimitChaserInput,
   RelayNxtSnapMsg,
+  RelayJournalStateMsg,
   RelayOutbound,
   RelayServerMsg,
   RelayStateMsg,
@@ -281,6 +282,12 @@ export type WsFanoutDeps = {
    * 없으면 저널 행을 아무에게도 보내지 않는다(warn 1회).
    */
   journalAccess?: JournalAccessView;
+  /**
+   * 기록 연결 상태 원천(Phase 19 D-04 (a) — `JournalStatus`). 인증 직후 스냅샷 1프레임의 출처다.
+   * 없거나 `frame()` 이 null(관찰자 비활성 · 아직 판정 전)이면 보내지 않는다 — 브라우저는 부재를
+   * 「표식 없음」 으로 읽는다.
+   */
+  journalState?: { frame(): RelayJournalStateMsg | null };
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -391,6 +398,8 @@ export class WsFanout {
   readonly #journalAccess: JournalAccessView | null;
   /** 매핑 미주입 경고를 이미 남겼는가 — 저널 배치마다 반복하지 않는다. */
   #journalAccessWarned = false;
+  /** 기록 연결 상태 원천 (Phase 19 D-04 (a)). 없으면 `journal.state` 스냅샷을 보내지 않는다. */
+  readonly #journalState: { frame(): RelayJournalStateMsg | null } | null;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -403,6 +412,7 @@ export class WsFanout {
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
     this.#symbols = deps.symbols ?? null;
     this.#journalAccess = deps.journalAccess ?? null;
+    this.#journalState = deps.journalState ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -682,6 +692,11 @@ export class WsFanout {
     //    연결의 첫 `nxt.snap` 이 된다.
     const nxtSnap = this.#nxtSnapFrame();
     if (nxtSnap !== null) this.#send(conn, nxtSnap);
+
+    // `journal.state` 도 `nxt.snap` 과 같다 — relay 가 기록 연결 상태를 **알 때만** 보낸다
+    // (Phase 19 D-04 (a)). 관찰자 비활성·판정 전의 「모름」 을 live/delayed 로 지어내지 않는다.
+    const journalFrame = this.#journalState?.frame() ?? null;
+    if (journalFrame !== null) this.#send(conn, journalFrame);
   }
 
   /** 현재 NXT 거래가능 집합 프레임. 원천이 없거나 아직 모르면 `null` (quick-260923-pq2). */
@@ -1426,6 +1441,19 @@ export class WsFanout {
       const subset = rows.filter((row) => accounts.has(row.accountNo));
       if (subset.length === 0) continue;
       this.#deliver(userId, { t: "journal.rows", rows: subset });
+    }
+  }
+
+  /**
+   * 기록 연결 상태 프레임을 인증된 **모든** 연결에 내린다 (Phase 19 D-04 (a)).
+   *
+   * 전 사용자 순회는 `#broadcastNxtSnap` 과 같은 근거다 — 내리는 값이 사용자 데이터가 아니라 relay
+   * **운영 상태**(관찰자 연결이 따라잡았는가)라 T-15-02(사용자 격리)와 무관하다. `#users` 만 돌므로
+   * 미인증·자격증명 미등록 연결에는 가지 않는다. 프레임에는 계좌·사용자 식별자가 없다.
+   */
+  deliverJournalState(frame: RelayJournalStateMsg): void {
+    for (const entry of this.#users.values()) {
+      for (const conn of entry.conns) this.#send(conn, frame);
     }
   }
 

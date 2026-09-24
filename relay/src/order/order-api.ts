@@ -49,6 +49,7 @@ import express, { type Express, type ErrorRequestHandler, type RequestHandler } 
 import { logger } from "../logger.js";
 import { isGatewayLinkUp } from "../dma/link-health.js";
 import type { SessionStats } from "../dma/session-manager.js";
+import type { JournalHealth } from "../journal/types.js";
 
 // ============================================================
 // 계약
@@ -73,6 +74,13 @@ export type OrderApiDeps = {
   dmaHost: string;
   /** 인터페이스 목록 주입구 — 테스트가 VPN 유무를 흉내낸다. */
   networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  /**
+   * 관찰자 기록 연결 요약(Phase 19 D-04 (b) — `JournalStatus`). 주면 `/healthz` 가 `journal` 필드를
+   * **항상** 싣는다. 주지 않으면 필드가 없다(기존 페이로드 그대로).
+   */
+  journal?: { health(nowMs: number): JournalHealth };
+  /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
+  now?: () => Date;
 };
 
 /**
@@ -106,6 +114,12 @@ export type HealthPayload = {
    * 읽게 해 준다 (16-30 / GC-WR-07).
    */
   stalledCount: number;
+  /**
+   * 관찰자 기록 연결 상태 (Phase 19 D-04 (b)). 키는 `state · lastSeq · headSeq · lagSeq ·
+   * disconnectedSec · lastAppliedAgeSec` 뿐이다 — **이름에도 값에도 계좌·사용자 식별자가 없다**
+   * (T-15-22 · T-19-07 · smoke `health_probe` 가 식별자 키를 grep 해 FAIL 처리한다).
+   */
+  journal?: JournalHealth;
 };
 
 // ============================================================
@@ -265,6 +279,9 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       (stats.everReadyCount === 0 && stats.stalledCount === 0) || stats.readyCount > 0;
     const healthy = linkUp && sessionsOk;
 
+    const now = deps.now?.() ?? new Date();
+    const journal = deps.journal?.health(now.getTime());
+
     const payload: HealthPayload = {
       status: healthy ? "ok" : "degraded",
       vpn: linkUp,
@@ -273,6 +290,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       sessionCount: stats.sessionCount,
       everReadyCount: stats.everReadyCount,
       stalledCount: stats.stalledCount,
+      ...(journal !== undefined ? { journal } : {}),
     };
 
     res.status(healthy ? 200 : 503).json(payload);

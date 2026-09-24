@@ -114,6 +114,10 @@ export interface ObserverTransport {
   on(event: "down", listener: (e: TransportDownEvent) => void): unknown;
   on(event: "frame", listener: (e: TransportFrameEvent) => void): unknown;
   on(event: "reconnecting", listener: (e: TransportReconnectingEvent) => void): unknown;
+  /** 리스너 해제 — `JournalObserver.stop()` 이 붙인 리스너를 같은 참조로 뗀다(19-07). */
+  off(event: "up", listener: (e: TransportUpEvent) => void): unknown;
+  off(event: "down", listener: (e: TransportDownEvent) => void): unknown;
+  off(event: "frame", listener: (e: TransportFrameEvent) => void): unknown;
   connect(): void;
   send(payload: Uint8Array): boolean;
   stopReconnect(reason: string): void;
@@ -160,4 +164,29 @@ export type JournalWriterHealth = {
   lastAppliedSeq: number | null;
   /** 마지막 적용 성공 시각(epoch ms). 아직 없으면 null. */
   lastAppliedAtMs: number | null;
+};
+
+/**
+ * `/healthz` · `journal.state` 가 보는 파생 상태 (19-07 `JournalStatus`).
+ * 관찰자 상태에 기록기의 `db_error`(적용 RPC 연속 실패)를 겹친 것이다.
+ */
+export type JournalDerivedState = JournalObserverState | "db_error";
+
+/**
+ * `/healthz` 의 `journal` 필드 (Phase 19 D-04 (b)). **공개 경로다** — 키 이름·값에 계좌·사용자
+ * 식별자를 싣지 않는다(T-19-07 · smoke `health_probe` 가 `accountNo|userId|account_no|user_id` 키를 grep).
+ * seq 는 계수라 수용한다(거래량 신호 수준 — D-04 가 명시한 필드).
+ */
+export type JournalHealth = {
+  state: JournalDerivedState;
+  /** 기록기가 DB 커서로 확인한 마지막 seq. 모르면 null. */
+  lastSeq: number | null;
+  /** 게이트웨이가 알려 준 마지막 seq(로그인 응답 · 배치). 모르면 null. */
+  headSeq: number | null;
+  /** `headSeq − lastSeq`(0 이상). 둘 중 하나라도 모르면 null. */
+  lagSeq: number | null;
+  /** live 를 벗어난 지 몇 초인가. live · disabled 면 null. */
+  disconnectedSec: number | null;
+  /** 마지막 적용 성공 뒤 몇 초인가. 아직 없으면 null. */
+  lastAppliedAgeSec: number | null;
 };
