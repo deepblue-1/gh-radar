@@ -173,10 +173,12 @@ for ROLE in roles/artifactregistry.reader roles/logging.logWriter roles/monitori
 done
 
 # ───────────────────────────────────────────────────────────────
-# Section 4: Secret 3종 (빈 껍데기만 생성 — 값은 사람이 주입)
+# Section 4: Secret 4종 (빈 껍데기만 생성 — 값은 사람이 주입)
 #   이 스크립트는 어떤 비밀 값도 생성·출력·기록하지 않는다.
+#   gh-radar-dma-observer-secret — Phase 19 D-10 관찰자 기록 연결 비밀. gh-trade 게이트웨이
+#   `config/observer.toml` 과 **같은 값**을 넣는다(infra/relay/README.md §Secret 4종 값 주입).
 # ───────────────────────────────────────────────────────────────
-for SECRET_NAME in gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-kb-vpn-password; do
+for SECRET_NAME in gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-kb-vpn-password gh-radar-dma-observer-secret; do
   if gcloud secrets describe "$SECRET_NAME" >/dev/null 2>&1; then
     echo "✓ secret exists: $SECRET_NAME"
   else
@@ -395,10 +397,12 @@ echo "🚨 다음 단계 (사용자 작업 · 15-07 체크포인트):"
 echo "  1. [BLOCKING · D-06] jx1.io DNS 에 'dma' A 레코드를 위 외부 고정 IP 로 등록한다."
 echo "     dig +short dma.jx1.io 가 그 값을 반환하기 전에는 Caddy 를 켜지 않는다"
 echo "     (Let's Encrypt rate limit 소진 방지)."
-echo "  2. Secret 3종에 값을 주입한다. 값은 대화 로그·커밋·문서에 남기지 않는다:"
+echo "  2. Secret 4종에 값을 주입한다. 값은 대화 로그·커밋·문서에 남기지 않는다:"
 echo "       openssl rand -base64 32 | tr -d '\\n' | gcloud secrets versions add gh-radar-dma-cred-key --data-file=-"
 echo "       openssl rand -base64 32 | tr -d '\\n' | gcloud secrets versions add gh-radar-relay-order-secret --data-file=-"
 echo "       gcloud secrets versions add gh-radar-kb-vpn-password --data-file=-   # KB VPN 자격증명, 사용자가 직접 입력"
+echo "       gh-radar-dma-observer-secret — gh-trade config/observer.toml 과 같은 값을 두 곳에 동시에 넣는다"
+echo "         (터미널에 찍지 않는 파이프 절차: infra/relay/README.md §Secret 4종 값 주입)"
 echo "  3. IAP 터널로 VM 접속 확인 (실행 주체에 roles/iap.tunnelResourceAccessor 필요):"
 echo "       gcloud compute ssh radar-gw --tunnel-through-iap --zone=$ZONE --command='echo ok && free -m'"
 echo "  4. [BLOCKING · D-03] VPN 선검증 — infra/relay/README.md 의 7항목 체크리스트를 따른다."

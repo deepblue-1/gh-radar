@@ -185,7 +185,7 @@ bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재
   ```
   기대값은 **409 `SESSION_NOT_READY`** 다. `503 RELAY_UNAVAILABLE` 이면 env 미주입 또는 방화벽 문제다.
 
-### Secret 3종 상태
+### Secret 4종 상태
 
 값은 어디에도 기록하지 않는다. 버전 **개수**만 상태 지표로 남긴다.
 
@@ -194,9 +194,13 @@ bash scripts/smoke-relay.sh --check-tls               # 인증서만 (익일 재
 | `gh-radar-dma-cred-key` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
 | `gh-radar-relay-order-secret` | 1 | 15-07 이 `openssl rand -base64 32` 로 로컬 생성해 주입 |
 | `gh-radar-kb-vpn-password` | 1 | **사용자가 직접 주입** (15-07 완료) — D-03 선검증의 전제 |
+| `gh-radar-dma-observer-secret` | 0 → 19-11 전환 창에서 1 | Phase 19 D-10 관찰자 기록 연결 비밀. 게이트웨이 `config/observer.toml` 과 **같은 값** — 아래 §Secret 4종 값 주입 |
 
-relay 컨테이너는 위 3종 중 `dma-cred-key` · `relay-order-secret` 2종에 더해
-**`gh-radar-supabase-service-role`** 도 읽는다(wss 토큰 검증 + `dma_credentials` 조회).
+relay 컨테이너가 읽는 비밀은 위 4종 중 `dma-cred-key` · `relay-order-secret` · `dma-observer-secret` 3종에 더해
+**`gh-radar-supabase-service-role`** 까지 4종이다(`deploy-relay.sh` 가 넷 다 사전 검사한다 — 존재 · ENABLED 버전 ·
+relay SA 접근권). `gh-radar-kb-vpn-password` 는 host systemd(openconnect) 소관이다.
+관찰자 비밀이 빠지면 relay 는 production 기동을 거부한다(`DMA_OBSERVER_SECRET must be set`) — 배포 스크립트가
+컨테이너를 내리기 전에 막는 이유다.
 15-06/15-07 의 Secret 단위 바인딩 목록에 이 4번째가 빠져 있어 15-08 이 추가했다 —
 `setup-relay-iam.sh` 는 이 Secret 을 **생성하지 않고 바인딩만** 한다(워커들이 공유하는 기존 자산).
 
@@ -1005,7 +1009,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 
 ---
 
-## Secret 3종 값 주입
+## Secret 4종 값 주입
 
 `setup-relay-iam.sh` 는 **빈 Secret 만 만든다.** 값은 사람이 넣는다.
 값을 대화 로그·커밋·문서에 남기지 않는다.
@@ -1018,6 +1022,46 @@ openssl rand -base64 32 | tr -d '\n' | gcloud secrets versions add gh-radar-rela
 # KB VPN 접속 비밀 값은 사용자가 직접 입력한다 (Claude 가 값을 묻지 않는다)
 gcloud secrets versions add gh-radar-kb-vpn-password --data-file=-
 ```
+
+### 관찰자 비밀 (`gh-radar-dma-observer-secret` ↔ 게이트웨이 `config/observer.toml`)
+
+Phase 19 D-10. relay 관찰자 기록 연결이 게이트웨이에 로그인할 때 쓰는 공유 비밀이다. **두 곳에 같은 값**이 있어야
+한다 — Secret Manager `gh-radar-dma-observer-secret`(relay env `DMA_OBSERVER_SECRET` 의 유일한 원천)과 gh-trade
+게이트웨이 120 의 `config/observer.toml`(`[observer]` 표 `secret` 키 · chmod 600 · git 미추적 · users.toml 처럼
+수동 배치 — `deploy-config.sh` 는 `server.toml` 만 옮긴다). 파일 경로·키 이름의 정본은 gh-trade Phase 23 이다.
+
+절차는 「**한 번 생성 → 로컬 0600 임시 파일 하나에만 둔다 → 그 파일에서 두 목적지로 보낸다 → 해시로 대조 → 파일 삭제**」다.
+값은 어느 단계에서도 터미널·셸 히스토리·명령줄 인자·대화에 나오지 않는다.
+
+1. `umask 077` 로 로컬 임시 파일을 만들고 `openssl rand -hex 32` 출력을 **파이프로 그 파일에만** 쓴다(hex 라 TOML 따옴표와
+   부딪히지 않는다).
+2. Secret Manager 새 버전: `gcloud secrets versions add gh-radar-dma-observer-secret --data-file=<임시 파일>`.
+3. 게이트웨이 파일: 임시 파일 내용을 `[observer]` / `secret = "…"` 두 줄로 감싸 **표준입력으로** 게이트웨이 SSH 에 흘리고,
+   원격에서 `umask 077; cat > …/config/observer.toml && chmod 600 …` 로 받는다(gh-trade `deploy.sh` 가 쓰는 호스트
+   별칭 그대로 — 주소를 문서에 적지 않는다). 값이 원격 명령줄에 들어가지 않게 반드시 stdin 으로 넘긴다.
+4. 대조는 **값이 아니라 해시 앞 12자**로 한다 — 로컬 `shasum -a 256 <임시 파일>`, Secret Manager
+   `gcloud secrets versions access latest --secret=gh-radar-dma-observer-secret | shasum -a 256`, 게이트웨이는 원격에서
+   따옴표 안 값만 뽑아 `sha256sum`. 셋이 같아야 한다.
+5. 임시 파일을 지운다.
+
+```bash
+# 골격 — <gw> 는 gh-trade 배포 호스트 별칭, <dir> 는 게이트웨이 설치 디렉터리(gh-trade 정본). 값은 출력되지 않는다.
+umask 077; T="$(mktemp)"; openssl rand -hex 32 | tr -d '\n' > "$T"
+gcloud secrets versions add gh-radar-dma-observer-secret --data-file="$T"
+{ printf '[observer]\nsecret = "'; cat "$T"; printf '"\n'; } \
+  | ssh <gw> 'umask 077; cat > <dir>/config/observer.toml && chmod 600 <dir>/config/observer.toml'
+shasum -a 256 "$T" | cut -c1-12
+gcloud secrets versions access latest --secret=gh-radar-dma-observer-secret | shasum -a 256 | cut -c1-12
+ssh <gw> "sed -n 's/^secret *= *\"\(.*\)\"\$/\1/p' <dir>/config/observer.toml | tr -d '\n' | sha256sum | cut -c1-12"
+rm -f "$T"
+```
+
+**적용 순서 · 순환(로테이션).** 게이트웨이는 `observer.toml` 을 기동 때 읽고(핫리로드 없음), relay 는 컨테이너 기동 때
+env 로 받는다. 그리고 relay 관찰자는 **로그인 거부를 받으면 relay 재시작 전까지 다시 시도하지 않는다**(D-13 · T-19-28).
+그래서 두 값을 바꾼 뒤에는 **게이트웨이 재시작 → relay 재배포(마지막)** 순서여야 한다 — relay 를 먼저 새 값으로 올리면
+옛 값을 든 게이트웨이가 거부해 relay 가 `rejected` 로 굳고, 그 뒤 게이트웨이를 재시작해도 풀리지 않는다(relay 를 한 번 더
+재배포해야 한다). 게이트웨이 재시작이 전략 무인 복원을 동반하므로 **두 곳 모두 20:00 이후 같은 창**에서 바꾼다.
+순환 중 잠깐의 거부·끊김은 커서 덕에 유실이 없다 — relay 가 다시 붙으면 커서부터 재생한다.
 
 ### `/etc/kbvpn.env` (VM, 0600)
 

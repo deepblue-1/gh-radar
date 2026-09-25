@@ -18,6 +18,9 @@ documentation:
     | 응답 없음 / 연결 실패 | TLS 관문(Caddy)·DNS·방화벽·VM | 1, 5, 6 |
     | 503 `{"vpn":false}` | **회선(VPN) 단절** | 2 |
     | 503 `{"vpn":true,"dma":false}` | 회선은 정상, 게이트웨이/세션 문제 | 3, 7 |
+    | 503 `{"vpn":true,"dma":true,"journal":{"state":"rejected"}}` | **관찰자 기록 연결 거부** — 관찰자 비밀 불일치(Secret Manager `gh-radar-dma-observer-secret` vs 게이트웨이 120 `config/observer.toml`) | 8 |
+    | 503 `{"journal":{"state":"connecting"\|"logging_in"\|"replaying"}}` · `disconnectedSec` ≥ 180 | 관찰자 연결이 3분 넘게 live 가 아니다 — 게이트웨이 관찰자 미지원(구버전)·재시작 중·VPN | 8 |
+    | 503 `{"journal":{"state":"db_error"}}` | 관찰자는 붙었지만 Supabase 적용 RPC(`dma_journal_apply`) 연속 실패 | 8 |
     | 200 `{"status":"ok"}` | 이미 복구됨 (일시적 실패) | 아래 "오탐" 참조 |
 
     `vpn` 은 **회선 실측**이다 (2026-09-06 변경). 게이트웨이와 같은 사내망 대역(10.41.0.0/16)의
@@ -68,6 +71,27 @@ documentation:
 
     7. **VM 재부팅** — `radar-gw` 상태 확인. 컨테이너는 재시작 정책으로, VPN·Caddy·워치독은
        전부 `enabled` 라 자동으로 돌아온다(2026-09-06 이후). 안 돌아오면 그 자체가 이상 신호다.
+
+    8. **관찰자 기록 연결(Phase 19) 이상** — healthz 본문 `journal.state` 가 live 가 아니다.
+       주문 기록(주문 내역 · 체결 · 자동주문 기록)이 이 연결 하나로만 DB 에 들어온다. 호가·주문 자체는 영향이 없다.
+       - **장중(평일 08:00~20:00 KST · KRX 휴장일 제외)에만 503** 이다. 장 밖에서는 200 이고 본문 `journal` 에만
+         드러난다 — 밤사이 끊김은 알림이 아니라 아침 확인 대상이다. rejected 는 장중이면 즉시, 나머지는
+         live 를 벗어난 지 180초 뒤부터 503 → uptime 5분 창 → 알림(끊김 후 ≈ 3분 + 5분).
+       - relay 로그: `sudo docker logs gh-radar-relay 2>&1 | grep -E '\[JOURNAL\]|\[journal\]' | tail -50`.
+         `[JOURNAL]` 은 관찰자(연결·로그인·상태 전이), `[journal]` 은 기록기(적용 RPC·커서·재동기화)다.
+       - `rejected`: 게이트웨이가 관찰자 로그인을 거부했다. **relay 재시작 전에는 다시 시도하지 않는다**(설계).
+         두 비밀 값이 같은지 확인하고(값을 화면에 찍지 말 것 — infra/relay/README.md §Secret 4종 값 주입의 해시 비교),
+         맞춘 뒤 relay 를 재배포(또는 컨테이너 재시작)한다.
+       - `connecting`/`logging_in`/`replaying` 이 오래간다: 게이트웨이가 관찰자 로그인(5)을 모르는 구버전이면
+         로그인 응답 타임아웃이 반복된다. 게이트웨이 재시작 중이면 스스로 붙는다(재접속 상한 없음 · 30초 간격).
+         `vpn:false` 가 같이 보이면 2번이 먼저다. `replaying` 이 길면 `lagSeq` 가 줄고 있는지 본다.
+       - `db_error`: Supabase SQL 편집기에서 `select * from dma_journal_cursor;` 로 커서(`last_seq` · `updated_at`)가
+         멈췄는지, `select seq, apply_error from dma_journal_events where apply_error is not null order by seq desc limit 20;`
+         로 투영 실패가 쌓였는지 본다. 적용 RPC 가 실패하는 동안 커서는 전진하지 않으므로 **유실은 없다** —
+         복구되면 같은 배치부터 다시 적용된다.
+       - `journal.seqRegressions` > 0 은 **503 이 아니다**(표시 신호). 같은 epoch 인데 게이트웨이 head 가 relay 가 받은
+         seq 보다 작았다는 뜻이다(게이트웨이가 최신 기록 파일을 잃음). relay 는 마지막 수신 seq 를 유지해 스트림을 잇는다.
+         docs/relay-operations.md 「관찰자 기록 연결」 참조.
 
     검증: `bash scripts/smoke-relay.sh` → 실패 항목이 위 어디인지 지목한다.
 
