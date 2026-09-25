@@ -1,25 +1,27 @@
 ---
 phase: 20-toss-order-ticket
-fixed_at: 2026-09-25T06:55:00Z
+fixed_at: 2026-09-25T07:40:00Z
 review_path: .planning/phases/20-toss-order-ticket/20-REVIEW.md
-iteration: 1
+iteration: 2
 findings_in_scope: 10
-fixed: 8
-skipped: 2
-status: partial
+fixed: 10
+skipped: 0
+status: all_fixed
 ---
 
 # Phase 20: 코드 리뷰 수정 보고서
 
-**수정 시각:** 2026-09-25T06:55:00Z
+**수정 시각:** 2026-09-25T06:55:00Z (1회차) · 2026-09-25T07:40:00Z (2회차)
 **원본 리뷰:** .planning/phases/20-toss-order-ticket/20-REVIEW.md
-**회차:** 1
+**회차:** 2
 **범위:** critical_warning (Critical 3 · Warning 7 — Info 3건은 범위 밖)
 
-**요약:**
+**요약 (2회차 기준):**
 - 범위 안 지적: 10
-- 수정: 8 (CR-01 · CR-02 · CR-03 · WR-01 · WR-02 · WR-03 · WR-04 · WR-06)
-- 건너뜀: 2 (WR-05 · WR-07 — 사용자 결정 필요)
+- 수정: 10
+  - 1회차 8건: CR-01 · CR-02 · CR-03 · WR-01 · WR-02 · WR-03 · WR-04 · WR-06
+  - 2회차 2건: WR-05 · WR-07 — 사용자 결정(둘 다 권장안 A)에 따라 수정. 아래 「2회차」 절.
+- 건너뜀: 0 (1회차에 건너뛴 WR-05 · WR-07 은 2회차에서 수정됨)
 - 변경 불필요(no_change_needed): 0 — 10건 모두 코드에서 지적이 사실임을 확인했다.
 
 **작업 위치:** 오케스트레이터 지시에 따라 이미 격리된 git worktree `/Users/alex/repos/gh-radar/.claude/worktrees/toss-b`(브랜치 `theme/toss-b`)에서 직접 편집·커밋했다(중첩 worktree 없음). 아래 검증 게이트도 모두 **이 worktree 체크아웃에서** 돌렸다. 커밋된 트리 그대로 재현할 수 있다.
@@ -120,7 +122,9 @@ status: partial
 **적용 내용:** `drain` 과 대기열 폐기(`failQueue`)의 「서버가 이미 그 값」 분기에서 `markSuccess` 를 부른다. `queued` 로 열려 기다리던 시트·편집기가 `successSeq` 로 닫힌다.
 **수정 전 실패 확인:** 새 테스트 3건이 실패했다(폼 수준 시트 닫힘 포함).
 
-## 건너뛴 지적
+## 건너뛴 지적 (1회차 기록 — 두 건 모두 2회차에서 수정됨)
+
+아래는 1회차 판단 기록이다. 결과는 「2회차」 절을 본다.
 
 ### WR-05: ETF·ETN 등 다른 호가 단위를 쓰는 유효 가격을 하드 블록한다
 
@@ -152,7 +156,7 @@ status: partial
 - (B) 금액·매수가격 외 필드는 cfg 에 서버 `buyOrderQty` 를 싣고, 매수가격 확정만 (A)처럼 막는다.
 **원래 지적:** 서버가 금액을 모르면 폼은 클라 기본 금액을 들고, 매 전송이 그 금액으로 수량을 다시 계산해 서버의 실제 수량을 조용히 덮는다.
 
-## 검증 (이 worktree 체크아웃에서 실행)
+## 검증 — 1회차 (이 worktree 체크아웃에서 실행)
 
 **빌드·타입 검사** — `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/webapp run typecheck`
 ```
@@ -183,16 +187,169 @@ exit=0
   44 passed (1.8m)
 ```
 
-## 사용자 결정·확인이 필요한 것
+## 사용자 결정·확인이 필요한 것 (1회차 목록 — 1·2번은 2회차에서 결정·수정됨)
 
-1. **WR-05(ETF/ETN 호가 단위)** — 권장안 A(ETP 여부 배선 + 경고 전환) 또는 B(수동주문 시트만 경고)를 골라 주세요. D-15 개정 여부가 걸려 있다.
-2. **WR-07(레거시 금액 0 전략)** — 권장안 A(금액 먼저 입력 강제 + 「—」 표시) 또는 B를 골라 주세요.
+1. ~~**WR-05(ETF/ETN 호가 단위)**~~ — 사용자 결정 A(2026-09-25) → 2회차에서 수정(D-15a).
+2. ~~**WR-07(레거시 금액 0 전략)**~~ — 사용자 결정 A(2026-09-25) → 2회차에서 수정(D-04a).
 3. **CR-02 장벽 대기 7초**(`LC_ORPHAN_WAIT_MS`) — 그 사이 다른 필드 시트가 「반영 중…」으로 잠긴다. 값 적정성을 확인해 주세요.
 4. **CR-01 새 문구 2종** — Copywriting 계약에 없던 문구다. 어조를 확인해 주세요.
 5. CR-02 · CR-03 은 상태 기계·판정 로직 수정이다. 단위·E2E 는 통과했지만, 실환경(터널 지연 · 레거시 전략)에서 한 번 관찰해 보기를 권한다.
 
 ---
 
-_수정: 2026-09-25T06:55:00Z_
+# 2회차 — 사용자 결정 반영 (WR-05 · WR-07)
+
+**수정 시각:** 2026-09-25T07:40:00Z
+**범위:** WR-05 · WR-07 (1회차에 건너뛴 두 건) — 둘 다 사용자 결정 **권장안 A**
+**작업 위치:** 1회차와 같다. 이미 격리된 worktree `/Users/alex/repos/gh-radar/.claude/worktrees/toss-b`(브랜치 `theme/toss-b`)에서 직접 편집·커밋했다. 검증 게이트도 모두 이 체크아웃에서 돌렸다.
+**회귀 테스트 원칙:** 1회차와 같다. 수정 소스만 되돌려 새 테스트가 **실패**하는 것을 확인한 뒤 복원했다.
+
+## 수정한 지적 (2회차)
+
+### WR-05: ETF·ETN 등 다른 호가 단위를 쓰는 유효 가격을 하드 블록한다
+
+**상태:** fixed
+**커밋:** 34910a2
+**결정:** D-15a — 20-CONTEXT · STATE.md 에 기록(커밋 359bc65)
+**수정 파일:**
+- `packages/shared/src/krxTick.ts` · `index.ts`
+- `webapp/src/lib/numpad.ts` · `webapp/src/lib/tick-rule.ts`(신규)
+- `webapp/src/components/trading/card/card-body.tsx` · `card/manual-order-form.tsx` · `limit-chaser-form.tsx`
+- `webapp/src/components/trading/lc/number-pad-sheet.tsx` · `lc/inline-value-editor.tsx` · `lc/setting-group.tsx`
+- 테스트 9파일(신규 `tick-rule.test.tsx` 포함)
+
+**ETP 플래그의 출처:**
+- 원천은 종목 마스터 `stocks.security_group` 이다.
+- 판별자는 새로 만들지 않았다. quick-260908-oh6(ec6cceb)의 `/api/stocks/search` 와 SQL 선례 4곳이 쓰는 **같은 블랙리스트 ETF·ETN·ELW** 다. 이것을 shared `ETP_SECURITY_GROUPS` · `tickRuleOfSecurityGroup` 에 모았다.
+- `미확인` sentinel(intraday-sync)과 빈 값은 `unknown` 이다.
+- 조회 경로는 webapp → Supabase 직접이다. `lib/tick-rule.ts` `useTickRule(isin)` 가 `stocks.select('security_group').eq('isin', isin).maybeSingle()` 을 부른다.
+  - `stocks` 는 RLS `anon, authenticated` SELECT 가 이미 열려 있다.
+  - `isin` 부분 유니크 인덱스가 이미 있다.
+  - webapp 은 이미 watchlist·theme 에서 `stocks` 를 직접 읽는다.
+- **서버·API·relay·프로토콜·DB 스키마 변경은 0 이다.** 기존 컬럼을 읽기만 한다. 그래서 STOP 조건에 해당하지 않았다.
+- relay 프레임에는 분류가 없다(`SymbolMap` 은 이름·코드·시장만 푼다). 프로토콜은 넓히지 않았다.
+- ★ **master-sync 는 ETP 행에 `isin` 을 싣지 않는다.** KRX ETP 응답에 표준코드가 없기 때문이다(`workers/master-sync/src/pipeline/upsert.ts`).
+  - 그래서 실제 ETP 카드의 ISIN 은 마스터에서 찾지 못한다. 결과는 **`unknown` → 경고만**이다. 사용자 규칙상 ETP 와 같은 동작이다.
+  - `etp` 로 판정되는 것은 같은 코드의 주식 행에 isin 이 보존된 경우뿐이다.
+
+**적용 내용:**
+- **잠금 규칙은 한 곳이다.** shared `priceIssueLocks(issue, rule)`:
+  - 상한가 초과는 늘 잠근다.
+  - 호가 단위 위반은 `stock` 일 때만 잠근다.
+- `PadCtx.tickRule` 을 추가했다.
+  - `padIssue` 는 잠그는 위반만 돌려준다.
+  - 새 `padWarning` 은 잠그지 않는 호가 단위 위반을 문구로 돌려준다.
+  - **미지정은 `stock`** 이다. 분류를 넘기지 않는 호출부와 조회 중인 카드는 기존 D-15 잠금 그대로다.
+- **배선은 카드 본문 한 곳이다.** `CardBody` 가 `useTickRule(isin)` 을 한 번 부르고, 상따 폼과 수동주문 폼에 **같은 값**을 넘긴다. 작업대 카드 · 종목상세 호가 탭 모두 이 본문 하나를 쓰므로 진입 경로별로 갈라지지 않는다.
+- 표면별 동작 (ETP·unknown 일 때):
+
+| 표면 | 호가 단위 위반 | 상한가 초과 |
+|------|----------------|-------------|
+| 상따 시트 | 적용 허용 + 상태 줄 경고(`role=status`) | 잠금 |
+| 상따 인라인 | 입력 중 경고 말풍선(`role=status` · `aria-invalid` 없음) · Enter/Tab/이탈 저장 허용 | 잠금 |
+| 수동주문 시트 | 「입력」 허용 + 경고 | 잠금 |
+| 수동주문 마우스 인라인 | 원래 경고만 — 문구만 바뀜 | 원래 경고만 |
+
+  경고 모양은 기존 수동주문 인라인 경고(`manual-order-price-issue`: destructive 글자색 · `role=status`)를 따랐다.
+- 상태 셋:
+  - `undefined`(조회 중) = 잠금. 대다수인 주식 카드가 조회 동안 느슨해지지 않는다.
+  - 조회 실패 = `console.warn` + `unknown`. 무로그 fail-safe 금지 규칙을 따랐고, 결과를 캐시하지 않는다.
+  - 성공 결과는 탭 메모리에 ISIN 별로 캐시한다. 같은 ISIN 의 동시 조회는 한 요청을 공유한다.
+
+**회귀 테스트:** ETP 경고만 · 주식 잠금 · unknown → 경고 · 상한가 초과는 분류와 무관하게 잠금. 층별로 넣었다.
+- shared 순수 함수
+- numpad
+- 시트 · 인라인 편집기
+- 수동주문 폼 · 상따 폼
+- 카드 본문 배선: `createClient` 스텁으로 ETF · 행 없음 · 주권을 넣고 두 시트를 확인했다.
+- `useTickRule` 훅
+
+**수정 전 실패 확인:** 새 테스트 **20건**이 수정 전 코드에서 실패했다. 주식 잠금·상한가 잠금 가드 테스트는 수정 전에도 통과한다(회귀 감시용).
+
+**새 문구(사용자 확인 권장):** 「주식 호가 단위(50원)와 달라요 · 가까운 값 25,000 / 25,050」 — 잠그지 않는 경고라 명령형(「…단위로 입력해 주세요」)을 쓰지 않았다. UI-SPEC Copywriting 표에 없는 문구다.
+
+### WR-07: 레거시 전략(서버 `buyOrderAmount === 0`)에서는 어떤 필드를 확정해도 `buyOrderQty`가 클라이언트 기본 금액으로 재계산되어 덮인다
+
+**상태:** fixed: requires human verification (상태 기계 판정 추가)
+**커밋:** d71f619
+**결정:** D-04a — 20-CONTEXT · STATE.md 에 기록(커밋 359bc65)
+**수정 파일:** `webapp/src/components/trading/lc/use-lc-field-commit.ts` · `limit-chaser-form.tsx` · `lc/setting-group.tsx` · `lc/inline-value-editor.tsx` (+ 테스트 2파일)
+
+**적용 내용:**
+- 훅이 `amountRequired` 를 낸다. 조건: 서버 에코가 있고, `buyOrderAmount === 0` 이고, 아래 특례로 금액이 확인되지 않았다.
+- **표시:**
+  - 주문금액 행은 「—」다. 접근성 이름은 「주문금액 미입력」이다.
+  - 주문금액 시트는 빈 값으로 열리고 「지금 ○○」가 없다.
+  - 주문금액 인라인도 빈 칸으로 열린다.
+  - 폼이 든 클라 기본값(10만원)은 더 이상 보이지 않는다.
+- **막기 — 판정 함수는 하나다(`lcAmountBlockOf`).** 시트·인라인 `validate` 와 훅의 전송 직전 가드가 같은 함수를 **같은 순서**로 읽는다(범위 → 금액 먼저 → 무장 불가).
+  - 값 시트: 적용이 잠기고 상태 줄이 「주문금액을 먼저 입력해 주세요」를 보인다.
+  - 인라인: 말풍선으로 보인다.
+  - 스위치·체크·감시대상: 새 실패 사유 `amountRequired` 가 생기고, **폼 맨 위 한 줄**(WR-03 표면)이 말한다.
+- **끄기는 늘 허용한다(T-16-44).** 기존 `turningOff` 정의를 따랐다(게이트 4종 OFF).
+  - 그 cfg 는 금액·수량을 **서버 값 그대로**(금액 0 · 서버 `buyOrderQty`) 싣는다.
+  - 기본 금액으로 수량을 다시 계산하면 그 자체가 이 결함이다. 게다가 0주가 되면 relay 무장 판정에 막혀 끄기조차 못 한다.
+- **금액 확정은 정상 경로다.** 새 금액으로 수량을 계산해 보낸다. 0 이 아닌 금액 에코 뒤에는 모든 것이 정상이다.
+  - 금액 확정이 나가 있는 동안 누른 토글은 대기열에 섰다가, 금액 반영 뒤 나간다.
+- **CR-03 특례와의 연결:** 에코 금액이 여전히 0 인데 수량이 일치해 성공한 경우다.
+  - 이 폼 인스턴스에서는 금액을 아는 것으로 보고 잠금을 푼다. 그러지 않으면 잠긴 채 굳는다.
+  - 서버가 0 이 아닌 금액을 돌려주면 이 표시를 내려놓는다.
+- 미등록 전략은 해당 없다.
+- 기존 테스트 1건의 기대값을 바꿨다. 「금액 0 에코 → 행은 50만원 유지」였던 것을 「→ 「—」」로 바꿨다. D-04a 가 표시 규칙을 바꿨기 때문이다. 폼 내부 값 보존(`formFromServer`)은 그대로다.
+
+**수정 전 실패 확인:** 새·변경 테스트 **14건**이 수정 전 코드에서 실패했다. 대기열 토글 · 미등록 가드 2건은 수정 전에도 통과한다(회귀 감시용).
+
+**사람 확인 요청:** 레거시 전략이 실환경에 있으면 확인해 주세요 — 금액 입력 → 에코 → 다른 필드 편집 흐름, 그리고 무장된 레거시 전략 끄기(수량 불변) 흐름.
+
+## 검증 — 2회차 (이 worktree 체크아웃에서 실행)
+
+**빌드·타입 검사** — `pnpm --filter @gh-radar/shared build && pnpm --filter @gh-radar/relay run typecheck && pnpm --filter @gh-radar/webapp run typecheck`
+```
+DTS ⚡️ Build success in 461ms
+DTS dist/index.d.cts 69.99 KB
+DTS dist/index.d.ts  69.99 KB
+$ tsc --noEmit
+$ tsc --noEmit && tsc -p tsconfig.e2e.json
+exit=0
+```
+
+**단위 테스트** — `pnpm --filter @gh-radar/webapp run test`
+```
+ Test Files  108 passed (108)
+      Tests  2075 passed | 1 skipped (2076)
+   Duration  29.98s
+```
+- stderr 에는 1회차와 같은 stock·home 스위트의 의도된 fetch 실패 로그가 있다.
+- 새로 생긴 stderr 도 있다. 카드 본문을 그리는 다른 스위트에서 vitest 에 Supabase 환경변수가 없어 `[tick-rule] 종목 분류 조회 실패` 경고와 `act(...)` 경고가 찍힌다. 판정에는 영향이 없다(조회 실패 = 경고 경로 · 해당 스위트는 호가 단위 잠금을 단언하지 않는다).
+
+**shared 단위** — `packages/shared` `vitest run src/krxTick.test.ts`: 29 passed.
+
+**E2E** — `cd webapp && pnpm exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/orderbook.spec.ts`
+- 3100 포트가 비어 있었다. Playwright 가 이 worktree 의 webapp 에서 dev 서버를 직접 기동했다.
+```
+[54/55] … P20-4 매수가격 시트 — 칩 현재가·상한가·±1호가 · D-15 잠금(호가 단위 · 상한가) …
+[55/55] … P20-5 수동주문 시트는 값만 채운다 …
+  55 passed (2.2m)
+```
+- P20-4(삼성전자 = 주권 · D-15 잠금)가 그대로 통과한다. 브라우저 분류 조회가 `stock` 을 돌려줬거나 아직 조회 중(= 잠금)이었다는 뜻이다. E2E 는 둘을 구분하지 않는다.
+
+## 사용자 결정·확인이 필요한 것 (2회차)
+
+1. **새 문구 2종**(Copywriting 계약 밖) 확인:
+   - WR-05 경고 「주식 호가 단위(N원)와 달라요 · 가까운 값 A / B」
+   - WR-07 주문금액 행 「—」의 접근성 이름 「주문금액 미입력」
+   - 「주문금액을 먼저 입력해 주세요」는 결정문 원문이다.
+2. **WR-05 판별자에 ELW 가 포함된다.** 지시대로 ec6cceb 과 같은 판별자(ETF·ETN·ELW)를 재사용했다. ELW 도 주식 표와 단위가 달라 경고만 하는 쪽이 맞다고 봤다.
+3. **WR-07 「끄기」의 범위는 게이트 4종 OFF다**(기존 `turningOff` 정의).
+   - 게이트가 아닌 체크를 끄는 것은 레거시 상태에서 막힌다: 매수 「체결」 조건, 매수취소 「체결」「잔량추적」.
+   - 이것들은 무장 해제가 아니라 조건 변경이라서다. 이 체크 끄기도 허용하려면 알려 주세요.
+4. **WR-07 부수 관찰(미수정 · 범위 밖):** 레거시 상태에서도 「켤 수 없는 이유」 패널은 폼이 든 기본 금액(10만원)으로 판정한다.
+   - 그래서 가격이 10만원을 넘는 종목이면 금액 행은 「—」인데 패널은 「주문금액이 매수가격보다 작아 …」라고 말할 수 있다.
+   - 가리키는 곳(금액)은 맞다. 문장까지 맞추려면 별도 quick 으로 처리한다.
+5. 1회차 3~5번(CR-02 7초 · CR-01 문구 · CR-02/CR-03 실환경 관찰)은 그대로 열려 있다.
+
+---
+
+_수정: 2026-09-25T06:55:00Z (1회차) · 2026-09-25T07:40:00Z (2회차)_
 _수정자: Claude (gsd-code-fixer)_
-_회차: 1_
+_회차: 2_
