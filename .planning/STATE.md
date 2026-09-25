@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-07-PLAN.md
-last_updated: "2026-09-25T22:05:15.078Z"
+stopped_at: Completed 21-10-PLAN.md
+last_updated: "2026-09-25T22:16:02.492Z"
 last_activity: 2026-09-26
-last_activity_desc: 21-07 완료(당겨서 새로고침 연결 — relay probeNow D-16 · 목록 4화면·트레이딩·마이 · 종목상세 GET 만 D-18) — 21-01~05·07 완료 · 다음 21-10
-state_head: b5443f9298b131eb4d958144ad7b6ac4bff2b51e
+last_activity_desc: 21-10 완료(iOS 네이티브 플로팅 탭바 — TabRoutes D-14 · 알약 D-27a · 숨김 D-12 · navigate 훅 D-06a) — 21-01~05·07·10 완료 · 다음 21-11
+state_head: 4423e4ece5041f4832742d0f268ac8b143d3aeba
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 270
-  completed_plans: 244
+  completed_plans: 245
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 7 of 16
+Plan: 8 of 16
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -98,6 +98,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P03 | 3 min(Task 3) · 체크포인트 대기 별도 | 3 tasks | 2 files |
 | Phase 21 P05 | 10min | 2 tasks | 7 files |
 | Phase 21 P07 | 10min | 3 tasks | 13 files |
+| Phase 21 P10 | 8min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -208,6 +209,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-03: Supabase Google Client IDs = web,ios,android(웹 먼저) · Skip nonce checks off 유지 · 동의 화면 이름 gh-radar 유지 · release SHA-1 미등록(Deferred)
 - [Phase 21]: 21-05: 앱 셸 분기 — lg: 와 경합하는 aside·햄버거는 레이어 밖 CSS(html.native-app [data-slot]), FAB·AI 버튼은 native: 변형. 「AI 분석」은 히어로 첫 줄 오른쪽 끝(ml-auto)
 - [Phase 21]: 21-07: probeNow 는 복귀 경로 onResume(true) 재사용(relay 무변경) · 종목상세 당겨서 새로고침은 GET 캐시 재조회만 등록(POST refresh 0)
+- [Phase 21]: 21-10: iOS 오프라인 판정 = url 스킴+호스트 ≠ server.url (dev localhost 겹침 방지)
+- [Phase 21]: 21-10: 웹 ready 수신 시 overlayOpen 초기화 — 전체 로드 시 오버레이 고착 방지(T-21-18)
 
 ### Pending Todos
 
@@ -253,8 +256,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-25T22:05:14.380Z
-Stopped at: Completed 21-07-PLAN.md
+Last session: 2026-09-25T22:16:01.784Z
+Stopped at: Completed 21-10-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
