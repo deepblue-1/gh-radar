@@ -19,6 +19,10 @@ set -euo pipefail
 #
 #   bash scripts/deploy-relay.sh --rollback <이미지 태그>   # 빌드 없이 이전 태그로 복귀
 #
+#   GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널> bash scripts/deploy-relay.sh --alert-only
+#     # 알림 정책만 갱신 (빌드·VM 배포·uptime check 건너뜀, SUPABASE_URL 불필요).
+#     # 알림 문서(ops/alert-relay-down.yaml)만 고쳤을 때 relay 재배포 없이 쓴다.
+#
 # 선택 env:
 #   DMA_HOST   우선순위: **명시 주입 > 실행 중인 컨테이너 값 보존 > 127.0.0.1 (로컬 mock)**.
 #              주입 없이 배포해도 **지금 붙어 있는 게이트웨이가 유지된다** — 배포가 프로덕션
@@ -51,8 +55,9 @@ case "${1:-}" in
     MODE=rollback
     ROLLBACK_TAG="${2:-}"
     ;;
+  --alert-only) MODE=alert-only ;;
   *)
-    echo "usage: bash scripts/deploy-relay.sh [--rollback <tag>]" >&2
+    echo "usage: bash scripts/deploy-relay.sh [--rollback <tag> | --alert-only]" >&2
     exit 1
     ;;
 esac
@@ -87,7 +92,61 @@ CONTAINER=gh-radar-relay
 HEALTH_HOST=dma.jx1.io
 UPTIME_CHECK=gh-radar-relay-healthz
 ALERT_POLICY=gh-radar-relay-down
+ALERT_FILE="ops/alert-relay-down.yaml"
 RELAY_SA="gh-radar-relay-sa@${EXPECTED_PROJECT}.iam.gserviceaccount.com"
+
+# 알림 정책 update-or-create. **Section 6(전체 배포)과 `--alert-only` 가 같은 이 함수를 쓴다** —
+# 두 벌로 적으면 언젠가 한쪽만 고쳐진다 (quick-260925-o1s).
+apply_alert_policy() {
+  local CHANNEL_RESOURCE RESOLVED_YAML EXISTING_POLICY
+  # NOTIFICATION_CHANNEL_ID 는 **선택**이다. 없다고 배포를 실패시키면 안 된다 —
+  # `set -e` 로 여기서 죽으면 아래 최종 요약(무엇이 어디에 붙었는지)이 아예 출력되지 않아,
+  # 잘못된 DMA_HOST 로 뜬 것을 배포자가 못 본다 (2026-09-06 실장애).
+  if [[ -f "$ALERT_FILE" && -z "${NOTIFICATION_CHANNEL_ID:-}" ]]; then
+    echo "⚠ NOTIFICATION_CHANNEL_ID 미설정 — 알림 정책 단계 건너뜀 (배포 자체는 완료됨)" >&2
+    echo "  기존 정책이 있으면 그대로 유효합니다. 새로 걸려면 채널 ID 를 넣고 재실행하세요." >&2
+  elif [[ -f "$ALERT_FILE" ]]; then
+    # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
+    CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
+    case "$CHANNEL_RESOURCE" in
+      projects/*) ;;
+      *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
+    esac
+    RESOLVED_YAML=$(mktemp)
+    sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
+
+    EXISTING_POLICY=$(gcloud alpha monitoring policies list \
+      --filter="displayName=${ALERT_POLICY}" \
+      --format='value(name)' 2>/dev/null | head -1)
+
+    if [[ -n "$EXISTING_POLICY" ]]; then
+      echo "▶ updating alert policy: ${ALERT_POLICY} ..."
+      gcloud alpha monitoring policies update "$EXISTING_POLICY" --policy-from-file="$RESOLVED_YAML" >/dev/null
+    else
+      echo "▶ creating alert policy: ${ALERT_POLICY} ..."
+      gcloud alpha monitoring policies create --policy-from-file="$RESOLVED_YAML" >/dev/null
+    fi
+    rm -f "$RESOLVED_YAML"
+    echo "✓ Alert policy ready: $ALERT_POLICY"
+  fi
+}
+
+# --alert-only: 알림 정책만 갱신하고 끝낸다. SUPABASE_URL 가드와 IAP SSH(DMA_HOST 조회)보다
+# **앞**이라 둘 다 요구·실행하지 않는다. 빌드·VM 배포·uptime check 도 건너뛴다.
+if [[ "$MODE" == alert-only ]]; then
+  if [[ ! -f "$ALERT_FILE" ]]; then
+    echo "ERROR: $ALERT_FILE 이 없습니다 — 저장소 루트에서 실행하세요" >&2
+    exit 1
+  fi
+  # 전체 경로와 달리 여기서는 알림 정책 갱신이 유일한 목적이라 건너뛰지 않고 실패한다.
+  if [[ -z "${NOTIFICATION_CHANNEL_ID:-}" ]]; then
+    echo "ERROR: --alert-only 는 NOTIFICATION_CHANNEL_ID 가 필요합니다" >&2
+    exit 1
+  fi
+  apply_alert_policy
+  echo "  (--alert-only: relay 컨테이너 · uptime check 는 건드리지 않았습니다)"
+  exit 0
+fi
 
 SHA=$(git rev-parse --short HEAD)
 REGISTRY="${REGION}-docker.pkg.dev/${EXPECTED_PROJECT}/${REPO}"
@@ -450,37 +509,7 @@ else
 fi
 echo "✓ uptime check ready: $UPTIME_CHECK → https://${HEALTH_HOST}/healthz"
 
-ALERT_FILE="ops/alert-relay-down.yaml"
-# NOTIFICATION_CHANNEL_ID 는 **선택**이다. 없다고 배포를 실패시키면 안 된다 —
-# `set -e` 로 여기서 죽으면 아래 최종 요약(무엇이 어디에 붙었는지)이 아예 출력되지 않아,
-# 잘못된 DMA_HOST 로 뜬 것을 배포자가 못 본다 (2026-09-06 실장애).
-if [[ -f "$ALERT_FILE" && -z "${NOTIFICATION_CHANNEL_ID:-}" ]]; then
-  echo "⚠ NOTIFICATION_CHANNEL_ID 미설정 — 알림 정책 단계 건너뜀 (배포 자체는 완료됨)" >&2
-  echo "  기존 정책이 있으면 그대로 유효합니다. 새로 걸려면 채널 ID 를 넣고 재실행하세요." >&2
-elif [[ -f "$ALERT_FILE" ]]; then
-  # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
-  CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
-  case "$CHANNEL_RESOURCE" in
-    projects/*) ;;
-    *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
-  esac
-  RESOLVED_YAML=$(mktemp)
-  sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
-
-  EXISTING_POLICY=$(gcloud alpha monitoring policies list \
-    --filter="displayName=${ALERT_POLICY}" \
-    --format='value(name)' 2>/dev/null | head -1)
-
-  if [[ -n "$EXISTING_POLICY" ]]; then
-    echo "▶ updating alert policy: ${ALERT_POLICY} ..."
-    gcloud alpha monitoring policies update "$EXISTING_POLICY" --policy-from-file="$RESOLVED_YAML" >/dev/null
-  else
-    echo "▶ creating alert policy: ${ALERT_POLICY} ..."
-    gcloud alpha monitoring policies create --policy-from-file="$RESOLVED_YAML" >/dev/null
-  fi
-  rm -f "$RESOLVED_YAML"
-  echo "✓ Alert policy ready: $ALERT_POLICY"
-fi
+apply_alert_policy
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"

@@ -41,8 +41,28 @@ DB 에 쓰지 않는다(D-01). 결선은 `relay/src/index.ts`, 모듈은 `relay/
   두 값을 맞춘 뒤 **relay 를 재배포(또는 컨테이너 재시작)** 해야 풀린다. 게이트웨이만 재시작해서는 안 풀린다.
   비밀 주입·순환 절차는 `infra/relay/README.md` §Secret 4종 값 주입(순서: 게이트웨이 재시작 → relay 재배포).
 - **알림.** 장중(평일 08:00~20:00 KST · 휴장일 제외)에 `rejected` 는 즉시, 그 밖의 비-live 는 180초 뒤 `/healthz` 503 → 기존 uptime
-  `gh-radar-relay-healthz` · 정책 `gh-radar-relay-down`(≈ 3분 + 5분 창). 장 밖에서는 200 이고 본문 `journal` 에만 드러난다.
-  대응표는 `ops/alert-relay-down.yaml` 8번. relay 로그는 Cloud Logging 에 없다 — `sudo docker logs gh-radar-relay 2>&1 | grep -E '\[JOURNAL\]|\[journal\]'`.
+  `gh-radar-relay-healthz` · 정책 `gh-radar-relay-down`(≈ 3분 + 5분 창). 장 밖에서는 200 이고 본문 `journal` 에만 드러난다 — 밤사이
+  끊김은 알림이 아니라 아침 확인 대상이다. 끊겨도 호가·주문 자체는 영향이 없고, 주문 기록만 DB 에 들어오지 않는다.
+  relay 로그는 Cloud Logging 에 없다 — `sudo docker logs gh-radar-relay 2>&1 | grep -E '\[JOURNAL\]|\[journal\]' | tail -50`.
+  `[JOURNAL]` 은 관찰자(연결·로그인·상태 전이), `[journal]` 은 기록기(적용 RPC·커서·재동기화)다.
+- **알림 문서는 요약만 둔다.** `ops/alert-relay-down.yaml` 의 documentation 은 GCP 상한이 **10,240 바이트**다. 넘으면
+  `deploy-relay.sh` 가 컨테이너를 새로 띄운 뒤 정책 갱신 단계에서 exit 1 로 끝난다(19-12 에서 10,834 바이트로 실제 발생).
+  그래서 8번은 4줄 요약 + 이 절 링크만 두고 상세는 아래 「상태별 대응」에 쓴다. 문서를 늘릴 땐 9,500 바이트 이하를 지킨다
+  (측정: `ruby -ryaml -e 'print YAML.load_file("ops/alert-relay-down.yaml")["documentation"]["content"].bytesize'`).
+  문서만 고쳤으면 relay 재배포 없이 `GCP_PROJECT_ID=gh-radar NOTIFICATION_CHANNEL_ID=<채널 ID> bash scripts/deploy-relay.sh --alert-only`
+  로 정책만 갱신한다(빌드·VM 배포·uptime check 를 건너뛴다).
+- **상태별 대응 (알림 8번 상세).** healthz 본문 `journal.state` 기준. `vpn:false` 가 같이 보이면 알림 문서 2번(VPN)이 먼저다.
+  - `rejected` — 게이트웨이가 관찰자 로그인을 거부했다. relay 재시작 전에는 다시 시도하지 않는다(위 「로그인 거부」). 두 비밀
+    (Secret Manager `gh-radar-dma-observer-secret` · 게이트웨이 `config/observer.toml`)이 같은지 **해시로** 대조하고(값을 화면에
+    찍지 말 것 — `infra/relay/README.md` §Secret 4종 값 주입), 맞춘 뒤 relay 를 재배포(또는 컨테이너 재시작)한다.
+  - `connecting` · `logging_in` · `replaying` 이 오래간다 — 게이트웨이가 관찰자 로그인(5)을 모르는 구버전이면 로그인 응답
+    타임아웃이 반복된다. 게이트웨이 재시작 중이면 스스로 붙는다(재접속 상한 없음 · 30초 간격). `replaying` 이 길면 `lagSeq` 가
+    줄고 있는지 본다.
+  - `db_error` — 관찰자는 붙었지만 적용 RPC(`dma_journal_apply`)가 연속 실패한다. Supabase SQL 편집기에서
+    `select * from dma_journal_cursor;` 로 커서(`last_seq` · `updated_at`)가 멈췄는지,
+    `select seq, apply_error from dma_journal_events where apply_error is not null order by seq desc limit 20;` 로 투영 실패가
+    쌓였는지 본다. 적용 RPC 가 실패하는 동안 커서는 전진하지 않으므로 **유실은 없다** — 복구되면 같은 배치부터 다시 적용된다.
+  - `journal.seqRegressions` > 0 — **503 이 아니다**(표시 신호). 위 「seq 역행 신호」.
 - **전환 순서 (D-14, 20:00 이후 · 사용자 승인).** ① DB 마이그레이션(추가 전용) → ② 관찰자 비밀 두 곳 → ③ gh-trade 게이트웨이 배포 ·
   재시작(관찰자 지원판) → ④ relay 배포(`git status -sb` 재확인 — 메인 체크아웃 HEAD/작업 트리를 빌드한다) → 검증(`journal.state` live ·
   `dma_account_access` 행 수 · 커서 행) → ⑤ server 배포 → ⑥ webapp push(= Vercel 프로덕션). 게이트웨이가 relay 보다 먼저여야 한다 —

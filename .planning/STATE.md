@@ -192,6 +192,7 @@ None yet.
 | 86 | 작업대 5건(fast) — 더티 바 카드 하단(JS 핀 · main 스크롤 컨테이너라 sticky 불가) · 꺼진 전략 기본 숨김(isActiveStrategy · 진입 시 1회 걷기) · 돌파 표/칩 폰 정리 · 매수취소 체크 한 줄. webapp 1660/1 skip · Playwright 39/0 | 2026-09-23 | 797d468 | — |
 | 260924-blo | STATE.md 정리 — 966줄→216줄. 낡은 섹션·이전 quick/metrics 행은 STATE-ARCHIVE.md, 결정 290건은 DECISIONS-ARCHIVE.md, Phase 16 갭 클로징 로그는 16-GAP-CLOSURE-LOG.md, Phase 17 relay 운영 지식은 docs/relay-operations.md 로 이관·링크. 닫힌 Todo 3·Blocker 2 근거 기록. split/verify 스크립트로 무손실 검증 | 2026-09-24 | 4d07ad5 | [260924-blo-state-md-phase-16-decisions-phase-17](./quick/260924-blo-state-md-phase-16-decisions-phase-17/) |
 | 12 | Per-Plan 메트릭 표 Phase 17·18 행 47개 STATE-ARCHIVE.md 이관(fast) — STATE.md 는 헤더 스캐폴드만, 170줄 | 2026-09-23 | 966632d | — |
+| 260925-o1s | **relay 알림 정책 문서 크기 초과 수정** — `ops/alert-relay-down.yaml` documentation 10,834→9,039 바이트(GCP 상한 10,240 · 목표 ≤9,500). 8번 상세는 docs/relay-operations.md 「관찰자 기록 연결 (Phase 19)」→「상태별 대응」 이관. deploy-relay.sh `--alert-only`(apply_alert_policy 공용 함수, SUPABASE_URL·IAP SSH 불필요). 라이브 정책 7995724305267722560 문서만 갱신(7,782→9,039), 조건·임계 0.9·AND·채널 불변 describe 확인. stub·size·precheck·live-diff PASS | 2026-09-25 | — | [260925-o1s-relay-alert-doc-size](./quick/260925-o1s-relay-alert-doc-size/) |
 
 ## Session Continuity
 
