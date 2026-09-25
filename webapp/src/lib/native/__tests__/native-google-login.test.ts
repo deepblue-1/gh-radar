@@ -35,7 +35,9 @@ function installCapacitor(loginResult: unknown): Mock {
 }
 
 function makeSupabase(response: { error: Error | null } = { error: null }) {
-  const signInWithIdToken = vi.fn(async () => ({ data: {}, ...response }));
+  const signInWithIdToken = vi.fn<(credentials: Record<string, unknown>) => Promise<unknown>>(
+    async () => ({ data: {}, ...response }),
+  );
   return {
     supabase: { auth: { signInWithIdToken } } as unknown as NativeLoginSupabase,
     signInWithIdToken,
@@ -112,7 +114,7 @@ describe('nativeGoogleSignIn', () => {
     expect(hashed).toMatch(/^[0-9a-f]{64}$/);
 
     expect(signInWithIdToken).toHaveBeenCalledTimes(1);
-    const args = signInWithIdToken.mock.calls[0]![0] as Record<string, unknown>;
+    const args = signInWithIdToken.mock.calls[0]![0];
     expect(args).toEqual({ provider: 'google', token: ID_TOKEN, nonce: expect.any(String) });
     const raw = args.nonce as string;
     expect(raw).toMatch(/^[0-9a-f]{64}$/);

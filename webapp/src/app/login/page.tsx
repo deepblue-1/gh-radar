@@ -1,9 +1,15 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
+import { isNativeApp } from "@/lib/native/native-detect";
+import {
+  classifyNativeLoginError,
+  nativeGoogleSignIn,
+  type NativeLoginErrorKey,
+} from "@/lib/native/native-google-login";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +27,8 @@ import {
  * - ?error= 4종 한글 메시지 매핑 (auth_failed / oauth_denied / session_expired / unknown)
  * - Suspense 래핑 (useSearchParams 필수 조건 — Next.js 15)
  * - Open redirect 이중 방어 (?next= 파라미터 safeNext 가드 — T-06.2-11)
+ * - D-03 (Phase 21): 앱(`html.native-app`)은 WebView OAuth 가 막히므로 네이티브 id_token 로그인 → 성공 시
+ *   `location.replace(safeNext)` 하드 내비 · 실패 문구는 기존 맵 재사용 · 진행 중 버튼 비활성. 브라우저는 종전 OAuth.
  */
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -34,6 +42,9 @@ const ERROR_MESSAGES: Record<string, string> = {
 function LoginForm() {
   const searchParams = useSearchParams();
   const errorKey = searchParams.get("error");
+  const [pending, setPending] = useState(false);
+  const [nativeErrorKey, setNativeErrorKey] =
+    useState<NativeLoginErrorKey | null>(null);
   const rawNext = searchParams.get("next");
 
   // Open redirect 방어 (T-06.2-11, ASVS V4.1.1 / V5.1.5) — /auth/callback 과 동일 가드
@@ -45,11 +56,41 @@ function LoginForm() {
       : "/";
 
   // 알 수 없는 에러 키는 unknown fallback (T-06.2-15 — 내부 상태 유출 없음)
-  const errorMessage = errorKey
-    ? ERROR_MESSAGES[errorKey] ?? ERROR_MESSAGES.unknown
+  // 앱 로그인 실패(D-03)가 URL ?error= 보다 우선한다 — 방금 누른 결과가 화면에 보여야 한다.
+  const shownErrorKey = nativeErrorKey ?? errorKey;
+  const errorMessage = shownErrorKey
+    ? ERROR_MESSAGES[shownErrorKey] ?? ERROR_MESSAGES.unknown
     : null;
 
   const handleGoogleLogin = async () => {
+    if (pending) return;
+
+    // D-03: 앱 셸 — 네이티브 계정 선택 → id_token → Supabase 세션(쿠키) → 하드 내비(middleware 가 새 쿠키를 읽는다).
+    // 토큰은 로그에 남기지 않는다 — 오류는 메시지만(T-21-42).
+    if (isNativeApp()) {
+      setPending(true);
+      setNativeErrorKey(null);
+      try {
+        const { error } = await nativeGoogleSignIn(createClient());
+        if (error) {
+          console.error("[gh-radar] native google login: supabase", error.message);
+          setNativeErrorKey("auth_failed");
+          setPending(false);
+          return;
+        }
+        // 성공이면 pending 을 풀지 않는다 — 페이지가 떠나는 동안 재탭으로 계정 선택 시트가 또 뜨지 않게.
+        window.location.replace(safeNext);
+      } catch (err) {
+        console.error(
+          "[gh-radar] native google login failed",
+          err instanceof Error ? err.message : err,
+        );
+        setNativeErrorKey(classifyNativeLoginError(err));
+        setPending(false);
+      }
+      return;
+    }
+
     const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -81,6 +122,8 @@ function LoginForm() {
           ) : null}
           <Button
             onClick={handleGoogleLogin}
+            disabled={pending}
+            aria-busy={pending}
             className="w-full"
             size="lg"
             aria-label="Google로 로그인"

@@ -173,5 +173,7 @@ describe('/login', () => {
     });
     expect(replace).toHaveBeenCalledTimes(1);
     expect(nativeSignIn).toHaveBeenCalledTimes(1);
+    // 성공 뒤 페이지가 떠나는 동안에도 비활성 유지(재탭으로 계정 선택 시트가 또 뜨지 않게).
+    expect(button()).toBeDisabled();
   });
 });
