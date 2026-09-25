@@ -52,7 +52,11 @@
  * ⑧ ★ 실패 판정 입력은 셋이다
  *   거부 = 답 신호(`serverAnswerSeq`)만 오르고 값 불일치 · 타임아웃 = 카드 `unacked`(3초 무응답,
  *   상태줄 「미반영」과 **같은 신호** — UI-SPEC A10) · 끊김 = `send` false.
- *   특례: `buyOrderAmount` 에코가 0 이면 「서버가 모른다」(`lib/limit-chaser.ts`)라 답 도착만으로 성공.
+ *   특례: `buyOrderAmount` 에코가 0 이면 「서버가 모른다」(`lib/limit-chaser.ts`) — 에코 값으로는 판정할 수
+ *   없다. 그래서 **에코가 실제로 왔고(서버 값 변화) 그 `buyOrderQty` 가 이 전송이 실은 수량과 같을 때만**
+ *   성공이다(20-REVIEW CR-03). 답 신호만으로 성공이라 읽으면 거부(54, 에코 없음)가 성공이 된다(③ 위반).
+ *   이 특례로 성공하면 폼에 새 금액을 넣는다 — `formFromServer` 는 서버가 0 이면 옛 금액을 남기므로,
+ *   넣지 않으면 다음 전송이 옛 금액으로 수량을 다시 계산해 주문 수량을 되돌린다.
  *
  * ⑨ ★ 무장 불가 값은 보내지 않는다 (WR-06 · T-20-01)
  *   전송 직전 `armBlockOf(서버 동기값 + 바꾼 필드)` 가 문장을 돌려주면 막고 그 문장을 실패로 둔다.
@@ -153,6 +157,8 @@ interface Pending {
 interface Inflight extends Pending {
   /** 보낼 때의 `serverAnswerSeq` — 이 값에서 바뀌면 답이 온 것이다. */
   answerSeqAtSend: number;
+  /** 이 전송 cfg 의 `buyOrderQty` — 금액 특례의 반영 증거(⑧ · CR-03). */
+  sentBuyOrderQty: number;
 }
 
 type FailureMap = Partial<Record<LcFieldKey, LcCommitFailure>>;
@@ -283,7 +289,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
       onSent?.(cfg);
       writeFailures((prev) => withoutField(prev, p.field));
-      setInflight({ ...p, answerSeqAtSend: serverAnswerSeq });
+      setInflight({ ...p, answerSeqAtSend: serverAnswerSeq, sentBuyOrderQty: cfg.buyOrderQty });
       // ⑩ 토글은 전송 뒤 낙관 표시 — 대기 중 에코가 폼을 덮었을 수 있어 꺼낼 때도 다시 건다.
       if (p.kind === 'toggle') showToggle(p.field, p.value);
       return 'sent';
@@ -433,17 +439,27 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     let drainNow = false;
     if (inf !== null) {
       const answered = seq !== inf.answerSeqAtSend;
-      const matches =
+      // ⑧ 특례 — 서버가 금액을 모른다(0). 에코가 **왔고**(거부에는 에코가 없다) 그 수량이 보낸 수량과
+      //   같을 때만 반영된 것으로 본다(CR-03). 답 신호만으로는 거부와 구분할 수 없다.
+      const amountEchoed =
+        inf.field === 'buyOrderAmount' &&
+        serverChanged &&
         server != null &&
-        (server[inf.field] === inf.value ||
-          // ⑧ 특례 — 서버가 금액을 모른다(0). 답이 온 것만으로 성공이다.
-          (inf.field === 'buyOrderAmount' && server.buyOrderAmount === 0 && answered));
+        server.buyOrderAmount === 0 &&
+        server.buyOrderQty === inf.sentBuyOrderQty;
+      const matches = server != null && (server[inf.field] === inf.value || amountEchoed);
       if (matches) {
         setInflight(null);
+        // 서버가 금액을 돌려주지 않으므로 폼이 새 금액을 든다 — 안 그러면 다음 전송이 옛 금액으로
+        // 수량을 다시 계산해 되돌린다(CR-03). 폼의 에코 반영 이펙트 뒤에 돌므로 덮이지 않는다.
+        if (amountEchoed) {
+          const amount = inf.value as number;
+          optsRef.current.setForm((prev) => ({ ...prev, buyOrderAmount: amount }));
+        }
         markSuccess(inf.field);
         if (queueRef.current.length > 0) {
           // 서버 값이 이 렌더에 바뀌었다 = 카드의 답 신호 증가가 한 렌더 뒤에 온다 → 그때 꺼낸다.
-          // 답 신호가 먼저 와 있었다(금액 특례) = 더 올 증가가 없다 → 지금 꺼낸다.
+          // 답 신호가 먼저 와 있었다(늦은 에코 뒤) = 더 올 증가가 없다 → 지금 꺼낸다.
           if (serverChanged) popAfterSeqRef.current = seq;
           else drainNow = true;
         }

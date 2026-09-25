@@ -481,16 +481,45 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.cfgs()[0]!.buyEnabled).toBe(true);
   });
 
-  it('`buyOrderAmount` 에코가 0(서버가 모른다)이면 답 도착만으로 성공이다', () => {
+  it('CR-03 — `buyOrderAmount` 에코가 0(서버가 모른다)이어도 **답 신호만 오고 서버가 그대로면 거부**다(거부에는 에코가 없다)', () => {
     const t = setup({ server: echo({ buyOrderAmount: 0 }) });
     act(() => {
       t.hook.result.current.commit('buyOrderAmount', 20, 'value');
     });
     expect(t.send).toHaveBeenCalledTimes(1);
     t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.buyOrderAmount).toEqual({
+      reason: 'rejected',
+      text: LC_COMMIT_TEXT.failed,
+      value: 20,
+    });
+    expect(t.hook.result.current.flashField).toBeNull();
+    expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.formRef.current.buyOrderAmount).not.toBe(20);
+  });
+
+  it('CR-03 — 금액 0 에코가 **왔고** 그 수량이 보낸 수량과 같으면 성공 · 폼이 새 금액을 든다(다음 전송이 수량을 되돌리지 않게)', () => {
+    const t = setup({ server: echo({ buyOrderAmount: 0, buyOrderQty: 7 }) });
+    act(() => {
+      t.hook.result.current.commit('buyOrderAmount', 20, 'value');
+    });
+    // 테스트 조립기는 buyOrderQty: 1 을 싣는다 — 반영됐다면 에코 수량이 1 이다.
+    expect(t.cfgs()[0]!.buyOrderQty).toBe(1);
+    t.update({ server: echo({ buyOrderAmount: 0, buyOrderQty: 1 }) });
     expect(t.hook.result.current.failures.buyOrderAmount).toBeUndefined();
     expect(t.hook.result.current.flashField).toBe('buyOrderAmount');
     expect(t.hook.result.current.inflightField).toBeNull();
+    expect(t.formRef.current.buyOrderAmount).toBe(20);
+  });
+
+  it('CR-03 — 금액 0 에코가 왔어도 수량이 보낸 수량과 다르면(무관한 에코) 성공이 아니다', () => {
+    const t = setup({ server: echo({ buyOrderAmount: 0, buyOrderQty: 7 }) });
+    act(() => {
+      t.hook.result.current.commit('buyOrderAmount', 20, 'value');
+    });
+    t.update({ server: echo({ buyOrderAmount: 0, buyOrderQty: 7, buyWatchQty: 9_000 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.buyOrderAmount?.reason).toBe('rejected');
   });
 });
 
