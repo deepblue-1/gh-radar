@@ -5,7 +5,7 @@
  * 배치를 기록기(`JournalWriter.push`)로 넘긴다. 사용자 세션(`dma/session.ts`)의 축소판이다 —
  * 연결 수명(백오프 · generation · LivePing)은 `DmaClient` 가 그대로 쥐고, 여기서는 로그인과
  * 저널 수신만 판단한다. 와이어 해석은 `JournalCodec` 주입 지점 뒤에 있다(19-09 실 코덱으로 교체 —
- * 이 파일은 무수정).
+ * 코덱 교체로는 이 파일을 고치지 않았다 — 19-09 의 유일한 변경은 resync·oldest 0 의 live 전이다).
  *
  * 흐름:
  *   start() → 커서 읽기(`writer.readCursor`) → connect → "up" → 로그인 요청 1건 → 로그인 응답
@@ -304,7 +304,12 @@ export class JournalObserver extends EventEmitter {
       },
       "[JOURNAL] 관찰자 로그인 성공",
     );
-    this.#setState(result.headSeq > received ? "replaying" : "live");
+    // resync 인데 재생 원천이 비었으면(oldest 0) 게이트웨이는 보낼 레코드가 없어 배치를 보내지 않고,
+    // 다음 append(head+1)부터만 보낸다(gh-trade 23 `DecideResync` · 빈 배치 금지). 여기서 replaying 으로
+    // 기다리면 첫 주문 전까지 「기록 지연」, 장중 180초 뒤 `/healthz` 503 거짓 알림이 난다 — 곧바로 live 다.
+    // 새 epoch 첫 레코드는 기록기가 seq 확인 없이 받는다(갭 규칙 무변경 · 19-09 ⑥).
+    const nothingToReplay = result.resync && result.oldestSeq === 0;
+    this.#setState(!nothingToReplay && result.headSeq > received ? "replaying" : "live");
   }
 
   #onBatch(batch: JournalBatchFrame): void {
