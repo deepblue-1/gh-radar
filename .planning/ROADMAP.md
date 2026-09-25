@@ -1015,7 +1015,7 @@ Plans:
 **Goal:** webapp 을 Capacitor **Remote-URL 셸**(WebView 가 운영 URL 을 로드 · static export 불가 확인: middleware 인증 가드·OAuth callback route·서버 redirect)로 감싼 iOS·iPadOS·Android 앱을 만든다. 브랜드명은 웹·앱 모두 **GH Trade** 로 바꾼다(노출 문자열만 · `gh-radar:` localStorage 키는 유지). weekly-wine-app(`/Users/alex/repos/weekly-wine-app`) 을 참고해 **네이티브(Swift·Kotlin) 하단 플로팅 탭바** 홈·검색·트레이딩·AI·마이 5탭과 **pull-to-refresh** 를 붙인다. 새로고침은 네이티브 제스처가 웹의 `window.__ghTrade.refresh()` 훅을 호출하고 훅이 없으면 reload 한다(트레이딩은 relay 재탐침). Google 이 WebView OAuth 를 차단하므로 **네이티브 Google Sign-In → Supabase `signInWithIdToken`** 경로를 추가한다. 네이티브 프로젝트는 모노레포 `mobile/` 패키지에 둔다.
 **Requirements**: MOBILE-01
 **Depends on:** Phase 20
-**Plans:** 11/16 plans executed
+**Plans:** 12/16 plans executed
 
 **결정(2026-09-25 사용자 확정):** ① 탭바 = 네이티브(Swift+Kotlin) ② 로그인 = 네이티브 Google Sign-In + `signInWithIdToken` ③ pull-to-refresh = 네이티브 제스처 → 웹 refresh 훅, 없으면 reload ④ 위치 = `mobile/` 패키지.
 **목업 단계 미결(IA):** 검색 탭 목적지(전용 `/search` 페이지 vs ⌘K 다이얼로그) · 마이 탭에 프로필·로그아웃·테마 토글 수용 · iPad 넓은 폭(사이드바 노출 ≥1024)에서 탭바 처리 · 탭바 숨김 규칙(로그인 화면·바텀시트).
@@ -1044,7 +1044,7 @@ Plans:
 - [x] 21-06-PLAN.md — (W4) safe-area · 탭바 여백(D-25 · `--native-tabbar-offset` · 본문 108)
 - [x] 21-08-PLAN.md — (W4) `/search` 탐색 허브(D-07a) + 최근 검색 + 사이드바 「검색」
 - [x] 21-11-PLAN.md — (W4) iOS 당겨서 새로고침 · 테마 추종 · 오프라인 폴백 · 방향 · Info.plist
-- [ ] 21-12-PLAN.md — (W4) Android 탭바 · TabRoutes JUnit · 인셋(탭바 컨테이너만) · 숨김 · navigate
+- [x] 21-12-PLAN.md — (W4) Android 탭바 · TabRoutes JUnit · 인셋(탭바 컨테이너만) · 숨김 · navigate
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
