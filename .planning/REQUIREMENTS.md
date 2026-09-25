@@ -106,6 +106,10 @@
 - [x] **NAV-01**: 사이드 메뉴 2단 그룹 트리 — 홈 / 종목검색(상승률 상위 `/scanner` · 테마 · 관심종목) / 트레이딩(상따 + 3단 등록 전략 목록 · VI) / My page / AI 애널리스트. 기존 URL 유지, 비로그인·`unauthorized`·미연결 시 트레이딩·My page 숨김, 모바일 Sheet drawer 동일 트리 — Phase 16
 - [x] **MYPAGE-01**: My page `/me` — 전략 현황(상따 목록 + VI 상태 + 전체 비활성화 `DisableStrategiesReq(14)` key="") → 계좌별 미체결·잔고 세로 반복(`account-panel` 재사용, 모바일 2줄 카드 행) — Phase 16
 
+### Mobile
+
+- [ ] **MOBILE-01**: GH Trade Capacitor Remote-URL 앱 — iOS·iPadOS·Android(`com.ghtrade.app`) WebView 가 운영 웹(`https://trade.jx1.io`)을 로드 · 네이티브 하단 플로팅 탭바(홈·검색·트레이딩·AI·마이) · pull-to-refresh(웹 refresh 훅 → 없으면 reload) · 네이티브 Google 로그인 → Supabase `signInWithIdToken` · 오프라인 폴백 · 테마/상태바 연동 · 브랜드명 GH Trade(노출 문자열만), 웹 쪽 앱 분기·`/search` 탐색 허브·`/me` 계정 카드·safe-area 포함 — Phase 21
+
 ## v2 Requirements
 
 ### Personalization
@@ -128,7 +132,7 @@
 | 주문/매매 기능 (공개 사용자 대상) | 인허가 필요, 법적 리스크, 복잡도. **예외(2026-09-05):** Phase 15 RELAY-02 는 `dma_credentials` allowlist 사용자 한정 KB DMA 주문 릴레이(사용자 본인 계좌·본인 자격증명)로 범위 안. Phase 16 의 전략 자동매매(상따·VI)도 **사용자 본인이 값을 정하고 본인이 스위치를 켜는** 같은 allowlist 범위이며, 범위 밖인 「AI 자동매매 추천」과는 다르다 |
 | 포트폴리오 관리 | 인증 필요, v2 이후 |
 | AI 자동매매 추천 | 법적/윤리적 리스크, 복잡도 |
-| 모바일 앱 | 웹 우선, 반응형으로 대응 |
+| ~~모바일 앱~~ | **2026-09-25 정정 — 범위 안으로 이동:** Phase 21 이 웹을 감싸는 Capacitor Remote-URL 셸 앱(GH Trade)을 v1 **MOBILE-01** 로 만든다. 푸시 알림·딥링크·스토어 제출은 여전히 범위 밖 |
 | 실시간 채팅/커뮤니티 | 핵심 가치와 무관, 복잡도 |
 | PER/PBR 등 재무지표 스크리너 | v1 핵심이 아님, 향후 확장 |
 
@@ -187,11 +191,12 @@
 | TRADE-07 | Phase 18 | Pending |
 | TRADE-08 | Phase 18 | Pending |
 | TRADE-09 | Phase 18 | Pending |
+| MOBILE-01 | Phase 21 | Pending |
 
 **Coverage:**
 
-- v1 requirements: 51 total (TRADE-06·TRADE-07·TRADE-08·TRADE-09 added 2026-09-21 with Phase 18 discuss-phase 범위 확장 → 47→51; TRADE-04·TRADE-05 added 2026-09-18 with Phase 17 → 45→47; DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36; CHAT-01 added 2026-07-02 with Phase 14(AI 애널리스트 챗봇) → 36→37; RELAY-01·RELAY-02·RELAY-03 added 2026-09-05 with Phase 15(DMA 중계 서버) → 37→40; TRADE-01·TRADE-02·TRADE-03·NAV-01·MYPAGE-01 added 2026-09-08 with Phase 16(트레이딩 메뉴 — 상따·VI·My page) → 40→45)
-- Mapped to phases: 51
+- v1 requirements: 52 total (MOBILE-01 added 2026-09-25 with Phase 21 plan-phase — Out of Scope 「모바일 앱」 정정 → 51→52; TRADE-06·TRADE-07·TRADE-08·TRADE-09 added 2026-09-21 with Phase 18 discuss-phase 범위 확장 → 47→51; TRADE-04·TRADE-05 added 2026-09-18 with Phase 17 → 45→47; DISC-01.1 added in Phase 08.1; DATA-01 added 2026-05-10 with Phase 9 의미 교체; DATA-02 added 2026-05-13 with Phase 09.1 인서트; NEWS-02·DISC-02 removed 2026-06-08 구 Phase 10(AI Summarization) 삭제; 2026-06-08 SCAN-08 매핑 누락 보강 + 카운트 27→29 정합 정정; THEME-01·THEME-02 added 2026-06-08 with Phase 10(Theme Classification — 삭제된 구 Phase 10 번호 재사용) → 29→31; THEME-03(유저 CRUD)·THEME-04(AI 보강) added 2026-06-09 Phase 10 discuss-phase 스코프 확장 → 31→33; COMV-01 added 2026-06-11 with Phase 11(Co-movement Candidates) → 33→34; LIMIT-01 added 2026-06-26 with Phase 12(상한가 다음날 이력 통계) → 34→35; HOME-01 added 2026-07-01 with Phase 13(홈 급등 테마 AI 분석) → 35→36; CHAT-01 added 2026-07-02 with Phase 14(AI 애널리스트 챗봇) → 36→37; RELAY-01·RELAY-02·RELAY-03 added 2026-09-05 with Phase 15(DMA 중계 서버) → 37→40; TRADE-01·TRADE-02·TRADE-03·NAV-01·MYPAGE-01 added 2026-09-08 with Phase 16(트레이딩 메뉴 — 상따·VI·My page) → 40→45)
+- Mapped to phases: 52
 - Unmapped: 0 ✓
 
 ---

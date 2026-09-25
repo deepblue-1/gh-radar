@@ -1013,9 +1013,9 @@ Plans:
 ### Phase 21: GH Trade 모바일 앱 (Capacitor)
 
 **Goal:** webapp 을 Capacitor **Remote-URL 셸**(WebView 가 운영 URL 을 로드 · static export 불가 확인: middleware 인증 가드·OAuth callback route·서버 redirect)로 감싼 iOS·iPadOS·Android 앱을 만든다. 브랜드명은 웹·앱 모두 **GH Trade** 로 바꾼다(노출 문자열만 · `gh-radar:` localStorage 키는 유지). weekly-wine-app(`/Users/alex/repos/weekly-wine-app`) 을 참고해 **네이티브(Swift·Kotlin) 하단 플로팅 탭바** 홈·검색·트레이딩·AI·마이 5탭과 **pull-to-refresh** 를 붙인다. 새로고침은 네이티브 제스처가 웹의 `window.__ghTrade.refresh()` 훅을 호출하고 훅이 없으면 reload 한다(트레이딩은 relay 재탐침). Google 이 WebView OAuth 를 차단하므로 **네이티브 Google Sign-In → Supabase `signInWithIdToken`** 경로를 추가한다. 네이티브 프로젝트는 모노레포 `mobile/` 패키지에 둔다.
-**Requirements**: TBD
+**Requirements**: MOBILE-01
 **Depends on:** Phase 20
-**Plans:** 0 plans
+**Plans:** 16 plans
 
 **결정(2026-09-25 사용자 확정):** ① 탭바 = 네이티브(Swift+Kotlin) ② 로그인 = 네이티브 Google Sign-In + `signInWithIdToken` ③ pull-to-refresh = 네이티브 제스처 → 웹 refresh 훅, 없으면 reload ④ 위치 = `mobile/` 패키지.
 **목업 단계 미결(IA):** 검색 탭 목적지(전용 `/search` 페이지 vs ⌘K 다이얼로그) · 마이 탭에 프로필·로그아웃·테마 토글 수용 · iPad 넓은 폭(사이드바 노출 ≥1024)에서 탭바 처리 · 탭바 숨김 규칙(로그인 화면·바텀시트).
@@ -1023,4 +1023,19 @@ Plans:
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 21 to break down)
+- [ ] 21-01-PLAN.md — (W1) D-20 번들 ID 게이트 · 패키지 정당성 게이트 · 트레이서: `mobile/` + cap add ios + GHTradeBridgeViewController + 웹 감지 스크립트 → `ready` 가 시뮬레이터 로그에 도착
+- [ ] 21-02-PLAN.md — (W2) Android 셸 슬라이스: cap add android · Kotlin MainActivity · BridgeWebViewClient 상속 · GhTradeBridge · 에뮬레이터 스모크
+- [ ] 21-03-PLAN.md — (W2) Google OAuth 콘솔 선행(GCP iOS·Android 클라이언트 · Supabase Authorized Client IDs) + 공개 ID 상수
+- [ ] 21-04-PLAN.md — (W2) 웹 네이티브 브리지 코어: postNative · NativeBridgeProvider(window.__ghTrade · refresh 레지스트리 · route/theme/pull) · 오버레이 마커
+- [ ] 21-05-PLAN.md — (W3) 앱 셸 분기(D-09 사이드바 · D-10 「AI 분석」) + e2e 앱 모드 픽스처 · native-shell.spec
+- [ ] 21-06-PLAN.md — (W4) safe-area · 탭바 여백(D-25 · `--native-tabbar-offset` · 본문 108)
+- [ ] 21-07-PLAN.md — (W3) 새로고침 연결: relay `probeNow`(D-16) · 목록 4화면 · 트레이딩/마이 · 종목상세 GET 만(D-18)
+- [ ] 21-08-PLAN.md — (W4) `/search` 탐색 허브(D-07a) + 최근 검색 + 사이드바 「검색」
+- [ ] 21-09-PLAN.md — (W5) 브랜드명 GH Trade(D-21) + `/me` 계정 카드 A(D-08a)
+- [ ] 21-10-PLAN.md — (W3) iOS 탭바(D-27a 알약) · 경로표(D-14) · 숨김 규칙 · 탭 → navigate 훅
+- [ ] 21-11-PLAN.md — (W4) iOS 당겨서 새로고침 · 테마 추종 · 오프라인 폴백 · 방향 · Info.plist
+- [ ] 21-12-PLAN.md — (W4) Android 탭바 · TabRoutes JUnit · 인셋(탭바 컨테이너만) · 숨김 · navigate
+- [ ] 21-13-PLAN.md — (W5) Android SwipeRefresh · onBackPressedDispatcher 뒤로가기 · 테마 · 방향 · 오프라인
+- [ ] 21-14-PLAN.md — (W3) 아이콘·스플래시(D-22 `#app-a`) 렌더 · @capacitor/assets 일회 생성 · 웹 파비콘
+- [ ] 21-15-PLAN.md — (W6) 네이티브 Google 로그인(D-03): nonce · signInWithIdToken · /login 분기 · capgo 플러그인 설치·설정
+- [ ] 21-16-PLAN.md — (W7) 운영 설정 검사 · mobile/README · 전 게이트 · 실기 UAT + push(웹 배포) 승인 체크포인트
