@@ -18,6 +18,10 @@
  *   Pitfall 3  epoch 가 바뀌면(저장소 초기화 · 보관 범위 밖) `beginEpoch(…, {resync:true})` 가 error 로그로
  *              드러내고 새 epoch 첫 레코드를 갭 판정 없이 받는다 — 조용한 전면 누락을 막는다.
  *   T-19-09    큐 상한(`maxQueue`)을 넘으면 `overflow` — 관찰자가 연결을 끊어 게이트웨이 펌프가 속도를 맞춘다.
+ *   seq 역행   같은 epoch 인데 로그인 응답 head 가 `lastReceivedSeq` 보다 작으면(게이트웨이가 epoch 는 되살렸지만
+ *              최신 기록을 잃음) `resync` 값과 무관하게 `lastReceivedSeq` 를 **유지**하고 error 로그 · health 카운터로
+ *              드러낸다(gh-trade Phase 23 합의 — 게이트웨이는 다음 seq 를 since+1 로 올린다). 되돌리면 1..head 재생 →
+ *              since+1 → 갭 → since=head 재접속 → 갭이 끝없이 반복된다.
  *
  * seq 연속성(push 시점 · 동기):
  *   - `lastReceivedSeq` 이하 = 중복 → 건너뛴다(재접속 직후 겹친 재생).
@@ -188,6 +192,9 @@ export class JournalWriter extends EventEmitter {
   #lastAppliedAtMs: number | null = null;
   #consecutiveFailures = 0;
   #dbError = false;
+  /** 부팅 뒤 관측한 seq 역행 횟수 · 마지막 관측 시각(`beginEpoch`). */
+  #seqRegressions = 0;
+  #lastSeqRegressionAtMs: number | null = null;
 
   /** `drain` 대기자. 큐가 비고 진행 중 호출이 끝나면 전부 깨운다. */
   #idleWaiters: Array<() => void> = [];
@@ -230,6 +237,8 @@ export class JournalWriter extends EventEmitter {
       dbError: this.#dbError,
       lastAppliedSeq: this.#lastAppliedSeq,
       lastAppliedAtMs: this.#lastAppliedAtMs,
+      seqRegressions: this.#seqRegressions,
+      lastSeqRegressionAtMs: this.#lastSeqRegressionAtMs,
     };
   }
 
@@ -273,9 +282,24 @@ export class JournalWriter extends EventEmitter {
    * `resync` 이거나 epoch 가 현재와 다르면 새 epoch 로 바꾸고 `lastReceivedSeq = null` — 새 epoch 첫
    * 레코드는 갭 판정 없이 받는다. 큐에 남은 옛 epoch 항목은 **그 epoch 로 먼저** 나간다(한 배치에 두 epoch
    * 가 섞이지 않는다). 같은 epoch · resync 아님이면 아무것도 바꾸지 않는다(since_seq 이어받기).
+   *
+   * **seq 역행**: 같은 epoch 인데 `headSeq < lastReceivedSeq` 이면 `resync` 여도 `lastReceivedSeq` 를 유지한다 —
+   * 게이트웨이가 epoch 는 되살렸지만 최신 기록을 잃은 경우다. 비우면 게이트웨이가 1..head 를 재생하고(DB PK 가
+   * 흡수) 다음 새 레코드는 since+1 이라 갭 → since=head 재접속 → 갭이 끝없이 반복된다. error 로그와 health
+   * 카운터로 드러내되 503 은 만들지 않는다(스트림은 정상). 같은 epoch · resync · head ≥ 수신(보관 범위 밖)은 종전대로 비운다.
    */
-  beginEpoch(epoch: string, opts: { resync: boolean }): void {
+  beginEpoch(epoch: string, opts: { resync: boolean; headSeq: number }): void {
     const from = this.#epoch;
+    const received = this.#lastReceivedSeq;
+    if (epoch === from && received !== null && opts.headSeq < received) {
+      this.#seqRegressions += 1;
+      this.#lastSeqRegressionAtMs = Date.now();
+      logger.error(
+        { gateway: this.#gateway, epoch, headSeq: opts.headSeq, lastReceivedSeq: received, resync: opts.resync },
+        "[JOURNAL] 저널 seq 역행 — 같은 epoch 인데 게이트웨이 head 가 받은 seq 보다 작다",
+      );
+      return;
+    }
     if (!opts.resync && epoch === from) return;
     this.#epoch = epoch;
     this.#lastReceivedSeq = null;

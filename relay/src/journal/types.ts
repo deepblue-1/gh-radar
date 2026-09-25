@@ -164,6 +164,13 @@ export type JournalWriterHealth = {
   lastAppliedSeq: number | null;
   /** 마지막 적용 성공 시각(epoch ms). 아직 없으면 null. */
   lastAppliedAtMs: number | null;
+  /**
+   * 부팅 뒤 관측한 seq 역행 횟수 — 같은 epoch 인데 로그인 응답 head 가 마지막 수신 seq 보다 작았다
+   * (게이트웨이가 같은 epoch 를 되살렸지만 최신 기록을 잃음 · gh-trade Phase 23 합의). 0 이면 없음.
+   */
+  seqRegressions: number;
+  /** 마지막 seq 역행 관측 시각(epoch ms). 없으면 null. */
+  lastSeqRegressionAtMs: number | null;
 };
 
 /**
@@ -189,4 +196,11 @@ export type JournalHealth = {
   disconnectedSec: number | null;
   /** 마지막 적용 성공 뒤 몇 초인가. 아직 없으면 null. */
   lastAppliedAgeSec: number | null;
+  /**
+   * 부팅 뒤 seq 역행 관측 횟수(`JournalWriterHealth.seqRegressions`). **503 판정에 쓰지 않는다** —
+   * 기록기가 마지막 수신 seq 를 유지해 스트림은 정상으로 이어지므로 알림이 아니라 표시 신호다.
+   */
+  seqRegressions: number;
+  /** 마지막 seq 역행 관측 뒤 몇 초인가. 없으면 null. */
+  lastSeqRegressionAgeSec: number | null;
 };

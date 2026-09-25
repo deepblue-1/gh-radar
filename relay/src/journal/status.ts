@@ -125,6 +125,10 @@ export class JournalStatus extends EventEmitter {
       disconnectedSec:
         isTracked(state) && this.#notLiveSinceMs !== null ? secondsBetween(this.#notLiveSinceMs, nowMs) : null,
       lastAppliedAgeSec: w.lastAppliedAtMs !== null ? secondsBetween(w.lastAppliedAtMs, nowMs) : null,
+      // seq 역행은 표시 신호다 — 파생 상태·알림(`journalAlerting`)에 섞지 않는다(스트림은 정상으로 이어진다).
+      seqRegressions: w.seqRegressions,
+      lastSeqRegressionAgeSec:
+        w.lastSeqRegressionAtMs !== null ? secondsBetween(w.lastSeqRegressionAtMs, nowMs) : null,
     };
   }
 

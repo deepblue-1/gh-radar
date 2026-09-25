@@ -9,7 +9,7 @@
  *
  * 흐름:
  *   start() → 커서 읽기(`writer.readCursor`) → connect → "up" → 로그인 요청 1건 → 로그인 응답
- *   → `access.replace(accounts)` · `writer.beginEpoch(epoch, {resync})` → 배치마다 `writer.push`
+ *   → `access.replace(accounts)` · `writer.beginEpoch(epoch, {resync, headSeq})` → 배치마다 `writer.push`
  *   → `caughtUp` 이면 live.
  *
  * 결정 근거:
@@ -54,7 +54,7 @@ export const OBSERVER_CLIENT_NAME = "gh-radar-relay";
 /** 관찰자가 쓰는 기록기 표면 — `JournalWriter` 가 구조적으로 만족한다. */
 export type ObserverWriter = {
   readCursor(): Promise<JournalCursor>;
-  beginEpoch(epoch: string, opts: { resync: boolean }): void;
+  beginEpoch(epoch: string, opts: { resync: boolean; headSeq: number }): void;
   push(records: readonly JournalRecord[]): JournalPushResult;
   readonly epoch: string;
   readonly lastReceivedSeq: number | null;
@@ -288,7 +288,9 @@ export class JournalObserver extends EventEmitter {
     }
     const writer = this.#deps.writer;
     this.#deps.access.replace(result.accounts);
-    writer.beginEpoch(result.epoch, { resync: result.resync });
+    // headSeq 를 함께 넘긴다 — 같은 epoch 인데 head 가 마지막 수신 seq 보다 작으면(seq 역행) 기록기가
+    // lastReceivedSeq 를 **유지**하고 드러낸다. 그 뒤 head ≤ 수신 이므로 아래 규칙으로 곧바로 live 다.
+    writer.beginEpoch(result.epoch, { resync: result.resync, headSeq: result.headSeq });
     // 「성공」 의 기준은 TCP 접속이 아니라 관찰자 로그인이다 — 여기서 백오프를 1초로 되돌린다.
     this.#transport?.resetReconnectAttempts();
     this.#headSeq = result.headSeq;
