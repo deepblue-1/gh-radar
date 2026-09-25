@@ -469,16 +469,19 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     const t = setup({ server: null });
     let gate: string | undefined;
     let check: string | undefined;
-    act(() => {
-      gate = t.hook.result.current.commit('buyEnabled', true, 'toggle');
-    });
+    // 체크를 먼저 — 등록 전송이 나가 있으면 체크는 로컬이 아니라 대기다(WR-01, 아래 describe).
     act(() => {
       check = t.hook.result.current.commit('cancelTradeEnabled', true, 'toggle');
     });
-    expect(gate).toBe('sent');
+    act(() => {
+      gate = t.hook.result.current.commit('buyEnabled', true, 'toggle');
+    });
     expect(check).toBe('local');
+    expect(gate).toBe('sent');
     expect(t.send).toHaveBeenCalledTimes(1);
     expect(t.cfgs()[0]!.buyEnabled).toBe(true);
+    // 로컬 반영한 체크는 등록 cfg 에 실린다.
+    expect(t.cfgs()[0]!.cancelTradeEnabled).toBe(true);
   });
 
   it('CR-03 — `buyOrderAmount` 에코가 0(서버가 모른다)이어도 **답 신호만 오고 서버가 그대로면 거부**다(거부에는 에코가 없다)', () => {
@@ -693,5 +696,45 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
     t.update({ serverAnswerSeq: 1 });
     expect(t.send).toHaveBeenCalledTimes(3);
     expect(t.cfgs()[2]!.sellEnabled).toBe(false);
+  });
+});
+
+describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값 편집은 로컬 성공이 아니라 대기다', () => {
+  it('등록(매수주문 켜기) 중 매수가격 편집 → `queued` · 성공 강조 없음 · 등록 에코 뒤 답 신호에서 정상 전송', () => {
+    const t = setup({ server: null });
+    let out: string | undefined;
+    act(() => {
+      t.hook.result.current.commit('buyEnabled', true, 'toggle');
+      out = t.hook.result.current.commit('buyOrderPrice', 120_000, 'value');
+    });
+    expect(out).toBe('queued');
+    expect(t.hook.result.current.flashField).toBeNull();
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    // 등록 에코 — 등록 cfg 시점 값(매수가격 130,000). 편집은 아직 대기다.
+    t.update({ server: echo({ buyEnabled: true }) });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.buyOrderPrice).toBe(120_000);
+    expect(t.cfgs()[1]!.buyEnabled).toBe(true);
+    expect(t.cfgs()[1]!.crud).toBe('C');
+  });
+
+  it('등록이 결과 모름 뒤 늦게 거부(답 신호만)되면 대기 편집은 보내지 않고 로컬 반영한다(철거 프레임 금지)', () => {
+    const t = setup({ server: null });
+    act(() => {
+      t.hook.result.current.commit('buyEnabled', true, 'toggle');
+    });
+    t.update({ unacked: true });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyOrderPrice', 120_000, 'value');
+    });
+    expect(out).toBe('queued');
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.formRef.current.buyOrderPrice).toBe(120_000);
+    expect(t.hook.result.current.flashField).toBe('buyOrderPrice');
   });
 });

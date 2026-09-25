@@ -306,6 +306,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         writeFailures((prev) => withoutField(prev, p.field));
         continue;
       }
+      // ⑥ 앞 건(등록)이 답을 받았는데도 여전히 미등록 — 게이트 밖 필드는 로컬 반영만 한다(보내면 존재하지
+      //   않는 키의 철거 프레임이 나간다 · Pitfall 2). WR-01.
+      if (server == null && !isGateField(p.field)) {
+        optsRef.current.setForm((prev) => ({ ...prev, [p.field]: p.value }));
+        markSuccess(p.field);
+        continue;
+      }
       const out = sendNow(p, p.kind === 'toggle');
       if (out === 'sent') break;
       if (out === 'disconnected') {
@@ -317,7 +324,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
     }
     syncQueue();
-  }, [sendNow, setFailure, showToggle, syncQueue, writeFailures]);
+  }, [markSuccess, sendNow, setFailure, showToggle, syncQueue, writeFailures]);
 
   /** 대기 건 전부를 보내지 않고 실패로 표시한다 — 서버가 이미 그 값이면 실패라 말하지 않는다(⑦). */
   const failQueue = useCallback(
@@ -387,20 +394,23 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         writeFailures((prev) => withoutField(prev, field));
         return 'noop';
       }
-      // ⑥ 미등록 전략 — 게이트 4종 밖은 로컬 반영만 한다.
-      if (server == null && !isGateField(field)) {
+      // ⑦ 한 건이 끝나지 않았다(in-flight · 성공 뒤 답 신호 대기 · 타임아웃 뒤 결과 모름).
+      //   ★ 결과 모름 장벽은 **다른 필드**만 세운다(CR-02). 같은 필드의 새 확정은 그 필드의 최신 의도를
+      //     싣고, 같은 소켓이라 늦게 닿는 앞 건보다 뒤에 처리되므로 앞 건을 대체할 뿐 되돌리지 않는다 —
+      //     타임아웃 뒤 「다시 시도」(같은 스위치 다시 누르기)가 곧바로 나가는 이유다.
+      const orphanBlocks = orphan !== null && orphan.field !== field;
+      const busy = inflight !== null || popAfterSeqRef.current !== null || orphanBlocks;
+      // ⑥ 미등록 전략 — 게이트 4종 밖은 로컬 반영만 한다. ★ 단 등록 전송이 나가 있으면(busy) 대기열에 선다
+      //   (20-REVIEW WR-01) — 지금 로컬 반영하고 성공 강조를 띄우면 곧 올 등록 에코(등록 cfg 시점 값)가 폼을
+      //   덮어 사용자가 본 편집이 조용히 사라진다. 꺼낼 때 서버가 생겼으면 정상 전송, 여전히 없으면 로컬 반영.
+      if (server == null && !isGateField(field) && !busy) {
         setForm((prev) => ({ ...prev, [field]: value }));
         markSuccess(field);
         return 'local';
       }
 
       const pending: Pending = { field, value, kind, prevValue: formRef.current[field] };
-      // ⑦ 한 건이 끝나지 않았다(in-flight · 성공 뒤 답 신호 대기 · 타임아웃 뒤 결과 모름) — 대기열에 선다.
-      //   ★ 결과 모름 장벽은 **다른 필드**만 세운다(CR-02). 같은 필드의 새 확정은 그 필드의 최신 의도를
-      //     싣고, 같은 소켓이라 늦게 닿는 앞 건보다 뒤에 처리되므로 앞 건을 대체할 뿐 되돌리지 않는다 —
-      //     타임아웃 뒤 「다시 시도」(같은 스위치 다시 누르기)가 곧바로 나가는 이유다.
-      const orphanBlocks = orphan !== null && orphan.field !== field;
-      if (inflight !== null || popAfterSeqRef.current !== null || orphanBlocks) {
+      if (busy) {
         queueRef.current.push(pending);
         if (kind === 'toggle') showToggle(field, value);
         writeFailures((prev) => withoutField(prev, field));
