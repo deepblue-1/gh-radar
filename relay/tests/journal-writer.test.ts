@@ -173,7 +173,7 @@ describe("JournalWriter", () => {
   it("① 450건 push → rpc 3회(200·200·50) · seq 오름차순 · 두 번째 호출은 첫 호출이 끝난 뒤에만", async () => {
     const db = fakeDb({ defaultStep: "hold" });
     const w = make(db);
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
 
     // 두 번에 나눠 넣는다 — 첫 호출이 진행 중일 때 들어온 push 가 두 번째 호출을 동시에 열면 안 된다.
     expect(w.push(range(1, 200))).toBe("ok");
@@ -205,7 +205,7 @@ describe("JournalWriter", () => {
     db.script.push("error", "throw", "ok");
     const errorSpy = vi.spyOn(logger, "error");
     const w = make(db);
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
 
     w.push(range(1, 3));
     await flush();
@@ -243,7 +243,7 @@ describe("JournalWriter", () => {
     const w = make(db);
     const events: JournalWriterHealth[] = [];
     w.on("health", (h) => events.push(h));
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
 
     w.push([record(1)]);
     await flush();
@@ -270,7 +270,7 @@ describe("JournalWriter", () => {
     const db = fakeDb({ defaultStep: "hold" });
     const errorSpy = vi.spyOn(logger, "error");
     const w = make(db);
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
     expect(w.push(range(1, 5))).toBe("ok");
     expect(w.lastReceivedSeq).toBe(5);
     const depth = w.queueDepth;
@@ -300,7 +300,7 @@ describe("JournalWriter", () => {
   it("⑤ maxQueue 10 · 큐 8 에서 push 3건 → overflow · 아무것도 적재하지 않는다", () => {
     const db = fakeDb({ defaultStep: "hold" });
     const w = make(db, { maxQueue: 10 });
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
     expect(w.push(range(1, 8))).toBe("ok");
     expect(w.queueDepth).toBe(8);
 
@@ -342,13 +342,13 @@ describe("JournalWriter", () => {
     const w = make(db);
     await w.readCursor();
 
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 42 });
     expect(w.lastReceivedSeq).toBe(42);
     expect(w.push([record(43)])).toBe("ok"); // 첫 배치 [43] 이 보류 중
     await flush();
     expect(w.push([record(44)])).toBe("ok"); // ep-1 로 큐에 남는다
 
-    w.beginEpoch("ep-2", { resync: true });
+    w.beginEpoch("ep-2", { resync: true, headSeq: 0 });
     expect(w.epoch).toBe("ep-2");
     expect(w.lastReceivedSeq).toBeNull();
     expect(
@@ -372,10 +372,31 @@ describe("JournalWriter", () => {
     ]);
   });
 
+  it.each([true, false])("⑦b seq 역행(같은 epoch · head < 받은 seq · resync=%s) → lastReceivedSeq 유지 · error 1 · health 카운터", async (resync) => {
+    const db = fakeDb({ cursor: { data: { journal_epoch: "ep-1", last_seq: 42 }, error: null } });
+    const errorSpy = vi.spyOn(logger, "error");
+    const w = make(db);
+    await w.readCursor();
+    expect(w.health()).toMatchObject({ seqRegressions: 0, lastSeqRegressionAtMs: null });
+
+    w.beginEpoch("ep-1", { resync, headSeq: 40 });
+
+    expect(w.epoch).toBe("ep-1");
+    expect(w.lastReceivedSeq).toBe(42);
+    const hits = errorSpy.mock.calls.filter((c) => typeof c[1] === "string" && c[1].includes("저널 seq 역행"));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.[0]).toMatchObject({ gateway: GATEWAY, epoch: "ep-1", headSeq: 40, lastReceivedSeq: 42, resync });
+    expect(w.health().seqRegressions).toBe(1);
+    expect(w.health().lastSeqRegressionAtMs).not.toBeNull();
+    // 게이트웨이가 since+1 부터 보내면 갭 없이 이어진다.
+    expect(w.push([record(43)])).toBe("ok");
+    expect(w.lastReceivedSeq).toBe(43);
+  });
+
   it("⑧ drain — 큐가 비면 true · 시간 초과면 false", async () => {
     const db = fakeDb({ defaultStep: "hold" });
     const w = make(db);
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
 
     await expect(w.drain(2_000)).resolves.toBe(true); // 이미 비어 있다
 
@@ -400,7 +421,7 @@ describe("JournalWriter", () => {
   it("⑨ close() 뒤 재시도 타이머 없음 · 이후 push 거부", async () => {
     const db = fakeDb({ defaultStep: "error" });
     const w = make(db);
-    w.beginEpoch("ep-1", { resync: false });
+    w.beginEpoch("ep-1", { resync: false, headSeq: 0 });
     w.push([record(1)]);
     await flush();
     expect(db.calls).toHaveLength(1);

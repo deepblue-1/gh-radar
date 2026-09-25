@@ -267,6 +267,55 @@ describe("relay 부팅 결선 — 실 프로세스 · 관찰자 경로 (Phase 19
   );
 
   it(
+    "seq 역행(같은 epoch · head 7 < 커서 10 · resync) → 커서 유지 · 11 적용 · healthz seqRegressions 1 · 200",
+    async () => {
+      const { gateway, supabase } = await rig();
+      supabase.seedCursor({ journal_epoch: "ep-boot", last_seq: 10 });
+      gateway.respondObserverLogin({ epoch: "ep-boot", headSeq: 7, oldestSeq: 1, resync: true });
+
+      const relay = await spawnRelay({
+        gatewayPort: gateway.port,
+        supabaseUrl: supabase.url,
+        nodeEnv: "test",
+        secret: BOOT_SECRET,
+      });
+      const sock = await withTimeout(gateway.waitForObserverConnection(BOOT_WAIT_MS), BOOT_WAIT_MS + 1_000, "관찰자 연결", relay);
+      expect(gateway.observerLoginRequests()[0]).toMatchObject({ sinceSeq: 10, epoch: "ep-boot" });
+
+      const h = await waitFor(
+        () => getHealthz(relay.orderApiPort),
+        (x) => journalOf(x)?.state === "live" && journalOf(x)?.seqRegressions === 1,
+        "healthz journal live · seqRegressions 1",
+        relay,
+      );
+      // 역행 신호만으로는 503 이 아니다(스트림은 정상).
+      expect(h.status).toBe(200);
+      expect(typeof journalOf(h)?.lastSeqRegressionAgeSec).toBe("number");
+
+      // 게이트웨이가 since+1 부터 보내면 갭 없이 적용된다(lastReceivedSeq 를 되돌리지 않았다).
+      gateway.pushJournalBatch(sock, { records: [{ seq: 11 }], headSeq: 11, caughtUp: true });
+      const applies = await waitFor(
+        () => supabase.requestsTo("/rest/v1/rpc/dma_journal_apply"),
+        (rs) => rs.length >= 1,
+        "dma_journal_apply 수신",
+        relay,
+      );
+      const body = applies[0]?.body as { p_epoch: string; p_events: Array<{ seq: number }> };
+      expect(body.p_epoch).toBe("ep-boot");
+      expect(body.p_events.map((e) => e.seq)).toEqual([11]);
+      // 재접속(갭 끊기)이 없었다 — 관찰자 로그인은 처음 1건뿐.
+      expect(gateway.observerLoginRequests()).toHaveLength(1);
+      expect(relay.output()).toContain("저널 seq 역행");
+
+      relay.child.kill("SIGTERM");
+      const exit = await withTimeout(relay.exited, 5_000, "SIGTERM 종료", relay);
+      expect(exit, relay.output()).toEqual({ code: 0, signal: null });
+      expect(relay.output()).not.toContain(BOOT_SECRET);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     "production + DMA_OBSERVER_SECRET 없음 → 5초 안에 비정상 종료 · 사유 문구",
     async () => {
       const { gateway, supabase } = await rig();

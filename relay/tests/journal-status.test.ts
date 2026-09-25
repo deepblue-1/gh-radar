@@ -63,6 +63,8 @@ class FakeWriter extends EventEmitter {
     dbError: false,
     lastAppliedSeq: null,
     lastAppliedAtMs: null,
+    seqRegressions: 0,
+    lastSeqRegressionAtMs: null,
   };
   health(): JournalWriterHealth {
     return this.h;
@@ -204,7 +206,12 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
       lagSeq: 20,
       disconnectedSec: 42,
       lastAppliedAgeSec: 42,
+      seqRegressions: 0,
+      lastSeqRegressionAgeSec: null,
     });
+    // seq 역행 신호는 카운터 + 마지막 관측 뒤 경과초로 드러난다(상태는 바꾸지 않는다).
+    writer.h = { ...writer.h, seqRegressions: 1, lastSeqRegressionAtMs: Date.now() - 5_000 };
+    expect(st().health(Date.now())).toMatchObject({ state: "connecting", seqRegressions: 1, lastSeqRegressionAgeSec: 5 });
     observer.set("live");
     expect(st().health(Date.now()).disconnectedSec).toBeNull();
   });
@@ -222,7 +229,7 @@ describe("JournalStatus — journal.state 디바운스 (D-04 (a))", () => {
 // ============================================================
 
 function health(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
-  return { state, lastSeq: 1, headSeq: 1, lagSeq: 0, disconnectedSec, lastAppliedAgeSec: 1 };
+  return { state, lastSeq: 1, headSeq: 1, lagSeq: 0, disconnectedSec, lastAppliedAgeSec: 1, seqRegressions: 0, lastSeqRegressionAgeSec: null };
 }
 
 describe("journalAlerting — 장중 180초 · rejected 즉시 · 장 밖 false (D-04 (b))", () => {

@@ -310,7 +310,7 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
 
     expect(r.access.replace).toHaveBeenCalledTimes(1);
     expect(r.access.replace).toHaveBeenCalledWith(ACCOUNTS);
-    expect(beginEpoch).toHaveBeenCalledWith("ep-1", { resync: true });
+    expect(beginEpoch).toHaveBeenCalledWith("ep-1", { resync: true, headSeq: 1 });
     expect(r.transport.resets).toBe(1);
     expect(r.observer.headSeq).toBe(1);
     expect(r.observer.state).toBe("replaying");
@@ -369,6 +369,8 @@ describe("관찰자 tracer — 기동 → 로그인 → 배치 1건 → 기록�
         lagSeq: 0,
         disconnectedSec: null,
         lastAppliedAgeSec: expect.any(Number),
+        seqRegressions: 0,
+        lastSeqRegressionAgeSec: null,
       });
       expect(text).not.toMatch(/"(accountNo|userId|account_no|user_id|dmaUserId)"/);
       expect(text).not.toContain("11112222");
@@ -514,7 +516,7 @@ describe("관찰자 실패 경로 — 거부 정지 · 타임아웃 · 갭/상�
     expect(r.codec.logins[0]).toMatchObject({ sinceSeq: 5000, epoch: "ep-old" });
 
     r.transport.frame(loginOk({ epoch: "ep-new", headSeq: 3, resync: true }));
-    expect(beginEpoch).toHaveBeenCalledWith("ep-new", { resync: true });
+    expect(beginEpoch).toHaveBeenCalledWith("ep-new", { resync: true, headSeq: 3 });
     expect(r.writer.epoch).toBe("ep-new");
     expect(r.observer.state).toBe("replaying");
 
@@ -630,6 +632,78 @@ describe("관찰자 실패 경로 — 거부 정지 · 타임아웃 · 갭/상�
     expect(r.codec.logins).toHaveLength(1);
     expect(r.transport.drops).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("seq 역행 방어 — 같은 epoch 인데 게이트웨이 head 가 받은 seq 보다 작다 (gh-trade 23 합의)", () => {
+  // 시나리오: 게이트웨이가 같은 epoch 를 되살렸지만 최신 날짜 파일을 잃어 head < relay 의 마지막 수신 seq.
+  // gh-trade 는 다음 seq 를 since+1 로 올리고 resync=false 로 답하기로 했다 — relay 는 resync 값과 무관하게
+  // lastReceivedSeq 를 **유지**해야 한다(되돌리면 1..head 재생 → since+1 → 갭 → since=head 재접속 → 갭 무한 반복).
+
+  it.each([true, false])("resync=%s · head 7 < 받은 10 → lastReceivedSeq 유지 · 곧바로 live · 11 수용(갭 0) · error 1 · health 신호", async (resync) => {
+    const logs = await spyLogs();
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 10 } });
+    await bootToLogin(r);
+    expect(r.codec.logins[0]).toMatchObject({ sinceSeq: 10, epoch: "ep-1" });
+
+    r.transport.frame(loginOk({ epoch: "ep-1", headSeq: 7, oldestSeq: 1, resync }));
+
+    expect(r.writer.epoch).toBe("ep-1");
+    expect(r.writer.lastReceivedSeq).toBe(10);
+    expect(r.observer.state).toBe("live");
+    expect(countLogs(logs, "error", "저널 seq 역행")).toBe(1);
+    expect(countLogs(logs, "error", "저널 재동기화")).toBe(0);
+    const regression = logs.find((c) => c.level === "error" && c.args.some((a) => typeof a === "string" && a.includes("저널 seq 역행")));
+    expect(regression?.args[0]).toMatchObject({ gateway: GATEWAY, epoch: "ep-1", headSeq: 7, lastReceivedSeq: 10, resync });
+
+    const h = r.status.health(Date.now());
+    expect(h.seqRegressions).toBe(1);
+    expect(h.lastSeqRegressionAgeSec).toBe(0);
+    // 503 을 만들지 않는다 — 스트림은 계속 정상이다(표시만).
+    expect(h.state).toBe("live");
+
+    r.transport.frame(batch([11], 11, true));
+    expect(r.transport.drops).toEqual([]);
+    expect(r.writer.lastReceivedSeq).toBe(11);
+    await flush();
+    expect(r.db.applies()).toBe(1);
+    expectOnlyLogins(r);
+    expectNoSecret(logs);
+  });
+
+  it("회귀 방지 — 새 epoch 는 종전대로 lastReceivedSeq 를 비운다 · 역행 신호 0", async () => {
+    const logs = await spyLogs();
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 10 } });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ epoch: "ep-2", headSeq: 3, oldestSeq: 1, resync: true }));
+    expect(r.writer.epoch).toBe("ep-2");
+    expect(r.writer.lastReceivedSeq).toBeNull();
+    expect(r.observer.state).toBe("replaying");
+    expect(countLogs(logs, "error", "저널 seq 역행")).toBe(0);
+    expect(r.status.health(Date.now())).toMatchObject({ seqRegressions: 0, lastSeqRegressionAgeSec: null });
+  });
+
+  it("회귀 방지 — 같은 epoch · resync · head >= 받은 seq(보관 범위 밖) → 종전대로 비운다 · 역행 신호 0", async () => {
+    const logs = await spyLogs();
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 10 } });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ epoch: "ep-1", headSeq: 15, oldestSeq: 12, resync: true }));
+    expect(r.writer.epoch).toBe("ep-1");
+    expect(r.writer.lastReceivedSeq).toBeNull();
+    expect(r.observer.state).toBe("replaying");
+    expect(countLogs(logs, "error", "저널 재동기화")).toBe(1);
+    expect(countLogs(logs, "error", "저널 seq 역행")).toBe(0);
+    expect(r.status.health(Date.now()).seqRegressions).toBe(0);
+  });
+
+  it("회귀 방지 — 같은 epoch · resync 아님 · head == 받은 seq → 유지 · live · 역행 신호 0", async () => {
+    const logs = await spyLogs();
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 10 } });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ epoch: "ep-1", headSeq: 10, oldestSeq: 1, resync: false }));
+    expect(r.writer.lastReceivedSeq).toBe(10);
+    expect(r.observer.state).toBe("live");
+    expect(countLogs(logs, "error", "저널 seq 역행")).toBe(0);
   });
 });
 

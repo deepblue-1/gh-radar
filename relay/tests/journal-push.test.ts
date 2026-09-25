@@ -239,7 +239,7 @@ describe("저널 푸시 — 레코드 → 기록기 → 적용 RPC → 계좌 �
     const rpc = rpcSupabase(rpcCalls, opts);
     access = new JournalAccess({ supabase: rpc, gateway: GATEWAY, retryBaseMs: 10, retryMaxMs: 50 });
     writer = new JournalWriter({ supabase: rpc, gateway: GATEWAY });
-    writer.beginEpoch(EPOCH, { resync: false });
+    writer.beginEpoch(EPOCH, { resync: false, headSeq: 0 });
     fanout = new WsFanout({
       server,
       supabase: authSupabase(),

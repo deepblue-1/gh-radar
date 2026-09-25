@@ -399,7 +399,7 @@ describe("journal 판정 (Phase 19 D-04)", () => {
   const OUT_OF_WINDOW = new Date("2026-09-28T21:00:00+09:00");
 
   function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
-    return { state, lastSeq: 41, headSeq: 42, lagSeq: 1, disconnectedSec, lastAppliedAgeSec: 3 };
+    return { state, lastSeq: 41, headSeq: 42, lagSeq: 1, disconnectedSec, lastAppliedAgeSec: 3, seqRegressions: 0, lastSeqRegressionAgeSec: null };
   }
 
   let h: Harness | null = null;
@@ -439,12 +439,28 @@ describe("journal 판정 (Phase 19 D-04)", () => {
     expect(body.journal).toMatchObject({ state: "connecting", disconnectedSec: 3600 });
   });
 
-  it("journal 필드 키는 6종이고 식별자 계열이 없다 (T-19-07 · smoke health_probe)", async () => {
+  it("journal 필드 키는 8종이고 식별자 계열이 없다 (T-19-07 · smoke health_probe)", async () => {
     const { body } = await probe(journal("live", null), IN_WINDOW);
     expect(Object.keys(body.journal as object).sort()).toEqual(
-      ["disconnectedSec", "headSeq", "lagSeq", "lastAppliedAgeSec", "lastSeq", "state"],
+      [
+        "disconnectedSec",
+        "headSeq",
+        "lagSeq",
+        "lastAppliedAgeSec",
+        "lastSeq",
+        "lastSeqRegressionAgeSec",
+        "seqRegressions",
+        "state",
+      ],
     );
     expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id)"/);
+  });
+
+  it("seq 역행 신호(seqRegressions > 0)만으로는 503 이 아니다 — 스트림은 정상, 본문에만 드러난다", async () => {
+    const j: JournalHealth = { ...journal("live", null), seqRegressions: 2, lastSeqRegressionAgeSec: 30 };
+    const { status, body } = await probe(j, IN_WINDOW);
+    expect(status).toBe(200);
+    expect(body.journal).toMatchObject({ seqRegressions: 2, lastSeqRegressionAgeSec: 30 });
   });
 
   it("VPN 이 죽으면 journal 이 live 여도 degraded 503 (기록 판정은 AND 로만 더해진다)", async () => {
