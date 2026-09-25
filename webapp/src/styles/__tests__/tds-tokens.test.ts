@@ -61,6 +61,8 @@ const LIGHT_EXPECTED: Record<string, string> = {
   'nav-on-line': '#3182f6',
   'spec-dot-bg': '#3182f6',
   'spec-dot-ring': 'rgba(49, 130, 246, 0.18)',
+  'group-bg': '#f9fafb',
+  'switch-off': '#d1d6db',
 };
 
 const DARK_EXPECTED: Record<string, string> = {
@@ -90,6 +92,8 @@ const DARK_EXPECTED: Record<string, string> = {
   'nav-on-line': '#ffffff',
   'spec-dot-bg': '#9e9ea4',
   'spec-dot-ring': 'rgba(255, 255, 255, 0.08)',
+  'group-bg': '#2c2c35',
+  'switch-off': '#4d4d59',
 };
 
 /** 테마 색 토큰 — `:root`·`.dark` 둘 다 정의돼야 한다(한쪽만 두면 반대 테마에서 조용히 사라짐). */
@@ -101,6 +105,7 @@ const THEME_COLOR_TOKENS = [
   'seg-on-bg', 'seg-on-fg', 'seg-on-shadow', 'pill-on-bg', 'pill-on-fg',
   'ask-bar', 'bid-bar', 'side-bg', 'led-latent', 'led-armed', 'new-bg', 'new-bd',
   'nav-on-bg', 'nav-on-fg', 'nav-on-line', 'spec-dot-bg', 'spec-dot-ring',
+  'group-bg', 'switch-off', 'dim',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {
@@ -114,6 +119,11 @@ describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {
 
   it.each(['up-bg', 'bid-bar'])('다크 --%s 는 red500 #f04251 의 rgba 틴트', (name) => {
     expect(DARK[name]).toMatch(/^rgba\(\s*240\s*,\s*66\s*,\s*81\s*,/);
+  });
+
+  it('시트 오버레이 --dim 은 검정 rgba 틴트 — 라이트 0.2 · 다크 0.56 (TDS dimmedBackground · Phase 20)', () => {
+    expect(LIGHT.dim).toMatch(/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.2\s*\)$/);
+    expect(DARK.dim).toMatch(/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.56\s*\)$/);
   });
 
   it.each([
