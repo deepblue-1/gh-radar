@@ -49,6 +49,7 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
         {onMenuClick && (
           <button
             type="button"
+            data-slot="app-menu-button"
             onClick={onMenuClick}
             aria-label="사이드바 열기"
             /*

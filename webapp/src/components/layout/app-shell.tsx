@@ -60,7 +60,12 @@ export function AppShell({
       {/* ★ `overflow-hidden` 을 두지 않는다 — 스크롤 컨테이너가 되어 aside 의 sticky 를 죽인다. */}
       <div className="flex flex-1">
         {showSidebar && (
-          <aside className="hidden w-60 shrink-0 border-r border-transparent bg-[var(--side-bg)] p-3 lg:sticky lg:top-14 lg:block lg:h-[calc(100dvh-3.5rem)] lg:self-start lg:overflow-y-auto">
+          /*
+            Phase 21 D-09 — 아래 `app-aside` 슬롯은 앱 셸(`html.native-app`)이 폭과 무관하게 이 고정
+            사이드바를 숨기는 표식이다(규칙은 globals.css 「Phase 21 앱 셸 — 사이드바·햄버거」). 앱은
+            네이티브 탭바가 목적지를 가지므로 드로어(햄버거)만 쓴다. 브라우저는 종전 그대로다.
+          */
+          <aside data-slot="app-aside" className="hidden w-60 shrink-0 border-r border-transparent bg-[var(--side-bg)] p-3 lg:sticky lg:top-14 lg:block lg:h-[calc(100dvh-3.5rem)] lg:self-start lg:overflow-y-auto">
             {sidebar}
           </aside>
         )}

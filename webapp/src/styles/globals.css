@@ -656,6 +656,23 @@ html.native-app body * {
   overscroll-behavior-y: contain;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Phase 21 앱 셸 — 사이드바·햄버거 (D-09 · D-13)
+   - 앱(`html.native-app`)은 네이티브 탭바가 목적지를 가지므로 iPad 가로(≥lg)에서도 고정 사이드바
+     (`app-shell.tsx` `[data-slot="app-aside"]`)를 두지 않고, 헤더 햄버거(`app-header.tsx`
+     `[data-slot="app-menu-button"]`)로 여는 드로어만 쓴다. 탭바 존재를 폭으로 가르는 웹 분기는 없다.
+   - Tailwind `native:` 변형 대신 **레이어 밖 규칙**을 쓴다 — `lg:block` · `lg:hidden` 과 커스텀 변형의
+     출력 순서는 보장되지 않지만, 레이어 밖 규칙은 `utilities` 레이어를 명시도와 무관하게 항상 이긴다.
+   - 뷰포트 브레이크포인트 층(§2.2b 의 「앱 셸·사이드바」)이다 — 상따 컨테이너 쿼리 밴드와 무관하다.
+   - 브라우저(`native-app` 없음)에는 매칭되지 않는다(≥lg aside 보임 · 햄버거 숨김 그대로).
+   ───────────────────────────────────────────────────────────── */
+html.native-app [data-slot="app-aside"] {
+  display: none;
+}
+html.native-app [data-slot="app-menu-button"] {
+  display: inline-flex;
+}
+
 /* 폰 종목상세 하단 고정 「주문하기」 CTA 가 있을 때만 챗 FAB 을 CTA 위로 들어 올린다
    (호가주문 탭에서는 CTA 가 언마운트되어 FAB 이 제자리로 돌아간다).
    CTA 바(TDS BottomCTA) 높이 = pt 10 + 버튼 56 + 하단 max(20, safe) = 66 + max(20, safe) 이므로

@@ -107,6 +107,12 @@ export function ChatFab() {
     return null;
   }
 
+  /*
+    Phase 21 D-10 — 앱(`html.native-app`)에서는 `native` 변형의 hidden 으로 **표시만** 숨긴다. 진입점은 종목상세
+    히어로 첫 줄의 「AI 분석」 버튼(`stock-hero.tsx` `data-slot="stock-ai-button"`)이 대신한다.
+    경로·로그인 게이트와 measureRef 는 그대로다 — 숨은 버튼은 offsetWidth 0 이라 `CHAT_FAB_WIDTH_VAR`
+    에 0px 가 실리고, 더티 바의 우측 여백도 0 이 된다(가릴 FAB 이 없으니 맞는 값이다).
+  */
   return (
     <>
       <button
@@ -115,7 +121,7 @@ export function ChatFab() {
         data-slot="chat-fab"
         aria-label={label}
         onClick={handleClick}
-        className="fixed right-6 bottom-6 z-40 flex h-14 min-w-14 items-center gap-[var(--s-2)] rounded-full bg-[var(--primary)] px-5 text-[var(--primary-fg)] shadow-[0_8px_24px_oklch(0_0_0/0.16)] transition-[background,opacity] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)] active:opacity-90"
+        className="fixed right-6 bottom-6 z-40 flex h-14 min-w-14 items-center gap-[var(--s-2)] rounded-full bg-[var(--primary)] px-5 text-[var(--primary-fg)] shadow-[0_8px_24px_oklch(0_0_0/0.16)] transition-[background,opacity] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--primary)_88%,black)] active:opacity-90 native:hidden"
       >
         <MessageSquare className="size-[22px]" aria-hidden="true" />
         {stockContext ? (
