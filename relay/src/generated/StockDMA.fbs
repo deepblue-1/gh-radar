@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 8285a265
+// server-repo-commit: 2280c83e
 // synced-date:        2026-09-25
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -1121,10 +1121,14 @@ table ObserverLoginResp {
     message: string;         // 거부 = 단일 문구 (Phase 17 D-04 동형, D-11)
     broker: string;          // "KB"/"KYOBO" (mock 은 "MOCK") — gh-radar p_gateway 원천 (D-04)
     journal_epoch: string;   // 저널 저장소 신원 (생성 시 1회, 파일 영속 — D-06). gh-radar p_epoch 원천
-    head_seq: ulong;         // 로그인 시점 마지막(디스크에 쓴) seq
-    oldest_seq: ulong;       // 메모리 재생 원천의 첫 seq (0 = 없음)
-    resync: bool;            // true 면 oldest_seq 부터 다시 보낸다 (D-16 3조건: 요청 epoch 불일치 ·
-                             // since_seq < oldest_seq − 1 · since_seq > head_seq)
+    head_seq: ulong;         // 로그인 시점 마지막(디스크에 쓴) seq. 같은 epoch 의 미래 seq 로 붙으면 since_seq (아래 resync)
+    oldest_seq: ulong;       // 메모리 재생 원천의 첫 seq. 0 = 재생 원천 없음 — 보낼 수 있는 레코드가 없다
+    resync: bool;            // true = 요청 epoch 불일치 또는 보관 범위 밖(since_seq < oldest_seq − 1, oldest_seq 0 이면
+                             // since_seq < head_seq). oldest_seq 부터 다시 보낸다 — 단 oldest_seq = 0 이면 보낼 레코드가
+                             // 없고 전송은 다음 append(head_seq + 1)부터 시작한다 (WR-07).
+                             // 같은 epoch 인데 since_seq > head_seq(게이트웨이 head 되감김)는 resync 가 아니다 — 게이트웨이가
+                             // head 를 since_seq 로 올리고 head_seq = since_seq · oldest_seq = 0 · false 로 답한다(다음 레코드
+                             // since_seq + 1, 같은 epoch 안 seq 재사용 없음). 요청 epoch "" 의 미래 seq 만 true (D-16 · EX-01b 개정)
     accounts: [ObserverAccount];   // 실패 응답은 빈 벡터
 }
 
@@ -1151,7 +1155,8 @@ table JournalRecord {        // 23 필드 — gh-radar 이벤트 JSON 키와 1:1
     exec_qty: int;           // 체결수량 (E 가 아니면 0)
     result_code: int;
     message: string;         // 51 과 같은 조립 문구 (804 친화 문구 교체 후) — gh-radar 는 파싱하지 않는다
-    local_reject: bool;      // 로컬 합성 거부 또는 Gateway 즉시 실패 회신 (order_no = "")
+    local_reject: bool;      // 거래소에 도달한 적 없는 거부 — 로컬 합성 거부 또는 Gateway 즉시 실패 회신 (order_no = "").
+                             // 접수 불명(result_code -2) R 은 false (접수됐을 수 있다 — WR-01, order_no 는 역시 "")
 }
 
 table JournalBatch {
