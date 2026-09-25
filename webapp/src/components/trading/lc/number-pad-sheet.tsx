@@ -259,6 +259,14 @@ export function NumberPadSheet({
               className="flex min-w-0 items-baseline gap-1 tabular-nums"
             >
               <span className="inline-flex min-h-8 items-baseline">
+                {/*
+                  기준선 받침(20-07 시각 확인) — 값이 비면(수동주문 상자 첫 열림 · ⌫ 로 다 지움) 값 슬롯에 줄
+                  상자가 없어 기준선이 사라지고, 단위 「원」이 캐럿 **위**로 떠올랐다. 같은 글자 크기의 폭 0
+                  글자(ZWSP)를 늘 두어 기준선을 고정한다. 값 슬롯 글자는 그대로 비어 있고(검증 계약) 낭독에서 뺀다.
+                */}
+                <span aria-hidden="true" className="text-[26px] leading-8 font-bold">
+                  {String.fromCharCode(0x200b)}
+                </span>
                 <span
                   data-slot="numpad-value"
                   data-fresh={fresh ? 'true' : 'false'}

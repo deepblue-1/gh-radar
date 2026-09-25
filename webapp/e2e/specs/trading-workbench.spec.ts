@@ -2329,6 +2329,23 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   test.describe('Phase 20 — 터치 기기 시트 (D-12 · D-13)', () => {
     test.use({ hasTouch: true });
 
+    /**
+     * 빈 값 디스플레이 — 단위 글자가 캐럿 **옆 같은 줄**에 선다(20-07 시각 확인에서 「원」이 캐럿 위로 뜬
+     * 결함을 고쳤다 · 기준선 받침). 캐럿 오른쪽에 있고 세로 중심 차가 8px 미만이다.
+     */
+    async function expectUnitBesideCaret(sheet: Locator, label: string) {
+      const g = await sheet.locator('[data-slot="numpad-display"]').evaluate((out) => {
+        const caret = out.querySelector('[data-slot="numpad-value"]')!.nextElementSibling!.getBoundingClientRect();
+        const unit = out.lastElementChild!.getBoundingClientRect();
+        return {
+          dy: Math.abs(caret.top + caret.height / 2 - (unit.top + unit.height / 2)),
+          dx: unit.left - caret.right,
+        };
+      });
+      expect(g.dy, `${label} — 단위와 캐럿의 세로 중심 차`).toBeLessThan(8);
+      expect(g.dx, `${label} — 단위는 캐럿 오른쪽`).toBeGreaterThanOrEqual(-1);
+    }
+
     /** 등장 애니메이션(250ms slide)이 끝나야 bounding box 가 최종 자리다. */
     async function settledSheet(page: Page) {
       const sheet = page.locator('[data-slot="numpad-sheet"]');
@@ -2462,6 +2479,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       // ⌫ 로 지우고 127450 → 상한가 초과 → 잠금.
       for (let i = 0; i < 5; i += 1) await pad.getByRole('button', { name: '한 글자 지우기' }).tap();
       await expect(display).toHaveText('');
+      await expectUnitBesideCaret(sheet, '매수가격 · 다 지운 뒤');
       await typeKeys('127450');
       await expect(display).toHaveText('127,450');
       await expect(alert).toHaveText('상한가 127,400원을 넘을 수 없어요');
@@ -2523,6 +2541,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await priceBox.tap();
       let sheet = await settledSheet(page);
       await expect(sheet).toHaveAccessibleName('가격');
+      // 빈 상자로 처음 연 시트 — 단위 「원」이 캐럿 옆 같은 줄이다.
+      await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('');
+      await expectUnitBesideCaret(sheet, '수동주문 가격 · 빈 값');
       await sheet.getByRole('button', { name: '현재가', exact: true }).tap();
       await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('98,100');
       await sheet.getByRole('button', { name: '가격 입력' }).tap();
