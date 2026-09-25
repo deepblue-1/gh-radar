@@ -10,11 +10,12 @@
  *
  *   **빠진 것(D-20):** 계좌 행(계좌는 전략 키의 일부라 카드/상태줄이 정한다) · 가격 ± 버튼 ·
  *   보유 비율 버튼 · 「호가창의 행을 클릭하면…」 안내. 매수 비율 버튼이 원래 없던 것은 그대로다.
+ *   Phase 20(D-08)에서 조각 수 −/+ 스테퍼도 뺐다 — 입력은 상자 타이핑 · ↑↓ · 키패드 시트 칩이다.
  *
  * ② ★ 오조작 방지 규율 — **살아남는 것**과 **뒤집힌 것**
  *   살아남는다(한 글자도 완화하지 않는다):
  *   1. **색·위치·문구 3중 일치** — 매수 = `--up`(빨강) · **왼쪽** · 「매수」,
- *      매도 = `--down`(파랑) · 그 오른쪽 · 「매도」. 정정·취소는 방향색을 쓰지 않는다(`--card`).
+ *      매도 = `--down`(파랑) · 그 오른쪽 · 「매도」. 정정·취소는 방향색을 쓰지 않는다(`--muted`).
  *   2. **확인 다이얼로그 필수** — 4버튼 전부 다이얼로그를 거친다. 기본 포커스는 취소다.
  *      건너뛰는 경로는 이 파일에 없다(`handleAction` → `setConfirm` 이 유일한 진입).
  *   3. **제출 후 즉시 재활성 금지** — 응답 전까지 4버튼 전부 비활성 + 「주문 전송 중…」 +
@@ -54,13 +55,19 @@
  * ④ ★ 77 판정은 `affordanceOf` 한 곳이다 (D-22)
  *   버튼 라벨(매수 ↔ 예약매수) · 조각 입력 표시 · 확인 문구는 전부 `affordanceOf` 반환에서 온다.
  *   이 파일은 **벽시계를 읽지 않고**, 77 값으로 **제출을 막지 않는다**(거부는 서버 몫).
- *   조각 수는 스테퍼가 **보일 때만** 요청에 싣는다 — 화면에 없는 값을 싣지 않는다(T-18-34).
+ *   조각 수는 조각 수 상자가 **보일 때만** 요청에 싣는다 — 화면에 없는 값을 싣지 않는다(T-18-34).
  *
  * ⑤ 주문은 relay wss 단일 경로다 — `useRelayContext().sendOrder(req)` 만 부른다
  *   프레임·`rid` 를 여기서 만들지 않는다. 생성처가 하나여야 relay 의 `rid` 중복 가드가 정상
  *   주문을 막지 않는다. 종목 키는 12자 **ISIN** 이다(D-28).
  *
  * ⑥ 토스트를 쓰지 않는다 — 결과는 폼 하단 인라인 `role="status"` 하나로만 알린다.
+ *
+ * ⑧ 입력 표면 (Phase 20 D-08 · D-10 · D-14c · D-15) — **표현과 입력 방법만** 바뀌었다
+ *   가격 · 수량 · 조각 수는 토스 상자(`TicketBox`)다. 마우스 기기는 상자 안 입력칸에 직접 친다 —
+ *   들어오면 값 전체 선택 · ↑/↓ = 가격 한 호가 / 수량·조각 1 · Enter = blur(주문 아님). 가격이
+ *   호가 단위·상한가를 어기면 상자 아래 한 줄로 말하지만 **주문 버튼은 잠그지 않는다**(판정은 서버).
+ *   값을 보정하지도 않는다. 주문이 나가는 길(②)은 한 줄도 바뀌지 않았다.
  *
  * ⑦ 정정·취소는 **미체결 행 선택**으로만 열린다 (D-21)
  *   선택은 상위(미체결 표)가 소유하고 `selectedUnfilled` 로 내려준다. 선택이 없으면 두 버튼
@@ -69,8 +76,16 @@
  *   을 승계하고(사용자가 고르지 않는다), 취소는 **미체결 잔량 전부**다(부분 취소 경로 없음).
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type {
+  ChangeEvent,
+  FocusEvent,
+  KeyboardEvent,
+  MouseEvent,
+  PointerEvent,
+  ReactNode,
+} from 'react';
+import { priceInputIssue } from '@gh-radar/shared';
 import type {
   OrderSide,
   RelayExchange,
@@ -88,6 +103,7 @@ import {
 } from '@/components/orderbook/order-confirm-dialog';
 import { DISABLED_LABEL, type PriceSelection } from '@/components/orderbook/order-panel';
 import { strategyKey } from '@/lib/limit-chaser';
+import { priceIssueText, stepValue } from '@/lib/numpad';
 import { affordanceOf } from '@/lib/queued-window';
 import {
   useRelayContext,
@@ -99,13 +115,18 @@ import { cn } from '@/lib/utils';
 
 const KRW = new Intl.NumberFormat('ko-KR');
 
-/** 예약구간 조각 수 스테퍼의 **초기값**(상한이 아니다 — 상한은 서버 `maxPieces`). */
+/** 예약구간 조각 수의 **초기값**(상한이 아니다 — 상한은 서버 `maxPieces`). */
 const DEFAULT_PIECES = 5;
 
 /** UI-SPEC §수동주문 원문. */
 const OFFHOURS_DISABLED_TITLE = '시간외종가는 KRX · 시간외종가 창(G2/G3)에서만 고를 수 있어요';
 const OFFHOURS_HINT = '가격 0 · krx_session 으로 전송 · 정정 불가(취소 후 재등록)';
 const ORDERBOOK_FOOTNOTE = '신규 매수/매도와 정정·취소 · 시간외종가는 정정 불가(취소 후 재등록)';
+/** 선택 전 정정·취소 비활성 이유(UI-SPEC §8 #8). */
+const MODIFY_CANCEL_FOOTNOTE = '정정·취소는 미체결 행을 선택하면 활성화돼요';
+/** 가격 상자 힌트 — 호가 사다리가 가격을 채운다(D-20 승계). */
+const PRICE_HINT = '호가를 누르면 채워져요';
+const PIECES_HINT = '예약구간 · KRX 만';
 /**
  * 시간외종가를 골랐는데 보낼 세션이 없다(창이 방금 닫혔거나 거래소가 KRX 가 아님) — WR-01.
  * 이때는 주문을 **만들지 않는다**. 숨겨진 옛 지정가로 떨어지면 사용자가 고른 것과 다른 주문이 나간다.
@@ -274,6 +295,13 @@ export interface ManualOrderFormProps {
   /** 시간외종가 「참고 종가」(표시 전용). */
   referenceClose?: number | null;
   /**
+   * 같은 카드 시세의 현재 체결가 — 가격 시트 칩 「현재가」 원천(D-17). 0/부재 = 시세 없음(칩 비활성).
+   * ★ 다른 종목 · 다른 카드의 시세를 넘기지 않는다(T-18-48) — 호출부가 같은 `isin`/`exchange` 시세만 준다.
+   */
+  currentPrice?: number;
+  /** 같은 카드의 상한가 — 가격 검증(D-15) · 시트 칩 「상한가」. 0/부재 = 모름(상한 검사 생략). */
+  upperLimit?: number;
+  /**
    * 미체결 표에서 선택된 원주문 (D-21). 들어오면 가격·수량이 원주문 값(가격 · 미체결 잔량)으로
    * 채워지고 폼 위에 칩이 뜬다. `null`/부재 = 선택 없음 → 정정·취소 `disabled`.
    */
@@ -313,6 +341,8 @@ export function ManualOrderForm({
   status,
   selectedPrice,
   referenceClose,
+  currentPrice,
+  upperLimit,
   selectedUnfilled,
   onClearSelection,
   onSubmitted,
@@ -391,7 +421,7 @@ export function ManualOrderForm({
     if (orderTypeState === 'offhours' && !aff.offHoursSelectable) setOrderType('limit');
   }, [orderTypeState, aff.offHoursSelectable]);
 
-  /* 서버 상한이 내려가면 스테퍼 표시값도 따라 내려간다(상한 = 서버 `maxPieces`). */
+  /* 서버 상한이 내려가면 조각 수 표시값도 따라 내려간다(상한 = 서버 `maxPieces`). */
   useEffect(() => {
     if (!aff.showPieceInput) return;
     setPieceText((prev) => String(clampPieces(digitsToNumber(prev), aff.maxPieces)));
@@ -451,14 +481,32 @@ export function ManualOrderForm({
   const busy = submitting || locked;
   const gateDisabled = status !== 'ready';
 
-  const stepPieces = useCallback(
-    (dir: 1 | -1) => {
-      setPieceText((prev) =>
-        String(clampPieces(clampPieces(digitsToNumber(prev), aff.maxPieces) + dir, aff.maxPieces)),
-      );
-    },
-    [aff.maxPieces],
-  );
+  /**
+   * 인라인 입력의 키(D-14c) — ↑/↓ 는 가격 한 호가(`stepValue` 원) · 수량 1 · 조각 수 1(1~`maxPieces`),
+   * Enter 는 blur 뿐이다. **어느 키도 주문을 만들지 않는다** — 주문은 4버튼 → 확인 다이얼로그뿐(②-2).
+   */
+  const stepKeyDown =
+    (field: 'price' | 'qty' | 'pieces') => (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.nativeEvent.isComposing) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.currentTarget.blur();
+        return;
+      }
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      const dir = e.key === 'ArrowUp' ? 1 : -1;
+      if (field === 'pieces') {
+        setPieceText(String(clampPieces(pieces + dir, aff.maxPieces)));
+        return;
+      }
+      setValidation(null);
+      const next = stepValue(field === 'price' ? price : qty, field === 'price' ? '원' : '주', dir);
+      const text = next > 0 ? KRW.format(next) : '';
+      if (field === 'price') setPriceText(text);
+      else setQtyText(text);
+    };
 
   /**
    * 4버튼의 유일한 진입. 검증 → 요청 스냅샷 → **확인 다이얼로그**. 여기서 전송하지 않는다.
@@ -568,7 +616,7 @@ export function ManualOrderForm({
       side,
       qty,
       price: sendPrice,
-      // 스테퍼가 **보일 때만** 싣는다(부재 = 1).
+      // 조각 수 상자가 **보일 때만** 싣는다(부재 = 1).
       ...(aff.showPieceInput ? { pieceCount: pieces } : {}),
       // 시간외종가일 때만 세션을 싣는다 — 이 값이 있어야 price 0 이 허용된다.
       ...(session !== null ? { krxSession: session } : {}),
@@ -667,27 +715,26 @@ export function ManualOrderForm({
   const modifyDisabled =
     gateDisabled || busy || !selected || offHours || !canModify(selected);
   const cancelDisabled = gateDisabled || busy || !selected;
+  /* D-15 — 인라인 가격 검증. 값을 보정하지 않고 주문 버튼도 잠그지 않는다(판정은 서버). 시간외종가는 가격 0 이라 보지 않는다. */
+  const priceIssue = !offHours && price > 0 ? priceInputIssue(price, upperLimit ?? 0) : null;
 
   return (
     <div
       data-testid="manual-order-form"
-      className={cn(
-        'flex min-w-0 flex-col gap-[var(--s-2)] [--lw:76px] @min-[992px]/lc:[--lw:104px]',
-        className,
-      )}
+      className={cn('flex min-w-0 flex-col gap-2', className)}
     >
       {selected && (
         <div
           data-testid="manual-order-selchip"
-          className="flex min-w-0 items-center gap-1.5 rounded-[var(--r)] border border-[var(--fg)] bg-[var(--muted)] py-1 pr-1.5 pl-2 text-[11px] text-[var(--fg)]"
+          className="flex min-w-0 items-center gap-1.5 rounded-[12px] bg-[var(--muted)] py-0 pl-3 text-[13px] text-[var(--fg-2)]"
         >
           <span className="flex min-w-0 flex-col leading-[1.3]">
             <span className="truncate">
-              원주문 <b className="mono font-bold">{selected.orderNo}</b>
+              원주문 <b className="mono font-semibold text-[var(--fg)]">{selected.orderNo}</b>
             </span>
             <span className="truncate">
               {selected.side === 'B' ? '매수' : '매도'}{' '}
-              <b className="mono font-bold">
+              <b className="mono font-semibold text-[var(--fg)]">
                 {/* 시간외종가 원주문은 「0」 이 아니라 「시간외종가」 다 — 정정 잠금과 같은 판정(GC-IN-03). */}
                 {isOffhoursOrder(selected)
                   ? OFFHOURS_PRICE_LABEL
@@ -700,22 +747,124 @@ export function ManualOrderForm({
             type="button"
             aria-label="선택 해제"
             onClick={onClearSelection}
-            className="ml-auto flex-none px-0.5 text-[12px] text-[var(--fg)]"
+            className="ml-auto flex min-h-11 min-w-11 flex-none items-center justify-center text-[13px] text-[var(--muted-fg)]"
           >
             ✕
           </button>
         </div>
       )}
 
+      {offHours ? (
+        <>
+          {/* 1' 시간외종가(호가 탭 · D-23) — 탭 · 입력이 없는 상자. 가격은 0 으로 나간다. */}
+          <TicketBox
+            label="가격"
+            locked
+            hint={`참고 종가 ${
+              referenceClose != null && referenceClose > 0 ? `${KRW.format(referenceClose)}원` : '—'
+            }`}
+          >
+            <input
+              value="—"
+              disabled
+              aria-label="가격(시간외종가 · 잠김)"
+              className="min-w-0 flex-1 bg-transparent p-0 text-[17px] font-semibold text-[var(--muted-fg)] outline-none"
+            />
+          </TicketBox>
+          <p className="m-0 min-w-0 break-words text-[12px] leading-snug text-[var(--muted-fg)]">
+            {OFFHOURS_HINT}
+          </p>
+        </>
+      ) : (
+        <>
+          <TicketBox label="가격" hint={PRICE_HINT} unit="원" htmlFor={`mo-price-${isin}`}>
+            <input
+              id={`mo-price-${isin}`}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="가격 입력"
+              value={priceText}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setValidation(null);
+                setPriceText(formatDigits(e.target.value));
+              }}
+              onKeyDown={stepKeyDown('price')}
+              {...SELECT_ON_ENTRY}
+              data-focus-ring="seamless"
+              className={TICKET_INPUT_CLASS}
+            />
+          </TicketBox>
+          {priceIssue && (
+            <p
+              data-testid="manual-order-price-issue"
+              role="status"
+              aria-live="polite"
+              className="m-0 -mt-1 min-w-0 pl-0.5 text-[12.5px] leading-snug break-keep text-[var(--destructive)]"
+            >
+              {priceIssueText(priceIssue)}
+            </p>
+          )}
+        </>
+      )}
+
+      <TicketBox label="수량" unit="주" htmlFor={`mo-qty-${isin}`}>
+        <input
+          id={`mo-qty-${isin}`}
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="수량 입력"
+          value={qtyText}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
+            setValidation(null);
+            setQtyText(formatDigits(e.target.value));
+          }}
+          onKeyDown={stepKeyDown('qty')}
+          {...SELECT_ON_ENTRY}
+          data-focus-ring="seamless"
+          className={TICKET_INPUT_CLASS}
+        />
+      </TicketBox>
+
+      {aff.showPieceInput && (
+        <TicketBox label="조각 수" hint={PIECES_HINT} unit="회" htmlFor={`mo-pieces-${isin}`}>
+          <input
+            id={`mo-pieces-${isin}`}
+            inputMode="numeric"
+            autoComplete="off"
+            value={pieceText}
+            onChange={(e) => setPieceText(e.target.value.replace(/[^0-9]/g, ''))}
+            onBlur={() => setPieceText(String(pieces))}
+            onKeyDown={stepKeyDown('pieces')}
+            {...SELECT_ON_ENTRY}
+            data-focus-ring="seamless"
+            className={TICKET_INPUT_CLASS}
+          />
+        </TicketBox>
+      )}
+
       {variant === 'orderbook' && (
-        <Row label="주문유형" htmlFor={`mo-type-${isin}`}>
+        /* 4 주문유형(호가 탭 전용 · D-23) — 보이는 것은 「지정가 ›」 글자, 고르는 것은 그 위에 투명하게 겹친 네이티브 select. */
+        <div className="relative flex min-h-[44px] min-w-0 items-center justify-between gap-2 rounded-[8px] has-[select:focus-visible]:ring-2 has-[select:focus-visible]:ring-[var(--ring)]">
+          <label
+            htmlFor={`mo-type-${isin}`}
+            className="whitespace-nowrap text-[14px] text-[var(--muted-fg)]"
+          >
+            주문유형
+          </label>
+          <span
+            aria-hidden="true"
+            data-slot="mo-type-value"
+            className="whitespace-nowrap text-[14px] font-medium text-[var(--fg-2)]"
+          >
+            {offHours ? '시간외종가' : '지정가'} <span className="text-[var(--faint)]">›</span>
+          </span>
           <select
             id={`mo-type-${isin}`}
             aria-label="주문유형"
             value={orderType}
             onChange={(e) => setOrderType(e.target.value === 'offhours' ? 'offhours' : 'limit')}
             title={aff.offHoursSelectable ? undefined : OFFHOURS_DISABLED_TITLE}
-            className="h-[46px] w-full min-w-0 rounded-[var(--r)] border border-[var(--input)] bg-[var(--muted)] px-2 text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)]"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           >
             <option value="limit">지정가</option>
             <option
@@ -726,139 +875,59 @@ export function ManualOrderForm({
               시간외종가
             </option>
           </select>
-        </Row>
+        </div>
       )}
 
-      {offHours ? (
-        <>
-          <Row label="가격">
-            <UnitBox unit="원" locked>
-              <input
-                value="—"
-                disabled
-                aria-label="가격(시간외종가 · 잠김)"
-                className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--muted-fg)] outline-none"
-              />
-            </UnitBox>
-          </Row>
-          <Row label="">
-            <div className="flex min-w-0 items-baseline justify-between gap-[var(--s-2)] text-[11px] text-[var(--muted-fg)]">
-              <span className="truncate">참고 종가</span>
-              <b className="mono flex-none font-semibold text-[var(--fg)]">
-                {referenceClose != null && referenceClose > 0 ? KRW.format(referenceClose) : '—'}
-              </b>
-            </div>
-          </Row>
-          <Row label="">
-            <p className="m-0 min-w-0 break-words text-[11px] leading-snug text-[var(--muted-fg)]">
-              {OFFHOURS_HINT}
-            </p>
-          </Row>
-        </>
-      ) : (
-        <Row label="가격" htmlFor={`mo-price-${isin}`}>
-          <UnitBox unit="원">
-            <input
-              id={`mo-price-${isin}`}
-              inputMode="numeric"
-              autoComplete="off"
-              value={priceText}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                setValidation(null);
-                setPriceText(formatDigits(e.target.value));
-              }}
-              data-focus-ring="seamless"
-              className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)] outline-none"
-            />
-          </UnitBox>
-        </Row>
-      )}
-
-      <Row label="수량" htmlFor={`mo-qty-${isin}`}>
-        <UnitBox unit="주">
-          <input
-            id={`mo-qty-${isin}`}
-            inputMode="numeric"
-            autoComplete="off"
-            value={qtyText}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => {
-              setValidation(null);
-              setQtyText(formatDigits(e.target.value));
-            }}
-            data-focus-ring="seamless"
-            className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)] outline-none"
-          />
-        </UnitBox>
-      </Row>
-
-      {aff.showPieceInput && (
-        <Row label="조각 수" htmlFor={`mo-pieces-${isin}`}>
-          <div className="flex min-w-0 items-center gap-1">
-            <StepButton label="조각 줄이기" onClick={() => stepPieces(-1)}>
-              −
-            </StepButton>
-            <UnitBox unit={`/ 최대 ${aff.maxPieces}`}>
-              <input
-                id={`mo-pieces-${isin}`}
-                inputMode="numeric"
-                autoComplete="off"
-                value={pieceText}
-                onChange={(e) => setPieceText(e.target.value.replace(/[^0-9]/g, ''))}
-                onBlur={() => setPieceText(String(pieces))}
-                data-focus-ring="seamless"
-                className="mono min-w-0 flex-1 bg-transparent text-right text-[length:var(--t-base)] pointer-fine:text-[length:var(--t-caption)] text-[var(--fg)] outline-none"
-              />
-            </UnitBox>
-            <StepButton label="조각 늘리기" onClick={() => stepPieces(1)}>
-              +
-            </StepButton>
-          </div>
-        </Row>
-      )}
-
-      <div className="flex min-w-0 items-baseline justify-between gap-[var(--s-2)] rounded-[var(--r-md)] bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]">
-        <span className="text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
-          주문금액
-        </span>
-        <b className="mono min-w-0 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
+      {/* 5 주문금액 — 44px 행 · 쉐브런 없음. */}
+      <div className="flex min-h-[44px] min-w-0 items-center justify-between gap-2">
+        <span className="whitespace-nowrap text-[14px] text-[var(--muted-fg)]">주문금액</span>
+        <b
+          title={offHours ? undefined : `${KRW.format(price * qty)}원`}
+          className="min-w-0 truncate text-[14px] font-medium text-[var(--fg-2)]"
+        >
           {offHours ? '종가 확정 후' : `${KRW.format(price * qty)}원`}
         </b>
       </div>
 
       {/*
-        4버튼 2×2 — D-20 이 단일 제출 버튼 규율을 뒤집은 자리(②). 윗줄 매수 | 매도, 아랫줄 정정 | 취소
-        (사용자 요청 2026-09-23 — 한 줄 4개는 버튼이 좁았다). 매수가 **왼쪽**, 매도가 그 오른쪽이다(3중 일치).
+        6·7 버튼 두 줄 — D-20 이 단일 제출 버튼 규율을 뒤집은 자리(②). 윗줄 매수 | 매도 48px,
+        아랫줄 정정 | 취소 38px(D-11). 매수가 **왼쪽**, 매도가 그 오른쪽이다(3중 일치).
       */}
-      <div
-        data-testid="manual-order-buttons"
-        className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-1"
-      >
-        <OrderButton tone="buy" disabled={sideDisabled} onClick={() => handleAction('buy')}>
-          <SideLabel label={buyLabel} />
-        </OrderButton>
-        <OrderButton tone="sell" disabled={sideDisabled} onClick={() => handleAction('sell')}>
-          <SideLabel label={sellLabel} />
-        </OrderButton>
-        <OrderButton
-          tone="plain"
-          disabled={modifyDisabled}
-          title={modifyLock ?? undefined}
-          onClick={() => handleAction('modify')}
-        >
-          정정
-        </OrderButton>
-        <OrderButton tone="plain" disabled={cancelDisabled} onClick={() => handleAction('cancel')}>
-          취소
-        </OrderButton>
+      <div data-testid="manual-order-buttons" className="flex min-w-0 flex-col">
+        <div className="mt-0.5 grid grid-cols-2 gap-2">
+          <OrderButton tone="buy" disabled={sideDisabled} onClick={() => handleAction('buy')}>
+            <SideLabel label={buyLabel} />
+          </OrderButton>
+          <OrderButton tone="sell" disabled={sideDisabled} onClick={() => handleAction('sell')}>
+            <SideLabel label={sellLabel} />
+          </OrderButton>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <OrderButton
+            tone="plain"
+            disabled={modifyDisabled}
+            title={modifyLock ?? undefined}
+            onClick={() => handleAction('modify')}
+          >
+            정정
+          </OrderButton>
+          <OrderButton tone="plain" disabled={cancelDisabled} onClick={() => handleAction('cancel')}>
+            취소
+          </OrderButton>
+        </div>
       </div>
 
+      {!selected && (
+        <p className="m-0 text-center text-[12px] text-[var(--muted-fg)]">{MODIFY_CANCEL_FOOTNOTE}</p>
+      )}
+
       {sending && (
-        <p role="status" aria-live="polite" className="m-0 text-[11px] text-[var(--muted-fg)]">
+        <p role="status" aria-live="polite" className="m-0 text-[12px] text-[var(--muted-fg)]">
           주문 전송 중…
         </p>
       )}
       {!sending && gateDisabled && DISABLED_LABEL[status] && (
-        <p role="status" aria-live="polite" className="m-0 text-[11px] text-[var(--muted-fg)]">
+        <p role="status" aria-live="polite" className="m-0 text-[12px] text-[var(--muted-fg)]">
           {DISABLED_LABEL[status]}
         </p>
       )}
@@ -868,14 +937,14 @@ export function ManualOrderForm({
           role="status"
           aria-live="polite"
           data-testid="manual-order-validation"
-          className="m-0 break-words text-[11px] font-semibold text-[var(--fg)]"
+          className="m-0 break-words text-[12px] font-semibold text-[var(--destructive)]"
         >
           {validation}
         </p>
       )}
 
       {aff.confirmNote && (
-        <p className="m-0 break-words text-[11px] leading-snug text-[var(--muted-fg)]">
+        <p className="m-0 break-words text-[12px] leading-snug text-[var(--muted-fg)]">
           {aff.confirmNote}
         </p>
       )}
@@ -888,14 +957,14 @@ export function ManualOrderForm({
           role="status"
           aria-live="polite"
           data-testid="manual-order-locked"
-          className="m-0 break-keep rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-2.5 py-1.5 text-[11px] leading-snug text-[var(--fg)]"
+          className="m-0 break-keep rounded-[12px] bg-[var(--muted)] px-3 py-2 text-[12px] leading-snug text-[var(--fg)]"
         >
           {RESULT_UNKNOWN_LOCKED_TEXT}
         </p>
       )}
 
       {variant === 'orderbook' && (
-        <p className="m-0 break-words text-[11px] leading-snug text-[var(--muted-fg)]">
+        <p className="m-0 break-words text-[12px] leading-snug text-[var(--muted-fg)]">
           {ORDERBOOK_FOOTNOTE}
         </p>
       )}
@@ -980,7 +1049,7 @@ export function ManualOrderEntry({
       <div
         role="tablist"
         aria-label="주문 진입"
-        className="mb-[var(--s-2)] grid grid-cols-3 gap-[var(--s-1)] @min-[700px]/lc:hidden"
+        className="mb-2 grid grid-cols-3 gap-0.5 rounded-[12px] bg-[var(--muted)] p-[3px] @min-[700px]/lc:hidden"
       >
         {(['buy', 'sell', 'manual'] as const).map((t) => {
           const active = tab === t;
@@ -995,10 +1064,10 @@ export function ManualOrderEntry({
                 if (t !== 'manual') onOptionsTab?.(t);
               }}
               className={cn(
-                // 토스 B `.side-tabs`(260924-vj1) — 상따 폼 탭과 같은 규칙: 중립 선택 면, 글자가 방향을 말한다.
-                'h-[42px] min-w-0 rounded-[var(--r)] border border-transparent text-[length:var(--t-sm)] font-semibold',
+                // UI-SPEC §9 — 트랙 `--muted` 위 34px 세그먼트. 중립 선택 면, 글자가 방향을 말한다.
+                'h-[34px] min-w-0 rounded-[10px] text-[15px] font-semibold',
                 active && 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]',
-                !active && 'bg-[var(--muted)] text-[var(--muted-fg)]',
+                !active && 'bg-transparent text-[var(--muted-fg)]',
               )}
             >
               {t === 'buy' ? '매수' : t === 'sell' ? '매도' : '수동'}
@@ -1008,18 +1077,21 @@ export function ManualOrderEntry({
       </div>
 
       {/* 700 이상 — 옵션 우상단 「수동주문」 버튼 / 덮은 뒤 헤더 */}
-      <div className="mb-1 hidden min-h-[26px] min-w-0 items-center gap-[var(--s-2)] @min-[700px]/lc:flex">
+      <div className="mb-1 hidden min-h-8 min-w-0 items-center gap-2 @min-[700px]/lc:flex">
         {cover ? (
           <>
-            <b className="flex-none text-[length:var(--t-caption)] text-[var(--fg)]">수동주문</b>
-            <span className="mono min-w-0 flex-1 truncate text-[11px] text-[var(--muted-fg)]">
-              키 {keyLabel}
+            {/* 키는 한 줄 말줄임 + title 로 전체 키(UI-SPEC 레이아웃 계약 · E6 long-text). */}
+            <span
+              title={keyLabel}
+              className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted-fg)]"
+            >
+              수동주문 · <span className="mono">키 {keyLabel}</span>
             </span>
             <button
               type="button"
               aria-label="수동주문 닫기"
               onClick={closeCover}
-              className="ml-auto h-6 flex-none rounded-[var(--r)] px-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)] hover:bg-[var(--muted)]"
+              className="ml-auto flex size-8 flex-none items-center justify-center rounded-[8px] text-[15px] text-[var(--muted-fg)] hover:bg-[var(--muted)]"
             >
               ✕
             </button>
@@ -1029,7 +1101,7 @@ export function ManualOrderEntry({
             ref={openRef}
             type="button"
             onClick={() => setCover(true)}
-            className="ml-auto h-6 rounded-[var(--r)] border border-transparent bg-[var(--muted)] px-2 text-[length:var(--t-caption)] font-semibold text-[var(--fg)] hover:bg-[var(--raised-2)]"
+            className="ml-auto h-8 rounded-[8px] bg-[var(--muted)] px-3 text-[13px] font-semibold text-[var(--fg-2)] hover:bg-[var(--raised-2)]"
           >
             수동주문
           </button>
@@ -1103,98 +1175,120 @@ function ResultBanner({ result }: { result: OrderResult }) {
       aria-live="polite"
       data-testid="manual-order-result"
       data-kind={result.kind}
-      className="flex min-w-0 flex-col gap-0.5 rounded-[var(--r-md)] border border-transparent bg-[var(--muted)] px-[var(--s-3)] py-[var(--s-2)]"
+      className="flex min-w-0 flex-col gap-0.5 rounded-[12px] bg-[var(--muted)] px-3 py-2"
     >
-      <span className="break-words text-[length:var(--t-caption)] font-semibold text-[var(--fg)]">
+      <span
+        className={cn(
+          'break-words text-[12px] font-semibold',
+          // 거부만 오류 톤이다. 결과 모름은 접수와 같은 중립 톤(거부 톤 = 「실패」로 읽힌다).
+          result.kind === 'rejected' ? 'text-[var(--destructive)]' : 'text-[var(--fg)]',
+        )}
+      >
         {title}
       </span>
-      <span className="break-words text-[11px] text-[var(--muted-fg)]">{detail}</span>
-    </div>
-  );
-}
-
-/** 폼 한 행 — 라벨 칸 `--lw`(76→104, 상따 폼과 같은 축) + 컨트롤. */
-function Row({
-  label,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="grid min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5">
-      {label ? (
-        <label
-          htmlFor={htmlFor}
-          className="whitespace-nowrap text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]"
-        >
-          {label}
-        </label>
-      ) : (
-        <span aria-hidden="true" />
-      )}
-      <div className="min-w-0">{children}</div>
+      <span className="break-words text-[12px] text-[var(--muted-fg)]">{detail}</span>
     </div>
   );
 }
 
 /**
- * 입력 + 단위 상자. `locked` = 시간외종가 가격 잠금(`--muted` 배경).
- * 포커스는 상따 폼 `NumInput` 과 같은 **테두리 한 겹**(`focus-within:border-[var(--ring)]`)이다 —
- * 안의 입력이 `data-focus-ring="seamless"` 로 전역 이중 링을 걷는 것과 **한 쌍**이다(globals.css §8.5.5).
+ * 인라인 입력칸 — 17/600 · 투명 · 테두리 없음 · 자리표시 `--faint` 500. 폭은 `field-sizing: content`
+ * (값 길이만큼 — 단위가 값 바로 뒤에 붙는다) · 미지원 브라우저는 입력 기본 폭이 flex 로 줄어든다.
  */
-function UnitBox({
+const TICKET_INPUT_CLASS =
+  'min-w-[1ch] flex-[0_1_auto] [field-sizing:content] bg-transparent p-0 text-[17px] leading-normal font-semibold text-[var(--fg)] outline-none placeholder:font-medium placeholder:text-[var(--faint)]';
+
+/**
+ * D-14c — 들어오면 값 전체 선택(첫 타건이 값을 통째로 바꾼다).
+ *  - `onFocus` 에서 한 번, 다음 틱에 한 번 더 — 마우스로 들어올 때 mouseup 이 선택을 풀어 버리는
+ *    브라우저가 있다.
+ *  - `onClick` 은 **이번 누름으로 들어온 경우에만** 다시 전체 선택한다. 이미 편집 중인 칸을 다시
+ *    누르면 캐럿을 옮길 수 있어야 한다(누를 때마다 전체 선택이면 중간 수정이 불가능하다).
+ */
+const SELECT_ON_ENTRY = {
+  onFocus: (e: FocusEvent<HTMLInputElement>) => {
+    const el = e.currentTarget;
+    el.select();
+    window.setTimeout(() => {
+      if (document.activeElement === el) el.select();
+    }, 0);
+  },
+  onPointerDown: (e: PointerEvent<HTMLInputElement>) => {
+    e.currentTarget.dataset.hadFocus = document.activeElement === e.currentTarget ? 'true' : 'false';
+  },
+  onClick: (e: MouseEvent<HTMLInputElement>) => {
+    if (e.currentTarget.dataset.hadFocus !== 'true') e.currentTarget.select();
+  },
+};
+
+/**
+ * 토스 상자(UI-SPEC §8 #1~3 · D-08) — `--muted` 면 · radius 16 · 패딩 12 12 12 14.
+ * 머리 줄 13px: 라벨 600 `--fg-2`(+ 힌트가 있으면 1×10 막대 + 12px `--muted-fg`) · 값 줄 위 6:
+ * `children`(입력 · 버튼 · 잠긴 표시) + 단위 17/600.
+ *
+ * 포커스는 상자 테두리 한 겹(`focus-within` inset 링)이 말한다 — 안의 입력이
+ * `data-focus-ring="seamless"` 로 전역 이중 링을 걷는 것과 **한 쌍**이다(globals.css §8.5.5).
+ * `htmlFor` 가 없으면(시간외종가 잠김) 라벨은 `<label>` 이 아니다 — 연결할 입력이 없다.
+ */
+function TicketBox({
+  label,
+  hint,
   unit,
+  htmlFor,
   locked = false,
   children,
 }: {
-  unit: string;
+  label: string;
+  hint?: ReactNode;
+  /** 비우면 단위를 그리지 않는다(시간외종가 잠김 「—」). */
+  unit?: string;
+  htmlFor?: string;
   locked?: boolean;
   children: ReactNode;
 }) {
+  const labelClass = 'flex-none whitespace-nowrap font-semibold text-[var(--fg-2)]';
   return (
     <div
+      data-slot="ticket-box"
+      data-locked={locked ? 'true' : undefined}
       className={cn(
-        // 토스 B(260924-vj1) — 높이 46(세로만) · 편집 가능 = raised 채움, 잠김 = 투명 + 헤어라인 테두리로
-        // 편집 가능 필드와 구분한다. 가로 패딩 `px-2` 불변.
-        'flex h-[46px] min-w-0 flex-1 items-center gap-1 rounded-[var(--r)] border px-2 text-[length:var(--t-caption)] focus-within:border-[var(--ring)]',
-        locked ? 'border-[var(--border-subtle)] bg-transparent' : 'border-[var(--input)] bg-[var(--muted)]',
+        'relative min-w-0 rounded-[16px] bg-[var(--muted)] pt-3 pr-3 pb-3 pl-3.5',
+        !locked && 'focus-within:shadow-[inset_0_0_0_1.5px_var(--ring)]',
       )}
     >
-      {children}
-      <span className="flex-none whitespace-nowrap text-[11px] text-[var(--muted-fg)]">{unit}</span>
+      <div className="flex min-w-0 items-center gap-2 text-[13px]">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className={labelClass}>
+            {label}
+          </label>
+        ) : (
+          <span className={labelClass}>{label}</span>
+        )}
+        {hint && (
+          <>
+            <span aria-hidden="true" className="h-2.5 w-px flex-none bg-[var(--switch-off)]" />
+            <span className="min-w-0 text-[12px] leading-snug text-[var(--muted-fg)]">{hint}</span>
+          </>
+        )}
+      </div>
+      <div className="mt-1.5 flex min-w-0 items-center">
+        {children}
+        {unit && (
+          <span className="ml-1 flex-none text-[17px] font-semibold text-[var(--fg)]">{unit}</span>
+        )}
+      </div>
     </div>
   );
 }
 
-function StepButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className="h-[46px] w-8 flex-none rounded-[var(--r)] border border-transparent bg-[var(--muted)] text-[length:var(--t-sm)] text-[var(--fg)] hover:bg-[var(--raised-2)]"
-    >
-      {children}
-    </button>
-  );
-}
-
 /**
- * 주문 버튼. 매수 = `--up` 채움 · 매도 = `--down` 채움 · 정정/취소 = raised(`--muted`) 중립.
- * 토스 B `.btn4`(260924-vj1) — 높이 48(TDS 버튼 large · 260925-0pf) · radius 14 · 600. TDS large 글자 t5 17 은 `lc` 가로 증가 0 규칙으로 미적용. `px-px` · `text-[13px]` · `whitespace-normal` 불변(가로 폭 0 증가).
- * 폰 밴드(<700)는 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로), 700 이상은 14px 한 줄.
- * (2×2 배치로 버튼 폭이 넓어져 옛 10/11px 는 너무 작았다 — 2026-09-23 사용자 지시.)
+ * 주문 버튼(UI-SPEC §8 #6 · #7 · D-11).
+ *  - 매수 · 매도 — 48px · radius 14 · 600 · 흰 글자(`--destructive-fg`, LOCKED ② 5) · 매수 `--up` /
+ *    매도 `--down`. 폰 밴드(<700)는 기존 13px · `line-height:1.15` · 줄바꿈 허용(「예약」이 윗줄로) —
+ *    **좁은 폭에서 글자를 키우지 않는다**. 700 이상은 17px 한 줄(20-02 폭 스파이크: 206px 버튼에
+ *    「예약매수」 17px = 58.1px).
+ *  - 정정 · 취소 — 38px · radius 10 · 15/600 · `--muted` 면 · `--muted-fg` 글자(방향색 없음).
+ *  - 비활성 `opacity .5`.
  */
 function OrderButton({
   tone,
@@ -1217,12 +1311,14 @@ function OrderButton({
       title={title}
       onClick={onClick}
       className={cn(
-        'h-[48px] min-w-0 overflow-hidden rounded-[14px] border px-px text-[13px] leading-[1.15] font-semibold whitespace-normal',
-        '@min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[length:var(--t-sm)] @min-[700px]/lc:whitespace-nowrap',
-        'disabled:cursor-default disabled:opacity-45',
-        tone === 'buy' && 'border-transparent bg-[var(--up)] text-[var(--destructive-fg)]',
-        tone === 'sell' && 'border-transparent bg-[var(--down)] text-[var(--destructive-fg)]',
-        tone === 'plain' && 'border-transparent bg-[var(--muted)] text-[var(--fg)]',
+        'min-w-0 overflow-hidden px-px leading-[1.15] font-semibold',
+        'disabled:cursor-default disabled:opacity-50',
+        tone !== 'plain' &&
+          'h-[48px] rounded-[14px] text-[13px] whitespace-normal text-[var(--destructive-fg)] @min-[700px]/lc:px-0.5 @min-[700px]/lc:text-[17px] @min-[700px]/lc:whitespace-nowrap',
+        tone === 'buy' && 'bg-[var(--up)]',
+        tone === 'sell' && 'bg-[var(--down)]',
+        tone === 'plain' &&
+          'h-[38px] rounded-[10px] bg-[var(--muted)] text-[15px] whitespace-nowrap text-[var(--muted-fg)]',
       )}
     >
       {children}
