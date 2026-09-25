@@ -116,6 +116,13 @@
   --new-bg: #fff6d9;
   --new-bd: #ffd257;
 
+  /* Phase 20 호가주문 토스식 — 상따 그룹 면(목업 `.grp`) · 스위치 off · 시트 dim(TDS dimmedBackground).
+     다크 그룹 면은 부모 `--card` #202027 보다 한 단계 밝은 grey100(UI-SPEC A9).
+     ⚠️ 라이트·다크 둘 다 정의한다 — 한쪽만 두면 반대 테마에서 조용히 사라진다. */
+  --group-bg: #f9fafb;
+  --switch-off: #d1d6db;
+  --dim: rgba(0, 0, 0, 0.2);
+
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
   --s-5: 24px; --s-6: 32px; --s-8: 48px; --s-10: 64px;
   /* B radius — 컨트롤 12 · 박스/상태줄/표 16 · 카드 20. 알약 999 는 `rounded-full`. */
@@ -235,6 +242,12 @@
      사라진다. */
   --new-bg: #3a3014;
   --new-bd: #6d5a1d;
+
+  /* Phase 20 호가주문 토스식 다크 값 — 의미는 `:root` 정의 옆 주석이 정본이다. 그룹 면은 부모
+     `--card` #202027 보다 한 단계 밝은 grey100(UI-SPEC A9). */
+  --group-bg: #2c2c35;
+  --switch-off: #4d4d59;
+  --dim: rgba(0, 0, 0, 0.56);
 
   /* shadcn sidebar overrides for dark */
   --sidebar: oklch(0.205 0 0);
