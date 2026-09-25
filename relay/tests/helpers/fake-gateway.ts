@@ -22,6 +22,10 @@
  * relay 가 답을 기다리며 멎어 테스트가 엉뚱한 곳을 가리킨다. 응답 **내용**은 여전히
  * 테스트가 `respondXxx` 로 심은 값 그대로이고, 요청 페이로드는 보지 않는다.
  * 명령 4종(10·11·14·33)은 자동 응답 없이 `strategyRequests()` 에 기록만 한다.
+ *
+ * Phase 19-09 추가 — 관찰자 모드. `ObserverLoginReq(5)` 는 `observerLoginRequests()` 에 기록하고,
+ * `respondObserverLogin` 으로 켰을 때만 그 연결에 `ObserverLoginResp(79)` 를 자동 송신한다(기본 꺼짐 —
+ * 일반 로그인 자동 응답과 분리). 저널 배치(80)는 테스트가 `pushJournalBatch` 로 직접 민다.
  */
 import net from "node:net";
 import * as flatbuffers from "flatbuffers";
@@ -32,7 +36,9 @@ import { MSG } from "../../src/dma/msg-type.js";
 import {
   STRATEGY_MSG,
   buildBareEnvelope,
+  buildJournalBatchFrame,
   buildLimitChaserListRespFrame,
+  buildObserverLoginRespFrame,
   buildLoginRespFrame,
   buildOrderRespFrame,
   buildQueuedWindowStateFrame,
@@ -45,7 +51,9 @@ import {
   buildUpdateAccountNoRespFrame,
   buildViOrderListFrame,
   type FakeAccount,
+  type FakeJournalBatchInput,
   type FakeLimitChaserInput,
+  type FakeObserverLoginRespInput,
   type FakeLoginRespInput,
   type FakeOrderRespInput,
   type FakeQueuedWindowInput,
@@ -92,7 +100,15 @@ export type FakeGatewayOptions = {
    * 끄면 "선언은 받았지만 응답이 없는 게이트웨이"(5초 대조 타임아웃)를 재현한다.
    */
   autoAccount?: boolean;
+  /**
+   * `ObserverLoginReq(5)` 수신 시 `ObserverLoginResp(79)` 자동 응답 내용 (19-09). **기본은 자동 응답 없음** —
+   * 일반 `LoginReq` 자동 응답과 분리한다(관찰자 모드를 쓰는 테스트만 켠다). `respondObserverLogin` 으로도 켠다.
+   */
+  observerLoginResp?: FakeObserverLoginRespInput;
 };
+
+/** `ObserverLoginReq(5)` 1건의 내용 (게이트웨이 흉내 — 요청 대역 직접 파싱). */
+export type ObserverLoginRequest = { secret: string; sinceSeq: number; epoch: string; client: string };
 
 /** `UpdateAccountNoReq(3)` 1건의 관찰 기록. */
 export type DeclaredAccount = { mode: string; accountNo: string };
@@ -180,6 +196,24 @@ export type FakeGateway = {
    * 요청을 해석해 주면 그 해석이 곧 프로덕션 파서의 정답지가 되어 검증이 순환한다.
    */
   strategyRequests(): StrategyRequest[];
+
+  // --- 관찰자 모드 (Phase 19-09) ---
+
+  /**
+   * 관찰자 로그인 자동 응답을 켜고 내용을 지정한다. 이후 `ObserverLoginReq(5)` 가 오면 **그 연결에만**
+   * `ObserverLoginResp(79)` 를 보낸다(게이트웨이 규약 — 요청 연결에만 Notice). `null` 이면 끈다(무응답 재현).
+   */
+  respondObserverLogin(resp: FakeObserverLoginRespInput | null): void;
+  /** 저널 배치 주입 (80). */
+  pushJournalBatch(sock: net.Socket, input: FakeJournalBatchInput): void;
+  /** 지금까지 수신한 `ObserverLoginReq(5)` 전량 (송신 순서 그대로). */
+  observerLoginRequests(): ObserverLoginRequest[];
+  /**
+   * 관찰자 로그인을 보낸 **살아 있는** 연결을 돌려준다. 없으면 다음 `ObserverLoginReq` 가 온 연결을 기다린다 —
+   * `hardClose` 로 끊긴 연결은 건너뛰므로 재접속 뒤 호출하면 새 연결이 나온다.
+   */
+  waitForObserverConnection(timeoutMs?: number): Promise<net.Socket>;
+
   /** 임의 바이트 주입 — 청크 경계를 테스트가 지정한다. 길이 프레이밍을 하지 않는다. */
   sendRaw(sock: net.Socket, bytes: Uint8Array): void;
   /** 정상 프레이밍으로 페이로드 1건 전송. */
@@ -222,6 +256,24 @@ function readDeclaredAccount(payload: Buffer): DeclaredAccount | null {
   const req = rootEnvelope(payload)?.updateAccountNoReq();
   if (req === null || req === undefined) return null;
   return { mode: req.mode() ?? "", accountNo: req.accountNo() ?? "" };
+}
+
+/**
+ * 관찰자 로그인 요청(5)의 내용을 꺼낸다 (19-09). `readQuoteRequestKey` 와 같은 이유로 여기 있다 —
+ * 생성 코드 해석을 스텁 한 벌에 모은다. `since_seq` 는 ulong 이라 number 로 좁힌다(테스트 값은 안전 정수).
+ *
+ * @returns 5 이고 요청 테이블이 있으면 내용, 그 외 `null`
+ */
+export function readObserverLoginRequest(msgType: number, payload: Buffer): ObserverLoginRequest | null {
+  if (msgType !== MSG.ObserverLoginReq) return null;
+  const req = rootEnvelope(payload)?.observerLoginReq();
+  if (req === null || req === undefined) return null;
+  return {
+    secret: req.secret() ?? "",
+    sinceSeq: Number(req.sinceSeq()),
+    epoch: req.journalEpoch() ?? "",
+    client: req.client() ?? "",
+  };
 }
 
 /** 시세 요청(28 호가 스냅샷 / 32 체결 스냅샷)의 구독 키. */
@@ -384,6 +436,12 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
   let viOrders: FakeViOrderItemInput[] = [];
   const strategyReqs: StrategyRequest[] = [];
 
+  // 관찰자 모드 (19-09) — 자동 응답은 기본 꺼짐.
+  let observerLoginResp: FakeObserverLoginRespInput | null = opts.observerLoginResp ?? null;
+  const observerLogins: ObserverLoginRequest[] = [];
+  const observerSockets: net.Socket[] = [];
+  const pendingObserverConnections: Array<(sock: net.Socket) => void> = [];
+
   const server = net.createServer((sock) => {
     sock.on("error", () => {
       // 강제 종료 테스트에서 ECONNRESET 이 정상적으로 발생한다 — 프로세스를 죽이지 않는다.
@@ -405,6 +463,14 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
         if (msgType === MSG.LivePing) pings += 1;
         if (msgType === MSG.LoginReq && autoLogin) {
           sock.write(frame(buildLoginRespFrame(loginResp)));
+        }
+        if (msgType === MSG.ObserverLoginReq) {
+          const req = readObserverLoginRequest(msgType, payload);
+          if (req !== null) observerLogins.push(req);
+          if (!observerSockets.includes(sock)) observerSockets.push(sock);
+          if (observerLoginResp !== null) sock.write(frame(buildObserverLoginRespFrame(observerLoginResp)));
+          const waiter = pendingObserverConnections.shift();
+          if (waiter) waiter(sock);
         }
         if (msgType === MSG.UpdateAccountNoReq) {
           const req = readDeclaredAccount(payload);
@@ -532,6 +598,35 @@ export async function startFakeGateway(opts: FakeGatewayOptions = {}): Promise<F
 
     strategyRequests() {
       return [...strategyReqs];
+    },
+
+    respondObserverLogin(resp) {
+      observerLoginResp = resp;
+    },
+
+    pushJournalBatch(sock, input) {
+      sock.write(frame(buildJournalBatchFrame(input)));
+    },
+
+    observerLoginRequests() {
+      return observerLogins.map((r) => ({ ...r }));
+    },
+
+    waitForObserverConnection(timeoutMs = 1000) {
+      const live = observerSockets.find((s) => !s.destroyed);
+      if (live !== undefined) return Promise.resolve(live);
+      return new Promise<net.Socket>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const i = pendingObserverConnections.indexOf(onObserver);
+          if (i >= 0) pendingObserverConnections.splice(i, 1);
+          reject(new Error(`가짜 게이트웨이 관찰자 연결 대기 시간 초과 (${timeoutMs}ms)`));
+        }, timeoutMs);
+        function onObserver(sock: net.Socket): void {
+          clearTimeout(timer);
+          resolve(sock);
+        }
+        pendingObserverConnections.push(onObserver);
+      });
     },
 
     sendRaw(sock, bytes) {
