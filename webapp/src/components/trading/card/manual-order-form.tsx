@@ -67,7 +67,10 @@
  *   가격 · 수량 · 조각 수는 토스 상자(`TicketBox`)다. 마우스 기기는 상자 안 입력칸에 직접 친다 —
  *   들어오면 값 전체 선택 · ↑/↓ = 가격 한 호가 / 수량·조각 1 · Enter = blur(주문 아님). 가격이
  *   호가 단위·상한가를 어기면 상자 아래 한 줄로 말하지만 **주문 버튼은 잠그지 않는다**(판정은 서버).
- *   값을 보정하지도 않는다. 주문이 나가는 길(②)은 한 줄도 바뀌지 않았다.
+ *   값을 보정하지도 않는다. 터치 기기(`useEditMode() === 'sheet'`)는 상자 전체가 버튼이고, 누르면
+ *   상따 설정과 **같은** 키패드 시트(`NumberPadSheet` purpose `fill`)가 열린다 — 「{필드명} 입력」은
+ *   **값만 채우고 곧바로 닫는다**(전송 0 · 확인 다이얼로그 0 · 반영 중 단계 없음, D-10 · D-23).
+ *   주문이 나가는 길(②)은 한 줄도 바뀌지 않았다.
  *
  * ⑦ 정정·취소는 **미체결 행 선택**으로만 열린다 (D-21)
  *   선택은 상위(미체결 표)가 소유하고 `selectedUnfilled` 로 내려준다. 선택이 없으면 두 버튼
@@ -103,7 +106,7 @@ import {
 } from '@/components/orderbook/order-confirm-dialog';
 import { DISABLED_LABEL, type PriceSelection } from '@/components/orderbook/order-panel';
 import { strategyKey } from '@/lib/limit-chaser';
-import { priceIssueText, stepValue } from '@/lib/numpad';
+import { priceIssueText, stepValue, type PadUnit } from '@/lib/numpad';
 import { affordanceOf } from '@/lib/queued-window';
 import {
   useRelayContext,
@@ -111,7 +114,9 @@ import {
   type RelayOrderRequest,
 } from '@/lib/relay-provider';
 import type { RelayStatus } from '@/lib/use-relay-socket';
+import { useEditMode } from '@/lib/use-edit-mode';
 import { cn } from '@/lib/utils';
+import { NumberPadSheet } from '../lc/number-pad-sheet';
 
 const KRW = new Intl.NumberFormat('ko-KR');
 
@@ -127,6 +132,18 @@ const MODIFY_CANCEL_FOOTNOTE = '정정·취소는 미체결 행을 선택하면 
 /** 가격 상자 힌트 — 호가 사다리가 가격을 채운다(D-20 승계). */
 const PRICE_HINT = '호가를 누르면 채워져요';
 const PIECES_HINT = '예약구간 · KRX 만';
+
+/** 시트로 채우는 상자. */
+type SheetField = 'price' | 'qty' | 'pieces';
+/** 상자 라벨 = 시트 제목 = 확정 버튼 「{라벨} 입력」의 원천(UI-SPEC Copywriting · D-23). */
+const BOX_LABEL: Record<SheetField, string> = { price: '가격', qty: '수량', pieces: '조각 수' };
+const BOX_UNIT: Record<SheetField, PadUnit> = { price: '원', qty: '주', pieces: '회' };
+const sheetDescription = (field: SheetField, maxPieces: number): string =>
+  field === 'price'
+    ? PRICE_HINT
+    : field === 'qty'
+      ? '주문 수량이에요'
+      : `나눠서 넣는 횟수예요 · 최대 ${KRW.format(maxPieces)}회`;
 /**
  * 시간외종가를 골랐는데 보낼 세션이 없다(창이 방금 닫혔거나 거래소가 KRX 가 아님) — WR-01.
  * 이때는 주문을 **만들지 않는다**. 숨겨진 옛 지정가로 떨어지면 사용자가 고른 것과 다른 주문이 나간다.
@@ -359,6 +376,15 @@ export function ManualOrderForm({
   const [result, setResult] = useState<OrderResult | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
   const { sendOrder, orderLocks } = useRelayContext();
+  /** D-12 — 터치(주 포인터 coarse) = 상자 버튼 + 키패드 시트 · 그 밖 = 상자 안 직접 타이핑. */
+  const editMode = useEditMode();
+  /** 열린 시트(D-10). `field` 는 닫히는 동안에도 제목이 바뀌지 않도록 남겨 둔다. */
+  const [sheet, setSheet] = useState<{ field: SheetField; open: boolean }>({
+    field: 'price',
+    open: false,
+  });
+  /** 시트가 닫힌 뒤 포커스를 돌려줄 상자 버튼. */
+  const boxReturnRef = useRef<HTMLElement | null>(null);
   /**
    * 이 폼이 실제로 보낸 마지막 신규 · 정정 요청의 대상 — **잠금 여부가 아니라 「어느 키를 읽을지」**
    * 다(②-4 (c)). 잠금 여부는 늘 Provider 가 답한다. 취소는 기억하지 않는다(취소는 잠그지 않는다).
@@ -414,6 +440,11 @@ export function ManualOrderForm({
     setConfirm(null);
     setValidation(null);
     pendingReqRef.current = null;
+  }, [isin]);
+
+  /* 종목이 바뀌면 열린 시트도 닫는다 — 앞 종목에 치던 값이 새 종목 상자로 들어가지 않게(T-20-05). */
+  useEffect(() => {
+    setSheet((s) => (s.open ? { ...s, open: false } : s));
   }, [isin]);
 
   /* 창이 닫히면 시간외종가 → 지정가로 복귀(D-23). 판정은 `affordanceOf` 의 값이다. */
@@ -507,6 +538,38 @@ export function ManualOrderForm({
       if (field === 'price') setPriceText(text);
       else setQtyText(text);
     };
+
+  /** 상자 버튼(시트 모드) → 시트 열기. 닫힌 뒤 포커스는 이 상자로 돌아온다. */
+  const openSheet = (field: SheetField) => (e: MouseEvent<HTMLButtonElement>) => {
+    boxReturnRef.current = e.currentTarget;
+    setSheet({ field, open: true });
+  };
+  const closeSheet = () => setSheet((s) => ({ ...s, open: false }));
+  /**
+   * 시트 「{필드명} 입력」 — **값만 채우고 닫는다**(D-10). 전송 · 확인 다이얼로그 · 반영 중 단계가 없다.
+   * 위반 값은 시트가 이미 잠갔다(D-15 · 조각 1~maxPieces) — 여기서 한 번 더 조각 수를 자른다.
+   */
+  const fillFromSheet = (v: number) => {
+    if (sheet.field === 'price') setPriceText(KRW.format(v));
+    else if (sheet.field === 'qty') setQtyText(KRW.format(v));
+    else setPieceText(String(clampPieces(v, aff.maxPieces)));
+    setValidation(null);
+    closeSheet();
+  };
+  /** 시트 모드의 상자 값 자리 — 상자 전체를 덮는 버튼(이름 「{라벨} {값}{단위}」). */
+  const boxButton = (field: SheetField, text: string, placeholder?: string) => (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-label={text ? `${BOX_LABEL[field]} ${text}${BOX_UNIT[field]}` : BOX_LABEL[field]}
+      onClick={openSheet(field)}
+      data-focus-ring="seamless"
+      className="min-w-0 text-left text-[17px] leading-normal font-semibold whitespace-nowrap text-[var(--fg)] after:absolute after:inset-0 after:rounded-[16px] after:content-['']"
+    >
+      {text || <span className="font-medium text-[var(--faint)]">{placeholder}</span>}
+    </button>
+  );
+  const sheetMode = editMode === 'sheet';
 
   /**
    * 4버튼의 유일한 진입. 검증 → 요청 스냅샷 → **확인 다이얼로그**. 여기서 전송하지 않는다.
@@ -777,22 +840,31 @@ export function ManualOrderForm({
         </>
       ) : (
         <>
-          <TicketBox label="가격" hint={PRICE_HINT} unit="원" htmlFor={`mo-price-${isin}`}>
-            <input
-              id={`mo-price-${isin}`}
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder="가격 입력"
-              value={priceText}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                setValidation(null);
-                setPriceText(formatDigits(e.target.value));
-              }}
-              onKeyDown={stepKeyDown('price')}
-              {...SELECT_ON_ENTRY}
-              data-focus-ring="seamless"
-              className={TICKET_INPUT_CLASS}
-            />
+          <TicketBox
+            label="가격"
+            hint={PRICE_HINT}
+            unit="원"
+            htmlFor={sheetMode ? undefined : `mo-price-${isin}`}
+          >
+            {sheetMode ? (
+              boxButton('price', priceText, '가격 입력')
+            ) : (
+              <input
+                id={`mo-price-${isin}`}
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="가격 입력"
+                value={priceText}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  setValidation(null);
+                  setPriceText(formatDigits(e.target.value));
+                }}
+                onKeyDown={stepKeyDown('price')}
+                {...SELECT_ON_ENTRY}
+                data-focus-ring="seamless"
+                className={TICKET_INPUT_CLASS}
+              />
+            )}
           </TicketBox>
           {priceIssue && (
             <p
@@ -807,38 +879,51 @@ export function ManualOrderForm({
         </>
       )}
 
-      <TicketBox label="수량" unit="주" htmlFor={`mo-qty-${isin}`}>
-        <input
-          id={`mo-qty-${isin}`}
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="수량 입력"
-          value={qtyText}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            setValidation(null);
-            setQtyText(formatDigits(e.target.value));
-          }}
-          onKeyDown={stepKeyDown('qty')}
-          {...SELECT_ON_ENTRY}
-          data-focus-ring="seamless"
-          className={TICKET_INPUT_CLASS}
-        />
-      </TicketBox>
-
-      {aff.showPieceInput && (
-        <TicketBox label="조각 수" hint={PIECES_HINT} unit="회" htmlFor={`mo-pieces-${isin}`}>
+      <TicketBox label="수량" unit="주" htmlFor={sheetMode ? undefined : `mo-qty-${isin}`}>
+        {sheetMode ? (
+          boxButton('qty', qtyText, '수량 입력')
+        ) : (
           <input
-            id={`mo-pieces-${isin}`}
+            id={`mo-qty-${isin}`}
             inputMode="numeric"
             autoComplete="off"
-            value={pieceText}
-            onChange={(e) => setPieceText(e.target.value.replace(/[^0-9]/g, ''))}
-            onBlur={() => setPieceText(String(pieces))}
-            onKeyDown={stepKeyDown('pieces')}
+            placeholder="수량 입력"
+            value={qtyText}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              setValidation(null);
+              setQtyText(formatDigits(e.target.value));
+            }}
+            onKeyDown={stepKeyDown('qty')}
             {...SELECT_ON_ENTRY}
             data-focus-ring="seamless"
             className={TICKET_INPUT_CLASS}
           />
+        )}
+      </TicketBox>
+
+      {aff.showPieceInput && (
+        <TicketBox
+          label="조각 수"
+          hint={PIECES_HINT}
+          unit="회"
+          htmlFor={sheetMode ? undefined : `mo-pieces-${isin}`}
+        >
+          {sheetMode ? (
+            boxButton('pieces', pieceText)
+          ) : (
+            <input
+              id={`mo-pieces-${isin}`}
+              inputMode="numeric"
+              autoComplete="off"
+              value={pieceText}
+              onChange={(e) => setPieceText(e.target.value.replace(/[^0-9]/g, ''))}
+              onBlur={() => setPieceText(String(pieces))}
+              onKeyDown={stepKeyDown('pieces')}
+              {...SELECT_ON_ENTRY}
+              data-focus-ring="seamless"
+              className={TICKET_INPUT_CLASS}
+            />
+          )}
         </TicketBox>
       )}
 
@@ -967,6 +1052,40 @@ export function ManualOrderForm({
         <p className="m-0 break-words text-[12px] leading-snug text-[var(--muted-fg)]">
           {ORDERBOOK_FOOTNOTE}
         </p>
+      )}
+
+      {sheetMode && (
+        /*
+          D-10 — 상따 설정과 같은 키패드 시트. `serverValue` 를 넘기지 않는다(「지금 ○○」 · 다른 단말
+          알림 · 감시 중 안내가 없다). 칩 「현재가」「상한가」는 **같은 카드** 시세다(T-18-48) ·
+          `maxPieces` 는 단위 '회'에서만 넘긴다(PadCtx 계약).
+        */
+        <NumberPadSheet
+          open={sheet.open}
+          title={BOX_LABEL[sheet.field]}
+          description={sheetDescription(sheet.field, aff.maxPieces)}
+          unit={BOX_UNIT[sheet.field]}
+          purpose="fill"
+          initialValue={
+            sheet.field === 'price'
+              ? price > 0
+                ? price
+                : null
+              : sheet.field === 'qty'
+                ? qty > 0
+                  ? qty
+                  : null
+                : pieces
+          }
+          ctx={{
+            current: currentPrice ?? 0,
+            upper: upperLimit ?? 0,
+            ...(sheet.field === 'pieces' ? { maxPieces: aff.maxPieces } : {}),
+          }}
+          returnFocusRef={boxReturnRef}
+          onConfirm={fillFromSheet}
+          onClose={closeSheet}
+        />
       )}
 
       <OrderConfirmDialog

@@ -263,6 +263,10 @@ export function CardBody({
       status={status}
       selectedPrice={selectedPrice}
       referenceClose={referenceClose}
+      // 20-06 — 수동주문 시트 칩 「현재가」「상한가」 · 인라인 가격 검증(D-15). 같은 카드의 단일
+      // isin/exchange 시세다(T-18-48) — 시세가 없거나 0 이면 0(칩 비활성 · 상한 검사 생략).
+      currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
+      upperLimit={upperLimit}
       selectedUnfilled={selectedUnfilled}
       onClearSelection={onClearSelection}
     />
