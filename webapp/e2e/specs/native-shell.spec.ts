@@ -174,3 +174,99 @@ test.describe('Phase 21 — 브라우저 모드 회귀', () => {
     await expect(aiButton(page)).toBeHidden();
   });
 });
+
+/**
+ * Phase 21 Plan 06 — safe-area · 네이티브 탭바 여백 (MOBILE-01j 2부 · D-25 · D-27a).
+ *
+ * 무엇을 증명하는가 / 깨지면 사용자가 겪는 일
+ *   - 앱에서 네이티브 탭바(높이 70 · 바닥 = 화면 끝에서 max(inset − 14, 14))가 종목상세 「주문하기」 CTA 와
+ *     본문 끝을 가리지 않는다. 깨지면 앱에서 주문 진입이 막히거나 마지막 콘텐츠가 탭바 밑에 묻힌다(T-21-30).
+ *   - 브라우저는 종전 그대로(CTA 바닥 0 · 하단 20 · 예약 96 · 본문 하단 8). 깨지면 웹 화면이 앱 여백에 오염된다.
+ *
+ * 수치는 **크롬 안전영역 0** 기준의 식이다(env 0 · SystemBars 주입 없음):
+ *   gap    = max(0 − 14, 14)            = 14
+ *   offset = gap + 탭바 70 + 여유 8     = 92   → CTA 바 bottom
+ *   본문   = 70 + 20 + 18               = 108  → `main` padding-bottom (폰·iPad 공통)
+ *   예약   = CTA 바 10 + 56 + 10        = 76   → `[data-order-cta]` padding-bottom (탭바 몫은 본문 108)
+ *   ★ 값이 바뀌면 CONTEXT D-27a · globals.css §21 · 네이티브 탭바 상수를 같이 고친다 — 여기만 고치면
+ *     웹은 통과하고 실기기에서 탭바가 CTA 를 가린다.
+ */
+test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27a)', () => {
+  const ctaBar = (page: Page) => page.locator('[data-slot="detail-order-cta-bar"]');
+  const orderCtaRoot = (page: Page) => page.locator('[data-order-cta="true"]');
+
+  async function computed(page: Page, selector: string, prop: 'paddingBottom' | 'bottom') {
+    return page.evaluate(
+      ([sel, p]) => getComputedStyle(document.querySelector(sel)!)[p as 'paddingBottom' | 'bottom'],
+      [selector, prop] as const,
+    );
+  }
+
+  async function viewportMetaAndHeader(page: Page) {
+    return page.evaluate(() => ({
+      viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '',
+      headerH: document.querySelector('header')!.getBoundingClientRect().height,
+    }));
+  }
+
+  test('앱 390 홈 — viewport-fit=cover · 헤더 56(안전영역 0) · main 하단 108', async ({ page }) => {
+    await installNativeApp(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveClass(/(^|\s)native-app(\s|$)/);
+    await page.locator('main').first().waitFor();
+
+    const { viewport, headerH } = await viewportMetaAndHeader(page);
+    expect(viewport).toContain('viewport-fit=cover');
+    expect(headerH).toBe(56);
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('108px');
+  });
+
+  test('앱 390 종목상세 — CTA 바 bottom 92(14 + 70 + 8) · 하단 10 · 예약 76', async ({ page }) => {
+    await installNativeApp(page);
+    await mockStockApi(page, { detailByCode: { [STOCK.code]: STOCK } });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/stocks/${STOCK.code}`);
+
+    await expect(ctaBar(page)).toBeVisible({ timeout: 10_000 });
+    await expect(orderCtaRoot(page)).toHaveCount(1);
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'bottom')).toBe('92px');
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('10px');
+    expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('76px');
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('108px');
+
+    // 탭바 윗변(화면 끝에서 14 + 70 = 84) 위에 CTA 버튼 전체가 선다.
+    const box = await page.locator('[data-slot="detail-order-cta"]').boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(844 - 84);
+  });
+
+  test('브라우저 390 종목상세 — CTA bottom 0 · 하단 20 · 예약 96 · main 하단 8 · 헤더 56', async ({
+    page,
+  }) => {
+    await mockStockApi(page, { detailByCode: { [STOCK.code]: STOCK } });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/stocks/${STOCK.code}`);
+
+    await expect(ctaBar(page)).toBeVisible({ timeout: 10_000 });
+    const { viewport, headerH } = await viewportMetaAndHeader(page);
+    expect(viewport).toContain('viewport-fit=cover');
+    expect(headerH).toBe(56);
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'bottom')).toBe('0px');
+    expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('20px');
+    expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('96px');
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('8px');
+  });
+
+  test('앱 1280 홈 — main 하단 108(iPad 공통값)', async ({ page }) => {
+    await installNativeApp(page);
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveClass(/(^|\s)native-app(\s|$)/);
+    await page.locator('main').first().waitFor();
+
+    expect(await computed(page, 'main', 'paddingBottom')).toBe('108px');
+  });
+});
