@@ -134,8 +134,14 @@ describe('① 필드 스펙 — 그룹·행 순서 · 옛 id · 문구 · 게이
     const dim = [...LC_BUY_GROUPS, ...LC_SELL_GROUPS].filter((g) => g.dimWhenOff).map((g) => g.slot);
     expect(dim).toEqual(['buy', 'sweep', 'sell']);
     // 가격 섹션은 제목·스위치가 없고 접근성 이름만 있다.
-    expect(groupOf('buy-price')).toMatchObject({ title: undefined, gate: undefined, ariaLabel: '매수 가격 설정' });
-    expect(groupOf('sell-price')).toMatchObject({ title: undefined, gate: undefined, ariaLabel: '매도 가격 설정' });
+    for (const [slot, name] of [
+      ['buy-price', '매수 가격 설정'],
+      ['sell-price', '매도 가격 설정'],
+    ] as const) {
+      expect(groupOf(slot).title).toBeUndefined();
+      expect(groupOf(slot).gate).toBeUndefined();
+      expect(groupOf(slot).ariaLabel).toBe(name);
+    }
   });
 
   it('lcNavigableRows 는 값 편집 행만 — 감시대상 · 체크 전용 · 기준선은 건너뛴다', () => {
@@ -362,7 +368,7 @@ describe('④ CheckValueRow — 「○ 라벨 ─ 값 ›」 (D-22)', () => {
     const { container } = render(
       <CheckValueRow checkId="lc-cancel-trade" groupTitle="매수취소" label="체결" checked={false} onToggle={() => {}} />,
     );
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(container.querySelectorAll('button')).toHaveLength(1);
     const chk = screen.getByRole('checkbox', { name: '매수취소 체결' });
     expect(chk.className).toContain('flex-1');
     expect(container.querySelector('[data-slot="lc-row-value"]')).toBeNull();
