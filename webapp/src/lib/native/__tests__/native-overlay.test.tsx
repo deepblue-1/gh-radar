@@ -15,6 +15,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
  *  4. 브라우저 무송신          → 깨지면 일반 브라우저에서 시트를 열 때마다 채널 송신이 난다
  *  5. 부모가 open 을 직접 바꿈 → 깨지면 AppShell 햄버거 드로어(`setSheetOpen(true)`)처럼 onOpenChange 가
  *                               안 불리는 경로에서 열림을 놓친다(RESEARCH Pattern 8)
+ *  6. 키패드 시트(직접 조립)   → 깨지면 상따 값 편집 중 탭바가 키패드를 가리고, 당기면 입력이 날아간다
  *
  * ⚠️ 송신 단언은 **실제 postMessage 인자 배열을 JSON 파싱한 결과**로 한다. 닫힘은 퇴장 애니메이션 뒤
  *    Content 언마운트를 `waitFor` 로 확인한 다음 본다.
@@ -38,6 +39,7 @@ vi.mock('next-themes', () => ({
 import { NativeBridgeProvider } from '../native-bridge-provider';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
 import {
   enterBrowser,
   enterNativeApp,
@@ -127,6 +129,36 @@ describe('앱 — 오버레이 참조계수', () => {
   });
 });
 
+describe('앱 — NumberPadSheet(radix Dialog 직접 조립)', () => {
+  it('6. 키패드 시트가 열리면 {open:true} 1회 · 닫혀 언마운트되면 {open:false} 1회', async () => {
+    const mode = enterNativeApp('ios');
+    const returnFocusRef = { current: null as HTMLElement | null };
+    const pad = (open: boolean) => (
+      <NativeBridgeProvider>
+        <NumberPadSheet
+          open={open}
+          title="잔량"
+          description="잔량이 이 값보다 줄면 매수를 넣어요"
+          unit="주"
+          purpose="apply"
+          initialValue={10_000}
+          serverValue={10_000}
+          ctx={{ current: 0, upper: 0 }}
+          returnFocusRef={returnFocusRef}
+          onConfirm={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </NativeBridgeProvider>
+    );
+    const { rerender } = render(pad(true));
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true }]);
+
+    rerender(pad(false));
+    await waitFor(() => expect(document.querySelector('[data-slot="numpad-sheet"]')).toBeNull());
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true }, { open: false }]);
+  });
+});
+
 describe('앱 — back()', () => {
   it('3. A·B 가 열려 있으면 true 이고 B 의 onOpenChange(false) 만 불린다(A 는 열린 채)', () => {
     enterNativeApp('android');
@@ -150,7 +182,8 @@ describe('앱 — back()', () => {
     expect(onDialogOpenChange).toHaveBeenCalledTimes(1);
     expect(onDialogOpenChange).toHaveBeenCalledWith(false);
     expect(onSheetOpenChange).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog', { name: '시트 A' })).toBeTruthy();
+    // A 는 B(모달) 아래라 aria-hidden(접근성 이름 계산 제외)이지만 Content 는 여전히 마운트돼 있다.
+    expect(document.querySelector('[data-slot="sheet-content"]')).not.toBeNull();
   });
 
   it('3b. 아무것도 안 열려 있으면 false', () => {

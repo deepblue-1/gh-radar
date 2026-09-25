@@ -45,6 +45,7 @@ import { Dialog } from 'radix-ui';
 import { Delete } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { NativeOverlayMarker } from '@/lib/native/native-overlay-marker';
 import {
   PAD_CHIPS,
   applyPadChip,
@@ -254,6 +255,8 @@ export function NumberPadSheet({
             'motion-reduce:data-closed:fade-out-0 motion-reduce:data-closed:duration-150',
           )}
         >
+          {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back) — 브라우저 no-op */}
+          <NativeOverlayMarker />
           <Dialog.Title className="mb-1 text-[20px] leading-tight font-bold text-[var(--fg)]">
             {title}
           </Dialog.Title>

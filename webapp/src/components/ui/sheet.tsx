@@ -6,6 +6,7 @@ import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { NativeOverlayMarker } from "@/lib/native/native-overlay-marker"
 
 /**
  * Sheet — UI-SPEC §4.1 (AppShell Drawer)
@@ -91,6 +92,8 @@ function SheetContent({
         )}
         {...props}
       >
+        {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back) — 브라우저 no-op */}
+        <NativeOverlayMarker />
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close data-slot="sheet-close" asChild>

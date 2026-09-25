@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { NativeOverlayMarker } from "@/lib/native/native-overlay-marker"
 import { XIcon } from "lucide-react"
 
 function Dialog({
@@ -66,6 +67,8 @@ function DialogContent({
         )}
         {...props}
       >
+        {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back) — 브라우저 no-op */}
+        <NativeOverlayMarker />
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
