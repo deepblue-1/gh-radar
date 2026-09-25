@@ -1,6 +1,6 @@
 // ============================================================
 // SYNC MARKER — 이 블록만 보면 동기화 상태를 알 수 있다
-// server-repo-commit: 2280c83e
+// server-repo-commit: d0c52ecd
 // synced-date:        2026-09-25
 // flatc-version:      25.12.19
 // source:             server/src/protocol/StockDMA.fbs
@@ -1121,14 +1121,16 @@ table ObserverLoginResp {
     message: string;         // 거부 = 단일 문구 (Phase 17 D-04 동형, D-11)
     broker: string;          // "KB"/"KYOBO" (mock 은 "MOCK") — gh-radar p_gateway 원천 (D-04)
     journal_epoch: string;   // 저널 저장소 신원 (생성 시 1회, 파일 영속 — D-06). gh-radar p_epoch 원천
-    head_seq: ulong;         // 로그인 시점 마지막(디스크에 쓴) seq. 같은 epoch 의 미래 seq 로 붙으면 since_seq (아래 resync)
+    head_seq: ulong;         // 로그인 시점 마지막(디스크에 쓴) seq. 같은 epoch 의 미래 seq 로 붙어도 올리기 전 실제 head
+                             // (< since_seq — relay 역행 감지용, 아래 resync)
     oldest_seq: ulong;       // 메모리 재생 원천의 첫 seq. 0 = 재생 원천 없음 — 보낼 수 있는 레코드가 없다
     resync: bool;            // true = 요청 epoch 불일치 또는 보관 범위 밖(since_seq < oldest_seq − 1, oldest_seq 0 이면
                              // since_seq < head_seq). oldest_seq 부터 다시 보낸다 — 단 oldest_seq = 0 이면 보낼 레코드가
                              // 없고 전송은 다음 append(head_seq + 1)부터 시작한다 (WR-07).
                              // 같은 epoch 인데 since_seq > head_seq(게이트웨이 head 되감김)는 resync 가 아니다 — 게이트웨이가
-                             // head 를 since_seq 로 올리고 head_seq = since_seq · oldest_seq = 0 · false 로 답한다(다음 레코드
-                             // since_seq + 1, 같은 epoch 안 seq 재사용 없음). 요청 epoch "" 의 미래 seq 만 true (D-16 · EX-01b 개정)
+                             // head 를 since_seq 로 올리고(다음 레코드 since_seq + 1, 같은 epoch 안 seq 재사용 없음)
+                             // head_seq = 올리기 전 실제 head · oldest_seq = 0 · false 로 답한다 — relay 는 역행으로 기록하고
+                             // since_seq + 1 부터 잇는다. 요청 epoch "" 의 미래 seq 만 true (D-16 · EX-01b 개정)
     accounts: [ObserverAccount];   // 실패 응답은 빈 벡터
 }
 
