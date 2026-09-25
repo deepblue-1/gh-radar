@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -154,21 +156,46 @@ beforeEach(() => {
   lockMock.locks = null;
 });
 
-describe('ManualOrderForm — 4버튼 · 빈 폼 (D-20/D-21, E11 empty)', () => {
-  it('빈 폼: 4버튼이 한 줄에 있고 정정·취소는 disabled, 매수·매도는 활성이다', () => {
+const FOOTNOTE = '정정·취소는 미체결 행을 선택하면 활성화돼요';
+
+describe('ManualOrderForm — 4버튼 · 빈 폼 (D-20/D-21 · D-11, E5 empty)', () => {
+  it('빈 폼: 매수·매도 48px 한 줄 + 정정·취소 38px 한 줄 · 정정·취소 disabled + 각주 · 매수·매도는 활성이다', () => {
     renderForm();
-    const row = screen.getByTestId('manual-order-buttons');
-    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual([
-      '매수',
-      '매도',
-      '정정',
-      '취소',
-    ]);
-    expect(row.className).toContain('grid-cols-[repeat(2,minmax(0,1fr))]');
+    const wrap = screen.getByTestId('manual-order-buttons');
+    const buttons = within(wrap).getAllByRole('button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['매수', '매도', '정정', '취소']);
+    const [buy, sell, modify, cancel] = buttons;
+    // 두 줄 — 윗줄 매수 | 매도(매수가 왼쪽 · 3중 일치), 아랫줄 정정 | 취소.
+    expect(buy.parentElement).toBe(sell.parentElement);
+    expect(modify.parentElement).toBe(cancel.parentElement);
+    expect(buy.parentElement).not.toBe(modify.parentElement);
+    for (const rowEl of [buy.parentElement!, modify.parentElement!]) {
+      expect(rowEl.className).toContain('grid-cols-2');
+      expect(rowEl.className).toContain('gap-2');
+    }
+    for (const b of [buy, sell]) {
+      expect(b.className).toContain('h-[48px]');
+      expect(b.className).toContain('rounded-[14px]');
+      expect(b.className).toContain('text-[var(--destructive-fg)]');
+    }
+    expect(buy.className).toContain('bg-[var(--up)]');
+    expect(sell.className).toContain('bg-[var(--down)]');
+    for (const b of [modify, cancel]) {
+      expect(b.className).toContain('h-[38px]');
+      expect(b.className).toContain('rounded-[10px]');
+      expect(b.className).toContain('text-[15px]');
+      expect(b.className).toContain('bg-[var(--muted)]');
+      expect(b.className).toContain('text-[var(--muted-fg)]');
+    }
     expect(btn('매수')).toBeEnabled();
     expect(btn('매도')).toBeEnabled();
     expect(btn('정정')).toBeDisabled();
     expect(btn('취소')).toBeDisabled();
+    expect(screen.getByText(FOOTNOTE)).toBeInTheDocument();
+    // 값이 없으면 자리표시 · 주문금액 0원 (E5 empty).
+    expect(priceInput()).toHaveAttribute('placeholder', '가격 입력');
+    expect(qtyInput()).toHaveAttribute('placeholder', '수량 입력');
+    expect(screen.getByText('0원')).toBeInTheDocument();
   });
 
   it('계좌 행 · 가격 ± · 비율 버튼 · 「호가 사다리를 누르면…」 안내가 없다 (D-20 다이어트)', () => {
@@ -276,18 +303,23 @@ describe('ManualOrderForm — 확인 다이얼로그 · 중복 제출 가드 (T-
 });
 
 describe('ManualOrderForm — 77 연결 (D-22)', () => {
-  it('affordanceOf 가 queued 면 라벨이 「예약매수/예약매도」이고 조각 스테퍼가 보인다(초기 5 · 상한 maxPieces)', async () => {
+  it('affordanceOf 가 queued 면 라벨이 「예약매수/예약매도」이고 조각 수 상자가 보인다(초기 5 · 회 · 스테퍼 없음 · ↑ 는 maxPieces 에서 멈춘다)', async () => {
     const user = userEvent.setup();
     renderForm({ queuedWindow: win({ open: true, maxPieces: 7 }) });
     expect(btn('예약매수')).toBeInTheDocument();
     expect(btn('예약매도')).toBeInTheDocument();
     const pieces = screen.getByLabelText('조각 수') as HTMLInputElement;
+    expect(pieces.id).toBe(`mo-pieces-${ISIN}`);
     expect(pieces.value).toBe('5');
-    expect(screen.getByText('/ 최대 7')).toBeInTheDocument();
-    const inc = btn('조각 늘리기');
-    for (let i = 0; i < 5; i += 1) await user.click(inc);
+    const box = pieces.closest('[data-slot="ticket-box"]') as HTMLElement;
+    expect(box).toHaveTextContent('예약구간 · KRX 만');
+    expect(box).toHaveTextContent(/회$/);
+    // −/+ 스테퍼는 없다(D-08 · 입력은 타이핑 · ↑↓ · 시트 칩).
+    expect(screen.queryByRole('button', { name: '조각 늘리기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '조각 줄이기' })).toBeNull();
+    for (let i = 0; i < 5; i += 1) fireEvent.keyDown(pieces, { key: 'ArrowUp' });
     expect(pieces.value).toBe('7'); // 상한 = 서버 maxPieces
-    await user.click(btn('조각 줄이기'));
+    fireEvent.keyDown(pieces, { key: 'ArrowDown' });
     expect(pieces.value).toBe('6');
 
     await fill(user, '128500', '10');
@@ -339,8 +371,11 @@ describe('ManualOrderForm — 주문유형 콤보 (D-23, 호가 탭 전용)', ()
     const locked = screen.getByLabelText('가격(시간외종가 · 잠김)') as HTMLInputElement;
     expect(locked).toBeDisabled();
     expect(locked.value).toBe('—');
-    expect(screen.getByText('참고 종가')).toBeInTheDocument();
-    expect(screen.getByText('128,700')).toBeInTheDocument();
+    // 힌트 자리에 「참고 종가 {종가}원」(UI-SPEC §8 1') · 입력 가능한 가격 상자는 없다.
+    const box = locked.closest('[data-slot="ticket-box"]') as HTMLElement;
+    expect(box).toHaveTextContent('참고 종가 128,700원');
+    expect(screen.queryByPlaceholderText('가격 입력')).toBeNull();
+    expect(screen.queryByTestId('manual-order-price-issue')).toBeNull();
     expect(screen.getByText('가격 0 · krx_session 으로 전송 · 정정 불가(취소 후 재등록)')).toBeInTheDocument();
     expect(screen.getByText('종가 확정 후')).toBeInTheDocument();
     expect(btn('정정')).toBeDisabled();
@@ -374,6 +409,162 @@ describe('ManualOrderForm — 주문유형 콤보 (D-23, 호가 탭 전용)', ()
     renderForm({ variant: 'orderbook' });
     expect(screen.getByText('신규 매수/매도와 정정·취소 · 시간외종가는 정정 불가(취소 후 재등록)')).toBeInTheDocument();
     expect(screen.queryByText(/정정은 취소 후 다시 주문해 주세요/)).toBeNull();
+  });
+});
+
+describe('ManualOrderForm — 토스 상자 · 인라인 입력 (D-08 · D-10 · D-14c · D-15)', () => {
+  const boxOf = (el: HTMLElement) => el.closest('[data-slot="ticket-box"]') as HTMLElement;
+
+  it('가격·수량 상자: 라벨이 값 위 · --muted 면 radius 16 · 가격 힌트 · 단위 · 값 17/600', () => {
+    renderForm();
+    const price = priceInput();
+    expect(price.id).toBe(`mo-price-${ISIN}`);
+    expect(price).toHaveAttribute('inputmode', 'numeric');
+    expect(price).toHaveAttribute('autocomplete', 'off');
+    expect(price).toHaveAttribute('data-focus-ring', 'seamless');
+    expect(price.className).toContain('text-[17px]');
+    expect(price.className).toContain('font-semibold');
+    const box = boxOf(price);
+    expect(box.className).toContain('rounded-[16px]');
+    expect(box.className).toContain('bg-[var(--muted)]');
+    // 라벨이 값보다 먼저(위) 온다.
+    const label = within(box).getByText('가격');
+    expect(label.tagName).toBe('LABEL');
+    expect(label.compareDocumentPosition(price) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(box).toHaveTextContent('호가를 누르면 채워져요');
+    expect(box).toHaveTextContent(/원$/);
+    const qtyBox = boxOf(qtyInput());
+    expect(qtyBox).toHaveTextContent(/^수량/);
+    expect(qtyBox).toHaveTextContent(/주$/);
+    // ± 호가 버튼 · 비율 버튼 · 매수/매도 세그먼트 + 단일 CTA 는 없다(CONTEXT Deferred).
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('button', { name: /호가 (올리기|내리기)/ })).toBeNull();
+  });
+
+  it('포커스 = 값 전체 선택 (D-14c)', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(priceInput(), '98000');
+    await user.click(qtyInput());
+    await user.click(priceInput());
+    expect(priceInput()).toHaveFocus();
+    expect(priceInput().selectionStart).toBe(0);
+    expect(priceInput().selectionEnd).toBe('98,000'.length);
+  });
+
+  it('↑/↓ — 가격은 한 호가(98,000 → 98,100 · 2,000 → 1,999) · 수량은 1 · Enter = blur (주문은 나가지 않는다)', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(priceInput(), '98000');
+    fireEvent.keyDown(priceInput(), { key: 'ArrowUp' });
+    expect(priceInput().value).toBe('98,100');
+    await user.clear(priceInput());
+    await user.type(priceInput(), '2000');
+    fireEvent.keyDown(priceInput(), { key: 'ArrowDown' });
+    expect(priceInput().value).toBe('1,999');
+    await user.type(qtyInput(), '10');
+    fireEvent.keyDown(qtyInput(), { key: 'ArrowUp' });
+    expect(qtyInput().value).toBe('11');
+    fireEvent.keyDown(qtyInput(), { key: 'ArrowDown' });
+    fireEvent.keyDown(qtyInput(), { key: 'ArrowDown' });
+    expect(qtyInput().value).toBe('9');
+    qtyInput().focus();
+    await user.keyboard('{Enter}');
+    expect(qtyInput()).not.toHaveFocus();
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('가격 검증 줄(D-15): 호가 단위 위반은 상자 아래 12.5px --destructive 한 줄 · 주문 버튼은 잠그지 않는다', async () => {
+    const user = userEvent.setup();
+    renderForm({ upperLimit: 127_400 });
+    await user.type(priceInput(), '98150');
+    const issue = screen.getByTestId('manual-order-price-issue');
+    expect(issue).toHaveTextContent('100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200');
+    expect(issue).toHaveAttribute('role', 'status');
+    expect(issue.className).toContain('text-[12.5px]');
+    expect(issue.className).toContain('text-[var(--destructive)]');
+    // 값은 보정하지 않는다.
+    expect(priceInput().value).toBe('98,150');
+    await user.type(qtyInput(), '10');
+    expect(btn('매수')).toBeEnabled();
+    await user.click(btn('매수'));
+    expect(await screen.findByTestId('order-confirm-dialog')).toBeInTheDocument();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('가격 검증 줄: 상한가 초과 · 정상 값이면 줄 없음 · 상한가 모르면(0) 단위만 본다', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ upperLimit: 127_400 });
+    await user.type(priceInput(), '130000');
+    expect(screen.getByTestId('manual-order-price-issue')).toHaveTextContent(
+      '상한가 127,400원을 넘을 수 없어요',
+    );
+    await user.clear(priceInput());
+    await user.type(priceInput(), '98100');
+    expect(screen.queryByTestId('manual-order-price-issue')).toBeNull();
+    rerender(<ManualOrderForm {...props} upperLimit={undefined} />);
+    await user.clear(priceInput());
+    await user.type(priceInput(), '130000');
+    expect(screen.queryByTestId('manual-order-price-issue')).toBeNull();
+  });
+
+  it('시간외종가면 가격 검증 줄이 없다', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g3Open: true }), upperLimit: 127_400 });
+    await user.type(priceInput(), '98150');
+    expect(screen.getByTestId('manual-order-price-issue')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    expect(screen.queryByTestId('manual-order-price-issue')).toBeNull();
+  });
+
+  it('주문금액 행: 44px · 「주문금액」 + 「{가격×수량}원」', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await fill(user, '128500', '10');
+    const amount = screen.getByText('1,285,000원');
+    expect(amount.parentElement!.className).toContain('min-h-[44px]');
+    expect(amount.parentElement).toHaveTextContent(/^주문금액/);
+  });
+
+  it('주문유형 행(호가 탭): 44px · 「주문유형」 + 「지정가 ›」 위에 투명 네이티브 select', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g3Open: true }) });
+    const select = screen.getByLabelText('주문유형');
+    expect(select.tagName).toBe('SELECT');
+    expect(select.className).toContain('opacity-0');
+    expect(select.className).toContain('absolute');
+    const rowEl = select.parentElement as HTMLElement;
+    expect(rowEl.className).toContain('min-h-[44px]');
+    const shown = rowEl.querySelector('[data-slot="mo-type-value"]') as HTMLElement;
+    expect(shown).toHaveTextContent('지정가 ›');
+    await user.selectOptions(select, 'offhours');
+    expect(shown).toHaveTextContent('시간외종가 ›');
+  });
+
+  it('미체결 행을 고르면 각주가 사라진다', () => {
+    const { rerender, props } = renderForm();
+    expect(screen.getByText(FOOTNOTE)).toBeInTheDocument();
+    rerender(<ManualOrderForm {...props} selectedUnfilled={unf()} />);
+    expect(screen.queryByText(FOOTNOTE)).toBeNull();
+  });
+
+  it('원주문 칩: --muted · radius 12 · 13px · ✕ 히트 44', () => {
+    renderForm({ selectedUnfilled: unf(), onClearSelection: vi.fn() });
+    const chip = screen.getByTestId('manual-order-selchip');
+    expect(chip.className).toContain('rounded-[12px]');
+    expect(chip.className).toContain('bg-[var(--muted)]');
+    expect(chip.className).toContain('text-[13px]');
+    const x = btn('선택 해제');
+    expect(x.className).toContain('min-h-11');
+    expect(x.className).toContain('min-w-11');
+  });
+
+  it('소스 가드 — --primary 계열 토큰 · StepButton · UnitBox 가 없다(머리 ② 5 · D-08)', () => {
+    const src = readFileSync(path.resolve(__dirname, '../card/manual-order-form.tsx'), 'utf8');
+    expect(src).not.toMatch(/var\(--primary/);
+    expect(src).not.toMatch(/function StepButton|function UnitBox/);
+    expect(src).toMatch(/function TicketBox/);
   });
 });
 
@@ -449,6 +640,32 @@ describe('ManualOrderEntry — 적응형 진입 (D-19)', () => {
     expect(screen.getByTestId('manual-entry-options').className).toContain('@min-[700px]/lc:block');
     await waitFor(() => expect(btn('수동주문')).toHaveFocus());
     expect((screen.getByLabelText('옵션 값') as HTMLInputElement).value).toBe('120');
+  });
+
+  it('재스타일(D-09 · §9): 3탭 34px · 15/600 · 트랙 radius 12 · 「수동주문」 32px 13/600 · 덮은 뒤 키 줄 말줄임 + title', async () => {
+    const user = userEvent.setup();
+    renderEntry();
+    const tabs = screen.getByRole('tablist', { name: '주문 진입' });
+    expect(tabs.className).toContain('rounded-[12px]');
+    expect(tabs.className).toContain('bg-[var(--muted)]');
+    for (const t of within(tabs).getAllByRole('tab')) {
+      expect(t.className).toContain('h-[34px]');
+      expect(t.className).toContain('text-[15px]');
+      expect(t.className).toContain('font-semibold');
+      expect(t.textContent).toHaveLength(2);
+    }
+    const open = btn('수동주문');
+    expect(open.className).toContain('h-8');
+    expect(open.className).toContain('text-[13px]');
+    expect(open.className).toContain('font-semibold');
+
+    await user.click(open);
+    const key = `${ISIN}:12345678-01:KRX`;
+    const keyLine = screen.getByTitle(key);
+    expect(keyLine.className).toContain('truncate');
+    expect(keyLine).toHaveTextContent(`수동주문 · 키 ${key}`);
+    expect(keyLine.className).toContain('text-[12px]');
+    expect(btn('수동주문 닫기').className).toContain('size-8');
   });
 });
 
