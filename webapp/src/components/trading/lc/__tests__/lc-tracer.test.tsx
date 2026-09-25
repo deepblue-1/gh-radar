@@ -35,6 +35,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 
 import { CardBody } from '../../card/card-body';
 import { ACK_TIMEOUT_MS, StrategyCard } from '../../card/strategy-card';
+import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -398,5 +399,185 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
       vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
     });
     expect(lcSets()).toHaveLength(1);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+   20-03 — 터치(시트) 경로 (D-12 · D-13 · D-05~D-07 · D-23)
+   주 포인터가 coarse 면 행을 눌러 키패드 시트가 열린다. 인라인 입력칸은 생기지 않는다.
+   ⚠️ matchMedia 교체는 afterEach 에서 반드시 되돌린다(RESEARCH Pitfall 7).
+   ───────────────────────────────────────────────────────────── */
+describe('트레이서 — 터치(시트) 경로 (20-03 · D-12 · D-13)', () => {
+  beforeEach(() => mockPointer(true));
+  afterEach(restoreMatchMedia);
+
+  const sheet = (): HTMLElement | null => document.querySelector('[data-slot="numpad-sheet"]');
+  const sheetValue = (): string | null =>
+    document.querySelector('[data-slot="numpad-value"]')?.textContent ?? null;
+  const sheetStatus = (): HTMLElement =>
+    document.querySelector('[data-slot="numpad-status"]') as HTMLElement;
+  const confirmBtn = (): HTMLButtonElement =>
+    document.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+  const chips = (): string[] =>
+    Array.from(document.querySelectorAll('[data-slot="numpad-chips"] button')).map((b) => b.textContent ?? '');
+  /** 키패드 키 — 시트가 열리면 배경은 aria-hidden 이라 시트 안에서만 찾는다. */
+  const padKey = (label: string): HTMLButtonElement => {
+    const pad = sheet()!.querySelector('[role="group"][aria-label="숫자 키패드"]') as HTMLElement;
+    const btn = Array.from(pad.querySelectorAll('button')).find((b) => b.textContent === label);
+    expect(btn, `키 ${label}`).toBeDefined();
+    return btn as HTMLButtonElement;
+  };
+  const closeBtn = (): HTMLButtonElement =>
+    Array.from(sheet()!.querySelectorAll('button')).find((b) => b.textContent === '닫기') as HTMLButtonElement;
+
+  function openSheet(): void {
+    expect(row(), '「호가변경」 값 행').not.toBeNull();
+    act(() => {
+      fireEvent.click(row());
+    });
+    expect(sheet(), '키패드 시트').not.toBeNull();
+  }
+  function tap(el: HTMLElement): void {
+    act(() => {
+      fireEvent.click(el);
+    });
+  }
+
+  it('⑪ 행에 aria-haspopup=dialog · 누르면 인라인 입력 없이 dialog 「호가변경」 · 확정 「호가변경 적용」 · 칩 1·3·5·지우기', () => {
+    setRelay({ limitChasers: [echo()] });
+    render(<Card />);
+
+    expect(row().getAttribute('aria-haspopup')).toBe('dialog');
+    openSheet();
+    expect(editor()).toBeNull();
+    expect(sheet()!.getAttribute('role')).toBe('dialog');
+    expect(screen.getByRole('dialog', { name: '호가변경' })).toBe(sheet());
+    expect(sheet()!.textContent).toContain('호가가 이만큼 바뀌면 한 번에 체결해요');
+    expect(confirmBtn().textContent).toBe('호가변경 적용');
+    expect(chips()).toEqual(['1', '3', '5', '지우기']);
+    expect(sheetValue()).toBe('3');
+    expect(document.querySelector('[data-slot="numpad-server"]')?.textContent).toBe('지금 3건');
+  });
+
+  it('⑫ 5 → 「호가변경 적용」 = lc.set 1회(cfg 5) · 「반영 중…」 → 에코 5 → 시트 닫힘 · 행 「5건」 강조 · 포커스는 그 행', () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+
+    openSheet();
+    tap(padKey('5'));
+    expect(sheetValue()).toBe('5');
+    tap(confirmBtn());
+
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg!.sweepMinTickCount).toBe(5);
+    expect(confirmBtn().textContent).toBe('반영 중…');
+    expect(confirmBtn().disabled).toBe(true);
+    expect(closeBtn().disabled).toBe(true);
+    expect(sheet()).not.toBeNull();
+
+    setRelay({ limitChasers: [echo({ sweepMinTickCount: 5 })] });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(20);
+    });
+
+    expect(sheet()).toBeNull();
+    expect(rowValue().textContent).toBe('5건');
+    expect(rowValue().className).toContain('text-[var(--primary)]');
+    expect(document.activeElement).toBe(row());
+    expect(lcSets()).toHaveLength(1);
+  });
+
+  it('⑬ 거부(답만 증가) → 시트 유지 · 「반영하지 못했어요」 · 「다시 시도」 · 디스플레이 5 유지 · 누르면 2회째 전송', () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+
+    openSheet();
+    tap(padKey('5'));
+    tap(confirmBtn());
+    expect(lcSets()).toHaveLength(1);
+
+    const messages = [rejection()];
+    setRelay({ limitChasers: [echo()], messages });
+    rerender(<Card />);
+
+    expect(sheet()).not.toBeNull();
+    expect(sheetStatus().querySelector('[role="alert"]')?.textContent).toBe('반영하지 못했어요');
+    expect(confirmBtn().textContent).toBe('다시 시도');
+    expect(confirmBtn().disabled).toBe(false);
+    expect(sheetValue()).toBe('5');
+    // 행 쪽 말풍선은 뜨지 않는다 — 실패는 시트 상태 줄 한 곳이 말한다.
+    expect(document.querySelector('[data-slot="lc-failure-bubble"]')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(lcSets()).toHaveLength(1);
+
+    tap(confirmBtn());
+    expect(lcSets()).toHaveLength(2);
+    expect(lcSets()[1]!.cfg!.sweepMinTickCount).toBe(5);
+  });
+
+  it('⑭ 열린 채 다른 단말 에코(7) → 입력값 유지 · 「지금 7건」 · 「다른 단말에서 바뀌었어요」 → 적용하면 내 값이 나간다', () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+
+    openSheet();
+    tap(padKey('5'));
+    setRelay({ limitChasers: [echo({ sweepMinTickCount: 7 })] });
+    rerender(<Card />);
+
+    expect(sheet()).not.toBeNull();
+    expect(sheetValue()).toBe('5');
+    expect(document.querySelector('[data-slot="numpad-server"]')?.textContent).toBe('지금 7건');
+    expect(sheetStatus().querySelector('[role="status"]')?.textContent).toBe('다른 단말에서 바뀌었어요');
+    expect(rowValue().textContent).toBe('7건');
+
+    tap(confirmBtn());
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg!.sweepMinTickCount).toBe(5);
+  });
+
+  it('⑮ 「닫기」 → 전송 0 · 시트 닫힘 · 실패 기록 지움', () => {
+    sendMock.mockReturnValue(false);
+    setRelay({ limitChasers: [echo()] });
+    render(<Card />);
+
+    openSheet();
+    tap(padKey('9'));
+    tap(confirmBtn());
+    expect(sheetStatus().querySelector('[role="alert"]')?.textContent).toBe('연결이 끊겨 보내지 못했어요');
+    expect(row().className).toContain('var(--destructive)');
+
+    sendMock.mockClear();
+    tap(closeBtn());
+    expect(sheet()).toBeNull();
+    expect(lcSets()).toHaveLength(0);
+    expect(row().className).not.toContain('var(--destructive)');
+    expect(rowValue().textContent).toBe('3건');
+  });
+
+  it('⑯ 같은 값(3) 적용 = 전송 0 · 시트 바로 닫힘', () => {
+    setRelay({ limitChasers: [echo()] });
+    render(<Card />);
+
+    openSheet();
+    tap(padKey('3'));
+    tap(confirmBtn());
+    expect(lcSets()).toHaveLength(0);
+    expect(sheet()).toBeNull();
+  });
+
+  it('⑰ 마우스 기기(fine)로 돌아가면 20-01 인라인 경로 그대로 — 시트 없음 · aria-haspopup 없음', () => {
+    restoreMatchMedia();
+    setRelay({ limitChasers: [echo()] });
+    render(<Card />);
+
+    expect(row().getAttribute('aria-haspopup')).toBeNull();
+    act(() => {
+      fireEvent.click(row());
+    });
+    expect(sheet()).toBeNull();
+    expect(editor()).not.toBeNull();
   });
 });
