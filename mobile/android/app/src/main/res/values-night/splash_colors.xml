@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- D-22: Android 12+ 시스템 스플래시 배경(OS 야간 모드) = 토스 다크 -->
+    <color name="gh_splash_background">#17171C</color>
+</resources>

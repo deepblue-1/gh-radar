@@ -18,5 +18,7 @@
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!-- D-22: Android 12+ 시스템 스플래시 배경 — 라이트 #FFFFFF / 다크(values-night) #17171C -->
+        <item name="windowSplashScreenBackground">@color/gh_splash_background</item>
     </style>
 </resources>

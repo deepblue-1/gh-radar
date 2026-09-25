@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- D-22: Android 12+ 시스템 스플래시 배경(라이트). 다크는 values-night. -->
+    <color name="gh_splash_background">#FFFFFF</color>
+</resources>
