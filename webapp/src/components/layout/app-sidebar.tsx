@@ -37,7 +37,7 @@ import { UserSection } from "./user-section";
  * 시각 정본은 사용자 승인 목업 `16-mypage-sidebar-mockup.html` 이다 (D-24).
  *
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
- *   홈 · [종목검색] 상승률 상위 / 테마 / 관심종목
+ *   홈 · 검색(`/search`, Phase 21 D-07) · [종목검색] 상승률 상위 / 테마 / 관심종목
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
  *   · My page · AI 애널리스트
  *
@@ -84,6 +84,12 @@ interface NavLeaf {
 }
 
 const NAV_HOME: NavLeaf = { href: "/", label: "홈", icon: Home };
+
+/**
+ * `/search` 탐색 허브 (Phase 21 D-07 · D-07a) — 앱 「검색」 탭과 같은 목적지. 홈 바로 아래 단독 링크다.
+ * 아래 「종목검색」 그룹 3항목은 그대로 둔다(사이드바 재편은 Deferred).
+ */
+const NAV_SEARCH_PAGE: NavLeaf = { href: "/search", label: "검색", icon: Search };
 
 /** 「종목검색」 그룹 — 로그인·매핑과 무관하게 **항상** 보인다(N4). */
 const NAV_SEARCH_GROUP: NavLeaf[] = [
@@ -378,6 +384,9 @@ export function AppSidebar() {
       <ul className="m-0 flex list-none flex-col gap-1 p-0">
         <li>
           <NavLink item={NAV_HOME} active={isActive(NAV_HOME.href)} />
+        </li>
+        <li>
+          <NavLink item={NAV_SEARCH_PAGE} active={isActive(NAV_SEARCH_PAGE.href)} />
         </li>
 
         <GroupHeading label="종목검색" icon={Search} />
