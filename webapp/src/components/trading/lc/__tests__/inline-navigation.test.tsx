@@ -225,6 +225,36 @@ describe('② 한 번 클릭 전환 (D-14b)', () => {
     expect(input('lc-buy-order-price')).toBeNull();
   });
 
+  it('click 이 떨어져도(pointerdown 기록 + blur 저장만) 그 행이 편집을 이어받는다 — 캡처 기록이 보험이다', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props()} />);
+    await user.click(row('lc-buy-order-price'));
+    type(input('lc-buy-order-price')!, '150000');
+    // 브라우저에서 blur 재렌더가 click 대상을 떼어낸 경우를 흉내 낸다 — click 이벤트 없이 끝난다.
+    act(() => {
+      fireEvent.pointerDown(row('lc-buy-order-amount'));
+    });
+    act(() => {
+      fireEvent.blur(input('lc-buy-order-price')!);
+    });
+    expect(sentConfigs()).toHaveLength(1);
+    expect(sentConfigs()[0]!.buyOrderPrice).toBe(150_000);
+    expect(editingId()).toBe('lc-buy-order-amount');
+  });
+
+  it('체크 버튼 pointerdown 은 기록하지 않는다 — blur 뒤 편집 종료', async () => {
+    const user = userEvent.setup();
+    render(<LimitChaserForm {...props()} />);
+    await user.click(row('lc-buy-watch-qty'));
+    act(() => {
+      fireEvent.pointerDown(screen.getByRole('checkbox', { name: '매수주문 체결' }));
+    });
+    act(() => {
+      fireEvent.blur(input('lc-buy-watch-qty')!);
+    });
+    expect(editingId()).toBeNull();
+  });
+
   it('값을 바꾸지 않았으면 전송 0 으로 옮겨 간다 — 다른 그룹 행도 한 번이다', async () => {
     const user = userEvent.setup();
     render(<LimitChaserForm {...props()} />);

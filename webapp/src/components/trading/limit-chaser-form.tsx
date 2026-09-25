@@ -73,7 +73,15 @@
  *   - **감시대상**: `aria-pressed` 버튼 두 개다 — 라디오 그룹이면 방향키가 선택을 바꿔 **전송**한다.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import type {
   RelayExchange,
   RelayLimitChaser,
@@ -96,7 +104,9 @@ import {
   LC_BUY_GROUPS,
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
+  lcNavigableRows,
   lcRowByField,
+  lcRowById,
   type LcGate,
   type LcGroupSpec,
   type LcNumField,
@@ -501,6 +511,20 @@ export function LimitChaserForm({
   });
   /** 인라인 편집 중인 필드 — 한 번에 한 행이다(마우스 기기 · D-14). */
   const [editingField, setEditingField] = useState<LcNumField | null>(null);
+  /**
+   * D-14b 한 번 클릭 전환 — 편집 중 다른 값 행을 누르면 pointerdown(캡처)에서 그 행을 기록하고,
+   * 편집기 포커스 이탈이 저장/취소를 마친 직후 그 행이 편집을 **이어받는다**(RESEARCH §Q6 ·
+   * 목업 `index.html:513-519`). React 에서는 행 높이가 불변이라 click 이 살아남는 경우가 많지만,
+   * blur 저장이 만드는 재렌더(편집 행 `<div>` → `<button>`)가 click 대상을 떼어낼 수 있어 이 기록이 보험이다.
+   * 행 click 의 `activateRow` 는 멱등이라 두 경로가 함께 돌아도 무해하다.
+   */
+  const nextEditRef = useRef<LcNumField | null>(null);
+  /** 편집 종료 — 기록된 다음 행이 있으면 그 행이 이어받는다(없으면 편집 종료). */
+  const endEdit = useCallback(() => {
+    const next = nextEditRef.current;
+    nextEditRef.current = null;
+    setEditingField(next);
+  }, []);
   /*
     ★ D-12 — 편집 방식은 입력 장치로 가른다. 주 포인터가 터치면 행을 눌러 키패드 시트를 연다.
       시트는 폼 끝에 **한 개만** 두고 `sheetField` 가 무엇을 편집하는지 정한다. 닫히면 포커스는
@@ -520,21 +544,37 @@ export function LimitChaserForm({
   /**
    * 인라인 저장 — Enter 는 결과를 편집기 안에서 말하고(반영 중 잠금 · 실패 말풍선),
    * 포커스 이탈은 편집을 끝내고 결과를 **행**이 말한다(`aria-busy` · 실패 링). UI-SPEC §6.
+   * Tab 은 저장만 하고 다음 행은 `handleInlineNavigate` 가 고른다(편집기가 저장 → 이동 순으로 부른다).
+   * ★ 앞 행이 반영 중이어도 다음 행 편집은 막지 않는다 — 확정 전송만 상태 기계가 직렬화한다
+   *   (D-14b 가 UI-SPEC E4 loading 의 「다른 행 클릭 무시」보다 우선 · RESEARCH §Q6).
    */
   const handleInlineSave = useCallback(
     (field: LcNumField, value: number, via: InlineSaveVia) => {
       const outcome = commitField(field, value, 'value');
-      if (via === 'blur' || outcome === 'noop' || outcome === 'local') setEditingField(null);
+      if (via === 'blur') endEdit();
+      else if (via === 'enter' && (outcome === 'noop' || outcome === 'local')) endEdit();
     },
-    [commitField],
+    [commitField, endEdit],
   );
   const handleInlineCancel = useCallback(
     (field: LcNumField) => {
       clearFailure(field);
-      setEditingField(null);
+      endEdit();
     },
-    [clearFailure],
+    [clearFailure, endEdit],
   );
+  /**
+   * Tab / Shift+Tab (D-14 · 가정 A5) — **같은 그룹**의 다음/이전 값 행. 감시대상 · 값 없는 체크 행 ·
+   * 기준선 행은 `lcNavigableRows` 가 이미 뺐다. 그룹 끝이면 편집 종료 — 다른 그룹으로 넘어가지 않는다.
+   */
+  const handleInlineNavigate = useCallback((field: LcNumField, dir: 'next' | 'prev') => {
+    nextEditRef.current = null;
+    const slot = lcRowByField(field)?.group.slot;
+    const rows = slot === undefined ? [] : lcNavigableRows(slot);
+    const i = rows.findIndex((r) => r.field === field);
+    const to = i < 0 ? undefined : rows[dir === 'next' ? i + 1 : i - 1];
+    setEditingField(to?.field ?? null);
+  }, []);
 
   /**
    * 값 행 누르기 — **모든 값 행이 이 한 경로**다. 터치 기기면 시트, 아니면 그 자리 인라인 편집(D-12).
@@ -543,6 +583,7 @@ export function LimitChaserForm({
   const activateRow = useCallback(
     (field: LcNumField, el: HTMLElement) => {
       if (disabled || lc.inflightField === field) return;
+      nextEditRef.current = null;
       sheetReturnRef.current = el;
       if (editMode === 'sheet') setSheetField(field);
       else setEditingField(field);
@@ -659,7 +700,11 @@ export function LimitChaserForm({
   const gateDisabled = (gate: LcGate): boolean =>
     gate === 'cancelQtyEnabled' ? disabled : gateBlocked(gate, !form[gate]);
 
-  /** 인라인 편집기 — 실패로 남은 입력값이 있으면 그 값으로 다시 연다(입력 보존). */
+  /**
+   * 인라인 편집기 — 실패로 남은 입력값이 있으면 그 값으로 다시 연다(입력 보존 · A-P3).
+   * 검증은 편집기가 저장 **전**에 한다 — 원 단위 호가·상한가(D-15, `upperLimit`) → 무장 불가
+   * (`armBlockOf` · 훅의 전송 직전 가드와 **같은 식** = 서버 동기값 + 바꾼 필드 · T-20-03).
+   */
   function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit): ReactNode {
     const failure = lc.failures[field];
     return (
@@ -668,14 +713,33 @@ export function LimitChaserForm({
         label={label}
         unit={unit}
         initialValue={typeof failure?.value === 'number' ? failure.value : form[field]}
-        busy={lc.inflightField === field}
+        upperLimit={unit === '원' ? (upperLimit ?? 0) : 0}
+        validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: v })}
+        busy={isBusy(field)}
         failureText={inlineFailureTextOf(failure)}
         onSave={(v, via) => handleInlineSave(field, v, via)}
         onCancel={() => handleInlineCancel(field)}
-        onDismiss={() => setEditingField(null)}
+        onDismiss={endEdit}
+        onNavigate={(dir) => handleInlineNavigate(field, dir)}
       />
     );
   }
+
+  /**
+   * D-14b — 편집 중 다른 **값 행(값 버튼)** 을 누르면 그 행을 다음 편집으로 기록한다(캡처 단계라 행
+   * 자신의 핸들러보다 먼저 돈다). 체크 버튼 · 감시대상 · 스위치는 `data-lc-field` 버튼이 아니어서
+   * 기록하지 않는다 — 그 클릭은 제 동작을 한다. 비활성 · 반영 중인 행도 기록하지 않는다(`activateRow` 와 같은 규칙).
+   */
+  const handlePointerDownCapture = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (editingField === null) return;
+    const target = e.target instanceof Element ? e.target.closest('[data-lc-field]') : null;
+    if (!(target instanceof HTMLButtonElement) || target.disabled) return;
+    const hit = lcRowById(target.dataset.lcField ?? '');
+    if (hit === null || (hit.row.kind !== 'value' && hit.row.kind !== 'checkValue')) return;
+    const field = hit.row.field;
+    if (field === editingField || lc.inflightField === field) return;
+    nextEditRef.current = field;
+  };
 
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
   function valueProps(field: LcNumField) {
@@ -686,7 +750,7 @@ export function LimitChaserForm({
       failed: lc.failures[field] !== undefined,
       // 시트가 이 행을 편집 중이면 실패는 시트 상태 줄이 말한다 — 말풍선(body 포털)이 시트
       // 오버레이 위로 뜨지 않게 행 쪽은 끈다(20-03).
-      failureText: sheetField === field ? null : rowFailureTextOf(lc.failures[field]),
+      failureText: sheetField === field ? null : inlineFailureTextOf(lc.failures[field]),
       editing: editingField === field,
       hasPopup: editMode === 'sheet',
     };
@@ -824,7 +888,7 @@ export function LimitChaserForm({
   const sheetStatusKey = sheetRow?.group.statusKey;
 
   return (
-    <div data-slot="limit-chaser-form" className={cn('min-w-0', className)}>
+    <div data-slot="limit-chaser-form" className={cn('min-w-0', className)} onPointerDownCapture={handlePointerDownCapture}>
       {submitError === '' ? null : (
         /*
           스위치·체크·감시대상을 눌렀는데 못 나갔거나 무장 판정에 막혔다 — 화면이 그 사실을 말한다.
@@ -937,8 +1001,10 @@ function ArmBlockedPanel({ groups }: { groups: ArmBlockedGroup[] }) {
 }
 
 /**
- * 인라인 편집기 실패 문구 — 보냈는데 안 선 것(거부·무응답)은 「Enter 로 다시 시도」를 덧붙인다
+ * 인라인 실패 문구 — 보냈는데 안 선 것(거부·무응답)은 「Enter 로 다시 시도」를 덧붙인다
  * (UI-SPEC Copywriting 「인라인 실패 말풍선」). 끊김·무장 불가는 그 사유 문장 그대로다.
+ * 편집기 말풍선과 **편집이 끝난 행**의 앵커 말풍선(다른 행으로 옮긴 뒤 도착한 실패 · A-P3)이 이 한
+ * 함수를 쓴다 — 그 행을 다시 누르면 보존값으로 편집이 열려 Enter 가 곧 재시도다.
  */
 function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
   if (f === undefined) return null;
@@ -951,9 +1017,4 @@ function lcBaseValues(
   form: LimitChaserFormValues,
 ): LimitChaserFormValues {
   return server != null ? formFromServer(server, form) : form;
-}
-
-/** 편집이 끝난 행의 실패 문구 — 사유 문장 그대로(행을 다시 누르면 보존값으로 편집이 열린다). */
-function rowFailureTextOf(f: LcCommitFailure | undefined): string | null {
-  return f === undefined ? null : f.text;
 }
