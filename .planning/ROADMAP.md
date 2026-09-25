@@ -948,7 +948,7 @@ Plans:
 **불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
 **Requirements**: TBD
 **Depends on:** Phase 18
-**Plans:** 3/7 plans executed
+**Plans:** 4/7 plans executed
 
 Plans:
 **Wave 1**
@@ -962,7 +962,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 20-04-PLAN.md — 상따 설정 리스트 전면 전환(D-19 순서 · 스위치 4 · 체크 행 · 감시대상 두 모양 · 44px) + 더티 바 폐기
+- [x] 20-04-PLAN.md — 상따 설정 리스트 전면 전환(D-19 순서 · 스위치 4 · 체크 행 · 감시대상 두 모양 · 44px) + 더티 바 폐기
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

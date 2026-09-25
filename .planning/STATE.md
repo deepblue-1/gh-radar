@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
 status: executing
-stopped_at: Completed 20-03-PLAN.md
-last_updated: "2026-09-25T04:24:28.055Z"
+stopped_at: Completed 20-04-PLAN.md
+last_updated: "2026-09-25T05:06:41.181Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 execution started
-state_head: d86df23eda4b9f12341bd7fb5f81a2c35c3f3553
+state_head: c04aaa1dca03182eccee92498240d22ed5810e26
 progress:
   total_phases: 29
   completed_phases: 4
   total_plans: 240
-  completed_plans: 221
+  completed_plans: 222
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Plans completed: 218 / 233
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -75,6 +75,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 20 P01 | 18 min | 2 tasks | 8 files |
 | Phase 20 P02 | 11min | 3 tasks | 8 files |
 | Phase 20 P03 | 13min | 3 tasks | 10 files |
+| Phase 20 P04 | 25min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 20]: 20-02 폭 스파이크: 백스톱 폰(344) L2 · 700 L2 · 992 L0 · 830 은 감시대상 행이 L2 로도 −3.4px (권고 ≥700 토글 좌우 10→8 + L2) · 20-06 ≥700 버튼 17px 한 줄 확인
 - [Phase 20]: [20-03] 편집 방식은 useEditMode()(주 포인터 (pointer: coarse) 구독 · 서버 렌더 inline) 하나가 가른다 — 터치면 행 탭이 키패드 시트(NumberPadSheet, 폼당 1개 · body 포털 · min(440, 100vw−20) 가운데)를 열고 전송은 훅 commit 하나. 시트는 successSeq(에코 값 일치)로만 닫힌다
 - [Phase 20]: [20-03] 시트 접근성·겹침 규율 — 시트 안 Enter 는 버튼 포커스면 그 버튼에 맡기고 · 컨테이너 링은 focus-visible 변수로 컨테이너에만 걷고(seamless 는 자식 버튼 링까지 지움) · 시트가 편집 중인 행은 실패 말풍선을 꺼 오버레이 위 겹침을 막는다 · aria-modal 은 명시(Radix 미부여)
+- [Phase 20]: 20-04 폭 백스톱 — 폰 밴드(<700)만 L2(행 좌우 0 · 라벨–값 간격 4) · ≥700 은 D-02a 로 L0 충분해 원래 값(4 · 6). 공유 ROW_BOX 한 줄
+- [Phase 20]: 20-04 가격 섹션도 statusKey 를 가진다 — 매수가격·매도가격 시트의 「감시 중」 안내는 매수주문·매도주문 상태를 따른다
+- [Phase 20]: 20-04 토글 무응답 실패는 서버 값으로 되돌린다 — 미등록 카드의 「켰다→무응답→끔(D)」 흐름은 사라지고 두 번째 누름은 재시도(strategy-card-flow ㉑ 재정의)
 
 ### Pending Todos
 
@@ -172,8 +176,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-25T04:24:20.082Z
-Stopped at: Completed 20-03-PLAN.md
+Last session: 2026-09-25T05:06:40.553Z
+Stopped at: Completed 20-04-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

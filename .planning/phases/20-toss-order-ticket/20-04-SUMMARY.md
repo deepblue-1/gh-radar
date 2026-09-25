@@ -251,3 +251,8 @@ serial 모드라 첫 실패 뒤의 케이스는 실행되지 않는다(`did not 
 ## Threat Flags
 
 없음. 새 네트워크 표면이 없다. 전송은 기존 `lc.set` 하나이고 cfg 는 `buildCfg` 한 곳에서 32키로 조립된다. 스위치·체크·감시대상의 즉시 전송은 플랜 threat_model T-20-01/03/04/13 의 mitigate 대상이며 모두 구현·테스트됐다(기하 · 켜기만 무장 판정 · 전송 중 토글 비활성 · 실패 시 서버 값 복귀 · 미등록 로컬만).
+
+## Self-Check: PASSED
+
+- 파일 5개 존재 확인: `lc-fields.ts` · `setting-group.tsx` · `setting-group.test.tsx` · `limit-chaser-form.tsx` · 이 SUMMARY
+- 커밋 5개 존재 확인: `11e8804` · `49f42ea` · `7e7e64a` · `214d3d6` · `30875a1` (`git rev-list --count d4ab43c..` = SUMMARY 커밋 전 5 · 후 6)
