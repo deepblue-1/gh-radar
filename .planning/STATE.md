@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
-status: executing
-stopped_at: Completed 20-06-PLAN.md
-last_updated: "2026-09-25T05:35:09.781Z"
+status: verifying
+stopped_at: Completed 20-07-PLAN.md
+last_updated: "2026-09-25T06:17:41.578Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 execution started
-state_head: a135f45cab53a22448fdadd06b64f4a2148b7db4
+state_head: 270901e5818a26662101ab4849367796be545473
 progress:
   total_phases: 29
   completed_phases: 4
   total_plans: 240
-  completed_plans: 224
+  completed_plans: 225
 milestone_name: milestone
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
 Plan: 7 of 7
 Plans completed: 218 / 233
-Status: Ready to execute
+Status: Phase complete — ready for verification
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-25 — Phase 20 execution started
@@ -78,6 +78,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 20 P04 | 25min | 3 tasks | 9 files |
 | Phase 20 P05 | 7min | 2 tasks | 4 files |
 | Phase 20 P06 | 14min | 2 tasks | 4 files |
+| Phase 20 P07 | 39min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 20]: 20-06: 수동주문 D-14c 클릭 전체 선택은 이번 누름으로 들어온 경우에만 — 이미 편집 중인 칸은 캐럿 이동 허용(중간 수정 가능)
 - [Phase 20]: 20-06: 종목(isin) 전환 시 열린 수동주문 시트를 닫는다 — 기존 종목 전환 리셋 이펙트는 무변경, 별도 이펙트(T-20-05)
 - [Phase 20]: 20-06: ≥700 매수/매도 17px 적용(20-02 스파이크 206px 버튼에 예약매수 한 줄) · <700 은 13px 줄바꿈 유지 · 결과 배너는 거부만 --destructive
+- [Phase 20]: 20-07: 매수·매도 값 버튼 이름 중복은 이름(UI-SPEC 계약) 대신 aria-describedby = 그룹 제목으로 가른다
+- [Phase 20]: 20-07: overflow.ts 는 빈 절대배치 가상요소(히트 영역)만으로 넘친 요소를 제외한다 — 실제 글자는 Range 로 계속 판정
+- [Phase 20]: 20-07: P20-3 실측 폰(344) 기준선 행 여유 +0.4px — 들어가므로 백스톱 추가 없음(글자 불변) · 가장 먼저 깨질 행으로 P20-3 이 감시
 
 ### Pending Todos
 
@@ -184,8 +188,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-25T05:35:09.109Z
-Stopped at: Completed 20-06-PLAN.md
+Last session: 2026-09-25T06:17:40.939Z
+Stopped at: Completed 20-07-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

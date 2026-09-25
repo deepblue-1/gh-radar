@@ -948,7 +948,7 @@ Plans:
 **불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
 **Requirements**: TBD
 **Depends on:** Phase 18
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans executed
 
 Plans:
 **Wave 1**
@@ -971,4 +971,4 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 20-07-PLAN.md — e2e 이관(더티 케이스 재정의 · 최악값 폭 · 터치 시트 · a11y) + 최종 게이트 · 시각 확인
+- [x] 20-07-PLAN.md — e2e 이관(더티 케이스 재정의 · 최악값 폭 · 터치 시트 · a11y) + 최종 게이트 · 시각 확인
