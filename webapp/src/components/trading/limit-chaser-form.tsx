@@ -45,6 +45,9 @@
  *   목록은 에코 값으로 덮인다. 유일한 예외가 **편집 중인 버퍼**다 — 인라인 편집기·시트는 자기 버퍼를
  *   들고 있어 에코가 입력을 덮지 않는다(UI-SPEC E4 partial). 편집이 끝나면 행은 에코 값이다.
  *   `buyOrderAmount === 0`(=「서버가 모른다」)은 덮지 않으며 그 판단은 `formFromServer` 한 곳에 있다.
+ *   ★ 그 상태(레거시 전략)에서는 주문금액 행이 폼이 든 클라 기본값이 아니라 **「—」** 이고, 금액 외 확정은
+ *     「주문금액을 먼저 입력해 주세요」로 막힌다(D-04a · 20-REVIEW WR-07 · 판정은 훅 `amountRequired` 하나).
+ *     끄기는 막지 않는다(T-16-44).
  *
  * ⑤ ★ 전송 필드는 **클라 입력 29 + 클라 고정 3 = 32** 이다
  *   S→C 전용 4필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
@@ -127,6 +130,7 @@ import {
 } from '@/components/trading/lc/setting-group';
 import {
   LC_COMMIT_TEXT,
+  lcAmountBlockOf,
   useLcFieldCommit,
   type LcCommitFailure,
   type LcFailReason,
@@ -717,12 +721,12 @@ export function LimitChaserForm({
         id={id}
         label={label}
         unit={unit}
-        initialValue={typeof failure?.value === 'number' ? failure.value : form[field]}
+        initialValue={typeof failure?.value === 'number' ? failure.value : shownValueOf(field)}
         upperLimit={unit === '원' ? (upperLimit ?? 0) : 0}
         tickRule={tickRule}
         min={range?.min}
         max={range?.max}
-        validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: v })}
+        validate={(v) => validateCommit(field, v)}
         busy={isBusy(field)}
         failureText={inlineFailureTextOf(failure)}
         onSave={(v, via) => handleInlineSave(field, v, via)}
@@ -749,6 +753,25 @@ export function LimitChaserForm({
     nextEditRef.current = field;
   };
 
+  /**
+   * 행·편집기가 보여 줄 값 — 서버가 주문금액을 모르면(레거시) 주문금액은 `null`(「—」 · 빈 편집)이다(D-04a).
+   * 폼이 든 금액은 클라 기본값(10만원)이라 서버 사실이 아니다 — 그 값을 보이면 「10만원어치 산다」로 읽힌다.
+   */
+  function shownValueOf(field: LcNumField): number | null {
+    return field === 'buyOrderAmount' && lc.amountRequired ? null : form[field];
+  }
+
+  /**
+   * 시트·인라인 확정 전 검증 — 금액 먼저(D-04a · `lcAmountBlockOf`) → 무장 불가(`armBlockOf`). 훅의 전송 직전
+   * 가드와 **같은 두 함수 · 같은 순서**다(기준값 = 서버 동기값 + 바꾼 필드 · T-20-03).
+   */
+  function validateCommit(field: LcNumField, v: number): string | null {
+    return (
+      lcAmountBlockOf(lc.amountRequired, field, v) ??
+      armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: v })
+    );
+  }
+
   /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
   function valueProps(field: LcNumField) {
     return {
@@ -773,7 +796,7 @@ export function LimitChaserForm({
             id={row.id}
             label={row.label}
             unit={row.unit}
-            value={form[row.field]}
+            value={shownValueOf(row.field)}
             {...valueProps(row.field)}
             onActivate={(el) => activateRow(row.field, el)}
             editor={
@@ -959,9 +982,9 @@ export function LimitChaserForm({
         description={sheetRow?.row.desc ?? ''}
         unit={sheetRow?.row.unit ?? '건'}
         purpose="apply"
-        initialValue={typeof sheetFailure?.value === 'number' ? sheetFailure.value : form[sheetKey]}
-        // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06).
-        serverValue={form[sheetKey]}
+        initialValue={typeof sheetFailure?.value === 'number' ? sheetFailure.value : shownValueOf(sheetKey)}
+        // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06). 서버가 모르는 금액은 「지금 ○○」 없음(D-04a).
+        serverValue={shownValueOf(sheetKey)}
         // 필드 범위(relay 스키마 · CR-01) — 범위 밖이면 확인 잠금 · 범위 밖 `set` 칩(잔량추적의 100 등) 비활성.
         // D-15a — 호가 단위 잠금 강도(종목 분류). 원 단위 행만 쓴다.
         ctx={{
@@ -976,7 +999,7 @@ export function LimitChaserForm({
         // 그 필드가 속한 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 가격 섹션은 매수주문·
         // 매도주문 그룹의 상태를 따른다(`lc-fields.ts` `statusKey`).
         armedNotice={sheetStatusKey !== undefined && statusOf[sheetStatusKey] === '감시 중'}
-        validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [sheetKey]: v })}
+        validate={(v) => validateCommit(sheetKey, v)}
         returnFocusRef={sheetReturnRef}
         onConfirm={(v) => handleSheetConfirm(sheetKey, v)}
         onClose={handleSheetClose}
@@ -1031,8 +1054,16 @@ function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
   return f.reason === 'rejected' || f.reason === 'timeout' ? LC_COMMIT_TEXT.inlineFailed : f.text;
 }
 
-/** 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖). 거부·무응답은 말풍선. */
-const SUBMIT_ERROR_REASONS: ReadonlySet<LcFailReason> = new Set(['disconnected', 'armBlocked', 'invalid']);
+/**
+ * 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖 · 금액 먼저 D-04a).
+ * 거부·무응답은 말풍선.
+ */
+const SUBMIT_ERROR_REASONS: ReadonlySet<LcFailReason> = new Set([
+  'disconnected',
+  'armBlocked',
+  'invalid',
+  'amountRequired',
+]);
 
 /**
  * 폼 맨 위 한 줄(`lc-submit-error`) 파생 — 토글 종류(값이 숫자가 아닌 필드)의 보내지 못한 실패 중 아직 답으로

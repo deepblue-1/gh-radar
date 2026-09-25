@@ -797,3 +797,112 @@ describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값
     expect(t.hook.result.current.flashField).toBe('buyOrderPrice');
   });
 });
+
+describe('WR-07 · D-04a — 서버가 주문금액을 모르는 전략(에코 금액 0)은 금액부터 받는다', () => {
+  /** 레거시 전략 — 서버는 금액을 모르고(0) 수량 500주를 쥐고 매수가 무장돼 있다. */
+  const legacy = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
+
+  it('amountRequired — 레거시면 true · 금액을 알면 false · 미등록이면 false', () => {
+    expect(setup({ server: legacy() }).hook.result.current.amountRequired).toBe(true);
+    expect(setup().hook.result.current.amountRequired).toBe(false);
+    expect(setup({ server: null }).hook.result.current.amountRequired).toBe(false);
+  });
+
+  it('금액 외 값 확정은 보내지 않는다 — `blocked` · 「주문금액을 먼저 입력해 주세요」(수량을 기본 금액으로 덮지 않는다)', () => {
+    const t = setup({ server: legacy() });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures.buyWatchQty).toEqual({
+      reason: 'amountRequired',
+      text: LC_COMMIT_TEXT.amountRequired,
+      value: 9_000,
+    });
+  });
+
+  it('켜는 토글도 막는다 · 낙관 표시 없음', () => {
+    const t = setup({ server: legacy({ sellEnabled: false }) });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sellEnabled', true, 'toggle');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.formRef.current.sellEnabled).toBe(false);
+    expect(t.hook.result.current.failures.sellEnabled?.reason).toBe('amountRequired');
+  });
+
+  it('끄기(무장 해제)는 늘 허용 — cfg 의 금액·수량은 서버 값 그대로(0 · 500주)다', () => {
+    const t = setup({ server: legacy() });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyEnabled', false, 'toggle');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.buyEnabled).toBe(false);
+    expect(t.cfgs()[0]!.buyOrderAmount).toBe(0);
+    expect(t.cfgs()[0]!.buyOrderQty).toBe(500);
+  });
+
+  it('주문금액 확정은 정상 전송 → 0 이 아닌 금액 에코 뒤에는 다른 필드도 정상 전송', () => {
+    const t = setup({ server: legacy() });
+    act(() => {
+      t.hook.result.current.commit('buyOrderAmount', 30, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.cfgs()[0]!.buyOrderAmount).toBe(30);
+    t.update({ server: legacy({ buyOrderAmount: 30, buyOrderQty: 1 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.amountRequired).toBe(false);
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.buyWatchQty).toBe(9_000);
+  });
+
+  it('금액 에코가 여전히 0 이어도 ⑧ 특례(수량 일치)로 성공하면 잠금이 풀린다 — 막힌 상태로 굳지 않는다', () => {
+    const t = setup({ server: legacy() });
+    act(() => {
+      t.hook.result.current.commit('buyOrderAmount', 30, 'value');
+    });
+    // 테스트 조립기는 buyOrderQty: 1 을 싣는다 — 반영됐다면 에코 수량이 1 이다.
+    t.update({ server: legacy({ buyOrderQty: 1 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.amountRequired).toBe(false);
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('금액 확정이 나가 있는 동안 선 토글은 대기했다가 금액이 반영된 뒤 나간다', () => {
+    const t = setup({ server: legacy({ sellEnabled: false }) });
+    act(() => {
+      t.hook.result.current.commit('buyOrderAmount', 30, 'value');
+    });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sellEnabled', true, 'toggle');
+    });
+    expect(out).toBe('queued');
+    t.update({ server: legacy({ sellEnabled: false, buyOrderAmount: 30, buyOrderQty: 1 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.sellEnabled).toBe(true);
+  });
+
+  it('미등록 전략은 해당 없다 — 값 확정은 로컬 반영', () => {
+    const t = setup({ server: null });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyWatchQty', 9_000, 'value');
+    });
+    expect(out).toBe('local');
+  });
+});

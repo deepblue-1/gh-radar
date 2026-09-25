@@ -801,11 +801,12 @@ describe('⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존 (D-11
     expect(onServerEcho).toHaveBeenLastCalledWith({ changed: 1, overwrittenDirty: 0 });
   });
 
-  it('`buyOrderAmount: 0` 에코는 주문금액 행을 덮지 않는다 (Pitfall 11 — 서버가 모른다)', () => {
+  it('`buyOrderAmount: 0` 에코(서버가 모른다 · Pitfall 11) → 주문금액 행은 폼에 남은 값이 아니라 「—」 (D-04a · WR-07)', () => {
     const { rerender } = render(<LimitChaserForm {...props()} />);
     expect(rowText('lc-buy-order-amount')).toBe('50만원');
     rerender(<LimitChaserForm {...props({ server: echo({ buyOrderAmount: 0, buyWatchQty: 7_000 }) })} />);
-    expect(rowText('lc-buy-order-amount')).toBe('50만원');
+    // 폼은 옛 금액을 버리지 않지만(formFromServer) 서버 사실이 아니므로 보이지 않는다.
+    expect(rowText('lc-buy-order-amount')).toBe('—');
     expect(rowText('lc-buy-watch-qty')).toBe('7,000주');
   });
 
@@ -1033,5 +1034,91 @@ describe('D-15a — 상따 인라인도 ETP·분류 불명은 호가 단위 위�
     editInline('lc-buy-order-price', '130050');
     expect(sentConfigs()).toHaveLength(0);
     expect(screen.getByRole('alert')).toHaveTextContent('100원 단위로 입력해 주세요');
+  });
+});
+
+describe('WR-07 · D-04a — 서버가 주문금액을 모르는 레거시 전략(에코 금액 0)', () => {
+  /** 레거시 — 서버 금액 0 · 수량 500주 · 매수 무장. */
+  const legacy = (over: Partial<RelayLimitChaser> = {}) =>
+    echo({ buyOrderAmount: 0, buyOrderQty: 500, buyEnabled: true, ...over });
+  const AMOUNT_FIRST = '주문금액을 먼저 입력해 주세요';
+
+  it('주문금액 행은 클라 기본값(10만원)이 아니라 「—」 · 접근성 이름 「주문금액 미입력」', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('—');
+    expect(row('lc-buy-order-amount')).toHaveAccessibleName('주문금액 미입력');
+  });
+
+  it('다른 값 확정(인라인 Enter) → 전송 0 · 말풍선 「주문금액을 먼저 입력해 주세요」', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    editInline('lc-buy-watch-qty', '9000');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert')).toHaveTextContent(AMOUNT_FIRST);
+  });
+
+  it('켜는 스위치 → 전송 0 · 폼 맨 위 한 줄 「주문금액을 먼저 입력해 주세요」', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(submitError()).toHaveTextContent(AMOUNT_FIRST);
+  });
+
+  it('끄기(매수주문 끄기)는 늘 허용 — 금액·수량은 서버 값 그대로(0 · 500주) 나간다', () => {
+    render(<LimitChaserForm {...props({ server: legacy() })} />);
+    click(sw('매수주문 켜기')); // 켜진 스위치를 누른다 = 끄기(접근성 이름은 고정)
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyEnabled).toBe(false);
+    expect(lastConfig().buyOrderAmount).toBe(0);
+    expect(lastConfig().buyOrderQty).toBe(500);
+    expect(submitError()).toBeNull();
+  });
+
+  it('주문금액 인라인은 빈 칸으로 열리고, 확정하면 새 금액으로 수량을 계산해 보낸다 → 에코 뒤 정상', () => {
+    const { rerender } = render(<LimitChaserForm {...props({ server: legacy() })} />);
+    const el = openInline('lc-buy-order-amount');
+    expect(el.value).toBe('');
+    typeValue(el, '260');
+    pressKey(el, 'Enter');
+    expect(sentConfigs()).toHaveLength(1);
+    // floor(260만원 / 130,000) = 20주
+    expect(lastConfig().buyOrderAmount).toBe(260);
+    expect(lastConfig().buyOrderQty).toBe(20);
+    const known = legacy({ buyOrderAmount: 260, buyOrderQty: 20 });
+    rerender(<LimitChaserForm {...props({ server: known })} />);
+    rerender(<LimitChaserForm {...props({ server: known, serverAnswerSeq: 1 })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('260만원');
+    editInline('lc-buy-watch-qty', '9000');
+    expect(sentConfigs()).toHaveLength(2);
+    expect(lastConfig().buyOrderQty).toBe(20);
+  });
+
+  describe('터치 기기 — 시트', () => {
+    beforeEach(() => mockPointer(true));
+    afterEach(restoreMatchMedia);
+    const sheetEl = () => document.querySelector('[data-slot="numpad-sheet"]');
+
+    it('주문금액 시트는 빈 값 · 「지금 ○○」 없음', () => {
+      render(<LimitChaserForm {...props({ server: legacy() })} />);
+      click(row('lc-buy-order-amount'));
+      expect(sheetEl()).not.toBeNull();
+      expect(document.querySelector('[data-slot="numpad-value"]')?.textContent).toBe('');
+      expect(document.querySelector('[data-slot="numpad-server"]')).toBeNull();
+    });
+
+    it('다른 값 시트는 적용이 잠기고 상태 줄이 「주문금액을 먼저 입력해 주세요」', () => {
+      render(<LimitChaserForm {...props({ server: legacy() })} />);
+      click(row('lc-buy-watch-qty'));
+      const pad = within(within(sheetEl() as HTMLElement).getByRole('group', { name: '숫자 키패드' }));
+      for (const k of ['9', '0', '0', '0']) click(pad.getByRole('button', { name: k }));
+      const status = document.querySelector('[data-slot="numpad-status"]') as HTMLElement;
+      expect(within(status).getByRole('alert')).toHaveTextContent(AMOUNT_FIRST);
+      expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
+      expect(sentConfigs()).toHaveLength(0);
+    });
+  });
+
+  it('미등록 전략은 해당 없다 — 주문금액 행은 폼 값 그대로', () => {
+    render(<LimitChaserForm {...props({ server: null })} />);
+    expect(rowText('lc-buy-order-amount')).toBe('10만원');
   });
 });

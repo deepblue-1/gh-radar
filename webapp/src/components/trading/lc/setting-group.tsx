@@ -120,7 +120,8 @@ export interface SettingRowProps {
   id: string;
   label: string;
   unit: SettingUnit;
-  value: number;
+  /** `null` = 서버가 모르는 값(레거시 전략의 주문금액 · D-04a) — 「—」 로 그린다. */
+  value: number | null;
   disabled?: boolean;
   /** 반영 중 — 값 흐림 + `aria-busy`. 화면 문구는 없다(행 높이 불변). */
   busy?: boolean;
@@ -160,7 +161,7 @@ export function SettingRow({
   useRefocusAfterEdit(editing, buttonRef);
   const groupTitleId = useContext(GroupTitleIdContext);
 
-  const text = formatSettingValue(value, unit);
+  const text = value === null ? '—' : formatSettingValue(value, unit);
 
   if (editing) {
     return (
@@ -182,7 +183,7 @@ export function SettingRow({
       ref={buttonRef}
       type="button"
       data-lc-field={id}
-      aria-label={`${label} ${text}`}
+      aria-label={value === null ? `${label} 미입력` : `${label} ${text}`}
       aria-describedby={groupTitleId}
       aria-busy={busy ? 'true' : undefined}
       aria-haspopup={hasPopup ? 'dialog' : undefined}

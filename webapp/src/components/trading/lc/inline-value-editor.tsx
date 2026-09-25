@@ -51,7 +51,8 @@ export interface InlineValueEditorProps {
   id: string;
   label: string;
   unit: SettingUnit;
-  initialValue: number;
+  /** 시작 값. `null` = 서버가 모르는 값(레거시 주문금액 · D-04a) — 빈 입력으로 연다. */
+  initialValue: number | null;
   /** 상한가 — 원 단위 D-15 검증(0·없음 = 시세 미수신 → 상한 검사 생략). */
   upperLimit?: number;
   /** 호가 단위 잠금 강도(D-15a) — 미지정 = 주식(잠금). `etp`·`unknown` 이면 경고만. */
@@ -97,7 +98,7 @@ export function InlineValueEditor({
   onNavigate,
 }: InlineValueEditorProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [buffer, setBuffer] = useState(() => NUM.format(initialValue));
+  const [buffer, setBuffer] = useState(() => (initialValue === null ? '' : NUM.format(initialValue)));
   /** Enter/Tab 에서 걸린 검증 이유 — 값을 고치면 걷힌다. */
   const [issue, setIssue] = useState<string | null>(null);
   /** 지금 버퍼를 이미 저장(또는 취소)했는가 — 포커스 이탈의 두 번째 저장을 막는다. */
