@@ -31,8 +31,9 @@
  * ④ 빈 · 에러 · 게이트
  *   - `unauthorized` 또는 `isin === null` → 권한 없음 게이트가 본문을 **대체**한다. 섹션은 숨기지 않는다.
  *   - 연결 중 · 복구 불가 실패 → 본문은 그대로 두고 가격이 「—」다(E9 loading/error — 스피너·
- *     안내 카드로 바꾸지 않는다). 연결 상태는 상태줄 DMA 필이 말하고, 복구 불가면 그 줄에
- *     「다시 연결」이 선다.
+ *     안내 카드로 바꾸지 않는다). 연결 상태는 상태줄 DMA 필이 말하고, 복구 불가면 「다시 연결」이
+ *     선다 — 본문 ≥700 은 상태줄 오른쪽, <700 은 상태줄 아래 고지 줄의 연결 이상 줄(D-24).
+ *   - 서버 거부 문장은 상태줄이 아니라 고지 줄 첫 줄의 `role="alert"` 다(D-24).
  *   - NXT 호가가 비면 본문 위 한 줄로 알린다(D3). 문구 정본은 아래 JSX 한 곳뿐이다.
  *
  * ⑤ ★ 계좌는 섹션이 소유한다
@@ -329,13 +330,20 @@ export function StockOrderbookSection({
 }
 
 /**
- * 호가 탭 상태줄 — DMA · 계좌 · 거래소 KRX|NXT · LED 3칩 · 구간 배지 · (거부) · 반영 시각.
+ * 호가 탭 상태줄 — D-24 안 C(정본 목업 `status-strip-variants.html`).
+ *
+ * 본문 ≥700: 「● DMA {상태}」 · 계좌 select(「{번호} · {이름}」) · 거래소 KRX|NXT · 래치 LED 점 3개 ·
+ *   구간 배지 · (복구 불가면 「다시 연결」) · 반영 시각. 보이는 「계좌」「반영」 글자는 없다 — 계좌는
+ *   select 의 이름(aria-label)과 title, 반영은 sr-only 「반영 」 + title 「서버 반영 시각」.
+ * 서버 거부 문장은 이 줄이 아니라 아래 고지 줄(`TabNotices`)의 `role="alert"` 다.
  *
  * ★ 거래소 세그먼트가 **여기** 있다(카드는 헤더) — 다른 점 ①. 이 탭에서 거래소를 바꾸면 다른
  *   전략 키(ISIN:계좌:거래소)를 보는 것이지 등록된 전략의 거래소를 바꾸는 것이 아니므로 잠그지 않는다.
- * ★ 무장 상태를 말하는 표기는 래치 LED 3개뿐이다(D-22) — 판정은 `latchLedStateOf` 한 곳.
+ * ★ 무장 상태를 말하는 표기는 래치 LED 점 3개뿐이다(D-22) — 판정은 `latchLedStateOf` 한 곳.
+ *   점은 sr-only 「{이름} 래치 {상태}」와 늘 뜨는 툴팁으로 상태를 말한다(`LatchLed variant="dot"`).
  * ★ 연결 상태 문구는 `RELAY_STATE_LABELS` 한 곳에서 온다(D-36). 방향색을 쓰지 않는다.
- * ★ `flex-wrap` 이라 좁은 폭에서 두 줄로 접힌다 — 뷰포트 분기를 두지 않는다.
+ * ★ `flex-wrap` 을 유지한다 — 폭이 모자랄 때만 2줄이 되고 **잘리지 않는다**(라벨 잘림 0 = 오발주
+ *   불변식). 말줄임·줄 제한을 쓰지 않는다. 뷰포트 분기를 두지 않는다.
  */
 function OrderbookStatusBar({
   status,
@@ -364,7 +372,8 @@ function OrderbookStatusBar({
   onReconnect?: () => void;
 }) {
   const label = statusLabel === '' ? RELAY_STATE_LABELS.connecting : statusLabel;
-  const { ledServer, handleArm, lastError, appliedAt } = card;
+  const { ledServer, handleArm, appliedAt } = card;
+  const selected = accounts.find((a) => a.accountNo === accountNo);
 
   return (
     <div
@@ -372,7 +381,7 @@ function OrderbookStatusBar({
       data-status={status}
       className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
     >
-      <span className="inline-flex items-center gap-1.5">
+      <span data-slot="orderbook-conn" className="inline-flex items-center gap-1.5 whitespace-nowrap">
         <span
           aria-hidden="true"
           data-tone={status === 'ready' ? 'ok' : 'off'}
@@ -390,10 +399,10 @@ function OrderbookStatusBar({
         ★ `appearance-none` 을 쓰지 않는다 — 네이티브 캐럿과 OS 선택 UI 를 잃는다.
         ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
       */}
-      <span className="inline-flex min-w-0 items-center gap-1.5">
-        계좌
+      <span data-slot="orderbook-account" className="inline-flex min-w-0 items-center gap-1.5">
         <select
           aria-label="계좌"
+          title={selected === undefined ? undefined : `${selected.accountNo} · ${selected.name}`}
           value={accountNo}
           onChange={(e) => onAccountChange(e.target.value)}
           disabled={accounts.length === 0}
@@ -453,9 +462,10 @@ function OrderbookStatusBar({
         </ToggleGroup>
       )}
 
-      <span className="inline-flex flex-wrap items-center gap-1.5">
+      {/* 점 3개는 한 덩어리로 움직인다(줄바꿈 없음) — 접힌 카드 헤더와 같은 문법(D-24). */}
+      <span data-slot="orderbook-leds" className="inline-flex items-center gap-0.5">
         {(['buy', 'sell', 'cancel'] as const).map((kind) => (
-          <LatchLed key={kind} kind={kind} server={ledServer} onArm={handleArm} />
+          <LatchLed key={kind} kind={kind} server={ledServer} onArm={handleArm} variant="dot" />
         ))}
       </span>
 
@@ -478,32 +488,33 @@ function OrderbookStatusBar({
         </span>
       )}
 
-      {lastError !== null && (
-        <span
-          role="alert"
-          data-slot="orderbook-server-error"
-          className="min-w-0 text-[var(--destructive)]"
-        >
-          {/* 출처 배지 판정은 `serverMsgBadge` 하나 — 텍스트 접두라 색 단독 전달이 아니다(WCAG 1.4.1). */}
-          <span className="font-semibold">{serverMsgBadge(lastError.src)}</span> {lastError.text}
-        </span>
-      )}
-
-      <span className="ml-auto inline-flex items-center gap-3">
+      <span data-slot="orderbook-strip-right" className="ml-auto inline-flex items-center gap-3">
         {onReconnect !== undefined && (
           <Button variant="outline" size="sm" className="h-6 px-2" onClick={onReconnect}>
             다시 연결
           </Button>
         )}
-        <span className="mono">반영 {appliedAt ?? '—'}</span>
+        {/* 작업대 상태줄 `stat-applied` 와 같은 규칙 — 「반영 」은 sr-only, 뜻은 title 이 말한다. */}
+        <span
+          data-slot="orderbook-applied-at"
+          title="서버 반영 시각"
+          className="mono whitespace-nowrap"
+        >
+          <span className="sr-only">반영 </span>
+          {appliedAt ?? '—'}
+        </span>
       </span>
     </div>
   );
 }
 
 /**
- * 본문 위 인라인 고지 — 토스트 없이 `role="status"` 로만 말한다(카드 `CardNotices` 와 같은 원문).
- * 거래소 전환 중 · NXT 빈 호가 · 다른 단말 변경 배너 · 3초 미반영.
+ * 상태줄 아래 고지 줄 — 토스트 없이 인라인으로만 말한다(카드 `CardNotices` 와 같은 원문).
+ * 서버 거부(`role="alert"`) · 거래소 전환 중 · NXT 빈 호가 · 다른 단말 변경 배너 · 3초 미반영.
+ *
+ * ★ 서버 거부 문장은 **여기** 선다(D-24) — 상태줄은 「상태」만, 고지 줄은 「문장」만 말한다.
+ *   마크업은 카드 `CardNotices` 의 거부 줄과 같다(출처 배지 `serverMsgBadge` 텍스트 접두 ·
+ *   원문 그대로). 경보는 화면에 한 번만 선다.
  */
 function TabNotices({
   card,
@@ -516,10 +527,26 @@ function TabNotices({
   switching: boolean;
   nxtEmpty: boolean;
 }) {
-  const { banner, unacked } = card;
-  if (!switching && !nxtEmpty && banner === null && !unacked) return null;
+  const { banner, unacked, lastError } = card;
+  if (!switching && !nxtEmpty && banner === null && !unacked && lastError === null) return null;
   return (
-    <div className="flex min-w-0 flex-col gap-1 text-[length:var(--t-caption)]">
+    <div
+      data-slot="orderbook-notices"
+      className="flex min-w-0 flex-col gap-1 text-[length:var(--t-caption)]"
+    >
+      {lastError !== null && (
+        <p
+          role="alert"
+          data-slot="orderbook-server-error"
+          className="m-0 min-w-0 break-keep text-[var(--destructive)]"
+        >
+          {/* 출처 배지 판정은 `serverMsgBadge` 하나 — 텍스트 접두라 색 단독 전달이 아니다(WCAG 1.4.1). */}
+          <span data-slot="orderbook-server-error-src" className="font-semibold">
+            {serverMsgBadge(lastError.src)}
+          </span>{' '}
+          {lastError.text}
+        </p>
+      )}
       {switching && (
         <p role="status" className="m-0 text-[var(--muted-fg)]">
           {exchange} 호가 불러오는 중

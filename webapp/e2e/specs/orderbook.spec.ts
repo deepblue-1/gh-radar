@@ -6,13 +6,14 @@ import { mockDiscussionsApi, buildDiscussionList } from '../fixtures/discussions
 import { mockThemeChips } from '../fixtures/themes';
 import {
   DMA_MSG,
+  E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
   RELAY_WS_URL,
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
-import { leavesOverflowing } from '../overflow';
+import { leavesOverflowing, scrollOverflowing } from '../overflow';
 
 /**
  * Phase 15 Plan 14 Task 2 — 호가창 wss 왕복 E2E (RELAY-01 · SC-7 · D-27/D-40).
@@ -97,6 +98,153 @@ const tapeRows = (page: Page) =>
 async function waitForReady(page: Page): Promise<void> {
   await expect(statusBar(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
 }
+
+// ---------------------------------------------------------------------------
+// Phase 20 D-24 — 상단 상태줄 1줄 실측 (P20-6). 측정식은 목업 `status-strip-variants.html` 의
+// `measureFrame` 을 옮겼다 — 목업과 앱이 같은 식으로 재야 목업 수치가 계약이 된다.
+// ---------------------------------------------------------------------------
+
+const STRIP_SELECTOR = '[data-slot="orderbook-status-bar"]';
+const NOTICES_SELECTOR = '[data-slot="orderbook-notices"]';
+const sectionOf = (page: Page) => page.getByTestId('stock-orderbook-section');
+const notices = (page: Page) => page.locator(NOTICES_SELECTOR);
+
+/**
+ * 섹션(= `lc` 컨테이너) 폭을 `target` 으로 맞춘다 — 작업대 `sizeCardTo` 와 같은 재고-옮기고-다시
+ * 재는 루프다(사이드바·여백 램프를 몰라도 수렴한다). 못 맞추면 실패한다.
+ */
+async function sizeSectionTo(page: Page, target: number): Promise<void> {
+  let viewport = target + 16;
+  const widthNow = () => sectionOf(page).evaluate((el) => el.clientWidth);
+  for (let i = 0; i < 6; i += 1) {
+    await page.setViewportSize({ width: viewport, height: 1000 });
+    await expect(sectionOf(page)).toBeVisible();
+    const width = await widthNow();
+    if (width === target) return;
+    viewport += target - width;
+  }
+  const width = await widthNow();
+  expect(width, `섹션 폭을 ${target} 으로 맞추지 못했다(현재 ${width}, 뷰포트 ${viewport})`).toBe(
+    target,
+  );
+}
+
+type StripMetrics = { lines: number; over: number; slack: number | null; h: number; w: number };
+
+/**
+ * 상태줄 줄 수 · 넘침 · 1줄 여유 (목업 `measureFrame` 이식).
+ *   · 항목 = 상태줄 안에서 `.sr-only` 밖이고 보이는(폭·높이 > 0) 요소 중 select·button 이거나
+ *     보이는 자식 요소가 없는 잎(버튼·select 안쪽은 그 버튼·select 가 대표한다).
+ *   · 세로로 2px 넘게 겹치면 같은 줄 — 줄마다 항목 안 글자 줄 수(Range rect 의 서로 다른 top)의
+ *     최댓값을 더한 합이 `lines` 다.
+ *   · `slack` — 1줄일 때만. 오른쪽 `ml-auto` 그룹이 보이면 그 왼끝 − 앞 항목 오른끝 − column-gap.
+ */
+async function stripLines(page: Page): Promise<StripMetrics> {
+  return page.evaluate((sel) => {
+    const strip = document.querySelector<HTMLElement>(sel);
+    if (strip === null) throw new Error('상태줄이 없다');
+    const cs = getComputedStyle(strip);
+    const px = (p: string) => parseFloat(cs.getPropertyValue(p)) || 0;
+    const sr = strip.getBoundingClientRect();
+    const innerL = sr.left + px('padding-left') + px('border-left-width');
+    const innerR = sr.right - px('padding-right') - px('border-right-width');
+    const hidden = (el: Element) => el.classList.contains('sr-only') || el.closest('.sr-only') !== null;
+    const visible = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && !hidden(el);
+    };
+    const items = Array.from(strip.querySelectorAll('*')).filter((el) => {
+      if (!visible(el)) return false;
+      const host = el.parentElement?.closest('button, select');
+      if (host !== null && host !== undefined && strip.contains(host)) return false;
+      if (el.tagName === 'SELECT' || el.tagName === 'BUTTON') return true;
+      return !Array.from(el.children).some(visible);
+    });
+    const textLines = (el: Element) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const tops: number[] = [];
+      for (const r of Array.from(range.getClientRects())) {
+        if (r.width < 1) continue;
+        if (!tops.some((t) => Math.abs(t - r.top) < 4)) tops.push(r.top);
+      }
+      return Math.max(1, tops.length);
+    };
+    const rows: { t: number; b: number; lines: number }[] = [];
+    for (const it of items) {
+      const r = it.getBoundingClientRect();
+      let row = rows.find((x) => r.top < x.b - 2 && r.bottom > x.t + 2);
+      if (row === undefined) rows.push((row = { t: r.top, b: r.bottom, lines: 1 }));
+      row.t = Math.min(row.t, r.top);
+      row.b = Math.max(row.b, r.bottom);
+      const own = it.tagName === 'SELECT' || it.tagName === 'BUTTON' ? 1 : textLines(it);
+      row.lines = Math.max(row.lines, own);
+    }
+    const lines = rows.reduce((n, r) => n + r.lines, 0);
+    let over = 0;
+    for (const it of items) {
+      const r = it.getBoundingClientRect();
+      over = Math.max(over, r.right - innerR, innerL - r.left);
+    }
+    let slack: number | null = null;
+    if (lines === 1) {
+      const right = strip.querySelector('[data-slot="orderbook-strip-right"]');
+      if (right !== null && visible(right)) {
+        const rg = right.getBoundingClientRect();
+        const before = items
+          .filter((i) => !right.contains(i))
+          .map((i) => i.getBoundingClientRect().right);
+        slack = rg.left - Math.max(...before) - px('column-gap');
+      } else {
+        slack = innerR - Math.max(...items.map((i) => i.getBoundingClientRect().right));
+      }
+    }
+    const round = (n: number) => Math.round(n * 10) / 10;
+    return {
+      lines,
+      over: round(over),
+      slack: slack === null ? null : round(slack),
+      h: round(sr.height),
+      w: round(sr.width),
+    };
+  }, STRIP_SELECTOR);
+}
+
+/**
+ * 상태줄 계약 한 번 — 줄 수 ≤ maxLines · 넘침 0 · 잘림 0(판정은 `e2e/overflow.ts` 뿐 · 나란히).
+ * 폭별 줄 수·여유를 annotation 으로 남긴다(P20-3 관례 — SUMMARY 실측 표의 출처).
+ */
+async function expectStripOk(page: Page, label: string, maxLines: number): Promise<StripMetrics> {
+  const m = await stripLines(page);
+  test.info().annotations.push({
+    type: 'P20-6',
+    description: `${label} → ${m.lines}줄 · 여유 ${m.slack ?? '—'}px · 높이 ${m.h}px · 넘침 ${m.over}px`,
+  });
+  expect(m.lines, `${label} — 상태줄 줄 수(최대 ${maxLines})`).toBeLessThanOrEqual(maxLines);
+  expect(m.over, `${label} — 항목이 상태줄 안쪽 경계를 넘은 px`).toBeLessThanOrEqual(0.5);
+  expect(await scrollOverflowing(page, STRIP_SELECTOR), `${label} — 상태줄 스크롤 넘침`).toEqual([]);
+  const box = await statusBar(page).boundingBox();
+  expect(box, `${label} — 상태줄을 잴 수 없다`).not.toBeNull();
+  expect(
+    await leavesOverflowing(statusBar(page), box!.x + box!.width),
+    `${label} — 상태줄 밖으로 밀린 잎`,
+  ).toEqual([]);
+  if ((await notices(page).count()) > 0) {
+    expect(await scrollOverflowing(page, NOTICES_SELECTOR), `${label} — 고지 줄 스크롤 넘침`).toEqual(
+      [],
+    );
+  }
+  return m;
+}
+
+/** P20-6 최악 계좌 — 목업 최악값과 같은 길이(「1234567801 · 개인연금저축」)이고 첫 계좌가 자동 선택된다. */
+const WORST_ACCOUNTS = [
+  { accountNo: E2E_ACCOUNT_NO, name: '개인연금저축' },
+  { accountNo: '1234567802', name: '위탁종합' },
+];
+const WORST_ACCOUNT_LABEL = `${E2E_ACCOUNT_NO} · 개인연금저축`;
+/** 뷰포트 1440 그대로 재는 자리(목업 표의 「뷰포트 1440」 열). */
+const WIDE_VIEWPORT = { width: 1440, height: 1000 } as const;
 
 /**
  * `POST /api/orders` 감시자. **호출되면 배열에 남는다** — D-02 이후 이 라우트로는
@@ -478,6 +626,74 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
         await sheet.getByRole('button', { name: '닫기' }).tap();
         await expect(sheet).toHaveCount(0, { timeout: 10_000 });
         await expect(row).toBeFocused();
+      }
+    });
+  });
+
+  /*
+    P20-6 — 상단 상태줄 1줄 (D-24 안 C · 20-08). 목업 `status-strip-variants.html` 의 최악값 세 시나리오를
+    실브라우저로 다시 잰다. 거부와 미반영은 동시에 서지 않는다(카드 훅이 거부를 받으면 미반영을 거둔다)
+    — 그래서 ①·② 로 나눈다.
+    ★ 로그인 응답을 계좌 2건으로 바꾸므로 끝나면 되돌린다(`reset()` 은 로그인 응답을 되돌리지 않는다 —
+      뒤 케이스 1 이 계좌 1건을 단언한다).
+    ★ 이 describe 도 게이트웨이를 내리는 9(마지막)보다 **먼저** 돈다.
+  */
+  test.describe('Phase 20 — 상단 상태줄 1줄 (D-24 안 C)', () => {
+    test.afterEach(() => {
+      relay.gateway.respondLogin();
+    });
+
+    test('P20-6 ① 거부 · 예약구간 — 상태줄 1줄 · 거부는 고지 줄 · 잘림 0 (D-24)', async ({ page }) => {
+      relay.gateway.respondLoginWithAccounts(WORST_ACCOUNTS);
+      relay.seedLimitChasers([{ buyEnabled: true }]);
+      await page.setViewportSize(WIDE_VIEWPORT);
+      await page.goto(ORDERBOOK_URL);
+      await waitForReady(page);
+
+      const sock = await relay.gateway.waitForConnection(15_000);
+      try {
+        relay.gateway.sendQueuedWindowState(sock, { open: true, maxPieces: 10 });
+        await expect(statusBar(page).locator('[data-slot="orderbook-window-badge"]')).toHaveText(
+          '예약구간 · 조각 최대 10',
+          { timeout: 15_000 },
+        );
+        await relay.pushServerMessage({
+          level: 'ERROR',
+          source: 'LimitChaser',
+          isin: E2E_ISIN,
+          accountNo: E2E_ACCOUNT_NO,
+          message: '주문 가능 금액이 부족합니다',
+          kind: '',
+        });
+        await expect(notices(page).getByRole('alert')).toContainText('주문 가능 금액이 부족합니다', {
+          timeout: 15_000,
+        });
+
+        const account = statusBar(page).getByRole('combobox', { name: '계좌' });
+        for (const target of [700, 830, 992, 'viewport-1440'] as const) {
+          if (target === 'viewport-1440') await page.setViewportSize(WIDE_VIEWPORT);
+          else await sizeSectionTo(page, target);
+          const width = await sectionOf(page).evaluate((el) => el.clientWidth);
+          const label = `① 거부 · 예약구간 · 본문 ${width}${target === 'viewport-1440' ? '(뷰포트 1440)' : ''}`;
+
+          await expectStripOk(page, label, 1);
+          // 거부는 고지 줄 role=alert 하나 — 상태줄 안 경보 0.
+          await expect(statusBar(page).getByRole('alert'), label).toHaveCount(0);
+          await expect(notices(page).getByRole('alert'), label).toHaveCount(1);
+          await expect(notices(page).getByRole('alert'), label).toBeVisible();
+          await expect(notices(page).getByRole('alert'), label).toContainText('주문 가능 금액이 부족합니다');
+          // LED 는 점 3개.
+          await expect(
+            statusBar(page).locator('[data-slot="latch-led"][data-variant="dot"]:visible'),
+            label,
+          ).toHaveCount(3);
+          // 계좌 — 값 · 선택 옵션 글자 · title 이 전부 「번호 · 이름」 전체다.
+          await expect(account, label).toHaveValue(E2E_ACCOUNT_NO);
+          await expect(account.locator('option:checked'), label).toHaveText(WORST_ACCOUNT_LABEL);
+          await expect(account, label).toHaveAttribute('title', WORST_ACCOUNT_LABEL);
+        }
+      } finally {
+        relay.gateway.sendQueuedWindowState(sock, { open: false, maxPieces: 10 });
       }
     });
   });
