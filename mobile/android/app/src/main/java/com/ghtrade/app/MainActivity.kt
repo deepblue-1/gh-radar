@@ -1,14 +1,19 @@
 package com.ghtrade.app
 
 import android.net.Uri
+import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.View
+import android.webkit.CookieManager
+import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.getcapacitor.BridgeActivity
 import org.json.JSONObject
 import kotlin.math.max
@@ -20,7 +25,8 @@ import kotlin.math.max
  *  - WebView 클라이언트는 `BridgeWebViewClient` 상속본을 `bridge.setWebViewClient` 로 설치한다.
  *    WebView 에 새 클라이언트 인스턴스를 직접 대입하면 로컬 에셋 서버·SystemBars 콜백이 끊긴다(Pitfall 4).
  *  - 웹 → 네이티브 채널은 `window.GhTradeBridge.postMessage(json)` 하나(`GhTradeBridge`).
- *  - 뒤로가기는 21-13 이 `onBackPressedDispatcher` 로 붙인다 — 옛 back 콜백 오버라이드는 Android 16 에서 불리지 않는다(Pitfall 5).
+ *  - 뒤로가기(D-26)는 `onBackPressedDispatcher` 콜백 하나 — 옛 back 콜백 오버라이드는 Android 16 에서 불리지 않는다(Pitfall 5).
+ *  - 당겨서 새로고침(D-04 · D-17)은 WebView 를 `SwipeRefreshLayout` 으로 감싸 웹 refresh 훅을 부르고 1초 뒤 스피너를 닫는다.
  *  - DecorView/루트/WebView 에 인셋 리스너를 걸지 않는다 — SystemBars 의 DecorView 리스너(CSS 안전영역 주입 · IME 패딩)를
  *    덮어쓴다(Pitfall 8). 인셋 리스너는 탭바 컨테이너에만 건다.
  *  - 하단 플로팅 탭바(21-12 · D-02 · D-27a): 활성 판정 = `TabRoutes`(D-14) · 숨김 = 로그인/오프라인/오버레이/키보드(D-12) ·
@@ -54,15 +60,39 @@ class MainActivity : BridgeActivity() {
     var pullBlocked = false
         private set
 
+    /** WebView 를 감싼 당겨서 새로고침 레이아웃(D-04). 스피너 색은 `applyTheme` 이 정한다. */
+    lateinit var swipeRefresh: SwipeRefreshLayout
+        private set
+
     private var keyboardVisible = false
     private var hideRunnable: Runnable? = null
+
+    /** 뒤로가기로 홈에 보낸 직후 한 번 WebView 히스토리를 비운다 — 홈에서 다시 뒤로가기 = 종료가 되게(D-26). */
+    private var clearHistoryOnHome = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // D-26 · Pitfall 5: Android 16(targetSdk 36)은 옛 back 오버라이드를 부르지 않는다 → 디스패처 콜백만 쓴다.
+        // `@capacitor/app` 은 설치돼 있지 않아 경합하는 콜백이 없다(Pitfall 12).
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = handleBack()
+        })
+    }
 
     override fun load() {
         super.load()
         val wv = bridge.webView ?: return
         bridge.setWebViewClient(GhTradeWebViewClient(bridge, this))
         wv.addJavascriptInterface(GhTradeBridge(this), "GhTradeBridge")
+        // 탭바가 rootLayout(템플릿 CoordinatorLayout)을 먼저 잡은 **뒤** WebView 를 감싼다 — 감싼 뒤엔 WebView 부모가 바뀐다.
         setupTabBar()
+        wrapInSwipeRefresh(wv)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 백그라운드 전환 때 Supabase 세션 쿠키를 디스크에 남긴다(프로세스가 죽어도 로그인 유지).
+        CookieManager.getInstance().flush()
     }
 
     /** 앱 호스트 = server.url 호스트(없으면 appUrl 호스트). 브리지 메시지 출처 검사에 쓴다(T-21-03). */
@@ -71,6 +101,70 @@ class MainActivity : BridgeActivity() {
     private fun serverUri(): Uri? {
         val url = bridge.config.serverUrl ?: bridge.appUrl ?: return null
         return Uri.parse(url)
+    }
+
+    // ── 당겨서 새로고침 (D-04 · D-17 · Pitfall 7) ────────────────────────────────
+
+    /** weekly-wine `setupPullToRefresh` 이식 — WebView 를 부모에서 떼어 같은 index·layoutParams 로 감싼다. */
+    private fun wrapInSwipeRefresh(wv: WebView) {
+        val parent = wv.parent as ViewGroup
+        val index = parent.indexOfChild(wv)
+        val lp = wv.layoutParams
+        parent.removeView(wv)
+
+        val swipe = SwipeRefreshLayout(this)
+        swipe.addView(wv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // 문서가 위로 스크롤돼 있음 · 웹이 내부 스크롤 당김을 막음(`pull {blocked}`) · 시트/다이얼로그 열림 · 오프라인 페이지
+        // → 당김을 WebView 에 넘긴다(= 새로고침 비활성). `pull` 신호가 늦게 오는 경우는 웹 overscroll-behavior 가 보완(A13).
+        swipe.setOnChildScrollUpCallback { _, _ ->
+            wv.canScrollVertically(-1) || pullBlocked || overlayOpen || isOfflinePage
+        }
+        swipe.setOnRefreshListener {
+            // 상수 스크립트만(외부 입력 없음). 훅 완료를 기다리지 않는다 — 스피너는 1초 고정(D-17).
+            wv.evaluateJavascript(
+                "window.__ghTrade&&window.__ghTrade.refresh?window.__ghTrade.refresh():location.reload()",
+                null,
+            )
+            swipe.postDelayed({ swipe.isRefreshing = false }, 1000)
+        }
+        parent.addView(swipe, index, lp)
+        swipeRefresh = swipe
+
+        // 풀블리드라 기본 위치면 스피너가 상태바 밑에 깔린다 → 상태바 아래로 내린다.
+        // 인셋 리스너를 새로 걸지 않고(Pitfall 8) 붙은 뒤 루트 창 인셋을 한 번 읽는다.
+        rootLayout.post {
+            val top = ViewCompat.getRootWindowInsets(rootLayout)
+                ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: return@post
+            // 기본값(-지름 → 64dp)을 상태바 높이만큼 내린 것 — 상태바 바로 아래에서 나와 top+64dp 에 멈춘다.
+            swipe.setProgressViewOffset(false, top - dp(40f), top + dp(64f))
+        }
+    }
+
+    // ── 뒤로가기 (D-26) ───────────────────────────────────────────────────────
+
+    /** ① 웹 오버레이 → 가장 위 시트만 닫기 ② WebView 히스토리 ③ 홈이 아니면 홈 ④ 홈이면 종료. */
+    private fun handleBack() {
+        val wv = bridge.webView ?: return finish()
+        if (overlayOpen) {
+            // 웹 back() = 합성 Escape 로 가장 위 레이어만 닫고 true. 열린 게 없으면 false → 네이티브 순서로 넘어간다(21-04 계약).
+            wv.evaluateJavascript("window.__ghTrade&&window.__ghTrade.back?window.__ghTrade.back():false") { result ->
+                if (result != "true") navigateBack(wv)
+            }
+            return
+        }
+        navigateBack(wv)
+    }
+
+    private fun navigateBack(wv: WebView) {
+        when {
+            wv.canGoBack() -> wv.goBack()
+            // 로그인/인증 화면에서 홈으로 보내면 미들웨어가 다시 로그인으로 돌려보낸다 → 그 화면에선 종료.
+            !isOfflinePage && currentPath != "/" && !TabRoutes.hidesTabBar(currentPath) -> {
+                clearHistoryOnHome = true
+                selectTab(TabId.HOME)
+            }
+            else -> finish()
+        }
     }
 
     // ── 탭바 (D-02 · D-13 · D-27a) ─────────────────────────────────────────────
@@ -133,6 +227,11 @@ class MainActivity : BridgeActivity() {
         isOfflinePage = !onAppServer
         if (onAppServer) {
             applyPath(uri.path ?: "/")
+            if (clearHistoryOnHome && currentPath == "/") {
+                // 뒤로가기 ③ 으로 온 홈 — 이전 항목을 지워 다음 뒤로가기가 종료가 되게 한다(홈↔하위 경로 왕복 루프 방지).
+                clearHistoryOnHome = false
+                bridge.webView?.clearHistory()
+            }
         } else {
             tabBar.setActive(null)
             updateTabBarVisibility()
