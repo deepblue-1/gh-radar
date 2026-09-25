@@ -948,7 +948,7 @@ Plans:
 **불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
 **Requirements**: TBD
 **Depends on:** Phase 18
-**Plans:** 7/7 plans executed
+**Plans:** 7/8 plans executed
 
 Plans:
 **Wave 1**
@@ -972,3 +972,7 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 20-07-PLAN.md — e2e 이관(더티 케이스 재정의 · 최악값 폭 · 터치 시트 · a11y) + 최종 게이트 · 시각 확인
+
+**Wave 6** *(blocked on Wave 5 completion · 갭 클로징)*
+
+- [ ] 20-08-PLAN.md — 갭 클로징: 상단 상태줄 1줄 압축(D-24 안 C) — 거부 → 고지 줄 · LED 점 3개 · 「계좌」「반영」 sr-only/title · 폰은 연결 점+시각 · 계좌 이름 · 구간/연결 이상 → 고지 줄 + 최악값 실측 e2e(P20-6) · UI-SPEC A7 대체
