@@ -948,7 +948,7 @@ Plans:
 **불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
 **Requirements**: TBD
 **Depends on:** Phase 18
-**Plans:** 4/7 plans executed
+**Plans:** 5/7 plans executed
 
 Plans:
 **Wave 1**
@@ -966,7 +966,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 20-05-PLAN.md — 데스크톱 인라인 완성: ↑↓ 한 호가 · D-15 검증 · Tab 이동 · 한 번 클릭 전환 · 옮긴 뒤 실패 표시
+- [x] 20-05-PLAN.md — 데스크톱 인라인 완성: ↑↓ 한 호가 · D-15 검증 · Tab 이동 · 한 번 클릭 전환 · 옮긴 뒤 실패 표시
 - [ ] 20-06-PLAN.md — 수동주문 토스 스타일(상자 · 48/38 버튼 · 스테퍼 제거) + 키패드 시트 입력(값만 채움)
 
 **Wave 5** *(blocked on Wave 4 completion)*
