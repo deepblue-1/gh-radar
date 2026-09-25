@@ -129,6 +129,7 @@ import {
   IN_CARD_DIRTY_BAR_CLASS,
 } from '@/components/trading/dirty-action-bar';
 import { InlineValueEditor, type InlineSaveVia } from '@/components/trading/lc/inline-value-editor';
+import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
 import { SettingRow } from '@/components/trading/lc/setting-group';
 import {
   LC_COMMIT_TEXT,
@@ -136,6 +137,8 @@ import {
   type LcCommitFailure,
   type LcFieldKey,
 } from '@/components/trading/lc/use-lc-field-commit';
+import type { PadUnit } from '@/lib/numpad';
+import { useEditMode } from '@/lib/use-edit-mode';
 
 /**
  * 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다.
@@ -453,6 +456,7 @@ export function LimitChaserForm({
   onSent,
   onServerEcho,
   unacked = false,
+  currentPrice = 0,
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
@@ -610,11 +614,20 @@ export function LimitChaserForm({
   });
   /** 인라인 편집 중인 필드 — 한 번에 한 행이다(마우스 기기 · D-14). */
   const [editingField, setEditingField] = useState<LcFieldKey | null>(null);
-  // 내 확정이 에코로 성공하면 그 행의 편집을 닫는다(성공 판정은 훅 — 값 비교뿐이다).
+  /*
+    ★ Phase 20 D-12 — 편집 방식은 입력 장치로 가른다. 주 포인터가 터치면 행을 눌러 키패드 시트를
+      연다(20-03 트레이서: 「호가변경」 한 행). 시트는 폼 끝에 **한 개만** 두고 `sheetField` 가
+      무엇을 편집하는지 정한다. 닫히면 포커스는 연 행으로 돌아간다(`sheetReturnRef`).
+  */
+  const editMode = useEditMode();
+  const [sheetField, setSheetField] = useState<LcSheetField | null>(null);
+  const sheetReturnRef = useRef<HTMLElement | null>(null);
+  // 내 확정이 에코로 성공하면 그 행의 편집·시트를 닫는다(성공 판정은 훅 — 값 비교뿐이다).
   const { successSeq, lastSuccessField, commit: commitField, clearFailure } = lc;
   useEffect(() => {
     if (successSeq === 0 || lastSuccessField === null) return;
     setEditingField((cur) => (cur === lastSuccessField ? null : cur));
+    setSheetField((cur) => (cur === lastSuccessField ? null : cur));
   }, [successSeq, lastSuccessField]);
 
   /**
@@ -635,6 +648,36 @@ export function LimitChaserForm({
     },
     [clearFailure],
   );
+
+  /**
+   * 값 행 누르기 — 터치 기기면 시트, 아니면 그 자리 인라인 편집(D-12). 반영 중인 행은 열지 않는다.
+   */
+  const activateRow = useCallback(
+    (field: LcSheetField, el: HTMLElement) => {
+      if (disabled || lc.inflightField === field) return;
+      sheetReturnRef.current = el;
+      if (editMode === 'sheet') setSheetField(field);
+      else setEditingField(field);
+    },
+    [disabled, editMode, lc.inflightField],
+  );
+
+  /**
+   * 시트 「{필드명} 적용」 — 전송은 훅(`commit`) 하나다. 성공 닫기는 위 `successSeq` 이펙트가 하고
+   * (에코 값 일치 · T-20-04), 보낼 것이 없거나(`noop`) 미등록 로컬 반영(`local`)이면 바로 닫는다.
+   * 거부·무응답·끊김·무장 불가면 시트가 남아 이유를 말한다(D-06 · 자동 재시도 없음).
+   */
+  const handleSheetConfirm = useCallback(
+    (field: LcSheetField, value: number) => {
+      const outcome = commitField(field, value, 'value');
+      if (outcome === 'noop' || outcome === 'local') setSheetField(null);
+    },
+    [commitField],
+  );
+  const handleSheetClose = useCallback(() => {
+    if (sheetField !== null) clearFailure(sheetField);
+    setSheetField(null);
+  }, [clearFailure, sheetField]);
 
   /*
     ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다. 산출식은 모듈 수준
@@ -950,12 +993,14 @@ export function LimitChaserForm({
           busy={lc.inflightField === 'sweepMinTickCount'}
           flash={lc.flashField === 'sweepMinTickCount'}
           failed={lc.failures.sweepMinTickCount !== undefined}
-          failureText={rowFailureTextOf(lc.failures.sweepMinTickCount)}
+          // 시트가 이 행을 편집 중이면 실패는 시트 상태 줄이 말한다 — 말풍선(body 포털)이 시트
+          // 오버레이 위로 뜨지 않게 행 쪽은 끈다.
+          failureText={
+            sheetField === 'sweepMinTickCount' ? null : rowFailureTextOf(lc.failures.sweepMinTickCount)
+          }
           editing={editingField === 'sweepMinTickCount'}
-          onActivate={() => {
-            if (disabled || lc.inflightField === 'sweepMinTickCount') return;
-            setEditingField('sweepMinTickCount');
-          }}
+          hasPopup={editMode === 'sheet'}
+          onActivate={(el) => activateRow('sweepMinTickCount', el)}
           editor={
             <InlineValueEditor
               id="lc-sweep-tick"
@@ -1158,6 +1203,12 @@ export function LimitChaserForm({
     </Card>
   );
 
+  // 시트 입력 — 닫혀 있을 때도 같은 필드 기준으로 계산한다(열림은 `sheetSpec` 하나가 정한다).
+  const sheetSpec = sheetField === null ? null : LC_SHEET_SPEC[sheetField];
+  const sheetKey: LcSheetField = sheetField ?? 'sweepMinTickCount';
+  const sheetFailure = lc.failures[sheetKey];
+  const sheetBusy = lc.inflightField === sheetKey || lc.queuedFields.includes(sheetKey);
+
   return (
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)}>
       {submitError === '' ? null : (
@@ -1258,6 +1309,32 @@ export function LimitChaserForm({
         ★ 2026-09-23 — 작업대 카드는 `DirtyBarHostContext` 로 카드 맨 아래 sticky 자리를 준다(목업 B).
           그때 바는 그 자리로 포털하고 화면 고정을 푼다. 자리가 없으면(종목상세 호가 탭) 위 규율대로 body.
       */}
+      {/*
+        ★ Phase 20 D-13 — 터치 기기 키패드 시트. **폼 전체에 한 개**이고 `document.body` 로 포털한다
+          (카드의 `container-type` 조상 밖 — 위 액션 바와 같은 이유 · Radix 가 대신 한다).
+          시트는 값만 넘기고 전송은 `handleSheetConfirm` → 훅 `commit` 하나다.
+      */}
+      <NumberPadSheet
+        open={sheetSpec !== null}
+        title={sheetSpec?.title ?? ''}
+        description={sheetSpec?.description ?? ''}
+        unit={sheetSpec?.unit ?? '건'}
+        purpose="apply"
+        initialValue={typeof sheetFailure?.value === 'number' ? sheetFailure.value : form[sheetKey]}
+        // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06).
+        serverValue={form[sheetKey]}
+        ctx={{ current: currentPrice, upper: upperLimit ?? 0 }}
+        status={sheetBusy ? 'busy' : sheetFailure !== undefined ? 'failed' : 'editing'}
+        failureText={sheetFailure?.text ?? null}
+        // 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 한방체결 그룹 보조문은
+        // 「켜짐/꺼짐」뿐이라 지금은 늘 false — 20-04 가 필드 스펙으로 그룹을 일반화한다.
+        armedNotice={sweepStatusText === '감시 중'}
+        validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [sheetKey]: v })}
+        returnFocusRef={sheetReturnRef}
+        onConfirm={(v) => handleSheetConfirm(sheetKey, v)}
+        onClose={handleSheetClose}
+      />
+
       {mounted &&
         barHost !== null &&
         createPortal(
@@ -1741,6 +1818,23 @@ function Derived({ label, value, note }: { label: string; value: string; note?: 
 function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
   if (f === undefined) return null;
   return f.reason === 'rejected' || f.reason === 'timeout' ? LC_COMMIT_TEXT.inlineFailed : f.text;
+}
+
+/**
+ * 시트로 편집하는 값 필드 (20-03 트레이서 = 「호가변경」 한 행). 20-04 가 전체 리스트의 필드 스펙
+ * (`lc-fields.ts`)으로 넓힌다 — 제목은 행 라벨, 설명은 UI-SPEC 카피 표 원문이다.
+ */
+type LcSheetField = 'sweepMinTickCount';
+const LC_SHEET_SPEC: Record<LcSheetField, { title: string; description: string; unit: PadUnit }> = {
+  sweepMinTickCount: { title: '호가변경', description: '호가가 이만큼 바뀌면 한 번에 체결해요', unit: '건' },
+};
+
+/** 무장 판정 기준값 — 서버 동기값(없으면 폼 값). 훅의 전송 직전 가드와 같은 식이다(T-20-03). */
+function lcBaseValues(
+  server: RelayLimitChaser | null,
+  form: LimitChaserFormValues,
+): LimitChaserFormValues {
+  return server != null ? formFromServer(server, form) : form;
 }
 
 /** 편집이 끝난 행의 실패 문구 — 사유 문장 그대로(행을 다시 누르면 보존값으로 편집이 열린다). */

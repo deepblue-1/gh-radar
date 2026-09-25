@@ -2028,4 +2028,98 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(addBox(page)).toHaveCSS('font-size', '16px');
     });
   });
+
+  /*
+    ★ Phase 20 트레이서 확장(20-03) — **터치 기기**에서 같은 한 행이 키패드 시트로 끝까지 잇는다.
+      `hasTouch` 컨텍스트는 `(pointer: coarse)` 가 참이다(RESEARCH Q1 실측) → `useEditMode` = sheet.
+      시트 기하(D-13): 폭 min(440, 100vw − 20) 가운데 · 하단 ≥10 · radius 28 · body 포털(카드 밖).
+      relay 픽스처가 바깥 describe 의 beforeAll/beforeEach 에 있어 반드시 안쪽에 둔다.
+  */
+  test.describe('Phase 20 — 터치 기기 시트 (D-12 · D-13)', () => {
+    test.use({ hasTouch: true });
+
+    /** 등장 애니메이션(250ms slide)이 끝나야 bounding box 가 최종 자리다. */
+    async function settledSheet(page: Page) {
+      const sheet = page.locator('[data-slot="numpad-sheet"]');
+      await expect(sheet).toBeVisible({ timeout: 10_000 });
+      await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      return sheet;
+    }
+
+    test('P20-2 터치 기기 — 「호가변경」 탭 → 시트(뷰포트 390 폭 370 · 768 폭 440 가운데 · radius 28 · 하단 ≥10 · body 직속) → 5 → 「호가변경 적용」 → 게이트웨이 10 수신 → 60 에코 → 시트 닫힘 · 행 「5건」 · 가로 폰 내부 스크롤', async ({
+      page,
+    }) => {
+      // 바깥 beforeEach 가 WIDE_VIEWPORT 로 덮으므로 여기서 폰 폭으로 되돌린다.
+      await page.setViewportSize({ width: 390, height: 844 });
+      relay.seedLimitChasers([{ buyEnabled: true }]);
+      await page.goto(FOCUS_URL);
+      await waitForReady(page);
+      await expect(cardOf(page, E2E_ISIN)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+
+      const row = page.locator('[data-lc-field="lc-sweep-tick"]');
+      const value = row.locator('[data-slot="lc-row-value"]');
+      await expect(value).toHaveText('3건', { timeout: 15_000 });
+      await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+      const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+
+      await row.tap();
+      // 인라인 입력칸은 생기지 않는다 — 터치 기기는 시트다.
+      await expect(page.locator('#lc-sweep-tick')).toHaveCount(0);
+      const sheet = await settledSheet(page);
+      await expect(sheet).toHaveAttribute('role', 'dialog');
+      await expect(sheet).toHaveAttribute('aria-modal', 'true');
+
+      // 기하(D-13) — 폰은 좌우 10px 전폭.
+      const box = await sheet.boundingBox();
+      expect(box).not.toBeNull();
+      expect(Math.abs(box!.width - 370)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box!.x - 10)).toBeLessThanOrEqual(1);
+      const innerHeight = await page.evaluate(() => window.innerHeight);
+      expect(innerHeight - (box!.y + box!.height)).toBeGreaterThanOrEqual(10 - 0.5);
+      await expect(sheet).toHaveCSS('border-top-left-radius', '28px');
+      // body 포털 — 카드(`container-type` 조상) 밖이다.
+      expect(await sheet.evaluate((el) => el.closest('[data-slot="strategy-card"]') === null)).toBe(true);
+
+      const pad = sheet.getByRole('group', { name: '숫자 키패드' });
+      await pad.getByRole('button', { name: '5', exact: true }).tap();
+      await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('5');
+      await sheet.getByRole('button', { name: '호가변경 적용' }).tap();
+
+      await waitForSetAtGateway(relay, before + 1);
+      // 한 번 눌렀으면 정확히 한 번 — 재전송 없음(T-16-10).
+      expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
+
+      await relay.pushLimitChaserEcho({ buyEnabled: true, sweepMinTickCount: 5 });
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 15_000 });
+      await expect(value).toHaveText('5건', { timeout: 15_000 });
+
+      // 넓은 터치 화면(768) — 440 가운데. 폭 분기 규칙 없이 min() 한 식이 정한다.
+      await page.setViewportSize({ width: 768, height: 1024 });
+      await expect(row).toBeVisible();
+      await row.tap();
+      const wide = await settledSheet(page);
+      const wideBox = await wide.boundingBox();
+      expect(wideBox).not.toBeNull();
+      expect(Math.abs(wideBox!.width - 440)).toBeLessThanOrEqual(1);
+      expect(Math.abs(wideBox!.x - (768 - 440) / 2)).toBeLessThanOrEqual(1);
+      await wide.getByRole('button', { name: '닫기' }).tap();
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
+
+      // 가로 모드 폰(높이 390) — 시트는 max-height calc(100dvh − 20px) 안에서 내부 스크롤되고
+      // 「호가변경 적용」 까지 닿는다(UI Considerations 추가 행 · 시트 높이 backstop).
+      await page.setViewportSize({ width: 844, height: 390 });
+      await row.tap();
+      const land = await settledSheet(page);
+      const landBox = await land.boundingBox();
+      expect(landBox).not.toBeNull();
+      expect(landBox!.height).toBeLessThanOrEqual(390 - 20 + 0.5);
+      expect(await land.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+      const apply = land.getByRole('button', { name: '호가변경 적용' });
+      await apply.scrollIntoViewIfNeeded();
+      await expect(apply).toBeInViewport();
+      await land.getByRole('button', { name: '닫기' }).tap();
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
+      expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
+    });
+  });
 });
