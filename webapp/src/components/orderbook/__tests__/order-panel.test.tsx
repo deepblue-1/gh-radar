@@ -30,7 +30,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
-import { OrderPanel, type OrderPanelProps } from '../order-panel';
+import { OrderPanel, deriveTickSize, type OrderPanelProps } from '../order-panel';
 
 const ISIN = 'KR7042700005';
 
@@ -374,5 +374,35 @@ describe('OrderPanel — 세션 상태 게이트', () => {
       screen.getByText('신규 매수/매도와 취소만 지원해요 · 정정은 취소 후 다시 주문해 주세요'),
     ).toBeInTheDocument();
     expect(screen.getByText('지정가 · 보통')).toBeInTheDocument();
+  });
+});
+
+describe('deriveTickSize — 관측값 우선 · 표 폴백 (20-02 행동 보존 가드)', () => {
+  it('⑳ 호가가 있으면 인접 단계 최소 간격이 단위다 (표보다 우선)', () => {
+    expect(deriveTickSize([98_300, 98_200, 98_100], [98_000, 97_900], 98_100)).toBe(100);
+    // 기준가가 1원 구간이어도 관측 간격이 이긴다
+    expect(deriveTickSize([1_010, 1_005], undefined, 1_000)).toBe(5);
+  });
+
+  it('㉑ 호가가 없거나 전부 0 이면 KRX 표로 폴백한다 — 7구간 경계 직하/직상', () => {
+    const cases: [number, number][] = [
+      [1_999, 1], [2_000, 5],
+      [4_999, 5], [5_000, 10],
+      [19_999, 10], [20_000, 50],
+      [49_999, 50], [50_000, 100],
+      [199_999, 100], [200_000, 500],
+      [499_999, 500], [500_000, 1_000],
+      [1_274_000, 1_000],
+    ];
+    for (const [price, tick] of cases) {
+      expect(deriveTickSize(undefined, undefined, price)).toBe(tick);
+      expect(deriveTickSize([0, 0], [0], price)).toBe(tick);
+    }
+  });
+
+  it('㉒ 기준가가 0 이하·비유한수면 1원', () => {
+    expect(deriveTickSize(undefined, undefined, 0)).toBe(1);
+    expect(deriveTickSize(undefined, undefined, -100)).toBe(1);
+    expect(deriveTickSize(undefined, undefined, Number.NaN)).toBe(1);
   });
 });
