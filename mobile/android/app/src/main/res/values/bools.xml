@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- D-24: 폰 = 세로 고정. 태블릿 판정은 values-sw600dp 가 덮어쓴다(MainActivity.onCreate 가 requestedOrientation 분기). -->
+<resources>
+    <bool name="is_tablet">false</bool>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- D-24: 태블릿(최소 폭 600dp 이상) = 전방향(fullSensor). -->
+<resources>
+    <bool name="is_tablet">true</bool>
+</resources>
