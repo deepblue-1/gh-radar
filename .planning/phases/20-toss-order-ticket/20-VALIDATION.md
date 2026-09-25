@@ -41,7 +41,7 @@ created: "2026-09-25"
 
 ## Per-Task Verification Map
 
-> Requirements 는 ROADMAP 에서 TBD 이므로 CONTEXT.md 의 D-XX 결정을 요구사항 열에 쓴다. Task ID 는 플래너가 채웠다(2026-09-25, 플랜 20-01~20-07). Status 는 20-07 Task 3 이 실행 결과로 채웠다(2026-09-25 · webapp 107 파일 1970 통과 · 1 skip · shared 10 파일 131 · relay 22 파일 632 · e2e 4 spec 71 passed).
+> Requirements 는 ROADMAP 에서 TBD 이므로 CONTEXT.md 의 D-XX 결정을 요구사항 열에 쓴다. Task ID 는 플래너가 채웠다(2026-09-25, 플랜 20-01~20-07). Status 는 20-07 Task 3 이 실행 결과로 채웠다(2026-09-25 · webapp 107 파일 1970 통과 · 1 skip · shared 10 파일 131 · relay 22 파일 632 · e2e 4 spec 71 passed). 20-08(갭 클로징 · D-24 상단 상태줄 안 C) 행 3개는 20-08 Task 3 이 실행 결과로 채웠다(2026-09-25 · webapp 108 파일 2081 통과 · 1 skip · relay 22 파일 632 · e2e 5 spec 85 passed).
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
@@ -63,6 +63,9 @@ created: "2026-09-25"
 | 20-07-T1 | 07 | 5 | 불변식(폭) · D-04 · D-20 | T-20-12 · T-20-17 | 셀렉터 이관 · 더티 케이스 5개 재정의 · P20-3 최악값 × 4밴드 잘림 0 · 44px · 그룹 높이 동일 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts` | ⚠️ 확장 | ✅ green |
 | 20-07-T2 | 07 | 5 | D-10 · D-12 · D-13 · D-15 · a11y · 주문 경로 | T-20-09 · T-20-11 | P20-4 매수가격 시트 · P20-5 수동주문 시트(주문 0) · 호가 탭 시트 vs FAB · 스위치 role · 시트 axe 0 | e2e | `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/trading-workbench.spec.ts e2e/specs/orderbook.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts` | ⚠️ ⑦·11 재정의 | ✅ green |
 | 20-07-T3 | 07 | 5 | 전체 게이트 | T-20-16 | build_command · test_command · shared 전체 · webapp build · e2e 4 spec | gate | config `build_command` · `test_command` · e2e 4 spec | ✅ | ✅ green (build · test · shared · webapp build · e2e 71 passed) |
+| 20-08-T1 | 08 | 6 | D-24(≥700) · 불변식 (트레이서) | T-20-18 · T-20-19 · T-20-20 | 거부 문장 → 고지 줄 role=alert 한 번(상태줄 alert 0) · LED 점 3개(sr-only) · 「계좌」「반영」 sr-only/title · 본문 700·830·992·뷰포트 1440 거부 최악값 1줄 · 잘림 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ③ 이관 · ③-e 신설 · P20-6 ① 신설 | ✅ green |
+| 20-08-T2 | 08 | 6 | D-24(<700) · 불변식(컨테이너 · 잘림 0) | T-20-18 · T-20-19 · T-20-21 | 연결 점+시각 · 계좌 select 하나(이름 칩 · 중복/빈 이름은 번호) · 구간/연결 이상 → 고지 줄 · 「다시 연결」 두 자리 같은 reconnect · P20-6 ①②③ 폰 1줄 · 700 끊김 ≤2줄 · select 본래 폭 판정 · axe 0 | component + e2e | `pnpm --filter @gh-radar/webapp exec vitest --run src/components/stock/__tests__/stock-orderbook-section.test.tsx src/components/stock/__tests__/orderbook.test.tsx` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts` | ⚠️ ⑬ 이관 · ③-f~i 신설 · overflow.ts selectsClipped · P20-6 ②③ 신설 | ✅ green |
+| 20-08-T3 | 08 | 6 | 전체 게이트 · UI-SPEC 계약(A7 → D-24 · §10) | T-20-16 | build_command · test_command · e2e 5 spec(orderbook · trading-workbench · a11y · sidebar-tree · stock-detail-tabs) | gate | config `build_command` · `test_command` · `pnpm --filter @gh-radar/webapp exec playwright test e2e/specs/orderbook.spec.ts e2e/specs/trading-workbench.spec.ts e2e/specs/a11y.spec.ts e2e/specs/sidebar-tree.spec.ts e2e/specs/stock-detail-tabs.spec.ts` | ✅ | ✅ green (build 0 error TS · relay 22 파일 632 · webapp 108 파일 2081 통과 · 1 skip · e2e 5 spec 85 passed) |
 
 *Status: ⬜ 대기 · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -89,6 +92,7 @@ created: "2026-09-25"
 | 시각 확인(다크/라이트 · 토스 톤) | D-01 · D-08 · D-13 | 색·둥근면·간격은 목업 대조가 필요 | 폰 390 · 태블릿 768(터치) · 데스크톱 1280 에서 목업 `002-toss-order-ticket/index.html` 과 나란히 비교 |
 | 실기 하이브리드 기기(터치+마우스) 판정 | D-12 | Playwright 로 재현 불가(Surface · iPad+트랙패드) | 실기에서 행 탭 → 시트, 마우스 클릭 → 인라인 확인 |
 | 실 게이트웨이 반영 지연/실패 | D-05 · D-06 | 실서버 타임아웃은 e2e 모킹 밖 | relay 연결을 끊고 적용 → 「반영하지 못했어요 · 다시 시도」 + 입력값 보존 확인 |
+| 상단 상태줄 목업 안 C 대조(다크/라이트 · 폰 360/390 · 태블릿 768 · 데스크톱 1280) | D-24 | 톤(색·간격·정렬) 대조는 스크린샷 자동 비교로 판정할 수 없다 | worktree dev(PORT=3100) `/stocks/005930?tab=orderbook` 를 목업 `status-strip-variants.html` 안 C 와 나란히 — 폰: 「● 시각 · 계좌 이름 ⌄ · KRX\|NXT · 점 3개」 한 줄 + 구간 배지·연결 이상은 아래 고지 줄 · ≥700: 「● DMA 실시간 · 번호·이름 select · KRX\|NXT · 점 3개 · 배지 ··· 시각」 한 줄 · 잘림·말줄임·겹침 없음 |
 
 ---
 
