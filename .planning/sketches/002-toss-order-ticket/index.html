@@ -340,7 +340,7 @@ function frame() {
       <div class="err" id="SE"></div>
       <div class="chips" id="SC"></div>
       <div class="pad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫'].map(k => `<button data-key="${k}">${k}</button>`).join('')}</div>
-      <div class="btns"><button class="b1 js-close">닫기</button><button class="b2 js-ok">확인</button></div>
+      <div class="btns"><button class="b1 js-close">닫기</button><button class="b2 js-ok">적용</button></div>
     </div>
     <div class="oskb"><div class="lbl">${f === 'tablet' ? 'iPad 키보드 — 숫자 입력 모드 (시뮬레이션)' : 'iPhone 숫자 키패드 — inputmode="numeric" (시뮬레이션)'}</div><div class="grid">${kb}</div></div>
   </div>`;
@@ -387,7 +387,8 @@ function validate() {
 }
 function showSheet() {
   const F = document.getElementById('F'), { k, u, d } = ED.meta;
-  F.querySelector('#SH').textContent = k; F.querySelector('#SP').textContent = d + (ED.kind === 'ticket' ? '' : ' · 감시 중이면 확인하는 즉시 적용돼요');
+  F.querySelector('#SH').textContent = k; F.querySelector('#SP').textContent = d + (ED.kind === 'ticket' ? '' : ' · 감시 중이면 적용하는 즉시 반영돼요');
+  F.querySelector('.js-ok').textContent = `${k} ${ED.kind === 'ticket' ? '입력' : '적용'}`;   // D-23: 일반어 「확인」 대신 필드명 조합
   F.querySelector('#SU').textContent = u; F.querySelector('#SW').textContent = '지금 ' + (typeof ED.orig === 'number' ? fmt(ED.orig) : ED.orig) + u;
   F.querySelector('#SC').innerHTML = chipsFor(u).map(([l, a]) => `<button data-chip="${a}">${l}</button>`).join('');
   F.querySelector('.pad').classList.toggle('hidden', S.k !== 'custom' || u === '');
@@ -430,7 +431,7 @@ function commit() {
   setTimeout(() => {
     const f = field(snap.side, snap.gi, snap.fi);
     f[1] = snap.unit === '' ? snap.buf : (+snap.buf || 0);
-    ED = null; ok.textContent = '확인'; ok.disabled = false;
+    ED = null; ok.textContent = `${snap.meta.k} 적용`; ok.disabled = false;
     F.classList.remove('open');
     document.getElementById('PAN').innerHTML = panel();
     flashRow(snap.side, snap.gi, snap.fi);
