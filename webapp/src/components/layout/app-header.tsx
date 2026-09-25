@@ -42,8 +42,10 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
           한쪽만 고치면 그대로 되돌아온다. 두 값이 같은지는 `e2e/specs/home.spec.ts` 의 셸
           불변식 케이스가 계산된 스타일로 잰다.
         ★ 세로·높이(`h-14`)는 이번 변경 대상이 아니다.
+        ★ Phase 21 D-25 — `box-content pt-[var(--app-safe-top)]`: 풀블리드에서 헤더 블러가 상태바 뒤까지
+          이어지고 콘텐츠 56 은 그 아래에 선다(전체 높이 = 56 + 상단 안전영역). 크롬·데스크톱은 0 이라 종전 그대로.
       */
-      className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-transparent bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
+      className="sticky top-0 z-10 box-content flex h-14 items-center pt-[var(--app-safe-top)] gap-3 border-b border-transparent bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
     >
       <div className="flex items-center gap-2">
         {onMenuClick && (

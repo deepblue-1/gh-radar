@@ -615,6 +615,39 @@ html[lang="ko"] {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   §21 safe-area · 네이티브 탭바 여백 (Phase 21 D-25 · D-27a)
+   - 안전영역의 **유일한 원천**은 아래 `--app-safe-{top,bottom,left,right}` 네 변수다. 컴포넌트는 `env()` 를
+     직접 쓰지 않고 이 변수만 읽는다(`layout.tsx` viewport `viewportFit: 'cover'` 와 짝).
+     · `--safe-area-inset-*` 는 Capacitor 8.5 SystemBars(`insetsHandling: 'css'`)가 Android 에서 `<html>` 인라인
+       스타일로 **주입하는 이름**이다(Android WebView < 140 은 `env()` 가 0 — 21-RESEARCH Pattern 9 · Pitfall 8).
+       ★ 우리가 정의하지 않는다 — `:root` 에 선언하면 폴백 체인이 주입값 대신 우리 값을 읽는 순간이 생긴다.
+     · iOS WKWebView · Safari · 크롬은 주입이 없으니 `env()` 폴백으로 떨어지고, 크롬 데스크톱은 0 이다.
+   - 탭바 기하의 정본은 CONTEXT **D-27a** 다: 높이 70 · 바닥 = 화면 끝에서 max(inset − 14, 14) · 위 여유 8 ·
+     웹 본문 하단 여백 108(= 70 + 20 + 18, 폰·iPad 공통). 여기 값을 바꾸면 D-27a · 네이티브 상수(iOS
+     `GHTradeTabBar` · Android `GhTradeTabBar`) · `e2e/specs/native-shell.spec.ts` 수치 단언을 같이 고친다.
+     · `--native-tabbar-gap` = 탭바 바닥 여백 · `--native-tabbar-offset` = 하단 고정 바가 설 높이(탭바 윗변 + 8).
+     · 브라우저(`native-app` 없음)에서는 offset·reserve 가 0 — 하단 고정 요소의 `bottom` 식이 종전 값이 된다.
+   - `html.native-app main` 은 레이어 밖이라 AppShell `main` 의 `p-2 md:p-4 lg:p-6` 중 **하단만** 이긴다.
+   - 뷰포트/셸 층 규칙이다 — §2.2b 상따 컨테이너 밴드와 무관하다(밴드 규칙에 safe-area 분기를 넣지 않는다).
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --app-safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --app-safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --native-tabbar-offset: 0px;
+  --native-body-reserve: 0px;
+}
+html.native-app {
+  --native-tabbar-gap: max(calc(var(--app-safe-bottom) - 14px), 14px);
+  --native-tabbar-offset: calc(var(--native-tabbar-gap) + 70px + 8px);
+  --native-body-reserve: 108px;
+}
+html.native-app main {
+  padding-bottom: var(--native-body-reserve);
+}
+
+/* ─────────────────────────────────────────────────────────────
    §3.9 종목상세 B 띠 (quick-260924-vj1 · sketch 001 `.v-b .detail-stack > .card`)
    - 종목상세 비-호가 탭은 B 라이트 = **흰 바탕 + 회색 띠**, 나머지 화면은 `--surface` 회색 면 + 흰 카드.
      종목상세 루트(`stock-detail-client.tsx`)가 `data-page-surface="plain"` 을 달면 AppShell `main` 의

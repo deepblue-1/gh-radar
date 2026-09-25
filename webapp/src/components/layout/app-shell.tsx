@@ -26,7 +26,8 @@ export interface AppShellProps {
  * AppShell — UI-SPEC §4.1 (상승률 상위/대시보드 레이아웃).
  * - Desktop(>=lg): 56px top header + 240px left sidebar + 24px padding main
  * - Mobile(<lg): 본문 좌우/상하 여백 8px(`p-2`) — 좁은 화면에서 콘텐츠 폭을 최대로 회수한다.
- * - Desktop 사이드바는 **뷰포트에 고정**(`lg:sticky top-14` + `h-[calc(100dvh-3.5rem)]`)이라
+ * - Desktop 사이드바는 **뷰포트에 고정**(`lg:sticky top-14` + `h-[calc(100dvh-3.5rem)]` — Phase 21 D-25 부터
+ *   둘 다 `+ --app-safe-top` 보정, 헤더가 56 + 상단 안전영역이라)이라
  *   본문을 끝까지 스크롤해도 하단 유저 섹션·테마 토글이 화면 안에 남는다.
  *   ★ 이 세 가지는 한 묶음이다 — ① `aside` 의 sticky/self-start ② 부모 flex 래퍼에
  *   `overflow-hidden` 을 **두지 않음**(스크롤 컨테이너가 생기면 sticky 가 죽는다)
@@ -50,7 +51,11 @@ export function AppShell({
   const navContent = nav === undefined ? <GlobalSearch /> : nav;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-[var(--bg)] text-[var(--fg)]">
+    /*
+      Phase 21 D-25 — 좌우 safe-area 패딩(가로 노치 · Pitfall 14). 헤더와 본문이 **같은 양**만큼 들어오므로
+      셸 불변식 「헤더 좌우 패딩 == 본문 좌우 패딩」(home.spec)이 그대로다. 크롬(안전영역 0)에서는 0.
+    */
+    <div className="flex min-h-dvh flex-col bg-[var(--bg)] pl-[var(--app-safe-left)] pr-[var(--app-safe-right)] text-[var(--fg)]">
       <AppHeader
         nav={navContent}
         onMenuClick={showSidebar ? () => setSheetOpen(true) : undefined}
@@ -65,7 +70,7 @@ export function AppShell({
             사이드바를 숨기는 표식이다(규칙은 globals.css 「Phase 21 앱 셸 — 사이드바·햄버거」). 앱은
             네이티브 탭바가 목적지를 가지므로 드로어(햄버거)만 쓴다. 브라우저는 종전 그대로다.
           */
-          <aside data-slot="app-aside" className="hidden w-60 shrink-0 border-r border-transparent bg-[var(--side-bg)] p-3 lg:sticky lg:top-14 lg:block lg:h-[calc(100dvh-3.5rem)] lg:self-start lg:overflow-y-auto">
+          <aside data-slot="app-aside" className="hidden w-60 shrink-0 border-r border-transparent bg-[var(--side-bg)] p-3 lg:sticky lg:top-[calc(3.5rem+var(--app-safe-top))] lg:block lg:h-[calc(100dvh-3.5rem-var(--app-safe-top))] lg:self-start lg:overflow-y-auto">
             {sidebar}
           </aside>
         )}

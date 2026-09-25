@@ -774,7 +774,8 @@ function StrategyCardImpl({
         "min-w-0 overflow-clip rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]",
         // 앱 헤더가 `sticky top-0 h-14`(56px)라 `block:start` 스크롤(공용 패널 행 → 카드, quick-260925-ptw)이
         // 카드 머리를 헤더 밑에 묻지 않게 64px 여유를 둔다.
-        "scroll-mt-16",
+        // Phase 21 D-25 — 풀블리드 앱에서는 헤더가 56 + 상태바라 상단 안전영역만큼 더 띄운다(크롬 0).
+        "scroll-mt-[calc(4rem+var(--app-safe-top))]",
         // 미반영 값이 있으면 카드 테두리가 파랗다 — 바가 어느 카드 것인지 모양으로 말한다(목업 B).
         card.dirtyCount > 0 && "border-[color-mix(in_oklch,var(--primary)_55%,var(--border))]",
       )}

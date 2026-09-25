@@ -31,12 +31,19 @@ export const metadata: Metadata = {
  * - iOS 10+ Safari 는 접근성 정책으로 `user-scalable=no` 의 수동 핀치를 무시할 수 있다
  *   (자동 확대 방지는 유효). Android Chrome 은 핀치까지 막는다 — WCAG 1.4.4 트레이드오프를
  *   사용자 요청으로 수용했다(T-ptw-05).
+ *
+ * `viewport-fit=cover` (Phase 21 D-25 · 풀블리드) — 헤더 블러가 상태바 뒤까지, 하단 고정 바가 홈 인디케이터
+ * 뒤까지 이어진다. 웹·앱 공통이다(Claude's Discretion — 앱 전용 런타임 meta 교체는 복잡도 > 이득이라 기각).
+ * - 가로 노치(21-RESEARCH Pitfall 14)는 `app-shell.tsx` 바깥 래퍼의 좌우 safe-area 패딩이 막는다.
+ * - 안전영역 값은 globals.css §21 의 `--app-safe-{top,bottom,left,right}` 로만 읽는다 — Android SystemBars 가
+ *   주입하는 `--safe-area-inset-*` 우선, iOS·Safari 는 `env()` 폴백. 컴포넌트에서 `env()` 를 직접 쓰지 않는다.
  */
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
     { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
