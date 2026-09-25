@@ -52,10 +52,10 @@ body.light-chrome #vdesc { color: #555; } body.light-chrome #vdesc b { color: #1
 .hdr .sp { flex: 1; }
 .body { padding: 4px 8px 0; }
 .device.ipad .body { padding: 8px 16px 0; }
-.body.pad-a { padding-bottom: 136px; }   /* 알약 70 + 14 + inset 34 + 여백 */
+.body.pad-a { padding-bottom: 108px; }   /* 알약 70 + 바닥 20 + 여백 18 */
 .body.pad-b { padding-bottom: 112px; }   /* 풀폭 56 + inset 34 + 여백 */
 .body.pad-c { padding-bottom: 122px; }   /* 컴팩트 60 + 8 + inset 34 + 여백 */
-.device.ipad .body.pad-a { padding-bottom: 130px; }
+.device.ipad .body.pad-a { padding-bottom: 108px; }
 
 /* ───────── 공통 프리미티브 ───────── */
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
@@ -153,14 +153,14 @@ body.light-chrome #vdesc { color: #555; } body.light-chrome #vdesc b { color: #1
 .device.overlay .fade { opacity: 0; }
 
 /* A · 알약 (weekly-wine 계승) */
-.tabbar.va { left: 16px; right: 16px; bottom: calc(34px + 14px); height: 70px; border-radius: 32px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 2px 16px rgba(0,0,0,.18), 0 0 0 1px var(--line) inset; --tb-fg: var(--muted-fg); --tb-on: var(--primary); }
+.tabbar.va { left: 16px; right: 16px; bottom: calc(34px - 14px); height: 70px; border-radius: 32px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 2px 16px rgba(0,0,0,.18), 0 0 0 1px var(--line) inset; --tb-fg: var(--muted-fg); --tb-on: var(--primary); }
 .device.ipad .tabbar.va { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
 .device.ipad.overlay .tabbar.va, .device.ipad.login-page .tabbar.va { transform: translateX(-50%) translateY(8px); }
 .tabbar.va .item .hl { position: absolute; width: 46px; height: 46px; border-radius: 23px; background: color-mix(in srgb, var(--primary) 14%, transparent); top: 7px; left: 50%; transform: translateX(-50%); display: none; }
 .tabbar.va .item.on .hl { display: block; }
 .tabbar.va .item svg, .tabbar.va .item .lb { position: relative; }
 .tabbar.va .item .lb { color: var(--tb-fg); } .tabbar.va .item.on .lb { color: var(--tb-on); }
-.fade.va { height: 150px; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 70%); }
+.fade.va { height: 120px; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 70%); }
 
 /* B · 풀폭 토스식 */
 .tabbar.vb { left: 0; right: 0; bottom: 0; height: calc(56px + 34px); padding-bottom: 34px; background: var(--bg); box-shadow: 0 -1px 0 var(--line); --tb-fg: var(--faint-fg); --tb-on: var(--fg); }
@@ -466,7 +466,7 @@ body.light-chrome .icon-set { background: #fff; border-color: #d9dce1; }
 
 <script>
 const DESC = {
-  a: '<b>A · 알약(weekly-wine 계승)</b> — 좌우 16 · 높이 70 · radius 32 · 카드색 82% + 블러 · 그림자 · 하단 페이드. 활성 = primary 14% 원 하이라이트 + filled 아이콘 + primary 라벨. iPad 는 폭 560 가운데. 본문 하단 여백 136.',
+  a: '<b>A · 알약(weekly-wine 계승)</b> — 좌우 16 · 높이 70 · radius 32 · 카드색 82% + 블러 · 그림자 · 하단 페이드. 활성 = primary 14% 원 하이라이트 + filled 아이콘 + primary 라벨. iPad 는 폭 560 가운데. 바닥 여백 = 화면 끝에서 20(홈 인디케이터 위 7) · 본문 하단 여백 108.',
   b: '<b>B · 풀폭 토스식</b> — 바닥에 붙은 풀폭 바 56 + 홈 인디케이터 34 · 바탕색 + 상단 hairline · 블러·페이드 없음. 활성 = fg(다크 흰/라이트 grey900) filled, 비활성 = faint. 토스증권 앱의 실제 탭바 구조. 본문 하단 여백 112.',
   c: '<b>C · 컴팩트 알약(절충)</b> — 좌우 12 · 높이 60 · radius 20 · 카드색 불투명 + hairline · 페이드 없음. 활성 = 상단 3px 인디케이터 + filled + primary 라벨. A 보다 본문을 18px 더 돌려준다. 본문 하단 여백 122.',
 };
