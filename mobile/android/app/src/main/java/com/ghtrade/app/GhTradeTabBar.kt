@@ -68,6 +68,18 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
         apply(palette)
     }
 
+    // 폭 = min(560dp, 부모 폭 − 좌우 여백 16×2). MainActivity 가 MATCH_PARENT + 좌우 margin 16 + 가운데 정렬로 붙이므로
+    // 여기서 최대 560 만 자르면 회전·멀티윈도우에서도 따로 다시 계산할 필요가 없다(D-13 — 폭 기준 숨김 분기는 없다).
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val maxWidth = dpF(560f).toInt()
+        val spec = if (MeasureSpec.getSize(widthMeasureSpec) > maxWidth) {
+            MeasureSpec.makeMeasureSpec(maxWidth, MeasureSpec.EXACTLY)
+        } else {
+            widthMeasureSpec
+        }
+        super.onMeasure(spec, heightMeasureSpec)
+    }
+
     /** 활성 탭 표시. null = 5탭 전부 비활성(D-14 — 종목상세 등 하위 경로 · 오프라인 페이지). */
     fun setActive(tab: TabId?) {
         activeTab = tab
