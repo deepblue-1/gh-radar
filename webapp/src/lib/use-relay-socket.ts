@@ -167,6 +167,8 @@ export const RELAY_RESUME_PROBE_MS = 5_000;
 export const RELAY_RESUME_PROBE_SETTLE_MS = 2_000;
 /** 지수 백오프 시작 지연. */
 const BACKOFF_BASE_MS = 1_000;
+/** 연결 effect 밖(비활성·언마운트 뒤)의 `probeNow` — 아무것도 하지 않는다. */
+const NOOP_PROBE = () => {};
 /** 지수 백오프 상한. */
 const BACKOFF_MAX_MS = 30_000;
 /** 정상 종료 close 코드. */
@@ -478,6 +480,17 @@ export interface RelayConnectionState {
   send: (msg: RelayInbound) => boolean;
   /** 수동 재연결. 백오프 카운터를 0 으로 되돌리고 새 소켓을 연다. */
   reconnect: () => void;
+  /**
+   * 「지금 다시 확인」 — 당겨서 새로고침(Phase 21 D-16)의 트레이딩·마이 재조회.
+   *
+   * 복귀 경로(규율 9)의 `onResume(true)` 와 같다. 소켓이 죽었으면(백오프 대기·예산 소진) 즉시 새로
+   * 연다 — 인증 직후 스냅샷이 다시 온다. 인증된 OPEN 이면 `RELAY_RESUME_PROBE_MS` 동안 새 프레임을
+   * 지켜보고 안 오면 새로 연다. 살아 있으면 서버 푸시가 곧 최신이라 추가 요청이 없다. 연결 시도 중·
+   * 탐침 중이면 무동작이다. relay 인바운드에 「스냅샷 재요청」 프레임이 없어 relay 는 무변경이다
+   * (21-RESEARCH Pitfall 11). 사람 제스처만 호출하므로 재시도 폭주가 아니다(T-15-10 · T-21-13).
+   * 참조는 안정이다 — 등록 훅이 렌더마다 재등록하지 않는다.
+   */
+  probeNow: () => void;
   /**
    * 구독 참조계수 +1. 0→1 에서만 와이어에 `sub` 이 나간다.
    *
@@ -1139,6 +1152,8 @@ export function useRelayConnection({
   const [authEpoch, setAuthEpoch] = useState(0);
   /** `reconnect()` 가 증가시키는 nonce — 연결 effect 를 강제로 다시 돌린다. */
   const [reconnectNonce, setReconnectNonce] = useState(0);
+  /** 현재 연결 effect 의 `onResume(true)` — 공개 `probeNow` 가 부른다(D-16). effect 밖이면 no-op. */
+  const probeNowRef = useRef<() => void>(NOOP_PROBE);
 
   /**
    * 참조계수 ≥1 인데 아직 와이어에 없는 키를 전부 `sub` 한다.
@@ -1539,6 +1554,8 @@ export function useRelayConnection({
       }
       if (probe) startProbe();
     };
+    // D-16 — 당겨서 새로고침이 「OPEN 소켓까지 의심하는 복귀」와 같은 경로를 탄다.
+    probeNowRef.current = () => onResume(true);
 
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
@@ -1562,6 +1579,7 @@ export function useRelayConnection({
     openSafely();
 
     return () => {
+      probeNowRef.current = NOOP_PROBE;
       disposed = true;
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pageshow", onPageShow);
@@ -1716,6 +1734,8 @@ export function useRelayConnection({
     setReconnectNonce((v) => v + 1);
   }, []);
 
+  const probeNow = useCallback(() => probeNowRef.current(), []);
+
   const statusLabel = data.status === "idle" ? "" : RELAY_STATE_LABELS[data.status];
 
   return useMemo<RelayConnectionState>(
@@ -1747,11 +1767,12 @@ export function useRelayConnection({
       nxtTradable: data.nxtTradable,
       send,
       reconnect,
+      probeNow,
       subscribe,
       unsubscribe,
       sendOrder,
     }),
-    [data, statusLabel, send, reconnect, subscribe, unsubscribe, sendOrder],
+    [data, statusLabel, send, reconnect, probeNow, subscribe, unsubscribe, sendOrder],
   );
 }
 

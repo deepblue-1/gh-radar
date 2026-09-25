@@ -364,6 +364,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // 그 사실을 알 수 있어야 한다(PC-7 무로그 fail-safe 금지).
   send: () => false,
   reconnect: NOOP,
+  // 재탐침할 소켓이 없다(Phase 21 D-16) — 당겨서 새로고침이 불러도 아무 일도 없다.
+  probeNow: NOOP,
   subscribe: NOOP,
   unsubscribe: NOOP,
   // 보내지 **않았음**이 확실하다. 조용히 성공으로 위장하지 않는다(PC-7 무로그 fail-safe 금지).
