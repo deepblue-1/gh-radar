@@ -289,6 +289,107 @@ describe('StockOrderbookSection — 호가 탭 = 카드 본문 (D-24)', () => {
     expect(document.querySelector('[data-slot="orderbook-notices"]')).toBeNull();
   });
 
+  it('③-f 연결 표시가 두 조각이다 — ≥700 「● DMA 상태」 · <700 점 + 반영 시각(글자는 sr-only·title) (D-24)', () => {
+    renderSection();
+    const bar = statusBar();
+    const full = bar.querySelector('[data-slot="orderbook-conn"]') as HTMLElement;
+    expect(full).not.toBeNull();
+    expect(full.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['hidden', '@min-[700px]/lc:inline-flex']),
+    );
+    const compact = bar.querySelector('[data-slot="orderbook-conn-compact"]') as HTMLElement;
+    expect(compact).not.toBeNull();
+    expect(compact.className.split(/\s+/)).toContain('@min-[700px]/lc:hidden');
+    expect(compact).toHaveAttribute('title', 'DMA 실시간 · 반영 —');
+    expect(compact.querySelector('.sr-only')?.textContent?.trim()).toBe('DMA 실시간 · 반영');
+    const shown = Array.from(compact.children).filter(
+      (el) => !el.classList.contains('sr-only') && el.getAttribute('aria-hidden') !== 'true',
+    );
+    expect(shown.map((el) => el.textContent)).toEqual(['—']);
+  });
+
+  it('③-g 계좌 select 는 하나 · 폰 이름표는 이름만(aria-hidden) — 이름이 겹치거나 비면 번호를 함께 (D-24 · T-20-18)', () => {
+    const { unmount } = renderSection();
+    const selects = within(statusBar()).getAllByRole('combobox', { name: '계좌' });
+    expect(selects).toHaveLength(1);
+    expect(selects[0]).toHaveValue(ACCOUNT);
+    const nameTag = () =>
+      statusBar().querySelector('[data-slot="orderbook-account-name"]') as HTMLElement;
+    expect(nameTag()).toHaveAttribute('aria-hidden', 'true');
+    expect(nameTag().className.split(/\s+/)).toContain('@min-[700px]/lc:hidden');
+    expect(nameTag().textContent).toBe('위탁종합');
+    unmount();
+
+    // 같은 이름이 둘 — 이름만으로는 계좌를 특정할 수 없으니 번호를 숨기지 않는다(오발주 가드).
+    ctx = {
+      ...ctx,
+      accounts: [
+        { accountNo: ACCOUNT, name: '위탁종합' },
+        { accountNo: '12345678-02', name: '위탁종합' },
+      ],
+    };
+    const second = renderSection();
+    expect(nameTag().textContent).toBe(`${ACCOUNT} · 위탁종합`);
+    second.unmount();
+
+    // 이름이 비면 번호다.
+    ctx = { ...ctx, accounts: [{ accountNo: ACCOUNT, name: '' }] };
+    const third = renderSection();
+    expect(nameTag().textContent).toBe(ACCOUNT);
+    third.unmount();
+
+    // 계좌가 아직 없으면 「계좌 확인 중…」.
+    ctx = { ...ctx, accounts: [] };
+    renderSection();
+    expect(nameTag().textContent).toBe('계좌 확인 중…');
+  });
+
+  it('③-h 구간 배지는 두 자리 — 상태줄(≥700) · 고지 줄(<700) · 폰 전용 고지만 있으면 고지 줄이 ≥700 에서 숨는다 (D-24)', () => {
+    const { unmount } = renderSection();
+    const badge = statusBar().querySelector('[data-slot="orderbook-window-badge"]') as HTMLElement;
+    expect(badge.textContent).toBe('정규');
+    expect(badge.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['hidden', '@min-[700px]/lc:inline-flex']),
+    );
+    const notices = () => document.querySelector('[data-slot="orderbook-notices"]') as HTMLElement;
+    const winNotice = notices().querySelector('[data-slot="orderbook-window-notice"]') as HTMLElement;
+    expect(winNotice).not.toBeNull();
+    expect(winNotice.textContent).toBe('정규');
+    expect(winNotice.className.split(/\s+/)).toContain('@min-[700px]/lc:hidden');
+    // 폰 전용 항목(구간)만 있다 → 넓은 화면에 빈 고지 줄 간격을 남기지 않는다.
+    expect(notices().className.split(/\s+/)).toContain('@min-[700px]/lc:hidden');
+    unmount();
+
+    // 거부가 함께 있으면 고지 줄은 ≥700 에서도 보인다.
+    ctx = {
+      ...ctx,
+      messages: [
+        {
+          t: 'msg',
+          lv: 'ERROR',
+          m: '주문 가능 금액이 부족합니다',
+          i: ISIN,
+          a: ACCOUNT,
+          src: 'LimitChaser',
+          kind: '',
+          receivedAt: '14:32:07',
+        },
+      ],
+    };
+    renderSection();
+    expect(notices().className.split(/\s+/)).not.toContain('@min-[700px]/lc:hidden');
+  });
+
+  it('③-i 상태줄 간격은 폰 8 · ≥700 12 · flex-wrap 유지 · 오른쪽 그룹(다시 연결 + 시각)은 ≥700 에서만 (D-24)', () => {
+    renderSection();
+    const cls = statusBar().className.split(/\s+/);
+    expect(cls).toEqual(expect.arrayContaining(['gap-x-2', '@min-[700px]/lc:gap-x-3', 'flex-wrap']));
+    const right = statusBar().querySelector('[data-slot="orderbook-strip-right"]') as HTMLElement;
+    expect(right.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['hidden', '@min-[700px]/lc:inline-flex']),
+    );
+  });
+
   it('③-b 구간이 모름(77 미수신)이면 구간 배지가 없다 — 「정규」로 위장하지 않는다', () => {
     ctx = { ...ctx, queuedWindow: undefined };
     renderSection();

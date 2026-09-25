@@ -453,10 +453,22 @@ describe('StockOrderbookSection (호가창 섹션)', () => {
     expect(within(statusBar()).getByText('실시간')).toBeInTheDocument();
 
     setRelay({ status: 'failed', statusLabel: '회선 단절', quote: null });
-    expect(within(statusBar()).getByText('회선 단절')).toBeInTheDocument();
-    // 복구 불가 상태에서만 「다시 연결」이 상태줄에 선다 — 누르면 훅의 reconnect 다.
+    const conn = statusBar().querySelector('[data-slot="orderbook-conn"]') as HTMLElement;
+    expect(within(conn).getByText('회선 단절')).toBeInTheDocument();
+    // 복구 불가 상태에서만 「다시 연결」이 선다 — 누르면 훅의 reconnect 다.
+    // ≥700 자리: 상태줄 오른쪽.
     fireEvent.click(within(statusBar()).getByRole('button', { name: '다시 연결' }));
     expect(mockRelay.reconnect).toHaveBeenCalledTimes(1);
+    // <700 자리: 상태줄 아래 고지 줄의 연결 이상 줄(D-24) — 같은 reconnect 다.
+    const notice = document.querySelector('[data-slot="orderbook-conn-notice"]') as HTMLElement;
+    expect(notice).not.toBeNull();
+    expect(notice.className.split(/\s+/)).toContain('@min-[700px]/lc:hidden');
+    expect(notice.textContent).toContain('DMA 회선 단절');
+    fireEvent.click(within(notice).getByRole('button', { name: '다시 연결' }));
+    expect(mockRelay.reconnect).toHaveBeenCalledTimes(2);
+
+    setRelay({ status: 'ready', statusLabel: '실시간' });
+    expect(document.querySelector('[data-slot="orderbook-conn-notice"]')).toBeNull();
   });
 });
 
