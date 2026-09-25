@@ -304,7 +304,9 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     while (queueRef.current.length > 0) {
       const p = queueRef.current.shift()!;
       if (server != null && server[p.field] === p.value) {
-        writeFailures((prev) => withoutField(prev, p.field));
+        // 서버가 이미 사용자가 확정한 값이다 — 보낼 것은 없지만 **성공**이다(20-REVIEW WR-06). 성공 신호가
+        // 없으면 `queued` 로 열려 기다리던 시트·인라인 편집기가 닫히지 않는다.
+        markSuccess(p.field);
         continue;
       }
       // ⑥ 앞 건(등록)이 답을 받았는데도 여전히 미등록 — 게이트 밖 필드는 로컬 반영만 한다(보내면 존재하지
@@ -325,22 +327,25 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
     }
     syncQueue();
-  }, [markSuccess, sendNow, setFailure, showToggle, syncQueue, writeFailures]);
+  }, [markSuccess, sendNow, setFailure, showToggle, syncQueue]);
 
   /** 대기 건 전부를 보내지 않고 실패로 표시한다 — 서버가 이미 그 값이면 실패라 말하지 않는다(⑦). */
   const failQueue = useCallback(
     (reason: 'rejected' | 'timeout') => {
       const { server } = optsRef.current;
       for (const q of queueRef.current) {
-        // 서버가 이미 그 값이면 보낼 것이 없던 확정이다 — 실패라고 말하지 않는다.
-        if (server != null && server[q.field] === q.value) continue;
+        // 서버가 이미 그 값이면 보낼 것이 없던 확정이다 — 실패가 아니라 성공이다(열린 시트·편집기를 닫는다 · WR-06).
+        if (server != null && server[q.field] === q.value) {
+          markSuccess(q.field);
+          continue;
+        }
         setFailure(q.field, reason, LC_COMMIT_TEXT.failed, q.value);
         if (q.kind === 'toggle') showToggle(q.field, q.prevValue);
       }
       queueRef.current = [];
       syncQueue();
     },
-    [setFailure, showToggle, syncQueue],
+    [markSuccess, setFailure, showToggle, syncQueue],
   );
 
   /** in-flight 실패 — 되돌리고, 대기 건은 보내지 않고 전부 실패로 표시한다(⑦). */

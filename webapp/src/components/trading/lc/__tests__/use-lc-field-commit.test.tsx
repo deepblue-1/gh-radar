@@ -728,6 +728,36 @@ describe('WR-02 — 성공 렌더와 답 신호 증가 렌더 사이의 확정�
   });
 });
 
+describe('WR-06 — 꺼낼 때 no-op 이 된 대기 확정은 성공 신호를 낸다(열린 시트·편집기가 닫히게)', () => {
+  it('drain — 앞 건 에코가 대기 건의 값까지 담고 오면 전송 0 · 그 필드 성공', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    t.update({ server: echo({ sweepMinTickCount: 5, buyWatchQty: 8_000 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
+    expect(t.hook.result.current.successSeq).toBe(2);
+    expect(t.hook.result.current.queuedFields).toEqual([]);
+  });
+
+  it('앞 건 실패로 대기열을 비울 때 — 서버가 이미 그 값인 건은 실패가 아니라 성공', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    // 다른 단말이 buyWatchQty 를 8,000 으로 바꾼 에코 — A(호가변경)는 반영되지 않았다.
+    t.update({ server: echo({ buyWatchQty: 8_000 }) });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.hook.result.current.failures.sweepMinTickCount?.reason).toBe('rejected');
+    expect(t.hook.result.current.failures.buyWatchQty).toBeUndefined();
+    expect(t.hook.result.current.lastSuccessField).toBe('buyWatchQty');
+  });
+});
+
 describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값 편집은 로컬 성공이 아니라 대기다', () => {
   it('등록(매수주문 켜기) 중 매수가격 편집 → `queued` · 성공 강조 없음 · 등록 에코 뒤 답 신호에서 정상 전송', () => {
     const t = setup({ server: null });

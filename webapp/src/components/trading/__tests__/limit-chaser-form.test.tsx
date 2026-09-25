@@ -986,6 +986,25 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(document.querySelector('[data-slot="numpad-value"]')!.textContent).toBe('7');
   });
 
+  it('WR-06 — 대기에 선 시트 적용이 꺼낼 때 no-op(서버가 이미 그 값)이면 시트가 닫힌다', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    // 앞 건(매도주문 켜기) 전송 중 — 잔량 시트 적용은 대기다(시트는 「반영 중…」으로 열려 있다).
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    click(row('lc-buy-watch-qty'));
+    const pad = within(within(sheet()!).getByRole('group', { name: '숫자 키패드' }));
+    for (const k of ['8', '0', '0', '0']) click(pad.getByRole('button', { name: k }));
+    click(document.querySelector('[data-slot="numpad-confirm"]') as HTMLElement);
+    expect(sentConfigs()).toHaveLength(1);
+    expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('반영 중…');
+    // 앞 건 에코가 잔량 8,000 까지 담고 온다(다른 단말) — 대기 건은 꺼낼 때 no-op.
+    const both = echo({ sellEnabled: true, buyWatchQty: 8_000 });
+    rerender(<LimitChaserForm {...props({ server: both })} />);
+    rerender(<LimitChaserForm {...props({ server: both, serverAnswerSeq: 1 })} />);
+    expect(sentConfigs()).toHaveLength(1);
+    expect(sheet()).toBeNull();
+  });
+
   it('감시대상은 터치 기기에서도 시트를 열지 않고 즉시 전송한다', () => {
     render(<LimitChaserForm {...props()} />);
     click(screen.getByRole('button', { name: '매수잔량' }));
