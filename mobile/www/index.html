@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>GH Trade</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #ffffff;
+        color: #0a0a0a;
+        font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+      }
+      main {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+        box-sizing: border-box;
+        text-align: center;
+      }
+      .wordmark {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin-bottom: 12px;
+      }
+      .title {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0;
+      }
+      .hint {
+        font-size: 14px;
+        color: #6b6b6b;
+        margin: 0;
+      }
+      .retry {
+        margin-top: 16px;
+        padding: 12px 24px;
+        border: 0;
+        border-radius: 999px;
+        background: #0a0a0a;
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 오프라인 폴백(최소) — 자동 복구 · ?to= · 테마는 21-11 이 완성한다. -->
+    <main>
+      <div class="wordmark">GH Trade</div>
+      <p class="title">인터넷 연결을 확인해주세요</p>
+      <p class="hint">복구되면 자동으로 이동합니다</p>
+      <button class="retry" type="button" onclick="location.href='https://trade.jx1.io/'">다시 시도</button>
+    </main>
+  </body>
+</html>

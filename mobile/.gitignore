@@ -1,0 +1,27 @@
+# 의존성 · 스모크 산출물
+node_modules/
+.smoke/
+
+# iOS — 빌드 산출물 · cap sync 생성물(운영/dev URL 이 구워진다 — Pitfall 15)
+ios/DerivedData/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/capacitor-cordova-ios-plugins/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Android — 빌드 산출물 · cap sync 생성물
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+
+# 서명 키 — 범위 밖, 절대 커밋하지 않는다(T-21-14)
+*.jks
+*.keystore
