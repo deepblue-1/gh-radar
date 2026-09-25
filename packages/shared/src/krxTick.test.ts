@@ -117,7 +117,8 @@ describe("priceInputIssue (입력 보조 검증 · 자동 보정 없음)", () =>
   });
 
   it("상한 0(시세 미수신)이면 초과 검사를 건너뛰고 단위만 본다", () => {
-    expect(priceInputIssue(999900, 0)).toBeNull();
+    // 상한이 있었다면 초과였을 값도 상한 0 이면 단위만 본다 — 999,000 은 1,000원 단위라 문제 없음
+    expect(priceInputIssue(999000, 0)).toBeNull();
     expect(priceInputIssue(999950, 0)).toEqual({
       kind: "offTick",
       tick: 1000,

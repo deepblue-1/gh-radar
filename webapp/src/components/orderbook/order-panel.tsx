@@ -60,6 +60,7 @@ import type {
   RelayExchange,
   RelayOrderResultMsg,
 } from '@gh-radar/shared';
+import { krxTickSize } from '@gh-radar/shared';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -94,35 +95,15 @@ export interface PriceSelection {
 }
 
 /**
- * KRX 호가 단위 표(2023-01-25 개정) — **폴백 전용**이다.
- *
- * 실호가(`quote.ap`/`bp`)의 인접 단계 간격이 거래소가 실제로 쓰는 단위이므로 그쪽이
- * 1순위이고(`deriveTickSize`), 이 표는 호가가 아직 없을 때만 쓴다. 시장(코스피/코스닥)별
- * 고가 구간 차이가 있어 표를 단독 정본으로 삼지 않는다 — 어긋나면 게이트웨이가 거부하고
- * 그 거부 문구가 사용자에게 그대로 전달된다.
- */
-const TICK_TABLE: readonly [limit: number, tick: number][] = [
-  [2_000, 1],
-  [5_000, 5],
-  [20_000, 10],
-  [50_000, 50],
-  [200_000, 100],
-  [500_000, 500],
-];
-
-/** 표 기반 호가 단위. `price` 가 0 이하이면 1원. */
-function tickFromTable(price: number): number {
-  if (!Number.isFinite(price) || price <= 0) return 1;
-  for (const [limit, tick] of TICK_TABLE) {
-    if (price < limit) return tick;
-  }
-  return 1_000;
-}
-
-/**
  * 호가 단위 추정 — **관측값 우선**.
  * 사다리 가격 배열의 인접 단계 최소 양수 간격이 곧 그 종목의 호가 단위다.
- * 관측할 수 없으면(호가 없음·전부 0) 표로 폴백한다.
+ * 관측할 수 없으면(호가 없음·전부 0) KRX 표(2023-01-25 개정)로 폴백한다.
+ *
+ * 표는 `@gh-radar/shared` 의 `krxTickSize`(packages/shared/src/krxTick.ts) 한 곳에만 있고
+ * **폴백 전용**이다. 실호가(`quote.ap`/`bp`)의 인접 단계 간격이 거래소가 실제로 쓰는 단위이므로
+ * 그쪽이 1순위다. 시장(코스피/코스닥)별 고가 구간 차이가 있어 표를 단독 정본으로 삼지 않는다 —
+ * 어긋나면 게이트웨이가 거부하고 그 거부 문구가 사용자에게 그대로 전달된다.
+ * (기준가 0 이하·비유한수 → 1원: `krxTickSize` 가 2,000 미만을 1원으로 돌려 동치)
  */
 export function deriveTickSize(
   askPrices: readonly number[] | undefined,
@@ -140,7 +121,7 @@ export function deriveTickSize(
       if (gap > 0 && gap < best) best = gap;
     }
   }
-  return Number.isFinite(best) ? best : tickFromTable(referencePrice);
+  return Number.isFinite(best) ? best : krxTickSize(referencePrice);
 }
 
 /** 상태별 제출 버튼 문구 (UI-SPEC §연결 상태 배지 표의 "주문 버튼" 열). */

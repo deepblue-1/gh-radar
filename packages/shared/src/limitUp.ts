@@ -10,6 +10,8 @@
  * 응답은 **객체**({ hero, events, themes }, 배열 아님 — comovement 계약 드리프트 회피).
  */
 
+import { krxTickSize } from "./krxTick";
+
 /** 상한가 이벤트 1건 — 다음날 OHLC 수익률 + 거래대금/회전율 (히어로 리스트 row). */
 export interface LimitUpEvent {
   /** 상한가 발생일 (YYYY-MM-DD) */
@@ -76,6 +78,7 @@ export interface LimitUpResponse {
  *
  * 상한가 가격 = floor(prev_close × 1.3 / tick(target)) × tick(target),
  * tick 은 **target 가격(prev_close×1.3)** 기준 7-tier 구간 (2023-01-25 개정표, RESEARCH §1).
+ * 표 정본은 krxTick.ts(`krxTickSize`) — 여기서 구간을 다시 적지 않는다(Phase 20 D-15).
  * Pitfall 1: tick 은 prev_close 가 아닌 target 가격대로 판정해야 경계에서 정확.
  *
  * float 안전: prev_close 는 원(won) 정수라 tick 비교는 tgt 직접 사용,
@@ -83,13 +86,6 @@ export interface LimitUpResponse {
  */
 export function limitUpPrice(prevClose: number): number {
   const tgt = prevClose * 1.3;
-  let unit: number;
-  if (tgt < 2000) unit = 1;
-  else if (tgt < 5000) unit = 5;
-  else if (tgt < 20000) unit = 10;
-  else if (tgt < 50000) unit = 50;
-  else if (tgt < 200000) unit = 100;
-  else if (tgt < 500000) unit = 500;
-  else unit = 1000;
+  const unit = krxTickSize(tgt);
   return Math.floor(tgt / unit) * unit;
 }
