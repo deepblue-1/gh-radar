@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
-status: verifying
-stopped_at: Phase 21 context gathered
-last_updated: "2026-09-25T14:03:54.501Z"
+status: executing
+stopped_at: Completed 21-01-PLAN.md
+last_updated: "2026-09-25T15:15:32.287Z"
 last_activity: 2026-09-25
-last_activity_desc: Phase 20 master 병합(theme/toss-b · 8/8 · 재검증 R2 13/13 · UAT 6건 대기) — Phase 19 는 19-13 첫 거래일 대조 대기
-state_head: 96cdd04f9d0b7e105a91c51728735fb08de785a1
+last_activity_desc: 21-01 트레이서 완료(iOS 시뮬 ready 수신) — 다음 21-02
+state_head: 8128d742600765d851e66745563d2eaa34fe157c
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 270
-  completed_plans: 238
+  completed_plans: 239
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 20 — 호가주문 토스식 재구성 (실험 브랜치)
+**Current focus:** Phase 21 — GH Trade 모바일 앱 (Capacitor)
 
 ## Current Position
 
-Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — READY TO EXECUTE
-Plan: 8 of 8 (20-08 갭 클로징 — D-24 상단 상태줄 안 C 완료)
+Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
+Plan: 2 of 16
 Plans completed: 219 / 234
-Status: 검증 R2 통과(13/13) — 사용자 UAT 대기(20-UAT.md)
+Status: Executing Phase 21 — 21-01 완료, 다음 21-02
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 — 트레이딩 후속 3건(fast): 전역 검색 14px · 카드 탭 공통 높이(정보 3줄) · 종목추가 바 46px
+Last activity: 2026-09-26 — 21-01 트레이서 완료(iOS 셸 → 웹 감지 → ready 로그) · 다음 21-02
 
 Progress: [█████████░] 93%
 
@@ -92,6 +92,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 20 P06 | 14min | 2 tasks | 4 files |
 | Phase 20 P07 | 39min | 3 tasks | 10 files |
 | Phase 20 P08 | 23min | 3 tasks | 8 files |
+| Phase 21 P01 | 29min | 3 tasks | 33 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 20]: D-04a(WR-07, 2026-09-25): 서버 buyOrderAmount 0(레거시) 전략은 주문금액 행 「—」 + 금액 외 확정을 「주문금액을 먼저 입력해 주세요」로 막음 · 끄기는 늘 허용(금액·수량은 서버 값 그대로 전송) · 0 아닌 금액 에코 뒤 정상
 - [Phase 20]: 20-08: 폰 계좌 칩은 이름이 계좌를 유일하게 가리킬 때만 이름만 — 이름이 비거나 중복이면 「번호 · 이름」(오발주 가드 · T-20-18)
 - [Phase 20]: 20-08: 폰 투명 오버레이 select 는 -indent-[9999px](옵션 0) — scrollOverflowing 판정을 바꾸지 않고 투명 글자 거짓 넘침 제거
+- [Phase 21]: 21-01: 번들 ID com.ghtrade.app 확정 (Apple 팀 954QPCS3F5) · Capacitor 8.5.2 / capgo social-login 8.5.11 승인 · iOS App 폴더는 동기화 그룹 아님 → 새 Swift 파일 pbxproj 수동 등록 · ATS 예외 불필요
 
 ### Pending Todos
 
@@ -236,10 +238,10 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/21-gh-trade-mobile-app/21-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-09-25T12:13:17.440Z
-Stopped at: Phase 21 context gathered
+Last session: 2026-09-25T15:15:31.594Z
+Stopped at: Completed 21-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
