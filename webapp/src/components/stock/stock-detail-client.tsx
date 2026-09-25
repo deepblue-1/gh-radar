@@ -12,6 +12,7 @@ import { notFound } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
 import type { StockDetailResponse } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { fetchStockDetail } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
 import { useChat } from '@/components/chat/chat-provider';
@@ -98,6 +99,10 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+  // D-18 — 앱 당겨서 새로고침: 시세 재조회. `isRefreshing` → 차트 `refreshSignal` 로 차트·통계까지
+  // 다시 읽힌다. 테마칩·상한가·동조 섹션은 범위 밖(마운트 때 읽은 캐시 유지) · 뉴스·토론은 각 섹션이
+  // 자기 GET 을 등록한다.
+  useNativeRefresh(load);
 
   // 재배치 중 보존 — D-03 종목명 발행 채널. FAB 라벨("{종목명} 분석")과 챗 시트 자동
   // 이어가기가 이 값을 소비한다. usePathname 은 code 만 주므로 이미 fetch 한 stock.name 을

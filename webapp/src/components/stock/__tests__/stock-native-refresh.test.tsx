@@ -137,7 +137,9 @@ describe('종목상세 당겨서 새로고침 — GET 재조회만 (D-18)', () =
     expect(mockRefreshDisc).toHaveBeenCalledTimes(0);
   });
 
-  it('N2 StockDetailClient — 시세(fetchStockDetail)를 다시 읽고 차트에 refreshSignal 을 준다 · POST 0', async () => {
+  it('N2 StockDetailClient(차트 탭) — 시세(fetchStockDetail)를 다시 읽고 차트에 refreshSignal 을 준다 · POST 0', async () => {
+    // 기본 탭 = 차트. 뉴스토론 패널은 한 번 열기 전까지 마운트되지 않는다(탭 T8) — 섹션 쪽은 N1·N2-a.
+    mockSearchParams = new URLSearchParams();
     render(
       <NativeBridgeProvider>
         <StockDetailClient code="005930" />
@@ -145,16 +147,47 @@ describe('종목상세 당겨서 새로고침 — GET 재조회만 (D-18)', () =
     );
     await waitFor(() => expect(mockFetchDetail).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText('삼성전자')).toBeInTheDocument());
-    await waitFor(() => expect(mockFetchNews).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mockFetchDisc).toHaveBeenCalledTimes(1));
+    const w = window as NativeTestWindow;
+    await waitFor(() => expect(w.__ghTrade).toBeDefined());
     chartSignals.length = 0;
 
-    await nativePull();
+    // 재조회 응답을 붙잡아 「읽는 중」 렌더를 관측한다(act 가 중간 상태를 합쳐 버리지 않게).
+    let resolveDetail: (v: typeof FIXTURE_SAMSUNG) => void = () => {};
+    mockFetchDetail.mockImplementationOnce(
+      () => new Promise((r) => { resolveDetail = r; }),
+    );
+    let pulled: Promise<void> = Promise.resolve();
+    await act(async () => {
+      pulled = w.__ghTrade!.refresh();
+    });
 
     expect(mockFetchDetail).toHaveBeenCalledTimes(2);
     expect(mockFetchDetail.mock.calls[1]![0]).toBe('005930');
     // 시세 재조회 동안 차트가 `refreshSignal=true` 를 받는다 → 차트·통계까지 다시 읽힌다.
     expect(chartSignals).toContain(true);
+
+    await act(async () => {
+      resolveDetail(FIXTURE_SAMSUNG);
+      await pulled;
+    });
+    expect(chartSignals.at(-1)).toBe(false);
+    expect(mockRefreshNews).toHaveBeenCalledTimes(0);
+    expect(mockRefreshDisc).toHaveBeenCalledTimes(0);
+  });
+
+  it('N2-a StockDetailClient(뉴스토론 탭) — 시세 + 두 섹션 GET 이 한 번의 당김에 함께 불린다 · POST 0', async () => {
+    render(
+      <NativeBridgeProvider>
+        <StockDetailClient code="005930" />
+      </NativeBridgeProvider>,
+    );
+    await waitFor(() => expect(mockFetchDetail).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockFetchNews).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockFetchDisc).toHaveBeenCalledTimes(1));
+
+    await nativePull();
+
+    expect(mockFetchDetail).toHaveBeenCalledTimes(2);
     expect(mockFetchNews).toHaveBeenCalledTimes(2);
     expect(mockFetchDisc).toHaveBeenCalledTimes(2);
     expect(mockRefreshNews).toHaveBeenCalledTimes(0);

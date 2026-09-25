@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import type { Discussion } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import {
   fetchStockDiscussions,
   refreshStockDiscussions,
@@ -33,6 +34,11 @@ import { DiscussionListSkeleton } from './discussion-list-skeleton';
  *  - 초기 fetch 실패 → 에러 Card + 다시 시도 버튼 (서버 원문 비노출 — D7 고정 copy)
  *  - refresh 실패 (429 아님) → 인라인 배너 3초 후 자동 소거 + Stale Badge 갱신
  *  - refresh 429 → 쿨다운 타이머만 세팅, 배너 없음 (silent guard)
+ *
+ * 앱 당겨서 새로고침 (Phase 21 D-18):
+ *  - 마운트 GET(`load` = `fetchStockDiscussions`, 배치가 채운 캐시 조회)만 `useNativeRefresh` 로 등록한다.
+ *  - 버튼용 POST(`refreshStockDiscussions` → 토론방 원본 fetch)는 등록하지 않는다. 사용자 제스처가
+ *    크롤링을 일으키면 크롤링 5원칙 3(「사용자 클릭 시 on-demand fetch 금지」 · 호출량 O(N))을 깬다.
  */
 const LOCAL_COOLDOWN_MS = 30_000;
 const STALE_THRESHOLD_MIN = 10;
@@ -104,6 +110,8 @@ export function StockDiscussionSection({
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+  // D-18 — 당겨서 새로고침은 캐시 GET 만 다시 읽는다(POST refresh 는 수동 버튼 전용).
+  useNativeRefresh(load);
 
   // 쿨다운 카운트다운 tick — cooldownUntil 이 미래일 때만 interval 동작.
   useEffect(() => {

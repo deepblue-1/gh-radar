@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Newspaper } from 'lucide-react';
 import type { NewsArticle } from '@gh-radar/shared';
 import { ApiClientError } from '@/lib/api';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { fetchStockNews, refreshStockNews } from '@/lib/stock-api';
 import { Button } from '@/components/ui/button';
 import { NewsItem } from './news-item';
@@ -28,6 +29,12 @@ import { NewsListSkeleton } from './news-list-skeleton';
  *  - 초기 fetch 실패 → 에러 Card + 다시 시도 버튼
  *  - refresh 실패 (429 아님) → 인라인 배너 3초 후 자동 소거
  *  - refresh 429 → 쿨다운 타이머만 세팅, 배너 없음
+ *
+ * 앱 당겨서 새로고침 (Phase 21 D-18):
+ *  - 마운트 GET(`load` = `fetchStockNews`, 서버 캐시 조회)만 `useNativeRefresh` 로 등록한다.
+ *  - 버튼용 POST(`refreshStockNews` → 서버가 Naver 검색 API 호출)는 등록하지 않는다. 사용자 제스처가
+ *    외부 수집을 일으키면 「호출량은 사용자 수와 독립」(CLAUDE.md 공식 API 운영 기준 3) 위반이다 —
+ *    외부 호출은 서버 배치와 쿨다운·429 가드가 걸린 이 수동 버튼만 일으킨다.
  */
 const LOCAL_COOLDOWN_MS = 30_000;
 const CARD_FETCH_LIMIT = 5;
@@ -74,6 +81,8 @@ export function StockNewsSection({ stockCode }: StockNewsSectionProps) {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+  // D-18 — 당겨서 새로고침은 서버 캐시 GET 만 다시 읽는다(POST refresh 는 수동 버튼 전용).
+  useNativeRefresh(load);
 
   // 쿨다운 카운트다운 tick — cooldownUntil 이 미래일 때만 interval 동작.
   useEffect(() => {
