@@ -1,71 +1,50 @@
 'use client';
 
 /**
- * LimitChaserForm — 상따 매수/매도 폼 카드 (UI-SPEC A4~A9, TRADE-01).
+ * LimitChaserForm — 상따 매수/매도 설정 **토스식 리스트** (Phase 20 · UI-SPEC §1~§4, TRADE-01).
  *
  * ① 무엇을 어디에
- *   본문 폭 **700px 이상**이면 매수·매도 두 카드가 **2열**로 나란히 선다. 그 아래(폰 밴드)
- *   에서는 **「매수」/「매도」 세그먼트 탭**이고 탭당 카드 하나만 보인다.
+ *   무엇을 어떤 순서로 그리는지는 **`lc/lc-fields.ts` 한 곳**이 정한다(D-19) — 매수 쪽 =
+ *   [매수가격 · 주문금액] → 매수주문 → 한방체결 · 매도 쪽 = [매도가격 · 매도비율] → 매도주문 →
+ *   매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의 조각이다(값 행 · 체크 값 행 · 감시대상 행 ·
+ *   기준선 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송 배선**으로 잇는다.
+ *   본문 폭 **700px 이상**이면 매수 | 매도 두 열이 나란히 서고 각 열 머리가 「● 매수」/「● 매도」다.
+ *   그 아래(폰 밴드)는 탭 하나당 한 열이다.
  *   ★ 판정 기준은 뷰포트가 아니라 **본문 폭**이다 (260912-k2x). 밴드 표와 경계 셋의 실측
  *     근거는 `webapp/src/styles/globals.css` §2.2b 가 정본이다 — 여기에 복사하지 마라.
- *   ★ **탭은 폰 전용이고, 숨김은 CSS 이며, 언마운트하지 않는다.** 뷰포트를 재던 경로는
- *     사라졌다(본문 폭은 미디어 질의 API 로 관측할 수 없다). 비활성 pane 은 `display:none`
- *     이라 접근성 트리에서도 빠지지만 **DOM 에는 남는다** — 조건부 렌더로 바꾸면 탭을 옮길
- *     때마다 매도 설정이 초기화되고 더티 카운트·에코 덮어쓰기 계산이 함께 망가진다.
- *   ★ 하단 더티 액션 바는 `document.body` 로 **포털**된다 — 상따 본문 컨테이너가 layout
- *     containment 를 걸어 `position:fixed` 자손의 컨테이닝 블록이 되기 때문이다. 포털을
- *     걷으면 그 바가 본문 끝으로 내려앉는다.
- *   ★ 카드는 **2개**다. 그룹 6개를 카드 6개로 쪼개지 않는다 — 라벨 컬럼 폭(`--lw`)이 카드
- *     안에서 공유돼야 값이 세로로 정렬되고, 카드를 쪼개면 그 정렬이 깨진다.
+ *   ★ **탭은 폰 전용이고, 숨김은 CSS 이며, 언마운트하지 않는다.** 비활성 pane 은 `display:none`
+ *     이라 접근성 트리에서도 빠지지만 **DOM 에는 남는다** — 조건부 렌더로 바꾸면 탭을 옮길 때
+ *     나가 있던 확정(in-flight)·열린 편집기가 함께 사라진다.
  *
  * ② ★ 오조작 방지 — 이 파일의 존재 이유
- *   1. **색·위치·문구 3중 일치** — 매수 = `--up` · **왼쪽/위** · 「매수」, 매도 = `--down` ·
- *      **오른쪽/아래** · 「매도」. ★ 옛 「그룹 좌측 3px 액센트 바」는 260911-w5h 에서 사라졌다.
- *      그 축을 카드 안에서 잇는 일은 이제 **셋이 함께** 한다 — ⓐ 상단 세그먼트 탭(선택 시
- *      매수 `--up` / 매도 `--down` 테두리+배경) ⓑ 게이트 스위치 색(`tone`) ⓒ 그룹 소제목
- *      (「매수주문」·「한방체결」·「매도주문」). 바 하나를 지운 것이지 축을 지운 것이 아니다.
- *      ★ **「감시 대상」 세그먼트는 그 축의 예외**다 (260912-gyz) — 그룹색이 아니라 자기
- *        선택지의 호가 방향색(매도잔량 `--down` · 매수잔량 `--up`)을 따른다. 근거는 세그먼트
- *        블록 주석에 있다.
- *   2. **매수취소 그룹은 매수 카드 맨 아래**다(2026-09-23) — 매수 미체결을 취소하므로 매수 색을
- *      따른다. 옛 「가드 = 중립색」 규율은 이때 사용자 지시로 걷혔다.
- *   3. ★ **규율 3(확인 다이얼로그)은 D-05 로 뒤집혔다.** `order-panel.tsx` 는 제출마다
- *      다이얼로그를 거치지만, 여기 **스위치 3개는 확인 없이 즉시 전송**한다. 상한가 직전에
- *      다이얼로그를 한 번 더 거치게 하면 그 1~2초가 체결을 놓치는 비용이다.
- *      대신 오터치 방어는 **기하학**으로 한다 — **44×26 크기 + 최소 8px 간격 + 그룹 헤더
- *      우측 끝 고정 위치**(`ml-auto`). 이 세 가지가 이 파일에서 유일한 오터치 방어이므로
- *      크기·간격·위치를 줄이는 변경은 곧 안전장치를 줄이는 변경이다.
- *   4. **제출 후 즉시 재활성 금지** — 전송 중에는 액션 바가 `반영 중…` 으로 잠긴다.
- *   5. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 발주가·산출 수량이 0 이면 스위치를
- *      **켤 수 없고** 그 사유가 **카드 맨 아래 한 곳**(`data-slot="lc-arm-blocked-panel"`)에
- *      모인다 — 그룹 안에 끼워 넣으면 사유가 뜰 때마다 아래 입력 행이 세로로 밀린다.
- *      같은 문장을 공유하는 게이트는 **한 줄로 합쳐지고**(`armBlockedGroupsOf`) 게이트 이름이
- *      `·` 로 앞에 나열된다(`GATE_LABEL`). 문구 산출 지점은 계속 `armBlockedTextOf` **하나**고,
- *      `handleSubmit` 의 차단 문구도 **같은 조립 규칙**(`{게이트이름} · {사유}`)을 쓴다. 판정은
- *      `gateBlocked()` 하나이고 렌더의 `disabled` 와 **전송 직전 가드 2곳**(`toggleGate` ·
- *      `handleSubmit`)이 그것을 함께 읽는다 (GC-WR-09 이전에는 `toggleGate` 만 읽었고,
- *      그래서 「수정」은 relay 에 통째로 거부될 값을 그대로 밀어 넣었다).
+ *   1. **스위치는 확인 없이 즉시 전송**한다(Phase 16 D-05) — 상한가 직전에 다이얼로그를 한 번 더
+ *      거치게 하면 그 1~2초가 체결을 놓치는 비용이다. 오터치 방어는 **기하학**이다 — 시각 40×24 +
+ *      히트 44×44 + 그룹 제목줄 **오른쪽 끝** 고정(`GroupSwitch` · `SettingGroup`). 크기·위치를 줄이는
+ *      변경은 곧 안전장치를 줄이는 변경이다.
+ *   2. **매수/매도는 3중으로 말한다** — ≥700 열 머리 점 색(`--up`/`--down`) + 글자(「매수」/「매도」) +
+ *      위치(왼쪽/오른쪽). 폰은 바깥 3탭 글자가 말한다. 선택 면(감시대상 토글·탭)은 중립 `--seg-on-*` 다.
+ *   3. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 켜는 방향만 `gateBlocked()` 로 막고 그
+ *      사유는 **열 맨 아래 한 곳**(`lc-arm-blocked-panel`)에 모인다 — 그룹 안에 끼우면 사유가 뜰 때마다
+ *      아래 행이 밀린다. 값 확정도 전송 직전 같은 판정(`armBlockOf`)을 지난다(필드 확정 훅).
  *      ★ **끄는 것은 언제나 허용**한다 — 무장 해제를 막으면 그게 더 위험하다(T-16-44).
- *      relay 도 같은 조건을 거부하므로 UI 를 우회한 경로가 있어도 무장 상태가 만들어지지 않는다.
- *   6. **삭제 버튼을 만들지 않는다**(D-08). 매수·매도·취소 게이트가 전부 꺼지면 그것이 삭제
- *      (`crud "D"`)다. 판정은 `crudOf()` 한 곳이고, **화면의 「삭제됨」 표시는 서버 에코의
- *      `crud`** 를 본다(클라 판정은 전송용 힌트일 뿐이다).
+ *   4. **삭제 버튼을 만들지 않는다**(D-08). 매수·매도·취소 게이트가 전부 꺼지면 그것이 삭제
+ *      (`crud "D"`)다. 판정은 `crudOf()` 한 곳이고, 화면의 「삭제됨」은 서버 에코의 `crud` 를 본다.
+ *   5. 매수취소 그룹 스위치 = `cancelQtyEnabled`(D-21). 꺼져 있어도 체결·잔량추적 체크는 켤 수 있고
+ *      그래서 이 그룹만 흐리지 않는다 — 무장 판정은 `lib/limit-chaser.ts` 그대로다.
  *
- * ③ ★ 값은 자동 반영되지 않는다 (D-06)
- *   초안의 「0.3초 자동 반영」은 폐기됐다. 이 파일에 **디바운스도 지연 전송도 없다.**
- *   값이 서버값과 달라지면 그 필드가 더티가 되고(라벨 `--primary` + `● ` 접두 · 입력 테두리
- *   `--primary` **한 겹**), 하단 `DirtyActionBar` 의 「수정」을 눌러야 나간다.
- *   ★ 옛 2px 링 그림자는 260911-w5h 에서 사라졌다 — 포커스·더티 둘 다 **테두리 한 겹**이
- *     유일한 표현이다. 비색 경로는 라벨의 `● ` 접두가 그대로 잇는다(WCAG 1.4.1).
- *   ★ **스위치는 더티 값을 함께 밀어낸다** — 스위치를 켜면 그 시점 폼 전체가 실린다.
- *     스위치를 막지 않는 대신 액션 바 보조문이 그 사실을 상시 고지한다.
+ * ③ ★ 값은 **확정 1회 = 즉시 반영**이다 (Phase 20 D-04)
+ *   시트 「{필드명} 적용」 · 인라인 Enter/포커스 이탈 · 체크 · 감시대상 · 스위치 **한 번**이 곧 전략 전체
+ *   (32필드) 전송 한 번이다(`useLcFieldCommit`). 더티 누적도 「수정/되돌리기」 액션 바도 **없다** —
+ *   옛 더티 모델은 이 plan(20-04)에서 폐기됐다. 성공 판정은 **에코의 그 필드 값 === 보낸 값**뿐이다
+ *   (거부도 답 신호를 올리므로 답만으로 성공이라 읽지 않는다 · D-06). 값 필드는 낙관 반영하지 않는다 —
+ *   행은 에코가 올 때까지 서버 값이다. 토글 종류는 전송 뒤 낙관 표시하고 실패하면 서버 값으로 되돌린다.
+ *   ★ 워크벤치 더티 배관(카드 `dirtyCount` · 더티 호스트 · 이탈 경고)은 **고치지 않았다** — 이 폼이
+ *     더티 수를 보내지 않으므로 늘 0 이고, 그래서 스스로 비활성이다(RESEARCH Pitfall 10).
  *
- * ④ ★ 에코가 도착하면 서버가 이긴다 (D-11)
- *   더티 필드도 **덮어쓴다.** 편집 중 보호·보류가 없다 — 「내가 치던 값이 남아 있다」는
- *   착각이 실제 서버 상태와 갈리는 순간이 이 화면에서 가장 비싼 오해다. 덮어쓴 필드는
- *   ≤150ms 배경 플래시로 한 번 알리고, 배너·로그는 상위(옛 상따 화면) 소관이다.
- *   유일한 예외가 `buyOrderAmount === 0`(=「서버가 모른다」)이고 그 판단은 `formFromServer`
- *   한 곳에 있다.
+ * ④ ★ 에코가 도착하면 서버가 이긴다 (D-11 · D-27)
+ *   목록은 에코 값으로 덮인다. 유일한 예외가 **편집 중인 버퍼**다 — 인라인 편집기·시트는 자기 버퍼를
+ *   들고 있어 에코가 입력을 덮지 않는다(UI-SPEC E4 partial). 편집이 끝나면 행은 에코 값이다.
+ *   `buyOrderAmount === 0`(=「서버가 모른다」)은 덮지 않으며 그 판단은 `formFromServer` 한 곳에 있다.
  *
  * ⑤ ★ 전송 필드는 **클라 입력 29 + 클라 고정 3 = 32** 이다
  *   S→C 전용 4필드(`sellOrderQty`·`sellQtyTrackBaseline`·`sellEntryLatched`·
@@ -76,34 +55,25 @@
  *   안 됨」이 된다.
  *
  * ⑥ 토스트를 쓰지 않는다 (UI-SPEC D3)
- *   결과는 액션 바의 소멸 + 상태줄 + 전략 로그로만 알린다.
+ *   결과는 행(값 강조 900ms · 실패 링/말풍선) · 시트 상태 줄 · 폼 맨 위 한 줄(스위치·체크·감시대상
+ *   전송 끊김) · 상태줄 · 전략 로그로만 알린다.
  *
- * ⑦ ★ LOCKED 색 규칙 (UI-SPEC §토큰 충돌 경보)
- *   `--primary` 는 `--down`(매도 파랑)과 값이 완전히 같다. 채움 면의 글자색은 `--primary-fg`
- *   대신 값이 동일한 `--destructive-fg` 를 쓴다 — 규율은 `dirty-action-bar.tsx` ③ 에 있고
- *   이 파일에는 채움 면이 없다.
+ * ⑦ ★ 색 규칙 (UI-SPEC Color)
+ *   `--primary` 는 「Accent 전용 자리」 목록(켜진 스위치 트랙 · 켜진 체크 채움 · 인라인 편집 링 ·
+ *   확정 강조 · 포커스 링 · 시트)에서만 쓴다. `--primary` 는 `--down`(매도 파랑)과 값이 같다 —
+ *   매도는 글자와 위치가 함께 말한다(WCAG 1.4.1).
  *
- * ⑧ 왜 Radix 를 두 군데에서 쓰지 않는가
- *   - **탭**: 단일선택 `ToggleGroup` 은 항목에 `role="radio"` 를 강제해 UI-SPEC 이 요구하는
- *     `tablist`/`tab` 대응이 깨진다(`order-panel.tsx:422` 와 같은 판단이다).
- *   - **스위치**: `ui/switch.tsx` 의 thumb 기하(16px · `translate-x-4`)가 컴포넌트 안에
- *     하드코딩돼 호출부에서 못 바꾼다. 이 화면의 유일한 오터치 방어가 **정확히 44×26** 이라
- *     (② 3) 공용 primitive 를 이 한 화면 때문에 고치는 대신 순수 버튼으로 그린다.
- *   - **체크박스**: `ui/checkbox.tsx` 는 `<button role="checkbox">` 라 `<label for>` 로
- *     이름을 붙일 수 없다. 21개 컨트롤이 붙는 고밀도 폼에서 라벨 클릭 토글과 라벨 연결을
- *     동시에 얻으려면 네이티브 `<input type="checkbox">` 가 맞다.
+ * ⑧ 왜 Radix 를 이렇게 쓰는가
+ *   - **탭**: 단일선택 `ToggleGroup` 은 항목에 `role="radio"` 를 강제해 `tablist`/`tab` 대응이
+ *     깨진다(`order-panel.tsx:422` 와 같은 판단이다) — 순수 버튼이다.
+ *   - **스위치**: `ui/switch.tsx` 의 thumb 기하(16px · `translate-x-4`)가 컴포넌트 안에 하드코딩돼
+ *     호출부에서 못 바꾼다(RESEARCH Pitfall 9). 이 화면의 오터치 방어가 **40×24 + 히트 44** 라
+ *     공용 파일을 고치는 대신 `GroupSwitch` 가 Radix Switch primitive 를 **직접** 그린다.
+ *   - **체크**: 원형 체크 + 라벨이 한 `<button role="checkbox">` 다(D-22) — 행 높이 44 전체가 히트다.
+ *   - **감시대상**: `aria-pressed` 버튼 두 개다 — 라디오 그룹이면 방향키가 선택을 바꿔 **전송**한다.
  */
 
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type {
   RelayExchange,
   RelayLimitChaser,
@@ -115,42 +85,45 @@ import {
   buyOrderQtyFromAmount,
   crudOf,
   defaultLimitChaserForm,
-  dirtyFieldsOf,
   formFromServer,
   isDeleteIntent,
   seedFromUpperLimit,
-  type LimitChaserDirtyField,
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
 import { cn } from '@/lib/utils';
-import {
-  DirtyActionBar,
-  DirtyBarHostContext,
-  IN_CARD_DIRTY_BAR_CLASS,
-} from '@/components/trading/dirty-action-bar';
 import { InlineValueEditor, type InlineSaveVia } from '@/components/trading/lc/inline-value-editor';
+import {
+  LC_BUY_GROUPS,
+  LC_SELL_GROUPS,
+  LC_SWITCH_LABEL,
+  lcRowByField,
+  type LcGate,
+  type LcGroupSpec,
+  type LcNumField,
+  type LcRowSpec,
+  type LcStatusKey,
+  type LcUnit,
+} from '@/components/trading/lc/lc-fields';
 import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
-import { SettingRow } from '@/components/trading/lc/setting-group';
+import {
+  CheckValueRow,
+  DerivedRow,
+  GroupSwitch,
+  SettingGroup,
+  SettingRow,
+  WatchTargetRow,
+} from '@/components/trading/lc/setting-group';
 import {
   LC_COMMIT_TEXT,
   useLcFieldCommit,
   type LcCommitFailure,
   type LcFieldKey,
 } from '@/components/trading/lc/use-lc-field-commit';
-import type { PadUnit } from '@/lib/numpad';
 import { useEditMode } from '@/lib/use-edit-mode';
 
 /**
- * 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다.
- * 카드 본문(18-10)이 종목명 접두를 붙여 `dirtyHint` 로 되돌려 보내므로 **내보낸다** — 안내 문장을
- * 두 곳에 다시 적지 않는다.
- */
-export const LIMIT_CHASER_DIRTY_HINT =
-  '「수정」을 눌러야 반영돼요 · 체크하면 변경한 값까지 함께 반영돼요';
-
-/**
  * 무장 판정을 지나는 게이트 3종. **순서가 곧 사유 표시 우선순위**다 — 화면의 위→아래
- * (매수 → 한방 → 매도)와 같게 두어야 「수정」이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
+ * (매수 → 한방 → 매도)와 같게 두어야 사유 패널이 짚어 준 곳과 사용자가 보는 곳이 일치한다.
  */
 const GATE_KEYS = ['buyEnabled', 'sweepEnabled', 'sellEnabled'] as const;
 type GateKey = (typeof GATE_KEYS)[number];
@@ -179,8 +152,8 @@ const ARM_BLOCKED_TEXT = {
 /**
  * 게이트의 **표시 이름** — 값은 각 `Group` 의 `title` 과 **같은 문자열**이어야 한다.
  *
- * 사용자가 카드 위에서 본 이름과 사유가 부르는 이름이 갈리면 그것이 곧 오독이다.
- * 사유 줄과 `handleSubmit` 차단 문구가 **이 표 하나**를 읽는다.
+ * 사용자가 목록 위에서 본 이름과 사유가 부르는 이름이 갈리면 그것이 곧 오독이다.
+ * 사유 줄과 전송 직전 차단 문구(`armBlockOf`)가 **이 표 하나**를 읽는다.
  */
 const GATE_LABEL: Record<GateKey, string> = {
   buyEnabled: '매수주문',
@@ -191,7 +164,7 @@ const GATE_LABEL: Record<GateKey, string> = {
 /**
  * 게이트 하나가 왜 안 켜지는가 — **문구 산출 지점 하나**.
  *
- * 그룹 렌더의 사유줄과 `handleSubmit` 의 차단 문구가 **이 함수 하나**를 읽는다. 두 곳에 따로
+ * 열 맨 아래 사유 패널과 필드 확정 훅의 차단 문구(`armBlockOf`)가 **이 함수 하나**를 읽는다. 두 곳에 따로
  * 적으면 언젠가 서로 다른 말을 하고, 그때 사용자는 「화면이 서로 다른 이유를 대는」 상태를
  * 본다 — 안전 게이트에서 그것은 문구 결함이 아니라 신뢰 결함이다(GC-WR-09 + GC-WR-12).
  *
@@ -253,13 +226,13 @@ function armBlockedGroupsOf(
   return out;
 }
 
-/** 사유 한 줄의 조립 규칙 — 패널과 `handleSubmit` 이 **같은 규칙**을 쓴다. */
+/** 사유 한 줄의 조립 규칙 — 패널과 `armBlockOf` 가 **같은 규칙**을 쓴다. */
 const ARM_BLOCKED_SEP = ' · ';
 
 /**
  * ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다. **산출 지점 하나**다.
  *
- * 렌더의 스위치 `disabled`·사유 패널(`canArm`), 「수정」의 차단(`handleSubmit`), 필드 확정 훅의
+ * 렌더의 스위치 `disabled`·사유 패널(`canArm`), 필드 확정 훅의
  * 전송 직전 가드(`armBlockOf`, 20-01)가 전부 이 함수를 읽는다 — 식을 복제하면 한쪽만 고쳐진다.
  *
  * `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
@@ -302,7 +275,7 @@ function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
 /**
  * 이 값으로 보내면 relay 가 통째로 거부할 무장인가 — 사유 1줄, 아니면 `null`.
  *
- * ★ `handleSubmit` 의 차단 조립 규칙(`{게이트이름} · {사유}`) 그대로이고, 그 함수와 필드 확정 훅이
+ * ★ 조립 규칙은 `{게이트이름} · {사유}` 이고, 시트 검증(`validate`)과 필드 확정 훅이
  *   **이 함수 하나**를 읽는다(GC-WR-09 · T-16-60).
  * ★ **켜져 있는 게이트만** 본다(`values[key]`) — 끄는 방향은 막지 않는다(T-16-44).
  * ★★ **철거 면제**(R2-WR-02) — 게이트 4종이 전부 꺼진 요청은 전략을 내리는 요청이라 막지 않는다.
@@ -319,22 +292,20 @@ function armBlockOf(values: LimitChaserFormValues): string | null {
     : `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
 }
 
-/** 매수 카드가 품는 게이트 — 한방은 매수 카드 안에 있으므로 그 사유도 이 카드에 선다. */
-const BUY_CARD_GATES: readonly GateKey[] = ['buyEnabled', 'sweepEnabled'];
-/** 매도 카드는 자기 사유만 갖는다 — 매수 사유가 매도 카드에 새지 않는다. */
-const SELL_CARD_GATES: readonly GateKey[] = ['sellEnabled'];
+/** 매수 열이 품는 게이트 — 한방은 매수 열 안에 있으므로 그 사유도 이 열에 선다. */
+const BUY_COLUMN_GATES: readonly GateKey[] = ['buyEnabled', 'sweepEnabled'];
+/** 매도 열은 자기 사유만 갖는다 — 매수 사유가 매도 열에 새지 않는다. */
+const SELL_COLUMN_GATES: readonly GateKey[] = ['sellEnabled'];
 
 /**
  * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
  * 같은 어조다. 두 화면이 같은 사건을 다른 말로 하면 사용자는 다른 사건으로 읽는다.
+ * 폼 맨 위 `lc-submit-error` 는 이제 **스위치·체크·감시대상 전송 실패 전용**이다(값 전송 실패는
+ * 행·시트·말풍선이 말한다 — UI-SPEC 레이아웃 계약).
  */
 const SEND_FAILED_TEXT = {
   gate: '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
-  submit: '연결이 끊겨 수정 내용을 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.',
 } as const;
-
-const NUM = new Intl.NumberFormat('ko-KR');
-const EMPTY_FLASH: ReadonlySet<string> = new Set();
 
 export interface LimitChaserFormProps {
   /** 12자 ISIN — 상단 종목 카드(A1)가 고른 값. */
@@ -350,7 +321,7 @@ export interface LimitChaserFormProps {
   */
   exchange: RelayExchange;
   /**
-   * 서버 에코 1건. `null`/`undefined` 면 신규 폼이고 더티 기준선이 없다.
+   * 서버 에코 1건. `null`/`undefined` 면 미등록(신규) 전략이다 — 값·체크·감시대상 확정은 로컬만(A-P1).
    * **이 prop 이 바뀌면 폼이 서버값으로 덮인다**(D-11).
    */
   server?: RelayLimitChaser | null;
@@ -368,18 +339,6 @@ export interface LimitChaserFormProps {
   sweepStatusText?: string;
   cancelStatusText?: string;
   /**
-   * 더티 액션 바 보조문 (18-10). 없으면 `LIMIT_CHASER_DIRTY_HINT` 그대로다.
-   * ★ 카드가 여럿인 작업대에서 바는 전부 화면 하단 같은 자리에 뜬다 — **어느 카드의 바인지는
-   *   이 문구만이 말한다**(종목명 접두). 시각·스크린리더(`role="status"`) 양쪽에서 그렇다.
-   */
-  dirtyHint?: string;
-  /**
-   * 더티 액션 바에 덧붙일 클래스 (18-10). 기본 경로는 넘기지 않는다 — 우측 여백 예약이 없는 것이
-   * 기본 계약이다(`dirty-action-bar.tsx` ⑥). 종목상세 호가 탭처럼 AI FAB 이 같은 화면에 뜨는
-   * 표면만 이 prop 으로 FAB 을 비켜 간다(그 파일 ⑥ⓒⓙ 가 지목한 경로 — 공유 컴포넌트는 무수정).
-   */
-  dirtyBarClassName?: string;
-  /**
    * 폰 밴드 pane 탭 — **제어형** (18-10). 넘기면 이 값이 보이는 pane 을 정하고, 넘기지 않으면
    * 폼이 자체 상태로 든다(옛 화면 경로).
    */
@@ -389,14 +348,12 @@ export interface LimitChaserFormProps {
    * 3탭을 **바깥에서** 그리므로(`ManualOrderEntry`), 이 줄이 함께 서면 탭 줄이 두 줄이 된다.
    */
   hideTabs?: boolean;
-  /** 더티 수 통지 — 상위의 이탈 경고(라우터 가드 · `beforeunload`)가 이 값을 쓴다. */
-  onDirtyCountChange?: (count: number) => void;
   /**
    * 서버가 이 전략에 **답한 횟수** — 값이 아니라 **바뀌었다는 사실**만 쓴다.
    *
-   * 전송 잠금(`submitting`)을 푸는 두 번째 신호다. `server` prop 만으로는 부족하다:
-   * 답이 왔는데도 `server` 가 그대로인 경우가 둘 있고, 그때 「수정」 버튼이 `반영 중…` 으로
-   * **영구히 잠긴다** (debug `lc-unacked-stuck-new-route`):
+   * 필드 확정 훅의 **답 신호**다(거부 판정 · 대기열 꺼내기) — 폼 맨 위 실패 문구도 이 신호로 접는다.
+   * `server` prop 만으로는 부족하다: 답이 왔는데도 `server` 가 그대로인 경우가 둘 있고, 그때 옛
+   * 「수정」 버튼은 `반영 중…` 으로 **영구히 잠겼다** (debug `lc-unacked-stuck-new-route`):
    *   ① 미등록 키의 철거 에코 — `crud:"D"` 는 목록에 담기지 않아 `server` 가 안 바뀐다
    *   ② 서버 거부 — 60 에코 자체가 오지 않는다(`Gateway.cpp` 의 거부 갈래)
    * 판정은 상위가 소유한다(카드 상태 훅 `acceptAnswer` · `card/strategy-card.tsx`) — 상태줄 「미반영」을
@@ -410,15 +367,14 @@ export interface LimitChaserFormProps {
    *   ① **3초 무응답 판정** — 보낸 시각을 모르면 「미반영」을 셀 수 없다. 그래도 **자동
    *      재전송은 하지 않는다**(T-16-10): 재전송은 사용자가 누르지 않은 두 번째 등록이다.
    *   ② **에코의 출처** — 내가 보낸 요청의 에코와 다른 단말의 변경을 구분하지 못하면
-   *      내 「수정」이 반영될 때마다 「다른 단말에서 변경됐어요」가 뜬다.
+   *      내 확정이 반영될 때마다 「다른 단말에서 변경됐어요」가 뜬다.
    */
   onSent?: (cfg: RelayLimitChaserInput) => void;
   /**
    * 에코가 도착해 폼을 서버값으로 덮었을 때 통지 (16-13, D-11).
    *
-   * `overwrittenDirty` 는 그중 **사용자가 고치던** 필드 수다 — 배너 문구
-   * 「수정하던 값 {N}개가 서버 값으로 바뀌었어요」의 N 이고, **이 폼만이 알 수 있다**
-   * (상위는 폼 값을 갖고 있지 않다).
+   * `overwrittenDirty` 는 Phase 20 D-04 이후 **언제나 0** 이다 — 더티 누적이 없고, 편집 중인 버퍼는
+   * 편집기의 것이라 에코가 덮지 않는다(E4). 계약(필드 모양)은 카드 상태 훅과 맞추려고 남겼다.
    */
   onServerEcho?: (info: { changed: number; overwrittenDirty: number }) => void;
   /**
@@ -447,11 +403,8 @@ export function LimitChaserForm({
   sellStatusText = '',
   sweepStatusText,
   cancelStatusText,
-  dirtyHint,
-  dirtyBarClassName,
   tab: controlledTab,
   hideTabs = false,
-  onDirtyCountChange,
   serverAnswerSeq = 0,
   onSent,
   onServerEcho,
@@ -464,19 +417,10 @@ export function LimitChaserForm({
   // 제어형이면 바깥 값이 이긴다(카드 본문의 3탭) — 자체 상태는 옛 화면 경로에서만 쓰인다.
   const tab = controlledTab ?? ownTab;
   /**
-   * 하단 액션 바 포털의 SSR 가드 — 서버 렌더에는 `document` 가 없다.
-   * 마운트 뒤 한 번만 true 가 되고 다시 false 로 돌아가지 않는다.
-   */
-  const [mounted, setMounted] = useState(false);
-  const barHost = useContext(DirtyBarHostContext);
-  useEffect(() => setMounted(true), []);
-  const [submitting, setSubmitting] = useState(false);
-  /**
-   * 전송 직전 가드가 막았거나(무장 불가) 소켓이 받아 주지 않았을 때의 사유 1줄.
+   * 스위치·체크·감시대상 전송이 소켓에 실리지 못했거나(끊김) 무장 판정에 막혔을 때의 사유 1줄.
    * 토스트를 쓰지 않으므로(파일 상단 ⑥) 화면에 남는 문장이 유일한 통보 수단이다.
    */
   const [submitError, setSubmitError] = useState('');
-  const [flash, setFlash] = useState<ReadonlySet<string>>(EMPTY_FLASH);
 
   const [form, setForm] = useState<LimitChaserFormValues>(() => {
     const base = defaultLimitChaserForm();
@@ -486,67 +430,34 @@ export function LimitChaserForm({
     return upperLimit != null && upperLimit > 0 ? { ...base, ...seedFromUpperLimit(upperLimit) } : base;
   });
 
-  const flashTimer = useRef<number | null>(null);
   const formRef = useRef(form);
   formRef.current = form;
-  /**
-   * 직전 에코. **더티 기준선**이라 에코 효과 안에서만 갱신한다 —
-   * 「덮이기 직전에 사용자가 고치고 있던 필드」를 세려면 새 서버값이 아니라 옛 서버값과
-   * 비교해야 한다. 렌더 시점의 `dirty` 를 쓰면 이미 새 서버값으로 계산돼 있어 어긋난다.
-   */
-  const prevServerRef = useRef<RelayLimitChaser | null>(null);
   const echoNotifyRef = useRef(onServerEcho);
   echoNotifyRef.current = onServerEcho;
 
   /*
-    D-11 — 에코가 도착하면 **서버가 이긴다.** 더티 필드도 덮는다.
-    보류 큐도, 「편집 중이니 나중에」도 없다. 덮은 필드만 ≤150ms 플래시로 알린다.
+    D-11 · D-27 — 에코가 도착하면 **서버가 이긴다.** 목록 값은 에코로 덮인다.
+    편집 중인 버퍼(인라인 편집기 · 시트)는 폼 값이 아니라 **편집기의 것**이라 여기서 덮이지 않는다(E4).
+    ★ 더티 누적이 없으므로(D-04) 「덮인 더티」는 언제나 0 이다 — 상위 배너는 「서버 값으로 맞췄어요」만 쓴다.
   */
   useEffect(() => {
     if (server == null) return;
     const prev = formRef.current;
-    const prevServer = prevServerRef.current;
-    prevServerRef.current = server;
-    // 덮이기 **직전**의 더티 집합. 상위 배너의 「수정하던 값 {N}개」가 이 수다.
-    const wasDirty = new Set<string>(dirtyFieldsOf(prevServer, prev));
     const next = formFromServer(server, prev);
-    const changed = new Set<string>();
+    let changed = 0;
     for (const k of Object.keys(next) as (keyof LimitChaserFormValues)[]) {
-      if (next[k] !== prev[k]) changed.add(k);
+      if (next[k] !== prev[k]) changed += 1;
     }
     setForm(next);
-    echoNotifyRef.current?.({
-      changed: changed.size,
-      overwrittenDirty: [...changed].filter((k) => wasDirty.has(k)).length,
-    });
-    if (changed.size === 0) return;
-    setFlash(changed);
-    if (flashTimer.current != null) window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlash(EMPTY_FLASH), 150);
+    echoNotifyRef.current?.({ changed, overwrittenDirty: 0 });
   }, [server]);
-
-  useEffect(
-    () => () => {
-      if (flashTimer.current != null) window.clearTimeout(flashTimer.current);
-    },
-    [],
-  );
-
-  const dirty = useMemo(() => dirtyFieldsOf(server, form), [server, form]);
-  const dirtySet = useMemo(() => new Set<string>(dirty), [dirty]);
-
-  const notifyDirty = useRef(onDirtyCountChange);
-  notifyDirty.current = onDirtyCountChange;
-  useEffect(() => {
-    notifyDirty.current?.(dirty.length);
-  }, [dirty.length]);
 
   /**
    * 폼 값 → 와이어 `cfg` (33필드). **조립 지점은 여기 하나다.**
    *
-   * `crud` 는 `crudOf(values)` 다 — 「수정」 경로에서도 클라가 `"C"` 를 박지 않는다.
-   * 자동취소 체크박스는 스위치가 아니라 **값**이라 「수정」으로만 꺼지는데, 그때 매수·매도가
-   * 이미 꺼져 있으면 그 「수정」이 곧 삭제다. `"C"` 를 박으면 서버가 어차피 `"D"` 로
+   * `crud` 는 `crudOf(values)` 다 — 값·체크 확정 경로에서도 클라가 `"C"` 를 박지 않는다.
+   * 매수취소 「체결」 체크는 스위치가 아니라 **체크**인데, 그때 매수·매도·취소잔량이
+   * 이미 꺼져 있으면 그 확정이 곧 삭제다. `"C"` 를 박으면 서버가 어차피 `"D"` 로
    * 정규화하므로 화면과 와이어만 갈린다.
    */
   const buildCfg = useCallback(
@@ -568,37 +479,13 @@ export function LimitChaserForm({
     [isin, accountNo, exchange],
   );
 
-  const setField = useCallback(<K extends keyof LimitChaserFormValues>(key: K, value: LimitChaserFormValues[K]) => {
-    // ★ 여기서 전송하지 않는다(D-06). 디바운스도 타이머도 없다 — 「수정」 버튼이 유일한 출구다.
-    setForm((prev) => ({ ...prev, [key]: value }));
-    /*
-      ★ **원인을 고치면 문구가 접힌다** (R2-IN-01 / T-16-86). 옛 동작에서 `submitError` 는
-        (a) 다음 성공 전송 (b) `[server]` 에코 두 곳에서만 지워졌다. 그래서 「주문금액이
-        매수가격보다 작아 주문수량이 0 주예요」를 보고 **금액을 올려도** `role="alert"` 문구가
-        그대로 남았다. 상시 표시되는 안전 문구는 다음번에 읽히지 않고, 그때 진짜 경고도 함께
-        죽는다.
-        **값 변경만을 트리거로 삼는다** — 「수정」 실패 직후에 스스로 지워지면 사용자가 읽을
-        시간이 없다. `handleSubmit`·`toggleGate` 는 `setField` 를 거치지 않으므로 방금 띄운
-        문구가 같은 렌더에서 지워질 경로가 없다. `[server]` 이펙트의 해제는 그대로 둔다.
-    */
-    setSubmitError('');
-  }, []);
-
-  /**
-   * 스위치 3종 — **확인 없이 즉시 전송**(D-05).
-   *
-   * cfg 에는 뒤집힌 게이트뿐 아니라 **그 시점 폼 전체(더티 포함)** 가 실린다. 액션 바
-   * 보조문이 그 사실을 상시 고지하고 있으므로 여기서 더티를 걸러내지 않는다 — 걸러내면
-   * 「스위치를 켰는데 방금 고친 값이 안 갔다」가 된다.
-   */
   const sentNotifyRef = useRef(onSent);
   sentNotifyRef.current = onSent;
 
   /*
-    ★ Phase 20 D-04 — **한 필드 확정 = 전략 1회 전송**(`useLcFieldCommit`). 20-01 트레이서는
-      「호가변경」 한 행만 이 경로로 옮겼다 — 나머지 행과 더티 바는 20-04 가 걷는다.
-      cfg 조립은 위 `buildCfg` 하나를 그대로 넘긴다(복제 금지). 기준값은 폼 로컬 값이 아니라
-      서버 동기값이고(T-20-03), 값 필드는 낙관 반영하지 않는다(D-06) — 근거는 훅 머리 주석.
+    ★ Phase 20 D-04 — **한 필드 확정 = 전략 1회 전송**(`useLcFieldCommit`). 시트·인라인·체크·감시대상·
+      스위치가 이 훅 하나를 공유한다. cfg 조립은 위 `buildCfg` 하나를 그대로 넘긴다(복제 금지).
+      기준값은 폼 로컬 값이 아니라 서버 동기값이고(T-20-03), 값 필드는 낙관 반영하지 않는다(D-06).
   */
   const lc = useLcFieldCommit({
     server,
@@ -613,14 +500,14 @@ export function LimitChaserForm({
     armBlockOf,
   });
   /** 인라인 편집 중인 필드 — 한 번에 한 행이다(마우스 기기 · D-14). */
-  const [editingField, setEditingField] = useState<LcFieldKey | null>(null);
+  const [editingField, setEditingField] = useState<LcNumField | null>(null);
   /*
-    ★ Phase 20 D-12 — 편집 방식은 입력 장치로 가른다. 주 포인터가 터치면 행을 눌러 키패드 시트를
-      연다(20-03 트레이서: 「호가변경」 한 행). 시트는 폼 끝에 **한 개만** 두고 `sheetField` 가
-      무엇을 편집하는지 정한다. 닫히면 포커스는 연 행으로 돌아간다(`sheetReturnRef`).
+    ★ D-12 — 편집 방식은 입력 장치로 가른다. 주 포인터가 터치면 행을 눌러 키패드 시트를 연다.
+      시트는 폼 끝에 **한 개만** 두고 `sheetField` 가 무엇을 편집하는지 정한다. 닫히면 포커스는
+      연 행으로 돌아간다(`sheetReturnRef`).
   */
   const editMode = useEditMode();
-  const [sheetField, setSheetField] = useState<LcSheetField | null>(null);
+  const [sheetField, setSheetField] = useState<LcNumField | null>(null);
   const sheetReturnRef = useRef<HTMLElement | null>(null);
   // 내 확정이 에코로 성공하면 그 행의 편집·시트를 닫는다(성공 판정은 훅 — 값 비교뿐이다).
   const { successSeq, lastSuccessField, commit: commitField, clearFailure } = lc;
@@ -635,14 +522,14 @@ export function LimitChaserForm({
    * 포커스 이탈은 편집을 끝내고 결과를 **행**이 말한다(`aria-busy` · 실패 링). UI-SPEC §6.
    */
   const handleInlineSave = useCallback(
-    <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K], via: InlineSaveVia) => {
+    (field: LcNumField, value: number, via: InlineSaveVia) => {
       const outcome = commitField(field, value, 'value');
       if (via === 'blur' || outcome === 'noop' || outcome === 'local') setEditingField(null);
     },
     [commitField],
   );
   const handleInlineCancel = useCallback(
-    (field: LcFieldKey) => {
+    (field: LcNumField) => {
       clearFailure(field);
       setEditingField(null);
     },
@@ -650,10 +537,11 @@ export function LimitChaserForm({
   );
 
   /**
-   * 값 행 누르기 — 터치 기기면 시트, 아니면 그 자리 인라인 편집(D-12). 반영 중인 행은 열지 않는다.
+   * 값 행 누르기 — **모든 값 행이 이 한 경로**다. 터치 기기면 시트, 아니면 그 자리 인라인 편집(D-12).
+   * 반영 중인 행은 열지 않는다. 체크 값 행의 값 버튼도 체크 상태와 무관하게 이 경로다(D-22).
    */
   const activateRow = useCallback(
-    (field: LcSheetField, el: HTMLElement) => {
+    (field: LcNumField, el: HTMLElement) => {
       if (disabled || lc.inflightField === field) return;
       sheetReturnRef.current = el;
       if (editMode === 'sheet') setSheetField(field);
@@ -668,7 +556,7 @@ export function LimitChaserForm({
    * 거부·무응답·끊김·무장 불가면 시트가 남아 이유를 말한다(D-06 · 자동 재시도 없음).
    */
   const handleSheetConfirm = useCallback(
-    (field: LcSheetField, value: number) => {
+    (field: LcNumField, value: number) => {
       const outcome = commitField(field, value, 'value');
       if (outcome === 'noop' || outcome === 'local') setSheetField(null);
     },
@@ -721,503 +609,227 @@ export function LimitChaserForm({
     [disabled, canArm],
   );
 
-  const toggleGate = useCallback(
-    (key: GateKey, next: boolean) => {
-      // 세션 가드(`disabled`)와 무장 가드가 **같은 함수** 안에 있다 — `disabled` ←
-      // 옛 상따 화면(18-13 삭제)의 `LimitChaserSurface`(`status !== 'ready'`, 16-19 감사).
-      if (gateBlocked(key, next)) return;
-      const values: LimitChaserFormValues = { ...formRef.current, [key]: next };
-      const cfg = buildCfg(values);
-      /*
-        ★ **`setForm` 을 전송 뒤로 옮겼다** (GC-WR-06 / T-16-59). 옛 순서는 낙관 반영이
-          먼저였고, 그러면 소켓이 받지 않은 요청에도 스위치가 켜진 것처럼 보인다 — 이 화면
-          최악의 결과다(사용자는 무장했다고 믿고 시장은 계속 움직인다). `send` 가 `false`
-          면 **보내지 않았음이 확실**하므로(`use-relay-socket.ts:863`) 폼도 그대로 둔다.
-      */
-      if (!send({ t: 'lc.set', cfg })) {
+  /**
+   * 스위치 · 체크 · 감시대상 — **확인 없이 즉시** 한 필드 전송(Phase 16 D-05 · D-04).
+   *
+   * ★ 소켓이 받지 않으면(끊김) 폼 맨 위 기존 문장이 말하고 컨트롤은 그대로다(훅이 낙관 표시를 걸지
+   *   않는다 · GC-WR-06). 무장 판정에 막히면 그 사유(`armBlockOf` 문장)가 같은 자리에 선다.
+   * ★ 거부·무응답은 훅이 컨트롤을 서버 값으로 되돌리고, 그 자리 말풍선이 말한다(`toggleFailureTextOf`).
+   */
+  const commitToggle = useCallback(
+    <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K]) => {
+      const outcome = commitField(field, value, 'toggle');
+      if (outcome === 'disconnected') {
         setSubmitError(SEND_FAILED_TEXT.gate);
-        return;
+      } else if (outcome === 'blocked') {
+        // 훅과 **같은 식**(서버 동기값 + 바꾼 필드)으로 사유를 다시 읽는다 — 문장 산출 지점은 하나다.
+        setSubmitError(armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: value }) ?? '');
+      } else {
+        setSubmitError('');
       }
-      setForm(values);
-      setSubmitError('');
-      sentNotifyRef.current?.(cfg);
     },
-    [gateBlocked, send, buildCfg],
+    [commitField, server],
   );
 
-  /** 「수정」 — 표시값 전체를 한 번에 보낸다. 부분 갱신이 없다(D-06). */
-  const handleSubmit = useCallback(() => {
-    if (submitting || disabled) return; // 중복 제출 가드 + 세션 가드
-    const values = formRef.current;
-    /*
-      ★ **무장 판정은 「수정」에도 걸린다** (GC-WR-09 / T-16-60).
-        서버 에코로 `buyEnabled: true` 를 받은 뒤 시세가 끊겨 가격 칸이 0 이 되면, 이 cfg 는
-        relay 의 `#strategyArmable` 에 **통째로** 거부된다 — 사용자는 함께 실린 다른 값까지
-        하나도 저장하지 못한 채 일반 거부 프레임 한 줄만 본다. 그 전에 화면이 사유를 말한다.
-        ★ **켜져 있는 게이트만** 본다(`values[key]`). 끄는 방향은 여기서도 막지 않는다
-          (T-16-44) — 게이트를 내리는 「수정」은 무장 조건과 무관하게 나가야 한다.
-        `setSubmitting(true)` **앞**이다. 잠근 뒤에 막으면 버튼이 영구히 잠긴다.
-    */
-    /*
-      ★★ **철거 면제** (R2-WR-02 / T-16-44). 게이트 4종(`buyEnabled`·`sellEnabled`·
-        `cancelQtyEnabled`·`cancelTradeEnabled`)이 전부 꺼진 「수정」은 **전략을 내리는**
-        요청이다. 여기서 막으면 안 된다:
-        · relay 는 이 요청을 **받아 준다** — `fanout.ts` `#strategyArmable` 첫 줄이
-          `if (this.#isTeardown(cfg)) return true;` 로 면제한다(16-36 이 그 줄을 남긴 이유가
-          정확히 이것이다). **첫 관문이 마지막 관문보다 엄격하면** 사용자는 전략을 내리려는데
-          화면이 막고, 그 사이 시장은 계속 움직인다 — 자산을 인질로 잡는 방향이다.
-        · `sweepEnabled` 는 삭제 판정 4종에 **들어 있지 않다.** 그래서 「게이트 4종 OFF +
-          한방 ON + 시세 끊겨 `buyOrderPrice === 0`」이 정확히 이 함정이다 — 면제가 없으면
-          `sweepEnabled` 를 짚어 철거를 거부한다.
-        · 바로 위 ★ 가 적어 둔 T-16-44(「끄는 방향은 여기서도 막지 않는다」)의 **누락된
-          나머지 절반**이다. 그쪽은 게이트 하나하나를 보고, 이쪽은 **전략 전체를 내리는
-          의도**를 본다.
-      두 규율 모두 모듈 수준 `armBlockOf` **하나**에 있다(20-01) — 필드 확정 훅도 같은 함수를 읽는다.
-    */
-    const blockedText = armBlockOf(values);
-    if (blockedText !== null) {
-      setSubmitError(blockedText);
-      return;
-    }
-    setSubmitting(true);
-    const cfg = buildCfg(values);
-    // ★ `DirtyActionBar` 의 「수정」 버튼은 `submitting` 으로만 잠긴다 — 세션 판정은
-    //   **여기**서 한다. `disabled` ← 카드 본문(`card/card-body.tsx`)
-    //   (`status !== 'ready'`). 이 줄을 지우면 단절 중 클릭이 0바이트가 된다(16-19 감사).
-    if (!send({ t: 'lc.set', cfg })) {
-      /*
-        보내지 **않았음**이 확실하다 — `submitting` 을 되돌린다(GC-WR-06 / T-16-59).
-        남겨 두면 잠금을 푸는 신호가 60 에코인데 그 에코는 영영 오지 않는다.
-      */
-      setSubmitting(false);
-      setSubmitError(SEND_FAILED_TEXT.submit);
-      return;
-    }
-    setSubmitError('');
-    sentNotifyRef.current?.(cfg);
-  }, [submitting, disabled, send, buildCfg]);
-
-  /** 「되돌리기」 — 서버값 복귀. **전송하지 않는다.** */
-  const handleRevert = useCallback(() => {
-    if (server == null) return;
-    setForm((prev) => formFromServer(server, prev));
-  }, [server]);
-
-  // 답이 도착하면 전송 잠금을 푼다 — 응답 전까지 열지 않는다.
-  // 실패 문구도 같이 접는다: 답이 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다.
-  //
-  // ★ 신호가 **둘**인 이유는 `serverAnswerSeq` prop 주석에 있다 — `server` 변화만 보면
-  //   「미등록 키 철거 에코」와 「거부」 두 경우에 이 잠금이 영구히 풀리지 않는다.
-  //   두 신호 모두 같은 일(잠금 해제)만 하므로 겹쳐 발화해도 무해하다.
+  /*
+    답이 도착하면 폼 맨 위 실패 문구를 접는다 — 답이 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다.
+    ★ 신호가 **둘**인 이유는 `serverAnswerSeq` prop 주석에 있다 — `server` 변화만 보면
+      「미등록 키 철거 에코」와 「거부」 두 경우를 놓친다.
+  */
   useEffect(() => {
-    setSubmitting(false);
     setSubmitError('');
   }, [server, serverAnswerSeq]);
 
-  const shared = { dirty: dirtySet, flash, disabled };
+  /** 그 필드의 확정이 나가 있거나 대기열에 서 있는가. */
+  const isBusy = (field: LcFieldKey): boolean =>
+    lc.inflightField === field || lc.queuedFields.includes(field);
+  /** 토글 종류의 거부·무응답 말풍선 — 끊김·무장 불가는 폼 맨 위 한 줄이 말한다(A-P4). */
+  const toggleFailureTextOf = (field: LcFieldKey): string | null => {
+    const f = lc.failures[field];
+    return f !== undefined && (f.reason === 'rejected' || f.reason === 'timeout') ? LC_COMMIT_TEXT.failed : null;
+  };
+  /** 그룹 상태 문구 — 매핑은 상위(`card-body.tsx` `cardGroupStatusOf`) 소관이다. */
+  const statusOf: Record<LcStatusKey, string | undefined> = {
+    buy: buyStatusText,
+    sweep: sweepStatusText,
+    sell: sellStatusText,
+    cancel: cancelStatusText,
+  };
+  /** 스위치를 지금 누를 수 없는가 — 매수취소(`cancelQtyEnabled`)는 무장 판정 게이트가 아니다. */
+  const gateDisabled = (gate: LcGate): boolean =>
+    gate === 'cancelQtyEnabled' ? disabled : gateBlocked(gate, !form[gate]);
+
+  /** 인라인 편집기 — 실패로 남은 입력값이 있으면 그 값으로 다시 연다(입력 보존). */
+  function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit): ReactNode {
+    const failure = lc.failures[field];
+    return (
+      <InlineValueEditor
+        id={id}
+        label={label}
+        unit={unit}
+        initialValue={typeof failure?.value === 'number' ? failure.value : form[field]}
+        busy={lc.inflightField === field}
+        failureText={inlineFailureTextOf(failure)}
+        onSave={(v, via) => handleInlineSave(field, v, via)}
+        onCancel={() => handleInlineCancel(field)}
+        onDismiss={() => setEditingField(null)}
+      />
+    );
+  }
+
+  /** 값 행이 공유하는 편집 배선(값 행 · 체크 값 행의 값 버튼). */
+  function valueProps(field: LcNumField) {
+    return {
+      disabled,
+      busy: isBusy(field),
+      flash: lc.flashField === field,
+      failed: lc.failures[field] !== undefined,
+      // 시트가 이 행을 편집 중이면 실패는 시트 상태 줄이 말한다 — 말풍선(body 포털)이 시트
+      // 오버레이 위로 뜨지 않게 행 쪽은 끈다(20-03).
+      failureText: sheetField === field ? null : rowFailureTextOf(lc.failures[field]),
+      editing: editingField === field,
+      hasPopup: editMode === 'sheet',
+    };
+  }
+
+  function renderRow(group: LcGroupSpec, row: LcRowSpec): ReactNode {
+    switch (row.kind) {
+      case 'value':
+        return (
+          <SettingRow
+            key={row.id}
+            id={row.id}
+            label={row.label}
+            unit={row.unit}
+            value={form[row.field]}
+            {...valueProps(row.field)}
+            onActivate={(el) => activateRow(row.field, el)}
+            editor={editingField === row.field ? inlineEditorOf(row.field, row.id, row.label, row.unit) : undefined}
+          />
+        );
+      case 'checkValue':
+      case 'check': {
+        const check = row.check;
+        const v = row.kind === 'checkValue' ? valueProps(row.field) : null;
+        return (
+          <CheckValueRow
+            key={row.checkId}
+            checkId={row.checkId}
+            groupTitle={group.title ?? ''}
+            label={row.label}
+            checked={form[check]}
+            onToggle={() => commitToggle(check, !form[check])}
+            checkBusy={isBusy(check)}
+            checkFlash={lc.flashField === check}
+            checkFailureText={toggleFailureTextOf(check)}
+            {...(row.kind === 'checkValue' && v !== null
+              ? {
+                  ...v,
+                  value: form[row.field],
+                  unit: row.unit,
+                  valueId: row.id,
+                  onActivateValue: (el: HTMLElement) => activateRow(row.field, el),
+                  editor:
+                    editingField === row.field ? inlineEditorOf(row.field, row.id, row.label, row.unit) : undefined,
+                }
+              : {})}
+            disabled={disabled}
+          />
+        );
+      }
+      case 'watch':
+        return (
+          <WatchTargetRow
+            key="watch"
+            value={form.buyWatchSide}
+            onSelect={(side) => commitToggle('buyWatchSide', side)}
+            disabled={disabled}
+            busy={isBusy('buyWatchSide')}
+            flash={lc.flashField === 'buyWatchSide'}
+            failureText={toggleFailureTextOf('buyWatchSide')}
+          />
+        );
+      case 'derived':
+        // S→C 전용 — 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
+        return server?.sellEntryLatched ? (
+          <DerivedRow key="derived" label={row.label} value={server.sellQtyTrackBaseline} unit="주" />
+        ) : null;
+    }
+  }
+
+  function renderGroup(spec: LcGroupSpec): ReactNode {
+    const gate = spec.gate;
+    return (
+      <SettingGroup
+        key={spec.slot}
+        spec={spec}
+        statusText={spec.title && spec.statusKey ? statusOf[spec.statusKey] : undefined}
+        on={gate ? form[gate] : undefined}
+        switchNode={
+          gate ? (
+            <GroupSwitch
+              id={gate === 'cancelQtyEnabled' ? 'lc-cancel-qty' : undefined}
+              label={LC_SWITCH_LABEL[gate]}
+              checked={form[gate]}
+              // ★ 켜는 방향만 막는다 — `!form[gate]` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
+              disabled={gateDisabled(gate)}
+              onCheckedChange={(v) => commitToggle(gate, v)}
+              failureText={toggleFailureTextOf(gate)}
+            />
+          ) : undefined
+        }
+      >
+        {spec.rows.map((row) => renderRow(spec, row))}
+      </SettingGroup>
+    );
+  }
 
   /*
-    「켤 수 없는 이유」는 **카드 맨 아래 한 곳**에만 모인다 (260911-w5h).
-    옛 구조는 그룹 헤더 바로 아래에 사유 `<p>` 를 끼워 넣어, 사유가 뜨거나 사라질 때마다
-    **그 아래 입력 행 전체가 세로로 밀렸다** — 숫자를 치는 도중 행이 움직이는 화면이었다.
-    카드 마지막 자식으로 옮기면 위쪽 입력의 세로 위치가 사유 유무와 무관해진다.
+    「켤 수 없는 이유」는 **열 맨 아래 한 곳**에만 모인다 (260911-w5h).
+    그룹 헤더 바로 아래에 끼우면 사유가 뜨거나 사라질 때마다 그 아래 행 전체가 세로로 밀린다.
   */
-  const buyReasons = armBlockedGroupsOf(BUY_CARD_GATES, form, canArm, disabled);
-  const sellReasons = armBlockedGroupsOf(SELL_CARD_GATES, form, canArm, disabled);
+  const buyReasons = armBlockedGroupsOf(BUY_COLUMN_GATES, form, canArm, disabled);
+  const sellReasons = armBlockedGroupsOf(SELL_COLUMN_GATES, form, canArm, disabled);
 
-  const buyCard = (
-    <Card side="buy">
-      <Group
-        slot="buy"
-        tone="buy"
-        title="매수주문"
-        status={buyStatusText}
-        hint="비교가격의 감시잔량이 위 값 이하로 줄면 매수 발주"
-        switchProps={{
-          label: '매수주문 켜기',
-          checked: form.buyEnabled,
-          onChange: (v) => toggleGate('buyEnabled', v),
-          // ★ 켜는 방향만 막는다 — `!form.buyEnabled` 를 넘기므로 **켜져 있으면 언제나 끌 수 있다**.
-          disabled: gateBlocked('buyEnabled', !form.buyEnabled),
-        }}
-      >
-        <NumField
-          id="lc-buy-watch-price"
-          label="비교가격"
-          unit="원"
-          field="buyWatchPrice"
-          value={form.buyWatchPrice}
-          onChange={setField}
-          {...shared}
-        />
-        {/*
-          ★ 「감시 대상」 세그먼트는 `Row`/`CheckRow` 와 **같은 2열 그리드의 오른쪽 칸**에
-            들어간다 (quick-260912-mvo Q-03). 1열은 **빈 칸**이다 — 시각 라벨은 여전히 없고,
-            폭 정렬만 이웃 행과 맞춘다.
-            ↳ 이력: 260911-w5h 에서는 `Row` 밖 단독 행(`w-full`)이었다. 그때는 `Row` 안에
-              넣으면 라벨 칸(`--lw`)이 폭을 먹어 390px 에서 「매도잔량」 4글자가 두 줄로
-              접혔기 때문이다. 그 폭 예산은 **라벨 글꼴이 11px 이던 시절**의 것이고, 13px 로
-              오르면서 `--lw` 가 76/104px 로 재산정됐다(위 `Card` 주석 참조). 새 예산에서
-              실측하면 버튼이 폰 67px · 와이드 78px 로 서고 접힘·잘림이 0 이다.
-              **왜 예전에 접혔는지를 지우지 마라** — 지우면 다음 사람이 단독 행으로 되돌린다.
-            ↳ 행 간격: `mt-[var(--s-1)]` 은 **래퍼**가 갖는다. 그룹 자신에게 남기면 행 간격이
-              두 배가 된다. `w-full` 은 남는다 — 이제 「칸 폭을 채운다」는 뜻이다.
-          ★ **선택된 버튼의 색은 그 선택지의 방향색**이다 (260912-gyz). 감시 대상은 「어느 쪽
-            호가 잔량을 보는가」이므로 색은 그룹(매수주문 = `--up`)이 아니라 **그 호가의 방향**을
-            따라야 한다 — 매도잔량 = `--down` · 매수잔량 = `--up` 으로, 호가창
-            (`orderbook-ladder`)의 매도=파랑 / 매수=빨강 축과 **같은 축**이다. 그룹 색을 그대로
-            쓰면 매도호가 잔량을 감시하는데 화면은 빨강이라고 말한다.
-          ★ 파일 상단 ②-1 의 「색·위치·문구 3중 일치」는 **게이트 스위치와 매수/매도 탭**에 대한
-            규율이고 이 세그먼트는 그 대상이 아니다 — 두 규율은 충돌하지 않는다.
-          ★ 시각 라벨만 없앤 것이지 **접근성 이름을 없앤 것이 아니다** — `role="group"` +
-            `aria-label="감시 대상"` 은 그대로다.
-          ★ 데스크톱 밴드 진입 구간(카드 992~1030)에서는 `--lw` 가 104px 로 뛰어 이 칸이 94px
-            까지 좁아진다 — 버튼 46px 에 글자 44.3px + 좌우 4px 패딩이 안 들어가 「매도잔량」이
-            2px 잘렸다(18-13 Playwright 카드 폭 992 실측). 그 밴드에서만 좌우 패딩을 0 으로 둔다
-            (글자는 가운데 정렬이라 여백은 남는다). 칸을 넓히면 이웃 행과 정렬이 깨진다(Q-03).
-          ★ 라벨이 사라지면서 더티 표현(라벨 `● ` + `--primary` 색)도 함께 사라진다. 그것을
-            **세그먼트 테두리**로 옮긴다 — 더티가 조용히 사라지면 사용자는 바꾼 줄 모른다.
-            `NumInput` 과 같은 규율로 **테두리 한 겹뿐**이고 링은 걸지 않는다.
-        */}
-        <div className="mt-[var(--s-1)] grid min-h-[46px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
-          <span aria-hidden="true" />
-          <div
-            role="group"
-            aria-label="감시 대상"
-            className={cn(
-              // 토스 B(260924-vj1) — 알약 트랙(raised 채움) + 선택 항목 `--seg-on-*`. 높이 46 은 세로만.
-              // ★ 트랙 **안쪽 패딩은 넣지 않는다** — 항목 가로 폭이 줄어 「매도잔량」이 잘린다.
-              // 더티 채널은 그대로 테두리 한 겹이다(평소 `--input` = 투명 · 더티 `--primary`).
-              'flex h-[46px] w-full min-w-0 overflow-hidden rounded-[var(--r)] border bg-[var(--muted)]',
-              dirtySet.has('buyWatchSide')
-                ? 'border-[var(--primary)]'
-                : 'border-[var(--input)]',
-            )}
-          >
-            {(['0', '1'] as const).map((side) => (
-              <button
-                key={side}
-                type="button"
-                aria-pressed={form.buyWatchSide === side}
-                disabled={disabled}
-                onClick={() => setField('buyWatchSide', side)}
-                className={cn(
-                  'min-w-0 flex-1 px-1 text-[13px] font-semibold whitespace-nowrap @min-[992px]/lc:px-0',
-                  form.buyWatchSide !== side
-                    ? 'bg-transparent text-[var(--muted-fg)]'
-                    : 'rounded-[var(--r)] bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]',
-                  'disabled:cursor-not-allowed disabled:opacity-50',
-                )}
-              >
-                {side === '0' ? '매도잔량' : '매수잔량'}
-              </button>
-            ))}
-          </div>
+  /**
+   * 한 열(pane) — ≥700 열 머리 「● 매수」/「● 매도」 → 그룹들(사이 10) → 사유 패널.
+   * ★ 비활성 pane 숨김은 **CSS 클래스**다 (260912-k2x) — 본문 폭은 미디어 질의 API 로 관측할 수
+   *   없어 폭 판정을 CSS 에 통째로 넘기고 JS 는 「어느 탭이 선택됐나」만 안다. **조건부 렌더로
+   *   바꾸지 마라** — 언마운트하면 나가 있던 확정·열린 편집이 사라진다.
+   */
+  function pane(side: 'buy' | 'sell', groups: readonly LcGroupSpec[], reasons: ArmBlockedGroup[]): ReactNode {
+    return (
+      <div data-pane={side} className={cn('min-w-0', tab !== side && 'hidden @min-[700px]/lc:block')}>
+        <div
+          data-slot="lc-column-head"
+          className="mt-2.5 hidden items-center gap-1.5 px-0.5 text-[15px] leading-[1.5] font-bold text-[var(--fg)] @min-[700px]/lc:flex"
+        >
+          <span
+            aria-hidden="true"
+            className={cn('size-2 flex-none rounded-full', side === 'buy' ? 'bg-[var(--up)]' : 'bg-[var(--down)]')}
+          />
+          {side === 'buy' ? '매수' : '매도'}
         </div>
-        <NumField
-          id="lc-buy-watch-qty"
-          label="잔량"
-          unit="주"
-          field="buyWatchQty"
-          value={form.buyWatchQty}
-          onChange={setField}
-          {...shared}
-        />
-        <CheckRow
-          id="lc-buy-trade"
-          label="체결"
-          checked={form.buyTradeQtyEnabled}
-          onCheckedChange={(v) => setField('buyTradeQtyEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('buyTradeQtyEnabled')}
-        >
-          <NumInput
-            id="lc-buy-min-trade-qty"
-            aria-label="매수 체결 수량"
-            unit="주"
-            value={form.buyMinTradeQty}
-            onValueChange={(v) => setField('buyMinTradeQty', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('buyMinTradeQty')}
-            flash={flash.has('buyMinTradeQty')}
-          />
-        </CheckRow>
-      </Group>
+        <div className="flex min-w-0 flex-col gap-2.5 @min-[700px]/lc:mt-2.5">{groups.map(renderGroup)}</div>
+        <ArmBlockedPanel groups={reasons} />
+      </div>
+    );
+  }
 
-      {/* 제목 없음 — 첫 `NumField` 라벨이 「매수가격」이라 그룹 제목이 같은 말의 반복이었다. */}
-      <Group slot="buy-price" tone="buy">
-        <NumField
-          id="lc-buy-order-price"
-          label="매수가격"
-          unit="원"
-          field="buyOrderPrice"
-          value={form.buyOrderPrice}
-          onChange={setField}
-          {...shared}
-        />
-        <NumField
-          id="lc-buy-order-amount"
-          label="주문금액"
-          unit="만원"
-          field="buyOrderAmount"
-          value={form.buyOrderAmount}
-          onChange={setField}
-          {...shared}
-        />
-      </Group>
-
-      <Group
-        slot="sweep"
-        tone="buy"
-        title="한방체결"
-        status={sweepStatusText}
-        switchProps={{
-          label: '한방체결 켜기',
-          checked: form.sweepEnabled,
-          onChange: (v) => toggleGate('sweepEnabled', v),
-          disabled: gateBlocked('sweepEnabled', !form.sweepEnabled),
-        }}
-      >
-        {/*
-          ★ Phase 20 트레이서 — 토스식 「라벨 ─ 값 ›」 44px 값 행(D-20). 마우스 기기에서 누르면 그
-            자리 인라인 편집(D-14 · D-14a) → Enter/포커스 이탈 = 즉시 반영(D-04). 행 값은 에코로만
-            바뀐다(D-06). 이웃 행이 아직 옛 격자라 폭 정렬이 다르다 — 20-04 가 그룹 전체를 옮긴다.
-        */}
-        <SettingRow
-          id="lc-sweep-tick"
-          label="호가변경"
-          unit="건"
-          value={form.sweepMinTickCount}
-          className="mt-[var(--s-1)]"
-          disabled={disabled}
-          busy={lc.inflightField === 'sweepMinTickCount'}
-          flash={lc.flashField === 'sweepMinTickCount'}
-          failed={lc.failures.sweepMinTickCount !== undefined}
-          // 시트가 이 행을 편집 중이면 실패는 시트 상태 줄이 말한다 — 말풍선(body 포털)이 시트
-          // 오버레이 위로 뜨지 않게 행 쪽은 끈다.
-          failureText={
-            sheetField === 'sweepMinTickCount' ? null : rowFailureTextOf(lc.failures.sweepMinTickCount)
-          }
-          editing={editingField === 'sweepMinTickCount'}
-          hasPopup={editMode === 'sheet'}
-          onActivate={(el) => activateRow('sweepMinTickCount', el)}
-          editor={
-            <InlineValueEditor
-              id="lc-sweep-tick"
-              label="호가변경"
-              unit="건"
-              initialValue={
-                typeof lc.failures.sweepMinTickCount?.value === 'number'
-                  ? lc.failures.sweepMinTickCount.value
-                  : form.sweepMinTickCount
-              }
-              busy={lc.inflightField === 'sweepMinTickCount'}
-              failureText={inlineFailureTextOf(lc.failures.sweepMinTickCount)}
-              onSave={(v, via) => handleInlineSave('sweepMinTickCount', v, via)}
-              onCancel={() => handleInlineCancel('sweepMinTickCount')}
-              onDismiss={() => setEditingField(null)}
-            />
-          }
-        />
-        <NumField
-          id="lc-sweep-watch-price"
-          label="한방가격"
-          unit="원"
-          field="sweepWatchPrice"
-          value={form.sweepWatchPrice}
-          onChange={setField}
-          {...shared}
-        />
-      </Group>
-      {/*
-        ★ 매수 카드의 **맨 아래**다 (2026-09-23 사용자 지시) — 이 그룹이 취소하는 것은 **매수**
-          미체결이므로 매도 카드에 있으면 방향이 어긋났다. 카드를 옮기면서 배경 틴트·체크박스
-          색도 매수 카드(`--up`)를 따른다 — 둘 다 `Card` 가 정한다.
-        ★ quick-260912-u58 ② — 「가드」를 **캡션으로 화면에 적던 것**을 걷었다(사용자 지시:
-          「매수 미체결 자동취소가드 → 매수취소」 — 캡션까지 포함한 덩어리가 대상이었다).
-          가드라는 성격은 위 중립색이 계속 말하고, 라벨은 짧아졌다.
-        ★ `strategy-log.tsx` 의 「매수 미체결 자동취소 무장/해제」 **로그 문구는 그대로다** —
-          그 줄은 다른 표면이고 문장으로서 여전히 정확하다. 여기 라벨을 줄였다고 로그까지
-          따라가면 안 된다.
-      */}
-      <Group slot="cancel" tone="buy" title="매수취소" status={cancelStatusText}>
-        <CheckRow
-          id="lc-cancel-qty"
-          label="취소잔량"
-          checked={form.cancelQtyEnabled}
-          onCheckedChange={(v) => setField('cancelQtyEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('cancelQtyEnabled')}
-        >
-          <NumInput
-            id="lc-cancel-watch-qty"
-            aria-label="취소 감시 잔량"
-            unit="주"
-            value={form.cancelWatchQty}
-            onValueChange={(v) => setField('cancelWatchQty', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('cancelWatchQty')}
-            flash={flash.has('cancelWatchQty')}
-          />
-        </CheckRow>
-        {/*
-          ★ quick-260912-u58 ④ — ~~취소 잔량추적은 **취소잔량과 함께만** 동작한다 —
-            미체크면 비활성(A9).~~ **UI-SPEC A9 의 결합을 사용자가 명시적으로 풀었다**
-            (「취소옵션 안켜도 취소옵션의 체결, 잔량추적은 킬 수 있게 해줘」). 이제 취소잔량이
-            꺼져 있어도 이 체크박스를 켤 수 있고, 흐림(`dimmed`)도 함께 걷었다 — 비활성이
-            아닌데 흐리면 거짓말이다.
-          ★★ **그럼에도 무장 판정은 그대로다.** `lib/limit-chaser.ts` 의 게이트 4종은
-            「취소잔량이 꺼져 있으면 취소는 무장하지 않는다」를 계속 말한다(이번 변경에서
-            그 파일 diff 0줄). 바뀐 것은 **입력 가능 여부** 한 층뿐이다.
-            두 문장이 함께 있어야 다음 사람이 「그럼 무장도 풀자」로 넘어가지 않는다 —
-            섞으면 사용자가 값을 넣었는데 전략이 조용히 다르게 도는 상태가 된다.
-        */}
-        {/* 체결 · 잔량추적은 입력 없는 체크 둘이라 한 줄에 둔다 — 매수 카드 세로 길이 절약(2026-09-23). */}
-        <div className="mt-[var(--s-1)] flex min-h-[46px] min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-          <CheckRow
-            id="lc-cancel-trade"
-            label="체결"
-            inline
-            checked={form.cancelTradeEnabled}
-            onCheckedChange={(v) => setField('cancelTradeEnabled', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('cancelTradeEnabled')}
-          />
-          <CheckRow
-            id="lc-cancel-qty-track"
-            label="잔량추적"
-            inline
-            checked={form.cancelQtyTrackEnabled}
-            onCheckedChange={(v) => setField('cancelQtyTrackEnabled', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('cancelQtyTrackEnabled')}
-          />
-        </div>
-      </Group>
-      <ArmBlockedPanel groups={buyReasons} />
-    </Card>
-  );
-
-  const sellCard = (
-    <Card side="sell">
-      <Group
-        slot="sell"
-        tone="sell"
-        title="매도주문"
-        status={sellStatusText}
-        switchProps={{
-          label: '매도주문 켜기',
-          checked: form.sellEnabled,
-          onChange: (v) => toggleGate('sellEnabled', v),
-          disabled: gateBlocked('sellEnabled', !form.sellEnabled),
-        }}
-      >
-        <NumField
-          id="lc-sell-watch-price"
-          label="비교가격"
-          unit="원"
-          field="sellWatchPrice"
-          value={form.sellWatchPrice}
-          onChange={setField}
-          {...shared}
-        />
-        <NumField
-          id="lc-sell-watch-qty"
-          label="호가잔량"
-          unit="주"
-          field="sellWatchQty"
-          value={form.sellWatchQty}
-          onChange={setField}
-          {...shared}
-        />
-        <CheckRow
-          id="lc-sell-qty-track"
-          label="잔량추적"
-          checked={form.sellQtyTrackEnabled}
-          onCheckedChange={(v) => setField('sellQtyTrackEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('sellQtyTrackEnabled')}
-        >
-          <NumInput
-            id="lc-sell-qty-track-ratio"
-            aria-label="매도 잔량추적 비율"
-            unit="%"
-            value={form.sellQtyTrackRatio}
-            onValueChange={(v) => setField('sellQtyTrackRatio', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('sellQtyTrackRatio')}
-            flash={flash.has('sellQtyTrackRatio')}
-          />
-        </CheckRow>
-        <CheckRow
-          id="lc-sell-trade"
-          label="체결"
-          checked={form.sellTradeQtyEnabled}
-          onCheckedChange={(v) => setField('sellTradeQtyEnabled', v)}
-          disabled={disabled}
-          dirty={dirtySet.has('sellTradeQtyEnabled')}
-        >
-          <NumInput
-            id="lc-sell-min-trade-qty"
-            aria-label="매도 체결 수량"
-            unit="주"
-            value={form.sellMinTradeQty}
-            onValueChange={(v) => setField('sellMinTradeQty', v)}
-            disabled={disabled}
-            dirty={dirtySet.has('sellMinTradeQty')}
-            flash={flash.has('sellMinTradeQty')}
-          />
-        </CheckRow>
-        {/* 잔량추적 기준선은 **S→C 전용**이다 — 서버가 매도 진입을 래치한 뒤에만 존재한다. */}
-        {server?.sellEntryLatched ? (
-          <Derived
-            label="잔량추적 기준선"
-            value={`${NUM.format(server.sellQtyTrackBaseline)}주`}
-          />
-        ) : null}
-      </Group>
-
-      {/* 제목 없음 — 「매수가격」 그룹과 같은 이유(첫 라벨이 「매도가격」이다). */}
-      <Group slot="sell-price" tone="sell">
-        <NumField
-          id="lc-sell-order-price"
-          label="매도가격"
-          unit="원"
-          field="sellOrderPrice"
-          value={form.sellOrderPrice}
-          onChange={setField}
-          {...shared}
-        />
-        <NumField
-          id="lc-sell-order-ratio"
-          label="매도비율"
-          unit="%"
-          field="sellOrderRatio"
-          value={form.sellOrderRatio}
-          onChange={setField}
-          {...shared}
-        />
-      </Group>
-
-      <ArmBlockedPanel groups={sellReasons} />
-    </Card>
-  );
-
-  // 시트 입력 — 닫혀 있을 때도 같은 필드 기준으로 계산한다(열림은 `sheetSpec` 하나가 정한다).
-  const sheetSpec = sheetField === null ? null : LC_SHEET_SPEC[sheetField];
-  const sheetKey: LcSheetField = sheetField ?? 'sweepMinTickCount';
+  // 시트 입력 — 닫혀 있을 때도 같은 필드 기준으로 계산한다(열림은 `sheetRow` 하나가 정한다).
+  const sheetRow = sheetField === null ? null : lcRowByField(sheetField);
+  const sheetKey: LcNumField = sheetField ?? 'sweepMinTickCount';
   const sheetFailure = lc.failures[sheetKey];
-  const sheetBusy = lc.inflightField === sheetKey || lc.queuedFields.includes(sheetKey);
+  const sheetBusy = isBusy(sheetKey);
+  const sheetStatusKey = sheetRow?.group.statusKey;
 
   return (
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)}>
       {submitError === '' ? null : (
         /*
-          눌렀는데 못 나갔거나 무장 판정에 막혔다 — 화면이 그 사실을 말한다.
-          ★ **폼 맨 위**다. 「수정」 버튼은 화면 하단 고정 바(`DirtyActionBar`)에 있고 그 바는
-            `dirtyCount === 0` 이면 아예 렌더되지 않으므로(스위치 실패가 정확히 그 경우다)
-            바 안에 넣으면 사유가 통째로 사라진다. `role="alert"` 이라 스크롤 위치와 무관하게
-            읽힌다. 토스트를 쓰지 않는 근거는 파일 상단 ⑥.
+          스위치·체크·감시대상을 눌렀는데 못 나갔거나 무장 판정에 막혔다 — 화면이 그 사실을 말한다.
+          ★ **폼 맨 위**다. `role="alert"` 이라 스크롤 위치와 무관하게 읽힌다. 토스트를 쓰지 않는
+            근거는 파일 상단 ⑥.
         */
         <p
           data-slot="lc-submit-error"
@@ -1227,13 +839,6 @@ export function LimitChaserForm({
           {submitError}
         </p>
       )}
-      {/*
-        모바일 세그먼트 탭 — `order-panel.tsx:426~449` 마크업 승계.
-        Radix `ToggleGroup` 을 쓰지 않는 근거는 파일 상단 ⑧.
-        ★ `hideTabs` (18-10) — 카드 본문이 「매수 | 매도 | 수동」 3탭을 바깥에서 그릴 때는 이 줄을
-          렌더하지 않는다. 숨김이 아니라 부재다 — `display:none` 으로 남기면 같은 이름의 tablist 가
-          둘이 되고, 3탭과 이 줄이 서로 다른 pane 을 가리키는 순간이 생긴다.
-      */}
       {hideTabs ? null : (
         <div
           role="tablist"
@@ -1261,64 +866,22 @@ export function LimitChaserForm({
         </div>
       )}
 
-      {/* 매수·매도 두 컬럼(본문 700~). **그리드 자식 전부 `min-w-0`**(lessons.md). */}
+      {/* 매수·매도 두 열(본문 700~). **그리드 자식 전부 `min-w-0`**(lessons.md). 간격 8 · ≥992 16 은 기존 값. */}
       <div className="grid min-w-0 grid-cols-1 gap-[var(--s-2)] @min-[700px]/lc:grid-cols-2 @min-[992px]/lc:gap-[var(--s-4)] [&>*]:min-w-0">
-        {/*
-          ★ 비활성 pane 숨김은 **CSS 클래스**다 (260912-k2x). 뷰포트를 재던 경로는 사라졌다 —
-            이제 「탭이냐 2열이냐」를 가르는 것은 뷰포트가 아니라 **본문 폭**인데, 본문 폭은
-            미디어 질의 API 로 관측할 수 없다(그 API 는 뷰포트만 본다). 폭 판정을 CSS 에
-            통째로 넘기고 JS 는 「어느 탭이 선택됐나」만 안다.
-          ★ `display:none` 은 접근성 트리에서도 빠지므로, 안 보이는 폼을 스크린리더가 읽지
-            않는다는 성질은 그대로다.
-          ★ **조건부 렌더로 바꾸지 마라.** 언마운트하면 탭을 옮길 때마다 매도 설정이 초기화되고
-            더티 카운트·에코 덮어쓰기 계산이 함께 망가진다. 두 pane 은 언제나 마운트돼 있고
-            바뀌는 것은 클래스뿐이다.
-          ★ 탭 마크업(`role`·`aria-selected`·버튼 요소)은 **이미 계약을 만족하므로 그대로**다 —
-            버튼이라 Tab+Enter 가 이미 동작한다.
-        */}
-        <div
-          data-pane="buy"
-          className={cn('min-w-0', tab !== 'buy' && 'hidden @min-[700px]/lc:block')}
-        >
-          {buyCard}
-        </div>
-        <div
-          data-pane="sell"
-          className={cn('min-w-0', tab !== 'sell' && 'hidden @min-[700px]/lc:block')}
-        >
-          {sellCard}
-        </div>
+        {pane('buy', LC_BUY_GROUPS, buyReasons)}
+        {pane('sell', LC_SELL_GROUPS, sellReasons)}
       </div>
 
       {/*
-        ★ 액션 바는 `document.body` **로 포털한다 — 장식이 아니라 필수다** (260912-k2x).
-          상따 본문 래퍼가 `container-type:inline-size` 를 쓰는데, 그것은 layout containment
-          를 걸고 layout containment 가 걸린 요소는 `position:fixed` 자손의 **컨테이닝 블록**
-          이 된다. 포털을 걷으면 이 바가 뷰포트 하단이 아니라 **본문 끝**에 앉고, 그때부터
-          사용자는 화면을 끝까지 스크롤해야만 「수정」을 누를 수 있다 — 이 화면의 1차 CTA 가
-          사실상 사라진다. 「불필요한 포털」로 보고 지우지 마라.
-        ★ 공유 컴포넌트(`dirty-action-bar.tsx`)는 한 줄도 고치지 않았다 — VI 설정 화면도 같은
-          바를 쓰고 그쪽은 컨테이너 안이 아니다. 포털은 **이 호출부의 사정**이다.
-        ★ SSR 가드 — 서버 렌더에는 `document` 가 없다. 마운트된 뒤에만 포털을 만든다.
-        ★ 더티 0 이면 렌더하지 않는 규율은 **바 자신**이 이미 지킨다(`dirtyCount <= 0 → null`).
-          여기서 다시 판정하면 그 규율이 두 곳이 되고, 언젠가 한쪽만 고쳐진다.
-        ★ 카드가 여럿이므로 바 문구에 종목명을 쓴다(`dirtyHint`, 18-10). 바가 어느 카드의 것인지
-          말하는 유일한 채널이고, 시각·스크린리더 양쪽에서 그렇다.
-      */}
-      {/*
-        ★ 2026-09-23 — 작업대 카드는 `DirtyBarHostContext` 로 카드 맨 아래 sticky 자리를 준다(목업 B).
-          그때 바는 그 자리로 포털하고 화면 고정을 푼다. 자리가 없으면(종목상세 호가 탭) 위 규율대로 body.
-      */}
-      {/*
         ★ Phase 20 D-13 — 터치 기기 키패드 시트. **폼 전체에 한 개**이고 `document.body` 로 포털한다
-          (카드의 `container-type` 조상 밖 — 위 액션 바와 같은 이유 · Radix 가 대신 한다).
-          시트는 값만 넘기고 전송은 `handleSheetConfirm` → 훅 `commit` 하나다.
+          (카드의 `container-type` 조상 밖 · Radix 가 대신 한다). 제목·설명·단위는 필드 스펙
+          (`lcRowByField`)에서 온다. 시트는 값만 넘기고 전송은 `handleSheetConfirm` → 훅 `commit` 하나다.
       */}
       <NumberPadSheet
-        open={sheetSpec !== null}
-        title={sheetSpec?.title ?? ''}
-        description={sheetSpec?.description ?? ''}
-        unit={sheetSpec?.unit ?? '건'}
+        open={sheetRow !== null}
+        title={sheetRow?.row.label ?? ''}
+        description={sheetRow?.row.desc ?? ''}
+        unit={sheetRow?.row.unit ?? '건'}
         purpose="apply"
         initialValue={typeof sheetFailure?.value === 'number' ? sheetFailure.value : form[sheetKey]}
         // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06).
@@ -1326,103 +889,19 @@ export function LimitChaserForm({
         ctx={{ current: currentPrice, upper: upperLimit ?? 0 }}
         status={sheetBusy ? 'busy' : sheetFailure !== undefined ? 'failed' : 'editing'}
         failureText={sheetFailure?.text ?? null}
-        // 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 한방체결 그룹 보조문은
-        // 「켜짐/꺼짐」뿐이라 지금은 늘 false — 20-04 가 필드 스펙으로 그룹을 일반화한다.
-        armedNotice={sweepStatusText === '감시 중'}
+        // 그 필드가 속한 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 가격 섹션은 매수주문·
+        // 매도주문 그룹의 상태를 따른다(`lc-fields.ts` `statusKey`).
+        armedNotice={sheetStatusKey !== undefined && statusOf[sheetStatusKey] === '감시 중'}
         validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [sheetKey]: v })}
         returnFocusRef={sheetReturnRef}
         onConfirm={(v) => handleSheetConfirm(sheetKey, v)}
         onClose={handleSheetClose}
       />
-
-      {mounted &&
-        barHost !== null &&
-        createPortal(
-          <DirtyActionBar
-            dirtyCount={dirty.length}
-            submitting={submitting}
-            onSubmit={handleSubmit}
-            onRevert={handleRevert}
-            hint={dirtyHint ?? LIMIT_CHASER_DIRTY_HINT}
-            className={barHost === undefined ? dirtyBarClassName : IN_CARD_DIRTY_BAR_CLASS}
-          />,
-          barHost ?? document.body,
-        )}
     </div>
   );
 }
 
 /* ───────────────────────── 폼 구성 요소 ───────────────────────── */
-
-/**
- * `.fcard` — 라벨 컬럼 폭(`--lw`)을 카드 안에서 공유한다. 그룹을 카드로 쪼개면 그 공유가 깨진다.
- *
- * ★ `--lw` 는 `Row` 와 `CheckRow` **둘 다**의 1열 폭이다. `CheckRow` 의 1열에는 체크박스와
- *   간격이 라벨과 함께 들어가므로, 순수 라벨만 담는 `Row` 기준 폭으로는 4글자 라벨
- *   (「잔량추적」·「취소잔량」)이 잘린다 — 그래서 모바일 **76px** · 데스크톱 **104px** 이다.
- *   그 값의 근거(260912-gyz): 라벨 글꼴이 11px → **13px** 로 올라가면서 4글자가 체크박스
- *   **17px + gap** 과 함께 옛 64/88px 에 더 이상 들어가지 않아 조용히 잘린다. 잘린 라벨은
- *   사용자가 「잔량추적」과 「취소잔량」을 구분하지 못하게 만들고, 그 혼동이 곧 오발주다.
- *   목업 `260912-chaser-desktop.html`(`.mform.big` `--lw:76px` · `.form.big` `--lw:104px`)이
- *   390px·1152px 실폭에서 렌더해 확인한 값이다 — 모바일 76px 에서도 `10,000,000` + 단위가
- *   잘리지 않는다(입력 글꼴 16px 유지가 그 조건의 일부다).
- *
- * ★ 카드 **크롬(테두리·배경·radius)은 데스크톱에만** 있다. 390px 에서는 본문 여백(8px) 안에
- *   카드 테두리와 그룹 패딩이 겹겹이 들어와 입력 폭을 먹었다 — 모바일에서는 카드가 화면
- *   자체이므로 테두리가 구분하는 「바깥」이 없다.
- *
- * ## 방향색 틴트 — **토스 B(260924-vj1 실험 브랜치)에서 걷었다.** 아래는 옛 결정의 기록이다.
- *    B 는 방향 카드 바탕이 카드색(`--buy-tint`/`--sell-tint` = `--card`)이라 틴트·폰 bleed 그림자·
- *    `clip-path` 를 모두 걷고 `bg-[var(--card-base)]` 한 줄만 남겼다. 체크박스 방향색(`--lc-accent`)과
- *    그룹 제목 글자는 그대로 방향을 말한다.
- * ## (옛) 방향색 틴트 (quick-260912-mvo Q-06, 사용자 채택 C안)
- * ⓐ **모든 밴드에서** 칠한다. 처음엔 2열부터만(`@min-[700px]/lc:`) 칠했지만 — 폰은 탭이 방향을
- *    말한다는 이유 — 사용자가 탭 화면도 펼친 화면처럼 색을 원했다(2026-09-23, 목업 승인).
- *    폰은 **탭 아래 영역을 옵션 pane 가장자리까지 채운다** — 배경과 같은 색의 `box-shadow`
- *    spread 8px(= pane 의 `p-2`)로 그린다. 음수 마진(`-mx-2`)으로 하면 pane 과 카드 사이 래퍼들의
- *    `scrollWidth` 가 8px 늘어 e2e 잘림 검사(test 4)에 걸리고, 안쪽 여백을 넣으면 폰 카드(342px)에서
- *    입력·세그먼트가 8px 넘친다(test 5 실측). 그림자는 잉크 오버플로라 레이아웃·scrollWidth 에 없다.
- *    2열부터는 그림자 없이 pane 여백 안에 둥근 모서리(`--r-md`) + 8px 여백, 데스크톱은 카드 테두리.
- * ⓑ 배경 선언은 **한 줄뿐**이어야 한다(방향 카드는 틴트 한 줄, 그 밖은 `bg-[var(--card-base)]` 한 줄). 예전에는 `@min-[992px]/lc:bg-[var(--card)]` 가 있어
- *    ≥992 에서 두 배경이 캐스케이드로 다퉜다(어느 쪽이 이기는지 클래스 문자열 순서로
- *    정해지지 않는다). 그래서 카드색을 **변수 스위치**(`--card-base`)로 바꿨다 —
- *    기본 `transparent`, ≥992 에서 `var(--card)`. 틴트는 그 위에 5% 를 섞는다.
- *    결과: 폰/컴팩트/와이드 = 투명 위 5% · 데스크톱 = `--card` 위 5%.
- *    **배경만** 틴트가 되고 테두리는 `--border` 그대로라 더티 테두리(`--primary`)와 다투지 않는다.
- * ⓒ 2열부터 가로 패딩 8px×2 가 카드 **안쪽 폼 폭을 16px 줄인다**(폰은 ⓐ 의 bleed 라 0). 본문 700px 경계의 잘림 여유를
- *    그만큼 갉아먹는다 — jsdom 에 레이아웃이 없어 유닛으로 증명할 수 없다(WINDOWS 등재).
- * ⓓ 5% 는 목업(`260912-buysell-ladder.html` `.vC .fcard`)에서 검증된 값이다. **올리지 마라** —
- *    그 위에 흰 입력칸이 얹힌다. 그리고 색은 유일 채널이 아니다: 그룹 제목(「매수주문」/
- *    「매도주문」)과 폰 탭 문구가 글자로 말한다(WCAG 1.4.1) — 그 문구를 지우면 이 틴트는 위반이 된다.
- */
-function Card({
-  children,
-  side,
-}: {
-  children: ReactNode;
-  /** 방향색 틴트 대상. 없으면 틴트 없이 기본 카드 크롬만. */
-  side?: 'buy' | 'sell';
-}) {
-  return (
-    <div
-      data-side={side}
-      className={cn(
-        'min-w-0 overflow-hidden [--card-base:transparent] [--lw:76px]',
-        '@min-[992px]/lc:rounded-[var(--r-md)] @min-[992px]/lc:border @min-[992px]/lc:border-transparent @min-[992px]/lc:[--card-base:var(--card)] @min-[992px]/lc:[--lw:104px]',
-        // 배경 선언은 요소당 **하나뿐**이다(ⓑ). 토스 B(260924-vj1) — 방향 카드도 카드색 한 줄이다
-        // (B `--buy-tint`/`--sell-tint` = 카드색). 방향은 그룹 제목 글자와 체크박스 색이 말한다.
-        'bg-[var(--card-base)]',
-        // 가로 `@min-[700px]/lc:px-2` 는 불변이다(본문 700 잘림 여유 — ⓒ).
-        side !== undefined && 'py-1.5 @min-[700px]/lc:rounded-[var(--r-md)] @min-[700px]/lc:px-2',
-        // 체크박스 색(`CheckRow`)도 방향을 따른다 — 매수 카드에서 파란 체크가 섞이지 않게.
-        side === 'buy' && '[--lc-accent:var(--up)]',
-        side === 'sell' && '[--lc-accent:var(--down)]',
-      )}
-    >
-      {children}
-    </div>
-  );
-}
 
 /**
  * 「켤 수 없는 이유」 — 카드의 **마지막 자식**. 목록이 비면 `null` 이라 영역 자체가 DOM 에 없다.
@@ -1457,360 +936,6 @@ function ArmBlockedPanel({ groups }: { groups: ArmBlockedGroup[] }) {
   );
 }
 
-interface GroupSwitchProps {
-  label: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  /** 이 스위치를 지금 누를 수 없는가. 판정은 호출부의 `gateBlocked` 하나다(WR-06). */
-  disabled?: boolean;
-}
-
-/**
- * `.grp` — 헤더(게이트 체크박스 · 제목 · 상태문구) + 행들.
- *
- * ★ 좌측 3px 세로 액센트 바는 260911-w5h 에서 사라졌다. 매수/매도 축을 카드 안에서 잇는
- *   일은 이제 **상단 세그먼트 탭**(선택 시 매수 `--up` / 매도 `--down`) + **게이트 스위치
- *   색**(`tone`) + **그룹 소제목**(「매수주문」/「매도주문」) 셋이 함께 한다 — 파일 상단 ② 1.
- */
-function Group({
-  slot,
-  tone,
-  title,
-  status,
-  hint,
-  switchProps,
-  children,
-}: {
-  slot: 'buy' | 'buy-price' | 'sweep' | 'sell' | 'sell-price' | 'cancel';
-  tone: 'buy' | 'sell' | 'neutral';
-  /**
-   * 그룹 제목. **없어도 된다** — 첫 행 라벨이 곧 제목인 그룹(매수가격·매도가격)은 제목이
-   * 같은 말의 반복이었다. 헤더 줄에 보여 줄 것이 하나도 없으면 줄 자체를 렌더하지 않는다
-   * (빈 24px 줄이 남으면 그것이 곧 정체 모를 여백이다).
-   */
-  title?: string;
-  status?: string;
-  /*
-    ★ 묘비 — `caption?: string` 은 quick-260912-u58 ② 에서 걷혔다. 마지막 호출부는 취소
-      그룹의 `caption="가드"` 하나였고, 사용자가 그 라벨을 「매수취소」 한 덩어리로 줄이면서
-      0 이 됐다(편집 후 재확인: 호출부 0건). 쓰는 곳이 없는 표현 장치를 남겨 두면 다음
-      사람이 「자리가 있으니 채우자」로 다시 건다.
-  */
-  /** 그룹 전체 툴팁(`<section title>`). **화면에는 렌더하지 않는다** — 고밀도 폼에서 한 줄이 컬럼 정렬을 깬다. */
-  hint?: string;
-  switchProps?: GroupSwitchProps;
-  children: ReactNode;
-}) {
-  // 헤더 줄에 보여 줄 것이 하나라도 있어야 줄을 만든다 — 없으면 빈 24px 줄만 남는다.
-  const hasHeader = title != null || status != null || switchProps != null;
-  return (
-    <section
-      data-slot={`lc-group-${slot}`}
-      title={hint}
-      className="min-w-0 border-t border-[var(--border-subtle)] px-0 py-1.5 first:border-t-0 @min-[992px]/lc:px-[var(--s-3)] @min-[992px]/lc:py-[var(--s-2)]"
-    >
-      {hasHeader ? (
-      <div className="flex min-h-6 min-w-0 items-center gap-[var(--s-2)]">
-        {/*
-          ★ 게이트 체크박스는 제목 **왼쪽**이다(2026-09-23 목업 승인) — 아래 `CheckRow` 의 체크박스와
-            같은 x 에 선다. 옛 상태 점(LED)은 뺐다: 체크 여부와 상태문구(「감시 중」/「꺼짐」)가 이미
-            같은 말을 해서 셋이 겹쳤다.
-        */}
-        {switchProps != null ? <GateSwitch tone={tone} {...switchProps} /> : null}
-        <span className="min-w-0 flex-1 leading-normal">
-          {title ? (
-            <span className="text-[13px] font-semibold tracking-[0.06em] text-[var(--muted-fg)]">
-              {title}
-            </span>
-          ) : null}
-          {status ? <span className="ml-1 text-[11px] text-[var(--muted-fg)]">{status}</span> : null}
-        </span>
-      </div>
-      ) : null}
-      {children}
-    </section>
-  );
-}
-
-/**
- * 게이트 체크박스 — 누르면 확인 없이 즉시 전송된다(D-05).
- *
- * 옛 44×26 토글 스위치를 사용자 요청(2026-09-23)으로 폼의 다른 체크박스(`CheckRow`)와 같은
- * 네이티브 체크박스로 통일했다. 색은 방향(`tone`)을 따른다 — 매수 `--up` · 매도 `--down`.
- * 자리는 그룹 제목 **왼쪽**(`Group` 헤더 주석), 크기는 다른 체크박스와 같은 17px 이다.
- */
-function GateSwitch({
-  tone,
-  label,
-  checked,
-  onChange,
-  disabled = false,
-}: GroupSwitchProps & { tone: 'buy' | 'sell' | 'neutral' }) {
-  const on = tone === 'buy' ? 'var(--up)' : tone === 'sell' ? 'var(--down)' : 'var(--primary)';
-  return (
-    <input
-      type="checkbox"
-      aria-label={label}
-      checked={checked}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.checked)}
-      className="size-[17px] flex-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-      style={{ accentColor: on }}
-    />
-  );
-}
-
-/** `.fr` — 「라벨 | 입력」 한 줄. 라벨 폭은 카드가 정한 `--lw` 를 공유한다. */
-function Row({
-  label,
-  htmlFor,
-  dirty = false,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  dirty?: boolean;
-  children: ReactNode;
-}) {
-  /*
-    ★ 행 최소 높이는 **입력 높이를 따른다** (260912-gyz). 입력이 46px(토스 B · 260924-vj1, 이전 38px) 로 양쪽 폭에서
-      같아졌으므로, 입력이 없는 행만 36/32px 로 남으면 그 행에서만 세로 리듬이 끊긴다.
-  */
-  return (
-    <div className="mt-[var(--s-1)] grid min-h-[46px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]">
-      <label
-        htmlFor={htmlFor}
-        className={cn(
-          'truncate text-[13px]',
-          dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--muted-fg)]',
-        )}
-      >
-        {/* 더티 표시는 색만이 아니라 **문자**로도 남긴다(WCAG 1.4.1). */}
-        {dirty ? '● ' : ''}
-        {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-/** 숫자 입력 — 천단위 구분자 표시, 입력은 숫자만 남긴다. */
-function NumInput({
-  id,
-  unit,
-  value,
-  onValueChange,
-  disabled,
-  dirty,
-  flash,
-  className,
-  ...rest
-}: {
-  id: string;
-  unit?: string;
-  value: number;
-  onValueChange: (next: number) => void;
-  disabled?: boolean;
-  dirty?: boolean;
-  flash?: boolean;
-  className?: string;
-} & Pick<React.ComponentProps<'input'>, 'aria-label'>) {
-  return (
-    <div
-      className={cn(
-        /*
-          ★ 포커스·더티 표현은 **테두리 한 겹뿐**이다 (260911-w5h). 옛 더티 표현의 2px 링
-            그림자를 걷었다 — 고밀도 폼에서 링이 이웃 행과 겹쳐 어느 입력이 더티인지가 오히려
-            흐려졌다. 비색 경로는 그대로 남는다: `Row`/`CheckRow` 라벨의 `● ` 접두 + `--primary`
-            라벨색이 색 단독 전달을 막는다(WCAG 1.4.1).
-          ★ `focus-within:` 은 의사클래스가 붙어 특이도가 더 높으므로, 더티 테두리와 동시에
-            걸려도 **포커스색 하나**가 이긴다 — 순서로 다투지 않는다.
-        */
-        // 토스 B — 높이 46(세로만) · raised 채움. **가로 패딩 `px-1.5` 불변**(본문 700 = 주문금액 잘림 여유 0).
-        'flex h-[46px] min-w-0 items-center gap-1 rounded-[var(--r)] border bg-[var(--muted)] px-1.5 focus-within:border-[var(--ring)]',
-        dirty ? 'border-[var(--primary)]' : 'border-[var(--input)]',
-        flash && 'motion-safe:bg-[color-mix(in_oklch,var(--primary)_10%,transparent)]',
-        disabled && 'opacity-45',
-        className,
-      )}
-    >
-      <input
-        id={id}
-        type="text"
-        inputMode="numeric"
-        /*
-          ★ quick-260912-mvo Q-02 — 전역 Double-Ring 해제. 포커스 표시는 위 래퍼의
-            `focus-within:border-[var(--ring)]` 한 겹이다. 둘은 **한 쌍**이라 한쪽만 남으면
-            포커스가 두 겹으로 보이거나 통째로 사라진다(WCAG 2.4.7).
-        */
-        data-focus-ring="seamless"
-        disabled={disabled}
-        value={NUM.format(value)}
-        onChange={(e) => onValueChange(parseDigits(e.target.value))}
-        /*
-          ★ 누르면 값이 **통째로 선택**된다 — 상따에서 값을 고치는 동작은 거의 언제나 「전부
-            지우고 새로 친다」이고, 커서만 놓이면 사용자가 백스페이스를 7번 눌러야 한다.
-          ★ `e.currentTarget` 을 먼저 캡처해야 한다 — 핸들러가 끝나면 `null` 이 되므로 타이머
-            안에서 바로 읽으면 터진다. iOS 는 `onFocus` 안의 `select()` 가 곧바로 풀리는 경우가
-            있어 **직후 1회 더** 부르는 것이 실효 처리다.
-        */
-        onFocus={(e) => {
-          const el = e.currentTarget;
-          el.select();
-          window.setTimeout(() => el.select(), 0);
-        }}
-        onClick={(e) => e.currentTarget.select()}
-        /*
-          ★ 모바일 글꼴이 **16px** 인 이유: iOS Safari 는 글꼴 16px 미만 입력에 포커스하면
-            화면을 자동 확대하고 **되돌리지 않는다**. 16px 이면 확대가 아예 일어나지 않으므로
-            `viewport` 에 `user-scalable=no` / `maximum-scale=1` 을 걸어 핀치줌을 죽일 필요가
-            없다 — 접근성을 유지한 채 「확대되고 안 돌아옴」을 없애는 유일한 근본 해결이다.
-          ★ 260912-gyz 에서 **데스크톱만 15px 로 올렸고 모바일 16px 은 그대로 두었다.** 이 값이
-            그 문제를 막는 **유일한 장치**이므로, 뒤에 오는 어떤 「데스크톱과 통일하자」 변경도
-            모바일 값을 16px 미만으로 내려서는 안 된다.
-        */
-        className="mono min-w-0 flex-1 bg-transparent text-right text-[16px] text-[var(--fg)] outline-none disabled:cursor-not-allowed @min-[992px]/lc:text-[15px]"
-        {...rest}
-      />
-      {unit ? (
-        <span className="flex-none text-[13px] text-[var(--muted-fg)] @min-[992px]/lc:text-[12px]">
-          {unit}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-/** 「라벨 | 숫자 입력」 한 줄 — 더티·플래시 배선을 한 곳에 모은다. */
-function NumField<K extends keyof LimitChaserFormValues>({
-  id,
-  label,
-  unit,
-  field,
-  value,
-  onChange,
-  dirty,
-  flash,
-  disabled,
-}: {
-  id: string;
-  label: string;
-  unit: string;
-  field: K & LimitChaserDirtyField;
-  value: number;
-  onChange: (key: K, value: LimitChaserFormValues[K]) => void;
-  dirty: ReadonlySet<string>;
-  flash: ReadonlySet<string>;
-  disabled: boolean;
-}) {
-  const isDirty = dirty.has(field);
-  return (
-    <Row label={label} htmlFor={id} dirty={isDirty}>
-      <NumInput
-        id={id}
-        unit={unit}
-        value={value}
-        onValueChange={(v) => onChange(field, v as LimitChaserFormValues[K])}
-        disabled={disabled}
-        dirty={isDirty}
-        flash={flash.has(field)}
-      />
-    </Row>
-  );
-}
-
-/**
- * `.ck` — 체크박스 한 줄. **`Row` 와 같은 2열 그리드**(`--lw | 1fr`)를 쓴다.
- *
- * 1열에 체크박스 + 라벨을 묶고 2열에 입력을 둔다 — 그래야 위쪽 「라벨 | 입력」 행과 입력의
- * 좌우 끝·폭이 정확히 맞는다(예전 `flex flex-wrap` + 입력 고정폭 104px 은 끝이 어긋났다).
- * 입력이 없는 행은 2열이 비어도 무방하다.
- */
-function CheckRow({
-  id,
-  label,
-  checked,
-  onCheckedChange,
-  disabled,
-  dirty = false,
-  inline = false,
-  children,
-}: {
-  id: string;
-  label: string;
-  /** 한 줄에 여럿 두는 입력 없는 체크 — 격자·행 높이 없이 체크+라벨만(매수취소 체결·잔량추적). */
-  inline?: boolean;
-  checked: boolean;
-  onCheckedChange: (next: boolean) => void;
-  disabled?: boolean;
-  /*
-    ★ 묘비 — `dimmed?: boolean`(선행 조건이 꺼져 있을 때 `opacity:.45`, UI-SPEC A9)은
-      quick-260912-u58 ④ 에서 걷혔다. 마지막 호출부는 취소 잔량추적 행의
-      `dimmed={!form.cancelQtyEnabled}` 하나였고, 사용자가 A9 의 결합을 명시적으로 풀면서
-      0 이 됐다(편집 후 재확인: 호출부 0건 · 이 표현을 단언하던 테스트 0건).
-      「어떤 행은 시각적으로 죽어 있다」고 말하는 장치를, 그런 행이 하나도 없는데 남겨 두면
-      다음 사람이 자리를 보고 다시 건다.
-  */
-  dirty?: boolean;
-  children?: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        // 행 최소 높이가 입력 높이(46px)를 따른다 — 근거는 `Row` 의 같은 자리 주석.
-        inline
-          ? 'min-w-0'
-          : 'mt-[var(--s-1)] grid min-h-[46px] min-w-0 grid-cols-[var(--lw)_minmax(0,1fr)] items-center gap-1.5 @min-[992px]/lc:gap-[var(--s-2)]',
-      )}
-    >
-      <span className="flex min-w-0 items-center gap-[3px] @min-[992px]/lc:gap-[var(--s-1)]">
-        <input
-          id={id}
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(e) => onCheckedChange(e.target.checked)}
-          // 색은 카드 방향을 따른다(`Card` 의 `--lc-accent`) — 게이트 체크박스와 같은 색이어야 한다.
-          className="size-[17px] flex-none accent-[var(--lc-accent,var(--primary))] disabled:cursor-not-allowed"
-        />
-        {/*
-          ★ quick-260912-ok2 ⑤ — 비더티 색이 `Row` 와 **같은 `--muted-fg`** 다.
-            여기만 `--fg` 이던 시절 브라우저 실측이 `lab(5.26802 0 0)` vs `Row` 의
-            `lab(42 0 0)` 이었다 — 같은 카드 안 같은 위계의 라벨이 두 색으로 읽혀,
-            체크박스 행만 강조된 것처럼 보였다. 라벨의 위계는 문구가 아니라 색이 말한다.
-          ★ 더티 표현 3종(`● ` + `--primary` + `font-semibold`)은 **그대로다.** 색 하나로만
-            더티를 말하면 WCAG 1.4.1 위반이고, 이 화면에서 「바꾼 줄 몰랐다」는 곧 오발주다.
-        */}
-        <label
-          htmlFor={id}
-          className={cn(
-            'min-w-0 truncate text-[13px]',
-            dirty ? 'font-semibold text-[var(--primary)]' : 'text-[var(--muted-fg)]',
-          )}
-        >
-          {/* 더티 표시는 색만이 아니라 **문자**로도 남긴다(WCAG 1.4.1) — `Row` 와 같은 규율. */}
-          {dirty ? '● ' : ''}
-          {label}
-        </label>
-      </span>
-      {children}
-    </div>
-  );
-}
-
-/** `.drv` — 읽기 전용 파생값. 서버 계산값이 정본이라는 사실을 숨기지 않는다. */
-function Derived({ label, value, note }: { label: string; value: string; note?: string }) {
-  return (
-    <div className="mt-[var(--s-1)] flex min-w-0 items-baseline justify-between gap-[var(--s-2)] text-[11px] text-[var(--muted-fg)]">
-      <span className="min-w-0">
-        {label}
-        {note ? <span className="ml-1 opacity-80">· {note}</span> : null}
-      </span>
-      <b className="mono flex-none font-semibold text-[var(--fg)]">{value}</b>
-    </div>
-  );
-}
-
 /**
  * 인라인 편집기 실패 문구 — 보냈는데 안 선 것(거부·무응답)은 「Enter 로 다시 시도」를 덧붙인다
  * (UI-SPEC Copywriting 「인라인 실패 말풍선」). 끊김·무장 불가는 그 사유 문장 그대로다.
@@ -1819,15 +944,6 @@ function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
   if (f === undefined) return null;
   return f.reason === 'rejected' || f.reason === 'timeout' ? LC_COMMIT_TEXT.inlineFailed : f.text;
 }
-
-/**
- * 시트로 편집하는 값 필드 (20-03 트레이서 = 「호가변경」 한 행). 20-04 가 전체 리스트의 필드 스펙
- * (`lc-fields.ts`)으로 넓힌다 — 제목은 행 라벨, 설명은 UI-SPEC 카피 표 원문이다.
- */
-type LcSheetField = 'sweepMinTickCount';
-const LC_SHEET_SPEC: Record<LcSheetField, { title: string; description: string; unit: PadUnit }> = {
-  sweepMinTickCount: { title: '호가변경', description: '호가가 이만큼 바뀌면 한 번에 체결해요', unit: '건' },
-};
 
 /** 무장 판정 기준값 — 서버 동기값(없으면 폼 값). 훅의 전송 직전 가드와 같은 식이다(T-20-03). */
 function lcBaseValues(
@@ -1840,10 +956,4 @@ function lcBaseValues(
 /** 편집이 끝난 행의 실패 문구 — 사유 문장 그대로(행을 다시 누르면 보존값으로 편집이 열린다). */
 function rowFailureTextOf(f: LcCommitFailure | undefined): string | null {
   return f === undefined ? null : f.text;
-}
-
-/** 입력 문자열에서 숫자만 남겨 정수로. 빈 값은 0 이다(「모름」이 아니라 0 이다). */
-function parseDigits(raw: string): number {
-  const digits = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
-  return digits.length === 0 ? 0 : Number(digits);
 }

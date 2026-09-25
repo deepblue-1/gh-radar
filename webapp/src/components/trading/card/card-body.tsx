@@ -33,6 +33,12 @@
  *   건넨다. 본문이 들고 있는 것은 화면 국소 상태 둘뿐이다 — 폰 밴드 옵션 탭, 호가 클릭 가격.
  *   ★ 본문은 넘겨받은 **단일** `isin`/`exchange` 의 시세만 그리고, 수동주문 폼도 같은 값을 쓴다
  *     (T-18-48 — 다른 종목 호가로 주문하는 경로가 없다).
+ *
+ * ⑥ ★ 상따 설정에는 더티 바가 없다 (Phase 20 D-04)
+ *   옵션 폼은 값 하나를 확정하면 그 한 필드가 곧 전송 1회다 — 더티 누적 · 「수정/되돌리기」 바 ·
+ *   종목명 바 문구 · FAB 비켜 가기 클래스를 이 본문에서 걷었다. 카드 상태의 `dirtyCount` 는 폼이
+ *   더 이상 보고하지 않아 늘 0 이고, 워크벤치 배관(카드 더티 호스트 · 테두리 · 이탈 경고)은 그래서
+ *   스스로 비활성이다(수정하지 않았다). VI 설정 줄의 「수정」은 별개 표면이다.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -44,14 +50,10 @@ import type {
   RelayUnfilled,
 } from '@gh-radar/shared';
 
-import { CHAT_FAB_CLEARANCE_CLASS } from '@/components/chat/fab-clearance';
 import { OrderbookLadder } from '@/components/orderbook/orderbook-ladder';
 import type { PriceSelection } from '@/components/orderbook/order-panel';
 import { latchLedStateOf } from '@/components/trading/latch-led';
-import {
-  LIMIT_CHASER_DIRTY_HINT,
-  LimitChaserForm,
-} from '@/components/trading/limit-chaser-form';
+import { LimitChaserForm } from '@/components/trading/limit-chaser-form';
 import {
   ManualOrderEntry,
   ManualOrderForm,
@@ -99,18 +101,6 @@ const EMPTY_LADDER_QUOTE: RelayQuote = {
   et: '',
 };
 
-/**
- * 호가 탭 더티 바의 오른쪽 끝 — 종목상세(`/stocks/{code}`)에는 AI FAB(`fixed right-6 bottom-6`)
- * 이 떠 있어 바의 「수정」 버튼을 덮는다. FAB 폭은 종목명 라벨 길이로 달라지므로(실측 134px ·
- * 「삼성전자」) 고정 숫자가 아니라 FAB 이 싣는 실측 폭 변수만큼 바를 줄인다(`chat/fab-clearance.ts`).
- * `dirty-action-bar.tsx` ⑥ⓒⓙ 가 지목한 대로 **이 표면에서만** `className` 으로 감싼다 — 공유
- * 컴포넌트와 작업대 카드(FAB 없음)는 전폭 그대로다. z-index 로 FAB 을 덮지 않는다.
- */
-const ORDERBOOK_DIRTY_BAR_CLASS = CHAT_FAB_CLEARANCE_CLASS;
-
-/** 더티 바 문구에서 종목명이 차지할 최대 글자 수 — 넘치면 한 줄 말줄임(…)이다(E15 long-text). */
-const DIRTY_NAME_MAX = 16;
-
 /** 그룹 제목 옆 보조문 4개 — UI-SPEC §카드 「그룹 보조문」 5문구 중 하나씩. */
 export interface CardGroupStatus {
   buy: string;
@@ -147,20 +137,6 @@ export function cardGroupStatusOf(
     sell: server?.sellEnabled === true ? stage('sell') : '꺼짐',
     cancel: cancelOff ? '꺼짐' : stage('cancel'),
   };
-}
-
-/**
- * 더티 바 보조문 — 「{종목명} · {N}개 미반영」 + 상따 안내 문장 (UI-SPEC §카드 더티 바 원문).
- *
- * ★ 카드가 여럿이면 바가 전부 화면 하단 같은 자리에 뜬다 — **어느 카드의 바인지는 이 문구만이
- *   말한다.** 공유 바의 `hint` 는 문자열 prop 이라 종목명만 따로 말줄임할 수 없으므로 여기서
- *   글자 수로 자른다(1줄 말줄임). 안내 문장은 자르지 않는다 — 폰에서 두 줄로 접히는 것이 허용이다.
- */
-export function cardDirtyHint(name: string, dirtyCount: number): string {
-  const chars = Array.from(name);
-  const shown =
-    chars.length > DIRTY_NAME_MAX ? `${chars.slice(0, DIRTY_NAME_MAX - 1).join('')}…` : name;
-  return `${shown} · ${dirtyCount}개 미반영 · ${LIMIT_CHASER_DIRTY_HINT}`;
 }
 
 export interface CardBodyProps {
@@ -219,8 +195,6 @@ export function CardBody({
     liveSeed,
     answerSeq,
     unacked,
-    dirtyCount,
-    setDirtyCount,
     handleSent,
     handleServerEcho,
   } = card;
@@ -265,7 +239,6 @@ export function CardBody({
       sellStatusText={groups.sell}
       sweepStatusText={groups.sweep}
       cancelStatusText={groups.cancel}
-      onDirtyCountChange={setDirtyCount}
       serverAnswerSeq={answerSeq}
       // Phase 20 — 필드 확정 실패 판정(3초 무응답)은 상태줄 「미반영」과 **같은 신호**다(UI-SPEC A10).
       unacked={unacked}
@@ -273,9 +246,6 @@ export function CardBody({
       currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
       onSent={handleSent}
       onServerEcho={handleServerEcho}
-      // 작업대 카드는 바가 카드 안에 붙어 종목명이 필요 없다(목업 B). 호가 탭은 화면 하단 바라 종목명을 쓴다.
-      dirtyHint={variant === 'orderbook' ? cardDirtyHint(displayName, dirtyCount) : LIMIT_CHASER_DIRTY_HINT}
-      dirtyBarClassName={variant === 'orderbook' ? ORDERBOOK_DIRTY_BAR_CLASS : undefined}
       tab={optionsTab}
       hideTabs
     />

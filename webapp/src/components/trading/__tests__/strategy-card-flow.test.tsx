@@ -389,7 +389,9 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
   });
 
   it('⑭b ★ 더티 액션 바가 없다 — 값 확정·에코 뒤에도 카드 안 `card-dirty-host` 가 비어 있고 테두리가 파래지지 않는다 (Phase 20 D-04 · 옛 목업 B 대체)', () => {
-    setRelay({ limitChasers: [echo()] });
+    // 무장 가능한 전략이어야 값 확정이 나간다 — 기본 에코(10만원 / 130,000원 = 0주)는 켜진 매수 게이트를
+    // 무장할 수 없어 전송 직전 가드(`armBlockOf`)가 막는다.
+    setRelay({ limitChasers: [echo({ buyOrderAmount: 100 })] });
     const { rerender } = render(<Card />);
     const card = document.querySelector('[data-slot="strategy-card"]') as HTMLElement;
     expect(card.className).toContain('@container/lc');
@@ -402,7 +404,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     expect(host.childElementCount).toBe(0);
     expect(card.className).not.toContain('var(--primary)_55%');
 
-    setRelay({ limitChasers: [echo({ buyWatchQty: 8_000 })] });
+    setRelay({ limitChasers: [echo({ buyOrderAmount: 100, buyWatchQty: 8_000 })] });
     rerender(<Card />);
     expect(rowValue('lc-buy-watch-qty')).toBe('8,000주');
     expect(document.querySelector('[data-slot="dirty-action-bar"]')).toBeNull();

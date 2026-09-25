@@ -34,9 +34,19 @@ export function formatSettingValue(value: number, unit: SettingUnit): string {
   return `${NUM.format(value)}${unit}`;
 }
 
-/** 행 상자 — 버튼(평소)과 div(편집 중)가 **같은 기하**를 쓴다(D-14a). */
+/**
+ * 행 상자 — 버튼(평소)과 div(편집 중)가 **같은 기하**를 쓴다(D-14a). 값 행 · 체크 행 · 감시대상 행 ·
+ * 기준선 행이 전부 이 상자라 라벨의 x 가 한 줄로 맞는다.
+ *
+ * ★ 폭 백스톱(UI-SPEC overflow · 20-02 폭 스파이크) — **폰 밴드(<700)만 L2**: 행 좌우 패딩 4→0 ·
+ *   라벨–값 간격 6→4. 본문 344 에서 「잔량추적 기준선 | 100,000주」가 L0 −9.1px → L2 +0.9px 이다
+ *   (쉐브런이 없는 행이라 L3 는 효과가 없어 쓰지 않는다). ≥700 은 D-02a 로 감시대상 행이 풀폭
+ *   토글이 되어 값 행 최소 여유 +12.9(700) · +7.9(830) · +33.6(992) 로 L0 에서 다 들어간다 — 그래서
+ *   원래 값(4 · 6)으로 돌려놓는다. 글자 크기는 줄이지도 키우지도 않는다. 여유가 얇으므로(+0.9)
+ *   20-07 P20-3 이 실브라우저로 단언한다.
+ */
 const ROW_BOX =
-  'flex min-h-[44px] w-full min-w-0 items-center justify-between gap-1.5 rounded-[10px] px-1 text-left';
+  'flex min-h-[44px] w-full min-w-0 items-center justify-between gap-1 rounded-[10px] px-0 text-left @min-[700px]/lc:gap-1.5 @min-[700px]/lc:px-1';
 
 /** 행 라벨 14/400 `--muted-fg`(UI-SPEC §2). */
 const LABEL_TEXT = 'whitespace-nowrap text-[14px] leading-[1.5] text-[var(--muted-fg)]';
