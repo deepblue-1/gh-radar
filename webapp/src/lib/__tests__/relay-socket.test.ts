@@ -60,6 +60,7 @@ import {
   useRelayConnection,
   type RelayConnectionState,
 } from '../use-relay-socket';
+import { useRelayContext } from '../relay-provider';
 
 const ISIN_A = 'KR7005930003';
 /** 로그에 **새면 안 되는** 값. 계좌번호가 콘솔에 찍히는지 단언에 쓴다(T-16-18). */
@@ -2346,5 +2347,175 @@ describe('useRelayConnection — 복귀 시 죽은 소켓·소진된 예산 복�
     // 복귀가 연결을 다시 돌렸다면 다음 getSession 은 정상 세션이라 소켓이 생긴다.
     expect(FakeWebSocket.instances).toHaveLength(0);
     expect(hook.result.current.status).toBe('unauthorized');
+  });
+  /*
+    D-16 (Phase 21) — 당겨서 새로고침의 트레이딩·마이 재조회 = `probeNow()`.
+    relay 인바운드에 「스냅샷 재요청」 프레임이 없어 relay 는 무변경이다(21-RESEARCH Pitfall 11).
+    죽었으면 재연결(인증 직후 스냅샷 재수신), 살아 있으면 서버 푸시가 곧 최신이라 추가 요청이 없다.
+    깨지면 사용자가 겪는 일: 앱에서 당겨도 끊긴 시세·계좌가 그대로 멈춰 있거나(P1·P2), 당길 때마다
+    멀쩡한 소켓이 끊겨 주문 결과를 잃는다(P2-a·P3).
+  */
+  it('P1 probeNow — 예산 소진(manual_required)이면 백오프 없이 새 소켓을 즉시 연다', async () => {
+    const hook = render();
+    await exhaust();
+    expect(hook.result.current.status).toBe('manual_required');
+    expect(FakeWebSocket.instances).toHaveLength(11);
+
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(12);
+    expect(hook.result.current.status).toBe('connecting');
+    expect(hook.result.current.attempt).toBe(0);
+  });
+
+  it('P1-a probeNow — 백오프 대기 중이면 남은 대기를 버리고 즉시 다시 붙는다', async () => {
+    const hook = render();
+    await settle();
+    for (let i = 0; i < 3; i += 1) {
+      const ws = FakeWebSocket.last();
+      await act(async () => {
+        ws.serverClose(1006);
+      });
+      if (i < 2) {
+        await act(async () => {
+          vi.advanceTimersByTime(30_000);
+        });
+        await settle();
+      }
+    }
+    expect(hook.result.current.status).toBe('reconnecting');
+    expect(FakeWebSocket.instances).toHaveLength(3);
+
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    expect(hook.result.current.attempt).toBe(0);
+  });
+
+  it('P2 probeNow — 인증된 OPEN 소켓이 탐침 창 동안 한 프레임도 안 주면 새 소켓을 연다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS - 1);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(ws.closedWith).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(ws.closedWith).not.toBeNull();
+    expect(hook.result.current.attempt).toBe(0);
+  });
+
+  it('P2-a probeNow — 탐침 창 안에 새 프레임이 오면 살아 있는 소켓이다 — 끊지 않는다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_SETTLE_MS);
+    });
+    await act(async () => {
+      ws.push(quoteFrame({ p: 72_000 }));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(ws.closedWith).toBeNull();
+    expect(hook.result.current.isStale).toBe(false);
+  });
+
+  it('P3 probeNow — 연결 시도 중(업그레이드 전·인증 ACK 전)에는 아무것도 하지 않는다', async () => {
+    const hook = render();
+    await settle();
+    const ws = FakeWebSocket.last();
+
+    // 업그레이드 전(CONNECTING)
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await act(async () => {
+      ws.accept();
+    });
+    // OPEN 이지만 인증 ACK 전
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS * 2);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(ws.closedWith).toBeNull();
+  });
+
+  it('P3-a probeNow — 언마운트 뒤 호출은 소켓을 열지 않는다', async () => {
+    const hook = render();
+    await connected(hook);
+    const { probeNow } = hook.result.current;
+    act(() => {
+      hook.unmount();
+    });
+
+    await act(async () => {
+      probeNow();
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS * 2);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('P3-b probeNow — 같은 창 안 두 번 호출은 탐침 1개다(두 번째가 창을 늘리지 않는다) · 참조는 안정', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    const first = hook.result.current.probeNow;
+
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+    });
+    await act(async () => {
+      hook.result.current.probeNow();
+    });
+    // 첫 호출 기준 창이 끝나는 순간 판정한다 — 두 번째 호출이 타이머를 새로 걸었다면 아직 1개다.
+    await act(async () => {
+      vi.advanceTimersByTime(RELAY_RESUME_PROBE_MS - 3_000);
+    });
+    await settle();
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(ws.closedWith).not.toBeNull();
+    // 안정 참조 — `useNativeRefresh` 가 상태 변화마다 재등록하지 않는다.
+    expect(hook.result.current.probeNow).toBe(first);
+  });
+
+  it('P4 probeNow — Provider 밖 useRelayContext() 도 함수를 주고 throw 하지 않는다', () => {
+    const { result } = renderHook(() => useRelayContext());
+    expect(typeof result.current.probeNow).toBe('function');
+    expect(() => result.current.probeNow()).not.toThrow();
+    expect(FakeWebSocket.instances).toHaveLength(0);
   });
 });
