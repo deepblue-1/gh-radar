@@ -99,6 +99,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ### Roadmap Evolution
 
+- Phase 21 added (2026-09-25): GH Trade 모바일 앱 (Capacitor) — Remote-URL 셸 · 네이티브 탭바 · pull-to-refresh · 네이티브 Google 로그인 · 브랜드명 GH Trade. 결정 4건 사용자 확정(네이티브 탭바 / signInWithIdToken / refresh 훅→reload / mobile/ 패키지).
 - Phase 20 added (2026-09-25, 브랜치 theme/toss-b 전용): 호가주문 토스식 재구성 — sketch 002 채택안
 
 - Phase 17 added 2026-09-18: gh-trade 프로토콜 재동기화·기존 화면 보정·상따 래치 LED — 서버 291a953→HEAD(59f7513e 배포) append-only 변경 반영, MsgType 36~38·76~78, 래치 3종 LED + 수동 점등

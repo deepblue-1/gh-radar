@@ -35,6 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 18: gh-trade 신규 기능 UI — 통합 트레이딩 작업대** - 상따+VI 를 `/trading` 한 페이지로 합친 다종목 작업대(돌파감지 76/78 스트립 · VI 설정 2줄+발동 스트립 · 카드 격자 · 공용 패널) · 예약/장전/시간외종가 발주 + 수동주문 신규/정정/취소(77 힌트·piece_count/krx_session·정정 M 해제) · 종목상세 호가 탭 통일 · 종목정보 팝업. 목업 게이트 통과(2026-09-21, 워크벤치 7차·호가 탭 6차)
 - [ ] **Phase 19: 계좌별 주문기록 전용 연결** - relay↔게이트웨이 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 주문기록 (브라우저 부재 중 dma_orders 누락 해소)
 - [ ] **Phase 20: 호가주문 토스식 재구성 (실험 브랜치)** - 스케치 002 채택안: 상따 설정 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 수동주문 토스 티켓 (theme/toss-b → 2026-09-25 master 병합 · UAT 대기)
+- [ ] **Phase 21: GH Trade 모바일 앱 (Capacitor)** - Remote-URL 셸(iOS·iPadOS·Android) · 네이티브 하단 플로팅 탭바 5탭 · pull-to-refresh(웹 훅→reload) · 네이티브 Google Sign-In + signInWithIdToken · 브랜드명 GH Trade · `mobile/` 패키지 (결정 4건 확정 2026-09-25)
 
 ## Phase Details
 
@@ -1008,3 +1009,18 @@ Plans:
 **Wave 6** *(blocked on Wave 5 completion · 갭 클로징)*
 
 - [x] 20-08-PLAN.md — 갭 클로징: 상단 상태줄 1줄 압축(D-24 안 C) — 거부 → 고지 줄 · LED 점 3개 · 「계좌」「반영」 sr-only/title · 폰은 연결 점+시각 · 계좌 이름 · 구간/연결 이상 → 고지 줄 + 최악값 실측 e2e(P20-6) · UI-SPEC A7 대체
+
+### Phase 21: GH Trade 모바일 앱 (Capacitor)
+
+**Goal:** webapp 을 Capacitor **Remote-URL 셸**(WebView 가 운영 URL 을 로드 · static export 불가 확인: middleware 인증 가드·OAuth callback route·서버 redirect)로 감싼 iOS·iPadOS·Android 앱을 만든다. 브랜드명은 웹·앱 모두 **GH Trade** 로 바꾼다(노출 문자열만 · `gh-radar:` localStorage 키는 유지). weekly-wine-app(`/Users/alex/repos/weekly-wine-app`) 을 참고해 **네이티브(Swift·Kotlin) 하단 플로팅 탭바** 홈·검색·트레이딩·AI·마이 5탭과 **pull-to-refresh** 를 붙인다. 새로고침은 네이티브 제스처가 웹의 `window.__ghTrade.refresh()` 훅을 호출하고 훅이 없으면 reload 한다(트레이딩은 relay 재탐침). Google 이 WebView OAuth 를 차단하므로 **네이티브 Google Sign-In → Supabase `signInWithIdToken`** 경로를 추가한다. 네이티브 프로젝트는 모노레포 `mobile/` 패키지에 둔다.
+**Requirements**: TBD
+**Depends on:** Phase 20
+**Plans:** 0 plans
+
+**결정(2026-09-25 사용자 확정):** ① 탭바 = 네이티브(Swift+Kotlin) ② 로그인 = 네이티브 Google Sign-In + `signInWithIdToken` ③ pull-to-refresh = 네이티브 제스처 → 웹 refresh 훅, 없으면 reload ④ 위치 = `mobile/` 패키지.
+**목업 단계 미결(IA):** 검색 탭 목적지(전용 `/search` 페이지 vs ⌘K 다이얼로그) · 마이 탭에 프로필·로그아웃·테마 토글 수용 · iPad 넓은 폭(사이드바 노출 ≥1024)에서 탭바 처리 · 탭바 숨김 규칙(로그인 화면·바텀시트).
+**웹 쪽 선행 보정:** `viewport-fit=cover` + `env(safe-area-inset-*)` (하단 고정 요소 5곳: dirty-action-bar · shared-panels 바텀시트 · chat-fab · alert-toasts · sheet) · 네이티브 감지 시 하단 여백 · `/login` Capacitor 분기.
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 21 to break down)
