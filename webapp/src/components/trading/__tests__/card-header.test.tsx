@@ -206,14 +206,56 @@ describe('CardHeader', () => {
     expect(header().querySelector('[data-part="code"]')).toBeNull();
   });
 
-  it('E7 long-text — 종목명은 1줄 ellipsis 이고 전체가 title 에 담긴다 · 코드는 mono', () => {
+  it('code 가 있어도 헤더에 종목코드 글자·코드 조각 요소가 없다 (quick-260925-ptw)', () => {
+    renderHeader({ code: '247540' });
+    expect(header().textContent).not.toContain('247540');
+    expect(header().querySelector('[data-part="code"]')).toBeNull();
+    // ⓘ 는 코드가 있으니 활성(D-30 계약 유지).
+    expect(screen.getByRole('button', { name: '종목정보' })).not.toBeDisabled();
+  });
+
+  it('l1 순서 = 토글(▶ 종목명) → ⓘ → 거래소 세그먼트 → 가격 · ✕ 는 l1/l2 밖 헤더 직계로 l1 바로 다음', () => {
+    renderHeader();
+    const l1 = header().querySelector('[data-slot="card-header-l1"]') as HTMLElement;
+    const l2 = header().querySelector('[data-slot="card-header-l2"]') as HTMLElement;
+    const kids = Array.from(l1.children) as HTMLElement[];
+    expect(kids[0]).toBe(toggleButton());
+    expect(kids[1]).toBe(screen.getByRole('button', { name: '종목정보' }));
+    expect(kids[2].contains(exchangeGroup())).toBe(true);
+    expect(kids[3].getAttribute('data-slot')).toBe('card-header-price');
+    expect(l2.contains(screen.getByRole('button', { name: '종목정보' }))).toBe(false);
+
+    const close = screen.getByRole('button', { name: '에코프로비엠 카드 닫기' });
+    expect(close.parentElement).toBe(header());
+    expect(l1.contains(close)).toBe(false);
+    expect(l2.contains(close)).toBe(false);
+    expect(l1.nextElementSibling).toBe(close);
+    expect(close.nextElementSibling).toBe(l2);
+  });
+
+  it('종목명은 한 줄이다 — 두 줄(flex-col) 배치 래퍼가 없고 토글 안 자식은 캐럿 + 종목명뿐', () => {
+    renderHeader();
+    const btn = toggleButton();
+    expect(btn.children).toHaveLength(2);
+    expect(btn.children[1].getAttribute('data-part')).toBe('name');
+    expect(btn.className).toContain('items-center');
+    expect(btn.querySelector('.flex-col')).toBeNull();
+  });
+
+  it('E7 long-text — 종목명은 1줄 ellipsis 이고 전체가 title 에 담긴다', () => {
     const long = '아주아주긴이름을가진가상의종목홀딩스우선주스팩제구호';
     renderHeader({ name: long });
     const name = header().querySelector('[data-part="name"]') as HTMLElement;
     expect(name.textContent).toBe(long);
     expect(name).toHaveAttribute('title', long);
     expect(name.className).toContain('truncate');
-    expect(header().querySelector('[data-part="code"]')?.className).toContain('mono');
+    expect(name.className).toContain('min-w-0');
+  });
+
+  it('nameTitle 이 있으면 종목명 title 은 그것이다', () => {
+    renderHeader({ nameTitle: '에코프로비엠 · 계좌 37728502101 · KRX' });
+    const name = header().querySelector('[data-part="name"]') as HTMLElement;
+    expect(name).toHaveAttribute('title', '에코프로비엠 · 계좌 37728502101 · KRX');
   });
 
   it('매수/매도/한방 스위치가 헤더 DOM 에 없다(D-12)', () => {
@@ -224,10 +266,11 @@ describe('CardHeader', () => {
 
   it('E7 overflow — 760 한 줄 결합은 lc 컨테이너 로컬 규칙이고 뷰포트 브레이크포인트가 없다', () => {
     renderHeader();
-    const l1 = header().querySelector('[data-slot="card-header-l1"]') as HTMLElement;
     const l2 = header().querySelector('[data-slot="card-header-l2"]') as HTMLElement;
-    expect(l1.className).toContain('@min-[760px]/lc:');
+    const close = screen.getByRole('button', { name: '에코프로비엠 카드 닫기' });
     expect(l2.className).toContain('@min-[760px]/lc:');
+    expect(l2.className.split(/\s+/)).toEqual(expect.arrayContaining(['basis-full', 'order-last']));
+    expect(close.className).toContain('@min-[760px]/lc:order-last');
     const all = Array.from(header().querySelectorAll('*')).map((el) => el.getAttribute('class') ?? '');
     for (const cls of [header().className, ...all]) expect(cls).not.toMatch(/(^|\s)(sm|md|lg|xl):/);
   });
@@ -236,7 +279,7 @@ describe('CardHeader', () => {
 describe('CardHeader — 접힌 카드 요약 (quick-260923-onn · 목업 ①A)', () => {
   const l2 = () => header().querySelector('[data-slot="card-header-l2"]') as HTMLElement;
 
-  it('접힘: l2 = 점 3개(매수·매도·취소) + 「미체결 N」 + 「잔고 N주」 + ⓘ·✕', () => {
+  it('접힘: l2 = 점 3개(매수·매도·취소) + 「미체결 N」 + 「잔고 N주」 · ⓘ·✕ 는 헤더에 그대로', () => {
     renderHeader({
       open: false,
       ledServer: echo({ sellEnabled: true }),

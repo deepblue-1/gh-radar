@@ -21,8 +21,20 @@ export const metadata: Metadata = {
  * theme-color: globals.css `--bg` 토큰과 맞춘 최종 hex (UI-SPEC §8 참조).
  * - light: `#ffffff` (globals.css `--bg` light)
  * - dark:  `#0a0a0a` (globals.css `--bg` dark `oklch(0.08 0 0)` 근사 hex)
+ *
+ * 확대/축소 금지 (quick-260925-ptw · 사용자 요청) —
+ * `width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no`.
+ * - `maximum-scale=1` 이 iOS Safari 의 16px 미만 입력 포커스 자동 확대를 막는다 — 그래서 입력
+ *   글꼴을 터치 기기에서 16px 로 키우지 않고 디자인 시스템 14px(--t-sm) 하나로 쓴다.
+ * - iOS 10+ Safari 는 접근성 정책으로 `user-scalable=no` 의 수동 핀치를 무시할 수 있다
+ *   (자동 확대 방지는 유효). Android Chrome 은 핀치까지 막는다 — WCAG 1.4.4 트레이드오프를
+ *   사용자 요청으로 수용했다(T-ptw-05).
  */
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
     { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },

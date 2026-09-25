@@ -324,6 +324,20 @@ describe('TradingWorkbench — 조립 (D-04 · 레이아웃 계약)', () => {
     expect(within(slot('workbench-title')!).getByRole('combobox', { name: '계좌' })).toBeTruthy();
   });
 
+  it('머리줄 — 제목·계좌와 상태줄이 같은 flex-wrap 부모(workbench-head)에 서고 상태줄은 flex-[1_1_auto] (quick-260925-ptw)', () => {
+    render(<TradingWorkbench />);
+    const head = slot('workbench-head')!;
+    expect(head).not.toBeNull();
+    expect(slot('workbench-title')!.parentElement).toBe(head);
+    expect(slot('workbench-status-bar')!.parentElement).toBe(head);
+    expect(head.className.split(/\s+/)).toContain('flex-wrap');
+    expect(slot('workbench-status-bar')!.className.split(/\s+/)).toContain('flex-[1_1_auto]');
+    // 새 뷰포트 브레이크포인트를 들이지 않는다(내용 폭 기반 줄바꿈).
+    for (const el of [head, slot('workbench-title')!, slot('workbench-status-bar')!]) {
+      expect(el.className).not.toMatch(/(^|\s)(sm|md|lg|xl|2xl):/);
+    }
+  });
+
   it('본문 래퍼가 @container/wb 를 갖는다', () => {
     render(<TradingWorkbench />);
     expect(slot('trading-workbench')!.className).toContain('@container/wb');
@@ -1075,6 +1089,136 @@ describe('TradingWorkbench — 미체결 행 선택 (D-21)', () => {
     expect(cardsInDom()).toHaveLength(1);
     expect(byKey()).toEqual({ [`${Y}:${ACCOUNT}:KRX`]: 'true' });
     expect(selectedOfKey(`${Y}:${ACCOUNT}:KRX`)).toBeNull();
+  });
+
+  /*
+    ── quick-260925-ptw — 공용 패널 행(미체결 · 잔고) → 카드 보장 · 머리 위로 스크롤 · 헤더 토글 포커스 ──
+    카드 탭 안 미체결 클릭은 reveal 하지 않는다(nearest · 포커스 불변). 어느 경로도 송신 0(T-18-99 · D-07).
+  */
+  describe('공용 패널 행 → 카드 reveal (quick-260925-ptw)', () => {
+    type Scroll = { key: string | null; block: ScrollLogicalPosition | undefined };
+    let scrolled: Scroll[] = [];
+    let original: typeof Element.prototype.scrollIntoView;
+    beforeEach(() => {
+      scrolled = [];
+      original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+        scrolled.push({
+          key: this.getAttribute('data-key'),
+          block: typeof arg === 'object' ? arg.block : undefined,
+        });
+      };
+    });
+    afterEach(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+
+    function acctWithHold(
+      hold: RelayAccountState['hold'],
+      unfRows: RelayUnfilled[] = [],
+    ): RelayShape['accountStates'] {
+      return new Map([
+        [ACCOUNT, { t: 'acct', a: ACCOUNT, snap: true, rm: [], st: '09:41:52', hold, unf: unfRows }],
+      ]) as RelayShape['accountStates'];
+    }
+    const holdingRow = (label: string) =>
+      Array.from(
+        screen.getByTestId('shared-panels').querySelectorAll('[data-slot="account-embed-holding-row"]'),
+      ).find((tr) => tr.textContent?.includes(label)) as HTMLElement | undefined;
+    const openHoldingsTab = () =>
+      fireEvent.mouseDown(within(screen.getByTestId('shared-panels')).getByRole('tab', { name: /^잔고/ }));
+    const sendCalls = () => (mockRelay.send as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    it('① 카드 없는 ISIN 잔고 행 → 펼친 카드(상태줄 계좌 · KRX) +1 · block:start 스크롤 · 헤더 토글 포커스 · 송신 0', () => {
+      const Y = 'KR7247540008';
+      mockRelay = relay({
+        limitChasers: [lc('KR7086520004')],
+        accountStates: acctWithHold([
+          { isin: Y, qty: 10, sellableQty: 10, avgPrice: 100_000, name: '에코프로비엠', code: '247540' },
+        ]),
+      });
+      render(<TradingWorkbench />);
+      expect(cardsInDom()).toHaveLength(1);
+      openHoldingsTab();
+
+      fireEvent.click(holdingRow('에코프로비엠')!.querySelectorAll('td')[1]!);
+
+      expect(cardsInDom()).toHaveLength(2);
+      expect(byKey()[`${Y}:${ACCOUNT}:KRX`]).toBe('true');
+      expect(propsOf(Y)?.name).toBe('에코프로비엠');
+      expect(propsOf(Y)?.code).toBe('247540');
+      expect(scrolled.at(-1)).toEqual({ key: `${Y}:${ACCOUNT}:KRX`, block: 'start' });
+      expect(document.activeElement).toBe(toggleOf(Y));
+      expect(sendCalls()).toBe(0);
+    });
+
+    it('② 카드가 이미 있는 ISIN 잔고 행 → 카드 수 불변 · 그 카드 펼침 · 같은 스크롤·포커스', () => {
+      const X = 'KR7086520004';
+      mockRelay = relay({
+        limitChasers: [lc(X), lc('KR7005930003')],
+        accountStates: acctWithHold([
+          { isin: X, qty: 5, sellableQty: 5, avgPrice: 90_000, name: '에코프로', code: '086520' },
+        ]),
+      });
+      render(<TradingWorkbench />);
+      expect(byKey()[`${X}:${ACCOUNT}:KRX`]).toBe('false');
+      openHoldingsTab();
+
+      // 첫 셀의 「카드 열기」 핸들(버튼)을 눌러도 행 한 경로로 1회다.
+      fireEvent.click(within(holdingRow('에코프로')!).getByRole('button', { name: '에코프로 카드 열기' }));
+
+      expect(cardsInDom()).toHaveLength(2);
+      expect(byKey()[`${X}:${ACCOUNT}:KRX`]).toBe('true');
+      expect(scrolled.at(-1)).toEqual({ key: `${X}:${ACCOUNT}:KRX`, block: 'start' });
+      expect(document.activeElement).toBe(toggleOf(X));
+      expect(sendCalls()).toBe(0);
+    });
+
+    it('③ 하단 미체결 행 → WR-04 카드 보장 · 선택 전달 + block:start · 헤더 토글 포커스 · 재클릭(해제)은 스크롤·포커스 없음', () => {
+      const Y = 'KR7247540008';
+      const row = unf({ orderNo: '3407000077', isin: Y, name: '에코프로비엠', code: '247540' });
+      mockRelay = relay({ limitChasers: [lc('KR7086520004')], accountStates: acctWith([row]) });
+      render(<TradingWorkbench />);
+
+      fireEvent.click(rowEl('3407000077')!.querySelectorAll('td')[3]!);
+
+      expect(cardsInDom()).toHaveLength(2);
+      expect(byKey()[`${Y}:${ACCOUNT}:KRX`]).toBe('true');
+      expect(selectedOfKey(`${Y}:${ACCOUNT}:KRX`)).toMatchObject({ orderNo: '3407000077' });
+      expect(scrolled.at(-1)).toEqual({ key: `${Y}:${ACCOUNT}:KRX`, block: 'start' });
+      expect(document.activeElement).toBe(toggleOf(Y));
+
+      const before = scrolled.length;
+      (document.activeElement as HTMLElement).blur();
+      fireEvent.click(rowEl('3407000077')!.querySelectorAll('td')[3]!); // 해제
+      expect(selectedOfKey(`${Y}:${ACCOUNT}:KRX`)).toBeNull();
+      expect(scrolled).toHaveLength(before);
+      expect(document.activeElement).not.toBe(toggleOf(Y));
+      expect(sendCalls()).toBe(0);
+    });
+
+    it('④ 카드 「미체결」 탭 행 → 선택만 · block:nearest · 포커스는 헤더 토글로 가지 않는다 · 송신 0', () => {
+      const X = 'KR7086520004';
+      const row = unf({ orderNo: '3407000055' });
+      mockRelay = relay({ limitChasers: [lc(X)], accountStates: acctWith([row]) });
+      render(<TradingWorkbench />);
+      const mine = [...cardProps.values()].find((p) => p.isin === X)!;
+
+      act(() => (mine.onSelectUnfilled as (r: RelayUnfilled | null) => void)(row));
+
+      expect(selectedOfKey(`${X}:${ACCOUNT}:KRX`)).toMatchObject({ orderNo: '3407000055' });
+      expect(scrolled.at(-1)).toEqual({ key: `${X}:${ACCOUNT}:KRX`, block: 'nearest' });
+      expect(document.activeElement).not.toBe(toggleOf(X));
+      expect(sendCalls()).toBe(0);
+    });
+
+    it('⑤ 공용 패널이 onPickHolding 을 받는다 · 카드 탭 선택 콜백과 공용 패널 선택 콜백은 다른 함수다(reveal 차이)', () => {
+      const X = 'KR7086520004';
+      mockRelay = relay({ limitChasers: [lc(X)], accountStates: acctWith([unf()]) });
+      render(<TradingWorkbench />);
+      expect(typeof sharedPanelsProps.last?.onPickHolding).toBe('function');
+      expect(sharedPanelsProps.last?.onSelectUnfilled).not.toBe(propsOf(X)?.onSelectUnfilled);
+    });
   });
 });
 

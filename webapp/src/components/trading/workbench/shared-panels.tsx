@@ -19,6 +19,8 @@
  *   토글(선택된 행을 다시 누르면 해제)은 **여기 한 곳**에서 `null` 로 바꿔 올린다 —
  *   AccountPanel 은 「이 행을 눌렀다」만 알린다. 그 판정은 `nextUnfilledSelection` 순수
  *   함수 하나이고, 작업대 카드의 「미체결」 탭(quick-260923-onn)도 같은 함수를 쓴다.
+ *   ★ 미체결 행 클릭 = 선택(정정/취소 진입) + 카드 포커스, 잔고 행 클릭 = 카드 포커스(`onPickHolding`)
+ *     — 카드 보장·스크롤·포커스는 작업대 몫이다(quick-260925-ptw).
  *
  * ④ 반응형은 컨테이너 `wb` 기준이다 (D-28 — 뷰포트 브레이크포인트 금지)
  *   - `wb` 700 이상: 격자 아래 **일반 섹션**. 본문은 세로 자연 확장(높이 상한 없음).
@@ -57,7 +59,12 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { CSSProperties } from 'react';
-import type { RelayAccountState, RelayOrderResultMsg, RelayUnfilled } from '@gh-radar/shared';
+import type {
+  RelayAccountState,
+  RelayHolding,
+  RelayOrderResultMsg,
+  RelayUnfilled,
+} from '@gh-radar/shared';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AccountPanel, type AccountRowOrigin } from '@/components/orderbook/account-panel';
@@ -99,6 +106,8 @@ export interface SharedPanelsProps {
   selectedOrderNo: string | null;
   /** 행 선택 · 해제(`null`). 수동주문 폼 `selectedUnfilled` 의 원천이다(D-21). */
   onSelectUnfilled: (row: RelayUnfilled | null) => void;
+  /** 잔고 행 클릭 → 작업대가 그 종목 카드를 보장·포커스한다(quick-260925-ptw). 없으면 행 선택 UI 가 없다. */
+  onPickHolding?: (row: RelayHolding) => void;
   /**
    * 더티가 있는 카드 수 = 떠 있는 더티 바 수. 0 보다 크면 가장 높은 바만큼 비키고, 수가 바뀔 때마다
    * 다시 잰다(파일 상단 ⑤).
@@ -164,6 +173,7 @@ export function SharedPanels({
   logEntries,
   selectedOrderNo,
   onSelectUnfilled,
+  onPickHolding,
   dirtyBarCount,
   originOf,
   priceOf,
@@ -304,7 +314,7 @@ export function SharedPanels({
             />
           </TabsContent>
           <TabsContent value="holdings" className="min-w-0">
-            <AccountPanel {...embedProps} section="holdings" />
+            <AccountPanel {...embedProps} section="holdings" onPickHolding={onPickHolding} />
           </TabsContent>
           <TabsContent value="log" className="min-w-0">
             <StrategyLog entries={logEntries} variant="embed" />

@@ -34,7 +34,7 @@ Plans completed: 219 / 234
 Status: 검증 R2 통과(13/13) — 사용자 UAT 대기(20-UAT.md)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 — Phase 20 master 병합 · 재검증 R2 13/13(human_needed) · UAT 6건 대기 · 병행: Phase 19 19-13 첫 거래일 대조 대기(relay 43d4d0c · server 00051-8gr 배포 완료)
+Last activity: 2026-09-25 — quick 260925-ptw 트레이딩 화면 디자인 8건 (카드 헤더·탭 고정높이/접기·잔고 행 포커스·머리글 우정렬·헤더 한 줄·viewport 확대 금지)
 
 Progress: [█████████░] 93%
 
@@ -230,6 +230,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 | 260924-blo | STATE.md 정리 — 966줄→216줄. 낡은 섹션·이전 quick/metrics 행은 STATE-ARCHIVE.md, 결정 290건은 DECISIONS-ARCHIVE.md, Phase 16 갭 클로징 로그는 16-GAP-CLOSURE-LOG.md, Phase 17 relay 운영 지식은 docs/relay-operations.md 로 이관·링크. 닫힌 Todo 3·Blocker 2 근거 기록. split/verify 스크립트로 무손실 검증 | 2026-09-24 | 4d07ad5 | [260924-blo-state-md-phase-16-decisions-phase-17](./quick/260924-blo-state-md-phase-16-decisions-phase-17/) |
 | 12 | Per-Plan 메트릭 표 Phase 17·18 행 47개 STATE-ARCHIVE.md 이관(fast) — STATE.md 는 헤더 스캐폴드만, 170줄 | 2026-09-23 | 966632d | — |
 | 260925-o1s | **relay 알림 정책 문서 크기 초과 수정** — `ops/alert-relay-down.yaml` documentation 10,834→9,039 바이트(GCP 상한 10,240 · 목표 ≤9,500). 8번 상세는 docs/relay-operations.md 「관찰자 기록 연결 (Phase 19)」→「상태별 대응」 이관. deploy-relay.sh `--alert-only`(apply_alert_policy 공용 함수, SUPABASE_URL·IAP SSH 불필요). 라이브 정책 7995724305267722560 문서만 갱신(7,782→9,039), 조건·임계 0.9·AND·채널 불변 describe 확인. stub·size·precheck·live-diff PASS | 2026-09-25 | — | [260925-o1s-relay-alert-doc-size](./quick/260925-o1s-relay-alert-doc-size/) |
+| 260925-ptw | **트레이딩 화면 디자인 8건** — 카드 헤더 종목코드 제거·종목명 1줄+ⓘ 옆·✕ 이름줄 맨 오른쪽 · 카드 탭(정보/미체결/잔고/로그) 본문 고정 높이(row-h×4, 3행+스크롤)·탭 영역 접기(cardTabsFolded 기억) · 하단 잔고 행 클릭→카드 생성/포커스(reveal) · `.tbl-wrap thead th` 정렬을 @layer components 로(우정렬 머리글) · 타이틀·계좌·상태줄 한 줄 flex-wrap · viewport maximum-scale=1·user-scalable=no + 종목추가 입력 14px 복원. typecheck 0 · lint 0 err · 2132/1 skip | 2026-09-25 | — | [260925-ptw-trading-design-polish](./quick/260925-ptw-trading-design-polish/) |
 
 ## Session Continuity
 

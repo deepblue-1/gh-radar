@@ -120,6 +120,11 @@ export interface TradingPanelsPref {
   sharedTab?: SharedPanelTab;
   /** 하단 공용 패널 접힘(폰 밴드). */
   sharedFolded?: boolean;
+  /**
+   * 작업대 카드 탭 영역(정보 · 미체결 · 잔고 · 로그) 접힘 — 새로 마운트되는 카드의 기본값
+   * (quick-260925-ptw). 이미 떠 있는 카드는 자기 값을 유지한다.
+   */
+  cardTabsFolded?: boolean;
 }
 
 export function readPanelsPref(): TradingPanelsPref {
@@ -136,6 +141,7 @@ export function readPanelsPref(): TradingPanelsPref {
       out.sharedTab = p.sharedTab;
     }
     if (typeof p.sharedFolded === "boolean") out.sharedFolded = p.sharedFolded;
+    if (typeof p.cardTabsFolded === "boolean") out.cardTabsFolded = p.cardTabsFolded;
     return out;
   } catch {
     return {};

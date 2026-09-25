@@ -494,9 +494,20 @@ html[lang="ko"] {
   color: var(--muted-fg);
   font-size: var(--t-caption);
   font-weight: 600;
-  text-align: left;
   padding: var(--cell-pad-y) var(--cell-pad-x);
   border-bottom: 0;
+}
+/*
+  머리글 좌정렬 **기본값만** @layer components 로 내린다 (quick-260925-ptw) — 층 없는(unlayered) 규칙은
+  층 있는 Tailwind `text-right`(utilities 층)를 명시도와 무관하게 이기고, 명시도 (0,1,2) 로 층 없는 `.num`
+  (0,1,0)도 이겨서 우정렬 열의 머리글이 전부 좌정렬로 그려졌다. 층으로 내리면 `text-right`·`.num` 이 이긴다.
+  위 블록의 나머지(배경 투명 · 아래선 0 등 B 평면화)는 층 없는 채로 둔다 — 내리면 임베드 머리글의
+  `bg-[var(--muted)]` 등이 되살아난다.
+*/
+@layer components {
+  .tbl-wrap thead th {
+    text-align: left;
+  }
 }
 .tbl-wrap tbody td {
   height: var(--row-h);

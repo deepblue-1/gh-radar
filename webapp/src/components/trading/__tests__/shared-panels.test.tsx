@@ -35,6 +35,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
+import { HOLDING_ROW_PICK_TITLE } from '@/components/orderbook/account-panel';
 import {
   SharedPanels,
   DIRTY_BAR_FALLBACK_PX,
@@ -259,6 +260,48 @@ describe('SharedPanels — 잔고 · 로그', () => {
     const pnl = Array.from(panel().querySelectorAll('[data-slot="account-embed-pnl"]'));
     expect(pnl[0]!.textContent).toBe('—');
     expect(pnl[1]!.textContent).toContain('120,000');
+  });
+
+  it('⑤-a onPickHolding 을 넘기면 잔고 행이 「카드 열기」 핸들을 갖고, 행 아무 셀 클릭 → 그 행으로 1회 (quick-260925-ptw)', async () => {
+    const user = userEvent.setup();
+    const onPick = vi.fn();
+    render(
+      <SharedPanels
+        {...props({
+          account: acct({ hold: [hold(), hold({ isin: ISIN_A, name: '알테오젠', qty: 10 })] }),
+          onPickHolding: onPick,
+        })}
+      />,
+    );
+    await user.click(within(panel()).getByRole('tab', { name: '잔고 (2)' }));
+    const rows = panel().querySelectorAll('[data-slot="account-embed-holding-row"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.className).toContain('cursor-pointer');
+    expect(rows[0]).toHaveAttribute('title', HOLDING_ROW_PICK_TITLE);
+    const pick = within(panel()).getByRole('button', { name: '한미반도체 카드 열기' });
+    expect(pick).toHaveAttribute('data-slot', 'account-holding-pick');
+    expect(pick).toHaveAttribute('type', 'button');
+
+    // 수량 셀(두 번째 td) 클릭 → 행 onClick 한 경로로 1회.
+    await user.click(rows[1]!.querySelectorAll('td')[1]!);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0]![0]).toMatchObject({ isin: ISIN_A });
+
+    // 핸들 버튼 클릭도 행으로 버블해 정확히 1회(버튼에 onClick 없음).
+    await user.click(pick);
+    expect(onPick).toHaveBeenCalledTimes(2);
+    expect(onPick.mock.calls[1]![0]).toMatchObject({ isin: ISIN_B });
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('⑤-b onPickHolding 이 없으면 잔고 행에 핸들 · cursor-pointer · title 이 없다(DOM 불변)', async () => {
+    const user = userEvent.setup();
+    render(<SharedPanels {...props()} />);
+    await user.click(within(panel()).getByRole('tab', { name: '잔고 (1)' }));
+    const row = panel().querySelector('[data-slot="account-embed-holding-row"]') as HTMLElement;
+    expect(panel().querySelector('[data-slot="account-holding-pick"]')).toBeNull();
+    expect(row.className).not.toContain('cursor-pointer');
+    expect(row).not.toHaveAttribute('title');
   });
 
   it('⑥ 로그 메시지는 clamp 없이 줄바꿈된다 (min-w-0 + keep-all · truncate/line-clamp 없음)', async () => {

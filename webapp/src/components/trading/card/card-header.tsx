@@ -4,8 +4,11 @@
  * CardHeader — 전략 카드 1장의 헤더 (D-09 · D-10 · TRADE-09 · 목업 `18-workbench-mockup.html:1062-1070`).
  *
  * ① 무엇을 그리는가 — 펼침·접힘 **공통**
- *   `l1` = 캐럿 ▶ · 종목명 · 코드 · KRX|NXT 세그먼트 · 우측 현재가+등락률
- *   `l2` = LED 3칩(매수 · 매도 · 취소) · ⓘ 종목정보 · ✕ 카드 제거
+ *   `l1` = 캐럿 ▶ · 종목명(한 줄 · 코드 표시 없음 — quick-260925-ptw) · ⓘ 종목정보 · KRX|NXT
+ *          세그먼트 · 우측 현재가+등락률
+ *   ✕ 카드 제거 = 종목명 줄의 맨 오른쪽(등락률 오른쪽) — l1/l2 어느 쪽에도 속하지 않는 헤더 직계
+ *   `l2` = LED 3칩(매수 · 매도 · 취소)(펼침) 또는 점 + 요약 칩(접힘) — 카드 760 미만은 둘째 줄
+ *          전체, 760 이상은 ✕ 앞 한 줄
  *   ★ 접힘 = 점 3개 + 요약 칩(「미체결 N」 · 「잔고 N주」) · 펼침 = 칩 3개 (quick-260923-onn ·
  *     2026-09-23 목업 ①A). 접힌 카드에서 미체결·잔고 유무를 펼치지 않고 본다. 손익은 그리지
  *     않는다. 점도 칩과 같은 `latchLedStateOf` 판정 하나를 읽는다(색·클릭·툴팁 재판정 0).
@@ -68,7 +71,10 @@ export interface CardHeaderProps {
    * 로 어느 전략인지 말한다. 미지정이면 `name`.
    */
   nameTitle?: string;
-  /** 6자 단축코드. 모르면 `null` — 그때는 코드 조각을 그리지 않고 ⓘ 가 비활성이다(D-30). */
+  /**
+   * 6자 단축코드. 헤더에 글자로 그리지 않는다(quick-260925-ptw) — ⓘ 활성 판정 전용이다.
+   * 모르면 `null` → ⓘ 비활성(D-30).
+   */
   code: string | null;
   exchange: RelayExchange;
   /**
@@ -155,12 +161,16 @@ export function CardHeader({
       {/*
         ★ 헤더 한 줄 결합 경계 **카드 폭 760px** 는 **§2.2b 밴드 표와 무관** — 헤더 한 줄 배치
           전용의 로컬 경계다 (D-26). 4밴드(700 · 830 · 992)의 네 번째 경계가 아니므로 밴드 표에
-          올리지 않는다. 760 미만에서 `l1`/`l2` 가 각자 한 줄(`basis-full`)을 먹어 두 줄로
-          접히고, 760 이상에서 `l1` 이 남는 폭을, `l2` 가 제 폭만 가져가 한 줄로 붙는다.
+          올리지 않는다.
+          · 760 미만: [▶ 종목명 ⓘ (KRX|NXT) … 현재가 등락률 ✕] / 둘째 줄 `l2`(LED 또는 점+요약 칩).
+          · 760 이상: 한 줄 [▶ 종목명 ⓘ (KRX|NXT) … 현재가 등락률 LED ✕].
+          DOM 은 폰 우선 순서(l1 → ✕ → l2)이고, 넓은 밴드에서 `order` 로 ✕ 를 LED 뒤로 보낸다.
+          `l1` 은 두 밴드 공통 basis 0 — ✕·LED 몫을 먼저 보장하고 남는 폭을 가진다(긴 이름은 말줄임).
+          (quick-260925-ptw)
       */}
       <div
         data-slot="card-header-l1"
-        className="flex min-w-0 flex-[1_1_100%] items-center gap-2 @min-[760px]/lc:flex-[1_1_auto]"
+        className="flex min-w-0 flex-[1_1_0%] items-center gap-2"
       >
         <button
           type="button"
@@ -180,28 +190,34 @@ export function CardHeader({
             ▶
           </span>
           {/*
-            종목명/코드 — 폰 밴드(카드 ≤699)에서 **두 줄**(`line-height:1.15`, 코드 10px),
-            700 이상에서 한 줄 baseline 정렬(목업 `:386-389`).
-            ★ 종목명은 1줄 ellipsis 이고 전체는 `title` 에 담는다(E7 long-text). `min-w-0`
-              (행) + `max-w-full`(열) 둘 다 있어야 두 배치 모두에서 줄어든다.
+            종목명 — 한 줄(15px/700). 넘치면 ellipsis 이고 전체는 `title` 에 담는다(E7 long-text).
+            종목코드는 그리지 않는다(quick-260925-ptw) — 이름만으로 충분하고 헤더 폭을 아낀다.
           */}
-          <span className="flex min-w-0 flex-col items-start gap-0 leading-[1.15] @min-[700px]/lc:flex-row @min-[700px]/lc:items-baseline @min-[700px]/lc:gap-1.5 @min-[700px]/lc:leading-normal">
-            <b
-              data-part="name"
-              title={nameTitle ?? name}
-              className="max-w-full min-w-0 truncate text-[15px] font-bold text-[var(--fg)]"
-            >
-              {name}
-            </b>
-            {code !== null && (
-              <span
-                data-part="code"
-                className="mono flex-none text-[10px] text-[var(--muted-fg)] @min-[700px]/lc:text-[11px]"
-              >
-                {code}
-              </span>
-            )}
-          </span>
+          <b
+            data-part="name"
+            title={nameTitle ?? name}
+            className="min-w-0 truncate text-[15px] leading-normal font-bold text-[var(--fg)]"
+          >
+            {name}
+          </b>
+        </button>
+
+        {/*
+          ⓘ — 종목명 바로 오른쪽(quick-260925-ptw). 코드가 없으면 비활성이다(D-30). 종목정보
+          팝업은 단축코드로 여는데, relay lookup 이 실패한 돌파 유래 카드는 그 코드를 모른다.
+        */}
+        <button
+          type="button"
+          title="종목정보 (차트 · 종목정보 · 뉴스·토론)"
+          aria-label="종목정보"
+          disabled={code === null}
+          onClick={(e) => {
+            e.stopPropagation();
+            onInfo?.();
+          }}
+          className="inline-flex h-[26px] flex-none items-center rounded-[var(--r)] px-1.5 text-[13px] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          ⓘ
         </button>
 
         {/*
@@ -256,9 +272,23 @@ export function CardHeader({
         </span>
       </div>
 
+      {/* ✕ — 종목명 줄 맨 오른쪽. 760 미만은 DOM 순서대로 l1 바로 뒤, 760 이상은 LED 뒤(order-last). */}
+      <button
+        type="button"
+        title="카드 제거"
+        aria-label={`${name} 카드 닫기`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        className="inline-flex h-[26px] flex-none items-center rounded-[var(--r)] px-2 text-[11px] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)] @min-[760px]/lc:order-last"
+      >
+        ✕
+      </button>
+
       <div
         data-slot="card-header-l2"
-        className="flex min-w-0 flex-[1_1_100%] flex-wrap items-center gap-2.5 @min-[760px]/lc:flex-[0_0_auto]"
+        className="order-last flex min-w-0 basis-full flex-wrap items-center gap-2.5 @min-[760px]/lc:order-none @min-[760px]/lc:flex-none @min-[760px]/lc:basis-auto"
       >
         {/*
           LED 3칩 — 순서는 **매수 · 매도 · 취소**(Phase 17 D-22). 판정은 `LatchLed` 안의
@@ -304,37 +334,6 @@ export function CardHeader({
             )}
           </>
         )}
-        <span className="ml-auto flex flex-none items-center gap-1">
-          {/*
-            ⓘ — 코드가 없으면 비활성이다(D-30). 종목정보 팝업은 단축코드로 여는데, relay
-            lookup 이 실패한 돌파 유래 카드는 그 코드를 모른다.
-          */}
-          <button
-            type="button"
-            title="종목정보 (차트 · 종목정보 · 뉴스·토론)"
-            aria-label="종목정보"
-            disabled={code === null}
-            onClick={(e) => {
-              e.stopPropagation();
-              onInfo?.();
-            }}
-            className="inline-flex h-[26px] items-center rounded-[var(--r)] px-1.5 text-[13px] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-          >
-            ⓘ
-          </button>
-          <button
-            type="button"
-            title="카드 제거"
-            aria-label={`${name} 카드 닫기`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-            className="ml-1 inline-flex h-[26px] items-center rounded-[var(--r)] px-2.5 text-[11px] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)]"
-          >
-            ✕
-          </button>
-        </span>
       </div>
     </header>
   );

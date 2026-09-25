@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {
   RelayAccountState,
@@ -30,6 +30,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { CardTabs, type CardTabsProps } from '../card/card-tabs';
+import { readPanelsPref, TRADING_PANELS_KEY, writePanelsPref } from '@/lib/trading-layout';
 import type { StrategyLogEntry } from '../strategy-log';
 
 const ISIN = 'KR7196170005';
@@ -112,6 +113,11 @@ function result(): RelayOrderResultMsg {
 beforeEach(() => {
   sendOrderMock.mockReset();
   sendOrderMock.mockResolvedValue(result());
+  window.localStorage.clear();
+});
+
+afterEach(() => {
+  window.localStorage.clear();
 });
 
 describe('CardTabs — 탭 줄', () => {
@@ -245,5 +251,101 @@ describe('CardTabs — 탭 요청 통로 (quick-260923-pgu · 알림 클릭)', (
   it('요청이 없으면 기본 정보 탭', () => {
     render(<CardTabs {...props()} />);
     expect(tabNamed('정보')).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () => {
+  const body = () => root().querySelector('[data-slot="card-tabs-body"]') as HTMLElement;
+  const fold = () => root().querySelector('[data-slot="card-tabs-fold"]') as HTMLButtonElement;
+
+  it('본문 래퍼 하나가 네 탭 콘텐츠를 담고 고정 높이 4 × --row-h · 세로 스크롤이다 — 탭별 높이 상한 래퍼 없음', async () => {
+    const user = userEvent.setup();
+    render(<CardTabs {...props()} />);
+    const cls = body().className.split(/\s+/);
+    expect(cls).toContain('h-[calc(var(--row-h)*4)]');
+    expect(cls).toContain('overflow-y-auto');
+    for (const label of ['정보', '미체결', '잔고', '로그']) {
+      await user.click(tabNamed(label));
+      const panel = within(root()).getByRole('tabpanel');
+      expect(body().contains(panel)).toBe(true);
+      expect(root().querySelector('[class*="max-h-[210px]"]')).toBeNull();
+      // 탭을 바꿔도 같은 래퍼(같은 클래스) — 높이 불변.
+      expect(body().className.split(/\s+/)).toContain('h-[calc(var(--row-h)*4)]');
+    }
+  });
+
+  it('탭 줄 오른쪽 끝 접기 버튼 — aria-expanded · aria-controls(본문 id) · 「탭 접기」', () => {
+    render(<CardTabs {...props()} />);
+    const btn = fold();
+    expect(btn).toHaveAttribute('aria-expanded', 'true');
+    expect(btn).toHaveAttribute('aria-controls', body().id);
+    expect(body().id).not.toBe('');
+    expect(btn).toHaveAttribute('aria-label', '탭 접기');
+    expect(btn).toHaveAttribute('title', '탭 접기');
+    expect(btn.type).toBe('button');
+  });
+
+  it('접기 → 본문 hidden · 탭 알약(건수 포함) 그대로 · 선호 cardTabsFolded true 저장 · 다시 누르면 펼침 false 저장', async () => {
+    const user = userEvent.setup();
+    render(<CardTabs {...props()} />);
+    await user.click(fold());
+    expect(body()).toHaveAttribute('hidden');
+    expect(fold()).toHaveAttribute('aria-expanded', 'false');
+    expect(fold()).toHaveAttribute('aria-label', '탭 펼치기');
+    expect(fold()).toHaveAttribute('title', '탭 펼치기');
+    expect(tabs().map((t) => t.textContent)).toEqual(['정보', '미체결(2)', '잔고(1)', '로그(3)']);
+    expect(readPanelsPref().cardTabsFolded).toBe(true);
+
+    await user.click(fold());
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(fold()).toHaveAttribute('aria-expanded', 'true');
+    expect(readPanelsPref().cardTabsFolded).toBe(false);
+  });
+
+  it('저장된 cardTabsFolded true 면 접힌 채 마운트 · requestedTab 을 들고 마운트되면 펼친 채', () => {
+    writePanelsPref({ cardTabsFolded: true });
+    const view = render(<CardTabs {...props()} />);
+    expect(body()).toHaveAttribute('hidden');
+    expect(fold()).toHaveAttribute('aria-expanded', 'false');
+    view.unmount();
+
+    render(<CardTabs {...props({ requestedTab: { tab: 'log', seq: 1 } })} />);
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(tabNamed('로그')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('접힌 상태에서 탭(활성 탭 포함)을 누르면 펼쳐지고 false 저장', async () => {
+    const user = userEvent.setup();
+    writePanelsPref({ cardTabsFolded: true });
+    const view = render(<CardTabs {...props()} />);
+    await user.click(tabNamed('정보')); // 이미 활성 탭 재클릭
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(readPanelsPref().cardTabsFolded).toBe(false);
+    view.unmount();
+
+    writePanelsPref({ cardTabsFolded: true });
+    render(<CardTabs {...props()} />);
+    await user.click(tabNamed('잔고'));
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
+    expect(readPanelsPref().cardTabsFolded).toBe(false);
+  });
+
+  it('접힌 상태에서 새 requestedTab.seq 가 오면 그 탭으로 펼쳐진다 — 선호는 저장하지 않는다', async () => {
+    const user = userEvent.setup();
+    const view = render(<CardTabs {...props({ requestedTab: { tab: 'info', seq: 1 } })} />);
+    await user.click(fold());
+    expect(readPanelsPref().cardTabsFolded).toBe(true);
+    view.rerender(<CardTabs {...props({ requestedTab: { tab: 'unfilled', seq: 2 } })} />);
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(tabNamed('미체결')).toHaveAttribute('aria-selected', 'true');
+    expect(readPanelsPref().cardTabsFolded).toBe(true);
+  });
+
+  it('readPanelsPref 는 boolean 이 아닌 cardTabsFolded 를 버린다 — 펼친 채 마운트', () => {
+    window.localStorage.setItem(TRADING_PANELS_KEY, JSON.stringify({ cardTabsFolded: 'yes', vi: true }));
+    expect(readPanelsPref()).toEqual({ vi: true });
+    render(<CardTabs {...props()} />);
+    expect(body()).not.toHaveAttribute('hidden');
   });
 });

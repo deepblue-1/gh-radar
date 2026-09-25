@@ -806,7 +806,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
 
-    // 마우스 기기(Desktop Chrome)에서는 입력 글꼴이 기존 14px 그대로다(quick-260922-tqr — 터치만 16px).
+    // 입력 글꼴은 기기와 무관하게 14px — iOS 확대는 루트 viewport maximum-scale=1 이 막는다(quick-260925-ptw).
     await expect(addBox(page)).toHaveCSS('font-size', '14px');
 
     await addStockByKeyboard(page);

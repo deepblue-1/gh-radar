@@ -6,7 +6,9 @@
  *
  * ① 무엇을 그리는가
  *   종전 `QuoteGrid10` 자리에 탭 줄(24px · 선택 알약 `--pill-on-*` — 공용 패널 탭 문법의 얇은 판)이 서고,
- *   기본 탭 「정보」가 기존 10칸 그대로다. 「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로
+ *   기본 탭 「정보」가 기존 10칸 그대로다. 본문은 네 탭 공통 고정 높이 4 × --row-h(머리 1 + 3줄)
+ *   · 넘치면 세로 스크롤 — 탭을 바꾸거나 목록이 비어도 카드 높이가 변하지 않는다(quick-260925-ptw).
+ *   탭 줄 오른쪽 끝 접기 버튼이 본문을 접는다 — 접혀도 탭 알약(건수 포함)은 보인다. 「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로
  *   자른** 계좌 상태, 「로그」는 카드 훅의 전략 로그다. 배지는 미체결·로그만, 0 이면 생략.
  *
  * ② ★ 데이터는 슬라이스 하나 — 접힌 헤더 요약 칩과 같은 값
@@ -22,8 +24,11 @@
  * ④ `originOf`/`onCancelSubmitted` 는 작업대가 공용 패널에도 오늘 넘기지 않는다 — 카드는 같은
  *   값을 받을 뿐 출처 판정을 지어내지 않는다.
  *
- * ⑤ 탭 상태는 **컴포넌트 state 뿐**이다 — 브라우저 저장 헬퍼를 쓰지 않는다(카드별 메모리).
- *   접었다 펴도 본문이 `hidden` 으로 남아(WR-02) 자연히 유지된다. 새로고침하면 정보 탭이다.
+ * ⑤ 탭 선택은 여전히 **컴포넌트 state 뿐**이다(카드별 메모리). 카드를 접었다 펴도 본문이
+ *   `hidden` 으로 남아(WR-02) 자연히 유지된다. 새로고침하면 정보 탭이다.
+ *   ★ **접힘**만 `readPanelsPref/writePanelsPref`(`cardTabsFolded`)로 기억해 새로 마운트되는 카드의
+ *     기본값이 된다(이미 떠 있는 다른 카드는 자기 값을 유지) — quick-260925-ptw. 접힌 상태에서 탭을
+ *     누르면 펼치고(선호 false 저장), 알림의 탭 요청(⑦)은 펼치기만 한다(선호 변경이 아니다).
  *
  * ⑥ 반응형은 카드의 `@container/lc` 가 잰다 — 뷰포트 브레이크포인트도, 새 `@container` 선언도
  *   두지 않는다(D-28).
@@ -34,7 +39,8 @@
  *   소비한다.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type {
   RelayAccountState,
   RelayOrderResultMsg,
@@ -47,6 +53,8 @@ import { QuoteGrid10 } from "@/components/trading/card/quote-grid-10";
 import { StrategyLog, type StrategyLogEntry } from "@/components/trading/strategy-log";
 import { nextUnfilledSelection } from "@/components/trading/workbench/shared-panels";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { readPanelsPref, writePanelsPref } from "@/lib/trading-layout";
+import { cn } from "@/lib/utils";
 import type { RelayStatus } from "@/lib/use-relay-socket";
 
 export type CardTab = "info" | "unfilled" | "holdings" | "log";
@@ -82,8 +90,6 @@ const CARD_TAB_TRIGGER =
   "data-[state=active]:bg-[var(--pill-on-bg)] data-[state=active]:text-[var(--pill-on-fg)] data-[state=active]:shadow-none " +
   "dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--pill-on-bg)] dark:data-[state=active]:text-[var(--pill-on-fg)]";
 
-/** 미체결·잔고·로그 본문 래퍼 — 목업 `.tb`(높이 상한 210 · 넘치면 스크롤). */
-const TAB_BODY = "max-h-[210px] min-w-0 overflow-auto";
 
 /** 탭 제목 뒤 건수 「미체결(2)」 — 0 이면 생략(2026-09-23 사용자 요청: 배지 대신 제목 괄호). */
 function CountBadge({ count }: { count: number }) {
@@ -109,11 +115,30 @@ export function CardTabs({
   requestedTab,
 }: CardTabsProps) {
   const [tab, setTab] = useState<CardTab>(requestedTab?.tab ?? "info");
+  /**
+   * 탭 영역 접힘(⑤). 카드를 처음 펼친 뒤에만 마운트되는 클라이언트 전용 조각이라 SSR 하이드레이션
+   * 대상이 아니고(작업대 카드 집합은 마운트 후 효과에서 복원), 서버에서는 `readPanelsPref` 가 `{}`
+   * 라 같은 값이 된다 — 첫 페인트 깜빡임(펼침→접힘 점프)을 피하려고 지연 초기화로 읽는다.
+   */
+  const [folded, setFolded] = useState(
+    () => requestedTab === undefined && readPanelsPref().cardTabsFolded === true,
+  );
+  const bodyId = useId();
+  const setFoldedPref = useCallback((next: boolean) => {
+    setFolded(next);
+    writePanelsPref({ cardTabsFolded: next });
+  }, []);
+  /** 접힌 상태에서 탭(활성 탭 재클릭 포함 — Radix `onValueChange` 가 안 불린다)을 누르면 펼친다. */
+  const unfoldOnTab = useCallback(() => {
+    if (folded) setFoldedPref(false);
+  }, [folded, setFoldedPref]);
   // ⑦ — seq 가 바뀔 때만 요청이 이긴다(같은 요청 재렌더는 사용자 선택을 덮지 않는다).
   const reqSeq = requestedTab?.seq;
   const reqTab = requestedTab?.tab;
   useEffect(() => {
-    if (reqTab !== undefined) setTab(reqTab);
+    if (reqTab === undefined) return;
+    setTab(reqTab);
+    setFolded(false); // 알림 클릭은 펼치기만 — 선호 변경이 아니라 저장하지 않는다(⑤).
   }, [reqSeq, reqTab]);
   const unfilledCount = account?.unf.length ?? 0;
   const holdingCount = account?.hold.length ?? 0;
@@ -132,32 +157,66 @@ export function CardTabs({
       onValueChange={(v) => setTab(v as CardTab)}
       className="gap-0 border-t border-[var(--border-subtle)]"
     >
-      <TabsList
-        aria-label="카드 탭"
-        className="h-auto min-w-0 justify-start gap-0.5 overflow-x-auto bg-transparent p-0 px-2 pt-1"
+      {/* 탭 줄 행 — 탭 알약 + 오른쪽 끝 접기 버튼. 접혔을 때만 아래 여백(알약이 경계선에 붙지 않게). */}
+      <div
+        data-slot="card-tabs-bar"
+        className={cn("flex min-w-0 items-center gap-1 px-2 pt-1", folded && "pb-1")}
       >
-        <TabsTrigger value="info" className={CARD_TAB_TRIGGER}>
-          정보
-        </TabsTrigger>
-        <TabsTrigger value="unfilled" className={CARD_TAB_TRIGGER}>
-          미체결
-          <CountBadge count={unfilledCount} />
-        </TabsTrigger>
-        <TabsTrigger value="holdings" className={CARD_TAB_TRIGGER}>
-          잔고
-          <CountBadge count={holdingCount} />
-        </TabsTrigger>
-        <TabsTrigger value="log" className={CARD_TAB_TRIGGER}>
-          로그
-          <CountBadge count={logCount} />
-        </TabsTrigger>
-      </TabsList>
+        <TabsList
+          aria-label="카드 탭"
+          className="h-auto min-w-0 flex-1 justify-start gap-0.5 overflow-x-auto bg-transparent p-0"
+        >
+          <TabsTrigger value="info" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+            정보
+          </TabsTrigger>
+          <TabsTrigger value="unfilled" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+            미체결
+            <CountBadge count={unfilledCount} />
+          </TabsTrigger>
+          <TabsTrigger value="holdings" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+            잔고
+            <CountBadge count={holdingCount} />
+          </TabsTrigger>
+          <TabsTrigger value="log" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+            로그
+            <CountBadge count={logCount} />
+          </TabsTrigger>
+        </TabsList>
+        <button
+          type="button"
+          data-slot="card-tabs-fold"
+          aria-expanded={!folded}
+          aria-controls={bodyId}
+          aria-label={folded ? "탭 펼치기" : "탭 접기"}
+          title={folded ? "탭 펼치기" : "탭 접기"}
+          onClick={() => setFoldedPref(!folded)}
+          className="ml-auto inline-flex h-6 w-6 flex-none items-center justify-center rounded-[var(--r)] text-[var(--muted-fg)] hover:bg-[var(--muted)]"
+        >
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 transition-transform duration-150 motion-reduce:transition-none",
+              !folded && "rotate-180",
+            )}
+          />
+        </button>
+      </div>
 
-      <TabsContent value="info" className="min-w-0">
-        <QuoteGrid10 quote={quote} />
-      </TabsContent>
-      <TabsContent value="unfilled" className="min-w-0">
-        <div className={TAB_BODY}>
+      {/*
+        본문 — 네 탭 공통 고정 높이 = 표 머리 1줄 + 데이터 3줄 ≈ 4 × --row-h(밀도 토큰을 따른다:
+        기본 36 → 144 · 모바일 comfortable 44 → 176 · compact 32 → 128). 넘치면 세로 스크롤,
+        가로 넘침은 안쪽 표 래퍼(`account-embed-scroll` · `.tbl-wrap`)가 맡는다(quick-260925-ptw).
+      */}
+      <div
+        id={bodyId}
+        data-slot="card-tabs-body"
+        hidden={folded}
+        className="h-[calc(var(--row-h)*4)] min-w-0 overflow-y-auto"
+      >
+        <TabsContent value="info" className="min-w-0">
+          <QuoteGrid10 quote={quote} />
+        </TabsContent>
+        <TabsContent value="unfilled" className="min-w-0">
           <AccountPanel
             selectedAccountNo={accountNo}
             account={account}
@@ -171,10 +230,8 @@ export function CardTabs({
             priceOf={priceOf}
             onCancelSubmitted={onCancelSubmitted}
           />
-        </div>
-      </TabsContent>
-      <TabsContent value="holdings" className="min-w-0">
-        <div className={TAB_BODY}>
+        </TabsContent>
+        <TabsContent value="holdings" className="min-w-0">
           <AccountPanel
             selectedAccountNo={accountNo}
             account={account}
@@ -185,13 +242,11 @@ export function CardTabs({
             priceOf={priceOf}
             onCancelSubmitted={onCancelSubmitted}
           />
-        </div>
-      </TabsContent>
-      <TabsContent value="log" className="min-w-0">
-        <div className={TAB_BODY}>
+        </TabsContent>
+        <TabsContent value="log" className="min-w-0">
           <StrategyLog entries={log} variant="embed" emptyTitle="로그 없음" />
-        </div>
-      </TabsContent>
+        </TabsContent>
+      </div>
     </Tabs>
   );
 }

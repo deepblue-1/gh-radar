@@ -772,6 +772,9 @@ function StrategyCardImpl({
         // 토스 B(260924-vj1) — 무테 카드 면: 테두리는 색만 투명(1px 기하 유지 — `lc` 폭 불변),
         // 열림 그림자 없음(B `--card-shadow-open: none`). 더티 테두리 채널은 아래 그대로다.
         "min-w-0 overflow-clip rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]",
+        // 앱 헤더가 `sticky top-0 h-14`(56px)라 `block:start` 스크롤(공용 패널 행 → 카드, quick-260925-ptw)이
+        // 카드 머리를 헤더 밑에 묻지 않게 64px 여유를 둔다.
+        "scroll-mt-16",
         // 미반영 값이 있으면 카드 테두리가 파랗다 — 바가 어느 카드 것인지 모양으로 말한다(목업 B).
         card.dirtyCount > 0 && "border-[color-mix(in_oklch,var(--primary)_55%,var(--border))]",
       )}

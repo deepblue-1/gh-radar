@@ -31,6 +31,10 @@
  *     보장한다 — 없으면 그 키로 펼친 카드를 붙인다(`cardForUnfilled` · WR-04). 역시 송신 0 이다.
  *     카드 안 「미체결」 탭(quick-260923-onn)도 같은 `selectUnfilled` 를 탄다 — 선택은 여전히 이
  *     컴포넌트 하나가 소유한다(카드는 `selectedUnfilled?.orderNo` 를 파생할 뿐).
+ *     공용 패널 행(미체결 · 잔고) 클릭은 카드 보장 뒤 `reveal` — 카드 머리를 화면 위로(`block:start`)
+ *     스크롤하고 헤더 토글에 포커스(quick-260925-ptw). 잔고 행은 거래소를 모르므로 `addCard` 와 같은
+ *     ISIN 단위 규칙(상태줄 계좌 · KRX)이다. 카드 탭 안 미체결 클릭은 reveal 하지 않는다(자기 카드
+ *     안에서 포커스를 뺏지 않게). 역시 송신 0 이다.
  *   - ★ 카드 순서(quick-260923-p3k) — 배열 순서가 곧 무리 안 순서다(card-grid ①). `open` 을 바꾸는
  *     모든 경로는 `withCardOpen` 하나를 지나 그 카드를 배열 **맨 끝**으로 옮긴다: 접으면 접힘 스택
  *     맨 끝, 펼치면(토글 · 종목 추가/돌파 칩 · 미체결 선택 · `?focus=`/사이드바 · 거래소 충돌) 펼친
@@ -125,6 +129,7 @@ import {
 import { useSearchParams } from "next/navigation";
 import type {
   RelayExchange,
+  RelayHolding,
   RelayLimitChaser,
   RelayQuote,
   RelayUnfilled,
@@ -274,8 +279,12 @@ function toggleIdOf(id: string): string {
   return `strategy-card-${id.replace(/[^A-Za-z0-9_-]/g, "_")}-toggle`;
 }
 
-/** 펼친 뒤 화면에 들여올 카드 — 전략 키(포커스 · 키 충돌) 또는 ISIN 의 첫 카드(D-07 · D-08). */
-type ScrollTarget = { key: string } | { isin: string };
+/**
+ * 펼친 뒤 화면에 들여올 카드 — 전략 키(포커스 · 키 충돌) 또는 ISIN 의 첫 카드(D-07 · D-08).
+ * `reveal` = 공용 패널 행 클릭(quick-260925-ptw) — 카드 머리를 화면 위로(`block:start`) 스크롤하고
+ * 헤더 토글에 포커스. 없으면 종전대로 `nearest` 스크롤만.
+ */
+type ScrollTarget = ({ key: string } | { isin: string }) & { reveal?: boolean };
 
 /**
  * 카드 순서 규칙(quick-260923-p3k · 2026-09-23 개정) — 접으면 접힘 스택 **맨 앞**, 펼치면 펼친 카드 맨 끝(**순수 함수**).
@@ -730,7 +739,12 @@ function WorkbenchSurface() {
       hit === undefined
         ? null
         : document.getElementById(toggleIdOf(hit.id))?.closest('[data-slot="strategy-card"]');
-    el?.scrollIntoView?.({ block: "nearest" });
+    const reveal = scrollTarget.reveal === true;
+    el?.scrollIntoView?.({ block: reveal ? "start" : "nearest" });
+    // 요소 참조가 아니라 id 로 찾는다 — 재마운트 뒤에도 같은 id 다(card-header ③ 과 같은 이유).
+    if (reveal && hit !== undefined) {
+      document.getElementById(toggleIdOf(hit.id))?.focus({ preventScroll: true });
+    }
     setScrollTarget(null);
   }, [scrollTarget, cards]);
 
@@ -743,9 +757,12 @@ function WorkbenchSurface() {
     setScrollTarget({ isin });
   }, []);
 
-  /** 사용자 트리거 추가 — 그 ISIN 의 카드가 있으면 그 카드(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않는다(D-07). */
-  const addCard = useCallback(
-    (isin: string, name?: string, code?: string) => {
+  /**
+   * 그 ISIN 의 카드 보장 — 카드가 있으면 그 카드(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않고,
+   * 없으면 상태줄 계좌 · KRX 로 붙인다(D-07). `reveal` 은 공용 패널 잔고 행 경로(quick-260925-ptw).
+   */
+  const ensureIsinCard = useCallback(
+    (isin: string, name: string | undefined, code: string | undefined, reveal: boolean) => {
       const newId = nextCardId();
       setCards((prev) => {
         const first = isinFocusCardOf(prev, isin);
@@ -753,9 +770,19 @@ function WorkbenchSurface() {
           ? withCardOpen(prev, first.id, true)
           : [...prev, { id: newId, isin, accountNo, exchange: "KRX", open: true, name, code }];
       });
-      setScrollTarget({ isin });
+      setScrollTarget({ isin, reveal });
     },
     [accountNo, nextCardId],
+  );
+  /** 사용자 트리거 추가(돌파 스트립 · 종목 추가) — 동작 불변(nearest 스크롤 · 포커스 이동 없음). */
+  const addCard = useCallback(
+    (isin: string, name?: string, code?: string) => ensureIsinCard(isin, name, code, false),
+    [ensureIsinCard],
+  );
+  /** 공용 패널 잔고 행 → 그 종목 카드 보장 + 머리 위로 스크롤 + 헤더 토글 포커스(송신 0). */
+  const pickHolding = useCallback(
+    (row: RelayHolding) => ensureIsinCard(row.isin, row.name, row.code, true),
+    [ensureIsinCard],
   );
 
   const toggleCard = useCallback((id: string) => {
@@ -929,8 +956,8 @@ function WorkbenchSurface() {
       않는다(D-07 과 같은 규율 · T-18-99). 정확 일치가 없을 때만 붙이므로 그 전략 키를 쓰는 카드가
       없다(키 충돌 규칙 T-18-94 와 부딪치지 않는다). 판정은 `cardForUnfilled` 한 곳이다.
   */
-  const selectUnfilled = useCallback(
-    (row: RelayUnfilled | null) => {
+  const selectUnfilledWith = useCallback(
+    (row: RelayUnfilled | null, reveal: boolean) => {
       setSelected(row);
       if (row === null) return;
       const newId = nextCardId();
@@ -940,9 +967,19 @@ function WorkbenchSurface() {
           ? withCardOpen(prev, target.id, true)
           : [...prev, { id: newId, ...target.card }];
       });
-      setScrollTarget({ key: strategyKey(row.isin, accountNo, row.exchange) });
+      setScrollTarget({ key: strategyKey(row.isin, accountNo, row.exchange), reveal });
     },
     [accountNo, nextCardId],
+  );
+  /** 카드 「미체결」 탭용 — 동작 불변(nearest 스크롤 · 포커스를 뺏지 않는다). */
+  const selectUnfilled = useCallback(
+    (row: RelayUnfilled | null) => selectUnfilledWith(row, false),
+    [selectUnfilledWith],
+  );
+  /** 공용 패널용 — 선택 + 카드 머리 위로 스크롤 + 헤더 토글 포커스(quick-260925-ptw). */
+  const selectUnfilledFromPanel = useCallback(
+    (row: RelayUnfilled | null) => selectUnfilledWith(row, true),
+    [selectUnfilledWith],
   );
   const clearSelection = useCallback(() => setSelected(null), []);
 
@@ -1157,25 +1194,36 @@ function WorkbenchSurface() {
       data-slot="trading-workbench"
       className="@container/wb flex min-w-0 flex-col gap-3"
     >
-      {/* 1 · 제목줄 */}
-      <div data-slot="workbench-title" className="flex min-w-0 flex-wrap items-center gap-2.5">
-        <h1 className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-bold text-[var(--fg)]">
-          트레이딩
-        </h1>
-        <AccountPill accounts={accounts} accountNo={accountNo} onChange={setAccountNo} />
-      </div>
+      {/*
+        1 · 머리줄 — 제목 · 계좌 · 상태줄(폭이 모자라면 상태줄이 다음 줄, quick-260925-ptw)
+        ★ 줄바꿈은 새 폭 숫자·뷰포트 브레이크포인트·컨테이너 쿼리가 아니라 **내용 폭**이 정한다:
+          상태줄 basis auto(= 내용 max-content)가 남는 폭보다 크면 flex-wrap 이 통째로 다음 줄로
+          내리고, 들어가면 남는 폭을 채운다(상태줄 안 `ml-auto` 우측 묶음은 그대로 오른쪽 끝).
+          gap 12 = 루트 `gap-3` 과 같아 줄바꿈된 모양이 종전 두 줄 배치와 같다.
+      */}
+      <div data-slot="workbench-head" className="flex min-w-0 flex-wrap items-center gap-3">
+        <div
+          data-slot="workbench-title"
+          className="flex max-w-full min-w-0 flex-wrap items-center gap-2.5"
+        >
+          <h1 className="m-0 text-[length:var(--t-h3)] leading-[var(--lh-tight)] font-bold text-[var(--fg)]">
+            트레이딩
+          </h1>
+          <AccountPill accounts={accounts} accountNo={accountNo} onChange={setAccountNo} />
+        </div>
 
-      {/* 2 · 상태줄 */}
-      <WorkbenchStatusBar
-        status={status}
-        statusLabel={statusLabel}
-        queuedWindow={queuedWindow}
-        appliedAt={appliedAt}
-        cols={cols}
-        onColsChange={setCols}
-        phoneBand={singleColumnOnly}
-        onReconnect={UNRECOVERABLE_STATES.has(status) ? reconnect : undefined}
-      />
+        <WorkbenchStatusBar
+          className="flex-[1_1_auto]"
+          status={status}
+          statusLabel={statusLabel}
+          queuedWindow={queuedWindow}
+          appliedAt={appliedAt}
+          cols={cols}
+          onColsChange={setCols}
+          phoneBand={singleColumnOnly}
+          onReconnect={UNRECOVERABLE_STATES.has(status) ? reconnect : undefined}
+        />
+      </div>
 
       {/* 3 · VI 패널 — 스트립 줄 · 경보 · 펼침 안 VI 설정 2줄 · 발동 표 */}
       <ViTriggerStrip
@@ -1252,7 +1300,8 @@ function WorkbenchSurface() {
         status={status}
         logEntries={mergedLog}
         selectedOrderNo={liveSelected?.orderNo ?? null}
-        onSelectUnfilled={selectUnfilled}
+        onSelectUnfilled={selectUnfilledFromPanel}
+        onPickHolding={pickHolding}
         // 더티 바가 카드 하단으로 옮겨(2026-09-23 · 목업 B) 공용 패널이 화면 하단 바를 비켜 설 일이 없다.
         dirtyBarCount={0}
         priceOf={priceOf}

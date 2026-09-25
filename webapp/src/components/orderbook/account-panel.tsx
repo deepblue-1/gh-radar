@@ -118,6 +118,10 @@
  *     이 종목으로 자르는 것은 여전히 `account` 를 만들어 주는 호출부의 몫이다(필터 아님).
  *     `embedEmptyTitle` 은 빈 상태 제목 override 다 — 넘기면 보조 문장 없이 제목만 그린다.
  *     넘기지 않으면(`'account'`) 열·문구가 종전 그대로다.
+ *   - 임베드 잔고 행 선택(`onPickHolding`, quick-260925-ptw) — account 스코프에서만 · 선택 상태 없음
+ *     (「이 행을 눌렀다」 알림뿐 — 작업대가 그 종목 카드를 보장·포커스한다) · 넘기지 않으면 DOM
+ *     불변. 첫 셀(종목명)을 ⑩ 선택 핸들과 같은 문법의 `<button>`(onClick 없음)으로 감싸고 클릭은
+ *     행 `onClick` 한 경로로 버블한다(키보드 Enter/Space 도 네이티브 click 이 행으로 버블).
  */
 
 import { Fragment, useCallback, useMemo, useState } from 'react';
@@ -159,6 +163,8 @@ const KRW = new Intl.NumberFormat('ko-KR');
 
 /** 선택 가능한 미체결 행의 `title` (UI-SPEC §공용 패널 · 원문). */
 export const UNFILLED_ROW_SELECT_TITLE = '행을 누르면 수동주문 폼에서 정정·취소할 수 있어요';
+/** 임베드 잔고 행(⑪ `onPickHolding`)의 `title` — 테스트가 같은 상수를 읽는다(quick-260925-ptw). */
+export const HOLDING_ROW_PICK_TITLE = '행을 누르면 그 종목 카드로 이동해요';
 
 /** 주문번호가 빈 행(접수 전)의 취소 버튼 `title`. 원주문번호 없는 취소는 반드시 거부된다. */
 const CANCEL_BLOCK_NO_ORDER_NO = '접수 전(주문번호 없음)은 취소할 수 없어요';
@@ -243,6 +249,12 @@ export interface AccountPanelProps {
   /** 선택된 원주문번호 — 그 행에 accent 강조 + `aria-pressed="true"`. 콜백이 없으면 무시된다. */
   selectedOrderNo?: string | null;
   /**
+   * 임베드 잔고 행 선택 창구(⑪ · quick-260925-ptw) — 작업대 공용 패널 전용. `section="holdings"` ·
+   * `embedScope="account"` 에서만 쓰인다. **넘기지 않으면 DOM 불변**. 선택 상태를 만들지 않는
+   * 「이 행을 눌렀다」 알림뿐이다(호출부가 그 종목 카드를 보장·포커스).
+   */
+  onPickHolding?: (row: RelayHolding) => void;
+  /**
    * 탭 임베드 모드(⑪) — 그 한 섹션만 그린다. **계좌 전용 모드(`code` 없음)와 함께만** 쓴다.
    * 넘기지 않으면 기존 배치 그대로다.
    */
@@ -315,6 +327,7 @@ export function AccountPanel({
   onCancelSubmitted,
   onSelectUnfilled,
   selectedOrderNo = null,
+  onPickHolding,
   section,
   embedScope = 'account',
   embedEmptyTitle,
@@ -548,6 +561,7 @@ export function AccountPanel({
         rowSelectClass={rowSelectClass}
         selectHandle={selectHandle}
         isSelected={isSelected}
+        onPickHolding={onPickHolding}
         className={className}
         dialog={
           <OrderConfirmDialog
@@ -1067,6 +1081,7 @@ function EmbeddedSection({
   rowSelectClass,
   selectHandle,
   isSelected,
+  onPickHolding,
   className,
   dialog,
 }: {
@@ -1084,11 +1099,14 @@ function EmbeddedSection({
   rowSelectClass: (view: UnfilledView) => string | false;
   selectHandle: (view: UnfilledView, content: ReactNode, className?: string) => ReactNode;
   isSelected: (view: UnfilledView) => boolean;
+  onPickHolding?: (row: RelayHolding) => void;
   className?: string;
   dialog: ReactNode;
 }) {
   /** 종목이 이미 정해진 표면(카드 탭) — 종목·거래소 열을 생략한다(⑪ stock 스코프). */
   const stockScope = scope === 'stock';
+  /** 잔고 행 선택(⑪ onPickHolding) — account 스코프에서만. 없으면 행 DOM 이 종전 그대로다. */
+  const pickHolding = !stockScope ? onPickHolding : undefined;
   if (section === 'holdings') {
     return (
       <div
@@ -1120,48 +1138,75 @@ function EmbeddedSection({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {holdings.map((view) => (
-                  <TableRow key={view.row.isin} data-slot="account-embed-holding-row">
-                    {!stockScope && (
-                      <TableCell className={cn(EMB_TD, 'max-w-[180px]')}>
-                        <span
-                          data-slot="account-embed-name"
-                          title={view.label ?? view.row.isin}
-                          className="block min-w-0 truncate font-semibold"
-                        >
-                          {view.label ?? <span className="mono">{view.row.isin}</span>}
-                        </span>
+                {holdings.map((view) => {
+                  const nameEl = (
+                    <span
+                      data-slot="account-embed-name"
+                      title={view.label ?? view.row.isin}
+                      className="block min-w-0 truncate font-semibold"
+                    >
+                      {view.label ?? <span className="mono">{view.row.isin}</span>}
+                    </span>
+                  );
+                  return (
+                    <TableRow
+                      key={view.row.isin}
+                      data-slot="account-embed-holding-row"
+                      {...(pickHolding === undefined
+                        ? {}
+                        : {
+                            title: HOLDING_ROW_PICK_TITLE,
+                            onClick: () => pickHolding(view.row),
+                            className: 'cursor-pointer',
+                          })}
+                    >
+                      {!stockScope && (
+                        <TableCell className={cn(EMB_TD, 'max-w-[180px]')}>
+                          {pickHolding === undefined ? (
+                            nameEl
+                          ) : (
+                            // 버튼에 onClick 을 두지 않는다 — 클릭은 행으로 버블해 한 경로로 1회(⑩ 과 같다).
+                            <button
+                              type="button"
+                              data-slot="account-holding-pick"
+                              aria-label={`${view.label ?? view.row.isin} 카드 열기`}
+                              className="block max-w-full min-w-0 cursor-pointer bg-transparent p-0 text-left text-inherit"
+                            >
+                              {nameEl}
+                            </button>
+                          )}
+                        </TableCell>
+                      )}
+                      <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                        {KRW.format(view.row.qty)}
                       </TableCell>
-                    )}
-                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
-                      {KRW.format(view.row.qty)}
-                    </TableCell>
-                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
-                      {KRW.format(view.row.sellableQty)}
-                    </TableCell>
-                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
-                      {KRW.format(Math.round(view.row.avgPrice))}
-                    </TableCell>
-                    {/* ⑤ — 현재가를 모르는 행은 셋 다 「—」다. 지어내지 않는다. */}
-                    <TableCell className={cn(EMB_TD, 'mono text-right')}>
-                      {view.price == null ? '—' : KRW.format(view.price)}
-                    </TableCell>
-                    <TableCell data-slot="account-embed-pnl" className={cn(EMB_TD, 'text-right')}>
-                      {view.pnl == null ? (
-                        '—'
-                      ) : (
-                        <UiNumber value={Math.round(view.pnl)} format="price" showSign withColor />
-                      )}
-                    </TableCell>
-                    <TableCell className={cn(EMB_TD, 'text-right')}>
-                      {view.rate == null ? (
-                        '—'
-                      ) : (
-                        <UiNumber value={view.rate} format="percent" showSign withColor />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                        {KRW.format(view.row.sellableQty)}
+                      </TableCell>
+                      <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                        {KRW.format(Math.round(view.row.avgPrice))}
+                      </TableCell>
+                      {/* ⑤ — 현재가를 모르는 행은 셋 다 「—」다. 지어내지 않는다. */}
+                      <TableCell className={cn(EMB_TD, 'mono text-right')}>
+                        {view.price == null ? '—' : KRW.format(view.price)}
+                      </TableCell>
+                      <TableCell data-slot="account-embed-pnl" className={cn(EMB_TD, 'text-right')}>
+                        {view.pnl == null ? (
+                          '—'
+                        ) : (
+                          <UiNumber value={Math.round(view.pnl)} format="price" showSign withColor />
+                        )}
+                      </TableCell>
+                      <TableCell className={cn(EMB_TD, 'text-right')}>
+                        {view.rate == null ? (
+                          '—'
+                        ) : (
+                          <UiNumber value={view.rate} format="percent" showSign withColor />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

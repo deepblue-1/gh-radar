@@ -417,7 +417,7 @@ describe('StrategyCard', () => {
     const grid = card.querySelector('[data-slot="lc-quote-grid"]') as HTMLElement;
     expect(grid.className).toMatch(/@min-\[700px\]\/lc:/);
     expect(
-      (card.querySelector('[data-slot="card-header-l1"]') as HTMLElement).className,
+      (card.querySelector('[data-slot="card-header-l2"]') as HTMLElement).className,
     ).toMatch(/@min-\[760px\]\/lc:/);
     // 카드 안에 뷰포트 브레이크포인트가 섞이지 않는다(D-28).
     const classes = [card, ...Array.from(card.querySelectorAll('*'))].map((el) => el.getAttribute('class') ?? '');
@@ -484,7 +484,8 @@ describe('StrategyCard', () => {
         />
       </RelayContext.Provider>,
     );
-    fireEvent.click(screen.getByRole('button', { expanded: true }));
+    // 카드 탭 접기 버튼(quick-260925-ptw)도 aria-expanded 를 가져 헤더 토글은 이름으로 고른다.
+    fireEvent.click(screen.getByRole('button', { name: '에코프로비엠', expanded: true }));
     fireEvent.click(screen.getByRole('button', { name: '에코프로비엠 카드 닫기' }));
     fireEvent.click(screen.getByRole('radio', { name: 'NXT' }));
     expect(onToggle).toHaveBeenCalledWith('wb-card-7');
