@@ -948,8 +948,27 @@ Plans:
 **불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
 **Requirements**: TBD
 **Depends on:** Phase 18
-**Plans:** 0 plans
+**Plans:** 7 plans
 
 Plans:
+**Wave 1**
 
-- [ ] TBD (run /gsd-plan-phase 20 to break down)
+- [ ] 20-01-PLAN.md — 트레이서: 「호가변경」 한 행 인라인 → 즉시 반영(lc.set → 에코) end-to-end + 반영 상태 기계 완성 · CardBody unacked/현재가
+- [ ] 20-02-PLAN.md — Wave 0 순수 기반: krxTick(shared · 호가 단위 한 곳) · numpad 키패드 규칙 · 폭 예산 스파이크
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 20-03-PLAN.md — 터치 슬라이스: useEditMode · 토큰 3개 · NumberPadSheet(body 포털 · 440 가운데) · 트레이서 행 시트 연결(hasTouch e2e)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 20-04-PLAN.md — 상따 설정 리스트 전면 전환(D-19 순서 · 스위치 4 · 체크 행 · 감시대상 두 모양 · 44px) + 더티 바 폐기
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 20-05-PLAN.md — 데스크톱 인라인 완성: ↑↓ 한 호가 · D-15 검증 · Tab 이동 · 한 번 클릭 전환 · 옮긴 뒤 실패 표시
+- [ ] 20-06-PLAN.md — 수동주문 토스 스타일(상자 · 48/38 버튼 · 스테퍼 제거) + 키패드 시트 입력(값만 채움)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 20-07-PLAN.md — e2e 이관(더티 케이스 재정의 · 최악값 폭 · 터치 시트 · a11y) + 최종 게이트 · 시각 확인
