@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GH Trade 네이티브 탭바 스케치</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link id="theme-css" rel="stylesheet" href="../themes/toss-dark.css">
+<style>
+/* ───────── 스케치 크롬 (테마 무관) ───────── */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif; }
+body.light-chrome { background: #e9ebef; color: #333; }
+#variant-nav { position: sticky; top: 0; z-index: 100; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+body.light-chrome #variant-nav { background: #f4f5f7; border-bottom-color: #d9dce1; }
+#variant-nav .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#variant-nav .lbl { color: #777; margin-right: 4px; font-size: 12px; }
+#variant-nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12.5px; }
+#variant-nav button:hover { color: #fff; border-color: #444; }
+#variant-nav button.active { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+body.light-chrome #variant-nav button { background: #fff; color: #444; border-color: #d0d4da; }
+body.light-chrome #variant-nav button.active { background: #191f28; color: #fff; border-color: #191f28; }
+#vdesc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.55; }
+#vdesc b { color: #e8e8ea; }
+body.light-chrome #vdesc { color: #555; } body.light-chrome #vdesc b { color: #111; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 28px; padding: 24px 12px 80px; overflow-x: auto; }
+
+/* ───────── 기기 프레임 ───────── */
+.device { flex: none; position: relative; background: var(--bg); color: var(--fg); font-family: var(--font-sans); overflow: hidden; box-shadow: 0 0 0 1px #2a2a30, 0 0 0 12px #111, 0 30px 80px rgba(0,0,0,.5); }
+.device.phone { width: 390px; height: 844px; border-radius: 48px; }
+.device { transform-origin: top center; }
+.device.ipad { width: 820px; height: 1180px; border-radius: 34px; }
+.island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 60; }
+.device.ipad .island { display: none; }
+.statusbar { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 12px; font-size: 15px; font-weight: 600; z-index: 55; pointer-events: none; }
+.device.ipad .statusbar { height: 30px; padding: 0 24px 6px; font-size: 13px; }
+.statusbar .sig { display: flex; gap: 6px; align-items: center; }
+.statusbar svg { width: 18px; height: 18px; }
+.home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 140px; height: 5px; border-radius: 3px; background: var(--fg); opacity: .8; z-index: 70; }
+.device.ipad .home-ind { width: 300px; }
+
+/* 스크롤 본문 (WebView) */
+.webview { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }
+.webview::-webkit-scrollbar { display: none; }
+.hdr { position: sticky; top: 0; z-index: 30; height: calc(56px + var(--sat)); padding: var(--sat) 8px 0; display: flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.device { --sat: 54px; }
+.device.ipad { --sat: 30px; }
+.hdr .ic { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 8px; color: var(--fg); }
+.hdr .ic svg { width: 22px; height: 22px; }
+.hdr .brand { font-weight: 800; font-size: 17px; letter-spacing: -.02em; }
+.hdr .sp { flex: 1; }
+.body { padding: 4px 8px 0; }
+.device.ipad .body { padding: 8px 16px 0; }
+.body.pad-a { padding-bottom: 136px; }   /* 알약 70 + 14 + inset 34 + 여백 */
+.body.pad-b { padding-bottom: 112px; }   /* 풀폭 56 + inset 34 + 여백 */
+.body.pad-c { padding-bottom: 122px; }   /* 컴팩트 60 + 8 + inset 34 + 여백 */
+.device.ipad .body.pad-a { padding-bottom: 130px; }
+
+/* ───────── 공통 프리미티브 ───────── */
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted-fg); } .faint { color: var(--faint-fg); }
+.up { color: var(--up); } .down { color: var(--down); }
+.card { background: var(--card); border-radius: var(--r-lg); padding: 16px; }
+.light .card { box-shadow: 0 0 0 1px var(--line) inset; }
+.h2 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+.row { display: flex; align-items: center; gap: 8px; } .row.between { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.chip { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--raised); color: var(--fg-2); font-size: 12px; font-weight: 600; }
+.chip.on { background: var(--down-bg); color: var(--primary); }
+.pill-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 10px; background: var(--raised); color: var(--fg); font-size: 13px; font-weight: 600; }
+.pill-btn svg { width: 16px; height: 16px; }
+.divider { height: 1px; background: var(--line); }
+.band { height: 12px; background: var(--band); margin: 12px -8px; }
+.device.ipad .band { margin: 12px -16px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.device.phone .grid2 { grid-template-columns: 1fr; }
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--raised-2); display: inline-block; }
+.led.on { background: var(--up); box-shadow: 0 0 6px var(--up); }
+.led.b { background: var(--primary); box-shadow: 0 0 6px var(--primary); }
+.switch { width: 40px; height: 24px; border-radius: 999px; background: var(--raised-2); position: relative; flex: none; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+.switch.on { background: var(--primary); } .switch.on::after { left: 19px; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-top: 10px; }
+.tabs span { padding: 10px 12px; font-size: 15px; font-weight: 600; color: var(--muted-fg); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs span.on { color: var(--fg); border-bottom-color: var(--fg); }
+.screen { display: none; } .screen.on { display: block; }
+
+/* ───────── 홈 ───────── */
+.date-row { display: flex; gap: 6px; margin: 8px 0 12px; }
+.theme-card .name { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.theme-card .pct { font-weight: 700; font-size: 15px; }
+.theme-card p { margin: 6px 0 10px; font-size: 13.5px; line-height: 1.5; color: var(--fg-2); }
+.stocks { display: flex; flex-wrap: wrap; gap: 6px; }
+.stocks .s { display: inline-flex; gap: 6px; align-items: center; height: 28px; padding: 0 10px; border-radius: 8px; background: var(--raised); font-size: 13px; }
+.stocks .s b { font-weight: 600; }
+
+/* ───────── 종목상세 ───────── */
+.hero { padding: 10px 0 4px; }
+.hero .nm { display: flex; align-items: center; gap: 8px; }
+.hero h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+.hero .code { font-size: 13px; color: var(--muted-fg); }
+.hero .price { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin-top: 6px; }
+.hero .chg { font-size: 15px; font-weight: 600; margin-top: 2px; }
+.chart { height: 220px; margin-top: 12px; border-radius: var(--r-lg); background: var(--card); position: relative; overflow: hidden; }
+.chart svg { width: 100%; height: 100%; display: block; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; font-size: 14px; }
+.kv div { display: flex; justify-content: space-between; } .kv span:first-child { color: var(--muted-fg); }
+
+/* ───────── 트레이딩 ───────── */
+.status-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-fg); padding: 6px 0 10px; }
+.strat .ttl { display: flex; align-items: center; gap: 8px; }
+.strat .ttl b { font-size: 16px; }
+.strat .ttl .tag { font-size: 11px; font-weight: 700; color: var(--muted-fg); background: var(--raised); border-radius: 6px; padding: 2px 6px; }
+.lrow { display: flex; align-items: center; justify-content: space-between; height: 44px; font-size: 15px; }
+.lrow span:first-child { color: var(--muted-fg); }
+.lrow .v { font-weight: 500; } .lrow .v::after { content: ' ›'; color: var(--faint-fg); }
+
+/* ───────── 로그인 ───────── */
+.login { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; }
+.login .card { width: 100%; max-width: 360px; text-align: center; padding: 28px 20px; }
+.login h3 { margin: 8px 0 4px; font-size: 20px; }
+.login p { margin: 0 0 18px; font-size: 14px; color: var(--muted-fg); }
+.gbtn { display: flex; align-items: center; justify-content: center; gap: 8px; height: 48px; border-radius: 12px; background: var(--fg); color: var(--bg); font-weight: 600; font-size: 15px; }
+.gbtn svg { width: 18px; height: 18px; }
+
+/* ───────── 오버레이(바텀시트) ───────── */
+.dim { position: absolute; inset: 0; background: rgba(0,0,0,.45); z-index: 80; display: none; }
+.sheet { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 81; background: var(--card); border-radius: 28px; padding: 20px 20px calc(20px + 24px); display: none; }
+.device.ipad .sheet { left: 50%; right: auto; width: 440px; transform: translateX(-50%); }
+.device.overlay .dim, .device.overlay .sheet { display: block; }
+.sheet .t { font-size: 18px; font-weight: 700; } .sheet .d { color: var(--muted-fg); font-size: 13.5px; margin: 4px 0 14px; }
+.sheet .val { font-size: 32px; font-weight: 700; text-align: right; padding: 10px 14px; background: var(--raised); border-radius: 14px; }
+.keys { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 14px; }
+.keys span { height: 48px; display: grid; place-items: center; font-size: 20px; font-weight: 600; border-radius: 12px; }
+
+/* ───────── 네이티브 탭바 (3 변형) ───────── */
+.tabbar.pulse { animation: tbpulse 1.4s ease-out 1; }
+@keyframes tbpulse { 0% { outline: 3px solid #f04452; outline-offset: 6px; } 70% { outline: 3px solid #f04452; outline-offset: 6px; } 100% { outline: 3px solid transparent; outline-offset: 6px; } }
+.tabbar { position: absolute; z-index: 90; transition: opacity .2s, transform .2s; }
+.device.overlay .tabbar, .device.login-page .tabbar { opacity: 0; pointer-events: none; transform: translateY(8px); }
+.tabbar .items { display: flex; height: 100%; }
+.tabbar .item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; position: relative; color: var(--tb-fg); }
+.tabbar.va .item { justify-content: flex-start; padding-top: 12px; }
+.tabbar .item svg { width: 26px; height: 26px; }
+.tabbar .item .lb { font-size: 10px; font-weight: 600; letter-spacing: -.01em; }
+.tabbar .item .out { display: block; } .tabbar .item .fil { display: none; }
+.tabbar .item.on { color: var(--tb-on); }
+.tabbar .item.on .out { display: none; } .tabbar .item.on .fil { display: block; }
+.tabbar.none .item.on { color: var(--tb-fg); } .tabbar.none .item.on .fil { display: none; } .tabbar.none .item.on .out { display: block; }
+.tabbar.none .item.on .hl { display: none; }
+.fade { position: absolute; left: 0; right: 0; bottom: 0; z-index: 85; pointer-events: none; }
+.device.overlay .fade { opacity: 0; }
+
+/* A · 알약 (weekly-wine 계승) */
+.tabbar.va { left: 16px; right: 16px; bottom: calc(34px + 14px); height: 70px; border-radius: 32px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 2px 16px rgba(0,0,0,.18), 0 0 0 1px var(--line) inset; --tb-fg: var(--muted-fg); --tb-on: var(--primary); }
+.device.ipad .tabbar.va { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
+.device.ipad.overlay .tabbar.va, .device.ipad.login-page .tabbar.va { transform: translateX(-50%) translateY(8px); }
+.tabbar.va .item .hl { position: absolute; width: 46px; height: 46px; border-radius: 23px; background: color-mix(in srgb, var(--primary) 14%, transparent); top: 7px; left: 50%; transform: translateX(-50%); display: none; }
+.tabbar.va .item.on .hl { display: block; }
+.tabbar.va .item svg, .tabbar.va .item .lb { position: relative; }
+.tabbar.va .item .lb { color: var(--tb-fg); } .tabbar.va .item.on .lb { color: var(--tb-on); }
+.fade.va { height: 150px; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 70%); }
+
+/* B · 풀폭 토스식 */
+.tabbar.vb { left: 0; right: 0; bottom: 0; height: calc(56px + 34px); padding-bottom: 34px; background: var(--bg); box-shadow: 0 -1px 0 var(--line); --tb-fg: var(--faint-fg); --tb-on: var(--fg); }
+.tabbar.vb .item svg { width: 24px; height: 24px; }
+.tabbar.vb .item .lb { font-size: 10.5px; }
+.tabbar.vb .item .hl { display: none; }
+
+/* C · 컴팩트 알약 (절충) */
+.tabbar.vc { left: 12px; right: 12px; bottom: calc(34px + 8px); height: 60px; border-radius: 20px; background: var(--card); box-shadow: 0 0 0 1px var(--line) inset, 0 6px 20px rgba(0,0,0,.14); --tb-fg: var(--muted-fg); --tb-on: var(--primary); }
+.device.ipad .tabbar.vc { left: 50%; right: auto; width: 520px; transform: translateX(-50%); }
+.device.ipad.overlay .tabbar.vc, .device.ipad.login-page .tabbar.vc { transform: translateX(-50%) translateY(8px); }
+.tabbar.vc .item svg { width: 24px; height: 24px; }
+.tabbar.vc .item .hl { display: none; }
+.tabbar.vc .item.on::before { content: ''; position: absolute; top: 6px; width: 16px; height: 3px; border-radius: 2px; background: var(--primary); }
+
+/* ───────── 아이콘 시안 패널 ───────── */
+#icons { display: none; flex-direction: column; gap: 22px; color: #ddd; max-width: 1180px; }
+#icons.on { display: flex; }
+body.light-chrome #icons { color: #222; }
+.icon-sets { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; }
+.icon-set { background: #14141a; border: 1px solid #26262c; border-radius: 18px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; min-width: 520px; }
+body.light-chrome .icon-set { background: #fff; border-color: #d9dce1; }
+.icon-set h3 { margin: 0; font-size: 15px; } .icon-set p { margin: 0; font-size: 12.5px; color: #9a9aa2; line-height: 1.5; }
+.icon-row { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+.app-icon { border-radius: 22.4%; overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.app-icon svg { display: block; width: 100%; height: 100%; }
+.cap { font-size: 11px; color: #888; text-align: center; margin-top: 6px; }
+.splash { width: 200px; height: 434px; border-radius: 24px; display: grid; place-items: center; position: relative; box-shadow: 0 0 0 6px #111; }
+.splash .word { position: absolute; bottom: 44px; left: 0; right: 0; text-align: center; font-weight: 800; font-size: 15px; letter-spacing: -.02em; }
+.homescreen { width: 240px; padding: 18px 14px; border-radius: 22px; display: grid; grid-template-columns: repeat(4,1fr); gap: 14px 8px; background: linear-gradient(160deg,#2b2f4a,#0f1020); }
+.homescreen .ap { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 9.5px; color: #fff; }
+.homescreen .ap .sq { width: 44px; height: 44px; border-radius: 11px; background: #3a3f5c; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <!-- SF Symbols 근사 (목업용 벡터). 실제 앱은 iOS SF Symbols / Android Material 사용 (D-15) -->
+  <symbol id="i-home-o" viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2M5.5 9.8V20h4.8v-5.6h3.4V20h4.8V9.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-home-f" viewBox="0 0 24 24"><path d="M12 3.6 2.8 11.4a.9.9 0 0 0 .6 1.6h1.6V20a1 1 0 0 0 1 1h4.2v-6h3.6v6H18a1 1 0 0 0 1-1v-7h1.6a.9.9 0 0 0 .6-1.6Z" fill="currentColor"/></symbol>
+  <symbol id="i-search-o" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-search-f" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="i-trade-o" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 6.5H19v3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trade-f" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 6.5H19v4.5Z" fill="currentColor"/></symbol>
+  <symbol id="i-ai-o" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M17.5 13c.25 2 1.2 3 3.2 3.2-2 .25-2.95 1.2-3.2 3.3-.25-2.1-1.2-3.05-3.2-3.3 2-.2 2.95-1.2 3.2-3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ai-f" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="currentColor"/><path d="M17.5 13c.25 2 1.2 3 3.2 3.2-2 .25-2.95 1.2-3.2 3.3-.25-2.1-1.2-3.05-3.2-3.3 2-.2 2.95-1.2 3.2-3.2Z" fill="currentColor"/></symbol>
+  <symbol id="i-me-o" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.2 18.4c1.2-2.3 3.3-3.4 5.8-3.4s4.6 1.1 5.8 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-me-f" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.2a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Zm0 12a7.5 7.5 0 0 1-5.6-2.5c1.2-2 3.2-3 5.6-3s4.4 1 5.6 3A7.5 7.5 0 0 1 12 19.2Z" fill="currentColor"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m14.5 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.8 2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.7l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <!-- 앱 아이콘 시안 -->
+  <symbol id="app-a" viewBox="0 0 1024 1024">
+    <rect width="1024" height="1024" fill="#17171c"/>
+    <defs><linearGradient id="swA" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#f04452" stop-opacity="0"/><stop offset="1" stop-color="#f04452" stop-opacity=".55"/></linearGradient></defs>
+    <path d="M512 512 L512 200 A312 312 0 0 1 782 356 Z" fill="url(#swA)"/>
+    <g fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round">
+      <circle cx="512" cy="512" r="312"/><circle cx="512" cy="512" r="176"/>
+      <path d="M512 512 L790 352"/>
+    </g>
+    <circle cx="512" cy="512" r="46" fill="#ffffff"/>
+  </symbol>
+  <symbol id="app-b" viewBox="0 0 1024 1024">
+    <defs><linearGradient id="bgB" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b8cff"/><stop offset="1" stop-color="#1b64da"/></linearGradient>
+    <linearGradient id="swB" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#ffffff" stop-opacity="0"/><stop offset="1" stop-color="#ffffff" stop-opacity=".45"/></linearGradient></defs>
+    <rect width="1024" height="1024" fill="url(#bgB)"/>
+    <path d="M512 512 L512 200 A312 312 0 0 1 782 356 Z" fill="url(#swB)"/>
+    <g fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round">
+      <circle cx="512" cy="512" r="312"/><circle cx="512" cy="512" r="176"/>
+      <path d="M512 512 L790 352"/>
+    </g>
+    <circle cx="512" cy="512" r="46" fill="#ffffff"/>
+    <path d="M330 760 L470 620 L560 690 L700 540" fill="none" stroke="#f04452" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+</svg>
+
+<div id="variant-nav">
+  <div class="grp"><span class="lbl">탭바</span>
+    <button data-variant="a" class="active">A: 알약 (weekly-wine 계승) ★ 채택</button>
+    <button data-variant="b">B: 풀폭 토스식</button>
+    <button data-variant="c">C: 컴팩트 알약</button>
+  </div>
+  <div class="grp"><span class="lbl">테마</span>
+    <button data-theme="dark" class="active">다크</button>
+    <button data-theme="light">라이트</button>
+  </div>
+  <div class="grp"><span class="lbl">기기</span>
+    <button data-dev="phone" class="active">iPhone 390</button>
+    <button data-dev="ipad">iPad 세로 820</button>
+    <button data-dev="both">둘 다</button>
+  </div>
+  <div class="grp"><span class="lbl">화면</span>
+    <button data-page="home" class="active">홈 (홈 활성)</button>
+    <button data-page="detail">종목상세 (전부 비활성)</button>
+    <button data-page="trading">트레이딩 (활성)</button>
+    <button data-page="login">로그인 (탭바 숨김)</button>
+  </div>
+  <div class="grp"><span class="lbl">상태</span>
+    <button data-overlay="1">키패드 시트 열림 → 숨김</button>
+    <button data-icons="1">앱 아이콘·스플래시 시안</button>
+  </div>
+  <div id="vdesc"></div>
+</div>
+
+<div id="stage">
+  <!-- 기기 템플릿은 JS 로 복제 -->
+  <template id="device-tpl">
+    <div class="device phone">
+      <div class="island"></div>
+      <div class="statusbar"><span class="num">9:41</span><span class="sig">
+        <svg viewBox="0 0 24 24"><path d="M3 15h3v4H3zm5-3h3v7H8zm5-4h3v11h-3zm5-4h3v15h-3z" fill="currentColor"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M12 19.5 2.5 9.9A13.6 13.6 0 0 1 21.5 9.9Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="16.5" r="1.6" fill="currentColor"/></svg>
+        <svg viewBox="0 0 28 14" style="width:26px"><rect x="1" y="1.5" width="22" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2.8" y="3.3" width="16" height="7.4" rx="1.6" fill="currentColor"/><rect x="24.5" y="5" width="2.2" height="4" rx="1" fill="currentColor"/></svg>
+      </span></div>
+
+      <div class="webview">
+        <header class="hdr">
+          <span class="ic"><svg><use href="#i-menu"/></svg></span>
+          <span class="brand">GH Trade</span>
+          <span class="sp"></span>
+          <span class="ic"><svg><use href="#i-search-o"/></svg></span>
+        </header>
+
+        <div class="body">
+          <!-- 홈 -->
+          <section class="screen s-home">
+            <h2 class="h2" style="margin-top:8px">오늘의 급등 테마</h2>
+            <div class="date-row"><span class="chip on">09-25 14:30</span><span class="chip">13:30</span><span class="chip">12:30</span><span class="chip">11:30</span></div>
+            <div class="stack">
+              <div class="card theme-card">
+                <div class="row between"><span class="name">이차전지 소재</span><span class="pct up num">+18.4%</span></div>
+                <p>리튬 가격 반등 기대와 미국 IRA 세부 지침 발표로 양극재·전해질 종목이 동반 급등. 에코프로가 상한가로 마감 흐름.</p>
+                <div class="stocks"><span class="s"><b>에코프로</b><span class="up num">+29.9%</span></span><span class="s"><b>엘앤에프</b><span class="up num">+21.3%</span></span><span class="s"><b>천보</b><span class="up num">+15.0%</span></span><span class="s"><b>후성</b><span class="up num">+12.8%</span></span></div>
+              </div>
+              <div class="card theme-card">
+                <div class="row between"><span class="name">로봇·자동화</span><span class="pct up num">+12.1%</span></div>
+                <p>휴머노이드 로봇 상용화 발표 이후 감속기·액추에이터 부품사가 강세. 거래대금 상위 30 안에 4종목.</p>
+                <div class="stocks"><span class="s"><b>레인보우로보틱스</b><span class="up num">+16.2%</span></span><span class="s"><b>에스피지</b><span class="up num">+11.7%</span></span><span class="s"><b>두산로보틱스</b><span class="up num">+9.4%</span></span></div>
+              </div>
+              <div class="card theme-card">
+                <div class="row between"><span class="name">원전</span><span class="pct up num">+9.6%</span></div>
+                <p>체코 원전 본계약 임박 보도. 두산에너빌리티 거래대금 1위, 보조기기 업체까지 확산.</p>
+                <div class="stocks"><span class="s"><b>두산에너빌리티</b><span class="up num">+11.2%</span></span><span class="s"><b>우진</b><span class="up num">+9.9%</span></span><span class="s"><b>비에이치아이</b><span class="up num">+8.1%</span></span></div>
+              </div>
+              <div class="card theme-card">
+                <div class="row between"><span class="name">반도체 장비</span><span class="pct up num">+7.3%</span></div>
+                <p>HBM 4 투자 확대 뉴스. 후공정 장비주 위주.</p>
+                <div class="stocks"><span class="s"><b>한미반도체</b><span class="up num">+8.8%</span></span><span class="s"><b>이오테크닉스</b><span class="up num">+6.4%</span></span></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 종목상세 -->
+          <section class="screen s-detail">
+            <div class="hero">
+              <div class="nm"><svg style="width:22px;height:22px;color:var(--muted-fg)"><use href="#i-back"/></svg><h1>에코프로</h1><span class="code num">086520 · KOSDAQ</span><span style="margin-left:auto;color:var(--up)"><svg style="width:22px;height:22px"><use href="#i-star"/></svg></span></div>
+              <div class="price num up">1,234,000</div>
+              <div class="chg up num">▲ 284,000 (+29.9%) · 상한가</div>
+              <div class="row" style="margin-top:12px;gap:8px">
+                <span class="pill-btn"><svg><use href="#i-ai-o"/></svg>AI 분석</span>
+                <span class="pill-btn">관심종목</span>
+                <span class="pill-btn">종목정보</span>
+              </div>
+            </div>
+            <div class="tabs"><span class="on">차트</span><span>호가주문</span><span>뉴스</span><span>토론</span></div>
+            <div class="chart">
+              <svg viewBox="0 0 390 220" preserveAspectRatio="none">
+                <g stroke="var(--line)" stroke-width="1"><path d="M0 55H390M0 110H390M0 165H390"/></g>
+                <g stroke-width="5" stroke-linecap="round">
+                  <path d="M20 150v40M40 140v45M60 120v50M80 130v30M100 100v40M120 105v35M140 90v40M160 80v30M180 95v40M200 70v40M220 60v30M240 75v35M260 55v40M280 40v30M300 50v35M320 30v40M340 20v30M360 10v25" stroke="var(--up)"/>
+                  <path d="M50 140v20M110 110v20M190 100v20M250 70v20M310 60v18" stroke="var(--down)"/>
+                </g>
+                <path d="M0 200 L390 200" stroke="var(--line)"/>
+              </svg>
+            </div>
+            <div class="band"></div>
+            <div class="kv">
+              <div><span>시가</span><span class="num">1,150,000</span></div><div><span>고가</span><span class="num up">1,234,000</span></div>
+              <div><span>저가</span><span class="num down">1,102,000</span></div><div><span>거래대금</span><span class="num">1.2조</span></div>
+              <div><span>시가총액</span><span class="num">32.8조</span></div><div><span>회전율</span><span class="num">7.4%</span></div>
+            </div>
+            <div class="band"></div>
+            <h2 class="h2" style="font-size:17px">상한가 다음날 이력</h2>
+            <div class="card" style="margin-top:10px"><div class="row between"><span class="muted">시초가 익절률</span><b class="num up" style="font-size:22px">72%</b></div><div class="muted" style="font-size:13px;margin-top:6px">최근 24개월 상한가 11회 · 점상 2회</div></div>
+            <div class="band"></div>
+            <h2 class="h2" style="font-size:17px">동조 후보</h2>
+            <div class="stack" style="margin-top:10px">
+              <div class="card"><div class="row between"><b>엘앤에프</b><span class="num up">+21.3%</span></div><div class="muted" style="font-size:13px">테마 풀링 0.81 · co-surge 6/8</div></div>
+              <div class="card"><div class="row between"><b>포스코퓨처엠</b><span class="num up">+8.9%</span></div><div class="muted" style="font-size:13px">테마 풀링 0.74 · co-surge 5/8</div></div>
+            </div>
+          </section>
+
+          <!-- 트레이딩 -->
+          <section class="screen s-trading">
+            <div class="status-line"><span class="led b"></span>DMA 연결 · 계좌 2 · 14:31:07 KST<span style="margin-left:auto" class="chip on">KRX</span><span class="chip">NXT</span></div>
+            <div class="grid2">
+              <div class="card strat">
+                <div class="ttl"><b>에코프로</b><span class="tag">086520</span><span style="margin-left:auto" class="row" style="gap:5px"><span class="led on"></span><span class="led"></span><span class="led"></span></span></div>
+                <div class="row between" style="margin:12px 0 4px"><b style="font-size:15px">매수주문</b><span class="switch on"></span></div>
+                <div class="lrow"><span>매수가격</span><span class="v num">상한가 −1호가</span></div>
+                <div class="divider"></div>
+                <div class="lrow"><span>주문금액</span><span class="v num">3,000,000원</span></div>
+                <div class="divider"></div>
+                <div class="lrow"><span>감시대상</span><span class="v">매도잔량</span></div>
+                <div class="row between" style="margin:12px 0 4px"><b style="font-size:15px">한방체결</b><span class="switch"></span></div>
+                <div class="lrow"><span>호가변경</span><span class="v num">2호가</span></div>
+              </div>
+              <div class="card strat">
+                <div class="ttl"><b>레인보우로보틱스</b><span class="tag">277810</span><span style="margin-left:auto" class="row" style="gap:5px"><span class="led on"></span><span class="led on"></span><span class="led"></span></span></div>
+                <div class="row between" style="margin:12px 0 4px"><b style="font-size:15px">매도주문</b><span class="switch on"></span></div>
+                <div class="lrow"><span>매도가격</span><span class="v num">현재가</span></div>
+                <div class="divider"></div>
+                <div class="lrow"><span>매도비율</span><span class="v num">50%</span></div>
+                <div class="divider"></div>
+                <div class="lrow"><span>비교가격</span><span class="v">상한가</span></div>
+                <div class="row between" style="margin:12px 0 4px"><b style="font-size:15px">매수취소</b><span class="switch on"></span></div>
+                <div class="lrow"><span>취소잔량</span><span class="v num">10,000주</span></div>
+              </div>
+              <div class="card strat">
+                <div class="ttl"><b>두산에너빌리티</b><span class="tag">034020</span><span style="margin-left:auto" class="row" style="gap:5px"><span class="led"></span><span class="led"></span><span class="led"></span></span></div>
+                <div class="muted" style="font-size:13px;margin-top:8px">VI 발동 대기 · 정적 VI 상단 27,850</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 로그인 (헤더 없음, 풀블리드) -->
+          <section class="screen s-login">
+            <div class="login">
+              <div class="card">
+                <svg viewBox="0 0 1024 1024" style="width:56px;height:56px;border-radius:14px"><use href="#app-a"/></svg>
+                <h3>GH Trade에 로그인</h3>
+                <p>Google 계정으로 로그인하고 관심종목을 저장하세요</p>
+                <div class="gbtn"><svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>Google로 로그인</div>
+                <div class="faint" style="font-size:11.5px;margin-top:12px">앱에서는 네이티브 Google 계정 선택 시트가 뜬다 (D-03)</div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- 오버레이: Phase 20 키패드 시트 -->
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="t">주문금액</div><div class="d">감시 중 — 확인하면 바로 적용돼요 · 지금 3,000,000원</div>
+        <div class="val num">3,000,000<span class="muted" style="font-size:16px"> 원</span></div>
+        <div class="row" style="gap:6px;margin-top:10px"><span class="chip">+10만</span><span class="chip">+50만</span><span class="chip">+100만</span><span class="chip">지우기</span></div>
+        <div class="keys"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>00</span><span>0</span><span>⌫</span></div>
+        <div class="row" style="gap:8px;margin-top:14px"><span class="pill-btn" style="flex:1;height:52px;justify-content:center;font-size:16px">닫기</span><span class="pill-btn" style="flex:1.6;height:52px;justify-content:center;font-size:16px;background:var(--primary);color:#fff">주문금액 적용</span></div>
+      </div>
+
+      <!-- 네이티브 탭바 + 하단 페이드 -->
+      <div class="fade"></div>
+      <nav class="tabbar" aria-label="하단 탭바">
+        <div class="items">
+          <div class="item" data-tab="home"><span class="hl"></span><svg class="out"><use href="#i-home-o"/></svg><svg class="fil"><use href="#i-home-f"/></svg><span class="lb">홈</span></div>
+          <div class="item" data-tab="search"><span class="hl"></span><svg class="out"><use href="#i-search-o"/></svg><svg class="fil"><use href="#i-search-f"/></svg><span class="lb">검색</span></div>
+          <div class="item" data-tab="trading"><span class="hl"></span><svg class="out"><use href="#i-trade-o"/></svg><svg class="fil"><use href="#i-trade-f"/></svg><span class="lb">트레이딩</span></div>
+          <div class="item" data-tab="ai"><span class="hl"></span><svg class="out"><use href="#i-ai-o"/></svg><svg class="fil"><use href="#i-ai-f"/></svg><span class="lb">AI</span></div>
+          <div class="item" data-tab="me"><span class="hl"></span><svg class="out"><use href="#i-me-o"/></svg><svg class="fil"><use href="#i-me-f"/></svg><span class="lb">마이</span></div>
+        </div>
+      </nav>
+      <div class="home-ind"></div>
+    </div>
+  </template>
+
+  <div id="devices" style="display:flex;gap:28px;align-items:flex-start"></div>
+
+  <!-- 아이콘·스플래시 시안 -->
+  <div id="icons">
+    <div class="icon-sets">
+      <div class="icon-set">
+        <h3>시안 A · 다크 레이더 (토스 다크 #17171c 바탕) ★ 채택</h3>
+        <p>현 파비콘의 동심원 + 스윕을 계승. 스윕 부채꼴에 상승 빨강(#f04452) 그라데이션. 다크 홈화면·라이트 홈화면 어디서나 검은 정사각이 브랜드 면이 된다.</p>
+        <div class="icon-row">
+          <div><div class="app-icon" style="width:120px;height:120px"><svg><use href="#app-a"/></svg></div><div class="cap">120 (홈화면 60pt@2x)</div></div>
+          <div><div class="app-icon" style="width:60px;height:60px"><svg><use href="#app-a"/></svg></div><div class="cap">60</div></div>
+          <div><div class="app-icon" style="width:29px;height:29px"><svg><use href="#app-a"/></svg></div><div class="cap">29 (설정)</div></div>
+          <div class="homescreen"><div class="ap"><div class="sq"></div>메시지</div><div class="ap"><div class="sq"></div>사진</div><div class="ap"><div class="app-icon sq" style="background:none"><svg><use href="#app-a"/></svg></div>GH Trade</div><div class="ap"><div class="sq"></div>토스</div></div>
+          <div class="splash" style="background:#17171c;color:#fff"><svg viewBox="0 0 1024 1024" style="width:96px;height:96px;border-radius:22px"><use href="#app-a"/></svg><div class="word">GH Trade</div></div>
+          <div class="splash" style="background:#ffffff;color:#191f28"><svg viewBox="0 0 1024 1024" style="width:96px;height:96px;border-radius:22px"><use href="#app-a"/></svg><div class="word">GH Trade</div></div>
+        </div>
+      </div>
+      <div class="icon-set">
+        <h3>시안 B · 블루 레이더 + 상승선</h3>
+        <p>토스 블루(#3b8cff→#1b64da) 그라데이션 바탕에 흰 레이더, 아래쪽에 상승 빨강 꺾은선. 「트레이딩」이 한눈에 읽히지만 요소가 하나 많다.</p>
+        <div class="icon-row">
+          <div><div class="app-icon" style="width:120px;height:120px"><svg><use href="#app-b"/></svg></div><div class="cap">120</div></div>
+          <div><div class="app-icon" style="width:60px;height:60px"><svg><use href="#app-b"/></svg></div><div class="cap">60</div></div>
+          <div><div class="app-icon" style="width:29px;height:29px"><svg><use href="#app-b"/></svg></div><div class="cap">29</div></div>
+          <div class="homescreen"><div class="ap"><div class="sq"></div>메시지</div><div class="ap"><div class="sq"></div>사진</div><div class="ap"><div class="app-icon sq" style="background:none"><svg><use href="#app-b"/></svg></div>GH Trade</div><div class="ap"><div class="sq"></div>토스</div></div>
+          <div class="splash" style="background:#17171c;color:#fff"><svg viewBox="0 0 1024 1024" style="width:96px;height:96px;border-radius:22px"><use href="#app-b"/></svg><div class="word">GH Trade</div></div>
+          <div class="splash" style="background:#ffffff;color:#191f28"><svg viewBox="0 0 1024 1024" style="width:96px;height:96px;border-radius:22px"><use href="#app-b"/></svg><div class="word">GH Trade</div></div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:#9a9aa2;text-align:center;margin:0">스플래시 = 바탕(라이트 #ffffff / 다크 #17171c) + 아이콘 96 + 워드마크. @capacitor/assets 가 `Default@{1,2,3}x~universal~anyany[-dark].png`·`drawable-*/splash.png` 로 뽑는다. iOS 는 아이콘 모서리를 시스템이 깎으므로 원본은 정사각 PNG.</p>
+  </div>
+</div>
+
+<div id="sketch-tools" style="position:fixed;bottom:12px;right:12px;z-index:9999;font-family:system-ui;font-size:12px;background:rgba(0,0,0,.72);color:#fff;padding:8px 12px;border-radius:8px;opacity:.45;transition:opacity .2s" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.45'">
+  sketch 004 · 탭바 변형 A/B/C × 다크/라이트 × iPhone/iPad · 화면 4종 · 시트 열림 상태 · 아이콘 시안 A/B
+</div>
+
+<script>
+const DESC = {
+  a: '<b>A · 알약(weekly-wine 계승)</b> — 좌우 16 · 높이 70 · radius 32 · 카드색 82% + 블러 · 그림자 · 하단 페이드. 활성 = primary 14% 원 하이라이트 + filled 아이콘 + primary 라벨. iPad 는 폭 560 가운데. 본문 하단 여백 136.',
+  b: '<b>B · 풀폭 토스식</b> — 바닥에 붙은 풀폭 바 56 + 홈 인디케이터 34 · 바탕색 + 상단 hairline · 블러·페이드 없음. 활성 = fg(다크 흰/라이트 grey900) filled, 비활성 = faint. 토스증권 앱의 실제 탭바 구조. 본문 하단 여백 112.',
+  c: '<b>C · 컴팩트 알약(절충)</b> — 좌우 12 · 높이 60 · radius 20 · 카드색 불투명 + hairline · 페이드 없음. 활성 = 상단 3px 인디케이터 + filled + primary 라벨. A 보다 본문을 18px 더 돌려준다. 본문 하단 여백 122.',
+};
+const PAGE_ACTIVE = { home: 'home', detail: null, trading: 'trading', login: null };
+const state = { variant: 'a', theme: 'dark', dev: 'phone', page: 'home', overlay: false, icons: false };
+
+function buildDevices() {
+  const host = document.getElementById('devices');
+  host.innerHTML = '';
+  const kinds = state.dev === 'both' ? ['phone', 'ipad'] : [state.dev];
+  for (const k of kinds) {
+    const node = document.getElementById('device-tpl').content.firstElementChild.cloneNode(true);
+    node.classList.remove('phone', 'ipad'); node.classList.add(k);
+    host.appendChild(node);
+  }
+  apply();
+}
+
+function fit() {
+  const nav = document.getElementById('variant-nav').offsetHeight;
+  const avail = window.innerHeight - nav - 48;
+  document.querySelectorAll('.device').forEach(d => {
+    const base = d.classList.contains('ipad') ? 1180 : 844;
+    const sc = Math.min(1, avail / base);
+    d.style.transform = `scale(${sc})`;
+    d.style.marginBottom = `${-(base * (1 - sc))}px`;
+  });
+}
+window.addEventListener('resize', fit);
+
+let lastVariant = null;
+function apply() {
+  document.body.classList.toggle('light-chrome', state.theme === 'light');
+  document.getElementById('theme-css').href = state.theme === 'dark' ? '../themes/toss-dark.css' : '../themes/toss-light.css';
+  document.getElementById('vdesc').innerHTML = DESC[state.variant] + (state.page === 'detail' ? ' · <b>종목상세 = 매칭 없는 경로 → 5탭 전부 비활성(D-14)</b>' : '') + (state.page === 'login' ? ' · <b>/login → 탭바 숨김(D-12 ①)</b>' : '') + (state.overlay ? ' · <b>시트 열림 신호 → 150ms 뒤 0.2s 페이드아웃(D-12 ③)</b>' : '');
+  document.getElementById('icons').classList.toggle('on', state.icons);
+  document.getElementById('devices').style.display = state.icons ? 'none' : 'flex';
+  document.querySelectorAll('.device').forEach(dev => {
+    dev.classList.toggle('light', state.theme === 'light');
+    dev.classList.toggle('overlay', state.overlay && state.page !== 'login');
+    dev.classList.toggle('login-page', state.page === 'login');
+    dev.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.classList.contains('s-' + state.page)));
+    dev.querySelector('.hdr').style.display = state.page === 'login' ? 'none' : '';
+    const body = dev.querySelector('.body');
+    body.className = 'body pad-' + state.variant;
+    const tb = dev.querySelector('.tabbar');
+    tb.className = 'tabbar v' + state.variant + (PAGE_ACTIVE[state.page] ? '' : ' none');
+    tb.querySelectorAll('.item').forEach(it => it.classList.toggle('on', it.dataset.tab === PAGE_ACTIVE[state.page]));
+    const fade = dev.querySelector('.fade');
+    fade.className = 'fade' + (state.variant === 'a' ? ' va' : '');
+    fade.style.display = state.variant === 'a' ? '' : 'none';
+    dev.querySelector('.webview').scrollTop = 0;
+    if (lastVariant !== null && lastVariant !== state.variant) { tb.classList.remove('pulse'); void tb.offsetWidth; tb.classList.add('pulse'); }
+  });
+  lastVariant = state.variant;
+  fit();
+  document.querySelectorAll('#variant-nav button').forEach(b => {
+    const d = b.dataset;
+    let on = false;
+    if (d.variant) on = d.variant === state.variant;
+    else if (d.theme) on = d.theme === state.theme;
+    else if (d.dev) on = d.dev === state.dev;
+    else if (d.page) on = d.page === state.page;
+    else if (d.overlay) on = state.overlay;
+    else if (d.icons) on = state.icons;
+    b.classList.toggle('active', on);
+  });
+}
+
+document.querySelectorAll('#variant-nav button').forEach(b => b.addEventListener('click', () => {
+  const d = b.dataset;
+  if (d.variant) state.variant = d.variant;
+  else if (d.theme) state.theme = d.theme;
+  else if (d.dev) { state.dev = d.dev; state.icons = false; buildDevices(); return; }
+  else if (d.page) { state.page = d.page; state.icons = false; }
+  else if (d.overlay) { state.overlay = !state.overlay; state.icons = false; }
+  else if (d.icons) state.icons = !state.icons;
+  apply();
+}));
+
+// 탭 클릭 = 화면 전환 (목업)
+document.addEventListener('click', e => {
+  const it = e.target.closest('.tabbar .item');
+  if (!it) return;
+  const map = { home: 'home', trading: 'trading' };
+  state.page = map[it.dataset.tab] ?? state.page;
+  if (it.dataset.tab === 'search' || it.dataset.tab === 'ai' || it.dataset.tab === 'me') {
+    // 목업엔 해당 화면 없음 — 활성만 표시
+    document.querySelectorAll('.tabbar .item').forEach(x => x.classList.toggle('on', x === it));
+    document.querySelectorAll('.tabbar').forEach(t => t.classList.remove('none'));
+    return;
+  }
+  apply();
+});
+
+buildDevices();
+</script>
+</body>
+</html>

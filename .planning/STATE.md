@@ -4,13 +4,13 @@ milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
 status: verifying
-stopped_at: Completed 20-08-PLAN.md
-last_updated: "2026-09-25T11:13:57.892Z"
+stopped_at: Phase 21 context gathered
+last_updated: "2026-09-25T12:13:18.480Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 master 병합(theme/toss-b · 8/8 · 재검증 R2 13/13 · UAT 6건 대기) — Phase 19 는 19-13 첫 거래일 대조 대기
-state_head: fb3d45e1d8a858951f9024751a7ce410864e0a62
+state_head: 008273ceaa1ac6c04ca2a0cb242897294ad2590c
 progress:
-  total_phases: 29
+  total_phases: 30
   completed_phases: 4
   total_plans: 254
   completed_plans: 238
@@ -236,10 +236,10 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/21-gh-trade-mobile-app/21-CONTEXT.md
 
-Last session: 2026-09-25T08:43:05.414Z
-Stopped at: Completed 20-08-PLAN.md
+Last session: 2026-09-25T12:13:17.440Z
+Stopped at: Phase 21 context gathered
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

@@ -14,3 +14,4 @@
 | 001 | toss-dark-theme | 토큰만 교체 / 토스 풀 스킨 / 하이브리드 중 어느 강도? | B (다크+라이트, 브랜치 실적용으로 검증 예정) | theme, dark, stock-detail, trading |
 | 002 | toss-order-ticket | 호가주문 패널을 토스 주문창 구조로 — 상따 설정 표현·폭별 동작·입력 키보드 | B 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 8차 확정(2026-09-25) | orderbook, trading, phone |
 | 003 | toss-light-palette | 라이트 팔레트 — TDS 순정+블루 선택 / 쿨 네이비 바탕+카드 / 순백 hairline 중 어느 방향? | A (TDS 값 유지 · 선택/활성만 blue50/blue600 · 2026-09-25) | theme, light, palette, stock-detail, trading |
+| 004 | native-tab-bar | GH Trade 앱 네이티브 하단 탭바 — weekly-wine 알약 / 풀폭 토스식 / 컴팩트 알약 중 어느 모양? 앱 아이콘 다크 레이더 / 블루 레이더? | A 알약 + 아이콘 A 다크 레이더 (2026-09-25) | mobile, capacitor, tab-bar, native, app-icon, splash |
