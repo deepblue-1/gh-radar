@@ -229,13 +229,12 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     setRelay({ limitChasers: [echo()] });
     render(<Card />);
 
-    // 폼의 로컬 값을 서버와 다르게 만든다 — 그래도 cfg 에는 서버 값이 실려야 한다.
-    act(() => {
-      fireEvent.change(document.querySelector('#lc-sell-order-ratio') as HTMLInputElement, {
-        target: { value: '50' },
-      });
-    });
-
+    /*
+      20-04 이관 — 옛 판은 여기서 `#lc-sell-order-ratio` 입력을 바꿔 폼 로컬 값을 서버와 다르게
+      만들었다. D-04 로 더티 누적이 사라져 **화면으로는 그 상태를 만들 수 없다**(값 필드는 낙관 반영이
+      없고 인라인 버퍼는 편집기의 것이다). 「로컬 값이 cfg 에 얹히지 않는다」(T-20-03)는 훅 단위
+      테스트(`use-lc-field-commit.test.tsx`)가 잠그고, 여기서는 cfg 의 나머지 필드가 서버 값임을 본다.
+    */
     const input = openEditor();
     typeAndEnter(input, '5');
 

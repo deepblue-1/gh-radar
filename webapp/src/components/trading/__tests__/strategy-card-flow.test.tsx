@@ -191,8 +191,32 @@ function Card() {
 }
 
 const logRows = () => document.querySelectorAll('[data-slot="strategy-log-row"]');
-const watchQtyInput = (): HTMLInputElement =>
-  document.querySelector('#lc-buy-watch-qty') as HTMLInputElement;
+/** 값 행의 표시 글자(「10,000주」) — Phase 20 토스식 리스트는 값을 입력칸이 아니라 행이 보여 준다. */
+const rowValue = (id: string): string | null =>
+  document.querySelector(`[data-lc-field="${id}"] [data-slot="lc-row-value"]`)?.textContent ?? null;
+/** 행을 눌러 인라인 편집기를 연다(마우스 기기 · D-14) — 입력 id 는 옛 입력 id 그대로다. */
+function openInline(id: string): HTMLInputElement {
+  const row = document.querySelector<HTMLElement>(`[data-lc-field="${id}"]`);
+  expect(row, `값 행 ${id}`).not.toBeNull();
+  act(() => {
+    fireEvent.click(row!);
+  });
+  const input = document.querySelector<HTMLInputElement>(`#${id}`);
+  expect(input, `인라인 입력 ${id}`).not.toBeNull();
+  return input!;
+}
+/** 인라인 편집으로 한 필드를 확정한다 — 행 클릭 → 입력 → Enter(한 필드 = 전송 1회, D-04). */
+function editInline(id: string, value: string): HTMLInputElement {
+  const input = openInline(id);
+  act(() => {
+    fireEvent.change(input, { target: { value } });
+  });
+  act(() => {
+    fireEvent.keyDown(input, { key: 'Enter' });
+  });
+  return input;
+}
+const INLINE_FAILED = '반영하지 못했어요 · Enter 로 다시 시도해 주세요';
 const banner = () => document.querySelector('[data-slot="card-echo-banner"]');
 const unacked = () => document.querySelector('[data-slot="card-unacked"]');
 const serverError = () => document.querySelector<HTMLElement>('[data-slot="card-server-error"]');
@@ -248,7 +272,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     const { rerender } = render(<Card />);
 
     act(() => {
-      screen.getByRole('checkbox', { name: '매수주문 켜기' }).click();
+      screen.getByRole('switch', { name: '매수주문 켜기' }).click();
     });
     expect(sendMock).toHaveBeenCalledTimes(1);
 
@@ -286,12 +310,16 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     expect(has()).toBe(true);
   });
 
-  it('⑦b ★ 더티를 덮은 경우에만 「수정하던 값 {N}개」 문구를 쓰고, 서버가 이긴다 (D-11)', async () => {
+  it('⑦b ★ 인라인 편집 중 다른 단말 에코 → 입력 8,000 유지 · 배너는 「서버 값으로 맞췄어요」 · Esc 뒤 행 = 에코 5,000주 (D-04 · UI-SPEC E4 partial)', async () => {
     setRelay({ limitChasers: [echo()] });
     const { rerender } = render(<Card />);
 
-    fireEvent.change(watchQtyInput(), { target: { value: '8000' } });
-    expect(watchQtyInput()).toHaveValue('8,000');
+    // 더티 누적이 없다(D-04) — 편집 중인 버퍼는 폼 값이 아니라 편집기의 것이라 「덮인 더티」도 없다.
+    const input = openInline('lc-buy-watch-qty');
+    act(() => {
+      fireEvent.change(input, { target: { value: '8000' } });
+    });
+    expect(input).toHaveValue('8,000');
 
     setRelay({ limitChasers: [echo({ buyWatchQty: 5_000 })] });
     rerender(<Card />);
@@ -300,8 +328,16 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
       expect(banner()).not.toBeNull();
       return banner() as HTMLElement;
     });
-    expect(el.textContent).toBe('다른 단말에서 변경돼 수정하던 값 1개가 서버 값으로 바뀌었어요');
-    expect(watchQtyInput()).toHaveValue('5,000');
+    expect(el.textContent).toBe('다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요');
+    // 편집 중인 입력은 에코가 덮지 않는다(E4 partial).
+    expect(document.querySelector<HTMLInputElement>('#lc-buy-watch-qty')).toHaveValue('8,000');
+
+    act(() => {
+      fireEvent.keyDown(document.querySelector('#lc-buy-watch-qty')!, { key: 'Escape' });
+    });
+    expect(document.querySelector('#lc-buy-watch-qty')).toBeNull();
+    expect(rowValue('lc-buy-watch-qty')).toBe('5,000주');
+    expect(lcSets()).toHaveLength(0);
   });
 
   it('⑧ ★ 3초 무응답이면 「미반영」이 서고 아무것도 다시 보내지 않는다 (T-16-10)', () => {
@@ -309,7 +345,7 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     render(<Card />);
 
     act(() => {
-      screen.getByRole('checkbox', { name: '매수주문 켜기' }).click();
+      screen.getByRole('switch', { name: '매수주문 켜기' }).click();
     });
     expect(sendMock).toHaveBeenCalledTimes(1);
     expect(unacked()).toBeNull();
@@ -328,12 +364,12 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
   it('⑪ 삭제 에코 → 폼이 빈 상태(기본값)로 돌아가고 로그에 삭제가 남는다 (D-08)', async () => {
     setRelay({ limitChasers: [echo({ buyWatchQty: 8_000 })] });
     const { rerender } = render(<Card />);
-    expect(watchQtyInput()).toHaveValue('8,000');
+    expect(rowValue('lc-buy-watch-qty')).toBe('8,000주');
 
     setRelay({ limitChasers: [] });
     rerender(<Card />);
 
-    await waitFor(() => expect(watchQtyInput()).toHaveValue('10,000'));
+    await waitFor(() => expect(rowValue('lc-buy-watch-qty')).toBe('10,000주'));
     expect(screen.getByText(/전략이 삭제됐어요/)).toBeInTheDocument();
   });
 
@@ -352,25 +388,26 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     ).toBeInTheDocument();
   });
 
-  it('⑭b ★ 더티 액션 바는 카드 맨 아래 sticky 자리에 붙고 화면 고정을 푼다 · 카드 테두리가 파래진다 (2026-09-23 · 목업 B — T-k2x-03 대체 · 화면 아래 붙임은 JS 핀 — main 스크롤 컨테이너라 CSS sticky 불가)', () => {
+  it('⑭b ★ 더티 액션 바가 없다 — 값 확정·에코 뒤에도 카드 안 `card-dirty-host` 가 비어 있고 테두리가 파래지지 않는다 (Phase 20 D-04 · 옛 목업 B 대체)', () => {
     setRelay({ limitChasers: [echo()] });
-    render(<Card />);
+    const { rerender } = render(<Card />);
     const card = document.querySelector('[data-slot="strategy-card"]') as HTMLElement;
     expect(card.className).toContain('@container/lc');
+    const host = card.querySelector('[data-slot="card-dirty-host"]') as HTMLElement;
+    expect(host).not.toBeNull(); // 워크벤치 배관(자리)은 그대로다 — 폼이 더티 수를 보내지 않아 비어 있을 뿐이다.
+
+    editInline('lc-buy-watch-qty', '8000');
+    expect(lcSets()).toHaveLength(1);
     expect(document.querySelector('[data-slot="dirty-action-bar"]')).toBeNull();
+    expect(host.childElementCount).toBe(0);
+    expect(card.className).not.toContain('var(--primary)_55%');
 
-    fireEvent.change(watchQtyInput(), { target: { value: '8000' } });
-
-    const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
-    expect(bar).not.toBeNull();
-    expect(card.contains(bar)).toBe(true);
-    const host = bar.parentElement as HTMLElement;
-    expect(host.getAttribute('data-slot')).toBe('card-dirty-host');
-    expect(host.className).toContain('relative');
-    expect(host.parentElement).toBe(card); // 카드 본문(숨김 가능) 밖 — 접혀도 바가 보인다
-    expect(bar.className.split(/\s+/)).toContain('static');
-    expect(bar.className.split(/\s+/)).not.toContain('fixed');
-    expect(card.className).toContain('var(--primary)_55%');
+    setRelay({ limitChasers: [echo({ buyWatchQty: 8_000 })] });
+    rerender(<Card />);
+    expect(rowValue('lc-buy-watch-qty')).toBe('8,000주');
+    expect(document.querySelector('[data-slot="dirty-action-bar"]')).toBeNull();
+    expect(host.childElementCount).toBe(0);
+    expect(card.className).not.toContain('var(--primary)_55%');
   });
 });
 
@@ -549,28 +586,41 @@ describe('헤더 래치 LED → `lc.arm` 전송 규율 (옛 ⑲)', () => {
  * 질문이다. 재전송을 만들지 않는다(T-16-10) — 전송 건수가 늘지 않는 것을 함께 단언한다.
  */
 describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
-  const buySwitch = () => screen.getByRole('checkbox', { name: '매수주문 켜기' });
+  const buySwitch = () => screen.getByRole('switch', { name: '매수주문 켜기' });
   const cfgOf = (nth: number) => lcSets()[nth]!.cfg as Record<string, unknown>;
 
-  /** 매수를 켰다 끈다 — 켠 요청에는 서버가 답하지 않아 3초 뒤 「미반영」이 선다. */
+  /**
+   * 미등록 카드에서 매수를 켠다 → 서버가 답하지 않아 3초 뒤 「미반영」 → 다시 누른다(2회째 전송).
+   *
+   * ★ Phase 20 — 주문금액은 인라인 확정이고 미등록 전략이라 **전송 0 · 로컬 반영**이다(A-P1). 등록은
+   *   스위치만 하므로 첫 스위치 cfg 에 그 로컬 금액이 실린다.
+   * ★ 옛 흐름(켰다 → 무응답 → 끔 = `crud "D"`)은 D-04 상태 기계에서 성립하지 않는다 — 무응답 실패는
+   *   스위치를 **서버 값**(미등록 = 꺼짐)으로 되돌리므로(UI-SPEC E2 error) 두 번째 누름은 다시 켜기다.
+   *   이 describe 가 잠그는 것은 「서버의 답(철거 에코 · 거부)이 미반영을 거둔다」는 카드 규율이고,
+   *   두 번째 요청이 무엇이든 그 답을 기다리는 대상이다.
+   */
   function armThenDisarm(): void {
-    fireEvent.change(document.querySelector('#lc-buy-order-amount') as HTMLInputElement, {
-      target: { value: '100' },
-    });
+    editInline('lc-buy-order-amount', '100');
+    expect(lcSets()).toHaveLength(0);
+    expect(rowValue('lc-buy-order-amount')).toBe('100만원');
     act(() => {
       buySwitch().click();
     });
     expect(lcSets()).toHaveLength(1);
     expect(cfgOf(0).buyEnabled).toBe(true);
+    expect(cfgOf(0).buyOrderAmount).toBe(100);
     act(() => {
       vi.advanceTimersByTime(ACK_TIMEOUT_MS);
     });
     expect(unacked()).not.toBeNull();
+    // 무응답 — 스위치가 서버 값(꺼짐)으로 돌아간다. 자동 재전송은 없다(T-16-10).
+    expect(buySwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(lcSets()).toHaveLength(1);
     act(() => {
       buySwitch().click();
     });
     expect(lcSets()).toHaveLength(2);
-    expect(cfgOf(1).crud).toBe('D');
+    expect(cfgOf(1).buyOrderAmount).toBe(100);
   }
 
   it('㉑-a ★ 목록을 바꾸지 못하는 철거 에코도 「미반영」을 거둔다 — 서버는 답했다', () => {
@@ -654,20 +704,18 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
     expect(unacked()).not.toBeNull();
   });
 
-  it('㉑-e ★ 거부 답이 「수정」 버튼 잠금도 푼다 — 안 풀면 1차 CTA 가 영구히 죽는다', async () => {
+  it('㉑-e ★ 거부 답이 인라인 「반영 중」 잠금을 푼다 — 입력값 8,000 보존 · 「반영하지 못했어요 · Enter 로 다시 시도해 주세요」 (옛 「수정」 잠금 해제 재정의)', async () => {
     // 두 setRelay 가 같은 배열·객체를 넘긴다 — 새로 만들면 server 가 바뀌어 다른 경로로 풀린다.
     const chasers = [echo({ buyOrderAmount: 100 })];
     const q = quote();
     setRelay({ limitChasers: chasers, quote: q });
     const { rerender } = render(<Card />);
 
-    fireEvent.change(watchQtyInput(), { target: { value: '8000' } });
-    const submit = () => screen.getByRole('button', { name: /수정|반영 중…/ });
-    act(() => {
-      submit().click();
-    });
-    expect(submit()).toBeDisabled();
-    expect(submit()).toHaveTextContent('반영 중…');
+    editInline('lc-buy-watch-qty', '8000');
+    expect(lcSets()).toHaveLength(1);
+    const input = () => document.querySelector<HTMLInputElement>('#lc-buy-watch-qty');
+    expect(input()!.readOnly).toBe(true);
+    expect(input()!.getAttribute('aria-busy')).toBe('true');
 
     setRelay({
       limitChasers: chasers,
@@ -676,9 +724,14 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
     });
     rerender(<Card />);
 
-    await waitFor(() => expect(submit()).toBeEnabled());
-    expect(submit()).toHaveTextContent('수정');
-    // 사용자가 고치던 값은 그대로 남는다 — 잠금을 푸는 것과 폼을 덮는 것은 다른 일이다.
-    expect(watchQtyInput()).toHaveValue('8,000');
+    await waitFor(() => expect(input()!.readOnly).toBe(false));
+    // 사용자가 고치던 값은 그대로 남는다 — 잠금을 푸는 것과 값을 덮는 것은 다른 일이다.
+    expect(input()).toHaveValue('8,000');
+    expect(screen.getByText(INLINE_FAILED).closest('[role="alert"]')).not.toBeNull();
+    // 행 표시값은 여전히 서버 값이다(D-06) · 재전송 없음(T-16-10).
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(lcSets()).toHaveLength(1);
   });
 });

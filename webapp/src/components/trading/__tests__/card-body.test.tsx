@@ -1,6 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { useState } from 'react';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-radar/shared';
 
 /**
@@ -8,11 +7,11 @@ import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-rad
  *
  * 잠그는 것:
  *   ① 좌 호가(+체결) | 우 옵션 4그룹 — 세로 스택이 없고 섹션 라벨이 없다(D-12)
- *   ② 그룹 제목줄 스위치 3개 · 제목 옆 보조문 5문구(「감시 중」 등)
+ *   ② 그룹 제목줄 스위치 4개(Phase 20 — 매수취소 포함) · 제목 옆 보조문 5문구(「감시 중」 등)
  *   ③ 시세 없음 → 10단 행은 그리되 가격 「—」(E9 empty) · 값 없는 셀 클릭은 no-op(T-18-47)
  *   ④ 밴드는 **카드 폭**(`@min-[Npx]/lc:`) — 뷰포트 브레이크포인트 0건(D-28)
  *   ⑤ `variant` 가 주문유형 콤보 유무를 가른다(D-23)
- *   ⑥ 더티 바는 `document.body` 포털이고 문구에 종목명이 선다(D-28)
+ *   ⑥ 즉시 반영 — 값 확정 1회 = `lc.set` 1회 · 더티 바·더티 테두리 없음(Phase 20 D-04)
  *
  * ★ jsdom 은 컨테이너 쿼리를 평가하지 않는다. 밴드 전환은 **클래스 존재**로만 단언하고,
  *   실제 폭 램프는 18-13 Playwright 가 맡는다. 없는 검증을 했다고 적지 않는다.
@@ -34,14 +33,9 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
-import { CHAT_FAB_CLEARANCE_CLASS } from '@/components/chat/fab-clearance';
+import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import type { StrategyCardState } from '../card/strategy-card';
-import {
-  CardBody,
-  cardDirtyHint,
-  cardGroupStatusOf,
-  type CardBodyProps,
-} from '../card/card-body';
+import { CardBody, cardGroupStatusOf, type CardBodyProps } from '../card/card-body';
 
 const ISIN = 'KR7042700005';
 const ACCOUNT = '12345678-01';
@@ -182,18 +176,6 @@ function props(over: Partial<CardBodyProps> = {}): CardBodyProps {
   };
 }
 
-/**
- * 더티 수를 **실제 state** 로 들고 있는 하네스 — 카드 훅이 하는 일(폼 → `setDirtyCount` →
- * 본문 재렌더)을 그대로 재현한다. 가짜 `setDirtyCount` 로는 바 문구의 N 이 영원히 0 이다.
- */
-function Harness(over: Partial<CardBodyProps>) {
-  const [dirtyCount, setDirtyCount] = useState(0);
-  // 더티는 **서버 기준선**이 있어야 생긴다 — 신규 폼(서버 전략 없음)에는 더티가 없다.
-  const [srv] = useState(() => server());
-  const base = props({ card: cardState({ server: srv }), ...over });
-  return <CardBody {...base} card={{ ...base.card, dirtyCount, setDirtyCount }} />;
-}
-
 const bodyRoot = (c: HTMLElement) => c.querySelector('[data-slot="card-body"]') as HTMLElement;
 const orderbookPane = (c: HTMLElement) =>
   c.querySelector('[data-slot="card-body-orderbook"]') as HTMLElement;
@@ -233,18 +215,19 @@ describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
     expect(within(root).queryByText('옵션 세팅', { exact: true })).toBeNull();
     expect(within(root).queryByText('체결 테이프', { exact: true })).toBeNull();
     expect(within(root).queryAllByRole('heading')).toHaveLength(0);
-    // 「체결」 은 폼 필드 라벨(체크박스 `<label>`)로만 산다 — 섹션 제목이 아니다.
+    // 「체결」 은 체크 행 라벨(`role="checkbox"` 버튼 안)로만 산다 — 섹션 제목이 아니다(Phase 20 D-22).
     const optionsCheLabels = within(optionsPane(container))
       .queryAllByText('체결', { exact: true })
-      .filter((el) => el.tagName !== 'LABEL');
+      .filter((el) => el.closest('[role="checkbox"]') === null);
     expect(optionsCheLabels).toHaveLength(0);
   });
 
-  it('그룹 제목줄 스위치 3개의 접근성 이름이 계약 원문이다', () => {
+  it('그룹 제목줄 스위치 4개(`role="switch"`)의 접근성 이름이 계약 원문이다 — 매수취소 포함(Phase 20 D-21)', () => {
     render(<CardBody {...props()} />);
-    expect(screen.getByRole('checkbox', { name: '매수주문 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: '한방체결 켜기' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: '매도주문 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: '매수주문 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: '한방체결 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: '매도주문 켜기' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: '매수취소 켜기' })).toBeInTheDocument();
   });
 });
 
@@ -366,42 +349,100 @@ describe('⑤ variant — 주문유형 콤보 (D-23)', () => {
   });
 });
 
-describe('⑥ 더티 바 — body 포털 · 종목명 (D-28 · E15)', () => {
-  it('더티가 생기면 바가 `document.body` 에 포털되고 보조문에 종목명과 개수가 선다(호가 탭 — 작업대 카드는 카드 하단 자리 · 종목명 없음)', () => {
-    const { container } = render(<Harness variant="orderbook" />);
-    fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
+/**
+ * Phase 20 D-04 — 상따 설정의 더티 누적 · 하단 「수정/되돌리기」 바를 폐기했다. 값 하나를 확정하면
+ * 그 한 필드가 곧 `lc.set` 1회다(`useLcFieldCommit`). 옛 ⑥ 「더티 바 — body 포털 · 종목명」 4건의
+ * 의미를 여기로 옮긴다: 바가 **없다**는 것 · 확정이 곧 전송이라는 것 · 실패가 행에서 말한다는 것.
+ */
+describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
+  const lcSets = () =>
+    sendMock.mock.calls
+      .map(([m]) => m as { t?: string; cfg?: Record<string, unknown> })
+      .filter((m) => m?.t === 'lc.set');
+  const INLINE_FAILED = '반영하지 못했어요 · Enter 로 다시 시도해 주세요';
 
-    const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
-    expect(bar).not.toBeNull();
-    expect(container.contains(bar)).toBe(false);
-    expect(document.body.contains(bar)).toBe(true);
-    expect(bar.textContent).toContain(`${NAME} · 1개 미반영`);
+  /** 「잔량 10,000주」 행을 눌러 인라인 편집기를 열고 값을 친 뒤 Enter — 확정 1회. */
+  function commitWatchQty(value: string): HTMLInputElement {
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '잔량 10,000주' }));
+    });
+    const input = document.querySelector('#lc-buy-watch-qty') as HTMLInputElement;
+    expect(input, '잔량 인라인 입력').not.toBeNull();
+    act(() => {
+      fireEvent.change(input, { target: { value } });
+    });
+    act(() => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+    return input;
+  }
+
+  function noDirtyTraces(): void {
+    expect(document.querySelector('[data-slot="dirty-action-bar"]')).toBeNull();
+    const all = Array.from(document.querySelectorAll<HTMLElement>('[class]'));
+    expect(all.some((el) => (el.getAttribute('class') ?? '').includes('var(--primary)_55%'))).toBe(false);
+  }
+
+  it('작업대 카드 — 잔량 행 인라인 8000 Enter → lc.set 1회(cfg 8000) · 더티 바·더티 테두리 없음', () => {
+    render(<CardBody {...props({ card: cardState({ server: server() }) })} />);
+    commitWatchQty('8000');
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg!.buyWatchQty).toBe(8_000);
+    noDirtyTraces();
   });
 
-  it('호가 탭(`variant="orderbook"`)만 바의 오른쪽 끝이 AI FAB 자리 앞에서 멈춘다 (실측 폭 변수)', () => {
-    render(<Harness variant="orderbook" />);
-    fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
-    const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
-    expect(bar.className.split(/\s+/)).toContain(CHAT_FAB_CLEARANCE_CLASS);
-    expect(CHAT_FAB_CLEARANCE_CLASS).toContain('var(--chat-fab-w');
+  it('호가 탭(`variant="orderbook"`)도 같은 편집 뒤 더티 바가 없다 — 종목명 바 문구도 사라졌다', () => {
+    render(<CardBody {...props({ variant: 'orderbook', card: cardState({ server: server() }) })} />);
+    commitWatchQty('8000');
+    expect(lcSets()).toHaveLength(1);
+    noDirtyTraces();
+    expect(document.body.textContent).not.toContain('개 미반영');
+    expect(document.body.textContent).not.toContain('「수정」을 눌러야 반영돼요');
   });
 
-  it('작업대 카드(`variant="card"`)의 바는 전폭이고 오른쪽 예약이 없다 — FAB 이 없는 표면이다', () => {
-    render(<Harness variant="card" />);
-    fireEvent.change(screen.getByLabelText(/매수가격/), { target: { value: '150000' } });
-    const bar = document.querySelector('[data-slot="dirty-action-bar"]') as HTMLElement;
-    const utils = bar.className.split(/\s+/);
-    expect(utils.some((c) => /^(pr|right)-/.test(c))).toBe(false);
-    expect(utils).toContain('inset-x-0');
+  it('매수취소 스위치 → cfg.cancelQtyEnabled 토글 1회 전송 · 확인 다이얼로그 없음 (D-21)', () => {
+    render(<CardBody {...props({ card: cardState({ server: server({ buyEnabled: true }) }) })} />);
+    act(() => {
+      fireEvent.click(screen.getByRole('switch', { name: '매수취소 켜기' }));
+    });
+    expect(lcSets()).toHaveLength(1);
+    expect(lcSets()[0]!.cfg!.cancelQtyEnabled).toBe(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    noDirtyTraces();
   });
 
-  it('긴 종목명은 한 줄 말줄임(…)으로 잘리고 안내 문장은 그대로다 (E15 long-text)', () => {
-    const long = '아주아주긴이름의가상종목홀딩스우선주스페셜에디션';
-    const hint = cardDirtyHint(long, 3);
-    expect(hint).toContain('…');
-    expect(hint).not.toContain(long);
-    expect(hint).toContain('3개 미반영');
-    expect(hint).toContain('「수정」을 눌러야 반영돼요');
-    expect(cardDirtyHint(NAME, 2).startsWith(`${NAME} · 2개 미반영`)).toBe(true);
+  it('보낸 뒤 카드 `unacked` 가 true 가 되면 편집 중이던 행에 「반영하지 못했어요 · Enter 로 다시 시도해 주세요」 (UI-SPEC A10)', () => {
+    const srv = server();
+    const { rerender } = render(<CardBody {...props({ card: cardState({ server: srv }) })} />);
+    const input = commitWatchQty('8000');
+    expect(lcSets()).toHaveLength(1);
+    rerender(<CardBody {...props({ card: cardState({ server: srv, unacked: true }) })} />);
+    const bubble = screen.getByText(INLINE_FAILED);
+    expect(bubble.closest('[role="alert"]')).not.toBeNull();
+    // 입력값은 보존된다 — 다시 Enter 가 재시도다(자동 재전송 없음).
+    expect(input.value).toBe('8,000');
+    expect(lcSets()).toHaveLength(1);
+  });
+
+  describe('터치 기기 — 시트 칩 「현재가」 원천 (D-12 · 20-03)', () => {
+    beforeEach(() => mockPointer(true));
+    afterEach(restoreMatchMedia);
+
+    it('매수가격 행 탭 → 시트 「매수가격」 · 시세가 있으면 칩 「현재가」 활성', () => {
+      render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+      });
+      expect(screen.getByRole('dialog', { name: '매수가격' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '현재가' })).toBeEnabled();
+    });
+
+    it('시세가 없으면 칩 「현재가」 는 비활성이다', () => {
+      render(<CardBody {...props({ card: cardState({ server: server() }) })} />);
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+      });
+      expect(screen.getByRole('button', { name: '현재가' })).toBeDisabled();
+    });
   });
 });
