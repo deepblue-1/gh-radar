@@ -14,6 +14,7 @@ import {
 import {
   LC_COMMIT_TEXT,
   LC_FLASH_MS,
+  LC_ORPHAN_WAIT_MS,
   useLcFieldCommit,
   type UseLcFieldCommitOptions,
 } from '../use-lc-field-commit';
@@ -559,5 +560,109 @@ describe('CR-01 — relay 스키마 범위 밖 cfg 는 보내지 않는다(마�
     expect(out).toBe('blocked');
     expect(t.send).not.toHaveBeenCalled();
     expect(t.formRef.current.buyEnabled).toBe(true);
+  });
+});
+
+describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건을 뒤 건이 되돌리지 않는다', () => {
+  it('무장 해제(A) 타임아웃 뒤 다른 필드(B)는 대기 · A 늦은 에코 → 답 신호 증가 렌더에서 A 가 반영된 기준값으로 B 전송', () => {
+    const t = setup({ server: echo({ sellEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('sellEnabled', false, 'toggle');
+    });
+    t.update({ unacked: true });
+    expect(t.hook.result.current.failures.sellEnabled?.reason).toBe('timeout');
+
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    // 곧바로 보내면 cfg 에 A 의 옛 값(sellEnabled: true)이 실려 늦게 닿은 해제를 되돌린다.
+    expect(out).toBe('queued');
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    // A 의 늦은 에코 — A 는 성공, B 는 아직(답 신호 증가가 한 렌더 늦다).
+    t.update({ server: echo({ sellEnabled: false }) });
+    expect(t.hook.result.current.failures.sellEnabled).toBeUndefined();
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.update({ serverAnswerSeq: 1, unacked: false });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.sellEnabled).toBe(false);
+    expect(t.cfgs()[1]!.buyWatchQty).toBe(8_000);
+  });
+
+  it('A 가 늦게 거부(답 신호만)되면 장벽이 풀리고 대기 건이 곧바로 나간다', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    t.update({ unacked: true });
+    act(() => {
+      t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.buyWatchQty).toBe(8_000);
+    expect(t.cfgs()[1]!.sweepMinTickCount).toBe(3);
+  });
+
+  it(`${LC_ORPHAN_WAIT_MS}ms 안에 아무 답도 없으면 대기 건은 보내지 않고 실패 · 토글은 되돌림 · 장벽은 풀린다`, () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    t.update({ unacked: true });
+    act(() => {
+      t.hook.result.current.commit('cancelTradeEnabled', true, 'toggle');
+    });
+    expect(t.formRef.current.cancelTradeEnabled).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(LC_ORPHAN_WAIT_MS);
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.hook.result.current.failures.cancelTradeEnabled?.reason).toBe('timeout');
+    expect(t.formRef.current.cancelTradeEnabled).toBe(false);
+    expect(t.hook.result.current.queuedFields).toEqual([]);
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    expect(out).toBe('sent');
+  });
+
+  it('결과 모름인 필드를 서버 값으로 되돌리는 확정은 no-op 이 아니다 — 곧바로 나가 늦게 닿는 앞 건을 뒤에서 덮는다', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    t.update({ unacked: true });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sweepMinTickCount', 3, 'value');
+    });
+    expect(out).toBe('sent');
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.cfgs()[1]!.sweepMinTickCount).toBe(3);
+  });
+
+  it('같은 필드 「다시 시도」는 곧바로 나가고(장벽 없음), 그 뒤 다른 필드는 그 전송의 답을 기다린다', () => {
+    const t = setup({ server: echo({ sellEnabled: true }) });
+    act(() => {
+      t.hook.result.current.commit('sellEnabled', false, 'toggle');
+    });
+    t.update({ unacked: true });
+    let retry: string | undefined;
+    let other: string | undefined;
+    act(() => {
+      retry = t.hook.result.current.commit('sellEnabled', false, 'toggle');
+      other = t.hook.result.current.commit('buyWatchQty', 8_000, 'value');
+    });
+    expect(retry).toBe('sent');
+    expect(other).toBe('queued');
+    expect(t.send).toHaveBeenCalledTimes(2);
+    t.update({ server: echo({ sellEnabled: false }), unacked: false });
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(3);
+    expect(t.cfgs()[2]!.sellEnabled).toBe(false);
   });
 });

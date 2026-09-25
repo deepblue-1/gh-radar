@@ -41,6 +41,13 @@
  *   ★ 꺼낼 때마다 no-op·무장 판정을 **새 서버 값**으로 다시 한다(앞 건이 서버를 바꿨다).
  *   ★ 앞 건이 실패하면 대기 건은 **하나도 보내지 않고** 각 필드를 실패로 표시한다 —
  *     자동 전송(⑤ 위반)도 조용한 드롭(사용자는 반영된 줄 안다)도 아니다.
+ *   ★ **타임아웃은 「끝남」이 아니라 「결과 모름」이다** (20-REVIEW CR-02). 그 프레임은 이미 소켓에
+ *     실렸고 서버에 늦게 닿을 수 있다(터널 정지로 수 초 지연이 실측된다). 그 사이 다른 필드를 곧바로
+ *     보내면 그 cfg 는 **앞 건이 아직 반영되지 않은 서버 값**을 기준으로 해, 늦게 닿은 앞 건(무장 해제
+ *     포함)을 조용히 되돌린다. 그래서 타임아웃 실패를 표시하되 **고아 장벽**(`orphanRef`)을 세워 새 확정을
+ *     대기열에 세운다. 장벽은 다음 답 신호 · 서버 값 변화에서 풀리고(꺼낼 때 새 서버 값으로 다시 판정),
+ *     `LC_ORPHAN_WAIT_MS` 안에 아무 신호도 없으면 대기 건을 **보내지 않고** 실패로 표시한 뒤 풀린다 —
+ *     낡은 기준값 전송도, 시트가 「반영 중…」에 영구히 잠기는 것도 없다.
  *
  * ⑧ ★ 실패 판정 입력은 셋이다
  *   거부 = 답 신호(`serverAnswerSeq`)만 오르고 값 불일치 · 타임아웃 = 카드 `unacked`(3초 무응답,
@@ -87,6 +94,13 @@ export type LcCommitOutcome = 'noop' | 'local' | 'sent' | 'queued' | 'blocked' |
 
 /** 확정 뒤 값 글자 `--primary` 강조 시간 (UI-SPEC §2 · D-18). */
 export const LC_FLASH_MS = 900;
+
+/**
+ * 타임아웃(카드 3초 무응답) 뒤 고아 장벽을 유지하는 최대 시간 (⑦ · CR-02). 전송부터 약 10초다.
+ * 이 안에 답 신호가 오면 대기 건이 새 서버 값 기준으로 나가고, 안 오면 대기 건은 실패로 표시된다
+ * (보내지 않는다). 짧게 잡으면 늦게 닿은 앞 건을 뒤 건이 되돌리는 창이 다시 열린다.
+ */
+export const LC_ORPHAN_WAIT_MS = 7_000;
 
 /**
  * 전략을 **만들 수 있는** 필드 — 미등록 전략에서도 전송한다(첫 스위치 = 등록, Phase 16 D-05).
@@ -179,6 +193,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
    * `null` 이 아니면 아직 한 건이 끝나지 않은 것으로 본다(새 확정도 대기로 선다).
    */
   const popAfterSeqRef = useRef<number | null>(null);
+  /**
+   * 고아 장벽 (CR-02) — 타임아웃으로 실패 처리했지만 **이미 소켓에 실린** 전송. `null` 이 아니면 새 확정은
+   * 대기열에 선다. 다음 답 신호 · 서버 값 변화에서 풀리고, `LC_ORPHAN_WAIT_MS` 가 지나면 대기 건을
+   * 실패로 두고 풀린다.
+   */
+  const orphanRef = useRef<{ field: LcFieldKey; answerSeqAtSend: number } | null>(null);
+  const orphanTimer = useRef<number | null>(null);
 
   const failuresRef = useRef<FailureMap>({});
   const [failures, setFailuresState] = useState<FailureMap>({});
@@ -292,25 +313,52 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     syncQueue();
   }, [sendNow, setFailure, showToggle, syncQueue, writeFailures]);
 
-  /** in-flight 실패 — 되돌리고, 대기 건은 보내지 않고 전부 실패로 표시한다(⑦). */
-  const failInflight = useCallback(
-    (inf: Inflight, reason: 'rejected' | 'timeout') => {
+  /** 대기 건 전부를 보내지 않고 실패로 표시한다 — 서버가 이미 그 값이면 실패라 말하지 않는다(⑦). */
+  const failQueue = useCallback(
+    (reason: 'rejected' | 'timeout') => {
       const { server } = optsRef.current;
-      setInflight(null);
-      popAfterSeqRef.current = null;
-      setFailure(inf.field, reason, LC_COMMIT_TEXT.failed, inf.value);
-      if (inf.kind === 'toggle') showToggle(inf.field, inf.prevValue);
       for (const q of queueRef.current) {
         // 서버가 이미 그 값이면 보낼 것이 없던 확정이다 — 실패라고 말하지 않는다.
         if (server != null && server[q.field] === q.value) continue;
-        setFailure(q.field, 'rejected', LC_COMMIT_TEXT.failed, q.value);
+        setFailure(q.field, reason, LC_COMMIT_TEXT.failed, q.value);
         if (q.kind === 'toggle') showToggle(q.field, q.prevValue);
       }
       queueRef.current = [];
       syncQueue();
     },
-    [setFailure, setInflight, showToggle, syncQueue],
+    [setFailure, showToggle, syncQueue],
   );
+
+  /** in-flight 실패 — 되돌리고, 대기 건은 보내지 않고 전부 실패로 표시한다(⑦). */
+  const failInflight = useCallback(
+    (inf: Inflight, reason: 'rejected' | 'timeout') => {
+      setInflight(null);
+      popAfterSeqRef.current = null;
+      setFailure(inf.field, reason, LC_COMMIT_TEXT.failed, inf.value);
+      if (inf.kind === 'toggle') showToggle(inf.field, inf.prevValue);
+      failQueue('rejected');
+      // CR-02 — 타임아웃은 결과 모름이다. 그 프레임이 늦게 닿을 수 있으니 다음 답 신호까지 장벽을 둔다.
+      if (reason === 'timeout') {
+        orphanRef.current = { field: inf.field, answerSeqAtSend: inf.answerSeqAtSend };
+        if (orphanTimer.current != null) window.clearTimeout(orphanTimer.current);
+        orphanTimer.current = window.setTimeout(() => {
+          orphanTimer.current = null;
+          if (orphanRef.current === null) return;
+          // 아무 답도 오지 않았다 — 대기 건은 낡은 기준값이라 보내지 않고 실패로 둔다(⑤ · CR-02).
+          orphanRef.current = null;
+          failQueue('timeout');
+        }, LC_ORPHAN_WAIT_MS);
+      }
+    },
+    [failQueue, setFailure, setInflight, showToggle],
+  );
+
+  /** 고아 장벽을 푼다 — 답 신호가 왔다(결과가 서버 값에 드러났다). */
+  const releaseOrphan = useCallback(() => {
+    orphanRef.current = null;
+    if (orphanTimer.current != null) window.clearTimeout(orphanTimer.current);
+    orphanTimer.current = null;
+  }, []);
 
   const commit = useCallback(
     <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K], kind: LcCommitKind): LcCommitOutcome => {
@@ -327,8 +375,9 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
 
       const inflight = inflightRef.current;
-      // 서버 값과 같다 — 보낼 것이 없다(전송 0). 단 그 필드가 나가 있으면 그 답 뒤에 판정한다.
-      if (server != null && server[field] === value && inflight?.field !== field) {
+      const orphan = orphanRef.current;
+      // 서버 값과 같다 — 보낼 것이 없다(전송 0). 단 그 필드가 나가 있거나(in-flight · 결과 모름) 그 답 뒤에 판정한다.
+      if (server != null && server[field] === value && inflight?.field !== field && orphan?.field !== field) {
         writeFailures((prev) => withoutField(prev, field));
         return 'noop';
       }
@@ -340,17 +389,24 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
 
       const pending: Pending = { field, value, kind, prevValue: formRef.current[field] };
-      // ⑦ 한 건이 끝나지 않았다(in-flight 또는 성공 뒤 답 신호 대기) — 대기열에 선다.
-      if (inflight !== null || popAfterSeqRef.current !== null) {
+      // ⑦ 한 건이 끝나지 않았다(in-flight · 성공 뒤 답 신호 대기 · 타임아웃 뒤 결과 모름) — 대기열에 선다.
+      //   ★ 결과 모름 장벽은 **다른 필드**만 세운다(CR-02). 같은 필드의 새 확정은 그 필드의 최신 의도를
+      //     싣고, 같은 소켓이라 늦게 닿는 앞 건보다 뒤에 처리되므로 앞 건을 대체할 뿐 되돌리지 않는다 —
+      //     타임아웃 뒤 「다시 시도」(같은 스위치 다시 누르기)가 곧바로 나가는 이유다.
+      const orphanBlocks = orphan !== null && orphan.field !== field;
+      if (inflight !== null || popAfterSeqRef.current !== null || orphanBlocks) {
         queueRef.current.push(pending);
         if (kind === 'toggle') showToggle(field, value);
         writeFailures((prev) => withoutField(prev, field));
         syncQueue();
         return 'queued';
       }
-      return sendNow(pending, false);
+      const out = sendNow(pending, false);
+      // 같은 필드의 새 확정이 결과 모름 건을 대체했다 — 이제 직렬화는 이 in-flight 가 맡는다.
+      if (out === 'sent' && orphan !== null) releaseOrphan();
+      return out;
     },
-    [markSuccess, sendNow, showToggle, syncQueue, writeFailures],
+    [markSuccess, releaseOrphan, sendNow, showToggle, syncQueue, writeFailures],
   );
 
   const clearFailure = useCallback(
@@ -398,6 +454,17 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       }
     }
 
+    // ①-2 고아 장벽 해제 (CR-02) — 결과 모름이던 전송 뒤로 답 신호나 서버 값 변화가 왔다.
+    //   서버 값이 이 렌더에 바뀌었으면 카드의 답 신호 증가가 한 렌더 뒤에 오므로 그때 꺼낸다(⑦).
+    //   답 신호만 바뀌었으면(거부 등) 더 올 증가가 없다 → 지금 꺼낸다. 꺼낼 때 no-op·무장 판정은 새 서버 값이다.
+    const orphan = orphanRef.current;
+    if (inf === null && orphan !== null && (serverChanged || seq !== orphan.answerSeqAtSend)) {
+      releaseOrphan();
+      // 대기열이 비어 있어도 뒤따르는 증가를 기다린다 — 그 사이 새 확정이 그 증가를 거부로 읽지 않게(⑦).
+      if (serverChanged) popAfterSeqRef.current = seq;
+      else if (queueRef.current.length > 0) drainNow = true;
+    }
+
     // ② 대기 꺼내기 — 성공 뒤 답 신호가 바뀐 렌더다.
     if (inf === null && popAfterSeqRef.current !== null && seq !== popAfterSeqRef.current) {
       popAfterSeqRef.current = null;
@@ -413,11 +480,12 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         if (server[f] === fail.value) markSuccess(f);
       }
     }
-  }, [o.server, o.serverAnswerSeq, unacked, drain, failInflight, markSuccess, setInflight]);
+  }, [o.server, o.serverAnswerSeq, unacked, drain, failInflight, markSuccess, releaseOrphan, setInflight]);
 
   useEffect(
     () => () => {
       if (flashTimer.current != null) window.clearTimeout(flashTimer.current);
+      if (orphanTimer.current != null) window.clearTimeout(orphanTimer.current);
     },
     [],
   );
