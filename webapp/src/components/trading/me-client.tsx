@@ -7,7 +7,8 @@
  *   상태줄 → 전략 현황 → 계좌 A(미체결, 잔고) → 계좌 B(…) → … → **오늘 주문** 으로
  *   **고정**이다. 데스크톱에서도 이 순서를 바꾸지 않는다 — 전략이 지금 어떤 상태인지가
  *   먼저이고, 계좌별 주문·잔고는 그 결과이며, 오늘의 주문 이력은 그 뒤에 붙는 기록이다
- *   (quick-260910-jce 가 마지막 칸을 더했다).
+ *   (quick-260910-jce 가 마지막 칸을 더했다). 제목 바로 아래 계정 카드(`AccountCard` ·
+ *   Phase 21 D-08)는 이 순서 **위**에 얹힌 것이라 순서 자체를 바꾸지 않는다.
  *
  * ② ★ 계좌 선택 UI 를 만들지 않는다 (D-21)
  *   계좌가 몇 개든 **계좌마다 카드 하나**를 세로로 반복한다. 셀렉터를 두면 「지금 보는
@@ -47,6 +48,7 @@
 import { RELAY_STATE_LABELS } from "@gh-radar/shared";
 import type { RelayAccountState } from "@gh-radar/shared";
 
+import { AccountCard } from "@/components/me/account-card";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
@@ -202,7 +204,14 @@ export function MeClient() {
   useNativeRefresh(probeNow);
 
   if (gateReason !== null) {
-    return <DmaGate reason={gateReason} surface="전략·잔고·미체결" />;
+    // D-08 — 계정 카드는 DMA 게이트 화면에서도 보인다. 미매핑 사용자도 로그아웃·테마 전환을
+    // 사이드바 없이(앱 「마이」 탭) 할 수 있어야 한다.
+    return (
+      <div className="flex flex-col gap-4">
+        <AccountCard />
+        <DmaGate reason={gateReason} surface="전략·잔고·미체결" />
+      </div>
+    );
   }
 
   return (
@@ -215,6 +224,11 @@ export function MeClient() {
           전략 현황 · 미체결 · 잔고
         </p>
       </header>
+
+      {/* D-08a — 계정 카드 아래 16 여백 = 컨테이너 gap 12 + mb-1 4. 아래 세로 순서(①)는 불변이다. */}
+      <div className="mb-1">
+        <AccountCard />
+      </div>
 
       <MeStatusBar />
 
