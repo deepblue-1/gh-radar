@@ -41,9 +41,13 @@ export async function leavesOverflowing(
 /**
  * 잘림 진단 ② — **스크롤 판정식**이다.
  *
- * 제외 두 가지:
+ * 제외 세 가지:
  *   · `sr-only` — 1px 상자에 글자를 숨기는 장치라 **항상** 넘친다(설계다).
  *   · overflow 가 `auto`/`scroll` 인 조상 안 — 스크롤하라고 만든 영역이다(호가 사다리 등).
+ *   · **히트 영역 가상요소만으로 넘친 요소** (Phase 20 · 20-07) — 그룹 스위치처럼 시각 40×24 컨트롤이
+ *     빈 `::after`(`position:absolute` · `content:""`)를 상자 밖으로 늘려 히트 44×44 를 만드는 장치다.
+ *     가상요소는 `scrollWidth` 에 잡히지만 글자가 없다. 그래서 **요소의 실제 내용(글자 포함 ·
+ *     `Range` 로 잰다)이 자기 상자 안에 있을 때만** 제외한다 — 실제 글자가 넘치면 그대로 잡힌다.
  */
 export async function scrollOverflowing(
   page: Page,
@@ -61,10 +65,24 @@ export async function scrollOverflowing(
       }
       return false;
     };
+    /** 넘침의 원인이 빈 절대배치 가상요소(히트 영역)뿐인가 — 실제 내용은 자기 상자 안이다. */
+    const hitAreaOnly = (el: HTMLElement): boolean => {
+      const hasHitPseudo = (['::before', '::after'] as const).some((p) => {
+        const s = getComputedStyle(el, p);
+        return s.position === 'absolute' && s.content === '""';
+      });
+      if (!hasHitPseudo) return false;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const content = range.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      return content.width === 0 || content.right <= box.right + 1;
+    };
     return Array.from(root.querySelectorAll<HTMLElement>('*'))
       .filter((el) => !el.classList.contains('sr-only') && el.closest('.sr-only') === null)
       .filter((el) => el.scrollWidth - el.clientWidth > 1)
       .filter((el) => !inScroller(el))
+      .filter((el) => !hitAreaOnly(el))
       .map((el) => ({
         tag: `${el.tagName.toLowerCase()}${el.dataset.slot ? `[${el.dataset.slot}]` : ''}`,
         text: (el.textContent ?? '').slice(0, 24),

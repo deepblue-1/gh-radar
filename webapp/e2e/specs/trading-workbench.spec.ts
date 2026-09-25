@@ -114,9 +114,32 @@ const cardByKey = (page: Page, key: string) =>
 const toggleOf = (page: Page, isin: string) =>
   cardOf(page, isin).first().locator('[data-slot="card-header"] button[aria-expanded]');
 const colsSegment = (page: Page) => page.locator('[data-slot="workbench-cols-segment"]');
-const dirtyBar = (page: Page) => page.locator('[data-slot="dirty-action-bar"]');
+/**
+ * 옛 더티 액션 바 — Phase 20 D-04 로 사라졌다. **부재 단언에만** 쓴다(값 확정 = 즉시 반영).
+ * 조회구 상수를 두지 않는 이유: 상수가 있으면 「바가 보인다」 단언이 다시 끼어들기 쉽다.
+ */
+const DIRTY_BAR_SEL = '[data-slot="dirty-action-bar"]';
 const sharedPanels = (page: Page) => page.getByTestId('shared-panels');
+/** VI 입력(`vi-krx-amount` 등)은 여전히 입력칸이다 — 상따 행은 아래 `lcRow` 를 쓴다. */
 const field = (page: Page, id: string): Locator => page.locator(`#${id}`);
+/**
+ * Phase 20 상따 설정 행 — 옛 입력 id(`lc-buy-watch-qty` …)가 행 식별자(`data-lc-field`)로 산다
+ * (`lc/lc-fields.ts`). 값 글자는 `[data-slot="lc-row-value"]`(「10,000주」 · 「127,400원」).
+ */
+const lcRow = (page: Page, id: string): Locator => page.locator(`[data-lc-field="${id}"]`);
+const lcValue = (page: Page, id: string): Locator =>
+  lcRow(page, id).locator('[data-slot="lc-row-value"]');
+/** 그룹 스위치 4개 — `role="switch"` · 이름 「○○ 켜기」(A-P2). */
+const lcSwitch = (scope: Page | Locator, name: string): Locator =>
+  scope.getByRole('switch', { name, exact: true });
+/** 인라인 편집(마우스 기기) — 행 클릭 → 옛 id 입력이 선다 → 값 → Enter(= 확정 1회 = 전송 1회). */
+async function editLc(page: Page, id: string, value: string): Promise<void> {
+  await lcRow(page, id).click();
+  const input = page.locator(`#${id}`);
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press('Enter');
+}
 const desktopNav = (page: Page) => page.locator('aside nav[aria-label="주 메뉴"]');
 const strategyItems = (page: Page) => desktopNav(page).locator('[data-strategy-key]');
 const addBox = (page: Page) =>
@@ -194,7 +217,7 @@ async function openFocusedCard(page: Page): Promise<void> {
   await page.goto(FOCUS_URL);
   await waitForReady(page);
   await expect(cardOf(page, E2E_ISIN)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
-  await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000', { timeout: 15_000 });
+  await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
 }
 
 /**
@@ -393,13 +416,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       card.locator('[data-slot="card-exchange-segment"]').getByRole('radio', { name: 'KRX' }),
     ).toBeChecked();
 
-    // 스위치 전부 OFF · WinForms 기본값(주문금액 10만원 · 감시잔량 10,000) · 더티 바 없음.
-    for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기']) {
-      await expect(card.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
+    // 스위치 4개 전부 OFF(Phase 20 — 매수취소도 스위치) · WinForms 기본값(주문금액 10만원 ·
+    // 감시잔량 10,000) · 더티 바 없음(D-04 — 더티 모델 자체가 없다).
+    for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기', '매수취소 켜기']) {
+      await expect(lcSwitch(card, name)).not.toBeChecked();
     }
-    await expect(field(page, 'lc-buy-order-amount')).toHaveValue('10');
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000');
-    await expect(dirtyBar(page)).toHaveCount(0);
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('10만원');
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주');
+    await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
 
     // 그 행이 「거래중」으로 바뀐다 — 칩을 다시 눌러도 카드가 늘지 않는다.
     await expect(chip).toHaveAttribute('data-trading', 'true');
@@ -671,74 +695,69 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(await layout()).toEqual(['open', 'open', 'stack(1)']);
   });
 
-  test('7. 폰 밴드 — 더티 바는 카드 하단에 붙고(목업 B · 2026-09-23) 하단 고정 공용 패널과 겹치지 않는다 — 접힘·펼침·맨 아래 (E15 · E13 overflow · D-28)', async ({
+  test('7. 폰 밴드 — 인라인 편집 행을 하단 고정 공용 패널 위로 올려 적용 → 10 수신 → 에코 → 행 값 · 패널은 화면 하단 그대로 · 맨 아래까지 스크롤해도 카드 끝이 패널에 묻히지 않는다 (E13 overflow · 옛 E15 더티 바 재정의 · D-04 · D-28)', async ({
     page,
   }) => {
+    /*
+      옛 7 은 더티 바(카드 하단 자리)와 하단 고정 공용 패널의 겹침 0 을 쟀다. Phase 20 D-04 로 바가 사라졌다 —
+      값은 행에서 확정하면 곧장 나간다. 그래서 같은 성질(편집 표면이 패널에 묻히지 않는다 · 패널은 비켜 서지
+      않는다 · 카드 끝이 패널 아래로 숨지 않는다)을 **편집 중인 행**으로 다시 잰다.
+    */
     await page.setViewportSize(PHONE_VIEWPORT);
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
     // 먼저 패널이 **정말 화면 하단에 붙어 있는지** 본다(겹침 0 만 보면 화면 밖 패널도 초록이 된다).
     const viewportH = PHONE_VIEWPORT.height;
-    await field(page, 'lc-buy-watch-qty').scrollIntoViewIfNeeded();
+    const row = lcRow(page, 'lc-buy-watch-qty');
+    await row.scrollIntoViewIfNeeded();
     const pinned = await sharedPanels(page).boundingBox();
     expect(pinned).not.toBeNull();
-    expect(Math.abs(pinned!.y + pinned!.height - viewportH), '더티 전 — 패널 끝이 화면 하단').toBeLessThanOrEqual(1);
+    expect(Math.abs(pinned!.y + pinned!.height - viewportH), '편집 전 — 패널 끝이 화면 하단').toBeLessThanOrEqual(1);
 
-    await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toBeVisible();
-    // 바는 카드 안(카드 하단 자리)이고, 패널은 비켜 서지 않고 화면 하단 그대로다.
-    await expect(cardOf(page, E2E_ISIN).locator('[data-slot="card-dirty-host"] [data-slot="dirty-action-bar"]')).toHaveCount(1);
+    // 잔량 행을 패널 위 화면 가운데로 올린다(스크롤 주체가 창이든 main 이든 scrollIntoView 가 맞춘다).
+    await row.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await expect
+      .poll(async () => {
+        const r = await row.boundingBox();
+        const p = await sharedPanels(page).boundingBox();
+        return r !== null && p !== null && r.y + r.height <= p.y;
+      }, { message: '잔량 행 아래 끝이 패널 위 끝보다 위' })
+      .toBe(true);
+
+    await row.click();
+    const input = page.locator('#lc-buy-watch-qty');
+    await expect(input).toBeFocused();
+    await input.fill('8000');
+
+    // 편집 중인 행과 패널이 세로로 겹치지 않는다 · 패널은 비켜 서지 않고 화면 하단 그대로다.
+    const editing = page.locator('[data-lc-field="lc-buy-watch-qty"][data-editing="true"]');
+    const editBox = await editing.boundingBox();
+    const panel = await sharedPanels(page).boundingBox();
+    expect(editBox, '편집 중 행을 잴 수 없다').not.toBeNull();
+    expect(panel, '공용 패널을 잴 수 없다').not.toBeNull();
+    const overlap =
+      Math.min(panel!.y + panel!.height, editBox!.y + editBox!.height) - Math.max(panel!.y, editBox!.y);
+    expect(overlap, `편집 행 [${editBox!.y}, ${editBox!.y + editBox!.height}] ∩ 패널 [${panel!.y}, ${panel!.y + panel!.height}]`).toBeLessThanOrEqual(1);
+    expect(Math.abs(panel!.y + panel!.height - viewportH), '편집 중 — 패널은 화면 하단 그대로').toBeLessThanOrEqual(1);
     await expect(sharedPanels(page)).not.toHaveAttribute('data-dirty-reserve', 'true');
 
-    /** 두 상자가 세로로 겹치지 않는다 — 바가 패널 **위**에 선다(z-index 로 덮는 해법이면 겹친다). */
-    const expectNoOverlap = async (label: string) => {
-      const bar = await dirtyBar(page).boundingBox();
-      const panel = await sharedPanels(page).boundingBox();
-      expect(bar, `${label} — 더티 바를 잴 수 없다`).not.toBeNull();
-      expect(panel, `${label} — 공용 패널을 잴 수 없다`).not.toBeNull();
-      const panelBottom = panel!.y + panel!.height;
-      const barBottom = bar!.y + bar!.height;
-      const overlap = Math.min(panelBottom, barBottom) - Math.max(panel!.y, bar!.y);
-      expect(overlap, `${label} — 패널 [${panel!.y}, ${panelBottom}] ∩ 바 [${bar!.y}, ${barBottom}]`).toBeLessThanOrEqual(1);
-      expect(Math.abs(panelBottom - viewportH), `${label} — 패널은 화면 하단 그대로`).toBeLessThanOrEqual(1);
-    };
+    await input.press('Enter');
+    await waitForSetAtGateway(relay, before + 1);
+    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
 
-    /** 카드가 화면 아래로 이어지는 동안 바는 **보이고** 패널 바로 위에 붙어 있다(화면 밖으로 숨은 게 아니다). */
-    const expectBarOnPanel = async (label: string) => {
-      await expect
-        .poll(async () => {
-          const bar = await dirtyBar(page).boundingBox();
-          const panel = await sharedPanels(page).boundingBox();
-          return Math.round(Math.abs(bar!.y + bar!.height - panel!.y));
-        }, { message: `${label} — 바 끝 = 패널 위` })
-        .toBeLessThanOrEqual(1);
-    };
-
-    // ① 접힘(기본) — 카드가 화면 아래로 이어지는 동안 바는 패널 바로 위에 붙어 따라온다.
-    await field(page, 'lc-buy-watch-qty').scrollIntoViewIfNeeded();
-    await expectBarOnPanel('접힘');
-    await expectNoOverlap('접힘');
-
-    // ② 펼침 — 패널이 올라오면 바도 그 위로 올라간다(`--wb-bottom-inset`).
-    await sharedPanels(page).getByRole('button', { name: '펼치기 ▴' }).click();
-    await expect(sharedPanels(page).getByRole('button', { name: '접기 ▾' })).toBeVisible();
-    await field(page, 'lc-buy-watch-qty').scrollIntoViewIfNeeded();
-    await expectBarOnPanel('펼침');
-    await expectNoOverlap('펼침');
-
-    // ③ 페이지 맨 아래 — 흐름 안 자리(spacer) 덕에 카드 끝(바 포함)이 패널에 묻히지 않는다.
+    // ③ 페이지 맨 아래 — 흐름 안 자리(spacer) 덕에 카드 끝이 패널에 묻히지 않는다(옛 단언 그대로).
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    await expectNoOverlap('맨 아래');
     const lastCard = await cardOf(page, E2E_ISIN).boundingBox();
     const panelAtEnd = await sharedPanels(page).boundingBox();
+    expect(Math.abs(panelAtEnd!.y + panelAtEnd!.height - viewportH), '맨 아래 — 패널은 화면 하단 그대로').toBeLessThanOrEqual(1);
     expect(lastCard!.y + lastCard!.height, '맨 아래 — 카드 끝이 패널에 묻히지 않는다').toBeLessThanOrEqual(panelAtEnd!.y + 1);
-
-    await dirtyBar(page).getByRole('button', { name: '되돌리기' }).click();
-    await expect(dirtyBar(page)).toHaveCount(0);
   });
 
-  test('8. 상태줄 — 폰 밴드에서 필이 2줄 이상으로 wrap 하고 어느 필도 잘리지 않는다, 와이드도 잘림 0 (E1 overflow)', async ({
+  test('8.상태줄 — 폰 밴드에서 필이 2줄 이상으로 wrap 하고 어느 필도 잘리지 않는다, 와이드도 잘림 0 (E1 overflow)', async ({
     page,
   }) => {
     relay.seedLimitChasers([{ buyEnabled: true }]);
@@ -807,7 +826,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       'lc-sell-order-price',
       'lc-sweep-watch-price',
     ]) {
-      await expect(field(page, id)).toHaveValue(LIVE_UPPER_LIMIT, { timeout: 15_000 });
+      await expect(lcValue(page, id)).toHaveText(`${LIVE_UPPER_LIMIT}원`, { timeout: 15_000 });
     }
     // 폼과 종목정보 10칸이 **같은 상한가**를 말한다.
     const quoteGrid = card.locator('[data-slot="lc-quote-grid"]');
@@ -826,18 +845,27 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(WORKBENCH_URL);
     await waitForReady(page);
     await addStockByKeyboard(page);
-    await expect(field(page, 'lc-buy-order-price')).toHaveValue(LIVE_UPPER_LIMIT, { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-order-price')).toHaveText(`${LIVE_UPPER_LIMIT}원`, {
+      timeout: 15_000,
+    });
 
     // 등록 전 — 사이드바 3단에 전략 항목이 없다.
     await expect(strategyItems(page)).toHaveCount(0);
 
     // ★ WR-06 — 발주할 수 없는 전략은 무장되지 않는다(10만원 / 12.74만 = 0주).
     const card = cardOf(page, E2E_ISIN);
-    const buySwitch = card.getByRole('checkbox', { name: '매수주문 켜기' });
+    const buySwitch = lcSwitch(card, '매수주문 켜기');
     await expect(buySwitch).toBeDisabled();
     await expect(card.locator('[data-slot="lc-arm-blocked"]').first()).toBeVisible();
-    await field(page, 'lc-buy-order-amount').fill('50'); // 50만원 → 3주
+    // ★ A-P1 — 미등록 카드의 값 확정은 **로컬 반영**이다(서버 전략이 없어 보낼 곳이 없다). 전송 0.
+    const setBeforeAmount = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await editLc(page, 'lc-buy-order-amount', '50'); // 50만원 → 3주
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('50만원');
     await expect(buySwitch).toBeEnabled();
+    expect(
+      relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length,
+      '미등록 카드의 값 확정은 게이트웨이로 나가지 않는다(A-P1)',
+    ).toBe(setBeforeAmount);
 
     await buySwitch.click();
     // ★ 확인 다이얼로그가 없다(D-05) — 그 자리에서 바로 나간다.
@@ -1222,39 +1250,46 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(cardOf(page, E2E_ISIN)).not.toContainText('매수 ON');
   });
 
-  test('12. 값 변경 → 더티 바 「1개 미반영」 → 「수정」 → 10 재전송 → 에코 후 바 소멸 · 반영 시각 (옛 LC 4)', async ({
-    page,
-  }) => {
-    relay.seedLimitChasers([{ buyEnabled: true }]);
-    await openFocusedCard(page);
-    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
-
-    await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
-
-    // 작업대에는 AI FAB 이 없다 — 「수정」을 가로챌 것이 없다는 전제 + 바가 실제로 올라와 있다.
-    await expect(page.getByRole('button', { name: 'AI' })).toHaveCount(0);
-    const submitBox = await dirtyBar(page).getByRole('button', { name: '수정' }).boundingBox();
-    expect(submitBox).not.toBeNull();
-    expect(submitBox!.width).toBeGreaterThan(0);
-
-    await dirtyBar(page).getByRole('button', { name: '수정' }).click();
-    await waitForSetAtGateway(relay, before + 1);
-    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
-
-    // 반영의 유일한 증거는 에코다 — 바가 사라지고 상태줄에 시각이 찍힌다.
-    await expect(dirtyBar(page)).toHaveCount(0, { timeout: 15_000 });
-    await expect(statusBar(page).getByTestId('stat-applied')).toHaveText(/^반영 \d{2}:\d{2}:\d{2}$/);
-    await expect(statusBar(page).getByTestId('stat-applied')).toHaveAttribute('title', '서버 반영 시각');
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
-  });
-
-  test('GC2 카드를 접었다 펴도 미전송 값과 더티 바가 남는다 — 재마운트 없음 (WR-02 · D-09 · D-12)', async ({
+  test('12. 값 확정 → 게이트웨이 10 즉시 수신(더티 바·「수정」 없음) → 60 에코 → 행 값 · 반영 시각 (옛 LC 4 · D-04 재정의)', async ({
     page,
   }) => {
     /*
-      등록된 전략 카드 1장 — 더티(미반영)는 **서버값 대비**라 등록 전 카드(종목 추가 직후)에는
-      더티 바가 서지 않는다. 케이스 12 와 같은 진입으로 서버 전략이 있는 카드를 연다.
+      옛 12 는 「값 변경 → 더티 바 → 수정 → 10」 두 단계였다. D-04 로 확정 1회 = 전송 1회가 됐다 —
+      같은 왕복(10 수신 → 60 에코 → 화면 값 · 반영 시각)을 한 단계로 다시 잰다. 반영의 유일한 증거는
+      여전히 에코다(행 값은 에코 전에는 바뀌지 않는다 · D-06).
+    */
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await openFocusedCard(page);
+    const card = cardOf(page, E2E_ISIN);
+    const sets = () => relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    const before = sets();
+
+    await editLc(page, 'lc-buy-watch-qty', '8000');
+    await waitForSetAtGateway(relay, before + 1);
+    // 확정 한 번 = 전송 한 번 — 재전송 없음(T-16-10). 중간 단계(더티 바 · 「수정」)가 없다.
+    expect(sets()).toBe(before + 1);
+    await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
+    await expect(card.getByRole('button', { name: '수정', exact: true })).toHaveCount(0);
+    await expect(card.getByRole('button', { name: '되돌리기', exact: true })).toHaveCount(0);
+
+    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
+
+    // 에코 → 행 값 · 상태줄 반영 시각.
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    await expect(statusBar(page).getByTestId('stat-applied')).toHaveText(/^반영 \d{2}:\d{2}:\d{2}$/);
+    await expect(statusBar(page).getByTestId('stat-applied')).toHaveAttribute('title', '서버 반영 시각');
+    expect(sets()).toBe(before + 1);
+    // 값 확정은 게이트를 건드리지 않는다 — 매수주문 스위치는 켜진 채다(값만 한 필드 바뀌었다).
+    await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
+  });
+
+  test('GC2 카드를 접었다 펴도 반영된 값이 그대로다 — 재마운트 없음 · 포커스는 헤더 토글 (WR-02 · D-09 · D-12 · D-04 재정의)', async ({
+    page,
+  }) => {
+    /*
+      옛 GC2 는 「미전송 값 + 더티 바가 접힘을 견딘다」였다. D-04 로 미전송 값이라는 상태가 사라졌다 —
+      남는 성질은 **재마운트 없음**(WR-02)과 접힘·펼침 포커스다. 재마운트 없음은 폼 DOM 노드에 표식을
+      달아 두고, 펼친 뒤 **같은 노드**인지로 증명한다(새로 그리면 표식이 없다).
     */
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
@@ -1263,51 +1298,69 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const toggle = toggleOf(page, E2E_ISIN);
     const card = cardOf(page, E2E_ISIN);
     const stackCard = grid(page).locator(`[data-slot="card-stack"] ${cardSelector(E2E_ISIN)}`);
+    const form = card.locator('[data-slot="limit-chaser-form"]');
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
-    await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
+    await editLc(page, 'lc-buy-watch-qty', '8000');
+    await waitForSetAtGateway(relay, before + 1);
+    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    await form.evaluate((el) => {
+      (el as HTMLElement).dataset.e2eMark = 'gc2';
+    });
 
-    // 접기 — 카드는 스택으로 가고, 미반영 값이 있다는 사실(더티 바)은 그대로 떠 있다(D-12 · D-28).
+    // 접기 — 카드는 스택으로 가고 본문은 숨김으로 남는다(D-12).
     await toggle.click();
     await expect(card).toHaveAttribute('data-open', 'false');
     await expect(stackCard).toHaveCount(1);
-    await expect(field(page, 'lc-buy-watch-qty')).toBeHidden();
-    await expect(dirtyBar(page)).toBeVisible();
-    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
+    await expect(lcRow(page, 'lc-buy-watch-qty')).toBeHidden();
     // 포커스는 누른 헤더 토글로 돌아온다(UI-SPEC §접근성).
     await expect(toggle).toBeFocused();
 
-    // 다시 펼치기 — 바꾼 값이 그대로다(재마운트 없음 · WR-02).
+    // 다시 펼치기 — 반영된 값이 그대로이고 폼은 **같은 DOM 노드**다(재마운트 없음 · WR-02).
     await toggle.click();
     await expect(card).toHaveAttribute('data-open', 'true');
     await expect(stackCard).toHaveCount(0);
-    await expect(field(page, 'lc-buy-watch-qty')).toBeVisible();
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
-    await expect(dirtyBar(page)).toContainText('변경한 값 1개가');
+    await expect(lcRow(page, 'lc-buy-watch-qty')).toBeVisible();
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주');
+    await expect(form).toHaveAttribute('data-e2e-mark', 'gc2');
     await expect(toggle).toBeFocused();
-
-    // 정리 — 다음 케이스(직렬)에 더티 상태를 남기지 않는다.
-    await dirtyBar(page).getByRole('button', { name: '되돌리기' }).click();
-    await expect(dirtyBar(page)).toHaveCount(0);
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000');
+    await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
+    // 접었다 펴는 동안 아무것도 나가지 않았다.
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
   });
 
-  test('13. 다른 단말 변경 — 더티를 덮고 카드 6초 배너(role=status) + 공용 로그 1줄 (옛 LC 5 · D-11)', async ({
+  test('13. 인라인 편집 중 다른 단말 변경 — 입력 8,000 유지 · Esc 뒤 행 = 에코 「5,000주」 + 카드 6초 배너(role=status) 「다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요」 + 공용 로그 1줄 (옛 LC 5 · D-07 재정의)', async ({
     page,
   }) => {
+    /*
+      옛 13 은 「에코가 더티를 덮는다」였다. D-07 은 편집 중인 버퍼가 **편집기의 것**이라 에코가 덮지 않는다
+      (E4) — 행 값(폼)은 서버를 따르고, 편집을 버리면(Esc) 그 행은 에코 값을 보인다. 배너·로그 규율은 그대로다.
+    */
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
-    await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toBeVisible();
+    await lcRow(page, 'lc-buy-watch-qty').click();
+    const input = page.locator('#lc-buy-watch-qty');
+    await expect(input).toBeFocused();
+    await input.fill('8000');
     await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 5_000 });
 
-    // 서버가 이긴다 — 편집 중 보호·보류가 없다.
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('5,000', { timeout: 15_000 });
     const banner = cardOf(page, E2E_ISIN).locator('[data-slot="card-echo-banner"]');
-    await expect(banner).toContainText('다른 단말에서 변경돼 수정하던 값 1개가 서버 값으로 바뀌었어요');
+    await expect(banner).toContainText('다른 단말에서 변경됐어요 · 서버 값으로 맞췄어요', { timeout: 15_000 });
     await expect(banner).toHaveAttribute('role', 'status');
-    await expect(dirtyBar(page)).toHaveCount(0);
+    // 편집 중인 입력은 에코가 덮지 않는다 — 사용자가 치던 값이 그대로다.
+    await expect(input).toHaveValue(/^8,?000$/);
+    await expect(input).toBeFocused();
+
+    // Esc = 편집 버림 → 행은 서버 값(에코).
+    await input.press('Escape');
+    await expect(input).toHaveCount(0);
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('5,000주');
+    await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
+    // 버린 편집은 나가지 않았다.
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before);
 
     // 배너는 6초 뒤 사라지지만 로그는 남는다.
     await expect(banner).toHaveCount(0, { timeout: 15_000 });
@@ -1321,18 +1374,18 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await page.goto(FOCUS_URL);
     await waitForReady(page);
     await expect(strategyItems(page)).toHaveCount(1, { timeout: 15_000 });
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
     const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
 
     await expect(page.getByRole('button', { name: /삭제/ })).toHaveCount(0);
-    await cardOf(page, E2E_ISIN).getByRole('checkbox', { name: '매수주문 켜기' }).click();
+    await lcSwitch(cardOf(page, E2E_ISIN), '매수주문 켜기').click();
     await waitForSetAtGateway(relay, before + 1);
 
     // 삭제 판정은 스위치가 아니라 서버 에코의 `crud` 다(Pitfall 7).
     await relay.pushLimitChaserEcho({ crud: 'D', buyEnabled: false, buyWatchQty: 8_000 });
 
     await expect(strategyItems(page)).toHaveCount(0, { timeout: 15_000 });
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('10,000');
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주');
     await expect((await logRows(page)).filter({ hasText: '전략이 삭제됐어요' })).toHaveCount(1);
   });
 
@@ -1386,31 +1439,39 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(rejected).toHaveAttribute('data-level', 'error');
   });
 
-  test('16. 더티 상태로 사이드바 다른 항목 클릭 → 확인이 뜨고 머무를 수 있다, 더티 0 이면 묻지 않는다 (옛 LC 10)', async ({
+  test('16. 상따 설정은 즉시 반영이라 사이드바 이동 때 확인이 뜨지 않는다 — 대조군 + 적용 뒤 「홈」 이동 = 다이얼로그 0 (옛 LC 10 · D-04 재정의)', async ({
     page,
   }) => {
+    /*
+      옛 16 은 「더티 상태로 떠나면 확인이 뜬다」였다. D-04 로 떠날 때 잃을 미반영 값이 없다 — 값은 확정 즉시
+      서버로 갔고 반영은 에코가 증명한다. 그래서 이제 계약은 반대다: 값을 바꾼 뒤에도 이동을 막지 않는다.
+      (작업대 이탈 경고 배관 자체는 카드 `dirtyCount` 가 늘 0 이라 스스로 비활성이다 — 20-04.)
+    */
     relay.seedLimitChasers([{ buyEnabled: true }]);
     await openFocusedCard(page);
 
     const dialogs: string[] = [];
     page.on('dialog', (d) => {
       dialogs.push(d.message());
-      void d.dismiss(); // 「머무른다」
+      void d.dismiss(); // 뜨면 「머무른다」 — 그러면 아래 URL 단언이 실패로 드러낸다
     });
-    // 대조군 — 더티가 없으면 이동이 막히지 않는다.
+    // 대조군 — 아무것도 바꾸지 않았으면 이동이 막히지 않는다.
     await desktopNav(page).getByRole('link', { name: '홈' }).click();
     await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
     expect(dialogs).toEqual([]);
 
+    // 값을 확정하고(→ 10 → 에코) 곧장 떠난다 — 확인 없이 이동한다.
     await openFocusedCard(page);
-    await field(page, 'lc-buy-watch-qty').fill('8000');
-    await expect(dirtyBar(page)).toBeVisible();
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+    await editLc(page, 'lc-buy-watch-qty', '8000');
+    await waitForSetAtGateway(relay, before + 1);
+    await relay.pushLimitChaserEcho({ buyEnabled: true, buyWatchQty: 8_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('8,000주', { timeout: 15_000 });
+    await expect(page.locator(DIRTY_BAR_SEL)).toHaveCount(0);
     await desktopNav(page).getByRole('link', { name: '홈' }).click();
 
-    await expect.poll(() => dialogs.length, { timeout: 15_000 }).toBe(1);
-    expect(dialogs[0]).toContain('수정하지 않은 값이 있어요');
-    await expect(page).toHaveURL(/\/trading/);
-    await expect(field(page, 'lc-buy-watch-qty')).toHaveValue('8,000');
+    await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+    expect(dialogs, '즉시 반영 모델에서는 이탈 확인이 없다').toEqual([]);
   });
 
   test('17. 카드 와이드 밴드(832·880·960) 체결가·체결량 잘림 0 — 데스크톱은 시(時)까지 · 방향 라벨 유지 (옛 LC 13 · T-u58-03)', async ({
@@ -1533,7 +1594,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(ladder.locator('[data-slot="trade-tape"][data-compact="true"]:visible')).toHaveCount(1);
     await expect(ladder.locator('[data-slot="trade-tape"][data-compact="true"] thead')).toHaveCount(0);
 
-    // 매수 pane 은 204px 안에 라벨 + 입력이 들어간다(잎 요소 좌표 판정).
+    // 매수 pane 은 204px 안에 행(라벨 ─ 값 ›)이 들어간다(잎 요소 좌표 판정 · Phase 20 리스트 행).
     await tablist.getByRole('tab', { name: '매수' }).click();
     const pane = card.locator('[data-pane="buy"]');
     const paneBox = await pane.boundingBox();
@@ -2009,6 +2070,236 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await relay.pushLimitChaserEcho({ buyEnabled: true, sweepMinTickCount: 5 });
     await expect(value).toHaveText('5건', { timeout: 15_000 });
     await expect(page.locator('#lc-sweep-tick')).toHaveCount(0);
+  });
+
+  /*
+    ★ Phase 20 P20-3 — 폭 불변식 백스톱(UI-SPEC 검증 훅 · UI Considerations E1 overflow · D-20 · D-14a).
+      최악값(가격 7자리 1,274,000원 · 수량 100,000주 · 주문금액 9,999만원 · 잔량추적 기준선 100,000주)을
+      에코로 심고, 카드 컨테이너를 본문 344 · 700 · 830 · 992 에 **정확히** 맞춰(`sizeCardTo`) 잰다.
+      · 잘림 0 — 카드 전체 두 판정(`expectCardNotClipped`) + 우측 패널 scrollWidth ≤ clientWidth +
+        **행마다** 가장 오른쪽 잎 요소가 행 안쪽 끝을 넘지 않는다(여유 px 를 주석으로 남긴다).
+        폰 밴드 「잔량추적 기준선 | 100,000주」 는 20-04 가 L2 백스톱으로 +0.9px 를 만든 행이다 — 여기가
+        그 얇은 여유의 실브라우저 단언이다.
+      · 모든 리스트 행 44px(±0.5) · 인라인 편집 중인 행도 44px(레이아웃 이동 0).
+      · 폰 밴드는 「매수」「매도」 탭을 각각 눌러 두 pane 을 모두 잰다(비활성 pane 은 display:none).
+      · 본문 344 수동주문 — 「예약매수」「예약매도」 48px · 「정정」「취소」 38px 라벨이 잘리지 않는다
+        (20-06 이 human_judgment 로 남긴 항목). 예약창(77 open)을 밀어 최악 라벨로 잰다.
+      · ≥700 2열 — 기준선 행이 없으면 매수주문 · 매도주문 그룹 높이가 같다(행 44 · 상태 한 줄).
+  */
+  test('P20-3 최악값 × 본문 344 · 700 · 830 · 992 — 우측 패널 잘림 0 · 행 44px(편집 전후) · ≥700 매수주문/매도주문 그룹 높이 동일 (D-20 · UI-SPEC 검증 훅)', async ({
+    page,
+  }) => {
+    const WORST = {
+      buyEnabled: true,
+      sellEnabled: true,
+      buyOrderPrice: 1_274_000,
+      buyWatchPrice: 1_274_000,
+      sweepWatchPrice: 1_274_000,
+      sellOrderPrice: 1_274_000,
+      sellWatchPrice: 1_274_000,
+      buyOrderAmount: 9_999,
+      buyWatchQty: 100_000,
+      sellWatchQty: 100_000,
+      cancelWatchQty: 100_000,
+      buyMinTradeQty: 100_000,
+      sellMinTradeQty: 100_000,
+      sellEntryLatched: true,
+      sellQtyTrackBaseline: 100_000,
+    };
+    relay.seedLimitChasers([WORST]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('100,000주', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-order-price')).toHaveText('1,274,000원');
+    await expect(lcValue(page, 'lc-buy-order-amount')).toHaveText('9,999만원');
+    // 최악값 시드는 매수·매도 두 게이트가 켜진 상태다 — 흐림(opacity .45) 없이 가장 짙은 글자로 잰다.
+    await expect(lcSwitch(card, '매수주문 켜기')).toBeChecked();
+    await expect(lcSwitch(card, '매도주문 켜기')).toBeChecked();
+
+    /** 보이는 리스트 행 전부 — 값 행 · 체크 행 · 감시대상 행 · 기준선 행. 높이와 행 안쪽 여유. */
+    const measureRows = () =>
+      card.evaluate((root) =>
+        Array.from(
+          root.querySelectorAll<HTMLElement>(
+            '[data-lc-field], [data-slot="lc-check-row"], [data-slot="lc-watch-row"], [data-slot="lc-derived"]',
+          ),
+        )
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            const inner = r.right - parseFloat(cs.paddingRight);
+            let right = r.left;
+            for (const leaf of Array.from(el.querySelectorAll<HTMLElement>('*'))) {
+              const lr = leaf.getBoundingClientRect();
+              if (leaf.getClientRects().length === 0 || lr.width === 0) continue;
+              right = Math.max(right, lr.right);
+            }
+            /*
+              진짜 여유 = 행 안쪽 폭 − 직계 자식들의 **내용** 폭 합 − 자식 사이 간격. justify-between 이라
+              오른쪽 끝 여유(slack)는 들어갈 때 늘 0 이다 — 얼마나 남았는지는 이 값이 말한다.
+            */
+            const kids = Array.from(el.children).filter((c) => c.getClientRects().length > 0);
+            const contentW = kids.reduce((sum, c) => {
+              const range = document.createRange();
+              range.selectNodeContents(c);
+              return sum + range.getBoundingClientRect().width;
+            }, 0);
+            const gap = parseFloat(cs.columnGap) || 0;
+            const innerW = r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            return {
+              what: el.getAttribute('data-lc-field') ?? el.getAttribute('data-slot') ?? '?',
+              text: (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24),
+              h: Math.round(r.height * 100) / 100,
+              slack: Math.round((inner - right) * 10) / 10,
+              free: Math.round((innerW - contentW - gap * Math.max(0, kids.length - 1)) * 10) / 10,
+              pieces: kids.length,
+            };
+          }),
+      );
+
+    const minFree: Record<string, { what: string; free: number }> = {};
+    const expectRows = async (label: string, mustInclude: string[]) => {
+      const rows = await measureRows();
+      const whats = rows.map((r) => r.what);
+      for (const w of mustInclude) expect(whats, `${label} — ${w} 행이 보여야 한다`).toContain(w);
+      expect(
+        rows.filter((r) => Math.abs(r.h - 44) > 0.5),
+        `${label} — 44px 이 아닌 행`,
+      ).toEqual([]);
+      expect(
+        rows.filter((r) => r.slack < -0.5),
+        `${label} — 행 안쪽 끝을 넘은 잎 요소(잘림)`,
+      ).toEqual([]);
+      // 여유는 「라벨 ─ 값」 두 조각 이상인 행만 잰다 — 감시대상(풀폭 토글 · D-02a) · 체크 전용 행 ·
+      // 체크 행 안의 값 버튼(한 조각)은 늘 0 이라 뺀다. 그 잘림은 위 두 판정이 본다.
+      const measurable = rows.filter((r) => r.pieces >= 2);
+      expect(
+        measurable.filter((r) => r.free < -0.5),
+        `${label} — 라벨 + 값이 행 안쪽 폭을 넘는 행`,
+      ).toEqual([]);
+      const worst = measurable.reduce((a, b) => (b.free < a.free ? b : a));
+      const key = label.split(' ')[0]!;
+      const prev = minFree[key];
+      if (prev === undefined || worst.free < prev.free) {
+        minFree[key] = { what: `${worst.what}「${worst.text}」`, free: worst.free };
+      }
+    };
+    const expectOptionsNoScroll = async (label: string) => {
+      const over = await card
+        .locator('[data-slot="card-body-options"]')
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(over, `${label} — 우측 패널 scrollWidth ≤ clientWidth`).toBeLessThanOrEqual(0);
+    };
+    /** 잔량 행을 인라인 편집으로 연 상태도 44px — 편집 전후 레이아웃 이동 0(D-14a). */
+    const expectEditingRow44 = async (label: string) => {
+      await lcRow(page, 'lc-buy-watch-qty').click();
+      const editing = page.locator('[data-lc-field="lc-buy-watch-qty"][data-editing="true"]');
+      await expect(page.locator('#lc-buy-watch-qty')).toBeFocused();
+      const box = await editing.boundingBox();
+      expect(box, `${label} — 편집 중 행을 잴 수 없다`).not.toBeNull();
+      expect(Math.abs(box!.height - 44), `${label} — 편집 중 행 높이 ${box!.height}`).toBeLessThanOrEqual(0.5);
+      expect(await scrollOverflowing(page, cardSelector(E2E_ISIN)), `${label} — 편집 중 넘침`).toEqual([]);
+      await page.locator('#lc-buy-watch-qty').press('Escape');
+      await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
+    };
+
+    const BUY_ROWS = ['lc-buy-order-price', 'lc-buy-order-amount', 'lc-buy-watch-qty', 'lc-watch-row', 'lc-sweep-watch-price'];
+    const SELL_ROWS = ['lc-sell-order-price', 'lc-sell-watch-qty', 'lc-derived', 'lc-cancel-watch-qty'];
+    const setsBefore = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+
+    for (const target of [344, 700, 830, 992]) {
+      await sizeCardTo(page, E2E_ISIN, target);
+      const { band } = await cardMetrics(page, E2E_ISIN);
+      expect(band, `카드 ${target} — 기대 밴드`).toBe(bandOfWidth(target));
+      const label = `${target} 카드`;
+
+      if (target < 700) {
+        // 폰 밴드 — 탭당 한 pane. 두 pane 을 각각 편다.
+        const tablist = card.getByRole('tablist', { name: '주문 진입' });
+        await tablist.getByRole('tab', { name: '매수' }).click();
+        await expect(card.locator('[data-pane="buy"]')).toBeVisible();
+        await expectCardNotClipped(page, E2E_ISIN, `${label} · 매수 pane`);
+        await expectOptionsNoScroll(`${label} · 매수 pane`);
+        await expectRows(`${target} 매수 pane`, BUY_ROWS);
+        await expectEditingRow44(`${label} · 매수 pane`);
+
+        await tablist.getByRole('tab', { name: '매도' }).click();
+        await expect(card.locator('[data-pane="sell"]')).toBeVisible();
+        await expectCardNotClipped(page, E2E_ISIN, `${label} · 매도 pane`);
+        await expectOptionsNoScroll(`${label} · 매도 pane`);
+        await expectRows(`${target} 매도 pane`, SELL_ROWS);
+        await expect(card.locator('[data-slot="lc-derived"]')).toContainText('100,000주');
+
+        // 수동주문 — 예약창(77 open)이면 「예약매수」「예약매도」 + 조각 수 상자까지 선다(최악 라벨).
+        const sock = await relay.gateway.waitForConnection(15_000);
+        relay.gateway.sendQueuedWindowState(sock, { open: true, maxPieces: 5 });
+        await tablist.getByRole('tab', { name: '수동' }).click();
+        const form = card.getByTestId('manual-order-form');
+        await expect(form).toBeVisible();
+        const buttons = form.getByTestId('manual-order-buttons').getByRole('button');
+        await expect(buttons).toHaveCount(4);
+        // 폰 밴드는 「예약」이 윗줄 block 이라 접근성 이름이 「예약 매수」로 계산된다(18-07 SideLabel ·
+        // deferred-items 기록) — 여기서 재는 것은 라벨 잘림이라 글자만 본다.
+        await expect(buttons.nth(0)).toHaveAccessibleName(/^예약\s?매수$/, { timeout: 15_000 });
+        await expect(buttons.nth(1)).toHaveAccessibleName(/^예약\s?매도$/);
+        const clipped = await form.getByTestId('manual-order-buttons').evaluate((el) =>
+          Array.from(el.querySelectorAll<HTMLButtonElement>('button')).map((b) => ({
+            text: (b.textContent ?? '').trim(),
+            h: Math.round(b.getBoundingClientRect().height),
+            overX: b.scrollWidth - b.clientWidth,
+            overY: b.scrollHeight - b.clientHeight,
+          })),
+        );
+        expect(clipped.map((b) => b.h), `${label} — 수동주문 버튼 높이 48 · 48 · 38 · 38`).toEqual([48, 48, 38, 38]);
+        expect(
+          clipped.filter((b) => b.overX > 0 || b.overY > 0),
+          `${label} — 수동주문 버튼 라벨 잘림(overflow-hidden 안에서 넘친 글자)`,
+        ).toEqual([]);
+        await expectCardNotClipped(page, E2E_ISIN, `${label} · 수동 pane`);
+        relay.gateway.sendQueuedWindowState(sock, { open: false, maxPieces: 5 });
+        await expect(buttons.nth(0)).toHaveAccessibleName('매수', { timeout: 15_000 });
+        await tablist.getByRole('tab', { name: '매수' }).click();
+      } else {
+        // 2열 — 두 pane 이 함께 보인다.
+        await expect(card.locator('[data-pane="buy"]')).toBeVisible();
+        await expect(card.locator('[data-pane="sell"]')).toBeVisible();
+        await expectCardNotClipped(page, E2E_ISIN, label);
+        await expectOptionsNoScroll(label);
+        await expectRows(`${target} 2열`, [...BUY_ROWS, ...SELL_ROWS]);
+        await expectEditingRow44(label);
+      }
+    }
+    // 재는 동안 아무것도 나가지 않았다(편집은 전부 Esc 로 버렸다).
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(setsBefore);
+    test.info().annotations.push({
+      type: 'P20-3 행 최소 여유(px)',
+      description: Object.entries(minFree)
+        .map(([k, v]) => `${k}: ${v.free} (${v.what})`)
+        .join(' · '),
+    });
+
+    // ≥700 — 기준선 행이 없으면(매도 진입 미래치) 매수주문 · 매도주문 그룹 높이가 같다.
+    relay.seedLimitChasers([{ ...WORST, sellEntryLatched: false }]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('100,000주', { timeout: 15_000 });
+    await expect(card.locator('[data-slot="lc-derived"]')).toHaveCount(0);
+    for (const target of [700, 830, 992]) {
+      await sizeCardTo(page, E2E_ISIN, target);
+      const buyH = await card.locator('[data-slot="lc-group-buy"]').evaluate((el) => el.getBoundingClientRect().height);
+      const sellH = await card.locator('[data-slot="lc-group-sell"]').evaluate((el) => el.getBoundingClientRect().height);
+      expect(Math.abs(buyH - sellH), `카드 ${target} — 매수주문 ${buyH} vs 매도주문 ${sellH}`).toBeLessThanOrEqual(0.5);
+      // 상태 문구는 한 줄 — 헤더 높이가 두 그룹 같다(둘째 줄로 내려가면 여기서 갈린다).
+      const heads = await card
+        .locator('[data-slot="lc-group-buy"] [data-slot="lc-group-header"], [data-slot="lc-group-sell"] [data-slot="lc-group-header"]')
+        .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height * 10) / 10));
+      expect(heads, `카드 ${target} — 두 그룹 헤더`).toHaveLength(2);
+      expect(Math.abs(heads[0]! - heads[1]!), `카드 ${target} — 헤더 높이 ${heads.join(' / ')}`).toBeLessThanOrEqual(0.5);
+    }
   });
 
   /*
