@@ -831,6 +831,38 @@ describe('⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존 (D-11
   });
 });
 
+describe('WR-03 — 대기열에서 꺼낼 때 막히거나 끊긴 토글도 폼 맨 위가 말한다 (무로그 fail-safe 금지)', () => {
+  const GATE_DISCONNECTED = '연결이 끊겨 켜기/끄기를 보내지 못했어요. 연결이 복구된 뒤 다시 눌러 주세요.';
+
+  it('값 전송 중 대기에 선 스위치가 꺼낼 때 끊기면 — 스위치는 되돌고 폼 맨 위에 끊김 문장', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    editInline('lc-sweep-tick', '5');
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'true');
+
+    sendMock.mockReturnValue(false);
+    rerender(<LimitChaserForm {...props({ server: echo({ sweepMinTickCount: 5 }) })} />);
+    rerender(<LimitChaserForm {...props({ server: echo({ sweepMinTickCount: 5 }), serverAnswerSeq: 1 })} />);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(submitError()?.textContent).toBe(GATE_DISCONNECTED);
+  });
+
+  it('꺼낼 때 무장 불가로 막힌 스위치 — 스위치는 되돌고 폼 맨 위에 그 사유 문장', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    editInline('lc-sell-watch-qty', '0');
+    click(sw('매도주문 켜기'));
+    expect(sentConfigs()).toHaveLength(1);
+    rerender(<LimitChaserForm {...props({ server: echo({ sellWatchQty: 0 }) })} />);
+    rerender(<LimitChaserForm {...props({ server: echo({ sellWatchQty: 0 }), serverAnswerSeq: 1 })} />);
+    expect(sentConfigs()).toHaveLength(1);
+    expect(sw('매도주문 켜기')).toHaveAttribute('aria-checked', 'false');
+    expect(submitError()?.textContent).toBe(
+      '매도주문 · 매도 호가잔량이 0 이에요. 감시할 잔량을 입력하면 켤 수 있어요.',
+    );
+  });
+});
+
 describe('CR-01 — 인라인 편집도 relay 스키마 범위 밖 값을 보내지 않는다 (빈 값 = 0 포함)', () => {
   it('매도비율 칸을 지우고 Enter — 0 을 보내지 않고 말풍선 「1% 이상 입력해 주세요」', () => {
     render(<LimitChaserForm {...props()} />);

@@ -105,7 +105,6 @@ import {
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
   lcNavigableRows,
-  lcRangeIssue,
   lcRowByField,
   lcRowById,
   type LcGate,
@@ -129,6 +128,7 @@ import {
   LC_COMMIT_TEXT,
   useLcFieldCommit,
   type LcCommitFailure,
+  type LcFailReason,
   type LcFieldKey,
 } from '@/components/trading/lc/use-lc-field-commit';
 import { useEditMode } from '@/lib/use-edit-mode';
@@ -428,11 +428,6 @@ export function LimitChaserForm({
   const [ownTab, setTab] = useState<'buy' | 'sell'>('buy');
   // 제어형이면 바깥 값이 이긴다(카드 본문의 3탭) — 자체 상태는 옛 화면 경로에서만 쓰인다.
   const tab = controlledTab ?? ownTab;
-  /**
-   * 스위치·체크·감시대상 전송이 소켓에 실리지 못했거나(끊김) 무장 판정에 막혔을 때의 사유 1줄.
-   * 토스트를 쓰지 않으므로(파일 상단 ⑥) 화면에 남는 문장이 유일한 통보 수단이다.
-   */
-  const [submitError, setSubmitError] = useState('');
 
   const [form, setForm] = useState<LimitChaserFormValues>(() => {
     const base = defaultLimitChaserForm();
@@ -655,35 +650,33 @@ export function LimitChaserForm({
   /**
    * 스위치 · 체크 · 감시대상 — **확인 없이 즉시** 한 필드 전송(Phase 16 D-05 · D-04).
    *
-   * ★ 소켓이 받지 않으면(끊김) 폼 맨 위 기존 문장이 말하고 컨트롤은 그대로다(훅이 낙관 표시를 걸지
-   *   않는다 · GC-WR-06). 무장 판정에 막히면 그 사유(`armBlockOf` 문장)가 같은 자리에 선다.
+   * ★ 결과 문구는 반환값이 아니라 **훅의 실패 상태에서 파생**한다(아래 `submitError` · 20-REVIEW WR-03) —
+   *   대기열에서 꺼낼 때(`drain`) 막히거나 끊긴 토글도 같은 자리가 말해야 하기 때문이다.
    * ★ 거부·무응답은 훅이 컨트롤을 서버 값으로 되돌리고, 그 자리 말풍선이 말한다(`toggleFailureTextOf`).
    */
   const commitToggle = useCallback(
     <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K]) => {
-      const outcome = commitField(field, value, 'toggle');
-      if (outcome === 'disconnected') {
-        setSubmitError(SEND_FAILED_TEXT.gate);
-      } else if (outcome === 'blocked') {
-        // 훅과 **같은 식·같은 순서**(서버 동기값 + 바꾼 필드 → 범위 → 무장)로 사유를 다시 읽는다 —
-        // 문장 산출 지점은 하나다(범위 `lcRangeIssue` · 무장 `armBlockOf`).
-        const next = { ...lcBaseValues(server, formRef.current), [field]: value };
-        setSubmitError(lcRangeIssue(next) ?? armBlockOf(next) ?? '');
-      } else {
-        setSubmitError('');
-      }
+      commitField(field, value, 'toggle');
     },
-    [commitField, server],
+    [commitField],
   );
 
   /*
-    답이 도착하면 폼 맨 위 실패 문구를 접는다 — 답이 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다.
+    폼 맨 위 한 줄 = 스위치·체크·감시대상의 **보내지 못한 실패**(끊김 · 무장 불가 · 범위 밖)에서 파생한다
+    (20-REVIEW WR-03). 옛 판은 `commitToggle` 이 직접 받은 반환값으로만 세워서, 대기열에서 꺼낼 때 막힌
+    토글은 스위치만 조용히 되돌아갔다(무로그 fail-safe · 파일 상단 ⑥ 위반).
+    ★ 답이 도착하면 그때까지의 문구는 접는다 — 답이 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다. 실패 객체의
+      **정체성**으로 접으므로, 같은 답 렌더에서 새로 생긴 실패(꺼내다 막힌 토글)는 접히지 않고 선다.
     ★ 신호가 **둘**인 이유는 `serverAnswerSeq` prop 주석에 있다 — `server` 변화만 보면
       「미등록 키 철거 에코」와 「거부」 두 경우를 놓친다.
   */
+  const failuresSeenRef = useRef(lc.failures);
+  failuresSeenRef.current = lc.failures;
+  const [dismissedFailures, setDismissedFailures] = useState<ReadonlySet<LcCommitFailure>>(() => new Set());
   useEffect(() => {
-    setSubmitError('');
+    setDismissedFailures(new Set(Object.values(failuresSeenRef.current)));
   }, [server, serverAnswerSeq]);
+  const submitError = toggleSubmitErrorOf(lc.failures, dismissedFailures);
 
   /** 그 필드의 확정이 나가 있거나 대기열에 서 있는가. */
   const isBusy = (field: LcFieldKey): boolean =>
@@ -1021,6 +1014,26 @@ function ArmBlockedPanel({ groups }: { groups: ArmBlockedGroup[] }) {
 function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
   if (f === undefined) return null;
   return f.reason === 'rejected' || f.reason === 'timeout' ? LC_COMMIT_TEXT.inlineFailed : f.text;
+}
+
+/** 폼 맨 위 한 줄이 말하는 토글 실패 — **보내지 못한 것**(끊김 · 무장 불가 · 범위 밖). 거부·무응답은 말풍선. */
+const SUBMIT_ERROR_REASONS: ReadonlySet<LcFailReason> = new Set(['disconnected', 'armBlocked', 'invalid']);
+
+/**
+ * 폼 맨 위 한 줄(`lc-submit-error`) 파생 — 토글 종류(값이 숫자가 아닌 필드)의 보내지 못한 실패 중 아직 답으로
+ * 접히지 않은 첫 건. 끊김은 토글 어조의 기존 문장(`SEND_FAILED_TEXT.gate`), 나머지는 훅이 둔 사유 문장
+ * (`armBlockOf` · `lcRangeIssue`) 그대로다 — 문장 산출 지점은 하나다. 값 필드 실패는 행·시트·말풍선이 말한다.
+ */
+function toggleSubmitErrorOf(
+  failures: Partial<Record<LcFieldKey, LcCommitFailure>>,
+  dismissed: ReadonlySet<LcCommitFailure>,
+): string {
+  for (const f of Object.values(failures)) {
+    if (f === undefined || dismissed.has(f)) continue;
+    if (typeof f.value === 'number' || !SUBMIT_ERROR_REASONS.has(f.reason)) continue;
+    return f.reason === 'disconnected' ? SEND_FAILED_TEXT.gate : f.text;
+  }
+  return '';
 }
 
 /** 무장 판정 기준값 — 서버 동기값(없으면 폼 값). 훅의 전송 직전 가드와 같은 식이다(T-20-03). */
