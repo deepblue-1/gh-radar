@@ -15,6 +15,8 @@ import os
 /// 하단 플로팅 탭바(21-10 · D-02 · D-27a)는 WebView 위에 `addSubview` 로 얹는다.
 /// 활성 = `TabRoutes.activeTab`(D-14) · 숨김 = 로그인 경로 · 오프라인 페이지 · 웹 오버레이 · 키보드(D-12) ·
 /// 탭 = 웹 navigate 훅 evaluate(D-06a, 클라 내비라 relay 소켓 유지).
+///
+/// 21-11: 당겨서 새로고침(D-04 · D-17 — 웹 refresh 훅 · 1초 고정 스피너) · 테마 추종과 첫 프레임 저장값(D-23).
 final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     private let log = Logger(subsystem: "com.ghtrade.app", category: "bridge")
@@ -37,19 +39,43 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     /// 웹 `overlay {open}` 신호(D-12 ③). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지).
     var overlayOpen = false
     private var keyboardVisible = false
-    /// 탭바 팔레트 테마. 21-11 이 저장값(ThemeStore)·웹 `theme` 메시지로 바꾼다.
-    var currentTheme: GHTradeTheme = .light {
+    /// 앱 테마. 바꾸는 곳은 `applyTheme` 하나 — 저장값(ThemeStore, 첫 프레임) · 웹 `theme` 메시지(D-23).
+    private(set) var currentTheme: GHTradeTheme = .light {
         didSet { applyTabBarTheme() }
     }
 
+    // MARK: - 당겨서 새로고침 상태 (D-04 · D-17)
+
+    /// 오버레이·오프라인 페이지 동안 scrollView 에서 떼었다가 다시 붙이므로 보관한다(Pitfall 7).
+    private var pullRefreshControl: UIRefreshControl?
+
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
+        // D-23 첫 프레임 — 웹이 뜨기 전 WebView 배경·상태바를 저장값으로(흰/검 깜빡임 방지).
+        applyTheme(ThemeStore.load(), animated: false)
         guard let wv = webView else { return }
         // userContentController 는 핸들러를 강하게 잡는다 → 약한 참조 래퍼로 순환을 끊는다.
         wv.configuration.userContentController.add(WeakScriptMessageHandler(self), name: "ghTrade")
+        setupPullToRefresh()
         setupTabBar()
         observeURL()
         observeKeyboard()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // 풀블리드(D-25 · contentInsetAdjustmentBehavior .never)라 스피너가 상태바 뒤에 그려진다 → 안전영역 아래로 내린다.
+        if let rc = pullRefreshControl {
+            rc.bounds = CGRect(x: rc.bounds.origin.x, y: -view.safeAreaInsets.top,
+                               width: rc.bounds.width, height: rc.bounds.height)
+        }
+    }
+
+    // MARK: - 상태바 (Pitfall 13)
+
+    /// SystemBars 플러그인이 load 때 `statusBarStyle = .default`(OS 다크모드 추종)로 덮는다 → 앱 테마 값을 직접 반환.
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        currentTheme == .dark ? .lightContent : .darkContent
     }
 
     // MARK: - JS → Native
@@ -90,8 +116,12 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         case .overlay:
             overlayOpen = (payload?["open"] as? Bool) == true
             updateTabBarVisibility(animated: true)
-        case .theme, .pull:
-            // 21-11 이 채운다.
+        case .theme:
+            // T-21-02: "dark"/"light" 두 값만 받는다 — 그 외는 무시(저장도 하지 않는다).
+            guard let raw = payload?["theme"] as? String, let t = GHTradeTheme(rawValue: raw) else { return }
+            applyTheme(t, animated: true)
+        case .pull:
+            // Android 전용(SwipeRefreshLayout 내부 스크롤 신호). iOS 는 CSS overscroll-behavior 로 체이닝을 끊는다.
             log.debug("message \(rawType, privacy: .public)")
         }
     }
@@ -134,10 +164,77 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         updateTabBarVisibility(animated: false)
     }
 
+    // MARK: - 테마 (D-23 — 웹이 정본, 네이티브는 따라가며 마지막 값만 저장. OS 다크모드는 보지 않는다)
+
+    /// 라이트 `#ffffff` · 다크 `#17171c`(GHTradePalette.bg) 를 WebView/스크롤/창 배경에 칠하고
+    /// 상태바 · 시스템 크롬(스피너·키보드) · 탭바/페이드 팔레트를 바꾼 뒤 저장한다.
+    func applyTheme(_ t: GHTradeTheme, animated: Bool) {
+        let p = GHTradePalette.of(t)
+        let changed = t != currentTheme
+        // 불투명이면 첫 페인트 전 흰 면이 비친다 — 배경색이 보이도록 투명 처리(weekly-wine setupPullToRefresh).
+        webView?.isOpaque = false
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.currentTheme = t   // didSet → 탭바·페이드 팔레트
+            // 이 VC 의 뷰 계층(리프레시 스피너 · 키보드 · WebView 기본 color-scheme)이 앱 테마를 따르게 한다.
+            self.overrideUserInterfaceStyle = t.userInterfaceStyle
+            // view == webView (loadView final) — WebView 와 스크롤 배경, 창 배경을 같이 칠한다.
+            self.webView?.backgroundColor = p.bg
+            self.webView?.scrollView.backgroundColor = p.bg
+            self.viewIfLoaded?.window?.backgroundColor = p.bg
+            self.setNeedsStatusBarAppearanceUpdate()
+        }
+        if animated && changed {
+            UIView.animate(withDuration: 0.2, animations: apply)
+        } else {
+            apply()
+        }
+        ThemeStore.save(t)
+    }
+
     private func applyTabBarTheme() {
         // 블러 재질(systemThinMaterial)도 앱 테마를 따르게 한다 — OS 다크모드와 앱 테마가 다를 때 대비.
         tabBar.overrideUserInterfaceStyle = currentTheme.userInterfaceStyle
         tabBar.apply(GHTradePalette.of(currentTheme))
+    }
+
+    // MARK: - 당겨서 새로고침 (D-04 · D-17 — weekly-wine setupPullToRefresh 이식, 핸들러만 교체)
+
+    private func setupPullToRefresh() {
+        guard let wv = webView else { return }
+        // ★ Capacitor 가 scrollView.bounces = false 로 둔다 — 되돌리지 않으면 UIRefreshControl 이 당겨지지 않는다(Pitfall 7).
+        wv.scrollView.bounces = true
+        let rc = UIRefreshControl()
+        rc.addTarget(self, action: #selector(handleRefresh(_:)), for: .valueChanged)
+        wv.scrollView.refreshControl = rc
+        pullRefreshControl = rc
+    }
+
+    @objc private func handleRefresh(_ sender: UIRefreshControl) {
+        // 페이지가 등록한 refresh 훅(21-04 · 21-07), 없으면 문서 재로드. 스크립트는 상수 — 외부 입력 없음.
+        webView?.evaluateJavaScript("window.__ghTrade&&window.__ghTrade.refresh?window.__ghTrade.refresh():location.reload()") { [weak self] _, error in
+            // 훅이 Promise 를 돌려주면 WebKit 이 직렬화 실패로 error 를 줄 수 있다 — 호출은 이미 일어났으므로 기록만 한다.
+            if let error {
+                self?.log.debug("refresh evaluate: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        // D-17: 훅 완료와 무관하게 1초 고정으로 스피너를 닫는다.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            sender.endRefreshing()
+        }
+    }
+
+    /// 오버레이(키패드 시트 등) 열림 · 오프라인 페이지 동안 당김 새로고침을 뗀다 — 편집 중 당김으로 입력 유실 방지(Pitfall 7).
+    private func updatePullToRefreshAvailability() {
+        guard let wv = webView, let rc = pullRefreshControl else { return }
+        let enabled = !(overlayOpen || isOfflinePage)
+        if enabled {
+            if wv.scrollView.refreshControl !== rc { wv.scrollView.refreshControl = rc }
+        } else if wv.scrollView.refreshControl != nil {
+            // 새로고침 도중 떼면 스크롤 인셋이 남는다 → 먼저 닫는다.
+            if rc.isRefreshing { rc.endRefreshing() }
+            wv.scrollView.refreshControl = nil
+        }
     }
 
     // MARK: - URL 관찰 (D-14 · D-12 ②)
@@ -193,6 +290,8 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     }
 
     func updateTabBarVisibility(animated: Bool) {
+        // 오버레이·오프라인 상태가 바뀌는 모든 경로가 여기를 지난다 → 새로고침 가능 여부도 같은 시점에 맞춘다.
+        updatePullToRefreshAvailability()
         let fade = tabBar.fadeView
         hideWork?.cancel()
         hideWork = nil
