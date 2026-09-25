@@ -43,7 +43,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { ChevronDown, Lock } from 'lucide-react';
 import { RELAY_STATE_LABELS, serverMsgBadge } from '@gh-radar/shared';
 import type { RelayAccount, RelayExchange } from '@gh-radar/shared';
 
@@ -247,6 +247,9 @@ export function StockOrderbookSection({
   // 전환 유예가 끝났는데도 호가가 없으면 그 거래소에 호가가 없는 것이다(D3).
   const isNxtEmpty =
     !isGated && !quote && exchange === 'NXT' && !switching && !isBroken && !isLoading;
+  // 연결 문구 · 구간 배지는 한 번 계산해 상태줄과 고지 줄이 같은 값을 쓴다(D-24 — 폭별로 자리만 다르다).
+  const connLabel = statusLabel === '' ? RELAY_STATE_LABELS.connecting : statusLabel;
+  const windowBadge = queuedWindowBadgeOf(queuedWindow);
 
   return (
     <section
@@ -262,7 +265,7 @@ export function StockOrderbookSection({
         <>
           <OrderbookStatusBar
             status={status}
-            statusLabel={statusLabel}
+            label={connLabel}
             accounts={accounts}
             accountNo={selectedAccountNo}
             onAccountChange={setSelectedAccountNo}
@@ -270,11 +273,20 @@ export function StockOrderbookSection({
             exchangeChoices={exchangeChoices}
             onExchangeChange={handleExchangeChange}
             card={card}
-            windowBadge={queuedWindowBadgeOf(queuedWindow)}
+            windowBadge={windowBadge}
             onReconnect={isBroken ? reconnect : undefined}
           />
 
-          <TabNotices card={card} exchange={exchange} switching={switching} nxtEmpty={isNxtEmpty} />
+          <TabNotices
+            card={card}
+            exchange={exchange}
+            switching={switching}
+            nxtEmpty={isNxtEmpty}
+            status={status}
+            label={connLabel}
+            windowBadge={windowBadge}
+            onReconnect={isBroken ? reconnect : undefined}
+          />
 
           <div className="min-w-0 overflow-clip rounded-[var(--r-lg)] border border-transparent bg-[var(--card)]">
             <QuoteGrid10
@@ -332,10 +344,17 @@ export function StockOrderbookSection({
 /**
  * 호가 탭 상태줄 — D-24 안 C(정본 목업 `status-strip-variants.html`).
  *
+ * 폭 분기는 본문 700(§2.2b 의 기존 경계 · `@min-[700px]/lc:`) 하나다. 폰 모양이 기본이고 ≥700 을
+ * 컨테이너 쿼리로 덧씌운다. `display: contents` 래퍼를 쓰지 않고 폭별 조각마다 자기 클래스를 단다
+ * (lessons — 래퍼에 건 `min-w-0` 은 자식에 닿지 않는다).
+ *
  * 본문 ≥700: 「● DMA {상태}」 · 계좌 select(「{번호} · {이름}」) · 거래소 KRX|NXT · 래치 LED 점 3개 ·
  *   구간 배지 · (복구 불가면 「다시 연결」) · 반영 시각. 보이는 「계좌」「반영」 글자는 없다 — 계좌는
  *   select 의 이름(aria-label)과 title, 반영은 sr-only 「반영 」 + title 「서버 반영 시각」.
- * 서버 거부 문장은 이 줄이 아니라 아래 고지 줄(`TabNotices`)의 `role="alert"` 다.
+ * 본문 <700: 연결 = 점 + 반영 시각(글자 「DMA {상태} · 반영 」은 sr-only · title) · 계좌 = 닫힌 표기
+ *   이름만(같은 select 하나를 투명 오버레이로 덮어 OS 목록을 연다) · 거래소 · LED 점 3개.
+ *   구간 배지와 연결 이상 문구(+ 「다시 연결」)는 아래 고지 줄(`TabNotices`)로 내려간다.
+ * 서버 거부 문장은 모든 폭에서 이 줄이 아니라 고지 줄의 `role="alert"` 다.
  *
  * ★ 거래소 세그먼트가 **여기** 있다(카드는 헤더) — 다른 점 ①. 이 탭에서 거래소를 바꾸면 다른
  *   전략 키(ISIN:계좌:거래소)를 보는 것이지 등록된 전략의 거래소를 바꾸는 것이 아니므로 잠그지 않는다.
@@ -347,7 +366,7 @@ export function StockOrderbookSection({
  */
 function OrderbookStatusBar({
   status,
-  statusLabel,
+  label,
   accounts,
   accountNo,
   onAccountChange,
@@ -359,7 +378,8 @@ function OrderbookStatusBar({
   onReconnect,
 }: {
   status: RelayStatus;
-  statusLabel: string;
+  /** 연결 문구(`RELAY_STATE_LABELS` 정본) — 섹션이 한 번 계산해 고지 줄과 함께 쓴다. */
+  label: string;
   accounts: RelayAccount[];
   accountNo: string;
   onAccountChange: (accountNo: string) => void;
@@ -368,52 +388,78 @@ function OrderbookStatusBar({
   exchangeChoices: readonly RelayExchange[];
   onExchangeChange: (exchange: RelayExchange) => void;
   card: StrategyCardState;
-  windowBadge: ReturnType<typeof queuedWindowBadgeOf>;
+  windowBadge: WindowBadgeValue;
   onReconnect?: () => void;
 }) {
-  const label = statusLabel === '' ? RELAY_STATE_LABELS.connecting : statusLabel;
   const { ledServer, handleArm, appliedAt } = card;
   const selected = accounts.find((a) => a.accountNo === accountNo);
+  const time = appliedAt ?? '—';
 
   return (
     <div
       data-slot="orderbook-status-bar"
       data-status={status}
-      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-2.5 text-[length:var(--t-caption)] text-[var(--muted-fg)] @min-[700px]/lc:gap-x-3"
     >
-      <span data-slot="orderbook-conn" className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        <span
-          aria-hidden="true"
-          data-tone={status === 'ready' ? 'ok' : 'off'}
-          className={cn(
-            'block size-[7px] shrink-0 rounded-full',
-            status === 'ready' ? 'bg-[var(--led-armed)]' : 'bg-[var(--flat)]',
-            CONNECTING_STATES.has(status) && 'animate-pulse motion-reduce:animate-none',
-          )}
-        />
+      {/* <700 — 점 + 반영 시각. 연결 문구는 sr-only · title 이 말하고, 이상이면 고지 줄에 글자로 선다. */}
+      <span
+        data-slot="orderbook-conn-compact"
+        title={`DMA ${label} · 반영 ${time}`}
+        className="inline-flex items-center gap-[5px] whitespace-nowrap @min-[700px]/lc:hidden"
+      >
+        <ConnDot status={status} />
+        <span className="sr-only">DMA {label} · 반영 </span>
+        <span className="mono text-[var(--fg-2)]">{time}</span>
+      </span>
+      {/* ≥700 — 「● DMA {상태}」. */}
+      <span
+        data-slot="orderbook-conn"
+        className="hidden items-center gap-1.5 whitespace-nowrap @min-[700px]/lc:inline-flex"
+      >
+        <ConnDot status={status} />
         DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
       </span>
 
       {/*
         계좌 — 옵션 폼(전략 키) · 수동주문 · 미체결/잔고가 **이 값 하나**를 본다(파일 상단 ⑤).
+        ★ select 요소는 **하나**다 — 폭별로 모양만 바꾼다. 둘을 두면 계좌 전환 경로가 둘이 된다.
+          <700: 이름표 칩(목업 `.acct-s`) 위를 투명 select 가 덮어 OS 목록을 연다 — 목록·값·title 은
+          「{번호} · {이름}」 전체다. 글자 16px 은 iOS 포커스 확대 방지다(투명이라 보이지 않는다).
+          ≥700: 칩 모양을 벗고 select 가 흐름 안에서 제 모양으로 선다.
         ★ `appearance-none` 을 쓰지 않는다 — 네이티브 캐럿과 OS 선택 UI 를 잃는다.
         ★ 계좌번호는 마스킹하지 않는다(D2 · S-5).
       */}
-      <span data-slot="orderbook-account" className="inline-flex min-w-0 items-center gap-1.5">
+      <span
+        data-slot="orderbook-account"
+        className="relative inline-flex h-6 min-w-0 shrink-0 items-center gap-[3px] rounded-[var(--r-sm)] bg-[var(--muted)] pr-[5px] pl-[7px] text-[11px] font-semibold whitespace-nowrap text-[var(--fg)] has-[select:focus-visible]:ring-2 has-[select:focus-visible]:ring-[var(--ring)] @min-[700px]/lc:h-auto @min-[700px]/lc:shrink @min-[700px]/lc:has-[select:focus-visible]:ring-0 @min-[700px]/lc:rounded-none @min-[700px]/lc:bg-transparent @min-[700px]/lc:px-0"
+      >
+        <span
+          data-slot="orderbook-account-name"
+          aria-hidden="true"
+          className="inline-flex items-center gap-[3px] @min-[700px]/lc:hidden"
+        >
+          {accountChipLabel(accounts, selected)}
+          <ChevronDown
+            aria-hidden="true"
+            strokeWidth={1.4}
+            absoluteStrokeWidth
+            className="size-[10px] shrink-0 text-[var(--muted-fg)]"
+          />
+        </span>
         <select
           aria-label="계좌"
-          title={selected === undefined ? undefined : `${selected.accountNo} · ${selected.name}`}
+          title={selected === undefined ? undefined : accountLabel(selected)}
           value={accountNo}
           onChange={(e) => onAccountChange(e.target.value)}
           disabled={accounts.length === 0}
-          className="mono h-6 max-w-full min-w-0 rounded-[var(--r-sm)] border border-transparent bg-[var(--muted)] px-1.5 text-[11px] font-semibold text-[var(--fg)] disabled:opacity-50"
+          className="mono absolute inset-0 size-full min-w-0 cursor-pointer rounded-[var(--r-sm)] border border-transparent bg-[var(--muted)] -indent-[9999px] px-1.5 text-[16px] font-semibold text-[var(--fg)] opacity-0 [&>option]:indent-0 @min-[700px]/lc:static @min-[700px]/lc:indent-0 @min-[700px]/lc:h-6 @min-[700px]/lc:w-auto @min-[700px]/lc:max-w-full @min-[700px]/lc:text-[11px] @min-[700px]/lc:opacity-100 @min-[700px]/lc:disabled:opacity-50"
         >
           {accounts.length === 0 ? (
             <option value="">계좌 확인 중…</option>
           ) : (
             accounts.map((a) => (
               <option key={a.accountNo} value={a.accountNo}>
-                {a.accountNo} · {a.name}
+                {accountLabel(a)}
               </option>
             ))
           )}
@@ -469,26 +515,16 @@ function OrderbookStatusBar({
         ))}
       </span>
 
-      {/* 구간 배지 — 모름이면 **없음**(「정규」로 위장하지 않는다 · `queuedWindowBadgeOf`). */}
+      {/* 구간 배지(≥700) — 모름이면 **없음**(「정규」로 위장하지 않는다). <700 은 고지 줄에 선다. */}
       {windowBadge !== null && (
-        <span
-          data-slot="orderbook-window-badge"
-          data-tone={windowBadge.tone}
-          className={cn(
-            'inline-flex h-[18px] items-center rounded-full border px-[7px] text-[10px] font-bold',
-            windowBadge.tone === 'regular' &&
-              'border-transparent bg-[var(--muted)] text-[var(--fg)]',
-            windowBadge.tone === 'queued' &&
-              'border-[var(--new-bd)] bg-[var(--new-bg)] text-[var(--fg)]',
-            windowBadge.tone === 'offhours' &&
-              'border-transparent bg-[var(--accent)] text-[var(--accent-fg)]',
-          )}
-        >
-          {windowBadge.text}
-        </span>
+        <WindowBadge badge={windowBadge} className="hidden @min-[700px]/lc:inline-flex" />
       )}
 
-      <span data-slot="orderbook-strip-right" className="ml-auto inline-flex items-center gap-3">
+      {/* ≥700 오른쪽 그룹 — <700 에서는 시각이 연결 조각에, 「다시 연결」이 고지 줄에 있다. */}
+      <span
+        data-slot="orderbook-strip-right"
+        className="ml-auto hidden items-center gap-3 @min-[700px]/lc:inline-flex"
+      >
         {onReconnect !== undefined && (
           <Button variant="outline" size="sm" className="h-6 px-2" onClick={onReconnect}>
             다시 연결
@@ -501,39 +537,146 @@ function OrderbookStatusBar({
           className="mono whitespace-nowrap"
         >
           <span className="sr-only">반영 </span>
-          {appliedAt ?? '—'}
+          {time}
         </span>
       </span>
     </div>
   );
 }
 
+type WindowBadgeValue = ReturnType<typeof queuedWindowBadgeOf>;
+
+/** 연결 점 — 색·펄스 규칙은 여기 한 곳이다(상태줄 두 조각이 함께 쓴다). */
+function ConnDot({ status }: { status: RelayStatus }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-tone={status === 'ready' ? 'ok' : 'off'}
+      className={cn(
+        'block size-[7px] shrink-0 rounded-full',
+        status === 'ready' ? 'bg-[var(--led-armed)]' : 'bg-[var(--flat)]',
+        CONNECTING_STATES.has(status) && 'animate-pulse motion-reduce:animate-none',
+      )}
+    />
+  );
+}
+
+/** 구간 배지 — 상태줄(≥700)과 고지 줄(<700) 두 자리가 같은 마크업을 쓴다. */
+function WindowBadge({
+  badge,
+  className,
+}: {
+  badge: NonNullable<WindowBadgeValue>;
+  className?: string;
+}) {
+  return (
+    <span
+      data-slot="orderbook-window-badge"
+      data-tone={badge.tone}
+      className={cn(
+        'inline-flex h-[18px] items-center rounded-full border px-[7px] text-[10px] font-bold whitespace-nowrap',
+        badge.tone === 'regular' && 'border-transparent bg-[var(--muted)] text-[var(--fg)]',
+        badge.tone === 'queued' && 'border-[var(--new-bd)] bg-[var(--new-bg)] text-[var(--fg)]',
+        badge.tone === 'offhours' && 'border-transparent bg-[var(--accent)] text-[var(--accent-fg)]',
+        className,
+      )}
+    >
+      {badge.text}
+    </span>
+  );
+}
+
+/** 계좌 한 건의 전체 표기 — 목록 옵션 · select title 이 같은 글자다(이름이 비면 번호만). */
+function accountLabel(a: RelayAccount): string {
+  return a.name === '' ? a.accountNo : `${a.accountNo} · ${a.name}`;
+}
+
+/**
+ * 폰 계좌 칩의 닫힌 표기(D-24 「이름만」).
+ *
+ * ★ 이름이 계좌를 **유일하게** 가리킬 때만 이름만 쓴다. 이름이 비었거나 목록에 같은 이름이 둘
+ *   이상이면 옵션과 같은 「{번호} · {이름}」을 보인다 — 이름만으로 계좌를 특정할 수 없는데 번호를
+ *   숨기면 엉뚱한 계좌로 주문한다(파일 상단 ⑤ · CR-01 · T-20-18).
+ */
+function accountChipLabel(accounts: RelayAccount[], selected: RelayAccount | undefined): string {
+  if (selected === undefined) return '계좌 확인 중…';
+  const ambiguous =
+    selected.name === '' || accounts.filter((a) => a.name === selected.name).length > 1;
+  return ambiguous ? accountLabel(selected) : selected.name;
+}
+
 /**
  * 상태줄 아래 고지 줄 — 토스트 없이 인라인으로만 말한다(카드 `CardNotices` 와 같은 원문).
- * 서버 거부(`role="alert"`) · 거래소 전환 중 · NXT 빈 호가 · 다른 단말 변경 배너 · 3초 미반영.
+ *
+ * 순서(목업 안 C): 연결 이상(<700) → 서버 거부 → 구간 배지(<700) → 거래소 전환 중 → NXT 빈 호가 →
+ * 다른 단말 변경 배너 → 3초 미반영.
  *
  * ★ 서버 거부 문장은 **여기** 선다(D-24) — 상태줄은 「상태」만, 고지 줄은 「문장」만 말한다.
  *   마크업은 카드 `CardNotices` 의 거부 줄과 같다(출처 배지 `serverMsgBadge` 텍스트 접두 ·
  *   원문 그대로). 경보는 화면에 한 번만 선다.
+ * ★ 연결 이상 줄 · 구간 줄은 <700 전용이다 — ≥700 에서는 상태줄이 같은 것을 말한다. 「다시 연결」은
+ *   폭마다 한 자리에서만 보이고 두 자리 모두 같은 `onReconnect` 다.
+ * ★ ≥700 에서도 보이는 항목이 하나도 없으면 컨테이너째 ≥700 에서 숨긴다 — 넓은 화면에 빈 고지
+ *   줄 간격(섹션 gap)이 생기지 않는다.
  */
 function TabNotices({
   card,
   exchange,
   switching,
   nxtEmpty,
+  status,
+  label,
+  windowBadge,
+  onReconnect,
 }: {
   card: StrategyCardState;
   exchange: RelayExchange;
   switching: boolean;
   nxtEmpty: boolean;
+  status: RelayStatus;
+  /** 연결 문구 — 상태줄과 같은 값(섹션이 한 번 계산한다). */
+  label: string;
+  windowBadge: WindowBadgeValue;
+  onReconnect?: () => void;
 }) {
   const { banner, unacked, lastError } = card;
-  if (!switching && !nxtEmpty && banner === null && !unacked && lastError === null) return null;
+  const connIssue = status !== 'ready';
+  const phoneOnly = connIssue || windowBadge !== null;
+  const wide = lastError !== null || switching || nxtEmpty || banner !== null || unacked;
+  if (!phoneOnly && !wide) return null;
   return (
     <div
       data-slot="orderbook-notices"
-      className="flex min-w-0 flex-col gap-1 text-[length:var(--t-caption)]"
+      className={cn(
+        'flex min-w-0 flex-col gap-1 text-[length:var(--t-caption)]',
+        !wide && '@min-[700px]/lc:hidden',
+      )}
     >
+      {connIssue && (
+        <div
+          role="status"
+          data-slot="orderbook-conn-notice"
+          className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[var(--muted-fg)] @min-[700px]/lc:hidden"
+        >
+          <span>
+            DMA <b className="font-semibold text-[var(--fg)]">{label}</b>
+          </span>
+          {onReconnect !== undefined && (
+            /*
+              고지 줄은 카드 면이 아니라 페이지 면(--surface) 위다 — 라이트에서 outline 의 --muted 채움이
+              페이지 면과 같은 색이라 버튼이 글자처럼 보인다. 목업 `.rbtn` 처럼 카드 면을 깐다.
+            */
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 bg-[var(--card)] px-2"
+              onClick={onReconnect}
+            >
+              다시 연결
+            </Button>
+          )}
+        </div>
+      )}
       {lastError !== null && (
         <p
           role="alert"
@@ -545,6 +688,15 @@ function TabNotices({
             {serverMsgBadge(lastError.src)}
           </span>{' '}
           {lastError.text}
+        </p>
+      )}
+      {windowBadge !== null && (
+        <p
+          role="status"
+          data-slot="orderbook-window-notice"
+          className="m-0 flex @min-[700px]/lc:hidden"
+        >
+          <WindowBadge badge={windowBadge} />
         </p>
       )}
       {switching && (

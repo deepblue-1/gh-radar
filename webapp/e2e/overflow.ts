@@ -8,11 +8,15 @@ import type { Locator, Page } from '@playwright/test';
  * 둘로 갈리면 한쪽만 고쳐진다 — 그래서 **옮겼다**(복사하지 않았다). 본문은 옮기기 전과
  * 한 글자도 다르지 않다(`slice(0, 24)` · `Math.round` · `over > 1` · `sr-only`/스크롤 영역 제외).
  *
- * 두 판정은 **서로 다른 실패를 본다** — 대체하지 말고 나란히 쓴다.
+ * 세 판정은 **서로 다른 실패를 본다** — 대체하지 말고 나란히 쓴다.
  *   · `leavesOverflowing` — 잎 요소의 **좌표**가 컨테이너 오른쪽 밖으로 밀렸는가.
  *     `truncate`(`overflow:hidden`) 가 걸린 요소는 좌표가 밀리지 않아 이쪽이 못 본다.
  *   · `scrollOverflowing` — 요소 **자신의 내용이 자기 상자보다 넓은가**(`scrollWidth - clientWidth > 1`).
  *     부모를 밀어내며 넘치는 요소는 자기 `scrollWidth` 가 멀쩡해 이쪽이 못 본다.
+ *   · `selectsClipped` (Phase 20 · 20-08) — 보이는 `<select>` 가 **자기 본래 폭보다 좁아졌는가**.
+ *     `min-w-0` · `max-w-full` 인 select 는 flex 가 줄이면 선택 글자를 조용히 잘라 그린다 — 그런데
+ *     네이티브 컨트롤이라 `scrollWidth` 가 늘지 않고(위 두 판정 모두 조용) 좌표도 안 밀린다.
+ *     그래서 제약 없는 곳에 복제해 잰 본래 폭과 실제 폭을 비교한다(목업 `naturalSelectWidth` 이식).
  */
 
 /**
@@ -88,5 +92,48 @@ export async function scrollOverflowing(
         text: (el.textContent ?? '').slice(0, 24),
         over: el.scrollWidth - el.clientWidth,
       }));
+  }, rootSelector);
+}
+
+/**
+ * 잘림 진단 ③ — **select 본래 폭 판정**이다 (Phase 20 · 20-08 · 목업 `naturalSelectWidth` 이식).
+ *
+ * 루트 안의 보이는 select(폭 > 0 · 계산 opacity ≠ 0) 마다 같은 부모 안 화면 밖 호스트
+ * (`position:absolute; left:-9999px; visibility:hidden; width:max-content`)에 `max-width:none;
+ * min-width:auto` 로 복제해 본래 폭을 재고, 본래 폭 − 실제 폭 > 0.5 인 것을 돌려준다.
+ *   · 투명 오버레이 select(opacity 0 — 폰 계좌 칩)는 글자를 그리지 않으므로 제외한다. 그 자리의
+ *     보이는 이름표는 위 두 판정이 본다.
+ *   · 같은 부모 안에 복제하는 이유 — 컨테이너 쿼리(`@min-[Npx]/lc:`)·상속 글꼴이 원본과 같아야
+ *     같은 폭이 나온다. 호스트는 절대배치라 원본 배치를 흔들지 않고, 재자마자 지운다.
+ */
+export async function selectsClipped(
+  page: Page,
+  rootSelector: string,
+): Promise<{ text: string; deficit: number }[]> {
+  return page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    if (root === null) return [{ text: `<ROOT_MISSING> ${sel}`, deficit: -1 }];
+    return Array.from(root.querySelectorAll('select'))
+      .filter(
+        (s) => s.getBoundingClientRect().width > 0 && parseFloat(getComputedStyle(s).opacity) !== 0,
+      )
+      .map((s) => {
+        const host = document.createElement('div');
+        host.style.cssText =
+          'position:absolute;left:-9999px;top:0;width:max-content;visibility:hidden';
+        (s.parentElement ?? root).appendChild(host);
+        const clone = s.cloneNode(true) as HTMLSelectElement;
+        clone.style.maxWidth = 'none';
+        clone.style.minWidth = 'auto';
+        clone.value = s.value;
+        host.appendChild(clone);
+        const natural = clone.getBoundingClientRect().width;
+        host.remove();
+        return {
+          text: (s.selectedOptions[0]?.textContent ?? '').slice(0, 24),
+          deficit: Math.round((natural - s.getBoundingClientRect().width) * 10) / 10,
+        };
+      })
+      .filter((item) => item.deficit > 0.5);
   }, rootSelector);
 }

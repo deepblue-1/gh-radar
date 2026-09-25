@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 import { mockStockApi } from '../fixtures/mock-api';
 import { mockNewsApi, buildNewsList } from '../fixtures/news';
@@ -13,7 +14,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
-import { leavesOverflowing, scrollOverflowing } from '../overflow';
+import { leavesOverflowing, scrollOverflowing, selectsClipped } from '../overflow';
 
 /**
  * Phase 15 Plan 14 Task 2 — 호가창 wss 왕복 E2E (RELAY-01 · SC-7 · D-27/D-40).
@@ -229,6 +230,10 @@ async function expectStripOk(page: Page, label: string, maxLines: number): Promi
     await leavesOverflowing(statusBar(page), box!.x + box!.width),
     `${label} — 상태줄 밖으로 밀린 잎`,
   ).toEqual([]);
+  expect(
+    await selectsClipped(page, STRIP_SELECTOR),
+    `${label} — 본래 폭보다 좁아진 select(선택 글자 잘림)`,
+  ).toEqual([]);
   if ((await notices(page).count()) > 0) {
     expect(await scrollOverflowing(page, NOTICES_SELECTOR), `${label} — 고지 줄 스크롤 넘침`).toEqual(
       [],
@@ -245,6 +250,9 @@ const WORST_ACCOUNTS = [
 const WORST_ACCOUNT_LABEL = `${E2E_ACCOUNT_NO} · 개인연금저축`;
 /** 뷰포트 1440 그대로 재는 자리(목업 표의 「뷰포트 1440」 열). */
 const WIDE_VIEWPORT = { width: 1440, height: 1000 } as const;
+/** 재는 폭 — 본문 344(폰 360) · 374(폰 390) · 700 · 830 · 992(§2.2b 경계) + 뷰포트 1440. */
+type StripTarget = number | 'viewport-1440';
+const STRIP_TARGETS: readonly StripTarget[] = [344, 374, 700, 830, 992, 'viewport-1440'];
 
 /**
  * `POST /api/orders` 감시자. **호출되면 배열에 남는다** — D-02 이후 이 라우트로는
@@ -633,9 +641,10 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
   /*
     P20-6 — 상단 상태줄 1줄 (D-24 안 C · 20-08). 목업 `status-strip-variants.html` 의 최악값 세 시나리오를
     실브라우저로 다시 잰다. 거부와 미반영은 동시에 서지 않는다(카드 훅이 거부를 받으면 미반영을 거둔다)
-    — 그래서 ①·② 로 나눈다.
-    ★ 로그인 응답을 계좌 2건으로 바꾸므로 끝나면 되돌린다(`reset()` 은 로그인 응답을 되돌리지 않는다 —
-      뒤 케이스 1 이 계좌 1건을 단언한다).
+    — 그래서 ①·② 로 나눈다. ③ 은 가장 긴 연결 문구(「다시 연결하지 못했어요」) + 「다시 연결」이다.
+    계약(D-24): ①·② 는 본문 344 · 374 · 700 · 830 · 992 · 뷰포트 1440 전부 1줄 · ③ 은 700 만 2줄 이하,
+    나머지 1줄 · 모든 폭·시나리오 잘림 0(스크롤 · 잎 좌표 · select 본래 폭 · 고지 줄 스크롤).
+    ★ 로그인 응답을 계좌 2건으로 바꾸므로 끝나면 되돌린다(`reset()` 은 로그인 응답을 되돌리지 않는다).
     ★ 이 describe 도 게이트웨이를 내리는 9(마지막)보다 **먼저** 돈다.
   */
   test.describe('Phase 20 — 상단 상태줄 1줄 (D-24 안 C)', () => {
@@ -643,20 +652,89 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
       relay.gateway.respondLogin();
     });
 
-    test('P20-6 ① 거부 · 예약구간 — 상태줄 1줄 · 거부는 고지 줄 · 잘림 0 (D-24)', async ({ page }) => {
+    /** 최악 계좌 2건 + 켜진 전략 시드 → 열고 ready → 구간 창을 연다. 끝나면 호출부가 창을 닫는다. */
+    async function openWorst(
+      page: Page,
+      windowInput: Parameters<LocalRelay['gateway']['sendQueuedWindowState']>[1],
+      badgeText: string,
+    ) {
       relay.gateway.respondLoginWithAccounts(WORST_ACCOUNTS);
       relay.seedLimitChasers([{ buyEnabled: true }]);
       await page.setViewportSize(WIDE_VIEWPORT);
       await page.goto(ORDERBOOK_URL);
       await waitForReady(page);
-
       const sock = await relay.gateway.waitForConnection(15_000);
+      relay.gateway.sendQueuedWindowState(sock, windowInput);
+      await expect(statusBar(page).locator('[data-slot="orderbook-window-badge"]')).toHaveText(
+        badgeText,
+        { timeout: 15_000 },
+      );
+      return sock;
+    }
+
+    /** 폭 하나로 옮긴다 — 본문 폭(`sizeSectionTo`) 또는 뷰포트 1440 그대로. 실제 본문 폭과 라벨을 돌려준다. */
+    async function moveTo(page: Page, target: StripTarget, scenario: string) {
+      if (target === 'viewport-1440') await page.setViewportSize(WIDE_VIEWPORT);
+      else await sizeSectionTo(page, target);
+      const width = await sectionOf(page).evaluate((el) => el.clientWidth);
+      const suffix = target === 'viewport-1440' ? '(뷰포트 1440)' : '';
+      return { width, phone: width < 700, label: `${scenario} · 본문 ${width}${suffix}` };
+    }
+
+    /**
+     * 폭별 자리 — <700: 연결 점+시각 · 계좌 이름표 · 구간은 고지 줄 / ≥700: 「DMA 상태」 · select · 구간은 상태줄.
+     * 계좌는 어느 폭이든 select 하나이고 값 · 선택 옵션 · title 이 「번호 · 이름」 전체다(T-20-18).
+     */
+    async function expectPlacement(page: Page, label: string, phone: boolean, badgeText: string) {
+      const bar = statusBar(page);
+      const account = bar.getByRole('combobox', { name: '계좌' });
+      await expect(account, label).toHaveCount(1);
+      await expect(account, label).toHaveValue(E2E_ACCOUNT_NO);
+      await expect(account.locator('option:checked'), label).toHaveText(WORST_ACCOUNT_LABEL);
+      await expect(account, label).toHaveAttribute('title', WORST_ACCOUNT_LABEL);
+      await expect(bar.locator('[data-slot="latch-led"][data-variant="dot"]:visible'), label).toHaveCount(3);
+      const compact = bar.locator('[data-slot="orderbook-conn-compact"]');
+      const full = bar.locator('[data-slot="orderbook-conn"]');
+      const nameTag = bar.locator('[data-slot="orderbook-account-name"]');
+      const stripBadge = bar.locator('[data-slot="orderbook-window-badge"]');
+      const winNotice = notices(page).locator('[data-slot="orderbook-window-notice"]');
+      if (phone) {
+        await expect(compact, label).toBeVisible();
+        await expect(full, label).toBeHidden();
+        await expect(nameTag, label).toBeVisible();
+        await expect(nameTag, label).toHaveText('개인연금저축');
+        await expect(stripBadge, label).toBeHidden();
+        await expect(winNotice, label).toBeVisible();
+        await expect(winNotice, label).toHaveText(badgeText);
+      } else {
+        await expect(compact, label).toBeHidden();
+        await expect(full, label).toBeVisible();
+        await expect(nameTag, label).toBeHidden();
+        await expect(account, label).toBeVisible();
+        await expect(stripBadge, label).toBeVisible();
+        await expect(stripBadge, label).toHaveText(badgeText);
+        await expect(winNotice, label).toBeHidden();
+      }
+    }
+
+    /** a11y.spec 의 blocking 필터와 같은 기준 — critical/serious 중 그 파일이 유예한 규칙만 뺀다. */
+    async function expectStripAxeClean(page: Page, label: string) {
+      const results = await new AxeBuilder({ page })
+        .include(STRIP_SELECTOR)
+        .include(NOTICES_SELECTOR)
+        .withTags(['wcag2a', 'wcag2aa'])
+        .analyze();
+      const blocking = results.violations.filter(
+        (v) =>
+          (v.impact === 'critical' || v.impact === 'serious') &&
+          !['color-contrast', 'aria-required-children'].includes(v.id),
+      );
+      expect(blocking, `${label} — axe critical/serious\n${JSON.stringify(blocking, null, 2)}`).toEqual([]);
+    }
+
+    test('P20-6 ① 거부 · 예약구간 — 전 폭 상태줄 1줄 · 거부는 고지 줄 · 잘림 0 (D-24)', async ({ page }) => {
+      const sock = await openWorst(page, { open: true, maxPieces: 10 }, '예약구간 · 조각 최대 10');
       try {
-        relay.gateway.sendQueuedWindowState(sock, { open: true, maxPieces: 10 });
-        await expect(statusBar(page).locator('[data-slot="orderbook-window-badge"]')).toHaveText(
-          '예약구간 · 조각 최대 10',
-          { timeout: 15_000 },
-        );
         await relay.pushServerMessage({
           level: 'ERROR',
           source: 'LimitChaser',
@@ -669,31 +747,103 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
           timeout: 15_000,
         });
 
-        const account = statusBar(page).getByRole('combobox', { name: '계좌' });
-        for (const target of [700, 830, 992, 'viewport-1440'] as const) {
-          if (target === 'viewport-1440') await page.setViewportSize(WIDE_VIEWPORT);
-          else await sizeSectionTo(page, target);
-          const width = await sectionOf(page).evaluate((el) => el.clientWidth);
-          const label = `① 거부 · 예약구간 · 본문 ${width}${target === 'viewport-1440' ? '(뷰포트 1440)' : ''}`;
-
+        for (const target of STRIP_TARGETS) {
+          const { label, phone, width } = await moveTo(page, target, '① 거부 · 예약구간');
           await expectStripOk(page, label, 1);
+          await expectPlacement(page, label, phone, '예약구간 · 조각 최대 10');
           // 거부는 고지 줄 role=alert 하나 — 상태줄 안 경보 0.
           await expect(statusBar(page).getByRole('alert'), label).toHaveCount(0);
           await expect(notices(page).getByRole('alert'), label).toHaveCount(1);
           await expect(notices(page).getByRole('alert'), label).toBeVisible();
-          await expect(notices(page).getByRole('alert'), label).toContainText('주문 가능 금액이 부족합니다');
-          // LED 는 점 3개.
-          await expect(
-            statusBar(page).locator('[data-slot="latch-led"][data-variant="dot"]:visible'),
-            label,
-          ).toHaveCount(3);
-          // 계좌 — 값 · 선택 옵션 글자 · title 이 전부 「번호 · 이름」 전체다.
-          await expect(account, label).toHaveValue(E2E_ACCOUNT_NO);
-          await expect(account.locator('option:checked'), label).toHaveText(WORST_ACCOUNT_LABEL);
-          await expect(account, label).toHaveAttribute('title', WORST_ACCOUNT_LABEL);
+          await expect(notices(page).getByRole('alert'), label).toContainText(
+            '[상따] 주문 가능 금액이 부족합니다',
+          );
+          if (width === 344 || width === 992) await expectStripAxeClean(page, label);
         }
       } finally {
         relay.gateway.sendQueuedWindowState(sock, { open: false, maxPieces: 10 });
+      }
+    });
+
+    test('P20-6 ② 미반영 · 장전 — 전 폭 상태줄 1줄 · 미반영은 고지 줄 · 잘림 0 (D-24)', async ({ page }) => {
+      const sock = await openWorst(page, { preopenOpen: true }, '장전 · 예약매수/매도');
+      try {
+        /*
+          미반영 만들기 — 켜진 매수주문 스위치를 끈다(끄는 방향이라 무장 가드와 무관하게 전송된다).
+          에코를 보내지 않으면 카드 훅이 3초 뒤 「미반영」을 세운다.
+        */
+        const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+        await page.getByRole('switch', { name: '매수주문 켜기', exact: true }).click();
+        await expect
+          .poll(() => relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length, {
+            timeout: 15_000,
+          })
+          .toBe(before + 1);
+        await expect(notices(page).locator('[data-slot="orderbook-unacked"]')).toBeVisible({
+          timeout: 10_000,
+        });
+
+        for (const target of STRIP_TARGETS) {
+          const { label, phone } = await moveTo(page, target, '② 미반영 · 장전');
+          await expectStripOk(page, label, 1);
+          await expectPlacement(page, label, phone, '장전 · 예약매수/매도');
+          await expect(notices(page).locator('[data-slot="orderbook-unacked"]'), label).toBeVisible();
+        }
+      } finally {
+        relay.gateway.sendQueuedWindowState(sock, {});
+      }
+    });
+
+    test('P20-6 ③ 끊김 · 시간외종가 — 700 만 2줄 이하 · 나머지 1줄 · 「다시 연결」은 폭마다 한 자리 (D-24)', async ({
+      page,
+    }) => {
+      /*
+        통과 프록시 — 브라우저 자체 재시도 예산(10회 백오프) 소진을 기다리지 않고 같은 화면 상태
+        (`manual_required`)를 결정적으로 만드는 유일한 경로다. 양방향에 핸들러를 달아 전달을 직접
+        하고(한쪽에 달면 그 방향 자동 전달이 꺼진다), 주입 뒤에는 relay 의 `state` 프레임만 버린다
+        — relay 가 ready 를 다시 보내 상태를 되돌리지 못하게. 리듀서는 계좌 목록을 유지한다.
+      */
+      let pageSide: WebSocketRoute | null = null;
+      let holdState = false;
+      await page.routeWebSocket(/:8090\/ws/, (ws) => {
+        const server = ws.connectToServer();
+        pageSide = ws;
+        ws.onMessage((m) => server.send(m));
+        server.onMessage((m) => {
+          if (holdState && typeof m === 'string' && m.includes('"t":"state"')) return;
+          ws.send(m);
+        });
+      });
+
+      const sock = await openWorst(page, { g2Open: true }, '시간외종가 G2 창');
+      try {
+        expect(pageSide, 'relay 소켓이 프록시를 지나지 않았다').not.toBeNull();
+        holdState = true;
+        pageSide!.send(JSON.stringify({ t: 'state', s: 'manual_required' }));
+        await expect(statusBar(page)).toHaveAttribute('data-status', 'manual_required', {
+          timeout: 10_000,
+        });
+
+        for (const target of STRIP_TARGETS) {
+          const { label, phone, width } = await moveTo(page, target, '③ 끊김 · 시간외종가');
+          await expect(statusBar(page), label).toHaveAttribute('data-status', 'manual_required');
+          await expectStripOk(page, label, width === 700 ? 2 : 1);
+          await expectPlacement(page, label, phone, '시간외종가 G2 창');
+          const connNotice = notices(page).locator('[data-slot="orderbook-conn-notice"]');
+          const stripReconnect = statusBar(page).getByRole('button', { name: '다시 연결' });
+          if (phone) {
+            await expect(connNotice, label).toBeVisible();
+            await expect(connNotice, label).toContainText('DMA 다시 연결하지 못했어요');
+            await expect(connNotice.getByRole('button', { name: '다시 연결' }), label).toBeVisible();
+            await expect(stripReconnect, label).toBeHidden();
+          } else {
+            await expect(connNotice, label).toBeHidden();
+            await expect(statusBar(page), label).toContainText('다시 연결하지 못했어요');
+            await expect(stripReconnect, label).toBeVisible();
+          }
+        }
+      } finally {
+        relay.gateway.sendQueuedWindowState(sock, {});
       }
     });
   });
