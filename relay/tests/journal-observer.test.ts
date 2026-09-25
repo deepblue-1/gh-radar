@@ -527,6 +527,33 @@ describe("관찰자 실패 경로 — 거부 정지 · 타임아웃 · 갭/상�
     expectNoSecret(logs);
   });
 
+  it("⑨b resync · oldestSeq 0(재생 원천 없음 — 다음 append 부터만 온다) · head>0 → 곧바로 live · 다음 레코드 수용 (19-09 ⑥)", async () => {
+    // 게이트웨이는 oldest 0 이면 보낼 레코드가 없어 배치를 보내지 않는다(빈 배치 금지 · 시작은 head+1).
+    // replaying 에 머물면 첫 주문 전까지 브라우저 「기록 지연」, 장중 180초 뒤 /healthz 503 거짓 알림이 난다.
+    const r = rig({ cursor: { journal_epoch: "ep-old", last_seq: 5000 } });
+    await bootToLogin(r);
+
+    r.transport.frame(loginOk({ epoch: "ep-new", headSeq: 42, oldestSeq: 0, resync: true }));
+    expect(r.observer.state).toBe("live");
+    expect(r.observer.headSeq).toBe(42);
+    expect(r.writer.epoch).toBe("ep-new");
+    expect(r.writer.lastReceivedSeq).toBeNull();
+
+    // 새 epoch 첫 레코드(head+1)는 seq 확인 없이 받는다 — 기록기 갭 규칙은 그대로다.
+    r.transport.frame(batch([43], 43, true));
+    expect(r.transport.drops).toEqual([]);
+    expect(r.observer.state).toBe("live");
+    expect(r.writer.lastReceivedSeq).toBe(43);
+    expectOnlyLogins(r);
+  });
+
+  it("⑨c resync 가 아니면 oldestSeq 0 이어도 종전대로 head > 마지막 수신이면 replaying", async () => {
+    const r = rig({ cursor: { journal_epoch: "ep-1", last_seq: 3 } });
+    await bootToLogin(r);
+    r.transport.frame(loginOk({ epoch: "ep-1", headSeq: 5, oldestSeq: 0, resync: false }));
+    expect(r.observer.state).toBe("replaying");
+  });
+
   it("⑩ ignore(76) → 로그·상태 변화 0 · unexpected(51) → warn 1회(두 번째 0) · malformed → error + dropTransport", async () => {
     const logs = await spyLogs();
     const r = rig();
