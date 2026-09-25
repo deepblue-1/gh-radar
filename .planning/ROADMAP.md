@@ -948,12 +948,12 @@ Plans:
 **불변:** §2.2b 본문폭 밴드(700/830/992 · wb 680) · 3단 호가표 400px 하한 · 라벨 잘림 0(= 오발주 방지) · 더티 액션 바 포털 · 주문 경로(wss 단일 주문 경로·결과 모름 잠금·확인 다이얼로그) 동작 불변 — 표현만 바꾼다.
 **Requirements**: TBD
 **Depends on:** Phase 18
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 20-01-PLAN.md — 트레이서: 「호가변경」 한 행 인라인 → 즉시 반영(lc.set → 에코) end-to-end + 반영 상태 기계 완성 · CardBody unacked/현재가
+- [x] 20-01-PLAN.md — 트레이서: 「호가변경」 한 행 인라인 → 즉시 반영(lc.set → 에코) end-to-end + 반영 상태 기계 완성 · CardBody unacked/현재가
 - [ ] 20-02-PLAN.md — Wave 0 순수 기반: krxTick(shared · 호가 단위 한 곳) · numpad 키패드 규칙 · 폭 예산 스파이크
 
 **Wave 2** *(blocked on Wave 1 completion)*

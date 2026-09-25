@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
 status: executing
-stopped_at: Phase 20 UI-SPEC approved
-last_updated: "2026-09-25T02:43:26.008Z"
+stopped_at: Completed 20-01-PLAN.md
+last_updated: "2026-09-25T03:50:36.549Z"
 last_activity: 2026-09-25
-last_activity_desc: 18-36 R4 최종 게이트 green(relay 534 · webapp 1472/1 skip · Playwright 143/0 fail/9 skip · GC1~GC6) · 18-VALIDATION §Gap Closure R4 7행 닫힘 · TRADE-06~09 Pending 유지 · relay 미배포
-state_head: 3a77e9b735b3767dffd3705e7c2b842a7c6d6442
+last_activity_desc: Phase 20 execution started
+state_head: 94140ce55c769bad7356949b110f7a837328501f
 progress:
   total_phases: 29
   completed_phases: 4
   total_plans: 240
-  completed_plans: 218
+  completed_plans: 219
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+**Current focus:** Phase 20 — 호가주문 토스식 재구성 (실험 브랜치)
 
 ## Current Position
 
-Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — READY TO EXECUTE
-Plan: 36 of 36 (R4 갭 클로징 18-33~18-36 전부 완료 — 18-36 최종 게이트 green)
+Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
+Plan: 2 of 7
 Plans completed: 218 / 233
-Status: 라운드 4 실행 완료 · 재검증(-R4) 대기 · relay 미배포 — 18-36 전량 게이트 green · 18-VALIDATION §Gap Closure R4 7행 전부 닫힘 · TRADE-06~09 Pending 유지
+Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 - Completed quick task 260925-gy6: 라이트 선택·활성 표현 = 스케치 003-A (브랜치 theme/toss-b)
+Last activity: 2026-09-25 — Phase 20 execution started
 
 Progress: [█████████░] 93%
 
@@ -72,6 +72,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
+| Phase 20 P01 | 18 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 18]: 18-34: 결과 모름 잠금 = RelayProvider 앱 수명(strategyKey) — 신규·정정만 · 진행 중 포함 · 로그아웃·새로고침에만 해제 (18-30 컨텍스트 승격 금지를 사용자 결정 1로 대체)
 - [Phase 18]: 18-35: 주문 잠금 원천은 RelayProvider.orderLocks 하나 — 작업대는 ✕ 판정에만 읽고 폼은 스스로 읽는다(18-30 배선 제거)
 - [Phase 18]: 18-35: 카드 정리(더티 키 · 직전 로그)는 커밋된 cards 에서 파생 — 치운 id 를 계산하지 않는다(R3-IN-03)
+- [Phase 20]: 20-01: 필드 확정 cfg 기준값 = formFromServer(server, formRef) + 바꾼 필드 1개 · 성공은 에코 값 비교로만(답 신호만으로는 거부) · 대기 건은 성공 뒤 serverAnswerSeq 변화 렌더에서만 꺼냄
+- [Phase 20]: 20-01: 무장 판정을 canArmOf/armBlockOf 모듈 함수로 단일화 — handleSubmit 과 useLcFieldCommit 이 공유 · 끄는 방향 게이트는 무장 가드 면제(T-16-44)
 
 ### Pending Todos
 
@@ -160,10 +163,10 @@ None yet.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/20-toss-order-ticket/20-UI-SPEC.md
+**Resume file:** None
 
-Last session: 2026-09-25T01:17:51.637Z
-Stopped at: Phase 20 UI-SPEC approved
+Last session: 2026-09-25T03:50:35.925Z
+Stopped at: Completed 20-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
