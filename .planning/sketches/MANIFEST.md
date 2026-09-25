@@ -12,4 +12,4 @@
 | # | Name | Design Question | Winner | Tags |
 |---|------|----------------|--------|------|
 | 001 | toss-dark-theme | 토큰만 교체 / 토스 풀 스킨 / 하이브리드 중 어느 강도? | B (다크+라이트, 브랜치 실적용으로 검증 예정) | theme, dark, stock-detail, trading |
-| 002 | toss-order-ticket | 호가주문 패널을 토스 주문창 구조로 — 상따 설정 표현·폭별 동작·입력 키보드 | B 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 | orderbook, trading, phone |
+| 002 | toss-order-ticket | 호가주문 패널을 토스 주문창 구조로 — 상따 설정 표현·폭별 동작·입력 키보드 | B 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 8차 확정(2026-09-25) | orderbook, trading, phone |

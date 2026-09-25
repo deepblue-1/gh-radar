@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>감시대상 행 변형</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, sans-serif; }
+#nav { position: sticky; top: 0; z-index: 5; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; gap: 16px; align-items: center; font-size: 13px; flex-wrap: wrap; }
+#nav .l { color: #777; font-size: 12px; }
+#nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+#nav button.on { background: #f2f2f2; color: #111; font-weight: 700; }
+#nav .d { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; }
+#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; padding: 20px 16px 60px; }
+.cell h3 { margin: 0 0 3px; font-size: 14px; color: #eee; }
+.cell p { margin: 0 0 10px; font-size: 12px; color: #8a8a92; line-height: 1.5; min-height: 36px; }
+.cell .pair { display: flex; gap: 12px; align-items: flex-start; }
+.cell .cap { font-size: 10.5px; color: #666; margin: 6px 0 0 2px; }
+
+/* TDS 토큰 */
+.p { --layer: #202027; --float: #2c2c35; --g200: #3c3c47; --g300: #4d4d59; --t900: #fff; --t800: #e4e4e5; --t600: #9e9ea4; --t500: #7e7e87; --t400: #62626d; --blue: #3485fa; --green: #2fca73; --bg: #17171c; }
+.light .p { --layer: #f9fafb; --float: #f2f4f6; --g200: #e5e8eb; --g300: #d1d6db; --t900: #191f28; --t800: #333d4b; --t600: #6b7684; --t500: #8b95a1; --t400: #b0b8c1; --blue: #3182f6; --green: #03b26c; --bg: #fff; }
+.p { background: var(--bg); padding: 10px; border-radius: 12px; color: var(--t800); font-variant-numeric: tabular-nums; }
+.p.narrow { width: 226px; }   /* 폰 390 · 호가 42% 옆 패널 실폭 */
+.p.wide { width: 262px; }     /* 데스크톱 2열 한 칸 */
+.grp { background: var(--layer); border-radius: 16px; padding: 10px 10px 4px; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--t900); }
+.grp-h .s { font-size: 12px; color: var(--green); }
+.sw { margin-left: auto; width: 40px; height: 24px; border-radius: 999px; background: var(--blue); position: relative; flex: none; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 18px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+.row { display: flex; align-items: center; justify-content: space-between; padding: 11px 4px; border-radius: 10px; }
+.row .k { font-size: 14px; color: var(--t600); white-space: nowrap; }
+.row .v { font-size: 15px; font-weight: 500; color: var(--t800); white-space: nowrap; }
+.row .v::after { content: ' ›'; color: var(--t400); }
+.row.dim { opacity: .5; }
+/* 토글 */
+.tog { display: inline-flex; background: var(--g200); border-radius: 8px; padding: 2px; }
+.tog button { font: inherit; border: 0; background: none; color: var(--t600); font-size: 13px; font-weight: 600; height: 26px; padding: 0 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.tog button.on { background: var(--g300); color: var(--t900); }
+.light .tog button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.tog.full { display: flex; width: 100%; }
+.tog.full button { flex: 1; height: 32px; font-size: 14px; }
+/* 체크 리스트 */
+.chk .row { padding: 10px 4px; cursor: pointer; }
+.chk .row .k { color: var(--t800); font-size: 15px; font-weight: 500; }
+.chk .row .ck { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--g300); display: grid; place-items: center; }
+.chk .row.on .ck { background: var(--blue); border-color: var(--blue); }
+.chk .row.on .ck::after { content: ''; width: 9px; height: 5px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+/* 접두 토글 */
+.pre { display: inline-flex; align-items: center; gap: 6px; }
+.pre .tog button { font-size: 12px; height: 24px; padding: 0 8px; }
+/* 스위치 행 */
+.row .sw2 { width: 40px; height: 24px; border-radius: 999px; background: var(--g300); position: relative; flex: none; cursor: pointer; }
+.row .sw2::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.row .sw2.on { background: var(--blue); } .row .sw2.on::after { transform: translateX(16px); }
+/* 시트 미리보기 */
+.sheet { margin-top: 8px; background: var(--layer); border-radius: 20px; padding: 14px 14px 12px; }
+.sheet h4 { margin: 0 0 8px; font-size: 16px; color: var(--t900); }
+.sheet .opt { display: flex; justify-content: space-between; align-items: center; padding: 11px 4px; font-size: 15px; color: var(--t800); }
+.sheet .opt.on { color: var(--t900); font-weight: 600; }
+.sheet .opt.on::after { content: '✓'; color: var(--blue); }
+.stack .k { font-size: 12.5px; color: var(--t500); padding: 8px 4px 0; }
+.stack .tog { margin: 6px 4px 8px; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <span class="l">테마</span><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button>
+  <span class="l" style="margin-left:8px">폭</span><button data-w="narrow" class="on">폰 패널 226px</button><button data-w="wide">데스크톱 칸 262px</button>
+  <div class="d">「매수주문」 그룹 안의 <b>감시대상(매도잔량 / 매수잔량)</b> 행만 바꾼 변형. 왼쪽 폭이 실제 폰 패널 폭(390 − 호가 42% − 여백)이라 여기서 안 붙어야 실제로도 안 붙는다. 토글은 눌러 볼 수 있다.</div>
+</div>
+<div id="grid"></div>
+
+<script>
+const S = { t: 'dark', w: 'narrow' };
+let sel = '매도잔량';
+const other = () => sel === '매도잔량' ? '매수잔량' : '매도잔량';
+const head = `<div class="grp-h"><span class="t">매수주문</span><span class="s">감시 중</span><span class="sw"></span></div><div class="row"><span class="k">비교가격</span><span class="v">127,400원</span></div>`;
+const tail = `<div class="row"><span class="k">잔량</span><span class="v">10,000주</span></div>`;
+const tog = (cls = '') => `<span class="tog ${cls}"><button data-o="매도잔량" class="${sel === '매도잔량' ? 'on' : ''}">매도잔량</button><button data-o="매수잔량" class="${sel === '매수잔량' ? 'on' : ''}">매수잔량</button></span>`;
+
+const V = [
+  { id: 'A', name: 'A · 라벨 없이 토글만', desc: '라벨을 빼고 토글을 오른쪽에. 「비교가격 → [매도잔량|매수잔량] → 잔량」 흐름으로 읽힌다. 가장 짧다.',
+    body: () => `${head}<div class="row" style="justify-content:flex-end">${tog()}</div>${tail}` },
+  { id: 'B', name: 'B · 라벨 없이 풀폭 세그먼트', desc: '토글이 행 전체 폭을 차지. 손가락 타깃이 크고 붙을 일이 없다. 대신 시각 무게가 다른 행보다 크다.',
+    body: () => `${head}<div class="row" style="padding:6px 4px">${tog('full')}</div>${tail}` },
+  { id: 'C', name: 'C · 라벨 위 · 토글 아래 2줄', desc: '라벨을 작게 위에 두고 토글을 아래에. 라벨은 유지되고 붙지 않지만 행이 한 줄 더 높아진다.',
+    body: () => `${head}<div class="stack"><div class="k">감시대상</div>${tog()}</div>${tail}` },
+  { id: 'D', name: 'D · 잔량 행에 접두 토글로 합치기', desc: '「감시대상」 행을 없애고 잔량 행 라벨 자리에 토글. 「매도잔량 10,000주」로 읽혀 의미가 그대로 드러난다. 행 하나가 준다.',
+    body: () => `${head}<div class="row"><span class="pre">${tog()}</span><span class="v">10,000주</span></div>` },
+  { id: 'E', name: 'E · 다른 행과 같은 「값 ›」 + 시트 선택', desc: '리스트 문법 그대로(라벨 ─ 값 ›). 누르면 시트에서 두 선택지 중 고른다. 가장 일관되지만 탭이 한 번 더 든다.',
+    body: () => `${head}<div class="row" data-open><span class="k">감시대상</span><span class="v">${sel}</span></div>${tail}<div class="sheet"><h4>감시대상</h4><div class="opt ${sel === '매도잔량' ? 'on' : ''}" data-o="매도잔량">매도잔량</div><div class="opt ${sel === '매수잔량' ? 'on' : ''}" data-o="매수잔량">매수잔량</div></div>`, extraCap: '아래는 누르면 뜨는 시트 미리보기' },
+  { id: 'F', name: 'F · 스위치 한 개 (라벨이 상태를 말함)', desc: '「매수잔량 감시」 스위치. 꺼짐=매도잔량(기본), 켜짐=매수잔량. 붙지 않고 짧지만 「꺼짐이 매도잔량」이라는 걸 알아야 한다.',
+    body: () => `${head}<div class="row"><span class="k" style="color:var(--t800)">매수잔량 감시</span><span class="sw2 ${sel === '매수잔량' ? 'on' : ''}" data-o="${other()}"></span></div>${tail}` },
+];
+
+function render() {
+  document.body.classList.toggle('light', S.t === 'light');
+  document.querySelectorAll('#nav [data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === S.t));
+  document.querySelectorAll('#nav [data-w]').forEach(b => b.classList.toggle('on', b.dataset.w === S.w));
+  document.getElementById('grid').innerHTML = V.map(v => `<div class="cell"><h3>${v.name}</h3><p>${v.desc}</p><div class="p ${S.w}"><div class="grp">${v.body()}</div></div>${v.extraCap ? `<div class="cap">${v.extraCap}</div>` : ''}</div>`).join('');
+}
+render();
+document.addEventListener('click', e => {
+  const nb = e.target.closest('#nav button'); if (nb) { if (nb.dataset.t) S.t = nb.dataset.t; if (nb.dataset.w) S.w = nb.dataset.w; return render(); }
+  const o = e.target.closest('[data-o]'); if (o) { sel = o.dataset.o; render(); }
+});
+</script>
+</body>
+</html>

@@ -121,21 +121,33 @@ body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD G
 .sw { width: 40px; height: 24px; border-radius: 999px; background: var(--g300); position: relative; cursor: pointer; flex: none; transition: background .15s; }
 .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; }
 .sw.on { background: var(--blue); } .sw.on::after { transform: translateX(16px); }
-.lrow { display: flex; align-items: center; justify-content: space-between; padding: 11px 4px; cursor: pointer; border-radius: 10px; }
+.lrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 4px; min-height: 44px; cursor: pointer; border-radius: 10px; min-width: 0; }  /* 모든 행 44px — 토글 행도 같은 높이 */
+.cols > .c, .pan { min-width: 0; }   /* 내용이 길어도 카드가 패널 밖으로 커지지 않게 — 안 맞으면 눈에 보이게 넘친다 */
 .lrow:hover { background: color-mix(in srgb, var(--t900) 5%, transparent); }
-.lrow .k { font-size: 14px; color: var(--t600); }
-.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); }
+.lrow .k { font-size: 14px; color: var(--t600); white-space: nowrap; }
+.lrow .v { font-size: 15px; font-weight: 500; color: var(--t800); white-space: nowrap; }
 .lrow .v::after { content: ' ›'; color: var(--t400); }
 .lrow.flash .v { color: var(--blue); }
-/* 데스크톱 인라인 편집 */
-.ied { background: var(--float); border-radius: 12px; padding: 10px 10px 8px 12px; margin: 4px 0; box-shadow: 0 0 0 1.5px var(--blue); }
-.ied .r { display: flex; align-items: center; gap: 6px; }
-.ied .k { font-size: 13px; color: var(--t600); width: 64px; flex: none; }
-.ied input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 17px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
-.ied .u { font-size: 15px; color: var(--t800); font-weight: 600; }
-.ied .st button { width: 26px; height: 26px; border: 0; border-radius: 7px; background: var(--g200); color: var(--t800); font-size: 17px; cursor: pointer; }
-.ied .hint { font-size: 11.5px; color: var(--t500); margin-top: 6px; display: flex; justify-content: space-between; }
-.ied .hint b { color: var(--t800); font-weight: 600; cursor: pointer; }
+/* 데스크톱 인라인 편집 — 행 높이 그대로, 안내 문구 없음 */
+.lrow.ied { box-shadow: inset 0 0 0 1.5px var(--blue); background: var(--float); cursor: text; }
+.lrow.ied .v::after { content: none; }
+.lrow.ied input { width: 9ch; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 15px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lrow.ied input::selection { background: color-mix(in srgb, var(--blue) 35%, transparent); }
+.lrow.ied .u { font-size: 15px; font-weight: 500; color: var(--t800); margin-left: 2px; }
+.sheet .disp .n.sel { background: color-mix(in srgb, var(--blue) 32%, transparent); border-radius: 4px; }
+/* 감시대상 행: 폰 = 라벨 없이 풀폭 세그먼트(B) · ≥700 = 라벨 왼쪽 + 토글 오른쪽 */
+.lrow.watch { cursor: default; }
+.lrow.watch:hover { background: transparent; }
+.lrow.watch .k { display: none; }
+.tog { display: flex; width: 100%; background: var(--g200); border-radius: 8px; padding: 2px; }
+.tog button { flex: 1; font: inherit; border: 0; background: none; color: var(--t600); font-size: 14px; font-weight: 600; height: 32px; padding: 0 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+@container ob (min-width: 700px) {
+  .lrow.watch .k { display: inline; }
+  .tog { display: inline-flex; width: auto; }
+  .tog button { flex: none; font-size: 13px; height: 26px; padding: 0 10px; }
+}
+.tog button.on { background: var(--g300); color: var(--t900); }
+.f.light .tog button.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
 /* 직접 주문 */
 .box { background: var(--float); border-radius: 16px; padding: 12px 12px 12px 14px; margin-top: 8px; }
 .box .h { display: flex; gap: 8px; font-size: 13px; color: var(--t500); align-items: center; }
@@ -189,6 +201,27 @@ body { background: #0c0c0f; color: #ddd; font-family: -apple-system, 'Apple SD G
 .f.tablet .oskb .grid { grid-template-columns: repeat(11, 1fr); }
 .f.tablet .oskb .grid button { height: 52px; font-size: 20px; }
 .f.open.native .sheet { bottom: calc(var(--kbh) + 10px); }
+/* 수동주문 (D-19 진입 · D-20 필드 · D-11 버튼 · D-10 입력) */
+.wide-only { display: none; }
+.mtop { display: none; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 6px; }
+@container ob (min-width: 700px) { .wide-only { display: block; } .mtop { display: flex; } .hide-wide { display: none !important; } }
+@container ob (max-width: 699px) { .hide-narrow-all { display: none !important; } }
+.mbtn { font: inherit; border: 0; background: var(--float); color: var(--t800); height: 32px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.mkey { font-size: 12px; color: var(--t600); margin-right: auto; }
+.box.tap { cursor: pointer; }
+.box .tu { margin-left: 4px; font-size: 17px; font-weight: 600; color: var(--t900); }
+.box .hint { font-size: 12px; color: var(--t500); }
+.tin { flex: 0 1 auto; min-width: 1ch; width: auto; field-sizing: content; padding: 0; background: none; border: 0; outline: 0; color: var(--t900); font: inherit; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tin::placeholder { color: var(--t400); font-weight: 500; }
+.btn2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.btn2.sm { margin-top: 8px; }
+.obtn { font: inherit; border: 0; height: 48px; border-radius: 14px; font-size: 17px; font-weight: 600; color: #fff; cursor: pointer; }
+.obtn.buy { background: var(--red); } .obtn.sell { background: var(--blue); }
+.obtn.ghost { height: 38px; border-radius: 10px; font-size: 15px; background: var(--float); color: var(--t600); }
+.obtn:disabled { opacity: .5; cursor: default; }
+.fn { font-size: 12px; color: var(--t500); margin-top: 8px; text-align: center; }
+.sheet .err { font-size: 12.5px; color: var(--red); min-height: 16px; margin: -4px 0 8px 2px; }
+.btns .b2:disabled { opacity: .4; cursor: default; }
 .hidden { display: none !important; }
 </style>
 </head>
@@ -207,52 +240,84 @@ const fmt = n => Number(n).toLocaleString('ko-KR');
 const tick = p => p < 2000 ? 1 : p < 5000 ? 5 : p < 20000 ? 10 : p < 50000 ? 50 : p < 200000 ? 100 : p < 500000 ? 500 : 1000;
 const pct = p => { const x = (p - BASE) / BASE * 100; return (x > 0 ? '+' : '') + x.toFixed(2) + '%'; };
 const cls = p => p > BASE ? 'up' : p < BASE ? 'dn' : '';
-const S = { w: 'phone', k: 'custom', t: 'dark', mode: 'auto', side: 'buy' };
+const S = { w: 'phone', k: 'custom', t: 'dark', side: 'buy', manualOpen: false };
 
+/* 그룹: [제목, 스위치(true/false) 또는 null(스위치 없는 가격 섹션), 상태문구, 필드[]] */
 const FIELDS = {
   buy: [
-    ['매수주문', true, '감시 중', [['비교가격', 127400, '원', '이 가격의 잔량을 지켜봐요'], ['감시대상', '매도잔량', '', '어느 쪽 잔량을 볼지 골라요'], ['잔량', 10000, '주', '잔량이 이 값보다 줄면 매수를 넣어요'], ['매수가격', 127400, '원', '넣을 매수 주문 가격이에요'], ['주문금액', 100, '만원', '한 번에 넣을 금액이에요']]],
+    ['매수가격', null, '', [['매수가격', 127400, '원', '넣을 매수 주문 가격이에요'], ['주문금액', 100, '만원', '한 번에 넣을 금액이에요']]],
+    ['매수주문', true, '감시 중', [['비교가격', 127400, '원', '이 가격의 잔량을 지켜봐요'], ['감시대상', '', '', '', 'watch'], ['잔량', 10000, '주', '잔량이 이 값보다 줄면 매수를 넣어요']]],
     ['한방체결', false, '꺼짐', [['호가변경', 3, '건', '호가가 이만큼 바뀌면 한 번에 체결해요'], ['한방가격', 127400, '원', '한방 체결 가격이에요']]],
-    ['매수취소', true, '대기', [['취소잔량', 25, '주', '잔량이 이 값보다 적으면 취소해요'], ['잔량추적', 50, '%', '처음 잔량 대비 비율로 추적해요']]],
   ],
   sell: [
-    ['매도주문', true, '감시 중', [['비교가격', 127400, '원', '이 가격의 잔량을 지켜봐요'], ['호가잔량', 5000, '주', '잔량이 이 값보다 줄면 매도를 넣어요'], ['잔량추적', 30, '%', '처음 잔량 대비 비율로 추적해요'], ['매도가격', 126000, '원', '넣을 매도 주문 가격이에요'], ['매도비율', 100, '%', '보유 수량 중 매도할 비율이에요']]],
+    ['매도가격', null, '', [['매도가격', 126000, '원', '넣을 매도 주문 가격이에요'], ['매도비율', 100, '%', '보유 수량 중 매도할 비율이에요']]],
+    ['매도주문', true, '감시 중', [['비교가격', 127400, '원', '이 가격의 잔량을 지켜봐요'], ['호가잔량', 5000, '주', '잔량이 이 값보다 줄면 매도를 넣어요'], ['잔량추적', 30, '%', '처음 잔량 대비 비율로 추적해요']]],
+    ['매수취소', true, '대기', [['취소잔량', 25, '주', '잔량이 이 값보다 적으면 취소해요'], ['체결', 1000, '주', '체결이 이 값 이상이면 취소해요'], ['잔량추적', 50, '%', '처음 잔량 대비 비율로 추적해요']]],
   ],
 };
+/* 감시대상 행 — 폭에 따라 두 모양(사용자 결정 2026-09-25):
+   · 본문 <700(폰): 라벨 없이 풀폭 세그먼트 [매도잔량 | 매수잔량] (변형 B)
+   · 본문 ≥700(태블릿·데스크톱): 왼쪽 「감시대상」 라벨 + 오른쪽 토글
+   즉시 전환, 시트 없음. */
+let W = '매도잔량';
+const kHtml = (k) => `<span class="k">${k}</span>`;
+const watchRow = (side, gi, fi) => `<div class="lrow watch" data-side="${side}" data-gi="${gi}" data-fi="${fi}"><span class="k">감시대상</span><span class="tog">${['매도잔량', '매수잔량'].map(o => `<button data-w="${o}" class="${o === W ? 'on' : ''}">${o}</button>`).join('')}</span></div>`;
 
 function ladder() {
   const asks = [[98600, 0], [98500, 8213], [98400, 40213], [98300, 30213], [98200, 20213]];
   const bids = [[98100, 10087], [98000, 10087], [97900, 20087], [97800, 30087], [97700, 40087], [97600, 50087]];
   const pc = p => `<b class="${cls(p)}">${fmt(p)}</b><small class="${cls(p)}">${pct(p)}</small>`;
   let h = '';
-  asks.forEach(([p, q]) => h += `<div class="lr ask"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div><div class="lr3 ask">${q ? `<div class="q qa">${fmt(q)}</div>` : '<div></div>'}<div class="pc ${cls(p)}">${fmt(p)}<small>${pct(p)}</small></div><div></div></div>`);
+  asks.forEach(([p, q]) => h += `<div class="lr ask" data-p="${p}"><div class="p">${pc(p)}</div>${q ? `<div class="q">${fmt(q)}</div>` : ''}</div><div class="lr3 ask" data-p="${p}">${q ? `<div class="q qa">${fmt(q)}</div>` : '<div></div>'}<div class="pc ${cls(p)}">${fmt(p)}<small>${pct(p)}</small></div><div></div></div>`);
   h += '<div class="midline"></div>';
-  bids.forEach(([p, q], i) => h += `<div class="lr bid ${i ? '' : 'cur'}"><div class="p">${pc(p)}</div><div class="q">${fmt(q)}</div></div><div class="lr3 bid ${i ? '' : 'cur'}"><div></div><div class="pc ${cls(p)}">${fmt(p)}<small>${pct(p)}</small></div><div class="q qb">${fmt(q)}</div></div>`);
+  bids.forEach(([p, q], i) => h += `<div class="lr bid ${i ? '' : 'cur'}" data-p="${p}"><div class="p">${pc(p)}</div><div class="q">${fmt(q)}</div></div><div class="lr3 bid ${i ? '' : 'cur'}" data-p="${p}"><div></div><div class="pc ${cls(p)}">${fmt(p)}<small>${pct(p)}</small></div><div class="q qb">${fmt(q)}</div></div>`);
   return h;
 }
 
-const lrow = (side, gi, fi, [k, v, u]) => `<div class="lrow" data-side="${side}" data-gi="${gi}" data-fi="${fi}"><span class="k">${k}</span><span class="v">${typeof v === 'number' ? fmt(v) : v}${u}</span></div>`;
+const lrow = (side, gi, fi, f) => { if (f[4] === 'watch') return watchRow(side, gi, fi); const [k, v, u] = f; return `<div class="lrow" data-side="${side}" data-gi="${gi}" data-fi="${fi}">${kHtml(k)}<span class="v">${typeof v === 'number' ? fmt(v) : v}${u}</span></div>`; };
 function list(side) {
-  return FIELDS[side].map(([t, on, st, fs], gi) => `<div class="grp ${on ? '' : 'off'}"><div class="grp-h"><span class="t">${t}</span><span class="s ${on ? 'live' : ''}">${st}</span><span class="sw ${on ? 'on' : ''}"></span></div>${fs.map((f, fi) => lrow(side, gi, fi, f)).join('')}</div>`).join('');
+  // 스위치 없는 가격 섹션(on === null)은 제목 없이 행만 (사용자 피드백: 맨 위 카드 제목 제거)
+  return FIELDS[side].map(([t, on, st, fs], gi) => `<div class="grp ${on === false ? 'off' : ''}">${on === null ? '' : `<div class="grp-h"><span class="t">${t}</span><span class="s ${on ? 'live' : ''}">${st}</span><span class="sw ${on ? 'on' : ''}"></span></div>`}${fs.map((f, fi) => lrow(side, gi, fi, f)).join('')}</div>`).join('');
 }
+/* 수동주문 — 기능은 Phase 18 D-20 그대로(±·% 없음), 스타일만 토스. 입력은 터치=키패드 시트 · 마우스=상자에 타이핑(D-10). */
+const T = { price: CUR, qty: '', pieces: 5, type: '지정가' };
+const TL = { price: ['가격', '원', '호가를 누르면 채워져요'], qty: ['수량', '주', '주문 수량이에요'], pieces: ['조각 수', '회', '예약구간(KRX)에서만 · 나눠서 넣는 횟수'] };
 function ticket() {
+  const desk = S.w === 'desktop';
+  const box = (key, extra = '') => {
+    const [label, unit] = TL[key]; const v = T[key];
+    const ph = key === 'qty' ? '수량 입력' : '';
+    const val = desk
+      ? `<input class="tin" data-tk="${key}" inputmode="numeric" value="${v === '' ? '' : fmt(v)}" placeholder="${ph}">`
+      : `<span class="tv">${v === '' ? `<span class="ph">${ph}</span>` : fmt(v)}</span>`;
+    return `<div class="box ${desk ? '' : 'tap'}" data-tk="${key}"><div class="h"><span class="on">${label}</span>${extra}</div><div class="vv">${val}<span class="tu">${unit}</span></div></div>`;
+  };
+  const amount = (+T.price || 0) * (+T.qty || 0);
   return `<div class="ticket">
-    <div class="seg sm" style="margin-top:8px"><button class="on">매수</button><button>매도</button></div>
-    <div class="box"><div class="h"><span class="on">매수할 가격</span><span class="bar"></span><span>현재가</span><span class="bar"></span><span>상한가</span></div><div class="vv">${fmt(CUR)}원<span class="st"><span>−</span><span>+</span></span></div></div>
-    <div class="box"><div class="h"><span class="on">수량</span></div><div class="vv"><span class="ph">수량 입력</span><span class="st"><span>−</span><span>+</span></span></div><div class="pct"><span>10%</span><span>25%</span><span>50%</span><span>최대</span></div></div>
-    <div class="row" style="margin-top:6px">주문가능 금액 <b>1,583,000원</b></div>
-    <div class="total"><small>총 주문 금액</small><b>0원</b></div>
-    <button class="cta">매수하기</button></div>`;
+    ${box('price', '<span class="bar"></span><span class="hint">호가를 누르면 채워져요</span>')}
+    ${box('qty')}
+    ${box('pieces', '<span class="bar"></span><span class="hint">예약구간 · KRX 만</span>')}
+    <div class="row" style="margin-top:6px">주문유형 <b>${T.type} ›</b></div>
+    <div class="row">주문금액 <b class="amt">${fmt(amount)}원</b></div>
+    <div class="btn2"><button class="obtn buy js-order">매수</button><button class="obtn sell js-order">매도</button></div>
+    <div class="btn2 sm"><button class="obtn ghost" disabled>정정</button><button class="obtn ghost" disabled>취소</button></div>
+    <div class="fn">정정·취소는 미체결 행을 선택하면 활성화돼요</div>
+  </div>`;
 }
 function panel() {
-  if (S.mode === 'manual') return `<div class="seg sm top-segs"><button data-mode="auto">자동 (상따)</button><button data-mode="manual" class="on">직접 주문</button></div><div class="pan-scroll">${ticket()}</div>`;
+  const nm = S.side === 'manual';   // 폰: 「매수 | 매도 | 수동」 3탭 (D-19)
+  const wm = S.manualOpen;          // ≥700: 우상단 「수동주문」이 옵션을 덮음 (D-19)
   return `
-    <div class="seg only-narrow"><button data-side="buy" class="${S.side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${S.side === 'sell' ? 'on' : ''}">매도</button></div>
-    <div class="seg sm top-segs" style="margin-top:6px"><button data-mode="auto" class="on">자동 (상따)</button><button data-mode="manual">직접 주문</button></div>
-    <div class="pan-scroll"><div class="cols">
-      <div class="c ${S.side === 'buy' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--red)"></i>매수</div>${list('buy')}</div>
-      <div class="c ${S.side === 'sell' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--blue)"></i>매도</div>${list('sell')}</div>
-    </div></div>`;
+    <div class="seg only-narrow"><button data-side="buy" class="${S.side === 'buy' ? 'on' : ''}">매수</button><button data-side="sell" class="${S.side === 'sell' ? 'on' : ''}">매도</button><button data-side="manual" class="${nm ? 'on' : ''}">수동</button></div>
+    <div class="mtop">${wm ? `<span class="mkey">수동주문 키 KR7005930003:1234567801:KRX</span><button class="mbtn js-mclose">✕</button>` : `<button class="mbtn js-mopen">수동주문</button>`}</div>
+    <div class="pan-scroll">
+      <div class="only-narrow">${nm ? ticket() : ''}</div>
+      <div class="wide-only">${wm ? ticket() : ''}</div>
+      <div class="cols ${nm ? 'hide-narrow-all' : ''} ${wm ? 'hide-wide' : ''}">
+        <div class="c ${S.side === 'buy' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--red)"></i>매수</div>${list('buy')}</div>
+        <div class="c ${S.side === 'sell' ? '' : 'hide-narrow'}"><div class="side-h"><i style="background:var(--blue)"></i>매도</div>${list('sell')}</div>
+      </div>
+    </div>`;
 }
 
 function frame() {
@@ -272,6 +337,7 @@ function frame() {
     <div class="dim js-close"></div>
     <div class="sheet"><h3 id="SH">잔량</h3><p id="SP"></p>
       <div class="disp"><span class="n" id="SN"></span><span class="u" id="SU"></span><span class="was" id="SW"></span></div>
+      <div class="err" id="SE"></div>
       <div class="chips" id="SC"></div>
       <div class="pad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫'].map(k => `<button data-key="${k}">${k}</button>`).join('')}</div>
       <div class="btns"><button class="b1 js-close">닫기</button><button class="b2 js-ok">확인</button></div>
@@ -281,9 +347,9 @@ function frame() {
 }
 
 const DESC = {
-  phone: '<b>폰</b> — 호가 42% | 패널. 매수/매도는 세그먼트로 한쪽씩. 행을 누르면 <b>바텀시트</b>가 올라와 수정.',
-  tablet: '<b>태블릿</b> (본문 736 → 컴팩트 밴드) — 호가 260px | 패널. 매수·매도 <b>두 목록이 나란히</b>. 터치 기기라 수정은 시트지만 가운데 440px 로 뜬다.',
-  desktop: '<b>데스크톱</b> (본문 992 → 데스크톱 밴드) — 3단 호가 440px | 매수·매도 두 목록. 마우스·물리 키보드라 시트 대신 <b>그 자리에서 바로 편집</b>(인라인): 클릭 → 입력칸, Enter 저장 · Esc 취소 · ↑/↓ 한 호가.',
+  phone: '<b>폰</b> — 호가 42% | 패널. 「매수 | 매도 | 수동」 3탭(D-19). 행을 누르면 <b>바텀시트</b>가 올라와 수정, 확인 = 즉시 반영(D-04). 「수동」 = 수동주문(D-20 필드 · 매수/매도 48 + 정정/취소 38) — 상자를 누르면 같은 키패드 시트(값만 채움).',
+  tablet: '<b>태블릿</b> (본문 736 → 컴팩트 밴드) — 호가 260px | 매수·매도 <b>두 목록 나란히</b>. 우상단 「수동주문」이 옵션을 덮음(D-19). 터치라 수정은 시트(가운데 440px).',
+  desktop: '<b>데스크톱</b> (본문 992) — 3단 호가 440px | 두 목록. 마우스라 시트 대신 <b>인라인 편집</b>: 클릭 → 입력칸, Enter 저장(즉시 반영) · Esc 취소 · ↑/↓ 한 호가 · Tab 다음 항목. 수동주문 상자는 직접 타이핑.',
 };
 const KDESC = {
   custom: ' · <b>자체 키패드</b>: 토스 송금 화면처럼 시트 안에 숫자판을 그린다. 시스템 키보드가 안 떠서 화면이 덜 가려지고, 「+1호가 · 상한가 · +1,000주」 같은 단축 칩을 숫자판 바로 위에 둘 수 있다. 모든 폰에서 모양이 같다.',
@@ -307,20 +373,35 @@ function chipsFor(unit) {
   if (unit === '%') return [['10', 'set10'], ['30', 'set30'], ['50', 'set50'], ['100', 'set100']];
   if (unit === '만원') return [['+10', 'add10'], ['+50', 'add50'], ['+100', 'add100'], ['지우기', 'clear']];
   if (unit === '건') return [['1', 'set1'], ['3', 'set3'], ['5', 'set5'], ['지우기', 'clear']];
+  if (unit === '회') return [['1', 'set1'], ['3', 'set3'], ['5', 'set5'], ['10', 'set10']];
   return [['매도잔량', 'opt매도잔량'], ['매수잔량', 'opt매수잔량']];
 }
+/* D-15: 호가 단위·상한가 검증 — 확인을 막고 이유를 보여준다(자동 보정 없음) */
+function validate() {
+  if (!ED || ED.unit !== '원' || ED.buf === '') return '';
+  const v = +ED.buf;
+  if (v > UPPER) return `상한가 ${fmt(UPPER)}원을 넘을 수 없어요`;
+  const t = tick(v);
+  if (v % t !== 0) { const lo = Math.floor(v / t) * t; return `${t}원 단위로 입력해 주세요 · 가까운 값 ${fmt(lo)} / ${fmt(lo + t)}`; }
+  return '';
+}
 function showSheet() {
-  const F = document.getElementById('F'), [k, , u, d] = field(ED.side, ED.gi, ED.fi);
-  F.querySelector('#SH').textContent = k; F.querySelector('#SP').textContent = d;
+  const F = document.getElementById('F'), { k, u, d } = ED.meta;
+  F.querySelector('#SH').textContent = k; F.querySelector('#SP').textContent = d + (ED.kind === 'ticket' ? '' : ' · 감시 중이면 확인하는 즉시 적용돼요');
   F.querySelector('#SU').textContent = u; F.querySelector('#SW').textContent = '지금 ' + (typeof ED.orig === 'number' ? fmt(ED.orig) : ED.orig) + u;
   F.querySelector('#SC').innerHTML = chipsFor(u).map(([l, a]) => `<button data-chip="${a}">${l}</button>`).join('');
   F.querySelector('.pad').classList.toggle('hidden', S.k !== 'custom' || u === '');
   F.classList.toggle('native', S.k === 'native' && u !== '');
+  ED.fresh = true;   // 열리자마자 현재 값이 「전체 선택」 상태 — 첫 키가 값을 통째로 덮어쓴다
   paint(); F.classList.add('open');
 }
 function paint() {
   const n = document.getElementById('SN');
   n.textContent = ED.unit === '' ? ED.buf : (ED.buf === '' ? '' : fmt(+ED.buf));
+  n.classList.toggle('sel', !!ED.fresh && ED.buf !== '');
+  const err = validate();
+  document.getElementById('SE').textContent = err;
+  document.querySelector('#F .js-ok').disabled = !!err;
 }
 function applyChip(a) {
   const v = +ED.buf || 0;
@@ -338,24 +419,50 @@ function flashRow(s, gi, fi) {
   if (r) { r.classList.add('flash'); setTimeout(() => r.classList.remove('flash'), 900); }
 }
 function commit() {
-  const f = field(ED.side, ED.gi, ED.fi);
-  f[1] = ED.unit === '' ? ED.buf : (+ED.buf || 0);
-  const { side, gi, fi } = ED; ED = null;
-  document.getElementById('F').classList.remove('open');
-  document.getElementById('PAN').innerHTML = panel();
-  flashRow(side, gi, fi);
+  const F = document.getElementById('F');
+  if (ED.kind === 'ticket') {            // D-10: 값만 채운다 — 주문은 매수/매도 버튼 + 확인 다이얼로그로만
+    T[ED.key] = ED.unit === '' ? ED.buf : (+ED.buf || 0);
+    ED = null; F.classList.remove('open'); document.getElementById('PAN').innerHTML = panel(); return;
+  }
+  // D-04/D-05: 확인 = 즉시 서버 반영. 전송 중 「반영 중…」 잠금 → 에코 도착 시 닫힘 (여기선 400ms 시뮬레이션)
+  const ok = F.querySelector('.js-ok'); ok.textContent = '반영 중…'; ok.disabled = true;
+  const snap = ED;
+  setTimeout(() => {
+    const f = field(snap.side, snap.gi, snap.fi);
+    f[1] = snap.unit === '' ? snap.buf : (+snap.buf || 0);
+    ED = null; ok.textContent = '확인'; ok.disabled = false;
+    F.classList.remove('open');
+    document.getElementById('PAN').innerHTML = panel();
+    flashRow(snap.side, snap.gi, snap.fi);
+  }, 400);
 }
+/* 데스크톱 인라인: 행 자리에서 값만 입력칸으로 바뀜(높이 동일). 포커스 시 전체 선택 → 바로 덮어쓰기.
+   Enter/Tab/blur 저장(즉시 반영) · Esc 취소 · ↑↓ 한 호가(가격)/1 · Tab 은 같은 그룹 다음 항목으로 (D-14). */
 function inlineEdit(row) {
   const side = row.dataset.side, gi = +row.dataset.gi, fi = +row.dataset.fi, [k, v, u] = field(side, gi, fi);
   document.getElementById('PAN').innerHTML = panel();
   const r2 = document.querySelector(`.lrow[data-side="${side}"][data-gi="${gi}"][data-fi="${fi}"]`);
-  const el = document.createElement('div'); el.className = 'ied';
-  el.innerHTML = `<div class="r"><span class="k">${k}</span><input value="${typeof v === 'number' ? fmt(v) : v}"><span class="u">${u}</span><span class="st"><button data-istep="-1">−</button> <button data-istep="1">+</button></span></div><div class="hint"><span>Enter 저장 · Esc 취소${u === '원' ? ' · ↑/↓ 한 호가' : ' · ↑/↓ 1씩'}</span><b class="js-isave">저장</b></div>`;
-  r2.replaceWith(el); const inp = el.querySelector('input'); inp.focus(); inp.select();
-  const save = () => { field(side, gi, fi)[1] = u === '' ? inp.value : (+inp.value.replace(/,/g, '') || 0); document.getElementById('PAN').innerHTML = panel(); flashRow(side, gi, fi); };
+  r2.classList.add('ied');
+  r2.innerHTML = `${kHtml(k)}<span class="v"><input value="${typeof v === 'number' ? fmt(v) : v}"><span class="u">${u}</span></span>`;
+  const inp = r2.querySelector('input'); inp.focus(); inp.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return; done = true;
+    if (save) field(side, gi, fi)[1] = u === '' ? inp.value : (+inp.value.replace(/,/g, '') || 0);
+    document.getElementById('PAN').innerHTML = panel();
+    if (save) flashRow(side, gi, fi);
+    // 다른 행을 누르며 blur 된 경우(pointerdown 에서 기록) → 그 행을 바로 편집 모드로 (한 번 클릭)
+    if (NEXT) { const n = NEXT; NEXT = null; const nx = document.querySelector(`.lrow[data-side="${n.side}"][data-gi="${n.gi}"][data-fi="${n.fi}"]`); if (nx) inlineEdit(nx); }
+  };
   const step = d => { const n = +inp.value.replace(/,/g, '') || 0; const t = u === '원' ? tick(d > 0 ? n : n - 1) : 1; inp.value = fmt(Math.max(0, n + d * t)); };
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') document.getElementById('PAN').innerHTML = panel(); if (e.key === 'ArrowUp') { e.preventDefault(); step(1); } if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); } });
-  el.addEventListener('click', e => { const s = e.target.closest('[data-istep]'); if (s) { step(+s.dataset.istep); inp.focus(); } if (e.target.closest('.js-isave')) save(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+    else if (e.key === 'ArrowUp') { e.preventDefault(); step(1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
+    else if (e.key === 'Tab') { e.preventDefault(); const nfi = fi + 1 < FIELDS[side][gi][3].length ? fi + 1 : null; finish(true); if (nfi !== null) { const nx = document.querySelector(`.lrow[data-side="${side}"][data-gi="${gi}"][data-fi="${nfi}"]`); if (nx) inlineEdit(nx); } }
+  });
+  inp.addEventListener('blur', () => finish(true));
 }
 
 document.addEventListener('click', e => {
@@ -363,24 +470,61 @@ document.addEventListener('click', e => {
   const nb = t.closest('#nav button'); if (nb) { if (nb.dataset.w) S.w = nb.dataset.w; if (nb.dataset.k) S.k = nb.dataset.k; if (nb.dataset.t) S.t = nb.dataset.t; ED = null; return render(); }
   if (!t.closest('#F')) return;
   const sd = t.closest('.seg [data-side]'); if (sd) { S.side = sd.dataset.side; document.getElementById('PAN').innerHTML = panel(); return; }
-  const md = t.closest('[data-mode]'); if (md) { S.mode = md.dataset.mode; document.getElementById('PAN').innerHTML = panel(); return; }
+  if (t.closest('.js-mopen')) { S.manualOpen = true; document.getElementById('PAN').innerHTML = panel(); return; }
+  if (t.closest('.js-mclose')) { S.manualOpen = false; document.getElementById('PAN').innerHTML = panel(); return; }
+  const tb = t.closest('.box.tap[data-tk]');
+  if (tb) {                               // 터치: 수동주문 상자 → 같은 키패드 시트 (D-10)
+    const key = tb.dataset.tk, [k, u, d] = TL[key];
+    ED = { kind: 'ticket', key, unit: u, orig: T[key], buf: String(T[key]), meta: { k, u, d } };
+    return showSheet();
+  }
+  const lp = t.closest('.lad [data-p]');  // 호가 클릭 → 수동주문 가격 채우기 (D-10 유지)
+  if (lp && (S.side === 'manual' || S.manualOpen)) { T.price = +lp.dataset.p; document.getElementById('PAN').innerHTML = panel(); return; }
+  const ob = t.closest('.js-order'); if (ob) { const o = ob.textContent; ob.textContent = '확인 창 →'; setTimeout(() => ob.textContent = o, 700); return; }
   const sw = t.closest('.sw'); if (sw) { const g = sw.closest('.grp'); sw.classList.toggle('on'); const on = sw.classList.contains('on'); g.classList.toggle('off', !on); const s = g.querySelector('.s'); s.textContent = on ? '감시 중' : '꺼짐'; s.classList.toggle('live', on); return; }
+  const og = t.closest('.tog [data-w]');   // 매도/매수 잔량 접두 토글 — 즉시 반영, 시트 없음
+  if (og) { W = og.dataset.w; const r = og.closest('.lrow'); document.getElementById('PAN').innerHTML = panel(); flashRow(r.dataset.side, +r.dataset.gi, +r.dataset.fi); return; }
   const row = t.closest('.lrow');
-  if (row) {
+  if (row && !row.classList.contains('ied') && !row.classList.contains('watch')) {
     if (S.w === 'desktop') return inlineEdit(row);
-    const side = row.dataset.side, gi = +row.dataset.gi, fi = +row.dataset.fi, [, v, u] = field(side, gi, fi);
-    ED = { side, gi, fi, unit: u, orig: v, buf: String(v) };
+    const side = row.dataset.side, gi = +row.dataset.gi, fi = +row.dataset.fi, [k, v, u, d] = field(side, gi, fi);
+    ED = { kind: 'field', side, gi, fi, unit: u, orig: v, buf: String(v), meta: { k, u, d } };
     return showSheet();
   }
   if (t.closest('.js-close')) { ED = null; document.getElementById('F').classList.remove('open'); return; }
-  if (t.closest('.js-ok') && ED) return commit();
-  const ch = t.closest('[data-chip]'); if (ch && ED) { applyChip(ch.dataset.chip); return paint(); }
+  if (t.closest('.js-ok') && ED && !t.closest('.js-ok').disabled) return commit();
+  const ch = t.closest('[data-chip]'); if (ch && ED) { applyChip(ch.dataset.chip); ED.fresh = false; return paint(); }
   const key = t.closest('[data-key]'); if (key && ED && ED.unit !== '') {
     const k = key.dataset.key; if (!k) return;
+    if (ED.fresh) { ED.fresh = false; ED.buf = (k === '⌫' || k === '00') ? '' : k; return paint(); }
     ED.buf = k === '⌫' ? ED.buf.slice(0, -1) : (ED.buf === '0' ? '' : ED.buf) + k;
     if (ED.buf.length > 9) ED.buf = ED.buf.slice(0, 9);
     return paint();
   }
+});
+/* 데스크톱 수동주문 상자: 직접 타이핑 (D-10) · ↑/↓ 한 호가(가격) / 1 */
+document.addEventListener('input', e => {
+  const i = e.target.closest('.tin'); if (!i) return;
+  const n = i.value.replace(/[^\d]/g, ''); T[i.dataset.tk] = n === '' ? '' : +n;
+  document.querySelectorAll('#F .ticket .amt').forEach(a => a.textContent = fmt((+T.price || 0) * (+T.qty || 0)) + '원');
+});
+document.addEventListener('focusin', e => { const i = e.target.closest('.tin'); if (i) i.select(); });  // 포커스 = 전체 선택
+/* 인라인 편집 중 다른 행을 누르면: blur → 저장 → 재렌더 때문에 click 이 사라진다. pointerdown 에서 대상을 기록해 finish 가 이어받는다. */
+let NEXT = null;
+document.addEventListener('pointerdown', e => {
+  if (S.w !== 'desktop' || !document.querySelector('#F .lrow.ied')) return;
+  const r = e.target.closest('.lrow'); if (!r || r.classList.contains('ied') || r.classList.contains('watch')) return;
+  NEXT = { side: r.dataset.side, gi: +r.dataset.gi, fi: +r.dataset.fi };
+}, true);
+document.addEventListener('keydown', e => {
+  const i = e.target.closest('.tin'); if (!i) return;
+  const key = i.dataset.tk, n = +String(T[key]).replace(/,/g, '') || 0;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault(); const d = e.key === 'ArrowUp' ? 1 : -1;
+    const step = key === 'price' ? tick(d > 0 ? n : n - 1) : 1;
+    T[key] = Math.max(0, n + d * step); i.value = fmt(T[key]); i.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if (e.key === 'Enter') i.blur();
 });
 </script>
 </body>
