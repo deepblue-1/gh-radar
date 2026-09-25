@@ -10,6 +10,8 @@ import { render, screen } from '@testing-library/react';
  *    기본값**만 잠근다.
  * ② 모바일(<lg) 본문 여백이 **8px**, 데스크톱(≥lg)이 **24px** 이다. 390px 에서 24px×2 는
  *    본문 폭의 12% 였다.
+ * ③ 브랜드 표시명이 **GH Trade** 다(21-09 · D-21). 바뀌는 것은 노출 문자열뿐 — `gh-radar:`
+ *    localStorage 키 · `[gh-radar]` 로그 접두 · `@gh-radar/*` 패키지명은 그대로다.
  *
  * ★ 이 두 계약은 **한 묶음으로 깨진다**: `main` 의 패딩을 줄이면 그 패딩을 가로지르도록
  *   만들어진 `stock-detail-tabs` 의 sticky 탭 바(`-mx-*`)가 함께 갈려야 한다. 그쪽 단언은
@@ -110,5 +112,21 @@ describe('② 본문·헤더 여백이 8 / 768↑ 16 / 1024↑ 24 한 램프다 
     expect(header.className).not.toMatch(/(^|\s)px-6(\s|$)/);
     // 세로·높이는 이번 변경 대상이 아니다 — `h-14` 는 그대로다.
     expect(header.className).toContain('h-14');
+  });
+});
+
+describe('③ 브랜드 표시명 GH Trade (21-09 · D-21)', () => {
+  it('헤더 로고가 「GH Trade」이고 링크 접근 이름이 「GH Trade 홈」이다 — 옛 이름은 없다', () => {
+    render(
+      <AppShell hideSidebar>
+        <div>본문</div>
+      </AppShell>,
+    );
+
+    const header = screen.getByRole('banner');
+    expect(header.textContent).toContain('GH Trade');
+    expect(header.textContent).not.toContain('gh-radar');
+    const logo = screen.getByRole('link', { name: 'GH Trade 홈' });
+    expect(logo.textContent).toContain('GH Trade');
   });
 });
