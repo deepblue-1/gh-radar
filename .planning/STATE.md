@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 19
 current_phase_name: 계좌별 주문기록 전용 연결
 status: executing
-stopped_at: Completed 19-11-PLAN.md
-last_updated: "2026-09-25T07:28:19.278Z"
+stopped_at: Completed 19-12-PLAN.md
+last_updated: "2026-09-25T08:04:01.709Z"
 last_activity: 2026-09-25
-last_activity_desc: 19-11 완료 — 전환 창 ①: 원격 DB push(테이블 4 · 함수 7 · RLS 활성 · 정책 0 · service_role 전용 · dma_orders 변화 0) · 관찰자 비밀 ENABLED 1(세 곳 해시 일치) · gh-trade 0a50367a 게이트웨이 재기동(새 epoch · 관찰자 설정 로드) · 20:00 조건 휴장 면제, relay·server·webapp 미배포(19-12)
-state_head: e9fd39065ff504c7952c3aaf70315bb71b79afba
+last_activity_desc: "19-12 완료 — Phase 19 전환 완료: relay 43d4d0c(관찰자 live · 매핑 3행 · DMA_HOST 보존) · server gh-radar-server-00051-8gr(롤백 00050-c8r) · webapp push 46e8bea..43d4d0c → Vercel Ready(trade.jx1.io) · 첫 거래일 대조 19-13 대기(커서·이벤트·dma_orders 동결 실증) · 알림 정책 documentation 크기 초과 후속 과제"
+state_head: 43d4d0c67544d5209176927f85a250f8ecff8618
 progress:
   total_phases: 28
   completed_phases: 4
   total_plans: 246
-  completed_plans: 229
+  completed_plans: 230
 milestone_name: milestone
 ---
 
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 19 (계좌별 주문기록 전용 연결) — EXECUTING
-Plan: 12 of 13
-Plans completed: 229 / 233
+Plan: 13 of 13
+Plans completed: 230 / 233
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 — 19-09 완료(G1 gh-trade 8285a265 계약 → relay 생성물 동기화 --check 0 · 관찰자 실 코덱 createJournalCodec · MSG 5·79·80 · hub 79·80 명시 case · resync∧oldest 0 → 곧바로 live · 실 TCP 가짜 게이트웨이 통합 · relay 27 files / 616 green, 미push·미배포) / 이전: 19-08 완료(webapp 오늘 주문 카드 B′ · origin-tag.tsx 추출 · groupJournalRowsByAccount · 기록 지연 표식 · webapp 98 files / 1707 green · me.spec 11 passed, 미push) / 이전: 19-07 완료(relay 관찰자 JournalObserver · JournalStatus · inTradingWindow · fanout journal.state · healthz journal 필드와 장중 503 · relay 25 files / 595 green, 미배포 — 이후 relay 이미지는 production 에서 DMA_OBSERVER_SECRET 필수)
+Last activity: 2026-09-25 — 19-12 완료 — **Phase 19 전환 완료** · relay 43d4d0c · server gh-radar-server-00051-8gr · webapp 43d4d0c(Vercel Ready) · 첫 거래일 대조 19-13 대기 / 이전: 19-09 완료(G1 gh-trade 8285a265 계약 → relay 생성물 동기화 --check 0 · 관찰자 실 코덱 createJournalCodec · MSG 5·79·80 · hub 79·80 명시 case · resync∧oldest 0 → 곧바로 live · 실 TCP 가짜 게이트웨이 통합 · relay 27 files / 616 green, 미push·미배포) / 이전: 19-08 완료(webapp 오늘 주문 카드 B′ · origin-tag.tsx 추출 · groupJournalRowsByAccount · 기록 지연 표식 · webapp 98 files / 1707 green · me.spec 11 passed, 미push) / 이전: 19-07 완료(relay 관찰자 JournalObserver · JournalStatus · inTradingWindow · fanout journal.state · healthz journal 필드와 장중 503 · relay 25 files / 595 green, 미배포 — 이후 relay 이미지는 production 에서 DMA_OBSERVER_SECRET 필수)
 
 Progress: [█████████░] 93%
 
@@ -83,6 +83,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 19 P09 | 16min | 3 tasks | 21 files |
 | Phase 19 P10 | 12min | 3 tasks | 17 files |
 | Phase 19 P11 | 30min | 3 tasks | 0 files |
+| Phase 19 P12 | 35min | 3 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 19]: 19-10: 관찰자 비밀 순환·전환 순서는 게이트웨이 재시작 → relay 재배포(마지막) — relay 는 로그인 거부 뒤 재시작 전 재시도하지 않는다
 - [Phase 19]: 19-11: 20:00 KST 조건을 추석 연휴 휴장으로 사용자 면제 — DB push 15:59~16:04 · 게이트웨이 재기동 16:24:45 KST
 - [Phase 19]: 19-11: 원격 journal 함수는 7개(플랜 문구 6은 셈 오류) — 전부 service_role 전용 · 덤프 GRANT ALL 표기는 Supabase default privileges
+- [Phase 19]: 19-12: 20:00 조건 사용자 면제(추석 휴장) — relay 43d4d0c 16:32 KST 배포
+- [Phase 19]: 19-12: 매핑 행 수 대조는 게이트웨이 accounts=3 = dma_account_access 3행 일치로 갈음
+- [Phase 19]: 19-12: 알림 정책 documentation 10834>10240 바이트 초과는 후속 과제(다음 relay 배포마다 exit 1 재발)
 
 ### Pending Todos
 
@@ -193,8 +197,8 @@ None yet.
 
 **Resume file:** None
 
-Last session: 2026-09-25T07:28:18.642Z
-Stopped at: Completed 19-11-PLAN.md
+Last session: 2026-09-25T08:04:01.087Z
+Stopped at: Completed 19-12-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

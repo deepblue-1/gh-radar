@@ -932,7 +932,7 @@ Plans:
 **쟁점 (discuss 에서 하나씩):** 기록 주체 단일화(사용자 세션 경로의 기존 `dma_orders` 기록·rid 상관과의 관계) · 기존 `dma_orders` 이관 vs 새 테이블 · 관찰자 자격 보안 경계 · gh-trade 스키마 동기화(`sync-relay-schema.sh` gh-trade 소유)·실서버 배포 순서(relay 먼저 → push)
 **Requirements**: TBD (CONTEXT D-01~D-14 를 요구사항 집합으로 사용)
 **Depends on:** Phase 18 · gh-trade Phase 23(관찰자 계약 G1 · 배포 G2 — 별도 저장소)
-**Plans:** 11/13 plans executed
+**Plans:** 12/13 plans executed
 
 Plans:
 
@@ -967,5 +967,5 @@ Plans:
 **Wave 7~9** *(배포 창 — 20:00 KST 이후 · 사용자 승인)*
 
 - [x] 19-11-PLAN.md — [BLOCKING] 전환 창 ①: 진입 승인 · 원격 db push · 비밀 주입 · gh-trade 배포(G2)
-- [ ] 19-12-PLAN.md — 전환 창 ②: relay 배포·검증 → go 결정 → server 배포 → webapp push → 공유 계정 대조
+- [x] 19-12-PLAN.md — 전환 창 ②: relay 배포·검증 → go 결정 → server 배포 → webapp push → 공유 계정 대조
 - [ ] 19-13-PLAN.md — 첫 거래일 실장 대조(브로커 체결내역 · 게이트웨이 기록 · 새 테이블)
