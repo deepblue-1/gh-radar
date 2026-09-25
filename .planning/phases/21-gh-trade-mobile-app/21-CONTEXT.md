@@ -31,8 +31,11 @@ webapp(Next.js 15, Vercel `https://trade.jx1.io`)을 **Capacitor Remote-URL 셸*
 - **D-07:** **전용 `/search` 페이지 신설.** 상단 검색 입력(기존 `useDebouncedSearch` + GlobalSearch 결과 리스트 재사용, 선택 시 `/stocks/{code}`) + 아래에 **상승률 상위 `/scanner` · 테마 `/themes` · 관심종목 `/watchlist` 진입 카드**. 사이드바 「종목검색」 그룹의 3항목이 이 탭 하나로 이식된다. 웹 사이드바에도 「검색」 링크를 추가하되 기존 3항목은 유지(사이드바 재편은 범위 밖).
 - **D-08:** **`/me` 상단에 계정 카드 추가 — 웹·앱 공통.** 아바타(Google `avatar_url` → 이니셜 폴백, `UserSection` 규칙 재사용) · 이름 · 이메일 · **테마 토글** · **로그아웃** 버튼. 그 아래 기존 MeClient(상태줄 → 전략 현황 → 계좌별 미체결·잔고). 사이드바 하단 `UserSection`/`ThemeToggle` 은 그대로 둔다.
 - **D-09:** **앱에서도 헤더 햄버거 + 사이드바 드로어 유지**(웹과 동일). 단 **앱에서는 폭과 무관하게 고정 사이드바(`lg:block aside`)를 항상 숨기고** 드로어로만 연다 — iPad 가로에서 사이드바와 탭바가 같은 목적지를 두 곳에 두지 않기 위해. 햄버거는 앱에서 `lg` 이상에서도 표시.
-- **D-10:** **AI 탭 = `/chat` 이동.** 앱에서는 **`ChatFab`(종목상세 우하단 플로팅) 숨김.** 종목 컨텍스트 대화는 종목상세 안 버튼(헤더 액션 줄에 「AI 물기」 → 기존 `ChatSheet` 열기)으로 연다. 웹은 FAB 그대로.
+- **D-10:** **AI 탭 = `/chat` 이동.** 앱에서는 **`ChatFab`(종목상세 우하단 플로팅) 숨김.** 종목 컨텍스트 대화는 종목상세 안 버튼(헤더 액션 줄에 「AI 분석」 → 기존 `ChatSheet` 열기)으로 연다. 웹은 FAB 그대로.
 - **D-11:** **Capacitor 감지 = `window.Capacitor?.isNativePlatform?.()`** (Remote-URL 모드에서도 Capacitor 가 native-bridge 를 원격 페이지에 주입한다). 감지 시 `<html>` 에 `native-app` 클래스 + `data-native-platform="ios|android"` 를 붙이고, CSS/컴포넌트 분기는 이 클래스만 본다. weekly-wine 은 자체 `bridge.js` 가 원격 페이지에서 실행되지 않았음이 탐색에서 확인됐다 — **웹 코드가 스스로 감지**하는 이 방식을 쓴다(네이티브 주입 스크립트 의존 금지).
+
+- **D-07a (2026-09-25 목업 검토 확정 · 스케치 005):** `/search` = **B 「탐색 허브」**. 구성 순서: 제목 「검색」 → 검색 입력(48 · radius 14 · `--raised` · placeholder 「종목명 또는 코드」 · 입력 중 ✕) → 진입 **타일 3열**(상승률 상위 · 테마 · 관심종목 — 아이콘 36 틴트 면 · 제목 14/700 · 보조 12 실데이터 카운트) → 「최근 검색」(localStorage `gh-radar:recent-search` 최대 10 · 44 행 · 개별 ✕ · 「지우기」) → 「지금 상승률 상위」 5행 미리보기(「더보기 ›」 → `/scanner` · 기존 scanner API 1회 조회 · 자동 폴링 없음). **입력 중**에는 아래 세 영역을 감추고 결과 카드만(52 행 · 종목명 · 코드 · 시장 배지 · 현재가+등락률) → 선택 시 `/stocks/{code}` + 최근 검색 저장. 데스크톱은 본문 max-width 900 · 사이드바 홈 아래 「검색」 링크(활성 blue50/blue600). 수치 정본: `.planning/sketches/005-search-page-me-account/README.md` 「결정」.
+- **D-08a (2026-09-25 목업 검토 확정 · 스케치 005):** `/me` 계정 카드 = **A 「한 줄 + 아이콘 버튼」**. `--card` radius 16 · padding 14/16 · 높이 72 · 아바타 44(`avatar_url` → 이니셜) · 이름 16/700 · 이메일 12.5 muted · 우측 40×40 radius 12 `--raised` 아이콘 버튼 2개: 테마(Sun/Moon · `aria-label="테마 전환"`) · 로그아웃(LogOut · `--up` · `aria-label="로그아웃"`). 카드 아래 16 여백 후 기존 순서(상태줄 → 전략 현황 → 계좌 카드) 불변. 웹·앱 공통.
 
 ### 탭바 표시 규칙
 - **D-12:** **숨김 = ① URL 이 `/login`·`/auth/*` ② 오프라인 폴백 화면 ③ 웹이 「오버레이 열림」 신호를 보낸 동안.** 오버레이 = 트레이딩 바텀시트·키패드 시트(Phase 20 `NumberPadSheet` 류) · shadcn `Sheet`(사이드바 드로어 · 모바일 하단 패널) · `Dialog`(주문 확인). 웹은 열림/닫힘을 네이티브에 메시지(`overlay: true|false`)로 보내고 네이티브는 150ms 지연 후 0.2s 페이드(weekly-wine `filterState` 방식). 채널: iOS `webkit.messageHandlers.ghTrade.postMessage` · Android `window.GhTradeBridge` (`addJavascriptInterface`). 웹은 두 채널을 감싼 `postNative(type, payload)` 하나만 쓴다.
@@ -98,6 +101,7 @@ webapp(Next.js 15, Vercel `https://trade.jx1.io`)을 **Capacitor Remote-URL 셸*
 - `webapp/src/components/chat/chat-fab.tsx`, `chat-sheet.tsx` — D-10
 - `webapp/src/components/trading/dirty-action-bar.tsx`, `workbench/shared-panels.tsx`, `workbench/alert-toasts.tsx`, `ui/sheet.tsx` — D-25 safe-area 대상
 - `webapp/src/app/icon.svg` — 현 파비콘(D-22 교체 대상)
+- `.planning/sketches/005-search-page-me-account/index.html`, `README.md` — **채택 정본(2026-09-25)**: `/search` B 구성·수치 · `/me` 계정 카드 A 수치 · 입력 중 결과 카드 · 데스크톱 배치
 - `.planning/sketches/004-native-tab-bar/index.html`, `README.md` — **채택 정본(2026-09-25)**: 탭바 A 알약 수치 · 아이콘 A 다크 레이더 SVG(`#app-a`) · 화면별 활성/숨김 시연
 - `.planning/sketches/themes/toss-dark.css`, `toss-light.css`, `.planning/sketches/MANIFEST.md` — 목업 토큰(스케치 004 가 상속)
 

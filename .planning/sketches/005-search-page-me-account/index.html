@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GH Trade /search · /me 계정 카드 스케치</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link id="theme-css" rel="stylesheet" href="../themes/toss-dark.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif; }
+body.light-chrome { background: #e9ebef; color: #333; }
+#variant-nav { position: sticky; top: 0; z-index: 100; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+body.light-chrome #variant-nav { background: #f4f5f7; border-bottom-color: #d9dce1; }
+#variant-nav .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#variant-nav .lbl { color: #777; margin-right: 4px; font-size: 12px; }
+#variant-nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12.5px; }
+#variant-nav button.active { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+body.light-chrome #variant-nav button { background: #fff; color: #444; border-color: #d0d4da; }
+body.light-chrome #variant-nav button.active { background: #191f28; color: #fff; border-color: #191f28; }
+#vdesc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.55; }
+#vdesc b { color: #e8e8ea; }
+body.light-chrome #vdesc { color: #555; } body.light-chrome #vdesc b { color: #111; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 36px; padding: 24px 12px 60px; overflow-x: auto; }
+
+/* 기기 */
+.device { flex: none; position: relative; width: 390px; height: 844px; border-radius: 48px; background: var(--bg); color: var(--fg); font-family: var(--font-sans); overflow: hidden; box-shadow: 0 0 0 1px #2a2a30, 0 0 0 12px #111, 0 30px 80px rgba(0,0,0,.5); transform-origin: top center; }
+.device.desk { width: 1280px; height: 800px; border-radius: 14px; }
+.island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 60; }
+.device.desk .island, .device.desk .statusbar, .device.desk .home-ind, .device.desk .tabbar, .device.desk .fade { display: none; }
+.statusbar { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 12px; font-size: 15px; font-weight: 600; z-index: 55; }
+.home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 140px; height: 5px; border-radius: 3px; background: var(--fg); opacity: .8; z-index: 70; }
+.webview { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; }
+.webview::-webkit-scrollbar { display: none; }
+.device { --sat: 54px; } .device.desk { --sat: 0px; }
+.hdr { position: sticky; top: 0; z-index: 30; height: calc(56px + var(--sat)); padding: var(--sat) 8px 0; display: flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); flex: none; }
+.device.desk .hdr { padding: 0 24px; }
+.hdr .ic { width: 44px; height: 44px; display: grid; place-items: center; color: var(--fg); }
+.hdr .ic svg { width: 22px; height: 22px; }
+.device.desk .hdr .ic.menu { display: none; }
+.hdr .brand { font-weight: 800; font-size: 17px; letter-spacing: -.02em; }
+.hdr .sp { flex: 1; }
+.hdr .srch { display: none; }
+.device.desk .hdr .srch { display: flex; align-items: center; gap: 8px; width: 360px; height: 36px; border-radius: 10px; background: var(--raised); color: var(--muted-fg); font-size: 13px; padding: 0 12px; }
+.body-wrap { display: flex; flex: 1; }
+.sidebar { display: none; }
+.device.desk .sidebar { display: flex; flex-direction: column; gap: 2px; width: 240px; flex: none; padding: 12px; background: var(--bg); border-right: 1px solid var(--line); }
+.sidebar a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--muted-fg); font-size: 14px; font-weight: 500; }
+.sidebar a.on { background: var(--down-bg); color: var(--primary); font-weight: 600; }
+.sidebar .grp { padding: 14px 10px 4px; font-size: 12px; color: var(--faint-fg); font-weight: 600; }
+.sidebar a svg { width: 18px; height: 18px; }
+.body { padding: 8px 8px 136px; flex: 1; min-width: 0; }
+.device.desk .body { padding: 24px 24px 40px; max-width: 900px; }
+
+/* 프리미티브 */
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted-fg); } .faint { color: var(--faint-fg); }
+.up { color: var(--up); } .down { color: var(--down); }
+.card { background: var(--card); border-radius: var(--r-lg); padding: 16px; }
+.light .card { box-shadow: 0 0 0 1px var(--line) inset; }
+.h1 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin: 6px 0 12px; }
+.h2 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+.row { display: flex; align-items: center; gap: 8px; } .row.between { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.chip { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--raised); color: var(--fg-2); font-size: 12.5px; font-weight: 600; }
+.divider { height: 1px; background: var(--line); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; padding: 0 14px; border-radius: 12px; background: var(--raised); color: var(--fg); font-size: 14px; font-weight: 600; }
+.btn svg { width: 16px; height: 16px; }
+.btn.ghost { background: transparent; box-shadow: 0 0 0 1px var(--line) inset; }
+.btn.danger { color: var(--up); }
+.screen { display: none; } .screen.on { display: block; }
+.v:not(.on) { display: none !important; }
+
+/* 검색 입력 */
+.search-in { display: flex; align-items: center; gap: 10px; height: 48px; border-radius: 14px; background: var(--raised); padding: 0 14px; color: var(--muted-fg); font-size: 15px; }
+.search-in svg { width: 20px; height: 20px; flex: none; }
+.search-in .q { color: var(--fg); flex: 1; }
+.search-in .clr { width: 18px; height: 18px; border-radius: 50%; background: var(--raised-2); display: grid; place-items: center; font-size: 11px; color: var(--fg); }
+.results .r { display: flex; align-items: center; gap: 10px; height: 52px; }
+.results .r .nm { font-weight: 600; font-size: 15px; }
+.results .r .cd { color: var(--muted-fg); font-size: 12.5px; margin-left: 6px; }
+.results .r .mk { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--muted-fg); background: var(--raised); border-radius: 6px; padding: 2px 6px; }
+.results .r .px { font-weight: 600; font-size: 14px; min-width: 88px; text-align: right; }
+
+/* 진입 카드 — 세로 리스트 */
+.entry { display: flex; align-items: center; gap: 14px; padding: 16px; background: var(--card); border-radius: var(--r-lg); }
+.light .entry { box-shadow: 0 0 0 1px var(--line) inset; }
+.entry .ico { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none; }
+.entry .ico svg { width: 22px; height: 22px; }
+.entry .t { font-size: 16px; font-weight: 700; }
+.entry .d { font-size: 13px; color: var(--muted-fg); margin-top: 2px; }
+.entry .chev { margin-left: auto; color: var(--faint-fg); font-size: 20px; }
+.ico.a { background: var(--up-bg); color: var(--up); } .ico.b { background: var(--down-bg); color: var(--primary); } .ico.c { background: rgba(250,204,21,.16); color: #eab308; }
+/* 진입 타일 — 가로 3열 */
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tile { background: var(--card); border-radius: var(--r-lg); padding: 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.light .tile { box-shadow: 0 0 0 1px var(--line) inset; }
+.tile .ico { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; }
+.tile .ico svg { width: 18px; height: 18px; }
+.tile .t { font-size: 14px; font-weight: 700; }
+.tile .d { font-size: 12px; color: var(--muted-fg); }
+.recent .rc { display: flex; align-items: center; gap: 10px; height: 44px; font-size: 15px; }
+.recent .rc .x { margin-left: auto; color: var(--faint-fg); }
+.section-title { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 8px; }
+.section-title .h2 { font-size: 15px; color: var(--muted-fg); font-weight: 600; }
+.section-title .more { font-size: 13px; color: var(--primary); font-weight: 600; }
+.mini { display: flex; align-items: center; height: 44px; gap: 10px; font-size: 14.5px; }
+.mini .rk { width: 18px; color: var(--muted-fg); font-size: 13px; }
+.mini .nm { font-weight: 600; }
+.mini .pc { margin-left: auto; font-weight: 600; }
+
+/* 계정 카드 */
+.avatar { border-radius: 50%; background: var(--raised-2); display: grid; place-items: center; font-weight: 700; color: var(--fg); overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acct-a { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.acct-a .avatar { width: 44px; height: 44px; font-size: 17px; }
+.acct-a .nm { font-size: 16px; font-weight: 700; }
+.acct-a .em { font-size: 12.5px; color: var(--muted-fg); margin-top: 1px; }
+.acct-a .acts { margin-left: auto; display: flex; gap: 6px; }
+.acct-a .acts .ib { width: 40px; height: 40px; border-radius: 12px; background: var(--raised); display: grid; place-items: center; color: var(--fg); }
+.acct-a .acts .ib svg { width: 18px; height: 18px; }
+.acct-b { padding: 20px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.acct-b .avatar { width: 64px; height: 64px; font-size: 24px; }
+.acct-b .nm { font-size: 18px; font-weight: 700; margin-top: 6px; }
+.acct-b .em { font-size: 13px; color: var(--muted-fg); }
+.acct-b .btns { display: flex; gap: 8px; width: 100%; margin-top: 12px; }
+.acct-b .btns .btn { flex: 1; }
+.acct-c .top { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.acct-c .avatar { width: 40px; height: 40px; font-size: 16px; }
+.acct-c .nm { font-size: 16px; font-weight: 700; }
+.acct-c .em { font-size: 12.5px; color: var(--muted-fg); }
+.acct-c .lrow { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 16px; font-size: 15px; }
+.acct-c .lrow .k { display: flex; align-items: center; gap: 10px; } .acct-c .lrow .k svg { width: 18px; height: 18px; color: var(--muted-fg); }
+.acct-c .lrow .v2 { color: var(--muted-fg); font-size: 14px; }
+.acct-c .lrow .v2::after { content: ' ›'; color: var(--faint-fg); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--raised); }
+.seg span { font-size: 12.5px; font-weight: 600; padding: 0 10px; height: 26px; display: grid; place-items: center; border-radius: 999px; color: var(--muted-fg); }
+.seg span.on { background: var(--card); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.light .seg span.on { background: #fff; }
+/* me 기존 본문 */
+.status-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-fg); padding: 4px 0 10px; }
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 6px var(--primary); display: inline-block; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; font-size: 14px; }
+.kv div { display: flex; justify-content: space-between; } .kv span:first-child { color: var(--muted-fg); }
+
+/* 탭바 A (채택) */
+.tabbar { position: absolute; left: 16px; right: 16px; bottom: 48px; height: 70px; border-radius: 32px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(18px); box-shadow: 0 2px 16px rgba(0,0,0,.18), 0 0 0 1px var(--line) inset; z-index: 90; display: flex; }
+.tabbar .item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 12px; gap: 4px; position: relative; color: var(--muted-fg); }
+.tabbar .item svg { width: 26px; height: 26px; position: relative; }
+.tabbar .item .lb { font-size: 10px; font-weight: 600; position: relative; }
+.tabbar .item.on { color: var(--primary); }
+.tabbar .item.on::before { content: ''; position: absolute; top: 7px; width: 46px; height: 46px; border-radius: 23px; background: color-mix(in srgb, var(--primary) 14%, transparent); }
+.fade { position: absolute; left: 0; right: 0; bottom: 0; height: 150px; z-index: 85; pointer-events: none; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 70%); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2M5.5 9.8V20h4.8v-5.6h3.4V20h4.8V9.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-trade" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ai" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M17.5 13c.25 2 1.2 3 3.2 3.2-2 .25-2.95 1.2-3.2 3.3-.25-2.1-1.2-3.05-3.2-3.3 2-.2 2.95-1.2 3.2-3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-me" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.2 18.4c1.2-2.3 3.3-3.4 5.8-3.4s4.6 1.1 5.8 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-me-f" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.2a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Zm0 12a7.5 7.5 0 0 1-5.6-2.5c1.2-2 3.2-3 5.6-3s4.4 1 5.6 3A7.5 7.5 0 0 1 12 19.2Z" fill="currentColor"/></symbol>
+  <symbol id="i-search-f" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8M14 7h7v7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 4.5-9 4.5-9-4.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.8 2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.7l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10M15 16l4-4-4-4M19 12H9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.3 0 2-.8 2-1.7 0-.9-.6-1.3-.6-2.1 0-.9.7-1.6 1.6-1.6h1.7A4.3 4.3 0 0 0 21 11.3C21 6.7 17 3 12 3Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7.5" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/></symbol>
+</svg>
+
+<div id="variant-nav">
+  <div class="grp"><span class="lbl">화면</span>
+    <button data-page="search" class="active">/search 검색 탭</button>
+    <button data-page="me">/me 마이 탭 (계정 카드)</button>
+  </div>
+  <div class="grp v-search"><span class="lbl">/search 변형</span>
+    <button data-sv="a" class="active">A: 세로 진입 카드 3장</button>
+    <button data-sv="b">B: 3열 타일 + 최근 검색 + 상승률 미리보기 ★ 채택</button>
+    <button data-sv="c">C: 입력만 + 결과 즉시 (진입은 칩)</button>
+  </div>
+  <div class="grp v-me" style="display:none"><span class="lbl">계정 카드 변형</span>
+    <button data-mv="a" class="active">A: 한 줄 + 아이콘 버튼 ★ 채택</button>
+    <button data-mv="b">B: 가운데 아바타 + 버튼 2개</button>
+    <button data-mv="c">C: 설정 리스트형</button>
+  </div>
+  <div class="grp"><span class="lbl">상태</span>
+    <button data-typing="1">검색어 입력 중 (결과 표시)</button>
+  </div>
+  <div class="grp"><span class="lbl">테마</span>
+    <button data-theme="dark" class="active">다크</button>
+    <button data-theme="light">라이트</button>
+  </div>
+  <div class="grp"><span class="lbl">기기</span>
+    <button data-dev="phone" class="active">iPhone 390 (앱)</button>
+    <button data-dev="desk">데스크톱 1280 (웹)</button>
+  </div>
+  <div id="vdesc"></div>
+</div>
+
+<div id="stage">
+  <div class="device phone" id="dev">
+    <div class="island"></div>
+    <div class="statusbar"><span class="num">9:41</span><span>●●● ᯤ ▮</span></div>
+    <div class="webview">
+      <header class="hdr">
+        <span class="ic menu"><svg><use href="#i-menu"/></svg></span>
+        <span class="brand">GH Trade</span>
+        <span class="sp"></span>
+        <span class="srch"><svg style="width:16px;height:16px"><use href="#i-search"/></svg>종목명 또는 코드 검색 <span style="margin-left:auto;font-size:11px">⌘K</span></span>
+        <span class="ic"><svg><use href="#i-search"/></svg></span>
+      </header>
+      <div class="body-wrap">
+        <aside class="sidebar">
+          <a data-side="home"><svg><use href="#i-home"/></svg>홈</a>
+          <a data-side="search"><svg><use href="#i-search"/></svg>검색</a>
+          <div class="grp">종목검색</div>
+          <a><svg><use href="#i-trend"/></svg>상승률 상위</a>
+          <a><svg><use href="#i-layers"/></svg>테마</a>
+          <a><svg><use href="#i-star"/></svg>관심종목</a>
+          <div class="grp">트레이딩</div>
+          <a><svg><use href="#i-trade"/></svg>트레이딩</a>
+          <a data-side="me"><svg><use href="#i-me"/></svg>My page</a>
+          <a><svg><use href="#i-ai"/></svg>AI 애널리스트</a>
+        </aside>
+        <div class="body">
+
+          <!-- ───────── /search ───────── -->
+          <section class="screen s-search on">
+            <div class="h1">검색</div>
+            <div class="search-in"><svg><use href="#i-search"/></svg><span class="q ph">종목명 또는 코드</span><span class="clr typing-only" style="display:none">✕</span></div>
+
+            <!-- 결과 (입력 중) -->
+            <div class="results typing-only card" style="display:none;margin-top:10px;padding:4px 16px">
+              <div class="r"><span class="nm">에코프로</span><span class="cd num">086520</span><span class="mk">KOSDAQ</span><span class="px num up">1,234,000 +29.9%</span></div>
+              <div class="divider"></div>
+              <div class="r"><span class="nm">에코프로비엠</span><span class="cd num">247540</span><span class="mk">KOSDAQ</span><span class="px num up">312,500 +8.2%</span></div>
+              <div class="divider"></div>
+              <div class="r"><span class="nm">에코프로에이치엔</span><span class="cd num">383310</span><span class="mk">KOSDAQ</span><span class="px num down">61,200 −1.4%</span></div>
+              <div class="divider"></div>
+              <div class="r"><span class="nm">에코프로머티</span><span class="cd num">450080</span><span class="mk">KOSPI</span><span class="px num up">98,700 +3.1%</span></div>
+            </div>
+
+            <!-- A: 세로 진입 카드 -->
+            <div class="v sv-a on idle-only">
+              <div class="stack" style="margin-top:14px">
+                <div class="entry"><span class="ico a"><svg><use href="#i-trend"/></svg></span><div><div class="t">상승률 상위</div><div class="d">상한가 근접 종목 실시간 스캔 · 25% 기준</div></div><span class="chev">›</span></div>
+                <div class="entry"><span class="ico b"><svg><use href="#i-layers"/></svg></span><div><div class="t">테마</div><div class="d">오늘 움직인 테마와 소속 종목</div></div><span class="chev">›</span></div>
+                <div class="entry"><span class="ico c"><svg><use href="#i-star"/></svg></span><div><div class="t">관심종목</div><div class="d">저장한 종목 12 · 실시간 시세</div></div><span class="chev">›</span></div>
+              </div>
+            </div>
+
+            <!-- B: 3열 타일 + 최근 검색 + 상승률 미리보기 -->
+            <div class="v sv-b idle-only">
+              <div class="tiles" style="margin-top:14px">
+                <div class="tile"><span class="ico a"><svg><use href="#i-trend"/></svg></span><div><div class="t">상승률 상위</div><div class="d">25%↑ 48종목</div></div></div>
+                <div class="tile"><span class="ico b"><svg><use href="#i-layers"/></svg></span><div><div class="t">테마</div><div class="d">오늘 12개</div></div></div>
+                <div class="tile"><span class="ico c"><svg><use href="#i-star"/></svg></span><div><div class="t">관심종목</div><div class="d">12종목</div></div></div>
+              </div>
+              <div class="section-title"><span class="h2">최근 검색</span><span class="more">지우기</span></div>
+              <div class="card recent" style="padding:2px 16px">
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>에코프로<span class="x">✕</span></div>
+                <div class="divider"></div>
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>두산에너빌리티<span class="x">✕</span></div>
+                <div class="divider"></div>
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>레인보우로보틱스<span class="x">✕</span></div>
+              </div>
+              <div class="section-title"><span class="h2">지금 상승률 상위</span><span class="more">더보기 ›</span></div>
+              <div class="card" style="padding:2px 16px">
+                <div class="mini"><span class="rk">1</span><span class="nm">에코프로</span><span class="pc num up">+29.9%</span></div><div class="divider"></div>
+                <div class="mini"><span class="rk">2</span><span class="nm">엘앤에프</span><span class="pc num up">+21.3%</span></div><div class="divider"></div>
+                <div class="mini"><span class="rk">3</span><span class="nm">레인보우로보틱스</span><span class="pc num up">+16.2%</span></div><div class="divider"></div>
+                <div class="mini"><span class="rk">4</span><span class="nm">천보</span><span class="pc num up">+15.0%</span></div><div class="divider"></div>
+                <div class="mini"><span class="rk">5</span><span class="nm">후성</span><span class="pc num up">+12.8%</span></div>
+              </div>
+            </div>
+
+            <!-- C: 입력 + 칩 -->
+            <div class="v sv-c idle-only">
+              <div class="row" style="gap:6px;margin-top:12px;flex-wrap:wrap">
+                <span class="chip"><svg style="width:14px;height:14px;margin-right:4px;color:var(--up)"><use href="#i-trend"/></svg>상승률 상위</span>
+                <span class="chip"><svg style="width:14px;height:14px;margin-right:4px;color:var(--primary)"><use href="#i-layers"/></svg>테마</span>
+                <span class="chip"><svg style="width:14px;height:14px;margin-right:4px;color:#eab308"><use href="#i-star"/></svg>관심종목</span>
+              </div>
+              <div class="section-title"><span class="h2">최근 검색</span><span class="more">지우기</span></div>
+              <div class="recent">
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>에코프로<span class="x">✕</span></div>
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>두산에너빌리티<span class="x">✕</span></div>
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>레인보우로보틱스<span class="x">✕</span></div>
+                <div class="rc"><svg style="width:16px;height:16px;color:var(--faint-fg)"><use href="#i-clock"/></svg>한미반도체<span class="x">✕</span></div>
+              </div>
+              <div class="faint" style="font-size:12.5px;margin-top:24px;text-align:center">종목명 또는 6자리 코드를 입력하세요</div>
+            </div>
+          </section>
+
+          <!-- ───────── /me ───────── -->
+          <section class="screen s-me">
+            <div class="h1">My page</div>
+
+            <!-- A: 한 줄 -->
+            <div class="v mv-a on card acct-a" style="padding:0">
+              <div class="acct-a" style="width:100%">
+                <span class="avatar">A</span>
+                <div><div class="nm">Alex</div><div class="em">ezmesya@gmail.com</div></div>
+                <div class="acts"><span class="ib" title="테마"><svg class="theme-ic"><use href="#i-sun"/></svg></span><span class="ib" title="로그아웃" style="color:var(--up)"><svg><use href="#i-logout"/></svg></span></div>
+              </div>
+            </div>
+
+            <!-- B: 가운데 -->
+            <div class="v mv-b card acct-b">
+              <span class="avatar">A</span>
+              <div class="nm">Alex</div><div class="em">ezmesya@gmail.com</div>
+              <div class="btns"><span class="btn"><svg class="theme-ic"><use href="#i-sun"/></svg>라이트 모드로</span><span class="btn ghost danger"><svg><use href="#i-logout"/></svg>로그아웃</span></div>
+            </div>
+
+            <!-- C: 설정 리스트형 -->
+            <div class="v mv-c card acct-c" style="padding:0">
+              <div class="top"><span class="avatar">A</span><div><div class="nm">Alex</div><div class="em">ezmesya@gmail.com</div></div></div>
+              <div class="divider" style="margin:0 16px"></div>
+              <div class="lrow"><span class="k"><svg><use href="#i-palette"/></svg>테마</span><span class="seg"><span class="seg-l">라이트</span><span class="on seg-d">다크</span></span></div>
+              <div class="divider" style="margin:0 16px"></div>
+              <div class="lrow"><span class="k"><svg><use href="#i-logout"/></svg>로그아웃</span><span class="v2">Google 계정</span></div>
+            </div>
+
+            <!-- 기존 MeClient 본문 -->
+            <div class="status-line" style="margin-top:16px"><span class="led"></span>DMA 연결 · 계좌 2 · 14:31:07 KST</div>
+            <div class="h2" style="margin:4px 0 8px">전략 현황</div>
+            <div class="card">
+              <div class="row between"><b>에코프로</b><span class="row" style="gap:5px"><span class="led" style="background:var(--up);box-shadow:0 0 6px var(--up)"></span><span class="led" style="background:var(--raised-2);box-shadow:none"></span><span class="led" style="background:var(--raised-2);box-shadow:none"></span></span></div>
+              <div class="muted" style="font-size:13px;margin-top:4px">매수 감시 · 매도 OFF · 취소 대기 · KRX</div>
+              <div class="divider" style="margin:10px 0"></div>
+              <div class="row between"><b>레인보우로보틱스</b><span class="row" style="gap:5px"><span class="led" style="background:var(--up);box-shadow:0 0 6px var(--up)"></span><span class="led" style="background:var(--up);box-shadow:0 0 6px var(--up)"></span><span class="led" style="background:var(--raised-2);box-shadow:none"></span></span></div>
+              <div class="muted" style="font-size:13px;margin-top:4px">매수 감시 · 매도 감시 · 취소 대기 · KRX</div>
+            </div>
+            <div class="h2" style="margin:16px 0 8px">계좌 1234-5678 · 미체결</div>
+            <div class="card"><div class="row between"><span>두산에너빌리티 매수</span><span class="num">27,800 × 100</span></div><div class="muted" style="font-size:13px;margin-top:4px">14:12:03 · 지정가 · KRX</div></div>
+            <div class="h2" style="margin:16px 0 8px">계좌 1234-5678 · 잔고</div>
+            <div class="card"><div class="kv"><div><span>예수금</span><span class="num">12,340,000</span></div><div><span>평가금액</span><span class="num">48,120,500</span></div><div><span>에코프로</span><span class="num up">+18.4%</span></div><div><span>엘앤에프</span><span class="num up">+9.2%</span></div></div></div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="fade"></div>
+    <nav class="tabbar">
+      <div class="item"><svg><use href="#i-home"/></svg><span class="lb">홈</span></div>
+      <div class="item tb-search on"><svg><use href="#i-search-f"/></svg><span class="lb">검색</span></div>
+      <div class="item"><svg><use href="#i-trade"/></svg><span class="lb">트레이딩</span></div>
+      <div class="item"><svg><use href="#i-ai"/></svg><span class="lb">AI</span></div>
+      <div class="item tb-me"><svg><use href="#i-me"/></svg><span class="lb">마이</span></div>
+    </nav>
+    <div class="home-ind"></div>
+  </div>
+</div>
+
+<div id="sketch-tools" style="position:fixed;bottom:12px;right:12px;z-index:9999;font-family:system-ui;font-size:12px;background:rgba(0,0,0,.72);color:#fff;padding:8px 12px;border-radius:8px;opacity:.45" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.45'">sketch 005 · /search A/B/C · /me 계정 카드 A/B/C · 다크/라이트 · 폰(앱)/데스크톱(웹)</div>
+
+<script>
+const DESC = {
+  search: {
+    a: '<b>/search A · 세로 진입 카드 3장</b> — 검색 입력(48px) 아래 상승률 상위·테마·관심종목 카드가 세로로. 사이드바 「종목검색」 그룹의 3항목을 그대로 옮긴 가장 단순한 형태. 카드에 한 줄 설명.',
+    b: '<b>/search B · 3열 타일 + 최근 검색 + 상승률 미리보기</b> — 진입은 작은 타일 3개로 압축하고, 남는 자리에 최근 검색(localStorage)과 「지금 상승률 상위 5」 미리보기(기존 scanner API 재사용). 탭이 「탐색 허브」가 됨. 만들 것이 가장 많음.',
+    c: '<b>/search C · 입력 중심</b> — 진입은 칩 3개로 최소화, 최근 검색만. 검색 자체가 목적인 화면. 가장 가볍지만 진입점의 존재감이 약함.',
+  },
+  me: {
+    a: '<b>계정 카드 A · 한 줄 + 아이콘 버튼</b> — 아바타 44 · 이름 · 이메일 | 우측 테마(해/달)·로그아웃 아이콘 버튼 40. 높이 72 로 기존 본문을 거의 밀지 않음. 사이드바 유저 섹션과 같은 정보량.',
+    b: '<b>계정 카드 B · 가운데 아바타 + 버튼 2개</b> — 아바타 64 가운데, 그 아래 이름·이메일, 풀폭 버튼 「라이트/다크 모드로」·「로그아웃」. 토스 「내 정보」 톤. 높이 ≈190 으로 본문을 가장 많이 밈.',
+    c: '<b>계정 카드 C · 설정 리스트형</b> — 상단 아바타·이름·이메일, 아래 「테마 [라이트|다크] 세그먼트」·「로그아웃 · Google 계정 ›」 48px 행 2개(Phase 20 리스트 행 톤). 항목이 늘어도 행만 추가.',
+  }
+};
+const state = { page: 'search', sv: 'a', mv: 'a', typing: false, theme: 'dark', dev: 'phone' };
+function fit() {
+  const nav = document.getElementById('variant-nav').offsetHeight;
+  const avail = window.innerHeight - nav - 48;
+  const d = document.getElementById('dev');
+  const base = state.dev === 'desk' ? 800 : 844;
+  const sc = Math.min(1, avail / base);
+  d.style.transform = `scale(${sc})`;
+  d.style.marginBottom = `${-(base * (1 - sc))}px`;
+}
+window.addEventListener('resize', fit);
+function apply() {
+  document.body.classList.toggle('light-chrome', state.theme === 'light');
+  document.getElementById('theme-css').href = state.theme === 'dark' ? '../themes/toss-dark.css' : '../themes/toss-light.css';
+  const d = document.getElementById('dev');
+  d.classList.toggle('light', state.theme === 'light');
+  d.classList.toggle('desk', state.dev === 'desk');
+  d.classList.toggle('phone', state.dev !== 'desk');
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.classList.contains('s-' + state.page)));
+  document.querySelector('.v-search').style.display = state.page === 'search' ? '' : 'none';
+  document.querySelector('.v-me').style.display = state.page === 'me' ? '' : 'none';
+  document.querySelectorAll('.sv-a,.sv-b,.sv-c').forEach(e => e.classList.toggle('on', e.classList.contains('sv-' + state.sv)));
+  document.querySelectorAll('.mv-a,.mv-b,.mv-c').forEach(e => e.classList.toggle('on', e.classList.contains('mv-' + state.mv)));
+  const typing = state.typing && state.page === 'search';
+  document.querySelectorAll('.typing-only').forEach(e => e.style.display = typing ? '' : 'none');
+  document.querySelectorAll('.idle-only').forEach(e => e.style.visibility = typing ? 'hidden' : '');
+  document.querySelectorAll('.idle-only').forEach(e => e.style.display = typing ? 'none' : (e.classList.contains('on') ? '' : 'none'));
+  const q = document.querySelector('.search-in .q');
+  q.textContent = typing ? '에코프' : '종목명 또는 코드'; q.classList.toggle('ph', !typing); q.style.color = typing ? 'var(--fg)' : 'var(--muted-fg)';
+  document.querySelector('.tb-search').classList.toggle('on', state.page === 'search');
+  document.querySelector('.tb-me').classList.toggle('on', state.page === 'me');
+  document.querySelector('.tb-me svg use').setAttribute('href', state.page === 'me' ? '#i-me-f' : '#i-me');
+  document.querySelector('.tb-search svg use').setAttribute('href', state.page === 'search' ? '#i-search-f' : '#i-search');
+  document.querySelectorAll('.sidebar a').forEach(a => a.classList.toggle('on', a.dataset.side === state.page));
+  document.querySelectorAll('.theme-ic use').forEach(u => u.setAttribute('href', state.theme === 'dark' ? '#i-sun' : '#i-moon'));
+  document.querySelectorAll('.mv-b .btn span, .mv-b .btn').forEach(() => {});
+  const bLabel = document.querySelector('.mv-b .btns .btn'); if (bLabel) bLabel.lastChild.textContent = state.theme === 'dark' ? '라이트 모드로' : '다크 모드로';
+  document.querySelectorAll('.seg-l').forEach(e => e.classList.toggle('on', state.theme === 'light'));
+  document.querySelectorAll('.seg-d').forEach(e => e.classList.toggle('on', state.theme === 'dark'));
+  document.getElementById('vdesc').innerHTML = state.page === 'search' ? DESC.search[state.sv] : DESC.me[state.mv];
+  document.querySelectorAll('#variant-nav button').forEach(b => {
+    const d = b.dataset; let on = false;
+    if (d.page) on = d.page === state.page; else if (d.sv) on = d.sv === state.sv; else if (d.mv) on = d.mv === state.mv;
+    else if (d.typing) on = state.typing; else if (d.theme) on = d.theme === state.theme; else if (d.dev) on = d.dev === state.dev;
+    b.classList.toggle('active', on);
+  });
+  fit();
+}
+document.querySelectorAll('#variant-nav button').forEach(b => b.addEventListener('click', () => {
+  const d = b.dataset;
+  if (d.page) state.page = d.page; else if (d.sv) state.sv = d.sv; else if (d.mv) state.mv = d.mv;
+  else if (d.typing) state.typing = !state.typing; else if (d.theme) state.theme = d.theme; else if (d.dev) state.dev = d.dev;
+  apply();
+}));
+document.querySelector('.tb-me').addEventListener('click', () => { state.page = 'me'; apply(); });
+document.querySelector('.tb-search').addEventListener('click', () => { state.page = 'search'; apply(); });
+apply();
+</script>
+</body>
+</html>
