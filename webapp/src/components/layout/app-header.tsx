@@ -25,7 +25,7 @@ export interface AppHeaderProps {
  * AppHeader — UI-SPEC §4.1 / §4.2 공통 헤더.
  * - 56px sticky top-0, `bg-[--bg]/80 backdrop-blur-md` · 아래 테두리 없음(B `--hdr-bd: 0` — 옛 투명 1px 테두리는
  *   Phase 21 D-25 의 `box-content` 전환 때 걷었다: content-box 에서 1px 이 높이 57 을 만든다)
- * - 좌측: 로고(`gh-radar`, `/` 로 이동) + 햄버거 버튼(<lg 만 표시, 44×44)
+ * - 좌측: 로고(`GH Trade` — 표시명만 바꿨다 · D-21, `/` 로 이동) + 햄버거 버튼(<lg 만 표시, 44×44)
  * - 중앙: `nav` slot — Phase 6 이후 AppShell 이 `<GlobalSearch />` 를 주입.
  *   ★ 정렬이 폭에 따라 다르다 — `<lg` 는 **우측 정렬**(검색 아이콘 버튼이 탑바 오른쪽 끝),
  *   `lg+` 는 가운데(readonly 입력). 모바일에서 아이콘 하나가 어정쩡하게 가운데 뜨지 않게 한다.
@@ -86,11 +86,11 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
         )}
         <Link
           href="/"
-          aria-label="gh-radar 홈"
+          aria-label="GH Trade 홈"
           className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         >
           <h3 className="text-[length:var(--t-lg)] font-bold tracking-[-0.01em] text-[var(--fg)]">
-            gh-radar
+            GH Trade
           </h3>
         </Link>
       </div>

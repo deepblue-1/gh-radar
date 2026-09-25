@@ -11,7 +11,7 @@ function AppShellMock() {
       <div className="flex h-10 items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-3">
         <div className="flex items-center gap-2">
           <div className="h-5 w-5 rounded-[var(--r-sm)] bg-[var(--muted)]" />
-          <div className="text-[length:var(--t-caption)] font-bold">gh-radar</div>
+          <div className="text-[length:var(--t-caption)] font-bold">GH Trade</div>
         </div>
         <div className="h-5 w-5 rounded-[var(--r-sm)] bg-[var(--muted)]" />
       </div>
@@ -40,7 +40,7 @@ function CenterShellMock() {
   return (
     <div className="max-h-[420px] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)]">
       <div className="flex h-10 items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-3">
-        <div className="text-[length:var(--t-caption)] font-bold">gh-radar</div>
+        <div className="text-[length:var(--t-caption)] font-bold">GH Trade</div>
         <div className="h-5 w-5 rounded-[var(--r-sm)] bg-[var(--muted)]" />
       </div>
       <div className="h-[calc(420px-40px)] bg-[var(--muted)] p-3">

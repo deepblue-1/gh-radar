@@ -19,7 +19,7 @@ import { SpacingSection } from './_sections/spacing';
 import { TypographySection } from './_sections/typography';
 
 export const metadata = {
-  title: 'Design Catalog · gh-radar',
+  title: 'Design Catalog · GH Trade',
   description: 'Phase 3 디자인 시스템 카탈로그 — 토큰·컴포넌트·레이아웃 시각화 (BBAA preset)',
 };
 
@@ -38,7 +38,7 @@ function IntroSection() {
       <div>
         <h1 className="text-[length:var(--t-h1)] font-bold">Design Catalog</h1>
         <p className="mt-2 text-[length:var(--t-base)] text-[var(--muted-fg)]">
-          Phase 3 · gh-radar 디자인 시스템. 이 페이지는 토큰·컴포넌트·레이아웃 전체를 한 화면에
+          Phase 3 · GH Trade 디자인 시스템. 이 페이지는 토큰·컴포넌트·레이아웃 전체를 한 화면에
           회수하는 단일 소스다. 우측 상단 ThemeToggle(CenterShell 전용 — 사이드바가 있는 화면에서는
           사이드바 하단에 있다)로 Light / Dark / System 을 실시간 전환할 수 있다.
         </p>

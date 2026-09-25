@@ -64,7 +64,7 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-[var(--surface)] p-[var(--s-6)]">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="mt-4 text-xl">gh-radar에 로그인</CardTitle>
+          <CardTitle className="mt-4 text-xl">GH Trade에 로그인</CardTitle>
           <p className="text-sm text-[var(--muted-fg)]">
             Google 계정으로 로그인하고 관심종목을 저장하세요
           </p>

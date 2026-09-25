@@ -15,7 +15,7 @@ import { NATIVE_DETECT_SCRIPT } from '@/lib/native/native-detect';
 import { NativeBridgeProvider } from '@/lib/native/native-bridge-provider';
 
 export const metadata: Metadata = {
-  title: 'gh-radar',
+  title: 'GH Trade',
   description: '한국 주식 실시간 상한가 근접 종목 탐색',
 };
 
