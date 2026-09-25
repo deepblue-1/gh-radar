@@ -171,6 +171,7 @@ import { useAuth } from "@/lib/auth-context";
 import { readColsPref, type TradingCols } from "@/lib/breakout-list";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
+import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
@@ -569,6 +570,8 @@ function WorkbenchSurface() {
     messages,
     reconnect,
   } = relay;
+  // D-16 — relay 재탐침. 편집 중 수동주문 입력은 컴포넌트 로컬 상태라 유지된다.
+  useNativeRefresh(relay.probeNow);
   const labels = useIsinLabels();
   /*
     ④ — 라벨 Map 은 계좌 델타마다 새 인스턴스다. 콜백이 Map 을 의존성으로 잡으면 콜백이 매번 바뀌어

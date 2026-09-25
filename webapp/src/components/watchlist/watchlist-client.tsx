@@ -2,6 +2,7 @@
 
 import { InfoStockCard } from '@/components/stock/info-stock-card';
 import { useWatchlistQuery } from '@/hooks/use-watchlist-query';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import type { StockWithProximity } from '@/lib/scanner-api';
 import type { WatchlistRow } from '@/lib/watchlist-api';
 
@@ -59,8 +60,10 @@ function formatKstTime(ms: number | null): string {
 }
 
 export function WatchlistClient() {
-  const { data, isLoading, isRefreshing, error, lastUpdatedAt } =
+  const { data, isLoading, isRefreshing, error, lastUpdatedAt, refresh } =
     useWatchlistQuery();
+  // D-04 — 앱 당겨서 새로고침은 관심종목 목록만 다시 읽는다.
+  useNativeRefresh(refresh);
   const fmtTime = formatKstTime(lastUpdatedAt);
 
   return (

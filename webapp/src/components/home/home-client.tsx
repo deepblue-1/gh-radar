@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { useHomeQuery } from '@/hooks/use-home-query';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 
 import { CopyTextButton } from './copy-text-button';
 import { HomeEmpty } from './home-empty';
@@ -42,6 +43,8 @@ export function HomeClient() {
       : {},
     { autoRefresh: selected === null },
   );
+  // D-04 — 앱 당겨서 새로고침은 지금 보고 있는 스냅샷만 다시 읽는다(웹 브라우저에서는 등록만).
+  useNativeRefresh(refresh);
 
   const snapshot = data?.snapshot ?? null;
   // useMemo — index 안정 identity 로 아래 useCallback 재생성 방지 (data 불변 시 동일 참조).

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { usePolling } from '@/hooks/use-polling';
 import { AUTO_REFRESH_INTERVAL_MS } from '@/lib/auto-refresh-window';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { fetchScannerStocks } from '@/lib/scanner-api';
 import {
   parseScannerSearchParams,
@@ -47,6 +48,8 @@ export function ScannerClient() {
       key,
       cacheKey: `scanner:${key}`,
     });
+  // D-04 — 앱 당겨서 새로고침은 현재 필터의 목록만 다시 읽는다.
+  useNativeRefresh(refresh);
 
   // Phase 05.2 D-17/D-18: 갱신시각 소스를 서버 X-Last-Updated-At 헤더로 교체.
   // data: { stocks, lastUpdatedAt: string | null } | undefined

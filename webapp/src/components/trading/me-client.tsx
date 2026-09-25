@@ -51,6 +51,7 @@ import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
 import { StrategyStatusCard } from "@/components/trading/strategy-status-card";
 import { TodayOrdersCard } from "@/components/trading/today-orders-card";
+import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
 import { viAnyRunning, type RelayStatus } from "@/lib/use-relay-socket";
 import { cn } from "@/lib/utils";
@@ -196,7 +197,9 @@ function MeStatusBar() {
 
 export function MeClient() {
   const gateReason = useDmaGateReason();
-  const { accounts, accountStates, status } = useRelayContext();
+  const { accounts, accountStates, status, probeNow } = useRelayContext();
+  // D-16 — relay 재탐침. 계좌·잔고·미체결은 relay 푸시라 죽은 소켓만 다시 연다.
+  useNativeRefresh(probeNow);
 
   if (gateReason !== null) {
     return <DmaGate reason={gateReason} surface="전략·잔고·미체결" />;

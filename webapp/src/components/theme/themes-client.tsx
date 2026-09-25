@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { useThemesQuery } from '@/hooks/use-themes-query';
+import { useNativeRefresh } from '@/lib/native/use-native-refresh';
 import { cn } from '@/lib/utils';
 
 import { ThemeEditDialog, type ThemeEditMode } from './theme-edit-dialog';
@@ -43,6 +44,8 @@ export function ThemesClient() {
     upsertMyTheme,
     removeMyTheme,
   } = useThemesQuery();
+  // D-04 — 앱 당겨서 새로고침은 테마 목록만 다시 읽는다.
+  useNativeRefresh(refresh);
   const { user } = useAuth();
 
   const [dialogOpen, setDialogOpen] = useState(false);
