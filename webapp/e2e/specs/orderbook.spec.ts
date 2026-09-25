@@ -412,40 +412,74 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
   });
 
   /*
-    11. 18-10 인계 — 호가 탭의 더티 바 오른쪽 끝이 AI FAB 앞에서 멈춘다(두 폭).
-    작업대 카드와 달리 종목상세에는 FAB 이 있다(`CHAT_FAB_CLEARANCE_CLASS`). z-index 로 덮으면 한쪽이
-    조용히 가려지므로 **두 상자가 겹치지 않음**을 잰다 — 18-10 은 임시 스크립트로만 실측했다.
+    11. 18-10 인계 재정의(Phase 20 · D-13) — 옛 11 은 호가 탭 더티 바와 AI FAB 의 겹침 0 을 쟀다.
+    더티 바는 D-04 로 사라졌고(값은 확정 즉시 반영), 호가 탭에서 FAB 과 겹칠 수 있는 새 표면은 **터치 기기의
+    키패드 시트**다. 시트는 body 포털 · `z-50` 이고 FAB 은 `z-40` 이다 — 그래서 이번에는 반대 방향을 잰다:
+    시트가 FAB **위**에 뜨고(FAB 중심의 최상위 요소가 시트/딤) 확정 버튼 중심의 최상위 요소가 확정 버튼
+    자신이다(가로챔 0). 폭은 min(440, 100vw − 20) 가운데(390 → 370 · 1440 → 440).
+    ★ 이 describe 는 바깥 describe 안에 중첩한다 — relay beforeAll/afterAll · beforeEach 를 공유하고,
+      게이트웨이를 내리는 9(마지막)보다 **먼저** 돈다.
   */
-  test('11. 호가 탭 더티 바와 AI FAB 의 boundingBox 가 겹치지 않는다 — 390 · 1440 (18-10 인계 · D-28)', async ({
-    page,
-  }) => {
-    // 더티 바는 **등록된 전략**을 고칠 때 선다(미등록 폼은 스위치 즉시 전송) — 이 종목 전략을 심는다.
-    relay.seedLimitChasers([{ buyEnabled: true }]);
-    for (const viewport of [MOBILE_VIEWPORT, { width: 1440, height: 1000 }]) {
-      await page.setViewportSize(viewport);
-      await page.goto(ORDERBOOK_URL);
-      await waitForReady(page);
-      await expect(page.locator('#lc-buy-watch-qty')).toBeVisible({ timeout: 15_000 });
-      await expect(page.locator('#lc-buy-watch-qty')).toHaveValue('10,000', { timeout: 15_000 });
-      await page.locator('#lc-buy-watch-qty').fill('8000');
+  test.describe('Phase 20 — 호가 탭 시트(터치)', () => {
+    test.use({ hasTouch: true });
 
-      const bar = page.locator('[data-slot="dirty-action-bar"]');
-      const fab = page.getByRole('button', { name: /^AI/ });
-      await expect(bar).toBeVisible();
-      await expect(fab).toBeVisible();
-      const barBox = await bar.boundingBox();
-      const fabBox = await fab.boundingBox();
-      expect(barBox).not.toBeNull();
-      expect(fabBox).not.toBeNull();
-      const overlapX = Math.min(barBox!.x + barBox!.width, fabBox!.x + fabBox!.width) - Math.max(barBox!.x, fabBox!.x);
-      const overlapY = Math.min(barBox!.y + barBox!.height, fabBox!.y + fabBox!.height) - Math.max(barBox!.y, fabBox!.y);
-      expect(
-        overlapX > 1 && overlapY > 1,
-        `뷰포트 ${viewport.width} — 더티 바 [${barBox!.x}, ${barBox!.x + barBox!.width}] × FAB [${fabBox!.x}, ${fabBox!.x + fabBox!.width}]`,
-      ).toBe(false);
-      // 「수정」이 실제로 눌린다(FAB 이 포인터를 가로채지 않는다).
-      await expect(bar.getByRole('button', { name: '수정' })).toBeEnabled();
-    }
+    test('11. 호가 탭 키패드 시트는 AI FAB 위에 뜨고 확정 버튼이 가려지지 않는다 — 390 · 1440 (D-13 · 18-10 인계 재정의)', async ({
+      page,
+    }) => {
+      relay.seedLimitChasers([{ buyEnabled: true }]);
+      for (const viewport of [MOBILE_VIEWPORT, { width: 1440, height: 1000 }]) {
+        await page.setViewportSize(viewport);
+        await page.goto(ORDERBOOK_URL);
+        await waitForReady(page);
+        const row = page.locator('[data-lc-field="lc-buy-watch-qty"]');
+        await expect(row.locator('[data-slot="lc-row-value"]')).toHaveText('10,000주', { timeout: 15_000 });
+        // 터치 기기 — 행은 시트를 여는 버튼이다(인라인 입력칸이 생기지 않는다).
+        await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+
+        // FAB 은 시트가 열리면 aria-hidden 이 된다 — 열기 전에 잰다.
+        const fab = page.getByRole('button', { name: /^AI/ });
+        await expect(fab).toBeVisible();
+        const fabBox = await fab.boundingBox();
+        expect(fabBox).not.toBeNull();
+
+        await row.tap();
+        await expect(page.locator('#lc-buy-watch-qty')).toHaveCount(0);
+        const sheet = page.locator('[data-slot="numpad-sheet"]');
+        await expect(sheet).toBeVisible({ timeout: 10_000 });
+        await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+
+        // 기하(D-13) — 폭 min(440, 100vw − 20) · 가운데.
+        const box = await sheet.boundingBox();
+        expect(box).not.toBeNull();
+        const expectedW = Math.min(440, viewport.width - 20);
+        expect(Math.abs(box!.width - expectedW), `뷰포트 ${viewport.width} — 시트 폭`).toBeLessThanOrEqual(1);
+        expect(Math.abs(box!.x - (viewport.width - expectedW) / 2), `뷰포트 ${viewport.width} — 가운데`).toBeLessThanOrEqual(1);
+
+        // ★ 확정 버튼 중심의 최상위 요소 = 확정 버튼(또는 그 자손) — FAB 이 포인터를 가로채지 않는다.
+        const confirm = sheet.locator('[data-slot="numpad-confirm"]');
+        await expect(confirm).toHaveText('잔량 적용');
+        const confirmOnTop = await confirm.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return top !== null && (top === el || el.contains(top));
+        });
+        expect(confirmOnTop, `뷰포트 ${viewport.width} — 확정 버튼 중심의 최상위 요소`).toBe(true);
+
+        // ★ FAB 중심의 최상위 요소는 시트 또는 딤이다 — 시트가 FAB 위(z)에 떴다.
+        const fabCovered = await page.evaluate(
+          ({ x, y }) => {
+            const top = document.elementFromPoint(x, y);
+            return top?.closest('[data-slot="numpad-sheet"], [data-slot="numpad-overlay"]') != null;
+          },
+          { x: fabBox!.x + fabBox!.width / 2, y: fabBox!.y + fabBox!.height / 2 },
+        );
+        expect(fabCovered, `뷰포트 ${viewport.width} — FAB 은 시트/딤 아래`).toBe(true);
+
+        await sheet.getByRole('button', { name: '닫기' }).tap();
+        await expect(sheet).toHaveCount(0, { timeout: 10_000 });
+        await expect(row).toBeFocused();
+      }
+    });
   });
 
   test('9. 회선 단절 → `재접속 중` 배지 + **사다리는 비워지지 않는다**', async ({ page }) => {

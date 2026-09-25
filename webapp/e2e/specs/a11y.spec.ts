@@ -326,7 +326,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       status · VI 확인 체크 탭 제외 · 데드라인 progressbar · 거부 경보. 판정(axe 위반 0)은 그대로다.
   */
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading — 위반 0 + 사이드바 제목 활성 · LED 묶음 라벨 1개 · 스위치 3종 · 호가 비포커스 · 검색 결선', async ({
+  test('/trading — 위반 0 + 사이드바 제목 활성 · LED 묶음 라벨 1개 · 스위치 4종(role=switch) · 같은 이름 값 버튼의 그룹 설명 · 호가 비포커스 · 검색 결선', async ({
     page,
   }) => {
     await page.goto(`/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`);
@@ -370,10 +370,15 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       .getAttribute('aria-label');
     expect(second).not.toBe(label);
 
-    // ③ 스위치 3종 — 시각 라벨이 없으므로 `aria-label` 이 유일한 이름이다(펼친 카드 1장).
-    for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기']) {
-      await expect(openCard.getByRole('checkbox', { name, exact: true })).toHaveCount(1);
+    // ③ 그룹 스위치 4종 — Phase 20 부터 `role="switch"`(Radix Switch) · 매수취소도 스위치다(D-21).
+    //    시각 라벨이 없으므로 `aria-label` 이 유일한 이름이다(펼친 카드 1장).
+    for (const name of ['매수주문 켜기', '매도주문 켜기', '한방체결 켜기', '매수취소 켜기']) {
+      await expect(openCard.getByRole('switch', { name, exact: true })).toHaveCount(1);
     }
+    // ③-b ≥700 두 열 — 매수·매도 쪽 「비교가격」 값 버튼은 이름 계약(「{라벨} {값}{단위}」)상 같은 꼴이라
+    //      설명(그룹 제목)으로 갈린다(20-07 a11y).
+    await expect(openCard.locator('[data-lc-field="lc-buy-watch-price"]')).toHaveAccessibleDescription('매수주문');
+    await expect(openCard.locator('[data-lc-field="lc-sell-watch-price"]')).toHaveAccessibleDescription('매도주문');
 
     // ④ 상태줄 DMA 필은 `aria-live="polite"` — 포커스를 뺏지 않고 갱신을 알린다.
     await expect(page.locator('[data-slot="workbench-dma"]')).toHaveAttribute('aria-live', 'polite');
@@ -410,7 +415,7 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  test('/trading (모바일 390) — 카드 탭 3종 · 비활성 pane 비가시·탭 제외 · 사다리 스크롤 영역 · 더티 바 `role="status"`', async ({
+  test('/trading (모바일 390) — 카드 탭 3종 · 비활성 pane 비가시·탭 제외 · 사다리 스크롤 영역 · 인라인 편집 중 입력 이름·포커스', async ({
     page,
   }) => {
     await page.setViewportSize(A11Y_MOBILE_VIEWPORT);
@@ -420,7 +425,9 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
       'ready',
       { timeout: 30_000 },
     );
-    await expect(page.locator('#lc-buy-watch-qty')).toHaveValue('10,000', { timeout: 15_000 });
+    await expect(
+      page.locator('[data-lc-field="lc-buy-watch-qty"] [data-slot="lc-row-value"]'),
+    ).toHaveText('10,000주', { timeout: 15_000 });
 
     const blocking = await scanSurface(page);
     expect(
@@ -457,17 +464,72 @@ test.describe('Phase 16 Plan 17 · Phase 18 — 트레이딩 작업대 · My pag
     expect(await tabbablesIn(page, ladderSel)).toEqual(['div[ladder-scroll]', 'div[tape-scroll]']);
     await expect(page.locator(`${ladderSel} li[tabindex]`)).toHaveCount(0);
 
-    // ⑦ 더티 액션 바 — `role="status"` + `aria-live="polite"`. 포커스를 빼앗지 않는다.
+    /*
+      ⑦ 인라인 편집 중(옛 「더티 바 role=status」 재정의 · Phase 20 D-04) — 더티 바는 사라졌고 편집 표면은
+        행 자체다. 마우스 기기에서 행을 누르면 그 자리에 입력이 서고, 입력은 라벨 「잔량」을 이름으로 가지며
+        포커스를 유지한다(값을 쳐도 뺏기지 않는다). 편집 중인 상태도 위반 0 이다.
+    */
     await tablist.getByRole('tab', { name: '매수' }).click();
-    await page.locator('#lc-buy-watch-qty').fill('8000');
-    const bar = page.locator('[data-slot="dirty-action-bar"]');
-    await expect(bar).toHaveAttribute('role', 'status');
-    await expect(bar).toHaveAttribute('aria-live', 'polite');
-    await expect(page.locator('#lc-buy-watch-qty')).toBeFocused();
+    await page.locator('[data-lc-field="lc-buy-watch-qty"]').click();
+    const input = page.locator('#lc-buy-watch-qty');
+    await expect(input).toBeFocused();
+    await expect(input).toHaveAccessibleName('잔량');
+    await input.fill('8000');
+    await expect(input).toBeFocused();
+    await expect(page.locator('[data-slot="dirty-action-bar"]')).toHaveCount(0);
 
-    // 더티 바가 뜬 상태(공용 패널이 바 위로 비킨 상태)도 위반 0.
-    const dirty = await scanSurface(page);
-    expect(dirty, `더티 상태 위반 ${dirty.length}건\n${JSON.stringify(dirty, null, 2)}`).toEqual([]);
+    const editing = await scanSurface(page);
+    expect(editing, `인라인 편집 중 위반 ${editing.length}건\n${JSON.stringify(editing, null, 2)}`).toEqual([]);
+    // 편집을 버린다(Esc) — 아무것도 나가지 않고 행으로 포커스가 돌아온다.
+    await input.press('Escape');
+    await expect(input).toHaveCount(0);
+    await expect(page.locator('[data-lc-field="lc-buy-watch-qty"]')).toBeFocused();
+  });
+
+  /*
+    ★ Phase 20 (20-07) — 터치 기기 키패드 시트가 열린 상태의 접근성. `hasTouch` 컨텍스트는
+      `(pointer: coarse)` 가 참이라 행이 시트를 연다(D-12). 계약(UI-SPEC 접근성): Radix Dialog ·
+      `role="dialog"` · `aria-modal="true"` · 이름 = 제목 · 열린 동안 포커스는 시트 안 · 닫으면 **연 행으로**
+      포커스 복귀. relay 픽스처가 이 describe 의 beforeAll/beforeEach 에 있어 반드시 안쪽에 둔다.
+  */
+  test.describe('Phase 20 — 터치 기기 시트', () => {
+    test.use({ hasTouch: true });
+
+    test('/trading 시트 열린 상태 — role=dialog · aria-modal · 이름 = 제목 · axe critical/serious 0 · 닫으면 연 행으로 포커스 복귀', async ({
+      page,
+    }) => {
+      await page.setViewportSize(A11Y_MOBILE_VIEWPORT);
+      await page.goto(`/trading?focus=${encodeURIComponent(`${E2E_ISIN}:${E2E_ACCOUNT_NO}:KRX`)}`);
+      await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute(
+        'data-status',
+        'ready',
+        { timeout: 30_000 },
+      );
+      const row = page.locator('[data-lc-field="lc-buy-watch-qty"]');
+      await expect(row.locator('[data-slot="lc-row-value"]')).toHaveText('10,000주', { timeout: 15_000 });
+      await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+
+      await row.tap();
+      const sheet = page.locator('[data-slot="numpad-sheet"]');
+      await expect(sheet).toBeVisible({ timeout: 10_000 });
+      await sheet.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      await expect(sheet).toHaveAttribute('role', 'dialog');
+      await expect(sheet).toHaveAttribute('aria-modal', 'true');
+      await expect(sheet).toHaveAccessibleName('잔량');
+      await expect(sheet).toHaveAccessibleDescription('잔량이 이 값보다 줄면 매수를 넣어요');
+      // 열린 동안 포커스는 시트 안이다(초기 포커스 = 콘텐츠 컨테이너).
+      expect(
+        await page.evaluate(() => document.activeElement?.closest('[data-slot="numpad-sheet"]') != null),
+      ).toBe(true);
+      await expect(sheet.getByRole('group', { name: '숫자 키패드' })).toBeVisible();
+
+      const open = await scanSurface(page);
+      expect(open, `시트 열린 상태 위반 ${open.length}건\n${JSON.stringify(open, null, 2)}`).toEqual([]);
+
+      await sheet.getByRole('button', { name: '닫기' }).tap();
+      await expect(sheet).toHaveCount(0, { timeout: 10_000 });
+      await expect(row).toBeFocused();
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

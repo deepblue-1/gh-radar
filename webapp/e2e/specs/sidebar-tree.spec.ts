@@ -201,15 +201,20 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     );
     /*
       키 세 조각이 전부 풀렸다는 증거 — 그 키의 **등록 카드**가 펼쳐지고(종목·계좌·거래소가 다 맞아야
-      등록 키와 대조된다), 카드의 거래소 세그먼트가 NXT 에 잠겨 있고(등록 = 거래소 잠김, D-10),
-      이 전략만 켜져 있는 매도 스위치가 켜져 있다(신규 폼이 아니라 바로 그 전략이다).
+      등록 키와 대조된다), 카드의 거래소 세그먼트가 NXT 를 가리키고, 이 전략만 켜져 있는 매도 스위치가
+      켜져 있다(신규 폼이 아니라 바로 그 전략이다).
+      ★ quick-260923-pgv(`285f3b3`) 부터 등록 카드의 세그먼트는 **잠기지 않는다** — 거래소 토글은 같은 종목의
+        다른 거래소 전략을 보는 키 전환이다(작업대 GC3 가 충돌 이동까지 잠근다). 옛 「등록 = 잠김(D-10)」
+        단언은 그때부터 낡아 있었다(20-07 이 실측으로 발견 · Phase 20 무관).
+      ★ Phase 20 — 그룹 스위치는 `role="switch"` 다(20-04).
     */
     const card = page.locator(`[data-slot="strategy-card"][data-key="${keyOf(target)}"]`);
     await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
     const segment = card.locator('[data-slot="card-exchange-segment"]');
     await expect(segment.getByRole('radio', { name: 'NXT' })).toHaveAttribute('aria-checked', 'true');
-    await expect(segment).toHaveAttribute('aria-disabled', 'true');
-    await expect(card.getByRole('checkbox', { name: '매도주문 켜기' })).toBeChecked({ timeout: 15_000 });
+    await expect(segment).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(segment.getByRole('radio', { name: 'KRX' })).toBeEnabled();
+    await expect(card.getByRole('switch', { name: '매도주문 켜기', exact: true })).toBeChecked({ timeout: 15_000 });
   });
 
   test('1b. VI 한 줄 — 가동 거래소 태그만, 둘 다 꺼지면 줄 없음 (quick-260923-dmb)', async ({ page }) => {

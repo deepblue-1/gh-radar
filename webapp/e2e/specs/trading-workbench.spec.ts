@@ -2412,5 +2412,145 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
       expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
     });
+
+    /*
+      P20-4 — 원 단위 시트의 칩과 D-15 잠금을 실브라우저로 잇는다. 시드는 매수주문 켜짐 + 기본 매도잔량
+      기준이라 매수주문 상태가 「감시 중」이다 → 가격 섹션(매수가격)은 그 상태를 따르므로(`statusKey`)
+      시트에 「감시 중 — 적용하면 바로 반영돼요」가 선다(D-05 · 추가 확인 없음).
+      ★ 칩은 버퍼의 fresh 를 끈다(`applyPadChip`) — 「첫 키가 값을 덮는다」는 시트를 연 직후에만 성립하므로
+        키 입력 검증(98150 · 127450)을 칩보다 먼저 한다.
+    */
+    test('P20-4 매수가격 시트 — 칩 현재가·상한가·±1호가 · D-15 잠금(호가 단위 · 상한가) · 감시 중 안내 · 적용 → 10 → 에코 → 닫힘 (D-12 · D-15 · D-17 · D-05)', async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      relay.seedLimitChasers([{ buyEnabled: true }]);
+      await page.goto(FOCUS_URL);
+      await waitForReady(page);
+      await expect(cardOf(page, E2E_ISIN)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+
+      const row = lcRow(page, 'lc-buy-order-price');
+      await expect(lcValue(page, 'lc-buy-order-price')).toHaveText('71,000원', { timeout: 15_000 });
+      await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+      const sets = () => relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+      const before = sets();
+
+      await row.tap();
+      await expect(page.locator('#lc-buy-order-price')).toHaveCount(0);
+      const sheet = await settledSheet(page);
+      await expect(sheet).toHaveAccessibleName('매수가격');
+      const status = sheet.locator('[data-slot="numpad-status"]');
+      const alert = status.getByRole('alert');
+      const display = sheet.locator('[data-slot="numpad-value"]');
+      const apply = sheet.getByRole('button', { name: '매수가격 적용' });
+      const pad = sheet.getByRole('group', { name: '숫자 키패드' });
+      const typeKeys = async (digits: string) => {
+        for (const d of digits) await pad.getByRole('button', { name: d, exact: true }).tap();
+      };
+      const chip = (name: string) => sheet.locator('[data-slot="numpad-chips"]').getByRole('button', { name, exact: true });
+
+      // 감시 중 안내(D-05) — 추가 확인은 없고 한 줄뿐이다.
+      await expect(status).toHaveText('감시 중 — 적용하면 바로 반영돼요');
+      await expect(display).toHaveText('71,000');
+
+      // 첫 키가 값을 덮는다(fresh) → 98,150 은 100원 단위 위반 → 적용 잠금 · 보정 없음(D-15).
+      await typeKeys('98150');
+      await expect(display).toHaveText('98,150');
+      await expect(alert).toHaveText('100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200');
+      await expect(apply).toBeDisabled();
+
+      // ⌫ 로 지우고 127450 → 상한가 초과 → 잠금.
+      for (let i = 0; i < 5; i += 1) await pad.getByRole('button', { name: '한 글자 지우기' }).tap();
+      await expect(display).toHaveText('');
+      await typeKeys('127450');
+      await expect(display).toHaveText('127,450');
+      await expect(alert).toHaveText('상한가 127,400원을 넘을 수 없어요');
+      await expect(apply).toBeDisabled();
+
+      // 칩 — 같은 카드 시세(현재가 98,100 · 상한가 127,400)와 한 호가(100원 구간).
+      await chip('현재가').tap();
+      await expect(display).toHaveText('98,100');
+      await expect(alert).toHaveCount(0);
+      await chip('상한가').tap();
+      await expect(display).toHaveText('127,400');
+      await chip('1호가 내리기').tap();
+      await expect(display).toHaveText('127,300');
+      await chip('1호가 올리기').tap();
+      await expect(display).toHaveText('127,400');
+      // 서버 값(71,000)과 다른 값을 적용한다 — 127,300 으로 내려 적용해 에코 값과 구분한다.
+      await chip('1호가 내리기').tap();
+      await expect(display).toHaveText('127,300');
+      await expect(status).toHaveText('감시 중 — 적용하면 바로 반영돼요');
+      await expect(apply).toBeEnabled();
+      expect(sets(), '시트 안의 키·칩은 아무것도 보내지 않는다').toBe(before);
+
+      await apply.tap();
+      await waitForSetAtGateway(relay, before + 1);
+      // 한 번 눌렀으면 정확히 한 번(T-16-10).
+      expect(sets()).toBe(before + 1);
+      await relay.pushLimitChaserEcho({ buyEnabled: true, buyOrderPrice: 127_300 });
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 15_000 });
+      await expect(lcValue(page, 'lc-buy-order-price')).toHaveText('127,300원', { timeout: 15_000 });
+      // 닫히면 연 행으로 포커스가 돌아온다(UI-SPEC 접근성 계약).
+      await expect(row).toBeFocused();
+    });
+
+    /*
+      P20-5 — 수동주문 시트는 **값만 채운다**(D-10 · T-20-09). 시트 「가격 입력」「수량 입력」은 상자 값만
+      바꾸고 닫힌다 — 게이트웨이 주문(DirectOrderReq)은 0 이다. 주문이 시작되는 길은 「매수」 → 확인
+      다이얼로그 하나뿐이고, 다이얼로그를 취소하면 여전히 0 이다.
+    */
+    test('P20-5 수동주문 시트는 값만 채운다 — 가격·수량 상자 탭 → 시트 → 「입력」 뒤 주문 0 · 주문은 「매수」 → 확인 다이얼로그로만 (D-10 · T-20-09)', async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      relay.seedLimitChasers([{ buyEnabled: true }]);
+      await page.goto(FOCUS_URL);
+      await waitForReady(page);
+      const card = cardOf(page, E2E_ISIN);
+      await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+      await expect(lcValue(page, 'lc-buy-watch-qty')).toHaveText('10,000주', { timeout: 15_000 });
+      const directOrders = () => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length;
+
+      await card.getByRole('tablist', { name: '주문 진입' }).getByRole('tab', { name: '수동' }).tap();
+      const form = card.getByTestId('manual-order-form');
+      await expect(form).toBeVisible();
+      // 터치 기기 — 인라인 입력칸이 없고 상자 전체가 시트를 여는 버튼이다.
+      await expect(form.locator(`#mo-price-${E2E_ISIN}`)).toHaveCount(0);
+      const priceBox = form.getByRole('button', { name: /^가격/ });
+      await expect(priceBox).toHaveAttribute('aria-haspopup', 'dialog');
+
+      await priceBox.tap();
+      let sheet = await settledSheet(page);
+      await expect(sheet).toHaveAccessibleName('가격');
+      await sheet.getByRole('button', { name: '현재가', exact: true }).tap();
+      await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('98,100');
+      await sheet.getByRole('button', { name: '가격 입력' }).tap();
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
+      await expect(form.getByRole('button', { name: '가격 98,100원' })).toBeVisible();
+      await expect(form.getByRole('button', { name: '가격 98,100원' })).toBeFocused();
+
+      await form.getByRole('button', { name: /^수량/ }).tap();
+      sheet = await settledSheet(page);
+      await expect(sheet).toHaveAccessibleName('수량');
+      await sheet.getByRole('button', { name: '+1,000', exact: true }).tap();
+      await expect(sheet.locator('[data-slot="numpad-value"]')).toHaveText('1,000');
+      await sheet.getByRole('button', { name: '수량 입력' }).tap();
+      await expect(page.locator('[data-slot="numpad-sheet"]')).toHaveCount(0, { timeout: 10_000 });
+      await expect(form.getByRole('button', { name: '수량 1,000주' })).toBeVisible();
+
+      // ★ 시트로 채운 것만으로는 아무것도 나가지 않는다 — 확인 다이얼로그도 없다.
+      expect(directOrders(), '시트 「입력」은 주문을 보내지 않는다(D-10)').toBe(0);
+      await expect(page.getByTestId('order-confirm-dialog')).toHaveCount(0);
+
+      // 주문의 유일한 시작 — 「매수」 → 확인 다이얼로그. 취소하면 여전히 0 이다.
+      await form.getByTestId('manual-order-buttons').getByRole('button', { name: '매수', exact: true }).tap();
+      const confirm = page.getByTestId('order-confirm-dialog');
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole('button', { name: '취소', exact: true }).tap();
+      await expect(confirm).toBeHidden();
+      expect(directOrders()).toBe(0);
+      expect(relay.orderInserts()).toHaveLength(0);
+    });
   });
 });
