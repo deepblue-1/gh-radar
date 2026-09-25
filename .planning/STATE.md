@@ -117,6 +117,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 전체 결정 로그: [DECISIONS-ARCHIVE.md](./DECISIONS-ARCHIVE.md)
 
+- [Phase 20]: D-24 — 상단 상태줄(OrderbookStatusBar) 1줄 압축을 안 C 로 이번 phase 에서 구현(검증 갭 12/13 → 목업 A~D 비교 후 사용자 선택). 잘림 0 유지, 폭이 모자라면 2줄
 - [Phase 20]: D-02a — 감시대상 행은 ≥700 에서도 라벨 숨김 + 행 전체 폭 토글(830 넘침 해소, 목업 비교 후 사용자 선택 D). 버튼 26px·13/600 유지
 - [Phase 18]: 18-28: 옮기기 확정 직전 viMoveTargetOf 재판정 · 스냅샷 from·to 전체 일치일 때만 송신, 아니면 VI_MOVE_STALE_TEXT · 창 유지 (T-18-118)
 - [Phase 18]: 18-28: 가동 중 VI 불일치 고지는 「옮기려면 먼저 중지하세요」 — 버튼 DOM 부재 + submit 계좌 지정 가드 두 겹 (T-18-117)

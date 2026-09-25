@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상태줄 1줄 압축 비교</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+/* ── 토큰: webapp/src/styles/globals.css(:root / .dark) 값 그대로 인라인 ── */
+:root {
+  --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6;
+  --muted-fg: #6b7684; --faint: #b0b8c1; --raised-2: #e5e8eb; --border-subtle: #e5e8eb; --border: #f2f4f6;
+  --card: #ffffff; --primary: #3182f6; --destructive: #f04452; --flat: #6b7684;
+  --led-armed: #03b26c; --led-latent: #ff9f1a;
+  --pill-on-bg: #e8f3ff; --pill-on-fg: #1b64da;
+  --new-bg: #fff6d9; --new-bd: #ffd257; --accent: #e8f3ff; --accent-fg: #1b64da;
+  --seg-on-bg: #ffffff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  --ok: #03b26c; --ok-bg: rgba(3,178,108,.12); --bad: #f04452; --bad-bg: rgba(240,68,82,.12);
+  --warn: #c77700; --warn-bg: rgba(255,159,26,.16);
+  --t-caption: 12px; --r-sm: 6px; --r: 12px; --r-md: 16px; --r-lg: 20px; --s-3: 12px;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+}
+.dark {
+  --bg: #17171c; --surface: #17171c; --fg: #ffffff; --fg-2: #e4e4e5; --muted: #2c2c35;
+  --muted-fg: #9e9ea4; --faint: #62626d; --raised-2: #3c3c47; --border-subtle: #3c3c47; --border: rgba(255,255,255,0.06);
+  --card: #202027; --primary: #3485fa; --destructive: #f04251; --flat: #9e9ea4;
+  --led-armed: #2fca73; --led-latent: #ffb13d;
+  --pill-on-bg: #4d4d59; --pill-on-fg: #ffffff;
+  --new-bg: #3a3014; --new-bd: #6d5a1d; --accent: rgba(52,133,250,0.16); --accent-fg: #8ab8ff;
+  --seg-on-bg: #4d4d59; --seg-on-fg: #ffffff; --seg-on-shadow: 0 0 #0000;
+  --ok: #2fca73; --ok-bg: rgba(47,202,115,.14); --bad: #ff5b68; --bad-bg: rgba(240,66,81,.18);
+  --warn: #ffb13d; --warn-bg: rgba(255,177,61,.16);
+}
+
+/* 앱 기준선(§2.3) */
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-sans); background: var(--surface); color: var(--fg);
+  font-size: 16px; line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+button { font: inherit; letter-spacing: inherit; color: inherit; border: 0; background: none; padding: 0; margin: 0; cursor: pointer; }
+.mono { font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* ── 페이지 머리 ── */
+.top { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border-subtle); padding: 12px 20px; }
+.top-row { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; }
+.top h1 { margin: 0; font-size: 17px; font-weight: 700; }
+.seg-ui { display: inline-flex; background: var(--raised-2); border-radius: 8px; padding: 2px; }
+.seg-ui button { font-size: 13px; font-weight: 600; height: 28px; padding: 0 12px; border-radius: 6px; color: var(--muted-fg); white-space: nowrap; }
+.seg-ui button.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.push { margin-left: auto; }
+.fontwarn { font-size: 12px; color: var(--bad); display: none; }
+.fontwarn.show { display: inline; }
+.intro { max-width: 1040px; padding: 16px 20px 4px; font-size: 13.5px; color: var(--fg-2); }
+.intro p { margin: 0 0 10px; }
+.intro code { font-size: 12px; background: var(--raised-2); padding: 1px 5px; border-radius: 4px; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--raised-2); color: var(--fg); white-space: nowrap; }
+.tag.rec { background: var(--primary); color: #fff; }
+.method { font-size: 12px; color: var(--muted-fg); }
+
+/* 요약표 */
+.sum-wrap { overflow-x: auto; }
+.sum { margin: 6px 0 12px; border-collapse: collapse; font-size: 12.5px; }
+.sum th, .sum td { padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); text-align: center; white-space: nowrap; }
+.sum th:first-child, .sum td:first-child { text-align: left; }
+.sum th { font-weight: 600; color: var(--muted-fg); font-size: 11.5px; }
+.pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.warn { color: var(--warn); background: var(--warn-bg); }
+.pill.bad { color: #fff; background: var(--bad); }
+
+/* ── 변형 섹션 ── */
+section.v { padding: 26px 20px 8px; border-top: 1px solid var(--border-subtle); }
+section.v > h2 { margin: 0 0 4px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+section.v > .d { margin: 0 0 6px; font-size: 13px; color: var(--fg-2); max-width: 980px; }
+section.v > .moves { margin: 0 0 14px; padding: 0 0 0 18px; font-size: 12.5px; color: var(--muted-fg); max-width: 980px; }
+section.v > .moves li { margin: 1px 0; }
+.frames { overflow-x: auto; padding-bottom: 6px; }
+.fr-wrap { margin-bottom: 18px; }
+.fr-cap { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted-fg); margin: 0 0 6px; flex-wrap: wrap; }
+.fr-cap b { color: var(--fg); font-weight: 700; }
+
+/* 프레임 = 호가 탭 섹션 폭(= `lc` 컨테이너). 종목상세는 흰 --bg 면이라 라이트에서는 카드 면이 안 보여 가이드 점선만 둔다. */
+.frame { flex: none; background: var(--bg); padding: 0; outline: 1px dashed var(--faint); outline-offset: 3px;
+  container-type: inline-size; container-name: lc; display: flex; flex-direction: column; gap: var(--s-3); }
+.frame.viol { outline: 2px solid var(--bad); }
+
+/* ════ 실제 코드 클래스 → CSS (stock-orderbook-section.tsx `OrderbookStatusBar`) ════
+   flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--r-md)] bg-[var(--card)] px-[var(--s-3)] py-2.5 text-caption text-muted-fg */
+.strip { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 4px;
+  border-radius: var(--r-md); border: 1px solid transparent; background: var(--card); padding: 10px var(--s-3);
+  font-size: var(--t-caption); color: var(--muted-fg); position: relative; }
+.strip.g8 { column-gap: 8px; }
+/* DMA 필 */
+.dma { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dma b { font-weight: 600; color: var(--fg); }
+.cdot { display: block; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--led-armed); }
+.cdot.off { background: var(--flat); }
+/* 계좌 — inline-flex min-w-0 gap-1.5 · select.mono h-6 max-w-full min-w-0 rounded-sm bg-muted px-1.5 text-[11px] font-semibold */
+.acct { display: inline-flex; min-width: 0; align-items: center; gap: 6px; white-space: nowrap; }
+.sel { height: 24px; max-width: 100%; min-width: 0; border-radius: var(--r-sm); border: 1px solid transparent; background: var(--muted);
+  padding: 0 6px; font: inherit; font-size: 11px; font-weight: 600; color: var(--fg); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+/* 거래소 세그먼트 — h-5 rounded-full bg-muted · item px-1.5 text-[10px] font-bold tracking-[0.02em] */
+.xseg { display: inline-flex; height: 20px; align-items: center; overflow: hidden; border-radius: 999px; background: var(--muted); flex: none; }
+.xseg button { height: 20px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; color: var(--muted-fg); white-space: nowrap; }
+.xseg button.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+/* LED 칩 — latch-led.tsx chip: inline-flex gap-1.5 rounded-full border py-0.5 pr-2 pl-1.5 text-caption leading-none bg-muted */
+.leds { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.led { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid transparent; padding: 2px 8px 2px 6px;
+  font-size: var(--t-caption); line-height: 1; background: var(--muted); white-space: nowrap; }
+.led .n { color: var(--muted-fg); }
+.led .l { font-weight: 600; color: var(--fg); }
+.ldot { width: 9px; height: 9px; flex: none; border-radius: 50%; }
+.ldot.armed { background: var(--led-armed); box-shadow: 0 0 0 2px color-mix(in oklch, var(--led-armed) 28%, transparent); }
+.ldot.latent { background: var(--led-latent); box-shadow: 0 0 0 2px color-mix(in oklch, var(--led-latent) 28%, transparent); }
+.ldot.off { border: 1.5px solid var(--muted-fg); background: transparent; }
+/* LED 점 — latch-led.tsx `variant="dot"`(접힌 카드 헤더 ①A): size-6 히트 · 10px 도트 · sr-only 「매수 래치 감시」 + 툴팁 */
+.ledds { display: inline-flex; align-items: center; gap: 2px; }
+.ledd { display: inline-flex; width: 24px; height: 24px; flex: none; align-items: center; justify-content: center; border-radius: 999px; }
+.ledd:hover { background: var(--muted); }
+.ledd .ldot { width: 10px; height: 10px; }
+/* 구간 배지 — h-[18px] rounded-full border px-[7px] text-[10px] font-bold */
+.wb { display: inline-flex; height: 18px; align-items: center; border-radius: 999px; border: 1px solid transparent; padding: 0 7px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.wb.regular { background: var(--muted); color: var(--fg); }
+.wb.queued { border-color: var(--new-bd); background: var(--new-bg); color: var(--fg); }
+.wb.offhours { background: var(--accent); color: var(--accent-fg); }
+/* 거부 — min-w-0 text-destructive (줄바꿈 허용) */
+.err { min-width: 0; color: var(--destructive); }
+.err b { font-weight: 600; }
+/* 우측 — ml-auto inline-flex items-center gap-3 */
+.right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
+.time { white-space: nowrap; }
+.rbtn { height: 24px; padding: 0 8px; border-radius: var(--r); border: 1px solid var(--raised-2); background: var(--card); color: var(--fg); font-size: 12px; font-weight: 500; white-space: nowrap; }
+
+/* ── 변형 신규 요소 ── */
+/* 연결 점 + 반영 시각(D) */
+.conn { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--muted-fg); }
+.conn .mono { color: var(--fg-2); }
+/* 계좌 짧은 표기(D) — 보이는 글자 = 계좌 이름, 네이티브 select 는 투명하게 위에 덮어 OS 선택 UI 유지 */
+.acct-s { position: relative; display: inline-flex; align-items: center; gap: 3px; height: 24px; border-radius: var(--r-sm); background: var(--muted);
+  padding: 0 5px 0 7px; font-size: 11px; font-weight: 600; color: var(--fg); white-space: nowrap; flex: none; }
+.acct-s svg { width: 10px; height: 10px; color: var(--muted-fg); flex: none; }
+.acct-s select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+
+/* 고지 줄(TabNotices) — flex-col gap-1 text-caption */
+.notices { display: flex; min-width: 0; flex-direction: column; gap: 4px; font-size: var(--t-caption); }
+.notices:empty { display: none; }
+.notices p { margin: 0; }
+.n-unacked { font-weight: 600; color: var(--destructive); }
+.n-err { color: var(--destructive); }
+.n-err b { font-weight: 600; }
+.n-down { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--muted-fg); }
+.n-down b { color: var(--fg); font-weight: 600; }
+.n-moved { outline: 1px dashed color-mix(in oklch, var(--primary) 60%, transparent); outline-offset: 2px; border-radius: 4px; }
+.frame.hide-moved .n-moved { outline: none; }
+
+/* D — 항목이 작아 간격 12 → 8 (C 의 폰 모양과 같은 값) */
+.frame.vD .strip { column-gap: 8px; }
+/* C — 본문 폭 700 경계(§2.2b 의 기존 경계 그대로, 새 숫자 없음)에서 폰형/와이드형 전환 */
+.frame .ph { display: none !important; }
+@container lc (max-width: 699.98px) {
+  .frame.vC .wd { display: none !important; }
+  .frame.vC .ph { display: inline-flex !important; }
+  .frame.vC p.ph, .frame.vC div.ph { display: flex !important; }
+  .frame.vC .strip { column-gap: 8px; }
+}
+
+/* 측정 배지 */
+.item-over { outline: 2px solid var(--bad) !important; outline-offset: 1px; }
+.mk { font-size: 11px; color: var(--muted-fg); }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="top-row">
+    <h1>호가 탭 상단 상태줄 — 1줄 압축 비교</h1>
+    <span class="fontwarn" id="fontwarn">⚠ Pretendard 가 아직 안 실렸어요 — 수치가 실제 앱과 다를 수 있어요</span>
+    <span class="seg-ui push" id="scen">
+      <button data-s="rej" class="on">최악 ① 거부 · 예약구간</button><button data-s="unack">최악 ② 미반영 · 장전</button><button data-s="down">최악 ③ 끊김 · 시간외</button>
+    </span>
+    <span class="seg-ui" id="theme"><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></span>
+    <span class="seg-ui" id="mv"><button data-m="on" class="on">옮긴 것 표시</button><button data-m="off">끄기</button></span>
+  </div>
+</div>
+
+<div class="intro">
+  <p>대상은 종목상세 호가주문 탭의 <code>OrderbookStatusBar</code>(<code>stock-orderbook-section.tsx</code>)예요 — DMA · 계좌 · 거래소 KRX|NXT · 래치 LED 3칩 · 구간 배지 · (거부) · 반영 시각. 지금은 <code>flex-wrap</code> 이라 좁으면 여러 줄로 접혀요. 아래 변형은 <b>글자를 자르거나 말줄임하지 않고</b>(라벨 잘림 0 = 오발주 불변식) 배치를 바꿔서만 줄여요. 모든 변형은 안전망으로 <code>flex-wrap</code> 을 유지해서, 안 들어가면 잘리는 대신 2줄로 떨어져요.</p>
+  <p>최악값: 계좌 <b>1234567802 · 개인연금저축</b>(네이티브 select 는 가장 긴 옵션 폭을 차지) · LED 매수 감시 / 매도 대기 / 취소 대기(전부 클릭 가능 = 굵은 글자) · 구간 「예약구간 · 조각 최대 10」 · 거부 「[상따] 주문 가능 금액이 부족합니다」. <b>거부와 미반영은 동시에 서지 않아요</b> — 코드가 거부를 받으면 미반영을 거둬요(<code>strategy-card.tsx</code> 「거부도 답이다」). 그래서 시나리오를 ①·②로 나눴어요. ③은 회선 끊김(가장 긴 연결 문구 + 「다시 연결」).</p>
+  <div class="sum-wrap"><table class="sum" id="sum"><thead></thead><tbody></tbody></table></div>
+  <p class="method">판정(브라우저가 지금 잰 값): 상태줄 안 항목들의 세로 위치를 묶어 줄 수를 세요(항목 안에서 글자가 접힌 줄도 더해요). 「1줄 ✓」 = 한 줄 · 「N줄」 = 목표 미달(잘림은 아님) · 「넘침 −Npx」/「잘림」 = 불변식 위반(빨간 테두리). 잘림은 select 가 자기 글자 폭보다 좁아졌는지(격리 복제 폭과 비교)와 항목이 상태줄 안쪽 가장자리를 넘는지로 봐요. 파란 점선 = 상태줄에서 아래 고지 줄로 옮겨 간 것.</p>
+</div>
+
+<div id="sections"></div>
+
+<script>
+/* ── 시나리오(최악값) ── */
+const SCEN = {
+  rej:   { key: 'rej',   ready: true,  label: '실시간', time: '14:32:07', reject: { src: '[상따]', text: '주문 가능 금액이 부족합니다' }, unacked: false, win: { text: '예약구간 · 조각 최대 10', tone: 'queued' },  reconnect: false },
+  unack: { key: 'unack', ready: true,  label: '실시간', time: '08:41:55', reject: null, unacked: true,  win: { text: '장전 · 예약매수/매도', tone: 'queued' },  reconnect: false },
+  down:  { key: 'down',  ready: false, label: '다시 연결하지 못했어요', time: '15:52:10', reject: null, unacked: false, win: { text: '시간외종가 G2 창', tone: 'offhours' }, reconnect: true },
+};
+const ACCTS = [ { no: '1234567801', name: '위탁종합' }, { no: '1234567802', name: '개인연금저축' } ];
+const SEL_ACCT = ACCTS[1];
+const LEDS = [ { k: '매수', tone: 'armed', l: '감시' }, { k: '매도', tone: 'latent', l: '대기' }, { k: '취소', tone: 'latent', l: '대기' } ];
+const LED_TIP = {
+  매수: '클릭하면 매수 진입 확인 래치를 끈다 (다시 잠복 — 감시가 매수잔량이 감시수량 아래로 내려간 것을 다시 관측해야 잔량 항 판정이 시작된다)',
+  매도: '클릭하면 매도 진입 확인 래치를 지금 켠다 (다음 호가부터 매도 판정)',
+  취소: '클릭하면 취소 진입 확인 래치를 지금 켠다 (다음 호가부터 취소 판정 — 조건이 이미 맞으면 바로 취소된다)',
+};
+
+/* ── 조각 ── */
+const opts = () => ACCTS.map(a => `<option value="${a.no}" ${a === SEL_ACCT ? 'selected' : ''}>${a.no} · ${a.name}</option>`).join('');
+const dmaFull = s => `<span class="it dma" aria-live="polite"><i class="cdot ${s.ready ? '' : 'off'}" aria-hidden="true"></i>DMA <b>${s.label}</b></span>`;
+const acctFull = (word = true) => `<span class="it acct">${word ? '계좌' : ''}<select class="sel mono" aria-label="계좌">${opts()}</select></span>`;
+const xseg = () => `<span class="it xseg" role="radiogroup" aria-label="거래소"><button class="on" role="radio" aria-checked="true">KRX</button><button role="radio" aria-checked="false">NXT</button></span>`;
+const ledChips = () => `<span class="leds">${LEDS.map(d => `<button class="it led" aria-pressed="${d.tone === 'armed'}" title="${LED_TIP[d.k]}"><span class="ldot ${d.tone}" aria-hidden="true"></span><span class="n">${d.k}</span><span class="sr">래치</span><span class="l">${d.l}</span></button>`).join('')}</span>`;
+const ledDots = () => `<span class="ledds">${LEDS.map(d => `<button class="it ledd" aria-pressed="${d.tone === 'armed'}" title="${d.k} · ${d.l}\n${LED_TIP[d.k]}"><span class="ldot ${d.tone}" aria-hidden="true"></span><span class="sr">${d.k} 래치 ${d.l}</span></button>`).join('')}</span>`;
+const win = s => `<span class="it wb ${s.win.tone}">${s.win.text}</span>`;
+const errInline = s => s.reject ? `<span class="it err" role="alert"><b>${s.reject.src}</b> ${s.reject.text}</span>` : '';
+const right = (s, prefix = true) => `<span class="right">${s.reconnect ? '<button class="it rbtn">다시 연결</button>' : ''}<span class="it time mono" title="서버 반영 시각">${prefix ? '반영 ' : '<span class="sr">반영 </span>'}${s.time}</span></span>`;
+/* D 전용 */
+const conn = s => `<span class="it conn" title="DMA ${s.label} · 반영 ${s.time}"><i class="cdot ${s.ready ? '' : 'off'}" aria-hidden="true"></i><span class="sr">DMA ${s.label} · 반영 </span><span class="mono">${s.time}</span></span>`;
+const acctShort = () => `<span class="it acct-s" title="${SEL_ACCT.no} · ${SEL_ACCT.name}"><span aria-hidden="true">${SEL_ACCT.name}</span><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><select aria-label="계좌">${opts()}</select></span>`;
+/* 고지 줄 */
+const nUnacked = s => s.unacked ? `<p class="n-unacked" role="status">미반영 · 서버 응답을 기다리고 있어요</p>` : '';
+const nErr = (s, cls = '') => s.reject ? `<p class="n-err n-moved ${cls}" role="alert"><b>${s.reject.src}</b> ${s.reject.text}</p>` : '';
+const nWin = (s, cls = '') => `<p class="n-moved ${cls}" role="status" style="display:flex"><span class="wb ${s.win.tone}">${s.win.text}</span></p>`;
+const nDown = (s, cls = '') => s.ready ? '' : `<div class="n-down n-moved ${cls}" role="status"><span>DMA <b>${s.label}</b></span>${s.reconnect ? '<button class="rbtn">다시 연결</button>' : ''}</div>`;
+
+/* ── 변형 ── */
+const VARIANTS = [
+  { id: 'cur', tag: '현재', title: '현재 · Phase 18 그대로 (flex-wrap)',
+    desc: '모든 요소가 한 줄에 서다가 폭이 모자라면 줄바꿈돼요. 거부 문장이 상태줄 안에 있어 가장 길어요.',
+    moves: ['변경 없음 — 비교 기준'],
+    strip: s => `${dmaFull(s)}${acctFull()}${xseg()}${ledChips()}${win(s)}${errInline(s)}${right(s)}`,
+    notices: s => nUnacked(s) },
+  { id: 'A', tag: 'A', title: 'A · 경보만 분리',
+    desc: '거부 문장만 상태줄에서 아래 고지 줄(미반영이 서는 자리 · role=alert 유지)로 내려요. 상태줄은 「상태」만, 고지 줄은 「문장」만 말해요. 가장 작은 변경이지만 폰에서는 여전히 여러 줄이에요.',
+    moves: ['거부 [상따] … → 고지 줄 첫 줄 (문장 그대로)', '나머지 전부 그대로'],
+    strip: s => `${dmaFull(s)}${acctFull()}${xseg()}${ledChips()}${win(s)}${right(s)}`,
+    notices: s => nErr(s) + nUnacked(s) },
+  { id: 'B', tag: 'B', title: 'B · 경보 분리 + LED 점 + 보이는 접두어 정리',
+    desc: 'A 에 더해 LED 칩 3개를 접힌 카드 헤더의 점 3개(①A 문법 · 24px 히트 · sr-only 「매수 래치 감시」 · 툴팁)로 바꿔요. 글자 상태는 우측 그룹 머리 보조문(「감시 중」·「무장 · 대기」)이 이미 말해요. 「계좌」·「반영」 보이는 접두어는 sr-only/title 로(작업대 상태줄과 같은 규칙). 와이드는 1줄, 폰은 2줄.',
+    moves: ['거부 → 고지 줄', 'LED 칩(글자) → LED 점 3개 (상태 글자는 툴팁·sr-only·그룹 머리 보조문)', '「계좌」 글자 → select 의 aria-label 만', '「반영 」 접두 → sr-only + title'],
+    strip: s => `${dmaFull(s)}${acctFull(false)}${xseg()}${ledDots()}${win(s)}${right(s, false)}`,
+    notices: s => nErr(s) + nUnacked(s) },
+  { id: 'C', tag: 'C 권장', rec: true, title: 'C · 밴드별 — ≥700 은 B, 폰(<700)은 최대 압축',
+    desc: '본문 700(§2.2b 기존 경계, 새 숫자 없음) 이상은 B 그대로. 폰 밴드에서만 D 의 압축을 걸어요: 연결 = 점 + 반영 시각, 계좌 = 이름만(목록은 전체 번호), 구간 배지·연결 이상 문구는 고지 줄로. 넓은 화면은 정보를 덜 숨기고, 폰은 1줄을 지켜요.',
+    moves: ['≥700: B 와 동일', '<700: 「DMA 실시간」 → 초록 점 + 시각(글자는 sr-only·title), 이상 상태 문구 + 「다시 연결」 → 고지 줄', '<700: 계좌 닫힘 표기 = 이름만 「개인연금저축 ⌄」, 펼치면 OS 목록에 전체 번호 · title 에 전체 번호', '<700: 구간 배지 → 고지 줄(배지 모양 그대로)'],
+    strip: s => `<span class="wd" style="display:contents">${dmaFull(s)}${acctFull(false)}</span><span class="ph">${conn(s)}</span><span class="ph">${acctShort()}</span>${xseg()}${ledDots()}<span class="wd" style="display:contents">${win(s)}${right(s, false)}</span>`,
+    notices: s => `${s.ready ? '' : `<div class="ph" style="display:none">${nDown(s)}</div>`}${nErr(s)}<div class="ph" style="display:none">${nWin(s)}</div>${nUnacked(s)}` },
+  { id: 'D', tag: 'D', title: 'D · 전 폭 최대 압축 (한 모양)',
+    desc: '모든 폭에서 폰 모양 하나: 연결 점 + 시각 · 계좌 이름 · 거래소 · LED 점. 길이가 변하는 문장(연결 이상 · 거부 · 구간 · 미반영)은 전부 고지 줄. 상태줄 폭이 상태와 무관하게 거의 고정이라 1줄이 구조적으로 보장되지만, 데스크톱에서도 계좌번호·「DMA 실시간」 글자가 안 보여요.',
+    moves: ['C 의 폰 압축을 모든 폭에 적용', '넓은 화면에서도 계좌번호는 title·목록에서만 보여요'],
+    strip: s => `${conn(s)}${acctShort()}${xseg()}${ledDots()}`,
+    notices: s => nDown(s) + nErr(s) + nWin(s) + nUnacked(s) },
+];
+const WIDTHS = [
+  { w: 344,  band: '폰 · 뷰포트 360' },
+  { w: 374,  band: '폰 · 뷰포트 390' },
+  { w: 700,  band: '컴팩트 경계' },
+  { w: 830,  band: '와이드 경계' },
+  { w: 992,  band: '데스크톱 경계' },
+  { w: 1152, band: '뷰포트 1440' },
+];
+
+let scen = 'rej';
+function render() {
+  const s = SCEN[scen];
+  document.getElementById('sections').innerHTML = VARIANTS.map(v => `
+    <section class="v" id="s-${v.id}">
+      <h2><span class="tag ${v.rec ? 'rec' : ''}">${v.tag}</span>${v.title}</h2>
+      <p class="d">${v.desc}</p>
+      <ul class="moves">${v.moves.map(m => `<li>${m}</li>`).join('')}</ul>
+      <div class="frames">${WIDTHS.map(W => `
+        <div class="fr-wrap">
+          <div class="fr-cap"><b>본문 ${W.w}px</b><span>${W.band}</span><span class="pill" data-pill></span><span class="mk" data-mk></span></div>
+          <div class="frame v${v.id}" data-v="${v.id}" data-w="${W.w}" style="width:${W.w}px">
+            <div class="strip" data-slot="orderbook-status-bar">${v.strip(s)}</div>
+            <div class="notices">${v.notices(s)}</div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </section>`).join('');
+  document.querySelectorAll('.frame').forEach(f => f.classList.toggle('hide-moved', !showMoved));
+}
+
+/* ── 측정 ── */
+const px = (cs, p) => parseFloat(cs.getPropertyValue(p)) || 0;
+const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+function textLines(el) {            // 항목 안에서 글자가 몇 줄로 접혔나
+  const range = document.createRange(); range.selectNodeContents(el);
+  const tops = [];
+  for (const r of range.getClientRects()) { if (r.width < 1) continue; if (!tops.some(t => Math.abs(t - r.top) < 4)) tops.push(r.top); }
+  return Math.max(1, tops.length);
+}
+function naturalSelectWidth(sel) {  // 제약 없는 곳에 복제해 잰 select 본래 폭
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;left:-9999px;top:0;width:max-content;visibility:hidden';
+  sel.closest('.frame').appendChild(host);
+  const c = sel.cloneNode(true); c.style.maxWidth = 'none'; c.style.minWidth = 'auto'; c.value = sel.value;
+  host.appendChild(c); const w = c.getBoundingClientRect().width; host.remove(); return w;
+}
+function measureFrame(fr) {
+  const strip = fr.querySelector('.strip');
+  const cs = getComputedStyle(strip);
+  const sr = strip.getBoundingClientRect();
+  const innerL = sr.left + px(cs, 'padding-left') + px(cs, 'border-left-width');
+  const innerR = sr.right - px(cs, 'padding-right') - px(cs, 'border-right-width');
+  const items = [...strip.querySelectorAll('.it')].filter(visible);
+  items.forEach(i => i.classList.remove('item-over'));
+  // 줄 묶기: 세로 중심이 8px 안이면 같은 줄
+  const rows = [];
+  for (const it of items) {
+    const r = it.getBoundingClientRect(); const c = (r.top + r.bottom) / 2;
+    let row = rows.find(x => Math.abs(x.c - c) < 8 || (r.top < x.b - 2 && r.bottom > x.t + 2));
+    if (!row) rows.push(row = { c, t: r.top, b: r.bottom, lines: 1 });
+    row.t = Math.min(row.t, r.top); row.b = Math.max(row.b, r.bottom);
+    row.lines = Math.max(row.lines, it.classList.contains('err') ? textLines(it) : 1);
+  }
+  const lines = rows.reduce((n, r) => n + r.lines, 0);
+  let over = 0, clip = 0;
+  for (const it of items) {
+    const r = it.getBoundingClientRect();
+    const o = Math.max(r.right - innerR, innerL - r.left);
+    if (o > 0.5) { over = Math.max(over, o); it.classList.add('item-over'); }
+    if (it.scrollWidth > it.clientWidth + 1 && getComputedStyle(it).overflowX !== 'visible') { clip = Math.max(clip, it.scrollWidth - it.clientWidth); it.classList.add('item-over'); }
+  }
+  for (const sel of strip.querySelectorAll('select.sel')) {
+    if (!visible(sel)) continue;
+    const d = naturalSelectWidth(sel) - sel.getBoundingClientRect().width;
+    if (d > 0.5) { clip = Math.max(clip, d); sel.closest('.it').classList.add('item-over'); }
+  }
+  // 1줄일 때 남는 폭(여유)
+  let slack = null;
+  if (lines === 1) {
+    const kids = [...strip.children].filter(visible);
+    const used = Math.max(...items.map(i => i.getBoundingClientRect().right)) - innerL;
+    const hasAuto = strip.querySelector('.right') && visible(strip.querySelector('.right'));
+    // ml-auto 가 있으면 실제 여유 = 오른쪽 그룹 왼끝 − 앞 항목 오른끝 − gap
+    if (hasAuto) {
+      const rg = strip.querySelector('.right').getBoundingClientRect();
+      const before = items.filter(i => !strip.querySelector('.right').contains(i)).map(i => i.getBoundingClientRect().right);
+      slack = rg.left - Math.max(...before) - px(cs, 'column-gap');
+    } else slack = innerR - innerL - used;
+  }
+  return { lines, over: +over.toFixed(1), clip: +clip.toFixed(1), h: +sr.height.toFixed(1), slack: slack === null ? null : +slack.toFixed(1) };
+}
+function verdict(m) {
+  if (m.over > 0.5) return { cls: 'bad', txt: `넘침 −${m.over}px` };
+  if (m.clip > 0.5) return { cls: 'bad', txt: `잘림 −${m.clip}px` };
+  if (m.lines === 1) return { cls: 'ok', txt: '1줄 ✓' };
+  return { cls: 'warn', txt: `${m.lines}줄` };
+}
+const RESULTS = {};
+function measureAll() {
+  document.querySelectorAll('.frame').forEach(fr => {
+    const m = measureFrame(fr); const v = verdict(m);
+    fr.classList.toggle('viol', v.cls === 'bad');
+    const cap = fr.previousElementSibling;
+    const pill = cap.querySelector('[data-pill]'); pill.className = 'pill ' + v.cls; pill.textContent = v.txt;
+    cap.querySelector('[data-mk]').textContent = `상태줄 높이 ${m.h}px` + (m.slack !== null ? ` · 여유 +${m.slack}px` : '');
+    ((RESULTS[scen] ??= {})[fr.dataset.v] ??= {})[fr.dataset.w] = { ...m, verdict: v.txt };
+  });
+  const thead = document.querySelector('#sum thead'), tbody = document.querySelector('#sum tbody');
+  thead.innerHTML = `<tr><th>변형 \\ 본문 폭 (시나리오 ${document.querySelector('#scen .on').textContent})</th>${WIDTHS.map(W => `<th>${W.w}</th>`).join('')}</tr>`;
+  tbody.innerHTML = VARIANTS.map(v => `<tr><td><span class="tag ${v.rec ? 'rec' : ''}">${v.tag}</span></td>${WIDTHS.map(W => {
+    const r = RESULTS[scen][v.id][W.w]; const vv = verdict(r);
+    return `<td><span class="pill ${vv.cls}">${vv.txt}</span></td>`; }).join('')}</tr>`).join('');
+  window.__RESULTS = RESULTS;
+}
+
+let showMoved = true;
+function fontOk() { return document.fonts.check('600 12px "Pretendard Variable"') && document.fonts.check('700 10px "Pretendard Variable"'); }
+function run() {
+  render(); measureAll();
+  document.getElementById('fontwarn').classList.toggle('show', !fontOk());
+  window.__FONT_OK = fontOk(); window.__DONE = true;
+}
+window.__setScen = k => { scen = k; document.querySelectorAll('#scen button').forEach(b => b.classList.toggle('on', b.dataset.s === k)); run(); return RESULTS[k]; };
+Promise.all([document.fonts.load('600 12px "Pretendard Variable"', '실시간 매수 감시'), document.fonts.load('700 10px "Pretendard Variable"', 'KRX 예약구간'), document.fonts.load('600 11px "Pretendard Variable"', '1234567802 · 개인연금저축')])
+  .catch(() => {}).then(() => document.fonts.ready).then(run);
+setTimeout(() => { if (!window.__DONE) run(); }, 4000);
+
+/* 테마 · 시나리오 · 표시 토글 */
+function setTheme(t) {
+  document.documentElement.classList.toggle('dark', t === 'dark');
+  document.querySelectorAll('#theme button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+}
+setTheme('dark');
+document.getElementById('theme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTheme(b.dataset.t); });
+document.getElementById('scen').addEventListener('click', e => { const b = e.target.closest('button'); if (b) window.__setScen(b.dataset.s); });
+document.getElementById('mv').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  showMoved = b.dataset.m === 'on';
+  document.querySelectorAll('#mv button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.frame').forEach(f => f.classList.toggle('hide-moved', !showMoved));
+});
+/* 거래소 세그먼트 눌러 보기(폭 불변) */
+document.addEventListener('click', e => {
+  const b = e.target.closest('.xseg button'); if (!b) return;
+  b.parentElement.querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
+});
+</script>
+</body>
+</html>
