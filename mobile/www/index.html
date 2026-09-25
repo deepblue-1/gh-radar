@@ -4,14 +4,36 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>GH Trade</title>
+    <script>
+      // 첫 페인트 전에 테마를 정한다 — 네이티브가 `?theme=` 로 현재 앱 테마를 넘긴다(D-23). 기본 라이트.
+      if (new URLSearchParams(location.search).get('theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
     <style>
+      /* 외부 스크립트·폰트 없음 — 오프라인에서 열려야 한다(시스템 폰트 스택). 색은 GHTradePalette 와 같다. */
+      :root {
+        --bg: #ffffff;
+        --fg: #191f28;
+        --muted: #6b7684;
+        --primary: #3182f6;
+        color-scheme: light;
+      }
+      :root.dark {
+        --bg: #17171c;
+        --fg: #ffffff;
+        --muted: #9e9ea4;
+        --primary: #3485fa;
+        color-scheme: dark;
+      }
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #ffffff;
-        color: #0a0a0a;
-        font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Roboto', sans-serif;
+        -webkit-text-size-adjust: 100%;
       }
       main {
         min-height: 100%;
@@ -19,16 +41,16 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 12px;
-        padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+        gap: 8px;
+        padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
         box-sizing: border-box;
         text-align: center;
       }
       .wordmark {
-        font-size: 28px;
+        font-size: 24px;
         font-weight: 800;
         letter-spacing: -0.02em;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
       }
       .title {
         font-size: 16px;
@@ -37,28 +59,77 @@
       }
       .hint {
         font-size: 14px;
-        color: #6b6b6b;
+        color: var(--muted);
         margin: 0;
       }
       .retry {
-        margin-top: 16px;
-        padding: 12px 24px;
+        margin-top: 20px;
+        padding: 12px 28px;
         border: 0;
-        border-radius: 999px;
-        background: #0a0a0a;
+        border-radius: 12px;
+        background: var(--primary);
         color: #ffffff;
+        font: inherit;
         font-size: 15px;
         font-weight: 600;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .retry:active {
+        opacity: 0.8;
       }
     </style>
   </head>
   <body>
-    <!-- 오프라인 폴백(최소) — 자동 복구 · ?to= · 테마는 21-11 이 완성한다. -->
+    <!-- 오프라인 폴백(D-19) — 네이티브가 네트워크 오류일 때만 `?to=<원래 URL>&theme=<현재>` 로 띄운다. -->
     <main>
       <div class="wordmark">GH Trade</div>
       <p class="title">인터넷 연결을 확인해주세요</p>
       <p class="hint">복구되면 자동으로 이동합니다</p>
-      <button class="retry" type="button" onclick="location.href='https://trade.jx1.io/'">다시 시도</button>
+      <button class="retry" id="retry" type="button">다시 시도</button>
     </main>
+    <script>
+      (function () {
+        // T-21-06 오픈 리다이렉트 방지 — 복귀 대상은 허용 출처일 때만 그 URL, 아니면 운영 루트.
+        var ALLOWED_ORIGINS = ['https://trade.jx1.io', 'http://localhost:3100'];
+        var DEFAULT_TARGET = 'https://trade.jx1.io/';
+
+        function safeTarget(raw) {
+          if (!raw) return DEFAULT_TARGET;
+          try {
+            var u = new URL(raw);
+            return ALLOWED_ORIGINS.indexOf(u.origin) !== -1 ? u.href : DEFAULT_TARGET;
+          } catch (e) {
+            return DEFAULT_TARGET;
+          }
+        }
+
+        var target = safeTarget(new URLSearchParams(location.search).get('to'));
+        var checking = false;
+        var leaving = false;
+
+        // 「와이파이는 붙었는데 인터넷 없음」 왕복을 막기 위해 navigator.onLine 이 아니라 실제 도달을 확인한다(A3).
+        // no-cors 는 응답 본문을 못 읽지만 도달하면 resolve, 네트워크 오류면 reject 한다.
+        function tryReturn() {
+          if (checking || leaving) return;
+          checking = true;
+          fetch(new URL('/icon.svg', target).href, { mode: 'no-cors', cache: 'no-store' })
+            .then(function () {
+              leaving = true;
+              location.replace(target);
+            })
+            .catch(function () {
+              /* 아직 오프라인 — 다음 탐침을 기다린다. */
+            })
+            .then(function () {
+              checking = false;
+            });
+        }
+
+        // 5초 탐침이 도는 동안 버튼 모양은 바꾸지 않는다(주기적 깜빡임 방지) — 겹친 실행은 checking 플래그가 막는다.
+        document.getElementById('retry').addEventListener('click', tryReturn);
+        window.addEventListener('online', tryReturn);
+        setInterval(tryReturn, 5000);
+      })();
+    </script>
   </body>
 </html>

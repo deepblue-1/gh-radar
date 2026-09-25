@@ -21,6 +21,7 @@
 		F4BD03AA2C37C5815E40A4C0 /* GHTradeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBDFA363A249E4774A01E31B /* GHTradeTheme.swift */; };
 		0A6A48CDA89C4090B5E0E300 /* TabRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECFC53EE66BF0ED04ADF537 /* TabRoutes.swift */; };
 		7D3A1E5C2B9F4A6E8C0D1F21 /* ThemeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8B6C4D1A2F5E7B9C0A1D32 /* ThemeStore.swift */; };
+		A91C4E7F3B2D5F6A8E0B1C43 /* NavigationDelegateProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62F8A1D4E5B7C9A0D3E2F54 /* NavigationDelegateProxy.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 		BBDFA363A249E4774A01E31B /* GHTradeTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GHTradeTheme.swift; sourceTree = "<group>"; };
 		5ECFC53EE66BF0ED04ADF537 /* TabRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabRoutes.swift; sourceTree = "<group>"; };
 		3E8B6C4D1A2F5E7B9C0A1D32 /* ThemeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStore.swift; sourceTree = "<group>"; };
+		C62F8A1D4E5B7C9A0D3E2F54 /* NavigationDelegateProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationDelegateProxy.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -80,6 +82,7 @@
 				BBDFA363A249E4774A01E31B /* GHTradeTheme.swift */,
 				5ECFC53EE66BF0ED04ADF537 /* TabRoutes.swift */,
 				3E8B6C4D1A2F5E7B9C0A1D32 /* ThemeStore.swift */,
+				C62F8A1D4E5B7C9A0D3E2F54 /* NavigationDelegateProxy.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -180,6 +183,7 @@
 				F4BD03AA2C37C5815E40A4C0 /* GHTradeTheme.swift in Sources */,
 				0A6A48CDA89C4090B5E0E300 /* TabRoutes.swift in Sources */,
 				7D3A1E5C2B9F4A6E8C0D1F21 /* ThemeStore.swift in Sources */,
+				A91C4E7F3B2D5F6A8E0B1C43 /* NavigationDelegateProxy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

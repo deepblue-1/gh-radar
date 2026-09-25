@@ -16,7 +16,8 @@ import os
 /// 활성 = `TabRoutes.activeTab`(D-14) · 숨김 = 로그인 경로 · 오프라인 페이지 · 웹 오버레이 · 키보드(D-12) ·
 /// 탭 = 웹 navigate 훅 evaluate(D-06a, 클라 내비라 relay 소켓 유지).
 ///
-/// 21-11: 당겨서 새로고침(D-04 · D-17 — 웹 refresh 훅 · 1초 고정 스피너) · 테마 추종과 첫 프레임 저장값(D-23).
+/// 21-11: 당겨서 새로고침(D-04 · D-17 — 웹 refresh 훅 · 1초 고정 스피너) · 테마 추종과 첫 프레임 저장값(D-23) ·
+/// 네트워크 오류 전용 오프라인 폴백(D-19 — `NavigationDelegateProxy`) · 폰 세로 / iPad 4방향(D-24).
 final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     private let log = Logger(subsystem: "com.ghtrade.app", category: "bridge")
@@ -49,6 +50,9 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     /// 오버레이·오프라인 페이지 동안 scrollView 에서 떼었다가 다시 붙이므로 보관한다(Pitfall 7).
     private var pullRefreshControl: UIRefreshControl?
 
+    /// WKWebView.navigationDelegate 는 weak 다 → 프록시를 여기서 강하게 보관한다(D-19).
+    private var navProxy: NavigationDelegateProxy?
+
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         // D-23 첫 프레임 — 웹이 뜨기 전 WebView 배경·상태바를 저장값으로(흰/검 깜빡임 방지).
@@ -56,6 +60,10 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         guard let wv = webView else { return }
         // userContentController 는 핸들러를 강하게 잡는다 → 약한 참조 래퍼로 순환을 끊는다.
         wv.configuration.userContentController.add(WeakScriptMessageHandler(self), name: "ghTrade")
+        // 오프라인 필터 — Capacitor 델리게이트를 교체하지 않고 앞에 세운다(원래 동작은 전부 전달, T-21-37).
+        let proxy = NavigationDelegateProxy(original: wv.navigationDelegate, owner: self)
+        navProxy = proxy
+        wv.navigationDelegate = proxy
         setupPullToRefresh()
         setupTabBar()
         observeURL()
@@ -69,6 +77,14 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             rc.bounds = CGRect(x: rc.bounds.origin.x, y: -view.safeAreaInsets.top,
                                width: rc.bounds.width, height: rc.bounds.height)
         }
+    }
+
+    // MARK: - 방향 (D-24 · Pitfall 9)
+
+    /// Capacitor 는 infoDictionary 의 `UISupportedInterfaceOrientations`(폰 = 세로)만 읽는다 — `~ipad` 병합에 기대지 않고
+    /// idiom 으로 확정한다. 폰 세로 고정 · iPad 4방향(Split View 허용 — UIRequiresFullScreen 없음).
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
     }
 
     // MARK: - 상태바 (Pitfall 13)
@@ -235,6 +251,33 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             if rc.isRefreshing { rc.endRefreshing() }
             wv.scrollView.refreshControl = nil
         }
+    }
+
+    // MARK: - 오프라인 폴백 (D-19)
+
+    /// 첫 로드·이동이 네트워크 오류로 실패했을 때 `NavigationDelegateProxy` 가 부른다.
+    /// 앱 내장 `capacitor://localhost/index.html?to=<원래 URL>&theme=<현재>` 를 띄운다 — 페이지가 도달 탐침 성공 시
+    /// `to`(허용 출처만 · T-21-06)로 돌아간다. 호스트가 앱 서버가 아니므로 탭바·새로고침은 URL 규칙으로 숨는다(D-12 ②).
+    func showOffline(failedURL: URL?) {
+        guard !isOfflinePage, let bridge, let wv = webView else { return }
+        let target: URL
+        if let failedURL, let scheme = failedURL.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            target = failedURL
+        } else {
+            target = bridge.config.serverURL
+        }
+        guard var c = URLComponents(url: bridge.config.localURL.appendingPathComponent("index.html"), resolvingAgainstBaseURL: false)
+        else { return }
+        c.queryItems = [
+            URLQueryItem(name: "to", value: target.absoluteString),
+            URLQueryItem(name: "theme", value: currentTheme.rawValue),
+        ]
+        // URLComponents 는 `+` 를 그대로 두는데 웹 URLSearchParams 는 공백으로 읽는다 → 명시 인코딩.
+        let query = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        c.percentEncodedQuery = query
+        guard let url = c.url else { return }
+        log.notice("offline fallback for \(target.absoluteString, privacy: .public)")
+        wv.load(URLRequest(url: url))
     }
 
     // MARK: - URL 관찰 (D-14 · D-12 ②)
