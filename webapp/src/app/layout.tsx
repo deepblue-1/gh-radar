@@ -11,6 +11,7 @@ import { ChatProvider } from '@/components/chat/chat-provider';
 import { ChatFab } from '@/components/chat/chat-fab';
 import { ChatSheet } from '@/components/chat/chat-sheet';
 import { pretendard, geistMono } from '@/lib/fonts';
+import { NATIVE_DETECT_SCRIPT } from '@/lib/native/native-detect';
 
 export const metadata: Metadata = {
   title: 'gh-radar',
@@ -48,6 +49,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       suppressHydrationWarning
       className={`${pretendard.variable} ${geistMono.variable}`}
     >
+      <head>
+        {/* D-11 — 앱 셸(Capacitor) 감지. 첫 페인트 전에 `html.native-app` 을 붙이고 `ready` 를
+            네이티브로 보낸다. 브라우저에서는 아무것도 하지 않는다(lib/native/native-detect.ts). */}
+        <script id="gh-native-detect" dangerouslySetInnerHTML={{ __html: NATIVE_DETECT_SCRIPT }} />
+      </head>
       <body>
         <ThemeProvider>
           <AuthProvider>
