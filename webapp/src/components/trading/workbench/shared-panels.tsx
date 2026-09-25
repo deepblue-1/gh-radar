@@ -229,12 +229,9 @@ export function SharedPanels({
     흐름 안(≥700 · 판정 전): `bottom`(폰 sticky 잔재 — 판정 전 첫 페인트) + `margin-bottom`(페이지
     끝 여백). 포털(폰): `bottom` 만 — 여백은 흐름 안 자리가 대신 갖는다(⑤-b).
   */
+  const reserveBottom = `calc(var(--native-tabbar-offset, 0px) + ${reserve ?? 0}px)`;
   const reserveStyle: CSSProperties | undefined =
-    reserve === null
-      ? undefined
-      : pinned
-        ? { bottom: `calc(var(--native-tabbar-offset, 0px) + ${reserve}px)` }
-        : { bottom: `calc(var(--native-tabbar-offset, 0px) + ${reserve}px)`, marginBottom: reserve };
+    reserve === null ? undefined : pinned ? { bottom: reserveBottom } : { bottom: reserveBottom, marginBottom: reserve };
 
   const embedProps = {
     selectedAccountNo: accountNo,
