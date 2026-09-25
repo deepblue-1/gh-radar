@@ -467,12 +467,12 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
           optsRef.current.setForm((prev) => ({ ...prev, buyOrderAmount: amount }));
         }
         markSuccess(inf.field);
-        if (queueRef.current.length > 0) {
-          // 서버 값이 이 렌더에 바뀌었다 = 카드의 답 신호 증가가 한 렌더 뒤에 온다 → 그때 꺼낸다.
-          // 답 신호가 먼저 와 있었다(늦은 에코 뒤) = 더 올 증가가 없다 → 지금 꺼낸다.
-          if (serverChanged) popAfterSeqRef.current = seq;
-          else drainNow = true;
-        }
+        // 서버 값이 이 렌더에 바뀌었다 = 카드의 답 신호 증가가 한 렌더 뒤에 온다 → 그때 꺼낸다.
+        //   ★ 대기열이 비어 있어도 장벽을 세운다(20-REVIEW WR-02) — 성공 렌더와 증가 렌더 사이에 들어온 새
+        //     확정이 증가 전 seq 로 나가면 뒤따르는 증가를 그 건의 「거부」로 오판한다. 그 확정은 증가까지 대기다.
+        // 답 신호가 먼저 와 있었다(늦은 에코 뒤) = 더 올 증가가 없다 → 지금 꺼낸다.
+        if (serverChanged) popAfterSeqRef.current = seq;
+        else if (queueRef.current.length > 0) drainNow = true;
       } else if (unacked) {
         failInflight(inf, 'timeout');
       } else if (answered) {

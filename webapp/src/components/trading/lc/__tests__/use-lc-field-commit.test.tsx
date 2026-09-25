@@ -699,6 +699,30 @@ describe('CR-02 — 타임아웃은 결과 모름이다 · 늦게 닿은 앞 건
   });
 });
 
+describe('WR-02 — 성공 렌더와 답 신호 증가 렌더 사이의 확정을 거부로 오판하지 않는다(대기열이 비어 있어도)', () => {
+  it('A 성공 에코 렌더 → B 확정은 대기 → 증가 렌더에서 B 전송 · 그 뒤 증가가 없으면 B 는 실패가 아니다', () => {
+    const t = setup({ server: echo({ sellEnabled: false }) });
+    act(() => {
+      t.hook.result.current.commit('sellEnabled', true, 'toggle');
+    });
+    t.update({ server: echo({ sellEnabled: true }) });
+    expect(t.hook.result.current.flashField).toBe('sellEnabled');
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('buyEnabled', false, 'toggle');
+    });
+    expect(out).toBe('queued');
+    expect(t.send).toHaveBeenCalledTimes(1);
+
+    // 카드의 한 렌더 늦은 답 신호 증가 — 이 증가는 A 의 것이지 B 의 거부가 아니다.
+    t.update({ serverAnswerSeq: 1 });
+    expect(t.send).toHaveBeenCalledTimes(2);
+    expect(t.hook.result.current.failures.buyEnabled).toBeUndefined();
+    expect(t.hook.result.current.inflightField).toBe('buyEnabled');
+    expect(t.formRef.current.buyEnabled).toBe(false);
+  });
+});
+
 describe('WR-01 — 미등록 전략에서 등록 전송이 나가 있으면 값 편집은 로컬 성공이 아니라 대기다', () => {
   it('등록(매수주문 켜기) 중 매수가격 편집 → `queued` · 성공 강조 없음 · 등록 에코 뒤 답 신호에서 정상 전송', () => {
     const t = setup({ server: null });
