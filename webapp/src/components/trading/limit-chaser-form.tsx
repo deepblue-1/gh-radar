@@ -253,6 +253,69 @@ function armBlockedGroupsOf(
 /** 사유 한 줄의 조립 규칙 — 패널과 `handleSubmit` 이 **같은 규칙**을 쓴다. */
 const ARM_BLOCKED_SEP = ' · ';
 
+/**
+ * ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다. **산출 지점 하나**다.
+ *
+ * 렌더의 스위치 `disabled`·사유 패널(`canArm`), 「수정」의 차단(`handleSubmit`), 필드 확정 훅의
+ * 전송 직전 가드(`armBlockOf`, 20-01)가 전부 이 함수를 읽는다 — 식을 복제하면 한쪽만 고쳐진다.
+ *
+ * `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
+ * 그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그 상태로 매수를 켜면
+ * `{buyEnabled:true, buyOrderPrice:0, buyOrderQty:0}` 이 나가고(`UIntSchema` 는 0 을
+ * 통과시킨다) 화면에는 「무장」 배지가 뜬다 — 사용자는 무장했다고 믿지만 그 전략은 영원히
+ * 발주하지 않는다. 조용한 실패다.
+ *
+ * ★ 수량 산출식을 **복제하지 않는다**. `buyOrderQtyFromAmount` 를 그대로 읽는다 —
+ *   `lib/limit-chaser.ts` 가 유일 지점이다.
+ */
+function canArmOf(values: LimitChaserFormValues): Record<GateKey, boolean> {
+  const buyQty = buyOrderQtyFromAmount(values.buyOrderAmount, values.buyOrderPrice);
+  const buy = values.buyOrderPrice > 0 && buyQty > 0;
+  /*
+    ★ 매도는 **예상 매도수량(`estimatedSellQty(매도가능, 비율)`)을 조건으로 쓰지 않는다.**
+
+    `lib/limit-chaser.ts` 가 그 값을 **표시 전용**이라고 못박았고, 정본은 서버가 Set 시점에
+    스냅샷하는 `sellOrderQty` 다. 화면에서 그 예상값 행 자체를 걷어낸 지금도(quick 260911-tuk)
+    이 문장은 그대로다 — 표시를 지운 것이지 판정 기준을 바꾼 것이 아니다.
+    게다가 상따의 정상 흐름은 「아직 한 주도 없는 상태에서 매수·매도를 함께 무장」이다.
+    보유 0 을 무장 차단 조건으로 삼으면 이 화면의 주 동선이 통째로 막힌다.
+
+    그래서 **서버 검증과 동형**으로 잡는다: 서버가 매도를 눕히는 조건은 `sellWatchQty === 0`
+    (「0 이면 서버가 매도 활성화를 거부한다」)과 비율 범위이지 보유수량이 아니다. WR-06 이
+    말한 「시세를 못 받은 종목」은 `sellOrderPrice === 0` 으로 여기서 그대로 걸린다.
+  */
+  const sell = values.sellOrderPrice > 0 && values.sellWatchQty > 0;
+  /*
+    한방(스윕)은 **매수 발주를 재계산**하는 보조 트리거다. `crudOf` 의 게이트 4종
+    (`buyEnabled`·`sellEnabled`·`cancelQtyEnabled`·`cancelTradeEnabled`)에 `sweepEnabled` 가
+    없다는 사실이 그것을 말한다 — 한방만 켠 전략은 서버가 삭제(`crud "D"`)로 정규화한다.
+    그래서 한방은 **자기 감시가(`sweepWatchPrice`) + 매수 무장 조건**을 함께 요구한다.
+    매수를 못 켜는 상태에서 한방만 켜는 것은 정의상 아무 발주도 만들지 못한다.
+  */
+  const sweep = values.sweepWatchPrice > 0 && buy;
+  return { buyEnabled: buy, sellEnabled: sell, sweepEnabled: sweep };
+}
+
+/**
+ * 이 값으로 보내면 relay 가 통째로 거부할 무장인가 — 사유 1줄, 아니면 `null`.
+ *
+ * ★ `handleSubmit` 의 차단 조립 규칙(`{게이트이름} · {사유}`) 그대로이고, 그 함수와 필드 확정 훅이
+ *   **이 함수 하나**를 읽는다(GC-WR-09 · T-16-60).
+ * ★ **켜져 있는 게이트만** 본다(`values[key]`) — 끄는 방향은 막지 않는다(T-16-44).
+ * ★★ **철거 면제**(R2-WR-02) — 게이트 4종이 전부 꺼진 요청은 전략을 내리는 요청이라 막지 않는다.
+ *   relay `fanout.ts` `#strategyArmable` 도 `#isTeardown(cfg)` 를 먼저 면제한다. 첫 관문이
+ *   마지막 관문보다 엄격하면 사용자는 전략을 내리려는데 화면이 막는다. `sweepEnabled` 는 삭제
+ *   판정 4종에 들어 있지 않아 「게이트 4종 OFF + 한방 ON + 시세 끊김」이 정확히 그 함정이다.
+ */
+function armBlockOf(values: LimitChaserFormValues): string | null {
+  if (isDeleteIntent(values)) return null;
+  const canArm = canArmOf(values);
+  const blocked = GATE_KEYS.find((key) => values[key] && !canArm[key]);
+  return blocked === undefined
+    ? null
+    : `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`;
+}
+
 /** 매수 카드가 품는 게이트 — 한방은 매수 카드 안에 있으므로 그 사유도 이 카드에 선다. */
 const BUY_CARD_GATES: readonly GateKey[] = ['buyEnabled', 'sweepEnabled'];
 /** 매도 카드는 자기 사유만 갖는다 — 매수 사유가 매도 카드에 새지 않는다. */
@@ -355,6 +418,18 @@ export interface LimitChaserFormProps {
    * (상위는 폼 값을 갖고 있지 않다).
    */
   onServerEcho?: (info: { changed: number; overwrittenDirty: number }) => void;
+  /**
+   * 카드 3초 무응답 — 필드 확정 실패 판정 입력, UI-SPEC A10.
+   *
+   * 카드 상태 훅의 `unacked`(상태줄 「미반영」)를 그대로 받는다. 폼이 자기 타이머를 따로 두면
+   * 두 표시가 서로 다른 말을 한다(RESEARCH Don't Hand-Roll). 기본 false.
+   */
+  unacked?: boolean;
+  /**
+   * 현재 체결가 — 20-03 시트 칩 『현재가』 원천. 없으면 0 이다.
+   * (20-01 은 받기만 한다 — 소비처는 20-03 의 키패드 시트다.)
+   */
+  currentPrice?: number;
   className?: string;
 }
 
@@ -377,6 +452,7 @@ export function LimitChaserForm({
   serverAnswerSeq = 0,
   onSent,
   onServerEcho,
+  unacked = false,
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
@@ -529,6 +605,8 @@ export function LimitChaserForm({
     onSent: (cfg) => sentNotifyRef.current?.(cfg),
     serverAnswerSeq,
     disabled,
+    unacked,
+    armBlockOf,
   });
   /** 인라인 편집 중인 필드 — 한 번에 한 행이다(마우스 기기 · D-14). */
   const [editingField, setEditingField] = useState<LcFieldKey | null>(null);
@@ -559,42 +637,15 @@ export function LimitChaserForm({
   );
 
   /*
-    ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다.
-
-    `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
-    그런 종목을 고르면 상한가 시딩이 가격 칸을 전부 0 으로 채운다. 그 상태로 매수를 켜면
-    `{buyEnabled:true, buyOrderPrice:0, buyOrderQty:0}` 이 나가고(`UIntSchema` 는 0 을
-    통과시킨다) 화면에는 「무장」 배지가 뜬다 — 사용자는 무장했다고 믿지만 그 전략은 영원히
-    발주하지 않는다. 조용한 실패다.
-
-    ★ 산출식을 **복제하지 않는다**. 아래 `buyQty` 파생값을 그대로 읽는다 —
-      `lib/limit-chaser.ts` 가 유일 지점이다.
+    ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다. 산출식은 모듈 수준
+      `canArmOf` **하나**다(20-01) — 필드 확정 훅의 전송 직전 가드(`armBlockOf`)가 같은 식을
+      읽어야 하므로 컴포넌트 밖으로 옮겼다. 근거 주석도 그 함수에 있다.
   */
-  const buyQty = buyOrderQtyFromAmount(form.buyOrderAmount, form.buyOrderPrice);
-
-  const canArmBuy = form.buyOrderPrice > 0 && buyQty > 0;
-  /*
-    ★ 매도는 **예상 매도수량(`estimatedSellQty(매도가능, 비율)`)을 조건으로 쓰지 않는다.**
-
-    `lib/limit-chaser.ts` 가 그 값을 **표시 전용**이라고 못박았고, 정본은 서버가 Set 시점에
-    스냅샷하는 `sellOrderQty` 다. 화면에서 그 예상값 행 자체를 걷어낸 지금도(quick 260911-tuk)
-    이 문장은 그대로다 — 표시를 지운 것이지 판정 기준을 바꾼 것이 아니다.
-    게다가 상따의 정상 흐름은 「아직 한 주도 없는 상태에서 매수·매도를 함께 무장」이다.
-    보유 0 을 무장 차단 조건으로 삼으면 이 화면의 주 동선이 통째로 막힌다.
-
-    그래서 **서버 검증과 동형**으로 잡는다: 서버가 매도를 눕히는 조건은 `sellWatchQty === 0`
-    (「0 이면 서버가 매도 활성화를 거부한다」)과 비율 범위이지 보유수량이 아니다. WR-06 이
-    말한 「시세를 못 받은 종목」은 `sellOrderPrice === 0` 으로 여기서 그대로 걸린다.
-  */
-  const canArmSell = form.sellOrderPrice > 0 && form.sellWatchQty > 0;
-  /*
-    한방(스윕)은 **매수 발주를 재계산**하는 보조 트리거다. `crudOf` 의 게이트 4종
-    (`buyEnabled`·`sellEnabled`·`cancelQtyEnabled`·`cancelTradeEnabled`)에 `sweepEnabled` 가
-    없다는 사실이 그것을 말한다 — 한방만 켠 전략은 서버가 삭제(`crud "D"`)로 정규화한다.
-    그래서 한방은 **자기 감시가(`sweepWatchPrice`) + 매수 무장 조건**을 함께 요구한다.
-    매수를 못 켜는 상태에서 한방만 켜는 것은 정의상 아무 발주도 만들지 못한다.
-  */
-  const canArmSweep = form.sweepWatchPrice > 0 && canArmBuy;
+  const {
+    buyEnabled: canArmBuy,
+    sellEnabled: canArmSell,
+    sweepEnabled: canArmSweep,
+  } = canArmOf(form);
 
   /*
     ★ **`useMemo` 다** (GC-IN-01). 객체 리터럴로 두면 매 렌더 새 참조가 되고, 그것을 의존성으로
@@ -673,20 +724,16 @@ export function LimitChaserForm({
           정확히 이것이다). **첫 관문이 마지막 관문보다 엄격하면** 사용자는 전략을 내리려는데
           화면이 막고, 그 사이 시장은 계속 움직인다 — 자산을 인질로 잡는 방향이다.
         · `sweepEnabled` 는 삭제 판정 4종에 **들어 있지 않다.** 그래서 「게이트 4종 OFF +
-          한방 ON + 시세 끊겨 `buyOrderPrice === 0`」이 정확히 이 함정이다 — 아래 `find` 가
+          한방 ON + 시세 끊겨 `buyOrderPrice === 0`」이 정확히 이 함정이다 — 면제가 없으면
           `sweepEnabled` 를 짚어 철거를 거부한다.
         · 바로 위 ★ 가 적어 둔 T-16-44(「끄는 방향은 여기서도 막지 않는다」)의 **누락된
           나머지 절반**이다. 그쪽은 게이트 하나하나를 보고, 이쪽은 **전략 전체를 내리는
           의도**를 본다.
+      두 규율 모두 모듈 수준 `armBlockOf` **하나**에 있다(20-01) — 필드 확정 훅도 같은 함수를 읽는다.
     */
-    const teardown = isDeleteIntent(values);
-    const blocked = teardown
-      ? undefined
-      : GATE_KEYS.find((key) => values[key] && gateBlocked(key, true));
-    if (blocked !== undefined) {
-      setSubmitError(
-        `${GATE_LABEL[blocked]}${ARM_BLOCKED_SEP}${armBlockedTextOf(blocked, values)}`,
-      );
+    const blockedText = armBlockOf(values);
+    if (blockedText !== null) {
+      setSubmitError(blockedText);
       return;
     }
     setSubmitting(true);
@@ -705,7 +752,7 @@ export function LimitChaserForm({
     }
     setSubmitError('');
     sentNotifyRef.current?.(cfg);
-  }, [submitting, disabled, send, buildCfg, gateBlocked]);
+  }, [submitting, disabled, send, buildCfg]);
 
   /** 「되돌리기」 — 서버값 복귀. **전송하지 않는다.** */
   const handleRevert = useCallback(() => {

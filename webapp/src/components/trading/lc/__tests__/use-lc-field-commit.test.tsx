@@ -105,7 +105,7 @@ function setup(over: Partial<Opts> = {}) {
       formRef.current = typeof u === 'function' ? u(formRef.current) : u;
     },
   );
-  const send = vi.fn((_msg: { t: 'lc.set'; cfg: RelayLimitChaserInput }) => true);
+  const send = vi.fn<(msg: { t: 'lc.set'; cfg: RelayLimitChaserInput }) => boolean>(() => true);
   const onSent = vi.fn();
   let props: Opts = {
     server,

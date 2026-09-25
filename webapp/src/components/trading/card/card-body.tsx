@@ -218,6 +218,7 @@ export function CardBody({
     resetSeq,
     liveSeed,
     answerSeq,
+    unacked,
     dirtyCount,
     setDirtyCount,
     handleSent,
@@ -266,6 +267,10 @@ export function CardBody({
       cancelStatusText={groups.cancel}
       onDirtyCountChange={setDirtyCount}
       serverAnswerSeq={answerSeq}
+      // Phase 20 — 필드 확정 실패 판정(3초 무응답)은 상태줄 「미반영」과 **같은 신호**다(UI-SPEC A10).
+      unacked={unacked}
+      // 20-03 시트 칩 「현재가」 원천 — 시세가 없거나 0 이면 0(칩 비활성).
+      currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
       onSent={handleSent}
       onServerEcho={handleServerEcho}
       // 작업대 카드는 바가 카드 안에 붙어 종목명이 필요 없다(목업 B). 호가 탭은 화면 하단 바라 종목명을 쓴다.

@@ -30,6 +30,29 @@
  *   값·체크·감시대상 확정을 보내면 `crudOf` 가 `'D'` 인 철거 프레임이 나가거나(존재하지 않는 키)
  *   게이트성 체크가 의도치 않은 등록을 만든다(Pitfall 2). 등록은 그룹 스위치 4개
  *   (`LC_GATE_FIELDS`)만 한다 — Phase 16 D-05 「첫 스위치 = 등록」 그대로.
+ *
+ * ⑦ ★ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 「직렬화」 · T-20-08)
+ *   앞 건이 답을 받기 전의 확정은 **대기열**(필드당 1건, 순서 유지)에 선다. 같은 필드를 다시
+ *   확정하면 값만 바뀌고 자리는 그대로다 — 전송량은 사용자 확정 수 이하다.
+ *   ★ **꺼내는 시점이 핵심이다.** 카드는 성공 에코 한 번에 `acceptAnswer` 를 한 커밋 안에서
+ *     1~2회 부르고(`strategy-card.tsx` 의 에코 스트림 · 서버 값 이펙트), 그 증가는 폼 이펙트보다
+ *     **한 렌더 늦게** 보인다. 성공 렌더에서 곧바로 다음 건을 보내면 뒤따르는 증가가 그 새 건을
+ *     「거부」로 오판한다. 그래서 성공 뒤 `serverAnswerSeq` 가 바뀐 렌더에서만 꺼낸다.
+ *   ★ 꺼낼 때마다 no-op·무장 판정을 **새 서버 값**으로 다시 한다(앞 건이 서버를 바꿨다).
+ *   ★ 앞 건이 실패하면 대기 건은 **하나도 보내지 않고** 각 필드를 실패로 표시한다 —
+ *     자동 전송(⑤ 위반)도 조용한 드롭(사용자는 반영된 줄 안다)도 아니다.
+ *
+ * ⑧ ★ 실패 판정 입력은 셋이다
+ *   거부 = 답 신호(`serverAnswerSeq`)만 오르고 값 불일치 · 타임아웃 = 카드 `unacked`(3초 무응답,
+ *   상태줄 「미반영」과 **같은 신호** — UI-SPEC A10) · 끊김 = `send` false.
+ *   특례: `buyOrderAmount` 에코가 0 이면 「서버가 모른다」(`lib/limit-chaser.ts`)라 답 도착만으로 성공.
+ *
+ * ⑨ ★ 무장 불가 값은 보내지 않는다 (WR-06 · T-20-01)
+ *   전송 직전 `armBlockOf(서버 동기값 + 바꾼 필드)` 가 문장을 돌려주면 막고 그 문장을 실패로 둔다.
+ *   ★ **끄는 방향 게이트는 판정하지 않는다**(T-16-44) — 무장 해제를 막는 화면은 자산을 인질로 잡는다.
+ *
+ * ⑩ 토글 종류(스위치·체크·감시대상)는 전송 뒤(또는 대기 진입 시) 낙관 표시하고, 실패·폐기되면
+ *   확정 직전 값으로 되돌린다(UI-SPEC E2). `send` 가 false 면 폼을 건드리지 않는다(GC-WR-06).
  */
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -90,19 +113,27 @@ export interface UseLcFieldCommitOptions {
   serverAnswerSeq: number;
   /** 세션 미준비 등 — 확정 전체를 막는다. */
   disabled: boolean;
+  /** 카드 3초 무응답(`unacked`) — in-flight 중 true 가 되면 타임아웃 실패(⑧). 기본 false. */
+  unacked?: boolean;
+  /** 무장 불가 사유 — 문장이면 전송하지 않는다(⑨). 폼의 `armBlockOf` 가 원천이다. */
+  armBlockOf?: (values: LimitChaserFormValues) => string | null;
 }
 
-interface Inflight {
+/** 확정 1건 — 대기열 항목이자 in-flight 의 원형. */
+interface Pending {
   field: LcFieldKey;
   value: unknown;
   kind: LcCommitKind;
+  /** 확정 직전 폼 값 — 토글 되돌림 기준(⑩). */
+  prevValue: unknown;
+}
+
+interface Inflight extends Pending {
   /** 보낼 때의 `serverAnswerSeq` — 이 값에서 바뀌면 답이 온 것이다. */
   answerSeqAtSend: number;
 }
 
 type FailureMap = Partial<Record<LcFieldKey, LcCommitFailure>>;
-
-const NO_FIELDS: readonly LcFieldKey[] = [];
 
 function isGateField(field: LcFieldKey): boolean {
   return (LC_GATE_FIELDS as readonly LcFieldKey[]).includes(field);
@@ -132,6 +163,14 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   /** 나가 있는 전송 1건. 판정의 정본은 ref 다(같은 틱 두 번의 확정도 정확히 본다). */
   const inflightRef = useRef<Inflight | null>(null);
   const [inflightField, setInflightField] = useState<LcFieldKey | null>(null);
+  /** 대기열 — 필드당 최대 1건, 확정 순서(⑦). */
+  const queueRef = useRef<Pending[]>([]);
+  const [queuedFields, setQueuedFields] = useState<readonly LcFieldKey[]>([]);
+  /**
+   * 성공 뒤 「다음 답 신호 증가를 기다린다」 — 그 증가를 본 렌더에서만 대기 건을 꺼낸다(⑦).
+   * `null` 이 아니면 아직 한 건이 끝나지 않은 것으로 본다(새 확정도 대기로 선다).
+   */
+  const popAfterSeqRef = useRef<number | null>(null);
 
   const failuresRef = useRef<FailureMap>({});
   const [failures, setFailuresState] = useState<FailureMap>({});
@@ -141,6 +180,11 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     failuresRef.current = next;
     setFailuresState(next);
   }, []);
+  const setFailure = useCallback(
+    (field: LcFieldKey, reason: LcFailReason, text: string, value: unknown) =>
+      writeFailures((prev) => ({ ...prev, [field]: { reason, text, value } })),
+    [writeFailures],
+  );
 
   const [flashField, setFlashField] = useState<LcFieldKey | null>(null);
   const [success, setSuccess] = useState<{ seq: number; field: LcFieldKey | null }>({
@@ -169,15 +213,107 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
     setInflightField(next === null ? null : next.field);
   }, []);
 
+  const syncQueue = useCallback(() => {
+    setQueuedFields(queueRef.current.map((q) => q.field));
+  }, []);
+
+  /** 토글 낙관 표시 · 되돌림 — 값 필드에는 절대 부르지 않는다(④). */
+  const showToggle = useCallback((field: LcFieldKey, value: unknown) => {
+    optsRef.current.setForm((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  /**
+   * 지금 보낸다 — 즉시 확정과 대기 꺼내기가 **같은 경로**다. 무장 판정(⑨)은 여기서만 한다.
+   * `optimistic` = 이 토글을 이미 낙관 표시했는가(대기 진입 시) — 보내지 못하면 되돌린다.
+   */
+  const sendNow = useCallback(
+    (p: Pending, optimistic: boolean): LcCommitOutcome => {
+      const { server, formRef, buildCfg, send, onSent, serverAnswerSeq, armBlockOf } = optsRef.current;
+      // ② 기준값 = 서버 동기값 + 바꾼 필드 1개.
+      const base = server != null ? formFromServer(server, formRef.current) : formRef.current;
+      const next: LimitChaserFormValues = { ...base, [p.field]: p.value };
+      const turningOff = isGateField(p.field) && p.value === false;
+      const blocked = turningOff ? null : (armBlockOf?.(next) ?? null);
+      if (blocked !== null) {
+        setFailure(p.field, 'armBlocked', blocked, p.value);
+        if (optimistic) showToggle(p.field, p.prevValue);
+        return 'blocked';
+      }
+      const cfg = buildCfg(next);
+      if (!send({ t: 'lc.set', cfg })) {
+        setFailure(p.field, 'disconnected', LC_COMMIT_TEXT.disconnected, p.value);
+        if (optimistic) showToggle(p.field, p.prevValue);
+        return 'disconnected';
+      }
+      onSent?.(cfg);
+      writeFailures((prev) => withoutField(prev, p.field));
+      setInflight({ ...p, answerSeqAtSend: serverAnswerSeq });
+      // ⑩ 토글은 전송 뒤 낙관 표시 — 대기 중 에코가 폼을 덮었을 수 있어 꺼낼 때도 다시 건다.
+      if (p.kind === 'toggle') showToggle(p.field, p.value);
+      return 'sent';
+    },
+    [setFailure, setInflight, showToggle, writeFailures],
+  );
+
+  /** 대기열에서 한 건을 보낼 때까지 꺼낸다 — no-op 은 건너뛰고, 끊기면 남은 건도 끊김이다. */
+  const drain = useCallback(() => {
+    const { server } = optsRef.current;
+    while (queueRef.current.length > 0) {
+      const p = queueRef.current.shift()!;
+      if (server != null && server[p.field] === p.value) {
+        writeFailures((prev) => withoutField(prev, p.field));
+        continue;
+      }
+      const out = sendNow(p, p.kind === 'toggle');
+      if (out === 'sent') break;
+      if (out === 'disconnected') {
+        for (const rest of queueRef.current) {
+          setFailure(rest.field, 'disconnected', LC_COMMIT_TEXT.disconnected, rest.value);
+          if (rest.kind === 'toggle') showToggle(rest.field, rest.prevValue);
+        }
+        queueRef.current = [];
+      }
+    }
+    syncQueue();
+  }, [sendNow, setFailure, showToggle, syncQueue, writeFailures]);
+
+  /** in-flight 실패 — 되돌리고, 대기 건은 보내지 않고 전부 실패로 표시한다(⑦). */
+  const failInflight = useCallback(
+    (inf: Inflight, reason: 'rejected' | 'timeout') => {
+      const { server } = optsRef.current;
+      setInflight(null);
+      popAfterSeqRef.current = null;
+      setFailure(inf.field, reason, LC_COMMIT_TEXT.failed, inf.value);
+      if (inf.kind === 'toggle') showToggle(inf.field, inf.prevValue);
+      for (const q of queueRef.current) {
+        // 서버가 이미 그 값이면 보낼 것이 없던 확정이다 — 실패라고 말하지 않는다.
+        if (server != null && server[q.field] === q.value) continue;
+        setFailure(q.field, 'rejected', LC_COMMIT_TEXT.failed, q.value);
+        if (q.kind === 'toggle') showToggle(q.field, q.prevValue);
+      }
+      queueRef.current = [];
+      syncQueue();
+    },
+    [setFailure, setInflight, showToggle, syncQueue],
+  );
+
   const commit = useCallback(
     <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K], kind: LcCommitKind): LcCommitOutcome => {
-      const { server, formRef, setForm, buildCfg, send, onSent, serverAnswerSeq, disabled } =
-        optsRef.current;
+      const { server, formRef, setForm, disabled } = optsRef.current;
       if (disabled) return 'blocked';
-      // 같은 필드가 아직 나가 있다 — 행은 반영 중에 다시 열리지 않으므로 여기 닿는 경로가 없다.
-      if (inflightRef.current?.field === field) return 'blocked';
-      // 서버 값과 같다 — 보낼 것이 없다(전송 0). 남아 있던 실패 표시도 거둔다.
-      if (server != null && server[field] === value) {
+
+      // 같은 필드가 대기 중 — 값만 바꾸고 자리는 그대로다(⑦).
+      const queued = queueRef.current.find((q) => q.field === field);
+      if (queued !== undefined) {
+        queued.value = value;
+        if (kind === 'toggle') showToggle(field, value);
+        writeFailures((prev) => withoutField(prev, field));
+        return 'queued';
+      }
+
+      const inflight = inflightRef.current;
+      // 서버 값과 같다 — 보낼 것이 없다(전송 0). 단 그 필드가 나가 있으면 그 답 뒤에 판정한다.
+      if (server != null && server[field] === value && inflight?.field !== field) {
         writeFailures((prev) => withoutField(prev, field));
         return 'noop';
       }
@@ -187,22 +323,19 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
         markSuccess(field);
         return 'local';
       }
-      // ② 기준값 = 서버 동기값 + 바꾼 필드 1개.
-      const base = server != null ? formFromServer(server, formRef.current) : formRef.current;
-      const cfg = buildCfg({ ...base, [field]: value });
-      if (!send({ t: 'lc.set', cfg })) {
-        writeFailures((prev) => ({
-          ...prev,
-          [field]: { reason: 'disconnected', text: LC_COMMIT_TEXT.disconnected, value },
-        }));
-        return 'disconnected';
+
+      const pending: Pending = { field, value, kind, prevValue: formRef.current[field] };
+      // ⑦ 한 건이 끝나지 않았다(in-flight 또는 성공 뒤 답 신호 대기) — 대기열에 선다.
+      if (inflight !== null || popAfterSeqRef.current !== null) {
+        queueRef.current.push(pending);
+        if (kind === 'toggle') showToggle(field, value);
+        writeFailures((prev) => withoutField(prev, field));
+        syncQueue();
+        return 'queued';
       }
-      onSent?.(cfg);
-      writeFailures((prev) => withoutField(prev, field));
-      setInflight({ field, value, kind, answerSeqAtSend: serverAnswerSeq });
-      return 'sent';
+      return sendNow(pending, false);
     },
-    [markSuccess, setInflight, writeFailures],
+    [markSuccess, sendNow, showToggle, syncQueue, writeFailures],
   );
 
   const clearFailure = useCallback(
@@ -211,37 +344,61 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   );
 
   /*
-    해소 — 서버 값이나 답 신호가 바뀐 렌더에서만 판정한다.
-    ③ 성공은 값 비교로만 · 답만 오면 거부 · 늦은 에코는 실패를 성공으로.
+    해소 — 서버 값 · 답 신호 · 무응답이 바뀐 렌더에서만 판정한다.
+    ① in-flight 판정(성공은 값 비교로만) → ② 대기 꺼내기(성공 뒤 답 신호가 바뀐 렌더) →
+    ③ 늦은 에코(실패를 성공으로). 순서가 곧 규칙이다 — 이번 실행에서 막 보낸 건을 같은
+    실행에서 판정하지 않는다.
   */
+  const unacked = o.unacked ?? false;
   const prevServerRef = useRef<RelayLimitChaser | null>(o.server);
   useEffect(() => {
     const server = o.server;
+    const seq = o.serverAnswerSeq;
     const serverChanged = prevServerRef.current !== server;
     prevServerRef.current = server;
 
+    // ① in-flight 판정.
     const inf = inflightRef.current;
+    let drainNow = false;
     if (inf !== null) {
-      if (server != null && server[inf.field] === inf.value) {
+      const answered = seq !== inf.answerSeqAtSend;
+      const matches =
+        server != null &&
+        (server[inf.field] === inf.value ||
+          // ⑧ 특례 — 서버가 금액을 모른다(0). 답이 온 것만으로 성공이다.
+          (inf.field === 'buyOrderAmount' && server.buyOrderAmount === 0 && answered));
+      if (matches) {
         setInflight(null);
         markSuccess(inf.field);
-      } else if (o.serverAnswerSeq !== inf.answerSeqAtSend) {
-        setInflight(null);
-        writeFailures((prev) => ({
-          ...prev,
-          [inf.field]: { reason: 'rejected', text: LC_COMMIT_TEXT.failed, value: inf.value },
-        }));
+        if (queueRef.current.length > 0) {
+          // 서버 값이 이 렌더에 바뀌었다 = 카드의 답 신호 증가가 한 렌더 뒤에 온다 → 그때 꺼낸다.
+          // 답 신호가 먼저 와 있었다(금액 특례) = 더 올 증가가 없다 → 지금 꺼낸다.
+          if (serverChanged) popAfterSeqRef.current = seq;
+          else drainNow = true;
+        }
+      } else if (unacked) {
+        failInflight(inf, 'timeout');
+      } else if (answered) {
+        failInflight(inf, 'rejected');
       }
     }
 
-    // 늦은 에코 — 보냈다가 실패로 판정한 값이 서버에 섰다. 보내지 않은 실패(끊김)는 대상이 아니다.
+    // ② 대기 꺼내기 — 성공 뒤 답 신호가 바뀐 렌더다.
+    if (inf === null && popAfterSeqRef.current !== null && seq !== popAfterSeqRef.current) {
+      popAfterSeqRef.current = null;
+      drainNow = true;
+    }
+    if (drainNow) drain();
+
+    // ③ 늦은 에코 — 보냈다가(또는 대기에서 폐기돼) 실패로 판정한 값이 서버에 섰다.
+    //    보내지 않은 실패(끊김 · 무장 불가)는 대상이 아니다.
     if (serverChanged && server != null) {
       for (const [f, fail] of Object.entries(failuresRef.current) as [LcFieldKey, LcCommitFailure][]) {
         if (fail.reason !== 'rejected' && fail.reason !== 'timeout') continue;
         if (server[f] === fail.value) markSuccess(f);
       }
     }
-  }, [o.server, o.serverAnswerSeq, markSuccess, setInflight, writeFailures]);
+  }, [o.server, o.serverAnswerSeq, unacked, drain, failInflight, markSuccess, setInflight]);
 
   useEffect(
     () => () => {
@@ -253,7 +410,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   return {
     commit,
     inflightField,
-    queuedFields: NO_FIELDS,
+    queuedFields,
     failures,
     flashField,
     successSeq: success.seq,

@@ -56,7 +56,9 @@ function echo(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     buyWatchSide: '0',
     buyTradeQtyEnabled: false,
     buyEnabled: true,
-    buyOrderAmount: 10,
+    // 무장 가능한 전략이어야 한다 — 200만원 / 130,000원 = 15주. 0주면 전송 직전 무장 가드
+    // (`armBlockOf`)가 막는다(relay `#strategyArmable` 도 통째로 거부하는 상태다).
+    buyOrderAmount: 200,
     sellOrderPrice: 130_000,
     sellOrderQty: 0,
     sellWatchPrice: 130_000,
