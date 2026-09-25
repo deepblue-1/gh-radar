@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>감시대상 행 폭 비교</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+/* ── 토큰: webapp/src/styles/globals.css(:root / .dark) + 20-UI-SPEC 신규 토큰(--group-bg · --switch-off) ── */
+:root {
+  --bg: #ffffff; --surface: #f2f4f6; --fg: #191f28; --fg-2: #333d4b; --muted: #f2f4f6;
+  --muted-fg: #6b7684; --faint: #b0b8c1; --raised-2: #e5e8eb; --border-subtle: #e5e8eb;
+  --card: #ffffff; --primary: #3182f6; --destructive: #f04452; --led-armed: #03b26c;
+  --seg-on-bg: #ffffff; --seg-on-fg: #191f28; --seg-on-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  --group-bg: #f9fafb; --switch-off: #d1d6db;
+  --ok: #03b26c; --ok-bg: rgba(3,178,108,.12); --bad: #f04452; --bad-bg: rgba(240,68,82,.12);
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+}
+.dark {
+  --bg: #17171c; --surface: #17171c; --fg: #ffffff; --fg-2: #e4e4e5; --muted: #2c2c35;
+  --muted-fg: #9e9ea4; --faint: #62626d; --raised-2: #3c3c47; --border-subtle: #3c3c47;
+  --card: #202027; --primary: #3485fa; --destructive: #f04251; --led-armed: #2fca73;
+  --seg-on-bg: #4d4d59; --seg-on-fg: #ffffff; --seg-on-shadow: 0 0 #0000;
+  --group-bg: #2c2c35; --switch-off: #4d4d59;
+  --ok: #2fca73; --ok-bg: rgba(47,202,115,.14); --bad: #ff5b68; --bad-bg: rgba(240,66,81,.18);
+}
+
+/* 앱 기준선(§2.3 · §8.5.2) — 스파이크와 같은 조건 */
+html[lang="ko"] { word-break: keep-all; overflow-wrap: break-word; letter-spacing: -0.01em; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-sans); background: var(--surface); color: var(--fg);
+  font-size: 16px; line-height: 1.5; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+button { font: inherit; letter-spacing: inherit; color: inherit; border: 0; background: none; padding: 0; margin: 0; cursor: pointer; }
+
+/* ── 페이지 머리 ── */
+.top { position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border-subtle); padding: 12px 20px; }
+.top-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.top h1 { margin: 0; font-size: 17px; font-weight: 700; }
+.seg { display: inline-flex; background: var(--raised-2); border-radius: 8px; padding: 2px; margin-left: auto; }
+.seg button { font-size: 13px; font-weight: 600; height: 28px; padding: 0 12px; border-radius: 6px; color: var(--muted-fg); }
+.seg button.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.fontwarn { font-size: 12px; color: var(--bad); display: none; }
+.fontwarn.show { display: inline; }
+.intro { max-width: 1000px; padding: 16px 20px 4px; font-size: 13.5px; color: var(--fg-2); }
+.intro p { margin: 0 0 10px; }
+.legend { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.legend li { display: flex; gap: 10px; align-items: baseline; }
+.legend .tag { flex: none; min-width: 64px; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--raised-2); color: var(--fg); }
+.tag.rec { background: var(--primary); color: #fff; }
+.method { font-size: 12px; color: var(--muted-fg); }
+
+/* 요약표 */
+.sum { margin: 6px 0 4px; border-collapse: collapse; font-size: 13px; }
+.sum th, .sum td { padding: 6px 12px; border-bottom: 1px solid var(--border-subtle); text-align: right; white-space: nowrap; }
+.sum th:first-child, .sum td:first-child { text-align: left; }
+.sum th { font-weight: 600; color: var(--muted-fg); font-size: 12px; }
+.sum .ref { color: var(--muted-fg); font-size: 11.5px; margin-left: 4px; }
+
+/* ── 변형 섹션 ── */
+section.v { padding: 26px 20px 8px; border-top: 1px solid var(--border-subtle); }
+section.v > h2 { margin: 0 0 4px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+section.v > .d { margin: 0 0 14px; font-size: 13px; color: var(--muted-fg); max-width: 900px; }
+.fr-cap { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted-fg); margin: 0 0 6px; }
+.fr-cap b { color: var(--fg); font-weight: 700; }
+.pill { font-size: 12.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+.fr-wrap { margin-bottom: 22px; }
+
+/* ── 카드 본문 기하 (스파이크와 동일) ──
+   본문 830: 좌 400(border 1 포함) | 우 패널 · 본문 700: 좌 260 | 우 패널
+   우 패널 패딩 10(≥700) · 목록 2열 간격 8 · 그룹 면 패딩 10 10 4 · 행 좌우 4 */
+.frame { flex: none; background: var(--card); border-radius: 0; box-shadow: 0 0 0 1px var(--border-subtle); }
+.body { display: grid; }
+.frame[data-w="830"] .body { grid-template-columns: 400px minmax(0, 1fr); }
+.frame[data-w="700"] .body { grid-template-columns: 260px minmax(0, 1fr); }
+.lad { border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px;
+  background: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--fg) 3%, transparent) 10px 20px); color: var(--faint); font-size: 12px; }
+.lad b { font-size: 13px; color: var(--muted-fg); font-weight: 600; }
+.pan { padding: 10px; min-width: 0; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.cols > .c { min-width: 0; }
+.side-h { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; margin: 2px 2px 0; color: var(--fg); }
+.side-h i { width: 8px; height: 8px; border-radius: 50%; }
+
+.grp { margin-top: 10px; border-radius: 16px; padding: 10px 10px 4px; background: var(--group-bg); min-width: 0; }
+.grp-h { display: flex; align-items: center; gap: 8px; padding: 0 2px 2px; min-height: 24px; }
+.grp-h .tt { flex: 1; min-width: 0; line-height: 1.35; }
+.grp-h .t { font-size: 15px; font-weight: 600; color: var(--fg); margin-right: 6px; }
+.grp-h .s { font-size: 12px; color: var(--muted-fg); }
+.grp-h .s.live { color: var(--led-armed); }
+.sw { width: 40px; height: 24px; border-radius: 999px; background: var(--primary); position: relative; flex: none; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 18px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+
+/* 사다리 변수: L0 = 행 좌우 4 · 간격 6 / L2 = 행 좌우 0 · 간격 4 */
+.frame { --row-px: 4px; --row-gap: 6px; --tog-px: 10px; }
+.frame.L2 { --row-px: 0px; --row-gap: 4px; }
+.frame.tog8 { --tog-px: 8px; }
+.frame.tog6 { --tog-px: 6px; }
+
+.row { position: relative; display: flex; min-height: 44px; width: 100%; min-width: 0; align-items: center; justify-content: space-between;
+  gap: var(--row-gap); border-radius: 10px; padding: 0 var(--row-px); text-align: left; }
+.row .k { white-space: nowrap; font-size: 14px; line-height: 1.5; color: var(--muted-fg); }
+.row .vw { display: flex; min-width: 0; align-items: center; white-space: nowrap; }   /* 실제 코드 값 슬롯 min-w-0 */
+.row .v { white-space: nowrap; font-size: 15px; font-weight: 500; line-height: 1.5; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.row .ch { white-space: pre; font-size: 15px; line-height: 1.5; color: var(--faint); }
+/* 체크 값 행 */
+.row .ckl { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ck { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--switch-off); display: grid; place-items: center; flex: none; }
+.ck.on { background: var(--primary); border-color: var(--primary); }
+.ck.on::after { content: ''; width: 9px; height: 5px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+
+/* 감시대상 행 (≥700 = 라벨 + 인라인 토글) */
+.row.watch { cursor: default; }
+.tog { display: inline-flex; background: var(--raised-2); border-radius: 8px; padding: 2px; flex: none; }
+.tog button { flex: none; font-size: 13px; font-weight: 600; height: 26px; padding: 0 var(--tog-px); border-radius: 6px; color: var(--muted-fg); white-space: nowrap; }
+.tog button.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+/* D: 라벨 숨김 + 풀폭 토글(13px 유지) */
+.frame.vD .row.watch .k { display: none; }
+.frame.vD .row.watch .tog { display: flex; width: 100%; }
+.frame.vD .row.watch .tog button { flex: 1 1 0; min-width: 0; }
+
+/* 측정 표시 */
+.row.over { outline: 2px solid var(--bad); outline-offset: 1px; background: var(--bad-bg); }
+.bdg { position: absolute; top: 0; right: 0; font-size: 9.5px; line-height: 11px; font-weight: 700; padding: 0 4px; border-radius: 4px; pointer-events: none; letter-spacing: 0; white-space: nowrap; z-index: 2; }
+.bdg.ok { color: var(--ok); background: var(--card); box-shadow: 0 0 0 1px var(--ok-bg); }
+.bdg.bad { color: #fff; background: var(--bad); }
+.row.watch .bdg { font-size: 11px; line-height: 14px; top: -8px; }
+.frame.hide-bdg .row:not(.watch) .bdg { display: none; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="top-row">
+    <h1>감시대상 행 · 본문 830 넘침 — 고치는 방법 비교</h1>
+    <span class="fontwarn" id="fontwarn">⚠ Pretendard 가 아직 안 실렸어요 — 수치가 실제 앱과 다를 수 있어요</span>
+    <span class="seg" id="theme"><button data-t="dark" class="on">다크</button><button data-t="light">라이트</button></span>
+    <span class="seg" id="bdg" style="margin-left:0"><button data-b="all" class="on">모든 행 수치</button><button data-b="watch">감시대상만</button></span>
+  </div>
+</div>
+
+<div class="intro">
+  <p>매수주문 그룹의 「감시대상」 행(≥700 = 라벨 + 인라인 토글)이 본문 830 에서 넘쳐요. 아래는 같은 그룹을 실제 기하(좌 호가 400/260 · 우 패널 2열)로 그리고 <b>브라우저가 지금 잰 값</b>을 붙인 거예요. 각 변형마다 830 · 700 두 폭을 보여요.</p>
+  <ul class="legend">
+    <li><span class="tag">현재</span><span>지금 스펙 그대로(L0) — 토글 버튼 좌우 패딩 10. 사다리 적용 전.</span></li>
+    <li><span class="tag rec">B 권장</span><span>≥700 토글 좌우 패딩 10→8 + 사다리 L2(모든 행: 행 좌우 4→0 · 라벨–값 간격 6→4). 글자 크기·모양 그대로.</span></li>
+    <li><span class="tag">C</span><span>토글 좌우 패딩 10→6 만. 사다리는 L0 그대로. 버튼 안이 가장 빡빡해 보여요.</span></li>
+    <li><span class="tag">D</span><span>≥700 에서도 「감시대상」 라벨을 숨기고 토글을 행 전체 폭으로(13px 유지). D-02 의 ≥700 모양이 바뀌어요.</span></li>
+  </ul>
+  <table class="sum" id="sum"><thead><tr><th>감시대상 행 여유(실측)</th><th>본문 830</th><th>본문 700</th></tr></thead><tbody></tbody></table>
+  <p class="method">여유 = 행 내용 폭(좌우 패딩 뺀 값) − (자식 폭 합 + 간격). 음수면 넘침(빨간 테두리). D 처럼 버튼이 칸을 채우는 토글은 「버튼 안 글자 여유」 중 작은 값. 회색 괄호는 20-02 스파이크 값. 사다리 L3(쉐브런 숨김)은 ≥700 에서 허용되지 않아 뺐어요.</p>
+</div>
+
+<div id="sections"></div>
+
+<script>
+const VARIANTS = [
+  { id: 'cur', tag: '현재', cls: '', title: '현재 · L0 (넘침 그대로)', desc: '「감시대상」 14/400 + 토글 13/600 · 버튼 높이 26 · 좌우 패딩 10. 다른 행은 L0 에서 전부 들어가요.', ref: { 830: -13.4, 700: -8.4 } },
+  { id: 'B', tag: 'B 권장', rec: true, cls: 'tog8 L2', title: 'B · 토글 좌우 10→8 + 사다리 L2', desc: '토글 버튼 좌우 패딩만 2px 씩 줄이고, 밴드 공통 사다리 L2(행 좌우 0 · 간격 4)를 함께 걸어요. 모양·글자 크기 불변.', ref: { 830: 4.6, 700: 9.6 } },
+  { id: 'C', tag: 'C', cls: 'tog6', title: 'C · 토글 좌우 10→6 (L0)', desc: '사다리 없이 토글 버튼 좌우 패딩만 6 으로. 다른 행은 그대로 L0.', ref: { 830: 2.6, 700: 7.6 } },
+  { id: 'D', tag: 'D', cls: 'vD', title: 'D · 라벨 숨김 + 풀폭 토글 (L0)', desc: '≥700 도 폰처럼 라벨 없이 토글이 행을 채워요(13px · 높이 26 유지). 여유가 가장 크지만 D-02 의 「라벨 + 토글」 모양이 사라져요.', ref: { 830: 20.7, 700: 22.7 } },
+];
+const WIDTHS = [
+  { w: 830, band: '와이드 밴드', lad: '3단 호가표 400px' },
+  { w: 700, band: '컴팩트 밴드', lad: '2단 호가 260px' },
+];
+
+/* 최악값(스파이크 조건): 가격 7자리 · 수량 100,000주 · 상태 「발주 완료 · 무장 해제」 */
+const valRow = (k, v, chev = true) => `<div class="row" data-name="${k}"><span class="k">${k}</span><span class="vw"><span class="v">${v}</span>${chev ? '<span class="ch" aria-hidden="true"> ›</span>' : ''}</span></div>`;
+const chkRow = (k, v, on = true) => `<div class="row" data-name="체크 ${k}"><span class="ckl"><i class="ck ${on ? 'on' : ''}"></i><span class="k">${k}</span></span>${v ? `<span class="vw"><span class="v">${v}</span><span class="ch" aria-hidden="true"> ›</span></span>` : ''}</div>`;
+const watchRow = () => `<div class="row watch" role="group" aria-label="감시대상" data-name="감시대상"><span class="k">감시대상</span><span class="tog"><button class="on" aria-pressed="true"><span class="tx">매도잔량</span></button><button aria-pressed="false"><span class="tx">매수잔량</span></button></span></div>`;
+const head = (t, s, live) => `<div class="grp-h"><span class="tt"><span class="t">${t}</span><span class="s ${live ? 'live' : ''}">${s}</span></span><span class="sw" aria-hidden="true"></span></div>`;
+
+function frame(v, W) {
+  return `<div class="fr-wrap">
+    <div class="fr-cap"><b>본문 ${W.w}px</b><span>${W.band} · 행 내용 폭 ≈ ${W.w === 830 ? 173 : 178}px(L0)</span><span class="pill" data-pill></span><span data-min></span></div>
+    <div class="frame ${v.cls}" data-w="${W.w}" data-v="${v.id}" style="width:${W.w}px">
+      <div class="body">
+        <div class="lad"><b>호가</b>${W.lad}<span>(기하만 · 내용 생략)</span></div>
+        <div class="pan"><div class="cols">
+          <div class="c">
+            <div class="side-h"><i style="background:var(--destructive)"></i>매수</div>
+            <div class="grp">${head('매수주문', '감시 중', true)}
+              ${valRow('비교가격', '1,274,000원')}
+              ${watchRow()}
+              ${valRow('잔량', '100,000주')}
+              ${chkRow('체결', '100,000주')}
+            </div>
+          </div>
+          <div class="c">
+            <div class="side-h"><i style="background:var(--primary)"></i>매도</div>
+            <div class="grp">${head('매도주문', '발주 완료 · 무장 해제', false)}
+              ${valRow('비교가격', '1,274,000원')}
+              ${valRow('호가잔량', '100,000주')}
+              ${chkRow('잔량추적', '100%')}
+              ${valRow('잔량추적 기준선', '100,000주', false)}
+            </div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+document.getElementById('sections').innerHTML = VARIANTS.map(v => `
+  <section class="v" id="s-${v.id}">
+    <h2><span class="tag ${v.rec ? 'rec' : ''}">${v.tag}</span>${v.title}</h2>
+    <p class="d">${v.desc}</p>
+    ${WIDTHS.map(W => frame(v, W)).join('')}
+  </section>`).join('');
+
+/* ── 측정 ── */
+const px = (cs, p) => parseFloat(cs.getPropertyValue(p)) || 0;
+function intrinsic(el) {
+  const cs = getComputedStyle(el);
+  if (el.classList.contains('tog')) {
+    let w = px(cs, 'padding-left') + px(cs, 'padding-right');
+    for (const b of el.querySelectorAll('button')) {
+      const bcs = getComputedStyle(b);
+      w += px(bcs, 'padding-left') + px(bcs, 'padding-right') + b.querySelector('.tx').getBoundingClientRect().width;
+    }
+    return w;
+  }
+  const kids = [...el.children].filter(k => getComputedStyle(k).display !== 'none');
+  if (kids.length && /flex/.test(cs.display)) {
+    const gap = px(cs, 'column-gap');
+    return kids.reduce((s, k) => s + intrinsic(k), 0) + gap * (kids.length - 1) + px(cs, 'padding-left') + px(cs, 'padding-right');
+  }
+  return el.getBoundingClientRect().width;
+}
+function measureRow(row) {
+  const cs = getComputedStyle(row);
+  const avail = row.clientWidth - px(cs, 'padding-left') - px(cs, 'padding-right');
+  const kids = [...row.children].filter(k => !k.classList.contains('bdg') && getComputedStyle(k).display !== 'none');
+  let need = px(cs, 'column-gap') * Math.max(0, kids.length - 1);
+  let inner = Infinity;
+  for (const k of kids) {
+    need += intrinsic(k);
+    if (k.classList.contains('tog')) {   // 버튼이 칸을 채우는(flex-grow) 풀폭 토글만: 버튼 안 글자 여유
+      for (const b of k.querySelectorAll('button')) {
+        const bcs = getComputedStyle(b);
+        if (parseFloat(bcs.flexGrow) === 0) continue;
+        inner = Math.min(inner, b.getBoundingClientRect().width - px(bcs, 'padding-left') - px(bcs, 'padding-right') - b.querySelector('.tx').getBoundingClientRect().width);
+      }
+    }
+  }
+  return { margin: Math.min(avail - need, inner), avail };
+}
+const fmt = m => (m >= 0 ? '여유 +' : '넘침 −') + Math.abs(m).toFixed(1) + 'px';
+const RESULTS = {};
+
+function measureAll() {
+  document.querySelectorAll('.bdg').forEach(b => b.remove());
+  document.querySelectorAll('.frame').forEach(fr => {
+    let watch = null, minOther = { m: Infinity, name: '' };
+    fr.querySelectorAll('.row').forEach(row => {
+      const { margin } = measureRow(row);
+      const over = margin < -0.05;
+      row.classList.toggle('over', over);
+      const b = document.createElement('span');
+      b.className = 'bdg ' + (over ? 'bad' : 'ok');
+      b.textContent = (margin >= 0 ? '+' : '−') + Math.abs(margin).toFixed(1);
+      row.appendChild(b);
+      if (row.classList.contains('watch')) watch = margin;
+      else if (margin < minOther.m) minOther = { m: margin, name: row.dataset.name };
+    });
+    const cap = fr.previousElementSibling;
+    const pill = cap.querySelector('[data-pill]');
+    pill.className = 'pill ' + (watch < -0.05 ? 'bad' : 'ok');
+    pill.textContent = '감시대상 ' + fmt(watch);
+    cap.querySelector('[data-min]').textContent = `· 다른 행 최소 ${fmt(minOther.m)} (${minOther.name})`;
+    (RESULTS[fr.dataset.v] ??= {})[fr.dataset.w] = { watch: +watch.toFixed(1), minOther: +minOther.m.toFixed(1), minOtherName: minOther.name };
+  });
+  document.querySelector('#sum tbody').innerHTML = VARIANTS.map(v => `<tr><td><span class="tag ${v.rec ? 'rec' : ''}">${v.tag}</span></td>${[830, 700].map(w => {
+    const m = RESULTS[v.id][w].watch;
+    return `<td><span class="pill ${m < -0.05 ? 'bad' : 'ok'}">${fmt(m)}</span><span class="ref">(${v.ref[w] > 0 ? '+' : ''}${v.ref[w]})</span></td>`;
+  }).join('')}</tr>`).join('');
+  window.__RESULTS = RESULTS;
+}
+
+function fontOk() { return document.fonts.check('600 13px "Pretendard Variable"') && document.fonts.check('400 14px "Pretendard Variable"'); }
+function run() {
+  measureAll();
+  document.getElementById('fontwarn').classList.toggle('show', !fontOk());
+  window.__FONT_OK = fontOk();
+  window.__DONE = true;
+}
+Promise.all([document.fonts.load('600 13px "Pretendard Variable"', '매도잔량'), document.fonts.load('400 14px "Pretendard Variable"', '감시대상'), document.fonts.load('500 15px "Pretendard Variable"', '1,274,000원')])
+  .catch(() => {}).then(() => document.fonts.ready).then(run);
+setTimeout(() => { if (!window.__DONE) run(); }, 4000);
+
+/* 테마 · 배지 토글 */
+function setTheme(t) {
+  document.documentElement.classList.toggle('dark', t === 'dark');
+  document.querySelectorAll('#theme button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+}
+setTheme('dark');
+document.getElementById('theme').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTheme(b.dataset.t); });
+document.getElementById('bdg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#bdg button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.frame').forEach(f => f.classList.toggle('hide-bdg', b.dataset.b === 'watch'));
+});
+/* 토글 눌러 보기(선택만 바뀜 · 폭 불변) */
+document.addEventListener('click', e => {
+  const b = e.target.closest('.tog button'); if (!b) return;
+  b.parentElement.querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
+});
+</script>
+</body>
+</html>

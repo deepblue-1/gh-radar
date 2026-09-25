@@ -113,6 +113,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 전체 결정 로그: [DECISIONS-ARCHIVE.md](./DECISIONS-ARCHIVE.md)
 
+- [Phase 20]: D-02a — 감시대상 행은 ≥700 에서도 라벨 숨김 + 행 전체 폭 토글(830 넘침 해소, 목업 비교 후 사용자 선택 D). 버튼 26px·13/600 유지
 - [Phase 18]: 18-28: 옮기기 확정 직전 viMoveTargetOf 재판정 · 스냅샷 from·to 전체 일치일 때만 송신, 아니면 VI_MOVE_STALE_TEXT · 창 유지 (T-18-118)
 - [Phase 18]: 18-28: 가동 중 VI 불일치 고지는 「옮기려면 먼저 중지하세요」 — 버튼 DOM 부재 + submit 계좌 지정 가드 두 겹 (T-18-117)
 - [Phase 18]: 18-30: 결과 모름(timeout) 잠금은 TradingWorkbench 가 계좌|ISIN|거래소 키로 들고 /trading 페이지를 떠날 때만 푼다 — ✕·접기·재추가·계좌 전환·DMA 게이트 전환으로 풀리지 않음. 잠긴 카드 ✕ 는 결과 모름 확인 다이얼로그(data-reason=unknown). 호가 탭은 폼 로컬 잠금 그대로 (GC-WR-03)
@@ -143,7 +144,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
-- 20-04 전 사용자 결정: 830 밴드 감시대상 행(≥700 라벨+인라인 토글)이 백스톱 L2 로도 3.4px 넘침 — B(토글 좌우 10→8)+L2 권고 / C(10→6) / D(라벨 숨김 풀폭). 20-02-SUMMARY 폭 스파이크 절
+None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 ### Quick Tasks Completed
 
