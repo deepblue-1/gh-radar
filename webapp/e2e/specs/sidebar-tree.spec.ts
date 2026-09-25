@@ -71,11 +71,13 @@ const LED_TONES: readonly (readonly string[])[] = [
 ];
 
 /**
- * 전략 항목을 뺀 링크 7개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
+ * 전략 항목을 뺀 링크 8개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
+ * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다(「종목검색」 그룹 3항목은 그대로).
  * 전략 3건은 「트레이딩」과 「My page」 사이에 선다(VI 미가동 — VI 줄 없음).
  */
 const TREE_LINKS = [
   '홈',
+  '검색',
   '상승률 상위',
   '테마',
   '관심종목',
@@ -161,11 +163,11 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
 
     // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 My page 사이.
     expect(await linkOrder(nav)).toEqual([
-      ...TREE_LINKS.slice(0, 5),
+      ...TREE_LINKS.slice(0, 6),
       'strategy',
       'strategy',
       'strategy',
-      ...TREE_LINKS.slice(5),
+      ...TREE_LINKS.slice(6),
     ]);
     // 개별 「상따」·옛 `/trading/vi` 메뉴는 사라졌다(D-03 · D-08).
     await expect(nav.getByRole('link', { name: '상따', exact: true })).toHaveCount(0);
@@ -344,7 +346,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     const nav = drawerNav(page);
     await waitForTradingGroup(nav);
 
-    // 같은 트리다 — 링크 7개 + 전략 3건.
+    // 같은 트리다 — 링크 8개 + 전략 3건.
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
     await expect(nav.getByRole('link')).toHaveCount(TREE_LINKS.length + CHASERS.length);
 
