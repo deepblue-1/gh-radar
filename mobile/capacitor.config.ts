@@ -37,6 +37,11 @@ const config: CapacitorConfig = {
       insetsHandling: 'css',
       initialViewportFitValueHint: 'cover',
     },
+    // D-03 네이티브 Google 로그인(21-15) — google 만 켠다(노출 플러그인 최소 · T-21-15). 플러그인의
+    // `capacitor:sync:before` 훅이 이 값으로 자기 Package.swift·gradle.properties 에서 꺼진 provider SDK 를 뺀다.
+    SocialLogin: {
+      providers: { google: true, facebook: false, apple: false, twitter: false },
+    },
   },
 };
 
