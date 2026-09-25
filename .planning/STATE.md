@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
 status: verifying
-stopped_at: Completed 20-07-PLAN.md
-last_updated: "2026-09-25T06:17:41.578Z"
+stopped_at: Completed 20-08-PLAN.md
+last_updated: "2026-09-25T08:43:06.071Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 execution started
-state_head: 270901e5818a26662101ab4849367796be545473
+state_head: 83aa859e2465c3d5655e38ed4ed477d3ff467837
 progress:
   total_phases: 29
   completed_phases: 4
-  total_plans: 240
-  completed_plans: 225
+  total_plans: 241
+  completed_plans: 226
 milestone_name: milestone
 ---
 
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
-Plan: 7 of 7
-Plans completed: 218 / 233
-Status: Phase complete — ready for verification
+Plan: 8 of 8 (20-08 갭 클로징 — D-24 상단 상태줄 안 C 완료)
+Plans completed: 219 / 234
+Status: Phase complete — ready for verification (재검증: truth 13 「상단 상태줄 1줄 압축」)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-25 — Phase 20 execution started
@@ -79,6 +79,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 20 P05 | 7min | 2 tasks | 4 files |
 | Phase 20 P06 | 14min | 2 tasks | 4 files |
 | Phase 20 P07 | 39min | 3 tasks | 10 files |
+| Phase 20 P08 | 23min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 20]: 20-07: P20-3 실측 폰(344) 기준선 행 여유 +0.4px — 들어가므로 백스톱 추가 없음(글자 불변) · 가장 먼저 깨질 행으로 P20-3 이 감시
 - [Phase 20]: D-15a(WR-05, 2026-09-25): 호가 단위 잠금은 종목 분류가 가른다 — 마스터 stocks.security_group(ETF·ETN·ELW = /search 와 같은 블랙리스트)을 카드 본문이 읽어 두 폼에 같은 값으로 전달. 주식 = 잠금 · ETP·분류 불명 = 경고만 · 상한가 초과는 늘 잠금 · 조회 중은 잠금
 - [Phase 20]: D-04a(WR-07, 2026-09-25): 서버 buyOrderAmount 0(레거시) 전략은 주문금액 행 「—」 + 금액 외 확정을 「주문금액을 먼저 입력해 주세요」로 막음 · 끄기는 늘 허용(금액·수량은 서버 값 그대로 전송) · 0 아닌 금액 에코 뒤 정상
+- [Phase 20]: 20-08: 폰 계좌 칩은 이름이 계좌를 유일하게 가리킬 때만 이름만 — 이름이 비거나 중복이면 「번호 · 이름」(오발주 가드 · T-20-18)
+- [Phase 20]: 20-08: 폰 투명 오버레이 select 는 -indent-[9999px](옵션 0) — scrollOverflowing 판정을 바꾸지 않고 투명 글자 거짓 넘침 제거
 
 ### Pending Todos
 
@@ -191,8 +194,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-25T06:17:40.939Z
-Stopped at: Completed 20-07-PLAN.md
+Last session: 2026-09-25T08:43:05.414Z
+Stopped at: Completed 20-08-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
