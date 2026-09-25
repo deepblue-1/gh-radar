@@ -326,6 +326,35 @@ describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
     expect(idle.className).not.toContain("bg-[var(--nav-on-bg)]");
   });
 
+  it("21-08 D-07 — 「홈」 바로 다음 항목이 「검색」(`/search`) 링크이고 「종목검색」 그룹 3항목은 그대로다", () => {
+    setupReady();
+    render(<AppSidebar />);
+
+    const topItems = Array.from(
+      document.querySelectorAll('nav[aria-label="주 메뉴"] > ul:first-child > li'),
+    );
+    expect(topItems[0]).toHaveTextContent("홈");
+    const searchLink = within(topItems[1] as HTMLElement).getByRole("link", { name: "검색" });
+    expect(searchLink).toHaveAttribute("href", "/search");
+    expect(searchLink.hasAttribute("data-nav-item")).toBe(true);
+    // 그 다음이 「종목검색」 소제목 — 그룹 3항목·순서 무변경
+    expect(topItems[2]).toHaveTextContent("종목검색");
+    const group = within(topItems[3] as HTMLElement).getAllByRole("link");
+    expect(group.map((a) => a.getAttribute("href"))).toEqual(["/scanner", "/themes", "/watchlist"]);
+  });
+
+  it("21-08 D-07 — `/search` 에서 「검색」이 활성(aria-current + 선택 토큰)이고 홈은 비활성이다", () => {
+    mockPathname = "/search";
+    setupReady();
+    render(<AppSidebar />);
+
+    const active = screen.getByRole("link", { name: "검색" });
+    expect(active).toHaveAttribute("aria-current", "page");
+    expect(active.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(active.className).toContain("text-[var(--nav-on-fg)]");
+    expect(screen.getByRole("link", { name: "홈" })).not.toHaveAttribute("aria-current");
+  });
+
   it("`/scanner` 항목 라벨이 「상승률 상위」이고 URL 은 그대로다 (D-15)", () => {
     setupReady();
     render(<AppSidebar />);
