@@ -155,10 +155,16 @@ export function SearchPageClient() {
       <h1 className="mt-1.5 text-[22px] font-bold tracking-[-0.02em] text-[var(--fg)]">검색</h1>
 
       <form role="search" onSubmit={handleSubmit} className="-mt-1">
-        <div className="flex h-12 items-center gap-2.5 rounded-[14px] bg-[var(--muted)] pl-3.5 pr-2 text-[var(--muted-fg)] focus-within:ring-2 focus-within:ring-[var(--ring)]">
+        {/*
+          면: 다크는 스케치 그대로 raised(`--muted`). 라이트는 본문면(`--surface`)이 `--muted` 와 같은
+          #f2f4f6 이라 입력이 사라지므로 흰 카드면(`--card`)으로 띄운다(토큰 주석 「라이트 = 회색 면 +
+          흰 카드」). 포커스는 입력 규약(globals §8.5.5) — 전역 링을 걷고 래퍼 테두리 한 겹으로 말한다.
+        */}
+        <div className="flex h-12 items-center gap-2.5 rounded-[14px] border border-transparent bg-[var(--card)] pl-3.5 pr-2 text-[var(--muted-fg)] transition-[border-color] duration-[120ms] focus-within:border-[var(--ring)] dark:bg-[var(--muted)]">
           <Search className="size-5 shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
+            data-focus-ring="seamless"
             type="search"
             inputMode="search"
             enterKeyHint="search"
