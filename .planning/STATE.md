@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
 status: executing
-stopped_at: Completed 20-01-PLAN.md
-last_updated: "2026-09-25T03:50:36.549Z"
+stopped_at: Completed 20-02-PLAN.md
+last_updated: "2026-09-25T04:06:05.873Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 execution started
-state_head: 94140ce55c769bad7356949b110f7a837328501f
+state_head: c2c8e225d6d382bd07950e778969762ca74a487b
 progress:
   total_phases: 29
   completed_phases: 4
   total_plans: 240
-  completed_plans: 219
+  completed_plans: 220
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Plans completed: 218 / 233
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -73,6 +73,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 20 P01 | 18 min | 2 tasks | 8 files |
+| Phase 20 P02 | 11min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 18]: 18-35: 카드 정리(더티 키 · 직전 로그)는 커밋된 cards 에서 파생 — 치운 id 를 계산하지 않는다(R3-IN-03)
 - [Phase 20]: 20-01: 필드 확정 cfg 기준값 = formFromServer(server, formRef) + 바꾼 필드 1개 · 성공은 에코 값 비교로만(답 신호만으로는 거부) · 대기 건은 성공 뒤 serverAnswerSeq 변화 렌더에서만 꺼냄
 - [Phase 20]: 20-01: 무장 판정을 canArmOf/armBlockOf 모듈 함수로 단일화 — handleSubmit 과 useLcFieldCommit 이 공유 · 끄는 방향 게이트는 무장 가드 면제(T-16-44)
+- [Phase 20]: 20-02: 호가 단위 표는 packages/shared/src/krxTick.ts 한 곳 — limitUpPrice·deriveTickSize 폴백·키패드가 모두 krxTickSize 호출 (D-15)
+- [Phase 20]: 20-02 폭 스파이크: 백스톱 폰(344) L2 · 700 L2 · 992 L0 · 830 은 감시대상 행이 L2 로도 −3.4px (권고 ≥700 토글 좌우 10→8 + L2) · 20-06 ≥700 버튼 17px 한 줄 확인
 
 ### Pending Todos
 
@@ -137,7 +140,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 닫힌 항목(근거 포함): [STATE-ARCHIVE.md](./STATE-ARCHIVE.md#닫힌-todo--blocker)
 
-None yet.
+- 20-04 전 사용자 결정: 830 밴드 감시대상 행(≥700 라벨+인라인 토글)이 백스톱 L2 로도 3.4px 넘침 — B(토글 좌우 10→8)+L2 권고 / C(10→6) / D(라벨 숨김 풀폭). 20-02-SUMMARY 폭 스파이크 절
 
 ### Quick Tasks Completed
 
@@ -165,8 +168,8 @@ None yet.
 
 **Resume file:** None
 
-Last session: 2026-09-25T03:50:35.925Z
-Stopped at: Completed 20-01-PLAN.md
+Last session: 2026-09-25T04:06:05.260Z
+Stopped at: Completed 20-02-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
