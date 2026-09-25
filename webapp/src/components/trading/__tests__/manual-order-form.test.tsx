@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -76,6 +76,7 @@ vi.mock('@/lib/queued-window', async (importOriginal) => {
 });
 
 import { OFFHOURS_PRICE_LABEL } from '@/components/orderbook/order-confirm-dialog';
+import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
 import {
   ManualOrderEntry,
   ManualOrderForm,
@@ -1330,5 +1331,202 @@ describe('ManualOrderForm — 잠금 원천 = RelayProvider (R3-WR-02 · R3-IN-0
     rerender(<ManualOrderForm {...baseProps({ variant: 'orderbook' })} />);
     expect(btn('매수')).toBeDisabled();
     expect(screen.getByTestId('manual-order-locked')).toHaveTextContent(RESULT_UNKNOWN_LOCKED_TEXT);
+  });
+});
+
+describe('D-10 시트 입력(터치) — 값만 채운다 (D-10 · D-15 · D-17 · D-23)', () => {
+  beforeEach(() => mockPointer(true));
+  afterEach(restoreMatchMedia);
+
+  const chips = () => document.querySelector('[data-slot="numpad-chips"]') as HTMLElement;
+  const chipLabels = () => within(chips()).getAllByRole('button').map((b) => b.textContent);
+  const chip = (label: string) =>
+    within(chips())
+      .getAllByRole('button')
+      .find((b) => b.textContent === label) as HTMLButtonElement;
+  const padKey = (name: string) =>
+    within(screen.getByRole('group', { name: '숫자 키패드' })).getByRole('button', { name });
+  const confirmBtn = () =>
+    document.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+  const statusLine = () => document.querySelector('[data-slot="numpad-status"]') as HTMLElement;
+  const display = () => document.querySelector('[data-slot="numpad-value"]')?.textContent ?? null;
+  async function press(user: ReturnType<typeof userEvent.setup>, digits: string) {
+    for (const d of digits) await user.click(padKey(d));
+  }
+  /** 시트 확정만으로는 주문이 나가지 않는다 — 모든 시트 케이스의 공통 단언(T-20-09). */
+  const expectNoOrder = () => {
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+  };
+
+  it('입력칸이 없고 상자가 aria-haspopup="dialog" 버튼이다 — 빈 값이면 이름 「가격」 · 자리표시 「가격 입력」', () => {
+    renderForm();
+    expect(document.getElementById(`mo-price-${ISIN}`)).toBeNull();
+    expect(document.getElementById(`mo-qty-${ISIN}`)).toBeNull();
+    const price = btn('가격');
+    expect(price).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(price).toHaveTextContent('가격 입력');
+    expect(btn('수량')).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(price.closest('[data-slot="ticket-box"]')).not.toBeNull();
+    expectNoOrder();
+  });
+
+  it('가격 상자 → 시트 제목 「가격」 · 설명 · 칩 4개 · 「현재가」 → 「가격 입력」 → 닫힘 · 98,100 · 전송 0 · 포커스 복귀', async () => {
+    const user = userEvent.setup();
+    renderForm({ currentPrice: 98_100, upperLimit: 127_400 });
+    await user.click(btn('가격'));
+    const dialog = screen.getByRole('dialog', { name: '가격' });
+    expect(dialog).toHaveAccessibleDescription('호가를 누르면 채워져요');
+    expect(confirmBtn()).toHaveTextContent('가격 입력');
+    expect(chipLabels()).toEqual(['−1호가', '+1호가', '현재가', '상한가']);
+    // 「지금 ○○」 · 다른 단말 알림 · 감시 중 안내가 없다(serverValue 없음).
+    expect(document.querySelector('[data-slot="numpad-server"]')).toBeNull();
+    await user.click(chip('현재가'));
+    expect(display()).toBe('98,100');
+    await user.click(confirmBtn());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '가격' })).toBeNull());
+    const filled = btn('가격 98,100원');
+    expect(filled).toHaveTextContent('98,100');
+    await waitFor(() => expect(filled).toHaveFocus());
+    expectNoOrder();
+  });
+
+  it('98150 입력 → 「가격 입력」 잠금 + 호가 단위 문구(보정 없음)', async () => {
+    const user = userEvent.setup();
+    renderForm({ currentPrice: 98_100, upperLimit: 127_400 });
+    await user.click(btn('가격'));
+    await press(user, '98150');
+    expect(display()).toBe('98,150');
+    expect(confirmBtn()).toBeDisabled();
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent(
+      '100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200',
+    );
+    expectNoOrder();
+  });
+
+  it('currentPrice 0 → 칩 「현재가」 비활성 · 상한가 모르면 「상한가」 비활성', async () => {
+    const user = userEvent.setup();
+    renderForm({ currentPrice: 0 });
+    await user.click(btn('가격'));
+    expect(chip('현재가')).toBeDisabled();
+    expect(chip('상한가')).toBeDisabled();
+    expectNoOrder();
+  });
+
+  it('칩 「상한가」 는 같은 카드 상한가를 쓴다 → 127,400 입력', async () => {
+    const user = userEvent.setup();
+    renderForm({ currentPrice: 98_100, upperLimit: 127_400 });
+    await user.click(btn('가격'));
+    await user.click(chip('상한가'));
+    await user.click(confirmBtn());
+    await waitFor(() => expect(btn('가격 127,400원')).toBeInTheDocument());
+    expectNoOrder();
+  });
+
+  it('수량 상자 → 「수량 입력」 · 칩 +100 · +1,000 · +10,000 · 지우기 · 「+1,000」 → 1,000 입력', async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await user.click(btn('수량'));
+    const dialog = screen.getByRole('dialog', { name: '수량' });
+    expect(dialog).toHaveAccessibleDescription('주문 수량이에요');
+    expect(confirmBtn()).toHaveTextContent('수량 입력');
+    expect(chipLabels()).toEqual(['+100', '+1,000', '+10,000', '지우기']);
+    await user.click(chip('+1,000'));
+    await user.click(confirmBtn());
+    await waitFor(() => expect(btn('수량 1,000주')).toBeInTheDocument());
+    expectNoOrder();
+  });
+
+  it('조각 수 상자(예약구간 ∧ KRX · maxPieces 5) → 「조각 수 입력」 · 설명 · 칩 1 3 5 10 · 「10」 비활성 · 0 이면 잠금 · 3 → 3회', async () => {
+    const user = userEvent.setup();
+    renderForm({ queuedWindow: win({ open: true, maxPieces: 5 }) });
+    await user.click(btn('조각 수 5회'));
+    const dialog = screen.getByRole('dialog', { name: '조각 수' });
+    expect(dialog).toHaveAccessibleDescription('나눠서 넣는 횟수예요 · 최대 5회');
+    expect(confirmBtn()).toHaveTextContent('조각 수 입력');
+    expect(chipLabels()).toEqual(['1', '3', '5', '10']);
+    expect(chip('10')).toBeDisabled();
+    expect(chip('5')).toBeEnabled();
+    await press(user, '0');
+    expect(confirmBtn()).toBeDisabled();
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('1회 이상 입력해 주세요');
+    await press(user, '7');
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('최대 5회까지 나눌 수 있어요');
+    await user.click(chip('3'));
+    await user.click(confirmBtn());
+    await waitFor(() => expect(btn('조각 수 3회')).toBeInTheDocument());
+    expectNoOrder();
+  });
+
+  it('시간외종가면 가격 상자는 버튼이 아니다 — 눌러도 시트가 없다', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'orderbook', queuedWindow: win({ g3Open: true }), referenceClose: 128_700 });
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    expect(screen.queryByRole('button', { name: /^가격/ })).toBeNull();
+    const locked = screen.getByLabelText('가격(시간외종가 · 잠김)');
+    fireEvent.click(locked);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expectNoOrder();
+  });
+
+  it('시트로 채운 뒤 「매수」 → 기존 확인 다이얼로그 → 확정 시 sendOrder 1회(가격·수량 = 시트 값)', async () => {
+    const user = userEvent.setup();
+    renderForm({ currentPrice: 128_500, upperLimit: 156_000 });
+    await user.click(btn('가격'));
+    await press(user, '128500');
+    await user.click(confirmBtn());
+    await waitFor(() => expect(btn('가격 128,500원')).toBeInTheDocument());
+    await user.click(btn('수량'));
+    await user.click(chip('+100'));
+    await user.click(confirmBtn());
+    await waitFor(() => expect(btn('수량 100주')).toBeInTheDocument());
+    expectNoOrder();
+
+    await user.click(btn('매수'));
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    expect(sendOrderMock).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: '매수 주문' }));
+    expect(sendOrderMock).toHaveBeenCalledTimes(1);
+    expect(sendOrderMock).toHaveBeenCalledWith({
+      kind: 'new',
+      isin: ISIN,
+      accountNo: '12345678-01',
+      exchange: 'KRX',
+      side: 'B',
+      qty: 100,
+      price: 128_500,
+    });
+  });
+
+  it('호가 사다리 가격 선택은 시트 모드에서도 가격 상자를 채운다 · 시트는 그 값으로 열린다(첫 입력 대기)', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm();
+    rerender(<ManualOrderForm {...props} selectedPrice={{ price: 98_100, seq: 1 }} />);
+    await user.click(btn('가격 98,100원'));
+    expect(display()).toBe('98,100');
+    await press(user, '9');
+    expect(display()).toBe('9');
+    expectNoOrder();
+  });
+
+  it('「닫기」 는 값을 바꾸지 않는다 · 전송 0', async () => {
+    const user = userEvent.setup();
+    renderForm({ selectedPrice: { price: 98_100, seq: 1 } });
+    await user.click(btn('가격 98,100원'));
+    await press(user, '5');
+    await user.click(screen.getByRole('button', { name: '닫기' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(btn('가격 98,100원')).toBeInTheDocument();
+    expectNoOrder();
+  });
+
+  it('시트 모드에서도 가격 검증 줄은 보인다(사다리로 채운 값) · 주문 버튼은 잠그지 않는다', () => {
+    renderForm({ upperLimit: 127_400, selectedPrice: { price: 98_150, seq: 1 } });
+    expect(btn('가격 98,150원')).toBeInTheDocument();
+    expect(screen.getByTestId('manual-order-price-issue')).toHaveTextContent(
+      '100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200',
+    );
+    expect(btn('매수')).toBeEnabled();
+    expectNoOrder();
   });
 });

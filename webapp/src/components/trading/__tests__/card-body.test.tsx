@@ -444,5 +444,31 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
       });
       expect(screen.getByRole('button', { name: '현재가' })).toBeDisabled();
     });
+
+    it('수동주문 가격 상자 → 시트 칩 「현재가」「상한가」 가 같은 카드 시세(quote.p · quote.ul)다 · 전송 0 (20-06 · T-18-48)', () => {
+      render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: '가격' }));
+      });
+      expect(screen.getByRole('dialog', { name: '가격' })).toBeInTheDocument();
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: '상한가' }));
+      });
+      expect(document.querySelector('[data-slot="numpad-value"]')?.textContent).toBe('156,000');
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: '현재가' }));
+      });
+      expect(document.querySelector('[data-slot="numpad-value"]')?.textContent).toBe('130,000');
+      expect(sendMock).not.toHaveBeenCalled();
+      expect(sendOrderMock).not.toHaveBeenCalled();
+    });
+
+    it('시세가 없으면 수동주문 시트의 「현재가」 는 비활성이다', () => {
+      render(<CardBody {...props({ card: cardState({ server: server() }) })} />);
+      act(() => {
+        fireEvent.click(screen.getByRole('button', { name: '가격' }));
+      });
+      expect(screen.getByRole('button', { name: '현재가' })).toBeDisabled();
+    });
   });
 });
