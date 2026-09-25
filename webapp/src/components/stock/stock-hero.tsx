@@ -65,13 +65,15 @@ export function StockHero({ stock }: StockHeroProps) {
         {/*
           D-10 — 앱 전용. `hidden` 은 변형 없는 유틸이라 `native:` 변형 유틸이 항상 뒤에 출력돼 앱에서 이긴다.
           비로그인이면 ChatSheet 가 스스로 로그인 필요 상태를 보여 준다(새 권한 경로 없음).
+          `ml-auto shrink-0` — 줄 오른쪽 끝(헤더 액션 자리)에 붙는다. 긴 종목명·360 폰에서 줄이 넘치면 다음 줄
+          왼쪽에 외톨이로 떨어지지 않고 오른쪽 끝에 선다(아래 「새로고침」과 같은 열).
         */}
         <button
           type="button"
           data-slot="stock-ai-button"
           onClick={() => openChat({ code: stock.code, name: stock.name })}
           aria-label={`AI 분석 — ${stock.name}`}
-          className="hidden native:inline-flex h-8 items-center gap-1 rounded-full bg-[var(--muted)] px-3 text-[13px] font-semibold text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          className="ml-auto hidden shrink-0 native:inline-flex h-8 items-center gap-1 rounded-full bg-[var(--muted)] px-3 text-[13px] font-semibold text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         >
           <Sparkles size={14} aria-hidden="true" />
           AI 분석
