@@ -31,6 +31,14 @@
  *   요청 짝 없는 Broadcast 라 **로그인 전 연결에도** 오므로 Ready 이전 프레임은 캐시만 하고
  *   팬아웃하지 않는다(T-17-07). 화이트리스트와 명시 case 는 **언제나 같은 커밋**에서 자란다.
  *
+ *   19-09 가 관찰자(기록 전용) 응답 2종 **79 `ObserverLoginResp` · 80 `JournalBatch`** 를 더한다(25종 —
+ *   gh-trade Phase 23 계약 8285a265). 둘의 하류 책임은 **관찰자 코덱**(`journal/codec.ts` 의
+ *   `createJournalCodec` → `envelope.ts` 의 `parseObserverLoginResp`/`parseJournalBatch`)이다 — 관찰자 전용
+ *   소켓 하나(`JournalObserver`)에만 온다. 게이트웨이는 둘을 **요청 연결에만 Notice** 로 보내므로 사용자
+ *   세션에 올 일이 없지만, 오면 `SubscriptionHub.#onFrame` 의 **명시 `case`** 가 warn 후 무시한다
+ *   (`default:` 로 떨어져 `unhandledFrameCount()` 를 올리지 않는다). 요청 **5 `ObserverLoginReq`** 는 C→S 라
+ *   화이트리스트에 넣지 않는다.
+ *
  *   quick-260923-cqj 가 **57 `SymbolMasterResp`** 를 더한다(23종). 당일 신규상장 종목은 Supabase
  *   `stocks` 에 아직 없어서(KRX 가 전 영업일 데이터를 다음 영업일 08:00 에 공개한다) 이름을 못
  *   풀었다. 57 은 그 미스를 채우는 **보조 이름 원천**이다. 하류 책임은 이렇다 — 파서는 `envelope.ts`
@@ -61,7 +69,7 @@
 /**
  * relay 가 사용하는 `msg_type` 값. 생성 코드 `stock-dma/msg-type.ts` 의 부분집합이다.
  *
- * 요청(C→S)은 1~34, 응답/푸시(S→C)는 50~73 대역이다.
+ * 요청(C→S)은 1~38, 응답/푸시(S→C)는 50~80 대역이다.
  */
 export const MSG = {
   // --- 요청 (relay → 게이트웨이) ---
@@ -73,6 +81,8 @@ export const MSG = {
   UpdateAccountNoReq: 3,
   /** 30초 주기 핑. */
   LivePing: 4,
+  /** 관찰자(기록 전용) 로그인 (`observer_login_req` 슬롯). 관찰자 연결 전용 · gh-radar 19 D-09. 응답은 79. */
+  ObserverLoginReq: 5,
   /** 상따 설정 upsert/삭제 (`set_limit_chaser` 슬롯, 33필드). 응답은 60 에코. */
   SetLimitChaserReq: 10,
   /** VI 발동 감시 설정 (`set_vi_trigger` 슬롯, 5필드). 응답은 61 에코. */
@@ -163,6 +173,10 @@ export const MSG = {
   QueuedWindowState: 77,
   /** 등락률 돌파 above 집합 전량 (`rate_cross_snapshot` 슬롯). **로그인 성공 직후 그 연결에만** Notice 1프레임(빈 벡터 포함). */
   RateCrossSnapshot: 78,
+  /** 관찰자 로그인 응답 (`observer_login_resp` 슬롯). 관찰자 연결 전용 · gh-radar 19 D-09 — 요청 연결에만 Notice. */
+  ObserverLoginResp: 79,
+  /** 주문 저널 배치 (`journal_batch` 슬롯). 관찰자 연결 전용 · gh-radar 19 D-09 — 관찰자 연결에만 Notice + 펌프 스로틀. */
+  JournalBatch: 80,
 } as const;
 
 /** `MSG` 의 값 유니온. */
@@ -172,13 +186,14 @@ export type MsgTypeValue = (typeof MSG)[keyof typeof MSG];
  * 수신 허용 목록 (D-31). 여기에 없는 `msg_type` 은 파싱 시도 없이 드롭한다.
  *
  * JS 런타임에 FlatBuffers Verifier 가 없어 잘린 버퍼가 예외 없이 깨진 값을 반환하므로,
- * "알려진 번호인가"가 구조 레벨의 실질 방어선이다. 요청 계열(1~34)이 수신 경로로
+ * "알려진 번호인가"가 구조 레벨의 실질 방어선이다. 요청 계열(1~38)이 수신 경로로
  * 들어오는 것 자체가 이상 신호이므로 응답 대역만 담는다.
  *
  * 16-04 에서 56/60/61/64/65/72/73 을 더해 **19종**이 됐다. 파일 상단 「유입 집합」 주석이
  * 이 7종의 하류 처리 책임을 명시한다 — 넓힌 만큼 명시 `case` 로 받는 것이 조건이다.
  *
- * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**이다. 이 집합은
+ * ★ 17-03 이 76·77·78 을 더해 **22종**이 됐다. quick-260923-cqj 가 57 을 더해 **23종**, 19-09 가 관찰자
+ *   응답 79·80 을 더해 **25종**이다. 이 집합은
  *   `SubscriptionHub.#onFrame` 의 명시 `case` 와 **한 커밋에서만** 함께 자란다 — 번호 하나를
  *   먼저 넣고 case 를 다음 커밋으로 미루면 그 사이의 빌드에서 프레임이 `default:` 로 조용히
  *   떨어져 「조용히 사라지는 프레임 0」(PC-12) 불변식이 깨진다.
@@ -207,6 +222,8 @@ export const INBOUND_MSG_TYPES: ReadonlySet<number> = new Set<number>([
   MSG.RateCrossAlert,
   MSG.QueuedWindowState,
   MSG.RateCrossSnapshot,
+  MSG.ObserverLoginResp,
+  MSG.JournalBatch,
 ]);
 
 /**

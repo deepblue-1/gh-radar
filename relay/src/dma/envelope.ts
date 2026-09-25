@@ -85,6 +85,15 @@ import { SymbolMasterItem } from "../generated/stock-dma/symbol-master-item.js";
 import { TradeTapeEntry } from "../generated/stock-dma/trade-tape-entry.js";
 import { VIOrderItem } from "../generated/stock-dma/viorder-item.js";
 import { UpdateAccountNoReq } from "../generated/stock-dma/update-account-no-req.js";
+import { JournalRecord as WireJournalRecord } from "../generated/stock-dma/journal-record.js";
+import { ObserverAccount } from "../generated/stock-dma/observer-account.js";
+import { ObserverLoginReq } from "../generated/stock-dma/observer-login-req.js";
+import type {
+  JournalBatchFrame,
+  JournalRecord,
+  ObserverAccountRow,
+  ObserverLoginResult,
+} from "../journal/types.js";
 import { MIN_ENVELOPE_SIZE, logDroppedFrame } from "./codec.js";
 import { MSG, INBOUND_MSG_TYPES, OUT_OF_SCOPE_INBOUND_MSG_TYPES } from "./msg-type.js";
 
@@ -120,6 +129,15 @@ export const MAX_TAPE_ENTRY_COUNT = 200;
  * 상한(`use-relay-socket.ts` 의 `MAX_RATE_CROSS`)도 같은 값이다.
  */
 export const MAX_RATE_CROSS_ITEM_COUNT = 200;
+/**
+ * 관찰자 저널 배치(80) 1프레임 레코드 상한 (T-19-33).
+ *
+ * 게이트웨이 펌프는 배치를 **100건 / ≈32KB** 이하로 자른다(gh-trade 23-03 `kBatchMaxRecords`). 상한은
+ * 그 5배 여유다 — 깨진 벡터 길이로 순회가 폭주하는 것만 막는다.
+ */
+export const MAX_JOURNAL_BATCH_RECORDS = 500;
+/** 관찰자 로그인 응답(79) 계좌 매핑 상한 (T-19-33). users.toml 평탄화 행 수 — 실사용은 수십 행이다. */
+export const MAX_OBSERVER_ACCOUNT_COUNT = 1024;
 
 /** 12자 ISIN — 앞 2자는 국가코드(영문), 나머지 10자는 영숫자. */
 const ISIN_PATTERN = /^[A-Z]{2}[A-Z0-9]{10}$/;
@@ -2502,5 +2520,190 @@ export function parseSymbolMasterFrame(env: Envelope): ParsedSymbolMasterFrame |
   } catch (err) {
     // Verifier 가 없어 깨진 버퍼가 접근자에서 RangeError 를 낼 수 있다 — 프레임만 버린다.
     return dropField("parse-throw", msgType, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+// ============================================================
+// 관찰자 저널 (5 요청 / 79 로그인 응답 · 80 저널 배치) — Phase 19-09
+// ============================================================
+//
+// gh-trade Phase 23 계약(8285a265)의 관찰자 전용 메시지 3종. 도메인 타입(`journal/types.ts`)으로의
+// 매핑은 **여기 한 곳**이다 — 필드 이름·순서는 인계서 §2 와 1:1 이라 매핑은 이름 변환(snake → camel)과
+// ulong(bigint) → number 변환(`toNum` — D-34 유일 경계)뿐이다. 관찰자·기록기는 생성 타입을 모른다.
+
+/** 관찰자 로그인 요청 입력 — `JournalCodec.buildLoginReq` 와 같은 모양. */
+export type ObserverLoginReqInput = {
+  secret: string;
+  /** 이미 받은 마지막 seq. 게이트웨이는 이 seq **초과**부터 보낸다(0 = 보관분 처음부터). */
+  sinceSeq: number;
+  /** relay 가 마지막으로 본 epoch. `""` = 모름. */
+  epoch: string;
+  client: string;
+};
+
+/**
+ * 관찰자 로그인 요청 (MsgType 5 · `observer_login_req` 슬롯).
+ *
+ * `since_seq` 는 ulong 이라 `BigInt` 로 싣는다. 음수·비정수·안전 정수 초과는 **호출자 버그**라 throw 한다 —
+ * 조용히 0 으로 접으면 게이트웨이가 보관분 전체를 재생하고, 잘라 실으면 엉뚱한 구간을 건너뛴다.
+ * 비밀은 이 함수 밖으로 나가지 않는다 — **어떤 로그에도 싣지 않는다**(T-19-03 · throw 문구에도 없다).
+ */
+export function buildObserverLoginReq(input: ObserverLoginReqInput): Uint8Array {
+  const { sinceSeq } = input;
+  if (!Number.isSafeInteger(sinceSeq) || sinceSeq < 0) {
+    throw new RangeError(`관찰자 로그인 since_seq 가 0 이상의 안전 정수가 아니다: ${String(sinceSeq)}`);
+  }
+  const b = new flatbuffers.Builder(256);
+  // 문자열은 테이블 조립 **전에** 만든다 (FlatBuffers 중첩 제약).
+  const secret = b.createString(input.secret);
+  const epoch = b.createString(input.epoch);
+  const client = b.createString(input.client);
+  const req = ObserverLoginReq.createObserverLoginReq(b, secret, BigInt(sinceSeq), epoch, client);
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.ObserverLoginReq);
+  Envelope.addObserverLoginReq(b, req);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/**
+ * 관찰자 로그인 응답 (79 · `observer_login_resp` 슬롯). total 하다 — throw 하지 않는다.
+ *
+ * 슬롯이 비거나 읽다가 깨지면 `null`(→ 코덱 `malformed` → 관찰자가 연결을 다시 세운다). 계좌 매핑은
+ * `readAccountEntries` 와 같은 규율로 **형식 이상 항목만** 건너뛴다(`skipAccount` 계수) — 프레임을 버리면
+ * 정상 매핑까지 사라진다. 계좌번호는 게이트웨이 정규화값 그대로다(재정규화 금지 — Pitfall 7).
+ */
+export function parseObserverLoginResp(env: Envelope): ObserverLoginResult | null {
+  const msgType = MSG.ObserverLoginResp;
+  try {
+    const r = env.observerLoginResp();
+    if (r === null) return dropField("slot-null", msgType, { slot: "observer_login_resp" });
+
+    const n = takeCount(r.accountsLength(), MAX_OBSERVER_ACCOUNT_COUNT, "관찰자 계좌 매핑");
+    const accounts: ObserverAccountRow[] = [];
+    const scratch = new ObserverAccount();
+    for (let i = 0; i < n; i += 1) {
+      const a = r.accounts(i, scratch);
+      if (a === null) {
+        skipAccount("entry-null", i, "");
+        continue;
+      }
+      const accountNo = a.accountNo() ?? "";
+      if (!isValidAccountNo(accountNo)) {
+        skipAccount("bad-account-no", i, accountNo);
+        continue;
+      }
+      accounts.push({
+        dmaUserId: a.dmaUserId() ?? "",
+        accountNo,
+        name: a.name() ?? "",
+        priority: a.priority(),
+      });
+    }
+
+    return {
+      success: r.success(),
+      message: r.message() ?? "",
+      broker: r.broker() ?? "",
+      epoch: r.journalEpoch() ?? "",
+      headSeq: toNum(r.headSeq(), "observer_login_resp.head_seq"),
+      oldestSeq: toNum(r.oldestSeq(), "observer_login_resp.oldest_seq"),
+      resync: r.resync(),
+      accounts,
+    };
+  } catch (err) {
+    return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
+  }
+}
+
+/**
+ * 저널 배치 (80 · `journal_batch` 슬롯). total 하다 — throw 하지 않는다.
+ *
+ * ★ **레코드는 하나도 버리지 않는다** (T-19-34). 기록기는 seq 연속성으로 누락을 판정하므로, 형식이 이상한
+ *   레코드 하나를 여기서 건너뛰면 seq 갭 → 끊고 같은 since 로 재접속 → 같은 레코드 → 같은 갭의 **무한 루프**가
+ *   된다. 계좌번호·ISIN 형식 이상은 경고만 남기고(프레임당 1줄 · 계좌는 `maskAccountNo`) 값은 게이트웨이 원문
+ *   그대로 올린다 — `parseOrderResp` 의 「프레임은 살린다」 규율. 받아들일지는 DB 투영(CHECK · 포이즌 격리)이 정한다.
+ *   로컬 거부(`local_reject` · 빈 주문번호)도 그대로 통과한다(D-02).
+ *
+ * 프레임 전체를 `null`(→ `malformed` → 재접속)로 돌리는 경우는 구조가 깨졌을 때뿐이다 — 슬롯 없음 · 레코드
+ * 테이블 null · 읽기 예외. 상한 초과는 앞의 N건만 쓰고 `caughtUp` 을 거짓으로 내린다 — 잘린 뒤 구간은 다음
+ * 배치의 갭 판정이 since 로 다시 받는다.
+ */
+export function parseJournalBatch(env: Envelope): JournalBatchFrame | null {
+  const msgType = MSG.JournalBatch;
+  try {
+    const r = env.journalBatch();
+    if (r === null) return dropField("slot-null", msgType, { slot: "journal_batch" });
+
+    const rawCount = r.recordsLength();
+    const n = takeCount(rawCount, MAX_JOURNAL_BATCH_RECORDS, "저널 레코드");
+    const records: JournalRecord[] = [];
+    const scratch = new WireJournalRecord();
+    let badAccount = 0;
+    let badIsin = 0;
+    let sampleAccount: string | null = null;
+    let sampleSeq: number | null = null;
+    for (let i = 0; i < n; i += 1) {
+      const w = r.records(i, scratch);
+      if (w === null) return dropField("record-null", msgType, { index: i, count: n });
+      const rec: JournalRecord = {
+        seq: toNum(w.seq(), "journal_record.seq"),
+        tradeDate: w.tradeDate() ?? "",
+        gwTimeMs: toNum(w.gwTimeMs(), "journal_record.gw_time_ms"),
+        dmaUserId: w.dmaUserId() ?? "",
+        accountNo: w.accountNo() ?? "",
+        isin: w.isin() ?? "",
+        side: w.side() ?? "",
+        sideTrusted: w.sideTrusted(),
+        orderNo: w.orderNo() ?? "",
+        orgOrderNo: w.orgOrderNo() ?? "",
+        noticeType: w.noticeType() ?? "",
+        requestKind: w.requestKind() ?? "",
+        requester: w.requester() ?? "",
+        origin: w.origin() ?? "",
+        exchange: w.exchange() ?? "",
+        board: w.board() ?? "",
+        orderPrice: w.orderPrice(),
+        orderQty: w.orderQty(),
+        execPrice: w.execPrice(),
+        execQty: w.execQty(),
+        resultCode: w.resultCode(),
+        message: w.message() ?? "",
+        localReject: w.localReject(),
+      };
+      if (!isValidAccountNo(rec.accountNo)) {
+        badAccount += 1;
+        if (sampleAccount === null) {
+          sampleAccount = rec.accountNo;
+          sampleSeq = rec.seq;
+        }
+      }
+      if (!isValidIsin(rec.isin)) badIsin += 1;
+      records.push(rec);
+    }
+
+    if (badAccount > 0 || badIsin > 0) {
+      logger.warn(
+        {
+          msgType,
+          records: records.length,
+          badAccount,
+          badIsin,
+          sampleSeq,
+          sampleAccountLen: sampleAccount?.length ?? null,
+          sampleAccount: sampleAccount === null ? null : maskAccountNo(sampleAccount),
+        },
+        "[DMA] 저널 레코드 형식 이상 — 버리지 않고 그대로 올린다 (seq 갭 루프 방지)",
+      );
+    }
+
+    return {
+      records,
+      headSeq: toNum(r.headSeq(), "journal_batch.head_seq"),
+      // 잘렸으면 따라잡은 것이 아니다 — live 전이를 다음 배치로 미룬다.
+      caughtUp: r.caughtUp() && n === rawCount,
+    };
+  } catch (err) {
+    return dropField("parse-throw", msgType, { error: err instanceof Error ? err.name : "unknown" });
   }
 }

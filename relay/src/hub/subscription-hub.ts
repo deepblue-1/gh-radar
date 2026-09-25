@@ -1083,6 +1083,14 @@ export class SubscriptionHub extends EventEmitter {
         // 그러나 그 사실을 `default:` 에 맡기지 않고 명시 case 로 적는다. 그래야 아래 계수기가
         // 「아무도 안 받은 프레임」만 세고, 그 값이 곧 PC-12 위반 여부가 된다 (T-17-10).
         return;
+      case MSG.ObserverLoginResp:
+      case MSG.JournalBatch:
+        // **관찰자 연결 전용 프레임이다**(19-09 — 화이트리스트와 같은 커밋의 명시 case · PC-12).
+        // 게이트웨이는 둘을 요청 연결(관찰자 소켓)에만 Notice 로 보내므로 사용자 세션에 올 일이 없다.
+        // 오면 게이트웨이 라우팅 이상이라 warn 을 남기고 버린다 — `default:` 에 맡기면 계수기가
+        // 이 의도된 무시를 함께 세어 진짜 PC-12 위반을 가린다(17-03).
+        logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 관찰자 전용 프레임 — 무시");
+        return;
       default:
         // 16-04 가 화이트리스트를 19종으로, 17-03 이 22종으로 넓힌 뒤에도 **여기로 조용히
         // 떨어지는 프레임은 0**이다 (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).

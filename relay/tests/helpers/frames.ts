@@ -37,7 +37,12 @@ import { RateCrossSnapshot } from "../../src/generated/stock-dma/rate-cross-snap
 import { QueuedWindowState } from "../../src/generated/stock-dma/queued-window-state.js";
 import { SymbolMaster } from "../../src/generated/stock-dma/symbol-master.js";
 import { SymbolMasterItem } from "../../src/generated/stock-dma/symbol-master-item.js";
+import { JournalBatch } from "../../src/generated/stock-dma/journal-batch.js";
+import { JournalRecord as WireJournalRecord } from "../../src/generated/stock-dma/journal-record.js";
+import { ObserverAccount } from "../../src/generated/stock-dma/observer-account.js";
+import { ObserverLoginResp } from "../../src/generated/stock-dma/observer-login-resp.js";
 import { MSG } from "../../src/dma/msg-type.js";
+import type { JournalRecord } from "../../src/journal/types.js";
 
 /** 테스트 전반이 쓰는 정상 ISIN (삼성전자). */
 export const SAMPLE_ISIN = "KR7005930003";
@@ -1230,4 +1235,160 @@ export function buildSymbolMasterFrames(
     );
   }
   return frames;
+}
+
+// ============================================================
+// 관찰자 저널 (79 로그인 응답 · 80 저널 배치) — Phase 19-09
+// ============================================================
+
+/** 관찰자 로그인 응답 계좌 매핑 1행. */
+export type FakeObserverAccountInput = { dmaUserId?: string; accountNo?: string; name?: string; priority?: number };
+
+export type FakeObserverLoginRespInput = {
+  success?: boolean;
+  message?: string;
+  broker?: string;
+  epoch?: string;
+  headSeq?: number | bigint;
+  oldestSeq?: number | bigint;
+  resync?: boolean;
+  /** 생략하면 성공은 `SAMPLE_ACCOUNT_NO` 1행, 실패는 빈 벡터(게이트웨이 규약). */
+  accounts?: FakeObserverAccountInput[];
+};
+
+/**
+ * 관찰자 로그인 응답 프레임 (79 · `observer_login_resp` 슬롯). 실계좌·실서버 값 리터럴 금지(D-27) —
+ * 계좌 기본값은 `SAMPLE_ACCOUNT_NO` 다.
+ */
+export function buildObserverLoginRespFrame(input: FakeObserverLoginRespInput = {}): Uint8Array {
+  const b = new flatbuffers.Builder(512);
+  const success = input.success ?? true;
+  const rows = input.accounts ?? (success ? [{}] : []);
+  // 문자열·원소는 테이블 조립 **전에** 전부 만든다 (FlatBuffers 중첩 제약).
+  const message = b.createString(input.message ?? "");
+  const broker = b.createString(input.broker ?? "KB");
+  const epoch = b.createString(input.epoch ?? "ep-1");
+  const entries = rows.map((a) =>
+    ObserverAccount.createObserverAccount(
+      b,
+      b.createString(a.dmaUserId ?? "dma-user-1"),
+      b.createString(a.accountNo ?? SAMPLE_ACCOUNT_NO),
+      b.createString(a.name ?? "위탁종합"),
+      a.priority ?? 0,
+    ),
+  );
+  const accounts = ObserverLoginResp.createAccountsVector(b, entries);
+  const resp = ObserverLoginResp.createObserverLoginResp(
+    b,
+    success,
+    message,
+    broker,
+    epoch,
+    BigInt(input.headSeq ?? 0),
+    BigInt(input.oldestSeq ?? 0),
+    input.resync ?? false,
+    accounts,
+  );
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.ObserverLoginResp);
+  Envelope.addObserverLoginResp(b, resp);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
+}
+
+/** 저널 레코드 입력 — `seq` 만 필수이고 나머지는 정상 신규 접수(A) 기본값으로 채운다. */
+export type FakeJournalRecordInput = Partial<JournalRecord> & { seq: number };
+
+/** `FakeJournalRecordInput` → 23필드 완성본. 테스트가 기대값을 같은 함수로 만든다(두 벌 금지). */
+export function fakeJournalRecord(input: FakeJournalRecordInput): JournalRecord {
+  return {
+    tradeDate: "2026-09-28",
+    gwTimeMs: 1_790_000_000_000 + input.seq,
+    dmaUserId: "dma-user-1",
+    accountNo: SAMPLE_ACCOUNT_NO,
+    isin: SAMPLE_ISIN,
+    side: "B",
+    sideTrusted: true,
+    orderNo: `00000${input.seq}`,
+    orgOrderNo: "",
+    noticeType: "A",
+    requestKind: "New",
+    requester: "Manual",
+    origin: "Manual",
+    exchange: "KRX",
+    board: "G2",
+    orderPrice: 70_000,
+    orderQty: 10,
+    execPrice: 0,
+    execQty: 0,
+    resultCode: 0,
+    message: "",
+    localReject: false,
+    ...input,
+  };
+}
+
+export type FakeJournalBatchInput = {
+  records?: FakeJournalRecordInput[];
+  /** 생략하면 마지막 레코드 seq(없으면 0). */
+  headSeq?: number | bigint;
+  /** 생략하면 `true`. */
+  caughtUp?: boolean;
+};
+
+/** 저널 배치 프레임 (80 · `journal_batch` 슬롯). 레코드 순서는 입력 그대로다(게이트웨이는 seq 오름차순). */
+export function buildJournalBatchFrame(input: FakeJournalBatchInput = {}): Uint8Array {
+  const recs = (input.records ?? []).map(fakeJournalRecord);
+  const b = new flatbuffers.Builder(1024);
+  const offsets = recs.map((r) => {
+    // 문자열을 먼저 만든다 (FlatBuffers 중첩 제약).
+    const tradeDate = b.createString(r.tradeDate);
+    const dmaUserId = b.createString(r.dmaUserId);
+    const accountNo = b.createString(r.accountNo);
+    const isin = b.createString(r.isin);
+    const side = b.createString(r.side);
+    const orderNo = b.createString(r.orderNo);
+    const orgOrderNo = b.createString(r.orgOrderNo);
+    const noticeType = b.createString(r.noticeType);
+    const requestKind = b.createString(r.requestKind);
+    const requester = b.createString(r.requester);
+    const origin = b.createString(r.origin);
+    const exchange = b.createString(r.exchange);
+    const board = b.createString(r.board);
+    const message = b.createString(r.message);
+    return WireJournalRecord.createJournalRecord(
+      b,
+      BigInt(r.seq),
+      tradeDate,
+      BigInt(r.gwTimeMs),
+      dmaUserId,
+      accountNo,
+      isin,
+      side,
+      r.sideTrusted,
+      orderNo,
+      orgOrderNo,
+      noticeType,
+      requestKind,
+      requester,
+      origin,
+      exchange,
+      board,
+      r.orderPrice,
+      r.orderQty,
+      r.execPrice,
+      r.execQty,
+      r.resultCode,
+      message,
+      r.localReject,
+    );
+  });
+  const records = JournalBatch.createRecordsVector(b, offsets);
+  const head = input.headSeq ?? recs[recs.length - 1]?.seq ?? 0;
+  const batch = JournalBatch.createJournalBatch(b, records, BigInt(head), input.caughtUp ?? true);
+  Envelope.startEnvelope(b);
+  Envelope.addMsgType(b, MSG.JournalBatch);
+  Envelope.addJournalBatch(b, batch);
+  b.finish(Envelope.endEnvelope(b));
+  return b.asUint8Array();
 }
