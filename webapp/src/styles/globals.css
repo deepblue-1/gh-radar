@@ -647,6 +647,62 @@ html.native-app main {
   padding-bottom: var(--native-body-reserve);
 }
 
+/* §21 하단 고정 요소 (D-25 · 21-RESEARCH Pitfall 10) — 대상: 더티 바(`dirty-action-bar.tsx`) · /trading 폰 하단
+   공용 패널(`shared-panels.tsx` `data-pinned`) · 종목상세 「주문하기」 CTA(`stock-detail-tabs.tsx`) · 알림 토스트
+   (`alert-toasts.tsx`) · 사이드/바텀 시트(`ui/sheet.tsx` — 수정 없이 `data-side` 만 읽는다).
+   챗 FAB · 키패드 시트 · 토스트 기본 위치는 컴포넌트 유틸에서 `--app-safe-*` 를 직접 읽는다.
+   - 브라우저·앱 공통: 노치·홈 인디케이터만큼 비켜 선다(크롬·데스크톱은 0 이라 종전 그대로).
+     시트는 **투명 테두리**로 비킨다 — 배경이 border-box 까지 칠해져 시트 면이 상태바·홈 인디케이터 뒤까지
+     이어지고, 소비처 패딩 클래스(`p-3` 등)는 건드리지 않는다.
+   - 앱 전용: 네이티브 탭바(D-27a)가 하단을 차지하므로 하단 고정 바 전부가 `--native-tabbar-offset` 위에 서고
+     자기 safe-area 하단 패딩을 버린다(안전영역은 탭바 몫이다). 오버레이(시트·키패드)가 열리면 탭바가 숨으므로
+     (D-12) 시트는 앱에서도 safe-area 만 비킨다. */
+[data-slot="dirty-action-bar"] {
+  padding-bottom: max(var(--s-2), var(--app-safe-bottom));
+}
+[data-slot="shared-panels"][data-pinned="true"] {
+  padding-bottom: var(--app-safe-bottom);
+}
+[data-slot="sheet-content"][data-side="left"],
+[data-slot="sheet-content"][data-side="right"] {
+  border-top: var(--app-safe-top) solid transparent;
+  border-bottom: var(--app-safe-bottom) solid transparent;
+}
+[data-slot="sheet-content"][data-side="bottom"] {
+  border-bottom: var(--app-safe-bottom) solid transparent;
+}
+/* 앱엔 챗 FAB 이 없다(D-10) — FAB 클리어런스 우측 여백(`CHAT_FAB_CLEARANCE_CLASS`)도 0. */
+html.native-app [data-slot="dirty-action-bar"] {
+  bottom: var(--native-tabbar-offset);
+  right: 0;
+  padding-bottom: var(--s-2);
+}
+/* CTA 바 = pt 10 + 버튼 56 + 하단 10 = 76. 식의 정본은 stock-detail-tabs.tsx CTA 주석. */
+html.native-app [data-slot="detail-order-cta-bar"] {
+  bottom: var(--native-tabbar-offset);
+  padding-bottom: 10px;
+}
+@media (max-width: 767.98px) {
+  /* 예약은 CTA 바 높이 76 만 — 탭바 몫은 본문 `main` 의 108 이 따로 진다. */
+  html.native-app [data-order-cta="true"] {
+    padding-bottom: 76px;
+  }
+}
+/* fixed(폰 밴드)·sticky(판정 전) 모두 · wb ≥700 의 static 은 `bottom` 이 무영향.
+   더티 바 예약이 있으면 인라인 `bottom: calc(var(--native-tabbar-offset, 0px) + 예약)` 이 이 규칙을 이긴다. */
+html.native-app [data-slot="shared-panels"] {
+  bottom: var(--native-tabbar-offset);
+}
+html.native-app [data-slot="shared-panels"][data-pinned="true"] {
+  padding-bottom: 0;
+}
+/* ≥700 만 — 폰 밴드(<700)는 토스트가 상단에 서므로 제외한다(넣으면 top·bottom 이 동시에 걸려 늘어난다). */
+@media (min-width: 700px) {
+  html.native-app [data-slot="alert-toasts"] {
+    bottom: calc(var(--native-tabbar-offset) + 12px);
+  }
+}
+
 /* ─────────────────────────────────────────────────────────────
    §3.9 종목상세 B 띠 (quick-260924-vj1 · sketch 001 `.v-b .detail-stack > .card`)
    - 종목상세 비-호가 탭은 B 라이트 = **흰 바탕 + 회색 띠**, 나머지 화면은 `--surface` 회색 면 + 흰 카드.
@@ -712,7 +768,7 @@ html.native-app [data-slot="app-menu-button"] {
    FAB bottom = 70 + max(20, safe) — 바 윗변 위 4px(기존 간격 유지). 식의 정본은 stock-detail-tabs.tsx CTA 주석. */
 @media (max-width: 767.98px) {
   body:has([data-slot="detail-order-cta-bar"]) [data-slot="chat-fab"] {
-    bottom: calc(70px + max(20px, env(safe-area-inset-bottom, 0px)));
+    bottom: calc(70px + max(20px, var(--app-safe-bottom)));
   }
 }
 

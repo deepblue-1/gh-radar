@@ -55,7 +55,7 @@ export function AlertToasts({ alerts, onOpen, onDismiss }: AlertToastsProps) {
       data-slot="alert-toasts"
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed right-3 bottom-3 z-50 flex w-[min(340px,calc(100%-24px))] flex-col gap-2 max-[699px]:top-3 max-[699px]:right-3 max-[699px]:bottom-auto max-[699px]:left-3 max-[699px]:w-auto"
+      className="pointer-events-none fixed right-3 bottom-[calc(12px+var(--app-safe-bottom))] z-50 flex w-[min(340px,calc(100%-24px))] flex-col gap-2 max-[699px]:top-[calc(12px+var(--app-safe-top))] max-[699px]:right-3 max-[699px]:bottom-auto max-[699px]:left-3 max-[699px]:w-auto"
     >
       {alerts.map((a) => (
         <ToastItem key={a.id} alert={a} onOpen={onOpen} onDismiss={onDismiss} />

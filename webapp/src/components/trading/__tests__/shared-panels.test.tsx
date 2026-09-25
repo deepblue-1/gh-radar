@@ -102,6 +102,14 @@ function panel(): HTMLElement {
   return screen.getByTestId('shared-panels');
 }
 
+/**
+ * 더티 바 예약의 인라인 `bottom` — Phase 21 D-25 부터 앱 탭바 여백 변수를 더한 식이다(브라우저에서 변수는 0px).
+ * 정본은 `shared-panels.tsx` ⑤-c · globals.css §21.
+ */
+function reserveBottom(px: number): string {
+  return `calc(var(--native-tabbar-offset, 0px) + ${px}px)`;
+}
+
 function result(over: Partial<RelayOrderResultMsg> = {}): RelayOrderResultMsg {
   return {
     t: 'order.result',
@@ -350,7 +358,7 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
 
     rerender(<SharedPanels {...props({ dirtyBarCount: 1 })} />);
     // jsdom 에는 실제 바가 없으므로 보수적 기본값으로 비킨다.
-    expect(panel().style.bottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
+    expect(panel().style.bottom).toBe(reserveBottom(DIRTY_BAR_FALLBACK_PX));
     expect(panel().style.marginBottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
     expect(panel()).toHaveAttribute('data-dirty-reserve', 'true');
     expect(panel().className).not.toMatch(/\bz-(4[1-9]|[5-9]\d)\b|z-\[/);
@@ -383,7 +391,7 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
     const { container } = render(
       <SharedPanels {...props({ phoneBand: true, dirtyBarCount: 1 })} />,
     );
-    expect(panel().style.bottom).toBe(`${DIRTY_BAR_FALLBACK_PX}px`);
+    expect(panel().style.bottom).toBe(reserveBottom(DIRTY_BAR_FALLBACK_PX));
     expect(panel()).toHaveAttribute('data-dirty-reserve', 'true');
     expect(panel().className).not.toMatch(/\bz-(4[1-9]|[5-9]\d)\b|z-\[/);
     const spacer = container.querySelector<HTMLElement>('[data-slot="shared-panels-spacer"]');
@@ -408,7 +416,7 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
     document.body.appendChild(bar);
     try {
       render(<SharedPanels {...props({ dirtyBarCount: 1 })} />);
-      expect(panel().style.bottom).toBe('96px');
+      expect(panel().style.bottom).toBe(reserveBottom(96));
     } finally {
       bar.remove();
     }
@@ -431,11 +439,11 @@ describe('SharedPanels — 폰 sticky · 더티 바 레이어', () => {
     let second: HTMLElement | null = null;
     try {
       const { rerender } = render(<SharedPanels {...props({ dirtyBarCount: 1 })} />);
-      expect(panel().style.bottom).toBe('96px');
+      expect(panel().style.bottom).toBe(reserveBottom(96));
 
       second = mk(140);
       rerender(<SharedPanels {...props({ dirtyBarCount: 2 })} />);
-      expect(panel().style.bottom).toBe('140px');
+      expect(panel().style.bottom).toBe(reserveBottom(140));
       expect(panel().style.marginBottom).toBe('140px');
 
       first.remove();

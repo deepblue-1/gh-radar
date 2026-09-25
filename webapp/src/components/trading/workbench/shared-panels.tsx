@@ -51,6 +51,12 @@
  *   페이지 끝 콘텐츠가 패널 밑에 묻히지 않게 한다(sticky 가 페이지 끝에서 하던 일).
  *   폰 밴드 판정은 작업대가 `wb` 폭으로 내려 준다(`phoneBand`). 판정 전(`null`)은 흐름 안이다.
  *
+ * ⑤-c Phase 21 D-25 — 안전영역 · 앱 탭바
+ *   루트에 `data-slot="shared-panels"` · `data-pinned`(폰 밴드 포털) 를 단다 — globals.css §21 이 이 표식으로
+ *   브라우저에서는 폰 밴드 패널 하단에 `--app-safe-bottom` 패딩을, 앱(`html.native-app`)에서는 패널을
+ *   `--native-tabbar-offset` 만큼 탭바 위로 올린다(패딩 0). 더티 바 예약의 인라인 `bottom` 은
+ *   `calc(var(--native-tabbar-offset, 0px) + 예약)` 이라 앱에서도 탭바 위 + 바 높이이고 브라우저는 종전 값이다.
+ *
  * ⑥ 로딩 스피너가 없다 (E13 loading)
  *   미체결·잔고는 인증 직후 relay 스냅샷으로 채워진다(push). 스냅샷 전은 빈 문구이고, 목록 자체의
  *   로드 실패 경로는 없다.
@@ -224,7 +230,11 @@ export function SharedPanels({
     끝 여백). 포털(폰): `bottom` 만 — 여백은 흐름 안 자리가 대신 갖는다(⑤-b).
   */
   const reserveStyle: CSSProperties | undefined =
-    reserve === null ? undefined : pinned ? { bottom: reserve } : { bottom: reserve, marginBottom: reserve };
+    reserve === null
+      ? undefined
+      : pinned
+        ? { bottom: `calc(var(--native-tabbar-offset, 0px) + ${reserve}px)` }
+        : { bottom: `calc(var(--native-tabbar-offset, 0px) + ${reserve}px)`, marginBottom: reserve };
 
   const embedProps = {
     selectedAccountNo: accountNo,
@@ -238,6 +248,8 @@ export function SharedPanels({
     <section
       ref={panelHeight.ref}
       data-testid="shared-panels"
+      data-slot="shared-panels"
+      data-pinned={pinned ? 'true' : undefined}
       aria-label="미체결 · 잔고 · 전략 로그"
       data-dirty-reserve={reserve === null ? undefined : 'true'}
       style={reserveStyle}

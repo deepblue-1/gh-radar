@@ -128,7 +128,8 @@ export function StockDetailTabs({
       value={active}
       onValueChange={handleValueChange}
       data-stock-code={code}
-      className={cn('flex-col gap-0', showOrderCta && 'max-md:pb-[calc(76px+max(20px,env(safe-area-inset-bottom)))]')}
+      data-order-cta={showOrderCta ? 'true' : undefined}
+      className={cn('flex-col gap-0', showOrderCta && 'max-md:pb-[calc(76px+max(20px,var(--app-safe-bottom)))]')}
     >
       {/*
         T4 — sticky 탭 바. AppShell 의 `main` 이 스크롤 컨테이너(`overflow-auto p-2 md:p-4 lg:p-6`) 이므로
@@ -212,11 +213,14 @@ export function StockDetailTabs({
           바 높이 = pt 10 + 버튼 56 + max(20, safe) = 66 + max(20, safe).
           → 챗 FAB bottom = 70 + max(20, safe)(바 윗변 위 4px · globals.css) ·
             Tabs 루트 예약 = 76 + max(20, safe)(바 + 10). 셋 중 하나를 바꾸면 나머지도 같이.
+          ★ 앱(Phase 21 D-25 · globals.css §21): 바 bottom = `--native-tabbar-offset`(탭바 윗변 + 8) · 바 하단 10
+            (안전영역은 탭바 몫) · 예약 76(`[data-order-cta]` — 탭바 몫은 본문 108 이 따로 진다) · FAB 은 없다(D-10).
+          ★ safe 는 `--app-safe-bottom`(globals.css §21 — `env()` 를 직접 읽지 않는다).
       */}
       {showOrderCta && (
         <div
           data-slot="detail-order-cta-bar"
-          className="fixed inset-x-0 bottom-0 z-30 bg-[linear-gradient(to_bottom,transparent,var(--bg)_40%)] px-5 pt-2.5 pb-[max(20px,env(safe-area-inset-bottom))] md:hidden"
+          className="fixed inset-x-0 bottom-0 z-30 bg-[linear-gradient(to_bottom,transparent,var(--bg)_40%)] px-5 pt-2.5 pb-[max(20px,var(--app-safe-bottom))] md:hidden"
         >
           <button
             type="button"
