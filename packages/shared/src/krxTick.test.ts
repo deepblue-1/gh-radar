@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { krxTickSize, tickUp, tickDown, priceInputIssue } from "./krxTick";
+import {
+  krxTickSize,
+  tickUp,
+  tickDown,
+  priceInputIssue,
+  priceIssueLocks,
+  tickRuleOfSecurityGroup,
+  ETP_SECURITY_GROUPS,
+} from "./krxTick";
 
 /**
  * krxTick 단위 테스트 — Phase 20 D-15 · D-17.
@@ -141,5 +149,46 @@ describe("priceInputIssue (입력 보조 검증 · 자동 보정 없음)", () =>
     const issue = priceInputIssue(v, 127400);
     expect(v).toBe(98150);
     expect(issue).not.toHaveProperty("value");
+  });
+});
+
+describe("tickRuleOfSecurityGroup · priceIssueLocks (D-15a · 20-REVIEW WR-05)", () => {
+  it("ETP 판별자는 server /search · SQL 선례와 같은 ETF·ETN·ELW 3종이다", () => {
+    expect([...ETP_SECURITY_GROUPS]).toEqual(["ETF", "ETN", "ELW"]);
+  });
+
+  it("ETF·ETN·ELW → etp", () => {
+    expect(tickRuleOfSecurityGroup("ETF")).toBe("etp");
+    expect(tickRuleOfSecurityGroup("ETN")).toBe("etp");
+    expect(tickRuleOfSecurityGroup("ELW")).toBe("etp");
+  });
+
+  it("주권·부동산투자회사·외국주권 등 → stock", () => {
+    expect(tickRuleOfSecurityGroup("주권")).toBe("stock");
+    expect(tickRuleOfSecurityGroup("부동산투자회사")).toBe("stock");
+    expect(tickRuleOfSecurityGroup("외국주권")).toBe("stock");
+  });
+
+  it("빈 값 · null · 미확인 sentinel → unknown", () => {
+    expect(tickRuleOfSecurityGroup(null)).toBe("unknown");
+    expect(tickRuleOfSecurityGroup(undefined)).toBe("unknown");
+    expect(tickRuleOfSecurityGroup("")).toBe("unknown");
+    expect(tickRuleOfSecurityGroup("미확인")).toBe("unknown");
+  });
+
+  it("상한가 초과는 분류와 무관하게 잠근다", () => {
+    const over = priceInputIssue(127500, 127400)!;
+    expect(priceIssueLocks(over, "stock")).toBe(true);
+    expect(priceIssueLocks(over, "etp")).toBe(true);
+    expect(priceIssueLocks(over, "unknown")).toBe(true);
+  });
+
+  it("호가 단위 불일치는 주식만 잠그고 ETP·분류 불명은 잠그지 않는다(경고만)", () => {
+    // ETF 25,005원 — ETF 는 5원 단위가 유효할 수 있지만 주식 표로는 50원 구간이다.
+    const off = priceInputIssue(25005, 0)!;
+    expect(off.kind).toBe("offTick");
+    expect(priceIssueLocks(off, "stock")).toBe(true);
+    expect(priceIssueLocks(off, "etp")).toBe(false);
+    expect(priceIssueLocks(off, "unknown")).toBe(false);
   });
 });

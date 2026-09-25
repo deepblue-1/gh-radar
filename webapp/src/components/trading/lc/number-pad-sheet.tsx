@@ -32,6 +32,9 @@
  *
  * ⑥ 이 컴포넌트는 스스로 전송하지 않는다 — `onConfirm(값)` 만 부른다. 전송(상따 `commit`)과
  *   주문은 호출부 몫이다. 호가 단위·상한가 위반은 **보정하지 않고** 잠근 뒤 이유만 말한다(D-15).
+ *   ★ ETP·분류 불명 종목(`ctx.tickRule`)의 호가 단위 위반은 잠그지 않고 경고 한 줄만 둔다(D-15a ·
+ *     `padWarning`) — 수동주문 마우스 인라인(`manual-order-price-issue`)과 같은 모양(글자색 destructive ·
+ *     `role=status`)이다. 상한가 초과는 분류와 무관하게 잠근다.
  *
  * 시트에는 입력칸(input 요소)이 없다 — 디스플레이는 `<output>`, 키패드는 버튼 12개라 소프트
  * 키보드가 뜨지 않는다. 물리 키(태블릿 외장 키보드)는 콘텐츠 `onKeyDown` 이 받는다.
@@ -52,6 +55,7 @@ import {
   padIssue,
   padKey,
   padValue,
+  padWarning,
   type PadCtx,
   type PadKey,
   type PadState,
@@ -107,6 +111,7 @@ function fmt(n: number): string {
 
 type StatusLine =
   | { tone: 'alert'; text: string }
+  | { tone: 'warn'; text: string }
   | { tone: 'status'; text: string; armed?: boolean }
   | null;
 
@@ -150,9 +155,13 @@ export function NumberPadSheet({
   const otherDevice =
     purpose === 'apply' && !busy && serverKnown && openedServer !== null && serverValue !== openedServer;
 
+  // 잠그지 않는 경고(D-15a) — 잠그는 위반이 없을 때만 선다.
+  const warning = issue === null ? padWarning(pad, unit, ctx) : null;
+
   let line: StatusLine = null;
   if (issue) line = { tone: 'alert', text: issue };
   else if (!busy && failureText) line = { tone: 'alert', text: failureText };
+  else if (warning) line = { tone: 'warn', text: warning };
   else if (otherDevice) line = { tone: 'status', text: LC_COMMIT_TEXT.otherDevice };
   else if (armedNotice) line = { tone: 'status', text: LC_COMMIT_TEXT.armed, armed: true };
 
@@ -301,6 +310,11 @@ export function NumberPadSheet({
           >
             {line?.tone === 'alert' && (
               <span role="alert" className="text-[var(--destructive)]">
+                {line.text}
+              </span>
+            )}
+            {line?.tone === 'warn' && (
+              <span role="status" data-tone="warn" className="text-[var(--destructive)]">
                 {line.text}
               </span>
             )}

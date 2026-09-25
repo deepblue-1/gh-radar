@@ -216,10 +216,13 @@ export function SettingRow({
 export function FailureBubble({
   open,
   text,
+  tone = 'alert',
   children,
 }: {
   open: boolean;
   text: string;
+  /** `warn` = 잠그지 않는 경고(D-15a) — 입력마다 바뀌므로 `alert` 로 끊어 읽지 않고 `status` 로 둔다. */
+  tone?: 'alert' | 'warn';
   children: ReactNode;
 }) {
   return (
@@ -228,8 +231,9 @@ export function FailureBubble({
       <PopoverContent
         side="bottom"
         align="end"
-        role="alert"
+        role={tone === 'warn' ? 'status' : 'alert'}
         data-slot="lc-failure-bubble"
+        data-tone={tone}
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => e.preventDefault()}
         className="w-auto max-w-[280px] px-3 py-2 text-[12.5px] leading-[1.45] text-[var(--destructive)]"

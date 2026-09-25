@@ -33,7 +33,28 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
   };
 });
 
+/*
+  D-15a — 카드 본문이 종목 마스터 분류(`stocks.security_group`)를 읽어 두 폼에 같은 잠금 강도를 준다.
+  스텁 경계는 `createClient` 하나 — 조회 결과만 바꾼다(기본: 행 없음 → unknown).
+*/
+const master = vi.hoisted(() => ({ group: null as string | null }));
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: master.group === null ? null : { security_group: master.group },
+            error: null,
+          }),
+        }),
+      }),
+    }),
+  }),
+}));
+
 import { mockPointer, restoreMatchMedia } from '@/lib/__tests__/match-media';
+import { clearTickRuleCache } from '@/lib/tick-rule';
 import type { StrategyCardState } from '../card/strategy-card';
 import { CardBody, cardGroupStatusOf, type CardBodyProps } from '../card/card-body';
 
@@ -188,6 +209,8 @@ beforeEach(() => {
   sendMock.mockReset();
   sendMock.mockReturnValue(true);
   sendOrderMock.mockReset();
+  clearTickRuleCache();
+  master.group = '주권';
 });
 
 describe('① 좌 호가 | 우 옵션 4그룹 (D-12)', () => {
@@ -470,5 +493,81 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
       });
       expect(screen.getByRole('button', { name: '현재가' })).toBeDisabled();
     });
+  });
+});
+
+describe('⑦ D-15a — 종목 분류가 두 폼의 호가 단위 잠금을 가른다 (20-REVIEW WR-05)', () => {
+  beforeEach(() => mockPointer(true));
+  afterEach(restoreMatchMedia);
+
+  const statusLine = () => document.querySelector('[data-slot="numpad-status"]') as HTMLElement;
+  const confirmBtn = () => document.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+  const typeKeys = (digits: string) => {
+    const pad = screen.getByRole('group', { name: '숫자 키패드' });
+    for (const d of digits) {
+      act(() => {
+        fireEvent.click(within(pad).getByRole('button', { name: d }));
+      });
+    }
+  };
+  /** 분류 조회가 끝날 때까지 기다린다(조회 중 = 주식 잠금이라 결과가 반영된 뒤 단언해야 한다). */
+  const settle = () => act(async () => {});
+
+  it.each([
+    ['ETF', 'etp'],
+    [null, '마스터에 없음(unknown)'],
+  ] as const)('%s — 상따 매수가격 시트 · 수동주문 가격 시트 모두 호가 단위 위반을 경고만 한다 (%s)', async (group, _rule) => {
+    master.group = group;
+    render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
+    await settle();
+    // 상따 매수가격 시트 — 130,050 은 주식 표(100원 구간) 위반.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+    });
+    typeKeys('130050');
+    expect(within(statusLine()).queryByRole('alert')).toBeNull();
+    expect(within(statusLine()).getByRole('status')).toHaveTextContent('주식 호가 단위(100원)와 달라요');
+    expect(confirmBtn()).toBeEnabled();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+    });
+    // 수동주문 가격 시트 — 같은 분류 값이다(진입 경로별로 갈라지지 않는다).
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '가격' }));
+    });
+    typeKeys('130050');
+    expect(within(statusLine()).queryByRole('alert')).toBeNull();
+    expect(confirmBtn()).toBeEnabled();
+  });
+
+  it('주권 — 두 시트 모두 잠근다(D-15) · 상한가 초과는 ETF 여도 잠근다', async () => {
+    render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
+    await settle();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '매수가격 130,000원' }));
+    });
+    typeKeys('130050');
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('100원 단위로 입력해 주세요');
+    expect(confirmBtn()).toBeDisabled();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '가격' }));
+    });
+    typeKeys('130050');
+    expect(confirmBtn()).toBeDisabled();
+  });
+
+  it('ETF 여도 상한가 초과는 잠근다', async () => {
+    master.group = 'ETF';
+    render(<CardBody {...props({ card: cardState({ server: server(), quote: quote() }) })} />);
+    await settle();
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: '가격' }));
+    });
+    typeKeys('156100');
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('상한가 156,000원을 넘을 수 없어요');
+    expect(confirmBtn()).toBeDisabled();
   });
 });

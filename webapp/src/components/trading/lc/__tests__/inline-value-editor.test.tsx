@@ -337,3 +337,46 @@ describe('⑧ 9자리 · 무안내 (E4 long-text · D-14a)', () => {
     expect(container.textContent).not.toContain('저장');
   });
 });
+
+describe('③-2 D-15a — ETP·분류 불명은 호가 단위 위반을 경고만 한다 (20-REVIEW WR-05)', () => {
+  const SOFT = '주식 호가 단위(50원)와 달라요 · 가까운 값 25,000 / 25,050';
+  const statusText = (): string | null => screen.queryByRole('status')?.textContent ?? null;
+
+  it.each(['etp', 'unknown'] as const)(
+    '%s — 「25005」 입력 중 경고 말풍선(role=status · aria-invalid 없음) → Enter 저장 25,005',
+    (tickRule) => {
+      render(<InlineValueEditor {...props({ upperLimit: 32_500, tickRule })} />);
+      type('25005');
+      expect(alertText()).toBeNull();
+      expect(statusText()).toBe(SOFT);
+      expect(input()).not.toHaveAttribute('aria-invalid');
+      key('Enter');
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(onSave.mock.calls[0]![0]).toBe(25_005);
+    },
+  );
+
+  it('etp — 위반 값을 둔 채 포커스 이탈도 저장이다(취소 아님)', () => {
+    render(<InlineValueEditor {...props({ upperLimit: 32_500, tickRule: 'etp' })} />);
+    type('25005');
+    blur();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledWith(25_005, 'blur');
+  });
+
+  it('stock — 그대로 잠근다(D-15)', () => {
+    render(<InlineValueEditor {...props({ upperLimit: 32_500, tickRule: 'stock' })} />);
+    type('25005');
+    key('Enter');
+    expect(onSave).not.toHaveBeenCalled();
+    expect(alertText()).toBe('50원 단위로 입력해 주세요 · 가까운 값 25,000 / 25,050');
+  });
+
+  it('etp 여도 상한가 초과는 잠근다', () => {
+    render(<InlineValueEditor {...props({ upperLimit: 32_500, tickRule: 'etp' })} />);
+    type('32550');
+    key('Enter');
+    expect(onSave).not.toHaveBeenCalled();
+    expect(alertText()).toBe('상한가 32,500원을 넘을 수 없어요');
+  });
+});

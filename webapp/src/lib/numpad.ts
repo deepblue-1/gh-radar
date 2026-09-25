@@ -7,12 +7,20 @@
  *   - D-16 버퍼 규칙: 빈 값·「0」 뒤 「00」 무시 · 「0」 다음 숫자는 0 을 대체 · 9자리 초과 무시.
  *   - D-17 단축 칩: 단위로 고른다. 누르면 현재 값 기준으로 적용되고 fresh 가 풀린다.
  *   - D-15 검증: 호가 단위·상한가 위반은 이유와 가까운 두 값만 말한다 — **값을 보정하지 않는다.**
+ *     잠글지 경고만 할지는 종목 분류(`PadCtx.tickRule`)가 가른다(D-15a — `priceIssueLocks` 한 곳).
  * 근거 목업: `.planning/sketches/002-toss-order-ticket/index.html:370-417, 497-504`.
  *
  * 호가 단위 표는 여기 없다 — `@gh-radar/shared` 의 `tickUp`/`tickDown`/`priceInputIssue` 를 부른다.
  * 클라 검증은 입력 보조다. 최종 판정은 relay 스키마·게이트웨이(D-27).
  */
-import { priceInputIssue, tickDown, tickUp, type PriceIssue } from '@gh-radar/shared';
+import {
+  priceInputIssue,
+  priceIssueLocks,
+  tickDown,
+  tickUp,
+  type PriceIssue,
+  type TickRule,
+} from '@gh-radar/shared';
 
 export type PadUnit = '원' | '주' | '만원' | '%' | '건' | '회';
 
@@ -48,6 +56,10 @@ export interface PadChip {
  * 확인을 잠그고(`padIssue`) 범위 밖 값을 만드는 `set` 칩은 비활성이다(`padChipDisabled`).
  * ★ relay 는 스키마 위반 프레임을 받으면 **WebSocket 연결을 통째로 끊는다**(`fanout.ts` `#reject`) —
  *   그래서 이 범위는 입력 보조가 아니라 「보내면 안 되는 값」의 경계다(20-REVIEW CR-01).
+ * `tickRule` 은 **원 단위 호가 단위 위반의 잠금 강도**다(D-15a · 20-REVIEW WR-05). `stock` 이면 잠그고
+ * (`padIssue`), `etp`·`unknown` 이면 잠그지 않고 경고만 한다(`padWarning`). 상한가 초과는 늘 잠근다.
+ * ★ 미지정 = `stock` — 분류 조회가 끝나기 전(카드 `useTickRule` 이 `undefined`)과 분류를 넘기지 않는
+ *   호출부는 기존 D-15 잠금 그대로다. 「조회했는데 모른다」는 `unknown` 을 명시로 넘긴다.
  */
 export interface PadCtx {
   current: number;
@@ -55,6 +67,7 @@ export interface PadCtx {
   maxPieces?: number;
   min?: number;
   max?: number;
+  tickRule?: TickRule;
 }
 
 /** 입력 한도 9자리(999,999,999). 서버 `UIntSchema` 가 최종(T-20-06). */
@@ -168,10 +181,15 @@ export function formatPadDisplay(s: PadState): string {
   return v === null ? '' : fmt(v);
 }
 
-/** 가격 검증 이유 → UI-SPEC 카피 원문. */
-export function priceIssueText(issue: PriceIssue): string {
+/**
+ * 가격 검증 이유 → 문구. 잠그는 위반은 UI-SPEC 카피 원문(「…단위로 입력해 주세요」)이고, 잠그지 않는
+ * 호가 단위 위반(ETP·분류 불명 · D-15a)은 명령형이 아니라 **사실만** 말한다 — 적용은 막지 않는다.
+ */
+export function priceIssueText(issue: PriceIssue, rule: TickRule = 'stock'): string {
   if (issue.kind === 'overUpper') return `상한가 ${fmt(issue.upper)}원을 넘을 수 없어요`;
-  return `${fmt(issue.tick)}원 단위로 입력해 주세요 · 가까운 값 ${fmt(issue.lower)} / ${fmt(issue.upper)}`;
+  const near = `가까운 값 ${fmt(issue.lower)} / ${fmt(issue.upper)}`;
+  if (!priceIssueLocks(issue, rule)) return `주식 호가 단위(${fmt(issue.tick)}원)와 달라요 · ${near}`;
+  return `${fmt(issue.tick)}원 단위로 입력해 주세요 · ${near}`;
 }
 
 /**
@@ -193,7 +211,8 @@ export function padIssue(s: PadState, unit: PadUnit, ctx: PadCtx): string | null
   if (v === null) return null;
   if (unit === '원') {
     const issue = priceInputIssue(v, ctx.upper);
-    if (issue) return priceIssueText(issue);
+    const rule = ctx.tickRule ?? 'stock';
+    if (issue && priceIssueLocks(issue, rule)) return priceIssueText(issue, rule);
   }
   if (unit === '회') {
     if (v < 1) return '1회 이상 입력해 주세요';
@@ -202,6 +221,18 @@ export function padIssue(s: PadState, unit: PadUnit, ctx: PadCtx): string | null
     }
   }
   return rangeIssueText(v, unit, ctx.min, ctx.max);
+}
+
+/**
+ * 잠그지 않는 경고 — 원 단위 호가 단위 위반인데 종목이 ETP·분류 불명이면(D-15a) 그 사실만 말한다.
+ * 잠그는 위반(`padIssue`)이 있으면 null 이다 — 두 문구가 한 줄에 겹치지 않는다.
+ */
+export function padWarning(s: PadState, unit: PadUnit, ctx: PadCtx): string | null {
+  const v = padValue(s);
+  if (v === null || unit !== '원') return null;
+  const issue = priceInputIssue(v, ctx.upper);
+  const rule = ctx.tickRule ?? 'stock';
+  return issue && !priceIssueLocks(issue, rule) ? priceIssueText(issue, rule) : null;
 }
 
 /** 확인 가능 — 빈 값이 아니고 검증 문구가 없을 때. 명시적 「0」 은 허용(단위 규칙이 막지 않으면). */

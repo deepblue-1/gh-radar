@@ -476,6 +476,15 @@ describe('ManualOrderForm — 토스 상자 · 인라인 입력 (D-08 · D-10 ·
     expect(sendOrderMock).not.toHaveBeenCalled();
   });
 
+  it('가격 검증 줄 D-15a · etp — 호가 단위 위반은 명령형이 아니라 사실만 말한다 (WR-05)', async () => {
+    const user = userEvent.setup();
+    renderForm({ upperLimit: 32_500, tickRule: 'etp' });
+    await user.type(priceInput(), '25005');
+    expect(screen.getByTestId('manual-order-price-issue')).toHaveTextContent(
+      '주식 호가 단위(50원)와 달라요 · 가까운 값 25,000 / 25,050',
+    );
+  });
+
   it('가격 검증 줄(D-15): 호가 단위 위반은 상자 아래 12.5px --destructive 한 줄 · 주문 버튼은 잠그지 않는다', async () => {
     const user = userEvent.setup();
     renderForm({ upperLimit: 127_400 });
@@ -1401,6 +1410,42 @@ describe('D-10 시트 입력(터치) — 값만 채운다 (D-10 · D-15 · D-17 
     expect(within(statusLine()).getByRole('alert')).toHaveTextContent(
       '100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200',
     );
+    expectNoOrder();
+  });
+
+  it.each(['etp', 'unknown'] as const)(
+    'D-15a · %s — ETF 25005 → 「가격 입력」 잠그지 않음 · 경고 한 줄 · 채우면 상자 25,005 · 주문 0 (WR-05)',
+    async (tickRule) => {
+      const user = userEvent.setup();
+      renderForm({ currentPrice: 25_000, upperLimit: 32_500, tickRule });
+      await user.click(btn('가격'));
+      await press(user, '25005');
+      expect(display()).toBe('25,005');
+      expect(within(statusLine()).queryByRole('alert')).toBeNull();
+      expect(within(statusLine()).getByRole('status')).toHaveTextContent(
+        '주식 호가 단위(50원)와 달라요 · 가까운 값 25,000 / 25,050',
+      );
+      expect(confirmBtn()).toBeEnabled();
+      await user.click(confirmBtn());
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: '가격' })).toBeNull());
+      expect(btn('가격 25,005원')).toHaveTextContent('25,005');
+      expectNoOrder();
+    },
+  );
+
+  it('D-15a · stock — ETF 가격이라도 주식 분류면 잠근다 · etp 여도 상한가 초과는 잠근다 (WR-05)', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderForm({ currentPrice: 25_000, upperLimit: 32_500, tickRule: 'stock' });
+    await user.click(btn('가격'));
+    await press(user, '25005');
+    expect(confirmBtn()).toBeDisabled();
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('50원 단위로 입력해 주세요');
+    unmount();
+    renderForm({ currentPrice: 25_000, upperLimit: 32_500, tickRule: 'etp' });
+    await user.click(btn('가격'));
+    await press(user, '32550');
+    expect(confirmBtn()).toBeDisabled();
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('상한가 32,500원을 넘을 수 없어요');
     expectNoOrder();
   });
 

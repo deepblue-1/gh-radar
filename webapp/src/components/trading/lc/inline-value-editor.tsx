@@ -25,6 +25,8 @@
  * 검증 (D-15): 원 단위는 `padIssue`(호가 단위 · 상한가) · 필드 범위(`min`/`max`, CR-01) → 그 다음
  *   `validate`(무장 불가 등, 호출부 판정). 위반이면 **저장을 거부하고 이유만 말한다 — 값을 보정하지 않는다.**
  *   검증 이유가 실패 문구보다 먼저다.
+ *   ★ ETP·분류 불명 종목(`tickRule`)의 호가 단위 위반은 잠그지 않는다(D-15a) — 입력하는 동안 같은 말풍선에
+ *     경고(`padWarning`)만 띄우고 Enter/Tab/이탈 저장은 그대로 된다. 상한가 초과는 분류와 무관하게 잠근다.
  *   빈 값 저장 = 0 이다(서버 계약상 빈 값 = 0 · E4 empty). ★ 그래서 검증도 **저장될 값(빈 값 → 0)** 으로
  *   한다 — 빈 버퍼를 「빈 값이라 검사 없음」으로 통과시키면 매도비율·잔량추적(최소 1)에 0 이 나가고
  *   relay 가 스키마 위반으로 연결을 끊는다(20-REVIEW CR-01).
@@ -34,10 +36,11 @@
  */
 
 import { useLayoutEffect, useRef, useState } from 'react';
+import type { TickRule } from '@gh-radar/shared';
 
 import { FailureBubble, type SettingUnit } from '@/components/trading/lc/setting-group';
 import { LC_COMMIT_TEXT } from '@/components/trading/lc/use-lc-field-commit';
-import { PAD_MAX_DIGITS, padIssue, stepValue } from '@/lib/numpad';
+import { PAD_MAX_DIGITS, padIssue, padWarning, stepValue, type PadCtx } from '@/lib/numpad';
 import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -51,6 +54,8 @@ export interface InlineValueEditorProps {
   initialValue: number;
   /** 상한가 — 원 단위 D-15 검증(0·없음 = 시세 미수신 → 상한 검사 생략). */
   upperLimit?: number;
+  /** 호가 단위 잠금 강도(D-15a) — 미지정 = 주식(잠금). `etp`·`unknown` 이면 경고만. */
+  tickRule?: TickRule;
   /** 필드 범위(포함) — relay 스키마 범위가 있는 필드만(`lc-fields.ts` `range`, CR-01). */
   min?: number;
   max?: number;
@@ -80,6 +85,7 @@ export function InlineValueEditor({
   unit,
   initialValue,
   upperLimit = 0,
+  tickRule,
   min,
   max,
   validate,
@@ -117,10 +123,11 @@ export function InlineValueEditor({
    * D-15 — 원 단위 호가·상한가 · 필드 범위 → 호출부 검증. 문제 없으면 null.
    * ★ 버퍼가 아니라 **저장될 값**(빈 값 → 0)으로 검사한다(CR-01).
    */
+  const padCtx: PadCtx = { current: 0, upper: upperLimit, min, max, tickRule };
   const issueOf = (): string | null =>
-    padIssue({ buf: String(valueOf()), fresh: false }, unit, { current: 0, upper: upperLimit, min, max }) ??
-    validate?.(valueOf()) ??
-    null;
+    padIssue({ buf: String(valueOf()), fresh: false }, unit, padCtx) ?? validate?.(valueOf()) ?? null;
+  /** D-15a — 잠그지 않는 경고(ETP·분류 불명의 호가 단위 위반). 입력하는 동안 보인다 · 빈 값은 없음. */
+  const warning = padWarning({ buf: digitsOf(), fresh: false }, unit, padCtx);
 
   const setDigits = (digits: string) => {
     settledRef.current = false;
@@ -140,7 +147,8 @@ export function InlineValueEditor({
     return true;
   };
 
-  const bubbleText = issue ?? failureText;
+  const blockingText = issue ?? failureText;
+  const bubbleText = blockingText ?? warning;
 
   const editor = (
     <span className="flex min-w-0 items-center whitespace-nowrap">
@@ -152,7 +160,7 @@ export function InlineValueEditor({
         autoComplete="off"
         aria-label={label}
         aria-busy={busy ? 'true' : undefined}
-        aria-invalid={bubbleText ? 'true' : undefined}
+        aria-invalid={blockingText ? 'true' : undefined}
         readOnly={busy}
         /* 포커스 표시는 행의 `inset` 링 한 겹이다(전역 규약 Q-02) — 입력 자체는 링을 그리지 않는다. */
         data-focus-ring="seamless"
@@ -222,7 +230,11 @@ export function InlineValueEditor({
 
   // 말풍선 유무와 무관하게 **같은 트리**다 — 감싸기가 바뀌면 입력이 다시 마운트돼 포커스를 잃는다.
   return (
-    <FailureBubble open={bubbleText != null && bubbleText !== ''} text={bubbleText ?? ''}>
+    <FailureBubble
+      open={bubbleText != null && bubbleText !== ''}
+      text={bubbleText ?? ''}
+      tone={blockingText ? 'alert' : 'warn'}
+    >
       {editor}
     </FailureBubble>
   );

@@ -205,6 +205,44 @@ describe('NumberPadSheet — 검증 잠금(D-15 · 자동 보정 없음)', () =>
   });
 });
 
+describe('NumberPadSheet — D-15a 호가 단위 잠금 강도(20-REVIEW WR-05)', () => {
+  // ETF 25,005원 — 5원 단위가 유효할 수 있는 ETF 가격이지만 주식 표로는 50원 구간 위반이다.
+  const ETF: Overrides = {
+    title: '매수가격',
+    unit: '원',
+    initialValue: 25_005,
+    serverValue: 25_000,
+  };
+  const SOFT = '주식 호가 단위(50원)와 달라요 · 가까운 값 25,000 / 25,050';
+
+  it.each(['etp', 'unknown'] as const)(
+    '%s → 호가 단위 위반은 잠그지 않는다 · 경고 한 줄(role=status) · 적용하면 그 값 그대로',
+    async (tickRule) => {
+      const { user, onConfirm } = setup({ ...ETF, ctx: { current: 25_000, upper: 32_500, tickRule } });
+      const line = statusLine();
+      expect(within(line).queryByRole('alert')).toBeNull();
+      expect(within(line).getByRole('status')).toHaveTextContent(SOFT);
+      expect(confirmBtn()).toBeEnabled();
+      await user.click(confirmBtn());
+      expect(onConfirm).toHaveBeenCalledWith(25_005);
+    },
+  );
+
+  it('stock → 그대로 잠근다(D-15) · 경고 줄이 아니라 alert', () => {
+    setup({ ...ETF, ctx: { current: 25_000, upper: 32_500, tickRule: 'stock' } });
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent(
+      '50원 단위로 입력해 주세요 · 가까운 값 25,000 / 25,050',
+    );
+    expect(confirmBtn()).toBeDisabled();
+  });
+
+  it('etp 여도 상한가 초과는 잠근다', () => {
+    setup({ ...ETF, initialValue: 32_550, ctx: { current: 25_000, upper: 32_500, tickRule: 'etp' } });
+    expect(within(statusLine()).getByRole('alert')).toHaveTextContent('상한가 32,500원을 넘을 수 없어요');
+    expect(confirmBtn()).toBeDisabled();
+  });
+});
+
 describe('NumberPadSheet — 전송 상태(D-05 · D-06 · D-07)', () => {
   it("status='busy' → 「반영 중…」 비활성 · 칩·키패드·「닫기」 비활성 · Esc 와 바깥 누름이 onClose 를 부르지 않는다", async () => {
     const { user, onClose } = setup({ status: 'busy' });

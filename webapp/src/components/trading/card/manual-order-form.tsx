@@ -96,6 +96,7 @@ import type {
   RelayOrderResultMsg,
   RelayQueuedWindowMsg,
   RelayUnfilled,
+  TickRule,
 } from '@gh-radar/shared';
 
 import {
@@ -319,6 +320,11 @@ export interface ManualOrderFormProps {
   /** 같은 카드의 상한가 — 가격 검증(D-15) · 시트 칩 「상한가」. 0/부재 = 모름(상한 검사 생략). */
   upperLimit?: number;
   /**
+   * 호가 단위 잠금 강도(D-15a) — 종목 마스터 분류. 미지정 = 주식(시트가 호가 단위 위반을 잠근다).
+   * `etp`·`unknown` 이면 시트도 마우스 인라인처럼 **경고만** 한다. 상한가 초과는 시트에서 늘 잠근다.
+   */
+  tickRule?: TickRule;
+  /**
    * 미체결 표에서 선택된 원주문 (D-21). 들어오면 가격·수량이 원주문 값(가격 · 미체결 잔량)으로
    * 채워지고 폼 위에 칩이 뜬다. `null`/부재 = 선택 없음 → 정정·취소 `disabled`.
    */
@@ -360,6 +366,7 @@ export function ManualOrderForm({
   referenceClose,
   currentPrice,
   upperLimit,
+  tickRule,
   selectedUnfilled,
   onClearSelection,
   onSubmitted,
@@ -873,7 +880,7 @@ export function ManualOrderForm({
               aria-live="polite"
               className="m-0 -mt-1 min-w-0 pl-0.5 text-[12.5px] leading-snug break-keep text-[var(--destructive)]"
             >
-              {priceIssueText(priceIssue)}
+              {priceIssueText(priceIssue, tickRule ?? 'stock')}
             </p>
           )}
         </>
@@ -1080,6 +1087,7 @@ export function ManualOrderForm({
           ctx={{
             current: currentPrice ?? 0,
             upper: upperLimit ?? 0,
+            tickRule,
             ...(sheet.field === 'pieces' ? { maxPieces: aff.maxPieces } : {}),
           }}
           returnFocusRef={boxReturnRef}

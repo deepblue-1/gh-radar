@@ -86,6 +86,7 @@ import type {
   RelayExchange,
   RelayLimitChaser,
   RelayLimitChaserInput,
+  TickRule,
 } from '@gh-radar/shared';
 
 import { useRelayContext } from '@/lib/relay-provider';
@@ -401,6 +402,11 @@ export interface LimitChaserFormProps {
    * (20-01 은 받기만 한다 — 소비처는 20-03 의 키패드 시트다.)
    */
   currentPrice?: number;
+  /**
+   * 호가 단위 잠금 강도(D-15 · D-15a) — 종목 마스터 분류(`useTickRule`, 카드 본문이 넘긴다). 미지정 = 주식
+   * (호가 단위 위반 잠금). `etp`·`unknown` 이면 원 단위 시트·인라인이 호가 단위 위반을 **경고만** 한다.
+   */
+  tickRule?: TickRule;
   className?: string;
 }
 
@@ -422,6 +428,7 @@ export function LimitChaserForm({
   onServerEcho,
   unacked = false,
   currentPrice = 0,
+  tickRule,
   className,
 }: LimitChaserFormProps) {
   const { send } = useRelayContext();
@@ -712,6 +719,7 @@ export function LimitChaserForm({
         unit={unit}
         initialValue={typeof failure?.value === 'number' ? failure.value : form[field]}
         upperLimit={unit === '원' ? (upperLimit ?? 0) : 0}
+        tickRule={tickRule}
         min={range?.min}
         max={range?.max}
         validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: v })}
@@ -955,7 +963,14 @@ export function LimitChaserForm({
         // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06).
         serverValue={form[sheetKey]}
         // 필드 범위(relay 스키마 · CR-01) — 범위 밖이면 확인 잠금 · 범위 밖 `set` 칩(잔량추적의 100 등) 비활성.
-        ctx={{ current: currentPrice, upper: upperLimit ?? 0, min: sheetRow?.row.range?.min, max: sheetRow?.row.range?.max }}
+        // D-15a — 호가 단위 잠금 강도(종목 분류). 원 단위 행만 쓴다.
+        ctx={{
+          current: currentPrice,
+          upper: upperLimit ?? 0,
+          min: sheetRow?.row.range?.min,
+          max: sheetRow?.row.range?.max,
+          tickRule,
+        }}
         status={sheetBusy ? 'busy' : sheetFailure !== undefined ? 'failed' : 'editing'}
         failureText={sheetFailure?.text ?? null}
         // 그 필드가 속한 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 가격 섹션은 매수주문·

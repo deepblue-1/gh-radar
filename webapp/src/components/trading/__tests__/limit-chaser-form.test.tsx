@@ -1012,3 +1012,26 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(sentConfigs()).toHaveLength(1);
   });
 });
+
+describe('D-15a — 상따 인라인도 ETP·분류 불명은 호가 단위 위반을 경고만 한다 (20-REVIEW WR-05)', () => {
+  it.each(['etp', 'unknown'] as const)('%s — 매수가격 130,050 Enter → 전송된다', (tickRule) => {
+    render(<LimitChaserForm {...props({ upperLimit: 156_000, tickRule })} />);
+    editInline('lc-buy-order-price', '130050');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().buyOrderPrice).toBe(130_050);
+  });
+
+  it('etp 여도 상한가 초과는 막힌다', () => {
+    render(<LimitChaserForm {...props({ upperLimit: 156_000, tickRule: 'etp' })} />);
+    editInline('lc-buy-order-price', '156100');
+    expect(screen.getByRole('alert')).toHaveTextContent('상한가 156,000원을 넘을 수 없어요');
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('미지정(조회 전) — 그대로 잠근다(D-15)', () => {
+    render(<LimitChaserForm {...props({ upperLimit: 156_000 })} />);
+    editInline('lc-buy-order-price', '130050');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert')).toHaveTextContent('100원 단위로 입력해 주세요');
+  });
+});

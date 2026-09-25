@@ -33,6 +33,9 @@
  *   건넨다. 본문이 들고 있는 것은 화면 국소 상태 둘뿐이다 — 폰 밴드 옵션 탭, 호가 클릭 가격.
  *   ★ 본문은 넘겨받은 **단일** `isin`/`exchange` 의 시세만 그리고, 수동주문 폼도 같은 값을 쓴다
  *     (T-18-48 — 다른 종목 호가로 주문하는 경로가 없다).
+ *   ★ 예외 하나 — 호가 단위 잠금 강도(`useTickRule`, D-15a)는 여기서 읽는다. 두 표면(카드 · 호가 탭)이
+ *     이 본문 하나를 쓰므로(D-24) 상따 폼과 수동주문 폼이 **같은 분류 값**을 받는다 — 진입 경로별로
+ *     갈라지지 않는다. 종목 마스터를 읽기만 하는 조회다(`lib/tick-rule.ts`).
  *
  * ⑥ ★ 상따 설정에는 더티 바가 없다 (Phase 20 D-04)
  *   옵션 폼은 값 하나를 확정하면 그 한 필드가 곧 전송 1회다 — 더티 누적 · 「수정/되돌리기」 바 ·
@@ -60,6 +63,7 @@ import {
 } from '@/components/trading/card/manual-order-form';
 import type { StrategyCardState } from '@/components/trading/card/strategy-card';
 import type { RelayStatus } from '@/lib/use-relay-socket';
+import { useTickRule } from '@/lib/tick-rule';
 import { cn } from '@/lib/utils';
 
 /** 사다리 단 수 — 계약상 `ap/aq/bp/bq` 는 길이 10 고정. */
@@ -224,6 +228,8 @@ export function CardBody({
   const basePrice = quote !== null && quote.base > 0 ? quote.base : (basePriceFallback ?? 0);
   const displayName = name === '' ? isin : name;
   const groups = cardGroupStatusOf(server, fired);
+  // D-15a — 종목 분류 → 호가 단위 잠금 강도. 조회 중(`undefined`)은 주식 잠금 그대로다.
+  const tickRule = useTickRule(isin);
 
   const options = (
     <LimitChaserForm
@@ -244,6 +250,7 @@ export function CardBody({
       unacked={unacked}
       // 20-03 시트 칩 「현재가」 원천 — 시세가 없거나 0 이면 0(칩 비활성).
       currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
+      tickRule={tickRule}
       onSent={handleSent}
       onServerEcho={handleServerEcho}
       tab={optionsTab}
@@ -267,6 +274,7 @@ export function CardBody({
       // isin/exchange 시세다(T-18-48) — 시세가 없거나 0 이면 0(칩 비활성 · 상한 검사 생략).
       currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
       upperLimit={upperLimit}
+      tickRule={tickRule}
       selectedUnfilled={selectedUnfilled}
       onClearSelection={onClearSelection}
     />

@@ -11,6 +11,7 @@ import {
   padIssue,
   padKey,
   padValue,
+  padWarning,
   priceIssueText,
   stepValue,
   type PadChip,
@@ -304,5 +305,52 @@ describe("CR-01 — 필드 범위(ctx.min/max)가 확인을 잠그고 범위 밖
     expect(padIssue(s("0"), "주", WON)).toBeNull();
     expect(padIssue(s("999999999"), "만원", WON)).toBeNull();
     expect(padIssue(s("98150"), "원", WON)).toBe("100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200");
+  });
+});
+
+/*
+  D-15a (20-REVIEW WR-05) — 호가 단위 잠금 강도는 종목 분류가 가른다. 주식이면 잠그고, ETP·분류 불명이면
+  경고만 한다. 상한가 초과는 분류와 무관하게 잠근다. 미지정 = 주식(조회 전 · 분류를 넘기지 않는 호출부).
+*/
+describe("D-15a — 호가 단위 잠금 강도(tickRule)", () => {
+  // ETF 25,005원 — ETF 는 5원 단위가 유효할 수 있지만 주식 표로는 50원 구간 위반이다.
+  const ETF_PRICE = "25005";
+  const SOFT = "주식 호가 단위(50원)와 달라요 · 가까운 값 25,000 / 25,050";
+  const LOCK = "50원 단위로 입력해 주세요 · 가까운 값 25,000 / 25,050";
+
+  it("stock(명시) · 미지정 → 잠금(D-15 그대로) · 경고 없음", () => {
+    for (const ctx of [{ ...WON, tickRule: "stock" as const }, WON]) {
+      expect(padIssue(s(ETF_PRICE), "원", ctx)).toBe(LOCK);
+      expect(canConfirmPad(s(ETF_PRICE), "원", ctx)).toBe(false);
+      expect(padWarning(s(ETF_PRICE), "원", ctx)).toBeNull();
+    }
+  });
+
+  it.each(["etp", "unknown"] as const)("%s → 잠그지 않고 경고만(확인 가능)", (tickRule) => {
+    const ctx: PadCtx = { ...WON, tickRule };
+    expect(padIssue(s(ETF_PRICE), "원", ctx)).toBeNull();
+    expect(canConfirmPad(s(ETF_PRICE), "원", ctx)).toBe(true);
+    expect(padWarning(s(ETF_PRICE), "원", ctx)).toBe(SOFT);
+  });
+
+  it.each(["stock", "etp", "unknown"] as const)("%s → 상한가 초과는 늘 잠근다 · 경고 줄 없음", (tickRule) => {
+    const ctx: PadCtx = { ...WON, tickRule };
+    expect(padIssue(s("127450"), "원", ctx)).toBe("상한가 127,400원을 넘을 수 없어요");
+    expect(canConfirmPad(s("127450"), "원", ctx)).toBe(false);
+    expect(padWarning(s("127450"), "원", ctx)).toBeNull();
+  });
+
+  it("원 단위가 아니면 경고가 없다 · 빈 값도 없다", () => {
+    const ctx: PadCtx = { ...WON, tickRule: "etp" };
+    expect(padWarning(s(ETF_PRICE), "주", ctx)).toBeNull();
+    expect(padWarning(s(""), "원", ctx)).toBeNull();
+  });
+
+  it("priceIssueText — 잠그지 않는 호가 단위 위반은 사실만 말한다(명령형 아님)", () => {
+    const off = { kind: "offTick", tick: 50, lower: 25_000, upper: 25_050 } as const;
+    expect(priceIssueText(off, "etp")).toBe(SOFT);
+    expect(priceIssueText(off, "unknown")).toBe(SOFT);
+    expect(priceIssueText(off, "stock")).toBe(LOCK);
+    expect(priceIssueText(off)).toBe(LOCK);
   });
 });

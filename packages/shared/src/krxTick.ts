@@ -18,7 +18,11 @@
  * webapp 키패드(±1호가 칩 · 가격 검증 · ↑↓ 스텝). 새 표를 만들지 말고 이 함수를 부른다.
  *
  * ★ 입력 보조일 뿐 서버 판정을 대체하지 않는다(D-15 · D-27) — 어긋나면 게이트웨이가 거부하고
- *   그 문구가 그대로 보인다. ETF/ETN 예외 단위는 다루지 않는다(20-RESEARCH A4 · deferred).
+ *   그 문구가 그대로 보인다.
+ * ★ 이 표는 **주식** 표다. ETF·ETN·ELW 는 단위가 다를 수 있어 이 표로 잠그면 유효한 가격을 막는다
+ *   (20-REVIEW WR-05). 그래서 잠금 강도는 종목 분류(`TickRule`)가 가른다 — 주식이 확실하면 호가 단위
+ *   위반도 잠그고, ETP·분류 불명이면 경고만 한다. 상한가 초과는 분류와 무관하게 잠근다(D-15a ·
+ *   `priceIssueLocks` 한 곳). ETP 전용 단위 표는 만들지 않는다 — 판정은 게이트웨이 몫이다.
  */
 
 /** 가격 입력 검증 결과 — 이유와 가까운 값만 담는다. 보정 값을 만들지 않는다(D-15). */
@@ -63,4 +67,36 @@ export function priceInputIssue(v: number, upperLimit: number): PriceIssue | nul
     return { kind: "offTick", tick, lower, upper: lower + tick };
   }
   return null;
+}
+
+/**
+ * 호가 단위 잠금 강도 (D-15a · 20-REVIEW WR-05).
+ *   - `stock`   — 주식 표가 맞는 종목. 호가 단위 위반을 **잠근다**(D-15).
+ *   - `etp`     — ETF·ETN·ELW. 단위가 주식 표와 다를 수 있어 **경고만** 한다.
+ *   - `unknown` — 분류를 확인하지 못했다(마스터에 없음 · 미확인 sentinel · 조회 실패). **경고만** 한다.
+ */
+export type TickRule = "stock" | "etp" | "unknown";
+
+/**
+ * 종목 마스터 `stocks.security_group` 의 ETP 값 — server `/api/stocks/search` 와 SQL 선례 4곳
+ * (comovement_tables · cosurge_pair_score_v2 · cosurge_recent_pairs · surge_upper_cap)이 쓰는
+ * **같은 블랙리스트**다(quick-260908-oh6). 새 판별자를 만들지 않는다.
+ */
+export const ETP_SECURITY_GROUPS: readonly string[] = ["ETF", "ETN", "ELW"];
+
+/** intraday-sync 가 신원을 못 채운 종목에 넣는 sentinel(`UNCLASSIFIED_SECURITY_GROUP`). */
+const UNCLASSIFIED_SECURITY_GROUP = "미확인";
+
+/** `stocks.security_group` → 잠금 강도. 빈 값 · 미확인 → `unknown`, ETP 3종 → `etp`, 그 밖 → `stock`. */
+export function tickRuleOfSecurityGroup(group: string | null | undefined): TickRule {
+  if (group == null || group === "" || group === UNCLASSIFIED_SECURITY_GROUP) return "unknown";
+  return ETP_SECURITY_GROUPS.includes(group) ? "etp" : "stock";
+}
+
+/**
+ * 이 위반이 확인을 잠그는가 — **잠금 규칙의 유일 지점**(D-15 · D-15a).
+ * 상한가 초과는 늘 잠근다. 호가 단위 불일치는 주식 표가 확실한 종목(`stock`)만 잠근다.
+ */
+export function priceIssueLocks(issue: PriceIssue, rule: TickRule): boolean {
+  return issue.kind === "overUpper" || rule === "stock";
 }
