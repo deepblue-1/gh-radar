@@ -34,7 +34,7 @@ vi.mock('@/lib/relay-provider', async (importOriginal) => {
 });
 
 import { CardBody } from '../../card/card-body';
-import { StrategyCard } from '../../card/strategy-card';
+import { ACK_TIMEOUT_MS, StrategyCard } from '../../card/strategy-card';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -376,5 +376,25 @@ describe('트레이서 — 「호가변경」 한 행 (20-01 · D-04 · D-14 · 
     const cfg = lcSets()[0]!.cfg!;
     expect(cfg.sweepMinTickCount).toBe(8);
     expect(cfg.buyWatchQty).toBe(9_000);
+  });
+  it('⑩ 카드 3초 무응답(`unacked`)이 CardBody → 폼 → 훅까지 내려와 타임아웃 실패가 된다 · 재전송 0 (20-01 Task 2 · UI-SPEC A10)', () => {
+    setRelay({ limitChasers: [echo()] });
+    render(<Card />);
+
+    typeAndEnter(openEditor(), '5');
+    expect(lcSets()).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+
+    // 카드 상태줄의 「미반영」과 폼의 실패가 **같은 신호**를 읽는다.
+    expect(document.querySelector('[data-slot="card-unacked"]')).not.toBeNull();
+    expect(screen.getByText(INLINE_FAILED)).not.toBeNull();
+    expect(editor()!.value).toBe('5');
+    expect(editor()!.readOnly).toBe(false);
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(lcSets()).toHaveLength(1);
   });
 });
