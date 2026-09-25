@@ -17,7 +17,16 @@
  * ★ 실패 표시는 행 **아래 흐름 밖**(Popover)이다 — 문구가 행 사이에 끼면 아래 행이 밀린다.
  */
 
-import { useEffect, useRef, type ReactNode, type Ref, type RefObject } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+  type Ref,
+  type RefObject,
+} from 'react';
 import { Check } from 'lucide-react';
 import { Switch as SwitchPrimitive } from 'radix-ui';
 
@@ -81,6 +90,16 @@ function useRefocusAfterEdit(editing: boolean, target: RefObject<HTMLElement | n
   }, [editing, target]);
 }
 
+/**
+ * 제목 있는 그룹의 제목 요소 id — 값 버튼의 `aria-describedby` 가 된다(20-07 a11y).
+ *
+ * ★ ≥700 두 열에서는 매수·매도 쪽 값 버튼이 **같은 이름**을 가질 수 있다(「비교가격 127,400원」 ·
+ *   「체결 30,000주」). 이름은 UI-SPEC 계약 「{라벨} {값}{단위}」 그대로 두고 **설명**으로 그룹 제목을
+ *   붙여 가른다 — 스크린리더가 「비교가격 127,400원, 매수주문」으로 읽는다. 보이는 변화는 없다.
+ *   제목 없는 가격 섹션(행 라벨이 이미 매수가격/매도가격으로 다르다)과 그룹 밖 렌더는 `undefined` 다.
+ */
+const GroupTitleIdContext = createContext<string | undefined>(undefined);
+
 /** 값 슬롯 + 쉐브런 — 값 행과 체크 값 행의 값 버튼이 같은 모양을 쓴다. */
 function ValueWithChevron({ text, flash, busy }: { text: string; flash: boolean; busy: boolean }) {
   return (
@@ -139,6 +158,7 @@ export function SettingRow({
 }: SettingRowProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   useRefocusAfterEdit(editing, buttonRef);
+  const groupTitleId = useContext(GroupTitleIdContext);
 
   const text = formatSettingValue(value, unit);
 
@@ -163,6 +183,7 @@ export function SettingRow({
       type="button"
       data-lc-field={id}
       aria-label={`${label} ${text}`}
+      aria-describedby={groupTitleId}
       aria-busy={busy ? 'true' : undefined}
       aria-haspopup={hasPopup ? 'dialog' : undefined}
       disabled={disabled}
@@ -246,6 +267,7 @@ export interface SettingGroupProps {
  */
 export function SettingGroup({ spec, statusText, on, switchNode, children }: SettingGroupProps) {
   const dim = spec.dimWhenOff && on === false;
+  const titleId = useId();
   return (
     <section
       data-slot={`lc-group-${spec.slot}`}
@@ -256,7 +278,9 @@ export function SettingGroup({ spec, statusText, on, switchNode, children }: Set
       {spec.title ? (
         <div data-slot="lc-group-header" className="flex min-h-6 min-w-0 items-center gap-2 px-0.5 pb-0.5">
           <span className="min-w-0 flex-1 leading-normal">
-            <span className="mr-1 text-[15px] font-semibold text-[var(--fg)]">{spec.title}</span>
+            <span id={titleId} className="mr-1 text-[15px] font-semibold text-[var(--fg)]">
+              {spec.title}
+            </span>
             {statusText ? (
               <>
                 {' '}
@@ -276,7 +300,7 @@ export function SettingGroup({ spec, statusText, on, switchNode, children }: Set
         </div>
       ) : null}
       <div data-slot="lc-group-rows" className={cn('min-w-0', dim && 'opacity-45')}>
-        {children}
+        <GroupTitleIdContext.Provider value={spec.title ? titleId : undefined}>{children}</GroupTitleIdContext.Provider>
       </div>
     </section>
   );
@@ -401,6 +425,7 @@ export function CheckValueRow({
 }: CheckValueRowProps) {
   const valueRef = useRef<HTMLButtonElement>(null);
   useRefocusAfterEdit(editing, valueRef);
+  const groupTitleId = useContext(GroupTitleIdContext);
   const hasValue = value !== undefined;
   const text = hasValue ? formatSettingValue(value, unit) : '';
 
@@ -448,6 +473,7 @@ export function CheckValueRow({
           type="button"
           data-lc-field={valueId}
           aria-label={`${label} ${text}`}
+          aria-describedby={groupTitleId}
           aria-busy={busy ? 'true' : undefined}
           aria-haspopup={hasPopup ? 'dialog' : undefined}
           disabled={disabled}

@@ -525,3 +525,72 @@ describe('⑦ 공통 규율 — 44px · 컨테이너 쿼리만 · 말줄임 0', 
     expect(src).not.toMatch(/from '@\/components\/ui\/switch'/);
   });
 });
+
+/*
+  ⑧ 20-07 a11y — ≥700 두 열에서 매수·매도 쪽 값 버튼이 같은 이름을 가질 수 있다(「비교가격 127,400원」 ·
+  「체결 30,000주」). 이름은 UI-SPEC 계약 「{라벨} {값}{단위}」 그대로 두고, **설명**으로 그룹 제목을 붙여
+  스크린리더가 「비교가격 127,400원, 매수주문」처럼 가르게 한다(보이는 변화 0).
+*/
+describe('⑧ 값 버튼의 그룹 설명 — 이름은 「{라벨} {값}{단위}」 그대로 · 설명 = 그룹 제목 (20-07 a11y)', () => {
+  function renderTwoColumns() {
+    return render(
+      <div>
+        <SettingGroup spec={groupOf('buy')} statusText="감시 중" on>
+          <SettingRow id="lc-buy-watch-price" label="비교가격" unit="원" value={127_400} editing={false} onActivate={() => {}} />
+          <CheckValueRow
+            checkId="lc-buy-trade"
+            groupTitle="매수주문"
+            label="체결"
+            checked
+            onToggle={() => {}}
+            value={30_000}
+            unit="주"
+            valueId="lc-buy-min-trade-qty"
+            onActivateValue={() => {}}
+          />
+        </SettingGroup>
+        <SettingGroup spec={groupOf('sell')} statusText="감시 중" on>
+          <SettingRow id="lc-sell-watch-price" label="비교가격" unit="원" value={127_400} editing={false} onActivate={() => {}} />
+          <CheckValueRow
+            checkId="lc-sell-trade"
+            groupTitle="매도주문"
+            label="체결"
+            checked
+            onToggle={() => {}}
+            value={30_000}
+            unit="주"
+            valueId="lc-sell-min-trade-qty"
+            onActivateValue={() => {}}
+          />
+        </SettingGroup>
+        <SettingGroup spec={groupOf('buy-price')}>
+          <SettingRow id="lc-buy-order-price" label="매수가격" unit="원" value={127_400} editing={false} onActivate={() => {}} />
+        </SettingGroup>
+      </div>,
+    );
+  }
+
+  it('같은 이름의 두 값 버튼은 설명(그룹 제목)으로 갈린다 — 이름은 바뀌지 않는다', () => {
+    renderTwoColumns();
+    const cmp = screen.getAllByRole('button', { name: '비교가격 127,400원' });
+    expect(cmp).toHaveLength(2);
+    expect(cmp[0]).toHaveAccessibleDescription('매수주문');
+    expect(cmp[1]).toHaveAccessibleDescription('매도주문');
+    const trade = screen.getAllByRole('button', { name: '체결 30,000주' });
+    expect(trade).toHaveLength(2);
+    expect(trade[0]).toHaveAccessibleDescription('매수주문');
+    expect(trade[1]).toHaveAccessibleDescription('매도주문');
+  });
+
+  it('체크 버튼(이름에 그룹이 이미 있다) · 제목 없는 가격 섹션 행은 설명을 달지 않는다', () => {
+    renderTwoColumns();
+    expect(screen.getByRole('checkbox', { name: '매수주문 체결' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.getByRole('button', { name: '매수가격 127,400원' })).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('설명은 제목만이다 — 옆의 상태 문구(「감시 중」)는 섞이지 않는다', () => {
+    renderTwoColumns();
+    const [buy] = screen.getAllByRole('button', { name: '비교가격 127,400원' });
+    expect(buy).not.toHaveAccessibleDescription(/감시 중/);
+  });
+});
