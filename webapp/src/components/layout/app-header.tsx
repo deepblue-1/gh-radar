@@ -23,7 +23,8 @@ export interface AppHeaderProps {
 
 /**
  * AppHeader — UI-SPEC §4.1 / §4.2 공통 헤더.
- * - 56px sticky top-0, `bg-[--bg]/80 backdrop-blur-md` · 아래 테두리는 색만 투명(B `--hdr-bd: 0`, 1px 기하 유지)
+ * - 56px sticky top-0, `bg-[--bg]/80 backdrop-blur-md` · 아래 테두리 없음(B `--hdr-bd: 0` — 옛 투명 1px 테두리는
+ *   Phase 21 D-25 의 `box-content` 전환 때 걷었다: content-box 에서 1px 이 높이 57 을 만든다)
  * - 좌측: 로고(`gh-radar`, `/` 로 이동) + 햄버거 버튼(<lg 만 표시, 44×44)
  * - 중앙: `nav` slot — Phase 6 이후 AppShell 이 `<GlobalSearch />` 를 주입.
  *   ★ 정렬이 폭에 따라 다르다 — `<lg` 는 **우측 정렬**(검색 아이콘 버튼이 탑바 오른쪽 끝),
@@ -43,9 +44,15 @@ export function AppHeader({ nav, onMenuClick, themeToggle = false }: AppHeaderPr
           불변식 케이스가 계산된 스타일로 잰다.
         ★ 세로·높이(`h-14`)는 이번 변경 대상이 아니다.
         ★ Phase 21 D-25 — `box-content pt-[var(--app-safe-top)]`: 풀블리드에서 헤더 블러가 상태바 뒤까지
-          이어지고 콘텐츠 56 은 그 아래에 선다(전체 높이 = 56 + 상단 안전영역). 크롬·데스크톱은 0 이라 종전 그대로.
+          이어지고 콘텐츠 56 은 그 아래에 선다(전체 높이 = 56 + 상단 안전영역). 크롬·데스크톱은 0 이라 종전 56.
+          ★ 아래 테두리(옛 `border-b border-transparent` — 색은 투명, 1px 기하만)를 두지 않는다 — content-box
+            에서는 그 1px 이 높이에 더해져 57 이 되고 aside `top`·카드 `scroll-mt` 식(56 기준)이 1px 어긋난다.
+        ★ `z-30` — 스크롤돼 지나가는 본문의 위치 지정 요소(종목상세 탭 바 `sticky z-20` · 카드 더티 자리 `z-10`)가
+          헤더 위에 칠해지지 않게 한다. `main` 이 `overflow-auto` 라 그 탭 바의 sticky 는 붙지 않고 흐름대로
+          올라와 옛 `z-10` 헤더를 덮었다(21-06 실측 — 앱 본문 108 여백으로 짧은 화면에서도 드러났다).
+          하단 고정층(공용 패널 z-20 · CTA z-30 · FAB/더티 바 z-40)과는 겹치지 않고, 시트·토스트(z-50)는 여전히 위다.
       */
-      className="sticky top-0 z-10 box-content flex h-14 items-center pt-[var(--app-safe-top)] gap-3 border-b border-transparent bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
+      className="sticky top-0 z-30 box-content flex h-14 items-center pt-[var(--app-safe-top)] gap-3 bg-[color-mix(in_oklch,var(--bg)_88%,transparent)] px-2 backdrop-blur-md md:px-4 lg:px-6"
     >
       <div className="flex items-center gap-2">
         {onMenuClick && (
