@@ -32,7 +32,7 @@ tech-stack:
   patterns:
     - "편집 방식 분기는 상자 값 자리 하나만 바꾼다 — inline = <input>(라벨 연결), sheet = 상자 전체를 덮는 <button>(after:absolute inset-0 · aria-label 「{라벨} {값}{단위}」)"
     - "시트는 폼에 하나만 두고 {field, open} 상태로 제목·단위·칩을 고른다 — 닫히는 동안에도 field 를 남겨 제목이 바뀌지 않게 한다"
-    - "D-14c 전체 선택은 이번 누름으로 들어올 때만 — pointerdown 에서 이전 포커스를 기록하고 click 에서 판정(이미 편집 중이면 캐럭 이동 허용)"
+    - "D-14c 전체 선택은 이번 누름으로 들어올 때만 — pointerdown 에서 이전 포커스를 기록하고 click 에서 판정(이미 편집 중이면 캐럿 이동 허용)"
     - "vitest tap-flat 출력에 # tests/# pass/# fail 요약을 덧붙여 gsd-tools check tdd-red-evidence 에 넘긴다"
 
 key-files:

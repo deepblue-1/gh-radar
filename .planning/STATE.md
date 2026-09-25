@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 20
 current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
 status: executing
-stopped_at: Completed 20-05-PLAN.md
-last_updated: "2026-09-25T05:17:45.616Z"
+stopped_at: Completed 20-06-PLAN.md
+last_updated: "2026-09-25T05:35:09.781Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 execution started
-state_head: fc12ed1fa74fbdf7fae9d20a95dc7c5443b76595
+state_head: a135f45cab53a22448fdadd06b64f4a2148b7db4
 progress:
   total_phases: 29
   completed_phases: 4
   total_plans: 240
-  completed_plans: 223
+  completed_plans: 224
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Plans completed: 218 / 233
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -77,6 +77,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 20 P03 | 13min | 3 tasks | 10 files |
 | Phase 20 P04 | 25min | 3 tasks | 9 files |
 | Phase 20 P05 | 7min | 2 tasks | 4 files |
+| Phase 20 P06 | 14min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 20]: 20-05: 이미 저장한 버퍼(반영 중·저장 뒤 미수정)에서 Tab 은 재전송 없이 이동만 — 재시도는 Enter 뿐(T-16-10)
 - [Phase 20]: 20-05: 위반 값 blur = 취소(A6)는 무장 불가 값에도 적용 · 편집 끝난 값 행 실패 말풍선은 인라인 문구로 통일(옛 rowFailureTextOf 제거)
 - [Phase 20]: 20-05: D-14b 한 번 클릭 = onPointerDownCapture 로 nextEditRef 기록 → endEdit 이어받기 · 반영 중/비활성 행은 기록하지 않음 · Tab 이동은 대상이 반영 중이어도 연다
+- [Phase 20]: 20-06: 수동주문 D-14c 클릭 전체 선택은 이번 누름으로 들어온 경우에만 — 이미 편집 중인 칸은 캐럿 이동 허용(중간 수정 가능)
+- [Phase 20]: 20-06: 종목(isin) 전환 시 열린 수동주문 시트를 닫는다 — 기존 종목 전환 리셋 이펙트는 무변경, 별도 이펙트(T-20-05)
+- [Phase 20]: 20-06: ≥700 매수/매도 17px 적용(20-02 스파이크 206px 버튼에 예약매수 한 줄) · <700 은 13px 줄바꿈 유지 · 결과 배너는 거부만 --destructive
 
 ### Pending Todos
 
@@ -180,8 +184,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-25T05:17:44.985Z
-Stopped at: Completed 20-05-PLAN.md
+Last session: 2026-09-25T05:35:09.109Z
+Stopped at: Completed 20-06-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
