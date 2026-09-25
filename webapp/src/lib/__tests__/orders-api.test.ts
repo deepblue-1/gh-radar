@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import type { DmaOrderRow, RelayOrderMsg } from '@gh-radar/shared';
+import type { JournalOrderRow } from '@gh-radar/shared';
 
 /**
- * quick-260910-jce Task 1 — orders-api 단위 테스트 (RELAY-02 / D-24).
+ * orders-api 단위 테스트 (RELAY-02 / D-24 → Phase 19 D-03).
  *
  * 세 계층을 잠근다:
  * 1. `fetchTodayOrders` — Bearer 부착 + **쿼리 문자열 없는** `/api/orders` + bare array 반환.
  *    `date` 를 브라우저가 조립하면 KST 계산이 두 벌이 되고 한쪽만 고쳐진다(서버가 정본).
- * 2. `mergeTodayOrders` — 복원 스냅샷 × 라이브 프레임 병합. **행을 만들지 않고 덮어쓰기만** 한다.
- * 3. `orderDisplayStatus` — 라이브 통보가 이기되 **체결수량을 지어내지 않는다**.
+ * 2. `mergeJournalRows` — REST 복원 × `journal.rows` 푸시 병합. 같은 `id` 는 `lastSeq` 가 큰
+ *    쪽이 이기고(T-19-27), 오늘이 아닌 푸시 행은 받지 않으며, 푸시 행은 행을 **만든다**.
+ * 3. `orderDisplayStatus` — DB 투영의 `status` 하나가 표시를 정한다(6종 라벨·톤 표).
  *
  * mock 하네스는 `chat-sse.test.ts`(supabase getSession) + `theme-api.test.ts`(vi.mock('../api'))
  * 를 그대로 따른다 — 새 하네스를 발명하지 않는다.
@@ -32,10 +33,10 @@ vi.mock('../api', async () => {
 
 import { ApiClientError } from '../api';
 import {
+  compareJournalNewestFirst,
   fetchTodayOrders,
-  mergeTodayOrders,
+  mergeJournalRows,
   orderDisplayStatus,
-  type TodayOrderRow,
 } from '../orders-api';
 
 beforeEach(() => {
@@ -48,43 +49,35 @@ beforeEach(() => {
 // 픽스처
 // ---------------------------------------------------------------------------
 
-function row(over: Partial<DmaOrderRow> = {}): DmaOrderRow {
+const TODAY = '2026-09-25';
+
+function row(over: Partial<JournalOrderRow> = {}): JournalOrderRow {
   return {
     id: 'id-1',
+    tradeDate: TODAY,
     accountNo: '1234567801',
     isin: 'KR7005930003',
     stockCode: '005930',
     exchange: 'KRX',
-    market: 'K',
+    board: null,
     side: 'B',
     orderType: 'N',
     orgOrderNo: null,
     qty: 10,
     price: 70_000,
     orderNo: '0000135742',
+    filledQty: 0,
+    modifiedQty: 0,
     status: 'accepted',
     resultCode: 0,
     noticeType: 'A',
     message: null,
-    filledQty: 0,
     origin: 'manual',
-    createdAt: '2026-09-10T00:10:00.000Z',
-    updatedAt: '2026-09-10T00:10:00.000Z',
-    ...over,
-  };
-}
-
-function frame(over: Partial<RelayOrderMsg> = {}): RelayOrderMsg {
-  return {
-    t: 'order',
-    no: '0000135742',
-    nt: 'A',
-    rc: 0,
-    msg: '',
-    org: '',
-    p: 70_000,
-    q: 10,
-    x: 'KRX',
+    requester: null,
+    requestKind: null,
+    lastSeq: 1,
+    createdAt: '2026-09-25T00:10:00.000Z',
+    updatedAt: '2026-09-25T00:10:00.000Z',
     ...over,
   };
 }
@@ -123,140 +116,115 @@ describe('fetchTodayOrders', () => {
 });
 
 // ===========================================================================
-// mergeTodayOrders
+// mergeJournalRows (Phase 19 D-03)
 // ===========================================================================
 
-describe('mergeTodayOrders', () => {
-  it('같은 orderNo 의 복원 행과 라이브 프레임은 결과 행 1개로 접힌다', () => {
-    const { rows, unmatchedOrderNos } = mergeTodayOrders([row()], [frame({ nt: 'E' })]);
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0].live?.nt).toBe('E');
-    expect(unmatchedOrderNos).toEqual([]);
-  });
-
-  it('같은 no 가 라이브에 여러 번 있으면 index 0(가장 최신) 프레임이 붙는다', () => {
-    // use-relay-socket 은 `[frame, ...state.orders]` 로 **앞에 붙인다** — 앞이 최신이다.
-    const live = [frame({ nt: 'C' }), frame({ nt: 'E' }), frame({ nt: 'A' })];
-
-    const { rows } = mergeTodayOrders([row()], live);
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0].live?.nt).toBe('C');
-  });
-
-  it('orderNo 가 null 인 복원 행은 어떤 프레임과도 합쳐지지 않는다', () => {
-    const rejected = row({ id: 'id-x', orderNo: null, status: 'rejected' });
-
-    const { rows } = mergeTodayOrders([rejected], [frame()]);
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0].id).toBe('id-x');
-    expect(rows[0].live).toBeNull();
-  });
-
-  it('복원 목록에 없는 라이브 no 는 행을 만들지 않고 unmatched 로 보고된다', () => {
-    const { rows, unmatchedOrderNos } = mergeTodayOrders(
-      [row()],
-      [frame({ no: '0000199999' }), frame()],
+describe('mergeJournalRows', () => {
+  it('같은 id 는 lastSeq 가 큰 쪽이 이긴다 — 복원 3 · 푸시 5 → 푸시', () => {
+    const merged = mergeJournalRows(
+      [row({ id: 'x', lastSeq: 3, status: 'accepted' })],
+      [row({ id: 'x', lastSeq: 5, status: 'filled' })],
+      TODAY,
     );
 
-    // 라이브 프레임에는 side·isin·accountNo 가 없다 — 행을 합성하면 매매구분 칸이 빈다.
-    expect(rows).toHaveLength(1);
-    expect(unmatchedOrderNos).toEqual(['0000199999']);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.lastSeq).toBe(5);
+    expect(merged[0]?.status).toBe('filled');
   });
 
-  it('같은 unmatched no 가 여러 프레임에 있어도 한 번만 보고된다', () => {
-    const { unmatchedOrderNos } = mergeTodayOrders(
-      [],
-      [frame({ no: '0000199999', nt: 'E' }), frame({ no: '0000199999', nt: 'A' })],
+  it('푸시가 더 옛것이면(복원 5 · 푸시 3) 복원이 남는다 — 표시 역전 금지 (T-19-27)', () => {
+    const merged = mergeJournalRows(
+      [row({ id: 'x', lastSeq: 5, status: 'filled' })],
+      [row({ id: 'x', lastSeq: 3, status: 'accepted' })],
+      TODAY,
     );
 
-    expect(unmatchedOrderNos).toEqual(['0000199999']);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.status).toBe('filled');
   });
 
-  it('정렬은 복원 순서(created_at DESC)를 그대로 보존한다', () => {
-    const restored = [
-      row({ id: 'a', orderNo: '0000000003' }),
-      row({ id: 'b', orderNo: '0000000002' }),
-      row({ id: 'c', orderNo: '0000000001' }),
-    ];
+  it('lastSeq 가 같으면 복원을 유지한다(같은 사실 — 교체할 이유가 없다)', () => {
+    const restored = row({ id: 'x', lastSeq: 4 });
+    const merged = mergeJournalRows([restored], [row({ id: 'x', lastSeq: 4 })], TODAY);
+    expect(merged[0]).toBe(restored);
+  });
 
-    const { rows } = mergeTodayOrders(restored, [frame({ no: '0000000001' })]);
+  it('복원에 없는 오늘 푸시 행은 행을 **만든다** — 푸시 행은 완전한 행이다', () => {
+    const merged = mergeJournalRows([], [row({ id: 'y', side: 'S' })], TODAY);
 
-    expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe('y');
+    expect(merged[0]?.side).toBe('S');
+  });
+
+  it('오늘이 아닌 푸시 행은 받지 않는다 — 자정을 넘긴 탭이 어제 행을 섞지 않게', () => {
+    const merged = mergeJournalRows(
+      [row({ id: 'a' })],
+      [row({ id: 'old', tradeDate: '2026-09-24' }), row({ id: 'a', lastSeq: 9, tradeDate: '2026-09-24' })],
+      TODAY,
+    );
+
+    expect(merged.map((r) => r.id)).toEqual(['a']);
+    // 어제 날짜로 온 같은 id 도 오늘 행을 덮지 않는다.
+    expect(merged[0]?.lastSeq).toBe(1);
+  });
+
+  it('정렬은 createdAt 내림차순 — 동률은 lastSeq 내림차순', () => {
+    const merged = mergeJournalRows(
+      [
+        row({ id: 'old', createdAt: '2026-09-25T00:00:00.000Z' }),
+        row({ id: 'tieLow', createdAt: '2026-09-25T00:05:00.000Z', lastSeq: 2 }),
+      ],
+      [
+        row({ id: 'new', createdAt: '2026-09-25T00:09:00.000Z' }),
+        row({ id: 'tieHigh', createdAt: '2026-09-25T00:05:00.000Z', lastSeq: 7 }),
+      ],
+      TODAY,
+    );
+
+    expect(merged.map((r) => r.id)).toEqual(['new', 'tieHigh', 'tieLow', 'old']);
+  });
+
+  it('정렬은 시각 **값**으로 한다 — `Z` 와 `+00:00` 표기가 섞여도 순서가 갈리지 않는다', () => {
+    const a = row({ id: 'a', createdAt: '2026-09-25T00:10:00.000+00:00' });
+    const b = row({ id: 'b', createdAt: '2026-09-25T00:09:59.000Z' });
+    expect([b, a].sort(compareJournalNewestFirst).map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('입력 배열을 바꾸지 않는다(순수 함수)', () => {
+    const restored = [row({ id: 'a' })];
+    const pushed = [row({ id: 'a', lastSeq: 2 })];
+    mergeJournalRows(restored, pushed, TODAY);
+    expect(restored[0]?.lastSeq).toBe(1);
+    expect(pushed).toHaveLength(1);
   });
 });
 
 // ===========================================================================
-// orderDisplayStatus
+// orderDisplayStatus — DB 투영 status 하나 (Phase 19 D-03)
 // ===========================================================================
 
-/** merge 를 거치지 않고 직접 조립한 표시 입력. */
-function view(base: Partial<DmaOrderRow>, live: RelayOrderMsg | null): TodayOrderRow {
-  return { ...row(base), live };
-}
-
 describe('orderDisplayStatus', () => {
-  it('라이브 nt A/C/R 은 복원 status 를 이긴다', () => {
-    expect(orderDisplayStatus(view({ status: 'requested' }, frame({ nt: 'A' }))).label).toBe('접수');
-    expect(orderDisplayStatus(view({ status: 'accepted' }, frame({ nt: 'C' }))).label).toBe('취소');
-    expect(orderDisplayStatus(view({ status: 'accepted' }, frame({ nt: 'R' }))).label).toBe('거부');
-  });
-
-  it('라이브 nt E 는 체결로 표시하되 전량/부분을 주장하지 않는다', () => {
-    const shown = orderDisplayStatus(view({ status: 'accepted' }, frame({ nt: 'E' })));
-
-    expect(shown.label).toBe('체결');
-    // 프레임에 체결수량이 없다 — "전량"·"부분" 어느 쪽도 지어내지 않는다.
-    expect(shown.label).not.toContain('전량');
-    expect(shown.label).not.toContain('부분');
-  });
-
-  it('라이브가 없으면 복원 행의 status 를 그대로 쓴다', () => {
-    expect(orderDisplayStatus(view({ status: 'partially_filled' }, null)).label).toBe('부분체결');
-    expect(orderDisplayStatus(view({ status: 'cancelled' }, null)).label).toBe('취소');
-    // timeout 은 "실패"가 아니라 "결과를 모름"이다 (Pitfall 9).
-    expect(orderDisplayStatus(view({ status: 'timeout' }, null)).label).not.toContain('실패');
-  });
-
-  it('모르는 nt 는 라이브가 없는 것과 같게 다뤄 복원 status 로 수렴한다', () => {
-    expect(orderDisplayStatus(view({ status: 'accepted' }, frame({ nt: 'Z' }))).label).toBe('접수');
-  });
-
-  // quick-260923-m23 — 정정으로 닫힌 원주문 행은 정정 전 라이브(A/E)보다 「정정」이 먼저다.
-  it("status 'modified' 는 라이브 A 보다 우선해 「정정」(muted) 이다", () => {
-    expect(orderDisplayStatus(view({ status: 'modified' }, frame({ nt: 'A' })))).toEqual({
-      label: '정정',
-      tone: 'muted',
+  it('status 6종을 라벨·톤 표 그대로 옮긴다', () => {
+    expect(orderDisplayStatus(row({ status: 'accepted' }))).toEqual({ label: '접수', tone: 'normal' });
+    expect(orderDisplayStatus(row({ status: 'partially_filled' }))).toEqual({
+      label: '부분체결',
+      tone: 'normal',
     });
+    expect(orderDisplayStatus(row({ status: 'filled' }))).toEqual({ label: '체결', tone: 'normal' });
+    expect(orderDisplayStatus(row({ status: 'cancelled' }))).toEqual({ label: '취소', tone: 'muted' });
+    expect(orderDisplayStatus(row({ status: 'rejected' }))).toEqual({ label: '거부', tone: 'danger' });
+    expect(orderDisplayStatus(row({ status: 'modified' }))).toEqual({ label: '정정', tone: 'muted' });
   });
 
-  it("status 'modified' 는 라이브 E 가 있어도 「정정」 이다", () => {
-    expect(orderDisplayStatus(view({ status: 'modified' }, frame({ nt: 'E' }))).label).toBe('정정');
+  it('모르는 status 는 지어내지 않고 원문을 muted 로 보인다', () => {
+    const unknown = row({ status: 'mystery' as unknown as JournalOrderRow['status'] });
+    expect(orderDisplayStatus(unknown)).toEqual({ label: 'mystery', tone: 'muted' });
   });
 
-  it("status 'modified' 는 라이브가 없어도 「정정」 이다", () => {
-    expect(orderDisplayStatus(view({ status: 'modified' }, null)).label).toBe('정정');
-  });
-
-  // debug mobile-bg-resume-gaps 4 — 소켓이 끊긴 사이 relay 가 기록한 진행을 재조회로 받았는데,
-  // 끊기기 **전의** 라이브 프레임이 그것을 덮으면 체결된 주문이 「접수」로 남는다.
-  it('복원 status 가 라이브 통보보다 더 진행됐으면 복원이 이긴다 (재접속 공백 뒤 재조회)', () => {
-    expect(orderDisplayStatus(view({ status: 'filled' }, frame({ nt: 'A' }))).label).toBe('체결');
-    expect(orderDisplayStatus(view({ status: 'partially_filled' }, frame({ nt: 'A' }))).label).toBe(
-      '부분체결',
-    );
-    expect(orderDisplayStatus(view({ status: 'cancelled' }, frame({ nt: 'A' }))).label).toBe('취소');
-    expect(orderDisplayStatus(view({ status: 'cancelled' }, frame({ nt: 'E' }))).label).toBe('취소');
-  });
-
-  it('같은 단계면 라이브가 이긴다 — 복원 스냅샷이 라이브보다 늦을 수 없는 평상시 규칙 유지', () => {
-    // partially_filled(2) ↔ E(2): 라이브 「체결」 — 전량/부분을 지어내지 않는 기존 표시.
-    expect(orderDisplayStatus(view({ status: 'partially_filled' }, frame({ nt: 'E' }))).label).toBe(
-      '체결',
-    );
-    // 종결 ↔ 종결: 라이브.
-    expect(orderDisplayStatus(view({ status: 'filled' }, frame({ nt: 'C' }))).label).toBe('취소');
+  it('통보 원문(noticeType)은 표시 상태를 바꾸지 않는다 — status 하나가 정본', () => {
+    // 옛 라이브 join 은 통보 1자로 상태를 덮었다. 이제 진행 단계는 DB 투영이 이미 단조다.
+    expect(orderDisplayStatus(row({ status: 'filled', noticeType: 'A' })).label).toBe('체결');
+    expect(orderDisplayStatus(row({ status: 'accepted', noticeType: 'C' })).label).toBe('접수');
   });
 });

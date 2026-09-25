@@ -7,13 +7,13 @@ status: verifying
 stopped_at: Completed 20-08-PLAN.md
 last_updated: "2026-09-25T08:43:06.071Z"
 last_activity: 2026-09-25
-last_activity_desc: Phase 20 execution started
+last_activity_desc: "Phase 20 master 병합(theme/toss-b · 8/8 · 재검증 R2 13/13 · UAT 6건 대기) — Phase 19 는 19-13 첫 거래일 대조 대기"
 state_head: 83aa859e2465c3d5655e38ed4ed477d3ff467837
 progress:
   total_phases: 29
   completed_phases: 4
-  total_plans: 241
-  completed_plans: 226
+  total_plans: 254
+  completed_plans: 238
 milestone_name: milestone
 ---
 
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
 Plan: 8 of 8 (20-08 갭 클로징 — D-24 상단 상태줄 안 C 완료)
 Plans completed: 219 / 234
-Status: Phase complete — ready for verification (재검증: truth 13 「상단 상태줄 1줄 압축」)
+Status: 검증 R2 통과(13/13) — 사용자 UAT 대기(20-UAT.md)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 — Phase 20 execution started
+Last activity: 2026-09-25 — Phase 20 master 병합 · 재검증 R2 13/13(human_needed) · UAT 6건 대기 · 병행: Phase 19 19-13 첫 거래일 대조 대기(relay 43d4d0c · server 00051-8gr 배포 완료)
 
 Progress: [█████████░] 93%
 
@@ -72,6 +72,18 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
+| Phase 19 P01 | 10min | 3 tasks | 5 files |
+| Phase 19 P02 | 12min | 3 tasks | 11 files |
+| Phase 19 P03 | 10min | 3 tasks | 4 files |
+| Phase 19 P04 | 4min | 2 tasks | 7 files |
+| Phase 19 P05 | 8min | 2 tasks | 6 files |
+| Phase 19 P06 | 10min | 3 tasks | 13 files |
+| Phase 19 P07 | 13min | 3 tasks | 12 files |
+| Phase 19 P08 | 10min | 3 tasks | 6 files |
+| Phase 19 P09 | 16min | 3 tasks | 21 files |
+| Phase 19 P10 | 12min | 3 tasks | 17 files |
+| Phase 19 P11 | 30min | 3 tasks | 0 files |
+| Phase 19 P12 | 35min | 3 tasks | 0 files |
 | Phase 20 P01 | 18 min | 2 tasks | 8 files |
 | Phase 20 P02 | 11min | 3 tasks | 8 files |
 | Phase 20 P03 | 13min | 3 tasks | 10 files |
@@ -130,6 +142,34 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 18]: 18-34: 결과 모름 잠금 = RelayProvider 앱 수명(strategyKey) — 신규·정정만 · 진행 중 포함 · 로그아웃·새로고침에만 해제 (18-30 컨텍스트 승격 금지를 사용자 결정 1로 대체)
 - [Phase 18]: 18-35: 주문 잠금 원천은 RelayProvider.orderLocks 하나 — 작업대는 ✕ 판정에만 읽고 폼은 스스로 읽는다(18-30 배선 제거)
 - [Phase 18]: 18-35: 카드 정리(더티 키 · 직전 로그)는 커밋된 cards 에서 파생 — 치운 id 를 계산하지 않는다(R3-IN-03)
+- [Phase 19]: 19-01: dma_journal_apply 필수 키는 seq·trade_date·gw_time_ms — 형식 오류면 배치 전체 실패(계약 위반 비은폐), 나머지 키는 빈 문자열/0/false 로 적재
+- [Phase 19]: 19-01: 투영은 알 수 없는 request_kind·빈 account_no 를 RAISE(apply_error 로 드러남), sync_access 는 빈 키 행이 있으면 교체 전체 거부(기존 매핑 보존)
+- [Phase 19]: 19-01: 저널 테이블 4종·함수 6종은 서비스롤 전용 — 로컬 pgTAP 이미지의 기본 ACL 이 플랫폼 auto-grant 를 재현해 명시 REVOKE 누락을 잡는다
+- [Phase 19]: Phase 19 D-01: relay 주문 핸들러는 rid 즉시응답 상관만 한다 — dma_orders 기록부(요청 행·정산·미부착 통보·자동주문 행·원주문 정산·정정 이동·전략 캐시 계좌 추정) 전부 제거, 요청 경로는 동기
+- [Phase 19]: Phase 19 D-05: relay/src/store/orders.ts 와 그 테스트·가짜 PostgREST 삭제 — 동결 테이블에 쓸 수 있는 코드를 남기지 않는다
+- [Phase 19]: WsFanout 주문 분기는 종목맵(symbols) 하나로 열린다. Hub {t:"order"} 팬아웃·감사 사본 로그는 유지(D-03 · Open Q7)
+- [Phase 19]: 19-03: 원주문 번호로 온 정정/취소 거부는 reject_seq 행으로 분리 — 원주문 rejected 덮기 금지
+- [Phase 19]: 19-03: 방향은 원주문 side 정본, 없으면 side_trusted 일 때만 레코드 값(거부 행 포함)
+- [Phase 19]: 19-04: resolveTradeDate 는 NaN 검사 + KST 재변환 일치 검사 — 2026-02-30 같은 롤오버 날짜도 400
+- [Phase 19]: 19-05: relay JournalAccess 는 빈 식별자 매핑 행을 버린다 — DB sync RPC 가 한 행 때문에 교체 전체를 거부해 무한 재시도가 되는 것을 막는다
+- [Phase 19]: 19-05: JournalWriter.push 의 gap/overflow 는 호출자(19-07 관찰자)가 dropTransport 후 since_seq=lastReceivedSeq 로 재접속하라는 신호 — 커서는 적용 RPC 트랜잭션 안에서만 전진
+- [Phase 19]: 19-06: 카드 원천 = REST + journal.rows 두 가지, 같은 id 는 lastSeq 큰 쪽 — 정렬 비교 함수 하나(compareJournalNewestFirst)를 리듀서와 병합이 공유
+- [Phase 19]: 19-06: 자동주문 묶기는 origin limit_chaser|vi 이고 requester≠Manual 일 때만 — origin null 은 묶지 않음(D-08 보충)
+- [Phase 19]: 19-07: 관찰자 재접속 since_seq 기본값은 lastReceivedSeq ?? 0 — 옛 epoch seq 를 새 epoch 와 짝지으면 앞 구간이 조용히 누락된다
+- [Phase 19]: 19-07: journal 파생 상태에서 rejected·disabled 는 db_error 로 덮지 않는다 — rejected 는 healthz 즉시 503
+- [Phase 19]: 19-07: 이후 relay 이미지는 production 에서 DMA_OBSERVER_SECRET 없으면 기동 실패 — 19-11 시크릿·env 주입 전 relay 배포 금지
+- [Phase 19]: 19-08: 오늘 주문 카드 B′ — 묶음은 relay 계좌 목록 순, 통보 묶기는 묶음마다(계좌 경계 불가), 출처 칩은 origin null 이면 생략, OriginTag 는 components/trading/origin-tag.tsx 공용(account-panel 은 상따/VI 만)
+- [Phase 19]: 19-09: G1 계약(gh-trade 8285a265)은 인계서 §2 와 의미 1:1 — 도메인 타입 무변경, seq 류 ulong 은 파서 경계 toNum
+- [Phase 19]: 19-09: 관찰자 코덱은 76·54 를 ignore(로그인 전 브로드캐스트) — 로그인 실패는 반드시 79 success=false 라는 gh-trade 합의
+- [Phase 19]: 19-09: resync ∧ oldestSeq 0 → 로그인 직후 live(게이트웨이는 head+1 부터만 보낸다) — 기록기 갭 규칙 무변경
+- [Phase 19]: 19-09: 저널 배치 파서는 레코드를 버리지 않는다(형식 이상은 warn) · 상한 절단 시 caughtUp 거짓
+- [Phase 19]: 19-10: seq 역행(같은 epoch · 로그인 head < 마지막 수신 seq)은 resync 무관 lastReceivedSeq 유지 · error 로그 · healthz journal.seqRegressions 표시(503 아님) — gh-trade Phase 23 합의
+- [Phase 19]: 19-10: 관찰자 비밀 순환·전환 순서는 게이트웨이 재시작 → relay 재배포(마지막) — relay 는 로그인 거부 뒤 재시작 전 재시도하지 않는다
+- [Phase 19]: 19-11: 20:00 KST 조건을 추석 연휴 휴장으로 사용자 면제 — DB push 15:59~16:04 · 게이트웨이 재기동 16:24:45 KST
+- [Phase 19]: 19-11: 원격 journal 함수는 7개(플랜 문구 6은 셈 오류) — 전부 service_role 전용 · 덤프 GRANT ALL 표기는 Supabase default privileges
+- [Phase 19]: 19-12: 20:00 조건 사용자 면제(추석 휴장) — relay 43d4d0c 16:32 KST 배포
+- [Phase 19]: 19-12: 매핑 행 수 대조는 게이트웨이 accounts=3 = dma_account_access 3행 일치로 갈음
+- [Phase 19]: 19-12: 알림 정책 documentation 10834>10240 바이트 초과는 후속 과제(다음 relay 배포마다 exit 1 재발)
 - [Phase 20]: 20-01: 필드 확정 cfg 기준값 = formFromServer(server, formRef) + 바꾼 필드 1개 · 성공은 에코 값 비교로만(답 신호만으로는 거부) · 대기 건은 성공 뒤 serverAnswerSeq 변화 렌더에서만 꺼냄
 - [Phase 20]: 20-01: 무장 판정을 canArmOf/armBlockOf 모듈 함수로 단일화 — handleSubmit 과 useLcFieldCommit 이 공유 · 끄는 방향 게이트는 무장 가드 면제(T-16-44)
 - [Phase 20]: 20-02: 호가 단위 표는 packages/shared/src/krxTick.ts 한 곳 — limitUpPrice·deriveTickSize 폴백·키패드가 모두 krxTickSize 호출 (D-15)

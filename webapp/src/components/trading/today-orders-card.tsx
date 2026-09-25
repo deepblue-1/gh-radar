@@ -11,17 +11,16 @@
  * ② ★ 조회는 **페이지당 1회**다
  *   마운트 시 한 번 부른다. 계좌 카드(`AccountPanel`) 안에 넣지 않은 이유가 여기 있다 —
  *   그 컴포넌트는 4표면이 공유하고 My page 에서는 **계좌마다 한 벌씩** 렌더되므로, 계좌가
- *   2개면 계좌 축이 없는 같은 응답을 2번 부르게 된다(`listTodayOrders` 는 `user_id` 로만
- *   거른다). T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는 유지된다 — 늘어난
+ *   2개면 계좌 축이 없는 같은 응답을 2번 부르게 된다(`listTodayOrders` 는 내가 볼 수 있는
+ *   계좌 전부를 한 번에 준다). T-16-02 의 취지(표면마다 조회 경로를 늘리지 않는다)는 유지된다 — 늘어난
  *   조회 표면은 **하나**다.
  *
- * ③ ★ 라이브 프레임으로 행을 **만들지 않는다**
- *   `RelayOrderMsg` 는 `side`·`isin`·`accountNo` 를 의도적으로 싣지 않는다(취소·정정 통보의
- *   매매구분은 믿을 수 없다). 합성하면 트레이더가 방향을 읽는 매매구분 칸이 빈 줄이 선다.
- *   대신 복원 목록에 없는 주문번호가 나오면 **그 번호당 최대 1회** 재조회한다 — 페이지 로드
- *   이후 낸 주문이 「오늘 주문」이라는 이름의 목록에서 빠지는 것을 막기 위해서다.
- *   ★ 루프가 될 수 없다: 이미 요청한 주문번호를 `requestedRef` 의 Set 에 **먼저 넣고** 부르므로,
- *     재조회 응답에 그 번호가 여전히 없어도 두 번째 재조회는 일어나지 않는다. 폴링이 아니다.
+ * ③ ★ 원천은 REST 복원 + `journal.rows` 푸시 **둘뿐**이다 (Phase 19 D-03)
+ *   푸시 행은 관찰자 기록기가 계좌 저널을 투영한 **완전한 행**(종목·계좌·방향 포함)이라 복원에
+ *   없던 행도 만든다 — 부재 중 자동주문(이어받기로 채워진 행)과 같은 계좌 다른 단말의 주문이
+ *   이 경로로 빠짐없이 선다. 같은 `id` 면 `lastSeq` 가 큰 쪽이 이긴다(`mergeJournalRows`).
+ *   세션 51 기반 `{t:"order"}` 는 카드 병합에 쓰지 않는다 — 토스트·전략 로그 표면 전용이다.
+ *   「오늘」 은 shared `kstDateIso` 하나로 정한다(브라우저에 두 번째 KST 함수를 두지 않는다).
  *
  * ④ ★ 실패는 **이 카드 안에서** 수렴한다
  *   조회가 깨져도 throw 하지 않는다. 이 카드가 터지면 같은 트리의 전략·계좌 카드까지
@@ -45,15 +44,44 @@
  *     흡수할 신축 항목이 없어, 항목을 더하면 truncate 가 아니라 조용한 잘림이 된다.
  *
  * ⑦ ★ relay 재인증 때 **한 번 더** 부른다 (debug mobile-bg-resume-gaps 4)
- *   소켓이 끊긴 동안 놓친 `{t:"order"}` 는 재생되지 않는다. 그 사이 relay 가 `dma_orders` 에
- *   기록한 체결·취소(DMA 세션 유예 5분 안)는 재조회로만 화면에 온다 — 기존 행의 번호라 ③ 의
- *   unmatched 재조회도 걸리지 않는다. 트리거는 ready **재진입**(끊겼다 붙음) 하나라 폴링이 아니고,
- *   끊기기 전 라이브 프레임이 재조회 결과를 덮지 않게 하는 판정은 `orderDisplayStatus` 에 있다.
+ *   소켓이 끊긴 동안 놓친 `journal.rows` 푸시는 재생되지 않는다. 그 사이 기록기가 저널에 투영한
+ *   행은 재조회로만 화면에 온다. 트리거는 ready **재진입**(끊겼다 붙음) 하나라 폴링이 아니다.
+ *   재조회 행과 끊기기 전 푸시 행이 겹치면 `lastSeq` 가 큰 쪽이 남는다(위 ③).
+ *
+ * ⑧ ★ journal.state 복구 재조회 (Phase 19 D-04)
+ *   relay 의 기록 연결이 끊겼다(`delayed`) 다시 붙으면(`live`) 기록기가 끊긴 구간을 이어받아
+ *   저널을 채운다 — 이어받기로 채워진 행을 가져오려고 `delayed → live` **전이에서만** 1회
+ *   다시 부른다. 마운트 뒤 첫 `live` 는 마운트 조회와 같은 시점이라 건너뛰고(⑦ 과 같은 판정),
+ *   `live → live` 반복 프레임은 전이가 아니다. 폴링이 아니다.
+ *
+ * ⑨ ★ 계좌별 묶음 — 채택 목업 B′ (Phase 19 D-07)
+ *   기준이 「로그인한 사람」 에서 「계좌」 로 바뀌어(D-06) 같은 계좌의 WinForms · 다른 DMA 사용자
+ *   주문이 섞인다. 계좌마다 소제목(계좌 · 번호 전체 · 상품명 · N건)을 달고 목록을 반복한다 —
+ *   위쪽 계좌 카드(미체결·잔고)가 계좌마다 한 벌씩 반복되는 것과 같은 읽기 방식이다.
+ *   순서는 relay 계좌 목록 순 · 목록 밖 계좌는 번호만으로 뒤에 · 행 없는 계좌는 묶음이 없다
+ *   (`groupJournalRowsByAccount`). 통보 묶기(`mergeOrderNotices`)는 **묶음마다** 부른다 — 묶기가
+ *   계좌 경계를 넘지 않는다. 헤더 「N건」 은 묶기 전 전체 행 수, 소제목 「N건」 은 그 계좌의
+ *   묶기 전 행 수다. 조회는 여전히 페이지당 1회다(위 ② — 계좌 카드 안에 넣지 않는다).
+ *   좁은 폭 카드 행 ↔ 넓은 폭(≥1280) 표 전환은 **뷰포트** 규칙 그대로다(상따 컨테이너 쿼리 비적용).
+ *
+ * ⑩ ★ 출처 칩 · NXT 태그 (Phase 19 D-08)
+ *   출처를 아는 행마다 칩(상따 · VI · 수동 — account-panel 출처 태그와 같은 조각 `OriginTag`)이
+ *   붙는다. origin 미상(null)은 칩이 없다 — 「수동」 으로 그리면 거짓일 수 있다(D-08 보충).
+ *   NXT 행에만 `ExchangeTag`(채움형)가 종목 코드 옆에 붙는다 — KRX 는 기본값이라 없다.
+ *   주문자(DMA 사용자)는 표시하지 않는다(계약에 필드가 없다 · T-19-08). 새 조각은 전부 `flex:none`
+ *   이다(위 ⑤ — 신축 항목은 종목명 하나뿐). 출처 칩이 수동을 말하므로 구분 칸의 「· 수동」 꼬리는
+ *   없다. 주문번호가 없는 로컬 거부 행은 주문번호 · 수량 · 가격 자리에 「—」 를 쓴다.
+ *
+ * ⑪ ★ 기록 지연 표식 (Phase 19 D-04 (a))
+ *   relay 가 `journal.state` 를 `delayed` 로 보내면(관찰자 기록 연결 끊김 · 10초 디바운스) 제목 옆
+ *   「기록 지연」 배지(role=status · 진행 점 · reduced-motion 이면 정지)와 한 줄 안내가 뜬다 — 빈
+ *   목록을 「주문 없음」 으로 오해하지 않게(T-19-31). 이미 기록된 행은 흐리게 하지 않는다.
+ *   복구(`live`)되면 표식이 사라지고 위 ⑧ 이 한 번 재조회한다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { DmaOrderRow } from "@gh-radar/shared";
+import { kstDateIso, type JournalOrderRow } from "@gh-radar/shared";
 
 import {
   Table,
@@ -63,6 +91,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ExchangeTag } from "@/components/trading/exchange-tag";
+import { OriginTag, originTagOf } from "@/components/trading/origin-tag";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import {
   mergeOrderNotices,
@@ -74,10 +104,10 @@ import {
 } from "@/lib/order-notices";
 import {
   fetchTodayOrders,
-  mergeTodayOrders,
+  groupJournalRowsByAccount,
+  mergeJournalRows,
   orderDisplayStatus,
   type OrderDisplayStatus,
-  type TodayOrderRow,
 } from "@/lib/orders-api";
 import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
@@ -114,7 +144,7 @@ function orderTime(iso: string): string {
  * `strategy-status-card` 의 `StrategyRow` 와 같은 판단이다.
  */
 function stockLabel(
-  row: DmaOrderRow,
+  row: JournalOrderRow,
   label: IsinLabel | undefined,
 ): { name: string; code: string | null } {
   const code = row.stockCode ?? label?.code ?? row.isin;
@@ -122,38 +152,34 @@ function stockLabel(
 }
 
 /**
- * 통보 판정에 쓸 **서버 사실**만 모은다 (17-10 / D-08 · D-15).
+ * 통보 판정에 쓸 **서버 사실**만 모은다 (17-10 / D-08 · D-15 → Phase 19 D-03).
  *
- * ★ 라이브 통보가 이긴다. 없으면 복원 행에 기록된 통보 원문 1자(`noticeType`)가 말하고,
- *   그마저 없으면 **우리가 보낸 주문 종류**(`orderType === "C"` = 취소주문)가 유일한 근거다.
- *   어느 경로에도 `message` 가 없다 — 804 거부에서 서버가 문구를 교체하기 때문이다(T-17-33).
- *
- * ★ `side` 원천은 **복원 행 하나**다. `RelayOrderMsg` 에는 side 가 없고(Pitfall 8), 이 표의
- *   행은 전부 복원 스냅샷에서 나오므로(`mergeTodayOrders` 가 프레임으로 행을 만들지 않는다)
- *   side 를 모르는 행은 이 표면에 존재하지 않는다. 순수함수는 그래도 `null` 을 받는다.
+ * ★ 저널 행이 통보 사실(`noticeType`·`requestKind`·`requester`·`board`)을 **스스로 싣는다** —
+ *   복원 행과 푸시 행이 같은 규칙으로 읽힌다. `requestKind` 가 없으면 **우리가 아는 주문 종류**
+ *   (`orderType` C = 취소주문 · M = 정정주문)가 유일한 근거다. 어느 경로에도 `message` 가 없다
+ *   — 804 거부에서 서버가 문구를 교체하기 때문이다(T-17-33).
+ * ★ `side` 는 저널 행이 확실할 때만 싣는다(C/M 통보만 받은 행은 null). 순수함수는 `null` 을
+ *   「모른다」로 받아 행위를 지어내지 않는다.
  */
-function noticeFactsOf(row: TodayOrderRow): OrderNoticeFacts {
-  const live = row.live;
+function noticeFactsOf(row: JournalOrderRow): OrderNoticeFacts {
   return {
-    noticeType: live?.nt ?? row.noticeType ?? "",
-    requestKind: live?.rk ?? (row.orderType === "C" ? "Cancel" : ""),
+    noticeType: row.noticeType ?? "",
+    requestKind:
+      row.requestKind ?? (row.orderType === "C" ? "Cancel" : row.orderType === "M" ? "Modify" : ""),
     side: row.side,
-    requester: live?.rq ?? "",
-    board: live?.bd ?? "",
+    requester: row.requester ?? "",
+    board: row.board ?? "",
   };
 }
 
 export function TodayOrdersCard() {
-  const { orders, status } = useRelayContext();
+  const { accounts, journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
   /** `null` = 아직 한 번도 응답을 못 받음(로딩). `[]` = 오늘 주문이 정말 없음. */
-  const [restored, setRestored] = useState<DmaOrderRow[] | null>(null);
+  const [restored, setRestored] = useState<JournalOrderRow[] | null>(null);
   const [failed, setFailed] = useState(false);
-
-  /** 재조회를 이미 요청한 주문번호. 같은 번호로 두 번 부르지 않는다(위 ③). */
-  const requestedRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -192,29 +218,46 @@ export function TodayOrdersCard() {
     void load();
   }, [status, load]);
 
-  const { rows, unmatchedOrderNos } = useMemo(
-    () => mergeTodayOrders(restored ?? [], orders),
-    [restored, orders],
+  /*
+    ★ 기록 연결 복구(`delayed → live`)마다 1회 다시 부른다 (위 ⑧ · D-04).
+    직전 상태를 ref 로 들고 전이만 본다 — 마운트 시점에 이미 `live` 였거나 첫 프레임이 `live`
+    면 직전 값이 `delayed` 가 아니므로 부르지 않는다.
+  */
+  const journalLive = journalState?.s ?? null;
+  const prevJournalRef = useRef(journalLive);
+  useEffect(() => {
+    const prev = prevJournalRef.current;
+    prevJournalRef.current = journalLive;
+    if (prev === "delayed" && journalLive === "live") void load();
+  }, [journalLive, load]);
+
+  /*
+    기록 지연 표식 (위 ⑪ · D-04 (a)). 시각은 카드의 `KST_TIME` 하나로 읽는다 — 모르는 모양이면
+    (`orderTime` 이 「—」) 시각 문장을 빼고 지어내지 않는다.
+  */
+  const delayed = journalState?.s === "delayed";
+  const sinceText =
+    delayed && journalState?.since !== undefined ? orderTime(journalState.since) : "—";
+  const delayedSince = sinceText === "—" ? null : sinceText;
+
+  /* 두 원천의 병합(위 ③). 푸시는 오늘(KST) 행만 받는다 — 자정을 넘긴 탭이 어제 행을 섞지 않게. */
+  const rows = useMemo(
+    () => mergeJournalRows(restored ?? [], journalRows, kstDateIso()),
+    [restored, journalRows],
   );
 
   /*
-    ★ 묶기는 **복원·병합이 끝난 뒤**에 온다 (17-10 / D-16). `mergeTodayOrders` 안으로
-      넣지 않는다 — 그 함수는 REST 복원과 라이브 프레임을 맞추는 다른 일을 하고, 그
-      결과(`unmatchedOrderNos`)가 아래 재조회 루프의 정본이다.
-    ★ 재조회 루프는 **묶기 전** 목록을 본다. 묶인 뒤 목록을 보면 합쳐진 주문번호가
-      사라져 그 주문의 종목명이 영원히 복원되지 않는다 (T-17-35).
+    ★ 계좌별로 나눈 **뒤** 묶음마다 통보를 접는다 (위 ⑨ · 17-10 / D-16) — 병합 → 계좌 나누기 →
+    표시 접기 순서다. 접기가 계좌 경계를 넘지 않는다.
   */
-  const merged = useMemo(() => mergeOrderNotices(rows), [rows]);
-
-  useEffect(() => {
-    // 최초 응답 전에는 「없다」를 판정할 수 없다 — 전부 unmatched 로 보여 헛돈다.
-    if (restored === null || failed) return;
-    const fresh = unmatchedOrderNos.filter((no) => !requestedRef.current.has(no));
-    if (fresh.length === 0) return;
-    // ★ 부르기 **전에** 표시한다 — 응답에 여전히 없어도 재진입하지 않는다.
-    for (const no of fresh) requestedRef.current.add(no);
-    void load();
-  }, [restored, failed, unmatchedOrderNos, load]);
+  const groups = useMemo(
+    () =>
+      groupJournalRowsByAccount(rows, accounts).map((group) => ({
+        ...group,
+        merged: mergeOrderNotices(group.rows),
+      })),
+    [rows, accounts],
+  );
 
   return (
     <section
@@ -222,14 +265,45 @@ export function TodayOrdersCard() {
       aria-label="오늘 주문"
       className="flex flex-col gap-[var(--s-2)] rounded-[var(--r-lg)] border border-transparent bg-[var(--card)] px-[var(--s-3)] py-[var(--s-3)]"
     >
-      <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+      <div className="flex min-w-0 flex-wrap items-center gap-[var(--s-2)]">
         <h2 className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">오늘 주문</h2>
         {rows.length > 0 && (
           <span className="mono flex-none text-[length:var(--t-caption)] text-[var(--muted-fg)]">
             {rows.length}건
           </span>
         )}
+        {delayed && (
+          <span
+            role="status"
+            data-testid="today-orders-delayed"
+            className="inline-flex h-5 flex-none items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 text-[11px] font-semibold text-[var(--muted-fg)]"
+          >
+            <span
+              aria-hidden="true"
+              className="size-[7px] rounded-full bg-current animate-pulse motion-reduce:animate-none"
+            />
+            기록 지연
+          </span>
+        )}
       </div>
+      {/*
+        기록 지연 안내 (위 ⑪) — 본문(로딩·빈·오류·목록)과 무관하게 머리 아래에 붙는다.
+        이미 그린 행은 흐리게 하지 않는다 — 기록된 줄은 맞는 값이다.
+      */}
+      {delayed && (
+        <p
+          data-testid="today-orders-delayed-note"
+          className="rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--muted)] px-[var(--s-3)] py-1.5 text-[length:var(--t-caption)] text-[var(--muted-fg)]"
+        >
+          <b className="font-semibold text-[var(--fg)]">기록 지연</b> — 복구되면 채워집니다.
+          {delayedSince !== null && (
+            <>
+              {" "}
+              <span className="mono">{delayedSince}</span> 이후 주문이 아직 안 보일 수 있어요.
+            </>
+          )}
+        </p>
+      )}
 
       {failed ? (
         <p
@@ -260,164 +334,230 @@ export function TodayOrdersCard() {
           </p>
         </div>
       ) : (
-        <>
-          {/* 데스크톱(≥1280) — 표 */}
-          <div className="max-[1279px]:hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope="col">시각</TableHead>
-                  <TableHead scope="col">종목</TableHead>
-                  <TableHead scope="col">구분</TableHead>
-                  <TableHead scope="col" className="num">
-                    수량
-                  </TableHead>
-                  <TableHead scope="col" className="num">
-                    가격
-                  </TableHead>
-                  <TableHead scope="col">상태</TableHead>
-                  <TableHead scope="col">주문번호</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {merged.map((group) => {
-                  const row = group.head;
-                  const stock = stockLabel(row, labels.get(row.isin));
-                  const facts = noticeFactsOf(row);
-                  const label = orderNoticeLabel(facts);
-                  return (
-                    <TableRow key={row.id} data-slot="today-order-table-row">
-                      <TableCell className="mono text-[length:var(--t-caption)]">
-                        {orderTime(group.at)}
-                      </TableCell>
-                      {/*
-                        표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
-                        감싸는 `.tbl-wrap overflow-x-auto` 가 가로 스크롤로 받는다(설계된 동작).
-                      */}
-                      <TableCell>
-                        <span className="flex items-center gap-1.5 whitespace-nowrap">
-                          <span
-                            className={cn(
-                              "text-[length:var(--t-caption)] font-semibold text-[var(--fg)]",
-                              // 이름 자리에 코드/ISIN 이 올라온 행만 mono — 한글 종목명에는 씌우지 않는다.
-                              stock.code === null && "mono",
-                            )}
-                          >
-                            {stock.name}
-                          </span>
-                          {stock.code !== null && (
-                            <span className="mono text-[11px] text-[var(--muted-fg)]">
-                              {stock.code}
-                            </span>
-                          )}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <SideTag label={label} srAction={orderActionWord(facts)} />
-                      </TableCell>
-                      <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {KRW.format(group.qty)}
-                      </TableCell>
-                      <TableCell className="num mono text-[length:var(--t-caption)]">
-                        {priceText(group)}
-                      </TableCell>
-                      <TableCell>
-                        <StatusTag shown={orderDisplayStatus(row)} />
-                      </TableCell>
-                      <TableCell className="mono text-[length:var(--t-caption)]">
-                        {group.orderNoText ?? "—"}
-                        {group.count > 1 && (
-                          <span className="ml-1 text-[var(--muted-fg)]">({group.count}건)</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* 모바일(<1280) — 2줄 카드 행 (위 ⑤) */}
-          <div
-            data-slot="today-orders-list"
-            className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
-          >
-            {merged.map((group) => {
-              const row = group.head;
-              const stock = stockLabel(row, labels.get(row.isin));
-              const facts = noticeFactsOf(row);
-              const label = orderNoticeLabel(facts);
-              return (
-                <div
-                  key={row.id}
-                  data-slot="today-order-row"
-                  className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]"
+        <div data-slot="today-orders-groups" className="flex flex-col gap-1.5">
+          {groups.map((group) => (
+            <div
+              key={group.accountNo}
+              data-slot="today-orders-group"
+              data-account={group.accountNo}
+              className="flex min-w-0 flex-col gap-1.5"
+            >
+              {/* 계좌 소제목 — account-panel 계좌 전용 모드 머리와 같은 문법(위 ⑨). */}
+              <div className="flex min-w-0 items-center gap-[var(--s-2)] px-0.5">
+                <span className="flex-none text-[length:var(--t-caption)] font-semibold text-[var(--muted-fg)]">
+                  계좌
+                </span>
+                <span
+                  data-slot="today-orders-group-account-no"
+                  className="mono min-w-0 flex-1 truncate text-[length:var(--t-caption)] font-semibold text-[var(--fg)]"
                 >
-                  {/* ①줄 — 종목명(유일한 신축 항목) · 코드 · 구분 · (우) 상태 */}
-                  <div className="flex min-w-0 items-center gap-[var(--s-2)]">
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]",
-                        // 이름 자리에 코드/ISIN 이 올라온 행만 mono (위 ⑥).
-                        stock.code === null && "mono",
-                      )}
-                    >
-                      {stock.name}
-                    </span>
-                    {/* 식별자 — 이름이 잘려도 이것은 온전히 남아야 하므로 `flex:none` 이다. */}
-                    {stock.code !== null && (
-                      <span className="mono flex-none whitespace-nowrap text-[11px] text-[var(--muted-fg)]">
-                        {stock.code}
-                      </span>
-                    )}
-                    <span className="flex flex-none items-center gap-1">
-                      <SideTag label={label} srAction={orderActionWord(facts)} />
-                    </span>
-                    <span className="ml-auto flex flex-none items-center gap-1">
-                      <StatusTag shown={orderDisplayStatus(row)} />
-                    </span>
-                  </div>
-                  {/* ②줄 — 시각 · 수량 · 가격 · (우) 주문번호 */}
-                  <div className="mt-1 flex min-w-0 items-center gap-[var(--s-2)]">
-                    <span className="flex flex-none items-center gap-1">
-                      <RowValue>{orderTime(group.at)}</RowValue>
-                    </span>
-                    <span className="flex flex-none items-center gap-1">
-                      <RowKey>수량</RowKey>
-                      <RowValue>{KRW.format(group.qty)}</RowValue>
-                    </span>
-                    <span className="flex flex-none items-center gap-1">
-                      <RowKey>가격</RowKey>
-                      <RowValue>{priceText(group)}</RowValue>
-                    </span>
-                    <span className="ml-auto flex flex-none items-center gap-1">
-                      <RowKey>주문</RowKey>
-                      <RowValue>{group.orderNoText ?? "—"}</RowValue>
-                      {group.count > 1 && (
-                        <span className="text-[11px] text-[var(--muted-fg)]">
-                          ({group.count}건)
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
+                  {group.accountNo}
+                </span>
+                {/* 상품명은 **있을 때만** — 목록 밖 계좌는 번호만 그린다. */}
+                {group.name !== "" && (
+                  <span className="flex-none whitespace-nowrap text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                    {group.name}
+                  </span>
+                )}
+                <span className="mono flex-none whitespace-nowrap text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+                  {group.rows.length}건
+                </span>
+              </div>
+
+              {/* 데스크톱(≥1280) — 표 */}
+              <div className="max-[1279px]:hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead scope="col">시각</TableHead>
+                      <TableHead scope="col">종목</TableHead>
+                      <TableHead scope="col">구분</TableHead>
+                      <TableHead scope="col">출처</TableHead>
+                      <TableHead scope="col" className="num">
+                        수량
+                      </TableHead>
+                      <TableHead scope="col" className="num">
+                        가격
+                      </TableHead>
+                      <TableHead scope="col">상태</TableHead>
+                      <TableHead scope="col">주문번호</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {group.merged.map((notice) => (
+                      <OrderTableRow
+                        key={notice.head.id}
+                        notice={notice}
+                        label={labels.get(notice.head.isin)}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* 모바일(<1280) — 2줄 카드 행 (위 ⑤) */}
+              <div
+                data-slot="today-orders-list"
+                className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--r-md)] border border-[var(--border)] min-[1280px]:hidden"
+              >
+                {group.merged.map((notice) => (
+                  <OrderCardRow
+                    key={notice.head.id}
+                    notice={notice}
+                    label={labels.get(notice.head.isin)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </section>
+  );
+}
+
+/** 데스크톱 표 1행. 출처 열은 구분 바로 뒤, NXT 태그는 종목 셀의 코드 뒤다(위 ⑩). */
+function OrderTableRow({
+  notice,
+  label: isinLabel,
+}: {
+  notice: MergedOrderNotice;
+  label: IsinLabel | undefined;
+}) {
+  const row = notice.head;
+  const stock = stockLabel(row, isinLabel);
+  const facts = noticeFactsOf(row);
+  const label = orderNoticeLabel(facts);
+  return (
+    <TableRow data-slot="today-order-table-row">
+      <TableCell className="mono text-[length:var(--t-caption)]">{orderTime(notice.at)}</TableCell>
+      {/*
+        표 셀에는 폭 제약이 없어 `truncate` 가 동작하지 않는다 — 대신 `Table` 이
+        감싸는 `.tbl-wrap overflow-x-auto` 가 가로 스크롤로 받는다(설계된 동작).
+      */}
+      <TableCell>
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          <span
+            className={cn(
+              "text-[length:var(--t-caption)] font-semibold text-[var(--fg)]",
+              // 이름 자리에 코드/ISIN 이 올라온 행만 mono — 한글 종목명에는 씌우지 않는다.
+              stock.code === null && "mono",
+            )}
+          >
+            {stock.name}
+          </span>
+          {stock.code !== null && (
+            <span className="mono text-[11px] text-[var(--muted-fg)]">{stock.code}</span>
+          )}
+          {row.exchange === "NXT" && <ExchangeTag exchange="NXT" size="sm" />}
+        </span>
+      </TableCell>
+      <TableCell>
+        <SideTag label={label} srAction={orderActionWord(facts)} />
+      </TableCell>
+      <TableCell>
+        <OriginTag tag={originTagOf(row.origin)} slot="today-order-origin" />
+      </TableCell>
+      <TableCell className="num mono text-[length:var(--t-caption)]">{qtyText(notice)}</TableCell>
+      <TableCell className="num mono text-[length:var(--t-caption)]">{priceText(notice)}</TableCell>
+      <TableCell>
+        <StatusTag shown={orderDisplayStatus(row)} />
+      </TableCell>
+      <TableCell className="mono text-[length:var(--t-caption)]">
+        {notice.orderNoText ?? "—"}
+        {notice.count > 1 && (
+          <span className="ml-1 text-[var(--muted-fg)]">({notice.count}건)</span>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/**
+ * 모바일 2줄 카드 행 (위 ⑤ · ⑩).
+ * ①줄 = 종목명(유일한 신축 항목) · 코드 · NXT · 구분 · 출처 · (우) 상태.
+ */
+function OrderCardRow({
+  notice,
+  label: isinLabel,
+}: {
+  notice: MergedOrderNotice;
+  label: IsinLabel | undefined;
+}) {
+  const row = notice.head;
+  const stock = stockLabel(row, isinLabel);
+  const facts = noticeFactsOf(row);
+  const label = orderNoticeLabel(facts);
+  return (
+    <div data-slot="today-order-row" className="min-w-0 px-[var(--s-3)] py-[var(--s-2)]">
+      <div className="flex min-w-0 items-center gap-[var(--s-2)]">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[length:var(--t-sm)] font-semibold text-[var(--fg)]",
+            // 이름 자리에 코드/ISIN 이 올라온 행만 mono (위 ⑥).
+            stock.code === null && "mono",
+          )}
+        >
+          {stock.name}
+        </span>
+        {/* 식별자 — 이름이 잘려도 이것은 온전히 남아야 하므로 `flex:none` 이다. */}
+        {stock.code !== null && (
+          <span className="mono flex-none whitespace-nowrap text-[11px] text-[var(--muted-fg)]">
+            {stock.code}
+          </span>
+        )}
+        {row.exchange === "NXT" && <ExchangeTag exchange="NXT" size="sm" />}
+        <span className="flex flex-none items-center gap-1">
+          <SideTag label={label} srAction={orderActionWord(facts)} />
+          <OriginTag tag={originTagOf(row.origin)} slot="today-order-origin" />
+        </span>
+        <span className="ml-auto flex flex-none items-center gap-1">
+          <StatusTag shown={orderDisplayStatus(row)} />
+        </span>
+      </div>
+      {/*
+        ②줄 — 시각 · 수량 · 가격 · (우) 주문번호. 전부 `flex:none` 이라 넘침을 흡수할 신축 항목이
+        없다 — 390px 에서 묶인 행(주문번호 범위 · (N건))이 넘치면 **줄을 바꿔** 주문번호가 다음 줄로
+        내려간다(Phase 19 D-07 · 목업 `.fix .l2`). 잘리지 않는다.
+      */}
+      <div className="mt-1 flex min-w-0 flex-wrap gap-y-0.5 items-center gap-x-[var(--s-2)]">
+        <span className="flex flex-none items-center gap-1">
+          <RowValue>{orderTime(notice.at)}</RowValue>
+        </span>
+        <span className="flex flex-none items-center gap-1">
+          <RowKey>수량</RowKey>
+          <RowValue>{qtyText(notice)}</RowValue>
+        </span>
+        <span className="flex flex-none items-center gap-1">
+          <RowKey>가격</RowKey>
+          <RowValue>{priceText(notice)}</RowValue>
+        </span>
+        <span className="ml-auto flex flex-none items-center gap-1">
+          <RowKey>주문</RowKey>
+          <RowValue>{notice.orderNoText ?? "—"}</RowValue>
+          {notice.count > 1 && (
+            <span className="text-[11px] text-[var(--muted-fg)]">({notice.count}건)</span>
+          )}
+        </span>
+      </div>
+    </div>
   );
 }
 
 /**
  * 묶인 행의 가격 — **범위**다. 단가를 더하면 없는 값이 생기고(3천원짜리 3건이 9천원으로
  * 보인다), 트레이더는 그 숫자로 판단한다. 정본 C# `RewriteMerged` 도 min~max 로 쓴다.
+ * 단가를 모르면(로컬 거부 · 취소 0) 지어내지 않고 「—」 다 (Phase 19 D-08).
  */
 function priceText(group: MergedOrderNotice): string {
-  return group.priceMin === group.priceMax
-    ? KRW.format(group.priceMin)
-    : `${KRW.format(group.priceMin)}~${KRW.format(group.priceMax)}`;
+  const { priceMin: min, priceMax: max } = group;
+  if (min === null || max === null) return "—";
+  return min === max ? KRW.format(min) : `${KRW.format(min)}~${KRW.format(max)}`;
+}
+
+/** 수량 — 모르면 「—」(체결이 접수보다 먼저 온 행 · 로컬 거부). 0 으로 지어내지 않는다. */
+function qtyText(group: MergedOrderNotice): string {
+  return group.qty === null ? "—" : KRW.format(group.qty);
 }
 
 /** 카드 행의 라벨(11px 중립). **`flex:none`** 이라 숫자를 밀어내지 않는다. */
@@ -447,6 +587,9 @@ function RowValue({ children }: { children: ReactNode }) {
  *   결정) 행위 단어가 눈에서 사라진다. 상태 칸이 그 자리를 대신하지만, 스크린리더가 이
  *   칸만 읽을 때도 무엇을 한 통보인지 들리도록 `orderActionWord` 의 **맨몸 단어**를
  *   숨김 텍스트로 같이 둔다. 보이는 문자열은 바뀌지 않는다.
+ *
+ * ★ D-08 — 출처 칩이 수동을 말한다. 그래서 이 칸은 「· 수동」 꼬리를 그리지 않는다
+ *   (`orderNoticeLabel` 의 메타 필드와 함수는 trading-alerts 가 쓰므로 그대로 둔다).
  */
 function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: string }) {
   const arrow = label.side === "B" ? "▲ " : label.side === "S" ? "▼ " : "";
@@ -465,9 +608,6 @@ function SideTag({ label, srAction }: { label: OrderNoticeLabel; srAction: strin
       {label.text}
       {srAction !== "" && srAction !== label.text && (
         <span className="sr-only"> {srAction}</span>
-      )}
-      {label.meta !== "" && (
-        <span className="ml-1 font-normal text-[var(--muted-fg)]">· {label.meta}</span>
       )}
     </span>
   );

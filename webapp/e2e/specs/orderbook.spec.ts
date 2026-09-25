@@ -451,18 +451,8 @@ test.describe('Phase 15 Plan 14 — 호가창 wss 왕복 (로컬 relay + 스텁 
 
     // ★ D-02 — 주문은 wss 단일 경로다. REST 로 한 건이라도 나가면 두 경로가 같은 행을 다툰다.
     expect(restHits).toEqual([]);
-    // 감사 기록(D-03)이 게이트웨이 송신 **전에** 남는다 — 없으면 「나갔는지 모르는 주문」이다.
-    expect(relay.orderInserts()).toHaveLength(1);
-    expect(relay.orderInserts()[0]).toMatchObject({
-      isin: E2E_ISIN,
-      // relay 가 `stocks` 로 푼 값이다. 브라우저는 단축코드·시장을 보내지 않는다(D-28).
-      stock_code: STOCK_CODE,
-      market: 'K',
-      side: 'B',
-      order_type: 'N',
-      qty: 10,
-      price: 98_000,
-    });
+    // D-01 — relay 사용자 세션 경로는 DB 에 쓰지 않는다. 기록은 관찰자 기록기 단독.
+    expect(relay.orderInserts()).toHaveLength(0);
   });
 
   test('7. 통보가 오지 않으면 **「실패」가 아니라 「결과 모름」** 이고 제출은 잠긴 채다 (S-8)', async ({

@@ -55,15 +55,18 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import { createClient } from "@/lib/supabase/client";
 import { resolveRelayWsUrl } from "@/lib/relay-url";
+import { compareJournalNewestFirst } from "@/lib/orders-api";
 import { indexUnfilled, type OrderIndexEntry } from "@/lib/trading-alerts";
 import {
   RELAY_STATE_LABELS,
   RELAY_WS_CLOSE,
+  type JournalOrderRow,
   type RelayAccount,
   type RelayAccountState,
   type RelayExchange,
   type RelayHolding,
   type RelayInbound,
+  type RelayJournalStateMsg,
   type RelayLimitChaser,
   type RelayOrderCancelMsg,
   type RelayOrderModifyMsg,
@@ -115,6 +118,14 @@ export const RELAY_MARKET_BUFFER_MAX = 1000;
 const MAX_MESSAGES = 20;
 /** 주문 통보 누적 상한. */
 const MAX_ORDERS = 50;
+/**
+ * 저널 행 보관 상한 (Phase 19 D-03 · T-19-26).
+ *
+ * 주문 1건 = 1행(같은 주문의 갱신은 같은 `id` 에 덮인다)이라 하루치도 수백 행이다. 상한은
+ * 세션이 여러 날 이어지거나 relay 가 비정상으로 쏟아낼 때의 **메모리 방어**일 뿐이다 —
+ * 넘으면 `createdAt` 이 가장 오래된 쪽부터 버린다(화면은 REST 복원이 오늘 전량을 다시 준다).
+ */
+export const MAX_JOURNAL_ROWS = 2000;
 /** VI 발동 통지 누적 상한. 표시·이력용이라 오래된 건은 버린다. */
 const MAX_VI_NOTICES = 50;
 /**
@@ -329,8 +340,27 @@ export interface RelayConnectionState {
    * ⚠️ 표시·카드 매칭 전용이다. 미체결 목록·취소 대상의 원천은 여전히 `accountStates` 하나다.
    */
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
-  /** 주문 통보 누적(최신 우선). */
+  /**
+   * 주문 통보 누적(최신 우선).
+   *
+   * ⚠️ Phase 19 D-03 이후 **토스트·전략 로그 전용**이다. 「오늘 주문」 카드는 이것을 병합하지
+   *    않는다 — 카드의 원천은 REST 복원과 아래 `journalRows` 둘뿐이다.
+   */
   orders: RelayOrderMsg[];
+  /**
+   * 관찰자 기록기가 민 저널 행 (`{t:"journal.rows"}` · Phase 19 D-03).
+   *
+   * relay 가 **이 사용자가 접근할 수 있는 계좌**의 행만 보낸다(19-05 · T-19-02). 같은 `id` 는
+   * `lastSeq` 가 큰 쪽이 이긴다(같거나 작은 행은 버린다 — T-19-27 표시 역전 방지). 정렬은
+   * `createdAt` 내림차순, 상한 `MAX_JOURNAL_ROWS`. 비우는 것은 `reset`(로그아웃)뿐이다(T-19-16).
+   * 날짜를 거르지 않는다 — 「오늘」 판정은 소비자(`mergeJournalRows`)가 한다.
+   */
+  journalRows: JournalOrderRow[];
+  /**
+   * 기록 연결 상태의 최신 프레임 (`{t:"journal.state"}` · Phase 19 D-04). 아직 못 받았으면 null.
+   * 카드는 `delayed → live` 전이에서 한 번 다시 조회해 끊긴 사이 채워진 행을 가져온다.
+   */
+  journalState: RelayJournalStateMsg | null;
   /** ServerMessage 누적(최신 우선, 상한 20). 각 항목에 수신 시각이 붙어 있다. */
   messages: RelayServerMessageEntry[];
   /** 재접속 중이라 표시값이 마지막 수신값임을 뜻한다(UI 는 `opacity:.55` 감쇠). */
@@ -526,6 +556,8 @@ interface RelayData {
   accountStates: Map<string, RelayAccountState>;
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   orders: RelayOrderMsg[];
+  journalRows: JournalOrderRow[];
+  journalState: RelayJournalStateMsg | null;
   messages: RelayServerMessageEntry[];
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
@@ -551,6 +583,9 @@ const INITIAL_DATA: RelayData = {
   accountStates: new Map(),
   orderIndex: new Map(),
   orders: [],
+  // 로그아웃(reset) 이 이 두 값으로 되돌린다 — 다음 사용자가 이전 사용자의 주문 행을 보지 않는다(T-19-16).
+  journalRows: [],
+  journalState: null,
   messages: [],
   isStale: false,
   limitChasers: [],
@@ -662,7 +697,18 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     }
 
     case "order":
+      // D-03: 토스트·전략 로그 전용. 「오늘 주문」 카드 병합에는 쓰이지 않는다(`journalRows` 가 원천).
       return { ...state, orders: [frame, ...state.orders].slice(0, MAX_ORDERS) };
+
+    case "journal.rows": {
+      // 변화가 없으면 같은 state 참조를 돌린다 — 소비자 memo(카드 병합)가 헛돌지 않게.
+      const journalRows = upsertJournalRows(state.journalRows, frame.rows);
+      return journalRows === state.journalRows ? state : { ...state, journalRows };
+    }
+
+    case "journal.state":
+      // 최신 1건 보관. 전이 판정(delayed → live 재조회)은 소비자(카드)가 한다 — D-04 (a).
+      return { ...state, journalState: frame };
 
     case "msg":
       return {
@@ -759,6 +805,30 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // q/tape 도 여기 오지 않는다 — 시세·체결 적용은 `applyMarketFrames` 한 곳뿐이다.
       return state;
   }
+}
+
+/**
+ * `journal.rows` 1프레임을 보관 목록에 합친다 (Phase 19 D-03).
+ *
+ * ★ `id` 기준 upsert — 기존 행의 `lastSeq` 가 새 행 이상이면 **기존을 지킨다**(늦게 도착한 옛
+ *   행이 새 상태를 덮는 표시 역전 방지 · T-19-27). 한 프레임 안의 같은 id 도 같은 규칙이다.
+ * ★ 아무 행도 바뀌지 않으면 **입력 배열 참조를 그대로** 돌린다.
+ * ★ 정렬 축은 카드 병합(`mergeJournalRows`)과 같은 비교 함수 하나다 — 두 벌이면 갈라진다.
+ */
+export function upsertJournalRows(
+  prev: readonly JournalOrderRow[],
+  incoming: readonly JournalOrderRow[],
+): JournalOrderRow[] {
+  let byId: Map<string, JournalOrderRow> | null = null;
+  for (const row of incoming) {
+    const map: Map<string, JournalOrderRow> = byId ?? new Map(prev.map((r) => [r.id, r]));
+    const cur = map.get(row.id);
+    if (cur !== undefined && cur.lastSeq >= row.lastSeq) continue;
+    map.set(row.id, row);
+    byId = map;
+  }
+  if (byId === null) return prev as JournalOrderRow[];
+  return [...byId.values()].sort(compareJournalNewestFirst).slice(0, MAX_JOURNAL_ROWS);
 }
 
 /**
@@ -1660,6 +1730,8 @@ export function useRelayConnection({
       accountStates: data.accountStates,
       orderIndex: data.orderIndex,
       orders: data.orders,
+      journalRows: data.journalRows,
+      journalState: data.journalState,
       messages: data.messages,
       isStale: data.isStale,
       limitChasers: data.limitChasers,

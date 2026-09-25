@@ -169,8 +169,9 @@ export type HubFanoutEvent = { userId: string; msg: RelayOutbound };
  * 주문 통보 1건 (`OrderResp(51)`), **파싱된 원문 그대로**.
  *
  * 브라우저로 나가는 `{t:"order"}` 팬아웃과 **별도**로 낸다. 팬아웃은 계약 타입(`RelayOrderMsg`)
- * 이라 상관에 필요한 값(`sideTrusted` 등)이 빠져 있고, 주문 라우트는 HTTP 응답을 만들기 위해
- * 원문이 필요하기 때문이다. 팬아웃이 먼저이고 이 이벤트가 나중이다 — 화면이 DB 보다 앞선다.
+ * 이라 상관에 필요한 값(`sideTrusted` 등)이 빠져 있기 때문이다. 이 이벤트는 order-handler 의
+ * rid 즉시응답 상관 전용이고, `{t:"order"}` 팬아웃은 브라우저 토스트·전략 로그 표면 전용이다
+ * (Phase 19 D-01·D-03 — 기록은 관찰자 기록기 단독). 팬아웃이 먼저이고 이 이벤트가 나중이다.
  */
 export type HubOrderEvent = { userId: string; notice: ParsedOrderResp };
 
@@ -1082,6 +1083,14 @@ export class SubscriptionHub extends EventEmitter {
         // 그러나 그 사실을 `default:` 에 맡기지 않고 명시 case 로 적는다. 그래야 아래 계수기가
         // 「아무도 안 받은 프레임」만 세고, 그 값이 곧 PC-12 위반 여부가 된다 (T-17-10).
         return;
+      case MSG.ObserverLoginResp:
+      case MSG.JournalBatch:
+        // **관찰자 연결 전용 프레임이다**(19-09 — 화이트리스트와 같은 커밋의 명시 case · PC-12).
+        // 게이트웨이는 둘을 요청 연결(관찰자 소켓)에만 Notice 로 보내므로 사용자 세션에 올 일이 없다.
+        // 오면 게이트웨이 라우팅 이상이라 warn 을 남기고 버린다 — `default:` 에 맡기면 계수기가
+        // 이 의도된 무시를 함께 세어 진짜 PC-12 위반을 가린다(17-03).
+        logger.warn({ userId, msgType: e.msgType }, "[HUB] 사용자 세션에 관찰자 전용 프레임 — 무시");
+        return;
       default:
         // 16-04 가 화이트리스트를 19종으로, 17-03 이 22종으로 넓힌 뒤에도 **여기로 조용히
         // 떨어지는 프레임은 0**이다 (PC-12 — 넓힌 만큼 명시 case 로 받는 것이 조건이었다).
@@ -1191,8 +1200,8 @@ export class SubscriptionHub extends EventEmitter {
    *
    * 와이어 계약(`RelayOrderMsg`)에 `side` 를 싣지 않는 것은 의도다 — 취소·정정 통보의
    * 매매구분은 믿을 수 없으므로(Pitfall 8) 애초에 내려보내지 않고, UI 는 `nt` 로
-   * "취소"/"정정" 을 고른다. `sideTrusted` 는 relay 내부 소비자를 위한 값이라
-   * `"order"` 이벤트에만 실린다.
+   * "취소"/"정정" 을 고른다. `sideTrusted` 는 relay 내부 소비자(order-handler 의 rid 즉시응답
+   * 상관)를 위한 값이라 `"order"` 이벤트에만 실린다.
    */
   #onOrderNotice(userId: string, notice: ParsedOrderResp): void {
     const msg: RelayOrderMsg = {
@@ -1212,10 +1221,10 @@ export class SubscriptionHub extends EventEmitter {
       ...(notice.requestKind === "" ? {} : { rk: notice.requestKind }),
       ...(notice.requester === "" ? {} : { rq: notice.requester }),
     };
-    // 화면이 먼저다. DB 기록(비동기 큐)은 이 이벤트를 받는 쪽이 건다.
+    // 화면이 먼저다 — 브라우저 `{t:"order"}` 토스트·전략 로그 표면 (Phase 19 D-03).
     this.#fanout(userId, msg);
-    // **두 번째 감사 사본** (D-24). `dma_orders` 에 붙지 못한 통보 — 좁히기 실패·연결 종료
-    // 후 도착·행 생성 실패 — 라도 이 한 줄이 있으면 브로커 주문번호와 대조할 수 있다.
+    // **감사 사본** (D-24 · Open Q7 유지). relay 사용자 세션 경로는 DB 에 쓰지 않으므로
+    // (Phase 19 D-01) 이 한 줄이 relay 쪽에서 브로커 주문번호와 대조할 수 있는 흔적이다.
     // 계좌번호·비밀번호·DMA user_id 는 싣지 않는다 (D-19 승계). 51 통보에 계좌번호 필드는
     // 애초에 없고, 여기 `userId` 는 Supabase 사용자 식별자다.
     logger.info(

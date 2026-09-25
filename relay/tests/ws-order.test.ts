@@ -10,10 +10,13 @@
  *   · 상관은 **연결 스코프** — `order.result` 는 요청한 연결에만, 51 푸시는 전 연결 (T-16-03)
  *   · 계좌 대조의 근거는 `session.allowedAccounts` 하나 — 거부 시 게이트웨이로 **0바이트** (T-16-01)
  *   · ISIN → 시장 해석 실패는 거부다. 기본값 "K" 로 메우지 않는다 (T-16-05)
- *   · 자동주문 통보는 대기열에 없어도 **새 행**으로 남는다 (T-16-07 / Pitfall 18)
+ *   · 대기와 매칭되지 않는 자동주문 통보는 `order.result` 를 만들지 않고 Hub 팬아웃만 탄다
  *   · 중복 rid·중복 파라미터는 거부 (T-16-10)
  *
- * 스텁은 셋뿐이다 — Supabase(토큰·자격증명) · `dma_orders` 쓰기 창구 · 종목마스터.
+ * Phase 19 D-01 — relay 사용자 세션 경로는 DB 에 쓰지 않는다. 기록 창구 스텁과 DB 단언은
+ * 걷어냈고(기록은 관찰자 기록기 단독), 이 파일은 rid 즉시응답 상관만 본다.
+ *
+ * 스텁은 둘뿐이다 — Supabase(토큰·자격증명) · 종목마스터.
  * 나머지는 전부 진짜다(실제 ws 서버, 실제 TCP 로 붙는 가짜 게이트웨이, 실제 `SessionManager`
  * /`SubscriptionHub`). 이 경로가 **이어지는지**가 이 plan 의 핵심 리스크라 중간을 가짜로
  * 채우면 검증이 아무것도 증명하지 못한다.
@@ -28,21 +31,10 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as flatbuffers from "flatbuffers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type {
-  RelayAccountState,
-  RelayLimitChaser,
-  RelayOutbound,
-  RelayUnfilled,
-} from "@gh-radar/shared";
+import type { RelayOutbound } from "@gh-radar/shared";
 
 import { WsFanout, type WsFanoutDeps } from "../src/ws/fanout.js";
-import {
-  createOrderHandler,
-  isCancelLikeNotice,
-  modifyMovedQty,
-  narrowPending,
-  type PendingOrder,
-} from "../src/ws/order-handler.js";
+import { createOrderHandler, narrowPending, type PendingOrder } from "../src/ws/order-handler.js";
 import { SubscriptionHub } from "../src/hub/subscription-hub.js";
 import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
@@ -51,15 +43,7 @@ import { ORDER_RESP_TIMEOUT_MS } from "../src/order/notice-status.js";
 import { MSG } from "../src/dma/msg-type.js";
 import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
-import {
-  OrderStore,
-  kstDayRangeUtc,
-  supabaseOrderSinks,
-  type OrderInsertRow,
-  type OrderUpdate,
-} from "../src/store/orders.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
-import { fakeDmaOrders, type FakeRow } from "./helpers/fake-dma-orders.js";
 import { startFakeGateway, type FakeGateway } from "./helpers/fake-gateway.js";
 import { connectWs, type TestWs } from "./helpers/ws-client.js";
 import { SAMPLE_ACCOUNT_NO, SAMPLE_ISIN } from "./helpers/frames.js";
@@ -75,7 +59,7 @@ const SECOND_ISIN = "KR7035720002";
 const UNKNOWN_ISIN = "KR7999999999";
 /**
  * 당일 신규상장 — Supabase `stocks` 에 없고 게이트웨이 종목마스터(57) 보조 원천에서만 풀린다
- * (quick-260923-cqj). 그 코드는 `stocks` FK 를 만족하지 않을 수 있어 감사 행에는 null 이다 (D-06).
+ * (quick-260923-cqj).
  */
 const GATEWAY_ISIN = "KR70010S0000";
 
@@ -115,58 +99,6 @@ function fakeSupabase(): SupabaseClient {
       }),
     }),
   } as unknown as SupabaseClient;
-}
-
-/**
- * `dma_orders` 쓰기 창구 스텁.
- *
- * 여기만 가짜인 이유: 이 테스트가 보려는 것은 SQL 이 아니라 **어떤 값이 어떤 경로로 기록에
- * 닿는가**다. insert 인지 update 인지, 그리고 그 인자가 무엇인지가 전부다.
- */
-function mkOrderStore(
-  opts: {
-    existingId?: string | null;
-    /** 주문번호별 조회 결과 (e1m B1). 없으면 `existingId` 로 떨어진다. */
-    existingIds?: Record<string, string>;
-    /** 조회가 throw 한다 (e1m B1 — 열화 갱신 경로). */
-    lookupFails?: boolean;
-    insertFails?: boolean;
-    insertGate?: Promise<void>;
-  } = {},
-) {
-  const inserts: OrderInsertRow[] = [];
-  const updates: OrderUpdate[] = [];
-  const lookups: { userId: string; orderNo: string }[] = [];
-  /** insert **진입** 횟수. `insertGate` 로 왕복을 붙잡은 동안 경주를 관측하는 창이다 (WR-01). */
-  const started = { insert: 0 };
-  let nextId = 1;
-  return {
-    inserts,
-    updates,
-    lookups,
-    started,
-    store: {
-      insertRequest: async (row: OrderInsertRow): Promise<string> => {
-        started.insert += 1;
-        // 게이트가 있으면 그것이 풀릴 때까지 왕복이 끝나지 않는다 — 실제 Supabase 지연을
-        // 타이머 없이(가짜 타이머 환경이다) 결정론적으로 재현한다.
-        if (opts.insertGate !== undefined) await opts.insertGate;
-        await Promise.resolve();
-        if (opts.insertFails === true) throw new Error("supabase insert down");
-        inserts.push(row);
-        return `row-${nextId++}`;
-      },
-      enqueueUpdate: (u: OrderUpdate): void => {
-        updates.push(u);
-      },
-      findIdByOrderNo: async (userId: string, orderNo: string): Promise<string | null> => {
-        lookups.push({ userId, orderNo });
-        await Promise.resolve();
-        if (opts.lookupFails === true) throw new Error("supabase lookup down");
-        return opts.existingIds?.[orderNo] ?? opts.existingId ?? null;
-      },
-    },
-  };
 }
 
 /** 종목마스터 스텁. 「모르는 종목」과 「시장 미상」을 둘 다 만든다. */
@@ -267,7 +199,6 @@ describe("wss 주문 경로 (D-02)", () => {
   let hub: SubscriptionHub;
   let sessions: SessionManager;
   let port: number;
-  let orders: ReturnType<typeof mkOrderStore>;
   /** 게이트웨이가 받은 프레임(요청 대역 포함) 원문. */
   let gatewayPayloads: Buffer[];
   const sockets: TestWs[] = [];
@@ -287,7 +218,6 @@ describe("wss 주문 경로 (D-02)", () => {
       hub,
       credKey: CRED_KEY,
       path: WS_PATH,
-      orderStore: orders.store,
       symbols: SYMBOLS,
       ...overrides,
     });
@@ -322,7 +252,6 @@ describe("wss 주문 경로 (D-02)", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     resetDroppedEnvelopeCount();
     gatewayPayloads = [];
-    orders = mkOrderStore();
     gateway = await startFakeGateway({ autoLogin: true, loginResp: { success: true } });
     gateway.onFrame((_t, payload) => gatewayPayloads.push(Buffer.from(payload)));
     await startHarness();
@@ -357,32 +286,16 @@ describe("wss 주문 경로 (D-02)", () => {
     // 브라우저는 시장을 보내지 않았다 — relay 가 SymbolMap 으로 채운 값이다 (D-28).
     expect(req?.market()).toBe("K");
     expect(req?.quantity()).toBe(10);
-
-    // 송신 **전에** 감사 기록이 남는다 (T-15-32) — 그 사이에 죽어도 흔적이 있어야 한다.
-    expect(orders.inserts).toHaveLength(1);
-    expect(orders.inserts[0]).toMatchObject({
-      userId: USER_A,
-      isin: SAMPLE_ISIN,
-      code: "005930",
-      market: "K",
-      side: "B",
-      orderType: "N",
-      origin: "manual",
-    });
+    expect(req?.orderType()).toBe("N");
 
     gateway.pushOrderResp(gatewaySocket(), { noticeType: "A", orderNo: "0000012345" });
     await waitFor(() => framesOf(inbox, "order.result").length === 1, "order.result 수신");
 
     const result = framesOf(inbox, "order.result")[0];
     expect(result).toMatchObject({ rid: "rid-1", orderNo: "0000012345", status: "accepted" });
-
-    // 상관 1순위 키(orderRowId)로 좁혀 갱신하고, 이번에 알게 된 주문번호를 같이 채운다.
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-1", orderNo: "0000012345", status: "accepted" }),
-    );
   });
 
-  it("①-b 게이트웨이 보조 원천 종목(당일 신규상장)은 market Q 로 나가고 감사 행의 stock_code 는 null 이다 (quick-260923-cqj D-06)", async () => {
+  it("①-b 게이트웨이 보조 원천 종목(당일 신규상장)은 market Q 로 나간다 (quick-260923-cqj D-06)", async () => {
     const { ws } = await authed("token-a");
 
     ws.sendRaw(orderNew({ isin: GATEWAY_ISIN }));
@@ -392,34 +305,60 @@ describe("wss 주문 경로 (D-02)", () => {
     const req = orderReqsOf(gatewayPayloads)[0]?.directOrderReq();
     expect(req?.stockCode()).toBe(GATEWAY_ISIN);
     expect(req?.market()).toBe("Q");
-
-    // FK → stocks(code) — 게이트웨이 코드를 쓰면 insert 가 FK 위반으로 실패해 주문이 거부된다.
-    expect(orders.inserts).toHaveLength(1);
-    expect(orders.inserts[0]).toMatchObject({ isin: GATEWAY_ISIN, market: "Q", origin: "manual" });
-    expect(orders.inserts[0]?.code).toBeNull();
   });
 
-  it("①-c 게이트웨이 보조 원천 종목의 자동주문(상따) 통보도 감사 행의 stock_code 는 null 이다 (quick-260923-cqj D-06)", async () => {
-    await authed("token-a");
+  it("①-c 대기와 매칭되지 않는 자동주문(상따) 통보는 order.result 를 만들지 않는다 — Hub 팬아웃·감사 사본은 그대로다 (Phase 19 D-01·D-03)", async () => {
+    const infoSpy = vi.spyOn(logger, "info");
+    const a = await authed("token-a");
+    const b = await authed("token-a"); // 같은 사용자의 두 번째 탭
 
-    gateway.pushOrderResp(gatewaySocket(), {
-      isin: GATEWAY_ISIN,
-      noticeType: "A",
-      orderNo: "0000077777",
-      origin: "LimitChaser",
-      quantity: 5,
-      price: 15_000,
-    });
-    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
+    // A 탭에는 다른 종목의 수동 주문이 대기 중이다 — 자동주문 통보가 그 대기를 정산하면 안 된다.
+    a.ws.sendRaw(orderNew({ rid: "rid-manual", isin: SECOND_ISIN }));
+    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "수동 주문 송신");
 
-    expect(orders.inserts[0]).toMatchObject({
-      userId: USER_A,
-      origin: "limit_chaser",
-      isin: GATEWAY_ISIN,
-      market: "Q",
-      orderNo: "0000077777",
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      // 주문을 낸 적이 없는 종목 — 상따 전략이 알아서 발주한 상황이다.
+      gateway.pushOrderResp(gatewaySocket(), {
+        isin: GATEWAY_ISIN,
+        noticeType: "A",
+        orderNo: "0000077777",
+        origin: "LimitChaser",
+        quantity: 5,
+        price: 15_000,
+      });
+      // 51 푸시(`{t:"order"}`)는 **사용자 전 연결**이다 — 토스트·전략 로그 표면 (D-03).
+      await waitFor(() => framesOf(a.inbox, "order").length === 1, "A 탭 51 푸시");
+      await waitFor(() => framesOf(b.inbox, "order").length === 1, "B 탭 51 푸시");
+      await flushIo(20);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    expect(framesOf(a.inbox, "order")[0]).toMatchObject({ no: "0000077777", nt: "A" });
+    // ★ 대기 밖 통보는 즉시응답 상관 대상이 아니다 — 어느 탭에도 `order.result` 가 없다.
+    expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
+    expect(framesOf(b.inbox, "order.result")).toHaveLength(0);
+    // 기록 경로가 사라졌으므로 예외도, 프로세스를 내릴 rejection 도 없다.
+    expect(unhandled).toHaveLength(0);
+
+    // Hub 의 감사 사본은 유지된다 (Open Q7) — 계좌번호는 싣지 않는다 (T-16-45).
+    const infoed = JSON.stringify(infoSpy.mock.calls);
+    expect(infoed).toContain("감사 사본");
+    expect(infoed).toContain("0000077777");
+    expect(infoed).not.toContain(SAMPLE_ACCOUNT_NO);
+
+    // 수동 대기는 그대로 살아 있다가 5초 뒤 「결과 모름」으로 끝난다 — 오정산이 없었다.
+    await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS);
+    await waitFor(() => framesOf(a.inbox, "order.result").length === 1, "수동 대기 timeout");
+    expect(framesOf(a.inbox, "order.result")[0]).toMatchObject({
+      rid: "rid-manual",
+      status: "timeout",
     });
-    expect(orders.inserts[0]?.code).toBeNull();
   });
 
   it("② order.result 는 요청한 연결에만 간다 — 51 푸시는 두 연결 모두 받는다 (T-16-03)", async () => {
@@ -468,7 +407,6 @@ describe("wss 주문 경로 (D-02)", () => {
     const req = orderReqsOf(gatewayPayloads)[0]?.directOrderReq();
     expect(req?.orderType()).toBe("C");
     expect(req?.orgOrderNo()).toBe("0000012345");
-    expect(orders.inserts[0]).toMatchObject({ orderType: "C", orgOrderNo: "0000012345" });
 
     gateway.pushOrderResp(gatewaySocket(), {
       noticeType: "C",
@@ -496,7 +434,6 @@ describe("wss 주문 경로 (D-02)", () => {
 
     expect(ws.closeInfo?.code).toBe(4400);
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(0);
   });
 
   // ----------------------------------------------------------
@@ -513,8 +450,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(framesOf(inbox, "order.result")[0]).toMatchObject({ rid: "rid-1", status: "rejected" });
     // ★ 실계좌 방어선 — 거부는 **보내기 전에** 이뤄져야 한다.
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    // 기록도 만들지 않는다. 권한 없는 요청의 행이 남으면 감사가 오염된다.
-    expect(orders.inserts).toHaveLength(0);
 
     const logged = JSON.stringify(errorSpy.mock.calls);
     expect(logged).toContain("계좌 목록 밖");
@@ -534,7 +469,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(framesOf(inbox, "order.result").map((f) => f.status)).toEqual(["rejected", "rejected"]);
     // ★ 시장 미상을 "K" 로 메우면 코스닥 주문이 코스피로 나간다. 0바이트가 그 방어의 증거다.
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(0);
   });
 
   it("⑦ 같은 rid 재전송·같은 파라미터 더블클릭은 거부된다 (T-16-10)", async () => {
@@ -554,7 +488,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(results.every((r) => r.status === "rejected")).toBe(true);
     // ★ 중복 체결이 이 파일 최악의 결과다 — 게이트웨이로 나간 것은 여전히 1건뿐이다.
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(1);
-    expect(orders.inserts).toHaveLength(1);
   });
 
   // ----------------------------------------------------------
@@ -577,17 +510,12 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(result?.message).toContain("미체결 목록");
     // 주문번호는 **없는 것이 진실**이다 — 지어내지 않는다.
     expect(result?.orderNo).toBe("");
-
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-1", status: "timeout" }),
-    );
-    // 결과를 모르는 것이지 코드를 아는 것이 아니다 — DB 에는 result_code 를 쓰지 않는다.
-    const timeoutUpdate = orders.updates.find((u) => u.status === "timeout");
-    expect(timeoutUpdate?.resultCode).toBeUndefined();
+    // 결과를 모르는 것이지 코드를 아는 것이 아니다 — 음수는 relay 자체 판정이라는 표지다.
+    expect(result?.resultCode).toBeLessThan(0);
   });
 
   it("⑨ 늦게 온 통보가 이미 정산된 요청에 두 번째 order.result 를 만들지 않는다", async () => {
-    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
     const { ws, inbox } = await authed("token-a");
 
     ws.sendRaw(orderNew());
@@ -601,13 +529,6 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // 상관 응답은 한 번뿐이다. 두 번 오면 브라우저가 상태를 되돌려 그린다.
     expect(framesOf(inbox, "order.result")).toHaveLength(1);
-    // 기록 경로는 **조회를 거친다** (GC-CR-02). 이 행은 접수 전에 만들어져 `order_no` 가
-    // 비어 있으므로 조회는 「없음」이고, 그 상태에서 `order_no` 셀렉터로 보내는 갱신은
-    // **0행**이다 — 옛 코드는 그것을 성공처럼 보내고 침묵했다(Pitfall 18). 이제 보내지 않고
-    // 통보 원문을 error 로 남긴다.
-    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
-    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
-    expect(JSON.stringify(errorSpy.mock.calls)).toContain("붙지 않는 수동 통보");
   });
 
   it("⑩ 송신 실패는 대기열을 즉시 걷는다 — 5초를 기다리지 않는다", async () => {
@@ -622,9 +543,6 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // ★ 타이머를 전혀 진행시키지 않았는데 답이 왔다는 것이 「즉시」의 증거다.
     expect(framesOf(inbox, "order.result")[0]).toMatchObject({ status: "rejected" });
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-1", status: "rejected" }),
-    );
 
     // 그리고 5초가 지나도 timeout 프레임이 추가로 오지 않는다(타이머가 정리됐다).
     await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS * 2);
@@ -633,6 +551,7 @@ describe("wss 주문 경로 (D-02)", () => {
   });
 
   it("⑪ 연결이 끊기면 그 연결의 대기열·타이머가 정리된다 (누수 0)", async () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
     const { ws, inbox } = await authed("token-a");
 
     ws.sendRaw(orderNew());
@@ -646,102 +565,10 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // ★ 프레임 부재만으로는 아무것도 증명하지 못한다 — 닫힌 소켓에는 어차피 `#send` 가
     //   `readyState` 를 보고 아무것도 쓰지 않기 때문이다(타이머가 살아 있어도 통과한다).
-    //   타이머가 **실제로 정리됐는지**는 `finish(null)` 이 send 보다 **먼저** 부르는
-    //   `enqueueUpdate({status:"timeout"})` 으로만 관측된다.
-    expect(orders.updates.filter((u) => u.status === "timeout")).toHaveLength(0);
+    //   타이머가 **실제로 정리됐는지**는 `finish(null)` 이 send 보다 **먼저** 남기는
+    //   「첫 주문 통보 미수신」 error 로그로만 관측된다.
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("첫 주문 통보 미수신");
     expect(framesOf(inbox, "order.result")).toHaveLength(0);
-  });
-
-  // ----------------------------------------------------------
-  // 자동주문 (상따 · VI) — T-16-07 / Pitfall 18
-  // ----------------------------------------------------------
-
-  it("⑫ 대기열에 없는 상따 통보는 **새 행**으로 기록된다 (origin: limit_chaser)", async () => {
-    await authed("token-a");
-
-    // 주문을 낸 적이 없다 — 상따 전략이 알아서 발주한 상황이다.
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "A",
-      orderNo: "0000099999",
-      origin: "LimitChaser",
-      quantity: 7,
-      price: 12_345,
-    });
-    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
-
-    // ★ PostgREST 의 update 는 0행이어도 에러가 아니다 — 조회 없이 갱신만 하면 이 기록이
-    //   조용히 사라지고, 사용자는 자기 계좌에서 나간 주문을 어디서도 볼 수 없다.
-    // 조회는 **소유자와 함께** 나간다 — `order_no` 는 일별 재사용 시퀀스라 단독으로는
-    // 남의 행·어제 행을 매치시킨다 (gap 1 / T-16-14).
-    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000099999" }]);
-    expect(orders.inserts[0]).toMatchObject({
-      userId: USER_A,
-      origin: "limit_chaser",
-      isin: SAMPLE_ISIN,
-      orderNo: "0000099999",
-      qty: 7,
-      price: 12_345,
-      status: "accepted",
-      // 51 에는 계좌번호가 없다 — 세션의 단일 허용 계좌에서 왔다.
-      accountNo: SAMPLE_ACCOUNT_NO,
-    });
-    // 수명주기 필드는 큐로 넘어간다(경계 유지).
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-1", noticeType: "A" }),
-    );
-  });
-
-  it("⑬ 같은 order_no 로 행이 이미 있으면 insert 가 아니라 update 다", async () => {
-    orders = mkOrderStore({ existingId: "row-existing" });
-    await fanout.close();
-    await sessions.closeAll();
-    hub.closeAll();
-    await new Promise<void>((r) => server.close(() => r()));
-    await startHarness();
-    await authed("token-a");
-
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "E",
-      orderNo: "0000099999",
-      origin: "LimitChaser",
-      quantity: 7,
-    });
-    await waitFor(() => orders.updates.length > 0, "기존 행 갱신");
-
-    // 두 번째 행을 만들면 같은 주문이 감사 기록에 두 번 남는다.
-    expect(orders.inserts).toHaveLength(0);
-    // 대기 밖 E 의 수량은 **조각**이다 — 절대값(`filledQty`)이 아니라 누적분(`filledQtyDelta`)으로
-    // 싣는다 (quick-260923-e1m S1). 덮어쓰기는 전량 체결 행을 마지막 조각 수량으로 남겼다.
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-existing", filledQtyDelta: 7 }),
-    );
-    expect(orders.updates.find((u) => u.orderRowId === "row-existing")?.filledQty).toBeUndefined();
-  });
-
-  it("⑭ 수동 통보는 조회를 거쳐 orderRowId 로 갱신한다 — insert 는 하지 않는다 (GC-CR-02)", async () => {
-    // `finish` 가 이미 접수 주문번호를 채워 둔 행이 있는 상황이다 — 조회가 그것을 찾는다.
-    orders = mkOrderStore({ existingId: "row-manual" });
-    await restartHarness();
-    await authed("token-a");
-
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "E",
-      orderNo: "0000012345",
-      origin: "Manual",
-      quantity: 10,
-    });
-    await waitFor(() => orders.updates.length > 0, "수동 통보 갱신");
-    await flushIo();
-
-    // 조회는 **소유자와 함께** 나간다 (gap 1 / T-16-14).
-    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
-    // 수동 주문의 행은 요청 시점에 relay 가 이미 만들었다 — 여기서 두 번째 행을 만들지 않는다.
-    expect(orders.inserts).toHaveLength(0);
-    // ★ 셀렉터가 `order_no` 가 아니라 **확인된 행의 id** 다 (A10 1순위).
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ orderRowId: "row-manual", orderNo: "0000012345", origin: "manual" }),
-    );
-    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
   });
 
   // ----------------------------------------------------------
@@ -752,7 +579,6 @@ describe("wss 주문 경로 (D-02)", () => {
     // wss 로는 ④ 가 보였듯 스키마에서 끊긴다. 그래도 조립 단계 앞의 방어를 남겨 두는 이유는
     // 「모든 호출 경로의 마지막 관문」이어야 하기 때문이다 — 여기서 그 분기를 직접 친다.
     const sent: unknown[] = [];
-    const store = mkOrderStore();
     const handler = createOrderHandler<object>({
       sessions: {
         get: () => ({
@@ -761,8 +587,7 @@ describe("wss 주문 경로 (D-02)", () => {
           send: () => true,
         }),
       },
-      hub: { on: () => undefined, getLimitChasers: () => [], getViTrigger: () => null, getAccountStates: () => [] },
-      orderStore: store.store,
+      hub: { on: () => undefined },
       symbols: SYMBOLS,
       send: (_conn, msg) => sent.push(msg),
     });
@@ -782,29 +607,7 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(sent).toEqual([
       expect.objectContaining({ t: "order.result", rid: "rid-x", status: "rejected" }),
     ]);
-    // 조립 단계에 닿지 않았으므로 기록도 만들지 않는다.
-    expect(store.inserts).toHaveLength(0);
     handler.close();
-  });
-
-  it("⑯ dma_orders 기록에 실패하면 주문을 보내지 않는다 (감사 없는 실주문 금지)", async () => {
-    orders = mkOrderStore({ insertFails: true });
-    await fanout.close();
-    await sessions.closeAll();
-    hub.closeAll();
-    await new Promise<void>((r) => server.close(() => r()));
-    await startHarness();
-
-    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-    const { ws, inbox } = await authed("token-a");
-
-    ws.sendRaw(orderNew());
-    await waitFor(() => framesOf(inbox, "order.result").length === 1, "기록 실패 거부");
-
-    expect(framesOf(inbox, "order.result")[0]).toMatchObject({ status: "rejected" });
-    // ★ 감사 기록 없는 실주문을 만드는 것보다 지금 못 보낸다고 말하는 편이 낫다 (D-24).
-    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    expect(JSON.stringify(errorSpy.mock.calls)).toContain("dma_orders 기록 실패");
   });
 
   it("⑰ 다른 사용자의 51 통보는 이 사용자의 대기 주문을 정산하지 않는다 (T-15-02)", async () => {
@@ -822,85 +625,6 @@ describe("wss 주문 경로 (D-02)", () => {
 
     // ★ ISIN 이 같아도 사용자가 다르면 상관되지 않는다. 여기가 무너지면 남의 주문 결과를 받는다.
     expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
-  });
-
-  // ----------------------------------------------------------
-  // 자동주문 경주 · 소유자 경계 — WR-01 / gap 1
-  // ----------------------------------------------------------
-
-  /** 하네스를 새 `orders` 스텁으로 다시 세운다 (⑬ 과 같은 절차). */
-  async function restartHarness(): Promise<void> {
-    await fanout.close();
-    await sessions.closeAll();
-    hub.closeAll();
-    await new Promise<void>((r) => server.close(() => r()));
-    await startHarness();
-  }
-
-  it("⑱ 같은 자동주문의 접수·체결 통보가 insert 왕복 중에 겹쳐도 insert 는 1회다 (WR-01)", async () => {
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    orders = mkOrderStore({ insertGate: gate });
-    await restartHarness();
-    await authed("token-a");
-
-    const sock = gatewaySocket();
-    // ① 접수(A) 통보 — 조회는 「행 없음」이고 insert 왕복이 시작된다.
-    gateway.pushOrderResp(sock, {
-      noticeType: "A",
-      orderNo: "0000099999",
-      origin: "LimitChaser",
-      quantity: 7,
-      price: 12_345,
-    });
-    await waitFor(() => orders.started.insert === 1, "첫 insert 진입");
-
-    // ② 그 왕복이 **끝나기 전에** 체결(E) 통보가 도착한다. 가드가 없으면 여기서 두 번째
-    //    조회가 다시 「행 없음」을 보고 두 번째 insert 를 시작한다 — 같은 주문이 감사
-    //    기록에 두 벌 남는다.
-    gateway.pushOrderResp(sock, {
-      noticeType: "E",
-      orderNo: "0000099999",
-      origin: "LimitChaser",
-      quantity: 7,
-      price: 12_345,
-    });
-    await flushIo(20);
-    expect(orders.started.insert).toBe(1);
-
-    release?.();
-    await waitFor(() => orders.updates.length >= 2, "두 통보 모두 기록");
-
-    // ★ 행은 1건, 조회도 1회다 — 두 번째 통보는 진행 중인 Promise 를 재사용했다.
-    expect(orders.inserts).toHaveLength(1);
-    expect(orders.lookups).toHaveLength(1);
-    // 그러면서 두 통보의 수명주기 값은 **둘 다** 같은 행에 붙는다.
-    expect(orders.updates.filter((u) => u.orderRowId === "row-1")).toHaveLength(2);
-    expect(orders.updates).toContainEqual(expect.objectContaining({ noticeType: "A" }));
-    expect(orders.updates).toContainEqual(expect.objectContaining({ noticeType: "E" }));
-  });
-
-  it("⑲ 자동주문 조회는 그 연결의 userId 를 첫 인자로 싣는다 (gap 1 / T-16-14)", async () => {
-    // B 만 붙인다 — 조회 인자가 하드코딩이 아니라 **그 연결의 소유자**임을 보이기 위해서다.
-    await authed("token-b");
-
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "A",
-      orderNo: "0000088888",
-      origin: "LimitChaser",
-      quantity: 3,
-      price: 5_000,
-    });
-    await waitFor(() => orders.lookups.length === 1, "자동주문 조회");
-
-    expect(orders.lookups[0]?.userId).toBe(USER_B);
-    expect(orders.lookups[0]?.orderNo).toBe("0000088888");
-    // insert 행의 소유자도 같은 사용자다 — 조회와 기록이 다른 사용자를 가리키면 그것이 곧
-    // 테넌트 경계 붕괴다.
-    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
-    expect(orders.inserts[0]?.userId).toBe(USER_B);
   });
 
   // ----------------------------------------------------------
@@ -943,18 +667,11 @@ describe("wss 주문 경로 (D-02)", () => {
     });
     // 신규 대기는 아직 정산되지 않았다 — 그 주문은 살아 있다.
     expect(framesOf(inbox, "order.result").map((f) => f.rid)).not.toContain("rid-new");
-
-    // 기록도 교차하지 않는다: `cancelled` 는 **취소 행**에만 붙는다.
-    const cancelRowNo = orders.inserts.findIndex((r) => r.orderType === "C") + 1;
-    expect(cancelRowNo).toBeGreaterThan(0);
-    expect(orders.updates.find((u) => u.status === "cancelled")?.orderRowId).toBe(
-      `row-${cancelRowNo}`,
-    );
   });
 
   it("㉑ 같은 방향 2건을 좁히지 못한 통보는 아무것도 정산하지 않는다 — 대기는 살아서 타임아웃으로 끝난다 (gap 2)", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    vi.spyOn(logger, "error").mockImplementation(() => undefined);
     const { ws, inbox } = await authed("token-a");
 
     // **매수 2건**이다. 옛 형태(매수+매도)는 ②-1 매매구분 축이 생긴 뒤로 갈리므로(GC-WR-03)
@@ -979,24 +696,8 @@ describe("wss 주문 경로 (D-02)", () => {
     await flushIo(20);
 
     // ★ 「가장 오래된 것」 폴백이 있으면 여기서 rid-b1 이 정산된다 — 그것이 gap 2 다.
-    //   잘못 귀속된 기록은 없는 기록보다 나쁘므로 **아무것도** 정산하지 않는다.
+    //   잘못 귀속된 결과는 결과가 없는 것보다 나쁘므로 **아무것도** 정산하지 않는다.
     expect(framesOf(inbox, "order.result")).toHaveLength(0);
-    // 정산하지 않았으므로 통보는 기록 경로(`recordUnmatched`)로 간다. 그 경로가 지금까지
-    // 관찰되지 않던 **뒷부분**이 여기부터다 (GC-CR-02).
-    //
-    // 좁히기에 실패한 수동 통보는 이제 조회를 한 번 거친다. 대기 2건의 행은 접수 전에
-    // 만들어져 `order_no` 가 비어 있으므로 조회는 「없음」이고 — 그 상태에서 `order_no`
-    // 셀렉터 갱신을 보내면 **0행**이다. PostgREST 는 0행 update 를 에러로 주지 않으므로
-    // 옛 코드에서는 이 기록이 로그 한 줄 없이 사라졌다.
-    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
-    // ★ `orderRowId` 없는 갱신 = `order_no` 셀렉터 갱신이다. **한 건도 나가지 않는다.**
-    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
-    // 대신 통보 원문이 stdout 에 남는다 — 이 경로의 유일한 기록이다 (D-24 / S-5).
-    const errored = JSON.stringify(errorSpy.mock.calls);
-    expect(errored).toContain("붙지 않는 수동 통보");
-    expect(errored).toContain("0000012345");
-    // 감사 사본이므로 통보 원문은 싣되, 계좌번호는 여기에도 없다 (T-16-45).
-    expect(errored).not.toContain(SAMPLE_ACCOUNT_NO);
 
     const warned = JSON.stringify(warnSpy.mock.calls);
     expect(warned).toContain("좁히지 못했다");
@@ -1057,7 +758,6 @@ describe("wss 주문 경로 (D-02)", () => {
     // ★ 연결 스코프 가드는 여기서 무력했다(가드가 `ConnState` 안에 있었다) — 게이트웨이로
     //   나간 것이 여전히 1건이라는 사실이 사용자 축으로 올라갔다는 증거다.
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(1);
-    expect(orders.inserts).toHaveLength(1);
     // 첫 탭의 주문은 멀쩡히 살아 있다 — 거부가 엉뚱한 쪽으로 가지 않았다.
     expect(framesOf(a.inbox, "order.result")).toHaveLength(0);
   });
@@ -1079,182 +779,6 @@ describe("wss 주문 경로 (D-02)", () => {
 
     expect(framesOf(b.inbox, "order.result").filter((f) => f.status === "rejected")).toHaveLength(
       0,
-    );
-    expect(orders.inserts).toHaveLength(2);
-  });
-
-  it("㉕ await 중 연결 종료 — insert 왕복 도중 탭을 닫으면 게이트웨이로 나가지 않는다 (GC-CR-03)", async () => {
-    let openGate: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
-      openGate = resolve;
-    });
-    orders = mkOrderStore({ insertGate: gate });
-    await restartHarness();
-
-    const a = await authed("token-a");
-    a.ws.sendRaw(orderNew({ rid: "rid-toctou" }));
-    await waitFor(() => orders.started.insert === 1, "insert 왕복 진입");
-
-    // 아직 왕복이 끝나지 않았다 — 이 순간에 사용자가 탭을 닫는다.
-    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    await a.ws.close();
-    await flushIo(20);
-
-    // 이제 Supabase 가 응답한다. 가드가 없으면 여기서 고아 `ConnState` 에 대기가 붙고
-    // **주문이 실제로 게이트웨이로 나간다**.
-    openGate?.();
-    await flushIo(20);
-
-    // ★ 송신 0건. 받을 소켓이 없는 주문을 실계좌로 내보내지 않는다.
-    expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    // 행은 `requested` 로 남지 않는다 — 나가지 않았다는 사실이 상태로 남는다.
-    expect(orders.updates.filter((u) => u.status === "rejected")).toHaveLength(1);
-    expect(orders.updates[0]?.message).toContain("요청 처리 중 연결이 끊겨");
-
-    // ★ 5초를 넘겨도 `timeout` 이 **추가로** 확정되지 않는다 — 고아 타이머가 아예 없다.
-    //   (여기가 무너지면 접수·체결된 주문이 감사 기록에 `timeout` 으로 남는다.)
-    await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS * 2);
-    await flushIo(20);
-    expect(orders.updates.filter((u) => u.status === "timeout")).toHaveLength(0);
-    expect(orders.updates).toHaveLength(1);
-  });
-
-  it("㉖ 연결 종료 후 도착한 수동 통보 — 후보 0건이어도 사라지지 않는다, 0행 갱신 대신 error 다 (GC-CR-02)", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
-    // 탭 2개를 연다. 하나를 닫아도 DMA 세션이 살아 있어야 51 통보를 밀어 넣을 수 있다.
-    const a = await authed("token-a");
-    await authed("token-a");
-
-    a.ws.sendRaw(orderNew({ rid: "rid-closed" }));
-    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "주문 송신");
-
-    // 주문을 낸 탭을 닫는다 → `closeConn` 이 `state.pending` 을 비운다. 이후 도착하는
-    // 통보는 **후보 0건**이라 좁히기 warn 조차 나지 않는다 — 옛 코드에서 이 경로는
-    // 경고도 기록도 없이 통째로 침묵했다.
-    await a.ws.close();
-    await flushIo(20);
-
-    gateway.pushOrderResp(gatewaySocket(), { noticeType: "A", orderNo: "0000012345" });
-    await waitFor(() => orders.lookups.length === 1, "수동 통보 조회");
-    await flushIo(20);
-
-    // 후보가 0건이므로 좁히기 warn 은 없다. 그래도 기록 경로는 돌았다.
-    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain("좁히지 못했다");
-    expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "0000012345" }]);
-    // 0행 갱신을 보내지 않는다. 수동 통보는 새 행도 만들지 않는다(행은 ③-2 가 이미 만들었다).
-    expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(1);
-
-    const errored = JSON.stringify(errorSpy.mock.calls);
-    expect(errored).toContain("붙지 않는 수동 통보");
-    expect(errored).toContain("0000012345");
-    expect(errored).not.toContain(SAMPLE_ACCOUNT_NO);
-
-    // ★ D-24 의 **두 번째 감사 사본**. `dma_orders` 에 붙지 못한 통보라도 Hub 가 수신
-    //   사실을 stdout 에 남긴다 — 이 한 줄이 브로커 주문번호와 대조할 유일한 근거다.
-    const infoed = JSON.stringify(infoSpy.mock.calls);
-    expect(infoed).toContain("감사 사본");
-    expect(infoed).toContain("0000012345");
-    // 계좌번호·자격증명은 싣지 않는다 (D-19 승계 / T-16-45).
-    expect(infoed).not.toContain(SAMPLE_ACCOUNT_NO);
-  });
-
-  it("㉗ 행 생성 경로의 예외가 프로세스를 내리지 않는다 — error 로그로 끝난다 (GC-WR-01)", async () => {
-    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
-    await authed("token-a");
-
-    // `autoInsertRow` 가 계좌·시장을 물어보는 자리다. 여기서 터지면 예전에는 그 reject 가
-    // `void recordUnmatched(...)` 를 지나 `index.ts` 의 `unhandledRejection` 까지 올라갔고,
-    // 그 핸들러는 `logger.fatal` + **프로세스 종료**다 — 접속한 전 사용자의 DMA 세션이 끊긴다.
-    vi.spyOn(hub, "getLimitChasers").mockImplementation(() => {
-      throw new Error("전략 캐시 파손");
-    });
-
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown): void => {
-      unhandled.push(reason);
-    };
-    process.on("unhandledRejection", onUnhandled);
-    try {
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "A",
-        orderNo: "0000077777",
-        origin: "LimitChaser",
-        quantity: 7,
-        price: 12_345,
-      });
-      // 기다리는 조건을 **기록 결과가 아니라 통보 수신**에 건다 — 결과에 걸면 회귀가
-      // 생겼을 때 단언이 아니라 타임아웃으로 죽어 아래 두 단언이 아예 실행되지 않는다.
-      await waitFor(
-        () => JSON.stringify(infoSpy.mock.calls).includes("감사 사본"),
-        "통보 수신 감사 사본",
-      );
-      await flushIo(30);
-    } finally {
-      process.off("unhandledRejection", onUnhandled);
-    }
-
-    // ★ 프로세스를 내릴 rejection 이 하나도 없다.
-    expect(unhandled).toHaveLength(0);
-    // 행은 만들어지지 않았고(지어내지 않는다), 그 사실이 stdout 에 남는다 — 기록이 0 은 아니다.
-    expect(orders.inserts).toHaveLength(0);
-    expect(orders.updates).toHaveLength(0);
-    expect(JSON.stringify(errorSpy.mock.calls)).toContain("감사 기록 결손");
-  });
-
-  it("㉘ 빈 주문번호 거부 2건은 서로 다른 행으로 기록된다 — in-flight 으로 합치지 않는다 (GC-WR-02)", async () => {
-    let openGate: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
-      openGate = resolve;
-    });
-    orders = mkOrderStore({ insertGate: gate });
-    await restartHarness();
-    await authed("token-a");
-
-    const sock = gatewaySocket();
-    // 접수 **전** 거부라 주문번호가 없다 — 두 건 다 `orderNo === ""` 로 온다.
-    gateway.pushOrderResp(sock, {
-      noticeType: "R",
-      orderNo: "",
-      origin: "LimitChaser",
-      quantity: 7,
-      price: 12_345,
-      message: "증거금 부족",
-    });
-    await waitFor(() => orders.started.insert === 1, "첫 insert 진입");
-
-    // 그 왕복이 끝나기 전에 **다른** 자동주문의 거부가 도착한다. 키를 `"user|"` 하나로
-    // 합치면 두 번째가 첫 번째의 Promise 를 재사용해 같은 `row.id` 를 받고, 두 patch 가
-    // 그 한 행에 차례로 덮어써진다 — 거부 1건이 감사 기록에서 사라진다.
-    gateway.pushOrderResp(sock, {
-      noticeType: "R",
-      orderNo: "",
-      origin: "LimitChaser",
-      isin: SECOND_ISIN,
-      quantity: 3,
-      price: 5_000,
-      message: "주문가능금액 초과",
-    });
-    await waitFor(() => orders.started.insert === 2, "두 번째 insert 진입 (합쳐지지 않았다)");
-
-    openGate?.();
-    await waitFor(() => orders.updates.length >= 2, "두 거부 모두 기록");
-    await flushIo(20);
-
-    // ★ 행 2건, 서로 다른 id 2건. 조회는 한 번도 하지 않는다 — 빈 주문번호에서
-    //   `findIdByOrderNo` 는 항상 `null` 이라 왕복이 순손실이다.
-    expect(orders.inserts).toHaveLength(2);
-    expect(orders.lookups).toHaveLength(0);
-    const rowIds = orders.updates.map((u) => u.orderRowId);
-    expect(new Set(rowIds).size).toBe(2);
-    expect(rowIds).toEqual(expect.arrayContaining(["row-1", "row-2"]));
-    // 두 거부의 사유가 각자의 행에 남는다.
-    expect(orders.updates).toContainEqual(expect.objectContaining({ message: "증거금 부족" }));
-    expect(orders.updates).toContainEqual(
-      expect.objectContaining({ message: "주문가능금액 초과" }),
     );
   });
 
@@ -1282,10 +806,6 @@ describe("wss 주문 경로 (D-02)", () => {
     const settled = framesOf(inbox, "order.result");
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({ rid: "rid-sell", status: "accepted", orderNo: "0000012345" });
-    // 정산했으므로 기록 경로(`recordUnmatched`)로 새지 않았다 — 조회 0건.
-    expect(orders.lookups).toHaveLength(0);
-    expect(orders.updates).toHaveLength(1);
-    expect(orders.updates[0]).toMatchObject({ orderRowId: "row-2", orderNo: "0000012345" });
 
     // 반대쪽 매수 대기는 **그대로 살아 있다** — 자기 통보가 오지 않았으므로 5초 뒤
     // 「결과 모름」으로 끝나는 것이 이 상황의 진실이다 (Pitfall 9).
@@ -1312,7 +832,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(reqs.map((r) => r?.orgOrderNo())).toEqual(["0000012345", "0000067890"]);
     expect(reqs.every((r) => r?.orderType() === "C")).toBe(true);
     expect(framesOf(inbox, "order.result")).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(2);
   });
 
   it("㉛ 같은 원주문번호 취소를 연타하면 두 번째는 거부다 — 가드를 없앤 것이 아니다 (GC-WR-10)", async () => {
@@ -1332,7 +851,6 @@ describe("wss 주문 경로 (D-02)", () => {
     });
     // 게이트웨이로 나간 것은 여전히 1건뿐이다.
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(1);
-    expect(orders.inserts).toHaveLength(1);
   });
 
   // ----------------------------------------------------------
@@ -1358,19 +876,17 @@ describe("wss 주문 경로 (D-02)", () => {
     await waitFor(() => framesOf(inbox, "order.result").length === 1, "취소확인 order.result");
 
     // ★ 정규화가 없으면 하드 필터가 후보를 0건으로 만들고 `null` 을 돌려준다 — 5초 뒤
-    //   `finish(null)` 이 `status:"timeout"` 을 큐에 넣어, **실제로 확인된 취소가 감사
-    //   기록에 「결과를 확인하지 못했습니다」로 남는다.** 그것이 이 케이스의 의미다.
+    //   `finish(null)` 이 `status:"timeout"` 을 보내, **실제로 확인된 취소가 요청 탭에
+    //   「결과를 확인하지 못했습니다」로 끝난다.** 그것이 이 케이스의 의미다.
     expect(framesOf(inbox, "order.result")[0]).toMatchObject({
       rid: "rid-cancel",
       status: "cancelled",
       orderNo: "0000012399",
     });
-    expect(orders.updates.find((u) => u.status === "cancelled")?.orderRowId).toBe("row-1");
 
     // 5초가 지나도 timeout 은 나가지 않는다 — 대기는 이미 걷혔다.
     await vi.advanceTimersByTimeAsync(ORDER_RESP_TIMEOUT_MS);
     await flushIo(20);
-    expect(orders.updates.filter((u) => u.status === "timeout")).toHaveLength(0);
     expect(framesOf(inbox, "order.result")).toHaveLength(1);
   });
 
@@ -1411,40 +927,11 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(warned).not.toContain(SAMPLE_ACCOUNT_NO);
   });
 
-  it("㉞ 구 게이트웨이의 빈 매매구분은 감사 행에 매수로 기록되지 않는다 (R2-WR-06)", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    await authed("token-a");
-
-    // 상따 자동주문의 접수 통보인데 매매구분이 비어 있다(구 게이트웨이·미완성 브로커).
-    // 파서는 이것을 `sideTrusted: true` 로 준다 — C/M 만 false 로 두기 때문이다.
-    // 「믿을 수 있는가」와 「해석되는가」는 다른 질문이고, 옛 `startsWith("S") ? "S" : "B"`
-    // 는 이 자리를 **매수로 지어냈다**. 매도 자동주문이 감사 기록에 매수로 남는 형태다.
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "A",
-      side: "",
-      orderNo: "0000099999",
-      origin: "LimitChaser",
-      quantity: 7,
-      price: 12_345,
-    });
-    await waitFor(() => orders.inserts.length === 1, "자동주문 insert");
-
-    expect(orders.inserts[0]?.side).not.toBe("B");
-    // CHECK 가 B/S 둘뿐이라 행을 남기려면 하나를 골라야 한다 — 취소 행과 같은 「방향의
-    // 정본이 아님」 표기로 수렴시킨다.
-    expect(orders.inserts[0]?.side).toBe("S");
-
-    // 사유는 반드시 남는다 (S-5 — 무로그 fail-safe 금지). 계좌번호는 싣지 않는다 (T-16-45).
-    const warned = JSON.stringify(warnSpy.mock.calls);
-    expect(warned).toContain("매매구분을 해석하지 못했다");
-    expect(warned).not.toContain(SAMPLE_ACCOUNT_NO);
-  });
-
   // ----------------------------------------------------------
   // 정정 (Phase 18 D-21 / T-18-01 · T-18-02)
   // ----------------------------------------------------------
 
-  it("㉟ 정정은 orderType \"M\" + 원주문번호 + 요청 방향으로 기록·송신되고 정정확인으로 정산된다", async () => {
+  it("㉟ 정정은 orderType \"M\" + 원주문번호 + 요청 방향으로 송신되고 정정확인으로 정산된다", async () => {
     const { ws, inbox } = await authed("token-a");
 
     ws.sendRaw(orderModify());
@@ -1455,14 +942,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(req?.orgOrderNo()).toBe("0000012345");
     expect(req?.side()).toBe("B");
     expect(req?.price()).toBe(71_000);
-    // 감사 기록이 송신 **전에** 남고, 정정은 방향을 안다 — 취소처럼 "S" 로 적지 않는다.
-    expect(orders.inserts[0]).toMatchObject({
-      orderType: "M",
-      orgOrderNo: "0000012345",
-      side: "B",
-      price: 71_000,
-      origin: "manual",
-    });
 
     // 정정확인("M")은 원주문번호를 실어 온다 — 정정 대기가 원주문 참조 대기로 등록돼 있어야
     // 원주문번호 하드 필터를 통과한다(신규처럼 등록되면 여기서 5초 timeout 이 된다).
@@ -1495,7 +974,6 @@ describe("wss 주문 경로 (D-02)", () => {
     await waitFor(() => orderReqsOf(gatewayPayloads).length === 2, "재정정 송신");
     const prices = orderReqsOf(gatewayPayloads).map((e) => e.directOrderReq()?.price());
     expect(prices).toEqual([71_000, 71_500]);
-    expect(orders.inserts).toHaveLength(2);
   });
 
   it("㊲ 정정도 계좌 화이트리스트 게이트를 지난다 — 우회 분기 없음 (T-18-01)", async () => {
@@ -1511,10 +989,9 @@ describe("wss 주문 경로 (D-02)", () => {
       message: "이 세션에서 사용할 수 없는 계좌입니다.",
     });
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(0);
   });
 
-  it("㊴ 조각 수·시간외종가 세션은 감사 기록과 와이어에 같은 값으로 실린다 — 1 이하는 둘 다 비운다 (D-22/D-23)", async () => {
+  it("㊴ 조각 수·시간외종가 세션은 와이어에 실린다 — 조각 수 1 이하는 비운다 (D-22/D-23)", async () => {
     const infoSpy = vi.spyOn(logger, "info");
     const { ws } = await authed("token-a");
 
@@ -1528,10 +1005,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(g3?.pieceCount()).toBe(3);
     expect(p1?.pieceCount()).toBe(0);
     expect(p1?.krxSession()).toBeNull();
-
-    expect(orders.inserts[0]).toMatchObject({ price: 0, krxSession: "G3", pieceCount: 3 });
-    expect(orders.inserts[1]?.pieceCount).toBeUndefined();
-    expect(orders.inserts[1]?.krxSession).toBeUndefined();
 
     // 무성 소실 방어 로그 — 조립 직전 두 값이 남고 계좌번호 원문은 없다 (T-18-06/07).
     const logged = JSON.stringify(infoSpy.mock.calls);
@@ -1548,10 +1021,9 @@ describe("wss 주문 경로 (D-02)", () => {
 
     expect(ws.closeInfo?.code).toBe(4400);
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(0);
   });
 
-  it("㊵ 가격 0 취소(시간외종가 원주문)가 orderType C · price 0 으로 기록·송신되고 취소확인으로 정산된다 (CR-01)", async () => {
+  it("㊵ 가격 0 취소(시간외종가 원주문)가 orderType C · price 0 으로 송신되고 취소확인으로 정산된다 (CR-01)", async () => {
     const { ws, inbox } = await authed("token-a");
 
     // 브라우저 모양 그대로 — 호출부는 원주문 가격을 싣고, 시간외종가 원주문은 가격 0 이다.
@@ -1573,8 +1045,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(req?.orderType()).toBe("C");
     expect(req?.orgOrderNo()).toBe("0000012345");
     expect(req?.price()).toBe(0);
-    expect(orders.inserts).toHaveLength(1);
-    expect(orders.inserts[0]).toMatchObject({ orderType: "C", orgOrderNo: "0000012345", price: 0 });
 
     gateway.pushOrderResp(gatewaySocket(), {
       noticeType: "C",
@@ -1610,7 +1080,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(modifyConn.ws.closeInfo?.code).toBe(4400);
 
     expect(orderReqsOf(gatewayPayloads)).toHaveLength(0);
-    expect(orders.inserts).toHaveLength(0);
   });
 
   it("㊷ 같은 원주문의 취소와 값이 다른 정정이 겹쳐도 취소확인은 **취소 대기만** 정산한다 (WR-03 f)", async () => {
@@ -1639,13 +1108,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(results[0]).toMatchObject({ rid: "rid-c", status: "cancelled", orderNo: "0000012399" });
     // 정정 대기는 취소확인으로 정산되지 않는다 — 그 정정은 자기 통보(정정확인)를 기다린다.
     expect(results.map((f) => f.rid)).not.toContain("rid-m");
-
-    // 감사 기록도 교차하지 않는다: `cancelled` 는 **취소 행**에만 붙는다.
-    const cancelRowNo = orders.inserts.findIndex((r) => r.orderType === "C") + 1;
-    expect(cancelRowNo).toBeGreaterThan(0);
-    expect(orders.updates.filter((u) => u.status === "cancelled").map((u) => u.orderRowId)).toEqual([
-      `row-${cancelRowNo}`,
-    ]);
   });
 
   it("㊸ 정정 대기 + 체결 E(org X, requestKind Modify) 가 첫 통보여도 정정이 정산된다 — timeout 이 아니다 (GC-WR-01)", async () => {
@@ -1673,716 +1135,6 @@ describe("wss 주문 경로 (D-02)", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ rid: "rid-m", status: "partially_filled", orderNo: "0000012400" });
     expect(results[0]?.status).not.toBe("timeout");
-
-    // 정정 감사 행이 체결 결과로 갱신된다 — `timeout` 으로 남지 않는다.
-    expect(orders.updates).toHaveLength(1);
-    expect(orders.updates[0]).toMatchObject({
-      orderRowId: "row-1",
-      orderNo: "0000012400",
-      status: "partially_filled",
-      filledQty: 4,
-    });
-  });
-
-  // ----------------------------------------------------------
-  // 상태 단조성 — 늦은 확인 통보 (18-33 / R3-WR-01)
-  // ----------------------------------------------------------
-
-  /**
-   * 진짜 `OrderStore(supabaseOrderSinks(가짜 PostgREST))` 로 하네스를 다시 세운다.
-   *
-   * 위 케이스들의 `mkOrderStore` 스텁은 「어떤 갱신이 큐에 들어가는가」만 본다. R3-WR-01 은
-   * 「그 갱신이 **행에** 무엇을 남기는가」의 결함이라 스텁으로는 재현되지 않는다 — 조건부
-   * UPDATE 를 실제로 거르는 공용 가짜가 필요하다. `start()` 는 부르지 않는다(가짜 타이머
-   * 환경이다) — 대신 `flushNow()` 를 명시 호출한다.
-   */
-  async function restartWithRealStore(seed: FakeRow[] = []): Promise<{
-    store: OrderStore;
-    fake: ReturnType<typeof fakeDmaOrders>;
-  }> {
-    const fake = fakeDmaOrders(seed);
-    const store = new OrderStore(supabaseOrderSinks(fake.supabase));
-    await fanout.close();
-    await sessions.closeAll();
-    hub.closeAll();
-    await new Promise<void>((r) => server.close(() => r()));
-    await startHarness({ orderStore: store });
-    return { store, fake };
-  }
-
-  /** 정정 → 전량 체결 E(org X · Modify · Y · 10주) 가 정정 대기를 먼저 정산한다 (㊸ 의 전량 판). */
-  async function modifySettledByFill(
-    store: OrderStore,
-    fake: ReturnType<typeof fakeDmaOrders>,
-  ): Promise<{ inbox: RelayOutbound[]; modifyRow: FakeRow }> {
-    const { ws, inbox } = await authed("token-a");
-    ws.sendRaw(orderModify({ rid: "rid-m", qty: 10, price: 71_000 }));
-    await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
-
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "E",
-      orderNo: "0000012400",
-      orgOrderNo: "0000012345",
-      requestKind: "Modify",
-      side: "B",
-      quantity: 10,
-      price: 71_000,
-    });
-    await waitFor(() => framesOf(inbox, "order.result").length >= 1, "정정 체결 order.result");
-    expect(framesOf(inbox, "order.result")[0]).toMatchObject({ rid: "rid-m", status: "filled" });
-    await store.flushNow();
-
-    const modifyRow = fake.rows.find((r) => r.order_no === "0000012400");
-    expect(modifyRow).toMatchObject({ status: "filled", notice_type: "E", filled_qty: 10 });
-    return { inbox, modifyRow: modifyRow as FakeRow };
-  }
-
-  /** 늦은 정정확인 M 을 밀어 넣고, 기록 경로의 조회가 끝난 뒤 큐를 비운다. */
-  async function pushLateModifyConfirm(
-    store: OrderStore,
-    fake: ReturnType<typeof fakeDmaOrders>,
-    orderNo: string,
-  ): Promise<void> {
-    const selectsBefore = fake.queries.filter((q) => q.verb === "select").length;
-    gateway.pushOrderResp(gatewaySocket(), {
-      noticeType: "M",
-      orderNo,
-      orgOrderNo: "0000012345",
-      requestKind: "Modify",
-      side: "B",
-      quantity: 10,
-      price: 71_000,
-    });
-    await waitFor(
-      () => fake.queries.filter((q) => q.verb === "select").length > selectsBefore,
-      "늦은 M 의 기존 행 조회",
-    );
-    await flushIo(8);
-    await store.flushNow();
-  }
-
-  it("㊹ 전량 체결 E 가 정정을 정산한 뒤 도착한 늦은 정정확인 M 은 정정 행을 filled → accepted 로 되돌리지 않는다 (R3-WR-01)", async () => {
-    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    vi.spyOn(logger, "error").mockImplementation(() => undefined);
-    const { store, fake } = await restartWithRealStore();
-
-    const { modifyRow } = await modifySettledByFill(store, fake);
-    const noopBefore = store.stats().flushedNoop;
-
-    // M 의 주문번호 = 정정 주문번호 Y — `findIdByOrderNo(Y)` 가 방금 체결로 채운 정정 행을 찾는다.
-    await pushLateModifyConfirm(store, fake, "0000012400");
-
-    expect({
-      status: modifyRow.status,
-      notice_type: modifyRow.notice_type,
-      filled_qty: modifyRow.filled_qty,
-    }).toEqual({ status: "filled", notice_type: "E", filled_qty: 10 });
-    // 막힌 갱신은 조용히 사라지지 않는다 — 「이유를 아는 무동작」으로 센다 (S-5).
-    expect(store.stats().flushedNoop).toBeGreaterThanOrEqual(noopBefore + 1);
-    expect(store.stats().dropped).toBe(0);
-  });
-
-  it("㊺ 늦은 M 의 주문번호가 원주문 X 면 부분체결된 원주문 행을 덮지 않는다 — 정정 행도 filled 그대로다 (R3-WR-01)", async () => {
-    vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-    vi.spyOn(logger, "error").mockImplementation(() => undefined);
-    const { from } = kstDayRangeUtc();
-    const original: FakeRow = {
-      id: "row-original-x",
-      user_id: USER_A,
-      order_no: "0000012345",
-      created_at: new Date(new Date(from).getTime() + 3600_000).toISOString(),
-      status: "partially_filled",
-      notice_type: "E",
-      filled_qty: 6,
-    };
-    const { store, fake } = await restartWithRealStore([original]);
-
-    const { modifyRow } = await modifySettledByFill(store, fake);
-    await pushLateModifyConfirm(store, fake, "0000012345");
-
-    expect({
-      status: original.status,
-      notice_type: original.notice_type,
-      filled_qty: original.filled_qty,
-    }).toEqual({ status: "partially_filled", notice_type: "E", filled_qty: 6 });
-    expect(modifyRow.status).toBe("filled");
-    expect(store.stats().dropped).toBe(0);
-  });
-
-  // ----------------------------------------------------------
-  // quick-260923-m23 — 정정확인 M 의 수량 캡 · 원주문 이동 기록
-  // gh-trade a940b25f · a70f6ab7: M 의 quantity 는 요청 에코, 이동 수량 = min(요청, 원주문 잔량).
-  // ----------------------------------------------------------
-
-  describe("quick-260923-m23 — 정정확인 M 수량", () => {
-    const X = "0000012345";
-    const Y = "0000012400";
-
-    function todayIso(): string {
-      return new Date(new Date(kstDayRangeUtc().from).getTime() + 3600_000).toISOString();
-    }
-
-    function originalRow(extra: Record<string, unknown> = {}): FakeRow {
-      return {
-        id: "row-x",
-        user_id: USER_A,
-        order_no: X,
-        created_at: todayIso(),
-        status: "accepted",
-        side: "S",
-        qty: 100,
-        filled_qty: 0,
-        modified_qty: 0,
-        notice_type: "A",
-        ...extra,
-      };
-    }
-
-    /** hub 66/67 누적 상태 — 원주문 X 잔량만 있는 계좌 1개. 계좌번호는 로그 누출 탐지용이다. */
-    function hubWithUnfilled(rows: Partial<RelayUnfilled>[]): RelayAccountState[] {
-      return [acctState(rows)];
-    }
-
-    /** 통보를 밀고, 기록 경로의 조회(select)가 시작될 때까지 기다린 뒤 큐를 비운다. */
-    async function pushAndFlush(
-      store: OrderStore,
-      fake: ReturnType<typeof fakeDmaOrders>,
-      input: Parameters<FakeGateway["pushOrderResp"]>[1],
-    ): Promise<void> {
-      const selectsBefore = fake.queries.filter((q) => q.verb === "select").length;
-      gateway.pushOrderResp(gatewaySocket(), input);
-      await waitFor(
-        () => fake.queries.filter((q) => q.verb === "select").length > selectsBefore,
-        "통보 기록 경로의 조회",
-      );
-      await flushIo(8);
-      await store.flushNow();
-      await flushIo(8);
-      await store.flushNow();
-    }
-
-    it("사고 재현: 18,249 중 7,432 체결 → 13,827 정정 → 이동 10,817 — 정정 행 qty 10,817 뒤 체결 10,817 이면 filled, 원주문 modified", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const x = originalRow({ qty: 18249, filled_qty: 7432, status: "partially_filled", notice_type: "E" });
-      const { store, fake } = await restartWithRealStore([x]);
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, side: "S", orderQty: 18249, filledQty: 7432, unfilledQty: 10817 }]),
-      );
-
-      const { ws, inbox } = await authed("token-a");
-      ws.sendRaw(orderModify({ side: "S", qty: 13827, price: 71_000, orgOrderNo: X }));
-      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
-
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "M",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        side: "S",
-        quantity: 13827,
-        price: 71_000,
-      });
-      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
-      await waitFor(() => fake.queries.some((q) => q.verb === "select"), "원주문 조회");
-      await flushIo(8);
-      await store.flushNow();
-
-      const modifyRow = fake.rows.find((r) => r.order_no === Y);
-      expect(modifyRow).toMatchObject({ qty: 10817, status: "accepted", order_no: Y });
-      expect(x).toMatchObject({ modified_qty: 10817, status: "modified", filled_qty: 7432, qty: 18249 });
-
-      // 대기 밖 체결 E — 정정 주문번호 Y 의 전량 10,817.
-      await pushAndFlush(store, fake, {
-        noticeType: "E",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        side: "S",
-        quantity: 10817,
-        price: 71_000,
-      });
-      expect(modifyRow).toMatchObject({ filled_qty: 10817, status: "filled", qty: 10817 });
-      expect(store.stats().dropped).toBe(0);
-    });
-
-    it("일부정정: 원주문 100 → M 30 — 정정 행 qty 30, 원주문 modified_qty 30 · accepted, 이후 원주문 체결 70 이면 filled", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const x = originalRow();
-      const { store, fake } = await restartWithRealStore([x]);
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 0, unfilledQty: 100 }]),
-      );
-
-      const { ws, inbox } = await authed("token-a");
-      ws.sendRaw(orderModify({ side: "S", qty: 30, orgOrderNo: X }));
-      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "M",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        quantity: 30,
-        price: 71_000,
-      });
-      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
-      await waitFor(() => fake.queries.some((q) => q.verb === "select"), "원주문 조회");
-      await flushIo(8);
-      await store.flushNow();
-
-      expect(fake.rows.find((r) => r.order_no === Y)).toMatchObject({ qty: 30, status: "accepted" });
-      expect(x).toMatchObject({ modified_qty: 30, status: "accepted" });
-
-      await pushAndFlush(store, fake, { noticeType: "E", orderNo: X, requestKind: "New", side: "S", quantity: 70 });
-      expect(x).toMatchObject({ filled_qty: 70, modified_qty: 30, status: "filled" });
-    });
-
-    it("전량 정정 + 선체결: 원주문 100 에 체결 40 뒤 정정 130 — 정정 행 qty 60, 원주문 filled 40 + modified 60 · 'modified'", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const x = originalRow();
-      const { store, fake } = await restartWithRealStore([x]);
-
-      await authed("token-a");
-      await pushAndFlush(store, fake, { noticeType: "E", orderNo: X, requestKind: "New", side: "S", quantity: 40 });
-      expect(x).toMatchObject({ filled_qty: 40, status: "partially_filled" });
-
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 40, unfilledQty: 60 }]),
-      );
-      const { ws, inbox } = await authed("token-a");
-      ws.sendRaw(orderModify({ side: "S", qty: 130, orgOrderNo: X }));
-      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
-      await pushAndFlush(store, fake, {
-        noticeType: "M",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        quantity: 130,
-        price: 71_000,
-      });
-      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
-
-      expect(fake.rows.find((r) => r.order_no === Y)).toMatchObject({ qty: 60, status: "accepted" });
-      expect(x).toMatchObject({ filled_qty: 40, modified_qty: 60, status: "modified" });
-    });
-
-    it("순서 역전: E(Modify · Y · 60) 가 정정 대기를 먼저 정산한 뒤 늦은 M(130) — 정정 행 qty 60 · filled", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      const x = originalRow({ filled_qty: 40, status: "partially_filled", notice_type: "E" });
-      const { store, fake } = await restartWithRealStore([x]);
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 40, unfilledQty: 60 }]),
-      );
-
-      const { ws, inbox } = await authed("token-a");
-      ws.sendRaw(orderModify({ side: "S", qty: 130, orgOrderNo: X }));
-      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "E",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        side: "S",
-        quantity: 60,
-        price: 71_000,
-      });
-      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정 체결 order.result");
-      await store.flushNow();
-      const modifyRow = fake.rows.find((r) => r.order_no === Y);
-      expect(modifyRow).toMatchObject({ qty: 130, filled_qty: 60, status: "partially_filled" });
-
-      await pushAndFlush(store, fake, {
-        noticeType: "M",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        quantity: 130,
-        price: 71_000,
-      });
-
-      expect(modifyRow).toMatchObject({ qty: 60, filled_qty: 60, status: "filled" });
-      expect(x).toMatchObject({ filled_qty: 40, modified_qty: 60, status: "modified" });
-      expect(store.stats().dropped).toBe(0);
-    });
-
-    it("이중 적용 방지: 같은 M 이 두 번 와도 원주문 이동(modifiedQtyDelta) 갱신은 1건, 두 번째는 info 1줄", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const infoSpy = vi.spyOn(logger, "info");
-      orders = mkOrderStore({ existingIds: { [X]: "row-x" } });
-      await fanout.close();
-      await sessions.closeAll();
-      hub.closeAll();
-      await new Promise<void>((r) => server.close(() => r()));
-      await startHarness();
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 0, unfilledQty: 100 }]),
-      );
-
-      const { ws, inbox } = await authed("token-a");
-      ws.sendRaw(orderModify({ side: "S", qty: 30, orgOrderNo: X }));
-      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "정정 DirectOrderReq(2)");
-      const m = { noticeType: "M", orderNo: Y, orgOrderNo: X, requestKind: "Modify", quantity: 30, price: 71_000 };
-      gateway.pushOrderResp(gatewaySocket(), m);
-      await waitFor(() => framesOf(inbox, "order.result").length === 1, "정정확인 order.result");
-      gateway.pushOrderResp(gatewaySocket(), m);
-      await waitFor(
-        () => JSON.stringify(infoSpy.mock.calls).includes("같은 정정확인이 두 번 왔다"),
-        "두 번째 M 의 중복 info",
-      );
-      await flushIo(8);
-
-      const moves = orders.updates.filter((u) => u.modifiedQtyDelta !== undefined);
-      expect(moves).toEqual([{ orderRowId: "row-x", modifiedQtyDelta: 30 }]);
-      const dupInfos = infoSpy.mock.calls.filter((c) => JSON.stringify(c).includes("같은 정정확인이 두 번 왔다"));
-      expect(dupInfos).toHaveLength(1);
-    });
-
-    it("자동주문 M: 상따 M(Y · X · 130) 에 원주문 잔량 60 — 새 행은 order_type M · qty 60 · orgOrderNo X · orderNo Y", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      await authed("token-a");
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 40, unfilledQty: 60 }]),
-      );
-      vi.spyOn(hub, "getLimitChasers").mockReturnValue([
-        { isin: SAMPLE_ISIN, accountNo: SAMPLE_ACCOUNT_NO, market: "K" } as unknown as RelayLimitChaser,
-      ]);
-
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "M",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        origin: "LimitChaser",
-        quantity: 130,
-        price: 71_000,
-      });
-      await waitFor(() => orders.inserts.length === 1, "자동 정정 행 insert");
-      await flushIo(8);
-
-      expect(orders.inserts[0]).toMatchObject({ orderType: "M", qty: 60, orgOrderNo: X, orderNo: Y, origin: "limit_chaser" });
-      // 새 행의 캡도 같은 이동 수량이다(이미 60 이라 store 에서 무동작).
-      expect(orders.updates).toContainEqual(expect.objectContaining({ orderRowId: "row-1", qtyCap: 60 }));
-    });
-
-    it("원주문 행이 없으면(WinForms 원주문) 이동 갱신·새 행 없음 · info 1줄 · 로그에 계좌번호 없음", async () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
-      await authed("token-a");
-      vi.spyOn(hub, "getAccountStates").mockReturnValue(
-        hubWithUnfilled([{ orderNo: X, orderQty: 100, filledQty: 0, unfilledQty: 100 }]),
-      );
-
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "M",
-        orderNo: Y,
-        orgOrderNo: X,
-        requestKind: "Modify",
-        quantity: 30,
-        price: 71_000,
-      });
-      await waitFor(
-        () => JSON.stringify(infoSpy.mock.calls).includes("원주문 행 없음"),
-        "원주문 행 없음 info",
-      );
-      await flushIo(8);
-
-      expect(orders.updates.filter((u) => u.modifiedQtyDelta !== undefined)).toHaveLength(0);
-      expect(orders.inserts).toHaveLength(0);
-      const noRowInfos = infoSpy.mock.calls.filter((c) => JSON.stringify(c).includes("원주문 행 없음"));
-      expect(noRowInfos).toHaveLength(1);
-      const dumped = JSON.stringify([...infoSpy.mock.calls, ...warnSpy.mock.calls]);
-      expect(dumped).not.toContain(SAMPLE_ACCOUNT_NO);
-    });
-  });
-
-  // ----------------------------------------------------------
-  // quick-260923-e1m — 통보 기록 경로 (S1 · B1/B3 · A1)
-  // `.planning/debug/relay-ws-order-unmatched-notice.md` 의 Evidence · Resolution 이 근거다.
-  // ----------------------------------------------------------
-
-  describe("quick-260923-e1m — 통보 기록 경로", () => {
-    function todayIso(): string {
-      return new Date(new Date(kstDayRangeUtc().from).getTime() + 3600_000).toISOString();
-    }
-
-    /** 자동주문 원주문 행 1건 (당일 · 사용자 A). */
-    function autoRow(id: string, orderNo: string, extra: Record<string, unknown> = {}): FakeRow {
-      return {
-        id,
-        user_id: USER_A,
-        order_no: orderNo,
-        created_at: todayIso(),
-        status: "accepted",
-        qty: 10,
-        filled_qty: 0,
-        origin: "limit_chaser",
-        notice_type: "A",
-        ...extra,
-      };
-    }
-
-    it("S1-① 대기 밖 LC 체결 조각 3·4 가 한 큐에 쌓였다 비워지면 filled_qty 7 · partially_filled, 조각 3 을 더하면 10 · filled", async () => {
-      const seed = autoRow("row-lc-059", "3405000059");
-      const { store, fake } = await restartWithRealStore([seed]);
-      await authed("token-a");
-      const rowsBefore = fake.rows.length;
-
-      const fill = (quantity: number): void =>
-        gateway.pushOrderResp(gatewaySocket(), {
-          noticeType: "E",
-          orderNo: "3405000059",
-          origin: "LimitChaser",
-          quantity,
-          price: 4_305,
-        });
-
-      fill(3);
-      fill(4);
-      // 두 조각이 **한 큐에 동시에** 있는 상황 — 옛 덮어쓰기는 여기서 뒤 조각(4)만 남겼다.
-      await waitFor(() => store.stats().queued >= 2, "두 조각 큐잉");
-      await store.flushNow();
-      expect(seed).toMatchObject({ filled_qty: 7, status: "partially_filled", order_no: "3405000059" });
-
-      fill(3);
-      await waitFor(() => store.stats().queued >= 1, "세 번째 조각 큐잉");
-      await store.flushNow();
-      expect(seed).toMatchObject({ filled_qty: 10, status: "filled", origin: "limit_chaser" });
-      // 행은 늘지 않는다 — 기존 행의 갱신이다.
-      expect(fake.rows).toHaveLength(rowsBefore);
-      expect(fake.queries.filter((q) => q.verb === "insert")).toHaveLength(0);
-      expect(store.stats().dropped).toBe(0);
-    });
-
-    // ---- B1 · B3 — 자동주문 취소성 통보는 원주문 행의 갱신이다 ----
-
-    /** 스텁 `orders` 를 갈아 끼우고 사용자 A 로 붙는다. */
-    async function withStub(opts: Parameters<typeof mkOrderStore>[0]): Promise<void> {
-      orders = mkOrderStore(opts);
-      await restartHarness();
-      await authed("token-a");
-    }
-
-    /** 상따 자동취소 C — orderNo 는 취소 전문 자신의 번호, 원주문은 orgOrderNo (KBBroker.cpp:1660-1661). */
-    function pushAutoCancel(over: Record<string, unknown> = {}): void {
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "C",
-        orderNo: "3405000076",
-        orgOrderNo: "3405000070",
-        origin: "LimitChaser",
-        quantity: 23_228,
-        price: 0,
-        side: "",
-        message: "취소확인",
-        ...over,
-      });
-    }
-
-    it("B1-① LC 자동 C(새 번호 076 · org 070 · price 0)는 원주문 행을 cancelled 로 갱신한다 — 번호·origin 불변, insert 0, 가격 0 ERROR 0", async () => {
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      await withStub({ existingIds: { "3405000070": "row-lc-070" } });
-
-      pushAutoCancel();
-      await waitFor(() => orders.updates.length >= 1, "원주문 행 갱신");
-      await flushIo(10);
-
-      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000070" }]);
-      expect(orders.inserts).toHaveLength(0);
-      expect(orders.updates).toHaveLength(1);
-      const u = orders.updates[0];
-      expect(u).toMatchObject({ orderRowId: "row-lc-070", status: "cancelled", noticeType: "C" });
-      // 취소 전문의 새 번호가 원주문 행의 order_no 를 덮지 않는다. origin 도 원주문 행이 정본이다.
-      expect(u?.orderNo).toBeUndefined();
-      expect(u?.origin).toBeUndefined();
-      expect(u?.filledQty).toBeUndefined();
-      expect(u?.filledQtyDelta).toBeUndefined();
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
-    });
-
-    it("B1-② VI 자동 C 도 같은 규칙으로 원주문 행을 cancelled 로 갱신한다", async () => {
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      await withStub({ existingIds: { "3405000012": "row-vi-012" } });
-
-      pushAutoCancel({ orderNo: "3405000014", orgOrderNo: "3405000012", origin: "VITrigger", quantity: 100 });
-      await waitFor(() => orders.updates.length >= 1, "VI 원주문 행 갱신");
-      await flushIo(10);
-
-      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000012" }]);
-      expect(orders.inserts).toHaveLength(0);
-      expect(orders.updates).toEqual([
-        expect.objectContaining({ orderRowId: "row-vi-012", status: "cancelled", noticeType: "C" }),
-      ]);
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
-    });
-
-    it("B1-③ 자동 R(804 · Cancel · org 070)은 원주문 상태를 유지한다 — 조회·갱신·insert 0, info 1줄(계좌 없음)", async () => {
-      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      await withStub({ existingIds: { "3405000070": "row-lc-070" } });
-
-      pushAutoCancel({
-        noticeType: "R",
-        resultCode: 804,
-        orderNo: "3405000077",
-        requestKind: "Cancel",
-        message: "취소가능수량 부족",
-      });
-      await waitFor(() => JSON.stringify(infoSpy.mock.calls).includes("원주문 상태 유지"), "R info");
-      await flushIo(10);
-
-      expect(orders.lookups).toHaveLength(0);
-      expect(orders.updates).toHaveLength(0);
-      expect(orders.inserts).toHaveLength(0);
-      const kept = infoSpy.mock.calls.filter((c) => String(c[1]).includes("원주문 상태 유지"));
-      expect(kept).toHaveLength(1);
-      expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
-    });
-
-    it("B1-④ 원주문 행을 못 찾으면 warn 만 남긴다 — 갱신 0, insert 0, 가격 0 ERROR 0", async () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      await withStub({});
-
-      pushAutoCancel();
-      await waitFor(() => JSON.stringify(warnSpy.mock.calls).includes("원주문 행을 찾지 못했다"), "미발견 warn");
-      await flushIo(10);
-
-      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000070" }]);
-      expect(orders.updates).toHaveLength(0);
-      expect(orders.inserts).toHaveLength(0);
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
-      expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
-    });
-
-    it("B1-⑤ 거래소 자동취소 예외 — org 가 공백 10자면 orderNo(=원주문 021)로 찾아 cancelled 로 갱신한다", async () => {
-      await withStub({ existingIds: { "3405000021": "row-vi-021" } });
-
-      pushAutoCancel({
-        orderNo: "3405000021",
-        orgOrderNo: "          ",
-        origin: "VITrigger",
-        quantity: 50,
-        message: "자동취소",
-      });
-      await waitFor(() => orders.updates.length >= 1, "자동취소 원주문 갱신");
-      await flushIo(10);
-
-      expect(orders.lookups).toEqual([{ userId: USER_A, orderNo: "3405000021" }]);
-      expect(orders.inserts).toHaveLength(0);
-      expect(orders.updates).toEqual([
-        expect.objectContaining({ orderRowId: "row-vi-021", status: "cancelled", message: "자동취소" }),
-      ]);
-    });
-
-    it("B1-⑥ 조회가 throw 하면 원주문번호 셀렉터로 cancelled 열화 갱신 + safePgError error (계좌 없음)", async () => {
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      await withStub({ lookupFails: true });
-
-      pushAutoCancel();
-      await waitFor(() => orders.updates.length >= 1, "열화 갱신");
-      await flushIo(10);
-
-      expect(orders.inserts).toHaveLength(0);
-      expect(orders.updates).toHaveLength(1);
-      expect(orders.updates[0]).toMatchObject({ orderNo: "3405000070", userId: USER_A, status: "cancelled" });
-      expect(orders.updates[0]?.orderRowId).toBeUndefined();
-      const failed = errorSpy.mock.calls.find((c) => String(c[1]).includes("원주문 조회 실패"));
-      expect(failed?.[0]).toHaveProperty("pgError");
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
-    });
-
-    it("B1-⑦ (진짜 store) LC 원주문 행 070 에 자동 C → status cancelled · order_no 070 그대로 · 행 수 불변", async () => {
-      vi.spyOn(logger, "warn").mockImplementation(() => undefined);
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      const original = autoRow("row-lc-070", "3405000070");
-      const { store, fake } = await restartWithRealStore([original]);
-      await authed("token-a");
-      const rowsBefore = fake.rows.length;
-
-      pushAutoCancel();
-      await waitFor(() => store.stats().queued >= 1, "취소 갱신 큐잉");
-      await store.flushNow();
-
-      expect(original).toMatchObject({
-        status: "cancelled",
-        order_no: "3405000070",
-        notice_type: "C",
-        origin: "limit_chaser",
-      });
-      expect(fake.rows).toHaveLength(rowsBefore);
-      expect(fake.queries.filter((q) => q.verb === "insert")).toHaveLength(0);
-      expect(store.stats()).toMatchObject({ dropped: 0, flushed: 1 });
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("가격이 0 이하");
-    });
-
-    // ---- A1 — 공유 게이트웨이 세션의 WinForms 수동 통보 ----
-
-    /** 메시지(두 번째 인자)에 `needle` 이 든 호출 수. */
-    function countLogs(spy: { mock: { calls: unknown[][] } }, needle: string): number {
-      return spy.mock.calls.filter((c) => String(c[1]).includes(needle)).length;
-    }
-
-    it("A1-① relay 가 낸 주문이 없을 때 WinForms 수동 통보(A · E · C price 0)는 info 3줄 — ERROR 0, 갱신·insert 0, 계좌 없음", async () => {
-      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      await authed("token-a");
-
-      const sock = gatewaySocket();
-      // 진단 조사 1·2 의 실측 모양 그대로 — relay 주문 송신 로그 0건인 창에서 온 수동 통보들.
-      gateway.pushOrderResp(sock, { noticeType: "A", orderNo: "3405000065", quantity: 25_348, price: 3_945 });
-      gateway.pushOrderResp(sock, { noticeType: "E", orderNo: "3405000057", quantity: 329, price: 2_195 });
-      gateway.pushOrderResp(sock, {
-        noticeType: "C",
-        orderNo: "3405000066",
-        orgOrderNo: "3405000065",
-        quantity: 25_348,
-        price: 0,
-        side: "",
-      });
-      await waitFor(() => orders.lookups.length === 3, "수동 통보 3건 조회");
-      await flushIo(20);
-
-      expect(countLogs(infoSpy, "다른 클라이언트")).toBe(3);
-      expect(countLogs(infoSpy, "relay 가 낸 주문")).toBe(3);
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("붙지 않는 수동 통보");
-      expect(orders.updates).toHaveLength(0);
-      expect(orders.inserts).toHaveLength(0);
-      expect(orders.lookups).toHaveLength(3);
-      expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
-    });
-
-    it("A1-② relay 가 낸 수동 주문의 정산 번호를 가리키는 미부착 통보(E 같은 번호 · C org=그 번호)는 ERROR 를 유지한다", async () => {
-      const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined);
-      const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
-      const { ws, inbox } = await authed("token-a");
-
-      // relay 가 낸 수동 주문 — 접수 A 로 정산(finish)된다. 정산 번호가 relay 흔적에 남는다.
-      ws.sendRaw(orderNew());
-      await waitFor(() => orderReqsOf(gatewayPayloads).length === 1, "주문 송신");
-      gateway.pushOrderResp(gatewaySocket(), { noticeType: "A", orderNo: "3405000090" });
-      await waitFor(() => framesOf(inbox, "order.result").length === 1, "접수 정산");
-
-      // 정산 직후 플러시 전 경합 — 행에 아직 주문번호가 없어 조회는 null 이다(relay 자기 주문).
-      gateway.pushOrderResp(gatewaySocket(), { noticeType: "E", orderNo: "3405000090", quantity: 3 });
-      await waitFor(() => orders.lookups.length === 1, "E 조회");
-      // 그 주문을 원주문번호로 가리키는 수동 취소확인(새 번호).
-      gateway.pushOrderResp(gatewaySocket(), {
-        noticeType: "C",
-        orderNo: "3405000091",
-        orgOrderNo: "3405000090",
-        quantity: 7,
-        price: 0,
-        side: "",
-      });
-      await waitFor(() => orders.lookups.length === 2, "C 조회");
-      await flushIo(20);
-
-      expect(countLogs(errorSpy, "붙지 않는 수동 통보")).toBe(2);
-      expect(countLogs(infoSpy, "다른 클라이언트")).toBe(0);
-      expect(orders.updates.filter((u) => u.orderRowId === undefined)).toHaveLength(0);
-      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(SAMPLE_ACCOUNT_NO);
-    });
   });
 });
 
@@ -2396,7 +1148,6 @@ function mkPending(over: Partial<PendingOrder> = {}): PendingOrder {
   clearTimeout(timer);
   return {
     rid: "rid",
-    orderRowId: "row",
     isin: SAMPLE_ISIN,
     qty: 10,
     price: 70_000,
@@ -2437,30 +1188,6 @@ function mkNotice(over: Partial<ParsedOrderResp> = {}): ParsedOrderResp {
     ...over,
   };
 }
-
-describe("isCancelLikeNotice — 취소성 통보 판정 (quick-260923-e1m B1/B3)", () => {
-  it("취소확인 C 는 언제나 취소성이다", () => {
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "C" }))).toBe(true);
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "C", orgOrderNo: "0000012300" }))).toBe(true);
-  });
-
-  it("거부 R 은 원주문번호가 있거나 requestKind 가 Cancel·Modify 일 때만 취소성이다", () => {
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orgOrderNo: "3405000070" }))).toBe(true);
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", requestKind: "Cancel" }))).toBe(true);
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", requestKind: "Modify" }))).toBe(true);
-    // 접수 전 거부(신규의 거부)는 기존 insert 경로에 남는다 (㉘).
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orderNo: "", requestKind: "New" }))).toBe(false);
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orderNo: "", requestKind: "" }))).toBe(false);
-    // 공백·0 으로만 채운 원주문번호는 「값 없음」이다 (`normalizeOrderNo`).
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "R", orgOrderNo: "          " }))).toBe(false);
-  });
-
-  it("접수 A · 체결 E · 정정확인 M 은 취소성이 아니다", () => {
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "A" }))).toBe(false);
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "E", orgOrderNo: "3405000070", requestKind: "Modify" }))).toBe(false);
-    expect(isCancelLikeNotice(mkNotice({ noticeType: "M", orgOrderNo: "3405000070", requestKind: "Modify" }))).toBe(false);
-  });
-});
 
 describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
   it("유일 후보라도 취소확인은 신규 대기를 정산하지 않는다 (GC-CR-01)", () => {
@@ -2794,90 +1521,5 @@ describe("narrowPending — 통보 매칭 축 (gap 2)", () => {
         ),
       ).toBe(fresh);
     });
-  });
-});
-
-// ===========================================================================
-// quick-260923-m23 — modifyMovedQty (정정확인 이동 수량 순수함수)
-// ===========================================================================
-
-/** 미체결 1행 — 테스트가 필요한 필드만 덮어쓴다. */
-function unfilledRow(over: Partial<RelayUnfilled> = {}): RelayUnfilled {
-  return {
-    orderNo: "0000012345",
-    orgOrderNo: "",
-    isin: SAMPLE_ISIN,
-    side: "S",
-    price: 70_000,
-    orderQty: 100,
-    filledQty: 0,
-    unfilledQty: 100,
-    exchange: "KRX",
-    orderTime: "093000",
-    queuedStatus: "",
-    pendingStatus: "",
-    board: "",
-    pendingCancelSent: false,
-    ...over,
-  };
-}
-
-/** hub 66/67 누적 계좌 상태 1개. 계좌번호 `a` 는 로그 누출 탐지에 쓴다. */
-function acctState(rows: Partial<RelayUnfilled>[], account = SAMPLE_ACCOUNT_NO): RelayAccountState {
-  return { t: "acct", a: account, snap: true, hold: [], unf: rows.map((r) => unfilledRow(r)), rm: [], st: "" };
-}
-
-describe("modifyMovedQty — 정정확인 이동 수량 (quick-260923-m23)", () => {
-  const X = "0000012345";
-  const Y = "0000012400";
-  const m = (over: Partial<ParsedOrderResp> = {}): ParsedOrderResp =>
-    mkNotice({ noticeType: "M", orderNo: Y, orgOrderNo: X, requestKind: "Modify", quantity: 13827, ...over });
-
-  it("67 먼저: 새 주문번호 Y 행(orderQty 10817)이 있으면 그 값 — source new", () => {
-    const states = [
-      acctState([
-        { orderNo: X, orderQty: 18249, filledQty: 7432, unfilledQty: 0 },
-        { orderNo: Y, orgOrderNo: X, orderQty: 10817, unfilledQty: 10817 },
-      ]),
-    ];
-    expect(modifyMovedQty(states, m())).toEqual({ movedQty: 10817, source: "new" });
-  });
-
-  it("51 먼저: Y 없고 원주문 X 잔량 10817 이면 min(13827, 10817) — source org, 67 먼저와 같은 값", () => {
-    const states = [acctState([{ orderNo: X, orderQty: 18249, filledQty: 7432, unfilledQty: 10817 }])];
-    expect(modifyMovedQty(states, m())).toEqual({ movedQty: 10817, source: "org" });
-  });
-
-  it("둘 다 없으면 통보 수량 폴백 — source fallback", () => {
-    expect(modifyMovedQty([], m())).toEqual({ movedQty: 13827, source: "fallback" });
-    expect(modifyMovedQty([acctState([])], m())).toEqual({ movedQty: 13827, source: "fallback" });
-  });
-
-  it("M 이 아니거나 주문번호가 비었거나 주문번호 == 원주문번호(정규화)면 null", () => {
-    const states = [acctState([{ orderNo: X, unfilledQty: 10 }])];
-    expect(modifyMovedQty(states, m({ noticeType: "A" }))).toBeNull();
-    expect(modifyMovedQty(states, m({ noticeType: "E" }))).toBeNull();
-    expect(modifyMovedQty(states, m({ orderNo: "" }))).toBeNull();
-    expect(modifyMovedQty(states, m({ orderNo: "   " }))).toBeNull();
-    expect(modifyMovedQty(states, m({ orderNo: "12345", orgOrderNo: X }))).toBeNull();
-  });
-
-  it("주문번호 표기 차이(선행 0)는 같게 보고, ISIN 이 다른 행은 매칭하지 않으며, 계좌가 여럿이어도 전 계좌를 본다", () => {
-    // 선행 0 없는 표기의 원주문 행.
-    expect(modifyMovedQty([acctState([{ orderNo: "12345", unfilledQty: 500 }])], m())).toEqual({
-      movedQty: 500,
-      source: "org",
-    });
-    // 다른 종목의 같은 번호 — 매칭하지 않는다.
-    expect(modifyMovedQty([acctState([{ orderNo: X, isin: "KR7035720002", unfilledQty: 500 }])], m())).toEqual({
-      movedQty: 13827,
-      source: "fallback",
-    });
-    // 두 번째 계좌에 새 행이 있다.
-    const states = [
-      acctState([{ orderNo: "0000099999", unfilledQty: 1 }], "1111111101"),
-      acctState([{ orderNo: "12400", orderQty: 700, unfilledQty: 700 }], "2222222201"),
-    ];
-    expect(modifyMovedQty(states, m())).toEqual({ movedQty: 700, source: "new" });
   });
 });

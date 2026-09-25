@@ -30,11 +30,17 @@ set -euo pipefail
 #              16-26(`2cb5620`)·16-35(`c8aa7ae`) 의 프로덕션 강등이었다.
 #   LOG_LEVEL  미설정 시 info
 #
-# 비밀은 이 스크립트가 만지지 않는다 (T-15-29):
-#   SUPABASE_SERVICE_ROLE_KEY · DMA_CRED_KEY · RELAY_ORDER_SECRET 3종은 **VM 안에서**
-#   메타데이터 토큰 → Secret Manager REST 로 읽어 tmpfs env-file(0600)에 쓰고
-#   `docker run --env-file` 로 주입한 뒤 즉시 삭제한다. 명령줄로 넘기면
-#   `ps` · `journalctl` · 셸 히스토리에 값이 남는다.
+# 비밀은 이 스크립트가 만지지 않는다 (T-15-29 · T-19-03):
+#   컨테이너 비밀 4종은 **VM 안에서** 메타데이터 토큰 → Secret Manager REST 로 읽어
+#   tmpfs env-file(0600)에 쓰고 `docker run --env-file` 로 주입한 뒤 즉시 삭제한다.
+#   명령줄로 넘기면 `ps` · `journalctl` · 셸 히스토리에 값이 남는다.
+#     gh-radar-supabase-service-role → SUPABASE_SERVICE_ROLE_KEY
+#     gh-radar-dma-cred-key          → DMA_CRED_KEY
+#     gh-radar-relay-order-secret    → RELAY_ORDER_SECRET
+#     gh-radar-dma-observer-secret   → DMA_OBSERVER_SECRET  (Phase 19 D-10 — 관찰자 기록 연결 비밀.
+#                                      gh-trade 게이트웨이 `config/observer.toml` 과 **같은 값**이어야 한다.
+#                                      relay 는 production 에서 이 값이 없으면 기동을 거부한다.
+#                                      값 생성·순환 절차는 infra/relay/README.md §Secret 4종 값 주입)
 # ═══════════════════════════════════════════════════════════════
 
 MODE=deploy
@@ -179,9 +185,11 @@ if [[ "$VM_STATUS" != "RUNNING" ]]; then
 fi
 echo "✓ VM RUNNING: $VM ($ZONE)"
 
-# 컨테이너에 주입하는 비밀 3종. 존재 + ENABLED 버전 + relay SA 접근권까지 본다.
+# 컨테이너에 주입하는 비밀 4종. 존재 + ENABLED 버전 + relay SA 접근권까지 본다.
 # (`gh-radar-kb-vpn-password` 는 host systemd 소관이라 컨테이너 배포의 전제가 아니다.)
-for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar-relay-order-secret; do
+# 관찰자 비밀(Phase 19 D-10)이 빠진 채 배포하면 relay 가 production 기동을 거부해 재시작 루프에 빠진다 —
+# 컨테이너를 내리기 **전에** 여기서 막는다(T-19-36).
+for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar-relay-order-secret gh-radar-dma-observer-secret; do
   if ! gcloud secrets describe "$SECRET_NAME" >/dev/null 2>&1; then
     echo "ERROR: Secret '$SECRET_NAME' not found. $SETUP_HINT" >&2
     exit 1
@@ -190,7 +198,7 @@ for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar
     --format='value(name)' 2>/dev/null | wc -l | tr -d ' ')
   if [[ "${VERSION_COUNT:-0}" -lt 1 ]]; then
     echo "ERROR: Secret '$SECRET_NAME' 에 ENABLED 버전이 없습니다 — 값 주입이 선행돼야 합니다." >&2
-    echo "       (값은 대화·커밋에 남기지 않는다. infra/relay/README.md §Secret 3종 값 주입 참조)" >&2
+    echo "       (값은 대화·커밋에 남기지 않는다. infra/relay/README.md §Secret 4종 값 주입 참조)" >&2
     exit 1
   fi
   if ! gcloud secrets get-iam-policy "$SECRET_NAME" --format='value(bindings.members)' 2>/dev/null \
@@ -199,7 +207,7 @@ for SECRET_NAME in gh-radar-supabase-service-role gh-radar-dma-cred-key gh-radar
     exit 1
   fi
 done
-echo "✓ Secret 3종 존재 + ENABLED 버전 + relay SA 접근권"
+echo "✓ Secret 4종 존재 + ENABLED 버전 + relay SA 접근권"
 
 # relay VM 에 닿는 방화벽은 **정확히 4규칙**이어야 한다. 포트 80 규칙이 늘어나면 D-09
 # 위반이므로 이름까지 본다.
@@ -302,7 +310,7 @@ log "pull 완료: $TARGET_IMAGE"
 # 재시작 정책은 로컬 이미지를 쓰므로 로그아웃해도 컨테이너 복구에 지장이 없다.
 docker logout "$(echo "$TARGET_IMAGE" | cut -d/ -f1)" >/dev/null 2>&1 || true
 
-# ── 비밀 3종 → tmpfs env-file (T-15-29) ────────────────────────
+# ── 비밀 4종 → tmpfs env-file (T-15-29 · T-19-03) ─────────────────
 # /dev/shm 는 tmpfs 라 디스크에 닿지 않는다. 0600 + trap 삭제로 실행 직후 사라진다.
 umask 077
 ENV_FILE="$(mktemp /dev/shm/relay-env.XXXXXXXX)"
@@ -312,11 +320,13 @@ chmod 600 "$ENV_FILE"
 SB_KEY="$(fetch_secret gh-radar-supabase-service-role)"
 CRED_KEY="$(fetch_secret gh-radar-dma-cred-key)"
 ORDER_SECRET="$(fetch_secret gh-radar-relay-order-secret)"
+OBS_SECRET="$(fetch_secret gh-radar-dma-observer-secret)"
 # 빈 값 검사 — 값이 아니라 **어느 키가 비었는지**만 남긴다.
 [ -n "$SB_KEY" ]       || { echo "빈 비밀: supabase service role" >&2; exit 1; }
 [ -n "$CRED_KEY" ]     || { echo "빈 비밀: dma cred key" >&2; exit 1; }
 [ -n "$ORDER_SECRET" ] || { echo "빈 비밀: relay order secret" >&2; exit 1; }
-log "비밀 3종 획득 (값은 기록하지 않음)"
+[ -n "$OBS_SECRET" ]   || { echo "빈 비밀: dma observer secret" >&2; exit 1; }
+log "비밀 4종 획득 (값은 기록하지 않음)"
 
 {
   printf 'NODE_ENV=production\n'
@@ -331,6 +341,7 @@ log "비밀 3종 획득 (값은 기록하지 않음)"
   printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SB_KEY"
   printf 'DMA_CRED_KEY=%s\n' "$CRED_KEY"
   printf 'RELAY_ORDER_SECRET=%s\n' "$ORDER_SECRET"
+  printf 'DMA_OBSERVER_SECRET=%s\n' "$OBS_SECRET"
 } > "$ENV_FILE"
 
 # ── 컨테이너 교체 ──────────────────────────────────────────────

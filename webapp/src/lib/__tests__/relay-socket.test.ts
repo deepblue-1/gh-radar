@@ -38,6 +38,7 @@ vi.mock('@/lib/relay-url', () => ({
 
 import { RELAY_STATE_LABELS } from '@gh-radar/shared';
 import type {
+  JournalOrderRow,
   RelayAccountState,
   RelayOrderNewMsg,
   RelayQuote,
@@ -48,6 +49,7 @@ import type {
   RelayViOrderItem,
 } from '@gh-radar/shared';
 import {
+  MAX_JOURNAL_ROWS,
   RELAY_MARKET_BATCH_MS,
   RELAY_MARKET_BUFFER_MAX,
   RELAY_MAX_RECONNECT_ATTEMPTS,
@@ -1868,6 +1870,159 @@ describe('nxt.snap — NXT 거래가능 집합 (quick-260923-pq2)', () => {
       hook.rerender({ enabled: false });
     });
     expect(hook.result.current.nxtTradable).toBeNull();
+  });
+});
+
+describe('journal.rows / journal.state (Phase 19 D-03·D-04)', () => {
+  function jrow(over: Partial<JournalOrderRow> = {}): JournalOrderRow {
+    return {
+      id: 'j-1',
+      tradeDate: '2026-09-25',
+      accountNo: '12345678-01',
+      isin: ISIN_A,
+      stockCode: '005930',
+      exchange: 'KRX',
+      board: null,
+      side: 'B',
+      orderType: 'N',
+      orgOrderNo: null,
+      qty: 10,
+      price: 70_000,
+      orderNo: '0000135742',
+      filledQty: 0,
+      modifiedQty: 0,
+      status: 'accepted',
+      resultCode: 0,
+      noticeType: 'A',
+      message: null,
+      origin: 'limit_chaser',
+      requester: null,
+      requestKind: null,
+      lastSeq: 1,
+      createdAt: '2026-09-25T00:10:00.000Z',
+      updatedAt: '2026-09-25T00:10:00.000Z',
+      ...over,
+    };
+  }
+
+  it('같은 id 는 lastSeq 가 큰 쪽이 남는다 — 7 뒤에 온 6 은 버린다 (T-19-27) · 새 id 는 추가', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.journalRows).toEqual([]);
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [jrow({ id: 'a', lastSeq: 7, status: 'filled' })] });
+    });
+    await act(async () => {
+      ws.push({
+        t: 'journal.rows',
+        rows: [
+          jrow({ id: 'a', lastSeq: 6, status: 'accepted' }),
+          jrow({ id: 'b', lastSeq: 8, createdAt: '2026-09-25T00:11:00.000Z' }),
+        ],
+      });
+    });
+
+    const rows = hook.result.current.journalRows;
+    expect(rows.map((r) => r.id)).toEqual(['b', 'a']); // createdAt 내림차순
+    expect(rows.find((r) => r.id === 'a')?.lastSeq).toBe(7);
+    expect(rows.find((r) => r.id === 'a')?.status).toBe('filled');
+  });
+
+  it('더 큰 lastSeq 는 같은 id 를 교체한다 — 줄 수는 그대로', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [jrow({ id: 'a', lastSeq: 3 })] });
+    });
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [jrow({ id: 'a', lastSeq: 5, status: 'filled' })] });
+    });
+    expect(hook.result.current.journalRows).toHaveLength(1);
+    expect(hook.result.current.journalRows[0]?.status).toBe('filled');
+  });
+
+  it('아무것도 바꾸지 않는 프레임은 같은 배열 참조를 유지한다 (소비자 memo 보호)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [jrow({ id: 'a', lastSeq: 5 })] });
+    });
+    const before = hook.result.current.journalRows;
+
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [jrow({ id: 'a', lastSeq: 5 }), jrow({ id: 'a', lastSeq: 4 })] });
+    });
+    expect(hook.result.current.journalRows).toBe(before);
+
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [] });
+    });
+    expect(hook.result.current.journalRows).toBe(before);
+  });
+
+  it(`상한 ${MAX_JOURNAL_ROWS} 을 넘으면 createdAt 이 가장 오래된 쪽부터 버린다 (T-19-26)`, async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const base = Date.parse('2026-09-25T00:00:00.000Z');
+    const many = Array.from({ length: MAX_JOURNAL_ROWS + 5 }, (_, i) =>
+      jrow({ id: `r${i}`, lastSeq: i + 1, createdAt: new Date(base + i * 1_000).toISOString() }),
+    );
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: many });
+    });
+    const rows = hook.result.current.journalRows;
+    expect(rows).toHaveLength(MAX_JOURNAL_ROWS);
+    expect(rows[0]?.id).toBe(`r${MAX_JOURNAL_ROWS + 4}`);
+    expect(rows.some((r) => r.id === 'r0')).toBe(false);
+  });
+
+  it('journal.state 는 최신 프레임을 보관한다 — 초기 null', async () => {
+    const hook = render({ enabled: true });
+    expect(hook.result.current.journalState).toBeNull();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({ t: 'journal.state', s: 'delayed', since: '2026-09-25T00:00:00.000Z' });
+    });
+    expect(hook.result.current.journalState).toEqual({
+      t: 'journal.state',
+      s: 'delayed',
+      since: '2026-09-25T00:00:00.000Z',
+    });
+
+    await act(async () => {
+      ws.push({ t: 'journal.state', s: 'live' });
+    });
+    expect(hook.result.current.journalState?.s).toBe('live');
+  });
+
+  it('로그아웃(enabled false → reset) 뒤 journalRows · journalState 가 비워진다 (T-19-16)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'journal.rows', rows: [jrow({ id: 'a' })] });
+      ws.push({ t: 'journal.state', s: 'live' });
+    });
+    expect(hook.result.current.journalRows).toHaveLength(1);
+    expect(hook.result.current.journalState).not.toBeNull();
+
+    await act(async () => {
+      hook.rerender({ enabled: false });
+    });
+    expect(hook.result.current.journalRows).toEqual([]);
+    expect(hook.result.current.journalState).toBeNull();
+  });
+
+  it('{t:"order"} 는 journalRows 를 건드리지 않는다 — 토스트·전략 로그 전용 (D-03)', async () => {
+    const hook = render({ enabled: true });
+    const ws = await connected(hook);
+    const before = hook.result.current.journalRows;
+    await act(async () => {
+      ws.push({ t: 'order', no: '0000199999', nt: 'A', rc: 0, msg: '', org: '', p: 1, q: 1, x: 'KRX' });
+    });
+    expect(hook.result.current.orders).toHaveLength(1);
+    expect(hook.result.current.journalRows).toBe(before);
   });
 });
 

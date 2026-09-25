@@ -23,6 +23,7 @@ import type { AddressInfo } from "node:net";
 
 import { createOrderApi, type OrderApiSessions } from "../src/order/order-api.js";
 import type { SessionStats } from "../src/dma/session-manager.js";
+import type { JournalHealth } from "../src/journal/types.js";
 
 const SECRET = "test-relay-order-secret-0123456789";
 
@@ -38,6 +39,10 @@ type StartOptions = {
   dmaHost?: string;
   /** 인터페이스 목록. 생략하면 VPN 이 서 있는 상태(UP_INTERFACES). */
   interfaces?: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  /** 관찰자 기록 연결 요약 스텁 (Phase 19 D-04). 생략하면 journal 소스 없음. */
+  journal?: JournalHealth;
+  /** 시각 주입 — 가짜 타이머 대신 이것으로만 장중/장 밖을 흉내낸다. */
+  now?: Date;
 };
 
 /** VPN 이 서 있는 VM 의 실측 인터페이스 (2026-09-06 radar-gw). */
@@ -71,6 +76,8 @@ async function start(opts: StartOptions = {}): Promise<Harness> {
     appVersion: "test-sha",
     nodeEnv: opts.nodeEnv ?? "test",
     sessions: apiSessions,
+    ...(opts.journal !== undefined ? { journal: { health: () => opts.journal as JournalHealth } } : {}),
+    ...(opts.now !== undefined ? { now: () => opts.now as Date } : {}),
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -382,5 +389,85 @@ describe("createOrderApi — /healthz + 공유 비밀 관문", () => {
   it("⑪-b 비밀 없는 /internal/orders 는 404 조차 받지 못한다 (경로 존재 여부도 정보다)", async () => {
     const res = await fetch(h.url("/internal/orders"), { method: "POST" });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("journal 판정 (Phase 19 D-04)", () => {
+  /** 2026-09-28(월) 10:00 KST — 장중. */
+  const IN_WINDOW = new Date("2026-09-28T10:00:00+09:00");
+  /** 2026-09-28(월) 21:00 KST — 장 밖. */
+  const OUT_OF_WINDOW = new Date("2026-09-28T21:00:00+09:00");
+
+  function journal(state: JournalHealth["state"], disconnectedSec: number | null): JournalHealth {
+    return { state, lastSeq: 41, headSeq: 42, lagSeq: 1, disconnectedSec, lastAppliedAgeSec: 3, seqRegressions: 0, lastSeqRegressionAgeSec: null };
+  }
+
+  let h: Harness | null = null;
+
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  async function probe(j: JournalHealth, now: Date): Promise<{ status: number; body: Record<string, unknown> }> {
+    h = await start({ journal: j, now });
+    const res = await fetch(h.url("/healthz"));
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it.each([
+    ["live", null, 200],
+    ["connecting", 179, 200],
+    ["connecting", 180, 503],
+    ["rejected", 0, 503],
+    ["db_error", 181, 503],
+    ["disabled", null, 200],
+  ] as const)("장중 · %s · %s초 → %s", async (state, sec, expected) => {
+    const { status, body } = await probe(journal(state, sec), IN_WINDOW);
+    expect(status).toBe(expected);
+    expect(body.status).toBe(expected === 200 ? "ok" : "degraded");
+    expect(body.journal).toEqual(journal(state, sec));
+    // 503 이어도 vpn · dma 는 각자의 사실만 말한다(기존 의미 그대로).
+    expect(body.vpn).toBe(true);
+    expect(body.dma).toBe(true);
+  });
+
+  it("장 밖(21:00) · connecting 1시간 → 200 · 본문에 journal.state connecting · disconnectedSec 3600", async () => {
+    const { status, body } = await probe(journal("connecting", 3600), OUT_OF_WINDOW);
+    expect(status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.journal).toMatchObject({ state: "connecting", disconnectedSec: 3600 });
+  });
+
+  it("journal 필드 키는 8종이고 식별자 계열이 없다 (T-19-07 · smoke health_probe)", async () => {
+    const { body } = await probe(journal("live", null), IN_WINDOW);
+    expect(Object.keys(body.journal as object).sort()).toEqual(
+      [
+        "disconnectedSec",
+        "headSeq",
+        "lagSeq",
+        "lastAppliedAgeSec",
+        "lastSeq",
+        "lastSeqRegressionAgeSec",
+        "seqRegressions",
+        "state",
+      ],
+    );
+    expect(JSON.stringify(body)).not.toMatch(/"(accountNo|userId|account_no|user_id)"/);
+  });
+
+  it("seq 역행 신호(seqRegressions > 0)만으로는 503 이 아니다 — 스트림은 정상, 본문에만 드러난다", async () => {
+    const j: JournalHealth = { ...journal("live", null), seqRegressions: 2, lastSeqRegressionAgeSec: 30 };
+    const { status, body } = await probe(j, IN_WINDOW);
+    expect(status).toBe(200);
+    expect(body.journal).toMatchObject({ seqRegressions: 2, lastSeqRegressionAgeSec: 30 });
+  });
+
+  it("VPN 이 죽으면 journal 이 live 여도 degraded 503 (기록 판정은 AND 로만 더해진다)", async () => {
+    h = await start({ journal: journal("live", null), now: IN_WINDOW, interfaces: DOWN_INTERFACES });
+    const res = await fetch(h.url("/healthz"));
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.vpn).toBe(false);
   });
 });

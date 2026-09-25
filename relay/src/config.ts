@@ -14,6 +14,8 @@
  *         (`x-relay-secret` 헤더). 방화벽 source-range 와 이중 방어.
  *   D-13  세션은 userId 단위. `SESSION_GRACE_MS` 는 마지막 소켓이 끊긴 뒤 DMA 세션을
  *         유지하는 유예(새로고침 왕복 흡수).
+ *   19 D-10  `DMA_OBSERVER_SECRET` = 관찰자 기록 연결의 비밀(Secret Manager 새 시크릿 한 곳에서만
+ *            온다). production 에서는 필수 — 없으면 기동이 실패한다(T-19-03).
  *
  * 하지 않는 것:
  *   - 여기서 값을 검증(길이·형식)하지 않는다. 존재 여부만 본다 — 검증은 사용처가 한다.
@@ -55,6 +57,13 @@ export type RelayConfig = {
    * 0 으로 두면 새로고침마다 DMA 재로그인이 발생한다(게이트웨이 부하 + 2~3초 지연).
    */
   sessionGraceMs: number;
+  /**
+   * 관찰자 기록 연결 비밀 (Phase 19 D-10 · D-13). **production 에서 미설정이면 기동이 실패한다** —
+   * 컨테이너가 재시작 루프로 원인을 로그에 남기고 `/healthz` 가 사라져 uptime 알림이 울린다.
+   * 개발·테스트에서 미설정이면 관찰자가 disabled 로 남는다(e2e 로컬 relay 가 그대로 뜬다 — 주문 기록 없음).
+   * 로그 인자로 넘기지 않는다(logger redact 는 실수 방어).
+   */
+  dmaObserverSecret: string | undefined;
 };
 
 export function loadConfig(): RelayConfig {
@@ -65,8 +74,14 @@ export function loadConfig(): RelayConfig {
   };
   const optional = (k: string): string | undefined => process.env[k];
 
+  const nodeEnv = (process.env.NODE_ENV ?? "development") as RelayConfig["nodeEnv"];
+  const dmaObserverSecret = optional("DMA_OBSERVER_SECRET") || undefined;
+  if (nodeEnv === "production" && dmaObserverSecret === undefined) {
+    throw new Error("DMA_OBSERVER_SECRET must be set in production (Phase 19 D-13)");
+  }
+
   return {
-    nodeEnv: (process.env.NODE_ENV ?? "development") as RelayConfig["nodeEnv"],
+    nodeEnv,
     logLevel: optional("LOG_LEVEL") ?? "info",
     appVersion: optional("APP_VERSION") ?? "dev",
 
@@ -82,5 +97,6 @@ export function loadConfig(): RelayConfig {
     dmaPort: Number(optional("DMA_PORT") ?? "9100"),
     dmaBroker: optional("DMA_BROKER") ?? "KB",
     sessionGraceMs: Number(optional("SESSION_GRACE_MS") ?? "300000"),
+    dmaObserverSecret,
   };
 }

@@ -49,6 +49,8 @@ import express, { type Express, type ErrorRequestHandler, type RequestHandler } 
 import { logger } from "../logger.js";
 import { isGatewayLinkUp } from "../dma/link-health.js";
 import type { SessionStats } from "../dma/session-manager.js";
+import type { JournalHealth } from "../journal/types.js";
+import { journalAlerting } from "../journal/status.js";
 
 // ============================================================
 // 계약
@@ -73,6 +75,13 @@ export type OrderApiDeps = {
   dmaHost: string;
   /** 인터페이스 목록 주입구 — 테스트가 VPN 유무를 흉내낸다. */
   networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  /**
+   * 관찰자 기록 연결 요약(Phase 19 D-04 (b) — `JournalStatus`). 주면 `/healthz` 가 `journal` 필드를
+   * **항상** 싣는다. 주지 않으면 필드가 없다(기존 페이로드 그대로).
+   */
+  journal?: { health(nowMs: number): JournalHealth };
+  /** 시각 주입구 — 테스트가 장중/장 밖을 흉내낸다. 기본 `new Date()`. */
+  now?: () => Date;
 };
 
 /**
@@ -106,6 +115,12 @@ export type HealthPayload = {
    * 읽게 해 준다 (16-30 / GC-WR-07).
    */
   stalledCount: number;
+  /**
+   * 관찰자 기록 연결 상태 (Phase 19 D-04 (b)). 키는 `state · lastSeq · headSeq · lagSeq ·
+   * disconnectedSec · lastAppliedAgeSec` 뿐이다 — **이름에도 값에도 계좌·사용자 식별자가 없다**
+   * (T-15-22 · T-19-07 · smoke `health_probe` 가 식별자 키를 grep 해 FAIL 처리한다).
+   */
+  journal?: JournalHealth;
 };
 
 // ============================================================
@@ -247,6 +262,16 @@ export function createOrderApi(deps: OrderApiDeps): Express {
    * 아니다. 응답 없는 게이트웨이는 `connecting`·`logging_in`·`failed` 로 남아 여전히
    * `stalledCount` 에 들어가므로 GC-WR-07 은 그대로 산다. 제외의 정본 목록은
    * `session-manager.ts` 의 `NO_RETRY_STATES` 한 벌뿐이다 — 여기에 복제하지 않는다.
+   *
+   * ★ 2026-09-24 보강 (Phase 19 D-04 (b)) — 기록 연결 판정을 **AND 로 더한다.** 기존 vpn·세션
+   * 판정을 되돌리지 않는다(`linkUp`·`sessionsOk` 의 정의와 두 필드의 의미는 그대로다 — 503 이어도
+   * 본문의 `vpn`·`dma` 는 각자의 사실만 말한다). 관찰자 기록 연결(`journal`)이 **장중**(평일 · KRX 휴장일
+   * 아님 · 08:00~20:00 KST — `inTradingWindow`)에 rejected 이거나 live 가 아닌 지 180초 이상이면
+   * degraded 503 이다. 장 밖에서는 본문에만 드러낸다(D-13 — 운영 알림은 장중 끊김에만). 관찰자
+   * 비활성(disabled — 개발·테스트 전용)은 판정 대상이 아니다. 판정식의 정본은 `journal/status.ts`
+   * 의 `journalAlerting` 한 벌이다. 알림 경로는 기존 uptime `gh-radar-relay-healthz` + 정책
+   * `gh-radar-relay-down`(끊김 후 알림까지 ≈ 3분 + 5분 창) — relay 로그는 Cloud Logging 에 없으므로
+   * 로그 기반 알림을 새로 두지 않는다(RESEARCH Pattern G).
    */
   const readInterfaces = deps.networkInterfaces ?? (() => os.networkInterfaces());
 
@@ -263,7 +288,11 @@ export function createOrderApi(deps: OrderApiDeps): Express {
     // 그 사용자의 상태 프레임이 말한다 (16-37 / R2-CR-02). 판정식은 바뀌지 않았다.
     const sessionsOk =
       (stats.everReadyCount === 0 && stats.stalledCount === 0) || stats.readyCount > 0;
-    const healthy = linkUp && sessionsOk;
+    // 기록 연결(Phase 19 D-04 (b)) — 소스가 없으면 판정에서 빠진다. 장 밖이면 알림 대상이 아니다.
+    const now = deps.now?.() ?? new Date();
+    const journal = deps.journal?.health(now.getTime());
+    const journalOk = journal === undefined || !journalAlerting(journal, now);
+    const healthy = linkUp && sessionsOk && journalOk;
 
     const payload: HealthPayload = {
       status: healthy ? "ok" : "degraded",
@@ -273,6 +302,7 @@ export function createOrderApi(deps: OrderApiDeps): Express {
       sessionCount: stats.sessionCount,
       everReadyCount: stats.everReadyCount,
       stalledCount: stats.stalledCount,
+      ...(journal !== undefined ? { journal } : {}),
     };
 
     res.status(healthy ? 200 : 503).json(payload);

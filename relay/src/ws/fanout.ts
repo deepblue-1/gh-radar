@@ -47,14 +47,19 @@
  *            상태 프레임의 계좌 사본이나 인바운드 바디를 믿으면 IDOR 이 그대로 열린다.
  *   T-16-06  전략·주문 인바운드는 server 의 `apiRateLimiter` 를 **우회하는 새 경로**다.
  *            연결당 초당 상한(토큰 버킷)을 relay 가 직접 갖는다.
+ *   D-03     저널 행(`journal.rows`)은 **계좌 권한 사용자별 부분집합으로만** 전달한다
+ *            (`deliverJournalRows` · T-19-02). `#broadcastNxtSnap` 과 달리 사용자 데이터라 전 사용자
+ *            순회는 하되 **사용자마다** `accountsOf(entry.dmaUserId)` 로 거른 부분집합을 `#deliver(userId)`
+ *            로만 보낸다 — 걸러지지 않은 원본 배열을 보내는 경로는 없다. 같은 DMA 계정을 공유하는
+ *            사용자는 모두 받고, 매핑 밖·자격증명 미등록 사용자는 0 프레임이다.
  *
  * 하지 않는 것:
  *   - 전략 요청의 결과를 기다리지 않는다. 반영은 60/61/64/65 에코로 오고 Hub 가
  *     `#deliver(userId)` 로 그 사용자의 전 연결에 팬아웃한다 (D-11/D-12). 요청/응답
  *     상관(`rid`)은 주문만 한다.
  *   - 주문 상관을 **여기서** 하지 않는다. `order.new`/`order.cancel` 은 같은 자리에서 갈라
- *     `ws/order-handler.ts` 로 위임한다 (D-02) — 5초 상관·`dma_orders` 기록은 그쪽 몫이고
- *     이 파일은 전송(`#send`)만 빌려 준다.
+ *     `ws/order-handler.ts` 로 위임한다 (D-02) — 5초 상관은 그쪽 몫이고 이 파일은 전송(`#send`)만
+ *     빌려 준다. 기록은 관찰자 기록기(Phase 19 D-01)의 몫이다 — 사용자 세션 경로는 DB 에 쓰지 않는다.
  *   - 구독 상태를 소유하지 않는다. 참조계수·캐시의 정본은 `SubscriptionHub` 다.
  *   - 자격증명을 캐시하지 않는다. 매 인증마다 조회한다 — 등록 해제가 즉시 반영돼야 한다.
  */
@@ -65,12 +70,14 @@ import type { RawData } from "ws";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RELAY_WS_CLOSE } from "@gh-radar/shared";
 import type {
+  JournalOrderRow,
   OrderMarket,
   RelayExchange,
   RelayInbound,
   RelayLcArmMsg,
   RelayLimitChaserInput,
   RelayNxtSnapMsg,
+  RelayJournalStateMsg,
   RelayOutbound,
   RelayServerMsg,
   RelayStateMsg,
@@ -103,12 +110,9 @@ import {
   isValidIsin,
   parseInbound,
 } from "./protocol.js";
-import {
-  createOrderHandler,
-  type OrderHandler,
-  type OrderRecorder,
-} from "./order-handler.js";
+import { createOrderHandler, type OrderHandler } from "./order-handler.js";
 import type { SymbolLookup } from "../store/symbols.js";
+import type { JournalAccessView } from "../journal/types.js";
 
 // ============================================================
 // 상수 정본
@@ -261,11 +265,10 @@ export type WsFanoutDeps = {
   /** 백프레셔 임계(byte). 기본 `BACKPRESSURE_LIMIT_BYTES`. */
   backpressureLimitBytes?: number;
   /**
-   * `dma_orders` 쓰기 창구 (D-03). `symbols` 와 **둘 다** 있어야 주문 분기가 열린다 —
-   * 하나만 있으면 「ISIN 은 푸는데 기록은 못 하는」 반쪽 경로가 조용히 생긴다.
+   * ISIN → 단축코드·시장 (D-28). 브라우저가 보내지 않는 두 값을 여기서 푼다.
+   * **이것 하나로 주문 분기가 열린다** — Phase 19 D-01 로 기록 창구가 사라져 주문 결선의 조건은
+   * 종목맵뿐이다.
    */
-  orderStore?: OrderRecorder;
-  /** ISIN → 단축코드·시장 (D-28). 브라우저가 보내지 않는 두 값을 여기서 푼다. */
   symbols?: SymbolLookup;
   /** 첫 주문 통보 대기 상한(ms). 테스트가 줄여 쓴다. */
   orderTimeoutMs?: number;
@@ -274,6 +277,17 @@ export type WsFanoutDeps = {
    * 브라우저는 둘 다 그린다.
    */
   nxtTradable?: NxtTradableFeed;
+  /**
+   * 저널 계좌 매핑(Phase 19 D-06 — 관찰자 로그인 스냅샷). `deliverJournalRows` 의 라우팅 원천이다.
+   * 없으면 저널 행을 아무에게도 보내지 않는다(warn 1회).
+   */
+  journalAccess?: JournalAccessView;
+  /**
+   * 기록 연결 상태 원천(Phase 19 D-04 (a) — `JournalStatus`). 인증 직후 스냅샷 1프레임의 출처다.
+   * 없거나 `frame()` 이 null(관찰자 비활성 · 아직 판정 전)이면 보내지 않는다 — 브라우저는 부재를
+   * 「표식 없음」 으로 읽는다.
+   */
+  journalState?: { frame(): RelayJournalStateMsg | null };
 };
 
 /** `/healthz` 용 요약. 식별자를 담지 않는다. */
@@ -331,6 +345,11 @@ type UserEntry = {
    * 그 수명을 소유한다.
    */
   onState: (frame: RelayStateMsg) => void;
+  /**
+   * 이 사용자의 `dma_credentials.dma_user_id` — 저널 행 계좌 권한 라우팅 키 (Phase 19 D-03).
+   * 인증마다 다시 조회한 값으로 덮는다. **로그·프레임에 싣지 않는다**(T-19-14 · T-19-08).
+   */
+  dmaUserId: string;
 };
 
 function keyOf(isin: string, ex: RelayExchange): string {
@@ -362,19 +381,25 @@ export class WsFanout {
 
   readonly #heartbeat: NodeJS.Timeout;
   readonly #onUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
-  /** 주문 상관 핸들러 (D-02). 결선이 반쪽이면 `null` 이고 주문 분기가 사유를 돌려준다. */
+  /** 주문 상관 핸들러 (D-02). 종목맵이 없으면 `null` 이고 주문 분기가 사유를 돌려준다. */
   readonly #orders: OrderHandler<Conn> | null;
   /**
    * ISIN → 단축코드·시장 (D-28). `lc.set` 의 시장 구분을 **여기서** 푼다 (WR-03).
    *
-   * 주문 분기(`#orders`)는 `orderStore` 와 조합해야 열리지만 전략 분기는 종목맵 하나면 된다 —
-   * 그래서 조합 판정과 별개로 인스턴스에 따로 보관한다.
+   * 주문 분기(`#orders`)도 전략 분기도 종목맵 하나로 열린다 — 전략 분기가 직접 읽으므로
+   * 인스턴스에 따로 보관한다.
    */
   readonly #symbols: SymbolLookup | null;
   /** NXT 거래가능 집합 원천(quick-260923-pq2). 없으면 `nxt.snap` 을 보내지 않는다. */
   readonly #nxtTradable: NxtTradableFeed | null;
   /** `updated` 리스너 — `closeAll` 이 같은 참조로 뗀다. */
   readonly #onNxtUpdated: () => void;
+  /** 저널 계좌 매핑 (Phase 19 D-06). 없으면 `deliverJournalRows` 는 아무것도 보내지 않는다. */
+  readonly #journalAccess: JournalAccessView | null;
+  /** 매핑 미주입 경고를 이미 남겼는가 — 저널 배치마다 반복하지 않는다. */
+  #journalAccessWarned = false;
+  /** 기록 연결 상태 원천 (Phase 19 D-04 (a)). 없으면 `journal.state` 스냅샷을 보내지 않는다. */
+  readonly #journalState: { frame(): RelayJournalStateMsg | null } | null;
 
   constructor(deps: WsFanoutDeps) {
     this.#server = deps.server;
@@ -386,6 +411,8 @@ export class WsFanout {
     this.#authTimeoutMs = deps.authTimeoutMs ?? AUTH_TIMEOUT_MS;
     this.#backpressureLimit = deps.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
     this.#symbols = deps.symbols ?? null;
+    this.#journalAccess = deps.journalAccess ?? null;
+    this.#journalState = deps.journalState ?? null;
 
     this.#wss = new WebSocketServer({
       noServer: true,
@@ -401,19 +428,19 @@ export class WsFanout {
 
     // 주문 상관 (D-02). `send` 로 `#send` 를 넘기는 것이 핵심이다 — 핸들러가 소켓을 직접
     // 잡으면 전송 경로가 두 벌이 되고, 한쪽이 대상 선택을 틀리는 순간 타인의 체결이 샌다.
+    // Phase 19 D-01 — 기록 창구 없이 종목맵 하나로 열린다(기록은 관찰자 기록기 단독).
     this.#orders =
-      deps.orderStore !== undefined && deps.symbols !== undefined
+      deps.symbols !== undefined
         ? createOrderHandler<Conn>({
             sessions: deps.sessions,
             hub: deps.hub,
-            orderStore: deps.orderStore,
             symbols: deps.symbols,
             send: (conn, msg) => this.#send(conn, msg),
             timeoutMs: deps.orderTimeoutMs,
           })
         : null;
     if (this.#orders === null) {
-      logger.warn({}, "[WS] 주문 기록 큐·종목맵 미주입 — 주문 인바운드를 받지 않는다");
+      logger.warn({}, "[WS] 종목맵 미주입 — 주문 인바운드를 받지 않는다");
     }
 
     this.#heartbeat = setInterval(() => this.#sweep(), deps.heartbeatMs ?? HEARTBEAT_INTERVAL_MS);
@@ -606,7 +633,7 @@ export class WsFanout {
     const session = this.#sessions.acquire(userId, creds);
     conn.acquired = true;
     this.#hub.attach(session);
-    this.#register(conn, userId, session);
+    this.#register(conn, userId, session, creds.dmaUserId);
 
     // 인증 ACK 겸 배지 초기값. **브라우저는 이 프레임을 받은 뒤에야 구독을 보낸다**
     // (15-12 `use-relay-socket` 계약) — 빠뜨리면 화면이 영원히 비어 있다.
@@ -665,6 +692,11 @@ export class WsFanout {
     //    연결의 첫 `nxt.snap` 이 된다.
     const nxtSnap = this.#nxtSnapFrame();
     if (nxtSnap !== null) this.#send(conn, nxtSnap);
+
+    // `journal.state` 도 `nxt.snap` 과 같다 — relay 가 기록 연결 상태를 **알 때만** 보낸다
+    // (Phase 19 D-04 (a)). 관찰자 비활성·판정 전의 「모름」 을 live/delayed 로 지어내지 않는다.
+    const journalFrame = this.#journalState?.frame() ?? null;
+    if (journalFrame !== null) this.#send(conn, journalFrame);
   }
 
   /** 현재 NXT 거래가능 집합 프레임. 원천이 없거나 아직 모르면 `null` (quick-260923-pq2). */
@@ -1338,10 +1370,12 @@ export class WsFanout {
    *   반환이 실제로 걸리기 때문이다. 여기 `#users` 는 지워지므로 조기 반환만으로는
    *   부족하고, **entry 를 버리는 경로가 리스너도 함께 버려야** 한다.
    */
-  #register(conn: Conn, userId: string, session: DmaSession): void {
+  #register(conn: Conn, userId: string, session: DmaSession, dmaUserId: string): void {
     const existing = this.#users.get(userId);
     if (existing !== undefined && existing.session === session) {
       existing.conns.add(conn);
+      // 인증마다 다시 조회한 값이 정본이다 — 등록 변경이 저널 라우팅에 즉시 반영돼야 한다.
+      existing.dmaUserId = dmaUserId;
       return;
     }
 
@@ -1380,8 +1414,47 @@ export class WsFanout {
       this.#deliver(userId, frame);
     };
 
-    this.#users.set(userId, { session, conns, onState });
+    this.#users.set(userId, { session, conns, onState, dmaUserId });
     session.on("state", onState);
+  }
+
+  /**
+   * 저널 적용 행을 **그 계좌에 접근할 수 있는 사용자에게만** 보낸다 (Phase 19 D-03 · T-19-02).
+   *
+   * 사용자마다 `accountsOf(entry.dmaUserId)` 로 행을 걸러 부분집합이 비어 있지 않을 때만
+   * `#deliver(userId, …)` 한다. 같은 DMA 계정을 공유하는 사용자는 각자 같은 부분집합을 받는다.
+   * `#users` 에 없는 연결(미인증·자격증명 미등록)은 애초에 대상이 아니다.
+   */
+  deliverJournalRows(rows: readonly JournalOrderRow[]): void {
+    if (rows.length === 0) return;
+    const access = this.#journalAccess;
+    if (access === null) {
+      if (!this.#journalAccessWarned) {
+        this.#journalAccessWarned = true;
+        logger.warn({ rows: rows.length }, "[WS] 저널 매핑 미주입 — journal.rows 를 보내지 않는다");
+      }
+      return;
+    }
+    for (const [userId, entry] of this.#users) {
+      const accounts = access.accountsOf(entry.dmaUserId);
+      if (accounts === undefined || accounts.size === 0) continue;
+      const subset = rows.filter((row) => accounts.has(row.accountNo));
+      if (subset.length === 0) continue;
+      this.#deliver(userId, { t: "journal.rows", rows: subset });
+    }
+  }
+
+  /**
+   * 기록 연결 상태 프레임을 인증된 **모든** 연결에 내린다 (Phase 19 D-04 (a)).
+   *
+   * 전 사용자 순회는 `#broadcastNxtSnap` 과 같은 근거다 — 내리는 값이 사용자 데이터가 아니라 relay
+   * **운영 상태**(관찰자 연결이 따라잡았는가)라 T-15-02(사용자 격리)와 무관하다. `#users` 만 돌므로
+   * 미인증·자격증명 미등록 연결에는 가지 않는다. 프레임에는 계좌·사용자 식별자가 없다.
+   */
+  deliverJournalState(frame: RelayJournalStateMsg): void {
+    for (const entry of this.#users.values()) {
+      for (const conn of entry.conns) this.#send(conn, frame);
+    }
   }
 
   /** **그 사용자의 소켓 집합에만** 보낸다. 전역 순회 경로를 만들지 않는다 (T-15-02). */

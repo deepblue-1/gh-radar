@@ -232,14 +232,15 @@ describe("MSG 상수", () => {
     }
   });
 
-  it("INBOUND_MSG_TYPES 는 응답 대역(50~78)만 담는다", () => {
-    // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57 = 23종.
+  it("INBOUND_MSG_TYPES 는 응답 대역(50~80)만 담는다", () => {
+    // 15-02 의 12종 + 16-04 전략 응답 7종 + 17-03 신규 푸시 3종 + quick-260923-cqj 57
+    // + 19-09 관찰자 응답 79·80 = 25종.
     // 개수를 못박아 두면 화이트리스트가 의도 없이 넓어지는 순간(= 새 유입 집합이 생기는 순간)
     // 여기서 먼저 깨진다 (PC-12).
-    expect(INBOUND_MSG_TYPES.size).toBe(23);
+    expect(INBOUND_MSG_TYPES.size).toBe(25);
     for (const v of INBOUND_MSG_TYPES) {
       expect(v).toBeGreaterThanOrEqual(50);
-      expect(v).toBeLessThanOrEqual(78);
+      expect(v).toBeLessThanOrEqual(80);
     }
     // 요청 계열이 수신 경로로 들어오는 것 자체가 이상 신호다.
     expect(INBOUND_MSG_TYPES.has(MSG.LoginReq)).toBe(false);
@@ -284,6 +285,16 @@ describe("MSG 상수", () => {
     // 20(단건 조회) · 27(종목마스터 요청) · 30/31/70(NXT 상따) 은 제외 상태여야 한다.
     expect(INBOUND_MSG_TYPES.has(MsgType.GetSymbolMasterReq)).toBe(false);
     expect(INBOUND_MSG_TYPES.has(MsgType.SetLimitChaserNXTResp)).toBe(false);
+  });
+
+  it("79/80 관찰자 응답은 화이트리스트에 있고 5 요청은 없다 — hub 명시 case 와 한 커밋 (19-09)", () => {
+    expect(MSG.ObserverLoginReq).toBe(MsgType.ObserverLoginReq);
+    expect(MSG.ObserverLoginResp).toBe(MsgType.ObserverLoginResp);
+    expect(MSG.JournalBatch).toBe(MsgType.JournalBatch);
+    expect([MSG.ObserverLoginReq, MSG.ObserverLoginResp, MSG.JournalBatch]).toEqual([5, 79, 80]);
+    expect(INBOUND_MSG_TYPES.has(MSG.ObserverLoginResp)).toBe(true);
+    expect(INBOUND_MSG_TYPES.has(MSG.JournalBatch)).toBe(true);
+    expect(INBOUND_MSG_TYPES.has(MSG.ObserverLoginReq)).toBe(false);
   });
 
   it("57 SymbolMasterResp 는 화이트리스트에 있고 27 요청은 없다 — hub 명시 case 와 한 커밋 (quick-260923-cqj)", () => {

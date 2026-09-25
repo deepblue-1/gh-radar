@@ -87,6 +87,7 @@ import {
   type RelayViTriggers,
 } from "@/lib/use-relay-socket";
 import type {
+  JournalOrderRow,
   OrderSide,
   RelayAccountState,
   RelayExchange,
@@ -317,6 +318,8 @@ const EMPTY_VI_TRIGGERS: RelayViTriggers = {};
 const EMPTY_TAPE: RelayTapeEntry[] = [];
 /** 빈 주문 잠금의 고정 참조 (⑤ · ⑧) — Provider 밖 폴백이 매 호출 새 Map 을 만들지 않게 한다. */
 const EMPTY_ORDER_LOCKS: ReadonlyMap<string, OrderLockKind> = new Map();
+/** 빈 저널 행의 고정 참조 (Phase 19 D-03) — 카드 병합 memo 가 매 렌더 무효화되지 않게. */
+const EMPTY_JOURNAL_ROWS: JournalOrderRow[] = [];
 
 /**
  * Provider 밖 폴백 값. **연결하지 않은 것과 구분되지 않는 모양**이어야 한다 —
@@ -334,6 +337,9 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   // 본 주문이 없다 — 알림 조인 색인도 비어 있다(quick-260923-pgu).
   orderIndex: EMPTY_ORDER_INDEX,
   orders: [],
+  // Provider 밖에는 소켓이 없다 — 푸시 행도 기록 연결 상태도 없다(Phase 19 D-03 · D-04).
+  journalRows: EMPTY_JOURNAL_ROWS,
+  journalState: null,
   messages: [],
   isStale: false,
   limitChasers: [],

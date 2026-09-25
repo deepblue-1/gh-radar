@@ -1041,9 +1041,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     );
     await expect(form).not.toContainText('실패');
 
-    // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · 감사 기록 1건.
+    // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · DB 기록 0건(D-01).
     expect(directOrders()).toBe(1);
-    expect(relay.orderInserts()).toHaveLength(1);
+    expect(relay.orderInserts()).toHaveLength(0);
   });
 
   test('GC6 결과 모름 잠금은 앱 수명이다 — 다른 화면에 다녀와도 · 호가 탭에서도 잠긴 채, 새로고침에만 풀린다 (R3-WR-02 · 사용자 결정 1)', async ({
@@ -1142,9 +1142,9 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(obForm).not.toContainText('실패');
     expect(relaySockets).toHaveLength(1);
 
-    // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · 감사 기록 1건.
+    // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · DB 기록 0건(D-01).
     expect(directOrders()).toBe(1);
-    expect(relay.orderInserts()).toHaveLength(1);
+    expect(relay.orderInserts()).toHaveLength(0);
 
     // 새로고침 = Provider 재생성 → 잠금 해제(사용자 결정 1 의 해제 규칙). 소켓이 새로 열린다.
     await page.reload();

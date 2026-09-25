@@ -37,8 +37,11 @@ import {
   buildQuoteStateFrame,
   buildServerMessageFrame,
   buildTradeTapeFrame,
+  buildJournalBatchFrame,
+  buildObserverLoginRespFrame,
   type FakeTapeEntryInput,
 } from "./helpers/frames.js";
+import { logger } from "../src/logger.js";
 
 const OTHER_ISIN = "KR7000660001";
 
@@ -468,5 +471,38 @@ describe("SubscriptionHub", () => {
       expect(quoteReqs.map((s) => s.msgType)).toEqual([Q, S]);
       expect(quoteReqs[1]).toMatchObject({ subscribe: true, level: 1 });
     });
+  });
+});
+
+describe("SubscriptionHub — 관찰자 전용 프레임(79 · 80)이 사용자 세션에 오면 (19-09 · PC-12)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("명시 case 가 warn 후 무시한다 — unhandledFrameCount 0 · 팬아웃 0", () => {
+    resetDroppedEnvelopeCount();
+    const warn = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as never);
+    const hub = new SubscriptionHub();
+    const fanout: HubFanoutEvent[] = [];
+    hub.on("fanout", (e) => fanout.push(e));
+    const session = new FakeSession("user-1");
+    hub.attach(session);
+
+    const observerWarns = (): number =>
+      warn.mock.calls.filter((args) => args.some((a) => typeof a === "string" && a.includes("관찰자 전용 프레임"))).length;
+
+    session.pushFrame(buildObserverLoginRespFrame({ headSeq: 3, oldestSeq: 1 }));
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(observerWarns()).toBe(1);
+    expect(warn.mock.calls.at(-1)?.[0]).toEqual({ userId: "user-1", msgType: MSG.ObserverLoginResp });
+
+    session.pushFrame(buildJournalBatchFrame({ records: [{ seq: 1 }] }));
+    expect(hub.unhandledFrameCount()).toBe(0);
+    expect(observerWarns()).toBe(2);
+    expect(warn.mock.calls.at(-1)?.[0]).toEqual({ userId: "user-1", msgType: MSG.JournalBatch });
+
+    expect(fanout).toEqual([]);
+    expect(session.sent).toEqual([]);
+    hub.closeAll();
   });
 });

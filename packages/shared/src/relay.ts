@@ -36,6 +36,8 @@
  *     열렸다 — `RelayOrderModifyMsg`.
  */
 
+import type { JournalOrderRow } from "./journal";
+
 // ============================================================
 // 거래소 · 세션 상태
 // ============================================================
@@ -1115,6 +1117,39 @@ export type RelayOrderResultMsg = {
   status: DmaOrderStatus;
 };
 
+/**
+ * 계좌 기준 주문 저널 행 푸시 (Phase 19 D-03). 원천은 relay **관찰자 기록기**(19-05)가
+ * `dma_journal_apply` 적용 RPC 에서 돌려받은 행이다 — 세션 51 `{t:"order"}` 와 다른 원천이다.
+ *
+ * - **그 계좌에 접근할 수 있는 사용자의 연결에만** 보낸다(D-06 매핑 · T-15-02 사용자 스코프).
+ *   다른 사용자의 계좌 행은 절대 섞지 않는다.
+ * - 적용 배치마다 건드린 행을 모아 보낸다. 행 모양은 `GET /api/orders` 와 **같은 매퍼**
+ *   (`toJournalOrderRow`)를 거친 `JournalOrderRow` 다 — 카드는 `id` 로 병합하고 같은 id 면
+ *   `lastSeq` 큰 쪽을 남긴다.
+ * - 행이 **완전한 행**이라 카드가 이 프레임만으로 행을 **만들 수 있다.** 구 「라이브는 행을 못
+ *   만든다(REST 로 복원된 행에만 덧칠)」 규율은 이 프레임에서 폐기한다.
+ * - `{t:"order"}` 는 토스트·전략 로그 표면 전용으로 남고 카드 병합에서 빠진다(D-03).
+ */
+export type RelayJournalRowsMsg = { t: "journal.rows"; rows: JournalOrderRow[] };
+
+/** 기록 연결 상태 (D-04). `live` = 관찰자 저널 펌프가 따라잡은 상태 · `delayed` = 끊김/지연. */
+export type RelayJournalState = "live" | "delayed";
+
+/**
+ * 기록 연결 상태 표식 (Phase 19 D-04 (a)). 원천은 relay 관찰자 연결의 상태 기계다.
+ *
+ * - 인증 직후 그 연결에 **스냅샷 1프레임**, 이후 상태가 바뀔 때(전이) 해당 사용자 연결에 보낸다.
+ * - `since` 는 기록 연결이 `live` 를 벗어난 시각(ISO). `live` 이면 생략한다.
+ * - relay 가 상태를 **모르면**(관찰자 비활성·미설정) **보내지 않는다** — 브라우저는 프레임 부재를
+ *   「표식 없음」 으로 읽는다(지연 표식을 추측으로 띄우지 않는다).
+ */
+export type RelayJournalStateMsg = {
+  t: "journal.state";
+  s: RelayJournalState;
+  /** `live` 를 벗어난 시각(ISO). `live` 이면 없다. */
+  since?: string;
+};
+
 /** relay 가 브라우저로 보내는 모든 메시지. `t` 로 분기한다. */
 export type RelayOutbound =
   | RelayStateMsg
@@ -1133,7 +1168,9 @@ export type RelayOutbound =
   | RelayRateCrossMsg
   | RelayRateCrossSnapMsg
   | RelayQueuedWindowMsg
-  | RelayNxtSnapMsg;
+  | RelayNxtSnapMsg
+  | RelayJournalRowsMsg
+  | RelayJournalStateMsg;
 
 // ============================================================
 // 주문 DTO (webapp → server → relay)
@@ -1215,62 +1252,4 @@ export type CreateOrderResponse = {
   resultCode: number;
   message: string;
   status: DmaOrderStatus;
-};
-
-/**
- * `GET /api/orders` 응답 1건 (server → webapp) — `dma_orders` 한 행의 camelCase 뷰.
- *
- * 한 행이 주문 하나의 **수명주기 전체**를 담는다 (D-24): server 가 요청을 insert 하고,
- * 접수/거부 응답으로 1차 갱신하고, 이후 체결·취소확인 통보를 relay 가 같은 행에 쓴다.
- * 그래서 새로고침 후에도 오늘 주문 목록을 이 조회 하나로 복원할 수 있다.
- *
- * `userId` 는 담지 않는다 — 항상 요청자 본인의 행만 나가므로 실을 이유가 없다.
- *
- * ⚠️ `status:"timeout"` 은 **"실패"가 아니라 "결과를 모름"** 이다. UI 는 "결과 확인 중 —
- * 미체결 목록을 확인하세요"를 표시하고 재주문을 유도하지 않는다 (Pitfall 9).
- */
-/**
- * 주문 출처 3종. `dma_orders.origin` 의 CHECK 3종(`manual`/`limit_chaser`/`vi`)과 **같은 값**이다
- * (`20260908120000_dma_orders_origin.sql`).
- *
- * relay 의 `OrderOriginKind`(`dma/envelope.ts`)와 동형이지만 **사본을 둔다** — server 는 relay 를
- * 의존하지 않으므로(패키지 경계) 그 타입을 import 할 수 없다. 값이 갈리면 relay 의 insert 가
- * DB CHECK 위반으로 즉시 드러난다 — 조용히 어긋나지 않는다.
- */
-export type DmaOrderOrigin = "manual" | "limit_chaser" | "vi";
-
-export type DmaOrderRow = {
-  id: string;
-  accountNo: string;
-  /** 12자 KRX 표준코드. 게이트웨이 주문 키 (D-28). */
-  isin: string;
-  /** 6자 단축코드. 상장폐지로 마스터에서 빠지면 null (기록은 남는다). */
-  stockCode: string | null;
-  exchange: RelayExchange;
-  market: OrderMarket;
-  side: OrderSide;
-  orderType: OrderType;
-  /** 취소 주문의 원주문번호. 신규는 null. */
-  orgOrderNo: string | null;
-  qty: number;
-  price: number;
-  /** 접수 후 부여. 접수 전 거부·타임아웃이면 null. */
-  orderNo: string | null;
-  status: DmaOrderStatus;
-  /** 0=성공, 그 외 거부코드. 통보 전이면 null. */
-  resultCode: number | null;
-  /** 게이트웨이 통보 원문 1자 (A/E/C/R). 해석하지 않는다. */
-  noticeType: string | null;
-  message: string | null;
-  filledQty: number;
-  /**
-   * 발주 주체. `manual`=사용자가 직접 낸 주문 / `limit_chaser`=상따 자동주문 / `vi`=VI 자동주문.
-   *
-   * ⚠️ 구 게이트웨이가 빈 값을 보내면 relay 가 `manual` 로 좁힌다(DB DEFAULT 도 `'manual'`) —
-   * **"수동"과 "출처 불명"이 같은 값**이다. 표시에서 이 사실을 잊지 말 것: `manual` 을
-   * "사용자가 직접 냈다"의 **증거**로 쓰면 안 된다(자동주문 감사에서 거짓 음성이 된다).
-   */
-  origin: DmaOrderOrigin;
-  createdAt: string;
-  updatedAt: string;
 };

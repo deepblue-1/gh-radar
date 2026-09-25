@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { kstDateIso, type JournalOrderRow } from '@gh-radar/shared';
 
 import { mockHomeApi, HOME_POPULATED } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
@@ -10,6 +11,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { leavesOverflowing } from '../overflow';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
 /**
@@ -144,15 +146,84 @@ const ACCOUNT_B_STATE = {
  * ★ 취소 1건이 이 픽스처의 존재 이유다. 「오늘 낸 주문 전체」를 미체결 목록으로는 담을 수
  *   없다는 것이 이 카드가 별도 표면인 이유인데(me-client 헤더 ⑤ ⓒ), 취소 행이 없으면
  *   그 구조적 결손을 spec 이 통과시켜 버린다.
+ * ★ 모양은 Phase 19 저널 행(`JournalOrderRow`) 이다 — server `GET /api/orders` 가 19-04 부터
+ *   이 모양을 돌려준다.
+ *
+ * Phase 19-08 (B′ · D-07 · D-08) 로 두 계좌에 걸친 9행(화면 6줄)으로 넓혔다:
+ *   계좌 A(위탁종합) — 수동 KRX 매수(ord-a) · 그 취소(ord-c) · 로컬 거부(ord-e · 주문번호·수량·가격
+ *     모름) · **상따 NXT 매도 조각 체결 4건**(ord-d1~d4 → 한 줄 `#0000900010~0000900013 (4건)`).
+ *     묶인 줄이 390px ②줄 줄바꿈의 시험대다 — 주문번호 범위 + 가격 범위 + (4건)이 한 줄에 못 든다.
+ *   계좌 B(위탁CMA) — 긴 종목명 행(ord-b · 출처 미상 `origin: null` = 칩 생략 대상, D-08 보충) ·
+ *     VI KRX 매수(ord-f).
+ *   ★ 가장 최신 행(ord-f)이 **계좌 B** 다 — 첫 등장 순으로 묶으면 B 가 먼저 서므로, 묶음이
+ *     relay 계좌 목록 순(A → B)으로 선다는 단언이 헛통과하지 않는다.
+ *   ★ NXT 는 ord-d 한 종류뿐이다(태그 1개 단언).
  */
-const TODAY_ORDERS = [
-  {
-    id: 'ord-a',
+const TODAY = kstDateIso();
+
+/** 계좌 저널 행 한 줄 — 새 B′ 픽스처 행의 공통 기본값. 기존 3행은 원문 그대로 둔다. */
+function journalRow(over: Partial<JournalOrderRow> & Pick<JournalOrderRow, 'id'>): JournalOrderRow {
+  return {
+    tradeDate: TODAY,
     accountNo: E2E_ACCOUNT_NO,
     isin: E2E_ISIN,
     stockCode: '005930',
     exchange: 'KRX',
-    market: 'K',
+    board: null,
+    side: 'B',
+    orderType: 'N',
+    orgOrderNo: null,
+    qty: 10,
+    price: 70_000,
+    orderNo: null,
+    status: 'accepted',
+    resultCode: 0,
+    noticeType: 'A',
+    message: null,
+    filledQty: 0,
+    modifiedQty: 0,
+    origin: 'manual',
+    requester: null,
+    requestKind: 'New',
+    lastSeq: 1,
+    createdAt: '2026-09-10T00:00:00.000Z',
+    updatedAt: '2026-09-10T00:00:00.000Z',
+    ...over,
+  };
+}
+
+/** 상따 NXT 매도 조각 체결 4건 — 1초 간격이라 3초 창 안에서 한 줄로 묶인다. */
+const MERGED_FILLS: JournalOrderRow[] = [0, 1, 2, 3].map((i) =>
+  journalRow({
+    id: `ord-d${i + 1}`,
+    exchange: 'NXT',
+    side: 'S',
+    orderNo: `00009000${10 + i}`,
+    qty: 10,
+    price: 71_000 + i * 100,
+    status: 'filled',
+    filledQty: 10,
+    noticeType: 'E',
+    origin: 'limit_chaser',
+    lastSeq: 10 + i,
+    createdAt: `2026-09-10T00:40:0${i}.000Z`,
+    updatedAt: `2026-09-10T00:40:0${i}.000Z`,
+  }),
+);
+/** 묶인 줄의 주문번호 표기 — `mergeOrderNotices` 의 `#첫번호~끝번호`. */
+const MERGED_ORDER_NO = '#0000900010~0000900013';
+/** 묶음의 첫 통보 시각(00:40:00Z)을 KST 로 읽은 값 — 카드 `KST_TIME` 과 같은 표기. */
+const MERGED_AT_KST = '09:40:00';
+
+const TODAY_ORDERS: JournalOrderRow[] = [
+  {
+    id: 'ord-a',
+    tradeDate: TODAY,
+    accountNo: E2E_ACCOUNT_NO,
+    isin: E2E_ISIN,
+    stockCode: '005930',
+    exchange: 'KRX',
+    board: null,
     side: 'B',
     orderType: 'N',
     orgOrderNo: null,
@@ -164,17 +235,22 @@ const TODAY_ORDERS = [
     noticeType: 'A',
     message: null,
     filledQty: 0,
+    modifiedQty: 0,
     origin: 'manual',
+    requester: null,
+    requestKind: 'New',
+    lastSeq: 1,
     createdAt: '2026-09-10T00:10:00.000Z',
     updatedAt: '2026-09-10T00:10:00.000Z',
   },
   {
     id: 'ord-b',
+    tradeDate: TODAY,
     accountNo: ACCOUNT_B,
     isin: E2E_LONG_NAME_ISIN,
     stockCode: '000660',
-    exchange: 'NXT',
-    market: 'K',
+    exchange: 'KRX',
+    board: null,
     side: 'S',
     orderType: 'N',
     orgOrderNo: null,
@@ -186,17 +262,22 @@ const TODAY_ORDERS = [
     noticeType: 'A',
     message: null,
     filledQty: 0,
-    origin: 'limit_chaser',
+    modifiedQty: 0,
+    origin: null,
+    requester: null,
+    requestKind: 'New',
+    lastSeq: 2,
     createdAt: '2026-09-10T00:20:00.000Z',
     updatedAt: '2026-09-10T00:20:00.000Z',
   },
   {
     id: 'ord-c',
+    tradeDate: TODAY,
     accountNo: E2E_ACCOUNT_NO,
     isin: E2E_ISIN,
     stockCode: '005930',
     exchange: 'KRX',
-    market: 'K',
+    board: null,
     side: 'B',
     orderType: 'C',
     orgOrderNo: '0000900001',
@@ -208,11 +289,45 @@ const TODAY_ORDERS = [
     noticeType: 'C',
     message: null,
     filledQty: 0,
+    modifiedQty: 0,
     origin: 'manual',
+    requester: null,
+    requestKind: 'Cancel',
+    lastSeq: 3,
     createdAt: '2026-09-10T00:30:00.000Z',
     updatedAt: '2026-09-10T00:30:00.000Z',
   },
+  // 로컬 거부 — 게이트웨이까지 못 가 주문번호·수량·가격을 모른다(D-08: 「—」).
+  journalRow({
+    id: 'ord-e',
+    qty: null,
+    price: null,
+    status: 'rejected',
+    noticeType: 'R',
+    resultCode: 804,
+    lastSeq: 4,
+    createdAt: '2026-09-10T00:35:00.000Z',
+    updatedAt: '2026-09-10T00:35:00.000Z',
+  }),
+  ...MERGED_FILLS,
+  // 계좌 B 의 VI 매수 — 가장 최신 행이다(위 ★).
+  journalRow({
+    id: 'ord-f',
+    accountNo: ACCOUNT_B,
+    isin: UNKNOWN_ISIN,
+    stockCode: '035720',
+    orderNo: '0000900020',
+    qty: 7,
+    price: 52_300,
+    origin: 'vi',
+    lastSeq: 20,
+    createdAt: '2026-09-10T00:50:00.000Z',
+    updatedAt: '2026-09-10T00:50:00.000Z',
+  }),
 ];
+
+/** 화면 줄 수 — 조각 체결 4건이 한 줄로 접혀 9행이 6줄이 된다. */
+const TODAY_ORDER_LINES = 6;
 
 /** UI-SPEC 이 기준으로 삼은 모바일 폭(§반응형 "모바일 390px"). */
 const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
@@ -368,7 +483,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     */
     const ordersCard = todayOrdersCard(page);
     await expect(ordersCard).toBeVisible();
-    await expect(todayOrderRows(page)).toHaveCount(3, { timeout: 15_000 });
+    await expect(todayOrderRows(page)).toHaveCount(TODAY_ORDER_LINES, { timeout: 15_000 });
     // 취소된 주문은 미체결 목록에 없다 — 이 표면만이 그 행을 담는다.
     await expect(ordersCard).toContainText('0000900003');
     await expect(ordersCard).toContainText('취소');
@@ -677,8 +792,11 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       (위 헤더 ④): 행은 `overflow-hidden` 이라 폭·`scrollWidth` 가 조용하다.
       대상 행은 주문번호로 좁힌다 — `nth(0)` 은 정렬이 바뀌면 애먼 행을 잰다.
     */
-    const orderList = page.locator('[data-slot="today-orders-list"]');
     const longOrderRow = todayOrderRows(page).filter({ hasText: '0000900002' });
+    // B′(19-08) 부터 목록이 계좌마다 한 벌이다 — 그 행이 든 목록으로 좁힌다.
+    const orderList = page
+      .locator('[data-slot="today-orders-list"]')
+      .filter({ has: page.locator('[data-slot="today-order-row"]', { hasText: '0000900002' }) });
     await expect(longOrderRow).toHaveCount(1, { timeout: 15_000 });
     // 이름이 실제로 실렸는지 먼저 본다 — 안 실리면 잘림 단언이 헛통과한다.
     await expect(longOrderRow).toContainText('한국제7호기업인수목적우선주식회사');
@@ -695,5 +813,137 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
       orderListRight,
     );
     expect(orderOverflowing).toEqual([]);
+  });
+  /*
+    ── B′ (Phase 19-08 · D-07 · D-08) ────────────────────────────────────────────
+    ※ 「기록 지연」 배지(D-04 (a))는 e2e 대상이 아니다 — 로컬 relay 의 관찰자는 비밀(DMA_OBSERVER_SECRET)
+      미주입이라 disabled 이고, disabled 는 `journal.state` 프레임을 내지 않는다(19-07). 표식의 정본은
+      단위 테스트 `today-orders-card.test.tsx` ⑫ 다.
+  */
+
+  test('9. B′ — 데스크톱 1280: 계좌 순 묶음 · 출처 열 · NXT 태그', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/me');
+    await waitForAccounts(page, 2);
+
+    const card = todayOrdersCard(page);
+    const groups = card.locator('[data-slot="today-orders-group"]');
+    await expect(groups).toHaveCount(2, { timeout: 15_000 });
+    // relay 계좌 목록 순(A → B) — 가장 최신 행이 B 인데도 A 가 먼저 선다.
+    await expect
+      .poll(() => groups.evaluateAll((els) => els.map((el) => el.getAttribute('data-account'))))
+      .toEqual([E2E_ACCOUNT_NO, ACCOUNT_B]);
+
+    // 각 묶음 머리 — 계좌 · 번호 전체 · 상품명 · 그 계좌의 묶기 전 행 수.
+    const [groupA, groupB] = [groups.nth(0), groups.nth(1)];
+    await expect(groupA.locator('[data-slot="today-orders-group-account-no"]')).toHaveText(
+      E2E_ACCOUNT_NO,
+    );
+    await expect(groupB.locator('[data-slot="today-orders-group-account-no"]')).toHaveText(
+      ACCOUNT_B,
+    );
+    await expect(groupA).toContainText('위탁종합');
+    await expect(groupA).toContainText('7건');
+    await expect(groupB).toContainText('위탁CMA');
+    await expect(groupB).toContainText('2건');
+    // 헤더 「N건」 은 묶기 전 전체 행 수다.
+    await expect(card.locator('h2 + span')).toHaveText(`${TODAY_ORDERS.length}건`);
+
+    // 이 폭에서는 표다 — 묶음마다 표 하나, 「출처」 열이 구분 바로 뒤.
+    const tableRows = card.locator('[data-slot="today-order-table-row"]');
+    await expect(tableRows).toHaveCount(TODAY_ORDER_LINES);
+    await expect(card.locator('[data-slot="today-order-row"]').first()).toBeHidden();
+    for (const group of [groupA, groupB]) {
+      const heads = await group.locator('th').allTextContents();
+      expect(heads.map((h) => h.trim())).toEqual([
+        '시각',
+        '종목',
+        '구분',
+        '출처',
+        '수량',
+        '가격',
+        '상태',
+        '주문번호',
+      ]);
+    }
+
+    // NXT 태그 — NXT 행(묶인 상따 매도) 하나에만, 종목 칸 안에.
+    const nxtTags = tableRows.locator('[data-slot="exchange-tag"]');
+    await expect(nxtTags).toHaveCount(1);
+    await expect(nxtTags).toHaveAttribute('data-exchange', 'NXT');
+    const mergedRow = tableRows.filter({ hasText: MERGED_ORDER_NO });
+    await expect(mergedRow.locator('[data-slot="exchange-tag"]')).toHaveCount(1);
+    await expect(mergedRow.locator('[data-slot="today-order-origin"]')).toHaveText('상따');
+
+    // 출처 칩 — 아는 행마다 하나, 미상(ord-b)은 없다(D-08 보충 · T-19-30).
+    await expect(
+      tableRows.filter({ hasText: '0000900002' }).locator('[data-slot="today-order-origin"]'),
+    ).toHaveCount(0);
+    await expect(
+      tableRows.filter({ hasText: '0000900020' }).locator('[data-slot="today-order-origin"]'),
+    ).toHaveText('VI');
+    await expect(
+      tableRows.filter({ hasText: '0000900001' }).locator('[data-slot="today-order-origin"]'),
+    ).toHaveText('수동');
+    await expect(tableRows.locator('[data-slot="today-order-origin"]')).toHaveCount(
+      TODAY_ORDER_LINES - 1,
+    );
+
+    // 「· 수동」 꼬리는 없다 — 칩이 말한다(D-08).
+    await expect(card).not.toContainText('· 수동');
+
+    // 로컬 거부 줄 — 주문번호 · 수량 · 가격 자리가 「—」.
+    const rejected = tableRows.filter({ hasText: '거부' });
+    await expect(rejected).toHaveCount(1);
+    const cells = (await rejected.locator('td').allTextContents()).map((t) => t.trim());
+    expect([cells[4], cells[5], cells[7]]).toEqual(['—', '—', '—']);
+  });
+
+  test('10. B′ — 폰 390: 묶인 행 ②줄 줄바꿈 · 주문번호 비잘림', async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.goto('/me');
+    await waitForAccounts(page, 2);
+    // 종목명을 실어 ①줄도 실제 길이로 만든다(삼성전자 · 긴 종목명).
+    await relay.pushAccountState(ACCOUNT_A_STATE);
+    await relay.pushAccountState(ACCOUNT_B_STATE);
+
+    const card = todayOrdersCard(page);
+    await expect(card.locator('[data-slot="today-orders-group"]')).toHaveCount(2, {
+      timeout: 15_000,
+    });
+    await expect(todayOrderRows(page)).toHaveCount(TODAY_ORDER_LINES);
+    await expect(card).toContainText('한국제7호기업인수목적우선주식회사', { timeout: 15_000 });
+
+    const mergedRow = todayOrderRows(page).filter({ hasText: MERGED_ORDER_NO });
+    await expect(mergedRow).toHaveCount(1);
+    const list = page
+      .locator('[data-slot="today-orders-list"]')
+      .filter({ has: page.locator('[data-slot="today-order-row"]', { hasText: MERGED_ORDER_NO }) });
+    const listRight = (await boxOf(list)).right;
+
+    // 주문번호 잎이 목록 오른쪽 끝을 넘지 않는다(잘림 0).
+    const orderNo = mergedRow.getByText(MERGED_ORDER_NO, { exact: true });
+    const timeLeaf = mergedRow.getByText(MERGED_AT_KST, { exact: true });
+    const orderNoBox = await boxOf(orderNo);
+    const timeBox = await boxOf(timeLeaf);
+    expect(Math.round(orderNoBox.right - listRight)).toBeLessThanOrEqual(1);
+
+    /*
+      ②줄이 한 줄보다 크면 주문번호가 **내려갔다**. 이 픽스처(주문번호 범위 + 가격 범위 + (4건))는
+      390px 에서 한 줄에 들지 않도록 잡았다 — 줄바꿈이 일어나지 않으면 이 단언 자체가 헛돈다.
+    */
+    const line2 = mergedRow.locator(':scope > div').nth(1);
+    const line2Height = (await line2.boundingBox())!.height;
+    const timeHeight = (await timeLeaf.boundingBox())!.height;
+    expect(line2Height).toBeGreaterThan(timeHeight * 1.5);
+    expect(orderNoBox.y).toBeGreaterThan(timeBox.y);
+
+    // 테스트 8 과 같은 자 — **모든 행**의 잎이 자기 목록 밖으로 밀려나지 않는다.
+    const rows = await todayOrderRows(page).all();
+    for (const row of rows) {
+      const ownList = row.locator('xpath=ancestor::*[@data-slot="today-orders-list"][1]');
+      const right = (await boxOf(ownList)).right;
+      expect(await leavesOverflowing(row, right)).toEqual([]);
+    }
   });
 });

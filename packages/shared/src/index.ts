@@ -53,8 +53,6 @@ export type {
   CreateOrderRequest,
   CreateOrderResponse,
   DmaOrderStatus,
-  DmaOrderRow,
-  DmaOrderOrigin,
   // --- 16-03 전략·주문 wss 계약. 상태 3종 + 인바운드 6종 + 아웃바운드 7종 ---
   RelayLcCrud,
   RelayLcWatchSide,
@@ -85,6 +83,10 @@ export type {
   RelayRateCrossSnapMsg,
   RelayQueuedWindowMsg,
   RelayNxtSnapMsg,
+  // --- 19-04 계좌 기준 주문 저널 wss 프레임 2종 (D-03 · D-04) ---
+  RelayJournalRowsMsg,
+  RelayJournalState,
+  RelayJournalStateMsg,
 } from "./relay";
 export {
   RELAY_STATE_LABELS,
@@ -92,6 +94,14 @@ export {
   ORDER_CONDITION_NORMAL,
   MAX_VI_ORDER_AMOUNT_KRW,
 } from "./relay";
+// --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
+export type {
+  JournalOrderRow,
+  JournalOrderDbRow,
+  JournalOrderStatus,
+  JournalOrderOrigin,
+} from "./journal";
+export { toJournalOrderRow, JOURNAL_ORDER_PUBLIC_COLUMNS } from "./journal";
 export type { Summary, SummaryType, Sentiment } from "./summary";
 export type { KiwoomKa10027Row, KiwoomKa10001Row, IntradayCloseUpdate, IntradayOhlcUpdate } from "./kiwoom";
 export { getKstDate, isKoreanMarketOpen } from "./marketHours";

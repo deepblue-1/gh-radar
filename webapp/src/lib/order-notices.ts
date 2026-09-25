@@ -19,7 +19,7 @@
  *   — `ActionWord`(:466) · `ActionSide`(:478) · `BuildOrderScreen`(:500 부근 board 접두).
  */
 
-import type { TodayOrderRow } from "./orders-api";
+import type { JournalOrderRow } from "@gh-radar/shared";
 
 /** 매매구분. `null` = 모른다(지어내지 않는다). */
 export type NoticeSide = "B" | "S" | null;
@@ -123,10 +123,11 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
  *   - **매수 접수**: 취소 직후 3초 안 재매수가 앞 줄에 합쳐지면 **이미 취소된 수량이
  *     더해져 보이고** 순서도 취소 줄 위로 올라간다(Pitfall 8 · 사용자 결정 2026-09-17).
  *   - **거부·취소확인·정정확인**: 한 건 한 건이 독립 사건이다.
- *   - **수동 발주·주체 미상**: 사람이 낸 주문은 하나하나 보여야 한다. `origin === "manual"`
- *     은 「수동」과 「출처 불명」이 **같은 값**이라(`DmaOrderRow.origin` 주석) 자동주문의
- *     증거로 쓸 수 없다 — 그래서 자동 판정은 `manual` 이 **아닐 때만** 참이다.
- *   - **라이브 통보가 없는 복원 행**: 통보가 온 적 없는 주문은 묶기의 대상이 아니다.
+ *   - **수동 발주·출처 미상**: 사람이 낸 주문은 하나하나 보여야 한다. 자동 판정은 저널 행의
+ *     `origin` 이 **`limit_chaser`·`vi` 일 때만** 참이다(그리고 `requester` 가 `"Manual"` 이 아닐
+ *     때). `origin` null(게이트웨이 재시작 뒤 termId=0 등)은 자동주문의 **증거가 없다** — 묶으면
+ *     사람이 낸 주문이 합쳐질 수 있다(Phase 19 D-08 보충과 같은 원칙: 모르는 출처를 지어내지 않는다).
+ *   - 저널 행은 모두 통보 사실(`noticeType`)을 가진다 — 복원·푸시가 같은 규칙으로 묶인다.
  *
  * ★ 창 기준은 **그 묶음의 첫 통보 시각**이다 — 슬라이딩이 아니다(T-17-36). 정본 C#
  *   (`LogPanelRenderer.FindMergeRecord` :330)은 마지막 갱신 기준 슬라이딩 창이지만,
@@ -141,14 +142,20 @@ export function orderNoticeLabel(facts: OrderNoticeFacts): OrderNoticeLabel {
 /** 묶인(또는 단건인) 한 줄. */
 export interface MergedOrderNotice {
   /** 대표 행 — 입력에서 **처음 만난** 행. 렌더 키·종목·행위의 정본. */
-  head: TodayOrderRow;
+  head: JournalOrderRow;
   /** 묶인 건수. `1` 이면 묶임 표기를 붙이지 않는다. */
   count: number;
-  /** 수량 합계. */
-  qty: number;
-  /** 단가 범위. 단가를 더하면 없는 값이 생기므로 합계가 아니다. */
-  priceMin: number;
-  priceMax: number;
+  /**
+   * 수량 합계. 수량을 모르는 구성원(`qty` null — 체결이 접수보다 먼저 온 행 · 로컬 거부)은 0 으로
+   * 더한다. 구성원 **전부** 모르면 `null`(화면은 「—」) — 모르는 수량을 0 으로 지어내지 않는다.
+   */
+  qty: number | null;
+  /**
+   * 단가 범위. 단가를 더하면 없는 값이 생기므로 합계가 아니다. null·0(취소)은 범위에서 빠지고,
+   * 남는 단가가 하나도 없으면 둘 다 `null`(화면은 「—」)이다.
+   */
+  priceMin: number | null;
+  priceMax: number | null;
   /** 묶음의 **첫 통보**(가장 이른) 시각 ISO. */
   at: string;
   /** 주문번호 표기 — `#첫번호~끝번호`(묶임) · 원번호(단건) · `null`(번호 없음). */
@@ -165,19 +172,18 @@ export const MERGE_WINDOW_MS = 3000;
  * 묶이지 않는 행은 **자기 주문번호**(없으면 행 id)가 키다 — 주문번호는 행마다 고유하므로
  * 같은 키가 둘일 수 없고, 따라서 「안 묶임」이 별도 분기 없이 성립한다.
  */
-export function mergeKeyOf(row: TodayOrderRow): string {
-  /* 번호가 없는 행(접수 전 거부·타임아웃)끼리 서로 묶이지 않도록 행 id 로 떨어진다. */
+export function mergeKeyOf(row: JournalOrderRow): string {
+  /* 번호가 없는 행(로컬 거부)끼리 서로 묶이지 않도록 행 id 로 떨어진다. */
   const own = `NO|${row.orderNo ?? row.id}`;
-  const live = row.live;
-  if (live === null) return own;
 
-  const automated = row.origin !== "manual" && live.rq !== MANUAL_REQUESTER;
+  const automated =
+    (row.origin === "limit_chaser" || row.origin === "vi") && row.requester !== MANUAL_REQUESTER;
   if (!automated) return own;
 
   const axis = `${row.origin}|${row.isin}|${row.exchange}|${row.side}`;
   // 체결은 접두 `FG`, 매도 접수는 `AG` — 접두가 달라 둘이 섞이지 않는다.
-  if (live.nt === "E") return `FG|${axis}`;
-  if (live.nt === "A" && row.side === "S") return `AG|${axis}`;
+  if (row.noticeType === "E") return `FG|${axis}`;
+  if (row.noticeType === "A" && row.side === "S") return `AG|${axis}`;
   return own;
 }
 
@@ -207,7 +213,7 @@ interface Group {
 }
 
 interface Item {
-  row: TodayOrderRow;
+  row: JournalOrderRow;
   index: number;
   stamp: number | null;
 }
@@ -222,7 +228,7 @@ interface Item {
  *   목록에서는 가장 최신) 자리에 선다. 서버가 준 정렬을 뒤집지 않는다.
  */
 export function mergeOrderNotices(
-  rows: readonly TodayOrderRow[],
+  rows: readonly JournalOrderRow[],
   windowMs: number = MERGE_WINDOW_MS,
 ): MergedOrderNotice[] {
   const items: Item[] = rows.map((row, index) => ({
@@ -260,8 +266,8 @@ export function mergeOrderNotices(
         head: item.row,
         count: 1,
         qty: item.row.qty,
-        priceMin: item.row.price,
-        priceMax: item.row.price,
+        priceMin: knownPrice(item.row.price),
+        priceMax: knownPrice(item.row.price),
         // 오름차순으로 접으므로 묶음의 **첫 통보**가 곧 이 행이다.
         at: item.row.createdAt,
         orderNoText: item.row.orderNo,
@@ -278,15 +284,20 @@ export function mergeOrderNotices(
   return groups.sort((a, b) => a.headIndex - b.headIndex).map((group) => group.out);
 }
 
+/** 범위에 넣을 수 있는 단가 — null(모름)·0 이하(취소 등)는 없는 값이다. */
+function knownPrice(price: number | null): number | null {
+  return price !== null && price > 0 ? price : null;
+}
+
 /** 창 안의 통보 한 건을 묶음에 더한다. 시각(`at`)은 첫 통보 것이라 **건드리지 않는다**. */
 function absorb(group: Group, item: Item): void {
   const { row } = item;
   group.out.count += 1;
-  group.out.qty += row.qty;
-  if (row.price > 0) {
-    group.out.priceMin =
-      group.out.priceMin > 0 ? Math.min(group.out.priceMin, row.price) : row.price;
-    group.out.priceMax = Math.max(group.out.priceMax, row.price);
+  if (row.qty !== null) group.out.qty = (group.out.qty ?? 0) + row.qty;
+  const price = knownPrice(row.price);
+  if (price !== null) {
+    group.out.priceMin = group.out.priceMin === null ? price : Math.min(group.out.priceMin, price);
+    group.out.priceMax = group.out.priceMax === null ? price : Math.max(group.out.priceMax, price);
   }
   if (item.index < group.headIndex) {
     group.headIndex = item.index;
