@@ -1963,6 +1963,55 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
+    ★ Phase 20 트레이서 — 「호가변경」 한 행이 **실제 경로 한 줄**을 끝까지 잇는다(20-01).
+      진짜 브라우저 → 진짜 relay → 스텁 게이트웨이 10 수신 → 60 에코 → 행 값.
+      `openFocusedCard` 를 쓰지 않는다 — 그 헬퍼는 옛 입력 id(`#lc-buy-watch-qty`)를 기다리고,
+      20-04 가 옛 입력을 걷어도 이 케이스는 살아남아야 한다. 대신 값 행 자체의 텍스트를 기다린다.
+  */
+  test('P20-1 인라인 편집 한 행 — 「호가변경」 클릭 → 전체 선택 → 5 → Enter → 게이트웨이 10 수신 → 60 에코 → 행 「5건」 (Phase 20 D-04 · D-14 · D-14a)', async ({
+    page,
+  }) => {
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    await page.goto(FOCUS_URL);
+    await waitForReady(page);
+    await expect(cardOf(page, E2E_ISIN)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+
+    const row = page.locator('[data-lc-field="lc-sweep-tick"]');
+    const value = row.locator('[data-slot="lc-row-value"]');
+    await expect(value).toHaveText('3건', { timeout: 15_000 });
+    const before = relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length;
+
+    // 행 높이 44 — 편집 전후가 같아야 한다(D-14a · 레이아웃 이동 0).
+    const box = await row.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs(box!.height - 44)).toBeLessThanOrEqual(0.5);
+
+    await row.click();
+    const input = page.locator('#lc-sweep-tick');
+    await expect(input).toBeFocused();
+    // 들어가자마자 값 전체 선택(D-14c) — 첫 입력이 값을 덮는다.
+    expect(
+      await input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd, el.value.length]),
+    ).toEqual([0, 1, 1]);
+    const editBox = await page.locator('[data-lc-field="lc-sweep-tick"][data-editing="true"]').boundingBox();
+    expect(editBox).not.toBeNull();
+    expect(Math.abs(editBox!.height - 44)).toBeLessThanOrEqual(0.5);
+    // 안내 문구·「저장」 버튼 없음(D-14a).
+    await expect(page.locator('[data-slot="limit-chaser-form"]')).not.toContainText('Enter');
+    await expect(page.getByRole('button', { name: '저장' })).toHaveCount(0);
+
+    await page.keyboard.type('5');
+    await page.keyboard.press('Enter');
+    await waitForSetAtGateway(relay, before + 1);
+    // 사용자가 한 번 눌렀으면 정확히 한 번 나간다 — 재전송 없음(T-16-10).
+    expect(relay.requestLog().filter((m) => m === DMA_MSG.SetLimitChaserReq).length).toBe(before + 1);
+
+    await relay.pushLimitChaserEcho({ buyEnabled: true, sweepMinTickCount: 5 });
+    await expect(value).toHaveText('5건', { timeout: 15_000 });
+    await expect(page.locator('#lc-sweep-tick')).toHaveCount(0);
+  });
+
+  /*
     ★ quick-260922-tqr — iOS Safari 는 16px 미만 입력에 포커스하면 확대하고 되돌리지 않는다.
       종목 추가란은 터치 기기에서 16px 다. iPhone **가로** 폭(844)으로 재는 이유: 폭 브레이크포인트
       (`sm`·`md`)를 넘는 폭에서도 16px 여야 가로 모드에서 다시 확대되지 않는다.

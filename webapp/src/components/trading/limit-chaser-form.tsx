@@ -128,6 +128,14 @@ import {
   DirtyBarHostContext,
   IN_CARD_DIRTY_BAR_CLASS,
 } from '@/components/trading/dirty-action-bar';
+import { InlineValueEditor, type InlineSaveVia } from '@/components/trading/lc/inline-value-editor';
+import { SettingRow } from '@/components/trading/lc/setting-group';
+import {
+  LC_COMMIT_TEXT,
+  useLcFieldCommit,
+  type LcCommitFailure,
+  type LcFieldKey,
+} from '@/components/trading/lc/use-lc-field-commit';
 
 /**
  * 액션 바 보조문 — 상따 정본(UI-SPEC §CTA). 스위치가 더티를 함께 민다는 사실을 상시 고지한다.
@@ -507,6 +515,50 @@ export function LimitChaserForm({
   sentNotifyRef.current = onSent;
 
   /*
+    ★ Phase 20 D-04 — **한 필드 확정 = 전략 1회 전송**(`useLcFieldCommit`). 20-01 트레이서는
+      「호가변경」 한 행만 이 경로로 옮겼다 — 나머지 행과 더티 바는 20-04 가 걷는다.
+      cfg 조립은 위 `buildCfg` 하나를 그대로 넘긴다(복제 금지). 기준값은 폼 로컬 값이 아니라
+      서버 동기값이고(T-20-03), 값 필드는 낙관 반영하지 않는다(D-06) — 근거는 훅 머리 주석.
+  */
+  const lc = useLcFieldCommit({
+    server,
+    formRef,
+    setForm,
+    buildCfg,
+    send,
+    onSent: (cfg) => sentNotifyRef.current?.(cfg),
+    serverAnswerSeq,
+    disabled,
+  });
+  /** 인라인 편집 중인 필드 — 한 번에 한 행이다(마우스 기기 · D-14). */
+  const [editingField, setEditingField] = useState<LcFieldKey | null>(null);
+  // 내 확정이 에코로 성공하면 그 행의 편집을 닫는다(성공 판정은 훅 — 값 비교뿐이다).
+  const { successSeq, lastSuccessField, commit: commitField, clearFailure } = lc;
+  useEffect(() => {
+    if (successSeq === 0 || lastSuccessField === null) return;
+    setEditingField((cur) => (cur === lastSuccessField ? null : cur));
+  }, [successSeq, lastSuccessField]);
+
+  /**
+   * 인라인 저장 — Enter 는 결과를 편집기 안에서 말하고(반영 중 잠금 · 실패 말풍선),
+   * 포커스 이탈은 편집을 끝내고 결과를 **행**이 말한다(`aria-busy` · 실패 링). UI-SPEC §6.
+   */
+  const handleInlineSave = useCallback(
+    <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K], via: InlineSaveVia) => {
+      const outcome = commitField(field, value, 'value');
+      if (via === 'blur' || outcome === 'noop' || outcome === 'local') setEditingField(null);
+    },
+    [commitField],
+  );
+  const handleInlineCancel = useCallback(
+    (field: LcFieldKey) => {
+      clearFailure(field);
+      setEditingField(null);
+    },
+    [clearFailure],
+  );
+
+  /*
     ★ **무장 가능 판정** (WR-06) — 발주할 수 없는 전략은 켜지지 않는다.
 
     `mergeMasterAndQuote` 는 `stock_quotes` 행이 없으면 `upperLimit: 0`·`price: 0` 을 돌려주고,
@@ -836,14 +888,44 @@ export function LimitChaserForm({
           disabled: gateBlocked('sweepEnabled', !form.sweepEnabled),
         }}
       >
-        <NumField
+        {/*
+          ★ Phase 20 트레이서 — 토스식 「라벨 ─ 값 ›」 44px 값 행(D-20). 마우스 기기에서 누르면 그
+            자리 인라인 편집(D-14 · D-14a) → Enter/포커스 이탈 = 즉시 반영(D-04). 행 값은 에코로만
+            바뀐다(D-06). 이웃 행이 아직 옛 격자라 폭 정렬이 다르다 — 20-04 가 그룹 전체를 옮긴다.
+        */}
+        <SettingRow
           id="lc-sweep-tick"
           label="호가변경"
           unit="건"
-          field="sweepMinTickCount"
           value={form.sweepMinTickCount}
-          onChange={setField}
-          {...shared}
+          className="mt-[var(--s-1)]"
+          disabled={disabled}
+          busy={lc.inflightField === 'sweepMinTickCount'}
+          flash={lc.flashField === 'sweepMinTickCount'}
+          failed={lc.failures.sweepMinTickCount !== undefined}
+          failureText={rowFailureTextOf(lc.failures.sweepMinTickCount)}
+          editing={editingField === 'sweepMinTickCount'}
+          onActivate={() => {
+            if (disabled || lc.inflightField === 'sweepMinTickCount') return;
+            setEditingField('sweepMinTickCount');
+          }}
+          editor={
+            <InlineValueEditor
+              id="lc-sweep-tick"
+              label="호가변경"
+              unit="건"
+              initialValue={
+                typeof lc.failures.sweepMinTickCount?.value === 'number'
+                  ? lc.failures.sweepMinTickCount.value
+                  : form.sweepMinTickCount
+              }
+              busy={lc.inflightField === 'sweepMinTickCount'}
+              failureText={inlineFailureTextOf(lc.failures.sweepMinTickCount)}
+              onSave={(v, via) => handleInlineSave('sweepMinTickCount', v, via)}
+              onCancel={() => handleInlineCancel('sweepMinTickCount')}
+              onDismiss={() => setEditingField(null)}
+            />
+          }
         />
         <NumField
           id="lc-sweep-watch-price"
@@ -1603,6 +1685,20 @@ function Derived({ label, value, note }: { label: string; value: string; note?: 
       <b className="mono flex-none font-semibold text-[var(--fg)]">{value}</b>
     </div>
   );
+}
+
+/**
+ * 인라인 편집기 실패 문구 — 보냈는데 안 선 것(거부·무응답)은 「Enter 로 다시 시도」를 덧붙인다
+ * (UI-SPEC Copywriting 「인라인 실패 말풍선」). 끊김·무장 불가는 그 사유 문장 그대로다.
+ */
+function inlineFailureTextOf(f: LcCommitFailure | undefined): string | null {
+  if (f === undefined) return null;
+  return f.reason === 'rejected' || f.reason === 'timeout' ? LC_COMMIT_TEXT.inlineFailed : f.text;
+}
+
+/** 편집이 끝난 행의 실패 문구 — 사유 문장 그대로(행을 다시 누르면 보존값으로 편집이 열린다). */
+function rowFailureTextOf(f: LcCommitFailure | undefined): string | null {
+  return f === undefined ? null : f.text;
 }
 
 /** 입력 문자열에서 숫자만 남겨 정수로. 빈 값은 0 이다(「모름」이 아니라 0 이다). */
