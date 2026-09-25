@@ -218,21 +218,75 @@ describe('StockOrderbookSection — 호가 탭 = 카드 본문 (D-24)', () => {
     expect(screen.queryByTestId('order-panel')).toBeNull();
   });
 
-  it('③ 상태줄에 DMA · 계좌 · 거래소 세그먼트 · LED 3칩 · 구간 배지 · 반영 시각이 있다', () => {
+  it('③ 상태줄에 DMA · 계좌 · 거래소 세그먼트 · LED 점 3개 · 구간 배지 · 반영 시각이 있다 (D-24)', () => {
     renderSection();
     const bar = statusBar();
     expect(bar).not.toBeNull();
     expect(within(bar).getByText('실시간')).toBeInTheDocument();
     expect(bar.textContent).toContain('DMA');
-    expect(within(bar).getByRole('combobox', { name: '계좌' })).toHaveValue(ACCOUNT);
+    const account = within(bar).getByRole('combobox', { name: '계좌' });
+    expect(account).toHaveValue(ACCOUNT);
+    // D-24 — 보이는 「계좌」 글자 대신 select 의 이름(aria-label)과 title 「{번호} · {이름}」이 말한다.
+    expect(account).toHaveAttribute('title', `${ACCOUNT} · 위탁종합`);
+    const accountWrap = bar.querySelector('[data-slot="orderbook-account"]') as HTMLElement;
+    expect(accountWrap).not.toBeNull();
+    const ownText = Array.from(accountWrap.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent ?? '')
+      .join('');
+    expect(ownText).not.toContain('계좌');
     const seg = within(bar).getByRole('group', { name: '거래소' });
     expect(within(seg).getByRole('radio', { name: 'KRX' })).toHaveAttribute('aria-checked', 'true');
     expect(within(seg).getByRole('radio', { name: 'NXT' })).toBeInTheDocument();
-    const leds = Array.from(bar.querySelectorAll('[data-slot="latch-led"]'));
+    // D-24 — LED 는 칩이 아니라 점 3개(접힌 카드 헤더와 같은 문법). 상태는 sr-only 가 말한다.
+    const leds = Array.from(bar.querySelectorAll('[data-slot="latch-led"][data-variant="dot"]'));
     expect(leds.map((el) => el.getAttribute('data-kind'))).toEqual(['buy', 'sell', 'cancel']);
+    expect(bar.querySelectorAll('[data-slot="latch-led"]:not([data-variant="dot"])')).toHaveLength(0);
     expect(leds[0].textContent).toMatch(/매수\s*래치\s*OFF/);
     expect(within(bar).getByText('정규')).toBeInTheDocument();
-    expect(within(bar).getByText('반영 —')).toBeInTheDocument();
+    // D-24 — 「반영 」 접두는 sr-only 이고 title 이 뜻을 말한다(작업대 `stat-applied` 와 같은 규칙).
+    const applied = bar.querySelector('[data-slot="orderbook-applied-at"]') as HTMLElement;
+    expect(applied).not.toBeNull();
+    expect(applied).toHaveAttribute('title', '서버 반영 시각');
+    expect(applied.querySelector('.sr-only')?.textContent?.trim()).toBe('반영');
+    expect(applied.textContent).toBe('반영 —');
+  });
+
+  it('③-e 서버 거부 문장은 상태줄이 아니라 고지 줄의 role=alert 로 한 번만 선다 (D-24)', () => {
+    ctx = {
+      ...ctx,
+      messages: [
+        {
+          t: 'msg',
+          lv: 'ERROR',
+          m: '주문 가능 금액이 부족합니다',
+          i: ISIN,
+          a: ACCOUNT,
+          src: 'LimitChaser',
+          kind: '',
+          receivedAt: '14:32:07',
+        },
+      ],
+    };
+    renderSection();
+    const notices = document.querySelector('[data-slot="orderbook-notices"]') as HTMLElement;
+    expect(notices).not.toBeNull();
+    const alert = within(notices).getByRole('alert');
+    expect(alert).toHaveAttribute('data-slot', 'orderbook-server-error');
+    expect(alert.querySelector('[data-slot="orderbook-server-error-src"]')?.textContent).toBe(
+      '[상따]',
+    );
+    expect(alert.textContent).toContain('주문 가능 금액이 부족합니다');
+    // 상태줄에는 경보가 없다 — 같은 문장이 두 자리에서 말하지 않는다.
+    expect(within(statusBar()).queryAllByRole('alert')).toHaveLength(0);
+    expect(statusBar().textContent).not.toContain('주문 가능 금액이 부족합니다');
+    expect(screen.getAllByText(/주문 가능 금액이 부족합니다/)).toHaveLength(1);
+  });
+
+  it('③-e2 구간 모름 · 거부/배너/미반영/전환/빈 NXT 없음이면 고지 줄이 렌더되지 않는다', () => {
+    ctx = { ...ctx, queuedWindow: undefined };
+    renderSection();
+    expect(document.querySelector('[data-slot="orderbook-notices"]')).toBeNull();
   });
 
   it('③-b 구간이 모름(77 미수신)이면 구간 배지가 없다 — 「정규」로 위장하지 않는다', () => {
