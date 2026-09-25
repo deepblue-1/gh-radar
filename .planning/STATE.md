@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 20
-current_phase_name: 호가주문 토스식 재구성 (실험 브랜치)
+current_phase: 21
+current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: verifying
 stopped_at: Phase 21 context gathered
-last_updated: "2026-09-25T12:13:18.480Z"
+last_updated: "2026-09-25T14:03:54.501Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 20 master 병합(theme/toss-b · 8/8 · 재검증 R2 13/13 · UAT 6건 대기) — Phase 19 는 19-13 첫 거래일 대조 대기
-state_head: 008273ceaa1ac6c04ca2a0cb242897294ad2590c
+state_head: 96cdd04f9d0b7e105a91c51728735fb08de785a1
 progress:
   total_phases: 30
   completed_phases: 4
-  total_plans: 254
+  total_plans: 270
   completed_plans: 238
 milestone_name: milestone
 ---
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 20 (호가주문 토스식 재구성 (실험 브랜치)) — EXECUTING
+Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — READY TO EXECUTE
 Plan: 8 of 8 (20-08 갭 클로징 — D-24 상단 상태줄 안 C 완료)
 Plans completed: 219 / 234
 Status: 검증 R2 통과(13/13) — 사용자 UAT 대기(20-UAT.md)

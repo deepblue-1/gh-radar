@@ -1022,20 +1022,39 @@ Plans:
 **웹 쪽 선행 보정:** `viewport-fit=cover` + `env(safe-area-inset-*)` (하단 고정 요소 5곳: dirty-action-bar · shared-panels 바텀시트 · chat-fab · alert-toasts · sheet) · 네이티브 감지 시 하단 여백 · `/login` Capacitor 분기.
 
 Plans:
+**Wave 1**
 
 - [ ] 21-01-PLAN.md — (W1) D-20 번들 ID 게이트 · 패키지 정당성 게이트 · 트레이서: `mobile/` + cap add ios + GHTradeBridgeViewController + 웹 감지 스크립트 → `ready` 가 시뮬레이터 로그에 도착
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 21-02-PLAN.md — (W2) Android 셸 슬라이스: cap add android · Kotlin MainActivity · BridgeWebViewClient 상속 · GhTradeBridge · 에뮬레이터 스모크
 - [ ] 21-03-PLAN.md — (W2) Google OAuth 콘솔 선행(GCP iOS·Android 클라이언트 · Supabase Authorized Client IDs) + 공개 ID 상수
 - [ ] 21-04-PLAN.md — (W2) 웹 네이티브 브리지 코어: postNative · NativeBridgeProvider(window.__ghTrade · refresh 레지스트리 · route/theme/pull) · 오버레이 마커
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 21-05-PLAN.md — (W3) 앱 셸 분기(D-09 사이드바 · D-10 「AI 분석」) + e2e 앱 모드 픽스처 · native-shell.spec
-- [ ] 21-06-PLAN.md — (W4) safe-area · 탭바 여백(D-25 · `--native-tabbar-offset` · 본문 108)
 - [ ] 21-07-PLAN.md — (W3) 새로고침 연결: relay `probeNow`(D-16) · 목록 4화면 · 트레이딩/마이 · 종목상세 GET 만(D-18)
-- [ ] 21-08-PLAN.md — (W4) `/search` 탐색 허브(D-07a) + 최근 검색 + 사이드바 「검색」
-- [ ] 21-09-PLAN.md — (W5) 브랜드명 GH Trade(D-21) + `/me` 계정 카드 A(D-08a)
 - [ ] 21-10-PLAN.md — (W3) iOS 탭바(D-27a 알약) · 경로표(D-14) · 숨김 규칙 · 탭 → navigate 훅
+- [ ] 21-14-PLAN.md — (W3) 아이콘·스플래시(D-22 `#app-a`) 렌더 · @capacitor/assets 일회 생성 · 웹 파비콘
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 21-06-PLAN.md — (W4) safe-area · 탭바 여백(D-25 · `--native-tabbar-offset` · 본문 108)
+- [ ] 21-08-PLAN.md — (W4) `/search` 탐색 허브(D-07a) + 최근 검색 + 사이드바 「검색」
 - [ ] 21-11-PLAN.md — (W4) iOS 당겨서 새로고침 · 테마 추종 · 오프라인 폴백 · 방향 · Info.plist
 - [ ] 21-12-PLAN.md — (W4) Android 탭바 · TabRoutes JUnit · 인셋(탭바 컨테이너만) · 숨김 · navigate
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 21-09-PLAN.md — (W5) 브랜드명 GH Trade(D-21) + `/me` 계정 카드 A(D-08a)
 - [ ] 21-13-PLAN.md — (W5) Android SwipeRefresh · onBackPressedDispatcher 뒤로가기 · 테마 · 방향 · 오프라인
-- [ ] 21-14-PLAN.md — (W3) 아이콘·스플래시(D-22 `#app-a`) 렌더 · @capacitor/assets 일회 생성 · 웹 파비콘
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 21-15-PLAN.md — (W6) 네이티브 Google 로그인(D-03): nonce · signInWithIdToken · /login 분기 · capgo 플러그인 설치·설정
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 21-16-PLAN.md — (W7) 운영 설정 검사 · mobile/README · 전 게이트 · 실기 UAT + push(웹 배포) 승인 체크포인트
