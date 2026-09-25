@@ -92,7 +92,8 @@ export interface LcCommitFailure {
 }
 /**
  * `noop` 서버 값과 같다(전송 0) · `local` 미등록이라 로컬 반영만 · `sent` 전송함 ·
- * `queued` 앞 건 답을 기다린다 · `blocked` 막힘(비활성·무장 불가) · `disconnected` 소켓이 받지 않음.
+ * `queued` 앞 건 답을 기다린다 · `blocked` 막힘(무장 불가 · 범위 밖) · `disconnected` 소켓이 받지 않음
+ * 또는 세션 미준비(비활성).
  */
 export type LcCommitOutcome = 'noop' | 'local' | 'sent' | 'queued' | 'blocked' | 'disconnected';
 
@@ -376,7 +377,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
   const commit = useCallback(
     <K extends LcFieldKey>(field: K, value: LimitChaserFormValues[K], kind: LcCommitKind): LcCommitOutcome => {
       const { server, formRef, setForm, disabled } = optsRef.current;
-      if (disabled) return 'blocked';
+      // 세션이 준비되지 않았다(재접속·끊김) — 조용히 무시하지 않고 끊김 실패로 남긴다(20-REVIEW WR-04).
+      //   시트·인라인 편집기가 열린 채 연결이 빠지면 「적용」/Enter 가 아무 반응도 없던 경로다. 시트는
+      //   「연결이 끊겨 보내지 못했어요 · 다시 시도」, 인라인은 말풍선, 토글은 폼 맨 위 한 줄이 말한다.
+      if (disabled) {
+        setFailure(field, 'disconnected', LC_COMMIT_TEXT.disconnected, value);
+        return 'disconnected';
+      }
 
       // 같은 필드가 대기 중 — 값만 바꾸고 자리는 그대로다(⑦).
       const queued = queueRef.current.find((q) => q.field === field);
@@ -422,7 +429,7 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       if (out === 'sent' && orphan !== null) releaseOrphan();
       return out;
     },
-    [markSuccess, releaseOrphan, sendNow, showToggle, syncQueue, writeFailures],
+    [markSuccess, releaseOrphan, sendNow, setFailure, showToggle, syncQueue, writeFailures],
   );
 
   const clearFailure = useCallback(

@@ -233,14 +233,19 @@ describe('Task 1 규칙 — 확정 1회 = 전송 1회', () => {
     expect(t.hook.result.current.inflightField).toBeNull();
   });
 
-  it('비활성(세션 미준비)이면 `blocked` · 전송 0', () => {
+  it('WR-04 — 비활성(세션 미준비)이면 전송 0 · 조용히 무시하지 않고 `disconnected` 실패로 남긴다(입력값 보존)', () => {
     const t = setup({ disabled: true });
     let out: string | undefined;
     act(() => {
       out = t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
     });
-    expect(out).toBe('blocked');
+    expect(out).toBe('disconnected');
     expect(t.send).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures.sweepMinTickCount).toEqual({
+      reason: 'disconnected',
+      text: LC_COMMIT_TEXT.disconnected,
+      value: 5,
+    });
   });
 
   it('미등록 전략(server 없음)의 값 확정은 로컬 반영만 — 전송 0 · 강조 (A-P1)', () => {

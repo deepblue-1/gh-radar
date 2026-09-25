@@ -863,6 +863,19 @@ describe('WR-03 — 대기열에서 꺼낼 때 막히거나 끊긴 토글도 폼
   });
 });
 
+describe('WR-04 — 인라인 편집기가 열린 채 세션이 비활성이 되면 Enter 가 끊김을 말한다', () => {
+  it('Enter → 전송 0 · 편집기 유지 · 말풍선 「연결이 끊겨 보내지 못했어요」', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    const el = openInline('lc-sweep-tick');
+    typeValue(el, '7');
+    rerender(<LimitChaserForm {...props({ disabled: true })} />);
+    pressKey(input('lc-sweep-tick')!, 'Enter');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(input('lc-sweep-tick')).not.toBeNull();
+    expect(screen.getByRole('alert').textContent).toBe('연결이 끊겨 보내지 못했어요');
+  });
+});
+
 describe('CR-01 — 인라인 편집도 relay 스키마 범위 밖 값을 보내지 않는다 (빈 값 = 0 포함)', () => {
   it('매도비율 칸을 지우고 Enter — 0 을 보내지 않고 말풍선 「1% 이상 입력해 주세요」', () => {
     render(<LimitChaserForm {...props()} />);
@@ -957,6 +970,20 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(statusLine()).toContain('최대 255건까지 입력할 수 있어요');
     expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
     expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('WR-04 — 시트가 열린 채 세션이 비활성이 되면 「적용」은 조용히 무시되지 않고 끊김 문구 · 「다시 시도」 · 입력 보존', () => {
+    const { rerender } = render(<LimitChaserForm {...props()} />);
+    click(row('lc-sweep-tick'));
+    const pad = within(within(sheet()!).getByRole('group', { name: '숫자 키패드' }));
+    click(pad.getByRole('button', { name: '7' }));
+    rerender(<LimitChaserForm {...props({ disabled: true })} />);
+    click(document.querySelector('[data-slot="numpad-confirm"]') as HTMLElement);
+    expect(sentConfigs()).toHaveLength(0);
+    expect(sheet()).not.toBeNull();
+    expect(statusLine()).toContain('연결이 끊겨 보내지 못했어요');
+    expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('다시 시도');
+    expect(document.querySelector('[data-slot="numpad-value"]')!.textContent).toBe('7');
   });
 
   it('감시대상은 터치 기기에서도 시트를 열지 않고 즉시 전송한다', () => {
