@@ -13,12 +13,15 @@ import { GetAccountStateReq } from '../stock-dma/get-account-state-req.js';
 import { GetQuoteReq } from '../stock-dma/get-quote-req.js';
 import { GetStrategyReq } from '../stock-dma/get-strategy-req.js';
 import { GetTradeTapeReq } from '../stock-dma/get-trade-tape-req.js';
+import { JournalBatch } from '../stock-dma/journal-batch.js';
 import { LimitChaserList } from '../stock-dma/limit-chaser-list.js';
 import { LivePing } from '../stock-dma/live-ping.js';
 import { LoginReq } from '../stock-dma/login-req.js';
 import { LoginResp } from '../stock-dma/login-resp.js';
 import { MemberStats } from '../stock-dma/member-stats.js';
 import { MsgType } from '../stock-dma/msg-type.js';
+import { ObserverLoginReq } from '../stock-dma/observer-login-req.js';
+import { ObserverLoginResp } from '../stock-dma/observer-login-resp.js';
 import { OrderConfirm } from '../stock-dma/order-confirm.js';
 import { OrderResp } from '../stock-dma/order-resp.js';
 import { QueuedWindowState } from '../stock-dma/queued-window-state.js';
@@ -228,8 +231,23 @@ rateCrossSnapshot(obj?:RateCrossSnapshot):RateCrossSnapshot|null {
   return offset ? (obj || new RateCrossSnapshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+observerLoginReq(obj?:ObserverLoginReq):ObserverLoginReq|null {
+  const offset = this.bb!.__offset(this.bb_pos, 76);
+  return offset ? (obj || new ObserverLoginReq()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+observerLoginResp(obj?:ObserverLoginResp):ObserverLoginResp|null {
+  const offset = this.bb!.__offset(this.bb_pos, 78);
+  return offset ? (obj || new ObserverLoginResp()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
+journalBatch(obj?:JournalBatch):JournalBatch|null {
+  const offset = this.bb!.__offset(this.bb_pos, 80);
+  return offset ? (obj || new JournalBatch()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startEnvelope(builder:flatbuffers.Builder) {
-  builder.startObject(36);
+  builder.startObject(39);
 }
 
 static addMsgType(builder:flatbuffers.Builder, msgType:MsgType) {
@@ -366,6 +384,18 @@ static addQueuedWindowState(builder:flatbuffers.Builder, queuedWindowStateOffset
 
 static addRateCrossSnapshot(builder:flatbuffers.Builder, rateCrossSnapshotOffset:flatbuffers.Offset) {
   builder.addFieldOffset(35, rateCrossSnapshotOffset, 0);
+}
+
+static addObserverLoginReq(builder:flatbuffers.Builder, observerLoginReqOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(36, observerLoginReqOffset, 0);
+}
+
+static addObserverLoginResp(builder:flatbuffers.Builder, observerLoginRespOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(37, observerLoginRespOffset, 0);
+}
+
+static addJournalBatch(builder:flatbuffers.Builder, journalBatchOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(38, journalBatchOffset, 0);
 }
 
 static endEnvelope(builder:flatbuffers.Builder):flatbuffers.Offset {

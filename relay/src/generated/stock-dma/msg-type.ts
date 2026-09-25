@@ -8,6 +8,7 @@ export enum MsgType {
   DirectOrderReq = 2,
   UpdateAccountNoReq = 3,
   LivePing = 4,
+  ObserverLoginReq = 5,
   SetLimitChaserReq = 10,
   SetVITriggerReq = 11,
   DisableStrategiesReq = 14,
@@ -54,5 +55,7 @@ export enum MsgType {
   MemberStatsPush = 75,
   RateCrossAlert = 76,
   QueuedWindowState = 77,
-  RateCrossSnapshot = 78
+  RateCrossSnapshot = 78,
+  ObserverLoginResp = 79,
+  JournalBatch = 80
 }
