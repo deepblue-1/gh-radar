@@ -8,6 +8,7 @@ set -euo pipefail
 # 결정 (15-CONTEXT.md):
 #   D-07: VM = e2-micro / Debian 12 / asia-northeast3, 기존 gh-radar-vpc·서브넷 재사용,
 #         relay 전용 신규 외부 고정 IP (Cloud NAT 용 IP 재사용 금지)
+#         (2026-09-26 e2-small 로 전환 — 근거 infra/relay/README.md §메모리 예산)
 #   D-08: 주문 경로 = Cloud Run Direct VPC Egress → VM 내부 IP:8091.
 #         Cloud Run 워크로드에는 네트워크 태그를 붙일 수 없어 source-ranges 로만 좁힌다.
 #   D-09: SSH 는 IAP 터널만. gh-radar-vpc 에 방화벽 규칙이 0개이므로 여기서 최초 생성한다
@@ -359,10 +360,10 @@ if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" >/dev/null 2>&1; 
     --metadata-from-file="$VM_METADATA_FILES"
   echo "✓ VM 메타데이터 갱신 완료 (반영: 재부팅 또는 google_metadata_script_runner startup)"
 else
-  echo "▶ creating VM: $VM_NAME (e2-micro / Debian 12 / $ZONE)..."
+  echo "▶ creating VM: $VM_NAME (e2-small / Debian 12 / $ZONE)..."
   run gcloud compute instances create "$VM_NAME" \
     --zone="$ZONE" \
-    --machine-type=e2-micro \
+    --machine-type=e2-small \
     --image-family=debian-12 \
     --image-project=debian-cloud \
     --boot-disk-size=20GB \

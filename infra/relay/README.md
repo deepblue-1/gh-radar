@@ -13,7 +13,7 @@ Phase 15 (RELAY-03) 의 IaaS 자산. gh-radar 최초의 GCE VM 이다.
 |------|-----|
 | VM 이름 | `radar-gw` |
 | 존 / 리전 | `asia-northeast3-a` / `asia-northeast3` |
-| 머신 타입 | `e2-micro` (2 vCPU 공유 / 1024 MB) |
+| 머신 타입 | `e2-small` (2 vCPU 공유 / 2048 MB · 보장 0.5코어) — 2026-09-26 전환 (이전 `e2-micro` 1024 MB · 근거 §메모리 예산) |
 | 이미지 | `debian-12` (debian-cloud) |
 | 부팅 디스크 | 20GB `pd-balanced` |
 | 네트워크 | `gh-radar-vpc` / `gh-radar-subnet-an3` |
@@ -528,7 +528,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a --proj
 systemctl is-active wg-quick@wg0        # active 여야 한다
 sudo wg show                            # 핸드셰이크 시각 · 피어 수 · 전송량
 sudo nft list table inet wgfwd          # forward 4규칙 + postrouting masquerade
-sudo iptables -S DOCKER-USER            # ACCEPT 세 줄이 있어야 한다 (120 · alex-mac 전용 121 · 응답)
+sudo iptables -S DOCKER-USER            # ACCEPT 일곱 줄이 있어야 한다 (120 · alex-mac 전용 121 · tun0 응답 · 교보 112·119 · 교보 응답 2)
 ip route show default                   # 반드시 `dev ens4` — tun0 면 즉시 중단
 
 systemctl is-active wg-probe            # active 여야 한다 (터널 정지 측정기)
@@ -553,6 +553,7 @@ nc -z 10.41.1.120 9100 && echo reachable   # connect 후 즉시 close. 프레임
 | 증상 | 원인 · 조치 |
 |------|-------------|
 | (A) 핸드셰이크는 되는데 `9100` 이 안 열림 | **docker 재시작으로 `DOCKER-USER` 규칙이 날아갔다.** `sudo systemctl restart wg-quick@wg0` 로 PostUp 재삽입 |
+| (A) VM 재부팅 후 `wg0` 자체가 없음 (`systemctl is-active wg-quick@wg0` → `failed`) | **PostUp 한 줄이라도 실패하면 wg-quick 이 wg0 를 지운다.** `journalctl -u wg-quick@wg0 -b --no-pager` 에서 실패한 PostUp 을 찾는다. 2026-09-26 사례는 선삭제 `iptables -D` 의 오류 무시 꼬리 누락이었다 (§교보 SecuwaySSL VPN → 사건 기록) → 저장소 수정 → startup-script 메타데이터 재적용 → 재부팅 |
 | (A) 핸드셰이크 자체가 없음 (`wg show` 에 latest handshake 없음) | 방화벽 `relay-allow-wireguard` 미생성, 또는 이 망이 UDP 51820 을 막는다 → **B(IAP 폴백)** 로 간다 |
 | (A) 연결은 되는데 대용량 응답에서 멈춤 | MSS 클램프가 빠졌다. `sudo nft list table inet wgfwd` 에 `maxseg` 두 줄이 있는지 확인 |
 | (A) `tun0` 재생성 후 무반응 | nft 규칙은 인터페이스 **이름** 기준이라 재생성에 영향받지 않는다 → openconnect 상태부터 확인 (§VPN 조작) |
@@ -773,7 +774,7 @@ gcloud compute ssh radar-gw --tunnel-through-iap --zone=asia-northeast3-a \
 
 **② 가 장중 금지인 이유** — 재적용은 `startup.sh` 를 처음부터 끝까지 다시 돌린다:
 
-1. §2 `apt-get update` + 패키지 8종 설치 — e2-micro 에서 CPU·네트워크 I/O
+1. §2 `apt-get update` + 패키지 8종 설치 — 공유코어 VM(현재 e2-small)에서 CPU·네트워크 I/O
 2. §3 `/etc/docker/daemon.json` 이 다르면 `systemctl restart docker` → **relay 컨테이너 재시작 = 호가·주문 경로 끊김**
 3. §4 `Caddyfile` 재배치
 4. §7 180초 뒤 `kbvpn-route-guard` 1회 발화 — 기본 경로가 `tun*` 면 **openconnect 를 정지시킨다**
@@ -1244,6 +1245,27 @@ tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-throug
 
 > **MAC 바인딩.** 교보 계정은 단말 MAC 에 묶인다. VM MAC(`42:01:0a:0a:00:05`)이 교보에 등록돼 있어야 접속된다 — 미등록이면 `Error: 등록된 MAC값이 일치하지 않습니다` 로 거부된다. VM 재생성으로 MAC 이 바뀌면 재등록이 필요하다.
 
+### 사건 기록 — 2026-09-26 재부팅 시 wg0 기동 실패
+
+> **반영 상태: 저장소 수정 완료 (quick-260926-bwu) · VM 반영 대기 — 사용자 실행 (2026-09-26).**
+
+**경위.** 2026-09-26(토) 08:11 KST e2-micro → e2-small 전환(§메모리 예산) 재부팅 뒤 `wg-quick@wg0` 만 failed 였다.
+relay healthz · `openconnect@kb` · `securwayssl` · `caddy` · `docker` · `wg-probe` 는 active. relay(웹앱 호가·주문) 경로는
+wg0 를 타지 않아 무영향이고, 끊긴 것은 wg0 로 게이트웨이·교보 DMA 서버에 붙는 gh-trade 클라이언트·alex-mac 직결이다.
+
+**원인.** `startup.sh` §8.5 가 생성하는 `wg0.conf` 에서 교보 `10.16.207.119` 응답 규칙의 선삭제 PostUp 한 줄만
+`2>/dev/null || true` 가 빠져 있었다(quick-260921-or9 · 커밋 `c6d1594`, 2026-09-22). 부팅 직후엔 지울 규칙이 없어
+`Bad rule (does a matching rule exist in that chain?)` 로 실패했고 → wg-quick 이 wg0 를 지웠다. 직전 재부팅이 09-16 이라
+도입 후 첫 부팅에서 드러났다.
+
+**규칙.** `wg0.conf` PostUp 의 모든 `iptables -D` 는 `2>/dev/null || true` 로 끝나야 한다 — 부팅 직후엔 지울 규칙이 없다.
+선삭제는 재적용 멱등(중복 삽입 방지)용일 뿐이다. `iptables -I` 에는 붙이지 않는다(삽입 실패는 숨기지 않는다).
+수정: quick-260926-bwu (해당 줄 + §8.5 주석 가드).
+
+**반영 절차 (장 마감 20:00 KST 이후 또는 주말).** ① `GCP_PROJECT_ID=gh-radar bash scripts/setup-relay-iam.sh` —
+startup-script 메타데이터 재적용 ② VM 재부팅(`startup.sh` 가 매 부팅 `wg0.conf` 를 재작성한다) ③ 확인:
+`systemctl is-active wg-quick@wg0` = active · `sudo iptables -S DOCKER-USER` 의 ACCEPT 7줄 · `ip route show default` = `dev ens4`.
+
 ---
 
 ## D-03 VPN 선검증 체크리스트 (7항목)
@@ -1449,7 +1471,7 @@ caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전�
 
 ---
 
-## 메모리 예산 (1024 MB)
+## 메모리 예산 (2048 MB · e2-small — 2026-09-26 전환)
 
 | 구성요소 | 추정 RSS |
 |----------|----------|
@@ -1459,12 +1481,17 @@ caddy 를 기동·재기동·리로드하지 않기 때문이다(2026-09-06 전�
 | openconnect | 10–20 MB |
 | relay (Node 22, 5 세션 + ws + deflate) | 120–250 MB |
 | wg-probe (python3 1 + ping 2) | **≈8 MB 실측** (2026-09-16 `MemoryCurrent` · 유닛 상한 `MemoryMax=64M`) |
-| **합계** | **408–698 MB** (여유 326–616 MB) |
+| **합계** | **408–698 MB** (여유 1350–1640 MB · e2-micro 1024 MB 시절 326–616 MB) |
 
 Ops Agent 는 설치하지 않는다(+150–250 MB 로 위험 구간 진입). 대신 Docker `json-file`
 로그 로테이션 + Cloud Monitoring uptime check 로 관측한다.
 
-**압박이 실측되면**(`dmesg | grep -i oom`, 컨테이너 재시작 반복) 머신타입만 올린다:
+**2026-09-26 e2-small 전환.** 2026-09-26(토) 08:11 KST 사용자 요청으로 e2-micro → e2-small 로 올렸다.
+메모리 압박이 아니라 CPU 여유 때문이다 — 5명 × 30종목 풀구독 시 추정 피크 0.22코어가 e2-micro 보장 0.25코어의 약 90% 였다(e2-small 보장 0.5코어).
+전환 후 실측 RAM 1976 MB, 외부/내부 IP 와 ens4 MAC 불변, relay healthz ok. 단 `wg-quick@wg0` 는 기동 실패했다 — §교보 SecuwaySSL VPN → 사건 기록.
+
+다음에 머신 타입을 바꿀 때도 같은 3단계다. 정지가 relay·KB/교보 VPN·wg0 를 전부 끊으므로 **장 마감(20:00 KST) 이후 또는 주말에만** 한다.
+아래는 2026-09-26 에 실행한 명령이며, 다음엔 `--machine-type` 값만 바꾼다:
 
 ```bash
 gcloud compute instances stop  radar-gw --zone=asia-northeast3-a
@@ -1472,7 +1499,8 @@ gcloud compute instances set-machine-type radar-gw --zone=asia-northeast3-a --ma
 gcloud compute instances start radar-gw --zone=asia-northeast3-a
 ```
 
-외부/내부 고정 IP 는 예약되어 있으므로 재시작해도 주소는 바뀌지 않는다.
+외부/내부 고정 IP 는 예약되어 있으므로 재시작해도 주소는 바뀌지 않는다. ens4 MAC 도 유지된다(교보 등록 MAC 과 같아야 접속된다 — §교보 SecuwaySSL VPN).
+재기동 뒤 `systemctl is-active wg-quick@wg0 openconnect@kb securwayssl caddy docker wg-probe` 가 전부 active 인지 확인한다.
 
 ---
 

@@ -530,6 +530,9 @@ log "✓ /etc/wireguard/wgfwd.nft 재작성 (0600)"
 # 8.5 wg0.conf — 매 부팅 재작성(순수 생성물).
 #     ⚠️ 개인키를 이 파일에 넣지 않는다. PostUp 이 0600 키 파일에서 주입하므로
 #        이 파일은 비밀을 담지 않는 생성물이 되고, 재작성이 안전해진다.
+#     ⚠️ PostUp 의 선삭제 `iptables -D` 는 전부 `2>/dev/null || true` 로 끝나야 한다. 부팅 직후엔
+#        지울 규칙이 없어 -D 가 실패하고, wg-quick 은 PostUp 하나만 실패해도 wg0 를 통째로 지운다.
+#        삽입(-I)에는 붙이지 않는다(실패를 숨기지 않음). — 2026-09-26 재부팅 · quick-260926-bwu
 cat >/etc/wireguard/wg0.conf <<'WG0_CONF_EOF'
 # 생성물 — startup.sh 가 매 부팅 재작성한다. VM 에서 직접 고치지 말 것.
 # 피어는 /etc/wireguard/peers.conf 에서 온다 (wg-peer-add 가 관리).
@@ -556,7 +559,7 @@ PostUp = iptables -D DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.119 -p tcp -m 
 PostUp = iptables -I DOCKER-USER -i wg0 -s 10.20.0.2 -d 10.16.207.119 -p tcp -m multiport --dports 9100,22 -j ACCEPT
 PostUp = iptables -D DOCKER-USER -o wg0 -s 10.16.207.112 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -o wg0 -s 10.16.207.112 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-PostUp = iptables -D DOCKER-USER -o wg0 -s 10.16.207.119 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+PostUp = iptables -D DOCKER-USER -o wg0 -s 10.16.207.119 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || true
 PostUp = iptables -I DOCKER-USER -o wg0 -s 10.16.207.119 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 PostDown = iptables -D DOCKER-USER -i wg0 -o tun0 -d 10.41.1.120 -p tcp -m multiport --dports 9100,22 -j ACCEPT 2>/dev/null || true
