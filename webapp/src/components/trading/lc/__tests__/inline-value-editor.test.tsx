@@ -280,6 +280,44 @@ describe('⑦ Tab / Shift+Tab (D-14 · A5)', () => {
   });
 });
 
+describe('CR-01 — 필드 범위(relay 스키마) 밖 값은 저장하지 않는다 · 빈 값(=0)도 검사한다', () => {
+  it('매도비율(1~100) 칸을 비우고 Enter — 0 을 보내지 않고 「1% 이상 입력해 주세요」', () => {
+    render(<InlineValueEditor {...props({ label: '매도비율', unit: '%', initialValue: 100, min: 1, max: 100 })} />);
+    type('');
+    key('Enter');
+    expect(onSave).not.toHaveBeenCalled();
+    expect(alertText()).toBe('1% 이상 입력해 주세요');
+  });
+
+  it('잔량추적(1~90) 91 은 Enter/Tab 모두 저장 거부 · 90 은 저장', () => {
+    render(<InlineValueEditor {...props({ label: '잔량추적', unit: '%', initialValue: 50, min: 1, max: 90 })} />);
+    type('91');
+    key('Enter');
+    key('Tab');
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(alertText()).toBe('최대 90%까지 입력할 수 있어요');
+    type('90');
+    key('Enter');
+    expect(onSave).toHaveBeenCalledWith(90, 'enter');
+  });
+
+  it('호가변경(0~255) 256 을 둔 채 포커스 이탈 = 취소(A6) · 전송 없음', () => {
+    render(<InlineValueEditor {...props({ label: '호가변경', unit: '건', initialValue: 3, min: 0, max: 255 })} />);
+    type('256');
+    blur();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('범위가 0 을 허용하는 필드(호가변경)는 빈 값 저장 = 0 그대로다', () => {
+    render(<InlineValueEditor {...props({ label: '호가변경', unit: '건', initialValue: 3, min: 0, max: 255 })} />);
+    type('');
+    key('Enter');
+    expect(onSave).toHaveBeenCalledWith(0, 'enter');
+  });
+});
+
 describe('⑧ 9자리 · 무안내 (E4 long-text · D-14a)', () => {
   it('10번째 숫자 입력은 무시한다 — 9자리 상한', () => {
     render(<InlineValueEditor {...props({ unit: '주', initialValue: 0 })} />);

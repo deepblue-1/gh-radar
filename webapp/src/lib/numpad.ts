@@ -43,11 +43,18 @@ export interface PadChip {
 /**
  * 칩·검증 맥락. `current`·`upper` 가 0 이면 시세 미수신 — 해당 칩 비활성 · 상한 검사 생략.
  * `maxPieces` 는 **단위 '회'(수동주문 조각 수)에서만** 넘긴다 — `set` 칩 한도로 쓰인다.
+ * `min`·`max` 는 **필드 범위**(포함)다 — 상따 설정 중 relay `lc.set` 스키마가 범위를 두는 필드
+ * (매도비율 1~100 · 잔량추적 1~90 · 호가변경 0~255)가 넘긴다(`lc/lc-fields.ts` 가 원천). 범위 밖이면
+ * 확인을 잠그고(`padIssue`) 범위 밖 값을 만드는 `set` 칩은 비활성이다(`padChipDisabled`).
+ * ★ relay 는 스키마 위반 프레임을 받으면 **WebSocket 연결을 통째로 끊는다**(`fanout.ts` `#reject`) —
+ *   그래서 이 범위는 입력 보조가 아니라 「보내면 안 되는 값」의 경계다(20-REVIEW CR-01).
  */
 export interface PadCtx {
   current: number;
   upper: number;
   maxPieces?: number;
+  min?: number;
+  max?: number;
 }
 
 /** 입력 한도 9자리(999,999,999). 서버 `UIntSchema` 가 최종(T-20-06). */
@@ -96,7 +103,7 @@ export function padKey(s: PadState, key: PadKey): PadState {
   return { buf: next, fresh: false };
 }
 
-/** 칩 비활성 — 시세 미수신(현재가·상한가 0) · 조각 한도 초과(회). */
+/** 칩 비활성 — 시세 미수신(현재가·상한가 0) · 조각 한도 초과(회) · 필드 범위 밖 `set`(CR-01). */
 export function padChipDisabled(chip: PadChip, ctx: PadCtx): boolean {
   switch (chip.op.kind) {
     case 'current':
@@ -104,7 +111,11 @@ export function padChipDisabled(chip: PadChip, ctx: PadCtx): boolean {
     case 'upper':
       return !(ctx.upper > 0);
     case 'set':
-      return ctx.maxPieces !== undefined && chip.op.n > ctx.maxPieces;
+      return (
+        (ctx.maxPieces !== undefined && chip.op.n > ctx.maxPieces) ||
+        (ctx.max !== undefined && chip.op.n > ctx.max) ||
+        (ctx.min !== undefined && chip.op.n < ctx.min)
+      );
     default:
       return false;
   }
@@ -163,13 +174,26 @@ export function priceIssueText(issue: PriceIssue): string {
   return `${fmt(issue.tick)}원 단위로 입력해 주세요 · 가까운 값 ${fmt(issue.lower)} / ${fmt(issue.upper)}`;
 }
 
-/** 단위별 검증 문구. 빈 값·문제 없음 → null. 원 = 호가 단위·상한가 · 회 = 1~maxPieces. */
+/**
+ * 필드 범위 문구 — 범위 안이면 null. 시트·인라인(`padIssue`)과 필드 확정 훅의 마지막 방어선
+ * (`lcRangeIssue`)이 **이 한 함수**의 문장을 쓴다(CR-01).
+ */
+export function rangeIssueText(v: number, unit: PadUnit, min?: number, max?: number): string | null {
+  if (min !== undefined && v < min) return `${fmt(min)}${unit} 이상 입력해 주세요`;
+  if (max !== undefined && v > max) return `최대 ${fmt(max)}${unit}까지 입력할 수 있어요`;
+  return null;
+}
+
+/**
+ * 단위별 검증 문구. 빈 값·문제 없음 → null. 원 = 호가 단위·상한가 · 회 = 1~maxPieces ·
+ * 모든 단위 = 필드 범위(`ctx.min`/`ctx.max`, CR-01).
+ */
 export function padIssue(s: PadState, unit: PadUnit, ctx: PadCtx): string | null {
   const v = padValue(s);
   if (v === null) return null;
   if (unit === '원') {
     const issue = priceInputIssue(v, ctx.upper);
-    return issue ? priceIssueText(issue) : null;
+    if (issue) return priceIssueText(issue);
   }
   if (unit === '회') {
     if (v < 1) return '1회 이상 입력해 주세요';
@@ -177,7 +201,7 @@ export function padIssue(s: PadState, unit: PadUnit, ctx: PadCtx): string | null
       return `최대 ${fmt(ctx.maxPieces)}회까지 나눌 수 있어요`;
     }
   }
-  return null;
+  return rangeIssueText(v, unit, ctx.min, ctx.max);
 }
 
 /** 확인 가능 — 빈 값이 아니고 검증 문구가 없을 때. 명시적 「0」 은 허용(단위 규칙이 막지 않으면). */

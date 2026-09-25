@@ -22,9 +22,12 @@
  *     잘못된 값이 나가지 않게). 한 번 저장한 버퍼를 포커스 이탈이 다시 저장하지 않는다(같은 확정의
  *     두 번째 전송 금지 · T-16-10).
  *
- * 검증 (D-15): 원 단위는 `padIssue`(호가 단위 · 상한가) → 그 다음 `validate`(무장 불가 등, 호출부 판정).
- *   위반이면 **저장을 거부하고 이유만 말한다 — 값을 보정하지 않는다.** 검증 이유가 실패 문구보다 먼저다.
- *   빈 값 저장 = 0 이다(서버 계약상 빈 값 = 0 · E4 empty).
+ * 검증 (D-15): 원 단위는 `padIssue`(호가 단위 · 상한가) · 필드 범위(`min`/`max`, CR-01) → 그 다음
+ *   `validate`(무장 불가 등, 호출부 판정). 위반이면 **저장을 거부하고 이유만 말한다 — 값을 보정하지 않는다.**
+ *   검증 이유가 실패 문구보다 먼저다.
+ *   빈 값 저장 = 0 이다(서버 계약상 빈 값 = 0 · E4 empty). ★ 그래서 검증도 **저장될 값(빈 값 → 0)** 으로
+ *   한다 — 빈 버퍼를 「빈 값이라 검사 없음」으로 통과시키면 매도비율·잔량추적(최소 1)에 0 이 나가고
+ *   relay 가 스키마 위반으로 연결을 끊는다(20-REVIEW CR-01).
  *
  * 반영 중 (E4 loading): `readOnly` · `aria-busy` · 값 opacity .6 · 링 유지 · 화면 문구 없이 sr-only live
  *   region 에 「반영 중…」. 타이핑·↑↓ 는 무시하고 포커스 이탈은 다시 저장하지 않는다.
@@ -48,6 +51,9 @@ export interface InlineValueEditorProps {
   initialValue: number;
   /** 상한가 — 원 단위 D-15 검증(0·없음 = 시세 미수신 → 상한 검사 생략). */
   upperLimit?: number;
+  /** 필드 범위(포함) — relay 스키마 범위가 있는 필드만(`lc-fields.ts` `range`, CR-01). */
+  min?: number;
+  max?: number;
   /** 추가 검증(무장 불가 등) — 문장이면 저장을 거부하고 그 문장을 보인다. */
   validate?: (value: number) => string | null;
   /** 실패 말풍선 문구 — 있으면 편집기 아래에 뜬다(입력 포커스 유지). */
@@ -74,6 +80,8 @@ export function InlineValueEditor({
   unit,
   initialValue,
   upperLimit = 0,
+  min,
+  max,
   validate,
   failureText = null,
   busy = false,
@@ -105,9 +113,12 @@ export function InlineValueEditor({
     const digits = digitsOf();
     return digits === '' ? 0 : Number(digits);
   };
-  /** D-15 — 원 단위 호가·상한가 → 호출부 검증. 문제 없으면 null. */
+  /**
+   * D-15 — 원 단위 호가·상한가 · 필드 범위 → 호출부 검증. 문제 없으면 null.
+   * ★ 버퍼가 아니라 **저장될 값**(빈 값 → 0)으로 검사한다(CR-01).
+   */
   const issueOf = (): string | null =>
-    padIssue({ buf: digitsOf(), fresh: false }, unit, { current: 0, upper: upperLimit }) ??
+    padIssue({ buf: String(valueOf()), fresh: false }, unit, { current: 0, upper: upperLimit, min, max }) ??
     validate?.(valueOf()) ??
     null;
 

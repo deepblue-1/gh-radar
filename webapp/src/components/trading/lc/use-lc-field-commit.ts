@@ -51,6 +51,12 @@
  *   전송 직전 `armBlockOf(서버 동기값 + 바꾼 필드)` 가 문장을 돌려주면 막고 그 문장을 실패로 둔다.
  *   ★ **끄는 방향 게이트는 판정하지 않는다**(T-16-44) — 무장 해제를 막는 화면은 자산을 인질로 잡는다.
  *
+ * ⑨-2 ★ relay 스키마 범위 밖 cfg 는 보내지 않는다 (20-REVIEW CR-01)
+ *   relay 는 `lc.set` 스키마 위반 프레임을 받으면 **WebSocket 연결을 통째로 끊는다** — 모든 카드의 시세·
+ *   에코가 멈추고 같은 소켓의 수동주문이 결과 모름에 걸린다. 시트·인라인이 편집 필드를 먼저 잠그지만
+ *   cfg 는 32필드 전부라, 전송 직전 `lcRangeIssue(cfg 기준값)` 로 **한 번 더** 막는다(마지막 방어선).
+ *   ★ 이 가드는 끄는 방향도 막는다 — 범위 밖 프레임은 끄기조차 반영하지 못하고 연결만 끊는다.
+ *
  * ⑩ 토글 종류(스위치·체크·감시대상)는 전송 뒤(또는 대기 진입 시) 낙관 표시하고, 실패·폐기되면
  *   확정 직전 값으로 되돌린다(UI-SPEC E2). `send` 가 false 면 폼을 건드리지 않는다(GC-WR-06).
  */
@@ -58,12 +64,14 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { RelayLcSetMsg, RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
 
+import { lcRangeIssue } from '@/components/trading/lc/lc-fields';
 import { formFromServer, type LimitChaserFormValues } from '@/lib/limit-chaser';
 
 export type LcFieldKey = keyof LimitChaserFormValues;
 /** `value` = 숫자 값(낙관 반영 없음) · `toggle` = 스위치·체크·감시대상(전송 뒤 낙관 표시). */
 export type LcCommitKind = 'value' | 'toggle';
-export type LcFailReason = 'rejected' | 'timeout' | 'disconnected' | 'armBlocked';
+/** `invalid` = relay 스키마 범위 밖이라 보내지 않았다(⑨-2 · CR-01). */
+export type LcFailReason = 'rejected' | 'timeout' | 'disconnected' | 'armBlocked' | 'invalid';
 export interface LcCommitFailure {
   reason: LcFailReason;
   /** 화면 문구 — 문구 원천은 `LC_COMMIT_TEXT`(무장 불가는 호출부의 `armBlockOf` 문장). */
@@ -232,6 +240,13 @@ export function useLcFieldCommit(o: UseLcFieldCommitOptions): {
       // ② 기준값 = 서버 동기값 + 바꾼 필드 1개.
       const base = server != null ? formFromServer(server, formRef.current) : formRef.current;
       const next: LimitChaserFormValues = { ...base, [p.field]: p.value };
+      // ⑨-2 범위 밖 cfg 는 연결을 끊는다 — 끄는 방향도 예외 없이 막는다(CR-01).
+      const outOfRange = lcRangeIssue(next);
+      if (outOfRange !== null) {
+        setFailure(p.field, 'invalid', outOfRange, p.value);
+        if (optimistic) showToggle(p.field, p.prevValue);
+        return 'blocked';
+      }
       const turningOff = isGateField(p.field) && p.value === false;
       const blocked = turningOff ? null : (armBlockOf?.(next) ?? null);
       if (blocked !== null) {

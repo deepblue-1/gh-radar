@@ -260,3 +260,49 @@ describe("stepValue — ↑↓ 스텝", () => {
     expect(stepValue(v, unit, dir)).toBe(want);
   });
 });
+
+/**
+ * 20-REVIEW CR-01 — relay `lc.set` 스키마 범위(매도비율 1~100 · 잔량추적 1~90 · 호가변경 0~255).
+ * relay 는 범위 밖 프레임을 받으면 **WebSocket 연결을 끊는다** — 키패드가 그 값을 확인할 수 없어야 한다.
+ */
+describe("CR-01 — 필드 범위(ctx.min/max)가 확인을 잠그고 범위 밖 set 칩을 끈다", () => {
+  const TRACK: PadCtx = { current: 0, upper: 0, min: 1, max: 90 };
+  const RATIO: PadCtx = { current: 0, upper: 0, min: 1, max: 100 };
+  const TICKS: PadCtx = { current: 0, upper: 0, min: 0, max: 255 };
+
+  it.each([
+    ["0", "%", TRACK, "1% 이상 입력해 주세요"],
+    ["91", "%", TRACK, "최대 90%까지 입력할 수 있어요"],
+    ["101", "%", RATIO, "최대 100%까지 입력할 수 있어요"],
+    ["0", "%", RATIO, "1% 이상 입력해 주세요"],
+    ["256", "건", TICKS, "최대 255건까지 입력할 수 있어요"],
+  ] as const)("'%s'(%s) 범위 밖 → 문구 · 확인 잠금", (buf, unit, ctx, text) => {
+    expect(padIssue(s(buf), unit, ctx)).toBe(text);
+    expect(canConfirmPad(s(buf), unit, ctx)).toBe(false);
+  });
+
+  it.each([
+    ["1", "%", TRACK],
+    ["90", "%", TRACK],
+    ["100", "%", RATIO],
+    ["0", "건", TICKS],
+    ["255", "건", TICKS],
+  ] as const)("'%s'(%s) 경계 안 → 확인 가능", (buf, unit, ctx) => {
+    expect(padIssue(s(buf), unit, ctx)).toBeNull();
+    expect(canConfirmPad(s(buf), unit, ctx)).toBe(true);
+  });
+
+  it("잔량추적(최대 90) 시트의 「100」 칩은 비활성 · 눌러도 버퍼 불변 — 매도비율(최대 100)에서는 쓸 수 있다", () => {
+    const chip = (label: string) => PAD_CHIPS["%"].find((c) => c.label === label)!;
+    expect(padChipDisabled(chip("100"), TRACK)).toBe(true);
+    expect(applyPadChip(s("50"), chip("100"), TRACK)).toEqual(s("50"));
+    expect(padChipDisabled(chip("100"), RATIO)).toBe(false);
+    for (const label of ["10", "30", "50"]) expect(padChipDisabled(chip(label), TRACK)).toBe(false);
+  });
+
+  it("범위가 없으면(가격·수량·금액) 기존 규칙 그대로다", () => {
+    expect(padIssue(s("0"), "주", WON)).toBeNull();
+    expect(padIssue(s("999999999"), "만원", WON)).toBeNull();
+    expect(padIssue(s("98150"), "원", WON)).toBe("100원 단위로 입력해 주세요 · 가까운 값 98,100 / 98,200");
+  });
+});

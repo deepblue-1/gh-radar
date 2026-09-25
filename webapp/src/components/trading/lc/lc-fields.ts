@@ -17,7 +17,7 @@
  */
 
 import type { LimitChaserFormValues } from '@/lib/limit-chaser';
-import type { PadUnit } from '@/lib/numpad';
+import { rangeIssueText, type PadUnit } from '@/lib/numpad';
 
 /** 값(숫자) 필드 — 시트/인라인으로 편집한다. */
 export type LcNumField = Extract<
@@ -45,8 +45,23 @@ export type LcBoolField = Extract<
 /** 상따 행 단위 — 키패드 단위에서 수동주문 전용 「회」를 뺀 것. */
 export type LcUnit = Exclude<PadUnit, '회'>;
 
+/**
+ * 필드 범위(포함) — relay `lc.set` 스키마(`relay/src/ws/protocol.ts` `RelayLcSetSchema`)가 범위를 두는
+ * 필드만 적는다. **값은 relay 스키마와 같아야 한다** — relay 는 스키마 위반 프레임을 받으면 WebSocket
+ * 연결을 통째로 끊는다(`fanout.ts` `#reject` → `ws.close(BAD_MESSAGE)`). 그러면 모든 카드의 시세·에코가
+ * 멈추고 같은 소켓의 수동주문은 결과 모름 잠금에 걸린다(20-REVIEW CR-01).
+ *   - `sellOrderRatio`    `z.number().int().min(1).max(100)`
+ *   - `sellQtyTrackRatio` `z.number().int().min(1).max(90)`
+ *   - `sweepMinTickCount` `UByteSchema` = `min(0).max(255)`
+ * 나머지 값 필드(가격·수량·금액)는 `UIntSchema`(0 이상 정수) — 키패드가 음수·소수를 만들 수 없어 범위가 없다.
+ */
+export interface LcRange {
+  min: number;
+  max: number;
+}
+
 export type LcRowSpec =
-  | { kind: 'value'; field: LcNumField; id: string; label: string; unit: LcUnit; desc: string }
+  | { kind: 'value'; field: LcNumField; id: string; label: string; unit: LcUnit; desc: string; range?: LcRange }
   | {
       kind: 'checkValue';
       check: LcBoolField;
@@ -56,6 +71,7 @@ export type LcRowSpec =
       label: string;
       unit: LcUnit;
       desc: string;
+      range?: LcRange;
     }
   | { kind: 'check'; check: LcBoolField; checkId: string; label: string }
   | { kind: 'watch' }
@@ -128,7 +144,15 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     statusKey: 'sweep',
     dimWhenOff: true,
     rows: [
-      { kind: 'value', field: 'sweepMinTickCount', id: 'lc-sweep-tick', label: '호가변경', unit: '건', desc: '호가가 이만큼 바뀌면 한 번에 체결해요' },
+      {
+        kind: 'value',
+        field: 'sweepMinTickCount',
+        id: 'lc-sweep-tick',
+        label: '호가변경',
+        unit: '건',
+        desc: '호가가 이만큼 바뀌면 한 번에 체결해요',
+        range: { min: 0, max: 255 },
+      },
       { kind: 'value', field: 'sweepWatchPrice', id: 'lc-sweep-watch-price', label: '한방가격', unit: '원', desc: '한방 체결 가격이에요' },
     ],
   },
@@ -142,7 +166,15 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
     dimWhenOff: false,
     rows: [
       { kind: 'value', field: 'sellOrderPrice', id: 'lc-sell-order-price', label: '매도가격', unit: '원', desc: '넣을 매도 주문 가격이에요' },
-      { kind: 'value', field: 'sellOrderRatio', id: 'lc-sell-order-ratio', label: '매도비율', unit: '%', desc: '보유 수량 중 매도할 비율이에요' },
+      {
+        kind: 'value',
+        field: 'sellOrderRatio',
+        id: 'lc-sell-order-ratio',
+        label: '매도비율',
+        unit: '%',
+        desc: '보유 수량 중 매도할 비율이에요',
+        range: { min: 1, max: 100 },
+      },
     ],
   },
   {
@@ -163,6 +195,7 @@ export const LC_SELL_GROUPS: readonly LcGroupSpec[] = [
         label: '잔량추적',
         unit: '%',
         desc: '처음 잔량 대비 비율로 추적해요',
+        range: { min: 1, max: 90 },
       },
       {
         kind: 'checkValue',
@@ -237,4 +270,24 @@ export function lcNavigableRows(slot: LcGroupSpec['slot']): readonly { field: Lc
     if (row.kind === 'value' || row.kind === 'checkValue') out.push({ field: row.field, id: row.id });
   }
   return out;
+}
+
+/**
+ * cfg 전체 범위 검사 — 필드 확정 훅의 **전송 직전 마지막 방어선**(CR-01). 시트·인라인이 편집 필드를
+ * 먼저 잠그지만, `lc.set` 은 32필드 전부를 싣는다 — 체크 on/off 와 무관하게 비율 값도 전송 대상이고,
+ * 서버 동기값이 범위 밖이면(레거시·다른 클라) **다른 필드**를 확정해도 그 값이 실려 연결이 끊긴다.
+ * 범위 밖 필드가 있으면 「{라벨} · {범위 문구}」, 없으면 null.
+ */
+export function lcRangeIssue(values: LimitChaserFormValues): string | null {
+  for (const group of ALL_GROUPS) {
+    for (const row of group.rows) {
+      if ((row.kind !== 'value' && row.kind !== 'checkValue') || row.range === undefined) continue;
+      const v = values[row.field];
+      const text = Number.isInteger(v)
+        ? rangeIssueText(v, row.unit, row.range.min, row.range.max)
+        : `${row.range.min}~${row.range.max}${row.unit} 사이 정수여야 해요`;
+      if (text !== null) return `${row.label} · ${text}`;
+    }
+  }
+  return null;
 }

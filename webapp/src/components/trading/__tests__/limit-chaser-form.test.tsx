@@ -831,6 +831,32 @@ describe('⑬ 에코가 목록을 이긴다 · 편집 중 버퍼는 보존 (D-11
   });
 });
 
+describe('CR-01 — 인라인 편집도 relay 스키마 범위 밖 값을 보내지 않는다 (빈 값 = 0 포함)', () => {
+  it('매도비율 칸을 지우고 Enter — 0 을 보내지 않고 말풍선 「1% 이상 입력해 주세요」', () => {
+    render(<LimitChaserForm {...props()} />);
+    editInline('lc-sell-order-ratio', '');
+    expect(sentConfigs()).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toBe('1% 이상 입력해 주세요');
+  });
+
+  it('잔량추적 91 Enter · 포커스 이탈 모두 전송 0 · 90 은 1회 전송', () => {
+    render(<LimitChaserForm {...props()} />);
+    editInline('lc-sell-qty-track-ratio', '91');
+    blurEditor('lc-sell-qty-track-ratio');
+    expect(sentConfigs()).toHaveLength(0);
+    editInline('lc-sell-qty-track-ratio', '90');
+    expect(sentConfigs()).toHaveLength(1);
+    expect(lastConfig().sellQtyTrackRatio).toBe(90);
+  });
+
+  it('체크 토글도 cfg 가 범위 밖이면(서버 값 0) 보내지 않고 폼 맨 위에 사유를 말한다', () => {
+    render(<LimitChaserForm {...props({ server: echo({ sellOrderRatio: 0 }) })} />);
+    click(chk('매수취소 체결'));
+    expect(sentConfigs()).toHaveLength(0);
+    expect(submitError()?.textContent).toBe('매도비율 · 1% 이상 입력해 주세요');
+  });
+});
+
 describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 안내는 그 그룹이 감시 중일 때만 (D-05 · D-12)', () => {
   beforeEach(() => mockPointer(true));
   afterEach(restoreMatchMedia);
@@ -868,6 +894,37 @@ describe('⑭ 터치 기기 — 모든 값 행이 시트다 · 「감시 중」 
     expect(screen.getByRole('dialog', { name: '체결' })).toBe(sheet());
     expect(sheet()!.textContent).toContain('체결이 이 값 이상이면 매수를 넣어요');
     expect(document.querySelector('[data-slot="numpad-confirm"]')!.textContent).toBe('체결 적용');
+  });
+
+  it('CR-01 — 잔량추적(최대 90) 시트: 「100」 칩 비활성 · 91 은 「적용」 잠금 · 전송 0', () => {
+    render(<LimitChaserForm {...props()} />);
+    click(row('lc-sell-qty-track-ratio'));
+    const chip100 = within(sheet()!).getByRole('button', { name: '100' });
+    expect(chip100).toBeDisabled();
+    click(chip100);
+    click(within(sheet()!).getByRole('button', { name: '9' }));
+    click(within(sheet()!).getByRole('button', { name: '1' }));
+    const confirm = document.querySelector('[data-slot="numpad-confirm"]') as HTMLButtonElement;
+    expect(confirm).toBeDisabled();
+    expect(statusLine()).toContain('최대 90%까지 입력할 수 있어요');
+    click(confirm);
+    expect(sentConfigs()).toHaveLength(0);
+  });
+
+  it('CR-01 — 매도비율 시트에서 「0」 은 「적용」 잠금 · 호가변경 256 도 잠금', () => {
+    render(<LimitChaserForm {...props()} />);
+    click(row('lc-sell-order-ratio'));
+    click(within(sheet()!).getByRole('button', { name: '0' }));
+    expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
+    expect(statusLine()).toContain('1% 이상 입력해 주세요');
+    click(within(sheet()!).getByRole('button', { name: '닫기' }));
+    click(row('lc-sweep-tick'));
+    // 「5」는 칩 이름과 겹친다 — 키패드 그룹 안에서만 찾는다.
+    const pad = within(within(sheet()!).getByRole('group', { name: '숫자 키패드' }));
+    for (const k of ['2', '5', '6']) click(pad.getByRole('button', { name: k }));
+    expect(statusLine()).toContain('최대 255건까지 입력할 수 있어요');
+    expect(document.querySelector('[data-slot="numpad-confirm"]')).toBeDisabled();
+    expect(sentConfigs()).toHaveLength(0);
   });
 
   it('감시대상은 터치 기기에서도 시트를 열지 않고 즉시 전송한다', () => {

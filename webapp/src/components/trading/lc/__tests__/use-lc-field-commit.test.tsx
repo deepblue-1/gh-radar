@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import type { RelayLimitChaser, RelayLimitChaserInput } from '@gh-radar/shared';
@@ -14,6 +17,7 @@ import {
   useLcFieldCommit,
   type UseLcFieldCommitOptions,
 } from '../use-lc-field-commit';
+import { lcRowByField } from '../lc-fields';
 
 /**
  * `useLcFieldCommit` 단위 — 필드 확정 상태 기계 (20-01 Task 2 · D-04 ~ D-07).
@@ -486,5 +490,74 @@ describe('Task 2 — 타임아웃 · 직렬화 · 무장 가드 · 토글', () =
     expect(t.hook.result.current.failures.buyOrderAmount).toBeUndefined();
     expect(t.hook.result.current.flashField).toBe('buyOrderAmount');
     expect(t.hook.result.current.inflightField).toBeNull();
+  });
+});
+
+describe('CR-01 — relay 스키마 범위 밖 cfg 는 보내지 않는다(마지막 방어선)', () => {
+  it.each([
+    ['sellOrderRatio', 0, '매도비율 · 1% 이상 입력해 주세요'],
+    ['sellOrderRatio', 101, '매도비율 · 최대 100%까지 입력할 수 있어요'],
+    ['sellQtyTrackRatio', 0, '잔량추적 · 1% 이상 입력해 주세요'],
+    ['sellQtyTrackRatio', 91, '잔량추적 · 최대 90%까지 입력할 수 있어요'],
+    ['sweepMinTickCount', 256, '호가변경 · 최대 255건까지 입력할 수 있어요'],
+  ] as const)('%s = %d 확정 → `blocked` · 전송 0 · 사유 %s', (field, value, text) => {
+    const t = setup();
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit(field, value, 'value');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures[field]).toEqual({ reason: 'invalid', text, value });
+  });
+
+  it('계약 — `lc-fields.ts` 범위가 relay `RelayLcSetSchema` 원문과 같다(한쪽만 바뀌면 여기서 깨진다)', () => {
+    // webapp 은 relay 의 zod 를 import 할 수 없어 원문을 읽는다. 스키마 줄 모양이 바뀌면 이 정규식도 같이 고친다.
+    const src = readFileSync(path.resolve(__dirname, '../../../../../../relay/src/ws/protocol.ts'), 'utf8');
+    const zodRange = (field: string): { min: number; max: number } => {
+      const m = new RegExp(`\\b${field}: z\\.number\\(\\)\\.int\\(\\)\\.min\\((\\d+)\\)\\.max\\((\\d+)\\)`).exec(src);
+      expect(m, `relay 스키마의 ${field}`).not.toBeNull();
+      return { min: Number(m![1]), max: Number(m![2]) };
+    };
+    const ubyte = /const UByteSchema = z\.number\(\)\.int\(\)\.min\((\d+)\)\.max\((\d+)\)/.exec(src);
+    expect(ubyte).not.toBeNull();
+    expect(/\bsweepMinTickCount: UByteSchema\b/.test(src)).toBe(true);
+    expect(lcRowByField('sellOrderRatio')?.row.range).toEqual(zodRange('sellOrderRatio'));
+    expect(lcRowByField('sellQtyTrackRatio')?.row.range).toEqual(zodRange('sellQtyTrackRatio'));
+    expect(lcRowByField('sweepMinTickCount')?.row.range).toEqual({ min: Number(ubyte![1]), max: Number(ubyte![2]) });
+  });
+
+  it('경계값(1 · 90 · 100 · 255)은 그대로 나간다', () => {
+    const t = setup();
+    act(() => {
+      t.hook.result.current.commit('sellQtyTrackRatio', 90, 'value');
+    });
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('서버 동기값이 범위 밖이면 **다른 필드** 확정도 막는다 — cfg 는 32필드 전부라 그 값이 실린다', () => {
+    const t = setup({ server: echo({ sellQtyTrackRatio: 100 }) });
+    let out: string | undefined;
+    act(() => {
+      out = t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.hook.result.current.failures.sweepMinTickCount?.text).toBe('잔량추적 · 최대 90%까지 입력할 수 있어요');
+  });
+
+  it('끄는 방향 토글도 범위 밖 cfg 면 보내지 않고 낙관 표시를 되돌린다(보내면 끄기도 못 하고 연결만 끊긴다)', () => {
+    const t = setup({ server: echo({ buyEnabled: true, sellOrderRatio: 0 }) });
+    let out: string | undefined;
+    act(() => {
+      t.hook.result.current.commit('sweepMinTickCount', 5, 'value');
+    });
+    expect(t.send).not.toHaveBeenCalled();
+    act(() => {
+      out = t.hook.result.current.commit('buyEnabled', false, 'toggle');
+    });
+    expect(out).toBe('blocked');
+    expect(t.send).not.toHaveBeenCalled();
+    expect(t.formRef.current.buyEnabled).toBe(true);
   });
 });

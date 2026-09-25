@@ -105,11 +105,13 @@ import {
   LC_SELL_GROUPS,
   LC_SWITCH_LABEL,
   lcNavigableRows,
+  lcRangeIssue,
   lcRowByField,
   lcRowById,
   type LcGate,
   type LcGroupSpec,
   type LcNumField,
+  type LcRange,
   type LcRowSpec,
   type LcStatusKey,
   type LcUnit,
@@ -663,8 +665,10 @@ export function LimitChaserForm({
       if (outcome === 'disconnected') {
         setSubmitError(SEND_FAILED_TEXT.gate);
       } else if (outcome === 'blocked') {
-        // 훅과 **같은 식**(서버 동기값 + 바꾼 필드)으로 사유를 다시 읽는다 — 문장 산출 지점은 하나다.
-        setSubmitError(armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: value }) ?? '');
+        // 훅과 **같은 식·같은 순서**(서버 동기값 + 바꾼 필드 → 범위 → 무장)로 사유를 다시 읽는다 —
+        // 문장 산출 지점은 하나다(범위 `lcRangeIssue` · 무장 `armBlockOf`).
+        const next = { ...lcBaseValues(server, formRef.current), [field]: value };
+        setSubmitError(lcRangeIssue(next) ?? armBlockOf(next) ?? '');
       } else {
         setSubmitError('');
       }
@@ -702,10 +706,11 @@ export function LimitChaserForm({
 
   /**
    * 인라인 편집기 — 실패로 남은 입력값이 있으면 그 값으로 다시 연다(입력 보존 · A-P3).
-   * 검증은 편집기가 저장 **전**에 한다 — 원 단위 호가·상한가(D-15, `upperLimit`) → 무장 불가
-   * (`armBlockOf` · 훅의 전송 직전 가드와 **같은 식** = 서버 동기값 + 바꾼 필드 · T-20-03).
+   * 검증은 편집기가 저장 **전**에 한다 — 원 단위 호가·상한가(D-15, `upperLimit`) · 필드 범위(`range`,
+   * relay 스키마 · CR-01) → 무장 불가(`armBlockOf` · 훅의 전송 직전 가드와 **같은 식** = 서버 동기값 +
+   * 바꾼 필드 · T-20-03).
    */
-  function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit): ReactNode {
+  function inlineEditorOf(field: LcNumField, id: string, label: string, unit: LcUnit, range?: LcRange): ReactNode {
     const failure = lc.failures[field];
     return (
       <InlineValueEditor
@@ -714,6 +719,8 @@ export function LimitChaserForm({
         unit={unit}
         initialValue={typeof failure?.value === 'number' ? failure.value : form[field]}
         upperLimit={unit === '원' ? (upperLimit ?? 0) : 0}
+        min={range?.min}
+        max={range?.max}
         validate={(v) => armBlockOf({ ...lcBaseValues(server, formRef.current), [field]: v })}
         busy={isBusy(field)}
         failureText={inlineFailureTextOf(failure)}
@@ -768,7 +775,9 @@ export function LimitChaserForm({
             value={form[row.field]}
             {...valueProps(row.field)}
             onActivate={(el) => activateRow(row.field, el)}
-            editor={editingField === row.field ? inlineEditorOf(row.field, row.id, row.label, row.unit) : undefined}
+            editor={
+              editingField === row.field ? inlineEditorOf(row.field, row.id, row.label, row.unit, row.range) : undefined
+            }
           />
         );
       case 'checkValue':
@@ -794,7 +803,9 @@ export function LimitChaserForm({
                   valueId: row.id,
                   onActivateValue: (el: HTMLElement) => activateRow(row.field, el),
                   editor:
-                    editingField === row.field ? inlineEditorOf(row.field, row.id, row.label, row.unit) : undefined,
+                    editingField === row.field
+                      ? inlineEditorOf(row.field, row.id, row.label, row.unit, row.range)
+                      : undefined,
                 }
               : {})}
             disabled={disabled}
@@ -950,7 +961,8 @@ export function LimitChaserForm({
         initialValue={typeof sheetFailure?.value === 'number' ? sheetFailure.value : form[sheetKey]}
         // 값 필드는 낙관 반영이 없어 폼 값 = 서버 동기값이다(D-06).
         serverValue={form[sheetKey]}
-        ctx={{ current: currentPrice, upper: upperLimit ?? 0 }}
+        // 필드 범위(relay 스키마 · CR-01) — 범위 밖이면 확인 잠금 · 범위 밖 `set` 칩(잔량추적의 100 등) 비활성.
+        ctx={{ current: currentPrice, upper: upperLimit ?? 0, min: sheetRow?.row.range?.min, max: sheetRow?.row.range?.max }}
         status={sheetBusy ? 'busy' : sheetFailure !== undefined ? 'failed' : 'editing'}
         failureText={sheetFailure?.text ?? null}
         // 그 필드가 속한 그룹이 「감시 중」이면 한 줄 안내(추가 확인 없음 · D-05). 가격 섹션은 매수주문·
