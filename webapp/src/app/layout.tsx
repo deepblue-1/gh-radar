@@ -12,6 +12,7 @@ import { ChatFab } from '@/components/chat/chat-fab';
 import { ChatSheet } from '@/components/chat/chat-sheet';
 import { pretendard, geistMono } from '@/lib/fonts';
 import { NATIVE_DETECT_SCRIPT } from '@/lib/native/native-detect';
+import { NativeBridgeProvider } from '@/lib/native/native-bridge-provider';
 
 export const metadata: Metadata = {
   title: 'gh-radar',
@@ -56,23 +57,28 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <ThemeProvider>
-          <AuthProvider>
-            {/* RelayProvider 는 AuthProvider 안쪽 — 연결 게이트가 Supabase 세션이다(D-22/D-23).
-                로그인 상태에서만 relay wss 1연결을 열어 앱이 열려 있는 동안 유지하고,
-                로그아웃하면 즉시 close 한다. 사이드바 전략 목록·My page 가 종목 구독 없이
-                전략 상태를 봐야 하므로 ChatProvider 보다 바깥, 즉 앱 전역이어야 한다. */}
-            <RelayProvider>
-              {/* ChatProvider 는 AuthProvider 안쪽 — FAB/시트가 useChat + useAuth 둘 다 소비.
-                  FAB/Sheet 는 children 뒤에 마운트하되, FAB 이 실제로 보이는 곳은
-                  종목상세 본문(`/stocks/{code}`)뿐이다 — 경로 판정은 클라이언트 컴포넌트인
-                  `chat-fab.tsx` 안에서 한다(여기서 읽으면 레이아웃이 클라이언트가 된다). */}
-              <ChatProvider>
-                <WatchlistSetProvider>{children}</WatchlistSetProvider>
-                <ChatFab />
-                <ChatSheet />
-              </ChatProvider>
-            </RelayProvider>
-          </AuthProvider>
+          {/* NativeBridgeProvider 는 ThemeProvider 바로 안쪽 — `useTheme` 로 theme 신호를 보낸다(D-23).
+              앱(`html.native-app`)에서만 `window.__ghTrade` · 네이티브 송신이 켜지고 브라우저에서는
+              no-op 이다. Relay/Chat 보다 바깥이라 모든 페이지·오버레이가 같은 브리지를 본다. */}
+          <NativeBridgeProvider>
+            <AuthProvider>
+              {/* RelayProvider 는 AuthProvider 안쪽 — 연결 게이트가 Supabase 세션이다(D-22/D-23).
+                  로그인 상태에서만 relay wss 1연결을 열어 앱이 열려 있는 동안 유지하고,
+                  로그아웃하면 즉시 close 한다. 사이드바 전략 목록·My page 가 종목 구독 없이
+                  전략 상태를 봐야 하므로 ChatProvider 보다 바깥, 즉 앱 전역이어야 한다. */}
+              <RelayProvider>
+                {/* ChatProvider 는 AuthProvider 안쪽 — FAB/시트가 useChat + useAuth 둘 다 소비.
+                    FAB/Sheet 는 children 뒤에 마운트하되, FAB 이 실제로 보이는 곳은
+                    종목상세 본문(`/stocks/{code}`)뿐이다 — 경로 판정은 클라이언트 컴포넌트인
+                    `chat-fab.tsx` 안에서 한다(여기서 읽으면 레이아웃이 클라이언트가 된다). */}
+                <ChatProvider>
+                  <WatchlistSetProvider>{children}</WatchlistSetProvider>
+                  <ChatFab />
+                  <ChatSheet />
+                </ChatProvider>
+              </RelayProvider>
+            </AuthProvider>
+          </NativeBridgeProvider>
         </ThemeProvider>
       </body>
     </html>

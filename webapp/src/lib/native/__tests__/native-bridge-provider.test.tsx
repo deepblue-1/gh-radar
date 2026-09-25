@@ -250,11 +250,12 @@ describe('앱 — navigate(path)', () => {
     expect(scrollTo.mock.calls[0][0]).toMatchObject({ top: 0 });
   });
 
-  it("9. '//evil.com' · 'https://x' · '' · 숫자는 false 이고 push 0", () => {
+  it("9. '//evil.com' · 'https://x' · '' · 숫자 · 역슬래시/제어문자 우회는 false 이고 push 0", () => {
     enterNativeApp('ios');
     render(<Harness />);
 
-    for (const bad of ['//evil.com', 'https://x', '', 42, null, undefined]) {
+    // `/\evil.com` · `/<탭>/evil.com` 은 브라우저 URL 파서가 `//evil.com` 으로 읽는다(T-21-16).
+    for (const bad of ['//evil.com', 'https://x', '', 42, null, undefined, '/\\evil.com', '/\t/evil.com']) {
       expect(gh().navigate(bad)).toBe(false);
     }
     expect(pushMock).not.toHaveBeenCalled();
