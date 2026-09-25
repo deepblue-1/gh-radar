@@ -1,0 +1,25 @@
+/* 토스 라이트 기준 팔레트 — @toss/tds-colors@0.1.0 colors.light.css 공식값 (= theme/toss-b globals.css :root).
+   스케치 003 의 변형 A/B/C 는 index.html 안에서 이 값을 덮어쓴다. 원칙은 다크와 같다: 테두리 대신
+   명도 단계(bg < band/면 < card < raised)로 면을 가른다. */
+:root {
+  --bg: #ffffff;          /* 페이지 바탕 (종목상세) */
+  --surface: #f2f4f6;     /* 본문면 (작업대·호가주문 = grey100) */
+  --band: #f2f4f6;        /* 섹션 사이 띠 */
+  --card: #ffffff;        /* 카드/그룹 면 */
+  --raised: #f2f4f6;      /* 입력칸·세그먼트 트랙·칩 (grey100) */
+  --raised-2: #e5e8eb;    /* 세그먼트 선택/hover (grey200) */
+  --fg: #191f28;          /* grey900 */
+  --fg-2: #333d4b;        /* grey800 */
+  --muted-fg: #6b7684;    /* grey600 */
+  --faint-fg: #b0b8c1;    /* grey400 */
+  --line: #e5e8eb;        /* hairlineBorder */
+  --up: #f04452;
+  --down: #3182f6;
+  --up-bg: #ffeeee;
+  --down-bg: #e8f3ff;
+  --primary: #3182f6;
+  --cta: #f04452;
+  --r-md: 12px; --r-lg: 16px; --r-xl: 20px;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --font-num: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif;
+}
