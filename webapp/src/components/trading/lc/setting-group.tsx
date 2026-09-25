@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react';
 
+import type { LcGroupSpec } from '@/components/trading/lc/lc-fields';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
@@ -185,4 +186,33 @@ export function FailureBubble({
       </PopoverContent>
     </Popover>
   );
+}
+
+/* ── RED 스텁 (20-04 Task 1) — GREEN 이 채운다 ── */
+export function SettingGroup(_p: { spec: LcGroupSpec; statusText?: string; on?: boolean; switchNode?: ReactNode; children?: ReactNode }) {
+  return null;
+}
+export function GroupSwitch(_p: { id?: string; label: string; checked: boolean; disabled?: boolean; onCheckedChange: (v: boolean) => void }) {
+  return null;
+}
+export function CheckValueRow(_p: {
+  checkId: string;
+  groupTitle: string;
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+  value?: number;
+  unit?: SettingUnit;
+  valueId?: string;
+  editing?: boolean;
+  editor?: ReactNode;
+  onActivateValue?: (el: HTMLElement) => void;
+}) {
+  return null;
+}
+export function WatchTargetRow(_p: { value: '0' | '1'; onSelect: (v: '0' | '1') => void; disabled?: boolean; busy?: boolean }) {
+  return null;
+}
+export function DerivedRow(_p: { label: string; value: number; unit: SettingUnit }) {
+  return null;
 }
