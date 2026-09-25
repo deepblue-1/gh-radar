@@ -268,15 +268,25 @@ export interface StrategyLogProps {
    * 넘기지 않으면 종전 「아직 기록이 없어요」 그대로다.
    */
   emptyTitle?: string;
+  /**
+   * `'embed'` 빈 상태를 촘촘하게 — 작업대 카드 「로그」 탭은 본문이 정보 탭 3줄 높이(≈72px)로
+   * 고정이라 기본 빈 상태(여백 12 + 세로 패딩 24×2)가 넘친다(260925 후속). 넘기지 않으면 종전 그대로.
+   */
+  dense?: boolean;
   className?: string;
 }
 
-export function StrategyLog({ entries, variant = 'card', emptyTitle, className }: StrategyLogProps) {
+export function StrategyLog({ entries, variant = 'card', emptyTitle, dense = false, className }: StrategyLogProps) {
   if (variant === 'embed') {
     return (
       <section data-slot="strategy-log" data-variant="embed" className={cn('min-w-0', className)}>
         {entries.length === 0 ? (
-          <div className="m-[var(--s-3)] rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+          <div
+            className={cn(
+              'rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] text-center',
+              dense ? 'm-[var(--s-2)] py-[var(--s-2)]' : 'm-[var(--s-3)] py-[var(--s-5)]',
+            )}
+          >
             <b className="block text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
               {emptyTitle ?? '아직 기록이 없어요'}
             </b>

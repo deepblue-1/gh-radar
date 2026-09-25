@@ -1118,6 +1118,7 @@ function EmbeddedSection({
       >
         {holdings.length === 0 ? (
           <EmptyState
+            dense={stockScope}
             title={emptyTitle ?? '보유 종목이 없어요'}
             body={emptyTitle === undefined ? '체결된 주문이 있으면 잔고에 반영돼요.' : undefined}
           />
@@ -1228,6 +1229,7 @@ function EmbeddedSection({
     >
       {unfilled.length === 0 ? (
         <EmptyState
+          dense={stockScope}
           title={emptyTitle ?? '미체결 주문이 없어요'}
           body={
             emptyTitle === undefined
@@ -1504,10 +1506,19 @@ function CancelBanner({ result, polite = false }: { result: CancelResult; polite
   );
 }
 
-/** 빈 상태 — 중립색만 쓴다(방향색 금지). */
-function EmptyState({ title, body }: { title: string; body?: string }) {
+/**
+ * 빈 상태 — 중립색만 쓴다(방향색 금지).
+ * `dense` = 작업대 카드 탭(`embedScope="stock"`) — 본문이 정보 탭 3줄 높이(≈72px)로 고정이라 세로 패딩을
+ * 24→8 로 줄여 그 안에 들어가게 한다(260925 후속).
+ */
+function EmptyState({ title, body, dense = false }: { title: string; body?: string; dense?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] py-[var(--s-5)] text-center">
+    <div
+      className={cn(
+        'flex flex-col items-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--faint)] px-[var(--s-4)] text-center',
+        dense ? 'py-[var(--s-2)]' : 'py-[var(--s-5)]',
+      )}
+    >
       <p className="text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">{title}</p>
       {body !== undefined && (
         <p className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">{body}</p>

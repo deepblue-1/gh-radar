@@ -358,12 +358,14 @@ export function StockSearchField({
             자기 자신이 테두리(`border-[var(--input)]`)를 가지므로 `focus-within:` 이 아니라
             `focus-visible:` 이다. seamless 로 전역 링을 걷었으니 이 테두리 유틸리티를 지우면
             포커스가 아무 표시 없이 사라진다(WCAG 2.4.7).
-          ★ 높이 `h-9` 는 아래 결과 목록의 `top-10` 과 **한 쌍**이다. 한쪽만 고치면 목록이
+          ★ 높이 `h-[46px]` 는 아래 결과 목록의 `top-[50px]` 과 **한 쌍**이다. 한쪽만 고치면 목록이
             입력에서 떠서, 마우스가 그 틈을 지나는 순간 닫힌 것처럼 보인다.
+            46 은 바로 위 면들(VI·돌파 스트립 · 상태줄 — 실측 46px)과 같은 높이다 — 한 줄씩 쌓인
+            작업대 면들의 높이 리듬을 맞춘다(260925 후속).
           ★ 글꼴은 디자인 시스템 14px(--t-sm) 하나다 — iOS 포커스 확대는 루트 viewport `maximum-scale=1`(app/layout.tsx · quick-260925-ptw)이 막는다.
         */
         data-focus-ring="seamless"
-        className="h-9 w-full min-w-0 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
+        className="h-[46px] w-full min-w-0 rounded-[var(--r-md)] border border-transparent bg-[var(--card)] px-2.5 text-[length:var(--t-sm)] text-[var(--fg)] focus-visible:border-[var(--ring)]"
       />
       {trailing?.({
         canCommit: activeRow !== null,
@@ -380,7 +382,7 @@ export function StockSearchField({
           aria-label="종목 검색 결과"
           /* 위 `onBlur` 주석 참조 — 클릭 도중 포커스가 입력에서 떠나지 않게 하는 절반이다. */
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute inset-x-0 top-10 z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--popover)] p-1 shadow-lg"
+          className="absolute inset-x-0 top-[50px] z-20 m-0 max-h-60 list-none overflow-y-auto rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--popover)] p-1 shadow-lg"
         >
           {results.length === 0 ? (
             /*
@@ -498,7 +500,7 @@ export function StockAddBar({ cards, onAdd, onFocusCard, className }: StockAddBa
             data-slot="stock-add-submit"
             disabled={!canCommit}
             onClick={commit}
-            className="h-9 flex-none rounded-[var(--r)] border border-transparent bg-[var(--primary)] px-3.5 text-[13px] font-semibold whitespace-nowrap text-[var(--primary-fg)] disabled:cursor-not-allowed disabled:opacity-45"
+            className="h-[46px] flex-none rounded-[var(--r-md)] border border-transparent bg-[var(--primary)] px-4 text-[length:var(--t-sm)] font-semibold whitespace-nowrap text-[var(--primary-fg)] disabled:cursor-not-allowed disabled:opacity-45"
           >
             추가
           </button>

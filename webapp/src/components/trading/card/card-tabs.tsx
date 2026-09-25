@@ -6,8 +6,10 @@
  *
  * ① 무엇을 그리는가
  *   종전 `QuoteGrid10` 자리에 탭 줄(24px · 선택 알약 `--pill-on-*` — 공용 패널 탭 문법의 얇은 판)이 서고,
- *   기본 탭 「정보」가 기존 10칸 그대로다. 본문은 네 탭 공통 고정 높이 4 × --row-h(머리 1 + 3줄)
- *   · 넘치면 세로 스크롤 — 탭을 바꾸거나 목록이 비어도 카드 높이가 변하지 않는다(quick-260925-ptw).
+ *   기본 탭 「정보」가 기존 10칸 그대로다. 본문은 **네 탭 공통 고정 높이 = 정보 탭 3줄**(≈72px)
+ *   · 넘치면 세로 스크롤(quick-260925-ptw → 260925 후속 사용자 결정 「카드 탭 높이는 다 같아야 한다 ·
+ *   정보탭 기준 3줄」). 탭을 바꾸거나 목록이 비어도 카드 높이가 변하지 않는다. 표 탭은 이 높이에서
+ *   머리 1 + 데이터 1행쯤, 로그는 3줄쯤 보이고 나머지는 스크롤이다. 빈 상태는 `dense` 로 이 높이 안에 든다.
  *   탭 줄 오른쪽 끝 접기 버튼이 본문을 접는다 — 접혀도 탭 알약(건수 포함)은 보인다. 「미체결」·「잔고」는 **이 카드 종목·거래소·계좌로
  *   자른** 계좌 상태, 「로그」는 카드 훅의 전략 로그다. 배지는 미체결·로그만, 0 이면 생략.
  *
@@ -90,6 +92,11 @@ const CARD_TAB_TRIGGER =
   "data-[state=active]:bg-[var(--pill-on-bg)] data-[state=active]:text-[var(--pill-on-fg)] data-[state=active]:shadow-none " +
   "dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-[var(--pill-on-bg)] dark:data-[state=active]:text-[var(--pill-on-fg)]";
 
+/*
+  탭 본문 공통 높이 = 정보 탭 3줄 — `QuoteGrid10` 칸(11px × --lh-normal + py 3px×2) 3개 + 격자 위 py-1(4px)
+  ≈ 71.5px. 정보 칸 문법(글꼴·패딩)을 바꾸면 여기도 같이 바꾼다.
+*/
+const CARD_TABS_BODY_H = "h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]";
 
 /** 탭 제목 뒤 건수 「미체결(2)」 — 0 이면 생략(2026-09-23 사용자 요청: 배지 대신 제목 괄호). */
 function CountBadge({ count }: { count: number }) {
@@ -203,15 +210,14 @@ export function CardTabs({
       </div>
 
       {/*
-        본문 — 네 탭 공통 고정 높이 = 표 머리 1줄 + 데이터 3줄 ≈ 4 × --row-h(밀도 토큰을 따른다:
-        기본 36 → 144 · 모바일 comfortable 44 → 176 · compact 32 → 128). 넘치면 세로 스크롤,
-        가로 넘침은 안쪽 표 래퍼(`account-embed-scroll` · `.tbl-wrap`)가 맡는다(quick-260925-ptw).
+        본문 — 네 탭 공통 고정 높이(정보 탭 3줄 · ①). 넘치면 세로 스크롤, 가로 넘침은 안쪽 표 래퍼
+        (`account-embed-scroll` · `.tbl-wrap`)가 맡는다.
       */}
       <div
         id={bodyId}
         data-slot="card-tabs-body"
         hidden={folded}
-        className="h-[calc(var(--row-h)*4)] min-w-0 overflow-y-auto"
+        className={cn(CARD_TABS_BODY_H, "min-w-0 overflow-y-auto")}
       >
         <TabsContent value="info" className="min-w-0">
           <QuoteGrid10 quote={quote} />
@@ -244,7 +250,7 @@ export function CardTabs({
           />
         </TabsContent>
         <TabsContent value="log" className="min-w-0">
-          <StrategyLog entries={log} variant="embed" emptyTitle="로그 없음" />
+          <StrategyLog entries={log} variant="embed" emptyTitle="로그 없음" dense />
         </TabsContent>
       </div>
     </Tabs>

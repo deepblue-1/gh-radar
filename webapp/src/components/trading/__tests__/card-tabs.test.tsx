@@ -258,19 +258,19 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
   const body = () => root().querySelector('[data-slot="card-tabs-body"]') as HTMLElement;
   const fold = () => root().querySelector('[data-slot="card-tabs-fold"]') as HTMLButtonElement;
 
-  it('본문 래퍼 하나가 네 탭 콘텐츠를 담고 고정 높이 4 × --row-h · 세로 스크롤이다 — 탭별 높이 상한 래퍼 없음', async () => {
+  it('본문 래퍼 하나가 네 탭을 담고 공통 고정 높이(정보 탭 3줄) · 세로 스크롤이다 — 탭별 높이 없음 (260925 후속)', async () => {
     const user = userEvent.setup();
     render(<CardTabs {...props()} />);
-    const cls = body().className.split(/\s+/);
-    expect(cls).toContain('h-[calc(var(--row-h)*4)]');
-    expect(cls).toContain('overflow-y-auto');
+    const H = 'h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]';
     for (const label of ['정보', '미체결', '잔고', '로그']) {
       await user.click(tabNamed(label));
       const panel = within(root()).getByRole('tabpanel');
       expect(body().contains(panel)).toBe(true);
-      expect(root().querySelector('[class*="max-h-[210px]"]')).toBeNull();
-      // 탭을 바꿔도 같은 래퍼(같은 클래스) — 높이 불변.
-      expect(body().className.split(/\s+/)).toContain('h-[calc(var(--row-h)*4)]');
+      // 탭을 바꿔도 같은 래퍼(같은 클래스) — 높이 불변. 탭 콘텐츠는 높이·상한을 갖지 않는다.
+      const cls = body().className.split(/\s+/);
+      expect(cls).toContain(H);
+      expect(cls).toContain('overflow-y-auto');
+      expect(panel.className).not.toMatch(/\b(max-)?h-\[/);
     }
   });
 
