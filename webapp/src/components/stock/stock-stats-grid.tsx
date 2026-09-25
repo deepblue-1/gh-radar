@@ -38,7 +38,8 @@ function StatValue({ cell }: { cell: StatCell }) {
  *
  * 종목명/현재가/등락 헤더는 상위 StockHero 가 담당하므로 여기서는 중복 렌더하지 않는다.
  * 토스 B(260924-vj1 · sketch `.spec` · `.kv-grid`): 5px 무채색 트랙 · 불투명 `--faint` 당일 밴드 ·
- * 테두리 없는 12px 점 + 옅은 링 · 현재가 태그는 알약 대신 `--fg-2` 굵은 텍스트 · 값 16px/500 · 구분선 없음.
+ * 테두리 없는 12px 점 + 옅은 링(색은 `--spec-dot-bg`/`--spec-dot-ring` — sketch 003-A · 260925-gy6:
+ * 라이트 blue500 + 파란 링, 다크 종전값) · 현재가 태그는 알약 대신 `--fg-2` 굵은 텍스트 · 값 16px/500 · 구분선 없음.
  * 상·하한가 스케일이 무효(거래정지·결측 등)면 8필드 폴백 그리드로 분기한다.
  */
 export function StockStatsGrid({ stock }: { stock: Stock }) {
@@ -130,7 +131,8 @@ export function StockStatsGrid({ stock }: { stock: Stock }) {
 
         {/* 현재가 마커 dot */}
         <div
-          className="absolute top-1/2 z-[2] size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--muted-fg)] shadow-[0_0_0_4px_color-mix(in_oklch,var(--fg)_8%,transparent)]"
+          data-slot="spectrum-dot"
+          className="absolute top-1/2 z-[2] size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--spec-dot-bg)] shadow-[0_0_0_4px_var(--spec-dot-ring)]"
           style={{ left: `${curPos}%` }}
         />
 

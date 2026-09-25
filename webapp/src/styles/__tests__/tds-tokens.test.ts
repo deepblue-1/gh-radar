@@ -6,6 +6,7 @@
  *   1) globals.css `:root`·`.dark` 의 테마 색 토큰이 공식값(또는 그 rgba 틴트)이다.
  *   2) 두 블록이 같은 테마 색 토큰 집합을 정의하고, 그 값에 oklch 가 없다(차트가 oklch 거부).
  *   3) 차트 팔레트(chart-colors.ts)의 up/down 이 테마별 CSS `--up`/`--down` 과 같은 hex 다.
+ *   4) 260925-gy6 — sketch 003-A 선택·활성 토큰(라이트만 blue50/blue600 · 다크 = 종전 참조값).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -52,8 +53,14 @@ const LIGHT_EXPECTED: Record<string, string> = {
   'up-bg': '#ffeeee',
   'down-bg': '#e8f3ff',
   'seg-on-bg': '#ffffff',
-  'pill-on-bg': '#191f28',
-  'side-bg': '#f9fafb',
+  'pill-on-bg': '#e8f3ff',
+  'pill-on-fg': '#1b64da',
+  'side-bg': '#ffffff',
+  'nav-on-bg': '#e8f3ff',
+  'nav-on-fg': '#1b64da',
+  'nav-on-line': '#3182f6',
+  'spec-dot-bg': '#3182f6',
+  'spec-dot-ring': 'rgba(49, 130, 246, 0.18)',
 };
 
 const DARK_EXPECTED: Record<string, string> = {
@@ -76,7 +83,13 @@ const DARK_EXPECTED: Record<string, string> = {
   down: '#3485fa',
   'seg-on-bg': '#4d4d59',
   'pill-on-bg': '#4d4d59',
+  'pill-on-fg': '#ffffff',
   'side-bg': '#101013',
+  'nav-on-bg': '#2c2c35',
+  'nav-on-fg': '#ffffff',
+  'nav-on-line': '#ffffff',
+  'spec-dot-bg': '#9e9ea4',
+  'spec-dot-ring': 'rgba(255, 255, 255, 0.08)',
 };
 
 /** 테마 색 토큰 — `:root`·`.dark` 둘 다 정의돼야 한다(한쪽만 두면 반대 테마에서 조용히 사라짐). */
@@ -87,6 +100,7 @@ const THEME_COLOR_TOKENS = [
   'destructive', 'destructive-fg', 'up', 'down', 'flat', 'up-bg', 'down-bg',
   'seg-on-bg', 'seg-on-fg', 'seg-on-shadow', 'pill-on-bg', 'pill-on-fg',
   'ask-bar', 'bid-bar', 'side-bg', 'led-latent', 'led-armed', 'new-bg', 'new-bd',
+  'nav-on-bg', 'nav-on-fg', 'nav-on-line', 'spec-dot-bg', 'spec-dot-ring',
 ];
 
 describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {
@@ -110,6 +124,13 @@ describe('TDS 토큰 값 (@toss/tds-colors@0.1.0)', () => {
       expect(block[name], `--${name} 미정의`).toBeDefined();
       expect(block[name], `--${name} 에 oklch`).not.toMatch(/oklch/i);
     }
+  });
+
+  it('새 선택 토큰의 다크 값은 종전 참조 토큰과 같다(sketch 003-A · 260925-gy6 — 다크 무변경)', () => {
+    expect(DARK['nav-on-bg']).toBe(DARK.muted);
+    expect(DARK['nav-on-fg']).toBe(DARK.fg);
+    expect(DARK['nav-on-line']).toBe(DARK.fg);
+    expect(DARK['spec-dot-bg']).toBe(DARK['muted-fg']);
   });
 
   it.each([

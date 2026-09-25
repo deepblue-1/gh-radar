@@ -171,3 +171,12 @@ describe('StockDetailTabs — 폰 「주문하기」 CTA (260924-vj1)', () => {
     expect(screen.queryByRole('button', { name: '주문하기' })).toBeNull();
   });
 });
+
+describe('StockDetailTabs — 탭 선택 색 (260925-gy6)', () => {
+  it('260925-gy6 — sketch 003-A 탭 선택 = 선택 토큰(글자 --nav-on-fg · 밑줄 --nav-on-line)', () => {
+    renderTabs();
+    const cls = tab('차트').className;
+    expect(cls).toContain('data-[state=active]:text-[var(--nav-on-fg)]');
+    expect(cls).toContain('data-[state=active]:border-b-[var(--nav-on-line)]');
+  });
+});

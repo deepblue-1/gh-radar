@@ -151,7 +151,7 @@ export function StockDetailTabs({
             <TabsTrigger
               key={t.v}
               value={t.v}
-              className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[17px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--fg)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--fg)] data-[state=active]:shadow-none"
+              className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[17px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--nav-on-line)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--nav-on-fg)] data-[state=active]:shadow-none"
             >
               {t.label}
             </TabsTrigger>

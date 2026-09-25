@@ -34,7 +34,7 @@ Plans completed: 218 / 233
 Status: 라운드 4 실행 완료 · 재검증(-R4) 대기 · relay 미배포 — 18-36 전량 게이트 green · 18-VALIDATION §Gap Closure R4 7행 전부 닫힘 · TRADE-06~09 Pending 유지
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-25 - Completed quick task 260925-0pf: 토스 B 테마 공식 TDS 값 정렬 (브랜치 theme/toss-b)
+Last activity: 2026-09-25 - Completed quick task 260925-gy6: 라이트 선택·활성 표현 = 스케치 003-A (브랜치 theme/toss-b)
 
 Progress: [█████████░] 93%
 
@@ -142,6 +142,7 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260925-gy6 | **라이트 선택·활성 = 스케치 003-A(브랜치 theme/toss-b · 미병합)** — 라이트 `--pill-on-*` 검정 → blue50 #e8f3ff/blue600 #1b64da(알약 9곳 자동) · `--side-bg` 흰색 · 새 토큰 5개(`--nav-on-bg/fg/line` · `--spec-dot-bg/ring`, 다크 값 = 종전 렌더 색) → 사이드바 활성 · 종목상세 탭 선택(글자 blue600 · 밑줄 blue500) · 내 테마 칩 · 스펙트럼 현재가 점. 세그먼트 선택색은 Phase 20 D-02 로 제외. 다크 무변경(가드 테스트). typecheck 0 · webapp 1748/1 skip · 라이트 갤러리 3화면×6폭 넘침 0 | 2026-09-25 | — | [260925-gy6-sketch-003-a-blue50-blue600](./quick/260925-gy6-sketch-003-a-blue50-blue600/) |
 | 260925-0pf | **토스 B → 공식 TDS 값 정렬(브랜치 theme/toss-b · 미병합)** — @toss/tds-colors 팔레트(다크 띠 #101013 · 선택 면 grey300 · 비활성 grey400 · red #f04251 / 라이트 보조 grey600) · 행 구분선 hairline(#3c3c47/#e5e8eb, `--border-subtle` 재사용 · 45줄+3곳) · 탭 t5 17/600 · 라벨 t6 15 · CTA 56/r16 · 주문 버튼 48/r14(`lc` 글자 불변). typecheck 0 · webapp 1731/1 skip · build 0 · 갤러리 132장 넘침 0 · 프리뷰 재배포 | 2026-09-25 | — | [260925-0pf-tds-theme-toss-b](./quick/260925-0pf-tds-theme-toss-b/) |
 | 260924-vj1 | **토스 B 테마 실험(브랜치 theme/toss-b · 미병합)** — 스케치 001 B안 전역 리스킨: TDS 다크/라이트 토큰 · 무테 면 · radius 상향 · Pretendard tabular 숫자 · 알약 세그먼트 · 종목상세 풀폭 띠+폰 주문하기 CTA · 사다리/폼/카드 표면. §2.2b 경계·`--lw` 불변. 스케치 002(호가주문 토스식: 리스트+바텀시트·자체 키패드·데스크톱 인라인) 채택안 기록. typecheck 0 · webapp 1681/1 skip · build 0 · 갤러리 132장 가로 넘침 0 · Vercel 프리뷰 확인 | 2026-09-24 | — | [260924-vj1-b-theme-toss-b](./quick/260924-vj1-b-theme-toss-b/) |
 | 260923-nvr | **VI 해제된 발동 숨김** — gh-trade `VIOrderItem.vi_released`(슬롯 36, jsv) 동기화: relay 디코드 · shared `viReleased?` · 작업대 VI 칩·표·미확인 수에서 해제 항목 제외(설정 중지 요약은 전체). relay 605 · webapp 1094 · Playwright 54/0. gh-trade 실서버·relay 배포 뒤 동작 | 2026-09-23 | — | [260923-nvr-vi-released-hide](./quick/260923-nvr-vi-released-hide/) |

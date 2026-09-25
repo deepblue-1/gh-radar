@@ -311,6 +311,21 @@ describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
     expect(screen.getByRole("link", { name: "트레이딩" })).not.toHaveAttribute("aria-current");
   });
 
+  it("260925-gy6 — sketch 003-A 사이드바 활성 = 선택 토큰(--nav-on-bg/--nav-on-fg), 비활성에는 없다", () => {
+    mockPathname = "/trading";
+    setupReady();
+    render(<AppSidebar />);
+
+    const active = screen.getByRole("link", { name: "트레이딩" });
+    expect(active).toHaveAttribute("aria-current", "page");
+    expect(active.className).toContain("bg-[var(--nav-on-bg)]");
+    expect(active.className).toContain("text-[var(--nav-on-fg)]");
+
+    const idle = screen.getByRole("link", { name: "상승률 상위" });
+    expect(idle).not.toHaveAttribute("aria-current");
+    expect(idle.className).not.toContain("bg-[var(--nav-on-bg)]");
+  });
+
   it("`/scanner` 항목 라벨이 「상승률 상위」이고 URL 은 그대로다 (D-15)", () => {
     setupReady();
     render(<AppSidebar />);

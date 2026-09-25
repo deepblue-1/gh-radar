@@ -20,11 +20,12 @@ import { cn } from '@/lib/utils';
  * themes!inner(id,name,is_system,owner_id). RLS read_theme_stocks 가 시스템 + 내 테마를
  * **DB 레벨에서 한 번에 필터**(단일 테이블 이점, T-10-07-02) — 타 유저 테마 누출 0.
  *
- * 칩 = 테마명 + 시스템(source 도트) / 내 테마(accent border). 클릭 → /themes/[id].
+ * 칩 = 테마명 + 시스템(source 도트) / 내 테마 = 선택 토큰 면·글자(라이트 blue50/blue600 · 다크 종전
+ * muted 면 + primary 45% 링, sketch 003-A · 260925-gy6). 클릭 → /themes/[id].
  * 최대 MAX_VISIBLE 개 + '+N' overflow(popover 전체). 분류 테마 없으면 옅은 안내.
  * PostgREST 1:1 object / 1:N array 방어(watchlist 선례). 에러는 섹션 숨김(조용히 폴백).
  *
- * 모든 색/간격은 globals.css 토큰만 — 신규 토큰/하드코딩 금지.
+ * 모든 색/간격은 globals.css 토큰만 — 하드코딩 금지.
  */
 
 const MAX_VISIBLE = 6;
@@ -57,7 +58,10 @@ export interface StockThemeChipsProps {
   stockCode: string;
 }
 
-/** 단일 칩 렌더 — 시스템(outline + flat 도트) / 내 테마(accent border). */
+/**
+ * 단일 칩 렌더 — 시스템(outline + flat 도트) / 내 테마 = 선택 토큰 면·글자(라이트 blue50/blue600 ·
+ * 다크 종전 muted 면 + primary 45% 링, sketch 003-A · 260925-gy6).
+ */
 function Chip({ theme }: { theme: ThemeChip }) {
   return (
     <Link href={`/themes/${theme.id}`} aria-label={`${theme.name} 테마로 이동`}>
@@ -65,8 +69,10 @@ function Chip({ theme }: { theme: ThemeChip }) {
         variant="outline"
         className={cn(
           'gap-1.5 hover:border-[var(--primary)]',
+          // 다크 링만 `dark:` 유틸 — 링 색이 oklch color-mix 라 테마 토큰 계약(oklch 금지)에 담을 수
+          // 없고 라이트(003-A 링 제거)에는 대응 값이 없다. 라이트는 Badge 기본 border-transparent.
           !theme.isSystem &&
-            'border-[color-mix(in_oklch,var(--primary)_45%,var(--border))] text-[var(--fg)]',
+            'bg-[var(--nav-on-bg)] text-[var(--nav-on-fg)] dark:border-[color-mix(in_oklch,var(--primary)_45%,var(--border))]',
         )}
       >
         <span

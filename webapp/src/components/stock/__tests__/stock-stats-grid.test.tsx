@@ -55,6 +55,14 @@ describe('StockStatsGrid', () => {
     expect(screen.getByText('40,250')).toBeInTheDocument();
   });
 
+  it('260925-gy6 — sketch 003-A 현재가 점 = 스펙트럼 토큰(--spec-dot-bg/--spec-dot-ring)', () => {
+    const { container } = render(<StockStatsGrid stock={FIXTURE_SAMSUNG} />);
+    const dots = container.querySelectorAll('[data-slot="spectrum-dot"]');
+    expect(dots).toHaveLength(1);
+    expect(dots[0].className).toContain('bg-[var(--spec-dot-bg)]');
+    expect(dots[0].className).toContain('shadow-[0_0_0_4px_var(--spec-dot-ring)]');
+  });
+
   it('Test 7b — 스케일 무효(상·하한가=0)면 폴백 grid 로 분기', () => {
     render(<StockStatsGrid stock={FIXTURE_NULL_PRICE} />);
     const grid = screen.getByTestId('stock-stats-grid');

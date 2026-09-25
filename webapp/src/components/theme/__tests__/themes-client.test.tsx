@@ -535,6 +535,40 @@ describe('StockThemeChips — 역조회 + overflow', () => {
     ).toBe('/themes/u1');
   });
 
+  it('260925-gy6 — sketch 003-A 내 테마 칩 = 선택 토큰 · 다크 링만 dark: 유틸', async () => {
+    themeStocksResult = {
+      data: [
+        themeStockRow('s1', '초전도체', true),
+        themeStockRow('u1', '내 급등관심', false),
+      ],
+      error: null,
+    };
+    render(<StockThemeChips stockCode="005930" />);
+
+    await waitFor(() =>
+      expect(screen.getByText('내 급등관심')).toBeInTheDocument(),
+    );
+
+    const mine = screen
+      .getByLabelText('내 급등관심 테마로 이동')
+      .querySelector('[data-slot="badge"]');
+    expect(mine).not.toBeNull();
+    expect(mine!.className).toContain('bg-[var(--nav-on-bg)]');
+    expect(mine!.className).toContain('text-[var(--nav-on-fg)]');
+    expect(mine!.className).toContain(
+      'dark:border-[color-mix(in_oklch,var(--primary)_45%,var(--border))]',
+    );
+    // tailwind-merge 가 outline 기본 면을 덮어쓴다 — 라이트 채움이 실제로 적용된다.
+    expect(mine!.className).not.toContain('bg-[var(--muted)]');
+
+    const system = screen
+      .getByLabelText('초전도체 테마로 이동')
+      .querySelector('[data-slot="badge"]');
+    expect(system).not.toBeNull();
+    expect(system!.className).not.toContain('bg-[var(--nav-on-bg)]');
+    expect(system!.className).toContain('bg-[var(--muted)]');
+  });
+
   it('7개 이상이면 6개 표시 + "+N" overflow 트리거를 노출한다', async () => {
     themeStocksResult = {
       data: Array.from({ length: 8 }).map((_, i) =>
