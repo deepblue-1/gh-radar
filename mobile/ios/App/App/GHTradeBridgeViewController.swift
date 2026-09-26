@@ -40,7 +40,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     private(set) var currentPath = "/"
     /// WebView 가 앱 서버가 아닌 문서(= `capacitor://localhost` 오프라인 폴백 · about:blank)를 보고 있다(D-12 ②).
     private(set) var isOfflinePage = false
-    /// 웹 `overlay {open}` 신호(D-12 ③). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지).
+    /// 웹 `overlay {open, immediate?}` 신호(D-12 ③ · D-12a''). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지).
     var overlayOpen = false
     private var keyboardVisible = false
     /// D-12a: 키보드 사유로 숨긴 뒤 재표시 디바운스(90ms) 예약. 그 사이 다시 숨김이 오면 취소한다.
@@ -163,7 +163,10 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             applyPath(path)
         case .overlay:
             overlayOpen = (payload?["open"] as? Bool) == true
-            updateTabBarVisibility(animated: true)
+            // D-12a'': 키패드(키보드 대체) 열림만 즉시 — 필드가 없으면 종전 D-12.
+            let immediate = overlayOpen && (payload?["immediate"] as? Bool) == true
+            log.debug("overlay open=\(self.overlayOpen, privacy: .public) immediate=\(immediate, privacy: .public)")
+            updateTabBarVisibility(animated: true, immediate: immediate)
         case .theme:
             // T-21-02: "dark"/"light" 두 값만 받는다 — 그 외는 무시(저장도 하지 않는다).
             guard let raw = payload?["theme"] as? String, let t = GHTradeTheme(rawValue: raw) else { return }
@@ -405,13 +408,14 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     }
 
     // MARK: - 표시/숨김 (D-12: 숨김은 150ms 지연 후 0.2s 페이드 · 보임은 지연 없이 0.2s
-    //                  D-12a': 키보드 사유 숨김은 즉시(애니메이션 없음) · 이동 없음 → 재표시 90ms 디바운스)
+    //                  D-12a': 키보드 사유 숨김은 즉시(애니메이션 없음) · 이동 없음 → 재표시 90ms 디바운스
+    //                  D-12a'': 키패드 시트 열림(overlay immediate)도 즉시 · 재표시는 D-12)
 
     private var shouldHideTabBar: Bool {
         TabRoutes.hidesTabBar(path: currentPath) || isOfflinePage || overlayOpen || keyboardVisible || awaitingContent
     }
 
-    func updateTabBarVisibility(animated: Bool) {
+    func updateTabBarVisibility(animated: Bool, immediate: Bool = false) {
         // 오버레이·오프라인 상태가 바뀌는 모든 경로가 여기를 지난다 → 새로고침 가능 여부도 같은 시점에 맞춘다.
         updatePullToRefreshAvailability()
         let fade = tabBar.fadeView
@@ -429,7 +433,8 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             // D-12a' — 키보드 = 애니메이션 없이 즉시: 150ms 대기도 페이드도 없이 곧바로 숨긴다(아래로 내려가는 이동 없음 —
             // 키보드 윗변 위에 걸린 프레임이 남지 않게). keyboardWillShow 는 키보드 애니메이션 트랜잭션 안에서 올 수 있고,
             // 그 안에서 바꾼 값은 키보드 길이·곡선을 물려받는다 → performWithoutAnimation 으로 상속을 끊는다.
-            if keyboardVisible && animated {
+            // D-12a'': 키패드 시트 열림(웹 immediate)도 같은 경로.
+            if (keyboardVisible || immediate) && animated {
                 // 진행 중인 보임·숨김 애니메이션을 걷어낸다(비키보드 숨김 완료 핸들러는 finished=false 로 아무것도 안 한다).
                 tabBar.layer.removeAllAnimations()
                 fade.layer.removeAllAnimations()
@@ -440,7 +445,8 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
                     tabBar.isHidden = true
                     fade.isHidden = true
                 }
-                hiddenByKeyboard = true
+                // 재표시 90ms 디바운스는 키보드 사유만 — 키패드 닫힘은 D-12 대로 지연 없이 0.2s 로 돌아온다.
+                if keyboardVisible { hiddenByKeyboard = true }
                 return
             }
 

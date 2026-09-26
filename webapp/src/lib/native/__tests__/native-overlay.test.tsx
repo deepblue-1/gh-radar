@@ -19,6 +19,8 @@ import { useState } from 'react';
  *  6. 키패드 시트(직접 조립)   → 깨지면 상따 값 편집 중 탭바가 키패드를 가리고, 당기면 입력이 날아간다
  *  7. Popover(WR-04)           → 깨지면 상승률 상위 필터·상따 설정 팝오버가 열린 채 안드로이드 뒤로가기를
  *                               누를 때 팝오버 대신 페이지가 떠나 편집 맥락을 잃는다(D-26 ①)
+ *  8. 키패드 즉시 신호         → 깨지면 수량 칸을 눌렀을 때 탭바가 150ms 기다렸다 페이드로 늦게 사라지거나,
+ *                               다른 오버레이까지 즉시가 돼 짧은 오버레이 깜빡임이 돌아온다(D-12a'')
  *
  * ⚠️ 송신 단언은 **실제 postMessage 인자 배열을 JSON 파싱한 결과**로 한다. 닫힘은 퇴장 애니메이션 뒤
  *    Content 언마운트를 `waitFor` 로 확인한 다음 본다.
@@ -40,6 +42,7 @@ vi.mock('next-themes', () => ({
 }));
 
 import { NativeBridgeProvider } from '../native-bridge-provider';
+import { NativeOverlayMarker } from '../native-overlay-marker';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
@@ -134,32 +137,85 @@ describe('앱 — 오버레이 참조계수', () => {
 });
 
 describe('앱 — NumberPadSheet(radix Dialog 직접 조립)', () => {
-  it('6. 키패드 시트가 열리면 {open:true} 1회 · 닫혀 언마운트되면 {open:false} 1회', async () => {
+  it.each(['ios', 'android'] as const)(
+    "6. [%s] 키패드 시트가 열리면 {open:true, immediate:true} 1회 · 닫혀 언마운트되면 {open:false} 1회(D-12a'')",
+    async (platform) => {
+      const mode = enterNativeApp(platform);
+      const returnFocusRef = { current: null as HTMLElement | null };
+      const pad = (open: boolean) => (
+        <NativeBridgeProvider>
+          <NumberPadSheet
+            open={open}
+            title="잔량"
+            description="잔량이 이 값보다 줄면 매수를 넣어요"
+            unit="주"
+            purpose="apply"
+            initialValue={10_000}
+            serverValue={10_000}
+            ctx={{ current: 0, upper: 0 }}
+            returnFocusRef={returnFocusRef}
+            onConfirm={vi.fn()}
+            onClose={vi.fn()}
+          />
+        </NativeBridgeProvider>
+      );
+      const { rerender } = render(pad(true));
+      expect(mode.payloadsOf('overlay')).toEqual([{ open: true, immediate: true }]);
+
+      rerender(pad(false));
+      await waitFor(() => expect(document.querySelector('[data-slot="numpad-sheet"]')).toBeNull());
+      expect(mode.payloadsOf('overlay')).toEqual([{ open: true, immediate: true }, { open: false }]);
+    },
+  );
+});
+
+/** 마커만 조건부로 세운다 — DOM·애니메이션이 없으므로 rerender 직후 동기로 단언한다. */
+function MarkerHarness({ plain, pad }: { plain: boolean; pad: boolean }) {
+  return (
+    <NativeBridgeProvider>
+      {plain ? <NativeOverlayMarker /> : null}
+      {pad ? <NativeOverlayMarker immediate /> : null}
+    </NativeBridgeProvider>
+  );
+}
+
+describe("앱 — 키패드 즉시 신호(D-12a'')", () => {
+  it('8a. plain 마커가 먼저 열려 있으면 immediate 마커가 붙어도 추가 송신 0 · 둘 다 빠질 때 {open:false} 1회', () => {
     const mode = enterNativeApp('ios');
-    const returnFocusRef = { current: null as HTMLElement | null };
-    const pad = (open: boolean) => (
-      <NativeBridgeProvider>
-        <NumberPadSheet
-          open={open}
-          title="잔량"
-          description="잔량이 이 값보다 줄면 매수를 넣어요"
-          unit="주"
-          purpose="apply"
-          initialValue={10_000}
-          serverValue={10_000}
-          ctx={{ current: 0, upper: 0 }}
-          returnFocusRef={returnFocusRef}
-          onConfirm={vi.fn()}
-          onClose={vi.fn()}
-        />
-      </NativeBridgeProvider>
-    );
-    const { rerender } = render(pad(true));
+    const { rerender } = render(<MarkerHarness plain pad={false} />);
     expect(mode.payloadsOf('overlay')).toEqual([{ open: true }]);
 
-    rerender(pad(false));
-    await waitFor(() => expect(document.querySelector('[data-slot="numpad-sheet"]')).toBeNull());
+    rerender(<MarkerHarness plain pad />);
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true }]);
+
+    rerender(<MarkerHarness plain={false} pad />);
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true }]);
+
+    rerender(<MarkerHarness plain={false} pad={false} />);
     expect(mode.payloadsOf('overlay')).toEqual([{ open: true }, { open: false }]);
+  });
+
+  it('8b. immediate 마커가 먼저면 {open:true, immediate:true} · plain 이 붙어도 추가 송신 0 · 어떤 순서로 빠져도 {open:false} 1회', () => {
+    const mode = enterNativeApp('android');
+    const { rerender } = render(<MarkerHarness plain={false} pad />);
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true, immediate: true }]);
+
+    rerender(<MarkerHarness plain pad />);
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true, immediate: true }]);
+
+    rerender(<MarkerHarness plain pad={false} />);
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true, immediate: true }]);
+
+    rerender(<MarkerHarness plain={false} pad={false} />);
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true, immediate: true }, { open: false }]);
+  });
+
+  it('8c. 브라우저에서는 immediate 마커를 세우고 빼도 두 채널 송신 0', () => {
+    const mode = enterBrowser();
+    const { rerender } = render(<MarkerHarness plain={false} pad />);
+    rerender(<MarkerHarness plain={false} pad={false} />);
+
+    for (const s of mode.spies) expect(s).not.toHaveBeenCalled();
   });
 });
 

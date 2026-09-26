@@ -13,14 +13,19 @@
  *
  * DOM 을 만들지 않으므로(null) Content 의 레이아웃·포커스 순서에 영향이 없다. 브라우저에서는 Provider 가
  * 송신하지 않고, Provider 밖에서는 no-op 폴백이라 단독 렌더 테스트도 그대로 돈다.
+ *
+ * `immediate` 는 키보드 대체 입력(키패드 시트)만 쓴다 — 네이티브가 150ms 대기·페이드 없이 탭바를 즉시
+ * 숨긴다(D-12a''). Sheet · Dialog · Popover 는 쓰지 않는다 — 150ms 가 리다이렉트·짧은 오버레이
+ * 깜빡임을 삼키기 때문이다(D-12).
  */
 
 import { useEffect } from 'react';
 
 import { useNativeBridge } from './native-bridge-provider';
 
-export function NativeOverlayMarker(): null {
+export function NativeOverlayMarker({ immediate = false }: { immediate?: boolean }): null {
   const { acquireOverlay } = useNativeBridge();
-  useEffect(() => acquireOverlay(), [acquireOverlay]);
+  // immediate 는 호출부 리터럴 상수라 재획득이 생기지 않는다.
+  useEffect(() => acquireOverlay({ immediate }), [acquireOverlay, immediate]);
   return null;
 }

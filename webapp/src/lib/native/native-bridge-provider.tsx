@@ -12,6 +12,8 @@
  *  2. refresh 레지스트리 — `useNativeRefresh(fn)` 으로 등록된 훅을 **전부** 부른다(아래 결정).
  *  3. 오버레이 참조계수 — Sheet·Dialog·NumberPadSheet·Popover Content 안의 `NativeOverlayMarker` 가 올리고 내린다.
  *     0→1 에서 `overlay {open:true}`, 1→0 에서 `overlay {open:false}` 를 한 번씩만 보낸다(탭바 숨김 · 당김 비활성).
+ *     키패드 시트는 immediate 로 획득해 0→1 신호에 `immediate:true` 를 싣는다(D-12a'' — 키보드 대체 = 즉시 숨김).
+ *     계수가 이미 1 이상이면 탭바가 이미 숨었으므로 추가 신호가 없다.
  *  4. `route {path}` · `theme {theme}` 신호 — 경로 변경마다 · 마운트 후와 `resolvedTheme` 변경 때.
  *  5. `pull {blocked}` 신호(Android) — 터치 시작 지점의 내부 스크롤이 위로 스크롤돼 있으면 문서 당김을 막는다.
  *
@@ -51,13 +53,21 @@ import { postNative } from './post-native';
 
 export type NativeRefreshFn = () => unknown | Promise<unknown>;
 
+export interface OverlayAcquireOptions {
+  /**
+   * 키보드 대체 입력(키패드 시트) — 0→1 열림 신호에 `immediate:true` 를 싣는다(D-12a'').
+   * 네이티브가 D-12 의 150ms 대기·페이드 없이 탭바를 즉시 숨긴다. 다른 오버레이는 쓰지 않는다.
+   */
+  immediate?: boolean;
+}
+
 export interface NativeBridgeValue {
   /** 앱 셸 안인가(마운트 후에만 true — 하이드레이션 일치). */
   isNative: boolean;
   /** 당겨서 새로고침 훅 등록. 반환 = 해제. */
   registerRefresh: (fn: NativeRefreshFn) => () => void;
   /** 오버레이 열림 참조 획득. 반환 = 해제(중복 해제는 무시). */
-  acquireOverlay: () => () => void;
+  acquireOverlay: (opts?: OverlayAcquireOptions) => () => void;
 }
 
 /** 네이티브가 `evaluateJavaScript` 로 부르는 전역 — 앱에서만 존재한다. */
@@ -131,9 +141,12 @@ export function NativeBridgeProvider({ children }: { children: ReactNode }) {
 
   // 송신 여부는 DOM 클래스를 직접 읽는다 — Content 가 Provider 의 마운트 effect 보다 먼저 마운트돼도
   // (자식 effect 가 먼저 돈다) 계수와 신호가 어긋나지 않는다.
-  const acquireOverlay = useCallback(() => {
+  const acquireOverlay = useCallback((opts?: OverlayAcquireOptions) => {
     overlayCountRef.current += 1;
-    if (overlayCountRef.current === 1 && isNativeApp()) postNative('overlay', { open: true });
+    if (overlayCountRef.current === 1 && isNativeApp()) {
+      // immediate 는 요청됐을 때만 싣는다 — false·undefined 키를 보내지 않는다(계약 최소화 · D-12a'').
+      postNative('overlay', opts?.immediate === true ? { open: true, immediate: true } : { open: true });
+    }
     let released = false;
     return () => {
       if (released) return;
