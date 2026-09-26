@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>페이지 레이아웃 통일 목업</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+/* 토큰 = webapp/src/styles/globals.css 실값 (light :root / dark .dark) */
+.t-light {
+  --bg:#ffffff; --surface:#f2f4f6; --card:#ffffff; --muted:#f2f4f6; --raised-2:#e5e8eb;
+  --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint:#b0b8c1;
+  --border:#f2f4f6; --border-subtle:#e5e8eb; --primary:#3182f6;
+  --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f3ff;
+  --nav-on-bg:#e8f3ff; --nav-on-fg:#1b64da; --side-bg:#ffffff;
+  --pill-on-bg:#e8f3ff; --pill-on-fg:#1b64da; --shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.t-dark {
+  --bg:#17171c; --surface:#17171c; --card:#202027; --muted:#2c2c35; --raised-2:#3c3c47;
+  --fg:#ffffff; --fg-2:#e4e4e5; --muted-fg:#9e9ea4; --faint:#62626d;
+  --border:rgba(255,255,255,.06); --border-subtle:#3c3c47; --primary:#3485fa;
+  --up:#f04251; --down:#3485fa; --up-bg:rgba(240,66,81,.16); --down-bg:rgba(52,133,250,.16);
+  --nav-on-bg:#2c2c35; --nav-on-fg:#ffffff; --side-bg:#101013;
+  --pill-on-bg:#4d4d59; --pill-on-fg:#ffffff; --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background:#0c0c0f; color:#ddd; font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif; }
+body.lc { background:#e9ebef; color:#333; }
+
+/* ── 컨트롤 바 ── */
+#nav { position:sticky; top:0; z-index:100; background:#0c0c0f; border-bottom:1px solid #26262c; padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; }
+body.lc #nav { background:#f4f5f7; border-bottom-color:#d9dce1; }
+#nav .grp { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+#nav .lbl { color:#777; margin-right:4px; font-size:12px; }
+#nav button { font:inherit; background:#1b1b20; color:#bbb; border:1px solid #2a2a31; border-radius:7px; padding:5px 10px; cursor:pointer; font-size:12.5px; }
+#nav button.on { background:#f2f2f2; color:#111; border-color:#f2f2f2; font-weight:700; }
+body.lc #nav button { background:#fff; color:#444; border-color:#d0d4da; }
+body.lc #nav button.on { background:#191f28; color:#fff; border-color:#191f28; }
+#desc { flex-basis:100%; color:#9a9aa2; font-size:12.5px; line-height:1.6; }
+#desc b { color:#e8e8ea; } body.lc #desc { color:#555; } body.lc #desc b { color:#111; }
+#stage { display:flex; justify-content:center; align-items:flex-start; gap:32px; padding:24px 12px 60px; overflow-x:auto; }
+
+/* ── 기기 프레임 ── */
+.dev { flex:none; position:relative; overflow:hidden; background:var(--bg); color:var(--fg); font-family:'Pretendard Variable',Pretendard,sans-serif; letter-spacing:-.01em; }
+.dev.desk { width:1280px; height:820px; border-radius:14px; box-shadow:0 0 0 1px #2a2a30, 0 24px 70px rgba(0,0,0,.45); }
+.dev.phone { width:390px; height:844px; border-radius:48px; box-shadow:0 0 0 1px #2a2a30, 0 0 0 12px #111, 0 30px 80px rgba(0,0,0,.5); }
+.cap { text-align:center; font-size:12px; color:#888; margin-bottom:10px; }
+.scroll { position:absolute; inset:0; overflow-y:auto; scrollbar-width:none; display:flex; flex-direction:column; }
+.scroll::-webkit-scrollbar { display:none; }
+.phone .scroll { padding-top:54px; }
+.statusbar { position:absolute; top:0; left:0; right:0; height:54px; display:flex; align-items:flex-end; justify-content:space-between; padding:0 30px 12px; font-size:15px; font-weight:600; z-index:55; background:var(--bg); }
+.island { position:absolute; top:12px; left:50%; transform:translateX(-50%); width:124px; height:36px; background:#000; border-radius:20px; z-index:60; }
+
+/* 앱 헤더 (현행 유지) */
+.apphdr { position:sticky; top:0; z-index:30; height:56px; flex:none; display:flex; align-items:center; gap:12px; padding:0 24px; background:color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter:blur(12px); }
+.phone .apphdr { padding:0 8px; }
+.apphdr .burger { display:none; width:40px; height:40px; place-items:center; }
+.phone .apphdr .burger { display:grid; }
+.apphdr .logo { font-size:18px; font-weight:800; letter-spacing:-.02em; }
+.apphdr .gs { margin-left:auto; display:flex; align-items:center; gap:8px; width:360px; height:36px; border-radius:10px; background:var(--muted); color:var(--muted-fg); font-size:13px; padding:0 12px; }
+.phone .apphdr .gs { width:40px; padding:0; justify-content:center; background:transparent; color:var(--fg); }
+.phone .apphdr .gs span { display:none; }
+.row2 { display:flex; flex:1; min-height:0; }
+
+/* 사이드바 — 종목검색 그룹 제거본 */
+.side { width:240px; flex:none; background:var(--side-bg); padding:12px; display:flex; flex-direction:column; gap:4px; }
+.phone .side { display:none; }
+.side a { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:12px; font-size:14px; color:var(--fg-2); text-decoration:none; }
+.side a.on { background:var(--nav-on-bg); color:var(--nav-on-fg); font-weight:600; }
+.side .gh { display:flex; align-items:center; gap:8px; padding:8px 12px 4px; font-size:14px; font-weight:600; color:var(--muted-fg); }
+.side .sub { margin:2px 0 0 12px; padding-left:8px; border-left:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:4px; }
+.side .removed { position:relative; opacity:.9; }
+.side .removed::after { content:'제거'; position:absolute; right:8px; top:8px; font-size:10.5px; font-weight:700; color:#fff; background:#f04452; border-radius:5px; padding:1px 5px; }
+.side .removed a, .side .removed .gh { text-decoration:line-through; color:var(--faint); }
+.ico { width:18px; height:18px; flex:none; }
+
+/* main — 현행 패딩 8/24 + surface */
+.main { flex:1; min-width:0; background:var(--surface); padding:24px; }
+.phone .main { padding:8px 8px 110px; }
+.wrap { display:flex; flex-direction:column; gap:16px; width:100%; }
+.w-full .wrap { max-width:none; }
+.w-1024 .wrap { max-width:1024px; margin:0 auto; }
+.w-900 .wrap { max-width:900px; margin:0 auto; }
+.guide { outline:1.5px dashed color-mix(in srgb, #f59e0b 70%, transparent); outline-offset:6px; }
+
+/* ── 통일 문법 ── */
+.ph { display:flex; align-items:center; gap:4px; min-height:44px; margin-top:2px; }
+.ph .back { width:36px; height:40px; margin-left:-8px; display:grid; place-items:center; color:var(--fg); border-radius:10px; }
+.ph .back svg { width:24px; height:24px; }
+.ph h1 { margin:0; font-size:22px; font-weight:700; letter-spacing:-.02em; }
+.ph .act { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted-fg); }
+.sub-t { margin:-10px 0 0; font-size:14px; color:var(--muted-fg); }
+.sec { display:flex; flex-direction:column; gap:8px; }
+.st { display:flex; align-items:center; gap:6px; padding:0 4px; }
+.st h2 { margin:0; font-size:15px; font-weight:600; color:var(--muted-fg); }
+.st .cnt { font-size:13px; color:var(--faint); font-weight:600; }
+.st .more { margin-left:auto; font-size:13px; font-weight:600; color:var(--primary); }
+.card { background:var(--card); border-radius:16px; box-shadow:var(--shadow); }
+.card.pad { padding:16px; }
+.list > .r { display:flex; align-items:center; gap:10px; min-height:56px; padding:0 16px; }
+.list > .r + .r { border-top:1px solid var(--border-subtle); }
+.t-dark .list > .r + .r { border-top-color:rgba(255,255,255,.05); }
+.rk { width:18px; font-size:13px; color:var(--muted-fg); font-weight:600; text-align:center; flex:none; }
+.nm { font-size:15px; font-weight:600; }
+.cd { font-size:12.5px; color:var(--muted-fg); margin-left:6px; }
+.mk { font-size:11px; font-weight:700; color:var(--muted-fg); background:var(--muted); border-radius:6px; padding:2px 6px; }
+.px { margin-left:auto; text-align:right; font-variant-numeric:tabular-nums; }
+.px .p { font-size:15px; font-weight:600; }
+.px .c { font-size:13px; font-weight:600; }
+.up { color:var(--up); } .down { color:var(--down); }
+.num { font-variant-numeric:tabular-nums; }
+.tbl .h, .tbl .r { display:grid; grid-template-columns: 28px 1.6fr 80px 70px 1fr 1fr 1.1fr; align-items:center; gap:8px; padding:0 16px; }
+.tbl .h { height:40px; font-size:12.5px; color:var(--muted-fg); font-weight:600; border-bottom:1px solid var(--border-subtle); }
+.t-dark .tbl .h { border-bottom-color:rgba(255,255,255,.05); }
+.tbl .r { height:52px; font-size:14.5px; }
+.tbl .r + .r { border-top:1px solid var(--border-subtle); } .t-dark .tbl .r + .r { border-top-color:rgba(255,255,255,.05); }
+.tbl .ra { text-align:right; font-variant-numeric:tabular-nums; }
+.tbl .r .nm2 { font-weight:600; }
+.phone .tbl { display:none; } .desk .only-phone { display:none; }
+.chips { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.pill { height:32px; padding:0 14px; border-radius:999px; background:var(--card); color:var(--fg-2); font-size:13.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px; box-shadow:var(--shadow); }
+.pill.on { background:var(--pill-on-bg); color:var(--pill-on-fg); }
+.pill.ghost { background:transparent; box-shadow:none; color:var(--muted-fg); }
+.bar { height:6px; border-radius:3px; background:var(--muted); overflow:hidden; width:90px; } .bar i { display:block; height:100%; background:var(--up); border-radius:3px; }
+.phone .bar { display:none; }
+.tcard { padding:14px 16px 10px; }
+.tcard .hd { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+.tcard .hd b { font-size:16px; font-weight:700; } .tcard .hd .c { margin-left:auto; font-size:15px; font-weight:700; }
+.tcard .ln { display:flex; align-items:center; height:34px; font-size:14px; }
+.tcard .ln + .ln { border-top:1px solid var(--border-subtle); } .t-dark .tcard .ln + .ln { border-top-color:rgba(255,255,255,.05); }
+.tcard .ln .c { margin-left:auto; font-weight:700; font-variant-numeric:tabular-nums; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.phone .grid2 { grid-template-columns:1fr; }
+.datenav { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; color:var(--fg-2); }
+.datenav .b { width:32px; height:32px; border-radius:10px; background:var(--card); display:grid; place-items:center; box-shadow:var(--shadow); }
+.search-in { display:flex; align-items:center; gap:10px; height:48px; border-radius:14px; background:var(--card); padding:0 14px; color:var(--muted-fg); font-size:15px; box-shadow:var(--shadow); }
+.t-dark .search-in { background:var(--muted); }
+.tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.tile { padding:14px 12px; display:flex; flex-direction:column; gap:10px; }
+.tile .ti { width:36px; height:36px; border-radius:12px; display:grid; place-items:center; }
+.tile b { font-size:14px; }
+.ti.a { background:var(--up-bg); color:var(--up); } .ti.b { background:var(--down-bg); color:var(--primary); } .ti.c { background:rgba(250,204,21,.16); color:#eab308; }
+.acct { display:flex; align-items:center; gap:12px; padding:14px 16px; }
+.av { width:44px; height:44px; border-radius:50%; background:var(--raised-2); display:grid; place-items:center; font-weight:700; }
+.ib { width:40px; height:40px; border-radius:12px; background:var(--muted); display:grid; place-items:center; }
+.status { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted-fg); padding:0 4px; }
+.led { width:8px; height:8px; border-radius:50%; background:#22c55e; }
+.kv { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:14px; }
+.kv div { display:flex; justify-content:space-between; } .kv span:first-child { color:var(--muted-fg); }
+.lrow { display:flex; align-items:center; justify-content:space-between; }
+.lrow .v2 { color:var(--muted-fg); font-size:14px; }
+.tabbar { position:absolute; left:16px; right:16px; bottom:20px; height:60px; border-radius:30px; background:color-mix(in srgb, var(--card) 85%, transparent); backdrop-filter:blur(18px); box-shadow:0 2px 16px rgba(0,0,0,.18), 0 0 0 1px var(--border-subtle) inset; z-index:90; display:flex; }
+.desk .tabbar { display:none; }
+.tabbar .it { flex:1; display:grid; place-items:center; color:var(--muted-fg); position:relative; }
+.tabbar .it.on { color:var(--primary); }
+.tabbar .it.on::before { content:''; position:absolute; width:56px; height:40px; border-radius:20px; background:color-mix(in srgb, var(--primary) 14%, transparent); }
+.tabbar .it svg { width:24px; height:24px; position:relative; }
+.note { font-size:11px; font-weight:700; color:#f59e0b; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2M5.5 9.8V20h4.8v-5.6h3.4V20h4.8V9.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-trade" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ai" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-me" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.2 18.4c1.2-2.3 3.3-3.4 5.8-3.4s4.6 1.1 5.8 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8M14 7h7v7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 4.5-9 4.5-9-4.5Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.8 2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.7l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-l" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-r" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10M15 16l4-4-4-4M19 12H9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div id="nav">
+  <div class="grp"><span class="lbl">화면</span>
+    <button data-p="home">홈</button>
+    <button data-p="search">검색 (기준)</button>
+    <button data-p="scanner" class="on">상승률 상위</button>
+    <button data-p="themes">테마</button>
+    <button data-p="watch">관심종목</button>
+    <button data-p="me">My page</button>
+  </div>
+  <div class="grp"><span class="lbl">본문 폭 (데스크톱)</span>
+    <button data-w="full">A: 제한 없음</button>
+    <button data-w="1024">B: 1024 (현 홈·상승률)</button>
+    <button data-w="900" class="on">C: 900 (검색 수준)</button>
+  </div>
+  <div class="grp"><span class="lbl">보기</span>
+    <button data-cmp="1">현행과 비교</button>
+    <button data-guide="1">폭 가이드선</button>
+  </div>
+  <div class="grp"><span class="lbl">테마</span>
+    <button data-t="dark" class="on">다크</button>
+    <button data-t="light">라이트</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const S = { p:'scanner', w:'900', t:'dark', guide:false, cmp:false };
+const I = id => `<svg class="ico"><use href="#${id}"/></svg>`;
+
+function sidebar(p) {
+  const onSearch = ['search','scanner','themes','watch'].includes(p);
+  const cur = S.cmp;  // 현행 트리 보기
+  return `<nav class="side">
+    <a class="${p==='home'?'on':''}">${I('i-home')}홈</a>
+    <a class="${onSearch && !cur?'on':(p==='search'?'on':'')}">${I('i-search')}검색</a>
+    ${cur ? `<div class="removed"><div class="gh">${I('i-search')}종목검색</div>
+      <div class="sub"><a class="${p==='scanner'?'on':''}">${I('i-trend')}상승률 상위</a><a class="${p==='themes'?'on':''}">${I('i-layers')}테마</a><a class="${p==='watch'?'on':''}">${I('i-star')}관심종목</a></div></div>` : ''}
+    <div class="gh">${I('i-trade')}트레이딩</div>
+    <div class="sub"><a>VI 발동</a><a>상따 전략</a><a class="${p==='me'?'on':''}">${I('i-me')}My page</a></div>
+    <a>${I('i-ai')}AI 애널리스트</a>
+  </nav>`;
+}
+
+function head(title, back, act='') {
+  return `<div class="ph">${back?`<a class="back" aria-label="뒤로가기"><svg><use href="#i-back"/></svg></a>`:''}<h1>${title}</h1>${act?`<div class="act">${act}</div>`:''}</div>`;
+}
+function sec(title, body, cnt='', more='') {
+  return `<section class="sec"><div class="st"><h2>${title}</h2>${cnt?`<span class="cnt">${cnt}</span>`:''}${more?`<span class="more">${more}</span>`:''}</div>${body}</section>`;
+}
+const STK = [
+  ['에코프로머티','450080','KOSPI','34,550','+29.98',true,'4,182억'],
+  ['씨씨에스','066790','KOSDAQ','2,395','+29.87',true,'612억'],
+  ['한울소재과학','091440','KOSDAQ','8,120','+24.31',true,'1,088억'],
+  ['아이씨티케이','456010','KOSDAQ','21,700','+21.07',true,'905억'],
+  ['LS머트리얼즈','417200','KOSDAQ','17,380','+18.44',true,'1,406억'],
+  ['대원전선','006340','KOSPI','5,930','+16.29',true,'2,251억'],
+  ['제룡전기','033100','KOSDAQ','61,800','+14.80',true,'1,730억'],
+  ['HD현대일렉트릭','267260','KOSPI','412,000','+11.02',true,'3,520억'],
+];
+function table(rows) {
+  const tb = `<div class="card tbl"><div class="h"><span></span><span>종목명</span><span>코드</span><span>마켓</span><span class="ra">현재가</span><span class="ra">등락률</span><span class="ra">거래대금</span></div>
+    ${rows.map((s,i)=>`<div class="r"><span class="rk">${i+1}</span><span class="nm2">${s[0]}</span><span class="num" style="color:var(--muted-fg)">${s[1]}</span><span><span class="mk">${s[2]}</span></span><span class="ra">${s[3]}</span><span class="ra ${s[5]?'up':'down'}" style="font-weight:600">${s[4]}%</span><span class="ra" style="color:var(--fg-2)">${s[6]}</span></div>`).join('')}</div>`;
+  const ph = `<div class="card list only-phone">${rows.map((s,i)=>`<div class="r"><span class="rk">${i+1}</span><div><div class="nm">${s[0]}</div><div style="font-size:12.5px;color:var(--muted-fg)">${s[1]} · ${s[2]}</div></div><div class="px"><div class="p">${s[3]}</div><div class="c up">${s[4]}%</div></div></div>`).join('')}</div>`;
+  return tb + ph;
+}
+
+const PAGES = {
+  home: () => head('오늘의 급등 테마', false, `<div class="datenav"><span class="b">${I('i-l')}</span><span class="num">09.26 (금) 15:30</span><span class="b">${I('i-r')}</span></div>`)
+    + sec('주도 테마', `<div class="grid2">${[['전력기기·전선','+17.9',[['대원전선','+16.29'],['제룡전기','+14.80'],['LS머트리얼즈','+18.44']]],['2차전지 소재','+14.2',[['에코프로머티','+29.98'],['한울소재과학','+24.31'],['씨씨에스','+29.87']]],['반도체 부품','+9.6',[['아이씨티케이','+21.07'],['하나마이크론','+8.12'],['티씨케이','+6.40']]],['조선','+7.1',[['HD현대미포','+9.33'],['한화오션','+6.02'],['삼성중공업','+5.81']]]].map(t=>`<div class="card tcard"><div class="hd"><b>${t[0]}</b><span class="c up num">${t[1]}%</span></div>${t[2].map(x=>`<div class="ln"><span>${x[0]}</span><span class="c up">${x[1]}%</span></div>`).join('')}</div>`).join('')}</div>`, '4', '전체 복사')
+    + sec('개별 급등', `<div class="card list">${STK.slice(4,7).map(s=>`<div class="r"><div class="nm">${s[0]}</div><div class="px"><div class="p">${s[3]}</div><div class="c up">${s[4]}%</div></div></div>`).join('')}</div>`, '3', '전체 복사'),
+
+  search: () => head('검색', false)
+    + `<div class="search-in">${I('i-search')}<span>종목명 또는 코드</span></div>`
+    + `<div class="tiles">${[['a','i-trend','상승률 상위','실시간 등락률'],['b','i-layers','테마','오늘의 테마'],['c','i-star','관심종목','내가 담은 종목']].map(x=>`<div class="card tile"><span class="ti ${x[0]}">${I(x[1])}</span><div><b>${x[2]}</b><div style="font-size:12px;color:var(--muted-fg)">${x[3]}</div></div></div>`).join('')}</div>`
+    + sec('최근 검색', `<div class="card list">${['에코프로머티','대원전선','HD현대일렉트릭'].map(n=>`<div class="r" style="min-height:48px"><span>${n}</span><span style="margin-left:auto;color:var(--faint)">✕</span></div>`).join('')}</div>`, '', '전체 삭제')
+    + sec('상승률 상위', `<div class="card list">${STK.slice(0,5).map((s,i)=>`<div class="r" style="min-height:48px"><span class="rk">${i+1}</span><span class="nm">${s[0]}</span><span class="px c up" style="font-size:14px;font-weight:600">${s[4]}%</span></div>`).join('')}</div>`, '', '더보기'),
+
+  scanner: () => head('상승률 상위', true, `<span class="num">15:31:04 갱신</span><span class="pill ghost" style="padding:0 8px">${I('i-refresh')}</span>`)
+    + `<p class="sub-t">코스피·코스닥 등락률 상위 · 1분마다 갱신</p>`
+    + `<div class="chips"><span class="pill on">전체</span><span class="pill">코스피</span><span class="pill">코스닥</span><span class="pill">등락률 10% 이상 ▾</span></div>`
+    + table(STK),
+
+  themes: () => head('테마', true, `<span class="num">15:31 갱신</span>`)
+    + `<p class="sub-t">오늘 등락률 기준 테마 순위</p>`
+    + sec('오늘 강한 테마', `<div class="card list">${[['전력기기·전선',12,'+8.41',84],['2차전지 소재',18,'+6.92',70],['반도체 부품',24,'+4.10',46],['조선',9,'+3.77',41],['원전',15,'+2.95',32]].map((t,i)=>`<div class="r"><span class="rk">${i+1}</span><div><div class="nm">${t[0]}</div><div style="font-size:12.5px;color:var(--muted-fg)">${t[1]}종목</div></div><div style="margin-left:auto;display:flex;align-items:center;gap:14px"><div class="bar"><i style="width:${t[3]}%"></i></div><span class="up num" style="font-weight:700;font-size:15px;min-width:56px;text-align:right">${t[2]}%</span></div></div>`).join('')}</div>`, '5')
+    + sec('전체 테마', `<div class="card list">${[['방산',11,'+1.92',22],['AI 반도체',30,'+1.40',17],['바이오',41,'-0.62',6]].map((t,i)=>`<div class="r"><span class="rk">${i+6}</span><div><div class="nm">${t[0]}</div><div style="font-size:12.5px;color:var(--muted-fg)">${t[1]}종목</div></div><div style="margin-left:auto;display:flex;align-items:center;gap:14px"><div class="bar"><i style="width:${t[3]}%;${t[2][0]==='-'?'background:var(--down)':''}"></i></div><span class="${t[2][0]==='-'?'down':'up'} num" style="font-weight:700;font-size:15px;min-width:56px;text-align:right">${t[2]}%</span></div></div>`).join('')}</div>`, '128'),
+
+  watch: () => head('관심종목', true, `<span class="num">5종목</span>`)
+    + table(STK.slice(2,7).map(s=>s)),
+
+  me: () => head('My page', false)
+    + `<div class="card acct"><span class="av">A</span><div><div style="font-size:16px;font-weight:700">Alex</div><div style="font-size:12.5px;color:var(--muted-fg)">ezmesya@gmail.com</div></div><div style="margin-left:auto;display:flex;gap:6px"><span class="ib">${I('i-sun')}</span><span class="ib">${I('i-logout')}</span></div></div>`
+    + `<div class="status"><span class="led"></span>교보 게이트웨이 연결됨 · 09.26 15:31 확인</div>`
+    + sec('계좌', `<div class="card pad"><div class="kv"><div><span>예수금</span><b class="num">12,480,000</b></div><div><span>D+2</span><b class="num">11,920,000</b></div><div><span>평가금액</span><b class="num">3,410,500</b></div><div><span>평가손익</span><b class="num up">+182,300</b></div></div></div>`)
+    + sec('켜진 전략', `<div class="card list">${[['대원전선','상따 · 매수 대기'],['제룡전기','상따 · 매도 감시']].map(x=>`<div class="r"><div><div class="nm">${x[0]}</div><div style="font-size:12.5px;color:var(--muted-fg)">${x[1]}</div></div><span style="margin-left:auto;color:var(--faint)">›</span></div>`).join('')}</div>`, '2'),
+};
+
+/* 현행(비교용) — 각 페이지 제목 규격 요약 */
+const CUR = {
+  home:   'h1 24px/800 · 폭 1024 · 섹션 제목 18px/700 + 개수 알약',
+  search: 'h1 22px/700 · 폭 900 · 섹션 제목 15px/600 muted  ← 기준',
+  scanner:'h1 --t-2xl(미정의 → 16px) · 폭 1024 · 뒤로가기 없음',
+  themes: 'h1 24px/700 · 폭 제한 없음 · 섹션 제목 18px/700 · 행마다 카드',
+  watch:  'h1 20px/600 · 폭 제한 없음 · 뒤로가기 없음',
+  me:     'h1 --t-2xl(미정의 → 16px) · 폭 제한 없음 · 카드 테두리',
+};
+
+function tabbar(p) {
+  const on = { home:0, search:1, scanner:1, themes:1, watch:1, me:4 }[p];
+  return `<div class="tabbar">${['i-home','i-search','i-trade','i-ai','i-me'].map((ic,i)=>`<span class="it ${i===on?'on':''}"><svg><use href="#${ic}"/></svg></span>`).join('')}</div>`;
+}
+
+function device(kind) {
+  const body = PAGES[S.p]();
+  return `<div><div class="cap">${kind==='desk'?'데스크톱 1280 (사이드바 · 본문 폭 '+({full:'제한 없음',1024:'1024',900:'900'})[S.w]+')':'앱 390 (폭 옵션 무관)'}</div>
+  <div class="dev ${kind} t-${S.t} w-${S.w}">
+    ${kind==='phone'?'<div class="island"></div><div class="statusbar"><span>15:31</span><span>●●● ▮</span></div>':''}
+    <div class="scroll">
+      <header class="apphdr"><span class="burger">${I('i-menu')}</span><span class="logo">GH Trade</span><span class="gs">${I('i-search')}<span>종목 검색 ⌘K</span></span></header>
+      <div class="row2">${sidebar(S.p)}<main class="main"><div class="wrap ${S.guide?'guide':''}">${body}</div></main></div>
+    </div>
+    ${kind==='phone'?tabbar(S.p):''}
+  </div></div>`;
+}
+
+const DESC = {
+  full: '<b>A 제한 없음</b> — 본문이 사이드바 오른쪽 전체(1280 기준 ≈ 992px, 1920 이면 ≈ 1630px)를 채운다. 표 열 사이가 넓어져 시선 이동이 길어진다.',
+  1024: '<b>B 1024</b> — 지금 홈·상승률 상위가 쓰는 max-w-5xl. 1280 화면에선 A 와 거의 같고, 큰 모니터에서만 가운데로 모인다.',
+  900: '<b>C 900 (검색 수준)</b> — 검색 페이지와 같은 폭·가운데 정렬. 토스증권 웹처럼 한 줄 읽기 폭이 고정돼 어느 화면에서도 같은 모양. 6열 표도 여유 있게 들어감.',
+};
+function render() {
+  document.body.classList.toggle('lc', S.t==='light');
+  document.getElementById('desc').innerHTML =
+    DESC[S.w] + '<br><b>공통 문법(모든 폭)</b> — 제목 줄 = [‹ 뒤로] + h1 22/700 (+ 오른쪽 보조정보) · 설명 14 muted · 섹션 제목 15/600 muted + 개수 + 파란 보조 링크 · 목록은 카드 한 장에 행을 묶고 행 사이 hairline(행마다 카드 X) · 카드 radius 16, 테두리 없음 · 사이드바 「종목검색」 그룹 제거, 하위 3페이지에선 「검색」 이 켜짐.'
+    + (S.cmp ? `<br><span class="note">현행 ${({home:'홈',search:'검색',scanner:'상승률 상위',themes:'테마',watch:'관심종목',me:'My page'})[S.p]}: ${CUR[S.p]}</span> · 사이드바는 현행 트리(제거 대상 표시)` : '');
+  document.getElementById('stage').innerHTML = device('desk') + device('phone');
+  document.querySelectorAll('#nav button').forEach(b => {
+    const k = Object.keys(b.dataset)[0], v = b.dataset[k];
+    const map = { p:'p', w:'w', t:'t' };
+    if (map[k]) b.classList.toggle('on', S[map[k]] === v);
+    if (k==='guide') b.classList.toggle('on', S.guide);
+    if (k==='cmp') b.classList.toggle('on', S.cmp);
+  });
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const d = b.dataset;
+  if (d.p) S.p = d.p; if (d.w) S.w = d.w; if (d.t) S.t = d.t;
+  if (d.guide) S.guide = !S.guide; if (d.cmp) S.cmp = !S.cmp;
+  render();
+});
+render();
+</script>
+</body>
+</html>
