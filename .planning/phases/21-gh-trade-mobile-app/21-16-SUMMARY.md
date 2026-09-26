@@ -74,9 +74,12 @@ coverage:
   - id: D4
     description: "실기 UAT(iPhone 17 · iPad Pro 11 M5 · Android 에뮬) 14항목 + push 결정"
     requirement: MOBILE-01
-    verification: []
+    verification:
+      - kind: human
+        ref: "UAT 2차(실서버 https://trade.jx1.io · 2026-09-26) — 13항목 중 pass 11 (2~12) · issue 1 (1 탭바 라벨·모양) · pending 1 (13 웹 회귀) → 21-UAT.md"
+        status: fail
     human_judgment: true
-    rationale: "네이티브 UI 렌더·OS 제스처·키보드·네트워크·회전·Google 계정 UI 는 사람이 봐야 한다(21-VALIDATION Manual-Only). UAT 1차(로컬 dev) 결과 이슈 2건 — 1건 코드 수정(02f29df), 1건 환경 산물. 실서버 UAT 2차 체크포인트 대기 중"
+    rationale: "네이티브 UI 렌더·OS 제스처·키보드·네트워크·회전·Google 계정 UI 는 사람이 봐야 한다(21-VALIDATION Manual-Only). UAT 1차(로컬 dev) 이슈 2건 — 1건 코드 수정(02f29df), 1건 환경 산물. UAT 2차(실서버) pass 11 · issue 1 · pending 1 + 신규 요청 3건 → 갭 G-21-1 · G-21-13 · G-21-N1~N3(21-UAT.md), /gsd-plan-phase 21 --gaps 로 넘김. push(14)는 bac3746 으로 이미 됨"
   - id: D5
     description: "iOS 시뮬레이터 빌드에 application-identifier 엔타이틀먼트가 들어간다(키체인 -34018 방지)"
     requirement: MOBILE-01
@@ -91,8 +94,8 @@ coverage:
         ref: "native:smoke:ios (서명 빌드) → SMOKE OK ready platform=ios"
         status: pass
       - kind: human
-        ref: "실서버 UAT 2차 — iPhone 17 네이티브 Google 로그인 성공(2회차 · 취소 포함)"
-        status: pending
+        ref: "실서버 UAT 2차 — iPhone 17 네이티브 Google 로그인 성공(UAT 7 pass)"
+        status: pass
     human_judgment: true
 
 duration: 22min (Task 1 + UAT 준비) + 25min (UAT 1차 이슈 수정 · 실서버 UAT 준비)
@@ -100,17 +103,17 @@ completed: 2026-09-26
 status: halted
 ---
 
-# Phase 21 Plan 16: Phase 마감 — 운영 설정 검사 · 모바일 README · 전 게이트 · UAT Summary (초안 — 실서버 UAT 2차 대기)
+# Phase 21 Plan 16: Phase 마감 — 운영 설정 검사 · 모바일 README · 전 게이트 · UAT Summary (UAT 2차 결과 — 갭 남음)
 
-**`native:verify-prod` 가 iOS·Android 생성 설정의 운영 URL·cleartext·appId·금지 키를 sync 없이 검사하고(dev sync 상태에서는 FAIL 5줄로 실제로 잡음), 모바일 README 를 더했으며, 빌드·단위(628+2259)·루트 typecheck·Playwright·iOS/Android 빌드·경로표·양 플랫폼 스모크가 모두 green 이다 — Task 2 실기 UAT 와 push 결정만 남았다.**
+**`native:verify-prod` 가 iOS·Android 생성 설정의 운영 URL·cleartext·appId·금지 키를 sync 없이 검사하고(dev sync 상태에서는 FAIL 5줄로 실제로 잡음), 모바일 README 를 더했으며, 빌드·단위(628+2259)·루트 typecheck·Playwright·iOS/Android 빌드·경로표·양 플랫폼 스모크가 모두 green 이다 — 실서버 UAT 2차는 13항목 중 11 통과, 탭바 라벨·모양 1건 이슈, 웹 회귀 1건 미보고이고, 신규 요청 3건과 함께 갭으로 넘긴다.**
 
-> 이 파일은 Task 2(checkpoint:human-verify) 전의 **초안**이다. `status: halted` 는 체크포인트에서 설계대로 멈췄다는 뜻이다. UAT 1차(로컬 dev) 결과와 수정은 아래 「UAT 1차 결과」에 있다. 실서버 UAT 2차 결과·최종 상태는 이어받는 실행기가 채운다.
+> `status: halted` 를 유지한다. Task 2(실기 UAT)는 두 라운드 돌았지만 갭이 열려 있어 이 플랜을 완료로 표시하지 않는다(SUMMARY 도구가 인식하는 「진행됐으나 미완」 값은 `halted` 뿐이다 — `gaps` 는 도구가 모르는 값). UAT 1차(로컬 dev)는 「UAT 1차 결과」, 실서버 UAT 2차는 「UAT 2차 결과 (실서버)」에 있다. 갭 정본은 `21-UAT.md` 의 `## Gaps` 이고 다음 단계는 `/gsd-plan-phase 21 --gaps` 다. MOBILE-01 은 아직 완료로 표시하지 않는다.
 
 ## Performance
 
 - **Started:** 2026-09-26T00:03:55Z
 - **Checkpoint reached:** 2026-09-26T00:26Z
-- **Tasks:** 1/2 (Task 2 = 체크포인트 대기)
+- **Tasks:** 1/2 (Task 2 = UAT 2라운드 실행 · 갭 열림)
 - **Files modified:** 3
 
 ## Accomplishments
@@ -182,10 +185,45 @@ status: halted
 - 세 기기 모두 지금은 **push 전 운영 웹**(phase 21 웹 코드 없음)을 싣고 있다. 로그인 화면은 뜨지만 네이티브 로그인 분기가 없다. push·Vercel 배포 전에는 로그인하지 않는다.
 - UAT 프록시(PID 15856, :8080)는 종료했다. webapp dev 서버(:3100)는 다른 세션이 쓰므로 그대로 두었다.
 
+## UAT 2차 결과 (실서버 · 2026-09-26)
+
+환경: push `bac3746` → Vercel 프로덕션 배포 뒤 운영 URL 앱(`https://trade.jx1.io`). 기기는 iPhone 17 · iPad Pro 11-inch (M5)(iOS 27.0 시뮬레이터)와 Android emulator-5554 다. 항목별 기록 정본은 `21-UAT.md` 다.
+
+| # | 항목 | 결과 | 비고 |
+|---|---|---|---|
+| 1 | 탭바 시각 | **issue** | 「weekly-wine-app 도 이래? 좀 다른거 같은데? 탭바의 메뉴 하단에 라벨은 표시하지 말자.」 → G-21-1 |
+| 2 | 활성 탭 · 표시 | pass | |
+| 3 | 숨김 | pass | |
+| 4 | 탭 이동 | pass | |
+| 5 | 당겨서 새로고침 | pass | |
+| 6 | 앱 셸 | pass | |
+| 7 | 네이티브 Google 로그인 | pass | iOS 는 `02f29df` 뒤 통과. Android 는 오케스트레이터가 운영에서 확인(Supabase id_token 200 · 홈 착지 · `/trading` 계좌 + 「DMA 실시간」) |
+| 8 | 오프라인 | pass | |
+| 9 | 테마 | pass | |
+| 10 | 회전 | pass | |
+| 11 | Android 뒤로가기 | pass | |
+| 12 | 아이콘 · 스플래시 | pass | |
+| 13 | 웹 회귀 | **pending** | 사용자 보고 대기 → G-21-13 |
+| 14 | push 결정 | 완료 | 오케스트레이터가 `bac3746` 까지 push |
+
+- **로그인 초반 실패 2회는 낡은 페이지 탓이었다.** 앱이 Vercel 배포가 끝나기 전(09:49)에 페이지를 실어 두었다. 그래서 옛 웹 OAuth 가 외부 Chrome/Safari 를 열었다. 앱을 다시 실행하자 해소됐다. 원격 URL 앱은 배포 뒤 **재실행**해야 새 웹을 싣는다.
+- 에뮬레이터 Credential Manager 가 Play Services 업데이트 중에 「No credentials available」(GoogleIdService 타임아웃)을 두 번 냈다. 그 뒤에는 성공했다. 실기기에서 다시 관찰한다.
+- UAT 1차 결과(iOS 키체인 -34018 수정 `02f29df` · Android DMA 는 환경 산물)는 위 「UAT 1차 결과」에 있다. 실서버에서 둘 다 재현되지 않았다.
+
+### 남은 갭 (`/gsd-plan-phase 21 --gaps` 로 넘김 · 정본 `21-UAT.md`)
+
+| gap_id | 종류 | 내용 | 열린 결정 |
+|---|---|---|---|
+| G-21-1 | UAT 1 이슈 (cosmetic) | 탭 아이콘 아래 라벨 제거(접근성 라벨 유지). weekly-wine 과 모양이 다르다는 지적 — 활성 표시(둥근 사각형 vs 46 원) · 색 · 테두리/그림자 · 유리/페이드 · 아이콘 크기/굵기 차이. D-27a 개정 필요 | 가져올 weekly-wine 특성 — HTML 목업 먼저 |
+| G-21-13 | UAT 13 미보고 | 웹 회귀 재시험. 코드 작업 없음 | — |
+| G-21-N1 | 신규 요청 | 기본 테마 다크(첫 실행·미저장). 웹 `theme-provider` · iOS/Android `ThemeStore` 기본값을 함께 바꿔 첫 프레임을 맞춘다 | 브라우저 사용자도 다크 기본인가(권장: 공통) |
+| G-21-N2 | 신규 요청 | 테마 아이콘 방향 통일. 사이드바 ThemeToggle = 현재 테마(라이트=Sun), `/me` AccountCard = 누르면 갈 곳(라이트=Moon) | 어느 규칙(권장: 누르면 갈 곳) |
+| G-21-N3 | 신규 요청 | 홈 뉴스 링크를 인앱 브라우저(iOS SFSafariViewController · Android Custom Tabs)로. 지금은 Capacitor 기본값이 외부 브라우저로 넘긴다 | 범위(뉴스만/모든 외부 링크) · 방식(네이티브 가로채기 vs `@capacitor/browser` — 새 패키지면 정당성 게이트). 권장: 호스트 밖 http(s) 전부 + 네이티브 가로채기 |
+
 ## Task Commits
 
 1. **Task 1: verify-prod-config.mjs + README + 전 게이트** — `e4b0326` (feat)
-2. **Task 2: 실기 UAT** — UAT 1차 이슈 수정 `02f29df` (fix, iOS 시뮬레이터 서명 · 엔타이틀먼트 검사). 실서버 UAT 2차 체크포인트 대기
+2. **Task 2: 실기 UAT** — UAT 1차 이슈 수정 `02f29df` (fix, iOS 시뮬레이터 서명 · 엔타이틀먼트 검사) · UAT 1차 기록 `bac3746` (docs) · UAT 2차 기록 + `21-UAT.md` 갭 (이 docs 커밋). push 는 `bac3746` 까지 오케스트레이터가 함
 
 ## Files Created/Modified
 
@@ -243,6 +281,7 @@ status: halted
 
 ## Next Phase Readiness
 
-- 실서버 UAT 2차 대기. 생성 설정은 **운영 sync 상태**다(PROD CONFIG OK).
-- 세 기기(iPhone 17 · iPad Pro 11 M5 · emulator-5554)에 운영 URL 앱이 설치돼 있다. 앱이 원격 URL 을 싣기 때문에 push·Vercel 배포 뒤에는 앱을 다시 실행만 하면 된다. 재빌드는 필요 없다.
-- push 하지 않았다. push 는 오케스트레이터가 한다(동시 세션 로그인 화면 커밋 `eda719a` 뒤). `eda719a` 는 로그인 로직(OAuth·네이티브·safeNext)을 바꾸지 않았다고 기록돼 있다.
+- 다음 단계: `/gsd-plan-phase 21 --gaps` (갭 정본 `21-UAT.md` · G-21-1 · G-21-N1~N3). G-21-13 은 사용자 재시험만 필요하다(`/gsd-verify-work 21` 로 이어받기).
+- 갭 플랜 전에 사용자에게 받을 결정: 탭바 목업 채택안(G-21-1) · 다크 기본값을 브라우저에도 적용할지(G-21-N1) · 테마 아이콘 규칙(G-21-N2, 권장 「누르면 갈 곳」) · 인앱 브라우저 범위와 방식(G-21-N3, 권장 모든 호스트 밖 http(s) + 네이티브 가로채기).
+- 생성 설정은 **운영 sync 상태**다(PROD CONFIG OK). 세 기기에 운영 URL 앱이 설치돼 있다. 웹만 바뀌는 갭은 push·Vercel 배포 뒤 앱 재실행으로 확인되고, 네이티브 셸이 바뀌는 갭(G-21-1 · G-21-N1 · G-21-N3)은 재빌드·재설치가 필요하다.
+- phase 21 은 완료로 표시하지 않는다(phase.complete · MOBILE-01 · ROADMAP 21-16 체크 보류).

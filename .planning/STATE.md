@@ -4,10 +4,10 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-15-PLAN.md
-last_updated: "2026-09-26T00:01:16.378Z"
+stopped_at: 21-16 UAT 2차(실서버) 기록 — 갭 5건(21-UAT.md) · 다음 /gsd-plan-phase 21 --gaps
+last_updated: "2026-09-26T01:35:06.000Z"
 last_activity: 2026-09-26
-last_activity_desc: 21-09 완료(브랜드 표시명 GH Trade · /me 계정 카드 A · brand-account e2e) — 21-01~12·14 완료 · 다음 21-13
+last_activity_desc: Phase 21 — 16/16 플랜 실행 · 운영 UAT 2차: 11 pass · 1 issue(탭바 라벨·모양) · 1 pending(웹 회귀) · 신규 요청 3(다크 기본 · 테마 아이콘 통일 · 뉴스 인앱 브라우저) → 다음 /gsd-plan-phase 21 --gaps
 state_head: 3db18a1d764bf64391a862027fc2279a959b60d7
 progress:
   total_phases: 30
@@ -31,10 +31,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
 Plan: 16 of 16
 Plans completed: 219 / 234
-Status: Ready to execute
+Status: UAT 갭 — 갭 플랜 대기(/gsd-plan-phase 21 --gaps)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — quick 260926-d76 로그인 화면 sketch 006 A안 구현 완료(eda719a) · 21-16 UAT 체크포인트 대기 중
+Last activity: 2026-09-26 — Phase 21 — 16/16 플랜 실행 · 운영 UAT 2차: 11 pass · 1 issue(탭바 라벨·모양) · 1 pending(웹 회귀) · 신규 요청 3(다크 기본 · 테마 아이콘 통일 · 뉴스 인앱 브라우저) → 다음 /gsd-plan-phase 21 --gaps. 갭 정본 phases/21-gh-trade-mobile-app/21-UAT.md(G-21-1 · G-21-13 · G-21-N1~N3). phase 21 완료·MOBILE-01 체크 보류
 
 Progress: [█████████░] 93%
 
