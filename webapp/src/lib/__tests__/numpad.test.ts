@@ -87,7 +87,7 @@ describe("PAD_CHIPS — 단위별 구성 (D-17)", () => {
     ["원", ["−1호가", "+1호가", "현재가", "상한가"]],
     ["주", ["+100", "+1,000", "+10,000", "지우기"]],
     ["%", ["10", "30", "50", "100"]],
-    ["만원", ["+10", "+50", "+100", "지우기"]],
+    ["만원", ["천만", "오천만", "1억", "지우기"]],
     ["건", ["1", "3", "5", "지우기"]],
     ["회", ["1", "3", "5", "10"]],
   ] as const)("%s 칩 = %j", (unit, labels) => {
@@ -100,6 +100,12 @@ describe("PAD_CHIPS — 단위별 구성 (D-17)", () => {
     for (const u of ["주", "만원", "건"] as const) {
       expect(chip(u, "지우기").ariaLabel).toBe("전부 지우기");
     }
+  });
+
+  it("만원 칩 접근성 이름 — 천만 「1,000만원 더하기」 · 오천만 「5,000만원 더하기」 · 1억 「1억원 더하기」 (G-21-R3-3)", () => {
+    expect(chip("만원", "천만").ariaLabel).toBe("1,000만원 더하기");
+    expect(chip("만원", "오천만").ariaLabel).toBe("5,000만원 더하기");
+    expect(chip("만원", "1억").ariaLabel).toBe("1억원 더하기");
   });
 });
 
@@ -141,8 +147,18 @@ describe("applyPadChip — 주 · 만원 · % · 건 · 회", () => {
     expect(applyPadChip(s("10000"), chip("주", "지우기"), NONE).buf).toBe("");
   });
 
-  it("만원 +50 on 100 → 150", () => {
-    expect(applyPadChip(s("100"), chip("만원", "+50"), NONE).buf).toBe("150");
+  it("만원 천만 on 100 → 1100 (만원 단위 +1,000 · G-21-R3-3)", () => {
+    expect(applyPadChip(s("100"), chip("만원", "천만"), NONE).buf).toBe("1100");
+  });
+
+  it("만원 1억 on 빈 값 → 10000 · 오천만 on 0 → 5000", () => {
+    expect(applyPadChip(s(""), chip("만원", "1억"), NONE).buf).toBe("10000");
+    expect(applyPadChip(s("0"), chip("만원", "오천만"), NONE).buf).toBe("5000");
+  });
+
+  it("만원 오천만 — 999,994,999 → 999,999,999(상한 도달) · 999,995,000 은 9자리 초과라 그대로", () => {
+    expect(applyPadChip(s("999994999"), chip("만원", "오천만"), NONE).buf).toBe("999999999");
+    expect(applyPadChip(s("999995000"), chip("만원", "오천만"), NONE).buf).toBe("999995000");
   });
 
   it("% 30 · 건 5 · 회 10 은 값 설정", () => {

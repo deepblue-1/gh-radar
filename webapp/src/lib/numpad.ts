@@ -88,7 +88,13 @@ export const PAD_CHIPS: Record<PadUnit, readonly PadChip[]> = {
   ],
   주: [add(100), add(1_000), add(10_000), CLEAR],
   '%': [set(10), set(30), set(50), set(100)],
-  만원: [add(10), add(50), add(100), CLEAR],
+  // 만원 = 천만 · 오천만 · 1억(값은 만원 단위 · G-21-R3-3)
+  만원: [
+    { label: '천만', ariaLabel: '1,000만원 더하기', op: { kind: 'add', n: 1_000 } },
+    { label: '오천만', ariaLabel: '5,000만원 더하기', op: { kind: 'add', n: 5_000 } },
+    { label: '1억', ariaLabel: '1억원 더하기', op: { kind: 'add', n: 10_000 } },
+    CLEAR,
+  ],
   건: [set(1), set(3), set(5), CLEAR],
   회: [set(1), set(3), set(5), set(10)],
 };

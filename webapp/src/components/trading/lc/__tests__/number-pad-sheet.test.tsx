@@ -168,6 +168,22 @@ describe('NumberPadSheet — 단축 칩(D-17)', () => {
     expect(chip('10')).toBeDisabled();
     expect(chip('5')).toBeEnabled();
   });
+
+  it('(만원) 칩 줄 = 1,000만원 · 5,000만원 · 1억원 더하기 · 전부 지우기 — 100 에서 「1,000만원 더하기」 → 1,100 (G-21-R3-3)', async () => {
+    const { user } = setup({
+      purpose: 'fill',
+      title: '주문금액',
+      unit: '만원',
+      initialValue: 100,
+      serverValue: null,
+    });
+    const names = within(document.querySelector('[data-slot="numpad-chips"]') as HTMLElement)
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(names).toEqual(['1,000만원 더하기', '5,000만원 더하기', '1억원 더하기', '전부 지우기']);
+    await user.click(chip('1,000만원 더하기'));
+    expect(valueText()).toBe('1,100');
+  });
 });
 
 describe('NumberPadSheet — 검증 잠금(D-15 · 자동 보정 없음)', () => {
