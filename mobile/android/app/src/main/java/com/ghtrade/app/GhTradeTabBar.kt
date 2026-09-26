@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.LinearGradient
 import android.graphics.Shader
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.PaintDrawable
 import android.graphics.drawable.ShapeDrawable
@@ -17,16 +16,15 @@ import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 
 /**
- * GH Trade 네이티브 하단 플로팅 탭바 — D-02 · D-15 · D-27a (스케치 004 탭바 A 「알약」). iOS `GHTradeTabBar`(21-10)의 Android 판.
+ * GH Trade 네이티브 하단 플로팅 탭바 — D-02 · D-15 · D-27b (스케치 007 C 「캡슐 인디케이터」 · 라벨 없음).
+ * iOS `GHTradeTabBar`(21-10 · 21-20)의 Android 판.
  *
- * 수치 정본 = CONTEXT D-27a: 높이 70 · radius 32 · 1px `--line` 테두리 · 그림자 · 활성 = `--primary` 14% 원 46 +
- * filled/굵은 아이콘 + primary 라벨 10sp · 비활성 `--muted-fg` · 탭바 위 120dp 하단 페이드(`--bg` 92%).
- * Android 에는 뒤 콘텐츠 실시간 블러의 표준 수단이 없다 → 스케치의 `card 82% + 블러 18` 을 **card 약 94% 불투명**으로
- * 근사한다(RESEARCH A10 — 시각은 21-16 UAT 에서 확인).
+ * 수치 정본 = CONTEXT D-27b: 높이 60 · radius 30 · 라벨 없음(접근 이름 = contentDescription) · 아이콘 26 셀 정중앙 ·
+ * 활성 = 아이콘 뒤 캡슐 56×36 radius 18 `--primary` + filled/굵은 아이콘 + primary 색 · 비활성 `--muted-fg` ·
+ * 탭바 위 86dp 하단 페이드. 1px `--line` 테두리 · 그림자 elevation 8 · 알약 = card 약 94% 불투명(A10).
  * 위치·폭(좌우 16 · 최대 560 · 바닥 max(내비 인셋 − 14, 14))과 표시/숨김은 `MainActivity` 가 정한다.
  */
 @SuppressLint("ViewConstructor")
@@ -45,7 +43,7 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
     var activeTab: TabId? = null
         private set
 
-    private val pillBackground = GradientDrawable().apply { cornerRadius = dpF(32f) }
+    private val pillBackground = GradientDrawable().apply { cornerRadius = dpF(30f) }
     private val items = mutableListOf<TabItem>()
     private var palette = GhTradePalette.of("light")
 
@@ -113,14 +111,16 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
 
     private fun dpF(v: Float): Float = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics)
 
-    /** 탭 한 칸 — 강조 원 46(top 7) · 아이콘 26(top 12) · 라벨 10sp(아이콘 아래 4). */
+    /**
+     * 탭 한 칸 — D-27b(스케치 007 C): 라벨 없음 · 아이콘 26 셀 정중앙 · 활성 = 아이콘 뒤 캡슐 56×36 radius 18.
+     * 시각 라벨은 없지만 접근 이름은 `contentDescription = tab.title` 로 남긴다(TalkBack 이 탭 이름을 읽는다).
+     */
     @SuppressLint("ViewConstructor")
     private class TabItem(context: Context, val tab: TabId) : FrameLayout(context) {
 
         private val highlight = View(context)
-        private val highlightShape = GradientDrawable().apply { shape = GradientDrawable.OVAL }
+        private val highlightShape = GradientDrawable().apply { cornerRadius = dpF(18f) }
         private val icon = ImageView(context)
-        private val label = TextView(context)
 
         init {
             isClickable = true
@@ -129,29 +129,11 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
 
             highlight.background = highlightShape
             highlight.visibility = View.GONE
-            addView(highlight, LayoutParams(dp(46f), dp(46f), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = dp(7f)
-            })
+            addView(highlight, LayoutParams(dp(56f), dp(36f), Gravity.CENTER))
 
             icon.scaleType = ImageView.ScaleType.FIT_CENTER
             icon.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            addView(icon, LayoutParams(dp(26f), dp(26f), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = dp(12f)
-            })
-
-            label.text = tab.title
-            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-            label.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            label.gravity = Gravity.CENTER
-            label.maxLines = 1
-            label.includeFontPadding = false
-            label.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            addView(
-                label,
-                LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                    topMargin = dp(12f + 26f + 4f)
-                },
-            )
+            addView(icon, LayoutParams(dp(26f), dp(26f), Gravity.CENTER))
         }
 
         fun configure(active: Boolean, p: GhTradePalette) {
@@ -160,17 +142,17 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
             highlightShape.setColor(ColorUtils.setAlphaComponent(p.primary, 36)) // ≈14%
             icon.setImageResource(iconRes(tab, active))
             icon.imageTintList = ColorStateList.valueOf(color)
-            label.setTextColor(color)
             isSelected = active
         }
 
-        // iOS 와 같은 눌림 피드백 — 아이콘·라벨을 잠깐 흐리게.
+        // iOS 와 같은 눌림 피드백 — 아이콘을 잠깐 흐리게.
         override fun setPressed(pressed: Boolean) {
             super.setPressed(pressed)
-            val a = if (pressed) 0.55f else 1f
-            icon.alpha = a
-            label.alpha = a
+            icon.alpha = if (pressed) 0.55f else 1f
         }
+
+        private fun dpF(v: Float): Float =
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics)
 
         private fun dp(v: Float): Int =
             TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()

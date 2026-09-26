@@ -40,7 +40,7 @@ import kotlin.math.max
  *  - 오프라인(D-19): 메인 프레임 네트워크 오류에서만 로컬 폴백 `https://localhost/index.html` (`GhTradeWebViewClient`).
  *  - DecorView/루트/WebView 에 인셋 리스너를 걸지 않는다 — SystemBars 의 DecorView 리스너(CSS 안전영역 주입 · IME 패딩)를
  *    덮어쓴다(Pitfall 8). 인셋 리스너는 탭바 컨테이너에만 건다.
- *  - 하단 플로팅 탭바(21-12 · D-02 · D-27a): 활성 판정 = `TabRoutes`(D-14) · 숨김 = 로그인/오프라인/오버레이/키보드(D-12) ·
+ *  - 하단 플로팅 탭바(21-12 · D-02 · D-27b — 21-21 라벨 없는 캡슐 60dp): 활성 판정 = `TabRoutes`(D-14) · 숨김 = 로그인/오프라인/오버레이/키보드(D-12) ·
  *    탭 = 웹 navigate 훅(D-06a — 클라 내비라 relay 소켓 유지). iOS `GHTradeBridgeViewController`(21-10)와 같은 동작.
  */
 class MainActivity : BridgeActivity() {
@@ -256,7 +256,7 @@ class MainActivity : BridgeActivity() {
         }
     }
 
-    // ── 탭바 (D-02 · D-13 · D-27a) ─────────────────────────────────────────────
+    // ── 탭바 (D-02 · D-13 · D-27b) ─────────────────────────────────────────────
 
     private fun setupTabBar() {
         rootLayout = bridge.webView.parent as ViewGroup
@@ -264,18 +264,18 @@ class MainActivity : BridgeActivity() {
         val fade = tabBar.fadeView
 
         // 페이드 → 탭바 순서로 얹는다(탭바가 위, elevation 으로도 위). WebView 프레임은 건드리지 않는다(D-25 풀블리드).
-        rootLayout.addView(fade, CoordinatorLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120f)).apply {
+        rootLayout.addView(fade, CoordinatorLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(86f)).apply {
             gravity = Gravity.BOTTOM
         })
         // 폭 = min(560, 화면 − 32): MATCH_PARENT + 좌우 16 에서 GhTradeTabBar.onMeasure 가 560 으로 자른다 · 가운데 정렬.
-        rootLayout.addView(tabBar, CoordinatorLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(70f)).apply {
+        rootLayout.addView(tabBar, CoordinatorLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60f)).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             leftMargin = dp(16f)
             rightMargin = dp(16f)
             bottomMargin = dp(14f)
         })
 
-        // 바닥 = 화면 끝에서 max(내비 인셋 − 14, 14)(D-27a) — 웹 `--native-tabbar-offset` 과 같은 식(21-06).
+        // 바닥 = 화면 끝에서 max(내비 인셋 − 14, 14)(D-27b 불변) — 웹 `--native-tabbar-offset` 과 같은 식(21-06).
         // Pitfall 8: 리스너는 탭바에만. SystemBars 가 DecorView 에서 다듬은 인셋(웹 CSS 주입값과 같은 값)이 여기로 내려온다.
         ViewCompat.setOnApplyWindowInsetsListener(tabBar) { v, insets ->
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
