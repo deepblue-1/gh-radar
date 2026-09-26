@@ -1,7 +1,8 @@
 'use client';
 
 /**
- * ManualOrderForm — 카드 · 종목상세 호가 탭이 **함께 쓰는** 수동주문 폼 (Phase 18 D-19~D-23 · D-27, TRADE-07).
+ * ManualOrderForm — 작업대 카드의 수동주문 폼 (Phase 18 D-19~D-23 · D-27, TRADE-07). 카드 한 표면(D-31 — 종목상세
+ * 호가주문 탭이 사라져 이 폼을 쓰는 곳은 카드 본문 하나다).
  *
  * ① 무엇인가
  *   `components/orderbook/order-panel.tsx` 의 **다이어트 재작성**이다. 가격 · 수량 · (예약구간 ∧ KRX
@@ -9,7 +10,7 @@
  *   **카드에도 주문유형(D-31 · G-21-R3-10 — 호가주문 탭 제거 뒤 시간외종가 신규 주문의 유일한 표면).**
  *   스케치 008 ③ 채택안 A — 주문금액 바로 위 44px 행 「주문유형 지정가 ›」(투명 네이티브 select) ·
  *   선택 불가(NXT · 창 닫힘)면 행 아래 캡션 안내. 판정 · 창 닫힘 복귀 · 닫힌 창 전송 차단 · 가격 잠김은
- *   호가 탭과 같은 한 벌(`affordanceOf` · ④)이다. 호가 탭(`variant="orderbook"`)은 각주만 다르다(21-34 정리).
+ *   옛 호가 탭과 같은 한 벌(`affordanceOf` · ④)이다. 표면 구분(`variant`)과 호가 탭 전용 각주는 21-34 가 지웠다.
  *
  *   **빠진 것(D-20):** 계좌 행(계좌는 전략 키의 일부라 카드/상태줄이 정한다) · 가격 ± 버튼 ·
  *   보유 비율 버튼 · 「호가창의 행을 클릭하면…」 안내. 매수 비율 버튼이 원래 없던 것은 그대로다.
@@ -130,7 +131,6 @@ const DEFAULT_PIECES = 5;
 /** UI-SPEC §수동주문 원문. */
 const OFFHOURS_DISABLED_TITLE = '시간외종가는 KRX · 시간외종가 창(G2/G3)에서만 고를 수 있어요';
 const OFFHOURS_HINT = '가격 0 · krx_session 으로 전송 · 정정 불가(취소 후 재등록)';
-const ORDERBOOK_FOOTNOTE = '신규 매수/매도와 정정·취소 · 시간외종가는 정정 불가(취소 후 재등록)';
 /** 선택 전 정정·취소 비활성 이유(UI-SPEC §8 #8). */
 const MODIFY_CANCEL_FOOTNOTE = '정정·취소는 미체결 행을 선택하면 활성화돼요';
 /** 가격 상자 힌트 — 호가 사다리가 가격을 채운다(D-20 승계). */
@@ -295,8 +295,6 @@ export function canModify(
 type OrderAction = 'buy' | 'sell' | 'modify' | 'cancel';
 
 export interface ManualOrderFormProps {
-  /** `'card'` = 작업대 카드 · `'orderbook'` = 종목상세 호가 탭(각주만 다르다 — 주문유형은 둘 다 · D-31). */
-  variant: 'card' | 'orderbook';
   /** 12자 ISIN — **주문 요청 키**(D-28). */
   isin: string;
   /** 6자 단축코드 — 표시 전용(확인 다이얼로그). */
@@ -357,7 +355,6 @@ function offHoursSessionOf(
 }
 
 export function ManualOrderForm({
-  variant,
   isin,
   code,
   name,
@@ -1064,12 +1061,6 @@ export function ManualOrderForm({
           className="m-0 break-keep rounded-[12px] bg-[var(--muted)] px-3 py-2 text-[12px] leading-snug text-[var(--fg)]"
         >
           {RESULT_UNKNOWN_LOCKED_TEXT}
-        </p>
-      )}
-
-      {variant === 'orderbook' && (
-        <p className="m-0 break-words text-[12px] leading-snug text-[var(--muted-fg)]">
-          {ORDERBOOK_FOOTNOTE}
         </p>
       )}
 

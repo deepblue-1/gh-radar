@@ -10,6 +10,7 @@ import {
   E2E_ACCOUNT_NO,
   E2E_ISIN,
   E2E_LONG_NAME_ISIN,
+  RELAY_WS_URL,
   readViConfirmRequest,
   readViSetRequest,
   withLocalRelay,
@@ -51,6 +52,13 @@ import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.
  *   무엇을 어디로 옮겼고 무엇이 설계상 사라졌는지는 18-13 SUMMARY 의 커버리지 대조표가 정본이다.
  *   ★ 「보냈다」가 아니라 **무엇을 보냈는가**를 본다 — VI 「수정」이 `run` 을 유지하는지는 페이로드
  *     (`readViSetRequest`)로만 확인된다(스텁은 11 에 자동 응답하지 않아 화면으로는 안 보인다).
+ *
+ * ⑦ 「G-21-R3-10 이전 — …」 케이스는 **옛 호가 탭 e2e(`orderbook` 스펙 파일)의 이관**이다 (Phase 21 21-34 · D-31)
+ *   종목상세 호가주문 탭이 사라져 그 spec 을 지웠다. 그 파일에만 있던 검증(인증 → 구독 → 호가 10단 · 토큰 URL
+ *   부재 · 체결 테이프 순서 · 폭별 상태줄/시간외종가 배치 · 카드 시간외종가 주문 · 390 미체결 리플로우 ·
+ *   비로그인 wss 0 · 회선 단절 → 재접속 배지 + 사다리 유지)을 작업대 카드 기준으로 옮겼다. 테스트별 대조
+ *   (이미 있음 / 이전 / 버림)의 정본은 21-34 SUMMARY 다. 회선 단절 케이스는 게이트웨이를 내리므로 파일 맨 끝의
+ *   자기 relay describe 에 있다.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -310,6 +318,40 @@ async function pushBreakout(relay: LocalRelay, isin: string): Promise<void> {
 }
 
 // ===========================================================================
+
+/** relay wss(:8090) 로 나간 소켓 URL 만 모은다 — Next dev 의 HMR 소켓은 제외한다(옛 호가 탭 e2e 이관). */
+function trackRelaySockets(page: Page): string[] {
+  const urls: string[] = [];
+  page.on('websocket', (ws) => {
+    if (ws.url().includes(':8090')) urls.push(ws.url());
+  });
+  return urls;
+}
+
+/** 브라우저가 relay 로 보낸 `order.new` 프레임(JSON) — 「무엇을 보냈는가」(시간외종가 `krxSession`)를 본다. */
+function captureOrderFrames(page: Page): Record<string, unknown>[] {
+  const frames: Record<string, unknown>[] = [];
+  page.on('websocket', (ws) => {
+    if (!ws.url().includes(':8090')) return;
+    ws.on('framesent', ({ payload }) => {
+      if (typeof payload !== 'string' || !payload.includes('"order.new"')) return;
+      frames.push(JSON.parse(payload) as Record<string, unknown>);
+    });
+  });
+  return frames;
+}
+
+/** 종목상세 「트레이딩」 착지 URL(21-33) — 이관 케이스가 카드를 세우는 경로다. */
+const LANDING_URL = `${WORKBENCH_URL}?code=005930`;
+
+/** 착지해 그 종목 카드가 펼쳐질 때까지 기다린다. */
+async function landOnCard(page: Page): Promise<Locator> {
+  await page.goto(LANDING_URL);
+  await waitForReady(page);
+  const card = cardOf(page, E2E_ISIN);
+  await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+  return card;
+}
 
 test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 게이트웨이)', () => {
   let relay: LocalRelay;
@@ -1140,7 +1182,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     expect(relay.orderInserts()).toHaveLength(0);
   });
 
-  test('GC6 결과 모름 잠금은 앱 수명이다 — 다른 화면에 다녀와도 · 호가 탭에서도 잠긴 채, 새로고침에만 풀린다 (R3-WR-02 · 사용자 결정 1)', async ({
+  test('GC6 결과 모름 잠금은 앱 수명이다 — 다른 화면(/me · 종목상세)에 다녀와 「트레이딩」 착지 카드에서도 잠긴 채, 새로고침에만 풀린다 (R3-WR-02 · 사용자 결정 1 · D-30 · D-31)', async ({
     page,
   }) => {
     const LOCKED_TEXT =
@@ -1153,7 +1195,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     });
     // 작업대 이탈 경고(더티 카드)는 브라우저 confirm 이다 — 수락해도 client-side 이동 그대로다.
     page.on('dialog', (d) => void d.accept());
-    // 종목상세가 붙는 API — 오류 상태여도 단언은 성립하지만 소음을 줄인다(orderbook.spec 형식).
+    // 종목상세가 붙는 API — 오류 상태여도 단언은 성립하지만 소음을 줄인다.
     await mockNewsApi(page, { code: '005930', list: buildNewsList('005930', 3) });
     await mockDiscussionsApi(page, { code: '005930', list: buildDiscussionList('005930', 3) });
     await mockThemeChips(page, []);
@@ -1215,25 +1257,33 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await ask.getByRole('button', { name: '취소', exact: true }).click();
     await expect(ask).toBeHidden();
 
-    // 헤더 「종목 검색 열기」 → 삼성전자 → /stocks/005930 (client-side) → 「호가주문」 탭.
+    /*
+      헤더 「종목 검색 열기」 → 삼성전자 → /stocks/005930 (client-side · 다른 화면) → 히어로 「트레이딩」(D-30)
+      → /trading?code= 착지(client-side) → 그 카드 수동주문도 잠긴 채. 옛 「호가주문」 탭 경유는 D-31 로
+      사라졌다 — 같은 키(계좌|ISIN|거래소)를 보는 다른 진입로가 착지 카드다.
+    */
     await page.getByLabel('종목 검색 열기').first().click();
     const search = page.getByRole('dialog').getByPlaceholder('종목명 또는 종목코드를 입력하세요');
     await search.fill('삼성');
     await page.getByRole('option', { name: /삼성전자/ }).click();
     await expect(page).toHaveURL(/\/stocks\/005930(?:\?.*)?$/);
-    await page.getByRole('tab', { name: '호가주문' }).click();
-    const obStatus = page.locator('[data-slot="orderbook-status-bar"]');
-    await expect(obStatus).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
-    const obForm = page.getByTestId('manual-order-form');
-    if (!(await obForm.isVisible())) {
-      await page.locator('[data-slot="manual-entry"]').getByRole('button', { name: '수동주문' }).click();
-    }
-    await expect(obForm).toBeVisible();
-    const obButtons = obForm.getByTestId('manual-order-buttons').getByRole('button');
-    await expect(obButtons).toHaveCount(4);
-    for (let i = 0; i < 4; i += 1) await expect(obButtons.nth(i)).toBeDisabled();
-    await expect(obForm.getByTestId('manual-order-locked')).toHaveText(LOCKED_TEXT);
-    await expect(obForm).not.toContainText('실패');
+    await expect(page.getByRole('heading', { level: 1, name: '삼성전자' })).toBeVisible({ timeout: 15_000 });
+    await page.locator('[data-slot="detail-trading-button"]').click();
+    await expect(page).toHaveURL((url) => url.pathname === '/trading' && !url.searchParams.has('code'), {
+      timeout: 30_000,
+    });
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    form = card.getByTestId('manual-order-form');
+    if (!(await form.isVisible())) await card.getByRole('button', { name: '수동주문', exact: true }).click();
+    await expect(form).toBeVisible();
+    const landedButtons = form.getByTestId('manual-order-buttons').getByRole('button');
+    await expect(landedButtons).toHaveCount(4);
+    for (let i = 0; i < 4; i += 1) await expect(landedButtons.nth(i)).toBeDisabled();
+    await expect(form.getByTestId('manual-order-locked')).toHaveText(LOCKED_TEXT);
+    await expect(form).not.toContainText('실패');
     expect(relaySockets).toHaveLength(1);
 
     // ★ 같은 주문이 다시 나가지 않았다 — 게이트웨이 주문 1건 · DB 기록 0건(D-01).
@@ -1242,10 +1292,14 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
 
     // 새로고침 = Provider 재생성 → 잠금 해제(사용자 결정 1 의 해제 규칙). 소켓이 새로 열린다.
     await page.reload();
-    await expect(obStatus).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
-    const reloadedForm = page.getByTestId('manual-order-form');
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    card = cardOf(page, E2E_ISIN);
+    if ((await card.getAttribute('data-open')) !== 'true') await toggleOf(page, E2E_ISIN).click();
+    await expect(card).toHaveAttribute('data-open', 'true');
+    const reloadedForm = card.getByTestId('manual-order-form');
     if (!(await reloadedForm.isVisible())) {
-      await page.locator('[data-slot="manual-entry"]').getByRole('button', { name: '수동주문' }).click();
+      await card.getByRole('button', { name: '수동주문', exact: true }).click();
     }
     await expect(reloadedForm).toBeVisible();
     await expect(reloadedForm.getByTestId('manual-order-locked')).toHaveCount(0);
@@ -2397,6 +2451,190 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
   });
 
   /*
+    ── G-21-R3-10 이전 (Phase 21 21-34 · D-31) ── 옛 호가 탭 e2e 의 고유 검증을 작업대 카드로 옮겼다(머리 ⑦).
+    카드는 종목상세 「트레이딩」 착지(`/trading?code=` · 21-33)로 세운다 — 옛 호가 탭 진입과 같은 「종목 하나로
+    들어온다」 흐름이다.
+  */
+  test('G-21-R3-10 이전 — 인증 → 구독 → 카드 호가 10단 · 체결 테이프 최신순, 토큰은 relay URL 에 없다 (옛 orderbook 1 · 2 · T-15-04)', async ({
+    page,
+  }) => {
+    const sockets = trackRelaySockets(page);
+    // 폰 밴드 카드 — 모바일 사다리 20행 + compact 테이프(옛 2 가 폰 폭에서 보던 자리).
+    await page.setViewportSize(PHONE_VIEWPORT);
+    const card = await landOnCard(page);
+
+    const ladder = card.locator('[data-slot="orderbook-ladder"][data-variant="chaser"]');
+    const rows = ladder.locator('[data-slot="ladder-row-mobile"]');
+    await expect(rows).toHaveCount(20, { timeout: 15_000 });
+    await expect(rows.first()).toContainText('99,000'); // 매도 10호가
+    await expect(rows.last()).toContainText('97,000'); // 매수 10호가
+
+    // 와이어는 시간 오름차순이고 화면은 최신이 위다 — 뒤집기가 실제로 일어났는지 본다.
+    const tape = ladder.locator('[data-slot="trade-tape"][data-compact="true"]:visible tbody tr');
+    await expect(tape).toHaveCount(3);
+    await expect(tape.first()).toContainText('30:17');
+    await expect(tape.last()).toContainText('30:15');
+
+    // T-15-04 — 토큰은 첫 메시지 본문 전용이다. 업그레이드 URL 에 쿼리스트링이 없어야 한다.
+    expect(sockets).toContain(RELAY_WS_URL);
+    for (const url of sockets) expect(url).not.toContain('?');
+  });
+
+  test('G-21-R3-10 이전 — 390 카드 「미체결」 탭은 이 종목 · 이 거래소만 · 7자리 가격/6자리 수량 행도 조용한 잘림 0 · 취소 버튼 그대로 (옛 orderbook 8 · C7/R6)', async ({
+    page,
+  }) => {
+    await page.setViewportSize(PHONE_VIEWPORT);
+    const card = await landOnCard(page);
+
+    await relay.pushAccountState({
+      unfilled: [
+        {
+          orderNo: '0000135742',
+          isin: E2E_ISIN,
+          side: 'B',
+          price: 98_000,
+          orderQty: 50,
+          filledQty: 20,
+          unfilledQty: 30,
+          exchange: 'KRX',
+        },
+        {
+          // ★ 7자리 가격 + 6자리 수량 — 스트레스 케이스(옛 8 그대로 · 카드는 KRX 라 KRX 행으로 둔다).
+          orderNo: '0000135801',
+          isin: E2E_ISIN,
+          side: 'S',
+          price: 1_234_567,
+          orderQty: 999_999,
+          filledQty: 0,
+          unfilledQty: 999_999,
+          exchange: 'KRX',
+        },
+        {
+          // ★ 같은 종목 · 다른 거래소(NXT) — 카드는 ISIN ∧ 거래소로 자른다(`cardAccountSliceOf`). NXT 카드 몫이다.
+          orderNo: '0000135802',
+          isin: E2E_ISIN,
+          side: 'B',
+          price: 97_000,
+          orderQty: 5,
+          filledQty: 0,
+          unfilledQty: 5,
+          exchange: 'NXT',
+        },
+        {
+          // ★ 다른 종목 행 — 카드 「미체결」은 **이 종목만**이다. 여기 서면 안 된다.
+          orderNo: '0000135999',
+          isin: E2E_LONG_NAME_ISIN,
+          side: 'B',
+          price: 10_000,
+          orderQty: 1,
+          filledQty: 0,
+          unfilledQty: 1,
+          exchange: 'KRX',
+        },
+      ],
+      holdings: [{ isin: E2E_ISIN, stockQty: 120, sellableQty: 90, avgPrice: 91_250 }],
+    });
+
+    const tabs = card.locator('[data-slot="card-tabs"]');
+    await tabs.getByRole('tab', { name: /미체결/ }).click();
+    const rows = tabs.locator('[data-slot="account-embed-unfilled-row"]');
+    await expect(rows).toHaveCount(2, { timeout: 15_000 });
+    await expect(tabs.getByText('0000135999')).toHaveCount(0);
+    await expect(tabs.getByText('0000135802')).toHaveCount(0);
+    await expect(tabs.getByRole('button', { name: '주문번호 0000135742 취소' })).toBeVisible();
+    await expect(tabs.getByRole('button', { name: '주문번호 0000135801 취소' })).toBeVisible();
+
+    // 조용한 잘림 0 — 표는 가로 스크롤 영역 안에서만 넘친다(판정은 `e2e/overflow.ts` 하나).
+    expect(await scrollOverflowing(page, `${cardSelector(E2E_ISIN)} [data-slot="card-tabs-body"]`)).toEqual([]);
+
+    await tabs.getByRole('tab', { name: /잔고/ }).click();
+    await expect(tabs.locator('[data-slot="account-embed-holding-row"]')).toHaveCount(1, { timeout: 15_000 });
+  });
+
+  test('G-21-R3-10 이전 — 시간외종가 G2 창: 상태줄 배지가 390 · 1440 에서 잘림 없이 서고, 카드 주문유형 시간외종가 → 확인 「시간외종가」 → order.new krxSession G2 · 가격 0 → 접수 배너 · REST 0 (옛 orderbook P20-6 ③ · 6 · D-31)', async ({
+    page,
+  }) => {
+    // D-02 — 주문은 wss 단일 경로다. 이 라우트로 한 건이라도 나가면 실패다.
+    const restHits: string[] = [];
+    await page.route('**/api/orders', async (route) => {
+      restHits.push(route.request().method());
+      await route.abort();
+    });
+    const orderFrames = captureOrderFrames(page);
+    const directOrders = () => relay.requestLog().filter((m) => m === DMA_MSG.DirectOrderReq).length;
+
+    const card = await landOnCard(page);
+    const sock = await relay.gateway.waitForConnection(15_000);
+    relay.gateway.sendQueuedWindowState(sock, { g2Open: true });
+    try {
+      const badge = statusBar(page).locator('[data-slot="workbench-window-badge"]');
+      await expect(badge).toHaveText('시간외종가 G2 창', { timeout: 15_000 });
+
+      // 폭별 배치 — 작업대 상태줄은 폰에서 wrap 을 허용하되(E1) 어느 폭에서도 잘리지 않는다.
+      for (const viewport of [PHONE_VIEWPORT, WIDE_VIEWPORT]) {
+        const label = `뷰포트 ${viewport.width}`;
+        await page.setViewportSize(viewport);
+        await expect(badge, label).toBeVisible();
+        const box = await statusBar(page).boundingBox();
+        expect(box, label).not.toBeNull();
+        expect(await leavesOverflowing(statusBar(page), box!.x + box!.width), label).toEqual([]);
+        expect(await scrollOverflowing(page, '[data-slot="workbench-status-bar"]'), label).toEqual([]);
+      }
+
+      // 카드 수동주문 — 주문유형 시간외종가(21-33 · 스케치 008 ③ A).
+      await card.getByRole('button', { name: '수동주문', exact: true }).click();
+      const form = card.getByTestId('manual-order-form');
+      await expect(form).toBeVisible();
+      const type = form.getByLabel('주문유형');
+      await expect(type.locator('option[value="offhours"]')).toBeEnabled();
+      await type.selectOption('offhours');
+      await expect(form.getByLabel('가격(시간외종가 · 잠김)')).toBeDisabled();
+      await form.locator(`#mo-qty-${E2E_ISIN}`).fill('10');
+      const buy = form.getByTestId('manual-order-buttons').getByRole('button', { name: '매수' });
+      await expect(buy).toBeEnabled();
+      await buy.click();
+
+      const dialog = page.getByTestId('order-confirm-dialog');
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText('시간외종가');
+      await dialog.getByRole('button', { name: /매수/ }).click();
+
+      // 게이트웨이까지 갔는지 먼저 본다 — 통보를 너무 일찍 주면 relay 가 대기 항목을 등록하기 전이다.
+      await expect.poll(directOrders, { timeout: 15_000 }).toBe(1);
+      expect(orderFrames).toHaveLength(1);
+      expect(orderFrames[0]).toMatchObject({
+        t: 'order.new',
+        isin: E2E_ISIN,
+        exchange: 'KRX',
+        side: 'B',
+        qty: 10,
+        price: 0,
+        krxSession: 'G2',
+      });
+
+      await relay.pushOrderResp({
+        isin: E2E_ISIN,
+        side: 'B',
+        orderNo: '0000135842',
+        noticeType: 'A',
+        resultCode: 0,
+        message: '정상처리',
+        price: 0,
+        quantity: 10,
+        exchange: 'KRX',
+      });
+      const result = form.getByTestId('manual-order-result');
+      await expect(result).toHaveAttribute('data-kind', 'accepted', { timeout: 15_000 });
+      await expect(result).toContainText('주문이 접수됐어요 · 주문번호 0000135842');
+      expect(restHits).toEqual([]);
+      // D-01 — relay 사용자 세션 경로는 DB 에 쓰지 않는다.
+      expect(relay.orderInserts()).toHaveLength(0);
+    } finally {
+      relay.gateway.sendQueuedWindowState(sock, {});
+    }
+  });
+
+  /*
     ★ quick-260922-tqr — iOS Safari 는 16px 미만 입력에 포커스하면 확대하고 되돌리지 않는다.
       종목 추가란은 터치 기기에서 16px 다. iPhone **가로** 폭(844)으로 재는 이유: 폭 브레이크포인트
       (`sm`·`md`)를 넘는 폭에서도 16px 여야 가로 모드에서 다시 확대되지 않는다.
@@ -2667,5 +2905,75 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       expect(directOrders()).toBe(0);
       expect(relay.orderInserts()).toHaveLength(0);
     });
+  });
+});
+
+/*
+  G-21-R3-10 이전 (Phase 21 21-34) — 비로그인은 wss 를 시도조차 하지 않는다 (옛 orderbook 10).
+  프로젝트 레벨 storageState 를 비운다(chat.spec.ts 선례). relay 를 띄우지 않는다 — 열면 안 되는 소켓을 센다.
+*/
+test.describe('G-21-R3-10 이전 — 비로그인 /trading 게이트', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test.beforeEach(async ({ context, page }) => {
+    await context.clearCookies();
+    await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
+  });
+
+  test('G-21-R3-10 이전 — 비로그인 /trading?code= 는 로그인 화면으로 보내지고 relay wss 연결을 시도하지 않는다 (옛 orderbook 10)', async ({
+    page,
+  }) => {
+    const sockets = trackRelaySockets(page);
+    await page.goto(LANDING_URL);
+
+    // `/trading` 은 공개 경로가 아니다 — middleware 가 /login 으로 돌려보내는 것이 곧 로그인 안내다.
+    await expect(page).toHaveURL(/\/login\?next=/);
+    await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
+    // 인증 없이 시세 소켓을 열지 않는다 — 열었다면 relay 가 4401 로 끊을 표면을 하나 더 만드는 것이다.
+    expect(sockets).toEqual([]);
+  });
+});
+
+/*
+  G-21-R3-10 이전 (Phase 21 21-34) — 회선 단절 (옛 orderbook 9).
+  게이트웨이를 통째로 내린다(소켓 파괴 + listen 종료) — 소켓만 끊으면 relay 가 1초 뒤 재접속에 성공해 배지가
+  1초짜리 경주가 된다. 내린 게이트웨이는 되살릴 수 없으므로 **자기 relay 를 띄우는 맨 끝 describe** 에 둔다
+  (위 describe 의 afterAll 이 8090 을 비운 뒤에 뜬다).
+*/
+test.describe('G-21-R3-10 이전 — 회선 단절 (자기 relay · 게이트웨이를 내린다)', () => {
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    relay.reset();
+    await page.setViewportSize(WIDE_VIEWPORT);
+    await mockStockApi(page, { searchResults: [FIXTURE_SAMSUNG] });
+  });
+
+  test('G-21-R3-10 이전 — 회선 단절 → 상태줄 「재접속 중」 · 「다시 연결」 없음 · 카드 사다리는 비워지지 않는다 (옛 orderbook 9)', async ({
+    page,
+  }) => {
+    const card = await landOnCard(page);
+    const ladderRows = card.locator('[data-slot="orderbook-ladder"][data-variant="chaser"] [data-slot="ladder-row"]:visible');
+    await expect(ladderRows).toHaveCount(20, { timeout: 15_000 });
+    await expect(ladderRows.first()).toContainText('99,000');
+
+    await relay.gateway.close();
+
+    await expect(statusBar(page)).toHaveAttribute('data-status', 'reconnecting', { timeout: 20_000 });
+    // DMA 필이 연결 상태를 말한다 — 문구는 `RELAY_STATE_LABELS` 한 곳. 자동 재연결 중에는 「다시 연결」이 없다.
+    await expect(statusBar(page)).toContainText('재접속 중');
+    await expect(statusBar(page).getByRole('button', { name: '다시 연결' })).toHaveCount(0);
+
+    // ★ 핵심 — 마지막 값이 남아 있어야 한다. 빈 화면으로 되돌리면 사용자가 문맥을 잃는다.
+    await expect(ladderRows).toHaveCount(20);
+    await expect(ladderRows.first()).toContainText('99,000');
   });
 });

@@ -14,7 +14,7 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
  *       (훅은 `lastError` 를 계산하고 있었지만 카드가 그리지 않아 거부가 로그 탭에만 조용히 쌓였다)
  *   옮긴 목록과 이어받은 자리의 대조표는 18-13 SUMMARY 에 있다.
  *
- * 카드는 작업대와 같은 조립으로 렌더한다 — `StrategyCard` + `CardBody variant="card"`(폼·사다리) +
+ * 카드는 작업대와 같은 조립으로 렌더한다 — `StrategyCard` + `CardBody`(폼·사다리) +
  * 그 카드의 로그(`StrategyLog`). 작업대는 로그를 공용 패널로 합칠 뿐 판정·생성은 카드 훅 하나다.
  */
 
@@ -171,7 +171,6 @@ function Card() {
       body={(s) => (
         <>
           <CardBody
-            variant="card"
             card={s}
             isin={ISIN}
             accountNo={ACCOUNT}

@@ -8,7 +8,7 @@ import type { RelayLimitChaser } from '@gh-radar/shared';
  * 행 클릭 → 인라인 입력(전체 선택) → Enter → `useLcFieldCommit` → `send({ t: 'lc.set' })` →
  * (relay → 게이트웨이 → 60 에코 = 여기서는 `limitChasers` 교체) → 행 값 갱신 + 900ms 강조.
  *
- * ★ 조립은 작업대와 같다 — `StrategyCard` + `CardBody variant="card"`. 카드 상태 훅의
+ * ★ 조립은 작업대와 같다 — `StrategyCard` + `CardBody`. 카드 상태 훅의
  *   `answerSeq`(답 신호)·`handleSent`(3초 타이머)가 **진짜로** 폼까지 내려와야 트레이서가 성립한다.
  *   relay 모킹 하네스는 `strategy-card-flow.test.tsx` 와 같은 모양이다.
  * ★ D-06 — 값 필드는 낙관 반영하지 않는다. 행이 바뀌는 유일한 근거는 에코의 그 필드 값이
@@ -129,7 +129,6 @@ function Card() {
       onExchangeChange={noop}
       body={(s) => (
         <CardBody
-          variant="card"
           card={s}
           isin={ISIN}
           accountNo={ACCOUNT}

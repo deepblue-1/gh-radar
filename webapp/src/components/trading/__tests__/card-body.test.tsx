@@ -10,7 +10,7 @@ import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-rad
  *   ② 그룹 제목줄 스위치 4개(Phase 20 — 매수취소 포함) · 제목 옆 보조문 5문구(「감시 중」 등)
  *   ③ 시세 없음 → 10단 행은 그리되 가격 「—」(E9 empty) · 값 없는 셀 클릭은 no-op(T-18-47)
  *   ④ 밴드는 **카드 폭**(`@min-[Npx]/lc:`) — 뷰포트 브레이크포인트 0건(D-28)
- *   ⑤ 주문유형 콤보는 카드 · 호가 탭 둘 다 있다(D-23 → D-31 · G-21-R3-10)
+ *   ⑤ 주문유형 콤보는 카드에 있다(D-23 → D-31 · G-21-R3-10 — 카드 한 표면 · 옛 호가 탭 variant 는 21-34 가 지웠다)
  *   ⑥ 즉시 반영 — 값 확정 1회 = `lc.set` 1회 · 더티 바·더티 테두리 없음(Phase 20 D-04)
  *
  * ★ jsdom 은 컨테이너 쿼리를 평가하지 않는다. 밴드 전환은 **클래스 존재**로만 단언하고,
@@ -184,7 +184,6 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
 
 function props(over: Partial<CardBodyProps> = {}): CardBodyProps {
   return {
-    variant: 'card',
     card: cardState(),
     isin: ISIN,
     accountNo: ACCOUNT,
@@ -345,15 +344,13 @@ describe('④ 밴드는 카드 폭이다 (D-28)', () => {
   });
 });
 
-describe('⑤ variant — 주문유형 콤보 (D-23 · D-31)', () => {
-  it('`variant="card"` 도 주문유형 콤보가 있다 (D-31 · G-21-R3-10 — 호가주문 탭 제거 뒤 시간외종가 신규 주문의 자리)', () => {
-    render(<CardBody {...props({ variant: 'card' })} />);
+describe('⑤ 주문유형 콤보 (D-23 · D-31 — 카드 한 표면)', () => {
+  it('카드 본문에 주문유형 콤보가 있다 (D-31 · G-21-R3-10 — 호가주문 탭 제거 뒤 시간외종가 신규 주문의 자리) · 표면 구분 속성·호가 탭 각주 없음', () => {
+    const { container } = render(<CardBody {...props()} />);
     expect(screen.getByRole('combobox', { name: '주문유형' })).toBeInTheDocument();
-  });
-
-  it('`variant="orderbook"` 는 주문유형 콤보가 있다', () => {
-    render(<CardBody {...props({ variant: 'orderbook' })} />);
-    expect(screen.getByRole('combobox', { name: '주문유형' })).toBeInTheDocument();
+    expect(bodyRoot(container)).not.toHaveAttribute('data-variant');
+    expect(bodyRoot(container).className).toContain('border-t');
+    expect(document.body.textContent).not.toContain('시간외종가는 정정 불가(취소 후 재등록)');
   });
 
   it('폰 밴드 3탭 「매수 | 매도 | 수동」 이 한 줄이다 — 폼 자체의 2탭 줄이 함께 서지 않는다', () => {
@@ -406,18 +403,11 @@ describe('⑥ 즉시 반영 — 더티 바 없음 (D-04)', () => {
     expect(all.some((el) => (el.getAttribute('class') ?? '').includes('var(--primary)_55%'))).toBe(false);
   }
 
-  it('작업대 카드 — 잔량 행 인라인 8000 Enter → lc.set 1회(cfg 8000) · 더티 바·더티 테두리 없음', () => {
+  it('작업대 카드 — 잔량 행 인라인 8000 Enter → lc.set 1회(cfg 8000) · 더티 바·더티 테두리 없음 · 종목명 바 문구도 없다', () => {
     render(<CardBody {...props({ card: cardState({ server: server() }) })} />);
     commitWatchQty('8000');
     expect(lcSets()).toHaveLength(1);
     expect(lcSets()[0]!.cfg!.buyWatchQty).toBe(8_000);
-    noDirtyTraces();
-  });
-
-  it('호가 탭(`variant="orderbook"`)도 같은 편집 뒤 더티 바가 없다 — 종목명 바 문구도 사라졌다', () => {
-    render(<CardBody {...props({ variant: 'orderbook', card: cardState({ server: server() }) })} />);
-    commitWatchQty('8000');
-    expect(lcSets()).toHaveLength(1);
     noDirtyTraces();
     expect(document.body.textContent).not.toContain('개 미반영');
     expect(document.body.textContent).not.toContain('「수정」을 눌러야 반영돼요');

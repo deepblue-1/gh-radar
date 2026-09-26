@@ -1,18 +1,17 @@
 'use client';
 
 /**
- * CardBody — 전략 카드 본문 = 종목상세 호가 탭 본문 (Phase 18 D-12 · D-19 · D-23 · D-24 · D-28, TRADE-07/09).
+ * CardBody — 전략 카드 본문 (Phase 18 D-12 · D-19 · D-23 · D-24 · D-28, TRADE-07/09).
  *
  * ① 무엇인가
  *   **좌 호가(+최근 체결) | 우 옵션 세팅 4그룹 + 적응형 수동주문.** 어느 밴드에서도 세로 스택이
  *   없다 — 좁아지면 두 칸의 폭이 줄 뿐 좌우 배치는 그대로다(D-12). 좌 pane 이 오른쪽 테두리를 갖는다.
- *   작업대 카드(`strategy-card.tsx` 의 `body` 렌더 prop)와 종목상세 호가 탭
- *   (`stock-orderbook-section.tsx`)이 **이 컴포넌트 하나**를 쓴다(D-24). 두 표면의 차이 셋 중
- *   본문에 들어오는 것은 ② 수동주문 각주 하나뿐이고 `variant` 가 그것을 가른다(주문유형은 D-31 부터 둘 다
- *   있다 · G-21-R3-10) — ① 거래소 자리(헤더 vs 상태줄) ③ 미체결 범위는 상위가 담당한다.
+ *   작업대 카드(`strategy-card.tsx` 의 `body` 렌더 prop)가 쓴다 — 카드 한 표면(D-31). 옛 종목상세 호가 탭도
+ *   이 본문을 썼지만(D-24) Phase 21 D-31 로 탭이 사라져 표면 구분(`variant`)과 호가 탭 전용 각주도 지웠다
+ *   (21-34). 시간외종가 신규 주문은 카드 수동주문 주문유형이 맡는다(21-33 · G-21-R3-10).
  *
  * ② ★ 밴드는 **카드(탭 본문) 폭**이다 — 뷰포트가 아니다 (D-28)
- *   여기 쓰는 `@min-[Npx]/lc:` 는 가장 가까운 `@container/lc` 조상(카드 래퍼 · 호가 탭 본문 래퍼)의
+ *   여기 쓰는 `@min-[Npx]/lc:` 는 가장 가까운 `@container/lc` 조상(카드 래퍼)의
  *   폭을 잰다. 새 경계 숫자를 도입하지 않고 뷰포트 브레이크포인트를 섞지 않는다 — 섞으면 §2.2b 가
  *   기록한 255px 역전이 되살아난다. 밴드 수치의 정본은 `webapp/src/styles/globals.css` §2.2b 다.
  *   2·3단 격자에서 카드 안 밀도가 폰 밴드로 떨어지는 것은 사용자가 확인한 의도된 결과다.
@@ -33,9 +32,8 @@
  *   건넨다. 본문이 들고 있는 것은 화면 국소 상태 둘뿐이다 — 폰 밴드 옵션 탭, 호가 클릭 가격.
  *   ★ 본문은 넘겨받은 **단일** `isin`/`exchange` 의 시세만 그리고, 수동주문 폼도 같은 값을 쓴다
  *     (T-18-48 — 다른 종목 호가로 주문하는 경로가 없다).
- *   ★ 예외 하나 — 호가 단위 잠금 강도(`useTickRule`, D-15a)는 여기서 읽는다. 두 표면(카드 · 호가 탭)이
- *     이 본문 하나를 쓰므로(D-24) 상따 폼과 수동주문 폼이 **같은 분류 값**을 받는다 — 진입 경로별로
- *     갈라지지 않는다. 종목 마스터를 읽기만 하는 조회다(`lib/tick-rule.ts`).
+ *   ★ 예외 하나 — 호가 단위 잠금 강도(`useTickRule`, D-15a)는 여기서 읽는다. 상따 폼과 수동주문 폼이
+ *     **같은 분류 값**을 받는다 — 폼별로 갈라지지 않는다. 종목 마스터를 읽기만 하는 조회다(`lib/tick-rule.ts`).
  *
  * ⑥ ★ 상따 설정에는 더티 바가 없다 (Phase 20 D-04)
  *   옵션 폼은 값 하나를 확정하면 그 한 필드가 곧 전송 1회다 — 더티 누적 · 「수정/되돌리기」 바 ·
@@ -144,8 +142,6 @@ export function cardGroupStatusOf(
 }
 
 export interface CardBodyProps {
-  /** `'card'` = 작업대 카드 · `'orderbook'` = 종목상세 호가 탭(각주만 다르다 — 주문유형은 둘 다 · D-31). */
-  variant: 'card' | 'orderbook';
   /** 카드 상태 — `useStrategyCardState` 의 반환 그대로(⑤). */
   card: StrategyCardState;
   isin: string;
@@ -172,7 +168,6 @@ export interface CardBodyProps {
 }
 
 export function CardBody({
-  variant,
   card,
   isin,
   accountNo,
@@ -260,7 +255,6 @@ export function CardBody({
 
   const form = (
     <ManualOrderForm
-      variant={variant}
       isin={isin}
       code={code ?? ''}
       name={displayName}
@@ -287,13 +281,12 @@ export function CardBody({
   return (
     <div
       data-slot="card-body"
-      data-variant={variant}
       className={cn(
         'grid min-w-0 grid-cols-[42%_minmax(0,1fr)] [&>*]:min-w-0',
         '@min-[700px]/lc:grid-cols-[260px_minmax(0,1fr)]',
         '@min-[830px]/lc:grid-cols-[400px_minmax(0,1fr)]',
         '@min-[992px]/lc:grid-cols-[460px_minmax(0,1fr)]',
-        variant === 'card' && 'border-t border-[var(--border-subtle)]',
+        'border-t border-[var(--border-subtle)]',
         className,
       )}
     >

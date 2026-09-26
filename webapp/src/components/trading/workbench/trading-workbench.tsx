@@ -1625,7 +1625,6 @@ const WorkbenchCardItem = memo(function WorkbenchCardItem({
   const body = useCallback(
     (state: StrategyCardState) => (
       <CardBody
-        variant="card"
         card={state}
         isin={isin}
         accountNo={accountNo}
