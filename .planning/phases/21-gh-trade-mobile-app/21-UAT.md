@@ -3,7 +3,7 @@ status: diagnosed
 phase: 21-gh-trade-mobile-app
 source: 21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md, 21-04-SUMMARY.md, 21-05-SUMMARY.md, 21-06-SUMMARY.md, 21-07-SUMMARY.md, 21-08-SUMMARY.md, 21-09-SUMMARY.md, 21-10-SUMMARY.md, 21-11-SUMMARY.md, 21-12-SUMMARY.md, 21-13-SUMMARY.md, 21-14-SUMMARY.md, 21-15-SUMMARY.md, 21-16-SUMMARY.md
 started: 2026-09-26T00:52:04Z
-updated: 2026-09-26T06:55:27Z
+updated: 2026-09-26T07:14:00Z
 ---
 
 <!--
@@ -13,7 +13,7 @@ UAT 2차(실서버). 앱 = 운영 URL 빌드(https://trade.jx1.io) · 웹 = push
 UAT 1차(로컬 dev) 결과·수정은 21-16-SUMMARY.md 「UAT 1차 결과」.
 status: diagnosed = 이슈 1건·신규 요청 3건의 원인/방향이 적혀 있고 /gsd-plan-phase 21 --gaps 로 넘길 준비가 됐다.
 테스트 13 은 2026-09-26 사용자 보고로 pass. 열린 결정 N1·N2·N3 는 같은 날 사용자가 확정했다(각 갭의 「결정」 줄). G-21-1 은 sketch 007 C(높이 60) 채택.
-UAT 3차(2026-09-26 · 21-24 push-then-recheck 뒤 운영 앱): 사용자 수정 요청 6건 → G-21-R3-1~6. 코드 리뷰(21-REVIEW.md) 13건 전부 처리 요청 → G-21-CR. 항목별 결정은 각 갭 「decision」 줄(2026-09-26 확정). 재리뷰·재검증 산출물은 -R2 파일로(21-REVIEW-R2.md · 21-VERIFICATION-R2.md) — 1차 기록 덮어쓰기 금지.
+UAT 3차(2026-09-26 · 21-24 push-then-recheck 뒤 운영 앱): 사용자 수정 요청 6건 → G-21-R3-1~6, 같은 날 추가 4건 → G-21-R3-7~10. 코드 리뷰(21-REVIEW.md) 13건 전부 처리 요청 → G-21-CR. 항목별 결정은 각 갭 「decision」 줄(2026-09-26 확정). 재리뷰·재검증 산출물은 -R2 파일로(21-REVIEW-R2.md · 21-VERIFICATION-R2.md) — 1차 기록 덮어쓰기 금지.
 -->
 
 ## Current Test
@@ -87,7 +87,7 @@ pending: 0
 skipped: 0
 blocked: 0
 new_requests: 3
-uat3_issues: 6
+uat3_issues: 10
 code_review_findings: 13
 
 ## Gaps
@@ -341,4 +341,108 @@ code_review_findings: 13
     - "WR-03 은 Android 브리지 구조 변경이라 iOS 와 출처 규칙을 맞추고 네이티브 스모크로 확인"
     - "처리 후 재리뷰는 21-REVIEW-R2.md(1차 덮어쓰기 금지 · findings ID 라운드 네임스페이스)"
   decision: "사용자 확정(2026-09-26): 코드 리뷰 수정사항 전부 처리(Info 포함)"
+  debug_session: ""
+
+- gap_id: G-21-R3-7
+  truth: "트레이딩 종목카드 ⓘ 종목정보 팝업의 크기가 탭(차트·종목정보·뉴스·토론)과 로딩 상태에 관계없이 고정이고, 넘치는 내용은 본문 안에서 스크롤된다. 닫기 ✕ 는 충분히 크고 히트 영역이 44×44 이상이다. 앱 폰 전체화면에서 헤더·✕·본문 끝이 노치·홈 인디케이터에 가리지 않는다"
+  status: failed
+  reason: "User requested (UAT 3차 추가): 트레이딩 페이지에서 종목정보 눌렀을 때 팝업 크기가 탭마다 다른데 고정되었으면 좋겠어. 그리고 X 버튼이 작아."
+  severity: minor
+  test: uat3-7
+  root_cause: "stock-info-modal.tsx — 700 미만은 이미 h-dvh 전체화면 고정(≈127), 700 이상은 min-[700px]:h-auto + max-h-[calc(100dvh-48px)](≈129)라 높이가 탭 내용을 따라간다(차트 ≈500px 가장 낮음 · 종목정보/뉴스·토론은 max-h 도달 · 종목정보는 스켈레톤→데이터로 로딩 중에도 출렁임). 폭은 이미 고정. 부수: 차트 탭만 스크롤바가 없어 비오버레이 스크롤바 환경에서 탭 전환 때 본문 폭이 변하고 autoSize 차트가 다시 그려진다. ✕ = h-8 w-8 상자 + 문자 「✕」 14px(≈143-152), 히트 32×32. 앱 폰 전체화면 시트에 safe-area 처리가 없다(viewport-fit=cover — 헤더·✕ 가 상태바/노치 밑, 본문 끝이 홈 인디케이터 밑). iPad 앱 max-h 도 safe-top/bottom 미반영."
+  artifacts:
+    - path: "webapp/src/components/trading/card/stock-info-modal.tsx"
+      issue: "크기 클래스(≈127-129) · 닫기(≈143-152) · 헤더(≈132) · 본문(≈189) · 머리 주석 ⑤(≈32-35 목업 정본) 갱신"
+    - path: "webapp/src/components/trading/__tests__/stock-info-modal.test.tsx"
+      issue: "역할·이름 단언만 — aria-label 「닫기」·closeRef 유지 시 통과. 크기 회귀 e2e 없음"
+  missing:
+    - "700 이상: h-[min(720px,calc(100dvh-48px-var(--app-safe-top)-var(--app-safe-bottom)))] 고정(폭 유지) · 본문 [scrollbar-gutter:stable]"
+    - "700 미만(폰 전체화면): 헤더 pt 에 --app-safe-top, 본문 pb 에 --app-safe-bottom(브라우저에선 0)"
+    - "✕ = lucide XIcon(aria-hidden) · size-8 상자 · 글리프 size-5 · after:-inset-1.5 로 44×44 — 카드 헤더 ✕(G-21-R3-6)와 같은 패턴"
+    - "e2e 신규: 세 탭을 돌며 dialog boundingBox 높이가 같은지(1024 폭) · 폰 폭 앱 모드 safe-area"
+  decision: "사용자 요청(2026-09-26): 팝업 크기 고정 + ✕ 키우기. 앱 safe-area 가림은 같은 표면 결함이라 함께 수정"
+  debug_session: ""
+
+- gap_id: G-21-R3-8
+  truth: "종목상세 「뉴스·토론」 탭과 트레이딩 ⓘ 팝업 「뉴스·토론」 탭에서 「전체 뉴스 보기」「전체 토론 보기」를 누르면 페이지를 떠나지 않고 탭 안에서 전체 목록으로 바뀌고, 뒤로가기(Android 뒤로가기 · 브라우저 뒤로 · Esc · 화면 안 ← 버튼)로 다시 요약 목록이 나온다"
+  status: failed
+  reason: "User requested (UAT 3차 추가): 뉴스토론에서 뉴스 전체보기나 종목토론 전체보기를 하면 페이지 자체가 넘어가는데, 뉴스토론 탭 안에서 페이지가 바뀌었으면 좋겠어. 뒤로가기 하면 다시 뉴스토론 목록이 나오도록. 이건 종목 상세페이지에서도 마찬가지야."
+  severity: minor
+  test: uat3-8
+  root_cause: "두 표면이 같은 섹션 컴포넌트를 재사용하고, 전체보기가 별도 라우트 Link 다 — stock-news-section.tsx:213-218 → /stocks/{code}/news, stock-discussion-section.tsx:269-274 → /stocks/{code}/discussions. 전체 페이지(news-page-client.tsx 246줄 · discussion-page-client.tsx 323줄)는 AppShell + 헤더 + 무한 스크롤이고 ← 가 Link 라 기록이 새로 쌓인다. 트레이딩 팝업에서 누르면 /trading 을 통째로 떠난다. 종목상세 탭은 ?tab= 을 history.pushState 로 쌓는다(stock-detail-tabs.tsx:99-119, 탭 keepMounted). iOS 셸에는 네이티브 뒤로가기(goBack·스와이프)가 없어 화면 안 ← 가 필수. Android 는 오버레이가 열려 있으면 합성 Escape, 없으면 WebView goBack."
+  artifacts:
+    - path: "webapp/src/components/stock/news-page-client.tsx"
+      issue: "목록 본문(목록·무한 스크롤·빈/오류)을 NewsFullList({code})로 분리 — 헤더·fetchStockDetail·notFound 는 페이지 쪽"
+    - path: "webapp/src/components/stock/discussion-page-client.tsx"
+      issue: "같은 방식으로 DiscussionFullList({code}) 분리(필터는 CLASSIFY_PAUSED 로 비활성)"
+    - path: "webapp/src/components/stock/stock-news-section.tsx · stock-discussion-section.tsx"
+      issue: "onShowAll?: () => void prop — 있으면 버튼, 없으면 기존 Link"
+    - path: "webapp/src/components/stock/stock-detail-tabs.tsx · stock-detail-client.tsx(≈232-237)"
+      issue: "?tab=news&view=news|discussions 를 pushState(허용 목록 검증) · 요약은 숨김 유지 · AppShell main.scrollTop 저장·복원 · handleValueChange 가드(≈107)가 tab 만 비교 — 전체목록 상태에서 뉴스·토론 탭 재클릭 시 요약 복귀"
+    - path: "webapp/src/components/trading/card/stock-info-modal.tsx"
+      issue: "로컬 state newsView + DialogContent onEscapeKeyDown(전체목록이면 preventDefault 후 요약) — /trading 에 pushState 금지(WorkbenchSurface useSearchParams 재렌더)"
+    - path: "webapp/src/app/stocks/[code]/news/page.tsx · discussions/page.tsx"
+      issue: "북마크 호환 — /stocks/[code]?tab=news&view=… 로 보내는 얇은 리다이렉트 페이지로 교체"
+    - path: "webapp/e2e/specs/news.spec.ts · discussions.spec.ts · discussion-filter.spec.ts · src/components/stock/__tests__/discussion-page-client.test.tsx · trading/__tests__/stock-info-modal.test.tsx"
+      issue: "href·전체 페이지 단언 갱신(news :52-68 · :97-130, discussions :81-84 · :101-280, filter :133-201)"
+  missing:
+    - "공용 전체목록 컴포넌트 분리 + 두 섹션 onShowAll"
+    - "종목상세: URL(view) + pushState · ← 버튼(우리가 쌓은 기록이면 history.back, 딥링크면 replaceState ?tab=news) · 스크롤 복원 · 탭 재클릭 = 요약"
+    - "트레이딩 팝업: 로컬 state + Esc/Android 뒤로 = 요약, 두 번째에 팝업 닫힘 · ← 버튼"
+    - "탭 안 전체목록에서 당겨서 새로고침(useNativeRefresh) 등록 여부 — 요약 섹션과 같은 규칙으로"
+    - "기존 전체 페이지는 리다이렉트로 교체 · 단위/e2e 갱신 + 뒤로가기 복귀 e2e"
+  decision: "사용자 요청(2026-09-26): 두 표면 모두 탭 안 전체목록 + 뒤로가기 = 요약 복귀. 기존 전체 페이지 URL 은 리다이렉트로 유지(북마크 호환) — 오케스트레이터 기본값, 플랜에서 이견 있으면 재확인"
+  debug_session: ""
+
+- gap_id: G-21-R3-9
+  truth: "종목상세의 「주문하기」 버튼이 「트레이딩」으로 바뀌고 모든 폭에 보이며(폰 하단 고정 바 · 넓은 폭은 종목 헤더), 누르면 /trading 으로 이동해 해당 종목 카드가 (없으면 새로 만들어져) 펼쳐지고 포커스된다. 매매 불가 종목(비 KOSPI/KOSDAQ · isin 없음)에서는 버튼이 없다"
+  status: failed
+  reason: "User requested (UAT 3차 추가): 종목상세 페이지에서 주문하기 버튼을 트레이딩으로 바꾸고, 누르면 트레이딩 페이지로 연결해줘. 해당 종목카드가 포커싱 되게."
+  severity: minor
+  test: uat3-9
+  root_cause: "stock-detail-tabs.tsx:220-234 폰 전용(md:hidden) 고정 바 detail-order-cta 가 handleValueChange('orderbook') — 호가주문 탭 전환일 뿐이고 768 이상에는 버튼이 없다. 트레이딩에는 ?focus={전략키}(등록 전략만, 마운트 1회) 뿐, 코드/ISIN 으로 카드를 만드는 URL 은 없다. 재사용 가능: ensureIsinCard(isin,name,code,reveal)(trading-workbench.tsx:767-779 — 있으면 펼침, 없으면 상태줄 계좌·KRX 로 생성, reveal 이면 스크롤·포커스), isPickable(stock-add-bar.tsx:79-82). 카드 배치는 localStorage 복원(restoreSavedCards ≈479-501)이 저장본을 앞세우고 같은 키를 버리므로 layoutRestored 이후에 처리해야 한다. 네이티브 탭바는 pathname 만 보므로 변경 불필요."
+  artifacts:
+    - path: "webapp/src/components/trading/workbench/trading-workbench.tsx"
+      issue: "?code= 소비(ref 1회 · layoutRestored 이후) → fetchStockDetail → isPickable → ensureIsinCard(…, true) → replaceState 로 ?code 제거. DMA 미매핑이면 DmaGate 가 대체(카드 없음)"
+    - path: "webapp/src/components/stock/stock-detail-tabs.tsx · stock-detail-client.tsx"
+      issue: "CTA → Link /trading?code= 「트레이딩」 · 넓은 폭 헤더 버튼 · StockDetailTabs 에 tradable/stock 전달(지금 code 만) · showOrderCta 단순화(G-21-R3-10 과 함께)"
+    - path: "webapp/src/components/stock/stock-hero.tsx"
+      issue: "넓은 폭 「트레이딩」 버튼 자리(가격 옆) — 배치는 목업 확인"
+    - path: "webapp/src/styles/globals.css"
+      issue: "detail-order-cta-bar 앱 bottom 82 · 예약 76(≈681-691) · 챗 FAB 올리기(≈766-774) — data-slot 유지 시 그대로"
+    - path: "webapp/e2e/specs/native-shell.spec.ts(≈195-258) · stock-detail-tabs.test.tsx(≈142-172) · trading-workbench.test.tsx · trading-workbench.spec.ts"
+      issue: "CTA 위치 단언 유지(data-slot 유지) · Test7(?tab=orderbook push)·Test8 갱신 · ?code= 단위/e2e 신규"
+  missing:
+    - "트레이딩 ?code= 소비(카드 생성·펼침·포커스 · 검증 · 1회 소비)"
+    - "종목상세 「트레이딩」 버튼: 폰 하단 바(이름·동작 교체) + 넓은 폭 종목 헤더 신규 · 매매 불가 종목 숨김"
+    - "넓은 폭 헤더 버튼 배치는 HTML 목업(다크/라이트) 먼저 — 프로젝트 관례(G-21-R3-2 /me 전략 로그 목업과 같이 보여 줌)"
+    - "e2e: 종목상세 → 트레이딩 → 해당 카드 포커스 · 없는 카드 생성 · 매매 불가 숨김"
+  decision: "사용자 확정(2026-09-26): 버튼 이름 「트레이딩」 · 모든 폭(폰 하단 바 + 넓은 폭 종목 헤더) · 매매 불가 종목은 숨김"
+  debug_session: ""
+
+- gap_id: G-21-R3-10
+  truth: "종목상세에 호가주문 탭이 없고, 시간외종가 신규 주문은 트레이딩 종목카드 수동주문에서 주문유형(지정가/시간외종가)으로 계속 할 수 있다"
+  status: failed
+  reason: "User requested (UAT 3차 추가): 종목상세 페이지에서 호가주문은 제거하자."
+  severity: minor
+  test: uat3-10
+  root_cause: "호가주문 = stock-orderbook-section.tsx(756줄) + stock-detail-tabs 의 orderbook 탭·패널·keepMounted 예외·CTA 조건. 공용 manual-order-form.tsx · card-body.tsx 안의 variant=\"orderbook\" 분기가 시간외종가 신규 주문의 유일한 UI 다(카드는 항상 지정가, manual-order-form.tsx:404-405). CTA 가 지금 호가주문 탭을 열어 G-21-R3-9 와 한 번에 해야 한다. 트레이딩과 공유하는 components/orderbook/*(account-panel · order-panel · orderbook-ladder · trade-tape · order-confirm-dialog), QuoteGrid10, useStrategyCardState 등은 유지."
+  artifacts:
+    - path: "webapp/src/components/stock/stock-orderbook-section.tsx"
+      issue: "삭제"
+    - path: "webapp/src/components/stock/stock-detail-tabs.tsx · stock-detail-client.tsx · app/stocks/[code]/page.tsx · styles/globals.css · lib/exchange-choices.ts(KRX_ONLY_TITLE)"
+      issue: "orderbook 탭·패널·prop·import·주석 정리. ?tab=orderbook 딥링크는 /trading?code= 로 보냄"
+    - path: "webapp/src/components/trading/**/manual-order-form.tsx · card-body.tsx"
+      issue: "orderbook 전용 분기(≈130, 296, 378, 404-405, 459-460, 937~ 주문유형 select, 1058-1062 / card-body ≈9-11, 148, 175, 263, 290, 296)를 정리하되 주문유형(지정가/시간외종가) 선택은 카드 수동주문으로 옮긴다"
+    - path: "webapp/src/components/orderbook/relay-status-bar.tsx · orderbook-skeleton.tsx"
+      issue: "운영 미사용(테스트만 import) — 함께 정리"
+    - path: "tests"
+      issue: "삭제: stock/__tests__/orderbook.test.tsx · stock-orderbook-section.test.tsx · e2e/specs/orderbook.spec.ts(900줄 — 이 파일에만 있는 검증[인증→구독→10단 · 재접속 · 비로그인 wss 없음 · 폭별 상태줄/시간외 배치 · 390 미체결 리플로우]은 작업대 스펙으로 옮길지 선별). 수정: stock-detail-tabs.test(≈28-30, 58, 72, 111-124, 142-172) · stock-detail-client.test(≈46, 140 4탭) · stock-native-refresh.test(≈62) · card-body.test(≈354, 417) · manual-order-form.test(variant orderbook ≈21건) · stock-detail-tabs.spec(≈87, 151-165, 228, 256-261) · trading-workbench.spec GC6(≈1124-1140 「호가 탭에서도」 재작성)"
+  missing:
+    - "종목상세 호가주문 탭·섹션 제거 + ?tab=orderbook 딥링크 → /trading?code="
+    - "트레이딩 카드 수동주문에 주문유형(지정가/시간외종가) 선택 이전 — 시간외 시간대 표시(queuedWindowBadgeOf) 포함. 카드 안 배치는 목업 확인 권장"
+    - "orderbook 전용 분기·미사용 파일 정리, 공유 모듈 유지"
+    - "테스트 삭제/이전/수정 — orderbook.spec 고유 검증 선별 이전"
+    - "G-21-R3-9 와 같은 플랜(또는 같은 웨이브 순서)으로 — CTA 가 갈 곳이 없어지는 중간 상태 금지"
+  decision: "사용자 확정(2026-09-26): 종목상세 호가주문 제거, 시간외종가 신규 주문은 트레이딩 카드 수동주문으로 옮겨 유지"
   debug_session: ""
