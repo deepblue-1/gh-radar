@@ -262,7 +262,8 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
     const user = userEvent.setup();
     render(<CardTabs {...props()} />);
     const H = 'h-[calc(3*(11px*var(--lh-normal)+6px)+4px)]';
-    for (const label of ['정보', '미체결', '잔고', '로그']) {
+    // 정보는 이미 활성이라 다시 누르면 접힌다(260926) — 다른 탭부터 돌고 정보로 돌아온다.
+    for (const label of ['미체결', '잔고', '로그', '정보']) {
       await user.click(tabNamed(label));
       const panel = within(root()).getByRole('tabpanel');
       expect(body().contains(panel)).toBe(true);
@@ -329,6 +330,29 @@ describe('CardTabs — 고정 높이 본문 · 접기 (quick-260925-ptw)', () =>
     expect(body()).not.toHaveAttribute('hidden');
     expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
     expect(readPanelsPref().cardTabsFolded).toBe(false);
+  });
+
+  it('펼친 상태에서 이미 선택된 탭을 다시 누르면 접히고 true 저장 · 다른 탭은 전환만 · 다시 누르면 펼침 (260926)', async () => {
+    const user = userEvent.setup();
+    render(<CardTabs {...props()} />);
+    await user.click(tabNamed('잔고')); // 다른 탭 — 전환만
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(tabNamed('잔고')); // 선택된 탭 재클릭 — 접힘
+    expect(body()).toHaveAttribute('hidden');
+    expect(fold()).toHaveAttribute('aria-expanded', 'false');
+    expect(tabNamed('잔고')).toHaveAttribute('aria-selected', 'true');
+    expect(readPanelsPref().cardTabsFolded).toBe(true);
+
+    await user.click(tabNamed('잔고')); // 접힌 상태 재클릭 — 펼침
+    expect(body()).not.toHaveAttribute('hidden');
+    expect(readPanelsPref().cardTabsFolded).toBe(false);
+
+    // 키보드 — 선택된 탭에서 Enter 도 같은 토글
+    tabNamed('잔고').focus();
+    await user.keyboard('{Enter}');
+    expect(body()).toHaveAttribute('hidden');
   });
 
   it('접힌 상태에서 새 requestedTab.seq 가 오면 그 탭으로 펼쳐진다 — 선호는 저장하지 않는다', async () => {

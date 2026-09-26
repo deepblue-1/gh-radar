@@ -31,6 +31,8 @@
  *   ★ **접힘**만 `readPanelsPref/writePanelsPref`(`cardTabsFolded`)로 기억해 새로 마운트되는 카드의
  *     기본값이 된다(이미 떠 있는 다른 카드는 자기 값을 유지) — quick-260925-ptw. 접힌 상태에서 탭을
  *     누르면 펼치고(선호 false 저장), 알림의 탭 요청(⑦)은 펼치기만 한다(선호 변경이 아니다).
+ *   ★ 펼친 상태에서 **이미 선택된 탭을 다시 누르면 접는다**(접기 버튼과 같은 동작 · 선호 true 저장 —
+ *     2026-09-26 사용자 요청). 다른 탭을 누르면 전환만 한다.
  *
  * ⑥ 반응형은 카드의 `@container/lc` 가 잰다 — 뷰포트 브레이크포인트도, 새 `@container` 선언도
  *   두지 않는다(D-28).
@@ -41,7 +43,7 @@
  *   소비한다.
  */
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import type {
   RelayAccountState,
@@ -135,10 +137,35 @@ export function CardTabs({
     setFolded(next);
     writePanelsPref({ cardTabsFolded: next });
   }, []);
-  /** 접힌 상태에서 탭(활성 탭 재클릭 포함 — Radix `onValueChange` 가 안 불린다)을 누르면 펼친다. */
-  const unfoldOnTab = useCallback(() => {
+  /**
+   * 누르기 시작한 순간 그 탭이 이미 활성이었나(⑤). Radix 는 mousedown/Enter·Space 에서 값을 바꾸고
+   * click 은 그 재렌더 뒤에 오므로, click 시점의 `tab` 으로는 「원래 활성」을 알 수 없다 — 우리 핸들러가
+   * Radix 보다 먼저 불리는 pointerdown/keydown 에서 기록한다.
+   */
+  const pressedActiveRef = useRef(false);
+  const markPress = useCallback(
+    (value: CardTab) => {
+      pressedActiveRef.current = value === tab;
+    },
+    [tab],
+  );
+  /**
+   * 탭 클릭 — 접혀 있으면 펼친다(활성 탭 재클릭 포함 — Radix `onValueChange` 가 안 불린다).
+   * 펼쳐져 있고 이미 활성이던 탭을 다시 눌렀으면 접는다.
+   */
+  const onTabClick = useCallback(() => {
+    const pressedActive = pressedActiveRef.current;
+    pressedActiveRef.current = false;
     if (folded) setFoldedPref(false);
+    else if (pressedActive) setFoldedPref(true);
   }, [folded, setFoldedPref]);
+  const triggerHandlers = (value: CardTab) => ({
+    onPointerDown: () => markPress(value),
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") markPress(value);
+    },
+    onClick: onTabClick,
+  });
   // ⑦ — seq 가 바뀔 때만 요청이 이긴다(같은 요청 재렌더는 사용자 선택을 덮지 않는다).
   const reqSeq = requestedTab?.seq;
   const reqTab = requestedTab?.tab;
@@ -173,18 +200,18 @@ export function CardTabs({
           aria-label="카드 탭"
           className="h-auto min-w-0 flex-1 justify-start gap-0.5 overflow-x-auto bg-transparent p-0"
         >
-          <TabsTrigger value="info" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+          <TabsTrigger value="info" className={CARD_TAB_TRIGGER} {...triggerHandlers("info")}>
             정보
           </TabsTrigger>
-          <TabsTrigger value="unfilled" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+          <TabsTrigger value="unfilled" className={CARD_TAB_TRIGGER} {...triggerHandlers("unfilled")}>
             미체결
             <CountBadge count={unfilledCount} />
           </TabsTrigger>
-          <TabsTrigger value="holdings" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+          <TabsTrigger value="holdings" className={CARD_TAB_TRIGGER} {...triggerHandlers("holdings")}>
             잔고
             <CountBadge count={holdingCount} />
           </TabsTrigger>
-          <TabsTrigger value="log" className={CARD_TAB_TRIGGER} onClick={unfoldOnTab}>
+          <TabsTrigger value="log" className={CARD_TAB_TRIGGER} {...triggerHandlers("log")}>
             로그
             <CountBadge count={logCount} />
           </TabsTrigger>
