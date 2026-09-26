@@ -196,6 +196,21 @@ describe('CardHeader', () => {
     expect(info).not.toBeDisabled();
   });
 
+  it('✕ = data-slot card-close · 32 상자(size-8) + aria-hidden 아이콘 하나 · 글리프 없음 · 히트 44(after:-inset-1.5) · 760 이상 order-last (G-21-R3-6)', () => {
+    renderHeader();
+    const close = screen.getByRole('button', { name: '에코프로비엠 카드 닫기' });
+    expect(close).toHaveAttribute('data-slot', 'card-close');
+    expect(close.textContent).toBe('');
+    const svgs = close.querySelectorAll('svg');
+    expect(svgs).toHaveLength(1);
+    expect(svgs[0]).toHaveAttribute('aria-hidden', 'true');
+    const tokens = close.className.split(/\s+/);
+    for (const c of ['size-8', 'relative', 'after:absolute', 'after:-inset-1.5', '-my-[3px]', '@min-[760px]/lc:order-last']) {
+      expect(tokens).toContain(c);
+    }
+    expect(tokens).not.toContain('h-[26px]');
+  });
+
   it('code 가 없는 카드(돌파 유래 · relay lookup 실패)는 ⓘ 가 disabled 다', () => {
     const { props } = renderHeader({ code: null, name: ISIN });
     const info = screen.getByRole('button', { name: '종목정보' });

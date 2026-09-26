@@ -190,6 +190,21 @@ describe('② SettingGroup — 둥근 면 · 제목줄 · 꺼진 그룹 흐림 (
     expect(screen.getByRole('region', { name: '매수 가격 설정' })).toBe(section);
   });
 
+  it.each(['buy-price', 'sell-price'] as const)(
+    '제목 없는 가격 섹션(%s)은 상단 패딩 pt-1 — 44px 행이 위 여백을 이미 가진다(G-21-R3-5)',
+    (slot) => {
+      const { container } = render(
+        <SettingGroup spec={groupOf(slot)}>
+          <div>행</div>
+        </SettingGroup>,
+      );
+      const tokens = (container.querySelector('section') as HTMLElement).className.split(/\s+/);
+      expect(tokens).toContain('pt-1');
+      expect(tokens).not.toContain('pt-2.5');
+      for (const c of ['px-2.5', 'pb-1']) expect(tokens).toContain(c);
+    },
+  );
+
   it('헤더는 제목 15/600 + 상태 한 흐름이고 스위치는 오른쪽 끝(마지막 자식)이다', () => {
     const { container } = render(
       <SettingGroup
