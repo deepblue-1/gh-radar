@@ -728,7 +728,7 @@ describe("AppSidebar — 하단 줄 (테마 토글의 새 집)", () => {
     setupReady();
     render(<AppSidebar />);
 
-    const toggle = screen.getByRole("button", { name: /모드 \(클릭 시/ });
+    const toggle = screen.getByRole("button", { name: /모드로 전환$/ });
     const userSection = screen.getByTestId("user-section");
 
     // 같은 래퍼의 자식 둘 — 하나가 다른 하나를 감싸면 레이아웃이 어긋난다.
@@ -750,6 +750,6 @@ describe("AppSidebar — 하단 줄 (테마 토글의 새 집)", () => {
     mockAuth = guest();
     render(<AppSidebar />);
 
-    expect(screen.getByRole("button", { name: /모드 \(클릭 시/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /모드로 전환$/ })).toBeInTheDocument();
   });
 });
