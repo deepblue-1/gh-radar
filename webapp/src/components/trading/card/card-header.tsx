@@ -7,6 +7,7 @@
  *   `l1` = 캐럿 ▶ · 종목명(한 줄 · 코드 표시 없음 — quick-260925-ptw) · ⓘ 종목정보 · KRX|NXT
  *          세그먼트 · 우측 현재가+등락률
  *   ✕ 카드 제거 = 종목명 줄의 맨 오른쪽(등락률 오른쪽) — l1/l2 어느 쪽에도 속하지 않는 헤더 직계
+ *     32 상자 · 16 아이콘 · 히트 44(G-21-R3-6)
  *   `l2` = LED 3칩(매수 · 매도 · 취소)(펼침) 또는 점 + 요약 칩(접힘) — 카드 760 미만은 둘째 줄
  *          전체, 760 이상은 ✕ 앞 한 줄
  *   ★ 접힘 = 점 3개 + 요약 칩(「미체결 N」 · 「잔고 N주」) · 펼침 = 칩 3개 (quick-260923-onn ·
@@ -47,6 +48,7 @@
 
 import type { MouseEvent, SyntheticEvent } from "react";
 import type { RelayExchange } from "@gh-radar/shared";
+import { XIcon } from "lucide-react";
 
 import {
   LatchLed,
@@ -272,7 +274,10 @@ export function CardHeader({
         </span>
       </div>
 
-      {/* ✕ — 종목명 줄 맨 오른쪽. 760 미만은 DOM 순서대로 l1 바로 뒤, 760 이상은 LED 뒤(order-last). */}
+      {/*
+        ✕ — 종목명 줄 맨 오른쪽. 760 미만은 DOM 순서대로 l1 바로 뒤, 760 이상은 LED 뒤(order-last).
+        32 상자 · 16 아이콘 · 히트 44(after:-inset-1.5 · G-21-R3-6). -my-[3px] 로 헤더 줄 높이 26 을 지킨다.
+      */}
       <button
         type="button"
         title="카드 제거"
@@ -281,9 +286,10 @@ export function CardHeader({
           e.stopPropagation();
           onClose();
         }}
-        className="inline-flex h-[26px] flex-none items-center rounded-[var(--r)] px-2 text-[11px] font-semibold text-[var(--muted-fg)] hover:bg-[var(--muted)] @min-[760px]/lc:order-last"
+        data-slot="card-close"
+        className="relative inline-flex size-8 -my-[3px] flex-none items-center justify-center rounded-[var(--r)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)] after:absolute after:-inset-1.5 after:content-[''] @min-[760px]/lc:order-last"
       >
-        ✕
+        <XIcon aria-hidden="true" className="size-4" />
       </button>
 
       <div

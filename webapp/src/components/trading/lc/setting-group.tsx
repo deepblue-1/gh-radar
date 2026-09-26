@@ -263,6 +263,8 @@ export interface SettingGroupProps {
  * 그룹 사이 간격 10 은 부모(`flex flex-col gap-2.5`)가 준다.
  *
  * ★ 헤더는 `title` 이 있을 때만 그린다 — 가격 섹션은 헤더 없이 접근성 이름만 갖는다.
+ * ★ 상단 패딩은 제목 유무로 가른다(G-21-R3-5) — 제목 없는 그룹은 첫 44px 행(items-center)이 위 여백을
+ *   이미 가지므로 pt-1(4)이다. pt-2.5 를 그대로 두면 위 ≈21px · 아래 ≈15px 로 비대칭이 된다.
  * ★ 제목과 상태는 **한 텍스트 흐름**이다(`min-w-0 flex-1`). 폰 밴드에서 「발주 완료 · 무장 해제」가
  *   길면 상태가 둘째 줄로 내려간다 — 헤더만 커지고 행 높이는 불변이며 말줄임은 없다(E1 long-text).
  *   제목과 상태 사이의 공백 문자는 장식이 아니다 — `keep-all` 에서 둘 사이의 유일한 줄바꿈 기회다.
@@ -278,7 +280,7 @@ export function SettingGroup({ spec, statusText, on, switchNode, children }: Set
       data-slot={`lc-group-${spec.slot}`}
       title={spec.hint}
       aria-label={spec.ariaLabel}
-      className="min-w-0 rounded-[16px] bg-[var(--group-bg)] px-2.5 pt-2.5 pb-1"
+      className={cn('min-w-0 rounded-[16px] bg-[var(--group-bg)] px-2.5 pb-1', spec.title ? 'pt-2.5' : 'pt-1')}
     >
       {spec.title ? (
         <div data-slot="lc-group-header" className="flex min-h-6 min-w-0 items-center gap-2 px-0.5 pb-0.5">
