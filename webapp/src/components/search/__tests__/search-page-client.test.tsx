@@ -12,6 +12,9 @@ import type { Stock } from '@gh-radar/shared';
  *  ③ 로딩·오류·빈 결과 문구는 GlobalSearch 와 같은 문자열
  *  ④ 허브 데이터는 마운트 1회 — scanner 실패는 그 칸만 조용한 안내 · 타일 「—」
  *  ⑤ useNativeRefresh 로 허브 재조회가 등록된다
+ *  ⑥ 이전 검색어의 늦은 응답은 새 검색어의 결과가 아니다(WR-05) — 판정은 훅이 돌려주는 resultsQuery.
+ *     깨지면 「삼성」 입력 직후 「삼」 의 빈 결과로 「해당하는 종목이 없습니다」가 번쩍이고, Enter 가
+ *     이전 검색어의 첫 종목으로 이동·최근 검색 저장한다
  */
 
 // ---------- Mocks ----------
@@ -304,6 +307,63 @@ describe('SearchPageClient — 입력 중', () => {
     typeQuery('xyz');
     await debounce();
     expect(screen.getByText('"xyz" 에 해당하는 종목이 없습니다')).toBeInTheDocument();
+  });
+
+  it('늦은 응답(WR-05): 「삼」 응답(빈)이 「삼성」 입력 뒤 도착 → 검색 중… · 결과 0 문구 없음 · Enter 무시 → 「삼성」 결과 도착 시 행 표시', async () => {
+    let resolveSam: (v: Stock[]) => void = () => {};
+    searchStocksMock.mockImplementation((q: string) =>
+      q === '삼'
+        ? new Promise<Stock[]>((res) => {
+            resolveSam = res;
+          })
+        : Promise.resolve([SAMSUNG]),
+    );
+    await renderPage();
+    typeQuery('삼');
+    await debounce();
+    expect(searchStocksMock).toHaveBeenCalledWith('삼', expect.any(AbortSignal));
+
+    // 「삼성」 입력 — 디바운스 타이머가 발화하기 전에 「삼」 의 빈 응답이 도착한다.
+    typeQuery('삼성');
+    await act(async () => {
+      resolveSam([]);
+    });
+    await flush();
+
+    expect(screen.getByText('검색 중…')).toBeInTheDocument();
+    expect(screen.queryByText(/에 해당하는 종목이 없습니다/)).toBeNull();
+    fireEvent.submit(screen.getByRole('searchbox', { name: '종목 검색' }));
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem('gh-radar:recent-search')).toBeNull();
+
+    await debounce();
+    expect(searchStocksMock).toHaveBeenCalledWith('삼성', expect.any(AbortSignal));
+    const results = screen.getByRole('region', { name: '검색 결과' });
+    expect(within(results).getByText('삼성전자')).toBeInTheDocument();
+  });
+
+  it('늦은 응답(WR-05): 「삼」 결과(행 있음)가 「삼성」 입력 뒤 도착해도 Enter 는 이동·저장하지 않는다', async () => {
+    let resolveSam: (v: Stock[]) => void = () => {};
+    searchStocksMock.mockImplementation((q: string) =>
+      q === '삼'
+        ? new Promise<Stock[]>((res) => {
+            resolveSam = res;
+          })
+        : new Promise<Stock[]>(() => {}),
+    );
+    await renderPage();
+    typeQuery('삼');
+    await debounce();
+    typeQuery('삼성');
+    await act(async () => {
+      resolveSam([SAMSUNG_SDI]);
+    });
+    await flush();
+
+    expect(screen.getByText('검색 중…')).toBeInTheDocument();
+    fireEvent.submit(screen.getByRole('searchbox', { name: '종목 검색' }));
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem('gh-radar:recent-search')).toBeNull();
   });
 
   it('Enter → 첫 결과로 이동', async () => {

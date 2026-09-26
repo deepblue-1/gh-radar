@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  RECENT_CODE_RE,
   RECENT_SEARCH_KEY,
   RECENT_SEARCH_MAX,
   clearRecentSearches,
@@ -17,6 +18,8 @@ import {
  *  ② 깨진 JSON · 배열 아님 · code/name 이 문자열이 아닌 원소는 버린다(T-21-32)
  *  ③ push = 최신 앞 · 같은 코드 중복 없음 · 11개째에 가장 오래된 것이 빠진다
  *  ④ 저장소가 throw 해도 throw 하지 않는다(저장 실패가 화면을 막지 않는다)
+ *  ⑤ 종목 코드 형식(6자리 대문자·숫자)이 아니면 읽기·쓰기 모두 버린다(IN-07) — 깨지면
+ *     조작된 저장값 `../me` 가 `/stocks/${code}` 링크로 들어가 다른 같은 출처 경로로 보낸다
  */
 
 beforeEach(() => {
@@ -60,6 +63,32 @@ describe('recent-search', () => {
     expect(list.map((i) => i.code)).toEqual(['005930', '035420']);
     // 잘못된 market·at 은 필드만 걸러진다
     expect(list[1]).toEqual({ code: '035420', name: 'NAVER', at: 0 });
+  });
+
+  it('IN-07: 종목 코드 형식이 아닌 저장값(../me · x?y)은 읽을 때 버린다 — 005930 · 0000J0 은 남는다', () => {
+    window.localStorage.setItem(
+      RECENT_SEARCH_KEY,
+      JSON.stringify([
+        { code: '../me', name: '경로 조작', at: 4 },
+        { code: 'x?y', name: '쿼리 조작', at: 3 },
+        { code: '005930', name: '삼성전자', at: 2 },
+        { code: '0000J0', name: '신형 코드', at: 1 },
+      ]),
+    );
+    expect(readRecentSearches().map((i) => i.code)).toEqual(['005930', '0000J0']);
+    expect(RECENT_CODE_RE.test('0000J0')).toBe(true);
+    expect(RECENT_CODE_RE.test('00593')).toBe(false);
+    expect(RECENT_CODE_RE.test('005930a')).toBe(false);
+  });
+
+  it('IN-07: 형식이 아닌 코드 push 는 저장하지 않고 기존 목록을 그대로 돌려준다(throw 없음)', () => {
+    pushRecentSearch({ code: '005930', name: '삼성전자' });
+    let list: ReturnType<typeof pushRecentSearch> = [];
+    expect(() => {
+      list = pushRecentSearch({ code: '../me', name: 'x' });
+    }).not.toThrow();
+    expect(list.map((i) => i.code)).toEqual(['005930']);
+    expect(readRecentSearches().map((i) => i.code)).toEqual(['005930']);
   });
 
   it('push → 첫 원소가 그 종목, at 은 Date.now()', () => {
