@@ -733,22 +733,49 @@ function domSafe(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
+const NATIVE_TABBAR_PROBE_SLOT = "native-tabbar-probe";
+
+/**
+ * 앱 네이티브 탭바 몫(px) — 브라우저(`html.native-app` 없음)는 0.
+ * ★ `--native-tabbar-offset` 은 `calc(var(--native-tabbar-gap) + 60px + 8px)` 이라 `getPropertyValue` 로는 px 를
+ *   못 읽는다(계산 전 토큰 문자열이 온다). 그래서 문서에 **한 번만** 까는 숨은 프로브(`position:fixed` ·
+ *   `bottom: var(--native-tabbar-offset, 0px)` · 높이 0 · `visibility:hidden`)의 computed `bottom` 을 읽는다 —
+ *   `bottom` 은 계산값이 px 로 풀린다(안전영역 · `max()` 포함). 새 모듈 없이 이 파일 안에 둔다.
+ */
+function nativeTabbarOffsetPx(): number {
+  let probe = document.querySelector<HTMLElement>(`[data-slot="${NATIVE_TABBAR_PROBE_SLOT}"]`);
+  if (probe === null) {
+    probe = document.createElement("div");
+    probe.setAttribute("data-slot", NATIVE_TABBAR_PROBE_SLOT);
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "position:fixed;left:0;bottom:var(--native-tabbar-offset, 0px);width:0;height:0;visibility:hidden;pointer-events:none";
+    document.body.appendChild(probe);
+  }
+  return parseFloat(getComputedStyle(probe).bottom) || 0;
+}
+
 /**
  * 카드 하단 더티 바를 화면 아래에 붙인다(목업 B 의 sticky 흉내 · 2026-09-23). 바 자리는 카드 마지막 자식이라
  * 제자리 = 카드 끝이다. 카드 끝이 화면 아래(폰은 공용 패널 위 `--wb-bottom-inset`)보다 밑에 있고 카드 머리가
  * 그 위에 보이는 동안만 그 차이만큼 위로 올린다(`translateY`) — 카드를 지나가면 제자리로 돌아가 함께 사라진다.
  * 카드는 `overflow: clip` 이라 올린 바가 카드 밖으로 나가지 않는다.
+ * ★ 앱은 탭바 몫까지 비킨다(G-21-R3-2 · D-25a) — 화면 아래 = `innerHeight − --wb-bottom-inset − 탭바 몫`.
+ *   앱은 공용 패널을 숨기므로(inset 0) 탭바 몫이 빠지면 바가 네이티브 탭바 밑으로 들어간다(기존 결함).
+ *   프로브는 카드가 서면 먼저 깐다 — 바가 뜨는 첫 프레임에 DOM 을 만들지 않고, e2e 가 px 해석을 잴 수 있다.
  */
 function usePinnedToViewportBottom(host: HTMLElement | null, active: boolean): void {
   useEffect(() => {
-    if (host === null || !active) return;
+    if (host === null) return;
+    nativeTabbarOffsetPx();
+    if (!active) return;
     const card = host.parentElement;
     if (card === null) return;
     let frame = 0;
     const place = () => {
       frame = 0;
       const inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--wb-bottom-inset")) || 0;
-      const limit = window.innerHeight - inset;
+      const limit = window.innerHeight - inset - nativeTabbarOffsetPx();
       const r = card.getBoundingClientRect();
       const lift = r.bottom > limit && r.top + host.offsetHeight < limit ? limit - r.bottom : 0;
       host.style.transform = lift === 0 ? "" : `translateY(${lift}px)`;
@@ -923,7 +950,7 @@ function StrategyCardImpl({
       </DirtyBarHostContext.Provider>
       {/*
         카드 하단 더티 바 자리 — 카드가 화면보다 길면 카드가 보이는 동안 화면 아래(폰은 공용 패널 위 ·
-        `--wb-bottom-inset`)에 붙어 따라오고, 카드를 지나가면 함께 사라진다(`usePinnedToViewportBottom`).
+        `--wb-bottom-inset` · 앱은 네이티브 탭바 위)에 붙어 따라오고, 카드를 지나가면 함께 사라진다(`usePinnedToViewportBottom`).
         ★ CSS sticky 를 쓰지 않는다 — 앱 셸 `main` 이 `overflow-auto` 스크롤 컨테이너(높이 무제한이라 스크롤은
           창이 한다)라 sticky 가 영영 붙지 않는다(shared-panels ⑤-b 와 같은 함정). 비면 자리도 없다(`empty:hidden`).
       */}

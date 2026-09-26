@@ -15,6 +15,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
+import { installNativeApp } from '../fixtures/native-app';
 import { leavesOverflowing, scrollOverflowing } from '../overflow';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
@@ -755,6 +756,54 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     const panelAtEnd = await sharedPanels(page).boundingBox();
     expect(Math.abs(panelAtEnd!.y + panelAtEnd!.height - viewportH), '맨 아래 — 패널은 화면 하단 그대로').toBeLessThanOrEqual(1);
     expect(lastCard!.y + lastCard!.height, '맨 아래 — 카드 끝이 패널에 묻히지 않는다').toBeLessThanOrEqual(panelAtEnd!.y + 1);
+  });
+
+  test('G-21-R3-2 앱 공용 패널 숨김 — 앱 390 · 1024 는 패널 · spacer 가 없고 탭바 몫은 82px 로 풀린다, 브라우저 390 · 1280 은 그대로 보인다 (D-25a)', async ({
+    page,
+  }) => {
+    /*
+      앱(html.native-app)은 /trading 하단 공용 패널과 흐름 안 자리(spacer)를 CSS 로 숨긴다(폰 · iPad 공통) —
+      네이티브 탭바 위에 겹쳐 쌓이던 문제. 브라우저는 종전 그대로다(T-21-89).
+      ★ 카드 더티 바 자체는 Phase 20 D-04 이후 렌더되는 곳이 없어(값은 행 확정 = 즉시 전송) UI 로 더티 카드를
+        만들 수 없다. 그래서 바 위치 식(innerHeight − inset − 탭바 몫)은 strategy-card.test 가 잠그고, 여기서는
+        그 식의 입력인 **프로브 계산값**이 실브라우저에서 14 + 60 + 8 = 82px(안전영역 0)로 풀리는지를 본다.
+    */
+    relay.seedLimitChasers([{ buyEnabled: true }]);
+    const spacer = page.locator('[data-slot="shared-panels-spacer"]');
+    const probeBottom = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-slot="native-tabbar-probe"]');
+        return el === null ? null : getComputedStyle(el).bottom;
+      });
+
+    // ① 브라우저 390 · 1280 — 패널이 보인다(폰은 포털 + spacer).
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await openFocusedCard(page);
+    await expect(sharedPanels(page)).toBeVisible();
+    await expect(sharedPanels(page)).toHaveAttribute('data-pinned', 'true');
+    await expect(spacer).toHaveCount(1);
+    expect(await probeBottom(), '브라우저 — 탭바 몫 0').toBe('0px');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(sharedPanels(page)).toBeVisible();
+
+    // ② 앱 390 — 패널 · spacer 가 없고, 패널 높이 알림(--wb-bottom-inset)도 0 이다.
+    await installNativeApp(page);
+    await page.setViewportSize(PHONE_VIEWPORT);
+    await openFocusedCard(page);
+    await expect(page.locator('html')).toHaveClass(/native-app/);
+    await expect(sharedPanels(page)).toBeHidden();
+    await expect(spacer).toBeHidden();
+    const inset = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--wb-bottom-inset').trim(),
+    );
+    expect(['', '0px'], `--wb-bottom-inset = ${inset}`).toContain(inset);
+    expect(await probeBottom(), '앱 — 탭바 몫 = 14 + 60 + 8').toBe('82px');
+
+    // ③ 앱 1024(iPad) — 넓은 폭(격자 아래 일반 섹션)도 숨긴다.
+    await page.setViewportSize({ width: 1024, height: 1366 });
+    await expect(cardOf(page, E2E_ISIN)).toBeVisible();
+    await expect(sharedPanels(page)).toBeHidden();
+    await expect(spacer).toBeHidden();
   });
 
   test('8.상태줄 — 폰 밴드에서 필이 2줄 이상으로 wrap 하고 어느 필도 잘리지 않는다, 와이드도 잘림 0 (E1 overflow)', async ({

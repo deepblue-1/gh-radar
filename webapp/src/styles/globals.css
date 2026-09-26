@@ -649,7 +649,7 @@ html.native-app main {
 }
 
 /* §21 하단 고정 요소 (D-25 · 21-RESEARCH Pitfall 10) — 대상: 더티 바(`dirty-action-bar.tsx`) · /trading 폰 하단
-   공용 패널(`shared-panels.tsx` `data-pinned`) · 종목상세 「주문하기」 CTA(`stock-detail-tabs.tsx`) · 알림 토스트
+   공용 패널(`shared-panels.tsx` `data-pinned` — 브라우저 전용 · 앱에서는 숨김(D-25a)) · 종목상세 「주문하기」 CTA(`stock-detail-tabs.tsx`) · 알림 토스트
    (`alert-toasts.tsx`) · 사이드/바텀 시트(`ui/sheet.tsx` — 수정 없이 `data-side` 만 읽는다).
    챗 FAB · 키패드 시트 · 토스트 기본 위치는 컴포넌트 유틸에서 `--app-safe-*` 를 직접 읽는다.
    - 브라우저·앱 공통: 노치·홈 인디케이터만큼 비켜 선다(크롬·데스크톱은 0 이라 종전 그대로).
@@ -689,13 +689,14 @@ html.native-app [data-slot="detail-order-cta-bar"] {
     padding-bottom: 76px;
   }
 }
-/* fixed(폰 밴드)·sticky(판정 전) 모두 · wb ≥700 의 static 은 `bottom` 이 무영향.
-   더티 바 예약이 있으면 인라인 `bottom: calc(var(--native-tabbar-offset, 0px) + 예약)` 이 이 규칙을 이긴다. */
-html.native-app [data-slot="shared-panels"] {
-  bottom: var(--native-tabbar-offset);
-}
-html.native-app [data-slot="shared-panels"][data-pinned="true"] {
-  padding-bottom: 0;
+/* 앱은 /trading 하단 공용 패널(미체결 · 잔고 · 전략 로그)과 흐름 안 자리(spacer)를 숨긴다 — 폰 · iPad 공통
+   (D-25a · G-21-R3-2). 네이티브 탭바가 하단을 차지해 패널이 탭바 위에 겹쳐 쌓였다. 전 종목 전략 로그는
+   /me 전략 현황 카드 「현황 | 로그」 로 옮겼다. 클래스는 첫 페인트 전(`<head>` 감지 스크립트)에 붙어
+   하이드레이션 깜빡임이 없다. 브라우저 규칙(위 `data-pinned` 패딩)은 그대로다. 숨긴 패널은 실측 높이가 0 이라
+   `--wb-bottom-inset` 도 0 이다(shared-panels.tsx ⑤-c). */
+html.native-app [data-slot="shared-panels"],
+html.native-app [data-slot="shared-panels-spacer"] {
+  display: none;
 }
 /* ≥700 만 — 폰 밴드(<700)는 토스트가 상단에 서므로 제외한다(넣으면 top·bottom 이 동시에 걸려 늘어난다). */
 @media (min-width: 700px) {

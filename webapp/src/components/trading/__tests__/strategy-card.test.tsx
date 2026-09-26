@@ -539,3 +539,72 @@ describe('StrategyCard', () => {
     expect(radios()).toHaveLength(2);
   });
 });
+
+/**
+ * G-21-R3-2 · D-25a — 카드 더티 바는 앱에서 네이티브 탭바 몫까지 비킨다.
+ * 탭바 몫은 숨은 프로브(`native-tabbar-probe`)의 computed `bottom` px 다(calc 변수는 getPropertyValue 로 못 읽는다).
+ * jsdom 은 레이아웃·calc 가 없으므로 기하와 프로브 계산값만 꽂고 **식**(innerHeight − inset − 탭바 몫)을 잠근다 —
+ * 실브라우저에서 프로브가 82px(14 + 60 + 8)로 풀리는지는 e2e 「G-21-R3-2」 가 본다.
+ */
+describe('StrategyCard 더티 바 탭바 비킴 (G-21-R3-2)', () => {
+  const dirtyBody = (s: StrategyCardState): ReactNode => (
+    <button type="button" onClick={() => s.setDirtyCount(1)}>
+      더티
+    </button>
+  );
+
+  function mountDirty(tabbarPx: string): HTMLElement {
+    const realGcs = window.getComputedStyle.bind(window);
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el: Element, pseudo?: string | null) => {
+      const cs = realGcs(el, pseudo);
+      if ((el as HTMLElement).dataset?.slot !== 'native-tabbar-probe') return cs;
+      return new Proxy(cs, {
+        get: (t, k) => (k === 'bottom' ? tabbarPx : Reflect.get(t, k)),
+      });
+    });
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+    const realRect = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if ((this as HTMLElement).dataset?.slot === 'strategy-card') {
+        return { top: 100, bottom: 1500, left: 0, right: 390, width: 390, height: 1400, x: 0, y: 100, toJSON() {} } as DOMRect;
+      }
+      return realRect.call(this);
+    });
+    render(
+      <RelayContext.Provider value={relay()}>
+        <StrategyCard {...baseProps} isin={ISIN_A} body={dirtyBody} />
+      </RelayContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '더티' }));
+    return document.querySelector('[data-slot="card-dirty-host"]') as HTMLElement;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.querySelectorAll('[data-slot="native-tabbar-probe"]').forEach((n) => n.remove());
+  });
+
+  it('프로브는 문서에 한 번만 깔린다 — 카드가 둘이어도', () => {
+    render(
+      <RelayContext.Provider value={relay()}>
+        <StrategyCard {...baseProps} isin={ISIN_A} />
+        <StrategyCard {...baseProps} cardId="wb-card-2" isin={ISIN_B} />
+      </RelayContext.Provider>,
+    );
+    const probes = document.querySelectorAll('[data-slot="native-tabbar-probe"]');
+    expect(probes).toHaveLength(1);
+    expect((probes[0] as HTMLElement).style.position).toBe('fixed');
+    expect((probes[0] as HTMLElement).style.visibility).toBe('hidden');
+  });
+
+  it('앱 — 화면 아래 = innerHeight − 탭바 몫(82) 에 바를 붙인다', () => {
+    const host = mountDirty('82px');
+    // 카드 끝 1500 · 한계 844 − 0 − 82 = 762 → −738 만큼 올린다.
+    expect(host.style.transform).toBe('translateY(-738px)');
+  });
+
+  it('브라우저 — 탭바 몫 0 이면 종전 식(innerHeight − inset) 그대로', () => {
+    const host = mountDirty('0px');
+    expect(host.style.transform).toBe('translateY(-656px)');
+  });
+});
