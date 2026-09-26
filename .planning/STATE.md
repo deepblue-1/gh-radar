@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 18
-current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
-status: planning
+current_phase: 22
+current_phase_name: gh-trade-ios-testflight-android-play
+status: executing
 stopped_at: Phase 22 context gathered
-last_updated: "2026-09-26T15:28:40.007Z"
+last_updated: "2026-09-26T16:44:37.809Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 complete, transitioned to Phase 18
-state_head: dc019b4b898cbfe578b16a2455a09940ef439b72
+state_head: 12fb7ce5aa1604c5c06adb1bc231371594371716
 progress:
   total_phases: 31
   completed_phases: 5
-  total_plans: 290
+  total_plans: 297
   completed_plans: 274
 milestone_name: milestone
 ---
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+Phase: 22 (gh-trade-ios-testflight-android-play) — READY TO EXECUTE
 Plan: Not started
 Plans completed: 219 / 234
-Status: Ready to plan
+Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-26 — Phase 21 complete, transitioned to Phase 18
