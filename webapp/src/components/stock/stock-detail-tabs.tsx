@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { exitNewsView, toNewsView } from './news-view';
 
 /**
  * StockDetailTabs — Phase 15 Plan 11 · RELAY-01.
@@ -26,6 +27,9 @@ import { cn } from '@/lib/utils';
  *   T6 `호가주문` 패널만 넓은 컨테이너, 나머지 3탭은 `max-w-4xl`
  *   B(260924-vj1) 토스 스킨 — 16px/600 탭 바(2px fg 밑줄 + 옅은 1px 기준선), 폰(<768) 하단 고정
  *      「주문하기」 CTA(호가주문 탭으로 전환, 그 탭에선 사라짐), 라이트 호가주문 탭 회색 면 + 흰 카드
+ *   T9 (Phase 21 D-29) 「뉴스토론」 탭 안 전체목록(`?tab=news&view=news|discussions` · news-view.ts)을
+ *      보는 중에 활성 뉴스토론 탭을 다시 누르면 요약으로 돌아간다(`exitNewsView`). Radix 는 이미 활성인
+ *      탭을 누르면 `onValueChange` 를 부르지 않으므로 트리거 `onClick` 이 같은 핸들러로 넘겨준다.
  *   T8 한 번 연 `차트 · 종목정보 · 뉴스토론` 패널은 떠나도 언마운트하지 않고 숨긴다(forceMount +
  *      `data-[state=inactive]:hidden`). Radix 기본은 비활성 패널을 언마운트해 재방문마다 섹션이
  *      다시 마운트·재조회되고 스켈레톤이 떴다. 열지 않은 탭은 여전히 마운트하지 않는다(첫 진입 비용
@@ -99,12 +103,22 @@ export function StockDetailTabs({
   const handleValueChange = useCallback(
     (next: string) => {
       const value = toTabValue(next);
+      const live = new URLSearchParams(window.location.search);
+      // T9 — 전체목록을 보는 중 활성 뉴스토론 탭 재클릭 = 요약(가드로 버리지 않는다).
+      if (
+        value === 'news' &&
+        toTabValue(live.get('tab')) === 'news' &&
+        toNewsView(live.get('view')) !== null
+      ) {
+        exitNewsView(code);
+        return;
+      }
       // 한 클릭 = 기록 1개 가드. Radix TabsTrigger 는 mousedown 과 focus(자동 활성화) 두 곳에서
       // onValueChange 를 부른다(Chrome·안드로이드는 mousedown 에 포커스한다). 종전 라우터
       // 내비게이션은 Next 가 같은 URL 푸시를 합쳐 줬지만 네이티브 pushState 는 기록을 2개 남겨
       // 뒤로가기를 두 번 눌러야 이전 탭으로 간다(T3 위반). 렌더 클로저의 `active` 는 Next 의
       // transition 반영 전이라 낡아 있으므로, 동기로 바뀌는 실시간 URL 로 거른다 (260913-v2e).
-      if (toTabValue(new URLSearchParams(window.location.search).get('tab')) === value) {
+      if (toTabValue(live.get('tab')) === value) {
         return;
       }
       // T3 — `replace` 가 아니라 push 계열. 브라우저 뒤로가기가 이전 탭으로 돌아가야 한다.
@@ -115,7 +129,7 @@ export function StockDetailTabs({
       // 탭 바 바로 아래가 보이도록 스크롤(히어로는 지나간 상태). 탭별 스크롤 복원은 없다.
       tabBarRef.current?.scrollIntoView({ block: 'start' });
     },
-    [],
+    [code],
   );
 
   // B — 폰 하단 고정 「주문하기」 CTA 는 호가주문 탭이 아닐 때만 그린다(그 탭에선 더티 액션 바와
@@ -152,6 +166,9 @@ export function StockDetailTabs({
             <TabsTrigger
               key={t.v}
               value={t.v}
+              // T9 — 활성 탭 재클릭은 Radix 가 삼킨다. 같은 핸들러로 넘겨 가드·재클릭 규칙을 한곳에 둔다
+              // (다른 탭 클릭은 mousedown 이 이미 전환했으므로 여기서는 실시간 URL 가드에 걸려 no-op).
+              onClick={() => handleValueChange(t.v)}
               className="h-[50px] flex-none rounded-none border-b-2 border-transparent px-3 text-[17px] font-semibold text-[var(--muted-fg)] shadow-none after:hidden hover:text-[var(--fg)] data-[state=active]:border-b-[var(--nav-on-line)] data-[state=active]:bg-transparent data-[state=active]:text-[var(--nav-on-fg)] data-[state=active]:shadow-none"
             >
               {t.label}

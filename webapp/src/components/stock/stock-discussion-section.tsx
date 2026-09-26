@@ -47,7 +47,14 @@ const CARD_FETCH_HOURS = 24;
 
 export interface StockDiscussionSectionProps {
   stockCode: string;
+  /**
+   * Phase 21 D-29 — 있으면 「전체 토론 보기」가 페이지 이동 Link 대신 같은 자리 전체목록을 여는
+   * 버튼이 된다(종목상세 탭 안 · 트레이딩 ⓘ 팝업). 없으면 기존 Link.
+   */
+  onShowAll?: () => void;
 }
+
+const SHOW_ALL_CLASS = 'text-[length:var(--t-sm)] text-[var(--primary)] hover:underline';
 
 function computeStaleMinutes(discussions: Discussion[]): number | null {
   if (discussions.length === 0) return null;
@@ -69,6 +76,7 @@ function formatStaleLabel(minutes: number): string {
 
 export function StockDiscussionSection({
   stockCode,
+  onShowAll,
 }: StockDiscussionSectionProps) {
   const [discussions, setDiscussions] = useState<Discussion[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -266,12 +274,18 @@ export function StockDiscussionSection({
         ))}
       </ul>
       <footer className="mt-3 border-t border-[var(--border-subtle)] pt-3 flex items-center justify-between">
-        <Link
-          href={`/stocks/${encodeURIComponent(stockCode)}/discussions`}
-          className="text-[length:var(--t-sm)] text-[var(--primary)] hover:underline"
-        >
-          전체 토론 보기 →
-        </Link>
+        {onShowAll ? (
+          <button type="button" onClick={onShowAll} className={SHOW_ALL_CLASS}>
+            전체 토론 보기 →
+          </button>
+        ) : (
+          <Link
+            href={`/stocks/${encodeURIComponent(stockCode)}/discussions`}
+            className={SHOW_ALL_CLASS}
+          >
+            전체 토론 보기 →
+          </Link>
+        )}
         <span className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
           최근 7일 전체
         </span>

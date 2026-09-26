@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 
 import { DetailBands } from './detail-bands';
+import { DiscussionFullList } from './discussion-full-list';
 import { NewsFullList } from './news-full-list';
 import { useNewsView } from './news-view';
 import { StockDiscussionSection } from './stock-discussion-section';
@@ -38,19 +39,26 @@ export function StockNewsTabPanel({ code }: StockNewsTabPanelProps) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [view, back]);
 
-  const showingList = view === 'news';
+  const showingList = view !== null;
 
   return (
     <div ref={rootRef} data-news-view={view ?? 'summary'}>
       <div hidden={showingList}>
         <DetailBands>
           <StockNewsSection stockCode={code} onShowAll={() => showAll('news')} />
-          <StockDiscussionSection stockCode={code} />
+          <StockDiscussionSection
+            stockCode={code}
+            onShowAll={() => showAll('discussions')}
+          />
         </DetailBands>
       </div>
-      {view === 'news' && (
+      {view !== null && (
         <div className="py-6 lg:py-7">
-          <NewsFullList code={code} onBack={back} />
+          {view === 'news' ? (
+            <NewsFullList code={code} onBack={back} />
+          ) : (
+            <DiscussionFullList code={code} onBack={back} />
+          )}
         </div>
       )}
     </div>

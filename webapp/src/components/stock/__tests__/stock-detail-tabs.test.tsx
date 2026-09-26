@@ -139,6 +139,56 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
   });
 });
 
+describe('StockDetailTabs — 탭 안 전체목록 재클릭 = 요약 (Phase 21 D-29 · T9)', () => {
+  it('Test 9 — 전체목록(우리가 쌓은 기록)에서 활성 뉴스토론 탭 재클릭 → history.back 1회 · pushState 0회', async () => {
+    mockSearchParams = new URLSearchParams('tab=news&view=news');
+    // news-view.ts 의 showAll 이 남기는 표식(history.state) — 우리가 쌓은 기록이다.
+    window.history.replaceState({ ghNewsView: '005930' }, '', '/stocks/005930?tab=news&view=news');
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    const user = userEvent.setup();
+    renderTabs();
+
+    await user.click(tab('뉴스토론'));
+
+    expect(backSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it('Test 10 — 딥링크 전체목록(표식 없음)에서 재클릭 → replaceState(?tab=news) 1회 · 페이지 유지', async () => {
+    mockSearchParams = new URLSearchParams('tab=news&view=discussions');
+    window.history.replaceState(null, '', '/stocks/005930?tab=news&view=discussions');
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    const user = userEvent.setup();
+    renderTabs();
+
+    await user.click(tab('뉴스토론'));
+
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', '?tab=news');
+    expect(backSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/stocks/005930');
+    expect(window.location.search).toBe('?tab=news');
+  });
+
+  it('Test 11 — 전체목록에서 다른 탭 클릭은 기존 전환(pushState 1회 · 요약 복귀 호출 없음)', async () => {
+    mockSearchParams = new URLSearchParams('tab=news&view=news');
+    window.history.replaceState({ ghNewsView: '005930' }, '', '/stocks/005930?tab=news&view=news');
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderTabs();
+
+    await user.click(tab('차트'));
+
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledWith(null, '', '?tab=chart');
+    expect(backSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('StockDetailTabs — 폰 「주문하기」 CTA (260924-vj1)', () => {
   it('Test 7 — 호가주문 외 탭에서 CTA 가 보이고, 누르면 기존 탭 전환 경로로 호가주문 1회 push', async () => {
     const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
