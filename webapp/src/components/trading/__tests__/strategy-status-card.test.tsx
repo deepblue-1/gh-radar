@@ -556,3 +556,32 @@ describe("viSummaryText — 거래소별 요약 · 단위 환산", () => {
     expect(viSummaryText({})).toBe("—");
   });
 });
+
+describe("StrategyStatusCard — 「현황 | 로그」 전환 (D-25a · 스케치 008 ① B)", () => {
+  beforeEach(() => {
+    mockRelay = { ...EMPTY_RELAY_VALUE, status: "ready", limitChasers: [makeChaser()] } as RelayShape;
+  });
+
+  it("머리 오른쪽 알약 세그먼트 · 기본 현황(행 목록·전체 비활성화 보임) → 로그로 바꾸면 같은 카드 본문이 로그가 되고 다시 현황으로 돌아온다", async () => {
+    render(<StrategyStatusCard />);
+    const seg = screen.getByRole("tablist", { name: "전략 현황 보기" });
+    expect(within(seg).getAllByRole("tab").map((t) => t.textContent)).toEqual(["현황", "로그"]);
+    expect(document.querySelector('[data-slot="strategy-row-list"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="strategy-disable-all"]')).not.toBeNull();
+
+    await userEvent.click(within(seg).getByRole("tab", { name: "로그" }));
+    expect(document.querySelector('[data-slot="me-strategy-log"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="strategy-row-list"]')).toBeNull();
+
+    await userEvent.click(within(seg).getByRole("tab", { name: "현황" }));
+    expect(document.querySelector('[data-slot="me-strategy-log"]')).toBeNull();
+    expect(document.querySelector('[data-slot="strategy-row-list"]')).not.toBeNull();
+  });
+
+  it("상따 · VI 요약은 현황 본문 첫 줄로 내려간다(머리 줄은 제목 + 세그먼트)", () => {
+    render(<StrategyStatusCard />);
+    const summary = document.querySelector('[data-slot="strategy-status-summary"]');
+    expect(summary).toHaveTextContent("상따 1 · VI 중지");
+    expect(screen.getByRole("heading", { name: /전략 현황/ }).contains(summary)).toBe(false);
+  });
+});
