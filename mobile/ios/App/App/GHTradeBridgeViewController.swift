@@ -47,8 +47,6 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     private var showWork: DispatchWorkItem?
     /// D-12a: 지금 숨김이 키보드 사유 즉시 경로로 끝났다 — 재표시만 90ms 디바운스한다.
     private var hiddenByKeyboard = false
-    /// 마지막 keyboardWillShow 의 애니메이션 시간 · 곡선(userInfo). 곡선 값 7 은 공개 enum 밖이라 `rawValue << 16` 으로 옮긴다.
-    private var keyboardAnimation: (duration: Double, options: UIView.AnimationOptions) = (0.25, .curveEaseInOut)
     /// D-12b: 전체 문서 로드 중 — 그 문서의 첫 `route`(하이드레이션 뒤) 또는 1.5초까지 탭바를 숨긴 채 기다린다.
     /// 콜드 스타트도 대기로 시작한다(판정 전 보임 금지 · G-21-R3-4).
     private var awaitingContent = true
@@ -380,7 +378,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         updateTabBarVisibility(animated: true)
     }
 
-    // MARK: - 키보드 (D-12a — 키보드 = 즉시 · 짧게 · 재표시 90ms)
+    // MARK: - 키보드 (D-12a' — 키보드 = 애니메이션 없이 즉시 · 재표시 90ms)
 
     private func observeKeyboard() {
         let center = NotificationCenter.default
@@ -390,11 +388,6 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
 
     @objc private func keyboardWillShow(_ note: Notification) {
         let info = note.userInfo
-        if let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue {
-            let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue
-                ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
-            keyboardAnimation = (duration, UIView.AnimationOptions(rawValue: curve << 16))
-        }
         // 끝 프레임이 화면 하단을 실제로 가릴 때만 키보드로 본다 — 하드웨어 키보드(입력 보조 막대만) ·
         // iPad 플로팅 키보드는 하단을 가리지 않으므로 탭바를 숨기지 않는다.
         var covers = false
@@ -412,7 +405,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     }
 
     // MARK: - 표시/숨김 (D-12: 숨김은 150ms 지연 후 0.2s 페이드 · 보임은 지연 없이 0.2s
-    //                  D-12a: 키보드 사유 숨김은 즉시 · 키보드 절반 길이 · 이동 없음 → 재표시 90ms 디바운스)
+    //                  D-12a': 키보드 사유 숨김은 즉시(애니메이션 없음) · 이동 없음 → 재표시 90ms 디바운스)
 
     private var shouldHideTabBar: Bool {
         TabRoutes.hidesTabBar(path: currentPath) || isOfflinePage || overlayOpen || keyboardVisible || awaitingContent
@@ -433,22 +426,21 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             if !keyboardVisible { hiddenByKeyboard = false }
             guard !tabBar.isHidden else { return }
 
-            // D-12a — 키보드 = 즉시 · 짧게: 150ms 대기 없이, 키보드 애니메이션 절반(0.08~0.2초) · 같은 곡선으로
-            // alpha 만 내린다(아래로 내려가는 이동 없음 — 키보드 윗변 위에 걸린 프레임이 남지 않게).
+            // D-12a' — 키보드 = 애니메이션 없이 즉시: 150ms 대기도 페이드도 없이 곧바로 숨긴다(아래로 내려가는 이동 없음 —
+            // 키보드 윗변 위에 걸린 프레임이 남지 않게). keyboardWillShow 는 키보드 애니메이션 트랜잭션 안에서 올 수 있고,
+            // 그 안에서 바꾼 값은 키보드 길이·곡선을 물려받는다 → performWithoutAnimation 으로 상속을 끊는다.
             if keyboardVisible && animated {
-                let duration = min(0.2, max(0.08, keyboardAnimation.duration * 0.5))
-                tabBar.transform = .identity
-                UIView.animate(withDuration: duration, delay: 0,
-                               options: [keyboardAnimation.options, .beginFromCurrentState],
-                               animations: {
-                                   self.tabBar.alpha = 0
-                                   fade.alpha = 0
-                               }) { [weak self] _ in
-                    guard let self, self.shouldHideTabBar else { return }
-                    self.tabBar.isHidden = true
+                // 진행 중인 보임·숨김 애니메이션을 걷어낸다(비키보드 숨김 완료 핸들러는 finished=false 로 아무것도 안 한다).
+                tabBar.layer.removeAllAnimations()
+                fade.layer.removeAllAnimations()
+                UIView.performWithoutAnimation {
+                    tabBar.transform = .identity
+                    tabBar.alpha = 0
+                    fade.alpha = 0
+                    tabBar.isHidden = true
                     fade.isHidden = true
-                    self.hiddenByKeyboard = self.keyboardVisible
                 }
+                hiddenByKeyboard = true
                 return
             }
 
