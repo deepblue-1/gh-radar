@@ -210,7 +210,7 @@ covered_files:
   - "webapp/src/lib/use-relay-socket.ts"
   - "webapp/src/lib/use-trading-alerts.ts"
   - "webapp/src/styles/globals.css"
-covered_digest: "v1:sha256:f4cdc805e6608c3c9e0bc980ee794783929e36b9642419029871b0f26090968f"
+covered_digest: "v1:sha256:22a4453657d061e62ad9951ba647f8753c3c4d727c50654465162f06e60ebed7"
 ---
 
 # Phase 21: GH Trade 모바일 앱 (Capacitor) — 재검증 라운드 2

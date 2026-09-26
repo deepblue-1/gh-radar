@@ -1,17 +1,17 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 21
-current_phase_name: GH Trade 모바일 앱 (Capacitor)
-status: executing
-stopped_at: Completed 21-36-PLAN.md
-last_updated: "2026-09-26T13:10:03.490Z"
+current_phase: 18
+current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+status: planning
+stopped_at: Phase 21 complete, ready to plan Phase 18
+last_updated: "2026-09-26T14:34:37.231Z"
 last_activity: 2026-09-26
-last_activity_desc: Phase 21 execution started
-state_head: 2c69056d277b9c3879111822d06a436e519398ff
+last_activity_desc: Phase 21 complete, transitioned to Phase 18
+state_head: 6c6748bc2ebf4fe6478bf984483d0d679409255e
 progress:
   total_phases: 30
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 290
   completed_plans: 274
 milestone_name: milestone
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 36 of 36
+Phase: 18 — gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
+Plan: Not started
 Plans completed: 219 / 234
-Status: 21-36 완료 — push-then-recheck · push 7fc86b9f..8e0fe57c · 운영 반영 13:03:31Z · 세 기기 운영 빌드 새 설치 · 다음 /gsd-verify-work 21(실서버 재확인 A1~A10 · B1~B8 → 21-VERIFICATION-R2.md)
+Status: Ready to plan
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — Completed quick task 260926-vk9: 키패드 시트 열림 탭바 즉시 숨김
+Last activity: 2026-09-26 — Phase 21 complete, transitioned to Phase 18
 
 Progress: [█████████░] 93%
 
@@ -295,6 +295,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-35: 21-REVIEW-R2 1차 13건 모두 수정 — WR-03 구형 WebView 폴백(addJavascriptInterface) 잔여 위험은 iframe 부재로 수용
 - [Phase 21]: 21-36: push-then-recheck — 백엔드 게이트는 2fe94209..HEAD 백엔드 diff 0 · origin/master..HEAD 72 커밋 = 알려진 집합 → push 7fc86b9f..8e0fe57c · 운영 CSS 반영 13:03:31Z · 세 기기 운영 빌드 삭제 후 새 설치
 - [Phase 21]: 21-36: iOS 시뮬레이터는 앱 삭제 뒤에도 기기 전역 쿠키(data/Library/Cookies)로 로그인 유지 — B2 첫 로그인은 앱 안 로그아웃 뒤 확인
+- [Phase 21]: 완료(2026-09-26) — UAT 4차 실서버 30/30 pass · 재검증 21-VERIFICATION-R2.md passed 15/15(1차 VERIFICATION 은 frontmatter 만 passed·fingerprint 합집합 갱신, 본문 보존). secure-phase · validate-phase(Nyquist) · ui-review 는 사용자 결정으로 미실행. 스토어/TestFlight·Play 테스트 배포는 별도 신규 phase 로
 
 ### Pending Todos
 
@@ -349,7 +350,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 **Resume file:** None
 
 Last session: 2026-09-26T13:10:03.008Z
-Stopped at: Completed 21-36-PLAN.md — execute-phase 마무리 게이트(코드 리뷰 · 페이즈 검증) 미실행: 사용자 결정(2026-09-26 22:1x KST)으로 실서버 확인 뒤 /gsd-verify-work 21 에서 한 번에(-R2 파일 · 1차 기록 보존). MOBILE-01 은 검증 전이라 Pending 유지
+Stopped at: Phase 21 complete, ready to plan Phase 18
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
