@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WR-02 — Android 12+(targetSdk 31 이상)는 allowBackup=false 여도 기기 간 이전(D2D)을 한다 → 이 규칙으로 뺀다.
+  클라우드 백업 · 기기 간 이전 모두 앱 데이터 전 도메인을 뺀다 — WebView 쿠키 DB(app_webview)의 로그인 세션이
+  백업본에 실리지 않게. 테마 저장값(shared_prefs)도 백업하지 않는다 — 새 기기는 기본 다크로 시작한다(D-23a).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>

@@ -43,6 +43,8 @@ dependencies {
     implementation "androidx.swiperefreshlayout:swiperefreshlayout:$androidxSwipeRefreshLayoutVersion"
     // Custom Tabs(D-28 · 21-17 Task 1 선택 a) — capgo social-login 이 이미 APK 에 싣는 1.9.0 과 같은 좌표
     implementation "androidx.browser:browser:$androidxBrowserVersion"
+    // WR-03 — capacitor-android 가 이미 싣는 1.14.0 과 같은 변수(WebMessageListener · 21-25 답 a · 런타임 의존 집합 불변)
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

@@ -35,7 +35,7 @@ import kotlin.math.max
  * Capacitor 가 만든 WebView 위에 붙는다 — `load()` 에서 `super.load()` 뒤에만 확장한다.
  *  - WebView 클라이언트는 `BridgeWebViewClient` 상속본을 `bridge.setWebViewClient` 로 설치한다.
  *    WebView 에 새 클라이언트 인스턴스를 직접 대입하면 로컬 에셋 서버·SystemBars 콜백이 끊긴다(Pitfall 4).
- *  - 웹 → 네이티브 채널은 `window.GhTradeBridge.postMessage(json)` 하나(`GhTradeBridge`).
+ *  - 웹 → 네이티브 채널은 `window.GhTradeBridge.postMessage(json)` 하나(`GhTradeBridge` — WebMessageListener · 폴백 JS 인터페이스).
  *  - 뒤로가기(D-26)는 `onBackPressedDispatcher` 콜백 하나 — 옛 back 콜백 오버라이드는 Android 16 에서 불리지 않는다(Pitfall 5).
  *  - 당겨서 새로고침(D-04 · D-17)은 WebView 를 `SwipeRefreshLayout` 으로 감싸 웹 refresh 훅을 부르고 1초 뒤 스피너를 닫는다.
  *  - 테마(D-23)는 웹이 정본 — `applyTheme` 한 곳에서 시스템 바 아이콘 명암·배경·탭바·스피너를 바꾸고 저장한다.
@@ -133,7 +133,8 @@ class MainActivity : BridgeActivity() {
         super.load()
         val wv = bridge.webView ?: return
         bridge.setWebViewClient(GhTradeWebViewClient(bridge, this))
-        wv.addJavascriptInterface(GhTradeBridge(this), "GhTradeBridge")
+        // WR-03: WebMessageListener(서버 출처 · 메인 프레임만) — 미지원 WebView 는 JS 인터페이스 + 출처 전체 비교 폴백.
+        GhTradeBridge(this).register(wv)
         // 탭바가 rootLayout(템플릿 CoordinatorLayout)을 먼저 잡은 **뒤** WebView 를 감싼다 — 감싼 뒤엔 WebView 부모가 바뀐다.
         setupTabBar()
         wrapInSwipeRefresh(wv)
@@ -162,7 +163,8 @@ class MainActivity : BridgeActivity() {
     /** 앱 호스트 = server.url 호스트(없으면 appUrl 호스트). 브리지 메시지 출처 검사에 쓴다(T-21-03). */
     fun serverHost(): String? = serverUri()?.host
 
-    private fun serverUri(): Uri? {
+    /** 앱 서버 URI(server.url · 없으면 appUrl). 브리지 출처 판정(스킴·호스트·포트)의 기준(WR-03). */
+    fun serverUri(): Uri? {
         val url = bridge.config.serverUrl ?: bridge.appUrl ?: return null
         return Uri.parse(url)
     }
