@@ -2,9 +2,11 @@ import UIKit
 
 // GH Trade 네이티브 크롬 테마 · 팔레트.
 //
-// 정본 = CONTEXT D-27a (스케치 004 채택안) · 값은 웹 토큰 `.planning/sketches/themes/toss-dark.css` /
-// `toss-light.css`(Phase 20 토스 B 테마)를 hex 로 옮긴 것이다. 웹 토큰이 바뀌면 여기도 같이 바꾼다.
-// Android `GhTradePalette`(21-12)와 같은 값을 유지한다.
+// 정본 = CONTEXT D-27a 색 토큰(스케치 004) + D-27b 유리(스케치 007 C `--glass-hi`) · 색 값은 웹 토큰
+// `.planning/sketches/themes/toss-dark.css` / `toss-light.css`(Phase 20 토스 B 테마)를 hex 로 옮긴 것이다.
+// 웹 토큰이 바뀌면 여기도 같이 바꾼다.
+// Android `GhTradePalette` 와 같은 값을 유지한다(glass RGB 동일 · Android 는 실블러가 없어 glassAlpha 대신
+// 94% 근사 — A10).
 
 enum GHTradeTheme: String {
     case light, dark
@@ -16,16 +18,18 @@ enum GHTradeTheme: String {
 }
 
 struct GHTradePalette {
-    /// `--card` — 탭바 알약 덮개(82%).
+    /// `--card` — 카드 면 색 토큰(D-27a · 탭바 덮개는 D-27b 부터 `glass`).
     let card: UIColor
-    /// `--bg` — 하단 페이드(92%).
+    /// `--bg` — 하단 페이드(80% · D-27b).
     let bg: UIColor
-    /// `--primary` — 활성 아이콘·라벨 · 강조 원(14%).
+    /// `--primary` — 활성 아이콘 · 캡슐(16%).
     let primary: UIColor
-    /// `--muted-fg` — 비활성 아이콘·라벨.
+    /// `--muted-fg` — 비활성 아이콘.
     let muted: UIColor
-    /// `--line` — 알약 1px 테두리.
-    let line: UIColor
+    /// 스케치 007 `--glass-hi` 의 불투명 RGB — 탭바 유리 틴트(테두리 없음 · D-27b).
+    let glass: UIColor
+    /// `--glass-hi` 알파(다크 0.62 · 라이트 0.72) — ultra-thin 재질 위 틴트 불투명도.
+    let glassAlpha: CGFloat
 
     static func of(_ theme: GHTradeTheme) -> GHTradePalette {
         switch theme {
@@ -35,7 +39,8 @@ struct GHTradePalette {
                 bg: UIColor(hex: 0x17171c),
                 primary: UIColor(hex: 0x3485fa),
                 muted: UIColor(hex: 0x9e9ea4),
-                line: UIColor(white: 1, alpha: 0.07)
+                glass: UIColor(hex: 0x2c2c35),
+                glassAlpha: 0.62
             )
         case .light:
             return GHTradePalette(
@@ -43,7 +48,8 @@ struct GHTradePalette {
                 bg: UIColor(hex: 0xffffff),
                 primary: UIColor(hex: 0x3182f6),
                 muted: UIColor(hex: 0x6b7684),
-                line: UIColor(hex: 0xe5e8eb)
+                glass: UIColor(hex: 0xffffff),
+                glassAlpha: 0.72
             )
         }
     }

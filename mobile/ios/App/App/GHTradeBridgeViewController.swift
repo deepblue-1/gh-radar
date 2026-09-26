@@ -41,7 +41,8 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     var overlayOpen = false
     private var keyboardVisible = false
     /// 앱 테마. 바꾸는 곳은 `applyTheme` 하나 — 저장값(ThemeStore, 첫 프레임) · 웹 `theme` 메시지(D-23).
-    private(set) var currentTheme: GHTradeTheme = .light {
+    /// 초기 자리값 = dark(D-23a — 저장값 없는 첫 프레임과 같은 값. capacitorDidLoad 의 ThemeStore.load() 가 곧 덮는다).
+    private(set) var currentTheme: GHTradeTheme = .dark {
         didSet { applyTabBarTheme() }
     }
 
@@ -210,7 +211,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     }
 
     private func applyTabBarTheme() {
-        // 블러 재질(systemThinMaterial)도 앱 테마를 따르게 한다 — OS 다크모드와 앱 테마가 다를 때 대비.
+        // 블러 재질(ultra-thin 재질 · systemUltraThinMaterial)도 앱 테마를 따르게 한다 — OS 다크모드와 앱 테마가 다를 때 대비.
         tabBar.overrideUserInterfaceStyle = currentTheme.userInterfaceStyle
         tabBar.apply(GHTradePalette.of(currentTheme))
     }

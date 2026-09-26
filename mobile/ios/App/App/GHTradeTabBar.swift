@@ -4,11 +4,13 @@ import UIKit
 //
 // 수치 정본 = CONTEXT D-27b: 높이 60 · radius 30(= 높이/2, 연속 곡률) · 라벨 없음(접근 이름은 accessibilityLabel) ·
 // 아이콘 26 세로 가운데 · 활성 = 아이콘 뒤 캡슐 56×36 radius 18 `--primary` + filled/굵은 심볼 + primary 색 ·
-// 비활성 `--muted-fg`. 색 토큰(bg · primary · muted · card)은 D-27a 그대로.
+// 비활성 `--muted-fg` · 테두리 없음 · 유리(ultra-thin 재질 + glass 틴트 다크 #2c2c35 62% / 라이트 #ffffff 72%) ·
+// 그림자 두 겹 (0,4) r12 14% + (0,1) r1 8% · 탭바 위 86pt 하단 페이드(`--bg` 80% @75%).
+// 색 토큰(bg · primary · muted · card)은 D-27a 그대로.
 // 위치·폭(좌우 16 · 최대 560 · 바닥 max(inset − 14, 14))은 VC 의 Auto Layout 이 정한다(GHTradeBridgeViewController).
 // 구조는 weekly-wine `CookieViewController.setupTabBar` 를 따르되 색은 팔레트로 교체 가능하게 뺐다(21-11 테마).
 
-/// 탭바 본체. 자신은 투명 컨테이너로 그림자만 지고, 안쪽 `pill` 이 블러·덮개·테두리를 잘라 그린다.
+/// 탭바 본체. 자신은 투명 컨테이너로 그림자 두 겹만 지고, 안쪽 `pill` 이 블러·유리 틴트를 잘라 그린다(테두리 없음).
 final class GHTradeTabBar: UIView {
 
     /// 탭 탭(tap) 콜백 — 같은 탭 재탭도 호출된다(D-06 재탭 = 최상단 이동은 웹이 처리).
@@ -20,12 +22,16 @@ final class GHTradeTabBar: UIView {
     private(set) var activeTab: GHTabID?
 
     private let pill = UIView()
-    // UIKit 블러 반경은 조절할 수 없다 — 스케치의 「블러 18」 근사(RESEARCH Pattern 2).
-    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    // UIKit 블러 반경은 조절할 수 없다 — 스케치 007 「blur 28 + saturate 1.8」 근사(RESEARCH Pattern 2).
+    // 자체 틴트가 가장 옅은 ultra-thin 재질이라 스케치 알파는 glass 틴트가 떠맡고, 재질은 블러·채도만 준다.
+    private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    /// 두 번째(접촉) 그림자 — CSS `0 1px 2px rgba(0,0,0,.08)`. 알약 뒤 투명 레이어가 진다.
+    private let contactShadow = CALayer()
     private let tint = UIView()
     private let stack = UIStackView()
     private var items: [GHTradeTabItem] = []
-    private var palette = GHTradePalette.of(.light)
+    // D-23a: 첫 applyTabBarTheme 전 자리값도 저장값 없는 기본(다크)과 같게.
+    private var palette = GHTradePalette.of(.dark)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -41,17 +47,24 @@ final class GHTradeTabBar: UIView {
         backgroundColor = .clear
         clipsToBounds = false
 
-        // 그림자: CSS `0 2px 16px rgba(0,0,0,.18)` — CSS blur 16 ≒ UIKit shadowRadius 8.
+        // 그림자 ①(넓고 옅게): CSS `0 4px 24px rgba(0,0,0,.14)` — CSS blur 24 ≒ UIKit shadowRadius 12.
         layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.18
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-        layer.shadowRadius = 8
+        layer.shadowOpacity = 0.14
+        layer.shadowOffset = CGSize(width: 0, height: 4)
+        layer.shadowRadius = 12
+
+        // 그림자 ②(접촉): CSS `0 1px 2px rgba(0,0,0,.08)` — blur 2 ≒ shadowRadius 1. 알약보다 뒤에 깐다.
+        contactShadow.backgroundColor = UIColor.clear.cgColor
+        contactShadow.shadowColor = UIColor.black.cgColor
+        contactShadow.shadowOpacity = 0.08
+        contactShadow.shadowOffset = CGSize(width: 0, height: 1)
+        contactShadow.shadowRadius = 1
+        layer.addSublayer(contactShadow)
 
         pill.translatesAutoresizingMaskIntoConstraints = false
         pill.layer.cornerRadius = 30
         pill.layer.cornerCurve = .continuous
         pill.clipsToBounds = true
-        pill.layer.borderWidth = 1 / UIScreen.main.scale
         addSubview(pill)
         pin(pill, to: self)
 
@@ -83,8 +96,14 @@ final class GHTradeTabBar: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // 그림자 경로를 알약 모양으로 고정 — 매 프레임 오프스크린 렌더 방지.
-        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 30).cgPath
+        // 그림자 경로를 알약 모양으로 고정 — 매 프레임 오프스크린 렌더 방지. 두 겹 모두 같은 반경 30.
+        let path = UIBezierPath(roundedRect: bounds, cornerRadius: 30).cgPath
+        layer.shadowPath = path
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contactShadow.frame = bounds
+        contactShadow.shadowPath = path
+        CATransaction.commit()
     }
 
     /// 활성 탭 표시. nil = 5탭 전부 비활성(D-14 — 종목상세 등 하위 경로).
@@ -95,11 +114,10 @@ final class GHTradeTabBar: UIView {
         }
     }
 
-    /// 팔레트 교체(테마 전환 — 21-11). 덮개·테두리·강조·아이콘 색과 페이드를 함께 갱신한다.
+    /// 팔레트 교체(테마 전환 — 21-11). 유리 틴트·캡슐·아이콘 색과 페이드를 함께 갱신한다.
     func apply(_ p: GHTradePalette) {
         palette = p
-        tint.backgroundColor = p.card.withAlphaComponent(0.82)
-        pill.layer.borderColor = p.line.cgColor
+        tint.backgroundColor = p.glass.withAlphaComponent(p.glassAlpha)
         for item in items {
             item.configure(active: item.tab == activeTab, palette: p)
         }
@@ -176,7 +194,7 @@ final class GHTradeTabItem: UIControl {
     func configure(active: Bool, palette: GHTradePalette) {
         let color = active ? palette.primary : palette.muted
         highlight.isHidden = !active
-        highlight.backgroundColor = palette.primary.withAlphaComponent(0.14)
+        highlight.backgroundColor = palette.primary.withAlphaComponent(0.16)
         icon.image = Self.symbol(for: tab, active: active)
         icon.tintColor = color
         accessibilityTraits = active ? [.button, .selected] : [.button]
@@ -205,7 +223,7 @@ final class GHTradeTabItem: UIControl {
     }
 }
 
-/// 탭바 위로 120pt 올라오는 하단 페이드 — 위 투명 → 70% 지점부터 `--bg` 92%. 터치는 통과시킨다.
+/// 탭바 위 86pt · bg 80% (D-27b) — 위 투명 → 75% 지점부터 `--bg` 80%. 터치는 통과시킨다.
 final class GHTradeFadeView: UIView {
 
     private let gradient = CAGradientLayer()
@@ -215,7 +233,7 @@ final class GHTradeFadeView: UIView {
         translatesAutoresizingMaskIntoConstraints = false
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        gradient.locations = [0, 0.7, 1]
+        gradient.locations = [0, 0.75, 1]
         layer.addSublayer(gradient)
     }
 
@@ -235,8 +253,8 @@ final class GHTradeFadeView: UIView {
         // 같은 색의 알파만 바꿔 보간한다(투명 검정에서 시작하면 중간이 회색으로 탁해진다).
         gradient.colors = [
             bg.withAlphaComponent(0).cgColor,
-            bg.withAlphaComponent(0.92).cgColor,
-            bg.withAlphaComponent(0.92).cgColor,
+            bg.withAlphaComponent(0.8).cgColor,
+            bg.withAlphaComponent(0.8).cgColor,
         ]
     }
 }
