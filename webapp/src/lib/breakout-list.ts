@@ -23,7 +23,7 @@
  *   `isHighlighted` 를 다시 부르는 구조를 전제한다. 행마다 타이머를 걸면 최대 200행에서 200개가 돈다.
  */
 
-import type { RelayRateCrossItem } from "@gh-radar/shared";
+import type { RelayExchange, RelayRateCrossItem } from "@gh-radar/shared";
 
 /* ── 상수 ─────────────────────────────────────────────────────────────── */
 
@@ -171,21 +171,30 @@ export function writeColsPref(cols: TradingCols): void {
 
 /**
  * 행마다 클라가 붙들고 있는 기록. relay 항목에는 없는 값이라 호출자가 렌더 사이에 보관한다.
- *  - `addedAt` : 첫 등재 시각(ms). 76 이 다시 와도 **첫 등재 값을 유지**한다.
- *  - `armed`   : 등재 **뒤** 임계 이상을 한 번이라도 관측했는가. 한 번 무장하면 풀리지 않는다.
- *  - `silent`  : 78 스냅샷 유래 — 무음·무강조이면서 「울린 종목」 기록 대상이다.
+ *  - `addedAt`      : 첫 등재 시각(ms). 76 이 다시 와도 · 발화 거래소가 바뀌어도 **첫 등재 값을
+ *                     유지**한다 — 강조 · 구독 우선순위 · 첫 돌파시각과 같은 축이다.
+ *  - `feedExchange` : 무장·유예를 잰 피드 거래소(행의 발화 거래소). 바뀌면 판정 상태만 다시 시작한다.
+ *  - `feedSince`    : 그 피드로 이탈 판정을 시작한 시각(ms) — **이탈 유예의 기준**이다. 등재 때는
+ *                     `addedAt` 과 같고, 피드 전환 때 다시 찍힌다 (quick-260926-rcc).
+ *  - `armed`        : 그 피드로 등재(전환) **뒤** 임계 이상을 한 번이라도 관측했는가. 같은 피드에서
+ *                     한 번 무장하면 풀리지 않는다.
+ *  - `silent`       : 78 스냅샷 유래 — 무음·무강조이면서 「울린 종목」 기록 대상이다.
  */
 export interface BreakoutMeta {
   addedAt: number;
+  feedExchange: RelayExchange;
+  feedSince: number;
   armed: boolean;
   silent: boolean;
 }
 
 /** 화면 행. relay 항목 원값 + 클라 기록 + 표시 파생값. */
 export interface BreakoutRow extends RelayRateCrossItem {
-  /** `isin|exchange` — relay 리듀서의 원소 동일성 축과 같다. */
+  /** ISIN — relay 리듀서 upsert 축(`upsertRateCross`)과 같다. */
   key: string;
   addedAt: number;
+  /** 이탈 유예의 기준 시각 — `BreakoutMeta.feedSince`. */
+  feedSince: number;
   armed: boolean;
   silent: boolean;
   /** 카드가 있는 종목 — 「거래중」 표식. */
@@ -194,9 +203,15 @@ export interface BreakoutRow extends RelayRateCrossItem {
   highlightUntil: number | null;
 }
 
-/** 행 키 — relay 리듀서와 같은 `isin`+`exchange` 축. */
-export function breakoutKey(item: Pick<RelayRateCrossItem, "isin" | "exchange">): string {
-  return `${item.isin}|${item.exchange}`;
+/**
+ * 행 키 — **ISIN** 이다 (quick-260926-rcc).
+ *
+ * gh-trade quick-260923-cfo 결정 A — 서버 상태가 ISIN 당 1개라 발화 거래소가 바뀌어도 같은 행이다
+ * (gh-trade 자리유지 갱신). relay `rateCrossKey` · 리듀서 `upsertRateCross` 와 같은 축이다.
+ * 키 정의의 단일 지점이라 함수로 남긴다(use-trading-alerts · trading-alerts · 스트립이 부른다).
+ */
+export function breakoutKey(item: Pick<RelayRateCrossItem, "isin">): string {
+  return item.isin;
 }
 
 /**
@@ -214,20 +229,22 @@ function rateOf(row: Pick<RelayRateCrossItem, "basePrice" | "changeRate">, curre
  *  ① `currentPrice === undefined`(구독 실패·상한 초과로 현재가를 모름)면 **무조건 false**.
  *     모르는 값으로 지우는 것은 사용자에게 없는 사실을 말하는 것이다 — 오래된 76 가격을 보이는 편이 낫다.
  *  ② `등락률 < 행의 임계 − REMOVE_MARGIN_PCT` 이고 `(무장 ∨ 추가 후 ARM_GRACE_MS 경과)` 일 때만 참.
+ *     유예 기준은 첫 등재가 아니라 **피드 판정 시작 시각**(`feedSince`)이다 — 발화 거래소가 바뀌면
+ *     새 피드 기준으로 유예가 다시 흐른다 (quick-260926-rcc).
  *
  * ⚠️ 무장/유예 조건은 CONTEXT D-16 에는 없고 gh-trade 정본(`rate-cross-alert.md` ③)에는 있다.
  *    빼면 돌파 직후 들어온 **낡은 체결 한 건**이 행을 즉시 지우고, 다음 76 에 다시 뜨는 깜빡임이 난다
  *    (RESEARCH Pitfall 6).
  */
 export function shouldRemoveBreakout(
-  row: Pick<BreakoutRow, "thresholdPct" | "basePrice" | "changeRate" | "armed" | "addedAt">,
+  row: Pick<BreakoutRow, "thresholdPct" | "basePrice" | "changeRate" | "armed" | "feedSince">,
   currentPrice: number | undefined,
   now: number = Date.now(),
 ): boolean {
   if (currentPrice === undefined) return false;
   const below = rateOf(row, currentPrice) < row.thresholdPct - REMOVE_MARGIN_PCT;
   if (!below) return false;
-  return row.armed || now - row.addedAt >= ARM_GRACE_MS;
+  return row.armed || now - row.feedSince >= ARM_GRACE_MS;
 }
 
 /**
@@ -235,25 +252,55 @@ export function shouldRemoveBreakout(
  *
  * `silent` 는 **호출자가** 정한다 — relay 컨텍스트는 항목이 76 으로 왔는지 78 로 왔는지를 싣지 않으므로,
  * 첫 채움(인증 직후 스냅샷)·전량 교체로 들어온 새 종목은 `silent: true` 로 넘긴다.
- * `priceOf` 가 `undefined` 를 주는 종목(현재가 모름)은 무장하지 않는다.
+ * `priceOf` 는 항목(isin·exchange)을 받아 **행 피드**(발화 거래소) 가격을 준다. `undefined`
+ * (현재가 모름)면 무장하지 않는다.
+ *
+ * ★ 발화 거래소 전환(같은 ISIN · `feedExchange !== it.exchange`) — `addedAt` · `silent` 는 유지하고
+ *   `feedExchange` = 새 거래소, `feedSince` = now, `armed` = false 로 **판정 상태만** 다시 시작한다.
+ *   전환 스텝의 관측은 무장에 세지 않는다(등재 스텝과 같다). 근거: gh-trade 는 자리유지 갱신에서
+ *   Armed 를 건드리지 않지만 그 판정은 새 피드의 **실시간 이벤트**만 본다. gh-radar 는 전역 시세
+ *   맵(구독을 풀어도 값을 지우지 않는다)의 캐시값을 읽으므로, 전환 직후 새 피드 키에 이전 구독의
+ *   낡은 값이 남아 있으면 무장 유지 상태에서 그 값으로 즉시 지워지고, 지운 행은 서버 새 프레임
+ *   전까지 되살아나지 않는다. 그래서 판정 상태만 새 피드 기준으로 다시 시작하고 표시(자리 · 강조 ·
+ *   무음 · 첫 돌파시각)는 유지한다 (quick-260926-rcc).
+ *
+ * 값이 안 바뀌면 기존 기록 객체 신원을 그대로 둔다.
  */
 export function trackBreakoutMeta(
   prev: ReadonlyMap<string, BreakoutMeta>,
   items: readonly RelayRateCrossItem[],
-  opts: { now: number; silent: boolean; priceOf?: (isin: string) => number | undefined },
+  opts: {
+    now: number;
+    silent: boolean;
+    priceOf?: (item: Pick<RelayRateCrossItem, "isin" | "exchange">) => number | undefined;
+  },
 ): Map<string, BreakoutMeta> {
   const next = new Map<string, BreakoutMeta>();
   for (const it of items) {
     const key = breakoutKey(it);
     const old = prev.get(key);
-    const meta: BreakoutMeta = old ?? { addedAt: opts.now, armed: false, silent: opts.silent };
-    let armed = meta.armed;
-    // 무장은 **등재 뒤** 관측만 센다 — 등재를 일으킨 76 자체는 관측이 아니다(그러면 유예가 무의미).
-    if (!armed && old !== undefined) {
-      const price = opts.priceOf?.(it.isin);
+    if (old === undefined) {
+      next.set(key, {
+        addedAt: opts.now,
+        feedExchange: it.exchange,
+        feedSince: opts.now,
+        armed: false,
+        silent: opts.silent,
+      });
+      continue;
+    }
+    if (old.feedExchange !== it.exchange) {
+      // 피드 전환 — 판정 상태만 재시작(위 ★). 이 스텝의 관측은 세지 않는다.
+      next.set(key, { ...old, feedExchange: it.exchange, feedSince: opts.now, armed: false });
+      continue;
+    }
+    let armed = old.armed;
+    // 무장은 **등재(전환) 뒤** 관측만 센다 — 등재를 일으킨 76 자체는 관측이 아니다(그러면 유예가 무의미).
+    if (!armed) {
+      const price = opts.priceOf?.(it);
       if (price !== undefined && rateOf(it, price) >= it.thresholdPct) armed = true;
     }
-    next.set(key, armed === meta.armed ? meta : { ...meta, armed });
+    next.set(key, armed === old.armed ? old : { ...old, armed });
   }
   return next;
 }
@@ -280,11 +327,18 @@ export function breakoutRowsFrom(
     if (opts.dismissed.has(it.isin)) continue;
     const key = breakoutKey(it);
     if (opts.removed?.has(key)) continue;
-    const meta = opts.meta.get(key) ?? { addedAt: 0, armed: false, silent: true };
+    const meta: BreakoutMeta = opts.meta.get(key) ?? {
+      addedAt: 0,
+      feedExchange: it.exchange,
+      feedSince: 0,
+      armed: false,
+      silent: true,
+    };
     rows.push({
       ...it,
       key,
       addedAt: meta.addedAt,
+      feedSince: meta.feedSince,
       armed: meta.armed,
       silent: meta.silent,
       trading: opts.cards.has(it.isin),

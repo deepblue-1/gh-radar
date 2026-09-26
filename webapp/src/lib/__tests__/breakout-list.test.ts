@@ -12,6 +12,7 @@ import {
   TRADING_COLS_KEY,
   addDismissed,
   addSounded,
+  breakoutKey,
   breakoutRowsFrom,
   isHighlighted,
   kstDateKey,
@@ -62,8 +63,9 @@ function item(patch: Partial<RelayRateCrossItem> = {}): RelayRateCrossItem {
 function row(patch: Partial<BreakoutRow> = {}): BreakoutRow {
   return {
     ...item(),
-    key: `${ISIN_A}|KRX`,
+    key: ISIN_A,
     addedAt: 0,
+    feedSince: 0,
     armed: false,
     silent: false,
     trading: false,
@@ -180,11 +182,20 @@ describe("shouldRemoveBreakout — 삭제 판정의 유일 지점", () => {
   });
 
   it("임계 20 · 등락률 17.9 · 미무장 · 추가 후 1초 → 지우지 않는다(유예 중)", () => {
-    expect(shouldRemoveBreakout(row({ armed: false, addedAt: 0 }), 11_790, 1_000)).toBe(false);
+    expect(shouldRemoveBreakout(row({ armed: false, feedSince: 0 }), 11_790, 1_000)).toBe(false);
   });
 
   it("임계 20 · 등락률 17.9 · 미무장 · 추가 후 4초 → 지운다(유예 경과)", () => {
-    expect(shouldRemoveBreakout(row({ armed: false, addedAt: 0 }), 11_790, 4_000)).toBe(true);
+    expect(shouldRemoveBreakout(row({ armed: false, feedSince: 0 }), 11_790, 4_000)).toBe(true);
+  });
+
+  it("유예 기준은 첫 등재(addedAt)가 아니라 피드 판정 시작(feedSince)이다 (quick-260926-rcc)", () => {
+    const switched = row({ armed: false, addedAt: 0, feedSince: 10_000 });
+    expect(shouldRemoveBreakout(switched, 11_790, 11_000)).toBe(false);
+    expect(shouldRemoveBreakout(switched, 11_790, 13_000)).toBe(true);
+    // 무장 행은 유예와 무관하게 지운다 · 현재가 모름은 언제나 false.
+    expect(shouldRemoveBreakout({ ...switched, armed: true }, 11_790, 10_001)).toBe(true);
+    expect(shouldRemoveBreakout({ ...switched, armed: true }, undefined, 99_999)).toBe(false);
   });
 
   it("임계 20 · 등락률 18.1 · 무장됨 → 지우지 않는다(경계 −2.0%p 위)", () => {
@@ -207,27 +218,95 @@ describe("shouldRemoveBreakout — 삭제 판정의 유일 지점", () => {
 describe("trackBreakoutMeta — 등재 시각·무장·무음 기록", () => {
   it("새 종목은 now 를 등재 시각으로 받고, 78 유래면 silent 다", () => {
     const m1 = trackBreakoutMeta(new Map(), [item()], { now: 5_000, silent: true });
-    expect(m1.get(`${ISIN_A}|KRX`)).toEqual({ addedAt: 5_000, armed: false, silent: true });
+    expect(m1.get(ISIN_A)).toEqual({
+      addedAt: 5_000,
+      feedSince: 5_000,
+      feedExchange: "KRX",
+      armed: false,
+      silent: true,
+    });
     const m2 = trackBreakoutMeta(m1, [item(), item({ isin: ISIN_B })], { now: 9_000, silent: false });
     // 기존 행은 등재 시각을 유지한다(돌파 시각은 첫 등재 값).
-    expect(m2.get(`${ISIN_A}|KRX`)?.addedAt).toBe(5_000);
-    expect(m2.get(`${ISIN_B}|KRX`)).toEqual({ addedAt: 9_000, armed: false, silent: false });
+    expect(m2.get(ISIN_A)?.addedAt).toBe(5_000);
+    expect(m2.get(ISIN_B)).toEqual({
+      addedAt: 9_000,
+      feedSince: 9_000,
+      feedExchange: "KRX",
+      armed: false,
+      silent: false,
+    });
   });
 
   it("집합에서 빠진 종목의 기록은 버린다", () => {
     const m1 = trackBreakoutMeta(new Map(), [item(), item({ isin: ISIN_B })], { now: 0, silent: false });
     const m2 = trackBreakoutMeta(m1, [item({ isin: ISIN_B })], { now: 1, silent: false });
-    expect(m2.has(`${ISIN_A}|KRX`)).toBe(false);
+    expect(m2.has(ISIN_A)).toBe(false);
   });
 
   it("등재 뒤 임계 이상 현재가를 관측하면 무장하고, 한 번 무장하면 풀리지 않는다", () => {
     const m1 = trackBreakoutMeta(new Map(), [item()], { now: 0, silent: false });
     const m2 = trackBreakoutMeta(m1, [item()], { now: 100, silent: false, priceOf: () => 12_100 });
-    expect(m2.get(`${ISIN_A}|KRX`)?.armed).toBe(true);
+    expect(m2.get(ISIN_A)?.armed).toBe(true);
     const m3 = trackBreakoutMeta(m2, [item()], { now: 200, silent: false, priceOf: () => 11_000 });
-    expect(m3.get(`${ISIN_A}|KRX`)?.armed).toBe(true);
+    expect(m3.get(ISIN_A)?.armed).toBe(true);
     const m4 = trackBreakoutMeta(new Map(), [item()], { now: 0, silent: false, priceOf: () => undefined });
-    expect(m4.get(`${ISIN_A}|KRX`)?.armed).toBe(false);
+    expect(m4.get(ISIN_A)?.armed).toBe(false);
+  });
+
+  it("priceOf 는 항목(isin·exchange)을 받는다 — 행 피드 가격을 고른다", () => {
+    const seen: string[] = [];
+    const m1 = trackBreakoutMeta(new Map(), [item({ exchange: "NXT" })], { now: 0, silent: false });
+    trackBreakoutMeta(m1, [item({ exchange: "NXT" })], {
+      now: 100,
+      silent: false,
+      priceOf: (it) => {
+        seen.push(`${it.isin}|${it.exchange}`);
+        return 12_100;
+      },
+    });
+    expect(seen).toEqual([`${ISIN_A}|NXT`]);
+  });
+
+  it("발화 거래소 전환 — 등재·무음 유지, 피드·유예 재시작, 무장 해제 · 전환 스텝 관측은 무장하지 않는다 (quick-260926-rcc)", () => {
+    const m1 = trackBreakoutMeta(new Map(), [item()], { now: 1_000, silent: true });
+    const m2 = trackBreakoutMeta(m1, [item()], { now: 2_000, silent: false, priceOf: () => 12_100 });
+    expect(m2.get(ISIN_A)?.armed).toBe(true);
+
+    // 같은 ISIN · 거래소만 NXT 로 — 전환 스텝에서 임계 이상 가격이 와도 무장하지 않는다.
+    const m3 = trackBreakoutMeta(m2, [item({ exchange: "NXT" })], {
+      now: 5_000,
+      silent: false,
+      priceOf: () => 12_500,
+    });
+    expect(m3.get(ISIN_A)).toEqual({
+      addedAt: 1_000,
+      feedSince: 5_000,
+      feedExchange: "NXT",
+      armed: false,
+      silent: true,
+    });
+
+    // 다음 스텝부터 새 거래소 관측으로 무장한다.
+    const m4 = trackBreakoutMeta(m3, [item({ exchange: "NXT" })], {
+      now: 5_200,
+      silent: false,
+      priceOf: () => 12_500,
+    });
+    expect(m4.get(ISIN_A)?.armed).toBe(true);
+    expect(m4.get(ISIN_A)?.feedSince).toBe(5_000);
+  });
+
+  it("값이 안 바뀌면 기존 기록 객체 신원을 유지한다", () => {
+    const m1 = trackBreakoutMeta(new Map(), [item()], { now: 0, silent: false });
+    const m2 = trackBreakoutMeta(m1, [item()], { now: 100, silent: false, priceOf: () => undefined });
+    expect(m2.get(ISIN_A)).toBe(m1.get(ISIN_A));
+  });
+});
+
+describe("breakoutKey — 행 키는 ISIN (quick-260926-rcc · gh-trade cfo 결정 A)", () => {
+  it("같은 ISIN 의 KRX 항목과 NXT 항목은 키가 같다", () => {
+    expect(breakoutKey(item({ exchange: "KRX" }))).toBe(ISIN_A);
+    expect(breakoutKey(item({ exchange: "NXT" }))).toBe(breakoutKey(item({ exchange: "KRX" })));
   });
 });
 
@@ -266,9 +345,27 @@ describe("breakoutRowsFrom — 서버 집합을 재해석하지 않고 화면 �
       dismissed: new Set(),
       cards: new Set(),
       meta,
-      removed: new Set([`${ISIN_A}|KRX`]),
+      removed: new Set([ISIN_A]),
     });
     expect(rows.map((r) => r.isin)).toEqual([ISIN_B, ISIN_C]);
+  });
+
+  it("행 key 는 ISIN 이고 feedSince 가 실린다 · 기록 없는 행은 feedSince 0 (quick-260926-rcc)", () => {
+    const nxt = item({ exchange: "NXT" });
+    const meta = trackBreakoutMeta(new Map(), [nxt], { now: 7_000, silent: false });
+    const [r] = breakoutRowsFrom([nxt, item({ isin: ISIN_B })], {
+      dismissed: new Set(),
+      cards: new Set(),
+      meta,
+    });
+    expect(r.key).toBe(ISIN_A);
+    expect(r.feedSince).toBe(7_000);
+    const rows = breakoutRowsFrom([item({ isin: ISIN_B })], {
+      dismissed: new Set(),
+      cards: new Set(),
+      meta,
+    });
+    expect(rows[0]).toMatchObject({ key: ISIN_B, addedAt: 0, feedSince: 0, silent: true });
   });
 });
 

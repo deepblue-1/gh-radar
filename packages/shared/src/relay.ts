@@ -1030,7 +1030,11 @@ export type RelayViNoticeMsg = {
 export type RelayRateCrossItem = {
   /** 12자 ISIN. */
   isin: string;
-  /** 거래소. */
+  /**
+   * 거래소 — 76 = 발화한 판정 대상 체결의 거래소 · 78 원소 = above 구간을 연 거래소 — KRX/NXT 모두
+   * 가능(gh-trade quick-260923-cfo · KRX 접속매매 세션이 닫힌 시간의 NXT 접속매매도 판정). 종목당
+   * 1원소라 원소 동일성은 ISIN 이고 이 값은 행의 피드 거래소다 (quick-260926-rcc).
+   */
   exchange: RelayExchange;
   /** 판정 시점 현재가(원). */
   lastPrice: number;
@@ -1062,6 +1066,9 @@ export type RelayRateCrossItem = {
  *
  * ⚠️ 서버가 **로그인 전 연결에도** Broadcast 한다 — 요청 짝도 snapshot 플래그도 없다.
  *    relay 는 Ready 이전 프레임을 캐시만 하고 팬아웃은 Ready 뒤에 한다(기존 규율).
+ *
+ * upsert 키 = isin(거래소 무관) — 서버 상태가 ISIN 당 1개라 뒤에 온 76 이 거래소째 덮는다
+ * (gh-trade quick-260923-cfo 결정 A · quick-260926-rcc).
  */
 export type RelayRateCrossMsg = { t: "rate.cross"; item: RelayRateCrossItem };
 
@@ -1072,6 +1079,9 @@ export type RelayRateCrossMsg = { t: "rate.cross"; item: RelayRateCrossItem };
  * 게이트웨이 78 원순서는 오름차순이지만 **relay 가 내리는 순서는 `exchangeTime` 내림차순(최신
  * 돌파가 맨 위) · 동률이면 `isin` 오름차순**이다 — 사용자 결정 2026-09-22. 브라우저 리듀서도
  * 같은 축으로 다시 정렬한다.
+ *
+ * ISIN 당 1원소다(gh-trade quick-260923-cfo 결정 A) — relay 캐시 키가 ISIN 이라 계약 위반으로
+ * 같은 ISIN 이 두 번 와도 뒤 원소 하나만 내린다 (quick-260926-rcc).
  *
  * ⚠️ relay 는 **서버 above 집합을 그대로 보관**한다. 하루 1회 알림 규칙과 임계−2%p 이탈
  *    삭제는 클라(Phase 18) 몫이다 — relay 가 집합을 가공하면 서버 재무장 폭과 갈린다.

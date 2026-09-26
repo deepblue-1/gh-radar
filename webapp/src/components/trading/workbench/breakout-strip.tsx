@@ -137,7 +137,7 @@ function advanceTracked(
     items: readonly RelayRateCrossItem[];
     snapSeq: number;
     now: number;
-    priceOf: (isin: string) => number | undefined;
+    priceOf: (item: Pick<RelayRateCrossItem, "isin" | "exchange">) => number | undefined;
     wallNow: number;
   },
 ): Tracked {
@@ -157,7 +157,7 @@ function advanceTracked(
       continue;
     }
     const m = meta.get(key);
-    if (m !== undefined && shouldRemoveBreakout({ ...it, ...m }, priceOf(it.isin), wallNow)) {
+    if (m !== undefined && shouldRemoveBreakout({ ...it, ...m }, priceOf(it), wallNow)) {
       removed.set(key, it);
     }
   }
@@ -217,7 +217,10 @@ export function BreakoutStrip({
     [items, committedMeta],
   );
   const { prices } = useBreakoutQuotes(candidates, { excludeIsins: cards });
-  const priceOf = useCallback((isin: string) => prices.get(isin), [prices]);
+  const priceOf = useCallback(
+    (it: Pick<RelayRateCrossItem, "isin" | "exchange">) => prices.get(it.isin),
+    [prices],
+  );
 
   const tracked = useMemo(
     () =>
@@ -281,7 +284,7 @@ export function BreakoutStrip({
     () =>
       rows.map((row) =>
         viewOf(row, {
-          price: priceOf(row.isin),
+          price: priceOf(row),
           at: firstTime.get(row.key) ?? row.exchangeTime,
           serverTime: row.serverTime,
           // 「거래중」 행은 신규로 칠하지 않는다 — 목업의 행 상태는 신규 | 거래중 | 기본 중 하나다.
