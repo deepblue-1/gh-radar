@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 
 import { mockHomeApi, HOME_POPULATED, HOME_EMPTY } from '../fixtures/home';
 import { mockStockApi } from '../fixtures/mock-api';
+import { installNativeApp } from '../fixtures/native-app';
+import { mockThemesApi } from '../fixtures/themes';
 import { leavesOverflowing } from '../overflow';
 
 /**
@@ -451,5 +453,91 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
       // 음수 마진이 오른쪽으로 넘치면 여기서 걸린다.
       expect(m.scrollW, `@${width} 가로 스크롤이 생겼다`).toBe(m.clientW);
     }
+  });
+
+  /*
+    ★ 21-31 D-32 (G-21-R3-11) — 탭 루트 스크롤 복원 · 스켈레톤 없는 재방문 · 재탭 = 맨 위.
+      네이티브 탭바가 부르는 실제 경로(`window.__ghTrade.navigate` → router.push)로 오간다.
+      ★ 스크롤 주체가 **창**이라는 전제(AppShell 머리 주석)를 실제 픽셀로 잠근다 — `main.scrollTop` 이
+        스크롤 주체였다면 `window.scrollY` 가 움직이지 않아 첫 단언에서 걸린다.
+      ★ 스켈레톤 부재는 「돌아온 뒤 한 번 안 보인다」가 아니라 **MutationObserver 로 복귀 전 과정**을 본다 —
+        한 프레임 번쩍임도 잡는다.
+  */
+  test('G-21-R3-11 탭 루트 스크롤 복원 — 홈 스크롤 → 검색 → 홈 = 위치 복원 · 스켈레톤 없음 · 재탭 = 맨 위 (D-32)', async ({
+    page,
+  }) => {
+    // 390×844 에서 창이 600 이상 내려가도록 테마 카드를 늘린 응답(HOME_POPULATED 는 ≈140px 만 스크롤된다).
+    const base = HOME_POPULATED.snapshot!;
+    const tall = {
+      ...HOME_POPULATED,
+      snapshot: {
+        ...base,
+        payload: {
+          ...base.payload,
+          themes: Array.from({ length: 6 }, (_, i) => ({
+            ...base.payload.themes[0]!,
+            name: i === 0 ? base.payload.themes[0]!.name : `테마${i + 1}`,
+          })),
+        },
+      },
+    };
+    await installNativeApp(page);
+    await mockHomeApi(page, { response: tall });
+    await mockStockApi(page);
+    await mockThemesApi(page, { list: [] });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+
+    await expect(
+      page.getByRole('heading', { name: '오늘의 급등 테마', level: 1 }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: '개별 급등' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => typeof window.__ghTrade?.navigate)).toBe('function');
+
+    // 창을 600 까지 내린다(문서가 모자라면 가능한 만큼 — 그 값이 복원 목표다).
+    await page.evaluate(() => window.scrollTo(0, 600));
+    const target = await page.evaluate(() => window.scrollY);
+    expect(target, '홈 문서가 짧아 창이 거의 스크롤되지 않는다 — 복원을 잴 수 없다').toBeGreaterThanOrEqual(300);
+    // 기록은 scroll 이벤트로 남는다 — 이벤트가 돌 틈을 준다.
+    await page.waitForTimeout(100);
+
+    // 검색 탭으로.
+    await page.evaluate(() => window.__ghTrade!.navigate('/search'));
+    await expect(page).toHaveURL(/\/search$/);
+    await expect(
+      page.locator('main').getByRole('heading', { level: 1, name: '검색' }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // 홈 복귀 전 과정에서 홈 스켈레톤이 한 번이라도 붙는지 감시.
+    await page.evaluate(() => {
+      const w = window as unknown as { __homeSkeletonSeen?: boolean };
+      w.__homeSkeletonSeen = false;
+      new MutationObserver(() => {
+        if (document.querySelector('[aria-label="홈 로딩 중"]')) w.__homeSkeletonSeen = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+
+    // 홈 탭으로 복귀 — 보던 위치로 수렴.
+    await page.evaluate(() => window.__ghTrade!.navigate('/'));
+    await expect(page).toHaveURL(/\/$/);
+    await expect(
+      page.getByRole('heading', { name: '오늘의 급등 테마', level: 1 }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - target), {
+        message: '홈 복귀 뒤 창 스크롤이 보던 위치로 돌아오지 않았다',
+      })
+      .toBeLessThanOrEqual(4);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { __homeSkeletonSeen?: boolean }).__homeSkeletonSeen,
+      ),
+      '홈 복귀 중 스켈레톤이 보였다',
+    ).toBe(false);
+    await expect(page.getByRole('status', { name: '홈 로딩 중' })).toHaveCount(0);
+
+    // 같은 탭 재탭 = 맨 위(D-06a).
+    await page.evaluate(() => window.__ghTrade!.navigate('/'));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   });
 });

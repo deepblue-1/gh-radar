@@ -32,7 +32,9 @@ vi.mock('next-themes', () => ({
 }));
 
 // GlobalSearch 가 `useRouter` 를 쓴다 — jsdom 에 app router 가 없다.
+// AppShell 은 D-32 `useTabRootScrollMemory` 로 `usePathname` 을 읽는다 — 탭 루트가 아닌 경로로 두어 no-op.
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/design',
   useRouter: () => ({
     push: vi.fn(),
     replace: vi.fn(),

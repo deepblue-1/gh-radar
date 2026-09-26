@@ -5,6 +5,7 @@ import { useState, type ReactNode } from 'react';
 import { AppHeader } from '@/components/layout/app-header';
 import { GlobalSearch } from '@/components/search/global-search';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
+import { useTabRootScrollMemory } from '@/lib/tab-scroll-memory';
 
 export interface AppShellProps {
   /** 좌측 사이드바 콘텐츠. Desktop 240px, Mobile Drawer 렌더. */
@@ -38,6 +39,8 @@ export interface AppShellProps {
  * - `hideSidebar` 활성 시: 사이드바/Drawer 비활성 → 헤더 + 단일 main 컬럼.
  *   이때 테마 토글의 집(사이드바 하단)이 없으므로 헤더 우측에 토글을 되살린다
  *   (`themeToggle={!showSidebar}`).
+ * - Phase 21 D-32 — 탭 루트(`/` · `/search` · `/trading` · `/chat` · `/me`)는 모두 이 셸을 쓰므로 여기서
+ *   `useTabRootScrollMemory()` 를 불러 탭 루트마다 창 스크롤 위치를 기록·복원한다(비 루트 페이지는 no-op).
  */
 export function AppShell({
   sidebar,
@@ -45,6 +48,7 @@ export function AppShell({
   hideSidebar = false,
   children,
 }: AppShellProps) {
+  useTabRootScrollMemory();
   const [sheetOpen, setSheetOpen] = useState(false);
   const showSidebar = !hideSidebar && Boolean(sidebar);
   // Phase 6 — nav 미지정 시 GlobalSearch 자동 마운트. 명시적 `null` 은 그대로 존중.
