@@ -12,7 +12,7 @@ import os
 /// 웹 → 네이티브 채널은 `ghTrade` 하나다. 본문은 JSON 문자열 `{"type": …, "payload": …}`.
 /// 웹 쪽 송신부: `webapp/src/lib/native/native-detect.ts` (ready) · 21-04 `post-native.ts`.
 ///
-/// 하단 플로팅 탭바(21-10 · D-02 · D-27a)는 WebView 위에 `addSubview` 로 얹는다.
+/// 하단 플로팅 탭바(21-10 · D-02 · D-27b)는 WebView 위에 `addSubview` 로 얹는다.
 /// 활성 = `TabRoutes.activeTab`(D-14) · 숨김 = 로그인 경로 · 오프라인 페이지 · 웹 오버레이 · 키보드(D-12) ·
 /// 탭 = 웹 navigate 훅 evaluate(D-06a, 클라 내비라 relay 소켓 유지).
 ///
@@ -142,7 +142,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         }
     }
 
-    // MARK: - 탭바 (D-02 · D-13 · D-27a)
+    // MARK: - 탭바 (D-02 · D-13 · D-27b)
 
     private func setupTabBar() {
         let fade = tabBar.fadeView
@@ -151,7 +151,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         view.addSubview(tabBar)
 
         // 바닥 = 화면 끝에서 max(inset − 14, 14): 안전영역 바닥 + 14(우선) · 화면 끝 −14 이하(필수).
-        // 인셋 34 기기 → 화면 끝 20 · 인셋 0 기기 → 14 (D-27a).
+        // 인셋 34 기기 → 화면 끝 20 · 인셋 0 기기 → 14 (D-27a 이래 불변 · D-27b).
         let bottomToSafeArea = tabBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 14)
         bottomToSafeArea.priority = .defaultHigh
         // 폭 = 화면 − 32(우선) · 최대 560(필수, iPad 가운데). 폭 기준 숨김 분기는 없다(D-13).
@@ -162,9 +162,10 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             fade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             fade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             fade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            fade.heightAnchor.constraint(equalToConstant: 120),
+            // 페이드 86 = 탭바 60 + 26(스케치 007 `--tbh + 26`) · 탭바 높이 60 ↔ 웹 globals.css §21 offset(gap + 60 + 8) · 본문 98.
+            fade.heightAnchor.constraint(equalToConstant: 86),
 
-            tabBar.heightAnchor.constraint(equalToConstant: 70),
+            tabBar.heightAnchor.constraint(equalToConstant: 60),
             tabBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             tabBar.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
             widthToView,

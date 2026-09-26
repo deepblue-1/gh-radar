@@ -1,10 +1,10 @@
 import UIKit
 
-// GH Trade 네이티브 하단 플로팅 탭바 — D-02 · D-15 · D-27a (스케치 004 탭바 A 「알약」).
+// GH Trade 네이티브 하단 플로팅 탭바 — D-02 · D-15 · D-27b (스케치 007 C 「캡슐 인디케이터」 · 라벨 없음).
 //
-// 수치 정본 = CONTEXT D-27a: 높이 70 · radius 32(연속 곡률) · `--card` 82% + 블러 · 1px `--line` 테두리 ·
-// 그림자 (0,2) 18% · 활성 = `--primary` 14% 원 46 + filled/굵은 심볼 + primary 라벨 10pt semibold ·
-// 비활성 `--muted-fg` · 탭바 위 120pt 하단 페이드(`--bg` 92%).
+// 수치 정본 = CONTEXT D-27b: 높이 60 · radius 30(= 높이/2, 연속 곡률) · 라벨 없음(접근 이름은 accessibilityLabel) ·
+// 아이콘 26 세로 가운데 · 활성 = 아이콘 뒤 캡슐 56×36 radius 18 `--primary` + filled/굵은 심볼 + primary 색 ·
+// 비활성 `--muted-fg`. 색 토큰(bg · primary · muted · card)은 D-27a 그대로.
 // 위치·폭(좌우 16 · 최대 560 · 바닥 max(inset − 14, 14))은 VC 의 Auto Layout 이 정한다(GHTradeBridgeViewController).
 // 구조는 weekly-wine `CookieViewController.setupTabBar` 를 따르되 색은 팔레트로 교체 가능하게 뺐다(21-11 테마).
 
@@ -48,7 +48,7 @@ final class GHTradeTabBar: UIView {
         layer.shadowRadius = 8
 
         pill.translatesAutoresizingMaskIntoConstraints = false
-        pill.layer.cornerRadius = 32
+        pill.layer.cornerRadius = 30
         pill.layer.cornerCurve = .continuous
         pill.clipsToBounds = true
         pill.layer.borderWidth = 1 / UIScreen.main.scale
@@ -84,7 +84,7 @@ final class GHTradeTabBar: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         // 그림자 경로를 알약 모양으로 고정 — 매 프레임 오프스크린 렌더 방지.
-        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 32).cgPath
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 30).cgPath
     }
 
     /// 활성 탭 표시. nil = 5탭 전부 비활성(D-14 — 종목상세 등 하위 경로).
@@ -120,14 +120,13 @@ final class GHTradeTabBar: UIView {
     }
 }
 
-/// 탭 한 칸 — 강조 원 46(top 7) · 아이콘 26(top 12) · 라벨 10pt semibold(아이콘 아래 4).
+/// 탭 한 칸 — 라벨 없음(D-27b). 캡슐 56×36 radius 18 · 아이콘 26 이 모두 셀 정중앙. 탭 이름은 VoiceOver 만 읽는다.
 final class GHTradeTabItem: UIControl {
 
     let tab: GHTabID
 
     private let highlight = UIView()
     private let icon = UIImageView()
-    private let label = UILabel()
 
     init(tab: GHTabID) {
         self.tab = tab
@@ -142,7 +141,8 @@ final class GHTradeTabItem: UIControl {
     private func setup() {
         highlight.translatesAutoresizingMaskIntoConstraints = false
         highlight.isUserInteractionEnabled = false
-        highlight.layer.cornerRadius = 23
+        highlight.layer.cornerRadius = 18
+        highlight.layer.cornerCurve = .continuous
         highlight.isHidden = true
         addSubview(highlight)
 
@@ -151,37 +151,26 @@ final class GHTradeTabItem: UIControl {
         icon.contentMode = .scaleAspectFit
         addSubview(icon)
 
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.isUserInteractionEnabled = false
-        label.font = UIFont.systemFont(ofSize: 10, weight: .semibold)
-        label.textAlignment = .center
-        label.text = tab.title
-        addSubview(label)
-
         NSLayoutConstraint.activate([
-            highlight.widthAnchor.constraint(equalToConstant: 46),
-            highlight.heightAnchor.constraint(equalToConstant: 46),
-            highlight.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            highlight.widthAnchor.constraint(equalToConstant: 56),
+            highlight.heightAnchor.constraint(equalToConstant: 36),
             highlight.centerXAnchor.constraint(equalTo: centerXAnchor),
+            highlight.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             icon.widthAnchor.constraint(equalToConstant: 26),
             icon.heightAnchor.constraint(equalToConstant: 26),
-            icon.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-
-            label.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 4),
-            label.centerXAnchor.constraint(equalTo: centerXAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 2),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -2),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
+        // 시각 라벨은 없지만 접근 이름은 그대로 — VoiceOver 가 「홈」·「검색」… 을 읽는다(D-27b · T-21-51).
         isAccessibilityElement = true
         accessibilityLabel = tab.title
         accessibilityTraits = [.button]
     }
 
     override var isHighlighted: Bool {
-        didSet { icon.alpha = isHighlighted ? 0.55 : 1; label.alpha = icon.alpha }
+        didSet { icon.alpha = isHighlighted ? 0.55 : 1 }
     }
 
     func configure(active: Bool, palette: GHTradePalette) {
@@ -190,7 +179,6 @@ final class GHTradeTabItem: UIControl {
         highlight.backgroundColor = palette.primary.withAlphaComponent(0.14)
         icon.image = Self.symbol(for: tab, active: active)
         icon.tintColor = color
-        label.textColor = color
         accessibilityTraits = active ? [.button, .selected] : [.button]
     }
 

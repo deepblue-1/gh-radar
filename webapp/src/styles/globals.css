@@ -615,15 +615,16 @@ html[lang="ko"] {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   §21 safe-area · 네이티브 탭바 여백 (Phase 21 D-25 · D-27a)
+   §21 safe-area · 네이티브 탭바 여백 (Phase 21 D-25 · D-27b)
    - 안전영역의 **유일한 원천**은 아래 `--app-safe-{top,bottom,left,right}` 네 변수다. 컴포넌트는 `env()` 를
      직접 쓰지 않고 이 변수만 읽는다(`layout.tsx` viewport `viewportFit: 'cover'` 와 짝).
      · `--safe-area-inset-*` 는 Capacitor 8.5 SystemBars(`insetsHandling: 'css'`)가 Android 에서 `<html>` 인라인
        스타일로 **주입하는 이름**이다(Android WebView < 140 은 `env()` 가 0 — 21-RESEARCH Pattern 9 · Pitfall 8).
        ★ 우리가 정의하지 않는다 — `:root` 에 선언하면 폴백 체인이 주입값 대신 우리 값을 읽는 순간이 생긴다.
      · iOS WKWebView · Safari · 크롬은 주입이 없으니 `env()` 폴백으로 떨어지고, 크롬 데스크톱은 0 이다.
-   - 탭바 기하의 정본은 CONTEXT **D-27a** 다: 높이 70 · 바닥 = 화면 끝에서 max(inset − 14, 14) · 위 여유 8 ·
-     웹 본문 하단 여백 108(= 70 + 20 + 18, 폰·iPad 공통). 여기 값을 바꾸면 D-27a · 네이티브 상수(iOS
+   - 탭바 기하의 정본은 CONTEXT **D-27b** 다(스케치 007 C · D-27a 대체): 높이 60 · 바닥 = 화면 끝에서
+     max(inset − 14, 14) · 위 여유 8 · 웹 본문 하단 여백 98(= 60 + 20 + 18, 폰·iPad 공통). 여기 값을 바꾸면
+     D-27b · 네이티브 상수(iOS
      `GHTradeTabBar` · Android `GhTradeTabBar`) · `e2e/specs/native-shell.spec.ts` 수치 단언을 같이 고친다.
      · `--native-tabbar-gap` = 탭바 바닥 여백 · `--native-tabbar-offset` = 하단 고정 바가 설 높이(탭바 윗변 + 8).
      · 브라우저(`native-app` 없음)에서는 offset·reserve 가 0 — 하단 고정 요소의 `bottom` 식이 종전 값이 된다.
@@ -640,8 +641,8 @@ html[lang="ko"] {
 }
 html.native-app {
   --native-tabbar-gap: max(calc(var(--app-safe-bottom) - 14px), 14px);
-  --native-tabbar-offset: calc(var(--native-tabbar-gap) + 70px + 8px);
-  --native-body-reserve: 108px;
+  --native-tabbar-offset: calc(var(--native-tabbar-gap) + 60px + 8px);
+  --native-body-reserve: 98px;
 }
 html.native-app main {
   padding-bottom: var(--native-body-reserve);
@@ -654,7 +655,7 @@ html.native-app main {
    - 브라우저·앱 공통: 노치·홈 인디케이터만큼 비켜 선다(크롬·데스크톱은 0 이라 종전 그대로).
      시트는 **투명 테두리**로 비킨다 — 배경이 border-box 까지 칠해져 시트 면이 상태바·홈 인디케이터 뒤까지
      이어지고, 소비처 패딩 클래스(`p-3` 등)는 건드리지 않는다.
-   - 앱 전용: 네이티브 탭바(D-27a)가 하단을 차지하므로 하단 고정 바 전부가 `--native-tabbar-offset` 위에 서고
+   - 앱 전용: 네이티브 탭바(D-27b)가 하단을 차지하므로 하단 고정 바 전부가 `--native-tabbar-offset` 위에 서고
      자기 safe-area 하단 패딩을 버린다(안전영역은 탭바 몫이다). 오버레이(시트·키패드)가 열리면 탭바가 숨으므로
      (D-12) 시트는 앱에서도 safe-area 만 비킨다. */
 [data-slot="dirty-action-bar"] {
@@ -683,7 +684,7 @@ html.native-app [data-slot="detail-order-cta-bar"] {
   padding-bottom: 10px;
 }
 @media (max-width: 767.98px) {
-  /* 예약은 CTA 바 높이 76 만 — 탭바 몫은 본문 `main` 의 108 이 따로 진다. */
+  /* 예약은 CTA 바 높이 76 만 — 탭바 몫은 본문 `main` 의 98 이 따로 진다. */
   html.native-app [data-order-cta="true"] {
     padding-bottom: 76px;
   }
