@@ -5,8 +5,11 @@
  *
  * ① 무엇인가
  *   `components/orderbook/order-panel.tsx` 의 **다이어트 재작성**이다. 가격 · 수량 · (예약구간 ∧ KRX
- *   일 때만) 조각 수 · 주문금액 · 「매수 · 매도 · 정정 · 취소」 4버튼. 호가 탭(`variant="orderbook"`)
- *   에만 주문유형 콤보(지정가 | 시간외종가)가 붙는다 — 작업대 카드는 WinForms 상따창 동형이라 없다.
+ *   일 때만) 조각 수 · 주문유형 · 주문금액 · 「매수 · 매도 · 정정 · 취소」 4버튼.
+ *   **카드에도 주문유형(D-31 · G-21-R3-10 — 호가주문 탭 제거 뒤 시간외종가 신규 주문의 유일한 표면).**
+ *   스케치 008 ③ 채택안 A — 주문금액 바로 위 44px 행 「주문유형 지정가 ›」(투명 네이티브 select) ·
+ *   선택 불가(NXT · 창 닫힘)면 행 아래 캡션 안내. 판정 · 창 닫힘 복귀 · 닫힌 창 전송 차단 · 가격 잠김은
+ *   호가 탭과 같은 한 벌(`affordanceOf` · ④)이다. 호가 탭(`variant="orderbook"`)은 각주만 다르다(21-34 정리).
  *
  *   **빠진 것(D-20):** 계좌 행(계좌는 전략 키의 일부라 카드/상태줄이 정한다) · 가격 ± 버튼 ·
  *   보유 비율 버튼 · 「호가창의 행을 클릭하면…」 안내. 매수 비율 버튼이 원래 없던 것은 그대로다.
@@ -292,7 +295,7 @@ export function canModify(
 type OrderAction = 'buy' | 'sell' | 'modify' | 'cancel';
 
 export interface ManualOrderFormProps {
-  /** `'card'` = 작업대 카드(주문유형 없음) · `'orderbook'` = 종목상세 호가 탭(주문유형 콤보 있음). */
+  /** `'card'` = 작업대 카드 · `'orderbook'` = 종목상세 호가 탭(각주만 다르다 — 주문유형은 둘 다 · D-31). */
   variant: 'card' | 'orderbook';
   /** 12자 ISIN — **주문 요청 키**(D-28). */
   isin: string;
@@ -401,8 +404,8 @@ export function ManualOrderForm({
     'isin' | 'accountNo' | 'exchange'
   > | null>(null);
 
-  // 카드에는 주문유형이 없다(D-23) — 항상 지정가.
-  const orderType = variant === 'orderbook' ? orderTypeState : 'limit';
+  // 카드 · 호가 탭 모두 주문유형을 고른다(D-31 · G-21-R3-10 — 옛 D-23 「카드는 항상 지정가」 대체).
+  const orderType = orderTypeState;
   const aff = affordanceOf(queuedWindow, exchange, orderType);
   const offHours = orderType === 'offhours';
 
@@ -826,7 +829,7 @@ export function ManualOrderForm({
 
       {offHours ? (
         <>
-          {/* 1' 시간외종가(호가 탭 · D-23) — 탭 · 입력이 없는 상자. 가격은 0 으로 나간다. */}
+          {/* 1' 시간외종가(카드 · 호가 탭 · D-23 · D-31) — 입력이 없는 잠긴 상자. 가격은 0 으로 나간다. */}
           <TicketBox
             label="가격"
             locked
@@ -934,40 +937,49 @@ export function ManualOrderForm({
         </TicketBox>
       )}
 
-      {variant === 'orderbook' && (
-        /* 4 주문유형(호가 탭 전용 · D-23) — 보이는 것은 「지정가 ›」 글자, 고르는 것은 그 위에 투명하게 겹친 네이티브 select. */
-        <div className="relative flex min-h-[44px] min-w-0 items-center justify-between gap-2 rounded-[8px] has-[select:focus-visible]:ring-2 has-[select:focus-visible]:ring-[var(--ring)]">
-          <label
-            htmlFor={`mo-type-${isin}`}
-            className="whitespace-nowrap text-[14px] text-[var(--muted-fg)]"
-          >
-            주문유형
-          </label>
-          <span
-            aria-hidden="true"
-            data-slot="mo-type-value"
-            className="whitespace-nowrap text-[14px] font-medium text-[var(--fg-2)]"
-          >
-            {offHours ? '시간외종가' : '지정가'} <span className="text-[var(--faint)]">›</span>
-          </span>
-          <select
-            id={`mo-type-${isin}`}
-            aria-label="주문유형"
-            value={orderType}
-            onChange={(e) => setOrderType(e.target.value === 'offhours' ? 'offhours' : 'limit')}
+      {/*
+        4 주문유형 — 카드 · 호가 탭 공통(D-31 · G-21-R3-10 · 스케치 008 ③ A). 보이는 것은 「지정가 ›」 글자,
+        고르는 것은 그 위에 투명하게 겹친 네이티브 select(네이티브 선택 시트). 선택 불가면 행 아래 캡션.
+      */}
+      <div className="relative flex min-h-[44px] min-w-0 items-center justify-between gap-2 rounded-[8px] has-[select:focus-visible]:ring-2 has-[select:focus-visible]:ring-[var(--ring)]">
+        <label
+          htmlFor={`mo-type-${isin}`}
+          className="whitespace-nowrap text-[14px] text-[var(--muted-fg)]"
+        >
+          주문유형
+        </label>
+        <span
+          aria-hidden="true"
+          data-slot="mo-type-value"
+          className="whitespace-nowrap text-[14px] font-medium text-[var(--fg-2)]"
+        >
+          {offHours ? '시간외종가' : '지정가'} <span className="text-[var(--faint)]">›</span>
+        </span>
+        <select
+          id={`mo-type-${isin}`}
+          aria-label="주문유형"
+          value={orderType}
+          onChange={(e) => setOrderType(e.target.value === 'offhours' ? 'offhours' : 'limit')}
+          title={aff.offHoursSelectable ? undefined : OFFHOURS_DISABLED_TITLE}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        >
+          <option value="limit">지정가</option>
+          <option
+            value="offhours"
+            disabled={!aff.offHoursSelectable}
             title={aff.offHoursSelectable ? undefined : OFFHOURS_DISABLED_TITLE}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           >
-            <option value="limit">지정가</option>
-            <option
-              value="offhours"
-              disabled={!aff.offHoursSelectable}
-              title={aff.offHoursSelectable ? undefined : OFFHOURS_DISABLED_TITLE}
-            >
-              시간외종가
-            </option>
-          </select>
-        </div>
+            시간외종가
+          </option>
+        </select>
+      </div>
+      {!aff.offHoursSelectable && (
+        <p
+          data-slot="mo-type-note"
+          className="m-0 -mt-1 min-w-0 break-keep pl-0.5 text-[12px] leading-snug text-[var(--muted-fg)] before:content-['ⓘ_']"
+        >
+          {OFFHOURS_DISABLED_TITLE}
+        </p>
       )}
 
       {/* 5 주문금액 — 44px 행 · 쉐브런 없음. */}

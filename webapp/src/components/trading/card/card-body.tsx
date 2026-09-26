@@ -8,8 +8,8 @@
  *   없다 — 좁아지면 두 칸의 폭이 줄 뿐 좌우 배치는 그대로다(D-12). 좌 pane 이 오른쪽 테두리를 갖는다.
  *   작업대 카드(`strategy-card.tsx` 의 `body` 렌더 prop)와 종목상세 호가 탭
  *   (`stock-orderbook-section.tsx`)이 **이 컴포넌트 하나**를 쓴다(D-24). 두 표면의 차이 셋 중
- *   본문에 들어오는 것은 ② 주문유형 콤보 하나뿐이고 `variant` 가 그것을 가른다 — ① 거래소 자리
- *   (헤더 vs 상태줄) ③ 미체결 범위는 상위가 담당한다.
+ *   본문에 들어오는 것은 ② 수동주문 각주 하나뿐이고 `variant` 가 그것을 가른다(주문유형은 D-31 부터 둘 다
+ *   있다 · G-21-R3-10) — ① 거래소 자리(헤더 vs 상태줄) ③ 미체결 범위는 상위가 담당한다.
  *
  * ② ★ 밴드는 **카드(탭 본문) 폭**이다 — 뷰포트가 아니다 (D-28)
  *   여기 쓰는 `@min-[Npx]/lc:` 는 가장 가까운 `@container/lc` 조상(카드 래퍼 · 호가 탭 본문 래퍼)의
@@ -144,7 +144,7 @@ export function cardGroupStatusOf(
 }
 
 export interface CardBodyProps {
-  /** `'card'` = 작업대 카드 · `'orderbook'` = 종목상세 호가 탭(주문유형 콤보 있음, D-23). */
+  /** `'card'` = 작업대 카드 · `'orderbook'` = 종목상세 호가 탭(각주만 다르다 — 주문유형은 둘 다 · D-31). */
   variant: 'card' | 'orderbook';
   /** 카드 상태 — `useStrategyCardState` 의 반환 그대로(⑤). */
   card: StrategyCardState;
