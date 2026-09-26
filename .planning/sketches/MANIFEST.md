@@ -16,3 +16,4 @@
 | 003 | toss-light-palette | 라이트 팔레트 — TDS 순정+블루 선택 / 쿨 네이비 바탕+카드 / 순백 hairline 중 어느 방향? | A (TDS 값 유지 · 선택/활성만 blue50/blue600 · 2026-09-25) | theme, light, palette, stock-detail, trading |
 | 004 | native-tab-bar | GH Trade 앱 네이티브 하단 탭바 — weekly-wine 알약 / 풀폭 토스식 / 컴팩트 알약 중 어느 모양? 앱 아이콘 다크 레이더 / 블루 레이더? | A 알약 + 아이콘 A 다크 레이더 (2026-09-25) | mobile, capacitor, tab-bar, native, app-icon, splash |
 | 005 | search-page-me-account | 앱 검색 탭 목적지 `/search` 진입 배치(세로 카드 / 3열 타일 허브 / 입력 중심) · `/me` 계정 카드(한 줄 / 가운데 / 리스트형) | /search B(3열 타일+최근 검색+상승률 미리보기) · 계정 카드 A(한 줄+아이콘) (2026-09-25) | mobile, search, me, account, web |
+| 006 | login-screen | `/login` — 설명 문구 없이 비움 / 레이더 배경 / 시세 패널 중 어느 구성? | A 비움(아이콘+워드마크+버튼 하나, 카드·문구 없음 · 2026-09-26) | login, auth, mobile, web |

@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GH Trade 로그인 화면 스케치 006</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link id="theme-css" rel="stylesheet" href="../themes/toss-dark.css">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: 'Pretendard Variable', Pretendard, -apple-system, system-ui, sans-serif; }
+#variant-nav { position: sticky; top: 0; z-index: 100; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+#variant-nav .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#variant-nav .lbl { color: #777; margin-right: 4px; font-size: 12px; }
+#variant-nav button { font: inherit; background: #1b1b20; color: #bbb; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12.5px; transition: all .15s ease; }
+#variant-nav button:hover { border-color: #555; color: #eee; }
+#variant-nav button.active { background: #f2f2f2; color: #111; border-color: #f2f2f2; font-weight: 700; }
+#vdesc { flex-basis: 100%; color: #9a9aa2; font-size: 12.5px; line-height: 1.55; }
+#vdesc b { color: #e8e8ea; }
+#stage { display: flex; justify-content: center; align-items: flex-start; gap: 36px; padding: 24px 12px 60px; overflow-x: auto; }
+
+/* ── 기기 프레임 ─────────────────────────────── */
+.device { flex: none; position: relative; width: 390px; height: 844px; border-radius: 48px; background: var(--bg); color: var(--fg); font-family: var(--font-sans); overflow: hidden; box-shadow: 0 0 0 1px #2a2a30, 0 0 0 12px #111, 0 30px 80px rgba(0,0,0,.5); transform-origin: top center; --sat: 54px; }
+.device.desk { width: 1280px; height: 800px; border-radius: 14px; --sat: 0px; }
+.island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 60; }
+.statusbar { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 12px; font-size: 15px; font-weight: 600; z-index: 55; }
+.home-ind { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 140px; height: 5px; border-radius: 3px; background: var(--fg); opacity: .8; z-index: 70; }
+.device.desk .island, .device.desk .statusbar, .device.desk .home-ind { display: none; }
+.device.dark-top .statusbar { color: #fff; }
+.device.t-light { --bg:#ffffff; --surface:#f2f4f6; --band:#f2f4f6; --card:#ffffff; --raised:#f2f4f6; --raised-2:#e5e8eb; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint-fg:#b0b8c1; --line:#e5e8eb; --up:#f04452; --down:#3182f6; --up-bg:#ffeeee; --down-bg:#e8f3ff; --primary:#3182f6; --cta:#f04452; }
+.device .cap { position: absolute; left: 0; right: 0; bottom: -30px; text-align: center; font-size: 12px; color: #777; }
+.webview { position: absolute; inset: 0; overflow: hidden; }
+.v:not(.on) { display: none !important; }
+
+/* ── 공통 프리미티브 ───────────────────────────── */
+.mark { display: inline-grid; place-items: center; border-radius: 22%; overflow: hidden; }
+.mark svg { width: 100%; height: 100%; display: block; }
+.wordmark { font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+.gbtn { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 56px; border: 0; border-radius: 16px; font: inherit; font-size: 16px; font-weight: 700; letter-spacing: -.01em; cursor: pointer; transition: transform .12s ease, filter .15s ease, opacity .15s ease; background: #ffffff; color: #191f28; }
+.t-light .gbtn { background: #191f28; color: #ffffff; }
+.gbtn:hover { filter: brightness(.94); }
+.t-light .gbtn:hover { filter: brightness(1.25); }
+.gbtn:active { transform: scale(.985); }
+.gbtn svg.g { width: 20px; height: 20px; flex: none; }
+.gbtn .spin { display: none; width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+.busy .gbtn { pointer-events: none; opacity: .7; }
+.busy .gbtn svg.g, .busy .gbtn .btxt { display: none; }
+.busy .gbtn .spin { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.alert { display: none; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--up-bg); color: var(--up); font-size: 13.5px; font-weight: 500; line-height: 1.4; margin-bottom: 12px; }
+.alert svg { width: 16px; height: 16px; flex: none; }
+.err .alert { display: flex; }
+.toast { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%) translateY(10px); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 13px; font-weight: 600; opacity: 0; transition: all .25s ease; pointer-events: none; z-index: 80; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── A: 비움 ─────────────────────────────────── */
+.la { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+.la .mid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding-top: var(--sat); }
+.la .mark { width: 76px; height: 76px; }
+.la .wordmark { font-size: 26px; }
+.la .foot { padding: 0 20px 44px; }
+.desk .la .mid { gap: 24px; }
+.desk .la .foot { width: 360px; margin: 0 auto; padding: 0 0 200px; }
+
+/* ── B: 레이더 ───────────────────────────────── */
+.lb { position: absolute; inset: 0; background: var(--bg); overflow: hidden; }
+.lb .rings { position: absolute; left: 50%; top: 42%; width: 900px; height: 900px; transform: translate(-50%, -50%); }
+.desk .lb .rings { top: 50%; width: 1500px; height: 1500px; }
+.lb .rings circle { fill: none; stroke: var(--fg); stroke-opacity: .07; stroke-width: 1.5; }
+.lb .rings circle.c4 { stroke-opacity: .12; }
+.lb .sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, rgba(240,68,82,0) 0deg, rgba(240,68,82,0) 270deg, rgba(240,68,82,.28) 360deg); -webkit-mask: radial-gradient(circle, #000 0 33%, transparent 33.5%); mask: radial-gradient(circle, #000 0 33%, transparent 33.5%); animation: rot 7s linear infinite; }
+.t-light .lb .sweep { background: conic-gradient(from 0deg, rgba(240,68,82,0) 0deg, rgba(240,68,82,0) 270deg, rgba(240,68,82,.20) 360deg); }
+@keyframes rot { to { transform: rotate(360deg); } }
+.lb .dot { position: absolute; left: 50%; top: 42%; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transform: translate(-50%, -50%); box-shadow: 0 0 0 6px color-mix(in srgb, var(--fg) 12%, transparent); }
+.desk .lb .dot { top: 50%; }
+.lb .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--card); border-radius: 28px 28px 0 0; padding: 28px 20px 44px; box-shadow: 0 -12px 40px rgba(0,0,0,.18); }
+.t-light .lb .sheet { box-shadow: 0 -12px 40px rgba(25,31,40,.10), 0 0 0 1px var(--line); }
+.lb .sheet .wordmark { font-size: 24px; margin-bottom: 26px; }
+.desk .lb .sheet { left: 50%; right: auto; bottom: auto; top: 50%; width: 420px; transform: translate(-50%, -50%); border-radius: 28px; padding: 32px 28px 28px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.desk.t-light .lb .sheet { box-shadow: 0 24px 80px rgba(25,31,40,.14), 0 0 0 1px var(--line); }
+.desk .lb .dot { display: none; }
+
+/* ── C: 시세 ─────────────────────────────────── */
+.lc { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+.lc .panel { position: relative; height: 52%; background: #17171c; color: #fff; border-radius: 0 0 32px 32px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 0 26px; }
+.lc .panel .mark { position: absolute; left: 24px; top: calc(var(--sat) + 22px); width: 44px; height: 44px; }
+.lc .panel .rings { position: absolute; right: -140px; top: -120px; width: 520px; height: 520px; }
+.lc .panel .rings circle { fill: none; stroke: #fff; stroke-opacity: .06; stroke-width: 1.5; }
+.lc .ticker { display: flex; gap: 10px; width: max-content; padding: 0 24px; animation: slide 22s linear infinite; }
+.lc .tk { flex: none; width: 168px; background: #202027; border-radius: 16px; padding: 14px 16px; }
+.lc .tk .nm { font-size: 14px; font-weight: 600; color: #e4e4e5; margin-bottom: 6px; white-space: nowrap; }
+.lc .tk .pr { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lc .tk .ch { font-size: 13px; font-weight: 600; color: #f04452; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.lc .tk .ch.lim { display: inline-flex; align-items: center; gap: 6px; }
+.lc .tk .ch.lim::after { content: '상한'; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: rgba(240,68,82,.18); }
+@keyframes slide { to { transform: translateX(-50%); } }
+.lc .low { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 30px 20px 44px; }
+.lc .low .wordmark { font-size: 26px; }
+.desk .lc { flex-direction: row; }
+.desk .lc .panel { height: auto; width: 56%; border-radius: 0; justify-content: center; padding: 0; }
+.desk .lc .panel .mark { left: 48px; top: 40px; width: 52px; height: 52px; }
+.desk .lc .panel .rings { right: -260px; top: -200px; width: 1000px; height: 1000px; }
+.desk .lc .stackwrap { display: flex; flex-direction: column; gap: 12px; width: 340px; margin: 0 auto; }
+.desk .lc .stackwrap .tk { width: auto; display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; }
+.desk .lc .stackwrap .tk .nm { margin: 0; font-size: 15px; }
+.desk .lc .stackwrap .tk .r { text-align: right; }
+.desk .lc .stackwrap .tk .pr { font-size: 16px; }
+.desk .lc .low { width: 44%; align-items: center; justify-content: center; gap: 40px; padding: 0; }
+.desk .lc .low > * { width: 340px; }
+.desk .lc .low .wordmark { font-size: 30px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="app-a" viewBox="0 0 1024 1024">
+    <rect width="1024" height="1024" fill="#17171c"/>
+    <defs><linearGradient id="swA" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#f04452" stop-opacity="0"/><stop offset="1" stop-color="#f04452" stop-opacity=".55"/></linearGradient></defs>
+    <path d="M512 512 L512 200 A312 312 0 0 1 782 356 Z" fill="url(#swA)"/>
+    <g fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round">
+      <circle cx="512" cy="512" r="312"/><circle cx="512" cy="512" r="176"/>
+      <path d="M512 512 L790 352"/>
+    </g>
+    <circle cx="512" cy="512" r="46" fill="#ffffff"/>
+  </symbol>
+  <symbol id="g" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v6M12 16.5v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+</svg>
+
+<div id="variant-nav">
+  <div class="grp"><span class="lbl">변형</span>
+    <button data-k="variant" data-v="a" class="active">A 비움 ★ 채택</button>
+    <button data-k="variant" data-v="b">B 레이더</button>
+    <button data-k="variant" data-v="c">C 시세</button>
+  </div>
+  <div class="grp"><span class="lbl">기기</span>
+    <button data-k="dev" data-v="phone" class="active">iPhone 다크+라이트</button>
+    <button data-k="dev" data-v="desk">데스크톱</button>
+  </div>
+  <div class="grp" id="theme-grp" style="display:none"><span class="lbl">테마</span>
+    <button data-k="theme" data-v="dark" class="active">다크</button>
+    <button data-k="theme" data-v="light">라이트</button>
+  </div>
+  <div class="grp"><span class="lbl">상태</span>
+    <button data-k="state" data-v="idle" class="active">기본</button>
+    <button data-k="state" data-v="err">오류</button>
+    <button data-k="state" data-v="busy">진행 중</button>
+  </div>
+  <div id="vdesc"></div>
+</div>
+
+<div id="stage"></div>
+
+<template id="tpl-screen">
+  <div class="webview">
+    <!-- A -->
+    <div class="v la" data-v="a">
+      <div class="mid">
+        <span class="mark"><svg><use href="#app-a"/></svg></span>
+        <div class="wordmark">GH Trade</div>
+      </div>
+      <div class="foot">
+        <div class="alert"><svg><use href="#warn"/></svg>Google 로그인을 취소했어요. 다시 시도해주세요.</div>
+        <button class="gbtn"><svg class="g"><use href="#g"/></svg><span class="btxt">Google로 로그인</span><span class="spin"></span></button>
+      </div>
+    </div>
+    <!-- B -->
+    <div class="v lb" data-v="b">
+      <svg class="rings" viewBox="0 0 900 900">
+        <circle class="c1" cx="450" cy="450" r="110"/><circle class="c2" cx="450" cy="450" r="200"/><circle class="c3" cx="450" cy="450" r="290"/><circle class="c4" cx="450" cy="450" r="380"/><circle class="c5" cx="450" cy="450" r="440"/>
+        <foreignObject x="0" y="0" width="900" height="900"><div xmlns="http://www.w3.org/1999/xhtml" class="sweep"></div></foreignObject>
+      </svg>
+      <div class="dot"></div>
+      <div class="sheet">
+        <div class="wordmark">GH Trade</div>
+        <div class="alert"><svg><use href="#warn"/></svg>Google 로그인을 취소했어요. 다시 시도해주세요.</div>
+        <button class="gbtn"><svg class="g"><use href="#g"/></svg><span class="btxt">Google로 로그인</span><span class="spin"></span></button>
+      </div>
+    </div>
+    <!-- C -->
+    <div class="v lc" data-v="c">
+      <div class="panel">
+        <svg class="rings" viewBox="0 0 520 520"><circle cx="260" cy="260" r="90"/><circle cx="260" cy="260" r="160"/><circle cx="260" cy="260" r="230"/></svg>
+        <span class="mark"><svg><use href="#app-a"/></svg></span>
+        <div class="tickwrap"></div>
+      </div>
+      <div class="low">
+        <div class="wordmark">GH Trade</div>
+        <div>
+          <div class="alert"><svg><use href="#warn"/></svg>Google 로그인을 취소했어요. 다시 시도해주세요.</div>
+          <button class="gbtn"><svg class="g"><use href="#g"/></svg><span class="btxt">Google로 로그인</span><span class="spin"></span></button>
+        </div>
+      </div>
+    </div>
+    <div class="toast">로그인 완료 → / 로 이동</div>
+  </div>
+</template>
+
+<div id="sketch-tools" style="position:fixed;bottom:12px;right:12px;z-index:9999;font-family:system-ui;font-size:12px;background:rgba(0,0,0,.72);color:#fff;padding:8px 12px;border-radius:8px;opacity:.45" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.45'">sketch 006 · 로그인 A/B/C · 폰(다크+라이트 나란히)/데스크톱 · 기본/오류/진행 중 · 버튼 클릭 = 가짜 로그인</div>
+
+<script>
+const DESC = {
+  a: '<b>A 비움</b> — 카드 없음. 앱 아이콘 76 + 워드마크가 화면 가운데, Google 버튼 56 이 하단(폰) / 아래(데스크톱). 문구 0. 가장 토스답고 만들 것이 가장 적다.',
+  b: '<b>B 레이더</b> — 화면 전체가 레이더 동심원 + 천천히 도는 붉은 스윕(앱 아이콘 모티프 확대). 하단 시트(폰) / 가운데 카드(데스크톱)에 워드마크 + 버튼. 무드가 가장 강하다.',
+  c: '<b>C 시세</b> — 상단(폰) / 좌측(데스크톱) 짙은 패널에 아이콘 + 오늘 급등 종목 카드가 흐른다(실데이터 연결 가능). 아래/우측에 워드마크 + 버튼. 로그인 전에도 "무슨 앱인지" 보인다.',
+};
+const TICKS = [
+  ['에코프로','1,038,000','+29.97%',true],['알테오젠','412,500','+18.24%',false],['레인보우로보틱스','188,900','+12.41%',false],['한미반도체','142,300','+9.85%',false],['포스코퓨처엠','276,000','+7.12%',false],
+];
+const state = { variant: 'a', dev: 'phone', theme: 'dark', state: 'idle' };
+const stage = document.getElementById('stage');
+
+function tickCard([nm, pr, ch, lim]) {
+  return `<div class="tk"><div class="nm">${nm}</div><div class="r"><div class="pr">${pr}</div><div class="ch${lim ? ' lim' : ''}">${ch}</div></div></div>`;
+}
+function makeDevice(theme, desk) {
+  const d = document.createElement('div');
+  d.className = `device ${desk ? 'desk' : ''} t-${theme}`;
+  d.innerHTML = desk ? '' : `<div class="island"></div><div class="statusbar"><span>9:41</span><span>●●● 5G ▮</span></div><div class="home-ind"></div>`;
+  d.appendChild(document.getElementById('tpl-screen').content.cloneNode(true));
+  const tw = d.querySelector('.tickwrap');
+  if (desk) { tw.className = 'stackwrap'; tw.innerHTML = TICKS.slice(0,3).map(tickCard).join(''); }
+  else { tw.className = 'ticker'; tw.innerHTML = [...TICKS, ...TICKS].map(tickCard).join(''); }
+  const cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = desk ? `데스크톱 1280 · ${theme === 'dark' ? '다크' : '라이트'}` : (theme === 'dark' ? '다크' : '라이트'); d.appendChild(cap);
+  d.querySelectorAll('.gbtn').forEach(b => b.addEventListener('click', () => fakeLogin(d)));
+  return d;
+}
+function fakeLogin(d) {
+  if (d.classList.contains('busy')) return;
+  d.classList.remove('err'); d.classList.add('busy');
+  setTimeout(() => { d.classList.remove('busy'); const t = d.querySelector('.toast'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1400); }, 1300);
+}
+function render() {
+  stage.innerHTML = '';
+  if (state.dev === 'phone') { stage.appendChild(makeDevice('dark', false)); stage.appendChild(makeDevice('light', false)); }
+  else stage.appendChild(makeDevice(state.theme, true));
+  document.getElementById('theme-grp').style.display = state.dev === 'desk' ? '' : 'none';
+  apply(); fit();
+}
+function apply() {
+  document.querySelectorAll('.device').forEach(d => {
+    d.querySelectorAll('.v').forEach(v => v.classList.toggle('on', v.dataset.v === state.variant));
+    d.classList.toggle('dark-top', state.variant === 'c');
+    d.classList.toggle('err', state.state === 'err');
+    d.classList.toggle('busy', state.state === 'busy');
+  });
+  document.getElementById('vdesc').innerHTML = DESC[state.variant];
+  document.querySelectorAll('#variant-nav button').forEach(b => b.classList.toggle('active', state[b.dataset.k] === b.dataset.v));
+}
+function fit() {
+  const navH = document.getElementById('variant-nav').offsetHeight;
+  const availH = window.innerHeight - navH - 70, availW = window.innerWidth - 40;
+  document.querySelectorAll('.device').forEach(d => {
+    const desk = d.classList.contains('desk');
+    const w = desk ? 1280 : 390, h = desk ? 800 : 844;
+    const s = Math.min(1, availH / h, desk ? availW / w : (availW - 36) / (2 * w));
+    d.style.transform = `scale(${s})`;
+    d.style.marginBottom = `${(h + 30) * s - h}px`;
+  });
+}
+document.querySelectorAll('#variant-nav button').forEach(b => b.addEventListener('click', () => {
+  const prevDev = state.dev; state[b.dataset.k] = b.dataset.v;
+  if (b.dataset.k === 'dev' || b.dataset.k === 'theme') render(); else apply();
+}));
+window.addEventListener('resize', fit);
+render();
+</script>
+</body>
+</html>
