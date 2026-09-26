@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-32-PLAN.md
-last_updated: "2026-09-26T11:42:37.024Z"
+stopped_at: Completed 21-33-PLAN.md
+last_updated: "2026-09-26T12:00:22.281Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 execution started
-state_head: 969dbefdd197aced126774c406a7d019a9d4f178
+state_head: 055765f543342352707da7288f05e41e87463480
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 290
-  completed_plans: 270
+  completed_plans: 271
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 33 of 36
+Plan: 34 of 36
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -123,6 +123,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P30 | 12min | 3 tasks | 21 files |
 | Phase 21 P31 | 9min | 2 tasks | 11 files |
 | Phase 21 P32 | 19min | 3 tasks | 12 files |
+| Phase 21 P33 | 14min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -280,6 +281,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-31 D-32: 탭 루트 스크롤 주체는 창(window) — useTabRootScrollMemory 를 AppShell 에서 호출(루트별 scrollY · location.pathname 확인 기록 · ?파라미터 착지 제외 · 30 프레임 상한). 재방문 시드는 기존 query-cache 키 search:hub · chat:conversations:{필터} · me:today-orders:{KST 날짜}
 - [Phase 21]: 21-32: D-25a ① 채택안 B 구현 — /me 전략 현황 카드 「현황 | 로그」 알약 세그먼트(기본 현황) · 로그 = 앱 전역 StrategyLogFeedProvider(relay 파생 · 작업대와 같은 순수 함수 · 사용자 경계에서 비움 · 200줄) · 로그 높이 상한 320
 - [Phase 21]: 21-32: 앱 /trading 공용 패널·spacer 는 html.native-app display:none · 카드 더티 바 탭바 비킴은 숨은 프로브 computed bottom(82px)로 — 더티 바는 Phase 20 D-04 이후 렌더되지 않아 잠재 결함 수정(식=단위 · 프로브=e2e)
+- [Phase 21]: 21-33: /trading?code= 착지 = 작업대 effect 하나(layoutRestored 뒤 · handledCodeRef · isPickable 재사용 · ensureIsinCard(reveal) · code 만 replaceState 제거 · 송신 0) — 콜백은 ref 로 읽어 계좌 도착이 fetch 를 끊지 않게
+- [Phase 21]: 21-33: 카드 수동주문 주문유형 = 스케치 008 ③ A 44px 행(주문금액 위) · 선택 불가면 행 아래 ⓘ 캡션 · affordanceOf 그대로 — orderType 은 variant 무관 orderTypeState
+- [Phase 21]: 21-33: 종목정보 팝업 newsView 로컬 상태 — 요약 hidden 마운트 유지 · Esc/Android 뒤로가기 onEscapeKeyDown 두 단계 · 탭 이동·닫힘 = 요약 · /trading URL 불변
 
 ### Pending Todos
 
@@ -331,8 +335,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T11:42:36.557Z
-Stopped at: Completed 21-32-PLAN.md
+Last session: 2026-09-26T12:00:21.827Z
+Stopped at: Completed 21-33-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
