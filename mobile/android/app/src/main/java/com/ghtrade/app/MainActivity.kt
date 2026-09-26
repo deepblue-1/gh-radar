@@ -84,10 +84,6 @@ class MainActivity : BridgeActivity() {
     private var keyboardVisible = false
     private var hideRunnable: Runnable? = null
 
-    /** D-12a: 마지막 IME 애니메이션 길이 · 곡선(`onPrepare`). 키보드 사유 숨김 = 이 길이의 절반(80~200ms) · 같은 곡선. */
-    private var keyboardAnimMs = 250L
-    private var keyboardInterpolator: Interpolator = AccelerateDecelerateInterpolator()
-
     /** D-12a: 키보드로 숨긴 탭바의 재표시 90ms 예약 — 그 사이 숨김이 다시 오면 취소된다(입력칸 이동 = 깜빡임 없음). */
     private var showRunnable: Runnable? = null
 
@@ -329,7 +325,7 @@ class MainActivity : BridgeActivity() {
         }
         ViewCompat.requestApplyInsets(tabBar)
 
-        // D-12a (G-21-R3-1): IME 애니메이션이 시작되는 순간(`onPrepare` — 레이아웃·첫 프레임 전) 키보드 사유로 즉시 숨긴다.
+        // D-12a' (G-21-R3-1): IME 애니메이션이 시작되는 순간(`onPrepare` — 레이아웃·첫 프레임 전) 키보드 사유로 즉시 숨긴다.
         // 전역 레이아웃 리스너만으로는 IME 인셋이 적용된 뒤에야 알게 돼 탭바가 키보드 위로 끌려 올라간 프레임이 보였다.
         // 콜백은 탭바에만 건다(Pitfall 8 — DecorView/루트/WebView 금지). 탭바는 자식이 없어 디스패치 모드는 영향이 없다.
         ViewCompat.setWindowInsetsAnimationCallback(tabBar, object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
@@ -338,7 +334,7 @@ class MainActivity : BridgeActivity() {
                 // onPrepare 의 루트 창 인셋 = 애니메이션 전 상태 → IME 가 아직 안 보이면 올라오는 방향.
                 val before = imeVisibleNow()
                 Log.d(TAG, "ime anim prepare visibleBefore=$before duration=${animation.durationMillis}")
-                if (!before) keyboardRising(animation)
+                if (!before) keyboardRising()
             }
 
             override fun onStart(
@@ -347,7 +343,7 @@ class MainActivity : BridgeActivity() {
             ): WindowInsetsAnimationCompat.BoundsCompat {
                 // 보정: onPrepare 에서 방향을 못 읽었어도 끝 상태(= 지금 인셋)가 보임이면 첫 애니메이션 프레임 전에 숨긴다.
                 if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0 && !keyboardVisible && imeVisibleNow()) {
-                    keyboardRising(animation)
+                    keyboardRising()
                 }
                 return bounds
             }
@@ -391,9 +387,7 @@ class MainActivity : BridgeActivity() {
     private fun imeVisibleNow(): Boolean =
         ViewCompat.getRootWindowInsets(rootLayout)?.isVisible(WindowInsetsCompat.Type.ime()) == true
 
-    private fun keyboardRising(animation: WindowInsetsAnimationCompat) {
-        keyboardAnimMs = animation.durationMillis
-        animation.interpolator?.let { keyboardInterpolator = it }
+    private fun keyboardRising() {
         if (keyboardVisible) return
         keyboardVisible = true
         updateTabBarVisibility()
@@ -489,7 +483,7 @@ class MainActivity : BridgeActivity() {
 
     // ── 표시/숨김 ─────────────────────────────────────────────────────────────
     // D-12: 숨김은 150ms 지연 후 200ms 페이드(8dp 하강) · 보임은 지연 없이 200ms.
-    // D-12a: 키보드 사유 숨김 = 지연 없이 IME 애니메이션 절반(80~200ms) · 같은 곡선 · 이동 없음 · 재표시 90ms 디바운스.
+    // D-12a': 키보드 사유 숨김 = 지연·애니메이션 없이 즉시 GONE · 이동 없음 · 재표시 90ms 디바운스.
     // D-12b: 문서 로드 대기 해제로 보일 때만 280ms 감속.
     // ViewPropertyAnimator 의 곡선은 다음 animate() 에도 남는다 → 모든 animate() 에 곡선을 명시한다.
 
@@ -510,21 +504,18 @@ class MainActivity : BridgeActivity() {
             if (!keyboardVisible) hiddenByKeyboard = false
             if (tabBar.visibility != View.VISIBLE) return
 
+            // D-12a' — 150ms 대기도 페이드도 없이 곧바로 숨긴다(이동 없음 — 키보드 윗변 위로 끌려 올라간 프레임이 남지 않게).
             if (keyboardVisible) {
-                // D-12a — 150ms 대기 없이 곧바로, 키보드보다 짧게, alpha 만(키보드 윗변 위로 끌려 올라간 프레임이 남지 않게).
-                val ms = (keyboardAnimMs / 2).coerceIn(80L, 200L)
                 shownTarget = false
+                // 진행 중인 보임·숨김 애니메이터를 멈춘다(취소된 애니메이터의 withEndAction 은 실행되지 않는다).
                 tabBar.animate().cancel()
                 fade.animate().cancel()
                 tabBar.translationY = 0f
-                fade.animate().alpha(0f).setDuration(ms).setInterpolator(keyboardInterpolator).start()
-                tabBar.animate().alpha(0f).setDuration(ms).setInterpolator(keyboardInterpolator).withEndAction {
-                    if (shouldHideTabBar()) {
-                        tabBar.visibility = View.GONE
-                        fade.visibility = View.GONE
-                        hiddenByKeyboard = keyboardVisible
-                    }
-                }.start()
+                tabBar.alpha = 0f
+                fade.alpha = 0f
+                tabBar.visibility = View.GONE
+                fade.visibility = View.GONE
+                hiddenByKeyboard = true
                 return
             }
 
