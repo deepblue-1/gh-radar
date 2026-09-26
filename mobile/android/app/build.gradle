@@ -1,6 +1,10 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+// D-08 — 업로드 키스토어 경로·비밀번호는 저장소 밖 android.env 에서 env 로만 읽는다(native:release:android 래퍼가 source)
+// D-07 — weekly-wine 의 평문 비밀번호 기본값 결함을 따르지 않는다: 비밀번호에는 어떤 기본값·리터럴도 두지 않는다
+def ghtradeUploadStoreFile = System.getenv("GHTRADE_UPLOAD_STORE_FILE")
+
 android {
     namespace = "com.ghtrade.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -8,7 +12,8 @@ android {
         applicationId "com.ghtrade.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // D-09 · D-09a — fastlane 이 -PghtradeVersionCode 로 넘긴다 · 로컬 디버그는 1 · 이 파일에 번호를 쓰지 않는다
+        versionCode((project.findProperty("ghtradeVersionCode") ?: "1") as Integer)
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -17,8 +22,20 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // D-08 — Play 앱 서명 + 업로드 키. env 가 있을 때만 채운다(디버그 빌드는 env 없이 그대로)
+    signingConfigs {
+        release {
+            if (ghtradeUploadStoreFile) {
+                storeFile file(ghtradeUploadStoreFile)
+                storePassword System.getenv("GHTRADE_UPLOAD_STORE_PASSWORD")
+                keyAlias System.getenv("GHTRADE_UPLOAD_KEY_ALIAS")
+                keyPassword System.getenv("GHTRADE_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (ghtradeUploadStoreFile) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -53,6 +70,13 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+// D-08 — 서명 없는 릴리스 AAB/APK 가 만들어지는 경로를 막는다. native:build:android(assembleDebug)는 영향 없음
+gradle.taskGraph.whenReady { graph ->
+    if (!ghtradeUploadStoreFile && graph.allTasks.any { it.name in ["bundleRelease", "assembleRelease"] }) {
+        throw new GradleException("GHTRADE_UPLOAD_STORE_FILE 없음 — 릴리스 AAB 는 native:release:android(:aab) 로만 만든다 (D-08)")
+    }
+}
 
 try {
     def servicesJSON = file('google-services.json')
