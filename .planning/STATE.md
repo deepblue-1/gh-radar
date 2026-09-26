@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-19-PLAN.md
-last_updated: "2026-09-26T04:16:38.902Z"
+stopped_at: Completed 21-20-PLAN.md
+last_updated: "2026-09-26T04:25:27.676Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 execution started
-state_head: 8860fb2eb6ad169847ed75f0055505e763504c1e
+state_head: a14c0467f8e0f92b4902071d4070af4993f53d4a
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 278
-  completed_plans: 257
+  completed_plans: 258
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 4 of 24
+Plan: 5 of 24
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -110,6 +110,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P17 | 4min | 3 tasks | 7 files |
 | Phase 21 P18 | 4min | 2 tasks | 6 files |
 | Phase 21 P19 | 2min | 2 tasks | 6 files |
+| Phase 21 P20 | 6min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -240,6 +241,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-17: 사이트 밖 판정 ExternalLinks.opensInAppBrowser 는 앱 호스트 소문자 정확 일치만 같은 호스트(접미사 위장·www 는 외부) · 정본 26케이스 표를 iOS 21-22 가 복제
 - [Phase 21]: 21-18: 저장값 없을 때 기본 테마 = 다크, 웹·iOS·Android·오프라인 폴백 공통(G-21-N1 · D-23a). 저장값 읽기 경로 무변경 — 기존 사용자 선택 우선, 기본값은 저장하지 않음
 - [Phase 21]: 21-19: 테마 버튼 규칙(D-08b) 단일 정의 — theme-toggle.tsx 의 THEME_SWITCH_LABEL(키=목적지)·ThemeSwitchIcon 을 사이드바 토글·계정 카드가 공유, 다크=Sun·「라이트 모드로 전환」 / 라이트=Moon·「다크 모드로 전환」
+- [Phase 21]: 21-20: D-27b 탭바 = 스케치 007 C(라벨 없음 · 캡슐 56×36 16% · 테두리 없음 · ultra-thin 유리 + glass 틴트 · 그림자 두 겹 · 높이 60 · radius 30 · 페이드 86) — 네이티브 60 ↔ 웹 offset gap+60+8 · 본문 98 동시 변경
+- [Phase 21]: 21-20: 탭바 대비 다크 5.78/3.51 · 라이트 4.62/3.08 (≥3.0) — glassAlpha 조정 불필요
+- [Phase 21]: 21-20: CONTEXT 에 D-27b · D-23a · D-08b · D-28 기록 — 이전 결정 원문 보존 + 대체 포인터
 
 ### Pending Todos
 
@@ -287,8 +291,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T04:16:38.120Z
-Stopped at: Completed 21-19-PLAN.md
+Last session: 2026-09-26T04:25:26.835Z
+Stopped at: Completed 21-20-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

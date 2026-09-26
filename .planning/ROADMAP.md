@@ -1015,7 +1015,7 @@ Plans:
 **Goal:** webapp 을 Capacitor **Remote-URL 셸**(WebView 가 운영 URL 을 로드 · static export 불가 확인: middleware 인증 가드·OAuth callback route·서버 redirect)로 감싼 iOS·iPadOS·Android 앱을 만든다. 브랜드명은 웹·앱 모두 **GH Trade** 로 바꾼다(노출 문자열만 · `gh-radar:` localStorage 키는 유지). weekly-wine-app(`/Users/alex/repos/weekly-wine-app`) 을 참고해 **네이티브(Swift·Kotlin) 하단 플로팅 탭바** 홈·검색·트레이딩·AI·마이 5탭과 **pull-to-refresh** 를 붙인다. 새로고침은 네이티브 제스처가 웹의 `window.__ghTrade.refresh()` 훅을 호출하고 훅이 없으면 reload 한다(트레이딩은 relay 재탐침). Google 이 WebView OAuth 를 차단하므로 **네이티브 Google Sign-In → Supabase `signInWithIdToken`** 경로를 추가한다. 네이티브 프로젝트는 모노레포 `mobile/` 패키지에 둔다.
 **Requirements**: MOBILE-01
 **Depends on:** Phase 20
-**Plans:** 19/24 plans executed (갭 클로징 21-17~21-24 추가 2026-09-26 — 21-UAT.md G-21-1 · G-21-N1~N3)
+**Plans:** 20/24 plans executed (갭 클로징 21-17~21-24 추가 2026-09-26 — 21-UAT.md G-21-1 · G-21-N1~N3)
 
 **결정(2026-09-25 사용자 확정):** ① 탭바 = 네이티브(Swift+Kotlin) ② 로그인 = 네이티브 Google Sign-In + `signInWithIdToken` ③ pull-to-refresh = 네이티브 제스처 → 웹 refresh 훅, 없으면 reload ④ 위치 = `mobile/` 패키지.
 **목업 단계 미결(IA):** 검색 탭 목적지(전용 `/search` 페이지 vs ⌘K 다이얼로그) · 마이 탭에 프로필·로그아웃·테마 토글 수용 · iPad 넓은 폭(사이드바 노출 ≥1024)에서 탭바 처리 · 탭바 숨김 규칙(로그인 화면·바텀시트).
@@ -1064,7 +1064,7 @@ Plans:
 - [x] 21-17-PLAN.md — [G-21-N3 Android] androidx.browser 선언 결정 체크포인트 → 호스트 밖 http(s) = Custom Tabs(GhTradeWebViewClient 가로채기) · ExternalLinks 판정 표 JUnit 26케이스
 - [x] 21-18-PLAN.md — [G-21-N1] 기본 테마 다크(웹 defaultTheme · iOS/Android ThemeStore · 오프라인 폴백) · 저장값 우선 · theme-default e2e
 - [x] 21-19-PLAN.md — [G-21-N2] 테마 아이콘 = 목적지 규칙 통일(ThemeToggle ↔ AccountCard 공용 정의) · 행동 문구 aria-label · 데스크톱 동등성 e2e
-- [ ] 21-20-PLAN.md — [G-21-1 iOS·웹] 탭바 스케치 007 C(라벨 없음 · 캡슐 · 유리 · 높이 60) · `--native-tabbar-offset`/본문 98 · native-shell e2e · CONTEXT D-27b · D-23a · D-08b · D-28
+- [x] 21-20-PLAN.md — [G-21-1 iOS·웹] 탭바 스케치 007 C(라벨 없음 · 캡슐 · 유리 · 높이 60) · `--native-tabbar-offset`/본문 98 · native-shell e2e · CONTEXT D-27b · D-23a · D-08b · D-28
 - [ ] 21-21-PLAN.md — [G-21-1 Android] 탭바 C 근사(라벨 없음 · 캡슐 · 불투명 유리 · elevation 12) · 높이 60dp · 다크 대비 계산
 
 **Wave 9** *(blocked on Wave 8 completion)*
