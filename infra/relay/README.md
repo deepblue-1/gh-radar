@@ -1247,7 +1247,7 @@ tar czf - -C infra/relay/secuway . | gcloud compute ssh radar-gw --tunnel-throug
 
 ### 사건 기록 — 2026-09-26 재부팅 시 wg0 기동 실패
 
-> **반영 상태: 저장소 수정 완료 (quick-260926-bwu) · VM 반영 대기 — 사용자 실행 (2026-09-26).**
+> **반영 상태: 완료 (2026-09-26).** startup-script 메타데이터 재적용(저장소와 일치) + 재부팅 검증 08:58 KST — wg-quick@wg0 active · Bad rule 0 · peers 5 · DOCKER-USER ACCEPT 7 · ens4 MAC 불변 · relay healthz ok.
 
 **경위.** 2026-09-26(토) 08:11 KST e2-micro → e2-small 전환(§메모리 예산) 재부팅 뒤 `wg-quick@wg0` 만 failed 였다.
 relay healthz · `openconnect@kb` · `securwayssl` · `caddy` · `docker` · `wg-probe` 는 active. relay(웹앱 호가·주문) 경로는
