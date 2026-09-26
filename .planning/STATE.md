@@ -34,7 +34,7 @@ Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — Completed quick task 260926-rcc: 돌파감지 NXT 발화 거래소 추종
+Last activity: 2026-09-26 — Completed quick task 260926-s5v: 돌파 후속 2건 gh-trade 동작 동기화
 
 Progress: [█████████░] 93%
 
@@ -325,6 +325,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 | 260926-nr2 | **상따 카드 「다른 단말에서 변경됐어요」 오배너·같은 뿌리 오표시 6건** — 에코 분류를 「누가 보냈나」→「무엇이 바뀌었나」로. 배너는 사용자 설정 값(`limitChaserValuesChanged`)이 내 요청 없이 바뀔 때만 · 내용 동일/런타임 카운터만 다른 에코(lc.arm 즉답+300ms 플러시 이중 에코 · 재연결 lc.snap)는 무동작(`isRuntimeOnlyEcho`) · S→C 전용 필드 shared 단일 정의(`LIMIT_CHASER_SERVER_*_FIELDS`)로 「서버 반영 완료」 오로그 제거 · lc.arm 3초 미반영 추적+거부 인식(`isLimitChaserArmRejection`) · 이 브라우저 전부 정지(65 경계 창)·15:40 KRX 해제(통지 경계) 에코를 relay 층에서 원인 귀속 → 「매수 발주」·「발주 완료」 오표시 제거 · 65 로그 문구 교정(장 마감 아님). 한계: 다른 단말 전부 정지는 여전히 발주로 읽힘. typecheck · relay 628 · webapp 2311/1 skip | 2026-09-26 | — | [260926-nr2-lc-card-false-other-device-banner-and-ec](./quick/260926-nr2-lc-card-false-other-device-banner-and-ec/) |
 | 260926-o2u | **페이지 레이아웃 토스 문법 통일(목업 C=900 채택)** — 사이드바 「종목검색」 그룹(상승률 상위·테마·관심종목) 제거 · 세 페이지 진입은 /search 타일, 그 경로에선 사이드바 「검색」 활성. 공용 `PageHeader`(h1 22/700 · 뒤로가기 ChevronLeft, 기록 없으면 /search) + `PAGE_WRAP` max-w 900 가운데 → 홈·My page·검색·상승률 상위·테마·관심종목(트레이딩 제외). 섹션 제목 15/600 muted + 개수 평문 · 테마 순위 카드 한 장+hairline · My page 미체결·잔고 세로 스택 · 미정의 `--t-2xl` 5곳 제거. 홈 섹션 간격만 20px(복사됨 말풍선 겹침). typecheck · vitest 2329/1 skip · Playwright 41/41 | 2026-09-26 | c7763e2 | [260926-o2u-page-layout-toss](./quick/260926-o2u-page-layout-toss/) |
 | 260926-rcc | **돌파감지 NXT 발화 거래소 추종 (gh-trade quick-260923-cfo 동기화)** — 76/78 `exchange` 가 NXT 일 수 있고 서버 상태는 ISIN 당 1개. relay 캐시·78 팬아웃·브라우저 upsert·스트립 행 키를 ISIN 한 축으로, 돌파 칩은 행의 발화 거래소 피드로 price 구독·가격·이탈 판정(전환 시 옛 피드 해제·새 피드 구독, 무장·3초 유예는 새 피드 기준 재시작), 카드 구독 제외는 (ISIN, 거래소). relay 630 · webapp 2376 통과, Playwright 미실행(3100 점유). **배포: relay 먼저 → healthz → push**(구 relay+새 webapp 은 스냅샷 ISIN 중복). 미배포 | 2026-09-26 | e9e4c78 · 89f5680 · 4d62ba7 | [260926-rcc-breakout-nxt-feed-exchange-rate-cross-is](./quick/260926-rcc-breakout-nxt-feed-exchange-rate-cross-is/) |
+| 260926-s5v | **돌파 후속 2건 gh-trade 동작 동기화 (260926-rcc 후속)** — ① 돌파 행 → 카드를 발화 거래소로 연다(기존 카드는 발화 거래소로 전환 · NXT 미거래 종목의 NXT 요청은 무시 · 추가바·보유행은 KRX 유지, gh-trade `FormManager.OpenLimitChaserForm`). ② 이탈로 지운 행은 구독 해제, 새 구간(crossTime·거래소가 다른) 76 이면 새 행(등재시각·강조·3초 유예·첫 돌파시각 재시작) · 같은 구간 재전송(재접속 78)은 지운 채. 돌파 토스트는 스트립 새 행 신호로 — 재돌파에도 토스트, 알림음은 종목당 하루 1회 유지. webapp 2434 통과, Playwright 미실행(3100 점유). relay 무변경 · 배포는 rcc 순서(relay → healthz → push). 미배포 | 2026-09-26 | 0c88254 · a551023 · d28ac2d | [260926-s5v-breakout-row-open-card-fire-exchange-re-](./quick/260926-s5v-breakout-row-open-card-fire-exchange-re-/) |
 
 ## Session Continuity
 
