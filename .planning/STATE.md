@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 22
-current_phase_name: gh-trade-ios-testflight-android-play
+current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
 status: executing
-stopped_at: Phase 22 context gathered
-last_updated: "2026-09-26T16:44:37.809Z"
-last_activity: 2026-09-26
-last_activity_desc: Phase 21 complete, transitioned to Phase 18
-state_head: 12fb7ce5aa1604c5c06adb1bc231371594371716
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-09-26T17:56:23.233Z"
+last_activity: 2026-09-27
+last_activity_desc: Phase 22 execution started
+state_head: 672f57422cf970cbccafc9508cb267cd5d634438
 progress:
   total_phases: 31
   completed_phases: 5
   total_plans: 297
-  completed_plans: 274
+  completed_plans: 276
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 21 — GH Trade 모바일 앱 (Capacitor)
+**Current focus:** Phase 22 — GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
 
 ## Current Position
 
-Phase: 22 (gh-trade-ios-testflight-android-play) — READY TO EXECUTE
-Plan: Not started
+Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)) — EXECUTING
+Plan: 3 of 7
 Plans completed: 219 / 234
-Status: Ready to execute
+Status: Executing Phase 22
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — Phase 21 complete, transitioned to Phase 18
+Last activity: 2026-09-27 — Phase 22 execution started
 
 Progress: [█████████░] 93%
 
@@ -127,6 +127,8 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P34 | 23min | 3 tasks | 25 files |
 | Phase 21 P35 | 12min | 3 tasks | 1 files |
 | Phase 21 P36 | 7min | 2 tasks | 1 files |
+| Phase 22 P02 | 55min | 3 tasks | 1 files |
+| Phase 22 P01 | 1h 10m | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -297,6 +299,10 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-36: push-then-recheck — 백엔드 게이트는 2fe94209..HEAD 백엔드 diff 0 · origin/master..HEAD 72 커밋 = 알려진 집합 → push 7fc86b9f..8e0fe57c · 운영 CSS 반영 13:03:31Z · 세 기기 운영 빌드 삭제 후 새 설치
 - [Phase 21]: 21-36: iOS 시뮬레이터는 앱 삭제 뒤에도 기기 전역 쿠키(data/Library/Cookies)로 로그인 유지 — B2 첫 로그인은 앱 안 로그아웃 뒤 확인
 - [Phase 21]: 완료(2026-09-26) — UAT 4차 실서버 30/30 pass · 재검증 21-VERIFICATION-R2.md passed 15/15(1차 VERIFICATION 은 frontmatter 만 passed·fingerprint 합집합 갱신, 본문 보존). secure-phase · validate-phase(Nyquist) · ui-review 는 사용자 결정으로 미실행. 스토어/TestFlight·Play 테스트 배포는 별도 신규 phase 로
+- [Phase 22]: 22-02: 개인정보처리방침 승인(2026-09-27) — 운영자·책임자 「GH Trade 운영자」, 연락처 alex@jx1.io, 시행일은 22-07 push 일(자리표시 TBD-22-07-push)
+- [Phase 22]: 22-02: 국외 이전 표에서 Supabase(서울) 제외, Vercel·Google Cloud 로그는 보수적 고지, 연락처 열 추가(오케스트레이터 결정)
+- [Phase 22]: 22-01: TestFlight 첫 업로드 빌드 1.0 (202609270252) — sigh 가 com.ghtrade.app AppStore 프로파일 생성, archive 는 Xcode 계정 인증(-authenticationKey* 불필요)
+- [Phase 22]: 22-01: ASC 앱 이름 GH Trade · 사용자 초대 가능 → D-02 내부 테스터 경로 유지
 
 ### Pending Todos
 
@@ -348,10 +354,10 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/22-gh-trade-ios-testflight-android-play/22-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-09-26T15:28:39.092Z
-Stopped at: Phase 22 context gathered
+Last session: 2026-09-26T17:56:22.736Z
+Stopped at: Completed 22-01-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

@@ -1115,7 +1115,7 @@ Plans:
 **Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터), Android 는 릴리스 키스토어 생성·보관(저장소 밖 + 비밀 관리) → 서명된 AAB → Play Console 앱 등록 → **내부 테스트 트랙** 배포. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
 **Requirements**: MOBILE-02
 **Depends on:** Phase 21
-**Plans:** 1/7 plans executed
+**Plans:** 2/7 plans executed
 
 **범위 안:**
 
@@ -1140,7 +1140,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 22-01-PLAN.md — 트레이서: Apple 콘솔 선행(Explicit 번들 ID · ASC 앱 레코드 · TestFlight 내부 그룹 자동 배포) → `native:release:ios`(운영 sync → verify-prod → 비밀 env 이름 검증 → fastlane beta: sigh·gym·pilot → IPA CHECK OK) → TestFlight 첫 업로드
+- [x] 22-01-PLAN.md — 트레이서: Apple 콘솔 선행(Explicit 번들 ID · ASC 앱 레코드 · TestFlight 내부 그룹 자동 배포) → `native:release:ios`(운영 sync → verify-prod → 비밀 env 이름 검증 → fastlane beta: sigh·gym·pilot → IPA CHECK OK) → TestFlight 첫 업로드
 - [x] 22-02-PLAN.md — 개인정보처리방침 한글 초안(코드 근거 재확인 · 13절) → 문안 검토 게이트(blocking-human) → 승인 반영
 
 **Wave 2** *(blocked on Wave 1 completion)*
