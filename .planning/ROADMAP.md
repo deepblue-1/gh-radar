@@ -1015,7 +1015,7 @@ Plans:
 **Goal:** webapp 을 Capacitor **Remote-URL 셸**(WebView 가 운영 URL 을 로드 · static export 불가 확인: middleware 인증 가드·OAuth callback route·서버 redirect)로 감싼 iOS·iPadOS·Android 앱을 만든다. 브랜드명은 웹·앱 모두 **GH Trade** 로 바꾼다(노출 문자열만 · `gh-radar:` localStorage 키는 유지). weekly-wine-app(`/Users/alex/repos/weekly-wine-app`) 을 참고해 **네이티브(Swift·Kotlin) 하단 플로팅 탭바** 홈·검색·트레이딩·AI·마이 5탭과 **pull-to-refresh** 를 붙인다. 새로고침은 네이티브 제스처가 웹의 `window.__ghTrade.refresh()` 훅을 호출하고 훅이 없으면 reload 한다(트레이딩은 relay 재탐침). Google 이 WebView OAuth 를 차단하므로 **네이티브 Google Sign-In → Supabase `signInWithIdToken`** 경로를 추가한다. 네이티브 프로젝트는 모노레포 `mobile/` 패키지에 둔다.
 **Requirements**: MOBILE-01
 **Depends on:** Phase 20
-**Plans:** 31/36 plans executed (갭 클로징 21-17~21-24 추가 2026-09-26 — 21-UAT.md G-21-1 · G-21-N1~N3 · UAT 3차 갭 클로징 21-25~21-36 추가 2026-09-26 — G-21-R3-1~11 · G-21-CR · 같은 날 과설계 정리로 18→12 플랜 · R3-11 단순안)
+**Plans:** 32/36 plans executed (갭 클로징 21-17~21-24 추가 2026-09-26 — 21-UAT.md G-21-1 · G-21-N1~N3 · UAT 3차 갭 클로징 21-25~21-36 추가 2026-09-26 — G-21-R3-1~11 · G-21-CR · 같은 날 과설계 정리로 18→12 플랜 · R3-11 단순안)
 
 **결정(2026-09-25 사용자 확정):** ① 탭바 = 네이티브(Swift+Kotlin) ② 로그인 = 네이티브 Google Sign-In + `signInWithIdToken` ③ pull-to-refresh = 네이티브 제스처 → 웹 refresh 훅, 없으면 reload ④ 위치 = `mobile/` 패키지.
 **목업 단계 미결(IA):** 검색 탭 목적지(전용 `/search` 페이지 vs ⌘K 다이얼로그) · 마이 탭에 프로필·로그아웃·테마 토글 수용 · iPad 넓은 폭(사이드바 노출 ≥1024)에서 탭바 처리 · 탭바 숨김 규칙(로그인 화면·바텀시트).
@@ -1091,7 +1091,7 @@ Plans:
 - [x] 21-29-PLAN.md — [G-21-R3-1 · R3-4 Android · IN-01 · WR-03 · WR-02 · IN-02 · IN-03] IME 애니메이션 콜백 · onPageStarted 대기 · pullBlocked 초기화 · 브리지(21-25 답) · 백업 끄기 · 폴백 페이지 dev=1 · 오프라인 뒤로가기 재현
 - [x] 21-30-PLAN.md — [G-21-R3-8 종목상세] 탭 안 전체목록(NewsFullList · DiscussionFullList · ?view=) · 뒤로가기 네 경로 · 탭 재클릭 = 요약 · 옛 URL 리다이렉트
 - [x] 21-31-PLAN.md — [G-21-R3-11 · D-32] 탭 루트 스크롤 복원(useTabRootScrollMemory) · 기존 query-cache 로 스켈레톤 없는 재방문(검색 허브 · 대화 목록 · 오늘 주문)
-- [ ] 21-32-PLAN.md — [G-21-R3-2] 앱 공용 패널 숨김 · 더티 바 탭바 비킴 · StrategyLogFeedProvider · /me 전 종목 로그(채택안)
+- [x] 21-32-PLAN.md — [G-21-R3-2] 앱 공용 패널 숨김 · 더티 바 탭바 비킴 · StrategyLogFeedProvider · /me 전 종목 로그(채택안)
 
 **Wave 14** *(blocked on Wave 13 completion)*
 
