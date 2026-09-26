@@ -34,7 +34,7 @@ Plans completed: 219 / 234
 Status: 21-36 완료 — push-then-recheck · push 7fc86b9f..8e0fe57c · 운영 반영 13:03:31Z · 세 기기 운영 빌드 새 설치 · 다음 /gsd-verify-work 21(실서버 재확인 A1~A10 · B1~B8 → 21-VERIFICATION-R2.md)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — Completed quick task 260926-v5n: 키보드 사유 탭바 숨김 즉시화 (iOS · Android)
+Last activity: 2026-09-26 — Completed quick task 260926-vk9: 키패드 시트 열림 탭바 즉시 숨김
 
 Progress: [█████████░] 93%
 
@@ -342,6 +342,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 | 260926-rcc | **돌파감지 NXT 발화 거래소 추종 (gh-trade quick-260923-cfo 동기화)** — 76/78 `exchange` 가 NXT 일 수 있고 서버 상태는 ISIN 당 1개. relay 캐시·78 팬아웃·브라우저 upsert·스트립 행 키를 ISIN 한 축으로, 돌파 칩은 행의 발화 거래소 피드로 price 구독·가격·이탈 판정(전환 시 옛 피드 해제·새 피드 구독, 무장·3초 유예는 새 피드 기준 재시작), 카드 구독 제외는 (ISIN, 거래소). relay 630 · webapp 2376 통과, Playwright 미실행(3100 점유). **배포: relay 먼저 → healthz → push**(구 relay+새 webapp 은 스냅샷 ISIN 중복). 미배포 | 2026-09-26 | e9e4c78 · 89f5680 · 4d62ba7 | [260926-rcc-breakout-nxt-feed-exchange-rate-cross-is](./quick/260926-rcc-breakout-nxt-feed-exchange-rate-cross-is/) |
 | 260926-s5v | **돌파 후속 2건 gh-trade 동작 동기화 (260926-rcc 후속)** — ① 돌파 행 → 카드를 발화 거래소로 연다(기존 카드는 발화 거래소로 전환 · NXT 미거래 종목의 NXT 요청은 무시 · 추가바·보유행은 KRX 유지, gh-trade `FormManager.OpenLimitChaserForm`). ② 이탈로 지운 행은 구독 해제, 새 구간(crossTime·거래소가 다른) 76 이면 새 행(등재시각·강조·3초 유예·첫 돌파시각 재시작) · 같은 구간 재전송(재접속 78)은 지운 채. 돌파 토스트는 스트립 새 행 신호로 — 재돌파에도 토스트, 알림음은 종목당 하루 1회 유지. webapp 2434 통과, Playwright 미실행(3100 점유). relay 무변경 · 배포는 rcc 순서(relay → healthz → push). 미배포 | 2026-09-26 | 0c88254 · a551023 · d28ac2d | [260926-s5v-breakout-row-open-card-fire-exchange-re-](./quick/260926-s5v-breakout-row-open-card-fire-exchange-re-/) |
 | 260926-v5n | **키보드 사유 탭바 숨김 즉시화 (UAT 3차 실서버 B1 후속 · D-12a')** — 사용자 실기기(iPhone 16) 보고 「키보드가 나올 때 탭바가 늦게 사라짐」. iOS `keyboardWillShow` 분기 = removeAllAnimations → performWithoutAnimation(alpha 0 · isHidden) · Android IME onPrepare 분기 = animate().cancel() → alpha 0 · GONE. 키보드 길이·곡선 상태 제거. 재표시 90ms · 비키보드 사유 150ms+0.2s · 하드웨어 키보드 유지 불변. iOS/Android 스모크 · JUnit · verify-prod PROD CONFIG OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. 네이티브 전용(webapp 무변경) → push 불필요 | 2026-09-26 | b9cf376 · 41311b4 | [260926-v5n-ios-keyboard-tabbar-instant-hide-on-devi](./quick/260926-v5n-ios-keyboard-tabbar-instant-hide-on-devi/) |
+| 260926-vk9 | **키패드 시트 열림 탭바 즉시 숨김 (260926-v5n 후속 · D-12a'')** — 사용자 재보고 「수량 입력칸 눌렀을 때 여전히 느림」: 터치 기기 수량·가격 칸은 시스템 키보드가 아니라 웹 NumberPadSheet(overlay 경로 · D-12 150ms+0.2s)를 연다. NumberPadSheet 만 `<NativeOverlayMarker immediate />` → 0→1 에서 `overlay {open:true, immediate:true}` → iOS·Android 가 v5n 즉시 경로로 숨김. Sheet·Dialog·Popover 는 D-12 불변 · 필드 없음/모름 = 종전(옛·새 조합 모두 안전). vitest 2408 · Playwright vk9 · native-shell 11 · a11y 2 · iOS/Android 스모크 · verify-prod OK · 실기기 mesya · iPhone 17 · emulator 운영 빌드 설치. **웹 변경 포함 → 체감은 push 뒤**. 미배포 | 2026-09-26 | b02156a · 97e12d6 | [260926-vk9-numpad-sheet-tabbar-instant-hide](./quick/260926-vk9-numpad-sheet-tabbar-instant-hide/) |
 
 ## Session Continuity
 
