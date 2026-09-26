@@ -4,7 +4,8 @@ import { render, screen } from '@testing-library/react';
 /**
  * 260911-w5h — **전역 크롬 계약 2건**.
  *
- * ① 앱 기본 테마가 **라이트**다. `localStorage` 에 선택이 없는 새 방문자가 밝은 화면을 본다.
+ * ① 앱 기본 테마가 **다크**다(D-23a · G-21-N1 — 260911-w5h 의 라이트 기본을 21-18 이 뒤집었다).
+ *    `localStorage` 에 선택이 없는 새 방문자가 어두운 화면을 본다. 네이티브 ThemeStore 기본과 같다.
  *    이미 고른 사용자의 선택은 next-themes 가 저장값을 우선하므로 그대로 유지된다 —
  *    그 사실은 next-themes 의 계약이라 여기서 다시 증명하지 않고, 이 파일은 **우리가 넘기는
  *    기본값**만 잠근다.
@@ -45,8 +46,8 @@ vi.mock('next/navigation', () => ({
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { AppShell } from '@/components/layout/app-shell';
 
-describe('① 앱 기본 테마는 라이트다 (260911-w5h)', () => {
-  it('`defaultTheme="light"` 로 next-themes 를 부른다', () => {
+describe('① 앱 기본 테마는 다크다 (260911-w5h → 21-18 D-23a)', () => {
+  it('`defaultTheme="dark"` 로 next-themes 를 부른다', () => {
     render(
       <ThemeProvider>
         <div>본문</div>
@@ -55,8 +56,8 @@ describe('① 앱 기본 테마는 라이트다 (260911-w5h)', () => {
 
     expect(themeProps).toHaveBeenCalled();
     const props = themeProps.mock.calls.at(-1)![0] as Record<string, unknown>;
-    expect(props.defaultTheme).toBe('light');
-    // 나머지 계약은 그대로다 — system 은 여전히 제외다(2 상태만 지원).
+    expect(props.defaultTheme).toBe('dark');
+    // 나머지 계약은 그대로다 — system 은 여전히 제외다(2 상태만 지원 · D-23 OS 무시).
     expect(props.enableSystem).toBe(false);
     expect(props.attribute).toBe('class');
     expect(props.disableTransitionOnChange).toBe(true);
