@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { test, expect, type Page } from '@playwright/test';
 
 import { installNativeApp, nativeMessages } from '../fixtures/native-app';
@@ -12,6 +15,8 @@ import { installNativeApp, nativeMessages } from '../fixtures/native-app';
  *   - 라이트를 저장한 사용자는 라이트 그대로다(저장값 우선 · T-21-49).
  *   - 앱 첫 실행(저장값 없음) 웹은 네이티브에 `theme {theme:'dark'}` 를 보낸다 — 네이티브 ThemeStore
  *     저장값이 웹과 같은 다크로 시작한다(D-23 동기화).
+ *   - 오프라인 폴백(`mobile/www/index.html` · D-19)도 `?theme=light` 가 아니면 다크다 — 네이티브는 항상
+ *     현재 테마를 넘기지만, 값이 없거나 모르면 웹·네이티브와 같은 기본(다크)으로 떨어진다.
  *
  * ② 깨지면 사용자가 겪는 일
  *   - 새 사용자가 라이트로 시작한다(G-21-N1 재발) · 앱 첫 프레임(다크 창)과 웹 첫 페인트(라이트)가
@@ -82,4 +87,32 @@ test.describe('기본 테마 다크 — 저장값 없음/있음 (G-21-N1 · D-23
     const themes = (await nativeMessages(page)).filter((m) => m.type === 'theme');
     expect(themes[0]!.payload).toEqual({ theme: 'dark' });
   });
+});
+
+// 저장소 루트 — fixtures/relay.ts 와 같은 방식(e2e/specs → webapp → 루트).
+const REPO_ROOT = path.resolve(__dirname, '../../..');
+const FALLBACK_URL = pathToFileURL(path.join(REPO_ROOT, 'mobile/www/index.html')).href;
+
+test.describe('오프라인 폴백 기본 다크 (D-19 · D-23a)', () => {
+  // 폴백 페이지의 5초 도달 탐침이 복귀(location.replace)로 페이지를 떠나지 않게 오프라인으로 연다.
+  test.beforeEach(async ({ page }) => {
+    await page.context().setOffline(true);
+  });
+
+  const cases: { query: string; dark: boolean; label: string }[] = [
+    { query: '', dark: true, label: '쿼리 없음 → 다크(기본)' },
+    { query: '?theme=light', dark: false, label: '?theme=light → 라이트' },
+    { query: '?theme=dark', dark: true, label: '?theme=dark → 다크' },
+    { query: '?theme=bogus', dark: true, label: '?theme=bogus(모르는 값) → 다크(기본)' },
+  ];
+
+  for (const c of cases) {
+    test(c.label, async ({ page }) => {
+      await page.goto(FALLBACK_URL + c.query);
+      await expect(page.getByText('인터넷 연결을 확인해주세요')).toBeVisible();
+      const html = page.locator('html');
+      if (c.dark) await expect(html).toHaveClass(DARK_CLASS);
+      else await expect(html).not.toHaveClass(DARK_CLASS);
+    });
+  }
 });

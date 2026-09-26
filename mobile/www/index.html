@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>GH Trade</title>
     <script>
-      // 첫 페인트 전에 테마를 정한다 — 네이티브가 `?theme=` 로 현재 앱 테마를 넘긴다(D-23). 기본 라이트.
-      if (new URLSearchParams(location.search).get('theme') === 'dark') {
+      // 첫 페인트 전에 테마를 정한다 — 기본 다크(D-23a). 네이티브는 항상 `?theme=` 로 현재 앱 테마를 넘기며(D-23),
+      // 이 기본값은 값이 없거나 모를 때만 쓴다. 웹 defaultTheme · iOS/Android ThemeStore 기본과 같아야 한다.
+      if (new URLSearchParams(location.search).get('theme') !== 'light') {
         document.documentElement.classList.add('dark');
       }
     </script>
