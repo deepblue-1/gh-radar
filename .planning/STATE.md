@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: 21 갭 플랜 8개(21-17~21-24) 작성·체커 통과 — 다음 /gsd-execute-phase 21 --gaps-only
-last_updated: "2026-09-26T02:40:46.179Z"
+stopped_at: Completed 21-17-PLAN.md
+last_updated: "2026-09-26T04:05:59.845Z"
 last_activity: 2026-09-26
-last_activity_desc: "Phase 21 — 16/16 플랜 실행 · 운영 UAT 2차: 11 pass · 1 issue(탭바 라벨·모양) · 1 pending(웹 회귀) · 신규 요청 3(다크 기본 · 테마 아이콘 통일 · 뉴스 인앱 브라우저) → 다음 /gsd-plan-phase 21 --gaps"
-state_head: ff6b8673c3959f98f94f2b393b2a7bf36981baa9
+last_activity_desc: Phase 21 execution started
+state_head: 6fd3cae22a72895d8bf09cefe829ed12587e0ec4
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 278
-  completed_plans: 253
+  completed_plans: 255
 milestone_name: milestone
 ---
 
@@ -28,13 +28,13 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — READY TO EXECUTE
-Plan: 16 of 16
+Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
+Plan: 2 of 24
 Plans completed: 219 / 234
-Status: UAT 갭 플랜 21-17~21-24 작성·체커 통과 — 다음 /gsd-execute-phase 21 --gaps-only
+Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — Phase 21 — 16/16 플랜 실행 · 운영 UAT 2차: 11 pass · 1 issue(탭바 라벨·모양) · 1 pending(웹 회귀) · 신규 요청 3(다크 기본 · 테마 아이콘 통일 · 뉴스 인앱 브라우저) → 다음 /gsd-plan-phase 21 --gaps. 갭 정본 phases/21-gh-trade-mobile-app/21-UAT.md(G-21-1 · G-21-13 · G-21-N1~N3). phase 21 완료·MOBILE-01 체크 보류
+Last activity: 2026-09-26 — Phase 21 execution started
 
 Progress: [█████████░] 93%
 
@@ -107,6 +107,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P09 | 25min | 3 tasks | 10 files |
 | Phase 21 P13 | 13min | 2 tasks | 7 files |
 | Phase 21 P15 | 11 min | 3 tasks | 13 files |
+| Phase 21 P17 | 4min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -233,6 +234,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-13: Android 테마는 applyTheme 단일 경로 · load() 끝 post 로 SystemBars DEFAULT 스타일 뒤 재적용
 - [Phase 21]: 21-13: 뒤로가기 홈 이동 뒤 clearHistory 1회 · 로그인/인증 화면은 종료 · 웹 back() false 면 네이티브 순서로
 - [Phase 21]: 21-15: 네이티브 Google 로그인은 webapp 의존성 없이 window.Capacitor.nativePromise('SocialLogin') 래퍼 — 플러그인엔 SHA-256(raw nonce), Supabase signInWithIdToken 엔 raw · forcePrompt true · 성공 시 location.replace(safeNext) · Android MainActivity 무변경(online·scopes 없음) · iOS 는 Info.plist URL scheme 만
+- [Phase 21]: 21-17: Android Custom Tabs 는 androidx.browser 1.9.0 앱 모듈 선언(Task 1 선택 a) — capgo 가 이미 APK 에 싣는 좌표라 런타임 의존 집합 무변경
+- [Phase 21]: 21-17: 사이트 밖 판정 ExternalLinks.opensInAppBrowser 는 앱 호스트 소문자 정확 일치만 같은 호스트(접미사 위장·www 는 외부) · 정본 26케이스 표를 iOS 21-22 가 복제
 
 ### Pending Todos
 
@@ -280,8 +283,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T00:01:15.631Z
-Stopped at: Completed 21-15-PLAN.md
+Last session: 2026-09-26T04:05:59.079Z
+Stopped at: Completed 21-17-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
