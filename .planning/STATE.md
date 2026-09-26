@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-26-PLAN.md
-last_updated: "2026-09-26T10:10:52.097Z"
+stopped_at: Completed 21-27-PLAN.md
+last_updated: "2026-09-26T10:21:16.301Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 execution started
-state_head: 404cac9614668ce9914b9a13815378535e3df119
+state_head: d536a9dbf7848416a2d43a81b1021ef0ace93a56
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 290
-  completed_plans: 264
+  completed_plans: 265
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 27 of 36
+Plan: 28 of 36
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -117,6 +117,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P24 | 5min | 2 tasks | 1 files |
 | Phase 21 P25 | 19min | 3 tasks | 4 files |
 | Phase 21 P26 | 5min | 3 tasks | 10 files |
+| Phase 21 P27 | 8min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -260,6 +261,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-25: D-32 R3-11 = 탭 루트 스크롤 복원 + 스켈레톤 없는 재방문(query-cache) · keep-alive/탭별 웹뷰 기각
 - [Phase 21]: 21-26: 만원 키패드 칩 = 천만(+1,000)·오천만(+5,000)·1억(+10,000)·지우기(만원 단위 더하기 · 9자리 초과는 버퍼 불변 계약 유지)
 - [Phase 21]: 21-26: 아이콘 닫기 버튼 = lucide XIcon + size-8 상자 + after:-inset-1.5 히트 44(카드 ✕ · 종목정보 팝업 ✕) · 팝업 ≥700 높이 min(720px,100dvh−48px−안전영역) 고정 · 폰 safe-area 패딩
+- [Phase 21]: 21-27 WR-04: 오버레이 계수를 back 대상/탭바 숨김 둘로 나누지 않는다 — PopoverContent 도 같은 NativeOverlayMarker
+- [Phase 21]: 21-27 IN-06: App Router 가 클라 내비(경로·쿼리)마다 viewport 메타를 새로 만들어 #17171c 로 되돌린다(실측) — ThemeColorSync 는 head MutationObserver 로 재적용
+- [Phase 21]: 21-27 WR-01: 같은 출처 경로 판정은 lib/safe-path.ts isSafeInternalPath 하나 — login·/auth/callback·navigate 공용
 
 ### Pending Todos
 
@@ -309,8 +313,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T10:10:43.801Z
-Stopped at: Completed 21-26-PLAN.md
+Last session: 2026-09-26T10:21:15.442Z
+Stopped at: Completed 21-27-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
