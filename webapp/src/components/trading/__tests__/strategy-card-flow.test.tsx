@@ -43,7 +43,7 @@ import {
   StrategyCard,
   strategyStatusOf,
 } from '../card/strategy-card';
-import { StrategyLog } from '../strategy-log';
+import { StrategyLog, TRANSITION_TEXT, marketCloseDisabledLogLine } from '../strategy-log';
 
 const ISIN = 'KR7086520004';
 const ACCOUNT = '37728502101';
@@ -383,8 +383,9 @@ describe('전송 ↔ 에코 상관 (옛 ⑥ ~ ⑧ · ⑪ · ⑬)', () => {
     });
     rerender(<Card />);
 
+    // ★ quick-260926-nr2 — 65 는 전부 정지 집계 응답이다. 「장 마감 규칙」이라고 말하지 않는다.
     expect(
-      await screen.findByText('서버가 모든 전략을 자동 비활성화했어요 (장 마감 규칙)'),
+      await screen.findByText('전부 정지가 반영됐어요 · 서버가 모든 전략을 비활성화했어요'),
     ).toBeInTheDocument();
   });
 
@@ -735,5 +736,292 @@ describe('철거 에코 · 거부 = 서버의 답 (옛 ㉑)', () => {
       vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
     });
     expect(lcSets()).toHaveLength(1);
+  });
+});
+
+/**
+ * quick-260926-nr2 — 에코를 **누가 보냈나**가 아니라 **무엇이 바뀌었나**로 분류한다.
+ * 60 에코의 상당수는 다른 단말이 아니라 내 lc.arm · 서버 이중 에코 · 서버 런타임 푸시 · 재접속
+ * lc.snap 이다. 사용자 설정 값이 내 요청 없이 바뀐 경우만 「다른 단말」 배너다(기존 ⑦·⑦b 가 회귀 가드).
+ */
+describe('에코 분류 — 무엇이 바뀌었나 (quick-260926-nr2)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const hasText = (t: string) => texts().some((x) => x === t);
+  const noOtherDevice = () =>
+    expect(texts().some((x) => x.includes('다른 단말'))).toBe(false);
+
+  it('NR2-1 내 lc.arm 에코(래치 ON) → 배너 없음 + 래치 로그 1줄', async () => {
+    const e0 = echo({ sellEnabled: true });
+    setRelay({ limitChasers: [e0] });
+    const { rerender } = render(<Card />);
+    const before = logRows().length;
+
+    fireEvent.click(led('sell'));
+    expect(sendMock).toHaveBeenCalledWith({ t: 'lc.arm', key: KEY, latch: 'sell' });
+
+    const e1 = echo({ sellEnabled: true, sellEntryLatched: true });
+    setRelay({ limitChasers: [e1], lastLimitChaserEcho: e1 });
+    rerender(<Card />);
+
+    await waitFor(() => expect(logRows().length).toBe(before + 1));
+    expect(hasText(TRANSITION_TEXT.sellLatched)).toBe(true);
+    expect(banner()).toBeNull();
+    noOtherDevice();
+  });
+
+  it('NR2-2 내 스위치 전송 → 에코 → 같은 내용 새 객체 한 번 더(이중 에코) → 배너 없음 · 로그 줄 수 불변', async () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+
+    act(() => {
+      screen.getByRole('switch', { name: '매수주문 켜기' }).click();
+    });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+
+    const e1 = echo({ buyEnabled: false });
+    setRelay({ limitChasers: [e1], lastLimitChaserEcho: e1 });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(TRANSITION_TEXT.buyDisarmed)).toBe(true));
+    const count = logRows().length;
+
+    // 300ms 플러시 동일 사본 — 새 객체, 같은 내용.
+    const e2 = echo({ buyEnabled: false });
+    setRelay({ limitChasers: [e2], lastLimitChaserEcho: e2 });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(count);
+    expect(banner()).toBeNull();
+    // 내가 끈 매수가 사본 때문에 「발주」로 읽히지 않는다.
+    expect(texts().some((x) => x.includes(TRANSITION_TEXT.buyFired))).toBe(false);
+    noOtherDevice();
+  });
+
+  it('NR2-3 보내지 않은 래치 자동 ON → 배너 없음 + 래치 로그', async () => {
+    setRelay({ limitChasers: [echo({ sellEnabled: true })] });
+    const { rerender } = render(<Card />);
+    setRelay({ limitChasers: [echo({ sellEnabled: true, sellEntryLatched: true })] });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(TRANSITION_TEXT.sellLatched)).toBe(true));
+    expect(banner()).toBeNull();
+    noOtherDevice();
+  });
+
+  it('NR2-3 보내지 않은 게이트 false→true(복원) → 배너 없음 + 무장 로그', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: false })] });
+    const { rerender } = render(<Card />);
+    setRelay({ limitChasers: [echo({ buyEnabled: true })] });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(TRANSITION_TEXT.buyArmed)).toBe(true));
+    expect(banner()).toBeNull();
+    noOtherDevice();
+  });
+
+  it('NR2-3 체결·기준선 갱신(카운터 3종) → 배너·로그 없음', () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+    const count = logRows().length;
+    setRelay({
+      limitChasers: [
+        echo({ sellOrderQty: 7, sellQtyTrackBaseline: 12_000, cancelQtyTrackBaseline: 9_000 }),
+      ],
+    });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(count);
+    expect(banner()).toBeNull();
+  });
+
+  it('NR2-3 보내지 않은 매수 무장 true→false → 「매수 발주 — 무장 해제」 + 「발주 완료 · 무장 해제」 + 배너 없음', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true })] });
+    const { rerender } = render(<Card />);
+    setRelay({ limitChasers: [echo({ buyEnabled: false })] });
+    rerender(<Card />);
+    await waitFor(() => expect(hasText(TRANSITION_TEXT.buyFired)).toBe(true));
+    expect(screen.getByText('발주 완료 · 무장 해제')).toBeInTheDocument();
+    expect(banner()).toBeNull();
+    noOtherDevice();
+  });
+
+  it('NR2-5 같은 내용 lc.snap(새 객체) → 배너·로그 없음', () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+    const count = logRows().length;
+    setRelay({ limitChasers: [echo()] });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(count);
+    expect(banner()).toBeNull();
+  });
+
+  it('NR2-6 name/code 만 채워진 에코 → 「서버 반영 완료」 없음 · 배너 없음', () => {
+    setRelay({ limitChasers: [echo()] });
+    const { rerender } = render(<Card />);
+    const count = logRows().length;
+    setRelay({ limitChasers: [echo({ name: '에코프로', code: '086520' })] });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(logRows().length).toBe(count);
+    expect(hasText(TRANSITION_TEXT.valuesApplied)).toBe(false);
+    expect(banner()).toBeNull();
+  });
+});
+
+/**
+ * quick-260926-nr2 — 발주 판정의 **원인** 인지와 lc.arm 답 추적.
+ * 귀속은 relay 컨텍스트 `limitChaserDisableEchoes`(에코 객체 동일성)로 내려 준다.
+ */
+describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
+  const texts = () =>
+    Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
+  const hasText = (t: string) => texts().some((x) => x === t || x.includes(t));
+  /** 시스템 WARN — 게이트웨이 36/37/38 거부 모양(기본 ServerMessageContext). */
+  const ARM_REJECT = msg({ lv: 'WARN', src: 'System', m: '매도 무장이 꺼져 있어 래치를 켤 수 없습니다' });
+
+  it('전부 정지 귀속 에코(buy·sell true→false) → 「매수 무장 해제」 · 「매수 발주」 없음 · 「발주 완료」 없음 · 배너 없음', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
+    const { rerender } = render(<Card />);
+
+    const e1 = echo({ buyEnabled: false, sellEnabled: false, cancelQtyEnabled: true });
+    setRelay({
+      limitChasers: [e1],
+      lastLimitChaserEcho: e1,
+      limitChaserDisableEchoes: new Map([[KEY, { echo: e1, cause: 'killSwitch' }]]),
+    });
+    rerender(<Card />);
+
+    await waitFor(() => expect(hasText(TRANSITION_TEXT.buyDisarmed)).toBe(true));
+    expect(hasText(TRANSITION_TEXT.buyFired)).toBe(false);
+    expect(screen.queryByText('발주 완료 · 무장 해제')).toBeNull();
+    expect(banner()).toBeNull();
+    expect(hasText(marketCloseDisabledLogLine())).toBe(false);
+  });
+
+  it('15:40 귀속 에코 → 발주 아님 + 「서버가 KRX 전략을 자동 비활성화했어요 (장 마감 규칙)」 1줄', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true, sellEnabled: true })] });
+    const { rerender } = render(<Card />);
+
+    const e1 = echo({ buyEnabled: false, sellEnabled: false });
+    setRelay({
+      limitChasers: [e1],
+      lastLimitChaserEcho: e1,
+      limitChaserDisableEchoes: new Map([[KEY, { echo: e1, cause: 'marketClose' }]]),
+    });
+    rerender(<Card />);
+
+    await waitFor(() => expect(hasText(marketCloseDisabledLogLine())).toBe(true));
+    expect(texts().filter((t) => t === marketCloseDisabledLogLine())).toHaveLength(1);
+    expect(hasText(TRANSITION_TEXT.buyDisarmed)).toBe(true);
+    expect(hasText(TRANSITION_TEXT.buyFired)).toBe(false);
+    expect(screen.queryByText('발주 완료 · 무장 해제')).toBeNull();
+    expect(banner()).toBeNull();
+  });
+
+  it('귀속 맵의 echo 가 지금 server 와 다른 객체면 귀속 무시 → 「매수 발주 — 무장 해제」', async () => {
+    setRelay({ limitChasers: [echo({ buyEnabled: true })] });
+    const { rerender } = render(<Card />);
+
+    const stale = echo({ buyEnabled: false });
+    const e1 = echo({ buyEnabled: false });
+    setRelay({
+      limitChasers: [e1],
+      lastLimitChaserEcho: e1,
+      limitChaserDisableEchoes: new Map([[KEY, { echo: stale, cause: 'killSwitch' }]]),
+    });
+    rerender(<Card />);
+
+    await waitFor(() => expect(hasText(TRANSITION_TEXT.buyFired)).toBe(true));
+    expect(screen.getByText('발주 완료 · 무장 해제')).toBeInTheDocument();
+  });
+
+  it('LED 클릭(send true) → 3초 무응답 → 「미반영」 · 30초 뒤에도 send 1회', () => {
+    setRelay({ limitChasers: [echo({ sellEnabled: true })] });
+    render(<Card />);
+    fireEvent.click(led('sell'));
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(unacked()).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    });
+    expect(unacked()?.textContent).toContain('미반영');
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('LED 클릭 → 3초 안에 그 키 에코(lastLimitChaserEcho) → 미반영 없음', () => {
+    setRelay({ limitChasers: [echo({ sellEnabled: true })] });
+    const { rerender } = render(<Card />);
+    fireEvent.click(led('sell'));
+
+    const e1 = echo({ sellEnabled: true, sellEntryLatched: true });
+    setRelay({ limitChasers: [e1], lastLimitChaserEcho: e1 });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('LED 클릭 → System WARN 거부 통지 → 미반영 없음 + card-server-error 에 원문 + 로그 1줄', async () => {
+    const chasers = [echo({ sellEnabled: true })];
+    setRelay({ limitChasers: chasers });
+    const { rerender } = render(<Card />);
+    fireEvent.click(led('sell'));
+    const before = logRows().length;
+
+    setRelay({ limitChasers: chasers, messages: [ARM_REJECT] });
+    rerender(<Card />);
+
+    const el = await waitFor(() => {
+      expect(serverError()).not.toBeNull();
+      return serverError()!;
+    });
+    expect(el.textContent).toContain('매도 무장이 꺼져 있어 래치를 켤 수 없습니다');
+    expect(logRows().length).toBe(before + 1);
+    expect(hasText('매도 무장이 꺼져 있어 래치를 켤 수 없습니다')).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+    });
+    expect(unacked()).toBeNull();
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('arm 이 없을 때 온 System WARN 은 카드에 서지 않는다(표시 몫 불변)', async () => {
+    const chasers = [echo({ sellEnabled: true })];
+    setRelay({ limitChasers: chasers });
+    const { rerender } = render(<Card />);
+    const before = logRows().length;
+
+    setRelay({ limitChasers: chasers, messages: [ARM_REJECT] });
+    rerender(<Card />);
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(serverError()).toBeNull();
+    expect(logRows().length).toBe(before);
+  });
+
+  it('LED 클릭인데 send false → 3초 뒤에도 미반영 없음 · send 1회(재전송 없음)', () => {
+    sendMock.mockReturnValue(false);
+    setRelay({ limitChasers: [echo({ sellEnabled: true })] });
+    render(<Card />);
+    fireEvent.click(led('sell'));
+    act(() => {
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 10);
+    });
+    expect(unacked()).toBeNull();
+    expect(sendMock).toHaveBeenCalledTimes(1);
   });
 });

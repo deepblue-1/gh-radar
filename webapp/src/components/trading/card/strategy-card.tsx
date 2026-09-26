@@ -81,12 +81,16 @@ import {
 } from "@/components/trading/latch-led";
 import { strategyBadgesOf } from "@/components/trading/strategy-badge";
 import {
+  isRuntimeOnlyEcho,
+  limitChaserValuesChanged,
+  marketCloseDisabledLogLine,
   serverMessageLogLine,
   strategiesDisabledLogLine,
   strategyLogLine,
   type StrategyLogEntry,
 } from "@/components/trading/strategy-log";
 import {
+  isLimitChaserArmRejection,
   isLimitChaserServerMessage,
   isLimitChaserSetRejection,
   strategyKey,
@@ -235,6 +239,7 @@ export function useStrategyCardState({
   const {
     limitChasers,
     lastLimitChaserEcho,
+    limitChaserDisableEchoes,
     messages,
     send,
     strategiesDisabled,
@@ -318,8 +323,16 @@ export function useStrategyCardState({
    */
   const [liveSeed, setLiveSeed] = useState(0);
 
-  const handleSent = useCallback((cfg: RelayLimitChaserInput) => {
-    pendingRef.current = cfg;
+  /**
+   * `lc.arm` 이 소켓에 실렸고 아직 답(그 키의 60 에코 또는 인식된 거부 통지)이 없다
+   * (quick-260926-nr2). 게이트웨이가 arm 거부에 전략 키를 싣지 않으므로 거부 통지와의 상관은 이
+   * in-flight 창으로 한다. **`pendingRef` 와 따로 둔다** — arm 은 lc.set 이 아니고, hadOrder 가 그것을
+   * 매수 끄기로 읽으면 안 된다.
+   */
+  const armInFlightRef = useRef(false);
+
+  /** 3초 「미반영」 대기를 (다시) 건다 — lc.set 과 lc.arm 이 같은 타이머를 쓴다. */
+  const startAckWait = useCallback(() => {
     setUnacked(false);
     if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
     // ★ 여기서 하는 일은 **표시**뿐이다. 타이머가 끝나도 아무것도 다시 보내지 않는다.
@@ -328,6 +341,14 @@ export function useStrategyCardState({
       ACK_TIMEOUT_MS,
     );
   }, []);
+
+  const handleSent = useCallback(
+    (cfg: RelayLimitChaserInput) => {
+      pendingRef.current = cfg;
+      startAckWait();
+    },
+    [startAckWait],
+  );
 
   /**
    * 「서버가 답했다」를 접수한다 — **이 카드에서 「모른다」를 거두는 유일한 함수**다.
@@ -353,6 +374,7 @@ export function useStrategyCardState({
   useEffect(() => {
     prevServerRef.current = null;
     pendingRef.current = null;
+    armInFlightRef.current = false;
     setUnacked(false);
     setBanner(null);
     setAppliedAt(null);
@@ -385,6 +407,8 @@ export function useStrategyCardState({
   useEffect(() => {
     if (key === "" || lastLimitChaserEcho === null) return;
     if (lastLimitChaserEcho.key !== key) return;
+    // 그 키의 에코는 내 lc.arm 에 대한 답이기도 하다(성공·멱등 = 즉답 60 에코).
+    armInFlightRef.current = false;
     acceptAnswer();
   }, [lastLimitChaserEcho, key, acceptAnswer]);
 
@@ -406,6 +430,28 @@ export function useStrategyCardState({
     }
 
     if (prev === server) return;
+
+    /*
+      ★ 내용상 새로 말할 것이 없는 에코 — 무동작 (quick-260926-nr2). 판정은 `isRuntimeOnlyEcho`
+        한 곳이다(같은 내용의 새 객체 · 체결/래칫 카운터만 · relay 파생 name/code 만 다름).
+        (i) 내용이 같으면 누구에게 귀속할 전이가 없다 — 로그·배너·fired·appliedAt 을 건드리지 않는다.
+        (ii) **`pendingRef` 를 소비하지 않는다.** gh-trade 는 lc.set/lc.arm 에 즉답 에코를 주고
+             `MarkEchoDirty` 가 300ms 플러시 동일 사본을 또 민다 — 여기서 소비하면 사본이 내 진짜
+             에코보다 먼저 온 순간 내 변경이 「다른 단말」로, 내 매수 끄기가 「발주」로 읽힌다.
+        (iii) 남는 비용: 서버가 내 lc.set 을 prev 와 같은 값으로 정규화해 답하면 pendingRef 가 다음
+             비런타임 에코까지 남아 그 한 번의 다른 단말 배너를 삼키고 hadOrder 를 내 마지막 요청에서
+             읽는다 — (ii) 의 오귀속보다 싸다.
+        (iv) 게이트/래치 런타임 푸시가 내 에코보다 먼저 오면 여전히 pendingRef 를 소비한다
+             (기존 경합 — 이제 더 좁다).
+        `acceptAnswer` 도 부르지 않는다 — 응답 채널은 위 키 일치 `lastLimitChaserEcho` 이펙트다
+        (같은 내용의 lc.snap 을 답으로 세면 재접속만으로 미반영이 거둬진다 — use-relay-socket
+        `lastLimitChaserEcho` 문서와 같은 규율).
+    */
+    if (prev !== null && isRuntimeOnlyEcho(prev, server)) {
+      prevServerRef.current = server;
+      overwrittenRef.current = 0;
+      return;
+    }
     prevServerRef.current = server;
 
     const sent = pendingRef.current;
@@ -414,23 +460,42 @@ export function useStrategyCardState({
     setAppliedAt(clockNow());
 
     /*
-      무장 해제의 **이유**는 에코만으로 알 수 없다(Pitfall 10). 우리가 방금 끈 것이면
-      그 요청에 `buyEnabled:false` 가 실려 있다 — 그 경우에만 「사용자가 껐다」이고,
-      나머지(내가 켰는데 꺼져서 왔다 / 아예 안 보냈다)는 **발주로 게이트가 소진된 것**이다.
+      무장 해제의 **이유**는 에코만으로 알 수 없다(Pitfall 10). 발주가 아닌 해제로 **알 수 있는**
+      것은 셋뿐이다 (quick-260926-nr2):
+        · 내 lc.set — 그 요청에 `buyEnabled:false` 가 실려 있다 → 「사용자가 껐다」
+        · 이 브라우저의 전부 정지 — relay 귀속 맵(65 경계 창) `cause "killSwitch"`
+        · 서버 15:40 KRX 해제 — relay 귀속 맵(통지 경계) `cause "marketClose"`
+      귀속은 **에코 객체 동일성**으로만 받는다 — 맵 항목이 지금 이 에코가 아니면(나중 lc.snap ·
+      다음 에코) 원인이 아니다. 나머지(내가 켰는데 꺼져서 왔다 / 아예 안 보냈다)는 **발주로 게이트가
+      소진된 것**이다.
+      ⚠️ 알려진 한계: **다른 단말의 전부 정지**는 에코만으로 발주와 구별되지 않는다 — 65 가 에코
+         뒤에 오므로 그 탭은 원인을 늦게 안다. 그 에코는 여전히 「발주」로 읽힌다.
     */
-    const hadOrder = sent === null ? true : sent.buyEnabled === true;
+    const disable = key === "" ? undefined : limitChaserDisableEchoes.get(key);
+    const cause = disable !== undefined && disable.echo === server ? disable.cause : null;
+    const hadOrder =
+      cause !== null ? false : sent === null ? true : sent.buyEnabled === true;
     const line = strategyLogLine(prev, server, { hadOrder });
     if (line !== null) pushLog(line);
+    // 15:40 해제는 원인 1줄을 더 남긴다 — 사용자가 끄지 않은 해제의 이유를 로그가 말한다.
+    if (cause === "marketClose") pushLog(marketCloseDisabledLogLine());
 
     // 발주 래치 — 무장이 서면 되돌리고, 우리가 끈 게 아닌 해제만 「발주됨」으로 남긴다.
     if (server.buyEnabled) setFired(false);
     else if (prev?.buyEnabled === true && hadOrder) setFired(true);
 
-    // 다른 단말 변경 — 내가 보낸 적이 없고, 처음 보는 전략도 아닐 때만이다.
-    // 첫 스냅샷(prev === null)을 「다른 단말」이라고 하면 페이지를 열 때마다 배너가 뜬다.
+    /*
+      다른 단말 변경 — **누가 보냈나가 아니라 무엇이 바뀌었나**로 판정한다 (quick-260926-nr2).
+      게이트·래치·런타임 카운터는 서버가 스스로 양방향으로 뒤집는다(에코 xxxEnabled = cfg && armed —
+      OnQuote 자동 래치, SubmitBuy/Sell/Cancel 게이트 소진, Restore*Gate 복원, OnExecution 체결,
+      lc.arm 답, 전부 정지). 그래서 「내가 보낸 적 없음」만으로는 다른 단말의 증거가 아니다 —
+      **사용자 설정 값**(`limitChaserValuesChanged`)이 내 요청 없이 바뀐 경우만 다른 단말이다.
+      전이 로그 줄(매수 무장·래치 ON 등)은 위에서 종전대로 남는다.
+      첫 스냅샷(prev === null)을 「다른 단말」이라고 하면 페이지를 열 때마다 배너가 뜬다.
+    */
     const overwritten = overwrittenRef.current;
     overwrittenRef.current = 0;
-    if (sent === null && prev !== null) {
+    if (sent === null && prev !== null && limitChaserValuesChanged(prev, server)) {
       const text =
         overwritten > 0
           ? `다른 단말에서 변경돼 수정하던 값 ${overwritten}개가 서버 값으로 바뀌었어요`
@@ -443,7 +508,8 @@ export function useStrategyCardState({
         ECHO_BANNER_MS,
       );
     }
-  }, [server, pushLog, acceptAnswer]);
+    // `limitChaserDisableEchoes` 로 재실행돼도 위 동일성 조기 반환이 무해하게 만든다.
+  }, [server, key, limitChaserDisableEchoes, pushLog, acceptAnswer]);
 
   useEffect(
     () => () => {
@@ -474,11 +540,28 @@ export function useStrategyCardState({
     const fresh = idx < 0 ? messages : messages.slice(0, idx);
     lastMsgRef.current = messages[0];
     for (const msg of [...fresh].reverse()) {
-      if (!isLimitChaserServerMessage(msg)) continue; // VI 몫은 여기서 그리지 않는다
+      /*
+        ★ 내 lc.arm 의 거부 답인가 (quick-260926-nr2) — arm in-flight 창 안에서만 묻는다. 현 gh-trade
+          는 36/37/38 거부를 src "System"(i/a/kind 빈 값) WARN 으로 보내 아래 표시 몫 판정에 걸리지
+          않는다. 판정은 `isLimitChaserArmRejection` 한 곳이다.
+      */
+      const armAnswer =
+        armInFlightRef.current && isLimitChaserArmRejection(msg, isin, accountNo);
+      // VI 몫·무관한 System 통지는 여기서 그리지 않는다(표시 몫 불변).
+      if (!armAnswer && !isLimitChaserServerMessage(msg)) continue;
       const { text, level } = serverMessageLogLine(msg);
       pushLog(text, level);
-      // ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
-      if (level !== "error") continue;
+      if (armAnswer) {
+        // 거부도 답이다 — 「미반영」을 거둔다. 재전송하지 않는다(T-16-10 · T-17-40).
+        armInFlightRef.current = false;
+        acceptAnswer();
+      }
+      /*
+        ★ 상태줄에도 남긴다 — 로그만 있으면 스크롤 밖에서 조용히 지나간다(T-16-07).
+        ★ arm 거절은 WARN 이어도 카드 경보에 세운다 — 사용자 클릭에 대한 거절은 **클릭한 자리**에
+          보여야 한다(PC-7 무로그 fail-safe 금지).
+      */
+      if (level !== "error" && !armAnswer) continue;
       setLastError({ text: msg.m, src: msg.src });
       /*
         ★ **거부도 답이다.** 서버가 사유를 말한 순간 「모른다」는 거짓이 되므로 「미반영」을
@@ -546,9 +629,17 @@ export function useStrategyCardState({
     (kind: LatchLedKind) => {
       if (ledServer === null) return;
       if (!latchLedStateOf(kind, ledServer).clickable) return;
-      send({ t: "lc.arm", key: ledServer.key, latch: kind });
+      /*
+        ★ 3초 표시만, 재전송 없음 (quick-260926-nr2). 소켓에 실렸을 때만(`send` true) 답을 추적한다 —
+          그 키의 60 에코 또는 인식된 거부 통지가 오면 거두고, 3초 안에 없으면 「미반영」만 세운다.
+          `send` 가 false 면 추적도 재전송도 없다(T-16-10 · T-17-40). `pendingRef` 는 건드리지 않는다.
+      */
+      if (send({ t: "lc.arm", key: ledServer.key, latch: kind })) {
+        armInFlightRef.current = true;
+        startAckWait();
+      }
     },
-    [ledServer, send],
+    [ledServer, send, startAckWait],
   );
 
   return {

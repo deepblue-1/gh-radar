@@ -1,11 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import {
+  LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+  LIMIT_CHASER_SERVER_LATCH_FIELDS,
+  LIMIT_CHASER_SERVER_ONLY_FIELDS,
+} from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
 
 import {
   StrategyLog,
   TRANSITION_ORDER,
   TRANSITION_TEXT,
+  isRuntimeOnlyEcho,
+  limitChaserValuesChanged,
+  marketCloseDisabledLogLine,
   serverMessageLogLine,
   strategiesDisabledLogLine,
   strategyLogLine,
@@ -157,10 +165,80 @@ describe('serverMessageLogLine / strategiesDisabledLogLine', () => {
     expect(out.text).toContain('세션에 참여했습니다');
   });
 
-  it('⑫ 15:40 자동 비활성화 문구는 UI-SPEC verbatim 이다', () => {
+  it('⑫ 65(전부 정지 집계 응답) 문구는 전부 정지를 말하고 「장 마감 규칙」이라고 하지 않는다 (quick-260926-nr2)', () => {
+    // ★ 65 는 gh-trade ProcessDisableStrategies 의 집계 응답뿐이다 — 15:40 과 무관하다.
     expect(strategiesDisabledLogLine()).toBe(
-      '서버가 모든 전략을 자동 비활성화했어요 (장 마감 규칙)',
+      '전부 정지가 반영됐어요 · 서버가 모든 전략을 비활성화했어요',
     );
+    expect(strategiesDisabledLogLine()).not.toContain('장 마감');
+  });
+
+  it('⑫b 15:40 KRX 자동 해제 문구는 KRX 로 좁힌 장 마감 규칙이다 (quick-260926-nr2)', () => {
+    expect(marketCloseDisabledLogLine()).toBe(
+      '서버가 KRX 전략을 자동 비활성화했어요 (장 마감 규칙)',
+    );
+  });
+});
+
+describe('S→C 전용 필드 · 값 변경 판정 · 런타임 전용 에코 (quick-260926-nr2)', () => {
+  it('LIMIT_CHASER_SERVER_ONLY_FIELDS 는 정확히 6개이고 COUNTER(3) ∪ LATCH(3) 와 같다', () => {
+    expect(LIMIT_CHASER_SERVER_ONLY_FIELDS).toHaveLength(6);
+    expect(LIMIT_CHASER_SERVER_COUNTER_FIELDS).toHaveLength(3);
+    expect(LIMIT_CHASER_SERVER_LATCH_FIELDS).toHaveLength(3);
+    expect(new Set(LIMIT_CHASER_SERVER_ONLY_FIELDS)).toEqual(
+      new Set([...LIMIT_CHASER_SERVER_COUNTER_FIELDS, ...LIMIT_CHASER_SERVER_LATCH_FIELDS]),
+    );
+  });
+
+  it.each([
+    ['sellOrderQty', { sellOrderQty: 42 }],
+    ['sellQtyTrackBaseline', { sellQtyTrackBaseline: 9_000 }],
+    ['cancelQtyTrackBaseline', { cancelQtyTrackBaseline: 7_000 }],
+    ['name', { name: '삼성전자' }],
+    ['code', { code: '005930' }],
+  ] as const)('%s 만 바뀐 에코는 「서버 반영 완료」가 아니다 (null)', (_label, over) => {
+    expect(strategyLogLine(BASE, at(over))).toBeNull();
+    expect(limitChaserValuesChanged(BASE, at(over))).toBe(false);
+  });
+
+  it('limitChaserValuesChanged — 사용자 값(buyWatchQty)은 true, 게이트·래치만은 false', () => {
+    expect(limitChaserValuesChanged(BASE, at({ buyWatchQty: 8_000 }))).toBe(true);
+    expect(
+      limitChaserValuesChanged(
+        BASE,
+        at({
+          buyEnabled: true,
+          sellEnabled: true,
+          cancelQtyEnabled: true,
+          cancelTradeEnabled: true,
+          sellEntryLatched: true,
+          cancelEntryLatched: true,
+          buyEntryLatched: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('isRuntimeOnlyEcho — 동일 내용(새 객체)·카운터 3종만·name/code 만 다름 → true', () => {
+    expect(isRuntimeOnlyEcho(BASE, BASE)).toBe(true);
+    expect(isRuntimeOnlyEcho(BASE, { ...BASE })).toBe(true);
+    expect(
+      isRuntimeOnlyEcho(
+        BASE,
+        at({ sellOrderQty: 5, sellQtyTrackBaseline: 100, cancelQtyTrackBaseline: 200 }),
+      ),
+    ).toBe(true);
+    expect(isRuntimeOnlyEcho(BASE, at({ name: '삼성전자', code: '005930' }))).toBe(true);
+  });
+
+  it('isRuntimeOnlyEcho — 래치·게이트·사용자 값이 다르면 false', () => {
+    expect(isRuntimeOnlyEcho(BASE, at({ sellEntryLatched: true }))).toBe(false);
+    expect(isRuntimeOnlyEcho(BASE, at({ buyEntryLatched: true }))).toBe(false);
+    expect(isRuntimeOnlyEcho(BASE, at({ cancelEntryLatched: true }))).toBe(false);
+    expect(isRuntimeOnlyEcho(BASE, at({ buyEnabled: true }))).toBe(false);
+    expect(isRuntimeOnlyEcho(BASE, at({ cancelTradeEnabled: true }))).toBe(false);
+    expect(isRuntimeOnlyEcho(BASE, at({ buyWatchQty: 8_000 }))).toBe(false);
+    expect(isRuntimeOnlyEcho(BASE, at({ crud: 'D' }))).toBe(false);
   });
 });
 

@@ -345,9 +345,11 @@ export function formFromServer(
  *   - `src === "Account"` ∧ `i` 가 **빔**      → 종목 축이 없는 계좌 통지 = **VI 몫**(여기서 안 쓴다).
  *
  * ★ `"LimitChaser"` 는 17-01 이 `src` 어휘에 더했지만 **받아 주는 판정이 없어 한 글자도
- *   그려지지 않고 있었다**(17-06 이 VI 쪽에서 같은 결손을 `VITrigger` 로 닫았다). 그 어휘는
- *   `lc.arm` 실패 사유가 사용자에게 도달하는 **유일한 경로**다 — 서버는 36/37/38 거부를
- *   응답 코드로 주지 않고 이 통지 한 줄로만 말한다(D-04 · D-20).
+ *   그려지지 않고 있었다**(17-06 이 VI 쪽에서 같은 결손을 `VITrigger` 로 닫았다). D-20 설계는
+ *   그 어휘를 `lc.arm` 실패 사유의 경로로 잡았지만, **현 gh-trade 는 36/37/38 거부를 src
+ *   "System"(기본 ServerMessageContext · i/a/kind 빈 값)으로 보낸다** — 그 통지는 이 함수가
+ *   아니라 카드가 arm in-flight 창 안에서 `isLimitChaserArmRejection` 으로 받는다
+ *   (quick-260926-nr2). 이 함수의 로직은 그대로다.
  * ★ **대응하는 `"VITrigger"` 를 여기에 더하지 않는다** — 그것이 Pitfall 9 그 자체다.
  *   `isViServerMessage` 는 이 함수를 재사용하므로 여기가 넓어지면 그쪽도 함께 흔들린다:
  *   `"LimitChaser"` 는 `src === "Account"` 갈래를 타지 않으므로 VI 판정은 무변경이다.
@@ -394,4 +396,100 @@ export function isLimitChaserSetRejection(
   if (isin === '' || accountNo === '') return false;
   if (msg.lv !== 'ERROR' || msg.src !== 'SetLimitChaser') return false;
   return msg.i === isin && msg.a === accountNo;
+}
+
+/*
+ * ── 비활성화 원인 판정 (quick-260926-nr2) ─────────────────────────────────────
+ *
+ * 서버 계약 결합은 **이 파일 한 곳의 주석이 소유한다**(gh-trade 읽기 전용 확인 결과):
+ *   - 65(`DisableStrategiesResp` · relay `strategies.disabled`)의 송신자는
+ *     `server/src/net/Gateway.cpp` `ProcessDisableStrategies` 하나다 — 상태 변경 → 저장 →
+ *     키별 60 에코(세션 전 연결) → 65 를 **요청 연결에 맨 마지막**에. 즉 65 = 전부 정지 완료이고
+ *     15:40 과 무관하다.
+ *   - 15:40 은 `app/Server.cpp` `Server::DisableKrxLimitChasers` 다 — `DisableLimitChasers('K')`
+ *     (cfg 매수·매도·취소 게이트 off · 이미 전부 꺼진 전략은 건너뜀) → 전략마다 `MarkEchoDirty`
+ *     (60 에코는 **다음 300ms `FlushLimitChaserEchoes` 틱**) → 저장 →
+ *     `SendServerMessageToSession(INFO, source "System", kind Purge, isin/계좌 없음)` 를 **동기로
+ *     즉시**. 그래서 브라우저에는 **통지가 에코보다 먼저** 온다. 65 는 없다.
+ */
+
+/**
+ * 이 54 통지가 **15:40 KRX 상따 자동 해제 통지**인가.
+ *
+ * `src === "System" && kind === "Purge"` 동등 비교만 한다 — 본문 `m` 은 읽지 않는다(이 파일의
+ * 규율: 서버 문구를 고칠 때마다 판정이 조용히 깨진다). 현재 이 조합의 유일한 송신자는
+ * `Server::DisableKrxLimitChasers` 다. `PurgeAllStrategies`(06:00 · 20:00 K · 20:05)의 Purge 는
+ * `BroadcastServerMessage` 라 source 가 없어(src "") 걸리지 않고, 그쪽은 삭제라 60 에코도 없다.
+ */
+export function isMarketCloseReleaseNotice(msg: { src: string; kind: string }): boolean {
+  return msg.src === 'System' && msg.kind === 'Purge';
+}
+
+/** 취소 게이트 무장 — 에코가 `&& cancelArmed` 로 접어 보내는 두 값의 합집합. */
+function cancelGateOf(item: RelayLimitChaser): boolean {
+  return item.cancelQtyEnabled || item.cancelTradeEnabled;
+}
+
+/**
+ * `prev → next` 에서 게이트(매수 · 매도 · 취소 무장) 중 **하나라도 켜짐 → 꺼짐**인가.
+ * 15:40 해제 귀속의 조건이다 — 해제 통지 뒤 그 키의 첫 에코가 게이트를 끄지 않았다면 그 에코는
+ * 해제의 결과가 아니다.
+ */
+export function limitChaserGateDisarmed(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
+  return (
+    (prev.buyEnabled && !next.buyEnabled) ||
+    (prev.sellEnabled && !next.sellEnabled) ||
+    (cancelGateOf(prev) && !cancelGateOf(next))
+  );
+}
+
+/**
+ * 15:40 해제 통지 시점에 **해제 에코가 올 전략 키** 집합.
+ *
+ * `exchange === "KRX"` 이고 에코상 게이트(매수 · 매도 · 취소잔량 · 취소체결) 중 하나라도 켜진
+ * 전략이다. 에코 게이트 = cfg && armed 이므로 에코상 켜짐 ⇒ cfg 켜짐 ⇒ `DisableLimitChasers('K')`
+ * 가 반드시 해제하고 `MarkEchoDirty` 로 에코한다. NXT 는 애프터마켓이 20:00 까지라 제외된다.
+ * (에코상 꺼졌지만 cfg 가 켜진 전략 — 발주로 소진된 게이트 — 도 서버가 해제·에코하지만, 그
+ * 에코는 게이트를 새로 끄지 않으므로 귀속할 전이가 없다.)
+ */
+export function marketCloseReleaseKeysOf(list: readonly RelayLimitChaser[]): Set<string> {
+  const keys = new Set<string>();
+  for (const item of list) {
+    if (item.exchange !== 'KRX') continue;
+    if (item.buyEnabled || item.sellEnabled || cancelGateOf(item)) keys.add(item.key);
+  }
+  return keys;
+}
+
+/**
+ * 이 통지가 **내가 보낸 `lc.arm` 의 거부 답**인가 (quick-260926-nr2).
+ *
+ * ★ 이 함수는 「내 arm 의 답인가」만 묻고, 호출자가 arm 을 보내 놓은 **in-flight 창 안에서만**
+ *   의미가 있다 — 게이트웨이가 arm 거부에 전략 키를 싣지 않으므로 상관은 창으로 한다.
+ * ★ 실패 모드: 창 안에 무관한 같은 모양 통지가 오면 「미반영」이 일찍 거둬질 뿐이다(= 이번 변경
+ *   전 동작: 추적 없음). 거짓 「미반영」은 만들지 않는다.
+ *
+ * 인정하는 모양 셋 (lv 는 WARN 또는 ERROR 만):
+ *   (a) 게이트웨이 36/37/38 거부 — `Gateway::ProcessArm{Sell,Cancel,Buy}Latch` 는 실패면
+ *       `SendServerMessageToConn(conn, "WARN", 사유)` 를 **기본 ServerMessageContext** 로 보낸다 →
+ *       src "System" · i "" · a "" · kind "". (kind "Purge" 는 15:40 해제 통지라 제외된다.)
+ *   (b) relay 게이트웨이 전 거부 — src "Relay"(fanout `RELAY_MSG_SOURCE`) · lv "ERROR". lc.arm
+ *       갈래(`#armLatchAccount` · `#accountAllowed` · `#buildStrategyPayload` · `#onStrategySendFailed`)
+ *       는 **i 를 싣지 않고** a 는 계좌 대조 거부에서만 싣는다 → i "" 이고 a 는 "" 또는 이 계좌.
+ *       (i 를 싣는 relay 거부는 lc.set 경로뿐이라 여기서는 받지 않는다.)
+ *   (c) src "LimitChaser" 이고 i === isin — D-20 설계 경로(서버가 나중에 맥락을 붙여도 산다).
+ *
+ * ⚠️ 본문 `m` 은 읽지 않는다.
+ */
+export function isLimitChaserArmRejection(
+  msg: { src: string; i: string; a: string; lv: string; kind: string },
+  isin: string,
+  accountNo: string,
+): boolean {
+  if (isin === '' || accountNo === '') return false;
+  if (msg.lv !== 'WARN' && msg.lv !== 'ERROR') return false;
+  if (msg.src === 'System') return msg.i === '' && msg.a === '' && msg.kind === '';
+  if (msg.src === 'Relay') return msg.i === '' && (msg.a === '' || msg.a === accountNo);
+  if (msg.src === 'LimitChaser') return msg.i === isin;
+  return false;
 }

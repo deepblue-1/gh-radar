@@ -58,6 +58,7 @@ export type {
   RelayLcWatchSide,
   RelayLimitChaser,
   RelayLimitChaserInput,
+  LimitChaserServerOnlyField,
   RelayViTrigger,
   RelayViOrderState,
   RelayViOrderItem,
@@ -93,6 +94,10 @@ export {
   RELAY_WS_CLOSE,
   ORDER_CONDITION_NORMAL,
   MAX_VI_ORDER_AMOUNT_KRW,
+  // --- quick-260926-nr2 S→C 전용 필드 단일 정의 ---
+  LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+  LIMIT_CHASER_SERVER_LATCH_FIELDS,
+  LIMIT_CHASER_SERVER_ONLY_FIELDS,
 } from "./relay";
 // --- Phase 19 계좌 기준 주문 저널 행 계약. REST(server)와 wss 푸시(relay)가 같은 매퍼를 쓴다 ---
 export type {

@@ -26,7 +26,11 @@ import {
   exchangeLabeledName,
   formFromServer,
   isDeleteIntent,
+  isLimitChaserArmRejection,
   isLimitChaserSetRejection,
+  isMarketCloseReleaseNotice,
+  limitChaserGateDisarmed,
+  marketCloseReleaseKeysOf,
   parseStrategyKey,
   seedFromUpperLimit,
   strategyKey,
@@ -373,5 +377,113 @@ describe('isLimitChaserSetRejection — 내 요청의 답인가 (debug lc-unacke
     expect(isLimitChaserSetRejection({ ...base, i: '' }, '', ACCT)).toBe(false);
     expect(isLimitChaserSetRejection({ ...base, a: '' }, ISIN, '')).toBe(false);
     expect(isLimitChaserSetRejection({ ...base, i: '', a: '' }, '', '')).toBe(false);
+  });
+});
+
+describe('isLimitChaserArmRejection — 내 lc.arm 의 거부 답인가 (quick-260926-nr2)', () => {
+  const m = (over: Partial<{ src: string; i: string; a: string; lv: string; kind: string }>) => ({
+    src: 'System',
+    i: '',
+    a: '',
+    lv: 'WARN',
+    kind: '',
+    ...over,
+  });
+
+  it('(a) 게이트웨이 36/37/38 거부 — System WARN · i/a/kind 빈 값 → true', () => {
+    expect(isLimitChaserArmRejection(m({}), ISIN, ACCOUNT)).toBe(true);
+    expect(isLimitChaserArmRejection(m({ lv: 'ERROR' }), ISIN, ACCOUNT)).toBe(true);
+  });
+
+  it('System INFO → false · System WARN + kind Purge(15:40 통지) → false', () => {
+    expect(isLimitChaserArmRejection(m({ lv: 'INFO' }), ISIN, ACCOUNT)).toBe(false);
+    expect(isLimitChaserArmRejection(m({ kind: 'Purge' }), ISIN, ACCOUNT)).toBe(false);
+    // 종목·계좌가 실린 System 통지는 arm 거부 모양이 아니다.
+    expect(isLimitChaserArmRejection(m({ i: ISIN }), ISIN, ACCOUNT)).toBe(false);
+  });
+
+  it('(b) relay 게이트웨이 전 거부 — Relay ERROR · i 빈 값 · a 가 빈 값 또는 이 계좌 → true', () => {
+    expect(isLimitChaserArmRejection(m({ src: 'Relay', lv: 'ERROR' }), ISIN, ACCOUNT)).toBe(true);
+    expect(
+      isLimitChaserArmRejection(m({ src: 'Relay', lv: 'ERROR', a: ACCOUNT }), ISIN, ACCOUNT),
+    ).toBe(true);
+    // 다른 계좌 축은 내 답이 아니다.
+    expect(
+      isLimitChaserArmRejection(m({ src: 'Relay', lv: 'ERROR', a: '9999999999' }), ISIN, ACCOUNT),
+    ).toBe(false);
+    // relay 의 lc.arm 거부는 i 를 싣지 않는다(fanout 실측) — i 가 실린 것은 lc.set 경로다.
+    expect(
+      isLimitChaserArmRejection(m({ src: 'Relay', lv: 'ERROR', i: ISIN }), ISIN, ACCOUNT),
+    ).toBe(false);
+  });
+
+  it('(c) LimitChaser WARN — 같은 isin → true, 다른 isin → false', () => {
+    expect(isLimitChaserArmRejection(m({ src: 'LimitChaser', i: ISIN }), ISIN, ACCOUNT)).toBe(true);
+    expect(
+      isLimitChaserArmRejection(m({ src: 'LimitChaser', i: 'KR7000660001' }), ISIN, ACCOUNT),
+    ).toBe(false);
+  });
+
+  it('SetLimitChaser 는 lc.set 의 답이지 arm 의 답이 아니다 → false', () => {
+    expect(
+      isLimitChaserArmRejection(
+        m({ src: 'SetLimitChaser', lv: 'ERROR', i: ISIN, a: ACCOUNT }),
+        ISIN,
+        ACCOUNT,
+      ),
+    ).toBe(false);
+  });
+
+  it('isin 또는 accountNo 가 빈 값이면 false', () => {
+    expect(isLimitChaserArmRejection(m({}), '', ACCOUNT)).toBe(false);
+    expect(isLimitChaserArmRejection(m({}), ISIN, '')).toBe(false);
+  });
+});
+
+describe('15:40 KRX 해제 판정 — 통지 · 대기 키 · 게이트 해제 (quick-260926-nr2)', () => {
+  it('isMarketCloseReleaseNotice — src System + kind Purge 만 true', () => {
+    expect(isMarketCloseReleaseNotice({ src: 'System', kind: 'Purge' })).toBe(true);
+    // PurgeAllStrategies 의 Broadcast 는 source 가 없다.
+    expect(isMarketCloseReleaseNotice({ src: '', kind: 'Purge' })).toBe(false);
+    expect(isMarketCloseReleaseNotice({ src: 'System', kind: '' })).toBe(false);
+    expect(isMarketCloseReleaseNotice({ src: 'LimitChaser', kind: 'Purge' })).toBe(false);
+  });
+
+  it('marketCloseReleaseKeysOf — KRX 이고 게이트가 하나라도 켜진 전략만', () => {
+    const krxBuy = serverEcho({ exchange: 'KRX', buyEnabled: true, key: 'A:1:KRX' });
+    const krxCancel = serverEcho({ exchange: 'KRX', cancelTradeEnabled: true, key: 'B:1:KRX' });
+    const krxOff = serverEcho({
+      exchange: 'KRX',
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+      cancelTradeEnabled: false,
+      key: 'C:1:KRX',
+    });
+    const nxtBuy = serverEcho({ exchange: 'NXT', buyEnabled: true, key: 'D:1:NXT' });
+    expect(marketCloseReleaseKeysOf([krxBuy, krxCancel, krxOff, nxtBuy])).toEqual(
+      new Set(['A:1:KRX', 'B:1:KRX']),
+    );
+  });
+
+  it('limitChaserGateDisarmed — 매수 · 매도 · 취소 무장 중 하나라도 켜짐 → 꺼짐', () => {
+    const off = serverEcho({
+      buyEnabled: false,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+      cancelTradeEnabled: false,
+    });
+    expect(limitChaserGateDisarmed({ ...off, buyEnabled: true }, off)).toBe(true);
+    expect(limitChaserGateDisarmed({ ...off, sellEnabled: true }, off)).toBe(true);
+    expect(limitChaserGateDisarmed({ ...off, cancelQtyEnabled: true }, off)).toBe(true);
+    // 취소 두 게이트 중 하나만 꺼져도 취소 무장은 남는다.
+    expect(
+      limitChaserGateDisarmed(
+        { ...off, cancelQtyEnabled: true, cancelTradeEnabled: true },
+        { ...off, cancelTradeEnabled: true },
+      ),
+    ).toBe(false);
+    expect(limitChaserGateDisarmed(off, { ...off, buyEnabled: true })).toBe(false);
+    expect(limitChaserGateDisarmed(off, { ...off, buyEntryLatched: true })).toBe(false);
   });
 });

@@ -114,7 +114,8 @@ export type RelayLcWatchSide = "0" | "1";
  *
  * ⚠️ **S→C 전용 6필드** — `sellOrderQty` · `sellQtyTrackBaseline` · `sellEntryLatched` ·
  *    `cancelQtyTrackBaseline` · `cancelEntryLatched` · `buyEntryLatched`. 서버가 계산해
- *    **에코로만** 내려주고 요청값은 무시한다.
+ *    **에코로만** 내려주고 요청값은 무시한다. ★ 목록의 정본은 아래
+ *    `LIMIT_CHASER_SERVER_ONLY_FIELDS` 다 — 여기 나열은 설명이고, 코드는 그 const 만 쓴다.
  *    브라우저가 되보내면 "값이 왕복한다"는 착각이 생겨 에코-폼 비교 로직이 오염된다
  *    (Pitfall 6). 그래서 인바운드 `lc.set` 은 `RelayLimitChaserInput` 으로 이 6개를 뺀다.
  *
@@ -254,6 +255,40 @@ export type RelayLimitChaser = {
 };
 
 /**
+ * S→C 전용 **런타임 카운터** 3필드 — 서버가 스스로 움직이는 값이다(quick-260926-nr2).
+ * ★ 체결(`OnExecution`)이 `sellOrderQty` 를, 호가 래칫이 두 기준선을 바꾼다 — 사용자 설정의
+ *    반영이 아니므로 에코에서 이것만 바뀌었으면 「서버 반영 완료」도 「다른 단말」도 아니다.
+ */
+export const LIMIT_CHASER_SERVER_COUNTER_FIELDS = [
+  "sellOrderQty",
+  "sellQtyTrackBaseline",
+  "cancelQtyTrackBaseline",
+] as const satisfies readonly (keyof RelayLimitChaser)[];
+
+/**
+ * S→C 전용 **진입 확인 래치** 3필드(quick-260926-nr2).
+ * ★ 카운터와 달리 래치 ON/해제는 사용자에게 보이는 전이다(전략 로그 한 줄) — 그래서 카운터와
+ *    갈라 둔다. 둘 다 S→C 전용이라 `lc.set` 이 싣지 않는 것은 같다.
+ */
+export const LIMIT_CHASER_SERVER_LATCH_FIELDS = [
+  "sellEntryLatched",
+  "cancelEntryLatched",
+  "buyEntryLatched",
+] as const satisfies readonly (keyof RelayLimitChaser)[];
+
+/**
+ * S→C 전용 6필드의 **유일한 정본** — 카운터 ∪ 래치. `RelayLimitChaserInput`(Omit) 과 웹앱 로그의
+ * 값 변경 판정 skip 이 모두 이 const 에서 파생된다. 목록을 두 벌 두면 언젠가 갈라진다.
+ */
+export const LIMIT_CHASER_SERVER_ONLY_FIELDS = [
+  ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+  ...LIMIT_CHASER_SERVER_LATCH_FIELDS,
+] as const satisfies readonly (keyof RelayLimitChaser)[];
+
+/** S→C 전용 필드 이름 합집합 — `LIMIT_CHASER_SERVER_ONLY_FIELDS` 에서 파생된다. */
+export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS)[number];
+
+/**
  * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 29 + 클라 고정 3 = 32필드**.
  *
  * `RelayLimitChaser` 에서 S→C 전용 6필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
@@ -273,12 +308,7 @@ export type RelayLimitChaser = {
  */
 export type RelayLimitChaserInput = Omit<
   RelayLimitChaser,
-  | "sellOrderQty"
-  | "sellQtyTrackBaseline"
-  | "sellEntryLatched"
-  | "cancelQtyTrackBaseline"
-  | "cancelEntryLatched"
-  | "buyEntryLatched"
+  | LimitChaserServerOnlyField
   | "key"
   | "market"
   | "name"

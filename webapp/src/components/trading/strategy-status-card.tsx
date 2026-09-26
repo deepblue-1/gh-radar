@@ -75,6 +75,7 @@ import {
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
 import {
+  STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   viAnyRunning,
   VI_EXCHANGES,
   type RelayStatus,
@@ -83,14 +84,6 @@ import {
 import { cn } from "@/lib/utils";
 
 const KRW = new Intl.NumberFormat("ko-KR");
-
-/**
- * 65 를 기다리는 상한(ms). 넘기면 버튼을 다시 연다.
- *
- * 서버가 60/61 에코를 **먼저** 보내므로 이 시점의 목록은 이미 정확하다 — 다시 눌러도
- * 같은 일(전부 끄기)이 한 번 더 나갈 뿐이라 위험하지 않다. 영원히 잠그는 쪽이 나쁘다.
- */
-const DISABLE_ACK_TIMEOUT_MS = 8_000;
 
 // ---------------------------------------------------------------------------
 // VI 요약
@@ -376,6 +369,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
   }, [awaitingAck, strategiesDisabled]);
 
   // 65 유실 백스톱. 다시 눌러도 같은 일이 한 번 더 나갈 뿐이라 안전하다.
+  // 상한은 소켓 훅과 같은 상수다 — 「65 유실」 판정 시각이 두 곳에서 같아야 한다(quick-260926-nr2).
   useEffect(() => {
     if (!awaitingAck) return;
     const timer = setTimeout(() => {
@@ -386,7 +380,7 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
           조용히 버튼만 다시 여는 것도 무로그 fail-safe 다(PC-7).
       */
       setSendError("전체 비활성화 요청의 반영을 확인하지 못했어요. 전략 목록을 확인해 주세요.");
-    }, DISABLE_ACK_TIMEOUT_MS);
+    }, STRATEGIES_DISABLE_ACK_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [awaitingAck]);
 

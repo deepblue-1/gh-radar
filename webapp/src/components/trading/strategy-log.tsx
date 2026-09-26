@@ -5,7 +5,9 @@
  *
  * ① 무엇을 쌓는가
  *   **서버가 실제로 말한 것만** 쌓는다 — 상따 에코(`SetLimitChaserResp 60`)의 상태 전이와
- *   `ServerMessage(54)` 통지, 그리고 15:40 전략 일괄 비활성화(65)다. 「보냈다」는 사실은
+ *   `ServerMessage(54)` 통지, 그리고 전부 정지 집계 응답(65)이다. 15:40 KRX 자동 해제는 65 가
+ *   아니라 54 통지 + 60 에코로 오고, 카드가 그 원인을 귀속해 한 줄을 더 남긴다
+ *   (quick-260926-nr2 — 65 ≠ 15:40 정정). 「보냈다」는 사실은
  *   쌓지 않는다: 이 화면에서 보냄과 반영은 다른 사건이고, 보낸 것을 로그에 적으면 **반영되지
  *   않은 요청이 반영된 것처럼 읽힌다**(에코가 안 오는 것이 곧 거부다 — RESEARCH Pitfall 8).
  *
@@ -26,12 +28,17 @@
  *   「토스트가 아니라 상태 영역 누적」으로 고정했고 저장소에 토스트 라이브러리가 없다.
  *
  * ⑤ 문장 생성은 **순수 함수**다
- *   `strategyLogLine`/`serverMessageLogLine`/`strategiesDisabledLogLine` 이 그 지점이고
+ *   `strategyLogLine`/`serverMessageLogLine`/`strategiesDisabledLogLine`/`marketCloseDisabledLogLine`
+ *   이 그 지점이고
  *   컴포넌트는 문장을 짓지 않는다. 전이 판정을 렌더 안에 두면 같은 전이가 화면마다 다른
  *   문장이 되고, 무엇보다 **테스트할 수 없다**.
  */
 
-import { serverMsgBadge } from '@gh-radar/shared';
+import {
+  LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+  LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  serverMsgBadge,
+} from '@gh-radar/shared';
 import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
 
 import { cn } from '@/lib/utils';
@@ -135,33 +142,72 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
 }
 
 /**
- * 값 축(게이트가 아닌 필드)이 바뀌었는가.
+ * 값 비교에서 빼는 필드 — 모듈 스코프 **하나**다(quick-260926-nr2).
  *
- * 게이트 4종·래치를 뺀 나머지를 비교한다. 이 판정이 없으면 「수정」이 반영돼도 로그가
- * 비어 있어 사용자가 **반영 여부를 알 수 없다** — 반영의 유일한 증거가 에코이기 때문이다.
+ * - 게이트 4종: 에코의 게이트는 설정값이 아니라 무장 상태다. 전이는 각 축의 문장이 말한다.
+ * - S→C 전용 6필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
+ *   ★ 래치 3종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
+ *     래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
+ *     래치 자체는 전이 문장(래치 ON/해제)이 각자 말한다.
+ *   ★ 카운터 3종은 서버 런타임 값이다 — 체결(`OnExecution`)이 `sellOrderQty` 를, 호가 래칫이
+ *     기준선을 바꾼다. 사용자 설정의 반영이 아니다.
+ * - `crud` · `key`: 삭제 판정·파생 키.
+ * - ★ `name` · `code`: relay 가 SymbolMap 으로 채우는 파생 표시값이다 — 마스터 로딩 시점에 따라
+ *   생겼다 없어질 수 있고, 사용자 설정이 아니다.
  */
-function valuesChanged(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
-  const skip = new Set<keyof RelayLimitChaser>([
-    'buyEnabled',
-    'sellEnabled',
-    'sellEntryLatched',
-    'cancelQtyEnabled',
-    'cancelTradeEnabled',
-    /*
-      ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
-        래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
-        래치 자체는 바로 위 전이 4종이 각자의 문장으로 말한다.
-    */
-    'cancelEntryLatched',
-    'buyEntryLatched',
-    'crud',
-    'key',
-  ]);
-  for (const k of Object.keys(next) as (keyof RelayLimitChaser)[]) {
-    if (skip.has(k)) continue;
+const VALUE_COMPARE_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>([
+  'buyEnabled',
+  'sellEnabled',
+  'cancelQtyEnabled',
+  'cancelTradeEnabled',
+  ...LIMIT_CHASER_SERVER_ONLY_FIELDS,
+  'crud',
+  'key',
+  'name',
+  'code',
+]);
+
+/** 런타임 전용 비교에서 빼는 필드 — S→C 카운터 3종 + relay 파생 표시값. 래치는 **넣지 않는다**. */
+const RUNTIME_ONLY_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>([
+  ...LIMIT_CHASER_SERVER_COUNTER_FIELDS,
+  'name',
+  'code',
+]);
+
+/** 두 객체 키의 합집합 — 선택 필드(`name`·`code`)가 한쪽에만 있어도 놓치지 않는다. */
+function keysOf(prev: RelayLimitChaser, next: RelayLimitChaser): (keyof RelayLimitChaser)[] {
+  return [...new Set([...Object.keys(prev), ...Object.keys(next)])] as (keyof RelayLimitChaser)[];
+}
+
+/**
+ * **사용자 설정 값**(게이트·래치·런타임 카운터·파생 표시값이 아닌 필드)이 바뀌었는가.
+ *
+ * 이 판정이 없으면 「수정」이 반영돼도 로그가 비어 있어 사용자가 **반영 여부를 알 수 없다** —
+ * 반영의 유일한 증거가 에코이기 때문이다. 카드는 같은 판정으로 「다른 단말에서 변경됐어요」
+ * 배너를 세운다(quick-260926-nr2) — 서버가 스스로 뒤집는 필드는 다른 단말의 증거가 아니다.
+ */
+export function limitChaserValuesChanged(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
+  for (const k of keysOf(prev, next)) {
+    if (VALUE_COMPARE_SKIP.has(k)) continue;
     if (prev[k] !== next[k]) return true;
   }
   return false;
+}
+
+/**
+ * 이 에코가 **내용상 새로 말할 것이 없는가** — 카운터 3종과 name/code 를 뺀 나머지가 모두
+ * `Object.is` 로 같으면 true 다(완전 동일한 새 객체도 true). quick-260926-nr2.
+ *
+ * ★ 이 함수가 「내용상 새로 말할 것이 없는 에코」의 **유일한 판정**이다 — 서버 이중 에코
+ *   (즉답 + 300ms 플러시 동일 사본), 같은 내용의 재접속 `lc.snap`, 체결·래칫만 움직인 푸시.
+ * ★ 래치는 이 집합에 **넣지 않는다** — 래치 ON/해제는 사용자에게 보이는 전이 로그다.
+ */
+export function isRuntimeOnlyEcho(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
+  for (const k of keysOf(prev, next)) {
+    if (RUNTIME_ONLY_SKIP.has(k)) continue;
+    if (!Object.is(prev[k], next[k])) return false;
+  }
+  return true;
 }
 
 /**
@@ -209,7 +255,7 @@ export function strategyLogLine(
     if (cancelArmedOf(prev) && !cancelArmedOf(next)) hit.add('cancelDisarmed');
     if (!prev.cancelEntryLatched && next.cancelEntryLatched) hit.add('cancelLatched');
     if (prev.cancelEntryLatched && !next.cancelEntryLatched) hit.add('cancelUnlatched');
-    if (valuesChanged(prev, next)) hit.add('valuesApplied');
+    if (limitChaserValuesChanged(prev, next)) hit.add('valuesApplied');
   }
 
   if (hit.size === 0) return null;
@@ -246,9 +292,27 @@ export function serverMessageLogLine(msg: RelayServerMsg): {
   return { text: `${badge} ${prefix}${source} — ${msg.m}`, level: isError ? 'error' : 'info' };
 }
 
-/** 15:40 서버 자동 비활성화 (65) — UI-SPEC §동기화 문구 verbatim. */
+/**
+ * 전부 정지 집계 응답(65, relay `strategies.disabled`) → 로그 문장.
+ *
+ * ★ 65 는 gh-trade `Gateway::ProcessDisableStrategies` 의 집계 응답(= 전부 정지 완료)**만의**
+ *   신호다 — 15:40 과 무관하다(quick-260926-nr2 정정). 그 핸들러는 상태 변경 → 저장 → 키별 60
+ *   에코 → 65 를 요청 연결에 맨 마지막에 보내고, relay 가 사용자 전 소켓에 팬아웃한다. 옛 문구
+ *   「(장 마감 규칙)」은 사용자의 전부 정지를 장 마감으로 오표시했다.
+ */
 export function strategiesDisabledLogLine(): string {
-  return '서버가 모든 전략을 자동 비활성화했어요 (장 마감 규칙)';
+  return '전부 정지가 반영됐어요 · 서버가 모든 전략을 비활성화했어요';
+}
+
+/**
+ * 15:40 KRX 자동 해제 → 로그 문장 (quick-260926-nr2).
+ *
+ * gh-trade `Server::DisableKrxLimitChasers` 는 `DisableLimitChasers('K')` — **KRX 만** 해제한다
+ * (NXT 는 애프터마켓이 20:00 까지라 남는다). 그래서 16-UI-SPEC §15:40 문구를 KRX 로 좁혔다.
+ * 65 가 아니라 54 통지(src System · kind Purge) + 60 에코로 오며, 카드가 귀속된 에코에만 쓴다.
+ */
+export function marketCloseDisabledLogLine(): string {
+  return '서버가 KRX 전략을 자동 비활성화했어요 (장 마감 규칙)';
 }
 
 export interface StrategyLogProps {

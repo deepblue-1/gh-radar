@@ -56,6 +56,7 @@ import {
   RELAY_RESUME_MIN_HIDDEN_MS,
   RELAY_RESUME_PROBE_MS,
   RELAY_RESUME_PROBE_SETTLE_MS,
+  STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   relayQuoteKey,
   useRelayConnection,
   type RelayConnectionState,
@@ -2517,5 +2518,230 @@ describe('useRelayConnection — 복귀 시 죽은 소켓·소진된 예산 복�
     expect(typeof result.current.probeNow).toBe('function');
     expect(() => result.current.probeNow()).not.toThrow();
     expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+});
+
+describe('상따 비활성화 원인 귀속 (quick-260926-nr2)', () => {
+  const ISIN = 'KR7086520004';
+  const ISIN_NXT = 'KR7247540008';
+  const ACCT = '12345678-01';
+  const KEY = `${ISIN}:${ACCT}:KRX`;
+  const KEY_NXT = `${ISIN_NXT}:${ACCT}:NXT`;
+  function lcItem(over: Record<string, unknown> = {}) {
+    return {
+      isin: ISIN,
+      accountNo: ACCT,
+      exchange: 'KRX',
+      key: KEY,
+      crud: 'C',
+      buyEnabled: true,
+      sellEnabled: false,
+      cancelQtyEnabled: false,
+      cancelTradeEnabled: false,
+      sweepEnabled: false,
+      ...over,
+    };
+  }
+  const nxtItem = (over: Record<string, unknown> = {}) =>
+    lcItem({ isin: ISIN_NXT, exchange: 'NXT', key: KEY_NXT, ...over });
+  /** 15:40 KRX 해제 통지 — 실제 서버 문구 모양. 판정은 src·kind 로만 된다. */
+  const PURGE_NOTICE = {
+    t: 'msg',
+    lv: 'INFO',
+    m: '15:40 KRX 상따 매수·매도·취소 1건 해제 — KRX 정규장 마감',
+    i: '',
+    a: '',
+    src: 'System',
+    kind: 'Purge',
+  };
+  const echoes = (hook: ReturnType<typeof render>) => hook.result.current.limitChaserDisableEchoes;
+
+  it('전부 정지 send 뒤 온 lc 에코 = killSwitch · 항목의 echo 는 lastLimitChaserEcho 와 같은 객체', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    let ok = false;
+    act(() => {
+      ok = hook.result.current.send({ t: 'strategies.disable' });
+    });
+    expect(ok).toBe(true);
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    const entry = echoes(hook).get(KEY);
+    expect(entry?.cause).toBe('killSwitch');
+    expect(entry?.echo).toBe(hook.result.current.lastLimitChaserEcho);
+  });
+
+  it('65 수신 후 같은 키 에코 → 항목 삭제(귀속 없음)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    act(() => {
+      hook.result.current.send({ t: 'strategies.disable' });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+      ws.push({ t: 'strategies.disabled', lc: 1, vi: 0 });
+    });
+    expect(echoes(hook).get(KEY)?.cause).toBe('killSwitch');
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: true }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('send 후 STRATEGIES_DISABLE_ACK_TIMEOUT_MS 경과 → 이후 에코 귀속 없음', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    act(() => {
+      hook.result.current.send({ t: 'strategies.disable' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(STRATEGIES_DISABLE_ACK_TIMEOUT_MS);
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('소켓이 열리기 전 send → false, 이후 에코 귀속 없음', async () => {
+    const hook = render();
+    await settle();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let ok = true;
+    act(() => {
+      ok = hook.result.current.send({ t: 'strategies.disable' });
+    });
+    expect(ok).toBe(false);
+    errSpy.mockRestore();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('send 후 연결이 끊겨 재접속 → 새 연결의 에코 귀속 없음', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    act(() => {
+      hook.result.current.send({ t: 'strategies.disable' });
+    });
+    await act(async () => {
+      ws.serverClose(1006);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    await settle();
+    const ws2 = FakeWebSocket.last();
+    expect(ws2).not.toBe(ws);
+    await act(async () => {
+      ws2.accept();
+    });
+    await act(async () => {
+      ws2.push({ t: 'state', s: 'ready' });
+      ws2.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('15:40 해제 통지 → KRX 게이트 off 에코 = marketClose · NXT 매수 off = 귀속 없음 · 그 KRX 키 다음 에코 = 항목 삭제', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem(), nxtItem()] });
+    });
+    await act(async () => {
+      ws.push(PURGE_NOTICE);
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).get(KEY)?.cause).toBe('marketClose');
+    expect(echoes(hook).get(KEY)?.echo).toBe(hook.result.current.lastLimitChaserEcho);
+
+    await act(async () => {
+      ws.push({ t: 'lc', item: nxtItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY_NXT)).toBe(false);
+
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false, sellEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('15:40 판정은 src·kind 로만 된다 — 같은 문구라도 kind 가 Purge 가 아니면 귀속 없음', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+      ws.push({ ...PURGE_NOTICE, kind: '' });
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('통지 뒤 그 KRX 키의 첫 에코가 게이트를 끄지 않으면 귀속 없음(대기 키만 소비)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+      ws.push(PURGE_NOTICE);
+      // 첫 에코 — 게이트 그대로(래치만 변화).
+      ws.push({ t: 'lc', item: lcItem({ buyEntryLatched: true }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+    // 대기 키가 소비됐다 — 다음 게이트 off 는 15:40 으로 읽지 않는다.
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false, buyEntryLatched: true }) });
+    });
+    expect(echoes(hook).has(KEY)).toBe(false);
+  });
+
+  it('lc.snap 은 귀속 맵을 비운다', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    act(() => {
+      hook.result.current.send({ t: 'strategies.disable' });
+    });
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ buyEnabled: false }) });
+    });
+    expect(echoes(hook).size).toBe(1);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem({ buyEnabled: false })] });
+    });
+    expect(echoes(hook).size).toBe(0);
+  });
+
+  it('귀속과 무관한 에코는 귀속 맵 참조를 바꾸지 않는다(재렌더 예산)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+    await act(async () => {
+      ws.push({ t: 'lc.snap', items: [lcItem()] });
+    });
+    const before = echoes(hook);
+    await act(async () => {
+      ws.push({ t: 'lc', item: lcItem({ sellEnabled: true }) });
+    });
+    expect(echoes(hook)).toBe(before);
   });
 });

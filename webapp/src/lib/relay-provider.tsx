@@ -82,6 +82,7 @@ import {
   localOrderResult,
   relayQuoteKey,
   useRelayConnection,
+  type LimitChaserDisableEcho,
   type RelayConnectionState,
   type RelaySocketState,
   type RelayViTriggers,
@@ -320,6 +321,8 @@ const EMPTY_TAPE: RelayTapeEntry[] = [];
 const EMPTY_ORDER_LOCKS: ReadonlyMap<string, OrderLockKind> = new Map();
 /** 빈 저널 행의 고정 참조 (Phase 19 D-03) — 카드 병합 memo 가 매 렌더 무효화되지 않게. */
 const EMPTY_JOURNAL_ROWS: JournalOrderRow[] = [];
+/** 빈 비활성화 귀속 맵의 고정 참조 (quick-260926-nr2). */
+const EMPTY_LC_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
 
 /**
  * Provider 밖 폴백 값. **연결하지 않은 것과 구분되지 않는 모양**이어야 한다 —
@@ -345,6 +348,8 @@ const EMPTY_RELAY_VALUE: RelayContextValue = {
   limitChasers: [],
   // 서버가 답한 적이 **없다**. Provider 밖에는 소켓이 없으므로 60 에코도 없다.
   lastLimitChaserEcho: null,
+  // Provider 밖에는 소켓도 비활성화 요청도 없다 — 귀속할 에코가 없다(quick-260926-nr2).
+  limitChaserDisableEchoes: EMPTY_LC_DISABLE_ECHOES,
   // 두 거래소 모두 미조회다. Provider 밖에서는 아무것도 조회한 적이 없다.
   viTriggers: EMPTY_VI_TRIGGERS,
   viOrders: [],

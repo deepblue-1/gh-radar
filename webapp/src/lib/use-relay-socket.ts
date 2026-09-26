@@ -58,6 +58,11 @@ import { resolveRelayWsUrl } from "@/lib/relay-url";
 import { compareJournalNewestFirst } from "@/lib/orders-api";
 import { indexUnfilled, type OrderIndexEntry } from "@/lib/trading-alerts";
 import {
+  isMarketCloseReleaseNotice,
+  limitChaserGateDisarmed,
+  marketCloseReleaseKeysOf,
+} from "@/lib/limit-chaser";
+import {
   RELAY_STATE_LABELS,
   RELAY_WS_CLOSE,
   type JournalOrderRow,
@@ -128,6 +133,17 @@ const MAX_ORDERS = 50;
 export const MAX_JOURNAL_ROWS = 2000;
 /** VI 발동 통지 누적 상한. 표시·이력용이라 오래된 건은 버린다. */
 const MAX_VI_NOTICES = 50;
+/**
+ * 전부 정지(`strategies.disable`) 뒤 65 를 기다리는 상한(ms) — **상태 카드와 소켓 훅의 유일한 값**
+ * (quick-260926-nr2 에서 `strategy-status-card.tsx` 로컬 상수를 이리로 옮겼다).
+ *
+ * 상태 카드: 넘기면 버튼을 다시 연다. 서버가 60/61 에코를 **먼저** 보내므로 이 시점의 목록은
+ * 이미 정확하다 — 다시 눌러도 같은 일(전부 끄기)이 한 번 더 나갈 뿐이라 위험하지 않다. 영원히
+ * 잠그는 쪽이 나쁘다.
+ * 소켓 훅: 이 브라우저의 전부 정지 in-flight 창(에코 원인 귀속)의 **백스톱** 경계다. 「65 유실」을
+ * 선언하는 시각이 두 곳에서 같아야 하므로 같은 상수를 쓴다.
+ */
+export const STRATEGIES_DISABLE_ACK_TIMEOUT_MS = 8_000;
 /**
  * 등락률 돌파 above 집합 상한 (17-03).
  *
@@ -297,6 +313,21 @@ export function viAnyRunning(triggers: RelayViTriggers): boolean {
  * **종목 축이 없는** 전역 상태 표면. 사이드바·My page 처럼 구독 없이 전략만 보는 화면이
  * 그대로 소비한다. 종목별 시세·체결은 `quotes`/`tapes` 맵에서 **키로 골라** 쓴다.
  */
+/**
+ * 상따 60 에코가 **발주가 아니라 비활성화의 결과**인 원인 (quick-260926-nr2).
+ *  - `"killSwitch"`  : **이 브라우저**가 보낸 전부 정지(`strategies.disable`)의 에코
+ *  - `"marketClose"` : 서버 15:40 KRX 자동 해제(`Server::DisableKrxLimitChasers`)의 에코
+ */
+export type LimitChaserDisableCause = "killSwitch" | "marketClose";
+
+/** 귀속 1건 — 그 원인으로 온 **에코 객체 그대로**와 원인. 소비자는 객체 동일성으로 대조한다. */
+export type LimitChaserDisableEcho = { echo: RelayLimitChaser; cause: LimitChaserDisableCause };
+
+/** 빈 귀속 맵 — 모듈 상수 하나(참조가 같으면 소비자 이펙트가 재실행되지 않는다). */
+const EMPTY_DISABLE_ECHOES: ReadonlyMap<string, LimitChaserDisableEcho> = new Map();
+/** 빈 15:40 대기 키 집합 — 모듈 상수 하나. */
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
+
 export interface RelayConnectionState {
   /** 세션 상태. 배지·주문 버튼 활성 여부의 정본. */
   status: RelayStatus;
@@ -384,6 +415,25 @@ export interface RelayConnectionState {
    * ⚠️ 이 값으로 **목록을 만들지 않는다.** 등록 여부의 정본은 위 `limitChasers` 하나다.
    */
   lastLimitChaserEcho: RelayLimitChaser | null;
+  /**
+   * 「이 60 에코는 발주가 아니라 **비활성화의 결과**다」 — 전략 키 → 그 에코 객체 + 원인
+   * (quick-260926-nr2).
+   *
+   * 에코의 `buyEnabled` 는 무장 상태라 true→false 는 보통 「발주로 게이트가 소진됐다」로 읽힌다
+   * (Pitfall 10). 그런데 이 브라우저의 전부 정지와 서버 15:40 KRX 해제도 같은 모양의 에코를 낸다 —
+   * 그 둘만 여기서 원인을 붙인다. 귀속 경계:
+   *  - 전부 정지: `send({t:"strategies.disable"})` 성공 ~ 65 수신 / 연결 수명 종료 /
+   *    `STRATEGIES_DISABLE_ACK_TIMEOUT_MS` 백스톱. 65 는 서버 핸들러의 마지막 프레임이라 키별
+   *    에코가 모두 그 앞에 온다.
+   *  - 15:40: `isMarketCloseReleaseNotice` 통지 시점의 KRX 무장 키(`marketCloseReleaseKeysOf`) 각각의
+   *    **첫 에코**가 게이트를 끄면 귀속. 통지가 에코보다 먼저 온다.
+   *
+   * ★ 소비자는 **에코 객체 동일성**(`entry.echo === server`)으로 대조한다 — 나중 lc.snap 객체나 다음
+   *   에코는 절대 맞지 않는다. 그 키의 다음 에코가 귀속 없이 오면 항목이 빠지고, `lc.snap` 은 맵을 비운다.
+   * ⚠️ 다른 단말(같은 사용자의 다른 탭·기기 포함)의 전부 정지는 여기 **표현되지 않는다** — 그 탭에는
+   *    에코가 65 보다 먼저 오므로 원인을 알 시점이 없다(Pitfall 10 의 알려진 한계).
+   */
+  limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
   /**
    * VI 전략 설정 — **거래소별 3상태**다 (17-06 / D-06).
    *
@@ -575,6 +625,15 @@ interface RelayData {
   isStale: boolean;
   limitChasers: RelayLimitChaser[];
   lastLimitChaserEcho: RelayLimitChaser | null;
+  /** 위 `RelayConnectionState.limitChaserDisableEchoes` 문서 참조. */
+  limitChaserDisableEchoes: ReadonlyMap<string, LimitChaserDisableEcho>;
+  /**
+   * 내부 전용(반환하지 않는다) — 이 브라우저의 전부 정지가 in-flight 인가. 65 · 연결 수명 ·
+   * 백스톱 타이머가 닫는다.
+   */
+  killSwitchInFlight: boolean;
+  /** 내부 전용 — 15:40 해제 통지 뒤 아직 첫 에코가 오지 않은 KRX 키. 키별 첫 에코가 소비한다. */
+  marketCloseReleaseKeys: ReadonlySet<string>;
   viTriggers: RelayViTriggers;
   viOrders: RelayViOrderItem[];
   viNotices: RelayViNoticeMsg[];
@@ -604,6 +663,9 @@ const INITIAL_DATA: RelayData = {
   limitChasers: [],
   // 「아직 아무 답도 못 받았다」 — 이 값은 **응답 유무**만 말하고 목록을 만들지 않는다.
   lastLimitChaserEcho: null,
+  limitChaserDisableEchoes: EMPTY_DISABLE_ECHOES,
+  killSwitchInFlight: false,
+  marketCloseReleaseKeys: EMPTY_KEYS,
   // 미조회(키 부재) 와 미등록(null) 은 다른 화면이다 — 초기값은 **두 거래소 모두 미조회**다.
   viTriggers: {},
   viOrders: [],
@@ -646,7 +708,20 @@ type RelayAction =
   /** 소켓 단절/복구에 따른 신선도 표식. */
   | { type: "stale"; value: boolean }
   /** 세션 종료(로그아웃·비활성화). 이전 사용자의 계좌·전략을 메모리에 남기지 않는다. */
-  | { type: "reset" };
+  | { type: "reset" }
+  /** 이 브라우저가 `strategies.disable` 을 소켓에 실었다 — 전부 정지 in-flight 창을 연다. */
+  | { type: "strategies-disable-sent" }
+  /** 65 를 `STRATEGIES_DISABLE_ACK_TIMEOUT_MS` 안에 못 받았다 — 창을 닫는다(백스톱). */
+  | { type: "strategies-disable-expired" };
+
+/**
+ * 연결 수명 경계에서 덮어쓸 값 — 요청 도중 끊긴 연결의 에코는 새 연결에 `lc.snap` 으로 돌아오므로
+ * 귀속 창을 닫는다(quick-260926-nr2). 빈 집합은 모듈 상수라 이미 닫혀 있으면 참조가 그대로다.
+ */
+const CLOSED_DISABLE_WINDOWS: Pick<RelayData, "killSwitchInFlight" | "marketCloseReleaseKeys"> = {
+  killSwitchInFlight: false,
+  marketCloseReleaseKeys: EMPTY_KEYS,
+};
 
 function relayReducer(state: RelayData, action: RelayAction): RelayData {
   switch (action.type) {
@@ -656,7 +731,15 @@ function relayReducer(state: RelayData, action: RelayAction): RelayData {
         status: action.status,
         statusMessage: action.message ?? "",
         attempt: action.attempt ?? 0,
+        // 브라우저가 만든 상태(연결 시도·백오프·게이트)는 곧 연결 수명 경계다(quick-260926-nr2).
+        ...CLOSED_DISABLE_WINDOWS,
       };
+
+    case "strategies-disable-sent":
+      return state.killSwitchInFlight ? state : { ...state, killSwitchInFlight: true };
+
+    case "strategies-disable-expired":
+      return state.killSwitchInFlight ? { ...state, killSwitchInFlight: false } : state;
 
     case "stale":
       return state.isStale === action.value ? state : { ...state, isStale: action.value };
@@ -692,6 +775,8 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         // 뒤에 새 64 를 반드시 한 번 더 내리므로, 그때까지는 옛 목록 기준으로 판정하지 않는다.
         limitChaserSnapSeq:
           frame.s === "ready" && state.status !== "ready" ? 0 : state.limitChaserSnapSeq,
+        // ready 가 아닌 상태 프레임 = 세션 수명 경계 — 귀속 창을 닫는다(quick-260926-nr2).
+        ...(frame.s === "ready" ? {} : CLOSED_DISABLE_WINDOWS),
       };
 
     case "acct": {
@@ -727,6 +812,14 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       return {
         ...state,
         messages: [{ ...frame, receivedAt: at }, ...state.messages].slice(0, MAX_MESSAGES),
+        /*
+          ★ 15:40 KRX 해제 통지 — 통지가 에코보다 먼저 온다(`DisableKrxLimitChasers` 는 통지를 동기로,
+            에코는 다음 300ms 플러시 틱에). 지금 KRX 에서 무장된 키가 곧 해제 에코를 받을 키다.
+            판정 근거는 `limit-chaser.ts` 한 곳이 소유한다.
+        */
+        ...(isMarketCloseReleaseNotice(frame)
+          ? { marketCloseReleaseKeys: marketCloseReleaseKeysOf(state.limitChasers) }
+          : {}),
       };
 
     case "lc":
@@ -742,6 +835,7 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         ...state,
         limitChasers: upsertLimitChaser(state.limitChasers, frame.item),
         lastLimitChaserEcho: frame.item,
+        ...attributeDisableEcho(state, frame.item),
       };
 
     case "lc.snap":
@@ -753,6 +847,9 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
         ...state,
         limitChasers: frame.items.filter((item) => item.crud !== "D"),
         limitChaserSnapSeq: state.limitChaserSnapSeq + 1,
+        // ★ 스냅샷은 복원이지 원인이 아니고 객체 정체성이 전부 새것이다 — 귀속을 비운다(nr2).
+        limitChaserDisableEchoes: EMPTY_DISABLE_ECHOES,
+        marketCloseReleaseKeys: EMPTY_KEYS,
       };
 
     case "vi": {
@@ -810,7 +907,8 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
     case "strategies.disabled":
       // **완료 신호로만** 보관한다. 이 프레임이 온 시점에는 60/61 에코가 이미 모든 행을
       // 갱신해 뒀다 — 여기 담긴 숫자로 목록을 만들면 에코와 두 벌이 갈린다.
-      return { ...state, strategiesDisabled: frame };
+      // 65 는 전부 정지 핸들러의 마지막 프레임이다 — 이 브라우저의 in-flight 창을 닫는다(nr2).
+      return { ...state, strategiesDisabled: frame, killSwitchInFlight: false };
 
     default:
       // 알 수 없는 `t` 는 무시한다 — 서버가 앞서 나가도 브라우저가 터지지 않는다(T-15-41).
@@ -818,6 +916,49 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       // q/tape 도 여기 오지 않는다 — 시세·체결 적용은 `applyMarketFrames` 한 곳뿐이다.
       return state;
   }
+}
+
+/**
+ * 60 에코 1건의 **비활성화 원인 귀속** (quick-260926-nr2) — `"lc"` 갈래 전용.
+ *
+ * - 이 브라우저의 전부 정지가 in-flight 면 `"killSwitch"`.
+ * - 아니면 15:40 대기 키이고 직전 항목 → 이 에코가 게이트를 껐으면 `"marketClose"`
+ *   (직전 항목이 없으면 원인 없음).
+ * - 그 키는 원인과 무관하게 15:40 대기에서 뺀다 — **첫 에코가 소비**한다.
+ * 변화가 없으면 **같은 참조**를 돌린다 — 카드 N개의 재렌더 예산(T-18-29).
+ */
+function attributeDisableEcho(
+  state: RelayData,
+  item: RelayLimitChaser,
+): Pick<RelayData, "limitChaserDisableEchoes" | "marketCloseReleaseKeys"> {
+  const key = item.key;
+  const waiting = state.marketCloseReleaseKeys.has(key);
+  let cause: LimitChaserDisableCause | null = null;
+  if (state.killSwitchInFlight) {
+    cause = "killSwitch";
+  } else if (waiting) {
+    const prev = state.limitChasers.find((c) => c.key === key);
+    if (prev !== undefined && limitChaserGateDisarmed(prev, item)) cause = "marketClose";
+  }
+
+  let marketCloseReleaseKeys = state.marketCloseReleaseKeys;
+  if (waiting) {
+    const next = new Set(marketCloseReleaseKeys);
+    next.delete(key);
+    marketCloseReleaseKeys = next;
+  }
+
+  let limitChaserDisableEchoes = state.limitChaserDisableEchoes;
+  if (cause !== null) {
+    const next = new Map(limitChaserDisableEchoes);
+    next.set(key, { echo: item, cause });
+    limitChaserDisableEchoes = next;
+  } else if (limitChaserDisableEchoes.has(key)) {
+    const next = new Map(limitChaserDisableEchoes);
+    next.delete(key);
+    limitChaserDisableEchoes = next;
+  }
+  return { limitChaserDisableEchoes, marketCloseReleaseKeys };
 }
 
 /**
@@ -1116,6 +1257,8 @@ export function useRelayConnection({
 
   /** 현재 살아 있는 소켓. 구독 제어와 `send` 가 공유한다. */
   const socketRef = useRef<WebSocket | null>(null);
+  /** 전부 정지 in-flight 창의 백스톱 타이머(quick-260926-nr2). 연결 수명 정리가 지운다. */
+  const killSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 인증 ACK(첫 상태 프레임) 수신 여부. 소켓마다 초기화된다. */
   const authAckedRef = useRef(false);
   /**
@@ -1591,6 +1734,10 @@ export function useRelayConnection({
         clearTimeout(retryTimer);
         retryTimer = null;
       }
+      if (killSwitchTimerRef.current !== null) {
+        clearTimeout(killSwitchTimerRef.current);
+        killSwitchTimerRef.current = null;
+      }
 
       const ws = socket;
       socket = null;
@@ -1693,6 +1840,23 @@ export function useRelayConnection({
       return false;
     }
     ws.send(JSON.stringify(msg));
+    if (msg.t === "strategies.disable") {
+      /*
+        ★ 전부 정지 in-flight 창 (quick-260926-nr2) — 소켓에 실린 뒤에만 연다(미연결 false 갈래는
+          아무것도 dispatch 하지 않는다). 65 는 서버 핸들러(`ProcessDisableStrategies`)의 **마지막**
+          프레임이고 키별 에코가 그 앞에 같은 연결로 온다. 살아 있는 소켓에서 65 가 끝내 안 오는
+          경우는 relay 가 게이트웨이 전에 거부했거나(그러면 전부 정지 에코도 없다) 프레임 유실뿐이고,
+          그 판정 시각은 상태 카드가 「65 유실」을 선언하는 시각과 같아야 하므로 같은 상수를 쓴다.
+          벽시계 창이 아니라 65·연결 수명이 1차 경계이고 이 타이머는 백스톱이다.
+          콘솔 로그를 더하지 않는다(T-16-18).
+      */
+      dispatch({ type: "strategies-disable-sent" });
+      if (killSwitchTimerRef.current !== null) clearTimeout(killSwitchTimerRef.current);
+      killSwitchTimerRef.current = setTimeout(() => {
+        killSwitchTimerRef.current = null;
+        dispatch({ type: "strategies-disable-expired" });
+      }, STRATEGIES_DISABLE_ACK_TIMEOUT_MS);
+    }
     return true;
   }, []);
 
@@ -1756,6 +1920,7 @@ export function useRelayConnection({
       isStale: data.isStale,
       limitChasers: data.limitChasers,
       lastLimitChaserEcho: data.lastLimitChaserEcho,
+      limitChaserDisableEchoes: data.limitChaserDisableEchoes,
       viTriggers: data.viTriggers,
       viOrders: data.viOrders,
       viNotices: data.viNotices,
