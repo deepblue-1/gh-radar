@@ -68,22 +68,51 @@ vi.mock('@/lib/stock-api', async (importOriginal) => {
 // ── 데이터 섹션 스텁 — 마운트 수를 센다 ──
 const mounts = { news: 0, discussion: 0, limitUp: 0 };
 const unmounts = { news: 0 };
-function stub(label: string, key?: keyof typeof mounts) {
-  return function Stub({ stockCode }: { stockCode: string }) {
+function stub(label: string, key?: keyof typeof mounts, showAllLabel?: string) {
+  return function Stub({ stockCode, onShowAll }: { stockCode: string; onShowAll?: () => void }) {
     React.useEffect(() => {
       if (key) mounts[key] += 1;
       return () => {
         if (key === 'news') unmounts.news += 1;
       };
     }, []);
-    return <section data-testid={`stub-${label}`}>{`${label}:${stockCode}`}</section>;
+    return (
+      <section data-testid={`stub-${label}`}>
+        {`${label}:${stockCode}`}
+        {/* 21-30 섹션 계약 — onShowAll 이 있으면 전체 보기가 버튼이다(없으면 Link). */}
+        {showAllLabel && onShowAll && (
+          <button type="button" onClick={onShowAll}>
+            {showAllLabel}
+          </button>
+        )}
+      </section>
+    );
   };
 }
+/** 21-30 전체목록 스텁 — 목록 자체는 `news-full-list` · `discussion-full-list` 테스트 몫. */
+function fullListStub(label: string) {
+  return function FullListStub({ code, onBack }: { code: string; onBack?: () => void }) {
+    return (
+      <section data-testid={`full-${label}`}>
+        {onBack && (
+          <button type="button" aria-label="요약으로 돌아가기" onClick={onBack}>
+            ←
+          </button>
+        )}
+        {`full-${label}:${code}`}
+      </section>
+    );
+  };
+}
+vi.mock('@/components/stock/news-full-list', () => ({ NewsFullList: fullListStub('news') }));
+vi.mock('@/components/stock/discussion-full-list', () => ({
+  DiscussionFullList: fullListStub('discussions'),
+}));
 vi.mock('@/components/stock/stock-news-section', () => ({
-  StockNewsSection: stub('news', 'news'),
+  StockNewsSection: stub('news', 'news', '전체 뉴스 보기'),
 }));
 vi.mock('@/components/stock/stock-discussion-section', () => ({
-  StockDiscussionSection: stub('discussion', 'discussion'),
+  StockDiscussionSection: stub('discussion', 'discussion', '전체 토론 보기'),
 }));
 vi.mock('@/components/stock/stock-limit-up-section', () => ({
   StockLimitUpSection: stub('limit-up', 'limitUp'),
@@ -323,5 +352,94 @@ describe('StockInfoModal', () => {
     chartCalls.forEach(walk);
     expect(colors.some((c) => /^#|^rgba?\(/.test(c))).toBe(true);
     expect(colors.filter((c) => /oklch|var\(--/.test(c))).toEqual([]);
+  });
+});
+
+describe('StockInfoModal — 팝업 안 전체목록 (D-29 · G-21-R3-8 · T-21-81)', () => {
+  async function openNewsTab(user: ReturnType<typeof userEvent.setup>) {
+    const { dialog } = await openFromCard(user);
+    await user.click(within(dialog).getByRole('tab', { name: '뉴스·토론' }));
+    return dialog;
+  }
+  const historySpies = () => ({
+    push: vi.spyOn(window.history, 'pushState'),
+    replace: vi.spyOn(window.history, 'replaceState'),
+    back: vi.spyOn(window.history, 'back'),
+  });
+  const expectHistoryUntouched = (spies: ReturnType<typeof historySpies>, href: string) => {
+    expect(spies.push).not.toHaveBeenCalled();
+    expect(spies.replace).not.toHaveBeenCalled();
+    expect(spies.back).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(href);
+  };
+
+  it('「전체 뉴스 보기」 → 팝업 안 NewsFullList · 요약 섹션은 보이지 않는다', async () => {
+    const user = userEvent.setup();
+    render(<Card code="196170" />);
+    const dialog = await openNewsTab(user);
+    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+
+    expect(within(dialog).getByTestId('full-news')).toHaveTextContent('full-news:196170');
+    expect(within(dialog).getByTestId('stub-news')).not.toBeVisible();
+    expect(within(dialog).getByTestId('stub-discussion')).not.toBeVisible();
+    expect(within(dialog).queryByTestId('full-discussions')).toBeNull();
+  });
+
+  it('Escape → 요약으로 돌아오고 팝업은 열려 있다 · 한 번 더 Escape → 팝업이 닫힌다', async () => {
+    const user = userEvent.setup();
+    render(<Card code="196170" />);
+    const dialog = await openNewsTab(user);
+    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    expect(within(dialog).getByTestId('full-news')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(dialog).queryByTestId('full-news')).toBeNull();
+    expect(within(dialog).getByTestId('stub-news')).toBeVisible();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('전체목록의 「요약으로 돌아가기」 → 요약 · 「전체 토론 보기」 도 같은 규칙(← · Escape)', async () => {
+    const user = userEvent.setup();
+    render(<Card code="196170" />);
+    const dialog = await openNewsTab(user);
+
+    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '요약으로 돌아가기' }));
+    expect(within(dialog).queryByTestId('full-news')).toBeNull();
+    expect(within(dialog).getByTestId('stub-discussion')).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: '전체 토론 보기' }));
+    expect(within(dialog).getByTestId('full-discussions')).toHaveTextContent('full-discussions:196170');
+    expect(within(dialog).getByTestId('stub-news')).not.toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: '요약으로 돌아가기' }));
+    expect(within(dialog).queryByTestId('full-discussions')).toBeNull();
+
+    await user.click(within(dialog).getByRole('button', { name: '전체 토론 보기' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(within(dialog).queryByTestId('full-discussions')).toBeNull();
+  });
+
+  it('어느 단계에서도 window.history · URL 이 바뀌지 않는다 · 닫았다 다시 열면 요약부터', async () => {
+    const user = userEvent.setup();
+    const href = window.location.href;
+    render(<Card code="196170" />);
+    const spies = historySpies();
+    const dialog = await openNewsTab(user);
+    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    await user.click(within(dialog).getByRole('button', { name: '요약으로 돌아가기' }));
+    await user.click(within(dialog).getByRole('button', { name: '전체 토론 보기' }));
+    await user.keyboard('{Escape}');
+    await user.click(within(dialog).getByRole('button', { name: '전체 뉴스 보기' }));
+    // 전체목록인 채로 ✕ 로 닫는다 → 다시 열면 요약(전체목록 상태가 남지 않는다).
+    await user.click(within(dialog).getByRole('button', { name: '닫기' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const reopened = await openNewsTab(user);
+    expect(within(reopened).queryByTestId('full-news')).toBeNull();
+    expect(within(reopened).getByTestId('stub-news')).toBeVisible();
+    expectHistoryUntouched(spies, href);
   });
 });
