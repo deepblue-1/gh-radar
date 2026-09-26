@@ -11,11 +11,15 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.Interpolator
 import android.webkit.CookieManager
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -79,6 +83,32 @@ class MainActivity : BridgeActivity() {
 
     private var keyboardVisible = false
     private var hideRunnable: Runnable? = null
+
+    /** D-12a: 마지막 IME 애니메이션 길이 · 곡선(`onPrepare`). 키보드 사유 숨김 = 이 길이의 절반(80~200ms) · 같은 곡선. */
+    private var keyboardAnimMs = 250L
+    private var keyboardInterpolator: Interpolator = AccelerateDecelerateInterpolator()
+
+    /** D-12a: 키보드로 숨긴 탭바의 재표시 90ms 예약 — 그 사이 숨김이 다시 오면 취소된다(입력칸 이동 = 깜빡임 없음). */
+    private var showRunnable: Runnable? = null
+
+    /** D-12a: 지금 숨김이 키보드 사유 즉시 경로로 끝났다 — 재표시만 90ms 디바운스한다. */
+    private var hiddenByKeyboard = false
+
+    /**
+     * D-12b: 전체 문서 로드 중 — 그 문서의 첫 `route`(하이드레이션 뒤) 또는 1.5초까지 탭바를 숨긴 채 기다린다.
+     * 콜드 스타트 첫 문서도 대기로 시작한다(21-28 iOS 와 같음).
+     */
+    private var awaitingContent = true
+
+    /** D-12b 1.5초 상한 — 첫 route 가 오지 않아도 반드시 풀린다(T-21-65 고착 방지). */
+    private val awaitingTimeout = Runnable { endAwaitingContent("timeout") }
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** 대기 해제로 보일 때만 280ms 감속(다른 보임은 200ms 그대로). */
+    private var revealingAfterLoad = false
+
+    /** 마지막으로 시작한 탭바 애니메이션이 보임이다 — 보임 분기 멱등 판정(진행 중 보임 애니메이션을 갈아타지 않게). */
+    private var shownTarget = false
 
     /** 뒤로가기로 홈에 보낸 직후 한 번 WebView 히스토리를 비운다 — 홈에서 다시 뒤로가기 = 종료가 되게(D-26). */
     private var clearHistoryOnHome = false
@@ -290,7 +320,46 @@ class MainActivity : BridgeActivity() {
         }
         ViewCompat.requestApplyInsets(tabBar)
 
-        // 키보드(IME) 표시 중에는 숨긴다. 인셋 리스너 대신 레이아웃 변화 시 루트 창 인셋을 읽기만 한다(Pitfall 8).
+        // D-12a (G-21-R3-1): IME 애니메이션이 시작되는 순간(`onPrepare` — 레이아웃·첫 프레임 전) 키보드 사유로 즉시 숨긴다.
+        // 전역 레이아웃 리스너만으로는 IME 인셋이 적용된 뒤에야 알게 돼 탭바가 키보드 위로 끌려 올라간 프레임이 보였다.
+        // 콜백은 탭바에만 건다(Pitfall 8 — DecorView/루트/WebView 금지). 탭바는 자식이 없어 디스패치 모드는 영향이 없다.
+        ViewCompat.setWindowInsetsAnimationCallback(tabBar, object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                if (animation.typeMask and WindowInsetsCompat.Type.ime() == 0) return
+                // onPrepare 의 루트 창 인셋 = 애니메이션 전 상태 → IME 가 아직 안 보이면 올라오는 방향.
+                val before = imeVisibleNow()
+                Log.d(TAG, "ime anim prepare visibleBefore=$before duration=${animation.durationMillis}")
+                if (!before) keyboardRising(animation)
+            }
+
+            override fun onStart(
+                animation: WindowInsetsAnimationCompat,
+                bounds: WindowInsetsAnimationCompat.BoundsCompat,
+            ): WindowInsetsAnimationCompat.BoundsCompat {
+                // 보정: onPrepare 에서 방향을 못 읽었어도 끝 상태(= 지금 인셋)가 보임이면 첫 애니메이션 프레임 전에 숨긴다.
+                if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0 && !keyboardVisible && imeVisibleNow()) {
+                    keyboardRising(animation)
+                }
+                return bounds
+            }
+
+            override fun onProgress(
+                insets: WindowInsetsCompat,
+                runningAnimations: MutableList<WindowInsetsAnimationCompat>,
+            ): WindowInsetsCompat = insets
+
+            override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                if (animation.typeMask and WindowInsetsCompat.Type.ime() == 0) return
+                // 내려가는 방향 · 취소된 올림은 끝에서 실제 가시성으로 맞춘다(재표시는 90ms 디바운스).
+                val ime = imeVisibleNow()
+                if (ime != keyboardVisible) {
+                    keyboardVisible = ime
+                    updateTabBarVisibility()
+                }
+            }
+        })
+
+        // 보정용(애니메이션 없이 IME 가 바뀌는 경우 — 하드웨어 키보드 전환 · 애니메이션 끔). 레이아웃 변화 때 루트 창 인셋을 읽기만 한다(Pitfall 8).
         rootLayout.viewTreeObserver.addOnGlobalLayoutListener {
             val ime = ViewCompat.getRootWindowInsets(rootLayout)?.isVisible(WindowInsetsCompat.Type.ime()) == true
             if (ime != keyboardVisible) {
@@ -306,6 +375,41 @@ class MainActivity : BridgeActivity() {
         tabBar.alpha = 0f
         fade.visibility = View.GONE
         fade.alpha = 0f
+        // D-12b: 콜드 스타트 대기의 1.5초 상한을 여기서도 예약한다 — 첫 로드의 onPageStarted 가 클라이언트 설치 전에 지나가도 고착 없음.
+        onDocumentStart()
+    }
+
+    private fun imeVisibleNow(): Boolean =
+        ViewCompat.getRootWindowInsets(rootLayout)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+
+    private fun keyboardRising(animation: WindowInsetsAnimationCompat) {
+        keyboardAnimMs = animation.durationMillis
+        animation.interpolator?.let { keyboardInterpolator = it }
+        if (keyboardVisible) return
+        keyboardVisible = true
+        updateTabBarVisibility()
+    }
+
+    // ── 문서 로드 대기 (D-12b · G-21-R3-4) ──────────────────────────────────────
+
+    /** 전체 문서 로드 시작(`GhTradeWebViewClient.onPageStarted`). SPA pushState 이동은 여기로 오지 않는다. */
+    fun onDocumentStart() {
+        Log.d(TAG, "document load started")
+        awaitingContent = true
+        mainHandler.removeCallbacks(awaitingTimeout)
+        mainHandler.postDelayed(awaitingTimeout, 1500L)
+        updateTabBarVisibility()
+    }
+
+    /** 첫 `route`(reason=route) 또는 1.5초 상한(reason=timeout)에서 대기를 푼다 — 보이게 되면 280ms 감속. */
+    private fun endAwaitingContent(reason: String = "route") {
+        if (!awaitingContent) return
+        awaitingContent = false
+        mainHandler.removeCallbacks(awaitingTimeout)
+        Log.i(TAG, "document load wait ended reason=$reason")
+        revealingAfterLoad = true
+        updateTabBarVisibility()
+        revealingAfterLoad = false
     }
 
     /** 페이지 로드 완료 · history 변경(pushState 포함)마다 불린다(`GhTradeWebViewClient`). */
@@ -342,6 +446,8 @@ class MainActivity : BridgeActivity() {
                     TAG,
                     "ready platform=${payload?.optString("platform")} nativeApp=${payload?.optBoolean("nativeApp")}",
                 )
+                // IN-01: 당김 차단도 새 문서에서 푼다 — 이전 문서의 마지막 `pull {blocked:true}` 가 첫 당김을 막지 않게(overlay 와 같은 이유).
+                pullBlocked = false
                 // 새 문서 = 웹 오버레이 참조계수 0 에서 시작 — 전체 로드로 닫힘 신호를 못 받은 경우를 푼다(T-21-18).
                 if (overlayOpen) {
                     overlayOpen = false
@@ -351,7 +457,12 @@ class MainActivity : BridgeActivity() {
             // SPA pushState 보강(D-14). 문자열 · `/` 시작만 받는다.
             "route" -> {
                 val path = payload?.optString("path").orEmpty()
-                if (path.startsWith("/") && !isOfflinePage) applyPath(path)
+                Log.d(TAG, "route path=$path awaiting=$awaitingContent")
+                if (path.startsWith("/") && !isOfflinePage) {
+                    // D-12b: 이 문서의 첫 route = 하이드레이션 끝 → 대기 해제(경로 반영 전 — 보임이면 280ms 감속).
+                    endAwaitingContent()
+                    applyPath(path)
+                }
             }
             "overlay" -> {
                 overlayOpen = payload?.optBoolean("open") == true
@@ -367,10 +478,14 @@ class MainActivity : BridgeActivity() {
         }
     }
 
-    // ── 표시/숨김 (D-12: 숨김은 150ms 지연 후 200ms 페이드 · 보임은 지연 없이 200ms) ─────────────────
+    // ── 표시/숨김 ─────────────────────────────────────────────────────────────
+    // D-12: 숨김은 150ms 지연 후 200ms 페이드(8dp 하강) · 보임은 지연 없이 200ms.
+    // D-12a: 키보드 사유 숨김 = 지연 없이 IME 애니메이션 절반(80~200ms) · 같은 곡선 · 이동 없음 · 재표시 90ms 디바운스.
+    // D-12b: 문서 로드 대기 해제로 보일 때만 280ms 감속.
+    // ViewPropertyAnimator 의 곡선은 다음 animate() 에도 남는다 → 모든 animate() 에 곡선을 명시한다.
 
     private fun shouldHideTabBar(): Boolean =
-        TabRoutes.hidesTabBar(currentPath) || isOfflinePage || overlayOpen || keyboardVisible
+        TabRoutes.hidesTabBar(currentPath) || isOfflinePage || overlayOpen || keyboardVisible || awaitingContent
 
     fun updateTabBarVisibility() {
         if (!::tabBar.isInitialized) return
@@ -379,13 +494,38 @@ class MainActivity : BridgeActivity() {
         hideRunnable = null
 
         if (shouldHideTabBar()) {
+            // 숨김이 다시 왔다 — 키보드 재표시 예약은 취소(IME 내림 → 곧바로 다시 올림 = 깜빡임 없음).
+            showRunnable?.let { tabBar.removeCallbacks(it) }
+            showRunnable = null
+            // 키보드가 내려갔는데 다른 사유로 여전히 숨김 → 이후 재표시는 키보드 디바운스 대상이 아니다.
+            if (!keyboardVisible) hiddenByKeyboard = false
             if (tabBar.visibility != View.VISIBLE) return
+
+            if (keyboardVisible) {
+                // D-12a — 150ms 대기 없이 곧바로, 키보드보다 짧게, alpha 만(키보드 윗변 위로 끌려 올라간 프레임이 남지 않게).
+                val ms = (keyboardAnimMs / 2).coerceIn(80L, 200L)
+                shownTarget = false
+                tabBar.animate().cancel()
+                fade.animate().cancel()
+                tabBar.translationY = 0f
+                fade.animate().alpha(0f).setDuration(ms).setInterpolator(keyboardInterpolator).start()
+                tabBar.animate().alpha(0f).setDuration(ms).setInterpolator(keyboardInterpolator).withEndAction {
+                    if (shouldHideTabBar()) {
+                        tabBar.visibility = View.GONE
+                        fade.visibility = View.GONE
+                        hiddenByKeyboard = keyboardVisible
+                    }
+                }.start()
+                return
+            }
+
             // 리다이렉트·짧은 오버레이 깜빡임은 150ms 안에 취소된다(weekly-wine 방식).
             val r = Runnable {
                 hideRunnable = null
                 if (!shouldHideTabBar()) return@Runnable
-                fade.animate().alpha(0f).setDuration(200).start()
-                tabBar.animate().alpha(0f).translationY(dpF(8f)).setDuration(200).withEndAction {
+                shownTarget = false
+                fade.animate().alpha(0f).setDuration(200).setInterpolator(STANDARD).start()
+                tabBar.animate().alpha(0f).translationY(dpF(8f)).setDuration(200).setInterpolator(STANDARD).withEndAction {
                     // 페이드 도중 다시 보이기로 바뀌었으면 숨기지 않는다(보임 쪽이 animate().cancel() 후 되살린다).
                     if (shouldHideTabBar()) {
                         tabBar.visibility = View.GONE
@@ -396,13 +536,32 @@ class MainActivity : BridgeActivity() {
             hideRunnable = r
             tabBar.postDelayed(r, 150)
         } else {
+            // D-12a — 키보드로 숨겼던 탭바는 90ms 뒤에 다시 보인다(그 사이 숨김 분기가 오면 예약 취소).
+            if (hiddenByKeyboard) {
+                if (showRunnable != null) return
+                val r = Runnable {
+                    showRunnable = null
+                    hiddenByKeyboard = false
+                    updateTabBarVisibility()
+                }
+                showRunnable = r
+                tabBar.postDelayed(r, 90)
+                return
+            }
+            showRunnable?.let { tabBar.removeCallbacks(it) }
+            showRunnable = null
+            // 이미 보이는 중(보임 애니메이션 진행 포함)이면 건드리지 않는다 — 대기 해제(280ms) 직후 applyPath 의 같은 보임 호출이
+            // 진행 중 감속 애니메이션을 200ms 로 갈아타지 않게(21-28 iOS 와 같은 가드).
+            if (shownTarget && tabBar.visibility == View.VISIBLE) return
+            shownTarget = true
             // 진행 중인 숨김 애니메이션과 경합하지 않게 먼저 걷어낸다(weekly-wine onUrlChanged).
             tabBar.animate().cancel()
             fade.animate().cancel()
             tabBar.visibility = View.VISIBLE
             fade.visibility = View.VISIBLE
-            tabBar.animate().alpha(1f).translationY(0f).setDuration(200).start()
-            fade.animate().alpha(1f).setDuration(200).start()
+            val (ms, curve) = if (revealingAfterLoad) 280L to REVEAL else 200L to STANDARD
+            tabBar.animate().alpha(1f).translationY(0f).setDuration(ms).setInterpolator(curve).start()
+            fade.animate().alpha(1f).setDuration(ms).setInterpolator(curve).start()
         }
     }
 
@@ -434,6 +593,10 @@ class MainActivity : BridgeActivity() {
 
     companion object {
         const val TAG = "GHTrade"
+
+        /** 기본 페이드 곡선(ViewPropertyAnimator 기본값과 같음) · D-12b 대기 해제 감속. */
+        private val STANDARD: Interpolator = AccelerateDecelerateInterpolator()
+        private val REVEAL: Interpolator = DecelerateInterpolator()
 
         /** Capacitor 로컬 에셋 서버의 오프라인 폴백(`mobile/www/index.html`). */
         private const val OFFLINE_PAGE = "https://localhost/"
