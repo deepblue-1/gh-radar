@@ -114,7 +114,8 @@
  *   카드의 폼이 같은 키로 잠긴 채 선다.
  *
  * ⑩ 이벤트 알림 (quick-260923-pgu · 목업 ③A · 결정 갱신 D-36/D-27)
- *   접수 · 체결 · 정정/취소확인 · 거부 · VI 발동 · 돌파(76) 가 오면 `useTradingAlerts` 가 토스트를 세우고
+ *   접수 · 체결 · 정정/취소확인 · 거부 · VI 발동 · 돌파(스트립 새 행 `onRowsAdded` · quick-260926-s5v) 가
+ *   오면 `useTradingAlerts` 가 토스트를 세우고
  *   (`AlertToasts` — 이 루트 안에만, 앱 셸 아님), 그 이벤트의 카드(`cardForAlert`)에 표시를 건다.
  *   작업대가 `alertedCardIds`(헤더 펄스 → 빨간 점 · 링) 와 `tabRequest`(클릭 시 카드 탭) 를 **소유**하고
  *   카드 상태(`WorkbenchCard`)에 섞지 않는다 — 배치 저장에 들어가지 않는다. 이벤트만으로 카드를 만들지
@@ -1065,11 +1066,9 @@ function WorkbenchSurface() {
     if (hit === undefined) return;
     setAlertedCardIds((prev) => (prev.has(hit.id) ? prev : new Set(prev).add(hit.id)));
   }, []);
-  const { alerts, dismiss: dismissAlert } = useTradingAlerts({
+  const { alerts, dismiss: dismissAlert, notifyBreakouts } = useTradingAlerts({
     orders: relay.orders,
     viNotices: relay.viNotices,
-    rateCrossItems,
-    rateCrossSnapSeq,
     orderIndex: relay.orderIndex,
     onNew: markAlerted,
   });
@@ -1327,6 +1326,7 @@ function WorkbenchSurface() {
         cardFeeds={cardFeeds}
         onAddCard={addBreakoutCard}
         onFocusCard={focusBreakoutCard}
+        onRowsAdded={notifyBreakouts}
       />
 
       {/* 5 · 종목 추가 */}

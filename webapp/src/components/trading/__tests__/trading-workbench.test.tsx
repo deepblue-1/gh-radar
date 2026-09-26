@@ -2358,6 +2358,24 @@ describe('TradingWorkbench — 이벤트 알림 (quick-260923-pgu · 목업 ③A
     return view;
   }
 
+  it('W-T1 돌파 토스트는 스트립 새 행 신호로만 — 첫 채움 0 · 76 새 종목 1 · 78 새 종목 0 (quick-260926-s5v)', () => {
+    const breakoutToasts = () => document.querySelectorAll('[data-slot="alert-toast"][data-kind="breakout"]');
+    mockRelay = relay({ rateCrossItems: [rc()] });
+    const view = render(<TradingWorkbench />);
+    expect(breakoutToasts()).toHaveLength(0);
+
+    const samsung = rc({ isin: 'KR7005930003', name: '삼성전자', code: '005930', exchangeTime: '094500000000' });
+    mockRelay = relay({ rateCrossItems: [samsung, rc()] });
+    view.rerender(<TradingWorkbench />);
+    expect(breakoutToasts()).toHaveLength(1);
+    expect(breakoutToasts()[0].textContent).toContain('삼성전자');
+
+    const hynix = rc({ isin: 'KR7000660001', name: 'SK하이닉스', code: '000660', exchangeTime: '094600000000' });
+    mockRelay = relay({ rateCrossItems: [hynix, samsung, rc()], rateCrossSnapSeq: 1 });
+    view.rerender(<TradingWorkbench />);
+    expect(breakoutToasts()).toHaveLength(1);
+  });
+
   it('① 새 체결 통보 → 토스트 1 · 색인 조인 문구 · 접힌 카드에 data-alert', () => {
     const view = mountWithCollapsedCard();
     expect(toastEls()).toHaveLength(0);

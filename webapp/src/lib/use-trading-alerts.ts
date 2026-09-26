@@ -8,8 +8,10 @@
  *   relay 리듀서는 `orders`·`viNotices` 에 새 프레임을 **앞에 붙인 새 배열**을 만들 뿐 기존 객체는
  *   그대로 둔다. 그래서 마운트 첫 실행은 이미 있는 객체를 전부 「본 것」으로 기록만 하고(이력 재생
  *   금지), 이후에는 앞에서부터 훑다가 본 객체를 만나면 멈춘다. 같은 배열이 다시 와도 중복 0.
- * ② 돌파는 76 단건만 — `rateCrossSnapSeq` 가 바뀐 렌더(78 스냅샷 · 재접속 첫 스냅샷)는 무알림.
- *   돌파 스트립의 무음 판정과 같은 축이다. 알림음은 스트립이 이미 낸다 — 여기서는 내지 않는다.
+ * ② 돌파는 스트립이 목록에 새로 올린 비무음 행만 알린다(`BreakoutStrip onRowsAdded` → `notifyBreakouts`
+ *   — 새 종목 76 · 이탈 뒤 새 구간 재돌파). 첫 채움 · 78 · 자리유지 재알림 · 발화 거래소 전환 · ✕ 지운
+ *   종목은 알리지 않는다. gh-trade `RowAdded`(RateCrossWatchList.cs:662 → RateCrossListForm.cs:406-422)와
+ *   같은 축이다. 알림음은 스트립(종목당 하루 1회)이 이미 낸다 — 여기서는 내지 않는다 (quick-260926-s5v).
  * ③ 색인 조인 보류 — 주문 통보가 계좌 델타보다 먼저 오면 `orderIndex` 에 아직 없다. 그 통보는
  *   최대 `ALERT_HOLD_MS` 보류하고, 그 사이 색인이 풀리면 이름을 붙여, 끝내 없으면 「주문 {No}」 로 낸다.
  * ④ 소리 — 「기록 먼저, 재생 나중」(breakout-strip ④). 체결·VI 의 **새** 알림만 `playBreakoutTone`
@@ -21,14 +23,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RelayOrderMsg, RelayRateCrossItem, RelayViNoticeMsg } from "@gh-radar/shared";
 
 import { playBreakoutTone } from "@/lib/alert-tone";
-import { breakoutKey } from "@/lib/breakout-list";
 import {
   ALERT_HOLD_MS,
   alertFromBreakout,
   alertFromOrder,
   alertFromVi,
   mergeAlert,
-  newRateCrossAlerts,
   orderAlertKind,
   resolveOrderEntry,
   type OrderIndexEntry,
@@ -38,8 +38,6 @@ import {
 export interface UseTradingAlertsInput {
   orders: readonly RelayOrderMsg[];
   viNotices: readonly RelayViNoticeMsg[];
-  rateCrossItems: readonly RelayRateCrossItem[];
-  rateCrossSnapSeq: number;
   /** relay 리듀서의 add-only 주문번호 색인(`RelayConnectionState.orderIndex`). */
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   /** **새** 알림마다(병합 제외) — 작업대가 카드 표시(`data-alert`)를 건다. */
@@ -67,8 +65,10 @@ function takeFresh<T extends object>(items: readonly T[], seen: WeakSet<T>): T[]
 export function useTradingAlerts(input: UseTradingAlertsInput): {
   alerts: TradingAlert[];
   dismiss: (id: string) => void;
+  /** 스트립 새 행 신호(`BreakoutStrip onRowsAdded`) — 행마다 돌파 알림 1건(②). 안정 콜백. */
+  notifyBreakouts: (items: readonly RelayRateCrossItem[]) => void;
 } {
-  const { orders, viNotices, rateCrossItems, rateCrossSnapSeq, orderIndex, onNew } = input;
+  const { orders, viNotices, orderIndex, onNew } = input;
   const [alerts, setAlerts] = useState<TradingAlert[]>([]);
   /** 상태 미러 — 병합 여부를 동기적으로 알아야 소리·`onNew` 를 한 번만 낸다. */
   const alertsRef = useRef<TradingAlert[]>([]);
@@ -81,8 +81,6 @@ export function useTradingAlerts(input: UseTradingAlertsInput): {
   const seenVi = useRef(new WeakSet<RelayViNoticeMsg>());
   const ordersPrimed = useRef(false);
   const viPrimed = useRef(false);
-  const rateKeys = useRef<ReadonlySet<string> | null>(null);
-  const snapSeq = useRef<number | null>(null);
   const pending = useRef<Pending[]>([]);
   const seq = useRef(0);
 
@@ -159,18 +157,13 @@ export function useTradingAlerts(input: UseTradingAlertsInput): {
     for (const v of takeFresh(viNotices, seenVi.current)) emit(alertFromVi(v, Date.now(), nextId()));
   }, [viNotices, emit]);
 
-  // ② 돌파 76 단건.
-  useEffect(() => {
-    const keys = new Set(rateCrossItems.map(breakoutKey));
-    if (rateKeys.current !== null) {
-      const snapChanged = snapSeq.current !== rateCrossSnapSeq;
-      for (const it of newRateCrossAlerts(rateKeys.current, rateCrossItems, snapChanged)) {
-        emit(alertFromBreakout(it, Date.now(), nextId()));
-      }
-    }
-    rateKeys.current = keys;
-    snapSeq.current = rateCrossSnapSeq;
-  }, [rateCrossItems, rateCrossSnapSeq, emit]);
+  // ② 돌파 — 스트립의 새 비무음 행 신호로만. 입력 순서대로 emit 한다.
+  const notifyBreakouts = useCallback(
+    (items: readonly RelayRateCrossItem[]) => {
+      for (const it of items) emit(alertFromBreakout(it, Date.now(), nextId()));
+    },
+    [emit],
+  );
 
   // 언마운트 — 보류 타이머 전부 해제(T-pgu-03).
   useEffect(
@@ -181,5 +174,5 @@ export function useTradingAlerts(input: UseTradingAlertsInput): {
     [],
   );
 
-  return { alerts, dismiss };
+  return { alerts, dismiss, notifyBreakouts };
 }

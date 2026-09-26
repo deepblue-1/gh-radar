@@ -18,7 +18,6 @@ import {
   indexUnfilled,
   MAX_TOASTS,
   mergeAlert,
-  newRateCrossAlerts,
   orderAlertKind,
   resolveOrderEntry,
   type OrderIndexEntry,
@@ -257,22 +256,6 @@ describe("mergeAlert — 같은 주문 체결 3초 창", () => {
     for (let i = 1; i <= 5; i += 1) alerts = mergeAlert(alerts, fill(i, `a${i}`, { no: String(i), nt: "A" })).alerts;
     expect(MAX_TOASTS).toBe(4);
     expect(alerts.map((a) => a.id)).toEqual(["a2", "a3", "a4", "a5"]);
-  });
-});
-
-describe("newRateCrossAlerts — 76 단건만", () => {
-  // prevKeys 는 ISIN 집합이다 — 행 키 = ISIN (quick-260926-rcc · gh-trade cfo 결정 A).
-  const prev = new Set(["KR7096530001"]);
-  it("스냅샷 렌더(snapChanged)는 알리지 않는다", () => {
-    expect(newRateCrossAlerts(prev, [rc({ isin: "KR7000660001" })], true)).toEqual([]);
-  });
-  it("같은 seq 에서 prevKeys 에 없는 키만", () => {
-    const fresh = rc({ isin: "KR7000660001" });
-    expect(newRateCrossAlerts(prev, [fresh, rc()], false)).toEqual([fresh]);
-  });
-  it("같은 ISIN 의 거래소만 바뀐 항목은 새 알림이 아니다(자리유지 갱신 = 무음)", () => {
-    const nxt = rc({ exchange: "NXT" });
-    expect(newRateCrossAlerts(prev, [nxt], false)).toEqual([]);
   });
 });
 

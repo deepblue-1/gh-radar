@@ -4,7 +4,7 @@
  * ① 결정 갱신 (D-36 · D-27 → ③A)
  *   Phase 15 D-36 · Phase 18 D-27 은 「토스트 라이브러리 없음 — 인라인 role=status」 였다. 사용자가
  *   2026-09-23 목업 게이트에서 **의도적으로 뒤집었다**(③A 채택): 접수·체결·정정확인·취소확인·거부·
- *   VI 발동·돌파(76 단건)를 작업대 우하단(폰은 상단) 토스트로 띄운다. 라이브러리는 여전히 없고
+ *   VI 발동·돌파(스트립 새 행)를 작업대 우하단(폰은 상단) 토스트로 띄운다. 라이브러리는 여전히 없고
  *   (자체 구현) 컨테이너는 `role="status"` · `aria-live="polite"` 를 지킨다. 카드 안 인라인 배너
  *   (`CardNotices`)는 **카드 자기 상태**라 그대로다 — 이 모듈이 다루는 것은 **이벤트**다.
  *
@@ -33,7 +33,6 @@ import type {
 } from "@gh-radar/shared";
 
 import type { CardTab } from "@/components/trading/card/card-tabs";
-import { breakoutKey } from "@/lib/breakout-list";
 import {
   MERGE_WINDOW_MS,
   orderNoticeLabel,
@@ -267,19 +266,6 @@ export function mergeAlert(
   }
   const next = [...alerts, incoming];
   return { alerts: next.length > max ? next.slice(next.length - max) : next, merged: false };
-}
-
-/**
- * 돌파 집합에서 **76 단건으로 새로 들어온** 항목만. `snapChanged`(= `rateCrossSnapSeq` 가 바뀐
- * 렌더 = 78 스냅샷)면 무알림 — 돌파 스트립의 무음 판정과 같은 축이다(breakout-strip ④ · D-17).
- */
-export function newRateCrossAlerts(
-  prevKeys: ReadonlySet<string>,
-  items: readonly RelayRateCrossItem[],
-  snapChanged: boolean,
-): RelayRateCrossItem[] {
-  if (snapChanged) return [];
-  return items.filter((it) => !prevKeys.has(breakoutKey(it)));
 }
 
 // ===========================================================================

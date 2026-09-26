@@ -22,8 +22,6 @@ const ACCOUNT = "37728502101";
 interface Input {
   orders: RelayOrderMsg[];
   viNotices: RelayViNoticeMsg[];
-  rateCrossItems: RelayRateCrossItem[];
-  rateCrossSnapSeq: number;
   orderIndex: ReadonlyMap<string, OrderIndexEntry>;
   onNew?: (a: TradingAlert) => void;
 }
@@ -79,7 +77,7 @@ const EMPTY_INDEX: ReadonlyMap<string, OrderIndexEntry> = new Map();
 const INDEXED: ReadonlyMap<string, OrderIndexEntry> = new Map([["123", ENTRY]]);
 
 function base(over: Partial<Input> = {}): Input {
-  return { orders: [], viNotices: [], rateCrossItems: [], rateCrossSnapSeq: 0, orderIndex: EMPTY_INDEX, ...over };
+  return { orders: [], viNotices: [], orderIndex: EMPTY_INDEX, ...over };
 }
 
 function setup(initial: Input) {
@@ -96,10 +94,8 @@ afterEach(() => {
 });
 
 describe("useTradingAlerts — 새 프레임만", () => {
-  it("마운트 시 이미 있는 orders/viNotices/rateCrossItems 는 알림 0", () => {
-    const hook = setup(
-      base({ orders: [order()], viNotices: [viNotice()], rateCrossItems: [rc("KR7096530001")], orderIndex: INDEXED }),
-    );
+  it("마운트 시 이미 있는 orders/viNotices 는 알림 0", () => {
+    const hook = setup(base({ orders: [order()], viNotices: [viNotice()], orderIndex: INDEXED }));
     expect(hook.result.current.alerts).toEqual([]);
     expect(playBreakoutTone).not.toHaveBeenCalled();
   });
@@ -175,15 +171,21 @@ describe("useTradingAlerts — 색인 미스 보류 (ALERT_HOLD_MS)", () => {
   });
 });
 
-describe("useTradingAlerts — 돌파 76/78", () => {
-  it("rateCrossSnapSeq 가 바뀐 렌더의 새 종목은 알림 0 · 같은 seq 에서 새 키는 breakout 1", () => {
-    const a = rc("KR7096530001");
-    const hook = setup(base({ rateCrossItems: [a], rateCrossSnapSeq: 1 }));
-    hook.rerender(base({ rateCrossItems: [rc("KR7000660001"), a], rateCrossSnapSeq: 2 }));
-    expect(hook.result.current.alerts).toHaveLength(0);
-    hook.rerender(base({ rateCrossItems: [rc("KR7005930003"), rc("KR7000660001"), a], rateCrossSnapSeq: 2 }));
+describe("useTradingAlerts — 돌파는 스트립 새 행 신호로만 (quick-260926-s5v)", () => {
+  it("H1 notifyBreakouts([item]) → breakout 1건 · onNew 1회 · 톤 없음(돌파 톤은 스트립 몫)", () => {
+    const onNew = vi.fn();
+    const hook = setup(base({ onNew }));
+    act(() => hook.result.current.notifyBreakouts([rc("KR7096530001")]));
     expect(hook.result.current.alerts).toHaveLength(1);
-    expect(hook.result.current.alerts[0]).toMatchObject({ kind: "breakout", isin: "KR7005930003" });
+    expect(hook.result.current.alerts[0]).toMatchObject({ kind: "breakout", isin: "KR7096530001" });
+    expect(onNew).toHaveBeenCalledTimes(1);
+    expect(playBreakoutTone).not.toHaveBeenCalled();
+  });
+
+  it("H2 여러 행은 입력 순서대로 emit 된다", () => {
+    const hook = setup(base());
+    act(() => hook.result.current.notifyBreakouts([rc("KR7005930003"), rc("KR7000660001")]));
+    expect(hook.result.current.alerts.map((a) => a.isin)).toEqual(["KR7005930003", "KR7000660001"]);
   });
 });
 
