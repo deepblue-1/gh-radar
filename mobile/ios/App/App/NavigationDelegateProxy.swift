@@ -7,15 +7,20 @@ import os
 /// Capacitor 의 `WebViewDelegationHandler` 는 앱 호스트 판정 · 외부 링크를 시스템으로 넘기기 · 플러그인
 /// `shouldOverrideLoad` 를 맡는다 — 교체하면 그 동작이 사라진다(T-21-37). 그래서 직접 처리하는 것은
 /// ① 실패 콜백 두 개(원본을 먼저 부른 뒤 오프라인 판정)와 ② 호스트 밖 http(s) 정책 결정(D-28 —
-/// `ExternalLinks.opensInAppBrowser` 가 true 인 최상위 이동만 SFSafariViewController 로 연다)뿐이고,
-/// 나머지 모든 콜백(가로채지 않은 정책 결정 포함)은 원본에 그대로 넘긴다 — 정책 결정은 명시 호출,
-/// 그 외는 `responds(to:)` · `forwardingTarget(for:)` 자동 전달. 원형: weekly-wine `PaymentNavigationDelegate`.
+/// `ExternalLinks.opensInAppBrowser` 가 true 인 최상위 이동만 SFSafariViewController 로 연다) ·
+/// ③ 새 창 요청(`WKUIDelegate` createWebViewWith — 호스트 밖 = 인앱 브라우저 · 같은 호스트 = 같은 WebView)뿐이고,
+/// 나머지 모든 콜백(가로채지 않은 정책 결정 · 새 창 요청 · 알림/확인/입력 창 등 UI 콜백 포함)은 원본에 그대로
+/// 넘긴다 — 가로채는 메서드는 명시 호출, 그 외는 `responds(to:)` · `forwardingTarget(for:)` 자동 전달
+/// (`original` = 내비 델리게이트, `originalUI` = UI 델리게이트 — Capacitor 에선 둘 다 `WebViewDelegationHandler`).
+/// 원형: weekly-wine `PaymentNavigationDelegate`.
 ///
 /// 오프라인 폴백은 **네트워크 오류 코드만** 띄운다 — `-999`(취소: 리다이렉트·연속 이동) · HTTP 4xx/5xx 는
 /// 오탐이므로 무시한다(Pitfall 2 · T-21-38). Capacitor 의 오류 경로 설정은 이 오탐 때문에 쓰지 않는다.
-final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
+final class NavigationDelegateProxy: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Capacitor `WebViewDelegationHandler` — bridge 가 강하게 보유한다.
     weak var original: WKNavigationDelegate?
+    /// Capacitor 의 UI 델리게이트(같은 `WebViewDelegationHandler`). VC 가 `uiDelegate` 교체 **전에** 잡는다.
+    weak var originalUI: WKUIDelegate?
     weak var owner: GHTradeBridgeViewController?
 
     private let log = Logger(subsystem: "com.ghtrade.app", category: "links")
@@ -79,6 +84,25 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
         owner.present(vc, animated: true)
     }
 
+    /// 새 창 요청(`target=_blank` 가 정책 결정을 통과한 뒤 · `window.open`). Capacitor 기본은 URL 이 있으면 무조건
+    /// 시스템(Safari 앱)으로 보낸다 — 같은 호스트까지 앱 밖으로 나가던 경로를 바로잡는다(Android 와 같은 동작).
+    /// 새 WKWebView 를 만들지 않으므로(nil 반환) opener 관계가 생기지 않는다(T-21-46).
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        let appHost = owner?.bridge?.config.serverURL.host
+        if let url = navigationAction.request.url {
+            if ExternalLinks.opensInAppBrowser(scheme: url.scheme, host: url.host, appHost: appHost) {
+                presentInAppBrowser(url)
+                return nil
+            }
+            if ExternalLinks.isSameAppHost(scheme: url.scheme, host: url.host, appHost: appHost) {
+                webView.load(navigationAction.request)
+                return nil
+            }
+        }
+        // 비 http(s) 등 — Capacitor 가 시스템으로 넘기는 기존 경로 그대로.
+        return originalUI?.webView?(webView, createWebViewWith: configuration, for: navigationAction, windowFeatures: windowFeatures)
+    }
+
     // MARK: - 실패 콜백 → 오프라인 폴백 (D-19)
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -103,11 +127,14 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
     // MARK: - 구현하지 않은 델리게이트 메서드는 원본에 자동 전달
 
     override func responds(to aSelector: Selector!) -> Bool {
-        super.responds(to: aSelector) || (original?.responds(to: aSelector) ?? false)
+        super.responds(to: aSelector)
+            || (original?.responds(to: aSelector) ?? false)
+            || (originalUI?.responds(to: aSelector) ?? false)
     }
 
     override func forwardingTarget(for aSelector: Selector!) -> Any? {
         if let o = original, o.responds(to: aSelector) { return o }
+        if let u = originalUI, u.responds(to: aSelector) { return u }
         return super.forwardingTarget(for: aSelector)
     }
 }

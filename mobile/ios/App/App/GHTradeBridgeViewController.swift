@@ -18,6 +18,8 @@ import os
 ///
 /// 21-11: 당겨서 새로고침(D-04 · D-17 — 웹 refresh 훅 · 1초 고정 스피너) · 테마 추종과 첫 프레임 저장값(D-23) ·
 /// 네트워크 오류 전용 오프라인 폴백(D-19 — `NavigationDelegateProxy`) · 폰 세로 / iPad 4방향(D-24).
+///
+/// 21-22: D-28 호스트 밖 링크 = 인앱 브라우저(SFSafariViewController) — `NavigationDelegateProxy` 가 내비·UI 델리게이트 앞에 선다.
 final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     private let log = Logger(subsystem: "com.ghtrade.app", category: "bridge")
@@ -65,6 +67,10 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         let proxy = NavigationDelegateProxy(original: wv.navigationDelegate, owner: self)
         navProxy = proxy
         wv.navigationDelegate = proxy
+        // D-28 새 창 요청도 같은 프록시 — 원본 UI 델리게이트를 **교체 전에** 잡는다(알림·확인 창은 계속 Capacitor 로).
+        // uiDelegate 는 weak — 프록시는 navProxy 가 강하게 보관한다.
+        proxy.originalUI = wv.uiDelegate
+        wv.uiDelegate = proxy
         setupPullToRefresh()
         setupTabBar()
         observeURL()
