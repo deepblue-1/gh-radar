@@ -16,7 +16,7 @@ import {
   withLocalRelay,
   type LocalRelay,
 } from '../fixtures/relay';
-import { installNativeApp } from '../fixtures/native-app';
+import { installNativeApp, nativeMessages } from '../fixtures/native-app';
 import { leavesOverflowing, scrollOverflowing } from '../overflow';
 import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.js';
 
@@ -846,6 +846,48 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(cardOf(page, E2E_ISIN)).toBeVisible();
     await expect(sharedPanels(page)).toBeHidden();
     await expect(spacer).toBeHidden();
+  });
+
+  test.describe("앱 모드 터치 키패드(D-12a'')", () => {
+    test.use({ hasTouch: true });
+
+    test("D-12a'' 앱 키패드 시트 — 값 행 탭 → overlay 열림 신호에 immediate:true · 닫으면 {open:false} (quick-260926-vk9)", async ({
+      page,
+    }) => {
+      /*
+        실제 페이지 · 실제 감지 스크립트 · 실제 Provider · 실제 키패드가 네이티브 채널로 내보내는 바이트를 본다.
+        수량·가격 칸은 시스템 키보드가 아니라 NumberPadSheet 를 연다 → 그 열림 신호만 immediate:true 를 실어
+        네이티브가 탭바를 150ms 대기·페이드 없이 즉시 숨긴다(D-12a''). dev 서버는 StrictMode 라 새로 마운트되는
+        마커 effect 가 획득→해제→획득으로 두 번 돌 수 있다 → 열림 신호 개수는 고정하지 않고 **모두** 같은 모양인지 본다.
+      */
+      relay.seedLimitChasers([{ buyEnabled: true }]);
+      await installNativeApp(page);
+      await page.setViewportSize(PHONE_VIEWPORT);
+      await openFocusedCard(page);
+      await expect(page.locator('html')).toHaveClass(/native-app/);
+
+      const overlayPayloads = async () =>
+        (await nativeMessages(page)).filter((m) => m.type === 'overlay').map((m) => m.payload);
+      const before = (await overlayPayloads()).length;
+
+      const row = lcRow(page, 'lc-buy-watch-qty');
+      await expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+      await row.tap();
+      const sheet = page.locator('[data-slot="numpad-sheet"]');
+      await expect(sheet).toBeVisible({ timeout: 10_000 });
+
+      const opensSince = async () =>
+        (await overlayPayloads()).slice(before).filter((p) => (p as { open?: unknown } | undefined)?.open === true);
+      await expect
+        .poll(async () => (await opensSince()).length, { message: '키패드 열림 신호가 1개 이상' })
+        .toBeGreaterThanOrEqual(1);
+      const opens = await opensSince();
+      for (const p of opens) expect(p, '열림 신호는 모두 immediate:true').toEqual({ open: true, immediate: true });
+
+      await sheet.getByRole('button', { name: '닫기' }).tap();
+      await expect(sheet).toHaveCount(0);
+      await expect.poll(async () => (await overlayPayloads()).at(-1)).toEqual({ open: false });
+    });
   });
 
   test('G-21-R3-9 /trading?code= — 그 종목 카드를 보장 · 펼침 · 헤더 토글 포커스, URL 에서 code 가 빠지고 relay 로 나간 전략/주문 프레임 0, 같은 URL 을 다시 열어도 카드 수 그대로 (D-30 · T-21-91)', async ({

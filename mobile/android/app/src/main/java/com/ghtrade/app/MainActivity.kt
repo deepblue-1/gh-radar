@@ -69,7 +69,7 @@ class MainActivity : BridgeActivity() {
     var isOfflinePage = false
         private set
 
-    /** 웹 `overlay {open}` 신호(D-12 ③). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지). */
+    /** 웹 `overlay {open, immediate?}` 신호(D-12 ③ · D-12a''). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지). */
     var overlayOpen = false
         private set
 
@@ -469,7 +469,10 @@ class MainActivity : BridgeActivity() {
             }
             "overlay" -> {
                 overlayOpen = payload?.optBoolean("open") == true
-                updateTabBarVisibility()
+                // D-12a'': 키패드(키보드 대체) 열림만 즉시 — 필드가 없으면 종전 D-12.
+                val immediate = overlayOpen && payload?.optBoolean("immediate") == true
+                Log.d(TAG, "overlay open=$overlayOpen immediate=$immediate")
+                updateTabBarVisibility(immediate = immediate)
             }
             "pull" -> pullBlocked = payload?.optBoolean("blocked") == true
             // "dark"/"light" 두 값만 받는다(D-23).
@@ -484,13 +487,14 @@ class MainActivity : BridgeActivity() {
     // ── 표시/숨김 ─────────────────────────────────────────────────────────────
     // D-12: 숨김은 150ms 지연 후 200ms 페이드(8dp 하강) · 보임은 지연 없이 200ms.
     // D-12a': 키보드 사유 숨김 = 지연·애니메이션 없이 즉시 GONE · 이동 없음 · 재표시 90ms 디바운스.
+    // D-12a'': 키패드 시트 열림(overlay immediate)도 즉시 GONE · 재표시는 D-12.
     // D-12b: 문서 로드 대기 해제로 보일 때만 280ms 감속.
     // ViewPropertyAnimator 의 곡선은 다음 animate() 에도 남는다 → 모든 animate() 에 곡선을 명시한다.
 
     private fun shouldHideTabBar(): Boolean =
         TabRoutes.hidesTabBar(currentPath) || isOfflinePage || overlayOpen || keyboardVisible || awaitingContent
 
-    fun updateTabBarVisibility() {
+    fun updateTabBarVisibility(immediate: Boolean = false) {
         if (!::tabBar.isInitialized) return
         val fade = tabBar.fadeView
         hideRunnable?.let { tabBar.removeCallbacks(it) }
@@ -505,7 +509,8 @@ class MainActivity : BridgeActivity() {
             if (tabBar.visibility != View.VISIBLE) return
 
             // D-12a' — 150ms 대기도 페이드도 없이 곧바로 숨긴다(이동 없음 — 키보드 윗변 위로 끌려 올라간 프레임이 남지 않게).
-            if (keyboardVisible) {
+            // D-12a'': 키패드 시트 열림(웹 immediate)도 같은 경로.
+            if (keyboardVisible || immediate) {
                 shownTarget = false
                 // 진행 중인 보임·숨김 애니메이터를 멈춘다(취소된 애니메이터의 withEndAction 은 실행되지 않는다).
                 tabBar.animate().cancel()
@@ -515,7 +520,8 @@ class MainActivity : BridgeActivity() {
                 fade.alpha = 0f
                 tabBar.visibility = View.GONE
                 fade.visibility = View.GONE
-                hiddenByKeyboard = true
+                // 재표시 90ms 디바운스는 키보드 사유만 — 키패드 닫힘은 D-12 보임(200ms)으로 곧바로 돌아온다.
+                if (keyboardVisible) hiddenByKeyboard = true
                 return
             }
 

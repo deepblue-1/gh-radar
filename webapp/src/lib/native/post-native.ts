@@ -22,8 +22,12 @@ type NativeWindow = Window & {
 /**
  * 네이티브 채널로 메시지 하나를 보낸다. 실제로 보냈으면 `true`, 채널이 없거나 송신이 throw 하면 `false`.
  *
- * 페이로드 계약: `route {path}` · `theme {theme:'dark'|'light'}` · `overlay {open}` · `pull {blocked}` ·
+ * 페이로드 계약: `route {path}` · `theme {theme:'dark'|'light'}` · `overlay {open, immediate?}` · `pull {blocked}` ·
  * `ready`(21-01 인라인 스크립트가 보낸다).
+ *
+ * `overlay` 의 `immediate:true` 는 키보드 대체 입력(키패드 시트)이 계수 0→1 로 열 때만 싣는다 — 네이티브는 D-12 의
+ * 150ms 대기·0.2s 페이드 대신 탭바를 즉시 숨긴다(D-12a''). 필드가 없으면 종전 D-12 다. 옛 네이티브는 모르는 필드를
+ * 무시하고, 새 네이티브 + 옛 웹은 필드가 없어 종전과 같다(양방향 호환).
  */
 export function postNative(type: NativeMsgType, payload?: unknown): boolean {
   if (typeof window === 'undefined') return false;
