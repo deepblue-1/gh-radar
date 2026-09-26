@@ -3,7 +3,7 @@
 /**
  * 오버레이 열림 마커 (Phase 21 · D-12 · D-26 · 21-RESEARCH Pattern 8).
  *
- * Sheet·Dialog·NumberPadSheet 의 **Content 첫 자식**으로 렌더한다. Radix Content 는 열려 있는 동안
+ * Sheet·Dialog·NumberPadSheet·Popover(WR-04) 의 **Content 첫 자식**으로 렌더한다. Radix Content 는 열려 있는 동안
  * (+퇴장 애니메이션)만 마운트되므로 이 컴포넌트의 마운트 수명이 곧 오버레이 열림 수명이다 —
  * 마운트 때 참조를 획득하고 언마운트 때 해제한다. Provider 가 참조계수 0↔1 전이에서만 네이티브에
  * `overlay {open}` 을 보낸다(탭바 숨김 · 당겨서 새로고침 비활성 · `back()` 판정).

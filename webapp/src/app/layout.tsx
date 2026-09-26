@@ -20,9 +20,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * theme-color: globals.css `--bg` 토큰과 맞춘 최종 hex (UI-SPEC §8 참조).
- * - light: `#ffffff` (globals.css `--bg` light)
- * - dark:  `#0a0a0a` (globals.css `--bg` dark `oklch(0.08 0 0)` 근사 hex)
+ * theme-color = 앱 테마(OS 다크모드 아님 · IN-06). 서버는 기본 다크(D-23a) `#17171c` 단일값을 내고,
+ * 클라이언트는 `ThemeColorSync`(components/providers/theme-provider.tsx)가 `resolvedTheme` 에 맞춰
+ * 갱신한다(라이트 `#ffffff`). OS 색 모드 미디어 분기는 두지 않는다 — 앱은 OS 다크모드를 보지 않으므로
+ * (D-23 · enableSystem=false) 분기를 두면 OS 라이트 사용자가 다크 화면 위에 흰 크롬을 본다.
  *
  * 확대/축소 금지 (quick-260925-ptw · 사용자 요청) —
  * `width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no`.
@@ -44,10 +45,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
-  ],
+  themeColor: '#17171c',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

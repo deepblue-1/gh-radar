@@ -4,6 +4,7 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { NativeOverlayMarker } from "@/lib/native/native-overlay-marker"
 
 function Popover({
   ...props
@@ -21,6 +22,7 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  children,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -34,7 +36,11 @@ function PopoverContent({
           className
         )}
         {...props}
-      />
+      >
+        {/* 앱 셸: Content 마운트 수명 = 오버레이 열림(네이티브 탭바 숨김 · back 이 팝오버부터 닫음 · WR-04) — 브라우저 no-op */}
+        <NativeOverlayMarker />
+        {children}
+      </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   )
 }

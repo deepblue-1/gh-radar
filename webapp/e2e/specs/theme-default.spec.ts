@@ -106,13 +106,24 @@ test.describe('theme-color 메타 = 앱 테마(IN-06)', () => {
       await expect(meta).toHaveAttribute('content', '#17171c');
     });
 
-    test('저장값 light → #ffffff', async ({ page }) => {
+    test('저장값 light → #ffffff · 클라 내비(쿼리만 바뀜) 뒤에도 유지', async ({ page }) => {
       await page.addInitScript(() => {
         localStorage.setItem('theme', 'light');
       });
       await page.goto('/login');
       await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
       const meta = page.locator(THEME_COLOR_META);
+      await expect(meta).toHaveCount(1);
+      await expect(meta).toHaveAttribute('content', '#ffffff');
+
+      // App Router 는 클라 내비마다 viewport 메타를 새로 만들어 서버 기본값(#17171c)으로 되돌린다(실측) —
+      // ThemeColorSync 가 다시 맞추지 않으면 라이트 사용자가 이동 뒤 다크 크롬을 본다.
+      await page.evaluate(() => {
+        (window as unknown as { next: { router: { push(href: string): void } } }).next.router.push(
+          '/login?error=unknown',
+        );
+      });
+      await expect(page.getByRole('alert')).toBeVisible();
       await expect(meta).toHaveCount(1);
       await expect(meta).toHaveAttribute('content', '#ffffff');
     });
