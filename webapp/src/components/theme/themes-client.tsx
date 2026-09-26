@@ -3,6 +3,14 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
+import { PageHeader } from '@/components/layout/page-header';
+import {
+  CARD,
+  PAGE_WRAP,
+  ROW_DIVIDER,
+  SECTION_COUNT,
+  SECTION_TITLE,
+} from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { useThemesQuery } from '@/hooks/use-themes-query';
@@ -24,6 +32,9 @@ import { ThemesSkeleton } from './themes-skeleton';
  *   - 출처 푸터(카피 계약)
  *
  * loading=themes-skeleton, error=role=alert 카드(카피). 모든 색은 globals.css 토큰만.
+ *
+ * quick-260926-o2u — 공용 PageHeader(뒤로가기 · 허브 하위 페이지) · 본문 900(PAGE_WRAP) · 섹션 머리
+ * (15px 제목 + 평문 개수) · 순위 목록 = 카드 한 장 + 행 사이 hairline.
  */
 
 const ERROR_MSG = '테마를 불러오지 못했습니다. 새로고침해주세요.';
@@ -88,39 +99,38 @@ export function ThemesClient() {
   };
 
   return (
-    <section aria-label="테마" className="flex flex-col gap-6">
-      {/* 헤더 */}
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-[length:var(--t-h2)] font-bold tracking-[-0.01em] text-[var(--fg)]">
-            테마
-          </h1>
-          <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-            지금 뜨는 테마 랭킹 — {SORT_LABEL}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-          <span
-            className={cn(
-              'block size-2 rounded-full',
-              isRefreshing
-                ? 'animate-ping bg-[var(--up)]'
-                : 'bg-[var(--flat)]',
-            )}
-            aria-hidden="true"
-          />
-          <span className="mono tabular-nums">최근 갱신 16:00 KST</span>
-        </div>
-      </header>
+    <section aria-label="테마" className={PAGE_WRAP}>
+      <PageHeader
+        title="테마"
+        back
+        description={<>지금 뜨는 테마 랭킹 — {SORT_LABEL}</>}
+        actions={
+          <>
+            <span
+              className={cn(
+                'block size-2 rounded-full',
+                isRefreshing
+                  ? 'animate-ping bg-[var(--up)]'
+                  : 'bg-[var(--flat)]',
+              )}
+              aria-hidden="true"
+            />
+            <span className="mono tabular-nums">최근 갱신 16:00 KST</span>
+          </>
+        }
+      />
 
       {/* 내 테마 섹션 */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[length:var(--t-h4)] font-bold text-[var(--fg)]">
+      <section aria-labelledby="themes-mine-title" className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <h2 id="themes-mine-title" className={SECTION_TITLE}>
             ⭐ 내 테마
           </h2>
+          {user && myThemes.length > 0 && (
+            <span className={SECTION_COUNT}>{myThemes.length}</span>
+          )}
           {user && (
-            <Button type="button" size="sm" onClick={openCreate}>
+            <Button type="button" size="sm" onClick={openCreate} className="ml-auto">
               ＋ 테마 만들기
             </Button>
           )}
@@ -139,23 +149,26 @@ export function ThemesClient() {
           <ThemesEmpty onCreate={openCreate} />
         ) : (
           // 내 테마도 시스템 테마와 동일한 랭킹 행(ThemeRankRow)으로 — 상위3평균 desc 정렬.
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <ul className={cn(CARD, 'm-0 list-none overflow-hidden p-0')}>
             {myThemes.map((t, i) => (
-              <li key={t.id}>
+              <li key={t.id} className={ROW_DIVIDER}>
                 <ThemeRankRow theme={t} rank={i + 1} maxAvg={myMaxAvg} />
               </li>
             ))}
           </ul>
         )}
-      </div>
+      </section>
 
       {/* 시스템 테마 랭킹 */}
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[length:var(--t-h4)] font-bold text-[var(--fg)]">
+      <section aria-labelledby="themes-system-title" className="flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <h2 id="themes-system-title" className={SECTION_TITLE}>
             시스템 테마 랭킹
           </h2>
-          <span className="text-[length:var(--t-caption)] text-[var(--muted-fg)]">
+          {!isLoading && rankedSystemThemes.length > 0 && (
+            <span className={SECTION_COUNT}>{rankedSystemThemes.length}</span>
+          )}
+          <span className="ml-auto text-[length:var(--t-caption)] text-[var(--muted-fg)]">
             ↓ {SORT_LABEL}
           </span>
         </div>
@@ -188,12 +201,13 @@ export function ThemesClient() {
         ) : (
           <ul
             className={cn(
-              'm-0 flex list-none flex-col gap-2 p-0',
+              CARD,
+              'm-0 list-none overflow-hidden p-0',
               isRefreshing && 'opacity-90 transition-opacity',
             )}
           >
             {rankedSystemThemes.map((t, i) => (
-              <li key={t.id}>
+              <li key={t.id} className={ROW_DIVIDER}>
                 <ThemeRankRow theme={t} rank={i + 1} maxAvg={maxAvg} />
               </li>
             ))}
@@ -213,7 +227,7 @@ export function ThemesClient() {
         <p className="mt-[var(--s-4)] border-t border-[var(--border-subtle)] pt-[var(--s-3)] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
           {SOURCE_FOOTER}
         </p>
-      </div>
+      </section>
 
       <ThemeEditDialog
         open={dialogOpen}

@@ -3,16 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
-import {
-  Home,
-  Layers,
-  MessageSquare,
-  Search,
-  Star,
-  TrendingUp,
-  User,
-  Zap,
-} from "lucide-react";
+import { Home, MessageSquare, Search, User, Zap } from "lucide-react";
 
 import { ExchangeTag } from "@/components/trading/exchange-tag";
 import {
@@ -37,22 +28,23 @@ import { UserSection } from "./user-section";
  * 시각 정본은 사용자 승인 목업 `16-mypage-sidebar-mockup.html` 이다 (D-24).
  *
  * 트리 (2단 + 트레이딩 3단 — Phase 18 D-03 이 트레이딩 그룹을 다시 짰다):
- *   홈 · 검색(`/search`, Phase 21 D-07) · [종목검색] 상승률 상위 / 테마 / 관심종목
+ *   홈 · 검색(`/search`, Phase 21 D-07)
  *   · [트레이딩 = `/trading` 링크] VI(가동 거래소 태그만 · 둘 다 꺼지면 없음) / 등록된 상따 전략 N개
  *   · My page · AI 애널리스트
+ *   상승률 상위 · 테마 · 관심종목은 사이드바에 없다 — `/search` 허브 타일로만 들어간다(quick-260926-o2u D1).
  *
- * ① 「종목검색」 소제목은 `<li>` 다 — **링크도 버튼도 아니다**
- *    D-16 이 「클릭 불가 · 항상 펼침 · 접기 상태 저장 없음」을 못박은 것도 있지만, 더
- *    직접적인 이유는 `app-shell.tsx` 의 모바일 drawer 자동 닫힘이다. 그 훅은 클릭 지점에서
- *    조상을 거슬러 올라가며 `A` 또는 `BUTTON[data-nav-item]` 을 만나면 닫는다. 소제목을
- *    버튼으로 만드는 순간 **그룹명을 눌렀을 뿐인데 drawer 가 닫힌다**.
- *    「트레이딩」 제목만 예외로 **링크**다(D-03) — 누르면 실제로 `/trading` 으로 이동하므로
- *    drawer 가 닫히는 것이 맞는 동작이다. 그룹은 여전히 항상 펼침이다(D-16).
+ * ① 그룹 제목은 이제 「트레이딩」(링크) 하나뿐이다
+ *    누르면 실제로 `/trading` 으로 이동하므로 drawer 가 닫히는 것이 맞는 동작이다(D-03). 그룹은 항상
+ *    펼침이다(D-16). 비링크 소제목을 다시 두게 되면 **버튼으로 만들지 말 것** — `app-shell.tsx` 의
+ *    모바일 drawer 자동 닫힘이 클릭 지점의 조상 중 `A` 또는 `BUTTON[data-nav-item]` 에서 닫으므로,
+ *    그룹명을 눌렀을 뿐인데 drawer 가 닫힌다. 그때는 `<li>` + 시각 스타일만 쓴다.
  *
  * ② 활성 판정은 **정확 일치**다 (접두 일치가 아니다)
  *    `/trading` 의 활성 표시는 제목 **하나**가 받는다. 3단 항목(VI 0~1 · 전략 N)은 모두 같은
  *    작업대를 가리키므로 활성 표시를 받지 않는다 — 여러 줄이 함께 켜지면 「지금 어디」가
  *    사라진다. `usePathname()` 은 쿼리를 싣지 않으므로 `/trading?focus=…` 에서도 제목이 켜진다.
+ *    예외: 검색 허브 하위(상승률 상위 · 테마 · 관심종목 + 테마 상세)에서는 「검색」이 켜진다 — 앱 탭바가
+ *    검색 탭을 켜는 것과 같다(`isSearchHubPath` · quick-260926-o2u D1).
  *
  * ③ 전략 키는 `encodeURIComponent` 로 인코딩한다
  *    키가 `{ISIN}:{accountNo}:{exchange}` 라 `:` 를 품는다. `?focus=` 쿼리 값으로 옮길 때도
@@ -76,7 +68,7 @@ import { UserSection } from "./user-section";
 
 type NavIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
 
-/** 링크 1건. 소제목은 이 모양을 쓰지 않는다(링크가 아니므로). */
+/** 링크 1건. */
 interface NavLeaf {
   href: string;
   label: string;
@@ -87,17 +79,13 @@ const NAV_HOME: NavLeaf = { href: "/", label: "홈", icon: Home };
 
 /**
  * `/search` 탐색 허브 (Phase 21 D-07 · D-07a) — 앱 「검색」 탭과 같은 목적지. 홈 바로 아래 단독 링크다.
- * 아래 「종목검색」 그룹 3항목은 그대로 둔다(사이드바 재편은 Deferred).
+ * 로그인·매핑과 무관하게 **항상** 보인다(N4). 허브 하위 페이지는 사이드바 링크가 없고 이 항목이 켜진다
+ * (quick-260926-o2u D1 · 아래 `isSearchHubPath`).
  */
 const NAV_SEARCH_PAGE: NavLeaf = { href: "/search", label: "검색", icon: Search };
 
-/** 「종목검색」 그룹 — 로그인·매핑과 무관하게 **항상** 보인다(N4). */
-const NAV_SEARCH_GROUP: NavLeaf[] = [
-  // D-15: `/scanner` 라벨만 「상승률 상위」로 바뀌고 URL 은 그대로다.
-  { href: "/scanner", label: "상승률 상위", icon: TrendingUp },
-  { href: "/themes", label: "테마", icon: Layers },
-  { href: "/watchlist", label: "관심종목", icon: Star },
-];
+/** 「검색」을 켜는 허브 하위 경로(정확 일치) — 허브 타일 3개의 목적지. */
+const SEARCH_HUB_PATHS: readonly string[] = ["/search", "/scanner", "/themes", "/watchlist"];
 
 /** 「트레이딩」 그룹 제목 = `/trading` 작업대 링크 (D-03). 개별 「상따」·「VI」 메뉴는 없다. */
 const NAV_TRADING: NavLeaf = { href: "/trading", label: "트레이딩", icon: Zap };
@@ -154,6 +142,14 @@ function samePath(pathname: string, href: string): boolean {
   }
 }
 
+/**
+ * 「검색」 활성 판정 — 허브와 그 하위(상승률 상위 · 테마 · 관심종목)는 정확 일치, 테마 상세만 접두 일치
+ * (quick-260926-o2u D1). `/scanner/detail` 같은 다른 하위 경로는 켜지 않는다(위 ②).
+ */
+function isSearchHubPath(pathname: string): boolean {
+  return SEARCH_HUB_PATHS.some((href) => samePath(pathname, href)) || pathname.startsWith("/themes/");
+}
+
 const LINK_BASE =
   "flex items-center gap-2 rounded-[var(--r)] px-3 py-2 text-[length:var(--t-sm)]";
 const LINK_IDLE =
@@ -191,11 +187,10 @@ function NavLink({
 }
 
 /**
- * 그룹 소제목. 기본은 `<li>` + 시각 스타일만 — 링크·버튼으로 만들지 않는다(위 ①).
- * `item` 을 주면 **링크로 승격**한다(「트레이딩」 → `/trading`, D-03).
+ * 그룹 제목 링크(「트레이딩」 → `/trading`, D-03). 비링크 소제목이 필요해지면 위 ① 을 따른다.
  *
  * ★ 글꼴은 다른 메뉴와 **같은 14px**(`--t-sm`)이다 (260912-k2x). 11px 하드코딩이던 시절에는
- *   「종목검색」·「트레이딩」만 메뉴보다 작아 사이드바 안에서 혼자 다른 축을 썼다.
+ *   그룹 제목만 메뉴보다 작아 사이드바 안에서 혼자 다른 축을 썼다.
  * ★ `font-semibold` 는 링크일 때도 **그대로 둔다** — 제목이 링크가 돼도 그룹 제목이라는 위계는
  *   남아야 한다. 링크 쪽 색·활성 표시는 `NavLink` 와 같은 `LINK_ACTIVE`/`LINK_IDLE` 조합이다.
  */
@@ -207,32 +202,24 @@ function GroupHeading({
 }: {
   label: string;
   icon: NavIcon;
-  item?: NavLeaf;
+  item: NavLeaf;
   active?: boolean;
 }) {
-  if (item !== undefined) {
-    return (
-      <li>
-        <Link
-          href={item.href}
-          aria-current={active ? "page" : undefined}
-          data-nav-item
-          className={cn(
-            LINK_BASE,
-            "font-semibold tracking-[0.02em]",
-            active ? LINK_ACTIVE : LINK_IDLE,
-          )}
-        >
-          <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-        </Link>
-      </li>
-    );
-  }
   return (
-    <li className="flex items-center gap-2 px-3 pt-2 pb-1 text-[length:var(--t-sm)] font-semibold tracking-[0.02em] text-[var(--muted-fg)]">
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
-      {label}
+    <li>
+      <Link
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        data-nav-item
+        className={cn(
+          LINK_BASE,
+          "font-semibold tracking-[0.02em]",
+          active ? LINK_ACTIVE : LINK_IDLE,
+        )}
+      >
+        <Icon className="size-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </Link>
     </li>
   );
 }
@@ -386,18 +373,7 @@ export function AppSidebar() {
           <NavLink item={NAV_HOME} active={isActive(NAV_HOME.href)} />
         </li>
         <li>
-          <NavLink item={NAV_SEARCH_PAGE} active={isActive(NAV_SEARCH_PAGE.href)} />
-        </li>
-
-        <GroupHeading label="종목검색" icon={Search} />
-        <li>
-          <ul className={SUB_LIST}>
-            {NAV_SEARCH_GROUP.map((item) => (
-              <li key={item.href}>
-                <NavLink item={item} active={isActive(item.href)} />
-              </li>
-            ))}
-          </ul>
+          <NavLink item={NAV_SEARCH_PAGE} active={isSearchHubPath(pathname)} />
         </li>
 
         {tradingVisible && (

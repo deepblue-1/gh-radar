@@ -71,20 +71,12 @@ const LED_TONES: readonly (readonly string[])[] = [
 ];
 
 /**
- * 전략 항목을 뺀 링크 8개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
- * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다(「종목검색」 그룹 3항목은 그대로).
+ * 전략 항목을 뺀 링크 5개 — **순서까지** 계약이다. 「트레이딩」은 이제 소제목이 아니라 링크다.
+ * 「검색」(`/search`)은 Phase 21 D-07 이 홈 바로 아래에 더한 단독 링크다. 검색 허브 하위 3페이지는
+ * 사이드바에서 빠지고 허브 타일로만 들어간다(quick-260926-o2u D1).
  * 전략 3건은 「트레이딩」과 「My page」 사이에 선다(VI 미가동 — VI 줄 없음).
  */
-const TREE_LINKS = [
-  '홈',
-  '검색',
-  '상승률 상위',
-  '테마',
-  '관심종목',
-  '트레이딩',
-  'My page',
-  'AI 애널리스트',
-];
+const TREE_LINKS = ['홈', '검색', '트레이딩', 'My page', 'AI 애널리스트'];
 
 // ---------------------------------------------------------------------------
 // 조회구 — 트리를 반드시 좁힌다 (위 ④)
@@ -163,11 +155,11 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
 
     // 링크 순서가 계약대로다 — 전략 3건은 트레이딩과 My page 사이.
     expect(await linkOrder(nav)).toEqual([
-      ...TREE_LINKS.slice(0, 6),
+      ...TREE_LINKS.slice(0, 3),
       'strategy',
       'strategy',
       'strategy',
-      ...TREE_LINKS.slice(6),
+      ...TREE_LINKS.slice(3),
     ]);
     // 개별 「상따」·옛 `/trading/vi` 메뉴는 사라졌다(D-03 · D-08).
     await expect(nav.getByRole('link', { name: '상따', exact: true })).toHaveCount(0);
@@ -273,7 +265,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
 
     // 공개 항목은 그대로다.
     await expect(nav.getByRole('link', { name: '홈' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: '상승률 상위' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: '검색', exact: true })).toBeVisible();
   });
 
   test('2b. 매핑 없음 — /trading · 옛 경로(리다이렉트) · /me 직접 진입이 전부 게이트로 막힌다 (T-16-04)', async ({
@@ -332,7 +324,7 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     await context.close();
   });
 
-  test('4. 모바일 390 — drawer 가 같은 트리를 쓰고, 3단 링크는 닫고 소제목은 닫지 않는다', async ({
+  test('4. 모바일 390 — drawer 가 같은 트리를 쓰고, 3단 링크를 누르면 닫힌다', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -346,20 +338,14 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     const nav = drawerNav(page);
     await waitForTradingGroup(nav);
 
-    // 같은 트리다 — 링크 8개 + 전략 3건.
+    // 같은 트리다 — 링크 5개 + 전략 3건.
     await expect(strategyItems(nav)).toHaveCount(3, { timeout: 15_000 });
     await expect(nav.getByRole('link')).toHaveCount(TREE_LINKS.length + CHASERS.length);
 
     /*
-      「종목검색」 소제목 클릭으로는 닫히지 않는다(링크가 아니므로 자동 닫힘 순회에 걸리지 않는다).
-      ★ 「트레이딩」은 이제 **링크**라 이 대조에 쓰지 않는다 — 누르면 이동하고 닫히는 것이 맞다.
-      ★ `toBeVisible()` 로 단언하지 않는다 — Radix 는 닫힐 때 exit 애니메이션 동안 노드를 남긴다.
-        `data-state` 는 클릭 즉시 바뀌므로 애니메이션과 무관하게 정확하다.
+      예전에는 비링크 소제목 클릭으로 drawer 가 닫히지 않는 것을 대조했다 — 그 소제목이 트리에서
+      사라져(quick-260926-o2u D1) 대조 대상이 없다. 「트레이딩」은 **링크**라 대조에 쓰지 않는다.
     */
-    const sheet = page.locator('[data-slot="sheet-content"]');
-    await nav.getByText('종목검색', { exact: true }).click();
-    await expect(sheet).toHaveAttribute('data-state', 'open');
-
     // 3단 전략 링크 클릭 → drawer 가 닫히고 `?focus=` 로 이동한다.
     await strategyItems(nav).nth(0).click();
     await expect(page.locator('[data-slot="sheet-content"]')).toHaveCount(0);
@@ -368,21 +354,23 @@ test.describe('Phase 16 Plan 11 · Phase 18 — 사이드바 트리 (로컬 rela
     );
   });
 
-  test('5. `/scanner` 링크 라벨은 「상승률 상위」이고 URL 은 그대로다 (D-15)', async ({
+  test('5. 허브 하위 페이지(/scanner)에서 「검색」이 켜지고 그룹 링크는 없다 (quick-260926-o2u D1)', async ({
     page,
   }) => {
-    await page.goto('/trading');
+    await page.goto('/scanner');
     const nav = desktopNav(page);
-    const link = nav.getByRole('link', { name: '상승률 상위' });
 
-    await expect(link).toBeVisible({ timeout: 15_000 });
-    await expect(link).toHaveAttribute('href', '/scanner');
-
-    await link.click();
-    await expect(page).toHaveURL(/\/scanner$/);
-    // 이동한 화면의 제목도 같은 라벨을 쓴다(표면 간 문구 통일).
+    await expect(nav.getByRole('link', { name: '검색', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+      { timeout: 15_000 },
+    );
+    await expect(nav.getByText('종목검색')).toHaveCount(0);
+    for (const name of ['상승률 상위', '테마', '관심종목']) {
+      await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
+    }
     await expect(
-      page.getByRole('heading', { name: '상승률 상위', level: 1 }),
+      page.locator('main').getByRole('heading', { name: '상승률 상위', level: 1 }),
     ).toBeVisible({ timeout: 15_000 });
   });
 });

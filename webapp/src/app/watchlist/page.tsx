@@ -11,7 +11,8 @@ import { WatchlistClient } from '@/components/watchlist/watchlist-client';
  * 이 페이지는 세션이 있는 상태에서만 도달한다 (Plan 03 게이트).
  *
  * AppShell + AppSidebar 를 두르고 WatchlistClient 에서 모든 데이터/폴링/렌더 책임을
- * 맡는다. 사이드바의 "관심종목" 링크가 `aria-current="page"` 로 active 상태가 된다.
+ * 맡는다. 진입은 `/search` 허브 타일이고, 사이드바는 「검색」이 `aria-current="page"` 로 켜진다
+ * (quick-260926-o2u D1).
  */
 export default function WatchlistPage() {
   return (

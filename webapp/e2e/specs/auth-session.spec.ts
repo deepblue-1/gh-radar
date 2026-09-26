@@ -33,10 +33,16 @@ test.describe("auth — 로그인된 사용자", () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
-  test("AppSidebar 주 메뉴: 상승률 상위 + 관심종목 링크 노출", async ({ page }) => {
+  test("AppSidebar 주 메뉴: 검색 링크 노출 · /scanner 에서 활성, 허브 하위 링크 없음 (quick-260926-o2u D1)", async ({
+    page,
+  }) => {
     await page.goto("/scanner");
-    await expect(page.getByRole("link", { name: /상승률 상위/ })).toBeVisible();
-    await expect(page.getByRole("link", { name: /관심종목/ })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "주 메뉴" }).first();
+    const search = nav.getByRole("link", { name: "검색", exact: true });
+    await expect(search).toBeVisible();
+    await expect(search).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: /상승률 상위/ })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: /관심종목/ })).toHaveCount(0);
   });
 
   test("UserSection 팝오버: 트리거 클릭 → 로그아웃 버튼 노출", async ({

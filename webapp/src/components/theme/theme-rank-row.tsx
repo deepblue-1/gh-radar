@@ -17,6 +17,8 @@ import { ThemeSourceBadges } from './theme-source-badge';
  * 모바일(<sm): 강도 막대 열을 숨겨 `34px 1fr auto` 3열 — 좁은 화면에서 막대가 테마명을
  *   밀어 잘리던 문제 해소(평균값만으로 강도 전달). 막대는 sm 이상에서만 표시.
  * 행 전체가 `/themes/[id]` Link (전역 double-ring focus 로 키보드 포커스 가능).
+ * 카드 한 장 안의 행이다(quick-260926-o2u D4) — 행 자체에는 테두리·면·모서리가 없고, 목록 카드가
+ *   overflow-hidden 이라 전역 바깥 링이 잘리므로 `--focus-outline-offset` 을 음수로 줘 링을 행 안쪽에 그린다.
  *
  * 모든 색은 globals.css 토큰만 사용 — 신규 토큰/하드코딩 금지.
  */
@@ -54,8 +56,8 @@ function ThemeRankRowBase({ theme, rank, maxAvg }: ThemeRankRowProps) {
       aria-label={`${theme.name} 테마 상세 보기`}
       className={cn(
         'grid grid-cols-[34px_1fr_auto] items-center gap-[var(--s-4)] sm:grid-cols-[34px_1.1fr_1fr_auto]',
-        'rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-[var(--s-4)] py-[var(--s-3)]',
-        'transition-colors hover:border-[color-mix(in_oklch,var(--primary)_30%,var(--border))]',
+        'px-[var(--s-4)] py-[var(--s-3)]',
+        'transition-colors hover:bg-[color-mix(in_oklch,var(--muted)_60%,transparent)] [--focus-outline-offset:-2px]',
       )}
     >
       {/* 순위 */}

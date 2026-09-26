@@ -252,6 +252,46 @@ describe('ThemesClient — 변형 C 랭킹', () => {
     for (const b of bars) expect(b.style.width).toBe('100%');
   });
 
+  it('quick-260926-o2u D4 — 시스템 랭킹은 카드 한 장(rounded 16 · card 면 · overflow-hidden) 안의 hairline 행이다', () => {
+    setQuery({
+      myThemes: [],
+      systemThemes: [sysTheme('s1', '초전도체', 18.4), sysTheme('s2', '이재명(정치)', 14.2)],
+    });
+    render(<ThemesClient />);
+
+    const list = screen.getByRole('list');
+    expect(list.className).toContain('rounded-[16px]');
+    expect(list.className).toContain('bg-[var(--card)]');
+    expect(list.className).toContain('overflow-hidden');
+    for (const li of within(list).getAllByRole('listitem')) {
+      expect(li.className).toContain('[&+&]:border-t');
+      expect(within(li).getByRole('link').className).not.toContain('border-[var(--border)]');
+    }
+  });
+
+  it('quick-260926-o2u D2·D4 — 섹션 제목 15px + 평문 개수(faint) · 뒤로가기 버튼', () => {
+    setQuery({
+      myThemes: [],
+      systemThemes: [
+        sysTheme('s1', '초전도체', 18.4),
+        sysTheme('s2', '이재명(정치)', 14.2),
+        sysTheme('s3', '한동훈(정치)', -2.4),
+      ],
+    });
+    render(<ThemesClient />);
+
+    const h2 = screen.getByRole('heading', { level: 2, name: '시스템 테마 랭킹' });
+    expect(h2.className).toContain('text-[15px]');
+    const count = h2.nextElementSibling as HTMLElement | null;
+    expect(count).not.toBeNull();
+    expect(count!.tagName).toBe('SPAN');
+    expect(count!.className).toContain('text-[var(--faint)]');
+    expect(count!).toHaveTextContent(
+      String(within(screen.getByRole('list')).getAllByRole('listitem').length),
+    );
+    expect(screen.getByRole('button', { name: '뒤로가기' })).toBeInTheDocument();
+  });
+
   it('강도 막대 색: 양수 평균은 --up, 음수 평균은 --down', () => {
     setQuery({
       systemThemes: [

@@ -167,6 +167,28 @@ test.describe('Phase 21 — /search 탐색 허브 (MOBILE-01g)', () => {
     await expect(page).toHaveURL(/\/search$/);
   });
 
+  test('1280 — 허브 하위(/scanner · /themes · /watchlist)에서 사이드바 「검색」 활성 · 뒤로가기 · 본문 ≤ 900 (quick-260926-o2u D1·D2·D3)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (const path of ['/scanner', '/themes', '/watchlist']) {
+      await page.goto(path);
+      const nav = page.getByRole('navigation', { name: '주 메뉴' }).first();
+      await expect(nav.getByRole('link', { name: '검색', exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      for (const name of ['상승률 상위', '테마', '관심종목']) {
+        await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0);
+      }
+      const main = mainArea(page);
+      await expect(main.getByRole('button', { name: '뒤로가기' })).toBeVisible();
+      const box = await main.locator('[data-slot="page-header"]').boundingBox();
+      expect(box, path).not.toBeNull();
+      expect(box!.width, path).toBeLessThanOrEqual(900);
+    }
+  });
+
   test('앱 모드 390 — 같은 페이지 렌더 · route {path:/search}', async ({ page }) => {
     await installNativeApp(page, { platform: 'ios' });
     await page.setViewportSize({ width: 390, height: 844 });

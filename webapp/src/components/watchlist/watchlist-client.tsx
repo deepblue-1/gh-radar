@@ -1,5 +1,7 @@
 'use client';
 
+import { PageHeader } from '@/components/layout/page-header';
+import { PAGE_WRAP } from '@/components/layout/page-layout';
 import { InfoStockCard } from '@/components/stock/info-stock-card';
 import { useWatchlistQuery } from '@/hooks/use-watchlist-query';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
@@ -19,6 +21,7 @@ import { WatchlistToggle } from './watchlist-toggle';
  * - `lg+` WatchlistTable / `<lg` InfoStockCard 분기 (Scanner duality 와 동형)
  * - 상태 분기: loading skeleton / error alert / empty state / Table + Card
  * - 페이지 헤더 우측에 "최근 갱신 HH:MM:SS KST" + LIVE 링 (Scanner 헤더와 동일 스타일)
+ * - quick-260926-o2u: 공용 PageHeader(뒤로가기 — 검색 허브 하위) · 본문 900(PAGE_WRAP). 표·카드 리스트는 그대로.
  *
  * Plan 07 연결점:
  * - InfoStockCard 에 `showWatchlistToggle` + `watchlistToggleSlot` 주입은 이 컴포넌트가
@@ -67,28 +70,25 @@ export function WatchlistClient() {
   const fmtTime = formatKstTime(lastUpdatedAt);
 
   return (
-    <section aria-label="관심종목" className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-[length:var(--t-h3)] font-semibold tracking-[-0.01em] text-[var(--fg)]">
-            관심종목
-          </h1>
-          <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-            {POLLING_DESC}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-          <span
-            className={
-              isRefreshing
-                ? 'block size-2 rounded-full bg-[var(--up)] animate-ping'
-                : 'block size-2 rounded-full bg-[var(--flat)]'
-            }
-            aria-hidden="true"
-          />
-          <span className="mono tabular-nums">최근 갱신 {fmtTime} KST</span>
-        </div>
-      </header>
+    <section aria-label="관심종목" className={PAGE_WRAP}>
+      <PageHeader
+        title="관심종목"
+        back
+        description={POLLING_DESC}
+        actions={
+          <>
+            <span
+              className={
+                isRefreshing
+                  ? 'block size-2 rounded-full bg-[var(--up)] animate-ping'
+                  : 'block size-2 rounded-full bg-[var(--flat)]'
+              }
+              aria-hidden="true"
+            />
+            <span className="mono tabular-nums">최근 갱신 {fmtTime} KST</span>
+          </>
+        }
+      />
 
       {isLoading ? (
         <WatchlistSkeleton />

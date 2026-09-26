@@ -8,7 +8,8 @@ import type { RelayLimitChaser, RelayViTrigger } from "@gh-radar/shared";
  * 「트레이딩」 그룹을 다시 짰다.
  *
  * 이 파일이 잠그는 것은 **구조와 조건**이지 픽셀이 아니다:
- *  ① 「종목검색」 소제목은 링크·버튼이 **아니다** (drawer 자동 닫힘 회귀 방지)
+ *  ① 검색 허브 하위 3링크(`/scanner`·`/themes`·`/watchlist`)는 사이드바에 없다 — `/search` 허브 타일로만
+ *     들어가고, 그 페이지들(+ 테마 상세)에서는 「검색」이 켜진다 (quick-260926-o2u D1)
  *  ①' 「트레이딩」 제목은 `/trading` **링크**이고 `?focus=` 가 붙어도 활성이다 (D-03)
  *  ② 로그인 + `ready` 일 때만 트레이딩·My page 가 **DOM 에 존재**한다
  *  ③ 비로그인 / `unauthorized` / 연결 중에는 **렌더되지 않는다**(숨김 아님)
@@ -270,19 +271,14 @@ function viTagExchanges(): (string | null)[] {
 }
 
 describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
-  it("① 「종목검색」 소제목은 <li> 이고 링크·버튼이 아니다", () => {
+  it("① 검색 허브 하위 그룹이 없다 — 그룹명 텍스트 없음 · 세 href 링크 0개 (quick-260926-o2u D1)", () => {
     setupReady();
-    render(<AppSidebar />);
+    const { container } = render(<AppSidebar />);
 
-    const heading = screen.getByText("종목검색");
-    expect(heading.tagName).toBe("LI");
-    // drawer 자동 닫힘 순회가 A / BUTTON[data-nav-item] 을 잡기 때문이다.
-    expect(heading.closest("a")).toBeNull();
-    expect(heading.closest("button")).toBeNull();
-    expect(heading.querySelector("a")).toBeNull();
-    expect(heading.querySelector("button")).toBeNull();
-    expect(heading.hasAttribute("data-nav-item")).toBe(false);
-    expect(screen.queryByRole("link", { name: "종목검색" })).toBeNull();
+    expect(screen.queryByText("종목검색")).toBeNull();
+    for (const href of ["/scanner", "/themes", "/watchlist"]) {
+      expect(container.querySelectorAll(`nav a[href="${href}"]`)).toHaveLength(0);
+    }
   });
 
   it("①' 「트레이딩」 제목은 `/trading` 링크이고 `/trading` 에서 활성이다", () => {
@@ -321,12 +317,12 @@ describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
     expect(active.className).toContain("bg-[var(--nav-on-bg)]");
     expect(active.className).toContain("text-[var(--nav-on-fg)]");
 
-    const idle = screen.getByRole("link", { name: "상승률 상위" });
+    const idle = screen.getByRole("link", { name: "홈" });
     expect(idle).not.toHaveAttribute("aria-current");
     expect(idle.className).not.toContain("bg-[var(--nav-on-bg)]");
   });
 
-  it("21-08 D-07 — 「홈」 바로 다음 항목이 「검색」(`/search`) 링크이고 「종목검색」 그룹 3항목은 그대로다", () => {
+  it("21-08 D-07 · quick-260926-o2u D1 — 「홈」 다음 「검색」(`/search`), 그다음 「트레이딩」 제목 링크다", () => {
     setupReady();
     render(<AppSidebar />);
 
@@ -337,10 +333,9 @@ describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
     const searchLink = within(topItems[1] as HTMLElement).getByRole("link", { name: "검색" });
     expect(searchLink).toHaveAttribute("href", "/search");
     expect(searchLink.hasAttribute("data-nav-item")).toBe(true);
-    // 그 다음이 「종목검색」 소제목 — 그룹 3항목·순서 무변경
-    expect(topItems[2]).toHaveTextContent("종목검색");
-    const group = within(topItems[3] as HTMLElement).getAllByRole("link");
-    expect(group.map((a) => a.getAttribute("href"))).toEqual(["/scanner", "/themes", "/watchlist"]);
+    // 그 다음이 「트레이딩」 제목 링크 — 허브 하위 그룹은 없다
+    const trading = within(topItems[2] as HTMLElement).getByRole("link", { name: "트레이딩" });
+    expect(trading).toHaveAttribute("href", "/trading");
   });
 
   it("21-08 D-07 — `/search` 에서 「검색」이 활성(aria-current + 선택 토큰)이고 홈은 비활성이다", () => {
@@ -355,16 +350,33 @@ describe("AppSidebar — 트리 구조 (N1/N2 · D-03)", () => {
     expect(screen.getByRole("link", { name: "홈" })).not.toHaveAttribute("aria-current");
   });
 
-  it("`/scanner` 항목 라벨이 「상승률 상위」이고 URL 은 그대로다 (D-15)", () => {
-    setupReady();
-    render(<AppSidebar />);
+  // quick-260926-o2u D1 — 검색 허브와 그 하위(상승률 상위·테마·관심종목 + 테마 상세)에서 「검색」이 켜진다.
+  // (구 라벨 문자열을 이 파일에 적지 않는다: 「전 표면에서 0건」을 grep 으로 검사하기 때문.)
+  it.each(["/search", "/scanner", "/themes", "/themes/abc-123", "/watchlist"])(
+    "`%s` 에서 「검색」이 활성(aria-current + 선택 토큰)이다",
+    (path) => {
+      mockPathname = path;
+      setupReady();
+      render(<AppSidebar />);
 
-    const link = screen.getByRole("link", { name: "상승률 상위" });
-    expect(link).toHaveAttribute("href", "/scanner");
-    // 접근가능 이름이 **정확히** 새 라벨이어야 한다 — 구 라벨이 남아 있으면 여기서 깨진다.
-    // (구 라벨 문자열을 이 파일에 적지 않는다: 「전 표면에서 0건」을 grep 으로 검사하기 때문.)
-    expect(link).toHaveAccessibleName("상승률 상위");
-  });
+      const link = screen.getByRole("link", { name: "검색" });
+      expect(link).toHaveAttribute("aria-current", "page");
+      expect(link.className).toContain("bg-[var(--nav-on-bg)]");
+    },
+  );
+
+  it.each(["/", "/scanner/detail", "/stocks/005930", "/chat"])(
+    "`%s` 에서는 「검색」이 활성이 아니다",
+    (path) => {
+      mockPathname = path;
+      setupReady();
+      render(<AppSidebar />);
+
+      const link = screen.getByRole("link", { name: "검색" });
+      expect(link).not.toHaveAttribute("aria-current");
+      expect(link.className).not.toContain("bg-[var(--nav-on-bg)]");
+    },
+  );
 });
 
 describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
@@ -386,7 +398,7 @@ describe("AppSidebar — 조건부 숨김 (N4/D-19)", () => {
     expect(screen.queryByRole("link", { name: /VI/ })).toBeNull();
     // 공개 항목은 그대로 보인다.
     expect(screen.getByRole("link", { name: "홈" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "상승률 상위" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "검색" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI 애널리스트" })).toBeInTheDocument();
   });
 
@@ -696,12 +708,13 @@ describe("AppSidebar — 3단 목록 (D-03 · E16)", () => {
 });
 
 describe("AppSidebar — 활성 표시 · drawer 계약", () => {
-  it("기존 정확 일치 동작이 유지된다 — `/scanner` 하위 경로가 「상승률 상위」를 켜지 않는다", () => {
+  it("기존 정확 일치 동작이 유지된다 — `/scanner` 하위 경로는 「검색」도 「홈」도 켜지 않는다", () => {
     mockPathname = "/scanner/detail";
     setupReady();
     render(<AppSidebar />);
 
-    expect(screen.getByRole("link", { name: "상승률 상위" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "검색" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "홈" })).not.toHaveAttribute("aria-current");
   });
 
   it("⑥ 모든 링크에 data-nav-item 이 붙어 있다 (drawer 자동 닫힘 계약)", () => {
