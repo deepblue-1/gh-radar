@@ -179,7 +179,7 @@ test.describe('Phase 21 — 브라우저 모드 회귀', () => {
  * Phase 21 Plan 06 — safe-area · 네이티브 탭바 여백 (MOBILE-01j 2부 · D-25 · D-27b — 21-20 개정).
  *
  * 무엇을 증명하는가 / 깨지면 사용자가 겪는 일
- *   - 앱에서 네이티브 탭바(높이 60 · 바닥 = 화면 끝에서 max(inset − 14, 14))가 종목상세 「주문하기」 CTA 와
+ *   - 앱에서 네이티브 탭바(높이 60 · 바닥 = 화면 끝에서 max(inset − 14, 14))가 종목상세 「트레이딩」 CTA(D-30 — 옛 「주문하기」 · data-slot 그대로)와
  *     본문 끝을 가리지 않는다. 깨지면 앱에서 주문 진입이 막히거나 마지막 콘텐츠가 탭바 밑에 묻힌다(T-21-30).
  *   - 브라우저는 종전 그대로(CTA 바닥 0 · 하단 20 · 예약 96 · 본문 하단 8). 깨지면 웹 화면이 앱 여백에 오염된다.
  *
@@ -235,6 +235,9 @@ test.describe('Phase 21 — safe-area · 탭바 여백 (D-25 · D-27b)', () => {
     expect(await computed(page, '[data-slot="detail-order-cta-bar"]', 'paddingBottom')).toBe('10px');
     expect(await computed(page, '[data-order-cta="true"]', 'paddingBottom')).toBe('76px');
     expect(await computed(page, 'main', 'paddingBottom')).toBe('98px');
+
+    // D-30 — 라벨만 「트레이딩」(링크 /trading?code=). 자리·수치는 그대로다.
+    await expect(page.locator('[data-slot="detail-order-cta"]')).toHaveText('트레이딩');
 
     // 탭바 윗변(화면 끝에서 14 + 60 = 74) 위에 CTA 버튼 전체가 선다.
     const box = await page.locator('[data-slot="detail-order-cta"]').boundingBox();

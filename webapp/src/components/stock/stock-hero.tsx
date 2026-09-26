@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import type { Stock } from '@gh-radar/shared';
@@ -10,6 +11,11 @@ import { useChat } from '@/components/chat/chat-provider';
 
 export interface StockHeroProps {
   stock: Stock;
+  /**
+   * 매매 가능 종목인가(Phase 21 D-30 — `isPickable`). true 일 때만 넓은 폭(≥768) 「트레이딩」 알약이 선다.
+   * 기본 false — 판정을 모르는 소비처가 매매 불가 종목에 버튼을 띄우지 않게(T-21-93).
+   */
+  tradable?: boolean;
 }
 
 /**
@@ -28,8 +34,12 @@ export interface StockHeroProps {
  * `<Number format="percent">` 는 소수 (0.0325 = 3.25%) 를 기대하므로 /100 로 변환.
  *
  * Phase 21 D-10 — 앱(`html.native-app`)에서만 첫 줄 끝에 「AI 분석」 버튼이 보인다(FAB 대체 · 기존 ChatSheet 를 이 종목 컨텍스트로 연다).
+ *
+ * Phase 21 D-30 (스케치 008 ② A) — 넓은 폭(≥768)에서 첫 줄 끝에 「트레이딩」 알약(32 · 13/600 · `--up` 채움 ·
+ * 흰 글자)이 선다. 누르면 `/trading?code={code}` — 그 종목 카드에 도착한다. 폰(<768)은 하단 CTA 바
+ * (`stock-detail-tabs.tsx`)가 같은 링크를 맡는다. 매매 불가 종목(`tradable` false)은 버튼이 없다.
  */
-export function StockHero({ stock }: StockHeroProps) {
+export function StockHero({ stock, tradable = false }: StockHeroProps) {
   const priceValid = Number.isFinite(stock.price) && stock.price > 0;
   const changeRateDecimal = stock.changeRate / 100;
   const router = useRouter();
@@ -78,6 +88,20 @@ export function StockHero({ stock }: StockHeroProps) {
           <Sparkles size={14} aria-hidden="true" />
           AI 분석
         </button>
+        {/*
+          D-30 · 스케치 008 ② A — 넓은 폭 「트레이딩」 알약. `hidden md:inline-flex` — 폰은 하단 CTA 바가 맡는다.
+          브라우저는 이 알약이 `ml-auto` 로 줄 끝에 서고, 앱(iPad)은 「AI 분석」이 `ml-auto` 를 가지므로
+          `native:ml-0` 으로 그 옆에 나란히 붙는다(두 알약 공존 · 긴 종목명이면 줄바꿈 허용 — 위 flex-wrap).
+        */}
+        {tradable && (
+          <Link
+            data-slot="detail-trading-button"
+            href={`/trading?code=${encodeURIComponent(stock.code)}`}
+            className="ml-auto hidden h-8 shrink-0 items-center rounded-full bg-[var(--up)] px-3.5 text-[13px] font-semibold text-white focus-visible:ring-2 focus-visible:ring-[var(--ring)] md:inline-flex native:ml-0"
+          >
+            트레이딩
+          </Link>
+        )}
       </div>
 
       <div className="flex flex-wrap items-baseline gap-2.5">

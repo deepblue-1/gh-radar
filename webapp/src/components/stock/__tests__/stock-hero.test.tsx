@@ -75,4 +75,22 @@ describe('StockHero', () => {
     // 타이포 교정 — extrabold(800) 금지
     expect(priceEl.className).not.toContain('font-extrabold');
   });
+
+  it('Test 4 — D-30 · 스케치 008 ② A: tradable 이면 넓은 폭 「트레이딩」 알약이 /trading?code= 링크 (폰은 숨김)', () => {
+    render(<StockHero stock={FIXTURE_SAMSUNG} tradable />);
+    const link = screen.getByRole('link', { name: '트레이딩' });
+    expect(link).toHaveAttribute('data-slot', 'detail-trading-button');
+    expect(link).toHaveAttribute('href', '/trading?code=005930');
+    // 32 알약 · --up 채움 · 폰(<768)에서는 숨는다(하단 CTA 바가 맡는다).
+    expect(link.className).toContain('h-8');
+    expect(link.className).toContain('rounded-full');
+    expect(link.className).toContain('bg-[var(--up)]');
+    expect(link.className).toContain('hidden');
+    expect(link.className).toContain('md:inline-flex');
+  });
+
+  it('Test 5 — 매매 불가(tradable 기본 false)면 「트레이딩」 알약이 없다 (T-21-93)', () => {
+    const { container } = render(<StockHero stock={FIXTURE_SAMSUNG} />);
+    expect(container.querySelector('[data-slot="detail-trading-button"]')).toBeNull();
+  });
 });

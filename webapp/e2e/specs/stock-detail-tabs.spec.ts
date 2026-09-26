@@ -3,6 +3,8 @@ import { mockStockApi } from '../fixtures/mock-api';
 import { mockNewsApi, buildNewsList } from '../fixtures/news';
 import { mockDiscussionsApi, buildDiscussionList } from '../fixtures/discussions';
 import { mockThemeChips } from '../fixtures/themes';
+import { FIXTURE_NULL_PRICE } from '../fixtures/stocks';
+import { E2E_ISIN, withLocalRelay, type LocalRelay } from '../fixtures/relay';
 
 /**
  * Phase 15 Plan 11 — 종목상세 4탭 재구성 회귀 E2E (RELAY-01 · D-02a · UI-SPEC T1~T7).
@@ -306,5 +308,97 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
     await page.waitForTimeout(1_000);
     // 재방문은 재마운트가 아니므로 상한가 섹션이 다시 부르지 않는다.
     expect(limitUpRequests).toHaveLength(afterFirstOpen);
+  });
+});
+
+/**
+ * Phase 21 G-21-R3-9 (D-30) — 종목상세 「트레이딩」 → `/trading?code=` 착지.
+ *
+ * 폰(390)은 하단 CTA 바(`detail-order-cta` — 「주문하기」 시절 data-slot 그대로), 넓은 폭(1280)은 히어로 첫 줄 끝
+ * 알약(`detail-trading-button` · 스케치 008 ② A)이 같은 링크를 맡는다. 누르면 작업대가 그 종목 카드를 보장 ·
+ * 펼침한다(21-33 착지). 매매 불가 종목(isin 없음)에는 두 버튼 모두 없다(T-21-93).
+ *
+ * 작업대는 relay 인증·배치 복원 뒤에 착지하므로 이 describe 만 로컬 relay(8090 고정 · 스텁 게이트웨이)를
+ * 띄운다 — 규약은 `trading-workbench.spec.ts` ④⑤ 와 같다(실서버에 붙지 않는다).
+ */
+test.describe('Phase 21 G-21-R3-9 — 「트레이딩」 → /trading?code= (로컬 relay + 스텁 게이트웨이)', () => {
+  test.describe.configure({ mode: 'serial' });
+  let relay: LocalRelay;
+
+  test.beforeAll(async () => {
+    relay = await withLocalRelay();
+  });
+
+  test.afterAll(async () => {
+    await relay.stop();
+  });
+
+  test.beforeEach(() => {
+    relay.reset();
+  });
+
+  const tradingCard = (page: Page) =>
+    page.locator(`[data-slot="strategy-card"][data-key^="${E2E_ISIN}:"]`);
+
+  /** 작업대에 도착해 그 종목 카드가 펼쳐져 있고, 착지 파라미터(code)는 URL 에서 빠졌다. */
+  async function expectLandedOnCard(page: Page): Promise<void> {
+    await expect(page).toHaveURL(
+      (url) => url.pathname === '/trading' && !url.searchParams.has('code'),
+      { timeout: 30_000 },
+    );
+    await expect(page.locator('[data-slot="workbench-status-bar"]')).toHaveAttribute(
+      'data-status',
+      'ready',
+      { timeout: 30_000 },
+    );
+    await expect(tradingCard(page)).toHaveCount(1, { timeout: 15_000 });
+    await expect(tradingCard(page)).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+  }
+
+  test('G-21-R3-9 트레이딩 버튼 — 390 폰 하단 바 · 1280 히어로 알약 각각 누르면 /trading 에 그 종목 카드가 펼쳐져 있다, 매매 불가 종목엔 둘 다 없다 (D-30 · T-21-93)', async ({
+    page,
+  }) => {
+    await setupStockDetail(page);
+    const wideButton = page.locator('[data-slot="detail-trading-button"]');
+    const phoneCta = page.locator('[data-slot="detail-order-cta"]');
+
+    // ① 폰 390 — 하단 바 「트레이딩」(56 · --up 그대로, 라벨만 바뀜). 넓은 폭 알약은 숨는다.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/stocks/${STOCK_CODE}`);
+    await waitForHero(page);
+    await expect(phoneCta).toBeVisible();
+    await expect(phoneCta).toHaveText('트레이딩');
+    await expect(phoneCta).toHaveAttribute('href', `/trading?code=${STOCK_CODE}`);
+    await expect(wideButton).toBeHidden();
+    await phoneCta.click();
+    await expectLandedOnCard(page);
+
+    // 카드를 접어 두고 넓은 폭에서 다시 들어온다 — 착지가 다시 펼치는지를 본다.
+    // 헤더 토글 = 카드 헤더 안 `aria-expanded` 버튼 하나(trading-workbench.spec `toggleOf` 와 같은 선택자).
+    await tradingCard(page).first().locator('[data-slot="card-header"] button[aria-expanded]').click();
+    await expect(tradingCard(page)).toHaveAttribute('data-open', 'false');
+
+    // ② 넓은 폭 1280 — 히어로 첫 줄 끝 알약. 폰 바는 md:hidden.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/stocks/${STOCK_CODE}`);
+    await waitForHero(page);
+    await expect(wideButton).toBeVisible();
+    await expect(wideButton).toHaveText('트레이딩');
+    await expect(page.locator('[data-slot="detail-order-cta-bar"]')).toBeHidden();
+    await wideButton.click();
+    await expectLandedOnCard(page);
+
+    // ③ 매매 불가 종목(isin 없음) — 두 폭 모두 버튼 0, 예약 여백도 없다.
+    await mockStockApi(page, { detailByCode: { [FIXTURE_NULL_PRICE.code]: FIXTURE_NULL_PRICE } });
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/stocks/${FIXTURE_NULL_PRICE.code}`);
+      await expect(page.getByRole('heading', { name: FIXTURE_NULL_PRICE.name })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(wideButton).toHaveCount(0);
+      await expect(page.locator('[data-slot="detail-order-cta-bar"]')).toHaveCount(0);
+      await expect(page.locator('[data-order-cta="true"]')).toHaveCount(0);
+    }
   });
 });

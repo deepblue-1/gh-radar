@@ -25,6 +25,7 @@ import { StockDailyChartSection } from './stock-daily-chart-section';
 import { StockThemeChips } from '@/components/theme/theme-chips';
 import { StockComovementSection } from './stock-comovement-section';
 import { StockLimitUpSection } from './stock-limit-up-section';
+import { isPickable } from '@/components/trading/workbench/stock-add-bar';
 import { StockOrderbookSection } from './stock-orderbook-section';
 import { DetailBands } from './detail-bands';
 
@@ -146,6 +147,10 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
   // 재배치 중 보존 — 초기 로딩 스켈레톤 경로 ②
   if (!stock) return <StockDetailSkeleton />;
 
+  // Phase 21 D-30 — 「트레이딩」(폰 CTA · 넓은 폭 알약)은 매매 가능 종목에서만. 판정은 작업대 종목 추가란과
+  // 같은 한 곳(`isPickable` — KOSPI/KOSDAQ ∧ isin)이다 — 착지 쪽도 같은 함수로 다시 거른다(21-33 · T-21-93).
+  const tradable = isPickable(stock);
+
   return (
     /*
       토스 B(260924-vj1) — `data-page-surface="plain"` 이면 globals.css `main:has(...)` 가 라이트 본문면을
@@ -155,7 +160,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
     <div data-page-surface="plain">
       {/* T1 — 히어로와 갱신시각·새로고침 행은 탭 밖 공통 영역. 어느 탭에서도 보인다. */}
       <div className="pt-3.5 pb-1.5">
-        <StockHero stock={stock} />
+        <StockHero stock={stock} tradable={tradable} />
       </div>
       <div className="flex items-center justify-between gap-3 pb-2.5">
         {updatedAtLabel && (
@@ -195,6 +200,7 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
       <Suspense fallback={<StockDetailSkeleton />}>
         <StockDetailTabs
           code={stock.code}
+          tradable={tradable}
           chart={
             <DetailBands>
               <StockDailyChartSection

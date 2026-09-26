@@ -20,10 +20,11 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
-function renderTabs() {
+function renderTabs({ tradable = true }: { tradable?: boolean } = {}) {
   return render(
     <StockDetailTabs
       code="005930"
+      tradable={tradable}
       chart={<div>차트 패널</div>}
       orderbook={<div>호가주문 패널</div>}
       info={<div>종목정보 패널</div>}
@@ -98,11 +99,11 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
     // 활성값 변화를 rerender 로 흉내 낸다.
     mockSearchParams = new URLSearchParams('tab=info');
     view.rerender(
-      <StockDetailTabs code="005930" chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
     );
     mockSearchParams = new URLSearchParams('tab=news');
     view.rerender(
-      <StockDetailTabs code="005930" chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
     );
 
     expect(panelOf('차트 패널')).toHaveAttribute('data-state', 'inactive');
@@ -119,7 +120,7 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
 
     mockSearchParams = new URLSearchParams('tab=chart');
     view.rerender(
-      <StockDetailTabs code="005930" chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
     );
     expect(screen.queryByText('호가주문 패널')).toBeNull();
     expect(screen.getByText('차트 패널')).toBeInTheDocument();
@@ -189,28 +190,39 @@ describe('StockDetailTabs — 탭 안 전체목록 재클릭 = 요약 (Phase 21 
   });
 });
 
-describe('StockDetailTabs — 폰 「주문하기」 CTA (260924-vj1)', () => {
-  it('Test 7 — 호가주문 외 탭에서 CTA 가 보이고, 누르면 기존 탭 전환 경로로 호가주문 1회 push', async () => {
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView');
+describe('StockDetailTabs — 폰 「트레이딩」 CTA (260924-vj1 · Phase 21 D-30 · G-21-R3-9)', () => {
+  it('Test 7 — 매매 가능 종목이면 CTA 는 /trading?code= 링크 「트레이딩」 — 탭 전환(pushState)을 부르지 않는다', async () => {
     const user = userEvent.setup();
     const { container } = renderTabs();
 
     const bar = container.querySelector('[data-slot="detail-order-cta-bar"]');
     expect(bar).not.toBeNull();
-    // 뷰포트 md 이상에서는 숨는다(앱 셸 층 분기).
+    // 뷰포트 md 이상에서는 숨는다(앱 셸 층 분기 — 넓은 폭은 히어로 알약이 맡는다).
     expect(bar!.className).toContain('md:hidden');
 
     // TDS BottomCTA = 버튼 xlarge(56 · radius 16) · 탭 트리거 = t5 17 (260925-0pf).
-    const cta = screen.getByRole('button', { name: '주문하기' });
+    const cta = screen.getByRole('link', { name: '트레이딩' });
+    expect(cta).toHaveAttribute('data-slot', 'detail-order-cta');
+    expect(cta).toHaveAttribute('href', '/trading?code=005930');
     expect(cta.className).toContain('h-[56px]');
     expect(cta.className).toContain('rounded-[16px]');
+    expect(cta.className).toContain('bg-[var(--up)]');
     expect(tab('차트').className).toContain('text-[17px]');
+    expect(screen.queryByRole('button', { name: '주문하기' })).toBeNull();
+    expect(container.querySelector('[data-order-cta="true"]')).not.toBeNull();
 
+    // jsdom 은 링크 이동을 하지 않는다 — 단언 대상은 「탭 전환 경로를 타지 않는다」다.
+    cta.addEventListener('click', (e) => e.preventDefault());
     await user.click(cta);
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
 
-    expect(pushSpy).toHaveBeenCalledTimes(1);
-    expect(pushSpy).toHaveBeenCalledWith(null, '', '?tab=orderbook');
-    expect(scrollSpy).toHaveBeenCalledWith({ block: 'start' });
+  it('Test 7b — 매매 불가 종목(tradable false)이면 CTA 바 · 링크 · 예약 여백이 없다 (T-21-93)', () => {
+    const { container } = renderTabs({ tradable: false });
+
+    expect(container.querySelector('[data-slot="detail-order-cta-bar"]')).toBeNull();
+    expect(screen.queryByRole('link', { name: '트레이딩' })).toBeNull();
+    expect(container.querySelector('[data-order-cta="true"]')).toBeNull();
   });
 
   it('Test 8 — 호가주문 탭에서는 CTA 가 언마운트된다(더티 액션 바와 동시 노출 없음)', () => {
@@ -218,7 +230,7 @@ describe('StockDetailTabs — 폰 「주문하기」 CTA (260924-vj1)', () => {
     const { container } = renderTabs();
 
     expect(container.querySelector('[data-slot="detail-order-cta-bar"]')).toBeNull();
-    expect(screen.queryByRole('button', { name: '주문하기' })).toBeNull();
+    expect(screen.queryByRole('link', { name: '트레이딩' })).toBeNull();
   });
 });
 

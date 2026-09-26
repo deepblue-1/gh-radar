@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -26,7 +27,8 @@ import { exitNewsView, toNewsView } from './news-view';
  *   T5 shadcn 공식 `tabs`(Radix) — ←/→ · Home/End 키보드는 Radix 기본 동작 상속
  *   T6 `호가주문` 패널만 넓은 컨테이너, 나머지 3탭은 `max-w-4xl`
  *   B(260924-vj1) 토스 스킨 — 16px/600 탭 바(2px fg 밑줄 + 옅은 1px 기준선), 폰(<768) 하단 고정
- *      「주문하기」 CTA(호가주문 탭으로 전환, 그 탭에선 사라짐), 라이트 호가주문 탭 회색 면 + 흰 카드
+ *      CTA(Phase 21 D-30 — 「주문하기」 → 「트레이딩」 링크 `/trading?code=` · 매매 가능 종목만), 라이트
+ *      호가주문 탭 회색 면 + 흰 카드
  *   T9 (Phase 21 D-29) 「뉴스토론」 탭 안 전체목록(`?tab=news&view=news|discussions` · news-view.ts)을
  *      보는 중에 활성 뉴스토론 탭을 다시 누르면 요약으로 돌아간다(`exitNewsView`). Radix 는 이미 활성인
  *      탭을 누르면 `onValueChange` 를 부르지 않으므로 트리거 `onClick` 이 같은 핸들러로 넘겨준다.
@@ -72,6 +74,11 @@ const NARROW_PANEL =
 
 export interface StockDetailTabsProps {
   code: string;
+  /**
+   * 매매 가능 종목인가(Phase 21 D-30 — `stock-add-bar` 의 `isPickable`: KOSPI/KOSDAQ ∧ isin).
+   * false 면 폰 「트레이딩」 CTA 와 그 예약 여백이 없다(T-21-93).
+   */
+  tradable: boolean;
   chart: ReactNode;
   orderbook: ReactNode;
   info: ReactNode;
@@ -80,6 +87,7 @@ export interface StockDetailTabsProps {
 
 export function StockDetailTabs({
   code,
+  tradable,
   chart,
   orderbook,
   info,
@@ -132,10 +140,10 @@ export function StockDetailTabs({
     [code],
   );
 
-  // B — 폰 하단 고정 「주문하기」 CTA 는 호가주문 탭이 아닐 때만 그린다(그 탭에선 더티 액션 바와
-  // 겹치지 않게 언마운트). 보일 때는 Tabs 루트 아래 여백을 CTA 바 높이 + 10 = 76 + max(20, safe-area)
-  // 로 두어 마지막 콘텐츠가 가려지지 않게 한다(바 높이 식은 아래 CTA 주석 · 노치 폰 safe-area 도 포함).
-  const showOrderCta = active !== 'orderbook';
+  // B · D-30 — 폰 하단 고정 「트레이딩」 CTA 는 매매 가능 종목에서만, 호가주문 탭이 아닐 때만 그린다
+  // (그 탭에선 더티 액션 바와 겹치지 않게 언마운트). 보일 때는 Tabs 루트 아래 여백을 CTA 바 높이 + 10
+  // = 76 + max(20, safe-area) 로 두어 마지막 콘텐츠가 가려지지 않게 한다(바 높이 식은 아래 CTA 주석).
+  const showOrderCta = tradable && active !== 'orderbook';
 
   return (
     <Tabs
@@ -220,8 +228,11 @@ export function StockDetailTabs({
       </TabsContent>
 
       {/*
-        B — 폰(<768) 하단 고정 「주문하기」 CTA. 기존 탭 전환 경로(`handleValueChange` — 한 클릭 = 기록 1개
-        가드 · pushState · scrollIntoView)를 그대로 재사용한다(새 내비게이션 경로 0).
+        B · D-30 — 폰(<768) 하단 고정 「트레이딩」 CTA. 누르면 `/trading?code={code}` 로 가서 그 종목 카드에
+        도착한다(작업대 착지 — 카드 보장 · 펼침 · 헤더 토글 포커스 · 21-33). 넓은 폭(≥768)은 히어로 첫 줄 끝
+        알약(`stock-hero.tsx` `detail-trading-button` · 스케치 008 ② A)이 같은 링크를 맡는다.
+        ★ 바 · 버튼 `data-slot` 은 「주문하기」 시절 그대로다 — 앱 규칙(globals.css §21) · 챗 FAB 들어올림 ·
+          native-shell 수치 테스트가 이 이름을 읽는다.
         ★ `position: fixed` 지만 조상에 `container-type` 이 없는 자리(탭 셸 루트)라 §2.2b 의 컨테이닝
           블록 함정에 걸리지 않는다. 뷰포트 `md` 분기는 앱 셸 층이라 상따 본문 컨테이너 쿼리 규칙과
           충돌하지 않는다. 챗 FAB 는 globals.css 가 이 바가 있을 때만 위로 들어 올린다.
@@ -231,7 +242,8 @@ export function StockDetailTabs({
           → 챗 FAB bottom = 70 + max(20, safe)(바 윗변 위 4px · globals.css) ·
             Tabs 루트 예약 = 76 + max(20, safe)(바 + 10). 셋 중 하나를 바꾸면 나머지도 같이.
           ★ 앱(Phase 21 D-25 · globals.css §21): 바 bottom = `--native-tabbar-offset`(탭바 윗변 + 8) · 바 하단 10
-            (안전영역은 탭바 몫) · 예약 76(`[data-order-cta]` — 탭바 몫은 본문 108 이 따로 진다) · FAB 은 없다(D-10).
+            (안전영역은 탭바 몫) · 트레이딩 링크(D-30) · 앱 예약 76(`[data-order-cta]`) · 탭바 몫은 본문 98
+            (`--native-body-reserve` · IN-04)이 따로 진다 · FAB 은 없다(D-10).
           ★ safe 는 `--app-safe-bottom`(globals.css §21 — `env()` 를 직접 읽지 않는다).
       */}
       {showOrderCta && (
@@ -239,14 +251,13 @@ export function StockDetailTabs({
           data-slot="detail-order-cta-bar"
           className="fixed inset-x-0 bottom-0 z-30 bg-[linear-gradient(to_bottom,transparent,var(--bg)_40%)] px-5 pt-2.5 pb-[max(20px,var(--app-safe-bottom))] md:hidden"
         >
-          <button
-            type="button"
+          <Link
             data-slot="detail-order-cta"
-            onClick={() => handleValueChange('orderbook')}
-            className="h-[56px] w-full rounded-[16px] bg-[var(--up)] text-[17px] font-semibold text-white"
+            href={`/trading?code=${encodeURIComponent(code)}`}
+            className="flex h-[56px] w-full items-center justify-center rounded-[16px] bg-[var(--up)] text-[17px] font-semibold text-white"
           >
-            주문하기
-          </button>
+            트레이딩
+          </Link>
         </div>
       )}
     </Tabs>
