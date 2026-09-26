@@ -10,7 +10,7 @@ import type { RelayLimitChaser, RelayQuote, RelayQueuedWindowMsg } from '@gh-rad
  *   ② 그룹 제목줄 스위치 4개(Phase 20 — 매수취소 포함) · 제목 옆 보조문 5문구(「감시 중」 등)
  *   ③ 시세 없음 → 10단 행은 그리되 가격 「—」(E9 empty) · 값 없는 셀 클릭은 no-op(T-18-47)
  *   ④ 밴드는 **카드 폭**(`@min-[Npx]/lc:`) — 뷰포트 브레이크포인트 0건(D-28)
- *   ⑤ `variant` 가 주문유형 콤보 유무를 가른다(D-23)
+ *   ⑤ 주문유형 콤보는 카드 · 호가 탭 둘 다 있다(D-23 → D-31 · G-21-R3-10)
  *   ⑥ 즉시 반영 — 값 확정 1회 = `lc.set` 1회 · 더티 바·더티 테두리 없음(Phase 20 D-04)
  *
  * ★ jsdom 은 컨테이너 쿼리를 평가하지 않는다. 밴드 전환은 **클래스 존재**로만 단언하고,
@@ -345,10 +345,10 @@ describe('④ 밴드는 카드 폭이다 (D-28)', () => {
   });
 });
 
-describe('⑤ variant — 주문유형 콤보 (D-23)', () => {
-  it('`variant="card"` 는 주문유형 콤보가 없다', () => {
+describe('⑤ variant — 주문유형 콤보 (D-23 · D-31)', () => {
+  it('`variant="card"` 도 주문유형 콤보가 있다 (D-31 · G-21-R3-10 — 호가주문 탭 제거 뒤 시간외종가 신규 주문의 자리)', () => {
     render(<CardBody {...props({ variant: 'card' })} />);
-    expect(screen.queryByRole('combobox', { name: '주문유형' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: '주문유형' })).toBeInTheDocument();
   });
 
   it('`variant="orderbook"` 는 주문유형 콤보가 있다', () => {

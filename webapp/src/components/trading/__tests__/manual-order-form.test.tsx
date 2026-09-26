@@ -351,11 +351,93 @@ describe('ManualOrderForm — 77 연결 (D-22)', () => {
   });
 });
 
-describe('ManualOrderForm — 주문유형 콤보 (D-23, 호가 탭 전용)', () => {
-  it('카드 variant 에는 주문유형 콤보가 없다', () => {
+describe('ManualOrderForm — 카드 주문유형 (D-31 · G-21-R3-10 · 스케치 008 ③ A)', () => {
+  const CLOSED_NOTE = '시간외종가는 KRX · 시간외종가 창(G2/G3)에서만 고를 수 있어요';
+
+  it('카드에도 주문유형 44px 행이 주문금액 바로 위에 있고 기본은 지정가다', () => {
     renderForm({ variant: 'card', queuedWindow: win({ g3Open: true }) });
-    expect(screen.queryByLabelText('주문유형')).toBeNull();
+    const select = screen.getByLabelText('주문유형') as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe('limit');
+    const rowEl = select.parentElement as HTMLElement;
+    expect(rowEl.className).toContain('min-h-[44px]');
+    expect(rowEl.querySelector('[data-slot="mo-type-value"]')).toHaveTextContent('지정가 ›');
+    // 채택안 A — 주문금액 행 바로 위(창 열림이라 사이에 안내 캡션도 없다).
+    expect(rowEl.nextElementSibling).toHaveTextContent(/^주문금액/);
   });
+
+  it('KRX · 창 열림 → 시간외종가 선택 가능 → 가격 잠김 · 「종가 확정 후」 · 전송 price 0 + krxSession', async () => {
+    const user = userEvent.setup();
+    renderForm({ variant: 'card', queuedWindow: win({ g2Open: true }), referenceClose: 128_700 });
+    const opt = screen.getByRole('option', { name: '시간외종가' }) as HTMLOptionElement;
+    expect(opt.disabled).toBe(false);
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+
+    const locked = screen.getByLabelText('가격(시간외종가 · 잠김)') as HTMLInputElement;
+    expect(locked).toBeDisabled();
+    expect(locked.closest('[data-slot="ticket-box"]')).toHaveTextContent('참고 종가 128,700원');
+    expect(screen.getByText('종가 확정 후')).toBeInTheDocument();
+    expect(screen.queryByText(CLOSED_NOTE)).toBeNull();
+
+    await user.type(qtyInput(), '10');
+    await user.click(btn('매수'));
+    const dialog = await screen.findByTestId('order-confirm-dialog');
+    expect(summaryValue(dialog, '주문유형')).toBe('시간외종가 · 가격 0 (KRX 세션)');
+    await user.click(within(dialog).getByRole('button', { name: '매수 주문' }));
+    expect(sendOrderMock).toHaveBeenCalledWith({
+      kind: 'new',
+      isin: ISIN,
+      accountNo: '12345678-01',
+      exchange: 'KRX',
+      side: 'B',
+      qty: 10,
+      price: 0,
+      krxSession: 'G2',
+    });
+  });
+
+  it.each([
+    ['NXT · 창 열림', { exchange: 'NXT' as const, queuedWindow: win({ g3Open: true }) }],
+    ['KRX · 창 닫힘', { exchange: 'KRX' as const, queuedWindow: win() }],
+  ])('%s → 시간외종가 비활성 + 사유 title · 행 아래 안내 캡션', (_label, over) => {
+    renderForm({ variant: 'card', ...over });
+    const opt = screen.getByRole('option', { name: '시간외종가' }) as HTMLOptionElement;
+    expect(opt.disabled).toBe(true);
+    expect(opt.title).toBe(CLOSED_NOTE);
+    const select = screen.getByLabelText('주문유형');
+    expect(select).toHaveAttribute('title', CLOSED_NOTE);
+    const note = screen.getByText(CLOSED_NOTE);
+    expect(note.getAttribute('data-slot')).toBe('mo-type-note');
+    // 채택안 A — 캡션은 주문유형 행 바로 아래 · 주문금액 행 바로 위.
+    expect(select.parentElement!.nextElementSibling).toBe(note);
+    expect(note.nextElementSibling).toHaveTextContent(/^주문금액/);
+  });
+
+  it('시간외종가 선택 중 창이 닫히면 지정가로 복귀 · 닫힌 창 렌더에서는 전송 차단', async () => {
+    const user = userEvent.setup();
+    const { rerender, props } = renderForm({ variant: 'card', queuedWindow: win({ g3Open: true }) });
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    expect(screen.getByLabelText('가격(시간외종가 · 잠김)')).toBeInTheDocument();
+    rerender(<ManualOrderForm {...props} queuedWindow={win({ g3Open: false })} />);
+    expect((screen.getByLabelText('주문유형') as HTMLSelectElement).value).toBe('limit');
+    expect(priceInput()).toBeEnabled();
+  });
+
+  it('(가드) 복귀 효과 전 한 렌더 — 카드도 닫힌 창으로 시간외종가를 보내지 않는다', async () => {
+    const user = userEvent.setup();
+    affMock.override = { offHoursSelectable: true };
+    renderForm({ variant: 'card', queuedWindow: win({ g2Open: false, g3Open: false }) });
+    await user.type(priceInput(), '128500');
+    await user.selectOptions(screen.getByLabelText('주문유형'), 'offhours');
+    await user.type(qtyInput(), '10');
+    await user.click(btn('매수'));
+    expect(screen.getByTestId('manual-order-validation')).toHaveTextContent(OFFHOURS_WINDOW_CLOSED_TEXT);
+    expect(screen.queryByTestId('order-confirm-dialog')).toBeNull();
+    expect(sendOrderMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ManualOrderForm — 주문유형 콤보 (D-23, 호가 탭 — 21-34 가 정리)', () => {
 
   it('창이 닫혀 있으면 시간외종가 옵션이 disabled + title 사유', () => {
     renderForm({ variant: 'orderbook' });
