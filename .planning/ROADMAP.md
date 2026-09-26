@@ -36,6 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 19: 계좌별 주문기록 전용 연결** - relay↔게이트웨이 관찰자 기록 연결 1개 장중 상시 · seq 이어받기 · 계좌 기준 주문기록 (브라우저 부재 중 dma_orders 누락 해소)
 - [ ] **Phase 20: 호가주문 토스식 재구성 (실험 브랜치)** - 스케치 002 채택안: 상따 설정 리스트+바텀시트 · 자체 키패드 · 데스크톱 인라인 편집 · 수동주문 토스 티켓 (theme/toss-b → 2026-09-25 master 병합 · UAT 대기)
 - [x] **Phase 21: GH Trade 모바일 앱 (Capacitor)** - Remote-URL 셸(iOS·iPadOS·Android) · 네이티브 하단 플로팅 탭바 5탭 · pull-to-refresh(웹 훅→reload) · 네이티브 Google Sign-In + signInWithIdToken · 브랜드명 GH Trade · `mobile/` 패키지 (결정 4건 확정 2026-09-25) (completed 2026-09-26)
+- [ ] **Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)** - App Store Connect·TestFlight 업로드 · Android 릴리스 키스토어(저장소 밖)·서명 AAB·Play 내부 테스트 트랙 · 릴리스 빌드 Google 로그인 유지(SHA-1·키체인) · 버전 규칙·반복 빌드 절차 · 개인정보처리방침·데이터 보안 양식 · `native:verify-prod` 게이트 (정식 출시·심사 대응은 범위 밖)
 
 ## Phase Details
 
@@ -1108,3 +1109,31 @@ Plans:
 **Wave 17** *(blocked on Wave 16 completion)*
 
 - [x] 21-36-PLAN.md — UAT 3차 재검증 + push(웹 배포) 결정 체크포인트 · 운영 sync 복원 · (선택 시) push → 운영 반영 확인 → 운영 빌드 재설치
+
+### Phase 22: GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
+
+**Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터부터 · 필요 시 외부 테스터 베타 심사 경로까지), Android 는 릴리스 키스토어 생성·보관(저장소 밖 + 비밀 관리) → 서명된 AAB → Play Console 앱 등록 → **내부 테스트 트랙** 배포. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
+**Requirements**: TBD — MOBILE-02 로 REQUIREMENTS.md 에 정의 예정(discuss/plan-phase 에서 · Out of Scope 「스토어 제출」 행 정정 포함)
+**Depends on:** Phase 21
+**Plans:** 0 plans
+
+**범위 안:**
+- 네이티브 Google 로그인을 릴리스 빌드에서 유지 — Android 는 Play 앱 서명 키·업로드 키의 SHA-1 을 Google Cloud OAuth(Android 클라이언트)에 등록, iOS 는 배포 서명에서도 키체인 권한 유지. 테스터 기기에서 로그인 → 홈 착지 확인.
+- 버전 규칙(versionName/versionCode · CFBundleShortVersionString/CFBundleVersion)과 반복 가능한 빌드·업로드 절차(스크립트 vs fastlane 은 discuss 에서 결정).
+- 스토어 최소 자료: 개인정보처리방침 URL · Play 데이터 보안 양식 · 앱 아이콘·이름(GH Trade 기존 자산 재사용).
+- 운영 설정 검사(`native:verify-prod`)를 릴리스 빌드 게이트에 포함 — dev URL·cleartext 가 섞이지 않게.
+
+**범위 밖:** 스토어 정식 출시·심사 대응 · 푸시 알림 · 딥링크/유니버설 링크 · 결제 · 웹 화면 변경.
+
+**discuss 에서 먼저 정할 결정(한 번에 하나씩):**
+1. 계정 현황 — Apple Developer Program 유료 가입 여부(현재 팀 `954QPCS3F5` 가 개인 무료 팀인지 확인) · Play Console 개발자 계정 보유 여부. 없으면 개설은 사용자가 직접.
+2. 테스터 범위·인원 — 지인 몇 명(내부 테스트)인지, 외부 공개 링크까지인지.
+3. 테스터에게 보일 기능 범위 — 트레이딩 탭은 gh-trade 계좌·relay 에 연결된다. 다른 사람이 로그인했을 때 조회만인지, 트레이딩 접근을 막을지(allow-list·역할). **실돈 발주 경로라 가장 중요.**
+4. Supabase·Google OAuth 에서 테스터 계정을 허용하는 방식(OAuth 동의 화면 테스트 사용자 제한 여부 포함).
+5. 빌드·업로드 실행 주체 — Claude 가 스크립트를 만들고 사용자가 직접 실행할지, Claude 가 실행할지(서명 키·App Store Connect API 키 같은 비밀은 사용자 `!` 실행으로 주입하는 기존 관례).
+
+**참고:** Phase 21 산출물 `.planning/phases/21-gh-trade-mobile-app/`(21-CONTEXT.md 범위 밖 목록 · `mobile/README.md` 의 `native:*` 명령 · 21-36-SUMMARY 의 운영 빌드·설치 절차) · 실기기 iPhone 16(mesya)에 로컬 자동 서명 빌드 설치 이력(quick 260926-v5n · vk9) · 현재 저장소에 Android 릴리스 키스토어 없음.
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 22 to break down)

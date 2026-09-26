@@ -134,6 +134,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 ### Roadmap Evolution
 
+- Phase 22 added (2026-09-26): GH Trade 테스트 배포 — iOS TestFlight · Android Play 내부 테스트. Phase 21 앱을 타인 기기에 설치 가능하게(App Store Connect·TestFlight / 릴리스 키스토어·AAB·Play 내부 트랙 / 릴리스 빌드 Google 로그인 유지 / 버전 규칙·반복 절차 / 스토어 최소 자료 / verify-prod 게이트). 정식 출시·심사 대응 범위 밖. discuss 선결 5건(계정 현황 · 테스터 범위 · 트레이딩 접근 제한 · OAuth 테스터 허용 · 빌드 실행 주체).
 - Phase 21 added (2026-09-25): GH Trade 모바일 앱 (Capacitor) — Remote-URL 셸 · 네이티브 탭바 · pull-to-refresh · 네이티브 Google 로그인 · 브랜드명 GH Trade. 결정 4건 사용자 확정(네이티브 탭바 / signInWithIdToken / refresh 훅→reload / mobile/ 패키지).
 - Phase 20 added (2026-09-25, 브랜치 theme/toss-b 전용): 호가주문 토스식 재구성 — sketch 002 채택안
 
