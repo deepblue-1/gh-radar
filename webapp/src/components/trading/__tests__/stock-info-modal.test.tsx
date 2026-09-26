@@ -273,6 +273,43 @@ describe('StockInfoModal', () => {
     expect(document.body.contains(dialog)).toBe(true);
   });
 
+  it('⑨ 크기·안전영역·✕ (G-21-R3-7) — ≥700 고정 높이 · 본문 scrollbar-gutter · 폰 safe-area 패딩 · ✕ 아이콘 32 상자 히트 44 · 첫 포커스 ✕', async () => {
+    const user = userEvent.setup();
+    render(<Card code="196170" />);
+    const { dialog } = await openFromCard(user);
+    const tokens = (el: Element) => el.className.split(/\s+/);
+
+    // ≥700 — 탭·로딩과 무관한 고정 높이(가변 h-auto · max-h 제거).
+    expect(tokens(dialog)).toContain(
+      'min-[700px]:h-[min(720px,calc(100dvh-48px-var(--app-safe-top)-var(--app-safe-bottom)))]',
+    );
+    expect(tokens(dialog)).not.toContain('min-[700px]:h-auto');
+    expect(tokens(dialog)).not.toContain('min-[700px]:max-h-[calc(100dvh-48px)]');
+
+    // 본문 — 스크롤바 자리 예약 · 폰 하단 안전영역 · ≥700 종전 pb-3.
+    const body = dialog.querySelector('[data-slot="stock-info-modal-body"]') as HTMLElement;
+    for (const c of ['[scrollbar-gutter:stable]', 'pb-[calc(12px+var(--app-safe-bottom))]', 'min-[700px]:pb-3']) {
+      expect(tokens(body)).toContain(c);
+    }
+
+    // 헤더 — 폰 상단 안전영역 · ≥700 종전 pt-2.5.
+    const header = dialog.querySelector('[data-slot="dialog-header"]') as HTMLElement;
+    for (const c of ['pt-[calc(10px+var(--app-safe-top))]', 'pb-2.5', 'min-[700px]:pt-2.5']) {
+      expect(tokens(header)).toContain(c);
+    }
+
+    // ✕ — lucide 아이콘 · 글리프 없음 · 32 상자 · 히트 44 · 이름 「닫기」 · 첫 포커스.
+    const close = within(dialog).getByRole('button', { name: '닫기' });
+    expect(close.textContent).toBe('');
+    const svgs = close.querySelectorAll('svg');
+    expect(svgs).toHaveLength(1);
+    expect(svgs[0]).toHaveAttribute('aria-hidden', 'true');
+    for (const c of ['size-8', 'relative', 'after:absolute', 'after:-inset-1.5']) {
+      expect(tokens(close)).toContain(c);
+    }
+    await waitFor(() => expect(close).toHaveFocus());
+  });
+
   it('⑧ 차트에 주입되는 색 값은 oklch 가 아니다 (hex/rgb 만)', async () => {
     const user = userEvent.setup();
     render(<Card code="196170" />);
