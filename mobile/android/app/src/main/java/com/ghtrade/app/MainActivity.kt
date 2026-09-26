@@ -53,7 +53,8 @@ class MainActivity : BridgeActivity() {
         private set
 
     /** 웹 테마(D-23 — 웹이 정본). 바꾸는 경로는 `applyTheme` 하나(시스템 바·배경·저장이 따로 놀지 않게). */
-    var currentTheme = "light"
+    // D-23a: 저장값 없는 기본과 같게, load() 가 곧 ThemeStore 값으로 덮는다.
+    var currentTheme = "dark"
         private set
 
     /** 현재 앱 서버 문서의 정규화 경로(D-14). */

@@ -24,7 +24,12 @@ import androidx.core.graphics.ColorUtils
  *
  * 수치 정본 = CONTEXT D-27b: 높이 60 · radius 30 · 라벨 없음(접근 이름 = contentDescription) · 아이콘 26 셀 정중앙 ·
  * 활성 = 아이콘 뒤 캡슐 56×36 radius 18 `--primary` + filled/굵은 아이콘 + primary 색 · 비활성 `--muted-fg` ·
- * 탭바 위 86dp 하단 페이드. 1px `--line` 테두리 · 그림자 elevation 8 · 알약 = card 약 94% 불투명(A10).
+ * 테두리 없음 · 탭바 위 86dp 하단 페이드(`--bg` 80% @75%). 색 토큰(bg · primary · muted · card)은 D-27a 그대로.
+ * 유리: 스케치는 `--glass-hi`(다크 rgba(44,44,53,.62) · 라이트 rgba(255,255,255,.72)) + `blur 28 · saturate 1.8` 이지만
+ * Android 에는 뒤 콘텐츠 실시간 블러의 표준 수단이 없다 → 같은 glass RGB 를 **알파 240(≈94%) 불투명**으로 근사한다
+ * (RESEARCH A10 — 블러 없이 스케치 알파대로 비치면 뒤 글자가 아이콘과 겹쳐 읽힌다).
+ * 그림자: 스케치 `0 4px 24px rgba(0,0,0,.14)` 의 넓고 옅은 그림자 → elevation 12dp. Android 그림자 알파는 테마
+ * spotShadowAlpha 와 곱해지므로 색 알파로 흉내 내지 않고 높이로만 조절한다.
  * 위치·폭(좌우 16 · 최대 560 · 바닥 max(내비 인셋 − 14, 14))과 표시/숨김은 `MainActivity` 가 정한다.
  */
 @SuppressLint("ViewConstructor")
@@ -45,14 +50,15 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
 
     private val pillBackground = GradientDrawable().apply { cornerRadius = dpF(30f) }
     private val items = mutableListOf<TabItem>()
-    private var palette = GhTradePalette.of("light")
+    // D-23a: 첫 apply 전 자리값도 저장값 없는 기본(다크)과 같게.
+    private var palette = GhTradePalette.of("dark")
 
     init {
         clipToPadding = false
         clipChildren = false
         background = pillBackground
-        // 그림자: CSS `0 2px 16px rgba(0,0,0,.18)` 근사 — 알약 모양 외곽선으로 elevation 그림자를 드리운다.
-        elevation = dpF(8f)
+        // 그림자: 스케치 007 C `0 4px 24px rgba(0,0,0,.14)` 근사 — 알약 모양 외곽선으로 넓고 옅은 elevation 그림자(D-27b).
+        elevation = dpF(12f)
         outlineProvider = ViewOutlineProvider.BACKGROUND
 
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
@@ -84,26 +90,25 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
         for (item in items) item.configure(item.tab == tab, palette)
     }
 
-    /** 팔레트 교체(테마 전환 — 21-13). 알약 색·테두리·아이콘/라벨/강조 색과 페이드를 함께 갱신한다. */
+    /** 팔레트 교체(테마 전환 — 21-13). 알약 유리 색 · 아이콘/캡슐 색과 페이드를 함께 갱신한다(테두리 없음 — D-27b). */
     fun apply(p: GhTradePalette) {
         palette = p
-        // 94% ≈ 240/255 — 블러 없는 Android 에서 뒤 콘텐츠가 비쳐 글자가 겹쳐 보이지 않을 만큼 불투명하게(A10).
-        pillBackground.setColor(ColorUtils.setAlphaComponent(p.card, 240))
-        pillBackground.setStroke(1, p.line)
+        // glass RGB × 94% ≈ 240/255 — 블러 없는 Android 에서 뒤 콘텐츠가 비쳐 글자가 겹쳐 보이지 않을 만큼 불투명하게(A10).
+        pillBackground.setColor(ColorUtils.setAlphaComponent(p.glass, 240))
         for (item in items) item.configure(item.tab == activeTab, p)
         fadeView.background = fadeDrawable(p.bg)
     }
 
-    /** 위 투명 → 70% 지점부터 `--bg` 92%(스케치 `.fade.va`). 같은 색의 알파만 바꿔 보간한다(중간이 회색으로 탁해지지 않게). */
+    /** 탭바 위 86dp · bg 80% (D-27b) — 위 투명 → 75% 지점부터 `--bg` 80%(스케치 007 `.vc .fade`). 같은 색의 알파만 바꿔 보간한다(중간이 회색으로 탁해지지 않게). */
     private fun fadeDrawable(bg: Int): PaintDrawable = PaintDrawable().apply {
         shape = RectShape()
         val clear = ColorUtils.setAlphaComponent(bg, 0)
-        val solid = ColorUtils.setAlphaComponent(bg, 235)
+        val solid = ColorUtils.setAlphaComponent(bg, 204)
         shaderFactory = object : ShapeDrawable.ShaderFactory() {
             override fun resize(width: Int, height: Int): Shader = LinearGradient(
                 0f, 0f, 0f, height.toFloat(),
                 intArrayOf(clear, solid, solid),
-                floatArrayOf(0f, 0.7f, 1f),
+                floatArrayOf(0f, 0.75f, 1f),
                 Shader.TileMode.CLAMP,
             )
         }
@@ -139,7 +144,7 @@ class GhTradeTabBar(context: Context) : FrameLayout(context) {
         fun configure(active: Boolean, p: GhTradePalette) {
             val color = if (active) p.primary else p.muted
             highlight.visibility = if (active) View.VISIBLE else View.GONE
-            highlightShape.setColor(ColorUtils.setAlphaComponent(p.primary, 36)) // ≈14%
+            highlightShape.setColor(ColorUtils.setAlphaComponent(p.primary, 41)) // ≈16% (D-27b)
             icon.setImageResource(iconRes(tab, active))
             icon.imageTintList = ColorStateList.valueOf(color)
             isSelected = active
