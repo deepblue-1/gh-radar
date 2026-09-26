@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { CircleAlert } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { isNativeApp } from "@/lib/native/native-detect";
@@ -11,19 +12,14 @@ import {
   type NativeLoginErrorKey,
 } from "@/lib/native/native-google-login";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 /**
  * /login 페이지 — Phase 06.2 Plan 03
  *
  * D-07, D-14, D-15 이행:
  * - Google OAuth 전용 로그인 (signInWithOAuth + prompt=select_account)
- * - Card 중앙 정렬 레이아웃 (AppShell 감싸지 않음 — full-bleed)
+ * - sketch 006 A 「비움」(quick-260926-d76) — 카드 없음 · 앱 아이콘 + 워드마크 가운데 · 폰 하단 반전 CTA(safe-area 변수) /
+ *   md 이상 워드마크 아래 360 폭 (AppShell 감싸지 않음 — full-bleed)
  * - ?error= 4종 한글 메시지 매핑 (auth_failed / oauth_denied / session_expired / unknown)
  * - Suspense 래핑 (useSearchParams 필수 조건 — Next.js 15)
  * - Open redirect 이중 방어 (?next= 파라미터 safeNext 가드 — T-06.2-11)
@@ -102,58 +98,80 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--surface)] p-[var(--s-6)]">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="mt-4 text-xl">GH Trade에 로그인</CardTitle>
-          <p className="text-sm text-[var(--muted-fg)]">
-            Google 계정으로 로그인하고 관심종목을 저장하세요
-          </p>
-        </CardHeader>
-        <CardContent>
-          {errorMessage ? (
-            <div
-              role="alert"
-              aria-live="polite"
-              className="mb-4 rounded-md bg-[var(--destructive)]/10 p-3 text-center text-sm text-[var(--destructive)]"
-            >
-              {errorMessage}
-            </div>
-          ) : null}
-          <Button
-            onClick={handleGoogleLogin}
-            disabled={pending}
-            aria-busy={pending}
-            className="w-full"
-            size="lg"
-            aria-label="Google로 로그인"
+    <div className="flex min-h-dvh flex-col bg-[var(--bg)] pl-[var(--app-safe-left)] pr-[var(--app-safe-right)] text-[var(--fg)]">
+      <div className="flex flex-1 flex-col items-center justify-center gap-[22px] pt-[var(--app-safe-top)] md:gap-6">
+        {/* SVG 는 next/image 최적화 대상이 아니다 — 파비콘과 같은 앱 아이콘 A 원본(app/icon.svg 메타데이터 라우트)을 그대로 재사용. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/icon.svg"
+          alt=""
+          aria-hidden="true"
+          width={76}
+          height={76}
+          draggable={false}
+          data-slot="login-mark"
+          className="size-[76px] select-none rounded-[22%]"
+        />
+        <h1
+          data-slot="login-wordmark"
+          className="text-[26px] font-extrabold leading-none tracking-[-0.03em]"
+        >
+          GH Trade
+        </h1>
+      </div>
+      <div
+        data-slot="login-foot"
+        className="px-5 pb-[calc(44px+var(--app-safe-bottom))] md:mx-auto md:w-[360px] md:px-0 md:pb-[200px]"
+      >
+        {errorMessage ? (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="mb-3 flex items-center gap-2 rounded-[var(--r)] bg-[var(--up-bg)] px-3.5 py-3 text-[13.5px] font-medium leading-[1.4] text-[var(--up)]"
           >
-            <svg
-              className="mr-2 size-5"
-              viewBox="0 0 24 24"
+            <CircleAlert aria-hidden="true" className="size-4 shrink-0" />
+            {errorMessage}
+          </div>
+        ) : null}
+        <Button
+          onClick={handleGoogleLogin}
+          disabled={pending}
+          aria-busy={pending}
+          className="h-14 w-full gap-2.5 rounded-[var(--r-md)] px-5 text-[16px] font-bold tracking-[-0.01em] bg-[#191f28] text-white hover:bg-[#191f28] hover:brightness-125 dark:bg-white dark:text-[#191f28] dark:hover:bg-white dark:hover:brightness-[.94] active:scale-[.985] active:opacity-100 disabled:opacity-70 transition duration-150"
+          size="lg"
+          aria-label="Google로 로그인"
+        >
+          {pending ? (
+            <span
+              data-slot="login-spinner"
               aria-hidden="true"
-            >
-              <path
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-                fill="#4285F4"
-              />
-              <path
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                fill="#34A853"
-              />
-              <path
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                fill="#FBBC05"
-              />
-              <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                fill="#EA4335"
-              />
-            </svg>
-            Google로 로그인
-          </Button>
-        </CardContent>
-      </Card>
+              className="size-5 animate-spin rounded-full border-[2.5px] border-current border-r-transparent [animation-duration:800ms]"
+            />
+          ) : (
+            <>
+              <svg className="size-5" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+                  fill="#4285F4"
+                />
+                <path
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  fill="#34A853"
+                />
+                <path
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  fill="#FBBC05"
+                />
+                <path
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  fill="#EA4335"
+                />
+              </svg>
+              Google로 로그인
+            </>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }

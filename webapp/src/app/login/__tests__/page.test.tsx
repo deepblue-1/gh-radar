@@ -16,6 +16,8 @@ import { isNativeApp } from '@/lib/native/native-detect';
  *  - `//evil.com` 이 통과하면               → 로그인 직후 외부로 튕기는 오픈 리다이렉트(T-21-11)
  *  - 취소·실패 문구가 섞이면                → 닫기만 했는데 「실패」라고 겁주거나 실패를 숨긴다
  *  - 진행 중 재클릭이 막히지 않으면         → 계정 선택 시트가 두 번 뜨고 nonce 가 엇갈린다
+ *  - 워드마크만 · 진행 중 스피너(접근 이름 유지) → 화면 개편(sketch 006 A · quick-260926-d76)이
+ *    로그인 수단을 가리지 않는다(버튼 이름으로 여전히 찾히고, 옛 제목·설명은 사라진다)
  */
 
 let search = new URLSearchParams();
@@ -66,9 +68,12 @@ afterEach(() => {
 const button = () => screen.getByRole('button', { name: 'Google로 로그인' });
 
 describe('/login', () => {
-  it('제목은 「GH Trade에 로그인」', () => {
+  it('워드마크 「GH Trade」 만 있고 설명 문구는 없다', () => {
     render(<LoginPage />);
-    expect(screen.getByText('GH Trade에 로그인')).toBeInTheDocument();
+    expect(screen.getByText('GH Trade')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'GH Trade' })).toBeInTheDocument();
+    expect(screen.queryByText(/관심종목을 저장/)).toBeNull();
+    expect(screen.queryByText('GH Trade에 로그인')).toBeNull();
   });
 
   it('브라우저: 종전 OAuth(redirectTo=/auth/callback?next=… · prompt=select_account) · 네이티브 0', async () => {
@@ -175,5 +180,21 @@ describe('/login', () => {
     expect(nativeSignIn).toHaveBeenCalledTimes(1);
     // 성공 뒤 페이지가 떠나는 동안에도 비활성 유지(재탭으로 계정 선택 시트가 또 뜨지 않게).
     expect(button()).toBeDisabled();
+  });
+
+  it('진행 중에는 G 아이콘·라벨 대신 스피너 — 접근 이름 「Google로 로그인」 은 유지', () => {
+    nativeDetect.mockReturnValue(true);
+    nativeSignIn.mockReturnValue(new Promise(() => {}));
+    render(<LoginPage />);
+
+    expect(button().textContent).toContain('Google로 로그인');
+    expect(button().querySelector('[data-slot="login-spinner"]')).toBeNull();
+
+    fireEvent.click(button());
+
+    expect(button()).toBeInTheDocument();
+    expect(button()).not.toHaveTextContent('Google로 로그인');
+    expect(button().querySelector('svg')).toBeNull();
+    expect(button().querySelectorAll('[data-slot="login-spinner"]')).toHaveLength(1);
   });
 });
