@@ -29,10 +29,15 @@
  *   (Radix Portal 기본 컨테이너 = `document.body`) — 코드로 확인했고, 테스트가 「모달 DOM 이
  *   카드 `<article>` 의 자손이 아니다」를 단언해 이 가정을 기계적으로 닫는다.
  *
- * ⑤ 크기 — 폰 전체화면 시트 · 뷰포트 700 이상 최대 960px 중앙 (목업 정본)
+ * ⑤ 크기 — 폰 전체화면(안전영역 패딩) · ≥700 고정 높이 · 본문 스크롤 · scrollbar-gutter 로 폭 고정(G-21-R3-7)
+ *   - 폰(<700) 전체화면 시트: 헤더 위에 `--app-safe-top`, 본문 아래에 `--app-safe-bottom` 을 더해
+ *     노치·홈 인디케이터에 가리지 않는다(§21 — 브라우저는 0 이라 종전 그대로).
+ *   - ≥700: 폭 min(960px, 100% − 32px) 중앙 · 높이 min(720px, 100dvh − 48px − 안전영역 위·아래) **고정** —
+ *     탭(차트·종목정보·뉴스·토론)과 로딩 상태에 따라 팝업이 출렁이지 않는다.
+ *   - 넘치는 내용은 본문 안에서 세로 스크롤하고, 스크롤바 자리를 늘 예약해 탭 전환 때 폭이 변하지 않는다.
  *   모달은 컨테이너 밖이라 **뷰포트** 미디어 쿼리가 맞다(D-28 의 「뷰포트 분기 신설 금지」는
  *   컨테이너 안쪽 규율이다). 경계 700 은 목업 `@media (max-width: 699px)` 그대로다.
- *   본문은 세로 스크롤이고, 제목 종목명은 줄바꿈을 허용한다(E14 long-text).
+ *   제목 종목명은 줄바꿈을 허용한다(E14 long-text).
  *
  * ⑥ 닫으면 언마운트한다 (T-18-46)
  *   `Dialog` 는 닫히면 내용을 버린다(`forceMount` 를 쓰지 않는다) — 카드 N개가 팝업을 N번 열어도
@@ -49,6 +54,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { XIcon } from 'lucide-react';
 import type { StockDetailResponse } from '@gh-radar/shared';
 
 import {
@@ -125,11 +131,12 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
         className={cn(
           // 폰(<700) — 전체화면 시트.
           'inset-0 top-0 left-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none bg-[var(--card)] p-0 text-[var(--fg)] ring-0 sm:max-w-none',
-          // 뷰포트 ≥700 — 최대 960px 중앙(목업 정본). 모달은 컨테이너 밖이라 뷰포트 기준이다(⑤).
-          'min-[700px]:inset-auto min-[700px]:top-1/2 min-[700px]:left-1/2 min-[700px]:h-auto min-[700px]:max-h-[calc(100dvh-48px)] min-[700px]:w-[min(960px,calc(100%-32px))] min-[700px]:-translate-x-1/2 min-[700px]:-translate-y-1/2 min-[700px]:rounded-[var(--r-lg)] min-[700px]:border min-[700px]:border-[var(--border)]',
+          // 뷰포트 ≥700 — 최대 960px 중앙(목업 정본) · 높이 고정(탭·로딩과 무관 · G-21-R3-7).
+          // 모달은 컨테이너 밖이라 뷰포트 기준이다(⑤).
+          'min-[700px]:inset-auto min-[700px]:top-1/2 min-[700px]:left-1/2 min-[700px]:h-[min(720px,calc(100dvh-48px-var(--app-safe-top)-var(--app-safe-bottom)))] min-[700px]:w-[min(960px,calc(100%-32px))] min-[700px]:-translate-x-1/2 min-[700px]:-translate-y-1/2 min-[700px]:rounded-[var(--r-lg)] min-[700px]:border min-[700px]:border-[var(--border)]',
         )}
       >
-        <DialogHeader className="flex-row items-start gap-[var(--s-2)] border-b border-[var(--border-subtle)] px-3.5 py-2.5">
+        <DialogHeader className="flex-row items-start gap-[var(--s-2)] border-b border-[var(--border-subtle)] px-3.5 pt-[calc(10px+var(--app-safe-top))] pb-2.5 min-[700px]:pt-2.5">
           <div className="min-w-0 flex-1">
             {/* 제목 종목명은 wrap 허용(E14 long-text) — 잘라 버리면 비슷한 종목명이 갈리지 않는다. */}
             <DialogTitle className="text-[16px] leading-snug font-bold break-words text-[var(--fg)]">
@@ -145,9 +152,10 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
               ref={closeRef}
               type="button"
               aria-label="닫기"
-              className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-[var(--r)] text-[length:var(--t-sm)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)]"
+              className="relative inline-flex size-8 flex-none items-center justify-center rounded-[var(--r)] text-[var(--muted-fg)] hover:bg-[var(--muted)] hover:text-[var(--fg)] after:absolute after:-inset-1.5 after:content-['']"
             >
-              ✕
+              {/* 20 아이콘 · 32 상자 · 히트 44(after:-inset-1.5) — 카드 헤더 ✕(G-21-R3-6)와 같은 패턴(G-21-R3-7). */}
+              <XIcon aria-hidden="true" className="size-5" />
             </button>
           </DialogClose>
         </DialogHeader>
@@ -185,8 +193,15 @@ function StockInfoTabs({ code }: { code: string }) {
         ))}
       </TabsList>
 
-      {/* 본문 세로 스크롤(E14 overflow) — 차트는 섹션이 컨테이너 폭에 맞춘다. */}
-      <div data-slot="stock-info-modal-body" className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">
+      {/*
+        본문 세로 스크롤(E14 overflow) — 차트는 섹션이 컨테이너 폭에 맞춘다.
+        scrollbar-gutter 로 스크롤바 자리를 늘 예약해 탭 전환 때 본문 폭이 변하지 않는다(G-21-R3-7).
+        폰 전체화면은 아래 안전영역(홈 인디케이터)만큼 더 비킨다 — 브라우저는 0 이라 종전 그대로다.
+      */}
+      <div
+        data-slot="stock-info-modal-body"
+        className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-3.5 pt-3 pb-[calc(12px+var(--app-safe-bottom))] min-[700px]:pb-3"
+      >
         <TabsContent
           value="chart"
           forceMount={keepMounted('chart')}
