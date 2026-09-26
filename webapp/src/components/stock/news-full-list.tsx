@@ -12,7 +12,7 @@ import { NewsListSkeleton } from './news-list-skeleton';
 /**
  * NewsFullList — 최근 7일 전체 뉴스 목록 (Phase 21 D-29 · G-21-R3-8).
  *
- * 옛 전체 페이지(`/stocks/[code]/news` · NewsPageClient)의 **목록 부분**을 그대로 옮겼다.
+ * 옛 전체 페이지(`/stocks/[code]/news` · 옛 news-page-client.tsx)의 **목록 부분**을 그대로 옮겼다.
  * 종목상세 「뉴스토론」 탭 안 전체목록(`StockNewsTabPanel`)과 트레이딩 ⓘ 팝업이 같이 쓴다.
  * 페이지 제목 · 종목명 조회 · notFound 는 옮기지 않았다(쓰는 쪽이 이미 종목을 안다).
  *

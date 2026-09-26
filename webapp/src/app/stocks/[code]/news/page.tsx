@@ -1,33 +1,23 @@
-'use client';
-
-import { use } from 'react';
-import { notFound } from 'next/navigation';
-
-import { AppShell } from '@/components/layout/app-shell';
-import { AppSidebar } from '@/components/layout/app-sidebar';
-import { NewsPageClient } from '@/components/stock/news-page-client';
+import { notFound, redirect } from 'next/navigation';
 
 /**
- * `/stocks/[code]/news` — Phase 07 NEWS-01 전체 뉴스 페이지.
+ * `/stocks/[code]/news` — 옛 전체 뉴스 페이지(Phase 07 NEWS-01) → 탭 안 전체목록 리다이렉트.
  *
- * - Next 15 dynamic route: `params` 는 `Promise<{ code }>` 형태 → `use()` 로 언래핑
- * - 잘못된 code (영문/숫자 1~10자 외) → `notFound()` (부모 `not-found.tsx` 상속)
- * - 부모 `error.tsx` 도 그대로 상속 — 신규 not-found/error 파일 생성 안 함
+ * Phase 21 D-29 (G-21-R3-8) — 전체 뉴스는 종목상세 「뉴스토론」 탭 안 전체목록
+ * `/stocks/{code}?tab=news&view=news` 로 옮겼다. 이 주소는 **북마크 · 외부 링크 호환**으로만 남아
+ * 새 자리로 보낸다(21-25 사용자 동의).
+ *
+ * T-21-83 — 경로 파라미터는 사용자 제어 입력이다. `CODE_RE` 로 거른 뒤에만 `encodeURIComponent` 로
+ * 조립하고, 어긋나면 `notFound()`(부모 `not-found.tsx` 상속).
  */
 const CODE_RE = /^[A-Za-z0-9]{1,10}$/;
 
-export default function StockNewsPage({
+export default async function StockNewsPage({
   params,
 }: {
   params: Promise<{ code: string }>;
 }) {
-  const { code } = use(params);
+  const { code } = await params;
   if (!CODE_RE.test(code)) notFound();
-  return (
-    <AppShell sidebar={<AppSidebar />}>
-      <div className="mx-auto w-full max-w-4xl">
-        <NewsPageClient code={code} />
-      </div>
-    </AppShell>
-  );
+  redirect(`/stocks/${encodeURIComponent(code)}?tab=news&view=news`);
 }

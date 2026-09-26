@@ -8,7 +8,8 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
  *
  * 구성:
  *  - V-17 detail list: /stocks/005930 상세 내 "관련 뉴스" 섹션 렌더 + 보안 링크 속성
- *  - V-18 full page: /stocks/005930/news 전체 페이지 렌더 + ← back 링크
+ *  - V-18 full list: 옛 /stocks/005930/news → 탭 안 전체목록 리다이렉트 + ← = 요약 (Phase 21 D-29)
+ *  - G-21-R3-8: 탭 안 전체목록 열기 · 뒤로가기 · 스크롤 복원 · ← · Esc
  *  - V-19 refresh cooldown: 429 수신 시 버튼 disabled + data-remaining-seconds
  *  - V-20 a11y: @axe-core/playwright 로 serious/critical 0 violation
  *
@@ -18,7 +19,7 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
 const STOCK_CODE = '005930';
 
 async function mockStockDetail(page: Page) {
-  // Next.js /stocks/[code] 라우트가 NewsPageClient 에서 추가로 /api/stocks/005930 을 호출하므로
+  // Next.js /stocks/[code] 라우트가 StockDetailClient 에서 /api/stocks/005930 을 호출하므로
   // /api/stocks/:code 를 고정 응답으로 확정한다. mockStockApi 의 regex 와 충돌하지 않도록
   // exact 경로 매칭으로 등록 — news.spec.ts 는 mockStockApi 를 쓰지 않는다.
   await page.route(/\/api\/stocks\/([A-Za-z0-9]{1,10})(?:\?[^/]*)?$/, async (route) => {
@@ -160,6 +161,13 @@ test.describe('News — G-21-R3-8 탭 안 전체 뉴스 (D-29)', () => {
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
     await expect(summary).toBeVisible();
+
+    // ⑥ 활성 「뉴스토론」 탭 재클릭 = 요약(실제 Radix — 활성 탭 재클릭은 onValueChange 를 안 부른다)
+    await showAll.click();
+    await expect(page.getByTestId('news-list')).toBeVisible();
+    await page.getByRole('tab', { name: '뉴스토론' }).click();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(summary).toBeVisible();
   });
 
   test('G-21-R3-8 허용 목록 밖 view 는 요약으로 떨어진다(T-21-82)', async ({ page }) => {
@@ -174,8 +182,8 @@ test.describe('News — G-21-R3-8 탭 안 전체 뉴스 (D-29)', () => {
   });
 });
 
-test.describe('News — full page (V-18)', () => {
-  test('renders all items on /news with ← back link', async ({ page }) => {
+test.describe('News — 옛 전체 페이지 URL → 탭 안 전체목록 (V-18 · D-29)', () => {
+  test('옛 /news → ?tab=news&view=news 리다이렉트 · 탭 안 전체목록 · ← = 요약', async ({ page }) => {
     await mockStockDetail(page);
     await mockNewsApi(page, {
       code: STOCK_CODE,
@@ -183,16 +191,18 @@ test.describe('News — full page (V-18)', () => {
     });
 
     await page.goto(`/stocks/${STOCK_CODE}/news`);
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news&view=news$`));
     await expect(
-      page.getByRole('heading', { level: 1, name: /최근 7일 뉴스/ }),
+      page.getByRole('heading', { level: 2, name: '최근 7일 뉴스' }),
     ).toBeVisible();
 
-    const items = page.getByTestId('news-item');
+    const items = page.getByTestId('news-list').getByTestId('news-item');
     await expect(items).toHaveCount(50);
 
-    const backLink = page.getByRole('link', { name: '종목 상세로 돌아가기' });
-    await backLink.click();
-    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}$`));
+    // ← = 요약(리다이렉트로 들어온 딥링크라 replaceState ?tab=news — 페이지 이탈 없음)
+    await page.getByRole('button', { name: '요약으로 돌아가기' }).click();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(page.getByTestId('stock-news-section')).toBeVisible();
   });
 
   test('caps list at server-provided limit (mock provides 100)', async ({
@@ -205,26 +215,27 @@ test.describe('News — full page (V-18)', () => {
     });
 
     await page.goto(`/stocks/${STOCK_CODE}/news`);
+    await expect(page).toHaveURL(/view=news$/);
 
     /*
-      ★ h1 은 **동기화 지점이 아니다** (16-17 진단).
+      ★ 제목은 **동기화 지점이 아니다** (16-17 진단).
 
-      `headingName = stock?.name ?? code` 라서 제목은 첫 클라이언트 렌더부터
-      「005930 — 최근 7일 뉴스」로 존재한다 — 목록이 아직 스켈레톤이어도 이 정규식에
-      걸린다. 그 뒤 `count()` 는 **재시도하지 않는 즉시 조회**라 100건 페이로드가
-      50건보다 조금만 늦어도 0 을 읽는다(선행 실패의 진짜 원인 — 16-11/16-15 가
-      「뉴스 목록 상한 계약 회귀」로 기록했지만 계약이 아니라 이 경주였다).
+      제목은 첫 클라이언트 렌더부터 존재한다 — 목록이 아직 스켈레톤이어도 걸린다. 그 뒤
+      `count()` 는 **재시도하지 않는 즉시 조회**라 100건 페이로드가 조금만 늦어도 0 을 읽는다
+      (선행 실패의 진짜 원인 — 16-11/16-15 가 「뉴스 목록 상한 계약 회귀」로 기록했지만 계약이
+      아니라 이 경주였다).
 
       그래서 목록 컨테이너를 기다린 뒤, 재시도하는 단언으로 「1건 이상」을 확인하고
-      나서 상한을 잰다.
+      나서 상한을 잰다. 요약 섹션(숨김)의 news-item 이 섞이지 않게 목록 안으로 좁힌다.
     */
-    await expect(page.getByTestId('news-list')).toBeVisible();
-    await expect(page.getByTestId('news-item').first()).toBeVisible();
+    const list = page.getByTestId('news-list');
+    await expect(list).toBeVisible();
+    await expect(list.getByTestId('news-item').first()).toBeVisible();
     await expect
-      .poll(() => page.getByTestId('news-item').count(), { timeout: 15_000 })
+      .poll(() => list.getByTestId('news-item').count(), { timeout: 15_000 })
       .toBeGreaterThan(0);
 
-    const count = await page.getByTestId('news-item').count();
+    const count = await list.getByTestId('news-item').count();
     expect(count).toBeLessThanOrEqual(100);
   });
 });

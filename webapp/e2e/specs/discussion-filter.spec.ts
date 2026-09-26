@@ -8,27 +8,29 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
 /**
  * Phase 08.1 Plan 07 — 의미성 필터 토글 E2E 4 시나리오.
  *
- * 대상 페이지: /stocks/[code]/discussions (풀페이지)
- * - Plan 06 에서 추가된 Switch 토글 ("의미있는 토론만 보기") + URL sync (?filter=meaningful|all)
+ * 대상: 종목상세 「뉴스토론」 탭 안 전체 토론 목록 (Phase 21 D-29 — 옛 /stocks/[code]/discussions 는
+ *   `?tab=news&view=discussions` 로 리다이렉트된다. 옛 `?filter=` 는 리다이렉트가 버린다)
+ * - Plan 06 에서 추가된 Switch 토글 ("의미있는 토론만 보기"). 필터는 이제 목록의 **로컬 상태**라
+ *   URL 에 쓰지 않는다(탭/뷰 파라미터와 섞이지 않게).
  *
  * **현행 계약 = 분류 정지(CLASSIFY_PAUSED)** — quick 260706-erk 가 Haiku 의미성 분류
- * 파이프라인을 제거하면서 `discussion-page-client.tsx` 의 `CLASSIFY_PAUSED` 를 true 로
+ * 파이프라인을 제거하면서 `discussion-page-client.tsx`(현 `discussion-full-list.tsx`) 의 `CLASSIFY_PAUSED` 를 true 로
  * 고정했다. 그 뒤로 토글은 항상 disabled/OFF 이고 필터는 `all` 로 고정된다
- * (URL `?filter=meaningful` 도 무시). 단위 테스트
- * `src/components/stock/__tests__/discussion-page-client.test.tsx` 는 그때 갱신됐지만
+ * (URL `?filter=meaningful` 도 무시). 단위 테스트(현 `discussion-full-list.test.tsx`)는 그때 갱신됐지만
  * 이 E2E 스펙만 Phase 08.1 시절 단언을 그대로 들고 있어 3건이 상시 빨간 상태였다
  * (quick 260908-qnf · 이관 6). 아래 시나리오는 단위 테스트와 같은 계약을 본다.
  *
  * 시나리오:
  *  1. 기본 (URL 에 filter 없음) — Switch OFF/disabled + noise 포함 전체 렌더
  *  2. 토글 클릭 — disabled 라 URL·목록 모두 불변
- *  3. 직접 ?filter=all 진입 — 토글 OFF + 전체 렌더
- *  4. ?filter=meaningful + mock 응답 빈 배열 — meaningful 전용 카피가 아닌 전체-수집 안내 카피
+ *  3. 옛 ?filter=all 진입 — 리다이렉트가 filter 를 버림 · 토글 OFF + 전체 렌더
+ *  4. 옛 ?filter=meaningful + mock 응답 빈 배열 — meaningful 전용 카피가 아닌 전체-수집 안내 카피
  *
  * 분류를 다시 켜면(`CLASSIFY_PAUSED = false`) 1·2·4 를 Phase 08.1 계약으로 되돌려야 한다.
  */
 
 const STOCK_CODE = '005930';
+const TAB_LIST_URL = new RegExp(`/stocks/${STOCK_CODE}\\?tab=news&view=discussions$`);
 
 type DiscussionRelevance =
   | 'price_reason'
@@ -113,7 +115,7 @@ async function mockStockDetail(page: Page) {
     },
   );
 
-  // 상세 페이지 아니지만 안전망 (풀페이지는 /news 직접 호출 안함)
+  // 탭 안 전체목록이라 요약 뉴스 섹션(숨김)이 /news 를 부른다 — 빈 배열로 고정
   await page.route(`**/api/stocks/${STOCK_CODE}/news**`, (route) =>
     route.fulfill({
       status: 200,
@@ -131,6 +133,7 @@ test.describe('Discussion filter toggle — 분류 정지(CLASSIFY_PAUSED) 계�
     await mockDiscussionsApi(page, { code: STOCK_CODE, list: ROWS });
 
     await page.goto(`/stocks/${STOCK_CODE}/discussions`);
+    await expect(page).toHaveURL(TAB_LIST_URL);
 
     const toggleCard = page.getByTestId('discussion-filter-toggle');
     await expect(toggleCard).toBeVisible();
@@ -155,6 +158,7 @@ test.describe('Discussion filter toggle — 분류 정지(CLASSIFY_PAUSED) 계�
     await mockDiscussionsApi(page, { code: STOCK_CODE, list: ROWS });
 
     await page.goto(`/stocks/${STOCK_CODE}/discussions`);
+    await expect(page).toHaveURL(TAB_LIST_URL);
     // 초기 로드 완료 대기 (filter=all 고정 → 4건)
     await expect(
       page.getByTestId('discussion-list').getByTestId('discussion-item'),
@@ -169,6 +173,7 @@ test.describe('Discussion filter toggle — 분류 정지(CLASSIFY_PAUSED) 계�
     await toggle.click({ force: true });
 
     await expect(page).not.toHaveURL(/filter=/);
+    await expect(page).toHaveURL(TAB_LIST_URL);
     await expect(toggle).not.toBeChecked();
 
     const list = page.getByTestId('discussion-list');
@@ -176,11 +181,12 @@ test.describe('Discussion filter toggle — 분류 정지(CLASSIFY_PAUSED) 계�
     await expect(list.getByText('ㅋㅋㅋ 뇌피셜 끝')).toBeVisible();
   });
 
-  test('직접 ?filter=all 진입 — 토글 OFF + noise 포함', async ({ page }) => {
+  test('옛 ?filter=all 진입 — 리다이렉트가 filter 를 버림 · 토글 OFF + noise 포함', async ({ page }) => {
     await mockStockDetail(page);
     await mockDiscussionsApi(page, { code: STOCK_CODE, list: ROWS });
 
     await page.goto(`/stocks/${STOCK_CODE}/discussions?filter=all`);
+    await expect(page).toHaveURL(TAB_LIST_URL);
 
     const toggle = page.getByRole('switch', {
       name: /의미있는 토론만 보기/,
@@ -192,13 +198,14 @@ test.describe('Discussion filter toggle — 분류 정지(CLASSIFY_PAUSED) 계�
     await expect(list.getByText('ㅋㅋㅋ 뇌피셜 끝')).toBeVisible();
   });
 
-  test('?filter=meaningful + 빈 배열 — meaningful 전용 카피가 아닌 전체-수집 안내 카피', async ({
+  test('옛 ?filter=meaningful + 빈 배열 — meaningful 전용 카피가 아닌 전체-수집 안내 카피', async ({
     page,
   }) => {
     await mockStockDetail(page);
     await mockDiscussionsApi(page, { code: STOCK_CODE, list: [] });
 
     await page.goto(`/stocks/${STOCK_CODE}/discussions?filter=meaningful`);
+    await expect(page).toHaveURL(TAB_LIST_URL);
 
     const empty = page.getByTestId('discussion-page-empty');
     await expect(empty).toBeVisible();

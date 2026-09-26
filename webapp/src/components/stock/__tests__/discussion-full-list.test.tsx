@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 /**
  * Phase 21 D-29 (G-21-R3-8) — DiscussionFullList.
  *
- * 옛 DiscussionPageClient 필터 토글 테스트(Phase 08.1 Plan 06)를 옮겼다. 필터가 URL(`?filter=`)에서
+ * 옛 토론 전체 페이지 클라이언트(discussion-page-client)의 필터 토글 테스트(Phase 08.1 Plan 06)를 옮겼다. 필터가 URL(`?filter=`)에서
  * **로컬 상태**로 바뀌었으므로 라우터 목은 없다 — 목록이 종목상세 `?tab=news&view=discussions` 안 ·
  * 트레이딩 ⓘ 팝업 안에 살아서 URL 을 쓰면 탭/뷰 파라미터와 섞인다. 대신 URL 불변을 history 스파이와
  * 실제 `window.location` 으로 잠근다.

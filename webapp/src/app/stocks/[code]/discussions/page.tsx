@@ -1,35 +1,24 @@
-'use client';
-
-import { use } from 'react';
-import { notFound } from 'next/navigation';
-
-import { AppShell } from '@/components/layout/app-shell';
-import { AppSidebar } from '@/components/layout/app-sidebar';
-import { DiscussionPageClient } from '@/components/stock/discussion-page-client';
+import { notFound, redirect } from 'next/navigation';
 
 /**
- * `/stocks/[code]/discussions` — Phase 08 DISC-01 전체 토론방 페이지.
+ * `/stocks/[code]/discussions` — 옛 전체 토론방 페이지(Phase 08 DISC-01) → 탭 안 전체목록 리다이렉트.
  *
- * - Next 15 dynamic route: `params` 는 `Promise<{ code }>` 형태 → `use()` 로 언래핑
- *   (Phase 6 `/stocks/[code]` + Phase 7 `/stocks/[code]/news` 동일 패턴 계승)
- * - 잘못된 code (영문/숫자 1~10자 외) → `notFound()` (부모 `not-found.tsx` 상속)
- * - 부모 `error.tsx` 도 그대로 상속 — 신규 not-found/error 파일 생성 안 함
- * - UI-SPEC §3 Compact 풀페이지 (3열 grid, 최근 7일 · 서버 하드캡 50건, 새로고침 없음)
+ * Phase 21 D-29 (G-21-R3-8) — 전체 토론은 종목상세 「뉴스토론」 탭 안 전체목록
+ * `/stocks/{code}?tab=news&view=discussions` 로 옮겼다. 이 주소는 **북마크 · 외부 링크 호환**으로만
+ * 남아 새 자리로 보낸다(21-25 사용자 동의). 옛 `?filter=` 는 버린다 — 분류가 정지(CLASSIFY_PAUSED)
+ * 중이라 의미가 없고, 필터는 이제 목록의 로컬 상태다(URL 에 쓰지 않는다).
+ *
+ * T-21-83 — 경로 파라미터는 사용자 제어 입력이다. `CODE_RE` 로 거른 뒤에만 `encodeURIComponent` 로
+ * 조립하고, 어긋나면 `notFound()`(부모 `not-found.tsx` 상속).
  */
 const CODE_RE = /^[A-Za-z0-9]{1,10}$/;
 
-export default function StockDiscussionsPage({
+export default async function StockDiscussionsPage({
   params,
 }: {
   params: Promise<{ code: string }>;
 }) {
-  const { code } = use(params);
+  const { code } = await params;
   if (!CODE_RE.test(code)) notFound();
-  return (
-    <AppShell sidebar={<AppSidebar />}>
-      <div className="mx-auto w-full max-w-4xl">
-        <DiscussionPageClient code={code} />
-      </div>
-    </AppShell>
-  );
+  redirect(`/stocks/${encodeURIComponent(code)}?tab=news&view=discussions`);
 }

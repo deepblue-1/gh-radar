@@ -9,11 +9,11 @@ import { FIXTURE_SAMSUNG } from '../fixtures/stocks';
  * 시나리오 (PIVOT + 무한 스크롤 포함):
  *  1. detail list (5 items + 더보기 + target/rel 속성)
  *  2. detail fields (title/body/author/time)
- *  3. full page (≤50 items + Compact 3열 헤더 desktop)
- *  4. full page 쿨다운 (detail refresh 429 → disabled + data-remaining-seconds)
- *  5. full page 새로고침 버튼 없음 + ← back link
+ *  3. 탭 안 전체목록 (옛 /discussions → ?tab=news&view=discussions 리다이렉트 · ≤50 items + Compact 3열 헤더)
+ *  4. 쿨다운 (detail refresh 429 → disabled + data-remaining-seconds)
+ *  5. 전체목록 새로고침 버튼 없음 + ← = 요약 복귀 (Phase 21 D-29)
  *  6. 무한 스크롤 (before cursor 추가 fetch + append)
- *  7. a11y (detail section + 풀페이지 — axe-core serious/critical 0)
+ *  7. a11y (detail section + 탭 안 전체목록 — axe-core serious/critical 0)
  *
  * Fixture: `webapp/e2e/fixtures/discussions.ts` (Plan 08-01 산출 — 본 spec 은 수정 금지).
  */
@@ -57,7 +57,7 @@ async function mockStockDetail(page: Page) {
 }
 
 test.describe('Discussion — detail Card (Phase 8)', () => {
-  test('renders 5 items + 더보기 link + external link attrs (T-02)', async ({ page }) => {
+  test('renders 5 items + 더보기 button + external link attrs (T-02)', async ({ page }) => {
     await mockStockDetail(page);
     await mockDiscussionsApi(page, {
       code: STOCK_CODE,
@@ -78,10 +78,18 @@ test.describe('Discussion — detail Card (Phase 8)', () => {
     expect(rel).toMatch(/noopener/);
     expect(rel).toMatch(/noreferrer/);
 
-    // 더보기 링크 — /stocks/:code/discussions 로
-    const more = page.getByRole('link', { name: /전체 토론 보기/ });
+    // 더보기 — Phase 21 D-29: 페이지 이동 Link 가 아니라 탭 안 전체목록을 여는 버튼
+    const more = page.getByRole('button', { name: /전체 토론 보기/ });
     await expect(more).toBeVisible();
-    await expect(more).toHaveAttribute('href', `/stocks/${STOCK_CODE}/discussions`);
+    await expect(page.getByRole('link', { name: /전체 토론 보기/ })).toHaveCount(0);
+    await more.click();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news&view=discussions$`));
+    await expect(page.getByTestId('discussion-list')).toBeVisible();
+    await expect(section).toBeHidden();
+    // 브라우저 뒤로 = 요약
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(section).toBeVisible();
   });
 
   test('each item shows title + author + time', async ({ page }) => {
@@ -98,7 +106,7 @@ test.describe('Discussion — detail Card (Phase 8)', () => {
   });
 });
 
-test.describe('Discussion — full page (/stocks/:code/discussions)', () => {
+test.describe('Discussion — 탭 안 전체목록 (옛 /stocks/:code/discussions → 리다이렉트 · D-29)', () => {
   test('renders up to 50 items + Compact column headers at desktop', async ({ page }) => {
     await mockStockDetail(page);
     await mockDiscussionsApi(page, {
@@ -107,8 +115,9 @@ test.describe('Discussion — full page (/stocks/:code/discussions)', () => {
     });
 
     await page.goto(`/stocks/${STOCK_CODE}/discussions`);
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news&view=discussions$`));
     await expect(
-      page.getByRole('heading', { level: 1, name: /최근 7일 토론/ }),
+      page.getByRole('heading', { level: 2, name: '최근 7일 토론' }),
     ).toBeVisible();
 
     const list = page.getByTestId('discussion-list');
@@ -122,7 +131,7 @@ test.describe('Discussion — full page (/stocks/:code/discussions)', () => {
     await expect(list.getByText('시간', { exact: true })).toBeVisible();
   });
 
-  test('full page has NO refresh button + ← back link navigates', async ({ page }) => {
+  test('full list has NO refresh button + ← = 요약 복귀(페이지 이탈 없음)', async ({ page }) => {
     await mockStockDetail(page);
     await mockDiscussionsApi(page, {
       code: STOCK_CODE,
@@ -130,14 +139,18 @@ test.describe('Discussion — full page (/stocks/:code/discussions)', () => {
     });
 
     await page.goto(`/stocks/${STOCK_CODE}/discussions`);
-    // 풀페이지는 새로고침 버튼 0
-    await expect(page.getByTestId('discussion-refresh-button')).toHaveCount(0);
+    const fullList = page.getByTestId('discussion-full-list');
+    await expect(fullList.getByTestId('discussion-list')).toBeVisible();
+    // 전체목록은 새로고침 버튼 0 (요약 섹션의 버튼은 숨김 상태로 마운트 유지 — 목록 안으로 좁힌다)
+    await expect(fullList.getByTestId('discussion-refresh-button')).toHaveCount(0);
 
-    // ← back link 클릭 → /stocks/:code
-    const back = page.getByRole('link', { name: '종목 상세로 돌아가기' });
+    // ← = 요약. 리다이렉트로 들어온 딥링크라 replaceState ?tab=news — 같은 경로에 머문다.
+    const back = page.getByRole('button', { name: '요약으로 돌아가기' });
     await expect(back).toBeVisible();
     await back.click();
-    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}$`));
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(page.getByTestId('stock-discussion-section')).toBeVisible();
+    await expect(fullList).toHaveCount(0);
   });
 });
 
@@ -220,7 +233,7 @@ test.describe('Discussion — infinite scroll (before cursor)', () => {
         });
       },
     );
-    // POST refresh 는 풀페이지에서 호출 안 되지만 안전망
+    // POST refresh 는 전체목록에서 호출 안 되지만 안전망
     await page.route(`**/api/stocks/${STOCK_CODE}/discussions/refresh`, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     );
@@ -261,7 +274,7 @@ test.describe('Discussion — a11y (axe-core scan)', () => {
     expect(blocking).toEqual([]);
   });
 
-  test('full page has 0 serious/critical violations', async ({ page }) => {
+  test('full list (탭 안) has 0 serious/critical violations', async ({ page }) => {
     await mockStockDetail(page);
     await mockDiscussionsApi(page, {
       code: STOCK_CODE,
