@@ -257,14 +257,18 @@ class MainActivity : BridgeActivity() {
             Log.w(TAG, "offline page asset missing — fallback skipped", e)
             return
         }
-        val url = "https://localhost/index.html?to=" + URLEncoder.encode(failedUrl, "UTF-8") + "&theme=" + currentTheme
+        // IN-02: 폴백 페이지는 dev=1 이 있을 때만 localhost 복귀를 허용한다 — 서버가 루프백 http(dev 빌드)일 때만 붙인다.
+        val server = serverUri()
+        val dev = server?.scheme == "http" && (server.host == "localhost" || server.host == "127.0.0.1")
+        val url = "https://localhost/index.html?to=" + URLEncoder.encode(failedUrl, "UTF-8") + "&theme=" + currentTheme +
+            if (dev) "&dev=1" else ""
         Log.i(TAG, "offline fallback for $failedUrl")
         wv.loadDataWithBaseURL(url, html, "text/html", "UTF-8", url)
     }
 
     // ── 뒤로가기 (D-26) ───────────────────────────────────────────────────────
 
-    /** ① 웹 오버레이 → 가장 위 시트만 닫기 ② WebView 히스토리 ③ 홈이 아니면 홈 ④ 홈이면 종료. */
+    /** ① 웹 오버레이 → 가장 위 시트만 닫기 ② 오프라인 폴백이면 종료(IN-03) ③ WebView 히스토리 ④ 홈이 아니면 홈 ⑤ 홈이면 종료. */
     private fun handleBack() {
         val wv = bridge.webView ?: return finish()
         if (overlayOpen) {
@@ -279,6 +283,9 @@ class MainActivity : BridgeActivity() {
 
     private fun navigateBack(wv: WebView) {
         when {
+            // IN-03: 오프라인 폴백에서의 뒤로가기 = 종료(21-13 첫 실행 오프라인과 같음). 세션 중 폴백이면 히스토리가
+            // [앱 문서, 실패한 이동, 폴백] 이라 goBack 이 실패한 이동을 다시 불러 폴백으로 돌아오는 루프가 에뮬레이터에서 재현됐다.
+            isOfflinePage -> finish()
             wv.canGoBack() -> wv.goBack()
             // 로그인/인증 화면에서 홈으로 보내면 미들웨어가 다시 로그인으로 돌려보낸다 → 그 화면에선 종료.
             !isOfflinePage && currentPath != "/" && !TabRoutes.hidesTabBar(currentPath) -> {

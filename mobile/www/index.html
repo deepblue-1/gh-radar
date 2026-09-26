@@ -91,7 +91,11 @@
     <script>
       (function () {
         // T-21-06 오픈 리다이렉트 방지 — 복귀 대상은 허용 출처일 때만 그 URL, 아니면 운영 루트.
-        var ALLOWED_ORIGINS = ['https://trade.jx1.io', 'http://localhost:3100'];
+        // T-21-06 · IN-02 — 운영 번들은 운영 출처만 · localhost 는 네이티브가 dev 빌드에서만 붙이는 dev=1 이 있을 때만.
+        var PROD_ORIGINS = ['https://trade.jx1.io'];
+        var DEV_ORIGINS = ['http://localhost:3100'];
+        var params = new URLSearchParams(location.search);
+        var ALLOWED_ORIGINS = params.get('dev') === '1' ? PROD_ORIGINS.concat(DEV_ORIGINS) : PROD_ORIGINS;
         var DEFAULT_TARGET = 'https://trade.jx1.io/';
 
         function safeTarget(raw) {
@@ -104,7 +108,9 @@
           }
         }
 
-        var target = safeTarget(new URLSearchParams(location.search).get('to'));
+        var target = safeTarget(params.get('to'));
+        // 계산된 복귀 대상(검증·디버깅용 — 동작에는 쓰지 않는다).
+        document.documentElement.setAttribute('data-return-target', target);
         var checking = false;
         var leaving = false;
 

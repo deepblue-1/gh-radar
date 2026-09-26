@@ -166,3 +166,38 @@ test.describe('오프라인 폴백 기본 다크 (D-19 · D-23a)', () => {
     });
   }
 });
+
+test.describe('오프라인 폴백 복귀 대상(IN-02)', () => {
+  // 운영 번들은 운영 출처로만 복귀 — localhost 는 네이티브가 dev 빌드에서만 붙이는 dev=1 이 있을 때만(T-21-06).
+  // 도달 탐침이 페이지를 떠나지 않게 오프라인으로 연다.
+  test.beforeEach(async ({ page }) => {
+    await page.context().setOffline(true);
+  });
+
+  const to = (url: string) => '?to=' + encodeURIComponent(url);
+  const cases: { query: string; target: string; label: string }[] = [
+    {
+      query: to('http://localhost:3100/me'),
+      target: 'https://trade.jx1.io/',
+      label: 'dev=1 없음 · localhost 대상 → 운영 루트',
+    },
+    {
+      query: to('http://localhost:3100/me') + '&dev=1',
+      target: 'http://localhost:3100/me',
+      label: 'dev=1 · localhost 대상 → 그 URL',
+    },
+    {
+      query: to('https://trade.jx1.io/trading'),
+      target: 'https://trade.jx1.io/trading',
+      label: '운영 대상 → 그 URL',
+    },
+  ];
+
+  for (const c of cases) {
+    test(c.label, async ({ page }) => {
+      await page.goto(FALLBACK_URL + c.query);
+      await expect(page.getByText('인터넷 연결을 확인해주세요')).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-return-target', c.target);
+    });
+  }
+});
