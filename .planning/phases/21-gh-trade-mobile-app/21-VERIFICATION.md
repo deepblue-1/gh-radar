@@ -1,7 +1,10 @@
 ---
 phase: 21-gh-trade-mobile-app
 verified: 2026-09-26T06:00:00Z
-status: human_needed
+status: passed
+previous_status: human_needed
+re_verified: 2026-09-26T14:30:33Z
+re_verified_by: 21-VERIFICATION-R2.md  # 라운드 2(21-17..21-36 + quick v5n·vk9) passed 15/15 · 사람 확인 = 21-UAT.md UAT 4차 30/30 pass. 이 파일 본문은 1차 기록 그대로 둔다
 score: 6/6 truths verified — 실기기 UAT 5건은 human_verification(Step 8)으로 별도 라우팅
 covered_files:
   - ".planning/REQUIREMENTS.md"
