@@ -1485,10 +1485,15 @@ describe('시세·체결 프레임 배치 (quick-260923-elb 1a)', () => {
 
 describe('rate.cross 순서 — 최신 돌파가 맨 위 (사용자 결정 2026-09-22)', () => {
   // 축은 relay `sortRateCrossNewestFirst` 와 같다: exchangeTime ↓ · 동률이면 isin ↑.
-  function crossItem(isin: string, exchangeTime: string, lastPrice = 10_000): RelayRateCrossItem {
+  function crossItem(
+    isin: string,
+    exchangeTime: string,
+    lastPrice = 10_000,
+    exchange: RelayRateCrossItem['exchange'] = 'KRX',
+  ): RelayRateCrossItem {
     return {
       isin,
-      exchange: 'KRX',
+      exchange,
       lastPrice,
       changeRate: 12.5,
       thresholdPct: 10,
@@ -1523,7 +1528,7 @@ describe('rate.cross 순서 — 최신 돌파가 맨 위 (사용자 결정 2026-
     expect(isinsOf(hook)).toEqual([C, B, A]);
   });
 
-  it('② 같은 isin+exchange · 같은 exchangeTime 의 76(구간 안 갱신)은 자리를 지키고 값만 바뀐다', async () => {
+  it('② 같은 isin · 같은 exchangeTime 의 76(구간 안 갱신)은 자리를 지키고 값만 바뀐다', async () => {
     const hook = render();
     const ws = await connected(hook);
 
@@ -1577,6 +1582,43 @@ describe('rate.cross 순서 — 최신 돌파가 맨 위 (사용자 결정 2026-
       });
     });
     expect(isinsOf(hook)).toEqual([B, C, A]);
+  });
+
+  // gh-trade quick-260923-cfo 결정 A — 서버 상태는 ISIN 당 1개. 뒤에 온 76 이 거래소째 덮는다
+  // (relay `rateCrossKey` 와 같은 축 · quick-260926-rcc).
+  it('⑤ KRX 행 뒤 같은 종목의 NXT 76 은 원소를 늘리지 않고 거래소째 덮는다(맨 위 · NXT)', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({
+        t: 'rate.cross.snap',
+        items: [crossItem(A, '090100000001'), crossItem(B, '090300000003')],
+      });
+    });
+
+    await act(async () => {
+      ws.push({ t: 'rate.cross', item: crossItem(A, '091000000010', 10_500, 'NXT') });
+    });
+    const items = hook.result.current.rateCrossItems;
+    expect(items).toHaveLength(2);
+    expect(items[0]?.isin).toBe(A);
+    expect(items[0]?.exchange).toBe('NXT');
+  });
+
+  it('⑥ NXT 행 뒤 같은 종목의 KRX 76 도 1원소 · KRX', async () => {
+    const hook = render();
+    const ws = await connected(hook);
+
+    await act(async () => {
+      ws.push({ t: 'rate.cross.snap', items: [crossItem(A, '080100000001', 10_000, 'NXT')] });
+    });
+    await act(async () => {
+      ws.push({ t: 'rate.cross', item: crossItem(A, '100000000001', 10_200, 'KRX') });
+    });
+    const items = hook.result.current.rateCrossItems;
+    expect(items).toHaveLength(1);
+    expect(items[0]?.exchange).toBe('KRX');
   });
 });
 

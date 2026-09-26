@@ -193,7 +193,7 @@ describe("76 RateCrossAlert — 화이트리스트에서 브라우저 상태까�
     expect(hub.getRateCrossItems(USER_A)).toHaveLength(1);
   });
 
-  it("③ 같은 isin+exchange 76 이 두 번 오면 캐시 원소는 1개이고 뒤 값으로 덮인다", () => {
+  it("③ 같은 isin 76 이 두 번 오면 캐시 원소는 1개이고 뒤 값으로 덮인다 — 거래소가 바뀌어도", () => {
     session.pushFrame(buildRateCrossAlertFrame({ lastPrice: 84_000n, changeRate: 20.0 }));
     session.pushFrame(buildRateCrossAlertFrame({ lastPrice: 85_400n, changeRate: 22.0 }));
 
@@ -202,13 +202,26 @@ describe("76 RateCrossAlert — 화이트리스트에서 브라우저 상태까�
     expect(cached[0]?.lastPrice).toBe(85_400);
     expect(cached[0]?.changeRate).toBe(22.0);
 
-    // 같은 종목이 양쪽 거래소에서 돌파하면 원소는 **둘**이다 (키 = isin + ":" + exchange).
-    session.pushFrame(buildRateCrossAlertFrame({ exchange: "NXT" }));
-    expect(hub.getRateCrossItems(USER_A)).toHaveLength(2);
+    // gh-trade quick-260923-cfo 결정 A — 서버 상태는 ISIN 당 1개다. 76 exchange 는 발화 체결의
+    // 거래소라 KRX 행 뒤 NXT 재돌파는 **같은 원소를 거래소째 덮는다** (키 = isin).
+    session.pushFrame(
+      buildRateCrossAlertFrame({ exchange: "NXT", lastPrice: 86_000n, changeRate: 22.86 }),
+    );
+    const afterNxt = hub.getRateCrossItems(USER_A);
+    expect(afterNxt).toHaveLength(1);
+    expect(afterNxt[0]?.exchange).toBe("NXT");
+    expect(afterNxt[0]?.lastPrice).toBe(86_000);
 
-    // 다른 종목도 따로 쌓인다.
+    // 반대 방향(NXT → KRX)도 1원소 · 뒤에 온 거래소.
+    session.pushFrame(buildRateCrossAlertFrame({ exchange: "KRX", lastPrice: 86_500n }));
+    const afterKrx = hub.getRateCrossItems(USER_A);
+    expect(afterKrx).toHaveLength(1);
+    expect(afterKrx[0]?.exchange).toBe("KRX");
+    expect(afterKrx[0]?.lastPrice).toBe(86_500);
+
+    // 다른 종목은 따로 쌓인다.
     session.pushFrame(buildRateCrossAlertFrame({ isin: OTHER_ISIN }));
-    expect(hub.getRateCrossItems(USER_A)).toHaveLength(3);
+    expect(hub.getRateCrossItems(USER_A)).toHaveLength(2);
   });
 
   it("④ 76 수신에 unknown-msg-type warn 이 0건이다 (Pitfall 1 — 드롭 0 게이트)", () => {
@@ -255,7 +268,8 @@ describe("78 RateCrossSnapshot · 77 QueuedWindowState — 캐시 교체 규약 
     session.pushFrame(
       buildRateCrossSnapshotFrame([
         { isin: SAMPLE_ISIN, exchange: "KRX", exchangeTime: "090100000001" },
-        { isin: SAMPLE_ISIN, exchange: "NXT", exchangeTime: "090200000002" },
+        // 서버 계약 「ISIN 당 1원소」(gh-trade quick-260923-cfo 결정 A) — 세 원소는 서로 다른 종목.
+        { isin: "KR7035420009", exchange: "NXT", exchangeTime: "090200000002" },
         { isin: "KR7035720002", exchange: "KRX", exchangeTime: "090300000003" },
       ]),
     );
@@ -323,6 +337,27 @@ describe("78 RateCrossSnapshot · 77 QueuedWindowState — 캐시 교체 규약 
     expect(hub.getRateCrossItems(USER_A).map((i) => i.isin)).toEqual([OTHER_ISIN]);
     expect(msgsOf(fanout, "rate.cross.snap")).toHaveLength(0);
     expect(dropCallsWithReason(warn, "bad-isin")).toBe(1);
+  });
+
+  it("⑤-5 계약 위반으로 78 에 같은 ISIN 이 두 번 와도 getter · 78 팬아웃 둘 다 ISIN 당 1원소(뒤 원소가 이긴다)", () => {
+    session.pushFrame(
+      buildRateCrossSnapshotFrame([
+        { isin: SAMPLE_ISIN, exchange: "KRX", exchangeTime: "090100000001", lastPrice: 84_000n },
+        { isin: OTHER_ISIN, exchange: "KRX", exchangeTime: "090300000003" },
+        { isin: SAMPLE_ISIN, exchange: "NXT", exchangeTime: "090200000002", lastPrice: 86_000n },
+      ]),
+    );
+
+    const cached = hub.getRateCrossItems(USER_A);
+    expect(cached.map((i) => i.isin)).toEqual([OTHER_ISIN, SAMPLE_ISIN]);
+    const sample = cached.find((i) => i.isin === SAMPLE_ISIN);
+    expect(sample?.exchange).toBe("NXT");
+    expect(sample?.lastPrice).toBe(86_000);
+
+    // 78 팬아웃은 캐시 getter 와 **같은 원천**이다 — 두 경로가 갈리지 않는다.
+    const snaps = msgsOf(fanout, "rate.cross.snap") as RelayRateCrossSnapMsg[];
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]?.items).toEqual(cached);
   });
 
   it("⑥-1 77 프레임 2건이 연속으로 오면 캐시에는 마지막 1건만 남는다", () => {

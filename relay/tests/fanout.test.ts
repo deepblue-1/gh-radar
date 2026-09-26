@@ -801,6 +801,32 @@ describe("WsFanout", () => {
     expect(framesOf(tabB.inbox, "rate.cross.snap")[0]).toEqual({ t: "rate.cross.snap", items: [] });
   });
 
+  it("⑭-2b 같은 ISIN 으로 76 KRX 뒤 76 NXT 가 오면 새 탭의 첫 rate.cross.snap 은 그 ISIN 1원소 · NXT (quick-260926-rcc)", async () => {
+    // gh-trade quick-260923-cfo 결정 A — 서버 상태는 ISIN 당 1개, 뒤에 온 76 이 거래소째 덮는다.
+    // 캐시 키에 거래소를 두면 인증 직후 스냅샷에 같은 종목이 두 원소로 내려간다.
+    await authed("token-a");
+    await waitFor(() => gateway.sockets.length >= 1, "게이트웨이 연결");
+    const sock = gateway.sockets[0];
+    if (sock === undefined) throw new Error("게이트웨이 소켓 없음");
+
+    gateway.sendRateCrossAlert(sock, { isin: SAMPLE_ISIN, exchange: "KRX" });
+    gateway.sendRateCrossAlert(sock, { isin: SAMPLE_ISIN, exchange: "NXT" });
+    await waitFor(
+      () => h.hub.getRateCrossItems(USER_A)[0]?.exchange === "NXT",
+      "hub 캐시 NXT 덮기",
+    );
+
+    const tab = await open();
+    tab.ws.sendAuth("token-a");
+    await waitFor(() => framesOf(tab.inbox, "rate.cross.snap").length >= 1, "새 탭 스냅샷");
+    await flushIo(20);
+
+    const snap = framesOf(tab.inbox, "rate.cross.snap")[0];
+    expect(snap?.items).toHaveLength(1);
+    expect(snap?.items[0]?.isin).toBe(SAMPLE_ISIN);
+    expect(snap?.items[0]?.exchange).toBe("NXT");
+  });
+
   it("⑭-3 드롭 0 게이트 — 76·77·78 왕복에 default 0·warn 0, 미등록 99 는 여전히 warn 1 (T-17-10)", async () => {
     const warnSpy = vi.spyOn(logger, "warn");
     const conn = await authed("token-a");

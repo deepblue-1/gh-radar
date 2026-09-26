@@ -252,13 +252,17 @@ function lcKey(userId: string, item: RelayLimitChaser): string {
 }
 
 /**
- * 등락률 돌파 above 집합 캐시 키 (17-03).
+ * 등락률 돌파 above 집합 캐시 키 (17-03 · quick-260926-rcc).
  *
- * `isin:exchange` 인 이유는 **같은 종목이 KRX·NXT 양쪽에서 돌파하면 원소가 둘**이기
- * 때문이다. 앞에 `userId` 를 붙이는 것은 `subKey` 와 같은 규율이다 (T-17-08).
+ * 키는 **ISIN 하나**다 — 거래소를 넣지 않는다. gh-trade quick-260923-cfo 결정 A 로 서버 상태가
+ * ISIN 당 1개이고, 76 의 exchange 는 발화 체결의 거래소 · 78 원소의 exchange 는 above 구간을
+ * 연 거래소(KRX 접속매매 세션이 닫힌 시간의 NXT 접속매매도 판정하므로 NXT 일 수 있다)다.
+ * 그래서 **뒤에 온 76 이 거래소째 덮는다**. 거래소를 키에 두면 KRX 행 뒤 NXT 재돌파가 다음
+ * 78 까지 두 원소로 남는다. 브라우저 리듀서 `upsertRateCross` · 스트립 `breakoutKey` 가 같은 축이다.
+ * 앞에 `userId` 를 붙이는 것은 `subKey` 와 같은 규율이다 (T-17-08).
  */
-function rateCrossKey(userId: string, isin: string, exchange: RelayExchange): string {
-  return `${userId}|${isin}:${exchange}`;
+function rateCrossKey(userId: string, isin: string): string {
+  return `${userId}|${isin}`;
 }
 
 /**
@@ -1120,7 +1124,7 @@ export class SubscriptionHub extends EventEmitter {
    *    그대로 보관하는 것이 계약이고, 표시 규칙은 Phase 18 클라 몫이다 (D-03).
    */
   #onRateCrossAlert(userId: string, session: HubSession, item: RelayRateCrossItem): void {
-    this.#rateCrossItems.set(rateCrossKey(userId, item.isin, item.exchange), item);
+    this.#rateCrossItems.set(rateCrossKey(userId, item.isin), item);
     if (!session.isReady) {
       logger.debug(
         { userId, isin: item.isin, exchange: item.exchange },
@@ -1147,17 +1151,17 @@ export class SubscriptionHub extends EventEmitter {
       if (key.startsWith(prefix)) this.#rateCrossItems.delete(key);
     }
     for (const item of items) {
-      this.#rateCrossItems.set(rateCrossKey(userId, item.isin, item.exchange), item);
+      this.#rateCrossItems.set(rateCrossKey(userId, item.isin), item);
     }
     logger.info({ userId, count: items.length }, "[HUB] 돌파 집합 스냅샷 수신 — 전량 교체");
     if (!session.isReady) return;
     // 전량 교체는 위에서 서버 원본으로 끝났다. 보강은 팬아웃 사본에만 (D-30 / D-27).
-    // 순서는 사용자 결정 2026-09-22 — 최신 돌파가 맨 위. 서버 78 원순서(오름차순)와 무관하게
-    // relay 가 내리는 순서는 `sortRateCrossNewestFirst` 한 곳이 정한다(getter 와 같은 축).
-    this.#fanout(userId, {
-      t: "rate.cross.snap",
-      items: sortRateCrossNewestFirst(items.map((item) => this.#enrichRateCross(item))),
-    });
+    // 순서는 사용자 결정 2026-09-22 — 최신 돌파가 맨 위(`sortRateCrossNewestFirst`).
+    //
+    // 페이로드는 원 배열이 아니라 **캐시 getter 에서** 만든다(quick-260926-rcc). 인증 직후
+    // 스냅샷(`fanout.ts`)과 78 팬아웃이 한 원천이면 서버가 같은 ISIN 을 두 번 보내는 계약
+    // 위반에도 브라우저는 ISIN 당 1원소(뒤 원소가 이긴다)를 받고 두 경로가 갈리지 않는다.
+    this.#fanout(userId, { t: "rate.cross.snap", items: this.getRateCrossItems(userId) });
   }
 
   /**

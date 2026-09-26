@@ -474,6 +474,9 @@ export interface RelayConnectionState {
    * 정렬은 `exchangeTime` **내림차순**(최신 돌파가 맨 위 — 사용자 결정 2026-09-22) · 동률이면
    * `isin` 오름차순 — relay `sortRateCrossNewestFirst` 와 같은 축이다. 표시 컴포넌트는 이 순서를
    * 그대로 쓰고 다시 정렬하지 않는다 (D-14).
+   *
+   * **종목당 1원소**다(키 = isin) — 서버 상태가 ISIN 당 1개이고(gh-trade quick-260923-cfo 결정 A)
+   * 원소의 `exchange` 는 발화 거래소(KRX/NXT)다 (quick-260926-rcc).
    */
   rateCrossItems: RelayRateCrossItem[];
   /**
@@ -881,8 +884,9 @@ function applyFrame(state: RelayData, frame: RelayOutbound, at: string): RelayDa
       return { ...state, viNotices: [frame, ...state.viNotices].slice(0, MAX_VI_NOTICES) };
 
     case "rate.cross":
-      // **상태 보관만** 한다 — 돌파감지 UI 는 Phase 18 이다. 같은 `isin`+`exchange` 는
-      // 한 원소이고 뒤 값으로 덮인다(같은 종목이 양쪽 거래소에서 돌파하면 원소 둘).
+      // **상태 보관만** 한다 — 돌파감지 UI 는 Phase 18 이다. 키는 isin 이다 — 서버 상태가
+      // ISIN 당 1개(gh-trade quick-260923-cfo 결정 A), 뒤에 온 76 이 거래소째 덮는다 · relay
+      // `rateCrossKey` 와 같은 축.
       return { ...state, rateCrossItems: upsertRateCross(state.rateCrossItems, frame.item) };
 
     case "rate.cross.snap":
@@ -1028,7 +1032,10 @@ function applyMarketFrames(state: RelayData, market: readonly RelayMarketFrame[]
 }
 
 /**
- * 등락률 돌파 above 집합 upsert — 키는 `isin`+`exchange` 다 (17-03 / D-03).
+ * 등락률 돌파 above 집합 upsert — 키는 isin 이다 (17-03 / D-03 · quick-260926-rcc).
+ *
+ * 서버 상태가 ISIN 당 1개(gh-trade quick-260923-cfo 결정 A)이므로 뒤에 온 76 이 거래소째 덮는다
+ * — relay `rateCrossKey` 와 같은 축이다. 거래소를 비교하면 KRX 행 뒤 NXT 재돌파가 두 원소가 된다.
  *
  * 정렬은 **`exchangeTime` 내림차순(최신 돌파가 맨 위 — 사용자 결정 2026-09-22) · 동률이면
  * `isin` 오름차순**으로 relay `sortRateCrossNewestFirst` 와 같은 축을 쓴다. `exchangeTime` 은
@@ -1043,7 +1050,7 @@ function upsertRateCross(
   list: RelayRateCrossItem[],
   item: RelayRateCrossItem,
 ): RelayRateCrossItem[] {
-  const rest = list.filter((c) => !(c.isin === item.isin && c.exchange === item.exchange));
+  const rest = list.filter((c) => c.isin !== item.isin);
   return sortRateCross([...rest, item]).slice(0, MAX_RATE_CROSS);
 }
 
