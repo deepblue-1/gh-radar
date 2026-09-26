@@ -18,6 +18,16 @@
  *     그 조회가 실패해도 나머지 섹션은 각자 뜬다(E14 partial — 탭별·섹션별 독립 로드).
  *   - 뉴스·토론: `StockNewsSection` · `StockDiscussionSection`.
  *
+ * ②-b 뉴스·토론 전체 보기 = **팝업 안 전체목록** (D-29 · G-21-R3-8)
+ *   두 섹션의 「전체 뉴스/토론 보기」가 `onShowAll` 로 `newsView`('news' | 'discussions')를 켜면 같은 탭
+ *   본문이 21-30 공용 `NewsFullList` · `DiscussionFullList`(← 「요약으로 돌아가기」)로 바뀐다. 요약은
+ *   언마운트하지 않고 숨긴다(재조회 · 스켈레톤 없이 돌아오고 본문 스크롤도 되돌린다 — 종목상세 탭과 같은 규율).
+ *   되돌리기 = 화면 안 ← · Esc · Android 뒤로가기(오버레이가 열려 있으면 네이티브가 합성 Escape 를
+ *   보낸다) — `onEscapeKeyDown` 이 전체목록이면 `preventDefault` 후 요약으로, 요약에서 한 번 더면 닫힌다.
+ *   다른 탭으로 옮기면 요약으로 접는다(보이지 않는 전체목록이 Esc 한 번을 삼키지 않게).
+ *   ★ /trading URL 불변 — 작업대 useSearchParams 재렌더 방지. `newsView` 는 로컬 상태뿐이고 history 를
+ *     건드리지 않는다(T-21-81). 팝업이 닫히면 요약으로 되돌린다 — 다음 열림은 요약부터(⑥).
+ *
  * ③ ★ 호가주문 탭을 넣지 않는다
  *   보이지 않는 탭에서 실시간 호가 구독을 붙잡지 않는다는 종목상세의 규율(T8 의 예외)과 같은
  *   이유다. 호가·주문은 카드 본문이 이미 한다.
@@ -53,7 +63,7 @@
  *   컴포넌트도 `open` 을 받더라도 `code` 없이는 아무것도 그리지 않는다 — 세 지점이 같은 말을 한다.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { XIcon } from 'lucide-react';
 import type { StockDetailResponse } from '@gh-radar/shared';
 
@@ -73,6 +83,8 @@ import { StockLimitUpSection } from '@/components/stock/stock-limit-up-section';
 import { StockComovementSection } from '@/components/stock/stock-comovement-section';
 import { StockNewsSection } from '@/components/stock/stock-news-section';
 import { StockDiscussionSection } from '@/components/stock/stock-discussion-section';
+import { NewsFullList } from '@/components/stock/news-full-list';
+import { DiscussionFullList } from '@/components/stock/discussion-full-list';
 import { StockThemeChips } from '@/components/theme/theme-chips';
 import { fetchStockDetail } from '@/lib/stock-api';
 import { cn } from '@/lib/utils';
@@ -84,6 +96,9 @@ const TABS = [
 ] as const;
 
 type ModalTab = (typeof TABS)[number]['v'];
+
+/** 뉴스·토론 탭 안 전체목록(②-b). `null` = 요약. */
+type NewsView = 'news' | 'discussions' | null;
 
 const TAB_TRIGGER =
   'h-7 flex-none rounded-full border border-transparent px-3 text-[length:var(--t-caption)] font-semibold whitespace-nowrap text-[var(--muted-fg)] shadow-none ' +
@@ -103,6 +118,10 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
   const closeRef = useRef<HTMLButtonElement>(null);
   /** 열리는 순간 포커스를 갖고 있던 요소(= ⓘ). 닫을 때 그리로 돌려준다(⑥). */
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  /** 뉴스·토론 전체목록(②-b) — 로컬 상태뿐(URL 불변). Esc 가 읽어야 해서 대화상자 쪽에 둔다. */
+  const [newsView, setNewsView] = useState<NewsView>(null);
+  // 닫히면(부모가 open 을 내려도) 요약으로 — 다음 열림은 요약부터다(⑥ · ②-b).
+  if (!open && newsView !== null) setNewsView(null);
 
   // ⑦ — 코드 없이는 그리지 않는다. `open` 이 와도 대화상자가 존재하지 않는다.
   if (code === null || code === '') return null;
@@ -127,6 +146,12 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
             e.preventDefault();
             target.focus();
           }
+        }}
+        onEscapeKeyDown={(e) => {
+          // ②-b — 전체목록이면 한 단계만 되돌린다(요약). 요약에서의 Esc 는 기본대로 닫는다.
+          if (newsView === null) return;
+          e.preventDefault();
+          setNewsView(null);
         }}
         className={cn(
           // 폰(<700) — 전체화면 시트.
@@ -160,7 +185,7 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
           </DialogClose>
         </DialogHeader>
 
-        <StockInfoTabs code={code} />
+        <StockInfoTabs code={code} newsView={newsView} onNewsViewChange={setNewsView} />
       </DialogContent>
     </Dialog>
   );
@@ -170,16 +195,53 @@ export function StockInfoModal({ code, name, open, onOpenChange }: StockInfoModa
  * 탭 3개. 한 번 연 탭은 떠나도 마운트를 유지한다 — 종목상세 T8 과 같은 규율(재방문마다 재조회·
  * 스켈레톤이 뜨지 않게). 팝업 자체가 닫히면 이 컴포넌트째 언마운트된다(⑥).
  */
-function StockInfoTabs({ code }: { code: string }) {
+function StockInfoTabs({
+  code,
+  newsView,
+  onNewsViewChange,
+}: {
+  code: string;
+  newsView: NewsView;
+  onNewsViewChange: (v: NewsView) => void;
+}) {
   const [active, setActive] = useState<ModalTab>('chart');
   const [visited, setVisited] = useState<ReadonlySet<ModalTab>>(() => new Set(['chart']));
   if (!visited.has(active)) setVisited(new Set(visited).add(active));
   const keepMounted = (v: ModalTab): true | undefined => (visited.has(v) ? true : undefined);
 
+  /*
+    ②-b 본문 스크롤 — 전체목록으로 갈 때 요약의 scrollTop 을 적어 두고 맨 위에서 목록을 연다. 요약으로
+    돌아오면(← · Esc · Android 뒤로가기 어느 경로든 `newsView` 가 null 이 된다) 그 자리로 되돌린다.
+  */
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const savedScrollTop = useRef<number | null>(null);
+  const showAll = (v: 'news' | 'discussions') => {
+    savedScrollTop.current = bodyRef.current?.scrollTop ?? 0;
+    onNewsViewChange(v);
+  };
+  const back = () => onNewsViewChange(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (body === null) return;
+    if (newsView !== null) {
+      body.scrollTop = 0;
+    } else if (savedScrollTop.current !== null) {
+      body.scrollTop = savedScrollTop.current;
+      savedScrollTop.current = null;
+    }
+  }, [newsView]);
+
   return (
     <Tabs
       value={active}
-      onValueChange={(v) => setActive(v as ModalTab)}
+      onValueChange={(v) => {
+        // 다른 탭으로 가면 전체목록을 접는다 — 보이지 않는 목록이 Esc 한 번을 삼키지 않게(②-b).
+        if (newsView !== null) {
+          savedScrollTop.current = null;
+          onNewsViewChange(null);
+        }
+        setActive(v as ModalTab);
+      }}
       className="min-h-0 flex-1 gap-0"
     >
       <TabsList
@@ -199,6 +261,7 @@ function StockInfoTabs({ code }: { code: string }) {
         폰 전체화면은 아래 안전영역(홈 인디케이터)만큼 더 비킨다 — 브라우저는 0 이라 종전 그대로다.
       */}
       <div
+        ref={bodyRef}
         data-slot="stock-info-modal-body"
         className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] px-3.5 pt-3 pb-[calc(12px+var(--app-safe-bottom))] min-[700px]:pb-3"
       >
@@ -226,10 +289,13 @@ function StockInfoTabs({ code }: { code: string }) {
           forceMount={keepMounted('news')}
           className="min-w-0 data-[state=inactive]:hidden"
         >
-          <div className="space-y-6">
-            <StockNewsSection stockCode={code} />
-            <StockDiscussionSection stockCode={code} />
+          {/* 요약은 숨긴 채 마운트 유지(②-b) — 돌아올 때 재조회 · 스켈레톤이 없다. */}
+          <div hidden={newsView !== null} className="space-y-6">
+            <StockNewsSection stockCode={code} onShowAll={() => showAll('news')} />
+            <StockDiscussionSection stockCode={code} onShowAll={() => showAll('discussions')} />
           </div>
+          {newsView === 'news' && <NewsFullList code={code} onBack={back} />}
+          {newsView === 'discussions' && <DiscussionFullList code={code} onBack={back} />}
         </TabsContent>
       </div>
     </Tabs>
