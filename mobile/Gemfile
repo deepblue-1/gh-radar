@@ -1,0 +1,5 @@
+source "https://rubygems.org"
+
+# Phase 22 (D-07) — 릴리스 도구. iOS·Android lane 이 이 Gemfile 하나를 공유한다.
+# 2.238 부터 Ruby 4 지원 · 2.240.1 에서 Ruby 4 cgi 대응. Homebrew Ruby 4 로 실행한다.
+gem "fastlane", "~> 2.240"

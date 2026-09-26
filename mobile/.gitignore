@@ -25,3 +25,24 @@ android/app/src/main/res/xml/config.xml
 # 서명 키 — 범위 밖, 절대 커밋하지 않는다(T-21-14)
 *.jks
 *.keystore
+
+# 릴리스 비밀·산출물 — 저장소 밖이 원칙, ignore 는 이중 방어(Phase 22 · T-22-01 · T-22-03)
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+key.properties
+play-store-key.json
+*service-account*.json
+*.ipa
+*.aab
+*.apk
+*.dSYM.zip
+**/fastlane/report.xml
+**/fastlane/README.md
+**/fastlane/Preview.html
+**/fastlane/screenshots/
+**/fastlane/test_output/
+**/fastlane/.env*
+/vendor/
+/.bundle/

@@ -1,0 +1,66 @@
+# GH Trade iOS 릴리스 lane (Phase 22 · D-07 · D-09 · D-09a · D-10)
+#
+# 실행은 `pnpm --filter @gh-radar/mobile run native:release:ios` 로만 한다 —
+# cap sync(양 플랫폼) → verify-prod(PROD CONFIG OK) → scripts/release-ios.sh(env 로드) → 이 lane → check-ipa.
+#
+# 흐름: ASC API 키 → App Store 프로파일(sigh, 없으면 생성) → Release archive(자동 서명)
+#       → App Store 프로파일로 수동 export → TestFlight 업로드(내부 그룹 자동 배포).
+# 빌드 번호는 xcargs 로 빌드 설정만 덮어쓴다 — 프로젝트 파일은 건드리지 않는다.
+# 산출물(.ipa · .dSYM.zip · .mobileprovision · build_number.txt)은 GHTRADE_RELEASE_OUT(저장소 밖)에만 떨어진다.
+require File.expand_path("../../../fastlane/build_numbers.rb", __dir__)
+require "fileutils"
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Release archive(자동 서명) → App Store 프로파일 export → TestFlight 내부 그룹"
+  lane :beta do
+    # 값은 출력하지 않는다 — 비어 있는 키 이름만.
+    missing = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH GHTRADE_RELEASE_OUT].select { |k| ENV[k].to_s.empty? }
+    UI.user_error!("환경변수 비어 있음: #{missing.join(' ')} — ~/.config/gh-trade/release/ios.env") unless missing.empty?
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_filepath: ENV["ASC_KEY_PATH"],
+      in_house: false
+    )
+
+    build_number = GhTradeBuildNumbers.ios_build_number # D-09 — 커밋하지 않는다
+    out = ENV["GHTRADE_RELEASE_OUT"]                    # 저장소 밖 경로
+    FileUtils.mkdir_p(out)
+    File.write(File.join(out, "build_number.txt"), build_number)
+    UI.message("CFBundleVersion #{build_number}")
+
+    # 첫 실행에 "com.ghtrade.app AppStore" 를 만들고 이후 재사용한다(Pitfall 3).
+    get_provisioning_profile(
+      api_key: api_key,
+      app_identifier: "com.ghtrade.app",
+      team_id: "954QPCS3F5",
+      readonly: false,
+      output_path: out
+    )
+
+    build_app(
+      project: "App.xcodeproj",
+      scheme: "App",
+      configuration: "Release",
+      # fastlane 2.240.1 gym 은 app-store-connect 를 거부한다 — Xcode 27 은 app-store 를 받는다.
+      export_method: "app-store",
+      export_options: {
+        signingStyle: "manual",
+        teamID: "954QPCS3F5",
+        provisioningProfiles: { "com.ghtrade.app" => lane_context[SharedValues::SIGH_NAME] }
+      },
+      xcargs: "CODE_SIGN_STYLE=Automatic CURRENT_PROJECT_VERSION=#{build_number} -allowProvisioningUpdates",
+      output_directory: out,
+      output_name: "App",
+      clean: true
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
