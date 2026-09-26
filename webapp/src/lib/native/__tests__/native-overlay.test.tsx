@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 
 /**
  * Phase 21 Plan 04 Task 2 — 오버레이 참조계수 · `back()` 회귀면(D-12 · D-26 · T-21-18).
@@ -16,6 +17,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
  *  5. 부모가 open 을 직접 바꿈 → 깨지면 AppShell 햄버거 드로어(`setSheetOpen(true)`)처럼 onOpenChange 가
  *                               안 불리는 경로에서 열림을 놓친다(RESEARCH Pattern 8)
  *  6. 키패드 시트(직접 조립)   → 깨지면 상따 값 편집 중 탭바가 키패드를 가리고, 당기면 입력이 날아간다
+ *  7. Popover(WR-04)           → 깨지면 상승률 상위 필터·상따 설정 팝오버가 열린 채 안드로이드 뒤로가기를
+ *                               누를 때 팝오버 대신 페이지가 떠나 편집 맥락을 잃는다(D-26 ①)
  *
  * ⚠️ 송신 단언은 **실제 postMessage 인자 배열을 JSON 파싱한 결과**로 한다. 닫힘은 퇴장 애니메이션 뒤
  *    Content 언마운트를 `waitFor` 로 확인한 다음 본다.
@@ -40,6 +43,7 @@ import { NativeBridgeProvider } from '../native-bridge-provider';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { NumberPadSheet } from '@/components/trading/lc/number-pad-sheet';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   enterBrowser,
   enterNativeApp,
@@ -203,6 +207,57 @@ describe('앱 — back()', () => {
   });
 });
 
+/** 제어형 Popover — 부모 상태가 open 을 쥐고, Radix 가 닫으라 하면(onOpenChange(false)) 실제로 닫는다. */
+function PopoverHarness({ open, onOpenChange }: { open: boolean; onOpenChange?: (o: boolean) => void }) {
+  return (
+    <NativeBridgeProvider>
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger>필터</PopoverTrigger>
+        <PopoverContent>팝오버 C</PopoverContent>
+      </Popover>
+    </NativeBridgeProvider>
+  );
+}
+
+function StatefulPopover() {
+  const [open, setOpen] = useState(true);
+  return <PopoverHarness open={open} onOpenChange={setOpen} />;
+}
+
+const popoverContent = () => document.querySelector('[data-slot="popover-content"]');
+
+describe('앱 — Popover(WR-04)', () => {
+  it('7. Popover 가 열리면 overlay {open:true} 1회 · 닫혀 언마운트되면 {open:false} 1회', async () => {
+    const mode = enterNativeApp('android');
+    const { rerender } = render(<PopoverHarness open={false} />);
+    expect(mode.payloadsOf('overlay')).toEqual([]);
+
+    rerender(<PopoverHarness open />);
+    expect(popoverContent()).not.toBeNull();
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true }]);
+
+    rerender(<PopoverHarness open={false} />);
+    await waitFor(() => expect(popoverContent()).toBeNull());
+    expect(mode.payloadsOf('overlay')).toEqual([{ open: true }, { open: false }]);
+  });
+
+  it('7b. Popover 열림 중 back() → true 이고 팝오버가 닫힌다(페이지 이동 대신 · D-26 ①)', async () => {
+    enterNativeApp('android');
+    render(<StatefulPopover />);
+    expect(popoverContent()).not.toBeNull();
+
+    let ok = false;
+    act(() => {
+      ok = gh().back();
+    });
+
+    expect(ok).toBe(true);
+    await waitFor(() => expect(popoverContent()).toBeNull());
+    // 닫힌 뒤에는 오버레이 계수가 0 — 다음 뒤로가기는 네이티브 히스토리로 간다.
+    expect(gh().back()).toBe(false);
+  });
+});
+
 describe('브라우저(html.native-app 없음)', () => {
   it('4. Sheet 를 열고 닫아도 postMessage 0 · window.__ghTrade 없음', async () => {
     const mode = enterBrowser();
@@ -214,5 +269,16 @@ describe('브라우저(html.native-app 없음)', () => {
 
     for (const s of mode.spies) expect(s).not.toHaveBeenCalled();
     expect((window as NativeTestWindow).__ghTrade).toBeUndefined();
+  });
+
+  it('7c. Popover 를 열고 닫아도 postMessage 0(WR-04)', async () => {
+    const mode = enterBrowser();
+    const { rerender } = render(<PopoverHarness open={false} />);
+    rerender(<PopoverHarness open />);
+    expect(popoverContent()).not.toBeNull();
+    rerender(<PopoverHarness open={false} />);
+    await waitFor(() => expect(popoverContent()).toBeNull());
+
+    for (const s of mode.spies) expect(s).not.toHaveBeenCalled();
   });
 });

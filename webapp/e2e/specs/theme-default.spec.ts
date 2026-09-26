@@ -17,11 +17,14 @@ import { installNativeApp, nativeMessages } from '../fixtures/native-app';
  *     저장값이 웹과 같은 다크로 시작한다(D-23 동기화).
  *   - 오프라인 폴백(`mobile/www/index.html` · D-19)도 `?theme=light` 가 아니면 다크다 — 네이티브는 항상
  *     현재 테마를 넘기지만, 값이 없거나 모르면 웹·네이티브와 같은 기본(다크)으로 떨어진다.
+ *   - `<meta name="theme-color">` 는 OS 다크모드가 아니라 **앱 테마**를 따른다(IN-06) — 기본 `#17171c`
+ *     (OS 라이트에서도) · 라이트 저장값이면 `#ffffff`.
  *
  * ② 깨지면 사용자가 겪는 일
  *   - 새 사용자가 라이트로 시작한다(G-21-N1 재발) · 앱 첫 프레임(다크 창)과 웹 첫 페인트(라이트)가
  *     어긋나 흰 번쩍임이 생긴다.
  *   - 라이트를 고른 사용자가 어느 날 다크로 바뀐다(사용자 선택 무결성 위반).
+ *   - OS 가 라이트인 브라우저 사용자가 기본 다크 화면 위에 흰 브라우저 크롬(주소창·상태바)을 본다(IN-06).
  *
  * 파일 레벨 `storageState` 비우기 — 쿠키·localStorage 가 없는 새 방문자(auth-guards.spec.ts 선례:
  * describe 레벨 override 는 워커 재사용에서 프로젝트 storageState 와 경합한다).
@@ -86,6 +89,42 @@ test.describe('기본 테마 다크 — 저장값 없음/있음 (G-21-N1 · D-23
       .toBeGreaterThan(0);
     const themes = (await nativeMessages(page)).filter((m) => m.type === 'theme');
     expect(themes[0]!.payload).toEqual({ theme: 'dark' });
+  });
+});
+
+const THEME_COLOR_META = 'meta[name="theme-color"]';
+
+test.describe('theme-color 메타 = 앱 테마(IN-06)', () => {
+  test.describe('OS 라이트 에뮬레이트', () => {
+    test.use({ colorScheme: 'light' });
+
+    test('저장값 없음 → 메타 하나 · #17171c(OS 라이트여도 앱 기본 다크)', async ({ page }) => {
+      await page.goto('/login');
+      await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
+      const meta = page.locator(THEME_COLOR_META);
+      await expect(meta).toHaveCount(1);
+      await expect(meta).toHaveAttribute('content', '#17171c');
+    });
+
+    test('저장값 light → #ffffff', async ({ page }) => {
+      await page.addInitScript(() => {
+        localStorage.setItem('theme', 'light');
+      });
+      await page.goto('/login');
+      await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
+      const meta = page.locator(THEME_COLOR_META);
+      await expect(meta).toHaveCount(1);
+      await expect(meta).toHaveAttribute('content', '#ffffff');
+    });
+  });
+
+  test('저장값 없음 · OS 다크 에뮬레이트 → #17171c', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/login');
+    await expect(page.getByRole('button', { name: /Google/ })).toBeVisible();
+    const meta = page.locator(THEME_COLOR_META);
+    await expect(meta).toHaveCount(1);
+    await expect(meta).toHaveAttribute('content', '#17171c');
   });
 });
 
