@@ -287,12 +287,22 @@ describe('BreakoutStrip — 순서 (D-14)', () => {
 });
 
 describe('BreakoutStrip — 클릭 → 카드 (D-07)', () => {
-  it('칩 클릭은 onAddCard(isin, name, code) 1회', () => {
+  it('칩 클릭은 onAddCard(isin, name, code, 행의 발화 거래소) 1회', () => {
     const { onAddCard, onFocusCard } = setup({ items: [A] });
     fireEvent.click(chips()[0]!);
     expect(onAddCard).toHaveBeenCalledTimes(1);
-    expect(onAddCard).toHaveBeenCalledWith(A.isin, '씨젠', '096530');
+    expect(onAddCard).toHaveBeenCalledWith(A.isin, '씨젠', '096530', 'KRX');
     expect(onFocusCard).not.toHaveBeenCalled();
+  });
+
+  it('NXT 로 발화한 행은 넷째 인자가 NXT 다 — 작업대가 그 거래소로 카드를 연다 (quick-260926-s5v)', () => {
+    const { onAddCard } = setup({ items: [{ ...A, exchange: 'NXT' }] });
+    fireEvent.click(chips()[0]!);
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: '추가' }));
+    expect(onAddCard).toHaveBeenCalledTimes(2);
+    expect(onAddCard).toHaveBeenNthCalledWith(1, A.isin, '씨젠', '096530', 'NXT');
+    expect(onAddCard).toHaveBeenNthCalledWith(2, A.isin, '씨젠', '096530', 'NXT');
   });
 
   it('표의 행 클릭과 「거래 추가」 버튼도 onAddCard 1회씩이다', () => {
@@ -310,7 +320,15 @@ describe('BreakoutStrip — 클릭 → 카드 (D-07)', () => {
     openTable();
     fireEvent.click(rowEls()[0]!);
     expect(onFocusCard).toHaveBeenCalledTimes(2);
-    expect(onFocusCard).toHaveBeenCalledWith(A.isin);
+    expect(onFocusCard).toHaveBeenCalledWith(A.isin, 'KRX');
+    expect(onAddCard).not.toHaveBeenCalled();
+  });
+
+  it('카드가 있는 종목의 NXT 행은 onFocusCard(isin, NXT) — 작업대가 발화 거래소로 맞춘다 (quick-260926-s5v)', () => {
+    const { onAddCard, onFocusCard } = setup({ items: [{ ...A, exchange: 'NXT' }], cards: new Set([A.isin]) });
+    fireEvent.click(chips()[0]!);
+    expect(onFocusCard).toHaveBeenCalledTimes(1);
+    expect(onFocusCard).toHaveBeenCalledWith(A.isin, 'NXT');
     expect(onAddCard).not.toHaveBeenCalled();
   });
 
@@ -368,7 +386,7 @@ describe('BreakoutStrip — 이름 없는 행 (D-30)', () => {
     expect(name).toHaveAttribute('data-unnamed', 'true');
     expect(row.querySelector('[data-slot="breakout-row-code"]')).toBeNull();
     fireEvent.click(chips()[0]!);
-    expect(onAddCard).toHaveBeenCalledWith(bare.isin, undefined, undefined);
+    expect(onAddCard).toHaveBeenCalledWith(bare.isin, undefined, undefined, 'KRX');
   });
 });
 

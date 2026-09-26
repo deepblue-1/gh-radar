@@ -19,6 +19,7 @@
  *   gh-trade 돌파감지 창도 거래소 열을 두지 않는다(quick-260923-cfo 최소 변경) — 칩·행에 거래소
  *   태그가 없다. 시세 구독 거래소는 행의 `exchange`(발화 거래소 — NXT 일 수 있다)를 그대로 훅에
  *   넘긴다(quick-260926-rcc). 이 파일 코드에는 거래소 리터럴이 없다.
+ *   카드는 행 거래소로 연다 — 표시는 안 한다(`onAddCard`/`onFocusCard` 에 `row.exchange` · quick-260926-s5v).
  *
  * ③ ★ 이탈 삭제는 `shouldRemoveBreakout` 한 함수로만 판정한다 (D-16)
  *   현재가를 모르는 행(구독 실패·`MAX_BREAKOUT_SUBS` 초과)은 판정하지 않는다 — 76 의 마지막
@@ -63,7 +64,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { RelayRateCrossItem } from '@gh-radar/shared';
+import type { RelayExchange, RelayRateCrossItem } from '@gh-radar/shared';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { playBreakoutTone } from '@/lib/alert-tone';
@@ -110,10 +111,21 @@ export interface BreakoutStripProps {
    * 「거래중」 표식·카드 포커스는 `cards`(ISIN) 그대로다 (quick-260926-rcc).
    */
   cardFeeds: ReadonlySet<string>;
-  /** 카드가 없는 종목을 눌렀다 — 작업대가 카드를 만든다(KRX · 스위치 전부 OFF). */
-  onAddCard: (isin: string, name?: string, code?: string) => void;
-  /** 카드가 이미 있는 종목을 눌렀다 — 작업대가 그 카드를 펼치고 스크롤한다. */
-  onFocusCard: (isin: string) => void;
+  /**
+   * 카드가 없는 종목을 눌렀다 — 작업대가 **행의 발화 거래소**로 카드를 만든다(스위치 전부 OFF).
+   * gh-trade `OpenLimitChaserForm(code, null, row.CrossExchange)` 와 같다 (quick-260926-s5v).
+   */
+  onAddCard: (
+    isin: string,
+    name: string | undefined,
+    code: string | undefined,
+    exchange: RelayExchange,
+  ) => void;
+  /**
+   * 카드가 이미 있는 종목을 눌렀다 — 작업대가 그 카드를 펼치고 **발화 거래소로 맞춘다**(스크롤 포함).
+   * gh-trade 재사용 창 `SelectExchange` 와 같다 (quick-260926-s5v).
+   */
+  onFocusCard: (isin: string, exchange: RelayExchange) => void;
   /** 행 ✕ 로 지웠다. 「지운 종목」 기록은 이 컴포넌트가 이미 했다 — 알림용 콜백이다. */
   onDismiss?: (isin: string) => void;
   className?: string;
@@ -272,11 +284,12 @@ export function BreakoutStrip({
 
   const activate = useCallback(
     (row: BreakoutRow) => {
+      // 행의 발화 거래소를 그대로 넘긴다 — 판정(NXT 미거래 무시 · 전환 규칙)은 작업대 몫이다.
       if (cards.has(row.isin)) {
-        onFocusCard(row.isin);
+        onFocusCard(row.isin, row.exchange);
         return;
       }
-      onAddCard(row.isin, row.name, row.code);
+      onAddCard(row.isin, row.name, row.code, row.exchange);
     },
     [cards, onFocusCard, onAddCard],
   );

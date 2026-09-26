@@ -386,6 +386,109 @@ describe('TradingWorkbench — 카드 추가 (D-07 · D-08)', () => {
   });
 });
 
+describe('TradingWorkbench — 돌파 행 → 카드 거래소 (quick-260926-s5v)', () => {
+  const S = 'KR7096530001';
+  const T = 'KR7005930003';
+  const key = (isin: string, ex: string) => `${isin}:${ACCOUNT}:${ex}`;
+  const byKey = () =>
+    Object.fromEntries(cardsInDom().map((c) => [c.getAttribute('data-key'), c.getAttribute('data-open')]));
+
+  it('W1 NXT 로 발화한 행 · NXT 거래 여부 모름 → 카드 1장이 NXT 키 · 펼침 · 이름·코드 전달', () => {
+    mockRelay = relay({ rateCrossItems: [rc({ exchange: 'NXT' })] });
+    render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    const cards = cardsInDom();
+    expect(cards).toHaveLength(1);
+    expect(cards[0].getAttribute('data-key')).toBe(key(S, 'NXT'));
+    expect(cards[0].getAttribute('data-open')).toBe('true');
+    expect(propsOf(S)?.name).toBe('씨젠');
+    expect(propsOf(S)?.code).toBe('096530');
+    expect((mockRelay.send as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('W2 NXT 미거래 확정(빈 집합)이면 NXT 요청을 무시하고 KRX 로 연다 · 집합에 있으면 NXT', () => {
+    mockRelay = relay({ rateCrossItems: [rc({ exchange: 'NXT' })], nxtTradable: new Set<string>() });
+    const view = render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    expect(byKey()).toEqual({ [key(S, 'KRX')]: 'true' });
+    view.unmount();
+    cardProps.clear();
+
+    mockRelay = relay({ rateCrossItems: [rc({ exchange: 'NXT' })], nxtTradable: new Set([S]) });
+    render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    expect(byKey()).toEqual({ [key(S, 'NXT')]: 'true' });
+  });
+
+  it('W3 KRX 카드가 있는 종목이 NXT 로 발화하면 칩(거래중) 클릭이 그 카드를 NXT 로 전환한다 — 카드 1장 · 같은 id · 펼침', () => {
+    mockRelay = relay({ rateCrossItems: [rc()] });
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    const id = propsOf(S)?.cardId;
+    fireEvent.click(toggleOf(S)); // 접기
+    expect(byKey()).toEqual({ [key(S, 'KRX')]: 'false' });
+
+    mockRelay = relay({ rateCrossItems: [rc({ exchange: 'NXT', exchangeTime: '100500000000' })] });
+    rerender(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(byKey()).toEqual({ [key(S, 'NXT')]: 'true' });
+    expect(propsOf(S)?.cardId).toBe(id);
+  });
+
+  it('W4 전환할 카드에 미전송 더티가 있으면 확인 다이얼로그가 뜨고 확인 전에는 KRX 그대로다', () => {
+    mockRelay = relay({ rateCrossItems: [rc()] });
+    const { rerender } = render(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    fireEvent.click(screen.getByRole('button', { name: '씨젠 더티' }));
+
+    mockRelay = relay({ rateCrossItems: [rc({ exchange: 'NXT', exchangeTime: '100500000000' })] });
+    rerender(<TradingWorkbench />);
+    fireEvent.click(slot('breakout-chip')!);
+    expect(screen.getByTestId('workbench-exchange-confirm')).toBeInTheDocument();
+    expect(byKey()).toEqual({ [key(S, 'KRX')]: 'true' });
+
+    fireEvent.click(
+      within(screen.getByTestId('workbench-exchange-confirm')).getByRole('button', { name: '바꾸기' }),
+    );
+    expect(byKey()).toEqual({ [key(S, 'NXT')]: 'true' });
+  });
+
+  it('W5 같은 ISIN 에 KRX·NXT 카드가 둘이면 NXT 행은 NXT 카드를 펼친다 — KRX 키 불변 · 스크롤은 NXT 키', () => {
+    const scrolled: (string | null)[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute('data-key'));
+    };
+    try {
+      mockRelay = relay({
+        limitChasers: [lc(T), lc(T, { exchange: 'NXT' })],
+        rateCrossItems: [rc({ isin: T, name: '삼성전자', code: '005930', exchange: 'NXT' })],
+      });
+      render(<TradingWorkbench />);
+      expect(byKey()).toEqual({ [key(T, 'KRX')]: 'false', [key(T, 'NXT')]: 'false' });
+      fireEvent.click(slot('breakout-chip')!);
+      expect(byKey()).toEqual({ [key(T, 'KRX')]: 'false', [key(T, 'NXT')]: 'true' });
+      expect(scrolled.at(-1)).toBe(key(T, 'NXT'));
+      expect(screen.queryByTestId('workbench-exchange-confirm')).toBeNull();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('W6 NXT 카드만 있는 종목의 KRX 행은 그 카드를 KRX 로 전환한다 (gh-trade 「KRX 행도 명시 KRX」)', () => {
+    mockRelay = relay({
+      limitChasers: [lc(T, { exchange: 'NXT' })],
+      rateCrossItems: [rc({ isin: T, name: '삼성전자', code: '005930' })],
+    });
+    render(<TradingWorkbench />);
+    expect(byKey()).toEqual({ [key(T, 'NXT')]: 'false' });
+    fireEvent.click(slot('breakout-chip')!);
+    expect(cardsInDom()).toHaveLength(1);
+    expect(byKey()).toEqual({ [key(T, 'KRX')]: 'true' });
+  });
+});
+
 describe('TradingWorkbench — 카드 제거 (UI-SPEC E7 · 접근성)', () => {
   it('✕ → 그 카드만 사라지고 포커스가 다음 카드 헤더로, 마지막이면 검색란으로 간다', async () => {
     mockRelay = relay({ rateCrossItems: [rc()] });

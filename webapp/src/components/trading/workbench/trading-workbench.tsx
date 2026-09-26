@@ -27,6 +27,8 @@
  *     훅이 소유하면 에코 상관이 갈라진다 · T-18-94).
  *   - 사용자 트리거 추가(돌파 칩 · 종목 추가)는 **종목 단위**다(D-07 · D-08) — 그 ISIN 의 카드가
  *     있으면 그 카드 하나(`isinFocusCardOf`)를 펼칠 뿐 새 카드를 만들지 않는다. 「거래중」 표식도 ISIN 단위다.
+ *     돌파 행 경로만 거래소를 안다(`openBreakoutCard` · quick-260926-s5v) — 발화 거래소 키 카드가 있으면
+ *     그것을 펼치고, 없으면 종목 단위 포커스 카드를 펼친 뒤 발화 거래소로 전환한다(`changeExchange` 규칙).
  *   - 공용 패널 미체결 행 선택은 그 행을 받을 카드(같은 ISIN ∧ 행의 거래소 ∧ 상태줄 계좌)를
  *     보장한다 — 없으면 그 키로 펼친 카드를 붙인다(`cardForUnfilled` · WR-04). 역시 송신 0 이다.
  *     카드 안 「미체결」 탭(quick-260923-onn)도 같은 `selectUnfilled` 를 탄다 — 선택은 여전히 이
@@ -43,8 +45,11 @@
  *     종목 단위 포커스(돌파 칩 · 종목 추가)가 고르는 카드는 `isinFocusCardOf` 하나가 푼다 — 그 ISIN
  *     의 펼친 카드가 있으면 그것(다시 눌러도 둘째 카드를 열지 않는다), 없으면 배열 첫 카드. 업데이터와
  *     스크롤 효과가 같은 함수를 써서, 펼친 카드가 끝으로 옮겨도 둘이 다른 카드를 가리키지 않는다.
- *   - 새 카드는 **거래소 KRX · 스위치 전부 OFF · 펼침**으로 시작한다(D-07). 서버에 아무것도 보내지
- *     않는다 — 등록은 사용자가 카드에서 스위치를 켤 때뿐이다.
+ *   - 새 카드는 **스위치 전부 OFF · 펼침**으로 시작한다(D-07). 거래소는 경로가 정한다 — 돌파 행 경로는
+ *     **행의 발화 거래소**(NXT 미거래 확정 종목의 NXT 요청은 무시 → KRX)로 시작하고, 기존 카드는 발화
+ *     거래소로 맞춘다(quick-260926-s5v · gh-trade cfo `OpenLimitChaserForm(code, null, row.CrossExchange)`).
+ *     거래소를 모르는 경로(종목 추가란 · 잔고 행)는 KRX 다. 서버에 아무것도 보내지 않는다 — 등록은
+ *     사용자가 카드에서 스위치를 켤 때뿐이다.
  *   - 등록된 전략(64 스냅샷 · 60 에코)은 처음 보이는 키일 때, 그 키를 **현재 키로 가진 카드가
  *     없으면** 접힌 카드로 한 번 들어온다(카드 집합 멤버십만 읽는다 — 값은 카드가 스스로 읽는다,
  *     ③). 그래서 64 스냅샷 전의 짧은 구간은 빈 문구다(E6 loading).
@@ -169,6 +174,7 @@ import {
 } from "@/components/trading/workbench/workbench-status-bar";
 import { useAuth } from "@/lib/auth-context";
 import { readColsPref, type TradingCols } from "@/lib/breakout-list";
+import { exchangeChoicesOf } from "@/lib/exchange-choices";
 import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
@@ -851,6 +857,71 @@ function WorkbenchSurface() {
     [applyExchange],
   );
 
+  /*
+    돌파 행 → 카드 (quick-260926-s5v · gh-trade cfo). 거래소를 아는 유일한 사용자 트리거 경로다.
+    gh-trade `RateCrossListForm.cs:532` `OpenLimitChaserForm(code, null, row.CrossExchange)` 와 결과가 같다.
+    R1 요청 거래소 — 종목의 NXT 선택 가능 여부(`exchangeChoicesOf` — 카드 헤더·종목상세와 같은 판정)로
+       거른다. 선택지에 없으면 요청 없음(null): gh-trade `ApplySeededExchange` 가 비활성 라디오 요청을
+       무시하는 것과 같다(`LimitChaserForm.cs:676-681`). 둘째 인자가 고정 KRX 인 이유 — 현재 카드
+       거래소가 아니라 종목 자체의 NXT 거래 여부를 묻는다.
+    R2 그 ISIN 카드 없음 → 요청 거래소(없으면 KRX) · 상태줄 계좌 · 펼침으로 새 카드(`FormManager.cs:141-148`).
+    R3 카드 있음(`FormManager.cs:126-135` 재사용 + `SelectExchange`) → 요청 거래소 키를 이미 보는 카드가
+       있으면(펼친 것 우선) 그 카드만 펼친다(요청 = 현재 거래소면 무동작 :671). 없으면 종목 단위 포커스
+       카드를 펼치고 기존 `changeExchange` 로 전환한다 — 키 충돌 · 미전송 더티 확인 규칙을 새로 쓰지
+       않는다(quick-260923-pgv). 판정은 클릭 시점의 `cardsRef` 다(`changeExchange` 와 같은 방식).
+    서버 송신 0 — 카드 생성·전환은 클라 상태다.
+  */
+  const nxtTradableRef = useRef(relay.nxtTradable);
+  nxtTradableRef.current = relay.nxtTradable;
+  const openBreakoutCard = useCallback(
+    (isin: string, exchange: RelayExchange, name?: string, code?: string) => {
+      const want = exchangeChoicesOf(isin, "KRX", nxtTradableRef.current).includes(exchange)
+        ? exchange
+        : null;
+      const cur = cardsRef.current;
+      const first = isinFocusCardOf(cur, isin);
+      if (first === undefined) {
+        const newId = nextCardId();
+        setCards((prev) => {
+          // 그 사이 그 ISIN 카드가 생겼으면 펼치기만 한다(`ensureIsinCard` 와 같은 방어).
+          const again = isinFocusCardOf(prev, isin);
+          return again !== undefined
+            ? withCardOpen(prev, again.id, true)
+            : [
+                ...prev,
+                { id: newId, isin, accountNo, exchange: want ?? "KRX", open: true, name, code },
+              ];
+        });
+        setScrollTarget({ isin });
+        return;
+      }
+      const hit =
+        want === null
+          ? undefined
+          : (cur.find((c) => c.isin === isin && c.exchange === want && c.open) ??
+            cur.find((c) => c.isin === isin && c.exchange === want));
+      if (hit !== undefined) {
+        setCards((prev) => withCardOpen(prev, hit.id, true));
+        setScrollTarget({ key: keyOf(hit) });
+        return;
+      }
+      setCards((prev) => withCardOpen(prev, first.id, true));
+      setScrollTarget({ isin });
+      if (want !== null && first.exchange !== want) changeExchange(first.id, want);
+    },
+    [accountNo, nextCardId, changeExchange],
+  );
+  /** 스트립 어댑터 — 인자 순서만 맞춘다(안정 콜백). */
+  const addBreakoutCard = useCallback(
+    (isin: string, name: string | undefined, code: string | undefined, exchange: RelayExchange) =>
+      openBreakoutCard(isin, exchange, name, code),
+    [openBreakoutCard],
+  );
+  const focusBreakoutCard = useCallback(
+    (isin: string, exchange: RelayExchange) => openBreakoutCard(isin, exchange),
+    [openBreakoutCard],
+  );
+
   /* ── 카드 제거 (⑧) ────────────────────────────────────────────────── */
   /** 카드별 합친 로그의 직전 문장 — 전략 로그 합치기의 중복 판정(아래). */
   const lastLogText = useRef(new Map<string, string>());
@@ -1254,8 +1325,8 @@ function WorkbenchSurface() {
         snapSeq={rateCrossSnapSeq}
         cards={cardIsins}
         cardFeeds={cardFeeds}
-        onAddCard={addCard}
-        onFocusCard={focusCard}
+        onAddCard={addBreakoutCard}
+        onFocusCard={focusBreakoutCard}
       />
 
       {/* 5 · 종목 추가 */}
