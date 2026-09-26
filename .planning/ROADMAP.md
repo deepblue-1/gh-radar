@@ -1115,9 +1115,10 @@ Plans:
 **Goal:** Phase 21 에서 만든 GH Trade 앱(Capacitor Remote-URL 셸 · appId `com.ghtrade.app` · 운영 URL https://trade.jx1.io)을 **다른 사람이 자기 iPhone·Android 폰에 설치해 써 볼 수 있게** 테스트 배포한다. iOS 는 App Store Connect 앱 등록 → 배포용 서명 → Archive → **TestFlight** 업로드(내부 테스터), Android 는 릴리스 키스토어 생성·보관(저장소 밖 + 비밀 관리) → 서명된 AAB → Play Console 앱 등록 → **내부 테스트 트랙** 배포. 스토어 정식 출시(심사 제출·공개)는 범위 밖.
 **Requirements**: MOBILE-02
 **Depends on:** Phase 21
-**Plans:** 7 plans
+**Plans:** 1/7 plans executed
 
 **범위 안:**
+
 - 네이티브 Google 로그인을 릴리스 빌드에서 유지 — Android 는 Play 앱 서명 키·업로드 키의 SHA-1 을 Google Cloud OAuth(Android 클라이언트)에 등록, iOS 는 배포 서명에서도 키체인 권한 유지. 테스터 기기에서 로그인 → 홈 착지 확인.
 - 버전 규칙(versionName/versionCode · CFBundleShortVersionString/CFBundleVersion)과 반복 가능한 빌드·업로드 절차(스크립트 vs fastlane 은 discuss 에서 결정).
 - 스토어 최소 자료: 개인정보처리방침 URL · 앱 아이콘·이름(GH Trade 기존 자산 재사용).
@@ -1126,6 +1127,7 @@ Plans:
 **범위 밖:** 스토어 정식 출시·심사 대응 · TestFlight 외부 테스터 · Play 비공개/공개 테스트 · Play 데이터 보안 양식 · App Store 앱 개인정보 양식(D-12 — 정식 출시 phase) · 푸시 알림 · 딥링크/유니버설 링크 · 결제 · 웹 화면 변경(`/privacy` 공개 라우트 1개만 예외).
 
 **discuss 에서 먼저 정할 결정(한 번에 하나씩):**
+
 1. 계정 현황 — Apple Developer Program 유료 가입 여부(현재 팀 `954QPCS3F5` 가 개인 무료 팀인지 확인) · Play Console 개발자 계정 보유 여부. 없으면 개설은 사용자가 직접.
 2. 테스터 범위·인원 — 지인 몇 명(내부 테스트)인지, 외부 공개 링크까지인지.
 3. 테스터에게 보일 기능 범위 — 트레이딩 탭은 gh-trade 계좌·relay 에 연결된다. 다른 사람이 로그인했을 때 조회만인지, 트레이딩 접근을 막을지(allow-list·역할). **실돈 발주 경로라 가장 중요.**
@@ -1139,7 +1141,7 @@ Plans:
 **Wave 1**
 
 - [ ] 22-01-PLAN.md — 트레이서: Apple 콘솔 선행(Explicit 번들 ID · ASC 앱 레코드 · TestFlight 내부 그룹 자동 배포) → `native:release:ios`(운영 sync → verify-prod → 비밀 env 이름 검증 → fastlane beta: sigh·gym·pilot → IPA CHECK OK) → TestFlight 첫 업로드
-- [ ] 22-02-PLAN.md — 개인정보처리방침 한글 초안(코드 근거 재확인 · 13절) → 문안 검토 게이트(blocking-human) → 승인 반영
+- [x] 22-02-PLAN.md — 개인정보처리방침 한글 초안(코드 근거 재확인 · 13절) → 문안 검토 게이트(blocking-human) → 승인 반영
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
