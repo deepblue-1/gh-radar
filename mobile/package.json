@@ -11,7 +11,7 @@
     "native:smoke:ios": "bash scripts/smoke-ios.sh",
     "native:smoke:android": "bash scripts/smoke-android.sh",
     "native:check-tab-routes:ios": "bash scripts/check-tab-routes-ios.sh",
-    "native:test:android": "cd android && ./gradlew testDebugUnitTest --tests com.ghtrade.app.TabRoutesTest",
+    "native:test:android": "cd android && ./gradlew testDebugUnitTest --tests com.ghtrade.app.TabRoutesTest --tests com.ghtrade.app.ExternalLinksTest",
     "native:verify-prod": "node scripts/verify-prod-config.mjs",
     "native:open:ios": "cap open ios",
     "native:open:android": "cap open android",
