@@ -11,6 +11,8 @@ import { test, expect } from "@playwright/test";
  * - middleware-guard (D2): 미인증 /scanner, /watchlist → /login?next=<원본>
  * - middleware-guard (Phase 16): 미인증 /trading/limit-chaser/new, /trading/vi, /me → 동일
  * - middleware-guard (quick 260911-tuk): 미인증 루트 "/" 도 → /login?next=%2F (공개 exact 경로 없음)
+ * - public (Phase 22 D-11): 미인증 /privacy → 리다이렉트 없이 개인정보처리방침 제목
+ * - middleware-guard (Phase 22 T-22-12): 미인증 /privacy-x → /login?next=%2Fprivacy-x (공개 prefix 경계)
  * - login error 파라미터 한글 메시지 + Google 버튼
  * - open-redirect 가드: /auth/callback, /login 의 `//attacker.com` next 차단
  *
@@ -74,13 +76,31 @@ test.describe("auth — 로그인 벽 + 리다이렉트 (미인증)", () => {
 
   test("middleware-guard: 미인증 루트 / → /login?next=%2F", async ({ page }) => {
     // `middleware.ts` 에 공개 exact 경로가 더 이상 없다 — 공개 판정은 `PUBLIC_PREFIXES`
-    // (`/login`·`/auth`) 하나뿐이라 홈도 나머지 보호 경로와 **같은 벽 뒤**에 있다
+    // (`/login`·`/auth`·`/privacy` — 판정은 `lib/supabase/public-path.ts` 의 `isPublicPath`)
+    // 하나뿐이라 홈도 나머지 보호 경로와 **같은 벽 뒤**에 있다
     // (quick 260911-tuk — 예전 "public whitelist: 루트는 200 유지" 단언을 뒤집었다).
     //
     // 홈의 **내용**은 여기서 단언하지 않는다 — 이 파일은 auth 가드 전용이고 `/api/home` 을
     // 목하지 않는다(내용 단언은 `home.spec.ts` 소관).
     await page.goto("/");
     await expect(page).toHaveURL(/\/login\?next=%2F$/);
+  });
+
+  test("public: 미인증 /privacy → 리다이렉트 없이 개인정보처리방침", async ({ page }) => {
+    // Phase 22 D-11 — 스토어·테스터가 로그인 없이 방침 URL 을 연다.
+    await page.goto("/privacy");
+    await expect(page).toHaveURL(/\/privacy$/);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "개인정보처리방침" }),
+    ).toBeVisible();
+  });
+
+  test("middleware-guard: 미인증 /privacy-x → /login?next=%2Fprivacy-x", async ({
+    page,
+  }) => {
+    // T-22-12 — 공개 prefix 는 경계 비교라 이름이 비슷한 이웃 경로는 여전히 벽 뒤에 있다.
+    await page.goto("/privacy-x");
+    await expect(page).toHaveURL(/\/login\?next=%2Fprivacy-x$/);
   });
 
   test("login page: ?error=auth_failed → 한글 alert", async ({ page }) => {
