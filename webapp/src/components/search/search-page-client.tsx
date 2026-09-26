@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Clock, Layers, Search, Star, TrendingUp, X, type LucideIcon } from 'lucide-react';
 
+import { PageHeader } from '@/components/layout/page-header';
+import { CARD, PAGE_WRAP, ROW_DIVIDER, SECTION_TITLE } from '@/components/layout/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDebouncedSearch } from '@/hooks/use-debounced-search';
 import { useWatchlistSet } from '@/hooks/use-watchlist-set';
@@ -64,10 +66,6 @@ function rateClass(rate: number): string {
 function formatRate(rate: number): string {
   return `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%`;
 }
-
-const CARD = 'rounded-[16px] bg-[var(--card)]';
-const SECTION_TITLE = 'text-[15px] font-semibold text-[var(--muted-fg)]';
-const ROW_DIVIDER = '[&+&]:border-t [&+&]:border-[var(--border-subtle)]';
 
 export function SearchPageClient() {
   const router = useRouter();
@@ -151,8 +149,9 @@ export function SearchPageClient() {
     themeCount.status === 'ok' ? `오늘 ${themeCount.value}개` : themeCount.status === 'error' ? '—' : '…';
 
   return (
-    <div className="mx-auto flex w-full max-w-[900px] flex-col gap-4">
-      <h1 className="mt-1.5 text-[22px] font-bold tracking-[-0.02em] text-[var(--fg)]">검색</h1>
+    <div className={PAGE_WRAP}>
+      {/* 공용 PageHeader — 탭 루트라 뒤로가기 없음(quick-260926-o2u D2). */}
+      <PageHeader title="검색" />
 
       <form role="search" onSubmit={handleSubmit} className="-mt-1">
         {/*

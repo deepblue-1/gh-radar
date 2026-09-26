@@ -34,13 +34,13 @@ import { buildSetVITriggerRespFrame } from '../../../relay/tests/helpers/frames.
  *   relay wss 는 8090 **고정**이다(픽스처 상단 ④). `beforeAll` 한 번만 띄우고 파일 내부를
  *   직렬로 고정한다. 파일 **간** 충돌은 `playwright.config.ts` 의 단일 워커가 막는다.
  *
- * ④ 잘림 단언은 **잎이 아니라 그리드 자식**을 잰다 (R4)
+ * ④ 잘림 단언은 **잎이 아니라 섹션 박스**를 잰다 (R4)
  *   `.rlist` 카드 행에서는 `overflow-hidden` 이 넘침을 삼켜 행 폭·`scrollWidth` 가 조용해서
- *   잎 요소의 `right` 를 대조해야 한다(16-10 실측). 데스크톱 2열의 고장 모양은 다르다 —
- *   `min-width:0` 이 빠지면 **그리드 자식이 표의 콘텐츠 최소폭만큼 부풀어** 카드 밖으로
- *   밀려난다. 그래서 여기서는 미체결/잔고 **섹션 박스**와 그 안의 스크롤 컨테이너
- *   (`.tbl-wrap`)가 카드 오른쪽 끝을 넘지 않는지를 잰다. 표 자체의 가로 스크롤은
- *   설계된 동작이므로 위반이 아니다.
+ *   잎 요소의 `right` 를 대조해야 한다(16-10 실측). 데스크톱은 본문 900 폭이라 계좌 카드가
+ *   `stack`(미체결 위 · 잔고 아래)이다(quick-260926-o2u) — 2열이면 칸마다 표 영역이 약 419px 로
+ *   두 표의 최소폭(439 · 444)보다 좁아 가로 스크롤됐다. 그래서 여기서는 미체결/잔고 **섹션
+ *   박스**와 그 안의 스크롤 컨테이너(`.tbl-wrap`)가 카드 오른쪽 끝을 넘지 않는지, 그리고
+ *   표가 가로 스크롤 없이 들어가는지를 잰다.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -368,11 +368,6 @@ async function boxOf(
   return { x: box!.x, y: box!.y, width: box!.width, right: box!.x + box!.width };
 }
 
-/** 그리드 자식의 **계산된** `min-width`. R4 의 `min-width:0` 필수 규칙을 런타임에서 본다. */
-async function computedMinWidth(locator: Locator): Promise<string> {
-  return locator.evaluate((el) => getComputedStyle(el).minWidth);
-}
-
 // ===========================================================================
 
 /** 주문 복원 라우트로 실제로 나간 HTTP 메서드. 핸들러는 기록만 하고 단언은 케이스가 한다. */
@@ -668,7 +663,7 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     expect(html).toContain('data-slot="me-page"');
   });
 
-  test('7. 데스크톱 1280 — 계좌 카드 내부가 2열이고 카드 밖으로 밀려나는 요소가 없다 (R4)', async ({
+  test('7. 데스크톱 1280 — 계좌 카드 안 미체결 위 · 잔고 아래(stack)이고 표가 가로 스크롤 없이 들어간다 (quick-260926-o2u)', async ({
     page,
   }) => {
     await page.goto('/me');
@@ -685,20 +680,22 @@ test.describe('Phase 16 Plan 15 — My page (로컬 relay)', () => {
     const unfilledBox = await boxOf(unfilled);
     const holdingsBox = await boxOf(holdings);
 
-    // 2열 — 같은 행에 나란히 선다(≥1280px, 477/477).
-    expect(Math.abs(unfilledBox.y - holdingsBox.y)).toBeLessThanOrEqual(1);
-    expect(holdingsBox.x).toBeGreaterThan(unfilledBox.x);
+    // stack — 미체결 위 · 잔고 아래, 같은 왼쪽 선(본문 900 폭 · quick-260926-o2u).
+    const unfilledH = (await unfilled.boundingBox())!.height;
+    expect(holdingsBox.y).toBeGreaterThanOrEqual(unfilledBox.y + unfilledH - 1);
+    expect(Math.abs(holdingsBox.x - unfilledBox.x)).toBeLessThanOrEqual(1);
 
     /*
-      ★ `.acct-grid > * { min-width: 0 }` **필수 규칙**을 계산된 값으로 확인한다
-        (UI-SPEC R4 · `tasks/lessons.md`). 클래스 문자열이 아니라 computed style 을 보는
-        이유는 그것이 실제로 레이아웃을 정하는 값이기 때문이다.
-      ※ 지금 마크업에서는 표 컨테이너의 `overflow-x:auto` 가 콘텐츠 최소폭 전파를 막아
-        이 값을 지워도 당장은 넘치지 않는다(변이 실측). 그래도 규칙을 명시적으로 잠근다 —
-        표를 감싸는 방식이 바뀌는 순간 이 값이 유일한 방어선이 된다.
+      ★ 두 표 모두 가로 스크롤 없이 들어간다 — 2열이던 때는 칸마다 표 영역이 약 419px 라
+        최소폭(미체결 439 · 잔고 444)보다 좁아 스크롤됐다. 섹션마다 첫 표 컨테이너를 잰다.
     */
-    expect(await computedMinWidth(unfilled)).toBe('0px');
-    expect(await computedMinWidth(holdings)).toBe('0px');
+    for (const section of [unfilled, holdings]) {
+      const m = await section
+        .locator('[data-slot="table-container"]')
+        .first()
+        .evaluate((el) => ({ scrollW: el.scrollWidth, clientW: el.clientWidth }));
+      expect(m.scrollW).toBeLessThanOrEqual(m.clientW + 1);
+    }
 
     /*
       ★ 잘림 0. `min-width:0` 이 빠지면 그리드 자식이 표의 콘텐츠 최소폭만큼 부풀어

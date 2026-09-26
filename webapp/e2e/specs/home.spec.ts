@@ -353,6 +353,25 @@ test.describe('Phase 13 — 홈 승격 (HOME-01)', () => {
     }
   });
 
+  test('1280 — 홈 제목 22px · 뒤로가기 없음 · 본문 ≤ 900 (quick-260926-o2u D2·D3)', async ({
+    page,
+  }) => {
+    await mockHomeApi(page, { response: HOME_POPULATED });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/');
+
+    const main = page.locator('main');
+    const title = main.getByRole('heading', { name: '오늘의 급등 테마', level: 1 });
+    await expect(title).toBeVisible({ timeout: 10_000 });
+    expect(await title.evaluate((el) => getComputedStyle(el).fontSize)).toBe('22px');
+    await expect(main.getByRole('button', { name: '뒤로가기' })).toHaveCount(0);
+
+    const box = await main.locator('[data-slot="page-header"]').boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeLessThanOrEqual(900);
+    expect(box!.width).toBeGreaterThan(600);
+  });
+
   /*
     ★ quick-260913-0em — **잉크 불변식**. 위 케이스(260912-u58 ⑤)와 **짝이고, 그것을 대체하지
       않는다**: 저쪽은 헤더/본문의 패딩 **박스**가 같은 램프인지를 보고, 이쪽은 헤더 좌우 끝

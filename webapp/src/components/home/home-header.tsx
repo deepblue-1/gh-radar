@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
+import { PageHeader } from '@/components/layout/page-header';
+
 import type {
   HomeSnapshotIndexEntry,
   HomeThemeSnapshot,
@@ -14,7 +16,7 @@ import { toKstHhmm } from './home-format';
  * HomeHeader — 홈 헤더 (13-UI-SPEC §Component Inventory · home-top).
  *
  * 세로 stack:
- *   타이틀행 = "오늘의 급등 테마"(--t-h2 24/800) + 날짜 네비
+ *   타이틀행 = 공용 PageHeader "오늘의 급등 테마"(22/700 · quick-260926-o2u D2 · 뒤로가기 없음) + 날짜 네비(actions)
  *     날짜 네비 = prev/next icon-btn(32×32, aria-label "이전 날짜"/"다음 날짜")
  *                + mono 날짜 라벨(YYYY-MM-DD 14/800) + "오늘" reset pill.
  *                next 는 최신 날짜에서 disabled, prev 는 더 과거 날짜 없으면 disabled.
@@ -132,42 +134,42 @@ export function HomeHeader({
   return (
     <div className="flex flex-col gap-[var(--s-3)]">
       {/* 타이틀 + 날짜 네비 */}
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-[length:var(--t-h2)] font-extrabold tracking-[-0.02em] text-[var(--fg)]">
-          오늘의 급등 테마
-        </h1>
-        <div className="flex items-center gap-[6px]">
-          <button
-            type="button"
-            aria-label="이전 날짜"
-            onClick={goPrev}
-            disabled={!hasPrev}
-            className="inline-flex size-8 items-center justify-center rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] text-[var(--fg)] disabled:opacity-40"
-          >
-            <ChevronLeft aria-hidden="true" className="size-4" />
-          </button>
-          <span className="mono text-[length:var(--t-sm)] font-extrabold text-[var(--fg)]">
-            {currentDate || '—'}
-          </span>
-          <button
-            type="button"
-            aria-label="다음 날짜"
-            onClick={goNext}
-            disabled={!hasNext}
-            className="inline-flex size-8 items-center justify-center rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] text-[var(--fg)] disabled:opacity-40"
-          >
-            <ChevronRight aria-hidden="true" className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onToday}
-            disabled={isViewingToday}
-            className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-[5px] text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] disabled:opacity-40"
-          >
-            오늘
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="오늘의 급등 테마"
+        actions={
+          <div className="flex items-center gap-[6px]">
+            <button
+              type="button"
+              aria-label="이전 날짜"
+              onClick={goPrev}
+              disabled={!hasPrev}
+              className="inline-flex size-8 items-center justify-center rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] text-[var(--fg)] disabled:opacity-40"
+            >
+              <ChevronLeft aria-hidden="true" className="size-4" />
+            </button>
+            <span className="mono text-[length:var(--t-sm)] font-extrabold text-[var(--fg)]">
+              {currentDate || '—'}
+            </span>
+            <button
+              type="button"
+              aria-label="다음 날짜"
+              onClick={goNext}
+              disabled={!hasNext}
+              className="inline-flex size-8 items-center justify-center rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] text-[var(--fg)] disabled:opacity-40"
+            >
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onToday}
+              disabled={isViewingToday}
+              className="rounded-[var(--r)] border border-[var(--border)] bg-[var(--card)] px-3 py-[5px] text-[length:var(--t-sm)] font-extrabold text-[var(--fg)] disabled:opacity-40"
+            >
+              오늘
+            </button>
+          </div>
+        }
+      />
 
       {/* 시점 슬라이더 행 — 1분 슬롯(하루 최대 ~725개)이라 pill 나열 대신 range 슬라이더 */}
       {slots.length > 0 &&

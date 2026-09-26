@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { AppSidebar } from '@/components/layout/app-sidebar';
+import { PAGE_WRAP } from '@/components/layout/page-layout';
 import { HomeClient } from '@/components/home/home-client';
 import { HomeSkeleton } from '@/components/home/home-skeleton';
 
@@ -8,7 +9,8 @@ import { HomeSkeleton } from '@/components/home/home-skeleton';
  * `/` — Phase 13 홈("오늘의 급등 테마", HOME-01).
  *
  * Phase 13 D-07: 홈을 앱 루트(`/`)로 승격 — 기존 `/scanner` 서버사이드 이동을 대체한다.
- * (상승률 상위는 사이드바 2번째 메뉴로 유지되며, 직접 접근/북마크는 회귀 없이 동작한다.)
+ * (상승률 상위는 `/search` 허브 타일로 진입하며, 직접 접근/북마크는 회귀 없이 동작한다.)
+ * 본문은 공용 PAGE_WRAP(900 · 가운데 — quick-260926-o2u D3). 서버 컴포넌트라 지시문 없는 모듈에서 가져온다.
  *
  * 서버 컴포넌트에서 Suspense 로 HomeClient(`'use client'`) 를 감싼다 — useSearchParams 가
  * Suspense 경계를 요구하는 Next 15 제약은 이 경계로 충족된다.
@@ -21,7 +23,7 @@ import { HomeSkeleton } from '@/components/home/home-skeleton';
 export default function HomePage() {
   return (
     <AppShell sidebar={<AppSidebar />}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 md:gap-6">
+      <div className={PAGE_WRAP}>
         <Suspense fallback={<HomeSkeleton />}>
           <HomeClient />
         </Suspense>

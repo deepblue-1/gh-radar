@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
+import { SECTION_COUNT, SECTION_TITLE } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
 import { useHomeQuery } from '@/hooks/use-home-query';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
@@ -107,15 +108,19 @@ export function HomeClient() {
       ) : (
         <>
           {/* snapshot null 이면 themes 도 비어 런타임 동일 — snapshot 타입 narrowing 용. */}
+          {/*
+            quick-260926-o2u D4 — 섹션 머리 = 15px 제목 + 평문 개수 + 복사. 카드는 1열 그대로.
+            ★ 머리 행과 첫 카드 사이는 D4 의 8px 이 아니라 20px(`gap-5`)이다. 카드 복사 아이콘의 「복사됨」
+              말풍선이 카드 위로 약 17.5px 떠서(copy-text-button bottom-full), 8px 이면 머리 행 「전체 복사」를
+              약 9px 가린다(390 실측 · home.spec 「개별 급등 복사」 불변식). 20px 이면 2.5px 비켜 간다.
+          */}
           {snapshot && themes.length > 0 && (
-            <>
-              <div className="mt-[var(--s-2)] flex items-center gap-2">
-                <h2 className="text-[length:var(--t-h4)] font-bold text-[var(--fg)]">
+            <section aria-labelledby="home-themes-title" className="flex flex-col gap-5">
+              <div className="flex items-center gap-1.5">
+                <h2 id="home-themes-title" className={SECTION_TITLE}>
                   주도 테마
                 </h2>
-                <span className="mono rounded-full bg-[var(--card)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                  {themes.length}
-                </span>
+                <span className={SECTION_COUNT}>{themes.length}</span>
                 {/* getText lazy — 과거 슬롯을 보고 있으면 그 스냅샷을 복사. */}
                 <CopyTextButton
                   label="전체 복사"
@@ -124,22 +129,22 @@ export function HomeClient() {
                   className="ml-auto"
                 />
               </div>
-              {themes.map((theme, i) => (
-                <ThemeCard key={`${theme.name}-${i}`} theme={theme} />
-              ))}
-            </>
+              <div className="flex flex-col gap-[var(--s-4)]">
+                {themes.map((theme, i) => (
+                  <ThemeCard key={`${theme.name}-${i}`} theme={theme} />
+                ))}
+              </div>
+            </section>
           )}
 
           {/* snapshot null 이면 singles 도 비어 런타임 동일 — snapshot 타입 narrowing 용. */}
           {snapshot && singles.length > 0 && (
-            <>
-              <div className="mt-[var(--s-2)] flex items-center gap-2">
-                <h2 className="text-[length:var(--t-h4)] font-bold text-[var(--fg)]">
+            <section aria-labelledby="home-singles-title" className="flex flex-col gap-5">
+              <div className="flex items-center gap-1.5">
+                <h2 id="home-singles-title" className={SECTION_TITLE}>
                   개별 급등
                 </h2>
-                <span className="mono rounded-full bg-[var(--card)] px-2 py-[2px] text-[length:var(--t-caption)] text-[var(--muted-fg)]">
-                  {singles.length}
-                </span>
+                <span className={SECTION_COUNT}>{singles.length}</span>
                 {/* getText lazy — 과거 슬롯을 보고 있으면 그 스냅샷을 복사. */}
                 <CopyTextButton
                   label="전체 복사"
@@ -148,10 +153,12 @@ export function HomeClient() {
                   className="ml-auto"
                 />
               </div>
-              {singles.map((single) => (
-                <SoloCard key={single.code} single={single} />
-              ))}
-            </>
+              <div className="flex flex-col gap-[var(--s-4)]">
+                {singles.map((single) => (
+                  <SoloCard key={single.code} single={single} />
+                ))}
+              </div>
+            </section>
           )}
         </>
       )}

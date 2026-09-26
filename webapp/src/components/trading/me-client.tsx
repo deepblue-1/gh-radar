@@ -22,10 +22,12 @@
  *   거짓말한다.
  *
  * ④ ★ 잘림 방지 규칙은 `account-panel` 안에 있다 (R4)
- *   ≥1280px 2열(477/477)과 `min-w-0` 자식 규칙은 계좌 패널이 소유한다 — 3표면이 공유하는
+ *   ≥1280px 배치와 `min-w-0` 자식 규칙은 계좌 패널이 소유한다 — 3표면이 공유하는
  *   리플로우를 여기서 다시 만들면 한 곳만 고쳐지고 나머지가 조용히 갈린다. `min-width:0`
  *   이 빠지면 표의 콘텐츠 최소폭(미체결 439px · 잔고 444px) 때문에 스크롤이 아니라
  *   **조용한 잘림**이 된다(`tasks/lessons.md` 등재 함정).
+ *   My page 는 본문 900 폭이라 `stack`(세로 — 미체결 위 · 잔고 아래)을 넘긴다(quick-260926-o2u).
+ *   900 카드에서 2열이면 칸마다 표 영역이 약 419px 로 두 표의 최소폭보다 좁아 가로 스크롤된다.
  *
  * ⑤ ★ 오늘 주문 이력 표를 **만든다** — D-20 의 유예를 명시적으로 되돌렸다 (RELAY-02)
  *   ⓐ 왜 뒤집었나. 「오늘 주문 목록 복원」은 RELAY-02 의 요구사항이고 D-20 의 부재는 v1
@@ -48,6 +50,8 @@
 import { RELAY_STATE_LABELS } from "@gh-radar/shared";
 import type { RelayAccountState } from "@gh-radar/shared";
 
+import { PageHeader } from "@/components/layout/page-header";
+import { PAGE_WRAP } from "@/components/layout/page-layout";
 import { AccountCard } from "@/components/me/account-card";
 import { AccountPanel } from "@/components/orderbook/account-panel";
 import { DmaGate, useDmaGateReason } from "@/components/trading/dma-gate";
@@ -207,7 +211,7 @@ export function MeClient() {
     // D-08 — 계정 카드는 DMA 게이트 화면에서도 보인다. 미매핑 사용자도 로그아웃·테마 전환을
     // 사이드바 없이(앱 「마이」 탭) 할 수 있어야 한다.
     return (
-      <div className="flex flex-col gap-4">
+      <div className={PAGE_WRAP}>
         <AccountCard />
         <DmaGate reason={gateReason} surface="전략·잔고·미체결" />
       </div>
@@ -215,15 +219,10 @@ export function MeClient() {
   }
 
   return (
-    <div data-slot="me-page" className="flex flex-col gap-[var(--s-3)]">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-[length:var(--t-2xl)] font-bold tracking-[-0.01em] text-[var(--fg)]">
-          My page
-        </h1>
-        <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-          전략 현황 · 미체결 · 잔고
-        </p>
-      </header>
+    // 본문 900 · 가운데(quick-260926-o2u D3). 간격은 D-08a 의 12 를 유지한다(twMerge 가 gap 을 덮는다).
+    <div data-slot="me-page" className={cn(PAGE_WRAP, "gap-[var(--s-3)]")}>
+      {/* 탭 루트라 뒤로가기 없음(quick-260926-o2u D2). */}
+      <PageHeader title="My page" description="전략 현황 · 미체결 · 잔고" />
 
       {/* D-08a — 계정 카드 아래 16 여백 = 컨테이너 gap 12 + mb-1 4. 아래 세로 순서(①)는 불변이다. */}
       <div className="mb-1">
@@ -258,12 +257,16 @@ export function MeClient() {
               계좌 전용 모드(`code` 미전달)는 셀렉터·탭이 없고 헤더에 계좌번호를 전체
               표시한다 — 그 헤더가 곧 C5 의 카드 머리다. 여기서 헤더를 한 벌 더 그리면
               같은 계좌번호가 두 번 나온다.
+              `stack` — 900 폭 카드에서 ≥1280 2열이면 칸마다 표 영역이 약 419px 로 미체결 439 ·
+              잔고 444 최소폭보다 좁아 두 표가 가로 스크롤된다. 좁은 컨테이너를 호출부가 알려 주는
+              account-panel 의 기존 장치다(위 ④ · quick-260926-o2u).
             */}
             <AccountPanel
               selectedAccountNo={acct.accountNo}
               accountName={acct.name}
               account={accountStates.get(acct.accountNo) ?? null}
               status={status}
+              stack
             />
           </section>
         ))

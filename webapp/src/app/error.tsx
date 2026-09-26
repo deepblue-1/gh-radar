@@ -27,7 +27,7 @@ export default function GlobalError({
   return (
     <CenterShell>
       <div className="flex flex-col items-center gap-4 py-16 text-center">
-        <h1 className="text-[length:var(--t-2xl)] font-bold tracking-[-0.01em] text-[var(--fg)]">
+        <h1 className="text-[22px] font-bold tracking-[-0.01em] text-[var(--fg)]">
           문제가 발생했어요
         </h1>
         <p className="max-w-md text-[length:var(--t-sm)] text-[var(--muted-fg)]">

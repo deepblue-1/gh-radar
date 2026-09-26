@@ -256,3 +256,48 @@ describe('개별 급등 전체 복사 (quick-260923-cre)', () => {
     expect(writeText.mock.calls[1][0]).not.toContain('[개별 급등]');
   });
 });
+
+/**
+ * quick-260926-o2u D2·D4 — 홈은 공용 PageHeader(22px · 뒤로가기 없음 — 탭 루트)와 섹션 머리 문법
+ * (15px muted 제목 + 13px faint 평문 개수, 알약 없음)을 쓴다. 날짜 네비·시점 슬라이더는 그대로다.
+ */
+describe('홈 헤더·섹션 머리 문법 (quick-260926-o2u)', () => {
+  beforeEach(() => {
+    fetchHomeMock.mockReset();
+    fetchHomeMock.mockResolvedValue(BOTH_RESPONSE);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('「주도 테마」·「개별 급등」 h2 = 15px muted, 바로 뒤 개수는 faint 평문(알약 아님)', async () => {
+    render(<HomeClient />);
+
+    const themesH2 = await screen.findByRole('heading', { level: 2, name: '주도 테마' });
+    const singlesH2 = screen.getByRole('heading', { level: 2, name: '개별 급등' });
+    for (const [h2, n] of [
+      [themesH2, 2],
+      [singlesH2, 2],
+    ] as const) {
+      expect(h2.className).toContain('text-[15px]');
+      expect(h2.className).toContain('text-[var(--muted-fg)]');
+      const count = h2.nextElementSibling as HTMLElement;
+      expect(count).toHaveTextContent(String(n));
+      expect(count.className).toContain('text-[var(--faint)]');
+      expect(count.className).not.toContain('rounded-full');
+    }
+  });
+
+  it('h1 「오늘의 급등 테마」 = 22px, 날짜 네비·시점 슬라이더 유지, 뒤로가기 없음', async () => {
+    render(<HomeClient />);
+
+    const h1 = await screen.findByRole('heading', { level: 1, name: '오늘의 급등 테마' });
+    expect(h1.className).toContain('text-[22px]');
+    expect(screen.getByRole('button', { name: '이전 날짜' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '다음 날짜' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '오늘' })).toBeInTheDocument();
+    expect(await screen.findByRole('slider', { name: '시점 선택' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '뒤로가기' })).toBeNull();
+  });
+});

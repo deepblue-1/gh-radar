@@ -23,7 +23,7 @@ export function SurfacePlaceholder({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <h1 className="text-[length:var(--t-2xl)] font-bold tracking-[-0.01em] text-[var(--fg)]">
+      <h1 className="text-[22px] font-bold tracking-[-0.01em] text-[var(--fg)]">
         {title}
       </h1>
       {subtitle !== undefined && (

@@ -14,7 +14,7 @@ export default function NotFound() {
         <p className="font-mono text-[length:var(--t-caption)] uppercase tracking-[0.08em] text-[var(--muted-fg)]">
           404
         </p>
-        <h1 className="text-[length:var(--t-2xl)] font-bold tracking-[-0.01em] text-[var(--fg)]">
+        <h1 className="text-[22px] font-bold tracking-[-0.01em] text-[var(--fg)]">
           페이지를 찾을 수 없어요
         </h1>
         <p className="max-w-md text-[length:var(--t-sm)] text-[var(--muted-fg)]">
