@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 21
-current_phase_name: gh-trade-mobile-app
+current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-24-PLAN.md
-last_updated: "2026-09-26T09:13:01.181Z"
+stopped_at: Completed 21-25-PLAN.md
+last_updated: "2026-09-26T10:03:14.808Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 execution started
-state_head: e27ff0d4843f3ac1f0e0f31ae33924dcd8a946fe
+state_head: 38bd737dc797a166a5ee01fcf99f2b1a09e0fc0f
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 290
-  completed_plans: 262
+  completed_plans: 263
 milestone_name: milestone
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 
 ## Current Position
 
-Phase: 21 (gh-trade-mobile-app) — READY TO EXECUTE
-Plan: 9 of 24
+Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
+Plan: 26 of 36
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -115,6 +115,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P22 | 4min | 2 tasks | 7 files |
 | Phase 21 P23 | 12min | 2 tasks | 0 files |
 | Phase 21 P24 | 5min | 2 tasks | 1 files |
+| Phase 21 P25 | 19min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -253,6 +254,9 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-22: NavigationDelegateProxy 는 3인자 decidePolicyFor 만 구현 · uiDelegate 도 프록시에 세우되 originalUI 를 교체 전에 잡는다(UI 콜백 Capacitor 전달 유지)
 - [Phase 21]: 21-23: UAT 프록시 업스트림은 gcloud run services describe 조회값(https://gh-radar-server-fnbhvevuva-du.a.run.app) — env 파일 미열람, scratchpad 스크립트는 UPSTREAM 필수
 - [Phase 21]: [21-24] UAT 재개 신호 push-then-recheck — Claude 가 Phase 21 커밋 30개 push(bac3746..5f91e1a) · 운영 CSS 98 확인 · 세 기기 운영 빌드 재설치, UAT 항목 1~5 는 실서버에서 /gsd-verify-work 21 로 재확인
+- [Phase 21]: 21-25: 스케치 008 채택 ①B /me 전략 로그 = 전략 현황 카드 안 「현황 | 로그」(기본 현황) · ②A 넓은 폭 「트레이딩」 = 히어로 첫 줄 끝 32 알약 · ③A 카드 주문유형 = 주문금액 위 44px 행 (D-25a · D-30 · D-31)
+- [Phase 21]: 21-25: R3-2 잃는 동작 범위 밖 동의 · R3-8 옛 뉴스/토론 URL 리다이렉트 동의(D-29) · WR-03 = a androidx.webkit 1.14.0 앱 모듈 선언 + WebMessageListener(메인 프레임·허용 출처)
+- [Phase 21]: 21-25: D-32 R3-11 = 탭 루트 스크롤 복원 + 스켈레톤 없는 재방문(query-cache) · keep-alive/탭별 웹뷰 기각
 
 ### Pending Todos
 
@@ -302,8 +306,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T05:20:30.533Z
-Stopped at: Completed 21-24-PLAN.md
+Last session: 2026-09-26T10:03:01.114Z
+Stopped at: Completed 21-25-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.

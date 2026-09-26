@@ -1015,7 +1015,7 @@ Plans:
 **Goal:** webapp 을 Capacitor **Remote-URL 셸**(WebView 가 운영 URL 을 로드 · static export 불가 확인: middleware 인증 가드·OAuth callback route·서버 redirect)로 감싼 iOS·iPadOS·Android 앱을 만든다. 브랜드명은 웹·앱 모두 **GH Trade** 로 바꾼다(노출 문자열만 · `gh-radar:` localStorage 키는 유지). weekly-wine-app(`/Users/alex/repos/weekly-wine-app`) 을 참고해 **네이티브(Swift·Kotlin) 하단 플로팅 탭바** 홈·검색·트레이딩·AI·마이 5탭과 **pull-to-refresh** 를 붙인다. 새로고침은 네이티브 제스처가 웹의 `window.__ghTrade.refresh()` 훅을 호출하고 훅이 없으면 reload 한다(트레이딩은 relay 재탐침). Google 이 WebView OAuth 를 차단하므로 **네이티브 Google Sign-In → Supabase `signInWithIdToken`** 경로를 추가한다. 네이티브 프로젝트는 모노레포 `mobile/` 패키지에 둔다.
 **Requirements**: MOBILE-01
 **Depends on:** Phase 20
-**Plans:** 24/36 plans executed (갭 클로징 21-17~21-24 추가 2026-09-26 — 21-UAT.md G-21-1 · G-21-N1~N3 · UAT 3차 갭 클로징 21-25~21-36 추가 2026-09-26 — G-21-R3-1~11 · G-21-CR · 같은 날 과설계 정리로 18→12 플랜 · R3-11 단순안)
+**Plans:** 25/36 plans executed (갭 클로징 21-17~21-24 추가 2026-09-26 — 21-UAT.md G-21-1 · G-21-N1~N3 · UAT 3차 갭 클로징 21-25~21-36 추가 2026-09-26 — G-21-R3-1~11 · G-21-CR · 같은 날 과설계 정리로 18→12 플랜 · R3-11 단순안)
 
 **결정(2026-09-25 사용자 확정):** ① 탭바 = 네이티브(Swift+Kotlin) ② 로그인 = 네이티브 Google Sign-In + `signInWithIdToken` ③ pull-to-refresh = 네이티브 제스처 → 웹 refresh 훅, 없으면 reload ④ 위치 = `mobile/` 패키지.
 **목업 단계 미결(IA):** 검색 탭 목적지(전용 `/search` 페이지 vs ⌘K 다이얼로그) · 마이 탭에 프로필·로그아웃·테마 토글 수용 · iPad 넓은 폭(사이드바 노출 ≥1024)에서 탭바 처리 · 탭바 숨김 규칙(로그인 화면·바텀시트).
@@ -1081,7 +1081,7 @@ Plans:
 
 **Wave 12** *(UAT 3차 갭 클로징 — 21-UAT.md G-21-R3-1~11 · G-21-CR, 사용자 결정 2026-09-26)*
 
-- [ ] 21-25-PLAN.md — 목업 게이트: 스케치 008(/me 전 종목 전략 로그 · 종목상세 넓은 폭 「트레이딩」 · 카드 주문유형) 검토 + 재확인 3건(잃는 동작 · 옛 URL 리다이렉트 · WR-03 androidx.webkit) → CONTEXT D-12a · D-12b · D-25a · D-29~D-32(R3-11 축소)
+- [x] 21-25-PLAN.md — 목업 게이트: 스케치 008(/me 전 종목 전략 로그 · 종목상세 넓은 폭 「트레이딩」 · 카드 주문유형) 검토 + 재확인 3건(잃는 동작 · 옛 URL 리다이렉트 · WR-03 androidx.webkit) → CONTEXT D-12a · D-12b · D-25a · D-29~D-32(R3-11 축소)
 - [ ] 21-26-PLAN.md — [G-21-R3-3 · R3-5 · R3-6 · R3-7] 만원 칩 천만/오천만/1억 · 가격 섹션 pt-1 · 카드 ✕ 32/히트 44 · 종목정보 팝업 고정 높이 · ✕ · safe-area
 - [ ] 21-27-PLAN.md — [G-21-CR WR-01 · IN-07 · WR-05 · WR-04 · IN-06] isSafeInternalPath 공유 · 최근 검색 코드 형식 · 검색 resultsQuery · 팝오버 오버레이 마커 · theme-color = 앱 테마
 - [ ] 21-28-PLAN.md — [G-21-R3-1 · R3-4 iOS · WR-03 iOS · IN-02 · IN-08 · IN-05] 키보드 즉시 숨김 · 문서 로드 대기 · 출처 전체 비교 · 폴백 dev=1 · 스모크 기기 지정 · README 명령표
