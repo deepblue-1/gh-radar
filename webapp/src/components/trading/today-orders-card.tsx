@@ -77,6 +77,12 @@
  *   「기록 지연」 배지(role=status · 진행 점 · reduced-motion 이면 정지)와 한 줄 안내가 뜬다 — 빈
  *   목록을 「주문 없음」 으로 오해하지 않게(T-19-31). 이미 기록된 행은 흐리게 하지 않는다.
  *   복구(`live`)되면 표식이 사라지고 위 ⑧ 이 한 번 재조회한다.
+ *
+ * ⑫ 재방문 시드 (Phase 21 D-32)
+ *   성공한 조회 결과를 `lib/query-cache` 에 **KST 날짜 키**(`me:today-orders:{날짜}`)로 남긴다. 탭을 오가
+ *   다시 마운트되면 첫 렌더부터 그 행으로 서고(「불러오는 중」 없음) 마운트 조회가 뒤에서 교체한다.
+ *   날짜가 바뀌면 키가 달라 어제 목록을 오늘 것처럼 보이지 않는다(T-21-86). 실패는 캐시를 쓰지 않는다.
+ *   사용자 전환 시 AuthProvider 가 캐시를 비운다(T-21-85).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -109,6 +115,7 @@ import {
   orderDisplayStatus,
   type OrderDisplayStatus,
 } from "@/lib/orders-api";
+import { readQueryCache, writeQueryCache } from "@/lib/query-cache";
 import { useRelayContext } from "@/lib/relay-provider";
 import { cn } from "@/lib/utils";
 
@@ -172,13 +179,23 @@ function noticeFactsOf(row: JournalOrderRow): OrderNoticeFacts {
   };
 }
 
+/** D-32 — 재방문 시드 캐시 키(KST 날짜 포함 · 위 ⑫). */
+function todayOrdersCacheKey(date: string): string {
+  return `me:today-orders:${date}`;
+}
+
 export function TodayOrdersCard() {
   const { accounts, journalRows, journalState, status } = useRelayContext();
   /* 종목명의 원천(위 ⑥). 이미 받은 프레임만 읽는다 — 새 조회 경로가 아니다. */
   const labels = useIsinLabels();
 
-  /** `null` = 아직 한 번도 응답을 못 받음(로딩). `[]` = 오늘 주문이 정말 없음. */
-  const [restored, setRestored] = useState<JournalOrderRow[] | null>(null);
+  /**
+   * `null` = 아직 한 번도 응답을 못 받음(로딩). `[]` = 오늘 주문이 정말 없음.
+   * D-32(위 ⑫) — 오늘 날짜 키 캐시가 있으면 그 행으로 시작한다.
+   */
+  const [restored, setRestored] = useState<JournalOrderRow[] | null>(
+    () => readQueryCache<JournalOrderRow[]>(todayOrdersCacheKey(kstDateIso())) ?? null,
+  );
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
@@ -186,6 +203,7 @@ export function TodayOrdersCard() {
       const rows = await fetchTodayOrders();
       setRestored(rows);
       setFailed(false);
+      writeQueryCache(todayOrdersCacheKey(kstDateIso()), rows);
     } catch {
       /*
         어떤 실패든 여기서 멈춘다(위 ④). 실패 사유를 화면에 풀어 쓰지 않는다 —

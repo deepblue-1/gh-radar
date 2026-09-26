@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useDebouncedSearch } from '@/hooks/use-debounced-search';
 import { useWatchlistSet } from '@/hooks/use-watchlist-set';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
+import { readQueryCache, writeQueryCache } from '@/lib/query-cache';
 import {
   clearRecentSearches,
   pushRecentSearch,
@@ -37,6 +38,8 @@ import { cn } from '@/lib/utils';
  * ③ 허브 데이터는 마운트 1회 + 네이티브 당김(D-04)으로만 읽는다 — 자동 폴링·타이머 없음(T-21-33).
  *    두 호출은 `Promise.allSettled` 라 한쪽 실패는 그 칸만 「—」/조용한 안내로 수렴한다. 이미 받은 값이
  *    있으면 재조회 실패가 그 값을 지우지 않는다.
+ *    D-32 — 두 칸이 모두 성공한 결과는 `lib/query-cache`(`search:hub`)에 남긴다. 탭을 오가 다시 마운트되면
+ *    첫 렌더부터 그 값으로 서고(스켈레톤·「…」 없음) 위 1회 조회가 조용히 교체한다.
  * ④ 최근 검색은 마운트 후에 읽는다(SSR 하이드레이션 일치). 저장 실패는 화면을 막지 않는다.
  * ⑤ 레이아웃은 셸 층 뷰포트 유틸만 쓴다 — 상따 화면의 §2.2b 컨테이너 밴드와 무관하다.
  */
@@ -49,6 +52,14 @@ type Slot<T> = { status: 'loading' } | { status: 'ok'; value: T } | { status: 'e
 interface ScannerPreview {
   top: StockWithProximity[];
   surge: number;
+}
+
+/** D-32 — 탭 재방문 시드(`lib/query-cache` · 5분 만료 · 사용자 전환 시 AuthProvider 가 비운다). */
+const HUB_CACHE_KEY = 'search:hub';
+
+interface HubCache {
+  scanner: ScannerPreview;
+  themeCount: number;
 }
 
 function settle<T>(prev: Slot<T>, result: PromiseSettledResult<T>): Slot<T> {
@@ -91,8 +102,14 @@ export function SearchPageClient() {
   }, []);
 
   const { count: watchCount } = useWatchlistSet();
-  const [scanner, setScanner] = useState<Slot<ScannerPreview>>({ status: 'loading' });
-  const [themeCount, setThemeCount] = useState<Slot<number>>({ status: 'loading' });
+  // D-32 — 재방문이면 마지막 허브 값으로 바로 선다(아래 loadHub 가 뒤에서 교체).
+  const [hubCached] = useState(() => readQueryCache<HubCache>(HUB_CACHE_KEY));
+  const [scanner, setScanner] = useState<Slot<ScannerPreview>>(() =>
+    hubCached ? { status: 'ok', value: hubCached.scanner } : { status: 'loading' },
+  );
+  const [themeCount, setThemeCount] = useState<Slot<number>>(() =>
+    hubCached ? { status: 'ok', value: hubCached.themeCount } : { status: 'loading' },
+  );
   const hubAbortRef = useRef<AbortController | null>(null);
 
   const loadHub = useCallback(async () => {
@@ -109,6 +126,10 @@ export function SearchPageClient() {
     if (controller.signal.aborted) return;
     setScanner((prev) => settle(prev, scan));
     setThemeCount((prev) => settle(prev, themes));
+    // 둘 다 성공한 결과만 시드로 남긴다 — 부분 실패는 캐시를 바꾸지 않는다.
+    if (scan.status === 'fulfilled' && themes.status === 'fulfilled') {
+      writeQueryCache<HubCache>(HUB_CACHE_KEY, { scanner: scan.value, themeCount: themes.value });
+    }
   }, []);
 
   useEffect(() => {
