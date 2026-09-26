@@ -22,6 +22,7 @@ import {
   readDismissedSet,
   readSoundedSet,
   readTonePref,
+  sameCrossInterval,
   shouldRemoveBreakout,
   trackBreakoutMeta,
   writeColsPref,
@@ -307,6 +308,22 @@ describe("breakoutKey — 행 키는 ISIN (quick-260926-rcc · gh-trade cfo 결�
   it("같은 ISIN 의 KRX 항목과 NXT 항목은 키가 같다", () => {
     expect(breakoutKey(item({ exchange: "KRX" }))).toBe(ISIN_A);
     expect(breakoutKey(item({ exchange: "NXT" }))).toBe(breakoutKey(item({ exchange: "KRX" })));
+  });
+});
+
+describe("sameCrossInterval — above 구간 동일성 (quick-260926-s5v)", () => {
+  const a = { exchangeTime: "094131000000", exchange: "KRX" as const };
+
+  it("돌파시각·발화 거래소가 같으면 같은 구간이다(재접속 78 의 relay 캐시 재전송)", () => {
+    expect(sameCrossInterval(a, { ...a })).toBe(true);
+  });
+
+  it("돌파시각이 다르면 새 구간이다(76 재돌파)", () => {
+    expect(sameCrossInterval(a, { ...a, exchangeTime: "100500000000" })).toBe(false);
+  });
+
+  it("발화 거래소만 달라도 새 구간이다", () => {
+    expect(sameCrossInterval(a, { ...a, exchange: "NXT" })).toBe(false);
   });
 });
 

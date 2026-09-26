@@ -23,9 +23,13 @@
  *
  * ③ ★ 이탈 삭제는 `shouldRemoveBreakout` 한 함수로만 판정한다 (D-16)
  *   현재가를 모르는 행(구독 실패·`MAX_BREAKOUT_SUBS` 초과)은 판정하지 않는다 — 76 의 마지막
- *   가격·등락률을 그대로 보이고 지우지 않는다(T-18-37). 한 번 지운 행은 서버가 그 종목에 대해
- *   **새 프레임**(76 재돌파·78 스냅샷 — 항목 객체가 바뀐다)을 보낼 때까지 지운 채로 둔다 —
- *   시세가 임계 근처에서 흔들릴 때 행이 나타났다 사라지는 깜빡임을 막는다.
+ *   가격·등락률을 그대로 보이고 지우지 않는다(T-18-37). 한 번 지운 행은 같은 종목의 **새 above
+ *   구간**(돌파시각·발화 거래소가 바뀐 원소 — 76 재돌파 또는 새 구간의 78 원소 · `sameCrossInterval`)이
+ *   올 때까지 지운 채로 둔다 — 시세가 임계 근처에서 흔들릴 때 행이 나타났다 사라지는 깜빡임을 막는다.
+ *   새 구간이 오면 새 행으로 다시 오른다 — 첫 등재·강조·무장/유예·첫 돌파시각을 새로 시작하고,
+ *   「오늘 울린 종목」은 그대로라 소리는 없다. 같은 구간의 재전송(재접속 78 캐시 원소)은 되살리지
+ *   않는다 (gh-trade `RateCrossWatchList.cs:652·741-764` · 재돌파 무음 :672 · quick-260926-s5v).
+ *   지운 동안은 그 피드 구독도 푼다(gh-trade `ReleaseRow` :1052-1061).
  *
  * ④ ★ 알림음 — 기록이 먼저, 재생이 나중 (D-17)
  *   새 행이 「오늘 울린 종목」에 없으면 `addSounded` 를 **먼저** 부르고 그 다음 `playBreakoutTone`.
@@ -77,6 +81,7 @@ import {
   newBreakoutsToAnnounce,
   readDismissedSet,
   readSoundedSet,
+  sameCrossInterval,
   shouldRemoveBreakout,
   trackBreakoutMeta,
   type BreakoutMeta,
@@ -128,6 +133,12 @@ export interface BreakoutStripProps {
   onFocusCard: (isin: string, exchange: RelayExchange) => void;
   /** 행 ✕ 로 지웠다. 「지운 종목」 기록은 이 컴포넌트가 이미 했다 — 알림용 콜백이다. */
   onDismiss?: (isin: string) => void;
+  /**
+   * 목록에 **새로 오른 비무음 행**(76 새 종목 · 이탈 뒤 새 구간 재돌파) — 커밋 뒤 한 번씩. 첫 채움 · 78 ·
+   * 자리유지 재알림 · 발화 거래소 전환 · ✕ 지운 종목은 해당 없음. gh-trade `RowAdded`
+   * (`RateCrossWatchList.cs:662` → `RateCrossListForm.cs:406-422`)와 같은 축이다(작업대가 토스트로 낸다).
+   */
+  onRowsAdded?: (rows: readonly RelayRateCrossItem[]) => void;
   className?: string;
 }
 
@@ -139,16 +150,21 @@ interface Tracked {
   meta: ReadonlyMap<string, BreakoutMeta>;
   /** 첫 등재 체결시각 — 76 이 다시 와도 돌파시각은 첫 값을 유지한다. */
   firstTime: ReadonlyMap<string, string>;
-  /** 이탈로 지운 키 → 지울 때의 항목 객체. 객체가 바뀌면(= 서버의 새 프레임) 되살린다(③). */
+  /**
+   * 이탈로 지운 키 → 그 구간의 최신 항목. 같은 구간(`sameCrossInterval`)이면 계속 지운 채이고,
+   * 새 구간 원소가 오면 새 행으로 되살린다(③ · quick-260926-s5v).
+   */
   removed: ReadonlyMap<string, RelayRateCrossItem>;
 }
 
 /**
  * 클라 기록 한 걸음 — **마지막으로 커밋된 기록 + 현재 입력**의 순수 함수 (⑧ · quick-260923-elb 2a).
  *
- * 본문은 옛 「렌더 중 상태 갱신」 블록 그대로다: 첫 채움·78 은 무음(④), 첫 등재 체결시각 유지,
- * 이탈 삭제는 `shouldRemoveBreakout` 한 함수로만(③), 지운 행은 서버의 새 프레임(항목 객체 교체)이
- * 올 때까지 지운 채로 둔다.
+ * 첫 채움·78 은 무음(④), 첫 등재 체결시각 유지, 이탈 삭제는 `shouldRemoveBreakout` 한 함수로만(③).
+ * 지운 행은 같은 구간이면 지운 채로 두고, **새 구간** 원소가 오면 옛 기록(meta · firstTime)을 버리고
+ * 새로 등재한다 — gh-trade `RemoveRow` → 새 76 `AddNewRow`(`RateCrossWatchList.cs:741-764`)와 같다.
+ * 새 기록이라 `addedAt`·`feedSince` 가 지금, `armed` false(유예 재시작), `silent` 는 이 스텝 판정
+ * (76 → 강조 · 78 → 무음·무강조)이다 (quick-260926-s5v).
  */
 function advanceTracked(
   prev: Tracked,
@@ -163,15 +179,33 @@ function advanceTracked(
   const { items, snapSeq, now, priceOf, wallNow } = input;
   // 첫 채움(마운트 시 이미 있던 목록)과 78 스냅샷은 무음·무강조다(④).
   const silent = prev.items === null || prev.seq !== snapSeq;
-  const meta = trackBreakoutMeta(prev.meta, items, { now: wallNow, silent, priceOf });
+
+  // 되살릴 키 — 지운 행에 새 above 구간 원소가 왔다(③). 옛 기록을 버려 새로 등재되게 한다.
+  const revived = new Set<string>();
+  for (const it of items) {
+    const key = breakoutKey(it);
+    const gone = prev.removed.get(key);
+    if (gone !== undefined && !sameCrossInterval(gone, it)) revived.add(key);
+  }
+  let baseMeta = prev.meta;
+  if (revived.size > 0) {
+    const pruned = new Map(prev.meta);
+    for (const key of revived) pruned.delete(key);
+    baseMeta = pruned;
+  }
+  const meta = trackBreakoutMeta(baseMeta, items, { now: wallNow, silent, priceOf });
 
   const firstTime = new Map<string, string>();
   const removed = new Map<string, RelayRateCrossItem>();
   for (const it of items) {
     const key = breakoutKey(it);
-    firstTime.set(key, prev.firstTime.get(key) ?? it.exchangeTime);
-    const gone = prev.removed.get(key);
-    if (gone === it) {
+    firstTime.set(
+      key,
+      revived.has(key) ? it.exchangeTime : (prev.firstTime.get(key) ?? it.exchangeTime),
+    );
+    // 같은 구간이면 계속 지운 채 — 최신 객체를 저장한다. 되살린 키는 새 기록의 유예 덕분에 이 스텝에
+    // 다시 지워지지 않는다.
+    if (prev.removed.has(key) && !revived.has(key)) {
       removed.set(key, it);
       continue;
     }
@@ -191,6 +225,7 @@ export function BreakoutStrip({
   onAddCard,
   onFocusCard,
   onDismiss,
+  onRowsAdded,
   className,
 }: BreakoutStripProps) {
   const [open, setOpen] = useState(false);
@@ -223,20 +258,43 @@ export function BreakoutStrip({
     removed: new Map(),
   }));
   const committedRef = useRef<Tracked>(initialTracked);
+  /*
+    커밋된 이탈 삭제 집합 — 구독 후보 거르기 전용 상태다. 기록 ref 만 읽으면 삭제를 커밋한 뒤 다음
+    렌더가 올 때까지(강조 tick · 가격 · 입력) 구독이 풀리지 않는다. 그래서 커밋 뒤 레이아웃 effect 가
+    키 집합이 바뀐 때만 이 상태를 올려 한 번 더 그린다(같으면 부르지 않는다 — 추가 렌더 없음).
+  */
+  const [committedRemoved, setCommittedRemoved] = useState<ReadonlyMap<string, RelayRateCrossItem>>(
+    initialTracked.removed,
+  );
 
-  // 구독 후보 = 지금 보이는 종목(최근 돌파 우선은 훅이 정한다). 카드 종목은 카드가 구독한다.
-  // 아직 기록 없는 키는 「가장 최근」(MAX_SAFE_INTEGER) — 추적 단계가 처음 보는 키에 현재 벽시계를
-  // 찍으므로 옛 수렴 상태와 같은 구독 순위다. 동률은 `pickWithinBudget` 의 ISIN 순서가 가른다.
+  /*
+    구독 후보 = 화면에 보이는 행 — ✕ 로 지운 종목과 이탈로 지운 행은 구독을 푼다(gh-trade `ReleaseRow`
+    `RateCrossWatchList.cs:1052-1061`). 다시 걸면 relay 가 스냅샷(28)을 먼저 보내고
+    (`relay/src/hub/subscription-hub.ts:1583-1620`) 되살린 행은 3초 유예가 새로 흐르므로 전역 시세 맵의
+    낡은 값으로 곧바로 지워지지 않는다. 카드 종목은 카드가 구독한다(최근 돌파 우선은 훅이 정한다).
+    아직 기록 없는 키와 되살린 키는 「가장 최근」(MAX_SAFE_INTEGER) — 추적 단계가 처음 보는 키에 현재
+    벽시계를 찍으므로 옛 수렴 상태와 같은 구독 순위다. 동률은 `pickWithinBudget` 의 ISIN 순서가 가른다.
+    되살린 행(지운 채인데 새 구간 원소)은 입력이 바뀐 이 렌더에서 바로 후보가 된다.
+  */
   const committedMeta = committedRef.current.meta;
-  const candidates = useMemo(
-    () =>
-      items.map((it) => ({
+  const candidates = useMemo(() => {
+    const out: { isin: string; exchange: RelayRateCrossItem['exchange']; addedAt: number }[] = [];
+    for (const it of items) {
+      if (dismissed.has(it.isin)) continue;
+      const key = breakoutKey(it);
+      const gone = committedRemoved.get(key);
+      if (gone !== undefined && sameCrossInterval(gone, it)) continue; // 아직 지운 채
+      out.push({
         isin: it.isin,
         exchange: it.exchange,
-        addedAt: committedMeta.get(breakoutKey(it))?.addedAt ?? Number.MAX_SAFE_INTEGER,
-      })),
-    [items, committedMeta],
-  );
+        addedAt:
+          gone !== undefined
+            ? Number.MAX_SAFE_INTEGER
+            : (committedMeta.get(key)?.addedAt ?? Number.MAX_SAFE_INTEGER),
+      });
+    }
+    return out;
+  }, [items, committedMeta, dismissed, committedRemoved]);
   const { prices } = useBreakoutQuotes(candidates, { excludeFeeds: cardFeeds });
   // 행 피드 가격만 읽는다 — 다른 거래소 값이 표시·무장·이탈에 섞이지 않는다.
   const priceOf = useCallback(
@@ -250,7 +308,10 @@ export function BreakoutStrip({
     [items, snapSeq, now, priceOf],
   );
   useLayoutEffect(() => {
+    const prevRemoved = committedRef.current.removed;
     committedRef.current = tracked;
+    // 키 집합이 바뀐 커밋에서만 올린다 — 가격 스텝(≤5Hz)마다 업데이트를 예약하지 않는다.
+    if (!sameKeys(prevRemoved, tracked.removed)) setCommittedRemoved(tracked.removed);
   }, [tracked]);
 
   const rows = useMemo(
@@ -272,6 +333,22 @@ export function BreakoutStrip({
     if (record.length === 0) return;
     soundedRef.current = addSounded(record); // ① 집합에 먼저 쓴다
     if (sound.length > 0) playBreakoutTone(); // ② 그 다음 재생(토글·차단은 모듈이 판정)
+  }, [rows]);
+
+  /*
+    ── 새 행 신호 — gh-trade `RaiseRowAdded`(:662) → `OnRowAdded`(RateCrossListForm.cs:406-422) ──
+    직전 커밋의 보이는 행 키에 없던 **비무음** 행만 모아 한 번 부른다. 첫 실행은 집합만 기록한다
+    (마운트 첫 채움 · StrictMode 재실행 안전). 알림음(④)과 별개다 — 하루 1회는 「오늘 울린 종목」이 지킨다.
+  */
+  const onRowsAddedRef = useRef(onRowsAdded);
+  onRowsAddedRef.current = onRowsAdded;
+  const visibleKeysRef = useRef<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    const prevKeys = visibleKeysRef.current;
+    visibleKeysRef.current = new Set(rows.map((r) => r.key));
+    if (prevKeys === null) return;
+    const added = rows.filter((r) => !r.silent && !prevKeys.has(r.key));
+    if (added.length > 0) onRowsAddedRef.current?.(added);
   }, [rows]);
 
   /* ── ⑤ 목록 전체 1초 tick — 강조 행이 있을 때만 ──────────────────── */
@@ -383,6 +460,13 @@ export function BreakoutStrip({
       )}
     </div>
   );
+}
+
+/** 두 맵의 키 집합이 같은가 — 커밋된 이탈 삭제 상태의 베일아웃 판정. */
+function sameKeys(a: ReadonlyMap<string, unknown>, b: ReadonlyMap<string, unknown>): boolean {
+  if (a.size !== b.size) return false;
+  for (const k of a.keys()) if (!b.has(k)) return false;
+  return true;
 }
 
 /* ── 표시 파생 ───────────────────────────────────────────────────────── */

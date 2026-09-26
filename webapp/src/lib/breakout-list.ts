@@ -215,6 +215,18 @@ export function breakoutKey(item: Pick<RelayRateCrossItem, "isin">): string {
 }
 
 /**
+ * above 구간 동일성 — 서버 `RateCrossState` 의 crossTime·crossExchange(gh-trade
+ * `rate-cross-alert.md:64-66`). 76 은 엣지마다 새 구간이라 시각이 바뀐다. relay 캐시 재전송(재접속
+ * 78)은 같은 구간이다. 이탈로 지운 행을 되살릴지의 유일 판정이다 (quick-260926-s5v).
+ */
+export function sameCrossInterval(
+  a: Pick<RelayRateCrossItem, "exchangeTime" | "exchange">,
+  b: Pick<RelayRateCrossItem, "exchangeTime" | "exchange">,
+): boolean {
+  return a.exchangeTime === b.exchangeTime && a.exchange === b.exchange;
+}
+
+/**
  * 행의 등락률(%) — `(현재가 − 기준가) × 100 ÷ 기준가`. 기준가가 없는 행만 76 등락률로 폴백한다
  * (gh-trade `rate-cross-alert.md` ③ 이탈 판정).
  */

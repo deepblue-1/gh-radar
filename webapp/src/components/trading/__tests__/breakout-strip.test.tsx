@@ -16,6 +16,8 @@ import type { RelayQuote, RelayRateCrossItem } from '@gh-radar/shared';
  *   ⑧ 현재가를 모르는 행은 지우지 않는다 · 「기록 → 재생」 순서
  *   ⑨ 행의 발화 거래소 피드 — 가격·이탈은 그 피드만 · 전환 시 옛 피드 해제 + 새 피드 구독 ·
  *      카드 제외는 (ISIN, 거래소) (quick-260926-rcc)
+ *   ⑩ 이탈로 지운 행 — 구독 해제 · 새 above 구간이면 새 행(강조 · 새 돌파시각 · 유예 재시작 · 무음) ·
+ *      같은 구간 재전송은 되살리지 않음 · 새 비무음 행 신호 `onRowsAdded` (quick-260926-s5v)
  */
 
 const subscribeMock = vi.fn();
@@ -107,6 +109,7 @@ function setup(initial: Props = {}) {
   const onAddCard = vi.fn();
   const onFocusCard = vi.fn();
   const onDismiss = vi.fn();
+  const onRowsAdded = vi.fn();
   let props: BreakoutStripProps = {
     items: [],
     snapSeq: 1,
@@ -115,6 +118,7 @@ function setup(initial: Props = {}) {
     onAddCard,
     onFocusCard,
     onDismiss,
+    onRowsAdded,
     ...initial,
   };
   const utils = render(<BreakoutStrip {...props} />);
@@ -122,7 +126,7 @@ function setup(initial: Props = {}) {
     props = { ...props, ...next };
     utils.rerender(<BreakoutStrip {...props} />);
   };
-  return { ...utils, update, onAddCard, onFocusCard, onDismiss };
+  return { ...utils, update, onAddCard, onFocusCard, onDismiss, onRowsAdded };
 }
 
 function openTable() {
@@ -530,6 +534,134 @@ describe('BreakoutStrip — 행의 발화 거래소 피드 (quick-260926-rcc)', 
     const chip = chips()[0]!;
     expect(chip).toHaveAttribute('data-trading', 'true');
     expect(within(chip).getByText('거래중')).toBeInTheDocument();
+  });
+});
+
+describe('BreakoutStrip — 이탈 뒤 재돌파 = 새 행 (quick-260926-s5v)', () => {
+  /** 새 above 구간 — 돌파시각이 바뀐 76 원소(gh-trade 재돌파). */
+  const A_NEW = { ...A, lastPrice: 12_400, changeRate: 24.0, exchangeTime: '100500000000' };
+
+  /** A 를 76 으로 올린 뒤(비무음 · 소리 1회) 유예가 지나고 구독 가격이 임계−2%p 아래라 지운다. */
+  function mountAndRemoveA() {
+    setPrice(A.isin, 11_000); // 10% < 18%
+    const view = setup({ items: [] });
+    view.update({ items: [A] });
+    expect(chips()).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(3_500);
+    });
+    setPrice(A.isin, 10_900);
+    view.update({});
+    act(() => {
+      vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS);
+    });
+    expect(chips()).toHaveLength(0);
+    return view;
+  }
+
+  it('S-R1 새 구간 76 → 새 행: 「신규」 강조 · 돌파시각 = 새 원소 · 소리 없음(하루 1회) · 유예 재시작', () => {
+    const { update } = mountAndRemoveA();
+    expect(playBreakoutTone).toHaveBeenCalledTimes(1);
+    expect(addSounded).toHaveBeenCalledTimes(1);
+
+    update({ items: [A_NEW] });
+    expect(chips()).toHaveLength(1);
+    expect(chips()[0]).toHaveAttribute('data-new', 'true');
+    expect(within(chips()[0]!).getByText('신규')).toBeInTheDocument();
+    openTable();
+    const row = rowEls()[0]!;
+    expect(within(row).getAllByText('10:05:00').length).toBeGreaterThan(0);
+    expect(within(row).queryByText('09:41:31')).toBeNull();
+    expect(playBreakoutTone).toHaveBeenCalledTimes(1);
+    expect(addSounded).toHaveBeenCalledTimes(1);
+
+    // 전역 시세 맵의 낡은 낮은 값이 남아 있어도 유예 안에서는 지우지 않는다.
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    update({});
+    act(() => {
+      vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS);
+    });
+    expect(chips()).toHaveLength(1);
+  });
+
+  it('S-R2 지우면 그 피드 구독을 풀고, 새 구간으로 되살아나면 다시 구독한다', () => {
+    subscribeMock.mockClear();
+    const { update } = mountAndRemoveA();
+    expect(unsubscribeMock).toHaveBeenCalledWith(A.isin, 'KRX', 'price');
+    const subs = subscribeMock.mock.calls.length;
+
+    update({ items: [A_NEW] });
+    expect(subscribeMock.mock.calls.length).toBe(subs + 1);
+    expect(subscribeMock).toHaveBeenLastCalledWith(A.isin, 'KRX', 'price');
+  });
+
+  it('S-R3 같은 구간 재전송(재접속 78 — 돌파시각·거래소가 같은 새 객체)은 되살리지 않고 재구독도 없다', () => {
+    const { update, onRowsAdded } = mountAndRemoveA();
+    const subs = subscribeMock.mock.calls.length;
+    onRowsAdded.mockClear();
+
+    update({ items: [{ ...A }], snapSeq: 2 });
+    expect(chips()).toHaveLength(0);
+    expect(subscribeMock.mock.calls.length).toBe(subs);
+
+    update({ items: [{ ...A }] }); // 같은 구간의 새 객체(76 모양)도 마찬가지
+    expect(chips()).toHaveLength(0);
+    expect(onRowsAdded).not.toHaveBeenCalled();
+  });
+
+  it('S-R4 새 구간이 78 로 오면 무음·무강조 새 행이다', () => {
+    const { update, onRowsAdded } = mountAndRemoveA();
+    onRowsAdded.mockClear();
+
+    update({ items: [A_NEW], snapSeq: 2 });
+    expect(chips()).toHaveLength(1);
+    expect(chips()[0]).not.toHaveAttribute('data-new');
+    expect(playBreakoutTone).toHaveBeenCalledTimes(1);
+    expect(onRowsAdded).not.toHaveBeenCalled();
+  });
+
+  it('S-R5 ✕ 로 지운 종목은 구독 후보가 아니다 — 그 피드 구독을 푼다', () => {
+    setup({ items: [A, B] });
+    expect(subscribeMock).toHaveBeenCalledWith(A.isin, 'KRX', 'price');
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: breakoutDismissLabel('씨젠') }));
+    expect(unsubscribeMock).toHaveBeenCalledWith(A.isin, 'KRX', 'price');
+    expect(unsubscribeMock).not.toHaveBeenCalledWith(B.isin, 'KRX', 'price');
+  });
+
+  it('S-A1 새 행 신호 — 첫 채움은 없고, 76 새 종목은 그 행만 1회', () => {
+    const { update, onRowsAdded } = setup({ items: [A] });
+    expect(onRowsAdded).not.toHaveBeenCalled();
+    update({ items: [B, A] });
+    expect(onRowsAdded).toHaveBeenCalledTimes(1);
+    expect(onRowsAdded.mock.calls[0]![0].map((r: RelayRateCrossItem) => r.isin)).toEqual([B.isin]);
+  });
+
+  it('S-A2 78 새 종목 · 보이는 행의 재알림 76 · 발화 거래소만 바뀐 76 은 새 행 신호가 없다', () => {
+    const { update, onRowsAdded } = setup({ items: [A] });
+    update({ items: [C, A], snapSeq: 2 }); // 78
+    const A2 = { ...A, lastPrice: 12_300, changeRate: 23.0, exchangeTime: '095000000000' };
+    update({ items: [A2, C] }); // 보이는 행 재알림(D-14)
+    update({ items: [{ ...A2, exchange: 'NXT' as const, exchangeTime: '095500000000' }, C] }); // rcc 전환
+    expect(chips()).toHaveLength(2);
+    expect(onRowsAdded).not.toHaveBeenCalled();
+  });
+
+  it('S-A3 이탈 뒤 새 구간 76 은 1회 · ✕ 로 지운 종목의 재돌파는 신호가 없다', () => {
+    const { update, onRowsAdded } = mountAndRemoveA();
+    expect(onRowsAdded).toHaveBeenCalledTimes(1); // 처음 76 등재
+    update({ items: [A_NEW] });
+    expect(onRowsAdded).toHaveBeenCalledTimes(2);
+    expect(onRowsAdded.mock.calls[1]![0].map((r: RelayRateCrossItem) => r.isin)).toEqual([A.isin]);
+
+    openTable();
+    fireEvent.click(screen.getByRole('button', { name: breakoutDismissLabel('씨젠') }));
+    update({ items: [] });
+    update({ items: [{ ...A_NEW, exchangeTime: '110000000000' }] });
+    expect(chips()).toHaveLength(0);
+    expect(onRowsAdded).toHaveBeenCalledTimes(2);
   });
 });
 
