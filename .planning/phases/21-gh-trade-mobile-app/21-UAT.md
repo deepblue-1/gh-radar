@@ -3,7 +3,7 @@ status: diagnosed
 phase: 21-gh-trade-mobile-app
 source: 21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md, 21-04-SUMMARY.md, 21-05-SUMMARY.md, 21-06-SUMMARY.md, 21-07-SUMMARY.md, 21-08-SUMMARY.md, 21-09-SUMMARY.md, 21-10-SUMMARY.md, 21-11-SUMMARY.md, 21-12-SUMMARY.md, 21-13-SUMMARY.md, 21-14-SUMMARY.md, 21-15-SUMMARY.md, 21-16-SUMMARY.md
 started: 2026-09-26T00:52:04Z
-updated: 2026-09-26T07:14:00Z
+updated: 2026-09-26T07:16:44Z
 ---
 
 <!--
@@ -13,7 +13,7 @@ UAT 2차(실서버). 앱 = 운영 URL 빌드(https://trade.jx1.io) · 웹 = push
 UAT 1차(로컬 dev) 결과·수정은 21-16-SUMMARY.md 「UAT 1차 결과」.
 status: diagnosed = 이슈 1건·신규 요청 3건의 원인/방향이 적혀 있고 /gsd-plan-phase 21 --gaps 로 넘길 준비가 됐다.
 테스트 13 은 2026-09-26 사용자 보고로 pass. 열린 결정 N1·N2·N3 는 같은 날 사용자가 확정했다(각 갭의 「결정」 줄). G-21-1 은 sketch 007 C(높이 60) 채택.
-UAT 3차(2026-09-26 · 21-24 push-then-recheck 뒤 운영 앱): 사용자 수정 요청 6건 → G-21-R3-1~6, 같은 날 추가 4건 → G-21-R3-7~10. 코드 리뷰(21-REVIEW.md) 13건 전부 처리 요청 → G-21-CR. 항목별 결정은 각 갭 「decision」 줄(2026-09-26 확정). 재리뷰·재검증 산출물은 -R2 파일로(21-REVIEW-R2.md · 21-VERIFICATION-R2.md) — 1차 기록 덮어쓰기 금지.
+UAT 3차(2026-09-26 · 21-24 push-then-recheck 뒤 운영 앱): 사용자 수정 요청 6건 → G-21-R3-1~6, 같은 날 추가 4건 → G-21-R3-7~10, 탭 전환 상태 유지 → G-21-R3-11. 코드 리뷰(21-REVIEW.md) 13건 전부 처리 요청 → G-21-CR. 항목별 결정은 각 갭 「decision」 줄(2026-09-26 확정). 재리뷰·재검증 산출물은 -R2 파일로(21-REVIEW-R2.md · 21-VERIFICATION-R2.md) — 1차 기록 덮어쓰기 금지.
 -->
 
 ## Current Test
@@ -87,7 +87,7 @@ pending: 0
 skipped: 0
 blocked: 0
 new_requests: 3
-uat3_issues: 10
+uat3_issues: 11
 code_review_findings: 13
 
 ## Gaps
@@ -445,4 +445,27 @@ code_review_findings: 13
     - "테스트 삭제/이전/수정 — orderbook.spec 고유 검증 선별 이전"
     - "G-21-R3-9 와 같은 플랜(또는 같은 웨이브 순서)으로 — CTA 가 갈 곳이 없어지는 중간 상태 금지"
   decision: "사용자 확정(2026-09-26): 종목상세 호가주문 제거, 시간외종가 신규 주문은 트레이딩 카드 수동주문으로 옮겨 유지"
+  debug_session: ""
+
+- gap_id: G-21-R3-11
+  truth: "탭 루트 화면(홈 / · 검색 /search · 트레이딩 /trading · AI /chat · 마이 /me) 사이를 오갈 때 한 번 연 화면은 다시 마운트되지 않아 스켈레톤 없이 즉시 보이고, 탭마다 스크롤 위치와 화면 상태(입력·펼침 등)가 유지된다. 웹뷰는 하나이고 relay 소켓·로그인 세션도 하나다(앱·브라우저 공통)"
+  status: failed
+  reason: "User reported (UAT 3차 추가): 홈/검색/트레이딩 탭을 옮길 때마다 페이지가 다시 로드되나? 스크롤이 유지가 안 되는 거 같아서. 각 탭마다 웹뷰 페이지를 따로 가지고 있어서 왔다갔다 해주면 안 되나?"
+  severity: major
+  test: uat3-11
+  root_cause: "전체 문서 리로드는 아니다 — 네이티브 탭 탭이 window.__ghTrade.navigate → router.push 클라 내비(D-06a, relay 소켓 유지, native-bridge-provider.tsx ≈167-171). 그러나 App Router 는 이전 페이지 컴포넌트를 언마운트하고 새 페이지를 마운트하므로 데이터를 다시 받는 동안 스켈레톤이 보이고(데이터 캐시 라이브러리 없음 — SWR/react-query 미사용), 스크롤 컨테이너가 window 가 아니라 AppShell <main overflow-auto>(app-shell.tsx:94)라 Next 의 스크롤 복원이 적용되지 않아 매번 맨 위로 간다. 사용자 체감 = 「다시 로드」."
+  artifacts:
+    - path: "webapp/src/components/layout/app-shell.tsx"
+      issue: "<main overflow-auto>(≈94) 단일 스크롤 컨테이너 — 탭별 scrollTop 저장·복원 지점. 탭 루트 keep-alive 계층을 둘 후보 위치"
+    - path: "webapp/src/lib/native/native-bridge-provider.tsx"
+      issue: "navigate(≈167-171): 같은 경로 재탭 = 맨 위로(D-06 유지), 다른 경로 = router.push"
+    - path: "webapp/src/app/(page.tsx · search · trading · chat · me)"
+      issue: "탭 루트 5개 — keep-alive 대상. 하위 경로(/stocks/[code] 등)는 대상 아님"
+  missing:
+    - "탭 루트 keep-alive: React 19.2 <Activity mode=\"hidden\"> 로 한 번 방문한 탭 루트 화면을 숨긴 채 유지(경로별 children 캐시). 숨김 동안 effect 정리 → 폴링·relay 구독이 멈추고, 다시 보일 때 재구독·조용한 갱신(스켈레톤 없이 기존 데이터 유지). Next 15.5 에서 layout 수준 children 캐시가 안전한지 스파이크로 먼저 확인(대안: Next 16 cacheComponents 의 Activity 기반 라우트 보존 — 업그레이드 범위가 커서 비권장)"
+    - "탭별 스크롤 위치 저장·복원(main.scrollTop · 탭 루트 기준), 같은 탭 재탭 = 맨 위로(D-06) 유지"
+    - "하위 경로에서 탭 루트로 돌아올 때의 규칙 정리(예: 홈 → 종목상세 → 홈 탭 = 홈 보존 화면)"
+    - "숨김 탭이 DOM 에 남으므로 id/aria 중복·포커스 트랩·전역 단축키(⌘K 등)·NativeOverlayMarker·당겨서 새로고침 훅(useNativeRefresh — 보이는 탭만) 점검"
+    - "메모리·성능 확인(트레이딩 작업대가 가장 무거움) + e2e: 탭 왕복 후 스크롤 유지 · 스켈레톤 미표시 · relay 소켓 1개 유지"
+  decision: "사용자 확정(2026-09-26): 탭마다 웹뷰를 따로 두지 않고 웹 안에서 탭 유지(권장안). 탭별 웹뷰(메모리·연결·폴링 최대 5배, 세션 토큰 갱신 충돌 위험, 탭 간 이동·테마·뒤로가기 재설계)는 채택 안 함"
   debug_session: ""
