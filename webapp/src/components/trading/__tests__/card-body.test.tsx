@@ -345,6 +345,31 @@ describe('④ 밴드는 카드 폭이다 (D-28)', () => {
 });
 
 describe('⑤ 주문유형 콤보 (D-23 · D-31 — 카드 한 표면)', () => {
+  it('시간외종가 참고 종가는 카드 시세의 KRX 종가(kc > 0)다 — 옛 호가 탭이 넘기던 값과 같은 원천 (D-31 · 21-34)', () => {
+    render(
+      <CardBody
+        {...props({
+          card: cardState({ quote: quote({ kc: 128_700 }) }),
+          queuedWindow: { ...win(), g2Open: true },
+        })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('주문유형'), { target: { value: 'offhours' } });
+    const locked = screen.getByLabelText('가격(시간외종가 · 잠김)');
+    expect(locked.closest('[data-slot="ticket-box"]')).toHaveTextContent('참고 종가 128,700원');
+  });
+
+  it('kc 0(종가 미확정)이면 참고 종가는 「—」 — 0 을 가격처럼 보이지 않는다', () => {
+    render(
+      <CardBody
+        {...props({ card: cardState({ quote: quote({ kc: 0 }) }), queuedWindow: { ...win(), g2Open: true } })}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('주문유형'), { target: { value: 'offhours' } });
+    const locked = screen.getByLabelText('가격(시간외종가 · 잠김)');
+    expect(locked.closest('[data-slot="ticket-box"]')).toHaveTextContent('참고 종가 —');
+  });
+
   it('카드 본문에 주문유형 콤보가 있다 (D-31 · G-21-R3-10 — 호가주문 탭 제거 뒤 시간외종가 신규 주문의 자리) · 표면 구분 속성·호가 탭 각주 없음', () => {
     const { container } = render(<CardBody {...props()} />);
     expect(screen.getByRole('combobox', { name: '주문유형' })).toBeInTheDocument();

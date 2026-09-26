@@ -159,7 +159,10 @@ export interface CardBodyProps {
   basePrice?: number;
   /** 실시간 상한가가 없을 때의 폴백. 실시간 `quote.ul` 이 이긴다. */
   upperLimit?: number;
-  /** 시간외종가 「참고 종가」 — 호가 탭 수동주문 표시 전용. */
+  /**
+   * 시간외종가 「참고 종가」 덮어쓰기. 넘기지 않으면 이 카드 시세의 KRX 정규장 종가(`quote.kc > 0`)를 쓴다 —
+   * 옛 호가 탭이 넘기던 값과 같은 원천이다(D-31 로 탭이 사라져 카드가 스스로 읽는다 · 21-34).
+   */
   referenceClose?: number | null;
   /** 미체결 표에서 선택된 원주문(D-21) — 선택은 상위가 소유한다. */
   selectedUnfilled?: RelayUnfilled | null;
@@ -222,6 +225,8 @@ export function CardBody({
   const upperLimit = quote !== null && quote.ul > 0 ? quote.ul : (upperLimitFallback ?? 0);
   const basePrice = quote !== null && quote.base > 0 ? quote.base : (basePriceFallback ?? 0);
   const displayName = name === '' ? isin : name;
+  // 시간외종가 「참고 종가」(스케치 008 ③ — 가격 잠김 · 참고 종가). `kc > 0` 하나가 「종가 확정」 신호다(벽시계 아님).
+  const closeRef = referenceClose ?? (quote !== null && quote.kc > 0 ? quote.kc : null);
   const groups = cardGroupStatusOf(server, fired);
   // D-15a — 종목 분류 → 호가 단위 잠금 강도. 조회 중(`undefined`)은 주식 잠금 그대로다.
   const tickRule = useTickRule(isin);
@@ -263,7 +268,7 @@ export function CardBody({
       queuedWindow={queuedWindow}
       status={status}
       selectedPrice={selectedPrice}
-      referenceClose={referenceClose}
+      referenceClose={closeRef}
       // 20-06 — 수동주문 시트 칩 「현재가」「상한가」 · 인라인 가격 검증(D-15). 같은 카드의 단일
       // isin/exchange 시세다(T-18-48) — 시세가 없거나 0 이면 0(칩 비활성 · 상한 검사 생략).
       currentPrice={quote !== null && quote.p > 0 ? quote.p : 0}
