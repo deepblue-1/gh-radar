@@ -20,8 +20,7 @@ import { StockHero } from './stock-hero';
 import { StockStatsGrid } from './stock-stats-grid';
 import { StockDetailSkeleton } from './stock-detail-skeleton';
 import { StockDetailTabs } from './stock-detail-tabs';
-import { StockNewsSection } from './stock-news-section';
-import { StockDiscussionSection } from './stock-discussion-section';
+import { StockNewsTabPanel } from './stock-news-tab-panel';
 import { StockDailyChartSection } from './stock-daily-chart-section';
 import { StockThemeChips } from '@/components/theme/theme-chips';
 import { StockComovementSection } from './stock-comovement-section';
@@ -230,10 +229,8 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
             </DetailBands>
           }
           news={
-            <DetailBands>
-              <StockNewsSection stockCode={stock.code} />
-              <StockDiscussionSection stockCode={stock.code} />
-            </DetailBands>
+            /* Phase 21 D-29 — 요약(뉴스 · 토론 섹션) ↔ 탭 안 전체목록(`?view=`) */
+            <StockNewsTabPanel code={stock.code} />
           }
         />
       </Suspense>

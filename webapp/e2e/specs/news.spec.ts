@@ -49,7 +49,7 @@ async function mockStockDetail(page: Page) {
 }
 
 test.describe('News — detail list (V-17, external link security)', () => {
-  test('renders 5 news items + 전체 뉴스 보기 link', async ({ page }) => {
+  test('renders 5 news items + 전체 뉴스 보기 button', async ({ page }) => {
     await mockStockDetail(page);
     await mockNewsApi(page, {
       code: STOCK_CODE,
@@ -62,10 +62,9 @@ test.describe('News — detail list (V-17, external link security)', () => {
     const items = page.getByTestId('stock-news-section').getByTestId('news-item');
     await expect(items).toHaveCount(5);
 
-    await expect(page.getByRole('link', { name: /전체 뉴스 보기/ })).toHaveAttribute(
-      'href',
-      `/stocks/${STOCK_CODE}/news`,
-    );
+    // Phase 21 D-29 — 종목상세에서는 페이지 이동 Link 가 아니라 탭 안 전체목록을 여는 버튼이다.
+    await expect(page.getByRole('button', { name: /전체 뉴스 보기/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /전체 뉴스 보기/ })).toHaveCount(0);
   });
 
   test('items have target="_blank" rel containing noopener noreferrer', async ({
@@ -90,6 +89,88 @@ test.describe('News — detail list (V-17, external link security)', () => {
     const rel = (await firstLink.getAttribute('rel')) ?? '';
     expect(rel).toMatch(/noopener/);
     expect(rel).toMatch(/noreferrer/);
+  });
+});
+
+test.describe('News — G-21-R3-8 탭 안 전체 뉴스 (D-29)', () => {
+  test('G-21-R3-8 탭 안 전체 뉴스 — 열기 · 뒤로가기 = 요약 + 창 스크롤 복원 · ← · 딥링크 ←', async ({
+    page,
+  }) => {
+    await mockStockDetail(page);
+    await mockNewsApi(page, {
+      code: STOCK_CODE,
+      list: buildNewsList(STOCK_CODE, 50),
+    });
+    const summary = page.getByTestId('stock-news-section');
+    const showAll = page.getByRole('button', { name: /전체 뉴스 보기/ });
+    const backBtn = page.getByRole('button', { name: '요약으로 돌아가기' });
+
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news`);
+    await expect(summary).toBeVisible();
+
+    // 창(window)이 스크롤 주체다 — AppShell main 은 높이 제한이 없다(news-view.ts 머리 주석).
+    const target = await page.evaluate(() => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const y = Math.max(0, Math.min(300, max));
+      window.scrollTo(0, y);
+      return window.scrollY;
+    });
+    expect(target).toBeGreaterThan(0);
+
+    // ① 열기 — 페이지를 떠나지 않고 같은 탭 안에서 전체목록
+    await showAll.click();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news&view=news$`));
+    await expect(page.getByTestId('news-list')).toBeVisible();
+    await expect(page.getByTestId('news-list').getByTestId('news-item')).toHaveCount(50);
+    await expect(summary).toBeHidden();
+
+    // ② 브라우저 뒤로 = 요약 · 창 스크롤 복원(±2)
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(summary).toBeVisible();
+    await expect(page.getByTestId('news-list')).toHaveCount(0);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThanOrEqual(target - 2);
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(target + 2);
+
+    // ③ 다시 열고 화면 안 ← = 요약(우리가 쌓은 기록이라 history.back — 기록 증가 0)
+    await showAll.click();
+    await expect(page).toHaveURL(/view=news$/);
+    await backBtn.click();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(summary).toBeVisible();
+    // 앞으로 가기로 전체목록이 다시 나온다 = ← 가 replace 가 아니라 history.back 이었다.
+    await page.goForward();
+    await expect(page).toHaveURL(/view=news$/);
+    await expect(page.getByTestId('news-list')).toBeVisible();
+    await page.goBack();
+    await expect(summary).toBeVisible();
+
+    // ④ 딥링크로 들어와 ← = ?tab=news 로 바뀔 뿐 같은 경로(페이지 이탈 없음)
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news&view=news`);
+    await expect(page.getByTestId('news-list')).toBeVisible();
+    await backBtn.click();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(summary).toBeVisible();
+
+    // ⑤ Esc = 요약
+    await showAll.click();
+    await expect(page.getByTestId('news-list')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(new RegExp(`/stocks/${STOCK_CODE}\\?tab=news$`));
+    await expect(summary).toBeVisible();
+  });
+
+  test('G-21-R3-8 허용 목록 밖 view 는 요약으로 떨어진다(T-21-82)', async ({ page }) => {
+    await mockStockDetail(page);
+    await mockNewsApi(page, {
+      code: STOCK_CODE,
+      list: buildNewsList(STOCK_CODE, 5),
+    });
+    await page.goto(`/stocks/${STOCK_CODE}?tab=news&view=%3Cscript%3E`);
+    await expect(page.getByTestId('stock-news-section')).toBeVisible();
+    await expect(page.getByTestId('news-full-list')).toHaveCount(0);
   });
 });
 
