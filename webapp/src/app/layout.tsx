@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { AuthProvider } from '@/lib/auth-context';
 import { RelayProvider } from '@/lib/relay-provider';
+import { StrategyLogFeedProvider } from '@/lib/strategy-log-feed';
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { WatchlistSetProvider } from '@/hooks/use-watchlist-set';
 import { ChatProvider } from '@/components/chat/chat-provider';
@@ -72,6 +73,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   로그아웃하면 즉시 close 한다. 사이드바 전략 목록·My page 가 종목 구독 없이
                   전략 상태를 봐야 하므로 ChatProvider 보다 바깥, 즉 앱 전역이어야 한다. */}
               <RelayProvider>
+                {/* StrategyLogFeedProvider 는 RelayProvider 바로 안쪽 — relay 컨텍스트에서 전 종목 전략 로그를
+                    파생해 앱 시작부터 쌓는다(D-25a · /me 전략 현황 「로그」). 서버 호출 없음 · 메모리 전용. */}
+                <StrategyLogFeedProvider>
                 {/* ChatProvider 는 AuthProvider 안쪽 — FAB/시트가 useChat + useAuth 둘 다 소비.
                     FAB/Sheet 는 children 뒤에 마운트하되, FAB 이 실제로 보이는 곳은
                     종목상세 본문(`/stocks/{code}`)뿐이다 — 경로 판정은 클라이언트 컴포넌트인
@@ -81,6 +85,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <ChatFab />
                   <ChatSheet />
                 </ChatProvider>
+                </StrategyLogFeedProvider>
               </RelayProvider>
             </AuthProvider>
           </NativeBridgeProvider>

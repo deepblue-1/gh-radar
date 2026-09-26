@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
 
+import { serverMessageLogLine } from '@/components/trading/strategy-log';
 import { EMPTY_RELAY_VALUE, RelayContext, type RelayContextValue } from '@/lib/relay-provider';
 import type { RelayServerMessageEntry } from '@/lib/use-relay-socket';
 import {
@@ -172,10 +173,12 @@ describe('StrategyLogFeedProvider — relay 컨텍스트에서 파생만', () =>
     expect(rows()).toHaveLength(1);
     const m2 = msg('주문가능금액 부족', { lv: 'ERROR', src: 'SetLimitChaser' });
     rerender(view(relay({ messages: [m2, vi, m1] })));
+    // 문장은 작업대 카드와 같은 순수 함수가 짓는다 — 배지 어휘를 여기 다시 적지 않는다.
     expect(rows()).toEqual([
-      `${ISIN_A}|[상따] 서버가 거부했어요 — 주문가능금액 부족`,
-      `${ISIN_A}|[상따] 서버 통지 — 매수 1주문 접수`,
+      `${ISIN_A}|${serverMessageLogLine(m2).text}`,
+      `${ISIN_A}|${serverMessageLogLine(m1).text}`,
     ]);
+    expect(serverMessageLogLine(m1).text).toBe('[상따] 서버 통지 — 매수 1주문 접수');
     expect(screen.getAllByTestId('row')[0]).toHaveAttribute('data-level', 'error');
   });
 
