@@ -34,10 +34,11 @@ Google OAuth 콘솔 설정(GCP 클라이언트 3개 · Supabase Client IDs `web,
 | `native:sync:dev` | dev 동기화(`CAP_SERVER_URL=http://localhost:3100`). 시뮬레이터·에뮬레이터 전용이다. |
 | `native:build:ios` | 운영 sync → 시뮬레이터용 Debug 빌드(`ios/DerivedData`, 로컬 실행용 서명) → `SIM ENTITLEMENTS OK` 확인 |
 | `native:build:android` | 운영 sync → `assembleDebug` |
-| `native:smoke:ios` | dev sync → 빌드 → `iPhone 17` 설치·실행 → 웹 `ready` 로그 확인 → 종료 시 운영 sync 복원. 성공하면 `SMOKE OK ready platform=ios` 가 나온다. |
-| `native:smoke:android` | dev sync → 빌드 → 에뮬레이터 설치·실행 → logcat `ready` 확인 → 운영 sync 복원. 성공하면 `SMOKE OK ready platform=android` 가 나온다. |
+| `native:smoke:ios` | dev sync → 빌드 → 시뮬레이터(`DEVICE` 이름 · 기본 `iPhone 17` 또는 `IOS_DEVICE_UDID`) 에 UDID 로 설치·실행 → 웹 `ready` 로그 확인 → 종료 시 운영 sync 복원. 여러 기기가 부팅돼 있으면 `DEVICE`/`IOS_DEVICE_UDID` 로 지정한다. 성공하면 `SMOKE OK ready platform=ios` 가 나온다. |
+| `native:smoke:android` | dev sync → 빌드 → 에뮬레이터(`AVD` · `ANDROID_SERIAL`) 설치·실행 → logcat `ready` 확인 → 운영 sync 복원. 모든 adb 호출은 `adb -s <시리얼>` — 여러 기기면 `ANDROID_SERIAL` 지정 필수(없으면 실패). 성공하면 `SMOKE OK ready platform=android` 가 나온다. |
 | `native:check-tab-routes:ios` | iOS 탭 경로표(`TabRoutes`)를 swiftc 로 검사한다. 성공하면 `TAB ROUTES OK` 가 나온다. |
-| `native:test:android` | Android 탭 경로표 JUnit(`TabRoutesTest`) |
+| `native:check-external-links:ios` | iOS 인앱 브라우저 링크 판정표(`ExternalLinks`)를 swiftc 로 검사한다. 성공하면 `EXTERNAL LINKS OK` 가 나온다. |
+| `native:test:android` | Android JUnit — 탭 경로표(`TabRoutesTest`) · 인앱 브라우저 링크 판정표(`ExternalLinksTest`) |
 | `native:verify-prod` | 생성 설정이 운영값인지 검사한다. 성공하면 `PROD CONFIG OK` 가 나온다. 스스로 sync 하지 않는다. |
 | `native:assets` | `resources/` 원본으로 아이콘·스플래시를 재생성한다(`@capacitor/assets@3.0.5`). |
 | `native:open:ios` · `native:open:android` | Xcode · Android Studio 를 연다. |

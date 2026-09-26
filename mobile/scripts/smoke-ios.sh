@@ -6,7 +6,8 @@
 #
 # 전제: webapp dev 서버가 http://localhost:3100 에서 떠 있다(dev.sh 는 쓰지 않는다 —
 #       `PORT=3100 pnpm --filter @gh-radar/webapp run dev`).
-# 환경변수: DEVICE (기본 "iPhone 17") · READY_TIMEOUT (기본 60초)
+# 환경변수: DEVICE (기본 "iPhone 17") · IOS_DEVICE_UDID (지정 시 DEVICE 보다 우선) · READY_TIMEOUT (기본 60초)
+# 기기는 UDID 로 명시한다(IN-08) — `booted` 별칭은 다른 시뮬레이터가 부팅돼 있으면 엉뚱한 기기에 설치한다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,6 +22,21 @@ EXPECT="ready platform=ios nativeApp=true"
 if ! curl -sf -o /dev/null http://localhost:3100/login; then
   echo "webapp dev 서버(:3100)를 먼저 띄우세요 — PORT=3100 pnpm --filter @gh-radar/webapp run dev" >&2
   exit 2
+fi
+
+# (a2) 대상 시뮬레이터 UDID — IOS_DEVICE_UDID, 없으면 이름이 DEVICE 인 기기(부팅된 것 우선 · 없으면 첫 기기)
+UDID="${IOS_DEVICE_UDID:-}"
+if [ -z "${UDID}" ]; then
+  UDID="$(xcrun simctl list devices available -j | DEVICE="${DEVICE}" node -e '
+    const d = JSON.parse(require("fs").readFileSync(0, "utf8")).devices;
+    const all = Object.values(d).flat().filter((x) => x.name === process.env.DEVICE);
+    const pick = all.find((x) => x.state === "Booted") || all[0];
+    if (pick) process.stdout.write(pick.udid);
+  ')"
+  if [ -z "${UDID}" ]; then
+    echo "SMOKE FAIL — 시뮬레이터 \"${DEVICE}\" 없음 (xcrun simctl list devices available 확인 · DEVICE 또는 IOS_DEVICE_UDID 지정)"
+    exit 1
+  fi
 fi
 
 # (b) 종료 시 운영 URL 로 복원
@@ -43,13 +59,13 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
 bash scripts/check-sim-entitlements.sh "${APP_PATH}/App"
 
 # (e) 부팅 · 설치 · 실행
-echo "── 시뮬레이터: ${DEVICE}"
-xcrun simctl boot "${DEVICE}" 2>/dev/null || true   # 이미 부팅돼 있으면 통과
-xcrun simctl bootstatus "${DEVICE}" -b >/dev/null
-xcrun simctl install booted "${APP_PATH}"
+echo "── 시뮬레이터: ${DEVICE} (${UDID})"
+xcrun simctl boot "${UDID}" 2>/dev/null || true   # 이미 부팅돼 있으면 통과
+xcrun simctl bootstatus "${UDID}" -b >/dev/null
+xcrun simctl install "${UDID}" "${APP_PATH}"
 START="$(date '+%Y-%m-%d %H:%M:%S')"
-xcrun simctl terminate booted "${APP_ID}" >/dev/null 2>&1 || true
-xcrun simctl launch booted "${APP_ID}"
+xcrun simctl terminate "${UDID}" "${APP_ID}" >/dev/null 2>&1 || true
+xcrun simctl launch "${UDID}" "${APP_ID}"
 
 # (f) ready 로그 대기
 LOGS=""
@@ -58,7 +74,7 @@ elapsed=0
 while [ "${elapsed}" -lt "${READY_TIMEOUT}" ]; do
   sleep 3
   elapsed=$((elapsed + 3))
-  LOGS="$(xcrun simctl spawn booted log show --style compact --start "${START}" \
+  LOGS="$(xcrun simctl spawn "${UDID}" log show --style compact --start "${START}" \
     --predicate 'subsystem == "com.ghtrade.app"' 2>/dev/null || true)"
   if printf '%s\n' "${LOGS}" | grep -q "${EXPECT}"; then
     FOUND=1
@@ -67,7 +83,7 @@ while [ "${elapsed}" -lt "${READY_TIMEOUT}" ]; do
 done
 
 # (g) 스크린샷
-xcrun simctl io booted screenshot "${SHOT}" >/dev/null 2>&1 || true
+xcrun simctl io "${UDID}" screenshot "${SHOT}" >/dev/null 2>&1 || true
 echo "── 스크린샷: ${SHOT}"
 
 # (h) 판정
