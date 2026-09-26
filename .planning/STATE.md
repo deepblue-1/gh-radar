@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-29-PLAN.md
-last_updated: "2026-09-26T10:54:22.741Z"
+stopped_at: Completed 21-30-PLAN.md
+last_updated: "2026-09-26T11:09:06.834Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 execution started
-state_head: df75d419b81bdb4b964e91253d1d4895a3ac4cf7
+state_head: edbdb82b2aa29d4f3e7a062fe1736e03a9cb11e7
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 290
-  completed_plans: 267
+  completed_plans: 268
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 30 of 36
+Plan: 31 of 36
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -120,6 +120,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P27 | 8min | 3 tasks | 17 files |
 | Phase 21 P28 | 7min | 3 tasks | 5 files |
 | Phase 21 P29 | 19min | 3 tasks | 8 files |
+| Phase 21 P30 | 12min | 3 tasks | 21 files |
 
 ## Accumulated Context
 
@@ -272,6 +273,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-29: Android 탭바 IME 숨김 = WindowInsetsAnimation onPrepare 즉시 · (IME/2).coerceIn(80,200)ms · 재표시 90ms · 문서 로드 대기 onPageStarted → 첫 route/1.5초 → 280ms 감속
 - [Phase 21]: 21-29: Android 브리지 = androidx.webkit WebMessageListener(서버 출처 · 메인 프레임만 · 기본 포트 정규화) · 미지원 폴백 JS 인터페이스 + 출처 전체 비교 · allowBackup=false + dataExtractionRules 전 도메인 제외
 - [Phase 21]: 21-29: IN-03 오프라인 폴백 뒤로가기 루프 에뮬레이터 재현 → navigateBack isOfflinePage -> finish()
+- [Phase 21]: 21-30: 탭 안 전체목록의 「우리가 쌓은 기록」 판정은 history.state 표식({ghNewsView: code}) — back() = 표식이면 history.back, 아니면 replaceState ?tab=news
+- [Phase 21]: 21-30: 활성 뉴스토론 탭 재클릭 = 요약은 TabsTrigger onClick 이 handleValueChange 로 넘긴다 — Radix 는 활성 탭 재클릭에 onValueChange 를 부르지 않는다
 
 ### Pending Todos
 
@@ -322,8 +325,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T10:54:21.877Z
-Stopped at: Completed 21-29-PLAN.md
+Last session: 2026-09-26T11:09:06.403Z
+Stopped at: Completed 21-30-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
