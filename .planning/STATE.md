@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 21
 current_phase_name: GH Trade 모바일 앱 (Capacitor)
 status: executing
-stopped_at: Completed 21-21-PLAN.md
-last_updated: "2026-09-26T04:30:42.216Z"
+stopped_at: Completed 21-22-PLAN.md
+last_updated: "2026-09-26T04:36:50.708Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 execution started
-state_head: 9441811a4e7dcd9418952664e49f2361823d09c2
+state_head: 8dd4f599a0938eb8919d9b6394386209d65dfec0
 progress:
   total_phases: 30
   completed_phases: 4
   total_plans: 278
-  completed_plans: 259
+  completed_plans: 260
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
-Plan: 6 of 24
+Plan: 7 of 24
 Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -112,6 +112,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 21 P19 | 2min | 2 tasks | 6 files |
 | Phase 21 P20 | 6min | 3 tasks | 6 files |
 | Phase 21 P21 | 3min | 2 tasks | 3 files |
+| Phase 21 P22 | 4min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -246,6 +247,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 21]: 21-20: 탭바 대비 다크 5.78/3.51 · 라이트 4.62/3.08 (≥3.0) — glassAlpha 조정 불필요
 - [Phase 21]: 21-20: CONTEXT 에 D-27b · D-23a · D-08b · D-28 기록 — 이전 결정 원문 보존 + 대체 포인터
 - [Phase 21]: 21-21: Android 유리 = glass RGB × 알파 240(≈94% 불투명, A10) · elevation 12 · 대비 다크 5.26/3.23 · 라이트 4.62/3.08 (모두 ≥3.0)
+- [Phase 21]: 21-22: iOS 같은 호스트 새 창 요청(target=_blank · window.open)은 새 WKWebView 없이 같은 WebView 에 load — Android 와 일치 · opener 없음
+- [Phase 21]: 21-22: NavigationDelegateProxy 는 3인자 decidePolicyFor 만 구현 · uiDelegate 도 프록시에 세우되 originalUI 를 교체 전에 잡는다(UI 콜백 Capacitor 전달 유지)
 
 ### Pending Todos
 
@@ -293,8 +296,8 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 **Resume file:** None
 
-Last session: 2026-09-26T04:30:41.418Z
-Stopped at: Completed 21-21-PLAN.md
+Last session: 2026-09-26T04:36:49.917Z
+Stopped at: Completed 21-22-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
