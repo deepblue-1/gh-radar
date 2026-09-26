@@ -13,7 +13,8 @@ import os
 /// 웹 쪽 송신부: `webapp/src/lib/native/native-detect.ts` (ready) · 21-04 `post-native.ts`.
 ///
 /// 하단 플로팅 탭바(21-10 · D-02 · D-27b)는 WebView 위에 `addSubview` 로 얹는다.
-/// 활성 = `TabRoutes.activeTab`(D-14) · 숨김 = 로그인 경로 · 오프라인 페이지 · 웹 오버레이 · 키보드(D-12) ·
+/// 활성 = `TabRoutes.activeTab`(D-14) · 숨김 = 로그인 경로 · 오프라인 페이지 · 웹 오버레이 · 키보드(D-12 · D-12a) ·
+/// 문서 로드 대기(D-12b — 콜드 스타트 포함, 첫 route 또는 1.5초) ·
 /// 탭 = 웹 navigate 훅 evaluate(D-06a, 클라 내비라 relay 소켓 유지).
 ///
 /// 21-11: 당겨서 새로고침(D-04 · D-17 — 웹 refresh 훅 · 1초 고정 스피너) · 테마 추종과 첫 프레임 저장값(D-23) ·
@@ -48,6 +49,13 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     private var hiddenByKeyboard = false
     /// 마지막 keyboardWillShow 의 애니메이션 시간 · 곡선(userInfo). 곡선 값 7 은 공개 enum 밖이라 `rawValue << 16` 으로 옮긴다.
     private var keyboardAnimation: (duration: Double, options: UIView.AnimationOptions) = (0.25, .curveEaseInOut)
+    /// D-12b: 전체 문서 로드 중 — 그 문서의 첫 `route`(하이드레이션 뒤) 또는 1.5초까지 탭바를 숨긴 채 기다린다.
+    /// 콜드 스타트도 대기로 시작한다(판정 전 보임 금지 · G-21-R3-4).
+    private var awaitingContent = true
+    /// D-12b 1.5초 상한 예약 — 첫 route 가 오지 않아도 반드시 풀린다(T-21-65 고착 방지).
+    private var awaitingWork: DispatchWorkItem?
+    /// 대기 해제로 보일 때만 280ms ease-out(다른 보임은 0.2초 그대로).
+    private var revealingAfterLoad = false
     /// 앱 테마. 바꾸는 곳은 `applyTheme` 하나 — 저장값(ThemeStore, 첫 프레임) · 웹 `theme` 메시지(D-23).
     /// 초기 자리값 = dark(D-23a — 저장값 없는 첫 프레임과 같은 값. capacitorDidLoad 의 ThemeStore.load() 가 곧 덮는다).
     private(set) var currentTheme: GHTradeTheme = .dark {
@@ -120,10 +128,21 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
               let type = NativeMessageType(rawValue: rawType)
         else { return }
 
-        let senderHost = message.frameInfo.request.url?.host
-        let appHost = bridge?.config.serverURL.host
-        guard let senderHost, let appHost, senderHost == appHost else {
-            log.debug("ignored \(rawType, privacy: .public) from foreign host")
+        // WR-03: 보낸 프레임의 출처(WKSecurityOrigin) 스킴 · 호스트 · 포트가 앱 서버 URL 과 모두 같아야 한다 —
+        // 호스트만 보면 dev(`http://localhost:3100`)와 오프라인 페이지(`capacitor://localhost`)가 같은 출처로 판정된다.
+        // WKSecurityOrigin 은 기본 포트를 0 으로 준다 → 양쪽 모두 기본 포트(http 80 · https 443)를 0 으로 맞춘다.
+        let o = message.frameInfo.securityOrigin
+        let s = bridge?.config.serverURL
+        func normalizedPort(_ port: Int, _ scheme: String) -> Int {
+            (scheme == "http" && port == 80) || (scheme == "https" && port == 443) ? 0 : port
+        }
+        guard let s, let appScheme = s.scheme?.lowercased(), let appHost = s.host?.lowercased(),
+              !o.host.isEmpty,
+              o.protocol.lowercased() == appScheme,
+              o.host.lowercased() == appHost,
+              normalizedPort(o.port, appScheme) == normalizedPort(s.port ?? 0, appScheme)
+        else {
+            log.debug("ignored \(rawType, privacy: .public) from foreign origin")
             return
         }
 
@@ -141,6 +160,8 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         case .route:
             // SPA pushState 보강(D-14). 문자열 · `/` 시작만 받는다(T-21-02) — 표시 상태만 바뀐다.
             guard let path = payload?["path"] as? String, path.hasPrefix("/") else { return }
+            // D-12b: 새 문서의 첫 route = 하이드레이션 뒤 — 문서 로드 대기를 푼다(웹 계약 무변경 · 기존 메시지 재사용).
+            endAwaitingContent(reason: "route")
             applyPath(path)
         case .overlay:
             overlayOpen = (payload?["open"] as? Bool) == true
@@ -191,7 +212,37 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         applyTabBarTheme()
         tabBar.onSelect = { [weak self] tab in self?.selectTab(tab) }
         tabBar.setActive(TabRoutes.activeTab(forPath: currentPath))
-        updateTabBarVisibility(animated: false)
+        // D-12b: 숨긴 채 시작한다(Android 와 같음) — 판정 전 기본 경로 "/" 로 먼저 보이지 않게(G-21-R3-4).
+        // 첫 문서 로드의 route 또는 1.5초 상한이 처음 보이게 한다.
+        tabBar.isHidden = true
+        tabBar.alpha = 0
+        fade.isHidden = true
+        fade.alpha = 0
+        beginDocumentLoad()
+    }
+
+    // MARK: - 문서 로드 대기 (D-12b — 첫 route 또는 1.5초 · 280ms ease-out)
+
+    /// 전체 문서 로드 시작(`NavigationDelegateProxy` 의 didStartProvisionalNavigation). 같은 문서 안 pushState(SPA 탭 이동)는
+    /// 이 콜백이 오지 않으므로 영향이 없다.
+    func beginDocumentLoad() {
+        awaitingContent = true
+        awaitingWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.endAwaitingContent(reason: "timeout") }
+        awaitingWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+        updateTabBarVisibility(animated: true)
+    }
+
+    private func endAwaitingContent(reason: String) {
+        guard awaitingContent else { return }
+        awaitingContent = false
+        log.notice("document load wait ended reason=\(reason, privacy: .public)")
+        awaitingWork?.cancel()
+        awaitingWork = nil
+        revealingAfterLoad = true
+        updateTabBarVisibility(animated: true)
+        revealingAfterLoad = false
     }
 
     // MARK: - 테마 (D-23 — 웹이 정본, 네이티브는 따라가며 마지막 값만 저장. OS 다크모드는 보지 않는다)
@@ -282,10 +333,17 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         }
         guard var c = URLComponents(url: bridge.config.localURL.appendingPathComponent("index.html"), resolvingAgainstBaseURL: false)
         else { return }
-        c.queryItems = [
+        var items = [
             URLQueryItem(name: "to", value: target.absoluteString),
             URLQueryItem(name: "theme", value: currentTheme.rawValue),
         ]
+        // IN-02 — 폴백 페이지는 dev=1 일 때만 localhost 복귀를 허용한다(21-29). 서버 URL 이 루프백 http(dev 빌드)일 때만
+        // 붙는다 — 운영 https 서버에는 없다.
+        let server = bridge.config.serverURL
+        if server.scheme?.lowercased() == "http", let h = server.host?.lowercased(), h == "localhost" || h == "127.0.0.1" {
+            items.append(URLQueryItem(name: "dev", value: "1"))
+        }
+        c.queryItems = items
         // URLComponents 는 `+` 를 그대로 두는데 웹 URLSearchParams 는 공백으로 읽는다 → 명시 인코딩.
         let query = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         c.percentEncodedQuery = query
@@ -357,7 +415,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     //                  D-12a: 키보드 사유 숨김은 즉시 · 키보드 절반 길이 · 이동 없음 → 재표시 90ms 디바운스)
 
     private var shouldHideTabBar: Bool {
-        TabRoutes.hidesTabBar(path: currentPath) || isOfflinePage || overlayOpen || keyboardVisible
+        TabRoutes.hidesTabBar(path: currentPath) || isOfflinePage || overlayOpen || keyboardVisible || awaitingContent
     }
 
     func updateTabBarVisibility(animated: Bool) {
@@ -440,6 +498,11 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             showWork?.cancel()
             showWork = nil
             hiddenByKeyboard = false
+            // 이미 보이는 중(보임 애니메이션 진행 포함 — 모델 값 기준)이면 건드리지 않는다. 대기 해제(280ms) 직후
+            // applyPath 의 같은 보임 호출이 진행 중 애니메이션을 걷어내 순간 표시로 튀는 것을 막는다.
+            if !tabBar.isHidden, !fade.isHidden, tabBar.alpha == 1, fade.alpha == 1, tabBar.transform == .identity {
+                return
+            }
             // 진행 중인 숨김 애니메이션과 경합하지 않게 먼저 걷어낸다(weekly-wine observeURL).
             tabBar.layer.removeAllAnimations()
             fade.layer.removeAllAnimations()
@@ -450,7 +513,10 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
                 fade.alpha = 1
                 self?.tabBar.transform = .identity
             }
-            if animated {
+            if animated && revealingAfterLoad {
+                // D-12b: 문서 로드 대기 해제 = 280ms ease-out.
+                UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut], animations: show)
+            } else if animated {
                 UIView.animate(withDuration: 0.2, animations: show)
             } else {
                 show()

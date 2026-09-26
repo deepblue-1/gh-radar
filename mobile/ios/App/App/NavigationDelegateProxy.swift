@@ -6,7 +6,7 @@ import os
 ///
 /// Capacitor 의 `WebViewDelegationHandler` 는 앱 호스트 판정 · 외부 링크를 시스템으로 넘기기 · 플러그인
 /// `shouldOverrideLoad` 를 맡는다 — 교체하면 그 동작이 사라진다(T-21-37). 그래서 직접 처리하는 것은
-/// ① 실패 콜백 두 개(원본을 먼저 부른 뒤 오프라인 판정)와 ② 호스트 밖 http(s) 정책 결정(D-28 —
+/// ① 실패 콜백 두 개(원본을 먼저 부른 뒤 오프라인 판정) · 문서 로드 시작(원본 먼저 → 탭바 대기 · D-12b)과 ② 호스트 밖 http(s) 정책 결정(D-28 —
 /// `ExternalLinks.opensInAppBrowser` 가 true 인 최상위 이동만 SFSafariViewController 로 연다) ·
 /// ③ 새 창 요청(`WKUIDelegate` createWebViewWith — 호스트 밖 = 인앱 브라우저 · 같은 호스트 = 같은 WebView)뿐이고,
 /// 나머지 모든 콜백(가로채지 않은 정책 결정 · 새 창 요청 · 알림/확인/입력 창 등 UI 콜백 포함)은 원본에 그대로
@@ -101,6 +101,15 @@ final class NavigationDelegateProxy: NSObject, WKNavigationDelegate, WKUIDelegat
         }
         // 비 http(s) 등 — Capacitor 가 시스템으로 넘기는 기존 경로 그대로.
         return originalUI?.webView?(webView, createWebViewWith: configuration, for: navigationAction, windowFeatures: windowFeatures)
+    }
+
+    // MARK: - 문서 로드 시작 → 탭바 대기 (D-12b · G-21-R3-4)
+
+    /// 전체 문서 로드가 시작될 때만 온다 — 같은 문서 안 pushState · replaceState(Next.js 클라 내비 · SPA 탭 이동)는
+    /// 이 콜백이 오지 않는다. 원본(Capacitor)을 먼저 부른 뒤 VC 의 탭바 대기를 건다(첫 route 또는 1.5초에 해제).
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        original?.webView?(webView, didStartProvisionalNavigation: navigation)
+        owner?.beginDocumentLoad()
     }
 
     // MARK: - 실패 콜백 → 오프라인 폴백 (D-19)
