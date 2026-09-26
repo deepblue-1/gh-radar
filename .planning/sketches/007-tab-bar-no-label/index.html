@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GH Trade 탭바 — 라벨 없는 변형</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<style>
+/* 토큰 = webapp globals.css / sketches themes toss-dark·toss-light 값. 기기별 스코프로 다크·라이트를 나란히 본다. */
+.t-dark { --bg:#17171c; --band:#101013; --card:#202027; --raised:#2c2c35; --fg:#ffffff; --fg-2:#e4e4e5; --muted-fg:#9e9ea4; --faint-fg:#6b6b73; --line:rgba(255,255,255,.07); --up:#f04452; --down:#3485fa; --primary:#3485fa; --glass:rgba(32,32,39,.72); --glass-hi:rgba(44,44,53,.62); --shadow-c:0,0,0; }
+.t-light { --bg:#ffffff; --band:#f2f4f6; --card:#ffffff; --raised:#f2f4f6; --fg:#191f28; --fg-2:#333d4b; --muted-fg:#6b7684; --faint-fg:#b0b8c1; --line:#e5e8eb; --up:#f04452; --down:#3182f6; --primary:#3182f6; --glass:rgba(255,255,255,.82); --glass-hi:rgba(255,255,255,.72); --shadow-c:0,0,0; }
+* { box-sizing:border-box; } html,body { margin:0; }
+body { background:#0c0c0f; color:#ddd; font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif; }
+#nav { position:sticky; top:0; z-index:100; background:#0c0c0f; border-bottom:1px solid #26262c; padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; }
+#nav .grp { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+#nav .lbl { color:#777; font-size:12px; margin-right:4px; }
+#nav button { font:inherit; font-size:12.5px; background:#1b1b20; color:#bbb; border:1px solid #2a2a31; border-radius:7px; padding:5px 10px; cursor:pointer; transition:all .15s; }
+#nav button:hover { color:#fff; border-color:#444; }
+#nav button.active { background:#f2f2f2; color:#111; border-color:#f2f2f2; font-weight:700; }
+#desc { flex-basis:100%; color:#9a9aa2; font-size:12.5px; line-height:1.6; }
+#desc b { color:#eee; }
+#stage { display:flex; justify-content:center; gap:36px; padding:24px 12px 60px; flex-wrap:wrap; }
+.col { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.col .cap { font-size:12px; color:#888; }
+.device { position:relative; overflow:hidden; background:var(--bg); color:var(--fg); box-shadow:0 0 0 1px #2a2a30, 0 0 0 10px #111, 0 30px 70px rgba(0,0,0,.5); }
+.device.phone { width:390px; height:844px; border-radius:48px; --sat:54px; --sab:34px; }
+.device.ipad { width:820px; height:1000px; border-radius:30px; --sat:30px; --sab:20px; }
+.island { position:absolute; top:12px; left:50%; transform:translateX(-50%); width:124px; height:36px; background:#000; border-radius:20px; z-index:60; }
+.ipad .island { display:none; }
+.sb { position:absolute; top:0; left:0; right:0; height:var(--sat); display:flex; align-items:flex-end; justify-content:space-between; padding:0 30px 12px; font-size:15px; font-weight:600; z-index:55; }
+.ipad .sb { padding:0 24px 6px; font-size:13px; }
+.hi { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:140px; height:5px; border-radius:3px; background:var(--fg); opacity:.8; z-index:95; }
+.web { position:absolute; inset:0; overflow-y:auto; scrollbar-width:none; }
+.web::-webkit-scrollbar { display:none; }
+.hdr { position:sticky; top:0; z-index:30; height:calc(56px + var(--sat)); padding:var(--sat) 8px 0; display:flex; align-items:center; gap:6px; background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+.hdr svg { width:22px; height:22px; margin:0 11px; }
+.hdr b { font-size:17px; font-weight:800; letter-spacing:-.02em; }
+.body { padding:4px 12px 108px; }
+.ipad .body { padding:8px 24px 108px; }
+.h2 { font-size:20px; font-weight:700; letter-spacing:-.02em; margin:8px 4px 10px; }
+.card { background:var(--card); border-radius:16px; padding:6px 4px; margin-bottom:12px; }
+.t-light .card { box-shadow:0 0 0 1px var(--line) inset; }
+.t-dark .card { background:#202027; }
+.row { display:flex; align-items:center; gap:12px; height:60px; padding:0 12px; }
+.row .rk { width:18px; font-size:14px; font-weight:700; color:var(--muted-fg); text-align:center; }
+.row .lg { width:36px; height:36px; border-radius:50%; background:var(--raised); display:grid; place-items:center; font-size:12px; font-weight:700; color:var(--fg-2); flex:none; }
+.row .nm { flex:1; min-width:0; }
+.row .nm b { display:block; font-size:15px; font-weight:600; }
+.row .nm span { font-size:12.5px; color:var(--muted-fg); }
+.row .px { text-align:right; font-variant-numeric:tabular-nums; }
+.row .px b { display:block; font-size:15px; font-weight:600; }
+.row .px span { font-size:13px; font-weight:600; color:var(--up); }
+.band { height:12px; background:var(--band); margin:6px -12px 14px; }
+.ipad .band { margin:6px -24px 14px; }
+
+/* ── 탭바 공통 ── */
+.fade { position:absolute; left:0; right:0; bottom:0; z-index:85; pointer-events:none; }
+.tb { position:absolute; z-index:90; left:16px; right:16px; bottom:max(calc(var(--sab) - 14px),14px); height:70px; border-radius:32px; transition:all .2s; }
+.ipad .tb { left:50%; right:auto; width:560px; transform:translateX(-50%); }
+.tb .items { display:flex; height:100%; }
+.tb .it { flex:1; position:relative; display:grid; place-items:center; color:var(--tb-off); cursor:pointer; transition:color .15s; -webkit-tap-highlight-color:transparent; }
+.tb .it:hover { color:var(--tb-on); }
+.tb .it:active svg { opacity:.55; }
+.tb .it svg { position:relative; z-index:1; width:26px; height:26px; transition:transform .15s; }
+.tb .it .o { display:block; } .tb .it .f { display:none; }
+.tb .it.on { color:var(--tb-on); } .tb .it.on .o { display:none; } .tb .it.on .f { display:block; }
+.tb .it .hl { position:absolute; opacity:0; transition:opacity .18s, transform .18s; }
+.tb .it.on .hl { opacity:1; }
+
+/* A · 현행 − 라벨 : 46 원 · 1px 테두리 · 그림자 .18/8 · card 82% + blur · 색 페이드 120 */
+.va .tb { background:color-mix(in srgb,var(--card) 82%,transparent); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); box-shadow:0 2px 8px rgba(0,0,0,.18), 0 0 0 1px var(--line) inset; --tb-off:var(--muted-fg); --tb-on:var(--primary); }
+.va .tb .it .hl { width:46px; height:46px; border-radius:23px; background:color-mix(in srgb,var(--primary) 14%,transparent); }
+.va .fade { height:120px; background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--bg) 92%,transparent) 70%); }
+
+/* B · weekly-wine 충실 : 테두리 없음 · 안쪽 여백 6 · 셀 채우는 둥근 사각형 r22 12% · 그림자 .12/16 · 밝은 유리 · 점진 블러 페이드 · 옅은 비활성 */
+.vb .tb { background:var(--glass); backdrop-filter:blur(24px) saturate(1.6); -webkit-backdrop-filter:blur(24px) saturate(1.6); box-shadow:0 2px 16px rgba(0,0,0,.12); --tb-off:var(--faint-fg); --tb-on:var(--primary); }
+.t-dark.vb .tb, .vb .t-dark .tb { --tb-off:#7a7a83; }
+.vb .tb .items { padding:6px; }
+.vb .tb .it .hl { inset:0 2px; border-radius:22px; background:color-mix(in srgb,var(--primary) 12%,transparent); }
+.vb .tb .it svg { width:25px; height:25px; stroke-width:2; }
+.vb .fade { height:calc(70px + var(--sab) + 20px); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); -webkit-mask-image:linear-gradient(to bottom,transparent,#000 70%); mask-image:linear-gradient(to bottom,transparent,#000 70%); background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--bg) 55%,transparent)); }
+
+/* C · 캡슐 인디케이터 : 테두리 없음 · 아이콘 뒤 가로 캡슐 56×36 · 강한 유리 · 부드러운 그림자 · 색 페이드 짧게 */
+.vc .tb { height:var(--tbh,70px); border-radius:calc(var(--tbh,70px) / 2); background:var(--glass-hi); backdrop-filter:blur(28px) saturate(1.8); -webkit-backdrop-filter:blur(28px) saturate(1.8); box-shadow:0 4px 24px rgba(0,0,0,.14), 0 1px 2px rgba(0,0,0,.08); --tb-off:var(--muted-fg); --tb-on:var(--primary); }
+.vc .tb .it .hl { width:56px; height:36px; border-radius:18px; background:color-mix(in srgb,var(--primary) 16%,transparent); }
+.vc .body { padding-bottom:calc(var(--tbh,70px) + 38px); }
+.vc .fade { height:calc(var(--tbh,70px) + 26px); background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--bg) 80%,transparent) 75%); }
+
+/* D · 미니멀 점 : 배경 표시 없음 · 활성 = 채운 아이콘 + primary + 아래 점 · 테두리 없음 · 부드러운 그림자 */
+.vd .tb { background:color-mix(in srgb,var(--card) 88%,transparent); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:0 2px 16px rgba(0,0,0,.12); --tb-off:var(--muted-fg); --tb-on:var(--primary); }
+.vd .tb .it .hl { width:5px; height:5px; border-radius:50%; background:var(--primary); transform:translateY(19px); }
+.vd .tb .it svg { transform:translateY(-3px); }
+.vd .fade { height:110px; background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--bg) 88%,transparent) 70%); }
+
+#tools { position:fixed; bottom:12px; right:12px; z-index:9999; font:12px system-ui; background:rgba(0,0,0,.7); color:#fff; padding:8px 12px; border-radius:8px; opacity:.4; transition:opacity .2s; }
+#tools:hover { opacity:1; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-home-o" viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2M5.5 9.8V20h4.8v-5.6h3.4V20h4.8V9.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-home-f" viewBox="0 0 24 24"><path d="M12 3.6 2.8 11.4a.9.9 0 0 0 .6 1.6h1.6V20a1 1 0 0 0 1 1h4.2v-6h3.6v6H18a1 1 0 0 0 1-1v-7h1.6a.9.9 0 0 0 .6-1.6Z" fill="currentColor"/></symbol>
+  <symbol id="i-search-o" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-search-f" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="i-trade-o" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 6.5H19v3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trade-f" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 6.5H19v4.5Z" fill="currentColor"/></symbol>
+  <symbol id="i-ai-o" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M17.5 13c.25 2 1.2 3 3.2 3.2-2 .25-2.95 1.2-3.2 3.3-.25-2.1-1.2-3.05-3.2-3.3 2-.2 2.95-1.2 3.2-3.2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ai-f" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="currentColor"/><path d="M17.5 13c.25 2 1.2 3 3.2 3.2-2 .25-2.95 1.2-3.2 3.3-.25-2.1-1.2-3.05-3.2-3.3 2-.2 2.95-1.2 3.2-3.2Z" fill="currentColor"/></symbol>
+  <symbol id="i-me-o" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.2 18.4c1.2-2.3 3.3-3.4 5.8-3.4s4.6 1.1 5.8 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-me-f" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.2a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Zm0 12a7.5 7.5 0 0 1-5.6-2.5c1.2-2 3.2-3 5.6-3s4.4 1 5.6 3A7.5 7.5 0 0 1 12 19.2Z" fill="currentColor"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</svg>
+
+<div id="nav">
+  <div class="grp"><span class="lbl">변형</span>
+    <button class="vbtn active" data-v="a">A · 현행에서 라벨만 제거</button>
+    <button class="vbtn" data-v="b">B · weekly-wine 충실</button>
+    <button class="vbtn" data-v="c">C · 캡슐 인디케이터 ★ 채택(높이 60)</button>
+    <button class="vbtn" data-v="d">D · 미니멀 점</button>
+  </div>
+  <div class="grp" id="hgrp" style="display:none"><span class="lbl">C 높이</span>
+    <button class="hbtn" data-h="70">70 (현행)</button>
+    <button class="hbtn" data-h="64">64</button>
+    <button class="hbtn active" data-h="60">60 ★</button>
+    <button class="hbtn" data-h="56">56</button>
+  </div>
+  <div class="grp"><span class="lbl">기기</span>
+    <button class="dbtn active" data-d="phone">폰 390</button>
+    <button class="dbtn" data-d="ipad">iPad (탭바 560)</button>
+  </div>
+  <div class="grp"><span class="lbl">테마</span>
+    <button class="thbtn active" data-t="both">다크 + 라이트</button>
+    <button class="thbtn" data-t="dark">다크(기본)만</button>
+    <button class="thbtn" data-t="light">라이트만</button>
+  </div>
+  <div id="desc"></div>
+</div>
+<div id="stage"></div>
+
+<script>
+const DESC = {
+  a: '<b>A · 현행에서 라벨만 제거</b> — 지금 앱(D-27a) 그대로에서 라벨만 뺀 모양. 46pt 원 활성 · 1px 테두리 · 그림자 0.18/r8 · card 82%+블러 · 색 페이드 120. 구현 변경이 가장 적다(아이콘 세로 가운데 정렬만).',
+  b: '<b>B · weekly-wine 충실</b> — 테두리 없음 · 안쪽 여백 6 · 활성 = 셀을 채우는 둥근 사각형(r22 · primary 12%) · 그림자 0.12/r16 · 밝은 유리(블러 24 + 채도) · 탭바 뒤 <b>점진 블러</b> 페이드 · 비활성 옅은 회색 · 아이콘 조금 굵게. 색만 우리 primary.',
+  c: '<b>C · 캡슐 인디케이터</b> — 테두리 없음 · 활성 = 아이콘 뒤 가로 캡슐(56×36 · primary 16%) · 가장 강한 유리(블러 28 + 채도) · 넓고 옅은 그림자 · 짧은 색 페이드. iOS 26·Material 3 계열 느낌.',
+  d: '<b>D · 미니멀 점</b> — 배경 표시 없이 활성 = 채운 아이콘 + primary + 아래 작은 점 · 테두리 없음 · 부드러운 그림자. 가장 조용하다.'
+};
+const TABS = [['home','홈'],['search','검색'],['trade','트레이딩'],['ai','AI'],['me','마이']];
+const STOCKS = [['에코프로','086520 · 코스닥','128,400','+29.97%'],['한미반도체','042700 · 코스피','96,200','+18.21%'],['레인보우로보틱스','277810 · 코스닥','184,500','+15.40%'],['HLB','028300 · 코스닥','72,800','+12.02%'],['알테오젠','196170 · 코스닥','341,000','+9.88%'],['두산에너빌리티','034020 · 코스피','21,650','+8.52%'],['삼성전자','005930 · 코스피','71,300','+6.11%'],['POSCO홀딩스','005490 · 코스피','402,000','+5.77%'],['셀트리온','068270 · 코스피','183,900','+4.93%'],['카카오','035720 · 코스피','48,250','+4.10%']];
+let V='a', D='phone', T='both', H='60';
+const rows = STOCKS.map((s,i)=>`<div class="row"><span class="rk">${i+1}</span><span class="lg">${s[0][0]}</span><span class="nm"><b>${s[0]}</b><span>${s[1]}</span></span><span class="px"><b>${s[2]}</b><span>${s[3]}</span></span></div>`).join('');
+const tabbar = () => `<div class="fade"></div><div class="tb"><div class="items">${TABS.map((t,i)=>`<div class="it${i===0?' on':''}" data-tab="${t[0]}" aria-label="${t[1]}"><span class="hl"></span><svg class="o"><use href="#i-${t[0]}-o"/></svg><svg class="f"><use href="#i-${t[0]}-f"/></svg></div>`).join('')}</div></div>`;
+const device = (theme) => `<div class="col"><div class="device ${D} t-${theme} v${V}" style="--tbh:${H}px"><div class="island"></div><div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+  <div class="web"><div class="hdr"><svg><use href="#i-menu"/></svg><b>GH Trade</b></div><div class="body">
+  <div class="h2">상승률 상위</div><div class="card">${rows}</div><div class="band"></div><div class="h2">관심종목</div><div class="card">${rows}</div></div></div>
+  ${tabbar()}<div class="hi"></div></div><div class="cap">${theme==='dark'?'다크 (기본)':'라이트'}</div></div>`;
+function render(){
+  const themes = T==='both' ? ['dark','light'] : [T];
+  document.getElementById('stage').innerHTML = themes.map(device).join('');
+  document.getElementById('hgrp').style.display = V==='c' ? 'flex' : 'none';
+  document.getElementById('desc').innerHTML = DESC[V] + (V==='c' ? ` <b>높이 ${H}</b> · 본문 하단 여백 ${+H+38} (= 높이 + 바닥 20 + 여유 18)` : '') + '<br><span style="color:#777">탭 아이콘을 눌러 활성 전환 · 본문을 스크롤해 탭바 뒤 비침 확인</span>';
+  document.querySelectorAll('.device').forEach(dev => dev.querySelectorAll('.it').forEach(it => it.addEventListener('click', () => {
+    dev.querySelectorAll('.it').forEach(x => x.classList.toggle('on', x===it));
+  })));
+}
+function bind(cls, key){ document.querySelectorAll('.'+cls).forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.'+cls).forEach(x => x.classList.toggle('active', x===b));
+  if(key==='v') V=b.dataset.v; if(key==='d') D=b.dataset.d; if(key==='t') T=b.dataset.t; if(key==='h') H=b.dataset.h; render();
+}));}
+bind('vbtn','v'); bind('hbtn','h'); bind('dbtn','d'); bind('thbtn','t'); render();
+</script>
+</body>
+</html>

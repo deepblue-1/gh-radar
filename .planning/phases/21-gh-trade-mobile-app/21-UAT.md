@@ -12,7 +12,7 @@ UAT 2차(실서버). 앱 = 운영 URL 빌드(https://trade.jx1.io) · 웹 = push
 항목 정의 정본 = 21-16-PLAN.md Task 2 <how-to-verify> 1~13 (14 = push 결정, 이미 push 됨).
 UAT 1차(로컬 dev) 결과·수정은 21-16-SUMMARY.md 「UAT 1차 결과」.
 status: diagnosed = 이슈 1건·신규 요청 3건의 원인/방향이 적혀 있고 /gsd-plan-phase 21 --gaps 로 넘길 준비가 됐다.
-테스트 13 은 2026-09-26 사용자 보고로 pass. 열린 결정 N1·N2·N3 는 같은 날 사용자가 확정했다(각 갭의 「결정」 줄). G-21-1 은 탭바 목업 채택 대기.
+테스트 13 은 2026-09-26 사용자 보고로 pass. 열린 결정 N1·N2·N3 는 같은 날 사용자가 확정했다(각 갭의 「결정」 줄). G-21-1 은 sketch 007 C(높이 60) 채택.
 -->
 
 ## Current Test
@@ -110,7 +110,7 @@ new_requests: 3
     - "채택안을 CONTEXT 에 D-27a 개정으로 박제"
     - "iOS GHTradeTabBar · Android GhTradeTabBar 에서 라벨 제거(접근성 라벨 유지) + 채택된 시각 상수 반영"
     - "탭바 높이가 바뀌면 웹 본문 하단 여백(--native-body-reserve 108 = 70+20+18)과 native-shell e2e 도 같이 조정"
-  decision: "사용자(2026-09-26): 라벨 제거 확정. 나머지 시각 변형은 HTML 목업 여러 안을 보고 채택 — 목업 채택 전 플랜/구현 금지"
+  decision: "사용자 확정(2026-09-26): 라벨 제거 + sketch 007 C 채택 — 캡슐 인디케이터(아이콘 뒤 56×36 · primary 16%) · 테두리 없음 · 유리(블러 28+채도) · 넓고 옅은 그림자 · 높이 60(radius 30) · 바닥 규칙 유지 · 웹 본문 하단 여백 98. D-27a 개정 · iOS/Android 상수 · --native-tabbar-offset/--native-body-reserve · native-shell e2e 동반 수정"
   debug_session: ""
 
 - gap_id: G-21-13
