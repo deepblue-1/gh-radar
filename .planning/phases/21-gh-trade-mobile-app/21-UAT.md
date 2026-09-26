@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 21-gh-trade-mobile-app
 source: 21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md, 21-04-SUMMARY.md, 21-05-SUMMARY.md, 21-06-SUMMARY.md, 21-07-SUMMARY.md, 21-08-SUMMARY.md, 21-09-SUMMARY.md, 21-10-SUMMARY.md, 21-11-SUMMARY.md, 21-12-SUMMARY.md, 21-13-SUMMARY.md, 21-14-SUMMARY.md, 21-15-SUMMARY.md, 21-16-SUMMARY.md
 started: 2026-09-26T00:52:04Z
-updated: 2026-09-26T07:16:44Z
+updated: 2026-09-26T14:25:00Z
 ---
 
 <!--
@@ -14,19 +14,21 @@ UAT 1차(로컬 dev) 결과·수정은 21-16-SUMMARY.md 「UAT 1차 결과」.
 status: diagnosed = 이슈 1건·신규 요청 3건의 원인/방향이 적혀 있고 /gsd-plan-phase 21 --gaps 로 넘길 준비가 됐다.
 테스트 13 은 2026-09-26 사용자 보고로 pass. 열린 결정 N1·N2·N3 는 같은 날 사용자가 확정했다(각 갭의 「결정」 줄). G-21-1 은 sketch 007 C(높이 60) 채택.
 UAT 3차(2026-09-26 · 21-24 push-then-recheck 뒤 운영 앱): 사용자 수정 요청 6건 → G-21-R3-1~6, 같은 날 추가 4건 → G-21-R3-7~10, 탭 전환 상태 유지 → G-21-R3-11. 코드 리뷰(21-REVIEW.md) 13건 전부 처리 요청 → G-21-CR. 항목별 결정은 각 갭 「decision」 줄(2026-09-26 확정). 재리뷰·재검증 산출물은 -R2 파일로(21-REVIEW-R2.md · 21-VERIFICATION-R2.md) — 1차 기록 덮어쓰기 금지.
+UAT 4차(2026-09-26 23:15 KST~ · 실서버): 21-25~21-36 갭 클로징 + quick 260926-v5n·vk9 가 운영에 있다(웹 = Vercel dpl_HMnSS2ub · 6768bfd6 · 23:06:16 Ready / relay:2fe94209). 네이티브 = iPhone 17 시뮬 · emulator-5554 · 실기기 iPhone 16(mesya) 는 vk9 빌드, iPad Pro 11 (M5) 는 21-36 빌드(v5n·vk9 네이티브 즉시 숨김 없음). 결과(2026-09-26): 14~30 전부 pass(사용자 보고) — 갭 신규 0. 테스트 14~30 = 21-36-SUMMARY 「실서버 재확인 목록」 A1~A10 · B1~B8 + G-21-1·N1~N3 재확인. 실주문 금지. UAT 3차 갭 12건은 실행된 플랜(SUMMARY 있음)으로 reconcile → resolved(재확인은 이 테스트들이 받는다).
 -->
 
 ## Current Test
 
-[testing paused — 1 item outstanding (13 웹 회귀 · 사용자 보고 대기)]
+[testing complete]
 
 ## Tests
 
 ### 1. 탭바 시각 (D-02 · D-27a · D-15)
 expected: 스케치 004 A 알약과 같다 — 높이 70 · 좌우 16 · 바닥 20(인셋 없는 기기 14) · 다크/라이트 색 · iPad 폭 560 가운데 · 하단 페이드 · Android 불투명 근사 수용 가능
-result: issue
+result: pass
 reported: "weekly-wine-app 도 이래? 좀 다른거 같은데? 탭바의 메뉴 하단에 라벨은 표시하지 말자."
 severity: cosmetic
+resolution: "G-21-1 수정(21-20 · 21-21 · sketch 007 C) 뒤 UAT 4차 테스트 27 에서 재확인 pass(2026-09-26) → 원래 항목도 pass 로 전환"
 
 ### 2. 활성 탭 (D-14) · 표시 (D-13)
 expected: `/` 홈 · `/scanner`·`/themes`·`/watchlist`·`/search` 검색 · `/trading` 트레이딩 · `/chat` AI · `/me` 마이 · `/stocks/005930` 5개 전부 비활성 · iPad 가로에서도 탭바 표시
@@ -78,17 +80,86 @@ expected: 제목·로고 「GH Trade」 · 파비콘 · 사이드바 「검색�
 result: pass
 reported: "웹회귀 문제없어" (2026-09-26)
 
+### 14. 첫 로그인 · 콜드 스타트 탭바 (B2 · G-21-R3-4 · D-12b · N1)
+expected: 저장된 로그인이 없는 앱(Android 에뮬 /login · iOS 는 로그아웃 후 재실행) — 콜드 스타트에 문서가 그려지기 전엔 탭바 없음 · /login 탭바 없음 · 기본 다크 · Google 로그인 → 홈에서 로그인 잔상·빈 화면·스켈레톤 위에 탭바가 먼저 뜨지 않고 홈이 그려진 뒤(최대 약 1.5초) 약 0.28초 페이드인
+result: pass
+
+### 15. 키보드 · 키패드 시트 탭바 즉시 숨김 (B1 · G-21-R3-1 · D-12a' · D-12a'')
+expected: /search 입력 포커스 → 탭바가 키보드 위에 걸린 프레임 없이 즉시 사라진다 · 입력칸 이동 때 깜빡임 없음 · 키보드를 내리면 곧(약 0.1초) 다시 나타난다 · iPad 하드웨어 키보드면 탭바 유지 · /trading 카드 수량·가격 칸 → 키패드 시트가 열리는 순간 탭바가 즉시 사라지고, 닫으면 시트가 내려간 뒤 0.2초 페이드로 돌아온다 · 드로어·다이얼로그는 종전처럼 약 0.15초 뒤 사라진다 (iPad 는 21-36 빌드라 iOS 네이티브 즉시 경로 없음 — iPhone·Android·실기기 기준)
+result: pass
+
+### 16. 탭 왕복 스크롤 · 스켈레톤 (B3 · A9 · G-21-R3-11 · D-32)
+expected: 홈을 스크롤 → 검색 → AI → 마이 → 트레이딩 → 홈: 각 탭 루트의 스크롤 위치가 돌아오고 스켈레톤·로딩 문구 없이 직전 내용이 바로 보인 뒤 조용히 갱신된다 · 같은 탭 재탭 = 맨 위로
+result: pass
+
+### 17. 종목상세 뉴스·토론 탭 안 전체목록 (B4 · G-21-R3-8 · D-29)
+expected: /stocks/005930 「뉴스·토론」 → 「전체 뉴스 보기」「전체 토론 보기」가 페이지를 떠나지 않고 탭 안 전체목록으로 바뀐다 · 화면 안 ← · Android 뒤로가기 · 브라우저 뒤로 · 뉴스·토론 탭 재클릭 → 요약 + 원래 스크롤 · 옛 주소 /stocks/005930/news 는 탭 안 전체목록으로 간다
+result: pass
+
+### 18. 종목상세 「트레이딩」 버튼 · 3탭 (B5 · G-21-R3-9 · R3-10 · D-30 · D-31)
+expected: 종목상세가 3탭(차트 · 종목정보 · 뉴스·토론) · 폰 하단 바 「트레이딩」 · 넓은 폭은 히어로 알약(스케치 008 ② A) · 매매 불가 종목(ETF 등)에는 버튼 없음 · 옛 ?tab=orderbook 은 매매 가능이면 트레이딩, 아니면 차트로
+result: pass
+
+### 19. /trading?code= 카드 착지 (A7 · G-21-R3-9 · D-30)
+expected: 종목상세 「트레이딩」 → /trading 에서 그 종목 카드가 (없으면 새로 생겨) 펼쳐지고 스크롤·포커스된다 · 같은 종목으로 다시 와도 카드가 늘지 않는다 · 주소창의 ?code= 는 사라진다 · 전략 등록·주문은 보내지 않는다
+result: pass
+
+### 20. 카드 수동주문 주문유형 · 시간외종가 (A8 · G-21-R3-10 · D-31) — 실주문 금지
+expected: 카드 수동주문에 주문유형(지정가/시간외종가) 행(스케치 008 ③ A) · 시간외종가는 창이 열린 시간에만 선택 가능, 선택 시 가격 잠김 · 「참고 종가」에 KRX 종가 값 · 확인 다이얼로그까지만 보고 취소
+result: pass
+
+### 21. 주문금액 키패드 칩 (A2 · G-21-R3-3)
+expected: 카드 주문금액(만원) 키패드 칩이 「천만 · 오천만 · 1억 · 지우기」 · 현재 값에 더한다(예: 100 → 천만 → 1100) · 발주 없이 값만 확인
+result: pass
+
+### 22. 가격 섹션 카드 위 여백 (A3 · G-21-R3-5)
+expected: 매수/매도 탭의 제목 없는 가격 섹션 카드(매수가격·주문금액 / 매도 가격) 위 여백이 아래와 대칭이고 제목 있는 다른 카드와 비슷하다
+result: pass
+
+### 23. 카드 헤더 ✕ (A4 · G-21-R3-6)
+expected: 트레이딩 종목카드 닫기 ✕ 가 카드의 다른 아이콘 버튼과 크기가 어울리고(32 상자 · 16 아이콘) 누르기 쉽다(히트 44)
+result: pass
+
+### 24. 종목정보 팝업 크기 고정 · ✕ · safe-area (A5 · G-21-R3-7)
+expected: 카드 ⓘ 종목정보 팝업이 탭(차트·종목정보·뉴스·토론)·로딩과 관계없이 크기 고정, 넘치면 본문 스크롤 · ✕ 가 충분히 크다 · 앱 폰 전체화면에서 헤더·✕·본문 끝이 노치·홈 인디케이터에 가리지 않는다
+result: pass
+
+### 25. 종목정보 팝업 안 뉴스·토론 전체목록 (A6 · G-21-R3-8 · D-29)
+expected: 팝업 「뉴스·토론」 → 전체 보기가 팝업 안 전체목록으로 바뀐다(/trading 주소 불변) · Esc · Android 뒤로가기 · 화면 안 ← → 요약, 요약에서 한 번 더면 팝업 닫힘
+result: pass
+
+### 26. 앱 트레이딩 하단 패널 숨김 · /me 전략 로그 (A1 · B6 · G-21-R3-2 · D-25a)
+expected: 앱 /trading 하단 공용 패널(잔고·미체결·전략 로그)이 폰·iPad 모두 없다(브라우저는 그대로) · 카드 더티 바(저장/되돌리기)가 탭바에 가리지 않는다 · /me 전략 현황 카드에 「현황 | 로그」 전환(스케치 008 ① B) · 로그에 종목명 + 작업대와 같은 문장, 실데이터
+result: pass
+
+### 27. 탭바 모양 재확인 (G-21-1 · D-27a 개정 · sketch 007 C)
+expected: 탭 아이콘 아래 라벨 없음 · 활성 = 아이콘 뒤 캡슐(56×36 · primary 16%) · 테두리 없음 · 유리 블러 · 넓고 옅은 그림자 · 높이 60 · iPad 폭 560 가운데 · 다크/라이트 모두 자연스럽다
+result: pass
+
+### 28. 리뷰 사람 확인 (B7 · A10 · G-21-CR)
+expected: Android 상따 설정 팝오버 연 상태 뒤로가기 → 팝오버만 닫힘(WR-04) · /search 빠르게 타이핑해도 엉뚱한 「해당하는 종목이 없습니다」 번쩍임 없음(WR-05) · iPhone Safari 기본 다크 크롬 색 #17171c(IN-06) · 앱 비행기 모드 → 오프라인 폴백 → 복구 시 운영 https://trade.jx1.io 로 복귀(IN-02) · Android 폴백에서 뒤로가기 1회에 종료(IN-03)
+result: pass
+
+### 29. 테마 아이콘 · 인앱 브라우저 재확인 (N2 · N3)
+expected: 사이드바 테마 토글과 /me 계정 카드 테마 아이콘이 같은 규칙(누르면 바뀔 테마 표시) · 앱에서 홈 뉴스·종토방 원문 등 사이트 밖 링크가 인앱 브라우저(iOS SFSafariViewController · Android Custom Tabs)로 열린다
+result: pass
+
+### 30. 회귀 한 바퀴 (B8)
+expected: 탭바 활성 표시 · 당겨서 새로고침 · 드로어·시트·다이얼로그 열면 탭바 숨김 · 로그아웃 → 로그인 · 테마 전환 즉시 반영 · 웹(데스크톱 브라우저) 트레이딩 하단 패널·종목상세 넓은 폭 정상
+result: pass
+
 ## Summary
 
-total: 13
-passed: 12
-issues: 1
+total: 30
+passed: 30
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
 new_requests: 3
 uat3_issues: 11
 code_review_findings: 13
+uat4_rechecked: 17
 
 ## Gaps
 
@@ -206,7 +277,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-1
   truth: "키보드가 올라올 때 탭바가 키보드보다 먼저(또는 같이) 즉시 사라지고, 키보드 위에 탭바가 걸려 있는 프레임이 보이지 않는다"
-  status: failed
+  status: resolved
+  resolved_by: 21-28-PLAN.md, 21-29-PLAN.md (+ quick 260926-v5n · 260926-vk9)
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 15"
   reason: "User reported (UAT 3차): 키보드가 올라오면서 탭바가 내려갈 때, 탭바가 너무 늦게 내려가서 어색해. 탭바가 빨리 사라져야 될 거 같아."
   severity: minor
   test: uat3-1
@@ -226,7 +300,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-2
   truth: "앱(html.native-app)에서는 /trading 하단 공용 패널(잔고/미체결/전략 로그)이 보이지 않고, 앱에서 사라지는 전 종목 전략 로그는 마이 탭(/me)에서 볼 수 있다. 브라우저는 그대로다"
-  status: failed
+  status: resolved
+  resolved_by: 21-32-PLAN.md (목업 21-25)
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 26"
   reason: "User requested (UAT 3차): 앱 버전에서는 트레이딩 페이지 하단의 잔고/미체결/전략 로그를 숨겨줘. 탭바가 있으니까."
   severity: minor
   test: uat3-2
@@ -253,7 +330,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-3
   truth: "주문금액(만원 단위) 키패드 칩이 「천만 · 오천만 · 1억 · 지우기」이고, 각각 현재 값에 1,000 · 5,000 · 10,000(만원)을 더한다"
-  status: failed
+  status: resolved
+  resolved_by: 21-26-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 21"
   reason: "User requested (UAT 3차): 주문금액 입력 컴포넌트의 단위는 천만 오천만 1억. (만원 단위 입력이니까 1000 5000 10000)"
   severity: minor
   test: uat3-3
@@ -272,7 +352,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-4
   truth: "첫 로그인(및 전체 문서 로드) 뒤 탭바가 로그인 화면 잔상·빈 화면 위에 먼저 뜨지 않고, 새 페이지가 그려진 뒤 부드럽게 나타난다. iOS 콜드 스타트에서도 판정 전엔 숨김이다"
-  status: failed
+  status: resolved
+  resolved_by: 21-28-PLAN.md, 21-29-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 14"
   reason: "User reported (UAT 3차): 처음 로그인할 때, 홈이 로딩중인데 탭바가 나와서 어색해. 어색하지 않게 조정해줘"
   severity: minor
   test: uat3-4
@@ -295,7 +378,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-5
   truth: "매수/매도 탭의 가격 섹션 카드(매수가격·주문금액 / 매도 가격)의 위 여백이 제목 있는 다른 카드와 맞고, 카드 안 위아래가 대칭이다"
-  status: failed
+  status: resolved
+  resolved_by: 21-26-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 22"
   reason: "User reported (UAT 3차): 매수/매도탭에 매수가격 주문금액 있는 카드의 상단 여백이 다른 데보다 큰 거 같아. 카드 타이틀 라벨을 없애면서 여백이 중첩된 게 아닌가 싶은데 체크해줘."
   severity: cosmetic
   test: uat3-5
@@ -312,7 +398,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-6
   truth: "트레이딩 종목카드의 닫기(✕) 버튼이 카드의 다른 아이콘 버튼과 크기가 조화롭고 터치 히트 영역이 44×44 이상이다"
-  status: failed
+  status: resolved
+  resolved_by: 21-26-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 23"
   reason: "User reported (UAT 3차): 트레이딩 페이지에서 종목카드의 x 버튼이 너무 작아. 디자인 조화 생각해서 조정해줘."
   severity: cosmetic
   test: uat3-6
@@ -327,7 +416,10 @@ code_review_findings: 13
 
 - gap_id: G-21-CR
   truth: "21-REVIEW.md 의 발견 13건(Warning WR-01~05 · Info IN-01~08)이 모두 수정되거나, 수정하지 않는 건은 근거가 기록돼 있다"
-  status: failed
+  status: resolved
+  resolved_by: 21-27-PLAN.md, 21-28-PLAN.md, 21-29-PLAN.md, 21-34-PLAN.md, 21-35-PLAN.md (21-REVIEW-R2.md 13/13 수정)
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 28"
   reason: "User requested (2026-09-26): 코드 리뷰의 수정사항도 다 처리해줘"
   severity: major
   test: code-review
@@ -345,7 +437,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-7
   truth: "트레이딩 종목카드 ⓘ 종목정보 팝업의 크기가 탭(차트·종목정보·뉴스·토론)과 로딩 상태에 관계없이 고정이고, 넘치는 내용은 본문 안에서 스크롤된다. 닫기 ✕ 는 충분히 크고 히트 영역이 44×44 이상이다. 앱 폰 전체화면에서 헤더·✕·본문 끝이 노치·홈 인디케이터에 가리지 않는다"
-  status: failed
+  status: resolved
+  resolved_by: 21-26-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 24"
   reason: "User requested (UAT 3차 추가): 트레이딩 페이지에서 종목정보 눌렀을 때 팝업 크기가 탭마다 다른데 고정되었으면 좋겠어. 그리고 X 버튼이 작아."
   severity: minor
   test: uat3-7
@@ -365,7 +460,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-8
   truth: "종목상세 「뉴스·토론」 탭과 트레이딩 ⓘ 팝업 「뉴스·토론」 탭에서 「전체 뉴스 보기」「전체 토론 보기」를 누르면 페이지를 떠나지 않고 탭 안에서 전체 목록으로 바뀌고, 뒤로가기(Android 뒤로가기 · 브라우저 뒤로 · Esc · 화면 안 ← 버튼)로 다시 요약 목록이 나온다"
-  status: failed
+  status: resolved
+  resolved_by: 21-30-PLAN.md, 21-33-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 17, 25"
   reason: "User requested (UAT 3차 추가): 뉴스토론에서 뉴스 전체보기나 종목토론 전체보기를 하면 페이지 자체가 넘어가는데, 뉴스토론 탭 안에서 페이지가 바뀌었으면 좋겠어. 뒤로가기 하면 다시 뉴스토론 목록이 나오도록. 이건 종목 상세페이지에서도 마찬가지야."
   severity: minor
   test: uat3-8
@@ -396,7 +494,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-9
   truth: "종목상세의 「주문하기」 버튼이 「트레이딩」으로 바뀌고 모든 폭에 보이며(폰 하단 고정 바 · 넓은 폭은 종목 헤더), 누르면 /trading 으로 이동해 해당 종목 카드가 (없으면 새로 만들어져) 펼쳐지고 포커스된다. 매매 불가 종목(비 KOSPI/KOSDAQ · isin 없음)에서는 버튼이 없다"
-  status: failed
+  status: resolved
+  resolved_by: 21-33-PLAN.md, 21-34-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 18, 19"
   reason: "User requested (UAT 3차 추가): 종목상세 페이지에서 주문하기 버튼을 트레이딩으로 바꾸고, 누르면 트레이딩 페이지로 연결해줘. 해당 종목카드가 포커싱 되게."
   severity: minor
   test: uat3-9
@@ -422,7 +523,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-10
   truth: "종목상세에 호가주문 탭이 없고, 시간외종가 신규 주문은 트레이딩 종목카드 수동주문에서 주문유형(지정가/시간외종가)으로 계속 할 수 있다"
-  status: failed
+  status: resolved
+  resolved_by: 21-33-PLAN.md, 21-34-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 18, 20"
   reason: "User requested (UAT 3차 추가): 종목상세 페이지에서 호가주문은 제거하자."
   severity: minor
   test: uat3-10
@@ -449,7 +553,10 @@ code_review_findings: 13
 
 - gap_id: G-21-R3-11
   truth: "탭 루트 화면(홈 / · 검색 /search · 트레이딩 /trading · AI /chat · 마이 /me) 사이를 오갈 때 한 번 연 화면은 다시 마운트되지 않아 스켈레톤 없이 즉시 보이고, 탭마다 스크롤 위치와 화면 상태(입력·펼침 등)가 유지된다. 웹뷰는 하나이고 relay 소켓·로그인 세션도 하나다(앱·브라우저 공통)"
-  status: failed
+  status: resolved
+  resolved_by: 21-31-PLAN.md
+  resolved_at: 2026-09-26
+  recheck: "UAT 4차 테스트 16"
   reason: "User reported (UAT 3차 추가): 홈/검색/트레이딩 탭을 옮길 때마다 페이지가 다시 로드되나? 스크롤이 유지가 안 되는 거 같아서. 각 탭마다 웹뷰 페이지를 따로 가지고 있어서 왔다갔다 해주면 안 되나?"
   severity: major
   test: uat3-11
