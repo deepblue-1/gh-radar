@@ -42,6 +42,12 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     /// 웹 `overlay {open}` 신호(D-12 ③). 새 문서의 `ready` 에서 false 로 되돌린다(T-21-18 고착 방지).
     var overlayOpen = false
     private var keyboardVisible = false
+    /// D-12a: 키보드 사유로 숨긴 뒤 재표시 디바운스(90ms) 예약. 그 사이 다시 숨김이 오면 취소한다.
+    private var showWork: DispatchWorkItem?
+    /// D-12a: 지금 숨김이 키보드 사유 즉시 경로로 끝났다 — 재표시만 90ms 디바운스한다.
+    private var hiddenByKeyboard = false
+    /// 마지막 keyboardWillShow 의 애니메이션 시간 · 곡선(userInfo). 곡선 값 7 은 공개 enum 밖이라 `rawValue << 16` 으로 옮긴다.
+    private var keyboardAnimation: (duration: Double, options: UIView.AnimationOptions) = (0.25, .curveEaseInOut)
     /// 앱 테마. 바꾸는 곳은 `applyTheme` 하나 — 저장값(ThemeStore, 첫 프레임) · 웹 `theme` 메시지(D-23).
     /// 초기 자리값 = dark(D-23a — 저장값 없는 첫 프레임과 같은 값. capacitorDidLoad 의 ThemeStore.load() 가 곧 덮는다).
     private(set) var currentTheme: GHTradeTheme = .dark {
@@ -316,7 +322,7 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         updateTabBarVisibility(animated: true)
     }
 
-    // MARK: - 키보드 (Claude's Discretion — 입력 중 탭바 숨김)
+    // MARK: - 키보드 (D-12a — 키보드 = 즉시 · 짧게 · 재표시 90ms)
 
     private func observeKeyboard() {
         let center = NotificationCenter.default
@@ -325,7 +331,20 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
     }
 
     @objc private func keyboardWillShow(_ note: Notification) {
-        keyboardVisible = true
+        let info = note.userInfo
+        if let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue {
+            let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue
+                ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
+            keyboardAnimation = (duration, UIView.AnimationOptions(rawValue: curve << 16))
+        }
+        // 끝 프레임이 화면 하단을 실제로 가릴 때만 키보드로 본다 — 하드웨어 키보드(입력 보조 막대만) ·
+        // iPad 플로팅 키보드는 하단을 가리지 않으므로 탭바를 숨기지 않는다.
+        var covers = false
+        if let end = (info?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            let r = view.convert(end, from: nil)
+            covers = r.height > 0 && r.minY < view.bounds.maxY - 1
+        }
+        keyboardVisible = covers
         updateTabBarVisibility(animated: true)
     }
 
@@ -334,7 +353,8 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         updateTabBarVisibility(animated: true)
     }
 
-    // MARK: - 표시/숨김 (D-12: 숨김은 150ms 지연 후 0.2s 페이드 · 보임은 지연 없이 0.2s)
+    // MARK: - 표시/숨김 (D-12: 숨김은 150ms 지연 후 0.2s 페이드 · 보임은 지연 없이 0.2s
+    //                  D-12a: 키보드 사유 숨김은 즉시 · 키보드 절반 길이 · 이동 없음 → 재표시 90ms 디바운스)
 
     private var shouldHideTabBar: Bool {
         TabRoutes.hidesTabBar(path: currentPath) || isOfflinePage || overlayOpen || keyboardVisible
@@ -348,7 +368,32 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
         hideWork = nil
 
         if shouldHideTabBar {
+            // 숨김이 다시 왔다 — 키보드 재표시 예약은 취소(willHide → willShow 연속 = 깜빡임 없음).
+            showWork?.cancel()
+            showWork = nil
+            // 키보드가 내려갔는데 다른 사유로 여전히 숨김 → 이후 재표시는 키보드 디바운스 대상이 아니다.
+            if !keyboardVisible { hiddenByKeyboard = false }
             guard !tabBar.isHidden else { return }
+
+            // D-12a — 키보드 = 즉시 · 짧게: 150ms 대기 없이, 키보드 애니메이션 절반(0.08~0.2초) · 같은 곡선으로
+            // alpha 만 내린다(아래로 내려가는 이동 없음 — 키보드 윗변 위에 걸린 프레임이 남지 않게).
+            if keyboardVisible && animated {
+                let duration = min(0.2, max(0.08, keyboardAnimation.duration * 0.5))
+                tabBar.transform = .identity
+                UIView.animate(withDuration: duration, delay: 0,
+                               options: [keyboardAnimation.options, .beginFromCurrentState],
+                               animations: {
+                                   self.tabBar.alpha = 0
+                                   fade.alpha = 0
+                               }) { [weak self] _ in
+                    guard let self, self.shouldHideTabBar else { return }
+                    self.tabBar.isHidden = true
+                    fade.isHidden = true
+                    self.hiddenByKeyboard = self.keyboardVisible
+                }
+                return
+            }
+
             let hide = { [weak self] in
                 guard let self else { return }
                 self.tabBar.alpha = 0
@@ -378,6 +423,23 @@ final class GHTradeBridgeViewController: CAPBridgeViewController, WKScriptMessag
             hideWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
         } else {
+            // D-12a — 키보드로 숨겼던 탭바는 90ms 뒤에 다시 보인다. 입력칸 이동의 willHide → willShow 연속이면
+            // 그 사이 숨김 분기가 이 예약을 취소하므로 깜빡이지 않는다.
+            if hiddenByKeyboard && animated {
+                guard showWork == nil else { return }
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
+                    self.showWork = nil
+                    self.hiddenByKeyboard = false
+                    self.updateTabBarVisibility(animated: true)
+                }
+                showWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.09, execute: work)
+                return
+            }
+            showWork?.cancel()
+            showWork = nil
+            hiddenByKeyboard = false
             // 진행 중인 숨김 애니메이션과 경합하지 않게 먼저 걷어낸다(weekly-wine observeURL).
             tabBar.layer.removeAllAnimations()
             fade.layer.removeAllAnimations()
