@@ -34,11 +34,13 @@ trap restore_prod EXIT
 echo "── dev sync (CAP_SERVER_URL=http://localhost:3100)"
 CAP_SERVER_URL=http://localhost:3100 pnpm exec cap sync ios
 
-# (d) 시뮬레이터 빌드
-echo "── xcodebuild (Debug · iOS Simulator)"
+# (d) 시뮬레이터 빌드 — 서명한다(로컬 실행용 ad-hoc). CODE_SIGNING_ALLOWED=NO 로 빌드하면
+#     엔타이틀먼트가 없어 Google 로그인이 키체인 -34018 로 실패한다(21-16 UAT 1차).
+echo "── xcodebuild (Debug · iOS Simulator · 서명)"
 xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/DerivedData \
-  CODE_SIGNING_ALLOWED=NO build -quiet
+  build -quiet
+bash scripts/check-sim-entitlements.sh "${APP_PATH}/App"
 
 # (e) 부팅 · 설치 · 실행
 echo "── 시뮬레이터: ${DEVICE}"

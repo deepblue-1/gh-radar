@@ -32,7 +32,7 @@ Google OAuth 콘솔 설정(GCP 클라이언트 3개 · Supabase Client IDs `web,
 |---|---|
 | `native:sync` | **운영** 동기화(`https://trade.jx1.io`, cleartext 없음). 기기 빌드 전에 반드시 실행한다. |
 | `native:sync:dev` | dev 동기화(`CAP_SERVER_URL=http://localhost:3100`). 시뮬레이터·에뮬레이터 전용이다. |
-| `native:build:ios` | 운영 sync → 시뮬레이터용 Debug 빌드(`ios/DerivedData`) |
+| `native:build:ios` | 운영 sync → 시뮬레이터용 Debug 빌드(`ios/DerivedData`, 로컬 실행용 서명) → `SIM ENTITLEMENTS OK` 확인 |
 | `native:build:android` | 운영 sync → `assembleDebug` |
 | `native:smoke:ios` | dev sync → 빌드 → `iPhone 17` 설치·실행 → 웹 `ready` 로그 확인 → 종료 시 운영 sync 복원. 성공하면 `SMOKE OK ready platform=ios` 가 나온다. |
 | `native:smoke:android` | dev sync → 빌드 → 에뮬레이터 설치·실행 → logcat `ready` 확인 → 운영 sync 복원. 성공하면 `SMOKE OK ready platform=android` 가 나온다. |
@@ -73,6 +73,8 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 ```
 
 그다음 Xcode(서명 팀 `954QPCS3F5`) 또는 Android Studio 에서 기기를 골라 실행한다.
+
+시뮬레이터 빌드도 서명한다. `CODE_SIGNING_ALLOWED=NO` 를 붙이면 앱에 `application-identifier` 엔타이틀먼트가 없어 Google 로그인이 키체인 오류(-34018)로 실패하고, 웹에는 「로그인 처리에 실패」만 보인다. 서명 팀은 프로젝트에 `DEVELOPMENT_TEAM = 954QPCS3F5`(자동 서명)로 들어 있다. `scripts/check-sim-entitlements.sh` 가 빌드 결과를 확인한다(`SIM ENTITLEMENTS OK`).
 
 ## 버전을 올릴 때 (Pitfall 17)
 

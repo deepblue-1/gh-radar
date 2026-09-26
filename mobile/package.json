@@ -6,7 +6,7 @@
   "scripts": {
     "native:sync": "cap sync",
     "native:sync:dev": "CAP_SERVER_URL=http://localhost:3100 cap sync",
-    "native:build:ios": "cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO build",
+    "native:build:ios": "cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/DerivedData build && bash scripts/check-sim-entitlements.sh",
     "native:build:android": "cap sync android && cd android && ./gradlew assembleDebug",
     "native:smoke:ios": "bash scripts/smoke-ios.sh",
     "native:smoke:android": "bash scripts/smoke-android.sh",
