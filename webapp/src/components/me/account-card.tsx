@@ -1,12 +1,15 @@
 "use client";
 
-import { LogOut, Moon, Sun } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
+import {
+  THEME_SWITCH_LABEL,
+  ThemeSwitchIcon,
+  type ThemeValue,
+} from "@/components/layout/theme-toggle";
 import { useAuth } from "@/lib/auth-context";
-
-type ThemeValue = "light" | "dark";
 
 /**
  * AccountCard — `/me` 상단 계정 카드 A (Phase 21 D-08 · D-08a · 스케치 005 채택안).
@@ -20,7 +23,9 @@ type ThemeValue = "light" | "dark";
  *   `user_metadata.avatar_url`(<img>) → 로드 실패 시 `imgError` 로 잠그고 이메일 첫 글자 이니셜.
  *
  * ③ 테마 해석은 `ThemeToggle` 과 같다 — 하이드레이션 전(mounted 가드)에는 다크로 읽는다.
- *   아이콘은 「누르면 갈 곳」이다: 다크일 때 Sun · 라이트일 때 Moon.
+ *   아이콘·접근 이름 규칙은 ThemeToggle 과 같은 정의(D-08b)를 가져다 쓴다 —
+ *   `theme-toggle.tsx` 의 `ThemeSwitchIcon` · `THEME_SWITCH_LABEL`(아이콘 = 누르면 바뀔 테마 ·
+ *   접근 이름 = 행동 문구). 여기에 따로 적지 않는다(적으면 다시 갈라진다).
  *
  * ④ 토큰 대응: 스케치의 `--raised` = 웹 `--muted`(카드 안 컨트롤 면). 버튼은 흰(라이트)/
  *   `--card`(다크) 카드 **안**에 놓이므로 라이트 `--muted`(#f2f4f6) 가 본문면과 겹쳐 사라지는
@@ -87,16 +92,13 @@ export function AccountCard() {
       <div className="ml-auto flex shrink-0 gap-1.5">
         <button
           type="button"
-          aria-label="테마 전환"
+          aria-label={THEME_SWITCH_LABEL[nextTheme]}
+          title={THEME_SWITCH_LABEL[nextTheme]}
           onClick={() => setTheme(nextTheme)}
           className={`${iconButton} text-[var(--fg)]`}
           suppressHydrationWarning
         >
-          {current === "dark" ? (
-            <Sun className="size-[18px]" data-icon="sun" aria-hidden="true" />
-          ) : (
-            <Moon className="size-[18px]" data-icon="moon" aria-hidden="true" />
-          )}
+          <ThemeSwitchIcon next={nextTheme} className="size-[18px]" />
         </button>
         <button
           type="button"

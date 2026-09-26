@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 /**
- * 21-09 · D-08 · D-08a — `/me` 계정 카드 A(스케치 005 채택안).
+ * 21-09 · D-08 · D-08a — `/me` 계정 카드 A(스케치 005 채택안). 21-19 · D-08b — 테마 버튼 규칙.
  *
  * 잠그는 것: user 없으면 렌더 안 함 · 아바타 폴백 체인(avatar_url → 이니셜, 이미지 실패 잠금) ·
- * 이름/이메일 · 테마 버튼 아이콘(다크=Sun · 라이트=Moon)과 반대 테마로 전환 · 로그아웃 → signOut ·
+ * 이름/이메일 · 테마 버튼 = 사이드바 ThemeToggle 과 같은 규칙(아이콘 = 목적지: 다크=Sun · 라이트=Moon,
+ * 접근 이름 = 행동 문구 「라이트 모드로 전환」/「다크 모드로 전환」)과 반대 테마로 전환 · 로그아웃 → signOut ·
  * 카드 마크업 계약(`data-slot` · radius 16 · 높이 72).
  */
 
@@ -96,21 +97,23 @@ describe('AccountCard — 이름 · 이메일', () => {
   });
 });
 
-describe('AccountCard — 테마 버튼 (D-08a)', () => {
-  it('다크면 Sun 을 보이고 누르면 라이트로 바꾼다', () => {
+describe('AccountCard — 테마 버튼 (D-08b)', () => {
+  it('다크면 「라이트 모드로 전환」 · Sun 을 보이고 누르면 라이트로 바꾼다', () => {
     resolvedTheme = 'dark';
     render(<AccountCard />);
-    const btn = screen.getByRole('button', { name: '테마 전환' });
+    const btn = screen.getByRole('button', { name: '라이트 모드로 전환' });
+    expect(btn.getAttribute('title')).toBe('라이트 모드로 전환');
     expect(btn.querySelector('[data-icon="sun"]')).not.toBeNull();
     expect(btn.querySelector('[data-icon="moon"]')).toBeNull();
     fireEvent.click(btn);
     expect(setTheme).toHaveBeenCalledWith('light');
   });
 
-  it('라이트면 Moon 을 보이고 누르면 다크로 바꾼다', () => {
+  it('라이트면 「다크 모드로 전환」 · Moon 을 보이고 누르면 다크로 바꾼다', () => {
     resolvedTheme = 'light';
     render(<AccountCard />);
-    const btn = screen.getByRole('button', { name: '테마 전환' });
+    const btn = screen.getByRole('button', { name: '다크 모드로 전환' });
+    expect(btn.getAttribute('title')).toBe('다크 모드로 전환');
     expect(btn.querySelector('[data-icon="moon"]')).not.toBeNull();
     expect(btn.querySelector('[data-icon="sun"]')).toBeNull();
     fireEvent.click(btn);
