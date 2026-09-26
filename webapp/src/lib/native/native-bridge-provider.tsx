@@ -22,7 +22,8 @@
  *  드러낸다(PC-7 무로그 금지). 등록된 훅이 없으면 `location.reload()`.
  *
  * `navigate(path)` 는 네이티브가 넘긴 값을 **다시 검증**한다(T-21-16): 문자열 · `/` 시작 · `//` 금지 ·
- * 역슬래시·제어문자 금지(브라우저 URL 파서가 `/\evil` · `/\t/evil` 을 `//evil` 로 읽는다). 현재 경로와
+ * 역슬래시·제어문자 금지(브라우저 URL 파서가 `/\evil` · `/\t/evil` 을 `//evil` 로 읽는다) — 판정은
+ * `lib/safe-path.ts` 한 곳(로그인 · `/auth/callback` 과 공용 · WR-01). 현재 경로와
  * 같으면 스크롤 최상단(D-06 재탭), 다르면 `router.push`(클라 내비 — relay 소켓 유지, Pattern 6).
  *
  * `back()` 은 오버레이가 열려 있으면 합성 Escape 를 `document` 로 보낸다 — Radix DismissableLayer 가
@@ -42,6 +43,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+
+import { isSafeInternalPath } from '@/lib/safe-path';
 
 import { isNativeApp, nativePlatform } from './native-detect';
 import { postNative } from './post-native';
@@ -76,14 +79,6 @@ const EMPTY_NATIVE_BRIDGE: NativeBridgeValue = {
 };
 
 const NativeBridgeContext = createContext<NativeBridgeValue | null>(null);
-
-/** 경로로 쓸 수 있는 값인가 — 같은 출처의 절대 경로만(T-21-16). */
-function isSafeInternalPath(path: unknown): path is string {
-  if (typeof path !== 'string') return false;
-  if (!path.startsWith('/') || path.startsWith('//')) return false;
-  // `\` 는 URL 파서가 `/` 로, 탭·개행은 제거한다 → `/\evil.com` · `/\t/evil.com` 이 `//evil.com` 이 된다.
-  return !/[\\\u0000-\u001f\u007f]/.test(path);
-}
 
 /**
  * 터치 시작 지점에서 위로 올라가며 가장 가까운 **실제로 넘치는** 내부 스크롤 조상을 찾아, 그것이 위로

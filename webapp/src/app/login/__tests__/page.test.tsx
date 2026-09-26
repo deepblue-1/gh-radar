@@ -14,6 +14,7 @@ import { isNativeApp } from '@/lib/native/native-detect';
  *  - 앱이 OAuth 경로를 타면                 → Google 이 WebView 를 `disallowed_userAgent` 로 차단
  *  - 성공 뒤 하드 내비가 없으면             → 세션 쿠키는 생겼는데 화면이 로그인에 머문다
  *  - `//evil.com` 이 통과하면               → 로그인 직후 외부로 튕기는 오픈 리다이렉트(T-21-11)
+ *  - `/%5Cevil.com`(역슬래시)이 통과하면    → 같은 오픈 리다이렉트를 역슬래시로 우회(WR-01 · lib/safe-path.ts)
  *  - 취소·실패 문구가 섞이면                → 닫기만 했는데 「실패」라고 겁주거나 실패를 숨긴다
  *  - 진행 중 재클릭이 막히지 않으면         → 계정 선택 시트가 두 번 뜨고 nonce 가 엇갈린다
  *  - 워드마크만 · 진행 중 스피너(접근 이름 유지) → 화면 개편(sketch 006 A · quick-260926-d76)이
@@ -111,6 +112,16 @@ describe('/login', () => {
     nativeDetect.mockReturnValue(true);
     nativeSignIn.mockResolvedValue({ error: null });
     search = new URLSearchParams({ next: '//evil.com' });
+    render(<LoginPage />);
+    await userEvent.click(button());
+    expect(replace).toHaveBeenCalledWith('/');
+  });
+
+  it('앱 + ?next=/%5Cevil.com(디코드 후 역슬래시) → location.replace("/") (WR-01)', async () => {
+    nativeDetect.mockReturnValue(true);
+    nativeSignIn.mockResolvedValue({ error: null });
+    // 문자열 파싱이라 %5C 가 `\` 로 디코드된다 — `/\evil.com` 을 URL 파서는 `//evil.com` 으로 읽는다.
+    search = new URLSearchParams('next=/%5Cevil.com');
     render(<LoginPage />);
     await userEvent.click(button());
     expect(replace).toHaveBeenCalledWith('/');

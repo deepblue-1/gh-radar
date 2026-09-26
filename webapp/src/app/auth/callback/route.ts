@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isSafeInternalPath } from "@/lib/safe-path";
 
 /**
  * OAuth callback route — Supabase PKCE code exchange.
@@ -12,7 +13,7 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Security (T-06.2-02 Open redirect mitigation):
  * - `next` 파라미터는 `/` 로 시작하는 상대 경로만 허용
- * - `//attacker.com` 같은 protocol-relative URL 차단
+ * - `//attacker.com` 같은 protocol-relative URL 차단 · 역슬래시·제어문자 차단(`lib/safe-path.ts` — WR-01)
  * - fallback: `/` (홈 — 홈이 인증 표면이라 로그인 직후 착지점이다)
  *
  * [Phase 06.2 변경사항] whitelist/role 체크 없음 (D-04).
@@ -27,13 +28,10 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=oauth_denied`);
   }
 
-  // Open redirect 방어 (T-06.2-02, ASVS V4.1.1, V5.1.5)
-  // - `/` 로 시작하지만 `//` 로 시작하는 protocol-relative URL 은 차단
+  // Open redirect 방어 (T-06.2-02, ASVS V4.1.1, V5.1.5) — WR-01: 판정은 lib/safe-path.ts 한 곳
+  // (로그인 · 네이티브 navigate 와 같은 함수). `/` 시작 · `//` 금지 · 역슬래시·제어문자 금지.
   const rawNext = searchParams.get("next");
-  const safeNext =
-    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
-      ? rawNext
-      : "/";
+  const safeNext = isSafeInternalPath(rawNext) ? rawNext : "/";
 
   if (code) {
     const supabase = await createClient();

@@ -6,6 +6,7 @@ import { CircleAlert } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { isNativeApp } from "@/lib/native/native-detect";
+import { isSafeInternalPath } from "@/lib/safe-path";
 import {
   classifyNativeLoginError,
   nativeGoogleSignIn,
@@ -43,13 +44,10 @@ function LoginForm() {
     useState<NativeLoginErrorKey | null>(null);
   const rawNext = searchParams.get("next");
 
-  // Open redirect 방어 (T-06.2-11, ASVS V4.1.1 / V5.1.5) — /auth/callback 과 동일 가드
-  // - `/` 로 시작
-  // - `//` 로 시작하는 protocol-relative URL 차단
-  const safeNext =
-    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
-      ? rawNext
-      : "/";
+  // Open redirect 방어 (T-06.2-11, ASVS V4.1.1 / V5.1.5) — WR-01: 판정은 lib/safe-path.ts 한 곳
+  // (/auth/callback · 네이티브 navigate 와 같은 함수). `/` 시작 · `//` 금지 · 역슬래시·제어문자 금지 —
+  // 앱은 이 값을 `location.replace` 에 그대로 넘기므로 `/\evil.com` 이 `//evil.com` 으로 읽히면 안 된다.
+  const safeNext = isSafeInternalPath(rawNext) ? rawNext : "/";
 
   // 알 수 없는 에러 키는 unknown fallback (T-06.2-15 — 내부 상태 유출 없음)
   // 앱 로그인 실패(D-03)가 URL ?error= 보다 우선한다 — 방금 누른 결과가 화면에 보여야 한다.
