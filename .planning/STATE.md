@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 Phase: 21 (GH Trade 모바일 앱 (Capacitor)) — EXECUTING
 Plan: 35 of 36
 Plans completed: 219 / 234
-Status: Ready to execute
+Status: Paused — relay 선배포 대기 (21-35 체크포인트)
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
 Last activity: 2026-09-26 — Completed quick task 260926-s5v: 돌파 후속 2건 gh-trade 동작 동기화
@@ -340,7 +340,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 **Resume file:** None
 
 Last session: 2026-09-26T12:27:12.152Z
-Stopped at: Completed 21-34-PLAN.md
+Stopped at: 21-35 Task 1 ① 체크포인트 — 라운드 범위에 quick-260926-rcc relay 변경(e9e4c78) 미배포. 사용자 결정(2026-09-26 21:3x KST): relay 먼저 배포 → /healthz 확인 → 21-35 재실행(`/gsd-execute-phase 21 --gaps-only`). 21-35 커밋 0 · push 없음
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
