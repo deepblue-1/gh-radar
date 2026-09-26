@@ -46,6 +46,16 @@
  *   ack 미수신(「반영을 확인하지 못했어요」)은 **다른 문구**다 — 전자는 0바이트가 확실하고
  *   후자는 결과를 모른다(Pitfall 9 / T-16-21). 조용히 버튼만 다시 여는 것은 PC-7 위반이다.
  *
+ * ⑧ 「현황 | 로그」 전환 (Phase 21 D-25a · G-21-R3-2 · 스케치 008 ① B 채택)
+ *   앱은 /trading 하단 공용 패널(전략 로그 탭 포함)을 숨기므로 전 종목 전략 흐름을 여기서 본다.
+ *   머리 오른쪽 알약 세그먼트(트랙 `--muted` · 선택 면 `--seg-on-*` · 버튼 26 높이 · 12/600 · 좌우 12)가
+ *   **같은 카드 본문**을 현황 ↔ 로그로 바꾼다 — 기본 = 현황 · 카드가 하나라 /me 세로 순서(D-20)와 계좌 카드
+ *   위치가 그대로다. 그래서 「상따 N · VI …」 요약은 머리 줄에서 현황 본문 첫 줄로 내려왔다(목업 B).
+ *   로그 본문은 `useStrategyLogFeed()`(앱 전역 공급자 · 서버가 말한 것만 · 메모리 전용) 를 작업대 공용 패널과
+ *   같은 `StrategyLog variant="embed"` 문법(11px · 시각 tnum · 종목명 600 · 거부 빨강)으로 그린다.
+ *   목업은 로그 높이 상한을 적지 않았다 — 200 줄 상한이 카드를 끝없이 늘리지 않게 본문 안에서 스크롤한다
+ *   (`LOG_MAX_H`). 선택은 기억하지 않는다(재방문 = 현황 · 기본값 규율).
+ *
  * ⑥ 「발주됨」 배지는 이 화면에서 뜨지 않는다 — **모르는 것을 지어내지 않기 때문이다**
  *   `strategyBadgesOf` 의 `hadOrder` 는 「그 전략의 매수 발주가 나갔다」는 사실이다.
  *   주문 통보(`RelayOrderMsg`)에는 ISIN 이 없어 어느 전략의 주문인지 귀속시킬 수 없고,
@@ -63,7 +73,9 @@ import {
   strategyBadgesOf,
   viBadgeOf,
 } from "@/components/trading/strategy-badge";
+import { StrategyLog } from "@/components/trading/strategy-log";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -74,6 +86,7 @@ import {
 } from "@/components/ui/dialog";
 import { useIsinLabels, type IsinLabel } from "@/lib/isin-labels";
 import { useRelayContext } from "@/lib/relay-provider";
+import { useStrategyLogFeed } from "@/lib/strategy-log-feed";
 import {
   STRATEGIES_DISABLE_ACK_TIMEOUT_MS,
   viAnyRunning,
@@ -332,11 +345,28 @@ export interface StrategyStatusCardProps {
   className?: string;
 }
 
+type StatusView = "status" | "log";
+
+/**
+ * 「현황 | 로그」 알약 세그먼트 버튼(파일 상단 ⑧ · 스케치 008 ① B 수치) — 26 높이 · 좌우 12 · 12/600 ·
+ * 비선택 `--muted-fg` · 선택 `--seg-on-*`. `TabsTrigger` 기본(`flex-1` · `rounded-md` · 14px)을 덮는다.
+ */
+const SEG_TRIGGER =
+  "h-[26px] flex-none rounded-full px-3 py-0 text-[12px] font-semibold text-[var(--muted-fg)] " +
+  "data-[state=active]:bg-[var(--seg-on-bg)] data-[state=active]:text-[var(--seg-on-fg)] data-[state=active]:shadow-[var(--seg-on-shadow)] " +
+  "dark:data-[state=active]:border-transparent";
+
+/** 로그 본문 높이 상한 — 11px × 1.7 줄로 약 16줄. 목업에 값이 없어 정한 값이다(파일 상단 ⑧). */
+const LOG_MAX_H = "max-h-[320px]";
+
 export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
   const { status, limitChasers, viTriggers, accounts, strategiesDisabled, send } =
     useRelayContext();
   const labels = useIsinLabels();
   const snapshotSeen = useSnapshotSeen(status);
+  const logEntries = useStrategyLogFeed();
+  /** 기본 = 현황(D-25a). 기억하지 않는다 — 다시 오면 현황이다. */
+  const [view, setView] = useState<StatusView>("status");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   /** 14 를 보내고 65 를 기다리는 중. 버튼을 잠근다(중복 송신 방지). */
@@ -414,12 +444,30 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
         className,
       )}
     >
-      <h2 className="m-0 mb-2.5 flex flex-wrap items-center gap-2 text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">
-        전략 현황
-        <span className="mono ml-auto text-[length:var(--t-caption)] font-normal text-[var(--muted-fg)]">
-          상따 {chaserCount} · VI {viRunning ? "가동" : "중지"}
-        </span>
-      </h2>
+      <Tabs value={view} onValueChange={(v) => setView(v as StatusView)} className="gap-0">
+      <div className="mb-2.5 flex flex-wrap items-center gap-2">
+        <h2 className="m-0 text-[length:var(--t-sm)] font-semibold text-[var(--fg)]">전략 현황</h2>
+        <TabsList
+          aria-label="전략 현황 보기"
+          className="ml-auto h-auto gap-0.5 rounded-full bg-[var(--muted)] p-0.5"
+        >
+          <TabsTrigger value="status" className={SEG_TRIGGER}>
+            현황
+          </TabsTrigger>
+          <TabsTrigger value="log" className={SEG_TRIGGER}>
+            로그
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="status" className="min-w-0">
+      {/* 목업 B — 요약은 머리 줄이 아니라 현황 본문 첫 줄(12px muted · 행 문법과 같은 들여쓰기 8). */}
+      <p
+        data-slot="strategy-status-summary"
+        className="mono m-0 mb-1 -mt-1 px-2 text-[12px] text-[var(--muted-fg)]"
+      >
+        상따 {chaserCount} · VI {viRunning ? "가동" : "중지"}
+      </p>
 
       {chaserCount === 0 && !snapshotSeen ? (
         /* 스냅샷 수신 전 — 「없음」이 아니라 「아직 모름」이다 (C2 로딩 · 3행 스켈레톤). */
@@ -513,6 +561,21 @@ export function StrategyStatusCard({ className }: StrategyStatusCardProps) {
           </p>
         )}
       </div>
+      </TabsContent>
+
+      <TabsContent value="log" className="min-w-0">
+        {/*
+          전 종목 전략 로그(D-25a) — 작업대 공용 패널과 같은 embed 문법. embed 목록의 좌우 패딩(s-3)이
+          카드 패딩(12)과 겹치지 않게 좌우를 되돌린다 — 목업처럼 시각 열이 카드 본문 왼쪽 끝에 선다.
+        */}
+        <div
+          data-slot="me-strategy-log"
+          className={cn("-mx-3 overflow-y-auto", LOG_MAX_H)}
+        >
+          <StrategyLog entries={logEntries} variant="embed" />
+        </div>
+      </TabsContent>
+      </Tabs>
 
       <DisableAllDialog
         open={dialogOpen}
