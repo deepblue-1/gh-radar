@@ -108,7 +108,7 @@
 
 ### Mobile
 
-- [x] **MOBILE-01**: GH Trade Capacitor Remote-URL 앱 — iOS·iPadOS·Android(`com.ghtrade.app`) WebView 가 운영 웹(`https://trade.jx1.io`)을 로드 · 네이티브 하단 플로팅 탭바(홈·검색·트레이딩·AI·마이) · pull-to-refresh(웹 refresh 훅 → 없으면 reload) · 네이티브 Google 로그인 → Supabase `signInWithIdToken` · 오프라인 폴백 · 테마/상태바 연동 · 브랜드명 GH Trade(노출 문자열만), 웹 쪽 앱 분기·`/search` 탐색 허브·`/me` 계정 카드·safe-area 포함 — Phase 21
+- [ ] **MOBILE-01**: GH Trade Capacitor Remote-URL 앱 — iOS·iPadOS·Android(`com.ghtrade.app`) WebView 가 운영 웹(`https://trade.jx1.io`)을 로드 · 네이티브 하단 플로팅 탭바(홈·검색·트레이딩·AI·마이) · pull-to-refresh(웹 refresh 훅 → 없으면 reload) · 네이티브 Google 로그인 → Supabase `signInWithIdToken` · 오프라인 폴백 · 테마/상태바 연동 · 브랜드명 GH Trade(노출 문자열만), 웹 쪽 앱 분기·`/search` 탐색 허브·`/me` 계정 카드·safe-area 포함 — Phase 21
 
 ## v2 Requirements
 
@@ -191,7 +191,7 @@
 | TRADE-07 | Phase 18 | Pending |
 | TRADE-08 | Phase 18 | Pending |
 | TRADE-09 | Phase 18 | Pending |
-| MOBILE-01 | Phase 21 | Complete |
+| MOBILE-01 | Phase 21 | Pending |
 
 **Coverage:**
 
