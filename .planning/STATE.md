@@ -4,13 +4,13 @@ milestone: v1.0
 current_phase: 18
 current_phase_name: gh-trade 신규 기능 UI — 통합 트레이딩 작업대(상따+VI+돌파감지) · 예약/시간외종가 발주 · NXT VI
 status: planning
-stopped_at: Phase 21 complete, ready to plan Phase 18
-last_updated: "2026-09-26T14:34:37.231Z"
+stopped_at: Phase 22 context gathered
+last_updated: "2026-09-26T15:28:40.007Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 21 complete, transitioned to Phase 18
-state_head: 6c6748bc2ebf4fe6478bf984483d0d679409255e
+state_head: dc019b4b898cbfe578b16a2455a09940ef439b72
 progress:
-  total_phases: 30
+  total_phases: 31
   completed_phases: 5
   total_plans: 290
   completed_plans: 274
@@ -348,10 +348,10 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/22-gh-trade-ios-testflight-android-play/22-CONTEXT.md
 
-Last session: 2026-09-26T13:10:03.008Z
-Stopped at: Phase 21 complete, ready to plan Phase 18
+Last session: 2026-09-26T15:28:39.092Z
+Stopped at: Phase 22 context gathered
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
