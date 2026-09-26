@@ -41,6 +41,7 @@ vi.mock("@/lib/orders-api", async (importOriginal) => {
 });
 
 import { ApiClientError } from "@/lib/api";
+import { QUERY_CACHE_MAX_AGE_MS, clearQueryCache } from "@/lib/query-cache";
 import { EMPTY_RELAY_VALUE } from "@/lib/relay-provider";
 
 import { TodayOrdersCard } from "../today-orders-card";
@@ -135,6 +136,8 @@ function heldAccountStates(): ReadonlyMap<string, RelayAccountState> {
 const listRows = () => document.querySelectorAll('[data-slot="today-order-row"]');
 
 beforeEach(() => {
+  // D-32 재방문 시드는 모듈 수준 캐시다 — 테스트 사이에 새지 않게 비운다.
+  clearQueryCache();
   mockRelay = { ...EMPTY_RELAY_VALUE };
   fetchTodayOrdersMock.mockReset();
   fetchTodayOrdersMock.mockResolvedValue([]);
@@ -336,6 +339,84 @@ const AUTO_SELL_FILLS: JournalOrderRow[] = [
     createdAt: "2026-09-10T00:10:00.000Z",
   }),
 ];
+
+describe("TodayOrdersCard — D-32 재방문 시드 (G-21-R3-11)", () => {
+  const pending = () => new Promise<JournalOrderRow[]>(() => {});
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("재마운트 첫 렌더에 이전 행이 보이고 「불러오는 중」 이 없다 — 요청은 다시 나간다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    const first = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+    first.unmount();
+
+    fetchTodayOrdersMock.mockReturnValue(pending());
+    render(<TodayOrdersCard />);
+    expect(listRows()).toHaveLength(3);
+    expect(screen.queryByTestId("today-orders-loading")).not.toBeInTheDocument();
+    expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("재마운트 뒤 조용한 재조회 결과가 캐시 행을 교체한다", async () => {
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    const first = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+    first.unmount();
+
+    fetchTodayOrdersMock.mockResolvedValue([THREE_ORDERS[0]!]);
+    render(<TodayOrdersCard />);
+    expect(listRows()).toHaveLength(3);
+    await waitFor(() => expect(listRows()).toHaveLength(1));
+  });
+
+  it("실패는 캐시를 쓰지 않는다 — 재마운트는 종전 로딩 표시", async () => {
+    fetchTodayOrdersMock.mockRejectedValue(
+      new ApiClientError({ code: "HTTP_500", message: "boom", status: 500 }),
+    );
+    const first = render(<TodayOrdersCard />);
+    await waitFor(() => expect(screen.getByTestId("today-orders-error")).toBeInTheDocument());
+    first.unmount();
+
+    fetchTodayOrdersMock.mockReturnValue(pending());
+    render(<TodayOrdersCard />);
+    expect(screen.getByTestId("today-orders-loading")).toBeInTheDocument();
+  });
+
+  it("KST 날짜가 바뀌면 어제 캐시를 쓰지 않는다", async () => {
+    // KST 2026-09-25 23:59 → 2026-09-26 00:01 (UTC+9). Date 만 가짜로 — waitFor 타이머는 실물.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T14:59:00Z"));
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    const first = render(<TodayOrdersCard />);
+    await waitFor(() => expect(fetchTodayOrdersMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.queryByTestId("today-orders-loading")).not.toBeInTheDocument(),
+    );
+    first.unmount();
+
+    vi.setSystemTime(new Date("2026-09-25T15:01:00Z"));
+    fetchTodayOrdersMock.mockReturnValue(pending());
+    render(<TodayOrdersCard />);
+    expect(screen.getByTestId("today-orders-loading")).toBeInTheDocument();
+  });
+
+  it("5분이 지난 캐시는 쓰지 않는다 — 종전 로딩 표시", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t0 = Date.now();
+    fetchTodayOrdersMock.mockResolvedValue(THREE_ORDERS);
+    const first = render(<TodayOrdersCard />);
+    await waitFor(() => expect(listRows()).toHaveLength(3));
+    first.unmount();
+
+    vi.setSystemTime(t0 + QUERY_CACHE_MAX_AGE_MS + 1);
+    fetchTodayOrdersMock.mockReturnValue(pending());
+    render(<TodayOrdersCard />);
+    expect(screen.getByTestId("today-orders-loading")).toBeInTheDocument();
+  });
+});
 
 describe("TodayOrdersCard — 통보 묶기 (17-10 / D-16)", () => {
   it("⑦-1 같은 자동주문의 조각 매도 체결 3건이 한 줄로 그려진다", async () => {

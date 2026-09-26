@@ -3,6 +3,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ConversationRow } from '@gh-radar/shared';
 
+import { clearQueryCache } from '@/lib/query-cache';
+
 import { ConversationList } from '../conversation-list';
 import { DeleteConversationDialog } from '../delete-conversation-dialog';
 
@@ -32,6 +34,8 @@ function makeConversation(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // D-32 재방문 시드는 모듈 수준 캐시다 — 테스트 사이에 새지 않게 비운다.
+  clearQueryCache();
   listConversations.mockResolvedValue([]);
   deleteConversation.mockResolvedValue(undefined);
 });
@@ -106,6 +110,79 @@ describe('ConversationList', () => {
     await waitFor(() =>
       expect(screen.getByText('이 대화를 삭제할까요?')).toBeInTheDocument(),
     );
+  });
+});
+
+describe('ConversationList — D-32 재방문 시드 (G-21-R3-11)', () => {
+  const ROWS = [
+    makeConversation('old', { title: '오래된 대화', updatedAt: '2026-07-01T00:00:00Z' }),
+    makeConversation('new', {
+      title: '최신 대화',
+      stockCode: '005930',
+      updatedAt: '2026-07-02T00:00:00Z',
+    }),
+  ];
+  const titles = () =>
+    within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.textContent ?? '');
+
+  it('재마운트 첫 렌더에 이전 목록(정렬 · 필터 옵션 포함)이 보이고, 요청 뒤 교체된다', async () => {
+    listConversations.mockResolvedValue(ROWS);
+    const first = render(
+      <ConversationList activeId={null} onSelect={vi.fn()} onNew={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByText('최신 대화')).toBeInTheDocument());
+    first.unmount();
+
+    let resolve!: (rows: ConversationRow[]) => void;
+    listConversations.mockReturnValue(new Promise<ConversationRow[]>((r) => (resolve = r)));
+    render(<ConversationList activeId={null} onSelect={vi.fn()} onNew={vi.fn()} />);
+
+    // 첫 렌더 — 요청이 끝나기 전에 이미 정렬된 이전 목록이 서 있다.
+    const before = titles();
+    expect(before).toHaveLength(2);
+    expect(before[0]).toContain('최신 대화');
+    expect(screen.getByRole('option', { name: '005930' })).toBeInTheDocument();
+    expect(listConversations).toHaveBeenCalledTimes(2);
+
+    resolve([makeConversation('fresh', { title: '새로 받은 대화' })]);
+    await waitFor(() => expect(screen.getByText('새로 받은 대화')).toBeInTheDocument());
+    expect(screen.queryByText('최신 대화')).toBeNull();
+  });
+
+  it('필터를 바꾸면 그 키의 캐시가 있으면 먼저 보여 준다', async () => {
+    listConversations.mockImplementation(async (code?: string) =>
+      code === '005930' ? [ROWS[1]!] : ROWS,
+    );
+    const user = userEvent.setup();
+    render(<ConversationList activeId={null} onSelect={vi.fn()} onNew={vi.fn()} />);
+    await waitFor(() => expect(titles()).toHaveLength(2));
+
+    await user.selectOptions(screen.getByRole('combobox'), '005930');
+    await waitFor(() => expect(titles()).toHaveLength(1));
+
+    // 전체로 돌아갈 때 조회가 멈춰 있어도 전체 캐시가 바로 선다.
+    listConversations.mockImplementation(() => new Promise(() => {}));
+    await user.selectOptions(screen.getByRole('combobox'), 'all');
+    expect(titles()).toHaveLength(2);
+  });
+
+  it('지운 대화는 재방문 시드로 되살아나지 않는다', async () => {
+    listConversations.mockResolvedValue(ROWS);
+    const user = userEvent.setup();
+    const first = render(
+      <ConversationList activeId={null} onSelect={vi.fn()} onNew={vi.fn()} />,
+    );
+    await waitFor(() => expect(titles()).toHaveLength(2));
+
+    await user.click(screen.getAllByRole('button', { name: '대화 삭제' })[0]!);
+    await user.click(await screen.findByRole('button', { name: '삭제' }));
+    await waitFor(() => expect(titles()).toHaveLength(1));
+    first.unmount();
+
+    listConversations.mockReturnValue(new Promise(() => {}));
+    render(<ConversationList activeId={null} onSelect={vi.fn()} onNew={vi.fn()} />);
+    expect(titles()).toHaveLength(1);
+    expect(screen.queryByText('최신 대화')).toBeNull();
   });
 });
 

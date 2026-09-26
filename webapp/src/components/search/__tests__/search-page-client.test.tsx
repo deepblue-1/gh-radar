@@ -52,6 +52,7 @@ vi.mock('@/lib/native/use-native-refresh', () => ({
   },
 }));
 
+import { QUERY_CACHE_MAX_AGE_MS, clearQueryCache } from '@/lib/query-cache';
 import { RECENT_SEARCH_KEY, readRecentSearches } from '@/lib/recent-search';
 import { SearchPageClient } from '../search-page-client';
 
@@ -109,6 +110,8 @@ async function debounce() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // D-32 재방문 시드는 모듈 수준 캐시다 — 테스트 사이에 새지 않게 비운다.
+  clearQueryCache();
   window.localStorage.clear();
   pushSpy.mockReset();
   searchStocksMock.mockReset();
@@ -230,6 +233,74 @@ describe('SearchPageClient — 허브 (입력 빈칸)', () => {
     });
     expect(fetchScannerStocksMock).toHaveBeenCalledTimes(2);
     expect(fetchSystemThemesMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('SearchPageClient — D-32 재방문 시드 (G-21-R3-11)', () => {
+  const previewRows = () =>
+    within(screen.getByRole('region', { name: '지금 상승률 상위' })).queryAllByRole('listitem');
+  const skeletons = () => document.querySelectorAll('[data-slot="skeleton"]');
+
+  it('첫 마운트가 성공하면 재마운트 첫 렌더부터 미리보기 · 타일 수치가 서고 스켈레톤이 없다 — 요청은 다시 나간다', async () => {
+    const first = await renderPage();
+    expect(previewRows()).toHaveLength(5);
+    first.unmount();
+
+    // 두 번째 조회는 아직 안 끝났다 — 첫 렌더(flush 전)가 캐시만으로 서는지 본다.
+    fetchScannerStocksMock.mockReturnValue(new Promise(() => {}));
+    fetchSystemThemesMock.mockReturnValue(new Promise(() => {}));
+    render(<SearchPageClient />);
+
+    expect(skeletons()).toHaveLength(0);
+    expect(previewRows()).toHaveLength(5);
+    expect(previewRows()[0]).toHaveTextContent('급등1');
+    expect(screen.getByRole('link', { name: /상승률 상위/ })).toHaveTextContent('25%↑ 3종목');
+    expect(screen.getByRole('link', { name: /테마/ })).toHaveTextContent('오늘 4개');
+    expect(fetchScannerStocksMock).toHaveBeenCalledTimes(2);
+    expect(fetchSystemThemesMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('재마운트 뒤 조용한 재조회 결과가 캐시 값을 교체한다', async () => {
+    const first = await renderPage();
+    first.unmount();
+
+    fetchScannerStocksMock.mockResolvedValue({
+      stocks: [stock('200000', '새급등', 40)],
+      lastUpdatedAt: null,
+    });
+    fetchSystemThemesMock.mockResolvedValue([{ id: 'x' }]);
+    render(<SearchPageClient />);
+    expect(previewRows()[0]).toHaveTextContent('급등1');
+    await flush();
+    expect(previewRows()).toHaveLength(1);
+    expect(previewRows()[0]).toHaveTextContent('새급등');
+    expect(screen.getByRole('link', { name: /테마/ })).toHaveTextContent('오늘 1개');
+  });
+
+  it('부분 실패(테마 실패)는 캐시를 쓰지 않는다 — 재마운트는 종전 로딩 표시', async () => {
+    fetchSystemThemesMock.mockRejectedValue(new Error('boom'));
+    const first = await renderPage();
+    first.unmount();
+
+    fetchScannerStocksMock.mockReturnValue(new Promise(() => {}));
+    fetchSystemThemesMock.mockReturnValue(new Promise(() => {}));
+    render(<SearchPageClient />);
+    expect(skeletons().length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /상승률 상위/ })).toHaveTextContent('…');
+  });
+
+  it('5분이 지난 캐시는 쓰지 않는다 — 종전 로딩 표시', async () => {
+    const first = await renderPage();
+    first.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(QUERY_CACHE_MAX_AGE_MS + 1);
+    });
+
+    fetchScannerStocksMock.mockReturnValue(new Promise(() => {}));
+    fetchSystemThemesMock.mockReturnValue(new Promise(() => {}));
+    render(<SearchPageClient />);
+    expect(skeletons().length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /테마/ })).toHaveTextContent('…');
   });
 });
 
