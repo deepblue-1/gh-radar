@@ -1,8 +1,8 @@
 /**
  * 거래소 선택지 판정 (quick-260923-pq2) — NXT 에 상장되지 않은 종목은 세그먼트에서 NXT 를 숨긴다.
  *
- * 두 표면(작업대 카드 헤더 · 종목상세 호가 상태줄)이 이 함수 하나를 쓴다 — 판정이 두 벌이면 같은
- * 종목이 화면마다 다르게 보인다.
+ * 작업대 카드 헤더가 이 함수를 쓴다(종목상세 호가 상태줄은 Phase 21 D-31 로 호가주문 탭과 함께 사라졌다).
+ * 판정을 한 곳에 둬야 표면이 늘어도 같은 종목이 화면마다 다르게 보이지 않는다.
  *
  * 원천은 relay `nxt.snap`(게이트웨이 종목마스터 57 의 `nxt_tradable`)이 채운 ISIN 집합이다.
  *   - 모름(`null`/`undefined` — 구 relay · 57 미적재 · e2e 스텁) → 둘 다. 모름을 「미거래」로
@@ -18,9 +18,6 @@ import type { RelayExchange } from '@gh-radar/shared';
 
 export const EXCHANGE_CHOICES_ALL: readonly RelayExchange[] = ['KRX', 'NXT'];
 export const EXCHANGE_CHOICES_KRX_ONLY: readonly RelayExchange[] = ['KRX'];
-
-/** 단일 「KRX」 라벨의 `title`. 테스트가 같은 상수를 읽는다. */
-export const KRX_ONLY_TITLE = 'NXT 에서 거래되지 않는 종목이에요';
 
 export function exchangeChoicesOf(
   isin: string,

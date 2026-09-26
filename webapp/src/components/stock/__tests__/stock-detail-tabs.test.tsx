@@ -6,19 +6,28 @@ import { StockDetailTabs } from '../stock-detail-tabs';
 /*
   260913-v2e — 탭 전환이 네이티브 `window.history.pushState` 로 바뀌었다(RSC 서버 왕복 제거).
 
-  ★ 회귀 잠금: 아래 `next/navigation` 목은 **검색 파라미터 훅 하나만** 내보낸다.
-    탭 셸이 라우터 훅을 다시 부르면 vitest 가 "No export defined on mock" 로 이 파일의
-    모든 테스트를 실패시킨다 — 라우터 내비게이션(서버 왕복)으로 되돌아가는 것을 막는 장치다.
-    목에 라우터 훅을 추가해 이 실패를 "고치지" 마라.
+  ★ 회귀 잠금: 탭 전환은 라우터 내비게이션(서버 왕복)으로 되돌아가면 안 된다.
+    Phase 21 D-31 부터 탭 셸은 라우터를 **옛 `?tab=orderbook` 딥링크를 /trading 으로 옮길 때만** 쓴다(페이지 밖
+    이동). 그래서 목의 라우터 메서드는 전부 스파이이고, 탭 클릭 테스트가 `push`/`replace` 0회를 단언한다
+    (`expectNoRouterNav`). 탭 전환 경로에서 라우터를 부르면 그 단언이 실패한다 — 스파이를 지워 「고치지」 마라.
 
   pushState 스파이는 call-through 다 — 중복 가드가 실시간 `window.location` 을 읽으므로
   no-op 목이면 URL 이 안 바뀌어 가드 검증이 무의미해진다.
 */
 let mockSearchParams = new URLSearchParams();
+const { mockRouter } = vi.hoisted(() => ({
+  mockRouter: { push: vi.fn(), replace: vi.fn() },
+}));
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
+  useRouter: () => mockRouter,
 }));
+
+function expectNoRouterNav() {
+  expect(mockRouter.push).not.toHaveBeenCalled();
+  expect(mockRouter.replace).not.toHaveBeenCalled();
+}
 
 function renderTabs({ tradable = true }: { tradable?: boolean } = {}) {
   return render(
@@ -26,7 +35,6 @@ function renderTabs({ tradable = true }: { tradable?: boolean } = {}) {
       code="005930"
       tradable={tradable}
       chart={<div>차트 패널</div>}
-      orderbook={<div>호가주문 패널</div>}
       info={<div>종목정보 패널</div>}
       news={<div>뉴스토론 패널</div>}
     />,
@@ -43,6 +51,8 @@ let pushSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   window.history.replaceState(null, '', '/stocks/005930');
   mockSearchParams = new URLSearchParams();
+  mockRouter.push.mockClear();
+  mockRouter.replace.mockClear();
   pushSpy = vi.spyOn(window.history, 'pushState');
 });
 
@@ -52,25 +62,33 @@ afterEach(() => {
 });
 
 describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
-  it('Test 1 — 클릭 3회 = pushState 3회(쿼리만 쓰는 상대 URL), pathname 유지', async () => {
+  it('Test 1 — 클릭 3회 = pushState 3회(쿼리만 쓰는 상대 URL), pathname 유지 · 라우터 0회', async () => {
     const user = userEvent.setup();
     renderTabs();
 
-    await user.click(tab('호가주문'));
     await user.click(tab('종목정보'));
     await user.click(tab('뉴스토론'));
+    await user.click(tab('차트'));
 
     expect(pushSpy).toHaveBeenCalledTimes(3);
-    expect(pushSpy).toHaveBeenNthCalledWith(1, null, '', '?tab=orderbook');
-    expect(pushSpy).toHaveBeenNthCalledWith(2, null, '', '?tab=info');
-    expect(pushSpy).toHaveBeenNthCalledWith(3, null, '', '?tab=news');
+    expect(pushSpy).toHaveBeenNthCalledWith(1, null, '', '?tab=info');
+    expect(pushSpy).toHaveBeenNthCalledWith(2, null, '', '?tab=news');
+    expect(pushSpy).toHaveBeenNthCalledWith(3, null, '', '?tab=chart');
     expect(window.location.pathname).toBe('/stocks/005930');
-    expect(window.location.search).toBe('?tab=news');
+    expect(window.location.search).toBe('?tab=chart');
+    expectNoRouterNav();
+  });
+
+  it('Test 1b — 탭은 차트 · 종목정보 · 뉴스토론 3개다 (D-31 — 호가주문 탭 제거)', () => {
+    renderTabs();
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['차트', '종목정보', '뉴스토론']);
+    expect(screen.queryByRole('tab', { name: '호가주문' })).toBeNull();
+    expect(screen.queryByTestId('stock-tab-panel-orderbook')).toBeNull();
   });
 
   it('Test 2 — mousedown → focus 이중 호출(Chrome 순서)에도 기록은 1개 (T3)', () => {
     renderTabs();
-    const trigger = tab('호가주문');
+    const trigger = tab('종목정보');
 
     fireEvent.mouseDown(trigger, { button: 0 });
     act(() => {
@@ -78,7 +96,7 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
     });
 
     expect(pushSpy).toHaveBeenCalledTimes(1);
-    expect(window.location.search).toBe('?tab=orderbook');
+    expect(window.location.search).toBe('?tab=info');
   });
 
   it('Test 3 — 탭 전환 시 탭 바 기준 스크롤({ block: "start" })은 유지된다', async () => {
@@ -94,36 +112,56 @@ describe('StockDetailTabs — pushState 탭 전환 (260913-v2e)', () => {
   it('Test 5 — 한 번 연 차트·종목정보·뉴스토론 패널은 숨겨질 뿐 남아 있다(재마운트·재조회 없음)', () => {
     const view = renderTabs();
     const panelOf = (text: string) => screen.getByText(text).closest('[role="tabpanel"]');
+    // 아직 열지 않은 탭은 마운트하지 않는다(첫 진입 비용 그대로).
+    expect(screen.queryByText('뉴스토론 패널')).toBeNull();
 
     // 차트(기본) → 종목정보 → 뉴스토론 순으로 연다. useSearchParams 목은 URL 을 따라가지 않으므로
     // 활성값 변화를 rerender 로 흉내 낸다.
     mockSearchParams = new URLSearchParams('tab=info');
     view.rerender(
-      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
     );
     mockSearchParams = new URLSearchParams('tab=news');
     view.rerender(
-      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
+      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
     );
 
     expect(panelOf('차트 패널')).toHaveAttribute('data-state', 'inactive');
     expect(panelOf('종목정보 패널')).toHaveAttribute('data-state', 'inactive');
     expect(panelOf('뉴스토론 패널')).toHaveAttribute('data-state', 'active');
-    // 아직 열지 않은 호가주문은 마운트하지 않는다.
-    expect(screen.queryByText('호가주문 패널')).toBeNull();
   });
 
-  it('Test 6 — 호가주문은 떠나면 언마운트된다(실시간 구독을 탭 밖에서 붙잡지 않음)', () => {
+  it('Test 6 — 옛 딥링크 `?tab=orderbook` + 매매 가능 → router.replace(/trading?code=) 한 번 · 렌더는 차트 (D-31)', () => {
     mockSearchParams = new URLSearchParams('tab=orderbook');
+    window.history.replaceState(null, '', '/stocks/005930?tab=orderbook');
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
     const view = renderTabs();
-    expect(screen.getByText('호가주문 패널')).toBeInTheDocument();
 
-    mockSearchParams = new URLSearchParams('tab=chart');
-    view.rerender(
-      <StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} orderbook={<div>호가주문 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />,
-    );
-    expect(screen.queryByText('호가주문 패널')).toBeNull();
-    expect(screen.getByText('차트 패널')).toBeInTheDocument();
+    expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+    expect(mockRouter.replace).toHaveBeenCalledWith('/trading?code=005930');
+    expect(mockRouter.push).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(tab('차트')).toHaveAttribute('aria-selected', 'true');
+
+    // 다시 렌더돼도(같은 검색 파라미터) 한 번뿐이다.
+    view.rerender(<StockDetailTabs code="005930" tradable chart={<div>차트 패널</div>} info={<div>종목정보 패널</div>} news={<div>뉴스토론 패널</div>} />);
+    expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('Test 6b — 옛 딥링크 `?tab=orderbook` + 매매 불가 → URL 만 ?tab=chart(replaceState) · 이동 없음 (D-31)', () => {
+    mockSearchParams = new URLSearchParams('tab=orderbook');
+    window.history.replaceState(null, '', '/stocks/005930?tab=orderbook');
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    renderTabs({ tradable: false });
+
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).toHaveBeenCalledWith(null, '', '?tab=chart');
+    expectNoRouterNav();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/stocks/005930');
+    expect(window.location.search).toBe('?tab=chart');
+    expect(tab('차트')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('Test 4 — 이미 활성인 탭을 다시 누르면 pushState·스크롤 0회', async () => {
@@ -225,12 +263,14 @@ describe('StockDetailTabs — 폰 「트레이딩」 CTA (260924-vj1 · Phase 21
     expect(container.querySelector('[data-order-cta="true"]')).toBeNull();
   });
 
-  it('Test 8 — 호가주문 탭에서는 CTA 가 언마운트된다(더티 액션 바와 동시 노출 없음)', () => {
-    mockSearchParams = new URLSearchParams('tab=orderbook');
-    const { container } = renderTabs();
-
-    expect(container.querySelector('[data-slot="detail-order-cta-bar"]')).toBeNull();
-    expect(screen.queryByRole('link', { name: '트레이딩' })).toBeNull();
+  it('Test 8 — CTA 는 모든 탭에서 보인다(D-31 — CTA 를 숨기던 호가주문 탭이 사라졌다)', () => {
+    for (const t of ['chart', 'info', 'news']) {
+      mockSearchParams = new URLSearchParams(`tab=${t}`);
+      const { container, unmount } = renderTabs();
+      expect(container.querySelector('[data-slot="detail-order-cta-bar"]')).not.toBeNull();
+      expect(container.querySelector('[data-order-cta="true"]')).not.toBeNull();
+      unmount();
+    }
   });
 });
 

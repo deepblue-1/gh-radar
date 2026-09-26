@@ -7,10 +7,12 @@ import { FIXTURE_NULL_PRICE } from '../fixtures/stocks';
 import { E2E_ISIN, withLocalRelay, type LocalRelay } from '../fixtures/relay';
 
 /**
- * Phase 15 Plan 11 — 종목상세 4탭 재구성 회귀 E2E (RELAY-01 · D-02a · UI-SPEC T1~T7).
+ * Phase 15 Plan 11 — 종목상세 탭 재구성 회귀 E2E (RELAY-01 · D-02a · UI-SPEC T1~T7).
+ * Phase 21 D-31 — 호가주문 탭 제거로 3탭. 옛 `?tab=orderbook` 딥링크는 매매 가능 종목이면 `/trading?code=`
+ * (아래 로컬 relay describe), 아니면 차트(test 5)로 간다.
  *
  * 스코프:
- *   - 상단 4탭(`차트`/`호가주문`/`종목정보`/`뉴스토론`)이 role="tab" 으로 존재 (T2)
+ *   - 상단 3탭(`차트`/`종목정보`/`뉴스토론`)이 role="tab" 으로 존재 (T2)
  *   - 탭 전환이 서버 요청 없이(네이티브 pushState) `?tab=` 에 반영되고 딥링크·뒤로가기가 동작 (T3)
  *   - test 10: 탭 전환이 `tab=` 을 담은 RSC 요청을 0건 만든다 — 지연 해소 증명 (260913-v2e)
  *   - **기존 5개 phase 의 섹션이 탭 안에서 그대로 렌더된다** — 재배치가 기능을 잃지
@@ -80,17 +82,19 @@ async function waitForHero(page: Page): Promise<void> {
   });
 }
 
-test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
-  test('1. 진입 시 히어로 + 4탭이 tablist 로 렌더된다 (T2)', async ({ page }) => {
+test.describe('Phase 15 Plan 11 — 종목상세 3탭 (RELAY-01 · Phase 21 D-31)', () => {
+  test('1. 진입 시 히어로 + 3탭이 tablist 로 렌더된다 — 호가주문 탭 없음 (T2 · D-31)', async ({ page }) => {
     await setupStockDetail(page);
     await page.goto(`/stocks/${STOCK_CODE}`);
     await waitForHero(page);
 
-    for (const label of ['차트', '호가주문', '종목정보', '뉴스토론']) {
+    for (const label of ['차트', '종목정보', '뉴스토론']) {
       await expect(
         page.getByRole('tab', { name: label, exact: true }),
       ).toBeVisible();
     }
+    await expect(page.getByRole('tablist', { name: '종목 정보 탭' }).getByRole('tab')).toHaveCount(3);
+    await expect(page.getByRole('tab', { name: '호가주문', exact: true })).toHaveCount(0);
   });
 
   test('2. 기본 활성 탭은 `차트` 이고 차트 섹션이 보인다 (T3 기본값)', async ({
@@ -150,20 +154,21 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
     await expect(page.getByTestId('stock-discussion-section')).toBeVisible();
   });
 
-  test('5. `호가주문` 탭 → ?tab=orderbook + 호가주문 패널이 항상 렌더된다 (UI-SPEC C1)', async ({
+  test('5. 옛 딥링크 `?tab=orderbook` + 매매 불가 종목(isin 없음) → URL 이 ?tab=chart 로 바뀌고 차트 탭이 활성 (D-31)', async ({
     page,
   }) => {
     await setupStockDetail(page);
-    await page.goto(`/stocks/${STOCK_CODE}`);
-    await waitForHero(page);
+    await mockStockApi(page, { detailByCode: { [FIXTURE_NULL_PRICE.code]: FIXTURE_NULL_PRICE } });
+    await page.goto(`/stocks/${FIXTURE_NULL_PRICE.code}?tab=orderbook`);
+    await expect(page.getByRole('heading', { name: FIXTURE_NULL_PRICE.name })).toBeVisible({
+      timeout: 15_000,
+    });
 
-    await page.getByRole('tab', { name: '호가주문', exact: true }).click();
-    await expect(page).toHaveURL(/\?tab=orderbook$/);
-
-    await expect(page.getByTestId('stock-tab-panel-orderbook')).toBeVisible();
-    // 15-13 이 placeholder 를 StockOrderbookSection 으로 교체했다. 연결 상태와 무관하게
-    // 섹션 자체는 **항상 렌더**된다(UI-SPEC C1 — 숨기지 않는다).
-    await expect(page.getByTestId('stock-orderbook-section')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/stocks/${FIXTURE_NULL_PRICE.code}\\?tab=chart$`));
+    await expect(
+      page.getByRole('tab', { name: '차트', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('stock-tab-panel-orderbook')).toHaveCount(0);
   });
 
   test('6. 딥링크 `?tab=info` 진입 시 종목정보 탭이 활성 상태다 (T3)', async ({
@@ -227,7 +232,7 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
     const refresh = page.getByRole('button', { name: '새로고침', exact: true });
     await expect(refresh).toBeVisible();
 
-    for (const label of ['호가주문', '종목정보', '뉴스토론']) {
+    for (const label of ['종목정보', '뉴스토론', '차트']) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       await expect(
         page.getByRole('heading', { name: '삼성전자' }),
@@ -255,12 +260,12 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
       }
     });
 
-    for (const label of ['종목정보', '뉴스토론', '호가주문']) {
+    for (const label of ['종목정보', '뉴스토론', '차트']) {
       const trigger = page.getByRole('tab', { name: label, exact: true });
       await trigger.click();
       await expect(trigger).toHaveAttribute('aria-selected', 'true');
     }
-    await expect(page).toHaveURL(/\?tab=orderbook$/);
+    await expect(page).toHaveURL(/\?tab=chart$/);
 
     // 배열 자체를 비교해 실패 시 모인 URL 목록이 보이게 한다.
     expect(rscTabRequests).toEqual([]);
@@ -321,7 +326,7 @@ test.describe('Phase 15 Plan 11 — 종목상세 4탭 (RELAY-01)', () => {
  * 작업대는 relay 인증·배치 복원 뒤에 착지하므로 이 describe 만 로컬 relay(8090 고정 · 스텁 게이트웨이)를
  * 띄운다 — 규약은 `trading-workbench.spec.ts` ④⑤ 와 같다(실서버에 붙지 않는다).
  */
-test.describe('Phase 21 G-21-R3-9 — 「트레이딩」 → /trading?code= (로컬 relay + 스텁 게이트웨이)', () => {
+test.describe('Phase 21 G-21-R3-9 · G-21-R3-10 — 「트레이딩」 · 옛 호가 딥링크 → /trading?code= (로컬 relay + 스텁 게이트웨이)', () => {
   test.describe.configure({ mode: 'serial' });
   let relay: LocalRelay;
 
@@ -400,5 +405,19 @@ test.describe('Phase 21 G-21-R3-9 — 「트레이딩」 → /trading?code= (로
       await expect(page.locator('[data-slot="detail-order-cta-bar"]')).toHaveCount(0);
       await expect(page.locator('[data-order-cta="true"]')).toHaveCount(0);
     }
+  });
+
+  test('G-21-R3-10 옛 딥링크 `?tab=orderbook` + 매매 가능 종목 → /trading 에 그 종목 카드가 펼쳐져 있다 · 뒤로가기는 종목상세 호가 탭으로 돌아오지 않는다 (D-31)', async ({
+    page,
+  }) => {
+    await setupStockDetail(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/scanner');
+    await page.goto(`/stocks/${STOCK_CODE}?tab=orderbook`);
+    await expectLandedOnCard(page);
+
+    // router.replace — 호가 탭 URL 이 기록에 남지 않아 뒤로가기가 그 전 화면으로 간다.
+    await page.goBack();
+    await expect(page).not.toHaveURL(/tab=orderbook/);
   });
 });

@@ -26,7 +26,6 @@ import { StockThemeChips } from '@/components/theme/theme-chips';
 import { StockComovementSection } from './stock-comovement-section';
 import { StockLimitUpSection } from './stock-limit-up-section';
 import { isPickable } from '@/components/trading/workbench/stock-add-bar';
-import { StockOrderbookSection } from './stock-orderbook-section';
 import { DetailBands } from './detail-bands';
 
 const KST_TIME_FMT = new Intl.DateTimeFormat('ko-KR', {
@@ -51,14 +50,15 @@ export interface StockDetailClientProps {
  *   기존 stock 이 있다면 stale-but-visible)
  * - AbortController 로 이전 요청 취소 + unmount cleanup
  *
- * Phase 15 Plan 11 (D-02a · UI-SPEC T1/T7) — 4탭 재구성.
- * 기존 7개 섹션은 **내용을 전혀 바꾸지 않고** `StockDetailTabs` 패널로 재배치만 했다.
+ * Phase 15 Plan 11 (D-02a · UI-SPEC T1/T7) — 탭 재구성. Phase 21 D-31 로 호가주문 탭을 지워 3탭(D-31)
+ * (차트 · 종목정보 · 뉴스토론)이다 — 주문은 /trading 작업대 카드에서 하고, 여기서는 「트레이딩」 링크(D-30)로 간다.
+ * 기존 섹션은 **내용을 전혀 바꾸지 않고** `StockDetailTabs` 패널로 재배치만 했다.
  * 히어로와 갱신시각·새로고침 행은 탭 밖 공통 영역에 남는다(T1).
  */
 export function StockDetailClient({ code }: StockDetailClientProps) {
   const { setStockContext } = useChat();
-  // Phase 15 Plan 13 — 호가창이 `isin`(DMA 구독 키)을 필요로 하므로 응답 계약을
-  // `StockDetailResponse`(= Stock + upperLimitProximity + isin)로 좁혀 받는다.
+  // 응답 계약은 `StockDetailResponse`(= Stock + upperLimitProximity + isin) — `isin` 은 매매 가능 판정
+  // (`isPickable` · D-30 「트레이딩」 링크)이 읽는다.
   const [stock, setStock] = useState<StockDetailResponse | undefined>(undefined);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -208,22 +208,6 @@ export function StockDetailClient({ code }: StockDetailClientProps) {
                 refreshSignal={isRefreshing}
               />
             </DetailBands>
-          }
-          orderbook={
-            /*
-              Phase 15 Plan 13 — 15-11 이 남긴 placeholder 를 실제 호가창으로 교체.
-              `isin` 이 null 인 종목(ETP 등 게이트웨이 비대상)에서도 섹션을 숨기지 않고
-              권한 없음 게이트를 그린다(UI-SPEC C1). 기준가는 스냅샷의 `현재가 - 전일대비`
-              이며, 실시간 `quote.base` 가 도착하면 섹션 안에서 그쪽이 우선한다.
-            */
-            <StockOrderbookSection
-              code={stock.code}
-              name={stock.name}
-              isin={stock.isin}
-              basePrice={stock.price - stock.changeAmount}
-              upperLimit={stock.upperLimit}
-              lowerLimit={stock.lowerLimit}
-            />
           }
           info={
             /* 토스 B — 섹션마다 풀폭 평면 블록 + 12px `--band` 띠 (detail-bands.tsx) */

@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
@@ -12,35 +12,36 @@ import { exitNewsView, toNewsView } from './news-view';
  * StockDetailTabs — Phase 15 Plan 11 · RELAY-01.
  *
  * 무엇:
- *   종목상세 `/stocks/[code]` 의 상단 4탭 셸. 히어로·갱신시각/새로고침 행(탭 밖 공통 영역)
- *   아래에서 `차트 · 호가주문 · 종목정보 · 뉴스토론` 패널을 전환하고, 활성 탭을 `?tab=` 으로
+ *   종목상세 `/stocks/[code]` 의 상단 3탭 셸(Phase 21 D-31 — 호가주문 탭 제거). 히어로·갱신시각/새로고침
+ *   행(탭 밖 공통 영역) 아래에서 `차트 · 종목정보 · 뉴스토론` 패널을 전환하고, 활성 탭을 `?tab=` 으로
  *   URL 에 반영한다. 패널 내용은 전부 상위(`stock-detail-client`)에서 ReactNode 로 주입받는다.
  *
  * 계약 (D-02a · 15-UI-SPEC §확정 결정 T1~T7):
  *   T1 히어로·갱신행은 탭 밖 — 이 셸은 탭 바와 패널만 소유한다
  *   T2 탭 순서·라벨 고정. 라벨에 띄어쓰기 없음(모바일 390px 한 줄 배치)
- *   T3 `?tab=chart|orderbook|info|news`, 기본 `chart`, `window.history.pushState`(push 계열 — 뒤로가기가 이전 탭으로)
+ *   T3 `?tab=chart|info|news`, 기본 `chart`, `window.history.pushState`(push 계열 — 뒤로가기가 이전 탭으로)
  *      라우터 내비게이션은 RSC 서버 왕복이 끝나야 `?tab=` 이 바뀌어 탭 전환이 지연됐다. Next 15 가
  *      네이티브 pushState 를 검색 파라미터 훅과 동기화하므로 서버 요청 없이 즉시 전환된다.
  *      한 클릭 = 기록 1개는 핸들러의 실시간 URL 가드가 보장한다 (260913-v2e)
  *   T4 탭 바 sticky
  *   T5 shadcn 공식 `tabs`(Radix) — ←/→ · Home/End 키보드는 Radix 기본 동작 상속
- *   T6 `호가주문` 패널만 넓은 컨테이너, 나머지 3탭은 `max-w-4xl`
+ *   T6 D-31 호가주문 탭 제거 — 주문은 /trading(작업대 카드 · 시간외종가 주문유형 포함 · 21-33). 3탭 모두
+ *      `max-w-4xl`. 옛 딥링크 `?tab=orderbook` 은 한 번만 처리한다 — 매매 가능 종목은
+ *      `router.replace('/trading?code=')`(그 종목 카드 착지), 아니면 `?tab=chart` 로 replaceState(렌더는 허용
+ *      목록 밖이라 이미 차트). 라우터는 이 페이지 밖으로 나가는 딥링크에만 쓴다 — 탭 전환은 여전히 pushState.
  *   B(260924-vj1) 토스 스킨 — 16px/600 탭 바(2px fg 밑줄 + 옅은 1px 기준선), 폰(<768) 하단 고정
- *      CTA(Phase 21 D-30 — 「주문하기」 → 「트레이딩」 링크 `/trading?code=` · 매매 가능 종목만), 라이트
- *      호가주문 탭 회색 면 + 흰 카드
+ *      CTA(Phase 21 D-30 — 「주문하기」 → 「트레이딩」 링크 `/trading?code=` · 매매 가능 종목만)
  *   T9 (Phase 21 D-29) 「뉴스토론」 탭 안 전체목록(`?tab=news&view=news|discussions` · news-view.ts)을
  *      보는 중에 활성 뉴스토론 탭을 다시 누르면 요약으로 돌아간다(`exitNewsView`). Radix 는 이미 활성인
  *      탭을 누르면 `onValueChange` 를 부르지 않으므로 트리거 `onClick` 이 같은 핸들러로 넘겨준다.
- *   T8 한 번 연 `차트 · 종목정보 · 뉴스토론` 패널은 떠나도 언마운트하지 않고 숨긴다(forceMount +
- *      `data-[state=inactive]:hidden`). Radix 기본은 비활성 패널을 언마운트해 재방문마다 섹션이
- *      다시 마운트·재조회되고 스켈레톤이 떴다. 열지 않은 탭은 여전히 마운트하지 않는다(첫 진입 비용
- *      그대로). `호가주문`은 예외로 떠나면 언마운트한다 — 실시간 호가 구독을 보이지 않는 탭에서
- *      붙잡지 않기 위해서다.
+ *   T8 한 번 연 패널은 떠나도 언마운트하지 않고 숨긴다(forceMount + `data-[state=inactive]:hidden`).
+ *      Radix 기본은 비활성 패널을 언마운트해 재방문마다 섹션이 다시 마운트·재조회되고 스켈레톤이 떴다.
+ *      열지 않은 탭은 여전히 마운트하지 않는다(첫 진입 비용 그대로). (옛 `호가주문` 언마운트 예외는 D-31 로
+ *      탭과 함께 사라졌다.)
  *
  * 하지 않는 것:
- *   - 탭 라벨에 연결 상태 점·배지를 붙이지 않는다 (T4 — 연결 상태는 `호가주문` 탭 안
- *     상태 바가 단독으로 소유한다)
+ *   - 탭 라벨에 연결 상태 점·배지를 붙이지 않는다 (T4 — 실시간 연결 상태는 /trading 작업대 상태줄이
+ *     소유한다)
  *   - 패널로 받은 기존 섹션의 내용을 수정하지 않는다 (T7 — 이 셸은 재배치 전용)
  *   - 탭별 스크롤 위치를 보존하지 않는다 (UI-SPEC §Interaction Contract — 단순성 우선)
  */
@@ -48,7 +49,6 @@ import { exitNewsView, toNewsView } from './news-view';
 /** T2 — 순서·라벨 확정값. 변형 없음. */
 const TABS = [
   { v: 'chart', label: '차트' },
-  { v: 'orderbook', label: '호가주문' },
   { v: 'info', label: '종목정보' },
   { v: 'news', label: '뉴스토론' },
 ] as const;
@@ -65,9 +65,12 @@ function toTabValue(raw: string | null): TabValue {
   return TABS.some((t) => t.v === raw) ? (raw as TabValue) : DEFAULT_TAB;
 }
 
+/** D-31 · T6 옛 딥링크 값 — 허용 목록 밖(렌더는 차트)이고, 진입 때 한 번 /trading 또는 차트로 옮긴다. */
+const LEGACY_ORDERBOOK_TAB = 'orderbook';
+
 /**
- * T6 — 3탭 공통 폭. `호가주문` 만 이 제한을 쓰지 않는다.
- * T8 — 이 3탭은 한 번 열면 계속 마운트되므로 비활성일 때 display:none 으로 숨긴다.
+ * T6 — 3탭 공통 폭.
+ * T8 — 한 번 열면 계속 마운트되므로 비활성일 때 display:none 으로 숨긴다.
  */
 const NARROW_PANEL =
   'mx-auto w-full max-w-4xl pt-0 data-[state=inactive]:hidden';
@@ -80,7 +83,6 @@ export interface StockDetailTabsProps {
    */
   tradable: boolean;
   chart: ReactNode;
-  orderbook: ReactNode;
   info: ReactNode;
   news: ReactNode;
 }
@@ -89,11 +91,11 @@ export function StockDetailTabs({
   code,
   tradable,
   chart,
-  orderbook,
   info,
   news,
 }: StockDetailTabsProps) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const tabBarRef = useRef<HTMLDivElement>(null);
 
   // 딥링크 진입도 이 한 줄로 처리된다 — URL 이 단일 진실이라 별도 초기 state 가 없다.
@@ -105,8 +107,22 @@ export function StockDetailTabs({
     () => new Set([active]),
   );
   if (!visited.has(active)) setVisited(new Set(visited).add(active));
-  const keepMounted = (v: TabValue): true | undefined =>
-    v !== 'orderbook' && visited.has(v) ? true : undefined;
+  const keepMounted = (v: TabValue): true | undefined => (visited.has(v) ? true : undefined);
+
+  // D-31 · T6 — 옛 호가주문 딥링크(`?tab=orderbook` — 북마크 · 외부 링크)를 한 번만 옮긴다. ref 가드라 StrictMode
+  // 이중 실행에도 한 번이다. 매매 가능 = 그 종목 카드 착지(replace — 뒤로가기가 없는 탭으로 돌아오지 않게),
+  // 매매 불가 = URL 만 차트로 바로잡는다(렌더는 이미 차트).
+  const legacyOrderbook = searchParams.get('tab') === LEGACY_ORDERBOOK_TAB;
+  const legacyHandledRef = useRef(false);
+  useEffect(() => {
+    if (!legacyOrderbook || legacyHandledRef.current) return;
+    legacyHandledRef.current = true;
+    if (tradable) {
+      router.replace(`/trading?code=${encodeURIComponent(code)}`);
+    } else {
+      window.history.replaceState(null, '', `?tab=${DEFAULT_TAB}`);
+    }
+  }, [legacyOrderbook, tradable, code, router]);
 
   const handleValueChange = useCallback(
     (next: string) => {
@@ -140,10 +156,10 @@ export function StockDetailTabs({
     [code],
   );
 
-  // B · D-30 — 폰 하단 고정 「트레이딩」 CTA 는 매매 가능 종목에서만, 호가주문 탭이 아닐 때만 그린다
-  // (그 탭에선 더티 액션 바와 겹치지 않게 언마운트). 보일 때는 Tabs 루트 아래 여백을 CTA 바 높이 + 10
-  // = 76 + max(20, safe-area) 로 두어 마지막 콘텐츠가 가려지지 않게 한다(바 높이 식은 아래 CTA 주석).
-  const showOrderCta = tradable && active !== 'orderbook';
+  // B · D-30 — 폰 하단 고정 「트레이딩」 CTA 는 매매 가능 종목에서만 그린다(모든 탭 공통 — D-31 로 CTA 를
+  // 숨기던 호가주문 탭이 사라졌다). 보일 때는 Tabs 루트 아래 여백을 CTA 바 높이 + 10 = 76 + max(20, safe-area)
+  // 로 두어 마지막 콘텐츠가 가려지지 않게 한다(바 높이 식은 아래 CTA 주석).
+  const showOrderCta = tradable;
 
   return (
     <Tabs
@@ -192,21 +208,6 @@ export function StockDetailTabs({
         className={NARROW_PANEL}
       >
         {chart}
-      </TabsContent>
-
-      {/*
-        T6 — `호가주문` 만 `max-w` 해제. 좌우 여백은 AppShell `main` 의 `p-2 md:p-4 lg:p-6` 이 정한다.
-        B(260924-vj1) — 라이트에서 흰 바탕 위 흰 카드가 사라지므로 이 패널만 `--surface` 회색 면을
-        좌우·아래로 bleed 한다(`-mx-* px-*` · `-mb-*`, main 램프와 같은 값). 음수 마진과 같은 패딩이
-        상쇄되어 **콘텐츠 박스 폭(= `@container/lc` 폭)은 bleed 전과 같다** — `w-full` 을 남기면
-        박스가 거터×2 만큼 좁아져 §2.2b 밴드 전환 지점이 움직이므로 `w-auto` 여야 한다.
-      */}
-      <TabsContent
-        value="orderbook"
-        data-testid="stock-tab-panel-orderbook"
-        className="-mx-2 -mb-2 w-auto bg-[var(--surface)] px-2 pt-3 pb-5 md:-mx-4 md:-mb-4 md:px-4 lg:-mx-6 lg:-mb-6 lg:px-6"
-      >
-        {orderbook}
       </TabsContent>
 
       <TabsContent

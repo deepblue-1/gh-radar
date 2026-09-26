@@ -1,24 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act, within } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ApiClientError } from '@/lib/api';
 import { fetchStockDetail } from '@/lib/stock-api';
 import { notFound } from 'next/navigation';
 import { StockDetailClient } from '../stock-detail-client';
-import { FIXTURE_SAMSUNG } from '@/__tests__/fixtures/stocks';
+import { FIXTURE_NULL_PRICE, FIXTURE_SAMSUNG } from '@/__tests__/fixtures/stocks';
 
 // Phase 15 Plan 11: StockDetailTabs 가 `?tab=` 을 단일 진실로 읽으므로 useSearchParams 도
 // stub 한다. 테스트가 이 변수를 바꿔서 활성 탭을 지정한다 (vi.mock 팩토리는 호이스팅되지만
 // 화살표 함수 본문은 호출 시점에 평가되므로 `mock` 접두사 변수 참조가 허용된다).
 let mockSearchParams = new URLSearchParams();
+// Phase 21 D-31 — 옛 `?tab=orderbook` 딥링크가 매매 가능 종목에서 `router.replace('/trading?code=')` 를 부른다.
+const { mockRouterReplace } = vi.hoisted(() => ({ mockRouterReplace: vi.fn() }));
 
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
-  // StockHero 가 ← 버튼용으로 useRouter 호출 — jsdom app router 미마운트 invariant 회피.
+  // StockHero 가 ← 버튼용으로, 탭 셸이 옛 호가 딥링크용으로 useRouter 호출 — jsdom app router 미마운트 invariant 회피.
   useRouter: () => ({
     back: vi.fn(),
     push: vi.fn(),
-    replace: vi.fn(),
+    replace: mockRouterReplace,
     refresh: vi.fn(),
     prefetch: vi.fn(),
     forward: vi.fn(),
@@ -43,42 +45,13 @@ vi.mock('@/lib/stock-api', () => ({
 vi.mock('../stock-daily-chart-section', () => ({
   StockDailyChartSection: () => null,
 }));
-// Phase 15 Plan 13: `호가주문` 탭이 StockOrderbookSection 을 마운트한다.
-// jsdom 에는 Supabase 환경변수가 없어 실제 createClient 가 throw 하므로 세션 없는
-// 클라이언트로 대체한다.
+// jsdom 에는 Supabase 환경변수가 없어 실제 createClient 가 throw 하므로 세션 없는 클라이언트로 대체한다
+// (인증 소비처 — 관심 토글 등. 옛 호가주문 탭 섹션은 Phase 21 D-31 로 사라졌다).
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: { getSession: async () => ({ data: { session: null } }) },
   }),
 }));
-
-// Phase 16 Plan 09 — 전역 승격 이후 소켓은 `RelayProvider` 소유다. 이 테스트는 Provider
-// 없이 StockDetailClient 를 렌더하므로 세션 mock 만으로는 `unauthorized` 에 닿지 못한다
-// (Provider 밖 폴백은 `idle`). 게이트 경로(UI-SPEC C13)를 결정론적으로 태우기 위해
-// 소비자 훅을 직접 스텁한다 — 승격 전 「세션 없음 → unauthorized」와 같은 상태다.
-// (연결·구독 규율 자체의 검증은 lib/__tests__/relay-socket.test.ts · relay-provider.test.tsx 소관.)
-vi.mock('@/lib/relay-provider', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/relay-provider')>();
-  return {
-    ...actual,
-    useRelaySubscription: () => ({
-      status: 'unauthorized' as const,
-      statusLabel: '권한 없음',
-      statusMessage: '',
-      attempt: 0,
-      accounts: [],
-      quote: null,
-      tape: [],
-      // 16-23: 「마지막 수신 계좌」 단일 필드는 계약에서 사라졌다. 계좌 축은 이 맵뿐이다.
-      accountStates: new Map(),
-      orders: [],
-      messages: [],
-      isStale: false,
-      send: () => {},
-      reconnect: () => {},
-    }),
-  };
-});
 
 const mockFetch = vi.mocked(fetchStockDetail);
 const mockNotFound = vi.mocked(notFound);
@@ -129,7 +102,7 @@ describe('StockDetailClient', () => {
     );
   });
 
-  it('Test 2b — 4탭이 tablist 로 렌더되고 기본 활성 탭은 `차트` (T2/T3)', async () => {
+  it('Test 2b — 3탭(D-31)이 tablist 로 렌더되고 기본 활성 탭은 `차트` (T2/T3) — 호가주문 탭 없음', async () => {
     mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
     render(<StockDetailClient code="005930" />);
 
@@ -137,9 +110,11 @@ describe('StockDetailClient', () => {
       expect(screen.getByText('삼성전자')).toBeInTheDocument(),
     );
 
-    for (const label of ['차트', '호가주문', '종목정보', '뉴스토론']) {
+    for (const label of ['차트', '종목정보', '뉴스토론']) {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.queryByRole('tab', { name: '호가주문' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '차트' })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -160,39 +135,49 @@ describe('StockDetailClient', () => {
     );
   });
 
-  it('Test 2d — `?tab=orderbook` 진입 시 호가창 섹션이 마운트된다 (UI-SPEC C1)', async () => {
+  it('Test 2d — 옛 딥링크 `?tab=orderbook` + 매매 가능 종목 → router.replace(/trading?code=) 1회 · 호가 섹션 없음 (D-31)', async () => {
     mockSearchParams = new URLSearchParams('tab=orderbook');
     mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
     render(<StockDetailClient code="005930" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('stock-orderbook-section')).toBeInTheDocument(),
-    );
-    /*
-      18-10 — 호가 탭 본문이 카드 본문(`CardBody`)으로 바뀌면서 섹션 헤더의 20px 실시간 현재가와
-      그 출처 라벨(D1 「실시간(DMA)」)이 사라졌다 — 이중 가격 자체가 없어졌다. Provider 밖(이
-      테스트)에는 세션이 없고 픽스처에 ISIN 이 없어 섹션은 권한 없음 게이트를 그린다(Test 2e).
-    */
-    expect(screen.getByTestId('orderbook-access-gate')).toBeInTheDocument();
+    await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledTimes(1));
+    expect(mockRouterReplace).toHaveBeenCalledWith('/trading?code=005930');
+    // 옮겨 가는 동안 렌더는 허용 목록 밖 → 차트.
+    expect(screen.getByRole('tab', { name: '차트' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('stock-orderbook-section')).not.toBeInTheDocument();
   });
 
-  it('Test 2e — 권한 없는 사용자에게도 섹션이 사라지지 않고 게이트 카드가 뜬다 (UI-SPEC C13)', async () => {
+  it('Test 2e — 옛 딥링크 `?tab=orderbook` + 매매 불가 종목(isin 없음) → URL 만 ?tab=chart · 이동 없음 (D-31)', async () => {
+    window.history.replaceState(null, '', '/stocks/999999?tab=orderbook');
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
     mockSearchParams = new URLSearchParams('tab=orderbook');
-    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
-    render(<StockDetailClient code="005930" />);
+    mockFetch.mockResolvedValueOnce(FIXTURE_NULL_PRICE);
+    render(<StockDetailClient code="999999" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('orderbook-access-gate')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('stock-orderbook-section')).toBeInTheDocument();
-    // 제목·보조 문구는 게이트 카드 안에서 찾는다 — 상태 바도 같은 제목 문구를 쓴다.
-    const gate = within(screen.getByTestId('orderbook-access-gate'));
-    expect(gate.getByText('실시간 호가·주문 권한이 없어요')).toBeInTheDocument();
-    expect(
-      gate.getByText('이 종목의 차트·뉴스·종목토론방은 그대로 이용할 수 있어요.'),
-    ).toBeInTheDocument();
-    // 셀프서비스 경로가 없으므로 게이트에 행동 버튼을 두지 않는다.
-    expect(gate.queryByRole('button')).not.toBeInTheDocument();
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith(null, '', '?tab=chart'));
+    expect(mockRouterReplace).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?tab=chart');
+    expect(screen.getByRole('tab', { name: '차트' })).toHaveAttribute('aria-selected', 'true');
+    replaceSpy.mockRestore();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('Test 2f — 「트레이딩」 링크는 매매 가능 종목에만(폰 CTA + 넓은 폭 알약 · D-30 · T-21-93)', async () => {
+    mockFetch.mockResolvedValueOnce(FIXTURE_SAMSUNG);
+    const view = render(<StockDetailClient code="005930" />);
+    await waitFor(() => expect(screen.getByText('삼성전자')).toBeInTheDocument());
+    const links = screen.getAllByRole('link', { name: '트레이딩' });
+    expect(links.map((l) => l.getAttribute('data-slot')).sort()).toEqual([
+      'detail-order-cta',
+      'detail-trading-button',
+    ]);
+    for (const l of links) expect(l).toHaveAttribute('href', '/trading?code=005930');
+    view.unmount();
+
+    mockFetch.mockResolvedValueOnce(FIXTURE_NULL_PRICE);
+    render(<StockDetailClient code="999999" />);
+    await waitFor(() => expect(screen.getByText(FIXTURE_NULL_PRICE.name)).toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: '트레이딩' })).not.toBeInTheDocument();
   });
 
   it('Test 3 — 초기 로딩 중에는 Skeleton 노출, Hero 없음', () => {

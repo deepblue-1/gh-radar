@@ -59,7 +59,6 @@ vi.mock('../stock-daily-chart-section', () => ({
 vi.mock('@/components/theme/theme-chips', () => ({ StockThemeChips: () => null }));
 vi.mock('../stock-limit-up-section', () => ({ StockLimitUpSection: () => null }));
 vi.mock('../stock-comovement-section', () => ({ StockComovementSection: () => null }));
-vi.mock('../stock-orderbook-section', () => ({ StockOrderbookSection: () => null }));
 
 import {
   fetchStockDetail,
