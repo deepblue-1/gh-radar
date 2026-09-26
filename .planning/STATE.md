@@ -34,7 +34,7 @@ Plans completed: 219 / 234
 Status: Ready to execute
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-26 — 21-03 Google OAuth 선행 완료(GCP iOS·Android 클라이언트 · Supabase Client IDs 웹 먼저 · nonce 유지 · google-client-ids.ts) · 21-01~04 완료 · 다음 21-05
+Last activity: 2026-09-26 — quick 260926-d76 로그인 화면 sketch 006 A안 구현 완료(eda719a) · 21-16 UAT 체크포인트 대기 중
 
 Progress: [█████████░] 93%
 
@@ -274,6 +274,7 @@ None — 20-04 전 830 감시대상 폭 결정은 D-02a 로 해소(2026-09-25).
 | 260925-ptw | **트레이딩 화면 디자인 8건** — 카드 헤더 종목코드 제거·종목명 1줄+ⓘ 옆·✕ 이름줄 맨 오른쪽 · 카드 탭(정보/미체결/잔고/로그) 본문 고정 높이(row-h×4, 3행+스크롤)·탭 영역 접기(cardTabsFolded 기억) · 하단 잔고 행 클릭→카드 생성/포커스(reveal) · `.tbl-wrap thead th` 정렬을 @layer components 로(우정렬 머리글) · 타이틀·계좌·상태줄 한 줄 flex-wrap · viewport maximum-scale=1·user-scalable=no + 종목추가 입력 14px 복원. typecheck 0 · lint 0 err · 2132/1 skip | 2026-09-25 | — | [260925-ptw-trading-design-polish](./quick/260925-ptw-trading-design-polish/) |
 | 18 | 트레이딩 후속 3건(fast) — 전역 검색 입력 14px 단일화(터치 16px 이원화 제거 · search.spec 에 viewport meta 단언) · 카드 탭 본문 네 탭 공통 고정 높이 = 정보 탭 3줄(≈72px · 사용자 정정: 탭별 높이 ✗), 카드 탭 빈 상태 dense(미체결·잔고·로그) · 종목추가 입력·버튼 46px(위 VI·돌파·상태줄 실측 46 과 맞춤, 버튼 r-md·14px). typecheck 0 · 2132/1 skip · Playwright 실측 390/1024/1440 | 2026-09-25 | fb3d45e | — |
 | 260926-bwu | **radar-gw e2-small 전환 · wg0 부팅 실패 수정** — 2026-09-26 08:11 KST e2-micro→e2-small(RAM 1976MB · IP·MAC 불변 · relay healthz ok). 재부팅에서 `wg-quick@wg0` 실패: startup.sh wg0.conf PostUp 교보 .119 ESTABLISHED 선삭제 줄만 `2>/dev/null \|\| true` 누락(quick-260921-or9 도입, 9/16 이후 첫 재부팅). 수정 + README 머신 타입·메모리 예산·사건 기록 + setup-relay-iam.sh 생성 타입 e2-small. 부팅 모의 OK 17 · 하네스 ALL PASS. VM 반영 완료: startup-script 메타데이터 재적용(저장소와 일치) + 재부팅 검증(09-26 08:58 KST) — wg-quick@wg0 active · Bad rule 0 · peers 5 · 핸드셰이크 3 · DOCKER-USER ACCEPT 7 · MAC 불변 · relay healthz ok | 2026-09-26 | 94e40a3 | [260926-bwu-radar-gw-wg0-e2-small](./quick/260926-bwu-radar-gw-wg0-e2-small/) |
+| 260926-d76 | **로그인 화면 sketch 006 A안 구현** — `/login` 의 shadcn Card·제목「GH Trade에 로그인」·설명 문구 제거. 앱 아이콘(`/icon.svg` 76·radius 22%) + 워드마크 h1「GH Trade」 가운데, Google 버튼 반전 CTA(56·radius 16·16/700 — 라이트 #191f28/흰, 다크 흰/#191f28) 폰 하단(좌우 20·바닥 44 + `--app-safe-bottom`) · md 이상 워드마크 아래 360 폭. 오류 알림 `--up-bg`/`--up` 12px, 진행 중 스피너+70%. 로그인 로직(OAuth·네이티브·safeNext) 불변. 앱은 Remote-URL 셸이라 웹 배포만으로 동일 반영. vitest 10/10 · typecheck · eslint · e2e auth-guards+brand-account 16/16 · 계산 스타일 66/66 | 2026-09-26 | eda719a | [260926-d76-sketch-006-a-card-google-cta-safe-area](./quick/260926-d76-sketch-006-a-card-google-cta-safe-area/) |
 
 ## Session Continuity
 
