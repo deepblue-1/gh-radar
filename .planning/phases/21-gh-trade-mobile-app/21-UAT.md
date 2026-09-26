@@ -3,7 +3,7 @@ status: diagnosed
 phase: 21-gh-trade-mobile-app
 source: 21-01-SUMMARY.md, 21-02-SUMMARY.md, 21-03-SUMMARY.md, 21-04-SUMMARY.md, 21-05-SUMMARY.md, 21-06-SUMMARY.md, 21-07-SUMMARY.md, 21-08-SUMMARY.md, 21-09-SUMMARY.md, 21-10-SUMMARY.md, 21-11-SUMMARY.md, 21-12-SUMMARY.md, 21-13-SUMMARY.md, 21-14-SUMMARY.md, 21-15-SUMMARY.md, 21-16-SUMMARY.md
 started: 2026-09-26T00:52:04Z
-updated: 2026-09-26T01:35:06Z
+updated: 2026-09-26T02:00:00Z
 ---
 
 <!--
@@ -12,7 +12,7 @@ UAT 2차(실서버). 앱 = 운영 URL 빌드(https://trade.jx1.io) · 웹 = push
 항목 정의 정본 = 21-16-PLAN.md Task 2 <how-to-verify> 1~13 (14 = push 결정, 이미 push 됨).
 UAT 1차(로컬 dev) 결과·수정은 21-16-SUMMARY.md 「UAT 1차 결과」.
 status: diagnosed = 이슈 1건·신규 요청 3건의 원인/방향이 적혀 있고 /gsd-plan-phase 21 --gaps 로 넘길 준비가 됐다.
-테스트 13 은 아직 [pending] 이라 /gsd-verify-work 21 로 이어서 받을 수 있다.
+테스트 13 은 2026-09-26 사용자 보고로 pass. 열린 결정 N1·N2·N3 는 같은 날 사용자가 확정했다(각 갭의 「결정」 줄). G-21-1 은 탭바 목업 채택 대기.
 -->
 
 ## Current Test
@@ -74,14 +74,15 @@ result: pass
 
 ### 13. 웹 회귀 (브라우저 데스크톱 · iPhone Safari)
 expected: 제목·로고 「GH Trade」 · 파비콘 · 사이드바 「검색」 → `/search` 허브 · `/me` 계정 카드 · iPhone Safari 가로 노치 가림 없음 · 기존 `gh-radar:` 저장 설정 유지
-result: [pending]
+result: pass
+reported: "웹회귀 문제없어" (2026-09-26)
 
 ## Summary
 
 total: 13
-passed: 11
+passed: 12
 issues: 1
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 new_requests: 3
@@ -109,12 +110,13 @@ new_requests: 3
     - "채택안을 CONTEXT 에 D-27a 개정으로 박제"
     - "iOS GHTradeTabBar · Android GhTradeTabBar 에서 라벨 제거(접근성 라벨 유지) + 채택된 시각 상수 반영"
     - "탭바 높이가 바뀌면 웹 본문 하단 여백(--native-body-reserve 108 = 70+20+18)과 native-shell e2e 도 같이 조정"
+  decision: "사용자(2026-09-26): 라벨 제거 확정. 나머지 시각 변형은 HTML 목업 여러 안을 보고 채택 — 목업 채택 전 플랜/구현 금지"
   debug_session: ""
 
 - gap_id: G-21-13
   truth: "웹 회귀 없음 — 제목·로고 「GH Trade」 · 파비콘 · 사이드바 검색 → /search · /me 계정 카드 · iPhone Safari 가로 노치 · 기존 gh-radar: 저장 설정 유지"
-  status: pending
-  reason: "사용자 보고 대기 — UAT 2차 답에 13번 결과가 없었다"
+  status: resolved
+  reason: "사용자 보고(2026-09-26): 웹회귀 문제없어 → pass. 갭 닫힘, 플랜 불필요"
   severity: minor
   test: 13
   root_cause: "결함 아님 — 미확인 항목"
@@ -143,6 +145,7 @@ new_requests: 3
     - "웹 defaultTheme · iOS/Android ThemeStore 기본값을 함께 dark 로 바꾸고, 저장값이 있는 기존 사용자는 그대로 둔다"
     - "열린 질문: 브라우저 사용자도 기본 다크인가, 앱만인가. 권장 = 웹·앱 공통(기본값이 갈리면 앱 첫 프레임과 웹 첫 페인트 동기화 규칙이 둘로 나뉜다) — 플랜 전에 사용자 확인"
     - "테마 관련 단위/e2e 테스트의 라이트 기본 가정 갱신"
+  decision: "사용자 확정(2026-09-26): 기본 테마 = 다크, 앱·브라우저 공통 (저장값이 없을 때의 기본값)"
   debug_session: ""
 
 - gap_id: G-21-N2
@@ -160,6 +163,7 @@ new_requests: 3
   missing:
     - "규칙 하나로 통일. 권장 = 「누르면 갈 곳」(목적지) 표시 — 한 번 누르는 토글 버튼에서 흔한 관례(macOS·GitHub·다수 문서 사이트)이고 아이콘이 행동을 예고한다. aria-label 은 두 곳 모두 「다크 모드로 전환」처럼 행동 문구로 맞춘다. 열린 질문으로 사용자 확인 후 확정"
     - "theme-toggle · account-card 테스트의 아이콘 기대값(data-icon) 갱신"
+  decision: "사용자 확정(2026-09-26): 누르면 바뀔 테마(목적지)를 보여 준다 — 사이드바 ThemeToggle 을 AccountCard 규칙에 맞춘다"
   debug_session: ""
 
 - gap_id: G-21-N3
@@ -182,4 +186,5 @@ new_requests: 3
     - "방식 결정. (가) 네이티브 가로채기 — iOS: 서버 호스트 밖 http(s) 탐색·새 창 요청을 SFSafariViewController 로 표시(프레임워크 내장, 새 패키지 없음). Android: 호스트 밖 http(s) 를 Custom Tabs 로 — androidx.browser 의존성이 필요한지 먼저 확인(Capacitor 8 이 이미 끌어오는지 점검, 새 의존성이면 패키지 정당성 게이트). (나) @capacitor/browser 플러그인 + 웹에서 isNativeApp 분기 — 새 npm 패키지라 패키지 정당성 게이트 필요, 웹 코드 수정 지점이 앵커마다 생김. 권장 = (가): 웹 무수정 · 모든 외부 링크에 일관 · 새 JS 패키지 없음"
     - "범위 결정(열린 질문): 뉴스만인가 모든 외부 링크(종토방 원문·공시 등)인가. 권장 = 호스트 밖 http(s) 전부(규칙 하나가 링크별 분기보다 단순하고, OAuth 는 21-15 네이티브 로그인이라 영향 없음). 단 mailto:·tel:·앱 딥링크는 기존대로 시스템에 넘긴다"
     - "Supabase OAuth·Google 도메인 등 셸이 반드시 외부로 넘겨야 하는 호스트가 있는지 점검(네이티브 로그인 뒤에는 없어야 정상)"
+  decision: "사용자 확정(2026-09-26): 사이트(서버 호스트) 밖 http(s) 링크 전부를 인앱 브라우저로. mailto·tel·앱 딥링크는 시스템에 넘긴다. 방식은 권장안(셸 네이티브 가로채기 · 새 패키지 없음)으로 진행하되 플랜에서 재확인"
   debug_session: ""
