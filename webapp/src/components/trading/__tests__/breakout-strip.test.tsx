@@ -14,6 +14,8 @@ import type { RelayQuote, RelayRateCrossItem } from '@gh-radar/shared';
  *   ⑥ 칩/행 클릭 = `onAddCard` 1회, 카드 있는 종목은 `onFocusCard`
  *   ⑦ 「거래중」 표식 · ✕ 수동 삭제 · 이름 없는 행 · 거래소 문자열 부재
  *   ⑧ 현재가를 모르는 행은 지우지 않는다 · 「기록 → 재생」 순서
+ *   ⑨ 행의 발화 거래소 피드 — 가격·이탈은 그 피드만 · 전환 시 옛 피드 해제 + 새 피드 구독 ·
+ *      카드 제외는 (ISIN, 거래소) (quick-260926-rcc)
  */
 
 const subscribeMock = vi.fn();
@@ -56,7 +58,7 @@ vi.mock('@/lib/breakout-list', async (importOriginal) => {
 
 import { playBreakoutTone } from '@/lib/alert-tone';
 import { addSounded, BREAKOUT_DISMISSED_KEY, HIGHLIGHT_MS } from '@/lib/breakout-list';
-import { BREAKOUT_PRICE_THROTTLE_MS } from '@/lib/use-breakout-quotes';
+import { BREAKOUT_PRICE_THROTTLE_MS, breakoutFeedKey } from '@/lib/use-breakout-quotes';
 import { relayQuoteKey } from '@/lib/use-relay-socket';
 import {
   BREAKOUT_EMPTY_TEXT,
@@ -87,13 +89,15 @@ const A = item();
 const B = item({ isin: 'KR7005930003', name: '삼성전자', code: '005930', exchangeTime: '094200000000', lastPrice: 12_500, changeRate: 25.0 });
 const C = item({ isin: 'KR7000660001', name: 'SK하이닉스', code: '000660', exchangeTime: '094300000000' });
 
-function quote(isin: string, p: number): RelayQuote {
-  return { t: 'q', i: isin, x: 'KRX', snap: false, p, o: p, h: p, l: p } as unknown as RelayQuote;
+type X = 'KRX' | 'NXT';
+
+function quote(isin: string, p: number, x: X = 'KRX'): RelayQuote {
+  return { t: 'q', i: isin, x, snap: false, p, o: p, h: p, l: p } as unknown as RelayQuote;
 }
 
-function setPrice(isin: string, p: number) {
+function setPrice(isin: string, p: number, x: X = 'KRX') {
   const next = new Map(quotesMap);
-  next.set(relayQuoteKey(isin, 'KRX'), quote(isin, p));
+  next.set(relayQuoteKey(isin, x), quote(isin, p, x));
   quotesMap = next;
 }
 
@@ -107,6 +111,7 @@ function setup(initial: Props = {}) {
     items: [],
     snapSeq: 1,
     cards: new Set(),
+    cardFeeds: new Set(),
     onAddCard,
     onFocusCard,
     onDismiss,
@@ -437,6 +442,76 @@ describe('BreakoutStrip — 이탈 삭제 (D-16)', () => {
     const row = rowEls()[0]!;
     expect(within(row).getByText('12,600')).toBeInTheDocument();
     expect(within(row).getByText('+26.00%')).toBeInTheDocument();
+  });
+});
+
+describe('BreakoutStrip — 행의 발화 거래소 피드 (quick-260926-rcc)', () => {
+  const ANXT = { ...A, exchange: 'NXT' as const };
+
+  it('NXT 로 발화한 행은 NXT 시세로 보이고 같은 종목의 KRX 시세(전일 종가 등)로 지워지지 않는다', () => {
+    setPrice(A.isin, 9_000, 'KRX'); // −10% — KRX 로 판정하면 유예 뒤 지워진다
+    setPrice(A.isin, 12_600, 'NXT');
+    const { update } = setup({ items: [ANXT] });
+    expect(subscribeMock).toHaveBeenCalledWith(A.isin, 'NXT', 'price');
+    expect(subscribeMock).not.toHaveBeenCalledWith(A.isin, 'KRX', 'price');
+
+    act(() => {
+      vi.advanceTimersByTime(3_500);
+    });
+    update({});
+    act(() => {
+      vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS);
+    });
+    expect(chips()).toHaveLength(1);
+    openTable();
+    const row = rowEls()[0]!;
+    expect(within(row).getByText('12,600')).toBeInTheDocument();
+    expect(within(row).getByText('+26.00%')).toBeInTheDocument();
+  });
+
+  it('발화 거래소가 KRX → NXT 로 바뀌면 행은 1개 그대로 · 옛 피드 해제 + 새 피드 구독 · 유예가 다시 흐르고 돌파시각은 첫 등재값이다', () => {
+    setPrice(A.isin, 12_600, 'KRX');
+    setPrice(A.isin, 11_000, 'NXT'); // 새 피드의 낡은 값(임계−2%p 아래)
+    const { update } = setup({ items: [A] });
+    // KRX 피드로 무장시킨다(등재 뒤 임계 이상 관측).
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    update({});
+
+    const A2 = { ...ANXT, lastPrice: 12_700, changeRate: 27.0, exchangeTime: '095000000000' };
+    update({ items: [A2] });
+    act(() => {
+      vi.advanceTimersByTime(BREAKOUT_PRICE_THROTTLE_MS);
+    });
+    update({});
+
+    expect(chips()).toHaveLength(1);
+    expect(subscribeMock).toHaveBeenCalledWith(A.isin, 'NXT', 'price');
+    expect(unsubscribeMock).toHaveBeenCalledWith(A.isin, 'KRX', 'price');
+    // 전환 직후 3초 유예 안 — 새 피드의 낡은 값으로 지우지 않는다(무장은 전환 때 풀렸다).
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    update({});
+    expect(chips()).toHaveLength(1);
+
+    openTable();
+    const row = rowEls()[0]!;
+    expect(within(row).getAllByText('09:41:31').length).toBeGreaterThan(0);
+    expect(within(row).queryByText('09:50:00')).toBeNull();
+  });
+
+  it('카드 구독 제외는 (ISIN, 거래소) 단위다 — KRX 카드가 열린 종목의 NXT 행은 NXT 를 구독하고 「거래중」 이다', () => {
+    setup({
+      items: [ANXT],
+      cards: new Set([A.isin]),
+      cardFeeds: new Set([breakoutFeedKey({ isin: A.isin, exchange: 'KRX' })]),
+    });
+    expect(subscribeMock).toHaveBeenCalledWith(A.isin, 'NXT', 'price');
+    const chip = chips()[0]!;
+    expect(chip).toHaveAttribute('data-trading', 'true');
+    expect(within(chip).getByText('거래중')).toBeInTheDocument();
   });
 });
 

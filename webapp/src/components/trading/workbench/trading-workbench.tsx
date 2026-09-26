@@ -180,6 +180,7 @@ import {
   writeTradingLayout,
   type SavedLayout,
 } from "@/lib/trading-layout";
+import { breakoutFeedKey } from "@/lib/use-breakout-quotes";
 import { useLeaveWarning } from "@/lib/use-leave-warning";
 import { useTradingAlerts } from "@/lib/use-trading-alerts";
 import { relayQuoteKey, type RelayStatus } from "@/lib/use-relay-socket";
@@ -412,7 +413,7 @@ function withoutId(prev: ReadonlySet<string>, id: string): ReadonlySet<string> {
  * 시세가 같은 조건이면 그 값, 아니면 `undefined`(평가손익 「—」).
  *
  * 근거: 잔고 행에는 거래소 축이 없다(게이트웨이 `HoldingState` · `RelayHolding` 은 ISIN · 수량 ·
- * 매도가능 · 평단뿐이다). KRX 는 기본 거래소이자 돌파 가격 축(`breakoutQuotePrice`)과 같다. NXT
+ * 매도가능 · 평단뿐이다). KRX 는 기본 거래소다. NXT
  * 폴백은 NXT 카드만 있는 종목의 평가를 비우지 않기 위해서다. 카드 집합을 읽지 않는다 — 예전에는
  * 그 ISIN 의 **첫 카드** 거래소를 골라 같은 종목 KRX·NXT 카드의 순서에 따라 평가 가격이 바뀌었다.
  */
@@ -1132,6 +1133,8 @@ function WorkbenchSurface() {
 
   /* ── 파생 ─────────────────────────────────────────────────────────── */
   const cardIsins = useMemo(() => new Set(cards.map((c) => c.isin)), [cards]);
+  // 카드가 스스로 구독한 (ISIN, 거래소) 피드 — 돌파 훅 구독 예산에서만 뺀다(quick-260926-rcc).
+  const cardFeeds = useMemo(() => new Set(cards.map((c) => breakoutFeedKey(c))), [cards]);
   /*
     VI 발동 칩·표에는 **해제되지 않은** 발동만 싣는다 (사용자 결정 2026-09-23 · quick-260923-nvr).
     해제 판정은 서버의 `viReleased` 하나다 — `viEndTime` 으로 추정하지 않는다(임의종료·연장).
@@ -1250,6 +1253,7 @@ function WorkbenchSurface() {
         items={rateCrossItems}
         snapSeq={rateCrossSnapSeq}
         cards={cardIsins}
+        cardFeeds={cardFeeds}
         onAddCard={addCard}
         onFocusCard={focusCard}
       />

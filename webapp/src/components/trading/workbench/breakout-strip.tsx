@@ -16,8 +16,9 @@
  *   카드를 자동으로 열지 않는다 — 카드 추가는 언제나 사용자의 클릭에서만 나온다(T-18-36).
  *
  * ② ★ 거래소를 표시하지 않는다 (D-07)
- *   돌파 감지는 서버 정본상 KRX A3 에서만 발화한다 — 칩·행에 거래소 태그가 없다. 시세 구독
- *   거래소 상수도 `use-breakout-quotes.ts` 가 갖는다(이 파일에는 거래소 문자열이 없다).
+ *   gh-trade 돌파감지 창도 거래소 열을 두지 않는다(quick-260923-cfo 최소 변경) — 칩·행에 거래소
+ *   태그가 없다. 시세 구독 거래소는 행의 `exchange`(발화 거래소 — NXT 일 수 있다)를 그대로 훅에
+ *   넘긴다(quick-260926-rcc). 이 파일 코드에는 거래소 리터럴이 없다.
  *
  * ③ ★ 이탈 삭제는 `shouldRemoveBreakout` 한 함수로만 판정한다 (D-16)
  *   현재가를 모르는 행(구독 실패·`MAX_BREAKOUT_SUBS` 초과)은 판정하지 않는다 — 76 의 마지막
@@ -45,7 +46,8 @@
  *   스피너·스켈레톤도 없다. relay 끊김은 상태줄 DMA 필이 말한다.
  *
  * ⑧ 가격 5Hz · 렌더 중 상태 갱신 없음 (quick-260923-elb 2a)
- *   칩·표의 현재가·등락률과 이탈 판정은 `useBreakoutQuotes` 의 `prices`(≤5Hz 스로틀)만 읽는다.
+ *   칩·표의 현재가·등락률과 이탈 판정은 `useBreakoutQuotes` 의 `prices`(≤5Hz 스로틀)만 읽고,
+ *   가격은 행 피드(ISIN, 발화 거래소) 기준이다 — 다른 거래소 값이 섞이지 않는다.
  *   클라 기록(첫 등재 · 무장 · 첫 돌파시각 · 이탈 삭제)은 `advanceTracked` 순수 함수가 「마지막으로
  *   커밋된 기록 + 현재 입력」으로 **렌더 안에서** 계산하고, 커밋 뒤 레이아웃 effect 가 기록 ref 를
  *   옮긴다 — 렌더 중 setState 가 없다. 칩·표는 `memo` 라서 가격이 멈춘 커밋에서는 재조정을 건너뛴다.
@@ -80,7 +82,7 @@ import {
   type BreakoutRow,
 } from '@/lib/breakout-list';
 import { readPanelsPref, writePanelsPref } from '@/lib/trading-layout';
-import { useBreakoutQuotes } from '@/lib/use-breakout-quotes';
+import { breakoutFeedKey, useBreakoutQuotes } from '@/lib/use-breakout-quotes';
 import { cn } from '@/lib/utils';
 
 const NUM = new Intl.NumberFormat('ko-KR');
@@ -103,6 +105,11 @@ export interface BreakoutStripProps {
   snapSeq: number;
   /** 카드가 있는 종목(ISIN). 그 행은 「거래중」 표식이다. */
   cards: ReadonlySet<string>;
+  /**
+   * 카드가 스스로 구독한 피드 키(`breakoutFeedKey` — ISIN 과 거래소). 돌파 훅 구독 예산에서만 뺀다.
+   * 「거래중」 표식·카드 포커스는 `cards`(ISIN) 그대로다 (quick-260926-rcc).
+   */
+  cardFeeds: ReadonlySet<string>;
   /** 카드가 없는 종목을 눌렀다 — 작업대가 카드를 만든다(KRX · 스위치 전부 OFF). */
   onAddCard: (isin: string, name?: string, code?: string) => void;
   /** 카드가 이미 있는 종목을 눌렀다 — 작업대가 그 카드를 펼치고 스크롤한다. */
@@ -137,7 +144,7 @@ function advanceTracked(
     items: readonly RelayRateCrossItem[];
     snapSeq: number;
     now: number;
-    priceOf: (item: Pick<RelayRateCrossItem, "isin" | "exchange">) => number | undefined;
+    priceOf: (item: Pick<RelayRateCrossItem, 'isin' | 'exchange'>) => number | undefined;
     wallNow: number;
   },
 ): Tracked {
@@ -168,6 +175,7 @@ export function BreakoutStrip({
   items,
   snapSeq,
   cards,
+  cardFeeds,
   onAddCard,
   onFocusCard,
   onDismiss,
@@ -212,13 +220,15 @@ export function BreakoutStrip({
     () =>
       items.map((it) => ({
         isin: it.isin,
+        exchange: it.exchange,
         addedAt: committedMeta.get(breakoutKey(it))?.addedAt ?? Number.MAX_SAFE_INTEGER,
       })),
     [items, committedMeta],
   );
-  const { prices } = useBreakoutQuotes(candidates, { excludeIsins: cards });
+  const { prices } = useBreakoutQuotes(candidates, { excludeFeeds: cardFeeds });
+  // 행 피드 가격만 읽는다 — 다른 거래소 값이 표시·무장·이탈에 섞이지 않는다.
   const priceOf = useCallback(
-    (it: Pick<RelayRateCrossItem, "isin" | "exchange">) => prices.get(it.isin),
+    (it: Pick<RelayRateCrossItem, 'isin' | 'exchange'>) => prices.get(breakoutFeedKey(it)),
     [prices],
   );
 
