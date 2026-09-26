@@ -73,20 +73,15 @@ export function SearchPageClient() {
   const [query, setQuery] = useState('');
   const trimmed = query.trim();
   const typing = trimmed.length > 0;
-  const { results, loading, error } = useDebouncedSearch(query, 300);
+  const { results, loading, error, resultsQuery } = useDebouncedSearch(query, 300);
 
   /*
-    「응답이 도착한 검색어」 — 입력 직후 디바운스 300ms 동안은 아직 요청 전이라 hook 이
-    loading=false · results=[] 를 돌려준다. 그 틈에 「해당하는 종목이 없습니다」가 번쩍이지 않게
-    응답(성공·실패·비움)이 올 때마다 그 순간의 검색어를 기록하고, 다르면 「검색 중…」으로 본다.
+    결과가 **지금 검색어의 것인가** — 훅이 돌려주는 `resultsQuery`(요청 시점 검색어)로 판정한다(WR-05).
+    입력 직후 디바운스 300ms 동안은 아직 요청 전이라 hook 이 loading=false 를 돌려주고, 그 사이 이전
+    검색어의 늦은 응답이 도착할 수도 있다. 둘 다 `trimmed !== resultsQuery` 라 「검색 중…」으로 보고,
+    「해당하는 종목이 없습니다」가 번쩍이거나 이전 검색어의 결과가 새 검색어의 결과처럼 보이지 않는다.
   */
-  const [settledQuery, setSettledQuery] = useState('');
-  const trimmedRef = useRef(trimmed);
-  trimmedRef.current = trimmed;
-  useEffect(() => {
-    if (!loading) setSettledQuery(trimmedRef.current);
-  }, [loading, results, error]);
-  const pending = typing && trimmed !== settledQuery;
+  const pending = typing && trimmed !== resultsQuery;
   const showLoading = loading || pending;
   const showEmpty = typing && !showLoading && !error && results.length === 0;
 
@@ -134,8 +129,9 @@ export function SearchPageClient() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    // 결과가 지금 검색어의 것일 때만 — 이전 검색어의 첫 종목으로 이동·저장하지 않는다(WR-05).
     const first = results[0];
-    if (typing && !showLoading && first) selectResult(first);
+    if (typing && !showLoading && resultsQuery === trimmed && first) selectResult(first);
   };
 
   const clearQuery = () => {

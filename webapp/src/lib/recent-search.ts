@@ -9,10 +9,15 @@
  *    수렴하고 throw 하지 않는다. **저장 실패가 화면 동작을 막지 않는다**(breakout-list 관례).
  * ⑤ 조작된 값 방어(T-21-32) — 파싱 후 `code`/`name` 이 문자열인 원소만 남기고, 선택 필드도
  *    타입이 맞을 때만 옮긴다. 렌더는 React 문자열 이스케이프, 이동은 `/stocks/${code}` 템플릿.
+ *    종목 코드는 6자리 대문자·숫자만(`RECENT_CODE_RE` · 읽기와 쓰기 둘 다) — `/stocks/${code}` 템플릿에
+ *    `../me` · `x?y` 같은 경로 조작 문자가 들어가면 안 된다(IN-07). 최근 검색은 검색 결과(6자리)만
+ *    저장하므로 좁혀도 잃는 항목이 없다.
  */
 
 export const RECENT_SEARCH_KEY = 'gh-radar:recent-search';
 export const RECENT_SEARCH_MAX = 10;
+/** 종목 코드 형식 — 6자리 대문자·숫자(`005930` · `0000J0`). */
+export const RECENT_CODE_RE = /^[0-9A-Z]{6}$/;
 
 export interface RecentSearchItem {
   code: string;
@@ -25,6 +30,7 @@ function sanitize(raw: unknown): RecentSearchItem | null {
   if (raw === null || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.code !== 'string' || typeof r.name !== 'string') return null;
+  if (!RECENT_CODE_RE.test(r.code)) return null;
   const item: RecentSearchItem = {
     code: r.code,
     name: r.name,
@@ -67,8 +73,12 @@ export function readRecentSearches(): RecentSearchItem[] {
   }
 }
 
-/** 맨 앞에 넣고(같은 코드는 옮김) 10개로 자른 목록을 저장·반환한다. 저장 실패여도 메모리 결과를 돌려준다. */
+/**
+ * 맨 앞에 넣고(같은 코드는 옮김) 10개로 자른 목록을 저장·반환한다. 저장 실패여도 메모리 결과를 돌려준다.
+ * 종목 코드 형식이 아니면 쓰지 않고 기존 목록을 돌려준다(IN-07 · throw 없음).
+ */
 export function pushRecentSearch(item: Omit<RecentSearchItem, 'at'>): RecentSearchItem[] {
+  if (!RECENT_CODE_RE.test(item.code)) return readRecentSearches();
   const entry: RecentSearchItem = { code: item.code, name: item.name, at: Date.now() };
   if (typeof item.market === 'string') entry.market = item.market;
   const next = [entry, ...readRecentSearches().filter((i) => i.code !== item.code)].slice(
