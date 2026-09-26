@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { AppShell } from '@/components/layout/app-shell';
 import { AppSidebar } from '@/components/layout/app-sidebar';
+import { PAGE_WRAP } from '@/components/layout/page-layout';
 import { ScannerClient } from '@/components/scanner/scanner-client';
 import { ScannerSkeleton } from '@/components/scanner/scanner-skeleton';
 
@@ -13,13 +14,15 @@ import { ScannerSkeleton } from '@/components/scanner/scanner-skeleton';
  * 정적 페이지다(`force-dynamic` 없음). 동적이면 사이드바 Link 가 프리페치할 것이 없어
  * 클릭마다 서버 렌더를 기다렸다. 정적 셸이 프리페치되어 클릭 즉시 전환된다.
  *
- * Phase 06.2: `<AppSidebar />` 주입 — 상승률 상위/관심종목 nav + UserSection 팝오버 (D-16).
+ * Phase 06.2: `<AppSidebar />` 주입 — UserSection 팝오버 (D-16).
+ * 진입은 `/search` 허브 타일 — 사이드바에는 이 페이지 링크가 없고 「검색」이 켜진다(quick-260926-o2u D1).
+ * 본문은 공용 PAGE_WRAP(900 · 가운데 — D3).
  */
 
 export default function ScannerPage() {
   return (
     <AppShell sidebar={<AppSidebar />}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 md:gap-6">
+      <div className={PAGE_WRAP}>
         <Suspense fallback={<ScannerSkeleton />}>
           <ScannerClient />
         </Suspense>

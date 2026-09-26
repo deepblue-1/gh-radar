@@ -142,6 +142,31 @@ test.describe('Phase 21 — /search 탐색 허브 (MOBILE-01g)', () => {
     expect(box!.width).toBeGreaterThan(600);
   });
 
+  test('1280 — 타일 → /scanner: 제목 22px · 본문 ≤ 900 · 뒤로가기 → /search (quick-260926-o2u D2·D3)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/search');
+
+    const main = mainArea(page);
+    await main.getByRole('navigation', { name: '바로가기' }).getByRole('link').first().click();
+    await expect(page).toHaveURL(/\/scanner$/);
+
+    const title = mainArea(page).getByRole('heading', { level: 1, name: '상승률 상위' });
+    await expect(title).toBeVisible();
+    expect(await title.evaluate((el) => getComputedStyle(el).fontSize)).toBe('22px');
+
+    const header = mainArea(page).locator('[data-slot="page-header"]');
+    const box = await header.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeLessThanOrEqual(900);
+    expect(box!.width).toBeGreaterThan(600);
+
+    // 직접 진입 fallback(/search)은 단위 테스트가 잠근다 — Playwright 새 탭은 about:blank 이 이력에 남는다.
+    await mainArea(page).getByRole('button', { name: '뒤로가기' }).click();
+    await expect(page).toHaveURL(/\/search$/);
+  });
+
   test('앱 모드 390 — 같은 페이지 렌더 · route {path:/search}', async ({ page }) => {
     await installNativeApp(page, { platform: 'ios' });
     await page.setViewportSize({ width: 390, height: 844 });

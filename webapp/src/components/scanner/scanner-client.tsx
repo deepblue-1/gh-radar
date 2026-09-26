@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { PageHeader } from '@/components/layout/page-header';
 import { usePolling } from '@/hooks/use-polling';
 import { AUTO_REFRESH_INTERVAL_MS } from '@/lib/auto-refresh-window';
 import { useNativeRefresh } from '@/lib/native/use-native-refresh';
@@ -104,14 +105,11 @@ export function ScannerClient() {
 
   return (
     <>
-      <header className="flex flex-col gap-1">
-        <h1 className="text-[length:var(--t-2xl)] font-bold tracking-[-0.01em] text-[var(--fg)]">
-          상승률 상위
-        </h1>
-        <p className="text-[length:var(--t-sm)] text-[var(--muted-fg)]">
-          상한가 근접 종목(등락률 10% 이상)을 실시간으로 추적합니다. 마켓을 선택해 리스트를 확인하세요.
-        </p>
-      </header>
+      <PageHeader
+        title="상승률 상위"
+        back
+        description="상한가 근접 종목(등락률 10% 이상)을 실시간으로 추적합니다. 마켓을 선택해 리스트를 확인하세요."
+      />
 
       <ScannerFilters
         state={state}
