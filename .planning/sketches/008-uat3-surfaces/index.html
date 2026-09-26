@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sketch 008 — UAT 3차 세 표면 (/me 전략 로그 · 넓은 폭 「트레이딩」 · 카드 주문유형)</title>
+<style>
+/* ───────────────────────────────────────────────────────────────
+   토큰 = webapp/src/styles/globals.css 의 :root(라이트) · .dark(다크) 값을 그대로 옮겼다(2026-09-26).
+   외부 리소스 없음 — 폰트는 시스템 스택(Pretendard 가 설치돼 있으면 그것).
+   ─────────────────────────────────────────────────────────────── */
+:root {
+  --bg: #ffffff;
+  --surface: #f2f4f6;
+  --band: #f2f4f6;
+  --fg: #191f28;
+  --fg-2: #333d4b;
+  --muted: #f2f4f6;
+  --muted-fg: #6b7684;
+  --faint: #b0b8c1;
+  --raised-2: #e5e8eb;
+  --border: #f2f4f6;
+  --border-subtle: #e5e8eb;
+  --ring: #3182f6;
+  --card: #ffffff;
+  --primary: #3182f6;
+  --accent: #e8f3ff;
+  --accent-fg: #1b64da;
+  --destructive: #f04452;
+  --up: #f04452;
+  --down: #3182f6;
+  --up-bg: #ffeeee;
+  --down-bg: #e8f3ff;
+  --seg-on-bg: #ffffff;
+  --seg-on-fg: #191f28;
+  --seg-on-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --pill-on-bg: #e8f3ff;
+  --pill-on-fg: #1b64da;
+  --side-bg: #ffffff;
+  --nav-on-bg: #e8f3ff;
+  --nav-on-fg: #1b64da;
+  --nav-on-line: #3182f6;
+  --led-armed: #03b26c;
+  --led-latent: #ff9f1a;
+  --switch-off: #d1d6db;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
+  --r-sm: 6px; --r: 12px; --r-md: 16px; --r-lg: 20px;
+  --t-caption: 12px; --t-sm: 14px;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  /* 앱 탭바(sketch 007 C 채택 · 높이 60) 유리 면 */
+  --glass-hi: rgba(255, 255, 255, 0.72);
+}
+.dark {
+  --bg: #17171c;
+  --surface: #17171c;
+  --band: #101013;
+  --fg: #ffffff;
+  --fg-2: #e4e4e5;
+  --muted: #2c2c35;
+  --muted-fg: #9e9ea4;
+  --faint: #62626d;
+  --raised-2: #3c3c47;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-subtle: #3c3c47;
+  --ring: #3485fa;
+  --card: #202027;
+  --primary: #3485fa;
+  --accent: rgba(52, 133, 250, 0.16);
+  --accent-fg: #8ab8ff;
+  --destructive: #f04251;
+  --up: #f04251;
+  --down: #3485fa;
+  --up-bg: rgba(240, 66, 81, 0.16);
+  --down-bg: rgba(52, 133, 250, 0.16);
+  --seg-on-bg: #4d4d59;
+  --seg-on-fg: #ffffff;
+  --seg-on-shadow: 0 0 #0000;
+  --pill-on-bg: #4d4d59;
+  --pill-on-fg: #ffffff;
+  --side-bg: #101013;
+  --nav-on-bg: #2c2c35;
+  --nav-on-fg: #ffffff;
+  --nav-on-line: #ffffff;
+  --led-armed: #2fca73;
+  --led-latent: #ffb13d;
+  --switch-off: #4d4d59;
+  --glass-hi: rgba(44, 44, 53, 0.62);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: #0c0c0f; color: #ddd; font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.mono { font-variant-numeric: tabular-nums; }
+
+/* ── 목업 크롬(검토용 · 테마 무관 고정색) ── */
+#nav { position: sticky; top: 0; z-index: 100; background: #0c0c0f; border-bottom: 1px solid #26262c; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+#nav b.ttl { color: #fff; font-size: 14px; }
+#nav a { color: #9a9aa2; font-size: 12.5px; text-decoration: none; border: 1px solid #2a2a31; border-radius: 7px; padding: 5px 10px; }
+#nav a:hover { color: #fff; border-color: #444; }
+#nav button { font: inherit; font-size: 12.5px; background: #f2f2f2; color: #111; border: 0; border-radius: 7px; padding: 6px 12px; font-weight: 700; cursor: pointer; margin-left: auto; }
+.sec { padding: 28px 20px 48px; border-bottom: 1px solid #1d1d22; scroll-margin-top: 56px; }
+.sec > h2 { color: #fff; font-size: 20px; margin: 0 0 6px; }
+.sec > p.q { color: #a9a9b1; font-size: 13px; line-height: 1.65; margin: 0 0 20px; max-width: 1100px; }
+.sec > p.q b { color: #eee; }
+.row-v { display: flex; flex-wrap: wrap; gap: 36px; align-items: flex-start; }
+.col-v { display: flex; flex-direction: column; gap: 10px; }
+.vt { color: #fff; font-size: 15px; font-weight: 700; }
+.vt small { display: block; color: #9a9aa2; font-size: 12px; font-weight: 400; line-height: 1.55; margin-top: 3px; max-width: 460px; }
+.vt small .pro { color: #7fd6a0; } .vt small .con { color: #f3a0a0; }
+.cap { color: #8a8a92; font-size: 12px; }
+
+/* ── 기기 틀 ── */
+.phone { position: relative; width: 390px; height: 844px; border-radius: 44px; overflow: hidden; background: var(--surface); color: var(--fg); box-shadow: 0 0 0 1px #2a2a30, 0 0 0 9px #111, 0 24px 60px rgba(0,0,0,.5); }
+.phone .sb { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 10px; font-size: 15px; font-weight: 600; z-index: 20; background: color-mix(in srgb, var(--surface) 90%, transparent); }
+.phone .island { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 120px; height: 34px; background: #000; border-radius: 20px; z-index: 30; }
+.phone .scroll { position: absolute; inset: 0; overflow-y: auto; padding: 62px 8px 110px; scrollbar-width: none; }
+.phone .scroll::-webkit-scrollbar { display: none; }
+.phone .hi { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 136px; height: 5px; border-radius: 3px; background: var(--fg); opacity: .8; z-index: 40; }
+.wide { position: relative; width: 1024px; border-radius: 16px; overflow: hidden; background: var(--bg); color: var(--fg); box-shadow: 0 0 0 1px #2a2a30, 0 18px 50px rgba(0,0,0,.45); }
+
+/* 네이티브 탭바 — sketch 007 C 채택(캡슐 · 높이 60 · 바닥 max(inset−14,14)) */
+.tabbar { position: absolute; left: 16px; right: 16px; bottom: 20px; height: 60px; border-radius: 30px; background: var(--glass-hi); backdrop-filter: blur(28px) saturate(1.8); -webkit-backdrop-filter: blur(28px) saturate(1.8); box-shadow: 0 4px 24px rgba(0,0,0,.14), 0 1px 2px rgba(0,0,0,.08); display: flex; z-index: 35; }
+.wide .tabbar { left: 50%; right: auto; width: 560px; transform: translateX(-50%); bottom: 14px; }
+.tabbar .it { flex: 1; display: grid; place-items: center; position: relative; color: var(--muted-fg); }
+.tabbar .it svg { width: 24px; height: 24px; position: relative; z-index: 1; }
+.tabbar .it.on { color: var(--primary); }
+.tabbar .it.on::before { content: ""; position: absolute; width: 56px; height: 36px; border-radius: 18px; background: color-mix(in srgb, var(--primary) 16%, transparent); }
+
+/* ── 앱 공통 조각 ── */
+.stack { display: flex; flex-direction: column; gap: var(--s-3); }
+.ph-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin: 2px 0 0; min-height: 44px; display: flex; align-items: center; }
+.ph-desc { font-size: var(--t-sm); color: var(--muted-fg); margin: -6px 0 4px; }
+.acct { display: flex; align-items: center; gap: 12px; min-height: 72px; border-radius: 16px; background: var(--card); padding: 14px 16px; margin-bottom: 4px; }
+.acct .av { width: 44px; height: 44px; border-radius: 50%; background: var(--raised-2); display: grid; place-items: center; font-size: 17px; font-weight: 700; }
+.acct .nm b { display: block; font-size: 16px; font-weight: 700; }
+.acct .nm span { font-size: 12.5px; color: var(--muted-fg); }
+.acct .ib { margin-left: auto; display: flex; gap: 6px; }
+.acct .ib i { width: 36px; height: 36px; border-radius: 50%; background: var(--muted); display: block; }
+.statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--muted); padding: var(--s-2) var(--s-3); font-size: var(--t-caption); color: var(--muted-fg); }
+.statusbar b { color: var(--fg); font-weight: 600; }
+.statusbar .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 6px; }
+.statusbar .t { margin-left: auto; }
+.card { border-radius: var(--r-lg); background: var(--card); padding: var(--s-3); }
+.card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; font-size: var(--t-sm); font-weight: 600; }
+.card-h .r { margin-left: auto; font-size: var(--t-caption); font-weight: 400; color: var(--muted-fg); }
+.srow { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 44px; border-radius: var(--r); padding: 8px; }
+.srow .l1 { display: flex; align-items: center; gap: 8px; }
+.srow .l1 .n { flex: 1; min-width: 0; font-size: var(--t-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.srow .l1 .chev { color: var(--muted-fg); font-size: 12px; }
+.srow .l2 { font-size: 11px; color: var(--muted-fg); }
+.bdg { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; }
+.bdg.buy { background: var(--up-bg); color: var(--up); }
+.bdg.sell { background: var(--down-bg); color: var(--down); }
+.bdg.latch { background: color-mix(in srgb, var(--led-armed) 16%, transparent); color: var(--led-armed); }
+.bdg.vi { background: var(--muted); color: var(--fg-2); }
+.acctcard { border-radius: var(--r-lg); background: var(--card); overflow: hidden; }
+.acctcard .hd { padding: 12px 14px 6px; font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.acctcard .hd .no { color: var(--muted-fg); font-weight: 500; }
+.acctcard .sub { padding: 6px 14px 2px; font-size: 12px; font-weight: 600; color: var(--muted-fg); }
+.trow { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; font-size: 13px; border-top: 1px solid var(--border-subtle); }
+.trow .x { margin-left: auto; font-weight: 600; }
+.up { color: var(--up); } .down { color: var(--down); }
+
+/* 전략 로그(카드 variant 문법 — strategy-log.tsx: 11px · 1.6 · 시각만 tnum · who 600) */
+.log ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.6; }
+.log li { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
+.log li .at { flex: none; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+.log li .who { flex: none; font-weight: 600; color: var(--fg); }
+.log li .m { min-width: 0; color: var(--fg); word-break: keep-all; overflow-wrap: anywhere; }
+.log li.err .m { color: var(--destructive); }
+
+/* 세그먼트(알약 · 선택 면 --seg-on-*) */
+.seg { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--muted); gap: 2px; }
+.seg button { font: inherit; border: 0; background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 600; height: 26px; padding: 0 12px; border-radius: 999px; cursor: pointer; }
+.seg button.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.seg button:disabled { color: var(--faint); cursor: not-allowed; }
+
+/* ── 종목상세(넓은 폭) ── */
+.w-hdr { height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.w-hdr .logo { font-size: 16px; font-weight: 800; letter-spacing: -.02em; }
+.w-hdr .sch { margin-left: 24px; width: 320px; height: 36px; border-radius: 10px; background: var(--muted); color: var(--muted-fg); font-size: 13px; display: flex; align-items: center; padding: 0 12px; }
+.w-hdr .burger { width: 36px; height: 36px; display: grid; place-items: center; color: var(--fg); }
+.w-body { display: flex; }
+.w-side { width: 240px; flex: none; background: var(--side-bg); padding: 12px; min-height: 420px; }
+.w-side .ni { height: 40px; border-radius: 10px; display: flex; align-items: center; padding: 0 12px; font-size: 14px; color: var(--fg-2); }
+.w-side .ni.on { background: var(--nav-on-bg); color: var(--nav-on-fg); font-weight: 600; }
+.w-main { flex: 1; min-width: 0; padding: 0 24px 24px; background: var(--bg); }
+.app .w-main { padding-bottom: 110px; }
+.hero { padding: 14px 0 6px; display: flex; flex-direction: column; gap: 6px; }
+.hero .r1 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hero .back { font-size: 24px; color: var(--muted-fg); padding: 8px 4px 8px 0; line-height: 1; }
+.hero h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+.hero .code { border-radius: 6px; background: var(--muted); padding: 2px 7px; font-size: 12px; font-weight: 600; color: var(--muted-fg); }
+.hero .mk { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.hero .star { color: var(--muted-fg); font-size: 18px; }
+.hero .ai { margin-left: auto; height: 32px; display: inline-flex; align-items: center; gap: 4px; padding: 0 12px; border-radius: 999px; background: var(--muted); font-size: 13px; font-weight: 600; }
+.hero .r2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.hero .px { font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; }
+.hero .chg { font-size: 15px; font-weight: 500; }
+.upd { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; }
+.upd .t { font-size: var(--t-caption); color: var(--muted-fg); }
+.btn-outline { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg); color: var(--fg); font-size: 13px; font-weight: 500; }
+.tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border-subtle); height: 44px; align-items: stretch; }
+.tabs span { display: flex; align-items: center; font-size: 15px; font-weight: 600; color: var(--muted-fg); border-bottom: 2px solid transparent; }
+.tabs span.on { color: var(--nav-on-fg); border-bottom-color: var(--nav-on-line); }
+.chartph { height: 170px; margin-top: 12px; border-radius: 12px; background: linear-gradient(180deg, color-mix(in srgb, var(--up) 10%, transparent), transparent 70%); position: relative; overflow: hidden; }
+.chartph svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* 「트레이딩」 버튼 — 색은 폰 CTA 와 같은 --up · 흰 글자. 변형은 자리·크기만 다르다 */
+.trade { display: inline-flex; align-items: center; justify-content: center; background: var(--up); color: #fff; font-weight: 600; border: 0; white-space: nowrap; flex: none; }
+.trade.sz-a { height: 32px; padding: 0 14px; border-radius: 999px; font-size: 13px; }
+.trade.sz-b { height: 40px; padding: 0 20px; border-radius: 12px; font-size: 15px; align-self: center; }
+.trade.sz-c { height: 32px; padding: 0 14px; border-radius: 10px; font-size: 13px; }
+.ml-auto { margin-left: auto; }
+.hl { outline: 2px dashed #f5c542; outline-offset: 3px; }
+
+/* 폰 CTA 바(참고) — stock-detail-tabs.tsx: 56 · r16 · 17/600 · --up · 앱에서는 탭바 위(--native-tabbar-offset) */
+.ctabar { position: absolute; left: 0; right: 0; bottom: 88px; padding: 10px 20px; background: linear-gradient(to bottom, transparent, var(--bg) 40%); z-index: 30; }
+.ctabar .trade { width: 100%; height: 56px; border-radius: 16px; font-size: 17px; }
+
+/* ── 트레이딩 카드(폭 344) ── */
+.tcard { width: 344px; border-radius: var(--r-lg); background: var(--card); color: var(--fg); overflow: hidden; }
+.tsurf { background: var(--surface); padding: 16px; border-radius: 18px; box-shadow: 0 0 0 1px #2a2a30; }
+.tc-h { display: flex; align-items: center; gap: 6px; padding: 12px 10px; }
+.tc-h .car { color: var(--muted-fg); font-size: 11px; }
+.tc-h .nm { font-size: 15px; font-weight: 700; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tc-h .px { white-space: nowrap; }
+.tc-h .i { color: var(--muted-fg); font-size: 13px; }
+.tc-h .ex { display: inline-flex; height: 20px; border-radius: 999px; background: var(--muted); overflow: hidden; }
+.tc-h .ex span { font-size: 10px; font-weight: 700; padding: 0 6px; display: grid; place-items: center; color: var(--muted-fg); border-radius: 999px; }
+.tc-h .ex span.on { background: var(--pill-on-bg); color: var(--pill-on-fg); }
+.tc-h .px { margin-left: auto; text-align: right; }
+.tc-h .px b { font-size: 15px; font-weight: 700; }
+.tc-h .px span { font-size: 12px; font-weight: 600; margin-left: 4px; }
+.tc-h .x { color: var(--muted-fg); font-size: 14px; width: 16px; text-align: center; flex: none; }
+.mo { padding: 4px 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.mo-t { font-size: 13px; font-weight: 600; color: var(--muted-fg); padding: 2px 2px 0; }
+.tbox { border-radius: 16px; background: var(--muted); padding: 12px 12px 12px 14px; min-width: 0; }
+.tbox .hd { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tbox .hd .lb { font-weight: 600; color: var(--fg-2); white-space: nowrap; }
+.tbox .hd .bar { width: 1px; height: 10px; background: var(--switch-off); flex: none; }
+.tbox .hd .hint { font-size: 12px; color: var(--muted-fg); min-width: 0; }
+.tbox .val { margin-top: 6px; display: flex; align-items: center; font-size: 17px; font-weight: 600; }
+.tbox .val .u { margin-left: 4px; }
+.tbox.locked .val { color: var(--muted-fg); }
+.r44 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; font-size: 14px; }
+.r44 .k { color: var(--muted-fg); white-space: nowrap; }
+.r44 .v { color: var(--fg-2); font-weight: 500; white-space: nowrap; }
+.r44 .v .chev { color: var(--faint); }
+.note { margin: -4px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted-fg); word-break: keep-all; }
+.note.warn::before { content: "ⓘ "; }
+.obtn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.obtn span { display: grid; place-items: center; border-radius: 14px; height: 48px; color: #fff; font-size: 13px; font-weight: 600; line-height: 1.15; text-align: center; }
+.obtn .b { background: var(--up); } .obtn .s { background: var(--down); }
+.obtn2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 0; }
+.obtn2 span { display: grid; place-items: center; border-radius: 10px; height: 38px; background: var(--muted); color: var(--muted-fg); font-size: 15px; font-weight: 600; opacity: .5; }
+.foot { font-size: 12px; color: var(--muted-fg); }
+.chip { display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--pill-on-bg); color: var(--pill-on-fg); font-size: 12px; font-weight: 600; white-space: nowrap; position: relative; }
+.chip.off { background: var(--raised-2); color: var(--fg-2); }
+.wbadge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--accent-fg); font-size: 11px; font-weight: 600; }
+.segfull { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 12px; background: var(--muted); gap: 3px; }
+.segfull span { height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 14px; font-weight: 600; color: var(--muted-fg); }
+.segfull span.on { background: var(--seg-on-bg); color: var(--seg-on-fg); box-shadow: var(--seg-on-shadow); }
+.segfull span.dis { color: var(--faint); }
+.pair { display: flex; gap: 24px; flex-wrap: wrap; }
+.pair .cap { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2M5.5 9.8V20h4.8v-5.6h3.4V20h4.8V9.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-trade" viewBox="0 0 24 24"><path d="M3.5 4v15.5H21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="m6.5 15.5 4-5 3 2.5 5.5-6.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ai" viewBox="0 0 24 24"><path d="M10 3.5c.4 3.4 2.1 5.1 5.5 5.5-3.4.4-5.1 2.1-5.5 5.5-.4-3.4-2.1-5.1-5.5-5.5 3.4-.4 5.1-2.1 5.5-5.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-me" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.2a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Zm0 12a7.5 7.5 0 0 1-5.6-2.5c1.2-2 3.2-3 5.6-3s4.4 1 5.6 3A7.5 7.5 0 0 1 12 19.2Z" fill="currentColor"/></symbol>
+</svg>
+
+<div id="nav">
+  <b class="ttl">sketch 008 · UAT 3차 세 표면</b>
+  <a href="#s1">① /me 전략 로그</a>
+  <a href="#s2">② 넓은 폭 「트레이딩」</a>
+  <a href="#s3">③ 카드 주문유형</a>
+  <button type="button" id="theme">라이트로 보기</button>
+</div>
+
+<!-- ═══════════════════════ ① /me 전 종목 전략 로그 ═══════════════════════ -->
+<section class="sec" id="s1">
+  <h2>① /me 전 종목 전략 로그 배치 (G-21-R3-2)</h2>
+  <p class="q">앱에서는 /trading 하단 공용 패널(잔고/미체결/전략 로그)을 숨긴다. 대신 <b>전 종목 전략 로그</b>를 마이 탭(/me)에서 본다.
+    기존 세로 순서 = 제목 → 계정 카드 → 상태줄 → 전략 현황 → 계좌 카드 N → 오늘 주문. 로그 문법은 기존 전략 로그 카드(11px · 시각 tnum · 종목명 600 · 거부는 빨강) 그대로. 폰 390 · 스크롤해서 끝까지 볼 수 있다.</p>
+  <div class="row-v">
+
+    <div class="col-v" data-variant="a">
+      <div class="vt">변형 A — 전략 현황 바로 아래 독립 카드
+        <small><span class="pro">＋ 상태(현황)와 기록(로그)이 붙어 한눈에 · 첫 화면 안에 들어온다</span><br><span class="con">－ 계좌 카드(미체결·잔고)가 한 화면 아래로 밀린다</span></small></div>
+      <div class="phone"><div class="island"></div><div class="sb"><span>10:42</span><span>●●● 🔋</span></div>
+        <div class="scroll"><div class="stack" data-me="a"></div></div>
+        <nav class="tabbar" data-tabbar="me"></nav><div class="hi"></div></div>
+    </div>
+
+    <div class="col-v" data-variant="b">
+      <div class="vt">변형 B — 전략 현황 카드 안 「현황 | 로그」 전환
+        <small><span class="pro">＋ 카드가 하나라 세로 길이 불변 · 계좌 카드 위치 그대로</span><br><span class="con">－ 현황과 로그를 동시에 못 본다 · 한 번 더 눌러야 한다(기본 = 현황)</span></small></div>
+      <div class="phone"><div class="island"></div><div class="sb"><span>10:42</span><span>●●● 🔋</span></div>
+        <div class="scroll"><div class="stack" data-me="b"></div></div>
+        <nav class="tabbar" data-tabbar="me"></nav><div class="hi"></div></div>
+      <div class="cap">카드 머리의 「로그」를 눌러 전환해 보세요.</div>
+    </div>
+
+    <div class="col-v" data-variant="c">
+      <div class="vt">변형 C — 오늘 주문 아래 맨 끝 카드
+        <small><span class="pro">＋ 기존 세로 순서(D-20 계약) 무변경 · 기록은 기록끼리 끝에</span><br><span class="con">－ 끝까지 스크롤해야 보인다(계좌가 늘수록 더 멀어진다)</span></small></div>
+      <div class="phone"><div class="island"></div><div class="sb"><span>10:42</span><span>●●● 🔋</span></div>
+        <div class="scroll"><div class="stack" data-me="c"></div></div>
+        <nav class="tabbar" data-tabbar="me"></nav><div class="hi"></div></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════ ② 종목상세 넓은 폭 「트레이딩」 ═══════════════════════ -->
+<section class="sec" id="s2">
+  <h2>② 종목상세 넓은 폭(1024) 「트레이딩」 버튼 배치 (G-21-R3-9)</h2>
+  <p class="q">「주문하기」 → <b>「트레이딩」</b>(누르면 /trading?code= 로 가서 그 종목 카드가 펼쳐지고 포커스). 폰(&lt;768)은 하단 바 라벨만 바뀐다(아래 참고). 넓은 폭엔 지금 버튼이 없어 자리를 새로 정한다.
+    탭은 호가주문이 빠진 3개(차트 · 종목정보 · 뉴스토론 — G-21-R3-10). 색은 폰 CTA 와 같은 <b>--up</b> 채움이고 변형은 <b>자리·크기만</b> 다르다. 노란 점선 = 새 버튼. 매매 불가 종목에서는 버튼이 없다.</p>
+  <div class="col-v" style="gap:34px">
+
+    <div class="col-v" data-variant="a">
+      <div class="vt">변형 A — 히어로 첫 줄 끝(헤더 액션 자리 · 32 알약)
+        <small><span class="pro">＋ 「AI 분석」과 같은 액션 줄 · 스크롤 전 가장 위</span><br><span class="con">－ 앱판에서 알약 두 개가 붙어 첫 줄이 붐빈다 · 긴 종목명이면 다음 줄로 넘어간다</span></small></div>
+      <div class="cap">브라우저(사이드바 240)</div><div class="wide" data-detail="a" data-shell="web"></div>
+      <div class="cap">앱(iPad · 「AI 분석」 있음 · 네이티브 탭바)</div><div class="wide app" data-detail="a" data-shell="app"></div>
+    </div>
+
+    <div class="col-v" data-variant="b">
+      <div class="vt">변형 B — 가격 줄 끝(40 · r12)
+        <small><span class="pro">＋ 가격 옆이라 「이 가격을 보고 매매하러 간다」 흐름 · 첫 줄은 지금 그대로</span><br><span class="con">－ 가격 줄 높이에 맞춰 버튼이 커서 존재감이 가장 강하다</span></small></div>
+      <div class="cap">브라우저(사이드바 240)</div><div class="wide" data-detail="b" data-shell="web"></div>
+      <div class="cap">앱(iPad · 「AI 분석」 있음 · 네이티브 탭바)</div><div class="wide app" data-detail="b" data-shell="app"></div>
+    </div>
+
+    <div class="col-v" data-variant="c">
+      <div class="vt">변형 C — 갱신시각 행 「새로고침」 옆(32 · r10)
+        <small><span class="pro">＋ 히어로 무변경 · 도구 줄에 한 개 추가라 구현 최소</span><br><span class="con">－ 새로고침과 나란히 서 주 동작처럼 안 보인다</span></small></div>
+      <div class="cap">브라우저(사이드바 240)</div><div class="wide" data-detail="c" data-shell="web"></div>
+      <div class="cap">앱(iPad · 「AI 분석」 있음 · 네이티브 탭바)</div><div class="wide app" data-detail="c" data-shell="app"></div>
+    </div>
+
+    <div class="col-v">
+      <div class="vt">참고 — 폰(&lt;768) 하단 바: 라벨만 「트레이딩」 (모든 변형 공통)
+        <small>56 · r16 · 17/600 · --up — 자리·모양 그대로(data-slot 유지), 동작만 호가 탭 전환 → /trading?code= 이동.</small></div>
+      <div class="phone" style="height:640px; background:var(--bg)"><div class="island"></div><div class="sb" style="background:var(--bg)"><span>10:42</span><span>●●● 🔋</span></div>
+        <div class="scroll" style="padding:62px 12px 180px" data-detail-phone></div>
+        <div class="ctabar"><button class="trade" type="button">트레이딩</button></div>
+        <nav class="tabbar" data-tabbar="search"></nav><div class="hi"></div></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════ ③ 트레이딩 카드 수동주문 주문유형 ═══════════════════════ -->
+<section class="sec" id="s3">
+  <h2>③ 트레이딩 카드 수동주문 주문유형 배치 (G-21-R3-10)</h2>
+  <p class="q">종목상세 호가주문 탭을 없애면 <b>시간외종가 신규 주문</b>은 트레이딩 카드 수동주문에서만 된다. 카드 폭 344(폰). 판정은 지금 그대로(affordanceOf — KRX ∧ G2/G3 창 열림일 때만 시간외종가 선택 가능 · 창이 닫히면 지정가로 복귀).
+    각 변형마다 <b>창 열림(시간외종가 선택)</b> · <b>창 닫힘(비활성 + 안내)</b> 두 상태. 시간외종가를 고르면 가격은 잠기고(참고 종가) 주문금액은 「종가 확정 후」.</p>
+  <div class="col-v" style="gap:34px">
+
+    <div class="col-v" data-variant="a">
+      <div class="vt">변형 A — 호가 탭과 같은 44px 행 「주문유형 지정가 ›」(주문금액 위)
+        <small><span class="pro">＋ 지금 호가 탭 UI 를 그대로 옮긴다(토스식 행 문법 · 누르면 네이티브 선택 시트)</span><br><span class="con">－ 현재 유형이 행 오른쪽 글자로만 보인다 · 닫힘 안내는 행 아래 캡션</span></small></div>
+      <div class="tsurf pair" data-order="a"></div>
+    </div>
+
+    <div class="col-v" data-variant="b">
+      <div class="vt">변형 B — 가격 칸 위 세그먼트 「지정가 | 시간외종가」
+        <small><span class="pro">＋ 현재 유형이 가장 잘 보이고 한 번 눌러 전환</span><br><span class="con">－ 카드 높이 +40 · 창이 닫힌 대부분 시간 동안 비활성 칸이 자리를 차지</span></small></div>
+      <div class="tsurf pair" data-order="b"></div>
+    </div>
+
+    <div class="col-v" data-variant="c">
+      <div class="vt">변형 C — 가격 라벨 옆 칩
+        <small><span class="pro">＋ 높이 증가 없음 · 가격과 유형이 한 상자에서 읽힌다</span><br><span class="con">－ 칩이 작아 존재감이 약하다(터치 영역은 44 로 확장 필요)</span></small></div>
+      <div class="tsurf pair" data-order="c"></div>
+    </div>
+
+  </div>
+</section>
+
+<script>
+/* 목업 조립 — 같은 조각을 변형마다 재사용한다(외부 스크립트 없음). */
+const TAB = (on) => ['home','search','trade','ai','me'].map(k =>
+  `<span class="it${k===on?' on':''}"><svg><use href="#i-${k}"/></svg></span>`).join('');
+document.querySelectorAll('[data-tabbar]').forEach(n => { n.innerHTML = TAB(n.dataset.tabbar); });
+
+/* ① /me */
+const LOG = [
+  ['10:42:18','에코프로','매수 무장'],
+  ['10:41:55','한미반도체','매도 진입 래치 ON — 감시 시작'],
+  ['10:40:03','에코프로','[상따] 서버 통지 — 매수 1주문 접수'],
+  ['10:38:47','HLB','[상따] 서버가 거부했어요 — 주문가능금액 부족', 'err'],
+  ['10:35:12','레인보우로보틱스','전략이 등록됐어요'],
+];
+const logList = () => `<ol>${LOG.map(([at,who,m,lv]) =>
+  `<li class="${lv||''}"><span class="at mono">${at}</span><span class="who">${who}</span><span class="m">${m}</span></li>`).join('')}</ol>`;
+const logCard = () => `<section class="card log hl"><div class="card-h">전략 로그<span class="r">전 종목 · 최신순</span></div>${logList()}</section>`;
+const statusRows = () => `
+  <div class="srow"><div class="l1"><span class="n">에코프로</span><span class="bdg buy">매수</span><span class="bdg latch">래치</span><span class="chev">›</span></div><div class="l2"><span class="mono">086520</span> · KRX · <span class="mono">12345678-01</span></div></div>
+  <div class="srow"><div class="l1"><span class="n">한미반도체</span><span class="bdg sell">매도</span><span class="chev">›</span></div><div class="l2"><span class="mono">042700</span> · NXT · <span class="mono">12345678-01</span></div></div>
+  <div class="srow"><div class="l1"><span class="n">레인보우로보틱스</span><span class="bdg buy">매수</span><span class="chev">›</span></div><div class="l2"><span class="mono">277810</span> · KRX · <span class="mono">87654321-01</span></div></div>
+  <div class="srow" style="border-top:1px solid var(--border-subtle);border-radius:0;margin-top:4px"><div class="l1"><span class="n" style="flex:none">VI 자동매수</span><span class="bdg vi">가동</span><span class="l2" style="margin-left:4px">KRX · NXT</span><span class="chev" style="margin-left:auto">›</span></div></div>`;
+const statusCard = (mode) => {
+  if (mode === 'b') {
+    return `<section class="card hl" data-card="b"><div class="card-h">전략 현황
+      <span class="seg" style="margin-left:auto"><button type="button" class="on" data-seg="st">현황</button><button type="button" data-seg="log">로그</button></span></div>
+      <div data-pane="st"><div class="mono" style="font-size:12px;color:var(--muted-fg);margin:-4px 0 4px 8px">상따 3 · VI 가동</div>${statusRows()}</div>
+      <div data-pane="log" class="log" hidden>${logList()}</div></section>`;
+  }
+  return `<section class="card"><div class="card-h">전략 현황<span class="r mono">상따 3 · VI 가동</span></div>${statusRows()}</section>`;
+};
+const acctCard = (no, name) => `<section class="acctcard"><div class="hd">${name}<span class="no mono">${no}</span></div>
+  <div class="sub">미체결 1</div>
+  <div class="trow"><span>에코프로</span><span class="up">매수</span><span class="x mono">111,000 × 5</span></div>
+  <div class="sub" style="padding-top:10px">잔고 2</div>
+  <div class="trow"><span>한미반도체</span><span class="x mono">30주 · <span class="up">+4.12%</span></span></div>
+  <div class="trow" style="margin-bottom:6px"><span>삼성전자</span><span class="x mono">12주 · <span class="down">−0.84%</span></span></div></section>`;
+const todayCard = () => `<section class="card"><div class="card-h">오늘 주문<span class="r mono">3건</span></div>
+  <div class="trow" style="border-top:0;padding:0 4px"><span class="mono" style="color:var(--muted-fg)">10:40</span><span>에코프로</span><span class="up">매수</span><span class="x mono">111,000 × 5 · 접수</span></div>
+  <div class="trow" style="padding:0 4px"><span class="mono" style="color:var(--muted-fg)">09:12</span><span>한미반도체</span><span class="up">매수</span><span class="x mono">98,400 × 30 · 체결</span></div>
+  <div class="trow" style="padding:0 4px"><span class="mono" style="color:var(--muted-fg)">09:03</span><span>HLB</span><span class="up">매수</span><span class="x mono">— · 거부</span></div></section>`;
+const mePage = (v) => [
+  `<div class="ph-title">My page</div><div class="ph-desc">전략 현황 · 미체결 · 잔고</div>`,
+  `<div class="acct"><div class="av">알</div><div class="nm"><b>알렉스</b><span>user@example.com</span></div><div class="ib"><i></i><i></i></div></div>`,
+  `<div class="statusbar"><span><span class="dot"></span>DMA <b>실시간</b></span><span>상따 <b>3건</b></span><span>VI <b>가동</b></span><span>계좌 <b>2개</b></span><span class="t mono">반영 10:42:18</span></div>`,
+  statusCard(v),
+  v === 'a' ? logCard() : '',
+  acctCard('12345678-01','위탁 A'),
+  acctCard('87654321-01','위탁 B'),
+  todayCard(),
+  v === 'c' ? logCard() : '',
+].join('');
+document.querySelectorAll('[data-me]').forEach(n => { n.innerHTML = mePage(n.dataset.me); });
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-seg]'); if (!b) return;
+  const card = b.closest('[data-card]');
+  card.querySelectorAll('[data-seg]').forEach(x => x.classList.toggle('on', x === b));
+  card.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== b.dataset.seg; });
+});
+
+/* ② 종목상세 */
+const CHART = `<div class="chartph"><svg viewBox="0 0 600 170" preserveAspectRatio="none"><polyline fill="none" stroke="var(--up)" stroke-width="2" points="0,150 40,140 80,146 120,120 160,128 200,100 240,108 280,86 320,92 360,70 400,76 440,52 480,58 520,36 560,40 600,22"/></svg></div>`;
+const hero = (v, app) => {
+  const btnA = v === 'a' ? `<button class="trade sz-a hl${app ? '' : ' ml-auto'}" type="button">트레이딩</button>` : '';
+  const btnB = v === 'b' ? `<button class="trade sz-b hl ml-auto" type="button">트레이딩</button>` : '';
+  const btnC = v === 'c' ? `<button class="trade sz-c hl" type="button">트레이딩</button>` : '';
+  return `<div class="hero">
+      <div class="r1"><span class="back">←</span><h1>에코프로</h1><span class="code mono">086520</span><span class="mk">KOSDAQ</span><span class="star">☆</span>
+        ${app ? '<span class="ai">✦ AI 분석</span>' : ''}${btnA}</div>
+      <div class="r2"><span class="px mono">112,300</span><span class="chg up mono">+12,300</span><span class="chg up mono">+12.30%</span>${btnB}</div>
+    </div>
+    <div class="upd"><span class="t mono">10:42:18 기준</span><span style="display:flex;gap:8px">${btnC}<span class="btn-outline">↻ 새로고침</span></span></div>
+    <div class="tabs"><span class="on">차트</span><span>종목정보</span><span>뉴스토론</span></div>${CHART}`;
+};
+document.querySelectorAll('[data-detail]').forEach(n => {
+  const app = n.dataset.shell === 'app';
+  const hdr = app
+    ? `<div class="w-hdr"><span class="burger">☰</span><span class="logo">GH Trade</span></div>`
+    : `<div class="w-hdr"><span class="logo">GH Radar</span><span class="sch">종목 검색 ⌘K</span></div>`;
+  const side = app ? '' : `<aside class="w-side"><div class="ni">홈</div><div class="ni on">종목 검색</div><div class="ni">상승률 상위</div><div class="ni">트레이딩</div><div class="ni">My page</div></aside>`;
+  n.innerHTML = `${hdr}<div class="w-body">${side}<div class="w-main">${hero(n.dataset.detail, app)}</div></div>${app ? `<nav class="tabbar">${TAB('search')}</nav>` : ''}`;
+});
+document.querySelectorAll('[data-detail-phone]').forEach(n => {
+  n.innerHTML = `<div class="hero"><div class="r1"><span class="back">←</span><h1>에코프로</h1><span class="code mono">086520</span><span class="mk">KOSDAQ</span><span class="star">☆</span><span class="ai">✦ AI 분석</span></div>
+    <div class="r2"><span class="px mono">112,300</span><span class="chg up mono">+12,300</span><span class="chg up mono">+12.30%</span></div></div>
+    <div class="upd"><span class="t mono">10:42:18 기준</span><span class="btn-outline">↻ 새로고침</span></div>
+    <div class="tabs" style="gap:18px"><span class="on">차트</span><span>종목정보</span><span>뉴스토론</span></div>${CHART}`;
+});
+
+/* ③ 카드 주문유형 */
+const CLOSED_TEXT = '시간외종가는 KRX · 시간외종가 창(G2/G3)에서만 고를 수 있어요';
+const OFF_HINT = '가격 0 · krx_session 으로 전송 · 정정 불가(취소 후 재등록)';
+const cardHead = `<div class="tc-h"><span class="car">▼</span><span class="nm">에코프로</span><span class="i">ⓘ</span><span class="ex"><span class="on">KRX</span><span>NXT</span></span>
+  <span class="px"><b class="mono">112,300</b><span class="up mono">+12.30%</span></span><span class="x">✕</span></div>`;
+const priceBox = (off, chip) => off
+  ? `<div class="tbox locked"><div class="hd"><span class="lb">가격</span>${chip||''}<span class="bar"></span><span class="hint">참고 종가 112,300원</span></div><div class="val">—</div></div>
+     <p class="note">${OFF_HINT}</p>`
+  : `<div class="tbox"><div class="hd"><span class="lb">가격</span>${chip||''}<span class="bar"></span><span class="hint">호가를 누르면 채워져요</span></div><div class="val"><span class="mono">112,300</span><span class="u">원</span></div></div>`;
+const qtyBox = `<div class="tbox"><div class="hd"><span class="lb">수량</span></div><div class="val"><span class="mono">10</span><span class="u">주</span></div></div>`;
+const amount = (off) => `<div class="r44"><span class="k">주문금액</span><span class="v">${off ? '종가 확정 후' : '<span class="mono">1,123,000원</span>'}</span></div>`;
+const buttons = `<div class="obtn"><span class="b">매수</span><span class="s">매도</span></div><div class="obtn2"><span>정정</span><span>취소</span></div>
+  <div class="foot">정정·취소는 미체결 행을 선택하면 활성화돼요</div>`;
+const form = (v, open) => {
+  const off = open; // 창 열림 상태 = 시간외종가를 고른 모습, 닫힘 = 지정가(시간외종가 비활성)
+  let top = '', chip = '', row = '';
+  if (v === 'a') {
+    row = `<div class="r44 hl"><span class="k">주문유형</span><span class="v">${off ? '시간외종가' : '지정가'} <span class="chev">›</span></span></div>`
+        + (open ? '' : `<p class="note warn">${CLOSED_TEXT}</p>`);
+  } else if (v === 'b') {
+    top = `<div class="segfull hl"><span class="${off ? '' : 'on'}">지정가</span><span class="${off ? 'on' : 'dis'}">시간외종가</span></div>`
+        + (open ? '' : `<p class="note warn">${CLOSED_TEXT}</p>`);
+  } else {
+    chip = `<span class="chip hl${off ? '' : ' off'}">${off ? '시간외종가' : '지정가'} ▾</span>`;
+  }
+  const after = (v === 'c' && !open) ? `<p class="note warn">${CLOSED_TEXT}</p>` : '';
+  return `<div class="mo"><div class="mo-t">수동주문 ${open ? '<span class="wbadge" style="margin-left:6px">시간외종가 G3 창</span>' : ''}</div>
+    ${top}${priceBox(off, chip)}${after}${qtyBox}${row}${amount(off)}${buttons}</div>`;
+};
+document.querySelectorAll('[data-order]').forEach(n => {
+  const v = n.dataset.order;
+  n.innerHTML = `<div><div class="cap">창 열림 — 시간외종가 선택</div><div class="tcard">${cardHead}${form(v, true)}</div></div>
+                 <div><div class="cap">창 닫힘 — 지정가 · 시간외종가 비활성 + 안내</div><div class="tcard">${cardHead}${form(v, false)}</div></div>`;
+});
+
+/* 다크(기본) / 라이트 전환 — globals.css 와 같은 .dark 클래스를 html 에 붙였다 뗀다 */
+const root = document.documentElement, tb = document.getElementById('theme');
+tb.addEventListener('click', () => {
+  root.classList.toggle('dark');
+  tb.textContent = root.classList.contains('dark') ? '라이트로 보기' : '다크로 보기';
+});
+</script>
+</body>
+</html>
