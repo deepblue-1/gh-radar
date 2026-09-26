@@ -115,7 +115,17 @@ vi.mock('@/components/trading/card/stock-info-modal', () => ({
   StockInfoModal: () => null,
 }));
 
-vi.mock('@/components/trading/workbench/stock-add-bar', () => ({
+/** `?code=` 착지(G-21-R3-9)가 부르는 종목 상세 — 케이스마다 응답을 심는다. */
+const fetchStockDetailMock = vi.fn();
+vi.mock('@/lib/stock-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stock-api')>();
+  return { ...actual, fetchStockDetail: (...a: unknown[]) => fetchStockDetailMock(...a) };
+});
+
+vi.mock('@/components/trading/workbench/stock-add-bar', async (importOriginal) => ({
+  // 매매 가능 판정은 실물 그대로 — 작업대 `?code=` 가 같은 함수를 읽는다(판정 한 곳).
+  isPickable: (await importOriginal<typeof import('@/components/trading/workbench/stock-add-bar')>())
+    .isPickable,
   StockAddBar: ({
     cards,
     onAdd,
@@ -262,6 +272,8 @@ beforeEach(() => {
   cardProps.clear();
   sharedPanelsProps.last = null;
   mockRelay = relay();
+  fetchStockDetailMock.mockReset();
+  fetchStockDetailMock.mockRejectedValue(new Error('fetchStockDetail 호출이 예상되지 않았다'));
 });
 
 afterEach(() => {
@@ -576,6 +588,137 @@ describe('TradingWorkbench — 등록된 전략과 ?focus= (D-02 · T-18-53)', (
     searchParams = new URLSearchParams('focus=garbage');
     render(<TradingWorkbench />);
     expect(cardsInDom()).toHaveLength(0);
+  });
+});
+
+describe('TradingWorkbench — ?code= 종목상세 「트레이딩」 착지 (D-30 · G-21-R3-9 · T-21-91)', () => {
+  const SAMSUNG = 'KR7005930003';
+  const detail = (over: Record<string, unknown> = {}) => ({
+    code: '005930',
+    name: '삼성전자',
+    market: 'KOSPI',
+    isin: SAMSUNG,
+    ...over,
+  });
+  type Scroll = { key: string | null; block: ScrollLogicalPosition | undefined };
+  let scrolled: Scroll[] = [];
+  let original: typeof Element.prototype.scrollIntoView;
+  const sendCalls = () => (mockRelay.send as ReturnType<typeof vi.fn>).mock.calls.length;
+  /** 작업대가 읽는 두 원천(라우터 훅 · 실제 주소창)을 같은 URL 로 맞춘다. */
+  const landOn = (qs: string) => {
+    searchParams = new URLSearchParams(qs);
+    window.history.replaceState(null, '', `/trading?${qs}`);
+  };
+
+  beforeEach(() => {
+    scrolled = [];
+    original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+      scrolled.push({
+        key: this.getAttribute('data-key'),
+        block: typeof arg === 'object' ? arg.block : undefined,
+      });
+    };
+  });
+  afterEach(() => {
+    Element.prototype.scrollIntoView = original;
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('① 카드 없는 코드 → fetch 1회 → 펼친 카드(상태줄 계좌 · KRX) +1 · block:start · 헤더 토글 포커스 · 송신 0 · URL 의 code 만 지운다', async () => {
+    landOn('code=005930&focus=x');
+    fetchStockDetailMock.mockResolvedValue(detail());
+    const replace = vi.spyOn(window.history, 'replaceState');
+    render(<TradingWorkbench />);
+
+    await waitFor(() => expect(cardsInDom()).toHaveLength(1));
+    expect(fetchStockDetailMock).toHaveBeenCalledTimes(1);
+    expect(fetchStockDetailMock.mock.calls[0]![0]).toBe('005930');
+    const card = cardsInDom()[0]!;
+    expect(card.getAttribute('data-key')).toBe(`${SAMSUNG}:${ACCOUNT}:KRX`);
+    expect(card.getAttribute('data-open')).toBe('true');
+    expect(propsOf(SAMSUNG)?.name).toBe('삼성전자');
+    expect(propsOf(SAMSUNG)?.code).toBe('005930');
+    expect(scrolled.at(-1)).toEqual({ key: `${SAMSUNG}:${ACCOUNT}:KRX`, block: 'start' });
+    expect(document.activeElement).toBe(toggleOf(SAMSUNG));
+    expect(sendCalls()).toBe(0);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(null, '', '/trading?focus=x'));
+    expect(window.location.search).toBe('?focus=x');
+  });
+
+  it('② 같은 종목 카드가 이미 있으면 카드 수 불변 · 그 카드 펼침 · 같은 reveal', async () => {
+    landOn('code=005930');
+    fetchStockDetailMock.mockResolvedValue(detail());
+    mockRelay = relay({ limitChasers: [lc(SAMSUNG), lc('KR7086520004')] });
+    render(<TradingWorkbench />);
+    expect(cardsInDom()).toHaveLength(2);
+
+    await waitFor(() =>
+      expect(
+        cardsInDom().find((c) => c.getAttribute('data-key') === `${SAMSUNG}:${ACCOUNT}:KRX`)?.getAttribute(
+          'data-open',
+        ),
+      ).toBe('true'),
+    );
+    expect(cardsInDom()).toHaveLength(2);
+    expect(scrolled.at(-1)).toEqual({ key: `${SAMSUNG}:${ACCOUNT}:KRX`, block: 'start' });
+    expect(document.activeElement).toBe(toggleOf(SAMSUNG));
+    expect(sendCalls()).toBe(0);
+  });
+
+  it('③ 같은 URL 로 다시 렌더돼도(처리한 코드) 다시 조회하지 않고 카드가 늘지 않는다', async () => {
+    landOn('code=005930');
+    fetchStockDetailMock.mockResolvedValue(detail());
+    const { rerender } = render(<TradingWorkbench />);
+    await waitFor(() => expect(cardsInDom()).toHaveLength(1));
+
+    mockRelay = relay();
+    rerender(<TradingWorkbench />);
+    await act(async () => {});
+    expect(fetchStockDetailMock).toHaveBeenCalledTimes(1);
+    expect(cardsInDom()).toHaveLength(1);
+  });
+
+  it('④ 매매 불가(KONEX · isin 없음) → 카드 없음 · 경고 로그 · 송신 0', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    landOn('code=123456');
+    fetchStockDetailMock.mockResolvedValue(detail({ code: '123456', market: 'KONEX', isin: 'KR7123456008' }));
+    render(<TradingWorkbench />);
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('[gh-radar] ?code= 매매 불가 종목 — 카드 없음', '123456'),
+    );
+    expect(cardsInDom()).toHaveLength(0);
+
+    fetchStockDetailMock.mockResolvedValue(detail({ isin: null }));
+    landOn('code=005930');
+    render(<TradingWorkbench />);
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('[gh-radar] ?code= 매매 불가 종목 — 카드 없음', '005930'),
+    );
+    expect(cardsInDom()).toHaveLength(0);
+    expect(sendCalls()).toBe(0);
+  });
+
+  it('⑤ 형식 오류(`abc`) → fetch 0 · 카드 없음 · 경고 로그 · URL 정리', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    landOn('code=abc');
+    render(<TradingWorkbench />);
+    await act(async () => {});
+    expect(fetchStockDetailMock).not.toHaveBeenCalled();
+    expect(cardsInDom()).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith('[gh-radar] ?code= 형식 아님 — 무시');
+    expect(window.location.search).toBe('');
+  });
+
+  it('⑥ 조회 실패 → 카드 없음 · 오류 로그 · 송신 0', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    landOn('code=005930');
+    fetchStockDetailMock.mockRejectedValue(new Error('boom'));
+    render(<TradingWorkbench />);
+    await waitFor(() => expect(error).toHaveBeenCalled());
+    expect(String(error.mock.calls.at(-1)![0])).toContain('?code= 종목 조회 실패');
+    expect(cardsInDom()).toHaveLength(0);
+    expect(sendCalls()).toBe(0);
   });
 });
 

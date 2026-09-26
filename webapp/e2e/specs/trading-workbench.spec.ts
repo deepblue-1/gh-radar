@@ -806,6 +806,51 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
     await expect(spacer).toBeHidden();
   });
 
+  test('G-21-R3-9 /trading?code= — 그 종목 카드를 보장 · 펼침 · 헤더 토글 포커스, URL 에서 code 가 빠지고 relay 로 나간 전략/주문 프레임 0, 같은 URL 을 다시 열어도 카드 수 그대로 (D-30 · T-21-91)', async ({
+    page,
+  }) => {
+    /*
+      종목상세 「트레이딩」 착지. 작업대가 배치 복원 뒤 1회 `fetchStockDetail` → `isPickable` → 카드 보장
+      (reveal) 을 하고 `code` 를 지운다. ★ 착지는 화면 상태만 바꾼다 — 전략 등록 · 주문 · 정정 · VI ·
+      래치 어떤 명령 프레임도 게이트웨이에 닿지 않는다.
+    */
+    const COMMAND_TYPES: readonly number[] = [
+      DMA_MSG.DirectOrderReq,
+      DMA_MSG.SetLimitChaserReq,
+      DMA_MSG.SetVITriggerReq,
+      DMA_MSG.DisableStrategiesReq,
+      DMA_MSG.ConfirmVIOrderReq,
+      DMA_MSG.ArmSellLatchReq,
+      DMA_MSG.ArmCancelLatchReq,
+      DMA_MSG.ArmBuyLatchReq,
+    ];
+    const commandsSent = () => relay.requestLog().filter((m) => COMMAND_TYPES.includes(m)).length;
+    const landingUrl = `${WORKBENCH_URL}?code=005930`;
+    const codeCleared = (url: URL) => url.pathname === '/trading' && !url.searchParams.has('code');
+
+    // ① 카드 없는 종목 — 새 카드가 펼친 채 서고 헤더 토글이 포커스를 받는다.
+    await page.goto(landingUrl);
+    await waitForReady(page);
+    await expect(cards(page)).toHaveCount(1, { timeout: 15_000 });
+    const card = cardOf(page, E2E_ISIN);
+    await expect(card).toHaveAttribute('data-key', STRATEGY_KEY);
+    await expect(card).toHaveAttribute('data-open', 'true');
+    await expect(toggleOf(page, E2E_ISIN)).toBeFocused();
+    await expect(page).toHaveURL(codeCleared);
+    expect(commandsSent(), '착지는 명령 프레임을 보내지 않는다').toBe(0);
+
+    // ② 같은 URL 을 다시 연다 — 복원된 같은 카드를 펼칠 뿐 늘지 않는다.
+    await toggleOf(page, E2E_ISIN).click();
+    await expect(card).toHaveAttribute('data-open', 'false');
+    await page.goto(landingUrl);
+    await waitForReady(page);
+    await expect(card).toHaveAttribute('data-open', 'true', { timeout: 15_000 });
+    await expect(toggleOf(page, E2E_ISIN)).toBeFocused();
+    await expect(cards(page)).toHaveCount(1);
+    await expect(page).toHaveURL(codeCleared);
+    expect(commandsSent(), '다시 열어도 명령 프레임 0').toBe(0);
+  });
+
   test('8.상태줄 — 폰 밴드에서 필이 2줄 이상으로 wrap 하고 어느 필도 잘리지 않는다, 와이드도 잘림 0 (E1 overflow)', async ({
     page,
   }) => {

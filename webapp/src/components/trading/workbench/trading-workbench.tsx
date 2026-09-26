@@ -83,6 +83,14 @@
  *   연결에서 확정 64 스냅샷을 받은 뒤의 미스는 (빈 목록이어도) 버리고, 보류 중이던 요청도 그
  *   스냅샷이 그 키 없이 오면 버린다. relay 는 64 전에 `lc.snap` 을 보내지 않는다(18-26).
  *
+ * ⑥-b `?code=` — 종목상세 「트레이딩」 착지(D-30 · G-21-R3-9) · 복원 뒤 1회 · 카드 보장 + reveal · 송신 0
+ *   배치 복원(`layoutRestored`) **뒤에** 처리한다 — 복원 전에 붙인 카드는 복원이 덮는다. 처리한 코드는
+ *   `handledCodeRef` 에 적어 같은 값을 두 번 처리하지 않는다. 6자리(`[0-9A-Z]`)가 아니면 fetch 없이
+ *   로그만, 맞으면 `fetchStockDetail` → `isPickable`(종목 추가란과 **같은 판정 한 곳** — KOSPI/KOSDAQ ∧
+ *   isin) → `ensureIsinCard(…, reveal=true)`(있으면 펼침 · 없으면 상태줄 계좌 · KRX 로 추가 · 머리 위로
+ *   스크롤 + 헤더 토글 포커스). 매매 불가 · 실패는 카드 없이 로그만. 끝나면 `replaceState` 로 `code` 만
+ *   지운다(다른 파라미터는 남김). 전략 등록 · 주문은 **보내지 않는다**(T-21-91).
+ *
  * ⑦ 이탈 경고 · 게이트 · 팝업은 **페이지 1곳**
  *   - `useLeaveWarning` 은 카드 더티 수 + VI 2줄 더티 수의 합으로 한 번만 건다.
  *   - `DmaGate` 는 여기 한 곳에서만 감싼다(카드마다 감싸지 않는다). 게이트가 서면 격자·스트립이
@@ -163,7 +171,7 @@ import { AlertToasts } from "@/components/trading/workbench/alert-toasts";
 import { BreakoutStrip } from "@/components/trading/workbench/breakout-strip";
 import { CardGrid } from "@/components/trading/workbench/card-grid";
 import { SharedPanels } from "@/components/trading/workbench/shared-panels";
-import { StockAddBar } from "@/components/trading/workbench/stock-add-bar";
+import { isPickable, StockAddBar } from "@/components/trading/workbench/stock-add-bar";
 import {
   ViServerErrorLine,
   ViSettingsRows,
@@ -180,6 +188,7 @@ import { useIsinLabels } from "@/lib/isin-labels";
 import { exchangeLabeledName, isActiveStrategy, parseStrategyKey, strategyKey } from "@/lib/limit-chaser";
 import { useNativeRefresh } from "@/lib/native/use-native-refresh";
 import { useRelayContext } from "@/lib/relay-provider";
+import { fetchStockDetail } from "@/lib/stock-api";
 import { alertTabFor, type TradingAlert } from "@/lib/trading-alerts";
 import { useTradingFocusRequest } from "@/lib/trading-focus";
 import {
@@ -795,6 +804,57 @@ function WorkbenchSurface() {
     (row: RelayHolding) => ensureIsinCard(row.isin, row.name, row.code, true),
     [ensureIsinCard],
   );
+
+  /* ── ⑥-b `?code=` — 종목상세 「트레이딩」 착지 (D-30 · G-21-R3-9) ───── */
+  const landingCode = searchParams?.get("code") ?? null;
+  const handledCodeRef = useRef<string | null>(null);
+  /* 계좌가 늦게 와도 fetch 를 끊지 않게 최신 콜백은 ref 로 읽는다(의존성에 넣으면 재실행 = abort). */
+  const ensureIsinCardRef = useRef(ensureIsinCard);
+  ensureIsinCardRef.current = ensureIsinCard;
+  useEffect(() => {
+    if (landingCode === null || !layoutRestored || handledCodeRef.current === landingCode) return;
+    handledCodeRef.current = landingCode;
+    /* `code` 만 지운다 — `focus` 등 다른 파라미터는 남긴다. */
+    const clearCodeParam = () => {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has("code")) return;
+      params.delete("code");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs === "" ? "/trading" : `/trading?${qs}`);
+    };
+    if (!/^[0-9A-Z]{6}$/.test(landingCode)) {
+      console.warn("[gh-radar] ?code= 형식 아님 — 무시");
+      clearCodeParam();
+      return;
+    }
+    const controller = new AbortController();
+    let settled = false;
+    fetchStockDetail(landingCode, controller.signal)
+      .then((detail) => {
+        if (controller.signal.aborted) return;
+        if (isPickable(detail)) {
+          const ensureIsinCard = ensureIsinCardRef.current;
+          ensureIsinCard(detail.isin, detail.name, detail.code, true);
+        } else {
+          console.warn("[gh-radar] ?code= 매매 불가 종목 — 카드 없음", landingCode);
+        }
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("[gh-radar] ?code= 종목 조회 실패 — 카드 없음", landingCode, err);
+      })
+      .finally(() => {
+        if (controller.signal.aborted) return;
+        settled = true;
+        clearCodeParam();
+      });
+    return () => {
+      if (settled) return;
+      controller.abort();
+      /* 끝나기 전에 끊겼다(StrictMode 재실행 · 이탈) — 같은 코드를 다시 처리할 수 있게 비운다. */
+      if (handledCodeRef.current === landingCode) handledCodeRef.current = null;
+    };
+  }, [landingCode, layoutRestored]);
 
   const toggleCard = useCallback((id: string) => {
     setCards((prev) => {
