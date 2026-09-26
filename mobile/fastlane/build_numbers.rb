@@ -4,11 +4,26 @@
 # pbxproj · build.gradle 에 쓰지 않으므로 릴리스 뒤에도 작업 트리가 깨끗하다.
 #   - iOS CFBundleVersion = 로컬 시각(KST) YYYYMMDDHHMM 12자리 → gym xcargs
 #     `CURRENT_PROJECT_VERSION=` 로 넘기고, Info.plist 는 `$(CURRENT_PROJECT_VERSION)` 변수 그대로 둔다.
+#   - Android versionCode = (연도−2020)·10^8 + MMDDHHmm → gradle `-PghtradeVersionCode=` 로 넘긴다.
+#     D-09a 정정: 원문 `YYMMDDHHmm` 은 2026년에 이미 26억대라 Play 상한 2,100,000,000 을 넘는다
+#     (22-RESEARCH Pitfall 1). 연도 증가분 10^8 > MMDDHHmm 최대값 12,312,359 라 연 경계에서도 단조 증가하고,
+#     2040-12-31 23:59(2012312359)까지 상한 안이다. 넘으면 빌드 전에 멈춘다.
 #   - 같은 분 안에 두 번 릴리스하면 번호가 같아져 스토어가 두 번째 업로드를 거절한다(엣지 FA-1).
 #     1분 뒤 다시 실행한다.
-#   - Android versionCode 공식은 22-04 가 이 모듈에 더하고, 두 함수의 단위 테스트도 22-04 가 잠근다.
+#   - 두 공식은 mobile/fastlane/test/build_numbers_test.rb(minitest)가 잠근다.
 module GhTradeBuildNumbers
+  # Google Play 가 허용하는 versionCode 최댓값(developer.android.com/studio/publish/versioning)
+  ANDROID_VERSION_CODE_MAX = 2_100_000_000
+
   def self.ios_build_number(t = Time.now)
     t.strftime("%Y%m%d%H%M")
+  end
+
+  def self.android_version_code(t = Time.now)
+    code = (t.year - 2020) * 100_000_000 + t.strftime("%m%d%H%M").to_i
+    if code > ANDROID_VERSION_CODE_MAX
+      raise ArgumentError, "versionCode 상한 2,100,000,000 초과 — 2040년 이후 공식 교체 필요"
+    end
+    code
   end
 end
