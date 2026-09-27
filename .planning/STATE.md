@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 22
 current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 status: executing
-stopped_at: Phase 22 재계획 완료 — 22-05~22-10 (Android Firebase APK) 실행 대기
-last_updated: "2026-09-27T01:42:53.472Z"
+stopped_at: Completed 22-06-PLAN.md
+last_updated: "2026-09-27T02:51:17.454Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: 2ad4c05ff3061bd2ce90fd97ce759f09728c5a8d
+state_head: 389fa32c460e398af9b1da37e4597c7025d15782
 progress:
   total_phases: 32
   completed_phases: 5
   total_plans: 300
-  completed_plans: 278
+  completed_plans: 279
 milestone_name: milestone
 ---
 
@@ -24,17 +24,17 @@ milestone_name: milestone
 See: .planning/PROJECT.md (updated 2026-04-10)
 
 **Core value:** 트레이더가 급등 종목을 빠르게 포착하고, 해당 종목의 시장 심리를 AI 요약으로 즉시 파악할 수 있어야 한다
-**Current focus:** Phase 22 — GH Trade 테스트 배포 (iOS TestFlight · Android Play 내부 테스트)
+**Current focus:** Phase 22 — GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 
 ## Current Position
 
-Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)) — READY TO EXECUTE
-Plan: 5 of 7
+Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)) — EXECUTING
+Plan: 2 of 10
 Plans completed: 219 / 234
-Status: Ready to execute — Phase 22 재범위 플랜 22-05~22-10
+Status: Executing Phase 22
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
 Production URL: https://gh-radar-webapp.vercel.app
-Last activity: 2026-09-27 — Phase 22 재범위(Android Firebase APK) 재계획 완료 · 22-05~22-10 체커 통과
+Last activity: 2026-09-27 — Phase 22 execution started
 
 Progress: [█████████░] 93%
 
@@ -131,6 +131,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 22 P01 | 1h 10m | 2 tasks | 11 files |
 | Phase 22 P03 | 8min | 2 tasks | 6 files |
 | Phase 22 P04 | 6h (실행 12min) | 3 tasks | 10 files |
+| Phase 22 P06 | 2 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -311,6 +312,7 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 22]: 22-03: 공개 경로 판정은 webapp/src/lib/supabase/public-path.ts 의 isPublicPath 한 곳 — PUBLIC_PREFIXES [/login, /auth, /privacy] · 경계 비교
 - [Phase 22]: 22-04: 업로드 인증서 SHA-1 2F:E3:BA:78:A5:74:16:06:F8:79:A8:D3:3C:28:23:EF:72:98:7B:7D (공개 — 22-06 Android OAuth 클라이언트용) · 백업 Secret Manager gh-radar-ghtrade-upload-keystore(-password) · asc-api-key (deployer SA 인증)
 - [Phase 22]: 22-04: 첫 AAB versionCode 609270905 · mobile/android/app/build/outputs/bundle/release/app-release.aab · AAB CHECK OK · lintVital 수정 없음 — 22-05 콘솔 첫 업로드 대상
+- [Phase 22]: 22-06: 22-01 TestFlight 빌드 202609270252 = VALID (2026-09-27 11:50 KST · release-ios.sh latest 한 줄 계약)
 
 ### Pending Todos
 
@@ -364,8 +366,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-27T00:09:43.494Z
-Stopped at: Phase 22 재계획 완료 — 22-05~22-10 (Android Firebase APK) 실행 대기
+Last session: 2026-09-27T02:51:16.938Z
+Stopped at: Completed 22-06-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
