@@ -35,9 +35,9 @@ set -euo pipefail
 
 MODE="${1:-beta}"
 case "$MODE" in
-  beta|build|validate|track|check) ;;
+  firebase|beta|build|validate|track|check) ;;
   *)
-    echo "사용: bash scripts/release-android.sh [beta|build|validate|track|check]" >&2
+    echo "사용: bash scripts/release-android.sh [firebase|beta|build|validate|track|check]" >&2
     exit 2
     ;;
 esac
@@ -48,6 +48,7 @@ cd "$(dirname "$0")/.."
 ENV_FILE="${GHTRADE_RELEASE_ENV:-$HOME/.config/gh-trade/release/android.env}"
 INJECT_KEYSTORE="! bash mobile/scripts/setup-release-secrets.sh keystore backup"
 INJECT_PLAY="! bash mobile/scripts/setup-release-secrets.sh play-sa"
+INJECT_FIREBASE="! bash mobile/scripts/setup-release-secrets.sh firebase-sa"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: 릴리스 env 파일이 없습니다: $ENV_FILE" >&2
@@ -66,7 +67,7 @@ MISSING=""
 need() { if [[ -z "${!1:-}" ]]; then MISSING="$MISSING $1"; fi; }
 
 case "$MODE" in
-  build|beta|check)
+  firebase|build|beta|check)
     need GHTRADE_UPLOAD_STORE_FILE
     need GHTRADE_UPLOAD_STORE_PASSWORD
     need GHTRADE_UPLOAD_KEY_ALIAS
@@ -81,7 +82,7 @@ if [[ -n "$MISSING" ]]; then
   exit 3
 fi
 case "$MODE" in
-  build|beta)
+  firebase|build|beta)
     if [[ ! -f "$GHTRADE_UPLOAD_STORE_FILE" ]]; then
       echo "ERROR: GHTRADE_UPLOAD_STORE_FILE 이 가리키는 키스토어가 없습니다: $GHTRADE_UPLOAD_STORE_FILE" >&2
       echo "복구: Secret Manager gh-radar-ghtrade-upload-keystore 백업에서 되살린다 — 새로 만들면 Play 가 업로드를 거부한다" >&2
@@ -106,6 +107,18 @@ case "$MODE" in
     ;;
 esac
 
+# Firebase 업로드 전용 SA 키(D-17) — 경로는 비밀이 아니라 android.env 없이 기본값을 쓴다. 내용은 열지 않는다.
+case "$MODE" in
+  firebase)
+    export FIREBASE_APPDISTRO_SA_JSON="${FIREBASE_APPDISTRO_SA_JSON:-${GHTRADE_RELEASE_DIR:-$HOME/.config/gh-trade/release}/firebase-appdistro-service-account.json}"
+    if [[ ! -f "$FIREBASE_APPDISTRO_SA_JSON" ]]; then
+      echo "ERROR: Firebase 업로드 SA 키가 없습니다: $FIREBASE_APPDISTRO_SA_JSON" >&2
+      echo "주입: $INJECT_FIREBASE" >&2
+      exit 3
+    fi
+    ;;
+esac
+
 if [[ "$MODE" == "check" ]]; then
   bash scripts/check-aab.sh
   exit 0
@@ -116,7 +129,16 @@ export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 export FASTLANE_SKIP_UPDATE_CHECK=1
 export FASTLANE_HIDE_CHANGELOG=1
 
-(cd android && bundle exec fastlane "$MODE")
+LANE="$MODE"
+case "$MODE" in
+  firebase)
+    # ADC 폴백 차단(이중 방어 · Pitfall F2) — ~/.zshrc 가 owner deployer 키를 export 한다.
+    # lane 은 service_credentials_file: 로 전용 SA 키만 쓴다.
+    unset GOOGLE_APPLICATION_CREDENTIALS FIREBASE_TOKEN
+    ;;
+esac
+
+(cd android && bundle exec fastlane "$LANE")
 case "$MODE" in
   build|beta) bash scripts/check-aab.sh ;;
 esac

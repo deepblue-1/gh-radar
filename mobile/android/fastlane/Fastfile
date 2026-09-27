@@ -1,7 +1,11 @@
-# GH Trade Android 릴리스 lane (Phase 22 · D-07 · D-08 · D-09 · D-09a · D-10)
+# GH Trade Android 릴리스 lane (Phase 22 · D-07 · D-08 · D-09 · D-09a · D-10 · D-13~D-17)
 #
-# 실행은 `pnpm --filter @gh-radar/mobile run native:release:android(:aab)` 로만 한다 —
-# cap sync(양 플랫폼) → verify-prod(PROD CONFIG OK) → scripts/release-android.sh(env 로드) → 이 lane → check-aab.
+# Phase 22 기본 경로 = lane firebase(D-13) — 업로드 키 서명 APK → check-apk → Firebase App Distribution.
+# lanes build · beta · validate · track 은 Phase 23 Play 경로로 보존한다(D-16) — 지우지 않는다.
+#
+# 실행은 `pnpm --filter @gh-radar/mobile run native:release:android(:aab·:play)` 로만 한다 —
+# cap sync(양 플랫폼) → verify-prod(PROD CONFIG OK) → scripts/release-android.sh(env 로드) → 이 lane
+# (→ firebase 는 lane 안에서 업로드 전에 check-apk · build/beta 는 lane 뒤에 check-aab).
 #
 # 서명: build.gradle 이 env GHTRADE_UPLOAD_* 를 직접 읽는다. 여기서는 서명 관련 gradle 속성을 **넘기지 않는다** —
 #       gradle 액션은 기본값(print_command)으로 명령줄을 로그에 찍기 때문이다(T-22-02).
@@ -27,6 +31,44 @@ def ghtrade_build_release_aab
     properties: { "ghtradeVersionCode" => vc } # 비밀 아님 — 로그에 찍혀도 된다
   )
   [lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH], vc]
+end
+
+# ── Firebase App Distribution (Phase 22 재범위 · D-13 · D-14 · D-17) ─────────────────
+# Firebase Android 앱 ID 는 공개 식별자다(google-client-ids.ts 선례) — 문자열 리터럴로 커밋한다.
+GHTRADE_FIREBASE_ANDROID_APP_ID = "1:1023658565518:android:3b06f0472060afa97e4edf"
+# 업로드 대상은 이 절대 경로 하나다 — 플러그인 기본값(최근 mtime APK · debug 포함)을 쓰지 않는다(Pitfall F3).
+GHTRADE_RELEASE_APK = File.expand_path("../app/build/outputs/apk/release/app-release.apk", __dir__)
+
+# 업로드 키 서명 Release APK 를 만들고 [경로, versionCode] 를 돌려준다.
+def ghtrade_build_release_apk
+  # 값은 출력하지 않는다 — 비어 있는 키 이름만.
+  missing = %w[GHTRADE_UPLOAD_STORE_FILE GHTRADE_UPLOAD_STORE_PASSWORD GHTRADE_UPLOAD_KEY_ALIAS GHTRADE_UPLOAD_KEY_PASSWORD]
+            .select { |k| ENV[k].to_s.empty? }
+  UI.user_error!("환경변수 비어 있음: #{missing.join(' ')} — ~/.config/gh-trade/release/android.env") unless missing.empty?
+
+  vc = GhTradeBuildNumbers.android_version_code # D-09a — 상한 초과 시각이면 여기서 멈춘다
+  UI.message("versionCode #{vc}")
+  # 이전 산출물을 지운다 — up-to-date 건너뛰기로 옛 APK 가 남아 검사를 통과하는 것 방지(Pitfall F3).
+  File.delete(GHTRADE_RELEASE_APK) if File.exist?(GHTRADE_RELEASE_APK)
+  gradle(
+    project_dir: ".",
+    task: "assemble",
+    build_type: "Release",
+    properties: { "ghtradeVersionCode" => vc } # 서명 속성은 넘기지 않는다 — 명령줄이 로그에 찍힌다(T-22-02)
+  )
+  UI.user_error!("릴리스 APK 없음: #{GHTRADE_RELEASE_APK}") unless File.exist?(GHTRADE_RELEASE_APK)
+  # check-apk 의 기대 versionCode(ignore 되는 build/ 안).
+  File.write(File.join(File.dirname(GHTRADE_RELEASE_APK), "ghtrade-version-code.txt"), vc.to_s)
+  [GHTRADE_RELEASE_APK, vc]
+end
+
+# 전용 업로드 SA 키 경로(release-android.sh 가 export) — 없으면 멈춘다. ADC(owner 키) 폴백을 막는다(Pitfall F2).
+def ghtrade_appdistro_sa!
+  sa = ENV["FIREBASE_APPDISTRO_SA_JSON"].to_s
+  if sa.empty? || !File.exist?(sa)
+    UI.user_error!("FIREBASE_APPDISTRO_SA_JSON 없음 — ! bash mobile/scripts/setup-release-secrets.sh firebase-sa")
+  end
+  sa
 end
 
 platform :android do
@@ -61,5 +103,21 @@ platform :android do
   lane :track do
     codes = google_play_track_version_codes(track: "internal")
     UI.message("internal versionCodes: #{codes.join(',')}")
+  end
+
+  desc "업로드 키 서명 APK → check-apk → Firebase App Distribution (Phase 22 기본 경로 · D-13 · D-14 · D-15)"
+  lane :firebase do
+    apk, vc = ghtrade_build_release_apk
+    # 업로드 전 게이트 — 실패하면 sh 가 예외를 던져 lane 이 멈춘다(업로드 안 함).
+    sh("bash", File.expand_path("../../scripts/check-apk.sh", __dir__), apk)
+    firebase_app_distribution(
+      app: GHTRADE_FIREBASE_ANDROID_APP_ID,
+      android_artifact_type: "APK",
+      android_artifact_path: apk, # 명시 필수 — 기본값은 최근 mtime APK(Pitfall F3)
+      groups: ENV.fetch("FIREBASE_APPDISTRO_GROUPS", "ghtrade-testers"),
+      release_notes: "GH Trade 1.0 (#{vc}) · #{`git rev-parse --short HEAD`.strip}", # 이메일·비밀 없음
+      service_credentials_file: ghtrade_appdistro_sa! # 명시 필수 — 없으면 ADC(owner 키)로 떨어진다(Pitfall F2)
+    )
+    UI.success("Firebase 배포 versionCode #{vc}")
   end
 end

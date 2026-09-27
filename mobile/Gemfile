@@ -3,3 +3,8 @@ source "https://rubygems.org"
 # Phase 22 (D-07) — 릴리스 도구. iOS·Android lane 이 이 Gemfile 하나를 공유한다.
 # 2.238 부터 Ruby 4 지원 · 2.240.1 에서 Ruby 4 cgi 대응. Homebrew Ruby 4 로 실행한다.
 gem "fastlane", "~> 2.240"
+
+# Phase 22 재범위(D-13) — Android APK 를 Firebase App Distribution 으로 올린다.
+# `fastlane add_plugin` 은 쓰지 않는다(Pluginfile 경로 어긋남 · 재범위 부록 Pitfall F1) — fastlane 은
+# Gemfile 의존성 이름의 `fastlane-plugin-` 접두사로 플러그인을 찾는다. iOS lane 에도 로드되지만 무해하다.
+gem "fastlane-plugin-firebase_app_distribution", "~> 1.0"
