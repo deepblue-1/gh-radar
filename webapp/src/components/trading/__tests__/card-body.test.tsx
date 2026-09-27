@@ -171,7 +171,6 @@ function cardState(over: Partial<StrategyCardState> = {}): StrategyCardState {
     lastError: null,
     resetSeq: 0,
     liveSeed: 0,
-    fired: false,
     badges: { buyText: '', sellText: '' },
     ledServer: null,
     dirtyCount: 0,
