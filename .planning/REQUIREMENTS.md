@@ -109,7 +109,7 @@
 ### Mobile
 
 - [x] **MOBILE-01**: GH Trade Capacitor Remote-URL 앱 — iOS·iPadOS·Android(`com.ghtrade.app`) WebView 가 운영 웹(`https://trade.jx1.io`)을 로드 · 네이티브 하단 플로팅 탭바(홈·검색·트레이딩·AI·마이) · pull-to-refresh(웹 refresh 훅 → 없으면 reload) · 네이티브 Google 로그인 → Supabase `signInWithIdToken` · 오프라인 폴백 · 테마/상태바 연동 · 브랜드명 GH Trade(노출 문자열만), 웹 쪽 앱 분기·`/search` 탐색 허브·`/me` 계정 카드·safe-area 포함 — Phase 21
-- [ ] **MOBILE-02**: GH Trade 테스트 배포 — iOS TestFlight 내부 테스터 · Android **Firebase App Distribution(업로드 키 서명 APK)** 으로 `com.ghtrade.app` 을 5명 미만 지인 기기에 설치 가능하게 한다. 구성 요소: fastlane(`native:release:ios|android` = 운영 sync → `native:verify-prod` 게이트 → lane `beta`) · iOS 자동 서명 Release archive + App Store 프로파일 export(API 키) · Android Play 앱 서명 + 저장소 밖 업로드 키스토어(환경변수 서명 · 평문 기본값 없음 · Secret Manager 백업) · 빌드 번호: 마케팅 1.0 고정 · 빌드 번호 타임스탬프(iOS `YYYYMMDDHHMM` · Android `(연도−2020)·10^8+MMDDHHmm` ≤ 2,100,000,000) · 빌드 번호 무커밋 · 릴리스 빌드 네이티브 Google 로그인 유지(업로드 키 · Play 앱 서명 인증서 SHA-1 을 GCP Android OAuth 클라이언트로 등록 · 코드 변경 없음) · 개인정보처리방침 공개 라우트 `/privacy`(한글) · 테스터 트레이딩 차단은 기존 `dma_credentials` allow-list(무변경). 범위 밖: 정식 출시·심사·외부 테스터·데이터 보안/개인정보 양식 — Phase 22 · **2026-09-27 재범위:** Play 개발자 인증 미완료로 Android 는 Play 내부 테스트 대신 Firebase APK — 이 줄의 「Play 앱 서명」 · 「Play 앱 서명 인증서 SHA-1」 구성 요소는 Phase 23(Play 스토어 내부 테스트) 으로 이연되고, Phase 22 에서는 업로드 키 SHA-1 만 등록한다
+- [x] **MOBILE-02**: GH Trade 테스트 배포 — iOS TestFlight 내부 테스터 · Android **Firebase App Distribution(업로드 키 서명 APK)** 으로 `com.ghtrade.app` 을 5명 미만 지인 기기에 설치 가능하게 한다. 구성 요소: fastlane(`native:release:ios|android` = 운영 sync → `native:verify-prod` 게이트 → lane `beta`) · iOS 자동 서명 Release archive + App Store 프로파일 export(API 키) · Android Play 앱 서명 + 저장소 밖 업로드 키스토어(환경변수 서명 · 평문 기본값 없음 · Secret Manager 백업) · 빌드 번호: 마케팅 1.0 고정 · 빌드 번호 타임스탬프(iOS `YYYYMMDDHHMM` · Android `(연도−2020)·10^8+MMDDHHmm` ≤ 2,100,000,000) · 빌드 번호 무커밋 · 릴리스 빌드 네이티브 Google 로그인 유지(업로드 키 · Play 앱 서명 인증서 SHA-1 을 GCP Android OAuth 클라이언트로 등록 · 코드 변경 없음) · 개인정보처리방침 공개 라우트 `/privacy`(한글) · 테스터 트레이딩 차단은 기존 `dma_credentials` allow-list(무변경). 범위 밖: 정식 출시·심사·외부 테스터·데이터 보안/개인정보 양식 — Phase 22 · **2026-09-27 재범위:** Play 개발자 인증 미완료로 Android 는 Play 내부 테스트 대신 Firebase APK — 이 줄의 「Play 앱 서명」 · 「Play 앱 서명 인증서 SHA-1」 구성 요소는 Phase 23(Play 스토어 내부 테스트) 으로 이연되고, Phase 22 에서는 업로드 키 SHA-1 만 등록한다
 
 ## v2 Requirements
 
@@ -193,7 +193,7 @@
 | TRADE-08 | Phase 18 | Pending |
 | TRADE-09 | Phase 18 | Pending |
 | MOBILE-01 | Phase 21 | Complete |
-| MOBILE-02 | Phase 22 | Pending |
+| MOBILE-02 | Phase 22 | Complete |
 
 **Coverage:**
 

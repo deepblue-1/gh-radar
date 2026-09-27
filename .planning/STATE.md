@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 22
 current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 status: executing
-stopped_at: Completed 22-09-PLAN.md
-last_updated: "2026-09-27T06:44:36.371Z"
+stopped_at: Completed 22-10-PLAN.md
+last_updated: "2026-09-27T06:55:06.570Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: 1524e97bdc23aa878a4ab377c33c9cc294ca1ff9
+state_head: 6fb02d55698ca4d654c3418671cab811d4d17a6c
 progress:
   total_phases: 32
   completed_phases: 5
   total_plans: 300
-  completed_plans: 283
+  completed_plans: 284
 milestone_name: milestone
 ---
 
@@ -136,6 +136,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 22 P07 | 1h 21m | 3 tasks | 7 files |
 | Phase 22 P08 | 2h 16m | 2 tasks | 2 files |
 | Phase 22 P09 | 7min | 2 tasks | 0 files |
+| Phase 22 P10 | 9min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -326,6 +327,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 22]: 22-08: 디버그 세션(798f911f 스크롤·상태바 띠 웹 수정)이 master 를 push 해 22-10 push 게이트 선점 — /privacy 시행일 자리표시 운영 노출 중, 22-10 이 시행일(기본 2026-09-27 KST) 채워 재배포
 - [Phase 22]: 22-09: 두 번째 릴리스 iOS 202609270252→202609271538 (TestFlight VALID 약 2분) · Android 609271311→609271542 (Firebase 그룹 배포 · 전용 SA 인증 · ADC 0)
 - [Phase 22]: 22-09: 전 자동 게이트 6개 green · 릴리스 뒤 mobile/ 무변경 · PROD CONFIG OK · push 안 함(22-10)
+- [Phase 22]: 22-10: push 결정 — 798f911f..d678bc51 을 2026-09-27 15:52:10 KST push, 운영 /privacy 15:53:19 KST 반영(PRIVACY LIVE 2026년 9월 27일)
+- [Phase 22]: 22-10: 시행일 2026-09-27 유지 — /privacy 첫 공개일(15:28 KST 디버그 세션 push 798f911f 가 자리표시 시행일 페이지를 선공개)과 push 날이 같아 재조정 없음
 
 ### Pending Todos
 
@@ -379,8 +382,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-27T06:44:35.791Z
-Stopped at: Completed 22-09-PLAN.md
+Last session: 2026-09-27T06:55:06.033Z
+Stopped at: Completed 22-10-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
