@@ -42,7 +42,6 @@ MOBILE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$MOBILE_DIR"
 
 OUT_ROOT="$HOME/Library/Developer/gh-trade-release"
-IOS_NUM_FILE="$OUT_ROOT/ios/build_number.txt"
 ANDROID_VC_FILE="$MOBILE_DIR/android/app/build/outputs/apk/release/ghtrade-version-code.txt"
 LOG_DIR="$OUT_ROOT/logs"
 mkdir -p "$LOG_DIR"
@@ -76,15 +75,32 @@ if [[ -n "$(git -C "$MOBILE_DIR" status --porcelain -- . 2>/dev/null)" ]]; then
   git -C "$MOBILE_DIR" status --short -- . | sed 's/^/    /'
 fi
 
+# lane 이 build_number.txt 를 쓰는 곳(ios.env 의 GHTRADE_RELEASE_OUT)을 래퍼에게 묻는다 — 경로를
+# 여기서 하드코딩하면 env 를 바꿨을 때 옛 파일·없는 파일을 본다(22-REVIEW WR-01). env 가 없으면
+# 빈 값 — 같은 분 대기는 건너뛰고, 곧 이어질 native:release:ios 가 exit 3 과 주입 명령을 낸다.
+ios_num_file() {
+  local dir
+  dir="$(bash scripts/release-ios.sh out-dir 2>/dev/null || true)"
+  [[ -n "$dir" ]] && printf '%s/build_number.txt' "$dir"
+  return 0
+}
+
 release_ios() {
-  local log="$LOG_DIR/ios-$STAMP.log" num state line
-  wait_new_minute "iOS" "$IOS_NUM_FILE" ios_num_now
+  local log="$LOG_DIR/ios-$STAMP.log" num state line num_file
+  num_file="$(ios_num_file)"
+  if [[ -n "$num_file" ]]; then wait_new_minute "iOS" "$num_file" ios_num_now; fi
   say "iOS — TestFlight 업로드 (로그: $log)"
   if ! pnpm run native:release:ios 2>&1 | tee "$log"; then
     IOS_RESULT="실패 — 로그 확인"
     return 1
   fi
-  num="$(tr -d '[:space:]' < "$IOS_NUM_FILE")"
+  # 이번 빌드 번호는 이번 로그에서만 읽는다 — lane 이 찍는 「CFBundleVersion N」 줄(WR-01).
+  # 파일에서 읽으면 경로가 어긋날 때 직전 릴리스 번호로 폴링해 거짓 「완료」 가 날 수 있다.
+  num="$(grep -oE 'CFBundleVersion [0-9]{12}' "$log" | tail -1 | awk '{print $2}' || true)"
+  if [[ -z "$num" ]]; then
+    IOS_RESULT="업로드됨 — 빌드 번호를 로그에서 못 찾음(release-ios.sh latest 로 확인 · 로그 $log)"
+    return 1
+  fi
   say "iOS — 빌드 $num 처리 상태 확인(최대 15분, 30초 간격)"
   state="UNKNOWN"
   for _ in $(seq 1 30); do

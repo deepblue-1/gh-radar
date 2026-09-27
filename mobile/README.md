@@ -101,6 +101,7 @@ pnpm --filter @gh-radar/mobile run native:verify-prod   # PROD CONFIG OK 여야 
 | 명령 | 하는 일 |
 |---|---|
 | `bash mobile/scripts/release-ios.sh latest` | 최신 TestFlight 빌드 — `latest TestFlight build N state S`. `VALID` 면 처리 완료다. |
+| `bash mobile/scripts/release-ios.sh out-dir` | iOS 산출 경로(`ios.env` 의 `GHTRADE_RELEASE_OUT`) 한 줄. `native:release` 가 직전 빌드 번호 파일을 찾을 때 쓴다. |
 | `bash mobile/scripts/release-android.sh firebase-latest` | 최신 Firebase 릴리스 — `latest Firebase build N` |
 | `bash mobile/scripts/release-android.sh check-apk` | 마지막 release APK 검사만(서명자 SHA-1 · versionCode · debuggable 아님 · 운영 설정) |
 | `bash mobile/scripts/release-android.sh build` · `check` | AAB 빌드 · AAB 검사만. `build` 는 sync 를 하지 않으니 평소에는 `native:release:android:aab` 를 쓴다. |

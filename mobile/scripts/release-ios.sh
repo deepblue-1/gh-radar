@@ -16,13 +16,16 @@ set -euo pipefail
 #   env 파일은 `set -a; source` 로만 읽고 내용을 echo 하지 않으며, 검증 실패 시에도
 #   **비어 있는 키 이름만** 출력한다. 값은 어떤 경로로도 찍지 않는다. 셸 추적 모드 금지.
 #
-# 사용: bash scripts/release-ios.sh [beta|latest]   (기본 beta)
+# 사용: bash scripts/release-ios.sh [beta|latest|out-dir]   (기본 beta)
 #   beta    Release archive → check-ipa → TestFlight 업로드 (인자 없음과 같다)
 #           check-ipa 는 lane 안에서 업로드 **전에** 돈다 — 실패하면 업로드하지 않는다(22-REVIEW CR-01).
 #           여기서 다시 돌리지 않는다: 같은 IPA 를 두 번 보는 셈이고, 업로드 뒤 검사는 막지 못한다.
 #   latest  조회 전용 — 최신 TestFlight 빌드 번호 + 처리 상태 한 줄
 #           「latest TestFlight build {번호} state {상태}」 (업로드·아카이브·check-ipa 없음)
-#   env 검사는 두 모드에 똑같이 적용한다(ios.env 는 한 파일이다).
+#   out-dir 조회 전용 — env 의 GHTRADE_RELEASE_OUT(산출 경로, 비밀 아님) 한 줄만 stdout 에 낸다.
+#           release-apps.sh 가 lane 이 쓴 build_number.txt 위치를 하드코딩하지 않고 여기서 얻는다
+#           (GHTRADE_RELEASE_ENV 로 env 파일을 바꿔도 같은 경로를 본다 · 22-REVIEW WR-01).
+#   env 검사는 세 모드에 똑같이 적용한다(ios.env 는 한 파일이다).
 #
 # 종료 코드: 2 = 모르는 모드(env 로드 전)
 #            3 = env 파일 없음 · 키 비어 있음 · 키 파일 없음(fastlane 시작 전)
@@ -34,9 +37,9 @@ set -euo pipefail
 # 모드 검사는 env 로드 전에 한다 — 오타가 기본 업로드(beta)로 떨어지지 않게(T-22-28).
 MODE="${1:-beta}"
 case "$MODE" in
-  beta|latest) ;;
+  beta|latest|out-dir) ;;
   *)
-    echo "사용: bash scripts/release-ios.sh [beta|latest]   (기본 beta)" >&2
+    echo "사용: bash scripts/release-ios.sh [beta|latest|out-dir]   (기본 beta)" >&2
     exit 2
     ;;
 esac
@@ -75,6 +78,11 @@ if [[ ! -f "$ASC_KEY_PATH" ]]; then
   echo "ERROR: ASC_KEY_PATH 가 가리키는 키 파일이 없습니다: $ASC_KEY_PATH" >&2
   echo "주입: $INJECT" >&2
   exit 3
+fi
+
+if [[ "$MODE" == "out-dir" ]]; then
+  printf '%s\n' "$GHTRADE_RELEASE_OUT"
+  exit 0
 fi
 
 # fastlane 은 Homebrew Ruby 4 로 실행한다(시스템 Ruby 2.6 은 최소 3.1 미달).
