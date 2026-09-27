@@ -4,16 +4,16 @@ milestone: v1.0
 current_phase: 22
 current_phase_name: GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)
 status: executing
-stopped_at: Completed 22-05-PLAN.md
-last_updated: "2026-09-27T04:09:42.476Z"
+stopped_at: Completed 22-07-PLAN.md
+last_updated: "2026-09-27T04:14:06.027Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 22 execution started
-state_head: b9263f4ab284f35fe5e51b237fce378195316cc9
+state_head: f242b968aff4c95e4f8688bbbac734d7455bdf3f
 progress:
   total_phases: 32
   completed_phases: 5
   total_plans: 300
-  completed_plans: 280
+  completed_plans: 281
 milestone_name: milestone
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-04-10)
 ## Current Position
 
 Phase: 22 (GH Trade 테스트 배포 (iOS TestFlight · Android Firebase APK)) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Plans completed: 219 / 234
 Status: Executing Phase 22
 배포 순서: DB(완료 · R4 변경 0) → relay(R2 18-14·17·19 + R3 18-25·18-26 + R4 18-33) → 검증 → webapp push (18-26 webapp 은 relay 18-26 뒤에만 · R4 webapp 새 결합 없음)
@@ -133,6 +133,7 @@ Phase 16 갭 클로징 이력: [16-GAP-CLOSURE-LOG.md](./phases/16-trading-limit
 | Phase 22 P04 | 6h (실행 12min) | 3 tasks | 10 files |
 | Phase 22 P06 | 2 min | 2 tasks | 2 files |
 | Phase 22 P05 | 2h 21m (실행 약 15min) | 3 tasks | 3 files |
+| Phase 22 P07 | 1h 21m | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -317,6 +318,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 - [Phase 22]: 22-05: D-17 Firebase 를 기존 gh-radar 에 추가(사용자 결정) — FCM 푸시 가능성으로 장기 자산 · 앱 ID 1:1023658565518:android:3b06f0472060afa97e4edf · 그룹 ghtrade-testers(본인 1명)
 - [Phase 22]: 22-05: 업로드 SA gh-trade-appdistro 역할 roles/firebaseappdistro.admin 정확히 하나 · 키 600 · Secret Manager 백업 없음(분실 시 재발급)
 - [Phase 22]: 22-05: OAuth 동의 화면 「테스트」 모드 — 테스터 Google 계정마다 테스트 사용자 추가 필요(22-08 인계) · Supabase 가입 제한 없음(D-05)
+- [Phase 22]: 22-07: 첫 Firebase App Distribution 릴리스 versionCode 609271311(2026-09-27 13:11 KST · 그룹 ghtrade-testers) — APK CHECK OK sha1=2fe3ba78… · 전용 SA 인증(ADC 0건) · firebase_latest 일치 · 에뮬레이터 사이드로드 OK 후 release 판 제거
+- [Phase 22]: 22-07: native:release:android 기본 경로 = Firebase APK(release-android.sh 기본 firebase) · Play 경로는 native:release:android:play(beta)로 Phase 23 보존 · 22-09 두 번째 릴리스는 versionCode > 609271311
 
 ### Pending Todos
 
@@ -370,8 +373,8 @@ relay 운영 지식(Phase 17 이 남긴 재사용 가능한 사실): [docs/relay
 
 **Resume file:** None
 
-Last session: 2026-09-27T04:09:32.455Z
-Stopped at: Completed 22-05-PLAN.md
+Last session: 2026-09-27T04:13:49.792Z
+Stopped at: Completed 22-07-PLAN.md
 Next: **Phase 17 은 12/12 plan 실행 + 프로덕션 배포까지 완결됐다.** 전량 게이트 green(루트 typecheck · relay **467** · webapp **998**(+1 skip) · shared **108** · Playwright **135 pass · 0 fail** · 재동기화 `--check` 차이 0), 프로덕션 `ef1499a` · smoke 12 PASS. **남은 것은 실기 관측 1건이다.**
 
 - **① D-25 실기 관측 (WINDOWS #17 · 배포해도 닫히지 않는다).** 래치 36/37/38 왕복과 76/77/78 드롭 0 을 아직 한 번도 보지 못했다. 두 경로 중 하나: **(a) 다음 장중(평일 08:00~20:00 KST)에 상따 화면에서 LED 를 눌러 색 전환을 관측**하거나, **(b) `sudo xcodebuild -license` 동의 후 gh-trade HEAD 를 빌드해 mock 왕복 관측**. 관측되면 **TRADE-04 · TRADE-05 를 Complete 로 재판정**한다.
