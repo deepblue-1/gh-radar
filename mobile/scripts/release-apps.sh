@@ -17,7 +17,8 @@ set -euo pipefail
 #   웹 화면·기능 변경은 git push(= Vercel 배포)만으로 두 앱에 반영된다 — 앱이 운영 웹을 불러온다.
 #
 # 규약
-#   - 빌드 번호는 분 단위 타임스탬프다(iOS YYYYMMDDHHMM · Android (연도−2020)·10^8+MMDDHHmm).
+#   - 빌드 번호는 KST 분 단위 타임스탬프다(iOS YYYYMMDDHHMM · Android (연도−2020)·10^8+MMDDHHmm).
+#     직전 번호보다 작아지면(시계·시간대 역행) 시작하지 않는다.
 #     직전 릴리스와 같은 분이면 스토어가 거절하므로, 같으면 다음 분까지 기다린 뒤 시작한다.
 #   - 비밀은 각 플랫폼 래퍼(release-ios.sh · release-android.sh)가 다룬다. 이 스크립트는 값을 읽지 않는다.
 #     비밀 파일이 없으면 래퍼가 exit 3 과 주입 명령(`! bash mobile/scripts/setup-release-secrets.sh …`)을 낸다.
@@ -29,7 +30,7 @@ TARGET="${1:-all}"
 case "$TARGET" in
   all|ios|android) ;;
   -h|--help)
-    sed -n '4,24p' "$0"
+    sed -n '4,/^# ═══/p' "$0"   # 헤더 끝 표식까지(줄 수가 바뀌어도 잘리지 않는다)
     exit 0
     ;;
   *)
@@ -52,16 +53,28 @@ ANDROID_RESULT="건너뜀"
 
 say() { printf '\n▶ %s\n' "$*"; }
 
-# 이번 분의 빌드 번호(build_numbers.rb 와 같은 공식 · 로컬 시각).
-ios_num_now() { date +%Y%m%d%H%M; }
-android_vc_now() { echo $(( ($(date +%Y) - 2020) * 100000000 + 10#$(date +%m%d%H%M) )); }
+# 이번 분의 빌드 번호(build_numbers.rb 와 같은 공식 · KST 고정 — 22-REVIEW WR-03).
+# 머신 시간대를 따르면 Mac 시간대가 서쪽으로 바뀔 때 번호가 역행한다. date 는 한 번만 불러 분 경계 경합을 피한다.
+kst_minute() { TZ=Asia/Seoul date +%Y%m%d%H%M; }
+ios_num_now() { kst_minute; }
+android_vc_now() {
+  local m
+  m="$(kst_minute)"
+  echo $(( (10#${m:0:4} - 2020) * 100000000 + 10#${m:4:8} ))
+}
 
 # 직전 번호와 이번 분 번호가 같으면 다음 분 0초 + 2초까지 기다린다.
+# 이번 번호가 직전보다 작으면(시계·시간대 역행) 스토어가 거절할 빌드이므로 시작하지 않는다(return 1).
 wait_new_minute() {
   local label="$1" last_file="$2" now_fn="$3" last now secs
   [[ -f "$last_file" ]] || return 0
   last="$(tr -d '[:space:]' < "$last_file")"
+  [[ "$last" =~ ^[0-9]+$ ]] || return 0
   now="$($now_fn)"
+  if (( 10#$now < 10#$last )); then
+    say "$label 이번 번호($now)가 직전 빌드($last)보다 작다 — 시계·시간대 역행. 스토어가 거절하므로 시작하지 않는다"
+    return 1
+  fi
   if [[ "$last" == "$now" ]]; then
     secs=$(( 62 - 10#$(date +%S) ))
     say "$label 직전 빌드($last)와 같은 분이다 — ${secs}초 기다린다"
@@ -88,7 +101,10 @@ ios_num_file() {
 release_ios() {
   local log="$LOG_DIR/ios-$STAMP.log" num state line seen num_file
   num_file="$(ios_num_file)"
-  if [[ -n "$num_file" ]]; then wait_new_minute "iOS" "$num_file" ios_num_now; fi
+  if [[ -n "$num_file" ]] && ! wait_new_minute "iOS" "$num_file" ios_num_now; then
+    IOS_RESULT="시작 안 함 — 빌드 번호 역행(시계·시간대 확인)"
+    return 1
+  fi
   say "iOS — TestFlight 업로드 (로그: $log)"
   if ! pnpm run native:release:ios 2>&1 | tee "$log"; then
     IOS_RESULT="실패 — 로그 확인"
@@ -134,7 +150,10 @@ release_ios() {
 
 release_android() {
   local log="$LOG_DIR/android-$STAMP.log" vc latest
-  wait_new_minute "Android" "$ANDROID_VC_FILE" android_vc_now
+  if ! wait_new_minute "Android" "$ANDROID_VC_FILE" android_vc_now; then
+    ANDROID_RESULT="시작 안 함 — versionCode 역행(시계·시간대 확인)"
+    return 1
+  fi
   say "Android — APK → Firebase App Distribution (로그: $log)"
   if ! pnpm run native:release:android 2>&1 | tee "$log"; then
     ANDROID_RESULT="실패 — 로그 확인"
