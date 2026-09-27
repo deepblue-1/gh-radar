@@ -19,6 +19,7 @@ import { renderHook } from '@testing-library/react';
  *  9. route 신호               → 깨지면 SPA 이동 뒤 네이티브 탭바 활성 표시가 옛 탭에 머문다(D-14)
  * 10. theme 신호               → 깨지면 테마를 바꿔도 상태바·탭바 팔레트가 옛 테마로 남는다(D-23)
  * 11. pull 신호(Android)       → 깨지면 호가 사다리를 위로 스크롤하다 페이지 전체가 새로고침된다(Pitfall 7)
+ * 12a. 탭 경로 프리페치      → 깨지면 앱 탭을 처음 누를 때마다 미들웨어 인증 왕복 + 페이지 데이터 요청을 그 자리에서 기다린다
  * 12. Provider 밖 폴백         → 깨지면 Provider 없이 렌더되는 컴포넌트·테스트가 전부 throw 한다
  *
  * ⚠️ 송신 단언은 **실제 postMessage 인자 배열을 JSON 파싱한 결과**로 한다.
@@ -27,6 +28,7 @@ import { renderHook } from '@testing-library/react';
 // --- next/navigation mock — 경로는 가변, push 는 스파이 ----------------------------
 let mockPathname = '/';
 const pushMock = vi.fn();
+const prefetchMock = vi.fn();
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
   useRouter: () => ({
@@ -35,7 +37,7 @@ vi.mock('next/navigation', () => ({
     back: vi.fn(),
     forward: vi.fn(),
     refresh: vi.fn(),
-    prefetch: vi.fn(),
+    prefetch: prefetchMock,
   }),
 }));
 
@@ -91,6 +93,7 @@ beforeEach(() => {
   mockPathname = '/';
   mockResolvedTheme = 'light';
   pushMock.mockReset();
+  prefetchMock.mockReset();
 });
 
 afterEach(() => {
@@ -259,6 +262,36 @@ describe('앱 — navigate(path)', () => {
       expect(gh().navigate(bad)).toBe(false);
     }
     expect(pushMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('앱 — 탭 경로 프리페치', () => {
+  const TABS = ['/', '/search', '/trading', '/chat', '/me'];
+
+  it('12a. 앱이면 마운트 뒤 네이티브 탭 5개 경로를 전부 prefetch 한다 · 경로가 바뀌면 다시 요청한다', () => {
+    enterNativeApp('android');
+    const { rerender } = render(<Harness />);
+    expect(prefetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([...TABS].sort());
+
+    prefetchMock.mockReset();
+    mockPathname = '/trading';
+    rerender(<Harness />);
+    expect(prefetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([...TABS].sort());
+  });
+
+  it('12b. 브라우저에서는 prefetch 0 (웹은 사이드바 Link 가 프리페치한다)', () => {
+    enterBrowser();
+    render(<Harness />);
+    expect(prefetchMock).not.toHaveBeenCalled();
+  });
+
+  it('12c. 로그인·인증 경로에서는 prefetch 0 (미로그인 상태라 로그인 리다이렉트만 받는다)', () => {
+    enterNativeApp('ios');
+    mockPathname = '/login';
+    const { rerender } = render(<Harness />);
+    mockPathname = '/auth/callback';
+    rerender(<Harness />);
+    expect(prefetchMock).not.toHaveBeenCalled();
   });
 });
 

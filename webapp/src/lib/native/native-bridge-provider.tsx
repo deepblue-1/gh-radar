@@ -81,6 +81,19 @@ type GhTradeWindow = Window & { __ghTrade?: GhTradeGlobal };
 
 const NOOP = () => {};
 
+/**
+ * 네이티브 탭바 5탭 경로 — `mobile/android/.../TabRoutes.kt` · `mobile/ios/App/App/TabRoutes.swift` 의 탭 경로와 같아야 한다.
+ * 네이티브 탭은 Link 가 아니라 `router.push` 로 이동해 프리페치가 없다. 그래서 탭을 처음 누를 때마다 미들웨어의
+ * Supabase 인증 왕복 + 페이지 RSC 를 그 자리에서 기다렸다(운영 실측: CDN 적중인데도 0.3~0.5s, 첫 전환 0.6~1.2s).
+ * 앱에서는 이 경로들을 미리 받아 둔다(웹은 사이드바 Link 가 같은 일을 한다).
+ */
+const NATIVE_TAB_PATHS = ['/', '/search', '/trading', '/chat', '/me'] as const;
+
+/** 로그인 전 경로 — 여기서 프리페치하면 로그인 리다이렉트만 받으므로 건너뛴다. */
+function isAuthPath(path: string): boolean {
+  return path === '/login' || path.startsWith('/login/') || path === '/auth' || path.startsWith('/auth/');
+}
+
 /** Provider 밖 폴백 — 등록/획득은 해제 no-op 을 돌려주고 throw 하지 않는다. */
 const EMPTY_NATIVE_BRIDGE: NativeBridgeValue = {
   isNative: false,
@@ -200,6 +213,13 @@ export function NativeBridgeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isNative || !pathname) return;
     postNative('route', { path: pathname });
+  }, [isNative, pathname]);
+
+  // 4a'. 탭 경로 프리페치 — 마운트 뒤와 경로가 바뀔 때마다. 캐시가 살아 있는 경로는 Next 가 다시 요청하지 않고,
+  //      만료(정적 5분)된 경로만 다시 받아 둔다.
+  useEffect(() => {
+    if (!isNative || !pathname || isAuthPath(pathname)) return;
+    for (const p of NATIVE_TAB_PATHS) routerRef.current.prefetch(p);
   }, [isNative, pathname]);
 
   // 4b. theme — 마운트 후와 resolvedTheme 변경 때 한 번(D-23). 아직 해석 전(undefined)이면 보내지 않는다.
