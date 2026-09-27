@@ -13,9 +13,8 @@ import PrivacyPage, { metadata } from '../page';
  *  - 미정 표식·부록이 남으면       → 검토자용 메모가 스토어·테스터에게 그대로 노출된다
  *  - 제목(metadata)이 바뀌면       → 스토어 링크 미리보기·브라우저 탭 제목이 틀린다
  *
- * 시행일: 승인본은 22-07 이 push 하는 날로 채운다(22-02 인계). 지금은 자리표시
- * 「2026년 ○월 ○일」 을 그대로 옮기고 이 테스트도 자리표시를 단언한다 — 22-07 이
- * 날짜를 채우면 이 단언도 함께 바꾼다.
+ * 시행일은 방침이 운영 웹에 처음 공개된 날(22-10 · 2026-09-27 KST)이다. 날짜를 바꾸면
+ * 초안 frontmatter·13절 · page.tsx 를 함께 바꾼다.
  */
 
 // CenterShell 의 AppHeader 는 클라이언트 컴포넌트(테마 토글 · next/link)라 이 회귀면과 무관하다.
@@ -38,8 +37,8 @@ const SECTION_TITLES = [
   '13. 시행일',
 ];
 
-/** 22-02 인계 자리표시 — 22-07 이 push 날짜로 채운다. */
-const EFFECTIVE_DATE_PLACEHOLDER = '2026년 ○월 ○일';
+/** 시행일 — 초안 frontmatter `effective_date: 2026-09-27` · 13절 · page.tsx `EFFECTIVE_DATE` 와 같은 값. */
+const EFFECTIVE_DATE = '2026년 9월 27일';
 
 function section(n: number): HTMLElement {
   const el = document.getElementById(`section-${n}`);
@@ -69,9 +68,14 @@ describe('/privacy', () => {
     },
   );
 
-  it('13절에 시행일(22-07 인계 자리표시)이 있다', () => {
+  it('13절에 「{시행일}부터 시행합니다」 가 있다', () => {
     render(<PrivacyPage />);
-    expect(within(section(13)).getByText(new RegExp(EFFECTIVE_DATE_PLACEHOLDER))).toBeTruthy();
+    expect(within(section(13)).getByText(new RegExp(`${EFFECTIVE_DATE}부터 시행합니다`))).toBeTruthy();
+  });
+
+  it('시행일 자리표시(동그라미 월·일)가 문서 어디에도 없다', () => {
+    const { container } = render(<PrivacyPage />);
+    expect(container.textContent ?? '').not.toContain('○');
   });
 
   it('미정 표식 · 부록(검토자용) 문자열이 문서 어디에도 없다', () => {
