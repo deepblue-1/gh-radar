@@ -147,7 +147,7 @@ export function parseStrategyKey(
 }
 
 /**
- * 더티 비교 대상 31종(21 + Phase 24 10) — **공개 상수**다. 테스트가 「무엇이 비교되지 않는지」를 직접 단언한다.
+ * 더티 비교 대상 30종(20 + Phase 24 10 — 감시대상은 Phase 24 ⑤ 로 빠졌다) — **공개 상수**다. 테스트가 「무엇이 비교되지 않는지」를 직접 단언한다.
  *
  * 폼 24종에서 뺀 것 = 스위치 3종(`buyEnabled`·`sellEnabled`·`sweepEnabled`). 즉시 전송이라
  * 더티가 아니다(파일 상단 ②). S→C 전용 4필드는 애초에 `LimitChaserFormValues` 에 없다 —
@@ -158,7 +158,6 @@ export const DIRTY_COMPARED_FIELDS = [
   'buyWatchPrice',
   'buyWatchQty',
   'buyMinTradeQty',
-  'buyWatchSide',
   'buyTradeQtyEnabled',
   'buyOrderAmount',
   'sellOrderPrice',
@@ -265,7 +264,6 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
     // 매수주문
     buyWatchPrice: 0,
     buyWatchQty: 10_000, // DEFAULT_BUY_WATCH_QTY
-    buyWatchSide: '0', // Ask — 매도호가 감시
     buyMinTradeQty: 30_000, // DEFAULT_BUY_MIN_TRADE_QTY
     buyTradeQtyEnabled: false,
     buyEnabled: false,
@@ -332,7 +330,6 @@ export function formFromServer(
   return {
     buyWatchPrice: server.buyWatchPrice,
     buyWatchQty: server.buyWatchQty,
-    buyWatchSide: server.buyWatchSide,
     buyMinTradeQty: server.buyMinTradeQty,
     buyTradeQtyEnabled: server.buyTradeQtyEnabled,
     buyEnabled: server.buyEnabled,

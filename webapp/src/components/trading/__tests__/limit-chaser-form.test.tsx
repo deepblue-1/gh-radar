@@ -371,7 +371,7 @@ describe('④ 동시에 나가 있는 전송은 1건이다 (UI-SPEC §6 직렬�
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 0 })} />);
     rerender(<LimitChaserForm {...props({ server: next, serverAnswerSeq: 1 })} />);
     expect(lastConfig().buyOrderPrice).toBe(150_000);
-    expect(Object.keys(lastConfig())).toHaveLength(44);
+    expect(Object.keys(lastConfig())).toHaveLength(43);
   });
 });
 

@@ -74,7 +74,6 @@ export type LcRowSpec =
       range?: LcRange;
     }
   | { kind: 'check'; check: LcBoolField; checkId: string; label: string }
-  | { kind: 'watch' }
   | { kind: 'derived'; label: '잔량추적 기준선' };
 
 /** 그룹 스위치 4개가 여닫는 게이트. */
@@ -123,7 +122,6 @@ export const LC_BUY_GROUPS: readonly LcGroupSpec[] = [
     dimWhenOff: true,
     rows: [
       { kind: 'value', field: 'buyWatchPrice', id: 'lc-buy-watch-price', label: '비교가격', unit: '원', desc: '이 가격의 잔량을 지켜봐요' },
-      { kind: 'watch' },
       { kind: 'value', field: 'buyWatchQty', id: 'lc-buy-watch-qty', label: '잔량', unit: '주', desc: '잔량이 이 값보다 줄면 매수를 넣어요' },
       {
         kind: 'checkValue',
@@ -259,7 +257,7 @@ export function lcRowByField(
 }
 
 /**
- * 값 편집이 가능한 행만 — 감시대상(토글) · 체크 전용 · 기준선(읽기 전용)은 건너뛴다.
+ * 값 편집이 가능한 행만 — 체크 전용 · 기준선(읽기 전용)은 건너뛴다.
  * 20-05 의 Tab 연속 편집이 이 순서를 쓴다.
  */
 export function lcNavigableRows(slot: LcGroupSpec['slot']): readonly { field: LcNumField; id: string }[] {

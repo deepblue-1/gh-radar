@@ -5,7 +5,8 @@
  *
  * 20-01 이 `SettingRow`(「라벨 ─ 값 ›」 44px 값 행)와 `FailureBubble`(흐름 밖 실패 말풍선)을 만들었고,
  * 20-04 가 나머지를 더했다 — `SettingGroup`(그룹 카드) · `GroupSwitch`(그룹 스위치) ·
- * `CheckValueRow`(체크 값 행) · `WatchTargetRow`(감시대상 행) · `DerivedRow`(읽기 전용 기준선 행).
+ * `CheckValueRow`(체크 값 행) · `DerivedRow`(읽기 전용 기준선 행). (감시대상 행 조각은 Phase 24 ⑤ 로
+ * 지웠다 — 새 서버는 감시대상을 읽지 않는다.)
  * 무엇을 어떤 순서로 그리는지는 이 파일이 아니라 `lc-fields.ts` 가 정한다.
  *
  * ★ 행 높이는 **언제나 44px** 다 (D-20 · D-14a). 편집 중인 행만 요소 종류가 `<button>` → `<div>`
@@ -44,7 +45,7 @@ export function formatSettingValue(value: number, unit: SettingUnit): string {
 }
 
 /**
- * 행 상자 — 버튼(평소)과 div(편집 중)가 **같은 기하**를 쓴다(D-14a). 값 행 · 체크 행 · 감시대상 행 ·
+ * 행 상자 — 버튼(평소)과 div(편집 중)가 **같은 기하**를 쓴다(D-14a). 값 행 · 체크 행 ·
  * 기준선 행이 전부 이 상자라 라벨의 x 가 한 줄로 맞는다.
  *
  * ★ 폭 백스톱(UI-SPEC overflow · 20-02 폭 스파이크) — **폰 밴드(<700)만 L2**: 행 좌우 패딩 4→0 ·
@@ -245,7 +246,7 @@ export function FailureBubble({
   );
 }
 
-/* ───────────────────────── 20-04 — 그룹 · 스위치 · 체크 · 감시대상 · 기준선 ───────────────────────── */
+/* ───────────────────────── 20-04 — 그룹 · 스위치 · 체크 · 기준선 ───────────────────────── */
 
 export interface SettingGroupProps {
   spec: LcGroupSpec;
@@ -506,84 +507,6 @@ export function CheckValueRow({
         {check}
       </FailureBubble>
       {valuePart}
-    </div>
-  );
-}
-
-export interface WatchTargetRowProps {
-  /** `buyWatchSide` — '0' 매도잔량 · '1' 매수잔량. */
-  value: '0' | '1';
-  onSelect: (side: '0' | '1') => void;
-  /** 세션 미준비 — 두 버튼 비활성 + opacity .5. */
-  disabled?: boolean;
-  /** 전송 중(에코까지) — 두 버튼 비활성. 선택 면은 낙관 표시 그대로다(E2 loading). */
-  busy?: boolean;
-  /** 확정 뒤 900ms 강조. */
-  flash?: boolean;
-  /** 거부·무응답 말풍선(E2 error). */
-  failureText?: string | null;
-}
-
-const WATCH_SIDES = [
-  { side: '0', text: '매도잔량' },
-  { side: '1', text: '매수잔량' },
-] as const;
-
-/**
- * 감시대상 행 — 시트를 열지 않는 **행 안 토글** (UI-SPEC §4 · D-02 · **D-02a**).
- *
- * ★ **D-02a (2026-09-25 사용자 결정):** 모든 밴드에서 시각 「감시대상」 라벨이 없고 토글이 행 전체
- *   폭이다. 본문 830 에서 「라벨 + 인라인 토글」이 백스톱 L2 로도 3.4px 넘쳤다(20-02 폭 스파이크) —
- *   목업 `watch-row-830.html` 안 D 채택(여유 830 +20.2 · 700 +22.7px). 밴드별 차이는 버튼 높이·글자만
- *   남는다(폰 32 · 14/600 ↔ ≥700 26 · 13/600). 접근성 이름은 `role="group" aria-label` 이 유지한다.
- * ★ `aria-pressed` 버튼 두 개다 — 라디오 그룹으로 바꾸면 방향키로 선택이 바뀌어 **전송되는** 사고가
- *   난다. 누르면 즉시 전송(D-04)이고 에코까지 두 버튼이 잠긴다.
- * ★ 선택 면은 중립 `--seg-on-*` 다(방향색 소멸 · D-02). 라벨 4글자 고정 nowrap · `flex-1` 이라 넘칠
- *   여지가 없다(E2 long-text).
- */
-export function WatchTargetRow({
-  value,
-  onSelect,
-  disabled = false,
-  busy = false,
-  flash = false,
-  failureText = null,
-}: WatchTargetRowProps) {
-  return (
-    <div data-slot="lc-watch-row" className={cn(ROW_BOX, 'cursor-default')}>
-      <FailureBubble open={failureText != null && failureText !== ''} text={failureText ?? ''}>
-        <div
-          role="group"
-          aria-label="감시대상"
-          aria-busy={busy ? 'true' : undefined}
-          className="flex w-full min-w-0 rounded-[8px] bg-[var(--raised-2)] p-0.5"
-        >
-          {WATCH_SIDES.map(({ side, text }) => {
-            const on = value === side;
-            return (
-              <button
-                key={side}
-                type="button"
-                aria-pressed={on}
-                disabled={disabled || busy}
-                onClick={() => onSelect(side)}
-                className={cn(
-                  'h-8 min-w-0 flex-1 whitespace-nowrap rounded-[6px] px-2 text-[14px] font-semibold',
-                  '@min-[700px]/lc:h-[26px] @min-[700px]/lc:text-[13px]',
-                  on
-                    ? 'bg-[var(--seg-on-bg)] text-[var(--seg-on-fg)] shadow-[var(--seg-on-shadow)]'
-                    : 'bg-transparent text-[var(--muted-fg)]',
-                  on && flash && 'text-[var(--primary)]',
-                  'disabled:cursor-not-allowed',
-                  disabled && 'opacity-50',
-                )}
-              >
-                {text}
-              </button>
-            );
-          })}
-        </div>
-      </FailureBubble>
     </div>
   );
 }

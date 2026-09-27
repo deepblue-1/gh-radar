@@ -53,6 +53,8 @@ function serverEcho(over: Partial<RelayLimitChaser> = {}): RelayLimitChaser {
     exchange: 'KRX',
     key: `${ISIN}:${ACCOUNT}:KRX`,
     buyOrderQty: 0,
+    // 감시대상 — 읽기 전용 에코 필드(폼 값에는 없다 · Phase 24 ⑤). 새 서버 에코는 relay 가 "0" 으로 채운다.
+    buyWatchSide: '0',
     // S→C 전용 4필드 — 서버만 채운다.
     sellOrderQty: 0,
     sellQtyTrackBaseline: 0,

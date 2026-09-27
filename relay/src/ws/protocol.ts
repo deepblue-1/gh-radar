@@ -155,7 +155,7 @@ export const RelayLcSetSchema = z.object({
     buyWatchPrice: UIntSchema,
     buyWatchQty: UIntSchema,
     buyMinTradeQty: UIntSchema,
-    buyWatchSide: z.enum(["0", "1"]),
+    // 옛 탭이 실은 감시대상 키는 `z.object` 가 떨어뜨린다(Phase 24 ⑤ · 새 서버는 읽지 않는다).
     buyTradeQtyEnabled: z.boolean(),
     buyEnabled: z.boolean(),
     sellOrderPrice: UIntSchema,

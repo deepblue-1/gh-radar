@@ -162,8 +162,8 @@ export type RelayLimitChaser = {
   /** 매수 최소 체결수량(주). */
   buyMinTradeQty: number;
   /**
-   * 매수 감시 기준 호가. 새 서버(buy3) 에코에는 없다 — relay 가 `"0"` 으로 채운다.
-   * relay 는 요청에도 싣지 않는다(Phase 24). 입력에서의 제거는 24-03.
+   * 매수 감시 기준 호가 — **읽기 전용**(옛 서버 에코 호환). 새 서버(buy3) 에코에는 없다 — relay 가
+   * `"0"` 으로 채운다. 입력(`RelayLimitChaserInput`)에서는 빠졌다(Phase 24 ⑤ · 24-03).
    */
   buyWatchSide: RelayLcWatchSide;
   /** 매수 체결수량 조건 사용 여부. */
@@ -350,8 +350,12 @@ export const LIMIT_CHASER_SERVER_ONLY_FIELDS = [
 export type LimitChaserServerOnlyField = (typeof LIMIT_CHASER_SERVER_ONLY_FIELDS)[number];
 
 /**
- * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 29 + 클라 고정 3 + Phase 24 C→S 12 = 44필드**.
- * (`buyWatchSide` 는 아직 입력에 남지만 relay 가 싣지 않는다 — 입력에서의 제거는 24-03.)
+ * `lc.set` 이 실어 보내는 상따 설정 — **클라 입력 28 + 클라 고정 3 + Phase 24 C→S 12 = 43필드**.
+ *
+ * ⚠️ **`buyWatchSide`(감시대상)를 뺀다** (Phase 24 ⑤ · 24-03). 새 서버는 읽지 않는다(gh-trade D-24 ·
+ *    D-28 — 구 클라 판정에만 쓴다). 브라우저가 싣지 못하게 입력에서 뺀다. 읽기 전용
+ *    `RelayLimitChaser.buyWatchSide` 는 옛 서버 에코 호환으로 남는다(파서 · 24-02 추출 도구).
+ *    옛 탭이 실어 보내도 relay zod(`z.object`)가 미지 키로 떨어뜨린다.
  *
  * `RelayLimitChaser` 에서 S→C 전용 10필드와 파생 `key`, 그리고 `market` 을 뺀 것이다. 고정 3 은
  * `sweepRecalcEnabled: true` · `sweepMinCount: 0` · `sweepMinRate: 0` 으로 WinForms
@@ -375,6 +379,7 @@ export type RelayLimitChaserInput = Omit<
   | "market"
   | "name"
   | "code"
+  | "buyWatchSide"
 >;
 
 /**

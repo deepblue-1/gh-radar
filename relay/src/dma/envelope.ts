@@ -1149,8 +1149,8 @@ export const LC_FIXED_BUY3_SCHEMA = 1;
  *
  * **클라 입력 28 + Phase 24 C→S 12 + relay 해석 1(`market`) + 클라 고정 4(sweep 3 ·
  * `buy3_schema`) = 45 필드만** 채운다. 나머지는 건드리지 않는다:
- *   - **`buy_watch_side`** — 입력(`cfg.buyWatchSide`)으로는 아직 받지만 **싣지 않는다**. 새 서버
- *     (buy3)는 감시대상을 읽지 않고, 슬롯이 있으면 구 클라 흉내가 된다. 입력에서의 제거는 24-03.
+ *   - **`buy_watch_side`** — **싣지 않는다**. 새 서버(buy3)는 감시대상을 읽지 않고, 슬롯이 있으면
+ *     구 클라 흉내가 된다. 입력 계약(`RelayLimitChaserInput`)에서도 빠졌다(24-03).
  *   - **S→C 전용 9필드** (`sell_order_qty` · `sell_qty_track_baseline` · `sell_entry_latched` ·
  *     `cancel_qty_track_baseline` · `cancel_entry_latched` · `extra_buy_abandoned` ·
  *     `post_buy_trigger_qty` · `post_buy_reentry_left` · `post_buy_phase`) — 서버가

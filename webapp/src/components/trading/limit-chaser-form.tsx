@@ -6,7 +6,7 @@
  * ① 무엇을 어디에
  *   무엇을 어떤 순서로 그리는지는 **`lc/lc-fields.ts` 한 곳**이 정한다(D-19) — 매수 쪽 =
  *   [매수가격 · 주문금액] → 매수주문 → 한방체결 · 매도 쪽 = [매도가격 · 매도비율] → 매도주문 →
- *   매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의 조각이다(값 행 · 체크 값 행 · 감시대상 행 ·
+ *   매수취소(맨 아래). 행 모양은 `lc/setting-group.tsx` 의 조각이다(값 행 · 체크 값 행 ·
  *   기준선 행 · 그룹 카드 · 그룹 스위치). 이 파일은 그 둘을 **값·전송 배선**으로 잇는다.
  *   본문 폭 **700px 이상**이면 매수 | 매도 두 열이 나란히 서고 각 열 머리가 「● 매수」/「● 매도」다.
  *   그 아래(폰 밴드)는 탭 하나당 한 열이다.
@@ -22,7 +22,7 @@
  *      히트 44×44 + 그룹 제목줄 **오른쪽 끝** 고정(`GroupSwitch` · `SettingGroup`). 크기·위치를 줄이는
  *      변경은 곧 안전장치를 줄이는 변경이다.
  *   2. **매수/매도는 3중으로 말한다** — ≥700 열 머리 점 색(`--up`/`--down`) + 글자(「매수」/「매도」) +
- *      위치(왼쪽/오른쪽). 폰은 바깥 3탭 글자가 말한다. 선택 면(감시대상 토글·탭)은 중립 `--seg-on-*` 다.
+ *      위치(왼쪽/오른쪽). 폰은 바깥 3탭 글자가 말한다. 선택 면(탭)은 중립 `--seg-on-*` 다.
  *   3. ★ **발주할 수 없는 전략은 무장되지 않는다**(WR-06). 켜는 방향만 `gateBlocked()` 로 막고 그
  *      사유는 **열 맨 아래 한 곳**(`lc-arm-blocked-panel`)에 모인다 — 그룹 안에 끼우면 사유가 뜰 때마다
  *      아래 행이 밀린다. 값 확정도 전송 직전 같은 판정(`armBlockOf`)을 지난다(필드 확정 훅).
@@ -33,7 +33,7 @@
  *      그래서 이 그룹만 흐리지 않는다 — 무장 판정은 `lib/limit-chaser.ts` 그대로다.
  *
  * ③ ★ 값은 **확정 1회 = 즉시 반영**이다 (Phase 20 D-04)
- *   시트 「{필드명} 적용」 · 인라인 Enter/포커스 이탈 · 체크 · 감시대상 · 스위치 **한 번**이 곧 전략 전체
+ *   시트 「{필드명} 적용」 · 인라인 Enter/포커스 이탈 · 체크 · 스위치 **한 번**이 곧 전략 전체
  *   (32필드) 전송 한 번이다(`useLcFieldCommit`). 더티 누적도 「수정/되돌리기」 액션 바도 **없다** —
  *   옛 더티 모델은 이 plan(20-04)에서 폐기됐다. 성공 판정은 **에코의 그 필드 값 === 보낸 값**뿐이다
  *   (거부도 답 신호를 올리므로 답만으로 성공이라 읽지 않는다 · D-06). 값 필드는 낙관 반영하지 않는다 —
@@ -58,7 +58,7 @@
  *   안 됨」이 된다.
  *
  * ⑥ 토스트를 쓰지 않는다 (UI-SPEC D3)
- *   결과는 행(값 강조 900ms · 실패 링/말풍선) · 시트 상태 줄 · 폼 맨 위 한 줄(스위치·체크·감시대상
+ *   결과는 행(값 강조 900ms · 실패 링/말풍선) · 시트 상태 줄 · 폼 맨 위 한 줄(스위치·체크
  *   전송 끊김) · 상태줄 · 전략 로그로만 알린다.
  *
  * ⑦ ★ 색 규칙 (UI-SPEC Color)
@@ -73,7 +73,6 @@
  *     호출부에서 못 바꾼다(RESEARCH Pitfall 9). 이 화면의 오터치 방어가 **40×24 + 히트 44** 라
  *     공용 파일을 고치는 대신 `GroupSwitch` 가 Radix Switch primitive 를 **직접** 그린다.
  *   - **체크**: 원형 체크 + 라벨이 한 `<button role="checkbox">` 다(D-22) — 행 높이 44 전체가 히트다.
- *   - **감시대상**: `aria-pressed` 버튼 두 개다 — 라디오 그룹이면 방향키가 선택을 바꿔 **전송**한다.
  */
 
 import {
@@ -126,7 +125,6 @@ import {
   GroupSwitch,
   SettingGroup,
   SettingRow,
-  WatchTargetRow,
 } from '@/components/trading/lc/setting-group';
 import {
   LC_COMMIT_TEXT,
@@ -317,7 +315,7 @@ const SELL_COLUMN_GATES: readonly GateKey[] = ['sellEnabled'];
 /**
  * 전송 실패 문구 — `strategy-status-card.tsx:358` 의 「연결이 끊겨 … 보내지 못했어요」 계열과
  * 같은 어조다. 두 화면이 같은 사건을 다른 말로 하면 사용자는 다른 사건으로 읽는다.
- * 폼 맨 위 `lc-submit-error` 는 이제 **스위치·체크·감시대상 전송 실패 전용**이다(값 전송 실패는
+ * 폼 맨 위 `lc-submit-error` 는 이제 **스위치·체크 전송 실패 전용**이다(값 전송 실패는
  * 행·시트·말풍선이 말한다 — UI-SPEC 레이아웃 계약).
  */
 const SEND_FAILED_TEXT = {
@@ -338,7 +336,7 @@ export interface LimitChaserFormProps {
   */
   exchange: RelayExchange;
   /**
-   * 서버 에코 1건. `null`/`undefined` 면 미등록(신규) 전략이다 — 값·체크·감시대상 확정은 로컬만(A-P1).
+   * 서버 에코 1건. `null`/`undefined` 면 미등록(신규) 전략이다 — 값·체크 확정은 로컬만(A-P1).
    * **이 prop 이 바뀌면 폼이 서버값으로 덮인다**(D-11).
    */
   server?: RelayLimitChaser | null;
@@ -504,7 +502,7 @@ export function LimitChaserForm({
   sentNotifyRef.current = onSent;
 
   /*
-    ★ Phase 20 D-04 — **한 필드 확정 = 전략 1회 전송**(`useLcFieldCommit`). 시트·인라인·체크·감시대상·
+    ★ Phase 20 D-04 — **한 필드 확정 = 전략 1회 전송**(`useLcFieldCommit`). 시트·인라인·체크·
       스위치가 이 훅 하나를 공유한다. cfg 조립은 위 `buildCfg` 하나를 그대로 넘긴다(복제 금지).
       기준값은 폼 로컬 값이 아니라 서버 동기값이고(T-20-03), 값 필드는 낙관 반영하지 않는다(D-06).
   */
@@ -575,7 +573,7 @@ export function LimitChaserForm({
     [clearFailure, endEdit],
   );
   /**
-   * Tab / Shift+Tab (D-14 · 가정 A5) — **같은 그룹**의 다음/이전 값 행. 감시대상 · 값 없는 체크 행 ·
+   * Tab / Shift+Tab (D-14 · 가정 A5) — **같은 그룹**의 다음/이전 값 행. 값 없는 체크 행 ·
    * 기준선 행은 `lcNavigableRows` 가 이미 뺐다. 그룹 끝이면 편집 종료 — 다른 그룹으로 넘어가지 않는다.
    */
   const handleInlineNavigate = useCallback((field: LcNumField, dir: 'next' | 'prev') => {
@@ -662,7 +660,7 @@ export function LimitChaserForm({
   );
 
   /**
-   * 스위치 · 체크 · 감시대상 — **확인 없이 즉시** 한 필드 전송(Phase 16 D-05 · D-04).
+   * 스위치 · 체크 — **확인 없이 즉시** 한 필드 전송(Phase 16 D-05 · D-04).
    *
    * ★ 결과 문구는 반환값이 아니라 **훅의 실패 상태에서 파생**한다(아래 `submitError` · 20-REVIEW WR-03) —
    *   대기열에서 꺼낼 때(`drain`) 막히거나 끊긴 토글도 같은 자리가 말해야 하기 때문이다.
@@ -676,7 +674,7 @@ export function LimitChaserForm({
   );
 
   /*
-    폼 맨 위 한 줄 = 스위치·체크·감시대상의 **보내지 못한 실패**(끊김 · 무장 불가 · 범위 밖)에서 파생한다
+    폼 맨 위 한 줄 = 스위치·체크의 **보내지 못한 실패**(끊김 · 무장 불가 · 범위 밖)에서 파생한다
     (20-REVIEW WR-03). 옛 판은 `commitToggle` 이 직접 받은 반환값으로만 세워서, 대기열에서 꺼낼 때 막힌
     토글은 스위치만 조용히 되돌아갔다(무로그 fail-safe · 파일 상단 ⑥ 위반).
     ★ 답이 도착하면 그때까지의 문구는 접는다 — 답이 왔다는 것은 그 사건이 이미 지나갔다는 뜻이다. 실패 객체의
@@ -742,7 +740,7 @@ export function LimitChaserForm({
 
   /**
    * D-14b — 편집 중 다른 **값 행(값 버튼)** 을 누르면 그 행을 다음 편집으로 기록한다(캡처 단계라 행
-   * 자신의 핸들러보다 먼저 돈다). 체크 버튼 · 감시대상 · 스위치는 `data-lc-field` 버튼이 아니어서
+   * 자신의 핸들러보다 먼저 돈다). 체크 버튼 · 스위치는 `data-lc-field` 버튼이 아니어서
    * 기록하지 않는다 — 그 클릭은 제 동작을 한다. 비활성 · 반영 중인 행도 기록하지 않는다(`activateRow` 와 같은 규칙).
    */
   const handlePointerDownCapture = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -839,18 +837,6 @@ export function LimitChaserForm({
           />
         );
       }
-      case 'watch':
-        return (
-          <WatchTargetRow
-            key="watch"
-            value={form.buyWatchSide}
-            onSelect={(side) => commitToggle('buyWatchSide', side)}
-            disabled={disabled}
-            busy={isBusy('buyWatchSide')}
-            flash={lc.flashField === 'buyWatchSide'}
-            failureText={toggleFailureTextOf('buyWatchSide')}
-          />
-        );
       case 'derived':
         // S→C 전용 — 서버가 매도 진입을 래치한 뒤에만 존재한다(UI Considerations E1 partial).
         return server?.sellEntryLatched ? (
@@ -929,7 +915,7 @@ export function LimitChaserForm({
     <div data-slot="limit-chaser-form" className={cn('min-w-0', className)} onPointerDownCapture={handlePointerDownCapture}>
       {submitError === '' ? null : (
         /*
-          스위치·체크·감시대상을 눌렀는데 못 나갔거나 무장 판정에 막혔다 — 화면이 그 사실을 말한다.
+          스위치·체크를 눌렀는데 못 나갔거나 무장 판정에 막혔다 — 화면이 그 사실을 말한다.
           ★ **폼 맨 위**다. `role="alert"` 이라 스크롤 위치와 무관하게 읽힌다. 토스트를 쓰지 않는
             근거는 파일 상단 ⑥.
         */
