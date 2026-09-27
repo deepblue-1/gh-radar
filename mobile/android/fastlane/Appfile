@@ -1,0 +1,4 @@
+# GH Trade Android — Play 게시용 SA JSON 은 저장소 밖(~/.config/gh-trade/release/play-service-account.json)에만 둔다.
+# 저장소 안 기본 경로를 두지 않는다(weekly-wine 의 play-store-key.json 기본값을 따르지 않음 — T-22-01).
+json_key_file(ENV["GOOGLE_PLAY_JSON_KEY"])
+package_name("com.ghtrade.app")
