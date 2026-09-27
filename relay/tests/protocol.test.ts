@@ -17,7 +17,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
 
-import { parseInbound } from "../src/ws/protocol.js";
+import {
+  LC_LEGACY_SET_REJECT_TEXT,
+  buy3CfgOf,
+  parseInbound,
+  withNeutralBuy3,
+} from "../src/ws/protocol.js";
 import { OrderBuildError, buildSetVITriggerReq } from "../src/dma/envelope.js";
 import { logger } from "../src/logger.js";
 
@@ -64,7 +69,7 @@ function lcCfg(overrides: Record<string, unknown> = {}): Record<string, unknown>
     cancelWatchQty: 10,
     cancelTradeEnabled: false,
     cancelQtyTrackEnabled: false,
-    // Phase 24 C→S 12 — 이 플랜에서는 필수(구 탭 관용은 24-03).
+    // Phase 24 C→S 12 — 스키마에서는 선택(구 탭 관용 · 24-03). 부재는 fanout 이 거부한다.
     preBuyEnabled: false,
     extraBuyEnabled: false,
     extraBuyMinQty: 0,
@@ -79,6 +84,33 @@ function lcCfg(overrides: Record<string, unknown> = {}): Record<string, unknown>
     postBuyOrderQty: 0,
     ...overrides,
   };
+}
+
+/** Phase 24 C→S 12 — 구 탭 cfg 를 만들 때 뺄 키. */
+const BUY3_KEYS = [
+  "preBuyEnabled",
+  "extraBuyEnabled",
+  "extraBuyMinQty",
+  "extraBuyMaxQty",
+  "extraBuyOrderAmount",
+  "extraBuyOrderQty",
+  "postBuyEnabled",
+  "postBuyReboundPct",
+  "postBuyFloorQty",
+  "postBuyReentry",
+  "postBuyOrderAmount",
+  "postBuyOrderQty",
+] as const;
+
+/**
+ * 새로고침 전 옛 탭이 보내는 cfg — 신필드 12개가 없고 감시대상(`"1"` = 매수잔량)을 싣는다(F-4).
+ */
+function legacyCfg(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const cfg = lcCfg({ buyWatchSide: "1", ...overrides });
+  for (const k of BUY3_KEYS) {
+    if (!(k in overrides)) delete cfg[k];
+  }
+  return cfg;
 }
 
 function lcSet(overrides: Record<string, unknown> = {}): string {
@@ -179,7 +211,7 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     }
   });
 
-  it("①-buy3 후매수 반등률 · 최대 횟수 범위와 신필드 필수 (Phase 24 · T-24-03)", () => {
+  it("①-buy3 후매수 반등률 · 최대 횟수 범위 (Phase 24 · T-24-03)", () => {
     // 끄는 쪽 0 은 통과 — 레거시 에코 0 이 소켓 종료가 되지 않게(RESEARCH Pitfall 4).
     expect(parseInbound(lcSet({ postBuyReboundPct: 0, postBuyEnabled: false }))).not.toBeNull();
     // 켜는 쪽은 1~100(서버 §9-2 ⑤ 동형).
@@ -193,25 +225,74 @@ describe("parseInbound — 전략·주문 인바운드 6종", () => {
     expect(parseInbound(lcSet({ postBuyReentry: 256 }))).toBeNull();
     // 최소 > 최대는 zod 로 막지 않는다 — 서버가 그 그룹만 눕힌다(zod 위반은 소켓을 끊는다).
     expect(parseInbound(lcSet({ extraBuyMinQty: 200_000, extraBuyMaxQty: 100_000 }))).not.toBeNull();
-    // 신필드 중 하나라도 빠지면 위반 — 이 플랜 한정(24-03 이 구 탭 관용으로 바꾼다).
-    for (const k of [
-      "preBuyEnabled",
-      "extraBuyEnabled",
-      "extraBuyMinQty",
-      "extraBuyMaxQty",
-      "extraBuyOrderAmount",
-      "extraBuyOrderQty",
-      "postBuyEnabled",
-      "postBuyReboundPct",
-      "postBuyFloorQty",
-      "postBuyReentry",
-      "postBuyOrderAmount",
-      "postBuyOrderQty",
-    ]) {
+  });
+
+  /*
+    24-03 구 탭 관용 (RESEARCH F-4 · Pitfall 3). 신필드는 스키마에서 **선택**이다 — 부재 판정은
+    fanout 의 `buy3CfgOf` 한 곳이고, 스키마는 기본값을 채우지 않는다(채우면 옛 탭 프레임이 조용히
+    새 클라 등록이 된다). 소켓을 끊는 zod 위반이 되지 않게 하는 것이 목적이다.
+  */
+  it("①-legacy 신필드 12개가 없는 옛 cfg 도 스키마는 통과하고 buy3CfgOf 는 null 이다 (Phase 24 F-4)", () => {
+    const msg = parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg() }));
+    if (msg?.t !== "lc.set") throw new Error("옛 cfg 가 스키마에서 떨어졌습니다 — 소켓 종료 경로");
+    expect(buy3CfgOf(msg.cfg)).toBeNull();
+    expect(LC_LEGACY_SET_REJECT_TEXT).toBe("매수 설정 방식이 바뀌었어요 — 화면을 새로고침해 주세요");
+  });
+
+  it("①-legacy-b 12개가 다 있으면 buy3CfgOf 가 같은 값의 cfg 를, 하나만 빠져도 null 을 돌려준다", () => {
+    const full = parseInbound(lcSet({ preBuyEnabled: true, postBuyReentry: 7 }));
+    if (full?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    expect(buy3CfgOf(full.cfg)).toEqual(full.cfg);
+
+    for (const k of BUY3_KEYS) {
       const cfg = lcCfg();
       delete cfg[k];
-      expect(parseInbound(JSON.stringify({ t: "lc.set", cfg })), k).toBeNull();
+      const msg = parseInbound(JSON.stringify({ t: "lc.set", cfg }));
+      if (msg?.t !== "lc.set") throw new Error(`${k} 하나 빠진 cfg 가 스키마에서 떨어졌습니다`);
+      expect(buy3CfgOf(msg.cfg), k).toBeNull();
     }
+  });
+
+  it("①-legacy-c 옛 cfg 라도 신필드가 **있는데** 범위 밖이면 여전히 스키마 위반이다", () => {
+    expect(parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg({ postBuyReentry: 256 }) }))).toBeNull();
+    expect(
+      parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg({ postBuyReboundPct: 101 }) })),
+    ).toBeNull();
+    // 반등률 규칙은 값이 있을 때만 본다 — 후매수 ON 이면서 반등률 0 은 여전히 위반.
+    expect(
+      parseInbound(
+        JSON.stringify({
+          t: "lc.set",
+          cfg: legacyCfg({ postBuyEnabled: true, postBuyReboundPct: 0 }),
+        }),
+      ),
+    ).toBeNull();
+    // 반등률이 없으면 superRefine 은 판정하지 않는다(부재는 fanout 이 거부한다).
+    expect(
+      parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg({ postBuyEnabled: true }) })),
+    ).not.toBeNull();
+  });
+
+  it("①-legacy-d withNeutralBuy3 는 12키를 false/0 으로 채운다 — 철거 프레임 전용", () => {
+    const msg = parseInbound(JSON.stringify({ t: "lc.set", cfg: legacyCfg({ buyEnabled: false }) }));
+    if (msg?.t !== "lc.set") throw new Error("lc.set 으로 좁혀지지 않았습니다");
+    const cfg = withNeutralBuy3(msg.cfg);
+    expect(cfg).toMatchObject({
+      preBuyEnabled: false,
+      extraBuyEnabled: false,
+      extraBuyMinQty: 0,
+      extraBuyMaxQty: 0,
+      extraBuyOrderAmount: 0,
+      extraBuyOrderQty: 0,
+      postBuyEnabled: false,
+      postBuyReboundPct: 0,
+      postBuyFloorQty: 0,
+      postBuyReentry: 0,
+      postBuyOrderAmount: 0,
+      postBuyOrderQty: 0,
+    });
+    expect(cfg.isin).toBe(ISIN);
+    expect(buy3CfgOf(cfg)).not.toBeNull();
   });
 
   /*

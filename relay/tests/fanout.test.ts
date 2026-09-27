@@ -46,6 +46,7 @@ import type { DmaSession } from "../src/dma/session.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
+import { LC_LEGACY_SET_REJECT_TEXT } from "../src/ws/protocol.js";
 import { logger } from "../src/logger.js";
 import { Envelope } from "../src/generated/stock-dma/envelope.js";
 import {
@@ -184,6 +185,31 @@ function lcInput(overrides: Partial<RelayLimitChaserInput> = {}): RelayLimitChas
     postBuyOrderQty: 0,
     ...overrides,
   };
+}
+
+/** Phase 24 C→S 12 — 구 탭 cfg 에서 뺄 키. */
+const BUY3_KEYS = [
+  "preBuyEnabled",
+  "extraBuyEnabled",
+  "extraBuyMinQty",
+  "extraBuyMaxQty",
+  "extraBuyOrderAmount",
+  "extraBuyOrderQty",
+  "postBuyEnabled",
+  "postBuyReboundPct",
+  "postBuyFloorQty",
+  "postBuyReentry",
+  "postBuyOrderAmount",
+  "postBuyOrderQty",
+] as const;
+
+/**
+ * 새로고침 전 옛 탭의 `lc.set` cfg — `lcInput` 에서 신필드 12개를 빼고 감시대상 `"1"` 을 싣는다(F-4).
+ */
+function legacyCfg(overrides: Partial<RelayLimitChaserInput> = {}): Record<string, unknown> {
+  const cfg: Record<string, unknown> = { ...lcInput(overrides), buyWatchSide: "1" };
+  for (const k of BUY3_KEYS) delete cfg[k];
+  return cfg;
 }
 
 /**
@@ -1084,6 +1110,109 @@ describe("WsFanout", () => {
     expect(item.buyWatchSide).toBe("0");
     // 활성 55 + key — 봉인된 매수 진입 래치는 없다.
     expect(Object.keys(item)).toHaveLength(56);
+  });
+
+  /*
+    24-03 구 탭 관용 (RESEARCH F-4 · Pitfall 3 · T-24-11 · T-24-14 · T-24-15 · T-24-42).
+
+    relay 가 webapp push 보다 먼저 배포되고, push 뒤에도 열린 탭 · 앱 WebView 는 새로고침 전까지 옛 JS 다.
+    옛 모양 `lc.set`(신필드 없음)을 zod 위반으로 끊으면 시세 · 에코 · 수동주문까지 멈추는 재접속 루프가
+    된다 — 거부 프레임 + 소켓 유지로 답하고, 게이트웨이에는 0바이트다(`buy3_schema=0` 레거시 중계 없음).
+  */
+  it("⑰-legacy 옛 모양 lc.set 은 게이트웨이 0바이트 · 거부 프레임 1건 · 소켓 유지 — 같은 소켓의 새 모양 lc.set 은 10 으로 간다", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: legacyCfg() });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "구 탭 거부 프레임");
+    await flushIo(30);
+
+    const setsOf = () =>
+      gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    expect(setsOf()).toHaveLength(0);
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected).toMatchObject({
+      lv: "ERROR",
+      src: RELAY_MSG_SOURCE,
+      m: LC_LEGACY_SET_REJECT_TEXT,
+      i: SAMPLE_ISIN,
+      a: "",
+    });
+    expect(a.ws.closeInfo).toBeNull();
+    // 로그에 계좌번호를 싣지 않는다 (T-16-45).
+    const logged = warnSpy.mock.calls.find((call) => String(call[1] ?? "").includes("구 탭 lc.set"));
+    expect(logged).toBeDefined();
+    expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(SAMPLE_ACCOUNT_NO);
+
+    // 같은 소켓의 다음 새 모양 lc.set 은 그대로 중계된다 = 소켓 OPEN 의 증거.
+    a.ws.sendRaw({ t: "lc.set", cfg: lcInput() });
+    await waitFor(() => setsOf().length === 1, "새 모양 10 수신");
+    const req = readSetLimitChaserRequest(setsOf()[0]!.msgType, setsOf()[0]!.payload);
+    expect(req?.buy3Schema).toBe(1);
+    expect(framesOf(a.inbox, "msg")).toHaveLength(1);
+    expect(a.ws.closeInfo).toBeNull();
+  });
+
+  it("⑰-legacy-b 게이트 4종이 전부 OFF 인 옛 모양 lc.set(철거)은 신필드 중립값 · buy3_schema=1 로 10 이 나간다 (T-16-44)", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({
+      t: "lc.set",
+      cfg: legacyCfg({
+        crud: "D",
+        buyEnabled: false,
+        sellEnabled: false,
+        cancelQtyEnabled: false,
+        cancelTradeEnabled: false,
+      }),
+    });
+    await waitFor(
+      () => gateway.strategyRequests().some((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+      "철거 10 수신",
+    );
+    await flushIo(30);
+
+    const sets = gateway
+      .strategyRequests()
+      .filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq);
+    expect(sets).toHaveLength(1);
+    const req = readSetLimitChaserRequest(sets[0]!.msgType, sets[0]!.payload);
+    expect(req).toMatchObject({
+      buy3Schema: 1,
+      buyEnabled: false,
+      preBuyEnabled: false,
+      extraBuyEnabled: false,
+      extraBuyMinQty: 0,
+      extraBuyMaxQty: 0,
+      extraBuyOrderAmount: 0,
+      extraBuyOrderQty: 0,
+      postBuyEnabled: false,
+      postBuyReboundPct: 0,
+      postBuyFloorQty: 0,
+      postBuyReentry: 0,
+      postBuyOrderAmount: 0,
+      postBuyOrderQty: 0,
+      buyWatchSide: null,
+      serverOnlySlots: [],
+    });
+    expect(framesOf(a.inbox, "msg")).toHaveLength(0);
+    expect(a.ws.closeInfo).toBeNull();
+  });
+
+  it("⑰-legacy-c 허용 목록 밖 계좌의 옛 모양 lc.set 은 종전 계좌 거부로 끝난다 — 구 탭 문구가 아니다 (판정 순서 · T-24-14)", async () => {
+    const a = await authed("token-a");
+
+    a.ws.sendRaw({ t: "lc.set", cfg: legacyCfg({ accountNo: FOREIGN_ACCOUNT_NO }) });
+    await waitFor(() => framesOf(a.inbox, "msg").length === 1, "계좌 거부 통지");
+    await flushIo(30);
+
+    expect(
+      gateway.strategyRequests().filter((r) => r.msgType === STRATEGY_MSG.SetLimitChaserReq),
+    ).toHaveLength(0);
+    const [rejected] = framesOf(a.inbox, "msg");
+    expect(rejected?.m).toBe("이 세션에서 사용할 수 없는 계좌입니다.");
+    expect(rejected?.m).not.toBe(LC_LEGACY_SET_REJECT_TEXT);
+    expect(a.ws.closeInfo).toBeNull();
   });
 
   /*
