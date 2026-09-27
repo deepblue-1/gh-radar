@@ -306,6 +306,152 @@ export function defaultLimitChaserForm(): LimitChaserFormValues {
   };
 }
 
+/* ── 선매수 자동 체크 (Phase 24 · 24-07 · D-06 · D-07 · D-08 · D-20) ─────────────────────────────── */
+
+/** 자동 체크 항목(개명 D-09 반영) — 순서가 곧 로그 순서다. */
+export type PreBuyAutoCheckItem = '매도주문' | '매도>잔량추적' | '매도>체결' | '취소' | '취소>체결' | '취소>잔량추적';
+/** 켜지 않은 사유 — UI-SPEC 닫힌 목록. 새 사유를 여기 더하지 않는다(문구 원천이 UI-SPEC 이다). */
+export type PreBuyAutoCheckReason = '매도 매수잔량 0' | '취소 매수잔량 0' | '매도 체결 0' | '매도비율 0' | '상한가 미수신';
+
+export interface PreBuyAutoCheckResult {
+  /** 선매수 켬 제출에 동반으로 실을 필드 — 새로 켤 체크 + 상한가로 채운 매도 가격. 이미 켜진 것은 없다. */
+  companions: Partial<LimitChaserFormValues>;
+  turnedOn: readonly PreBuyAutoCheckItem[];
+  skipped: readonly { item: PreBuyAutoCheckItem; reason: PreBuyAutoCheckReason }[];
+  /** 0 이던 매도 가격을 채운 상한가 — 채우지 않았으면 null. */
+  priceFilled: number | null;
+}
+
+/** 항목 ↔ 폼 필드. */
+const PRE_BUY_AUTO_CHECK_FIELD = {
+  매도주문: 'sellEnabled',
+  '매도>잔량추적': 'sellQtyTrackEnabled',
+  '매도>체결': 'sellTradeQtyEnabled',
+  취소: 'cancelQtyEnabled',
+  '취소>체결': 'cancelTradeEnabled',
+  '취소>잔량추적': 'cancelQtyTrackEnabled',
+} as const satisfies Record<PreBuyAutoCheckItem, keyof LimitChaserFormValues>;
+
+/**
+ * 선매수 켬 → 매도 · 취소 6체크 자동 켬 — **판정 지점 하나**(순수 함수).
+ *
+ * WinForms `AutoCheckExitForPreBuy`(LimitChaserForm.cs) 동형이다. 켜면 서버(또는 relay 무장 가드)가 **조용히 눕힐**
+ * 조합은 미리 켜지 않고 사유를 돌려준다(D-07 — 조용한 실패를 미리 피함). 이미 켜진 체크는 건드리지 않는다.
+ *
+ *   ① 빈 가격 채움(D-20): 매도 주문가격 · 비교가격이 각각 0 이고 상한가를 알면(> 0) 상한가를 **명시 값**으로 싣는다.
+ *      상한가를 모르면 채우지 않는다 — 서버에 0 을 넘겨 위임하지 않는다. 판정은 채운 뒤 가격으로 한다.
+ *   ② 항목별 켜기 조건(첫 실패 사유 하나 · 우선순위 상한가 미수신 → 매도 매수잔량 0 → 매도비율 0 → 취소 매수잔량 0 → 매도 체결 0):
+ *      - 매도주문 = 가격 둘 다 > 0 ∧ 매도 매수잔량 > 0 ∧ 매도비율 > 0
+ *      - 매도>잔량추적 = 매도 매수잔량 > 0
+ *      - 매도>체결 = 매도 매수잔량 > 0 ∧ 매도 체결 > 0
+ *      - 취소 = 매도 비교가격 > 0(취소 비교가격 = 매도 비교가격) ∧ 취소 매수잔량 > 0
+ *      - 취소>체결 = 매도 비교가격 > 0 ∧ 매도 체결 > 0(취소 체결 임계는 매도 체결수량 칸을 재사용한다)
+ *      - 취소>잔량추적 = 취소가 켜짐(이번에 켜거나 이미 켜져 있음) ∧ 매도 비교가격 > 0
+ *
+ * ★ 서버 §9 ②′ 근거: `cancel_qty_track ∧ !cancel_qty` 또는 `cancel_trade ∧ sell_min_trade_qty == 0` 이면 서버가 취소
+ *   3플래그를 **모두** 눕히고 ERROR 를 낸다. 그래서 취소 매수잔량 0 이면 취소>잔량추적도 켜지 않는다 — UI-SPEC 로그 예시
+ *   (「… 취소>잔량추적 / 켜지 않음: 취소(취소 매수잔량 0)」)와 다른 까닭이고, 예시 그대로면 자동으로 켠 취소>체결까지
+ *   조용히 꺼진다(24-07 planner 해석).
+ * ★ 웹 D-07 추가: 매도 매수잔량 0 → 매도 3체크 생략. relay `#strategyArmable` sell 갈래가 `sellEnabled ∧ sellWatchQty 0`
+ *   프레임 **전체**를 거부하므로(선매수 켬까지 함께 막힌다), 매도>잔량추적 · 매도>체결도 같은 사유로 켜지 않는다.
+ * ★ 호출 자리는 **사람의 선매수 스위치 핸들러 하나**다(D-08) — 에코 · 재접속 · 다른 단말 변경에서 부르지 않는다.
+ */
+export function preBuyAutoChecksOf(values: LimitChaserFormValues, upperLimit: number): PreBuyAutoCheckResult {
+  const companions: Partial<LimitChaserFormValues> = {};
+  let sellOrderPrice = values.sellOrderPrice;
+  let sellWatchPrice = values.sellWatchPrice;
+  let priceFilled: number | null = null;
+  // ① 빈 가격 채움 — 상한가를 알 때만(D-20).
+  if (upperLimit > 0) {
+    if (sellOrderPrice === 0) {
+      sellOrderPrice = upperLimit;
+      companions.sellOrderPrice = upperLimit;
+      priceFilled = upperLimit;
+    }
+    if (sellWatchPrice === 0) {
+      sellWatchPrice = upperLimit;
+      companions.sellWatchPrice = upperLimit;
+      priceFilled = upperLimit;
+    }
+  }
+
+  // 조건 → 사유. 배열 순서가 곧 사유 우선순위다(첫 실패 하나만 말한다).
+  const pricesMissing = sellOrderPrice === 0 || sellWatchPrice === 0;
+  const watchPriceMissing = sellWatchPrice === 0;
+  const sellQtyZero = values.sellWatchQty === 0;
+  const ratioZero = values.sellOrderRatio === 0;
+  const cancelQtyZero = values.cancelWatchQty === 0;
+  const tradeZero = values.sellMinTradeQty === 0;
+  type Check = readonly [failed: boolean, reason: PreBuyAutoCheckReason];
+  const firstFail = (checks: readonly Check[]): PreBuyAutoCheckReason | null =>
+    checks.find(([failed]) => failed)?.[1] ?? null;
+
+  const turnedOn: PreBuyAutoCheckItem[] = [];
+  const skipped: { item: PreBuyAutoCheckItem; reason: PreBuyAutoCheckReason }[] = [];
+  const decide = (item: PreBuyAutoCheckItem, checks: readonly Check[]): boolean => {
+    const field = PRE_BUY_AUTO_CHECK_FIELD[item];
+    if (values[field]) return true; // 이미 켜짐 — 건드리지 않는다(목록에도 넣지 않는다).
+    const reason = firstFail(checks);
+    if (reason !== null) {
+      skipped.push({ item, reason });
+      return false;
+    }
+    companions[field] = true;
+    turnedOn.push(item);
+    return true;
+  };
+
+  decide('매도주문', [
+    [pricesMissing, '상한가 미수신'],
+    [sellQtyZero, '매도 매수잔량 0'],
+    [ratioZero, '매도비율 0'],
+  ]);
+  decide('매도>잔량추적', [[sellQtyZero, '매도 매수잔량 0']]);
+  decide('매도>체결', [
+    [sellQtyZero, '매도 매수잔량 0'],
+    [tradeZero, '매도 체결 0'],
+  ]);
+  const cancelOn = decide('취소', [
+    [watchPriceMissing, '상한가 미수신'],
+    [cancelQtyZero, '취소 매수잔량 0'],
+  ]);
+  decide('취소>체결', [
+    [watchPriceMissing, '상한가 미수신'],
+    [tradeZero, '매도 체결 0'],
+  ]);
+  // 취소가 켜지지 않으면 따라 올릴 임계가 없다 — 사유는 취소가 못 켜진 사유(가격이 먼저)와 같다.
+  decide('취소>잔량추적', [
+    [watchPriceMissing, '상한가 미수신'],
+    [!cancelOn, '취소 매수잔량 0'],
+  ]);
+
+  return { companions, turnedOn, skipped, priceFilled };
+}
+
+/**
+ * 자동 체크 로그 한 줄(UI-SPEC 「선매수 자동 체크 로그 문법」) — 6체크를 **한 줄**로 합친다(D-06 · 6줄 폭증 금지).
+ *
+ * `선매수 자동 체크 — 켬: {항목 · …}[ / 켜지 않음: {항목(사유) · …}][ / 매도 주문가격·비교가격 = 상한가 {상한가}원]`
+ * 켤 것이 없으면 「켬」 조각을 빼고, 가격은 실제로 채운 칸만 이름을 댄다. 켤 것도 생략도 없으면(전부 이미 켜짐) null.
+ * 생략이 하나라도 있으면 `error`(빨강 — 조용한 실패 예고), 없으면 `info`.
+ */
+export function preBuyAutoCheckLogLine(r: PreBuyAutoCheckResult): { text: string; level: 'info' | 'error' } | null {
+  if (r.turnedOn.length === 0 && r.skipped.length === 0) return null;
+  const parts: string[] = [];
+  if (r.turnedOn.length > 0) parts.push(`켬: ${r.turnedOn.join(' · ')}`);
+  if (r.skipped.length > 0) parts.push(`켜지 않음: ${r.skipped.map((s) => `${s.item}(${s.reason})`).join(' · ')}`);
+  if (r.priceFilled !== null) {
+    const order = r.companions.sellOrderPrice !== undefined;
+    const watch = r.companions.sellWatchPrice !== undefined;
+    const label = order && watch ? '매도 주문가격·비교가격' : order ? '매도 주문가격' : '매도 비교가격';
+    parts.push(`${label} = 상한가 ${r.priceFilled.toLocaleString('ko-KR')}원`);
+  }
+  return {
+    text: `선매수 자동 체크 — ${parts.join(' / ')}`,
+    level: r.skipped.length > 0 ? 'error' : 'info',
+  };
+}
+
 /**
  * 예상 매도수량 — **표시 전용**이다. 정본은 서버가 Set 시점에 스냅샷한 `sellOrderQty` 다.
  * `sellableQty` 는 계좌 스토어(`RelayAccountState.hold[].sellableQty`)에서 읽는다.

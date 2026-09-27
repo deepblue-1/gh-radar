@@ -1270,14 +1270,14 @@ describe('24-07 — 선매수 자동 체크 로그 (D-06 · D-01 줄 다음 · �
   });
 
   it('마스터 OFF 에서 선매수 켬 → 성공 에코 뒤 위에서부터 [자동 체크 한 줄, 「선매수 체크 — 매수주문도 켬」…] (최신이 위)', async () => {
-    setRelay({ limitChasers: [echo({ buyEnabled: false })], quote: quote() });
+    setRelay({ limitChasers: [echo({ buyEnabled: false, buyOrderAmount: 50 })], quote: quote() });
     const { rerender } = render(<Card />);
     await act(async () => {
       fireEvent.click(screen.getByRole('switch', { name: '선매수 켜기' }));
     });
     expect(lcSets()).toHaveLength(1);
     expect(lcSets()[0]!.cfg).toMatchObject({ preBuyEnabled: true, buyEnabled: true, ...SIX });
-    const next = echo({ buyEnabled: true, preBuyEnabled: true, ...SIX });
+    const next = echo({ buyEnabled: true, preBuyEnabled: true, buyOrderAmount: 50, ...SIX });
     setRelay({ limitChasers: [next], lastLimitChaserEcho: next, quote: quote() });
     rerender(<Card />);
 
@@ -1289,7 +1289,7 @@ describe('24-07 — 선매수 자동 체크 로그 (D-06 · D-01 줄 다음 · �
   });
 
   it('거부되면 자동 체크 줄은 쌓이지 않는다', async () => {
-    const before = echo({ buyEnabled: false });
+    const before = echo({ buyEnabled: false, buyOrderAmount: 50 });
     setRelay({ limitChasers: [before], quote: quote() });
     const { rerender } = render(<Card />);
     await act(async () => {

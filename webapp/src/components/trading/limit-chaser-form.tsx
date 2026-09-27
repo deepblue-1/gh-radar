@@ -103,6 +103,8 @@ import {
   defaultLimitChaserForm,
   formFromServer,
   isDeleteIntent,
+  preBuyAutoCheckLogLine,
+  preBuyAutoChecksOf,
   seedFromUpperLimit,
   type LimitChaserFormValues,
 } from '@/lib/limit-chaser';
@@ -833,6 +835,15 @@ export function LimitChaserForm({
   bestBidRef.current = bestBid;
   const clientLogRef = useRef(onClientLog);
   clientLogRef.current = onClientLog;
+  const upperLimitRef = useRef(upperLimit ?? 0);
+  upperLimitRef.current = upperLimit ?? 0;
+  const successSeqRef = useRef(successSeq);
+  successSeqRef.current = successSeq;
+  /**
+   * 선매수 자동 체크 로그 한 줄 — 그 제출의 **성공 에코를 기다린다**(D-06 · UI-SPEC 「전송 성공 에코 뒤」).
+   * `seqAtSend` = 보낸 순간의 성공 카운터 — 이전 성공(같은 선매수 필드 포함)을 이 제출의 성공으로 읽지 않는다.
+   */
+  const pendingAutoCheckRef = useRef<{ line: { text: string; level: 'info' | 'error' }; seqAtSend: number } | null>(null);
   useEffect(() => {
     setPrecheck((cur) => {
       if (cur === null) return cur;
@@ -874,8 +885,24 @@ export function LimitChaserForm({
           clientLogRef.current?.(LC_COMMIT_TEXT.extraBuyAtUpperLimit, 'error');
           return;
         }
-        if (!f.buyEnabled) commitField(gate, true, 'toggle', { buyEnabled: true });
-        else commitField(gate, true, 'toggle');
+        /*
+          D-06 · D-07 · D-08 — **사람이** 선매수를 켜는 이 자리에서만 매도 · 취소 6체크를 같은 `lc.set` 에 동반으로 싣는다
+          (확인창 · 토스트 · 매도 탭 이동 · 링크 없음). 에코 · 재접속 · 다른 단말 변경으로 선매수가 ON 이 되는 경로(서버 값
+          이펙트 · D-02 후반 `dropMasterAfterServerFold`)에서는 `preBuyAutoChecksOf` 를 부르지 않는다. 판정 기준값은 이
+          제출이 실을 서버 동기값(`base`)이고, 0 인 매도 가격은 상한가를 알 때만 명시 값으로 채운다(D-20).
+        */
+        const auto = gate === 'preBuyEnabled' ? preBuyAutoChecksOf(base, upperLimitRef.current) : null;
+        const companions: Partial<LimitChaserFormValues> = {
+          ...(auto?.companions ?? {}),
+          ...(f.buyEnabled ? {} : { buyEnabled: true }),
+        };
+        const outcome = commitField(gate, true, 'toggle', Object.keys(companions).length > 0 ? companions : undefined);
+        // 로그는 성공 에코 뒤 한 줄 — 나가지 못했으면(막힘 · 끊김) 쓰지 않는다(「보냈다」를 로그로 남기지 않는다).
+        const line = auto === null ? null : preBuyAutoCheckLogLine(auto);
+        pendingAutoCheckRef.current =
+          line !== null && (outcome === 'sent' || outcome === 'queued')
+            ? { line, seqAtSend: successSeqRef.current }
+            : null;
         return;
       }
       const lastGroup = BUY_GROUP_GATES.every((g) => g === gate || !f[g]);
@@ -884,6 +911,25 @@ export function LimitChaserForm({
     },
     [commitField],
   );
+
+  /*
+    선매수 자동 체크 로그(D-06) — 그 제출이 **성공한 뒤** 한 줄. 카드 `pushClientLog` 가 한 박자 늦게 쌓으므로 같은 에코의
+    D-01 줄(「선매수 체크 — 매수주문도 켬」) 다음에 온다. 실패(거부 · 무응답 · 끊김 · 대기 폐기)면 버린다.
+    ★ 이 이펙트는 제출을 만들지 않는다 — 로그 한 줄만 내보낸다.
+  */
+  useEffect(() => {
+    const pending = pendingAutoCheckRef.current;
+    if (pending === null) return;
+    if (lc.failures.preBuyEnabled !== undefined) {
+      pendingAutoCheckRef.current = null;
+      return;
+    }
+    if (successSeq === pending.seqAtSend || lastSuccessField !== 'preBuyEnabled') return;
+    pendingAutoCheckRef.current = null;
+    // 그새 선매수를 다시 꺼 그 확정이 성공한 경우 — 켠 사건이 아니다.
+    if (serverRef.current?.preBuyEnabled !== true) return;
+    clientLogRef.current?.(pending.line.text, pending.line.level);
+  }, [successSeq, lastSuccessField, lc.failures]);
 
   /*
     ★ D-02 후반 · D-19 (2026-09-28 정정 · WinForms `b066e135` `DropMasterAfterServerFold` 동형) —
