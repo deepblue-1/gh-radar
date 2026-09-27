@@ -206,18 +206,24 @@ describe("MSG 상수", () => {
     // 새로 더한 6종만은 이름을 손으로 적어 대조한다 — 재동기화가 실제로 통했다는 증거다.
     expect(MSG.ArmSellLatchReq).toBe(MsgType.ArmSellLatchReq);
     expect(MSG.ArmCancelLatchReq).toBe(MsgType.ArmCancelLatchReq);
-    expect(MSG.ArmBuyLatchReq).toBe(MsgType.ArmBuyLatchReq);
     expect(MSG.RateCrossAlert).toBe(MsgType.RateCrossAlert);
     expect(MSG.QueuedWindowState).toBe(MsgType.QueuedWindowState);
     expect(MSG.RateCrossSnapshot).toBe(MsgType.RateCrossSnapshot);
     expect([
       MSG.ArmSellLatchReq,
       MSG.ArmCancelLatchReq,
-      MSG.ArmBuyLatchReq,
       MSG.RateCrossAlert,
       MSG.QueuedWindowState,
       MSG.RateCrossSnapshot,
-    ]).toEqual([36, 37, 38, 76, 77, 78]);
+    ]).toEqual([36, 37, 76, 77, 78]);
+  });
+
+  it("38(구 매수 진입 래치)은 생성 enum 에만 남고 relay MSG 에는 없다 — 번호 봉인 (Phase 24 D-25)", () => {
+    // 생성 enum 은 gh-trade 스키마의 거울이라 번호가 남는다(재사용 금지 기록). relay 는 그 번호를
+    // 조립할 수 없어야 한다 — `MSG` 에 이름이 없으면 `buildArmLatchReq` 의 타입도 36|37 뿐이다.
+    expect(MsgType.ArmBuyLatchReq).toBe(38);
+    expect(Object.keys(MSG)).not.toContain("ArmBuyLatchReq");
+    expect(Object.values(MSG)).not.toContain(38);
   });
 
   it("76/77/78 이 화이트리스트에 있다 — 셋 다 hub 명시 case 와 한 커밋에서 자랐다 (PC-12)", () => {
@@ -226,8 +232,8 @@ describe("MSG 상수", () => {
     for (const v of [MSG.RateCrossAlert, MSG.QueuedWindowState, MSG.RateCrossSnapshot]) {
       expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(true);
     }
-    // 36/37/38 은 C→S 라 수신 대역에 들어올 일 자체가 없다.
-    for (const v of [MSG.ArmSellLatchReq, MSG.ArmCancelLatchReq, MSG.ArmBuyLatchReq]) {
+    // 36/37(과 봉인된 38)은 C→S 라 수신 대역에 들어올 일 자체가 없다.
+    for (const v of [MSG.ArmSellLatchReq, MSG.ArmCancelLatchReq, 38]) {
       expect(INBOUND_MSG_TYPES.has(v), `msg_type ${v}`).toBe(false);
     }
   });

@@ -41,6 +41,12 @@ import { cn } from "@/lib/utils";
 /** LED 3종. */
 export type LatchLedKind = "buy" | "sell" | "cancel";
 
+/**
+ * 클릭(`lc.arm`)할 수 있는 LED — 매도 · 취소 둘뿐이다. 매수 진입 래치는 Phase 24 에서 폐기(38 봉인) ·
+ * 매수 LED 는 늘 비클릭(D-12)이라 `onArm` 이 `"buy"` 를 받을 수 없게 타입으로 막는다.
+ */
+export type ArmableLatchKind = Exclude<LatchLedKind, "buy">;
+
 /** 색 단계. `off`=무장 아님(회색) · `latent`=잠복(주황) · `armed`=래치 ON(초록). */
 export type LatchLedTone = "off" | "latent" | "armed";
 
@@ -159,8 +165,8 @@ export interface LatchLedProps {
   kind: LatchLedKind;
   /** 마지막 서버 에코 스냅샷. `null` = 그 키에 전략이 없다. */
   server: LatchLedServer;
-  /** 클릭 토글. 17-11 이 `lc.arm` 전송으로 잇는다. 클릭 불가 LED 는 절대 부르지 않는다. */
-  onArm?: (kind: LatchLedKind) => void;
+  /** 클릭 토글. 17-11 이 `lc.arm` 전송으로 잇는다. 클릭 불가 LED(매수 포함)는 절대 부르지 않는다. */
+  onArm?: (kind: ArmableLatchKind) => void;
   /**
    * `'chip'`(기본) = 도트 + 이름 + 라벨 칩. `'dot'` = 접힌 카드 헤더용 점(24px 히트 · 10px 도트) —
    * 보이는 텍스트가 없어서 sr-only 「{이름} 래치 {라벨}」과 **항상 뜨는 툴팁**이 이름·상태를 말한다.
@@ -217,7 +223,9 @@ export function LatchLed({ kind, server, onArm, variant = "chip", className }: L
       data-kind={kind}
       data-tone={state.tone}
       aria-pressed={state.tone === "armed"}
-      onClick={() => onArm?.(kind)}
+      onClick={() => {
+        if (kind !== "buy") onArm?.(kind);
+      }}
       className={cn(
         chipBase,
         // 토스 B `.led` 칩(260924-vj1) — 무테 raised 채움. OFF(비활성)는 아래 `--faint` 점선 윤곽.
@@ -271,7 +279,7 @@ function LatchLedDot({
   kind: LatchLedKind;
   name: string;
   state: LatchLedState;
-  onArm?: (kind: LatchLedKind) => void;
+  onArm?: (kind: ArmableLatchKind) => void;
   className?: string;
 }) {
   const inner = (
@@ -299,7 +307,9 @@ function LatchLedDot({
       data-kind={kind}
       data-tone={state.tone}
       aria-pressed={state.tone === "armed"}
-      onClick={() => onArm?.(kind)}
+      onClick={() => {
+        if (kind !== "buy") onArm?.(kind);
+      }}
       className={cn(base, "cursor-pointer hover:bg-[var(--muted)]")}
     >
       {inner}

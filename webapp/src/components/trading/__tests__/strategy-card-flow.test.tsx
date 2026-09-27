@@ -886,7 +886,7 @@ describe('발주 판정 원인 · lc.arm 답 (quick-260926-nr2)', () => {
   const texts = () =>
     Array.from(logRows()).map((r) => r.querySelectorAll('span')[1]?.textContent ?? '');
   const hasText = (t: string) => texts().some((x) => x === t || x.includes(t));
-  /** 시스템 WARN — 게이트웨이 36/37/38 거부 모양(기본 ServerMessageContext). */
+  /** 시스템 WARN — 게이트웨이 36/37 거부 모양(기본 ServerMessageContext). */
   const ARM_REJECT = msg({ lv: 'WARN', src: 'System', m: '매도 무장이 꺼져 있어 래치를 켤 수 없습니다' });
 
   it('전부 정지 귀속 에코(buy·sell true→false) → 「매수 무장 해제」 · 「매수 발주」 없음 · 「발주 완료」 없음 · 배너 없음', async () => {

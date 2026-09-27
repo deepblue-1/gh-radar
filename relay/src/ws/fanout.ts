@@ -108,7 +108,9 @@ import {
   isRelayExchange,
   isValidAccountNo,
   isValidIsin,
+  LC_LEGACY_ARM_REJECT_TEXT,
   parseInbound,
+  type RelayInboundWire,
 } from "./protocol.js";
 import { createOrderHandler, type OrderHandler } from "./order-handler.js";
 import type { SymbolLookup } from "../store/symbols.js";
@@ -160,15 +162,18 @@ export const RELAY_MSG_SOURCE = "Relay";
 /**
  * `lc.arm` 의 래치 → 게이트웨이 msg_type (D-04).
  *
- * **상수 객체 하나**로 둔다 — 값이 셋뿐이라 분기 안에 if 사슬을 만들면 늘어날 때 갈린다.
- * 키 집합이 계약(`RelayLcArmMsg["latch"]`)과 같아야 하므로 `Record` 로 못박는다: 계약에
- * 넷째 래치가 생기면 **여기가 먼저 컴파일 에러**다.
+ * **상수 객체 하나**로 둔다 — 분기 안에 if 사슬을 만들면 늘어날 때 갈린다.
+ * 키 집합이 계약(`RelayLcArmMsg["latch"]` = `"sell" | "cancel"`)과 같아야 하므로 `Record` 로
+ * 못박는다: 계약에 래치가 생기면 **여기가 먼저 컴파일 에러**다. 매수 진입 래치(38)는 Phase 24 에서
+ * 폐기 · 번호 봉인 — 구 탭의 `"buy"` 는 `lc.arm` 분기가 거부 프레임으로 먼저 끝낸다.
  */
 const ARM_LATCH_MSG_TYPE: Record<RelayLcArmMsg["latch"], ArmLatchMsgType> = {
   sell: MSG.ArmSellLatchReq,
   cancel: MSG.ArmCancelLatchReq,
-  buy: MSG.ArmBuyLatchReq,
 };
+
+/** relay 가 받은 `lc.arm` 프레임 — `latch` 에 구 탭 관용 `"buy"` 가 남아 있다. */
+type LcArmWire = Extract<RelayInboundWire, { t: "lc.arm" }>;
 
 /**
  * 인증 직후 VI 설정 스냅샷을 내리는 거래소 (17-05 / D-06).
@@ -583,7 +588,7 @@ export class WsFanout {
   }
 
   /** 첫 메시지는 반드시 `{t:"auth"}` 다 (D-11). */
-  async #onFirstMessage(conn: Conn, msg: RelayInbound): Promise<void> {
+  async #onFirstMessage(conn: Conn, msg: RelayInboundWire): Promise<void> {
     if (msg.t !== "auth") {
       // 인증 전 구독은 무시가 아니라 종료다.
       this.#reject(conn, "auth required");
@@ -723,7 +728,7 @@ export class WsFanout {
     }
   }
 
-  #onAuthedMessage(conn: Conn, userId: string, msg: RelayInbound): void {
+  #onAuthedMessage(conn: Conn, userId: string, msg: RelayInboundWire): void {
     // ④ 인바운드 상한을 **가장 먼저** 본다 (T-16-06). sub/unsub 도 같은 버킷을 쓴다 —
     //    경로마다 버킷이 갈리면 합계 상한이 없는 것과 같다.
     if (!this.#allowInbound(conn, userId, msg.t)) return;
@@ -808,7 +813,7 @@ export class WsFanout {
     //
     //   다만 `lc.set` 의 ②-1 시장 해석과 ②-2 무장 가드는 **적용하지 않는다**. 래치 요청에는
     //   `market` 도 게이트 값도 실리지 않고(본문은 전략 키 하나다), 무장 전제
-    //   (36 `IsSellArmed` · 37 `IsCancelArmed ∧ HasPendingBuy` · 38 `IsBuyArmed ∧ side=="1"`)
+    //   (36 `IsSellArmed` · 37 `IsCancelArmed ∧ HasPendingBuy`)
     //   의 정본은 **서버가 쥔 전략 상태**다. relay 가 에코 캐시로 그것을 재판정하면 판정이
     //   두 벌이 되고, 캐시가 한 틱 낡은 순간 「서버는 켤 수 있는데 relay 가 막는」 상태가
     //   된다. 전제 불충족은 서버가 한글 사유(54)로 거부하고 그 문구가 기존 `msg` 경로로
@@ -824,8 +829,21 @@ export class WsFanout {
       if (accountNo === null) return;
       // ② 계좌 대조는 `lc.set` 과 **같은 메서드**다 — 가드가 두 벌이면 한쪽만 고쳐진다.
       if (!this.#accountAllowed(conn, session, userId, msg.t, accountNo)) return;
+      // ③′ 구 탭 관용 (F-4 · Pitfall 3). 매수 진입 래치는 폐기됐다(38 봉인) — 새로고침 전 옛 JS 만
+      //    `"buy"` 를 보낸다. 게이트웨이로 0바이트 · 거부 프레임 1건 · **소켓 유지**(`#reject` 금지 —
+      //    끊으면 옛 탭이 시세 · 에코 · 수동주문까지 잃고 재접속 루프가 된다). 세션 · 키 · 계좌 가드
+      //    **뒤**에 둬서 판정 순서는 종전과 같다.
+      if (msg.latch === "buy") {
+        logger.warn(
+          { userId, t: msg.t },
+          "[WS] 구 탭 lc.arm buy — 매수 진입 래치 폐기(38 봉인), 거부 프레임으로 답하고 소켓 유지",
+        );
+        this.#send(conn, rejectFrame(LC_LEGACY_ARM_REJECT_TEXT));
+        return;
+      }
+      const latch = msg.latch;
       const payload = this.#buildStrategyPayload(conn, userId, msg.t, () =>
-        buildArmLatchReq(ARM_LATCH_MSG_TYPE[msg.latch], msg.key),
+        buildArmLatchReq(ARM_LATCH_MSG_TYPE[latch], msg.key),
       );
       if (payload === null) return;
       if (!session.send(payload)) this.#onStrategySendFailed(conn, userId, msg.t);
@@ -1043,7 +1061,7 @@ export class WsFanout {
    *
    * @returns 형식이 맞으면 대조할 `accountNo`, 아니면 `null`(거부 프레임을 이미 보냈다)
    */
-  #armLatchAccount(conn: Conn, userId: string, msg: RelayLcArmMsg): string | null {
+  #armLatchAccount(conn: Conn, userId: string, msg: LcArmWire): string | null {
     const parts = msg.key.split(":");
     const [isin, accountNo, exchange] = parts;
     if (

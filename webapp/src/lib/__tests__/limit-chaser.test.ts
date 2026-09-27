@@ -423,7 +423,7 @@ describe('isLimitChaserArmRejection — 내 lc.arm 의 거부 답인가 (quick-2
     ...over,
   });
 
-  it('(a) 게이트웨이 36/37/38 거부 — System WARN · i/a/kind 빈 값 → true', () => {
+  it('(a) 게이트웨이 36/37 거부 — System WARN · i/a/kind 빈 값 → true', () => {
     expect(isLimitChaserArmRejection(m({}), ISIN, ACCOUNT)).toBe(true);
     expect(isLimitChaserArmRejection(m({ lv: 'ERROR' }), ISIN, ACCOUNT)).toBe(true);
   });

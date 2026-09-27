@@ -1,9 +1,11 @@
 /**
  * Phase 17 Plan 04 — TRADE-05. **상따 래치 수동 점등** wss 경로 통합 테스트 (D-04).
  *
- * 검증 대상은 「브라우저 클릭 1건이 게이트웨이의 36/37/38 요청으로 도달하는가」이고,
+ * 검증 대상은 「브라우저 클릭 1건이 게이트웨이의 36/37 요청으로 도달하는가」이고,
  * 그 반대편인 「도달하면 안 되는 것이 정말 안 나갔는가」다:
- *   · `{t:"lc.arm", key, latch}` → `Envelope{msg_type=36|37|38, get_strategy_req={key}}`
+ *   · `{t:"lc.arm", key, latch}` → `Envelope{msg_type=36|37, get_strategy_req={key}}`
+ *   · 38(구 매수 진입 래치)은 Phase 24 에서 봉인 — 옛 탭의 `latch:"buy"` 는 게이트웨이 0바이트 ·
+ *     거부 프레임 1건 · **소켓 유지**(F-4)
  *   · 가드는 `lc.set` 과 **동형** — Ready 세션 · 전략 키 형식 · 세션 계좌 (T-17-11 / T-17-12)
  *   · 거부는 언제나 「게이트웨이 수신 프레임 0」과 함께 단언한다 — 거부 로그만 보면 실제로
  *     안 나갔는지 알 수 없다
@@ -32,6 +34,7 @@ import { SessionManager } from "../src/dma/session-manager.js";
 import { encryptDmaPassword } from "../src/store/credentials.js";
 import { resetDroppedEnvelopeCount } from "../src/dma/envelope.js";
 import { MSG } from "../src/dma/msg-type.js";
+import { LC_LEGACY_ARM_REJECT_TEXT } from "../src/ws/protocol.js";
 import { logger } from "../src/logger.js";
 import type { SymbolInfo, SymbolLookup } from "../src/store/symbols.js";
 import { startFakeGateway, readArmLatchRequest, type FakeGateway } from "./helpers/fake-gateway.js";
@@ -44,6 +47,9 @@ import {
 } from "./helpers/frames.js";
 
 const WS_PATH = "/ws";
+
+/** 봉인된 구 `ArmBuyLatchReq` 번호 — relay `MSG` 에 이름이 없으므로 숫자로 본다(Phase 24 D-25). */
+const SEALED_ARM_BUY_MSG_TYPE = 38;
 
 /** 상따 전략 키 — `strategyKey(ISIN, accountNo, exchange)` 와 **같은 값**이다 (D-04). */
 const ARM_KEY = `${SAMPLE_ISIN}:${SAMPLE_ACCOUNT_NO}:KRX`;
@@ -126,7 +132,7 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
   let gatewayFrames: { msgType: number; payload: Buffer }[];
   const sockets: TestWs[] = [];
 
-  /** 게이트웨이로 나간 래치 요청(36/37/38)만 디코드해 좁힌다. */
+  /** 게이트웨이로 나간 래치 요청(36/37)만 디코드해 좁힌다. */
   function armReqs(): { msgType: number; key: string }[] {
     return gatewayFrames
       .map((f) => ({ msgType: f.msgType, key: readArmLatchRequest(f.msgType, f.payload) }))
@@ -233,16 +239,31 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     expect(armReqs()[0]).toEqual({ msgType: MSG.ArmCancelLatchReq, key: ARM_KEY });
   });
 
-  it("①-3 latch:\"buy\" 는 msg_type 38 로 나간다", async () => {
-    const { ws } = await authed("token-a");
+  it("①-3 구 탭 latch:\"buy\" 는 게이트웨이로 0바이트 · 거부 프레임 1건 · 소켓 유지 — 다음 sell 은 36 으로 나간다 (Phase 24 F-4)", async () => {
+    const { ws, inbox } = await authed("token-a");
 
     ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "buy" });
-    await waitFor(() => armReqs().length === 1, "38 송신");
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "구 탭 거부 프레임");
+    await flushIo(30);
 
-    expect(armReqs()[0]).toEqual({ msgType: MSG.ArmBuyLatchReq, key: ARM_KEY });
+    // 38 은 봉인 번호다 — relay 가 조립하지 않는다.
+    expect(gatewayFrames.some((f) => f.msgType === SEALED_ARM_BUY_MSG_TYPE)).toBe(false);
+    expect(armReqs()).toHaveLength(0);
+    const [rejected] = framesOf(inbox, "msg");
+    expect(rejected?.m).toBe(LC_LEGACY_ARM_REJECT_TEXT);
+    expect(rejected?.src).toBe("Relay");
+    // 연결 종료(`#reject`)가 아니다 — 옛 탭의 시세 · 에코 · 수동주문이 계속 돈다.
+    expect(ws.closeInfo).toBeNull();
+
+    // 같은 소켓의 다음 프레임이 그대로 처리된다 = 소켓 OPEN 의 증거.
+    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "sell" });
+    await waitFor(() => armReqs().length === 1, "36 송신");
+    expect(armReqs()[0]).toEqual({ msgType: MSG.ArmSellLatchReq, key: ARM_KEY });
+    expect(gatewayFrames.some((f) => f.msgType === SEALED_ARM_BUY_MSG_TYPE)).toBe(false);
+    expect(framesOf(inbox, "msg")).toHaveLength(1);
   });
 
-  it("①-4 세 값 밖의 latch 는 zod 가 거부하고 게이트웨이로 0바이트다", async () => {
+  it("①-4 sell/cancel(+구 탭 관용 buy) 밖의 latch 는 zod 가 거부하고 게이트웨이로 0바이트다", async () => {
     const { ws } = await authed("token-a");
 
     ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "price" });
@@ -379,6 +400,9 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     expect(fields).not.toHaveProperty("key");
     expect(JSON.stringify(fields)).not.toContain(SAMPLE_ACCOUNT_NO);
     expect(fields.latch).toBe("buy");
+    // 형식 가드가 먼저다 — 구 탭 buy 라도 38 은 없고 소켓은 살아 있다.
+    expect(gatewayFrames.some((f) => f.msgType === SEALED_ARM_BUY_MSG_TYPE)).toBe(false);
+    expect(ws.closeInfo).toBeNull();
   });
 
   it("②-7 세션 계좌 목록 밖 계좌의 lc.arm 은 게이트웨이로 0바이트다 (T-17-11)", async () => {
@@ -404,6 +428,20 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     );
     expect(logged).toBeDefined();
     expect(JSON.stringify(logged?.[0] ?? {})).not.toContain(FOREIGN_ACCOUNT_NO);
+  });
+
+  it("②-7b 세션 계좌 목록 밖 계좌의 구 탭 latch:\"buy\" 는 계좌 거부로 끝난다 — 38 없음 · 소켓 유지 (판정 순서)", async () => {
+    const { ws, inbox } = await authed("token-a");
+
+    ws.sendRaw({ t: "lc.arm", key: `${SAMPLE_ISIN}:${FOREIGN_ACCOUNT_NO}:KRX`, latch: "buy" });
+    await waitFor(() => framesOf(inbox, "msg").length === 1, "계좌 거부 통지");
+    await flushIo(30);
+
+    expect(armReqs()).toHaveLength(0);
+    expect(gatewayFrames.some((f) => f.msgType === SEALED_ARM_BUY_MSG_TYPE)).toBe(false);
+    // 구 탭 판정은 계좌 가드 **뒤**다 — 종전 계좌 거부 문구가 그대로 온다.
+    expect(framesOf(inbox, "msg")[0]?.m).toContain("이 세션에서 사용할 수 없는 계좌입니다");
+    expect(ws.closeInfo).toBeNull();
   });
 
   it("②-8 lc.arm 은 다른 인바운드와 **같은 버킷**을 쓴다 — 합계가 상한이다 (T-17-13)", async () => {
@@ -437,20 +475,10 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
   const REJECT_SELL = "등록된 상따 전략이 없습니다 — 매도 래치를 켤 수 없습니다";
   /** 37 거부 — 매수 미체결 없음. 매도판에는 없는 두 번째 전제다 (`Gateway.cpp:3136`). */
   const REJECT_CANCEL = "취소할 매수 미체결이 없습니다 — 미체결이 생긴 뒤에 켜세요";
-  /**
-   * 38 거부 — **매도잔량 기준(side "0")에는 매수 래치가 없다** (`Gateway.cpp:3216` / BL-01).
-   *
-   * 이 문구가 곧 「매도잔량 기준 매수 래치는 클릭 불가」라는 결정의 **서버측 정본**이다.
-   * relay 는 그 전제를 재판정하지 않고(에코 캐시로 `buyWatchSide` 를 보지 않는다) 서버가
-   * 내려보낸 사유를 그대로 나른다 — 판정이 두 벌이 되면 캐시가 낡은 순간 갈린다.
-   */
-  const REJECT_BUY =
-    "매도잔량 기준에서는 매수 진입 확인 래치가 없습니다 — 매수잔량 기준일 때만 켤 수 있습니다";
 
   it.each([
     ["sell", MSG.ArmSellLatchReq, REJECT_SELL],
     ["cancel", MSG.ArmCancelLatchReq, REJECT_CANCEL],
-    ["buy", MSG.ArmBuyLatchReq, REJECT_BUY],
   ] as const)(
     "③-1 %s 래치 거부는 서버 한글 문구 그대로 기존 msg 경로로 온다",
     async (latch, msgType, reason) => {
@@ -489,11 +517,11 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     });
     await waitFor(() => framesOf(inbox, "lc").length === 1, "60 에코");
 
-    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "buy" });
-    await waitFor(() => armReqs().length === 2, "38 송신");
+    ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch: "cancel" });
+    await waitFor(() => armReqs().length === 2, "37 송신");
     gateway.sendFrame(
       gatewaySocket(),
-      buildServerMessageFrame({ level: "WARN", message: REJECT_BUY, source: "System", kind: "" }),
+      buildServerMessageFrame({ level: "WARN", message: REJECT_CANCEL, source: "System", kind: "" }),
     );
     await waitFor(() => framesOf(inbox, "msg").length === 1, "54 사유");
     await flushIo(40);
@@ -536,10 +564,10 @@ describe("wss 상따 래치 점등 경로 (D-04)", () => {
     ]);
     const viBefore = framesOf(inbox, "vi").length;
 
-    for (const latch of ["sell", "cancel", "buy"] as const) {
+    for (const latch of ["sell", "cancel", "sell"] as const) {
       ws.sendRaw({ t: "lc.arm", key: ARM_KEY, latch });
     }
-    await waitFor(() => armReqs().length === 3, "36·37·38 3연타 송신");
+    await waitFor(() => armReqs().length === 3, "36·37·36 3연타 송신");
 
     // VI 미등록 = 테이블 없는 빈 61. 본문에 거래소도 키도 없고, 짝지을 21 도 남아 있지 않다.
     gateway.sendFrame(gatewaySocket(), buildSetVITriggerRespFrame(null));

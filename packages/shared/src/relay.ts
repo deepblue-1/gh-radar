@@ -550,11 +550,12 @@ export type RelayViSetMsg = {
 };
 
 /**
- * 상따 진입 확인 래치 **수동 점등** (`ArmSellLatchReq(36)` · `ArmCancelLatchReq(37)` ·
- * `ArmBuyLatchReq(38)`, D-04).
+ * 상따 진입 확인 래치 **수동 점등** (`ArmSellLatchReq(36)` · `ArmCancelLatchReq(37)`, D-04).
  *
- * `latch` 가 세 msg_type 중 하나를 고른다 — 본문은 셋 다 `get_strategy_req{key}` 를
+ * `latch` 가 두 msg_type 중 하나를 고른다 — 본문은 둘 다 `get_strategy_req{key}` 를
  * 재사용한다(서버가 35·36 선례로 슬롯을 공유한다).
+ *
+ * 매수 진입 래치는 Phase 24 에서 폐기(38 봉인) — 매수 LED 는 클릭 불가(D-12).
  *
  * ⚠️ **요청은 토글이다.** 서버가 현재 래치값을 보고 켜거나 끈다 — 브라우저가 목표 상태를
  *    지정하지 않는다. 같은 키를 두 번 보내면 켜졌다 꺼진다.
@@ -569,8 +570,11 @@ export type RelayLcArmMsg = {
    * `RelayLimitChaser.key` 가 그 원천이다.
    */
   key: string;
-  /** 어느 래치인가. `"sell"`=36 · `"cancel"`=37 · `"buy"`=38. */
-  latch: "sell" | "cancel" | "buy";
+  /**
+   * 어느 래치인가. `"sell"`=36 · `"cancel"`=37. 매수 진입 래치는 Phase 24 에서 폐기(38 봉인) —
+   * 매수 LED 는 클릭 불가(D-12).
+   */
+  latch: "sell" | "cancel";
 };
 
 /**

@@ -386,7 +386,7 @@ export function formFromServer(
  *
  * ★ `"LimitChaser"` 는 17-01 이 `src` 어휘에 더했지만 **받아 주는 판정이 없어 한 글자도
  *   그려지지 않고 있었다**(17-06 이 VI 쪽에서 같은 결손을 `VITrigger` 로 닫았다). D-20 설계는
- *   그 어휘를 `lc.arm` 실패 사유의 경로로 잡았지만, **현 gh-trade 는 36/37/38 거부를 src
+ *   그 어휘를 `lc.arm` 실패 사유의 경로로 잡았지만, **현 gh-trade 는 36/37 거부를 src
  *   "System"(기본 ServerMessageContext · i/a/kind 빈 값)으로 보낸다** — 그 통지는 이 함수가
  *   아니라 카드가 arm in-flight 창 안에서 `isLimitChaserArmRejection` 으로 받는다
  *   (quick-260926-nr2). 이 함수의 로직은 그대로다.
@@ -510,7 +510,7 @@ export function marketCloseReleaseKeysOf(list: readonly RelayLimitChaser[]): Set
  *   전 동작: 추적 없음). 거짓 「미반영」은 만들지 않는다.
  *
  * 인정하는 모양 셋 (lv 는 WARN 또는 ERROR 만):
- *   (a) 게이트웨이 36/37/38 거부 — `Gateway::ProcessArm{Sell,Cancel,Buy}Latch` 는 실패면
+ *   (a) 게이트웨이 36/37 거부(38 은 Phase 24 에서 봉인) — `Gateway::ProcessArm{Sell,Cancel}Latch` 는 실패면
  *       `SendServerMessageToConn(conn, "WARN", 사유)` 를 **기본 ServerMessageContext** 로 보낸다 →
  *       src "System" · i "" · a "" · kind "". (kind "Purge" 는 15:40 해제 통지라 제외된다.)
  *   (b) relay 게이트웨이 전 거부 — src "Relay"(fanout `RELAY_MSG_SOURCE`) · lv "ERROR". lc.arm

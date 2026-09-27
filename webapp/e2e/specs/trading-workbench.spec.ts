@@ -907,7 +907,7 @@ test.describe('Phase 18 Plan 13 — /trading 작업대 (로컬 relay + 스텁 �
       DMA_MSG.ConfirmVIOrderReq,
       DMA_MSG.ArmSellLatchReq,
       DMA_MSG.ArmCancelLatchReq,
-      DMA_MSG.ArmBuyLatchReq,
+      38, // 구 ArmBuyLatchReq — 봉인 번호, 게이트웨이에 닿지 않아야 한다
     ];
     const commandsSent = () => relay.requestLog().filter((m) => COMMAND_TYPES.includes(m)).length;
     const landingUrl = `${WORKBENCH_URL}?code=005930`;

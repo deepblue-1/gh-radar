@@ -76,7 +76,7 @@ import { CardTabs, type CardTabRequest } from "@/components/trading/card/card-ta
 import type { AccountRowOrigin } from "@/components/orderbook/account-panel";
 import {
   latchLedStateOf,
-  type LatchLedKind,
+  type ArmableLatchKind,
   type LatchLedServer,
 } from "@/components/trading/latch-led";
 import { strategyBadgesOf } from "@/components/trading/strategy-badge";
@@ -220,7 +220,7 @@ export interface StrategyCardState {
   ledServer: LatchLedServer;
   dirtyCount: number;
   setDirtyCount: (n: number) => void;
-  handleArm: (kind: LatchLedKind) => void;
+  handleArm: (kind: ArmableLatchKind) => void;
   handleSent: (cfg: RelayLimitChaserInput) => void;
   handleServerEcho: (info: { overwrittenDirty: number }) => void;
 }
@@ -542,7 +542,7 @@ export function useStrategyCardState({
     for (const msg of [...fresh].reverse()) {
       /*
         ★ 내 lc.arm 의 거부 답인가 (quick-260926-nr2) — arm in-flight 창 안에서만 묻는다. 현 gh-trade
-          는 36/37/38 거부를 src "System"(i/a/kind 빈 값) WARN 으로 보내 아래 표시 몫 판정에 걸리지
+          는 36/37 거부를 src "System"(i/a/kind 빈 값) WARN 으로 보내 아래 표시 몫 판정에 걸리지
           않는다. 판정은 `isLimitChaserArmRejection` 한 곳이다.
       */
       const armAnswer =
@@ -626,7 +626,7 @@ export function useStrategyCardState({
    * ★ 전략 키는 relay 파서가 넣어 준 `server.key` 가 정본이다 — 화면에서 조립하지 않는다.
    */
   const handleArm = useCallback(
-    (kind: LatchLedKind) => {
+    (kind: ArmableLatchKind) => {
       if (ledServer === null) return;
       if (!latchLedStateOf(kind, ledServer).clickable) return;
       /*

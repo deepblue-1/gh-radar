@@ -52,6 +52,7 @@ import { XIcon } from "lucide-react";
 
 import {
   LatchLed,
+  type ArmableLatchKind,
   type LatchLedKind,
   type LatchLedServer,
 } from "@/components/trading/latch-led";
@@ -91,7 +92,7 @@ export interface CardHeaderProps {
   changeRate: number | null;
   /** LED 3칩의 **유일한** 판정 입력 — 마지막 서버 에코(+`hadOrder`). `null` = 전략 없음. */
   ledServer: LatchLedServer;
-  onArm: (kind: LatchLedKind) => void;
+  onArm: (kind: ArmableLatchKind) => void;
   open: boolean;
   onToggle: () => void;
   /** 토글 버튼 id — 재마운트 뒤에도 같은 값이어야 포커스를 되찾는다(③). */

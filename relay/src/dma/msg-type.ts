@@ -111,8 +111,9 @@ export const MSG = {
   ArmSellLatchReq: 36,
   /** 상따 **취소** 진입 확인 래치 수동 점등(토글). 본문 `get_strategy_req{key}` 재사용. 응답은 60 에코, 실패는 54 WARN. */
   ArmCancelLatchReq: 37,
-  /** 상따 **매수** 진입 확인 래치 수동 점등(토글). 본문 `get_strategy_req{key}` 재사용. 응답은 60 에코, 실패는 54 WARN. */
-  ArmBuyLatchReq: 38,
+  // 38 = 구 ArmBuyLatchReq — gh-trade Phase 24 D-25 로 폐기 · 번호 봉인, 재사용 금지.
+  //      서버는 수신 시 ERROR 로 거부한다(§9-2 ⑥). relay 는 이 번호를 조립할 수 없다(키 없음).
+  //      생성 enum `MsgType` 에는 번호 봉인 기록으로 남는다.
 
   // --- 응답 · 푸시 (게이트웨이 → relay) ---
   /** 로그인 응답. */

@@ -1435,25 +1435,24 @@ export function buildDisableStrategiesReq(key = ""): Uint8Array {
 }
 
 /**
- * 래치 점등 요청의 msg_type — **셋뿐**이다 (36/37/38).
+ * 래치 점등 요청의 msg_type — **둘뿐**이다 (36/37). 매수 진입 래치는 Phase 24 에서 폐기됐다(번호 봉인).
  *
  * 타입으로 좁히는 이유: 본문 슬롯(`get_strategy_req`)을 공유하므로 엉뚱한 msg_type 을 넣어도
  * 조립은 성공한다. 잘못 나간 프레임의 대가가 「남의 전략이 무장된다」라서 컴파일 타임에 막는다.
  */
 export type ArmLatchMsgType =
   | typeof MSG.ArmSellLatchReq
-  | typeof MSG.ArmCancelLatchReq
-  | typeof MSG.ArmBuyLatchReq;
+  | typeof MSG.ArmCancelLatchReq;
 
 /**
- * 상따 진입 확인 래치 수동 점등 (MsgType 36/37/38, 17 D-04).
+ * 상따 진입 확인 래치 수동 점등 (MsgType 36/37, 17 D-04).
  *
- * 세 요청은 **본문 슬롯을 공유한다** — 서버가 전용 요청 테이블을 만들지 않고
+ * 두 요청은 **본문 슬롯을 공유한다** — 서버가 전용 요청 테이블을 만들지 않고
  * `get_strategy_req{key}` 를 재사용했다(`GetMemberStatsReq(35)` 가 `get_quote_req` 를
  * 재사용한 선례). 응답도 전용 번호 없이 **기존 `SetLimitChaserResp(60)` 에코**로 오고,
  * 실패는 `ServerMessage(54)` 한글 사유로 온다 — 별도 ack 프레임이 없다.
  *
- * ⚠️ **`buildBareRequest` 를 쓰지 않는다.** 21 과 달리 36/37/38 은 이 슬롯을 **실제로 읽는다**.
+ * ⚠️ **`buildBareRequest` 를 쓰지 않는다.** 21 과 달리 36/37 은 이 슬롯을 **실제로 읽는다**.
  *    비워 보내면 서버가 「등록된 상따 전략이 없습니다」로 거부한다 (Pitfall 2). 요청이 나간
  *    것은 맞으므로 msg_type 만 세는 검증은 이 실패를 잡지 못한다.
  *
@@ -1490,7 +1489,7 @@ export function buildArmLatchReq(msgType: ArmLatchMsgType, key: string): Uint8Ar
 /**
  * 본문 없는 요청 Envelope. 24/34 는 **요청 테이블 자체가 없어** `msg_type` 만 실어 보낸다.
  *
- * ⚠️ **21·36/37/38 에 쓰지 않는다** — 넷 다 `get_strategy_req` 슬롯을 실제로 읽는다
+ * ⚠️ **21·36/37 에 쓰지 않는다** — 셋 다 `get_strategy_req` 슬롯을 실제로 읽는다
  *    (`buildGetVITriggerReq` 는 거래소를, `buildArmLatchReq` 는 전략 키를 싣는다).
  */
 function buildBareRequest(msgType: number, capacity = 64): Uint8Array {
@@ -1515,7 +1514,7 @@ export function buildGetLimitChaserListReq(): Uint8Array {
  * (`StockDMA.fbs:642-648`). 스키마도 vtable 도 바뀌지 않는다.
  *
  * ⚠️ **`buildBareRequest` 를 쓰지 않는다.** 비워 보내면 서버가 KRX 로 접으므로 NXT 슬롯은
- *    영원히 조회되지 않는다 — 그런데 msg_type 카운터는 정상으로 보인다 (36/37/38 이
+ *    영원히 조회되지 않는다 — 그런데 msg_type 카운터는 정상으로 보인다 (36/37 이
  *    `buildArmLatchReq` 를 따로 두는 것과 같은 이유다).
  *
  * ★ 조립기에 **기본 거래소를 두지 않는다** — 호출부가 두 거래소를 명시로 순회한다.

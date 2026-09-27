@@ -27,7 +27,7 @@
  */
 import { z } from "zod";
 import { MAX_VI_ORDER_AMOUNT_KRW } from "@gh-radar/shared";
-import type { RelayExchange, RelayInbound, RelayOutbound } from "@gh-radar/shared";
+import type { RelayExchange, RelayOutbound } from "@gh-radar/shared";
 
 import { logger } from "../logger.js";
 
@@ -262,8 +262,22 @@ export const RelayViConfirmSchema = z.object({
 });
 
 /**
+ * 구 탭 `lc.arm { latch: "buy" }` 에 relay 가 돌려주는 거부 문구(24-UI-SPEC Copywriting 원문).
+ *
+ * 매수 진입 래치는 gh-trade Phase 24 에서 폐기됐다(38 봉인). 새로고침 전 옛 JS 만 이 값을 보낸다 —
+ * 소켓을 끊지 않고(F-4) 이 문구 한 건으로 답한다.
+ */
+export const LC_LEGACY_ARM_REJECT_TEXT = "매수 진입 래치는 없어졌어요 — 화면을 새로고침해 주세요";
+
+/**
  * 상따 래치 수동 점등 (`lc.arm`, D-04). `latch` 가 `ArmSellLatchReq(36)` ·
- * `ArmCancelLatchReq(37)` · `ArmBuyLatchReq(38)` 중 하나를 고른다.
+ * `ArmCancelLatchReq(37)` 중 하나를 고른다.
+ *
+ * ★ `latch` enum 의 `"buy"` 는 **한시 관용**이다 — 새로고침 전 옛 탭이 보내면 fanout 이 게이트웨이로
+ *   0바이트를 보내고 거부 프레임(`LC_LEGACY_ARM_REJECT_TEXT`)으로 답한다(소켓 유지 · F-4). 여기서
+ *   빼면 zod 위반 = 연결 종료라 옛 탭의 시세 · 에코 · 수동주문까지 멈춘다. shared 계약
+ *   `RelayLcArmMsg.latch` 는 `"sell" | "cancel"` 로 이미 좁혀졌다. gh-trade `buy_watch_side` 봉인
+ *   후속과 함께 걷는다.
  *
  * ⚠️ **`key` 는 빈 문자열을 거부한다.** 서버는 빈 키를 「등록된 상따 전략이 없습니다」로
  *    거부하므로 보내는 것 자체가 낭비이고, C# 정본도 송신을 취소한다
@@ -402,6 +416,14 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
 ]);
 
 /**
+ * relay 가 실제로 받는 인바운드 타입(zod 출력). **relay 내부 전용** — shared 에 두지 않는다.
+ *
+ * shared `RelayInbound` 보다 넓은 곳은 구 탭 관용 두 곳뿐이다 — `lc.arm` 의 `latch: "buy"` 와
+ * `lc.set` cfg 의 신필드 부재. fanout 이 그 두 분기에서 좁혀서 쓴다.
+ */
+export type RelayInboundWire = z.infer<typeof RelayInboundSchema>;
+
+/**
  * 수신 문자열을 계약 타입으로 좁힌다. **total 하다** — 어떤 입력에도 throw 하지 않고
  * `null` 로 수렴하며, 호출자는 `null` 을 close(4400) 로 처리한다.
  *
@@ -411,7 +433,7 @@ export const RelayInboundSchema = z.discriminatedUnion("t", [
  * `path`/`code` 뿐이며 `path` 는 **필드 이름이지 값이 아니다**. 전략 스키마가 붙었다고
  * 이 규율을 느슨하게 하지 않는다.
  */
-export function parseInbound(raw: string): RelayInbound | null {
+export function parseInbound(raw: string): RelayInboundWire | null {
   let json: unknown;
   try {
     json = JSON.parse(raw);
