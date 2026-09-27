@@ -6,7 +6,7 @@
  *
  * - 공개 경로: `lib/supabase/public-path.ts` 의 `/privacy` prefix — 스토어·테스터가 로그인 없이 연다.
  * - 서버 컴포넌트 정적 문서다. 데이터 요청·클라이언트 훅·relay/API 호출이 없다(사용자 수와 무관).
- * - 시행일은 22-07 이 웹을 push 하는 날로 채운다 — 그때까지 자리표시 「2026년 ○월 ○일」.
+ * - 시행일은 방침이 운영 웹에 처음 공개된 날(22-10 · 2026-09-27 KST)이다 — 초안 frontmatter effective_date · 13절 · page.test.tsx 와 같은 값.
  * - 표는 폰 폭(320~390px) WebView 에서 잘리지 않도록 가로 스크롤 컨테이너로 감싼다.
  */
 
@@ -19,7 +19,7 @@ export const metadata = {
   description: 'GH Trade(웹·iOS·Android 앱)가 처리하는 개인정보 항목·목적·보유 기간·위탁·권리 행사 방법',
 };
 
-const EFFECTIVE_DATE = '2026년 ○월 ○일';
+const EFFECTIVE_DATE = '2026년 9월 27일';
 const CONTACT_EMAIL = 'alex@jx1.io';
 
 const P = 'text-[length:var(--t-base)] leading-relaxed';
