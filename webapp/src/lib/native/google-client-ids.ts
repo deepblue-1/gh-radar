@@ -12,7 +12,10 @@
  * - Android: Credential Manager 가 돌려주는 id_token 의 aud 는 **웹** 클라이언트 ID 다(21-RESEARCH A14).
  *   Android 클라이언트(패키지 `com.ghtrade.app` + debug SHA-1)는 GCP 가 앱 서명을 확인하는 데만 쓰여
  *   코드에서 직접 참조하지 않지만, 콘솔·Supabase 등록값과 대조할 수 있게 기록해 둔다.
- *   release 서명 SHA-1 은 아직 미등록(스토어 서명 — Deferred).
+ *   릴리스(Firebase App Distribution APK)는 업로드 키로 직접 서명하므로 업로드 키 SHA-1 로 Android OAuth
+ *   클라이언트를 하나 더 등록했다(Phase 22 D-14). Play 앱 서명 인증서 SHA-1 등록은 Play 배포(Phase 23) 때 한다.
+ *   id_token aud 는 여전히 웹 클라이언트라 코드·Supabase Client IDs 변경은 없다. SHA-1 값은 GCP 콘솔과
+ *   logcat signingSha1 로 대조한다.
  * - Vercel env(`NEXT_PUBLIC_*`)로 옮기지 않는다: 공개 값이라 env 로 숨길 이유가 없고, env paste 끝 개행이
  *   클라이언트 번들을 깨뜨린 사고 이력이 있다. 문자열 리터럴로 고정하고 단위 테스트가 형식을 잠근다.
  */
