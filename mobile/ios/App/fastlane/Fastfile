@@ -1,15 +1,15 @@
 # GH Trade iOS 릴리스 lane (Phase 22 · D-07 · D-09 · D-09a · D-10)
 #
 # 실행은 `pnpm --filter @gh-radar/mobile run native:release:ios` 로만 한다 —
-# cap sync(양 플랫폼) → verify-prod(PROD CONFIG OK) → scripts/release-ios.sh(env 로드) → 이 lane → check-ipa.
+# cap sync(양 플랫폼) → verify-prod(PROD CONFIG OK) → scripts/release-ios.sh(env 로드) → 이 lane(안에서 check-ipa → 업로드).
 #
 # 흐름: ASC API 키 → App Store 프로파일(sigh, 없으면 생성) → Release archive(자동 서명)
-#       → App Store 프로파일로 수동 export → TestFlight 업로드(내부 그룹 자동 배포).
+#       → App Store 프로파일로 수동 export → check-ipa(업로드 전 게이트) → TestFlight 업로드(내부 그룹 자동 배포).
 # 빌드 번호는 xcargs 로 빌드 설정만 덮어쓴다 — 프로젝트 파일은 건드리지 않는다.
 # 산출물(.ipa · .dSYM.zip · .mobileprovision · build_number.txt)은 GHTRADE_RELEASE_OUT(저장소 밖)에만 떨어진다.
 #
 # lane 목록:
-#   beta    Release archive → App Store 프로파일 export → TestFlight 업로드 (래퍼 기본 모드)
+#   beta    Release archive → App Store 프로파일 export → check-ipa(업로드 전 게이트) → TestFlight 업로드 (래퍼 기본 모드)
 #   latest  조회 전용 — 최신 TestFlight 빌드 번호 + 처리 상태 한 줄
 #           「latest TestFlight build {번호} state {PROCESSING|FAILED|INVALID|VALID|UNKNOWN}」
 #           빌드·서명·업로드 없음 · GHTRADE_RELEASE_OUT 에 쓰지 않음 (22-06 · 22-09 가 이 줄을 grep 한다)
@@ -19,7 +19,7 @@ require "fileutils"
 default_platform(:ios)
 
 platform :ios do
-  desc "Release archive(자동 서명) → App Store 프로파일 export → TestFlight 내부 그룹"
+  desc "Release archive(자동 서명) → App Store 프로파일 export → check-ipa → TestFlight 내부 그룹"
   lane :beta do
     # 값은 출력하지 않는다 — 비어 있는 키 이름만.
     missing = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH GHTRADE_RELEASE_OUT].select { |k| ENV[k].to_s.empty? }
@@ -47,7 +47,7 @@ platform :ios do
       output_path: out
     )
 
-    build_app(
+    ipa = build_app(
       project: "App.xcodeproj",
       scheme: "App",
       configuration: "Release",
@@ -63,9 +63,15 @@ platform :ios do
       output_name: "App",
       clean: true
     )
+    ipa = ipa.to_s.empty? ? "" : File.expand_path(ipa)
+    UI.user_error!("릴리스 IPA 없음: #{ipa}") if ipa.empty? || !File.exist?(ipa)
+
+    # 업로드 전 게이트 — 실패하면 sh 가 예외를 던져 lane 이 멈춘다(업로드 안 함 · CR-01 · T-22-04).
+    sh("bash", File.expand_path("../../../scripts/check-ipa.sh", __dir__), ipa, build_number.to_s)
 
     upload_to_testflight(
       api_key: api_key,
+      ipa: ipa, # 검사한 그 IPA 를 올린다(T-22-22 iOS 판)
       skip_waiting_for_build_processing: true
     )
   end

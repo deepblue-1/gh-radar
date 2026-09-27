@@ -17,14 +17,14 @@ set -euo pipefail
 #   **비어 있는 키 이름만** 출력한다. 값은 어떤 경로로도 찍지 않는다. 셸 추적 모드 금지.
 #
 # 사용: bash scripts/release-ios.sh [beta|latest]   (기본 beta)
-#   beta    Release archive → TestFlight 업로드 → check-ipa (인자 없음과 같다)
+#   beta    Release archive → check-ipa(lane 안 · 업로드 전 게이트) → TestFlight 업로드 (인자 없음과 같다)
 #   latest  조회 전용 — 최신 TestFlight 빌드 번호 + 처리 상태 한 줄
 #           「latest TestFlight build {번호} state {상태}」 (업로드·아카이브·check-ipa 없음)
 #   env 검사는 두 모드에 똑같이 적용한다(ios.env 는 한 파일이다).
 #
 # 종료 코드: 2 = 모르는 모드(env 로드 전)
 #            3 = env 파일 없음 · 키 비어 있음 · 키 파일 없음(fastlane 시작 전)
-#            그 외 = fastlane lane 또는 check-ipa.sh 의 종료 코드
+#            그 외 = fastlane lane 의 종료 코드 — check-ipa 실패도 lane 안에서 업로드 전에 멈춘다
 #
 # 선택 env: GHTRADE_RELEASE_ENV  env 파일 경로. 기본 ~/.config/gh-trade/release/ios.env
 # ═══════════════════════════════════════════════════════════════
@@ -86,4 +86,3 @@ if [[ "$MODE" == "latest" ]]; then
 fi
 
 (cd ios/App && bundle exec fastlane beta)
-bash scripts/check-ipa.sh
