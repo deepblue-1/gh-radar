@@ -11,6 +11,7 @@ set -euo pipefail
 #   - Image: asia-northeast3-docker.pkg.dev/<proj>/gh-radar/discussion-sync:<sha>
 #   - Scheduler: gh-radar-discussion-sync-hourly "0 * * * *" (KST, 매시 정각)
 #     ※ CONTEXT D1 — 토론방 24/7 단일 1h 주기 (Phase 7 의 다중 스케줄 분리 미적용)
+#   - Alert policy: gh-radar-discussion-sync-source-failure (ops/alert-discussion-sync-source-failure.yaml, 로그 매치 — quick-260927-u9t)
 #
 # Scheduler → Cloud Run Job 인증: --oauth-service-account-email 전용
 #   (OIDC 금지, Pitfall 2 — Cloud Run Job 호출은 OAuth bearer token 만 허용)
@@ -192,11 +193,45 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# Section 9: 결과 출력
+# Section 9: Alert policy (idempotent — update-or-create)
+#   quick-260927-u9t — 소스 실패가 exit 0 으로 끝나 실행 실패 알림으로는 안 잡힘 →
+#   로그 매치(jsonPayload.level>=50 등) 정책. NOTIFICATION_CHANNEL_ID 필수.
+# ═══════════════════════════════════════════════════════════════
+ALERT_FILE="ops/alert-discussion-sync-source-failure.yaml"
+POLICY_NAME="gh-radar-discussion-sync-source-failure"
+if [[ -f "$ALERT_FILE" ]]; then
+  : "${NOTIFICATION_CHANNEL_ID:?NOTIFICATION_CHANNEL_ID must be set for alert policy}"
+  # gcloud monitoring 은 notificationChannels 에 full resource name 을 요구 — ID 만 주어지면 정규화.
+  CHANNEL_RESOURCE="$NOTIFICATION_CHANNEL_ID"
+  case "$CHANNEL_RESOURCE" in
+    projects/*) ;;
+    *) CHANNEL_RESOURCE="projects/${EXPECTED_PROJECT}/notificationChannels/${NOTIFICATION_CHANNEL_ID}" ;;
+  esac
+  RESOLVED_YAML=$(mktemp)
+  sed "s|\${NOTIFICATION_CHANNEL_ID}|${CHANNEL_RESOURCE}|g" "$ALERT_FILE" > "$RESOLVED_YAML"
+
+  EXISTING_POLICY=$(gcloud alpha monitoring policies list --project="$EXPECTED_PROJECT" \
+    --filter="displayName=$POLICY_NAME" \
+    --format='value(name)' 2>/dev/null | head -1)
+
+  if [[ -n "$EXISTING_POLICY" ]]; then
+    echo "▶ updating alert policy: $POLICY_NAME..."
+    gcloud alpha monitoring policies update "$EXISTING_POLICY" --project="$EXPECTED_PROJECT" --policy-from-file="$RESOLVED_YAML" >/dev/null
+  else
+    echo "▶ creating alert policy: $POLICY_NAME..."
+    gcloud alpha monitoring policies create --project="$EXPECTED_PROJECT" --policy-from-file="$RESOLVED_YAML" >/dev/null
+  fi
+  rm -f "$RESOLVED_YAML"
+  echo "✓ Alert policy ready: $POLICY_NAME"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# Section 10: 결과 출력
 # ═══════════════════════════════════════════════════════════════
 echo ""
 echo "✓ Deployed: Cloud Run Job $JOB @ $IMAGE"
 echo "  Scheduler: $SCHEDULER_NAME (KST 매시 정각)"
+echo "  Alert:     gh-radar-discussion-sync-source-failure"
 echo ""
 echo "Next:"
 echo "  bash scripts/smoke-discussion-sync.sh    # 배포 검증 (≥5 invariants)"

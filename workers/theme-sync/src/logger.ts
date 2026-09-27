@@ -8,22 +8,51 @@ import pino from "pino";
  *
  * retry.ts 는 named export `logger` 를 사용하므로(master-sync 선례) factory 가 아닌
  * 단일 인스턴스로 export 한다.
+ *
+ * quick-260927-u9t: Cloud Logging severity 매핑 — 각 줄에 `severity`(INFO/ERROR 등)를
+ * 내보내 LogEntry.severity 로 올라가게 한다. 숫자 `level` 은 기존 조회·알림 필터
+ * (jsonPayload.level>=50) 호환을 위해 함께 유지한다.
  */
-export const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
-  redact: {
-    paths: [
-      "cfg.brightdataApiKey",
-      "cfg.supabaseServiceRoleKey",
-      "headers.authorization",
-      "headers.Authorization",
-      "*.brightdataApiKey",
-      "*.supabaseServiceRoleKey",
-      "*.BRIGHTDATA_API_KEY",
-      "*.SUPABASE_SERVICE_ROLE_KEY",
-      "*.access_token",
-      "*.token",
-    ],
-    censor: "[REDACTED]",
-  },
-});
+const CLOUD_SEVERITY: Record<string, string> = {
+  trace: "DEBUG",
+  debug: "DEBUG",
+  info: "INFO",
+  warn: "WARNING",
+  error: "ERROR",
+  fatal: "CRITICAL",
+};
+
+export function toCloudSeverity(label: string): string {
+  return CLOUD_SEVERITY[label] ?? "DEFAULT";
+}
+
+export function buildLoggerOptions(
+  level = process.env.LOG_LEVEL ?? "info",
+): pino.LoggerOptions {
+  return {
+    level,
+    formatters: {
+      level: (label: string, number: number) => ({
+        severity: toCloudSeverity(label),
+        level: number,
+      }),
+    },
+    redact: {
+      paths: [
+        "cfg.brightdataApiKey",
+        "cfg.supabaseServiceRoleKey",
+        "headers.authorization",
+        "headers.Authorization",
+        "*.brightdataApiKey",
+        "*.supabaseServiceRoleKey",
+        "*.BRIGHTDATA_API_KEY",
+        "*.SUPABASE_SERVICE_ROLE_KEY",
+        "*.access_token",
+        "*.token",
+      ],
+      censor: "[REDACTED]",
+    },
+  };
+}
+
+export const logger = pino(buildLoggerOptions());

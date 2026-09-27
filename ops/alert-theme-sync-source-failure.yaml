@@ -1,0 +1,37 @@
+displayName: gh-radar-theme-sync-source-failure
+documentation:
+  content: |
+    ## theme-sync 소스 실패 (quick-260927-u9t)
+
+    **무엇을 잡나** — 매일 16:00 KST 스케줄(gh-radar-theme-sync-daily)로 도는 Cloud Run Job `gh-radar-theme-sync` 가 소스 실패를 로그로만 남기고 exit 0 으로 끝나는 경우. 실행 실패 카운트 알림으로는 안 잡힌다. 로그의 `source` 필드가 naver / alpha 중 어느 소스인지 알려준다.
+
+    트리거: pino error 이상 로그(jsonPayload.level >= 50) 또는 markBackoff 의 'source blocked — 24h backoff recorded (no auto-retry, 5원칙 #4)' (warn, 스크래핑 5원칙 #4 알림).
+
+    **원인 후보**
+    1. 'source validation failed — skip this source' = 응답 검증 실패 = 사이트·API 구조 변경 또는 테마 0개. 2026-09-11~09-27 17일 무음 사례: 레거시 finance.naver.com 테마 페이지 폐지(302 → stock.naver.com) → m.stock.naver.com JSON API 로 전환(커밋 8d88d1e0). fetcher/파서(`workers/theme-sync/src/scrape/`)를 먼저 본다.
+    2. 'source blocked (direct+proxy) — 24h backoff recorded' 또는 backoff 경고 = 직접 호출 403/429 뒤 프록시도 401/402/400/403/429/503. 5원칙 #4 에 따라 api_usage 의 service `theme_naver_backoff` / `theme_alpha_backoff`(count = backoff 만료 epoch ms)로 24시간 호출 차단, 자동 재시도 금지. Bright Data 401 = 토큰 만료 → Secret `gh-radar-brightdata-api-key` 새 버전 추가 + `bash scripts/deploy-server.sh`(잡은 다음 실행에서 :latest 를 읽음). 402 = 예산 소진(Bright Data 대시보드).
+    3. 'source fetch failed — skip this source' = 네트워크·5xx 3회 재시도 후 실패.
+    4. Supabase 쓰기 계열('themes insert failed', 'theme_stocks upsert failed', 'markBackoff write failed' 등) + 'theme-sync failed'(exit 1) = DB 장애·스키마 변경.
+
+    **확인 절차**
+    - 로그: `gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="gh-radar-theme-sync" AND jsonPayload.level>=40' --project=gh-radar --freshness=2d --limit=30 --format='value(timestamp,jsonPayload.level,jsonPayload.source,jsonPayload.msg,jsonPayload.err)'`
+    - 복구 판정: 다음 16:00 KST 정기 실행의 'source scraped'(themes>0) 와 'theme-sync cycle complete'.
+    - 원인을 고친 뒤 수동 재실행은 1회만(네이버 호출 최소화, 5원칙 #1). 차단 신호에 반복 실행 금지(5원칙 #4).
+
+    **참고** — 2026-09-28 이후 로그는 최상위 severity(ERROR 등)로도 조회된다.
+  mimeType: text/markdown
+conditions:
+  - displayName: theme-sync error-level log or source backoff
+    conditionMatchedLog:
+      filter: |
+        resource.type = "cloud_run_job"
+        AND resource.labels.job_name = "gh-radar-theme-sync"
+        AND (jsonPayload.level >= 50 OR jsonPayload.msg = "source blocked — 24h backoff recorded (no auto-retry, 5원칙 #4)")
+combiner: OR
+enabled: true
+notificationChannels:
+  - "${NOTIFICATION_CHANNEL_ID}"
+alertStrategy:
+  notificationRateLimit:
+    period: 3600s
+  autoClose: 1800s
