@@ -13,8 +13,9 @@
  * ② ★ 서버가 말한 것만 쌓는다 (strategy-log.tsx ① · T-21-88)
  *   문장은 작업대와 **같은 순수 함수**(`strategyLogLine` · `serverMessageLogLine` ·
  *   `strategiesDisabledLogLine`)가 짓고, 「새로 말할 것이 없는 에코」 판정도 `isRuntimeOnlyEcho` 하나다.
- *   이 화면이 모르는 맥락은 넘기지 않는다 — 발주 여부(`hadOrder`)는 카드의 보냄 기록이 있어야 알 수 있어
- *   여기서는 무장 해제를 「발주」라고 쓰지 않는다(거짓말하지 않는다). 카드 귀속 줄(다른 단말 배너 ·
+ *   이 화면이 모르는 맥락은 넘기지 않는다 — 보낸 cfg · 사유(`sent` · `sentCause`)는 카드의 보냄 기록이
+ *   있어야 알 수 있어 여기서는 D-01/D-02 동반 문장을 만들지 않는다(거짓말하지 않는다 · Phase 24). 마스터
+ *   해제는 어디서도 「발주」가 아니다(Pitfall 11). 카드 귀속 줄(다른 단말 배너 ·
  *   15:40 원인 줄 · arm 거절)도 같은 이유로 없다. 통지(54)는 작업대 카드와 같은 **상따 몫**
  *   (`isLimitChaserServerMessage`)만 — VI 몫은 VI 줄이 말한다.
  *
@@ -58,7 +59,7 @@ export interface LimitChaserDiffLine {
  *
  * - 처음 보는 키 = `strategyLogLine(null, next)`(등록 줄).
  * - 같은 키 = 내용상 새로 말할 것이 없으면(`isRuntimeOnlyEcho` — 같은 객체 · 카운터 · 파생 표시값만) 0줄,
- *   아니면 `strategyLogLine(prev, next)` — `hadOrder` 는 넘기지 않는다(파일 상단 ②).
+ *   아니면 `strategyLogLine(prev, next)` — `sent` 는 넘기지 않는다(파일 상단 ②).
  * - 직전에만 있는 키 = 삭제 줄(목록은 `crud:"D"` 를 담지 않는다 — 빠진 것이 곧 삭제다).
  */
 export function diffLimitChasers(

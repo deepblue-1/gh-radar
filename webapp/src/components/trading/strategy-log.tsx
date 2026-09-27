@@ -32,6 +32,21 @@
  *   이 그 지점이고
  *   컴포넌트는 문장을 짓지 않는다. 전이 판정을 렌더 안에 두면 같은 전이가 화면마다 다른
  *   문장이 되고, 무엇보다 **테스트할 수 없다**.
+ *
+ * ⑥ Phase 24 규칙 (24-05 · ROADMAP ⑨)
+ *   - **D-13 클라 합성은 게이트 전이만.** 발동 · 포기 · 소진 · 재진입 사유는 서버 사유 줄
+ *     (`source="LimitChaser"`, 배지 `[상따]`)이 원문으로 말한다 — 여기서 다시 쓰지 않는다. 런타임
+ *     필드(`postBuyPhase` · `postBuyTriggerQty` · `postBuyReentryLeft` · `extraBuyAbandoned`)만 바뀐
+ *     에코는 0줄이다(`isRuntimeOnlyEcho`).
+ *   - **D-01/D-02 동반 문구는 보낸 cfg(`sent`)로만 판정한다.** 마스터와 그룹을 함께 실어 보낸
+ *     제출의 에코는 두 전이 문장 대신 한 줄(「{그룹} 체크 — 매수주문도 켬」 · 「{그룹} 해제 —
+ *     매수주문도 끔」). 보내지 않은 같은 에코(다른 단말)에는 동반 문장을 지어내지 않는다.
+ *     D-02 후반(서버 접힘 뒤 폼이 스스로 보낸 마스터 OFF)은 **보낸 사유(`cause: 'serverFold'`)**로
+ *     판정해 「서버가 매수 그룹 해제 — …」 한 줄이 「매수주문 무장 해제」를 대신한다.
+ *   - **Pitfall 8 — 후매수 발동(단계 → 2) · 재진입(2 → 1) 에코의 override 값**
+ *     (`POST_BUY_OVERRIDE_FIELDS`)은 서버 귀속이다 — 「서버 반영 완료」도 「다른 단말」 배너도 아니다.
+ *   - **Pitfall 11 — 마스터는 발주로 접히지 않는다.** 마스터 OFF 에코를 「발주」로 읽지 않는다
+ *     (옛 `buyFired`/`hadOrder` 은퇴). 발주 사실은 서버 사유 줄 `[상따] … 매수 N주 @…` 가 말한다.
  */
 
 import {
@@ -40,7 +55,7 @@ import {
   LIMIT_CHASER_SERVER_RUNTIME_FIELDS,
   serverMsgBadge,
 } from '@gh-radar/shared';
-import type { RelayLimitChaser, RelayServerMsg } from '@gh-radar/shared';
+import type { RelayLimitChaser, RelayLimitChaserInput, RelayServerMsg } from '@gh-radar/shared';
 
 import { cn } from '@/lib/utils';
 
@@ -69,8 +84,20 @@ export type StrategyTransition =
   | 'registered'
   | 'deleted'
   | 'buyArmed'
-  | 'buyFired'
   | 'buyDisarmed'
+  | 'masterOffAfterServerFold'
+  | 'preBuyWithMasterOn'
+  | 'extraBuyWithMasterOn'
+  | 'postBuyWithMasterOn'
+  | 'preBuyWithMasterOff'
+  | 'extraBuyWithMasterOff'
+  | 'postBuyWithMasterOff'
+  | 'preBuyArmed'
+  | 'preBuyDisarmed'
+  | 'extraBuyArmed'
+  | 'extraBuyDisarmed'
+  | 'postBuyArmed'
+  | 'postBuyDisarmed'
   | 'sellArmed'
   | 'sellDisarmed'
   | 'sellLatched'
@@ -90,11 +117,26 @@ export type StrategyTransition =
 export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
   registered: '전략이 등록됐어요',
   deleted: '전략이 삭제됐어요 (매수·매도·자동취소가 모두 꺼졌어요)',
-  buyArmed: '매수 무장',
-  // ★ 무장 해제의 **이유**가 발주인지 사용자 조작인지는 에코만으로 알 수 없다(Pitfall 10).
-  //   직전 발주 이력을 아는 호출부가 `hadOrder` 로 알려줄 때만 「발주」라고 쓴다.
-  buyFired: '매수 발주 — 무장 해제',
-  buyDisarmed: '매수 무장 해제',
+  // 마스터 문구는 카드 이름(「매수주문」)을 따른다. ★ 마스터 해제는 「발주」로 읽지 않는다 —
+  //   마스터는 발주로 접히지 않는다(Phase 24 Pitfall 11 · 옛 `buyFired` 은퇴).
+  buyArmed: '매수주문 무장',
+  buyDisarmed: '매수주문 무장 해제',
+  // D-02 후반 — 서버 접힘 뒤 폼이 스스로 보낸 마스터 OFF(`cause: 'serverFold'`)의 에코. WinForms 화면 로그 문구 동일.
+  masterOffAfterServerFold: '서버가 매수 그룹 해제 — 매수 그룹이 모두 꺼져 매수주문도 끔',
+  // D-01 / D-02 전반 — 내가 마스터와 그룹을 함께 실어 보낸 제출의 에코(마스터 · 그룹 두 문장을 대신한다).
+  preBuyWithMasterOn: '선매수 체크 — 매수주문도 켬',
+  extraBuyWithMasterOn: '추가매수 체크 — 매수주문도 켬',
+  postBuyWithMasterOn: '후매수 체크 — 매수주문도 켬',
+  preBuyWithMasterOff: '선매수 해제 — 매수주문도 끔',
+  extraBuyWithMasterOff: '추가매수 해제 — 매수주문도 끔',
+  postBuyWithMasterOff: '후매수 해제 — 매수주문도 끔',
+  // 매수 그룹 게이트 3종(Phase 24 D-13 — 클라 합성은 게이트 전이만).
+  preBuyArmed: '선매수 무장',
+  preBuyDisarmed: '선매수 무장 해제',
+  extraBuyArmed: '추가매수 무장',
+  extraBuyDisarmed: '추가매수 무장 해제',
+  postBuyArmed: '후매수 무장',
+  postBuyDisarmed: '후매수 무장 해제',
   // 매수 진입 래치 전이는 없다 — 서버에서 봉인됐다(Phase 24 D-12 · gh-trade D-25).
   sellArmed: '매도 무장 — 대기 (지지벽 미관측)',
   sellDisarmed: '매도 무장 해제',
@@ -108,7 +150,9 @@ export const TRANSITION_TEXT: Record<StrategyTransition, string> = {
 };
 
 /**
- * 한 줄 안에서의 조각 순서 — 매수 → 매도 → 취소 → 값. 배지 순서와 같은 축이다.
+ * 한 줄 안에서의 조각 순서 — 등록/삭제 → 매수주문 → 선매수 → 추가매수 → 후매수 → 매도 → 취소 →
+ * 서버 반영 완료(Phase 24 UI-SPEC 「전략 로그 매핑」). 배지 순서와 같은 축이다. 동반 문장 6종과
+ * 서버 접힘 문장은 **마스터 자리**에 선다 — 마스터 전이 문장을 대신하기 때문이다.
  *
  * 래치 2종은 매도 · 취소 축의 **무장·해제 뒤**에 놓는다 — 두 축이 같은 내부 순서를 쓰면
  * 사용자가 줄을 읽는 방식이 축마다 달라지지 않는다. 매수 축은 래치가 없다(Phase 24 D-12).
@@ -117,8 +161,20 @@ export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'registered',
   'deleted',
   'buyArmed',
-  'buyFired',
   'buyDisarmed',
+  'masterOffAfterServerFold',
+  'preBuyWithMasterOn',
+  'extraBuyWithMasterOn',
+  'postBuyWithMasterOn',
+  'preBuyWithMasterOff',
+  'extraBuyWithMasterOff',
+  'postBuyWithMasterOff',
+  'preBuyArmed',
+  'preBuyDisarmed',
+  'extraBuyArmed',
+  'extraBuyDisarmed',
+  'postBuyArmed',
+  'postBuyDisarmed',
   'sellArmed',
   'sellDisarmed',
   'sellLatched',
@@ -130,6 +186,46 @@ export const TRANSITION_ORDER: readonly StrategyTransition[] = [
   'valuesApplied',
 ];
 
+/**
+ * 보낸 제출의 **사유** — 사람 손이 아닌 제출만 이름을 갖는다.
+ *
+ * `'serverFold'` = D-02 후반(2026-09-28 정정 · WinForms `b066e135` 동형): 서버가 세 그룹을 접어
+ * 「세 그룹 OFF · 마스터 ON」 하강 전이 에코를 보낸 뒤 폼이 스스로 보낸 마스터 OFF 1회. 24-06 확정 훅의
+ * `commit` `cause` 옵션이 이 타입을 쓰고, 카드가 `pendingRef` 와 같은 수명으로 들고 있다가 로그에 넘긴다.
+ */
+export type StrategySubmitCause = 'serverFold';
+
+/** 매수 그룹 3종 — 게이트 필드와 전이 4종(무장 · 해제 · 마스터 동반 켬 · 끔). */
+const BUY_GROUPS = [
+  {
+    gate: 'preBuyEnabled',
+    armed: 'preBuyArmed',
+    disarmed: 'preBuyDisarmed',
+    withMasterOn: 'preBuyWithMasterOn',
+    withMasterOff: 'preBuyWithMasterOff',
+  },
+  {
+    gate: 'extraBuyEnabled',
+    armed: 'extraBuyArmed',
+    disarmed: 'extraBuyDisarmed',
+    withMasterOn: 'extraBuyWithMasterOn',
+    withMasterOff: 'extraBuyWithMasterOff',
+  },
+  {
+    gate: 'postBuyEnabled',
+    armed: 'postBuyArmed',
+    disarmed: 'postBuyDisarmed',
+    withMasterOn: 'postBuyWithMasterOn',
+    withMasterOff: 'postBuyWithMasterOff',
+  },
+] as const satisfies readonly {
+  gate: 'preBuyEnabled' | 'extraBuyEnabled' | 'postBuyEnabled';
+  armed: StrategyTransition;
+  disarmed: StrategyTransition;
+  withMasterOn: StrategyTransition;
+  withMasterOff: StrategyTransition;
+}[];
+
 /** 취소 게이트 무장 여부 — 서버가 `&& cancelArmed` 로 접어 보내는 두 값의 합집합이다. */
 function cancelArmedOf(item: RelayLimitChaser): boolean {
   return item.cancelQtyEnabled || item.cancelTradeEnabled;
@@ -140,8 +236,8 @@ function cancelArmedOf(item: RelayLimitChaser): boolean {
  *
  * - 게이트 4종: 에코의 게이트는 설정값이 아니라 무장 상태다. 전이는 각 축의 문장이 말한다.
  * - 매수 그룹 게이트 3종(Phase 24 — `preBuyEnabled` · `extraBuyEnabled` · `postBuyEnabled`): 에코의
- *   그룹 게이트도 무장 상태로 접혀 온다(마스터 OFF · 추가매수 포기 · 후매수 소진). 전이 문장은
- *   24-05 가 더한다.
+ *   그룹 게이트도 무장 상태로 접혀 온다(추가매수 포기 · 후매수 소진 · 발주). 전이는 그룹 문장
+ *   (「선매수 무장」 등)이 말한다(24-05).
  * - S→C 전용 10필드(shared `LIMIT_CHASER_SERVER_ONLY_FIELDS` — 이름을 여기 다시 나열하지 않는다):
  *   ★ 래치 2종도 게이트 축이다 (17-11 / D-23 · T-17-39). 빠지면 **사용자가 켜지도 않은**
  *     래치 변화가 「서버 반영 완료」로 보고돼, 자기가 하지 않은 수정이 반영된 줄 안다.
@@ -180,6 +276,30 @@ const RUNTIME_ONLY_SKIP: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof Rel
   'code',
 ]);
 
+/**
+ * 후매수 발동 override 필드 (Pitfall 8 · gh-trade §5-3 override).
+ *
+ * 후매수 발동 에코(단계 → 2)는 서버가 매도 · 취소의 잔량 기준을 발동잔량으로, 가격이 0 이면 상한가로
+ * 덮어 보내고, 재진입(2 → 1)은 cfg 값으로 되돌려 보낸다. 그 값 변화는 **서버 발동에 귀속**된다 —
+ * 「서버 반영 완료」도 「다른 단말에서 변경됐어요」도 아니다(서버 사유 줄이 이미 말한다 · D-13).
+ * 단계 전이가 **없는** 같은 필드 변화는 종전대로 사용자 값 변경이다.
+ */
+export const POST_BUY_OVERRIDE_FIELDS = [
+  'sellWatchQty',
+  'cancelWatchQty',
+  'sellWatchPrice',
+  'sellOrderPrice',
+] as const satisfies readonly (keyof RelayLimitChaser)[];
+
+const POST_BUY_OVERRIDE_SET: ReadonlySet<keyof RelayLimitChaser> = new Set<keyof RelayLimitChaser>(
+  POST_BUY_OVERRIDE_FIELDS,
+);
+
+/** 이 에코가 후매수 발동(단계 → 2) 또는 재진입 · 이탈(2 → 그 밖) 전이인가. */
+function isPostBuyPhaseFlip(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
+  return (prev.postBuyPhase !== 2) !== (next.postBuyPhase !== 2);
+}
+
 /** 두 객체 키의 합집합 — 선택 필드(`name`·`code`)가 한쪽에만 있어도 놓치지 않는다. */
 function keysOf(prev: RelayLimitChaser, next: RelayLimitChaser): (keyof RelayLimitChaser)[] {
   return [...new Set([...Object.keys(prev), ...Object.keys(next)])] as (keyof RelayLimitChaser)[];
@@ -191,10 +311,15 @@ function keysOf(prev: RelayLimitChaser, next: RelayLimitChaser): (keyof RelayLim
  * 이 판정이 없으면 「수정」이 반영돼도 로그가 비어 있어 사용자가 **반영 여부를 알 수 없다** —
  * 반영의 유일한 증거가 에코이기 때문이다. 카드는 같은 판정으로 「다른 단말에서 변경됐어요」
  * 배너를 세운다(quick-260926-nr2) — 서버가 스스로 뒤집는 필드는 다른 단말의 증거가 아니다.
+ *
+ * ★ Pitfall 8 — 후매수 발동/재진입 전이 에코에서는 `POST_BUY_OVERRIDE_FIELDS` 를 비교에서 뺀다
+ *   (판정 한 곳 — 카드의 다른 단말 배너도 이 함수만 본다).
  */
 export function limitChaserValuesChanged(prev: RelayLimitChaser, next: RelayLimitChaser): boolean {
+  const phaseFlip = isPostBuyPhaseFlip(prev, next);
   for (const k of keysOf(prev, next)) {
     if (VALUE_COMPARE_SKIP.has(k)) continue;
+    if (phaseFlip && POST_BUY_OVERRIDE_SET.has(k)) continue;
     if (prev[k] !== next[k]) return true;
   }
   return false;
@@ -220,13 +345,16 @@ export function isRuntimeOnlyEcho(prev: RelayLimitChaser, next: RelayLimitChaser
  * 에코 전이 → 로그 문장 (**순수 함수**). 바뀐 게 없으면 `null` 이다.
  *
  * `prev === null` 은 「이 전략을 처음 본다」는 뜻이다(첫 스냅샷·신규 등록).
- * `hadOrder` 는 「직전에 매수 발주가 나갔는가」다 — 와이어 필드가 아니라 화면이 아는
- * 사실이므로 호출부가 넘긴다. 없으면 「발주」라고 쓰지 않는다(거짓말하지 않는다).
+ *
+ * `opts.sent` 는 이 에코가 답한 **내가 보낸 cfg**(카드의 `pendingRef`)다 — 없거나 `null` 이면
+ * 보내지 않은 에코(다른 단말 · 서버)이고 동반 문장을 만들지 않는다. `opts.sentCause` 는 그 제출의
+ * 사유다(D-02 후반 `'serverFold'`). 둘 다 와이어 필드가 아니라 카드가 아는 사실이다 — My page
+ * 피드처럼 모르는 호출부는 넘기지 않는다(거짓말하지 않는다).
  */
 export function strategyLogLine(
   prev: RelayLimitChaser | null,
   next: RelayLimitChaser,
-  opts: { hadOrder?: boolean } = {},
+  opts: { sent?: RelayLimitChaserInput | null; sentCause?: StrategySubmitCause | null } = {},
 ): string | null {
   const hit = new Set<StrategyTransition>();
 
@@ -240,14 +368,43 @@ export function strategyLogLine(
         무장 문장만 쓴다(Phase 24 D-12).
     */
     if (next.buyEnabled) hit.add('buyArmed');
+    for (const g of BUY_GROUPS) if (next[g.gate]) hit.add(g.armed);
     if (next.sellEntryLatched) hit.add('sellLatched');
     else if (next.sellEnabled) hit.add('sellArmed');
     if (next.cancelEntryLatched) hit.add('cancelLatched');
     else if (cancelArmedOf(next)) hit.add('cancelArmed');
   } else {
-    if (!prev.buyEnabled && next.buyEnabled) hit.add('buyArmed');
-    if (prev.buyEnabled && !next.buyEnabled) {
-      hit.add(opts.hadOrder === true ? 'buyFired' : 'buyDisarmed');
+    const sent = opts.sent ?? null;
+    const masterOn = !prev.buyEnabled && next.buyEnabled;
+    const masterOff = prev.buyEnabled && !next.buyEnabled;
+    /*
+      D-01 / D-02 전반 — 내가 마스터와 그룹을 **함께 실어** 보냈고 에코가 둘 다 그 방향으로 왔을 때만
+      동반 문장 하나가 마스터 · 그룹 두 문장을 대신한다(같은 사건을 두 줄로 쓰지 않는다). 판정 입력은
+      보낸 cfg 이지 에코의 모양이 아니다 — 다른 단말이 같은 모양을 보내도 그건 내 동반 제출이 아니다.
+    */
+    let masterTold = false;
+    for (const g of BUY_GROUPS) {
+      const on = !prev[g.gate] && next[g.gate];
+      const off = prev[g.gate] && !next[g.gate];
+      if (on && masterOn && sent?.buyEnabled === true && sent[g.gate] === true) {
+        hit.add(g.withMasterOn);
+        masterTold = true;
+      } else if (off && masterOff && sent?.buyEnabled === false && sent[g.gate] === false) {
+        hit.add(g.withMasterOff);
+        masterTold = true;
+      } else if (on) {
+        hit.add(g.armed);
+      } else if (off) {
+        hit.add(g.disarmed);
+      }
+    }
+    if (!masterTold) {
+      if (masterOn) hit.add('buyArmed');
+      if (masterOff) {
+        // D-02 후반 — 보낸 사유로만 판정한다(사유 없는 같은 전이 · 보내지 않은 에코는 종전 문장).
+        const serverFold = opts.sentCause === 'serverFold' && sent?.buyEnabled === false;
+        hit.add(serverFold ? 'masterOffAfterServerFold' : 'buyDisarmed');
+      }
     }
     if (!prev.sellEnabled && next.sellEnabled) hit.add('sellArmed');
     if (prev.sellEnabled && !next.sellEnabled) hit.add('sellDisarmed');
